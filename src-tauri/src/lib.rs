@@ -1,13 +1,13 @@
 use std::{
     fs,
-    io::{self, Read},
+    io::{self, Read, Write},
     path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicU64, Ordering},
         Mutex,
     },
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
 use serde::{Deserialize, Serialize};
@@ -27,12 +27,35 @@ const SOURCE_FILES: [(&str, &str, &str); 3] = [
 ];
 const ESP_PARTTYPE: &str = "c12a7328-f81f-11d2-ba4b-00a0c93ec93b";
 const FAT_FILESYSTEMS: [&str; 6] = ["vfat", "fat", "fat12", "fat16", "fat32", "exfat"];
+mod cli;
+mod http;
+
+/// 二进制入口（`main.rs`）用这两个：带参数走 CLI，不带参数开 GUI。
+pub use cli::{is_cli_invocation as cli_requested, run as run_cli};
+
 const SETTINGS_FILE: &str = "settings.json";
+/// 内置 HTTP 服务的默认监听地址与端口（plan §4.1：默认开启、0.0.0.0:12300）
+const DEFAULT_HTTP_BIND: &str = "0.0.0.0";
+const DEFAULT_HTTP_PORT: u16 = 12300;
+/// 单次请求体上限：超过就只认 header/query（防止拿巨大 body 拖住工作线程）
+const MAX_REQUEST_BODY: usize = 8 * 1024;
+/// 「最近请求」在内存里保留的条数
+const MAX_RECENT_REQUESTS: usize = 20;
+/// 通知弹窗的窗口标签
+const NOTIFY_WINDOW_LABEL: &str = "notify";
+/// 延迟秒数的上限（配置里乱填也不会把请求挂到天上去）
+const MAX_DELAY_SECONDS: u32 = 600;
+/// 阶段 0 的取证日志：只追加、不参与任何逻辑判断，写在应用配置目录。
+/// 里面**永不写入** httpToken（只记前 8 位指纹）。
+const TRACE_FILE: &str = "trace.log";
 const MAIN_WINDOW_LABEL: &str = "main";
-/// 设置变更事件：托盘菜单改动后推给主窗口，保证两边一致。
-const SETTINGS_CHANGED_EVENT: &str = "settings-changed";
-/// 重启结果事件：把失败原因回传给主窗口。
-const RESTART_RESULT_EVENT: &str = "restart-result";
+/// 快照版本号：每次发布 +1。前端只在 revision 变大时重绘（阶段 1 修 D4）。
+static UI_REVISION: AtomicU64 = AtomicU64::new(0);
+/// **唯一**的状态事件：携带完整快照 + 单调递增 revision。
+///
+/// 阶段 1 之前是 status-changed / settings-changed / restart-result 三个补丁式事件，
+/// 各更新 UI 的一角、没有版本号，任何一次漏发或乱序都会留下不刷新的一角。
+const UI_STATE_CHANGED_EVENT: &str = "ui-state-changed";
 
 #[derive(Default)]
 struct AppState {
@@ -209,6 +232,325 @@ struct AppStatus {
     error: Option<String>,
 }
 
+/// 远程渠道：http（webhook / curl / 面板）与 cli（ssh / CLI 转发）。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum Channel {
+    Http,
+    Cli,
+}
+
+impl Channel {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Http => "http",
+            Self::Cli => "cli",
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Http => "HTTP",
+            Self::Cli => "SSH/CLI",
+        }
+    }
+
+    fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "http" | "webhook" => Some(Self::Http),
+            "cli" | "ssh" => Some(Self::Cli),
+            _ => None,
+        }
+    }
+}
+
+/// 单个渠道的通知与延迟（Q14：ssh/CLI 与 http webhook 分开配置）。
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+struct ChannelNotify {
+    notify: bool,
+    delay_seconds: u32,
+}
+
+impl Default for ChannelNotify {
+    fn default() -> Self {
+        Self {
+            notify: true,
+            delay_seconds: 5,
+        }
+    }
+}
+
+impl ChannelNotify {
+    fn clamped_delay(&self) -> u32 {
+        self.delay_seconds.min(MAX_DELAY_SECONDS)
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+struct Channels {
+    http: ChannelNotify,
+    cli: ChannelNotify,
+}
+
+impl Default for Channels {
+    fn default() -> Self {
+        Self {
+            http: ChannelNotify::default(),
+            cli: ChannelNotify::default(),
+        }
+    }
+}
+
+impl Channels {
+    fn for_channel(&self, channel: Channel) -> &ChannelNotify {
+        match channel {
+            Channel::Http => &self.http,
+            Channel::Cli => &self.cli,
+        }
+    }
+
+    fn for_channel_mut(&mut self, channel: Channel) -> &mut ChannelNotify {
+        match channel {
+            Channel::Http => &mut self.http,
+            Channel::Cli => &mut self.cli,
+        }
+    }
+
+    /// 托盘里的「远程执行延迟」预设：同时作用于两条渠道（细分去主窗口）。
+    fn set_delay_all(&mut self, seconds: u32) {
+        self.http.delay_seconds = seconds;
+        self.cli.delay_seconds = seconds;
+    }
+}
+
+/// 一条远程命令（HTTP 端点与 CLI 转发共用同一份语义）。
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum RemoteCommand {
+    Switch(String),
+    Power(PowerAction),
+    SwitchAndPower { system: String, power: PowerAction },
+}
+
+impl RemoteCommand {
+    fn summary(&self) -> String {
+        match self {
+            Self::Switch(system) => format!("切换下次启动为 {}", system_display_name(system)),
+            Self::Power(action) => action.label().to_string(),
+            Self::SwitchAndPower { system, power } => {
+                format!(
+                    "切换下次启动为 {}，然后{}",
+                    system_display_name(system),
+                    power.label()
+                )
+            }
+        }
+    }
+}
+
+fn system_display_name(system: &str) -> String {
+    SOURCE_FILES
+        .iter()
+        .find(|(candidate, _, _)| *candidate == system)
+        .map(|(_, display_name, _)| (*display_name).to_string())
+        .unwrap_or_else(|| system.to_string())
+}
+
+/// 一条待执行请求（延迟窗口内可取消）。
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct PendingRequest {
+    id: String,
+    channel: Channel,
+    source: String,
+    summary: String,
+    command: RemoteCommand,
+    seconds: u64,
+    deadline: Instant,
+    created: String,
+}
+
+impl PendingRequest {
+    fn seconds_left(&self) -> u64 {
+        self.deadline
+            .saturating_duration_since(Instant::now())
+            .as_secs()
+    }
+}
+
+/// 「最近请求」列表里的一条。
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RequestLogEntry {
+    time: String,
+    source: String,
+    channel: &'static str,
+    path: String,
+    summary: String,
+    /// pending / executed / cancelled / failed / rejected
+    status: &'static str,
+    message: String,
+}
+
+/// 通知弹窗要显示的东西（进快照，弹窗窗口和主窗口读同一份）。
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NotifyView {
+    /// pending（倒计时，可取消）或 info（已执行的事后提示）
+    kind: &'static str,
+    id: Option<String>,
+    title: String,
+    message: String,
+    source: String,
+    channel: &'static str,
+    seconds_left: u64,
+    /// 延迟总秒数（弹窗画进度条用）
+    total_seconds: u64,
+    /// 发起时间（UTC）
+    created: String,
+    can_cancel: bool,
+}
+
+enum NotifyState {
+    Pending(PendingRequest),
+    Info {
+        message: String,
+        source: String,
+        expires_at: Instant,
+    },
+}
+
+/// 调度线程到点该做什么（纯判定，便于单测；副作用在调用方）。
+#[derive(Debug, PartialEq, Eq)]
+enum NotifyDue {
+    Nothing,
+    /// 倒计时结束 → 执行
+    Execute(Box<PendingRequest>),
+    /// 事后提示到期 → 关窗
+    CloseInfo,
+}
+
+fn notify_due(state: Option<&NotifyState>, now: Instant) -> NotifyDue {
+    match state {
+        Some(NotifyState::Pending(pending)) if now >= pending.deadline => {
+            NotifyDue::Execute(Box::new(pending.clone()))
+        }
+        Some(NotifyState::Info { expires_at, .. }) if now >= *expires_at => NotifyDue::CloseInfo,
+        _ => NotifyDue::Nothing,
+    }
+}
+
+/// HTTP 服务的运行态。
+#[derive(Default)]
+struct HttpRuntime {
+    server: Option<http::RunningServer>,
+    last_error: Option<String>,
+    requests: Vec<RequestLogEntry>,
+    notify: Option<NotifyState>,
+}
+
+/// 进快照的 HTTP 视图。
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct HttpView {
+    enabled: bool,
+    bind: String,
+    port: u16,
+    listening: bool,
+    addr: Option<String>,
+    last_error: Option<String>,
+    token_set: bool,
+    /// 打码后的 token（只给前 4/后 4 位，明文要用 reveal 命令专门取）
+    token_hint: String,
+    requests: Vec<RequestLogEntry>,
+}
+
+/// 正在进行的操作。进快照后托盘菜单项与主窗口按钮**同时**置灰（阶段 1 修 D3：
+/// 以前托盘和主窗口各管各的，一边在重启、另一边照样能点，第二次点击被静默丢弃）。
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BusyState {
+    /// 正在提交的电源动作（阶段 2 起是 restart/shutdown/sleep，阶段 1 只有 restart）
+    power: Option<String>,
+    /// 正在切换下次启动系统
+    switching: bool,
+    /// 正在扫描变量目录
+    scanning: bool,
+    /// 正在卸载临时挂载
+    unmounting: bool,
+}
+
+impl BusyState {
+    /// 「有任何动作在跑吗」。主窗口前端用同一份 busy 快照自己判断，
+    /// Rust 侧目前只有单测直接调用它（菜单用的是 affects_menu）。
+    #[cfg_attr(not(test), allow(dead_code))]
+    fn any(&self) -> bool {
+        self.power.is_some() || self.switching || self.scanning || self.unmounting
+    }
+
+    /// 影响**托盘菜单内容**（置灰）的部分。
+    ///
+    /// 刻意不含 scanning：扫描通常只几毫秒，但它前后各改一次菜单内容，
+    /// 会把「每次扫描重建一次菜单」变成两次（菜单闪断的诱因）。
+    /// 主窗口那侧仍然对 scanning 置灰（同一个 busy 快照，前端自己判断）。
+    fn affects_menu(&self) -> bool {
+        self.power.is_some() || self.switching || self.unmounting
+    }
+
+    /// 菜单指纹里用的 busy 摘要（只含 affects_menu 的部分）。
+    fn menu_describe(&self) -> String {
+        format!(
+            "power={}|sw={}|un={}",
+            self.power.as_deref().unwrap_or("-"),
+            self.switching as u8,
+            self.unmounting as u8
+        )
+    }
+
+    fn describe(&self) -> String {
+        let mut parts = Vec::new();
+        if let Some(power) = &self.power {
+            parts.push(power.clone());
+        }
+        if self.switching {
+            parts.push("切换系统".to_string());
+        }
+        if self.scanning {
+            parts.push("扫描".to_string());
+        }
+        if self.unmounting {
+            parts.push("卸载临时挂载".to_string());
+        }
+        if parts.is_empty() {
+            "空闲".to_string()
+        } else {
+            parts.join("+")
+        }
+    }
+}
+
+/// 最近一次动作的结果（替代原来的 restart-result 事件；随快照一起下发）。
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ActionResult {
+    ok: bool,
+    action: String,
+    message: String,
+}
+
+/// 主窗口与托盘菜单**共用**的唯一状态快照（阶段 1 修 D1/D4）。
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UiState {
+    revision: u64,
+    status: AppStatus,
+    settings: SettingsView,
+    busy: BusyState,
+    last_action: Option<ActionResult>,
+    http: HttpView,
+    notify: Option<NotifyView>,
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 enum CloseAction {
@@ -233,6 +575,21 @@ struct Settings {
     start_in_tray: bool,
     hide_from_dock_taskbar: bool,
     close_action: CloseAction,
+    /// 取证日志开关（阶段 0）。默认关；环境变量 REFIND_SWITCHER_TRACE 可临时覆盖。
+    debug_trace: bool,
+    /// 内置 HTTP 服务（默认开启）
+    http_enabled: bool,
+    /// 监听地址（默认 0.0.0.0，配 token 才能用）
+    http_bind: String,
+    http_port: u16,
+    /// 首次运行自动生成的 32 位十六进制 token；为空则服务拒绝启动
+    http_token: String,
+    /// 远程 / CLI 请求是否允许触发本机授权弹窗（Q3 已定 false）
+    remote_allow_gui_auth: bool,
+    /// 弹窗通知总开关（Q11）
+    notify_enabled: bool,
+    /// 每个渠道各自的弹窗开关与延迟秒数（Q14）
+    channels: Channels,
 }
 
 impl Default for Settings {
@@ -242,6 +599,14 @@ impl Default for Settings {
             start_in_tray: false,
             hide_from_dock_taskbar: true,
             close_action: CloseAction::Tray,
+            debug_trace: false,
+            http_enabled: true,
+            http_bind: DEFAULT_HTTP_BIND.to_string(),
+            http_port: DEFAULT_HTTP_PORT,
+            http_token: String::new(),
+            remote_allow_gui_auth: false,
+            notify_enabled: true,
+            channels: Channels::default(),
         }
     }
 }
@@ -249,6 +614,9 @@ impl Default for Settings {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum AutostartState {
     Enabled,
+    /// 只有 macOS 会构造（系统登录项已注册、等用户在系统设置里批准）；
+    /// 其他平台保留这个取值，界面文案与状态语义才完整。
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     RequiresApproval,
     Disabled,
     Unavailable,
@@ -457,14 +825,6 @@ impl SettingsView {
             autostart_hint: autostart_hint(state),
         }
     }
-}
-
-/// 重启结果，用于把失败原因回传给主窗口。
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct RestartResult {
-    ok: bool,
-    message: String,
 }
 
 #[derive(Deserialize)]
@@ -878,11 +1238,25 @@ fn state_snapshot(app: &AppHandle) -> AppStatus {
     }
 }
 
+/// 兼容旧调用点：状态本身已经写进 AppState，这里只把新快照发出去。
 fn publish_status(app: &AppHandle, status: &AppStatus) {
-    let _ = app.emit("status-changed", status);
+    trace(
+        app,
+        "event",
+        &format!(
+            "状态已更新 msg={} err={} tmp={}",
+            status.message,
+            status.error.as_deref().unwrap_or("-"),
+            status.temporary_mount
+        ),
+    );
+    publish_ui(app);
 }
 
 fn refresh_and_update(app: &AppHandle) -> AppStatus {
+    let started = Instant::now();
+    trace(app, "scan", "开始扫描");
+    set_busy(app, |busy| busy.scanning = true);
     let (explicit_dir, old_mount) = {
         let state = app.state::<Mutex<AppState>>();
         let mut state = state.lock().expect("state mutex poisoned");
@@ -892,7 +1266,7 @@ fn refresh_and_update(app: &AppHandle) -> AppStatus {
         let _ = mount.unmount();
     }
 
-    let mut status = match scan_vars_directory(explicit_dir.as_deref()) {
+    let status = match scan_vars_directory(explicit_dir.as_deref()) {
         Ok(result) => {
             let message = result
                 .variables
@@ -938,14 +1312,32 @@ fn refresh_and_update(app: &AppHandle) -> AppStatus {
         }
     };
 
-    if let Err(error) = update_tray_menu(app) {
-        status.error.get_or_insert_with(|| error.to_string());
-    }
-    publish_status(app, &status);
+    trace(
+        app,
+        "scan",
+        &format!(
+            "完成 耗时={}ms result={}",
+            started.elapsed().as_millis(),
+            status.error.as_deref().unwrap_or("ok")
+        ),
+    );
+    // 扫描结束：清 busy 并发布快照（托盘菜单与主窗口一起更新、菜单指纹相同就跳过重建）
+    set_busy(app, |busy| busy.scanning = false);
     status
 }
 
+/// 切换下次启动系统。busy.switching 由外层统一置位/清除，
+/// 这样「未知系统」「目录未就绪」这些提前返回也不会把状态卡在 busy 上。
 fn switch_and_update(app: &AppHandle, system: &str) -> AppStatus {
+    let started = Instant::now();
+    trace(app, "switch", &format!("请求 system={system}"));
+    set_busy(app, |busy| busy.switching = true);
+    let status = switch_and_update_inner(app, system, started);
+    set_busy(app, |busy| busy.switching = false);
+    status
+}
+
+fn switch_and_update_inner(app: &AppHandle, system: &str, started: Instant) -> AppStatus {
     let selected = SOURCE_FILES
         .iter()
         .find(|(candidate, _, _)| *candidate == system)
@@ -993,9 +1385,26 @@ fn switch_and_update(app: &AppHandle, system: &str) -> AppStatus {
             .map_err(|error| format!("写入失败: {error}"))
     });
 
+    trace(
+        app,
+        "switch",
+        &format!(
+            "完成 system={system} 耗时={}ms result={}",
+            started.elapsed().as_millis(),
+            result.as_ref().err().map(String::as_str).unwrap_or("ok")
+        ),
+    );
     match result {
-        Ok(()) => refresh_and_update(app),
-        Err(error) => update_failure_status(app, &format!("切换 {display_name} 失败"), error),
+        Ok(()) => {
+            let status = refresh_and_update(app);
+            let message = format!("下次启动：{display_name}");
+            record_action(app, "切换系统", true, &message);
+            status
+        }
+        Err(error) => {
+            record_action(app, "切换系统", false, &error);
+            update_failure_status(app, &format!("切换 {display_name} 失败"), error)
+        }
     }
 }
 
@@ -1038,7 +1447,6 @@ fn update_failure_status(app: &AppHandle, message: &str, error: String) -> AppSt
         state.message = message.to_string();
         state.error = status.error.clone();
     }
-    let _ = update_tray_menu(app);
     publish_status(app, &status);
     status
 }
@@ -1081,24 +1489,1134 @@ fn create_tray_image() -> Image<'static> {
     tauri::include_image!("icons/icon.png")
 }
 
-fn update_tray_menu(app: &AppHandle) -> tauri::Result<()> {
-    let (message, temporary_mount, settings, variables, error) = {
-        let state = app.state::<Mutex<AppState>>();
-        let state = state.lock().expect("state mutex poisoned");
-        (
-            state.message.clone(),
-            state.active_mount.as_ref().is_some_and(|mount| mount.owned),
-            stored_settings(app),
-            state.variables.clone(),
-            state.error.clone(),
-        )
+/// 环境变量布尔开关的纯逻辑部分（便于单测）：1/true/yes/on 与 0/false/no/off。
+///
+/// trace 与电源 dry-run 两个探针共用。
+fn env_flag_from(value: Option<&str>) -> Option<bool> {
+    match value?.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Some(true),
+        "0" | "false" | "no" | "off" => Some(false),
+        _ => None,
+    }
+}
+
+/// 是否记 trace。**注意**：会锁 Settings 互斥量，所以禁止在已持有该锁的
+/// 代码路径里调用 trace()（会死锁）。
+///
+/// 启动早期（设置文件还没读进内存时）只有环境变量生效，
+/// 想抓启动阶段的日志请用 `REFIND_SWITCHER_TRACE=1`。
+fn trace_enabled(app: &AppHandle) -> bool {
+    let from_env = env_flag_from(std::env::var("REFIND_SWITCHER_TRACE").ok().as_deref());
+    from_env.unwrap_or_else(|| stored_settings(app).debug_trace)
+}
+
+fn trace_file_path(app: &AppHandle) -> Option<PathBuf> {
+    config_dir(app)
+        .ok()
+        .map(|directory| directory.join(TRACE_FILE))
+}
+
+/// 追加一行 trace，同时打到 stderr。
+///
+/// 这是取证探针：**任何失败都吞掉**（打不开文件、磁盘满、没权限都不影响应用行为），
+/// 也不能在日志里写敏感数据。
+fn trace(app: &AppHandle, category: &str, message: &str) {
+    if !trace_enabled(app) {
+        return;
+    }
+    let line = format!(
+        "{} [{category}] {message}\n",
+        utc_timestamp(now_epoch_seconds())
+    );
+    eprint!("trace {line}");
+    let Some(path) = trace_file_path(app) else {
+        return;
+    };
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let _ = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .and_then(|mut file| file.write_all(line.as_bytes()));
+}
+
+fn now_epoch_seconds() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or_default()
+}
+
+/// 无依赖的 UTC 时间戳（本地时区需要平台 API，这里统一记 UTC，便于三端互相比对）。
+fn utc_timestamp(seconds: u64) -> String {
+    let days = (seconds / 86_400) as i64;
+    let rest = seconds % 86_400;
+    let (year, month, day) = civil_from_days(days);
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
+        rest / 3600,
+        (rest % 3600) / 60,
+        rest % 60
+    )
+}
+
+/// Howard Hinnant 的 civil_from_days：1970-01-01 起的天数 → (年, 月, 日)。
+fn civil_from_days(days: i64) -> (i64, u32, u32) {
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = (z - era * 146_097) as i64;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let year = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let month = (if mp < 10 { mp + 3 } else { mp - 9 }) as u32;
+    (if month <= 2 { year + 1 } else { year }, month, day)
+}
+
+/// 托盘菜单内容摘要：同样内容 → 同样签名。
+///
+/// 阶段 0 用它把「重建了菜单、内容是什么」记进 trace；阶段 1 直接用它做
+/// 「内容没变就不重建菜单」的指纹。
+fn menu_signature(
+    message: &str,
+    temporary_mount: bool,
+    settings: &Settings,
+    variables: &[VariableInfo],
+    error: Option<&str>,
+    busy: &BusyState,
+) -> String {
+    let variables = variables
+        .iter()
+        .map(|variable| {
+            format!(
+                "{}{}",
+                if variable.active { "+" } else { "-" },
+                if variable.exists { "o" } else { "x" }
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    format!(
+        "msg={message}|tmp={}|autostart={}|tray={}|dock={}|close={:?}|vars={variables}|err={}|busy={}",
+        temporary_mount as u8,
+        settings.autostart as u8,
+        settings.start_in_tray as u8,
+        settings.hide_from_dock_taskbar as u8,
+        settings.close_action,
+        error.unwrap_or(""),
+        // 动作进行中菜单项会变灰，所以 busy 必须进指纹，否则置灰不会生效
+        busy.menu_describe()
+    )
+}
+
+/// 堵住「主窗口和托盘各读各的」的第一层：busy 的唯一读写口。
+fn busy_snapshot(app: &AppHandle) -> BusyState {
+    app.state::<Mutex<BusyState>>()
+        .lock()
+        .expect("busy mutex poisoned")
+        .clone()
+}
+
+/// 改 busy 并立刻把新快照发出去（托盘与主窗口一起变）。
+fn set_busy(app: &AppHandle, update: impl FnOnce(&mut BusyState)) {
+    {
+        let state = app.state::<Mutex<BusyState>>();
+        let mut busy = state.lock().expect("busy mutex poisoned");
+        update(&mut busy);
+    }
+    publish_ui(app);
+}
+
+fn last_action_snapshot(app: &AppHandle) -> Option<ActionResult> {
+    app.state::<Mutex<Option<ActionResult>>>()
+        .lock()
+        .expect("action mutex poisoned")
+        .clone()
+}
+
+/// 记下最近一次动作的结果（进快照，替代原来的 restart-result 事件）。
+fn record_action(app: &AppHandle, action: &str, ok: bool, message: &str) {
+    let result = ActionResult {
+        ok,
+        action: action.to_string(),
+        message: message.to_string(),
+    };
+    trace(app, "action", &format!("{action} ok={ok} msg={message}"));
+    *app.state::<Mutex<Option<ActionResult>>>()
+        .lock()
+        .expect("action mutex poisoned") = Some(result);
+}
+
+/// 抢占一个电源动作；已经有动作在跑时返回 false（替代原来的静态原子标志）。
+fn try_begin_power(app: &AppHandle, action: &str) -> bool {
+    let acquired = {
+        let state = app.state::<Mutex<BusyState>>();
+        let mut busy = state.lock().expect("busy mutex poisoned");
+        if busy.power.is_some() {
+            false
+        } else {
+            busy.power = Some(action.to_string());
+            true
+        }
+    };
+    if acquired {
+        publish_ui(app);
+    } else {
+        trace(
+            app,
+            "power",
+            &format!("已有电源动作在处理中，忽略 {action}"),
+        );
+    }
+    acquired
+}
+
+/// 电源动作结束（失败/被拒绝时调用，让按钮重新可用；成功时系统马上就没了）。
+fn finish_power(app: &AppHandle) {
+    {
+        let state = app.state::<Mutex<BusyState>>();
+        let mut busy = state.lock().expect("busy mutex poisoned");
+        busy.power = None;
+    }
+    publish_ui(app);
+}
+
+/// 生成当前状态的快照（不改任何东西）。
+fn ui_state(app: &AppHandle) -> UiState {
+    let settings = view_settings(app);
+    let http = {
+        let runtime = http_lock();
+        let (listening, addr) = match runtime.server.as_ref() {
+            Some(server) => (true, Some(server.addr.clone())),
+            None => (false, None),
+        };
+        HttpView {
+            enabled: settings.settings.http_enabled,
+            bind: settings.settings.http_bind.clone(),
+            port: settings.settings.http_port,
+            listening,
+            addr,
+            last_error: runtime.last_error.clone(),
+            token_set: !settings.settings.http_token.trim().is_empty(),
+            token_hint: token_hint(&settings.settings.http_token),
+            requests: runtime.requests.clone(),
+        }
+    };
+    UiState {
+        revision: UI_REVISION.load(Ordering::SeqCst),
+        status: state_snapshot(app),
+        // 唯一真相：设置的 autostart 取系统真实状态（阶段 1 修 D1，
+        // 以前托盘菜单读的是设置文件里的旧值，主窗口读的是系统真实值，两边会不一致）
+        settings,
+        busy: busy_snapshot(app),
+        last_action: last_action_snapshot(app),
+        http,
+        notify: notify_view(),
+    }
+}
+
+/// **唯一**的发布入口：先 +1 revision，再用同一份快照重建托盘菜单 + 通知主窗口。
+///
+/// 主窗口和托盘菜单从此不存在「各读各的」，也不需要三个补丁式事件。
+fn publish_ui(app: &AppHandle) -> UiState {
+    UI_REVISION.fetch_add(1, Ordering::SeqCst);
+    let state = ui_state(app);
+    if let Err(error) = update_tray_menu(app, &state, "publish") {
+        trace(app, "tray", &format!("刷新托盘菜单失败: {error}"));
+    }
+    trace(
+        app,
+        "state",
+        &format!(
+            "revision={} busy={} msg={} err={}",
+            state.revision,
+            state.busy.describe(),
+            state.status.message,
+            state.status.error.as_deref().unwrap_or("-")
+        ),
+    );
+    if let Err(error) = app.emit(UI_STATE_CHANGED_EVENT, &state) {
+        trace(app, "state", &format!("通知主窗口失败: {error}"));
+    }
+    state
+}
+
+/// 变量目录还没扫出来时，也把三个系统项摆上（禁用），
+/// 保证托盘菜单从第一帧起就是完整的（阶段 1 修 D2：以前冷启动那段时间右键
+/// 只能看到一个没有系统项、没有「重启系统」、没有「应用设置」的残缺菜单）。
+// ==================== 远程控制（阶段 3/4） ====================
+
+/// 生成 32 位十六进制 token（首次运行自动生成）。
+fn generate_token() -> String {
+    let mut bytes = [0u8; 16];
+    if getrandom::fill(&mut bytes).is_err() {
+        // 取不到系统随机数（几乎不会发生）：退回时间 + pid，仍保证唯一性
+        let seed = format!("{}:{}", now_epoch_seconds(), std::process::id());
+        let digest = Sha256::digest(seed.as_bytes());
+        bytes.copy_from_slice(&digest[..16]);
+    }
+    hex::encode(bytes)
+}
+
+/// 一次请求的短 id（8 位十六进制），用于 pending / 日志关联。
+fn short_request_id() -> String {
+    generate_token()[..8].to_string()
+}
+
+/// 界面上的打码 token：只露前 4 后 4，明文要用 reveal 命令专门取。
+fn token_hint(token: &str) -> String {
+    let token = token.trim();
+    if token.is_empty() {
+        return "未设置（服务不会启动）".to_string();
+    }
+    if token.len() <= 8 {
+        return "*".repeat(token.len());
+    }
+    format!("{}…{}", &token[..4], &token[token.len() - 4..])
+}
+
+/// 常量时间比较 token（长度不同直接 false）。
+fn token_matches(expected: &str, provided: &str) -> bool {
+    let expected = expected.trim();
+    let provided = provided.trim();
+    if expected.is_empty() || expected.len() != provided.len() {
+        return false;
+    }
+    expected
+        .bytes()
+        .zip(provided.bytes())
+        .fold(0u8, |acc, (left, right)| acc | (left ^ right))
+        == 0
+}
+
+/// 本机 IPv4（UDP 的 connect 只是让内核选出口地址，不发包）。
+fn local_ipv4() -> String {
+    if let Ok(socket) = std::net::UdpSocket::bind("0.0.0.0:0") {
+        if socket.connect("8.8.8.8:80").is_ok() {
+            if let Ok(addr) = socket.local_addr() {
+                return addr.ip().to_string();
+            }
+        }
+    }
+    "127.0.0.1".to_string()
+}
+
+/// HTTP 运行态：进程级单例。
+///
+/// 刻意不放进 Tauri 的 State——`app.state::<T>()` 返回的句柄是临时值，
+/// 从它派生出的 MutexGuard 没法跨函数返回；这里用 OnceLock 拿到 'static 引用。
+static HTTP_RUNTIME: std::sync::OnceLock<Mutex<HttpRuntime>> = std::sync::OnceLock::new();
+
+fn http_lock() -> std::sync::MutexGuard<'static, HttpRuntime> {
+    HTTP_RUNTIME
+        .get_or_init(|| Mutex::new(HttpRuntime::default()))
+        .lock()
+        .expect("http mutex poisoned")
+}
+
+/// 首次运行/升级后把完整设置写回磁盘：默认值一眼可见，token 一定存在。
+///
+/// 环境变量覆盖**不**写进文件（它们只是调试开关）。
+fn ensure_settings_complete(app: &AppHandle) {
+    let mut settings = stored_settings(app);
+    let mut changed = false;
+    if settings.http_token.trim().is_empty() {
+        settings.http_token = generate_token();
+        changed = true;
+        trace(app, "http", "首次运行：已生成 32 位十六进制 token");
+    }
+    if settings.http_bind.trim().is_empty() {
+        settings.http_bind = DEFAULT_HTTP_BIND.to_string();
+        changed = true;
+    }
+    if settings.http_port == 0 {
+        settings.http_port = DEFAULT_HTTP_PORT;
+        changed = true;
+    }
+    if changed {
+        if let Err(error) = save_settings(app, &settings) {
+            trace(app, "http", &format!("写回设置失败: {error}"));
+        }
+    }
+}
+
+/// 按当前设置（+ 环境变量覆盖）启动 / 停止 / 重启 HTTP 服务。
+fn apply_http_config(app: &AppHandle) {
+    let settings = stored_settings(app);
+    let enabled = env_flag_from(
+        std::env::var("REFIND_SWITCHER_HTTP_ENABLED")
+            .ok()
+            .as_deref(),
+    )
+    .unwrap_or(settings.http_enabled);
+    let bind = std::env::var("REFIND_SWITCHER_HTTP_BIND")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| settings.http_bind.trim().to_string());
+    let port = std::env::var("REFIND_SWITCHER_HTTP_PORT")
+        .ok()
+        .and_then(|value| value.trim().parse::<u16>().ok())
+        .filter(|port| *port != 0)
+        .unwrap_or(settings.http_port);
+    let token = settings.http_token.trim().to_string();
+
+    // 先确定性收掉旧服务（端口被占用时不换端口，报错并留在界面上）
+    let previous = http_lock().server.take();
+    if let Some(server) = previous {
+        let addr = server.addr.clone();
+        server.stop();
+        trace(app, "http", &format!("已停止旧服务 {addr}"));
+    }
+
+    let mut last_error = None;
+    if !enabled {
+        trace(app, "http", "服务已关闭（设置或环境变量）");
+    } else if token.is_empty() {
+        last_error = Some("token 为空，服务未启动（不允许无鉴权监听）".to_string());
+        trace(app, "http", "token 为空，拒绝启动");
+    } else {
+        let config = http::ServerConfig {
+            bind: bind.clone(),
+            port,
+        };
+        match http::start(app.clone(), config) {
+            Ok(server) => {
+                trace(app, "http", &format!("已监听 {}", server.addr));
+                http_lock().server = Some(server);
+            }
+            Err(error) => {
+                trace(app, "http", &format!("启动失败: {error}"));
+                last_error = Some(error);
+            }
+        }
+    }
+    http_lock().last_error = last_error;
+    publish_ui(app);
+}
+
+fn record_request_log(
+    app: &AppHandle,
+    channel: Channel,
+    source: &str,
+    path: &str,
+    summary: &str,
+    status: &'static str,
+    message: &str,
+) {
+    let entry = RequestLogEntry {
+        time: utc_timestamp(now_epoch_seconds()),
+        source: source.to_string(),
+        channel: channel.as_str(),
+        path: path.to_string(),
+        summary: summary.to_string(),
+        status,
+        message: message.to_string(),
+    };
+    trace(
+        app,
+        "http-access",
+        &format!(
+            "{} {} {} {} -> {} {}",
+            entry.time, entry.source, entry.channel, path, status, message
+        ),
+    );
+    let mut runtime = http_lock();
+    push_recent(&mut runtime.requests, entry);
+}
+
+/// 「最近请求」是环形更新的：最新在最前，只留 MAX_RECENT_REQUESTS 条。
+fn push_recent(requests: &mut Vec<RequestLogEntry>, entry: RequestLogEntry) {
+    requests.insert(0, entry);
+    requests.truncate(MAX_RECENT_REQUESTS);
+}
+
+/// HTTP 层交过来的请求（模块 http 解析、这里决策）。
+pub(crate) struct RemoteRequest {
+    pub(crate) method: String,
+    pub(crate) path: String,
+    pub(crate) query: Vec<(String, String)>,
+    pub(crate) body: Vec<(String, String)>,
+    pub(crate) token: Option<String>,
+    pub(crate) source: String,
+    pub(crate) source_is_loopback: bool,
+}
+
+impl RemoteRequest {
+    fn param(&self, key: &str) -> Option<String> {
+        http::find_pair(&self.query, key).or_else(|| http::find_pair(&self.body, key))
+    }
+}
+
+/// 回给客户端的东西。
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct RemoteReply {
+    pub(crate) status: u16,
+    pub(crate) json: serde_json::Value,
+}
+
+impl RemoteReply {
+    fn ok(status: u16, json: serde_json::Value) -> Self {
+        Self { status, json }
+    }
+
+    fn error(status: u16, code: &str, message: &str) -> Self {
+        Self {
+            status,
+            json: serde_json::json!({
+                "ok": false,
+                "error": code,
+                "message": message,
+            }),
+        }
+    }
+}
+
+/// 渠道判定：`channel=cli` 只在请求确实来自 loopback 时生效，
+/// 远端就算伪造这个参数也一律按 http 渠道的配置执行（plan §4.7）。
+fn remote_channel(request: &RemoteRequest) -> Channel {
+    if request.source_is_loopback {
+        if let Some(channel) = request
+            .param("channel")
+            .and_then(|value| Channel::parse(&value))
+        {
+            return channel;
+        }
+    }
+    Channel::Http
+}
+
+/// 路由：路径 + 参数 → 远程命令（失败时直接给出该回的错误）。
+fn route_remote_command(request: &RemoteRequest) -> Result<RemoteCommand, RemoteReply> {
+    // 注意：/health、/api/status、/api/requests 在 handle_remote_request 里已经返回，
+    // 这里只处理「会改状态」的三个端点。
+    match request.path.as_str() {
+        "/api/switch" => {
+            let Some(system) = request.param("system") else {
+                return Err(RemoteReply::error(
+                    400,
+                    "missing_system",
+                    "缺少 system 参数（linux/windows/macos）",
+                ));
+            };
+            if !SOURCE_FILES
+                .iter()
+                .any(|(candidate, _, _)| *candidate == system)
+            {
+                return Err(RemoteReply::error(
+                    400,
+                    "unknown_system",
+                    &format!("未知系统: {system}"),
+                ));
+            }
+            Ok(RemoteCommand::Switch(system))
+        }
+        "/api/power" => {
+            let action = match request.param("action").as_deref().map(str::trim) {
+                None | Some("") => PowerAction::default(),
+                Some(value) => PowerAction::parse(value).ok_or_else(|| {
+                    RemoteReply::error(
+                        400,
+                        "unknown_action",
+                        &format!("未知的电源动作: {value}（可用 reboot/shutdown/sleep）"),
+                    )
+                })?,
+            };
+            Ok(RemoteCommand::Power(action))
+        }
+        "/api/switch-and-power" => {
+            let Some(system) = request.param("system") else {
+                return Err(RemoteReply::error(
+                    400,
+                    "missing_system",
+                    "缺少 system 参数（linux/windows/macos）",
+                ));
+            };
+            if !SOURCE_FILES
+                .iter()
+                .any(|(candidate, _, _)| *candidate == system)
+            {
+                return Err(RemoteReply::error(
+                    400,
+                    "unknown_system",
+                    &format!("未知系统: {system}"),
+                ));
+            }
+            let power = match request.param("action").as_deref().map(str::trim) {
+                None | Some("") => PowerAction::default(),
+                Some(value) => PowerAction::parse(value).ok_or_else(|| {
+                    RemoteReply::error(
+                        400,
+                        "unknown_action",
+                        &format!("未知的电源动作: {value}（可用 reboot/shutdown/sleep）"),
+                    )
+                })?,
+            };
+            Ok(RemoteCommand::SwitchAndPower { system, power })
+        }
+        _ => Err(RemoteReply::error(404, "not_found", "未知路径")),
+    }
+}
+
+fn remote_status_json(app: &AppHandle) -> serde_json::Value {
+    let status = state_snapshot(app);
+    serde_json::json!({
+        "ok": true,
+        "revision": UI_REVISION.load(Ordering::SeqCst),
+        "varsDir": status
+            .vars_dir
+            .as_ref()
+            .map(|path| display_path(path).display().to_string()),
+        "temporaryMount": status.temporary_mount,
+        "message": status.message,
+        "error": status.error,
+        "variables": status
+            .variables
+            .iter()
+            .map(|variable| serde_json::json!({
+                "system": variable.system,
+                "displayName": variable.display_name,
+                "exists": variable.exists,
+                "active": variable.active,
+            }))
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn remote_requests_json() -> serde_json::Value {
+    let requests = http_lock()
+        .requests
+        .iter()
+        .map(|entry| {
+            serde_json::json!({
+                "time": entry.time,
+                "source": entry.source,
+                "channel": entry.channel,
+                "path": entry.path,
+                "summary": entry.summary,
+                "status": entry.status,
+                "message": entry.message,
+            })
+        })
+        .collect::<Vec<_>>();
+    serde_json::json!({ "ok": true, "requests": requests })
+}
+
+/// HTTP / CLI 转发共用的唯一入口：鉴权 → 路由 → 立即执行或转成待执行请求。
+pub(crate) fn handle_remote_request(app: &AppHandle, request: &RemoteRequest) -> RemoteReply {
+    if !matches!(request.method.as_str(), "GET" | "POST") {
+        return RemoteReply::error(405, "method_not_allowed", "只支持 GET / POST");
+    }
+    if request.path != "/health" {
+        let settings = stored_settings(app);
+        let provided = request.token.clone().unwrap_or_default();
+        if !token_matches(&settings.http_token, &provided) {
+            record_request_log(
+                app,
+                remote_channel(request),
+                &request.source,
+                &request.path,
+                "（未通过鉴权）",
+                "rejected",
+                "token 无效",
+            );
+            return RemoteReply::error(401, "invalid_token", "token 缺失或无效");
+        }
+    }
+
+    match request.path.as_str() {
+        "/health" => {
+            return RemoteReply::ok(
+                200,
+                serde_json::json!({ "ok": true, "service": "refind-switcher" }),
+            );
+        }
+        "/api/status" => return RemoteReply::ok(200, remote_status_json(app)),
+        "/api/requests" => return RemoteReply::ok(200, remote_requests_json()),
+        _ => {}
+    }
+
+    let command = match route_remote_command(request) {
+        Ok(command) => command,
+        Err(reply) => {
+            record_request_log(
+                app,
+                remote_channel(request),
+                &request.source,
+                &request.path,
+                "（参数/路径错误）",
+                "rejected",
+                reply
+                    .json
+                    .get("message")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("非法请求"),
+            );
+            return reply;
+        }
     };
 
+    start_remote_command(
+        app,
+        remote_channel(request),
+        &request.source,
+        command,
+        &request.path,
+    )
+}
+
+/// 立即执行还是先放进待执行槽位（延迟 > 0）。
+fn start_remote_command(
+    app: &AppHandle,
+    channel: Channel,
+    source: &str,
+    command: RemoteCommand,
+    path: &str,
+) -> RemoteReply {
+    let settings = stored_settings(app);
+    let notify = settings.channels.for_channel(channel).clone();
+    let delay = notify.clamped_delay();
+    let summary = command.summary();
+
+    if delay == 0 {
+        let (ok, message) = execute_remote_command(app, channel, source, &command);
+        record_request_log(
+            app,
+            channel,
+            source,
+            path,
+            &summary,
+            if ok { "executed" } else { "failed" },
+            &message,
+        );
+        if settings.notify_enabled && notify.notify {
+            set_notify_state(
+                app,
+                Some(NotifyState::Info {
+                    message: message.clone(),
+                    source: source.to_string(),
+                    expires_at: Instant::now() + std::time::Duration::from_secs(3),
+                }),
+            );
+        }
+        return RemoteReply::ok(
+            if ok { 200 } else { 500 },
+            serde_json::json!({
+                "ok": ok,
+                "pending": false,
+                "channel": channel.as_str(),
+                "message": message,
+            }),
+        );
+    }
+
+    let request_id = short_request_id();
+    let pending = PendingRequest {
+        id: request_id.clone(),
+        channel,
+        source: source.to_string(),
+        summary: summary.clone(),
+        command,
+        seconds: u64::from(delay),
+        deadline: Instant::now() + std::time::Duration::from_secs(u64::from(delay)),
+        created: utc_timestamp(now_epoch_seconds()),
+    };
+    // 注意：持锁期间不能调 record_request_log（它会再锁一次，直接死锁）
+    let already_pending = {
+        let runtime = http_lock();
+        runtime
+            .notify
+            .as_ref()
+            .is_some_and(|state| matches!(state, NotifyState::Pending(_)))
+    };
+    if already_pending {
+        record_request_log(
+            app,
+            channel,
+            source,
+            path,
+            &summary,
+            "rejected",
+            "已有待执行请求",
+        );
+        return RemoteReply::error(
+            409,
+            "action_in_progress",
+            "已有待执行的远程请求，请先确认或取消",
+        );
+    }
+    {
+        let mut runtime = http_lock();
+        runtime.notify = Some(NotifyState::Pending(pending.clone()));
+    }
+    record_request_log(
+        app,
+        channel,
+        source,
+        path,
+        &summary,
+        "pending",
+        "等待本机确认",
+    );
+    if settings.notify_enabled && notify.notify {
+        if let Err(error) = show_notify_window(app) {
+            trace(app, "notify", &format!("弹窗失败（不影响执行）: {error}"));
+        }
+    } else {
+        trace(app, "notify", "该渠道关闭了通知：只在主窗口显示待执行请求");
+    }
+    publish_ui(app);
+    RemoteReply::ok(
+        202,
+        serde_json::json!({
+            "ok": true,
+            "pending": true,
+            "requestId": request_id,
+            "channel": channel.as_str(),
+            "executeInSeconds": delay,
+            "message": format!("已收到远程请求，本机确认后 {delay} 秒执行"),
+        }),
+    )
+}
+
+/// 真正执行一条远程命令。
+///
+/// `allow_gui_auth` 用 `remoteAllowGuiAuth`（Q3 默认 false：远程不弹本机授权框）。
+fn execute_remote_command(
+    app: &AppHandle,
+    channel: Channel,
+    source: &str,
+    command: &RemoteCommand,
+) -> (bool, String) {
+    let settings = stored_settings(app);
+    let allow_gui_auth = settings.remote_allow_gui_auth;
+    trace(
+        app,
+        "remote",
+        &format!(
+            "执行 {}（channel={} source={source} allow_gui_auth={allow_gui_auth}）",
+            command.summary(),
+            channel.as_str()
+        ),
+    );
+    match command {
+        RemoteCommand::Switch(system) => {
+            let status = switch_and_update(app, system);
+            match status.error {
+                Some(error) => (false, error),
+                None => (true, format!("下次启动：{}", system_display_name(system))),
+            }
+        }
+        RemoteCommand::Power(action) => {
+            spawn_power(app, *action, allow_gui_auth);
+            (true, format!("{}（已提交）", action.label()))
+        }
+        RemoteCommand::SwitchAndPower { system, power } => {
+            let status = switch_and_update(app, system);
+            if let Some(error) = status.error {
+                return (false, format!("切换失败，未执行电源动作：{error}"));
+            }
+            spawn_power(app, *power, allow_gui_auth);
+            (
+                true,
+                format!(
+                    "下次启动：{}；{}（已提交）",
+                    system_display_name(system),
+                    power.label()
+                ),
+            )
+        }
+    }
+}
+
+fn set_notify_state(app: &AppHandle, state: Option<NotifyState>) {
+    let show = state.is_some();
+    http_lock().notify = state;
+    if show {
+        if let Err(error) = show_notify_window(app) {
+            trace(app, "notify", &format!("弹窗失败（不影响执行）: {error}"));
+        }
+    } else {
+        close_notify_window(app);
+    }
+    publish_ui(app);
+}
+
+fn notify_view() -> Option<NotifyView> {
+    let runtime = http_lock();
+    match runtime.notify.as_ref()? {
+        NotifyState::Pending(pending) => Some(NotifyView {
+            kind: "pending",
+            id: Some(pending.id.clone()),
+            title: format!("远程请求（{}）", pending.channel.label()),
+            message: pending.summary.clone(),
+            source: pending.source.clone(),
+            channel: pending.channel.as_str(),
+            seconds_left: pending.seconds_left(),
+            total_seconds: pending.seconds,
+            created: pending.created.clone(),
+            can_cancel: true,
+        }),
+        NotifyState::Info {
+            message,
+            source,
+            expires_at,
+        } => Some(NotifyView {
+            kind: "info",
+            id: None,
+            title: "远程请求已执行".to_string(),
+            message: message.clone(),
+            source: source.clone(),
+            channel: Channel::Http.as_str(),
+            seconds_left: expires_at
+                .saturating_duration_since(Instant::now())
+                .as_secs(),
+            total_seconds: 3,
+            created: utc_timestamp(now_epoch_seconds()),
+            can_cancel: false,
+        }),
+    }
+}
+
+/// 显示置顶小窗（右下角）。失败不影响执行，只记 trace。
+fn show_notify_window(app: &AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window(NOTIFY_WINDOW_LABEL) {
+        let _ = window.show();
+        return Ok(());
+    }
+    let window = tauri::WebviewWindowBuilder::new(
+        app,
+        NOTIFY_WINDOW_LABEL,
+        tauri::WebviewUrl::App("notify.html".into()),
+    )
+    .title("远程请求")
+    .inner_size(420.0, 260.0)
+    .resizable(false)
+    .decorations(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .focused(false)
+    .build()
+    .map_err(|error| format!("无法创建通知窗口: {error}"))?;
+
+    // 右下角：拿不到显示器信息就保持默认居中
+    if let Ok(Some(monitor)) = window.current_monitor() {
+        let size = monitor.size();
+        let scale = monitor.scale_factor();
+        let width = (420.0 * scale) as i32;
+        let height = (260.0 * scale) as i32;
+        let margin = (24.0 * scale) as i32;
+        let _ = window.set_position(tauri::PhysicalPosition::new(
+            size.width as i32 - width - margin,
+            size.height as i32 - height - margin,
+        ));
+    }
+    Ok(())
+}
+
+fn close_notify_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window(NOTIFY_WINDOW_LABEL) {
+        let _ = window.close();
+    }
+}
+
+fn pending_snapshot() -> Option<PendingRequest> {
+    match http_lock().notify.as_ref() {
+        Some(NotifyState::Pending(pending)) => Some(pending.clone()),
+        _ => None,
+    }
+}
+
+/// 立即执行当前待执行请求（弹窗/主窗口里的「立即执行」）。
+fn confirm_pending_now(app: &AppHandle) -> Result<(), String> {
+    let pending = pending_snapshot().ok_or_else(|| "没有待执行请求".to_string())?;
+    run_pending_now(app, pending);
+    Ok(())
+}
+
+/// 取消当前待执行请求（关掉弹窗也走这里）。
+fn cancel_pending_now(app: &AppHandle) -> Result<(), String> {
+    let pending = pending_snapshot().ok_or_else(|| "没有待执行请求".to_string())?;
+    {
+        let mut runtime = http_lock();
+        runtime.notify = None;
+    }
+    record_request_log(
+        app,
+        pending.channel,
+        &pending.source,
+        "（待执行请求）",
+        &pending.summary,
+        "cancelled",
+        "本机用户取消",
+    );
+    trace(
+        app,
+        "remote",
+        &format!("待执行请求 {} 被本机取消", pending.id),
+    );
+    close_notify_window(app);
+    publish_ui(app);
+    Ok(())
+}
+
+fn run_pending_now(app: &AppHandle, pending: PendingRequest) {
+    {
+        let mut runtime = http_lock();
+        runtime.notify = None;
+    }
+    let (ok, message) =
+        execute_remote_command(app, pending.channel, &pending.source, &pending.command);
+    record_request_log(
+        app,
+        pending.channel,
+        &pending.source,
+        "（待执行请求）",
+        &pending.summary,
+        if ok { "executed" } else { "failed" },
+        &message,
+    );
+    trace(
+        app,
+        "remote",
+        &format!("待执行请求 {} 执行完成 ok={ok}", pending.id),
+    );
+    // dry-run / 已提交都走这里：弹窗收掉，结果进快照
+    close_notify_window(app);
+    publish_ui(app);
+}
+
+/// 每秒 tick 的调度线程：到点执行待执行请求、事后的 info 提示到点自动关窗。
+fn spawn_notify_scheduler(app: &AppHandle) {
+    let app = app.clone();
+    std::thread::spawn(move || loop {
+        std::thread::sleep(std::time::Duration::from_millis(250));
+        // 锁内只做判断（Some(Some(pending)) = 到点执行，Some(None) = info 到点关窗）
+        let due = {
+            let runtime = http_lock();
+            notify_due(runtime.notify.as_ref(), Instant::now())
+        };
+        match due {
+            // 倒计时到点：执行
+            NotifyDue::Execute(pending) => run_pending_now(&app, *pending),
+            // 事后提示到期：收掉弹窗
+            NotifyDue::CloseInfo => set_notify_state(&app, None),
+            NotifyDue::Nothing => {}
+        }
+    });
+}
+
+fn http_access_hint_text(app: &AppHandle) -> String {
+    let settings = stored_settings(app);
+    let port = settings.http_port;
+    let token = settings.http_token.trim();
+    let ip = local_ipv4();
+    format!(
+        "# 局域网/远程（把 IP 换成目标机地址）\n\
+         curl -s -X POST \"http://{ip}:{port}/api/power?action=reboot\" -H \"X-Auth-Token: {token}\"\n\
+         # 本机 / ssh 隧道\n\
+         curl -s \"http://127.0.0.1:{port}/api/status?token={token}\"\n\
+         # 切换下次启动并重启（一条命令搞定）\n\
+         curl -s -X POST \"http://{ip}:{port}/api/switch-and-power?system=windows&action=reboot\" -H \"X-Auth-Token: {token}\"\n\
+         # 只切换、不重启\n\
+         curl -s -X POST \"http://{ip}:{port}/api/switch?system=linux\" -H \"X-Auth-Token: {token}\""
+    )
+}
+
+/// 设置类变更的统一写法：存盘 → 记录回执 → 必要时重启服务 → 发布快照。
+fn update_settings_and_publish(
+    app: &AppHandle,
+    action: &str,
+    message: &str,
+    update: impl FnOnce(&mut Settings),
+    after: impl FnOnce(&AppHandle),
+) -> Result<SettingsView, String> {
+    let mut settings = stored_settings(app);
+    update(&mut settings);
+    match save_settings(app, &settings) {
+        Ok(_) => {
+            record_action(app, action, true, message);
+            after(app);
+            Ok(publish_settings(app))
+        }
+        Err(error) => {
+            record_action(app, action, false, &error);
+            publish_settings(app);
+            Err(error)
+        }
+    }
+}
+
+fn set_http_enabled_setting(app: &AppHandle, enabled: bool) {
+    let _ = update_settings_and_publish(
+        app,
+        "HTTP 服务",
+        if enabled { "已开启" } else { "已关闭" },
+        |settings| settings.http_enabled = enabled,
+        apply_http_config,
+    );
+}
+
+fn set_notify_enabled_setting(app: &AppHandle, enabled: bool) {
+    let _ = update_settings_and_publish(
+        app,
+        "远程请求通知",
+        if enabled {
+            "已开启"
+        } else {
+            "已关闭（只在主窗口显示待执行请求）"
+        },
+        |settings| settings.notify_enabled = enabled,
+        |_app| {},
+    );
+}
+
+fn set_delay_all_setting(app: &AppHandle, seconds: u32) {
+    let seconds = seconds.min(MAX_DELAY_SECONDS);
+    let _ = update_settings_and_publish(
+        app,
+        "远程执行延迟",
+        &if seconds == 0 {
+            "已设为立即执行（0 秒）".to_string()
+        } else {
+            format!("已设为 {seconds} 秒（两条渠道）")
+        },
+        |settings| settings.channels.set_delay_all(seconds),
+        |_app| {},
+    );
+}
+
+fn menu_system_rows(variables: &[VariableInfo]) -> Vec<VariableInfo> {
+    if !variables.is_empty() {
+        return variables.to_vec();
+    }
+    SOURCE_FILES
+        .iter()
+        .map(|(system, display_name, source_name)| VariableInfo {
+            system: (*system).to_string(),
+            display_name: (*display_name).to_string(),
+            source_name: (*source_name).to_string(),
+            source: PathBuf::new(),
+            exists: false,
+            active: false,
+        })
+        .collect()
+}
+
+/// 只负责构建菜单，不碰托盘图标。setup 的第一帧和后续重建走同一份实现。
+fn build_tray_menu(app: &AppHandle, state: &UiState) -> tauri::Result<Menu<tauri::Wry>> {
+    let busy = state.busy.affects_menu();
+    let message = &state.status.message;
+    let settings = &state.settings.settings;
+    let variables = menu_system_rows(&state.status.variables);
+
     let menu = Menu::new(app)?;
-    let status = MenuItem::with_id(app, "status", &message, false, None::<&str>)?;
+    let status = MenuItem::with_id(app, "status", message, false, None::<&str>)?;
     menu.append(&status)?;
-    let first_separator = PredefinedMenuItem::separator(app)?;
-    menu.append(&first_separator)?;
+    menu.append(&PredefinedMenuItem::separator(app)?)?;
 
     for variable in &variables {
         let label = if variable.active {
@@ -1110,22 +2628,25 @@ fn update_tray_menu(app: &AppHandle) -> tauri::Result<()> {
             app,
             variable.system.clone(),
             label,
-            variable.exists,
+            variable.exists && !busy,
             None::<&str>,
         )?;
         menu.append(&item)?;
     }
-    let second_separator = PredefinedMenuItem::separator(app)?;
-    menu.append(&second_separator)?;
-    if temporary_mount {
-        let unmount =
-            MenuItem::with_id(app, "unmount-temporary", "卸载临时挂载", true, None::<&str>)?;
+    menu.append(&PredefinedMenuItem::separator(app)?)?;
+    if state.status.temporary_mount {
+        let unmount = MenuItem::with_id(
+            app,
+            "unmount-temporary",
+            "卸载临时挂载",
+            !busy,
+            None::<&str>,
+        )?;
         menu.append(&unmount)?;
     }
     let show = MenuItem::with_id(app, "show", "显示主窗口", true, None::<&str>)?;
     menu.append(&show)?;
-    let settings_separator = PredefinedMenuItem::separator(app)?;
-    menu.append(&settings_separator)?;
+    menu.append(&PredefinedMenuItem::separator(app)?)?;
     let settings_label = MenuItem::with_id(app, "settings-label", "应用设置", false, None::<&str>)?;
     menu.append(&settings_label)?;
     let autostart = CheckMenuItem::with_id(
@@ -1137,9 +2658,11 @@ fn update_tray_menu(app: &AppHandle) -> tauri::Result<()> {
         None::<&str>,
     )?;
     menu.append(&autostart)?;
+    // 勾选项的 id 带「点下去要变成的状态」：系统会先把勾选翻转，分发时必须知道用户想要哪个值。
+    // 以前这两个 id 没有后缀、而分发只认带后缀的 id → 点了等于没点（阶段 1 修掉的真实 bug）。
     let start_in_tray = CheckMenuItem::with_id(
         app,
-        "setting-start-in-tray",
+        toggle_menu_id("setting-start-in-tray", !settings.start_in_tray),
         "启动时隐藏主界面",
         true,
         settings.start_in_tray,
@@ -1148,7 +2671,10 @@ fn update_tray_menu(app: &AppHandle) -> tauri::Result<()> {
     menu.append(&start_in_tray)?;
     let hide_from_dock_taskbar = CheckMenuItem::with_id(
         app,
-        "setting-hide-from-dock-taskbar",
+        toggle_menu_id(
+            "setting-hide-from-dock-taskbar",
+            !settings.hide_from_dock_taskbar,
+        ),
         "隐藏程序（任务栏/Dock）",
         true,
         settings.hide_from_dock_taskbar,
@@ -1162,7 +2688,7 @@ fn update_tray_menu(app: &AppHandle) -> tauri::Result<()> {
     ] {
         let item = CheckMenuItem::with_id(
             app,
-            format!("setting-close-action:{action:?}").to_lowercase(),
+            close_action_menu_id(action),
             label,
             true,
             settings.close_action == action,
@@ -1171,66 +2697,335 @@ fn update_tray_menu(app: &AppHandle) -> tauri::Result<()> {
         close_action_menu.append(&item)?;
     }
     menu.append(&close_action_menu)?;
-    let refresh = MenuItem::with_id(app, "refresh", "扫描", true, None::<&str>)?;
+    menu.append(&PredefinedMenuItem::separator(app)?)?;
+    let refresh = MenuItem::with_id(app, "refresh", "扫描", !busy, None::<&str>)?;
     menu.append(&refresh)?;
-    let restart = MenuItem::with_id(app, "restart", "重启系统", true, None::<&str>)?;
-    menu.append(&restart)?;
+    // 电源动作子菜单：重启（默认）/ 关机 / 睡眠
+    let power_menu = Submenu::with_id(app, "power", "电源操作", !busy)?;
+    for action in [
+        PowerAction::Reboot,
+        PowerAction::Shutdown,
+        PowerAction::Sleep,
+    ] {
+        let item = MenuItem::with_id(
+            app,
+            power_menu_id(action),
+            action.label(),
+            !busy,
+            None::<&str>,
+        )?;
+        power_menu.append(&item)?;
+    }
+    menu.append(&power_menu)?;
+    // 远程控制：HTTP 服务开关 / 通知总开关 / 延迟预设 / 打开设置区
+    let remote_menu = Submenu::with_id(app, "remote", "远程控制", true)?;
+    remote_menu.append(&CheckMenuItem::with_id(
+        app,
+        toggle_menu_id("setting-http-enabled", !settings.http_enabled),
+        "HTTP 服务",
+        true,
+        settings.http_enabled,
+        None::<&str>,
+    )?)?;
+    remote_menu.append(&CheckMenuItem::with_id(
+        app,
+        toggle_menu_id("setting-notify-enabled", !settings.notify_enabled),
+        "远程请求通知",
+        true,
+        settings.notify_enabled,
+        None::<&str>,
+    )?)?;
+    let delay_menu = Submenu::with_id(app, "setting-delay", "远程执行延迟", true)?;
+    let delay_now = settings.channels.http.delay_seconds;
+    let delay_same = delay_now == settings.channels.cli.delay_seconds;
+    for seconds in [0u32, 3, 5, 10, 30] {
+        let label = if seconds == 0 {
+            "立即执行（0 秒）".to_string()
+        } else {
+            format!("{seconds} 秒")
+        };
+        delay_menu.append(&CheckMenuItem::with_id(
+            app,
+            format!("setting-delay:{seconds}"),
+            label,
+            true,
+            delay_same && delay_now == seconds,
+            None::<&str>,
+        )?)?;
+    }
+    remote_menu.append(&delay_menu)?;
+    remote_menu.append(&MenuItem::with_id(
+        app,
+        "show-remote",
+        "远程控制设置…",
+        true,
+        None::<&str>,
+    )?)?;
+    menu.append(&remote_menu)?;
     let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
     menu.append(&quit)?;
+    Ok(menu)
+}
+
+/// 用同一份快照刷新托盘菜单；**内容没变就不重建**（指纹相同直接返回）。
+///
+/// 阶段 0 trace 实测：启动时扫描两次、每次都全量重建菜单。
+/// 菜单被无意义地替换正是「扫描期间菜单闪断 / 要点两次」的诱因。
+fn menu_signature_for(state: &UiState) -> String {
+    menu_signature(
+        &state.status.message,
+        state.status.temporary_mount,
+        &state.settings.settings,
+        &menu_system_rows(&state.status.variables),
+        state.status.error.as_deref(),
+        &state.busy,
+    )
+}
+
+/// 记住当前菜单内容，让后续相同内容的刷新直接跳过重建。
+fn remember_menu_signature(app: &AppHandle, signature: String) {
+    *app.state::<Mutex<Option<String>>>()
+        .lock()
+        .expect("menu signature mutex poisoned") = Some(signature);
+}
+
+fn update_tray_menu(app: &AppHandle, state: &UiState, trigger: &str) -> tauri::Result<()> {
+    let signature = menu_signature_for(state);
+    {
+        let cache = app.state::<Mutex<Option<String>>>();
+        let mut cache = cache.lock().expect("menu signature mutex poisoned");
+        if cache.as_deref() == Some(signature.as_str()) {
+            trace(
+                app,
+                "tray",
+                &format!("菜单内容未变，跳过重建 trigger={trigger} sig={signature}"),
+            );
+            return Ok(());
+        }
+        *cache = Some(signature.clone());
+    }
+
+    trace(
+        app,
+        "tray",
+        &format!("重建菜单 trigger={trigger} sig={signature}"),
+    );
+    let menu = build_tray_menu(app, state)?;
     if let Some(tray) = app.tray_by_id("main") {
         tray.set_menu(Some(menu))?;
-        let tooltip = error.unwrap_or_else(|| format!("rEFInd 启动切换器：{message}"));
+        let tooltip = state
+            .status
+            .error
+            .clone()
+            .unwrap_or_else(|| format!("rEFInd 启动切换器：{}", state.status.message));
         tray.set_tooltip(Some(tooltip))?;
+        trace(app, "tray", "菜单与 tooltip 已更新");
+    } else {
+        trace(app, "tray", "未找到托盘图标 main，菜单没有挂上");
     }
     Ok(())
 }
 
-fn spawn_menu_action(app: &AppHandle, action: &str) {
+/// 勾选项 id 的生成：name + 点下去要变成的状态。
+fn toggle_menu_id(name: &str, target: bool) -> String {
+    format!("{name}:{target}")
+}
+
+fn close_action_menu_id(action: CloseAction) -> String {
+    format!("setting-close-action:{action:?}").to_lowercase()
+}
+
+/// 电源动作菜单项 id：`power:reboot` / `power:shutdown` / `power:sleep`。
+fn power_menu_id(action: PowerAction) -> String {
+    format!("power:{}", action.as_str())
+}
+
+fn parse_menu_bool(value: &str) -> Option<bool> {
+    match value.trim() {
+        "true" => Some(true),
+        "false" => Some(false),
+        _ => None,
+    }
+}
+
+/// 托盘菜单项的语义。把「字符串前后缀匹配」换成可单测的纯解析（阶段 1 修 D6）。
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum MenuAction {
+    Show,
+    Refresh,
+    UnmountTemporary,
+    Switch(String),
+    /// 电源动作：重启 / 关机 / 睡眠
+    Power(PowerAction),
+    /// HTTP 服务开关
+    SetHttpEnabled(bool),
+    /// 远程请求通知总开关
+    SetNotifyEnabled(bool),
+    /// 远程执行延迟（同时作用于两条渠道）
+    SetDelayAll(u32),
+    /// 打开主窗口并定位到「远程控制」区
+    ShowRemote,
+    SetAutostart,
+    SetStartInTray(bool),
+    SetHideFromDockTaskbar(bool),
+    SetCloseAction(CloseAction),
+    Quit,
+}
+
+impl MenuAction {
+    fn from_id(id: &str) -> Option<Self> {
+        if let Some(rest) = id.strip_prefix("setting-close-action:") {
+            return CloseAction::parse(rest.trim()).map(Self::SetCloseAction);
+        }
+        if let Some(rest) = id.strip_prefix("setting-start-in-tray:") {
+            return parse_menu_bool(rest).map(Self::SetStartInTray);
+        }
+        if let Some(rest) = id.strip_prefix("setting-hide-from-dock-taskbar:") {
+            return parse_menu_bool(rest).map(Self::SetHideFromDockTaskbar);
+        }
+        if let Some(rest) = id.strip_prefix("power:") {
+            return PowerAction::parse(rest).map(Self::Power);
+        }
+        if let Some(rest) = id.strip_prefix("setting-http-enabled:") {
+            return parse_menu_bool(rest).map(Self::SetHttpEnabled);
+        }
+        if let Some(rest) = id.strip_prefix("setting-notify-enabled:") {
+            return parse_menu_bool(rest).map(Self::SetNotifyEnabled);
+        }
+        if let Some(rest) = id.strip_prefix("setting-delay:") {
+            return rest.trim().parse::<u32>().ok().map(Self::SetDelayAll);
+        }
+        match id {
+            "show" => Some(Self::Show),
+            "refresh" => Some(Self::Refresh),
+            "unmount-temporary" => Some(Self::UnmountTemporary),
+            // 旧版 id：只有一个「重启系统」项时的写法，保留兼容
+            "restart" => Some(Self::Power(PowerAction::Reboot)),
+            "setting-autostart" => Some(Self::SetAutostart),
+            "show-remote" => Some(Self::ShowRemote),
+            "quit" => Some(Self::Quit),
+            "linux" | "windows" | "macos" => Some(Self::Switch(id.to_string())),
+            _ => None,
+        }
+    }
+}
+
+/// 托盘菜单事件入口：原始 id → 解析 → 分发，每一步都写 trace（现场取证）。
+fn handle_menu_event(app: &AppHandle, id: &str) {
+    trace(app, "menu-action", &format!("id={id}"));
+    let Some(action) = MenuAction::from_id(id) else {
+        trace(app, "menu-action", &format!("id={id} 未识别，已忽略"));
+        return;
+    };
+    trace(app, "menu-action", &format!("id={id} → {action:?}"));
+    // 窗口操作留在事件线程上执行；其余动作放工作线程（可能耗时或要授权）。
+    if action == MenuAction::Show {
+        show_main_window(app);
+        return;
+    }
+    spawn_menu_action(app, action);
+}
+
+fn spawn_menu_action(app: &AppHandle, action: MenuAction) {
     let app = app.clone();
-    let action = action.to_string();
-    std::thread::spawn(move || match action.as_str() {
-        "refresh" => {
+    std::thread::spawn(move || match action {
+        MenuAction::Show => show_main_window(&app),
+        MenuAction::Refresh => {
             refresh_and_update(&app);
         }
-        "unmount-temporary" => {
+        MenuAction::UnmountTemporary => {
             unmount_temporary(app);
         }
-        "setting-autostart" => toggle_autostart_setting(&app),
-        action if action.starts_with("setting-") && action.ends_with(":true") => {
-            update_tray_setting(&app, action.strip_suffix(":true").unwrap(), true);
+        MenuAction::Switch(system) => {
+            switch_and_update(&app, &system);
         }
-        action if action.starts_with("setting-") && action.ends_with(":false") => {
-            update_tray_setting(&app, action.strip_suffix(":false").unwrap(), false);
+        MenuAction::Power(action) => spawn_power(&app, action, true),
+        MenuAction::SetHttpEnabled(enabled) => set_http_enabled_setting(&app, enabled),
+        MenuAction::SetNotifyEnabled(enabled) => set_notify_enabled_setting(&app, enabled),
+        MenuAction::SetDelayAll(seconds) => set_delay_all_setting(&app, seconds),
+        MenuAction::ShowRemote => {
+            show_main_window(&app);
+            if let Err(error) = app.emit("focus-remote", ()) {
+                trace(
+                    &app,
+                    "tray",
+                    &format!("通知主窗口定位远程控制失败: {error}"),
+                );
+            }
         }
-        action if action.starts_with("setting-close-action:") => {
-            update_close_action_setting(
-                &app,
-                action.strip_prefix("setting-close-action:").unwrap(),
-            );
+        MenuAction::SetAutostart => toggle_autostart_setting(&app),
+        MenuAction::SetStartInTray(enabled) => {
+            update_tray_setting(&app, TraySetting::StartInTray, enabled)
         }
-        "quit" => app.exit(0),
-        "restart" => spawn_restart(&app),
-        "linux" | "windows" | "macos" => {
-            switch_and_update(&app, &action);
+        MenuAction::SetHideFromDockTaskbar(enabled) => {
+            update_tray_setting(&app, TraySetting::HideFromDockTaskbar, enabled)
         }
-        _ => {}
+        MenuAction::SetCloseAction(close_action) => update_close_action_setting(&app, close_action),
+        MenuAction::Quit => app.exit(0),
     });
 }
 
-fn settings_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let directory = app
-        .path()
+/// 配置目录：默认是系统的 `app_config_dir`；
+/// `REFIND_SWITCHER_CONFIG_DIR` 能把它指到别处（做验证/多实例时就不会碰你的真实配置）。
+fn config_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    if let Ok(directory) = std::env::var("REFIND_SWITCHER_CONFIG_DIR") {
+        let directory = directory.trim();
+        if !directory.is_empty() {
+            return Ok(PathBuf::from(directory));
+        }
+    }
+    app.path()
         .app_config_dir()
-        .map_err(|error| format!("无法定位应用配置目录: {error}"))?;
-    Ok(directory.join(SETTINGS_FILE))
+        .map_err(|error| format!("无法定位应用配置目录: {error}"))
+}
+
+fn settings_path(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(config_dir(app)?.join(SETTINGS_FILE))
 }
 
 fn read_settings_file(app: &AppHandle) -> Settings {
-    settings_path(app)
-        .ok()
-        .and_then(|path| fs::read_to_string(path).ok())
-        .and_then(|contents| serde_json::from_str(&contents).ok())
-        .unwrap_or_default()
+    // 启动早期调用：此刻内存里的设置还是默认值，所以只有环境变量
+    // REFIND_SWITCHER_TRACE 能打开这里的日志（设置里的 debugTrace 要等读完才生效）。
+    let path = match settings_path(app) {
+        Ok(path) => path,
+        Err(error) => {
+            trace(app, "settings-file", &format!("无法定位设置文件: {error}"));
+            return Settings::default();
+        }
+    };
+    let contents = match fs::read_to_string(&path) {
+        Ok(contents) => contents,
+        Err(error) => {
+            trace(
+                app,
+                "settings-file",
+                &format!("设置文件读取失败，使用默认值: {error}"),
+            );
+            return Settings::default();
+        }
+    };
+    match serde_json::from_str::<Settings>(&contents) {
+        Ok(settings) => {
+            trace(
+                app,
+                "settings-file",
+                &format!(
+                    "已读取 {} debugTrace={}",
+                    path.display(),
+                    settings.debug_trace
+                ),
+            );
+            settings
+        }
+        Err(error) => {
+            trace(
+                app,
+                "settings-file",
+                &format!("设置文件解析失败，使用默认值: {error}"),
+            );
+            Settings::default()
+        }
+    }
 }
 
 fn write_settings_file(app: &AppHandle, settings: &Settings) -> Result<(), String> {
@@ -1249,6 +3044,32 @@ fn write_settings_file(app: &AppHandle, settings: &Settings) -> Result<(), Strin
     if result.is_err() {
         let _ = fs::remove_file(&temporary);
     }
+    match &result {
+        Ok(()) => trace(
+            app,
+            "settings-file",
+            &format!(
+                "已保存 path={} autostart={} start_in_tray={} hide_from_dock_taskbar={} close_action={:?} debugTrace={} http={{enabled={} bind={} port={} token_len={}}} notify={{enabled={} http={{notify={} delay={}}} cli={{notify={} delay={}}}}} remoteAllowGuiAuth={}",
+                path.display(),
+                settings.autostart,
+                settings.start_in_tray,
+                settings.hide_from_dock_taskbar,
+                settings.close_action,
+                settings.debug_trace,
+                settings.http_enabled,
+                settings.http_bind,
+                settings.http_port,
+                settings.http_token.trim().len(),
+                settings.notify_enabled,
+                settings.channels.http.notify,
+                settings.channels.http.delay_seconds,
+                settings.channels.cli.notify,
+                settings.channels.cli.delay_seconds,
+                settings.remote_allow_gui_auth
+            ),
+        ),
+        Err(error) => trace(app, "settings-file", &format!("保存失败: {error}")),
+    }
     result.map_err(|error| format!("无法保存设置: {error}"))
 }
 
@@ -1258,6 +3079,7 @@ fn stored_settings(app: &AppHandle) -> Settings {
     settings
 }
 
+/// 保存设置。注意：调用者**不能**在持有 Settings 锁时调用（trace 会再加一次锁）。
 fn save_settings(app: &AppHandle, settings: &Settings) -> Result<Settings, String> {
     write_settings_file(app, settings)?;
     let state = app.state::<Mutex<Settings>>();
@@ -1546,27 +3368,25 @@ fn view_settings(app: &AppHandle) -> SettingsView {
     SettingsView::new(settings, state)
 }
 
-/// 设置变更后统一入口：重建托盘菜单并通知主窗口。
+/// 设置类命令的统一出口：发布新快照，并把 SettingsView 回给调用方。
 ///
-/// 主窗口和托盘菜单是两份独立的 UI，任何一边改了设置都必须走这里，
-/// 否则另一边会一直显示旧状态（勾选框和系统真实状态不一致）。
+/// 主窗口与托盘菜单共用 publish_ui 这一份快照，不再各读各的设置
+/// （阶段 1 修 D1：以前托盘读设置文件里的旧值、主窗口读系统真实值）。
 fn publish_settings(app: &AppHandle) -> SettingsView {
-    let view = view_settings(app);
-    if let Err(error) = update_tray_menu(app) {
-        eprintln!("刷新托盘菜单失败: {error}");
-    }
-    // 记一条日志，方便排查“主窗口/托盘显示不一致”这类问题。
-    eprintln!(
-        "设置已同步：autostart={} start_in_tray={} hide_from_dock_taskbar={} close_action={:?}",
-        view.settings.autostart,
-        view.settings.start_in_tray,
-        view.settings.hide_from_dock_taskbar,
-        view.settings.close_action
+    let state = publish_ui(app);
+    trace(
+        app,
+        "settings",
+        &format!(
+            "已同步 autostart={} autostart_state={} start_in_tray={} hide_from_dock_taskbar={} close_action={:?}",
+            state.settings.settings.autostart,
+            state.settings.autostart_state,
+            state.settings.settings.start_in_tray,
+            state.settings.settings.hide_from_dock_taskbar,
+            state.settings.settings.close_action
+        ),
     );
-    if let Err(error) = app.emit(SETTINGS_CHANGED_EVENT, &view) {
-        eprintln!("通知主窗口设置变更失败: {error}");
-    }
-    view
+    state.settings
 }
 
 #[cfg(target_os = "macos")]
@@ -1614,6 +3434,13 @@ fn show_main_window(app: &AppHandle) {
 
 #[tauri::command]
 fn unmount_temporary(app: AppHandle) -> AppStatus {
+    set_busy(&app, |busy| busy.unmounting = true);
+    let status = unmount_temporary_inner(&app);
+    set_busy(&app, |busy| busy.unmounting = false);
+    status
+}
+
+fn unmount_temporary_inner(app: &AppHandle) -> AppStatus {
     let mount = {
         let state = app.state::<Mutex<AppState>>();
         let mut state = state.lock().expect("state mutex poisoned");
@@ -1624,10 +3451,14 @@ fn unmount_temporary(app: AppHandle) -> AppStatus {
     };
 
     let Some(mount) = mount else {
-        let mut status = state_snapshot(&app);
-        status.message = "没有应用创建的临时挂载".to_string();
-        status.error = None;
-        publish_status(&app, &status);
+        {
+            let state = app.state::<Mutex<AppState>>();
+            let mut state = state.lock().expect("state mutex poisoned");
+            state.message = "没有应用创建的临时挂载".to_string();
+            state.error = None;
+        }
+        let status = state_snapshot(app);
+        publish_status(app, &status);
         return status;
     };
 
@@ -1650,79 +3481,236 @@ fn unmount_temporary(app: AppHandle) -> AppStatus {
             }
         }
         Err(error) => {
+            let message = "卸载临时挂载失败".to_string();
+            let detail = format!("无法卸载 {}: {error}", mountpoint.display());
             {
+                // 失败要把挂载状态放回去，同时把提示写进 AppState，
+                // 否则主窗口读到的还是上一次的成功文案（阶段 1 修同类不一致）。
                 let state = app.state::<Mutex<AppState>>();
                 let mut state = state.lock().expect("state mutex poisoned");
                 state.active_mount = Some(mount);
+                state.message = message.clone();
+                state.error = Some(detail.clone());
             }
-            let mut status = state_snapshot(&app);
-            status.message = "卸载临时挂载失败".to_string();
-            status.error = Some(format!("无法卸载 {}: {error}", mountpoint.display()));
+            let mut status = state_snapshot(app);
+            status.message = message;
+            status.error = Some(detail);
             status
         }
     };
-    update_tray_menu(&app)
-        .map_err(|error| error.to_string())
-        .ok();
-    publish_status(&app, &status);
+    publish_status(app, &status);
     status
 }
 
 fn toggle_autostart_setting(app: &AppHandle) {
     let enabled = !stored_settings(app).autostart;
+    trace(
+        app,
+        "tray-setting",
+        &format!("setting-autostart → enabled={enabled}"),
+    );
     match autostart_set(app, enabled).and_then(|state| {
         let mut settings = stored_settings(app);
         settings.autostart = state.is_on();
         save_settings(app, &settings)
     }) {
         Ok(_) => {
+            record_action(
+                app,
+                "开机启动",
+                true,
+                if enabled {
+                    "已开启开机启动"
+                } else {
+                    "已关闭开机启动"
+                },
+            );
             publish_settings(app);
         }
         Err(error) => {
             // 失败时也要同步一次：让主窗口看到系统里的真实状态和提示。
+            record_action(app, "开机启动", false, &error);
             publish_settings(app);
-            eprintln!("切换开机启动失败: {error}");
+            trace(app, "tray-setting", &format!("切换开机启动失败: {error}"));
         }
     }
 }
 
-fn update_tray_setting(app: &AppHandle, action: &str, enabled: bool) {
-    let mut settings = stored_settings(app);
-    match action {
-        "setting-start-in-tray" => settings.start_in_tray = enabled,
-        "setting-hide-from-dock-taskbar" => settings.hide_from_dock_taskbar = enabled,
-        _ => return,
+/// 托盘里能直接切的勾选设置。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TraySetting {
+    StartInTray,
+    HideFromDockTaskbar,
+}
+
+impl TraySetting {
+    fn label(self) -> &'static str {
+        match self {
+            Self::StartInTray => "启动时隐藏主界面",
+            Self::HideFromDockTaskbar => "隐藏程序（任务栏/Dock）",
+        }
     }
-    let apply_result = match action {
-        "setting-hide-from-dock-taskbar" => apply_dock_taskbar_visibility(app, enabled),
-        _ => Ok(()),
+}
+
+/// 托盘切设置。**失败必须回滚**（阶段 1 修 D5）：
+/// 以前是先存盘再 apply，apply 失败时设置文件里已经是新值，
+/// 界面勾选框显示「已生效」而系统实际没变——界面在说假话。
+fn update_tray_setting(app: &AppHandle, setting: TraySetting, enabled: bool) {
+    trace(
+        app,
+        "tray-setting",
+        &format!("{setting:?} enabled={enabled}"),
+    );
+    let previous = stored_settings(app);
+    let mut settings = previous.clone();
+    match setting {
+        TraySetting::StartInTray => settings.start_in_tray = enabled,
+        TraySetting::HideFromDockTaskbar => settings.hide_from_dock_taskbar = enabled,
+    }
+    if let Err(error) = save_settings(app, &settings) {
+        record_action(app, setting.label(), false, &error);
+        publish_ui(app);
+        return;
+    }
+    let apply_result = match setting {
+        TraySetting::HideFromDockTaskbar => apply_dock_taskbar_visibility(app, enabled),
+        TraySetting::StartInTray => Ok(()),
     };
-    match save_settings(app, &settings).and_then(|_| apply_result) {
+    match apply_result {
         Ok(()) => {
-            publish_settings(app);
+            let message = format!(
+                "{}：{}",
+                setting.label(),
+                if enabled { "已开启" } else { "已关闭" }
+            );
+            record_action(app, setting.label(), true, &message);
         }
         Err(error) => {
-            publish_settings(app);
-            eprintln!("切换应用设置失败: {error}");
+            // 回滚到旧值：界面必须显示系统里的真实状态
+            let _ = save_settings(app, &previous);
+            record_action(
+                app,
+                setting.label(),
+                false,
+                &format!("{error}（已回滚为原值）"),
+            );
+        }
+    }
+    publish_ui(app);
+}
+
+fn update_close_action_setting(app: &AppHandle, close_action: CloseAction) {
+    trace(
+        app,
+        "tray-setting",
+        &format!("点击 ❌ 时 → {close_action:?}"),
+    );
+    let mut settings = stored_settings(app);
+    settings.close_action = close_action;
+    match save_settings(app, &settings) {
+        Ok(_) => {
+            record_action(
+                app,
+                "点击 ❌ 时",
+                true,
+                match close_action {
+                    CloseAction::Quit => "已设置：退出程序",
+                    CloseAction::Tray => "已设置：最小化到托盘",
+                },
+            );
+        }
+        Err(error) => record_action(app, "点击 ❌ 时", false, &error),
+    }
+    publish_settings(app);
+}
+
+/// 电源动作：重启 / 关机 / 睡眠。缺省是重启（HTTP / CLI 不传就是它）。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PowerAction {
+    Reboot,
+    Shutdown,
+    Sleep,
+}
+
+impl Default for PowerAction {
+    fn default() -> Self {
+        Self::Reboot
+    }
+}
+
+impl PowerAction {
+    /// 解析动作名：大小写不敏感，同时接受常见别名。
+    fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "reboot" | "restart" => Some(Self::Reboot),
+            "shutdown" | "poweroff" | "halt" => Some(Self::Shutdown),
+            "sleep" | "suspend" => Some(Self::Sleep),
+            _ => None,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Reboot => "reboot",
+            Self::Shutdown => "shutdown",
+            Self::Sleep => "sleep",
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Reboot => "重启系统",
+            Self::Shutdown => "关机",
+            Self::Sleep => "睡眠",
+        }
+    }
+
+    /// 提交成功后的回执文案。
+    fn submitted_message(self) -> &'static str {
+        match self {
+            Self::Reboot => "已提交重启，系统即将重启",
+            Self::Shutdown => "已提交关机，系统即将关机",
+            Self::Sleep => "已提交睡眠",
         }
     }
 }
 
-fn update_close_action_setting(app: &AppHandle, action: &str) {
-    let Some(close_action) = CloseAction::parse(action.trim()) else {
-        return;
-    };
-    let mut settings = stored_settings(app);
-    settings.close_action = close_action;
-    if save_settings(app, &settings).is_ok() {
-        publish_settings(app);
+/// 一条候选命令。
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct PowerAttempt {
+    program: &'static str,
+    args: Vec<String>,
+    /// 需要本机图形授权（macOS 管理员框 / Linux pkexec）：
+    /// 远程与 CLI 默认整条跳过（Q3），只有本机点击才允许弹出
+    needs_gui_auth: bool,
+}
+
+impl PowerAttempt {
+    fn command(&self) -> String {
+        render_command(self.program, &self.args)
     }
 }
 
-/// 一次重启尝试的结果。
+fn render_command(program: &str, args: &[String]) -> String {
+    if args.is_empty() {
+        program.to_string()
+    } else {
+        format!("{program} {}", args.join(" "))
+    }
+}
+
+fn attempt(program: &'static str, args: &[&str], needs_gui_auth: bool) -> PowerAttempt {
+    PowerAttempt {
+        program,
+        args: args.iter().map(|arg| arg.to_string()).collect(),
+        needs_gui_auth,
+    }
+}
+
+/// 一次候选命令执行的结果。
 #[derive(Clone, Debug, PartialEq, Eq)]
-enum RestartAttemptOutcome {
-    /// 命令执行成功，系统即将重启。
+enum PowerAttemptOutcome {
+    /// 命令执行成功，动作已提交。
     Success,
     /// 系统里没有这个命令，可以换下一个候选。
     Missing(String),
@@ -1730,10 +3718,10 @@ enum RestartAttemptOutcome {
     Failed(String),
 }
 
-impl RestartAttemptOutcome {
+impl PowerAttemptOutcome {
     fn describe(&self) -> String {
         match self {
-            Self::Success => "已提交重启".to_string(),
+            Self::Success => "已提交".to_string(),
             Self::Missing(reason) | Self::Failed(reason) => reason.clone(),
         }
     }
@@ -1741,81 +3729,119 @@ impl RestartAttemptOutcome {
 
 /// 一条尝试失败之后该做什么。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum RestartStep {
-    /// 重启已提交，结束。
+enum PowerStep {
+    /// 动作已提交，结束。
     Done,
     /// 换下一个候选命令（例如发行版里没有 systemctl）。
     Next,
     /// 权限不足，用 pkexec 提权重试同一条命令。
     Escalate,
-    /// 停手：命令能跑但失败了，多半是用户取消了授权，不能换个方式照样重启。
+    /// 停手：命令能跑但失败了，多半是用户取消了授权，不能换个方式照样执行。
     Stop,
 }
 
-fn next_restart_step(outcome: &RestartAttemptOutcome, can_escalate: bool) -> RestartStep {
+fn next_power_step(outcome: &PowerAttemptOutcome, can_escalate: bool) -> PowerStep {
     match outcome {
-        RestartAttemptOutcome::Success => RestartStep::Done,
-        RestartAttemptOutcome::Missing(_) => RestartStep::Next,
-        RestartAttemptOutcome::Failed(_) if can_escalate => RestartStep::Escalate,
-        RestartAttemptOutcome::Failed(_) => RestartStep::Stop,
+        PowerAttemptOutcome::Success => PowerStep::Done,
+        PowerAttemptOutcome::Missing(_) => PowerStep::Next,
+        PowerAttemptOutcome::Failed(_) if can_escalate => PowerStep::Escalate,
+        PowerAttemptOutcome::Failed(_) => PowerStep::Stop,
     }
 }
 
-/// 各平台的重启候选命令，按顺序尝试。
+/// 各平台的候选命令，按顺序尝试（见 plan §3.2）。
 ///
-/// macOS 用 AppleScript 弹系统自带的管理员授权框后执行 `shutdown -r now`
-/// （应用本身没有也不需要 root 权限）；Linux 先试免密的 `systemctl reboot`
-/// （本地活动会话下 logind 允许），失败再走 pkexec 图形授权；Windows 用
-/// 自带的 `shutdown /r`。
+/// macOS 用 AppleScript 弹系统自带的管理员授权框（应用自身不需要 root）；
+/// Linux 先试免密的 systemctl（本地活动会话下 logind 允许），失败再走 pkexec；
+/// Windows 用自带的 shutdown / rundll32。
 #[cfg(target_os = "macos")]
-fn restart_attempts() -> Vec<(&'static str, Vec<&'static str>)> {
-    vec![(
-        "osascript",
-        vec![
-            "-e",
-            "do shell script \"/sbin/shutdown -r now\" with administrator privileges",
+fn power_attempts(action: PowerAction) -> Vec<PowerAttempt> {
+    /// 走系统管理员授权框执行一条 shell 命令。
+    fn admin_script(command: &str) -> PowerAttempt {
+        let script = format!("do shell script \"{command}\" with administrator privileges");
+        attempt("osascript", &["-e", &script], true)
+    }
+
+    match action {
+        PowerAction::Reboot => vec![admin_script("/sbin/shutdown -r now")],
+        PowerAction::Shutdown => vec![admin_script("/sbin/shutdown -h now")],
+        PowerAction::Sleep => vec![
+            // 免 root 的睡眠：首次会要一次「自动化」授权（不是管理员密码框）
+            attempt(
+                "osascript",
+                &["-e", "tell application \"System Events\" to sleep"],
+                false,
+            ),
+            // 配了免密 sudo 的机器：远程也能用（sudo -n 不会弹密码框）
+            attempt("sudo", &["-n", "/usr/bin/pmset", "sleepnow"], false),
+            // 兜底：管理员授权框
+            admin_script("/usr/bin/pmset sleepnow"),
         ],
-    )]
+    }
 }
 
 #[cfg(target_os = "linux")]
-fn restart_attempts() -> Vec<(&'static str, Vec<&'static str>)> {
-    vec![
-        ("systemctl", vec!["reboot"]),
-        // 没有 systemd 的发行版（elogind 等）用 loginctl。
-        ("loginctl", vec!["reboot"]),
-    ]
+fn power_attempts(action: PowerAction) -> Vec<PowerAttempt> {
+    match action {
+        PowerAction::Reboot => vec![
+            attempt("systemctl", &["reboot"], false),
+            // 没有 systemd 的发行版（elogind 等）用 loginctl。
+            attempt("loginctl", &["reboot"], false),
+        ],
+        PowerAction::Shutdown => vec![
+            attempt("systemctl", &["poweroff"], false),
+            attempt("loginctl", &["poweroff"], false),
+        ],
+        PowerAction::Sleep => vec![
+            attempt("systemctl", &["suspend"], false),
+            attempt("loginctl", &["suspend"], false),
+        ],
+    }
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-fn restart_attempts() -> Vec<(&'static str, Vec<&'static str>)> {
-    vec![("shutdown", vec!["/r", "/t", "0"])]
+fn power_attempts(action: PowerAction) -> Vec<PowerAttempt> {
+    match action {
+        PowerAction::Reboot => vec![attempt("shutdown", &["/r", "/t", "0"], false)],
+        PowerAction::Shutdown => vec![attempt("shutdown", &["/s", "/t", "0"], false)],
+        // 系统启用休眠时 Windows 会休眠而不是睡眠：只读预检会如实说明（Q10′ 方案 C）
+        PowerAction::Sleep => vec![attempt(
+            "rundll32.exe",
+            &["powrprof.dll,SetSuspendState", "0,1,0"],
+            false,
+        )],
+    }
 }
 
 /// 需要管理员权限时的等价命令：Linux 用 pkexec 弹图形授权框。
 /// 其他平台没有额外方案（macOS 的候选命令本身就是提权的）。
-fn escalate_restart(program: &str, args: &[&str]) -> Option<(&'static str, Vec<String>)> {
+fn escalate_power(attempt: &PowerAttempt, allow_gui_auth: bool) -> Option<PowerAttempt> {
     #[cfg(target_os = "linux")]
     {
-        if is_root() {
+        if is_root() || attempt.needs_gui_auth || !allow_gui_auth {
             return None;
         }
-        let mut escalated = Vec::with_capacity(args.len() + 1);
-        escalated.push(program.to_string());
-        escalated.extend(args.iter().map(|arg| arg.to_string()));
-        Some(("pkexec", escalated))
+        let mut args = Vec::with_capacity(attempt.args.len() + 1);
+        args.push(attempt.program.to_string());
+        args.extend(attempt.args.iter().cloned());
+        Some(PowerAttempt {
+            program: "pkexec",
+            args,
+            needs_gui_auth: true,
+        })
     }
     #[cfg(not(target_os = "linux"))]
     {
-        let _ = (program, args);
+        let _ = (attempt, allow_gui_auth);
         None
     }
 }
 
-fn run_restart_command(program: &str, args: &[&str]) -> RestartAttemptOutcome {
-    let display = format!("{program} {}", args.join(" "));
+/// 真的去执行一条候选命令（dry-run 时不会走到这里）。
+fn run_power_command(program: &str, args: &[String]) -> PowerAttemptOutcome {
+    let display = render_command(program, args);
     match Command::new(program).args(args).output() {
-        Ok(output) if output.status.success() => RestartAttemptOutcome::Success,
+        Ok(output) if output.status.success() => PowerAttemptOutcome::Success,
         Ok(output) => {
             let code = output
                 .status
@@ -1830,108 +3856,308 @@ fn run_restart_command(program: &str, args: &[&str]) -> RestartAttemptOutcome {
                 .collect::<Vec<_>>()
                 .join(" ");
             if detail.is_empty() {
-                RestartAttemptOutcome::Failed(format!("{display} 失败（退出码 {code}）"))
+                PowerAttemptOutcome::Failed(format!("{display} 失败（退出码 {code}）"))
             } else {
-                RestartAttemptOutcome::Failed(format!("{display} 失败（退出码 {code}）：{detail}"))
+                PowerAttemptOutcome::Failed(format!("{display} 失败（退出码 {code}）：{detail}"))
             }
         }
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            RestartAttemptOutcome::Missing(format!("{display}：{error}"))
+            PowerAttemptOutcome::Missing(format!("{display}：{error}"))
         }
-        Err(error) => RestartAttemptOutcome::Failed(format!("{display} 无法执行: {error}")),
+        Err(error) => PowerAttemptOutcome::Failed(format!("{display} 无法执行: {error}")),
     }
 }
 
-fn run_restart() -> Result<(), String> {
+/// 一次电源动作的执行回执。
+#[derive(Clone, Debug)]
+struct PowerReport {
+    /// dry-run：只列出「将会执行」的命令，没有真的执行
+    dry_run: bool,
+    /// 实际尝试过的命令（dry-run 时是将会执行的命令）
+    commands: Vec<String>,
+}
+
+/// dry-run 探针：`REFIND_SWITCHER_POWER_DRY_RUN=1` 时只打印不执行。
+///
+/// 本机验证电源动作不能真的把机器关掉，这个开关让「三端命令表 + 置灰 + 回执」
+/// 全部可以反复自动验证。
+fn power_dry_run() -> bool {
+    env_flag_from(
+        std::env::var("REFIND_SWITCHER_POWER_DRY_RUN")
+            .ok()
+            .as_deref(),
+    )
+    .unwrap_or(false)
+}
+
+/// 只渲染「将会执行」的命令清单（dry-run 与日志共用，不执行任何东西）。
+fn plan_commands(attempts: &[PowerAttempt], allow_gui_auth: bool) -> Vec<String> {
+    let mut plan = Vec::new();
+    for candidate in attempts {
+        if candidate.needs_gui_auth && !allow_gui_auth {
+            plan.push(format!(
+                "{}（需要本机授权，远程/CLI 会跳过）",
+                candidate.command()
+            ));
+            continue;
+        }
+        plan.push(candidate.command());
+        if let Some(escalated) = escalate_power(candidate, allow_gui_auth) {
+            plan.push(format!(
+                "{}（仅当上一条因权限失败时才用）",
+                escalated.command()
+            ));
+        }
+    }
+    plan
+}
+
+/// 执行电源动作。
+///
+/// dry-run 时只回传命令清单；真跑时按候选表顺序尝试，沿用既有安全约定——
+/// **只有「命令不存在」才换下一条候选**，命令能跑但失败时要么提权重试、要么停手。
+fn run_power_action(
+    action: PowerAction,
+    allow_gui_auth: bool,
+    dry_run: bool,
+) -> Result<PowerReport, String> {
+    let attempts = power_attempts(action);
+    if dry_run {
+        return Ok(PowerReport {
+            dry_run: true,
+            commands: plan_commands(&attempts, allow_gui_auth),
+        });
+    }
+
     let mut failures = Vec::new();
-    for (program, args) in restart_attempts() {
-        let outcome = run_restart_command(program, &args);
-        let escalation = escalate_restart(program, &args);
-        match next_restart_step(&outcome, escalation.is_some()) {
-            RestartStep::Done => {
-                eprintln!("已通过 {program} 提交重启");
-                return Ok(());
+    let mut commands = Vec::new();
+    for candidate in attempts {
+        if candidate.needs_gui_auth && !allow_gui_auth {
+            failures.push(format!("{}（需要本机授权，已跳过）", candidate.command()));
+            continue;
+        }
+        let outcome = run_power_command(&candidate.program, &candidate.args);
+        commands.push(candidate.command());
+        let escalation = escalate_power(&candidate, allow_gui_auth);
+        match next_power_step(&outcome, escalation.is_some()) {
+            PowerStep::Done => {
+                return Ok(PowerReport {
+                    dry_run: false,
+                    commands,
+                })
             }
-            RestartStep::Next => {
+            PowerStep::Next => {
                 failures.push(outcome.describe());
                 continue;
             }
-            RestartStep::Escalate => {
-                let Some((escalated_program, escalated_args)) = escalation else {
-                    return Err(format!("重启失败：{}", outcome.describe()));
+            PowerStep::Escalate => {
+                let Some(escalated) = escalation else {
+                    return Err(format!("{}失败：{}", action.label(), outcome.describe()));
                 };
-                let escalated_args = escalated_args
-                    .iter()
-                    .map(String::as_str)
-                    .collect::<Vec<_>>();
-                return match run_restart_command(escalated_program, &escalated_args) {
-                    RestartAttemptOutcome::Success => {
-                        eprintln!("已通过 {escalated_program} 提交重启");
-                        Ok(())
-                    }
+                let escalated_outcome = run_power_command(&escalated.program, &escalated.args);
+                commands.push(escalated.command());
+                return match escalated_outcome {
+                    PowerAttemptOutcome::Success => Ok(PowerReport {
+                        dry_run: false,
+                        commands,
+                    }),
                     other => Err(format!(
-                        "重启需要管理员授权，提权未完成：{}",
+                        "{}需要管理员授权，提权未完成：{}",
+                        action.label(),
                         other.describe()
                     )),
                 };
             }
-            RestartStep::Stop => {
+            PowerStep::Stop => {
                 return Err(format!(
-                    "重启失败：{}（可能是没有权限或取消了授权）",
+                    "{}失败：{}（可能是没有权限或取消了授权）",
+                    action.label(),
                     outcome.describe()
                 ))
             }
         }
     }
     Err(format!(
-        "没有可用的重启命令（已尝试：{}）",
+        "没有可用的{}命令（已尝试：{}）",
+        action.label(),
         failures.join("；")
     ))
 }
 
-/// 后台重启，并把结果推给主窗口。
+/// Windows 休眠是否启用（Q10′ 方案 C 的只读预检结论）。
+#[cfg(any(target_os = "windows", test))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HibernationState {
+    /// 休眠已启用 → Windows 会把「睡眠」变成休眠
+    Enabled,
+    /// 休眠已关闭 → 「睡眠」会真的进入睡眠（S3）
+    Disabled,
+    /// 读不到也说不出，按未知处理（不猜）
+    Unknown,
+}
+
+/// 纯函数：从 `powercfg /a` 的原文判断休眠是否启用（中英文都认）。
+#[cfg(any(target_os = "windows", test))]
+fn hibernation_from_powercfg_output(raw: &str) -> HibernationState {
+    if raw.contains("尚未启用休眠") {
+        return HibernationState::Disabled;
+    }
+    let lowered = raw.to_ascii_lowercase();
+    if lowered.contains("hibernate") {
+        if lowered.contains("not available") || lowered.contains("not enabled") {
+            return HibernationState::Disabled;
+        }
+        return HibernationState::Enabled;
+    }
+    if raw.contains("休眠") {
+        // 只提到「休眠」但没说「尚未启用」：保守按「会休眠」提示
+        return HibernationState::Enabled;
+    }
+    HibernationState::Unknown
+}
+
+/// 读注册表 `HKLM\SYSTEM\...\Control\Power\HibernateEnabled`（语言无关）。
+#[cfg(target_os = "windows")]
+fn read_hibernate_enabled_registry() -> Option<bool> {
+    use winreg::enums::HKEY_LOCAL_MACHINE;
+    use winreg::RegKey;
+
+    let key = RegKey::predef(HKEY_LOCAL_MACHINE)
+        .open_subkey(r"SYSTEM\CurrentControlSet\Control\Power")
+        .ok()?;
+    let value: u32 = key.get_value("HibernateEnabled").ok()?;
+    Some(value != 0)
+}
+
+/// 睡眠之前做一次只读预检，返回「给用户看的一句话」+「证据（写进 trace）」。
+fn sleep_probe() -> (Option<String>, Vec<String>) {
+    #[cfg(target_os = "windows")]
+    {
+        let mut evidence = Vec::new();
+        let state = match read_hibernate_enabled_registry() {
+            Some(enabled) => {
+                evidence.push(format!("注册表 HibernateEnabled={}", u8::from(enabled)));
+                if enabled {
+                    HibernationState::Enabled
+                } else {
+                    HibernationState::Disabled
+                }
+            }
+            None => {
+                evidence.push("注册表 HibernateEnabled 读取失败，改用 powercfg /a".to_string());
+                match Command::new("powercfg").arg("/a").output() {
+                    Ok(output) => {
+                        let raw = String::from_utf8_lossy(&output.stdout).to_string();
+                        evidence.push(format!(
+                            "powercfg /a 原文: {}",
+                            raw.replace(['\r', '\n'], " ").trim()
+                        ));
+                        hibernation_from_powercfg_output(&raw)
+                    }
+                    Err(error) => {
+                        evidence.push(format!("powercfg /a 无法执行: {error}"));
+                        HibernationState::Unknown
+                    }
+                }
+            }
+        };
+        let note = match state {
+            HibernationState::Enabled => {
+                "注意：系统启用了休眠，Windows 会把这次「睡眠」变成休眠（要真睡眠先执行 powercfg /hibernate off）"
+                    .to_string()
+            }
+            HibernationState::Disabled => "本次会进入睡眠（S3）".to_string(),
+            HibernationState::Unknown => {
+                "未能判定这次是睡眠还是休眠，见 trace 里 powercfg /a 的原文".to_string()
+            }
+        };
+        (Some(note), evidence)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        (None, Vec::new())
+    }
+}
+
+/// 后台执行电源动作，结果写进快照推给主窗口。
 ///
-/// 提权弹窗可能停很久，所以不能在命令线程里同步跑；同时用原子标志避免
-/// 连点两次提交两个重启请求。
-fn spawn_restart(app: &AppHandle) {
-    static RESTARTING: AtomicBool = AtomicBool::new(false);
-    if RESTARTING.swap(true, Ordering::SeqCst) {
-        eprintln!("已有重启请求在处理中，忽略重复点击");
+/// 提权弹窗可能停很久，所以不能在命令线程里同步跑；重复请求由 busy.power 挡掉
+/// （托盘项和主窗口按钮会按同一份 busy 同时置灰）。
+///
+/// `allow_gui_auth`：本机点击传 true（可以弹系统授权框）；阶段 3 的 HTTP 与
+/// 阶段 5 的 CLI 传 false（Q3：远程不弹本机授权框，直接说明原因）。
+fn spawn_power(app: &AppHandle, action: PowerAction, allow_gui_auth: bool) {
+    if !try_begin_power(app, action.as_str()) {
         return;
     }
+    trace(
+        app,
+        "power",
+        &format!(
+            "开始执行 {}（dry_run={} allow_gui_auth={}）",
+            action.as_str(),
+            power_dry_run(),
+            allow_gui_auth
+        ),
+    );
+    // 睡眠前做只读预检：Windows 上判断这次是真睡眠（S3）还是会变成休眠（Q10′ 方案 C）
+    let (note, evidence) = if action == PowerAction::Sleep {
+        sleep_probe()
+    } else {
+        (None, Vec::new())
+    };
+    for line in &evidence {
+        trace(app, "power", line);
+    }
+
+    let dry_run = power_dry_run();
     let app = app.clone();
-    std::thread::spawn(move || {
-        let result = run_restart();
-        match result {
-            Ok(()) => {
-                let _ = app.emit(
-                    RESTART_RESULT_EVENT,
-                    RestartResult {
-                        ok: true,
-                        message: "已提交重启，系统即将重启".to_string(),
-                    },
+    std::thread::spawn(
+        move || match run_power_action(action, allow_gui_auth, dry_run) {
+            Ok(report) => {
+                let message = if report.dry_run {
+                    format!(
+                        "dry-run：未真的执行，将按顺序尝试 {}",
+                        report.commands.join(" → ")
+                    )
+                } else if let Some(note) = &note {
+                    format!("{}（{note}）", action.submitted_message())
+                } else {
+                    action.submitted_message().to_string()
+                };
+                trace(
+                    &app,
+                    "power",
+                    &format!(
+                        "{} 成功 dry_run={} commands={:?}",
+                        action.as_str(),
+                        report.dry_run,
+                        report.commands
+                    ),
                 );
+                record_action(&app, action.label(), true, &message);
+                if report.dry_run {
+                    // dry-run 没真的执行：立刻解除 busy，方便继续验证
+                    finish_power(&app);
+                } else {
+                    // 成功时系统马上就没了：保留 busy，避免用户再点一次。
+                    publish_ui(&app);
+                }
             }
             Err(error) => {
-                eprintln!("重启失败: {error}");
-                // 成功时系统马上就不在了，失败时允许再点一次。
-                RESTARTING.store(false, Ordering::SeqCst);
-                let _ = app.emit(
-                    RESTART_RESULT_EVENT,
-                    RestartResult {
-                        ok: false,
-                        message: error.clone(),
-                    },
-                );
+                trace(&app, "power", &format!("{} 失败: {error}", action.as_str()));
+                record_action(&app, action.label(), false, &error);
+                // 失败时解除 busy，允许再试一次（finish_power 内部会发布快照）
+                finish_power(&app);
                 // 从托盘触发时主窗口可能没打开，显示出来让用户看到失败原因。
                 // 窗口/激活策略属于 AppKit 主线程操作，这里显式切回主线程。
                 let window_app = app.clone();
                 if let Err(error) = app.run_on_main_thread(move || show_main_window(&window_app)) {
-                    eprintln!("显示主窗口失败: {error}");
+                    trace(&app, "power", &format!("显示主窗口失败: {error}"));
                 }
             }
-        }
-    });
+        },
+    );
 }
 
 fn apply_dock_taskbar_visibility(app: &AppHandle, hide: bool) -> Result<(), String> {
@@ -1958,11 +4184,13 @@ fn current_status(app: AppHandle) -> AppStatus {
 
 #[tauri::command]
 fn refresh(app: AppHandle) -> AppStatus {
+    trace(&app, "command", "refresh（主窗口）");
     refresh_and_update(&app)
 }
 
 #[tauri::command]
 fn set_vars_dir(app: AppHandle, path: Option<String>) -> AppStatus {
+    trace(&app, "command", &format!("set_vars_dir path={:?}", path));
     let directory = path
         .filter(|path| !path.trim().is_empty())
         .map(PathBuf::from);
@@ -1976,6 +4204,11 @@ fn set_vars_dir(app: AppHandle, path: Option<String>) -> AppStatus {
 
 #[tauri::command]
 fn switch_system(app: AppHandle, system: String) -> AppStatus {
+    trace(
+        &app,
+        "command",
+        &format!("switch_system system={system}（主窗口）"),
+    );
     switch_and_update(&app, &system)
 }
 
@@ -1984,13 +4217,44 @@ fn get_settings(app: AppHandle) -> SettingsView {
     view_settings(&app)
 }
 
+/// 主窗口首次加载用：拿一份完整快照（含 revision）。
+#[tauri::command]
+fn get_ui_state(app: AppHandle) -> UiState {
+    trace(&app, "command", "get_ui_state（主窗口）");
+    ui_state(&app)
+}
+
 #[tauri::command]
 fn set_autostart(app: AppHandle, enabled: bool) -> Result<SettingsView, String> {
-    let state = autostart_set(&app, enabled)?;
-    let mut settings = stored_settings(&app);
-    settings.autostart = state.is_on();
-    save_settings(&app, &settings)?;
-    Ok(publish_settings(&app))
+    trace(
+        &app,
+        "command",
+        &format!("set_autostart enabled={enabled}（主窗口）"),
+    );
+    match autostart_set(&app, enabled) {
+        Ok(state) => {
+            let mut settings = stored_settings(&app);
+            settings.autostart = state.is_on();
+            save_settings(&app, &settings)?;
+            record_action(
+                &app,
+                "开机启动",
+                true,
+                if state.is_on() {
+                    "已开启开机启动"
+                } else {
+                    "已关闭开机启动"
+                },
+            );
+            Ok(publish_settings(&app))
+        }
+        Err(error) => {
+            // 失败也要发布一次：界面必须显示系统里的真实状态和提示
+            record_action(&app, "开机启动", false, &error);
+            publish_settings(&app);
+            Err(error)
+        }
+    }
 }
 
 #[tauri::command]
@@ -2009,6 +4273,11 @@ fn open_login_items_settings(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 fn set_close_action(app: AppHandle, action: String) -> Result<SettingsView, String> {
+    trace(
+        &app,
+        "command",
+        &format!("set_close_action action={action}（主窗口）"),
+    );
     let Some(close_action) = CloseAction::parse(action.trim()) else {
         return Err(format!("未知的关闭行为: {action}"));
     };
@@ -2020,6 +4289,11 @@ fn set_close_action(app: AppHandle, action: String) -> Result<SettingsView, Stri
 
 #[tauri::command]
 fn set_start_in_tray(app: AppHandle, enabled: bool) -> Result<SettingsView, String> {
+    trace(
+        &app,
+        "command",
+        &format!("set_start_in_tray enabled={enabled}（主窗口）"),
+    );
     let mut settings = stored_settings(&app);
     settings.start_in_tray = enabled;
     save_settings(&app, &settings)?;
@@ -2028,23 +4302,278 @@ fn set_start_in_tray(app: AppHandle, enabled: bool) -> Result<SettingsView, Stri
 
 #[tauri::command]
 fn set_hide_from_dock_taskbar(app: AppHandle, enabled: bool) -> Result<SettingsView, String> {
-    let mut settings = stored_settings(&app);
+    trace(
+        &app,
+        "command",
+        &format!("set_hide_from_dock_taskbar enabled={enabled}（主窗口）"),
+    );
+    let previous = stored_settings(&app);
+    let mut settings = previous.clone();
     settings.hide_from_dock_taskbar = enabled;
     save_settings(&app, &settings)?;
-    apply_dock_taskbar_visibility(&app, enabled)?;
+    if let Err(error) = apply_dock_taskbar_visibility(&app, enabled) {
+        // 回滚（阶段 1 修 D5）：不能让设置文件显示“已生效”而系统没变
+        let _ = save_settings(&app, &previous);
+        record_action(
+            &app,
+            "隐藏程序（任务栏/Dock）",
+            false,
+            &format!("{error}（已回滚为原值）"),
+        );
+        publish_settings(&app);
+        return Err(error);
+    }
+    record_action(
+        &app,
+        "隐藏程序（任务栏/Dock）",
+        true,
+        if enabled {
+            "已设置：不在任务栏/Dock 显示"
+        } else {
+            "已设置：在任务栏/Dock 显示"
+        },
+    );
     Ok(publish_settings(&app))
 }
 
-/// 重启系统。提权弹窗可能等很久，所以立刻返回，结果通过事件推送。
+/// 重启系统（兼容旧前端调用）。提权弹窗可能等很久，所以立刻返回，结果通过事件推送。
 #[tauri::command]
 fn restart_system(app: AppHandle) {
-    spawn_restart(&app);
+    trace(&app, "command", "restart_system（主窗口）");
+    spawn_power(&app, PowerAction::Reboot, true);
+}
+
+/// 执行电源动作：`reboot`（缺省）/ `shutdown` / `sleep`。
+#[tauri::command]
+fn set_http_enabled(app: AppHandle, enabled: bool) -> Result<SettingsView, String> {
+    trace(
+        &app,
+        "command",
+        &format!("set_http_enabled enabled={enabled}（主窗口）"),
+    );
+    update_settings_and_publish(
+        &app,
+        "HTTP 服务",
+        if enabled { "已开启" } else { "已关闭" },
+        |settings| settings.http_enabled = enabled,
+        apply_http_config,
+    )
+}
+
+#[tauri::command]
+fn set_http_bind(app: AppHandle, bind: String) -> Result<SettingsView, String> {
+    let bind = bind.trim().to_string();
+    if bind.is_empty() {
+        return Err("监听地址不能为空（用 0.0.0.0 或 127.0.0.1）".to_string());
+    }
+    trace(
+        &app,
+        "command",
+        &format!("set_http_bind bind={bind}（主窗口）"),
+    );
+    update_settings_and_publish(
+        &app,
+        "监听地址",
+        &format!("已设为 {bind}"),
+        |settings| settings.http_bind = bind,
+        apply_http_config,
+    )
+}
+
+#[tauri::command]
+fn set_http_port(app: AppHandle, port: u16) -> Result<SettingsView, String> {
+    if port == 0 {
+        return Err("端口不能用 0".to_string());
+    }
+    trace(
+        &app,
+        "command",
+        &format!("set_http_port port={port}（主窗口）"),
+    );
+    update_settings_and_publish(
+        &app,
+        "端口",
+        &format!("已设为 {port}"),
+        |settings| settings.http_port = port,
+        apply_http_config,
+    )
+}
+
+#[tauri::command]
+fn set_remote_allow_gui_auth(app: AppHandle, enabled: bool) -> Result<SettingsView, String> {
+    trace(
+        &app,
+        "command",
+        &format!("set_remote_allow_gui_auth enabled={enabled}（主窗口）"),
+    );
+    update_settings_and_publish(
+        &app,
+        "远程触发本机授权框",
+        if enabled {
+            "已允许（远程可能弹本机授权框，需要有人在机器前点确认）"
+        } else {
+            "已禁止（远程遇到需授权的操作会直接说明原因）"
+        },
+        |settings| settings.remote_allow_gui_auth = enabled,
+        |_app| {},
+    )
+}
+
+#[tauri::command]
+fn set_notify_enabled(app: AppHandle, enabled: bool) -> Result<SettingsView, String> {
+    trace(
+        &app,
+        "command",
+        &format!("set_notify_enabled enabled={enabled}（主窗口）"),
+    );
+    update_settings_and_publish(
+        &app,
+        "远程请求通知",
+        if enabled {
+            "已开启"
+        } else {
+            "已关闭（有远程请求时只在主窗口显示，不再弹窗）"
+        },
+        |settings| settings.notify_enabled = enabled,
+        |_app| {},
+    )
+}
+
+#[tauri::command]
+fn set_channel_notify(
+    app: AppHandle,
+    channel: String,
+    notify: bool,
+) -> Result<SettingsView, String> {
+    let Some(channel) = Channel::parse(&channel) else {
+        return Err(format!("未知渠道: {channel}（http / cli）"));
+    };
+    trace(
+        &app,
+        "command",
+        &format!(
+            "set_channel_notify channel={} notify={notify}（主窗口）",
+            channel.as_str()
+        ),
+    );
+    update_settings_and_publish(
+        &app,
+        "渠道通知",
+        &format!(
+            "{} 渠道：{}",
+            channel.label(),
+            if notify {
+                "已开启弹窗"
+            } else {
+                "已关闭弹窗"
+            }
+        ),
+        |settings| settings.channels.for_channel_mut(channel).notify = notify,
+        |_app| {},
+    )
+}
+
+#[tauri::command]
+fn set_channel_delay(
+    app: AppHandle,
+    channel: String,
+    seconds: u32,
+) -> Result<SettingsView, String> {
+    let Some(channel) = Channel::parse(&channel) else {
+        return Err(format!("未知渠道: {channel}（http / cli）"));
+    };
+    let seconds = seconds.min(MAX_DELAY_SECONDS);
+    trace(
+        &app,
+        "command",
+        &format!(
+            "set_channel_delay channel={} seconds={seconds}（主窗口）",
+            channel.as_str()
+        ),
+    );
+    update_settings_and_publish(
+        &app,
+        "渠道延迟",
+        &format!(
+            "{} 渠道：{}",
+            channel.label(),
+            if seconds == 0 {
+                "立即执行".to_string()
+            } else {
+                format!("{seconds} 秒后执行（期间可取消）")
+            }
+        ),
+        |settings| settings.channels.for_channel_mut(channel).delay_seconds = seconds,
+        |_app| {},
+    )
+}
+
+/// 重新生成 token：旧 token 立即失效（服务会按新 token 重建）。
+#[tauri::command]
+fn regenerate_http_token(app: AppHandle) -> Result<String, String> {
+    trace(&app, "command", "regenerate_http_token（主窗口）");
+    let token = generate_token();
+    let replace = token.clone();
+    update_settings_and_publish(
+        &app,
+        "访问令牌",
+        "已重新生成（旧 token 立即失效）",
+        move |settings| settings.http_token = replace,
+        apply_http_config,
+    )?;
+    Ok(token)
+}
+
+/// 明文 token：只由用户点「显示」时取，快照里始终是打码版本。
+#[tauri::command]
+fn reveal_http_token(app: AppHandle) -> String {
+    trace(&app, "command", "reveal_http_token（主窗口）");
+    stored_settings(&app).http_token
+}
+
+/// 可直接复制的调用示例（含本机 IP 与 token）。
+#[tauri::command]
+fn http_access_hint(app: AppHandle) -> String {
+    trace(&app, "command", "http_access_hint（主窗口）");
+    http_access_hint_text(&app)
+}
+
+#[tauri::command]
+fn confirm_pending(app: AppHandle) -> Result<(), String> {
+    trace(&app, "command", "confirm_pending（本机立即执行）");
+    confirm_pending_now(&app)
+}
+
+#[tauri::command]
+fn cancel_pending(app: AppHandle) -> Result<(), String> {
+    trace(&app, "command", "cancel_pending（本机取消）");
+    cancel_pending_now(&app)
+}
+
+#[tauri::command]
+fn power_action(app: AppHandle, action: Option<String>) -> Result<(), String> {
+    let parsed = match action.as_deref().map(str::trim) {
+        None | Some("") => PowerAction::default(),
+        Some(value) => PowerAction::parse(value)
+            .ok_or_else(|| format!("未知的电源动作: {value}（可用 reboot/shutdown/sleep）"))?,
+    };
+    trace(
+        &app,
+        "command",
+        &format!("power_action {}（主窗口）", parsed.as_str()),
+    );
+    spawn_power(&app, parsed, true);
+    Ok(())
 }
 
 pub fn run() {
     tauri::Builder::default()
         .manage(Mutex::<AppState>::default())
         .manage(Mutex::<Settings>::default())
+        // busy / 最近动作 / 菜单内容指纹：都只由 publish_ui 与托盘动作读写
+        .manage(Mutex::<BusyState>::default())
+        .manage(Mutex::<Option<ActionResult>>::default())
+        .manage(Mutex::<Option<String>>::default())
         // macOS 13+ 走系统登录项（见 login_item），这里的 LaunchAgent 方式仅作为
         // 旧版 macOS 以及 Windows / Linux 的实现。
         .plugin(tauri_plugin_autostart::init(
@@ -2055,6 +4584,18 @@ pub fn run() {
             let tauri::WindowEvent::CloseRequested { api, .. } = event else {
                 return;
             };
+            // 通知弹窗：关掉窗口 = 取消这次待执行请求（安全默认，误关不会把机器关掉）
+            if window.label() == NOTIFY_WINDOW_LABEL {
+                // 只有「槽位里确实还有待执行请求」才算用户取消；
+                // 执行完成/到点自动关窗时槽位已经空了，那不是用户操作，不必记一条。
+                if pending_snapshot().is_some() {
+                    let app = window.app_handle().clone();
+                    if let Err(error) = cancel_pending_now(&app) {
+                        trace(&app, "notify", &format!("关闭弹窗时没能取消: {error}"));
+                    }
+                }
+                return;
+            }
             if window.label() != MAIN_WINDOW_LABEL {
                 return;
             }
@@ -2078,6 +4619,23 @@ pub fn run() {
             let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             startup_autostart_sync(app.handle());
             view_settings(app.handle());
+            // 调试/沙箱：把变量目录指到别处，验证时不会碰真实的 ESP
+            if let Ok(directory) = std::env::var("REFIND_SWITCHER_VARS_DIR") {
+                let directory = directory.trim().to_string();
+                if !directory.is_empty() {
+                    let state = app.state::<Mutex<AppState>>();
+                    let mut state = state.lock().expect("state mutex poisoned");
+                    state.explicit_dir = Some(PathBuf::from(directory.clone()));
+                    drop(state);
+                    trace(
+                        app.handle(),
+                        "scan",
+                        &format!("变量目录由环境变量指定: {directory}"),
+                    );
+                }
+            }
+            // 首次运行/升级：写回完整设置（含自动生成的 token），默认值一眼可见
+            ensure_settings_complete(app.handle());
             let hide_from_dock_taskbar = stored_settings(app.handle()).hide_from_dock_taskbar;
             let start_in_tray = stored_settings(app.handle()).start_in_tray;
             #[cfg(target_os = "macos")]
@@ -2096,12 +4654,18 @@ pub fn run() {
                 show_main_window(app.handle());
             }
 
-            let status =
-                MenuItem::with_id(app.handle(), "status", "正在扫描…", false, None::<&str>)?;
-            let show = MenuItem::with_id(app.handle(), "show", "显示主窗口", true, None::<&str>)?;
-            let refresh = MenuItem::with_id(app.handle(), "refresh", "扫描", true, None::<&str>)?;
-            let quit = MenuItem::with_id(app.handle(), "quit", "退出", true, None::<&str>)?;
-            let menu = Menu::with_items(app.handle(), &[&status, &show, &refresh, &quit])?;
+            // 第一帧就用完整菜单（系统项 / 应用设置 / 电源项都在），
+            // 不再让用户在冷启动扫描期间看到一个残缺菜单（阶段 1 修 D2）。
+            {
+                // 状态行先占位，和以前写死的「正在扫描…」一致；随后的首次扫描会覆盖它
+                let state = app.state::<Mutex<AppState>>();
+                let mut state = state.lock().expect("state mutex poisoned");
+                state.message = "正在扫描…".to_string();
+            }
+            let initial_state = ui_state(app.handle());
+            let menu = build_tray_menu(app.handle(), &initial_state)?;
+            // 预热菜单指纹：这一帧就是当前内容，别让紧接着的首次扫描白重建一次菜单
+            remember_menu_signature(app.handle(), menu_signature_for(&initial_state));
 
             let _tray = TrayIconBuilder::with_id("main")
                 .icon(create_tray_image())
@@ -2119,20 +4683,20 @@ pub fn run() {
                     }
                 })
                 .on_menu_event(|app, event| {
-                    let action = event.id().as_ref().to_string();
-                    if action == "show" {
-                        show_main_window(app);
-                        return;
-                    }
-                    spawn_menu_action(app, &action);
+                    handle_menu_event(app, event.id().as_ref());
                 })
                 .build(app.handle())?;
+
+            // HTTP 服务与待执行请求的调度线程（托盘已就绪，publish_ui 能刷菜单）
+            apply_http_config(app.handle());
+            spawn_notify_scheduler(app.handle());
 
             let app_handle = app.handle().clone();
             std::thread::spawn(move || refresh_and_update(&app_handle));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            get_ui_state,
             current_status,
             refresh,
             set_vars_dir,
@@ -2144,7 +4708,20 @@ pub fn run() {
             set_close_action,
             set_start_in_tray,
             set_hide_from_dock_taskbar,
-            restart_system
+            restart_system,
+            power_action,
+            set_http_enabled,
+            set_http_bind,
+            set_http_port,
+            set_remote_allow_gui_auth,
+            set_notify_enabled,
+            set_channel_notify,
+            set_channel_delay,
+            regenerate_http_token,
+            reveal_http_token,
+            http_access_hint,
+            confirm_pending,
+            cancel_pending
         ])
         .run(tauri::generate_context!())
         .expect("failed to run rEFInd Switcher");
@@ -2247,41 +4824,14 @@ mod tests {
         assert!(hint.contains("兼容方式"), "实际提示: {hint}");
     }
 
-    #[test]
-    fn restart_attempt_chain_stops_after_cancelled_authorization() {
-        use RestartAttemptOutcome::{Failed, Missing, Success};
-
-        // 命令执行成功：结束。
-        assert_eq!(next_restart_step(&Success, true), RestartStep::Done);
-        // 系统里没有这个命令：换下一个候选（例如没有 systemd 的发行版）。
-        assert_eq!(
-            next_restart_step(&Missing("没有 systemctl".to_string()), true),
-            RestartStep::Next
-        );
-        // 权限不足且还有提权方案：用 pkexec 重试。
-        assert_eq!(
-            next_restart_step(
-                &Failed("Interactive authentication required".to_string()),
-                true
-            ),
-            RestartStep::Escalate
-        );
-        // 提权也失败了（多半是用户取消授权）：停手，
-        // 不能“取消授权之后换个方式照样把机器重启了”。
-        assert_eq!(
-            next_restart_step(&Failed("Request dismissed".to_string()), false),
-            RestartStep::Stop
-        );
-    }
-
     #[cfg(target_os = "macos")]
     #[test]
-    fn macos_restart_uses_administrator_privileges() {
-        let attempts = restart_attempts();
-        assert_eq!(attempts.len(), 1, "macOS 只走一条提权路径");
-        let (program, args) = &attempts[0];
-        assert_eq!(*program, "osascript");
-        let script = args.join(" ");
+    fn macos_power_table_uses_administrator_privileges() {
+        let reboot = power_attempts(PowerAction::Reboot);
+        assert_eq!(reboot.len(), 1, "macOS 重启只走一条提权路径");
+        assert_eq!(reboot[0].program, "osascript");
+        assert!(reboot[0].needs_gui_auth);
+        let script = reboot[0].args.join(" ");
         assert!(
             script.contains("administrator privileges"),
             "实际脚本: {script}"
@@ -2291,25 +4841,45 @@ mod tests {
             "实际脚本: {script}"
         );
         // 候选命令本身就带管理员授权，不需要再提权一层。
-        assert!(escalate_restart(program, args.as_slice()).is_none());
+        assert!(escalate_power(&reboot[0], true).is_none());
+
+        // 关机同理
+        let shutdown = power_attempts(PowerAction::Shutdown);
+        assert!(shutdown[0].args.join(" ").contains("/sbin/shutdown -h now"));
+
+        // 睡眠：先走免 root 的 System Events，再试免密 sudo，最后才是管理员授权兜底
+        let sleep = power_attempts(PowerAction::Sleep);
+        assert_eq!(sleep.len(), 3);
+        assert!(
+            !sleep[0].needs_gui_auth && sleep[0].args.join(" ").contains("System Events"),
+            "第一条不该弹管理员授权框"
+        );
+        assert_eq!(sleep[1].program, "sudo");
+        assert!(!sleep[1].needs_gui_auth, "sudo -n 不会弹密码框");
+        assert!(sleep[2].needs_gui_auth, "最后一条才是管理员授权兜底");
     }
 
     #[test]
-    fn restart_command_runner_classifies_results() {
+    fn power_command_runner_classifies_results() {
         // 真的去执行进程，验证成功/找不到命令/失败三种判定和 stderr 捕获。
         assert_eq!(
-            run_restart_command("/usr/bin/true", &[]),
-            RestartAttemptOutcome::Success
+            run_power_command("/usr/bin/true", &[]),
+            PowerAttemptOutcome::Success
         );
         assert!(matches!(
-            run_restart_command("/nonexistent-restart-binary", &[]),
-            RestartAttemptOutcome::Missing(_)
+            run_power_command("/nonexistent-power-binary", &[]),
+            PowerAttemptOutcome::Missing(_)
         ));
 
         // 模拟“用户取消授权”：退出码非零 + stderr 说明，必须归类为失败并带上原因。
-        let outcome =
-            run_restart_command("/bin/sh", &["-c", "echo 'Request dismissed' >&2; exit 126"]);
-        assert!(matches!(outcome, RestartAttemptOutcome::Failed(_)));
+        let outcome = run_power_command(
+            "/bin/sh",
+            &["-c", "echo 'Request dismissed' >&2; exit 126"]
+                .iter()
+                .map(|value| value.to_string())
+                .collect::<Vec<_>>(),
+        );
+        assert!(matches!(outcome, PowerAttemptOutcome::Failed(_)));
         let description = outcome.describe();
         assert!(description.contains("126"), "应带退出码: {description}");
         assert!(
@@ -2317,24 +4887,864 @@ mod tests {
             "应带 stderr: {description}"
         );
     }
+}
+
+/// 与平台无关的核心单测：Windows / Linux / macOS 上 `cargo test` 都会跑。
+///
+/// 原 `tests` 模块整体挂在 `target_os = "macos"` 下，导致 Windows/Linux 上
+/// `cargo test` 一条用例都不跑；阶段 0 起平台无关的用例挪到这里，
+/// 「单测全绿」在三端才有实际含义。
+#[cfg(test)]
+mod core_tests {
+    use super::*;
 
     #[test]
-    fn frontend_listens_to_backend_events() {
+    fn utc_timestamp_formats_known_epochs() {
+        assert_eq!(utc_timestamp(0), "1970-01-01T00:00:00Z");
+        assert_eq!(utc_timestamp(1_000_000_000), "2001-09-09T01:46:40Z");
+        // 闰日，验证 civil_from_days 的边界
+        assert_eq!(utc_timestamp(951_782_400), "2000-02-29T00:00:00Z");
+        assert_eq!(utc_timestamp(1_759_995_153), "2025-10-09T07:32:33Z");
+    }
+
+    #[test]
+    fn menu_signature_tracks_every_visible_field() {
+        let settings = Settings::default();
+        let variables = vec![VariableInfo {
+            system: "linux".to_string(),
+            display_name: "Linux".to_string(),
+            source_name: "PreviousBoot-linux".to_string(),
+            source: PathBuf::from("/mnt/EFI/refind/vars/PreviousBoot-linux"),
+            exists: true,
+            active: false,
+        }];
+        let idle = BusyState::default();
+        let base = menu_signature(
+            "下次启动：Windows",
+            false,
+            &settings,
+            &variables,
+            None,
+            &idle,
+        );
+        // 同内容同签名
+        assert_eq!(
+            base,
+            menu_signature(
+                "下次启动：Windows",
+                false,
+                &settings,
+                &variables,
+                None,
+                &idle
+            )
+        );
+        // 状态文案 / 临时挂载 / 错误 / 设置 / 变量选中与存在 / busy，
+        // 任一变化都必须换签名，否则「内容没变就不重建菜单」会漏掉真实变更。
+        assert_ne!(
+            base,
+            menu_signature("已连接 rEFInd", false, &settings, &variables, None, &idle)
+        );
+        assert_ne!(
+            base,
+            menu_signature(
+                "下次启动：Windows",
+                true,
+                &settings,
+                &variables,
+                None,
+                &idle
+            )
+        );
+        assert_ne!(
+            base,
+            menu_signature(
+                "下次启动：Windows",
+                false,
+                &settings,
+                &variables,
+                Some("扫描失败"),
+                &idle
+            )
+        );
+        let mut toggled = settings.clone();
+        toggled.autostart = true;
+        assert_ne!(
+            base,
+            menu_signature(
+                "下次启动：Windows",
+                false,
+                &toggled,
+                &variables,
+                None,
+                &idle
+            )
+        );
+        let mut active = variables.clone();
+        active[0].active = true;
+        assert_ne!(
+            base,
+            menu_signature("下次启动：Windows", false, &settings, &active, None, &idle)
+        );
+        let mut missing = variables.clone();
+        missing[0].exists = false;
+        assert_ne!(
+            base,
+            menu_signature("下次启动：Windows", false, &settings, &missing, None, &idle)
+        );
+        // 长动作进行中菜单项要变灰 → 必须进指纹，否则置灰不会生效
+        let power = BusyState {
+            power: Some("restart".to_string()),
+            ..Default::default()
+        };
+        assert_ne!(
+            base,
+            menu_signature(
+                "下次启动：Windows",
+                false,
+                &settings,
+                &variables,
+                None,
+                &power
+            )
+        );
+        // 扫描不进指纹：它太快，不值得为它把「每扫描一次重建一次菜单」变成两次
+        let scanning = BusyState {
+            scanning: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            base,
+            menu_signature(
+                "下次启动：Windows",
+                false,
+                &settings,
+                &variables,
+                None,
+                &scanning
+            )
+        );
+    }
+
+    #[test]
+    fn settings_debug_trace_defaults_off_and_round_trips() {
+        assert!(!Settings::default().debug_trace);
+        // 老配置文件（没有 debugTrace 字段）必须还能反序列化，且开关为关
+        let legacy: Settings =
+            serde_json::from_str(r#"{"autostart":true}"#).expect("老配置应能反序列化");
+        assert!(legacy.autostart);
+        assert!(!legacy.debug_trace);
+        let enabled: Settings =
+            serde_json::from_str(r#"{"debugTrace":true}"#).expect("新字段应能反序列化");
+        assert!(enabled.debug_trace);
+        // 字段名是 camelCase（配置文件与前端都按这个读写）
+        let json = serde_json::to_string(&Settings::default()).expect("应能序列化");
+        assert!(json.contains("\"debugTrace\":false"), "实际: {json}");
+        assert!(json.contains("\"closeAction\":\"tray\""), "实际: {json}");
+    }
+
+    #[test]
+    fn env_flag_parses_common_forms() {
+        // trace 与电源 dry-run 两个探针共用同一个解析器
+        assert_eq!(env_flag_from(Some("1")), Some(true));
+        assert_eq!(env_flag_from(Some("TRUE")), Some(true));
+        assert_eq!(env_flag_from(Some(" on ")), Some(true));
+        assert_eq!(env_flag_from(Some("0")), Some(false));
+        assert_eq!(env_flag_from(Some("off")), Some(false));
+        assert_eq!(env_flag_from(Some("")), None);
+        assert_eq!(env_flag_from(Some("maybe")), None);
+        assert_eq!(env_flag_from(None), None);
+    }
+
+    #[test]
+    fn power_attempt_chain_stops_after_cancelled_authorization() {
+        use PowerAttemptOutcome::{Failed, Missing, Success};
+
+        // 命令执行成功：结束。
+        assert_eq!(next_power_step(&Success, true), PowerStep::Done);
+        // 系统里没有这个命令：换下一个候选（例如没有 systemd 的发行版）。
+        assert_eq!(
+            next_power_step(&Missing("没有 systemctl".to_string()), true),
+            PowerStep::Next
+        );
+        // 权限不足且还有提权方案：用 pkexec 重试。
+        assert_eq!(
+            next_power_step(
+                &Failed("Interactive authentication required".to_string()),
+                true
+            ),
+            PowerStep::Escalate
+        );
+        // 提权也失败了（多半是用户取消授权）：停手，
+        // 不能“取消授权之后换个方式照样把机器关掉/重启”。
+        assert_eq!(
+            next_power_step(&Failed("Request dismissed".to_string()), false),
+            PowerStep::Stop
+        );
+    }
+
+    #[test]
+    fn frontend_uses_the_single_state_contract() {
         // 前后端通过事件名和命令名对接，任何一边改名了都会让联动失效，
         // 这里直接对着前端源码断言契约。
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../ui/app.js");
         let Ok(source) = fs::read_to_string(&path) else {
             return;
         };
-        for event in [SETTINGS_CHANGED_EVENT, RESTART_RESULT_EVENT] {
+        assert!(
+            source.contains(&format!("listen(\"{UI_STATE_CHANGED_EVENT}\"")),
+            "前端没有监听 {UI_STATE_CHANGED_EVENT}"
+        );
+        // 命令名必须出现在前端源码里（调用方式不限：invoke 直接调或走统一封装）
+        for command in [
+            "get_ui_state",
+            "refresh",
+            "set_vars_dir",
+            "switch_system",
+            "unmount_temporary",
+            "set_autostart",
+            "set_start_in_tray",
+            "set_hide_from_dock_taskbar",
+            "set_close_action",
+            "power_action",
+        ] {
             assert!(
-                source.contains(&format!("listen(\"{event}\"")),
-                "前端没有监听 {event}"
+                source.contains(&format!("\"{command}\"")),
+                "前端没有调用 {command} 命令"
             );
         }
-        assert!(
-            source.contains("invoke(\"restart_system\")"),
-            "前端没有调用 restart_system 命令"
+        // 快照带版本号：前端必须按 revision 丢弃过期快照（阶段 1 修 D4 的契约）
+        assert!(source.contains("revision"), "前端没有按 revision 处理快照");
+        // 三个旧的补丁式事件不允许再出现
+        for gone in ["status-changed", "settings-changed", "restart-result"] {
+            assert!(!source.contains(gone), "前端仍在依赖已废弃的事件 {gone}");
+        }
+    }
+
+    #[test]
+    fn menu_action_from_id_round_trips_generated_ids() {
+        // 每个由 build_tray_menu 生成的 id 都必须解析回对应语义，
+        // 否则托盘上那一项点了等于没点（阶段 1 修掉的真实 bug）。
+        for (id, expected) in [
+            ("show".to_string(), MenuAction::Show),
+            ("refresh".to_string(), MenuAction::Refresh),
+            (
+                "unmount-temporary".to_string(),
+                MenuAction::UnmountTemporary,
+            ),
+            (
+                power_menu_id(PowerAction::Reboot),
+                MenuAction::Power(PowerAction::Reboot),
+            ),
+            (
+                power_menu_id(PowerAction::Shutdown),
+                MenuAction::Power(PowerAction::Shutdown),
+            ),
+            (
+                power_menu_id(PowerAction::Sleep),
+                MenuAction::Power(PowerAction::Sleep),
+            ),
+            // 旧版只有一个「重启系统」项时的 id，保留兼容
+            (
+                "restart".to_string(),
+                MenuAction::Power(PowerAction::Reboot),
+            ),
+            ("setting-autostart".to_string(), MenuAction::SetAutostart),
+            ("quit".to_string(), MenuAction::Quit),
+            ("linux".to_string(), MenuAction::Switch("linux".to_string())),
+            (
+                "windows".to_string(),
+                MenuAction::Switch("windows".to_string()),
+            ),
+            ("macos".to_string(), MenuAction::Switch("macos".to_string())),
+            (
+                toggle_menu_id("setting-start-in-tray", true),
+                MenuAction::SetStartInTray(true),
+            ),
+            (
+                toggle_menu_id("setting-start-in-tray", false),
+                MenuAction::SetStartInTray(false),
+            ),
+            (
+                toggle_menu_id("setting-hide-from-dock-taskbar", true),
+                MenuAction::SetHideFromDockTaskbar(true),
+            ),
+            (
+                toggle_menu_id("setting-hide-from-dock-taskbar", false),
+                MenuAction::SetHideFromDockTaskbar(false),
+            ),
+            (
+                close_action_menu_id(CloseAction::Tray),
+                MenuAction::SetCloseAction(CloseAction::Tray),
+            ),
+            (
+                close_action_menu_id(CloseAction::Quit),
+                MenuAction::SetCloseAction(CloseAction::Quit),
+            ),
+        ] {
+            assert_eq!(MenuAction::from_id(&id), Some(expected), "id={id}");
+        }
+        // 旧版那两条不带目标状态的 id 就是当年漏掉的写法：现在必须明确判为
+        // 无法识别，而不是静默走进兜底分支（否则又会“点了没反应”）。
+        assert_eq!(MenuAction::from_id("setting-start-in-tray"), None);
+        assert_eq!(MenuAction::from_id("setting-hide-from-dock-taskbar"), None);
+    }
+
+    #[test]
+    fn menu_action_rejects_unknown_ids() {
+        for id in [
+            "",
+            "unmount",
+            "STATUS",
+            "linux:true",
+            "setting-close-action:bogus",
+            "setting-start-in-tray:maybe",
+            "setting-hide-from-dock-taskbar:1",
+            "setting-label",
+            "power:",
+            "power:hibernate",
+            "power:sleep:true",
+        ] {
+            assert_eq!(MenuAction::from_id(id), None, "id={id}");
+        }
+    }
+
+    #[test]
+    fn power_action_parses_names_and_aliases() {
+        assert_eq!(PowerAction::parse("reboot"), Some(PowerAction::Reboot));
+        assert_eq!(PowerAction::parse("RESTART"), Some(PowerAction::Reboot));
+        assert_eq!(
+            PowerAction::parse(" Shutdown "),
+            Some(PowerAction::Shutdown)
         );
+        assert_eq!(PowerAction::parse("poweroff"), Some(PowerAction::Shutdown));
+        assert_eq!(PowerAction::parse("sleep"), Some(PowerAction::Sleep));
+        assert_eq!(PowerAction::parse("suspend"), Some(PowerAction::Sleep));
+        // hibernation 不是我们要的动作（它和睡眠不是一回事）
+        assert_eq!(PowerAction::parse("hibernate"), None);
+        assert_eq!(PowerAction::parse(""), None);
+        // 缺省 = 重启
+        assert_eq!(PowerAction::default(), PowerAction::Reboot);
+        assert_eq!(PowerAction::default().as_str(), "reboot");
+        assert_eq!(PowerAction::Shutdown.label(), "关机");
+        assert_eq!(PowerAction::Sleep.label(), "睡眠");
+        assert!(PowerAction::Sleep.submitted_message().contains("睡眠"));
+        // 菜单 id 与解析必须成对
+        for action in [
+            PowerAction::Reboot,
+            PowerAction::Shutdown,
+            PowerAction::Sleep,
+        ] {
+            assert_eq!(
+                MenuAction::from_id(&power_menu_id(action)),
+                Some(MenuAction::Power(action))
+            );
+        }
+    }
+
+    #[test]
+    fn plan_commands_filters_gui_auth_attempts() {
+        let local_attempt = attempt("systemctl", &["suspend"], false);
+        let gui_attempt = attempt("osascript", &["-e", "admin"], true);
+        let attempts = vec![local_attempt.clone(), gui_attempt.clone()];
+
+        // 本机点击：需要授权的候选也在计划里
+        let local = plan_commands(&attempts, true);
+        assert!(local.iter().any(|line| line.contains("systemctl suspend")));
+        assert!(local.iter().any(|line| line.contains("osascript")));
+
+        // 远程 / CLI：需要本机授权的整条跳过，并且明确说出来
+        let remote = plan_commands(&attempts, false);
+        assert!(remote.iter().any(|line| line.contains("需要本机授权")));
+        // 需要授权的候选只作为「已跳过」的说明出现，不能有可执行的那一行
+        assert!(
+            !remote
+                .iter()
+                .any(|line| line.contains("osascript") && !line.contains("需要本机授权")),
+            "远程计划里不该出现可执行的 osascript 行: {remote:?}"
+        );
+        // 提权候选只在有方案时出现（Linux 才有 pkexec）
+        let has_escalation = escalate_power(&local_attempt, true).is_some();
+        assert_eq!(
+            local.iter().filter(|line| line.contains("pkexec")).count(),
+            usize::from(has_escalation)
+        );
+    }
+
+    #[test]
+    fn dry_run_never_executes_and_lists_the_table_commands() {
+        // dry-run 是「本机验证电源动作」的关键：它必须一秒都不执行、只回传命令清单。
+        // 因此这里跑的是真代码路径，不会真的关机/重启/睡眠。
+        for action in [
+            PowerAction::Reboot,
+            PowerAction::Shutdown,
+            PowerAction::Sleep,
+        ] {
+            let local = run_power_action(action, true, true).expect("dry-run 不该失败");
+            assert!(local.dry_run);
+            let expected_first = power_attempts(action)[0].command();
+            assert_eq!(
+                local.commands.first().map(String::as_str),
+                Some(expected_first.as_str()),
+                "{:?} 的 dry-run 计划必须来自命令表",
+                action
+            );
+
+            // 远程/CLI：需要本机授权的候选只能以「已跳过」出现
+            let remote = run_power_action(action, false, true).expect("dry-run 不该失败");
+            for candidate in power_attempts(action) {
+                if candidate.needs_gui_auth {
+                    assert!(
+                        remote.commands.iter().any(|line| {
+                            line.contains(&candidate.command()) && line.contains("需要本机授权")
+                        }),
+                        "{:?} 的授权候选在远程计划里没有标记为已跳过: {:?}",
+                        action,
+                        remote.commands
+                    );
+                } else {
+                    assert!(
+                        remote
+                            .commands
+                            .iter()
+                            .any(|line| line == &candidate.command()),
+                        "{:?} 的免授权候选应可远程执行: {:?}",
+                        action,
+                        remote.commands
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn hibernation_verdict_from_powercfg_output() {
+        // 本机实测原文（这部分是关键行；GBK 解码后）
+        let zh_disabled = "此系统上有以下睡眠状态: 待机 (S3) 此系统上没有以下睡眠状态: 休眠 尚未启用休眠 混合睡眠";
+        assert_eq!(
+            hibernation_from_powercfg_output(zh_disabled),
+            HibernationState::Disabled
+        );
+        // 英文输出
+        assert_eq!(
+            hibernation_from_powercfg_output(
+                "The following sleep states are not available: Hibernate - Not available."
+            ),
+            HibernationState::Disabled
+        );
+        assert_eq!(
+            hibernation_from_powercfg_output(
+                "The following sleep states are available: Standby, Hibernate"
+            ),
+            HibernationState::Enabled
+        );
+        // 中文只提「休眠」但没说「尚未启用」：保守按「会休眠」提示
+        assert_eq!(
+            hibernation_from_powercfg_output("此系统上有以下睡眠状态: 休眠"),
+            HibernationState::Enabled
+        );
+        // 完全看不出来：报未判定，不猜
+        assert_eq!(
+            hibernation_from_powercfg_output(""),
+            HibernationState::Unknown
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_power_table_matches_design() {
+        let reboot = power_attempts(PowerAction::Reboot);
+        assert_eq!(reboot.len(), 1);
+        assert_eq!(reboot[0].command(), "shutdown /r /t 0");
+        assert!(!reboot[0].needs_gui_auth, "Windows 的 shutdown 不需要提权");
+
+        let shutdown = power_attempts(PowerAction::Shutdown);
+        assert_eq!(shutdown.len(), 1);
+        assert_eq!(shutdown[0].command(), "shutdown /s /t 0");
+
+        let sleep = power_attempts(PowerAction::Sleep);
+        assert_eq!(sleep.len(), 1);
+        assert_eq!(
+            sleep[0].command(),
+            "rundll32.exe powrprof.dll,SetSuspendState 0,1,0"
+        );
+        assert!(!sleep[0].needs_gui_auth);
+
+        // 睡眠预检必须给出证据，并说清这次是睡眠还是休眠（Q10′ 方案 C）
+        let (note, evidence) = sleep_probe();
+        let note = note.expect("Windows 上睡眠必须有预检结论");
+        assert!(!evidence.is_empty(), "预检必须留下证据");
+        assert!(
+            note.contains("睡眠") || note.contains("休眠"),
+            "结论要说明是睡眠还是休眠: {note}"
+        );
+    }
+
+    #[test]
+    fn busy_state_reports_what_is_running() {
+        assert!(!BusyState::default().any());
+        assert_eq!(BusyState::default().describe(), "空闲");
+        let scanning = BusyState {
+            scanning: true,
+            ..Default::default()
+        };
+        assert!(scanning.any());
+        assert_eq!(scanning.describe(), "扫描");
+        let everything = BusyState {
+            power: Some("restart".to_string()),
+            switching: true,
+            scanning: true,
+            unmounting: true,
+        };
+        assert!(everything.any());
+        assert_eq!(everything.describe(), "restart+切换系统+扫描+卸载临时挂载");
+        // 扫描不进托盘菜单指纹：它太快，不值得为它重建两次菜单
+        let scanning = BusyState {
+            scanning: true,
+            ..Default::default()
+        };
+        assert!(scanning.any());
+        assert!(!scanning.affects_menu());
+        assert_eq!(scanning.menu_describe(), "power=-|sw=0|un=0");
+        let unmounting = BusyState {
+            unmounting: true,
+            ..Default::default()
+        };
+        assert!(unmounting.affects_menu());
+        assert_eq!(unmounting.menu_describe(), "power=-|sw=0|un=1");
+        assert!(everything.affects_menu());
+    }
+
+    // ==================== 阶段 3/4：HTTP + 远程请求 ====================
+
+    fn sample_request(
+        path: &str,
+        query: &[(&str, &str)],
+        source_is_loopback: bool,
+    ) -> RemoteRequest {
+        RemoteRequest {
+            method: "POST".to_string(),
+            path: path.to_string(),
+            query: query
+                .iter()
+                .map(|(key, value)| (key.to_string(), value.to_string()))
+                .collect(),
+            body: Vec::new(),
+            token: Some("t".to_string()),
+            source: if source_is_loopback {
+                "127.0.0.1".to_string()
+            } else {
+                "192.168.1.20".to_string()
+            },
+            source_is_loopback,
+        }
+    }
+
+    #[test]
+    fn settings_defaults_show_up_in_the_file() {
+        // 新装/升级后写回磁盘的就是这些默认值：默认开服务、默认 0.0.0.0:12300、
+        // 通知默认开、两条渠道默认各 5 秒、远程默认不弹授权框
+        let settings = Settings::default();
+        assert!(settings.http_enabled);
+        assert_eq!(settings.http_bind, DEFAULT_HTTP_BIND);
+        assert_eq!(settings.http_port, DEFAULT_HTTP_PORT);
+        assert_eq!(settings.http_port, 12300);
+        assert_eq!(settings.http_bind, "0.0.0.0");
+        assert!(settings.http_token.is_empty(), "token 由首次运行生成");
+        assert!(settings.notify_enabled);
+        assert!(!settings.remote_allow_gui_auth);
+        assert_eq!(settings.channels, Channels::default());
+        assert!(settings.channels.http.notify);
+        assert_eq!(settings.channels.http.delay_seconds, 5);
+        assert!(settings.channels.cli.notify);
+        assert_eq!(settings.channels.cli.delay_seconds, 5);
+    }
+
+    #[test]
+    fn settings_json_missing_new_fields_falls_back_to_defaults() {
+        // 老版本写下的 settings.json 没有这些字段，必须能读进来且取默认值
+        let raw = r#"{"autostart":true,"closeAction":"tray"}"#;
+        let settings: Settings = serde_json::from_str(raw).expect("老文件必须能解析");
+        assert!(settings.autostart);
+        assert!(settings.http_enabled);
+        assert_eq!(settings.http_port, 12300);
+        assert!(settings.notify_enabled);
+        assert_eq!(settings.channels.http.delay_seconds, 5);
+        assert_eq!(settings.channels.cli.delay_seconds, 5);
+    }
+
+    #[test]
+    fn channel_delay_is_clamped_and_both_channels_are_independent() {
+        let mut channels = Channels::default();
+        assert_eq!(
+            ChannelNotify {
+                notify: true,
+                delay_seconds: 100_000,
+            }
+            .clamped_delay(),
+            MAX_DELAY_SECONDS,
+            "超大延迟必须夹取"
+        );
+        assert_eq!(MAX_DELAY_SECONDS, 600);
+
+        channels.for_channel_mut(Channel::Cli).delay_seconds = 0;
+        assert_eq!(channels.cli.delay_seconds, 0);
+        assert_eq!(channels.http.delay_seconds, 5, "cli 改动不能影响 http");
+        channels.for_channel_mut(Channel::Http).notify = false;
+        assert!(!channels.http.notify);
+        assert!(channels.cli.notify);
+
+        // 托盘的预设同时作用于两条渠道
+        channels.set_delay_all(10);
+        assert_eq!(channels.http.delay_seconds, 10);
+        assert_eq!(channels.cli.delay_seconds, 10);
+    }
+
+    #[test]
+    fn channels_parse_aliases_and_labels() {
+        assert_eq!(Channel::parse("http"), Some(Channel::Http));
+        assert_eq!(Channel::parse("WEBHOOK"), Some(Channel::Http));
+        assert_eq!(Channel::parse(" cli "), Some(Channel::Cli));
+        assert_eq!(Channel::parse("ssh"), Some(Channel::Cli));
+        assert_eq!(Channel::parse("http2"), None);
+        assert_eq!(Channel::Http.as_str(), "http");
+        assert_eq!(Channel::Cli.label(), "SSH/CLI");
+    }
+
+    #[test]
+    fn token_generation_and_comparison_are_strict() {
+        let token = generate_token();
+        assert_eq!(token.len(), 32, "32 位十六进制");
+        assert!(token.chars().all(|c| c.is_ascii_hexdigit()));
+        assert_ne!(generate_token(), generate_token(), "两次生成必须不同");
+        assert_eq!(short_request_id().len(), 8);
+
+        assert!(token_matches("abc123", "abc123"));
+        assert!(token_matches("abc123", " abc123 "), "两侧空白容错");
+        assert!(!token_matches("abc123", "abc124"));
+        assert!(!token_matches("abc123", "abc12"), "长度不同直接拒绝");
+        assert!(
+            !token_matches("", ""),
+            "空 token 一律不通过（服务也不会起）"
+        );
+        assert!(!token_matches("abc123", ""));
+    }
+
+    #[test]
+    fn token_hint_never_leaks_the_middle() {
+        let token = "0123456789abcdef0123456789abcdef";
+        let hint = token_hint(token);
+        assert_eq!(hint, "0123…cdef");
+        assert!(!hint.contains("56789abc"), "中间那段不能出现在界面提示里");
+        assert_eq!(token_hint("short"), "*****");
+        assert!(token_hint("").contains("未设置"));
+    }
+
+    #[test]
+    fn remote_channel_only_trusts_loopback_for_cli() {
+        // 本机（CLI 转发 / ssh 隧道）可以声明 cli
+        let request = sample_request("/api/power", &[("channel", "cli")], true);
+        assert_eq!(remote_channel(&request), Channel::Cli);
+        // 远端伪造 channel=cli 无效 → 按 http 渠道
+        let request = sample_request("/api/power", &[("channel", "cli")], false);
+        assert_eq!(remote_channel(&request), Channel::Http);
+        // 远端也不能用 notify/delay 覆盖配置（这里根本没有这些参数）
+        let request = sample_request(
+            "/api/power",
+            &[("channel", "cli"), ("notify", "0"), ("delay", "0")],
+            false,
+        );
+        assert_eq!(remote_channel(&request), Channel::Http);
+        // 本机写个没见过的渠道也别崩
+        let request = sample_request("/api/power", &[("channel", "ftp")], true);
+        assert_eq!(remote_channel(&request), Channel::Http);
+        // 不带参数默认 http
+        let request = sample_request("/api/power", &[], true);
+        assert_eq!(remote_channel(&request), Channel::Http);
+    }
+
+    #[test]
+    fn route_remote_command_validates_every_endpoint() {
+        // /api/switch
+        assert_eq!(
+            route_remote_command(&sample_request("/api/switch", &[("system", "linux")], true)),
+            Ok(RemoteCommand::Switch("linux".to_string()))
+        );
+        let reply =
+            route_remote_command(&sample_request("/api/switch", &[], true)).expect_err("缺 system");
+        assert_eq!(reply.status, 400);
+        let reply = route_remote_command(&sample_request(
+            "/api/switch",
+            &[("system", "solaris")],
+            true,
+        ))
+        .expect_err("未知系统");
+        assert_eq!(reply.status, 400);
+
+        // /api/power：缺省 = reboot（默认就是重启）
+        assert_eq!(
+            route_remote_command(&sample_request("/api/power", &[], true)),
+            Ok(RemoteCommand::Power(PowerAction::Reboot))
+        );
+        assert_eq!(
+            route_remote_command(&sample_request("/api/power", &[("action", "sleep")], true)),
+            Ok(RemoteCommand::Power(PowerAction::Sleep))
+        );
+        assert_eq!(
+            route_remote_command(&sample_request(
+                "/api/power",
+                &[("action", "shutdown")],
+                true
+            )),
+            Ok(RemoteCommand::Power(PowerAction::Shutdown))
+        );
+        let reply = route_remote_command(&sample_request(
+            "/api/power",
+            &[("action", "explode")],
+            true,
+        ))
+        .expect_err("未知动作");
+        assert_eq!(reply.status, 400);
+
+        // /api/switch-and-power
+        assert_eq!(
+            route_remote_command(&sample_request(
+                "/api/switch-and-power",
+                &[("system", "windows")],
+                true
+            )),
+            Ok(RemoteCommand::SwitchAndPower {
+                system: "windows".to_string(),
+                power: PowerAction::Reboot,
+            })
+        );
+        assert_eq!(
+            route_remote_command(&sample_request(
+                "/api/switch-and-power",
+                &[("system", "macos"), ("action", "shutdown")],
+                true
+            )),
+            Ok(RemoteCommand::SwitchAndPower {
+                system: "macos".to_string(),
+                power: PowerAction::Shutdown,
+            })
+        );
+
+        // 未知路径 404
+        let reply = route_remote_command(&sample_request("/api/whatever", &[], true))
+            .expect_err("未知路径");
+        assert_eq!(reply.status, 404);
+    }
+
+    #[test]
+    fn remote_request_reads_query_first_then_body() {
+        let mut request = sample_request("/api/switch", &[("system", "linux")], true);
+        request.body = vec![("system".to_string(), "macos".to_string())];
+        assert_eq!(request.param("system").as_deref(), Some("linux"));
+        assert_eq!(request.param("missing"), None);
+        // 只有 body 里的参数也能取到（POST 表单）
+        let mut request = sample_request("/api/switch", &[], true);
+        request.body = vec![("system".to_string(), "macos".to_string())];
+        assert_eq!(request.param("system").as_deref(), Some("macos"));
+    }
+
+    #[test]
+    fn notify_scheduler_fires_once_per_state() {
+        let now = Instant::now();
+        let pending = PendingRequest {
+            id: "deadbeef".to_string(),
+            channel: Channel::Http,
+            source: "192.168.1.20".to_string(),
+            summary: "重启系统".to_string(),
+            command: RemoteCommand::Power(PowerAction::Reboot),
+            seconds: 5,
+            deadline: now + std::time::Duration::from_secs(5),
+            created: "2026-10-09T00:00:00Z".to_string(),
+        };
+        // 还没到点：什么都不做
+        assert_eq!(
+            notify_due(Some(&NotifyState::Pending(pending.clone())), now),
+            NotifyDue::Nothing
+        );
+        // 到点：执行（只在这一刻判定一次，执行完槽位就被清掉）
+        match notify_due(
+            Some(&NotifyState::Pending(pending.clone())),
+            now + std::time::Duration::from_secs(6),
+        ) {
+            NotifyDue::Execute(fired) => assert_eq!(fired.id, "deadbeef"),
+            other => panic!("到点应执行，实际 {other:?}"),
+        }
+        // 取消后（槽位清空）到点也不会执行
+        assert_eq!(
+            notify_due(None, now + std::time::Duration::from_secs(60)),
+            NotifyDue::Nothing
+        );
+
+        // 事后提示：到点关窗
+        let info = NotifyState::Info {
+            message: "已执行".to_string(),
+            source: "192.168.1.20".to_string(),
+            expires_at: now + std::time::Duration::from_secs(3),
+        };
+        assert_eq!(notify_due(Some(&info), now), NotifyDue::Nothing);
+        assert_eq!(
+            notify_due(Some(&info), now + std::time::Duration::from_secs(4)),
+            NotifyDue::CloseInfo
+        );
+    }
+
+    #[test]
+    fn pending_seconds_left_counts_down() {
+        let pending = PendingRequest {
+            id: "x".to_string(),
+            channel: Channel::Cli,
+            source: "127.0.0.1".to_string(),
+            summary: "切换下次启动为 Linux".to_string(),
+            command: RemoteCommand::Switch("linux".to_string()),
+            seconds: 5,
+            deadline: Instant::now() + std::time::Duration::from_secs(5),
+            created: "2026-10-09T00:00:00Z".to_string(),
+        };
+        assert!(pending.seconds_left() <= 5);
+        assert!(pending.seconds_left() >= 4);
+    }
+
+    #[test]
+    fn recent_requests_keep_newest_first_and_cap_the_list() {
+        let entry = |index: usize| RequestLogEntry {
+            time: format!("2026-10-09T00:00:{index:02}Z"),
+            source: "192.168.1.20".to_string(),
+            channel: "http",
+            path: "/api/power".to_string(),
+            summary: format!("第 {index} 条"),
+            status: "executed",
+            message: "ok".to_string(),
+        };
+        let mut requests = Vec::new();
+        for index in 0..25 {
+            push_recent(&mut requests, entry(index));
+        }
+        assert_eq!(requests.len(), MAX_RECENT_REQUESTS);
+        assert_eq!(MAX_RECENT_REQUESTS, 20);
+        assert_eq!(requests[0].summary, "第 24 条", "最新在最前");
+        assert_eq!(requests[19].summary, "第 5 条", "只留最近 20 条");
+    }
+
+    #[test]
+    fn remote_command_summaries_read_like_sentences() {
+        assert_eq!(
+            RemoteCommand::Switch("linux".to_string()).summary(),
+            "切换下次启动为 Linux"
+        );
+        assert_eq!(
+            RemoteCommand::Power(PowerAction::Shutdown).summary(),
+            PowerAction::Shutdown.label()
+        );
+        let summary = RemoteCommand::SwitchAndPower {
+            system: "windows".to_string(),
+            power: PowerAction::Sleep,
+        }
+        .summary();
+        assert!(summary.contains("Windows") && summary.contains(PowerAction::Sleep.label()));
     }
 }

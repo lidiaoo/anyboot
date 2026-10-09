@@ -1,0 +1,93 @@
+:root {
+  color-scheme: dark;
+  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: #141922;
+  color: #e7ebf2;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+.panel {
+  display: grid;
+  gap: 10px;
+  padding: 16px 18px;
+  border: 1px solid #6b4a1f;
+  background: #1d1a13;
+}
+
+header {
+  display: grid;
+  gap: 2px;
+}
+
+header strong {
+  font-size: 15px;
+  color: #f0c98a;
+}
+
+header small,
+#hint,
+#countdown {
+  color: #a5b0c2;
+  font-size: 12px;
+}
+
+#message {
+  margin: 0;
+  font-size: 14px;
+}
+
+.bar {
+  height: 6px;
+  border-radius: 3px;
+  background: #2c3544;
+  overflow: hidden;
+}
+
+#bar-fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: #e0a44f;
+  transition: width 0.25s linear;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.actions.hidden {
+  display: none;
+}
+
+button {
+  border: 0;
+  border-radius: 7px;
+  padding: 9px 13px;
+  background: #e0a44f;
+  color: #201a10;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+button.secondary {
+  background: #333d4d;
+  color: #e7ebf2;
+}
+
+button:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+#hint {
+  margin: 0;
+  color: #8b96a8;
+}

@@ -125,7 +125,9 @@ input {
 
 .system-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
+  gap: 8px;
   margin-top: 12px;
 }
 
@@ -225,4 +227,83 @@ select {
 
 .hidden {
   display: none;
+}
+
+.remote-inline {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.remote-inline input[type="text"] {
+  width: 96px;
+  padding: 7px 9px;
+}
+
+.remote-inline input[type="checkbox"] {
+  width: 17px;
+  height: 17px;
+  padding: 0;
+  accent-color: #2f7fe0;
+}
+
+#http-bind {
+  width: 116px;
+}
+
+.pending {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid #6b4a1f;
+  border-radius: 10px;
+  background: #2a2113;
+}
+
+.pending strong {
+  font-size: 14px;
+}
+
+.pending small {
+  color: #d8b98a;
+  font-size: 12px;
+}
+
+.remote-hint,
+.remote-log {
+  display: grid;
+  gap: 6px;
+}
+
+.remote-hint pre {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid #2c3544;
+  border-radius: 8px;
+  background: #101620;
+  color: #a9b6c9;
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+#http-requests {
+  max-height: 150px;
+  margin: 0;
+  padding-left: 18px;
+  overflow-y: auto;
+  color: #97a3b6;
+  font-size: 11px;
+}
+
+#http-requests li {
+  margin-bottom: 4px;
+}
+
+#remote-message {
+  min-height: 16px;
+  margin: 0;
+  color: #97a3b6;
+  font-size: 12px;
 }

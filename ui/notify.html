@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>远程请求</title>
+    <link href="./notify.css" rel="stylesheet" />
+  </head>
+  <body>
+    <main class="panel">
+      <header>
+        <strong id="title">远程请求</strong>
+        <small id="source"></small>
+      </header>
+      <p id="message"></p>
+      <div class="bar"><span id="bar-fill"></span></div>
+      <p id="countdown"></p>
+      <div class="actions" id="actions">
+        <button id="run" type="button">立即执行</button>
+        <button class="secondary" id="cancel" type="button">取消</button>
+      </div>
+      <p id="hint">关闭窗口 = 不执行</p>
+    </main>
+    <script src="./notify.js"></script>
+  </body>
+</html>

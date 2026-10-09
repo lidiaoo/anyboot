@@ -15,8 +15,10 @@
 
       <section aria-label="可启动系统" id="systems"></section>
 
-      <section aria-label="系统操作" class="system-actions">
-        <button class="secondary" id="restart-system" type="button">重启系统</button>
+      <section aria-label="电源操作" class="system-actions">
+        <button class="secondary" id="power-reboot" type="button">重启系统</button>
+        <button class="secondary" id="power-shutdown" type="button">关机</button>
+        <button class="secondary" id="power-sleep" type="button">睡眠</button>
       </section>
 
       <section class="directory">
@@ -67,6 +69,93 @@
         <button class="link hidden" id="login-items" type="button">
           打开「登录项与扩展」设置
         </button>
+      </section>
+
+      <section aria-label="远程控制" class="settings" id="remote">
+        <h2>远程控制</h2>
+        <div class="setting">
+          <span class="setting-text">
+            <strong>HTTP 服务</strong>
+            <small class="setting-state" id="http-state">正在读取…</small>
+          </span>
+          <input id="http-enabled" type="checkbox" />
+        </div>
+        <div class="setting">
+          <span class="setting-text">
+            <strong>监听地址 / 端口</strong>
+            <small>默认 0.0.0.0:12300；改成 127.0.0.1 则只能本机或 SSH 隧道访问</small>
+          </span>
+          <span class="remote-inline">
+            <input id="http-bind" spellcheck="false" type="text" />
+            <input id="http-port" inputmode="numeric" spellcheck="false" type="text" />
+            <button class="secondary" id="http-apply" type="button">应用</button>
+          </span>
+        </div>
+        <div class="setting">
+          <span class="setting-text">
+            <strong>访问令牌（token）</strong>
+            <small class="setting-state" id="token-hint"></small>
+          </span>
+          <span class="remote-inline">
+            <button class="secondary" id="token-reveal" type="button">显示</button>
+            <button class="secondary" id="token-copy" type="button">复制</button>
+            <button class="secondary" id="token-regenerate" type="button">重新生成</button>
+          </span>
+        </div>
+        <div class="setting">
+          <span class="setting-text">
+            <strong>远程请求通知</strong>
+            <small>总开关；关掉后不再弹窗，只在主窗口显示待执行请求</small>
+          </span>
+          <input id="notify-enabled" type="checkbox" />
+        </div>
+        <div class="setting">
+          <span class="setting-text">
+            <strong>HTTP 渠道（webhook / curl / 面板）</strong>
+            <small>弹窗通知 + 延迟秒数（0 = 立即执行）</small>
+          </span>
+          <span class="remote-inline">
+            <input id="http-channel-notify" type="checkbox" />
+            <input id="http-channel-delay" inputmode="numeric" spellcheck="false" type="text" />
+          </span>
+        </div>
+        <div class="setting">
+          <span class="setting-text">
+            <strong>SSH / CLI 渠道</strong>
+            <small>ssh 远程调用的通知与延迟（与 webhook 分开配置）</small>
+          </span>
+          <span class="remote-inline">
+            <input id="cli-channel-notify" type="checkbox" />
+            <input id="cli-channel-delay" inputmode="numeric" spellcheck="false" type="text" />
+          </span>
+        </div>
+        <div class="setting">
+          <span class="setting-text">
+            <strong>远程可触发本机授权框</strong>
+            <small>默认关：远程遇到需要本机授权的操作会直接说明原因，不会挂着等人点确认</small>
+          </span>
+          <input id="remote-allow-gui-auth" type="checkbox" />
+        </div>
+        <div class="pending hidden" id="pending-card">
+          <strong id="pending-title">远程请求待执行</strong>
+          <small id="pending-detail"></small>
+          <div class="actions">
+            <button id="pending-run" type="button">立即执行</button>
+            <button class="secondary" id="pending-cancel" type="button">取消</button>
+          </div>
+        </div>
+        <div class="remote-hint">
+          <strong>远程怎么调</strong>
+          <pre id="http-hint">点「复制命令」拿含 token 的可直接执行示例（含 ssh 用法）</pre>
+          <div class="actions">
+            <button class="secondary" id="http-hint-copy" type="button">复制命令</button>
+          </div>
+        </div>
+        <div class="remote-log">
+          <strong>最近请求</strong>
+          <ol id="http-requests"></ol>
+        </div>
+        <p id="remote-message" role="status"></p>
       </section>
 
       <p id="message" role="status"></p>
