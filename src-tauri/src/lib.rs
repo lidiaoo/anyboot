@@ -409,6 +409,10 @@ struct NotifyView {
     /// 发起时间（UTC）
     created: String,
     can_cancel: bool,
+    /// 是否播放提示音
+    play_sound: bool,
+    /// 自定义提示音文件路径（空 = 系统默认）
+    sound_file_path: String,
 }
 
 enum NotifyState {
@@ -590,6 +594,10 @@ struct Settings {
     notify_enabled: bool,
     /// 每个渠道各自的弹窗开关与延迟秒数（Q14）
     channels: Channels,
+    /// 提示音开关（默认开）
+    play_sound: bool,
+    /// 提示音文件路径（可选，留空用系统默认）
+    sound_file_path: String,
 }
 
 impl Default for Settings {
@@ -607,6 +615,8 @@ impl Default for Settings {
             remote_allow_gui_auth: false,
             notify_enabled: true,
             channels: Channels::default(),
+            play_sound: true,
+            sound_file_path: String::new(),
         }
     }
 }
@@ -1714,7 +1724,7 @@ fn ui_state(app: &AppHandle) -> UiState {
         busy: busy_snapshot(app),
         last_action: last_action_snapshot(app),
         http,
-        notify: notify_view(),
+        notify: notify_view(app),
     }
 }
 
@@ -2345,21 +2355,26 @@ fn set_notify_state(app: &AppHandle, state: Option<NotifyState>) {
     publish_ui(app);
 }
 
-fn notify_view() -> Option<NotifyView> {
+fn notify_view(app: &AppHandle) -> Option<NotifyView> {
     let runtime = http_lock();
     match runtime.notify.as_ref()? {
-        NotifyState::Pending(pending) => Some(NotifyView {
-            kind: "pending",
-            id: Some(pending.id.clone()),
-            title: format!("远程请求（{}）", pending.channel.label()),
-            message: pending.summary.clone(),
-            source: pending.source.clone(),
-            channel: pending.channel.as_str(),
-            seconds_left: pending.seconds_left(),
-            total_seconds: pending.seconds,
-            created: pending.created.clone(),
-            can_cancel: true,
-        }),
+        NotifyState::Pending(pending) => {
+            let settings = stored_settings(app);
+            Some(NotifyView {
+                kind: "pending",
+                id: Some(pending.id.clone()),
+                title: format!("远程请求（{}）", pending.channel.label()),
+                message: pending.summary.clone(),
+                source: pending.source.clone(),
+                channel: pending.channel.as_str(),
+                seconds_left: pending.seconds_left(),
+                total_seconds: pending.seconds,
+                created: pending.created.clone(),
+                can_cancel: true,
+                play_sound: settings.play_sound,
+                sound_file_path: settings.sound_file_path.clone(),
+            })
+        }
         NotifyState::Info {
             message,
             source,
@@ -2377,6 +2392,8 @@ fn notify_view() -> Option<NotifyView> {
             total_seconds: 3,
             created: utc_timestamp(now_epoch_seconds()),
             can_cancel: false,
+            play_sound: true,
+            sound_file_path: String::new(),
         }),
     }
 }
@@ -4538,6 +4555,87 @@ fn http_access_hint(app: AppHandle) -> String {
     http_access_hint_text(&app)
 }
 
+/// 设置提示音开关
+#[tauri::command]
+fn set_play_sound(app: AppHandle, enabled: bool) -> Result<(), String> {
+    trace(&app, "command", "set_play_sound（主窗口）");
+    update_settings_and_publish(
+        &app,
+        "提示音",
+        if enabled { "已开启" } else { "已关闭" },
+        |settings| settings.play_sound = enabled,
+        |_app| {},
+    )?;
+    Ok(())
+}
+
+/// 设置自定义提示音文件路径（留空则用系统默认）
+#[tauri::command]
+fn set_sound_file_path(app: AppHandle, path: String) -> Result<(), String> {
+    trace(&app, "command", "set_sound_file_path（主窗口）");
+    let path = path.trim().to_string();
+    let message = if path.is_empty() {
+        "已清除".to_string()
+    } else {
+        format!("已设置：{path}")
+    };
+    update_settings_and_publish(
+        &app,
+        "自定义提示音",
+        &message,
+        |settings| settings.sound_file_path = path,
+        |_app| {},
+    )?;
+    Ok(())
+}
+
+/// 用系统文件管理器打开配置目录（含 settings.json / trace.log）
+#[tauri::command]
+fn open_config_dir(app: AppHandle) -> Result<String, String> {
+    trace(&app, "command", "open_config_dir（主窗口）");
+    let dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|error| format!("无法定位配置目录：{error}"))?;
+    if !dir.exists() {
+        std::fs::create_dir_all(&dir)
+            .map_err(|error| format!("创建配置目录失败：{error}"))?;
+    }
+    open_directory_in_explorer(&dir)?;
+    Ok(dir.display().to_string())
+}
+
+/// 用系统文件管理器打开当前变量目录（rEFInd 变量文件所在目录）
+#[tauri::command]
+fn open_vars_dir(app: AppHandle) -> Result<String, String> {
+    trace(&app, "command", "open_vars_dir（主窗口）");
+    let state = app.state::<Mutex<AppState>>();
+    let app_state = state.lock().expect("AppState mutex poisoned");
+    let vars_dir = app_state
+        .vars_dir
+        .clone()
+        .ok_or_else(|| "尚未扫描到变量目录，请先点击「扫描」")?;
+    open_directory_in_explorer(&vars_dir)?;
+    Ok(vars_dir.display().to_string())
+}
+
+/// 跨平台：用系统文件管理器打开目录
+fn open_directory_in_explorer(dir: &std::path::Path) -> Result<(), String> {
+    let mut command = std::process::Command::new(if cfg!(target_os = "windows") {
+        "explorer"
+    } else if cfg!(target_os = "macos") {
+        "open"
+    } else {
+        "xdg-open"
+    });
+    command.arg(dir);
+    let status = command.status().map_err(|error| format!("打开文件管理器失败：{error}"))?;
+    if !status.success() {
+        return Err(format!("打开文件管理器失败（exit code {status}）"));
+    }
+    Ok(())
+}
+
 #[tauri::command]
 fn confirm_pending(app: AppHandle) -> Result<(), String> {
     trace(&app, "command", "confirm_pending（本机立即执行）");
@@ -4720,6 +4818,10 @@ pub fn run() {
             regenerate_http_token,
             reveal_http_token,
             http_access_hint,
+            set_play_sound,
+            set_sound_file_path,
+            open_config_dir,
+            open_vars_dir,
             confirm_pending,
             cancel_pending
         ])

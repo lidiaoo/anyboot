@@ -48,6 +48,13 @@ const httpHintElement = document.querySelector("#http-hint");
 const httpHintCopyElement = document.querySelector("#http-hint-copy");
 const httpRequestsElement = document.querySelector("#http-requests");
 const remoteMessageElement = document.querySelector("#remote-message");
+// 提示音相关
+const playSoundElement = document.querySelector("#play-sound");
+const soundFilePathElement = document.querySelector("#sound-file-path");
+const soundApplyElement = document.querySelector("#sound-apply");
+// 打开目录按钮
+const openConfigDirElement = document.querySelector("#open-config-dir");
+const openVarsDirElement = document.querySelector("#open-vars-dir");
 
 const autostartStateLabels = new Map([
   ["enabled", "已加入系统登录项"],
@@ -188,6 +195,14 @@ function renderRemote(http, settings) {
     cliChannelDelayElement.value = String(settings.channels.cli.delaySeconds);
   }
 
+  // 渲染提示音设置
+  if (playSoundElement) {
+    playSoundElement.checked = Boolean(settings.playSound);
+  }
+  if (soundFilePathElement) {
+    soundFilePathElement.value = settings.soundFilePath || "";
+  }
+
   httpRequestsElement.replaceChildren();
   for (const entry of http.requests) {
     const item = document.createElement("li");
@@ -197,6 +212,8 @@ function renderRemote(http, settings) {
     }`;
     httpRequestsElement.append(item);
   }
+  // 最新请求在最后：滚动条压到底，一眼看到最近发生的事
+  httpRequestsElement.scrollTop = httpRequestsElement.scrollHeight;
 }
 
 function renderPending(notify) {
@@ -358,6 +375,34 @@ cliChannelNotifyElement.addEventListener("change", () =>
 httpChannelDelayElement.addEventListener("change", () =>
   applyDelayFrom("http", httpChannelDelayElement),
 );
+
+// 提示音开关与路径
+soundApplyElement.addEventListener("click", () => {
+  const enabled = playSoundElement.checked;
+  const path = soundFilePathElement.value.trim();
+  call("set_play_sound", { enabled });
+  call("set_sound_file_path", { path: path || "" });
+});
+
+// 打开配置目录
+openConfigDirElement.addEventListener("click", async () => {
+  try {
+    const dirPath = await invoke("open_config_dir");
+    remoteMessageElement.textContent = `已用文件管理器打开：${dirPath}`;
+  } catch (error) {
+    remoteMessageElement.textContent = `打开配置目录失败：${error}`;
+  }
+});
+
+// 打开变量目录
+openVarsDirElement.addEventListener("click", async () => {
+  try {
+    const dirPath = await invoke("open_vars_dir");
+    remoteMessageElement.textContent = `已用文件管理器打开：${dirPath}`;
+  } catch (error) {
+    remoteMessageElement.textContent = `打开变量目录失败：${error}`;
+  }
+});
 
 cliChannelDelayElement.addEventListener("change", () =>
   applyDelayFrom("cli", cliChannelDelayElement),

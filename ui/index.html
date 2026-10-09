@@ -155,6 +155,21 @@
           <strong>最近请求</strong>
           <ol id="http-requests"></ol>
         </div>
+        <div class="setting" id="setting-sound">
+          <span class="setting-text">
+            <strong>提示音</strong>
+            <small>收到远程请求时播放提示音（系统默认或自定义文件）</small>
+          </span>
+          <span class="remote-inline">
+            <input id="play-sound" type="checkbox" />
+            <input id="sound-file-path" spellcheck="false" type="text" placeholder="自定义提示音文件路径（留空用系统默认）" />
+            <button class="secondary" id="sound-apply" type="button">应用</button>
+          </span>
+        </div>
+        <div class="actions" id="open-dir-actions">
+          <button class="secondary" id="open-config-dir" type="button">打开配置目录（含 trace.log / settings.json）</button>
+          <button class="secondary" id="open-vars-dir" type="button">打开变量目录（rEFInd 变量文件）</button>
+        </div>
         <p id="remote-message" role="status"></p>
       </section>
 
