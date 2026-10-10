@@ -12,9 +12,9 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use super::{
-    atomic_copy, display_path, hashes_match, power_dry_run, run_power_action, scan_vars_directory,
-    sleep_probe, write_with_mount, PowerAction, ScanResult, Settings, SETTINGS_FILE, SOURCE_FILES,
-    TRACE_FILE,
+    atomic_copy, display_path, grub_scan, grub_write_env, hashes_match, power_dry_run,
+    run_power_action, scan_vars_directory, sleep_probe, write_with_mount, PowerAction, ScanResult,
+    Settings, SETTINGS_FILE, SOURCE_FILES, TRACE_FILE,
 };
 
 /// 与 `tauri.conf.json` 的 `identifier` 必须一致（有单测盯着这件事）。
@@ -40,6 +40,8 @@ pub fn is_cli_invocation(args: &[String]) -> bool {
                 | "-h"
                 | "--version"
                 | "-V"
+                | "--grub-list"
+                | "--switch-grub"
         )
     })
 }
@@ -53,6 +55,10 @@ struct CliArgs {
     port: Option<u16>,
     help: bool,
     version: bool,
+    /// 列出 ESP 上 grub.cfg 的启动项（GRUB 细粒度切换那条链路）
+    grub_list: bool,
+    /// 切换 GRUB 启动项：值是 grub.cfg 里解析出的 selector 原文
+    switch_grub: Option<String>,
 }
 
 fn parse_args(args: &[String]) -> Result<CliArgs, String> {
@@ -95,6 +101,17 @@ fn parse_args(args: &[String]) -> Result<CliArgs, String> {
                 parsed.port = Some(port);
                 index += 1;
             }
+            "--grub-list" => parsed.grub_list = true,
+            "--switch-grub" => {
+                let value = args
+                    .get(index + 1)
+                    .ok_or("--switch-grub 需要一个 GRUB 启动项的 selector（见 --grub-list）")?;
+                if value.trim().is_empty() {
+                    return Err("--switch-grub 的 selector 不能为空".to_string());
+                }
+                parsed.switch_grub = Some(value.clone());
+                index += 1;
+            }
             other => return Err(format!("未知参数: {other}")),
         }
         index += 1;
@@ -104,8 +121,13 @@ fn parse_args(args: &[String]) -> Result<CliArgs, String> {
         && !parsed.status
         && parsed.switch.is_none()
         && parsed.action.is_none()
+        && !parsed.grub_list
+        && parsed.switch_grub.is_none()
     {
-        return Err("至少要有一个动作：--status / --switch / --action".to_string());
+        return Err(
+            "至少要有一个动作：--status / --switch / --grub-list / --switch-grub / --action"
+                .to_string(),
+        );
     }
     Ok(parsed)
 }
@@ -118,10 +140,14 @@ fn print_usage() {
          \x20 anyboot --status [--json]\n\
          \x20 anyboot --switch <linux|windows|macos> [--action <reboot|shutdown|sleep>] [--json]\n\
          \x20 anyboot --action <reboot|shutdown|sleep> [--json]\n\
+         \x20 anyboot --grub-list [--json]\n\
+         \x20 anyboot --switch-grub <selector> [--json]\n\
          \n\
          说明:\n\
          \x20 · 不带参数运行 = 打开图形界面（托盘常驻），与 CLI 是同一个可执行文件\n\
          \x20 · --switch X --action Y = 先切换下次启动为 X，成功后立刻执行 Y（缺省 reboot）\n\
+         \x20 · --grub-list / --switch-grub = GRUB 细粒度那条链路（读 ESP 上的 grub.cfg，\n\
+         \x20   只写 grubenv，不重启）；selector 就是列表里那一行，含空格请加引号\n\
          \x20 · 应用正在运行时：命令转发给应用执行（走 cli 渠道：通知与延迟按该渠道的配置）\n\
          \x20 · 应用没在运行：CLI 自己执行（无界面、无弹窗，相当于立即执行）\n\
          \x20 · 调试用环境变量：ANYBOOT_POWER_DRY_RUN=1 只打印命令不执行；\n\
@@ -416,21 +442,49 @@ fn decode_chunked(body: &str) -> String {
     decoded
 }
 
+/// 极简 percent-encode（只给 query 值用）：GRUB 的 selector 里有空格、`>`、
+/// 引号、`$`，不编码就会被 HTTP 请求行拆断或当成转义。
+fn percent_encode(value: &str) -> String {
+    let mut encoded = String::with_capacity(value.len());
+    for byte in value.as_bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                encoded.push(*byte as char);
+            }
+            other => encoded.push_str(&format!("%{other:02X}")),
+        }
+    }
+    encoded
+}
+
 fn forward(config: &CliConfig, port: u16, token: &str, parsed: &CliArgs) -> i32 {
-    let (method, path) = match (&parsed.switch, parsed.action) {
-        (Some(system), Some(action)) => (
+    // GRUB 那条链路优先：--grub-list 是只读、--switch-grub 写 grubenv
+    let (method, path) = if parsed.grub_list {
+        ("GET", "/api/grub?channel=cli".to_string())
+    } else if let Some(selector) = parsed.switch_grub.as_deref() {
+        (
             "POST",
             format!(
-                "/api/switch-and-power?system={system}&action={}&channel=cli",
-                action.as_str()
+                "/api/grub-switch?entry={}&channel=cli",
+                percent_encode(selector)
             ),
-        ),
-        (Some(system), None) => ("POST", format!("/api/switch?system={system}&channel=cli")),
-        (None, Some(action)) => (
-            "POST",
-            format!("/api/power?action={}&channel=cli", action.as_str()),
-        ),
-        (None, None) => ("GET", "/api/status?channel=cli".to_string()),
+        )
+    } else {
+        match (&parsed.switch, parsed.action) {
+            (Some(system), Some(action)) => (
+                "POST",
+                format!(
+                    "/api/switch-and-power?system={system}&action={}&channel=cli",
+                    action.as_str()
+                ),
+            ),
+            (Some(system), None) => ("POST", format!("/api/switch?system={system}&channel=cli")),
+            (None, Some(action)) => (
+                "POST",
+                format!("/api/power?action={}&channel=cli", action.as_str()),
+            ),
+            (None, None) => ("GET", "/api/status?channel=cli".to_string()),
+        }
     };
 
     match http_request(port, method, &path, token) {
@@ -438,6 +492,11 @@ fn forward(config: &CliConfig, port: u16, token: &str, parsed: &CliArgs) -> i32 
             config.trace("forward-result", &format!("status={status} body={body}"));
             if parsed.json {
                 println!("{body}");
+            } else if parsed.grub_list {
+                // 列表要按人读的格式打印；顺带把「读不到」变成非零退出码
+                if !print_grub_list(&body) {
+                    return EXIT_FAILED;
+                }
             } else {
                 println!("{}", human_message(&body, status));
             }
@@ -458,6 +517,68 @@ fn forward(config: &CliConfig, port: u16, token: &str, parsed: &CliArgs) -> i32 
             EXIT_FAILED
         }
     }
+}
+
+/// 人类可读的 GRUB 列表。返回 false = 这份数据其实是个错误（调用方据此给非零退出码）。
+fn print_grub_list(body: &str) -> bool {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(body) else {
+        println!("{body}");
+        return true;
+    };
+    if let Some(error) = value.get("error").and_then(|value| value.as_str()) {
+        eprintln!("读取 GRUB 数据失败: {error}");
+        return false;
+    }
+
+    match value.get("uuid").and_then(|value| value.as_str()) {
+        Some(uuid) if !uuid.is_empty() => println!("ESP fs-uuid: {uuid}"),
+        _ => {
+            eprintln!(
+                "还没设置 ESP 的 fs-uuid：请先在应用主窗口的「GRUB 启动项」里填写并保存"
+            );
+            return false;
+        }
+    }
+    for key in ["efiDir", "syncedAt"] {
+        if let Some(text) = value.get(key).and_then(|value| value.as_str()) {
+            println!("{key}: {text}");
+        }
+    }
+    let active = value
+        .get("nextEntry")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            value
+                .get("savedEntry")
+                .and_then(|value| value.as_str())
+                .filter(|value| !value.is_empty())
+        })
+        .unwrap_or("");
+
+    let Some(entries) = value.get("entries").and_then(|value| value.as_array()) else {
+        return true;
+    };
+    println!("GRUB 启动项（{} 个）:", entries.len());
+    for entry in entries {
+        let selector = entry
+            .get("selector")
+            .and_then(|value| value.as_str())
+            .unwrap_or("");
+        let name = entry
+            .get("name")
+            .and_then(|value| value.as_str())
+            .unwrap_or("");
+        let nested = entry.get("submenu").map(|value| !value.is_null()) == Some(true);
+        println!(
+            "  {} {}{}",
+            if selector == active { "*" } else { " " },
+            if nested { "  ↳ " } else { "" },
+            if name.is_empty() { selector } else { name }
+        );
+        println!("      selector: {selector}");
+    }
+    true
 }
 
 fn human_message(body: &str, status: u16) -> String {
@@ -539,94 +660,221 @@ fn json_local_result(scan: &ScanResult, lines: &[String], commands: &[String]) -
     value.to_string()
 }
 
-fn run_locally(config: &CliConfig, parsed: &CliArgs) -> i32 {
-    let explicit = explicit_vars_dir();
-    let scan = match scan_vars_directory(explicit.as_deref()) {
-        Ok(scan) => scan,
-        Err(error) => {
-            config.trace("scan-failed", &error);
-            return finish_error(
+/// GRUB 那条链路（--grub-list / --switch-grub）的本地执行。
+///
+/// 与 rEFInd 那条链路**完全独立**：读的是 ESP 上的 grub.cfg / grubenv，
+/// 不需要变量目录。`Err(exit_code)` = 已打印错误、直接按该退出码结束。
+fn run_grub_locally(
+    config: &CliConfig,
+    parsed: &CliArgs,
+    lines: &mut Vec<String>,
+    grub_json: &mut Option<serde_json::Value>,
+) -> Result<(), i32> {
+    let scan = match grub_scan(&config.settings, None) {
+        Ok(Some(scan)) => scan,
+        Ok(None) => {
+            return Err(finish_error(
                 config,
                 parsed,
-                "vars_dir_not_found",
+                "grub_uuid_missing",
+                "还没设置 ESP 的 fs-uuid / 目录：请先在应用主窗口的「GRUB 启动项」里填好并保存",
+                EXIT_FAILED,
+            ));
+        }
+        Err(error) => {
+            return Err(finish_error(
+                config,
+                parsed,
+                "grub_scan_failed",
                 &error,
-                EXIT_NO_VARS_DIR,
-            );
+                exit_code_for_error(&error),
+            ));
         }
     };
-    config.trace(
-        "scan-ok",
-        &format!("vars_dir={}", display_path(&scan.vars_dir).display()),
-    );
 
-    // 人类可读的每一行都先收起来：`--json` 时它们变成 message 字段
-    let mut lines: Vec<String> = Vec::new();
-    if parsed.status {
+    let active = scan
+        .next_entry
+        .clone()
+        .filter(|value| !value.is_empty())
+        .or_else(|| scan.saved_entry.clone().filter(|value| !value.is_empty()))
+        .unwrap_or_default();
+    grub_json.replace(serde_json::json!({
+        "ok": true,
+        "channel": "cli",
+        "uuid": config.settings.grub_efi_uuid.trim(),
+        "efiDir": display_path(&scan.efi_dir).display().to_string(),
+        "envExists": scan.env_exists,
+        "installed": super::grub_installed(),
+        "savedEntry": scan.saved_entry,
+        "nextEntry": scan.next_entry,
+        "entries": scan
+            .entries
+            .iter()
+            .map(|entry| serde_json::json!({
+                "selector": entry.selector,
+                "id": entry.id,
+                "name": entry.name,
+                "submenu": entry.submenu,
+                "class": entry.class,
+                "chainloader": entry.chainloader,
+                "kernels": entry.kernels,
+            }))
+            .collect::<Vec<_>>(),
+    }));
+
+    if parsed.grub_list {
         if parsed.json {
-            let name = scan
-                .variables
-                .iter()
-                .find(|variable| variable.active)
-                .map(|variable| variable.display_name.clone())
-                .unwrap_or_else(|| "（PreviousBoot 未匹配任何模板）".to_string());
-            lines.push(format!("下次启动：{name}"));
+            lines.push(format!("共 {} 个 GRUB 启动项", scan.entries.len()));
         } else {
-            print_status(&scan);
-        }
-        if parsed.switch.is_none() && parsed.action.is_none() {
-            if parsed.json {
-                println!("{}", json_local_result(&scan, &lines, &[]));
+            println!("ESP fs-uuid: {}", config.settings.grub_efi_uuid.trim());
+            println!("EFI 目录: {}", display_path(&scan.efi_dir).display());
+            println!("GRUB 启动项（{} 个）:", scan.entries.len());
+            for entry in &scan.entries {
+                println!(
+                    "  {} {}{}",
+                    if entry.selector == active { "*" } else { " " },
+                    if entry.submenu.is_some() { "  ↳ " } else { "" },
+                    if entry.name.is_empty() {
+                        entry.selector.as_str()
+                    } else {
+                        entry.name.as_str()
+                    }
+                );
+                println!("      selector: {}", entry.selector);
             }
-            return EXIT_OK;
         }
     }
 
-    if let Some(system) = parsed.switch.as_deref() {
-        let source_name = SOURCE_FILES
-            .iter()
-            .find(|(candidate, _, _)| *candidate == system)
-            .map(|(_, _, source_name)| *source_name)
-            .unwrap_or_default();
-        let source = scan.vars_dir.join(source_name);
-        let target = scan.vars_dir.join("PreviousBoot");
-        if !source.is_file() {
-            return finish_error(
+    if let Some(selector) = parsed.switch_grub.as_deref() {
+        if !scan.entries.iter().any(|entry| entry.selector == selector) {
+            let message =
+                format!("grub.cfg 里没有这一项：{selector}（先用 --grub-list 看可选项）");
+            scan.release();
+            return Err(finish_error(
                 config,
                 parsed,
-                "source_missing",
-                &format!("变量文件不存在: {}", display_path(&source).display()),
+                "grub_entry_missing",
+                &message,
                 EXIT_FAILED,
-            );
+            ));
         }
-        let result = write_with_mount(scan.active_mount.as_ref(), || {
-            atomic_copy(&source, &target)
-                .map_err(|error| format!("写入失败: {error}"))
-                .and_then(|_| {
-                    if hashes_match(&source, &target) {
-                        Ok(())
-                    } else {
-                        Err("写入校验失败".to_string())
-                    }
-                })
-        });
+        let result = grub_write_env(&scan.env_path, selector);
+        scan.release();
         if let Err(error) = result {
-            config.trace("switch-failed", &error);
-            return finish_error(
+            return Err(finish_error(
                 config,
                 parsed,
-                "switch_failed",
+                "grub_switch_failed",
                 &format!("切换失败: {error}"),
                 exit_code_for_error(&error),
-            );
+            ));
         }
-        let name = SOURCE_FILES
-            .iter()
-            .find(|(candidate, _, _)| *candidate == system)
-            .map(|(_, display_name, _)| *display_name)
-            .unwrap_or(system);
-        lines.push(format!("已切换：下次启动 {name}"));
+        lines.push(format!("已切换：下次启动（GRUB）{selector}"));
     }
 
+    Ok(())
+}
+
+fn run_locally(config: &CliConfig, parsed: &CliArgs) -> i32 {
+    // 人类可读的每一行都先收起来：`--json` 时它们变成 message 字段
+    let mut lines: Vec<String> = Vec::new();
+    let mut grub_json: Option<serde_json::Value> = None;
+
+    // 1) GRUB 细粒度那条链路（与变量目录无关，先跑）
+    if parsed.grub_list || parsed.switch_grub.is_some() {
+        if let Err(code) = run_grub_locally(config, parsed, &mut lines, &mut grub_json) {
+            return code;
+        }
+    }
+
+    // 2) rEFInd 那条链路：只有 --status / --switch 才需要变量目录
+    let scan = if parsed.status || parsed.switch.is_some() {
+        match scan_vars_directory(explicit_vars_dir().as_deref()) {
+            Ok(scan) => {
+                config.trace(
+                    "scan-ok",
+                    &format!("vars_dir={}", display_path(&scan.vars_dir).display()),
+                );
+                Some(scan)
+            }
+            Err(error) => {
+                config.trace("scan-failed", &error);
+                return finish_error(
+                    config,
+                    parsed,
+                    "vars_dir_not_found",
+                    &error,
+                    EXIT_NO_VARS_DIR,
+                );
+            }
+        }
+    } else {
+        None
+    };
+
+    if let Some(scan) = scan.as_ref() {
+        if parsed.status {
+            if parsed.json {
+                let name = scan
+                    .variables
+                    .iter()
+                    .find(|variable| variable.active)
+                    .map(|variable| variable.display_name.clone())
+                    .unwrap_or_else(|| "（PreviousBoot 未匹配任何模板）".to_string());
+                lines.push(format!("下次启动：{name}"));
+            } else {
+                print_status(scan);
+            }
+        }
+
+        if let Some(system) = parsed.switch.as_deref() {
+            let source_name = SOURCE_FILES
+                .iter()
+                .find(|(candidate, _, _)| *candidate == system)
+                .map(|(_, _, source_name)| *source_name)
+                .unwrap_or_default();
+            let source = scan.vars_dir.join(source_name);
+            let target = scan.vars_dir.join("PreviousBoot");
+            if !source.is_file() {
+                return finish_error(
+                    config,
+                    parsed,
+                    "source_missing",
+                    &format!("变量文件不存在: {}", display_path(&source).display()),
+                    EXIT_FAILED,
+                );
+            }
+            let result = write_with_mount(scan.active_mount.as_ref(), || {
+                atomic_copy(&source, &target)
+                    .map_err(|error| format!("写入失败: {error}"))
+                    .and_then(|_| {
+                        if hashes_match(&source, &target) {
+                            Ok(())
+                        } else {
+                            Err("写入校验失败".to_string())
+                        }
+                    })
+            });
+            if let Err(error) = result {
+                config.trace("switch-failed", &error);
+                return finish_error(
+                    config,
+                    parsed,
+                    "switch_failed",
+                    &format!("切换失败: {error}"),
+                    exit_code_for_error(&error),
+                );
+            }
+            let name = SOURCE_FILES
+                .iter()
+                .find(|(candidate, _, _)| *candidate == system)
+                .map(|(_, display_name, _)| *display_name)
+                .unwrap_or(system);
+            lines.push(format!("已切换：下次启动 {name}"));
+        }
+    }
+
+    // 3) 电源动作
     let mut dry_run_commands: Vec<String> = Vec::new();
     if let Some(action) = parsed.action {
         let (note, evidence) = if action == PowerAction::Sleep {
@@ -665,7 +913,18 @@ fn run_locally(config: &CliConfig, parsed: &CliArgs) -> i32 {
     }
 
     if parsed.json {
-        println!("{}", json_local_result(&scan, &lines, &dry_run_commands));
+        if let Some(scan) = scan.as_ref() {
+            println!("{}", json_local_result(scan, &lines, &dry_run_commands));
+        } else {
+            // 纯 GRUB 调用：没有变量目录结果，用 GRUB 自己的 JSON（字段名与
+            // HTTP `/api/grub` 对齐）再加一行 message / dryRun
+            let mut value = grub_json.unwrap_or_else(|| serde_json::json!({ "ok": true }));
+            value["message"] = serde_json::json!(lines.join("；"));
+            if !dry_run_commands.is_empty() {
+                value["dryRunCommands"] = serde_json::json!(dry_run_commands);
+            }
+            println!("{value}");
+        }
     } else {
         for line in &lines {
             println!("{line}");
@@ -716,6 +975,8 @@ mod tests {
         assert!(!is_cli_invocation(&[]));
         assert!(is_cli_invocation(&args(&["--status"])));
         assert!(is_cli_invocation(&args(&["--help"])));
+        assert!(is_cli_invocation(&args(&["--grub-list"])));
+        assert!(is_cli_invocation(&args(&["--switch-grub", "Arch Linux"])));
         // 只有一个值、没有旗标：当普通启动处理
         assert!(!is_cli_invocation(&args(&["windows"])));
     }
@@ -749,6 +1010,20 @@ mod tests {
                 .action,
             Some(PowerAction::Shutdown)
         );
+
+        // GRUB 细粒度那条链路
+        let parsed = parse_args(&args(&["--grub-list"])).expect("应能解析");
+        assert!(parsed.grub_list && parsed.switch_grub.is_none());
+
+        // selector 里有空格也照收（含 submenu 的 `>` 形态）
+        let parsed =
+            parse_args(&args(&["--switch-grub", "Arch Linux, with Linux linux"])).expect("应能解析");
+        assert_eq!(
+            parsed.switch_grub.as_deref(),
+            Some("Arch Linux, with Linux linux")
+        );
+        let parsed = parse_args(&args(&["--switch-grub", "a-advanced>x-linux"])).expect("应能解析");
+        assert_eq!(parsed.switch_grub.as_deref(), Some("a-advanced>x-linux"));
     }
 
     #[test]
@@ -767,7 +1042,31 @@ mod tests {
             parse_args(&args(&["--port", "0", "--status"])).is_err(),
             "端口 0 不行"
         );
+        assert!(parse_args(&args(&["--switch-grub"])).is_err(), "缺 selector");
+        assert!(
+            parse_args(&args(&["--switch-grub", "   "])).is_err(),
+            "空白 selector 等于没给"
+        );
         assert!(parse_args(&args(&["--nope"])).is_err(), "未知旗标");
+    }
+
+    #[test]
+    fn percent_encode_escapes_what_breaks_a_request_line() {
+        // 空格 / CR / LF / `&` / `#` / `%` 都会把 query 拆断，必须转义
+        assert_eq!(percent_encode("Arch Linux"), "Arch%20Linux");
+        assert_eq!(percent_encode("a>b$c"), "a%3Eb%24c");
+        assert_eq!(percent_encode("x&y=z#w"), "x%26y%3Dz%23w");
+        assert_eq!(percent_encode("100%"), "100%25");
+        assert_eq!(percent_encode("line\r\nbreak"), "line%0D%0Abreak");
+        // 未保留字符保持原样（否则读起来没法看）
+        assert_eq!(percent_encode("AZaz09-_.~"), "AZaz09-_.~");
+        // 中文按 UTF-8 逐字节转义
+        assert_eq!(percent_encode("中文"), "%E4%B8%AD%E6%96%87");
+        // 转义后必须能被 lib.rs 那边的 percent_decode 原样读回来
+        assert_eq!(
+            super::super::http::percent_decode(&percent_encode("Arch Linux, with Linux linux")),
+            "Arch Linux, with Linux linux"
+        );
     }
 
     #[test]

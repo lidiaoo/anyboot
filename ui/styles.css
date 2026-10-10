@@ -102,12 +102,91 @@ body {
   min-width: 360px;
   background: rgba(var(--bg-rgb), var(--ui-alpha, 1));
   color: var(--text);
+  /* 窗口竖着切成两块：正文（可滚） + 底部提示条（钉在窗口最下方）。
+   * 提示条**不浮在内容上**，而是占自己那一格 —— 它属于窗口、不属于正文，
+   * 所以不用再给 main 预留 padding。 */
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
 }
 
 main {
   display: grid;
   gap: 20px;
   padding: 24px;
+  /* 正文自己滚，提示条永远钉在窗口底边 */
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* ---------- 窗口最下方的提示条（主内容区之外） ----------
+ * 以前所有操作回执都写在正文最末尾的 #message，用户不滚到底根本看不到
+ * （「勾选了某个系统之后没反应」就是这个原因）。后来挪成 fixed 遮罩，但视觉上
+ * 仍像是正文的一部分 —— 现在把它做成窗口自己的**独立底栏**：
+ * 和 main 平级、不盖住内容、有内容才占位，没内容整条收起。 */
+.status-bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border-strong);
+  background: var(--panel);
+  box-shadow: 0 -6px 18px rgba(0, 0, 0, 0.28);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.status-bar.hidden {
+  display: none;
+}
+
+.status-bar-icon {
+  flex: 0 0 auto;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.status-bar-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text);
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+/* 失败回执整体染成暖色，一眼能和「已成功」区分开 */
+.status-bar.error {
+  border-top-color: var(--warn);
+  background: var(--port-bg);
+}
+
+.status-bar.error .status-bar-text,
+.status-bar.error .status-bar-icon {
+  color: var(--warn);
+}
+
+.status-bar.ok .status-bar-icon {
+  color: var(--ok);
+}
+
+.status-bar-close {
+  flex: 0 0 auto;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.status-bar-close:hover {
+  background: var(--btn-secondary);
+  color: var(--text);
 }
 
 h1 {
@@ -122,12 +201,11 @@ h1 {
 }
 
 /*
- * 这三个元素**不在卡片里**（标题、状态、底部提示），直接落在半透明的窗体背景上。
+ * 这两个元素**不在卡片里**（标题、状态），直接落在半透明的窗体背景上。
  * 给它们加一层主题色的描边，不透明度调到 50% 时文字也还能立住。
  */
 h1,
-#status,
-#message {
+#status {
   text-shadow: var(--text-shadow);
 }
 
@@ -207,6 +285,305 @@ h1,
   color: var(--text-faint);
 }
 
+/* ---------- GRUB 启动项：和上面三个系统并列的第二套机制 ----------
+ * grub.cfg 里动辄几十个条目（本机 77 个），字号整体比上面小一号，
+ * 并且列表限高 + 内部滚动，免得把「应用设置」挤到屏幕外面去。 */
+.grub {
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+}
+
+.grub-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.grub h2 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.grub-head small {
+  color: var(--text-faint);
+  font-size: 11px;
+  text-align: right;
+}
+
+.grub-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.grub-row label {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.grub-row input {
+  flex: 1 1 180px;
+  min-width: 0;
+  padding: 7px 10px;
+  font-size: 12px;
+}
+
+.grub-row button {
+  padding: 7px 11px;
+  font-size: 12px;
+}
+
+/* 勾选行（挂载 ESP）：整行可点，勾选框和文字同一基线 */
+.grub-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.grub-check input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  padding: 0;
+  flex: 0 0 auto;
+  accent-color: var(--btn);
+}
+
+.grub-check:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+/* 分区识别结果：FAT32 / fs-uuid / 挂载状态，一行小字 */
+.grub-part {
+  flex: 1 1 100%;
+  color: var(--text-faint);
+  font-size: 11px;
+  line-height: 1.5;
+  word-break: break-all;
+}
+
+.grub-part b {
+  color: var(--ok);
+  font-weight: 600;
+}
+
+.grub-part i {
+  color: var(--warn);
+  font-style: normal;
+}
+
+.grub-hint {
+  margin: 0;
+  color: var(--text-faint);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+/* 本区操作的回执一律走窗口底部那条独立提示条（见 .status-bar），
+ * 这一区里只保留快照带来的「硬错误」提示。#grub-error 装的是快照里的错。 */
+.grub-error {
+  margin: 0;
+  color: var(--warn);
+  font-size: 11px;
+  white-space: pre-wrap;
+}
+
+.grub-list {
+  display: grid;
+  gap: 4px;
+  max-height: 320px;
+  padding: 4px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--input-bg);
+}
+
+.grub-empty {
+  padding: 6px 4px;
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+/* 每一行本身就是「点一下就切过去」的按钮：左名称、右标签 */
+.grub-entry {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 9px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+
+/*
+ * 树形层级：顶层条目（组标题，如「Arch Linux 的高级选项」）和子条目要一眼分得开。
+ * 顶层用主题色 + 加粗 + 左侧色条，子条目缩进并挂一条竖直的引导线 ——
+ * grub.cfg 里动辄几十项、还夹着 submenu，光靠文字前缀根本看不出谁属于谁。
+ */
+.grub-entry.is-group {
+  margin-top: 4px;
+  border-left: 3px solid var(--btn);
+  background: var(--input-bg);
+}
+
+.grub-entry.is-group .grub-entry-name {
+  color: var(--link);
+  font-weight: 700;
+}
+
+/*
+ * 组头是 disabled 的按钮（它没有 selector，点不了）。通用的 button:disabled 会给它
+ * 套 0.55 的透明度，看起来像「不可用」——但它是分层标题，不该发灰。
+ */
+.grub-entry.is-group:disabled {
+  opacity: 1;
+  cursor: default;
+}
+
+/* 子条目：缩进一格 + 一条竖直引导线（用 inset box-shadow 画，不吃布局宽度） */
+.grub-entry.is-child {
+  padding-left: 26px;
+  box-shadow: inset 12px 0 0 -11px var(--border-strong);
+}
+
+.grub-entry.is-child .grub-entry-name {
+  color: var(--text-dim);
+}
+
+/* 更深一层（submenu 套 submenu）再缩进一格 */
+.grub-entry.depth-2 {
+  padding-left: 42px;
+}
+
+.grub-entry.depth-2,
+.grub-entry.depth-3,
+.grub-entry.depth-4 {
+  box-shadow: inset 28px 0 0 -27px var(--border-strong);
+}
+
+/* 顶层组里的「组名」本身也能点（切过去 = 用它的默认项），把它写得像标题一点 */
+.grub-entry.is-group:hover:not(:disabled) {
+  border-color: var(--border-strong);
+}
+
+.grub-entry.active {
+  border-color: var(--ok-border);
+  background: var(--ok-bg);
+}
+
+.grub-entry-name {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.grub-entry.active .grub-entry-name {
+  color: var(--ok);
+  font-weight: 600;
+}
+
+.grub-entry-tag {
+  color: var(--text-fainter);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+/* 组内的子条目数量小标（顶层组行右侧） */
+.grub-entry-count {
+  color: var(--text-fainter);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+/* ---------- 安装 / 卸载的执行过程 ---------- */
+.grub-log {
+  display: grid;
+  gap: 6px;
+}
+
+.grub-log summary {
+  color: var(--text-dim);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.grub-log.ok summary {
+  color: var(--ok);
+}
+
+.grub-log.fail summary {
+  color: var(--warn);
+}
+
+.grub-log pre {
+  max-height: 220px;
+  margin: 0;
+  padding: 9px 11px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--input-bg);
+  color: var(--text-dim);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.grub-script {
+  display: grid;
+  gap: 8px;
+}
+
+.grub-script summary {
+  color: var(--text-dim);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.grub-script small {
+  color: var(--text-faint);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.grub-script code {
+  padding: 0 3px;
+  border-radius: 4px;
+  background: var(--input-bg);
+  font-size: 11px;
+}
+
+.grub-script textarea {
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: var(--input-bg);
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
 button {
   border: 0;
   border-radius: 7px;
@@ -272,20 +649,12 @@ input {
   gap: 8px;
 }
 
+/* 电源操作现在摆在系统列表**上方**：右对齐贴着列表右边，不再需要上边距 */
 .system-actions {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
-  margin-top: 12px;
-}
-
-#message {
-  min-height: 20px;
-  margin: 0;
-  color: var(--warn);
-  font-size: 13px;
-  white-space: pre-wrap;
 }
 
 .settings {
@@ -355,13 +724,6 @@ select {
 
 .setting :disabled {
   opacity: 0.55;
-}
-
-#settings-message {
-  min-height: 16px;
-  margin: 0;
-  color: var(--text-faint);
-  font-size: 12px;
 }
 
 .setting-state {
@@ -523,11 +885,4 @@ button.danger:hover:not(:disabled) {
   content: "暂无远程请求";
   color: var(--text-fainter);
   font-size: 11px;
-}
-
-#remote-message {
-  min-height: 16px;
-  margin: 0;
-  color: var(--text-faint);
-  font-size: 12px;
 }

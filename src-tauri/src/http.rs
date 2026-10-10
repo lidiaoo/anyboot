@@ -258,7 +258,9 @@ pub(crate) fn find_pair(pairs: &[(String, String)], key: &str) -> Option<String>
         .map(|(_, value)| value.clone())
 }
 
-fn percent_decode(value: &str) -> String {
+/// `pub(crate)`：CLI 侧的 `percent_encode` 有单测要对着它做往返校验
+/// （两个模块必须严格互逆，否则含空格的 GRUB selector 到服务端就散了）。
+pub(crate) fn percent_decode(value: &str) -> String {
     let bytes = value.as_bytes();
     let mut decoded = Vec::with_capacity(bytes.len());
     let mut index = 0;

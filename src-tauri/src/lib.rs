@@ -2,7 +2,7 @@ use std::{
     fs,
     io::{self, Read, Write},
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::{Command, Output, Stdio},
     sync::{
         atomic::{AtomicU64, Ordering},
         Mutex,
@@ -49,7 +49,89 @@ const SOURCE_FILES: [(&str, &str, &str); 3] = [
 const ESP_PARTTYPE: &str = "c12a7328-f81f-11d2-ba4b-00a0c93ec93b";
 const FAT_FILESYSTEMS: [&str; 6] = ["vfat", "fat", "fat12", "fat16", "fat32", "exfat"];
 mod cli;
+mod grub;
 mod http;
+
+/// Linux 侧数据收集脚本（把 grubenv 迁到 ESP），装到 `/etc/grub.d/09_anyboot`。
+///
+/// 内容与 `linux/09_anyboot` 一致，只有 `@@ESP_UUID@@` 是占位符 —— 安装时替换成
+/// 用户填的 fs-uuid，其余一字不改（用户定案 1）。
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+const GRUB_SCRIPT_TEMPLATE: &str = r##"#!/bin/sh
+exec tail -n +3 "$0"
+# ============================================================================
+#  AnyBoot · /etc/grub.d/09_anyboot
+#  安装位置： /etc/grub.d/09_anyboot        权限： 0755（必须可执行）
+#
+#  ★ 开头两行 `#!/bin/sh` 与 `exec tail -n +3 "$0"` 是 shell 包装。
+#    grub-mkconfig 会「执行」本文件并读取它的 stdout；包装行负责把下面这段
+#    GRUB 脚本原样打印出去。删掉它们，grub-mkconfig 就会拿 sh 去跑 GRUB 命令，
+#    于是报 `search: 未找到命令` / `未预期的记号 "("`。**不要删！**
+#
+#  作用：把 GRUB 的"环境块"(grubenv) 从 ext4 的 /boot/grub/ 迁到 ESP(FAT32)：
+#          <ESP>/EFI/grubenv
+#  这样 Windows / macOS 无需 ext4 支持、无需提权，即可读写"上次/下次启动项"。
+#  AnyBoot 同步时也会把 grub.cfg 副本放到 <ESP>/EFI/grub.cfg（同一个父目录）。
+#
+#  ── 本机取值（安装时由 AnyBoot 填入）──────────────────────────────────────
+#          ESP 的 fs-uuid  = @@ESP_UUID@@
+#          ESP 上的环境块  = /EFI/grubenv
+#
+#  排序：09 —— 在 00_header 之后、10_linux 之前。GRUB 在渲染菜单前会把整份
+#    grub.cfg 执行一遍，所以这里重设 default、重定义 savedefault 会覆盖
+#    00_header 里指向 ext4 的旧逻辑（后写入者胜出）。
+#
+#  模块依赖：search / load_env / save_env 已内置在 grubx64.efi 里；fat 未内置
+#    （生成的 grub.cfg 要到 40_custom 那段才 insmod fat）→ 读 ESP 前必须显式
+#    insmod fat，否则 search --fs-uuid 探测不到 ESP。
+# ============================================================================
+
+insmod part_gpt
+insmod part_msdos
+insmod fat
+
+if search --no-floppy --fs-uuid --set=anyboot_esp @@ESP_UUID@@ ; then
+  set anyboot_env="($anyboot_esp)/EFI/grubenv"
+  export anyboot_esp
+  export anyboot_env
+
+  # 1) 从 ESP 上的环境块读取状态（saved_entry / next_entry / 任意自定义键）
+  if [ -s "${anyboot_env}" ] ; then
+    load_env -f "${anyboot_env}"
+  fi
+
+  # 2) 用 ESP 的状态决定 default（覆盖 00_header 基于内建 grubenv 的结论）。
+  #    若 00_header 已取到一次性项（Linux 侧 grub-reboot / grub-editenv），
+  #    它会置 boot_once=true —— 此时不再覆盖，尊重那一次的选择。
+  if [ -z "${boot_once}" ] ; then
+    if [ "${next_entry}" ] ; then
+      set default="${next_entry}"
+      set next_entry=
+      save_env -f "${anyboot_env}" next_entry
+      set boot_once=true
+    elif [ "${saved_entry}" ] ; then
+      set default="${saved_entry}"
+    fi
+  fi
+fi
+
+# 3) 覆盖 00_header 的 savedefault：把"记住上次选择"写回 ESP。
+#    定义在最外层（不嵌在 if 里），ESP 若找不到会自动降级回内建 grubenv。
+function savedefault {
+  if [ -z "${boot_once}" ] ; then
+    saved_entry="${chosen}"
+    if [ "${anyboot_env}" ] ; then
+      save_env -f "${anyboot_env}" saved_entry
+    else
+      save_env saved_entry
+    fi
+  fi
+}
+"##;
+
+/// 09_anyboot 的安装路径（仅 Linux 有意义）。
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+const GRUB_SCRIPT_PATH: &str = "/etc/grub.d/09_anyboot";
 
 /// 二进制入口（`main.rs`）用这两个：带参数走 CLI，不带参数开 GUI。
 pub use cli::{is_cli_invocation as cli_requested, run as run_cli};
@@ -117,6 +199,10 @@ struct AppState {
     variables: Vec<VariableInfo>,
     message: String,
     error: Option<String>,
+    /// GRUB 细粒度切换（与上面 rEFInd 那套并列）
+    grub: GrubRuntime,
+    /// 安装 / 卸载 09_anyboot 的执行过程日志（最近一次）
+    script_log: ScriptLogView,
 }
 
 #[derive(Clone)]
@@ -131,16 +217,25 @@ impl ActiveMount {
         if !self.owned {
             return Ok(());
         }
-        mount_command("umount")
-            .arg(&self.mountpoint)
+        // macOS 用 diskutil 卸（它自己挂的，也只能它自己卸干净）；其余用 umount
+        #[cfg(target_os = "macos")]
+        let result = {
+            if self.device.as_os_str().is_empty() {
+                command("diskutil").arg("unmount").arg(&self.mountpoint)
+            } else {
+                command("diskutil").arg("unmount").arg(&self.device)
+            }
             .status()
-            .and_then(|status| {
-                if status.success() {
-                    Ok(())
-                } else {
-                    Err(io::Error::other("umount failed"))
-                }
-            })?;
+        };
+        #[cfg(not(target_os = "macos"))]
+        let result = mount_command("umount").arg(&self.mountpoint).status();
+        result.and_then(|status| {
+            if status.success() {
+                Ok(())
+            } else {
+                Err(io::Error::other("umount failed"))
+            }
+        })?;
         let _ = fs::remove_dir(&self.mountpoint);
         Ok(())
     }
@@ -284,6 +379,74 @@ struct AppStatus {
     error: Option<String>,
 }
 
+/// 主窗口「GRUB 启动项」区块的展示数据。
+///
+/// 这一块和上面的三个系统项是**并列**的两套机制：上面走 rEFInd 的 `PreviousBoot`，
+/// 这里走 GRUB 自己的环境块。用户设了 ESP 的 fs-uuid 才会出现。
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GrubView {
+    /// 用户填写的 fs-uuid 原文（空 = 未配置）
+    uuid: String,
+    /// 归一化后的十六进制串（去分隔符、大写），跟 GRUB 侧比对用
+    uuid_digits: Option<String>,
+    /// 用户填写的 ESP 目录原文（空 = 没填，只靠 fs-uuid 找）
+    dir: String,
+    /// 识别出来的 ESP 分区（是不是 FAT32 / fs-uuid / 挂载状态）
+    esp: Option<EspInfo>,
+    /// 「保持挂载」勾选状态
+    keep_mounted: bool,
+    /// 本端能不能按 fs-uuid 挂载（Windows = false，勾选框要置灰）
+    mount_supported: bool,
+    /// 本端解析出的 ESP 目录（Windows 是盘符、Linux 是挂载点）
+    efi_dir: Option<String>,
+    /// 环境块路径（本端）
+    env_path: Option<String>,
+    /// grub.cfg 副本路径（本端）
+    cfg_path: Option<String>,
+    /// ESP 上是否已经有环境块文件（没有的话 GRUB 会报 invalid environment block）
+    env_exists: bool,
+    /// 09_anyboot 是否已安装；非 Linux 恒为 None（安装/卸载按钮只在 Linux 展示）
+    installed: Option<bool>,
+    /// 上次同步时间（本地时间串）
+    synced_at: Option<String>,
+    /// 安装 / 卸载 09_anyboot 的执行过程（最近一次，含命令与退出码）
+    script_log: ScriptLogView,
+    /// 解析出来的启动项（第一版**不过滤**，os-prober 的 Windows/OpenCore 也在内）
+    entries: Vec<grub::GrubEntry>,
+    /// submenu 分组（id + 标题）：前端据此把子条目挂到组头下面做树形层级
+    groups: Vec<grub::GrubGroup>,
+    /// 从环境块读回的「上次启动 / 下次启动」
+    saved_entry: Option<String>,
+    next_entry: Option<String>,
+    error: Option<String>,
+    /// 给用户的下一步提示
+    hint: Option<String>,
+}
+
+/// GRUB 功能的**本端运行时状态**。与 rEFInd 那套（`AppState` 的
+/// `vars_dir` / `active_mount` / `variables`）完全并列，互不影响。
+#[derive(Clone, Default)]
+struct GrubRuntime {
+    /// 本端解析出的 ESP 根目录
+    efi_dir: Option<PathBuf>,
+    /// ESP 分区的识别结果（是不是 FAT32 / fs-uuid 从哪来的）
+    esp: Option<EspInfo>,
+    /// ESP 未挂载时由我们挂上去的挂载记录
+    mount: Option<ActiveMount>,
+    entries: Vec<grub::GrubEntry>,
+    /// submenu 分组（树形展示的组头）
+    groups: Vec<grub::GrubGroup>,
+    env_path: Option<PathBuf>,
+    cfg_path: Option<PathBuf>,
+    env_exists: bool,
+    saved_entry: Option<String>,
+    next_entry: Option<String>,
+    installed: Option<bool>,
+    synced_at: Option<String>,
+    error: Option<String>,
+}
+
 /// 远程渠道：http（webhook / curl / 面板）与 cli（ssh / CLI 转发）。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -383,6 +546,9 @@ enum RemoteCommand {
     Switch(String),
     Power(PowerAction),
     SwitchAndPower { system: String, power: PowerAction },
+    /// GRUB 细粒度条目（第二条链路）：selector 是 grub.cfg 里解析出的原文，
+    /// submenu 内为 `submenu_id>entry_id`。只写环境块、不重启。
+    SwitchGrub(String),
 }
 
 impl RemoteCommand {
@@ -397,6 +563,7 @@ impl RemoteCommand {
                     power.label()
                 )
             }
+            Self::SwitchGrub(selector) => format!("切换 GRUB 启动项为 {selector}"),
         }
     }
 }
@@ -612,6 +779,10 @@ struct UiState {
     last_action: Option<ActionResult>,
     http: HttpView,
     notify: Option<NotifyView>,
+    /// GRUB 细粒度切换（与 status 里 rEFInd 那三个系统项并列的第二块）
+    grub: GrubView,
+    /// 当前生效的 09_anyboot 正文（供界面「查看 / 修改」用）
+    grub_script: String,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
@@ -661,6 +832,18 @@ struct Settings {
     theme: String,
     /// 窗口不透明度（百分比，50–100）
     opacity_percent: u8,
+    /// GRUB 细粒度切换用的 ESP fs-uuid（GRUB `search --fs-uuid` 那一串，
+    /// 例如 `E537-7F31`）。空 = 未配置，界面不展示 GRUB 区块。
+    grub_efi_uuid: String,
+    /// 用户在界面上指定的 ESP 目录（形如 `H:\` / `/boot/efi` / `/Volumes/ARCH-EFI`）。
+    /// 只在「识别」时用来反查 fs-uuid，并把结果归一化成分区根目录存下来。
+    /// fs-uuid 才是权威键，这个只是入口和展示。
+    grub_efi_dir: String,
+    /// 勾上「挂载 ESP」后保持挂载：每次扫描不再自动卸掉自己挂的那份。
+    grub_keep_mounted: bool,
+    /// 用户在界面上改过的 09_anyboot 正文（空 = 用内置模板）。
+    /// 安装时只替换 `@@ESP_UUID@@`，其余按用户改的来。
+    grub_script_override: String,
 }
 
 impl Default for Settings {
@@ -682,6 +865,10 @@ impl Default for Settings {
             sound_file_path: String::new(),
             theme: "dark".to_string(),
             opacity_percent: MAX_OPACITY,
+            grub_efi_uuid: String::new(),
+            grub_efi_dir: String::new(),
+            grub_keep_mounted: false,
+            grub_script_override: String::new(),
         }
     }
 }
@@ -915,6 +1102,10 @@ struct LsblkDevice {
     partlabel: Option<String>,
     parttype: Option<String>,
     mountpoints: Option<Vec<Option<String>>>,
+    /// 文件系统 UUID —— 就是 GRUB `search --fs-uuid` 比的那串。
+    /// 老代码的 lsblk 调用没要这一列，`Option` 让缺失列也能反序列化。
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    uuid: Option<String>,
 }
 
 struct ScanResult {
@@ -1396,6 +1587,9 @@ fn refresh_and_update(app: &AppHandle) -> AppStatus {
             status.error.as_deref().unwrap_or("ok")
         ),
     );
+    // GRUB 那条链路跟着一起刷新：Linux 端顺带把 /boot/grub 的两份数据同步到 ESP，
+    // 其它端就是重新解析 ESP 上的副本。用户要的「每次启动软件自动同步一次」在这里。
+    refresh_grub(app);
     // 扫描结束：清 busy 并发布快照（托盘菜单与主窗口一起更新、菜单指纹相同就跳过重建）
     set_busy(app, |busy| busy.scanning = false);
     status
@@ -1862,6 +2056,14 @@ fn ui_state(app: &AppHandle) -> UiState {
             requests: runtime.requests.clone(),
         }
     };
+    // GRUB 那块：先算好（下面 `settings` 会被整体移进快照，不能再借）
+    let grub = grub_snapshot(app, &settings.settings);
+    let grub_script = grub_script_content(
+        grub_template(&settings.settings),
+        &grub::uuid_digits(&settings.settings.grub_efi_uuid)
+            .map(|digits| grub::uuid_pretty(&digits))
+            .unwrap_or_else(|| "@@ESP_UUID@@".to_string()),
+    );
     UiState {
         revision: UI_REVISION.load(Ordering::SeqCst),
         status: state_snapshot(app),
@@ -1872,6 +2074,8 @@ fn ui_state(app: &AppHandle) -> UiState {
         last_action: last_action_snapshot(app),
         http,
         notify: notify_view(app),
+        grub,
+        grub_script,
     }
 }
 
@@ -2508,6 +2712,23 @@ fn route_remote_command(request: &RemoteRequest) -> Result<RemoteCommand, Remote
             };
             Ok(RemoteCommand::SwitchAndPower { system, power })
         }
+        "/api/grub-switch" => {
+            // selector 里可能有空格、`>`、引号 —— 一律要求调用方先做 URL 编码，
+            // `RemoteRequest::param` 会解码回来（见 http::percent_decode）。
+            let Some(entry) = request
+                .param("entry")
+                .or_else(|| request.param("selector"))
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+            else {
+                return Err(RemoteReply::error(
+                    400,
+                    "missing_entry",
+                    "缺少 entry 参数（GRUB 启动项的 selector，可用 --grub-list / GET /api/grub 查）",
+                ));
+            };
+            Ok(RemoteCommand::SwitchGrub(entry))
+        }
         _ => Err(RemoteReply::error(404, "not_found", "未知路径")),
     }
 }
@@ -2556,6 +2777,38 @@ fn remote_requests_json() -> serde_json::Value {
     serde_json::json!({ "ok": true, "requests": requests })
 }
 
+/// GRUB 列表的 JSON 视图（HTTP `/api/grub` 与 CLI `--grub-list` 共用）。
+///
+/// 只读当前快照，不主动重扫 —— 与 `/api/status` 同一套语义：要刷新由本机点同步。
+fn remote_grub_json(app: &AppHandle) -> serde_json::Value {
+    let settings = stored_settings(app);
+    let view = grub_snapshot(app, &settings);
+    serde_json::json!({
+        "ok": true,
+        "uuid": view.uuid,
+        "efiDir": view.efi_dir,
+        "envExists": view.env_exists,
+        "installed": view.installed,
+        "syncedAt": view.synced_at,
+        "savedEntry": view.saved_entry,
+        "nextEntry": view.next_entry,
+        "error": view.error,
+        "entries": view
+            .entries
+            .iter()
+            .map(|entry| serde_json::json!({
+                "selector": entry.selector,
+                "id": entry.id,
+                "name": entry.name,
+                "submenu": entry.submenu,
+                "class": entry.class,
+                "chainloader": entry.chainloader,
+                "kernels": entry.kernels,
+            }))
+            .collect::<Vec<_>>(),
+    })
+}
+
 /// HTTP / CLI 转发共用的唯一入口：鉴权 → 路由 → 立即执行或转成待执行请求。
 pub(crate) fn handle_remote_request(app: &AppHandle, request: &RemoteRequest) -> RemoteReply {
     if !matches!(request.method.as_str(), "GET" | "POST") {
@@ -2584,6 +2837,7 @@ pub(crate) fn handle_remote_request(app: &AppHandle, request: &RemoteRequest) ->
         }
         "/api/status" => return RemoteReply::ok(200, remote_status_json(app)),
         "/api/requests" => return RemoteReply::ok(200, remote_requests_json()),
+        "/api/grub" => return RemoteReply::ok(200, remote_grub_json(app)),
         _ => {}
     }
 
@@ -2778,6 +3032,13 @@ fn execute_remote_command(
                     power.label()
                 ),
             )
+        }
+        RemoteCommand::SwitchGrub(selector) => {
+            let status = switch_grub_and_update(app, selector);
+            match status.error {
+                Some(error) => (false, error),
+                None => (true, format!("下次启动（GRUB）：{selector}")),
+            }
         }
     }
 }
@@ -3157,7 +3418,11 @@ fn http_access_hint_text(app: &AppHandle) -> String {
          # 切换下次启动并重启（一条命令搞定）\n\
          curl -s -X POST \"http://{ip}:{port}/api/switch-and-power?system=windows&action=reboot\" -H \"X-Auth-Token: {token}\"\n\
          # 只切换、不重启\n\
-         curl -s -X POST \"http://{ip}:{port}/api/switch?system=linux\" -H \"X-Auth-Token: {token}\""
+         curl -s -X POST \"http://{ip}:{port}/api/switch?system=linux\" -H \"X-Auth-Token: {token}\"\n\
+         # GRUB 启动项：列出 ESP 上 grub.cfg 里的条目（selector 原文）\n\
+         curl -s \"http://127.0.0.1:{port}/api/grub?token={token}\"\n\
+         # 切换 GRUB 启动项（selector 含空格等要 URL 编码，空格 = %20）\n\
+         curl -s -X POST \"http://127.0.0.1:{port}/api/grub-switch?entry=Arch%20Linux\" -H \"X-Auth-Token: {token}\""
     )
 }
 
@@ -4996,6 +5261,1362 @@ fn apply_dock_taskbar_visibility(app: &AppHandle, hide: bool) -> Result<(), Stri
     Ok(())
 }
 
+// ============================================================================
+// GRUB 细粒度切换（Linux / Windows / macOS 三端共用）
+// ============================================================================
+//
+// 这是与上面 rEFInd 那套**完全并列**的第二条链路：
+//
+//   数据源   ESP(FAT32) 上的 `<ESP>/EFI/grub.cfg` 与 `<ESP>/EFI/grubenv`
+//   取值     `grub` 模块（移植自 system-switch.sh 的 grub_self_check）
+//   收集     **仅 Linux 端**把 /boot/grub 的 grub.cfg 与 grubenv 搬进 ESP
+//
+// 为什么不直接读 ext4：Windows / macOS 读不了 ext4（要管理员或第三方驱动），
+// 而 ESP 是三端唯一都原生可读写的落点。所以让 Linux 端搬运一次，之后就三端
+// 都只看 ESP —— 这也正是 `09_anyboot` 把环境块改指向 ESP 的原因。
+
+/// 把 ESP 上的相对路径拼到本端 ESP 根目录下。
+///
+/// 不能直接用 `Path::join`：`ENV_REL_PATH` 以 `/` 开头，Windows 会把它当绝对
+/// 路径从而丢掉盘符（`H:\`.join("/EFI/grubenv") 会变成「当前盘」的 `\EFI\grubenv`）。
+fn grub_rel(dir: &Path, rel: &str) -> PathBuf {
+    dir.join(rel.trim_start_matches('/'))
+}
+
+/// 原子写字节：先写同目录临时文件再改名（与 `atomic_copy` 同一套思路）。
+fn atomic_write_bytes(target: &Path, bytes: &[u8]) -> io::Result<()> {
+    let temporary = temporary_target(target);
+    fs::write(&temporary, bytes)?;
+    match fs::rename(&temporary, target) {
+        Ok(()) => Ok(()),
+        Err(error) => {
+            let _ = fs::remove_file(&temporary);
+            Err(error)
+        }
+    }
+}
+
+/// 09_anyboot 正文：只把占位符换成真值，其余一字不改（用户定案 1）。
+///
+/// `template` 正常就是内置的 `GRUB_SCRIPT_TEMPLATE`；用户在界面上改过脚本，就用
+/// 他改的那份（设置项 `grub_script_override`）—— 「可展示 + 可修改」是明确要求。
+fn grub_script_content(template: &str, uuid: &str) -> String {
+    template.replace("@@ESP_UUID@@", uuid)
+}
+
+/// 当前生效的 09_anyboot 模板（内置 / 用户改过的）。
+fn grub_template(settings: &Settings) -> &str {
+    if settings.grub_script_override.trim().is_empty() {
+        GRUB_SCRIPT_TEMPLATE
+    } else {
+        settings.grub_script_override.as_str()
+    }
+}
+
+/// 09_anyboot 是否已安装。这个功能只在 Linux 有意义，所以非 Linux 返回 None
+/// —— 界面据此**只在 Linux 展示**安装/卸载按钮。
+#[cfg(target_os = "linux")]
+fn grub_installed() -> Option<bool> {
+    Some(Path::new(GRUB_SCRIPT_PATH).is_file())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn grub_installed() -> Option<bool> {
+    None
+}
+
+/// 「上次同步」用的时间串：沿用项目既有的 UTC 记法（`utc_timestamp`），
+/// 三端互相比对时不会因为本地时区而错位。
+fn grub_synced_stamp() -> String {
+    utc_timestamp(now_epoch_seconds())
+}
+
+/// 安装 / 卸载 09_anyboot 的**执行过程日志**：每跑一条外部命令就记一行，
+/// 连同 stdout / stderr 与退出码一起。用户要知道「你到底做了什么」，光给一句
+/// 「已安装」是不够的（一个 pkexec 弹窗背后的 `install` + `grub-mkconfig` 全看不见）。
+///
+/// 容量固定：这是给人看的最近一次操作的流水，不是审计日志，超过就从头丢。
+const SCRIPT_LOG_LIMIT: usize = 200;
+
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ScriptLogView {
+    /// 最近一次操作的名字（安装 09_anyboot / 卸载 09_anyboot）
+    title: Option<String>,
+    /// 逐行记录：命令行、stdout/stderr、退出码
+    lines: Vec<String>,
+    /// 这次操作整体成没成；None = 还没跑过
+    ok: Option<bool>,
+}
+
+/// 往日志里追一行；超出上限就丢掉最老的。
+fn script_log_push(lines: &mut Vec<String>, line: &str) {
+    for part in line.lines() {
+        lines.push(part.to_string());
+    }
+    if lines.len() > SCRIPT_LOG_LIMIT {
+        let excess = lines.len() - SCRIPT_LOG_LIMIT;
+        lines.drain(..excess);
+    }
+}
+
+/// 把一次命令执行的结果按「退出码 → stdout → stderr」记进日志。
+///
+/// 只有 Linux 的安装 / 卸载会真正跑到它；其余平台留着是为了同一份代码不按平台分叉。
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn script_log_output(lines: &mut Vec<String>, label: &str, output: &Output) {
+    script_log_push(lines, &format!("[{label}] {}", output.status));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stdout = stdout.trim();
+    if !stdout.is_empty() {
+        script_log_push(lines, stdout);
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stderr = stderr.trim();
+    if !stderr.is_empty() {
+        script_log_push(lines, stderr);
+    }
+}
+
+/// 记一条「命令根本没跑起来」的失败。
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn script_log_error(lines: &mut Vec<String>, label: &str, error: &io::Error) {
+    script_log_push(lines, &format!("[{label}] 无法执行: {error}"));
+}
+
+// ---------------------------------------------------------------------------
+// ESP 分区识别：判断它是不是 FAT32，并从中取出 fs-uuid
+// ---------------------------------------------------------------------------
+//
+// 三个平台各用自己那套「本来就知道」的来源，**不猜**：
+//   Windows → GetVolumeInformationW 的卷序列号（就是 FAT 的 BS_VolID，与 GRUB 同源）
+//   Linux   → findmnt 报的 FSTYPE/UUID（util-linux 读的就是引导扇区里那几个字节）
+//   macOS   → diskutil info 的 Volume UUID（尽力而为，取不到就如实说取不到）
+// 任何一端都不去改分区，只读。
+
+/// 一块分区的识别结果（取不到的字段就是 None，绝不编）。
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EspInfo {
+    /// 用户给的路径（原样回显）
+    path: String,
+    /// 规范化后的分区根目录（挂载点 / 盘符根）
+    root: Option<String>,
+    /// 设备节点（Linux `/dev/sda1`、macOS `/dev/disk0s1`、Windows `\\.\H:`）
+    device: Option<String>,
+    /// 文件系统类型原文（FAT32 / vfat / msdos / NTFS / APFS …）
+    fstype: Option<String>,
+    /// 是不是 FAT 家族（FAT12/16/32）—— ESP 规范要求用它
+    fat: bool,
+    /// 是不是正好 FAT32
+    fat32: bool,
+    /// fs-uuid（GRUB `search --fs-uuid` 那一串，形如 `E537-7F31`）
+    uuid: Option<String>,
+    /// 当前是否已挂载 / 可访问
+    mounted: bool,
+    /// 这个挂载点是不是本程序挂上的（只有自己挂上的才允许自己卸）
+    owned_mount: bool,
+    /// fs-uuid 的来路，或者取不到时的原话（展示给人看）
+    note: Option<String>,
+    /// 这块分区**当前挂载在哪里**（用户可能自己先挂上了，或系统自动挂的）。
+    ///
+    /// Windows 上没盘符的分区 user mode 摸不到 → 这里就是 None，
+    /// 界面照实说「没有盘符」，而不是装作认得。
+    mount_point: Option<String>,
+    /// 这个 mount_point 是不是系统/用户已有的挂载（不是本程序挂的）。
+    /// 是的话「打开文件管理器」直接跳过去，也不需要再挂一次。
+    preexisting: bool,
+}
+
+/// Linux：ESP 挂到哪儿。放 `$XDG_RUNTIME_DIR`（没有就 /tmp）下的**固定名字**，
+/// 这样「打开文件管理器」看到的路径每次一样，用户还能把它加进书签。
+#[cfg(target_os = "linux")]
+fn esp_mountpoint() -> PathBuf {
+    std::env::var_os("XDG_RUNTIME_DIR")
+        .map(PathBuf::from)
+        .filter(|path| path.is_dir())
+        .unwrap_or_else(std::env::temp_dir)
+        .join("anyboot-esp")
+}
+
+/// 本端能不能「按 fs-uuid 自己挂上来」。
+///
+/// Windows 不行：盘符是系统分配的，没盘符的分区用户态根本摸不到 ——
+/// 所以界面把勾选框置灰，并提示去「磁盘管理」里分配盘符。
+#[cfg(target_os = "windows")]
+fn esp_mount_supported() -> bool {
+    false
+}
+
+#[cfg(not(target_os = "windows"))]
+fn esp_mount_supported() -> bool {
+    true
+}
+
+/// 从 FAT 引导扇区里读出 `(FAT 类型, 卷序列号)` —— 纯函数，好单测。
+///
+/// 类型按簇数判定（<4085 = FAT12、<65525 = FAT16、否则 FAT32），不认那 8 字节的
+/// 文件系统标识串（FAT16 卷上它常常写的是 `MSDOS5.0`）。序列号就是 GRUB 的
+/// fs-uuid：FAT12/16 在偏移 39，FAT32 在偏移 67。
+///
+/// 只有 Linux 会用它去补 blkid 分不出来的 FAT16/FAT32（要走单测，所以不按平台裁掉）。
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn fat_boot_sector(sector: &[u8]) -> Option<(String, String)> {
+    if sector.len() < 512 {
+        return None;
+    }
+    let bytes_per_sector = u16::from_le_bytes([sector[11], sector[12]]) as u64;
+    if !matches!(bytes_per_sector, 512 | 1024 | 2048 | 4096) {
+        return None;
+    }
+    let sectors_per_cluster = sector[13] as u64;
+    let reserved = u16::from_le_bytes([sector[14], sector[15]]) as u64;
+    let fat_count = sector[16] as u64;
+    let root_entries = u16::from_le_bytes([sector[17], sector[18]]) as u64;
+    let total16 = u16::from_le_bytes([sector[19], sector[20]]) as u64;
+    let fat_size16 = u16::from_le_bytes([sector[22], sector[23]]) as u64;
+    let total32 = u32::from_le_bytes([sector[32], sector[33], sector[34], sector[35]]) as u64;
+    let fat_size32 = u32::from_le_bytes([sector[36], sector[37], sector[38], sector[39]]) as u64;
+    let total = if total16 != 0 { total16 } else { total32 };
+    let fat_size = if fat_size16 != 0 { fat_size16 } else { fat_size32 };
+    if total == 0 || fat_size == 0 || fat_count == 0 || sectors_per_cluster == 0 {
+        return None;
+    }
+    let root_dir_sectors = (root_entries * 32).div_ceil(bytes_per_sector);
+    let overhead = reserved
+        .saturating_add(fat_count.saturating_mul(fat_size))
+        .saturating_add(root_dir_sectors);
+    let clusters = total.saturating_sub(overhead) / sectors_per_cluster;
+    let (kind, serial_at) = if clusters < 4085 {
+        ("FAT12", 39usize)
+    } else if clusters < 65525 {
+        ("FAT16", 39usize)
+    } else {
+        ("FAT32", 67usize)
+    };
+    if sector.len() < serial_at + 4 {
+        return None;
+    }
+    let serial = u32::from_le_bytes([
+        sector[serial_at],
+        sector[serial_at + 1],
+        sector[serial_at + 2],
+        sector[serial_at + 3],
+    ]);
+    Some((kind.to_string(), format!("{serial:08X}")))
+}
+
+/// 读设备的前 512 字节（Linux 上普通用户读 `/dev/sdX1` 多半没权限 ——
+/// 那是预期的失败，调用方退回到 blkid 报的信息，这里不报错）。
+#[cfg(target_os = "linux")]
+fn read_first_sector(device: &Path) -> io::Result<Vec<u8>> {
+    use std::io::Read;
+    let mut file = fs::File::open(device)?;
+    let mut buffer = vec![0u8; 512];
+    file.read_exact(&mut buffer)?;
+    Ok(buffer)
+}
+
+/// Windows：盘符路径 → 卷信息。
+#[cfg(target_os = "windows")]
+fn esp_probe(path: &Path) -> Result<EspInfo, String> {
+    let text = path.to_string_lossy().to_string();
+    let letter = text
+        .trim()
+        .chars()
+        .next()
+        .filter(char::is_ascii_alphabetic)
+        .map(|letter| letter.to_ascii_uppercase())
+        .ok_or_else(|| format!("请填盘符路径，例如 H:\\（当前填的是 {text}）"))?;
+    let (filesystem, serial) = windows_volume(letter).ok_or_else(|| {
+        format!("读不到 {letter}: 的卷信息：盘符不存在，或该分区还没在「磁盘管理」里分配盘符")
+    })?;
+    let name = filesystem.to_ascii_uppercase();
+    let fat32 = name == "FAT32";
+    let root = format!("{letter}:\\");
+    Ok(EspInfo {
+        path: text,
+        root: Some(root.clone()),
+        device: Some(format!("\\\\.\\{letter}:")),
+        fstype: Some(filesystem),
+        fat: fat32 || name == "FAT" || name == "FAT16",
+        fat32,
+        uuid: Some(grub::uuid_pretty(&serial)),
+        mounted: true,
+        owned_mount: false,
+        note: Some("fs-uuid 取自 Windows 卷序列号 —— 和 GRUB 的 search --fs-uuid 同源".to_string()),
+        // 有盘符就是「挂着的」，而且是系统给的挂载（不是我们挂的）
+        mount_point: Some(root),
+        preexisting: true,
+    })
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Deserialize)]
+struct FindmntOutput {
+    #[serde(default)]
+    filesystems: Vec<FindmntEntry>,
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Deserialize)]
+struct FindmntEntry {
+    #[serde(default)]
+    source: Option<String>,
+    #[serde(default)]
+    fstype: Option<String>,
+    #[serde(default)]
+    uuid: Option<String>,
+    #[serde(default)]
+    target: Option<String>,
+}
+
+/// Linux：路径 → 它所在的那块分区。
+///
+/// `findmnt --target` 取的是「包含这个路径的那一次挂载」，所以用户填
+/// `/boot/efi/EFI/` 还是 `/run/media/me/ARCH-EFI/EFI/grub.cfg`，都会落到同一块 FAT 上。
+#[cfg(target_os = "linux")]
+fn esp_probe(path: &Path) -> Result<EspInfo, String> {
+    let root = fs::canonicalize(path)
+        .map_err(|error| format!("路径打不开：{}（{error}）", path.display()))?;
+    let output = command("findmnt")
+        .args(["--json", "--output", "SOURCE,FSTYPE,UUID,TARGET", "--target"])
+        .arg(&root)
+        .stderr(Stdio::null())
+        .output()
+        .map_err(|error| format!("无法执行 findmnt: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "{} 不在任何已挂载的分区上（ESP 还没挂上来？）",
+            root.display()
+        ));
+    }
+    let parsed: FindmntOutput = serde_json::from_slice(&output.stdout)
+        .map_err(|error| format!("无法解析 findmnt 输出: {error}"))?;
+    let entry = parsed
+        .filesystems
+        .into_iter()
+        .next()
+        .ok_or_else(|| format!("{} 不在任何已挂载的分区上", root.display()))?;
+
+    let mut fstype = entry.fstype.clone().unwrap_or_else(|| "未知".to_string());
+    let mut uuid = entry
+        .uuid
+        .clone()
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| match grub::uuid_digits(&value) {
+            Some(digits) if digits.len() == 8 => grub::uuid_pretty(&digits),
+            _ => value,
+        });
+    let mut note = "fs-uuid 取自 findmnt 报的 UUID（与 GRUB 同源）".to_string();
+    // 能直接读引导扇区就自己算一遍：blkid 的 `vfat` 分不出 FAT16/FAT32，
+    // 引导扇区里的簇数分得出来，序列号也读得到。读不了（普通用户没权限）就算了。
+    if let Some(device) = entry.source.as_deref() {
+        if let Ok(sector) = read_first_sector(Path::new(device)) {
+            if let Some((kind, serial)) = fat_boot_sector(&sector) {
+                fstype = kind;
+                uuid = Some(grub::uuid_pretty(&serial));
+                note = format!("fs-uuid 取自 {device} 引导扇区里的 BS_VolID（最权威）");
+            }
+        }
+    }
+    let name = fstype.to_ascii_uppercase();
+    let fat32 = name == "FAT32";
+    let fat = fat32 || name.starts_with("FAT");
+    if matches!(name.as_str(), "VFAT" | "MSDOS") {
+        note = format!("Linux 把 FAT12/16/32 都报成 {fstype}；ESP 一般是 FAT32（{note}）");
+    }
+    Ok(EspInfo {
+        path: path.to_string_lossy().to_string(),
+        root: Some(root.display().to_string()),
+        device: entry.source,
+        fstype: Some(fstype),
+        fat,
+        fat32,
+        uuid,
+        mounted: true,
+        owned_mount: false,
+        note: Some(note),
+        // findmnt --target 报的 TARGET 就是这块分区的**挂载点本身**
+        mount_point: entry.target,
+        preexisting: true,
+    })
+}
+
+/// macOS：`diskutil info` 里我们要的那几行。
+#[cfg(target_os = "macos")]
+#[derive(Clone, Debug, Default)]
+struct DiskInfo {
+    node: Option<String>,
+    identifier: Option<String>,
+    personality: Option<String>,
+    uuid: Option<String>,
+    mount_point: Option<String>,
+}
+
+#[cfg(target_os = "macos")]
+fn macos_read_line(info: &mut DiskInfo, line: &str) {
+    let Some((key, value)) = line.split_once(':') else {
+        return;
+    };
+    let value = value.trim();
+    match key.trim() {
+        "Device Node" => info.node = Some(value.to_string()),
+        "Device Identifier" => info.identifier = Some(value.to_string()),
+        "File System Personality" => info.personality = Some(value.to_string()),
+        "Volume UUID" => info.uuid = Some(value.to_string()),
+        // 未挂载时 diskutil 打的就是 "Mount Point: None"
+        "Mount Point" if value != "None" => info.mount_point = Some(value.to_string()),
+        _ => {}
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_disk_info(path: &Path) -> Option<DiskInfo> {
+    let output = command("diskutil").arg("info").arg(path).output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut info = DiskInfo::default();
+    for line in text.lines() {
+        macos_read_line(&mut info, line);
+    }
+    Some(info)
+}
+
+/// `diskutil info -all`：每块盘一段，段之间是一整行星号。未挂载的卷也能从这里看到。
+#[cfg(target_os = "macos")]
+fn macos_all_disks() -> Vec<DiskInfo> {
+    let Ok(output) = command("diskutil").arg("info").arg("-all").output() else {
+        return Vec::new();
+    };
+    if !output.status.success() {
+        return Vec::new();
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut disks = Vec::new();
+    let mut current = DiskInfo::default();
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.len() >= 8 && trimmed.chars().all(|character| character == '*') {
+            if current.node.is_some() || current.identifier.is_some() {
+                disks.push(std::mem::take(&mut current));
+            }
+            continue;
+        }
+        macos_read_line(&mut current, line);
+    }
+    if current.node.is_some() || current.identifier.is_some() {
+        disks.push(current);
+    }
+    disks
+}
+
+/// macOS：路径 → 它所在的那块分区。
+#[cfg(target_os = "macos")]
+fn esp_probe(path: &Path) -> Result<EspInfo, String> {
+    let root = fs::canonicalize(path)
+        .map_err(|error| format!("路径打不开：{}（{error}）", path.display()))?;
+    let info = macos_disk_info(&root)
+        .ok_or_else(|| format!("diskutil 读不到 {}（分区已卸载？）", root.display()))?;
+    let personality = info
+        .personality
+        .clone()
+        .unwrap_or_else(|| "未知".to_string());
+    let upper = personality.to_ascii_uppercase();
+    let fat32 = upper.contains("FAT32");
+    let fat = fat32 || upper.contains("FAT");
+    let digits = info
+        .uuid
+        .as_deref()
+        .and_then(grub::uuid_digits)
+        .filter(|digits| digits.len() == 8);
+    let note = match (&digits, &info.uuid) {
+        (Some(_), _) => {
+            "fs-uuid 取自 diskutil 报的 Volume UUID（macOS 给 FAT 卷的标识）".to_string()
+        }
+        (None, Some(raw)) => format!(
+            "diskutil 报的 Volume UUID 是 {raw}，不是 GRUB 那种 8 位写法 —— 请手工核对 fs-uuid"
+        ),
+        (None, None) => "diskutil 没报 Volume UUID，请手工核对 fs-uuid".to_string(),
+    };
+    Ok(EspInfo {
+        path: path.to_string_lossy().to_string(),
+        root: Some(
+            info.mount_point
+                .clone()
+                .unwrap_or_else(|| root.display().to_string()),
+        ),
+        device: info
+            .node
+            .clone()
+            .or_else(|| info.identifier.as_deref().map(|id| format!("/dev/{id}"))),
+        fstype: Some(personality),
+        fat,
+        fat32,
+        uuid: digits.map(|digits| grub::uuid_pretty(&digits)),
+        mounted: info.mount_point.is_some(),
+        owned_mount: false,
+        note: Some(note),
+        mount_point: info.mount_point.clone(),
+        preexisting: info.mount_point.is_some(),
+    })
+}
+
+/// macOS：按 fs-uuid 找到那块盘并 `diskutil mount`。
+#[cfg(target_os = "macos")]
+fn esp_mount(digits: &str) -> Result<Option<ActiveMount>, String> {
+    // 已经挂着了（能在 /Volumes 下按 UUID 认出来）就不用动，owned=false 表示不归我们管
+    if let Ok((dir, _)) = grub_esp_dir(digits) {
+        return Ok(Some(ActiveMount {
+            device: PathBuf::new(),
+            mountpoint: dir,
+            owned: false,
+        }));
+    }
+    let node = macos_all_disks()
+        .into_iter()
+        .find(|info| {
+            info.uuid
+                .as_deref()
+                .is_some_and(|uuid| grub::uuid_matches(uuid, digits))
+        })
+        .and_then(|info| {
+            info.node
+                .or_else(|| info.identifier.map(|id| format!("/dev/{id}")))
+        })
+        .ok_or_else(|| {
+            format!("没找到 fs-uuid 为 {digits} 的分区（diskutil info -all 里没有对得上的）")
+        })?;
+    let output = command("diskutil")
+        .arg("mount")
+        .arg(&node)
+        .output()
+        .map_err(|error| format!("无法执行 diskutil mount: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "diskutil mount {node} 失败: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    let mountpoint = macos_disk_info(Path::new(&node))
+        .and_then(|info| info.mount_point)
+        .map(PathBuf::from)
+        .ok_or_else(|| format!("{node} 挂上了，但 diskutil 没报出挂载点"))?;
+    Ok(Some(ActiveMount {
+        device: PathBuf::from(node),
+        mountpoint,
+        owned: true,
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// 本端按 fs-uuid 定位 ESP
+// ---------------------------------------------------------------------------
+
+#[cfg(target_os = "windows")]
+#[link(name = "kernel32")]
+extern "system" {
+    fn GetLogicalDrives() -> u32;
+    fn GetVolumeInformationW(
+        root: *const u16,
+        volume_name: *mut u16,
+        volume_name_size: u32,
+        serial: *mut u32,
+        max_component: *mut u32,
+        flags: *mut u32,
+        filesystem_name: *mut u16,
+        filesystem_name_size: u32,
+    ) -> i32;
+}
+
+/// 盘符 → `(文件系统名, 卷序列号十六进制)`；盘符不存在或没有介质时返回 None。
+///
+/// 卷序列号**就是** GRUB `search --fs-uuid` 比的那串：Windows 从 FAT 引导扇区的
+/// `BS_VolID` 读出来，按十六进制写出来即 `E5377F31`（GRUB 写作 `E537-7F31`）。
+#[cfg(target_os = "windows")]
+fn windows_volume(letter: char) -> Option<(String, String)> {
+    let root: Vec<u16> = format!("{}:\\", letter.to_ascii_uppercase())
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
+    let mut serial: u32 = 0;
+    let mut filesystem = vec![0u16; 32];
+    let ok = unsafe {
+        GetVolumeInformationW(
+            root.as_ptr(),
+            std::ptr::null_mut(),
+            0,
+            &mut serial,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            filesystem.as_mut_ptr(),
+            filesystem.len() as u32,
+        )
+    };
+    if ok == 0 {
+        return None;
+    }
+    let end = filesystem
+        .iter()
+        .position(|unit| *unit == 0)
+        .unwrap_or(filesystem.len());
+    Some((
+        String::from_utf16_lossy(&filesystem[..end]),
+        format!("{serial:08X}"),
+    ))
+}
+
+/// Windows：用卷序列号认盘。
+#[cfg(target_os = "windows")]
+fn grub_esp_dir(digits: &str) -> Result<(PathBuf, Option<ActiveMount>), String> {
+    let mask = unsafe { GetLogicalDrives() };
+    for index in 0..26u32 {
+        if mask & (1 << index) == 0 {
+            continue;
+        }
+        let letter = char::from(b'A' + index as u8);
+        let Some((_, serial)) = windows_volume(letter) else {
+            continue;
+        };
+        if grub::uuid_matches(&serial, digits) {
+            return Ok((PathBuf::from(format!("{letter}:\\")), None));
+        }
+    }
+    Err(format!(
+        "没找到 fs-uuid 为 {digits} 的分区：确认它已在「磁盘管理」里分配了盘符"
+    ))
+}
+
+/// Windows 上「已挂载 = 有盘符」，所以 `grub_esp_dir` 本身就是挂载扫描 —— 不用再来一遍。
+#[cfg(target_os = "windows")]
+fn find_mounted_by_uuid(digits: &str) -> Option<PathBuf> {
+    grub_esp_dir(digits).ok().map(|(dir, _)| dir)
+}
+
+/// Linux：`lsblk --json` 里的 UUID 就是 fs-uuid。已挂载就用现成挂载点；
+/// 没挂载才由我们用 `mount`（必要时 pkexec 提权）以 **rw** 挂上。
+#[cfg(target_os = "linux")]
+fn grub_esp_dir(digits: &str) -> Result<(PathBuf, Option<ActiveMount>), String> {
+    let output = command("lsblk")
+        .args(["--json", "--output", "PATH,FSTYPE,UUID,MOUNTPOINTS"])
+        .stderr(Stdio::null())
+        .output()
+        .map_err(|error| format!("无法执行 lsblk: {error}"))?;
+    let devices: LsblkOutput = serde_json::from_slice(&output.stdout)
+        .map_err(|error| format!("无法解析 lsblk 输出: {error}"))?;
+
+    for device in devices.blockdevices {
+        let (Some(path), Some(uuid)) = (device.path.clone(), device.uuid.clone()) else {
+            continue;
+        };
+        if !grub::uuid_matches(&uuid, digits) {
+            continue;
+        }
+        // 已经挂载：直接用用户的挂载点，绝不擅自改动别人的挂载
+        if let Some(mountpoint) = device
+            .mountpoints
+            .clone()
+            .unwrap_or_default()
+            .into_iter()
+            .flatten()
+            .find(|mountpoint| !mountpoint.is_empty())
+        {
+            return Ok((PathBuf::from(mountpoint), None));
+        }
+
+        let mountpoint = esp_mountpoint();
+        // 只建目录、不先 remove_dir：这个路径可能是上一次自己挂上的活挂载点，
+        // 删不掉也没关系 —— mount(8) 允许挂到非空目录。
+        if !mountpoint.is_dir() {
+            fs::create_dir_all(&mountpoint)
+                .map_err(|error| format!("无法创建临时挂载点: {error}"))?;
+        }
+        let filesystem = device.fstype.clone().unwrap_or_else(|| "vfat".to_string());
+        match mount_command("mount")
+            .args(["-o", &mount_options("rw"), "-t", &filesystem])
+            .arg(&path)
+            .arg(&mountpoint)
+            .output()
+        {
+            Ok(result) if result.status.success() => {
+                return Ok((
+                    mountpoint.clone(),
+                    Some(ActiveMount {
+                        device: PathBuf::from(path),
+                        mountpoint,
+                        owned: true,
+                    }),
+                ));
+            }
+            Ok(result) => {
+                let _ = fs::remove_dir(&mountpoint);
+                return Err(format!(
+                    "挂载 ESP 失败: {}",
+                    String::from_utf8_lossy(&result.stderr).trim()
+                ));
+            }
+            Err(error) => {
+                let _ = fs::remove_dir(&mountpoint);
+                return Err(format!("无法执行 mount: {error}"));
+            }
+        }
+    }
+    Err(format!("没找到 fs-uuid 为 {digits} 的分区"))
+}
+
+/// Linux：**用户已经挂上的**那块分区，按 fs-uuid 找它的挂载点。
+///
+/// 和 `grub_esp_dir` 的区别：这个**绝不挂载**，只用 `lsblk` 已经报出来的
+/// MOUNTPOINTS —— 用户自己挂好之后，我们直接把那个路径拿来用。
+#[cfg(target_os = "linux")]
+fn find_mounted_by_uuid(digits: &str) -> Option<PathBuf> {
+    let output = command("lsblk")
+        .args(["--json", "--output", "UUID,MOUNTPOINTS"])
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    let devices: LsblkOutput = serde_json::from_slice(&output.stdout).ok()?;
+    for device in devices.blockdevices {
+        let Some(uuid) = device.uuid.as_deref() else {
+            continue;
+        };
+        if !grub::uuid_matches(uuid, digits) {
+            continue;
+        }
+        if let Some(mountpoint) = device
+            .mountpoints
+            .unwrap_or_default()
+            .into_iter()
+            .flatten()
+            .find(|mountpoint| !mountpoint.is_empty())
+        {
+            return Some(PathBuf::from(mountpoint));
+        }
+    }
+    None
+}
+
+/// macOS：尽力而为 —— 遍历已挂载的卷，用 `diskutil info` 的 Volume UUID 比对。
+///
+/// 注意：macOS 给 FAT 卷报的 Volume UUID 与 GRUB 的 fs-uuid **表示形式不同**，
+/// 这里只按「归一化后的十六进制串相等」比对；命不中就如实报错并提示先手动挂载。
+#[cfg(target_os = "macos")]
+fn grub_esp_dir(digits: &str) -> Result<(PathBuf, Option<ActiveMount>), String> {
+    let entries =
+        fs::read_dir("/Volumes").map_err(|error| format!("无法读取 /Volumes: {error}"))?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(info) = macos_disk_info(&path) else {
+            continue;
+        };
+        if info
+            .uuid
+            .as_deref()
+            .is_some_and(|uuid| grub::uuid_matches(uuid, digits))
+        {
+            return Ok((path, None));
+        }
+    }
+    Err(format!(
+        "没在 /Volumes 下找到 fs-uuid 为 {digits} 的 ESP；请先在 macOS 上手动挂载该分区"
+    ))
+}
+
+/// macOS：已挂载的卷里按 Volume UUID 找（和 `grub_esp_dir` 同一套比对）。
+#[cfg(target_os = "macos")]
+fn find_mounted_by_uuid(digits: &str) -> Option<PathBuf> {
+    grub_esp_dir(digits).ok().map(|(dir, _)| dir)
+}
+
+// ---------------------------------------------------------------------------
+// 收集（仅 Linux）与读取
+// ---------------------------------------------------------------------------
+
+/// Linux：把 `/boot/grub` 的两份数据搬进 ESP。
+///
+/// * `grub.cfg` **每次都覆盖** —— 它就是 `update-grub` 的产物，内容必须跟得上。
+/// * `grubenv` **只在 ESP 上还没有时才搬**（首次迁移）。装上 09_anyboot 之后
+///   GRUB 只写 ESP 那一份，ext4 那份是旧的；每次覆盖会把 GRUB 刚记住的选择冲掉。
+#[cfg(target_os = "linux")]
+fn grub_collect(efi_dir: &Path) -> Result<(), String> {
+    let source = ["/boot/grub/grub.cfg", "/boot/grub2/grub.cfg"]
+        .iter()
+        .map(Path::new)
+        .find(|path| path.is_file())
+        .ok_or_else(|| {
+            "没找到 /boot/grub/grub.cfg（或 /boot/grub2/grub.cfg）".to_string()
+        })?;
+    let target = grub_rel(efi_dir, grub::CFG_REL_PATH);
+    atomic_copy(source, &target)
+        .map_err(|error| format!("同步 grub.cfg 到 ESP 失败: {error}"))?;
+    if !hashes_match(source, &target) {
+        return Err("grub.cfg 写入后校验不一致".to_string());
+    }
+
+    let env_target = grub_rel(efi_dir, grub::ENV_REL_PATH);
+    if !env_target.is_file() {
+        let existing = ["/boot/grub/grubenv", "/boot/grub2/grubenv"]
+            .iter()
+            .map(Path::new)
+            .find(|path| path.is_file());
+        let block = match existing.and_then(|path| fs::read(path).ok()) {
+            // ext4 上那份是合法环境块就原样迁过去（保住当前的 saved_entry）
+            Some(bytes) if grub::parse_env_block(&bytes).is_ok() => bytes,
+            // 否则造一块干净的空块 —— GRUB 自己不会创建这个文件
+            _ => grub::empty_env_block(),
+        };
+        atomic_write_bytes(&env_target, &block)
+            .map_err(|error| format!("在 ESP 上创建环境块失败: {error}"))?;
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn grub_collect(_efi_dir: &Path) -> Result<(), String> {
+    // Windows / macOS 没有 /boot/grub 可搬：ESP 上的副本由 Linux 端负责更新
+    Ok(())
+}
+
+/// GRUB 数据的一次读取结果（**不碰 AppState**）：GUI 与 CLI 共用同一份实现。
+struct GrubScan {
+    efi_dir: PathBuf,
+    /// ESP 分区识别结果（是不是 FAT32 / fs-uuid 从哪来）
+    esp: EspInfo,
+    /// 我们自己挂上的挂载（用完要 `unmount`；用户已有的挂载是 None）
+    mount: Option<ActiveMount>,
+    entries: Vec<grub::GrubEntry>,
+    /// submenu 分组的 (id, 标题) —— 前端做树形层级用
+    groups: Vec<grub::GrubGroup>,
+    env_path: PathBuf,
+    cfg_path: PathBuf,
+    env_exists: bool,
+    saved_entry: Option<String>,
+    next_entry: Option<String>,
+    /// 这个目录是**按 fs-uuid 现找出来的**（不是用户填的那一行）——
+    /// 调用方据此把找到的挂载点回填进设置，界面上「ESP 目录」那一行就会跟着变。
+    discovered: bool,
+}
+
+impl GrubScan {
+    fn release(self) {
+        release_mount(self.mount);
+    }
+}
+
+/// 把一次挂载交回去卸掉（`None` 就是什么都不做）。
+fn release_mount(mount: Option<ActiveMount>) {
+    if let Some(mount) = mount {
+        let _ = mount.unmount();
+    }
+}
+
+/// 决定这次该拿哪个挂载具柄：新挂的优先；否则复用上一次自己挂的那份
+/// （**挂载点必须还是同一个**），其余的卸掉 —— 绝不能留下没人管得着的挂载。
+fn merge_mount(
+    fresh: Option<ActiveMount>,
+    reusable: Option<ActiveMount>,
+    dir: &Path,
+) -> Option<ActiveMount> {
+    match (fresh, reusable) {
+        (Some(fresh), other) => {
+            release_mount(other);
+            Some(fresh)
+        }
+        (None, Some(old)) if old.mountpoint.as_path() == dir => Some(old),
+        (None, other) => {
+            release_mount(other);
+            None
+        }
+    }
+}
+
+/// 按 fs-uuid 定位 ESP。
+///
+/// 顺序刻意是「**先看已经挂上的**，再考虑自己挂」：
+/// 用户可能已经在系统里（或上次）把 ESP 挂好了 —— 那种情况下直接用它现成的挂载点，
+/// 既不重复挂载，也顺手把这个路径回填到「ESP 目录」那一行给人看。
+///
+/// Linux 的 `grub_esp_dir` 本身就负责「没挂就挂上」；macOS 的只认已挂载的卷，
+/// 所以这里给 macOS 补一次 `diskutil mount`（只在勾了「保持挂载」时做 ——
+/// 用户没说要挂，就不该悄悄动他的磁盘）。
+fn grub_locate(digits: &str, allow_mount: bool) -> Result<(PathBuf, Option<ActiveMount>), String> {
+    // ① 已经挂着的：直接用（owned = false，不归我们管，也不会被我们卸掉）
+    if let Some(dir) = find_mounted_by_uuid(digits) {
+        return Ok((dir, None));
+    }
+    // ② 没挂上：Linux 走 grub_esp_dir（会按需 mount），macOS 按需 diskutil mount
+    match grub_esp_dir(digits) {
+        Ok(found) => Ok(found),
+        Err(error) => {
+            if cfg!(target_os = "macos") && allow_mount {
+                #[cfg(target_os = "macos")]
+                match esp_mount(digits) {
+                    Ok(Some(mount)) => return Ok((mount.mountpoint.clone(), Some(mount))),
+                    Ok(None) => {}
+                    Err(mount_error) => return Err(format!("{error}；{mount_error}")),
+                }
+            }
+            Err(error)
+        }
+    }
+}
+
+/// 只读 ESP 上的 grub.cfg 与 grubenv。
+///
+/// * `Ok(Some(scan))` —— 定位到了 ESP（按 fs-uuid，或按用户填的目录）
+/// * `Ok(None)` —— 既没填 fs-uuid 也没填目录，什么都不做
+///
+/// `reusable` 是上一次自己挂上的那份（勾了「保持挂载」才会传进来）。
+fn grub_scan(settings: &Settings, reusable: Option<ActiveMount>) -> Result<Option<GrubScan>, String> {
+    let uuid = settings.grub_efi_uuid.trim().to_string();
+    let dir = settings.grub_efi_dir.trim().to_string();
+    if uuid.is_empty() && dir.is_empty() {
+        release_mount(reusable);
+        return Ok(None);
+    }
+
+    // ① 定位：填了 fs-uuid 就按 fs-uuid 找（先看已挂载的，再按需挂载）；只有目录就直接用目录
+    let efi_dir_from_uuid = !uuid.is_empty();
+    let located = if uuid.is_empty() {
+        None
+    } else {
+        let Some(digits) = grub::uuid_digits(&uuid) else {
+            release_mount(reusable);
+            return Err(format!("fs-uuid 格式不对：{uuid}（例如应为 E537-7F31）"));
+        };
+        match grub_locate(&digits, settings.grub_keep_mounted) {
+            Ok(found) => Some(found),
+            Err(error) => {
+                release_mount(reusable);
+                return Err(error);
+            }
+        }
+    };
+    let (efi_dir, mount) = match located {
+        Some((efi_dir, fresh)) => {
+            let mount = merge_mount(fresh, reusable, &efi_dir);
+            (efi_dir, mount)
+        }
+        None => (PathBuf::from(dir), None),
+    };
+    let discovered = efi_dir_from_uuid;
+
+    // ② 挂上之后任何一步失败都要把挂载收掉，否则挂载点会越堆越多
+    if let Err(error) = grub_collect(&efi_dir) {
+        release_mount(mount);
+        return Err(error);
+    }
+
+    let cfg_path = grub_rel(&efi_dir, grub::CFG_REL_PATH);
+    let env_path = grub_rel(&efi_dir, grub::ENV_REL_PATH);
+    // grub.cfg 还没同步过来不算致命：先把状态摆出来，界面上会提示去点同步
+    let cfg_text = fs::read_to_string(&cfg_path).ok();
+    let raw_entries = cfg_text
+        .as_deref()
+        .map(grub::parse_grub_cfg)
+        .unwrap_or_default();
+    // 展示前折叠同名条目：os-prober 的 memtest86+（.bin/.efi）、31_efi_bootnext 的
+    // `UEFI OS (EFI BootNext)`（0009/000A）标题逐字相同，铺两行只会让人以为重复了。
+    let entries = grub::dedupe_display_entries(&raw_entries);
+    let groups = cfg_text.as_deref().map(grub::parse_submenus).unwrap_or_default();
+    let (env_exists, saved_entry, next_entry) = match fs::read(&env_path) {
+        Ok(bytes) => (
+            true,
+            grub::env_value(&bytes, "saved_entry").filter(|value| !value.is_empty()),
+            grub::env_value(&bytes, "next_entry").filter(|value| !value.is_empty()),
+        ),
+        Err(_) => (false, None, None),
+    };
+
+    // ③ 顺手把分区认一遍（探测失败**不算**致命：条目照样能用，只是分区信息缺一块）
+    let mut esp = esp_probe(&efi_dir).unwrap_or_else(|error| EspInfo {
+        path: efi_dir.display().to_string(),
+        root: Some(efi_dir.display().to_string()),
+        note: Some(error),
+        ..EspInfo::default()
+    });
+    esp.owned_mount = mount.as_ref().is_some_and(|mount| mount.owned);
+
+    Ok(Some(GrubScan {
+        efi_dir,
+        esp,
+        mount,
+        entries,
+        groups,
+        env_path,
+        cfg_path,
+        env_exists,
+        saved_entry,
+        next_entry,
+        discovered,
+    }))
+}
+
+/// 唯一的 GRUB 数据读取入口：只读 ESP 上的 grub.cfg 与 grubenv。
+fn rescan_grub(app: &AppHandle) -> Result<(), String> {
+    let settings = stored_settings(app);
+    // 上一次自己挂的那份：勾了「保持挂载」就留着复用（否则每次扫描都要重新
+    // mount/umount 一遍，挂载点还会越堆越多）。
+    let previous = {
+        let state = app.state::<Mutex<AppState>>();
+        let mut state = state.lock().expect("state mutex poisoned");
+        state.grub.mount.take()
+    };
+    let reusable = if settings.grub_keep_mounted {
+        previous
+    } else {
+        release_mount(previous);
+        None
+    };
+
+    let scan = grub_scan(&settings, reusable)?;
+
+    // 这次是「按 fs-uuid 现找出来的挂载点」——把它回填到设置里的 ESP 目录，
+    // 界面上那一行就会显示真实位置（用户填了 fs-uuid 却看不到任何反馈，就是这个问题）。
+    if let Some(scan) = &scan {
+        if scan.discovered {
+            let root = scan
+                .esp
+                .mount_point
+                .clone()
+                .or_else(|| scan.esp.root.clone())
+                .unwrap_or_else(|| display_path(&scan.efi_dir).display().to_string());
+            if settings.grub_efi_dir.trim() != root.trim() {
+                let mut settings = stored_settings(app);
+                settings.grub_efi_dir = root;
+                let _ = save_settings(app, &settings);
+            }
+        }
+    }
+
+    let state = app.state::<Mutex<AppState>>();
+    let mut state = state.lock().expect("state mutex poisoned");
+    state.grub = match scan {
+        Some(scan) => GrubRuntime {
+            efi_dir: Some(scan.efi_dir),
+            esp: Some(scan.esp),
+            mount: scan.mount,
+            entries: scan.entries,
+            groups: scan.groups,
+            env_path: Some(scan.env_path),
+            cfg_path: Some(scan.cfg_path),
+            env_exists: scan.env_exists,
+            saved_entry: scan.saved_entry,
+            next_entry: scan.next_entry,
+            installed: grub_installed(),
+            synced_at: Some(grub_synced_stamp()),
+            error: None,
+        },
+        None => GrubRuntime {
+            installed: grub_installed(),
+            ..GrubRuntime::default()
+        },
+    };
+    Ok(())
+}
+
+/// 把一条 GRUB 侧的错误记进快照（保留「装没装 09_anyboot」这个仍可判定的信息）。
+///
+/// 注意别把挂载具柄顺手丢了：`GrubRuntime` 一被整体替换，旧的 `mount` 就没人管
+/// 得着了（`ActiveMount` 没有 Drop），挂载点会一直留在那里。
+fn apply_grub_error(app: &AppHandle, error: &str) {
+    let keep = stored_settings(app).grub_keep_mounted;
+    let state = app.state::<Mutex<AppState>>();
+    let mut state = state.lock().expect("state mutex poisoned");
+    let mount = state.grub.mount.take();
+    let mount = if keep {
+        mount
+    } else {
+        release_mount(mount);
+        None
+    };
+    state.grub = GrubRuntime {
+        installed: grub_installed(),
+        mount,
+        error: Some(error.to_string()),
+        ..GrubRuntime::default()
+    };
+}
+
+/// 重新解析 GRUB 数据，失败只记进快照（不打断 rEFInd 那条链路）。
+///
+/// **不发布**快照：调用它的 `refresh_and_update` 末尾会统一发布。
+fn refresh_grub(app: &AppHandle) {
+    if let Err(error) = rescan_grub(app) {
+        apply_grub_error(app, &error);
+    }
+}
+
+/// 组装主窗口要的 GRUB 视图。
+fn grub_snapshot(app: &AppHandle, settings: &Settings) -> GrubView {
+    let (runtime, script_log) = {
+        let state = app.state::<Mutex<AppState>>();
+        let state = state.lock().expect("state mutex poisoned");
+        (state.grub.clone(), state.script_log.clone())
+    };
+    let uuid = settings.grub_efi_uuid.trim().to_string();
+    let uuid_digits = grub::uuid_digits(&uuid);
+    let hint = if uuid.is_empty() {
+        Some(
+            "填 ESP 目录后点「识别」（自动判断是不是 FAT32 并取出 fs-uuid），或者直接手工填 fs-uuid"
+                .to_string(),
+        )
+    } else if cfg!(target_os = "linux") {
+        Some(
+            "执行过 update-grub / grub-mkconfig 之后，请在这里点一次「同步」或重启本程序"
+                .to_string(),
+        )
+    } else {
+        Some("列表读的是 ESP 上的 grub.cfg 副本；Linux 端更新过 GRUB 后需重新同步".to_string())
+    };
+    GrubView {
+        uuid,
+        uuid_digits,
+        dir: settings.grub_efi_dir.trim().to_string(),
+        esp: runtime.esp.clone(),
+        keep_mounted: settings.grub_keep_mounted,
+        mount_supported: esp_mount_supported(),
+        efi_dir: runtime
+            .efi_dir
+            .as_deref()
+            .map(|path| display_path(path).display().to_string()),
+        env_path: runtime
+            .env_path
+            .as_deref()
+            .map(|path| display_path(path).display().to_string()),
+        cfg_path: runtime
+            .cfg_path
+            .as_deref()
+            .map(|path| display_path(path).display().to_string()),
+        env_exists: runtime.env_exists,
+        installed: runtime.installed,
+        synced_at: runtime.synced_at,
+        script_log,
+        entries: runtime.entries,
+        groups: runtime.groups,
+        saved_entry: runtime.saved_entry,
+        next_entry: runtime.next_entry,
+        error: runtime.error,
+        hint,
+    }
+}
+
+/// 把 selector 写进指定的环境块文件（**不碰 AppState**，GUI 与 CLI 共用）。
+///
+/// 内容规则完全沿用原脚本：写 `saved_entry`（永久默认）**和** `next_entry`
+/// （一次性），值取 grub.cfg 里解析出来的原文 —— **绝不自己拼 id**。
+fn grub_write_env(env_path: &Path, selector: &str) -> Result<(), String> {
+    let existing = fs::read(env_path).unwrap_or_else(|_| grub::empty_env_block());
+    let updates = vec![
+        ("saved_entry".to_string(), selector.to_string()),
+        ("next_entry".to_string(), selector.to_string()),
+    ];
+    let block = grub::set_env_vars(&existing, &updates)?;
+    atomic_write_bytes(env_path, &block)
+        .map_err(|error| format!("写入环境块失败: {error}（ESP 是否以只读方式挂载？）"))?;
+    // 回读校验：写不进去必须当场发现，而不是等到开机才报 invalid environment block
+    let written = fs::read(env_path).map_err(|error| format!("回读环境块失败: {error}"))?;
+    if grub::env_value(&written, "next_entry").as_deref() != Some(selector) {
+        return Err("环境块写入校验失败（回读的 next_entry 与预期不一致）".to_string());
+    }
+    Ok(())
+}
+
+/// 把用户点选的条目写进 ESP 上的环境块（先校验它在当前 grub.cfg 里确实存在）。
+fn write_grub_entry(app: &AppHandle, selector: &str) -> Result<(), String> {
+    let env_path = {
+        let state = app.state::<Mutex<AppState>>();
+        let state = state.lock().expect("state mutex poisoned");
+        let env_path = state
+            .grub
+            .env_path
+            .clone()
+            .ok_or_else(|| "GRUB 环境块路径尚未解析出来".to_string())?;
+        if !state.grub.entries.iter().any(|entry| entry.selector == selector) {
+            return Err(format!("grub.cfg 里没有这一项：{selector}"));
+        }
+        env_path
+    };
+    grub_write_env(&env_path, selector)
+}
+
+/// 切换下次启动的 GRUB 条目。只写环境块，**不重启**（与 rEFInd 那条链路一致）。
+fn switch_grub_and_update(app: &AppHandle, selector: &str) -> AppStatus {
+    trace(app, "grub", &format!("切换 entry={selector}"));
+    set_busy(app, |busy| busy.switching = true);
+    let outcome = write_grub_entry(app, selector);
+    set_busy(app, |busy| busy.switching = false);
+
+    match outcome {
+        Ok(()) => {
+            refresh_grub(app);
+            let message = format!("下次启动：{selector}");
+            record_action(app, "切换 GRUB 启动项", true, &message);
+            publish_ui(app);
+            state_snapshot(app)
+        }
+        Err(error) => {
+            record_action(app, "切换 GRUB 启动项", false, &error);
+            update_failure_status(app, "切换 GRUB 启动项失败", error)
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Linux 专属：安装 / 卸载 09_anyboot
+// ---------------------------------------------------------------------------
+
+#[cfg(target_os = "linux")]
+fn binary_path(program: &str) -> Option<PathBuf> {
+    ["/usr/bin", "/usr/sbin", "/bin", "/sbin"]
+        .iter()
+        .map(|dir| Path::new(dir).join(program))
+        .find(|path| path.is_file())
+}
+
+/// 重新生成 grub.cfg：发行版之间命令名与输出路径都不一样（用户定案 8）。
+#[cfg(target_os = "linux")]
+fn grub_run_mkconfig(log: &mut Vec<String>) -> Result<(), String> {
+    let candidates = [
+        ("grub-mkconfig", "/boot/grub/grub.cfg"),
+        ("grub2-mkconfig", "/boot/grub2/grub.cfg"),
+    ];
+    let mut last_error = "没找到 grub-mkconfig / grub2-mkconfig".to_string();
+    for (program, output) in candidates {
+        if binary_path(program).is_none() {
+            script_log_push(log, &format!("跳过 {program}：系统里没有这个命令"));
+            continue;
+        }
+        script_log_push(
+            log,
+            &format!("运行 {program} -o {output}（非 root 会经 pkexec 提权）"),
+        );
+        let result = mount_command(program).args(["-o", output]).output();
+        match &result {
+            Ok(result) if result.status.success() => {
+                script_log_output(log, program, result);
+                script_log_push(log, &format!("→ 已重新生成 {output}"));
+                return Ok(());
+            }
+            Ok(result) => {
+                script_log_output(log, program, result);
+                last_error = format!(
+                    "{program} 失败: {}",
+                    String::from_utf8_lossy(&result.stderr).trim()
+                )
+            }
+            Err(error) => {
+                script_log_error(log, program, error);
+                last_error = format!("无法执行 {program}: {error}");
+            }
+        }
+    }
+    Err(last_error)
+}
+
+#[cfg(target_os = "linux")]
+fn grub_install_script(app: &AppHandle, log: &mut Vec<String>) -> Result<String, String> {
+    let settings = stored_settings(app);
+    let Some(digits) = grub::uuid_digits(&settings.grub_efi_uuid) else {
+        script_log_push(log, "缺少 ESP 的 fs-uuid，安装中止");
+        return Err("请先填写并保存 ESP 的 fs-uuid".to_string());
+    };
+    let content = grub_script_content(grub_template(&settings), &grub::uuid_pretty(&digits));
+    script_log_push(
+        log,
+        &format!(
+            "准备安装 {GRUB_SCRIPT_PATH}（把 @@ESP_UUID@@ 换成 {}）",
+            grub::uuid_pretty(&digits)
+        ),
+    );
+
+    // 用 install(1) 落盘：/etc/grub.d 需要 root，非 root 时 mount_command 会套 pkexec
+    let staging = std::env::temp_dir().join("anyboot-09_anyboot");
+    if let Err(error) = fs::write(&staging, content.as_bytes()) {
+        script_log_push(log, &format!("暂存脚本失败: {error}"));
+        return Err(format!("暂存脚本失败: {error}"));
+    }
+    script_log_push(log, &format!("写入临时文件 {}", staging.display()));
+    script_log_push(
+        log,
+        &format!("运行 install -m 755 <暂存文件> {GRUB_SCRIPT_PATH}（非 root 会经 pkexec 提权）"),
+    );
+    let result = mount_command("install")
+        .args(["-m", "755"])
+        .arg(&staging)
+        .arg(GRUB_SCRIPT_PATH)
+        .output();
+    match &result {
+        Ok(output) => script_log_output(log, "install", output),
+        Err(error) => script_log_error(log, "install", error),
+    }
+    let _ = fs::remove_file(&staging);
+    match result {
+        Ok(output) if output.status.success() => {
+            script_log_push(log, &format!("→ 已写入 {GRUB_SCRIPT_PATH}"));
+        }
+        Ok(_) => {
+            return Err("安装 09_anyboot 失败：见上方执行过程".to_string());
+        }
+        Err(error) => return Err(format!("无法执行 install: {error}")),
+    }
+    grub_run_mkconfig(log)?;
+    Ok(format!(
+        "已安装 {GRUB_SCRIPT_PATH} 并重新生成 grub.cfg（fs-uuid = {}）",
+        grub::uuid_pretty(&digits)
+    ))
+}
+
+#[cfg(target_os = "linux")]
+fn grub_uninstall_script(log: &mut Vec<String>) -> Result<String, String> {
+    let mut removed = false;
+    if Path::new(GRUB_SCRIPT_PATH).exists() {
+        script_log_push(
+            log,
+            &format!("运行 rm -f {GRUB_SCRIPT_PATH}（非 root 会经 pkexec 提权）"),
+        );
+        let output = mount_command("rm")
+            .args(["-f", GRUB_SCRIPT_PATH])
+            .output();
+        match &output {
+            Ok(result) => script_log_output(log, "rm", result),
+            Err(error) => script_log_error(log, "rm", error),
+        }
+        let output = output.map_err(|error| format!("无法执行 rm: {error}"))?;
+        if !output.status.success() {
+            return Err(format!(
+                "删除 09_anyboot 失败: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ));
+        }
+        script_log_push(log, &format!("→ 已删除 {GRUB_SCRIPT_PATH}"));
+        removed = true;
+    } else {
+        script_log_push(log, &format!("{GRUB_SCRIPT_PATH} 不存在，跳过删除"));
+    }
+    grub_run_mkconfig(log)?;
+    Ok(if removed {
+        format!("已删除 {GRUB_SCRIPT_PATH} 并重新生成 grub.cfg")
+    } else {
+        "09_anyboot 本来就没装；已重新生成 grub.cfg".to_string()
+    })
+}
+
+/// 非 Linux 上也保留同样的签名（`log` 只用来记一句「不支持」）。
+#[cfg(not(target_os = "linux"))]
+fn grub_install_script(_app: &AppHandle, log: &mut Vec<String>) -> Result<String, String> {
+    script_log_push(log, "安装 09_anyboot 只能在 Linux 上进行");
+    Err("安装 09_anyboot 只能在 Linux 上进行".to_string())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn grub_uninstall_script(log: &mut Vec<String>) -> Result<String, String> {
+    script_log_push(log, "卸载 09_anyboot 只能在 Linux 上进行");
+    Err("卸载 09_anyboot 只能在 Linux 上进行".to_string())
+}
+
 #[tauri::command]
 fn current_status(app: AppHandle) -> AppStatus {
     state_snapshot(&app)
@@ -5029,6 +6650,286 @@ fn switch_system(app: AppHandle, system: String) -> AppStatus {
         &format!("switch_system system={system}（主窗口）"),
     );
     switch_and_update(&app, &system)
+}
+
+// ---- GRUB 细粒度切换的命令面 ----
+
+/// 保存 ESP 的 fs-uuid。填了它，主窗口才会出现「GRUB 启动项」区块。
+#[tauri::command]
+fn set_grub_uuid(app: AppHandle, uuid: String) -> Result<(), String> {
+    trace(&app, "command", &format!("set_grub_uuid uuid={uuid}"));
+    let trimmed = uuid.trim().to_string();
+    if !trimmed.is_empty() && grub::uuid_digits(&trimmed).is_none() {
+        return Err(format!(
+            "fs-uuid 不像有效值：{trimmed}（形如 E537-7F31 或 E5377F31）"
+        ));
+    }
+    let mut settings = stored_settings(&app);
+    settings.grub_efi_uuid = trimmed;
+    save_settings(&app, &settings)?;
+    refresh_grub(&app);
+    publish_ui(&app);
+    Ok(())
+}
+
+/// 保存用户改过的 09_anyboot 正文；传空串 = 恢复内置模板。
+#[tauri::command]
+fn set_grub_script(app: AppHandle, script: String) -> Result<(), String> {
+    trace(&app, "command", "set_grub_script");
+    let mut settings = stored_settings(&app);
+    settings.grub_script_override = script;
+    save_settings(&app, &settings)?;
+    publish_ui(&app);
+    Ok(())
+}
+
+/// 识别 ESP 分区：判断是不是 FAT32，并把从中取到的 fs-uuid 填进设置。
+///
+/// 填目录是**可选的入口**：fs-uuid 才是权威键。识别成功后存的是**分区根目录**，
+/// 所以用户填 `H:\EFI` 或 `/boot/efi/EFI/grub.cfg` 都会归一化成 `H:\` / `/boot/efi`。
+#[tauri::command]
+fn detect_esp(app: AppHandle, path: String) -> Result<String, String> {
+    let raw = path.trim().to_string();
+    trace(&app, "command", &format!("detect_esp path={raw}"));
+    if raw.is_empty() {
+        return Err("先填 ESP 分区里的任意路径（例如 H:\\ 或 /boot/efi）".to_string());
+    }
+    let info = esp_probe(Path::new(&raw))?;
+    let fstype = info
+        .fstype
+        .clone()
+        .unwrap_or_else(|| "未知".to_string());
+    // 只认 FAT 家族：ESP 按规范就是 FAT32，别让人指到数据分区上 ——
+    // 一旦指错，同步会把 /EFI/grub.cfg 写到那块分区里去。
+    if !info.fat {
+        return Err(format!(
+            "{raw} 是 {fstype}，不是 FAT32 —— ESP 必须是 FAT32，请指到 EFI 系统分区上"
+        ));
+    }
+    let root = info.root.clone().unwrap_or_else(|| raw.clone());
+    let mut settings = stored_settings(&app);
+    settings.grub_efi_dir = root.clone();
+    let message = match &info.uuid {
+        Some(uuid) => {
+            settings.grub_efi_uuid = uuid.clone();
+            format!("{root} 是 {fstype}，fs-uuid = {uuid}（已填好）")
+        }
+        None => format!(
+            "{root} 是 {fstype}，但没取出 fs-uuid —— {}",
+            info.note.clone().unwrap_or_else(|| "请手工填写".to_string())
+        ),
+    };
+    save_settings(&app, &settings)?;
+
+    if let Err(error) = rescan_grub(&app) {
+        apply_grub_error(&app, &error);
+    }
+    record_action(&app, "识别 ESP 分区", true, &message);
+    publish_ui(&app);
+    Ok(message)
+}
+
+/// 勾选「挂载 ESP」：勾上就按 fs-uuid 挂上来并保持，取消就卸掉**自己挂的那份**。
+///
+/// 用户自己挂的（`owned = false`）绝不去卸 —— 那是别人的挂载。
+#[tauri::command]
+fn set_grub_mount(app: AppHandle, enabled: bool) -> Result<(), String> {
+    trace(&app, "command", &format!("set_grub_mount enabled={enabled}"));
+    if enabled && !esp_mount_supported() {
+        return Err(
+            "本端不能按 fs-uuid 挂载：请先在「磁盘管理」里给这个分区分配盘符，再填盘符路径"
+                .to_string(),
+        );
+    }
+    let mut settings = stored_settings(&app);
+    if enabled && grub::uuid_digits(&settings.grub_efi_uuid).is_none() {
+        return Err("先填好 ESP 的 fs-uuid（或在上面填目录点「识别」自动取）".to_string());
+    }
+    settings.grub_keep_mounted = enabled;
+    save_settings(&app, &settings)?;
+
+    if !enabled {
+        let mount = {
+            let state = app.state::<Mutex<AppState>>();
+            let mut state = state.lock().expect("state mutex poisoned");
+            state.grub.mount.take()
+        };
+        release_mount(mount);
+    }
+
+    // 勾上 = 走一次扫描（里面会按 fs-uuid 挂载并把具柄留下）；取消 = 上面已经卸了
+    if enabled {
+        set_busy(&app, |busy| busy.scanning = true);
+        let outcome = rescan_grub(&app);
+        set_busy(&app, |busy| busy.scanning = false);
+        if let Err(error) = outcome {
+            // 挂不上（比如 pkexec 被取消）—— 把勾选退回未勾，别让界面骗人
+            let mut settings = stored_settings(&app);
+            settings.grub_keep_mounted = false;
+            let _ = save_settings(&app, &settings);
+            apply_grub_error(&app, &error);
+            record_action(&app, "挂载 ESP", false, &error);
+            publish_ui(&app);
+            return Err(error);
+        }
+    }
+
+    let message = if enabled {
+        "ESP 已挂载，可以直接读写（取消勾选即卸载）"
+    } else {
+        "已卸载本程序挂上的 ESP"
+    };
+    record_action(&app, "挂载 ESP", true, message);
+    publish_ui(&app);
+    Ok(())
+}
+
+/// 用系统文件管理器打开 ESP 目录（三端都走同一条 `open_directory_in_explorer`）。
+///
+/// 解析顺序：内存里刚扫出来的目录 → 用户填的 fs-uuid 现找（**含已挂载的**）→
+/// 用户填的目录原文。都不行才报错，并把「该怎么办」说清楚。
+#[tauri::command]
+fn open_grub_dir(app: AppHandle) -> Result<String, String> {
+    trace(&app, "command", "open_grub_dir");
+    let resolved = {
+        let state = app.state::<Mutex<AppState>>();
+        let state = state.lock().expect("state mutex poisoned");
+        state.grub.efi_dir.clone()
+    };
+    let settings = stored_settings(&app);
+
+    // 已经解析出来、而且真的能打开，就直接用
+    if let Some(dir) = resolved.filter(|dir| dir.is_dir()) {
+        open_directory_in_explorer(&dir)?;
+        return Ok(display_path(&dir).display().to_string());
+    }
+
+    // 内存里没有：按用户填的 fs-uuid 现找一次（已挂载的优先）
+    if let Some(digits) = grub::uuid_digits(&settings.grub_efi_uuid) {
+        if let Ok((dir, mount)) = grub_locate(&digits, settings.grub_keep_mounted) {
+            let result = open_directory_in_explorer(&dir);
+            release_mount(mount);
+            result?;
+            return Ok(display_path(&dir).display().to_string());
+        }
+    }
+
+    // 退到用户填的目录原文
+    let raw = settings.grub_efi_dir.trim();
+    if !raw.is_empty() {
+        let dir = PathBuf::from(raw);
+        if dir.is_dir() {
+            open_directory_in_explorer(&dir)?;
+            return Ok(display_path(&dir).display().to_string());
+        }
+        return Err(format!(
+            "{raw} 现在打不开（ESP 没挂上？先填 fs-uuid 或在上面填目录后点「识别」）"
+        ));
+    }
+
+    Err("还不知道 ESP 在哪儿：先填 fs-uuid，或在上面填目录后点「识别」".to_string())
+}
+
+/// 手动同步：Linux 上顺便把 /boot/grub 的 grub.cfg 与 grubenv 搬进 ESP。
+#[tauri::command]
+fn sync_grub(app: AppHandle) -> Result<(), String> {
+    trace(&app, "command", "sync_grub");
+    set_busy(&app, |busy| busy.scanning = true);
+    let outcome = rescan_grub(&app);
+    if let Err(error) = &outcome {
+        apply_grub_error(&app, error);
+    }
+    set_busy(&app, |busy| busy.scanning = false);
+    match outcome {
+        Ok(()) => {
+            let (count, stamp) = {
+                let state = app.state::<Mutex<AppState>>();
+                let state = state.lock().expect("state mutex poisoned");
+                (state.grub.entries.len(), state.grub.synced_at.clone())
+            };
+            let message = match stamp {
+                Some(stamp) => format!("已同步 {count} 个启动项（{stamp}）"),
+                None => format!("已同步 {count} 个启动项"),
+            };
+            record_action(&app, "同步 GRUB 数据", true, &message);
+            publish_ui(&app);
+            Ok(())
+        }
+        Err(error) => {
+            record_action(&app, "同步 GRUB 数据", false, &error);
+            publish_ui(&app);
+            Err(error)
+        }
+    }
+}
+
+/// 切换下次启动的 GRUB 条目（只写环境块，不重启）。
+#[tauri::command]
+fn switch_grub(app: AppHandle, selector: String) -> AppStatus {
+    trace(&app, "command", &format!("switch_grub selector={selector}"));
+    switch_grub_and_update(&app, &selector)
+}
+
+/// 安装 09_anyboot + 重新生成 grub.cfg（仅 Linux）。
+#[tauri::command]
+fn install_grub_script(app: AppHandle) -> Result<(), String> {
+    trace(&app, "command", "install_grub_script");
+    let mut log = Vec::new();
+    let outcome = grub_install_script(&app, &mut log);
+    let title = "安装 09_anyboot";
+    let result = match &outcome {
+        Ok(message) => {
+            record_action(&app, title, true, message);
+            Ok(())
+        }
+        Err(error) => {
+            record_action(&app, title, false, error);
+            Err(error.clone())
+        }
+    };
+    finish_script_log(&app, title, log, result.is_ok());
+    if result.is_ok() {
+        refresh_grub(&app);
+    }
+    publish_ui(&app);
+    result
+}
+
+/// 卸载 09_anyboot + 重新生成 grub.cfg（仅 Linux）。
+/// 按用户定案：只删脚本、不把环境块迁回 ext4。
+#[tauri::command]
+fn uninstall_grub_script(app: AppHandle) -> Result<(), String> {
+    trace(&app, "command", "uninstall_grub_script");
+    let mut log = Vec::new();
+    let outcome = grub_uninstall_script(&mut log);
+    let title = "卸载 09_anyboot";
+    let result = match &outcome {
+        Ok(message) => {
+            record_action(&app, title, true, message);
+            Ok(())
+        }
+        Err(error) => {
+            record_action(&app, title, false, error);
+            Err(error.clone())
+        }
+    };
+    finish_script_log(&app, title, log, result.is_ok());
+    if result.is_ok() {
+        refresh_grub(&app);
+    }
+    publish_ui(&app);
+    result
+}
+
+/// 把一次安装 / 卸载的执行过程落进快照（`ok = None` 表示还没跑过）。
+fn finish_script_log(app: &AppHandle, title: &str, lines: Vec<String>, ok: bool) {
+    let state = app.state::<Mutex<AppState>>();
+    let mut state = state.lock().expect("state mutex poisoned");
+    state.script_log = ScriptLogView {
+        title: Some(title.to_string()),
+        lines,
+        ok: Some(ok),
+    };
 }
 
 #[tauri::command]
@@ -5544,9 +7445,14 @@ fn open_directory_in_explorer(dir: &std::path::Path) -> Result<(), String> {
         "xdg-open"
     });
     opener.arg(dir);
+    // explorer.exe 打开一个目录后**正常也会返回 1**（这是它的老毛病，不是失败），
+    // 所以只看「进程有没有起来」；起不来才算真失败。
     let status = opener
         .status()
         .map_err(|error| format!("打开文件管理器失败：{error}"))?;
+    if cfg!(target_os = "windows") {
+        return Ok(());
+    }
     if !status.success() {
         return Err(format!("打开文件管理器失败（exit code {status}）"));
     }
@@ -5761,6 +7667,15 @@ pub fn run() {
             refresh,
             set_vars_dir,
             switch_system,
+            set_grub_uuid,
+            set_grub_script,
+            detect_esp,
+            set_grub_mount,
+            open_grub_dir,
+            sync_grub,
+            switch_grub,
+            install_grub_script,
+            uninstall_grub_script,
             unmount_temporary,
             get_settings,
             set_autostart,
@@ -6816,6 +8731,41 @@ mod core_tests {
             })
         );
 
+        // /api/grub-switch：entry 是 grub.cfg 里的 selector 原文，
+        // submenu 内的项形如 `submenu_id>entry_id`，空格与 `>` 都原样保留
+        assert_eq!(
+            route_remote_command(&sample_request(
+                "/api/grub-switch",
+                &[("entry", "Arch Linux")],
+                true
+            )),
+            Ok(RemoteCommand::SwitchGrub("Arch Linux".to_string()))
+        );
+        assert_eq!(
+            route_remote_command(&sample_request(
+                "/api/grub-switch",
+                &[("entry", "gnulinux-advanced-84d0>gnulinux-linux-advanced")],
+                true
+            )),
+            Ok(RemoteCommand::SwitchGrub(
+                "gnulinux-advanced-84d0>gnulinux-linux-advanced".to_string()
+            ))
+        );
+        // selector 别名也能用
+        assert_eq!(
+            route_remote_command(&sample_request(
+                "/api/grub-switch",
+                &[("selector", "windows")],
+                true
+            )),
+            Ok(RemoteCommand::SwitchGrub("windows".to_string()))
+        );
+        for query in [&[][..], &[("entry", "")][..], &[("entry", "   ")][..]] {
+            let reply = route_remote_command(&sample_request("/api/grub-switch", query, true))
+                .expect_err("缺 entry");
+            assert_eq!(reply.status, 400);
+        }
+
         // 未知路径 404
         let reply = route_remote_command(&sample_request("/api/whatever", &[], true))
             .expect_err("未知路径");
@@ -7045,6 +8995,12 @@ mod core_tests {
         }
         .summary();
         assert!(summary.contains("Windows") && summary.contains(PowerAction::Sleep.label()));
+
+        // GRUB 条目：selector 原样带上（可能是名字，也可能是 submenu>id）
+        assert_eq!(
+            RemoteCommand::SwitchGrub("Arch Linux".to_string()).summary(),
+            "切换 GRUB 启动项为 Arch Linux"
+        );
     }
 
     #[test]
@@ -7096,4 +9052,118 @@ mod core_tests {
             .expect("应有实心像素");
         assert_eq!(&first[..3], &[0x46, 0xc4, 0x6e]);
     }
+
+    fn set16(sector: &mut [u8], offset: usize, value: u16) {
+        sector[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
+    }
+
+    fn set32(sector: &mut [u8], offset: usize, value: u32) {
+        sector[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+    }
+
+    #[test]
+    fn fat_boot_sector_reads_type_and_serial() {
+        // ① FAT32：root_entries = 0 且 fat_size16 = 0，序列号在偏移 67
+        let mut sector = vec![0u8; 512];
+        set16(&mut sector, 11, 512); // 每扇区字节数
+        sector[13] = 8; // 每簇扇区数
+        set16(&mut sector, 14, 32); // 保留扇区
+        sector[16] = 2; // FAT 份数
+        set32(&mut sector, 32, 1_048_576); // 总扇区数（FAT32 用 32 位这个）
+        set32(&mut sector, 36, 1_000); // 每份 FAT 的扇区数
+        set32(&mut sector, 67, 0xE537_7F31);
+        assert_eq!(
+            fat_boot_sector(&sector),
+            Some(("FAT32".to_string(), "E5377F31".to_string()))
+        );
+
+        // ② FAT16：序列号在偏移 39（blkid 只说 vfat，靠这个才分得出来）
+        let mut sector = vec![0u8; 512];
+        set16(&mut sector, 11, 512);
+        sector[13] = 4;
+        set16(&mut sector, 14, 1);
+        sector[16] = 2;
+        set16(&mut sector, 17, 512); // 根目录项数
+        set16(&mut sector, 19, 40_000);
+        set16(&mut sector, 22, 100);
+        set32(&mut sector, 39, 0x1234_5678);
+        assert_eq!(
+            fat_boot_sector(&sector),
+            Some(("FAT16".to_string(), "12345678".to_string()))
+        );
+
+        // ③ FAT12：簇数 < 4085
+        let mut sector = vec![0u8; 512];
+        set16(&mut sector, 11, 512);
+        sector[13] = 1;
+        set16(&mut sector, 14, 1);
+        sector[16] = 2;
+        set16(&mut sector, 17, 224);
+        set16(&mut sector, 19, 2_000);
+        set16(&mut sector, 22, 4);
+        set32(&mut sector, 39, 0x0000_0001);
+        assert_eq!(
+            fat_boot_sector(&sector),
+            Some(("FAT12".to_string(), "00000001".to_string()))
+        );
+
+        // ④ 不是引导扇区 / 太短：宁可返回 None，也不能瞎猜
+        assert_eq!(fat_boot_sector(&vec![0u8; 512]), None);
+        assert_eq!(fat_boot_sector(&[0u8; 64]), None);
+    }
+
+    #[test]
+    fn esp_info_serializes_the_keys_the_window_reads() {
+        let info = EspInfo {
+            path: "H:\\".to_string(),
+            root: Some("H:\\".to_string()),
+            fstype: Some("FAT32".to_string()),
+            fat: true,
+            fat32: true,
+            uuid: Some("E537-7F31".to_string()),
+            mounted: true,
+            owned_mount: false,
+            ..EspInfo::default()
+        };
+        let json = serde_json::to_value(&info).expect("应能序列化");
+        assert_eq!(json["fat32"], serde_json::json!(true));
+        assert_eq!(json["fat"], serde_json::json!(true));
+        assert_eq!(json["uuid"], serde_json::json!("E537-7F31"));
+        assert_eq!(json["ownedMount"], serde_json::json!(false));
+        assert_eq!(json["fstype"], serde_json::json!("FAT32"));
+    }
+
+    /// Windows：不是「盘符路径」的输入必须当场拒绝，而不是拿首字母去猜个盘符。
+    #[test]
+    #[cfg(target_os = "windows")]
+    fn windows_esp_probe_rejects_paths_without_a_drive_letter() {
+        for input in ["", "1:\\", "\\\\?\\nonsense"] {
+            let error = esp_probe(Path::new(input)).expect_err("应当拒绝");
+            assert!(
+                error.contains("盘符路径"),
+                "错误信息应说明要填盘符路径，实际是：{error}"
+            );
+        }
+    }
+
+    #[test]
+    fn grub_efi_dir_and_keep_mounted_round_trip() {
+        let mut settings = Settings::default();
+        assert!(settings.grub_efi_dir.is_empty());
+        assert!(!settings.grub_keep_mounted);
+
+        settings.grub_efi_dir = "H:\\".to_string();
+        settings.grub_keep_mounted = true;
+        let json = serde_json::to_string(&settings).expect("应能序列化");
+        let parsed: Settings = serde_json::from_str(&json).expect("应能反序列化");
+        assert_eq!(parsed.grub_efi_dir, "H:\\");
+        assert!(parsed.grub_keep_mounted);
+
+        // 老配置文件里没有这两个键 → 必须走默认值（`serde(default)` 那条老坑）
+        let legacy: Settings =
+            serde_json::from_str(r#"{"autostart":true}"#).expect("缺字段也要能读");
+        assert_eq!(legacy.grub_efi_dir, "");
+        assert!(!legacy.grub_keep_mounted);
+    }
 }
+

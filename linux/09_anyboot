@@ -1,0 +1,70 @@
+#!/bin/sh
+exec tail -n +3 "$0"
+# ============================================================================
+#  AnyBoot · /etc/grub.d/09_anyboot
+#  安装位置： /etc/grub.d/09_anyboot        权限： 0755（必须可执行）
+#
+#  ★ 开头两行 `#!/bin/sh` 与 `exec tail -n +3 "$0"` 是 shell 包装。
+#    grub-mkconfig 会「执行」本文件并读取它的 stdout；包装行负责把下面这段
+#    GRUB 脚本原样打印出去。删掉它们，grub-mkconfig 就会拿 sh 去跑 GRUB 命令，
+#    于是报 `search: 未找到命令` / `未预期的记号 "("`。**不要删！**
+#
+#  作用：把 GRUB 的"环境块"(grubenv) 从 ext4 的 /boot/grub/ 迁到 ESP(FAT32)：
+#          <ESP>/EFI/grubenv
+#  这样 Windows / macOS 无需 ext4 支持、无需提权，即可读写"上次/下次启动项"。
+#
+#  ── 本机取值（换机器只改这一处）────────────────────────────────────────────
+#          ESP 的 fs-uuid = E537-7F31      （= H: ARCH-EFI 的卷序列号）
+#          ESP 上的路径   = /EFI/grubenv   （放 ESP 根下的 EFI 目录，不进子目录）
+#
+#  排序：09 —— 在 00_header 之后、10_linux 之前。GRUB 在渲染菜单前会把整份
+#    grub.cfg 执行一遍，所以这里重设 default、重定义 savedefault 会覆盖
+#    00_header 里指向 ext4 的旧逻辑（后写入者胜出）。
+#
+#  模块依赖：search / load_env / save_env 已内置在 grubx64.efi 里（本机原
+#    grub.cfg 第 12、87 行直接调用、全程未 insmod 它们）；fat 未内置（原文件
+#    到第 818 行 40_custom 里才 insmod fat）→ 读 ESP 前必须显式 insmod fat，
+#    否则 search --fs-uuid 探测不到 ESP。
+# ============================================================================
+
+insmod part_gpt
+insmod part_msdos
+insmod fat
+
+if search --no-floppy --fs-uuid --set=anyboot_esp E537-7F31 ; then
+  set anyboot_env="($anyboot_esp)/EFI/grubenv"
+  export anyboot_esp
+  export anyboot_env
+
+  # 1) 从 ESP 上的环境块读取状态（saved_entry / next_entry / 任意自定义键）
+  if [ -s "${anyboot_env}" ] ; then
+    load_env -f "${anyboot_env}"
+  fi
+
+  # 2) 用 ESP 的状态决定 default（覆盖 00_header 基于内建 grubenv 的结论）。
+  #    若 00_header 已取到一次性项（Linux 侧 grub-reboot / grub-editenv），
+  #    它会置 boot_once=true —— 此时不再覆盖，尊重那一次的选择。
+  if [ -z "${boot_once}" ] ; then
+    if [ "${next_entry}" ] ; then
+      set default="${next_entry}"
+      set next_entry=
+      save_env -f "${anyboot_env}" next_entry
+      set boot_once=true
+    elif [ "${saved_entry}" ] ; then
+      set default="${saved_entry}"
+    fi
+  fi
+fi
+
+# 3) 覆盖 00_header 的 savedefault：把"记住上次选择"写回 ESP。
+#    定义在最外层（不嵌在 if 里），ESP 若找不到会自动降级回内建 grubenv。
+function savedefault {
+  if [ -z "${boot_once}" ] ; then
+    saved_entry="${chosen}"
+    if [ "${anyboot_env}" ] ; then
+      save_env -f "${anyboot_env}" saved_entry
+    else
+      save_env saved_entry
+    fi
+  fi
+}

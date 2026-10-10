@@ -18,12 +18,96 @@
         <strong id="next-boot-name">未知</strong>
       </section>
 
-      <section aria-label="可启动系统" id="systems"></section>
-
+      <!-- 电源操作摆在最上面、系统列表之上：先选系统再选动作，视线不用往下找 -->
       <section aria-label="电源操作" class="system-actions">
         <button class="secondary" id="power-reboot" type="button">重启系统</button>
         <button class="secondary" id="power-shutdown" type="button">关机</button>
         <button class="secondary" id="power-sleep" type="button">睡眠</button>
+      </section>
+
+      <section aria-label="可启动系统" id="systems"></section>
+
+      <!-- GRUB 细粒度切换：和上面三个系统是**并列**的两套机制 ——
+           上面走 rEFInd 的 PreviousBoot，这里走 GRUB 自己的环境块(grubenv)。
+           填了 ESP 的 fs-uuid 才会列出 grub.cfg 里的启动项。 -->
+      <section aria-label="GRUB 启动项" class="grub" id="grub">
+        <div class="grub-head">
+          <h2>GRUB 启动项</h2>
+          <small id="grub-meta"></small>
+        </div>
+
+        <!-- 先给目录、点「识别」——自动判断是不是 FAT32 并从中取出 fs-uuid；
+             也可以什么都不给、只手工填下面的 fs-uuid，两种方式等价。 -->
+        <div class="grub-row">
+          <label for="grub-dir">ESP 目录</label>
+          <input
+            id="grub-dir"
+            placeholder="H:\ 或 /boot/efi 或 /Volumes/ARCH-EFI（分区里任意路径都行）"
+            spellcheck="false"
+            type="text"
+          />
+          <button class="secondary" id="grub-dir-detect" type="button">识别</button>
+          <button class="secondary" id="grub-dir-open" type="button">
+            打开文件管理器
+          </button>
+        </div>
+
+        <div class="grub-row">
+          <label class="grub-check" for="grub-mount">
+            <input id="grub-mount" type="checkbox" />
+            <span id="grub-mount-label">挂载 ESP（勾上后可直接读写）</span>
+          </label>
+          <small class="grub-part" id="grub-part"></small>
+        </div>
+
+        <div class="grub-row">
+          <label for="grub-uuid">ESP 的 fs-uuid</label>
+          <input
+            id="grub-uuid"
+            placeholder="例如 E537-7F31（就是 GRUB 的 search --fs-uuid 那串）"
+            spellcheck="false"
+            type="text"
+          />
+          <button class="secondary" id="grub-uuid-save" type="button">保存</button>
+          <button class="secondary" id="grub-sync" type="button">同步</button>
+        </div>
+
+        <p class="grub-hint" id="grub-hint"></p>
+        <p class="grub-error hidden" id="grub-error" role="status"></p>
+
+        <div class="grub-list" id="grub-list"></div>
+
+        <!-- 安装 / 卸载 09_anyboot：只在 Linux 上出现 -->
+        <div class="actions hidden" id="grub-install-actions">
+          <button class="secondary" id="grub-install" type="button">
+            安装 09_anyboot
+          </button>
+          <button class="secondary" id="grub-uninstall" type="button">
+            卸载 09_anyboot
+          </button>
+        </div>
+        <!-- 安装 / 卸载的执行过程：跑了哪几条命令、退出码多少、stderr 说了什么 -->
+        <details class="grub-log hidden" id="grub-log-box">
+          <summary id="grub-log-summary">执行过程</summary>
+          <pre id="grub-log"></pre>
+        </details>
+
+        <details class="grub-script">
+          <summary>查看 / 修改内置脚本（09_anyboot）</summary>
+          <small
+            >安装时只把 <code>@@ESP_UUID@@</code> 换成上面填的 fs-uuid，其余按这里的正文来；
+            清空后保存 = 恢复内置模板</small
+          >
+          <textarea id="grub-script" rows="8" spellcheck="false"></textarea>
+          <div class="actions">
+            <button class="secondary" id="grub-script-save" type="button">
+              保存脚本
+            </button>
+            <button class="secondary" id="grub-script-reset" type="button">
+              恢复内置
+            </button>
+          </div>
+        </details>
       </section>
 
       <section class="directory">
@@ -91,7 +175,6 @@
             <input id="opacity" max="100" min="0" step="5" type="range" value="100" />
           </span>
         </div>
-        <p id="settings-message" role="status"></p>
         <button class="link hidden" id="login-items" type="button">
           打开「登录项与扩展」设置
         </button>
@@ -210,11 +293,17 @@
         <div class="actions" id="open-dir-actions">
           <button class="secondary" id="open-config-dir" type="button">打开配置目录（含 trace.log / settings.json）</button>
         </div>
-        <p id="remote-message" role="status"></p>
       </section>
-
-      <p id="message" role="status"></p>
     </main>
+
+    <!-- 窗口自己的底部提示条（在 <main> 之外、和它平级）：
+         所有操作的回执都落在这里，不用再把滚轮拖到页面底部才看得见。
+         有内容才占位，没有就整条收起。 -->
+    <div aria-live="polite" class="status-bar hidden" id="status-bar" role="status">
+      <span class="status-bar-icon" id="status-bar-icon" aria-hidden="true"></span>
+      <span class="status-bar-text" id="status-bar-text"></span>
+      <button class="status-bar-close" id="status-bar-close" title="收起" type="button">×</button>
+    </div>
     <script src="./app.js"></script>
   </body>
 </html>
