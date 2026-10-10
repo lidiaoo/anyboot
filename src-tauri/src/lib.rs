@@ -579,7 +579,7 @@ struct Settings {
     start_in_tray: bool,
     hide_from_dock_taskbar: bool,
     close_action: CloseAction,
-    /// 取证日志开关（阶段 0）。默认关；环境变量 REFIND_SWITCHER_TRACE 可临时覆盖。
+    /// 取证日志开关（阶段 0）。默认关；环境变量 ANYBOOT_TRACE 可临时覆盖。
     debug_trace: bool,
     /// 内置 HTTP 服务（默认开启）
     http_enabled: bool,
@@ -992,7 +992,7 @@ fn is_owned_mountpoint(mountpoint: &Path) -> bool {
         && mountpoint
             .file_name()
             .and_then(|name| name.to_str())
-            .is_some_and(|name| name.starts_with("refind-switcher-"))
+            .is_some_and(|name| name.starts_with("anyboot-"))
 }
 
 #[cfg(target_os = "linux")]
@@ -1137,7 +1137,7 @@ fn scan_unmounted_partition() -> Result<ScanResult, String> {
     }
     candidates.sort_by(|left, right| (left.0, &left.1).cmp(&(right.0, &right.1)));
 
-    let mountpoint = std::env::temp_dir().join(format!("refind-switcher-{}", std::process::id()));
+    let mountpoint = std::env::temp_dir().join(format!("anyboot-{}", std::process::id()));
     let _ = fs::remove_dir(&mountpoint);
     fs::create_dir(&mountpoint).map_err(|error| format!("无法创建临时挂载点: {error}"))?;
 
@@ -1514,9 +1514,9 @@ fn env_flag_from(value: Option<&str>) -> Option<bool> {
 /// 代码路径里调用 trace()（会死锁）。
 ///
 /// 启动早期（设置文件还没读进内存时）只有环境变量生效，
-/// 想抓启动阶段的日志请用 `REFIND_SWITCHER_TRACE=1`。
+/// 想抓启动阶段的日志请用 `ANYBOOT_TRACE=1`。
 fn trace_enabled(app: &AppHandle) -> bool {
-    let from_env = env_flag_from(std::env::var("REFIND_SWITCHER_TRACE").ok().as_deref());
+    let from_env = env_flag_from(std::env::var("ANYBOOT_TRACE").ok().as_deref());
     from_env.unwrap_or_else(|| stored_settings(app).debug_trace)
 }
 
@@ -1857,17 +1857,17 @@ fn ensure_settings_complete(app: &AppHandle) {
 fn apply_http_config(app: &AppHandle) {
     let settings = stored_settings(app);
     let enabled = env_flag_from(
-        std::env::var("REFIND_SWITCHER_HTTP_ENABLED")
+        std::env::var("ANYBOOT_HTTP_ENABLED")
             .ok()
             .as_deref(),
     )
     .unwrap_or(settings.http_enabled);
-    let bind = std::env::var("REFIND_SWITCHER_HTTP_BIND")
+    let bind = std::env::var("ANYBOOT_HTTP_BIND")
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| settings.http_bind.trim().to_string());
-    let port = std::env::var("REFIND_SWITCHER_HTTP_PORT")
+    let port = std::env::var("ANYBOOT_HTTP_PORT")
         .ok()
         .and_then(|value| value.trim().parse::<u16>().ok())
         .filter(|port| *port != 0)
@@ -2141,7 +2141,7 @@ pub(crate) fn handle_remote_request(app: &AppHandle, request: &RemoteRequest) ->
         "/health" => {
             return RemoteReply::ok(
                 200,
-                serde_json::json!({ "ok": true, "service": "refind-switcher" }),
+                serde_json::json!({ "ok": true, "service": "anyboot" }),
             );
         }
         "/api/status" => return RemoteReply::ok(200, remote_status_json(app)),
@@ -2834,7 +2834,7 @@ fn update_tray_menu(app: &AppHandle, state: &UiState, trigger: &str) -> tauri::R
             .status
             .error
             .clone()
-            .unwrap_or_else(|| format!("rEFInd 启动切换器：{}", state.status.message));
+            .unwrap_or_else(|| format!("AnyBoot：{}", state.status.message));
         tray.set_tooltip(Some(tooltip))?;
         trace(app, "tray", "菜单与 tooltip 已更新");
     } else {
@@ -2983,9 +2983,9 @@ fn spawn_menu_action(app: &AppHandle, action: MenuAction) {
 }
 
 /// 配置目录：默认是系统的 `app_config_dir`；
-/// `REFIND_SWITCHER_CONFIG_DIR` 能把它指到别处（做验证/多实例时就不会碰你的真实配置）。
+/// `ANYBOOT_CONFIG_DIR` 能把它指到别处（做验证/多实例时就不会碰你的真实配置）。
 fn config_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    if let Ok(directory) = std::env::var("REFIND_SWITCHER_CONFIG_DIR") {
+    if let Ok(directory) = std::env::var("ANYBOOT_CONFIG_DIR") {
         let directory = directory.trim();
         if !directory.is_empty() {
             return Ok(PathBuf::from(directory));
@@ -3002,7 +3002,7 @@ fn settings_path(app: &AppHandle) -> Result<PathBuf, String> {
 
 fn read_settings_file(app: &AppHandle) -> Settings {
     // 启动早期调用：此刻内存里的设置还是默认值，所以只有环境变量
-    // REFIND_SWITCHER_TRACE 能打开这里的日志（设置里的 debugTrace 要等读完才生效）。
+    // ANYBOOT_TRACE 能打开这里的日志（设置里的 debugTrace 要等读完才生效）。
     let path = match settings_path(app) {
         Ok(path) => path,
         Err(error) => {
@@ -3310,7 +3310,7 @@ fn linux_autostart_set(app: &AppHandle, enabled: bool) -> Result<AutostartState,
     if path.exists() {
         let stale = fs::read_to_string(&path)
             .map(|contents| {
-                !contents.contains("rEFInd Switcher") && !contents.contains("refind-switcher")
+                !contents.contains("AnyBoot") && !contents.contains("anyboot")
             })
             .unwrap_or(false);
         if stale {
@@ -3333,7 +3333,7 @@ fn linux_autostart_set(app: &AppHandle, enabled: bool) -> Result<AutostartState,
         .filter(|path| path.is_file());
     let launch_path = appimage.unwrap_or(executable);
     let content = format!(
-        "[Desktop Entry]\nType=Application\nVersion=1.0\nName={}\nComment=rEFInd Switcher\nExec={} --from-autostart\nStartupNotify=false\nTerminal=false\nX-GNOME-Autostart-enabled=true\n",
+        "[Desktop Entry]\nType=Application\nVersion=1.0\nName={}\nComment=AnyBoot\nExec={} --from-autostart\nStartupNotify=false\nTerminal=false\nX-GNOME-Autostart-enabled=true\n",
         app.package_info().name,
         shell_quote(&launch_path.to_string_lossy())
     );
@@ -3361,7 +3361,7 @@ fn remove_legacy_launch_agents(app: &AppHandle) {
         let Ok(contents) = fs::read_to_string(&path) else {
             continue;
         };
-        if !contents.contains("refind-switcher") && !contents.contains(&name) {
+        if !contents.contains("anyboot") && !contents.contains(&name) {
             continue;
         }
         let _ = Command::new("launchctl")
@@ -3894,13 +3894,13 @@ struct PowerReport {
     commands: Vec<String>,
 }
 
-/// dry-run 探针：`REFIND_SWITCHER_POWER_DRY_RUN=1` 时只打印不执行。
+/// dry-run 探针：`ANYBOOT_POWER_DRY_RUN=1` 时只打印不执行。
 ///
 /// 本机验证电源动作不能真的把机器关掉，这个开关让「三端命令表 + 置灰 + 回执」
 /// 全部可以反复自动验证。
 fn power_dry_run() -> bool {
     env_flag_from(
-        std::env::var("REFIND_SWITCHER_POWER_DRY_RUN")
+        std::env::var("ANYBOOT_POWER_DRY_RUN")
             .ok()
             .as_deref(),
     )
@@ -4718,7 +4718,7 @@ pub fn run() {
             startup_autostart_sync(app.handle());
             view_settings(app.handle());
             // 调试/沙箱：把变量目录指到别处，验证时不会碰真实的 ESP
-            if let Ok(directory) = std::env::var("REFIND_SWITCHER_VARS_DIR") {
+            if let Ok(directory) = std::env::var("ANYBOOT_VARS_DIR") {
                 let directory = directory.trim().to_string();
                 if !directory.is_empty() {
                     let state = app.state::<Mutex<AppState>>();
@@ -4826,7 +4826,7 @@ pub fn run() {
             cancel_pending
         ])
         .run(tauri::generate_context!())
-        .expect("failed to run rEFInd Switcher");
+        .expect("failed to run AnyBoot");
 }
 
 #[cfg(all(test, target_os = "macos"))]

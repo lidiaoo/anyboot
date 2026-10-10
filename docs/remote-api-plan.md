@@ -1,4 +1,4 @@
-# rEFInd Switcher：界面联动修复 + 远程控制（HTTP/Token/SSH）+ 电源动作
+# AnyBoot：界面联动修复 + 远程控制（HTTP/Token/SSH）+ 电源动作
 
 状态：**待你确认**。本文档分「已定稿」与「待确认/开放项」（§10 的 Q1–Q10）两部分；
 动手前请先过一遍 §10，尤其 Q1/Q2/Q3。
@@ -56,7 +56,7 @@
 
 现状机制一句话：**主窗口与托盘是两份独立 UI，靠「改设置 → 重建托盘菜单 + emit `settings-changed`」维持一致；状态靠 `status-changed` 事件补丁式更新。**
 
-本机注意：现在有一个 `refind-switcher.exe`（PID 25304）正在运行——是你正在用的实例，本方案的所有验证都不会碰它（见 §8 的端口/沙箱约定）。
+本机注意：现在有一个 `anyboot.exe`（PID 25304）正在运行——是你正在用的实例，本方案的所有验证都不会碰它（见 §8 的端口/沙箱约定）。
 
 ---
 
@@ -85,7 +85,7 @@
 - **S4** 隐藏到托盘后（`on_window_event`，`lib.rs:2054`）再「显示主窗口」，标题栏/焦点/激活策略是否有异常。
 - **S5** 你在系统设置里改过登录项后，界面哪一边先错、错多久。
 
-**取证方式（阶段 0）**：加一个只写不读的 trace 日志（`<应用配置目录>/trace.log`，随进程追加），记录：每次菜单重建（含内容指纹与触发者）、每次 `emit` 的事件名+revision、每次菜单动作分发（**原始 id → 解析结果 → 结果**）、每次设置读/写（含失败与回滚）、每次扫描耗时与失败原因；**不改任何现有行为**。你复现一次现象，把日志给我，我按证据定 S1–S5，再修。日志开关：设置里 `debugTrace`（默认关）或环境变量 `REFIND_SWITCHER_TRACE=1`。
+**取证方式（阶段 0）**：加一个只写不读的 trace 日志（`<应用配置目录>/trace.log`，随进程追加），记录：每次菜单重建（含内容指纹与触发者）、每次 `emit` 的事件名+revision、每次菜单动作分发（**原始 id → 解析结果 → 结果**）、每次设置读/写（含失败与回滚）、每次扫描耗时与失败原因；**不改任何现有行为**。你复现一次现象，把日志给我，我按证据定 S1–S5，再修。日志开关：设置里 `debugTrace`（默认关）或环境变量 `ANYBOOT_TRACE=1`。
 
 ### 2.3 结构性修法（阶段 1，已定稿）
 
@@ -152,7 +152,7 @@ fn run_power_action(action: PowerAction, allow_gui_auth: bool) -> Result<(), Str
 
 ### 3.3 dry-run 探针（已定稿，验证用）
 
-环境变量 `REFIND_SWITCHER_POWER_DRY_RUN=1`：**只打印将执行的命令行，不真的执行**（`run_power_action` 直接返回 Ok 并把命令清单回传）；HTTP 响应里带上 `dryRun:true` 与 `commands:[...]`。这样本机验证不会真的关掉你的机器。
+环境变量 `ANYBOOT_POWER_DRY_RUN=1`：**只打印将执行的命令行，不真的执行**（`run_power_action` 直接返回 Ok 并把命令清单回传）；HTTP 响应里带上 `dryRun:true` 与 `commands:[...]`。这样本机验证不会真的关掉你的机器。
 
 ---
 
@@ -187,15 +187,15 @@ fn run_power_action(action: PowerAction, allow_gui_auth: bool) -> Result<(), Str
 | `channels.cli.delaySeconds` | `5` | ssh / CLI 渠道延迟秒数，`0`=立即 |
 | `debugTrace` | `false` | 阶段 0 的 trace 日志开关 |
 
-环境变量覆盖（**调试/沙箱用**，优先级高于设置文件）：`REFIND_SWITCHER_HTTP_ENABLED`、`REFIND_SWITCHER_HTTP_BIND`、`REFIND_SWITCHER_HTTP_PORT`、`REFIND_SWITCHER_POWER_DRY_RUN`、`REFIND_SWITCHER_TRACE`、`REFIND_SWITCHER_VARS_DIR`、`REFIND_SWITCHER_CONFIG_DIR`。
+环境变量覆盖（**调试/沙箱用**，优先级高于设置文件）：`ANYBOOT_HTTP_ENABLED`、`ANYBOOT_HTTP_BIND`、`ANYBOOT_HTTP_PORT`、`ANYBOOT_POWER_DRY_RUN`、`ANYBOOT_TRACE`、`ANYBOOT_VARS_DIR`、`ANYBOOT_CONFIG_DIR`。
 
-其中 `REFIND_SWITCHER_CONFIG_DIR` 是实施时补上的（阶段 7 验证时发现必需）：Tauri 的配置目录走系统 Known Folder API，**`APPDATA` 环境变量改不动它**，第一次沙箱验证就这样误写了真实 `settings.json`；现在 GUI 与 CLI 都用这个变量定位配置目录，验证/多实例可以完全隔离。
+其中 `ANYBOOT_CONFIG_DIR` 是实施时补上的（阶段 7 验证时发现必需）：Tauri 的配置目录走系统 Known Folder API，**`APPDATA` 环境变量改不动它**，第一次沙箱验证就这样误写了真实 `settings.json`；现在 GUI 与 CLI 都用这个变量定位配置目录，验证/多实例可以完全隔离。
 
 ### 4.1.1 实施中补定的细节（都已落地 + 有测试）
 
 - **413 而不是静默空 body**：请求体超过 `MAX_REQUEST_BODY`（8192）时明确回 `413 body_too_large`；否则 body 被丢掉会变成看不懂的 401。
 - **HTTP 层不持有 token**：token 比较只在 `handle_remote_request` 一处（`http.rs` 不接收 token，避免出现第二处鉴权逻辑）。
-- **CLI 端口优先级**：`--port` > `REFIND_SWITCHER_HTTP_PORT` > 设置文件；CLI 与 GUI 因此能在同一沙箱里互相找到。
+- **CLI 端口优先级**：`--port` > `ANYBOOT_HTTP_PORT` > 设置文件；CLI 与 GUI 因此能在同一沙箱里互相找到。
 - **CLI 本地分支也支持 `--json`**，字段名与 HTTP 响应一致（`ok/pending/channel/message/varsDir/variables`，dry-run 时多一个 `dryRunCommands`）。
 - **通知弹窗关闭语义**：只有槽位里确实还有待执行请求时才记「本机用户取消」；执行完成/到点自动关窗不算用户操作（不写这条日志）。
 - **端口被占用**：报错留在界面上、**不换端口**；已实测（第二个实例报 `os error 10048`，第一个实例继续服务）。
@@ -299,8 +299,8 @@ curl -s -X POST "http://127.0.0.1:12300/api/power?action=sleep" -H "X-Auth-Token
 
 ```bash
 # ssh 上去一条命令搞定（Windows / Linux / macOS 同一个二进制）
-ssh user@192.168.1.50 'refind-switcher --switch windows --action reboot'
-ssh user@192.168.1.50 '/Applications/rEFInd\ Switcher.app/Contents/MacOS/refind-switcher --status --json'
+ssh user@192.168.1.50 'anyboot --switch windows --action reboot'
+ssh user@192.168.1.50 '/Applications/rEFInd\ Switcher.app/Contents/MacOS/anyboot --status --json'
 ssh user@192.168.1.50 'rEFInd\ Switcher.exe --action sleep'
 ```
 
@@ -374,7 +374,7 @@ release 版是 GUI 子系统（`src-tauri/src/main.rs:1` 的 `windows_subsystem 
 
 ```bash
 # Windows（本机，git-bash）
-REFIND_SWITCHER_HTTP_PORT=12399 REFIND_SWITCHER_POWER_DRY_RUN=1 REFIND_SWITCHER_TRACE=1 npm run tauri dev
+ANYBOOT_HTTP_PORT=12399 ANYBOOT_POWER_DRY_RUN=1 ANYBOOT_TRACE=1 npm run tauri dev
 ```
 
 固定检查项（每阶段都要过）：

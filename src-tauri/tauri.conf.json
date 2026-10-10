@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "rEFInd Switcher",
+  "productName": "AnyBoot",
   "version": "0.1.0",
-  "identifier": "com.example.refind-switcher",
+  "identifier": "com.example.anyboot",
   "build": {
     "frontendDist": "../ui"
   },
@@ -10,7 +10,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "rEFInd 启动切换器",
+        "title": "AnyBoot",
         "width": 460,
         "height": 680,
         "resizable": true,

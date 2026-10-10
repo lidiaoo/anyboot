@@ -1,15 +1,15 @@
-# rEFInd Switcher 远程控制改造 · 执行清单
+# AnyBoot 远程控制改造 · 执行清单
 
 配套设计：`docs/remote-api-plan.md`（§0.1 决策表：Q1–Q14 全部已定）
-约定：每阶段「单测全绿」才进下一阶段；验证一律避开你正在跑的实例（`REFIND_SWITCHER_HTTP_PORT=12399`、`REFIND_SWITCHER_POWER_DRY_RUN=1`）。
+约定：每阶段「单测全绿」才进下一阶段；验证一律避开你正在跑的实例（`ANYBOOT_HTTP_PORT=12399`、`ANYBOOT_POWER_DRY_RUN=1`）。
 
 ---
 
 ## 阶段 0 · 取证（不改行为）—— 已完成（2026-10-09）
 
 - [x] 加 trace 日志：菜单重建（含内容指纹+触发者）、事件 emit、菜单动作（原始 id → 解析 → 结果）、设置读写（含失败原因）、扫描/切换耗时与结果、电源动作起止 → `<配置目录>/trace.log`
-  验收（实测）：`REFIND_SWITCHER_TRACE=1` 起 debug 版，`trace.log` 落盘 12 行，每类事件都有；样本存证 `hermes scratch/trace-probe-evidence.log`
-- [x] 设置项 `debugTrace`（默认 false）+ 环境变量 `REFIND_SWITCHER_TRACE`（环境变量优先）
+  验收（实测）：`ANYBOOT_TRACE=1` 起 debug 版，`trace.log` 落盘 12 行，每类事件都有；样本存证 `hermes scratch/trace-probe-evidence.log`
+- [x] 设置项 `debugTrace`（默认 false）+ 环境变量 `ANYBOOT_TRACE`（环境变量优先）
   验收（实测）：`cargo test` 6 passed（`settings_debug_trace_defaults_off_and_round_trips`、`trace_env_override_parses_common_forms`）
 - [x] 平台无关单测搬出 macOS 模块（原来 Windows/Linux 上 `cargo test` 一条都不跑）
   验收（实测）：Windows 上 `cargo test` → `6 passed; 0 failed`（原先 0 条）
@@ -89,7 +89,7 @@
   验收（实测）：`power_attempt_chain_stops_after_cancelled_authorization` 4 条断言全绿（取消授权后停手，不许换方式照样关机）
 - [x] 远程/CLI 模式过滤 `needs_gui_auth` 候选（Q3）
   验收（实测）：`plan_commands_filters_gui_auth_attempts` —— 免授权候选可执行、授权候选只以「需要本机授权」出现
-- [x] `REFIND_SWITCHER_POWER_DRY_RUN=1`：只回传命令、不执行；**dry-run 不再是环境变量里读**，而是 `run_power_action` 的显式参数（可确定性单测）
+- [x] `ANYBOOT_POWER_DRY_RUN=1`：只回传命令、不执行；**dry-run 不再是环境变量里读**，而是 `run_power_action` 的显式参数（可确定性单测）
   验收（实测）：`dry_run_never_executes_and_lists_the_table_commands` —— 三种动作各跑一遍，命令清单逐条来自命令表，且没有任何进程被执行
 - [x] 主窗口三个按钮（重启系统/关机/睡眠）+ 托盘「电源操作」子菜单（进行中整层置灰）
   验收：代码已就位（`ui/index.html`、`ui/app.js`、`build_tray_menu`）；
@@ -106,7 +106,7 @@
 
 ### 阶段 2 遗留（明说不藏）
 
-- 主窗口三个按钮 / 托盘「电源操作」子菜单的**真实点击**尚未验证（无头环境点不了）。阶段 3 的 `/api/power` + `REFIND_SWITCHER_POWER_DRY_RUN=1` 会覆盖同一条 `spawn_power` 路径（busy → 计划 → 回执 → 快照），那时补上可重复的端到端验证。
+- 主窗口三个按钮 / 托盘「电源操作」子菜单的**真实点击**尚未验证（无头环境点不了）。阶段 3 的 `/api/power` + `ANYBOOT_POWER_DRY_RUN=1` 会覆盖同一条 `spawn_power` 路径（busy → 计划 → 回执 → 快照），那时补上可重复的端到端验证。
 - README 的「重启系统」段落现在过时了（只讲重启、函数名也已改），留到阶段 6 统一重写（已在阶段 6 清单里列明）。
 
 ## 阶段 3 · HTTP 服务（默认开启 :12300）—— 已完成（2026-10-09）
@@ -171,7 +171,7 @@
 ## 阶段 5 · CLI 子命令（ssh 调用，§5.2–5.4）—— 已完成（2026-10-09）
 
 - [x] `main.rs` 参数分支：无参数 → GUI，`--switch/--action/--status/--json/--port/--help/--version` → headless CLI（不进 `tauri::Builder`）
-  验收（实测）：`refind-switcher.exe --help` 打印用法、退出码 0；`--action explode` / `--switch solaris` / `--status --nope` 都退出码 2
+  验收（实测）：`anyboot.exe --help` 打印用法、退出码 0；`--action explode` / `--switch solaris` / `--status --nope` 都退出码 2
 - [x] CLI 复用同一批核心函数（扫描 / 原子写入 / 电源命令表），不出现第二份实现
   验收（实测）：`cli.rs` 直接 `use super::{scan_vars_directory, write_with_mount, atomic_copy, hashes_match, run_power_action, sleep_probe, …}`，没有第二份命令表；
   单测 `cli::tests::parse_args_handles_all_forms` / `parse_args_rejects_bad_input` / `cli_invocation_requires_a_flag`
@@ -187,18 +187,18 @@
 - [x] 需要本机授权时按 Q3 不弹窗，退出码 3 + 可照做的指引
   验收：CLI 本地分支调用 `run_power_action(action, false, …)`（`allow_gui_auth=false`）；授权类错误映射到退出码 3，指引写在 README
 - [x] `--port` 覆盖便于调试/多实例
-  验收（实测）：`REFIND_SWITCHER_HTTP_PORT=12399`（与 `--port` 同义的覆盖）时 `--status --json` 命中沙箱实例；优先级 `--port` > 环境变量 > 设置文件
+  验收（实测）：`ANYBOOT_HTTP_PORT=12399`（与 `--port` 同义的覆盖）时 `--status --json` 命中沙箱实例；优先级 `--port` > 环境变量 > 设置文件
 - [x] 转发时带 `channel=cli`（仅 loopback 生效），按 `channels.cli` 决定通知 + 延迟（Q14 已定：走）
   验收（实测）：沙箱 `channels.cli.delaySeconds=5` 时 `--switch macos` 返回「已受理（本机确认后执行）」，
   5 秒后沙箱 `PreviousBoot` 变成 `mac-c`、`/api/requests` 里该条为 `cli executed`（转发→待执行→自动执行全链路）
 
 ## 阶段 6 · 文档（README 全面更新）—— 已完成（2026-10-09）
 
-- [x] README「重启系统」段落重写为「电源动作」小节：三端命令表（Windows `shutdown /r|/s`、`rundll32 SetSuspendState`；Linux `systemctl reboot|poweroff|suspend` + loginctl/pkexec 退让；macOS osascript/shutdown/pmset）、两条安全约定、`REFIND_SWITCHER_POWER_DRY_RUN=1` 探针、Windows 睡眠会变休眠的说明（Q10′）
+- [x] README「重启系统」段落重写为「电源动作」小节：三端命令表（Windows `shutdown /r|/s`、`rundll32 SetSuspendState`；Linux `systemctl reboot|poweroff|suspend` + loginctl/pkexec 退让；macOS osascript/shutdown/pmset）、两条安全约定、`ANYBOOT_POWER_DRY_RUN=1` 探针、Windows 睡眠会变休眠的说明（Q10′）
 - [x] 开头「多种使用方式」对照表（我想做什么 → 从哪开始 → 得到什么）+ 目录
 - [x] 三端并列：默认监听情况、token 去哪看（含三端配置文件路径与直接读文件的命令）、防火墙怎么查/放行（Windows `New-NetFirewallRule`、macOS socketfilterfw、Linux ufw/firewalld、三端查监听命令）
 - [x] 远程调用示例：6 条 curl 各带「预期回答怎么读」，token 三种放法；点名 Postman / ApiPost / Insomnia / UpSnap / PowerControl / 手机 Wake-on-LAN / Home Assistant / Node-RED / n8n / 路由器群晖计划任务
-- [x] SSH 两种用法（直连 / 隧道）逐字可复制，含 Windows OpenSSH（`ssh user@host "refind-switcher.exe …"`）与 Unix 写法；另附 CLI 参数表与退出码
+- [x] SSH 两种用法（直连 / 隧道）逐字可复制，含 Windows OpenSSH（`ssh user@host "anyboot.exe …"`）与 Unix 写法；另附 CLI 参数表与退出码
 - [x] 授权相关：Linux 免密 sudoers 行（只放开三条命令）、`/etc/fstab` 预挂载、macOS `sudo -n` 所需 sudoers、Windows 预挂载 ESP（diskpart）；写清为什么远程默认不弹授权框（Q3）
 - [x] 风险与默认值显眼说明：明文 HTTP、必填 token、默认 `0.0.0.0`、`remoteAllowGuiAuth=false`、Windows 睡眠可能变休眠
 - [x] 调试环境变量表（开关/绑定/端口/dry-run/trace/变量目录/配置目录）+ 一个可复制的沙箱示例
@@ -228,6 +228,6 @@
 2. 主窗口改「隐藏程序（任务栏/Dock）」→ 观察托盘菜单勾选是否即时同步；是否出现过菜单需要再点一次。
 3. 托盘里改「启动时隐藏主界面」和「点击 ❌ 时」→ 主窗口对应控件是否即时同步。
 4. 托盘点一次「扫描」，扫描进行中再右键托盘 → 菜单内容有没有闪断/消失/需要重新点。
-5. 托盘点「重启系统」（若要避免真重启，先起 `REFIND_SWITCHER_POWER_DRY_RUN=1` 的实例）→ 主窗口按钮有没有进入禁用态；再点一次托盘项有没有回执。
+5. 托盘点「重启系统」（若要避免真重启，先起 `ANYBOOT_POWER_DRY_RUN=1` 的实例）→ 主窗口按钮有没有进入禁用态；再点一次托盘项有没有回执。
 6. 隐藏到托盘（点 ❌）→ 托盘左键单击显示主窗口 → 再左键单击，窗口是否仍在最前。
 7. 在系统设置里手动关闭本应用的登录项 → 打开主窗口看「开机启动」显示；再看托盘菜单勾选，记录哪一边先错、错多久。

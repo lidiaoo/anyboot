@@ -1,4 +1,4 @@
-# rEFInd Switcher
+# AnyBoot
 
 一个基于 Tauri 2 的跨平台托盘工具：改写 rEFInd 的 `EFI/refind/vars/PreviousBoot`，决定**下次**启动进哪个系统；并且内置一个 HTTP 服务，让你**远程**（webhook / curl / 面板 / ssh）就能切系统、重启、关机、睡眠。
 
@@ -12,10 +12,10 @@ Windows / macOS / Linux 三端同一份代码，行为对齐。
 | --- | --- | --- |
 | 在这台机器上点一下切换下次启动的系统 | 托盘图标右键 → 直接点 `Linux` / `Windows` / `macOS` | 托盘里的「下次启动」立刻变成所选系统（下一次开机生效） |
 | 在另一台电脑/手机上远程切系统、重启、关机、睡眠 | [远程控制](#远程控制http-服务) → 拿 token → 按 [端点表](#端点表每条都给了可复制的-curl) 发一条请求 | 这台机器按请求动作；默认先弹窗 5 秒（可在弹窗或主窗口取消）再执行 |
-| 只想 ssh 过去一条命令搞定 | [ssh 两种用法](#ssh-远程调用两种用法) | `ssh user@host 'refind-switcher --switch windows --action reboot'` 一条就够 |
+| 只想 ssh 过去一条命令搞定 | [ssh 两种用法](#ssh-远程调用两种用法) | `ssh user@host 'anyboot --switch windows --action reboot'` 一条就够 |
 | 用现成的面板 / 手机 App（UpSnap、PowerControl、Postman…） | [常见客户端与面板](#常见客户端与面板) | 把 URL + Header 填进客户端即可，不用写代码 |
 | 让这台机器开机就常驻托盘、随时可被远程调用 | [应用设置](#应用设置) | 开机启动 + 启动时隐藏主界面 + HTTP 服务默认开启 |
-| 先确认“远程到底会执行什么命令”再让它真执行 | [调试环境变量](#调试环境变量)（`REFIND_SWITCHER_POWER_DRY_RUN=1`） | 只回显将要执行的命令，不真的重启/关机/睡眠 |
+| 先确认“远程到底会执行什么命令”再让它真执行 | [调试环境变量](#调试环境变量)（`ANYBOOT_POWER_DRY_RUN=1`） | 只回显将要执行的命令，不真的重启/关机/睡眠 |
 | 我自己改代码 / 打安装包 | [开发运行](#开发运行) 与 [构建产物](#构建产物) | `npm run tauri dev`；三端各自的安装包 |
 
 目录
@@ -94,20 +94,20 @@ Windows / macOS / Linux 三端同一份代码，行为对齐。
 
 | 平台 | 路径 |
 | --- | --- |
-| Windows | `%APPDATA%\com.example.refind-switcher\`（即 `C:\Users\<你>\AppData\Roaming\com.example.refind-switcher\`） |
-| macOS | `~/Library/Application Support/com.example.refind-switcher/` |
-| Linux | `~/.config/com.example.refind-switcher/` |
+| Windows | `%APPDATA%\com.example.anyboot\`（即 `C:\Users\<你>\AppData\Roaming\com.example.anyboot\`） |
+| macOS | `~/Library/Application Support/com.example.anyboot/` |
+| Linux | `~/.config/com.example.anyboot/` |
 
 忘了 token：主窗口「显示」按钮，或直接读文件。
 
 ```bash
 # Linux / macOS
-python3 -c "import json,os;print(json.load(open(os.path.expanduser('~/.config/com.example.refind-switcher/settings.json')))['httpToken'])"
+python3 -c "import json,os;print(json.load(open(os.path.expanduser('~/.config/com.example.anyboot/settings.json')))['httpToken'])"
 ```
 
 ```powershell
 # Windows PowerShell
-(Get-Content "$env:APPDATA\com.example.refind-switcher\settings.json" | ConvertFrom-Json).httpToken
+(Get-Content "$env:APPDATA\com.example.anyboot\settings.json" | ConvertFrom-Json).httpToken
 ```
 
 换 token 后旧 token **立刻失效**（服务会用新 token 重建）。
@@ -118,9 +118,9 @@ python3 -c "import json,os;print(json.load(open(os.path.expanduser('~/.config/co
 
 ```powershell
 # Windows（管理员 PowerShell）：放行 12300/TCP
-New-NetFirewallRule -DisplayName "rEFInd Switcher HTTP" -Direction Inbound -Protocol TCP -LocalPort 12300 -Action Allow
+New-NetFirewallRule -DisplayName "AnyBoot HTTP" -Direction Inbound -Protocol TCP -LocalPort 12300 -Action Allow
 # 撤销
-Remove-NetFirewallRule -DisplayName "rEFInd Switcher HTTP"
+Remove-NetFirewallRule -DisplayName "AnyBoot HTTP"
 ```
 
 ```bash
@@ -170,7 +170,7 @@ curl -s http://$HOST:12300/health
 预期回答（HTTP 200）：
 
 ```json
-{"ok":true,"service":"refind-switcher"}
+{"ok":true,"service":"anyboot"}
 ```
 
 **② 看当前状态**
@@ -321,18 +321,18 @@ pmset -g | grep -i hibernatemode
 
 ```bash
 # Linux / macOS 客户端
-ssh user@192.168.1.50 'refind-switcher --status'
-ssh user@192.168.1.50 'refind-switcher --switch windows'                    # 只切换
-ssh user@192.168.1.50 'refind-switcher --switch windows --action reboot'    # 切换并重启
-ssh user@192.168.1.50 'refind-switcher --action sleep'                      # 只睡眠
-ssh user@192.168.1.50 'refind-switcher --status --json'                     # 脚本友好的 JSON
+ssh user@192.168.1.50 'anyboot --status'
+ssh user@192.168.1.50 'anyboot --switch windows'                    # 只切换
+ssh user@192.168.1.50 'anyboot --switch windows --action reboot'    # 切换并重启
+ssh user@192.168.1.50 'anyboot --action sleep'                      # 只睡眠
+ssh user@192.168.1.50 'anyboot --status --json'                     # 脚本友好的 JSON
 ```
 
 ```powershell
 # Windows 客户端（win10/11 自带 OpenSSH 客户端）
-ssh user@192.168.1.50 "refind-switcher.exe --status"
-ssh user@192.168.1.50 "refind-switcher.exe --switch windows --action reboot"
-ssh user@192.168.1.50 "refind-switcher.exe --action sleep"
+ssh user@192.168.1.50 "anyboot.exe --status"
+ssh user@192.168.1.50 "anyboot.exe --switch windows --action reboot"
+ssh user@192.168.1.50 "anyboot.exe --action sleep"
 ```
 
 CLI 参数：
@@ -350,7 +350,7 @@ CLI 参数：
 退出码：`0` 成功 / `1` 动作失败 / `2` 参数错误 / `3` 需要本机授权 / `4` 变量目录未就绪。
 
 ```bash
-if ssh user@nas 'refind-switcher --switch linux --action reboot'; then
+if ssh user@nas 'anyboot --switch linux --action reboot'; then
   echo "已提交"
 else
   echo "失败，退出码 $?"
@@ -378,7 +378,7 @@ curl -s -X POST -H "X-Auth-Token: $TOKEN" "http://127.0.0.1:12300/api/power?acti
 
 ```bash
 # Linux：免密 sudo（把 <user> 换成实际用户；只放开这三个命令，别写 ALL）
-#   sudo visudo -f /etc/sudoers.d/refind-switcher
+#   sudo visudo -f /etc/sudoers.d/anyboot
 <user> ALL=(ALL) NOPASSWD: /usr/bin/systemctl reboot, /usr/bin/systemctl poweroff, /usr/bin/systemctl suspend
 
 # Linux：顺手把 ESP 预挂载好（fstab），应用就不需要临时提权挂载
@@ -410,7 +410,7 @@ diskpart
 主窗口「应用设置」区域：
 
 - **开机启动**：登录系统后自动启动应用。
-  - macOS 13 及以上调用系统登录项接口 `SMAppService.mainApp` 注册，条目出现在「系统设置 → 通用 → 登录项与扩展」。该接口要求应用带有效代码签名，因此 `tauri.conf.json` 默认配了 ad-hoc 签名（`bundle.macOS.signingIdentity = "-"`）；未签名、未以 `.app` 形式运行或 macOS 12 及以下会自动退回 `~/Library/LaunchAgents/rEFInd Switcher.plist`，界面会提示当前用的是兼容方式。签名版本生效后，早期版本遗留的 LaunchAgent 会在启动时自动清理。
+  - macOS 13 及以上调用系统登录项接口 `SMAppService.mainApp` 注册，条目出现在「系统设置 → 通用 → 登录项与扩展」。该接口要求应用带有效代码签名，因此 `tauri.conf.json` 默认配了 ad-hoc 签名（`bundle.macOS.signingIdentity = "-"`）；未签名、未以 `.app` 形式运行或 macOS 12 及以下会自动退回 `~/Library/LaunchAgents/AnyBoot.plist`，界面会提示当前用的是兼容方式。签名版本生效后，早期版本遗留的 LaunchAgent 会在启动时自动清理。
   - Windows 写 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`；Linux 写 `~/.config/autostart`（即使以 root 执行也会识别 `SUDO_USER`/`PKEXEC_UID`，写回实际登录用户）。
   - 若系统返回「需要批准」（`requiresApproval`），主窗口会给出提示与「打开登录项与扩展设置」按钮。
 - **启动时隐藏主界面**：登录/启动后只在托盘待命。
@@ -471,26 +471,26 @@ Linux 包必须在 Linux 环境生成；macOS 包必须在 macOS 环境生成。
 
 ## 调试环境变量
 
-都在启动应用**之前**设好。除 `REFIND_SWITCHER_POWER_DRY_RUN` 外，其余能覆盖 `settings.json` 里的对应项（但**不会**写进文件，只对这次运行生效）。
+都在启动应用**之前**设好。除 `ANYBOOT_POWER_DRY_RUN` 外，其余能覆盖 `settings.json` 里的对应项（但**不会**写进文件，只对这次运行生效）。
 
 | 环境变量 | 作用 |
 | --- | --- |
-| `REFIND_SWITCHER_POWER_DRY_RUN=1` | 只回显将要执行的电源命令，**不真的**重启/关机/睡眠（遥控调试必用） |
-| `REFIND_SWITCHER_TRACE=1` | 打开 trace 日志（写 `trace.log`，同时打到 stderr）：菜单重建、事件、菜单动作、设置读写、扫描/切换耗时、电源动作、HTTP 请求（token 只记前 8 位指纹） |
-| `REFIND_SWITCHER_HTTP_ENABLED=0\|1` | 覆盖 HTTP 服务开关 |
-| `REFIND_SWITCHER_HTTP_BIND=127.0.0.1` | 覆盖监听地址 |
-| `REFIND_SWITCHER_HTTP_PORT=12400` | 覆盖端口（也影响 CLI 找实例时的端口） |
-| `REFIND_SWITCHER_VARS_DIR=/path/to/vars` | 直接指定变量目录（跳过自动扫描/挂载，验证用） |
-| `REFIND_SWITCHER_CONFIG_DIR=/path/to/dir` | 把配置目录（`settings.json` / `trace.log`）指到别处：跑第二个实例或做验证时不会碰到真实配置 |
+| `ANYBOOT_POWER_DRY_RUN=1` | 只回显将要执行的电源命令，**不真的**重启/关机/睡眠（遥控调试必用） |
+| `ANYBOOT_TRACE=1` | 打开 trace 日志（写 `trace.log`，同时打到 stderr）：菜单重建、事件、菜单动作、设置读写、扫描/切换耗时、电源动作、HTTP 请求（token 只记前 8 位指纹） |
+| `ANYBOOT_HTTP_ENABLED=0\|1` | 覆盖 HTTP 服务开关 |
+| `ANYBOOT_HTTP_BIND=127.0.0.1` | 覆盖监听地址 |
+| `ANYBOOT_HTTP_PORT=12400` | 覆盖端口（也影响 CLI 找实例时的端口） |
+| `ANYBOOT_VARS_DIR=/path/to/vars` | 直接指定变量目录（跳过自动扫描/挂载，验证用） |
+| `ANYBOOT_CONFIG_DIR=/path/to/dir` | 把配置目录（`settings.json` / `trace.log`）指到别处：跑第二个实例或做验证时不会碰到真实配置 |
 
 ```bash
 # 例子：不动真实配置、不动真实 ESP、不真的重启，只验证一条远程请求会执行什么命令
-REFIND_SWITCHER_CONFIG_DIR=/tmp/rs-sandbox \
-REFIND_SWITCHER_VARS_DIR=/tmp/rs-vars \
-REFIND_SWITCHER_HTTP_PORT=12400 \
-REFIND_SWITCHER_POWER_DRY_RUN=1 \
-REFIND_SWITCHER_TRACE=1 \
-./refind-switcher
+ANYBOOT_CONFIG_DIR=/tmp/rs-sandbox \
+ANYBOOT_VARS_DIR=/tmp/rs-vars \
+ANYBOOT_HTTP_PORT=12400 \
+ANYBOOT_POWER_DRY_RUN=1 \
+ANYBOOT_TRACE=1 \
+./anyboot
 # 然后（token 取沙箱 settings.json 里那个）
 curl -s -X POST -H "X-Auth-Token: <token>" \
   "http://127.0.0.1:12400/api/switch-and-power?system=linux&action=reboot"
@@ -523,7 +523,7 @@ curl -s -X POST -H "X-Auth-Token: <token>" \
 
 ### 端口被占用 / 想换端口
 
-应用**不会**自动换端口（避免你以为在 12300 其实是别的）。换端口：主窗口「监听地址 / 端口」改完点「应用」，或 `REFIND_SWITCHER_HTTP_PORT=12400` 启动。谁占了：
+应用**不会**自动换端口（避免你以为在 12300 其实是别的）。换端口：主窗口「监听地址 / 端口」改完点「应用」，或 `ANYBOOT_HTTP_PORT=12400` 启动。谁占了：
 
 ```bash
 ss -ltnp | grep 12300                 # Linux
@@ -554,20 +554,20 @@ NO_STRIP=1 npm run build:linux
 除“开机启动”外其他设置保存后恢复原值，先检查配置目录属主：
 
 ```bash
-ls -ld ~/.config/com.example.refind-switcher
+ls -ld ~/.config/com.example.anyboot
 ```
 
 属主显示为 `root`（此前用 `sudo`/`pkexec` 跑过应用）就改回来：
 
 ```bash
-sudo chown -R "$(id -un):$(id -gn)" ~/.config/com.example.refind-switcher
+sudo chown -R "$(id -un):$(id -gn)" ~/.config/com.example.anyboot
 ```
 
 开机启动写的是 `~/.config/autostart`，在这个问题下仍可能正常工作。
 
 ### 想看“到底发生了什么”
 
-主窗口「远程控制 → 最近请求」或 `GET /api/requests` 看最近 20 条；更细的过程用 `REFIND_SWITCHER_TRACE=1`（或设置里打开 `debugTrace`）看配置目录下的 `trace.log`——里面**不会有**完整 token。
+主窗口「远程控制 → 最近请求」或 `GET /api/requests` 看最近 20 条；更细的过程用 `ANYBOOT_TRACE=1`（或设置里打开 `debugTrace`）看配置目录下的 `trace.log`——里面**不会有**完整 token。
 
 ---
 

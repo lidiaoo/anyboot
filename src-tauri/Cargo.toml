@@ -1,12 +1,12 @@
 [package]
-name = "refind-switcher"
+name = "anyboot"
 version = "0.1.0"
 description = "Select the next boot system from the system tray by updating rEFInd's PreviousBoot variable"
 authors = ["you"]
 edition = "2021"
 
 [lib]
-name = "refind_switcher_lib"
+name = "anyboot_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

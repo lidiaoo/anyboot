@@ -1,4 +1,4 @@
-//! 无 GUI 的 CLI 子命令（阶段 5）：`ssh user@host 'refind-switcher --switch windows --action reboot'`。
+//! 无 GUI 的 CLI 子命令（阶段 5）：`ssh user@host 'anyboot --switch windows --action reboot'`。
 //!
 //! 两条路径：
 //! 1. 应用正在运行 → 把命令**转发**给它（走 `/api/*`，于是行为与 webhook 完全一致：
@@ -18,7 +18,7 @@ use super::{
 };
 
 /// 与 `tauri.conf.json` 的 `identifier` 必须一致（有单测盯着这件事）。
-const APP_IDENTIFIER: &str = "com.example.refind-switcher";
+const APP_IDENTIFIER: &str = "com.example.anyboot";
 
 const EXIT_OK: i32 = 0;
 const EXIT_FAILED: i32 = 1;
@@ -112,20 +112,20 @@ fn parse_args(args: &[String]) -> Result<CliArgs, String> {
 
 fn print_usage() {
     println!(
-        "rEFInd 启动切换器 CLI\n\
+        "AnyBoot CLI\n\
          \n\
          用法:\n\
-         \x20 refind-switcher --status [--json]\n\
-         \x20 refind-switcher --switch <linux|windows|macos> [--action <reboot|shutdown|sleep>] [--json]\n\
-         \x20 refind-switcher --action <reboot|shutdown|sleep> [--json]\n\
+         \x20 anyboot --status [--json]\n\
+         \x20 anyboot --switch <linux|windows|macos> [--action <reboot|shutdown|sleep>] [--json]\n\
+         \x20 anyboot --action <reboot|shutdown|sleep> [--json]\n\
          \n\
          说明:\n\
          \x20 · 不带参数运行 = 打开图形界面（托盘常驻），与 CLI 是同一个可执行文件\n\
          \x20 · --switch X --action Y = 先切换下次启动为 X，成功后立刻执行 Y（缺省 reboot）\n\
          \x20 · 应用正在运行时：命令转发给应用执行（走 cli 渠道：通知与延迟按该渠道的配置）\n\
          \x20 · 应用没在运行：CLI 自己执行（无界面、无弹窗，相当于立即执行）\n\
-         \x20 · 调试用环境变量：REFIND_SWITCHER_POWER_DRY_RUN=1 只打印命令不执行；\n\
-         \x20   REFIND_SWITCHER_TRACE=1 记日志；REFIND_SWITCHER_VARS_DIR=<目录> 指定变量目录\n\
+         \x20 · 调试用环境变量：ANYBOOT_POWER_DRY_RUN=1 只打印命令不执行；\n\
+         \x20   ANYBOOT_TRACE=1 记日志；ANYBOOT_VARS_DIR=<目录> 指定变量目录\n\
          \n\
          退出码: 0 成功 / 1 动作失败 / 2 参数错误 / 3 需要本机授权 / 4 变量目录未就绪"
     );
@@ -228,7 +228,7 @@ fn attach_console() {}
 
 fn config_dir() -> Option<PathBuf> {
     // 与 GUI 侧同名的覆盖变量：CLI 与 GUI 可以指向同一个沙箱目录
-    if let Ok(directory) = std::env::var("REFIND_SWITCHER_CONFIG_DIR") {
+    if let Ok(directory) = std::env::var("ANYBOOT_CONFIG_DIR") {
         let directory = directory.trim();
         if !directory.is_empty() {
             return Some(PathBuf::from(directory));
@@ -274,7 +274,7 @@ impl CliConfig {
     }
 
     fn trace(&self, category: &str, message: &str) {
-        let enabled = super::env_flag_from(std::env::var("REFIND_SWITCHER_TRACE").ok().as_deref())
+        let enabled = super::env_flag_from(std::env::var("ANYBOOT_TRACE").ok().as_deref())
             .unwrap_or(self.settings.debug_trace);
         if !enabled {
             return;
@@ -311,17 +311,17 @@ pub fn run(args: &[String]) -> i32 {
         return EXIT_OK;
     }
     if parsed.version {
-        println!("rEFInd 启动切换器 {}", env!("CARGO_PKG_VERSION"));
+        println!("AnyBoot {}", env!("CARGO_PKG_VERSION"));
         return EXIT_OK;
     }
 
     let config = CliConfig::load();
     config.trace("argv", &format!("{args:?}"));
-    // 端口优先级：--port > REFIND_SWITCHER_HTTP_PORT > 设置文件（与 GUI 侧同一个环境变量）
+    // 端口优先级：--port > ANYBOOT_HTTP_PORT > 设置文件（与 GUI 侧同一个环境变量）
     let port = parsed
         .port
         .or_else(|| {
-            std::env::var("REFIND_SWITCHER_HTTP_PORT")
+            std::env::var("ANYBOOT_HTTP_PORT")
                 .ok()
                 .and_then(|value| value.trim().parse::<u16>().ok())
                 .filter(|port| *port != 0)
@@ -486,7 +486,7 @@ fn exit_code_for_error(message: &str) -> i32 {
 
 /// 变量目录：命令行环境变量优先（验证/沙箱用），否则让核心扫描逻辑去找。
 fn explicit_vars_dir() -> Option<PathBuf> {
-    std::env::var("REFIND_SWITCHER_VARS_DIR")
+    std::env::var("ANYBOOT_VARS_DIR")
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
@@ -768,6 +768,12 @@ mod tests {
             "端口 0 不行"
         );
         assert!(parse_args(&args(&["--nope"])).is_err(), "未知旗标");
+    }
+
+    #[test]
+    fn app_identifier_is_anyboot() {
+        // 品牌改名后：确保 identifier 不会误回退成旧名
+        assert_eq!(APP_IDENTIFIER, "com.example.anyboot");
     }
 
     #[test]
