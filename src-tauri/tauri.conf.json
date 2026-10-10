@@ -10,12 +10,14 @@
     "withGlobalTauri": true,
     "windows": [
       {
+        "label": "main",
         "title": "AnyBoot",
         "width": 460,
         "height": 680,
         "resizable": true,
         "transparent": true,
-        "skipTaskbar": true
+        "skipTaskbar": true,
+        "visible": false
       }
     ],
     "security": {
