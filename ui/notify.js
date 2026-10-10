@@ -45,28 +45,12 @@ function startLocalTick(notify) {
   tickTimer = setInterval(tick, 1000);
   tick();
 
-  // 播放提示音（pending 进入时播一次，不是每秒）
-  playSoundNotification(notify);
   tickContext = notify;
 }
 
-/// 用 system beep 代替（HTML5 Audio + 系统提示音）
-function playSoundNotification(notify) {
-  try {
-    // Tauri webview 支持 <audio>，路径通过 tauri://fs/ 或直接用本地路径
-    const path = notify.soundFilePath;
-    if (path && path.trim()) {
-      const audio = new Audio(path);
-      audio.play().catch(() => {});
-    } else {
-      // 默认：浏览器 system beep
-      const audio = new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKEAACAhIQMgFAABOUZpbZM=');
-      audio.play().catch(() => {});
-    }
-  } catch (e) {
-    // 忽略
-  }
-}
+// 提示音不在这里播：webview 里 new Audio(本地路径) 读不到文件、
+// 默认那段 base64 也没有采样数据，Linux 还依赖 gstreamer 插件。
+// 现在由后端在弹窗那一刻用系统播放器播（paplay/aplay/afplay/powershell）。
 
 function render(notify) {
   if (!notify) {

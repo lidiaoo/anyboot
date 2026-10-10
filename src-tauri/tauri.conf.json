@@ -14,6 +14,7 @@
         "width": 460,
         "height": 680,
         "resizable": true,
+        "transparent": true,
         "skipTaskbar": true
       }
     ],

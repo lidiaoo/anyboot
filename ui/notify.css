@@ -1,24 +1,56 @@
+/*
+ * 远程请求弹窗。
+ *
+ * Linux 上曾经「不显示字 / 渲染坏」，两个原因都在这里修掉了：
+ *  1. 字体链里只有 Windows/macOS 字体，Linux 全部落空 —— 补上 Noto / 思源等中文字体；
+ *  2. body 与 html 没有背景、.panel 也没铺满窗口，窗口比内容高时下半截露出
+ *     webview 的默认底色，看起来就像渲染坏了 —— 现在整块铺满并锁住高度。
+ */
 :root {
   color-scheme: dark;
-  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-  background: #141922;
-  color: #e7ebf2;
+  --bg: #141922;
+  --panel-bg: #1d1a13;
+  --panel-border: #6b4a1f;
+  --text: #e7ebf2;
+  --title: #f0c98a;
+  --dim: #a5b0c2;
+  --faint: #8b96a8;
+  --track: #2c3544;
+  --fill: #e0a44f;
+  --btn-text: #201a10;
+  --btn-secondary: #333d4d;
+  --font:
+    "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC",
+    "Source Han Sans SC", "WenQuanYi Micro Hei", system-ui, sans-serif;
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
 }
 
 * {
   box-sizing: border-box;
 }
 
+html,
 body {
+  height: 100%;
   margin: 0;
+}
+
+body {
+  background: var(--bg);
+  /* 弹窗是固定小窗：内容再多也不在这里出现第二个滚动区 */
+  overflow: hidden;
 }
 
 .panel {
   display: grid;
+  align-content: start;
   gap: 10px;
+  height: 100%;
   padding: 16px 18px;
-  border: 1px solid #6b4a1f;
-  background: #1d1a13;
+  border: 1px solid var(--panel-border);
+  background: var(--panel-bg);
 }
 
 header {
@@ -28,25 +60,35 @@ header {
 
 header strong {
   font-size: 15px;
-  color: #f0c98a;
+  color: var(--title);
 }
 
 header small,
 #hint,
 #countdown {
-  color: #a5b0c2;
+  color: var(--dim);
   font-size: 12px;
+}
+
+#title,
+#source,
+#message,
+#countdown,
+#hint {
+  /* 中文长句折行，而不是溢出被裁掉 */
+  overflow-wrap: anywhere;
 }
 
 #message {
   margin: 0;
   font-size: 14px;
+  line-height: 1.45;
 }
 
 .bar {
   height: 6px;
   border-radius: 3px;
-  background: #2c3544;
+  background: var(--track);
   overflow: hidden;
 }
 
@@ -54,7 +96,7 @@ header small,
   display: block;
   height: 100%;
   width: 0;
-  background: #e0a44f;
+  background: var(--fill);
   transition: width 0.25s linear;
 }
 
@@ -72,15 +114,16 @@ button {
   border: 0;
   border-radius: 7px;
   padding: 9px 13px;
-  background: #e0a44f;
-  color: #201a10;
+  background: var(--fill);
+  color: var(--btn-text);
+  font-family: inherit;
   font-size: 13px;
   cursor: pointer;
 }
 
 button.secondary {
-  background: #333d4d;
-  color: #e7ebf2;
+  background: var(--btn-secondary);
+  color: var(--text);
 }
 
 button:hover:not(:disabled) {
@@ -89,5 +132,5 @@ button:hover:not(:disabled) {
 
 #hint {
   margin: 0;
-  color: #8b96a8;
+  color: var(--faint);
 }

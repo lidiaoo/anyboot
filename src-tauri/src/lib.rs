@@ -45,6 +45,19 @@ const MAX_RECENT_REQUESTS: usize = 20;
 const NOTIFY_WINDOW_LABEL: &str = "notify";
 /// 延迟秒数的上限（配置里乱填也不会把请求挂到天上去）
 const MAX_DELAY_SECONDS: u32 = 600;
+/// 自定义 token 的长度范围（太短不安全，太长粘贴起来也难受）
+const MIN_TOKEN_LEN: usize = 4;
+const MAX_TOKEN_LEN: usize = 128;
+/// 内置提示音（KakaoTalk 通知音）落到配置目录后的文件名
+const SOUND_DIR: &str = "sounds";
+const BUILTIN_SOUND_FILE: &str = "notify.wav";
+/// 内置提示音本体（WAV PCM，编进二进制 —— 不依赖打包资源路径，AppImage/NSIS 都稳）
+const BUILTIN_SOUND: &[u8] = include_bytes!("../assets/kakaotalk-notify.wav");
+/// 主题可取值
+const THEMES: [&str; 3] = ["dark", "light", "system"];
+/// 不透明度范围（百分比）
+const MIN_OPACITY: u8 = 50;
+const MAX_OPACITY: u8 = 100;
 /// 阶段 0 的取证日志：只追加、不参与任何逻辑判断，写在应用配置目录。
 /// 里面**永不写入** httpToken（只记前 8 位指纹）。
 const TRACE_FILE: &str = "trace.log";
@@ -600,8 +613,12 @@ struct Settings {
     channels: Channels,
     /// 提示音开关（默认开）
     play_sound: bool,
-    /// 提示音文件路径（可选，留空用系统默认）
+    /// 自定义提示音文件路径（留空用内置的 KakaoTalk 提示音）
     sound_file_path: String,
+    /// 界面主题：dark / light / system
+    theme: String,
+    /// 窗口不透明度（百分比，50–100）
+    opacity_percent: u8,
 }
 
 impl Default for Settings {
@@ -621,6 +638,8 @@ impl Default for Settings {
             channels: Channels::default(),
             play_sound: true,
             sound_file_path: String::new(),
+            theme: "dark".to_string(),
+            opacity_percent: MAX_OPACITY,
         }
     }
 }
@@ -1764,6 +1783,45 @@ fn publish_ui(app: &AppHandle) -> UiState {
 /// 只能看到一个没有系统项、没有「重启系统」、没有「应用设置」的残缺菜单）。
 // ==================== 远程控制（阶段 3/4） ====================
 
+/// 校验用户自定义的 token（纯函数，便于单测）。
+///
+/// - 空字符串是**合法**输入：等于「清空 token」，内置 HTTP 服务会因此不再启动（沿用现有语义）。
+/// - 非空：长度 4–128，且只能是可见 ASCII —— 粘贴时混进换行/空格/全角字符会让请求一直 401，
+///   在远程端极难自己查出来，所以这里直接拒掉并说清是哪个字符。
+fn validate_http_token(token: &str) -> Result<String, String> {
+    let token = token.trim().to_string();
+    if token.is_empty() {
+        return Ok(token);
+    }
+    let length = token.chars().count();
+    if length < MIN_TOKEN_LEN || length > MAX_TOKEN_LEN {
+        return Err(format!(
+            "token 长度要在 {MIN_TOKEN_LEN}–{MAX_TOKEN_LEN} 之间（现在是 {length}）"
+        ));
+    }
+    if let Some(bad) = token.chars().find(|c| !c.is_ascii_graphic()) {
+        return Err(format!(
+            "token 只能用可见 ASCII 字符（字母/数字/符号），这个字符不行：{bad:?}"
+        ));
+    }
+    Ok(token)
+}
+
+/// 主题归一（纯函数）：不认识的值一律回落到 dark。
+fn normalize_theme(value: &str) -> String {
+    let value = value.trim().to_ascii_lowercase();
+    if THEMES.contains(&value.as_str()) {
+        value
+    } else {
+        "dark".to_string()
+    }
+}
+
+/// 不透明度夹取到 [MIN_OPACITY, MAX_OPACITY]（纯函数）。
+fn clamp_opacity(percent: u32) -> u8 {
+    percent.clamp(MIN_OPACITY as u32, MAX_OPACITY as u32) as u8
+}
+
 /// 生成 32 位十六进制 token（首次运行自动生成）。
 fn generate_token() -> String {
     let mut bytes = [0u8; 16];
@@ -2509,6 +2567,8 @@ fn start_remote_command(
         if let Err(error) = show_notify_window(app) {
             trace(app, "notify", &format!("弹窗失败（不影响执行）: {error}"));
         }
+        // 提示音只在「真的弹了窗」时播一次（进 pending 这一刻），不是每秒都响
+        play_notify_sound(app);
     } else {
         trace(app, "notify", "该渠道关闭了通知：只在主窗口显示待执行请求");
     }
@@ -2633,6 +2693,120 @@ fn notify_view(app: &AppHandle) -> Option<NotifyView> {
 }
 
 /// 显示置顶小窗（右下角）。失败不影响执行，只记 trace。
+/// 内置提示音落到配置目录后的路径（内容不符就重写一遍，便于升级后自动更新）。
+fn builtin_sound_path(app: &AppHandle) -> Option<PathBuf> {
+    let dir = config_dir(app).ok()?.join(SOUND_DIR);
+    if let Err(error) = std::fs::create_dir_all(&dir) {
+        trace(app, "sound", &format!("创建提示音目录失败: {error}"));
+        return None;
+    }
+    let path = dir.join(BUILTIN_SOUND_FILE);
+    let needs_write = match std::fs::read(&path) {
+        Ok(existing) => existing != BUILTIN_SOUND,
+        Err(_) => true,
+    };
+    if needs_write {
+        if let Err(error) = std::fs::write(&path, BUILTIN_SOUND) {
+            trace(app, "sound", &format!("写入内置提示音失败: {error}"));
+            return None;
+        }
+    }
+    Some(path)
+}
+
+/// 各平台可用的播放方式（纯函数，便于单测）。
+///
+/// 走系统播放器而不是 webview 的 `Audio`：Linux 上 webkit2gtk 播放还要看 gstreamer 插件，
+/// 缺一个就静音；而且自定义路径在 webview 里读不到（跨域/权限）。
+fn sound_player_candidates(path: &Path) -> Vec<(String, Vec<String>)> {
+    let file = path.display().to_string();
+    if cfg!(target_os = "windows") {
+        // SoundPlayer 只认 WAV PCM —— 内置音就是这种格式；自定义非 WAV 时这里会失败并回落。
+        vec![(
+            "powershell".to_string(),
+            vec![
+                "-NoProfile".to_string(),
+                "-Command".to_string(),
+                format!("(New-Object Media.SoundPlayer '{file}').PlaySync();"),
+            ],
+        )]
+    } else if cfg!(target_os = "macos") {
+        vec![("afplay".to_string(), vec![file])]
+    } else {
+        vec![
+            ("paplay".to_string(), vec![file.clone()]),
+            ("aplay".to_string(), vec!["-q".to_string(), file.clone()]),
+            (
+                "ffplay".to_string(),
+                vec![
+                    "-nodisp".to_string(),
+                    "-autoexit".to_string(),
+                    "-loglevel".to_string(),
+                    "quiet".to_string(),
+                    file,
+                ],
+            ),
+        ]
+    }
+}
+
+/// 播放一个音频文件：依次尝试本平台的候选播放器，返回第一个跑起来的。
+fn play_sound_file(path: &Path) -> Result<String, String> {
+    if !path.is_file() {
+        return Err(format!("文件不存在: {}", path.display()));
+    }
+    let mut last_error = String::from("本平台没有可用的播放器");
+    for (program, args) in sound_player_candidates(path) {
+        match Command::new(&program)
+            .args(&args)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+        {
+            // 只等「起得来」，不等播放完：通知窗口的出现不该被 2 秒音频拖住。
+            Ok(_child) => return Ok(program),
+            Err(error) => last_error = format!("{program}: {error}"),
+        }
+    }
+    Err(last_error)
+}
+
+/// 收到远程请求时播放提示音：自定义路径优先，失败回落内置 KakaoTalk 提示音。
+fn play_notify_sound(app: &AppHandle) {
+    let settings = stored_settings(app);
+    if !settings.play_sound {
+        trace(app, "sound", "提示音已关闭（设置里 playSound=false）");
+        return;
+    }
+    let mut candidates: Vec<(PathBuf, &'static str)> = Vec::new();
+    let custom = settings.sound_file_path.trim();
+    if !custom.is_empty() {
+        candidates.push((PathBuf::from(custom), "自定义"));
+    }
+    if let Some(builtin) = builtin_sound_path(app) {
+        candidates.push((builtin, "内置"));
+    }
+    if candidates.is_empty() {
+        trace(app, "sound", "没有可播放的提示音文件");
+        return;
+    }
+    let mut last_error = String::new();
+    for (path, label) in candidates {
+        match play_sound_file(&path) {
+            Ok(program) => {
+                trace(
+                    app,
+                    "sound",
+                    &format!("已播放{label}提示音（{program}）：{}", path.display()),
+                );
+                return;
+            }
+            Err(error) => last_error = format!("{label}提示音失败（{error}）"),
+        }
+    }
+    trace(app, "sound", &format!("提示音没播出来：{last_error}"));
+}
+
 fn show_notify_window(app: &AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window(NOTIFY_WINDOW_LABEL) {
         let _ = window.show();
@@ -2644,7 +2818,7 @@ fn show_notify_window(app: &AppHandle) -> Result<(), String> {
         tauri::WebviewUrl::App("notify.html".into()),
     )
     .title("远程请求")
-    .inner_size(420.0, 260.0)
+    .inner_size(440.0, 320.0)
     .resizable(false)
     .decorations(false)
     .always_on_top(true)
@@ -2653,12 +2827,18 @@ fn show_notify_window(app: &AppHandle) -> Result<(), String> {
     .build()
     .map_err(|error| format!("无法创建通知窗口: {error}"))?;
 
-    // 右下角：拿不到显示器信息就保持默认居中
-    if let Ok(Some(monitor)) = window.current_monitor() {
+    // 右下角：窗口刚建出来时 current_monitor() 在 Linux 上可能还是 None，
+    // 回退到主显示器；都拿不到就保持默认居中。
+    let monitor = window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| app.primary_monitor().ok().flatten());
+    if let Some(monitor) = monitor {
         let size = monitor.size();
         let scale = monitor.scale_factor();
-        let width = (420.0 * scale) as i32;
-        let height = (260.0 * scale) as i32;
+        let width = (440.0 * scale) as i32;
+        let height = (320.0 * scale) as i32;
         let margin = (24.0 * scale) as i32;
         let _ = window.set_position(tauri::PhysicalPosition::new(
             size.width as i32 - width - margin,
@@ -3676,6 +3856,10 @@ fn show_main_window(app: &AppHandle) {
     }
     if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
         let _ = window.unminimize();
+        // 呼出即置顶：Linux 下 WM 的 focus-stealing-prevention 会让 set_focus 无效，
+        // 于是窗口被别的窗口盖住（用户看到的就是「点了托盘但窗口没跳出来」）。
+        // 失焦时会自动取消置顶（见 on_window_event），所以不会永久霸屏。
+        let _ = window.set_always_on_top(true);
         let _ = window.show();
         let _ = window.set_focus();
     }
@@ -4816,6 +5000,56 @@ fn set_sound_file_path(app: AppHandle, path: String) -> Result<(), String> {
     Ok(())
 }
 
+/// 设置访问令牌（自定义 token）：改了要重启监听，新 token 立即生效。
+#[tauri::command]
+fn set_http_token(app: AppHandle, token: String) -> Result<(), String> {
+    trace(&app, "command", "set_http_token（主窗口）");
+    let token = validate_http_token(&token)?;
+    let message = if token.is_empty() {
+        "已清空：token 为空时内置 HTTP 服务不会启动".to_string()
+    } else {
+        "已更新，监听已按新 token 重启".to_string()
+    };
+    update_settings_and_publish(
+        &app,
+        "访问令牌",
+        &message,
+        |settings| settings.http_token = token,
+        apply_http_config,
+    )?;
+    Ok(())
+}
+
+/// 设置界面主题（dark / light / system）
+#[tauri::command]
+fn set_theme(app: AppHandle, theme: String) -> Result<(), String> {
+    trace(&app, "command", "set_theme（主窗口）");
+    let theme = normalize_theme(&theme);
+    update_settings_and_publish(
+        &app,
+        "界面主题",
+        &format!("已切换为 {theme}"),
+        |settings| settings.theme = theme,
+        |_app| {},
+    )?;
+    Ok(())
+}
+
+/// 设置窗口不透明度（百分比，50–100）
+#[tauri::command]
+fn set_opacity(app: AppHandle, percent: u32) -> Result<(), String> {
+    trace(&app, "command", "set_opacity（主窗口）");
+    let percent = clamp_opacity(percent);
+    update_settings_and_publish(
+        &app,
+        "窗口不透明度",
+        &format!("已设为 {percent}%"),
+        |settings| settings.opacity_percent = percent,
+        |_app| {},
+    )?;
+    Ok(())
+}
+
 /// 用系统文件管理器打开配置目录（含 settings.json / trace.log）
 #[tauri::command]
 fn open_config_dir(app: AppHandle) -> Result<String, String> {
@@ -4984,6 +5218,14 @@ pub fn run() {
             None,
         ))
         .on_window_event(|window, event| {
+            // 主窗口失焦就取消置顶：呼出时置顶是为了「一叫就在最上面」，
+            // 但别让它一直压着别的窗口（用户点别处时应该让位）。
+            if let tauri::WindowEvent::Focused(false) = event {
+                if window.label() == MAIN_WINDOW_LABEL {
+                    let _ = window.set_always_on_top(false);
+                }
+                return;
+            }
             let tauri::WindowEvent::CloseRequested { api, .. } = event else {
                 return;
             };
@@ -5125,6 +5367,9 @@ pub fn run() {
             http_access_hint,
             set_play_sound,
             set_sound_file_path,
+            set_http_token,
+            set_theme,
+            set_opacity,
             open_config_dir,
             open_vars_dir,
             retry_http,
@@ -5306,6 +5551,80 @@ mod tests {
 #[cfg(test)]
 mod core_tests {
     use super::*;
+
+    #[test]
+    fn custom_token_validation_accepts_good_and_rejects_sloppy_input() {
+        // 合法：常规随机串、带符号、边界长度
+        assert_eq!(validate_http_token("  abcd  ").unwrap(), "abcd");
+        assert_eq!(
+            validate_http_token("A-Za-z0-9_.~!*'()-").unwrap(),
+            "A-Za-z0-9_.~!*'()-"
+        );
+        let long = "x".repeat(MAX_TOKEN_LEN);
+        assert_eq!(validate_http_token(&long).unwrap().len(), MAX_TOKEN_LEN);
+
+        // 空 = 清空（合法输入，服务会因此不启动）
+        assert_eq!(validate_http_token("   ").unwrap(), "");
+
+        // 太短 / 太长
+        assert!(validate_http_token("abc").is_err());
+        assert!(validate_http_token(&"x".repeat(MAX_TOKEN_LEN + 1)).is_err());
+
+        // 粘贴时最容易混进来的东西：换行、空格、中文、制表符
+        for bad in ["abcd efgh", "abcd\nefgh", "abcd\tefgh", "令牌令牌"] {
+            let error = validate_http_token(bad).unwrap_err();
+            assert!(
+                error.contains("ASCII") || error.contains("长度"),
+                "{bad} -> {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn theme_and_opacity_are_normalized_for_sloppy_input() {
+        assert_eq!(normalize_theme("dark"), "dark");
+        assert_eq!(normalize_theme("LIGHT "), "light");
+        assert_eq!(normalize_theme("System"), "system");
+        // 不认识的值一律回落 dark，不会把界面搞成没样式
+        assert_eq!(normalize_theme(""), "dark");
+        assert_eq!(normalize_theme("solarized"), "dark");
+
+        assert_eq!(clamp_opacity(100), 100);
+        assert_eq!(clamp_opacity(50), 50);
+        assert_eq!(clamp_opacity(80), 80);
+        // 越界夹取（防止透明度低到看不见界面、或超过 100 变成无效值）
+        assert_eq!(clamp_opacity(0), MIN_OPACITY);
+        assert_eq!(clamp_opacity(10), MIN_OPACITY);
+        assert_eq!(clamp_opacity(999), MAX_OPACITY);
+    }
+
+    #[test]
+    fn sound_players_are_ordered_per_platform() {
+        let path = PathBuf::from("/tmp/notify.wav");
+        let candidates = sound_player_candidates(&path);
+        assert!(!candidates.is_empty());
+
+        if cfg!(target_os = "windows") {
+            assert_eq!(candidates[0].0, "powershell");
+            // 命令行里必须带上文件路径与 PlaySync（同步播完就退出）
+            let command = candidates[0].1.join(" ");
+            assert!(command.contains("notify.wav") && command.contains("PlaySync"));
+        } else if cfg!(target_os = "macos") {
+            assert_eq!(candidates[0].0, "afplay");
+            assert_eq!(candidates[0].1, vec!["/tmp/notify.wav".to_string()]);
+        } else {
+            // Linux：paplay 优先（PipeWire/PulseAudio 都兼容），再 aplay，最后 ffplay
+            assert_eq!(
+                candidates
+                    .iter()
+                    .map(|(p, _)| p.as_str())
+                    .collect::<Vec<_>>(),
+                vec!["paplay", "aplay", "ffplay"]
+            );
+            assert!(candidates[1].1.contains(&"-q".to_string()));
+            assert!(candidates[2].1.contains(&"quiet".to_string()));
+        }
+    }
 
     #[test]
     fn utc_timestamp_formats_known_epochs() {

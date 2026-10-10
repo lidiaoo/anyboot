@@ -1,8 +1,83 @@
+/*
+ * 主题：暗色为默认，[data-theme="light"] 覆盖成亮色。
+ * theme=system 时由 app.js 判断 prefers-color-scheme 后写到 data-theme 上。
+ *
+ * 不透明度：body 背景用 rgba(--bg-rgb, --ui-alpha)，--ui-alpha 由设置里的
+ * 不透明度决定（100% = 完全不透明，观感与以前一致）；窗口本身在
+ * tauri.conf.json 里开了 transparent，所以调低时能真的透出桌面。
+ */
 :root {
   color-scheme: dark;
-  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-  background: #141922;
-  color: #e7ebf2;
+  --bg-rgb: 20, 25, 34;
+  --panel: #1b222e;
+  --border: #2c3544;
+  --border-strong: #364153;
+  --text: #e7ebf2;
+  --text-dim: #a5b0c2;
+  --text-faint: #97a3b6;
+  --text-fainter: #6f7d92;
+  --input-bg: #101620;
+  --btn: #2f7fe0;
+  --btn-hover: #3d8dee;
+  --btn-secondary: #333d4d;
+  --btn-secondary-hover: #3f4b5e;
+  --btn-text: #ffffff;
+  --btn-secondary-text: #e7ebf2;
+  /* 选中系统的那一抹绿（勾 + 边框 + 底色） */
+  --ok: #46c46e;
+  --ok-border: #3aa95f;
+  --ok-bg: #14261a;
+  --warn: #f0b073;
+  --link: #4f9bff;
+  --link-hover: #7cb6ff;
+  --port-border: #6b3a1f;
+  --port-bg: #2a1b13;
+  --port-strong: #f0a98a;
+  --port-text: #d8b18a;
+  --pending-border: #6b4a1f;
+  --pending-bg: #2a2113;
+  --pending-text: #d8b98a;
+  --danger: #b4442f;
+  --danger-text: #fff3ee;
+  --font:
+    "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC",
+    "Source Han Sans SC", "WenQuanYi Micro Hei", system-ui, sans-serif;
+  font-family: var(--font);
+  color: var(--text);
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+  --bg-rgb: 244, 246, 250;
+  --panel: #ffffff;
+  --border: #d6dbe4;
+  --border-strong: #c2c9d6;
+  --text: #1b2129;
+  --text-dim: #55606f;
+  --text-faint: #6b7686;
+  --text-fainter: #8b95a3;
+  --input-bg: #ffffff;
+  --btn: #2f7fe0;
+  --btn-hover: #256fd0;
+  --btn-secondary: #e7eaf0;
+  --btn-secondary-hover: #d8dde6;
+  --btn-text: #ffffff;
+  --btn-secondary-text: #2a3340;
+  --ok: #1f9d4d;
+  --ok-border: #2aa85a;
+  --ok-bg: #eaf7ee;
+  --warn: #b4551c;
+  --link: #1a6fd4;
+  --link-hover: #0d5cbb;
+  --port-border: #e2b48a;
+  --port-bg: #fdf4ea;
+  --port-strong: #a85a15;
+  --port-text: #7a4a1c;
+  --pending-border: #e6cf94;
+  --pending-bg: #fdf8e8;
+  --pending-text: #7a5a1c;
+  --danger: #c74a33;
+  --danger-text: #ffffff;
 }
 
 * {
@@ -12,6 +87,8 @@
 body {
   margin: 0;
   min-width: 360px;
+  background: rgba(var(--bg-rgb), var(--ui-alpha, 1));
+  color: var(--text);
 }
 
 main {
@@ -27,37 +104,76 @@ h1 {
 
 #status {
   margin: 0;
-  color: #a5b0c2;
+  color: var(--text-dim);
   font-size: 14px;
 }
 
+/* ---------- 下次启动：醒目大字（问题 7） ---------- */
+.next-boot {
+  display: grid;
+  gap: 2px;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--ok);
+  border-radius: 10px;
+  background: var(--panel);
+}
+
+.next-boot small {
+  color: var(--text-dim);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+}
+
+.next-boot strong {
+  color: var(--ok);
+  font-size: 24px;
+  line-height: 1.2;
+}
+
+.next-boot.unknown strong {
+  color: var(--text-faint);
+}
+
+/* ---------- 系统列表：勾 / 名称 / 按钮 三列，列宽固定所以天然左对齐 ---------- */
 #systems {
   display: grid;
   gap: 10px;
 }
 
 .system-card {
-  display: flex;
+  display: grid;
+  grid-template-columns: 26px 1fr auto;
   align-items: center;
-  justify-content: space-between;
+  gap: 10px;
   padding: 14px 16px;
-  border: 1px solid #2c3544;
+  border: 1px solid var(--border);
   border-radius: 10px;
-  background: #1b222e;
+  background: var(--panel);
 }
 
 .system-card.active {
-  border-color: #61a5f2;
-  background: #182637;
+  border-color: var(--ok-border);
+  background: var(--ok-bg);
 }
 
 .system-card.unavailable {
   opacity: 0.45;
 }
 
+/* 勾占独立一列：选中就显示绿勾、没选中就空着，其他列不会因此错位 */
+.system-check {
+  color: var(--ok);
+  font-size: 18px;
+  font-weight: 700;
+  text-align: center;
+}
+
 .system-name {
   display: grid;
   gap: 3px;
+  justify-items: start;
+  text-align: left;
 }
 
 .system-name strong {
@@ -65,21 +181,22 @@ h1 {
 }
 
 .system-name small {
-  color: #97a3b6;
+  color: var(--text-faint);
 }
 
 button {
   border: 0;
   border-radius: 7px;
   padding: 9px 13px;
-  background: #2f7fe0;
-  color: white;
+  background: var(--btn);
+  color: var(--btn-text);
   font-size: 13px;
+  font-family: inherit;
   cursor: pointer;
 }
 
 button:hover:not(:disabled) {
-  background: #3d8dee;
+  background: var(--btn-hover);
 }
 
 button:disabled {
@@ -88,37 +205,39 @@ button:disabled {
 }
 
 button.secondary {
-  background: #333d4d;
+  background: var(--btn-secondary);
+  color: var(--btn-secondary-text);
 }
 
 button.secondary:hover:not(:disabled) {
-  background: #3f4b5e;
+  background: var(--btn-secondary-hover);
 }
 
 .directory {
   display: grid;
   gap: 8px;
   padding-top: 4px;
-  border-top: 1px solid #2c3544;
+  border-top: 1px solid var(--border);
 }
 
 label {
   font-size: 13px;
-  color: #a5b0c2;
+  color: var(--text-dim);
 }
 
 input {
-  border: 1px solid #364153;
+  border: 1px solid var(--border-strong);
   border-radius: 7px;
   padding: 10px 12px;
-  background: #101620;
-  color: #e7ebf2;
-  font: inherit;
+  background: var(--input-bg);
+  color: var(--text);
+  font-family: inherit;
   font-size: 13px;
 }
 
 .actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
 }
@@ -134,7 +253,7 @@ input {
 #message {
   min-height: 20px;
   margin: 0;
-  color: #f0b073;
+  color: var(--warn);
   font-size: 13px;
   white-space: pre-wrap;
 }
@@ -143,7 +262,7 @@ input {
   display: grid;
   gap: 12px;
   padding-top: 16px;
-  border-top: 1px solid #2c3544;
+  border-top: 1px solid var(--border);
 }
 
 .settings h2 {
@@ -158,6 +277,13 @@ input {
   gap: 12px;
 }
 
+/* token 那一行内容多：标题在上、两排控件在下的竖排 */
+.setting-block {
+  display: grid;
+  justify-items: stretch;
+  gap: 8px;
+}
+
 label.setting {
   cursor: pointer;
 }
@@ -168,12 +294,12 @@ label.setting {
 }
 
 .setting-text strong {
-  color: #e7ebf2;
+  color: var(--text);
   font-size: 14px;
 }
 
 .setting-text small {
-  color: #97a3b6;
+  color: var(--text-faint);
   font-size: 12px;
 }
 
@@ -182,16 +308,16 @@ label.setting {
   width: 17px;
   height: 17px;
   padding: 0;
-  accent-color: #2f7fe0;
+  accent-color: var(--btn);
 }
 
 select {
-  border: 1px solid #364153;
+  border: 1px solid var(--border-strong);
   border-radius: 7px;
   padding: 8px 10px;
-  background: #101620;
-  color: #e7ebf2;
-  font: inherit;
+  background: var(--input-bg);
+  color: var(--text);
+  font-family: inherit;
   font-size: 13px;
 }
 
@@ -202,12 +328,12 @@ select {
 #settings-message {
   min-height: 16px;
   margin: 0;
-  color: #97a3b6;
+  color: var(--text-faint);
   font-size: 12px;
 }
 
 .setting-state {
-  color: #6f7d92;
+  color: var(--text-fainter);
 }
 
 .link {
@@ -215,18 +341,20 @@ select {
   padding: 0;
   border: none;
   background: none;
-  color: #4f9bff;
+  color: var(--link);
   font-size: 12px;
   text-decoration: underline;
 }
 
 .link:hover:not(:disabled) {
   background: none;
-  color: #7cb6ff;
+  color: var(--link-hover);
 }
 
 .hidden {
-  display: none;
+  /* !important：.pending / .port-occupant 也是 display:grid（同优先级），
+     它们写在后面就会把这条覆盖掉，导致该藏的卡片一直显示 */
+  display: none !important;
 }
 
 .remote-inline {
@@ -240,18 +368,18 @@ select {
   display: grid;
   gap: 6px;
   padding: 10px 12px;
-  border: 1px solid #6b3a1f;
+  border: 1px solid var(--port-border);
   border-radius: 10px;
-  background: #2a1b13;
+  background: var(--port-bg);
 }
 
 .port-occupant strong {
   font-size: 13px;
-  color: #f0a98a;
+  color: var(--port-strong);
 }
 
 .port-occupant small {
-  color: #d8b18a;
+  color: var(--port-text);
   font-size: 12px;
 }
 
@@ -261,8 +389,8 @@ select {
 }
 
 button.danger {
-  background: #b4442f;
-  color: #fff3ee;
+  background: var(--danger);
+  color: var(--danger-text);
 }
 
 button.danger:hover:not(:disabled) {
@@ -270,7 +398,7 @@ button.danger:hover:not(:disabled) {
 }
 
 .remote-inline input[type="text"] {
-  width: 96px;
+  width: 116px;
   padding: 7px 9px;
 }
 
@@ -278,20 +406,38 @@ button.danger:hover:not(:disabled) {
   width: 17px;
   height: 17px;
   padding: 0;
-  accent-color: #2f7fe0;
+  accent-color: var(--btn);
+}
+
+.remote-inline input[type="range"] {
+  width: 140px;
+  padding: 0;
+  border: 0;
+  background: none;
+  accent-color: var(--btn);
 }
 
 #http-bind {
   width: 116px;
 }
 
+#sound-file-path {
+  width: 200px;
+}
+
+/* token 自定义输入框宽一点，免得看不到自己填了什么 */
+#token-input {
+  width: 220px;
+  font-family: ui-monospace, "Cascadia Mono", "JetBrains Mono", monospace;
+}
+
 .pending {
   display: grid;
   gap: 8px;
   padding: 12px 14px;
-  border: 1px solid #6b4a1f;
+  border: 1px solid var(--pending-border);
   border-radius: 10px;
-  background: #2a2113;
+  background: var(--pending-bg);
 }
 
 .pending strong {
@@ -299,7 +445,7 @@ button.danger:hover:not(:disabled) {
 }
 
 .pending small {
-  color: #d8b98a;
+  color: var(--pending-text);
   font-size: 12px;
 }
 
@@ -312,10 +458,10 @@ button.danger:hover:not(:disabled) {
 .remote-hint pre {
   margin: 0;
   padding: 10px 12px;
-  border: 1px solid #2c3544;
+  border: 1px solid var(--border);
   border-radius: 8px;
-  background: #101620;
-  color: #a9b6c9;
+  background: var(--input-bg);
+  color: var(--text-dim);
   font-size: 11px;
   white-space: pre-wrap;
   word-break: break-all;
@@ -326,7 +472,7 @@ button.danger:hover:not(:disabled) {
   margin: 0;
   padding-left: 18px;
   overflow-y: auto;
-  color: #97a3b6;
+  color: var(--text-faint);
   font-size: 11px;
 }
 
@@ -334,9 +480,15 @@ button.danger:hover:not(:disabled) {
   margin-bottom: 4px;
 }
 
+#http-requests:empty::after {
+  content: "暂无远程请求";
+  color: var(--text-fainter);
+  font-size: 11px;
+}
+
 #remote-message {
   min-height: 16px;
   margin: 0;
-  color: #97a3b6;
+  color: var(--text-faint);
   font-size: 12px;
 }
