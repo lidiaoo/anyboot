@@ -55,6 +55,12 @@ const soundApplyElement = document.querySelector("#sound-apply");
 // 打开目录按钮
 const openConfigDirElement = document.querySelector("#open-config-dir");
 const openVarsDirElement = document.querySelector("#open-vars-dir");
+// 端口占用提示 + 两个按钮
+const portOccupantElement = document.querySelector("#port-occupant");
+const portOccupantMessageElement = document.querySelector("#port-occupant-message");
+const portOccupantHintElement = document.querySelector("#port-occupant-hint");
+const retryHttpElement = document.querySelector("#retry-http");
+const killOccupantElement = document.querySelector("#kill-occupant");
 
 const autostartStateLabels = new Map([
   ["enabled", "已加入系统登录项"],
@@ -193,6 +199,23 @@ function renderRemote(http, settings) {
   }
   if (document.activeElement !== cliChannelDelayElement) {
     cliChannelDelayElement.value = String(settings.channels.cli.delaySeconds);
+  }
+
+  // 端口被占用：告诉用户是谁占的、能不能一键结束
+  const occupant = http.portOccupant;
+  if (occupant) {
+    portOccupantElement.classList.remove("hidden");
+    portOccupantMessageElement.textContent = occupant.message;
+    portOccupantHintElement.textContent = occupant.killHint
+      ? `等价命令：${occupant.killHint}`
+      : "";
+    // 按钮上写明要结束谁，避免误点；当前进程自己不可能占（我们自己没绑上才报错）
+    killOccupantElement.textContent = occupant.pid
+      ? `结束 PID ${occupant.pid}`
+      : "结束占用进程";
+    killOccupantElement.disabled = false;
+  } else {
+    portOccupantElement.classList.add("hidden");
   }
 
   // 渲染提示音设置
@@ -382,6 +405,36 @@ soundApplyElement.addEventListener("click", () => {
   const path = soundFilePathElement.value.trim();
   call("set_play_sound", { enabled });
   call("set_sound_file_path", { path: path || "" });
+});
+
+// 重试监听（端口刚被释放、或用户手动清掉了占用者）
+retryHttpElement.addEventListener("click", async () => {
+  remoteMessageElement.textContent = "";
+  try {
+    remoteMessageElement.textContent = `重试成功：${await invoke("retry_http")}`;
+  } catch (error) {
+    remoteMessageElement.textContent = `重试失败：${error}`;
+  }
+  try {
+    applySnapshot(await invoke("get_ui_state"), { force: true });
+  } catch (error) {
+    void error;
+  }
+});
+
+// 结束占用进程：显式动作，按钮上已写明 PID
+killOccupantElement.addEventListener("click", async () => {
+  remoteMessageElement.textContent = "";
+  try {
+    remoteMessageElement.textContent = await invoke("kill_port_occupant");
+  } catch (error) {
+    remoteMessageElement.textContent = `结束失败：${error}`;
+  }
+  try {
+    applySnapshot(await invoke("get_ui_state"), { force: true });
+  } catch (error) {
+    void error;
+  }
 });
 
 // 打开配置目录

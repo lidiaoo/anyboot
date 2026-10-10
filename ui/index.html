@@ -91,6 +91,15 @@
             <button class="secondary" id="http-apply" type="button">应用</button>
           </span>
         </div>
+        <div class="port-occupant hidden" id="port-occupant">
+          <strong>端口被占用</strong>
+          <small id="port-occupant-message"></small>
+          <small class="setting-state" id="port-occupant-hint"></small>
+          <div class="actions">
+            <button class="secondary" id="retry-http" type="button">重试监听</button>
+            <button class="danger" id="kill-occupant" type="button">结束占用进程</button>
+          </div>
+        </div>
         <div class="setting">
           <span class="setting-text">
             <strong>访问令牌（token）</strong>

@@ -449,6 +449,8 @@ fn notify_due(state: Option<&NotifyState>, now: Instant) -> NotifyDue {
 struct HttpRuntime {
     server: Option<http::RunningServer>,
     last_error: Option<String>,
+    /// 启动失败时诊断出的端口占用者（只读探测，绝不自动杀）
+    occupant: Option<PortOccupant>,
     requests: Vec<RequestLogEntry>,
     notify: Option<NotifyState>,
 }
@@ -463,6 +465,8 @@ struct HttpView {
     listening: bool,
     addr: Option<String>,
     last_error: Option<String>,
+    /// 端口被谁占了（启动失败才有）
+    port_occupant: Option<PortOccupantView>,
     token_set: bool,
     /// 打码后的 token（只给前 4/后 4 位，明文要用 reveal 命令专门取）
     token_hint: String,
@@ -1710,6 +1714,7 @@ fn ui_state(app: &AppHandle) -> UiState {
             listening,
             addr,
             last_error: runtime.last_error.clone(),
+            port_occupant: runtime.occupant.as_ref().map(PortOccupant::to_view),
             token_set: !settings.settings.http_token.trim().is_empty(),
             token_hint: token_hint(&settings.settings.http_token),
             requests: runtime.requests.clone(),
@@ -1827,6 +1832,197 @@ fn http_lock() -> std::sync::MutexGuard<'static, HttpRuntime> {
         .expect("http mutex poisoned")
 }
 
+/// 进快照的端口占用视图（文案在后端算好，前端直接显示）
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PortOccupantView {
+    pid: u32,
+    name: String,
+    /// 占用者就是本程序（当前进程，理论上不会出现）
+    is_self: bool,
+    /// 占用者是本应用的另一个实例（按进程名判断；升级后旧实例还占着端口的场景）
+    same_app: bool,
+    /// 给人看的一句话
+    message: String,
+    /// 可直接复制的结束命令
+    kill_hint: Option<String>,
+}
+
+/// 端口占用诊断结果
+#[derive(Clone, Debug)]
+struct PortOccupant {
+    pid: u32,
+    /// 进程名（如 explorer.exe、python.exe），查不到则为空
+    name: String,
+    /// 占用者就是当前进程（理论上不会出现：我们自己没绑上才报的错）
+    is_self: bool,
+    /// 占用者是本程序的另一个实例（按进程名匹配，例如升级后旧版还驻留着）
+    same_app: bool,
+}
+
+impl PortOccupant {
+    fn to_view(&self) -> PortOccupantView {
+        PortOccupantView {
+            pid: self.pid,
+            name: self.name.clone(),
+            is_self: self.is_self,
+            same_app: self.same_app,
+            message: self.display(),
+            kill_hint: self.kill_hint(),
+        }
+    }
+
+    /// 界面文案：是本程序 vs 外部进程，分别给不同提示
+    fn display(&self) -> String {
+        if self.same_app {
+            format!(
+                "端口被本应用的另一个实例占用：PID {}（{}）——可以点「结束占用进程」把它退掉（旧版本驻留时常见），或先手动退出那个实例",
+                self.pid,
+                if self.name.is_empty() { "同程序" } else { &self.name }
+            )
+        } else if self.name.is_empty() {
+            format!(
+                "端口被 PID {} 占用（拿不到进程名），请释放它或改用其他端口",
+                self.pid
+            )
+        } else {
+            format!(
+                "端口被 PID {}（{}）占用，请释放它或改用其他端口",
+                self.pid, self.name
+            )
+        }
+    }
+
+    /// 给用户复制即用的结束命令（Windows 优先 taskkill，非 Windows 给通用提示）
+    fn kill_hint(&self) -> Option<String> {
+        if self.pid == 0 {
+            return None;
+        }
+        if cfg!(target_os = "windows") {
+            Some(format!("taskkill /PID {} /F", self.pid))
+        } else {
+            Some(format!("kill {}", self.pid))
+        }
+    }
+}
+
+/// 纯函数：从 netstat -ano 的输出一行行文本里找指定端口的 LISTENING 条目，
+/// 返回占用者的 PID（用于后续查进程名）。
+/// 抽成纯函数是为了可单测（不真的起 netstat）。
+fn parse_netstat_listening_port<'a>(
+    lines: impl Iterator<Item = &'a str>,
+    port: u16,
+) -> Option<u32> {
+    let marker = format!(":{port} ");
+    for line in lines {
+        let trimmed = line.trim();
+        // netstat 输出形如: TCP 0.0.0.0:12300 0.0.0.0:0 LISTENING 29220
+        let is_tcp_listen = trimmed.starts_with("TCP")
+            && trimmed.contains("LISTENING")
+            && trimmed.contains(&marker);
+        if is_tcp_listen {
+            // PID 是行末的最后一个数字 token
+            let pid = trimmed
+                .split_whitespace()
+                .last()
+                .and_then(|value| value.parse::<u32>().ok());
+            if let Some(pid) = pid {
+                return Some(pid);
+            }
+        }
+    }
+    None
+}
+
+/// 跨平台：按 PID 查进程名（Windows 用 wmic，非 Windows 用 ps）。查不到返回空串。
+fn process_name_for_pid(pid: u32) -> String {
+    let output = if cfg!(target_os = "windows") {
+        std::process::Command::new("wmic")
+            .args([
+                "process",
+                "where",
+                &format!("ProcessId={pid}"),
+                "get",
+                "Name",
+                "/value",
+            ])
+            .output()
+            .ok()
+    } else {
+        std::process::Command::new("ps")
+            .args(["-p", &pid.to_string(), "-o", "comm="])
+            .output()
+            .ok()
+    };
+    let Some(output) = output else {
+        return String::new();
+    };
+    let text = String::from_utf8_lossy(&output.stdout).to_string();
+    if cfg!(target_os = "windows") {
+        // wmic /value 输出形如（每行一个 key=value）：
+        //   Name=explorer.exe
+        text.lines()
+            .find_map(|line| line.strip_prefix("Name="))
+            .map(str::trim)
+            .unwrap_or_default()
+            .to_string()
+    } else {
+        // ps comm= 直接输出进程名
+        text.trim().to_string()
+    }
+}
+
+/// 诊断端口占用者（只读）：起 netstat -ano 拿 PID，再查进程名，判断是否本程序。
+fn diagnose_port_occupant(port: u16) -> Option<PortOccupant> {
+    let output = std::process::Command::new("netstat")
+        .args(["-ano"])
+        .output()
+        .ok()?;
+    let text = String::from_utf8_lossy(&output.stdout).to_string();
+    let pid = parse_netstat_listening_port(text.lines(), port)?;
+    let name = process_name_for_pid(pid);
+    let is_self = pid == std::process::id();
+    // 同一个程序的另一个实例：进程名和当前 exe 名一致（升级后旧版还驻留的场景）
+    let current_name = std::env::current_exe()
+        .ok()
+        .and_then(|path| {
+            path.file_name()
+                .map(|name| name.to_string_lossy().to_string())
+        })
+        .unwrap_or_default();
+    let same_app = is_self
+        || (!name.is_empty()
+            && !current_name.is_empty()
+            && name.eq_ignore_ascii_case(&current_name));
+    Some(PortOccupant {
+        pid,
+        name,
+        is_self,
+        same_app,
+    })
+}
+
+/// 结束占用进程（仅当用户显式点「结束占用进程」按钮时调用）。
+/// 跨平台：Windows 用 taskkill /F，非 Windows 用 kill。
+fn kill_process(pid: u32) -> Result<(), String> {
+    let status = if cfg!(target_os = "windows") {
+        std::process::Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/F"])
+            .status()
+            .map_err(|error| format!("无法执行 taskkill：{error}"))?
+    } else {
+        std::process::Command::new("kill")
+            .args([&pid.to_string()])
+            .status()
+            .map_err(|error| format!("无法执行 kill：{error}"))?
+    };
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("结束 PID {pid} 失败（exit code {status}）"))
+    }
+}
+
 /// 首次运行/升级后把完整设置写回磁盘：默认值一眼可见，token 一定存在。
 ///
 /// 环境变量覆盖**不**写进文件（它们只是调试开关）。
@@ -1856,12 +2052,8 @@ fn ensure_settings_complete(app: &AppHandle) {
 /// 按当前设置（+ 环境变量覆盖）启动 / 停止 / 重启 HTTP 服务。
 fn apply_http_config(app: &AppHandle) {
     let settings = stored_settings(app);
-    let enabled = env_flag_from(
-        std::env::var("ANYBOOT_HTTP_ENABLED")
-            .ok()
-            .as_deref(),
-    )
-    .unwrap_or(settings.http_enabled);
+    let enabled = env_flag_from(std::env::var("ANYBOOT_HTTP_ENABLED").ok().as_deref())
+        .unwrap_or(settings.http_enabled);
     let bind = std::env::var("ANYBOOT_HTTP_BIND")
         .ok()
         .map(|value| value.trim().to_string())
@@ -1883,6 +2075,7 @@ fn apply_http_config(app: &AppHandle) {
     }
 
     let mut last_error = None;
+    let mut occupant = None;
     if !enabled {
         trace(app, "http", "服务已关闭（设置或环境变量）");
     } else if token.is_empty() {
@@ -1900,11 +2093,55 @@ fn apply_http_config(app: &AppHandle) {
             }
             Err(error) => {
                 trace(app, "http", &format!("启动失败: {error}"));
+                // 只读诊断：告诉用户端口被谁占了（不自动杀，杀要用户点按钮）
+                occupant = diagnose_port_occupant(port);
+                if let Some(found) = occupant.as_ref() {
+                    trace(
+                        app,
+                        "http",
+                        &format!(
+                            "端口占用者 pid={} name={} is_self={} same_app={}",
+                            found.pid,
+                            if found.name.is_empty() {
+                                "(未知)"
+                            } else {
+                                &found.name
+                            },
+                            found.is_self,
+                            found.same_app
+                        ),
+                    );
+                }
                 last_error = Some(error);
             }
         }
     }
-    http_lock().last_error = last_error;
+    {
+        let mut runtime = http_lock();
+        runtime.last_error = last_error;
+        runtime.occupant = occupant;
+    }
+    // 端口刚被释放时往往第一次绑不上（TIME_WAIT / 上一实例正在退场），
+    // 只要这次是「想开着」，就再试一次——界面上勾上就该能起来。
+    let diagnosised = http_lock().occupant.is_some();
+    if enabled && diagnosised {
+        match http::start(
+            app.clone(),
+            http::ServerConfig {
+                bind: bind.clone(),
+                port,
+            },
+        ) {
+            Ok(server) => {
+                trace(app, "http", &format!("重试成功，已监听 {}", server.addr));
+                let mut runtime = http_lock();
+                runtime.server = Some(server);
+                runtime.last_error = None;
+                runtime.occupant = None;
+            }
+            Err(error) => trace(app, "http", &format!("重试仍失败: {error}")),
+        }
+    }
     publish_ui(app);
 }
 
@@ -2139,10 +2376,7 @@ pub(crate) fn handle_remote_request(app: &AppHandle, request: &RemoteRequest) ->
 
     match request.path.as_str() {
         "/health" => {
-            return RemoteReply::ok(
-                200,
-                serde_json::json!({ "ok": true, "service": "anyboot" }),
-            );
+            return RemoteReply::ok(200, serde_json::json!({ "ok": true, "service": "anyboot" }));
         }
         "/api/status" => return RemoteReply::ok(200, remote_status_json(app)),
         "/api/requests" => return RemoteReply::ok(200, remote_requests_json()),
@@ -3309,9 +3543,7 @@ fn linux_autostart_set(app: &AppHandle, enabled: bool) -> Result<AutostartState,
     let path = linux_autostart_file(app)?;
     if path.exists() {
         let stale = fs::read_to_string(&path)
-            .map(|contents| {
-                !contents.contains("AnyBoot") && !contents.contains("anyboot")
-            })
+            .map(|contents| !contents.contains("AnyBoot") && !contents.contains("anyboot"))
             .unwrap_or(false);
         if stale {
             let _ = fs::remove_file(&path);
@@ -3899,12 +4131,7 @@ struct PowerReport {
 /// 本机验证电源动作不能真的把机器关掉，这个开关让「三端命令表 + 置灰 + 回执」
 /// 全部可以反复自动验证。
 fn power_dry_run() -> bool {
-    env_flag_from(
-        std::env::var("ANYBOOT_POWER_DRY_RUN")
-            .ok()
-            .as_deref(),
-    )
-    .unwrap_or(false)
+    env_flag_from(std::env::var("ANYBOOT_POWER_DRY_RUN").ok().as_deref()).unwrap_or(false)
 }
 
 /// 只渲染「将会执行」的命令清单（dry-run 与日志共用，不执行任何东西）。
@@ -4598,8 +4825,7 @@ fn open_config_dir(app: AppHandle) -> Result<String, String> {
         .app_config_dir()
         .map_err(|error| format!("无法定位配置目录：{error}"))?;
     if !dir.exists() {
-        std::fs::create_dir_all(&dir)
-            .map_err(|error| format!("创建配置目录失败：{error}"))?;
+        std::fs::create_dir_all(&dir).map_err(|error| format!("创建配置目录失败：{error}"))?;
     }
     open_directory_in_explorer(&dir)?;
     Ok(dir.display().to_string())
@@ -4619,6 +4845,83 @@ fn open_vars_dir(app: AppHandle) -> Result<String, String> {
     Ok(vars_dir.display().to_string())
 }
 
+/// 重试监听（用户点「重试监听」按钮，或端口刚被释放后想再试一次）。
+#[tauri::command]
+fn retry_http(app: AppHandle) -> Result<String, String> {
+    trace(&app, "command", "retry_http（主窗口）");
+    apply_http_config(&app);
+    let runtime = http_lock();
+    if runtime.server.is_some() {
+        Ok(format!(
+            "已监听 {}",
+            runtime
+                .server
+                .as_ref()
+                .map(|s| s.addr.clone())
+                .unwrap_or_default()
+        ))
+    } else {
+        Err(runtime
+            .last_error
+            .clone()
+            .unwrap_or_else(|| "仍然没能监听，请检查端口与 token".to_string()))
+    }
+}
+
+/// 结束占用端口的进程（**只有用户显式点按钮才会走到这里**）。
+///
+/// 安全约定：不自动调用、不在勾选流程里调用；占用者是当前进程时直接拒绝。
+#[tauri::command]
+fn kill_port_occupant(app: AppHandle) -> Result<String, String> {
+    trace(&app, "command", "kill_port_occupant（用户显式确认）");
+    let occupant = http_lock()
+        .occupant
+        .clone()
+        .ok_or_else(|| "当前没有检测到端口占用".to_string())?;
+
+    if occupant.is_self {
+        return Err(format!(
+            "占着端口的就是本应用当前进程（PID {}），不能结束自己；请改用其他端口",
+            occupant.pid
+        ));
+    }
+
+    let name = if occupant.name.is_empty() {
+        "未知".to_string()
+    } else {
+        occupant.name.clone()
+    };
+    trace(
+        &app,
+        "http",
+        &format!(
+            "用户确认结束占用进程 pid={} name={name} same_app={}",
+            occupant.pid, occupant.same_app
+        ),
+    );
+
+    kill_process(occupant.pid)?;
+    record_action(
+        &app,
+        "结束占用进程",
+        true,
+        &format!("已结束 PID {}（{name}）", occupant.pid),
+    );
+    // 杀完立刻重试监听：用户点一下就该好
+    apply_http_config(&app);
+    let listening = http_lock()
+        .server
+        .as_ref()
+        .map(|server| server.addr.clone());
+    Ok(match listening {
+        Some(addr) => format!("已结束 PID {}（{name}），服务已监听 {addr}", occupant.pid),
+        None => format!(
+            "已结束 PID {}（{name}），但端口仍未监听成功（可能有别的进程又占上了）",
+            occupant.pid
+        ),
+    })
+}
+
 /// 跨平台：用系统文件管理器打开目录
 fn open_directory_in_explorer(dir: &std::path::Path) -> Result<(), String> {
     let mut command = std::process::Command::new(if cfg!(target_os = "windows") {
@@ -4629,7 +4932,9 @@ fn open_directory_in_explorer(dir: &std::path::Path) -> Result<(), String> {
         "xdg-open"
     });
     command.arg(dir);
-    let status = command.status().map_err(|error| format!("打开文件管理器失败：{error}"))?;
+    let status = command
+        .status()
+        .map_err(|error| format!("打开文件管理器失败：{error}"))?;
     if !status.success() {
         return Err(format!("打开文件管理器失败（exit code {status}）"));
     }
@@ -4822,6 +5127,8 @@ pub fn run() {
             set_sound_file_path,
             open_config_dir,
             open_vars_dir,
+            retry_http,
+            kill_port_occupant,
             confirm_pending,
             cancel_pending
         ])
@@ -5809,6 +6116,84 @@ mod core_tests {
         };
         assert!(pending.seconds_left() <= 5);
         assert!(pending.seconds_left() >= 4);
+    }
+
+    #[test]
+    fn netstat_parsing_finds_the_listening_pid() {
+        // 真实 netstat -ano 的形状（含中文表头、UDP 行、TIME_WAIT 行）
+        let sample = [
+            "活动连接",
+            "  协议  本地地址          外部地址        状态           PID",
+            "  TCP    0.0.0.0:12300          0.0.0.0:0              LISTENING       29220",
+            "  TCP    0.0.0.0:12399          0.0.0.0:0              LISTENING       39360",
+            "  UDP    0.0.0.0:5353           *:*                                    1234",
+            "  TCP    127.0.0.1:12300        127.0.0.1:54321        TIME_WAIT       0",
+            "  TCP    127.0.0.1:54321        127.0.0.1:12300        ESTABLISHED     777",
+        ];
+        let find = |port| parse_netstat_listening_port(sample.iter().copied(), port);
+
+        assert_eq!(find(12399), Some(39360));
+        // 12300 既有 LISTENING 行也在别人的「外部地址」列出现：必须拿 LISTENING 那行
+        assert_eq!(find(12300), Some(29220));
+        // UDP 不算占用 TCP 端口
+        assert_eq!(find(5353), None);
+        // 端口号必须整体匹配：1230 不能被 :12300 骗到
+        assert_eq!(find(1230), None);
+
+        // IPv6 同端口的 LISTENING 行同样算占用
+        let ipv6 = ["  TCP    [::]:12300             [::]:0                 LISTENING       29220"];
+        assert_eq!(
+            parse_netstat_listening_port(ipv6.iter().copied(), 12300),
+            Some(29220)
+        );
+    }
+
+    #[test]
+    fn port_occupant_messages_distinguish_self_and_foreign_processes() {
+        let foreign = PortOccupant {
+            pid: 29220,
+            name: "explorer.exe".to_string(),
+            is_self: false,
+            same_app: false,
+        };
+        let message = foreign.display();
+        assert!(message.contains("29220") && message.contains("explorer.exe"));
+        assert!(message.contains("改用其他端口"));
+        assert_eq!(
+            foreign.kill_hint().as_deref(),
+            Some(if cfg!(target_os = "windows") {
+                "taskkill /PID 29220 /F"
+            } else {
+                "kill 29220"
+            })
+        );
+
+        // 本程序的另一个实例（升级后旧版驻留的典型场景）：文案不同，且允许点按钮结束
+        let same_app = PortOccupant {
+            pid: 40048,
+            name: "anyboot.exe".to_string(),
+            is_self: false,
+            same_app: true,
+        };
+        let message = same_app.display();
+        assert!(message.contains("另一个实例") && message.contains("40048"));
+
+        // 拿不到进程名时也要有话说
+        let unknown = PortOccupant {
+            pid: 777,
+            name: String::new(),
+            is_self: false,
+            same_app: false,
+        };
+        assert!(unknown.display().contains("777"));
+        assert!(unknown.display().contains("拿不到进程名"));
+
+        // 视图转换把文案与命令一起带出去
+        let view = foreign.to_view();
+        assert_eq!(view.pid, 29220);
+        assert_eq!(view.name, "explorer.exe");
+        assert!(!view.same_app);
+        assert!(view.kill_hint.is_some());
     }
 
     #[test]
