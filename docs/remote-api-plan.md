@@ -204,7 +204,7 @@ fn run_power_action(action: PowerAction, allow_gui_auth: bool) -> Result<(), Str
 
 **在应用进程内起一个后台线程的 HTTP 服务**（共享 `AppHandle`，直接调用与 GUI 完全相同的核心函数），用 **`tiny_http 0.12`**（纯线程、无 async 运行时、依赖极小；已实测本机能解析到该 crate）。备选：手写 `std::net::TcpListener`（零依赖，但要自己处理报文边界/超时，安全面更大）——不推荐但可行。
 
-服务生命周期：设置变更/开关切换时 **stop → rebind → start**（旧监听用「置停止标志 + 自连接唤醒 accept + join」确定性地收掉）；端口被占用 → 报错并在主窗口提示，**不自动换端口**（避免远程地址漂移）。多实例：第二个实例绑定失败即提示，不影响主实例。
+服务生命周期：设置变更/开关切换时 **stop → rebind → start**。收旧监听分三步，缺一不可：置停止标志 + 自连接（叫醒 worker）→ join（最后一个 worker 退出时 `Arc<Server>` 归零，`tiny_http::Server::Drop` 在这里置 close）→ **补一次可达的自连接 + 轮询试绑到成功**（`stop()` 返回即保证端口已放开）。第三步是必需的：tiny_http 的 accept 线程异步退出，退出前一直握着监听 socket；而它 `Drop` 里的自连接用的是 `listening_addr`，绑 `0.0.0.0` 时在 Windows 上必然失败（10049），accept 线程等不到唤醒就永远不放端口——修掉之前，「改 token 重新监听」会一直报 `os error 10048` 且必须重启程序才能恢复。端口被占用 → 报错并在主窗口提示，**不自动换端口**（避免远程地址漂移）。多实例：第二个实例绑定失败即提示，不影响主实例。
 
 ### 4.3 端点（已定稿）
 

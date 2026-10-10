@@ -11,11 +11,13 @@
   --bg-rgb: 20, 25, 34;
   --panel: #1b222e;
   --border: #2c3544;
-  --border-strong: #364153;
-  --text: #e7ebf2;
-  --text-dim: #a5b0c2;
-  --text-faint: #97a3b6;
-  --text-fainter: #6f7d92;
+  --border-strong: #3d495c;
+  /* 字体灰阶整体提亮一档：调低窗口不透明度后，文字会落在被桌面透过来的背景上，
+     原来的 #a5b0c2 / #6f7d92 一淡就糊成一片，现在每一档都留足对比度。 */
+  --text: #f3f6fb;
+  --text-dim: #c4cddd;
+  --text-faint: #b2bed1;
+  --text-fainter: #98a5ba;
   --input-bg: #101620;
   --btn: #2f7fe0;
   --btn-hover: #3d8dee;
@@ -39,6 +41,8 @@
   --pending-text: #d8b98a;
   --danger: #b4442f;
   --danger-text: #fff3ee;
+  /* 直接落在半透明窗体上的文字（标题 / 状态 / 提示）用的描边 */
+  --text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
   --font:
     "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC",
     "Source Han Sans SC", "WenQuanYi Micro Hei", system-ui, sans-serif;
@@ -46,17 +50,24 @@
   color: var(--text);
 }
 
+/*
+ * 亮色主题。
+ *
+ * 这里的每个灰阶都比「看起来够淡」更暗一档：白底上小字（12–13px 的说明文案、
+ * 「最近请求」列表）如果用 #8b95a3 这类浅灰，对比度只有 2 出头，正文基本看不清。
+ * 现在四档的对比度依次约 19 / 12 / 10 / 8，既分层又能读。
+ */
 [data-theme="light"] {
   color-scheme: light;
   --bg-rgb: 244, 246, 250;
   --panel: #ffffff;
-  --border: #d6dbe4;
-  --border-strong: #c2c9d6;
-  --text: #1b2129;
-  --text-dim: #55606f;
-  --text-faint: #6b7686;
-  --text-fainter: #8b95a3;
-  --input-bg: #ffffff;
+  --border: #ccd3de;
+  --border-strong: #a7b2c3;
+  --text: #0c1017;
+  --text-dim: #2c3543;
+  --text-faint: #3b4553;
+  --text-fainter: #505b6b;
+  --input-bg: #fbfcfe;
   --btn: #2f7fe0;
   --btn-hover: #256fd0;
   --btn-secondary: #e7eaf0;
@@ -66,7 +77,7 @@
   --ok: #1f9d4d;
   --ok-border: #2aa85a;
   --ok-bg: #eaf7ee;
-  --warn: #b4551c;
+  --warn: #9c4614;
   --link: #1a6fd4;
   --link-hover: #0d5cbb;
   --port-border: #e2b48a;
@@ -78,6 +89,8 @@
   --pending-text: #7a5a1c;
   --danger: #c74a33;
   --danger-text: #ffffff;
+  /* 亮色下反着来：用一层浅描边托住深色文字 */
+  --text-shadow: 0 1px 2px rgba(255, 255, 255, 0.9);
 }
 
 * {
@@ -106,6 +119,16 @@ h1 {
   margin: 0;
   color: var(--text-dim);
   font-size: 14px;
+}
+
+/*
+ * 这三个元素**不在卡片里**（标题、状态、底部提示），直接落在半透明的窗体背景上。
+ * 给它们加一层主题色的描边，不透明度调到 50% 时文字也还能立住。
+ */
+h1,
+#status,
+#message {
+  text-shadow: var(--text-shadow);
 }
 
 /* ---------- 下次启动：醒目大字（问题 7） ---------- */
@@ -213,11 +236,18 @@ button.secondary:hover:not(:disabled) {
   background: var(--btn-secondary-hover);
 }
 
+/*
+ * 卡片化的分区换成了带底色的卡片：以前 .directory / .settings 只有一条上边框，
+ * 里面的小字直接落在**半透明的窗体背景**上 —— 不透明度一调低，字就压在桌面上，看不清。
+ * 现在正文全部落在不透明的 --panel 上，窗体再怎么透也不影响读字。
+ */
 .directory {
   display: grid;
   gap: 8px;
-  padding-top: 4px;
-  border-top: 1px solid var(--border);
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
 }
 
 label {
@@ -261,8 +291,10 @@ input {
 .settings {
   display: grid;
   gap: 12px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border);
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
 }
 
 .settings h2 {
@@ -455,25 +487,32 @@ button.danger:hover:not(:disabled) {
   gap: 6px;
 }
 
-.remote-hint pre {
+/*
+ * 「远程怎么调」的示例框和「最近请求」的列表框是上下挨着的两块，
+ * 之前一个是描边卡片、一个是裸列表，看着像来自两个软件 —— 现在统一质感：
+ * 同样的描边、圆角、底色、字色、字号。只有内边距不同（列表要给序号留位置）。
+ */
+.remote-hint pre,
+#http-requests {
   margin: 0;
-  padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--input-bg);
   color: var(--text-dim);
   font-size: 11px;
+}
+
+.remote-hint pre {
+  padding: 10px 12px;
   white-space: pre-wrap;
   word-break: break-all;
 }
 
 #http-requests {
   max-height: 150px;
-  margin: 0;
-  padding-left: 18px;
+  /* 左边多留一点给序号 */
+  padding: 10px 12px 10px 26px;
   overflow-y: auto;
-  color: var(--text-faint);
-  font-size: 11px;
 }
 
 #http-requests li {

@@ -200,7 +200,7 @@ function resolvedTheme(theme) {
 function applyAppearance(theme, percent) {
   document.documentElement.dataset.theme = resolvedTheme(theme);
   const value = Number(percent);
-  const clamped = Math.min(100, Math.max(50, Number.isFinite(value) ? value : 100));
+  const clamped = Math.min(100, Math.max(0, Number.isFinite(value) ? value : 100));
   const alpha = clamped / 100;
   document.documentElement.style.setProperty("--ui-alpha", String(alpha));
   opacityStateElement.textContent = `${clamped}%（拖动即时预览）`;
@@ -232,18 +232,38 @@ function renderSettings(view) {
   applyAppearance(theme, Number(opacityElement.value));
 }
 
+// 「远程怎么调」里的示例带着**明文 token**。快照里刻意只放打码版（后端契约：
+// 明文只能由 reveal_http_token 单独取），所以这里靠那些**由明文派生出来的字段**
+// （打码 token / 地址 / 端口 / 监听状态）判断该重新取一次示例了 ——
+// 保存或重新生成 token 之后，面板里的示例立刻跟着换，不会还留着一份过期命令。
+let httpHintKey = null;
+
+async function refreshHttpHint() {
+  try {
+    httpHintElement.textContent = await invoke("http_access_hint");
+  } catch (error) {
+    // 取不到就保留上一次的内容，别把面板清空
+    void error;
+  }
+}
+
+function refreshHttpHintIfChanged(http) {
+  const key = [http.tokenHint, http.bind, http.port, http.listening, http.addr || ""].join("|");
+  if (key === httpHintKey) {
+    return;
+  }
+  httpHintKey = key;
+  refreshHttpHint();
+}
+
 function renderRemote(http, settings) {
   httpEnabledElement.checked = Boolean(http.enabled);
   httpBindElement.value = http.bind || "";
   httpPortElement.value = String(http.port === undefined ? "" : http.port);
-  httpStateElement.textContent = http.listening
-    ? `正在监听 ${http.addr}`
-    : http.lastError
-      ? `未监听：${http.lastError}`
-      : http.tokenSet
-        ? "未监听（服务已关闭）"
-        : "未监听（token 为空，服务不会启动）";
+  // 监听状态由后端给（托盘菜单读的是同一句话），前端不再自己拼
+  httpStateElement.textContent = http.stateText || "";
   tokenHintElement.textContent = `当前令牌：${http.tokenHint}`;
+  refreshHttpHintIfChanged(http);
 
   notifyEnabledElement.checked = Boolean(settings.notifyEnabled);
   httpChannelNotifyElement.checked = Boolean(settings.channels.http.notify);
@@ -265,7 +285,9 @@ function renderRemote(http, settings) {
     portOccupantHintElement.textContent = occupant.killHint
       ? `等价命令：${occupant.killHint}`
       : "";
-    // 按钮上写明要结束谁，避免误点；当前进程自己不可能占（我们自己没绑上才报错）
+    // 占端口的是本程序自己时后端会拒绝「结束占用进程」，按钮直接藏掉 ——
+    // 摆一个点了必然报错的按钮，只会让人以为程序坏了。
+    killOccupantElement.classList.toggle("hidden", Boolean(occupant.isSelf));
     killOccupantElement.textContent = occupant.pid
       ? `结束 PID ${occupant.pid}`
       : "结束占用进程";
@@ -352,6 +374,17 @@ function applySnapshot(state, { force = false } = {}) {
   lastRevision = Math.max(lastRevision, state.revision);
   currentState = state;
   render(state);
+}
+
+// 命令跑完主动拉一次快照：事件推送偶尔会落在命令返回之后，
+// 主动拉一次能保证「状态文案 / 监听地址」这些刚变的东西立刻显示出来。
+async function refreshSnapshotQuietly() {
+  try {
+    applySnapshot(await invoke("get_ui_state"), { force: true });
+  } catch (error) {
+    // 拉不到就等事件推送，别把界面清空
+    void error;
+  }
 }
 
 // 所有命令调用都走这里：失败时除了显示原因，还要把界面拉回系统真实状态
@@ -545,32 +578,31 @@ tokenRegenerateElement.addEventListener("click", async () => {
   try {
     const token = await invoke("regenerate_http_token");
     tokenHintElement.textContent = `新令牌：${token}`;
+    // 不写「已重启」这种漂亮话：重启成没成、绑在哪个地址上由后端如实报（#message 里那句）
     remoteMessageElement.textContent = "已重新生成令牌，旧 token 立即失效";
   } catch (error) {
     remoteMessageElement.textContent = String(error);
   }
+  await refreshSnapshotQuietly();
 });
 
-// 自定义 token：保存后后端会按新 token 重启监听，旧 token 立即失效
+// 自定义 token：保存后后端会**关掉旧监听、按新 token 重新绑定端口**，旧 token 立即失效。
 tokenSaveElement.addEventListener("click", async () => {
   const token = tokenInputElement.value.trim();
   tokenSaveElement.disabled = true;
   try {
     await invoke("set_http_token", { token });
     tokenInputElement.value = "";
+    // 同样不写死「已重启」：真实结果由后端写进状态文案（下面的 #message）
     remoteMessageElement.textContent = token
-      ? "令牌已更新，监听已按新 token 重启"
+      ? "令牌已更新，正在按新 token 重启监听"
       : "令牌已清空：token 为空时内置 HTTP 服务不会启动";
   } catch (error) {
     remoteMessageElement.textContent = `令牌保存失败：${error}`;
   } finally {
     tokenSaveElement.disabled = false;
   }
-  try {
-    applySnapshot(await invoke("get_ui_state"), { force: true });
-  } catch (error) {
-    void error;
-  }
+  await refreshSnapshotQuietly();
 });
 
 httpHintCopyElement.addEventListener("click", async () => {
@@ -652,13 +684,7 @@ loginItemsElement.addEventListener("click", async () => {
     messageElement.textContent = String(error);
   }
 
-  // 「远程怎么调」默认就展开：进界面直接把含 token 的示例填好，
-  // 不用先点一次「复制命令」才看得见内容（拿不到就保留占位说明）。
-  try {
-    httpHintElement.textContent = await invoke("http_access_hint");
-  } catch (error) {
-    void error;
-  }
-
+  // 「远程怎么调」默认就展开：第一份快照渲染时 renderRemote 已经把含 token 的
+  // 示例填好了（见 refreshHttpHintIfChanged），这里不用再取一次。
   await call("refresh");
 })();

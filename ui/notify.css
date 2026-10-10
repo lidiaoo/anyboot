@@ -11,10 +11,11 @@
   --bg: #141922;
   --panel-bg: #1d1a13;
   --panel-border: #6b4a1f;
-  --text: #e7ebf2;
-  --title: #f0c98a;
-  --dim: #a5b0c2;
-  --faint: #8b96a8;
+  /* 和主界面 styles.css 同一套灰阶：两个窗口的「同一种灰」必须一模一样 */
+  --text: #f3f6fb;
+  --title: #f5d39a;
+  --dim: #c4cddd;
+  --faint: #b2bed1;
   --track: #2c3544;
   --fill: #e0a44f;
   --btn-text: #201a10;
@@ -25,6 +26,25 @@
   font-family: var(--font);
   background: var(--bg);
   color: var(--text);
+}
+
+/*
+ * 亮色主题。弹窗跟着主界面的「界面主题」走（notify.js 把快照里的 theme 写到这里），
+ * 否则用户选了亮色，偏偏这个最显眼的弹窗还是黑底，观感割裂。
+ */
+[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f4f6fa;
+  --panel-bg: #fffdf6;
+  --panel-border: #e6cf94;
+  --text: #0c1017;
+  --title: #7a4c08;
+  --dim: #2c3543;
+  --faint: #3b4553;
+  --track: #e3e7ee;
+  --fill: #d99a3f;
+  --btn-text: #201a10;
+  --btn-secondary: #e7eaf0;
 }
 
 * {
@@ -39,7 +59,7 @@ body {
 
 body {
   background: var(--bg);
-  /* 弹窗是固定小窗：内容再多也不在这里出现第二个滚动区 */
+  /* 弹窗是固定小窗：页面本身不滚，内容超出时由 .panel 自己滚（见下） */
   overflow: hidden;
 }
 
@@ -51,6 +71,12 @@ body {
   padding: 16px 18px;
   border: 1px solid var(--panel-border);
   background: var(--panel-bg);
+  /*
+   * 窗口高度由前端按内容量出来（后端还会夹在 150–460 之间），所以正常情况下这里
+   * 一个滚动条都不会有。只有内容真的超过上限（超长报错信息）时才会出现 ——
+   * 那也比把「立即执行 / 取消」两个按钮裁在窗口外面强。
+   */
+  overflow-y: auto;
 }
 
 header {

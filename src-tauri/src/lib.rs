@@ -14,11 +14,32 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tauri::{
     image::Image,
-    menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
+    menu::{CheckMenuItem, IconMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Emitter, Manager,
 };
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
+
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+/// 起子进程的**唯一**入口。
+///
+/// GUI 程序（`windows_subsystem = "windows"`）spawn 控制台程序时，Windows 会为子进程
+/// 新建一个控制台窗口 —— 用户在倒计时弹窗旁看到的那个蓝色 PowerShell 窗口就是这么来的
+/// （提示音走 powershell 播放；网口诊断、电源命令也都一样会闪一下）。
+/// 统一带上 CREATE_NO_WINDOW，子进程就在后台静默跑完。
+#[allow(unused_mut)]
+fn command(program: &str) -> Command {
+    let mut command = Command::new(program);
+    #[cfg(target_os = "windows")]
+    {
+        /// CREATE_NO_WINDOW：不为子进程创建控制台窗口
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    command
+}
 
 const SOURCE_FILES: [(&str, &str, &str); 3] = [
     ("linux", "Linux", "PreviousBoot-linux"),
@@ -43,6 +64,22 @@ const MAX_REQUEST_BODY: usize = 8 * 1024;
 const MAX_RECENT_REQUESTS: usize = 20;
 /// 通知弹窗的窗口标签
 const NOTIFY_WINDOW_LABEL: &str = "notify";
+/// 通知弹窗宽度（逻辑像素）
+const NOTIFY_WIDTH: f64 = 440.0;
+/// 通知弹窗的**标称**高度：建窗口时用它，前端量不出真实内容高度时也用它兜底。
+/// 正常路径下前端会量出「刚好兜住文字」的高度再报上来（见 present_notify_window）。
+const NOTIFY_HEIGHT: f64 = 240.0;
+/// 前端报上来的高度会被夹到这个区间：
+/// 太低会把文字裁掉，太高就又变成「底下空一大片」——正是这次要修的东西。
+const NOTIFY_MIN_HEIGHT: f64 = 150.0;
+const NOTIFY_MAX_HEIGHT: f64 = 460.0;
+/// 通知弹窗离工作区右下角的边距（逻辑像素）。
+/// 注意用的是**工作区**（已排除任务栏），所以这个边距是「离任务栏 24px」而不是「离屏幕 24px」。
+const NOTIFY_MARGIN: f64 = 24.0;
+/// 托盘右键菜单的锚点窗口标签（Windows 专用，见 `popup_tray_menu`）
+const MENU_ANCHOR_WINDOW_LABEL: &str = "menu-anchor";
+/// 锚点窗口尺寸：只是个坐标原点，多大都行（不可见、无边框）
+const MENU_ANCHOR_SIZE: f64 = 8.0;
 /// 延迟秒数的上限（配置里乱填也不会把请求挂到天上去）
 const MAX_DELAY_SECONDS: u32 = 600;
 /// 自定义 token 的长度范围（太短不安全，太长粘贴起来也难受）
@@ -55,8 +92,10 @@ const BUILTIN_SOUND_FILE: &str = "notify.wav";
 const BUILTIN_SOUND: &[u8] = include_bytes!("../assets/kakaotalk-notify.wav");
 /// 主题可取值
 const THEMES: [&str; 3] = ["dark", "light", "system"];
-/// 不透明度范围（百分比）
-const MIN_OPACITY: u8 = 50;
+/// 托盘菜单里绿勾位图的边长（Windows 的菜单位图列就是 16×16）
+const CHECK_MARK_SIZE: u32 = 16;
+/// 不透明度范围（百分比）。0 = 完全透明（窗口还在、还能操作，只是看不见），100 = 不透明。
+const MIN_OPACITY: u8 = 0;
 const MAX_OPACITY: u8 = 100;
 /// 阶段 0 的取证日志：只追加、不参与任何逻辑判断，写在应用配置目录。
 /// 里面**永不写入** httpToken（只记前 8 位指纹）。
@@ -131,17 +170,17 @@ fn is_root() -> bool {
 #[cfg(target_os = "linux")]
 fn mount_command(program: &str) -> Command {
     if is_root() {
-        Command::new(program)
+        command(program)
     } else {
-        let mut command = Command::new("pkexec");
-        command.arg(program);
-        command
+        let mut escalated = command("pkexec");
+        escalated.arg(program);
+        escalated
     }
 }
 
 #[cfg(not(target_os = "linux"))]
 fn mount_command(program: &str) -> Command {
-    Command::new(program)
+    command(program)
 }
 
 #[cfg(target_os = "linux")]
@@ -483,6 +522,9 @@ struct HttpView {
     token_set: bool,
     /// 打码后的 token（只给前 4/后 4 位，明文要用 reveal 命令专门取）
     token_hint: String,
+    /// 监听状态的一句话：主窗口 `#http-state` 与托盘「远程控制」子菜单**共用**同一份文案，
+    /// 免得两边各拼各的、说着说着就不一致了。
+    state_text: String,
     requests: Vec<RequestLogEntry>,
 }
 
@@ -746,7 +788,7 @@ fn app_bundle_is_signed() -> bool {
         let Some(bundle) = app_bundle_path() else {
             return false;
         };
-        Command::new("/usr/bin/codesign")
+        command("/usr/bin/codesign")
             .arg("--verify")
             .arg(&bundle)
             .stdout(Stdio::null())
@@ -1113,7 +1155,7 @@ fn scan_unmounted_partition() -> Result<ScanResult, String> {
         return Err("未找到已挂载的 EFI/refind/vars 目录".to_string());
     }
 
-    let output = Command::new("lsblk")
+    let output = command("lsblk")
         .args([
             "--json",
             "--output",
@@ -1522,6 +1564,68 @@ fn create_tray_image() -> Image<'static> {
     tauri::include_image!("icons/icon.png")
 }
 
+/// 托盘菜单里的**绿色对勾**（16×16 RGBA，画一次缓存）。
+///
+/// 原生菜单改不了文字颜色/字重，所以「哪个系统是选中的」只能用图形表达：
+/// 选了的那一行带绿勾、其余行不带 —— 勾占的是菜单**独立的位图列**，
+/// 不占用文字，系统的名字因此天然左对齐（以前用「● 」前缀，名字会被顶偏一格）。
+///
+/// 尺寸固定 16×16：muda 在 Windows 上就是把图标按 16×16 画进位图列的。
+fn check_mark_image() -> Image<'static> {
+    use std::sync::OnceLock;
+    static IMAGE: OnceLock<Image<'static>> = OnceLock::new();
+    IMAGE.get_or_init(build_check_mark_image).clone()
+}
+
+fn build_check_mark_image() -> Image<'static> {
+    Image::new_owned(check_mark_rgba(), CHECK_MARK_SIZE, CHECK_MARK_SIZE)
+}
+
+/// 绿勾的像素（纯函数，便于单测；tauri 的 Image 借不出来，所以拆开）。
+fn check_mark_rgba() -> Vec<u8> {
+    /// 与主界面 --ok 同一个绿（#46c46e）
+    const COLOR: [u8; 3] = [0x46, 0xc4, 0x6e];
+    /// 笔画宽度
+    const STROKE: f32 = 2.2;
+    /// 对勾折线：左下 → 谷底 → 右上
+    const LINE: [(f32, f32); 3] = [(3.2, 8.4), (6.6, 11.8), (12.8, 4.4)];
+
+    let size = CHECK_MARK_SIZE;
+    let mut rgba = vec![0u8; (size * size * 4) as usize];
+    for y in 0..size {
+        for x in 0..size {
+            let (px, py) = (x as f32 + 0.5, y as f32 + 0.5);
+            let distance = LINE
+                .windows(2)
+                .map(|segment| distance_to_segment(px, py, segment[0], segment[1]))
+                .fold(f32::MAX, f32::min);
+            // 半个像素的过渡带：边缘不平滑的话 16px 的勾会全是锯齿
+            let coverage = (STROKE / 2.0 + 0.5 - distance).clamp(0.0, 1.0);
+            if coverage <= 0.0 {
+                continue;
+            }
+            let offset = ((y * size + x) * 4) as usize;
+            rgba[offset..offset + 3].copy_from_slice(&COLOR);
+            rgba[offset + 3] = (coverage * 255.0).round() as u8;
+        }
+    }
+    rgba
+}
+
+/// 点到线段的距离（画对勾用，纯函数）。
+fn distance_to_segment(px: f32, py: f32, a: (f32, f32), b: (f32, f32)) -> f32 {
+    let (ax, ay) = a;
+    let (dx, dy) = (b.0 - ax, b.1 - ay);
+    let length_squared = dx * dx + dy * dy;
+    let t = if length_squared == 0.0 {
+        0.0
+    } else {
+        (((px - ax) * dx + (py - ay) * dy) / length_squared).clamp(0.0, 1.0)
+    };
+    let (cx, cy) = (ax + t * dx, ay + t * dy);
+    ((px - cx).powi(2) + (py - cy).powi(2)).sqrt()
+}
+
 /// 环境变量布尔开关的纯逻辑部分（便于单测）：1/true/yes/on 与 0/false/no/off。
 ///
 /// trace 与电源 dry-run 两个探针共用。
@@ -1620,12 +1724,17 @@ fn menu_signature(
     variables: &[VariableInfo],
     error: Option<&str>,
     busy: &BusyState,
+    http_state: &str,
 ) -> String {
+    // 系统行上每个可见字段都进指纹：系统名 / 显示名 / 选中 / 存在。
+    // 少一个就会出现「数据变了但菜单没重建」的假状态。
     let variables = variables
         .iter()
         .map(|variable| {
             format!(
-                "{}{}",
+                "{}:{}:{}{}",
+                variable.system,
+                variable.display_name,
                 if variable.active { "+" } else { "-" },
                 if variable.exists { "o" } else { "x" }
             )
@@ -1633,12 +1742,18 @@ fn menu_signature(
         .collect::<Vec<_>>()
         .join(",");
     format!(
-        "msg={message}|tmp={}|autostart={}|tray={}|dock={}|close={:?}|vars={variables}|err={}|busy={}",
+        "msg={message}|tmp={}|autostart={}|tray={}|dock={}|close={:?}|http={}|notify={}|delay={},{}|vars={variables}|err={}|busy={}|httpState={http_state}",
         temporary_mount as u8,
         settings.autostart as u8,
         settings.start_in_tray as u8,
         settings.hide_from_dock_taskbar as u8,
         settings.close_action,
+        // 远程控制子菜单里的勾选与「监听状态」行都从设置/运行态来，
+        // 不进指纹的话主窗口一改，托盘那边就停在旧样子
+        settings.http_enabled as u8,
+        settings.notify_enabled as u8,
+        settings.channels.http.delay_seconds,
+        settings.channels.cli.delay_seconds,
         error.unwrap_or(""),
         // 动作进行中菜单项会变灰，所以 busy 必须进指纹，否则置灰不会生效
         busy.menu_describe()
@@ -1726,15 +1841,23 @@ fn ui_state(app: &AppHandle) -> UiState {
             Some(server) => (true, Some(server.addr.clone())),
             None => (false, None),
         };
+        let last_error = runtime.last_error.clone();
+        let token_set = !settings.settings.http_token.trim().is_empty();
         HttpView {
             enabled: settings.settings.http_enabled,
             bind: settings.settings.http_bind.clone(),
             port: settings.settings.http_port,
             listening,
+            state_text: http_state_text(
+                listening,
+                addr.as_deref(),
+                last_error.as_deref(),
+                token_set,
+            ),
             addr,
-            last_error: runtime.last_error.clone(),
+            last_error,
             port_occupant: runtime.occupant.as_ref().map(PortOccupant::to_view),
-            token_set: !settings.settings.http_token.trim().is_empty(),
+            token_set,
             token_hint: token_hint(&settings.settings.http_token),
             requests: runtime.requests.clone(),
         }
@@ -1851,6 +1974,37 @@ fn token_hint(token: &str) -> String {
     format!("{}…{}", &token[..4], &token[token.len() - 4..])
 }
 
+/// 监听状态的一句话（纯函数）。主窗口与托盘菜单都读它，同一份真相。
+fn http_state_text(
+    listening: bool,
+    addr: Option<&str>,
+    last_error: Option<&str>,
+    token_set: bool,
+) -> String {
+    if listening {
+        return format!("正在监听 {}", addr.unwrap_or("-"));
+    }
+    if let Some(error) = last_error {
+        return format!("未监听：{error}");
+    }
+    if token_set {
+        "未监听（服务已关闭）".to_string()
+    } else {
+        "未监听（token 为空，服务不会启动）".to_string()
+    }
+}
+
+/// 菜单里的一行状态文案：过长的错误信息截断，免得把菜单撑到满屏。
+fn menu_status_text(text: &str, max_chars: usize) -> String {
+    let mut chars = text.chars();
+    let head: String = chars.by_ref().take(max_chars).collect();
+    if chars.next().is_some() {
+        format!("{head}…")
+    } else {
+        head
+    }
+}
+
 /// 常量时间比较 token（长度不同直接 false）。
 fn token_matches(expected: &str, provided: &str) -> bool {
     let expected = expected.trim();
@@ -1930,9 +2084,17 @@ impl PortOccupant {
         }
     }
 
-    /// 界面文案：是本程序 vs 外部进程，分别给不同提示
+    /// 界面文案：自己占着 / 同程序的另一个实例 / 完全外部，三种说法不能混。
+    ///
+    /// 以前「自己占着」也被算进 same_app，于是显示成「本应用的另一个实例」——
+    /// 实际上是**我们自己**上一轮监听的 socket 没放开，用户会去找一个根本不存在的进程。
     fn display(&self) -> String {
-        if self.same_app {
+        if self.is_self {
+            format!(
+                "端口还被本程序自己占着（PID {}）：上一轮监听的 socket 没放开。点「重试监听」，仍不行就重启本程序",
+                self.pid
+            )
+        } else if self.same_app {
             format!(
                 "端口被本应用的另一个实例占用：PID {}（{}）——可以点「结束占用进程」把它退掉（旧版本驻留时常见），或先手动退出那个实例",
                 self.pid,
@@ -1951,9 +2113,11 @@ impl PortOccupant {
         }
     }
 
-    /// 给用户复制即用的结束命令（Windows 优先 taskkill，非 Windows 给通用提示）
+    /// 给用户复制即用的结束命令（Windows 优先 taskkill，非 Windows 给通用提示）。
+    ///
+    /// 占端口的是**当前进程**时不给：那是「结束自己」，后端也会直接拒绝，摆出来只会误导。
     fn kill_hint(&self) -> Option<String> {
-        if self.pid == 0 {
+        if self.pid == 0 || self.is_self {
             return None;
         }
         if cfg!(target_os = "windows") {
@@ -1995,7 +2159,7 @@ fn parse_netstat_listening_port<'a>(
 /// 跨平台：按 PID 查进程名（Windows 用 wmic，非 Windows 用 ps）。查不到返回空串。
 fn process_name_for_pid(pid: u32) -> String {
     let output = if cfg!(target_os = "windows") {
-        std::process::Command::new("wmic")
+        command("wmic")
             .args([
                 "process",
                 "where",
@@ -2007,7 +2171,7 @@ fn process_name_for_pid(pid: u32) -> String {
             .output()
             .ok()
     } else {
-        std::process::Command::new("ps")
+        command("ps")
             .args(["-p", &pid.to_string(), "-o", "comm="])
             .output()
             .ok()
@@ -2032,7 +2196,7 @@ fn process_name_for_pid(pid: u32) -> String {
 
 /// 诊断端口占用者（只读）：起 netstat -ano 拿 PID，再查进程名，判断是否本程序。
 fn diagnose_port_occupant(port: u16) -> Option<PortOccupant> {
-    let output = std::process::Command::new("netstat")
+    let output = command("netstat")
         .args(["-ano"])
         .output()
         .ok()?;
@@ -2064,12 +2228,12 @@ fn diagnose_port_occupant(port: u16) -> Option<PortOccupant> {
 /// 跨平台：Windows 用 taskkill /F，非 Windows 用 kill。
 fn kill_process(pid: u32) -> Result<(), String> {
     let status = if cfg!(target_os = "windows") {
-        std::process::Command::new("taskkill")
+        command("taskkill")
             .args(["/PID", &pid.to_string(), "/F"])
             .status()
             .map_err(|error| format!("无法执行 taskkill：{error}"))?
     } else {
-        std::process::Command::new("kill")
+        command("kill")
             .args([&pid.to_string()])
             .status()
             .map_err(|error| format!("无法执行 kill：{error}"))?
@@ -2124,12 +2288,15 @@ fn apply_http_config(app: &AppHandle) {
         .unwrap_or(settings.http_port);
     let token = settings.http_token.trim().to_string();
 
-    // 先确定性收掉旧服务（端口被占用时不换端口，报错并留在界面上）
+    // 先确定性收掉旧服务：stop() 返回时端口一定已经放开（tiny_http 的 accept 线程
+    // 是异步退场的，等待逻辑在 http::RunningServer::stop 里），所以下面立刻重绑是安全的。
     let previous = http_lock().server.take();
     if let Some(server) = previous {
         let addr = server.addr.clone();
-        server.stop();
-        trace(app, "http", &format!("已停止旧服务 {addr}"));
+        match server.stop() {
+            Ok(()) => trace(app, "http", &format!("已停止旧服务 {addr}，端口已放开")),
+            Err(error) => trace(app, "http", &format!("已停止旧服务 {addr}，但{error}")),
+        }
     }
 
     let mut last_error = None;
@@ -2178,27 +2345,6 @@ fn apply_http_config(app: &AppHandle) {
         let mut runtime = http_lock();
         runtime.last_error = last_error;
         runtime.occupant = occupant;
-    }
-    // 端口刚被释放时往往第一次绑不上（TIME_WAIT / 上一实例正在退场），
-    // 只要这次是「想开着」，就再试一次——界面上勾上就该能起来。
-    let diagnosised = http_lock().occupant.is_some();
-    if enabled && diagnosised {
-        match http::start(
-            app.clone(),
-            http::ServerConfig {
-                bind: bind.clone(),
-                port,
-            },
-        ) {
-            Ok(server) => {
-                trace(app, "http", &format!("重试成功，已监听 {}", server.addr));
-                let mut runtime = http_lock();
-                runtime.server = Some(server);
-                runtime.last_error = None;
-                runtime.occupant = None;
-            }
-            Err(error) => trace(app, "http", &format!("重试仍失败: {error}")),
-        }
     }
     publish_ui(app);
 }
@@ -2757,7 +2903,7 @@ fn play_sound_file(path: &Path) -> Result<String, String> {
     }
     let mut last_error = String::from("本平台没有可用的播放器");
     for (program, args) in sound_player_candidates(path) {
-        match Command::new(&program)
+        match command(&program)
             .args(&args)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -2807,45 +2953,103 @@ fn play_notify_sound(app: &AppHandle) {
     trace(app, "sound", &format!("提示音没播出来：{last_error}"));
 }
 
+/// 前端报上来的高度夹到 [NOTIFY_MIN_HEIGHT, NOTIFY_MAX_HEIGHT]（纯函数，便于单测）。
+/// `None`（前端量不出真实内容高度）退回标称高度。
+fn notify_height(raw: Option<f64>) -> f64 {
+    match raw {
+        Some(value) if value.is_finite() && value > 0.0 => {
+            value.clamp(NOTIFY_MIN_HEIGHT, NOTIFY_MAX_HEIGHT)
+        }
+        _ => NOTIFY_HEIGHT,
+    }
+}
+
 fn show_notify_window(app: &AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window(NOTIFY_WINDOW_LABEL) {
         let _ = window.show();
         return Ok(());
     }
-    let window = tauri::WebviewWindowBuilder::new(
+    tauri::WebviewWindowBuilder::new(
         app,
         NOTIFY_WINDOW_LABEL,
         tauri::WebviewUrl::App("notify.html".into()),
     )
     .title("远程请求")
-    .inner_size(440.0, 320.0)
+    .inner_size(NOTIFY_WIDTH, NOTIFY_HEIGHT)
     .resizable(false)
     .decorations(false)
     .always_on_top(true)
     .skip_taskbar(true)
     .focused(false)
+    // 先建出来但**不显示**：等前端把内容画好、量出真实高度，调 `present_notify_window`
+    // 时才定尺寸、定位置、显示。
+    //
+    // 老实现是「建出来（默认可见）→ set_position」，于是窗口先用系统默认位置画一帧空白
+    // （屏幕左上角），再跳到右下角 —— 就是用户看到的「先渲染空白窗口随后才跳过去」。
+    // 后来改成「page-load → 定位 → 显示」，但那时的尺寸还是写死的 320 高，
+    // 内容只有 200 出头，底下就一直空着一大块。现在尺寸由前端按内容量出来。
+    .visible(false)
     .build()
     .map_err(|error| format!("无法创建通知窗口: {error}"))?;
 
-    // 右下角：窗口刚建出来时 current_monitor() 在 Linux 上可能还是 None，
-    // 回退到主显示器；都拿不到就保持默认居中。
+    // 兜底：前端脚本万一没跑起来（弹窗不能就这么消失），800ms 后按标称高度自己露出来。
+    let fallback = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(800));
+        if let Some(window) = fallback.get_webview_window(NOTIFY_WINDOW_LABEL) {
+            if !window.is_visible().unwrap_or(true) {
+                place_notify_window(&fallback, &window, NOTIFY_HEIGHT);
+                let _ = window.show();
+            }
+        }
+    });
+    Ok(())
+}
+
+/// 前端量好高度后「把弹窗摆出来」：定尺寸 → 摆到工作区右下角 → 显示。
+///
+/// 之所以由前端来触发，是因为只有它知道内容有多高（原生菜单/窗口没有「自适应内容」这回事）。
+/// `height` 传 `None` 表示量不出来，用标称高度。
+#[tauri::command]
+fn present_notify_window(app: AppHandle, height: Option<f64>) -> Result<(), String> {
+    let Some(window) = app.get_webview_window(NOTIFY_WINDOW_LABEL) else {
+        return Ok(());
+    };
+    let height = notify_height(height);
+    let _ = window.set_size(tauri::LogicalSize::new(NOTIFY_WIDTH, height));
+    place_notify_window(&app, &window, height);
+    let _ = window.show();
+    Ok(())
+}
+
+/// 把通知窗口摆到「**工作区**右下角、留 NOTIFY_MARGIN 边距」。
+///
+/// 两个关键点：
+/// 1. 用 `work_area()` 而不是 `size()`：任务栏占的那一条不属于工作区，
+///    用屏幕尺寸摆就会像以前那样压住任务栏（用户截图里就是这个）。
+/// 2. 尺寸用「我们正要设成的逻辑高度」换算，而不是 `outer_size()` 读回来的 ——
+///    `set_size` 是投递到主线程的异步操作，设完立刻读回拿到的还是旧尺寸，位置会偏几十像素。
+///
+/// 刚建出来的窗口 `current_monitor()` 在 Linux 上可能还是 None，回退到主显示器；
+/// 都拿不到（极罕见）就保持系统默认位置，不去猜。
+fn place_notify_window(app: &AppHandle, window: &tauri::WebviewWindow, logical_height: f64) {
     let monitor = window
         .current_monitor()
         .ok()
         .flatten()
         .or_else(|| app.primary_monitor().ok().flatten());
-    if let Some(monitor) = monitor {
-        let size = monitor.size();
-        let scale = monitor.scale_factor();
-        let width = (440.0 * scale) as i32;
-        let height = (320.0 * scale) as i32;
-        let margin = (24.0 * scale) as i32;
-        let _ = window.set_position(tauri::PhysicalPosition::new(
-            size.width as i32 - width - margin,
-            size.height as i32 - height - margin,
-        ));
-    }
-    Ok(())
+    let Some(monitor) = monitor else {
+        return;
+    };
+    let scale = monitor.scale_factor();
+    let width = (NOTIFY_WIDTH * scale).round() as i32;
+    let height = (logical_height * scale).round() as i32;
+    let margin = (NOTIFY_MARGIN * scale).round() as i32;
+    let work = monitor.work_area();
+    let _ = window.set_position(tauri::PhysicalPosition::new(
+        work.position.x + work.size.width as i32 - width - margin,
+        work.position.y + work.size.height as i32 - height - margin,
+    ));
 }
 
 fn close_notify_window(app: &AppHandle) {
@@ -2981,6 +3185,47 @@ fn update_settings_and_publish(
     }
 }
 
+/// 改 token 专用：保存 → **关掉旧监听、按新 token 重新绑定端口** → 拿重启后的实况当状态文案。
+///
+/// 为什么不复用 `update_settings_and_publish`：那个函数的文案在重启**之前**就定死了，
+/// 用户根本看不到「到底有没有重新监听、重新绑在哪个地址上」——而这正是改 token 之后
+/// 最该看见的一句话。旧实现的文案写着「监听已按新 token 重启」，但那是**假设**，不是事实。
+fn update_settings_and_restart_http(
+    app: &AppHandle,
+    action: &str,
+    update: impl FnOnce(&mut Settings),
+) -> Result<String, String> {
+    let mut settings = stored_settings(app);
+    update(&mut settings);
+    match save_settings(app, &settings) {
+        Ok(_) => {
+            // 这里就是「关旧端口 → 开新端口」那一步（apply_http_config 内部先 stop 再 start）
+            apply_http_config(app);
+            let outcome = http_listener_summary();
+            record_action(app, action, true, &outcome);
+            publish_settings(app);
+            Ok(outcome)
+        }
+        Err(error) => {
+            record_action(app, action, false, &error);
+            publish_settings(app);
+            Err(error)
+        }
+    }
+}
+
+/// 监听重启后的实况（正在监听哪个地址 / 为什么没听起来）。纯读，不改任何状态。
+fn http_listener_summary() -> String {
+    let runtime = http_lock();
+    match runtime.server.as_ref() {
+        Some(server) => format!("监听已重启：{}", server.addr),
+        None => runtime
+            .last_error
+            .clone()
+            .unwrap_or_else(|| "监听未运行（HTTP 服务已关闭）".to_string()),
+    }
+}
+
 fn set_http_enabled_setting(app: &AppHandle, enabled: bool) {
     let _ = update_settings_and_publish(
         app,
@@ -3038,28 +3283,78 @@ fn menu_system_rows(variables: &[VariableInfo]) -> Vec<VariableInfo> {
 }
 
 /// 只负责构建菜单，不碰托盘图标。setup 的第一帧和后续重建走同一份实现。
+/// 分区标题。
+///
+/// 原生菜单没有「分组」这个概念，能表达分区的只有两样东西：分隔线，和一个灰掉的标题项。
+/// 标题项禁用之后 Windows/GTK 都会画成灰色小标题，配合上下两条分隔线，一眼就是独立一块。
+fn menu_section_header(
+    app: &AppHandle,
+    id: &str,
+    label: &str,
+) -> tauri::Result<MenuItem<tauri::Wry>> {
+    MenuItem::with_id(app, id, label, false, None::<&str>)
+}
+
+/// 托盘顶部那行状态文案：只在**和「下次启动：X」不一样**的时候才显示。
+///
+/// 扫描成功之后 `status.message` 本身就是「下次启动：X」，和顶部那行一字不差；
+/// 老实现照单再摆一行，于是菜单里出现两条「下次启动：…」（用户报的重复）。
+/// 只有错误提示、临时操作结果这类「额外信息」才值得单独一行 —— 抽成纯函数方便单测。
+fn menu_status_line<'a>(message: &'a str, next_boot_label: &str) -> Option<&'a str> {
+    let message = message.trim();
+    if message.is_empty() || message == next_boot_label {
+        return None;
+    }
+    Some(message)
+}
+
 fn build_tray_menu(app: &AppHandle, state: &UiState) -> tauri::Result<Menu<tauri::Wry>> {
     let busy = state.busy.affects_menu();
     let message = &state.status.message;
     let settings = &state.settings.settings;
     let variables = menu_system_rows(&state.status.variables);
+    let next_boot = variables.iter().find(|variable| variable.active);
+    let next_boot_label = next_boot.map_or_else(
+        || "下次启动：未知".to_string(),
+        |variable| format!("下次启动：{}", variable.display_name),
+    );
+    let check = check_mark_image();
 
     let menu = Menu::new(app)?;
-    let status = MenuItem::with_id(app, "status", message, false, None::<&str>)?;
-    menu.append(&status)?;
+    // 第一行就把「下次启动哪个系统」摆出来。原生菜单改不了字号/字重，所以靠**位置**
+    // 和绿勾让它够醒目；点它 = 打开主窗口去改。
+    let next_boot_item = IconMenuItem::with_id(
+        app,
+        "next-boot",
+        &next_boot_label,
+        true,
+        next_boot.map(|_| check.clone()),
+        None::<&str>,
+    )?;
+    menu.append(&next_boot_item)?;
+    // 状态行只在**跟上面那行不一样**的时候才出现（见 menu_status_line）：
+    // 扫描成功后 message 本身就是「下次启动：X」，再摆一行就是「下次启动重复了」，
+    // 只有错误提示/临时操作结果才需要单独一行。
+    if let Some(line) = menu_status_line(message, &next_boot_label) {
+        let status = MenuItem::with_id(app, "status", line, false, None::<&str>)?;
+        menu.append(&status)?;
+    }
     menu.append(&PredefinedMenuItem::separator(app)?)?;
 
+    // —— 分区：系统列表（选中项带绿勾，名字靠位图列天然左对齐）——
     for variable in &variables {
-        let label = if variable.active {
-            format!("● {}", variable.display_name)
-        } else {
-            variable.display_name.clone()
-        };
-        let item = MenuItem::with_id(
+        // 选中项带绿勾、没选中的不带：勾占的是菜单**独立的位图列**，不挤占文字，
+        // 三个系统的名字因此天然左对齐（以前用「● 」前缀，选中的那个会被顶偏一格）。
+        let item = IconMenuItem::with_id(
             app,
             variable.system.clone(),
-            label,
+            variable.display_name.clone(),
             variable.exists && !busy,
+            if variable.active {
+                Some(check.clone())
+            } else {
+                None
+            },
             None::<&str>,
         )?;
         menu.append(&item)?;
@@ -3075,11 +3370,17 @@ fn build_tray_menu(app: &AppHandle, state: &UiState) -> tauri::Result<Menu<tauri
         )?;
         menu.append(&unmount)?;
     }
-    let show = MenuItem::with_id(app, "show", "显示主窗口", true, None::<&str>)?;
-    menu.append(&show)?;
+    menu.append(&MenuItem::with_id(
+        app,
+        "show",
+        "显示主窗口",
+        true,
+        None::<&str>,
+    )?)?;
+
+    // —— 分区：应用设置 ——
     menu.append(&PredefinedMenuItem::separator(app)?)?;
-    let settings_label = MenuItem::with_id(app, "settings-label", "应用设置", false, None::<&str>)?;
-    menu.append(&settings_label)?;
+    menu.append(&menu_section_header(app, "settings-label", "应用设置")?)?;
     let autostart = CheckMenuItem::with_id(
         app,
         "setting-autostart",
@@ -3128,11 +3429,16 @@ fn build_tray_menu(app: &AppHandle, state: &UiState) -> tauri::Result<Menu<tauri
         close_action_menu.append(&item)?;
     }
     menu.append(&close_action_menu)?;
+
+    // —— 分区：扫描 ——
     menu.append(&PredefinedMenuItem::separator(app)?)?;
-    let refresh = MenuItem::with_id(app, "refresh", "扫描", !busy, None::<&str>)?;
-    menu.append(&refresh)?;
-    // 电源动作子菜单：重启（默认）/ 关机 / 睡眠
-    let power_menu = Submenu::with_id(app, "power", "电源操作", !busy)?;
+    menu.append(&MenuItem::with_id(app, "refresh", "扫描", !busy, None::<&str>)?)?;
+
+    // —— 分区：电源操作 ——
+    // 铺平在主菜单里（不折叠成子菜单：关机/重启是高频动作，多一层展开纯属添堵），
+    // 但上下各有一条分隔线 + 一个标题，这样它是一块独立分区，而不是粘在「扫描」下面。
+    menu.append(&PredefinedMenuItem::separator(app)?)?;
+    menu.append(&menu_section_header(app, "power-label", "电源操作")?)?;
     for action in [
         PowerAction::Reboot,
         PowerAction::Shutdown,
@@ -3145,12 +3451,22 @@ fn build_tray_menu(app: &AppHandle, state: &UiState) -> tauri::Result<Menu<tauri
             !busy,
             None::<&str>,
         )?;
-        power_menu.append(&item)?;
+        menu.append(&item)?;
     }
-    menu.append(&power_menu)?;
-    // 远程控制：HTTP 服务开关 / 通知总开关 / 延迟预设 / 打开设置区
-    let remote_menu = Submenu::with_id(app, "remote", "远程控制", true)?;
-    remote_menu.append(&CheckMenuItem::with_id(
+
+    // —— 分区：远程控制 ——
+    // 同样铺平在主菜单里；监听状态是这一区的**第一行**，不展开任何子菜单就能看到在不在听。
+    menu.append(&PredefinedMenuItem::separator(app)?)?;
+    menu.append(&menu_section_header(app, "remote-label", "远程控制")?)?;
+    let listening = MenuItem::with_id(
+        app,
+        "remote-status",
+        format!("监听状态：{}", menu_status_text(&state.http.state_text, 48)),
+        false,
+        None::<&str>,
+    )?;
+    menu.append(&listening)?;
+    menu.append(&CheckMenuItem::with_id(
         app,
         toggle_menu_id("setting-http-enabled", !settings.http_enabled),
         "HTTP 服务",
@@ -3158,7 +3474,7 @@ fn build_tray_menu(app: &AppHandle, state: &UiState) -> tauri::Result<Menu<tauri
         settings.http_enabled,
         None::<&str>,
     )?)?;
-    remote_menu.append(&CheckMenuItem::with_id(
+    menu.append(&CheckMenuItem::with_id(
         app,
         toggle_menu_id("setting-notify-enabled", !settings.notify_enabled),
         "远程请求通知",
@@ -3184,18 +3500,84 @@ fn build_tray_menu(app: &AppHandle, state: &UiState) -> tauri::Result<Menu<tauri
             None::<&str>,
         )?)?;
     }
-    remote_menu.append(&delay_menu)?;
-    remote_menu.append(&MenuItem::with_id(
+    menu.append(&delay_menu)?;
+    menu.append(&MenuItem::with_id(
         app,
         "show-remote",
         "远程控制设置…",
         true,
         None::<&str>,
     )?)?;
-    menu.append(&remote_menu)?;
-    let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
-    menu.append(&quit)?;
+
+    menu.append(&PredefinedMenuItem::separator(app)?)?;
+    menu.append(&MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?)?;
     Ok(menu)
+}
+
+/// 托盘右键。
+///
+/// Windows：菜单由我们自己弹（锚点在工作区下沿，见 `popup_tray_menu`），
+/// 所以托盘上**没有**挂菜单，右键只有这个事件可走。
+/// 其他平台：菜单挂在托盘上，什么时候弹、弹在哪由面板/系统决定，这里无事可做。
+fn on_tray_right_click(app: &AppHandle, cursor: tauri::PhysicalPosition<f64>) {
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (app, cursor);
+    }
+    #[cfg(target_os = "windows")]
+    popup_tray_menu(app, cursor);
+}
+
+/// Windows 上托盘右键菜单**由我们自己弹**，锚点落在工作区下沿（任务栏上沿）。
+///
+/// 为什么不能交给原生实现：tray-icon 的锚点是**光标**，而托盘图标的光标落在任务栏里；
+/// Windows 的 TrackPopupMenu 只保证菜单不越出**屏幕**，不保证不越出**工作区**。
+/// 本机实测（2194×1234、任务栏 40px）：锚在光标上菜单底部 = 1214，把任务栏压住 20px；
+/// 锚在工作区底边（1194）则压住 0px。用 `-flags TPM_BOTTOMALIGN|TPM_LEFTALIGN` 也一样，
+/// 所以只能换锚点，不能换标志位。
+///
+/// 锚点怎么给：`Menu::popup_at` 会把坐标当**锚点窗口的客户区坐标**再 `ClientToScreen` 一次，
+/// 而锚点窗口是无边框的、创建时就停在 (0,0) —— 客户区原点就是屏幕原点，
+/// 于是「屏幕坐标 - 窗口原点」正好是要传的值（窗口原点万一不是 (0,0) 也照样算对）。
+#[cfg(target_os = "windows")]
+fn popup_tray_menu(app: &AppHandle, cursor: tauri::PhysicalPosition<f64>) {
+    // `popup_at` 定义在公开 trait 上，只有 Windows 这条路用到它
+    use tauri::menu::ContextMenu;
+
+    let Some(anchor) = app.get_webview_window(MENU_ANCHOR_WINDOW_LABEL) else {
+        trace(app, "tray", "锚点窗口不在，右键菜单没有弹出");
+        return;
+    };
+    let monitor = app
+        .monitor_from_point(cursor.x, cursor.y)
+        .ok()
+        .flatten()
+        .or_else(|| app.primary_monitor().ok().flatten());
+    let Some(monitor) = monitor else {
+        trace(app, "tray", "拿不到显示器信息，右键菜单没有弹出");
+        return;
+    };
+    let work = monitor.work_area();
+    let target = tauri::PhysicalPosition::new(
+        cursor.x.round() as i32,
+        work.position.y + work.size.height as i32,
+    );
+    let origin = anchor
+        .outer_position()
+        .unwrap_or(tauri::PhysicalPosition::new(0, 0));
+    let position = tauri::PhysicalPosition::new(target.x - origin.x, target.y - origin.y);
+
+    // 菜单按**此刻**的快照现建：这样永远是最新状态，也省掉了「状态变了要记得重建」的坑
+    let menu = match build_tray_menu(app, &ui_state(app)) {
+        Ok(menu) => menu,
+        Err(error) => {
+            trace(app, "tray", &format!("右键菜单构建失败：{error}"));
+            return;
+        }
+    };
+    if let Err(error) = menu.popup_at(anchor.as_ref().window(), position) {
+        trace(app, "tray", &format!("右键菜单弹出失败：{error}"));
+    }
 }
 
 /// 用同一份快照刷新托盘菜单；**内容没变就不重建**（指纹相同直接返回）。
@@ -3210,6 +3592,7 @@ fn menu_signature_for(state: &UiState) -> String {
         &menu_system_rows(&state.status.variables),
         state.status.error.as_deref(),
         &state.busy,
+        &state.http.state_text,
     )
 }
 
@@ -3239,21 +3622,27 @@ fn update_tray_menu(app: &AppHandle, state: &UiState, trigger: &str) -> tauri::R
     trace(
         app,
         "tray",
-        &format!("重建菜单 trigger={trigger} sig={signature}"),
+        &format!("菜单内容已变 trigger={trigger} sig={signature}"),
     );
-    let menu = build_tray_menu(app, state)?;
-    if let Some(tray) = app.tray_by_id("main") {
-        tray.set_menu(Some(menu))?;
-        let tooltip = state
-            .status
-            .error
-            .clone()
-            .unwrap_or_else(|| format!("AnyBoot：{}", state.status.message));
-        tray.set_tooltip(Some(tooltip))?;
-        trace(app, "tray", "菜单与 tooltip 已更新");
-    } else {
+    let Some(tray) = app.tray_by_id("main") else {
         trace(app, "tray", "未找到托盘图标 main，菜单没有挂上");
+        return Ok(());
+    };
+    let tooltip = state
+        .status
+        .error
+        .clone()
+        .unwrap_or_else(|| format!("AnyBoot：{}", state.status.message));
+    // Windows 上菜单**不挂到托盘**：右键那一刻现建现弹（见 popup_tray_menu），
+    // 这里的指纹就只剩「别白刷一遍 tooltip」这一个用处。
+    #[cfg(not(target_os = "windows"))]
+    {
+        tray.set_menu(Some(build_tray_menu(app, state)?))?;
+        trace(app, "tray", "菜单已重建并挂上托盘");
     }
+    #[cfg(target_os = "windows")]
+    trace(app, "tray", "菜单不挂托盘（Windows 右键时现建现弹）");
+    tray.set_tooltip(Some(tooltip))?;
     Ok(())
 }
 
@@ -3328,6 +3717,8 @@ impl MenuAction {
         }
         match id {
             "show" => Some(Self::Show),
+            // 顶部那行「下次启动：X」：点它就是把主窗口叫出来改
+            "next-boot" => Some(Self::Show),
             "refresh" => Some(Self::Refresh),
             "unmount-temporary" => Some(Self::UnmountTemporary),
             // 旧版 id：只有一个「重启系统」项时的写法，保留兼容
@@ -3776,7 +4167,7 @@ fn remove_legacy_launch_agents(app: &AppHandle) {
         if !contents.contains("anyboot") && !contents.contains(&name) {
             continue;
         }
-        let _ = Command::new("launchctl")
+        let _ = command("launchctl")
             .arg("unload")
             .arg("--")
             .arg(&path)
@@ -4273,7 +4664,7 @@ fn escalate_power(attempt: &PowerAttempt, allow_gui_auth: bool) -> Option<PowerA
 /// 真的去执行一条候选命令（dry-run 时不会走到这里）。
 fn run_power_command(program: &str, args: &[String]) -> PowerAttemptOutcome {
     let display = render_command(program, args);
-    match Command::new(program).args(args).output() {
+    match command(program).args(args).output() {
         Ok(output) if output.status.success() => PowerAttemptOutcome::Success,
         Ok(output) => {
             let code = output
@@ -4473,7 +4864,7 @@ fn sleep_probe() -> (Option<String>, Vec<String>) {
             }
             None => {
                 evidence.push("注册表 HibernateEnabled 读取失败，改用 powercfg /a".to_string());
-                match Command::new("powercfg").arg("/a").output() {
+                match command("powercfg").arg("/a").output() {
                     Ok(output) => {
                         let raw = String::from_utf8_lossy(&output.stdout).to_string();
                         evidence.push(format!(
@@ -4936,19 +5327,15 @@ fn set_channel_delay(
     )
 }
 
-/// 重新生成 token：旧 token 立即失效（服务会按新 token 重建）。
+/// 重新生成 token：旧 token 立即失效（**关掉旧监听、按新 token 重建**）。
 #[tauri::command]
 fn regenerate_http_token(app: AppHandle) -> Result<String, String> {
     trace(&app, "command", "regenerate_http_token（主窗口）");
     let token = generate_token();
     let replace = token.clone();
-    update_settings_and_publish(
-        &app,
-        "访问令牌",
-        "已重新生成（旧 token 立即失效）",
-        move |settings| settings.http_token = replace,
-        apply_http_config,
-    )?;
+    update_settings_and_restart_http(&app, "访问令牌", move |settings| {
+        settings.http_token = replace;
+    })?;
     Ok(token)
 }
 
@@ -5000,23 +5387,14 @@ fn set_sound_file_path(app: AppHandle, path: String) -> Result<(), String> {
     Ok(())
 }
 
-/// 设置访问令牌（自定义 token）：改了要重启监听，新 token 立即生效。
+/// 设置访问令牌（自定义 token）：**关掉旧监听 → 按新 token 重新绑定端口**，新 token 立即生效。
 #[tauri::command]
 fn set_http_token(app: AppHandle, token: String) -> Result<(), String> {
     trace(&app, "command", "set_http_token（主窗口）");
     let token = validate_http_token(&token)?;
-    let message = if token.is_empty() {
-        "已清空：token 为空时内置 HTTP 服务不会启动".to_string()
-    } else {
-        "已更新，监听已按新 token 重启".to_string()
-    };
-    update_settings_and_publish(
-        &app,
-        "访问令牌",
-        &message,
-        |settings| settings.http_token = token,
-        apply_http_config,
-    )?;
+    // 状态文案由重启后的实况决定（「监听已重启：0.0.0.0:12300」/ 失败原因），
+    // 而不是提前写一句「已重启」的漂亮话。
+    update_settings_and_restart_http(&app, "访问令牌", |settings| settings.http_token = token)?;
     Ok(())
 }
 
@@ -5035,7 +5413,7 @@ fn set_theme(app: AppHandle, theme: String) -> Result<(), String> {
     Ok(())
 }
 
-/// 设置窗口不透明度（百分比，50–100）
+/// 设置窗口不透明度（百分比，0–100；0 = 全透明但窗口还在）
 #[tauri::command]
 fn set_opacity(app: AppHandle, percent: u32) -> Result<(), String> {
     trace(&app, "command", "set_opacity（主窗口）");
@@ -5158,15 +5536,15 @@ fn kill_port_occupant(app: AppHandle) -> Result<String, String> {
 
 /// 跨平台：用系统文件管理器打开目录
 fn open_directory_in_explorer(dir: &std::path::Path) -> Result<(), String> {
-    let mut command = std::process::Command::new(if cfg!(target_os = "windows") {
+    let mut opener = command(if cfg!(target_os = "windows") {
         "explorer"
     } else if cfg!(target_os = "macos") {
         "open"
     } else {
         "xdg-open"
     });
-    command.arg(dir);
-    let status = command
+    opener.arg(dir);
+    let status = opener
         .status()
         .map_err(|error| format!("打开文件管理器失败：{error}"))?;
     if !status.success() {
@@ -5308,29 +5686,66 @@ pub fn run() {
                 state.message = "正在扫描…".to_string();
             }
             let initial_state = ui_state(app.handle());
-            let menu = build_tray_menu(app.handle(), &initial_state)?;
             // 预热菜单指纹：这一帧就是当前内容，别让紧接着的首次扫描白重建一次菜单
             remember_menu_signature(app.handle(), menu_signature_for(&initial_state));
 
-            let _tray = TrayIconBuilder::with_id("main")
-                .icon(create_tray_image())
-                .menu(&menu)
-                .show_menu_on_left_click(false)
-                .on_tray_icon_event(|tray, event| {
-                    if let TrayIconEvent::Click {
-                        button: MouseButton::Left,
-                        button_state: MouseButtonState::Up,
-                        ..
-                    } = event
-                    {
-                        let app = tray.app_handle();
-                        show_main_window(app);
-                    }
-                })
-                .on_menu_event(|app, event| {
-                    handle_menu_event(app, event.id().as_ref());
-                })
-                .build(app.handle())?;
+    // Windows：托盘右键菜单由我们自己弹（见 popup_tray_menu），先从托盘上**摘掉**菜单，
+    // 否则原生实现会抢在事件前面用「光标锚点」把它弹出来，压住任务栏。
+    // 托盘不挂菜单这一点对 tray-icon 是合法的：右键仍会照常发 Click 事件给我们。
+    #[cfg(not(target_os = "windows"))]
+    let initial_menu = build_tray_menu(app.handle(), &initial_state)?;
+    // Windows：菜单锚点窗口 —— 8×8、无边框、不可见，创建时就停在 (0,0)。
+    // `popup_at` 会把坐标当它的**客户区坐标**再 ClientToScreen 一次，停在原点坐标才好算。
+    //
+    // 为什么是「带 webview 的窗口」而不是更轻的 `WindowBuilder`：`AppHandle::get_window`
+    // 被 tauri 的 `unstable` feature 挡着（`windows()` 同理），只有 `get_webview_window`
+    // 是公开 API；而这里在 setup 里建一次、之后每次右键按 label 取回来，是最省事也最稳的路子。
+    // 多出来的这个 webview 从头到尾不可见、不参与交互，就是一块坐标基准。
+    #[cfg(target_os = "windows")]
+    tauri::WebviewWindowBuilder::new(
+        app.handle(),
+        MENU_ANCHOR_WINDOW_LABEL,
+        tauri::WebviewUrl::App("menu-anchor.html".into()),
+    )
+    .inner_size(MENU_ANCHOR_SIZE, MENU_ANCHOR_SIZE)
+    .position(0.0, 0.0)
+    .decorations(false)
+    .resizable(false)
+    .skip_taskbar(true)
+    .visible(false)
+    .focused(false)
+    .build()?;
+
+    // Windows 上托盘不挂菜单，`mut` 只有其他平台用得上
+    #[allow(unused_mut)]
+    let mut tray_builder = TrayIconBuilder::with_id("main")
+        .icon(create_tray_image())
+        .show_menu_on_left_click(false)
+        .on_tray_icon_event(|tray, event| {
+            let TrayIconEvent::Click {
+                button,
+                button_state: MouseButtonState::Up,
+                position,
+                ..
+            } = event
+            else {
+                return;
+            };
+            let app = tray.app_handle();
+            match button {
+                MouseButton::Left => show_main_window(app),
+                MouseButton::Right => on_tray_right_click(app, position),
+                _ => {}
+            }
+        })
+        .on_menu_event(|app, event| {
+            handle_menu_event(app, event.id().as_ref());
+        });
+    #[cfg(not(target_os = "windows"))]
+    {
+        tray_builder = tray_builder.menu(&initial_menu);
+    }
+    let _tray = tray_builder.build(app.handle())?;
 
             // HTTP 服务与待执行请求的调度线程（托盘已就绪，publish_ui 能刷菜单）
             apply_http_config(app.handle());
@@ -5375,7 +5790,8 @@ pub fn run() {
             retry_http,
             kill_port_occupant,
             confirm_pending,
-            cancel_pending
+            cancel_pending,
+            present_notify_window
         ])
         .run(tauri::generate_context!())
         .expect("failed to run AnyBoot");
@@ -5592,10 +6008,27 @@ mod core_tests {
         assert_eq!(clamp_opacity(100), 100);
         assert_eq!(clamp_opacity(50), 50);
         assert_eq!(clamp_opacity(80), 80);
-        // 越界夹取（防止透明度低到看不见界面、或超过 100 变成无效值）
+        // 0 是合法值：全透明（窗口还在、还能从托盘操作），用户要的就是这个下限
         assert_eq!(clamp_opacity(0), MIN_OPACITY);
-        assert_eq!(clamp_opacity(10), MIN_OPACITY);
+        assert_eq!(clamp_opacity(1), 1);
         assert_eq!(clamp_opacity(999), MAX_OPACITY);
+    }
+
+    #[test]
+    fn notify_height_is_clamped_and_falls_back_to_nominal() {
+        // 正常量出来的高度原样用
+        assert_eq!(notify_height(Some(222.0)), 222.0);
+        // 太低会把文字裁掉 / 太高又变成「底下空一大片」，两头都夹
+        assert_eq!(notify_height(Some(10.0)), NOTIFY_MIN_HEIGHT);
+        assert_eq!(notify_height(Some(9000.0)), NOTIFY_MAX_HEIGHT);
+        assert_eq!(notify_height(Some(NOTIFY_MIN_HEIGHT)), NOTIFY_MIN_HEIGHT);
+        assert_eq!(notify_height(Some(NOTIFY_MAX_HEIGHT)), NOTIFY_MAX_HEIGHT);
+        // 量不出来（前端拿不到 layout）时退回标称高度：宁可不紧凑，也不能裁内容
+        assert_eq!(notify_height(None), NOTIFY_HEIGHT);
+        assert_eq!(notify_height(Some(0.0)), NOTIFY_HEIGHT);
+        assert_eq!(notify_height(Some(-5.0)), NOTIFY_HEIGHT);
+        assert_eq!(notify_height(Some(f64::NAN)), NOTIFY_HEIGHT);
+        assert_eq!(notify_height(Some(f64::INFINITY)), NOTIFY_HEIGHT);
     }
 
     #[test]
@@ -5647,46 +6080,36 @@ mod core_tests {
             active: false,
         }];
         let idle = BusyState::default();
-        let base = menu_signature(
-            "下次启动：Windows",
-            false,
-            &settings,
-            &variables,
-            None,
-            &idle,
-        );
+        // 监听状态是「远程控制」子菜单里的一个可见字段，这里固定住它，
+        // 让下面的断言只针对各自那一项变化。
+        let http = "正在监听 0.0.0.0:12300";
+        let signature = |message: &str,
+                         temporary_mount: bool,
+                         settings: &Settings,
+                         variables: &[VariableInfo],
+                         error: Option<&str>,
+                         busy: &BusyState| {
+            menu_signature(message, temporary_mount, settings, variables, error, busy, http)
+        };
+        let base = signature("下次启动：Windows", false, &settings, &variables, None, &idle);
         // 同内容同签名
         assert_eq!(
             base,
-            menu_signature(
-                "下次启动：Windows",
-                false,
-                &settings,
-                &variables,
-                None,
-                &idle
-            )
+            signature("下次启动：Windows", false, &settings, &variables, None, &idle)
         );
-        // 状态文案 / 临时挂载 / 错误 / 设置 / 变量选中与存在 / busy，
+        // 状态文案 / 临时挂载 / 错误 / 设置 / 变量选中与存在 / busy / 监听状态，
         // 任一变化都必须换签名，否则「内容没变就不重建菜单」会漏掉真实变更。
         assert_ne!(
             base,
-            menu_signature("已连接 rEFInd", false, &settings, &variables, None, &idle)
+            signature("已连接 rEFInd", false, &settings, &variables, None, &idle)
         );
         assert_ne!(
             base,
-            menu_signature(
-                "下次启动：Windows",
-                true,
-                &settings,
-                &variables,
-                None,
-                &idle
-            )
+            signature("下次启动：Windows", true, &settings, &variables, None, &idle)
         );
         assert_ne!(
             base,
-            menu_signature(
+            signature(
                 "下次启动：Windows",
                 false,
                 &settings,
@@ -5699,26 +6122,73 @@ mod core_tests {
         toggled.autostart = true;
         assert_ne!(
             base,
-            menu_signature(
+            signature("下次启动：Windows", false, &toggled, &variables, None, &idle)
+        );
+        // 主窗口里改「HTTP 服务 / 远程请求通知 / 远程执行延迟」，
+        // 托盘「远程控制」子菜单上的勾也必须跟着动
+        let mut http_toggled = settings.clone();
+        http_toggled.http_enabled = !http_toggled.http_enabled;
+        assert_ne!(
+            base,
+            signature(
                 "下次启动：Windows",
                 false,
-                &toggled,
+                &http_toggled,
                 &variables,
                 None,
                 &idle
+            )
+        );
+        let mut notify_toggled = settings.clone();
+        notify_toggled.notify_enabled = !notify_toggled.notify_enabled;
+        assert_ne!(
+            base,
+            signature(
+                "下次启动：Windows",
+                false,
+                &notify_toggled,
+                &variables,
+                None,
+                &idle
+            )
+        );
+        let mut delay_changed = settings.clone();
+        delay_changed.channels.http.delay_seconds += 3;
+        assert_ne!(
+            base,
+            signature(
+                "下次启动：Windows",
+                false,
+                &delay_changed,
+                &variables,
+                None,
+                &idle
+            )
+        );
+        // 监听状态本身变了（服务起来/停了）也要换签名
+        assert_ne!(
+            base,
+            menu_signature(
+                "下次启动：Windows",
+                false,
+                &settings,
+                &variables,
+                None,
+                &idle,
+                "未监听（服务已关闭）"
             )
         );
         let mut active = variables.clone();
         active[0].active = true;
         assert_ne!(
             base,
-            menu_signature("下次启动：Windows", false, &settings, &active, None, &idle)
+            signature("下次启动：Windows", false, &settings, &active, None, &idle)
         );
         let mut missing = variables.clone();
         missing[0].exists = false;
         assert_ne!(
             base,
-            menu_signature("下次启动：Windows", false, &settings, &missing, None, &idle)
+            signature("下次启动：Windows", false, &settings, &missing, None, &idle)
         );
         // 长动作进行中菜单项要变灰 → 必须进指纹，否则置灰不会生效
         let power = BusyState {
@@ -5727,14 +6197,7 @@ mod core_tests {
         };
         assert_ne!(
             base,
-            menu_signature(
-                "下次启动：Windows",
-                false,
-                &settings,
-                &variables,
-                None,
-                &power
-            )
+            signature("下次启动：Windows", false, &settings, &variables, None, &power)
         );
         // 扫描不进指纹：它太快，不值得为它把「每扫描一次重建一次菜单」变成两次
         let scanning = BusyState {
@@ -5743,14 +6206,7 @@ mod core_tests {
         };
         assert_eq!(
             base,
-            menu_signature(
-                "下次启动：Windows",
-                false,
-                &settings,
-                &variables,
-                None,
-                &scanning
-            )
+            signature("下次启动：Windows", false, &settings, &variables, None, &scanning)
         );
     }
 
@@ -5855,6 +6311,8 @@ mod core_tests {
         // 否则托盘上那一项点了等于没点（阶段 1 修掉的真实 bug）。
         for (id, expected) in [
             ("show".to_string(), MenuAction::Show),
+            // 顶部「下次启动：X」那一行的 id
+            ("next-boot".to_string(), MenuAction::Show),
             ("refresh".to_string(), MenuAction::Refresh),
             (
                 "unmount-temporary".to_string(),
@@ -6507,6 +6965,20 @@ mod core_tests {
         assert!(unknown.display().contains("777"));
         assert!(unknown.display().contains("拿不到进程名"));
 
+        // 占着端口的是**我们自己**：文案不能再说是「另一个实例」（用户会去找一个
+        // 不存在的进程），也不能给出「结束自己」的命令。
+        let itself = PortOccupant {
+            pid: 34792,
+            name: "anyboot.exe".to_string(),
+            is_self: true,
+            same_app: true,
+        };
+        let message = itself.display();
+        assert!(message.contains("本程序自己占着") && message.contains("34792"));
+        assert!(!message.contains("另一个实例"));
+        assert_eq!(itself.kill_hint(), None);
+        assert_eq!(itself.to_view().kill_hint, None);
+
         // 视图转换把文案与命令一起带出去
         let view = foreign.to_view();
         assert_eq!(view.pid, 29220);
@@ -6537,6 +7009,27 @@ mod core_tests {
     }
 
     #[test]
+    fn tray_status_line_does_not_repeat_the_next_boot_line() {
+        // 扫描成功后 message == 「下次启动：X」→ 不再单独摆一行（用户报的重复）
+        assert_eq!(menu_status_line("下次启动：Windows", "下次启动：Windows"), None);
+        assert_eq!(menu_status_line("  下次启动：Windows  ", "下次启动：Windows"), None);
+        // 空文案不摆行
+        assert_eq!(menu_status_line("", "下次启动：Windows"), None);
+        assert_eq!(menu_status_line("   ", "下次启动：Windows"), None);
+        // 额外信息（错误 / 临时操作结果）才单独一行，且去掉首尾空白
+        assert_eq!(
+            menu_status_line("无法读取 PreviousBoot", "下次启动：Windows"),
+            Some("无法读取 PreviousBoot")
+        );
+        assert_eq!(
+            menu_status_line("  监听已重启：0.0.0.0:12300 ", "下次启动：Windows"),
+            Some("监听已重启：0.0.0.0:12300")
+        );
+        // 顶部是「未知」时同理
+        assert_eq!(menu_status_line("下次启动：未知", "下次启动：未知"), None);
+    }
+
+    #[test]
     fn remote_command_summaries_read_like_sentences() {
         assert_eq!(
             RemoteCommand::Switch("linux".to_string()).summary(),
@@ -6552,5 +7045,55 @@ mod core_tests {
         }
         .summary();
         assert!(summary.contains("Windows") && summary.contains(PowerAction::Sleep.label()));
+    }
+
+    #[test]
+    fn http_state_text_covers_every_listening_outcome() {
+        assert_eq!(
+            http_state_text(true, Some("0.0.0.0:12300"), None, true),
+            "正在监听 0.0.0.0:12300"
+        );
+        // 有错误优先说错误：用户最需要知道的是「为什么没起来」
+        assert_eq!(
+            http_state_text(false, None, Some("端口被占用"), true),
+            "未监听：端口被占用"
+        );
+        assert_eq!(
+            http_state_text(false, None, None, true),
+            "未监听（服务已关闭）"
+        );
+        assert_eq!(
+            http_state_text(false, None, None, false),
+            "未监听（token 为空，服务不会启动）"
+        );
+    }
+
+    #[test]
+    fn menu_status_text_truncates_long_errors() {
+        assert_eq!(
+            menu_status_text("正在监听 0.0.0.0:12300", 32),
+            "正在监听 0.0.0.0:12300"
+        );
+        // 短于上限的按原样显示（按字符数算，不是字节数：中文一个字算一个）
+        assert_eq!(menu_status_text("未监听", 3), "未监听");
+        assert_eq!(menu_status_text("未监听", 2), "未监…");
+        assert_eq!(menu_status_text("", 4), "");
+    }
+
+    #[test]
+    fn check_mark_image_is_an_opaque_green_glyph() {
+        let rgba = check_mark_rgba();
+        assert_eq!(rgba.len(), (CHECK_MARK_SIZE * CHECK_MARK_SIZE * 4) as usize);
+        // 有实心像素（勾画出来了），也有完全透明的像素（不是一整块色块）
+        let opaque = rgba.chunks_exact(4).filter(|pixel| pixel[3] > 200).count();
+        let transparent = rgba.chunks_exact(4).filter(|pixel| pixel[3] == 0).count();
+        assert!(opaque > 20, "绿色像素太少: {opaque}");
+        assert!(transparent > 100, "透明像素太少: {transparent}");
+        // 颜色是主界面那个绿（--ok）
+        let first = rgba
+            .chunks_exact(4)
+            .find(|pixel| pixel[3] > 200)
+            .expect("应有实心像素");
+        assert_eq!(&first[..3], &[0x46, 0xc4, 0x6e]);
     }
 }

@@ -30,8 +30,8 @@
         <label for="vars-dir">变量目录</label>
         <input id="vars-dir" placeholder="留空则自动扫描 EFI/refind/vars" spellcheck="false" type="text" />
         <div class="actions">
-          <button id="use-directory" type="button">使用此目录</button>
           <button class="secondary" id="open-vars-dir" type="button">打开变量目录</button>
+          <button id="use-directory" type="button">使用此目录</button>
           <button class="secondary hidden" id="unmount-temporary" type="button">卸载临时挂载</button>
           <button class="secondary" id="refresh" type="button">扫描</button>
         </div>
@@ -88,7 +88,7 @@
             <small id="opacity-state">100%（拖动即时预览）</small>
           </span>
           <span class="remote-inline">
-            <input id="opacity" max="100" min="50" step="5" type="range" value="100" />
+            <input id="opacity" max="100" min="0" step="5" type="range" value="100" />
           </span>
         </div>
         <p id="settings-message" role="status"></p>
@@ -186,7 +186,7 @@
         </div>
         <div class="remote-hint">
           <strong>远程怎么调</strong>
-          <small>下面这段默认就展开、含明文 token（注意旁人视线）；想换 token 见上面的「访问令牌」</small>
+          <small>下面这段默认就展开、含明文 token（注意旁人视线）；上面的令牌 / 地址 / 端口一改，这里立刻同步</small>
           <pre id="http-hint">点「复制命令」拿含 token 的可直接执行示例（含 ssh 用法）</pre>
           <div class="actions">
             <button class="secondary" id="http-hint-copy" type="button">复制命令</button>
