@@ -533,9 +533,7 @@ fn print_grub_list(body: &str) -> bool {
     match value.get("uuid").and_then(|value| value.as_str()) {
         Some(uuid) if !uuid.is_empty() => println!("ESP fs-uuid: {uuid}"),
         _ => {
-            eprintln!(
-                "还没设置 ESP 的 fs-uuid：请先在应用主窗口的「GRUB 启动项」里填写并保存"
-            );
+            eprintln!("还没设置 ESP 的 fs-uuid：请先在应用主窗口的「GRUB 启动项」里填写并保存");
             return false;
         }
     }
@@ -733,7 +731,11 @@ fn run_grub_locally(
                 println!(
                     "  {} {}{}",
                     if entry.selector == active { "*" } else { " " },
-                    if entry.submenu.is_some() { "  ↳ " } else { "" },
+                    if entry.submenu.is_some() {
+                        "  ↳ "
+                    } else {
+                        ""
+                    },
                     if entry.name.is_empty() {
                         entry.selector.as_str()
                     } else {
@@ -747,8 +749,7 @@ fn run_grub_locally(
 
     if let Some(selector) = parsed.switch_grub.as_deref() {
         if !scan.entries.iter().any(|entry| entry.selector == selector) {
-            let message =
-                format!("grub.cfg 里没有这一项：{selector}（先用 --grub-list 看可选项）");
+            let message = format!("grub.cfg 里没有这一项：{selector}（先用 --grub-list 看可选项）");
             scan.release();
             return Err(finish_error(
                 config,
@@ -1016,8 +1017,8 @@ mod tests {
         assert!(parsed.grub_list && parsed.switch_grub.is_none());
 
         // selector 里有空格也照收（含 submenu 的 `>` 形态）
-        let parsed =
-            parse_args(&args(&["--switch-grub", "Arch Linux, with Linux linux"])).expect("应能解析");
+        let parsed = parse_args(&args(&["--switch-grub", "Arch Linux, with Linux linux"]))
+            .expect("应能解析");
         assert_eq!(
             parsed.switch_grub.as_deref(),
             Some("Arch Linux, with Linux linux")
@@ -1042,7 +1043,10 @@ mod tests {
             parse_args(&args(&["--port", "0", "--status"])).is_err(),
             "端口 0 不行"
         );
-        assert!(parse_args(&args(&["--switch-grub"])).is_err(), "缺 selector");
+        assert!(
+            parse_args(&args(&["--switch-grub"])).is_err(),
+            "缺 selector"
+        );
         assert!(
             parse_args(&args(&["--switch-grub", "   "])).is_err(),
             "空白 selector 等于没给"

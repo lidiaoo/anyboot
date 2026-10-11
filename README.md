@@ -512,12 +512,15 @@ curl -s -X POST -H "X-Auth-Token: <token>" \
 
 ## 权限说明
 
-写入 ESP 里的 rEFInd 变量文件需要管理员/root 权限。
+写入 ESP 里的 rEFInd 变量文件（`PreviousBoot-*`）与 GRUB 的 `grub.cfg`／`grubenv` 需要管理员/root 权限。
 
 - **Windows**：请以管理员身份运行应用（开发时也要在管理员终端执行 `npm run tauri dev`）。
-- **Linux**：默认以普通用户运行。ESP 未挂载时会通过 `pkexec` 弹系统授权并临时挂载（挂载选项绑定到实际登录用户）；已挂载且可写时不要求 root。
+- **Linux**：默认以普通用户运行。
+  - ESP 未挂载时会通过 `pkexec` 弹系统授权并临时挂载（挂载选项绑定到实际登录用户）。这样挂上来的 ESP 属主就是当前用户，读写都不再需要 root。
+  - **ESP 已被系统挂在 `/boot/efi` 时**（fstab 挂的 vfat 属主是 root、`dmask=0022` → 普通用户建不了文件），或者 **`/boot/grub/grub.cfg` 是 root 私有的**（`grub-mkconfig` 自己 `umask 077`，刻意写成 `0600` → 普通用户连读都读不到），这两件事普通用户做不到。此时「同步」与「切换 GRUB 启动项」会走一次 `pkexec install` 由 root 完成，**弹一次授权框**；同一份 `grub.cfg` 不会重复弹 —— ESP 上副本的 size/mtime 一对上就跳过（`install -p` 会把源的 mtime 带过去）。
+  - 想完全不弹框：把 ESP 预挂载成当前用户可写（fstab 加 `uid=<你>,gid=<你>`），或装 `linux/anyboot-grub-setup.sh`（`anyboot-grub-export.{path,service}`，由 root 在 `grub.cfg` 变化时自动镜像到 ESP）。
 - **macOS**：ESP 未挂载时需要先用系统工具挂载，或在主窗口指定已挂载的变量目录。
-- **远程/CLI**：默认不弹本机授权框，遇到必须授权的情况直接失败（见 [远程需要“本机授权”时怎么办](#远程需要本机授权时怎么办)）。
+- **远程/CLI**：默认不弹本机授权框，遇到必须授权的情况直接失败（见 [远程需要“本机授权”时怎么办](#远程需要本机授权时怎么办)）。远程请求执行期间**一步都不会弹框**（写 ESP / 同步 grub.cfg 也一样）：需要 root 的那一步直接失败并说明「请在目标机主窗口点一次「同步」，或打开 `remoteAllowGuiAuth`」。
 
 > Linux GNOME 默认没有传统托盘。托盘图标不显示时需启用支持 StatusNotifierItem 的扩展，或直接用主窗口。Linux AppIndicator 不区分托盘左键/右键：主窗口通过托盘菜单里的「显示主窗口」打开；Windows/macOS 支持左键打开主窗口、右键弹菜单。
 >

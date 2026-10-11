@@ -10,390 +10,437 @@
     <!-- 贴边隐藏时，窗口贴在屏幕某条边只露一条缝：这条小白条就是那道缝，
          提示用户「鼠标移到这儿就能把窗口展开」。只在不停靠时由 JS 加类显示。 -->
     <div id="dock-strip"></div>
-    <main>
-      <header>
-        <h1>AnyBoot</h1>
-        <p id="status">正在扫描 rEFInd 变量目录…</p>
-      </header>
+    <!-- 单窗口双栏：左栏 = 原主窗口的全部元素，右栏 = GRUB 专属区。
+         两栏等宽（flex 基准都是 0），中间用一条纯空白长条隔开 —— 宽度取原来
+         两个独立窗口之间那条桌面缝隙的 12px，所以窗口总宽 932 = 460 + 12 + 460，
+         和以前主窗 + GRUB 窗并排占的总宽度一致。
+         展示模式 ③④ 时两栏各自一个滚动容器（左 = <main>，右 = .pane-body），
+         滚动条互不影响；模式 ①② 右栏隐藏、左栏独占整窗。 -->
+    <div class="app-columns">
+      <!-- 左栏：原主窗口的全部内容，GRUB 那一整块搬到右栏去了 -->
+      <main class="pane pane-main">
+        <header>
+          <h1>AnyBoot</h1>
+          <p id="status">正在扫描 rEFInd 变量目录…</p>
+        </header>
 
-      <section aria-label="下次启动" class="next-boot" id="next-boot">
-        <small>下次启动</small>
-        <strong id="next-boot-name">未知</strong>
-      </section>
+        <section aria-label="下次启动" class="next-boot" id="next-boot">
+          <small>下次启动</small>
+          <strong id="next-boot-name">未知</strong>
+        </section>
 
-      <!-- 电源操作摆在最上面、系统列表之上：先选系统再选动作，视线不用往下找 -->
-      <section aria-label="电源操作" class="system-actions">
-        <button class="secondary" id="power-reboot" type="button">重启系统</button>
-        <button class="secondary" id="power-shutdown" type="button">关机</button>
-        <button class="secondary" id="power-sleep" type="button">睡眠</button>
-      </section>
+        <!-- 电源操作摆在最上面、系统列表之上：先选系统再选动作，视线不用往下找 -->
+        <section aria-label="电源操作" class="system-actions">
+          <button class="secondary" id="power-reboot" type="button">重启系统</button>
+          <button class="secondary" id="power-shutdown" type="button">关机</button>
+          <button class="secondary" id="power-sleep" type="button">睡眠</button>
+        </section>
 
-      <section aria-label="可启动系统" id="systems"></section>
+        <section aria-label="可启动系统" id="systems"></section>
+        <section aria-label="GRUB 启动项" class="grub" id="grub">
+          <div class="grub-head">
+            <h2>GRUB 启动项</h2>
+            <small class="grub-pane-status" id="grub-status" role="status"></small>
+            <small id="grub-meta"></small>
+          </div>
 
-      <!-- GRUB 细粒度切换：和上面三个系统是**并列**的两套机制 ——
-           上面走 rEFInd 的 PreviousBoot，这里走 GRUB 自己的环境块(grubenv)。
-           填了 ESP 的 fs-uuid 才会列出 grub.cfg 里的启动项。 -->
-      <section aria-label="GRUB 启动项" class="grub" id="grub">
-        <div class="grub-head">
-          <h2>GRUB 启动项</h2>
-          <small id="grub-meta"></small>
-        </div>
+          <!-- 当前选中的启动项：级联 = 父级小字 › 子级大字 -->
+          <div class="grub-active" id="grub-active"></div>
 
-        <!-- 当前选中的启动项：三种展示方式都显示（级联 = 父级小字 › 子级大字） -->
-        <div class="grub-active" id="grub-active"></div>
+          <!-- 展示方式：① 内嵌 ② 加宽内嵌 ③ 加宽+列表独占右栏 ④ 加宽+GRUB 全在右栏。
+               切换由后端落盘并调整窗口宽度；前端按模式把 GRUB 区块搬进/搬出右栏。 -->
+          <div class="grub-row" id="grub-mode-row">
+            <label for="grub-view-mode">展示方式</label>
+            <select id="grub-view-mode">
+              <option value="inline">内嵌列表</option>
+              <option value="wide">加宽窗口展示</option>
+              <option value="list">列表独立区域</option>
+              <option value="pane">GRUB 独立区域</option>
+            </select>
+          </div>
 
-        <!-- 列表展示方式：内嵌 / 加宽主窗口 / 独立窗口（位置跟随主界面）。
-             切换由后端落盘并调整窗口形态；关掉独立窗口会自动退回内嵌。 -->
-        <div class="grub-row">
-          <label for="grub-view-mode">列表展示</label>
-          <select id="grub-view-mode">
-            <option value="inline">内嵌列表</option>
-            <option value="wide">加宽主窗口展示</option>
-            <option value="window">独立窗口（跟随主界面）</option>
-          </select>
-        </div>
-        <small class="grub-window-note hidden" id="grub-window-note">
-          列表已在独立窗口中显示，位置跟随主界面；关掉独立窗口会自动回到内嵌
-        </small>
+          <!-- 先给目录、点「识别」——自动判断是不是 FAT32 并从中取出 fs-uuid；
+               也可以什么都不给、只手工填下面的 fs-uuid，两种方式等价。 -->
+          <div class="grub-row">
+            <label for="grub-dir">ESP 目录</label>
+            <input
+              id="grub-dir"
+              placeholder="H:\ 或 /boot/efi 或 /Volumes/ARCH-EFI（分区里任意路径都行）"
+              spellcheck="false"
+              type="text"
+            />
+            <button class="secondary" id="grub-dir-detect" type="button">识别</button>
+            <button class="secondary" id="grub-dir-open" type="button">
+              打开文件管理器
+            </button>
+          </div>
 
-        <!-- 先给目录、点「识别」——自动判断是不是 FAT32 并从中取出 fs-uuid；
-             也可以什么都不给、只手工填下面的 fs-uuid，两种方式等价。 -->
-        <div class="grub-row">
-          <label for="grub-dir">ESP 目录</label>
-          <input
-            id="grub-dir"
-            placeholder="H:\ 或 /boot/efi 或 /Volumes/ARCH-EFI（分区里任意路径都行）"
-            spellcheck="false"
-            type="text"
-          />
-          <button class="secondary" id="grub-dir-detect" type="button">识别</button>
-          <button class="secondary" id="grub-dir-open" type="button">
-            打开文件管理器
-          </button>
-        </div>
+          <div class="grub-row">
+            <label class="grub-check" for="grub-mount">
+              <input id="grub-mount" type="checkbox" />
+              <span id="grub-mount-label">挂载 ESP（勾上后可直接读写）</span>
+            </label>
+            <small class="grub-part" id="grub-part"></small>
+          </div>
 
-        <div class="grub-row">
-          <label class="grub-check" for="grub-mount">
-            <input id="grub-mount" type="checkbox" />
-            <span id="grub-mount-label">挂载 ESP（勾上后可直接读写）</span>
+          <div class="grub-row">
+            <label for="grub-uuid">ESP 的 fs-uuid</label>
+            <input
+              id="grub-uuid"
+              placeholder="例如 E537-7F31（就是 GRUB 的 search --fs-uuid 那串）"
+              spellcheck="false"
+              type="text"
+            />
+            <button class="secondary" id="grub-uuid-save" type="button">保存</button>
+            <button class="secondary" id="grub-sync" type="button">同步</button>
+          </div>
+
+          <p class="grub-hint" id="grub-hint"></p>
+          <p class="grub-error hidden" id="grub-error" role="status"></p>
+
+          <div class="grub-list" id="grub-list"></div>
+
+          <!-- 安装 / 卸载 09_anyboot：只在 Linux 上出现 -->
+          <div class="actions hidden" id="grub-install-actions">
+            <button class="secondary" id="grub-install" type="button">
+              安装 09_anyboot
+            </button>
+            <button class="secondary" id="grub-uninstall" type="button">
+              卸载 09_anyboot
+            </button>
+          </div>
+          <!-- 安装 / 卸载的执行过程：跑了哪几条命令、退出码多少、stderr 说了什么 -->
+          <details class="grub-log hidden" id="grub-log-box">
+            <summary id="grub-log-summary">执行过程</summary>
+            <pre id="grub-log"></pre>
+          </details>
+
+          <details class="grub-script">
+            <summary>查看 / 修改内置脚本（09_anyboot）</summary>
+            <small
+              >安装时只把 <code>@@ESP_UUID@@</code> 换成上面填的 fs-uuid，其余按这里的正文来；
+              清空后保存 = 恢复内置模板</small
+            >
+            <textarea id="grub-script" rows="8" spellcheck="false"></textarea>
+            <div class="actions">
+              <button class="secondary" id="grub-script-save" type="button">
+                保存脚本
+              </button>
+              <button class="secondary" id="grub-script-reset" type="button">
+                恢复内置
+              </button>
+            </div>
+          </details>
+        </section>
+
+
+        <section class="directory">
+          <label for="vars-dir">变量目录</label>
+          <input id="vars-dir" placeholder="留空则自动扫描 EFI/refind/vars" spellcheck="false" type="text" />
+          <div class="actions">
+            <button class="secondary" id="open-vars-dir" type="button">打开变量目录</button>
+            <button id="use-directory" type="button">使用此目录</button>
+            <button class="secondary hidden" id="unmount-temporary" type="button">卸载临时挂载</button>
+            <button class="secondary" id="refresh" type="button">扫描</button>
+          </div>
+        </section>
+
+        <section aria-label="应用设置" class="settings">
+          <h2>应用设置</h2>
+          <label class="setting">
+            <span class="setting-text">
+              <strong>开机启动</strong>
+              <small>登录系统后自动启动，常驻托盘待命</small>
+              <small class="setting-state" id="autostart-state"></small>
+            </span>
+            <input id="autostart" type="checkbox" />
           </label>
-          <small class="grub-part" id="grub-part"></small>
-        </div>
-
-        <div class="grub-row">
-          <label for="grub-uuid">ESP 的 fs-uuid</label>
-          <input
-            id="grub-uuid"
-            placeholder="例如 E537-7F31（就是 GRUB 的 search --fs-uuid 那串）"
-            spellcheck="false"
-            type="text"
-          />
-          <button class="secondary" id="grub-uuid-save" type="button">保存</button>
-          <button class="secondary" id="grub-sync" type="button">同步</button>
-        </div>
-
-        <p class="grub-hint" id="grub-hint"></p>
-        <p class="grub-error hidden" id="grub-error" role="status"></p>
-
-        <div class="grub-list" id="grub-list"></div>
-
-        <!-- 安装 / 卸载 09_anyboot：只在 Linux 上出现 -->
-        <div class="actions hidden" id="grub-install-actions">
-          <button class="secondary" id="grub-install" type="button">
-            安装 09_anyboot
+          <label class="setting">
+            <span class="setting-text">
+              <strong>启动时隐藏主界面</strong>
+              <small>启动后不直接打开主菜单，仅显示在托盘</small>
+            </span>
+            <input id="start-in-tray" type="checkbox" />
+          </label>
+          <label class="setting">
+            <span class="setting-text">
+              <strong>贴边自动隐藏</strong>
+              <small>鼠标离开后主窗口贴到最近的屏幕边，只露一条边条；悬停边条再展开</small>
+            </span>
+            <input id="main-auto-hide" type="checkbox" />
+          </label>
+          <label class="setting">
+            <span class="setting-text">
+              <strong>贴边触发距离</strong>
+              <small>主窗口距屏幕边框不超过该像素值、且鼠标离开窗口时才隐藏（0–200，越大越灵敏）</small>
+            </span>
+            <input id="main-auto-hide-edge-distance" type="number" min="0" max="200" step="1" />
+          </label>
+          <div class="setting">
+            <span class="setting-text">
+              <strong>贴边白条厚度</strong>
+              <small id="main-dock-strip-thickness-state">6px（拖动即时预览）</small>
+            </span>
+            <span class="remote-inline">
+              <input id="main-dock-strip-thickness" type="range" min="2" max="40" step="1" value="6" />
+            </span>
+          </div>
+          <div class="setting">
+            <span class="setting-text">
+              <strong>贴边白条长度</strong>
+              <small id="main-dock-strip-length-state">100%（主窗那条边长的百分比）</small>
+            </span>
+            <span class="remote-inline">
+              <input id="main-dock-strip-length" type="range" min="10" max="100" step="5" value="100" />
+            </span>
+          </div>
+          <div class="setting">
+            <span class="setting-text">
+              <strong>贴边白条不透明度</strong>
+              <small id="main-dock-strip-opacity-state">100%（拖动即时预览）</small>
+            </span>
+            <span class="remote-inline">
+              <input id="main-dock-strip-opacity" type="range" min="10" max="100" step="5" value="100" />
+            </span>
+          </div>
+          <div class="setting">
+            <span class="setting-text">
+              <strong>贴边白条颜色</strong>
+              <small>点开调色板选一个色调，即时预览</small>
+            </span>
+            <span class="remote-inline">
+              <input id="main-dock-strip-color" type="color" value="#ffffff" />
+            </span>
+          </div>
+          <label class="setting">
+            <span class="setting-text">
+              <strong>固定显示位置</strong>
+              <small>屏幕中间=每次显示都居中；上次位置=记住你最后一次摆放的位置；自由=可随意拖动</small>
+            </span>
+            <select id="main-window-position">
+              <option value="free">自由拖动</option>
+              <option value="center">屏幕中间</option>
+              <option value="last">上次位置</option>
+            </select>
+          </label>
+          <div class="setting">
+            <span class="setting-text">
+              <strong>重置位置</strong>
+              <small>把主窗口立即放回屏幕正中央（在「上次位置」模式下也会记忆这个中心点为新的落点）</small>
+            </span>
+            <button class="secondary" id="reset-main-window-position" type="button">重置到屏幕中央</button>
+          </div>
+          <div class="setting">
+            <span class="setting-text">
+              <strong>窗口宽度</strong>
+              <small id="window-size-width-state">460px（拖动实时调整窗口）</small>
+            </span>
+            <span class="remote-inline">
+              <input id="window-size-width" type="range" min="360" max="1600" step="4" value="460" />
+            </span>
+          </div>
+          <div class="setting">
+            <span class="setting-text">
+              <strong>窗口高度</strong>
+              <small id="window-size-height-state">900px（拖动实时调整窗口）</small>
+            </span>
+            <span class="remote-inline">
+              <input id="window-size-height" type="range" min="560" max="1200" step="4" value="900" />
+            </span>
+          </div>
+          <label class="setting">
+            <span class="setting-text">
+              <strong>锁定窗口大小</strong>
+              <small>锁定后不能拖拽窗口边框改变大小、也不能最大化；上面的宽高滑条同时停用（双向实时生效）</small>
+            </span>
+            <input id="window-size-locked" type="checkbox" />
+          </label>
+          <label class="setting">
+            <span class="setting-text">
+              <strong>隐藏程序（任务栏/Dock）</strong>
+              <small>Linux/Windows 不显示任务栏图标，macOS 不显示 Dock 图标</small>
+            </span>
+            <input id="hide-from-dock-taskbar" type="checkbox" />
+          </label>
+          <div class="setting">
+            <span class="setting-text">
+              <strong>点击窗口 ❌ 时</strong>
+              <small>可在托盘菜单「显示主窗口」中重新打开</small>
+            </span>
+            <select id="close-action">
+              <option value="tray">最小化到托盘</option>
+              <option value="quit">退出程序</option>
+            </select>
+          </div>
+          <div class="setting">
+            <span class="setting-text">
+              <strong>界面主题</strong>
+              <small>暗色 / 亮色 / 跟随系统</small>
+            </span>
+            <select id="theme">
+              <option value="dark">暗色</option>
+              <option value="light">亮色</option>
+              <option value="system">跟随系统</option>
+            </select>
+          </div>
+          <div class="setting">
+            <span class="setting-text">
+              <strong>主题色调</strong>
+              <small>点开调色板选强调色，按钮/链接跟着变色（主窗口和 GRUB 窗口同步）</small>
+            </span>
+            <span class="remote-inline">
+              <input id="accent-color" type="color" value="#2f7fe0" />
+            </span>
+          </div>
+          <div class="setting">
+            <span class="setting-text">
+              <strong>窗口不透明度</strong>
+              <small id="opacity-state">100%（拖动即时预览）</small>
+            </span>
+            <span class="remote-inline">
+              <input id="opacity" max="100" min="0" step="5" type="range" value="100" />
+            </span>
+          </div>
+          <button class="link hidden" id="login-items" type="button">
+            打开「登录项与扩展」设置
           </button>
-          <button class="secondary" id="grub-uninstall" type="button">
-            卸载 09_anyboot
-          </button>
-        </div>
-        <!-- 安装 / 卸载的执行过程：跑了哪几条命令、退出码多少、stderr 说了什么 -->
-        <details class="grub-log hidden" id="grub-log-box">
-          <summary id="grub-log-summary">执行过程</summary>
-          <pre id="grub-log"></pre>
-        </details>
+        </section>
 
-        <details class="grub-script">
-          <summary>查看 / 修改内置脚本（09_anyboot）</summary>
-          <small
-            >安装时只把 <code>@@ESP_UUID@@</code> 换成上面填的 fs-uuid，其余按这里的正文来；
-            清空后保存 = 恢复内置模板</small
-          >
-          <textarea id="grub-script" rows="8" spellcheck="false"></textarea>
-          <div class="actions">
-            <button class="secondary" id="grub-script-save" type="button">
-              保存脚本
-            </button>
-            <button class="secondary" id="grub-script-reset" type="button">
-              恢复内置
-            </button>
+        <section aria-label="远程控制" class="settings" id="remote">
+          <h2>远程控制</h2>
+          <div class="setting">
+            <span class="setting-text">
+              <strong>HTTP 服务</strong>
+              <small class="setting-state" id="http-state">正在读取…</small>
+            </span>
+            <input id="http-enabled" type="checkbox" />
           </div>
-        </details>
-      </section>
-
-      <section class="directory">
-        <label for="vars-dir">变量目录</label>
-        <input id="vars-dir" placeholder="留空则自动扫描 EFI/refind/vars" spellcheck="false" type="text" />
-        <div class="actions">
-          <button class="secondary" id="open-vars-dir" type="button">打开变量目录</button>
-          <button id="use-directory" type="button">使用此目录</button>
-          <button class="secondary hidden" id="unmount-temporary" type="button">卸载临时挂载</button>
-          <button class="secondary" id="refresh" type="button">扫描</button>
-        </div>
-      </section>
-
-      <section aria-label="应用设置" class="settings">
-        <h2>应用设置</h2>
-        <label class="setting">
-          <span class="setting-text">
-            <strong>开机启动</strong>
-            <small>登录系统后自动启动，常驻托盘待命</small>
-            <small class="setting-state" id="autostart-state"></small>
-          </span>
-          <input id="autostart" type="checkbox" />
-        </label>
-        <label class="setting">
-          <span class="setting-text">
-            <strong>启动时隐藏主界面</strong>
-            <small>启动后不直接打开主菜单，仅显示在托盘</small>
-          </span>
-          <input id="start-in-tray" type="checkbox" />
-        </label>
-        <label class="setting">
-          <span class="setting-text">
-            <strong>贴边自动隐藏</strong>
-            <small>鼠标离开后主窗口贴到最近的屏幕边，只露一条边条；悬停边条再展开</small>
-          </span>
-          <input id="main-auto-hide" type="checkbox" />
-        </label>
-        <label class="setting">
-          <span class="setting-text">
-            <strong>贴边触发距离</strong>
-            <small>主窗口距屏幕边框不超过该像素值、且鼠标离开窗口时才隐藏（0–200，越大越灵敏）</small>
-          </span>
-          <input id="main-auto-hide-edge-distance" type="number" min="0" max="200" step="1" />
-        </label>
-        <div class="setting">
-          <span class="setting-text">
-            <strong>贴边白条厚度</strong>
-            <small id="main-dock-strip-thickness-state">6px（拖动即时预览）</small>
-          </span>
-          <span class="remote-inline">
-            <input id="main-dock-strip-thickness" type="range" min="2" max="40" step="1" value="6" />
-          </span>
-        </div>
-        <div class="setting">
-          <span class="setting-text">
-            <strong>贴边白条长度</strong>
-            <small id="main-dock-strip-length-state">100%（主窗那条边长的百分比）</small>
-          </span>
-          <span class="remote-inline">
-            <input id="main-dock-strip-length" type="range" min="10" max="100" step="5" value="100" />
-          </span>
-        </div>
-        <div class="setting">
-          <span class="setting-text">
-            <strong>贴边白条不透明度</strong>
-            <small id="main-dock-strip-opacity-state">100%（拖动即时预览）</small>
-          </span>
-          <span class="remote-inline">
-            <input id="main-dock-strip-opacity" type="range" min="10" max="100" step="5" value="100" />
-          </span>
-        </div>
-        <div class="setting">
-          <span class="setting-text">
-            <strong>贴边白条颜色</strong>
-            <small>点开调色板选一个色调，即时预览</small>
-          </span>
-          <span class="remote-inline">
-            <input id="main-dock-strip-color" type="color" value="#ffffff" />
-          </span>
-        </div>
-        <label class="setting">
-          <span class="setting-text">
-            <strong>固定显示位置</strong>
-            <small>屏幕中间=每次显示都居中；上次位置=记住你最后一次摆放的位置；自由=可随意拖动</small>
-          </span>
-          <select id="main-window-position">
-            <option value="free">自由拖动</option>
-            <option value="center">屏幕中间</option>
-            <option value="last">上次位置</option>
-          </select>
-        </label>
-        <div class="setting">
-          <span class="setting-text">
-            <strong>重置位置</strong>
-            <small>把主窗口立即放回屏幕正中央（在「上次位置」模式下也会记忆这个中心点为新的落点）</small>
-          </span>
-          <button class="secondary" id="reset-main-window-position" type="button">重置到屏幕中央</button>
-        </div>
-        <label class="setting">
-          <span class="setting-text">
-            <strong>隐藏程序（任务栏/Dock）</strong>
-            <small>Linux/Windows 不显示任务栏图标，macOS 不显示 Dock 图标</small>
-          </span>
-          <input id="hide-from-dock-taskbar" type="checkbox" />
-        </label>
-        <div class="setting">
-          <span class="setting-text">
-            <strong>点击窗口 ❌ 时</strong>
-            <small>可在托盘菜单「显示主窗口」中重新打开</small>
-          </span>
-          <select id="close-action">
-            <option value="tray">最小化到托盘</option>
-            <option value="quit">退出程序</option>
-          </select>
-        </div>
-        <div class="setting">
-          <span class="setting-text">
-            <strong>界面主题</strong>
-            <small>暗色 / 亮色 / 跟随系统</small>
-          </span>
-          <select id="theme">
-            <option value="dark">暗色</option>
-            <option value="light">亮色</option>
-            <option value="system">跟随系统</option>
-          </select>
-        </div>
-        <div class="setting">
-          <span class="setting-text">
-            <strong>主题色调</strong>
-            <small>点开调色板选强调色，按钮/链接跟着变色（主窗口和 GRUB 窗口同步）</small>
-          </span>
-          <span class="remote-inline">
-            <input id="accent-color" type="color" value="#2f7fe0" />
-          </span>
-        </div>
-        <div class="setting">
-          <span class="setting-text">
-            <strong>窗口不透明度</strong>
-            <small id="opacity-state">100%（拖动即时预览）</small>
-          </span>
-          <span class="remote-inline">
-            <input id="opacity" max="100" min="0" step="5" type="range" value="100" />
-          </span>
-        </div>
-        <button class="link hidden" id="login-items" type="button">
-          打开「登录项与扩展」设置
-        </button>
-      </section>
-
-      <section aria-label="远程控制" class="settings" id="remote">
-        <h2>远程控制</h2>
-        <div class="setting">
-          <span class="setting-text">
-            <strong>HTTP 服务</strong>
-            <small class="setting-state" id="http-state">正在读取…</small>
-          </span>
-          <input id="http-enabled" type="checkbox" />
-        </div>
-        <div class="setting">
-          <span class="setting-text">
-            <strong>监听地址 / 端口</strong>
-            <small>默认 0.0.0.0:12300；改成 127.0.0.1 则只能本机或 SSH 隧道访问</small>
-          </span>
-          <span class="remote-inline">
-            <input id="http-bind" spellcheck="false" type="text" />
-            <input id="http-port" inputmode="numeric" spellcheck="false" type="text" />
-            <button class="secondary" id="http-apply" type="button">应用</button>
-          </span>
-        </div>
-        <div class="port-occupant hidden" id="port-occupant">
-          <strong>端口被占用</strong>
-          <small id="port-occupant-message"></small>
-          <small class="setting-state" id="port-occupant-hint"></small>
-          <div class="actions">
-            <button class="secondary" id="retry-http" type="button">重试监听</button>
-            <button class="danger" id="kill-occupant" type="button">结束占用进程</button>
+          <div class="setting">
+            <span class="setting-text">
+              <strong>监听地址 / 端口</strong>
+              <small>默认 0.0.0.0:12300；改成 127.0.0.1 则只能本机或 SSH 隧道访问</small>
+            </span>
+            <span class="remote-inline">
+              <input id="http-bind" spellcheck="false" type="text" />
+              <input id="http-port" inputmode="numeric" spellcheck="false" type="text" />
+              <button class="secondary" id="http-apply" type="button">应用</button>
+            </span>
           </div>
-        </div>
-        <div class="setting setting-block">
-          <span class="setting-text">
-            <strong>访问令牌（token）</strong>
-            <small class="setting-state" id="token-hint"></small>
-            <small>自己填一个也可以：4–128 位可见 ASCII（字母/数字/符号），不能有空格和中文；清空则服务不启动</small>
-          </span>
-          <span class="remote-inline">
-            <input id="token-input" placeholder="自定义 token…" spellcheck="false" type="text" />
-            <button class="secondary" id="token-save" type="button">保存</button>
-          </span>
-          <span class="remote-inline">
-            <button class="secondary" id="token-reveal" type="button">显示当前</button>
-            <button class="secondary" id="token-copy" type="button">复制</button>
-            <button class="secondary" id="token-regenerate" type="button">重新生成</button>
-          </span>
-        </div>
-        <div class="setting">
-          <span class="setting-text">
-            <strong>远程请求通知</strong>
-            <small>总开关；关掉后不再弹窗，只在主窗口显示待执行请求</small>
-          </span>
-          <input id="notify-enabled" type="checkbox" />
-        </div>
-        <div class="setting">
-          <span class="setting-text">
-            <strong>HTTP 渠道（webhook / curl / 面板）</strong>
-            <small>弹窗通知 + 延迟秒数（0 = 立即执行）</small>
-          </span>
-          <span class="remote-inline">
-            <input id="http-channel-notify" type="checkbox" />
-            <input id="http-channel-delay" inputmode="numeric" spellcheck="false" type="text" />
-          </span>
-        </div>
-        <div class="setting">
-          <span class="setting-text">
-            <strong>SSH / CLI 渠道</strong>
-            <small>ssh 远程调用的通知与延迟（与 webhook 分开配置）</small>
-          </span>
-          <span class="remote-inline">
-            <input id="cli-channel-notify" type="checkbox" />
-            <input id="cli-channel-delay" inputmode="numeric" spellcheck="false" type="text" />
-          </span>
-        </div>
-        <div class="setting">
-          <span class="setting-text">
-            <strong>远程可触发本机授权框</strong>
-            <small>默认关：远程遇到需要本机授权的操作会直接说明原因，不会挂着等人点确认</small>
-          </span>
-          <input id="remote-allow-gui-auth" type="checkbox" />
-        </div>
-        <div class="pending hidden" id="pending-card">
-          <strong id="pending-title">远程请求待执行</strong>
-          <small id="pending-detail"></small>
-          <div class="actions">
-            <button id="pending-run" type="button">立即执行</button>
-            <button class="secondary" id="pending-cancel" type="button">取消</button>
+          <div class="port-occupant hidden" id="port-occupant">
+            <strong>端口被占用</strong>
+            <small id="port-occupant-message"></small>
+            <small class="setting-state" id="port-occupant-hint"></small>
+            <div class="actions">
+              <button class="secondary" id="retry-http" type="button">重试监听</button>
+              <button class="danger" id="kill-occupant" type="button">结束占用进程</button>
+            </div>
           </div>
-        </div>
-        <div class="remote-hint">
-          <strong>远程怎么调</strong>
-          <small>下面这段默认就展开、含明文 token（注意旁人视线）；上面的令牌 / 地址 / 端口一改，这里立刻同步</small>
-          <pre id="http-hint">点「复制命令」拿含 token 的可直接执行示例（含 ssh 用法）</pre>
-          <div class="actions">
-            <button class="secondary" id="http-hint-copy" type="button">复制命令</button>
+          <div class="setting setting-block">
+            <span class="setting-text">
+              <strong>访问令牌（token）</strong>
+              <small class="setting-state" id="token-hint"></small>
+              <small>自己填一个也可以：4–128 位可见 ASCII（字母/数字/符号），不能有空格和中文；清空则服务不启动</small>
+            </span>
+            <span class="remote-inline">
+              <input id="token-input" placeholder="自定义 token…" spellcheck="false" type="text" />
+              <button class="secondary" id="token-save" type="button">保存</button>
+            </span>
+            <span class="remote-inline">
+              <button class="secondary" id="token-reveal" type="button">显示当前</button>
+              <button class="secondary" id="token-copy" type="button">复制</button>
+              <button class="secondary" id="token-regenerate" type="button">重新生成</button>
+            </span>
           </div>
-        </div>
-        <div class="remote-log">
-          <strong>最近请求</strong>
-          <ol id="http-requests"></ol>
-        </div>
-        <div class="setting" id="setting-sound">
-          <span class="setting-text">
-            <strong>提示音</strong>
-            <small>收到远程请求时播放提示音（系统默认或自定义文件）</small>
-          </span>
-          <span class="remote-inline">
-            <input id="play-sound" type="checkbox" />
-            <input id="sound-file-path" spellcheck="false" type="text" placeholder="自定义路径（留空用内置音）" />
-            <button class="secondary" id="sound-apply" type="button">应用</button>
-          </span>
-        </div>
-        <div class="actions" id="open-dir-actions">
-          <button class="secondary" id="open-config-dir" type="button">打开配置目录（含 trace.log / settings.json）</button>
-        </div>
-      </section>
-    </main>
+          <div class="setting">
+            <span class="setting-text">
+              <strong>远程请求通知</strong>
+              <small>总开关；关掉后不再弹窗，只在主窗口显示待执行请求</small>
+            </span>
+            <input id="notify-enabled" type="checkbox" />
+          </div>
+          <div class="setting">
+            <span class="setting-text">
+              <strong>HTTP 渠道（webhook / curl / 面板）</strong>
+              <small>弹窗通知 + 延迟秒数（0 = 立即执行）</small>
+            </span>
+            <span class="remote-inline">
+              <input id="http-channel-notify" type="checkbox" />
+              <input id="http-channel-delay" inputmode="numeric" spellcheck="false" type="text" />
+            </span>
+          </div>
+          <div class="setting">
+            <span class="setting-text">
+              <strong>SSH / CLI 渠道</strong>
+              <small>ssh 远程调用的通知与延迟（与 webhook 分开配置）</small>
+            </span>
+            <span class="remote-inline">
+              <input id="cli-channel-notify" type="checkbox" />
+              <input id="cli-channel-delay" inputmode="numeric" spellcheck="false" type="text" />
+            </span>
+          </div>
+          <div class="setting">
+            <span class="setting-text">
+              <strong>远程可触发本机授权框</strong>
+              <small>默认关：远程遇到需要本机授权的操作会直接说明原因，不会挂着等人点确认</small>
+            </span>
+            <input id="remote-allow-gui-auth" type="checkbox" />
+          </div>
+          <div class="pending hidden" id="pending-card">
+            <strong id="pending-title">远程请求待执行</strong>
+            <small id="pending-detail"></small>
+            <div class="actions">
+              <button id="pending-run" type="button">立即执行</button>
+              <button class="secondary" id="pending-cancel" type="button">取消</button>
+            </div>
+          </div>
+          <div class="remote-hint">
+            <strong>远程怎么调</strong>
+            <small>下面这段默认就展开、含明文 token（注意旁人视线）；上面的令牌 / 地址 / 端口一改，这里立刻同步</small>
+            <pre id="http-hint">点「复制命令」拿含 token 的可直接执行示例（含 ssh 用法）</pre>
+            <div class="actions">
+              <button class="secondary" id="http-hint-copy" type="button">复制命令</button>
+            </div>
+          </div>
+          <div class="remote-log">
+            <strong>最近请求</strong>
+            <ol id="http-requests"></ol>
+          </div>
+          <div class="setting" id="setting-sound">
+            <span class="setting-text">
+              <strong>提示音</strong>
+              <small>收到远程请求时播放提示音（系统默认或自定义文件）</small>
+            </span>
+            <span class="remote-inline">
+              <input id="play-sound" type="checkbox" />
+              <input id="sound-file-path" spellcheck="false" type="text" placeholder="自定义路径（留空用内置音）" />
+              <button class="secondary" id="sound-apply" type="button">应用</button>
+            </span>
+          </div>
+          <div class="actions" id="open-dir-actions">
+            <button class="secondary" id="open-config-dir" type="button">打开配置目录（含 trace.log / settings.json）</button>
+          </div>
+        </section>
+      </main>
 
-    <!-- 窗口自己的底部提示条（在 <main> 之外、和它平级）：
+      <!-- 中缝：纯空白长条，不放任何内容，只为把两栏分开 -->
+      <div aria-hidden="true" class="pane-gap"></div>
+
+      <!-- 右栏 = GRUB 专属区：独立窗口那份（标题 / 元信息 / 回执 / 当前选中项 /
+           树列表）和原来主窗口里的 GRUB 配置区合并到这里。
+           GRUB 细粒度切换与左边「可启动系统」是两套并列机制 —— 那边走 rEFInd 的
+           PreviousBoot，这里走 GRUB 自己的环境块(grubenv)；填了 ESP 的 fs-uuid
+           才会列出 grub.cfg 里的启动项。 -->
+      <section aria-label="GRUB 独立区域" class="pane pane-grub">
+        <!-- 空壳：内容（GRUB 区块整体或仅列表）由 app.js 按展示模式把
+             <main> 里的节点搬进来；模式 ① ② 时整个右栏隐藏。 -->
+        <header class="grub-pane-head">
+          <strong>GRUB</strong>
+        </header>
+        <div class="pane-body" id="grub-pane-body"></div>
+      </section>
+    </div>
+
+    <!-- 窗口自己的底部提示条（在 .app-columns 之外、和它平级）：
          所有操作的回执都落在这里，不用再把滚轮拖到页面底部才看得见。
          有内容才占位，没有就整条收起。 -->
     <div aria-live="polite" class="status-bar hidden" id="status-bar" role="status">
@@ -401,7 +448,7 @@
       <span class="status-bar-text" id="status-bar-text"></span>
       <button class="status-bar-close" id="status-bar-close" title="收起" type="button">×</button>
     </div>
-    <!-- 内嵌列表与独立 GRUB 窗口共用的树形渲染逻辑 -->
+    <!-- GRUB 树形列表的渲染逻辑（右栏用） -->
     <script src="./grub-list-view.js"></script>
     <script src="./app.js"></script>
   </body>

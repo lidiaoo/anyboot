@@ -1,7 +1,7 @@
 const invoke = window.__TAURI__.core.invoke;
 const listen = window.__TAURI__.event.listen;
 // 拖动不透明度滑条时的**预览广播**：change 才写后端（免得拖一次写十几次），
-// 但 GRUB 独立窗口要跟主窗口一样实时渲染，拖动过程中靠这个事件同步。
+// 窗口自己靠这个事件即时重绘（拖动过程中不写后端）。
 const emitEvent = window.__TAURI__.event.emit;
 
 const statusElement = document.querySelector("#status");
@@ -30,6 +30,12 @@ const mainDockStripOpacityStateElement = document.querySelector("#main-dock-stri
 const mainDockStripColorElement = document.querySelector("#main-dock-strip-color");
 const mainWindowPositionElement = document.querySelector("#main-window-position");
 const resetMainWindowPositionElement = document.querySelector("#reset-main-window-position");
+// 窗口大小：宽/高滑条 + 锁定开关（滑条 ⇄ 窗口尺寸双向实时）
+const windowSizeWidthElement = document.querySelector("#window-size-width");
+const windowSizeWidthStateElement = document.querySelector("#window-size-width-state");
+const windowSizeHeightElement = document.querySelector("#window-size-height");
+const windowSizeHeightStateElement = document.querySelector("#window-size-height-state");
+const windowSizeLockedElement = document.querySelector("#window-size-locked");
 const hideFromDockTaskbarElement = document.querySelector("#hide-from-dock-taskbar");
 const refreshElement = document.querySelector("#refresh");
 const useDirectoryElement = document.querySelector("#use-directory");
@@ -97,11 +103,15 @@ const grubSyncElement = document.querySelector("#grub-sync");
 const grubHintElement = document.querySelector("#grub-hint");
 const grubErrorElement = document.querySelector("#grub-error");
 const grubListElement = document.querySelector("#grub-list");
-// 当前选中启动项的顶部横幅（三种展示方式都显示）
+// 当前选中启动项的顶部横幅
 const grubActiveElement = document.querySelector("#grub-active");
-// GRUB 列表的三种展示方式（内嵌 / 加宽主窗口 / 独立跟随窗口）
+// GRUB 区块本体（左栏主流程里）与右栏容器：展示模式切换时把节点搬进/搬出右栏
+const grubSectionElement = document.querySelector("#grub");
+const grubPaneBodyElement = document.querySelector("#grub-pane-body");
+// 展示方式下拉框（内嵌 / 加宽 / 列表独立 / GRUB 独立）
 const grubViewModeElement = document.querySelector("#grub-view-mode");
-const grubWindowNoteElement = document.querySelector("#grub-window-note");
+// 切换启动项的回执行（跟着配置块走）：中间态与失败原因
+const grubStatusElement = document.querySelector("#grub-status");
 const grubInstallActionsElement = document.querySelector("#grub-install-actions");
 const grubInstallElement = document.querySelector("#grub-install");
 const grubUninstallElement = document.querySelector("#grub-uninstall");
@@ -349,14 +359,48 @@ function renderEsp(grub) {
   grubPartElement.append(...nodes);
 }
 
+/// 展示模式的 DOM 搬位：把 <main> 里 #grub 的子节点按模式搬进/搬出右栏。
+/// 四种模式（与设置里的 grubListView 一一对应）：
+/// · inline 内嵌 / wide 加宽 —— 全部子节点按出厂顺序回 #grub（左栏主流程里）；
+/// · list 列表独立 —— 配置留在 #grub，当前选中横幅 + 列表搬进右栏；
+/// · pane GRUB 独立 —— 全部子节点按出厂顺序搬进右栏（#grub 变空壳，CSS 藏掉）。
+/// 只在模式真正变化时才搬（renderGrub 里比对缓存），别每帧搬 DOM。
+/// 「出厂顺序」在脚本加载完、任何搬移发生之前捕获一次，回搬时靠它复原。
+const grubCanonicalOrder = [...grubSectionElement.children];
+let grubLayoutMode = null;
+function applyGrubLayout(mode) {
+  if (grubLayoutMode === mode) {
+    return;
+  }
+  grubLayoutMode = mode;
+  document.body.dataset.grubMode = mode;
+  for (const el of grubCanonicalOrder) {
+    const toPane =
+      mode === "pane" ||
+      (mode === "list" && (el === grubActiveElement || el === grubListElement));
+    (toPane ? grubPaneBodyElement : grubSectionElement).appendChild(el);
+  }
+}
+
 /// GRUB 区块：列的是 grub.cfg 里的启动项，条数可能几十个，
-/// 所以字号比上面三系统小一号（用户明确要求）。
+/// 所以字号比左栏「可启动系统」小一号（用户明确要求）。
 ///
 /// 三处输入框（ESP 目录 / fs-uuid / 脚本正文）只在**没被聚焦**时才回写，
 /// 否则用户打字打到一半会被快照盖掉。
 function renderGrub(grub, script, busy, listViewMode) {
   if (!grub) {
     return;
+  }
+
+  // 展示模式：快照里的值归一后落地（搬 DOM + 亮/藏右栏 + 调整列表滚动方式）。
+  // 下拉框的值只在和快照不一致时才写，避免用户正展开选项时被状态事件弹回去。
+  const mode =
+    listViewMode === "wide" || listViewMode === "list" || listViewMode === "pane"
+      ? listViewMode
+      : "inline";
+  applyGrubLayout(mode);
+  if (grubViewModeElement.value !== mode) {
+    grubViewModeElement.value = mode;
   }
 
   if (document.activeElement !== grubUuidElement) {
@@ -383,7 +427,7 @@ function renderGrub(grub, script, busy, listViewMode) {
     ? "Windows 不能按 fs-uuid 挂载：ESP 有没有盘符由「磁盘管理」决定"
     : grub.uuid
       ? ""
-      : "先填好 fs-uuid（或用左边的「识别」自动取）";
+      : "先填好 fs-uuid（或用上面的「识别」自动取）";
   grubMountLabelElement.textContent = mounter
     ? "挂载 ESP（勾上后可直接读写）"
     : "ESP 可访问（Windows 由盘符决定，无需挂载）";
@@ -393,7 +437,8 @@ function renderGrub(grub, script, busy, listViewMode) {
   if (grub.efiDir) {
     parts.push(`EFI 目录 ${grub.efiDir}`);
   }
-  parts.push(`${entries.length} 个启动项`);  if (grub.syncedAt) {
+  parts.push(`${entries.length} 个启动项`);
+  if (grub.syncedAt) {
     parts.push(`同步于 ${formatLocalTime(grub.syncedAt)}`);
   }
   grubMetaElement.textContent = parts.join(" · ");
@@ -402,30 +447,17 @@ function renderGrub(grub, script, busy, listViewMode) {
   grubErrorElement.textContent = grub.error || "";
   grubErrorElement.classList.toggle("hidden", !grub.error);
 
-  // 当前选中的启动项：三种展示方式都显示在区块顶部（共享渲染器）
+  // 当前选中的启动项（右上角横幅，与树列表共用同一个渲染器）
   renderGrubActive(grubActiveElement, grub);
 
-  // 列表展示方式（inline / wide / window）：独立窗口模式就不再内嵌渲染一份，
-  // 免得两处各占一个 webview 的内存还显示两遍。下拉框的值只在和快照不一致时才写，
-  // 避免用户正展开选项时被状态事件把选项弹回去。
-  const mode = listViewMode === "wide" || listViewMode === "window"
-    ? listViewMode
-    : "inline";
-  if (grubViewModeElement.value !== mode) {
-    grubViewModeElement.value = mode;
-  }
-  const windowMode = mode === "window";
-  grubListElement.classList.toggle("hidden", windowMode);
-  grubWindowNoteElement.classList.toggle("hidden", !windowMode);
-
-  if (!windowMode) {
-    renderGrubEntries({
-      container: grubListElement,
-      grub,
-      busy,
-      onSwitch: (selector) => call("switch_grub", { selector }),
-    });
-  }
+  // 树列表：唯一的渲染处（列表节点在哪由 applyGrubLayout 决定，这里只管往里画；
+  // 节点引用不变，搬完位置渲染照常生效）
+  renderGrubEntries({
+    container: grubListElement,
+    grub,
+    busy,
+    onSwitch: switchGrub,
+  });
 
   // 安装 / 卸载只在 Linux 出现：后端在非 Linux 上把 installed 返回为 null
   const linuxOnly = typeof grub.installed === "boolean";
@@ -559,6 +591,7 @@ function renderSettings(view) {
     mainWindowPositionElement.value =
       mode === "center" || mode === "last" ? mode : "free";
   }
+  syncWindowSizeControls(view);
   hideFromDockTaskbarElement.checked = Boolean(view.hideFromDockTaskbar);
   closeActionElement.value = view.closeAction === "quit" ? "quit" : "tray";
   autostartStateElement.textContent =
@@ -821,6 +854,26 @@ async function call(command, args) {
 
 refreshElement.addEventListener("click", () => call("refresh"));
 
+/// 切换 GRUB 启动项。与其它操作不同，这里不走 call()：切换的中间态
+/// 「正在写入 grubenv…」以及失败原因要显示在**右栏**（用户点的是右栏的条目，
+/// 视线不该被迫跳到窗口最底部去找回执）。最终结果仍由后端 record_action +
+/// publish_ui 带回来，落在窗口底部那条提示条上（失败原因两处都会显示）。
+async function switchGrub(selector) {
+  if (!selector) {
+    return;
+  }
+  grubStatusElement.textContent = "正在写入 grubenv…";
+  grubStatusElement.classList.remove("fail");
+  try {
+    await invoke("switch_grub", { selector });
+    // 后端写完 grubenv 会 publish 新快照（选中高亮跟着变），中间态到这里清掉
+    grubStatusElement.textContent = "";
+  } catch (error) {
+    grubStatusElement.textContent = String(error);
+    grubStatusElement.classList.add("fail");
+  }
+}
+
 useDirectoryElement.addEventListener("click", () => {
   const path = directoryElement.value.trim();
   call("set_vars_dir", { path: path || null });
@@ -845,9 +898,9 @@ function grubMessage(text, { error = false } = {}) {
   }
 }
 
-// GRUB 列表展示方式切换：inline / wide（加宽主窗口）/ window（独立跟随窗口）。
-// 后端负责保存设置 + 调整窗口形态（加宽/开窗/关窗），前端只管把选择报上去；
-// 切到独立窗口后这里的内嵌列表会隐藏（见 renderGrub 的 windowMode 分支）。
+// 展示方式切换（内嵌 / 加宽 / 列表独立 / GRUB 独立）：后端负责保存设置并
+// 调整窗口宽度（460 ⇄ 932），前端只管把选择报上去；布局本身由下一帧快照
+// 的 renderGrub → applyGrubLayout 落地。
 grubViewModeElement.addEventListener("change", () => {
   call("set_grub_list_view", { mode: grubViewModeElement.value });
 });
@@ -1231,6 +1284,103 @@ resetMainWindowPositionElement.addEventListener("click", () =>
   call("reset_main_window_position", {}),
 );
 
+// ============ 窗口大小：滑条 ⇄ 窗口尺寸，双向实时 ============
+// 滑条拖动（input）→ 120ms 防抖后实时应用窗口尺寸；
+// 用户拖窗口边框（onResized）→ 滑条实时跟动，停手 500ms 后把尺寸回写持久化。
+// 锁定后：滑条禁用变灰、后端把窗口设为不可缩放/不可最大化。
+const WINDOW_MIN = { width: 360, height: 560 };
+
+function updateWindowSizeStateLabels(width, height) {
+  if (windowSizeWidthStateElement) {
+    windowSizeWidthStateElement.textContent = `${width}px（拖动实时调整窗口）`;
+  }
+  if (windowSizeHeightStateElement) {
+    windowSizeHeightStateElement.textContent = `${height}px（拖动实时调整窗口）`;
+  }
+}
+
+/// 快照 → 控件（锁定状态也在这里落地：禁用滑条 + 变灰）。
+function syncWindowSizeControls(view) {
+  const width = Number(view.windowWidth) || 460;
+  const height = Number(view.windowHeight) || 900;
+  const locked = Boolean(view.windowSizeLocked);
+  if (document.activeElement !== windowSizeWidthElement) {
+    windowSizeWidthElement.value = String(width);
+  }
+  if (document.activeElement !== windowSizeHeightElement) {
+    windowSizeHeightElement.value = String(height);
+  }
+  windowSizeWidthElement.disabled = locked;
+  windowSizeHeightElement.disabled = locked;
+  windowSizeLockedElement.checked = locked;
+  updateWindowSizeStateLabels(width, height);
+}
+
+let windowSizeApplyTimer = 0;
+function applyWindowSizeFromSliders() {
+  const width = Number.parseInt(windowSizeWidthElement.value, 10);
+  const height = Number.parseInt(windowSizeHeightElement.value, 10);
+  if (!Number.isFinite(width) || !Number.isFinite(height)) {
+    return;
+  }
+  updateWindowSizeStateLabels(width, height);
+  return call("set_window_size", { width, height });
+}
+
+for (const slider of [windowSizeWidthElement, windowSizeHeightElement]) {
+  slider.addEventListener("input", () => {
+    const width = Number.parseInt(windowSizeWidthElement.value, 10);
+    const height = Number.parseInt(windowSizeHeightElement.value, 10);
+    updateWindowSizeStateLabels(width, height);
+    clearTimeout(windowSizeApplyTimer);
+    windowSizeApplyTimer = setTimeout(applyWindowSizeFromSliders, 120);
+  });
+  // 松手立刻提交一次（不用等防抖计时器走完）
+  slider.addEventListener("change", () => {
+    clearTimeout(windowSizeApplyTimer);
+    applyWindowSizeFromSliders();
+  });
+}
+
+windowSizeLockedElement.addEventListener("change", () =>
+  call("set_window_size_locked", { locked: windowSizeLockedElement.checked }),
+);
+
+// 窗口 → 滑条（双向的另一半）：用户拖窗口边框时滑条跟动。
+// 贴边成条时窗口会缩到几十像素宽 —— 那是程序自己的临时形态，不是用户调尺寸，
+// 小于下限的尺寸一律不进滑条、不回写。
+let windowResizePersistTimer = 0;
+window.__TAURI__.window
+  .getCurrentWindow()
+  .onResized(({ payload: physical }) => {
+    if (windowSizeLockedElement.checked) {
+      return;
+    }
+    if (physical.width < WINDOW_MIN.width || physical.height < WINDOW_MIN.height) {
+      return;
+    }
+    window.__TAURI__
+      .window
+      .getCurrentWindow()
+      .scaleFactor()
+      .then((scale) => {
+        const width = Math.round(physical.width / scale);
+        const height = Math.round(physical.height / scale);
+        if (document.activeElement !== windowSizeWidthElement) {
+          windowSizeWidthElement.value = String(width);
+        }
+        if (document.activeElement !== windowSizeHeightElement) {
+          windowSizeHeightElement.value = String(height);
+        }
+        updateWindowSizeStateLabels(width, height);
+        // 停手 500ms 才回写：拖动过程每次 Resized 都写盘太频繁
+        clearTimeout(windowResizePersistTimer);
+        windowResizePersistTimer = setTimeout(() => {
+          void call("set_window_size", { width, height });
+        }, 500);
+      });
+  });
+
 hideFromDockTaskbarElement.addEventListener("change", () =>
   call("set_hide_from_dock_taskbar", {
     enabled: hideFromDockTaskbarElement.checked,
@@ -1250,7 +1400,7 @@ themeElement.addEventListener("change", () => {
 // 不透明度：拖动即时预览，松手（change）才写设置，免得拖一次写十几次
 opacityElement.addEventListener("input", () => {
   applyAppearance(themeElement.value, Number(opacityElement.value));
-  // GRUB 独立窗口同步实时渲染（拖动期间后端还没收到新值）
+  // 自己监听同一个事件做即时重绘（拖动期间后端还没收到新值）
   emitEvent("ui-alpha-preview", Number(opacityElement.value));
 });
 opacityElement.addEventListener("change", () => {

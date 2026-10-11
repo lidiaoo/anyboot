@@ -149,8 +149,8 @@ pub fn parse_grub_cfg(text: &str) -> Vec<GrubEntry> {
         if let Some(rest) = keyword_tail(line, "submenu") {
             let (id, _name) = heading_identity(rest);
             submenu_stack.push((depth, id));
-        } else if let Some(rest) = keyword_tail(line, "menuentry")
-            .or_else(|| keyword_tail(line, "submenuentry"))
+        } else if let Some(rest) =
+            keyword_tail(line, "menuentry").or_else(|| keyword_tail(line, "submenuentry"))
         {
             let (id, name) = heading_identity(rest);
             let parent = submenu_stack.last().map(|(_, id)| id.clone());
@@ -579,7 +579,9 @@ menuentry "OpenCore (macOS)" {
         // 组标题绝不能出现在 menuentry 列表里（它切不过去）
         let entries = parse_grub_cfg(SAMPLE);
         assert!(
-            !entries.iter().any(|entry| entry.name == "Arch Linux 的高级选项"),
+            !entries
+                .iter()
+                .any(|entry| entry.name == "Arch Linux 的高级选项"),
             "submenu 行不是可选条目"
         );
     }
@@ -632,7 +634,10 @@ menuentry 'UEFI OS (EFI BootNext)' --class uefi $menuentry_id_option 'efi-bootne
         let display = dedupe_display_entries(&raw);
         assert_eq!(display.len(), 2, "两组同名条目各折叠成一条");
         // 保留的是每组里第一次出现的那条（selector 仍可切换）
-        assert_eq!(display[0].name, "Memory Tester (memtest86+) （位于 /dev/nvme0n1p14）");
+        assert_eq!(
+            display[0].name,
+            "Memory Tester (memtest86+) （位于 /dev/nvme0n1p14）"
+        );
         assert_eq!(display[0].variants, 2);
         assert_eq!(display[1].name, "UEFI OS (EFI BootNext)");
         assert_eq!(display[1].variants, 2);
@@ -666,7 +671,10 @@ submenu 'B 的高级选项' $menuentry_id_option 'b-adv' {
     fn empty_env_block_matches_grub_editenv_create() {
         let block = empty_env_block();
         assert_eq!(block.len(), ENV_BLOCK_SIZE);
-        assert_eq!(&block[..ENV_BLOCK_HEADER.len()], ENV_BLOCK_HEADER.as_bytes());
+        assert_eq!(
+            &block[..ENV_BLOCK_HEADER.len()],
+            ENV_BLOCK_HEADER.as_bytes()
+        );
         assert!(block[ENV_BLOCK_HEADER.len()..].iter().all(|b| *b == b'#'));
         assert_eq!(parse_env_block(&block).unwrap(), Vec::new());
     }
@@ -730,4 +738,3 @@ submenu 'B 的高级选项' $menuentry_id_option 'b-adv' {
         assert!(uuid_digits("not-a-uuid!").is_none());
     }
 }
-

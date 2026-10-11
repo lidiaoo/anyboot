@@ -101,18 +101,20 @@
 
 body {
   margin: 0;
+  /* 内嵌模式窗口只有 460 宽；分栏模式（③④）在下面另给 640 的下限 */
   min-width: 360px;
   background: rgba(var(--bg-rgb), var(--ui-alpha, 1));
   color: var(--text);
-  /* 窗口竖着切成两块：正文（可滚） + 底部提示条（钉在窗口最下方）。
-   * 提示条**不浮在内容上**，而是占自己那一格 —— 它属于窗口、不属于正文，
-   * 所以不用再给 main 预留 padding。 */
+  /* 窗口竖着切成两块：左右双栏（.app-columns，各自可滚） + 底部提示条
+   * （钉在窗口最下方）。提示条**不浮在内容上**，而是占自己那一格 ——
+   * 它属于窗口、不属于某一栏。 */
   display: flex;
   flex-direction: column;
   height: 100vh;
   overflow: hidden;
 }
 
+/* 左栏（左半区）：原主窗口的全部内容，自己一个滚动容器 */
 main {
   display: grid;
   /* 单列网格：minmax(0,1fr) 让子项可以收缩到 0 —— grid 项默认 min-width:auto，
@@ -127,11 +129,11 @@ main {
   overflow-x: hidden;
 }
 
-/* ---------- 窗口最下方的提示条（主内容区之外） ----------
+/* ---------- 窗口最下方的提示条（左右双栏之外） ----------
  * 以前所有操作回执都写在正文最末尾的 #message，用户不滚到底根本看不到
  * （「勾选了某个系统之后没反应」就是这个原因）。后来挪成 fixed 遮罩，但视觉上
  * 仍像是正文的一部分 —— 现在把它做成窗口自己的**独立底栏**：
- * 和 main 平级、不盖住内容、有内容才占位，没内容整条收起。 */
+ * 和 .app-columns 平级、不盖住内容、有内容才占位，没内容整条收起。 */
 .status-bar {
   flex: 0 0 auto;
   display: flex;
@@ -291,9 +293,109 @@ h1,
   color: var(--text-faint);
 }
 
+/* ============ 单窗口 + 四种展示模式（body[data-grub-mode] 驱动） ============
+ * ① inline 内嵌：窗口 460 宽，GRUB 区块嵌在主流程里（跟老版一致）；
+ * ② wide 加宽：窗口 932 宽，还是单栏主流程，列表铺两列；
+ * ③ list 列表独立：窗口 932、左右分栏，只有系统列表搬进右栏，配置留左栏；
+ * ④ pane 全独立：窗口 932、左右分栏，GRUB 全部内容都在右栏。
+ * 两栏等宽：同一个 flex 基准 0 + 同一份 grow，窗口多宽都各占一半。
+ * 中缝 .pane-gap 是纯空白长条（12px）；③④ 两栏各自一个滚动容器
+ * （左 = <main>，右 = .pane-body）→ 滚动条互不影响。 */
+.app-columns {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* 两栏等宽的唯一来源：都从基准 0 开始长。（main 自己那条 flex: 1 1 auto
+ * 是给它做 body 子项时用的老规则，这里必须用更高优先级按同一基准压平，
+ * 否则基准 auto 会让左栏按内容宽度比右栏宽。） */
+.app-columns > .pane {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.pane-gap {
+  /* 纯空白：不设背景、不画边框，就是窗口底色的一条缝 */
+  flex: 0 0 12px;
+}
+
+.pane-grub {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* 模式 ①② 右栏与中缝整体隐藏，左栏独占整窗；③④ 才亮出来 */
+.pane-grub,
+.pane-gap {
+  display: none;
+}
+
+body[data-grub-mode="list"] .pane-grub,
+body[data-grub-mode="pane"] .pane-grub {
+  display: flex;
+}
+
+body[data-grub-mode="list"] .pane-gap,
+body[data-grub-mode="pane"] .pane-gap {
+  display: block;
+}
+
+/* 分栏模式给窗口一个体面的最小宽度（内嵌/加宽模式仍是全局的 360） */
+body[data-grub-mode="list"],
+body[data-grub-mode="pane"] {
+  min-width: 640px;
+}
+
+/* 右栏顶部：原来独立窗口那一行（标题 + 元信息 + 回执）。
+ * 左右内边距跟左栏 main 的 24px 对齐，两栏内容的左边缘才会齐平。 */
+.grub-pane-head {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  padding: 24px 24px 0;
+}
+
+.grub-pane-head strong {
+  font-size: 14px;
+}
+
+.grub-pane-head small {
+  color: var(--text-faint);
+  font-size: 11px;
+  word-break: break-all;
+}
+
+/* 切换启动项的回执行（原来在独立窗口的标题栏里） */
+.grub-pane-status {
+  min-height: 14px;
+  color: var(--ok);
+}
+
+.grub-pane-status.fail {
+  color: var(--warn);
+}
+
+/* 右栏唯一那个滚动容器：GRUB 的全部内容都在这里滚（列表不另开一层滚动条） */
+.pane-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  gap: 10px;
+  padding: 12px 24px 24px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* GRUB 启动项条目：grub.cfg 里动辄几十个（本机 77 个），字号比上面「可启动系统」
+ * 小一号。列表不再限高 —— 右栏整条就是它的滚动区。 */
 /* ---------- GRUB 启动项：和上面三个系统并列的第二套机制 ----------
- * grub.cfg 里动辄几十个条目（本机 77 个），字号整体比上面小一号，
- * 并且列表限高 + 内部滚动，免得把「应用设置」挤到屏幕外面去。 */
+ * grub.cfg 里动辄几十个条目（本机 77 个），字号整体比上面小一号。
+ * 模式 ①②③ 它是一个带边框的面板（在左栏主流程里 / ③ 时配置部分留左栏）；
+ * 模式 ④ 整块搬进右栏后只剩空壳，直接藏掉（右栏由 .pane-body 自己排版）。 */
 .grub {
   display: grid;
   gap: 10px;
@@ -301,6 +403,10 @@ h1,
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--panel);
+}
+
+body[data-grub-mode="pane"] #grub {
+  display: none;
 }
 
 .grub-head {
@@ -347,7 +453,7 @@ h1,
   font-size: 12px;
 }
 
-/* 当前选中的启动项横幅：父级小字在上、子级大字在下（主题色），三种展示方式共用 */
+/* 当前选中的启动项横幅：父级小字在上、子级大字在下（主题色） */
 .grub-active {
   display: flex;
   flex-direction: column;
@@ -382,13 +488,7 @@ h1,
   font-size: 12px;
 }
 
-/* 独立窗口模式的说明行：列表已经搬走了，这里只留一句话 */
-.grub-window-note {
-  display: block;
-  color: var(--text-faint);
-  font-size: 11px;
-  line-height: 1.5;
-}
+/* 独立窗口已改为「独立区域」（同一窗口里的右栏），原来那条说明文字的样式一并消失 */
 
 .grub-row button {
   padding: 7px 11px;
@@ -455,24 +555,49 @@ h1,
 }
 
 .grub-list {
-  display: grid;
-  gap: 4px;
-  max-height: 320px;
+  /* 原来直接是 grid；为了「选中项置顶固定」（问题1）改成 block 容器：
+   * 置顶行是它的直接子块（CSS sticky 钉在滚动容器顶部，怎么滚都不动），
+   * 真正的条目网格挪进 .grub-list-body —— grid 项的 sticky 只能在自己的
+   * 格子里挪，出不了那一行，所以置顶行不能参与 grid 流。 */
   padding: 4px;
-  overflow-y: auto;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--input-bg);
 }
 
-/* 加宽模式（主窗口 920px）：树铺成两列、高度放开跟着窗口走。
-   独立 GRUB 窗口默认 440px 宽不受影响；用户把它拉宽到 700 以上同样受益。 */
-@media (min-width: 700px) {
-  .grub-list {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 4px 16px;
-    max-height: calc(100vh - 380px);
-  }
+.grub-list-body {
+  display: grid;
+  gap: 4px;
+}
+
+/* 选中的启动项置顶固定（问题1）：钉在最近滚动容器顶部（①② 是 .grub-list
+ * 自己，③④ 是右栏 .pane-body），其余行从它底下滚过。实底背景（--ok-bg）
+ * 保证透不出底下的行。 */
+.grub-entry.is-pinned {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--ok-bg);
+}
+
+/* 滚动条归属跟展示模式走：
+ * ①② 列表限高 + 自己滚（HEAD 行为，配置在下面继续滚主流程）；
+ * ③④ 右栏 .pane-body 是滚动容器，列表放开高度跟着它滚 —— 两栏滚动条独立。 */
+body[data-grub-mode="inline"] .grub-list,
+body[data-grub-mode="wide"] .grub-list {
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+/* 模式 ② 加宽：窗口 932、单栏，树铺成两列（原来那条按视口判的 @media
+ * 在四模式下行不通 —— ③④ 视口同样 ≥700 但右栏只有一半宽，所以改按模式判） */
+body[data-grub-mode="wide"] .grub-list-body {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 16px;
+}
+
+body[data-grub-mode="wide"] .grub-list {
+  max-height: calc(100vh - 380px);
 }
 
 .grub-empty {
@@ -877,6 +1002,13 @@ button.danger:hover:not(:disabled) {
   accent-color: var(--btn);
 }
 
+/* 锁定窗口大小后滑条停用：压暗 + 禁用光标，一眼能看出「现在改不了」
+ * （浏览器默认的 disabled 外观在深色主题下不够明显，这里显式给） */
+.remote-inline input[type="range"]:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 /* 调色板入口框：整个框就渲染成选中的颜色（WebView2 默认外观带灰边和
    内边距，看起来像没生效；这里把原生 swatch 铺满整个框） */
 .remote-inline input[type="color"] {
@@ -988,10 +1120,20 @@ body.dock-left,
 body.dock-right {
   background: transparent;
 }
+/* 贴边态把整个双栏 + 底栏都藏掉（左栏是 main、右栏是 .pane-grub，
+ * 底栏是 .status-bar —— 三个都要，漏一个就会在 40px 的缝里露出残影） */
 body.dock-top main,
 body.dock-bottom main,
 body.dock-left main,
-body.dock-right main {
+body.dock-right main,
+body.dock-top .app-columns,
+body.dock-bottom .app-columns,
+body.dock-left .app-columns,
+body.dock-right .app-columns,
+body.dock-top .status-bar,
+body.dock-bottom .status-bar,
+body.dock-left .status-bar,
+body.dock-right .status-bar {
   display: none;
 }
 #dock-strip {

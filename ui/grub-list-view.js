@@ -1,4 +1,4 @@
-// GRUB 启动项列表的渲染逻辑：主窗口内嵌列表与独立跟随窗口共用这一份。
+// GRUB 启动项列表的渲染逻辑：右侧 GRUB 专属区（.pane-grub）用这一份。
 //
 // grub.cfg 里的 submenu 是分组、不是可选条目（后端解析器按同一规则跳过它），
 // 所以这里**自己把组头补出来**：子条目归到它的父 submenu 下，并统计组内数量。
@@ -7,7 +7,7 @@
 "use strict";
 
 /// 把「当前选中的启动项」渲染进顶部横幅：级联条目显示「父级名 › 子级名」，
-/// 最后一级用大字 + 主题色，父级用小一号的灰字 —— 三种展示方式共用。
+/// 最后一级用大字 + 主题色，父级用小一号的灰字。
 function renderGrubActive(container, grub) {
   const entries = grub.entries || [];
   const groups = new Map((grub.groups || []).map((group) => [group.id, group.name]));
@@ -66,7 +66,7 @@ function renderGrubEntries({ container, grub, busy, onSwitch }) {
     }
   }
 
-  const makeRow = (entry, { group, depth }) => {
+  const makeRow = (entry, { group, depth, pinned = false }) => {
     const row = document.createElement("button");
     row.type = "button";
     row.className = "grub-entry";
@@ -77,13 +77,21 @@ function renderGrubEntries({ container, grub, busy, onSwitch }) {
     if (entry.selector === activeSelector) {
       row.classList.add("active");
     }
+    if (pinned) {
+      row.classList.add("is-pinned");
+    }
     row.disabled = busy;
     row.title = entry.selector || "";
 
     const name = document.createElement("span");
     name.className = "grub-entry-name";
+    // 置顶行脱离了它原来的组，名字里把组名带上，不然看不出它属于哪个 submenu
+    const prefix = pinned && entry.submenu
+      ? `${groupTitles.get(entry.submenu) || entry.submenu} › `
+      : "";
     // 缩进靠 CSS（.is-child / .depth-N），这里只用箭头补强「这是组里的项」
-    name.textContent = group || depth === 0 ? entry.name : `↳ ${entry.name}`;
+    name.textContent =
+      prefix + (group || depth === 0 ? entry.name : `↳ ${entry.name}`);
 
     const tag = document.createElement("small");
     if (group) {
@@ -113,18 +121,36 @@ function renderGrubEntries({ container, grub, busy, onSwitch }) {
     return row;
   };
 
+  // 当前选中的启动项置顶固定：渲染成 .grub-list 下的独立块（CSS sticky 钉在
+  // 滚动容器顶部，怎么滚都不动），正式列表里跳过它 —— 同一条目只出现一次。
+  // sticky 必须脱离 grid 流：grid 项的 sticky 只能在自己的格子里挪，出不了那一行，
+  // 所以真正的 grid 挪进 .grub-list-body，置顶行做 .grub-list（block）的兄弟块。
+  const body = document.createElement("div");
+  body.className = "grub-list-body";
+  // 选中的条目可以是顶层，也可以是组内子项 —— 只按 selector 找，
+  // 不排除子项（组头是渲染时合成的标题，selector 是 submenu id，
+  // 不会与 menuentry 的 selector 撞上）。
+  const activeIndex = entries.findIndex((entry) => entry.selector === activeSelector);
+  if (activeIndex >= 0) {
+    container.append(makeRow(entries[activeIndex], { group: false, depth: 0, pinned: true }));
+  }
+  container.append(body);
+
   // 顶层条目按原顺序铺开；走到第一条子项时，先把它的组头插进去，再补齐同组子项。
   const emittedGroups = new Set();
-  for (const entry of entries) {
+  entries.forEach((entry, index) => {
+    if (index === activeIndex) {
+      return;
+    }
     if (!entry.submenu) {
-      container.append(makeRow(entry, { group: false, depth: 0 }));
-      continue;
+      body.append(makeRow(entry, { group: false, depth: 0 }));
+      return;
     }
     if (emittedGroups.has(entry.submenu)) {
-      continue;
+      return;
     }
     emittedGroups.add(entry.submenu);
-    container.append(
+    body.append(
       makeRow(
         {
           selector: entry.submenu,
@@ -134,7 +160,10 @@ function renderGrubEntries({ container, grub, busy, onSwitch }) {
       ),
     );
     for (const child of childrenOf.get(entry.submenu) || []) {
-      container.append(makeRow(child, { group: false, depth: 1 }));
+      if (entries.indexOf(child) === activeIndex) {
+        continue;
+      }
+      body.append(makeRow(child, { group: false, depth: 1 }));
     }
-  }
+  });
 }
