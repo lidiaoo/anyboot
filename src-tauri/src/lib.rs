@@ -180,6 +180,10 @@ const CLAMP_DELAY_MS: u64 = 250;
 /// Moved 事件里判定「这是用户在拖、不是我们贴的那次」的容差（物理像素）：
 /// 我们自己的 set_position 会在同一坐标上触发 Moved，用户手拖必然超过这个量。
 const AUTO_HIDE_TOLERANCE: i32 = 24;
+/// WM 重装饰微调的吸收阈值（物理像素）：Muffin 实测每次重装饰把窗口掰 3px
+/// （client y 97 → 100）。≤ 此值视为微调、沿上一轮停靠位（dock_axis_position）；
+/// 与「自己回声」哨兵的 ±8px 同源。用户拖动必然超过它，不受影响。
+const AUTO_HIDE_WM_NUDGE_PX: i32 = 8;
 /// 贴边后窗口缩成的「缝」的厚度（逻辑像素）：窗口只缩到这条缝，白条是
 /// **独立渲染**的白色条（#dock-strip，长度/厚度/透明度全由前端 CSS 控制），
 /// 缝要足够容纳白条最大厚度（40px），所以固定取 40 —— 窗口几何与白条
@@ -231,6 +235,10 @@ struct AppState {
     /// 「用户手拖的」——前者坐标一致（容差内），后者必然偏离。
     auto_hide_docked: bool,
     auto_hide_edge: Option<DockEdge>,
+    /// 上一轮贴的边：undock 不清（与 auto_hide_edge 分开）。重贴边时只要没有
+    /// 另一条边「严格更近」就沿用 —— 展开的窗口很高，贴左缘时离底缘往往也是
+    /// 0px，纯几何重判会在开合几轮后翻成底边贴边（见 redock_edge 的注释）。
+    auto_hide_last_edge: Option<DockEdge>,
     auto_hide_dock_pos: (i32, i32),
     /// 本次停靠以来「白条保障」自纠过几次：见 AUTO_HIDE_RESNAP_LIMIT。
     auto_hide_dock_resnaps: u8,
@@ -3833,6 +3841,59 @@ fn undock_target(
     }
 }
 
+/// 重贴边的选边：上一轮贴的边只要**没有被另一条边严格更近**就沿用。
+///
+/// 为什么不直接 nearest_edge：展开后的窗口很高（900），贴着左缘时离底缘往往
+/// 也只剩个位数像素 —— 实测（dock-cycle 复现台）：Left undock 后 Muffin 重装饰
+/// 时把 client y 97 掰到 100，窗框 63+937=1000 恰好贴死工作区底缘，Left/Bottom
+/// 距离打平，nearest_edge 的数组序让 Bottom 赢 → 左右贴边开合几轮后翻成底边
+/// 贴边（用户实测「反复打开最后都变成底面贴边」）。距离打平 = 没有换边的理由，
+/// 沿用上一轮；用户真把窗口拖向另一条边（严格更近）才跟着换。
+/// 坐标用**客户区**（本项目判位唯一可信来源）；首次贴边（None）退回
+/// nearest_edge 纯几何。纯函数，坐标无关语义。
+fn redock_edge(
+    last: Option<DockEdge>,
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+    work_x: i32,
+    work_y: i32,
+    work_w: i32,
+    work_h: i32,
+) -> DockEdge {
+    let Some(last) = last else {
+        return nearest_edge(x, y, w, h, work_x, work_y, work_w, work_h);
+    };
+    let distance =
+        |edge: DockEdge| -> i32 {
+            match edge {
+                DockEdge::Top => y - work_y,
+                DockEdge::Bottom => (work_y + work_h) - (y + h),
+                DockEdge::Left => x - work_x,
+                DockEdge::Right => (work_x + work_w) - (x + w),
+            }
+        };
+    let nearest = nearest_edge(x, y, w, h, work_x, work_y, work_w, work_h);
+    if nearest == last || distance(nearest).abs() >= distance(last).abs() {
+        last
+    } else {
+        nearest
+    }
+}
+
+/// 沿边轴的停靠坐标：当前读数与上一轮停靠位差 ≤ tolerance 时视为 WM 重装饰
+/// 微调（Muffin 实测每次重装饰 +3px），沿用上一轮的值 —— 不吸收的话微调每轮
+/// 进 dock_pos、undock 再放出来，左右贴边每开合一次窗口就下移一点（无界爬移）。
+/// 差得多 = 用户真挪过，尊重当前读数。纯函数，便于单测。
+fn dock_axis_position(live: i32, remembered: i32, tolerance: i32) -> i32 {
+    if (live - remembered).abs() <= tolerance {
+        remembered
+    } else {
+        live
+    }
+}
+
 /// 贴边缩条时的几何：窗口缩成 `strip` 厚的细缝，贴到工作区最近的边。
 /// 返回的落点是 **客户区**坐标 —— 和 `set_position` 的语义一致（见
 /// `undock_target` 的说明），所以「另一轴保持原位」用的也必须是**客户区**
@@ -3910,16 +3971,13 @@ fn dock_main_window(app: &AppHandle) {
         return;
     };
     let work = monitor.work_area();
-    let edge = nearest_edge(
-        pos.x,
-        pos.y,
-        size.width as i32,
-        size.height as i32,
-        work.position.x,
-        work.position.y,
-        work.size.width as i32,
-        work.size.height as i32,
-    );
+    // 上一轮贴边状态：选边惯性 + WM 微调吸收都要用（见 redock_edge /
+    // dock_axis_position 的注释）。dock_pos 在 undock 后仍保留，正是这两处的基准。
+    let (last_edge, prev_dock_pos) = {
+        let state = app.state::<Mutex<AppState>>();
+        let state = state.lock().expect("state mutex poisoned");
+        (state.auto_hide_last_edge, state.auto_hide_dock_pos)
+    };
     // 窗口缩成固定细缝（容纳白条最大厚度 40px），白条参数由前端 CSS 独立控制
     let strip = (DOCK_STRIP_SLOT_PX * monitor.scale_factor()).round() as i32;
     // 主窗 client 边长（白条沿这条窗口边延伸，长度百分比由前端 CSS 控制）
@@ -3930,6 +3988,35 @@ fn dock_main_window(app: &AppHandle) {
     // 「另一轴保持原位」要的是**客户区**原位（见 strip_geometry 的说明）。
     // 读的是客户区当前位置 —— 贴边逻辑里判位/落位的唯一可信来源。
     let (client_x, client_y) = window_client_position(&main).unwrap_or((pos.x, pos.y));
+    // 选边：上一轮的边没有被严格更近的边挑战就沿用（纯几何重判会在
+    // 「贴左缘同时也几乎贴底缘」的窗口上翻边）。输入用客户区矩形。
+    let edge = redock_edge(
+        last_edge,
+        client_x,
+        client_y,
+        client_w,
+        client_h,
+        work.position.x,
+        work.position.y,
+        work.size.width as i32,
+        work.size.height as i32,
+    );
+    // 沿边轴吸收 WM 重装饰微调（只在沿用上一轮边时吸收；换边说明用户主动拖过，
+    // 旧 dock_pos 对新边毫无意义）。
+    let (client_x, client_y) = if last_edge == Some(edge) {
+        match edge {
+            DockEdge::Left | DockEdge::Right => (
+                client_x,
+                dock_axis_position(client_y, prev_dock_pos.1, AUTO_HIDE_WM_NUDGE_PX),
+            ),
+            DockEdge::Top | DockEdge::Bottom => (
+                dock_axis_position(client_x, prev_dock_pos.0, AUTO_HIDE_WM_NUDGE_PX),
+                client_y,
+            ),
+        }
+    } else {
+        (client_x, client_y)
+    };
     let (new_size, target) = strip_geometry(
         edge,
         work.position.x,
@@ -3947,6 +4034,7 @@ fn dock_main_window(app: &AppHandle) {
         let mut state = state.lock().expect("state mutex poisoned");
         state.auto_hide_docked = true;
         state.auto_hide_edge = Some(edge);
+        state.auto_hide_last_edge = Some(edge);
         state.auto_hide_dock_pos = target;
         state.auto_hide_dock_resnaps = 0;
         state.auto_hide_restore_size = Some(match pre_client {
@@ -10108,6 +10196,51 @@ mod core_tests {
         assert_eq!(target, (1600, 90));
         let (_, target) = strip_geometry(DockEdge::Top, 1600, 40, 1280, 960, 460, 900, 1800, 90, 6);
         assert_eq!(target, (1800, 40));
+    }
+
+    #[test]
+    fn redock_edge_keeps_last_edge_on_distance_tie() {
+        // dock-cycle 复现台实测：Left undock 后 Muffin 重装饰把 client y 97 掰到
+        // 100，460x900 客户区在 1600x1000 工作区里离左缘 0、离底缘 0 —— 打平。
+        // 打平不是换边的理由：沿用上一轮，左右贴边绝不因此翻成底边贴边。
+        assert_eq!(
+            redock_edge(Some(DockEdge::Left), 0, 100, 460, 900, 0, 0, 1600, 1000),
+            DockEdge::Left
+        );
+    }
+
+    #[test]
+    fn redock_edge_switches_only_when_strictly_closer() {
+        // 用户把窗口拖到右缘（y=50，离底还有距离）：右缘 0 严格更近 → 跟着换
+        assert_eq!(
+            redock_edge(Some(DockEdge::Left), 1140, 50, 460, 900, 0, 0, 1600, 1000),
+            DockEdge::Right
+        );
+        // 拖到中下部贴底：底缘 0 严格更近 → 换底
+        assert_eq!(
+            redock_edge(Some(DockEdge::Left), 600, 100, 460, 900, 0, 0, 1600, 1000),
+            DockEdge::Bottom
+        );
+        // 没贴过边 → 纯几何，与 nearest_edge 一致
+        assert_eq!(
+            redock_edge(None, 700, 500, 460, 900, 0, 0, 1600, 1000),
+            nearest_edge(700, 500, 460, 900, 0, 0, 1600, 1000)
+        );
+    }
+
+    #[test]
+    fn dock_axis_position_absorbs_wm_nudge_only() {
+        // Muffin 重装饰实测 +3px（client y 97 → 100）：≤ 阈值视为微调，沿上一轮
+        // 停靠位 —— 不吸收的话微调每轮进 dock_pos，每开合一次窗口就下移一点。
+        assert_eq!(
+            dock_axis_position(100, 97, AUTO_HIDE_WM_NUDGE_PX),
+            97
+        );
+        // 用户真拖了 15px：尊重当前读数
+        assert_eq!(
+            dock_axis_position(112, 97, AUTO_HIDE_WM_NUDGE_PX),
+            112
+        );
     }
 
     #[test]
