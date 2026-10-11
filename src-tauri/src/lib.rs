@@ -2110,7 +2110,7 @@ fn menu_signature(
         .collect::<Vec<_>>()
         .join(",");
     format!(
-        "msg={message}|tmp={}|autostart={}|tray={}|dock={}|close={:?}|http={}|notify={}|delay={},{}|vars={variables}|err={}|busy={}|httpState={http_state}",
+        "msg={message}|tmp={}|autostart={}|tray={}|dock={}|close={:?}|http={}|notify={}|autohide={}|delay={},{}|vars={variables}|err={}|busy={}|httpState={http_state}",
         temporary_mount as u8,
         settings.autostart as u8,
         settings.start_in_tray as u8,
@@ -2120,6 +2120,8 @@ fn menu_signature(
         // 不进指纹的话主窗口一改，托盘那边就停在旧样子
         settings.http_enabled as u8,
         settings.notify_enabled as u8,
+        // 贴边自动隐藏的托盘勾选态也要进指纹
+        settings.main_auto_hide as u8,
         settings.channels.http.delay_seconds,
         settings.channels.cli.delay_seconds,
         error.unwrap_or(""),
@@ -5324,6 +5326,29 @@ fn set_delay_all_setting(app: &AppHandle, seconds: u32) {
     );
 }
 
+/// 延迟子菜单标题带上当前值：两渠道相同时显示一个数，不同时分别列出 ——
+/// 否则值不同时所有勾选项都不勾，用户在托盘里无从知道现在延迟是多少。
+fn delay_submenu_title(settings: &Settings) -> String {
+    let describe = |seconds: u32| {
+        if seconds == 0 {
+            "立即执行".to_string()
+        } else {
+            format!("{seconds}秒")
+        }
+    };
+    let http = settings.channels.http.delay_seconds;
+    let cli = settings.channels.cli.delay_seconds;
+    if http == cli {
+        format!("远程执行延迟（{}）", describe(http))
+    } else {
+        format!(
+            "远程执行延迟（HTTP {} / CLI {}）",
+            describe(http),
+            describe(cli)
+        )
+    }
+}
+
 fn menu_system_rows(variables: &[VariableInfo]) -> Vec<VariableInfo> {
     if !variables.is_empty() {
         return variables.to_vec();
@@ -5472,12 +5497,29 @@ fn build_tray_menu(app: &AppHandle, state: &UiState) -> tauri::Result<Menu<tauri
         None::<&str>,
     )?;
     menu.append(&hide_from_dock_taskbar)?;
+    // 贴边自动隐藏是高频功能开关，托盘给个快捷入口（与 HTTP 服务/远程请求通知同级）
+    menu.append(&CheckMenuItem::with_id(
+        app,
+        toggle_menu_id("setting-main-auto-hide", !settings.main_auto_hide),
+        "贴边自动隐藏",
+        true,
+        settings.main_auto_hide,
+        None::<&str>,
+    )?)?;
     // 窗口大小在设置页能随意调（滑条 / 拖边框），托盘里放一个「重置」入口：
     // 窗口被拖到怪尺寸（或锁定态想恢复标称）时，不用打开主窗口去找
     menu.append(&MenuItem::with_id(
         app,
         "reset-window-size",
         "重置窗口大小",
+        !busy,
+        None::<&str>,
+    )?)?;
+    // 与设置页「重置位置」同源：窗口被拖丢/飞出屏幕时一键回正中
+    menu.append(&MenuItem::with_id(
+        app,
+        "reset-window-position",
+        "重置窗口位置",
         !busy,
         None::<&str>,
     )?)?;
@@ -5556,7 +5598,7 @@ fn build_tray_menu(app: &AppHandle, state: &UiState) -> tauri::Result<Menu<tauri
         settings.notify_enabled,
         None::<&str>,
     )?)?;
-    let delay_menu = Submenu::with_id(app, "setting-delay", "远程执行延迟", true)?;
+    let delay_menu = Submenu::with_id(app, "setting-delay", &delay_submenu_title(settings), true)?;
     let delay_now = settings.channels.http.delay_seconds;
     let delay_same = delay_now == settings.channels.cli.delay_seconds;
     for seconds in [0u32, 3, 5, 10, 30] {
@@ -5755,6 +5797,8 @@ enum MenuAction {
     SetHttpEnabled(bool),
     /// 远程请求通知总开关
     SetNotifyEnabled(bool),
+    /// 贴边自动隐藏总开关（关掉时立即展开）
+    SetMainAutoHide(bool),
     /// 远程执行延迟（同时作用于两条渠道）
     SetDelayAll(u32),
     /// 打开主窗口并定位到「远程控制」区
@@ -5764,6 +5808,8 @@ enum MenuAction {
     SetHideFromDockTaskbar(bool),
     SetCloseAction(CloseAction),
     ResetWindowSize,
+    /// 主窗口摆回屏幕正中（与设置页「重置位置」同源）
+    ResetWindowPosition,
     Quit,
 }
 
@@ -5787,6 +5833,9 @@ impl MenuAction {
         if let Some(rest) = id.strip_prefix("setting-notify-enabled:") {
             return parse_menu_bool(rest).map(Self::SetNotifyEnabled);
         }
+        if let Some(rest) = id.strip_prefix("setting-main-auto-hide:") {
+            return parse_menu_bool(rest).map(Self::SetMainAutoHide);
+        }
         if let Some(rest) = id.strip_prefix("setting-delay:") {
             return rest.trim().parse::<u32>().ok().map(Self::SetDelayAll);
         }
@@ -5801,6 +5850,7 @@ impl MenuAction {
             "setting-autostart" => Some(Self::SetAutostart),
             "show-remote" => Some(Self::ShowRemote),
             "reset-window-size" => Some(Self::ResetWindowSize),
+            "reset-window-position" => Some(Self::ResetWindowPosition),
             "quit" => Some(Self::Quit),
             "linux" | "windows" | "macos" => Some(Self::Switch(id.to_string())),
             _ => None,
@@ -5840,6 +5890,19 @@ fn spawn_menu_action(app: &AppHandle, action: MenuAction) {
         MenuAction::Power(action) => spawn_power(&app, action, true),
         MenuAction::SetHttpEnabled(enabled) => set_http_enabled_setting(&app, enabled),
         MenuAction::SetNotifyEnabled(enabled) => set_notify_enabled_setting(&app, enabled),
+        MenuAction::SetMainAutoHide(enabled) => match set_main_auto_hide(app.clone(), enabled) {
+            Ok(_) => record_action(
+                &app,
+                "贴边自动隐藏",
+                true,
+                if enabled {
+                    "已开启：鼠标离窗后贴边缩成白条"
+                } else {
+                    "已关闭：窗口立即展开"
+                },
+            ),
+            Err(error) => record_action(&app, "贴边自动隐藏", false, &error),
+        },
         MenuAction::SetDelayAll(seconds) => set_delay_all_setting(&app, seconds),
         MenuAction::ShowRemote => {
             show_main_window(&app, ShowOrigin::Recall);
@@ -5863,6 +5926,13 @@ fn spawn_menu_action(app: &AppHandle, action: MenuAction) {
             Ok(_) => record_action(&app, "重置窗口大小", true, "窗口大小已重置为标称尺寸"),
             Err(error) => record_action(&app, "重置窗口大小", false, &error),
         },
+        MenuAction::ResetWindowPosition => {
+            // 复用设置页「重置位置」的同一实现：摆回屏幕正中（last 模式顺带记为新落点）
+            match reset_main_window_position(app.clone()) {
+                Ok(_) => record_action(&app, "重置窗口位置", true, "窗口已摆回屏幕正中"),
+                Err(error) => record_action(&app, "重置窗口位置", false, &error),
+            }
+        }
         MenuAction::Quit => app.exit(0),
     });
 }
@@ -10531,6 +10601,20 @@ mod core_tests {
                 "下次启动：Windows",
                 false,
                 &notify_toggled,
+                &variables,
+                None,
+                &idle
+            )
+        );
+        // 主窗口里改「贴边自动隐藏」开关，托盘里对应的勾也必须跟着动
+        let mut auto_hide_toggled = settings.clone();
+        auto_hide_toggled.main_auto_hide = !auto_hide_toggled.main_auto_hide;
+        assert_ne!(
+            base,
+            signature(
+                "下次启动：Windows",
+                false,
+                &auto_hide_toggled,
                 &variables,
                 None,
                 &idle

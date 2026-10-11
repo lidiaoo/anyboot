@@ -92,21 +92,25 @@
   `force_nominal_width` 无视 `window_size_locked`，锁定被侵犯。修：锁定时切模式
   只切布局不改尺寸（`grub_layout_target_width`，窄窗口下 wide/pane 由 CSS 收窄）。
 
-### 联动缺失（主窗设置页，待定夺是否加灰化）
+### 联动缺失（主窗设置页）——已修（2026-10-12）
 
-- [ ] `notifyEnabled` 总开关关 → HTTP/CLI 渠道两行仍可编辑，无「当前不生效」的
-  视觉提示（说明只在总开关行的小字里）。
-- [ ] `httpEnabled` 关 → 监听地址/端口/令牌区仍可编辑（改了无即时反馈）。
-- [ ] `playSound` 关 → 提示音文件路径仍可编辑（无害）。
-- [ ] `mainAutoHide` 关 → 白条四参数仍可编辑（前端预览仍工作，无害）。
+`applySettingLinkage()`：只读四个总开关勾选框现状置灰专属子项；render() 每拍
+收尾兜住快照驱动，四个总开关 change 监听里各调一次让灰化跟手。
 
-### 托盘 ↔ 主窗入口不对称（建议项）
+- [x] `notifyEnabled` 总开关关 → HTTP/CLI 渠道两行（勾选框 + 延迟输入）置灰。
+- [x] `httpEnabled` 关 → 监听地址/端口/应用/令牌区四按钮/重试监听/结束占用进程置灰。
+- [x] `playSound` 关 → 提示音路径 + 应用按钮置灰（勾选是本地待提交态，点「应用」才写后端）。
+- [x] `mainAutoHide` 关 → 白条四参数（厚度/长度/不透明度/颜色）置灰。
 
-- [ ] 托盘没有「贴边自动隐藏」快捷开关（对比 HTTP 服务/远程请求通知都有）；
-  贴边是高频功能，建议补一个 CheckMenuItem。
-- [ ] 托盘「远程执行延迟」勾选项在两渠道值不同时全部不勾、也不显示当前值。
-  建议：子菜单标题带当前值，如「远程执行延迟（HTTP 5s / CLI 30s）」。
-- [ ] 托盘有「重置窗口大小」没有「重置窗口位置」（主窗两者都有），可补齐对称。
+### 托盘 ↔ 主窗入口不对称（建议项）——已补齐（2026-10-12）
+
+- [x] 托盘「应用设置」区补「贴边自动隐藏」CheckMenuItem
+  （`MenuAction::SetMainAutoHide`，`menu_signature` 加 `main_auto_hide` 翻转断言）。
+- [x] 托盘「远程执行延迟」子菜单标题带当前值：两渠道相同显示
+  「远程执行延迟（N秒）」，不同显示「远程执行延迟（HTTP N秒 / CLI N秒）」
+  （`delay_submenu_title`）。
+- [x] 托盘「重置窗口大小」旁补「重置窗口位置」（`MenuAction::ResetWindowPosition`，
+  复用 `reset_main_window_position`）。
 
 ### 三端一致性核查（已一致，无需改）
 

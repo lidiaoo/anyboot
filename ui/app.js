@@ -718,6 +718,45 @@ function renderPending(notify) {
   pendingCancelElement.classList.toggle("hidden", !notify.canCancel);
 }
 
+// 设置项联动：总开关关掉时，它的专属子项一律置灰（改了也不生效的东西不该看起来能改）。
+// 只读勾选框现状——勾选框本身由快照统一写入，所以这里不用参数；
+// render() 每拍收尾跑一次兜住快照驱动，四个总开关的 change 监听里也各调一次让灰化跟手。
+function applySettingLinkage() {
+  for (const element of [
+    httpChannelNotifyElement,
+    httpChannelDelayElement,
+    cliChannelNotifyElement,
+    cliChannelDelayElement,
+  ]) {
+    element.disabled = !notifyEnabledElement.checked;
+  }
+  for (const element of [
+    httpBindElement,
+    httpPortElement,
+    httpApplyElement,
+    tokenInputElement,
+    tokenSaveElement,
+    tokenRevealElement,
+    tokenCopyElement,
+    tokenRegenerateElement,
+    retryHttpElement,
+    killOccupantElement,
+  ]) {
+    element.disabled = !httpEnabledElement.checked;
+  }
+  for (const element of [soundFilePathElement, soundApplyElement]) {
+    element.disabled = !playSoundElement.checked;
+  }
+  for (const element of [
+    mainDockStripThicknessElement,
+    mainDockStripLengthElement,
+    mainDockStripOpacityElement,
+    mainDockStripColorElement,
+  ]) {
+    element.disabled = !mainAutoHideElement.checked;
+  }
+}
+
 function render(state) {
   const busy = isBusy(state.busy);
 
@@ -772,6 +811,9 @@ function render(state) {
   ]) {
     element.disabled = busy;
   }
+
+  // 快照驱动的设置项联动收尾（renderRemote 里 killOccupant 的 disabled 会被这里按 http 开关纠正）
+  applySettingLinkage();
 }
 
 function applySnapshot(state, { force = false } = {}) {
@@ -1010,9 +1052,10 @@ function applyDelayFrom(channel, element) {
   call("set_channel_delay", { channel, seconds });
 }
 
-httpEnabledElement.addEventListener("change", () =>
-  call("set_http_enabled", { enabled: httpEnabledElement.checked }),
-);
+httpEnabledElement.addEventListener("change", () => {
+  applySettingLinkage();
+  call("set_http_enabled", { enabled: httpEnabledElement.checked });
+});
 
 httpApplyElement.addEventListener("click", () => {
   const bind = httpBindElement.value.trim();
@@ -1028,9 +1071,10 @@ httpApplyElement.addEventListener("click", () => {
   call("set_http_bind", { bind }).then(() => call("set_http_port", { port }));
 });
 
-notifyEnabledElement.addEventListener("change", () =>
-  call("set_notify_enabled", { enabled: notifyEnabledElement.checked }),
-);
+notifyEnabledElement.addEventListener("change", () => {
+  applySettingLinkage();
+  call("set_notify_enabled", { enabled: notifyEnabledElement.checked });
+});
 
 httpChannelNotifyElement.addEventListener("change", () =>
   call("set_channel_notify", {
@@ -1050,7 +1094,9 @@ httpChannelDelayElement.addEventListener("change", () =>
   applyDelayFrom("http", httpChannelDelayElement),
 );
 
-// 提示音开关与路径
+// 提示音开关与路径：勾选只改本地待提交状态（点「应用」才写后端），灰化跟勾选即时走
+playSoundElement.addEventListener("change", applySettingLinkage);
+
 soundApplyElement.addEventListener("click", () => {
   const enabled = playSoundElement.checked;
   const path = soundFilePathElement.value.trim();
@@ -1191,9 +1237,10 @@ startInTrayElement.addEventListener("change", () =>
 );
 
 // 贴边自动隐藏：开后鼠标一离窗就缩成边条，悬停边条展开；关掉立即展开
-mainAutoHideElement.addEventListener("change", () =>
-  call("set_main_auto_hide", { enabled: mainAutoHideElement.checked }),
-);
+mainAutoHideElement.addEventListener("change", () => {
+  applySettingLinkage();
+  call("set_main_auto_hide", { enabled: mainAutoHideElement.checked });
+});
 
 // 贴边触发距离：主窗口离屏幕边框多近时，鼠标离开才会隐藏
 mainAutoHideEdgeDistanceElement.addEventListener("change", () => {
