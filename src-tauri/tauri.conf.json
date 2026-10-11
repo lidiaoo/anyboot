@@ -13,10 +13,11 @@
         "label": "main",
         "title": "AnyBoot",
         "width": 460,
-        "height": 680,
+        "height": 900,
         "resizable": true,
         "transparent": true,
         "skipTaskbar": true,
+        "alwaysOnTop": true,
         "visible": false
       }
     ],

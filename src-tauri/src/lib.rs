@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
     process::{Command, Output, Stdio},
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Mutex,
     },
     time::{Instant, SystemTime, UNIX_EPOCH},
@@ -162,6 +162,33 @@ const NOTIFY_MARGIN: f64 = 24.0;
 const MENU_ANCHOR_WINDOW_LABEL: &str = "menu-anchor";
 /// 锚点窗口尺寸：只是个坐标原点，多大都行（不可见、无边框）
 const MENU_ANCHOR_SIZE: f64 = 8.0;
+/// GRUB 列表独立窗口的标签
+const GRUB_LIST_WINDOW_LABEL: &str = "grub-list";
+/// 主窗口的标称逻辑尺寸（与 tauri.conf.json 里的 width/height 保持一致）。
+/// 「加宽模式」只是把宽度换成 MAIN_WIDTH_WIDE，高度不变。
+const MAIN_WIDTH_NORMAL: f64 = 460.0;
+const MAIN_WIDTH_WIDE: f64 = 920.0;
+const MAIN_HEIGHT: f64 = 900.0;
+/// GRUB 列表独立窗口的标称逻辑尺寸：高度对齐主窗口，宽度足够铺开树形列表
+const GRUB_LIST_WIDTH: f64 = 440.0;
+const GRUB_LIST_HEIGHT: f64 = 860.0;
+/// 独立窗口与主窗口之间的间距（逻辑像素）
+const GRUB_LIST_GAP: f64 = 12.0;
+/// 鼠标离开主窗口后多久贴边隐藏（太灵敏会误触，太迟钝像卡住）
+const AUTO_HIDE_DELAY_MS: u64 = 350;
+/// 贴边守护线程的轮询周期：光标在不在窗口内、贴没贴边，都靠它扫
+const AUTO_HIDE_TICK_MS: u64 = 120;
+/// 位置夹取的静默期：拖动过程中 Moved 连发，期间绝不 set_position（会跟
+/// Windows 的拖动循环互相拉扯 = 窗口乱跳）；拖完 250ms 没动静再夹一次。
+const CLAMP_DELAY_MS: u64 = 250;
+/// Moved 事件里判定「这是用户在拖、不是我们贴的那次」的容差（物理像素）：
+/// 我们自己的 set_position 会在同一坐标上触发 Moved，用户手拖必然超过这个量。
+const AUTO_HIDE_TOLERANCE: i32 = 24;
+/// 贴边后窗口缩成的「缝」的厚度（逻辑像素）：窗口只缩到这条缝，白条是
+/// **独立渲染**的白色条（#dock-strip，长度/厚度/透明度全由前端 CSS 控制），
+/// 缝要足够容纳白条最大厚度（40px），所以固定取 40 —— 窗口几何与白条
+/// 参数彻底解耦，改白条参数不用动窗口。
+const DOCK_STRIP_SLOT_PX: f64 = 40.0;
 /// 延迟秒数的上限（配置里乱填也不会把请求挂到天上去）
 const MAX_DELAY_SECONDS: u32 = 600;
 /// 自定义 token 的长度范围（太短不安全，太长粘贴起来也难受）
@@ -203,6 +230,92 @@ struct AppState {
     grub: GrubRuntime,
     /// 安装 / 卸载 09_anyboot 的执行过程日志（最近一次）
     script_log: ScriptLogView,
+    /// 贴边自动隐藏的运行态：是否已停靠、贴在哪条边、贴住时的坐标。
+    /// dock_pos 用来在 Moved 事件里区分「我们自己 set_position 触发的」和
+    /// 「用户手拖的」——前者坐标一致（容差内），后者必然偏离。
+    auto_hide_docked: bool,
+    auto_hide_edge: Option<DockEdge>,
+    auto_hide_dock_pos: (i32, i32),
+    /// 贴边前的窗口尺寸（物理像素）：贴边时窗口被缩成一条白条厚度
+    /// （否则窗口大部分面积压在任务栏/Dock 上——窗口置顶，网页内容会把
+    /// 任务栏整个盖住）。展开时按这个尺寸原样恢复。
+    auto_hide_restore_size: Option<(u32, u32)>,
+    /// 贴边前窗口的 client 边距（物理像素，top/bottom/left/right）：去装饰前
+    /// 量好缓存。undock 改成「先摆几何、后恢复装饰」的顺序（修「标题跳一下
+    /// 才出来」）时，量边距必须在还带着装饰的时候进行 —— 就用这份缓存。
+    auto_hide_borders: Option<(i32, i32, i32, i32)>,
+    /// 托盘呼出后的宽限期（Unix 毫秒）：呼出瞬间鼠标必然停在托盘上（窗口外），
+    /// 没有宽限的话窗口刚弹出来就被 watcher 立刻贴边藏回去 —— 表现就是
+    /// 「点了托盘主界面不显示」。宽限期内不累计鼠标离窗时钟。
+    auto_hide_grace_until_ms: u64,
+    /// 托盘呼出后的「等待进入」标志：呼出展开后鼠标还没进过窗口之前，
+    /// watcher 一律不自动贴回。没有它就是死循环：呼出 → 800ms 宽限期一过、
+    /// 鼠标还在托盘 → 贴回 → 用户再点托盘 → 再展开 → 再贴回……每轮都有
+    /// show/hide + set_decorations 样式切换，两个窗口互相闪烁直到卡死。
+    /// 鼠标进过一次窗口（用户真的用过界面）后清除，恢复正常的离窗贴边。
+    auto_hide_pending_enter: bool,
+}
+
+/// 主窗口贴边自动隐藏时贴向的屏幕边。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DockEdge {
+    Top,
+    Bottom,
+    Left,
+    Right,
+}
+
+impl DockEdge {
+    /// 转成前端用的小写字符串（与 CSS 类名、白条方位一一对应）。
+    fn as_str(&self) -> &'static str {
+        match self {
+            DockEdge::Top => "top",
+            DockEdge::Bottom => "bottom",
+            DockEdge::Left => "left",
+            DockEdge::Right => "right",
+        }
+    }
+}
+
+/// 按窗口与工作区四条边的距离取最近的一条（纯函数，便于单测）。
+fn nearest_edge(
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+    work_x: i32,
+    work_y: i32,
+    work_w: i32,
+    work_h: i32,
+) -> DockEdge {
+    let distances = [
+        (DockEdge::Top, (y - work_y).abs()),
+        (DockEdge::Bottom, ((work_y + work_h) - (y + h)).abs()),
+        (DockEdge::Left, (x - work_x).abs()),
+        (DockEdge::Right, ((work_x + work_w) - (x + w)).abs()),
+    ];
+    distances
+        .into_iter()
+        .min_by_key(|(_, distance)| *distance)
+        .map(|(edge, _)| edge)
+        .unwrap_or(DockEdge::Top)
+}
+
+/// 把窗口位置夹回工作区，保证**整个窗口**完整可见（纯函数，便于单测）。
+/// 窗口比工作区还大时钉在左上角（max 兜底，至少别越顶）。
+fn clamp_to_work(
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+    work_x: i32,
+    work_y: i32,
+    work_w: i32,
+    work_h: i32,
+) -> (i32, i32) {
+    let max_x = (work_x + work_w - w).max(work_x);
+    let max_y = (work_y + work_h - h).max(work_y);
+    (x.clamp(work_x, max_x), y.clamp(work_y, max_y))
 }
 
 #[derive(Clone)]
@@ -783,6 +896,10 @@ struct UiState {
     grub: GrubView,
     /// 当前生效的 09_anyboot 正文（供界面「查看 / 修改」用）
     grub_script: String,
+    /// 主窗口当前是否处于「贴边隐藏」态（前端据此在窗口边界画一条白条）
+    docked: bool,
+    /// 贴向的屏幕边（top/bottom/left/right）；未贴边时为 null
+    dock_edge: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
@@ -844,6 +961,32 @@ struct Settings {
     /// 用户在界面上改过的 09_anyboot 正文（空 = 用内置模板）。
     /// 安装时只替换 `@@ESP_UUID@@`，其余按用户改的来。
     grub_script_override: String,
+    /// GRUB 列表的展示方式：inline（内嵌在主窗口）/ wide（加宽主窗口展示）/
+    /// window（独立窗口，位置跟随主界面）。
+    grub_list_view: String,
+    /// 主窗口贴边自动隐藏：鼠标离开后窗口贴到最近的屏幕边缘、只露一条边，
+    /// 悬停边条再展开。关掉时窗口保持完整可见。
+    main_auto_hide: bool,
+    /// 贴边自动隐藏的触发距离（逻辑像素）：主窗口离工作区边框不超过这个距离、
+    /// 且鼠标离开主窗口/独立窗口超过延迟，才贴边隐藏。窗口在屏幕中央时
+    /// 鼠标离开不隐藏（用户明确要求「正中央不触发」+ 距离可自定义）。
+    main_auto_hide_edge_distance: i32,
+    /// 贴边白条厚度（逻辑像素，2–40，默认 6）：贴边隐藏时窗口缩成这条的厚度
+    main_dock_strip_thickness: i32,
+    /// 贴边白条长度（占窗口边长的百分比 10–100，默认 100 = 整条边）
+    main_dock_strip_length: i32,
+    /// 贴边白条不透明度（百分比 10–100，默认 100）
+    main_dock_strip_opacity: i32,
+    /// 贴边白条颜色（#rrggbb，默认白色）：调色板选的色调，纯前端 CSS 渲染
+    main_dock_strip_color: String,
+    /// 主题强调色（#rrggbb，默认内置蓝 #2f7fe0）：调色板选的色调，
+    /// 前端据此派生按钮/链接/悬停色
+    accent_color: String,
+    /// 主窗口固定显示位置模式：free=用户自由拖动（默认，保持现状）；
+    /// center=每次显示都居中；last=记住上次手动摆放的位置。
+    main_window_position: String,
+    /// 「上次位置」模式记忆的落点（物理像素；未设定为 None，回退到居中）。
+    main_window_last: Option<(i32, i32)>,
 }
 
 impl Default for Settings {
@@ -869,6 +1012,16 @@ impl Default for Settings {
             grub_efi_dir: String::new(),
             grub_keep_mounted: false,
             grub_script_override: String::new(),
+            grub_list_view: "inline".to_string(),
+            main_auto_hide: false,
+            main_auto_hide_edge_distance: 24,
+            main_dock_strip_thickness: 6,
+            main_dock_strip_length: 100,
+            main_dock_strip_opacity: 100,
+            main_dock_strip_color: "#ffffff".to_string(),
+            accent_color: "#2f7fe0".to_string(),
+            main_window_position: "free".to_string(),
+            main_window_last: None,
         }
     }
 }
@@ -1856,8 +2009,9 @@ fn trace(app: &AppHandle, category: &str, message: &str) {
         return;
     }
     let line = format!(
-        "{} [{category}] {message}\n",
-        utc_timestamp(now_epoch_seconds())
+        "{}ms [{}] {message}\n",
+        unix_millis(),
+        category
     );
     eprint!("trace {line}");
     let Some(path) = trace_file_path(app) else {
@@ -2076,6 +2230,20 @@ fn ui_state(app: &AppHandle) -> UiState {
         notify: notify_view(app),
         grub,
         grub_script,
+        docked: {
+            let state = app.state::<Mutex<AppState>>();
+            state
+                .lock()
+                .map(|state| state.auto_hide_docked)
+                .unwrap_or(false)
+        },
+        dock_edge: {
+            let state = app.state::<Mutex<AppState>>();
+            state
+                .lock()
+                .ok()
+                .and_then(|state| state.auto_hide_edge.map(|edge| edge.as_str().to_string()))
+        },
     }
 }
 
@@ -2142,6 +2310,110 @@ fn normalize_theme(value: &str) -> String {
     } else {
         "dark".to_string()
     }
+}
+
+/// GRUB 列表展示方式归一（纯函数）：不认识的值一律回落到 inline。
+fn normalize_grub_list_view(value: &str) -> &'static str {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "wide" => "wide",
+        "window" => "window",
+        _ => "inline",
+    }
+}
+
+/// 主窗口固定位置模式归一（纯函数）：free / center / last，其余回落 free。
+fn normalize_window_position(value: &str) -> &'static str {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "center" => "center",
+        "last" => "last",
+        _ => "free",
+    }
+}
+
+/// 把主窗口摆到当前显示器工作区的中心（物理像素，夹回工作区）。返回落点。
+fn center_main_window(app: &AppHandle) -> Option<(i32, i32)> {
+    let main = app.get_webview_window(MAIN_WINDOW_LABEL)?;
+    let Ok(size) = main.outer_size() else {
+        return None;
+    };
+    let monitor = main
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| app.primary_monitor().ok().flatten())?;
+    let work = monitor.work_area();
+    let main_w = size.width as i32;
+    let main_h = size.height as i32;
+    // 独立窗口模式：GRUB 吸附在主窗旁，按「两窗联合矩形」居中（用户要求：
+    // 两个窗口总宽度 / 总高度的中心对准屏幕中心），而不是只居中主窗——
+    // 只居中主窗时整体会偏向 GRUB 一侧。GRUB 不可见（inline / 未开）时
+    // grub_w/h=0，退化为单窗居中。
+    let (grub_w, grub_h) = if grub_list_view_mode(app) == "window" {
+        app.get_webview_window(GRUB_LIST_WINDOW_LABEL)
+            .filter(|list| list.is_visible().unwrap_or(false))
+            .and_then(|list| list.outer_size().ok())
+            .map(|s| (s.width as i32, s.height as i32))
+            .unwrap_or((0, 0))
+    } else {
+        (0, 0)
+    };
+    let gap = if grub_w > 0 {
+        (GRUB_LIST_GAP * monitor.scale_factor()).round() as i32
+    } else {
+        0
+    };
+    let union_w = main_w + gap + grub_w;
+    let union_h = main_h.max(grub_h);
+    let x = work.position.x + ((work.size.width as i32 - union_w) / 2);
+    let y = work.position.y + ((work.size.height as i32 - union_h) / 2);
+    // 用联合矩形夹取：联合矩形整体落在工作区内（贴边不越界）
+    let (cx, cy) = clamp_to_work(
+        x,
+        y,
+        union_w,
+        union_h,
+        work.position.x,
+        work.position.y,
+        work.size.width as i32,
+        work.size.height as i32,
+    );
+    let _ = main.set_position(tauri::PhysicalPosition::new(cx, cy));
+    Some((cx, cy))
+}
+
+/// 按固定位置模式落位主窗口（贴边停靠态不干预）。center=居中；last=落到
+/// 记忆的位置（无记忆则居中）；free=不管。落位后顺手重摆跟随的 GRUB 独立窗口。
+fn apply_main_window_position(app: &AppHandle) -> Option<(i32, i32)> {
+    let docked = app
+        .state::<Mutex<AppState>>()
+        .lock()
+        .map(|state| state.auto_hide_docked)
+        .unwrap_or(false);
+    if docked {
+        return None;
+    }
+    let mode = normalize_window_position(&stored_settings(app).main_window_position).to_string();
+    let pos = match mode.as_str() {
+        "center" => center_main_window(app),
+        "last" => match stored_settings(app).main_window_last {
+            Some(p) => {
+                if let Some(main) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+                    let _ = main.set_position(tauri::PhysicalPosition::new(p.0, p.1));
+                }
+                Some(p)
+            }
+            None => center_main_window(app),
+        },
+        _ => None,
+    };
+    if grub_list_view_mode(app) == "window" {
+        if let Some(list) = app.get_webview_window(GRUB_LIST_WINDOW_LABEL) {
+            if list.is_visible().unwrap_or(false) {
+                place_grub_list_window(app);
+            }
+        }
+    }
+    pos
 }
 
 /// 不透明度夹取到 [MIN_OPACITY, MAX_OPACITY]（纯函数）。
@@ -3317,6 +3589,1483 @@ fn close_notify_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window(NOTIFY_WINDOW_LABEL) {
         let _ = window.close();
     }
+}
+
+// ==================== GRUB 列表的三种展示方式 ====================
+// inline：列表内嵌在主窗口区块里（前端照常渲染，后端只管把窗口宽度还原）；
+// wide：主窗口整体加宽，列表铺得更开（同样是前端的事）；
+// window：列表搬进一个独立窗口，位置吸附在主窗口旁边，主窗口移动/隐藏时跟着动。
+
+/// 当前设置的展示方式（已归一）。
+fn grub_list_view_mode(app: &AppHandle) -> &'static str {
+    normalize_grub_list_view(&stored_settings(app).grub_list_view)
+}
+
+/// 创建（如无）GRUB 列表独立窗口，摆到主窗口旁边并显示。
+///
+/// 主窗口此时必须可见：主窗口藏着（托盘态）时不去开它，等 `show_main_window`
+/// 里那条路径统一处理 —— 否则会出现「主窗口没出来、列表窗口先蹦出来」的怪相。
+/// Windows 把最小化窗口挪到屏幕外 (−32000,−32000)，按这个特征识别最小化态。
+fn is_minimized_position(pos: tauri::PhysicalPosition<i32>) -> bool {
+    pos.x < -20000 || pos.y < -20000
+}
+
+/// 创建（如无）GRUB 列表独立窗口并显示。
+///
+/// `force_show`：主窗口**正在被摆出来**的路径（托盘呼出 / 最小化恢复 / 失焦回归）
+/// 必须传 true —— 这时 `is_visible()` 读到的可能是 show() 刚派发还没生效的过期
+/// 值，按旧值判断会把独立窗口落下（用户实测「最小化再打开，独立窗口没了」）。
+/// 只有 setup 里主窗口还在托盘里的那次要靠 false 挡住，别蹦到屏幕上。
+fn open_grub_list_window(app: &AppHandle, force_show: bool) {
+    let Some(main_window) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
+        startup_debug(app, "open: main 不存在，直接返回");
+        return;
+    };
+    let main_visible = main_window.is_visible().unwrap_or(false);
+    startup_debug(
+        app,
+        &format!(
+            "open 进入 force={force_show} main_visible={main_visible} pid={}",
+            std::process::id()
+        ),
+    );
+    if !force_show && !main_visible {
+        return;
+    }
+    if app.get_webview_window(GRUB_LIST_WINDOW_LABEL).is_none() {
+        // 创建时就用主窗口的当前宽高（用户要求两边宽高恒一致）：显示前就
+        // 对齐，不用「先按默认尺寸显示再 set_size 掰」，零闪动。换算成逻辑
+        // 像素喂给 builder（builder 只收逻辑值），失败回退默认值。
+        let (initial_width, initial_height) = match app.get_webview_window(MAIN_WINDOW_LABEL) {
+            Some(main) => match (main.outer_size(), main.current_monitor().ok().flatten()) {
+                (Ok(size), Some(monitor)) if monitor.scale_factor() > 0.0 => (
+                    (size.width as f64 / monitor.scale_factor()).max(GRUB_LIST_WIDTH),
+                    (size.height as f64 / monitor.scale_factor()).max(320.0),
+                ),
+                _ => (GRUB_LIST_WIDTH, GRUB_LIST_HEIGHT),
+            },
+            None => (GRUB_LIST_WIDTH, GRUB_LIST_HEIGHT),
+        };
+        // 先建出来但**不显示**：摆好位置再露出来，跟通知窗口同一个教训
+        // （「先在默认位置画一帧再跳走」——见 show_notify_window 里的注释）。
+        // 无边框：用户要求这个窗口不支持最小化/关闭、也不能单独拖动 ——
+        // 去掉系统装饰后没有标题栏，三个按钮自然不存在，拖动也没有着力点；
+        // minimizable/closable(false) 再把 Alt+F4 之外的原生路径也封掉。
+        if let Err(error) = tauri::WebviewWindowBuilder::new(
+            app,
+            GRUB_LIST_WINDOW_LABEL,
+            tauri::WebviewUrl::App("grublist.html".into()),
+        )
+        .title("GRUB 启动项")
+        .inner_size(initial_width, initial_height)
+        .min_inner_size(300.0, 320.0)
+        .resizable(true)
+        .decorations(false)
+        // 主题/透明度要和主窗口一致（用户要求）：主窗口是 transparent 窗口，
+        // CSS 用 rgba(--bg-rgb, var(--ui-alpha)) 画半透明背景 —— 这个窗口也必须
+        // transparent，否则 WebView2 默认白底不透明，透明度在独立窗口上根本
+        // 显不出来（看起来就是「透明度不同步」）。主题变量 grublist.js 本来就
+        // 随 ui-state-changed 广播同步，这里补齐窗口层的透明能力。
+        .transparent(true)
+        .minimizable(false)
+        .maximizable(false)
+        .closable(false)
+        .shadow(true)
+        .skip_taskbar(true)
+        .focused(false)
+        .visible(false)
+        .build()
+        {
+            trace(app, "grub", &format!("创建 GRUB 列表窗口失败: {error}"));
+            return;
+        }
+        // 新建后的首次同步修正（**show 之前**，零闪动）：builder 的
+        // initial_size 是按主窗外框换算的，但 GRUB 带 shadow 边距，外框会比
+        // 主窗外框大一圈；等 schedule_grub_align 80ms 后再掰，就是用户看到的
+        // 「先闪一下才能稳定」。这里窗口已存在（还没露出来），量一次自己的
+        // shadow 边距，把内尺寸精确调成「主窗外框 − 边距」→ 外框=主窗外框。
+        if let (Some(list), Some(main)) = (
+            app.get_webview_window(GRUB_LIST_WINDOW_LABEL),
+            app.get_webview_window(MAIN_WINDOW_LABEL),
+        ) {
+            if let (Ok(mo), Ok(li), Ok(lo)) = (
+                main.outer_size(),
+                list.inner_size(),
+                list.outer_size(),
+            ) {
+                let margin_w = lo.width as i64 - li.width as i64;
+                let margin_h = lo.height as i64 - li.height as i64;
+                let target_w = (mo.width as i64 - margin_w).max(200) as u32;
+                let target_h = (mo.height as i64 - margin_h).max(200) as u32;
+                let _ = list.set_size(tauri::PhysicalSize::new(target_w, target_h));
+            }
+        }
+    }
+    let Some(window) = app.get_webview_window(GRUB_LIST_WINDOW_LABEL) else {
+        return;
+    };
+    place_grub_list_window(app);
+    // 首帧渲染完成才 show：窗口先亮、WebView2 后画完 = 用户看到的
+    // 「GRUB 界面闪一下之后才能稳定」。首帧没就绪就排队，等前端
+    // grub_list_window_ready 回执再亮（窗口几何已经摆好，亮出来即终态）。
+    if GRUB_WINDOW_READY.load(Ordering::SeqCst) {
+        startup_debug(app, "show 前（open_grub_list_window 尾部）");
+        let _ = window.show();
+        startup_debug(app, "show 已调用（open_grub_list_window 尾部）");
+        let _ = window.set_always_on_top(true);
+    } else {
+        GRUB_PENDING_SHOW.store(true, Ordering::SeqCst);
+        trace(app, "grub", "首帧未就绪，显示排队等待 ready 回执");
+    }
+    // 兜底：万一创建时主窗口高度读失败、或主窗口刚变了尺寸，这里异步补齐
+    // （80ms 去抖，绝不同步 set_size —— 见 schedule_grub_align 注释）。
+    schedule_grub_align(app);
+    // 模式切换/重新展开都强制补一帧最新状态：窗口之前哪怕被藏过、最小化过，
+    // 亮出来那一刻列表一定是刚渲染的（用户明确要求「切换后重新渲染」）。
+    publish_ui(app);
+}
+
+/// 把 GRUB 独立窗口吸附到主窗口旁边：首选右侧，右侧放不下换左侧，
+/// 再放不下就贴工作区右缘；纵向始终对齐主窗口顶边并夹在工作区内。
+/// **高度强制与主窗口一致**（用户要求「无论怎样高度都要一致」）：
+/// 用户手动拉过独立窗口、或主窗口改过尺寸，这里都会掰回来。
+/// 全程用物理像素（outer_position/outer_size 的原生单位），不做 DPI 换算。
+fn place_grub_list_window(app: &AppHandle) {
+    let (Some(main_window), Some(list_window)) = (
+        app.get_webview_window(MAIN_WINDOW_LABEL),
+        app.get_webview_window(GRUB_LIST_WINDOW_LABEL),
+    ) else {
+        return;
+    };
+    let (Ok(main_pos), Ok(main_size), Ok(list_size), Ok(list_pos)) = (
+        main_window.outer_position(),
+        main_window.outer_size(),
+        list_window.outer_size(),
+        list_window.outer_position(),
+    ) else {
+        return;
+    };
+    let monitor = main_window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| app.primary_monitor().ok().flatten());
+    let Some(monitor) = monitor else {
+        return;
+    };
+    let work = monitor.work_area();
+    let scale = monitor.scale_factor();
+    let gap = (GRUB_LIST_GAP * scale).round() as i32;
+    // 注意：这里**绝不做 set_size**。高度同步必须走 schedule_grub_align
+    // （异步去抖）—— 在主线程事件回调（Resized/Focused/Moved）里同步改
+    // WebView2 窗口尺寸会重入消息循环，把整个应用挂死（回合 23 的
+    // 「启动即卡死」就是这个原因）。贴底夹取按主窗口高度算。
+    let list_w = list_size.width as i32;
+    let list_h = main_size.height as i32;
+    let right_edge = work.position.x + work.size.width as i32;
+    let bottom_edge = work.position.y + work.size.height as i32;
+
+    let mut x = main_pos.x + main_size.width as i32 + gap;
+    if x + list_w > right_edge {
+        // 右侧放不下 → 换到主窗口左边
+        x = main_pos.x - list_w - gap;
+    }
+    if x + list_w > right_edge || x < work.position.x {
+        // 左边也放不下 → 贴右缘夹进工作区
+        x = (right_edge - list_w).max(work.position.x);
+    }
+    let mut y = main_pos.y;
+    if y + list_h > bottom_edge {
+        y = (bottom_edge - list_h).max(work.position.y);
+    }
+    // 容差守卫：算出的落点和当前位置一致（≤8px）就不发 set_position。
+    // 双向跟随（主窗挪 → GRUB 跟；GRUB 拖 → 主窗跟）靠这一刀截断回声环：
+    // 主窗挪完触发的 Moved 里算出的 GRUB 落点必然就是它现在的位置，
+    // 不加守卫会再挪一次 GRUB → 再触发主窗跟随 → 无限乒乓。**容差必须是
+    // 8px 不是 2px**：DWM/DPI 取整后 set_position 的最终落点能和目标差
+    // 2–8px，容差太小时回声识别失败，两个窗口以几像素的幅度互相微调
+    // —— 用户看到的就是「互相闪烁」。
+    if (list_pos.x - x).abs() <= 8 && (list_pos.y - y).abs() <= 8 {
+        return;
+    }
+    // 记下预期落点：GRUB 的 Moved 回声据此跳过 follow（否则反拽主窗 → 乒乓乱飘）
+    GRUB_FOLLOW_TARGET.store(
+        ((x as u32 as u64) << 32) | (y as u32 as u64),
+        Ordering::SeqCst,
+    );
+    trace(app, "autohide", &format!("place grub -> ({x},{y}) main=({},{})", main_pos.x, main_pos.y));
+    let _ = list_window.set_position(tauri::PhysicalPosition::new(x, y));
+}
+
+/// GRUB 独立窗口高度对齐主窗口（**异步去抖**）：主窗口 / 独立窗口的 Resized
+/// 事件只负责「报名」，80ms 静默后由这个后台线程真正执行 set_size + 吸附定位。
+/// 绝不在事件回调里同步 set_size —— 主线程事件回调里改 WebView2 窗口尺寸会
+/// 重入消息循环挂死整个应用（回合 23 的「启动即卡死」）。等高则跳过，无事件循环。
+fn schedule_grub_align(app: &AppHandle) {
+    static GENERATION: AtomicU64 = AtomicU64::new(0);
+    let generation = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(80));
+        if GENERATION.load(Ordering::SeqCst) != generation {
+            return; // 连续缩放时只让最后那次落地
+        }
+        if grub_list_view_mode(&app) != "window" {
+            return;
+        }
+        // 贴边停靠态：独立窗口必须保持隐藏，不碰
+        let docked = app
+            .state::<Mutex<AppState>>()
+            .lock()
+            .map(|state| state.auto_hide_docked)
+            .unwrap_or(false);
+        if docked {
+            return;
+        }
+        let (Some(main_window), Some(list_window)) = (
+            app.get_webview_window(MAIN_WINDOW_LABEL),
+            app.get_webview_window(GRUB_LIST_WINDOW_LABEL),
+        ) else {
+            return;
+        };
+        let (Ok(main_size), Ok(list_inner), Ok(list_outer)) = (
+            main_window.outer_size(),
+            list_window.inner_size(),
+            list_window.outer_size(),
+        ) else {
+            return;
+        };
+        // 视觉上要 GRUB **外框**与主窗**外框**一致（用户要求「两窗高度一致」，
+        // 而主窗带标题栏、GRUB 带 shadow 边距，两者的 inner/outer 差不同——
+        // 直接 set_size(主窗外框) 会让 GRUB 外框比主窗外框多一圈边距，看起来
+        // 高几像素）。GRUB 的 shadow 边距 = 外框 - 内尺寸，是常量（不随尺寸变），
+        // 用它把内尺寸目标调成「主窗外框 - 边距」→ GRUB 外框精确等于主窗外框。
+        // 主窗外框是固定基准（从不回写），无回环；读 list_outer 只取差值不回喂
+        // 绝对值，不会触发 R25 的「每轮涨一个边距」反馈。
+        let margin_w = list_outer.width as i32 - list_inner.width as i32;
+        let margin_h = list_outer.height as i32 - list_inner.height as i32;
+        let target_w = (main_size.width as i32 - margin_w).max(200) as u32;
+        let target_h = (main_size.height as i32 - margin_h).max(200) as u32;
+        // 记下自我改尺寸的时间戳：Resized 事件处理靠它区分「我们的回声」
+        // 和「用户手动拉边框」（后者要让主窗口跟尺寸，见 on_window_event）。
+        if list_inner.width != target_w || list_inner.height != target_h {
+            GRUB_LAST_SELF_RESIZE_MS.store(unix_millis(), Ordering::SeqCst);
+            let _ = list_window.set_size(tauri::PhysicalSize::new(target_w, target_h));
+        }
+        place_grub_list_window(&app);
+    });
+}
+
+/// align 线程最近一次自我 set_size（GRUB 独立窗口）的 Unix 毫秒：
+/// Resized 事件落在这个时间戳 600ms 内 = 我们自己改的回声，不是用户拖的。
+static GRUB_LAST_SELF_RESIZE_MS: AtomicU64 = AtomicU64::new(0);
+
+/// GRUB 独立窗口前端首帧是否已渲染（grub_list_window_ready 回执置位）。
+static GRUB_WINDOW_READY: AtomicBool = AtomicBool::new(false);
+/// 窗口首帧未就绪时排队的显示请求：ready 回执到了才真正 show。
+static GRUB_PENDING_SHOW: AtomicBool = AtomicBool::new(false);
+
+/// 用户手动拖 GRUB 独立窗口的边框改尺寸：**主窗口跟尺寸**（互相绑定的
+/// 另一半 —— 不管哪边改了宽高，两边都一样）。以 GRUB 窗口 inner_size 为
+/// 固定基准（它从不被这里回写，无回环），主窗口 inner 目标 =
+/// GRUB 尺寸 - 主窗口四边边距（主窗口带标题栏，inner/outer 差一圈）。
+/// 异步去抖，绝不在事件回调里同步 set_size（回合 23 教训）。
+fn schedule_main_size_from_grub(app: &AppHandle) {
+    static GENERATION: AtomicU64 = AtomicU64::new(0);
+    let generation = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(80));
+        if GENERATION.load(Ordering::SeqCst) != generation {
+            return; // 连续缩放时只让最后那次落地
+        }
+        if grub_list_view_mode(&app) != "window" {
+            return;
+        }
+        let docked = app
+            .state::<Mutex<AppState>>()
+            .lock()
+            .map(|state| state.auto_hide_docked)
+            .unwrap_or(false);
+        if docked {
+            return;
+        }
+        let (Some(main_window), Some(list_window)) = (
+            app.get_webview_window(MAIN_WINDOW_LABEL),
+            app.get_webview_window(GRUB_LIST_WINDOW_LABEL),
+        ) else {
+            return;
+        };
+        let (Ok(grub_outer), Ok(m_pos), Ok(m_size), Ok(mi_pos), Ok(mi_size)) = (
+            list_window.outer_size(),
+            main_window.outer_position(),
+            main_window.outer_size(),
+            main_window.inner_position(),
+            main_window.inner_size(),
+        ) else {
+            return;
+        };
+        // 主窗口四边边距（含标题栏）：inner 目标 = GRUB **外框** - 边距，
+        // 使主窗外框精确等于 GRUB 外框（视觉一致，与 align 方向对称）。
+        let border_left = mi_pos.x - m_pos.x;
+        let border_top = mi_pos.y - m_pos.y;
+        let border_right = m_size.width as i32 - (border_left + mi_size.width as i32);
+        let border_bottom = m_size.height as i32 - (border_top + mi_size.height as i32);
+        let target_w = (grub_outer.width as i32 - border_left - border_right).max(200) as u32;
+        let target_h = (grub_outer.height as i32 - border_top - border_bottom).max(200) as u32;
+        if mi_size.width == target_w && mi_size.height == target_h {
+            return; // 已一致，跳过（回声环在这里收敛）
+        }
+        let _ = main_window.set_size(tauri::PhysicalSize::new(target_w, target_h));
+        // 尺寸变了吸附关系重排（GRUB 跟着新尺寸贴回主窗口旁）
+        place_grub_list_window(&app);
+    });
+}
+
+/// 用户拖动 GRUB 独立窗口：主窗口**同步平行跟着挪**（跟手，和「拖主窗、
+/// GRUB 跟」完全对称 —— 那个方向是 handle_main_moved 里同步 place，这个
+/// 方向也必须同步，去抖异步挪会让主窗永远慢半拍、还和用户手里的拖动
+/// 打架（来回拉扯 = 两边闪动））。以 GRUB 当前位置为基准：主窗落点首选
+/// GRUB 左侧（x = grub.x - main_w - gap），左边放不下换右侧；纵向对齐
+/// GRUB 顶边并整窗夹进工作区。落点记进 MAIN_FOLLOW_TARGET：随后主窗自己
+/// 的 Moved 回声靠它识别并跳过 handle_main_moved（否则那边会再摆一次
+/// GRUB，打断用户正在进行的拖动）。
+fn follow_main_to_grub(app: &AppHandle, grub_pos: tauri::PhysicalPosition<i32>) {
+    // dock/undock 的几何过渡期内不反推主窗（否则 place↔follow 无限乒乓）
+    if unix_millis() < GEOMETRY_BUSY_UNTIL_MS.load(Ordering::SeqCst) {
+        return;
+    }
+    if grub_list_view_mode(app) != "window" {
+        return;
+    }
+    let docked = app
+        .state::<Mutex<AppState>>()
+        .lock()
+        .map(|state| state.auto_hide_docked)
+        .unwrap_or(false);
+    if docked {
+        return;
+    }
+    let (Some(main_window), Some(list_window)) = (
+        app.get_webview_window(MAIN_WINDOW_LABEL),
+        app.get_webview_window(GRUB_LIST_WINDOW_LABEL),
+    ) else {
+        return;
+    };
+    // 任一窗口不可见（贴边停靠 / 托盘隐藏）都不跟
+    if !main_window.is_visible().unwrap_or(false)
+        || !list_window.is_visible().unwrap_or(false)
+    {
+        return;
+    }
+    let (Ok(grub_size), Ok(main_pos), Ok(main_size)) = (
+        list_window.outer_size(),
+        main_window.outer_position(),
+        main_window.outer_size(),
+    ) else {
+        return;
+    };
+    let Some(monitor) = main_window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| app.primary_monitor().ok().flatten())
+    else {
+        return;
+    };
+    let work = monitor.work_area();
+    let gap = (GRUB_LIST_GAP * monitor.scale_factor()).round() as i32;
+    let main_w = main_size.width as i32;
+    let main_h = main_size.height as i32;
+    let right_edge = work.position.x + work.size.width as i32;
+    let bottom_edge = work.position.y + work.size.height as i32;
+    // 首选主窗在独立窗左侧；左边放不下（越出工作区左缘）换到右侧
+    let x = if grub_pos.x - main_w - gap >= work.position.x {
+        grub_pos.x - main_w - gap
+    } else {
+        (grub_pos.x + grub_size.width as i32 + gap).max(work.position.x).min(right_edge - main_w)
+    };
+    // 纵向对齐独立窗顶边，整窗夹进工作区
+    let y = grub_pos.y.min(bottom_edge - main_h).max(work.position.y);
+    if (main_pos.x - x).abs() <= 8 && (main_pos.y - y).abs() <= 8 {
+        return; // 已经在吸附位上（含 DWM 取整的几像素差），不动 —— 微调乒乓就是闪烁
+    }
+    // 记下预期落点（打包进 u64，负坐标按 u32 回绕存取），供主窗 Moved
+    // 回声识别；残留的旧目标最多 2px 容差才匹配，误吞真实拖动的概率可忽略。
+    let packed = ((x as u32 as u64) << 32) | (y as u32 as u64);
+    MAIN_FOLLOW_TARGET.store(packed, Ordering::SeqCst);
+    trace(app, "autohide", &format!("follow main -> ({x},{y}) grub=({},{})", grub_pos.x, grub_pos.y));
+    let _ = main_window.set_position(tauri::PhysicalPosition::new(x, y));
+    pin_main_topmost(app);
+}
+
+/// follow_main_to_grub 刚把主窗挪到的预期位置（x<<32 | y，u32 回绕存负数）。
+/// u64::MAX = 无待匹配回声。handle_main_moved 靠它跳过「GRUB 跟随 + 夹取」。
+static MAIN_FOLLOW_TARGET: AtomicU64 = AtomicU64::new(u64::MAX);
+
+/// 几何稳定抑制期（Unix 毫秒）：dock（缩条）/ undock（展开）会连续改窗口
+/// 尺寸与位置，这段过渡期里 place↔follow 的双向跟随用「中间态几何」互相
+/// 反推、落点不一致，会形成 follow 在两个吸附位之间每几毫秒无限乒乓
+/// （实测 trace：`follow main -> (1478,451)` 与 `(1505,225)` 交替到卡死）。
+/// 抑制期内 follow_main_to_grub 直接 return —— 主窗不再被 GRUB 的 Moved
+/// 反推，等几何稳定（400ms）后双向跟随才恢复。
+static GEOMETRY_BUSY_UNTIL_MS: AtomicU64 = AtomicU64::new(0);
+
+/// 程序自己挪 GRUB（place 吸附 / clamp 夹取）刚写下的预期落点（同上打包）。
+/// u64::MAX = 无待匹配回声。GRUB 的 Moved 事件靠它识别「这次挪动是我们
+/// 自己干的」并跳过 follow_main_to_grub —— 不跳过的话：拖主窗 → place 挪
+/// GRUB → GRUB Moved → follow 又反拽主窗（place 走「换到左侧/贴右缘」分支
+/// 时落点对不上）→ 主窗再触发 place → 无限乒乓，两个窗口乱飘。
+static GRUB_FOLLOW_TARGET: AtomicU64 = AtomicU64::new(u64::MAX);
+
+/// GRUB 独立窗口的位置夹取（主窗口同款特性）：拖动停止 250ms 后把 GRUB
+/// 整窗夹进工作区 —— 永不压住任务栏 / Dock / 面板。复用 clamp_main_window
+/// （它只吃窗口 + 矩形，跟哪个窗口无关）。异步去抖：拖动中连发 Moved，
+/// 只让拖完之后的那个落地，不跟用户的手打架。
+fn schedule_clamp_grub(app: &AppHandle) {
+    static GENERATION: AtomicU64 = AtomicU64::new(0);
+    let generation = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(CLAMP_DELAY_MS));
+        if GENERATION.load(Ordering::SeqCst) != generation {
+            return; // 拖动还在继续，有更新的自己来
+        }
+        if grub_list_view_mode(&app) != "window" {
+            return;
+        }
+        let docked = app
+            .state::<Mutex<AppState>>()
+            .lock()
+            .map(|state| state.auto_hide_docked)
+            .unwrap_or(false);
+        if docked {
+            return; // 贴边停靠态 GRUB 是隐藏的，不碰
+        }
+        let Some(list) = app.get_webview_window(GRUB_LIST_WINDOW_LABEL) else {
+            return;
+        };
+        if !list.is_visible().unwrap_or(false) {
+            return;
+        }
+        let (Ok(pos), Ok(size)) = (list.outer_position(), list.outer_size()) else {
+            return;
+        };
+        // 预算夹取落点并记进 GRUB_FOLLOW_TARGET：clamp 挪动 GRUB 产生的
+        // Moved 回声靠它跳过 follow（不跳过的话主窗又被反拽一次 → 乱飘）。
+        // 主窗同款特性：贴近工作区边缘的窗口保持「贴边」状态（clamp_to_work
+        // 的间隙为负也算合法，即贴边不算越界），只有压进任务栏的部分被拽回。
+        if let Some(monitor) = list
+            .current_monitor()
+            .ok()
+            .flatten()
+            .or_else(|| app.primary_monitor().ok().flatten())
+        {
+            let work = monitor.work_area();
+            let (cx, cy) = clamp_to_work(
+                pos.x,
+                pos.y,
+                size.width as i32,
+                size.height as i32,
+                work.position.x,
+                work.position.y,
+                work.size.width as i32,
+                work.size.height as i32,
+            );
+            if cx != pos.x || cy != pos.y {
+                GRUB_FOLLOW_TARGET.store(
+                    ((cx as u32 as u64) << 32) | (cy as u32 as u64),
+                    Ordering::SeqCst,
+                );
+            }
+        }
+        clamp_main_window(&app, &list, size, pos);
+    });
+}
+
+fn hide_grub_list_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window(GRUB_LIST_WINDOW_LABEL) {
+        startup_debug(app, "hide_grub_list_window 执行");
+        let _ = window.hide();
+    }
+}
+
+/// 按设置里的展示方式调整窗口形态。保存设置之后、启动时都会走这里。
+///
+/// 切走时**只隐藏**独立窗口、绝不 `close()`：`CloseRequested` 处理器是给
+/// 「用户点标题栏 ×」设计的，会**把设置改回 inline 并重新广播**；而那个事件
+/// 异步晚于本函数所在的切换命令 —— close 触发的改写会覆盖刚保存的新模式，
+/// 表现就是「来回切几次后切换失效」。只 hide 就完全不碰那条路径。
+/// （窗口常驻不销毁还有个附带好处：反复切换不用重建 webview。）
+fn apply_grub_list_view(app: &AppHandle, mode: &str) {
+    apply_grub_list_view_ex(app, mode, true);
+}
+
+/// `allow_open=false`：只调整窗口形态、**不创建/显示独立窗口** ——
+/// 托盘启动用：连 show 一下都不发生，启动时零闪烁。
+fn apply_grub_list_view_ex(app: &AppHandle, mode: &str, allow_open: bool) {
+    match mode {
+        "wide" => {
+            hide_grub_list_window(app);
+            if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+                let _ = window.set_size(tauri::LogicalSize::new(MAIN_WIDTH_WIDE, MAIN_HEIGHT));
+            }
+        }
+        "window" => {
+            if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+                let _ = window.set_size(tauri::LogicalSize::new(MAIN_WIDTH_NORMAL, MAIN_HEIGHT));
+            }
+            if allow_open {
+                open_grub_list_window(app, false);
+            } else {
+                hide_grub_list_window(app);
+            }
+        }
+        // inline：还原标准宽度，列表回主窗口
+        _ => {
+            hide_grub_list_window(app);
+            if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+                let _ = window.set_size(tauri::LogicalSize::new(MAIN_WIDTH_NORMAL, MAIN_HEIGHT));
+            }
+        }
+    }
+}
+
+#[tauri::command]
+fn set_grub_list_view(app: AppHandle, mode: String) -> Result<(), String> {
+    let mode = normalize_grub_list_view(&mode);
+    trace(&app, "command", &format!("set_grub_list_view mode={mode}"));
+    {
+        let mut settings = stored_settings(&app);
+        settings.grub_list_view = mode.to_string();
+        save_settings(&app, &settings)?;
+    }
+    apply_grub_list_view(&app, mode);
+    publish_ui(&app);
+    Ok(())
+}
+
+// ==================== 主窗口贴边自动隐藏 + 位置夹取 ====================
+// 开关打开后：鼠标离开主窗口 → 窗口贴到最近的屏幕边缘、只露一条 AUTO_HIDE_STRIP
+// 的边条；悬停边条 → 展开回工作区边缘。关掉开关 → 立即展开。
+// 无论开关与否，主窗口的位置始终被夹在工作区内（用户要求：拖到任何地方都必须
+// 完整显示整个窗口），唯一例外是「我们自己贴边」产生的那次越界。
+
+fn main_auto_hide_enabled(app: &AppHandle) -> bool {
+    stored_settings(app).main_auto_hide
+}
+
+/// 算贴边缩条后的窗口尺寸与位置（物理像素）。
+/// 白条 = 主窗口贴边后露出的那条**窗口边界**（不是屏幕边）：贴上下边时
+/// 露出主窗顶/底边（水平，长 = 主窗 client 宽），贴左右边时露出主窗
+/// 左/右缘（垂直，长 = 主窗 client 高）。白条长度百分比由前端 CSS 按这条
+/// 窗口边长控制。这里只把窗口垂直贴边方向缩成 strip 厚度、沿边方向保持
+/// 主窗原边长与原位置。返回 (new_size, target)：new_size 是 inner 尺寸
+/// （去装饰后 ≈ 外框）。
+fn strip_geometry(
+    edge: DockEdge,
+    work_x: i32,
+    work_y: i32,
+    work_w: i32,
+    work_h: i32,
+    client_w: i32,
+    client_h: i32,
+    pos_x: i32,
+    pos_y: i32,
+    strip: i32,
+) -> (tauri::PhysicalSize<u32>, (i32, i32)) {
+    match edge {
+        // Bottom/Top：窗口保持主窗宽、高缩成 strip；x 保持主窗原位
+        DockEdge::Bottom => (
+            tauri::PhysicalSize::new(client_w.max(strip) as u32, strip as u32),
+            (pos_x, work_y + work_h - strip),
+        ),
+        DockEdge::Top => (
+            tauri::PhysicalSize::new(client_w.max(strip) as u32, strip as u32),
+            (pos_x, work_y),
+        ),
+        // Left/Right：窗口保持主窗高、宽缩成 strip；y 保持主窗原位
+        DockEdge::Left => (
+            tauri::PhysicalSize::new(strip as u32, client_h.max(strip) as u32),
+            (work_x, pos_y),
+        ),
+        DockEdge::Right => (
+            tauri::PhysicalSize::new(strip as u32, client_h.max(strip) as u32),
+            (work_x + work_w - strip, pos_y),
+        ),
+    }
+}
+
+/// 贴边隐藏：按当前窗口位置选最近的屏幕边，把窗口缩成一条白条——
+/// 白条沿屏幕边方向拉伸（长度 = 屏幕边长 × 长度百分比）、垂直方向缩成
+/// 厚度，居中贴边。白条就是窗口本身，任务栏/Dock 永远不被遮挡。
+fn dock_main_window(app: &AppHandle) {
+    if !main_auto_hide_enabled(app) {
+        return;
+    }
+    let Some(main) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
+        return;
+    };
+    // 恢复尺寸存去装饰前的 client 内尺寸（set_size 设的是内尺寸，展开时
+    // set_size(内尺寸) 才能精确还原外框；存外框每轮会加一圈边框 = 越变越长）
+    let pre_client = main.inner_size().ok();
+    // 去装饰前量一次 client 边距（边框+标题栏厚度是常量，不随窗口尺寸变）。
+    // undock 改成「先摆几何、最后恢复装饰」的顺序后，量边距必须在还带着
+    // 装饰的时候进行 —— 就用这份缓存。
+    let pre_borders = (|| {
+        let outer_pos = main.outer_position().ok()?;
+        let inner_pos = main.inner_position().ok()?;
+        let outer = main.outer_size().ok()?;
+        let inner = main.inner_size().ok()?;
+        Some((
+            inner_pos.y - outer_pos.y,
+            outer_pos.y + outer.height as i32 - (inner_pos.y + inner.height as i32),
+            inner_pos.x - outer_pos.x,
+            outer_pos.x + outer.width as i32 - (inner_pos.x + inner.width as i32),
+        ))
+    })();
+    // 去装饰：带标题栏的窗口有最小高度钳制，缩不成条；无边框窗口无此钳制
+    let _ = main.set_decorations(false);
+    // 关掉 DWM 投影：窗口默认带 drop shadow，贴边缩成透明细缝后阴影仍围
+    // 着细缝绘制，用户看到的就是「半透明矩形包着一条白条」。展开时还原。
+    let _ = main.set_shadow(false);
+    let (Ok(pos), Ok(size)) = (main.outer_position(), main.outer_size()) else {
+        return;
+    };
+    let Some(monitor) = main
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| app.primary_monitor().ok().flatten())
+    else {
+        return;
+    };
+    let work = monitor.work_area();
+    // 贴边判定用「主窗 ∪ GRUB」联合矩形（两窗绑定，谁贴到边都整组贴边）
+    let mut union_x = pos.x;
+    let mut union_y = pos.y;
+    let mut union_right = pos.x + size.width as i32;
+    let mut union_bottom = pos.y + size.height as i32;
+    if grub_list_view_mode(app) == "window" {
+        if let Some(list) = app.get_webview_window(GRUB_LIST_WINDOW_LABEL) {
+            if list.is_visible().unwrap_or(false) {
+                if let (Ok(lpos), Ok(lsize)) = (list.outer_position(), list.outer_size()) {
+                    union_x = union_x.min(lpos.x);
+                    union_y = union_y.min(lpos.y);
+                    union_right = union_right.max(lpos.x + lsize.width as i32);
+                    union_bottom = union_bottom.max(lpos.y + lsize.height as i32);
+                }
+            }
+        }
+    }
+    let edge = nearest_edge(
+        union_x,
+        union_y,
+        union_right - union_x,
+        union_bottom - union_y,
+        work.position.x,
+        work.position.y,
+        work.size.width as i32,
+        work.size.height as i32,
+    );
+    // 窗口缩成固定细缝（容纳白条最大厚度 40px），白条参数由前端 CSS 独立控制
+    let strip = (DOCK_STRIP_SLOT_PX * monitor.scale_factor()).round() as i32;
+    // 主窗 client 边长（白条沿这条窗口边延伸，长度百分比由前端 CSS 控制）
+    let (client_w, client_h) = match &pre_client {
+        Some(c) => (c.width as i32, c.height as i32),
+        None => (size.width as i32, size.height as i32),
+    };
+    let (new_size, target) = strip_geometry(
+        edge,
+        work.position.x,
+        work.position.y,
+        work.size.width as i32,
+        work.size.height as i32,
+        client_w,
+        client_h,
+        pos.x,
+        pos.y,
+        strip,
+    );
+    {
+        let state = app.state::<Mutex<AppState>>();
+        let mut state = state.lock().expect("state mutex poisoned");
+        state.auto_hide_docked = true;
+        state.auto_hide_edge = Some(edge);
+        state.auto_hide_dock_pos = target;
+        state.auto_hide_restore_size = Some(match pre_client {
+            Some(client) => (client.width.max(1), client.height.max(1)),
+            None => (size.width.max(1), size.height.max(1)),
+        });
+        state.auto_hide_borders = pre_borders;
+    }
+    let _ = main.set_size(new_size);
+    let _ = main.set_position(tauri::PhysicalPosition::new(target.0, target.1));
+    // 缩条/展开都会连续改几何，进入稳定抑制期，防 place↔follow 乒乓
+    GEOMETRY_BUSY_UNTIL_MS.store(unix_millis() + 400, Ordering::SeqCst);
+    trace(app, "autohide", &format!("dock edge={edge:?} target=({},{})", target.0, target.1));
+    pin_main_topmost(app);
+    // 主窗口缩成一条边，吸附在旁边的 GRUB 独立窗口也没必要留在外面
+    if grub_list_view_mode(app) == "window" {
+        hide_grub_list_window(app);
+    }
+    // 广播 docked 状态：前端据此在窗口边界画白条（ui-state-changed 顺带同步）
+    publish_ui(app);
+}
+
+/// 展开贴边的窗口：恢复贴边前的尺寸（贴边时被缩成一条白条厚度），
+/// 贴回工作区边缘（不是回到贴边前的原位置 —— 简单且可预期）。
+fn undock_main_window(app: &AppHandle) {
+    let (edge, restore, borders) = {
+        let state = app.state::<Mutex<AppState>>();
+        let mut state = state.lock().expect("state mutex poisoned");
+        state.auto_hide_docked = false;
+        (
+            state.auto_hide_edge.take(),
+            state.auto_hide_restore_size.take(),
+            state.auto_hide_borders.take(),
+        )
+    };
+    let Some(edge) = edge else {
+        return;
+    };
+    let Some(main) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
+        return;
+    };
+    // 整个展开过程在隐藏状态下完成：先恢复装饰（标题栏）、量边距、摆几何，
+    // 最后再 show。如果带着可见窗口做 set_decorations → set_size →
+    // set_position，标题栏会先在「细缝」上长出来、再跳到最终位置 —— 用户
+    // 看到的就是「标题跳一下才出来」。隐藏期间 watcher 侧最多有一拍读不到
+    // 窗口，此时 docked 已经是 false，不会触发贴回。
+    let was_visible = main.is_visible().unwrap_or(false);
+    let t0 = unix_millis();
+    if was_visible {
+        let _ = main.hide();
+    }
+    trace(app, "autohide", &format!("undock#hide t={} vis={was_visible}", unix_millis() - t0));
+    // 先把系统装饰（标题栏）还原再恢复尺寸：贴边时 set_decorations(false)
+    // 去掉了标题栏，不还原的话展开后窗口没有标题栏、拖不动。还原后
+    // inner/outer 的差值才是带标题栏的真实边距，下面的补偿才对。
+    let _ = main.set_decorations(true);
+    let Ok(pos) = main.outer_position() else {
+        if was_visible {
+            let _ = main.show();
+        }
+        return;
+    };
+    let Some(monitor) = main
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| app.primary_monitor().ok().flatten())
+    else {
+        if was_visible {
+            let _ = main.show();
+        }
+        return;
+    };
+    let work = monitor.work_area();
+    // 恢复贴边前的尺寸（没记到就用当前尺寸兜底），再整条推回工作区内
+    let (win_w, win_h) = restore.unwrap_or_else(|| {
+        main.outer_size()
+            .map(|s| (s.width, s.height))
+            .unwrap_or((460, 900))
+    });
+    // client 区边距：优先用 dock 时缓存的（去装饰前量的，最准）；缓存缺失
+    // 才现场量（此刻窗口已恢复装饰，量出来也是对的；注意用**当前**外尺寸算，
+    // 窗口此刻还是缩成一条的状态）。
+    let cur = main.outer_size().unwrap_or_default();
+    let (border_top, border_bottom, border_left, border_right) = borders.unwrap_or_else(|| {
+        match (main.inner_position(), main.inner_size()) {
+            (Ok(ipos), Ok(isize)) => (
+                ipos.y - pos.y,
+                pos.y + cur.height as i32 - (ipos.y + isize.height as i32),
+                ipos.x - pos.x,
+                pos.x + cur.width as i32 - (ipos.x + isize.width as i32),
+            ),
+            _ => (0, 0, 0, 0),
+        }
+    });
+    // 恢复尺寸存的是贴边前的 **client 内尺寸**（贴边时去装饰前捕获的）。
+    // 定位按外框算，这里用刚量出的边距把内尺寸换算回外框尺寸 —— 外框
+    // 精确还原 = 窗口不会一轮比一轮大（R28.4 修的「越变越长」）。
+    let outer_w = (win_w as i32 + border_left + border_right).max(1) as u32;
+    let outer_h = (win_h as i32 + border_top + border_bottom).max(1) as u32;
+    let target = match edge {
+        DockEdge::Top => (pos.x, work.position.y - border_top),
+        DockEdge::Bottom => (
+            pos.x,
+            work.position.y + work.size.height as i32 - outer_h as i32 + border_bottom,
+        ),
+        DockEdge::Left => (work.position.x - border_left, pos.y),
+        DockEdge::Right => (
+            work.position.x + work.size.width as i32 - outer_w as i32 + border_right,
+            pos.y,
+        ),
+    };
+    let _ = main.set_size(tauri::PhysicalSize::new(win_w, win_h));
+    let _ = main.set_position(tauri::PhysicalPosition::new(target.0, target.1));
+    trace(app, "autohide", &format!("undock#geo t={} target=({},{})", unix_millis() - t0, target.0, target.1));
+    // 还原贴边时关掉的 DWM 投影（dock_main_window 里 set_shadow(false)）
+    let _ = main.set_shadow(true);
+    // 几何全部就位后才亮出来：标题栏直接在最终位置出现，不跳
+    if was_visible {
+        let _ = main.show();
+    }
+    trace(app, "autohide", &format!("undock#show t={}", unix_millis() - t0));
+    GEOMETRY_BUSY_UNTIL_MS.store(unix_millis() + 400, Ordering::SeqCst);
+    trace(app, "autohide", &format!("undock edge={edge:?} restore=({win_w},{win_h})"));
+    // 主窗口回来了，吸附的 GRUB 独立窗口也跟着出来
+    if grub_list_view_mode(app) == "window" {
+        open_grub_list_window(app, true);
+    }
+    // place_grub_list_window 读到的还是恢复前的旧尺寸，异步补一次吸附对齐
+    schedule_grub_align(app);
+    publish_ui(app);
+}
+
+/// 解除贴边（含用户抓着白条直接拖离）时恢复贴边前的窗口尺寸。
+/// undock_main_window 自己取恢复尺寸做定位，不走这里。
+fn restore_main_dock_size(app: &AppHandle) {
+    let restore = {
+        let state = app.state::<Mutex<AppState>>();
+        let mut state = state.lock().expect("state mutex poisoned");
+        state.auto_hide_restore_size.take()
+    };
+    let Some((w, h)) = restore else {
+        return;
+    };
+    if let Some(main) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+        // 拖离停靠位 = 展开窗口：系统装饰（标题栏）也要一并还原，否则
+        // 窗口恢复完整尺寸了却没有标题栏，拖不动、关不掉。
+        let _ = main.set_decorations(true);
+        let _ = main.set_size(tauri::PhysicalSize::new(w, h));
+    }
+}
+
+/// 主窗口 + GRUB 独立窗口**始终**置顶：Windows 上 `set_position`（夹取 /
+/// 贴边重定位）偶发会把 topmost 样式丢掉，于是窗口被别的程序盖住。每次挪完
+/// 位置再钉一次 topmost，保证「无论如何都在最上层」。两个窗口一起钉，层级
+/// 才一致，不会出现「主窗在底下、独立窗在最上」的错乱。
+fn pin_main_topmost(app: &AppHandle) {
+    if let Some(main) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+        let _ = main.set_always_on_top(true);
+    }
+    if let Some(list) = app.get_webview_window(GRUB_LIST_WINDOW_LABEL) {
+        if list.is_visible().unwrap_or(false) {
+            let _ = list.set_always_on_top(true);
+        }
+    }
+}
+
+/// 当前 Unix 毫秒时间戳（贴边宽限期用）。
+fn unix_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// 【临时诊断】托盘启动时独立窗口仍闪现的问题排查：无条件追加写
+/// startup-debug.log（配置目录下），定位完成后整段删除。
+fn startup_debug(app: &AppHandle, message: &str) {
+    let Ok(mut path) = config_dir(app) else {
+        return;
+    };
+    path.push("startup-debug.log");
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let line = format!(
+        "{} [{}] {}\n",
+        unix_millis(),
+        std::process::id(),
+        message
+    );
+    let _ = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .and_then(|mut file| file.write_all(line.as_bytes()));
+}
+
+/// 鼠标位置轮询守护线程：这个 Tauri 版本的 `WindowEvent` 没有 CursorEntered /
+/// CursorLeft 事件，所以「鼠标在不在窗口里」用 `AppHandle::cursor_position()`
+/// 每 120ms 扫一次 —— 没贴边且光标在外超过 350ms 就贴边；贴着边且光标压到
+/// 露出的那条上就展开。开关关掉时线程自己退出。
+fn start_auto_hide_watcher(app: &AppHandle) {
+    static WATCHER_RUNNING: AtomicBool = AtomicBool::new(false);
+    if WATCHER_RUNNING.swap(true, Ordering::SeqCst) {
+        return; // 已经有一个在跑
+    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let dock_delay_ticks = (AUTO_HIDE_DELAY_MS / AUTO_HIDE_TICK_MS).max(1) as u32;
+        let mut outside_ticks: u32 = 0;
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(AUTO_HIDE_TICK_MS));
+            if !main_auto_hide_enabled(&app) {
+                WATCHER_RUNNING.store(false, Ordering::SeqCst);
+                return;
+            }
+            let Some(main) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
+                continue;
+            };
+            if !main.is_visible().unwrap_or(false) {
+                outside_ticks = 0;
+                continue;
+            }
+            // 是否处于「贴边缩成条」状态：此时主窗口只露一条边，GRUB 独立
+            // 窗口应跟随隐藏，深度绑定只在「完整显示」状态下维持。
+            let (docked, dock_pos, pending_enter) = {
+                let state = app.state::<Mutex<AppState>>();
+                // 不用 expect：锁中毒会 panic 掉整个 watcher 线程，而
+                // WATCHER_RUNNING 还卡在 true，自动隐藏从此永久失效。
+                let Ok(state) = state.lock() else {
+                    WATCHER_RUNNING.store(false, Ordering::SeqCst);
+                    return;
+                };
+                (
+                    state.auto_hide_docked,
+                    state.auto_hide_dock_pos,
+                    state.auto_hide_pending_enter,
+                )
+            };
+            // 深度绑定（用户要求「两个窗口作为一个整体，不出现只显示一个」）：
+            // 完整显示状态下，独立窗口模式下主窗口显示着独立窗口就必须显示着。
+            // （贴边状态除外 —— 那时主窗口只露一条边，GRUB 窗口应一起藏好。）
+            let list_mode = grub_list_view_mode(&app) == "window";
+            let list_window = app.get_webview_window(GRUB_LIST_WINDOW_LABEL);
+            let list_visible = list_mode
+                && list_window
+                    .as_ref()
+                    .map(|list| list.is_visible().unwrap_or(false))
+                    .unwrap_or(false);
+            if !docked && list_mode && !list_visible {
+                open_grub_list_window(&app, true);
+            }
+            let (Ok(pos), Ok(size)) = (main.outer_position(), main.outer_size()) else {
+                continue;
+            };
+            let Ok(cursor) = app.cursor_position() else {
+                continue;
+            };
+            let cx = cursor.x as i32;
+            let cy = cursor.y as i32;
+            // 「在窗口里」= 主窗口或独立窗口的矩形（各自外扩一圈）。
+            // 外扩是为了盖住两窗之间的缝隙：鼠标从主窗口滑到独立窗口的
+            // 半路上不算「离开」，不能累计隐藏时钟。
+            let monitor = main
+                .current_monitor()
+                .ok()
+                .flatten()
+                .or_else(|| app.primary_monitor().ok().flatten());
+            let pad = monitor
+                .as_ref()
+                .map(|m| (GRUB_LIST_GAP * m.scale_factor()).round() as i32)
+                .unwrap_or(12);
+            let in_box = |x: i32, y: i32, w: i32, h: i32| {
+                cx >= x - pad && cx < x + w + pad && cy >= y - pad && cy < y + h + pad
+            };
+            let mut inside = in_box(pos.x, pos.y, size.width as i32, size.height as i32);
+            if !inside && list_mode {
+                if let Some(list) = list_window.as_ref() {
+                    if list.is_visible().unwrap_or(false) {
+                        if let (Ok(lpos), Ok(lsize)) = (list.outer_position(), list.outer_size()) {
+                            inside = in_box(
+                                lpos.x,
+                                lpos.y,
+                                lsize.width as i32,
+                                lsize.height as i32,
+                            );
+                        }
+                    }
+                }
+            }
+            if docked {
+                outside_ticks = 0;
+                // 托盘呼出进行中（等待进入标志立着）：undock 正在托盘线程
+                // 恢复窗口尺寸/位置，此刻白条保障读到「偏离停靠位」是恢复
+                // 过程的正常中间态 —— 拉回就是跟展开互相拉扯（互闪）。放手。
+                if pending_enter {
+                    continue;
+                }
+                // 「贴边缩成条」时整个应用都缩成条：GRUB 独立窗口必须跟着藏
+                // （深度绑定在隐藏态不维持 —— 上面的 open 已被 !docked 挡掉，
+                // 这里再兜底：万一它不知怎么又亮了，立刻按回去）。
+                if list_mode
+                    && list_window
+                        .as_ref()
+                        .map(|list| list.is_visible().unwrap_or(false))
+                        .unwrap_or(false)
+                {
+                    trace(&app, "autohide", "docked: hide grub");
+                    hide_grub_list_window(&app);
+                }
+                // 白条保障：贴边后窗口位置被别的东西挪走（夹取回声、DPI 取整
+                // 抖动）会导致露出的那一条消失 —— 偏离停靠位就再贴一次。
+                if (pos.x - dock_pos.0).abs() > AUTO_HIDE_TOLERANCE
+                    || (pos.y - dock_pos.1).abs() > AUTO_HIDE_TOLERANCE
+                {
+                    let _ = main.set_position(tauri::PhysicalPosition::new(dock_pos.0, dock_pos.1));
+                }
+                // 光标压到露出的边条上（也就是窗口可见的那一小块）→ 展开
+                if inside {
+                    undock_main_window(&app);
+                }
+            } else if inside {
+                outside_ticks = 0;
+                // 鼠标进过窗口了：清除「等待进入」，恢复正常的离窗贴边
+                if !docked {
+                    if let Ok(mut state) = app.state::<Mutex<AppState>>().lock() {
+                        state.auto_hide_pending_enter = false;
+                    }
+                }
+            } else {
+                // 托盘呼出宽限期内不累计离窗时钟（呼出瞬间鼠标必然在托盘上）
+                let (grace, pending_enter) = {
+                    let state = app.state::<Mutex<AppState>>();
+                    let locked = state.lock();
+                    match locked {
+                        Ok(guard) => (guard.auto_hide_grace_until_ms, guard.auto_hide_pending_enter),
+                        Err(_) => {
+                            WATCHER_RUNNING.store(false, Ordering::SeqCst);
+                            return;
+                        }
+                    }
+                };
+                if unix_millis() < grace {
+                    outside_ticks = 0;
+                    continue;
+                }
+                // 呼出后鼠标还没进过窗口：不自动贴回（否则就是
+                // 「呼出 → 贴回 → 再呼出」的闪烁死循环，直到卡死）。
+                if pending_enter {
+                    outside_ticks = 0;
+                    continue;
+                }
+                // 距离门槛（用户自定义）：主窗口**或 GRUB 独立窗口**贴近工作区
+                // 某条边（不超过触发距离）时，鼠标离开就整组隐藏 —— 两窗绑定，
+                // 用户拖的是 GRUB 也要一样触发（GRUB 窗口同款特性）。
+                let edge_distance = stored_settings(&app).main_auto_hide_edge_distance;
+                let threshold = monitor
+                    .as_ref()
+                    .map(|m| (edge_distance as f64 * m.scale_factor()).round() as i32)
+                    .unwrap_or(0);
+                let rect_near = |m: &tauri::Monitor,
+                                 x: i32,
+                                 y: i32,
+                                 w: i32,
+                                 h: i32,
+                                 threshold: i32| {
+                    let work = m.work_area();
+                    auto_hide_near_edge(
+                        x,
+                        y,
+                        w,
+                        h,
+                        work.position.x,
+                        work.position.y,
+                        work.size.width as i32,
+                        work.size.height as i32,
+                        threshold,
+                    )
+                };
+                let mut near_edge = monitor.as_ref().is_some_and(|m| {
+                    rect_near(
+                        m,
+                        pos.x,
+                        pos.y,
+                        size.width as i32,
+                        size.height as i32,
+                        threshold,
+                    )
+                });
+                if !near_edge && list_visible {
+                    if let Some(list) = list_window.as_ref() {
+                        if let (Ok(lpos), Ok(lsize)) =
+                            (list.outer_position(), list.outer_size())
+                        {
+                            near_edge = monitor.as_ref().is_some_and(|m| {
+                                rect_near(
+                                    m,
+                                    lpos.x,
+                                    lpos.y,
+                                    lsize.width as i32,
+                                    lsize.height as i32,
+                                    threshold,
+                                )
+                            });
+                        }
+                    }
+                }
+                if !near_edge {
+                    outside_ticks = 0;
+                    continue;
+                }
+                outside_ticks += 1;
+                if outside_ticks >= dock_delay_ticks {
+                    outside_ticks = 0;
+                    dock_main_window(&app);
+                }
+            }
+        }
+    });
+}
+
+/// 窗口是否贴近工作区的任意一条边（间隙 ≤ threshold）。纯函数便于单测。
+/// 各边间隙：left = x - work_x，top = y - work_y，
+/// right = work_x + work_w - (x + w)，bottom = work_y + work_h - (y + h)。
+/// 间隙为负（窗口已被夹进边缘或略微越界）也算「贴边」。
+fn auto_hide_near_edge(
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+    work_x: i32,
+    work_y: i32,
+    work_w: i32,
+    work_h: i32,
+    threshold: i32,
+) -> bool {
+    let gaps = [
+        x - work_x,
+        y - work_y,
+        work_x + work_w - (x + w),
+        work_y + work_h - (y + h),
+    ];
+    gaps.iter().any(|gap| *gap <= threshold)
+}
+
+/// 主窗口 Moved 事件的统一处理：GRUB 独立窗口跟随 + 位置夹取 + 贴边判定。
+fn handle_main_moved(app: &AppHandle, position: tauri::PhysicalPosition<i32>) {
+    // 最小化时 Windows 会把窗口挪到屏幕外 (−32000,−32000) 并触发 Moved：
+    // 既不能照常夹取（会跟最小化打架），也不能按这个坐标去摆独立窗口。
+    // 此时直接把独立窗口藏起来 —— 最小化主界面，跟着的列表没理由留在外面。
+    if is_minimized_position(position) {
+        hide_grub_list_window(app);
+        return;
+    }
+    // 我们自己因「用户拖 GRUB」而挪主窗产生的 Moved 回声：直接跳过。
+    // 不跳过的话 handle_main_moved 会同步再摆一次 GRUB —— 而此刻 GRUB 正
+    // 被用户拖在手里（模态拖动循环），set_position 会跟用户的手打架，
+    // 表现就是两个窗口来回拉扯、一直闪动。
+    let expect = MAIN_FOLLOW_TARGET.load(Ordering::SeqCst);
+    if expect != u64::MAX {
+        let ex = (expect >> 32) as u32 as i32;
+        let ey = (expect as u32) as i32;
+        if (position.x - ex).abs() <= 8 && (position.y - ey).abs() <= 8 {
+            MAIN_FOLLOW_TARGET.store(u64::MAX, Ordering::SeqCst);
+            return;
+        }
+    }
+    // 独立 GRUB 窗口跟着走
+    if grub_list_view_mode(app) == "window" {
+        if let Some(list) = app.get_webview_window(GRUB_LIST_WINDOW_LABEL) {
+            if list.is_visible().unwrap_or(false) {
+                place_grub_list_window(app);
+            }
+        }
+    }
+    let (docked, dock_pos) = {
+        let state = app.state::<Mutex<AppState>>();
+        let state = state.lock().expect("state mutex poisoned");
+        (state.auto_hide_docked, state.auto_hide_dock_pos)
+    };
+    if main_auto_hide_enabled(app) && docked {
+        // 坐标没变（容差内）= 我们自己 set_position 触发的回声，不夹；
+        // 用户抓着那条边拖跑了 = 解除停靠，落回正常的夹取逻辑。
+        if (position.x - dock_pos.0).abs() <= AUTO_HIDE_TOLERANCE
+            && (position.y - dock_pos.1).abs() <= AUTO_HIDE_TOLERANCE
+        {
+            return;
+        }
+        // 用户把停靠的窗口拖离：解除停靠，并广播一次让前端撤掉白条
+        // （只在过渡那一刻发，避免拖动过程中 Moved 连发狂刷托盘菜单）。
+        let was_docked = {
+            let state = app.state::<Mutex<AppState>>();
+            let mut state = state.lock().expect("state mutex poisoned");
+            let prev = state.auto_hide_docked;
+            state.auto_hide_docked = false;
+            state.auto_hide_edge = None;
+            prev
+        };
+        if was_docked {
+            trace(app, "autohide", "handle_main_moved: drag-off dock");
+            // 用户抓着白条把窗口拖离停靠位：先把贴边时缩掉的尺寸恢复回来，
+            // 再走正常夹取 —— 否则窗口会一直保持一条的形状。
+            restore_main_dock_size(app);
+            publish_ui(app);
+        }
+    }
+    // 主窗口必须完整显示：夹回工作区。但不能在拖动过程中夹 —— Moved 连发期间
+    // 每次 set_position 都会跟 Windows 的拖动循环互相拉扯（窗口乱跳），
+    // 所以只安排一次静默期后的夹取：拖完 250ms 没动静才真正落位。
+    schedule_clamp(app);
+}
+
+/// 拖动停止后再夹取：Moved 每来一次就刷新一次世代号，静默 250ms 的那个
+/// 才真正执行。拖动全程我们一个 set_position 都不发，跟用户零冲突。
+fn schedule_clamp(app: &AppHandle) {
+    static CLAMP_GENERATION: AtomicU64 = AtomicU64::new(0);
+    let generation = CLAMP_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(CLAMP_DELAY_MS));
+        if CLAMP_GENERATION.load(Ordering::SeqCst) != generation {
+            return; // 拖动还在继续，有更新的自己来
+        }
+        let Some(main) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
+            return;
+        };
+        if !main.is_visible().unwrap_or(false) {
+            return;
+        }
+        let Ok(pos) = main.outer_position() else {
+            return;
+        };
+        if is_minimized_position(pos) {
+            return;
+        }
+        // 贴边停靠的位置本来就在工作区外，是刻意为之，别给夹回来
+        let docked = {
+            let state = app.state::<Mutex<AppState>>();
+            let state = state.lock().expect("state mutex poisoned");
+            state.auto_hide_docked
+        };
+        if docked {
+            return;
+        }
+        let Ok(size) = main.outer_size() else {
+            return;
+        };
+        clamp_main_window(&app, &main, size, pos);
+        // 「上次位置」模式：拖动落点记下来，下次显示还停这儿（用夹取后的真实落点）
+        if normalize_window_position(&stored_settings(&app).main_window_position) == "last" {
+            if let Ok(final_pos) = main.outer_position() {
+                if !is_minimized_position(final_pos) {
+                    let mut settings = stored_settings(&app);
+                    settings.main_window_last = Some((final_pos.x, final_pos.y));
+                    let _ = save_settings(&app, &settings);
+                }
+            }
+        }
+    });
+}
+
+/// 把主窗口位置夹到「相交面积最大的显示器」的工作区内。
+fn clamp_main_window(
+    app: &AppHandle,
+    main: &tauri::WebviewWindow,
+    size: tauri::PhysicalSize<u32>,
+    position: tauri::PhysicalPosition<i32>,
+) {
+    let win_x = position.x;
+    let win_y = position.y;
+    let win_w = size.width as i32;
+    let win_h = size.height as i32;
+    let monitors = match app.available_monitors() {
+        Ok(monitors) if !monitors.is_empty() => monitors,
+        _ => match main.current_monitor().ok().flatten() {
+            Some(monitor) => vec![monitor],
+            None => return,
+        },
+    };
+    // 选与窗口相交面积最大的工作区：跨屏拖动时自动落到目标屏上，
+    // 不会用「重心所在屏」把窗口往回拽。
+    let best = monitors
+        .into_iter()
+        .map(|monitor| {
+            let work = monitor.work_area();
+            let overlap_w = (win_x + win_w).min(work.position.x + work.size.width as i32)
+                - win_x.max(work.position.x);
+            let overlap_h = (win_y + win_h).min(work.position.y + work.size.height as i32)
+                - win_y.max(work.position.y);
+            (monitor, overlap_w.max(0) * overlap_h.max(0))
+        })
+        .max_by_key(|(_, overlap)| *overlap)
+        .map(|(monitor, _)| monitor);
+    let Some(monitor) = best else {
+        return;
+    };
+    let work = monitor.work_area();
+    let (x, y) = clamp_to_work(
+        win_x,
+        win_y,
+        win_w,
+        win_h,
+        work.position.x,
+        work.position.y,
+        work.size.width as i32,
+        work.size.height as i32,
+    );
+    if x != win_x || y != win_y {
+        let _ = main.set_position(tauri::PhysicalPosition::new(x, y));
+        pin_main_topmost(app);
+    }
+}
+
+#[tauri::command]
+fn set_main_auto_hide(app: AppHandle, enabled: bool) -> Result<SettingsView, String> {
+    trace(
+        &app,
+        "command",
+        &format!("set_main_auto_hide enabled={enabled}"),
+    );
+    let mut settings = stored_settings(&app);
+    settings.main_auto_hide = enabled;
+    save_settings(&app, &settings)?;
+    if enabled {
+        // 守护线程接管：光标离窗一会儿就贴边（先能看到窗口，别一勾就消失）
+        start_auto_hide_watcher(&app);
+    } else {
+        undock_main_window(&app);
+    }
+    Ok(publish_settings(&app))
+}
+
+/// 设置贴边隐藏的触发距离（逻辑像素）。0 = 只有真正贴到边才隐藏；
+/// 值越大越灵敏。夹在 [0, 200]。
+#[tauri::command]
+fn set_main_auto_hide_edge_distance(app: AppHandle, distance: i32) -> Result<SettingsView, String> {
+    let distance = distance.clamp(0, 200);
+    trace(
+        &app,
+        "command",
+        &format!("set_main_auto_hide_edge_distance distance={distance}"),
+    );
+    let mut settings = stored_settings(&app);
+    settings.main_auto_hide_edge_distance = distance;
+    save_settings(&app, &settings)?;
+    Ok(publish_settings(&app))
+}
+
+/// 贴边白条厚度（逻辑像素，2–40）。停靠时窗口整体缩到这个厚度，
+/// 白条从工作区边缘露出，任务栏/Dock 永不被遮挡。
+#[tauri::command]
+fn set_main_dock_strip_thickness(app: AppHandle, value: i32) -> Result<SettingsView, String> {
+    let value = value.clamp(2, 40);
+    trace(&app, "command", &format!("set_main_dock_strip_thickness value={value}"));
+    let mut settings = stored_settings(&app);
+    settings.main_dock_strip_thickness = value;
+    save_settings(&app, &settings)?;
+    // 白条厚度由前端 CSS 独立渲染（窗口只缩到固定细缝），后端只存值
+    Ok(publish_settings(&app))
+}
+
+/// 贴边白条长度（沿边方向占屏幕宽/高的百分比，10–100），由前端 CSS 居中截取。
+#[tauri::command]
+fn set_main_dock_strip_length(app: AppHandle, value: i32) -> Result<SettingsView, String> {
+    let value = value.clamp(10, 100);
+    trace(&app, "command", &format!("set_main_dock_strip_length value={value}"));
+    let mut settings = stored_settings(&app);
+    settings.main_dock_strip_length = value;
+    save_settings(&app, &settings)?;
+    // 长度是白条占「主窗那条边界」的百分比，纯前端 CSS 控制，后端不参与
+    Ok(publish_settings(&app))
+}
+
+/// 贴边白条不透明度（百分比，10–100）。
+#[tauri::command]
+fn set_main_dock_strip_opacity(app: AppHandle, value: i32) -> Result<SettingsView, String> {
+    let value = value.clamp(10, 100);
+    trace(&app, "command", &format!("set_main_dock_strip_opacity value={value}"));
+    let mut settings = stored_settings(&app);
+    settings.main_dock_strip_opacity = value;
+    save_settings(&app, &settings)?;
+    Ok(publish_settings(&app))
+}
+
+/// 校验/归一化调色板颜色（#rrggbb，大小写都收，统一转小写返回）。
+/// 非法输入返回 None，由调用方决定回退值 —— 绝不把乱码存进设置。
+fn normalize_hex_color(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    let hex = trimmed.strip_prefix('#').unwrap_or(trimmed);
+    if hex.len() != 6 || !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+    Some(format!("#{}", hex.to_ascii_lowercase()))
+}
+
+/// 贴边白条颜色：前端 CSS 渲染（--dock-strip-color），后端只存值。
+#[tauri::command]
+fn set_main_dock_strip_color(app: AppHandle, color: String) -> Result<SettingsView, String> {
+    let color = normalize_hex_color(&color).ok_or_else(|| format!("颜色格式无效: {color}"))?;
+    trace(&app, "command", &format!("set_main_dock_strip_color color={color}"));
+    let mut settings = stored_settings(&app);
+    settings.main_dock_strip_color = color;
+    save_settings(&app, &settings)?;
+    Ok(publish_settings(&app))
+}
+
+/// 主题强调色：前端据此派生按钮/链接色（--accent 系列），后端只存值。
+#[tauri::command]
+fn set_accent_color(app: AppHandle, color: String) -> Result<SettingsView, String> {
+    let color = normalize_hex_color(&color).ok_or_else(|| format!("颜色格式无效: {color}"))?;
+    trace(&app, "command", &format!("set_accent_color color={color}"));
+    let mut settings = stored_settings(&app);
+    settings.accent_color = color;
+    save_settings(&app, &settings)?;
+    Ok(publish_settings(&app))
+}
+
+/// GRUB 独立窗口前端**首帧渲染完成**的回执：show 之前必须等这个。
+/// 窗口先 show 再等 WebView2 画完，用户看到的就是「闪一下空白才稳定」；
+/// 改成前端画完第一帧主动上报，后端才把窗口亮出来。
+#[tauri::command]
+fn grub_list_window_ready(app: AppHandle) {
+    GRUB_WINDOW_READY.store(true, Ordering::SeqCst);
+    if !GRUB_PENDING_SHOW.swap(false, Ordering::SeqCst) {
+        return; // 没有排队的显示请求（窗口早就亮过了）
+    }
+    if grub_list_view_mode(&app) != "window" {
+        return;
+    }
+    if let Some(list) = app.get_webview_window(GRUB_LIST_WINDOW_LABEL) {
+        place_grub_list_window(&app);
+        let _ = list.show();
+        let _ = list.set_always_on_top(true);
+        publish_ui(&app);
+        trace(&app, "grub", "ready 回执：排队的显示已执行");
+    }
+}
+
+#[tauri::command]
+fn set_main_window_position(app: AppHandle, mode: String) -> Result<SettingsView, String> {
+    let mode = normalize_window_position(&mode).to_string();
+    trace(
+        &app,
+        "command",
+        &format!("set_main_window_position mode={mode}"),
+    );
+    let mut settings = stored_settings(&app);
+    settings.main_window_position = mode;
+    save_settings(&app, &settings)?;
+    // 立刻按新模式落位（free 模式不动，center 立刻居中，last 立刻回到记忆点）
+    apply_main_window_position(&app);
+    Ok(publish_settings(&app))
+}
+
+#[tauri::command]
+fn reset_main_window_position(app: AppHandle) -> Result<SettingsView, String> {
+    trace(&app, "command", "reset_main_window_position");
+    let center = center_main_window(&app);
+    // 「上次位置」模式下，把居中点记成新的 last，下次显示仍停这儿
+    if normalize_window_position(&stored_settings(&app).main_window_position) == "last" {
+        if let Some(c) = center {
+            let mut settings = stored_settings(&app);
+            settings.main_window_last = Some(c);
+            save_settings(&app, &settings)?;
+        }
+    }
+    if grub_list_view_mode(&app) == "window" {
+        if let Some(list) = app.get_webview_window(GRUB_LIST_WINDOW_LABEL) {
+            if list.is_visible().unwrap_or(false) {
+                place_grub_list_window(&app);
+            }
+        }
+    }
+    Ok(publish_settings(&app))
 }
 
 fn pending_snapshot() -> Option<PendingRequest> {
@@ -4506,18 +6255,118 @@ fn startup_autostart_sync(app: &AppHandle) {
 }
 
 fn show_main_window(app: &AppHandle) {
+    // **第一件事**：置「等待进入」标志，必须在 undock 之前 —— undock 在托盘
+    // 线程恢复窗口的这几百毫秒里，watcher 的贴边分支还会读到 docked=true，
+    // 白条保障发现主窗「偏离停靠位」就把窗口拉回 6px 条的位置，跟展开互相
+    // 拉扯 = 两个窗口互相闪烁。标志先立起来，watcher 全程放手。
+    {
+        if let Ok(mut guard) = app.state::<Mutex<AppState>>().lock() {
+            guard.auto_hide_pending_enter = true;
+        }
+    }
     #[cfg(target_os = "macos")]
     if !stored_settings(app).hide_from_dock_taskbar {
         let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
     }
+    // 呼出主界面 = 用户要操作窗口。若此刻处于贴边停靠态（窗口被缩成一条白条），
+    // 先解除贴边把完整尺寸恢复回来，再走 show 流程；否则 apply_main_window_position
+    // 会按「一条」形状落位，窗口展不开。
+    {
+        let docked = match app.state::<Mutex<AppState>>().lock() {
+            Ok(state) => state.auto_hide_docked,
+            Err(_) => false,
+        };
+        if docked {
+            undock_main_window(app);
+        }
+    }
     if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+        // 顺序不能反：先 show 再 unminimize。skipTaskbar 的窗口最小化后
+        // （Windows 把它挪到 −32000），反过来先 unminimize 会被吞掉，
+        // 窗口"可见"却仍停在屏幕外 —— 用户看到的就是只剩 GRUB 独立窗口。
+        let was_minimized = window.is_minimized().unwrap_or(false);
+        let _ = window.show();
         let _ = window.unminimize();
         // 呼出即置顶：Linux 下 WM 的 focus-stealing-prevention 会让 set_focus 无效，
         // 于是窗口被别的窗口盖住（用户看到的就是「点了托盘但窗口没跳出来」）。
-        // 失焦时会自动取消置顶（见 on_window_event），所以不会永久霸屏。
+        // 两个窗口常驻最顶层（见 on_window_event 的 Focused 分支），任何情况下
+        // 都不被别的窗口覆盖。
         let _ = window.set_always_on_top(true);
-        let _ = window.show();
         let _ = window.set_focus();
+        // 固定显示位置（free 不动；center 居中；last 回到记忆点）：窗口没被
+        // 最小化过（只是藏着）时立刻落位，避免恢复完成后再跳一下；被最小化过
+        // 则交给下面的自愈线程在「窗口真正恢复后」再落位，否则 Windows 上
+        // unminimize 的异步恢复会把我们的 set_position 覆盖掉（用户看到的就是
+        // 「选了居中重开却还是上次的位置」）。
+        if !was_minimized {
+            apply_main_window_position(app);
+        }
+        // 自愈 + 落位：show/unminimize 都是异步派发。先等窗口真正脱离最小化
+        // （位置离开 −32000），这期间 OS 的恢复会先把窗口摆回「上次位置」，
+        // 必须等它稳定之后再 set_position，否则会被覆盖。窗口恢复后，按固定
+        // 位置模式落位并兜底夹回工作区 —— 保证窗口绝不会盖住任务栏（mac/
+        // linux/win 共用 work_area，落点一定在任务栏上方）。这层兜底针对
+        // skipTaskbar + transparent 窗口在 Windows 上恢复路径的不可靠行为。
+        {
+            let app = app.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(40));
+                let Some(main) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
+                    return;
+                };
+                if !main.is_visible().unwrap_or(false) {
+                    return;
+                }
+                // 轮询等到窗口不再处于最小化（含 −32000 的屏幕外坐标），
+                // 最多个把百毫秒，避免一上来就 set_position 被恢复覆盖。
+                for _ in 0..24 {
+                    let minimized = main.is_minimized().unwrap_or(false)
+                        || is_minimized_position(main.outer_position().unwrap_or_default());
+                    if !minimized {
+                        break;
+                    }
+                    let _ = main.unminimize();
+                    std::thread::sleep(std::time::Duration::from_millis(16));
+                }
+                // 贴边停靠态不碰位置（它本就在工作区外、由 dock 逻辑自己管）；
+                // 其余情况按固定位置模式落位，并兜底夹回工作区。
+                let docked = match app.state::<Mutex<AppState>>().lock() {
+                    Ok(state) => state.auto_hide_docked,
+                    Err(_) => false,
+                };
+                if !docked {
+                    apply_main_window_position(&app);
+                    if let (Ok(pos), Ok(size)) =
+                        (main.outer_position(), main.outer_size())
+                    {
+                        if !is_minimized_position(pos) {
+                            clamp_main_window(&app, &main, size, pos);
+                        }
+                    }
+                }
+            });
+        }
+        // 独立窗口模式：主界面出来了，吸附在旁边的 GRUB 列表也跟着出来。
+        // force_show：此时 is_visible() 可能还是 show() 派发前的过期值，
+        // 最小化恢复那条路就是在这儿把独立窗口弄丢的。
+        if grub_list_view_mode(app) == "window" {
+            open_grub_list_window(app, true);
+        }
+        // 贴边自动隐藏开着：守护线程会在光标离窗 350ms 后把窗口缩回边条。
+        // 但呼出瞬间鼠标必然停在托盘上（窗口外）：800ms 宽限 + 「等待进入」
+        // 标志双保险 —— 鼠标没进过窗口之前 watcher 一律不自动贴回。只有
+        // 800ms 宽限的话就是死循环：呼出展开（还在屏幕边缘）→ 宽限期一过
+        // 鼠标仍在托盘 → 贴回 → 用户再点托盘 → 再展开……每轮 show/hide +
+        // set_decorations 样式切换，两个窗口互相闪烁直到卡死。
+        {
+            let state = app.state::<Mutex<AppState>>();
+            let locked = state.lock();
+            if let Ok(mut state) = locked {
+                state.auto_hide_grace_until_ms = unix_millis() + 800;
+                state.auto_hide_pending_enter = true;
+            }
+        }
+        start_auto_hide_watcher(app);
     }
 }
 
@@ -7502,14 +9351,141 @@ pub fn run() {
             None,
         ))
         .on_window_event(|window, event| {
-            // 主窗口失焦就取消置顶：呼出时置顶是为了「一叫就在最上面」，
-            // 但别让它一直压着别的窗口（用户点别处时应该让位）。
-            if let tauri::WindowEvent::Focused(false) = event {
+            // 主窗口与 GRUB 独立窗口作为一个整体**常驻最顶层**：任何情况下都不
+            // 被别的窗口覆盖（用户明确要求）。呼出 / 拿到焦点时再确认一次置顶；
+            // 失焦不再取消置顶 —— 否则点别处时两个窗口会被别的窗口盖住。
+            // 重新拿到焦点（最小化恢复 / alt-tab 回来）时，把吸附着的 GRUB
+            // 独立窗口也拽回来 —— force_show 不看 is_visible 的过期值。
+            if let tauri::WindowEvent::Focused(focused) = event {
                 if window.label() == MAIN_WINDOW_LABEL {
-                    let _ = window.set_always_on_top(false);
+                    if *focused {
+                        let app = window.app_handle().clone();
+                        // 回到焦点：一起回到最上层（常态就是置顶，这里再确认）
+                        let _ = window.set_always_on_top(true);
+                        if let Some(list) = window
+                            .app_handle()
+                            .get_webview_window(GRUB_LIST_WINDOW_LABEL)
+                        {
+                            let _ = list.set_always_on_top(true);
+                        }
+                        // 只有主窗口真的显示着、且**没有贴边停靠**才补开独立窗口。
+                        // 启动/托盘隐藏时 Windows 也会在窗口创建时发 Focused(true)
+                        // （实测启动后 116ms 就来两发），不检查可见性就会把独立
+                        // 窗口 flash 出来；贴边停靠态下主窗口只露一条边，GRUB
+                        // 独立窗口必须保持隐藏（由 watcher 的 !docked 闸门守住）。
+                        let main_visible = window.is_visible().unwrap_or(false);
+                        let docked = app
+                            .state::<Mutex<AppState>>()
+                            .lock()
+                            .map(|state| state.auto_hide_docked)
+                            .unwrap_or(false);
+                        startup_debug(
+                            &app,
+                            &format!("Focused(true): main_visible={main_visible} docked={docked}"),
+                        );
+                        // 只有独立窗口**不在显示**时才补开：已显示就什么都不做。
+                        // 之前每次主窗拿到焦点都 force_show + place + publish，
+                        // 恢复最小化的焦点风暴里连续 show/挪窗，两个窗口
+                        // 互相闪烁（show → 抢焦点/重排 z 序 → 又 show …）。
+                        let minimized = window.is_minimized().unwrap_or(false);
+                        let grub_visible = app
+                            .get_webview_window(GRUB_LIST_WINDOW_LABEL)
+                            .map(|list| list.is_visible().unwrap_or(false))
+                            .unwrap_or(false);
+                        let mode_is_window = grub_list_view_mode(&app) == "window";
+                        if minimized {
+                            // 主窗还在最小化恢复中：is_visible/is_minimized 都是
+                            // 过期值，这时 show 独立窗口会被恢复流程反复重排
+                            // （闪的另一来源）。起线程轮询，等真正脱离最小化后
+                            // 补开一次 —— 只补这一次，之后靠 grub_visible 挡住。
+                            let app = app.clone();
+                            std::thread::spawn(move || {
+                                for _ in 0..60 {
+                                    std::thread::sleep(std::time::Duration::from_millis(16));
+                                    let Some(main) =
+                                        app.get_webview_window(MAIN_WINDOW_LABEL)
+                                    else {
+                                        return;
+                                    };
+                                    if !main.is_minimized().unwrap_or(true) {
+                                        break;
+                                    }
+                                }
+                                let docked = app
+                                    .state::<Mutex<AppState>>()
+                                    .lock()
+                                    .map(|state| state.auto_hide_docked)
+                                    .unwrap_or(false);
+                                let grub_visible = app
+                                    .get_webview_window(GRUB_LIST_WINDOW_LABEL)
+                                    .map(|list| list.is_visible().unwrap_or(false))
+                                    .unwrap_or(false);
+                                if !docked && !grub_visible
+                                    && grub_list_view_mode(&app) == "window"
+                                {
+                                    open_grub_list_window(&app, true);
+                                }
+                            });
+                        } else if main_visible && !docked && !grub_visible && mode_is_window {
+                            open_grub_list_window(&app, true);
+                        }
+                    }
+                    // 失焦：保持置顶，什么都不做（两个窗口常驻最顶层）。
                 }
                 return;
             }
+            // 主窗口移动：GRUB 独立窗口跟随 + 位置夹取（完整显示）+ 贴边判定；
+            // GRUB 独立窗口被用户拖动：主窗口**同步平行跟着挪**（跟手，
+            // follow_main_to_grub —— 与「拖主窗 GRUB 跟」完全对称）。
+            if let tauri::WindowEvent::Moved(position) = event {
+                if window.label() == MAIN_WINDOW_LABEL {
+                    let app = window.app_handle().clone();
+                    handle_main_moved(&app, *position);
+                } else if window.label() == GRUB_LIST_WINDOW_LABEL {
+                    // 先识别「我们自己挪 GRUB」的回声（place 吸附 / clamp 夹取
+                    // 刚写下的落点）：是我们挪的就跳过 follow —— 否则拖主窗时
+                    // GRUB 跟随 → GRUB Moved → follow 反拽主窗 → 乒乓乱飘。
+                    let expect = GRUB_FOLLOW_TARGET.load(Ordering::SeqCst);
+                    if expect != u64::MAX {
+                        let ex = (expect >> 32) as u32 as i32;
+                        let ey = (expect as u32) as i32;
+                        if (position.x - ex).abs() <= 8 && (position.y - ey).abs() <= 8 {
+                            GRUB_FOLLOW_TARGET.store(u64::MAX, Ordering::SeqCst);
+                            return;
+                        }
+                    }
+                    let app = window.app_handle().clone();
+                    // 用户真正在拖 GRUB：主窗同步平行跟着（跟手）
+                    follow_main_to_grub(&app, *position);
+                    // 主窗口同款特性：拖完把 GRUB 夹回工作区（不压任务栏）
+                    schedule_clamp_grub(&app);
+                }
+                return;
+            }
+            // 尺寸变化：主窗口变了 → GRUB 宽高跟主窗口一致；用户拉 GRUB
+            // 边框 → 主窗口跟 GRUB 尺寸（互相绑定：哪边改了两边都一样）。
+            // 区分方向靠 GRUB_LAST_SELF_RESIZE_MS：600ms 内是 align 线程
+            // 自己 set_size 的回声，走常规对齐（等值跳过）；否则是用户拖的。
+            // 这里只「报名」，真正执行都在异步去抖线程 —— 事件回调里同步
+            // set_size 会重入消息循环挂死应用（回合 23 教训）。
+            if let tauri::WindowEvent::Resized(_) = event {
+                let label = window.label();
+                if label == MAIN_WINDOW_LABEL || label == GRUB_LIST_WINDOW_LABEL {
+                    let app = window.app_handle().clone();
+                    let user_resized_grub = label == GRUB_LIST_WINDOW_LABEL
+                        && window.is_visible().unwrap_or(false)
+                        && unix_millis().saturating_sub(GRUB_LAST_SELF_RESIZE_MS.load(Ordering::SeqCst))
+                            > 600;
+                    if user_resized_grub {
+                        schedule_main_size_from_grub(&app);
+                    } else {
+                        schedule_grub_align(&app);
+                    }
+                }
+                return;
+            }
+            // 这个 Tauri 版本的 WindowEvent 没有 Cursor 事件；「鼠标进窗展开 /
+            // 离窗贴边」由 start_auto_hide_watcher 的轮询线程负责。
             let tauri::WindowEvent::CloseRequested { api, .. } = event else {
                 return;
             };
@@ -7525,6 +9501,21 @@ pub fn run() {
                 }
                 return;
             }
+            // GRUB 列表窗口：用户点标题栏 × = 不要独立窗口了，退回内嵌模式。
+            // 只藏不销毁（重建一个 webview 不便宜），设置改回 inline 让主窗口的
+            // 下拉框跟实际状态一致。
+            if window.label() == GRUB_LIST_WINDOW_LABEL {
+                let app = window.app_handle().clone();
+                api.prevent_close();
+                let _ = window.hide();
+                {
+                    let mut settings = stored_settings(&app);
+                    settings.grub_list_view = "inline".to_string();
+                    let _ = save_settings(&app, &settings);
+                }
+                publish_ui(&app);
+                return;
+            }
             if window.label() != MAIN_WINDOW_LABEL {
                 return;
             }
@@ -7535,6 +9526,10 @@ pub fn run() {
                 return;
             }
             let _ = window.hide();
+            // 主界面藏进托盘，吸附着的 GRUB 列表也没必要留在外面
+            if grub_list_view_mode(&app) == "window" {
+                hide_grub_list_window(&app);
+            }
             #[cfg(target_os = "macos")]
             let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
         })
@@ -7581,6 +9576,47 @@ pub fn run() {
                 }
             } else {
                 show_main_window(app.handle());
+            }
+            // 启动即应用已保存的 GRUB 列表展示方式：wide 把主窗口加宽；
+            // window 开出独立窗口（主窗口藏进托盘时 open_grub_list_window 自己会跳过，
+            // 等托盘呼出主窗口时由 show_main_window 补开）。
+            {
+                let mode = normalize_grub_list_view(&stored_settings(app.handle()).grub_list_view);
+                startup_debug(
+                    app.handle(),
+                    &format!(
+                        "setup: start_in_tray={start_in_tray} mode={mode} allow_open={}",
+                        !start_in_tray
+                    ),
+                );
+                if mode != "inline" {
+                    // 托盘启动时禁止开独立窗口（连 show 都不发生，零闪烁）；
+                    // 等托盘呼出主窗口时由 show_main_window 补开。
+                    apply_grub_list_view_ex(app.handle(), mode, !start_in_tray);
+                }
+                // 兜底不变式：主窗口不可见 ⇒ 独立窗口必须隐藏。异步时序
+                // （窗口创建完成后的 show）能绕过单次同步 hide，所以
+                // 事件循环消化完创建队列后再校验两轮。
+                if start_in_tray {
+                    hide_grub_list_window(app.handle());
+                    let checker = app.handle().clone();
+                    std::thread::spawn(move || {
+                        for delay in [600, 1500] {
+                            std::thread::sleep(std::time::Duration::from_millis(delay));
+                            let main_visible = checker
+                                .get_webview_window(MAIN_WINDOW_LABEL)
+                                .map(|main| main.is_visible().unwrap_or(false))
+                                .unwrap_or(false);
+                            if !main_visible {
+                                hide_grub_list_window(&checker);
+                            }
+                        }
+                    });
+                }
+            }
+            // 贴边自动隐藏的守护线程：托盘启动也要有（呼出窗口后光标一离就贴边）
+            if stored_settings(app.handle()).main_auto_hide {
+                start_auto_hide_watcher(app.handle());
             }
 
             // 第一帧就用完整菜单（系统项 / 应用设置 / 电源项都在），
@@ -7674,6 +9710,17 @@ pub fn run() {
             open_grub_dir,
             sync_grub,
             switch_grub,
+            set_grub_list_view,
+            set_main_auto_hide,
+            set_main_auto_hide_edge_distance,
+            set_main_dock_strip_thickness,
+            set_main_dock_strip_length,
+            set_main_dock_strip_opacity,
+            set_main_dock_strip_color,
+            set_accent_color,
+            grub_list_window_ready,
+            set_main_window_position,
+            reset_main_window_position,
             install_grub_script,
             uninstall_grub_script,
             unmount_temporary,
@@ -7884,6 +9931,74 @@ mod core_tests {
     use super::*;
 
     #[test]
+    fn auto_hide_near_edge_matches_user_semantics() {
+        // 工作区 0,0 → 1920×1040
+        let work = (0, 0, 1920, 1040);
+        // 贴左边（间隙 10 ≤ 24）：可隐藏
+        assert!(auto_hide_near_edge(
+            10, 100, 400, 600, work.0, work.1, work.2, work.3, 24
+        ));
+        // 屏幕正中央（四边间隙都远大于 24）：不可隐藏
+        assert!(!auto_hide_near_edge(
+            760, 220, 400, 600, work.0, work.1, work.2, work.3, 24
+        ));
+        // 间隙 30 > 24：不可隐藏；阈值放大到 32 就可以
+        assert!(!auto_hide_near_edge(
+            30, 100, 400, 600, work.0, work.1, work.2, work.3, 24
+        ));
+        assert!(auto_hide_near_edge(
+            30, 100, 400, 600, work.0, work.1, work.2, work.3, 32
+        ));
+        // 间隙为负（已经压在边上/越界）：算贴边
+        assert!(auto_hide_near_edge(
+            -5, 100, 400, 600, work.0, work.1, work.2, work.3, 0
+        ));
+        // 阈值 0：只有真正贴到（间隙 ≤ 0）才隐藏
+        assert!(!auto_hide_near_edge(
+            1, 100, 400, 600, work.0, work.1, work.2, work.3, 0
+        ));
+        // 底边贴边：y+h = 1040
+        assert!(auto_hide_near_edge(
+            100, 440, 400, 600, work.0, work.1, work.2, work.3, 24
+        ));
+    }
+
+    #[test]
+    fn strip_geometry_keeps_window_edge_length_and_shrinks_thickness() {
+        // 工作区 0,0 → 1920×1040；主窗 client 460×900，原位置 (100, 40)，厚度 6
+        let (size, target) = strip_geometry(
+            DockEdge::Bottom,
+            0,
+            0,
+            1920,
+            1040,
+            460,
+            900,
+            100,
+            40,
+            6,
+        );
+        // 贴底边：窗口保持主窗宽 460、高缩成 6；x 保持主窗原位，y 贴底
+        assert_eq!(size.width, 460);
+        assert_eq!(size.height, 6);
+        assert_eq!(target, (100, 1034));
+
+        // 贴顶边：y = 工作区顶
+        let (_, target) = strip_geometry(DockEdge::Top, 0, 0, 1920, 1040, 460, 900, 100, 40, 6);
+        assert_eq!(target, (100, 0));
+
+        // 贴左缘：窗口保持主窗高 900、宽缩成 6；y 保持主窗原位，x 贴左
+        let (size, target) = strip_geometry(DockEdge::Left, 0, 0, 1920, 1040, 460, 900, 100, 40, 6);
+        assert_eq!(size.width, 6);
+        assert_eq!(size.height, 900);
+        assert_eq!(target, (0, 40));
+
+        // 贴右缘：x = 1920 - 6
+        let (_, target) = strip_geometry(DockEdge::Right, 0, 0, 1920, 1040, 460, 900, 100, 40, 6);
+        assert_eq!(target, (1914, 40));
+    }
+
+    #[test]
     fn custom_token_validation_accepts_good_and_rejects_sloppy_input() {
         // 合法：常规随机串、带符号、边界长度
         assert_eq!(validate_http_token("  abcd  ").unwrap(), "abcd");
@@ -7919,6 +10034,38 @@ mod core_tests {
         // 不认识的值一律回落 dark，不会把界面搞成没样式
         assert_eq!(normalize_theme(""), "dark");
         assert_eq!(normalize_theme("solarized"), "dark");
+
+        assert_eq!(normalize_grub_list_view("inline"), "inline");
+        assert_eq!(normalize_grub_list_view(" WIDE "), "wide");
+        assert_eq!(normalize_grub_list_view("Window"), "window");
+        // 不认识的值一律回落 inline，配置里混进脏数据也不会让列表消失
+        assert_eq!(normalize_grub_list_view(""), "inline");
+        assert_eq!(normalize_grub_list_view("floating"), "inline");
+
+        // 贴边隐藏：窗口在各方位时都选最近的边
+        assert_eq!(nearest_edge(100, 0, 460, 900, 0, 0, 1920, 1040), DockEdge::Top);
+        assert_eq!(
+            nearest_edge(100, 140, 460, 900, 0, 0, 1920, 1040),
+            DockEdge::Bottom
+        );
+        assert_eq!(nearest_edge(0, 70, 460, 900, 0, 0, 1920, 1040), DockEdge::Left);
+        assert_eq!(
+            nearest_edge(1460, 70, 460, 900, 0, 0, 1920, 1040),
+            DockEdge::Right
+        );
+
+        // 位置夹取：越界拉回工作区，界内原样返回
+        assert_eq!(
+            clamp_to_work(-100, -50, 460, 900, 0, 0, 1920, 1040),
+            (0, 0)
+        );
+        assert_eq!(
+            clamp_to_work(1600, 800, 460, 900, 0, 0, 1920, 1040),
+            (1460, 140)
+        );
+        assert_eq!(clamp_to_work(10, 20, 460, 900, 0, 0, 1920, 1040), (10, 20));
+        // 窗口比工作区还大：钉在左上角，不产生负坐标
+        assert_eq!(clamp_to_work(5, 5, 2000, 1200, 0, 0, 1920, 1040), (0, 0));
 
         assert_eq!(clamp_opacity(100), 100);
         assert_eq!(clamp_opacity(50), 50);

@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GRUB 启动项</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./grublist.css" />
+  </head>
+  <body>
+    <!-- data-tauri-drag-region：按住标题区即可拖动整个窗口（无边框窗口没有系统标题栏） -->
+    <header class="grub-window-head" data-tauri-drag-region>
+      <strong data-tauri-drag-region>GRUB 启动项</strong>
+      <small id="grub-window-meta" data-tauri-drag-region></small>
+      <small class="grub-window-status" id="grub-window-status" role="status"></small>
+    </header>
+    <!-- 当前选中的启动项：父级小字 › 子级大字，与主窗口同一渲染器 -->
+    <div class="grub-active" id="grub-window-active"></div>
+    <!-- 树形列表与主窗口内嵌那份共用同一个渲染器（grub-list-view.js） -->
+    <div class="grub-list grub-window-list" id="grub-window-list"></div>
+    <script src="./grub-list-view.js"></script>
+    <script src="./grublist.js"></script>
+  </body>
+</html>

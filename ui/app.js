@@ -1,5 +1,8 @@
 const invoke = window.__TAURI__.core.invoke;
 const listen = window.__TAURI__.event.listen;
+// 拖动不透明度滑条时的**预览广播**：change 才写后端（免得拖一次写十几次），
+// 但 GRUB 独立窗口要跟主窗口一样实时渲染，拖动过程中靠这个事件同步。
+const emitEvent = window.__TAURI__.event.emit;
 
 const statusElement = document.querySelector("#status");
 const systemsElement = document.querySelector("#systems");
@@ -16,6 +19,17 @@ const powerButtons = [
   [document.querySelector("#power-sleep"), "sleep"],
 ];
 const startInTrayElement = document.querySelector("#start-in-tray");
+const mainAutoHideElement = document.querySelector("#main-auto-hide");
+const mainAutoHideEdgeDistanceElement = document.querySelector("#main-auto-hide-edge-distance");
+const mainDockStripThicknessElement = document.querySelector("#main-dock-strip-thickness");
+const mainDockStripThicknessStateElement = document.querySelector("#main-dock-strip-thickness-state");
+const mainDockStripLengthElement = document.querySelector("#main-dock-strip-length");
+const mainDockStripLengthStateElement = document.querySelector("#main-dock-strip-length-state");
+const mainDockStripOpacityElement = document.querySelector("#main-dock-strip-opacity");
+const mainDockStripOpacityStateElement = document.querySelector("#main-dock-strip-opacity-state");
+const mainDockStripColorElement = document.querySelector("#main-dock-strip-color");
+const mainWindowPositionElement = document.querySelector("#main-window-position");
+const resetMainWindowPositionElement = document.querySelector("#reset-main-window-position");
 const hideFromDockTaskbarElement = document.querySelector("#hide-from-dock-taskbar");
 const refreshElement = document.querySelector("#refresh");
 const useDirectoryElement = document.querySelector("#use-directory");
@@ -24,6 +38,7 @@ const nextBootElement = document.querySelector("#next-boot");
 const nextBootNameElement = document.querySelector("#next-boot-name");
 // 外观（问题 8）
 const themeElement = document.querySelector("#theme");
+const accentColorElement = document.querySelector("#accent-color");
 const opacityElement = document.querySelector("#opacity");
 const opacityStateElement = document.querySelector("#opacity-state");
 
@@ -82,6 +97,11 @@ const grubSyncElement = document.querySelector("#grub-sync");
 const grubHintElement = document.querySelector("#grub-hint");
 const grubErrorElement = document.querySelector("#grub-error");
 const grubListElement = document.querySelector("#grub-list");
+// 当前选中启动项的顶部横幅（三种展示方式都显示）
+const grubActiveElement = document.querySelector("#grub-active");
+// GRUB 列表的三种展示方式（内嵌 / 加宽主窗口 / 独立跟随窗口）
+const grubViewModeElement = document.querySelector("#grub-view-mode");
+const grubWindowNoteElement = document.querySelector("#grub-window-note");
 const grubInstallActionsElement = document.querySelector("#grub-install-actions");
 const grubInstallElement = document.querySelector("#grub-install");
 const grubUninstallElement = document.querySelector("#grub-uninstall");
@@ -334,7 +354,7 @@ function renderEsp(grub) {
 ///
 /// 三处输入框（ESP 目录 / fs-uuid / 脚本正文）只在**没被聚焦**时才回写，
 /// 否则用户打字打到一半会被快照盖掉。
-function renderGrub(grub, script, busy) {
+function renderGrub(grub, script, busy, listViewMode) {
   if (!grub) {
     return;
   }
@@ -374,7 +394,7 @@ function renderGrub(grub, script, busy) {
     parts.push(`EFI 目录 ${grub.efiDir}`);
   }
   parts.push(`${entries.length} 个启动项`);  if (grub.syncedAt) {
-    parts.push(`同步于 ${grub.syncedAt}`);
+    parts.push(`同步于 ${formatLocalTime(grub.syncedAt)}`);
   }
   grubMetaElement.textContent = parts.join(" · ");
 
@@ -382,109 +402,29 @@ function renderGrub(grub, script, busy) {
   grubErrorElement.textContent = grub.error || "";
   grubErrorElement.classList.toggle("hidden", !grub.error);
 
-  // 当前生效的条目：优先看一次性项，其次看永久默认（都来自 ESP 上的环境块）
-  const activeSelector = grub.nextEntry || grub.savedEntry || "";
+  // 当前选中的启动项：三种展示方式都显示在区块顶部（共享渲染器）
+  renderGrubActive(grubActiveElement, grub);
 
-  grubListElement.replaceChildren();
-  if (!entries.length) {
-    const empty = document.createElement("small");
-    empty.className = "grub-empty";
-    empty.textContent = grub.uuid
-      ? "还没有可显示的启动项 —— 先在 Linux 上装好 09_anyboot 并同步一次"
-      : "填好上面的 ESP 目录（点「识别」）或 fs-uuid，就能列出 GRUB 启动项";
-    grubListElement.append(empty);
+  // 列表展示方式（inline / wide / window）：独立窗口模式就不再内嵌渲染一份，
+  // 免得两处各占一个 webview 的内存还显示两遍。下拉框的值只在和快照不一致时才写，
+  // 避免用户正展开选项时被状态事件把选项弹回去。
+  const mode = listViewMode === "wide" || listViewMode === "window"
+    ? listViewMode
+    : "inline";
+  if (grubViewModeElement.value !== mode) {
+    grubViewModeElement.value = mode;
   }
+  const windowMode = mode === "window";
+  grubListElement.classList.toggle("hidden", windowMode);
+  grubWindowNoteElement.classList.toggle("hidden", !windowMode);
 
-  // grub.cfg 里 submenu 是分组、不是可选条目（解析器按同一规则跳过它），
-  // 所以这里**自己把组头补出来**：子条目归到它的父 submenu 下，并统计组内数量。
-  // 后端还给了 submenu 的 (id → 标题) 映射，组头就能显示真名而不是一串 id。
-  const groupTitles = new Map(
-    (grub.groups || []).map((group) => [group.id, group.name]),
-  );
-  const childrenOf = new Map();
-  for (const entry of entries) {
-    if (entry.submenu) {
-      if (!childrenOf.has(entry.submenu)) {
-        childrenOf.set(entry.submenu, []);
-      }
-      childrenOf.get(entry.submenu).push(entry);
-    }
-  }
-
-  const makeRow = (entry, { group, depth }) => {
-    const row = document.createElement("button");
-    row.type = "button";
-    row.className = "grub-entry";
-    row.classList.add(group ? "is-group" : "is-child");
-    if (depth >= 2) {
-      row.classList.add(`depth-${depth}`);
-    }
-    if (entry.selector === activeSelector) {
-      row.classList.add("active");
-    }
-    row.disabled = busy;
-    row.title = entry.selector;
-
-    const name = document.createElement("span");
-    name.className = "grub-entry-name";
-    // 缩进靠 CSS（.is-child / .depth-N），这里只用箭头补强「这是组里的项」
-    name.textContent = group || depth === 0 ? entry.name : `↳ ${entry.name}`;
-
-    const tag = document.createElement("small");
-    if (group) {
-      tag.className = "grub-entry-count";
-      tag.textContent = `${(childrenOf.get(entry.selector) || []).length} 项`;
-      // 组头不是 menuentry，写进 grubenv 也切不过去 —— 只作标题，不可点
-      row.disabled = true;
-    } else {
-      // 同名条目已经在后端折叠过了：这里标出它背后有几个变体，
-      // 免得用户以为「少列了」，也免得再出现两行一模一样的文字。
-      const variants = Number(entry.variants) || 1;
-      const parts = [];
-      if (variants > 1) {
-        parts.push(`${variants} 个变体`);
-      }
-      parts.push(
-        entry.chainloader
-          ? "转交引导"
-          : (entry.kernels && entry.kernels[0]) || entry.class || "",
-      );
-      tag.className = "grub-entry-tag";
-      tag.textContent = parts.filter(Boolean).join(" · ");
-    }
-
-    row.append(name, tag);
-    if (!group) {
-      row.addEventListener("click", () =>
-        call("switch_grub", { selector: entry.selector }),
-      );
-    }
-    return row;
-  };
-
-  // 顶层条目按原顺序铺开；走到第一条子项时，先把它的组头插进去，再补齐同组子项。
-  const emittedGroups = new Set();
-  for (const entry of entries) {
-    if (!entry.submenu) {
-      grubListElement.append(makeRow(entry, { group: false, depth: 0 }));
-      continue;
-    }
-    if (emittedGroups.has(entry.submenu)) {
-      continue;
-    }
-    emittedGroups.add(entry.submenu);
-    grubListElement.append(
-      makeRow(
-        {
-          selector: entry.submenu,
-          name: groupTitles.get(entry.submenu) || entry.submenu,
-        },
-        { group: true, depth: 1 },
-      ),
-    );
-    for (const child of childrenOf.get(entry.submenu) || []) {
-      grubListElement.append(makeRow(child, { group: false, depth: 1 }));
-    }
+  if (!windowMode) {
+    renderGrubEntries({
+      container: grubListElement,
+      grub,
+      busy,
+      onSwitch: (selector) => call("switch_grub", { selector }),
+    });
   }
 
   // 安装 / 卸载只在 Linux 出现：后端在非 Linux 上把 installed 返回为 null
@@ -532,6 +472,40 @@ function resolvedTheme(theme) {
   return theme === "light" ? "light" : "dark";
 }
 
+// ---- 调色板：主题强调色派生 ----------------------------------------
+// amount > 0 往白混（提亮），< 0 往黑混（压暗）。暗色主题悬停提亮、
+// 亮色主题悬停压暗，与内置配色（#2f7fe0 → hover #3d8dee / #256fd0）同方向。
+function shadeHex(hex, amount = 0) {
+  const match = /^#?([0-9a-f]{6})$/i.exec(String(hex || "").trim());
+  if (!match) return null;
+  const value = Number.parseInt(match[1], 16);
+  const channels = [(value >> 16) & 0xff, (value >> 8) & 0xff, value & 0xff].map(
+    (c) => Math.round(amount >= 0 ? c + (255 - c) * amount : c * (1 + amount)),
+  );
+  // 任何通道算出 NaN（比如调用方漏传 amount）都返回 null，别把
+  // "#NaNNaNNaN" 这种非法值喂给 CSS 变量 —— 那会让整个派生色失效。
+  if (channels.some((c) => !Number.isFinite(c))) return null;
+  return `#${channels.map((c) => c.toString(16).padStart(2, "0")).join("")}`;
+}
+
+/// 把调色板选的强调色落到 CSS 变量上（按钮/链接/悬停色一起派生）。
+/// 暗色主题：悬停提亮 8%、链接提亮 18%；亮色主题反过来压暗。
+function applyAccent(accent, theme) {
+  const base = shadeHex(accent) || "#2f7fe0";
+  const dark = resolvedTheme(theme) === "dark";
+  const hover = shadeHex(base, dark ? 0.08 : -0.12) || base;
+  const link = shadeHex(base, dark ? 0.18 : -0.18) || base;
+  const linkHover = shadeHex(base, dark ? 0.3 : -0.3) || base;
+  const root = document.documentElement.style;
+  root.setProperty("--accent", base);
+  root.setProperty("--accent-hover", hover);
+  root.setProperty("--accent-link", link);
+  root.setProperty("--accent-link-hover", linkHover);
+}
+
+// 当前强调色：快照渲染与调色板输入都会更新它，主题切换时要用它重算明暗档
+let currentAccent = "#2f7fe0";
+
 /// 把主题与不透明度落到 documentElement 上（CSS 用 var(--ui-alpha) 读）
 function applyAppearance(theme, percent) {
   document.documentElement.dataset.theme = resolvedTheme(theme);
@@ -539,12 +513,52 @@ function applyAppearance(theme, percent) {
   const clamped = Math.min(100, Math.max(0, Number.isFinite(value) ? value : 100));
   const alpha = clamped / 100;
   document.documentElement.style.setProperty("--ui-alpha", String(alpha));
+  applyAccent(currentAccent, theme);
   opacityStateElement.textContent = `${clamped}%（拖动即时预览）`;
 }
 
 function renderSettings(view) {
   autostartElement.checked = Boolean(view.autostart);
   startInTrayElement.checked = Boolean(view.startInTray);
+  mainAutoHideElement.checked = Boolean(view.mainAutoHide);
+  if (document.activeElement !== mainAutoHideEdgeDistanceElement) {
+    mainAutoHideEdgeDistanceElement.value = Number.isFinite(view.mainAutoHideEdgeDistance)
+      ? view.mainAutoHideEdgeDistance
+      : 24;
+  }
+  if (document.activeElement !== mainDockStripThicknessElement) {
+    const thickness = Number.isFinite(view.mainDockStripThickness)
+      ? view.mainDockStripThickness
+      : 6;
+    mainDockStripThicknessElement.value = thickness;
+    if (mainDockStripThicknessStateElement) {
+      mainDockStripThicknessStateElement.textContent = `${thickness}px（拖动即时预览）`;
+    }
+  }
+  if (document.activeElement !== mainDockStripLengthElement) {
+    const length = Number.isFinite(view.mainDockStripLength) ? view.mainDockStripLength : 100;
+    mainDockStripLengthElement.value = length;
+    if (mainDockStripLengthStateElement) {
+      mainDockStripLengthStateElement.textContent = `${length}%（主窗那条边长的百分比）`;
+    }
+  }
+  if (document.activeElement !== mainDockStripOpacityElement) {
+    const stripOpacity = Number.isFinite(view.mainDockStripOpacity)
+      ? view.mainDockStripOpacity
+      : 100;
+    mainDockStripOpacityElement.value = stripOpacity;
+    if (mainDockStripOpacityStateElement) {
+      mainDockStripOpacityStateElement.textContent = `${stripOpacity}%（拖动即时预览）`;
+    }
+  }
+  if (document.activeElement !== mainDockStripColorElement) {
+    mainDockStripColorElement.value = shadeHex(view.mainDockStripColor) || "#ffffff";
+  }
+  if (document.activeElement !== mainWindowPositionElement) {
+    const mode = view.mainWindowPosition;
+    mainWindowPositionElement.value =
+      mode === "center" || mode === "last" ? mode : "free";
+  }
   hideFromDockTaskbarElement.checked = Boolean(view.hideFromDockTaskbar);
   closeActionElement.value = view.closeAction === "quit" ? "quit" : "tray";
   autostartStateElement.textContent =
@@ -564,6 +578,10 @@ function renderSettings(view) {
     opacityElement.value = String(percent);
   }
   themeElement.value = theme;
+  currentAccent = shadeHex(view.accentColor) || "#2f7fe0";
+  if (document.activeElement !== accentColorElement) {
+    accentColorElement.value = currentAccent;
+  }
   applyAppearance(theme, Number(opacityElement.value));
 }
 
@@ -642,7 +660,7 @@ function renderRemote(http, settings) {
   httpRequestsElement.replaceChildren();
   for (const entry of http.requests) {
     const item = document.createElement("li");
-    const clock = (entry.time || "").slice(11, 19);
+    const clock = formatLocalTime(entry.time);
     item.textContent = `${clock} ${entry.source} [${entry.channel}] ${entry.summary} — ${entry.status}${
       entry.message ? `：${entry.message}` : ""
     }`;
@@ -662,7 +680,7 @@ function renderPending(notify) {
     notify.kind === "pending"
       ? `远程请求待执行：${notify.secondsLeft} 秒后自动执行`
       : notify.title;
-  pendingDetailElement.textContent = `${notify.message}｜来源 ${notify.source}｜渠道 ${notify.channel}｜发起 ${notify.created}`;
+  pendingDetailElement.textContent = `${notify.message}｜来源 ${notify.source}｜渠道 ${notify.channel}｜发起 ${formatLocalTime(notify.created)}`;
   pendingRunElement.classList.toggle("hidden", !notify.canCancel);
   pendingCancelElement.classList.toggle("hidden", !notify.canCancel);
 }
@@ -689,7 +707,12 @@ function render(state) {
   statusElement.textContent = label || (duplicatesNextBoot ? "" : statusText);
   statusElement.classList.toggle("hidden", !label && duplicatesNextBoot);
 
-  renderGrub(state.grub, state.grubScript, busy);
+  renderGrub(
+    state.grub,
+    state.grubScript,
+    busy,
+    state.settings && state.settings.grubListView,
+  );
   renderSettings(state.settings);
   renderRemote(state.http, state.settings);
   renderPending(state.notify);
@@ -728,6 +751,44 @@ function applySnapshot(state, { force = false } = {}) {
   lastRevision = Math.max(lastRevision, state.revision);
   currentState = state;
   render(state);
+  applyDockStrip(state);
+}
+
+// 后端统一记 UTC ISO 串（…T…Z）。Webview 的时区 = 系统时区，用 toLocaleString
+// 转成本地时间显示，与 Windows 任务栏 / macOS 菜单栏 / Linux 桌面时钟一致。
+// 解析失败时原样返回，别把界面搞出 "Invalid Date"。
+function formatLocalTime(iso) {
+  if (!iso || typeof iso !== "string") return iso || "";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleString([], { hour12: false });
+}
+
+// 贴边隐藏时，白条是独立渲染的白色条（#dock-strip）。前端负责：① 按
+// dockEdge 打方向类；② 写三个 CSS 变量：长度（窗口边百分比）、厚度（px）、
+// 不透明度 —— 都与窗口几何无关，设置拖动即时改。
+function applyDockStrip(state) {
+  const body = document.body;
+  body.classList.remove("dock-top", "dock-bottom", "dock-left", "dock-right");
+  const settings = state.settings || {};
+  const clampInt = (value, min, max, fallback) => {
+    const parsed = Math.round(Number(value));
+    return Number.isFinite(parsed) ? Math.min(Math.max(parsed, min), max) : fallback;
+  };
+  const thickness = clampInt(settings.mainDockStripThickness, 2, 40, 6);
+  const length = clampInt(settings.mainDockStripLength, 10, 100, 100);
+  const opacity = clampInt(settings.mainDockStripOpacity, 10, 100, 100);
+  document.documentElement.style.setProperty("--dock-strip-thickness", `${thickness}px`);
+  document.documentElement.style.setProperty("--dock-strip-length", `${length}%`);
+  document.documentElement.style.setProperty("--dock-strip-opacity", String(opacity / 100));
+  const color = typeof settings.mainDockStripColor === "string" ? settings.mainDockStripColor : "";
+  document.documentElement.style.setProperty(
+    "--dock-strip-color",
+    shadeHex(color) || "#ffffff",
+  );
+  if (state.docked && state.dockEdge) {
+    body.classList.add("dock-" + state.dockEdge);
+  }
 }
 
 // 命令跑完主动拉一次快照：事件推送偶尔会落在命令返回之后，
@@ -783,6 +844,13 @@ function grubMessage(text, { error = false } = {}) {
     showStatusBar(message, { error });
   }
 }
+
+// GRUB 列表展示方式切换：inline / wide（加宽主窗口）/ window（独立跟随窗口）。
+// 后端负责保存设置 + 调整窗口形态（加宽/开窗/关窗），前端只管把选择报上去；
+// 切到独立窗口后这里的内嵌列表会隐藏（见 renderGrub 的 windowMode 分支）。
+grubViewModeElement.addEventListener("change", () => {
+  call("set_grub_list_view", { mode: grubViewModeElement.value });
+});
 
 // 识别 ESP 目录：后端判断是不是 FAT32，并把从中取到的 fs-uuid 填好
 grubDirDetectElement.addEventListener("click", async () => {
@@ -1069,6 +1137,100 @@ startInTrayElement.addEventListener("change", () =>
   call("set_start_in_tray", { enabled: startInTrayElement.checked }),
 );
 
+// 贴边自动隐藏：开后鼠标一离窗就缩成边条，悬停边条展开；关掉立即展开
+mainAutoHideElement.addEventListener("change", () =>
+  call("set_main_auto_hide", { enabled: mainAutoHideElement.checked }),
+);
+
+// 贴边触发距离：主窗口离屏幕边框多近时，鼠标离开才会隐藏
+mainAutoHideEdgeDistanceElement.addEventListener("change", () => {
+  const parsed = Number.parseInt(mainAutoHideEdgeDistanceElement.value, 10);
+  const distance = Number.isFinite(parsed) ? Math.min(Math.max(parsed, 0), 200) : 24;
+  mainAutoHideEdgeDistanceElement.value = distance;
+  call("set_main_auto_hide_edge_distance", { distance });
+});
+
+// 贴边白条厚度：白条独立渲染的粗细，纯前端 CSS 实时（input），
+// 松手提交后端存值（窗口几何与厚度无关，无需重贴）
+mainDockStripThicknessElement.addEventListener("input", () => {
+  const value = Number.parseInt(mainDockStripThicknessElement.value, 10);
+  if (mainDockStripThicknessStateElement) {
+    mainDockStripThicknessStateElement.textContent = `${value}px（拖动即时预览）`;
+  }
+  document.documentElement.style.setProperty("--dock-strip-thickness", `${value}px`);
+});
+mainDockStripThicknessElement.addEventListener("change", () => {
+  const parsed = Number.parseInt(mainDockStripThicknessElement.value, 10);
+  const value = Number.isFinite(parsed) ? Math.min(Math.max(parsed, 2), 40) : 6;
+  mainDockStripThicknessElement.value = value;
+  call("set_main_dock_strip_thickness", { value });
+});
+
+// 贴边白条长度：占主窗那条窗口边的百分比，纯前端 CSS 实时（input），
+// 松手提交后端存值（不重贴窗口，窗口尺寸与长度无关）
+mainDockStripLengthElement.addEventListener("input", () => {
+  const value = Number.parseInt(mainDockStripLengthElement.value, 10);
+  if (mainDockStripLengthStateElement) {
+    mainDockStripLengthStateElement.textContent = `${value}%（窗口边百分比）`;
+  }
+  document.documentElement.style.setProperty("--dock-strip-length", `${value}%`);
+});
+mainDockStripLengthElement.addEventListener("change", () => {
+  const parsed = Number.parseInt(mainDockStripLengthElement.value, 10);
+  const value = Number.isFinite(parsed) ? Math.min(Math.max(parsed, 10), 100) : 100;
+  mainDockStripLengthElement.value = value;
+  call("set_main_dock_strip_length", { value });
+});
+
+// 贴边白条不透明度：滑条即时预览（input）+ 松手提交（change）
+mainDockStripOpacityElement.addEventListener("input", () => {
+  const value = Number.parseInt(mainDockStripOpacityElement.value, 10);
+  if (mainDockStripOpacityStateElement) {
+    mainDockStripOpacityStateElement.textContent = `${value}%（拖动即时预览）`;
+  }
+  document.documentElement.style.setProperty(
+    "--dock-strip-opacity",
+    String(value / 100),
+  );
+});
+mainDockStripOpacityElement.addEventListener("change", () => {
+  const parsed = Number.parseInt(mainDockStripOpacityElement.value, 10);
+  const value = Number.isFinite(parsed) ? Math.min(Math.max(parsed, 10), 100) : 100;
+  mainDockStripOpacityElement.value = value;
+  call("set_main_dock_strip_opacity", { value });
+});
+
+// 贴边白条颜色：调色板即时预览（input），关闭选色器（change）才落盘
+mainDockStripColorElement.addEventListener("input", () => {
+  const color = shadeHex(mainDockStripColorElement.value);
+  if (color) {
+    document.documentElement.style.setProperty("--dock-strip-color", color);
+  }
+});
+mainDockStripColorElement.addEventListener("change", () => {
+  call("set_main_dock_strip_color", { color: mainDockStripColorElement.value });
+});
+
+// 主题强调色：调色板即时预览（主窗 + GRUB 同步），change 落盘
+accentColorElement.addEventListener("input", () => {
+  currentAccent = shadeHex(accentColorElement.value) || currentAccent;
+  applyAccent(currentAccent, themeElement.value);
+  emitEvent("accent-preview", currentAccent);
+});
+accentColorElement.addEventListener("change", () => {
+  call("set_accent_color", { color: accentColorElement.value });
+});
+
+// 固定显示位置：free / 屏幕中间 / 上次位置
+mainWindowPositionElement.addEventListener("change", () =>
+  call("set_main_window_position", { mode: mainWindowPositionElement.value }),
+);
+
+// 重置位置：立即把主窗口放到屏幕正中央
+resetMainWindowPositionElement.addEventListener("click", () =>
+  call("reset_main_window_position", {}),
+);
+
 hideFromDockTaskbarElement.addEventListener("change", () =>
   call("set_hide_from_dock_taskbar", {
     enabled: hideFromDockTaskbarElement.checked,
@@ -1088,6 +1250,8 @@ themeElement.addEventListener("change", () => {
 // 不透明度：拖动即时预览，松手（change）才写设置，免得拖一次写十几次
 opacityElement.addEventListener("input", () => {
   applyAppearance(themeElement.value, Number(opacityElement.value));
+  // GRUB 独立窗口同步实时渲染（拖动期间后端还没收到新值）
+  emitEvent("ui-alpha-preview", Number(opacityElement.value));
 });
 opacityElement.addEventListener("change", () => {
   call("set_opacity", { percent: Number(opacityElement.value) });

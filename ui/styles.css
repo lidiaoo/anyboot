@@ -19,8 +19,10 @@
   --text-faint: #b2bed1;
   --text-fainter: #98a5ba;
   --input-bg: #101620;
-  --btn: #2f7fe0;
-  --btn-hover: #3d8dee;
+  /* 按钮/链接色走 --accent 系列（调色板选的强调色，app.js 派生并写入；
+     未写入时回退到内置蓝，观感与原来一致） */
+  --btn: var(--accent, #2f7fe0);
+  --btn-hover: var(--accent-hover, #3d8dee);
   --btn-secondary: #333d4d;
   --btn-secondary-hover: #3f4b5e;
   --btn-text: #ffffff;
@@ -30,8 +32,8 @@
   --ok-border: #3aa95f;
   --ok-bg: #14261a;
   --warn: #f0b073;
-  --link: #4f9bff;
-  --link-hover: #7cb6ff;
+  --link: var(--accent-link, #4f9bff);
+  --link-hover: var(--accent-link-hover, #7cb6ff);
   --port-border: #6b3a1f;
   --port-bg: #2a1b13;
   --port-strong: #f0a98a;
@@ -68,8 +70,8 @@
   --text-faint: #3b4553;
   --text-fainter: #505b6b;
   --input-bg: #fbfcfe;
-  --btn: #2f7fe0;
-  --btn-hover: #256fd0;
+  --btn: var(--accent, #2f7fe0);
+  --btn-hover: var(--accent-hover, #256fd0);
   --btn-secondary: #e7eaf0;
   --btn-secondary-hover: #d8dde6;
   --btn-text: #ffffff;
@@ -78,8 +80,8 @@
   --ok-border: #2aa85a;
   --ok-bg: #eaf7ee;
   --warn: #9c4614;
-  --link: #1a6fd4;
-  --link-hover: #0d5cbb;
+  --link: var(--accent-link, #1a6fd4);
+  --link-hover: var(--accent-link-hover, #0d5cbb);
   --port-border: #e2b48a;
   --port-bg: #fdf4ea;
   --port-strong: #a85a15;
@@ -113,12 +115,16 @@ body {
 
 main {
   display: grid;
+  /* 单列网格：minmax(0,1fr) 让子项可以收缩到 0 —— grid 项默认 min-width:auto，
+   * 长路径/token 会把列撑到内容宽度，出现横向滚动条（用户要求去掉） */
+  grid-template-columns: minmax(0, 1fr);
   gap: 20px;
   padding: 24px;
   /* 正文自己滚，提示条永远钉在窗口底边 */
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
 }
 
 /* ---------- 窗口最下方的提示条（主内容区之外） ----------
@@ -334,6 +340,56 @@ h1,
   font-size: 12px;
 }
 
+.grub-row select {
+  flex: 1 1 180px;
+  min-width: 0;
+  padding: 7px 10px;
+  font-size: 12px;
+}
+
+/* 当前选中的启动项横幅：父级小字在上、子级大字在下（主题色），三种展示方式共用 */
+.grub-active {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--input-bg);
+}
+
+.grub-active .grub-active-parent {
+  /* 与选中项同色系，只淡一档（表达层级，不换色） */
+  color: var(--link);
+  opacity: 0.72;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.3;
+  word-break: break-all;
+}
+
+.grub-active .grub-active-leaf {
+  color: var(--link);
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.25;
+  word-break: break-all;
+}
+
+.grub-active .grub-active-none {
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
+/* 独立窗口模式的说明行：列表已经搬走了，这里只留一句话 */
+.grub-window-note {
+  display: block;
+  color: var(--text-faint);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
 .grub-row button {
   padding: 7px 11px;
   font-size: 12px;
@@ -407,6 +463,16 @@ h1,
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--input-bg);
+}
+
+/* 加宽模式（主窗口 920px）：树铺成两列、高度放开跟着窗口走。
+   独立 GRUB 窗口默认 440px 宽不受影响；用户把它拉宽到 700 以上同样受益。 */
+@media (min-width: 700px) {
+  .grub-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4px 16px;
+    max-height: calc(100vh - 380px);
+  }
 }
 
 .grub-empty {
@@ -811,6 +877,27 @@ button.danger:hover:not(:disabled) {
   accent-color: var(--btn);
 }
 
+/* 调色板入口框：整个框就渲染成选中的颜色（WebView2 默认外观带灰边和
+   内边距，看起来像没生效；这里把原生 swatch 铺满整个框） */
+.remote-inline input[type="color"] {
+  width: 46px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+}
+
+.remote-inline input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 2px;
+}
+
+.remote-inline input[type="color"]::-webkit-color-swatch {
+  border: none;
+  border-radius: 4px;
+}
+
 #http-bind {
   width: 116px;
 }
@@ -885,4 +972,70 @@ button.danger:hover:not(:disabled) {
   content: "暂无远程请求";
   color: var(--text-fainter);
   font-size: 11px;
+}
+/* ============ 贴边隐藏的小白条 ============
+   主窗口贴边隐藏后，窗口缩成一条固定细缝，白条 #dock-strip 是**独立渲染**
+   的白色条，长度/厚度/不透明度全由前端 CSS 变量控制，与窗口几何无关。
+   贴边态下窗口本身（html/body 背景 + main 内容）要**全部隐藏**，只留白条
+   —— 否则用户看到的就是「窗口缩成的一条」而不是独立白条。 */
+/* 贴边态：html/body 背景透明、内容隐藏，只露白条 */
+html {
+  background: transparent;
+}
+body.dock-top,
+body.dock-bottom,
+body.dock-left,
+body.dock-right {
+  background: transparent;
+}
+body.dock-top main,
+body.dock-bottom main,
+body.dock-left main,
+body.dock-right main {
+  display: none;
+}
+#dock-strip {
+  position: fixed;
+  display: none;
+  /* 颜色走调色板设置（--dock-strip-color，app.js 从快照写入），默认白 */
+  background: var(--dock-strip-color, #ffffff);
+  opacity: var(--dock-strip-opacity, 1);
+  z-index: 9999;
+  pointer-events: none;
+}
+/* 贴底边：白条贴窗口底（屏幕底），水平居中，长=窗口宽百分比，高=厚度 */
+body.dock-bottom #dock-strip {
+  display: block;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: var(--dock-strip-length, 100%);
+  height: var(--dock-strip-thickness, 6px);
+}
+/* 贴顶边：白条贴窗口顶（屏幕顶） */
+body.dock-top #dock-strip {
+  display: block;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: var(--dock-strip-length, 100%);
+  height: var(--dock-strip-thickness, 6px);
+}
+/* 贴左缘：白条贴窗口左（屏幕左），垂直居中，长=窗口高百分比，宽=厚度 */
+body.dock-left #dock-strip {
+  display: block;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  height: var(--dock-strip-length, 100%);
+  width: var(--dock-strip-thickness, 6px);
+}
+/* 贴右缘：白条贴窗口右（屏幕右） */
+body.dock-right #dock-strip {
+  display: block;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  height: var(--dock-strip-length, 100%);
+  width: var(--dock-strip-thickness, 6px);
 }

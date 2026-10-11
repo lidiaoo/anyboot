@@ -1,6 +1,16 @@
 const invoke = window.__TAURI__.core.invoke;
 const listen = window.__TAURI__.event.listen;
 
+// 后端统一记 UTC ISO 串（…T…Z）。Webview 的时区 = 系统时区，用 toLocaleString
+// 转成本地时间显示，与 Windows 任务栏 / macOS 菜单栏 / Linux 桌面时钟一致。
+// 解析失败时原样返回，别把界面搞出 "Invalid Date"。
+function formatLocalTime(iso) {
+  if (!iso || typeof iso !== "string") return iso || "";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleString([], { hour12: false });
+}
+
 const titleElement = document.querySelector("#title");
 const sourceElement = document.querySelector("#source");
 const messageElement = document.querySelector("#message");
@@ -109,7 +119,7 @@ function render(notify) {
     return;
   }
   titleElement.textContent = notify.title;
-  sourceElement.textContent = `来源 ${notify.source}｜渠道 ${notify.channel}｜发起 ${notify.created}`;
+  sourceElement.textContent = `来源 ${notify.source}｜渠道 ${notify.channel}｜发起 ${formatLocalTime(notify.created)}`;
   messageElement.textContent = notify.message;
 
   if (notify.kind === "pending") {
