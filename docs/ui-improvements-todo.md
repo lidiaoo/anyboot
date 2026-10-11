@@ -70,3 +70,59 @@
    - 两个「打开目录」按钮
 
 3. **阶段 C**：验证 + 提交
+
+## 设置项一致性审计（2026-10-12）
+
+审计范围：Settings 全部字段 × 主窗设置页 × 托盘菜单 × 三端平台分支。
+目标：找出「改了不管」「需要联动而漏掉」「三端体验不一致」的地方。
+
+### 入口覆盖映射
+
+- **主窗 + 托盘都有**：开机启动、启动时隐藏主界面、隐藏程序（任务栏/Dock）、
+  点击 ❌ 行为、HTTP 服务开关、远程请求通知开关、远程执行延迟（主窗分渠道 /
+  托盘 SetDelayAll 总设）、窗口大小（主窗滑条 / 托盘重置）。
+- **仅主窗**：监听地址/端口/令牌、远程可触发本机授权框、两渠道独立弹窗开关与
+  延迟、提示音 + 自定义文件、主题、不透明度、GRUB 全套、白条四参数、强调色、
+  固定显示位置、锁定窗口大小。
+- **哪都没有**：`debugTrace`（只能改 settings.json 或 `ANYBOOT_TRACE` 环境变量）。
+
+### 已修（本次）
+
+- [x] **锁定窗口大小后切 GRUB 展示模式仍强制改宽**：`apply_grub_layout_size` 的
+  `force_nominal_width` 无视 `window_size_locked`，锁定被侵犯。修：锁定时切模式
+  只切布局不改尺寸（`grub_layout_target_width`，窄窗口下 wide/pane 由 CSS 收窄）。
+
+### 联动缺失（主窗设置页，待定夺是否加灰化）
+
+- [ ] `notifyEnabled` 总开关关 → HTTP/CLI 渠道两行仍可编辑，无「当前不生效」的
+  视觉提示（说明只在总开关行的小字里）。
+- [ ] `httpEnabled` 关 → 监听地址/端口/令牌区仍可编辑（改了无即时反馈）。
+- [ ] `playSound` 关 → 提示音文件路径仍可编辑（无害）。
+- [ ] `mainAutoHide` 关 → 白条四参数仍可编辑（前端预览仍工作，无害）。
+
+### 托盘 ↔ 主窗入口不对称（建议项）
+
+- [ ] 托盘没有「贴边自动隐藏」快捷开关（对比 HTTP 服务/远程请求通知都有）；
+  贴边是高频功能，建议补一个 CheckMenuItem。
+- [ ] 托盘「远程执行延迟」勾选项在两渠道值不同时全部不勾、也不显示当前值。
+  建议：子菜单标题带当前值，如「远程执行延迟（HTTP 5s / CLI 30s）」。
+- [ ] 托盘有「重置窗口大小」没有「重置窗口位置」（主窗两者都有），可补齐对称。
+
+### 三端一致性核查（已一致，无需改）
+
+- 隐藏程序：Windows = ITaskbarList（隐藏→切换→再显示保证实时）、
+  macOS = activation policy Accessory（Dock 与 Cmd-Tab 一起消失，语义天然更彻底）、
+  Linux = GTK skip-taskbar hint。行为差异属平台本性。
+- 开机启动：Linux XDG `.desktop`（带 `--from-autostart`）、macOS 系统登录项
+  （`requires-approval` 状态有文案）、Windows 注册表。
+- 主题 system 跟随：三端 webview `prefers-color-scheme`。
+- 提示音：三端播放器表（paplay/aplay、afplay、powershell）。
+- 贴边、窗口尺寸管理、弹窗：三端共享同一代码路径。
+
+### 行为确认（核实过，无需改）
+
+- 锁定状态下托盘「重置窗口大小」可用：落标称尺寸并把 max 重新钉到新值
+  （锁定保留）——「显式动作可覆盖」的既有设计。
+- `mainWindowPosition=last` 的记忆点在夹取后的真实落点，贴边停靠态跳过。
+- 渠道延迟两处入口写同一份 settings，`publish_settings` 广播同步。
+- 托盘 SetDelayAll 把两渠道拉平是刻意设计（主窗可分渠道细调）。
