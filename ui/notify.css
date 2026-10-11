@@ -68,6 +68,13 @@ body {
   align-content: start;
   gap: 10px;
   height: 100%;
+  /*
+   * 弹窗是隐藏状态创建的，Linux/GTK 上未映射的窗口视口是 0x0 —— 零宽视口里
+   * 排版会把文字折成竖条，量出来的「内容高度」虚高到顶满上限（460），
+   * 窗口底下就空一大块。窗口宽度固定是 NOTIFY_WIDTH（src-tauri 里的常量 440，
+   * 两处必须一致），把面板钉在这个宽度上，视口多小都能按真实宽度排版、量准。
+   */
+  min-width: 440px;
   padding: 16px 18px;
   border: 1px solid var(--panel-border);
   background: var(--panel-bg);

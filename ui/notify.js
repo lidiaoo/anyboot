@@ -88,6 +88,13 @@ function measureContentHeight() {
 /// null 表示「这一帧什么都不报」或者「量不出来、用后端标称高度」。
 let presentedHeight = null;
 
+// 窗口尺寸/视口变化后重测一次。隐藏期（Linux/GTK 视口 0x0）量出的高度可能不准，
+// show 之后的第一次 resize 用真实视口自愈；量出同一高度时 presentedHeight 兜住，
+// 不会报告成环（内容高度只取决于面板宽度，面板宽度固定，与窗口高度无关）。
+window.addEventListener("resize", () => {
+  void presentWindow();
+});
+
 async function presentWindow() {
   const height = measureContentHeight();
   if (height === presentedHeight) {

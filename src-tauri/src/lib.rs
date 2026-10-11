@@ -3637,6 +3637,7 @@ fn show_notify_window(app: &AppHandle) -> Result<(), String> {
         std::thread::sleep(std::time::Duration::from_millis(800));
         if let Some(window) = fallback.get_webview_window(NOTIFY_WINDOW_LABEL) {
             if !window.is_visible().unwrap_or(true) {
+                trace(&fallback, "notify", "前端 800ms 未量出高度，按标称兜底显示");
                 place_notify_window(&fallback, &window, NOTIFY_HEIGHT);
                 let _ = window.show();
             }
@@ -3655,6 +3656,7 @@ fn present_notify_window(app: AppHandle, height: Option<f64>) -> Result<(), Stri
         return Ok(());
     };
     let height = notify_height(height);
+    trace(&app, "notify", &format!("present height={height}"));
     let _ = window.set_size(tauri::LogicalSize::new(NOTIFY_WIDTH, height));
     place_notify_window(&app, &window, height);
     let _ = window.show();
