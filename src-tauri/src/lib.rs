@@ -184,6 +184,9 @@ const AUTO_HIDE_TOLERANCE: i32 = 24;
 /// （client y 97 → 100）。≤ 此值视为微调、沿上一轮停靠位（dock_axis_position）；
 /// 与「自己回声」哨兵的 ±8px 同源。用户拖动必然超过它，不受影响。
 const AUTO_HIDE_WM_NUDGE_PX: i32 = 8;
+/// undock 重锚的补发次数上限：展开后连续 3 拍（~360ms）没收敛就放弃，
+/// 防 WM 不配合时变成永久 set_position 抖动（与 AUTO_HIDE_RESNAP_LIMIT 同思路）。
+const AUTO_HIDE_REANCHOR_TRIES: u8 = 3;
 /// 贴边后窗口缩成的「缝」的厚度（逻辑像素）：窗口只缩到这条缝，白条是
 /// **独立渲染**的白色条（#dock-strip，长度/厚度/透明度全由前端 CSS 控制），
 /// 缝要足够容纳白条最大厚度（40px），所以固定取 40 —— 窗口几何与白条
@@ -262,6 +265,12 @@ struct AppState {
     /// show/hide + set_decorations 样式切换，两个窗口互相闪烁直到卡死。
     /// 鼠标进过一次窗口（用户真的用过界面）后清除，恢复正常的离窗贴边。
     auto_hide_pending_enter: bool,
+    /// undock 重锚计划：展开请求落点 + 已补发次数。GTK 在隐藏态恢复装饰后
+    /// frame extents 缓存错拍，首个 set_position 的实际落点会偏低（2x 缩放
+    /// 下正好一个标题栏 64px）——watcher 随后几拍读实况、偏了就趁缓存新鲜
+    /// 补发一次 set_position（见 undock_reanchor_action）。收敛/放弃/重新
+    /// dock 都清掉。
+    auto_hide_reanchor: Option<AutoHideReanchor>,
 }
 
 /// 主窗口贴边自动隐藏时贴向的屏幕边。
@@ -3916,6 +3925,48 @@ fn dock_axis_position(live: i32, remembered: i32, tolerance: i32) -> i32 {
     }
 }
 
+/// undock 重锚计划：展开请求落点 + 已补发的 set_position 次数。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct AutoHideReanchor {
+    target: (i32, i32),
+    tries: u8,
+}
+
+/// 重锚一拍的裁决（纯函数，便于单测）。
+#[derive(Debug, PartialEq, Eq)]
+enum UndockReanchor {
+    /// 实况偏离请求落点超过 WM 微调容差、还有补发额度 → 补发一次
+    /// set_position 并更新计划。
+    Set(AutoHideReanchor, (i32, i32)),
+    /// 已落到位（≤ AUTO_HIDE_WM_NUDGE_PX）→ 清计划。
+    Settled,
+    /// 补发额度用完仍不收敛 → 清计划，位置交给用户/白条保障接管。
+    GiveUp,
+}
+
+/// undock 重锚决策：GTK 在**隐藏态**恢复装饰后 frame extents 缓存错拍，
+/// 首个 set_position 的实际落点偏低（2x 缩放下正好一个标题栏 64px，真机
+/// 日志铁证：undock target=(0,260) → 下一轮 dock 读到实况 y=324，每轮 +64
+/// 无界爬移）。此刻窗口已映射、缓存已新鲜，实况偏离超容差就再 set_position
+/// 一次（`inner_position()` 来自真实 configure，判位可信）。
+fn undock_reanchor_action(plan: AutoHideReanchor, live_x: i32, live_y: i32) -> UndockReanchor {
+    let off_x = (live_x - plan.target.0).abs();
+    let off_y = (live_y - plan.target.1).abs();
+    if off_x <= AUTO_HIDE_WM_NUDGE_PX && off_y <= AUTO_HIDE_WM_NUDGE_PX {
+        return UndockReanchor::Settled;
+    }
+    if plan.tries >= AUTO_HIDE_REANCHOR_TRIES {
+        return UndockReanchor::GiveUp;
+    }
+    UndockReanchor::Set(
+        AutoHideReanchor {
+            target: plan.target,
+            tries: plan.tries + 1,
+        },
+        plan.target,
+    )
+}
+
 /// 贴边缩条时的几何：窗口缩成 `strip` 厚的细缝，贴到工作区最近的边；
 /// `gap` = 白条沿法线方向离这条边的距离（0 = 紧贴，既有行为）。
 /// 返回的落点是 **客户区**坐标 —— 和 `set_position` 的语义一致（见
@@ -4065,6 +4116,9 @@ fn dock_main_window(app: &AppHandle) {
         state.auto_hide_last_edge = Some(edge);
         state.auto_hide_dock_pos = target;
         state.auto_hide_dock_resnaps = 0;
+        // 重新停靠 = 展开落点话题终结：未收敛的重锚计划作废，别再跟停靠
+        // 几何抢窗口。
+        state.auto_hide_reanchor = None;
         state.auto_hide_restore_size = Some(match pre_client {
             Some(client) => (client.width.max(1), client.height.max(1)),
             None => (size.width.max(1), size.height.max(1)),
@@ -4192,6 +4246,17 @@ fn undock_main_window(app: &AppHandle) {
     );
     let _ = main.set_size(tauri::PhysicalSize::new(win_w, win_h));
     let _ = main.set_position(tauri::PhysicalPosition::new(target.0, target.1));
+    // 武装重锚：这一拍 set_position 是在隐藏态、装饰刚恢复时发出的 ——
+    // frame extents 缓存错拍会让实际落点偏低（2x 缩放下一个标题栏 64px）。
+    // watcher 随后几拍读实况、偏了就趁缓存新鲜补发（见 undock_reanchor_action）。
+    {
+        let state = app.state::<Mutex<AppState>>();
+        let mut state = state.lock().expect("state mutex poisoned");
+        state.auto_hide_reanchor = Some(AutoHideReanchor {
+            target,
+            tries: 0,
+        });
+    }
     trace(
         app,
         "autohide",
@@ -4449,6 +4514,64 @@ fn start_auto_hide_watcher(app: &AppHandle) {
                         pending_enter
                     ),
                 );
+            }
+            // undock 重锚：展开落点的「现实校准」。undock 在隐藏态发完几何才
+            // show，GTK frame extents 缓存错拍会让实际落点偏低（2x 缩放下正好
+            // 一个标题栏 64px）——不纠正的话下一轮 dock 把错拍坐标当实况记进
+            // dock_pos（超出 ±8px 微调容差），每开合一轮 +64 无界爬移、最后翻成
+            // 底边贴边（真机日志铁证）。此刻窗口已映射、缓存已新鲜：偏了就趁热
+            // 补发一次 set_position；用户正在拖窗（moved_recently）不抢、3 拍
+            // 不收敛放弃。复现台上 +3px 在容差内，此块整拍零动作，行为不变。
+            let reanchor_plan = {
+                let state = app.state::<Mutex<AppState>>();
+                state.lock().ok().and_then(|guard| guard.auto_hide_reanchor)
+            };
+            if let Some(plan) = reanchor_plan {
+                if !main_moved_recently() {
+                    if let Some(live) = main_client_position(&app) {
+                        match undock_reanchor_action(plan, live.0, live.1) {
+                            UndockReanchor::Set(new_plan, target) => {
+                                trace(
+                                    &app,
+                                    "autohide",
+                                    &format!(
+                                        "undock#reanchor try={} live=({},{}) -> ({},{})",
+                                        new_plan.tries, live.0, live.1, target.0, target.1
+                                    ),
+                                );
+                                {
+                                    if let Ok(mut guard) =
+                                        app.state::<Mutex<AppState>>().lock()
+                                    {
+                                        guard.auto_hide_reanchor = Some(new_plan);
+                                    }
+                                }
+                                mark_geometry_busy(AUTO_HIDE_GEOMETRY_BUSY_MS);
+                                let _ = main.set_position(tauri::PhysicalPosition::new(
+                                    target.0, target.1,
+                                ));
+                            }
+                            UndockReanchor::Settled => {
+                                trace(&app, "autohide", "undock#reanchor settled");
+                                if let Ok(mut guard) = app.state::<Mutex<AppState>>().lock() {
+                                    guard.auto_hide_reanchor = None;
+                                }
+                            }
+                            UndockReanchor::GiveUp => {
+                                startup_debug(
+                                    &app,
+                                    &format!(
+                                        "undock reanchor gave up: live=({},{}) target=({},{})",
+                                        live.0, live.1, plan.target.0, plan.target.1
+                                    ),
+                                );
+                                if let Ok(mut guard) = app.state::<Mutex<AppState>>().lock() {
+                                    guard.auto_hide_reanchor = None;
+                                }
+                            }
+                        }
+                    }
+                }
             }
             if docked {
                 outside_ticks = 0;
@@ -10427,6 +10550,42 @@ mod core_tests {
         assert_eq!(
             dock_axis_position(112, 97, AUTO_HIDE_WM_NUDGE_PX),
             112
+        );
+    }
+
+    /// undock 重锚：2x 缩放下 GTK frame extents 错拍让实际落点低一个标题栏
+    /// （64px，真机日志铁证 undock target=(0,260) → dock 读到 y=324），偏了
+    /// 要补发；容差内（复现台 +3px）收敛；额度用完放弃。
+    #[test]
+    fn undock_reanchor_settles_or_retries_then_gives_up() {
+        let plan = AutoHideReanchor {
+            target: (0, 260),
+            tries: 0,
+        };
+        // 实况在容差内 → 收敛清计划
+        assert_eq!(
+            undock_reanchor_action(plan, 0, 260 + AUTO_HIDE_WM_NUDGE_PX),
+            UndockReanchor::Settled
+        );
+        // 2x 缩放标题栏错拍（+64）→ 补发一次，落点 = 请求值、额度 +1
+        assert_eq!(
+            undock_reanchor_action(plan, 0, 324),
+            UndockReanchor::Set(
+                AutoHideReanchor {
+                    target: (0, 260),
+                    tries: 1
+                },
+                (0, 260)
+            )
+        );
+        // 额度用完仍偏 → 放弃（防 WM 不配合时永久抖动）
+        let exhausted = AutoHideReanchor {
+            target: (0, 260),
+            tries: AUTO_HIDE_REANCHOR_TRIES,
+        };
+        assert_eq!(
+            undock_reanchor_action(exhausted, 0, 324),
+            UndockReanchor::GiveUp
         );
     }
 
