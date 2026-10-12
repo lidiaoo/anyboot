@@ -19,6 +19,7 @@ const powerButtons = [
   [document.querySelector("#power-sleep"), "sleep"],
 ];
 const startInTrayElement = document.querySelector("#start-in-tray");
+const mainAlwaysOnTopElement = document.querySelector("#main-always-on-top");
 const mainAutoHideElement = document.querySelector("#main-auto-hide");
 const mainAutoHideEdgeDistanceElement = document.querySelector("#main-auto-hide-edge-distance");
 const mainDockStripHoverMsElement = document.querySelector("#main-dock-strip-hover-ms");
@@ -581,6 +582,7 @@ function renderSettings(view) {
   autostartElement.checked = Boolean(view.autostart);
   startInTrayElement.checked = Boolean(view.startInTray);
   mainAutoHideElement.checked = Boolean(view.mainAutoHide);
+  mainAlwaysOnTopElement.checked = view.mainAlwaysOnTop !== false;
   if (document.activeElement !== mainAutoHideEdgeDistanceElement) {
     mainAutoHideEdgeDistanceElement.value = Number.isFinite(view.mainAutoHideEdgeDistance)
       ? view.mainAutoHideEdgeDistance
@@ -1359,6 +1361,11 @@ autostartElement.addEventListener("change", () =>
 
 startInTrayElement.addEventListener("change", () =>
   call("set_start_in_tray", { enabled: startInTrayElement.checked }),
+);
+
+// 窗口始终置顶：勾选立即钉到最上层，取消立即放回普通层级
+mainAlwaysOnTopElement.addEventListener("change", () =>
+  call("set_main_always_on_top", { enabled: mainAlwaysOnTopElement.checked }),
 );
 
 // 贴边自动隐藏：开后鼠标一离窗就缩成边条，悬停边条展开；关掉立即展开

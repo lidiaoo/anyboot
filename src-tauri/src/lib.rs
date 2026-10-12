@@ -991,6 +991,10 @@ struct Settings {
     /// 主窗口贴边自动隐藏：鼠标离开后窗口贴到最近的屏幕边缘、只露一条边，
     /// 悬停边条再展开。关掉时窗口保持完整可见。
     main_auto_hide: bool,
+    /// 主窗口始终置顶（默认开）：任何情况下都不被别的窗口盖住。关掉后窗口
+    /// 回到普通层级，可被覆盖。Windows 上是 HWND_TOPMOST（稳），Linux/macOS
+    /// 上 hide→重装饰→show 一圈会把置顶层级丢掉 —— 所以每个 show/落位点都要补钉。
+    main_always_on_top: bool,
     /// 贴边自动隐藏的触发距离（逻辑像素）：主窗口离工作区边框不超过这个距离、
     /// 且鼠标离开主窗口/独立窗口超过延迟，才贴边隐藏。窗口在屏幕中央时
     /// 鼠标离开不隐藏（用户明确要求「正中央不触发」+ 距离可自定义）。
@@ -1064,6 +1068,7 @@ impl Default for Settings {
             grub_script_override: String::new(),
             grub_list_view: "inline".to_string(),
             main_auto_hide: false,
+            main_always_on_top: true,
             main_auto_hide_edge_distance: 24,
             main_dock_strip_edge_gap: 0,
             main_dock_strip_hover_ms: 0,
@@ -4393,6 +4398,12 @@ fn undock_main_window(app: &AppHandle) {
         // 白条缝，拉伸不出内容；撤类的新帧随后自然到位）
         let _ = main.eval("document.documentElement.classList.remove('dock-pending');");
         let _ = main.show();
+        // show 之后必须补钉置顶：hide → set_decorations(true) → show 这一圈
+        // 在 Linux（EWMH keep-above 随重映射丢失）和 macOS（NSWindow.level 被
+        // orderOut/orderIn 重置）上会把置顶层级丢掉 —— 用户看到的就是「悬浮
+        // 呼出后窗口被别的窗口盖住」，Windows 的 HWND_TOPMOST 能扛住所以以前
+        // 只有那边正常。设置关掉时 pin_main_topmost 自己会跳过。
+        pin_main_topmost(app);
     }
     trace(
         app,
@@ -4473,10 +4484,14 @@ fn restore_main_dock_size(app: &AppHandle) {
     }
 }
 
-/// 主窗口**始终**置顶：Windows 上 `set_position`（夹取 / 贴边重定位）偶发
-/// 会把 topmost 样式丢掉，于是窗口被别的程序盖住。每次挪完位置再钉一次
-/// topmost，保证「无论如何都在最上层」。
+/// 主窗口**始终**置顶（受「窗口始终置顶」设置控制）：Windows 上 `set_position`
+/// （夹取 / 贴边重定位）偶发会把 topmost 样式丢掉，于是窗口被别的程序盖住。
+/// 每次挪完位置再钉一次 topmost，保证「无论如何都在最上层」。关掉设置时
+/// 什么都不做（取消置顶由 setter 负责，这里不反向抢）。
 fn pin_main_topmost(app: &AppHandle) {
+    if !stored_settings(app).main_always_on_top {
+        return;
+    }
     if let Some(main) = app.get_webview_window(MAIN_WINDOW_LABEL) {
         let _ = main.set_always_on_top(true);
     }
@@ -5305,6 +5320,25 @@ fn set_main_auto_hide(app: AppHandle, enabled: bool) -> Result<SettingsView, Str
         start_auto_hide_watcher(&app);
     } else {
         undock_main_window(&app);
+    }
+    Ok(publish_settings(&app))
+}
+
+/// 主窗口始终置顶开关（默认勾选）：勾选立即钉到最上层，取消立即放回普通
+/// 层级 —— 三端的置顶机制不同（见 Settings.main_always_on_top 注释），这里
+/// 是唯一显式「放下」的入口；其余路径（dock/落位/焦点/呼出）只补钉不反向抢。
+#[tauri::command]
+fn set_main_always_on_top(app: AppHandle, enabled: bool) -> Result<SettingsView, String> {
+    trace(
+        &app,
+        "command",
+        &format!("set_main_always_on_top enabled={enabled}"),
+    );
+    let mut settings = stored_settings(&app);
+    settings.main_always_on_top = enabled;
+    save_settings(&app, &settings)?;
+    if let Some(main) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+        let _ = main.set_always_on_top(enabled);
     }
     Ok(publish_settings(&app))
 }
@@ -6934,11 +6968,13 @@ fn show_main_window(app: &AppHandle, origin: ShowOrigin) {
         let was_minimized = window.is_minimized().unwrap_or(false);
         let _ = window.show();
         let _ = window.unminimize();
-        // 呼出即置顶：Linux 下 WM 的 focus-stealing-prevention 会让 set_focus 无效，
-        // 于是窗口被别的窗口盖住（用户看到的就是「点了托盘但窗口没跳出来」）。
-        // 两个窗口常驻最顶层（见 on_window_event 的 Focused 分支），任何情况下
-        // 都不被别的窗口覆盖。
-        let _ = window.set_always_on_top(true);
+        // 呼出即置顶（受「窗口始终置顶」设置控制）：Linux 下 WM 的
+        // focus-stealing-prevention 会让 set_focus 无效，于是窗口被别的窗口
+        // 盖住（用户看到的就是「点了托盘但窗口没跳出来」）。设置关掉时窗口
+        // 按普通层级呼出，不再强制压到最上层。
+        if stored_settings(app).main_always_on_top {
+            let _ = window.set_always_on_top(true);
+        }
         let _ = window.set_focus();
         // 固定显示位置（free 不动；center 居中；last 回到记忆点）：窗口没被
         // 最小化过（只是藏着）时立刻落位，避免恢复完成后再跳一下；被最小化过
@@ -10677,16 +10713,17 @@ pub fn run() {
         ))
         .plugin(tauri_plugin_dialog::init())
         .on_window_event(|window, event| {
-            // 主窗口与 GRUB 独立窗口作为一个整体**常驻最顶层**：任何情况下都不
-            // 被别的窗口覆盖（用户明确要求）。呼出 / 拿到焦点时再确认一次置顶；
-            // 失焦不再取消置顶 —— 否则点别处时窗口会被别的窗口盖住。
+            // 主窗口**常驻最顶层**（受「窗口始终置顶」设置控制）：呼出 / 拿到
+            // 焦点时再确认一次置顶；失焦不再取消置顶 —— 否则点别处时窗口会被
+            // 别的窗口盖住。Linux/macOS 的置顶层级会被 hide/show 一圈丢掉，
+            // 这里是拿到焦点后的最后一道补钉；关掉设置时不再强制。
             if let tauri::WindowEvent::Focused(focused) = event {
                 if window.label() == MAIN_WINDOW_LABEL {
-                    if *focused {
+                    if *focused && stored_settings(window.app_handle()).main_always_on_top {
                         // 回到焦点：回到最上层（常态就是置顶，这里再确认）
                         let _ = window.set_always_on_top(true);
                     }
-                    // 失焦：保持置顶，什么都不做（窗口常驻最顶层）。
+                    // 失焦：保持现状（设置开着就是置顶，关了就是普通层级）。
                 }
                 return;
             }
@@ -10771,6 +10808,13 @@ pub fn run() {
             apply_grub_layout_size(app.handle(), false);
             // 锁定窗口大小的话，启动就把窗口钉成不可缩放/不可最大化
             apply_window_size_lock(app.handle());
+            // 置顶状态按设置摆正：配置里存了 false（用户关过）就在启动时放下
+            // —— tauri.conf 里 alwaysOnTop=true 只是默认值，设置才是事实来源。
+            if !stored_settings(app.handle()).main_always_on_top {
+                if let Some(main) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+                    let _ = main.set_always_on_top(false);
+                }
+            }
             if start_in_tray {
                 if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
                     let _ = window.hide();
@@ -10884,6 +10928,7 @@ pub fn run() {
             sync_grub,
             switch_grub,
             set_main_auto_hide,
+            set_main_always_on_top,
             set_main_auto_hide_edge_distance,
             set_main_dock_strip_edge_gap,
             set_main_dock_strip_hover_ms,
