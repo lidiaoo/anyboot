@@ -427,8 +427,8 @@ function renderGrub(grub, script, busy, listViewMode) {
   if (grubViewModeElement.value !== mode) {
     grubViewModeElement.value = mode;
   }
-  // 列表格式同理：只在不一致时写，避免展开选项时被快照弹回
-  const listFormat = grub.listFormat || "raw";
+  // 列表格式同理：只在不一致时写，避免展开选项时被快照弹回（快照缺字段回落极简）
+  const listFormat = grub.listFormat || "minimal";
   if (grubListFormatElement.value !== listFormat) {
     grubListFormatElement.value = listFormat;
   }
@@ -491,7 +491,7 @@ function renderGrub(grub, script, busy, listViewMode) {
     container: grubListElement,
     grub,
     busy,
-    format: grub.listFormat || "raw",
+    format: grub.listFormat || "minimal",
     onSwitch: switchGrub,
   });
 

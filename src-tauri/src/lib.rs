@@ -545,6 +545,8 @@ struct GrubView {
     entries: Vec<grub::GrubEntry>,
     /// submenu 分组（id + 标题）：前端据此把子条目挂到组头下面做树形层级
     groups: Vec<grub::GrubGroup>,
+    /// 列表展示格式（raw/minimal/simple/medium/detailed）：渲染分支由前端挑
+    list_format: String,
     /// 从环境块读回的「上次启动 / 下次启动」
     saved_entry: Option<String>,
     next_entry: Option<String>,
@@ -1071,7 +1073,7 @@ impl Default for Settings {
             grub_keep_mounted: true,
             grub_script_override: String::new(),
             grub_list_view: "inline".to_string(),
-            grub_list_format: "raw".to_string(),
+            grub_list_format: "minimal".to_string(),
             main_auto_hide: false,
             main_always_on_top: true,
             main_auto_hide_edge_distance: 24,
@@ -2414,14 +2416,15 @@ fn normalize_grub_list_view(value: &str) -> &'static str {
 }
 
 /// GRUB 列表展示格式归一（纯函数）：raw（原始）/ minimal（极简）/
-/// simple（简易）/ medium（中等）/ detailed（复杂），其余一律回落 raw。
+/// simple（简易）/ medium（中等）/ detailed（复杂），其余一律回落 minimal
+/// （用户定案：默认极简）。
 fn normalize_grub_list_format(value: &str) -> &'static str {
     match value.trim().to_ascii_lowercase().as_str() {
-        "minimal" => "minimal",
+        "raw" => "raw",
         "simple" => "simple",
         "medium" => "medium",
         "detailed" => "detailed",
-        _ => "raw",
+        _ => "minimal",
     }
 }
 
@@ -9533,6 +9536,7 @@ fn grub_snapshot(app: &AppHandle, settings: &Settings) -> GrubView {
         script_log,
         entries: runtime.entries,
         groups: runtime.groups,
+        list_format: settings.grub_list_format.clone(),
         saved_entry: runtime.saved_entry,
         next_entry: runtime.next_entry,
         error: runtime.error,
@@ -11598,14 +11602,14 @@ mod core_tests {
         assert_eq!(normalize_grub_list_view(""), "inline");
         assert_eq!(normalize_grub_list_view("floating"), "inline");
 
-        // 列表展示格式归一：四个新值 + 脏值回落 raw
+        // 列表展示格式归一：五个值 + 脏值/空值回落 minimal（默认极简）
         assert_eq!(normalize_grub_list_format("raw"), "raw");
         assert_eq!(normalize_grub_list_format(" MINIMAL "), "minimal");
         assert_eq!(normalize_grub_list_format("simple"), "simple");
         assert_eq!(normalize_grub_list_format("Medium"), "medium");
         assert_eq!(normalize_grub_list_format("detailed"), "detailed");
-        assert_eq!(normalize_grub_list_format(""), "raw");
-        assert_eq!(normalize_grub_list_format("fancy"), "raw");
+        assert_eq!(normalize_grub_list_format(""), "minimal");
+        assert_eq!(normalize_grub_list_format("fancy"), "minimal");
 
         // 远程示例的 selector 百分号编码：空格/中文/括号逐字节 %XX，
         // unreserved 字符原样保留
