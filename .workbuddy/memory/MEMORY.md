@@ -22,6 +22,7 @@
 - 判位**只用客户区坐标**（`main_client_position()`/`inner_position()`）；`Moved` 载荷与 `outer_position()` 是窗框坐标，Linux 去装饰后恒偏一个标题栏 → 拿来比 `dock_pos` 必错。
 - 贴边三道闸：`geometry_busy()`（发几何请求**之前**立）+ `main_moved_recently()`（300ms 静默期）+ 回声哨兵（持久，±8px）。dock 与 undock 两侧都要挡。
 - 可见窗口上「去装饰+改几何」会被重父化吃掉 → **hide() → 改几何 → show()**，monitor 在 hide 前算。
+- **GTK 上 set_position 语义随装饰状态变**：去装饰=客户区坐标（dock 路径准）；带装饰=**窗框**原点，客户区=请求+标题栏（真机 Cinnamon 2x=64px）。凡「带装饰落位」要么实况自校准（undock 重锚牛顿步：偏差反扣 offset、收敛写回跨轮复用），要么显式扣标题栏。Xvfb 无主题标题栏 0px → 复现台永远测不出这条。
 - tao 未映射窗口 `outer_size()` 返回 0x0（inner 可读）。
 - **隐藏窗口的 WebView 视口在 Linux/GTK 上是 0x0**（Windows/macOS 有真实分配）：0 宽视口排版把文字折成竖条 → 前端量「内容高度」严重虚高（notify 弹窗曾恒顶满上限 460，底部空白一大块）。修法：`.panel` 钉 `min-width` = 窗口宽度常量（两处必须一致）+ 监听 `resize` 在 show 后重测自愈。凡是「隐藏窗口里量 DOM 排版」都要过这条。
 - 判「乱闪乱跳」只认振荡判据：状态 <600ms 内回到两拍前的值（A→B→A）。
