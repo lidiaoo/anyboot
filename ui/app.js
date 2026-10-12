@@ -21,6 +21,8 @@ const powerButtons = [
 const startInTrayElement = document.querySelector("#start-in-tray");
 const mainAutoHideElement = document.querySelector("#main-auto-hide");
 const mainAutoHideEdgeDistanceElement = document.querySelector("#main-auto-hide-edge-distance");
+const mainDockStripHoverMsElement = document.querySelector("#main-dock-strip-hover-ms");
+const mainDockStripEdgeGapElement = document.querySelector("#main-dock-strip-edge-gap");
 const mainDockStripThicknessElement = document.querySelector("#main-dock-strip-thickness");
 const mainDockStripThicknessStateElement = document.querySelector("#main-dock-strip-thickness-state");
 const mainDockStripLengthElement = document.querySelector("#main-dock-strip-length");
@@ -558,6 +560,16 @@ function renderSettings(view) {
       ? view.mainAutoHideEdgeDistance
       : 24;
   }
+  if (document.activeElement !== mainDockStripHoverMsElement) {
+    mainDockStripHoverMsElement.value = Number.isFinite(view.mainDockStripHoverMs)
+      ? view.mainDockStripHoverMs
+      : 0;
+  }
+  if (document.activeElement !== mainDockStripEdgeGapElement) {
+    mainDockStripEdgeGapElement.value = Number.isFinite(view.mainDockStripEdgeGap)
+      ? view.mainDockStripEdgeGap
+      : 0;
+  }
   if (document.activeElement !== mainDockStripThicknessElement) {
     const thickness = Number.isFinite(view.mainDockStripThickness)
       ? view.mainDockStripThickness
@@ -748,6 +760,8 @@ function applySettingLinkage() {
     element.disabled = !playSoundElement.checked;
   }
   for (const element of [
+    mainDockStripHoverMsElement,
+    mainDockStripEdgeGapElement,
     mainDockStripThicknessElement,
     mainDockStripLengthElement,
     mainDockStripOpacityElement,
@@ -1248,6 +1262,22 @@ mainAutoHideEdgeDistanceElement.addEventListener("change", () => {
   const distance = Number.isFinite(parsed) ? Math.min(Math.max(parsed, 0), 200) : 24;
   mainAutoHideEdgeDistanceElement.value = distance;
   call("set_main_auto_hide_edge_distance", { distance });
+});
+
+// 悬浮呼出延时：压住白条这么久才展开主窗（毫秒，0 = 当拍立即）
+mainDockStripHoverMsElement.addEventListener("change", () => {
+  const parsed = Number.parseInt(mainDockStripHoverMsElement.value, 10);
+  const value = Number.isFinite(parsed) ? Math.min(Math.max(parsed, 0), 2000) : 0;
+  mainDockStripHoverMsElement.value = value;
+  call("set_main_dock_strip_hover_ms", { value });
+});
+
+// 白条距屏幕边界：停靠落点沿法线方向离边这条缝（0 = 紧贴）
+mainDockStripEdgeGapElement.addEventListener("change", () => {
+  const parsed = Number.parseInt(mainDockStripEdgeGapElement.value, 10);
+  const value = Number.isFinite(parsed) ? Math.min(Math.max(parsed, 0), 100) : 0;
+  mainDockStripEdgeGapElement.value = value;
+  call("set_main_dock_strip_edge_gap", { value });
 });
 
 // 贴边白条厚度：白条独立渲染的粗细，纯前端 CSS 实时（input），

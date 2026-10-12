@@ -178,6 +178,20 @@
           </label>
           <div class="setting">
             <span class="setting-text">
+              <strong>悬浮呼出延时</strong>
+              <small>鼠标压住白条持续这么久才展开主窗（0–2000 毫秒，0 = 立即）</small>
+            </span>
+            <input id="main-dock-strip-hover-ms" type="number" min="0" max="2000" step="50" />
+          </div>
+          <div class="setting">
+            <span class="setting-text">
+              <strong>白条距屏幕边界</strong>
+              <small>贴边隐藏时白条离屏幕边框留出的距离（0–100px，0 = 紧贴边缘）</small>
+            </span>
+            <input id="main-dock-strip-edge-gap" type="number" min="0" max="100" step="1" />
+          </div>
+          <div class="setting">
+            <span class="setting-text">
               <strong>贴边白条厚度</strong>
               <small id="main-dock-strip-thickness-state">6px（拖动即时预览）</small>
             </span>

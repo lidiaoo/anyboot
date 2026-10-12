@@ -983,6 +983,11 @@ struct Settings {
     /// 且鼠标离开主窗口/独立窗口超过延迟，才贴边隐藏。窗口在屏幕中央时
     /// 鼠标离开不隐藏（用户明确要求「正中央不触发」+ 距离可自定义）。
     main_auto_hide_edge_distance: i32,
+    /// 贴边白条距屏幕（工作区）边界的距离（逻辑像素 0–100，默认 0 = 紧贴）。
+    /// 停靠落点沿法线方向离边留这条缝，白条不再压死在屏幕边上。
+    main_dock_strip_edge_gap: i32,
+    /// 悬浮白条多少毫秒才呼出主窗（0–2000，默认 0 = 当拍立即呼出，既有行为）。
+    main_dock_strip_hover_ms: u64,
     /// 贴边白条厚度（逻辑像素，2–40，默认 6）：贴边隐藏时窗口缩成这条的厚度
     main_dock_strip_thickness: i32,
     /// 贴边白条长度（占窗口边长的百分比 10–100，默认 100 = 整条边）
@@ -1036,6 +1041,8 @@ impl Default for Settings {
             grub_list_view: "inline".to_string(),
             main_auto_hide: false,
             main_auto_hide_edge_distance: 24,
+            main_dock_strip_edge_gap: 0,
+            main_dock_strip_hover_ms: 0,
             main_dock_strip_thickness: 6,
             main_dock_strip_length: 100,
             main_dock_strip_opacity: 100,
@@ -3909,7 +3916,8 @@ fn dock_axis_position(live: i32, remembered: i32, tolerance: i32) -> i32 {
     }
 }
 
-/// 贴边缩条时的几何：窗口缩成 `strip` 厚的细缝，贴到工作区最近的边。
+/// 贴边缩条时的几何：窗口缩成 `strip` 厚的细缝，贴到工作区最近的边；
+/// `gap` = 白条沿法线方向离这条边的距离（0 = 紧贴，既有行为）。
 /// 返回的落点是 **客户区**坐标 —— 和 `set_position` 的语义一致（见
 /// `undock_target` 的说明），所以「另一轴保持原位」用的也必须是**客户区**
 /// 当前位置：拿窗框坐标当客户区用，左/右侧贴边会把条子放高一个标题栏，
@@ -3925,25 +3933,26 @@ fn strip_geometry(
     client_x: i32,
     client_y: i32,
     strip: i32,
+    gap: i32,
 ) -> (tauri::PhysicalSize<u32>, (i32, i32)) {
     match edge {
         // Bottom/Top：窗口保持主窗宽、高缩成 strip；x 保持主窗客户区原位
         DockEdge::Bottom => (
             tauri::PhysicalSize::new(client_w.max(strip) as u32, strip as u32),
-            (client_x, work_y + work_h - strip),
+            (client_x, work_y + work_h - strip - gap),
         ),
         DockEdge::Top => (
             tauri::PhysicalSize::new(client_w.max(strip) as u32, strip as u32),
-            (client_x, work_y),
+            (client_x, work_y + gap),
         ),
         // Left/Right：窗口保持主窗高、宽缩成 strip；y 保持主窗客户区原位
         DockEdge::Left => (
             tauri::PhysicalSize::new(strip as u32, client_h.max(strip) as u32),
-            (work_x, client_y),
+            (work_x + gap, client_y),
         ),
         DockEdge::Right => (
             tauri::PhysicalSize::new(strip as u32, client_h.max(strip) as u32),
-            (work_x + work_w - strip, client_y),
+            (work_x + work_w - strip - gap, client_y),
         ),
     }
 }
@@ -3995,6 +4004,9 @@ fn dock_main_window(app: &AppHandle) {
     };
     // 窗口缩成固定细缝（容纳白条最大厚度 40px），白条参数由前端 CSS 独立控制
     let strip = (DOCK_STRIP_SLOT_PX * monitor.scale_factor()).round() as i32;
+    // 白条距边界的缝隙：设置存逻辑像素，落点用物理像素（与触发距离同款换算）
+    let gap = (stored_settings(&app).main_dock_strip_edge_gap as f64 * monitor.scale_factor())
+        .round() as i32;
     // 主窗 client 边长（白条沿这条窗口边延伸，长度百分比由前端 CSS 控制）
     let (client_w, client_h) = match &pre_client {
         Some(c) => (c.width as i32, c.height as i32),
@@ -4043,6 +4055,7 @@ fn dock_main_window(app: &AppHandle) {
         client_x,
         client_y,
         strip,
+        gap,
     );
     {
         let state = app.state::<Mutex<AppState>>();
@@ -4303,6 +4316,8 @@ fn start_auto_hide_watcher(app: &AppHandle) {
     std::thread::spawn(move || {
         let dock_delay_ticks = (AUTO_HIDE_DELAY_MS / AUTO_HIDE_TICK_MS).max(1) as u32;
         let mut outside_ticks: u32 = 0;
+        // 光标已连续压在白条上的拍数（悬浮呼出延时用，见 docked_poll_action）
+        let mut hover_ticks: u32 = 0;
         // 上一拍光标是否在窗口内：只为「一次离窗打一条判定日志」用。
         let mut last_inside = false;
         // 逐拍取证开关（ANYBOOT_AUTOHIDE_DIAG=1）与下一次心跳的时间点。
@@ -4378,7 +4393,10 @@ fn start_auto_hide_watcher(app: &AppHandle) {
             // 某条边（不超过触发距离）时，鼠标离开就整组隐藏 —— 两窗绑定，
             // 用户拖的是 GRUB 也要一样触发（GRUB 窗口同款特性）。
             // 提到分支之前算：贴边判定和下面的逐拍取证日志共用同一份结果。
-            let edge_distance = stored_settings(&app).main_auto_hide_edge_distance;
+            let settings_now = stored_settings(&app);
+            let edge_distance = settings_now.main_auto_hide_edge_distance;
+            // 悬浮呼出延时（毫秒→拍数）：0 = 当拍立即呼出（既有行为）
+            let hover_need = hover_delay_ticks(settings_now.main_dock_strip_hover_ms);
             let threshold = monitor
                 .as_ref()
                 .map(|m| (edge_distance as f64 * m.scale_factor()).round() as i32)
@@ -4438,6 +4456,7 @@ fn start_auto_hide_watcher(app: &AppHandle) {
                 // 恢复窗口尺寸/位置，此刻白条保障读到「偏离停靠位」是恢复
                 // 过程的正常中间态 —— 拉回就是跟展开互相拉扯（互闪）。放手。
                 if pending_enter {
+                    hover_ticks = 0;
                     continue;
                 }
                 // 白条保障 + 悬停展开，两者都要看「几何是不是已经落位」：
@@ -4467,7 +4486,20 @@ fn start_auto_hide_watcher(app: &AppHandle) {
                 // 悬停判定用**白条窗口自己的矩形**（见 in_rect 的注释）：
                 // 工作区外边那一条（任务栏/面板）不算「压在白条上」。
                 let hovering = in_rect(pos.x, pos.y, size.width as i32, size.height as i32);
-                match docked_poll_action(geometry_busy(), drifted, hovering, resnaps) {
+                // 悬浮计时：连续压住才累计，光标一离开就清零（见 hover_delay_ticks）
+                if hovering {
+                    hover_ticks = hover_ticks.saturating_add(1);
+                } else {
+                    hover_ticks = 0;
+                }
+                match docked_poll_action(
+                    geometry_busy(),
+                    drifted,
+                    hovering,
+                    resnaps,
+                    hover_ticks,
+                    hover_need,
+                ) {
                     DockedPoll::Hold | DockedPoll::Rest => {}
                     DockedPoll::SnapBack => {
                         // 位置被别的东西挪走了（夹取回声、DPI 取整抖动、Linux 上
@@ -4502,6 +4534,7 @@ fn start_auto_hide_watcher(app: &AppHandle) {
                     }
                 }
             } else if inside {
+                hover_ticks = 0;
                 outside_ticks = 0;
                 // 鼠标进过窗口了：清除「等待进入」，恢复正常的离窗贴边
                 if !docked {
@@ -4510,6 +4543,7 @@ fn start_auto_hide_watcher(app: &AppHandle) {
                     }
                 }
             } else {
+                hover_ticks = 0;
                 // 宽限期 / 「等待进入」标志都取自本拍开头那一次加锁（见上）：
                 // 同一拍内再锁一次没有意义，只是多一处锁中毒分支要维护。
                 // 距离门槛 / near_edge 也在上面统一算过（贴边判定与取证日志共用）。
@@ -4640,17 +4674,32 @@ enum DockedPoll {
 }
 
 /// 停靠态每拍该做什么。纯函数，便于单测。
-fn docked_poll_action(busy: bool, drifted: bool, hovering: bool, resnaps: u8) -> DockedPoll {
+/// `hover_ticks` = 光标已连续压在白条上的拍数，`hover_need` = 设置要求的拍数
+/// （`hover_delay_ticks` 换算）；差着拍数就继续 Rest 等着，不展开。
+fn docked_poll_action(
+    busy: bool,
+    drifted: bool,
+    hovering: bool,
+    resnaps: u8,
+    hover_ticks: u32,
+    hover_need: u32,
+) -> DockedPoll {
     if busy {
         return DockedPoll::Hold;
     }
     if drifted && resnaps < AUTO_HIDE_RESNAP_LIMIT {
         return DockedPoll::SnapBack;
     }
-    if hovering {
+    if hovering && hover_ticks >= hover_need {
         return DockedPoll::Release;
     }
     DockedPoll::Rest
+}
+
+/// 悬浮呼出延时（毫秒）换算成 120ms 轮询的拍数（向上取整）。
+/// 0 = 当拍立即呼出（既有行为）。纯函数，便于单测。
+fn hover_delay_ticks(ms: u64) -> u32 {
+    ((ms + AUTO_HIDE_TICK_MS - 1) / AUTO_HIDE_TICK_MS) as u32
 }
 
 /// 窗口的**客户区**绝对位置 —— 贴边逻辑里唯一允许用来判位/落位的坐标。
@@ -4991,6 +5040,37 @@ fn set_main_dock_strip_opacity(app: AppHandle, value: i32) -> Result<SettingsVie
     );
     let mut settings = stored_settings(&app);
     settings.main_dock_strip_opacity = value;
+    save_settings(&app, &settings)?;
+    Ok(publish_settings(&app))
+}
+
+/// 白条距屏幕边界的距离（逻辑像素，0–100）。0 = 紧贴（既有行为）；
+/// 停靠落点沿法线方向离边这条缝。
+#[tauri::command]
+fn set_main_dock_strip_edge_gap(app: AppHandle, value: i32) -> Result<SettingsView, String> {
+    let value = value.clamp(0, 100);
+    trace(
+        &app,
+        "command",
+        &format!("set_main_dock_strip_edge_gap value={value}"),
+    );
+    let mut settings = stored_settings(&app);
+    settings.main_dock_strip_edge_gap = value;
+    save_settings(&app, &settings)?;
+    Ok(publish_settings(&app))
+}
+
+/// 悬浮白条呼出延时（毫秒，0–2000）。0 = 当拍立即呼出（既有行为）。
+#[tauri::command]
+fn set_main_dock_strip_hover_ms(app: AppHandle, value: u64) -> Result<SettingsView, String> {
+    let value = value.clamp(0, 2000);
+    trace(
+        &app,
+        "command",
+        &format!("set_main_dock_strip_hover_ms value={value}"),
+    );
+    let mut settings = stored_settings(&app);
+    settings.main_dock_strip_hover_ms = value;
     save_settings(&app, &settings)?;
     Ok(publish_settings(&app))
 }
@@ -9994,6 +10074,8 @@ pub fn run() {
             switch_grub,
             set_main_auto_hide,
             set_main_auto_hide_edge_distance,
+            set_main_dock_strip_edge_gap,
+            set_main_dock_strip_hover_ms,
             set_main_dock_strip_thickness,
             set_main_dock_strip_length,
             set_main_dock_strip_opacity,
@@ -10253,32 +10335,54 @@ mod core_tests {
         // （这里的 x/y 必须是客户区坐标：调用方传窗框坐标的话，左/右侧贴边会偏一个标题栏，
         //  见 strip_geometry 的说明。）
         let (size, target) =
-            strip_geometry(DockEdge::Bottom, 0, 0, 1920, 1040, 460, 900, 100, 40, 6);
+            strip_geometry(DockEdge::Bottom, 0, 0, 1920, 1040, 460, 900, 100, 40, 6, 0);
         // 贴底边：窗口保持主窗宽 460、高缩成 6；x 保持主窗客户区原位，y 贴底
         assert_eq!(size.width, 460);
         assert_eq!(size.height, 6);
         assert_eq!(target, (100, 1034));
 
         // 贴顶边：y = 工作区顶
-        let (_, target) = strip_geometry(DockEdge::Top, 0, 0, 1920, 1040, 460, 900, 100, 40, 6);
+        let (_, target) = strip_geometry(DockEdge::Top, 0, 0, 1920, 1040, 460, 900, 100, 40, 6, 0);
         assert_eq!(target, (100, 0));
 
         // 贴左缘：窗口保持主窗高 900、宽缩成 6；y 保持主窗客户区原位，x 贴左
-        let (size, target) = strip_geometry(DockEdge::Left, 0, 0, 1920, 1040, 460, 900, 100, 40, 6);
+        let (size, target) =
+            strip_geometry(DockEdge::Left, 0, 0, 1920, 1040, 460, 900, 100, 40, 6, 0);
         assert_eq!(size.width, 6);
         assert_eq!(size.height, 900);
         assert_eq!(target, (0, 40));
 
         // 贴右缘：x = 1920 - 6
-        let (_, target) = strip_geometry(DockEdge::Right, 0, 0, 1920, 1040, 460, 900, 100, 40, 6);
+        let (_, target) = strip_geometry(DockEdge::Right, 0, 0, 1920, 1040, 460, 900, 100, 40, 6, 0);
         assert_eq!(target, (1914, 40));
 
         // 工作区带偏移（副屏/面板）：贴的是工作区边，不是屏幕边
         let (_, target) =
-            strip_geometry(DockEdge::Left, 1600, 40, 1280, 960, 460, 900, 1800, 90, 6);
+            strip_geometry(DockEdge::Left, 1600, 40, 1280, 960, 460, 900, 1800, 90, 6, 0);
         assert_eq!(target, (1600, 90));
-        let (_, target) = strip_geometry(DockEdge::Top, 1600, 40, 1280, 960, 460, 900, 1800, 90, 6);
+        let (_, target) =
+            strip_geometry(DockEdge::Top, 1600, 40, 1280, 960, 460, 900, 1800, 90, 6, 0);
         assert_eq!(target, (1800, 40));
+    }
+
+    /// 白条距边界的缝隙（gap）：停靠落点沿法线方向离边这条缝，另一轴照旧。
+    #[test]
+    fn strip_geometry_offsets_by_gap_along_edge_normal() {
+        // 左缘 gap=10：x = 工作区左 + 10，y 保持客户区原位
+        let (_, target) =
+            strip_geometry(DockEdge::Left, 0, 0, 1920, 1040, 460, 900, 100, 40, 6, 10);
+        assert_eq!(target, (10, 40));
+        // 右缘 gap=10：x = 工作区右 - 厚度 - 10（白条右沿离右边 10）
+        let (_, target) =
+            strip_geometry(DockEdge::Right, 0, 0, 1920, 1040, 460, 900, 100, 40, 6, 10);
+        assert_eq!(target, (1904, 40));
+        // 顶边 gap=8：y = 工作区顶 + 8
+        let (_, target) = strip_geometry(DockEdge::Top, 0, 0, 1920, 1040, 460, 900, 100, 40, 6, 8);
+        assert_eq!(target, (100, 8));
+        // 底边 gap=8：y = 工作区底 - 厚度 - 8（白条下沿离底边 8）
+        let (_, target) =
+            strip_geometry(DockEdge::Bottom, 0, 0, 1920, 1040, 460, 900, 100, 40, 6, 8);
+        assert_eq!(target, (100, 1026));
     }
 
     #[test]
@@ -11900,27 +12004,71 @@ mod core_tests {
     #[test]
     fn docked_poll_priority_is_busy_then_drift_then_hover() {
         // 抑制期内：位置还没落位、光标也压着，都不能动
-        assert_eq!(docked_poll_action(true, true, true, 0), DockedPoll::Hold);
+        assert_eq!(docked_poll_action(true, true, true, 0, 0, 0), DockedPoll::Hold);
         // 位置偏离 → 先钉回，不管光标在哪
         assert_eq!(
-            docked_poll_action(false, true, false, 0),
+            docked_poll_action(false, true, false, 0, 0, 0),
             DockedPoll::SnapBack
         );
         // 自纠用完就不再钉（防 WM 不配合时变成永久 set_position 抖动）
         assert_eq!(
-            docked_poll_action(false, true, false, AUTO_HIDE_RESNAP_LIMIT),
+            docked_poll_action(false, true, false, AUTO_HIDE_RESNAP_LIMIT, 0, 0),
             DockedPoll::Rest
         );
         assert_eq!(
-            docked_poll_action(false, true, true, AUTO_HIDE_RESNAP_LIMIT),
+            docked_poll_action(
+                false,
+                true,
+                true,
+                AUTO_HIDE_RESNAP_LIMIT,
+                99,
+                0
+            ),
             DockedPoll::Release
         );
         // 位置正常 + 光标压到白条上 → 展开
         assert_eq!(
-            docked_poll_action(false, false, true, 0),
+            docked_poll_action(false, false, true, 0, 1, 0),
             DockedPoll::Release
         );
-        assert_eq!(docked_poll_action(false, false, false, 0), DockedPoll::Rest);
+        assert_eq!(
+            docked_poll_action(false, false, false, 0, 0, 0),
+            DockedPoll::Rest
+        );
+    }
+
+    /// 悬浮呼出延时：压住白条的拍数没攒够不许展开；攒够（或延时为 0）才放行。
+    #[test]
+    fn docked_poll_hover_requires_enough_ticks() {
+        // 延时 0：当拍（第 1 拍）就放行 —— 既有行为
+        assert_eq!(
+            docked_poll_action(false, false, true, 0, 1, 0),
+            DockedPoll::Release
+        );
+        // 延时 2 拍：第 1 拍压着不动，第 2 拍放行
+        assert_eq!(
+            docked_poll_action(false, false, true, 0, 1, 2),
+            DockedPoll::Rest
+        );
+        assert_eq!(
+            docked_poll_action(false, false, true, 0, 2, 2),
+            DockedPoll::Release
+        );
+        // 没压住白条：攒了多少拍都不展开
+        assert_eq!(
+            docked_poll_action(false, false, false, 0, 99, 0),
+            DockedPoll::Rest
+        );
+    }
+
+    /// 悬浮呼出延时毫秒 → 120ms 拍数：向上取整，0 = 立即。
+    #[test]
+    fn hover_delay_ticks_rounds_up() {
+        assert_eq!(hover_delay_ticks(0), 0);
+        assert_eq!(hover_delay_ticks(1), 1);
+        assert_eq!(hover_delay_ticks(120), 1);
+        assert_eq!(hover_delay_ticks(121), 2);
+        assert_eq!(hover_delay_ticks(2000), 17);
     }
 
     /// 「呼出保护 + 拖动/落位保护」的语义防线：宽限期内、或呼出后鼠标还没进过
