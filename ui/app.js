@@ -127,6 +127,7 @@ const grubSectionElement = document.querySelector("#grub");
 const grubPaneBodyElement = document.querySelector("#grub-pane-body");
 // 展示方式下拉框（内嵌 / 加宽 / 列表独立 / GRUB 独立）
 const grubViewModeElement = document.querySelector("#grub-view-mode");
+const grubListFormatElement = document.querySelector("#grub-list-format");
 // 切换启动项的回执行（跟着配置块走）：中间态与失败原因
 const grubStatusElement = document.querySelector("#grub-status");
 const grubInstallActionsElement = document.querySelector("#grub-install-actions");
@@ -426,6 +427,11 @@ function renderGrub(grub, script, busy, listViewMode) {
   if (grubViewModeElement.value !== mode) {
     grubViewModeElement.value = mode;
   }
+  // 列表格式同理：只在不一致时写，避免展开选项时被快照弹回
+  const listFormat = grub.listFormat || "raw";
+  if (grubListFormatElement.value !== listFormat) {
+    grubListFormatElement.value = listFormat;
+  }
 
   if (document.activeElement !== grubPartuuidElement) {
     grubPartuuidElement.value = grub.partuuid || "";
@@ -485,6 +491,7 @@ function renderGrub(grub, script, busy, listViewMode) {
     container: grubListElement,
     grub,
     busy,
+    format: grub.listFormat || "raw",
     onSwitch: switchGrub,
   });
 
@@ -1038,6 +1045,11 @@ function grubMessage(text, { error = false } = {}) {
 // 的 renderGrub → applyGrubLayout 落地。
 grubViewModeElement.addEventListener("change", () => {
   call("set_grub_list_view", { mode: grubViewModeElement.value });
+});
+
+// 列表格式（原始/极简/简易/中等/复杂）：纯展示偏好，后端落盘后广播回来
+grubListFormatElement.addEventListener("change", () => {
+  call("set_grub_list_format", { format: grubListFormatElement.value });
 });
 
 // 识别 ESP 目录：后端判断是不是 FAT32，并把分区 UUID（识别键）填好

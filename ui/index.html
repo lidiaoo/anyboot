@@ -64,6 +64,20 @@
             </select>
           </div>
 
+          <!-- 列表格式：原始（现版样式）/ 极简（去前缀内核名）/ 简易（极简 +
+               组头带 ESP 位置）/ 中等（完整内核名）/ 复杂（完整名称 + 内核右对齐）。
+               组头按关键字（windows/mac/linux）加系统图标。纯前端渲染偏好。 -->
+          <div class="grub-row" id="grub-format-row">
+            <label for="grub-list-format">列表格式</label>
+            <select id="grub-list-format">
+              <option value="raw">原始</option>
+              <option value="minimal">极简</option>
+              <option value="simple">简易</option>
+              <option value="medium">中等</option>
+              <option value="detailed">复杂</option>
+            </select>
+          </div>
+
           <!-- 先给目录、点「识别」——自动判断是不是 FAT32 并从中取出 fs-uuid；
                也可以什么都不给、只手工填下面的 fs-uuid，两种方式等价。
                「选择文件夹」呼出系统文件夹选择框，选中后自动走识别。

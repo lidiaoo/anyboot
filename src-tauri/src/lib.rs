@@ -988,6 +988,10 @@ struct Settings {
     /// inline（内嵌）/ wide（加宽窗口展示）/ list（列表独立到右栏）/
     /// pane（GRUB 全部内容在右栏）。老配置里的 window 语义由 pane 承接。
     grub_list_view: String,
+    /// GRUB 列表的展示格式（前端渲染偏好，纯展示不改数据）：
+    /// raw（原始）/ minimal（极简）/ simple（简易）/ medium（中等）/
+    /// detailed（复杂）。落盘存归一化后的小写值。
+    grub_list_format: String,
     /// 主窗口贴边自动隐藏：鼠标离开后窗口贴到最近的屏幕边缘、只露一条边，
     /// 悬停边条再展开。关掉时窗口保持完整可见。
     main_auto_hide: bool,
@@ -1067,6 +1071,7 @@ impl Default for Settings {
             grub_keep_mounted: true,
             grub_script_override: String::new(),
             grub_list_view: "inline".to_string(),
+            grub_list_format: "raw".to_string(),
             main_auto_hide: false,
             main_always_on_top: true,
             main_auto_hide_edge_distance: 24,
@@ -2405,6 +2410,18 @@ fn normalize_grub_list_view(value: &str) -> &'static str {
         "list" => "list",
         "window" | "pane" => "pane",
         _ => "inline",
+    }
+}
+
+/// GRUB 列表展示格式归一（纯函数）：raw（原始）/ minimal（极简）/
+/// simple（简易）/ medium（中等）/ detailed（复杂），其余一律回落 raw。
+fn normalize_grub_list_format(value: &str) -> &'static str {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "minimal" => "minimal",
+        "simple" => "simple",
+        "medium" => "medium",
+        "detailed" => "detailed",
+        _ => "raw",
     }
 }
 
@@ -5593,6 +5610,18 @@ fn set_grub_list_view(app: AppHandle, mode: String) -> Result<SettingsView, Stri
     Ok(publish_settings(&app))
 }
 
+/// GRUB 列表展示格式（原始/极简/简易/中等/复杂）：纯展示偏好，落盘 + 广播，
+/// 渲染完全由前端按快照里的 grubListFormat 做 —— 后端不碰数据。
+#[tauri::command]
+fn set_grub_list_format(app: AppHandle, format: String) -> Result<SettingsView, String> {
+    let format = normalize_grub_list_format(&format).to_string();
+    trace(&app, "command", &format!("set_grub_list_format format={format}"));
+    let mut settings = stored_settings(&app);
+    settings.grub_list_format = format;
+    save_settings(&app, &settings)?;
+    Ok(publish_settings(&app))
+}
+
 /// 设置窗口尺寸（滑条拖动 / 用户拖窗口边框都走这里，双向实时）。
 #[tauri::command]
 fn set_window_size(app: AppHandle, width: u32, height: u32) -> Result<SettingsView, String> {
@@ -5732,11 +5761,38 @@ fn spawn_notify_scheduler(app: &AppHandle) {
     });
 }
 
+/// URL 查询值的最小百分号编码：保留 RFC 3986 unreserved（字母数字 - _ . ~），
+/// 其余逐字节 %XX —— selector 里的空格、中文、括号都能安全进 query。
+fn percent_encode_component(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(byte as char);
+            }
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
+}
+
 fn http_access_hint_text(app: &AppHandle) -> String {
     let settings = stored_settings(app);
     let port = settings.http_port;
     let token = settings.http_token.trim();
     let ip = local_ipv4();
+    // GRUB 示例里的 selector 用**实际解析出的第一条**（实时替换，含百分号编码）；
+    // 一条都没解析出来就用占位符，别给用户一个复制了必 404 的假例子。
+    let grub_entry_example = {
+        let state = app.state::<Mutex<AppState>>();
+        let state = state.lock().expect("state mutex poisoned");
+        state
+            .grub
+            .entries
+            .first()
+            .map(|entry| percent_encode_component(&entry.selector))
+            .unwrap_or_else(|| "<启动项selector>".to_string())
+    };
     format!(
         "# 局域网/远程（把 IP 换成目标机地址）\n\
          curl -s -X POST \"http://{ip}:{port}/api/power?action=reboot\" -H \"X-Auth-Token: {token}\"\n\
@@ -5749,7 +5805,7 @@ fn http_access_hint_text(app: &AppHandle) -> String {
          # GRUB 启动项：列出 ESP 上 grub.cfg 里的条目（selector 原文）\n\
          curl -s \"http://127.0.0.1:{port}/api/grub?token={token}\"\n\
          # 切换 GRUB 启动项（selector 含空格等要 URL 编码，空格 = %20）\n\
-         curl -s -X POST \"http://127.0.0.1:{port}/api/grub-switch?entry=Arch%20Linux\" -H \"X-Auth-Token: {token}\""
+         curl -s -X POST \"http://127.0.0.1:{port}/api/grub-switch?entry={grub_entry_example}\" -H \"X-Auth-Token: {token}\""
     )
 }
 
@@ -11028,6 +11084,7 @@ pub fn run() {
             set_accent_color,
             set_main_window_position,
             set_grub_list_view,
+            set_grub_list_format,
             set_window_size,
             set_window_size_locked,
             reset_window_size,
@@ -11540,6 +11597,24 @@ mod core_tests {
         assert_eq!(normalize_grub_list_view("Window"), "pane");
         assert_eq!(normalize_grub_list_view(""), "inline");
         assert_eq!(normalize_grub_list_view("floating"), "inline");
+
+        // 列表展示格式归一：四个新值 + 脏值回落 raw
+        assert_eq!(normalize_grub_list_format("raw"), "raw");
+        assert_eq!(normalize_grub_list_format(" MINIMAL "), "minimal");
+        assert_eq!(normalize_grub_list_format("simple"), "simple");
+        assert_eq!(normalize_grub_list_format("Medium"), "medium");
+        assert_eq!(normalize_grub_list_format("detailed"), "detailed");
+        assert_eq!(normalize_grub_list_format(""), "raw");
+        assert_eq!(normalize_grub_list_format("fancy"), "raw");
+
+        // 远程示例的 selector 百分号编码：空格/中文/括号逐字节 %XX，
+        // unreserved 字符原样保留
+        assert_eq!(
+            percent_encode_component("Arch Linux (kernel 6.18)"),
+            "Arch%20Linux%20%28kernel%206.18%29"
+        );
+        assert_eq!(percent_encode_component("中文 条目"), "%E4%B8%AD%E6%96%87%20%E6%9D%A1%E7%9B%AE");
+        assert_eq!(percent_encode_component("a-B_c.d~e"), "a-B_c.d~e");
         // 宽度跟着模式走：内嵌 460，其余 932
         assert_eq!(grub_layout_width("inline"), 460.0);
         assert_eq!(grub_layout_width("wide"), 932.0);
