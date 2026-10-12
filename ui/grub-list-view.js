@@ -176,11 +176,10 @@ function renderRawEntries({ container, grub, busy, onSwitch, entries, activeSele
   container.append(body);
 
   // 顶层条目按原顺序铺开；走到第一条子项时，先把它的组头插进去，再补齐同组子项。
+  // 选中条目**只置顶、不从原位删除**（用户要求：原位留着才找得到上下文），
+  // 原位行照常带 active 高亮。
   const emittedGroups = new Set();
-  entries.forEach((entry, index) => {
-    if (index === activeIndex) {
-      return;
-    }
+  entries.forEach((entry) => {
     if (!entry.submenu) {
       body.append(makeRow(entry, { group: false, depth: 0 }));
       return;
@@ -199,9 +198,6 @@ function renderRawEntries({ container, grub, busy, onSwitch, entries, activeSele
       ),
     );
     for (const child of childrenOf.get(entry.submenu) || []) {
-      if (entries.indexOf(child) === activeIndex) {
-        continue;
-      }
       body.append(makeRow(child, { group: false, depth: 1 }));
     }
   });
@@ -329,11 +325,11 @@ function renderFormatEntries({ container, grub, busy, onSwitch, entries, activeS
 
   // 相同渲染结果折叠（用户指出：极简/简易/中等按内核名出行，同一内核的
   // fallback / initramfs 变体渲染结果一模一样，不折叠就是一列重复行）。
-  // 组内按渲染结果计数：第一个条目代表出面，其余并入「N 个变体」；置顶的
-  // 选中行也占一个变体名额，列表里不再重复出现。复杂格式的行文字就是
-  // 菜单标题（后端已按 (组，标题) 折叠），这里照走一遍只是防御。
+  // 组内按渲染结果计数：第一个条目代表出面，其余并入「N 个变体」。
+  // 选中条目只置顶、原位照常出行（用户要求：原位留着才找得到上下文），
+  // 所以计数就是列表里的真实条数。复杂格式的行文字就是菜单标题
+  // （后端已按 (组,标题) 折叠），这里照走一遍只是防御。
   const labelOf = rowLabel;
-  const pinnedLabel = activeIndex >= 0 ? labelOf(entries[activeIndex]) : null;
   const collapseScope = (list) => {
     const counts = new Map();
     for (const entry of list) {
@@ -342,14 +338,8 @@ function renderFormatEntries({ container, grub, busy, onSwitch, entries, activeS
     }
     return counts;
   };
-  const emitEntry = (entry, depth, counts, emitted, pinnedRepresents) => {
-    if (entries.indexOf(entry) === activeIndex) {
-      return; // 置顶行已单独渲染
-    }
+  const emitEntry = (entry, depth, counts, emitted) => {
     const label = labelOf(entry);
-    if (pinnedRepresents && label === pinnedLabel) {
-      return; // 与置顶行同结果的，由置顶行代表
-    }
     if (emitted.has(label)) {
       return;
     }
@@ -374,16 +364,15 @@ function renderFormatEntries({ container, grub, busy, onSwitch, entries, activeS
   container.append(body);
 
   // 顶层条目共享一套去重状态（同名/同内核不管出现在列表哪个位置都只出一行）；
-  // 各组一套独立的。
+  // 各组一套独立的。选中条目置顶之外原位照常出行。
   const topLevel = entries.filter((entry) => !entry.submenu);
   const topCounts = collapseScope(topLevel);
   const topEmitted = new Set();
-  const pinnedInTop = activeIndex >= 0 && !entries[activeIndex].submenu;
 
   const emittedGroups = new Set();
   entries.forEach((entry) => {
     if (!entry.submenu) {
-      emitEntry(entry, 0, topCounts, topEmitted, pinnedInTop);
+      emitEntry(entry, 0, topCounts, topEmitted);
       return;
     }
     if (emittedGroups.has(entry.submenu)) {
@@ -394,10 +383,8 @@ function renderFormatEntries({ container, grub, busy, onSwitch, entries, activeS
     body.append(makeHeader(entry.submenu, children));
     const counts = collapseScope(children);
     const emitted = new Set();
-    const pinnedHere =
-      activeIndex >= 0 && entries[activeIndex].submenu === entry.submenu;
     for (const child of children) {
-      emitEntry(child, 1, counts, emitted, pinnedHere);
+      emitEntry(child, 1, counts, emitted);
     }
   });
 }
