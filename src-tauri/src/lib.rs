@@ -9930,13 +9930,16 @@ fn detect_grub_by_partuuid(app: AppHandle) -> Result<String, String> {
     if uuid.is_empty() {
         return Err("先填 ESP 的分区 UUID（或填目录点「识别」自动取）".to_string());
     }
-    let Some(digits) = grub::partuuid_digits(&uuid) else {
+    // 格式校验用归一化 digits，落盘存**用户填的原文**（trim 过）—— 否则识别
+    // 一次就把 B3FBE669-D3B9-… 改写成 32 位无连字符全大写，看着像被改了值。
+    // 匹配环节（uuid_matches / partuuid_digits）两边都归一化，原格式照样命中。
+    if grub::partuuid_digits(&uuid).is_none() {
         return Err(format!(
             "分区 UUID 格式不对：{uuid}（GPT 分区 GUID，32 位标准 UUID，\
              如 F69D7BF9-E8A9-3135-A5CB-4BD0CA7344E3）"
         ));
-    };
-    settings.grub_efi_partuuid = digits;
+    }
+    settings.grub_efi_partuuid = uuid;
     save_settings(&app, &settings)?;
 
     if let Err(error) = rescan_grub(&app, true, false) {
