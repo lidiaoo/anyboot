@@ -271,6 +271,10 @@ struct AppState {
     /// 补发一次 set_position（见 undock_reanchor_action）。收敛/放弃/重新
     /// dock 都清掉。
     auto_hide_reanchor: Option<AutoHideReanchor>,
+    /// 跨轮记住的展开请求修正量（语义同 `AutoHideReanchor.offset`）：由重锚
+    /// 收敛时写回，下一次 undock 的**首次**落位就带修正 —— 不用每轮都先偏
+    /// 64px 再弹回来。WM 语义变化（换主题/改缩放）时重锚会重新学。
+    auto_hide_undock_offset: (i32, i32),
 }
 
 /// 主窗口贴边自动隐藏时贴向的屏幕边。
@@ -3925,31 +3929,40 @@ fn dock_axis_position(live: i32, remembered: i32, tolerance: i32) -> i32 {
     }
 }
 
-/// undock 重锚计划：展开请求落点 + 已补发的 set_position 次数。
+/// undock 重锚计划：展开的期望客户区落点 + 当前请求修正量 + 已补发次数。
+///
+/// 请求修正量的由来：装饰态窗口上 `set_position` 的坐标是**窗框**原点
+/// （GTK gravity 语义），客户区实际落在 请求 + 标题栏（真机 2x 缩放 64px）；
+/// 停靠态窗口去装饰后窗框=客户区，不受影响。修正量 = 请求里预先扣掉的
+/// 那部分，由重锚的牛顿步自校准学出（见 undock_reanchor_action）。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct AutoHideReanchor {
     target: (i32, i32),
+    offset: (i32, i32),
     tries: u8,
 }
 
 /// 重锚一拍的裁决（纯函数，便于单测）。
 #[derive(Debug, PartialEq, Eq)]
 enum UndockReanchor {
-    /// 实况偏离请求落点超过 WM 微调容差、还有补发额度 → 补发一次
-    /// set_position 并更新计划。
+    /// 实况偏离期望落点超过 WM 微调容差、还有补发额度 → 按牛顿步更新
+    /// 修正量并补发一次 set_position（坐标 = target + 新修正量）。
     Set(AutoHideReanchor, (i32, i32)),
-    /// 已落到位（≤ AUTO_HIDE_WM_NUDGE_PX）→ 清计划。
+    /// 已落到位（≤ AUTO_HIDE_WM_NUDGE_PX）→ 清计划（修正量已持久化）。
     Settled,
     /// 补发额度用完仍不收敛 → 清计划，位置交给用户/白条保障接管。
     GiveUp,
 }
 
-/// undock 重锚决策：GTK 在**隐藏态**恢复装饰后 frame extents 缓存错拍，
-/// 首个 set_position 的实际落点偏低（2x 缩放下正好一个标题栏 64px，真机
-/// 日志铁证：undock target=(0,260) → 下一轮 dock 读到实况 y=324，每轮 +64
-/// 无界爬移）。此刻窗口已映射、缓存已新鲜，实况偏离超容差就再 set_position
-/// 一次（`inner_position()` 来自真实 configure，判位可信）。
+/// undock 重锚决策（牛顿式自校准）：不假设 WM 的落位语义（窗框/客户区、
+/// 缓存错拍、钳制……），只认「请求 R 一次 → 实况 O」的线性响应：实测偏差
+/// `O − (target+offset)` 全额反扣进修正量。真机（Cinnamon 2x）：请求 428
+/// 实况 492 → 修正 −64 → 请求 364 → 实况 428 = 期望，一步收敛。复现台
+/// （标题栏 0px）偏差 +3 在容差内 → 整块零动作。Windows 落点精确 → 首拍
+/// 即收敛，行为不变。
 fn undock_reanchor_action(plan: AutoHideReanchor, live_x: i32, live_y: i32) -> UndockReanchor {
+    // 收敛判据是**期望客户区落点**（target），不是请求值（请求 = target +
+    // offset 是窗框坐标，天然差一个标题栏）。实况 == target 就是落准了。
     let off_x = (live_x - plan.target.0).abs();
     let off_y = (live_y - plan.target.1).abs();
     if off_x <= AUTO_HIDE_WM_NUDGE_PX && off_y <= AUTO_HIDE_WM_NUDGE_PX {
@@ -3958,12 +3971,17 @@ fn undock_reanchor_action(plan: AutoHideReanchor, live_x: i32, live_y: i32) -> U
     if plan.tries >= AUTO_HIDE_REANCHOR_TRIES {
         return UndockReanchor::GiveUp;
     }
+    let offset = (
+        plan.offset.0 + (plan.target.0 - live_x),
+        plan.offset.1 + (plan.target.1 - live_y),
+    );
     UndockReanchor::Set(
         AutoHideReanchor {
             target: plan.target,
+            offset,
             tries: plan.tries + 1,
         },
-        plan.target,
+        (plan.target.0 + offset.0, plan.target.1 + offset.1),
     )
 }
 
@@ -4245,15 +4263,30 @@ fn undock_main_window(app: &AppHandle) {
         win_h as i32,
     );
     let _ = main.set_size(tauri::PhysicalSize::new(win_w, win_h));
-    let _ = main.set_position(tauri::PhysicalPosition::new(target.0, target.1));
-    // 武装重锚：这一拍 set_position 是在隐藏态、装饰刚恢复时发出的 ——
-    // frame extents 缓存错拍会让实际落点偏低（2x 缩放下一个标题栏 64px）。
-    // watcher 随后几拍读实况、偏了就趁缓存新鲜补发（见 undock_reanchor_action）。
+    // 落位请求带上跨轮学到的修正量：装饰态窗口上 `set_position` 的坐标是
+    // **窗框**原点，客户区实际落在 请求 + 标题栏（真机 Cinnamon 2x = 64px；
+    // 停靠态去装饰后窗框=客户区，不受影响，所以 dock 路径一直是准的）。
+    // 修正量由重锚牛顿步学出并在此写回使用 —— 会话首轮为 0（先偏后弹一次），
+    // 收敛后每轮首发即准。
+    let (offset, request) = {
+        let state = app.state::<Mutex<AppState>>();
+        let state = state.lock().expect("state mutex poisoned");
+        let offset = state.auto_hide_undock_offset;
+        (
+            offset,
+            (target.0 + offset.0, target.1 + offset.1),
+        )
+    };
+    let _ = main.set_position(tauri::PhysicalPosition::new(request.0, request.1));
+    // 武装重锚：这一拍 set_position 的落位语义没把握（窗框/客户区、缓存
+    // 错拍、WM 钳制都可能出现）——watcher 随后几拍读实况、偏了就按牛顿步
+    // 修修正量再补发（见 undock_reanchor_action）。
     {
         let state = app.state::<Mutex<AppState>>();
         let mut state = state.lock().expect("state mutex poisoned");
         state.auto_hide_reanchor = Some(AutoHideReanchor {
             target,
+            offset,
             tries: 0,
         });
     }
@@ -4261,10 +4294,12 @@ fn undock_main_window(app: &AppHandle) {
         app,
         "autohide",
         &format!(
-            "undock#geo t={} target=({},{})",
+            "undock#geo t={} target=({},{}) request=({},{})",
             unix_millis() - t0,
             target.0,
-            target.1
+            target.1,
+            request.0,
+            request.1
         ),
     );
     // 还原贴边时关掉的 DWM 投影（dock_main_window 里 set_shadow(false)）
@@ -4284,8 +4319,8 @@ fn undock_main_window(app: &AppHandle) {
     startup_debug(
         app,
         &format!(
-            "undock edge={edge:?} restore={win_w}x{win_h} target=({},{})",
-            target.0, target.1
+            "undock edge={edge:?} restore={win_w}x{win_h} target=({},{}) request=({},{})",
+            target.0, target.1, request.0, request.1
         ),
     );
     trace(
@@ -4515,13 +4550,16 @@ fn start_auto_hide_watcher(app: &AppHandle) {
                     ),
                 );
             }
-            // undock 重锚：展开落点的「现实校准」。undock 在隐藏态发完几何才
-            // show，GTK frame extents 缓存错拍会让实际落点偏低（2x 缩放下正好
-            // 一个标题栏 64px）——不纠正的话下一轮 dock 把错拍坐标当实况记进
-            // dock_pos（超出 ±8px 微调容差），每开合一轮 +64 无界爬移、最后翻成
-            // 底边贴边（真机日志铁证）。此刻窗口已映射、缓存已新鲜：偏了就趁热
-            // 补发一次 set_position；用户正在拖窗（moved_recently）不抢、3 拍
-            // 不收敛放弃。复现台上 +3px 在容差内，此块整拍零动作，行为不变。
+            // undock 重锚：展开落点的「现实校准」。装饰态窗口上 set_position
+            // 的坐标是**窗框**原点（GTK gravity 语义），客户区实际落在
+            // 请求 + 标题栏（真机 Cinnamon 2x = 64px）——不纠正的话下一轮
+            // dock 把错位坐标当实况记进 dock_pos（超出 ±8px 微调容差），每
+            // 开合一轮 +64 爬移、最后被工作区底缘钳住翻成底边贴边（真机日志
+            // 铁证：target 428→492→556→588 后恒定）。修法是牛顿式自校准：
+            // 实测偏差全额反扣进修正量、按修正后的请求补发；收敛时把修正量
+            // 写回 AppState，下次 undock **首发**即准。用户正在拖窗
+            // （moved_recently）不抢、3 拍不收敛放弃。复现台（标题栏 0px）
+            // 与 Windows（客户区语义、落点精确）偏差在容差内 → 整块零动作。
             let reanchor_plan = {
                 let state = app.state::<Mutex<AppState>>();
                 state.lock().ok().and_then(|guard| guard.auto_hide_reanchor)
@@ -4530,13 +4568,14 @@ fn start_auto_hide_watcher(app: &AppHandle) {
                 if !main_moved_recently() {
                     if let Some(live) = main_client_position(&app) {
                         match undock_reanchor_action(plan, live.0, live.1) {
-                            UndockReanchor::Set(new_plan, target) => {
+                            UndockReanchor::Set(new_plan, request) => {
                                 trace(
                                     &app,
                                     "autohide",
                                     &format!(
-                                        "undock#reanchor try={} live=({},{}) -> ({},{})",
-                                        new_plan.tries, live.0, live.1, target.0, target.1
+                                        "undock#reanchor try={} live=({},{}) -> ({},{}) offset=({},{})",
+                                        new_plan.tries, live.0, live.1, request.0, request.1,
+                                        new_plan.offset.0, new_plan.offset.1
                                     ),
                                 );
                                 {
@@ -4548,12 +4587,15 @@ fn start_auto_hide_watcher(app: &AppHandle) {
                                 }
                                 mark_geometry_busy(AUTO_HIDE_GEOMETRY_BUSY_MS);
                                 let _ = main.set_position(tauri::PhysicalPosition::new(
-                                    target.0, target.1,
+                                    request.0, request.1,
                                 ));
                             }
                             UndockReanchor::Settled => {
                                 trace(&app, "autohide", "undock#reanchor settled");
                                 if let Ok(mut guard) = app.state::<Mutex<AppState>>().lock() {
+                                    // 学到的修正量写回：下一次 undock 首发即准
+                                    //（会话内 WM 语义不变，这是常量）。
+                                    guard.auto_hide_undock_offset = plan.offset;
                                     guard.auto_hide_reanchor = None;
                                 }
                             }
@@ -4561,8 +4603,9 @@ fn start_auto_hide_watcher(app: &AppHandle) {
                                 startup_debug(
                                     &app,
                                     &format!(
-                                        "undock reanchor gave up: live=({},{}) target=({},{})",
-                                        live.0, live.1, plan.target.0, plan.target.1
+                                        "undock reanchor gave up: live=({},{}) target=({},{}) offset=({},{})",
+                                        live.0, live.1, plan.target.0, plan.target.1,
+                                        plan.offset.0, plan.offset.1
                                     ),
                                 );
                                 if let Ok(mut guard) = app.state::<Mutex<AppState>>().lock() {
@@ -10553,38 +10596,54 @@ mod core_tests {
         );
     }
 
-    /// undock 重锚：2x 缩放下 GTK frame extents 错拍让实际落点低一个标题栏
-    /// （64px，真机日志铁证 undock target=(0,260) → dock 读到 y=324），偏了
-    /// 要补发；容差内（复现台 +3px）收敛；额度用完放弃。
+    /// undock 重锚（牛顿式自校准）：装饰态窗口上 set_position 的坐标是窗框
+    /// 原点，客户区 = 请求 + 标题栏（真机 Cinnamon 2x：请求 428 → 实况 492，
+    /// 每轮 +64 爬移）。实测偏差全额反扣进修正量，一步收敛；修正量写回后
+    /// 下一轮首发即准。容差内（复现台 +3px）直接收敛；额度用完放弃。
     #[test]
-    fn undock_reanchor_settles_or_retries_then_gives_up() {
+    fn undock_reanchor_newton_corrects_frame_origin_semantics() {
         let plan = AutoHideReanchor {
-            target: (0, 260),
+            target: (0, 428),
+            offset: (0, 0),
             tries: 0,
         };
-        // 实况在容差内 → 收敛清计划
+        // 真机首轮：请求 428、实况 492（+64 标题栏）→ 修正 −64，补发请求 364
+        let (plan2, request) = match undock_reanchor_action(plan, 0, 492) {
+            UndockReanchor::Set(plan, request) => (plan, request),
+            other => panic!("expected Set, got {other:?}"),
+        };
+        assert_eq!(plan2.offset, (0, -64));
+        assert_eq!(plan2.tries, 1);
+        assert_eq!(request, (0, 364));
+        // 补发请求 364 → 客户区 = 364 + 64 = 428 = 期望 → 收敛（修正量写回）
         assert_eq!(
-            undock_reanchor_action(plan, 0, 260 + AUTO_HIDE_WM_NUDGE_PX),
+            undock_reanchor_action(plan2, 0, 428),
             UndockReanchor::Settled
         );
-        // 2x 缩放标题栏错拍（+64）→ 补发一次，落点 = 请求值、额度 +1
+        // 带修正量的下一轮：请求 364 → 实况 428 = 期望 → 首拍即收敛
+        let armed = AutoHideReanchor {
+            target: (0, 428),
+            offset: (0, -64),
+            tries: 0,
+        };
         assert_eq!(
-            undock_reanchor_action(plan, 0, 324),
-            UndockReanchor::Set(
-                AutoHideReanchor {
-                    target: (0, 260),
-                    tries: 1
-                },
-                (0, 260)
-            )
+            undock_reanchor_action(armed, 0, 428),
+            UndockReanchor::Settled
         );
-        // 额度用完仍偏 → 放弃（防 WM 不配合时永久抖动）
+        // 容差内照旧直接收敛（复现台 +3px、Windows 落点精确）
+        assert_eq!(
+            undock_reanchor_action(plan, 0, 428 + AUTO_HIDE_WM_NUDGE_PX),
+            UndockReanchor::Settled
+        );
+        // 额度用完仍偏 → 放弃（防 WM 不配合时永久抖动；钳制类非线性偏差
+        // 也不写回修正量）
         let exhausted = AutoHideReanchor {
-            target: (0, 260),
+            target: (0, 428),
+            offset: (0, 0),
             tries: AUTO_HIDE_REANCHOR_TRIES,
         };
         assert_eq!(
-            undock_reanchor_action(exhausted, 0, 324),
+            undock_reanchor_action(exhausted, 0, 492),
             UndockReanchor::GiveUp
         );
     }
