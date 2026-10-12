@@ -699,7 +699,7 @@ fn run_grub_locally(
     grub_json.replace(serde_json::json!({
         "ok": true,
         "channel": "cli",
-        "uuid": config.settings.grub_efi_uuid.trim(),
+        "partuuid": config.settings.grub_efi_partuuid.trim(),
         "efiDir": display_path(&scan.efi_dir).display().to_string(),
         "envExists": scan.env_exists,
         "installed": super::grub_installed(),
@@ -724,7 +724,7 @@ fn run_grub_locally(
         if parsed.json {
             lines.push(format!("共 {} 个 GRUB 启动项", scan.entries.len()));
         } else {
-            println!("ESP fs-uuid: {}", config.settings.grub_efi_uuid.trim());
+            println!("ESP 分区 UUID: {}", config.settings.grub_efi_partuuid.trim());
             println!("EFI 目录: {}", display_path(&scan.efi_dir).display());
             println!("GRUB 启动项（{} 个）:", scan.entries.len());
             for entry in &scan.entries {

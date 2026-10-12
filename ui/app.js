@@ -30,6 +30,14 @@ const mainDockStripLengthStateElement = document.querySelector("#main-dock-strip
 const mainDockStripOpacityElement = document.querySelector("#main-dock-strip-opacity");
 const mainDockStripOpacityStateElement = document.querySelector("#main-dock-strip-opacity-state");
 const mainDockStripColorElement = document.querySelector("#main-dock-strip-color");
+// 贴边热区：厚度（触发判定用）+ 调试可视化（底色/透明度/边框）
+const mainHotzoneThicknessElement = document.querySelector("#main-hotzone-thickness");
+const mainHotzoneThicknessStateElement = document.querySelector("#main-hotzone-thickness-state");
+const mainHotzoneColorElement = document.querySelector("#main-hotzone-color");
+const mainHotzoneOpacityElement = document.querySelector("#main-hotzone-opacity");
+const mainHotzoneOpacityStateElement = document.querySelector("#main-hotzone-opacity-state");
+const mainHotzoneBorderElement = document.querySelector("#main-hotzone-border");
+const mainHotzoneBorderColorElement = document.querySelector("#main-hotzone-border-color");
 const mainWindowPositionElement = document.querySelector("#main-window-position");
 const resetMainWindowPositionElement = document.querySelector("#reset-main-window-position");
 // 窗口大小：宽/高滑条 + 锁定开关（滑条 ⇄ 窗口尺寸双向实时）
@@ -95,15 +103,20 @@ const killOccupantElement = document.querySelector("#kill-occupant");
 const grubMetaElement = document.querySelector("#grub-meta");
 const grubDirElement = document.querySelector("#grub-dir");
 const grubDirDetectElement = document.querySelector("#grub-dir-detect");
+const grubDirSaveElement = document.querySelector("#grub-dir-save");
+const grubDirPickElement = document.querySelector("#grub-dir-pick");
 const grubDirOpenElement = document.querySelector("#grub-dir-open");
 const grubMountElement = document.querySelector("#grub-mount");
 const grubMountLabelElement = document.querySelector("#grub-mount-label");
 const grubPartElement = document.querySelector("#grub-part");
-const grubUuidElement = document.querySelector("#grub-uuid");
-const grubUuidSaveElement = document.querySelector("#grub-uuid-save");
+const grubPartuuidElement = document.querySelector("#grub-partuuid");
+const grubPartuuidSaveElement = document.querySelector("#grub-partuuid-save");
 const grubSyncElement = document.querySelector("#grub-sync");
 const grubHintElement = document.querySelector("#grub-hint");
 const grubErrorElement = document.querySelector("#grub-error");
+// 空状态引导卡：还没识别出任何 GRUB 信息时替代列表区的一片空白
+const grubEmptyElement = document.querySelector("#grub-empty");
+const grubEmptyPickElement = document.querySelector("#grub-empty-pick");
 const grubListElement = document.querySelector("#grub-list");
 // 当前选中启动项的顶部横幅
 const grubActiveElement = document.querySelector("#grub-active");
@@ -297,7 +310,7 @@ function renderSystems(status, busy) {
   return activeName;
 }
 
-/// ESP 分区那一行：FAT32 判定 · fs-uuid · 设备 · 挂载状态 · 出处。
+/// ESP 分区那一行：FAT32 判定 · 分区UUID · fs-uuid · 设备 · 挂载状态 · 出处。
 ///
 /// 探测失败时后端只给 `note`（没有 fstype），这里就老老实实只显示那句话，
 /// 绝不自作主张说「不是 FAT32」。
@@ -328,17 +341,24 @@ function renderEsp(grub) {
       : `${esp.fstype}（不是 FAT）`;
   add(filesystem);
 
+  // 分区 UUID 是识别键（三端同值），摆最前；fs-uuid 有就顺带展示
+  if (esp.partuuid) {
+    const label = document.createElement("b");
+    label.textContent = `分区UUID ${esp.partuuid}`;
+    add(label);
+  }
   if (esp.uuid) {
     add(document.createTextNode(`fs-uuid ${esp.uuid}`));
-  } else {
+  }
+  if (!esp.partuuid && !esp.uuid) {
     const missing = document.createElement("i");
-    missing.textContent = "没取出 fs-uuid";
+    missing.textContent = "没取出分区 UUID";
     add(missing);
   }
   if (esp.device) {
     add(document.createTextNode(esp.device));
   }
-  // 挂载点摆出来（用户「填了 fs-uuid 还是找不到」多数就是这一行空着/没挂上）
+  // 挂载点摆出来（用户「填了分区 UUID 还是找不到」多数就是这一行空着/没挂上）
   if (esp.mountPoint) {
     add(
       document.createTextNode(
@@ -387,7 +407,7 @@ function applyGrubLayout(mode) {
 /// GRUB 区块：列的是 grub.cfg 里的启动项，条数可能几十个，
 /// 所以字号比左栏「可启动系统」小一号（用户明确要求）。
 ///
-/// 三处输入框（ESP 目录 / fs-uuid / 脚本正文）只在**没被聚焦**时才回写，
+/// 三处输入框（ESP 目录 / 分区 UUID / 脚本正文）只在**没被聚焦**时才回写，
 /// 否则用户打字打到一半会被快照盖掉。
 function renderGrub(grub, script, busy, listViewMode) {
   if (!grub) {
@@ -405,8 +425,8 @@ function renderGrub(grub, script, busy, listViewMode) {
     grubViewModeElement.value = mode;
   }
 
-  if (document.activeElement !== grubUuidElement) {
-    grubUuidElement.value = grub.uuid || "";
+  if (document.activeElement !== grubPartuuidElement) {
+    grubPartuuidElement.value = grub.partuuid || "";
   }
   if (document.activeElement !== grubDirElement) {
     grubDirElement.value = grub.dir || "";
@@ -423,13 +443,13 @@ function renderGrub(grub, script, busy, listViewMode) {
   const mounter = Boolean(grub.mountSupported);
   const espMounted = Boolean(grub.esp && grub.esp.mounted);
   grubMountElement.checked = mounter ? Boolean(grub.keepMounted) : espMounted;
-  const canMount = mounter && Boolean(grub.uuid);
+  const canMount = mounter && Boolean(grub.partuuid);
   grubMountElement.disabled = busy || !canMount;
   grubMountElement.title = !mounter
-    ? "Windows 不能按 fs-uuid 挂载：ESP 有没有盘符由「磁盘管理」决定"
-    : grub.uuid
+    ? "Windows 不能按分区 UUID 挂载：ESP 有没有盘符由「磁盘管理」决定"
+    : grub.partuuid
       ? ""
-      : "先填好 fs-uuid（或用上面的「识别」自动取）";
+      : "先填好分区 UUID（或用上面的「识别」自动取）";
   grubMountLabelElement.textContent = mounter
     ? "挂载 ESP（勾上后可直接读写）"
     : "ESP 可访问（Windows 由盘符决定，无需挂载）";
@@ -448,6 +468,11 @@ function renderGrub(grub, script, busy, listViewMode) {
   grubHintElement.textContent = grub.hint || "";
   grubErrorElement.textContent = grub.error || "";
   grubErrorElement.classList.toggle("hidden", !grub.error);
+
+  // 空状态：没有任何识别信息（没填分区 UUID、也没识别过目录）才亮。
+  // efiDir 是后端解析结果（识别过就有值），dir 只是用户填的原文，不算数。
+  const unidentified = !grub.partuuid && !grub.efiDir;
+  grubEmptyElement.hidden = !unidentified;
 
   // 当前选中的启动项（右上角横幅，与树列表共用同一个渲染器）
   renderGrubActive(grubActiveElement, grub);
@@ -597,6 +622,27 @@ function renderSettings(view) {
   }
   if (document.activeElement !== mainDockStripColorElement) {
     mainDockStripColorElement.value = shadeHex(view.mainDockStripColor) || "#ffffff";
+  }
+  if (document.activeElement !== mainHotzoneThicknessElement) {
+    const hotzone = Number.isFinite(view.mainHotzoneThickness) ? view.mainHotzoneThickness : 40;
+    mainHotzoneThicknessElement.value = hotzone;
+    if (mainHotzoneThicknessStateElement) {
+      mainHotzoneThicknessStateElement.textContent = `${hotzone}px（鼠标移入屏幕边往内这一段就呼出主窗）`;
+    }
+  }
+  if (document.activeElement !== mainHotzoneColorElement) {
+    mainHotzoneColorElement.value = shadeHex(view.mainHotzoneColor) || "#ff0000";
+  }
+  if (document.activeElement !== mainHotzoneOpacityElement) {
+    const hotzoneOpacity = Number.isFinite(view.mainHotzoneOpacity) ? view.mainHotzoneOpacity : 0;
+    mainHotzoneOpacityElement.value = hotzoneOpacity;
+    if (mainHotzoneOpacityStateElement) {
+      mainHotzoneOpacityStateElement.textContent = `${hotzoneOpacity}%（0 = 全透明看不见）`;
+    }
+  }
+  mainHotzoneBorderElement.checked = Boolean(view.mainHotzoneBorder);
+  if (document.activeElement !== mainHotzoneBorderColorElement) {
+    mainHotzoneBorderColorElement.value = shadeHex(view.mainHotzoneBorderColor) || "#ff0000";
   }
   if (document.activeElement !== mainWindowPositionElement) {
     const mode = view.mainWindowPosition;
@@ -814,9 +860,12 @@ function render(state) {
     hideFromDockTaskbarElement,
     closeActionElement,
     loginItemsElement,
-    grubUuidSaveElement,
+    grubPartuuidSaveElement,
     grubSyncElement,
     grubDirDetectElement,
+    grubDirSaveElement,
+    grubDirPickElement,
+    grubEmptyPickElement,
     grubDirOpenElement,
     grubInstallElement,
     grubUninstallElement,
@@ -874,6 +923,32 @@ function applyDockStrip(state) {
   document.documentElement.style.setProperty(
     "--dock-strip-color",
     shadeHex(color) || "#ffffff",
+  );
+  // 热区可视化：判定矩形从**屏幕边**往内 hotzone 厚，但可视化层画在条形窗口
+  // 里 —— 窗口离屏幕边还隔一条 gap 缝，所以窗口内可见厚度 = hotzone - gap。
+  // 窗口缝厚由后端按 max(槽位 40, 热区) 重贴配合，这里不用 clamp 上限：
+  // 渲染的矩形必须与后端判定的热区矩形是同一个。
+  const hotzone = clampInt(settings.mainHotzoneThickness, 1, 100, 40);
+  const gap = clampInt(settings.mainDockStripEdgeGap, 0, 100, 0);
+  document.documentElement.style.setProperty(
+    "--hotzone-thickness",
+    `${Math.max(hotzone - gap, 0)}px`,
+  );
+  document.documentElement.style.setProperty(
+    "--hotzone-color",
+    shadeHex(settings.mainHotzoneColor) || "#ff0000",
+  );
+  document.documentElement.style.setProperty(
+    "--hotzone-opacity",
+    String(clampInt(settings.mainHotzoneOpacity, 0, 100, 0) / 100),
+  );
+  document.documentElement.style.setProperty(
+    "--hotzone-border-color",
+    shadeHex(settings.mainHotzoneBorderColor) || "#ff0000",
+  );
+  document.documentElement.style.setProperty(
+    "--hotzone-border-width",
+    settings.mainHotzoneBorder ? "1px" : "0px",
   );
   if (state.docked && state.dockEdge) {
     body.classList.add("dock-" + state.dockEdge);
@@ -961,7 +1036,7 @@ grubViewModeElement.addEventListener("change", () => {
   call("set_grub_list_view", { mode: grubViewModeElement.value });
 });
 
-// 识别 ESP 目录：后端判断是不是 FAT32，并把从中取到的 fs-uuid 填好
+// 识别 ESP 目录：后端判断是不是 FAT32，并把分区 UUID（识别键）填好
 grubDirDetectElement.addEventListener("click", async () => {
   const path = grubDirElement.value.trim();
   if (!path) {
@@ -982,6 +1057,27 @@ grubDirDetectElement.addEventListener("click", async () => {
   await refreshSnapshotQuietly();
 });
 
+// 呼出系统文件夹选择框选 ESP 目录，选中后自动走识别：
+// 识别成功会同时填好分区 UUID，「选文件夹」和「填分区 UUID」两条入口自动同步
+//（分区 UUID 是权威键，目录只是入口）。空状态卡上的按钮走同一条路。
+async function pickGrubDirAndDetect() {
+  grubMessage("");
+  try {
+    const path = await invoke("pick_grub_dir");
+    if (!path) {
+      grubMessage("已取消选择");
+      return;
+    }
+    grubDirElement.value = path;
+    grubMessage(await invoke("detect_esp", { path }));
+  } catch (error) {
+    grubMessage(String(error), { error: true });
+  }
+  await refreshSnapshotQuietly();
+}
+grubDirPickElement.addEventListener("click", pickGrubDirAndDetect);
+grubEmptyPickElement.addEventListener("click", pickGrubDirAndDetect);
+
 // 三端都用系统文件管理器打开解析出来的 ESP 目录
 grubDirOpenElement.addEventListener("click", async () => {
   grubMessage("");
@@ -992,7 +1088,7 @@ grubDirOpenElement.addEventListener("click", async () => {
   }
 });
 
-// 勾选 = 按 fs-uuid 挂载并保持；取消 = 卸掉**本程序自己挂的**那份
+// 勾选 = 按分区 UUID 挂载并保持；取消 = 卸掉**本程序自己挂的**那份
 grubMountElement.addEventListener("change", async () => {
   const wanted = grubMountElement.checked;
   grubMessage("");
@@ -1007,8 +1103,13 @@ grubMountElement.addEventListener("change", async () => {
   }
   await refreshSnapshotQuietly();
 });
-grubUuidSaveElement.addEventListener("click", () =>
-  call("set_grub_uuid", { uuid: grubUuidElement.value.trim() }),
+// 目录「保存」：只落盘目录原文，不做校验、不取分区 UUID —— 清空后保存即还原成空目录
+grubDirSaveElement.addEventListener("click", () =>
+  call("set_grub_dir", { dir: grubDirElement.value.trim() }),
+);
+
+grubPartuuidSaveElement.addEventListener("click", () =>
+  call("set_grub_partuuid", { partuuid: grubPartuuidElement.value.trim() }),
 );
 
 grubSyncElement.addEventListener("click", () => call("sync_grub"));
@@ -1339,6 +1440,52 @@ mainDockStripColorElement.addEventListener("input", () => {
 });
 mainDockStripColorElement.addEventListener("change", () => {
   call("set_main_dock_strip_color", { color: mainDockStripColorElement.value });
+});
+
+// 热区触发厚度：input 即时预览（可视化层立刻跟着变），change 落盘并重贴
+// 窗口（后端按 max(槽位, 热区) 重算缝厚，渲染与判定保持同一个矩形）
+mainHotzoneThicknessElement.addEventListener("input", () => {
+  const value = Number.parseInt(mainHotzoneThicknessElement.value, 10);
+  if (mainHotzoneThicknessStateElement) {
+    mainHotzoneThicknessStateElement.textContent = `${value}px（鼠标移入屏幕边往内这一段就呼出主窗）`;
+  }
+  const gap = Math.round(Number(mainDockStripEdgeGapElement.value)) || 0;
+  document.documentElement.style.setProperty(
+    "--hotzone-thickness",
+    `${Math.max(value - gap, 0)}px`,
+  );
+});
+mainHotzoneThicknessElement.addEventListener("change", () => {
+  const parsed = Number.parseInt(mainHotzoneThicknessElement.value, 10);
+  const value = Number.isFinite(parsed) ? Math.min(Math.max(parsed, 1), 100) : 40;
+  mainHotzoneThicknessElement.value = value;
+  call("set_main_hotzone_thickness", { value });
+});
+
+// 热区调试底色 + 透明度：即时预览，change 落盘
+mainHotzoneColorElement.addEventListener("change", () => {
+  call("set_main_hotzone_color", { color: mainHotzoneColorElement.value });
+});
+mainHotzoneOpacityElement.addEventListener("input", () => {
+  const value = Number.parseInt(mainHotzoneOpacityElement.value, 10);
+  if (mainHotzoneOpacityStateElement) {
+    mainHotzoneOpacityStateElement.textContent = `${value}%（0 = 全透明看不见）`;
+  }
+  document.documentElement.style.setProperty("--hotzone-opacity", String(value / 100));
+});
+mainHotzoneOpacityElement.addEventListener("change", () => {
+  const parsed = Number.parseInt(mainHotzoneOpacityElement.value, 10);
+  const value = Number.isFinite(parsed) ? Math.min(Math.max(parsed, 0), 100) : 0;
+  mainHotzoneOpacityElement.value = value;
+  call("set_main_hotzone_opacity", { value });
+});
+
+// 热区边框开关 + 颜色
+mainHotzoneBorderElement.addEventListener("change", () => {
+  call("set_main_hotzone_border", { enabled: mainHotzoneBorderElement.checked });
+});
+mainHotzoneBorderColorElement.addEventListener("change", () => {
+  call("set_main_hotzone_border_color", { color: mainHotzoneBorderColorElement.value });
 });
 
 // 主题强调色：调色板即时预览（主窗 + GRUB 同步），change 落盘

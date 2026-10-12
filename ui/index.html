@@ -10,6 +10,11 @@
     <!-- 贴边隐藏时，窗口贴在屏幕某条边只露一条缝：这条小白条就是那道缝，
          提示用户「鼠标移到这儿就能把窗口展开」。只在不停靠时由 JS 加类显示。 -->
     <div id="dock-strip"></div>
+    <!-- 热区可视化层：贴边态下把「鼠标移入即呼出」的触发带画出来（默认全透明
+         看不见），调试热区厚度/边界时打开底色或边框。几何由 app.js 按
+         「热区厚度 − 贴边缝隙」写入 CSS 变量，超出窗口槽位（40px）的部分
+         在窗口外，天然被裁掉。 -->
+    <div id="hotzone"></div>
     <!-- 单窗口双栏：左栏 = 原主窗口的全部元素，右栏 = GRUB 专属区。
          两栏等宽（flex 基准都是 0），中间用一条纯空白长条隔开 —— 宽度取原来
          两个独立窗口之间那条桌面缝隙的 12px，所以窗口总宽 932 = 460 + 12 + 460，
@@ -60,7 +65,9 @@
           </div>
 
           <!-- 先给目录、点「识别」——自动判断是不是 FAT32 并从中取出 fs-uuid；
-               也可以什么都不给、只手工填下面的 fs-uuid，两种方式等价。 -->
+               也可以什么都不给、只手工填下面的 fs-uuid，两种方式等价。
+               「选择文件夹」呼出系统文件夹选择框，选中后自动走识别。
+               「保存」只存目录原文（清空后保存即清掉目录，fs-uuid 不动）。 -->
           <div class="grub-row">
             <label for="grub-dir">ESP 目录</label>
             <input
@@ -69,7 +76,9 @@
               spellcheck="false"
               type="text"
             />
+            <button class="secondary" id="grub-dir-pick" type="button">选择文件夹…</button>
             <button class="secondary" id="grub-dir-detect" type="button">识别</button>
+            <button class="secondary" id="grub-dir-save" type="button">保存</button>
             <button class="secondary" id="grub-dir-open" type="button">
               打开文件管理器
             </button>
@@ -84,19 +93,34 @@
           </div>
 
           <div class="grub-row">
-            <label for="grub-uuid">ESP 的 fs-uuid</label>
+            <label for="grub-partuuid">ESP 的分区 UUID</label>
             <input
-              id="grub-uuid"
-              placeholder="例如 E537-7F31（就是 GRUB 的 search --fs-uuid 那串）"
+              id="grub-partuuid"
+              placeholder="GPT 分区 GUID，如 F69D7BF9-E8A9-3135-A5CB-4BD0CA7344E3（三端同值：Linux lsblk -o PARTUUID / macOS diskutil / Windows Get-Partition）"
               spellcheck="false"
               type="text"
             />
-            <button class="secondary" id="grub-uuid-save" type="button">保存</button>
-            <button class="secondary" id="grub-sync" type="button">同步</button>
+            <button class="secondary" id="grub-partuuid-save" type="button">保存</button>
+            <button class="secondary" id="grub-sync" type="button">识别</button>
           </div>
 
           <p class="grub-hint" id="grub-hint"></p>
           <p class="grub-error hidden" id="grub-error" role="status"></p>
+
+          <!-- 空状态：还没识别出任何 GRUB 信息（没填 fs-uuid、也没识别过目录）
+               时摆出来，替代一片空白。两条入口任选其一，二者自动同步。 -->
+          <div class="grub-empty-state" id="grub-empty" hidden>
+            <strong>还没识别到 GRUB 启动信息</strong>
+            <small
+              >选 ESP 分区里的文件夹去识别，或直接填上面的 fs-uuid ——
+              两种方式填一个就行，另一个会自动对上</small
+            >
+            <div class="actions">
+              <button class="secondary" id="grub-empty-pick" type="button">
+                选择文件夹识别…
+              </button>
+            </div>
+          </div>
 
           <div class="grub-list" id="grub-list"></div>
 
@@ -226,6 +250,35 @@
               <input id="main-dock-strip-color" type="color" value="#ffffff" />
             </span>
           </div>
+          <div class="setting">
+            <span class="setting-text">
+              <strong>热区触发厚度</strong>
+              <small id="main-hotzone-thickness-state">40px（鼠标移入屏幕边往内这一段就呼出主窗）</small>
+            </span>
+            <span class="remote-inline">
+              <input id="main-hotzone-thickness" type="range" min="1" max="100" step="1" value="40" />
+            </span>
+          </div>
+          <div class="setting">
+            <span class="setting-text">
+              <strong>热区调试底色与透明度</strong>
+              <small id="main-hotzone-opacity-state">0%（默认全透明看不见；调出来可核对热区边界）</small>
+            </span>
+            <span class="remote-inline">
+              <input id="main-hotzone-color" type="color" value="#ff0000" />
+              <input id="main-hotzone-opacity" type="range" min="0" max="100" step="5" value="0" />
+            </span>
+          </div>
+          <label class="setting">
+            <span class="setting-text">
+              <strong>热区边框</strong>
+              <small>给热区画一圈边框，调试用（默认关）</small>
+            </span>
+            <span class="remote-inline">
+              <input id="main-hotzone-border" type="checkbox" />
+              <input id="main-hotzone-border-color" type="color" value="#ff0000" />
+            </span>
+          </label>
           <label class="setting">
             <span class="setting-text">
               <strong>固定显示位置</strong>

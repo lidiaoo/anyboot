@@ -19,6 +19,7 @@ use tauri::{
     AppHandle, Emitter, Manager,
 };
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
+use tauri_plugin_dialog::DialogExt;
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -249,12 +250,6 @@ struct AppState {
     /// （否则窗口大部分面积压在任务栏/Dock 上——窗口置顶，网页内容会把
     /// 任务栏整个盖住）。展开时按这个尺寸原样恢复。
     auto_hide_restore_size: Option<(u32, u32)>,
-    /// 贴边前窗口「客户区相对窗框」的左上偏移（物理像素）：去装饰前量好缓存。
-    ///
-    /// 只有这一份偏移能用来把窗框坐标（`outer_position()`）换算成客户区坐标，
-    /// 展开时要靠它把「锚点」拉回客户区 —— `set_position` 落的是客户区。
-    /// 下/右偏移不存：展开的落点算式里根本用不上（见 `undock_target`）。
-    auto_hide_client_offset: Option<(i32, i32)>,
     /// 托盘呼出后的宽限期（Unix 毫秒）：呼出瞬间鼠标必然停在托盘上（窗口外），
     /// 没有宽限的话窗口刚弹出来就被 watcher 立刻贴边藏回去 —— 表现就是
     /// 「点了托盘主界面不显示」。宽限期内不累计鼠标离窗时钟。
@@ -354,12 +349,14 @@ impl ActiveMount {
         // macOS 用 diskutil 卸（它自己挂的，也只能它自己卸干净）；其余用 umount
         #[cfg(target_os = "macos")]
         let result = {
+            let mut cmd = command("diskutil");
+            cmd.arg("unmount");
             if self.device.as_os_str().is_empty() {
-                command("diskutil").arg("unmount").arg(&self.mountpoint)
+                cmd.arg(&self.mountpoint);
             } else {
-                command("diskutil").arg("unmount").arg(&self.device)
+                cmd.arg(&self.device);
             }
-            .status()
+            cmd.status()
         };
         #[cfg(not(target_os = "macos"))]
         let result = mount_command("umount").arg(&self.mountpoint).status();
@@ -516,21 +513,19 @@ struct AppStatus {
 /// 主窗口「GRUB 启动项」区块的展示数据。
 ///
 /// 这一块和上面的三个系统项是**并列**的两套机制：上面走 rEFInd 的 `PreviousBoot`，
-/// 这里走 GRUB 自己的环境块。用户设了 ESP 的 fs-uuid 才会出现。
+/// 这里走 GRUB 自己的环境块。用户设了 ESP 的分区 UUID 才会出现。
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct GrubView {
-    /// 用户填写的 fs-uuid 原文（空 = 未配置）
-    uuid: String,
-    /// 归一化后的十六进制串（去分隔符、大写），跟 GRUB 侧比对用
-    uuid_digits: Option<String>,
+    /// 用户填写的分区 UUID 原文（空 = 未配置）
+    partuuid: String,
     /// 用户填写的 ESP 目录原文（空 = 没填，只靠 fs-uuid 找）
     dir: String,
     /// 识别出来的 ESP 分区（是不是 FAT32 / fs-uuid / 挂载状态）
     esp: Option<EspInfo>,
     /// 「保持挂载」勾选状态
     keep_mounted: bool,
-    /// 本端能不能按 fs-uuid 挂载（Windows = false，勾选框要置灰）
+    /// 本端能不能按分区 UUID 挂载（Windows = false，勾选框要置灰）
     mount_supported: bool,
     /// 本端解析出的 ESP 目录（Windows 是盘符、Linux 是挂载点）
     efi_dir: Option<String>,
@@ -973,9 +968,13 @@ struct Settings {
     theme: String,
     /// 窗口不透明度（百分比，50–100）
     opacity_percent: u8,
-    /// GRUB 细粒度切换用的 ESP fs-uuid（GRUB `search --fs-uuid` 那一串，
-    /// 例如 `E537-7F31`）。空 = 未配置，界面不展示 GRUB 区块。
-    grub_efi_uuid: String,
+    /// GRUB 细粒度切换用的 ESP 识别键：**分区 UUID**（GPT PARTUUID，如
+    /// `F69D7BF9-E8A9-3135-A5CB-4BD0CA7344E3`）。它写在 GPT 分区表里，三端
+    /// （Linux lsblk / macOS diskutil / Windows Get-Partition）报的都是同一个
+    /// 值。空 = 未配置，界面不展示 GRUB 区块。
+    /// 注意与 fs-uuid（FAT 卷序列号，GRUB `search --fs-uuid` 用的 8 位串）是
+    /// 两套键：GRUB 脚本里需要的 fs-uuid 在 Linux 上由分区 UUID 现场解析。
+    grub_efi_partuuid: String,
     /// 用户在界面上指定的 ESP 目录（形如 `H:\` / `/boot/efi` / `/Volumes/ARCH-EFI`）。
     /// 只在「识别」时用来反查 fs-uuid，并把结果归一化成分区根目录存下来。
     /// fs-uuid 才是权威键，这个只是入口和展示。
@@ -1009,6 +1008,18 @@ struct Settings {
     main_dock_strip_opacity: i32,
     /// 贴边白条颜色（#rrggbb，默认白色）：调色板选的色调，纯前端 CSS 渲染
     main_dock_strip_color: String,
+    /// 贴边热区厚度（逻辑像素 1–100，默认 40 = 既有槽位缝厚，行为不变）：
+    /// 停靠态从工作区边往内这一段是「鼠标移入触发呼出」的热区，厚度独立于
+    /// 白条视觉厚度 —— 判定是后端按几何算的虚拟矩形，不必是窗口那么厚。
+    main_hotzone_thickness: i32,
+    /// 热区调试底色（#rrggbb）：配合透明度可视化热区边界，方便调试
+    main_hotzone_color: String,
+    /// 热区不透明度（百分比 0–100，默认 0 = 全透明 = 默认无颜色，看不见）
+    main_hotzone_opacity: i32,
+    /// 热区是否画边框（默认关 = 无边框）
+    main_hotzone_border: bool,
+    /// 热区边框颜色（#rrggbb）
+    main_hotzone_border_color: String,
     /// 主题强调色（#rrggbb，默认内置蓝 #2f7fe0）：调色板选的色调，
     /// 前端据此派生按钮/链接/悬停色
     accent_color: String,
@@ -1047,7 +1058,7 @@ impl Default for Settings {
             sound_file_path: String::new(),
             theme: "dark".to_string(),
             opacity_percent: MAX_OPACITY,
-            grub_efi_uuid: String::new(),
+            grub_efi_partuuid: String::new(),
             grub_efi_dir: String::new(),
             grub_keep_mounted: false,
             grub_script_override: String::new(),
@@ -1060,6 +1071,11 @@ impl Default for Settings {
             main_dock_strip_length: 100,
             main_dock_strip_opacity: 100,
             main_dock_strip_color: "#ffffff".to_string(),
+            main_hotzone_thickness: 40,
+            main_hotzone_color: "#ff0000".to_string(),
+            main_hotzone_opacity: 0,
+            main_hotzone_border: false,
+            main_hotzone_border_color: "#ff0000".to_string(),
             accent_color: "#2f7fe0".to_string(),
             main_window_position: "free".to_string(),
             main_window_last: None,
@@ -1299,10 +1315,14 @@ struct LsblkDevice {
     partlabel: Option<String>,
     parttype: Option<String>,
     mountpoints: Option<Vec<Option<String>>>,
-    /// 文件系统 UUID —— 就是 GRUB `search --fs-uuid` 比的那串。
+    /// 文件系统 UUID —— GRUB `search --fs-uuid` 比的那串（**不是**识别键）。
     /// 老代码的 lsblk 调用没要这一列，`Option` 让缺失列也能反序列化。
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     uuid: Option<String>,
+    /// 分区 UUID（GPT PARTUUID）—— 识别 ESP 的权威键，三端同值。
+    /// 只有 Linux 的定位函数读它（lsblk 输出列），其余平台缺列也能反序列化。
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    partuuid: Option<String>,
 }
 
 struct ScanResult {
@@ -2254,10 +2274,15 @@ fn ui_state(app: &AppHandle) -> UiState {
     };
     // GRUB 那块：先算好（下面 `settings` 会被整体移进快照，不能再借）
     let grub = grub_snapshot(app, &settings.settings);
+    // 09_anyboot 模板里嵌的是 fs-uuid（GRUB 的 search --fs-uuid 只认它）。
+    // fs-uuid 不再存设置 —— 用最近一次扫描探到的（Linux 上 findmnt/引导扇区
+    // 都报得出来）；探不到就留占位符，安装时（grub_install_script）会现场解析。
     let grub_script = grub_script_content(
         grub_template(&settings.settings),
-        &grub::uuid_digits(&settings.settings.grub_efi_uuid)
-            .map(|digits| grub::uuid_pretty(&digits))
+        &grub
+            .esp
+            .as_ref()
+            .and_then(|esp| esp.uuid.clone())
             .unwrap_or_else(|| "@@ESP_UUID@@".to_string()),
     );
     UiState {
@@ -3204,7 +3229,7 @@ fn remote_grub_json(app: &AppHandle) -> serde_json::Value {
     let view = grub_snapshot(app, &settings);
     serde_json::json!({
         "ok": true,
-        "uuid": view.uuid,
+        "partuuid": view.partuuid,
         "efiDir": view.efi_dir,
         "envExists": view.env_exists,
         "installed": view.installed,
@@ -4026,6 +4051,46 @@ fn strip_geometry(
     }
 }
 
+/// 贴边热区判定（纯函数，物理像素）：热区 = 从**工作区贴边一侧**往工作区内
+/// 延伸 `hotzone` 厚的带状区域，沿边轴与停靠窗口同范围。光标落在带内 = 触发呼出。
+///
+/// 判定不依赖窗口矩形：热区厚度是独立设置，可以比窗口槽位（40px）更厚 ——
+/// 那段在窗口外，鼠标照样触发（后端几何判定，不需要真实窗口去接事件）。
+fn hotzone_hit(
+    edge: DockEdge,
+    work_x: i32,
+    work_y: i32,
+    work_w: i32,
+    work_h: i32,
+    win_x: i32,
+    win_y: i32,
+    win_w: i32,
+    win_h: i32,
+    hotzone: i32,
+    cx: i32,
+    cy: i32,
+) -> bool {
+    let hz = hotzone.max(0);
+    match edge {
+        // 顶边：热区 [work_y, work_y+hz)，沿边轴取窗口 x 范围
+        DockEdge::Top => {
+            cx >= win_x && cx < win_x + win_w && cy >= work_y && cy < work_y + hz
+        }
+        // 底边：热区 (work_y+work_h-hz, work_y+work_h]
+        DockEdge::Bottom => {
+            cx >= win_x && cx < win_x + win_w && cy >= work_y + work_h - hz && cy < work_y + work_h
+        }
+        // 左缘：热区 [work_x, work_x+hz)，沿边轴取窗口 y 范围
+        DockEdge::Left => {
+            cy >= win_y && cy < win_y + win_h && cx >= work_x && cx < work_x + hz
+        }
+        // 右缘：热区 (work_x+work_w-hz, work_x+work_w]
+        DockEdge::Right => {
+            cy >= win_y && cy < win_y + win_h && cx >= work_x + work_w - hz && cx < work_x + work_w
+        }
+    }
+}
+
 /// 贴边隐藏：按当前窗口位置选最近的屏幕边，把窗口缩成一条白条——
 /// 白条沿屏幕边方向拉伸（长度 = 屏幕边长 × 长度百分比）、垂直方向缩成
 /// 厚度，居中贴边。白条就是窗口本身，任务栏/Dock 永远不被遮挡。
@@ -4039,19 +4104,6 @@ fn dock_main_window(app: &AppHandle) {
     // 恢复尺寸存去装饰前的 client 内尺寸（set_size 设的是内尺寸，展开时
     // set_size(内尺寸) 才能精确还原外框；存外框每轮会加一圈边框 = 越变越长）
     let pre_client = main.inner_size().ok();
-    // 去装饰前量一次「客户区相对窗框」左上偏移（标题栏/左边框厚度是常量，
-    // 不随窗口尺寸变）。undock 改成「先摆几何、最后恢复装饰」的顺序后，
-    // 量偏移必须在还带着装饰的时候进行 —— 就用这份缓存。
-    let pre_client_offset = (|| {
-        let outer_pos = main.outer_position().ok()?;
-        let inner_pos = main.inner_position().ok()?;
-        Some((inner_pos.x - outer_pos.x, inner_pos.y - outer_pos.y))
-    })();
-    // 去装饰：带标题栏的窗口有最小高度钳制，缩不成条；无边框窗口无此钳制
-    let _ = main.set_decorations(false);
-    // 关掉 DWM 投影：窗口默认带 drop shadow，贴边缩成透明细缝后阴影仍围
-    // 着细缝绘制，用户看到的就是「半透明矩形包着一条白条」。展开时还原。
-    let _ = main.set_shadow(false);
     let (Ok(pos), Ok(size)) = (main.outer_position(), main.outer_size()) else {
         return;
     };
@@ -4071,11 +4123,15 @@ fn dock_main_window(app: &AppHandle) {
         let state = state.lock().expect("state mutex poisoned");
         (state.auto_hide_last_edge, state.auto_hide_dock_pos)
     };
-    // 窗口缩成固定细缝（容纳白条最大厚度 40px），白条参数由前端 CSS 独立控制
-    let strip = (DOCK_STRIP_SLOT_PX * monitor.scale_factor()).round() as i32;
+    // 窗口缩成细缝：厚度 = max(槽位 40, 热区厚度)。白条参数由前端 CSS 独立
+    // 控制；热区可视化也画在这条缝里 —— 窗口必须装得下热区矩形的可见部分，
+    // 否则「渲染的热区」和「判定的热区」就成了两个不同的矩形。
+    let dock_settings = stored_settings(&app);
+    let slot = DOCK_STRIP_SLOT_PX.max(dock_settings.main_hotzone_thickness as f64);
+    let strip = (slot * monitor.scale_factor()).round() as i32;
     // 白条距边界的缝隙：设置存逻辑像素，落点用物理像素（与触发距离同款换算）
-    let gap = (stored_settings(&app).main_dock_strip_edge_gap as f64 * monitor.scale_factor())
-        .round() as i32;
+    let gap = (dock_settings.main_dock_strip_edge_gap as f64 * monitor.scale_factor()).round()
+        as i32;
     // 主窗 client 边长（白条沿这条窗口边延伸，长度百分比由前端 CSS 控制）
     let (client_w, client_h) = match &pre_client {
         Some(c) => (c.width as i32, c.height as i32),
@@ -4141,7 +4197,6 @@ fn dock_main_window(app: &AppHandle) {
             Some(client) => (client.width.max(1), client.height.max(1)),
             None => (size.width.max(1), size.height.max(1)),
         });
-        state.auto_hide_client_offset = pre_client_offset;
     }
     // 抑制期必须在发几何请求**之前**立起来（请求同步发出、配置事件异步回来），
     // 否则这批回声落在抑制期外 —— Linux 上那就是「刚缩成条就被弹回」。
@@ -4157,8 +4212,31 @@ fn dock_main_window(app: &AppHandle) {
     // `current_monitor()` 会退化成主显示器，多显示器下会把边条吸到错的屏上。
     let was_visible = main.is_visible().unwrap_or(false);
     if was_visible {
+        // 「清屏」：趁窗口还可见，让 WebView 把**最后一帧**刷成全透明。
+        // hide→show 后窗口服务器先摆出的就是这帧缓存（macOS 上 WebView
+        // 新帧要下一拍才到），缓存里若是主界面切片，用户就看到「残影子
+        // 在热区里闪一下再消失」。全透明帧看不出任何东西；因为原生背景
+        // 也是透明的，这 ~80ms 里全尺寸窗口在屏幕上等于不存在。
+        // busy 闸已在上面立起（docked 分支遇 busy 会 Hold），这段等待
+        // 不会被 watcher 的停靠态轮询抢走窗口。
+        let _ = main.eval("document.documentElement.classList.add('dock-pending');");
+        std::thread::sleep(std::time::Duration::from_millis(80));
         let _ = main.hide();
     }
+    // 去装饰 / 关投影 / 压原生背景：全部放到 hide **之后**。在可见窗口上做，
+    // 标题栏先当场消失一帧、内容重排一帧，用户看到的就是「主界面闪一下才藏」；
+    // 隐藏态做这些，屏幕上只有「整窗消失」一个动作。所有几何计算（monitor /
+    // client 位置）都在上面取完了，这里纯属窗口属性设置。
+    // 去装饰：带标题栏的窗口有最小高度钳制，缩不成条；无边框窗口无此钳制
+    let _ = main.set_decorations(false);
+    // 关掉 DWM 投影：窗口默认带 drop shadow，贴边缩成透明细缝后阴影仍围
+    // 着细缝绘制，用户看到的就是「半透明矩形包着一条白条」。展开时还原。
+    let _ = main.set_shadow(false);
+    // 窗口/WebView 的**原生背景**也要按到透明：CSS 里贴边态的 body/html
+    // 背景早已是 transparent，但三端的 WebView 原生层默认仍是白（macOS
+    // NSWindow/Windows WebView2/GTK 的默认底色），白条外面那圈「白色底框」
+    // 就是它。macOS 上这整套透明能力由 macos-private-api feature 门控。
+    let _ = main.set_background_color(Some(tauri::utils::config::Color(0, 0, 0, 0)));
     let _ = main.set_size(new_size);
     let _ = main.set_position(tauri::PhysicalPosition::new(target.0, target.1));
     if was_visible {
@@ -4184,14 +4262,14 @@ fn dock_main_window(app: &AppHandle) {
 /// 展开贴边的窗口：恢复贴边前的尺寸（贴边时被缩成一条白条厚度），
 /// 贴回工作区边缘（不是回到贴边前的原位置 —— 简单且可预期）。
 fn undock_main_window(app: &AppHandle) {
-    let (edge, restore, client_offset) = {
+    let (edge, restore, dock_pos) = {
         let state = app.state::<Mutex<AppState>>();
         let mut state = state.lock().expect("state mutex poisoned");
         state.auto_hide_docked = false;
         (
             state.auto_hide_edge.take(),
             state.auto_hide_restore_size.take(),
-            state.auto_hide_client_offset.take(),
+            state.auto_hide_dock_pos,
         )
     };
     let Some(edge) = edge else {
@@ -4216,15 +4294,8 @@ fn undock_main_window(app: &AppHandle) {
         &format!("undock#hide t={} vis={was_visible}", unix_millis() - t0),
     );
     // 先把系统装饰（标题栏）还原再恢复尺寸：贴边时 set_decorations(false)
-    // 去掉了标题栏，不还原的话展开后窗口没有标题栏、拖不动。还原后
-    // inner/outer 的差值才是带标题栏的真实边距，下面的补偿才对。
+    // 去掉了标题栏，不还原的话展开后窗口没有标题栏、拖不动。
     let _ = main.set_decorations(true);
-    let Ok(pos) = main.outer_position() else {
-        if was_visible {
-            let _ = main.show();
-        }
-        return;
-    };
     let Some(monitor) = main
         .current_monitor()
         .ok()
@@ -4244,21 +4315,26 @@ fn undock_main_window(app: &AppHandle) {
             .map(|s| (s.width, s.height))
             .unwrap_or((460, 900))
     });
-    // 展开的锚点必须是**客户区**当前位置：`pos` 是窗框坐标，加上「客户区相对
-    // 窗框」的左/上偏移才是客户区。偏移优先用 dock 时缓存的（去装饰前量的，
-    // 最准）；缓存缺失才现场量（此刻装饰已恢复，inner−outer 就是这个偏移）。
-    let (off_x, off_y) = client_offset.unwrap_or_else(|| match main.inner_position() {
-        Ok(ipos) => (ipos.x - pos.x, ipos.y - pos.y),
-        Err(_) => (0, 0),
-    });
+    // 展开的**沿边轴锚点 = dock_pos**（上一轮停靠时 set_position 写下的白条
+    // 客户区坐标；停靠态无装饰，落点即客户区，三端语义一致）。
+    //
+    // 为什么不现场读：「刚 set_decorations(true) 的隐藏窗口」上读窗框坐标
+    // （outer_position）再拿缓存的标题栏偏移换算，三端各有各的缓存错拍 ——
+    // macOS/Windows 直接多出一个标题栏，Linux 取决于 GDK frame extents 刷新
+    // 到没刷新。偏差本身不可怕，可怕的是它进了闭环：undock 按偏了的 target
+    // 落位（重锚牛顿步只保证「实况 == target」，target 偏了照单全收）→ 下一轮
+    // dock 把这个偏位记进 dock_pos → 再 undock 再偏一个标题栏 —— 左右贴边
+    // 开合几轮，白条从屏幕顶一路爬到屏幕底（三端实测，真机日志 target
+    // 428→492→556→588）。锚定 dock_pos 后闭环进料口被掐死：undock 落点 ==
+    // 白条原位，下一轮 dock 读到的实况 == dock_pos，零累积。
     let target = undock_target(
         edge,
         work.position.x,
         work.position.y,
         work.size.width as i32,
         work.size.height as i32,
-        pos.x + off_x,
-        pos.y + off_y,
+        dock_pos.0,
+        dock_pos.1,
         win_w as i32,
         win_h as i32,
     );
@@ -4304,8 +4380,15 @@ fn undock_main_window(app: &AppHandle) {
     );
     // 还原贴边时关掉的 DWM 投影（dock_main_window 里 set_shadow(false)）
     let _ = main.set_shadow(true);
+    // 展开（undock）首帧掩底：见 undock_mask_color 的注释。必须在 show
+    // **之前**设 —— show 后的第一帧就靠它兜着，NSWindow 背景是主线程
+    // 原生属性、立即生效，不等 WebView 进程醒来。
+    let _ = main.set_background_color(Some(undock_mask_color(app, &main)));
     // 几何全部就位后才亮出来：标题栏直接在最终位置出现，不跳
     if was_visible {
+        // 撤掉 dock 前的清屏态（show 后第一帧旧缓存本来就是近乎全透明的
+        // 白条缝，拉伸不出内容；撤类的新帧随后自然到位）
+        let _ = main.eval("document.documentElement.classList.remove('dock-pending');");
         let _ = main.show();
     }
     trace(
@@ -4329,6 +4412,32 @@ fn undock_main_window(app: &AppHandle) {
         &format!("undock edge={edge:?} restore=({win_w},{win_h})"),
     );
     publish_ui(app);
+}
+
+/// 展开首帧的「掩底色」：隐藏期间 WebView 停止合成，show 出来那一拍只有
+/// 原生标题栏（系统即时绘制）+ 上一帧缓存（近全透明的白条缝）——白条缝
+/// 拉伸后整个窗口就是个透明洞，用户看到「标题栏先出、卡一下内容才出」。
+/// NSWindow 背景是主线程原生属性、立即生效、不等 WebView 进程：按主题
+/// 底色（alpha 跟随窗口不透明度设置，与 body 的 rgba(--bg-rgb, --ui-alpha)
+/// 同源）填上，观感 = 正常应用开窗。不透明度 100%（默认）时 body 本来就
+/// 不透明，这层背景完全被盖住、零影响；半透明用户会略有叠透（可接受）。
+/// 下一轮 dock 会把它按回全透明（dock_main_window 的 set_background_color）。
+fn undock_mask_color(
+    app: &AppHandle,
+    main: &tauri::WebviewWindow,
+) -> tauri::utils::config::Color {
+    let settings = stored_settings(app);
+    let alpha = (settings.opacity_percent.min(100) as u32 * 255 / 100) as u8;
+    let (r, g, b) = match settings.theme.as_str() {
+        "light" => (244, 246, 250),
+        "dark" => (20, 25, 34),
+        // system：按系统当前主题解析（解析不了按暗色兜底，与前端默认一致）
+        _ => match main.theme() {
+            Ok(tauri::Theme::Light) => (244, 246, 250),
+            _ => (20, 25, 34),
+        },
+    };
+    tauri::utils::config::Color(r, g, b, alpha)
 }
 
 /// 解除贴边（含用户抓着白条直接拖离）时恢复贴边前的窗口尺寸。
@@ -4438,7 +4547,7 @@ fn start_auto_hide_watcher(app: &AppHandle) {
             }
             // 是否处于「贴边缩成条」状态：此时主窗口只露一条边，GRUB 独立
             // 窗口应跟随隐藏，深度绑定只在「完整显示」状态下维持。
-            let (docked, dock_pos, pending_enter, grace_until) = {
+            let (docked, dock_pos, pending_enter, grace_until, docked_edge) = {
                 let state = app.state::<Mutex<AppState>>();
                 // 不用 expect：锁中毒会 panic 掉整个 watcher 线程，而
                 // WATCHER_RUNNING 还卡在 true，自动隐藏从此永久失效。
@@ -4451,6 +4560,7 @@ fn start_auto_hide_watcher(app: &AppHandle) {
                     state.auto_hide_dock_pos,
                     state.auto_hide_pending_enter,
                     state.auto_hide_grace_until_ms,
+                    state.auto_hide_edge,
                 )
             };
             let (Ok(pos), Ok(size)) = (main.outer_position(), main.outer_size()) else {
@@ -4649,9 +4759,34 @@ fn start_auto_hide_watcher(app: &AppHandle) {
                         Err(_) => AUTO_HIDE_RESNAP_LIMIT,
                     }
                 };
-                // 悬停判定用**白条窗口自己的矩形**（见 in_rect 的注释）：
-                // 工作区外边那一条（任务栏/面板）不算「压在白条上」。
-                let hovering = in_rect(pos.x, pos.y, size.width as i32, size.height as i32);
+                // 悬停判定用**热区矩形**（纯几何，不必是窗口那么厚）：
+                // 从工作区贴边边往内 main_hotzone_thickness 厚、沿边轴与窗口
+                // 同范围。厚度可设得比槽位缝更厚 —— 那段在窗口外，鼠标照样
+                // 触发（后端几何判定，不需要真实窗口接事件）。edge/monitor
+                // 状态缺失（不该发生）时退回窗口矩形 —— 几何上唯一已知的事实。
+                let hovering = match (docked_edge, monitor.as_ref()) {
+                    (Some(edge), Some(m)) => {
+                        let work = m.work_area();
+                        let hotzone_phys = (settings_now.main_hotzone_thickness as f64
+                            * m.scale_factor())
+                        .round() as i32;
+                        hotzone_hit(
+                            edge,
+                            work.position.x,
+                            work.position.y,
+                            work.size.width as i32,
+                            work.size.height as i32,
+                            pos.x,
+                            pos.y,
+                            size.width as i32,
+                            size.height as i32,
+                            hotzone_phys,
+                            cx,
+                            cy,
+                        )
+                    }
+                    _ => in_rect(pos.x, pos.y, size.width as i32, size.height as i32),
+                };
                 // 悬浮计时：连续压住才累计，光标一离开就清零（见 hover_delay_ticks）
                 if hovering {
                     hover_ticks = hover_ticks.saturating_add(1);
@@ -4915,6 +5050,31 @@ fn spawn_diag_recall(app: &AppHandle) {
         std::thread::sleep(std::time::Duration::from_millis(delay));
         startup_debug(&app, &format!("diag: 模拟呼叫主窗口（{delay}ms）"));
         show_main_window(&app, ShowOrigin::Recall);
+    });
+}
+
+/// 诊断钩子：`ANYBOOT_AUTOHIDE_DIAG=1` 且 `ANYBOOT_AUTOHIDE_DIAG_FORCE_DOCK_MS=<毫秒>`
+/// 时，启动 N 毫秒后直接调一次 `dock_main_window`（跳过「鼠标离窗 + 贴边」
+/// 的自然触发条件 —— 自动化截图里没法真的去挪鼠标）。**不设就 return**，
+/// 产品路径不变。
+fn spawn_diag_force_dock(app: &AppHandle) {
+    if !auto_hide_diag_enabled() {
+        return;
+    }
+    let Ok(raw) = std::env::var("ANYBOOT_AUTOHIDE_DIAG_FORCE_DOCK_MS") else {
+        return;
+    };
+    let Ok(delay) = raw.trim().parse::<u64>() else {
+        return;
+    };
+    if delay == 0 {
+        return;
+    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(delay));
+        startup_debug(&app, &format!("diag: 强制停靠主窗口（{delay}ms）"));
+        dock_main_window(&app);
     });
 }
 
@@ -5263,6 +5423,94 @@ fn set_main_dock_strip_color(app: AppHandle, color: String) -> Result<SettingsVi
     );
     let mut settings = stored_settings(&app);
     settings.main_dock_strip_color = color;
+    save_settings(&app, &settings)?;
+    Ok(publish_settings(&app))
+}
+
+/// 主窗当前是否处于「贴边缩成条」状态（锁失败按未停靠处理，别 panic 掉命令线程）。
+fn state_auto_hide_docked(app: &AppHandle) -> bool {
+    app.state::<Mutex<AppState>>()
+        .lock()
+        .map(|guard| guard.auto_hide_docked)
+        .unwrap_or(false)
+}
+
+/// 贴边热区厚度（逻辑像素 1–100）：停靠态从工作区边往内这一段是鼠标移入
+/// 触发呼出的热区。判定纯几何，与窗口槽位厚度无关；可视化由前端 CSS 渲染。
+#[tauri::command]
+fn set_main_hotzone_thickness(app: AppHandle, value: i32) -> Result<SettingsView, String> {
+    let value = value.clamp(1, 100);
+    trace(
+        &app,
+        "command",
+        &format!("set_main_hotzone_thickness value={value}"),
+    );
+    let mut settings = stored_settings(&app);
+    settings.main_hotzone_thickness = value;
+    save_settings(&app, &settings)?;
+    // 热区厚度决定停靠窗口的缝厚（max(槽位, 热区)）：停靠中改动必须重贴一次，
+    // 否则可视化层被旧窗口裁着，「渲染的热区」和「判定的热区」又变两个矩形
+    if state_auto_hide_docked(&app) {
+        dock_main_window(&app);
+    }
+    Ok(publish_settings(&app))
+}
+
+/// 热区调试底色：配合透明度可视化热区边界，前端 CSS 渲染，后端只存值。
+#[tauri::command]
+fn set_main_hotzone_color(app: AppHandle, color: String) -> Result<SettingsView, String> {
+    let color = normalize_hex_color(&color).ok_or_else(|| format!("颜色格式无效: {color}"))?;
+    trace(
+        &app,
+        "command",
+        &format!("set_main_hotzone_color color={color}"),
+    );
+    let mut settings = stored_settings(&app);
+    settings.main_hotzone_color = color;
+    save_settings(&app, &settings)?;
+    Ok(publish_settings(&app))
+}
+
+/// 热区不透明度（0–100，默认 0 = 全透明 = 看不见）。
+#[tauri::command]
+fn set_main_hotzone_opacity(app: AppHandle, value: i32) -> Result<SettingsView, String> {
+    let value = value.clamp(0, 100);
+    trace(
+        &app,
+        "command",
+        &format!("set_main_hotzone_opacity value={value}"),
+    );
+    let mut settings = stored_settings(&app);
+    settings.main_hotzone_opacity = value;
+    save_settings(&app, &settings)?;
+    Ok(publish_settings(&app))
+}
+
+/// 热区是否画边框（默认关）。
+#[tauri::command]
+fn set_main_hotzone_border(app: AppHandle, enabled: bool) -> Result<SettingsView, String> {
+    trace(
+        &app,
+        "command",
+        &format!("set_main_hotzone_border enabled={enabled}"),
+    );
+    let mut settings = stored_settings(&app);
+    settings.main_hotzone_border = enabled;
+    save_settings(&app, &settings)?;
+    Ok(publish_settings(&app))
+}
+
+/// 热区边框颜色。
+#[tauri::command]
+fn set_main_hotzone_border_color(app: AppHandle, color: String) -> Result<SettingsView, String> {
+    let color = normalize_hex_color(&color).ok_or_else(|| format!("颜色格式无效: {color}"))?;
+    trace(
+        &app,
+        "command",
+        &format!("set_main_hotzone_border_color color={color}"),
+    );
+    let mut settings = stored_settings(&app);
+    settings.main_hotzone_border_color = color;
     save_settings(&app, &settings)?;
     Ok(publish_settings(&app))
 }
@@ -7673,13 +7921,17 @@ fn script_log_error(lines: &mut Vec<String>, label: &str, error: &io::Error) {
 }
 
 // ---------------------------------------------------------------------------
-// ESP 分区识别：判断它是不是 FAT32，并从中取出 fs-uuid
+// ESP 分区识别：判断它是不是 FAT32，并取出**分区 UUID**（识别键）与 fs-uuid（展示）
 // ---------------------------------------------------------------------------
 //
-// 三个平台各用自己那套「本来就知道」的来源，**不猜**：
+// 分区 UUID（GPT PARTUUID）是识别 ESP 的权威键 —— 它写在分区表里，三端报同一个值：
+//   Windows → Get-Partition 的 Guid（PowerShell 枚举）
+//   Linux   → lsblk 的 PARTUUID 列（udev 数据库）
+//   macOS   → diskutil info 的 Disk / Partition UUID
+// fs-uuid（FAT 卷序列号，GRUB search --fs-uuid 用）只作展示/Linux 脚本取值：
 //   Windows → GetVolumeInformationW 的卷序列号（就是 FAT 的 BS_VolID，与 GRUB 同源）
-//   Linux   → findmnt 报的 FSTYPE/UUID（util-linux 读的就是引导扇区里那几个字节）
-//   macOS   → diskutil info 的 Volume UUID（尽力而为，取不到就如实说取不到）
+//   Linux   → findmnt 报的 UUID / 引导扇区（util-linux 读的就是那几个字节）
+//   macOS   → 用户态拿不到（Volume UUID 是 MD5 派生值，反推不回序列号）—— 如实留空
 // 任何一端都不去改分区，只读。
 
 /// 一块分区的识别结果（取不到的字段就是 None，绝不编）。
@@ -7698,8 +7950,14 @@ struct EspInfo {
     fat: bool,
     /// 是不是正好 FAT32
     fat32: bool,
-    /// fs-uuid（GRUB `search --fs-uuid` 那一串，形如 `E537-7F31`）
+    /// fs-uuid（GRUB `search --fs-uuid` 那一串，形如 `E537-7F31`）。
+    /// 注意这是**文件系统**的标识（FAT 卷序列号），不是识别键 —— macOS
+    /// 用户态取不到它（diskutil 报的是 MD5 派生的 Volume UUID），所以 None 很正常。
     uuid: Option<String>,
+    /// **分区 UUID**（GPT PARTUUID，三端同值）—— 识别 ESP 的权威键。
+    /// Linux 取自 lsblk 的 PARTUUID 列，macOS 取自 diskutil 的
+    /// `Disk / Partition UUID`，Windows 取自 Get-Partition 的 Guid。
+    partuuid: Option<String>,
     /// 当前是否已挂载 / 可访问
     mounted: bool,
     /// 这个挂载点是不是本程序挂上的（只有自己挂上的才允许自己卸）
@@ -7826,6 +8084,12 @@ fn esp_probe(path: &Path) -> Result<EspInfo, String> {
     let name = filesystem.to_ascii_uppercase();
     let fat32 = name == "FAT32";
     let root = format!("{letter}:\\");
+    // 识别键 = 分区 UUID（Get-Partition 的 Guid），一次 PowerShell 枚举全量再查表
+    let partuuid = windows_partition_guids()
+        .into_iter()
+        .find(|(candidate, _)| candidate.eq_ignore_ascii_case(&letter))
+        .map(|(_, guid)| guid)
+        .filter(|guid| grub::partuuid_digits(guid).is_some());
     Ok(EspInfo {
         path: text,
         root: Some(root.clone()),
@@ -7834,9 +8098,14 @@ fn esp_probe(path: &Path) -> Result<EspInfo, String> {
         fat: fat32 || name == "FAT" || name == "FAT16",
         fat32,
         uuid: Some(grub::uuid_pretty(&serial)),
+        partuuid,
         mounted: true,
         owned_mount: false,
-        note: Some("fs-uuid 取自 Windows 卷序列号 —— 和 GRUB 的 search --fs-uuid 同源".to_string()),
+        note: Some(
+            "分区 UUID 取自 Get-Partition 的 Guid（识别键，三端同值）；fs-uuid 取自 \
+             Windows 卷序列号 —— GRUB 的 search --fs-uuid 用它"
+                .to_string(),
+        ),
         // 有盘符就是「挂着的」，而且是系统给的挂载（不是我们挂的）
         mount_point: Some(root),
         preexisting: true,
@@ -7919,10 +8188,34 @@ fn esp_probe(path: &Path) -> Result<EspInfo, String> {
     }
     let name = fstype.to_ascii_uppercase();
     let fat32 = name == "FAT32";
-    let fat = fat32 || name.starts_with("FAT");
+    // Linux 内核里这文件系统就叫 vfat（fat32 只是 mount(8) 的别名），
+    // blkid/findmnt/lsblk 报的都是 vfat —— 引导扇区读不到（没权限）时
+    // 走到这里，别把它漏出 FAT 家族。
+    let fat = fat32
+        || matches!(
+            name.as_str(),
+            "FAT" | "FAT12" | "FAT16" | "VFAT" | "MSDOS"
+        );
     if matches!(name.as_str(), "VFAT" | "MSDOS") {
         note = format!("Linux 把 FAT12/16/32 都报成 {fstype}；ESP 一般是 FAT32（{note}）");
     }
+    // 识别键 = 分区 UUID：对 findmnt 报的 SOURCE 设备查 lsblk 的 PARTUUID 列
+    //（udev 数据库，普通用户可读）。查不到就如实留空，note 里说去哪补。
+    let partuuid = entry.source.as_deref().and_then(|device| {
+        let output = command("lsblk")
+            .args(["--noheadings", "--output", "PARTUUID"])
+            .arg(device)
+            .stderr(Stdio::null())
+            .output()
+            .ok()?;
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .next()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    });
+    let partuuid = partuuid.filter(|value| grub::partuuid_digits(value).is_some());
     Ok(EspInfo {
         path: path.to_string_lossy().to_string(),
         root: Some(root.display().to_string()),
@@ -7931,6 +8224,7 @@ fn esp_probe(path: &Path) -> Result<EspInfo, String> {
         fat,
         fat32,
         uuid,
+        partuuid,
         mounted: true,
         owned_mount: false,
         note: Some(note),
@@ -7949,6 +8243,10 @@ struct DiskInfo {
     personality: Option<String>,
     uuid: Option<String>,
     mount_point: Option<String>,
+    /// 分区 UUID（GPT PARTGUID，diskutil 报作 `Disk / Partition UUID`）。
+    /// 与 Linux blkid/lsblk 的 PARTUUID、Windows Get-Partition 的 Guid 同值，
+    /// 是识别 ESP 的权威键。
+    partition_uuid: Option<String>,
 }
 
 #[cfg(target_os = "macos")]
@@ -7962,6 +8260,7 @@ fn macos_read_line(info: &mut DiskInfo, line: &str) {
         "Device Identifier" => info.identifier = Some(value.to_string()),
         "File System Personality" => info.personality = Some(value.to_string()),
         "Volume UUID" => info.uuid = Some(value.to_string()),
+        "Disk / Partition UUID" => info.partition_uuid = Some(value.to_string()),
         // 未挂载时 diskutil 打的就是 "Mount Point: None"
         "Mount Point" if value != "None" => info.mount_point = Some(value.to_string()),
         _ => {}
@@ -8024,19 +8323,23 @@ fn esp_probe(path: &Path) -> Result<EspInfo, String> {
     let upper = personality.to_ascii_uppercase();
     let fat32 = upper.contains("FAT32");
     let fat = fat32 || upper.contains("FAT");
-    let digits = info
-        .uuid
-        .as_deref()
-        .and_then(grub::uuid_digits)
-        .filter(|digits| digits.len() == 8);
-    let note = match (&digits, &info.uuid) {
-        (Some(_), _) => {
-            "fs-uuid 取自 diskutil 报的 Volume UUID（macOS 给 FAT 卷的标识）".to_string()
+    // 识别键 = 分区 UUID（diskutil 的 `Disk / Partition UUID`，GPT PARTGUID）
+    let partuuid = info
+        .partition_uuid
+        .clone()
+        .filter(|value| grub::partuuid_digits(value).is_some());
+    let note = match (&info.uuid, partuuid.is_some()) {
+        (_, true) => {
+            "分区 UUID 取自 diskutil 报的 Disk / Partition UUID（识别键，三端同值）".to_string()
         }
-        (None, Some(raw)) => format!(
-            "diskutil 报的 Volume UUID 是 {raw}，不是 GRUB 那种 8 位写法 —— 请手工核对 fs-uuid"
+        (Some(raw), false) => format!(
+            "diskutil 报的 Volume UUID {raw} 是 MD5 派生值（FAT 卷没有原生 UUID），\
+             且没报出分区 UUID —— 请在 Linux（lsblk -o PARTUUID）或 Windows \
+             （Get-Partition）里读同一分区的分区 UUID"
         ),
-        (None, None) => "diskutil 没报 Volume UUID，请手工核对 fs-uuid".to_string(),
+        (None, false) => "diskutil 没报分区 UUID —— 请在 Linux（lsblk -o PARTUUID）\
+             或 Windows（Get-Partition）里读同一分区的分区 UUID"
+            .to_string(),
     };
     Ok(EspInfo {
         path: path.to_string_lossy().to_string(),
@@ -8052,7 +8355,10 @@ fn esp_probe(path: &Path) -> Result<EspInfo, String> {
         fstype: Some(personality),
         fat,
         fat32,
-        uuid: digits.map(|digits| grub::uuid_pretty(&digits)),
+        // fs-uuid：macOS 用户态拿不到（引导扇区要特权、Volume UUID 是派生值
+        // 反推不回序列号）—— 如实留空，note 里说清楚。识别键用上面的 partuuid。
+        uuid: None,
+        partuuid,
         mounted: info.mount_point.is_some(),
         owned_mount: false,
         note: Some(note),
@@ -8061,11 +8367,11 @@ fn esp_probe(path: &Path) -> Result<EspInfo, String> {
     })
 }
 
-/// macOS：按 fs-uuid 找到那块盘并 `diskutil mount`。
+/// macOS：按分区 UUID 找到那块盘并 `diskutil mount`。
 #[cfg(target_os = "macos")]
-fn esp_mount(digits: &str) -> Result<Option<ActiveMount>, String> {
-    // 已经挂着了（能在 /Volumes 下按 UUID 认出来）就不用动，owned=false 表示不归我们管
-    if let Ok((dir, _)) = grub_esp_dir(digits) {
+fn esp_mount(partuuid: &str) -> Result<Option<ActiveMount>, String> {
+    // 已经挂着了（能在 /Volumes 下按分区 UUID 认出来）就不用动，owned=false 表示不归我们管
+    if let Ok((dir, _)) = grub_esp_dir(partuuid) {
         return Ok(Some(ActiveMount {
             device: PathBuf::new(),
             mountpoint: dir,
@@ -8075,16 +8381,16 @@ fn esp_mount(digits: &str) -> Result<Option<ActiveMount>, String> {
     let node = macos_all_disks()
         .into_iter()
         .find(|info| {
-            info.uuid
+            info.partition_uuid
                 .as_deref()
-                .is_some_and(|uuid| grub::uuid_matches(uuid, digits))
+                .is_some_and(|value| grub::uuid_matches(value, partuuid))
         })
         .and_then(|info| {
             info.node
                 .or_else(|| info.identifier.map(|id| format!("/dev/{id}")))
         })
         .ok_or_else(|| {
-            format!("没找到 fs-uuid 为 {digits} 的分区（diskutil info -all 里没有对得上的）")
+            format!("没找到分区 UUID 为 {partuuid} 的分区（diskutil info -all 里没有对得上的）")
         })?;
     let output = command("diskutil")
         .arg("mount")
@@ -8109,7 +8415,7 @@ fn esp_mount(digits: &str) -> Result<Option<ActiveMount>, String> {
 }
 
 // ---------------------------------------------------------------------------
-// 本端按 fs-uuid 定位 ESP
+// 本端按分区 UUID（GPT PARTUUID，三端同值）定位 ESP
 // ---------------------------------------------------------------------------
 
 #[cfg(target_os = "windows")]
@@ -8130,8 +8436,8 @@ extern "system" {
 
 /// 盘符 → `(文件系统名, 卷序列号十六进制)`；盘符不存在或没有介质时返回 None。
 ///
-/// 卷序列号**就是** GRUB `search --fs-uuid` 比的那串：Windows 从 FAT 引导扇区的
-/// `BS_VolID` 读出来，按十六进制写出来即 `E5377F31`（GRUB 写作 `E537-7F31`）。
+/// 卷序列号是**文件系统**的 fs-uuid（GRUB `search --fs-uuid` 比的那串，
+/// `E5377F31` 形态）—— 仅作展示；识别键是分区 UUID，走下面的 PowerShell。
 #[cfg(target_os = "windows")]
 fn windows_volume(letter: char) -> Option<(String, String)> {
     let root: Vec<u16> = format!("{}:\\", letter.to_ascii_uppercase())
@@ -8165,39 +8471,78 @@ fn windows_volume(letter: char) -> Option<(String, String)> {
     ))
 }
 
-/// Windows：用卷序列号认盘。
+/// 一次 PowerShell 调用枚举所有带盘符分区的 GUID：`盘符 → 分区 UUID`。
+///
+/// GPT 分区 GUID 与 Linux lsblk 的 PARTUUID、macOS diskutil 的
+/// `Disk / Partition UUID` 是同一个值（UEFI 标准渲染，都是 8-4-4-4-12）。
+/// Guid 属性经 ConvertTo-Json 序列化成 `"{…}"` 带花括号的串，要剥掉。
+/// MBR 盘没有 GUID（报告全零），比不上就如实命不中。
 #[cfg(target_os = "windows")]
-fn grub_esp_dir(digits: &str) -> Result<(PathBuf, Option<ActiveMount>), String> {
-    let mask = unsafe { GetLogicalDrives() };
-    for index in 0..26u32 {
-        if mask & (1 << index) == 0 {
-            continue;
-        }
-        let letter = char::from(b'A' + index as u8);
-        let Some((_, serial)) = windows_volume(letter) else {
-            continue;
-        };
-        if grub::uuid_matches(&serial, digits) {
+fn windows_partition_guids() -> Vec<(char, String)> {
+    let output = match command("powershell")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "Get-Partition | Where-Object DriveLetter | Select-Object DriveLetter,Guid | ConvertTo-Json -Compress",
+        ])
+        .stderr(Stdio::null())
+        .output()
+    {
+        Ok(output) if output.status.success() => output,
+        _ => return Vec::new(),
+    };
+    let parsed: serde_json::Value = match serde_json::from_slice(&output.stdout) {
+        Ok(value) => value,
+        Err(_) => return Vec::new(),
+    };
+    // 单个分区时 ConvertTo-Json 出对象而不是数组 —— 统一当数组处理
+    let rows = match parsed {
+        serde_json::Value::Array(rows) => rows,
+        row @ serde_json::Value::Object(_) => vec![row],
+        _ => return Vec::new(),
+    };
+    rows.into_iter()
+        .filter_map(|row| {
+            let letter = row.get("DriveLetter")?.as_str()?.chars().next()?;
+            let guid = row.get("Guid")?.as_str()?;
+            Some((letter, guid.trim_matches(['{', '}']).to_string()))
+        })
+        .collect()
+}
+
+/// Windows：按分区 UUID 认盘（有盘符 = 可访问，没有就如实说）。
+#[cfg(target_os = "windows")]
+fn grub_esp_dir(partuuid: &str) -> Result<(PathBuf, Option<ActiveMount>), String> {
+    let guids = windows_partition_guids();
+    if guids.is_empty() {
+        return Err(
+            "读不到分区的 GUID（PowerShell Get-Partition 失败）：确认这是 GPT 磁盘"
+                .to_string(),
+        );
+    }
+    for (letter, guid) in guids {
+        if grub::uuid_matches(&guid, partuuid) {
             return Ok((PathBuf::from(format!("{letter}:\\")), None));
         }
     }
     Err(format!(
-        "没找到 fs-uuid 为 {digits} 的分区：确认它已在「磁盘管理」里分配了盘符"
+        "没找到分区 UUID 为 {partuuid} 的分区：确认它已在「磁盘管理」里分配了盘符"
     ))
 }
 
 /// Windows 上「已挂载 = 有盘符」，所以 `grub_esp_dir` 本身就是挂载扫描 —— 不用再来一遍。
 #[cfg(target_os = "windows")]
-fn find_mounted_by_uuid(digits: &str) -> Option<PathBuf> {
-    grub_esp_dir(digits).ok().map(|(dir, _)| dir)
+fn find_mounted_by_partuuid(partuuid: &str) -> Option<PathBuf> {
+    grub_esp_dir(partuuid).ok().map(|(dir, _)| dir)
 }
 
-/// Linux：`lsblk --json` 里的 UUID 就是 fs-uuid。已挂载就用现成挂载点；
-/// 没挂载才由我们用 `mount`（必要时 pkexec 提权）以 **rw** 挂上。
+/// Linux：`lsblk --json` 里按**分区 UUID**（PARTUUID 列）认盘。已挂载就用现成
+/// 挂载点；没挂载才由我们用 `mount`（必要时 pkexec 提权）以 **rw** 挂上。
 #[cfg(target_os = "linux")]
-fn grub_esp_dir(digits: &str) -> Result<(PathBuf, Option<ActiveMount>), String> {
+fn grub_esp_dir(partuuid: &str) -> Result<(PathBuf, Option<ActiveMount>), String> {
     let output = command("lsblk")
-        .args(["--json", "--output", "PATH,FSTYPE,UUID,MOUNTPOINTS"])
+        .args(["--json", "--output", "PATH,FSTYPE,UUID,PARTUUID,MOUNTPOINTS"])
         .stderr(Stdio::null())
         .output()
         .map_err(|error| format!("无法执行 lsblk: {error}"))?;
@@ -8205,10 +8550,10 @@ fn grub_esp_dir(digits: &str) -> Result<(PathBuf, Option<ActiveMount>), String> 
         .map_err(|error| format!("无法解析 lsblk 输出: {error}"))?;
 
     for device in devices.blockdevices {
-        let (Some(path), Some(uuid)) = (device.path.clone(), device.uuid.clone()) else {
+        let (Some(path), Some(candidate)) = (device.path.clone(), device.partuuid.clone()) else {
             continue;
         };
-        if !grub::uuid_matches(&uuid, digits) {
+        if !grub::uuid_matches(&candidate, partuuid) {
             continue;
         }
         // 已经挂载：直接用用户的挂载点，绝不擅自改动别人的挂载
@@ -8260,26 +8605,26 @@ fn grub_esp_dir(digits: &str) -> Result<(PathBuf, Option<ActiveMount>), String> 
             }
         }
     }
-    Err(format!("没找到 fs-uuid 为 {digits} 的分区"))
+    Err(format!("没找到分区 UUID 为 {partuuid} 的分区（lsblk 里没有对得上的 PARTUUID）"))
 }
 
-/// Linux：**用户已经挂上的**那块分区，按 fs-uuid 找它的挂载点。
+/// Linux：**用户已经挂上的**那块分区，按分区 UUID 找它的挂载点。
 ///
 /// 和 `grub_esp_dir` 的区别：这个**绝不挂载**，只用 `lsblk` 已经报出来的
 /// MOUNTPOINTS —— 用户自己挂好之后，我们直接把那个路径拿来用。
 #[cfg(target_os = "linux")]
-fn find_mounted_by_uuid(digits: &str) -> Option<PathBuf> {
+fn find_mounted_by_partuuid(partuuid: &str) -> Option<PathBuf> {
     let output = command("lsblk")
-        .args(["--json", "--output", "UUID,MOUNTPOINTS"])
+        .args(["--json", "--output", "PARTUUID,MOUNTPOINTS"])
         .stderr(Stdio::null())
         .output()
         .ok()?;
     let devices: LsblkOutput = serde_json::from_slice(&output.stdout).ok()?;
     for device in devices.blockdevices {
-        let Some(uuid) = device.uuid.as_deref() else {
+        let Some(candidate) = device.partuuid.as_deref() else {
             continue;
         };
-        if !grub::uuid_matches(uuid, digits) {
+        if !grub::uuid_matches(candidate, partuuid) {
             continue;
         }
         if let Some(mountpoint) = device
@@ -8295,12 +8640,12 @@ fn find_mounted_by_uuid(digits: &str) -> Option<PathBuf> {
     None
 }
 
-/// macOS：尽力而为 —— 遍历已挂载的卷，用 `diskutil info` 的 Volume UUID 比对。
+/// macOS：遍历已挂载的卷，按**分区 UUID**（`Disk / Partition UUID`）定位。
 ///
-/// 注意：macOS 给 FAT 卷报的 Volume UUID 与 GRUB 的 fs-uuid **表示形式不同**，
-/// 这里只按「归一化后的十六进制串相等」比对；命不中就如实报错并提示先手动挂载。
+/// 键就是 GPT 分区表里的 GUID，Linux/Windows 报的是同一个值 —— 直接归一化
+/// 比对即可，不需要任何派生换算。命不中就如实报错并提示先手动挂载。
 #[cfg(target_os = "macos")]
-fn grub_esp_dir(digits: &str) -> Result<(PathBuf, Option<ActiveMount>), String> {
+fn grub_esp_dir(partuuid: &str) -> Result<(PathBuf, Option<ActiveMount>), String> {
     let entries =
         fs::read_dir("/Volumes").map_err(|error| format!("无法读取 /Volumes: {error}"))?;
     for entry in entries.flatten() {
@@ -8309,22 +8654,22 @@ fn grub_esp_dir(digits: &str) -> Result<(PathBuf, Option<ActiveMount>), String> 
             continue;
         };
         if info
-            .uuid
+            .partition_uuid
             .as_deref()
-            .is_some_and(|uuid| grub::uuid_matches(uuid, digits))
+            .is_some_and(|value| grub::uuid_matches(value, partuuid))
         {
             return Ok((path, None));
         }
     }
     Err(format!(
-        "没在 /Volumes 下找到 fs-uuid 为 {digits} 的 ESP；请先在 macOS 上手动挂载该分区"
+        "没在 /Volumes 下找到分区 UUID 为 {partuuid} 的 ESP；请先在 macOS 上手动挂载该分区"
     ))
 }
 
-/// macOS：已挂载的卷里按 Volume UUID 找（和 `grub_esp_dir` 同一套比对）。
+/// macOS：已挂载的卷里按分区 UUID 找（和 `grub_esp_dir` 同一套比对）。
 #[cfg(target_os = "macos")]
-fn find_mounted_by_uuid(digits: &str) -> Option<PathBuf> {
-    grub_esp_dir(digits).ok().map(|(dir, _)| dir)
+fn find_mounted_by_partuuid(partuuid: &str) -> Option<PathBuf> {
+    grub_esp_dir(partuuid).ok().map(|(dir, _)| dir)
 }
 
 // ---------------------------------------------------------------------------
@@ -8375,7 +8720,7 @@ impl Drop for RemoteNoGuiAuth {
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn gui_auth_forbidden() -> Option<String> {
     REMOTE_NO_GUI_AUTH.load(Ordering::SeqCst).then(|| {
-        "需要本机授权（远程请求默认不弹授权框）：请在目标机主窗口点一次「同步」，\
+        "需要本机授权（远程请求默认不弹授权框）：请在目标机主窗口点一次「识别」，\
          或打开 remoteAllowGuiAuth，或把 ESP 挂成当前用户可写（见 README 权限说明）"
             .to_string()
     })
@@ -8664,18 +9009,18 @@ fn merge_mount(
 /// Linux 的 `grub_esp_dir` 本身就负责「没挂就挂上」；macOS 的只认已挂载的卷，
 /// 所以这里给 macOS 补一次 `diskutil mount`（只在勾了「保持挂载」时做 ——
 /// 用户没说要挂，就不该悄悄动他的磁盘）。
-fn grub_locate(digits: &str, allow_mount: bool) -> Result<(PathBuf, Option<ActiveMount>), String> {
+fn grub_locate(partuuid: &str, allow_mount: bool) -> Result<(PathBuf, Option<ActiveMount>), String> {
     // ① 已经挂着的：直接用（owned = false，不归我们管，也不会被我们卸掉）
-    if let Some(dir) = find_mounted_by_uuid(digits) {
+    if let Some(dir) = find_mounted_by_partuuid(partuuid) {
         return Ok((dir, None));
     }
     // ② 没挂上：Linux 走 grub_esp_dir（会按需 mount），macOS 按需 diskutil mount
-    match grub_esp_dir(digits) {
+    match grub_esp_dir(partuuid) {
         Ok(found) => Ok(found),
         Err(error) => {
             if cfg!(target_os = "macos") && allow_mount {
                 #[cfg(target_os = "macos")]
-                match esp_mount(digits) {
+                match esp_mount(partuuid) {
                     Ok(Some(mount)) => return Ok((mount.mountpoint.clone(), Some(mount))),
                     Ok(None) => {}
                     Err(mount_error) => return Err(format!("{error}；{mount_error}")),
@@ -8688,29 +9033,32 @@ fn grub_locate(digits: &str, allow_mount: bool) -> Result<(PathBuf, Option<Activ
 
 /// 只读 ESP 上的 grub.cfg 与 grubenv。
 ///
-/// * `Ok(Some(scan))` —— 定位到了 ESP（按 fs-uuid，或按用户填的目录）
-/// * `Ok(None)` —— 既没填 fs-uuid 也没填目录，什么都不做
+/// * `Ok(Some(scan))` —— 定位到了 ESP（按分区 UUID，或按用户填的目录）
+/// * `Ok(None)` —— 既没填分区 UUID 也没填目录，什么都不做
 ///
 /// `reusable` 是上一次自己挂上的那份（勾了「保持挂载」才会传进来）。
 fn grub_scan(
     settings: &Settings,
     reusable: Option<ActiveMount>,
 ) -> Result<Option<GrubScan>, String> {
-    let uuid = settings.grub_efi_uuid.trim().to_string();
+    let uuid = settings.grub_efi_partuuid.trim().to_string();
     let dir = settings.grub_efi_dir.trim().to_string();
     if uuid.is_empty() && dir.is_empty() {
         release_mount(reusable);
         return Ok(None);
     }
 
-    // ① 定位：填了 fs-uuid 就按 fs-uuid 找（先看已挂载的，再按需挂载）；只有目录就直接用目录
+    // ① 定位：填了分区 UUID 就按它找（先看已挂载的，再按需挂载）；只有目录就直接用目录
     let efi_dir_from_uuid = !uuid.is_empty();
     let located = if uuid.is_empty() {
         None
     } else {
-        let Some(digits) = grub::uuid_digits(&uuid) else {
+        let Some(digits) = grub::partuuid_digits(&uuid) else {
             release_mount(reusable);
-            return Err(format!("fs-uuid 格式不对：{uuid}（例如应为 E537-7F31）"));
+            return Err(format!(
+                "分区 UUID 格式不对：{uuid}（GPT 分区 GUID，32 位标准 UUID，\
+                 如 F69D7BF9-E8A9-3135-A5CB-4BD0CA7344E3）"
+            ));
         };
         match grub_locate(&digits, settings.grub_keep_mounted) {
             Ok(found) => Some(found),
@@ -8885,24 +9233,24 @@ fn grub_snapshot(app: &AppHandle, settings: &Settings) -> GrubView {
         let state = state.lock().expect("state mutex poisoned");
         (state.grub.clone(), state.script_log.clone())
     };
-    let uuid = settings.grub_efi_uuid.trim().to_string();
-    let uuid_digits = grub::uuid_digits(&uuid);
+    let uuid = settings.grub_efi_partuuid.trim().to_string();
     let hint = if uuid.is_empty() {
         Some(
-            "填 ESP 目录后点「识别」（自动判断是不是 FAT32 并取出 fs-uuid），或者直接手工填 fs-uuid"
+            "填 ESP 目录后点「识别」（自动判断是不是 FAT32 并取出分区 UUID），\
+             或者直接手工填分区 UUID（三端都报同一个值：Linux lsblk -o PARTUUID / \
+             macOS diskutil 的 Disk / Partition UUID / Windows Get-Partition 的 Guid）"
                 .to_string(),
         )
     } else if cfg!(target_os = "linux") {
         Some(
-            "执行过 update-grub / grub-mkconfig 之后，请在这里点一次「同步」或重启本程序"
+            "执行过 update-grub / grub-mkconfig 之后，请在这里点一次「识别」或重启本程序"
                 .to_string(),
         )
     } else {
         Some("列表读的是 ESP 上的 grub.cfg 副本；Linux 端更新过 GRUB 后需重新同步".to_string())
     };
     GrubView {
-        uuid,
-        uuid_digits,
+        partuuid: uuid,
         dir: settings.grub_efi_dir.trim().to_string(),
         esp: runtime.esp.clone(),
         keep_mounted: settings.grub_keep_mounted,
@@ -9049,19 +9397,53 @@ fn grub_run_mkconfig(log: &mut Vec<String>) -> Result<(), String> {
     Err(last_error)
 }
 
+/// Linux：按分区 UUID 查那块分区的 fs-uuid（lsblk 的 UUID 列，udev 数据库，
+/// 普通用户可读）。GRUB 的 `search --fs-uuid` 只认 fs-uuid，所以 09_anyboot
+/// 写盘前要从识别键（分区 UUID）现场解析一次。
+#[cfg(target_os = "linux")]
+fn linux_fsuuid_of_partuuid(partuuid: &str) -> Option<String> {
+    let output = command("lsblk")
+        .args(["--json", "--output", "UUID,PARTUUID"])
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    let devices: LsblkOutput = serde_json::from_slice(&output.stdout).ok()?;
+    devices
+        .blockdevices
+        .into_iter()
+        .find(|device| {
+            device
+                .partuuid
+                .as_deref()
+                .is_some_and(|value| grub::uuid_matches(value, partuuid))
+        })?
+        .uuid
+        .filter(|value| grub::uuid_digits(value).is_some())
+}
+
 #[cfg(target_os = "linux")]
 fn grub_install_script(app: &AppHandle, log: &mut Vec<String>) -> Result<String, String> {
     let settings = stored_settings(app);
-    let Some(digits) = grub::uuid_digits(&settings.grub_efi_uuid) else {
-        script_log_push(log, "缺少 ESP 的 fs-uuid，安装中止");
-        return Err("请先填写并保存 ESP 的 fs-uuid".to_string());
+    let Some(partuuid) = grub::partuuid_digits(&settings.grub_efi_partuuid) else {
+        script_log_push(log, "缺少 ESP 的分区 UUID，安装中止");
+        return Err("请先填写并保存 ESP 的分区 UUID".to_string());
     };
-    let content = grub_script_content(grub_template(&settings), &grub::uuid_pretty(&digits));
+    let Some(fsuuid) = linux_fsuuid_of_partuuid(&partuuid) else {
+        script_log_push(log, "从分区 UUID 解析不出 fs-uuid（lsblk 没报这块分区的 UUID），安装中止");
+        return Err(
+            "从分区 UUID 解析不出 fs-uuid —— GRUB 的 search --fs-uuid 只认 fs-uuid；\
+             确认这块分区还在（lsblk 里 PARTUUID 对得上且 UUID 列有值）"
+                .to_string(),
+        );
+    };
+    let content = grub_script_content(grub_template(&settings), &grub::uuid_pretty(&fsuuid));
     script_log_push(
         log,
         &format!(
-            "准备安装 {GRUB_SCRIPT_PATH}（把 @@ESP_UUID@@ 换成 {}）",
-            grub::uuid_pretty(&digits)
+            "准备安装 {GRUB_SCRIPT_PATH}（把 @@ESP_UUID@@ 换成 {}，\
+             由分区 UUID {} 解析而来）",
+            grub::uuid_pretty(&fsuuid),
+            grub::uuid_pretty(&partuuid)
         ),
     );
 
@@ -9098,7 +9480,7 @@ fn grub_install_script(app: &AppHandle, log: &mut Vec<String>) -> Result<String,
     grub_run_mkconfig(log)?;
     Ok(format!(
         "已安装 {GRUB_SCRIPT_PATH} 并重新生成 grub.cfg（fs-uuid = {}）",
-        grub::uuid_pretty(&digits)
+        grub::uuid_pretty(&fsuuid)
     ))
 }
 
@@ -9185,18 +9567,19 @@ fn switch_system(app: AppHandle, system: String) -> AppStatus {
 
 // ---- GRUB 细粒度切换的命令面 ----
 
-/// 保存 ESP 的 fs-uuid。填了它，主窗口才会出现「GRUB 启动项」区块。
+/// 保存 ESP 的**分区 UUID**。填了它，主窗口才会出现「GRUB 启动项」区块。
 #[tauri::command]
-fn set_grub_uuid(app: AppHandle, uuid: String) -> Result<(), String> {
-    trace(&app, "command", &format!("set_grub_uuid uuid={uuid}"));
-    let trimmed = uuid.trim().to_string();
-    if !trimmed.is_empty() && grub::uuid_digits(&trimmed).is_none() {
+fn set_grub_partuuid(app: AppHandle, partuuid: String) -> Result<(), String> {
+    trace(&app, "command", &format!("set_grub_partuuid partuuid={partuuid}"));
+    let trimmed = partuuid.trim().to_string();
+    if !trimmed.is_empty() && grub::partuuid_digits(&trimmed).is_none() {
         return Err(format!(
-            "fs-uuid 不像有效值：{trimmed}（形如 E537-7F31 或 E5377F31）"
+            "分区 UUID 不像有效值：{trimmed}（GPT 分区 GUID，32 位标准 UUID，\
+             如 F69D7BF9-E8A9-3135-A5CB-4BD0CA7344E3）"
         ));
     }
     let mut settings = stored_settings(&app);
-    settings.grub_efi_uuid = trimmed;
+    settings.grub_efi_partuuid = trimmed;
     save_settings(&app, &settings)?;
     refresh_grub(&app);
     publish_ui(&app);
@@ -9204,6 +9587,21 @@ fn set_grub_uuid(app: AppHandle, uuid: String) -> Result<(), String> {
 }
 
 /// 保存用户改过的 09_anyboot 正文；传空串 = 恢复内置模板。
+/// 保存用户填的 ESP 目录**原文**；传空串 = 清空（分区 UUID 不动，它才是权威键）。
+///
+/// 与「识别」（detect_esp）的区别：这里不做 FAT32 校验、不取分区 UUID，
+/// 纯落盘 —— 用户就是想改目录原文（包括清成空），识别才是校验+取键的入口。
+#[tauri::command]
+fn set_grub_dir(app: AppHandle, dir: String) -> Result<(), String> {
+    trace(&app, "command", &format!("set_grub_dir dir={dir}"));
+    let mut settings = stored_settings(&app);
+    settings.grub_efi_dir = dir.trim().to_string();
+    save_settings(&app, &settings)?;
+    refresh_grub(&app);
+    publish_ui(&app);
+    Ok(())
+}
+
 #[tauri::command]
 fn set_grub_script(app: AppHandle, script: String) -> Result<(), String> {
     trace(&app, "command", "set_grub_script");
@@ -9214,9 +9612,39 @@ fn set_grub_script(app: AppHandle, script: String) -> Result<(), String> {
     Ok(())
 }
 
-/// 识别 ESP 分区：判断是不是 FAT32，并把从中取到的 fs-uuid 填进设置。
+/// 呼出**系统原生文件夹选择框**，让用户挑 ESP 分区里的目录去识别。
 ///
-/// 填目录是**可选的入口**：fs-uuid 才是权威键。识别成功后存的是**分区根目录**，
+/// 返回选中的路径（取消返回 None）；识别本身走同一条 `detect_esp` ——
+/// 成功后分区 UUID 与 ESP 目录一起落盘，「选文件夹」和「填分区 UUID」两个
+/// 入口自动对上（分区 UUID 是权威键，目录只是入口）。
+///
+/// 走 tauri-plugin-dialog 的 Rust API（macOS NSOpenPanel / Windows
+/// 文件夹对话框 / Linux GTK 选择器），不暴露前端 JS 插件层，所以也不需要
+/// capabilities 权限配置。回调是异步回来的：阻塞等结果的活儿丢进
+/// spawn_blocking，别占 async runtime 的工作线程。
+#[tauri::command]
+async fn pick_grub_dir(app: AppHandle) -> Result<Option<String>, String> {
+    trace(&app, "command", "pick_grub_dir");
+    tauri::async_runtime::spawn_blocking(move || {
+        let (tx, rx) = std::sync::mpsc::channel();
+        app.dialog()
+            .file()
+            .set_title("选择 ESP 分区里的文件夹")
+            .pick_folder(move |path| {
+                let picked = path.and_then(|p| p.into_path().ok()).map(|p| {
+                    display_path(&p).display().to_string()
+                });
+                let _ = tx.send(picked);
+            });
+        rx.recv().map_err(|_| "文件夹选择框被关闭".to_string())
+    })
+    .await
+    .map_err(|error| format!("文件夹选择框执行失败: {error}"))?
+}
+
+/// 识别 ESP 分区：判断是不是 FAT32，并把分区 UUID（识别键）填进设置。
+///
+/// 填目录是**可选的入口**：分区 UUID 才是权威键。识别成功后存的是**分区根目录**，
 /// 所以用户填 `H:\EFI` 或 `/boot/efi/EFI/grub.cfg` 都会归一化成 `H:\` / `/boot/efi`。
 #[tauri::command]
 fn detect_esp(app: AppHandle, path: String) -> Result<String, String> {
@@ -9237,13 +9665,18 @@ fn detect_esp(app: AppHandle, path: String) -> Result<String, String> {
     let root = info.root.clone().unwrap_or_else(|| raw.clone());
     let mut settings = stored_settings(&app);
     settings.grub_efi_dir = root.clone();
-    let message = match &info.uuid {
-        Some(uuid) => {
-            settings.grub_efi_uuid = uuid.clone();
-            format!("{root} 是 {fstype}，fs-uuid = {uuid}（已填好）")
+    let message = match &info.partuuid {
+        Some(partuuid) => {
+            settings.grub_efi_partuuid = partuuid.clone();
+            match &info.uuid {
+                Some(fsuuid) => format!(
+                    "{root} 是 {fstype}，分区 UUID = {partuuid}，fs-uuid = {fsuuid}（已填好）"
+                ),
+                None => format!("{root} 是 {fstype}，分区 UUID = {partuuid}（已填好）"),
+            }
         }
         None => format!(
-            "{root} 是 {fstype}，但没取出 fs-uuid —— {}",
+            "{root} 是 {fstype}，但没取出分区 UUID —— {}",
             info.note
                 .clone()
                 .unwrap_or_else(|| "请手工填写".to_string())
@@ -9259,7 +9692,7 @@ fn detect_esp(app: AppHandle, path: String) -> Result<String, String> {
     Ok(message)
 }
 
-/// 勾选「挂载 ESP」：勾上就按 fs-uuid 挂上来并保持，取消就卸掉**自己挂的那份**。
+/// 勾选「挂载 ESP」：勾上就按分区 UUID 挂上来并保持，取消就卸掉**自己挂的那份**。
 ///
 /// 用户自己挂的（`owned = false`）绝不去卸 —— 那是别人的挂载。
 #[tauri::command]
@@ -9271,13 +9704,13 @@ fn set_grub_mount(app: AppHandle, enabled: bool) -> Result<(), String> {
     );
     if enabled && !esp_mount_supported() {
         return Err(
-            "本端不能按 fs-uuid 挂载：请先在「磁盘管理」里给这个分区分配盘符，再填盘符路径"
+            "本端不能按分区 UUID 挂载：请先在「磁盘管理」里给这个分区分配盘符，再填盘符路径"
                 .to_string(),
         );
     }
     let mut settings = stored_settings(&app);
-    if enabled && grub::uuid_digits(&settings.grub_efi_uuid).is_none() {
-        return Err("先填好 ESP 的 fs-uuid（或在上面填目录点「识别」自动取）".to_string());
+    if enabled && grub::partuuid_digits(&settings.grub_efi_partuuid).is_none() {
+        return Err("先填好 ESP 的分区 UUID（或在上面填目录点「识别」自动取）".to_string());
     }
     settings.grub_keep_mounted = enabled;
     save_settings(&app, &settings)?;
@@ -9291,7 +9724,7 @@ fn set_grub_mount(app: AppHandle, enabled: bool) -> Result<(), String> {
         release_mount(mount);
     }
 
-    // 勾上 = 走一次扫描（里面会按 fs-uuid 挂载并把具柄留下）；取消 = 上面已经卸了
+    // 勾上 = 走一次扫描（里面会按分区 UUID 挂载并把具柄留下）；取消 = 上面已经卸了
     if enabled {
         set_busy(&app, |busy| busy.scanning = true);
         let outcome = rescan_grub(&app);
@@ -9320,7 +9753,7 @@ fn set_grub_mount(app: AppHandle, enabled: bool) -> Result<(), String> {
 
 /// 用系统文件管理器打开 ESP 目录（三端都走同一条 `open_directory_in_explorer`）。
 ///
-/// 解析顺序：内存里刚扫出来的目录 → 用户填的 fs-uuid 现找（**含已挂载的**）→
+/// 解析顺序：内存里刚扫出来的目录 → 用户填的分区 UUID 现找（**含已挂载的**）→
 /// 用户填的目录原文。都不行才报错，并把「该怎么办」说清楚。
 #[tauri::command]
 fn open_grub_dir(app: AppHandle) -> Result<String, String> {
@@ -9338,8 +9771,8 @@ fn open_grub_dir(app: AppHandle) -> Result<String, String> {
         return Ok(display_path(&dir).display().to_string());
     }
 
-    // 内存里没有：按用户填的 fs-uuid 现找一次（已挂载的优先）
-    if let Some(digits) = grub::uuid_digits(&settings.grub_efi_uuid) {
+    // 内存里没有：按用户填的分区 UUID 现找一次（已挂载的优先）
+    if let Some(digits) = grub::partuuid_digits(&settings.grub_efi_partuuid) {
         if let Ok((dir, mount)) = grub_locate(&digits, settings.grub_keep_mounted) {
             let result = open_directory_in_explorer(&dir);
             release_mount(mount);
@@ -9357,11 +9790,11 @@ fn open_grub_dir(app: AppHandle) -> Result<String, String> {
             return Ok(display_path(&dir).display().to_string());
         }
         return Err(format!(
-            "{raw} 现在打不开（ESP 没挂上？先填 fs-uuid 或在上面填目录后点「识别」）"
+            "{raw} 现在打不开（ESP 没挂上？先填分区 UUID 或在上面填目录后点「识别」）"
         ));
     }
 
-    Err("还不知道 ESP 在哪儿：先填 fs-uuid，或在上面填目录后点「识别」".to_string())
+    Err("还不知道 ESP 在哪儿：先填分区 UUID，或在上面填目录后点「识别」".to_string())
 }
 
 /// 手动同步：Linux 上顺便把 /boot/grub 的 grub.cfg 与 grubenv 搬进 ESP。
@@ -10035,6 +10468,7 @@ pub fn run() {
             MacosLauncher::LaunchAgent,
             None,
         ))
+        .plugin(tauri_plugin_dialog::init())
         .on_window_event(|window, event| {
             // 主窗口与 GRUB 独立窗口作为一个整体**常驻最顶层**：任何情况下都不
             // 被别的窗口覆盖（用户明确要求）。呼出 / 拿到焦点时再确认一次置顶；
@@ -10146,6 +10580,7 @@ pub fn run() {
             // 诊断钩子：模拟一次「托盘呼出」（见 spawn_diag_recall）。不设环境变量时
             // 这里什么都不做，产品路径一行不变。
             spawn_diag_recall(app.handle());
+            spawn_diag_force_dock(app.handle());
 
             // 第一帧就用完整菜单（系统项 / 应用设置 / 电源项都在），
             // 不再让用户在冷启动扫描期间看到一个残缺菜单（阶段 1 修 D2）。
@@ -10231,9 +10666,11 @@ pub fn run() {
             refresh,
             set_vars_dir,
             switch_system,
-            set_grub_uuid,
+            set_grub_partuuid,
+            set_grub_dir,
             set_grub_script,
             detect_esp,
+            pick_grub_dir,
             set_grub_mount,
             open_grub_dir,
             sync_grub,
@@ -10246,6 +10683,11 @@ pub fn run() {
             set_main_dock_strip_length,
             set_main_dock_strip_opacity,
             set_main_dock_strip_color,
+            set_main_hotzone_thickness,
+            set_main_hotzone_color,
+            set_main_hotzone_opacity,
+            set_main_hotzone_border,
+            set_main_hotzone_border_color,
             set_accent_color,
             set_main_window_position,
             set_grub_list_view,
@@ -10579,6 +11021,44 @@ mod core_tests {
             redock_edge(None, 700, 500, 460, 900, 0, 0, 1600, 1000),
             nearest_edge(700, 500, 460, 900, 0, 0, 1600, 1000)
         );
+    }
+
+    #[test]
+    fn hotzone_hit_matches_band_geometry() {
+        // 工作区 1600x1000 @ (0,0)，窗口贴顶边（x=100 宽 800，y=0 高 40 槽位），
+        // 热区厚 40（默认 = 槽位，行为与旧的「窗口矩形判定」一致）。
+        let hit = |edge, hz, cx, cy| {
+            hotzone_hit(edge, 0, 0, 1600, 1000, 100, 0, 800, 40, hz, cx, cy)
+        };
+        // Top：带内 y ∈ [0, 40)，沿边轴 x ∈ [100, 900)
+        assert!(hit(DockEdge::Top, 40, 500, 0));
+        assert!(hit(DockEdge::Top, 40, 500, 39));
+        assert!(!hit(DockEdge::Top, 40, 500, 40)); // 带外（恰好在边界上）
+        assert!(!hit(DockEdge::Top, 40, 99, 10)); // 沿边轴窗口范围外
+        assert!(!hit(DockEdge::Top, 40, 900, 10)); // 半开区间右端不含
+        // 厚度独立于窗口：热区 100 > 槽位 40，鼠标在窗口外（y=80）照样命中
+        assert!(hit(DockEdge::Top, 100, 500, 80));
+        // Bottom：带 y ∈ (1000-40, 1000]，窗口贴底 y=960 高 40
+        assert!(hotzone_hit(
+            DockEdge::Bottom, 0, 0, 1600, 1000, 100, 960, 800, 40, 40, 500, 999
+        ));
+        assert!(!hotzone_hit(
+            DockEdge::Bottom, 0, 0, 1600, 1000, 100, 960, 800, 40, 40, 500, 959
+        ));
+        // Left：带 x ∈ [0, 40)，窗口贴左 y=200 高 600
+        assert!(hotzone_hit(
+            DockEdge::Left, 0, 0, 1600, 1000, 0, 200, 40, 600, 40, 20, 500
+        ));
+        assert!(!hotzone_hit(
+            DockEdge::Left, 0, 0, 1600, 1000, 0, 200, 40, 600, 40, 50, 500
+        ));
+        // Right：带 x ∈ [1600-40, 1600)，窗口贴右 x=1560（半开区间与其它边一致）
+        assert!(hotzone_hit(
+            DockEdge::Right, 0, 0, 1600, 1000, 1560, 200, 40, 600, 40, 1560, 500
+        ));
+        assert!(!hotzone_hit(
+            DockEdge::Right, 0, 0, 1600, 1000, 1560, 200, 40, 600, 40, 1559, 500
+        ));
     }
 
     #[test]
@@ -12008,6 +12488,19 @@ mod core_tests {
     }
 
     #[test]
+    fn partuuid_digits_requires_32_hex() {
+        // 标准 GPT GUID（带连字符），归一化成 32 位大写
+        assert_eq!(
+            grub::partuuid_digits("F69D7BF9-E8A9-3135-A5CB-4BD0CA7344E3"),
+            Some("F69D7BF9E8A93135A5CB4BD0CA7344E3".to_string())
+        );
+        // 8 位 FAT 卷序列号是 fs-uuid 不是分区 UUID，必须拒 —— 两个键空间别混
+        assert_eq!(grub::partuuid_digits("E537-7F31"), None);
+        assert_eq!(grub::partuuid_digits(""), None);
+        assert_eq!(grub::partuuid_digits("1234567890abcdefg"), None);
+    }
+
+    #[test]
     fn esp_info_serializes_the_keys_the_window_reads() {
         let info = EspInfo {
             path: "H:\\".to_string(),
@@ -12016,6 +12509,7 @@ mod core_tests {
             fat: true,
             fat32: true,
             uuid: Some("E537-7F31".to_string()),
+            partuuid: Some("F69D7BF9-E8A9-3135-A5CB-4BD0CA7344E3".to_string()),
             mounted: true,
             owned_mount: false,
             ..EspInfo::default()
@@ -12024,6 +12518,10 @@ mod core_tests {
         assert_eq!(json["fat32"], serde_json::json!(true));
         assert_eq!(json["fat"], serde_json::json!(true));
         assert_eq!(json["uuid"], serde_json::json!("E537-7F31"));
+        assert_eq!(
+            json["partuuid"],
+            serde_json::json!("F69D7BF9-E8A9-3135-A5CB-4BD0CA7344E3")
+        );
         assert_eq!(json["ownedMount"], serde_json::json!(false));
         assert_eq!(json["fstype"], serde_json::json!("FAT32"));
     }

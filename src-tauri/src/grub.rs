@@ -469,6 +469,11 @@ pub fn uuid_digits(raw: &str) -> Option<String> {
 }
 
 /// 把归一化后的十六进制串还原成惯用写法（FAT 卷序列号 8 位 → `E537-7F31`）。
+/// 只有 Windows 探测与 Linux 脚本安装消费它。
+#[cfg_attr(
+    not(any(target_os = "linux", target_os = "windows")),
+    allow(dead_code)
+)]
 pub fn uuid_pretty(digits: &str) -> String {
     match digits.len() {
         8 => format!("{}-{}", &digits[..4], &digits[4..]),
@@ -490,6 +495,22 @@ pub fn uuid_matches(left: &str, right: &str) -> bool {
         (Some(a), Some(b)) => a == b,
         _ => false,
     }
+}
+
+// ---------------------------------------------------------------------------
+// 分区 UUID（GPT PARTUUID）—— 本程序识别 ESP 的权威键
+// ---------------------------------------------------------------------------
+
+/// 归一化分区 UUID：GPT 分区表里的 GUID，去分隔符后**必须恰好 32 位**十六进制。
+///
+/// 为什么用它当识别键：它写在 GPT 分区表里，**三端报的是同一个值** ——
+/// Linux `lsblk -o PARTUUID` / `blkid`、macOS `diskutil info` 的
+/// `Disk / Partition UUID`、Windows `Get-Partition` 的 `Guid`。
+/// 而文件系统的 fs-uuid（FAT 上是 8 位卷序列号）GRUB 认得但 macOS 用户态
+/// 读不到，macOS 自己报的 Volume UUID 又是 MD5 派生值、反推不回去。
+pub fn partuuid_digits(raw: &str) -> Option<String> {
+    let digits = uuid_digits(raw)?;
+    (digits.len() == 32).then_some(digits)
 }
 
 #[cfg(test)]

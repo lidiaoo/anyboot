@@ -565,6 +565,33 @@ body[data-grub-mode="pane"] #grub {
   background: var(--input-bg);
 }
 
+/* GRUB 空状态：还没识别出任何 GRUB 信息（没填 fs-uuid、也没识别过目录）
+ * 时替代一片空白的引导卡。虚线框 = 「这里是空的、等你来填」。 */
+.grub-empty-state {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+  margin-bottom: 10px;
+  padding: 14px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 8px;
+}
+
+.grub-empty-state strong {
+  font-size: 13px;
+}
+
+.grub-empty-state small {
+  color: var(--text-faint);
+  line-height: 1.5;
+}
+
+/* display:flex 会压过 [hidden] 的 UA 样式，显式补一条 */
+.grub-empty-state[hidden] {
+  display: none;
+}
+
 .grub-list-body {
   display: grid;
   gap: 4px;
@@ -1136,6 +1163,38 @@ body.dock-left .status-bar,
 body.dock-right .status-bar {
   display: none;
 }
+/* 停靠缝的「零竞态」兜底：后端 dock 是 hide→缩几何→show，show 出来那一帧
+ * viewport 已经只有缝那么厚（40px 逻辑像素量级），而「docked=true」广播还在
+ * IPC 路上、body.dock-* 类没加上 —— 之前那一帧显示的是主界面在缝里的切片，
+ * 透明窗口后就是肉眼可见的「主界面残留一角再消失」。正常窗口最小 360x560，
+ * 不可能窄/矮到 100px 以下；viewport 一旦小于这个值必然是停靠缝，按 viewport
+ * 尺寸直接藏内容 —— 同步于渲染，不依赖事件时序。 */
+@media (max-height: 100px), (max-width: 100px) {
+  html,
+  body {
+    background: transparent;
+  }
+  main,
+  .app-columns,
+  .status-bar {
+    display: none;
+  }
+}
+/* dock 前的「清屏」帧：停靠流程是 hide→缩几何→show，但 macOS 窗口服务器
+ * 在窗口重新出现的第一帧会先摆出**隐藏前缓存的最后一帧**——上面那个媒体
+ * 查询只管新绘的帧，管不住这帧旧缓冲（主界面切片直接浮在桌面上，就是
+ * 「残影子」）。修法：后端 dock 在窗口**还可见**时先给 html 加 dock-pending，
+ * 让 WebView 把最后一帧刷成全透明，再 hide。缓存帧 = 全透明 → show 无旧内容。
+ * 类由后端 eval 添加/移除，undock 时移除。 */
+html.dock-pending,
+html.dock-pending body {
+  background: transparent;
+}
+html.dock-pending main,
+html.dock-pending .app-columns,
+html.dock-pending .status-bar {
+  display: none;
+}
 #dock-strip {
   position: fixed;
   display: none;
@@ -1180,4 +1239,50 @@ body.dock-right #dock-strip {
   transform: translateY(-50%);
   height: var(--dock-strip-length, 100%);
   width: var(--dock-strip-thickness, 6px);
+}
+
+/* ============ 热区可视化层 ============
+   贴边态下把「鼠标移入即呼出」的触发带画出来，调试用：默认全透明 + 无边框
+   （--hotzone-opacity 默认 0、--hotzone-border-width 默认 0），用户从设置里
+   打开底色或边框才可见。厚度是「热区设置厚度 − 贴边缝隙」（app.js 算好写入，
+   已 clamp 到窗口槽位 40px 内），贴屏幕边一侧铺开 —— 与后端热区判定矩形的
+   可见部分严格对齐。 */
+#hotzone {
+  position: fixed;
+  display: none;
+  background: var(--hotzone-color, #ff0000);
+  opacity: var(--hotzone-opacity, 0);
+  border: var(--hotzone-border-width, 0px) solid var(--hotzone-border-color, #ff0000);
+  box-sizing: border-box;
+  /* 白条画在上面（9999），热区是背景参考层 */
+  z-index: 9998;
+  pointer-events: none;
+}
+body.dock-bottom #hotzone {
+  display: block;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: var(--hotzone-thickness, 40px);
+}
+body.dock-top #hotzone {
+  display: block;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--hotzone-thickness, 40px);
+}
+body.dock-left #hotzone {
+  display: block;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: var(--hotzone-thickness, 40px);
+}
+body.dock-right #hotzone {
+  display: block;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: var(--hotzone-thickness, 40px);
 }

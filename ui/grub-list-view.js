@@ -17,7 +17,7 @@ function renderGrubActive(container, grub) {
 
   container.replaceChildren();
   if (!active) {
-    if (grub.uuid) {
+    if (grub.partuuid) {
       const none = document.createElement("small");
       none.className = "grub-active-none";
       none.textContent = "尚未选择启动项";
@@ -46,9 +46,9 @@ function renderGrubEntries({ container, grub, busy, onSwitch }) {
   if (!entries.length) {
     const empty = document.createElement("small");
     empty.className = "grub-empty";
-    empty.textContent = grub.uuid
+    empty.textContent = grub.partuuid
       ? "还没有可显示的启动项 —— 先在 Linux 上装好 09_anyboot 并同步一次"
-      : "填好 ESP 目录（点「识别」）或 fs-uuid，就能列出 GRUB 启动项";
+      : "填好 ESP 目录（点「识别」）或分区 UUID，就能列出 GRUB 启动项";
     container.append(empty);
     return;
   }
