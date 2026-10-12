@@ -1806,6 +1806,9 @@ fn refresh_and_update(app: &AppHandle) -> AppStatus {
     );
     // GRUB 那条链路跟着一起刷新：Linux 端顺带把 /boot/grub 的两份数据同步到 ESP，
     // 其它端就是重新解析 ESP 上的副本。用户要的「每次启动软件自动同步一次」在这里。
+    // **硬性条件（用户定案）**：ESP 必须已经由当前系统挂载在 /boot 下（fstab
+    // 统一方案）—— 没挂就整条跳过：不自动挂载、不 pkexec、不写盘。手动链路
+    // （识别/挂载/同步按钮）不受此限。
     refresh_grub(app);
     // 扫描结束：清 busy 并发布快照（托盘菜单与主窗口一起更新、菜单指纹相同就跳过重建）
     set_busy(app, |busy| busy.scanning = false);
@@ -8627,17 +8630,66 @@ fn find_mounted_by_partuuid(partuuid: &str) -> Option<PathBuf> {
         if !grub::uuid_matches(candidate, partuuid) {
             continue;
         }
-        if let Some(mountpoint) = device
+        let mountpoints: Vec<String> = device
             .mountpoints
             .unwrap_or_default()
             .into_iter()
             .flatten()
-            .find(|mountpoint| !mountpoint.is_empty())
-        {
-            return Some(PathBuf::from(mountpoint));
+            .filter(|mountpoint| !mountpoint.is_empty())
+            .collect();
+        if mountpoints.is_empty() {
+            continue;
         }
+        // 一块分区可以同时挂在多处（fstab 的 /boot/efi + 桌面的自动挂载）。
+        // 优先取 /boot 下的挂载点 —— 那是 fstab 方案里「系统已经挂好的引导
+        // 数据」；/media 之类的自动挂载只是顺手，不该被当成首选。
+        return mountpoints
+            .iter()
+            .find(|mountpoint| under_boot(mountpoint))
+            .or_else(|| mountpoints.first())
+            .map(PathBuf::from);
     }
     None
+}
+
+/// 挂载点是否在 `/boot` 下（fstab 统一方案的约定位置）。纯函数，便于单测。
+#[cfg(target_os = "linux")]
+fn under_boot(mountpoint: &str) -> bool {
+    mountpoint == "/boot" || mountpoint.starts_with("/boot/")
+}
+
+/// 启动/刷新链路的同步硬性条件（用户定案）：ESP 必须已经由**当前系统**
+/// 挂载好（fstab 挂在 /boot 下），启动同步才会进行；否则**一个字节都不动**
+/// —— 不自动挂载、不 pkexec、不写盘。判据：
+/// * 填了分区 UUID → `lsblk` 里它有挂载点且在 /boot 下；
+/// * 只填了目录 → `findmnt --target` 报的挂载点在 /boot 下（目录没挂上时
+///   报的是根挂载 `/`，直接不通过 —— 防止把 grub.cfg 写进根文件系统的
+///   普通目录）。
+#[cfg(target_os = "linux")]
+fn grub_esp_ready(settings: &Settings) -> bool {
+    let uuid = settings.grub_efi_partuuid.trim();
+    let dir = settings.grub_efi_dir.trim();
+    if !uuid.is_empty() {
+        return find_mounted_by_partuuid(uuid)
+            .is_some_and(|mount| under_boot(&mount.display().to_string()));
+    }
+    if !dir.is_empty() {
+        let path = Path::new(dir);
+        if !path.is_dir() {
+            return false;
+        }
+        return esp_probe(path)
+            .ok()
+            .and_then(|info| info.mount_point)
+            .is_some_and(|target| under_boot(&target));
+    }
+    false
+}
+
+/// 非 Linux：`grub_collect` 是空操作，启动同步没有副作用，硬性条件恒满足。
+#[cfg(not(target_os = "linux"))]
+fn grub_esp_ready(_settings: &Settings) -> bool {
+    true
 }
 
 /// macOS：遍历已挂载的卷，按**分区 UUID**（`Disk / Partition UUID`）定位。
@@ -9132,7 +9184,7 @@ fn grub_scan(
 }
 
 /// 唯一的 GRUB 数据读取入口：只读 ESP 上的 grub.cfg 与 grubenv。
-fn rescan_grub(app: &AppHandle) -> Result<(), String> {
+fn rescan_grub(app: &AppHandle, allow_mount: bool) -> Result<(), String> {
     let settings = stored_settings(app);
     // 上一次自己挂的那份：勾了「保持挂载」就留着复用（否则每次扫描都要重新
     // mount/umount 一遍，挂载点还会越堆越多）。
@@ -9147,6 +9199,19 @@ fn rescan_grub(app: &AppHandle) -> Result<(), String> {
         release_mount(previous);
         None
     };
+
+    // 启动/刷新链路（`refresh_grub`，allow_mount=false）的硬性条件（用户定案）：
+    // ESP 必须已经由**当前系统**挂载在 /boot 下，同步才进行 —— 否则不挂载、
+    // 不写盘、不动现有状态，绝不在后台偷偷 pkexec。手动链路（识别/挂载/同步
+    // 按钮，allow_mount=true）不受此限：用户点了按钮，按需挂载是明说的行为。
+    if !allow_mount && !grub_esp_ready(&settings) {
+        if settings.grub_keep_mounted {
+            let state = app.state::<Mutex<AppState>>();
+            let mut state = state.lock().expect("state mutex poisoned");
+            state.grub.mount = reusable;
+        }
+        return Ok(());
+    }
 
     let scan = grub_scan(&settings, reusable)?;
 
@@ -9221,7 +9286,7 @@ fn apply_grub_error(app: &AppHandle, error: &str) {
 ///
 /// **不发布**快照：调用它的 `refresh_and_update` 末尾会统一发布。
 fn refresh_grub(app: &AppHandle) {
-    if let Err(error) = rescan_grub(app) {
+    if let Err(error) = rescan_grub(app, false) {
         apply_grub_error(app, &error);
     }
 }
@@ -9684,7 +9749,7 @@ fn detect_esp(app: AppHandle, path: String) -> Result<String, String> {
     };
     save_settings(&app, &settings)?;
 
-    if let Err(error) = rescan_grub(&app) {
+    if let Err(error) = rescan_grub(&app, true) {
         apply_grub_error(&app, &error);
     }
     record_action(&app, "识别 ESP 分区", true, &message);
@@ -9727,7 +9792,7 @@ fn set_grub_mount(app: AppHandle, enabled: bool) -> Result<(), String> {
     // 勾上 = 走一次扫描（里面会按分区 UUID 挂载并把具柄留下）；取消 = 上面已经卸了
     if enabled {
         set_busy(&app, |busy| busy.scanning = true);
-        let outcome = rescan_grub(&app);
+        let outcome = rescan_grub(&app, true);
         set_busy(&app, |busy| busy.scanning = false);
         if let Err(error) = outcome {
             // 挂不上（比如 pkexec 被取消）—— 把勾选退回未勾，别让界面骗人
@@ -9802,7 +9867,7 @@ fn open_grub_dir(app: AppHandle) -> Result<String, String> {
 fn sync_grub(app: AppHandle) -> Result<(), String> {
     trace(&app, "command", "sync_grub");
     set_busy(&app, |busy| busy.scanning = true);
-    let outcome = rescan_grub(&app);
+    let outcome = rescan_grub(&app, true);
     if let Err(error) = &outcome {
         apply_grub_error(&app, error);
     }
@@ -10971,6 +11036,22 @@ mod core_tests {
         let (_, target) =
             strip_geometry(DockEdge::Top, 1600, 40, 1280, 960, 460, 900, 1800, 90, 6, 0);
         assert_eq!(target, (1800, 40));
+    }
+
+    /// 启动同步的挂载点判据：/boot 本身或 /boot 下任意目录都算（fstab 统一
+    /// 方案），/media 自动挂载、/ 根挂载（= 目录没挂上）都不算。
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn under_boot_accepts_only_boot_mountpoints() {
+        assert!(under_boot("/boot"));
+        assert!(under_boot("/boot/efi"));
+        assert!(under_boot("/boot/efi2"));
+        assert!(under_boot("/boot/efi/cachyos"));
+        assert!(!under_boot("/"));
+        assert!(!under_boot("/bootloader"));
+        assert!(!under_boot("/media/user/ESP"));
+        assert!(!under_boot("/mnt/esp"));
+        assert!(!under_boot("/efi"));
     }
 
     /// 白条距边界的缝隙（gap）：停靠落点沿法线方向离边这条缝，另一轴照旧。
