@@ -668,7 +668,9 @@ fn run_grub_locally(
     lines: &mut Vec<String>,
     grub_json: &mut Option<serde_json::Value>,
 ) -> Result<(), i32> {
-    let scan = match grub_scan(&config.settings, None) {
+    // CLI 只读 ESP 上的副本做列表/切换，不同步（同步是主窗「同步」按钮与
+    // 启动自动链路的职责，见 rescan_grub 的链路分工）。
+    let scan = match grub_scan(&config.settings, None, false) {
         Ok(Some(scan)) => scan,
         Ok(None) => {
             return Err(finish_error(

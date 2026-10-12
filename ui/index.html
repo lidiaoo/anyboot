@@ -101,7 +101,17 @@
               type="text"
             />
             <button class="secondary" id="grub-partuuid-save" type="button">保存</button>
-            <button class="secondary" id="grub-sync" type="button">识别</button>
+            <button class="secondary" id="grub-partuuid-detect" type="button">识别</button>
+          </div>
+
+          <!-- 同步（用户定案）：把当前系统 /boot/grub（或 grub2）的 grub.cfg 覆盖
+               搬进 ESP，grubenv 没有才搬；硬性条件是该分区已挂载到 /boot 或
+               /boot/efi，否则不动（不自动挂载、不 pkexec、不写盘）。识别只解析。 -->
+          <div class="grub-row">
+            <button class="secondary" id="grub-sync" type="button">同步</button>
+            <small class="grub-part" id="grub-sync-note"
+              >把当前系统 /boot/grub/grub.cfg 同步到 ESP（需已挂载到 /boot 或 /boot/efi）</small
+            >
           </div>
 
           <p class="grub-hint" id="grub-hint"></p>

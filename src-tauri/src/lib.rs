@@ -1060,7 +1060,7 @@ impl Default for Settings {
             opacity_percent: MAX_OPACITY,
             grub_efi_partuuid: String::new(),
             grub_efi_dir: String::new(),
-            grub_keep_mounted: false,
+            grub_keep_mounted: true,
             grub_script_override: String::new(),
             grub_list_view: "inline".to_string(),
             main_auto_hide: false,
@@ -8658,6 +8658,14 @@ fn under_boot(mountpoint: &str) -> bool {
     mountpoint == "/boot" || mountpoint.starts_with("/boot/")
 }
 
+/// 「同步」按钮的硬性条件（用户定案）：当前系统把这个分区挂在了 **`/boot` 或
+/// `/boot/efi`** —— 两个位置都算数。挂别处（/media 之类）或没挂都不同步。
+/// 纯函数，便于单测。
+#[cfg(target_os = "linux")]
+fn sync_mount_ok(mountpoint: &str) -> bool {
+    mountpoint == "/boot" || mountpoint == "/boot/efi"
+}
+
 /// 启动/刷新链路的同步硬性条件（用户定案）：ESP 必须已经由**当前系统**
 /// 挂载好（fstab 挂在 /boot 下），启动同步才会进行；否则**一个字节都不动**
 /// —— 不自动挂载、不 pkexec、不写盘。判据：
@@ -9089,9 +9097,12 @@ fn grub_locate(partuuid: &str, allow_mount: bool) -> Result<(PathBuf, Option<Act
 /// * `Ok(None)` —— 既没填分区 UUID 也没填目录，什么都不做
 ///
 /// `reusable` 是上一次自己挂上的那份（勾了「保持挂载」才会传进来）。
+/// `sync` 才会把 /boot/grub 的数据搬进 ESP（`grub_collect`）——**识别只解析，
+/// 不写盘**（用户定案：同步只发生在启动自动链路和「同步」按钮，见 rescan_grub）。
 fn grub_scan(
     settings: &Settings,
     reusable: Option<ActiveMount>,
+    sync: bool,
 ) -> Result<Option<GrubScan>, String> {
     let uuid = settings.grub_efi_partuuid.trim().to_string();
     let dir = settings.grub_efi_dir.trim().to_string();
@@ -9130,9 +9141,11 @@ fn grub_scan(
     let discovered = efi_dir_from_uuid;
 
     // ② 挂上之后任何一步失败都要把挂载收掉，否则挂载点会越堆越多
-    if let Err(error) = grub_collect(&efi_dir) {
-        release_mount(mount);
-        return Err(error);
+    if sync {
+        if let Err(error) = grub_collect(&efi_dir) {
+            release_mount(mount);
+            return Err(error);
+        }
     }
 
     let cfg_path = grub_rel(&efi_dir, grub::CFG_REL_PATH);
@@ -9184,7 +9197,13 @@ fn grub_scan(
 }
 
 /// 唯一的 GRUB 数据读取入口：只读 ESP 上的 grub.cfg 与 grubenv。
-fn rescan_grub(app: &AppHandle, allow_mount: bool) -> Result<(), String> {
+///
+/// `sync=true` 才把 /boot/grub 的数据搬进 ESP。三条链路的分工（用户定案）：
+/// * 启动/刷新/切换后（`refresh_grub`）：`(false, true)` —— 硬性条件满足才同步；
+/// * 识别（`detect_esp` / `detect_grub_by_partuuid`）与挂载勾选：`(true, false)`
+///   —— 只解析，不写盘；
+/// * 「同步」按钮（`sync_grub`）：`(true, true)` —— 自己先验挂载条件。
+fn rescan_grub(app: &AppHandle, allow_mount: bool, sync: bool) -> Result<(), String> {
     let settings = stored_settings(app);
     // 上一次自己挂的那份：勾了「保持挂载」就留着复用（否则每次扫描都要重新
     // mount/umount 一遍，挂载点还会越堆越多）。
@@ -9213,7 +9232,7 @@ fn rescan_grub(app: &AppHandle, allow_mount: bool) -> Result<(), String> {
         return Ok(());
     }
 
-    let scan = grub_scan(&settings, reusable)?;
+    let scan = grub_scan(&settings, reusable, sync)?;
 
     // 这次是「按 fs-uuid 现找出来的挂载点」——把它回填到设置里的 ESP 目录，
     // 界面上那一行就会显示真实位置（用户填了 fs-uuid 却看不到任何反馈，就是这个问题）。
@@ -9286,7 +9305,8 @@ fn apply_grub_error(app: &AppHandle, error: &str) {
 ///
 /// **不发布**快照：调用它的 `refresh_and_update` 末尾会统一发布。
 fn refresh_grub(app: &AppHandle) {
-    if let Err(error) = rescan_grub(app, false) {
+    // 自动链路：硬性条件（/boot 下已挂）满足才同步；识别链路不同步，见 rescan_grub。
+    if let Err(error) = rescan_grub(app, false, true) {
         apply_grub_error(app, &error);
     }
 }
@@ -9303,12 +9323,14 @@ fn grub_snapshot(app: &AppHandle, settings: &Settings) -> GrubView {
         Some(
             "填 ESP 目录后点「识别」（自动判断是不是 FAT32 并取出分区 UUID），\
              或者直接手工填分区 UUID（三端都报同一个值：Linux lsblk -o PARTUUID / \
-             macOS diskutil 的 Disk / Partition UUID / Windows Get-Partition 的 Guid）"
+             macOS diskutil 的 Disk / Partition UUID / Windows Get-Partition 的 Guid）。\
+             目录和 UUID 填一个即可，识别后二者双向同步"
                 .to_string(),
         )
     } else if cfg!(target_os = "linux") {
         Some(
-            "执行过 update-grub / grub-mkconfig 之后，请在这里点一次「识别」或重启本程序"
+            "执行过 update-grub / grub-mkconfig 之后，点一次「同步」把新 grub.cfg \
+             搬进 ESP（需已把该分区挂载到 /boot 或 /boot/efi）"
                 .to_string(),
         )
     } else {
@@ -9749,9 +9771,92 @@ fn detect_esp(app: AppHandle, path: String) -> Result<String, String> {
     };
     save_settings(&app, &settings)?;
 
-    if let Err(error) = rescan_grub(&app, true) {
+    // 识别只解析、不写盘（用户定案）：同步只属于「同步」按钮和启动自动链路。
+    // 解析顺带把「目录下有没有 grub.cfg」反馈给用户，别让人对空列表发懵。
+    if let Err(error) = rescan_grub(&app, true, false) {
         apply_grub_error(&app, &error);
     }
+    let message = {
+        let state = app.state::<Mutex<AppState>>();
+        let state = state.lock().expect("state mutex poisoned");
+        let parsed = state
+            .grub
+            .cfg_path
+            .as_ref()
+            .is_some_and(|path| path.is_file());
+        if parsed {
+            format!(
+                "{message}；已解析 grub.cfg（{} 个启动项）。目录和 UUID 填一个即可，二者已双向同步",
+                state.grub.entries.len()
+            )
+        } else {
+            format!(
+                "{message}；该分区上还没有 grub.cfg —— 点「同步」可从当前系统 /boot/grub 搬一份过来。\
+                 目录和 UUID 填一个即可，二者已双向同步"
+            )
+        }
+    };
+    record_action(&app, "识别 ESP 分区", true, &message);
+    publish_ui(&app);
+    Ok(message)
+}
+
+/// 按分区 UUID 识别（UUID 行的「识别」按钮）：没挂载就先按需挂载 ——
+/// 手动按钮，pkexec 授权是明说的行为（`grub_locate`：先看已挂的，没挂自己挂）。
+/// 解析结果（挂载点）经由 `discovered` 回填进设置里的「ESP 目录」并保存；
+/// 与目录识别同一条解析链路（sync=false），**识别不同步**。
+#[tauri::command]
+fn detect_grub_by_partuuid(app: AppHandle) -> Result<String, String> {
+    trace(&app, "command", "detect_grub_by_partuuid");
+    let mut settings = stored_settings(&app);
+    let uuid = settings.grub_efi_partuuid.trim().to_string();
+    if uuid.is_empty() {
+        return Err("先填 ESP 的分区 UUID（或填目录点「识别」自动取）".to_string());
+    }
+    let Some(digits) = grub::partuuid_digits(&uuid) else {
+        return Err(format!(
+            "分区 UUID 格式不对：{uuid}（GPT 分区 GUID，32 位标准 UUID，\
+             如 F69D7BF9-E8A9-3135-A5CB-4BD0CA7344E3）"
+        ));
+    };
+    settings.grub_efi_partuuid = digits;
+    save_settings(&app, &settings)?;
+
+    if let Err(error) = rescan_grub(&app, true, false) {
+        apply_grub_error(&app, &error);
+        record_action(&app, "识别 ESP 分区", false, &error);
+        publish_ui(&app);
+        return Err(error);
+    }
+    let message = {
+        let state = app.state::<Mutex<AppState>>();
+        let state = state.lock().expect("state mutex poisoned");
+        let dir = state
+            .grub
+            .efi_dir
+            .as_ref()
+            .map(|path| display_path(path).display().to_string())
+            .unwrap_or_default();
+        let parsed = state
+            .grub
+            .cfg_path
+            .as_ref()
+            .is_some_and(|path| path.is_file());
+        if parsed {
+            format!(
+                "{dir}：已解析 grub.cfg（{} 个启动项），挂载点已回填到「ESP 目录」。\
+                 目录和 UUID 填一个即可，二者已双向同步",
+                state.grub.entries.len()
+            )
+        } else if dir.is_empty() {
+            "按分区 UUID 识别完成，但还没定位到挂载点".to_string()
+        } else {
+            format!(
+                "{dir}：分区上还没有 grub.cfg —— 点「同步」可从当前系统 /boot/grub 搬一份过来。\
+                 目录和 UUID 填一个即可，二者已双向同步"
+            )
+        }
+    };
     record_action(&app, "识别 ESP 分区", true, &message);
     publish_ui(&app);
     Ok(message)
@@ -9792,7 +9897,8 @@ fn set_grub_mount(app: AppHandle, enabled: bool) -> Result<(), String> {
     // 勾上 = 走一次扫描（里面会按分区 UUID 挂载并把具柄留下）；取消 = 上面已经卸了
     if enabled {
         set_busy(&app, |busy| busy.scanning = true);
-        let outcome = rescan_grub(&app, true);
+        // 挂载勾选只保证「挂上 + 解析」，不同步 —— 同步是「同步」按钮的职责。
+        let outcome = rescan_grub(&app, true, false);
         set_busy(&app, |busy| busy.scanning = false);
         if let Err(error) = outcome {
             // 挂不上（比如 pkexec 被取消）—— 把勾选退回未勾，别让界面骗人
@@ -9862,12 +9968,48 @@ fn open_grub_dir(app: AppHandle) -> Result<String, String> {
     Err("还不知道 ESP 在哪儿：先填分区 UUID，或在上面填目录后点「识别」".to_string())
 }
 
-/// 手动同步：Linux 上顺便把 /boot/grub 的 grub.cfg 与 grubenv 搬进 ESP。
+/// 「同步」按钮：把当前系统 /boot/grub（或 /boot/grub2）的 grub.cfg 覆盖搬进
+/// ESP，grubenv 没有才搬。硬性条件：该分区已挂载到 /boot 或 /boot/efi，
+/// 否则不动（不自动挂载、不 pkexec、不写盘）。
 #[tauri::command]
 fn sync_grub(app: AppHandle) -> Result<(), String> {
     trace(&app, "command", "sync_grub");
+    let settings = stored_settings(&app);
+    let uuid = settings.grub_efi_partuuid.trim();
+    let dir = settings.grub_efi_dir.trim();
+    if uuid.is_empty() && dir.is_empty() {
+        return Err("先识别 ESP：填好分区 UUID 或目录，点「识别」".to_string());
+    }
+    // 硬性条件（用户定案）：当前系统把这个分区挂载到了 /boot 或 /boot/efi 才同步；
+    // 否则什么都不动 —— 不自动挂载、不 pkexec、不写盘。填了 UUID 就按 UUID 找
+    // 挂载点（lsblk），只有目录就按 findmnt 报的挂载点判。
+    #[cfg(target_os = "linux")]
+    {
+        let mounted_ok = if !uuid.is_empty() {
+            let Some(digits) = grub::partuuid_digits(uuid) else {
+                return Err(format!(
+                    "分区 UUID 格式不对：{uuid}（GPT 分区 GUID，32 位标准 UUID）"
+                ));
+            };
+            find_mounted_by_partuuid(&digits)
+                .and_then(|mount| mount.into_os_string().into_string().ok())
+                .is_some_and(|mount| sync_mount_ok(&mount))
+        } else {
+            esp_probe(Path::new(dir))
+                .ok()
+                .and_then(|info| info.mount_point)
+                .is_some_and(|mount| sync_mount_ok(&mount))
+        };
+        if !mounted_ok {
+            let error = "当前系统没有把该 ESP 分区挂载到 /boot 或 /boot/efi，不进行同步 \
+                         —— 请先挂载或配置 fstab（同步不会自动挂载）";
+            record_action(&app, "同步 GRUB 数据", false, error);
+            publish_ui(&app);
+            return Err(error.to_string());
+        }
+    }
     set_busy(&app, |busy| busy.scanning = true);
-    let outcome = rescan_grub(&app, true);
+    let outcome = rescan_grub(&app, true, true);
     if let Err(error) = &outcome {
         apply_grub_error(&app, error);
     }
@@ -10735,6 +10877,7 @@ pub fn run() {
             set_grub_dir,
             set_grub_script,
             detect_esp,
+            detect_grub_by_partuuid,
             pick_grub_dir,
             set_grub_mount,
             open_grub_dir,
@@ -11052,6 +11195,20 @@ mod core_tests {
         assert!(!under_boot("/media/user/ESP"));
         assert!(!under_boot("/mnt/esp"));
         assert!(!under_boot("/efi"));
+    }
+
+    /// 「同步」按钮的挂载条件（用户定案）：分区挂在 /boot 或 /boot/efi 才同步；
+    /// /boot 下的其他子目录、/media、没挂都不算。
+    #[test]
+    fn sync_mount_ok_accepts_only_boot_and_boot_efi() {
+        assert!(sync_mount_ok("/boot"));
+        assert!(sync_mount_ok("/boot/efi"));
+        // /boot 下的其他位置、自动挂载、别的位置都不同步
+        assert!(!sync_mount_ok("/boot/efi2"));
+        assert!(!sync_mount_ok("/boot/efi/cachyos"));
+        assert!(!sync_mount_ok("/media/user/ESP"));
+        assert!(!sync_mount_ok("/mnt/esp"));
+        assert!(!sync_mount_ok("/efi"));
     }
 
     /// 白条距边界的缝隙（gap）：停靠落点沿法线方向离边这条缝，另一轴照旧。
@@ -12624,7 +12781,9 @@ mod core_tests {
     fn grub_efi_dir_and_keep_mounted_round_trip() {
         let mut settings = Settings::default();
         assert!(settings.grub_efi_dir.is_empty());
-        assert!(!settings.grub_keep_mounted);
+        // 默认勾选「保持挂载」（用户定案）：识别挂上的分区留在系统里，
+        // 下次扫描直接复用，不用每次重新 mount/umount。
+        assert!(settings.grub_keep_mounted);
 
         settings.grub_efi_dir = "H:\\".to_string();
         settings.grub_keep_mounted = true;
@@ -12637,7 +12796,8 @@ mod core_tests {
         let legacy: Settings =
             serde_json::from_str(r#"{"autostart":true}"#).expect("缺字段也要能读");
         assert_eq!(legacy.grub_efi_dir, "");
-        assert!(!legacy.grub_keep_mounted);
+        // 老配置缺键 → serde default → 现在默认勾选「保持挂载」
+        assert!(legacy.grub_keep_mounted);
     }
 
     // ---- 写 ESP：自己写得动就自己写，写不动交给 root ----

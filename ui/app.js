@@ -111,6 +111,7 @@ const grubMountLabelElement = document.querySelector("#grub-mount-label");
 const grubPartElement = document.querySelector("#grub-part");
 const grubPartuuidElement = document.querySelector("#grub-partuuid");
 const grubPartuuidSaveElement = document.querySelector("#grub-partuuid-save");
+const grubPartuuidDetectElement = document.querySelector("#grub-partuuid-detect");
 const grubSyncElement = document.querySelector("#grub-sync");
 const grubHintElement = document.querySelector("#grub-hint");
 const grubErrorElement = document.querySelector("#grub-error");
@@ -861,6 +862,7 @@ function render(state) {
     closeActionElement,
     loginItemsElement,
     grubPartuuidSaveElement,
+    grubPartuuidDetectElement,
     grubSyncElement,
     grubDirDetectElement,
     grubDirSaveElement,
@@ -1112,6 +1114,14 @@ grubPartuuidSaveElement.addEventListener("click", () =>
   call("set_grub_partuuid", { partuuid: grubPartuuidElement.value.trim() }),
 );
 
+// UUID「识别」：没挂载先按需挂载，分区上有 grub.cfg 就解析，
+// 挂载点回填进「ESP 目录」并保存（与目录识别双向同步）
+grubPartuuidDetectElement.addEventListener("click", () =>
+  call("detect_grub_by_partuuid"),
+);
+
+// 「同步」：把当前系统 /boot/grub（或 grub2）的 grub.cfg 覆盖搬进 ESP；
+// 硬性条件 = 分区已挂载到 /boot 或 /boot/efi，否则后端直接拒绝、什么都不动
 grubSyncElement.addEventListener("click", () => call("sync_grub"));
 
 grubInstallElement.addEventListener("click", () => call("install_grub_script"));
