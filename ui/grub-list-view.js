@@ -291,14 +291,14 @@ function renderFormatEntries({ container, grub, busy, onSwitch, entries, activeS
     return row;
   };
 
-  // 组头（不可点）：▸ 图标 组名 居左，右侧「N 项[ 位置]」
-  const makeHeader = (submenuId) => {
+  // 组头（不可点）：▸ 图标 组名 居左，右侧「N 项[ 位置]」—— N 按去重后的行数
+  const makeHeader = (submenuId, children) => {
     const title = groupTitles.get(submenuId) || submenuId;
-    const count = (childrenOf.get(submenuId) || []).length;
+    const distinct = new Set(children.map(labelOf)).size;
     return makeRow({
       text: title,
       icon: grubOsIcon(title),
-      tag: count + " 项" + locationText,
+      tag: distinct + " 项" + locationText,
       depth: -1,
       selector: submenuId,
       clickable: false,
@@ -306,8 +306,8 @@ function renderFormatEntries({ container, grub, busy, onSwitch, entries, activeS
     });
   };
 
-  // 条目行：极简/简易/中等无右侧小字，复杂有「内核 …」
-  const makeEntry = (entry, { depth, pinned = false }) => {
+  // 条目行：极简/简易/中等无右侧小字（有变体时标「N 个变体」），复杂有「内核 …」
+  const makeEntry = (entry, { depth, pinned = false, tag: tagOverride }) => {
     const ownTitle = entry.name || "";
     // 置顶行脱离了它原来的组，名字里把组名带上
     const prefix =
@@ -318,13 +318,50 @@ function renderFormatEntries({ container, grub, busy, onSwitch, entries, activeS
     return makeRow({
       text: prefix + rowLabel(entry),
       icon,
-      tag: rowTag(entry),
+      tag: tagOverride !== undefined ? tagOverride : rowTag(entry),
       depth,
       pinned,
       selector: entry.selector,
       clickable: true,
       title: entry.selector || "",
     });
+  };
+
+  // 相同渲染结果折叠（用户指出：极简/简易/中等按内核名出行，同一内核的
+  // fallback / initramfs 变体渲染结果一模一样，不折叠就是一列重复行）。
+  // 组内按渲染结果计数：第一个条目代表出面，其余并入「N 个变体」；置顶的
+  // 选中行也占一个变体名额，列表里不再重复出现。复杂格式的行文字就是
+  // 菜单标题（后端已按 (组，标题) 折叠），这里照走一遍只是防御。
+  const labelOf = rowLabel;
+  const pinnedLabel = activeIndex >= 0 ? labelOf(entries[activeIndex]) : null;
+  const collapseScope = (list) => {
+    const counts = new Map();
+    for (const entry of list) {
+      const label = labelOf(entry);
+      counts.set(label, (counts.get(label) || 0) + 1);
+    }
+    return counts;
+  };
+  const emitEntry = (entry, depth, counts, emitted, pinnedRepresents) => {
+    if (entries.indexOf(entry) === activeIndex) {
+      return; // 置顶行已单独渲染
+    }
+    const label = labelOf(entry);
+    if (pinnedRepresents && label === pinnedLabel) {
+      return; // 与置顶行同结果的，由置顶行代表
+    }
+    if (emitted.has(label)) {
+      return;
+    }
+    emitted.add(label);
+    const variants = counts.get(label) || 1;
+    const tag =
+      format === "detailed"
+        ? rowTag(entry)
+        : variants > 1
+          ? `${variants} 个变体`
+          : "";
+    body.append(makeEntry(entry, { depth, tag }));
   };
 
   const body = document.createElement("div");
@@ -336,26 +373,31 @@ function renderFormatEntries({ container, grub, busy, onSwitch, entries, activeS
   }
   container.append(body);
 
+  // 顶层条目共享一套去重状态（同名/同内核不管出现在列表哪个位置都只出一行）；
+  // 各组一套独立的。
+  const topLevel = entries.filter((entry) => !entry.submenu);
+  const topCounts = collapseScope(topLevel);
+  const topEmitted = new Set();
+  const pinnedInTop = activeIndex >= 0 && !entries[activeIndex].submenu;
+
   const emittedGroups = new Set();
-  entries.forEach((entry, index) => {
-    if (index === activeIndex) {
-      return;
-    }
+  entries.forEach((entry) => {
     if (!entry.submenu) {
-      // 顶层条目：图标按自己的名字挑，深度 0（无 ↳ 前缀）
-      body.append(makeEntry(entry, { depth: 0 }));
+      emitEntry(entry, 0, topCounts, topEmitted, pinnedInTop);
       return;
     }
     if (emittedGroups.has(entry.submenu)) {
       return;
     }
     emittedGroups.add(entry.submenu);
-    body.append(makeHeader(entry.submenu));
-    for (const child of childrenOf.get(entry.submenu) || []) {
-      if (entries.indexOf(child) === activeIndex) {
-        continue;
-      }
-      body.append(makeEntry(child, { depth: 1 }));
+    const children = childrenOf.get(entry.submenu) || [];
+    body.append(makeHeader(entry.submenu, children));
+    const counts = collapseScope(children);
+    const emitted = new Set();
+    const pinnedHere =
+      activeIndex >= 0 && entries[activeIndex].submenu === entry.submenu;
+    for (const child of children) {
+      emitEntry(child, 1, counts, emitted, pinnedHere);
     }
   });
 }
