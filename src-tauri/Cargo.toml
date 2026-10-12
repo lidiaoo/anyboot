@@ -37,6 +37,14 @@ libc = "0.2"
 [target.'cfg(target_os = "windows")'.dependencies]
 # 睡眠预检：读 HKLM\...\Control\Power\HibernateEnabled（语言无关，见 plan §3.4）
 winreg = "0.55"
+# 用系统默认浏览器打开 URL 走 ShellExecuteW（打开 URL 的标准系统入口）。
+# 不用 explorer.exe：它会把带 query 的地址当路径解析，且弹错误框时永不退出，
+# 同步等它会把命令挂死。这里只用到 Shell 三个特性面（见 open_url_in_browser）。
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"

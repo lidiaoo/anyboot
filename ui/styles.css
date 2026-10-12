@@ -129,6 +129,177 @@ main {
   overflow-x: hidden;
 }
 
+/* ---------- 界面栏目页签 ----------
+ * 主窗口内容分成两个栏目：系统引导（主功能，rEFInd + GRUB 同页）和
+ * 基本设置（应用设置 + 远程控制）。切换纯前端，localStorage 记忆。 */
+.tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border, rgba(128, 140, 160, 0.35));
+}
+.tab {
+  appearance: none;
+  border: 0;
+  background: none;
+  color: var(--btn-secondary-text, #e7ebf2);
+  font: inherit;
+  font-weight: 600;
+  padding: 8px 16px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  opacity: 0.72;
+}
+.tab:hover {
+  opacity: 1;
+}
+.tab.active {
+  color: var(--accent, var(--btn, #2f7fe0));
+  border-bottom-color: var(--accent, var(--btn, #2f7fe0));
+  opacity: 1;
+}
+.tab-panel {
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+}
+.tab-panel[hidden],
+.tab-panel:not(.active) {
+  display: none;
+}
+/* 浏览器直开（静态预览）时的提示横幅：Tauri API 不可用，只能看不能操作 */
+.browser-banner {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  padding: 8px 16px;
+  font-size: 13px;
+  background: var(--warn, #f0b073);
+  color: #1c1c1c;
+  text-align: center;
+}
+
+/* 横幅里「更换 token」的小按钮：无边框文字样式，颜色压深保证黄底可读 */
+.browser-banner .banner-link {
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-size: 12px;
+  background: none;
+  color: #4a3000;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* token 模态框：首次访问 / 401 时要求输入令牌 */
+.token-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.token-modal {
+  width: min(380px, 92vw);
+  padding: 22px 24px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+}
+
+.token-modal h2 {
+  margin: 0 0 10px;
+  font-size: 17px;
+  color: var(--text);
+}
+
+.token-modal p {
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text-dim);
+}
+
+.token-modal input {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--input-bg);
+  color: var(--text);
+  font-size: 14px;
+}
+
+.token-modal input:focus {
+  outline: none;
+  border-color: var(--btn);
+}
+
+.token-modal .token-error {
+  color: var(--danger-text);
+  background: var(--danger);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+/* 「显示 token」勾选框：密码框打什么都看不见，手机上很容易漏打/被输入法改掉 */
+.token-modal .token-reveal {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+  cursor: pointer;
+  user-select: none;
+}
+
+.token-modal .token-reveal input {
+  width: auto;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--btn);
+}
+
+.token-modal .token-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 14px;
+}
+
+/* 远程模式横幅里的 token 输入行（web 端连接表单） */
+.browser-banner input {
+  margin: 0 6px;
+  padding: 3px 8px;
+  width: 220px;
+  max-width: 40vw;
+  font: inherit;
+  color: #1c1c1c;
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(0, 0, 0, 0.25);
+  border-radius: 5px;
+}
+
+.browser-banner button {
+  padding: 3px 14px;
+  font: inherit;
+  font-weight: 600;
+  color: #1c1c1c;
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid rgba(0, 0, 0, 0.25);
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.browser-banner button:hover {
+  background: rgba(255, 255, 255, 0.85);
+}
+
 /* ---------- 窗口最下方的提示条（左右双栏之外） ----------
  * 以前所有操作回执都写在正文最末尾的 #message，用户不滚到底根本看不到
  * （「勾选了某个系统之后没反应」就是这个原因）。后来挪成 fixed 遮罩，但视觉上
@@ -1285,4 +1456,80 @@ body.dock-right #hotzone {
   top: 0;
   bottom: 0;
   width: var(--hotzone-thickness, 40px);
+}
+
+/* ---------- 移动端适配（网页控制台在手机浏览器上使用） ----------
+ * 断点 720px：③④ 的左右分栏改为上下堆叠（滚动权交给 .app-columns）；
+ * 设置行改「文字 | 控件」两列网格防长文案挤压；输入控件 16px 防 iOS
+ * 聚焦自动放大页面；100dvh 修正移动端地址栏收展导致的视口高度漂移。 */
+@media (max-width: 720px) {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    height: 100vh;
+    height: 100dvh;
+  }
+
+  /* 分栏模式（③④）改上下堆叠：左栏（main）在上、GRUB 右栏在下、
+   * 中缝隐藏；整列自己滚（main / .pane-body 的 overflow 放开，高度自然） */
+  .app-columns {
+    flex-direction: column;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+  .pane-gap {
+    display: none !important;
+  }
+  .app-columns > .pane {
+    flex: 0 0 auto;
+  }
+  main {
+    overflow-y: visible;
+    padding: 14px;
+    gap: 14px;
+  }
+  .grub-pane-head {
+    padding-top: 14px;
+  }
+  .pane-body {
+    overflow-y: visible;
+    padding-bottom: 14px;
+  }
+  .tab-panel {
+    gap: 14px;
+  }
+  body[data-grub-mode="list"],
+  body[data-grub-mode="pane"] {
+    min-width: 0;
+  }
+
+  /* 模式②的树在手机上铺回一列；①②列表限高改视口比例（原式按窗口算） */
+  body[data-grub-mode="wide"] .grub-list-body {
+    grid-template-columns: 1fr;
+  }
+  body[data-grub-mode="inline"] .grub-list,
+  body[data-grub-mode="wide"] .grub-list {
+    max-height: 45vh;
+  }
+
+  /* 设置行：文字一列 + 控件一列。flex 的 space-between 在窄屏会把
+   * 长小字压成一坨，grid 两列让标题/说明完整换行、控件靠右不被挤 */
+  .setting {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+
+  /* 例外：token 行（setting-block）本来就是竖排结构，保持整行一列 */
+  .setting.setting-block {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* iOS：聚焦 <16px 的输入框会自动放大页面，挪到手机上统一 16px */
+  input,
+  select {
+    font-size: 16px;
+  }
 }

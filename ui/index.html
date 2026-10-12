@@ -29,6 +29,16 @@
           <p id="status">正在扫描 rEFInd 变量目录…</p>
         </header>
 
+        <!-- 界面栏目页签：主功能（引导切换）在前，设置低频收在后。
+             切换纯前端、localStorage 记住上次的栏目。 -->
+        <nav aria-label="界面栏目" class="tabs" id="tabs">
+          <button class="tab active" data-tab="boot" type="button">系统引导</button>
+          <button class="tab" data-tab="settings" type="button">基本设置</button>
+        </nav>
+
+        <!-- 栏目一：系统引导 —— rEFInd（下次启动 / 电源 / 系统列表 / 变量目录）
+             与 GRUB 启动项同页，两套引导器并列。 -->
+        <div class="tab-panel active" id="tab-boot">
         <section aria-label="下次启动" class="next-boot" id="next-boot">
           <small>下次启动</small>
           <strong id="next-boot-name">未知</strong>
@@ -192,7 +202,10 @@
             <button class="secondary" id="refresh" type="button">扫描</button>
           </div>
         </section>
+        </div><!-- /tab-boot -->
 
+        <!-- 栏目二：基本设置 —— 应用设置 + 远程控制 -->
+        <div class="tab-panel" id="tab-settings">
         <section aria-label="应用设置" class="settings">
           <h2>应用设置</h2>
           <label class="setting">
@@ -424,6 +437,15 @@
               <button class="secondary" id="http-apply" type="button">应用</button>
             </span>
           </div>
+          <div class="setting">
+            <span class="setting-text">
+              <strong>打开 Web 页面</strong>
+              <small>用系统默认浏览器打开控制页，自动带上访问令牌，不用手输</small>
+            </span>
+            <span class="remote-inline">
+              <button class="secondary" id="open-web" type="button">打开 Web 页面</button>
+            </span>
+          </div>
           <div class="port-occupant hidden" id="port-occupant">
             <strong>端口被占用</strong>
             <small id="port-occupant-message"></small>
@@ -518,6 +540,7 @@
             <button class="secondary" id="open-config-dir" type="button">打开配置目录（含 trace.log / settings.json）</button>
           </div>
         </section>
+        </div><!-- /tab-settings -->
       </main>
 
       <!-- 中缝：纯空白长条，不放任何内容，只为把两栏分开 -->

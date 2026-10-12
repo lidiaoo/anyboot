@@ -1,8 +1,137 @@
-const invoke = window.__TAURI__.core.invoke;
-const listen = window.__TAURI__.event.listen;
+// 本页面有两个运行环境：
+// 1. Tauri 主窗口：window.__TAURI__ 注入，命令/事件走 IPC（原路径，不变）；
+// 2. 任意浏览器：由内置 HTTP 服务（默认 12300）托管 —— 命令走 POST /api/ui-command、
+//    状态走轮询 GET /api/ui-state（token 鉴权），设置改动**真正作用于本机应用**。
+//    只有当页面由无后端的静态服务托管（探测 /health 失败）时才降级为纯预览。
+const IS_BROWSER = typeof window.__TAURI__ === "undefined";
+const tauri = window.__TAURI__ ?? {};
+
+// 远程访问令牌：URL ?token= 优先（顺手存起来，方便扫码/点链接直达），
+// 其次 cookie（anyboot_token，一年有效），最后兼容迁移旧版 localStorage。
+const REMOTE_TOKEN_COOKIE = "anyboot_token";
+const REMOTE_TOKEN_KEY = "anyboot.remote-token";
+
+function readCookie(name) {
+  for (const pair of document.cookie.split(";")) {
+    const index = pair.indexOf("=");
+    if (index < 0) continue;
+    if (pair.slice(0, index).trim() === name) {
+      try {
+        return decodeURIComponent(pair.slice(index + 1));
+      } catch {
+        return pair.slice(index + 1);
+      }
+    }
+  }
+  return "";
+}
+
+function writeCookie(name, value) {
+  // 一年有效；SameSite=Strict 不跨站携带；HttpOnly 做不了（JS 写的），
+  // 但 token 本来就是给这台浏览器用的共享口令，风险与 localStorage 等价。
+  document.cookie = `${name}=${encodeURIComponent(value)}; path=/; max-age=31536000; SameSite=Strict`;
+}
+
+let remoteToken = "";
+try {
+  const fromUrl = new URLSearchParams(window.location.search).get("token");
+  const stored =
+    readCookie(REMOTE_TOKEN_COOKIE) ||
+    localStorage.getItem(REMOTE_TOKEN_KEY) ||
+    "";
+  if (fromUrl && fromUrl.trim()) {
+    remoteToken = fromUrl.trim();
+    writeCookie(REMOTE_TOKEN_COOKIE, remoteToken);
+  } else if (stored) {
+    remoteToken = stored;
+    // 旧版本存过 localStorage 的迁移进 cookie（用户要求：cookie 保存）
+    writeCookie(REMOTE_TOKEN_COOKIE, stored);
+  }
+} catch {
+  // cookie/localStorage 不可用（隐私模式等）：退回仅本次会话有效的空 token
+}
+
+/// 浏览器远程模式是否可用（页面由 AnyBoot 内置 HTTP 服务托管时为 true）
+let remoteApiAvailable = false;
+
+async function probeRemoteApi() {
+  try {
+    const response = await fetch("/health", { cache: "no-store" });
+    const json = await response.json().catch(() => ({}));
+    remoteApiAvailable = Boolean(json && json.service === "anyboot");
+  } catch {
+    remoteApiAvailable = false;
+  }
+  return remoteApiAvailable;
+}
+
+const invoke = IS_BROWSER
+  ? async (command, args = {}) => {
+      if (!remoteApiAvailable) {
+        throw new Error(
+          `浏览器预览模式：命令「${command}」不可用，请在 AnyBoot 应用内操作`,
+        );
+      }
+      const response = await fetch("/api/ui-command", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Auth-Token": remoteToken,
+        },
+        body: JSON.stringify({ cmd: command, args }),
+      });
+      const json = await response.json().catch(() => ({}));
+      if (response.status === 401) {
+        requestRemoteToken();
+        throw new Error("需要访问令牌：请在顶部输入 AnyBoot 远程控制 token");
+      }
+      if (!response.ok || json.ok === false) {
+        throw new Error(json.message || json.error || `HTTP ${response.status}`);
+      }
+      return json.result;
+    }
+  : tauri.core.invoke;
+
+const listen = IS_BROWSER
+  ? async (event, handler) => {
+      // 浏览器里没有托盘，也就没有 focus-remote 事件会来。**这里什么都不做**：
+      // 曾经写成「网页上等价于切到设置栏目」，可这个 shim 是在**注册时**就执行的
+      // （见文件末尾 listen("focus-remote", …)），于是每次打开网页都被顶到基本设置，
+      // 地址栏 hash 也跟着变成 #/settings —— 「刷新正好停在基本设置」的真凶就是它。
+      if (event !== "ui-state-changed" || !remoteApiAvailable) {
+        return () => {};
+      }
+      // 无推送通道：轮询完整快照兜底（2s；页面隐藏时跳过）
+      const timer = setInterval(async () => {
+        if (document.hidden) {
+          return;
+        }
+        // 手上没有 token 就别轮询了：每次都只会 401，既是噪声，也会把
+        // 「请重新输入」的提示反复糊到用户脸上（token 输入框被打断的帮凶之一）。
+        // 定时器照常在跑，token 一填好（或从 401 恢复）下一拍就自动续上。
+        if (!remoteToken) {
+          return;
+        }
+        try {
+          const response = await fetch("/api/ui-state", {
+            headers: { "X-Auth-Token": remoteToken },
+            cache: "no-store",
+          });
+          if (response.ok) {
+            handler({ payload: await response.json() });
+          } else if (response.status === 401) {
+            requestRemoteToken();
+          }
+        } catch {
+          // 断线时静默，下一轮再试
+        }
+      }, 2000);
+      return () => clearInterval(timer);
+    }
+  : tauri.event.listen;
 // 拖动不透明度滑条时的**预览广播**：change 才写后端（免得拖一次写十几次），
-// 窗口自己靠这个事件即时重绘（拖动过程中不写后端）。
-const emitEvent = window.__TAURI__.event.emit;
+// 窗口自己靠这个事件即时重绘（拖动过程中不写后端）。网页上只有本页，无需广播。
+const emitEvent = IS_BROWSER ? () => {} : tauri.event.emit;
 
 const statusElement = document.querySelector("#status");
 const systemsElement = document.querySelector("#systems");
@@ -72,6 +201,8 @@ const tokenSaveElement = document.querySelector("#token-save");
 const tokenRevealElement = document.querySelector("#token-reveal");
 const tokenCopyElement = document.querySelector("#token-copy");
 const tokenRegenerateElement = document.querySelector("#token-regenerate");
+// 「打开 Web 页面」按钮：只有桌面主窗口才有意义（网页端自己就是 Web 页面）
+const openWebElement = document.querySelector("#open-web");
 const notifyEnabledElement = document.querySelector("#notify-enabled");
 const httpChannelNotifyElement = document.querySelector("#http-channel-notify");
 const httpChannelDelayElement = document.querySelector("#http-channel-delay");
@@ -812,6 +943,10 @@ function applySettingLinkage() {
   ]) {
     element.disabled = !httpEnabledElement.checked;
   }
+  // 「打开 Web 页面」只在 HTTP 服务开着时可用（关着就没有页面可开）
+  if (openWebElement) {
+    openWebElement.disabled = !httpEnabledElement.checked;
+  }
   for (const element of [soundFilePathElement, soundApplyElement]) {
     element.disabled = !playSoundElement.checked;
   }
@@ -995,6 +1130,310 @@ async function call(command, args) {
 }
 
 refreshElement.addEventListener("click", () => call("refresh"));
+
+// ---------- 界面栏目页签（地址栏可寻址） ----------
+// 主窗口内容分两个栏目：系统引导（rEFInd + GRUB 同页，主功能）和
+// 基本设置（应用设置 + 远程控制）。切换纯前端，但**栏目写进地址栏 hash**：
+//   #/boot  → 系统引导
+//   #/settings → 基本设置
+// 这样刷新页面、收藏、把链接发给别人，都落回同一个栏目里。
+const TAB_STORAGE_KEY = "anyboot.active-tab";
+const TAB_ROUTES = { boot: "#/boot", settings: "#/settings" };
+const tabButtons = Array.from(document.querySelectorAll("#tabs .tab"));
+const tabPanels = {
+  boot: document.querySelector("#tab-boot"),
+  settings: document.querySelector("#tab-settings"),
+};
+
+// 从地址栏 hash 读栏目名；不是已知栏目一律返回空串（脏 hash 不生效）。
+function tabFromLocation() {
+  const raw = String(window.location.hash || "")
+    .replace(/^#\/?/, "")
+    .trim()
+    .toLowerCase();
+  return tabPanels[raw] ? raw : "";
+}
+
+// 把栏目写回地址栏。用 replaceState 顶掉当前历史项而不是新压一条：
+// 只有两个栏目，来回点不该把浏览器历史塞满；刷新/分享链接照样生效。
+function syncTabToLocation(name) {
+  const route = TAB_ROUTES[name];
+  if (!route || window.location.hash === route) {
+    return;
+  }
+  try {
+    window.history.replaceState(null, "", route);
+  } catch (error) {
+    void error;
+    window.location.hash = route;
+  }
+}
+
+function activateTab(name, options = {}) {
+  if (!tabPanels[name]) {
+    return;
+  }
+  for (const button of tabButtons) {
+    button.classList.toggle("active", button.dataset.tab === name);
+  }
+  for (const [key, panel] of Object.entries(tabPanels)) {
+    panel.classList.toggle("active", key === name);
+  }
+  // GRUB 独立右栏（展示方式 ③④）只属于引导栏目：切到设置页时收起，
+  // 切回时清掉内联样式，显隐交还原有的展示模式机制接管。
+  const grubPane = document.querySelector(".pane-grub");
+  if (grubPane) {
+    grubPane.style.display = name === "boot" ? "" : "none";
+  }
+  try {
+    localStorage.setItem(TAB_STORAGE_KEY, name);
+  } catch (error) {
+    void error;
+  }
+  if (options.syncLocation !== false) {
+    syncTabToLocation(name);
+  }
+}
+
+for (const button of tabButtons) {
+  button.addEventListener("click", () => activateTab(button.dataset.tab));
+}
+// 地址栏 hash 被外部改动（手敲地址、浏览器前进/后退）也要跟着切栏目。
+window.addEventListener("hashchange", () => {
+  const name = tabFromLocation();
+  if (name) {
+    activateTab(name, { syncLocation: false });
+  }
+});
+
+// 初始栏目优先级：
+// 1) 地址栏带了 #/xxx → 听地址栏的（刷新 / 分享链接都靠这条）；
+// 2) 网页端（含手机 App 的 WebView）没有 hash → 固定进「系统引导」，
+//    不继承上次栏目，免得每次打开都停在基本设置；
+// 3) 桌面主窗口没有地址栏语义 → 沿用 localStorage 记忆。
+function initialTab() {
+  const fromLocation = tabFromLocation();
+  if (fromLocation) {
+    return fromLocation;
+  }
+  if (!IS_BROWSER) {
+    try {
+      const saved = localStorage.getItem(TAB_STORAGE_KEY);
+      if (saved === "boot" || saved === "settings") {
+        return saved;
+      }
+    } catch (error) {
+      void error;
+    }
+  }
+  return "boot";
+}
+activateTab(initialTab());
+
+// 浏览器端顶部横幅：预览模式说明 / 远程已连接 / token 输入（三态）。
+// 仅浏览器模式创建 —— Tauri 主窗口不需要这条横幅。
+const browserBanner = IS_BROWSER
+  ? (() => {
+      const element = document.createElement("div");
+      element.className = "browser-banner";
+      document.body.prepend(element);
+      return element;
+    })()
+  : null;
+
+function renderBrowserBanner() {
+  if (!IS_BROWSER) {
+    return;
+  }
+  browserBanner.replaceChildren();
+  if (!remoteApiAvailable) {
+    browserBanner.textContent =
+      "浏览器预览模式：仅展示界面布局，操作请在 AnyBoot 应用内进行";
+    return;
+  }
+  if (remoteToken) {
+    browserBanner.textContent =
+      "远程控制已连接：这里的设置改动实时作用于本机 AnyBoot";
+    // 给个退路：换 token / 断开重连
+    const change = document.createElement("button");
+    change.type = "button";
+    change.className = "banner-link";
+    change.textContent = "更换 token";
+    change.addEventListener("click", () => showTokenModal());
+    browserBanner.append("　", change);
+    return;
+  }
+  browserBanner.textContent = "远程控制未连接：请输入访问令牌";
+  // 输入框可能被用户「暂不连接」关掉了，横幅里常驻一个入口
+  const enter = document.createElement("button");
+  enter.type = "button";
+  enter.className = "banner-link";
+  enter.textContent = "输入 token";
+  enter.addEventListener("click", () => showTokenModal());
+  browserBanner.append("　", enter);
+}
+
+// ---------- token 模态框（首次访问 / 401 时弹出） ----------
+
+let tokenModal = null;
+// 用户点过「暂不连接，先看看界面」后置位：不用再每 2s 把框弹回来打扰他
+let tokenModalDismissed = false;
+
+function buildTokenModal() {
+  const overlay = document.createElement("div");
+  overlay.className = "token-modal-overlay";
+  overlay.hidden = true;
+
+  const box = document.createElement("form");
+  box.className = "token-modal";
+
+  const title = document.createElement("h2");
+  title.textContent = "AnyBoot 远程控制";
+
+  const desc = document.createElement("p");
+  desc.textContent =
+    "首次访问需要输入访问令牌（token）。token 在 AnyBoot 应用 → 基本设置 → 远程控制 中查看；也可以直接用带 ?token=xxx 的链接访问。";
+
+  const input = document.createElement("input");
+  input.type = "password";
+  input.placeholder = "访问令牌 token";
+  input.autocomplete = "off";
+  input.name = "token";
+  // 手机软键盘默认首字母大写 / 联想纠错，会把 token 悄悄改掉，这里一律关掉
+  input.setAttribute("autocapitalize", "off");
+  input.setAttribute("autocorrect", "off");
+  input.spellcheck = false;
+
+  const reveal = document.createElement("label");
+  reveal.className = "token-reveal";
+  const revealBox = document.createElement("input");
+  revealBox.type = "checkbox";
+  reveal.append(revealBox, document.createTextNode("显示 token（确认没被输入法改掉）"));
+  revealBox.addEventListener("change", () => {
+    input.type = revealBox.checked ? "text" : "password";
+  });
+
+  const error = document.createElement("p");
+  error.className = "token-error";
+  error.hidden = true;
+
+  const actions = document.createElement("div");
+  actions.className = "token-actions";
+  const connect = document.createElement("button");
+  connect.type = "submit";
+  connect.textContent = "连接";
+  const skip = document.createElement("button");
+  skip.type = "button";
+  skip.className = "secondary";
+  skip.textContent = "暂不连接，先看看界面";
+  actions.append(connect, skip);
+
+  box.append(title, desc, input, reveal, error, actions);
+  overlay.append(box);
+  document.body.append(overlay);
+
+  const fail = (message) => {
+    error.textContent = message;
+    error.hidden = false;
+  };
+
+  box.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const value = input.value.trim();
+    if (!value) {
+      fail("token 不能为空");
+      return;
+    }
+    connect.disabled = true;
+    try {
+      // 先验再存：错误的 token 不落 cookie，免得下次打开又是一轮 401
+      const response = await fetch("/api/ui-state", {
+        headers: { "X-Auth-Token": value },
+        cache: "no-store",
+      });
+      if (response.status === 401) {
+        fail("token 不正确或已失效，请重新输入");
+        return;
+      }
+      if (!response.ok) {
+        fail(`连接失败（HTTP ${response.status}），请稍后再试`);
+        return;
+      }
+      remoteToken = value;
+      try {
+        writeCookie(REMOTE_TOKEN_COOKIE, remoteToken);
+      } catch {
+        // 存不了就本次会话先用着
+      }
+      overlay.hidden = true;
+      renderBrowserBanner();
+      // 初始快照立刻补上（轮询本来也在跑，这里不等下一拍）
+      applySnapshot(await response.json(), { force: true });
+    } catch (connectError) {
+      fail(`连接失败：${connectError}`);
+    } finally {
+      connect.disabled = false;
+    }
+  });
+
+  skip.addEventListener("click", () => {
+    overlay.hidden = true;
+    // 用户明确选了「先看看界面」：之后不再自动弹回来，横幅里留了入口
+    tokenModalDismissed = true;
+  });
+
+  return { overlay, input, error };
+}
+
+/// 弹出 token 输入框（首次访问 / 收到 401 时）。**已经在输入状态时只更新文案**：
+/// 轮询每 2s 一次的 401 会重复调到这里，若照旧写 `input.value = remoteToken`
+/// （那时已被清成空串）就会把用户正在打字的 token 抹掉 —— 表现为「打一半就没了、
+/// 像页面被刷新」。输入框的内容只归用户本人管，这里除首次打开外不许再碰。
+function showTokenModal(message = "") {
+  if (!IS_BROWSER) {
+    return;
+  }
+  if (!tokenModal) {
+    tokenModal = buildTokenModal();
+  }
+  tokenModal.error.hidden = !message;
+  tokenModal.error.textContent = message;
+  if (!tokenModal.overlay.hidden) {
+    // 已经开着（用户正在输入）：不动输入框、不抢焦点
+    return;
+  }
+  tokenModalDismissed = false;
+  tokenModal.overlay.hidden = false;
+  tokenModal.input.value = remoteToken || "";
+  tokenModal.input.focus();
+}
+
+/// 命令返回 401 时清掉旧 token（cookie 一并失效）、重新弹输入框
+function requestRemoteToken() {
+  if (!IS_BROWSER) {
+    return;
+  }
+  remoteToken = "";
+  try {
+    document.cookie = `${REMOTE_TOKEN_COOKIE}=; path=/; max-age=0; SameSite=Strict`;
+  } catch {
+    void 0;
+  }
+  renderBrowserBanner();
+  // 输入框已经开着：只把提示换成「token 不对」，绝不重开/清空
+  if (tokenModal && !tokenModal.overlay.hidden) {
+    tokenModal.error.hidden = false;
+    tokenModal.error.textContent = "token 不正确或已失效，请重新输入";
+    return;
+  }
+  // 用户选了「暂不连接」：不再自动弹回来（横幅里有「输入 token」入口）
+  if (tokenModalDismissed) {
+    return;
+  }
+  showTokenModal(
+    remoteApiAvailable ? "token 不正确或已失效，请重新输入" : "",
+  );
+}
 
 /// 切换 GRUB 启动项。与其它操作不同，这里不走 call()：切换的中间态
 /// 「正在写入 grubenv…」以及失败原因要显示在**右栏**（用户点的是右栏的条目，
@@ -1333,6 +1772,26 @@ tokenRegenerateElement.addEventListener("click", async () => {
   await refreshSnapshotQuietly();
 });
 
+// 「打开 Web 页面」：让后端用系统默认浏览器打开带 token 的 Web 地址，
+// 省得用户自己去翻 IP 和令牌。网页端自己就是 Web 页面，这一行直接藏掉。
+if (openWebElement) {
+  if (IS_BROWSER) {
+    openWebElement.closest(".setting")?.classList.add("hidden");
+  } else {
+    openWebElement.addEventListener("click", async () => {
+      openWebElement.disabled = true;
+      try {
+        const url = await invoke("open_web_page");
+        remoteMessage(`已在浏览器中打开：${url}`);
+      } catch (error) {
+        remoteMessage(String(error), { error: true });
+      } finally {
+        applySettingLinkage();
+      }
+    });
+  }
+}
+
 // 自定义 token：保存后后端会**关掉旧监听、按新 token 重新绑定端口**，旧 token 立即失效。
 tokenSaveElement.addEventListener("click", async () => {
   const token = tokenInputElement.value.trim();
@@ -1603,6 +2062,8 @@ windowSizeLockedElement.addEventListener("change", () =>
 // 贴边成条时窗口会缩到几十像素宽 —— 那是程序自己的临时形态，不是用户调尺寸，
 // 小于下限的尺寸一律不进滑条、不回写。
 let windowResizePersistTimer = 0;
+// 浏览器直开没有窗口对象：滑条双向同步只在应用内生效
+if (!IS_BROWSER) {
 window.__TAURI__.window
   .getCurrentWindow()
   .onResized(({ payload: physical }) => {
@@ -1633,6 +2094,7 @@ window.__TAURI__.window
         }, 500);
       });
   });
+}
 
 hideFromDockTaskbarElement.addEventListener("change", () =>
   call("set_hide_from_dock_taskbar", {
@@ -1679,21 +2141,39 @@ loginItemsElement.addEventListener("click", async () => {
 });
 
 (async () => {
+  // 浏览器端：先探测后端（区分「远程控制」与「纯预览」），再决定横幅形态
+  if (IS_BROWSER) {
+    await probeRemoteApi();
+    renderBrowserBanner();
+    // 首次访问（没有存过 token）：直接弹模态框要 token，别等第一次 401
+    if (remoteApiAvailable && !remoteToken) {
+      showTokenModal();
+    }
+  }
+
   // 托盘里的改动会通过同一个事件把完整快照推过来，两边永远同源。
   await listen("ui-state-changed", (event) => applySnapshot(event.payload));
 
-  // 托盘里的「远程控制设置…」：把窗口打开并滚到这一区
-  await listen("focus-remote", () =>
-    remoteSectionElement.scrollIntoView({ behavior: "smooth", block: "start" }),
-  );
+  // 托盘里的「远程控制设置…」：先把主窗口切到「基本设置」栏目再滚到这一区。
+  // 只滚不切的话，窗口停在「系统引导」时远程控制区整块是隐藏的，滚了也看不见。
+  await listen("focus-remote", () => {
+    activateTab("settings");
+    remoteSectionElement.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
 
   try {
     applySnapshot(await invoke("get_ui_state"), { force: true });
   } catch (error) {
-    showStatusBar(String(error), { error: true });
+    // 无后端的纯预览模式不必刷错误条（横幅已经说明了）
+    if (remoteApiAvailable) {
+      showStatusBar(String(error), { error: true });
+    }
   }
 
   // 「远程怎么调」默认就展开：第一份快照渲染时 renderRemote 已经把含 token 的
   // 示例填好了（见 refreshHttpHintIfChanged），这里不用再取一次。
-  await call("refresh");
+  // 纯预览模式没有后端，跳过（call 会报错）。
+  if (!IS_BROWSER || remoteApiAvailable) {
+    await call("refresh");
+  }
 })();

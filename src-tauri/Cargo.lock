@@ -59,6 +59,7 @@ dependencies = [
  "tauri-plugin-autostart",
  "tauri-plugin-dialog",
  "tiny_http",
+ "windows-sys 0.59.0",
  "winreg 0.55.0",
 ]
 

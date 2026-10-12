@@ -12,12 +12,16 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use tauri::{image::Image, AppHandle, Emitter, Manager};
+// 菜单/托盘是桌面专属（tauri v2 里 menu/tray 模块与几乎全部窗口几何 API
+// 都挂在 #[cfg(desktop)] 下），安卓/iOS 目标编译不过 —— 移动端没有托盘。
+#[cfg(desktop)]
 use tauri::{
-    image::Image,
     menu::{CheckMenuItem, IconMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Emitter, Manager,
 };
+// autostart 插件只支持桌面三端（移动端没有「开机自启」概念）
+#[cfg(desktop)]
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 use tauri_plugin_dialog::DialogExt;
 
@@ -2340,6 +2344,8 @@ fn ui_state(app: &AppHandle) -> UiState {
 fn publish_ui(app: &AppHandle) -> UiState {
     UI_REVISION.fetch_add(1, Ordering::SeqCst);
     let state = ui_state(app);
+    // 移动端没有托盘/菜单，跳过重建（快照本身照发）
+    #[cfg(desktop)]
     if let Err(error) = update_tray_menu(app, &state, "publish") {
         trace(app, "tray", &format!("刷新托盘菜单失败: {error}"));
     }
@@ -3072,6 +3078,9 @@ pub(crate) struct RemoteRequest {
     pub(crate) path: String,
     pub(crate) query: Vec<(String, String)>,
     pub(crate) body: Vec<(String, String)>,
+    /// 未经 pairs 解析的原始请求体：JSON 端点（/api/ui-command）要用，
+    /// pairs 解析会把 JSON 撕碎。
+    pub(crate) raw_body: String,
     pub(crate) token: Option<String>,
     pub(crate) source: String,
     pub(crate) source_is_loopback: bool,
@@ -3088,11 +3097,17 @@ impl RemoteRequest {
 pub(crate) struct RemoteReply {
     pub(crate) status: u16,
     pub(crate) json: serde_json::Value,
+    /// 原始响应体（网页控制台静态资源）：Some((content_type, 字节)) 时忽略 json。
+    pub(crate) raw: Option<(&'static str, Vec<u8>)>,
 }
 
 impl RemoteReply {
     fn ok(status: u16, json: serde_json::Value) -> Self {
-        Self { status, json }
+        Self {
+            status,
+            json,
+            raw: None,
+        }
     }
 
     fn error(status: u16, code: &str, message: &str) -> Self {
@@ -3103,6 +3118,16 @@ impl RemoteReply {
                 "error": code,
                 "message": message,
             }),
+            raw: None,
+        }
+    }
+
+    /// 静态资源响应（非 JSON）。
+    fn raw_page(status: u16, content_type: &'static str, bytes: Vec<u8>) -> Self {
+        Self {
+            status,
+            json: serde_json::Value::Null,
+            raw: Some((content_type, bytes)),
         }
     }
 }
@@ -3286,10 +3311,345 @@ fn remote_grub_json(app: &AppHandle) -> serde_json::Value {
     })
 }
 
+/// 网页控制台静态资源（编译期嵌入）：内置 HTTP 服务直接把主窗口那套前端
+/// 托管给局域网/外网浏览器，设置改动通过 /api/ui-command 真正作用于本机应用。
+const UI_INDEX_HTML: &str = include_str!("../../ui/index.html");
+const UI_APP_JS: &str = include_str!("../../ui/app.js");
+const UI_STYLES_CSS: &str = include_str!("../../ui/styles.css");
+const UI_GRUB_LIST_VIEW_JS: &str = include_str!("../../ui/grub-list-view.js");
+
+/// 网页控制台静态资源路由。
+///
+/// 页面本身**不要求 token**：浏览器得先拿到页面才能让用户输入 token；
+/// 真正的数据与命令全部在 /api/* 后面，那里全程 token 鉴权。页面里没有任何
+/// 机密（token 只在设置快照接口返回，且那需要 token 本身）。
+fn static_ui_reply(path: &str) -> Option<RemoteReply> {
+    let (content_type, body): (&'static str, &str) = match path {
+        "/" | "/ui" | "/ui/" | "/ui/index.html" => ("text/html; charset=utf-8", UI_INDEX_HTML),
+        // index.html 里引用的是 ./styles.css 等相对路径，页面在根路径时
+        // 解析成 /styles.css —— 根路径与 /ui/ 前缀两套都挂上
+        "/app.js" | "/ui/app.js" => ("text/javascript; charset=utf-8", UI_APP_JS),
+        "/grub-list-view.js" | "/ui/grub-list-view.js" => {
+            ("text/javascript; charset=utf-8", UI_GRUB_LIST_VIEW_JS)
+        }
+        "/styles.css" | "/ui/styles.css" => ("text/css; charset=utf-8", UI_STYLES_CSS),
+        _ => return None,
+    };
+    Some(RemoteReply::raw_page(
+        200,
+        content_type,
+        body.as_bytes().to_vec(),
+    ))
+}
+
+/// POST /api/ui-command：网页控制台的命令通道（真正改设置的入口）。
+///
+/// body：`{"cmd":"set_theme","args":{"theme":"dark"}}` → `{ok:true,cmd,result}`。
+/// 与 Tauri 主窗口共用**同一批命令函数**（同进程直接调用），所以行为、
+/// 校验、落盘、广播完全一致；全程 token 鉴权（handle_remote_request 前置）。
+fn handle_ui_command_request(app: &AppHandle, request: &RemoteRequest) -> RemoteReply {
+    let parsed = match serde_json::from_str::<serde_json::Value>(request.raw_body.trim()) {
+        Ok(value) => value,
+        Err(error) => {
+            return RemoteReply::error(400, "bad_json", &format!("请求体不是合法 JSON：{error}"))
+        }
+    };
+    let Some(cmd) = parsed
+        .get("cmd")
+        .and_then(|value| value.as_str())
+        .map(str::to_string)
+    else {
+        return RemoteReply::error(400, "missing_cmd", "缺少 cmd 字段");
+    };
+    let args = parsed.get("args").cloned().unwrap_or(serde_json::Value::Null);
+
+    // GUI 交互类命令：要弹**本机**对话框/文件管理器，远程网页没有意义
+    if matches!(
+        cmd.as_str(),
+        "pick_grub_dir"
+            | "open_config_dir"
+            | "open_vars_dir"
+            | "open_grub_dir"
+            | "open_login_items_settings"
+    ) {
+        return RemoteReply::error(
+            400,
+            "gui_only",
+            "该操作需要在本机应用内执行（远程网页不支持）",
+        );
+    }
+
+    let started = std::time::Instant::now();
+    let reply = match remote_ui_command(app, &cmd, &args) {
+        Ok(result) => RemoteReply::ok(
+            200,
+            serde_json::json!({ "ok": true, "cmd": cmd, "result": result }),
+        ),
+        Err(message) => RemoteReply::error(400, "command_failed", &message),
+    };
+    record_request_log(
+        app,
+        remote_channel(request),
+        &request.source,
+        &request.path,
+        &cmd,
+        if reply.status == 200 { "ok" } else { "failed" },
+        &format!("{}ms", started.elapsed().as_millis()),
+    );
+    reply
+}
+
+// ---------- /api/ui-command 参数提取辅助 ----------
+
+fn ui_str(args: &serde_json::Value, key: &str) -> Result<String, String> {
+    args.get(key)
+        .and_then(|value| value.as_str())
+        .map(str::to_string)
+        .ok_or_else(|| format!("缺少或非法参数 {key}（应为字符串）"))
+}
+
+fn ui_bool(args: &serde_json::Value, key: &str) -> Result<bool, String> {
+    args.get(key)
+        .and_then(|value| value.as_bool())
+        .ok_or_else(|| format!("缺少或非法参数 {key}（应为布尔）"))
+}
+
+fn ui_u32(args: &serde_json::Value, key: &str) -> Result<u32, String> {
+    args.get(key)
+        .and_then(|value| value.as_u64())
+        .and_then(|value| u32::try_from(value).ok())
+        .ok_or_else(|| format!("缺少或非法参数 {key}（应为非负整数）"))
+}
+
+fn ui_i32(args: &serde_json::Value, key: &str) -> Result<i32, String> {
+    args.get(key)
+        .and_then(|value| value.as_i64())
+        .and_then(|value| i32::try_from(value).ok())
+        .ok_or_else(|| format!("缺少或非法参数 {key}（应为整数）"))
+}
+
+/// 可缺省的字符串参数（JSON null / 缺字段 → None）。
+fn ui_opt_str(args: &serde_json::Value, key: &str) -> Option<String> {
+    args.get(key)
+        .and_then(|value| value.as_str())
+        .map(str::to_string)
+}
+
+fn status_value(status: AppStatus) -> Result<serde_json::Value, String> {
+    serde_json::to_value(status).map_err(|error| format!("序列化失败: {error}"))
+}
+
+fn settings_value(view: Result<SettingsView, String>) -> Result<serde_json::Value, String> {
+    let view = view?;
+    serde_json::to_value(view).map_err(|error| format!("序列化失败: {error}"))
+}
+
+fn res_unit(result: Result<(), String>) -> Result<serde_json::Value, String> {
+    result?;
+    Ok(serde_json::Value::Null)
+}
+
+/// 网页控制台命令 → 同进程命令函数的白名单分发。
+fn remote_ui_command(
+    app: &AppHandle,
+    cmd: &str,
+    args: &serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    // 改 HTTP 服务配置的命令会在执行里**同步重启监听**（apply_http_config →
+    // server.stop() 会 join 全部 worker）—— 而这条请求本身就是 worker 在处理，
+    // 同步跑就是自我死锁。转后台线程执行并立即回执，结果通过轮询快照反映。
+    if matches!(
+        cmd,
+        "set_http_enabled"
+            | "set_http_bind"
+            | "set_http_port"
+            | "set_http_token"
+            | "regenerate_http_token"
+            | "retry_http"
+    ) {
+        let handle = app.clone();
+        let cmd = cmd.to_string();
+        let args = args.clone();
+        std::thread::spawn(move || {
+            if let Err(error) = remote_ui_command_inner(&handle, &cmd, &args) {
+                trace(&handle, "http", &format!("网页命令 {cmd} 后台执行失败: {error}"));
+            }
+        });
+        return Ok(serde_json::json!({ "deferred": true }));
+    }
+    remote_ui_command_inner(app, cmd, args)
+}
+
+fn remote_ui_command_inner(
+    app: &AppHandle,
+    cmd: &str,
+    args: &serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    match cmd {
+        "get_ui_state" => serde_json::to_value(get_ui_state(app.clone()))
+            .map_err(|error| format!("序列化失败: {error}")),
+        // ---- 引导切换 / 扫描 ----
+        "refresh" => status_value(refresh(app.clone())),
+        "switch_system" => {
+            let system = ui_str(args, "system")?;
+            status_value(switch_system(app.clone(), system))
+        }
+        "set_vars_dir" => status_value(set_vars_dir(app.clone(), ui_opt_str(args, "path"))),
+        "unmount_temporary" => status_value(unmount_temporary(app.clone())),
+        "power_action" => res_unit(power_action(app.clone(), ui_opt_str(args, "action"))),
+        "confirm_pending" => res_unit(confirm_pending(app.clone())),
+        "cancel_pending" => res_unit(cancel_pending(app.clone())),
+        // ---- GRUB ----
+        "switch_grub" => {
+            let selector = ui_str(args, "selector")?;
+            status_value(switch_grub(app.clone(), selector))
+        }
+        "detect_esp" => {
+            let path = ui_str(args, "path")?;
+            detect_esp(app.clone(), path).map(serde_json::Value::String)
+        }
+        "detect_grub_by_partuuid" => {
+            detect_grub_by_partuuid(app.clone()).map(serde_json::Value::String)
+        }
+        "set_grub_dir" => res_unit(set_grub_dir(app.clone(), ui_str(args, "dir")?)),
+        "set_grub_partuuid" => {
+            res_unit(set_grub_partuuid(app.clone(), ui_str(args, "partuuid")?))
+        }
+        "set_grub_script" => res_unit(set_grub_script(app.clone(), ui_str(args, "script")?)),
+        "set_grub_mount" => res_unit(set_grub_mount(app.clone(), ui_bool(args, "enabled")?)),
+        "sync_grub" => res_unit(sync_grub(app.clone())),
+        "install_grub_script" => res_unit(install_grub_script(app.clone())),
+        "uninstall_grub_script" => res_unit(uninstall_grub_script(app.clone())),
+        "set_grub_list_view" => {
+            settings_value(set_grub_list_view(app.clone(), ui_str(args, "mode")?))
+        }
+        "set_grub_list_format" => {
+            settings_value(set_grub_list_format(app.clone(), ui_str(args, "format")?))
+        }
+        // ---- 主窗行为 / 贴边 / 白条 / 热区（Result<SettingsView,_> 一批）----
+        "set_main_auto_hide" => settings_value(set_main_auto_hide(app.clone(), ui_bool(args, "enabled")?)),
+        "set_main_always_on_top" => {
+            settings_value(set_main_always_on_top(app.clone(), ui_bool(args, "enabled")?))
+        }
+        "set_main_auto_hide_edge_distance" => settings_value(set_main_auto_hide_edge_distance(
+            app.clone(),
+            ui_i32(args, "distance")?,
+        )),
+        "set_main_dock_strip_thickness" => {
+            settings_value(set_main_dock_strip_thickness(app.clone(), ui_i32(args, "value")?))
+        }
+        "set_main_dock_strip_length" => {
+            settings_value(set_main_dock_strip_length(app.clone(), ui_i32(args, "value")?))
+        }
+        "set_main_dock_strip_opacity" => {
+            settings_value(set_main_dock_strip_opacity(app.clone(), ui_i32(args, "value")?))
+        }
+        "set_main_dock_strip_edge_gap" => {
+            settings_value(set_main_dock_strip_edge_gap(app.clone(), ui_i32(args, "value")?))
+        }
+        "set_main_dock_strip_hover_ms" => settings_value(set_main_dock_strip_hover_ms(
+            app.clone(),
+            args.get("value")
+                .and_then(|value| value.as_u64())
+                .ok_or_else(|| "缺少或非法参数 value（应为非负整数）".to_string())?,
+        )),
+        "set_main_dock_strip_color" => {
+            settings_value(set_main_dock_strip_color(app.clone(), ui_str(args, "color")?))
+        }
+        "set_main_hotzone_thickness" => {
+            settings_value(set_main_hotzone_thickness(app.clone(), ui_i32(args, "value")?))
+        }
+        "set_main_hotzone_color" => {
+            settings_value(set_main_hotzone_color(app.clone(), ui_str(args, "color")?))
+        }
+        "set_main_hotzone_opacity" => {
+            settings_value(set_main_hotzone_opacity(app.clone(), ui_i32(args, "value")?))
+        }
+        "set_main_hotzone_border" => {
+            settings_value(set_main_hotzone_border(app.clone(), ui_bool(args, "enabled")?))
+        }
+        "set_main_hotzone_border_color" => {
+            settings_value(set_main_hotzone_border_color(app.clone(), ui_str(args, "color")?))
+        }
+        "set_accent_color" => settings_value(set_accent_color(app.clone(), ui_str(args, "color")?)),
+        "set_main_window_position" => {
+            settings_value(set_main_window_position(app.clone(), ui_str(args, "mode")?))
+        }
+        "reset_main_window_position" => settings_value(reset_main_window_position(app.clone())),
+        "set_window_size" => settings_value(set_window_size(
+            app.clone(),
+            ui_u32(args, "width")?,
+            ui_u32(args, "height")?,
+        )),
+        "set_window_size_locked" => {
+            settings_value(set_window_size_locked(app.clone(), ui_bool(args, "locked")?))
+        }
+        "set_hide_from_dock_taskbar" => {
+            settings_value(set_hide_from_dock_taskbar(app.clone(), ui_bool(args, "enabled")?))
+        }
+        "set_close_action" => {
+            settings_value(set_close_action(app.clone(), ui_str(args, "action")?))
+        }
+        "set_autostart" => settings_value(set_autostart(app.clone(), ui_bool(args, "enabled")?)),
+        "set_start_in_tray" => {
+            settings_value(set_start_in_tray(app.clone(), ui_bool(args, "enabled")?))
+        }
+        // ---- 外观 ----
+        "set_theme" => res_unit(set_theme(app.clone(), ui_str(args, "theme")?)),
+        "set_opacity" => res_unit(set_opacity(app.clone(), ui_u32(args, "percent")?)),
+        // ---- 通知 / 提示音 ----
+        "set_notify_enabled" => {
+            settings_value(set_notify_enabled(app.clone(), ui_bool(args, "enabled")?))
+        }
+        "set_remote_allow_gui_auth" => {
+            settings_value(set_remote_allow_gui_auth(app.clone(), ui_bool(args, "enabled")?))
+        }
+        "set_channel_notify" => settings_value(set_channel_notify(
+            app.clone(),
+            ui_str(args, "channel")?,
+            ui_bool(args, "notify")?,
+        )),
+        "set_channel_delay" => settings_value(set_channel_delay(
+            app.clone(),
+            ui_str(args, "channel")?,
+            ui_u32(args, "seconds")?,
+        )),
+        "set_play_sound" => res_unit(set_play_sound(app.clone(), ui_bool(args, "enabled")?)),
+        "set_sound_file_path" => {
+            res_unit(set_sound_file_path(app.clone(), ui_str(args, "path")?))
+        }
+        // ---- HTTP 服务配置（外层已转后台线程执行）----
+        "set_http_enabled" => {
+            settings_value(set_http_enabled(app.clone(), ui_bool(args, "enabled")?))
+        }
+        "set_http_bind" => settings_value(set_http_bind(app.clone(), ui_str(args, "bind")?)),
+        "set_http_port" => {
+            let port = ui_u32(args, "port")?;
+            let port = u16::try_from(port).map_err(|_| "端口超出范围（1–65535）".to_string())?;
+            settings_value(set_http_port(app.clone(), port))
+        }
+        "set_http_token" => res_unit(set_http_token(app.clone(), ui_str(args, "token")?)),
+        "regenerate_http_token" => {
+            regenerate_http_token(app.clone()).map(serde_json::Value::String)
+        }
+        "retry_http" => retry_http(app.clone()).map(serde_json::Value::String),
+        "kill_port_occupant" => kill_port_occupant(app.clone()).map(serde_json::Value::String),
+        "reveal_http_token" => Ok(serde_json::Value::String(reveal_http_token(app.clone()))),
+        "http_access_hint" => Ok(serde_json::Value::String(http_access_hint(app.clone()))),
+        _ => Err(format!("未知或不受支持的命令: {cmd}")),
+    }
+}
+
 /// HTTP / CLI 转发共用的唯一入口：鉴权 → 路由 → 立即执行或转成待执行请求。
 pub(crate) fn handle_remote_request(app: &AppHandle, request: &RemoteRequest) -> RemoteReply {
     if !matches!(request.method.as_str(), "GET" | "POST") {
         return RemoteReply::error(405, "method_not_allowed", "只支持 GET / POST");
+    }
+    // 静态页面在鉴权之前（见 static_ui_reply 注释）
+    if request.method == "GET" {
+        if let Some(reply) = static_ui_reply(&request.path) {
+            return reply;
+        }
     }
     if request.path != "/health" {
         let settings = stored_settings(app);
@@ -3315,6 +3675,18 @@ pub(crate) fn handle_remote_request(app: &AppHandle, request: &RemoteRequest) ->
         "/api/status" => return RemoteReply::ok(200, remote_status_json(app)),
         "/api/requests" => return RemoteReply::ok(200, remote_requests_json()),
         "/api/grub" => return RemoteReply::ok(200, remote_grub_json(app)),
+        // 网页控制台：完整快照（轮询用）+ 命令通道（真正改设置）
+        "/api/ui-state" => {
+            let value = serde_json::to_value(get_ui_state(app.clone()))
+                .unwrap_or_else(|_| serde_json::json!({}));
+            return RemoteReply::ok(200, value);
+        }
+        "/api/ui-command" => {
+            if request.method != "POST" {
+                return RemoteReply::error(405, "method_not_allowed", "ui-command 只支持 POST");
+            }
+            return handle_ui_command_request(app, request);
+        }
         _ => {}
     }
 
@@ -5887,6 +6259,72 @@ fn http_access_hint_text(app: &AppHandle) -> String {
     )
 }
 
+/// Web 控制页地址（纯函数，便于单测）。
+///
+/// host 跟着监听地址走：绑 `0.0.0.0` 时换成本机局域网 IP（本机和同网段都能开），
+/// 绑回环就用回环，其余按用户填的地址原样用。token 走百分号编码 ——
+/// 服务端的 `find_pair` 会解码，这样含 `&`、`+`、`#` 的自定义 token 也不会散架。
+fn web_page_url(host: &str, port: u16, token: &str) -> String {
+    let host = host.trim();
+    let host = if host.is_empty() || host == "0.0.0.0" {
+        local_ipv4()
+    } else if host == "::" || host == "[::]" {
+        "127.0.0.1".to_string()
+    } else {
+        host.to_string()
+    };
+    // IPv6 字面量在 URL 里必须加方括号
+    let host = if host.contains(':') && !host.starts_with('[') {
+        format!("[{host}]")
+    } else {
+        host
+    };
+    format!(
+        "http://{host}:{port}/?token={}",
+        percent_encode_component(token.trim())
+    )
+}
+
+/// 拼出「此刻真的能打开」的 Web 页地址：没 token / 没在监听就直接说明原因，
+/// 免得给用户开一个必然打不开的页面（打开浏览器失败很难自查）。
+fn current_web_page_url(app: &AppHandle) -> Result<String, String> {
+    let settings = stored_settings(app);
+    let token = settings.http_token.trim().to_string();
+    if token.is_empty() {
+        return Err(
+            "远程控制还没有访问令牌：token 为空时 HTTP 服务不会启动，先去「基本设置 ▸ 远程控制」生成一个"
+                .to_string(),
+        );
+    }
+    let (listening, addr) = {
+        let runtime = http_lock();
+        match runtime.server.as_ref() {
+            Some(server) => (true, Some(server.addr.clone())),
+            None => (false, None),
+        }
+    };
+    if !listening {
+        return Err(
+            "HTTP 服务当前没有在监听：先在「基本设置 ▸ 远程控制」里打开它（或看是不是端口被占了）"
+                .to_string(),
+        );
+    }
+    // 以**实际监听到的端口**为准：配置改了但还没重启时会不一致
+    let port = addr
+        .as_deref()
+        .and_then(|addr| addr.rsplit(':').next())
+        .and_then(|port| port.parse::<u16>().ok())
+        .unwrap_or(settings.http_port);
+    Ok(web_page_url(&settings.http_bind, port, &token))
+}
+
+/// 用系统默认浏览器打开 Web 控制页，返回真正打开的地址（给界面回显用）。
+fn open_web_page_now(app: &AppHandle) -> Result<String, String> {
+    let url = current_web_page_url(app)?;
+    open_url_in_browser(&url)?;
+    Ok(url)
+}
+
 /// 设置类变更的统一写法：存盘 → 记录回执 → 必要时重启服务 → 发布快照。
 fn update_settings_and_publish(
     app: &AppHandle,
@@ -6036,6 +6474,7 @@ fn menu_system_rows(variables: &[VariableInfo]) -> Vec<VariableInfo> {
 ///
 /// 原生菜单没有「分组」这个概念，能表达分区的只有两样东西：分隔线，和一个灰掉的标题项。
 /// 标题项禁用之后 Windows/GTK 都会画成灰色小标题，配合上下两条分隔线，一眼就是独立一块。
+#[cfg(desktop)]
 fn menu_section_header(
     app: &AppHandle,
     id: &str,
@@ -6057,6 +6496,7 @@ fn menu_status_line<'a>(message: &'a str, next_boot_label: &str) -> Option<&'a s
     Some(message)
 }
 
+#[cfg(desktop)]
 fn build_tray_menu(app: &AppHandle, state: &UiState) -> tauri::Result<Menu<tauri::Wry>> {
     let busy = state.busy.affects_menu();
     let message = &state.status.message;
@@ -6289,6 +6729,15 @@ fn build_tray_menu(app: &AppHandle, state: &UiState) -> tauri::Result<Menu<tauri
         true,
         None::<&str>,
     )?)?;
+    // 用系统浏览器打开 Web 控制页（带 token，点开即用）。
+    // 没在监听时置灰：没有页面可开，免得点了弹一个必然失败的错误。
+    menu.append(&MenuItem::with_id(
+        app,
+        "open-web",
+        "打开 Web 页面",
+        state.http.listening,
+        None::<&str>,
+    )?)?;
 
     menu.append(&PredefinedMenuItem::separator(app)?)?;
     menu.append(&MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?)?;
@@ -6468,6 +6917,8 @@ enum MenuAction {
     SetDelayAll(u32),
     /// 打开主窗口并定位到「远程控制」区
     ShowRemote,
+    /// 用系统默认浏览器打开 Web 控制页（带 token）
+    OpenWeb,
     SetAutostart,
     SetStartInTray(bool),
     SetHideFromDockTaskbar(bool),
@@ -6514,6 +6965,7 @@ impl MenuAction {
             "restart" => Some(Self::Power(PowerAction::Reboot)),
             "setting-autostart" => Some(Self::SetAutostart),
             "show-remote" => Some(Self::ShowRemote),
+            "open-web" => Some(Self::OpenWeb),
             "reset-window-size" => Some(Self::ResetWindowSize),
             "reset-window-position" => Some(Self::ResetWindowPosition),
             "quit" => Some(Self::Quit),
@@ -6579,6 +7031,10 @@ fn spawn_menu_action(app: &AppHandle, action: MenuAction) {
                 );
             }
         }
+        MenuAction::OpenWeb => match open_web_page_now(&app) {
+            Ok(url) => record_action(&app, "打开 Web 页面", true, &format!("已打开 {url}")),
+            Err(error) => record_action(&app, "打开 Web 页面", false, &error),
+        },
         MenuAction::SetAutostart => toggle_autostart_setting(&app),
         MenuAction::SetStartInTray(enabled) => {
             update_tray_setting(&app, TraySetting::StartInTray, enabled)
@@ -10683,6 +11139,14 @@ fn http_access_hint(app: AppHandle) -> String {
     http_access_hint_text(&app)
 }
 
+/// 主窗口「打开 Web 页面」：用系统默认浏览器打开带令牌的控制页。
+/// 返回真正的地址，界面直接回显，省得用户猜开到了哪。
+#[tauri::command]
+fn open_web_page(app: AppHandle) -> Result<String, String> {
+    trace(&app, "command", "open_web_page（系统浏览器）");
+    open_web_page_now(&app)
+}
+
 /// 设置提示音开关
 #[tauri::command]
 fn set_play_sound(app: AppHandle, enabled: bool) -> Result<(), String> {
@@ -10888,6 +11352,69 @@ fn open_directory_in_explorer(dir: &std::path::Path) -> Result<(), String> {
     Ok(())
 }
 
+/// 跨平台：用系统默认浏览器打开 URL。
+///
+/// Windows 走 `ShellExecuteW` —— 这是系统「用默认程序打开某物」的标准入口
+/// （资源管理器双击、Office 打开链接都走它），对 URL 会直接交给默认浏览器。
+/// 不用 `explorer.exe <url>`：它会把带 query 的地址当文件/文件夹路径解析，
+/// 常常什么都不打开；而且一旦弹出错误对话框，explorer 进程会一直不退出，
+/// 用 `.status()` 同步等它就把整个命令挂死（按钮停在禁用态，看着就是「没反应」）。
+/// `ShellExecuteW` 是即发即返回，不阻塞。其余平台用 xdg-open / open，spawn 后不等。
+fn open_url_in_browser(url: &str) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::UI::Shell::ShellExecuteW;
+        use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+
+        fn wide(value: &str) -> Vec<u16> {
+            std::ffi::OsStr::new(value)
+                .encode_wide()
+                .chain(std::iter::once(0))
+                .collect()
+        }
+
+        let operation = wide("open");
+        let file = wide(url);
+        // SAFETY: 两个宽字符串由上面的 Vec 持有、以 NUL 结尾，在本调用期间一直存活；
+        // 其余参数按 API 约定传 null / 默认显示方式均合法。
+        let handle = unsafe {
+            ShellExecuteW(
+                std::ptr::null_mut(),
+                operation.as_ptr(),
+                file.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                SW_SHOWNORMAL,
+            )
+        };
+        // ShellExecuteW 的返回值不是真句柄：<= 32 表示失败（0/2/3/5/... 各有含义），
+        // > 32 才算成功。所以不能用「非空」判断。
+        let code = handle as isize;
+        if code <= 32 {
+            return Err(format!(
+                "打开默认浏览器失败：ShellExecute 返回 {code}（常见 2=找不到文件，5=被安全软件/策略拒绝）"
+            ));
+        }
+        return Ok(());
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let program = if cfg!(target_os = "macos") {
+            "open"
+        } else {
+            "xdg-open"
+        };
+        // spawn 而非 status：浏览器进程可能长期驻留，等它退出没有意义。
+        command(program)
+            .arg(url)
+            .spawn()
+            .map_err(|error| format!("打开浏览器失败：{error}"))?;
+        Ok(())
+    }
+}
+
 #[tauri::command]
 fn confirm_pending(app: AppHandle) -> Result<(), String> {
     trace(&app, "command", "confirm_pending（本机立即执行）");
@@ -10917,43 +11444,52 @@ fn power_action(app: AppHandle, action: Option<String>) -> Result<(), String> {
 }
 
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .manage(Mutex::<AppState>::default())
         .manage(Mutex::<Settings>::default())
         // busy / 最近动作 / 菜单内容指纹：都只由 publish_ui 与托盘动作读写
         .manage(Mutex::<BusyState>::default())
         .manage(Mutex::<Option<ActionResult>>::default())
-        .manage(Mutex::<Option<String>>::default())
-        // macOS 13+ 走系统登录项（见 login_item），这里的 LaunchAgent 方式仅作为
-        // 旧版 macOS 以及 Windows / Linux 的实现。
-        .plugin(tauri_plugin_autostart::init(
-            MacosLauncher::LaunchAgent,
-            None,
-        ))
+        .manage(Mutex::<Option<String>>::default());
+    // macOS 13+ 走系统登录项（见 login_item），这里的 LaunchAgent 方式仅作为
+    // 旧版 macOS 以及 Windows / Linux 的实现。移动端没有「开机自启」，不注册。
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_autostart::init(
+        MacosLauncher::LaunchAgent,
+        None,
+    ));
+    builder
         .plugin(tauri_plugin_dialog::init())
         .on_window_event(|window, event| {
-            // 主窗口**常驻最顶层**（受「窗口始终置顶」设置控制）：呼出 / 拿到
-            // 焦点时再确认一次置顶；失焦不再取消置顶 —— 否则点别处时窗口会被
-            // 别的窗口盖住。Linux/macOS 的置顶层级会被 hide/show 一圈丢掉，
-            // 这里是拿到焦点后的最后一道补钉；关掉设置时不再强制。
-            if let tauri::WindowEvent::Focused(focused) = event {
-                if window.label() == MAIN_WINDOW_LABEL {
-                    if *focused && stored_settings(window.app_handle()).main_always_on_top {
-                        // 回到焦点：回到最上层（常态就是置顶，这里再确认）
-                        let _ = window.set_always_on_top(true);
+            // 置顶补钉与移动夹取都是桌面概念：移动端窗口不可移动/置顶，
+            // 这些 API（set_always_on_top / 位置处理）在移动目标上不存在。
+            #[cfg(desktop)]
+            {
+                // 主窗口**常驻最顶层**（受「窗口始终置顶」设置控制）：呼出 / 拿到
+                // 焦点时再确认一次置顶；失焦不再取消置顶 —— 否则点别处时窗口会被
+                // 别的窗口盖住。Linux/macOS 的置顶层级会被 hide/show 一圈丢掉，
+                // 这里是拿到焦点后的最后一道补钉；关掉设置时不再强制。
+                if let tauri::WindowEvent::Focused(focused) = event {
+                    if window.label() == MAIN_WINDOW_LABEL && *focused {
+                        if stored_settings(window.app_handle()).main_always_on_top {
+                            // 回到焦点：回到最上层（常态就是置顶，这里再确认）
+                            let _ = window.set_always_on_top(true);
+                        }
                     }
                     // 失焦：保持现状（设置开着就是置顶，关了就是普通层级）。
+                    return;
                 }
-                return;
-            }
-            // 主窗口移动：位置夹取（完整显示）+ 贴边判定。
-            if let tauri::WindowEvent::Moved(position) = event {
-                if window.label() == MAIN_WINDOW_LABEL {
-                    let app = window.app_handle().clone();
-                    handle_main_moved(&app, *position);
+                // 主窗口移动：位置夹取（完整显示）+ 贴边判定。
+                if let tauri::WindowEvent::Moved(position) = event {
+                    if window.label() == MAIN_WINDOW_LABEL {
+                        let app = window.app_handle().clone();
+                        handle_main_moved(&app, *position);
+                    }
+                    return;
                 }
-                return;
             }
+            #[cfg(not(desktop))]
+            let _ = (window, event);
             // 这个 Tauri 版本的 WindowEvent 没有 Cursor 事件；「鼠标进窗展开 /
             // 离窗贴边」由 start_auto_hide_watcher 的轮询线程负责。
             let tauri::WindowEvent::CloseRequested { api, .. } = event else {
@@ -10992,6 +11528,8 @@ pub fn run() {
             }
             #[cfg(target_os = "macos")]
             let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+            // 「开机自启」同步是桌面专属（autostart 插件）
+            #[cfg(desktop)]
             startup_autostart_sync(app.handle());
             view_settings(app.handle());
             // 调试/沙箱：把变量目录指到别处，验证时不会碰真实的 ESP
@@ -11011,46 +11549,51 @@ pub fn run() {
             }
             // 首次运行/升级：写回完整设置（含自动生成的 token），默认值一眼可见
             ensure_settings_complete(app.handle());
-            let hide_from_dock_taskbar = stored_settings(app.handle()).hide_from_dock_taskbar;
-            let start_in_tray = stored_settings(app.handle()).start_in_tray;
-            #[cfg(target_os = "macos")]
-            let _ = app.set_activation_policy(if hide_from_dock_taskbar || start_in_tray {
-                tauri::ActivationPolicy::Accessory
-            } else {
-                tauri::ActivationPolicy::Regular
-            });
-            apply_dock_taskbar_visibility(app.handle(), hide_from_dock_taskbar)
-                .map_err(|error| error.to_string())?;
-            // 启动即按已保存的展示方式与记忆尺寸落窗口（老配置没记过尺寸
-            // 才回落到模式标称 460/932）。托盘启动也照做：呼出时窗口直接
-            // 就是对的尺寸，不用再补。
-            apply_grub_layout_size(app.handle(), false);
-            // 锁定窗口大小的话，启动就把窗口钉成不可缩放/不可最大化
-            apply_window_size_lock(app.handle());
-            // 置顶状态按设置摆正：配置里存了 false（用户关过）就在启动时放下
-            // —— tauri.conf 里 alwaysOnTop=true 只是默认值，设置才是事实来源。
-            if !stored_settings(app.handle()).main_always_on_top {
-                if let Some(main) = app.get_webview_window(MAIN_WINDOW_LABEL) {
-                    let _ = main.set_always_on_top(false);
+            // —— 以下整段是桌面窗口管理（任务栏隐藏 / 贴边 / 尺寸锁定 / 托盘），
+            // 移动端窗口是系统托管的 Activity/View，这些概念都不存在 ——
+            #[cfg(desktop)]
+            {
+                let hide_from_dock_taskbar = stored_settings(app.handle()).hide_from_dock_taskbar;
+                let start_in_tray = stored_settings(app.handle()).start_in_tray;
+                #[cfg(target_os = "macos")]
+                let _ = app.set_activation_policy(if hide_from_dock_taskbar || start_in_tray {
+                    tauri::ActivationPolicy::Accessory
+                } else {
+                    tauri::ActivationPolicy::Regular
+                });
+                apply_dock_taskbar_visibility(app.handle(), hide_from_dock_taskbar)
+                    .map_err(|error| error.to_string())?;
+                // 启动即按已保存的展示方式与记忆尺寸落窗口（老配置没记过尺寸
+                // 才回落到模式标称 460/932）。托盘启动也照做：呼出时窗口直接
+                // 就是对的尺寸，不用再补。
+                apply_grub_layout_size(app.handle(), false);
+                // 锁定窗口大小的话，启动就把窗口钉成不可缩放/不可最大化
+                apply_window_size_lock(app.handle());
+                // 置顶状态按设置摆正：配置里存了 false（用户关过）就在启动时放下
+                // —— tauri.conf 里 alwaysOnTop=true 只是默认值，设置才是事实来源。
+                if !stored_settings(app.handle()).main_always_on_top {
+                    if let Some(main) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+                        let _ = main.set_always_on_top(false);
+                    }
                 }
-            }
-            if start_in_tray {
-                if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
-                    let _ = window.hide();
+                if start_in_tray {
+                    if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+                        let _ = window.hide();
+                    }
+                } else {
+                    // 启动首次显示：recalled=false —— 不挂「呼出保护」，
+                    // 贴边隐藏从第一拍起就是可用的（与 Windows 行为一致）。
+                    show_main_window(app.handle(), ShowOrigin::Startup);
                 }
-            } else {
-                // 启动首次显示：recalled=false —— 不挂「呼出保护」，
-                // 贴边隐藏从第一拍起就是可用的（与 Windows 行为一致）。
-                show_main_window(app.handle(), ShowOrigin::Startup);
+                // 贴边自动隐藏的守护线程：托盘启动也要有（呼出窗口后光标一离就贴边）
+                if stored_settings(app.handle()).main_auto_hide {
+                    start_auto_hide_watcher(app.handle());
+                }
+                // 诊断钩子：模拟一次「托盘呼出」（见 spawn_diag_recall）。不设环境变量时
+                // 这里什么都不做，产品路径一行不变。
+                spawn_diag_recall(app.handle());
+                spawn_diag_force_dock(app.handle());
             }
-            // 贴边自动隐藏的守护线程：托盘启动也要有（呼出窗口后光标一离就贴边）
-            if stored_settings(app.handle()).main_auto_hide {
-                start_auto_hide_watcher(app.handle());
-            }
-            // 诊断钩子：模拟一次「托盘呼出」（见 spawn_diag_recall）。不设环境变量时
-            // 这里什么都不做，产品路径一行不变。
-            spawn_diag_recall(app.handle());
-            spawn_diag_force_dock(app.handle());
 
             // 第一帧就用完整菜单（系统项 / 应用设置 / 电源项都在），
             // 不再让用户在冷启动扫描期间看到一个残缺菜单（阶段 1 修 D2）。
@@ -11064,63 +11607,67 @@ pub fn run() {
             // 预热菜单指纹：这一帧就是当前内容，别让紧接着的首次扫描白重建一次菜单
             remember_menu_signature(app.handle(), menu_signature_for(&initial_state));
 
-            // Windows：托盘右键菜单由我们自己弹（见 popup_tray_menu），先从托盘上**摘掉**菜单，
-            // 否则原生实现会抢在事件前面用「光标锚点」把它弹出来，压住任务栏。
-            // 托盘不挂菜单这一点对 tray-icon 是合法的：右键仍会照常发 Click 事件给我们。
-            #[cfg(not(target_os = "windows"))]
-            let initial_menu = build_tray_menu(app.handle(), &initial_state)?;
-            // Windows：菜单锚点窗口 —— 8×8、无边框、不可见，创建时就停在 (0,0)。
-            // `popup_at` 会把坐标当它的**客户区坐标**再 ClientToScreen 一次，停在原点坐标才好算。
-            //
-            // 为什么是「带 webview 的窗口」而不是更轻的 `WindowBuilder`：`AppHandle::get_window`
-            // 被 tauri 的 `unstable` feature 挡着（`windows()` 同理），只有 `get_webview_window`
-            // 是公开 API；而这里在 setup 里建一次、之后每次右键按 label 取回来，是最省事也最稳的路子。
-            // 多出来的这个 webview 从头到尾不可见、不参与交互，就是一块坐标基准。
-            #[cfg(target_os = "windows")]
-            tauri::WebviewWindowBuilder::new(
-                app.handle(),
-                MENU_ANCHOR_WINDOW_LABEL,
-                tauri::WebviewUrl::App("menu-anchor.html".into()),
-            )
-            .inner_size(MENU_ANCHOR_SIZE, MENU_ANCHOR_SIZE)
-            .position(0.0, 0.0)
-            .decorations(false)
-            .resizable(false)
-            .skip_taskbar(true)
-            .visible(false)
-            .focused(false)
-            .build()?;
-
-            // Windows 上托盘不挂菜单，`mut` 只有其他平台用得上
-            #[allow(unused_mut)]
-            let mut tray_builder = TrayIconBuilder::with_id("main")
-                .icon(create_tray_image())
-                .show_menu_on_left_click(false)
-                .on_tray_icon_event(|tray, event| {
-                    let TrayIconEvent::Click {
-                        button,
-                        button_state: MouseButtonState::Up,
-                        position,
-                        ..
-                    } = event
-                    else {
-                        return;
-                    };
-                    let app = tray.app_handle();
-                    match button {
-                        MouseButton::Left => show_main_window(app, ShowOrigin::Recall),
-                        MouseButton::Right => on_tray_right_click(app, position),
-                        _ => {}
-                    }
-                })
-                .on_menu_event(|app, event| {
-                    handle_menu_event(app, event.id().as_ref());
-                });
-            #[cfg(not(target_os = "windows"))]
+            // —— 托盘与菜单整段桌面专属（移动端没有托盘/原生菜单）——
+            #[cfg(desktop)]
             {
-                tray_builder = tray_builder.menu(&initial_menu);
+                // Windows：托盘右键菜单由我们自己弹（见 popup_tray_menu），先从托盘上**摘掉**菜单，
+                // 否则原生实现会抢在事件前面用「光标锚点」把它弹出来，压住任务栏。
+                // 托盘不挂菜单这一点对 tray-icon 是合法的：右键仍会照常发 Click 事件给我们。
+                #[cfg(not(target_os = "windows"))]
+                let initial_menu = build_tray_menu(app.handle(), &initial_state)?;
+                // Windows：菜单锚点窗口 —— 8×8、无边框、不可见，创建时就停在 (0,0)。
+                // `popup_at` 会把坐标当它的**客户区坐标**再 ClientToScreen 一次，停在原点坐标才好算。
+                //
+                // 为什么是「带 webview 的窗口」而不是更轻的 `WindowBuilder`：`AppHandle::get_window`
+                // 被 tauri 的 `unstable` feature 挡着（`windows()` 同理），只有 `get_webview_window`
+                // 是公开 API；而这里在 setup 里建一次、之后每次右键按 label 取回来，是最省事也最稳的路子。
+                // 多出来的这个 webview 从头到尾不可见、不参与交互，就是一块坐标基准。
+                #[cfg(target_os = "windows")]
+                tauri::WebviewWindowBuilder::new(
+                    app.handle(),
+                    MENU_ANCHOR_WINDOW_LABEL,
+                    tauri::WebviewUrl::App("menu-anchor.html".into()),
+                )
+                .inner_size(MENU_ANCHOR_SIZE, MENU_ANCHOR_SIZE)
+                .position(0.0, 0.0)
+                .decorations(false)
+                .resizable(false)
+                .skip_taskbar(true)
+                .visible(false)
+                .focused(false)
+                .build()?;
+
+                // Windows 上托盘不挂菜单，`mut` 只有其他平台用得上
+                #[allow(unused_mut)]
+                let mut tray_builder = TrayIconBuilder::with_id("main")
+                    .icon(create_tray_image())
+                    .show_menu_on_left_click(false)
+                    .on_tray_icon_event(|tray, event| {
+                        let TrayIconEvent::Click {
+                            button,
+                            button_state: MouseButtonState::Up,
+                            position,
+                            ..
+                        } = event
+                        else {
+                            return;
+                        };
+                        let app = tray.app_handle();
+                        match button {
+                            MouseButton::Left => show_main_window(app, ShowOrigin::Recall),
+                            MouseButton::Right => on_tray_right_click(app, position),
+                            _ => {}
+                        }
+                    })
+                    .on_menu_event(|app, event| {
+                        handle_menu_event(app, event.id().as_ref());
+                    });
+                #[cfg(not(target_os = "windows"))]
+                {
+                    tray_builder = tray_builder.menu(&initial_menu);
+                }
+                let _tray = tray_builder.build(app.handle())?;
             }
-            let _tray = tray_builder.build(app.handle())?;
 
             // HTTP 服务与待执行请求的调度线程（托盘已就绪，publish_ui 能刷菜单）
             apply_http_config(app.handle());
@@ -11189,6 +11736,7 @@ pub fn run() {
             regenerate_http_token,
             reveal_http_token,
             http_access_hint,
+            open_web_page,
             set_play_sound,
             set_sound_file_path,
             set_http_token,
@@ -12142,6 +12690,8 @@ mod core_tests {
                 MenuAction::Power(PowerAction::Reboot),
             ),
             ("setting-autostart".to_string(), MenuAction::SetAutostart),
+            ("show-remote".to_string(), MenuAction::ShowRemote),
+            ("open-web".to_string(), MenuAction::OpenWeb),
             ("quit".to_string(), MenuAction::Quit),
             ("linux".to_string(), MenuAction::Switch("linux".to_string())),
             (
@@ -12422,6 +12972,7 @@ mod core_tests {
                 .map(|(key, value)| (key.to_string(), value.to_string()))
                 .collect(),
             body: Vec::new(),
+            raw_body: String::new(),
             token: Some("t".to_string()),
             source: if source_is_loopback {
                 "127.0.0.1".to_string()
@@ -12897,6 +13448,49 @@ mod core_tests {
         assert_eq!(
             RemoteCommand::SwitchGrub("Arch Linux".to_string()).summary(),
             "切换 GRUB 启动项为 Arch Linux"
+        );
+    }
+
+    /// 手动验证用（`cargo test -- --ignored shell_execute_can_open_url`）：
+    /// 真去唤起默认浏览器。
+    ///
+    /// 判据不是「函数返回 Ok」——ShellExecuteW 成功只代表系统接受了请求，
+    /// 真正打开与否要看浏览器有没有发请求。所以配套起一个本地探针：
+    /// `python -m http.server 8899 --bind 127.0.0.1`，跑完看它的访问日志里
+    /// 有没有 `GET /probe-shell-execute`。
+    #[test]
+    #[ignore = "会真的弹出默认浏览器，需要手动运行并观察探针日志"]
+    fn shell_execute_can_open_url() {
+        open_url_in_browser("http://127.0.0.1:8899/probe-shell-execute")
+            .expect("ShellExecuteW 打开 URL 应被系统接受");
+    }
+
+    #[test]
+    fn web_page_url_follows_bind_address() {
+        // 绑通配地址 → 换成本机局域网 IP（IP 不固定，这里只断言形状）
+        let lan = web_page_url("0.0.0.0", 12300, "abc123");
+        assert!(lan.starts_with("http://"), "{lan}");
+        assert!(lan.ends_with(":12300/?token=abc123"), "{lan}");
+        assert!(
+            !lan.contains("0.0.0.0"),
+            "通配地址不该原样出现在 URL 里（浏览器打开必失败）: {lan}"
+        );
+        // 回环绑定就老老实实给回环
+        assert_eq!(
+            web_page_url("127.0.0.1", 12300, "abc123"),
+            "http://127.0.0.1:12300/?token=abc123"
+        );
+        // 自定义 token 里的 `&`、`+` 必须编码：服务端 find_pair 会解码，
+        // 不编码的话 `+` 会被解成空格、`&` 会被当成参数分隔符。
+        assert_eq!(
+            web_page_url("192.168.1.5", 8080, "a&b+c"),
+            "http://192.168.1.5:8080/?token=a%26b%2Bc"
+        );
+        // IPv6 字面量要加方括号
+        assert_eq!(web_page_url("::1", 12300, "t"), "http://[::1]:12300/?token=t");
+        assert_eq!(
+            web_page_url("::", 12300, "t"),
+            "http://127.0.0.1:12300/?token=t"
         );
     }
 

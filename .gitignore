@@ -7,3 +7,23 @@ src-tauri/gen/
 .idea/
 .vscode/
 *.iml
+
+# --- Android / Gradle 构建产物（源码与 README 入库，产物不入库） ---
+mobile/android/.gradle/
+mobile/android/build/
+mobile/android/app/build/
+mobile/android/local.properties
+mobile/android/app/release/
+mobile/android/captures/
+*.apk
+*.aab
+*.keystore
+
+# --- iOS / Xcode 构建产物（源码与 README 入库，产物不入库） ---
+mobile/ios/build/
+mobile/ios/DerivedData/
+mobile/ios/*.xcodeproj/xcuserdata/
+mobile/ios/*.xcodeproj/project.xcworkspace/xcuserdata/
+mobile/ios/*.xcworkspace/xcuserdata/
+mobile/ios/.build/
+xcuserdata/

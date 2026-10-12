@@ -205,6 +205,7 @@ fn handle_one(app: &AppHandle, mut request: tiny_http::Request) {
         path,
         query,
         body: body_pairs,
+        raw_body: body,
         token: token_value,
         source: source.clone(),
         source_is_loopback: is_loopback(&source),
@@ -214,15 +215,32 @@ fn handle_one(app: &AppHandle, mut request: tiny_http::Request) {
 }
 
 fn send(request: tiny_http::Request, reply: &RemoteReply) {
-    let body = serde_json::to_string(&reply.json).unwrap_or_else(|_| "{\"ok\":false}".to_string());
-    let content_type = Header::from_bytes(
-        &b"Content-Type"[..],
-        &b"application/json; charset=utf-8"[..],
-    )
-    .expect("静态 header 一定合法");
-    let mut response = Response::from_string(body)
-        .with_status_code(reply.status)
-        .with_header(content_type);
+    let mut response = match &reply.raw {
+        // 静态资源（网页控制台页面）：原样回字节，带 no-store 防止改版后浏览器吃缓存
+        Some((content_type, bytes)) => {
+            let content_type =
+                Header::from_bytes(&b"Content-Type"[..], content_type.as_bytes())
+                    .expect("静态 content-type 一定合法");
+            let no_store = Header::from_bytes(&b"Cache-Control"[..], &b"no-store"[..])
+                .expect("静态 header 一定合法");
+            Response::from_data(bytes.clone())
+                .with_status_code(reply.status)
+                .with_header(content_type)
+                .with_header(no_store)
+        }
+        None => {
+            let body =
+                serde_json::to_string(&reply.json).unwrap_or_else(|_| "{\"ok\":false}".to_string());
+            let content_type = Header::from_bytes(
+                &b"Content-Type"[..],
+                &b"application/json; charset=utf-8"[..],
+            )
+            .expect("静态 header 一定合法");
+            Response::from_string(body)
+                .with_status_code(reply.status)
+                .with_header(content_type)
+        }
+    };
     if reply.status == 401 {
         // 让暴力试探慢一点；正常请求不受影响
         response = response.with_header(
