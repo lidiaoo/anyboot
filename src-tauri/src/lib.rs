@@ -8736,6 +8736,74 @@ fn grub_esp_ready(_settings: &Settings) -> bool {
     true
 }
 
+/// 启动/刷新链路的「启动识别」（用户定案 2026-10-12）：同步的硬性条件（ESP
+/// 挂在 /boot 下）**不满足 ≠ 连解析都不做** —— 填了 UUID 或目录就仍做一次
+/// 识别：只解析 + 双向回填，**UUID 优先**（有效就用 UUID 解析 grub.cfg）。
+///
+/// 「有效」的判据（启动链路**绝不挂载**、绝不 pkexec）：
+/// * UUID 已挂载（任意位置，不限 /boot —— 识别只解析，挂哪都能读）→ 按 UUID
+///   走 `grub_scan`（内部命中「已挂载」分支，不会触发按需挂载），目录回填走
+///   `rescan_grub` 既有的 `discovered` 逻辑；
+/// * 否则退目录（存在且是 FAT32 才算有效）：清掉 UUID 再扫（防止
+///   `grub_locate` 按需挂载），分区 UUID 取到了回填（与目录「识别」按钮同语义，
+///   仅在 UUID 本来为空时 —— 用户填了的 UUID 不被探测值覆盖）。
+/// 两个都无效 → 返回 None，调用方维持现状。
+/// 返回 `(scan, 落选时待归还的挂载具柄)`。
+fn startup_identify_scan(
+    app: &AppHandle,
+    settings: &Settings,
+    reusable: Option<ActiveMount>,
+) -> (Option<GrubScan>, Option<ActiveMount>) {
+    let uuid = settings.grub_efi_partuuid.trim();
+    let dir = settings.grub_efi_dir.trim();
+
+    // ① UUID 优先：已挂载才算启动时「有效」
+    if !uuid.is_empty() && find_mounted_by_partuuid(uuid).is_some() {
+        // 已挂载的 UUID 理论上不该定位失败；真失败时挂载具柄已被 grub_scan 收尾
+        match grub_scan(settings, reusable, false) {
+            Ok(scan) => {
+                trace(app, "grub", "startup identify: via partuuid (mounted)");
+                return (scan, None);
+            }
+            Err(_) => return (None, None),
+        }
+    }
+
+    // ② 退目录：清掉 UUID 再扫，杜绝 grub_locate 的按需挂载（启动不 pkexec）
+    if !dir.is_empty() && Path::new(dir).is_dir() {
+        let mut scan_settings = settings.clone();
+        scan_settings.grub_efi_partuuid = String::new();
+        match grub_scan(&scan_settings, reusable, false) {
+            Ok(Some(scan)) => {
+                if !scan.esp.fat {
+                    // 目录不是 FAT32：指错了地方，识别作废；具柄按 merge 结果归还
+                    trace(app, "grub", "startup identify: dir is not FAT32, abort");
+                    return (None, scan.mount);
+                }
+                trace(app, "grub", "startup identify: via dir");
+                if uuid.is_empty() {
+                    if let Some(partuuid) = scan
+                        .esp
+                        .partuuid
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                    {
+                        let mut new_settings = settings.clone();
+                        new_settings.grub_efi_partuuid = partuuid.to_string();
+                        let _ = save_settings(app, &new_settings);
+                    }
+                }
+                return (Some(scan), None);
+            }
+            // Ok(None) 到不了（dir 非空）；Err 时 grub_scan 已把具柄收尾
+            _ => return (None, None),
+        }
+    }
+
+    (None, reusable)
+}
+
 /// macOS：遍历已挂载的卷，按**分区 UUID**（`Disk / Partition UUID`）定位。
 ///
 /// 键就是 GPT 分区表里的 GUID，Linux/Windows 报的是同一个值 —— 直接归一化
@@ -9172,7 +9240,12 @@ fn grub_scan(
             let mount = merge_mount(fresh, reusable, &efi_dir);
             (efi_dir, mount)
         }
-        None => (PathBuf::from(dir), None),
+        None => {
+            // 目录分支同样要按「同目录才复用，否则释放」收好手上的具柄 ——
+            // 直接丢掉的话，勾了「保持挂载」的旧挂载会从此没人管得着。
+            let mount = merge_mount(None, reusable, &PathBuf::from(&dir));
+            (PathBuf::from(dir), mount)
+        }
     };
     let discovered = efi_dir_from_uuid;
 
@@ -9236,6 +9309,8 @@ fn grub_scan(
 ///
 /// `sync=true` 才把 /boot/grub 的数据搬进 ESP。三条链路的分工（用户定案）：
 /// * 启动/刷新/切换后（`refresh_grub`）：`(false, true)` —— 硬性条件满足才同步；
+///   不满足时仍做一次「启动识别」（只解析 + 回填，UUID 优先、绝不挂载，
+///   见 `startup_identify_scan`）；
 /// * 识别（`detect_esp` / `detect_grub_by_partuuid`）与挂载勾选：`(true, false)`
 ///   —— 只解析，不写盘；
 /// * 「同步」按钮（`sync_grub`）：`(true, true)` —— 自己先验挂载条件。
@@ -9256,19 +9331,25 @@ fn rescan_grub(app: &AppHandle, allow_mount: bool, sync: bool) -> Result<(), Str
     };
 
     // 启动/刷新链路（`refresh_grub`，allow_mount=false）的硬性条件（用户定案）：
-    // ESP 必须已经由**当前系统**挂载在 /boot 下，同步才进行 —— 否则不挂载、
-    // 不写盘、不动现有状态，绝不在后台偷偷 pkexec。手动链路（识别/挂载/同步
-    // 按钮，allow_mount=true）不受此限：用户点了按钮，按需挂载是明说的行为。
-    if !allow_mount && !grub_esp_ready(&settings) {
-        if settings.grub_keep_mounted {
-            let state = app.state::<Mutex<AppState>>();
-            let mut state = state.lock().expect("state mutex poisoned");
-            state.grub.mount = reusable;
+    // ESP 必须已经由**当前系统**挂载在 /boot 下，**同步**才进行 —— 否则不挂载、
+    // 不写盘，绝不在后台偷偷 pkexec。但硬性条件不满足 ≠ 连解析都不做：填了
+    // UUID 或目录就仍做一次「启动识别」（只解析 + 双向回填，UUID 优先，
+    // 见 startup_identify_scan）。
+    let scan = if !allow_mount && !grub_esp_ready(&settings) {
+        match startup_identify_scan(app, &settings, reusable) {
+            (Some(scan), _) => Some(scan),
+            (None, reusable) => {
+                if settings.grub_keep_mounted {
+                    let state = app.state::<Mutex<AppState>>();
+                    let mut state = state.lock().expect("state mutex poisoned");
+                    state.grub.mount = reusable;
+                }
+                return Ok(());
+            }
         }
-        return Ok(());
-    }
-
-    let scan = grub_scan(&settings, reusable, sync)?;
+    } else {
+        grub_scan(&settings, reusable, sync)?
+    };
 
     // 这次是「按 fs-uuid 现找出来的挂载点」——把它回填到设置里的 ESP 目录，
     // 界面上那一行就会显示真实位置（用户填了 fs-uuid 却看不到任何反馈，就是这个问题）。
