@@ -270,6 +270,11 @@ struct AppState {
     /// 收敛时写回，下一次 undock 的**首次**落位就带修正 —— 不用每轮都先偏
     /// 64px 再弹回来。WM 语义变化（换主题/改缩放）时重锚会重新学。
     auto_hide_undock_offset: (i32, i32),
+    /// 标题栏高度（物理像素，窗框顶 − 客户区顶，dock 时窗口还带着装饰、
+    /// 可见，读数三端都准）：顶边贴边展开时给标题栏让位用（见 undock_target）。
+    /// undock 时现场实测的边距在 Linux 上可能读到 0（GDK frame extents
+    /// 缓存未刷新），此时退回这个缓存值。
+    auto_hide_caption: i32,
 }
 
 /// 主窗口贴边自动隐藏时贴向的屏幕边。
@@ -3906,10 +3911,17 @@ fn main_auto_hide_enabled(app: &AppHandle) -> bool {
 /// （标题栏留在工作区外，展开后不压内容）；底边客户区底边落在工作区底；
 /// 左右同理。另一轴保持客户区当前坐标不动。
 ///
-/// 必须按**客户区**算：`set_position` 落的就是客户区，而 `outer_position()`
-/// 是窗框坐标，两者差一个标题栏（Linux 实测 37px）。原来这套算式按窗框算，
-/// 于是展开后整窗偏高一个标题栏（实测客户区落到 63，本该 100；Windows 上
-/// 外框==客户区，所以那边看不出来）。
+/// 必须按**客户区**算：三端 `set_position` 带装饰时都落「窗框原点」（客户区
+/// = 请求 + 边距），`outer_position()` 也是窗框坐标，两者差一个标题栏
+/// （Linux 实测 37px）。原来这套算式按窗框算，于是展开后整窗偏高一个标题栏
+/// （实测客户区落到 63，本该 100）。undock 落位时按实测边距（inner−outer）
+/// 扣掉这段差值，重锚牛顿步兜底校准残差。
+///
+/// **顶边必须给标题栏让位**（`frame_top` = 窗框顶 − 客户区顶）：顶边贴边
+/// 展开时若客户区顶直接贴工作区顶，标题栏（客户区上方）就悬在工作区外
+/// —— Windows/macOS 上标题栏在屏幕顶之外**完全看不见**、窗口拖不动
+/// （三端一致修的 bug）。让位后窗框顶 = 工作区顶，标题栏可见可拖；
+/// 客户区往下让出一个标题栏高度，其余三边不用让（窗框顶必然在工作区内）。
 fn undock_target(
     edge: DockEdge,
     work_x: i32,
@@ -3920,9 +3932,10 @@ fn undock_target(
     client_y: i32,
     client_w: i32,
     client_h: i32,
+    frame_top: i32,
 ) -> (i32, i32) {
     match edge {
-        DockEdge::Top => (client_x, work_y),
+        DockEdge::Top => (client_x, work_y + frame_top.max(0)),
         DockEdge::Bottom => (client_x, work_y + work_h - client_h),
         DockEdge::Left => (work_x, client_y),
         DockEdge::Right => (work_x + work_w - client_w, client_y),
@@ -4239,6 +4252,17 @@ fn dock_main_window(app: &AppHandle) {
     // 注意：monitor / target 都必须在这之前算完 —— tao 在窗口不可见时
     // `current_monitor()` 会退化成主显示器，多显示器下会把边条吸到错的屏上。
     let was_visible = main.is_visible().unwrap_or(false);
+    // 缓存标题栏高度（窗框顶 − 客户区顶）：此刻窗口还带着装饰，三端读数
+    // 都准。顶边贴边展开时客户区要给标题栏让位（否则标题栏悬在屏幕外
+    // 看不见、窗口拖不动），undock 时的现场实测在 Linux 上可能读到 0
+    // （GDK frame extents 缓存），那时退回这个缓存值。
+    if let (Ok(inner), Ok(outer)) = (main.inner_position(), main.outer_position()) {
+        let caption = inner.y - outer.y;
+        if caption > 0 {
+            let state = app.state::<Mutex<AppState>>();
+            state.lock().expect("state mutex poisoned").auto_hide_caption = caption;
+        }
+    }
     if was_visible {
         // 「清屏」：趁窗口还可见，让 WebView 把**最后一帧**刷成全透明。
         // hide→show 后窗口服务器先摆出的就是这帧缓存（macOS 上 WebView
@@ -4355,6 +4379,30 @@ fn undock_main_window(app: &AppHandle) {
     // 开合几轮，白条从屏幕顶一路爬到屏幕底（三端实测，真机日志 target
     // 428→492→556→588）。锚定 dock_pos 后闭环进料口被掐死：undock 落点 ==
     // 白条原位，下一轮 dock 读到的实况 == dock_pos，零累积。
+    // 落位补偿的边距（窗框→客户区）：三端 `set_position` 在**带装饰**窗口上
+    // 都是「窗框原点」语义 —— Windows（SetWindowPos）/macOS（setFrameOrigin）
+    // 天然如此，Linux(GTK) 的 tao 带装饰时同样落窗框（客户区 = 请求 + 标题栏，
+    // 真机 2x = 64px）。target 是**客户区**期望落点，请求必须预先扣掉这段
+    // 边距，否则 Windows 上客户区先偏 (border≈8, 标题栏≈31) 落下去，300ms
+    // 后重锚牛顿步再把它扳回来 —— 用户看到的就是「展开后窗口跳/抖一下」。
+    // 边距在 set_decorations(true) 之后现场实测（inner−outer）：Windows 的
+    // 样式切换同步生效、隐藏窗口读数即准 → **首发即落准**；Linux 的 GDK
+    // frame extents 是缓存、此刻多半还没刷新（读到 0）→ 退化成原行为，
+    // 由重锚牛顿步兜底学习。学习值（auto_hide_undock_offset）叠加在补偿
+    // 之上：实况 = 请求 + 边距 = target + 学习值，牛顿步语义不变。
+    let frame_offset = match (main.inner_position(), main.outer_position()) {
+        (Ok(inner), Ok(outer)) => (inner.x - outer.x, inner.y - outer.y),
+        _ => (0, 0),
+    };
+    // 顶边让位的标题栏高度：优先现场实测（Windows/macOS 准），实测读不到
+    // （Linux 缓存 0）退回 dock 时缓存的值；都没有就 0（= 旧行为，标题栏
+    // 出屏，但至少不会更糟）。
+    let cached_caption = {
+        let state = app.state::<Mutex<AppState>>();
+        let state = state.lock().expect("state mutex poisoned");
+        state.auto_hide_caption
+    };
+    let frame_top = if frame_offset.1 > 0 { frame_offset.1 } else { cached_caption };
     let target = undock_target(
         edge,
         work.position.x,
@@ -4365,20 +4413,19 @@ fn undock_main_window(app: &AppHandle) {
         dock_pos.1,
         win_w as i32,
         win_h as i32,
+        frame_top,
     );
     let _ = main.set_size(tauri::PhysicalSize::new(win_w, win_h));
-    // 落位请求带上跨轮学到的修正量：装饰态窗口上 `set_position` 的坐标是
-    // **窗框**原点，客户区实际落在 请求 + 标题栏（真机 Cinnamon 2x = 64px；
-    // 停靠态去装饰后窗框=客户区，不受影响，所以 dock 路径一直是准的）。
-    // 修正量由重锚牛顿步学出并在此写回使用 —— 会话首轮为 0（先偏后弹一次），
-    // 收敛后每轮首发即准。
     let (offset, request) = {
         let state = app.state::<Mutex<AppState>>();
         let state = state.lock().expect("state mutex poisoned");
         let offset = state.auto_hide_undock_offset;
         (
             offset,
-            (target.0 + offset.0, target.1 + offset.1),
+            (
+                target.0 - frame_offset.0 + offset.0,
+                target.1 - frame_offset.1 + offset.1,
+            ),
         )
     };
     let _ = main.set_position(tauri::PhysicalPosition::new(request.0, request.1));
@@ -5250,10 +5297,21 @@ fn schedule_clamp(app: &AppHandle) {
         if docked {
             return;
         }
-        let Ok(size) = main.outer_size() else {
+        // undock 重锚还在校准落点时让路：重锚按「客户区 == 期望落点」收敛，
+        // clamp 按「窗框在工作区内」判界，两套判据的目标差一个窗框边距
+        // （Windows 上 border≈8px 恰好超过微调容差 8px 的边界）—— 叠在一起
+        // 就是「展开后窗口左右抖几下、最后停住」（重锚 3 拍放弃后 clamp 定格）。
+        // 重锚收敛/放弃后若真越界，后续 Moved 还会再排 clamp，不会漏夹。
+        let reanchoring = app
+            .state::<Mutex<AppState>>()
+            .lock()
+            .ok()
+            .map(|guard| guard.auto_hide_reanchor.is_some())
+            .unwrap_or(false);
+        if reanchoring {
             return;
-        };
-        clamp_main_window(&app, &main, size, pos);
+        }
+        clamp_main_window(&app, &main);
         // 「上次位置」模式：拖动落点记下来，下次显示还停这儿（用夹取后的真实落点）
         if normalize_window_position(&stored_settings(&app).main_window_position) == "last" {
             if let Ok(final_pos) = main.outer_position() {
@@ -5267,17 +5325,28 @@ fn schedule_clamp(app: &AppHandle) {
     });
 }
 
-/// 把主窗口位置夹到「相交面积最大的显示器」的工作区内。
-fn clamp_main_window(
-    app: &AppHandle,
-    main: &tauri::WebviewWindow,
-    size: tauri::PhysicalSize<u32>,
-    position: tauri::PhysicalPosition<i32>,
-) {
-    let win_x = position.x;
-    let win_y = position.y;
-    let win_w = size.width as i32;
-    let win_h = size.height as i32;
+/// 把主窗口的**客户区**夹到「相交面积最大的显示器」的工作区内。
+///
+/// 判界和落位都用客户区（本项目判位唯一可信来源）：窗框在 Windows 上含
+/// DWM 不可见边框（左右各约 7-8px），按窗框判界会把「客户区贴边」的窗口
+/// 误判成越界、往里推 8px —— 与 undock 重锚（客户区语义）打架，就是用户
+/// 看到的「展开后窗口左右抖动几下」。落位请求 = 客户区期望落点 − 实测
+/// 「窗框→客户区」边距（三端 set_position 带装饰时都是窗框语义，见
+/// undock_main_window 的注释）。
+fn clamp_main_window(app: &AppHandle, main: &tauri::WebviewWindow) {
+    let Ok(client) = main.inner_position() else {
+        return;
+    };
+    let Ok(client_size) = main.inner_size() else {
+        return;
+    };
+    let Ok(outer) = main.outer_position() else {
+        return;
+    };
+    let win_x = client.x;
+    let win_y = client.y;
+    let win_w = client_size.width as i32;
+    let win_h = client_size.height as i32;
     let monitors = match app.available_monitors() {
         Ok(monitors) if !monitors.is_empty() => monitors,
         _ => match main.current_monitor().ok().flatten() {
@@ -5317,10 +5386,16 @@ fn clamp_main_window(
         if auto_hide_diag_enabled() {
             startup_debug(
                 app,
-                &format!("clamp: ({win_x},{win_y}) {win_w}x{win_h} -> ({x},{y})"),
+                &format!("clamp: client ({win_x},{win_y}) {win_w}x{win_h} -> ({x},{y})"),
             );
         }
-        let _ = main.set_position(tauri::PhysicalPosition::new(x, y));
+        // 客户区期望落点 → 窗框语义请求：扣掉实测「窗框→客户区」边距，
+        // 让客户区（而不是窗框）精确落到夹取后的位置。
+        let request = (
+            x - (client.x - outer.x),
+            y - (client.y - outer.y),
+        );
+        let _ = main.set_position(tauri::PhysicalPosition::new(request.0, request.1));
         pin_main_topmost(app);
     }
 }
@@ -7095,9 +7170,9 @@ fn show_main_window(app: &AppHandle, origin: ShowOrigin) {
                 };
                 if !docked {
                     apply_main_window_position(&app);
-                    if let (Ok(pos), Ok(size)) = (main.outer_position(), main.outer_size()) {
+                    if let Ok(pos) = main.outer_position() {
                         if !is_minimized_position(pos) {
-                            clamp_main_window(&app, &main, size, pos);
+                            clamp_main_window(&app, &main);
                         }
                     }
                 }
@@ -11389,6 +11464,7 @@ mod core_tests {
 
     /// 「同步」按钮的挂载条件（用户定案）：分区挂在 /boot 或 /boot/efi 才同步；
     /// /boot 下的其他子目录、/media、没挂都不算。
+    #[cfg(target_os = "linux")]
     #[test]
     fn sync_mount_ok_accepts_only_boot_and_boot_efi() {
         assert!(sync_mount_ok("/boot"));
@@ -13261,29 +13337,36 @@ mod core_tests {
     /// 展开落点按**客户区**算：客户区的边正好贴回工作区那条边，另一轴保持
     /// 客户区当前坐标。用 1600x1000 工作区 + 460x900 客户区钉死数字：
     /// 底边 = 1000−900 = 100（按窗框算会得到 63 = 1000−937，偏高一个标题栏）。
+    /// 顶边例外：客户区顶要**让出一个标题栏**（frame_top）——不然标题栏悬在
+    /// 工作区外，Windows/macOS 上完全看不见、窗口拖不动（三端一致修的 bug）。
     #[test]
     fn undock_target_sticks_client_area_to_work_edge() {
         assert_eq!(
-            undock_target(DockEdge::Bottom, 0, 0, 1600, 1000, 570, 960, 460, 900),
+            undock_target(DockEdge::Bottom, 0, 0, 1600, 1000, 570, 960, 460, 900, 31),
             (570, 100)
         );
-        // 顶边：客户区顶落在工作区顶，标题栏留在工作区外
+        // 顶边：窗框顶贴工作区顶 = 客户区顶落在 工作区顶 + 标题栏
         assert_eq!(
-            undock_target(DockEdge::Top, 0, 0, 1600, 1000, 570, 63, 460, 900),
+            undock_target(DockEdge::Top, 0, 0, 1600, 1000, 570, 63, 460, 900, 31),
+            (570, 31)
+        );
+        // 顶边让位量被钳到非负（实测读到 0 时等于旧行为）
+        assert_eq!(
+            undock_target(DockEdge::Top, 0, 0, 1600, 1000, 570, 63, 460, 900, 0),
             (570, 0)
         );
         // 左/右边：纵向保持客户区当前 y（不是窗框 y）
         assert_eq!(
-            undock_target(DockEdge::Left, 0, 0, 1600, 1000, 10, 80, 460, 900),
+            undock_target(DockEdge::Left, 0, 0, 1600, 1000, 10, 80, 460, 900, 31),
             (0, 80)
         );
         assert_eq!(
-            undock_target(DockEdge::Right, 0, 0, 1600, 1000, 1000, 80, 460, 900),
+            undock_target(DockEdge::Right, 0, 0, 1600, 1000, 1000, 80, 460, 900, 31),
             (1140, 80)
         );
         // 工作区带偏移（副屏 / 面板）时贴的是工作区边，不是屏幕边
         assert_eq!(
-            undock_target(DockEdge::Bottom, 1600, 40, 1280, 960, 1700, 800, 460, 900),
+            undock_target(DockEdge::Bottom, 1600, 40, 1280, 960, 1700, 800, 460, 900, 31),
             (1700, 100)
         );
     }
