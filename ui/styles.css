@@ -736,7 +736,11 @@ body[data-grub-mode="pane"] #grub {
   gap: 10px;
 }
 
-.grub h2 {
+/* 两区标题同行规格（用户定案 2026-10-13）：字号/边距必须完全一致 ——
+   上一轮删 .systems-head 后 rEFInd 的 h2 失去这条规则、回落浏览器默认
+   1.5em + 默认 margin，字号偏大还把卡片顶部留白撑开（用户报的正是这个）。 */
+.grub h2,
+.refind h2 {
   margin: 0;
   font-size: 14px;
 }
