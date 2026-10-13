@@ -327,6 +327,68 @@
    分两句写。（apksigner 脚本内部是 `exec java`，靠 PATH；实在不行直接
    `java -jar $SDK/build-tools/34.0.0/lib/apksigner.jar verify --print-certs <apk>`。）
 
+### 模拟器跑不起来：这台机器**没有 `/dev/kvm`**（2026-10-13 查清）
+- 内核模块其实**在**（`lsmod` 里 `kvm_intel` + `kvm` 都 loaded，16 核 / 31G，**不是容器** ——
+  无 `/.dockerenv`，cgroup 在 `user-1000.slice/session-2.scope`），但 **`/dev` 里没有 `kvm` 设备节点**。
+- **我建不出来**：`mknod /dev/kvm c 10 232` → `Operation not permitted`。根因是
+  **本进程 `CapEff: 0000000000000000` —— uid 是 0 但有效 capability 被清空了**（`CapBnd` 有全部，
+  `Current` 只剩 `cap_wake_alarm=i`）。**uid 0 ≠ 有权限**，别被 `id` 骗了。
+  `/dev` 是 devtmpfs 且目录不可写（`touch /dev/x` 也是权限不够）。
+- 结论：**硬件加速模拟器在本机不可用**，只能 `emulator -avd <name> -accel off`（TCG 软件模拟，
+  `-accel-check` 返回 8「/dev/kvm is not found」）。TCG 下 API 34 x86_64 启动很慢但确实能起。
+- **要让 App 真跑一遍，得去有 KVM 的机器，或直接连真机**（`adb install` 一份即可）。
+
+### 进程存活与可见性（在这个执行环境里，决定「怎么跑长任务」）
+- **普通命令行之间，上一句起的所有后台进程都会被清理掉**（`setsid`/`nohup`/`&`/`disown` 都挡不住）：
+  同一句里 `ss` 能看到监听端口，**下一句就没了**。
+- 只有 **`run_in_background` 的后台任务**里的常驻进程能活；而且它的**网络/文件系统与普通命令共享**
+  （后台任务里 `python -m http.server` → 普通命令 `curl` 拿到 200），但 **`ps` 看不到它的进程**
+  （pid namespace 隔离）→ **用「端口 + 日志文件」判断它活着，不要用 `ps`**。
+- 于是「模拟器 + 服务端」这类长任务要这样摆：一个常驻编排脚本跑在后台任务里（内部
+  Xvfb + anyboot + emulator，末尾 `exec sleep infinity` 保持任务不结束），外部用普通命令经
+  **adb（TCP 5555）** 操作模拟器。
+- 这个执行环境**没有 `/tmp` 跨命令持久**（每条命令一个 `/tmp` 视图）→ 中间产物放 `~/.cache/`。
+
+## Linux 打包：AppImage 的 glibc 陷阱（2026-10-13 定位）
+- **症状**：AppImage 换台机器启动即死，刷一屏
+  `version 'GLIBC_2.44' not found (required by /tmp/.mount_.../usr/lib/libwebkit2gtk-4.1.so.0)`。
+- **根因**：`tauri build --bundles appimage` 走 linuxdeploy，把**整条 GTK/WebKit 依赖链**裹进包
+  （本机 CachyOS / **glibc 2.44** 编译的，184 个 .so、283MB）。目标机 glibc 比 2.44 老 → 加载即报缺版本。
+  **不是应用本体的问题。**
+- **取证口径**：`objdump -T <elf> | grep -oE 'GLIBC_[0-9.]+' | sort -uV | tail -1`
+  - `usr/bin/anyboot`（Rust 本体）→ **2.39**
+  - `libwebkit2gtk-4.1.so.0` / `libjavascriptcoregtk-4.1.so.0` → **2.44**
+  - `libglib-2.0`、`libgnutls`、`liblcms2`、`libjxl`、`libavif`、`libaom`、`libSvtAv1Enc`、
+    `liborc-0.4`、`libtdb` → **2.43**
+  - **用户报错里没有一行 `required by usr/bin/anyboot`** → 他系统 glibc **已 ≥2.39**，只差裹进来的那批。
+- **纯配置改不了**：`~/.cache/tauri/linuxdeploy-plugin-gtk.sh` 只认 `DEPLOY_GTK_VERSION` /
+  `GTK_THEME_VARIANT` / `APPIMAGE_GTK_THEME` / `LINUXDEPLOY`，**没有 exclude-library**；
+  tauri-bundler 也不透传 `--exclude-library`。
+- **路 A：不裹 GTK/WebKit**（本机已做出实验产物，见下）
+  1. 删 `AppDir/usr/lib/*` 与 `usr/lib64`（webkit 的 helper 在 lib64 里，必须一起删）；
+  2. 把 `AppRun` 会 `source` 的 `apprun-hooks/linuxdeploy-plugin-gtk.sh` **置空**（不能删，AppRun 有 `set -e`）——
+     那里面的 `GTK_PATH`/`GDK_PIXBUF_MODULE_FILE`/`GIO_EXTRA_MODULES` 全指向 `$APPDIR/usr/lib`，删库后是空指针。
+  3. 结果：整包只剩 `usr/bin/anyboot`(2.39) + `AppRun.wrapped`(2.3)，**门槛 2.44→2.39**，300MB→18MB。
+     代价：目标机要自带 `libwebkit2gtk-4.1` + GTK3。
+- **路 B：换基座重建**（保持自包含）：基座必须 **glibc ≥2.39**（Ubuntu 24.04）——
+  **Debian 12（2.36）也不行**，应用本体自己就要 2.39。本机 docker daemon 没跑 → 只能在别的机器 / CI 做。
+- **重打 AppImage 的办法（本机无 FUSE 时）**：
+  `linuxdeploy-plugin-appimage.AppImage` 直接跑 → `Cannot mount AppImage`；设 `APPIMAGE_EXTRACT_AND_RUN=1`
+  能跑但**它要联网下 runtime**（下不动）→ 于是：
+  ① `--appimage-extract` 解出它自带的 `appimagetool` + `mksquashfs`（在 `appimagetool-prefix/usr/bin/`）；
+  ② 从**现有 AppImage** 里抠 runtime 头：找 squashfs 魔数 `hsqs` 的偏移，`head -c <偏移>` 即 runtime
+  （本次 = 194183 字节）；
+  ③ `PATH=<自带的 usr/bin>:$PATH appimagetool --runtime-file runtime-x86_64 <AppDir> <out>`。
+  → 成功产出 4.1MB 的 `AnyBoot-portable-x86_64.AppImage`（在 `~/.cache/ab-appimage/`）。
+- **⚠️ 本机验证不了「能不能启动」**：拿**原版**（完整库）AppImage 做对照，在本机**同样起不来**
+  （`Failed to initialize GTK` / `fatal runtime error: Rust cannot catch foreign exceptions`）；
+  另外 `Xvfb :98` 在本机直接崩在 `libnvidia-egl-gbm.so.1`（NVIDIA EGL），加 `LIBGL_ALWAYS_SOFTWARE=1` 也没救回来。
+  → **本机的 Xvfb + NVIDIA 图形栈跑不了这个应用，不具备 AppImage 的图形验收能力**；
+  能给的硬证据只有「包结构 + glibc 需求上限」。真实验收要在用户的机器上做。
+- 用户侧可**立刻自救**（不必等我重打包）：
+  `./AnyBoot.AppImage --appimage-extract && cd squashfs-root && rm -rf usr/lib/* usr/lib64 && : > apprun-hooks/linuxdeploy-plugin-gtk.sh && ./AppRun`
+- 相关：README「AppImage 打包失败」小节只讲了 `NO_STRIP=1`（strip 报 `.relr.dyn`），**没讲 glibc**。
+
 **产物验证清单（照这个顺序做，别只看 BUILD SUCCESSFUL）**
 1. `aapt2 dump badging <apk>` → 包名/版本/minSdk/targetSdk/label/权限
 2. `aapt2 dump xmltree --file AndroidManifest.xml <apk>` → 确认 `usesCleartextTraffic=true`

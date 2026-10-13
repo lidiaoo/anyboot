@@ -38,6 +38,7 @@ Windows / macOS / Linux 三端同一份代码，行为对齐。
 - [环境要求](#环境要求)
 - [开发运行](#开发运行)
 - [构建产物](#构建产物)
+  - [Linux「全兼容」AppImage（发给任何机器用）](#linux全兼容appimage发给任何机器用)
 - [调试环境变量](#调试环境变量)
 - [权限说明](#权限说明)
 - [常见问题](#常见问题)
@@ -538,6 +539,9 @@ npm run tauri build
 # Linux: deb + rpm + AppImage
 npm run build:linux
 
+# Linux: 全兼容 AppImage（glibc ≤2.35，任何机器能跑；详见「构建产物」）
+npm run build:linux-portable
+
 # macOS Intel
 npm run build:mac-intel
 
@@ -558,6 +562,33 @@ Linux 包必须在 Linux 环境生成；macOS 包必须在 macOS 环境生成。
 - macOS：`src-tauri/target/release/bundle/macos/*.app`、`src-tauri/target/release/bundle/dmg/*.dmg`
 - Linux：`src-tauri/target/release/bundle/deb/*.deb`、`.../rpm/*.rpm`、`.../appimage/*.AppImage`
 - 指定 `--target <triple>` 时位于 `src-tauri/target/<triple>/release/bundle`
+
+### Linux「全兼容」AppImage（发给任何机器用）
+
+默认 AppImage 裹的是**打包机**的库：在够新的发行版上打出来的包，就要求用户的系统同样新（例如 CachyOS 上的包要求 glibc ≥ 2.44，老系统直接拒载 `GLIBC_2.43 not found`）。要发给系统版本不确定的用户，用这条：
+
+```bash
+npm run build:linux-portable
+```
+
+它在默认构建之后运行 `scripts/make-appimage-jammy.sh`，对 AppImage 做「换基座」处理：
+
+- 整套裹入库替换为 Ubuntu 22.04 (jammy) 的版本，本体用 zig 重链到同一门槛 → **全包 glibc 需求 ≤ 2.35**（脚本自检强制，超标直接拒绝出包）
+- 附带修补：WebKit 辅助进程相对路径补丁（jammy release 版没有 `WEBKIT_EXEC_PATH`）、XInitThreads 垫片（防多线程 X 崩溃）、托盘库（ayatana 全家）入包、gio/pixbuf/immodules 缓存指向包内
+- 产物：`src-tauri/target/release/bundle/appimage/AnyBoot_0.1.0_amd64-jammy.AppImage`，分发前用 `md5sum` 核对
+
+额外要求与可覆盖变量：
+
+| 项 | 说明 |
+| --- | --- |
+| zig | PATH 里的 `zig`，或 `AB_ZIG=<路径>` |
+| 网络 | 首次构建会从 Ubuntu 镜像抓库闭包（之后有缓存） |
+| 系统工具 | `glib-compile-schemas`、`gtk-query-immodules-3.0`、`appimagetool`（PATH 或 `AB_APPIMAGETOOL`） |
+| 路径覆盖 | `AB_SYSROOT`（库闭包目录）、`AB_ORIG_DIR`（原包素材）、`AB_OUT`（产物路径）、`ANYBOOT_PROJ`（仓库根） |
+
+缺素材会自动补：缺库闭包现场跑 `scripts/fetch-jammy-sysroot.py` 抓取，缺原包解包现场解，本体门槛超标现场重链。
+
+代价与开关：该包默认**关闭 WebKit GPU 加速**（兼容优先）。想开回加速，运行前 `export WEBKIT_DISABLE_COMPOSITING_MODE=0`（用户显式设过的 `WEBKIT_*` 变量包内 hook 不会覆盖）。deb / rpm 不需要这套处理——它们本来就使用目标系统的库。
 
 ---
 
