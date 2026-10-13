@@ -573,10 +573,37 @@ body[data-grub-mode="pane"] .grub-pane-head {
   display: none;
 }
 
-/* ④ 里 pane-head 藏了，右栏顶距改由 pane-body 补回左栏同款 24px，
-   两栏第一行（rEFInd 圆标行 / GRUB 圆标行）才在同一水平线上。 */
+/* ③④ 右栏背板 = 卡片（用户定案 2026-10-13）：pane-body 本身是滚动容器，
+   把原来的 24px 外边距从 padding 挪成 margin，容器直接套上与 .grub/.refind
+   同一套边框/底色/圆角 —— 右栏看起来就是一块和 rEFInd 区一样的卡片。
+   ④ 里 pane-head 藏了，卡片顶距用 margin-top 24px 对齐左栏（卡片顶对齐，
+   内部都是 14px 内边距，两栏圆标行自然同一水平线）。 */
+body[data-grub-mode="list"] .pane-body,
 body[data-grub-mode="pane"] .pane-body {
-  padding-top: 24px;
+  margin: 12px 24px 24px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+}
+
+body[data-grub-mode="pane"] .pane-body {
+  margin-top: 24px;
+}
+
+/* ④ 的 .grub-head 悬浮在卡片顶部不随滚动（用户定案 2026-10-13）：
+   负外边距 + 同款内边距把背板铺满整张卡片宽，配不透明底色，
+   内容从它底下滚过不会透出来；sticky 的 top:0 = 卡片滚动口上沿。 */
+body[data-grub-mode="pane"] .grub-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: -14px -16px 0;
+  padding: 14px 16px;
+  background: var(--panel);
+  /* 头部与下个元素之间那条 10px 网格缝是透明的，内容从缝里滚过会露出来
+     —— 用同色实影把缝补上（不占布局）。 */
+  box-shadow: 0 10px 0 var(--panel);
 }
 
 .grub-pane-head small {
