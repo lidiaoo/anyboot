@@ -1085,7 +1085,7 @@ struct Settings {
     /// 锁定窗口大小：锁定后窗口不可拖拽缩放、不可最大化，前端宽高滑条同步停用。
     window_size_locked: bool,
     /// 记忆的窗口尺寸（逻辑像素）。**0 = 还没记过**（serde 缺字段 / 全新配置），
-    /// 此时启动按展示方式给标称宽度（460/932）、高度按**屏幕工作区的 2/3**
+    /// 此时启动按展示方式给标称宽度（460/932）、高度按**整屏高度的 2/3**
     /// （见 default_window_height）。
     /// 任何一次尺寸落位都会写成真实值（clamp 下限 360/560，0 不会存活）。
     /// 不能把默认填成 460/900：serde(default) 会给**所有老配置**伪造一个
@@ -2852,23 +2852,27 @@ fn grub_layout_width(mode: &str) -> f64 {
 /// 上限防手滑把窗口拖到比屏幕还大。滑条范围与它一致。
 const WINDOW_MIN_SIZE: (u32, u32) = (360, 560);
 const WINDOW_MAX_SIZE: (u32, u32) = (1600, 1200);
-/// 拿不到显示器时的兜底高度；正常路径是「屏幕工作区的 2/3」（见 default_window_height）。
+/// 拿不到显示器时的兜底高度；正常路径是「整屏高度的 2/3」（见 default_window_height）。
 const DEFAULT_WINDOW_HEIGHT: u32 = 900;
 
-/// 默认窗口高度 = 屏幕工作区高度的 2/3（纯函数，便于单测）。
+/// 默认窗口高度 = **整屏**高度的 2/3（纯函数，便于单测）。
 ///
-/// 用户定案 2026-10-13：由「占屏幕一半」改为「占屏幕高度的 2/3」。夹回合法
-/// 区间 —— 1080p 屏（逻辑高 1080）上 2/3 是 720；特别矮的屏（如 800）算出
-/// 533 会落到最小高度 560，这是有意的：再低界面就挤坏了。
-fn default_window_height_from_work_area(work_height: u32) -> u32 {
-    (work_height * 2 / 3).clamp(WINDOW_MIN_SIZE.1, WINDOW_MAX_SIZE.1)
+/// 用户定案 2026-10-13：由「占屏幕一半」改为「占屏幕高度的 2/3」，且基准是
+/// **整屏**（monitor.size）不是工作区 —— 基准用工作区会在有任务栏的机器上
+/// 少一截（1920x1080 + 底栏 → 652 而不是 720），窗口「已经在重置目标上」，
+/// 重置按钮点起来就像失灵（实测踩过）。高度超工作区没关系：居中落位走
+/// clamp_to_work，窗口仍会被摆进工作区。夹回合法区间 —— 1080p 屏上 2/3 是
+/// 720；特别矮的屏（如 800）算出 533 会落到最小高度 560。
+fn default_window_height_from_screen(screen_height: u32) -> u32 {
+    (screen_height * 2 / 3).clamp(WINDOW_MIN_SIZE.1, WINDOW_MAX_SIZE.1)
 }
 
-/// 当前显示器的默认窗口高度：工作区高度（逻辑像素）的 2/3。
+/// 当前显示器的默认窗口高度：**整屏**高度（逻辑像素）的 2/3。
 ///
 /// 窗口还没映射时 `current_monitor()` 可能给不出，退到主显示器；两个都拿不到
-/// 才回落到兜底常量。工作区（而非整个屏幕）才作数：任务栏/Dock 占掉的那条
-/// 不该算进「屏幕 2/3」里，否则窗口下沿会被压到任务栏底下。
+/// 才回落到兜底常量。基准用整屏（monitor.size）而非工作区 —— 见
+/// `default_window_height_from_screen` 的注释（任务栏那条交给落位去夹，
+/// 不从高度里扣）。
 fn default_window_height(app: &AppHandle) -> u32 {
     let monitor = app
         .get_webview_window(MAIN_WINDOW_LABEL)
@@ -2880,8 +2884,8 @@ fn default_window_height(app: &AppHandle) -> u32 {
     // scale_factor 理论上不会是 0，真遇上就按 1:1 处理，别让除零变成 inf→饱和
     let scale = monitor.scale_factor();
     let scale = if scale > 0.0 { scale } else { 1.0 };
-    let work_height = (monitor.work_area().size.height as f64 / scale).round() as u32;
-    default_window_height_from_work_area(work_height)
+    let screen_height = (monitor.size().height as f64 / scale).round() as u32;
+    default_window_height_from_screen(screen_height)
 }
 
 /// 夹回合法窗口尺寸（纯函数）。
@@ -3061,7 +3065,7 @@ fn apply_grub_layout_size(app: &AppHandle, force_nominal_width: bool) {
         settings.window_size_locked,
     );
     let height = if settings.window_height == 0 {
-        // 还没记过尺寸（新装 / 清过配置）：默认占屏幕工作区的 2/3。
+        // 还没记过尺寸（新装 / 清过配置）：默认占整屏高度的 2/3。
         // 落完 set_main_window_size 会把它记进设置，下次就按记忆值来。
         default_window_height(app)
     } else {
@@ -6808,7 +6812,7 @@ fn set_window_size_locked(app: AppHandle, locked: bool) -> Result<SettingsView, 
 }
 
 /// 重置窗口大小到当前展示方式的标称尺寸（托盘菜单与设置页共用）。
-/// 宽随模式（460 ⇄ 932）、高回到「屏幕工作区的 2/3」（默认高度）。
+/// 宽随模式（460 ⇄ 932）、高回到「整屏高度的 2/3」（默认高度）。
 fn reset_window_size_inner(app: &AppHandle) -> Result<SettingsView, String> {
     let mode = normalize_grub_list_view(&stored_settings(app).grub_list_view);
     let width = grub_layout_width(mode) as u32;
@@ -13306,7 +13310,7 @@ mod core_tests {
         assert_eq!(settings.main_window_position, "center");
         // 默认允许远程请求弹本机授权框（用户定案「远程可触发本机框」）
         assert!(settings.remote_allow_gui_auth);
-        // 尺寸默认「还没记过」→ 启动时按屏幕工作区的 2/3 算，且不锁定
+        // 尺寸默认「还没记过」→ 启动时按整屏高度的 2/3 算，且不锁定
         assert_eq!(settings.window_height, 0);
         assert!(!settings.window_size_locked);
     }
@@ -13499,20 +13503,21 @@ mod core_tests {
         assert!(!ui_command_requires_local_auth("switch_grub"));
     }
 
-    /// 默认窗口高度 = 屏幕工作区高度的 2/3，夹回合法区间（用户定案 2026-10-13，
-    /// 由「一半」改为「2/3」）。
+    /// 默认窗口高度 = 整屏高度的 2/3，夹回合法区间（用户定案 2026-10-13）。
+    /// 基准必须是整屏不是工作区：工作区基准在有任务栏的机器上算出 652，
+    /// 窗口「已经在重置目标上」，重置按钮看起来失灵（实测踩过）。
     #[test]
-    fn default_window_height_is_two_thirds_of_the_work_area() {
+    fn default_window_height_is_two_thirds_of_the_screen() {
         // 常规 1080p：2/3 = 720，在区间内
-        assert_eq!(default_window_height_from_work_area(1080), 720);
+        assert_eq!(default_window_height_from_screen(1080), 720);
         // 1440p：960 在区间内
-        assert_eq!(default_window_height_from_work_area(1440), 960);
+        assert_eq!(default_window_height_from_screen(1440), 960);
         // 超大屏也夹回上限（4000*2/3=2666 → 上限 1200）
-        assert_eq!(default_window_height_from_work_area(4000), 1200);
+        assert_eq!(default_window_height_from_screen(4000), 1200);
         // 极小屏别低于下限（600*2/3=400 → 最小 560）
-        assert_eq!(default_window_height_from_work_area(600), 560);
+        assert_eq!(default_window_height_from_screen(600), 560);
         // 奇数高度向下取整（2161*2/3=1440），再夹回滑条上限 1200
-        assert_eq!(default_window_height_from_work_area(2161), 1200);
+        assert_eq!(default_window_height_from_screen(2161), 1200);
     }
 
     /// 隐藏期间改过尺寸时，居中必须用「请求尺寸」而不是滞后的读数。
