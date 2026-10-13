@@ -782,15 +782,24 @@ function renderSystems(status, busy, grub) {
       (candidate) => candidate.selector === selector,
     );
     if (entry) {
-      // 与 GRUB 列表/横幅同规则：submenu 子条目带上父级组名 ——
-      // 「Linux › Arch Linux 的高级选项 › Arch Linux, with Linux linux-zen」
+      // 条目文字与 GRUB 列表用同一条规则（grub-list-view.js 的 rowLabel）：
+      // 极简/简易=去前缀内核名；中等=完整内核名；原始/复杂=完整菜单名 ——
+      // 上面大字和下面列表说的是同一个东西，别一处一个叫法（用户定案 2026-10-13）。
+      const format = grub.listFormat || "minimal";
+      const leafLabel =
+        format === "minimal" || format === "simple"
+          ? grubStripKernel(grubKernelOf(entry))
+          : format === "medium"
+            ? grubKernelOf(entry)
+            : entry.name;
+      // submenu 子条目带上父级组名 ——「Linux › 组名 › 条目」
       if (entry.submenu) {
         const groups = new Map(
           (grub.groups || []).map((group) => [group.id, group.name]),
         );
         nextBootText += ` › ${groups.get(entry.submenu) || entry.submenu}`;
       }
-      nextBootText += ` › ${entry.name}`;
+      nextBootText += ` › ${leafLabel}`;
     }
   }
   nextBootElement.classList.toggle("unknown", !activeName);

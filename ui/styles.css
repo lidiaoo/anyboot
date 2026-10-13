@@ -437,8 +437,9 @@ h1,
 
 .next-boot strong {
   color: var(--ok);
-  font-size: 24px;
-  line-height: 1.2;
+  /* 级联全链动辄几十个字，24px 太占地方（用户反馈「过大」），收到 16px */
+  font-size: 16px;
+  line-height: 1.3;
 }
 
 .next-boot.unknown strong {
@@ -688,6 +689,10 @@ body[data-grub-mode="pane"] .boot-divider {
   align-items: center;
   gap: 8px;
   min-width: 0;
+  /* 在 .grub-head（flex）里不许被右侧状态小字挤窄 —— 挤窄会把标题折到
+     圆标下一行，rEFInd 区一行、GRUB 区两行就不一致了（grid 里此属性无效，
+     不影响 rEFInd 区）。 */
+  flex: none;
 }
 
 /* 电源三键贴着应用名同一行、右对齐（用户定案 2026-10-13） */
@@ -731,6 +736,7 @@ body[data-grub-mode="pane"] #grub {
 
 .grub-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   justify-content: space-between;
   gap: 10px;
@@ -749,6 +755,9 @@ body[data-grub-mode="pane"] #grub {
   color: var(--text-faint);
   font-size: 11px;
   text-align: right;
+  /* 挤的时候小字自己折行，别把标题行顶成两行 */
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .grub-row {

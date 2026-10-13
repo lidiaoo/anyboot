@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
     process::{Command, Output, Stdio},
     sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering},
         mpsc::{sync_channel, Receiver, SyncSender, TrySendError},
         Mutex,
     },
@@ -1085,7 +1085,7 @@ struct Settings {
     /// 锁定窗口大小：锁定后窗口不可拖拽缩放、不可最大化，前端宽高滑条同步停用。
     window_size_locked: bool,
     /// 记忆的窗口尺寸（逻辑像素）。**0 = 还没记过**（serde 缺字段 / 全新配置），
-    /// 此时启动按展示方式给标称宽度（460/932）、高度按**屏幕工作区的一半**
+    /// 此时启动按展示方式给标称宽度（460/932）、高度按**屏幕工作区的 2/3**
     /// （见 default_window_height）。
     /// 任何一次尺寸落位都会写成真实值（clamp 下限 360/560，0 不会存活）。
     /// 不能把默认填成 460/900：serde(default) 会给**所有老配置**伪造一个
@@ -2852,22 +2852,23 @@ fn grub_layout_width(mode: &str) -> f64 {
 /// 上限防手滑把窗口拖到比屏幕还大。滑条范围与它一致。
 const WINDOW_MIN_SIZE: (u32, u32) = (360, 560);
 const WINDOW_MAX_SIZE: (u32, u32) = (1600, 1200);
-/// 拿不到显示器时的兜底高度；正常路径是「屏幕工作区的一半」（见 default_window_height）。
+/// 拿不到显示器时的兜底高度；正常路径是「屏幕工作区的 2/3」（见 default_window_height）。
 const DEFAULT_WINDOW_HEIGHT: u32 = 900;
 
-/// 默认窗口高度 = 屏幕工作区高度的一半（纯函数，便于单测）。
+/// 默认窗口高度 = 屏幕工作区高度的 2/3（纯函数，便于单测）。
 ///
-/// 用户定案：默认高度占屏幕一半。夹回合法区间 —— 1080p 屏（逻辑高 1080）上
-/// 一半是 540，会落到最小高度 560，这是有意的：再低界面就挤坏了。
+/// 用户定案 2026-10-13：由「占屏幕一半」改为「占屏幕高度的 2/3」。夹回合法
+/// 区间 —— 1080p 屏（逻辑高 1080）上 2/3 是 720；特别矮的屏（如 800）算出
+/// 533 会落到最小高度 560，这是有意的：再低界面就挤坏了。
 fn default_window_height_from_work_area(work_height: u32) -> u32 {
-    (work_height / 2).clamp(WINDOW_MIN_SIZE.1, WINDOW_MAX_SIZE.1)
+    (work_height * 2 / 3).clamp(WINDOW_MIN_SIZE.1, WINDOW_MAX_SIZE.1)
 }
 
-/// 当前显示器的默认窗口高度：工作区高度（逻辑像素）的一半。
+/// 当前显示器的默认窗口高度：工作区高度（逻辑像素）的 2/3。
 ///
 /// 窗口还没映射时 `current_monitor()` 可能给不出，退到主显示器；两个都拿不到
 /// 才回落到兜底常量。工作区（而非整个屏幕）才作数：任务栏/Dock 占掉的那条
-/// 不该算进「屏幕一半」里，否则窗口下沿会被压到任务栏底下。
+/// 不该算进「屏幕 2/3」里，否则窗口下沿会被压到任务栏底下。
 fn default_window_height(app: &AppHandle) -> u32 {
     let monitor = app
         .get_webview_window(MAIN_WINDOW_LABEL)
@@ -3060,7 +3061,7 @@ fn apply_grub_layout_size(app: &AppHandle, force_nominal_width: bool) {
         settings.window_size_locked,
     );
     let height = if settings.window_height == 0 {
-        // 还没记过尺寸（新装 / 清过配置）：默认占屏幕工作区的一半。
+        // 还没记过尺寸（新装 / 清过配置）：默认占屏幕工作区的 2/3。
         // 落完 set_main_window_size 会把它记进设置，下次就按记忆值来。
         default_window_height(app)
     } else {
@@ -3131,6 +3132,12 @@ fn center_main_window(app: &AppHandle) -> Option<(i32, i32)> {
         );
     }
     let _ = main.set_position(tauri::PhysicalPosition::new(cx, cy));
+    // 盖回声抑制戳 + 记落点：「屏幕中间」模式下 handle_main_moved 靠这两样
+    // 区分「我们自己居中的回声」和「用户硬拖」（见 CENTER_ECHO_UNTIL_MS）。
+    CENTER_ECHO_UNTIL_MS.store(unix_millis().saturating_add(700), Ordering::SeqCst);
+    CENTER_LAST_X.store(cx, Ordering::SeqCst);
+    CENTER_LAST_Y.store(cy, Ordering::SeqCst);
+    CENTER_HAS_POS.store(true, Ordering::SeqCst);
     Some((cx, cy))
 }
 
@@ -4917,6 +4924,19 @@ fn mark_geometry_busy(duration_ms: u64) {
 /// `handle_main_moved` 都盖一次。判据见 `main_moved_recently`。
 static LAST_MAIN_MOVED_MS: AtomicU64 = AtomicU64::new(0);
 
+/// 「屏幕中间」落位模式的拖动拦截（用户定案 2026-10-13）：居中模式下窗口
+/// 位置固定、不支持拖动。CENTER_ECHO_UNTIL_MS 挡掉我们自己 `set_position`
+/// 的回声；CENTER_LAST_X/Y 记最近一次居中落点（Moved 载荷是窗框坐标，
+/// 与客户区差一个标题栏，判「没怎么动」用 80px 容差一并吃掉）。
+static CENTER_ECHO_UNTIL_MS: AtomicU64 = AtomicU64::new(0);
+static CENTER_LAST_X: AtomicI32 = AtomicI32::new(0);
+static CENTER_LAST_Y: AtomicI32 = AtomicI32::new(0);
+/// 我们是否已经居中过至少一次：没有的话 Moved 一律不管（启动早期 WM 自己
+/// 摆窗口的 Moved 不能当成「用户硬拖」去弹提示）。
+static CENTER_HAS_POS: AtomicBool = AtomicBool::new(false);
+/// 拖动提示的节流：拖动全程 Moved 连发，提示最多 4 秒一条。
+static LAST_CENTER_HINT_MS: AtomicU64 = AtomicU64::new(0);
+
 /// 主窗是不是「刚刚还在动」（距最近一条 Moved < `AUTO_HIDE_MOVE_QUIET_MS`）。
 ///
 /// 用来挡住「拖动途中就贴边」：用户拖着窗口/拖着白条时 Moved 连发，这一拍
@@ -6293,6 +6313,36 @@ fn handle_main_moved(app: &AppHandle, position: tauri::PhysicalPosition<i32>) {
             publish_ui(app);
         }
     }
+    // 「屏幕中间」模式：窗口位置固定，不支持拖动（用户定案 2026-10-13）。
+    // 谁动了窗口 —— 先滤掉自己的回声与「本来就停在居中位」的抖动，剩下的
+    // 才是真拖动：拉回居中，并提示一次「想自己摆就换落位方式」。
+    // 该分支替代 schedule_clamp：居中落点天然在工作区内，不需要再夹取。
+    if normalize_window_position(&stored_settings(app).main_window_position) == "center" {
+        let now = unix_millis();
+        if now < CENTER_ECHO_UNTIL_MS.load(Ordering::SeqCst) {
+            return; // 我们自己刚居中过的回声
+        }
+        if !CENTER_HAS_POS.load(Ordering::SeqCst) {
+            return; // 还没轮到我们居中过（启动早期），不动也不提示
+        }
+        let dx = position.x - CENTER_LAST_X.load(Ordering::SeqCst);
+        let dy = position.y - CENTER_LAST_Y.load(Ordering::SeqCst);
+        if dx.abs() <= 80 && dy.abs() <= 80 {
+            return; // 停在居中位附近的 WM 抖动/重发，不算拖动
+        }
+        center_main_window(app);
+        if now.saturating_sub(LAST_CENTER_HINT_MS.load(Ordering::SeqCst)) >= 4000 {
+            LAST_CENTER_HINT_MS.store(now, Ordering::SeqCst);
+            record_action(
+                app,
+                "window-position",
+                false,
+                "「屏幕中间」模式下窗口位置固定，不能拖动；想自己摆放请把固定显示位置改成其他选项",
+            );
+            publish_ui(app);
+        }
+        return;
+    }
     // 主窗口必须完整显示：夹回工作区。但不能在拖动过程中夹 —— Moved 连发期间
     // 每次 set_position 都会跟 Windows 的拖动循环互相拉扯（窗口乱跳），
     // 所以只安排一次静默期后的夹取：拖完 250ms 没动静才真正落位。
@@ -6758,7 +6808,7 @@ fn set_window_size_locked(app: AppHandle, locked: bool) -> Result<SettingsView, 
 }
 
 /// 重置窗口大小到当前展示方式的标称尺寸（托盘菜单与设置页共用）。
-/// 宽随模式（460 ⇄ 932）、高回到「屏幕工作区的一半」（默认高度）。
+/// 宽随模式（460 ⇄ 932）、高回到「屏幕工作区的 2/3」（默认高度）。
 fn reset_window_size_inner(app: &AppHandle) -> Result<SettingsView, String> {
     let mode = normalize_grub_list_view(&stored_settings(app).grub_list_view);
     let width = grub_layout_width(mode) as u32;
@@ -13256,7 +13306,7 @@ mod core_tests {
         assert_eq!(settings.main_window_position, "center");
         // 默认允许远程请求弹本机授权框（用户定案「远程可触发本机框」）
         assert!(settings.remote_allow_gui_auth);
-        // 尺寸默认「还没记过」→ 启动时按屏幕工作区的一半算，且不锁定
+        // 尺寸默认「还没记过」→ 启动时按屏幕工作区的 2/3 算，且不锁定
         assert_eq!(settings.window_height, 0);
         assert!(!settings.window_size_locked);
     }
@@ -13449,19 +13499,20 @@ mod core_tests {
         assert!(!ui_command_requires_local_auth("switch_grub"));
     }
 
-    /// 默认窗口高度 = 屏幕工作区高度的一半，夹回合法区间。
+    /// 默认窗口高度 = 屏幕工作区高度的 2/3，夹回合法区间（用户定案 2026-10-13，
+    /// 由「一半」改为「2/3」）。
     #[test]
-    fn default_window_height_is_half_the_work_area() {
-        // 常规 1080p：一半 540 → 落到最小高度 560（再低界面就挤坏了，是有意的）
-        assert_eq!(default_window_height_from_work_area(1080), 560);
-        // 1440p：720 在区间内，原样取一半
-        assert_eq!(default_window_height_from_work_area(1440), 720);
-        // 超大屏也夹回上限
+    fn default_window_height_is_two_thirds_of_the_work_area() {
+        // 常规 1080p：2/3 = 720，在区间内
+        assert_eq!(default_window_height_from_work_area(1080), 720);
+        // 1440p：960 在区间内
+        assert_eq!(default_window_height_from_work_area(1440), 960);
+        // 超大屏也夹回上限（4000*2/3=2666 → 上限 1200）
         assert_eq!(default_window_height_from_work_area(4000), 1200);
-        // 极小屏别低于下限
+        // 极小屏别低于下限（600*2/3=400 → 最小 560）
         assert_eq!(default_window_height_from_work_area(600), 560);
-        // 奇数高度向下取整，不四舍五入（宁可矮一像素也不越界）
-        assert_eq!(default_window_height_from_work_area(2161), 1080);
+        // 奇数高度向下取整（2161*2/3=1440），再夹回滑条上限 1200
+        assert_eq!(default_window_height_from_work_area(2161), 1200);
     }
 
     /// 隐藏期间改过尺寸时，居中必须用「请求尺寸」而不是滞后的读数。
