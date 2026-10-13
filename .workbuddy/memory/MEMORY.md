@@ -24,7 +24,7 @@
 ## 产品定则（细节见日志）
 - 默认值常量钉着（改值必须同步单测）：亮色 / 90% / remoteAllowGuiAuth=true / **默认高度=整屏高的 2/3**（1080→720；基准是 `monitor.size()` 不是工作区——工作区基准曾让重置按钮"点了没反应"，2026-10-13）；`window_height==0` 是「没记过尺寸」哨兵，别当尺寸用。
 - 落位方式 free/center/last：**center=位置固定禁拖**（拖动弹回居中+提示换方式，节流 4s；回声/WM 抖动过滤见 CENTER_ECHO_* 静态量）。**锁定窗口大小只禁手拖缩放，不拦展示方式落宽**（`grub_layout_target_width` 无 locked 门槛，用户定案 2026-10-13）。
-- 下次启动大字=级联全链（rEFInd›GRUB 组名›条目，条目文字与 grub.listFormat 同规则）；状态行「下次启动：」前缀一律去重。两区（rEFInd/GRUB）卡片背板与标题行共用 CSS 规则；**标题字号规则绝不能挂在会搬家的容器下**——`.grub-head` 搬进右栏后脱离 `.grub`（坑过两次），已单列 `.grub-head h2`。
+- 下次启动大字=级联全链（rEFInd›GRUB 组名›条目，条目文字与 grub.listFormat 同规则）；状态行「下次启动：」前缀一律去重。两区（rEFInd/GRUB）卡片背板与标题行共用 CSS 规则；**标题字号规则绝不能挂在会搬家的容器下**——`.grub-head` 搬进右栏后脱离 `.grub`（坑过两次），已单列 `.grub-head h2`。③④ 右栏 `.pane-body` 本身就是卡片（同款边框/底色/圆角，24px padding↔margin 挪位）；pane 模式 `.grub-head` sticky 悬浮（负外边距铺满卡宽+不透明底+box-shadow 补 10px 缝）。
 - 远程动作=本机点头：`switch_system` 等走 `ui_command_requires_local_auth` → pending+授权窗；「立即执行」仅本机（远程 403）；灰掉而不藏按钮。
 - `UI_REVISION` 起点跟时间挂钩（`ui_revision_seed`）；凡「按版本号丢过期数据」先问跨进程单调性。
 - `split_url()` 先剥代理绝对 URI（否则网页整片空白）；静态路由要覆盖「自然写法」并钉单测；`/api/ui-command` 回执必须放 `result` 里。
