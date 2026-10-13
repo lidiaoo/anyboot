@@ -22,7 +22,9 @@
 - X11 唯一正解 `WEBKIT_DMABUF_RENDERER_FORCE_SHM=1`（`apply_linux_gpu_workarounds()`，必须早于建 WebView）；`WEBKIT_DISABLE_DMABUF_RENDERER`（2.52+）与 `WEBKIT_DISABLE_COMPOSITING_MODE`（2.54+）已失效**勿回用**（单测钉死）。用户设过任一 WEBKIT_ENV_SWITCHES（含=0）就完全不插手（也是 A/B 开关）。NVIDIA 真机效果待用户确认。
 
 ## 产品定则（细节见日志）
-- 默认值常量钉着（改值必须同步单测）：亮色 / 90% / 居中 / remoteAllowGuiAuth=true / 高度=工作区一半（1080→560，被最小 560 顶住是有意的）；`window_height==0` 是「没记过尺寸」哨兵，别当尺寸用。
+- 默认值常量钉着（改值必须同步单测）：亮色 / 90% / remoteAllowGuiAuth=true / **默认高度=整屏高的 2/3**（1080→720；基准是 `monitor.size()` 不是工作区——工作区基准曾让重置按钮"点了没反应"，2026-10-13）；`window_height==0` 是「没记过尺寸」哨兵，别当尺寸用。
+- 落位方式 free/center/last：**center=位置固定禁拖**（拖动弹回居中+提示换方式，节流 4s；回声/WM 抖动过滤见 CENTER_ECHO_* 静态量）。
+- 下次启动大字=级联全链（rEFInd›GRUB 组名›条目，条目文字与 grub.listFormat 同规则）；状态行「下次启动：」前缀一律去重。两区（rEFInd/GRUB）卡片背板与标题行共用 CSS 规则，标题规则别挂在单一容器下。
 - 远程动作=本机点头：`switch_system` 等走 `ui_command_requires_local_auth` → pending+授权窗；「立即执行」仅本机（远程 403）；灰掉而不藏按钮。
 - `UI_REVISION` 起点跟时间挂钩（`ui_revision_seed`）；凡「按版本号丢过期数据」先问跨进程单调性。
 - `split_url()` 先剥代理绝对 URI（否则网页整片空白）；静态路由要覆盖「自然写法」并钉单测；`/api/ui-command` 回执必须放 `result` 里。
