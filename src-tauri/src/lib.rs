@@ -3047,9 +3047,9 @@ fn apply_window_size_lock(app: &AppHandle) {
 /// （贴边成条时界面是藏着的，点不到下拉框），直接 set_size 不会跟贴边打架。
 /// 按展示方式把主窗口宽度落到位（高度用记忆值不变）。
 /// `force_nominal_width`：
-/// · **true**（用户切换展示方式）= 用户明确要「这个模式的标准宽度」，覆盖记忆值；
-///   但**锁定窗口大小时不覆盖** —— 锁定是「尺寸冻结」的承诺，切模式只切布局
-///   （窄窗口下 wide/pane 由 CSS 网格自行收窄，可用只是挤；想要标准宽度先解锁）；
+/// · **true**（用户切换展示方式）= 用户明确要「这个模式的标准宽度」，覆盖记忆值
+///   —— **锁定窗口大小也不例外**（用户定案 2026-10-13：锁定只管「不许手拖
+///   缩放」，展示方式的落宽是明确操作、允许改尺寸）；
 /// · **false**（启动）= 尊重记忆的宽度 —— 用户上次拖成 700 就还是 700，
 ///   只有老配置还没记过尺寸（window_width == 0，serde(default) 的初值）才按模式给标称。
 /// 触发点只有两处：启动 setup、用户切换展示方式 —— 切换时 UI 一定可见
@@ -3058,12 +3058,7 @@ fn apply_grub_layout_size(app: &AppHandle, force_nominal_width: bool) {
     let settings = stored_settings(app);
     let mode = normalize_grub_list_view(&settings.grub_list_view);
     let nominal = grub_layout_width(mode) as u32;
-    let width = grub_layout_target_width(
-        nominal,
-        settings.window_width,
-        force_nominal_width,
-        settings.window_size_locked,
-    );
+    let width = grub_layout_target_width(nominal, settings.window_width, force_nominal_width);
     let height = if settings.window_height == 0 {
         // 还没记过尺寸（新装 / 清过配置）：默认占整屏高度的 2/3。
         // 落完 set_main_window_size 会把它记进设置，下次就按记忆值来。
@@ -3077,10 +3072,11 @@ fn apply_grub_layout_size(app: &AppHandle, force_nominal_width: bool) {
     }
 }
 
-/// 展示方式对应的落宽（纯函数）：锁定窗口大小后尺寸冻结 —— 切模式的
-/// 「标准宽度」不再覆盖记忆值；未记过尺寸（0）才用模式标称。
-fn grub_layout_target_width(nominal: u32, remembered: u32, force: bool, locked: bool) -> u32 {
-    if (force && !locked) || remembered == 0 {
+/// 展示方式对应的落宽（纯函数）：切模式（force）用模式标称覆盖记忆值 ——
+/// 锁定窗口大小不拦这条（锁定只禁手拖缩放，见用户定案 2026-10-13）；
+/// 启动路径（force=false）尊重记忆值，未记过尺寸（0）才用模式标称。
+fn grub_layout_target_width(nominal: u32, remembered: u32, force: bool) -> u32 {
+    if force || remembered == 0 {
         nominal
     } else {
         remembered
@@ -12982,12 +12978,11 @@ mod core_tests {
         assert_eq!(grub_layout_width("list"), 932.0);
         assert_eq!(grub_layout_width("pane"), 932.0);
 
-        // 展示方式的落宽：未记过尺寸用标称；记过尊重记忆；切模式覆盖记忆；
-        // 锁定窗口大小后尺寸冻结 —— 标称不再覆盖记忆值
-        assert_eq!(grub_layout_target_width(932, 0, false, false), 932);
-        assert_eq!(grub_layout_target_width(932, 700, false, false), 700);
-        assert_eq!(grub_layout_target_width(932, 700, true, false), 932);
-        assert_eq!(grub_layout_target_width(932, 700, true, true), 700);
+        // 展示方式的落宽：未记过尺寸用标称；记过尊重记忆；切模式覆盖记忆
+        // —— 锁定窗口大小不拦切模式的落宽（用户定案 2026-10-13）
+        assert_eq!(grub_layout_target_width(932, 0, false), 932);
+        assert_eq!(grub_layout_target_width(932, 700, false), 700);
+        assert_eq!(grub_layout_target_width(932, 700, true), 932);
 
         // 窗口尺寸夹取：滑条/用户拖拽/远程传入的脏值都收进合法范围
         assert_eq!(clamp_window_size(460, 900), (460, 900));
