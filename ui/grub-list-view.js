@@ -36,37 +36,6 @@ function grubStripKernel(name) {
   return (name || "").replace(/^vmlinuz-/, "").replace(/^linux-/, "");
 }
 
-/// 把「当前选中的启动项」渲染进顶部横幅：级联条目显示「父级名 › 子级名」，
-/// 最后一级用大字 + 主题色，父级用小一号的灰字。
-function renderGrubActive(container, grub) {
-  const entries = grub.entries || [];
-  const groups = new Map((grub.groups || []).map((group) => [group.id, group.name]));
-  // 与列表的高亮规则一致：优先一次性项（nextEntry），其次永久默认（savedEntry）
-  const activeSelector = grub.nextEntry || grub.savedEntry || "";
-  const active = entries.find((entry) => entry.selector === activeSelector);
-
-  container.replaceChildren();
-  if (!active) {
-    if (grub.partuuid) {
-      const none = document.createElement("small");
-      none.className = "grub-active-none";
-      none.textContent = "尚未选择启动项";
-      container.append(none);
-    }
-    return;
-  }
-  if (active.submenu) {
-    const parent = document.createElement("span");
-    parent.className = "grub-active-parent";
-    parent.textContent = `${groups.get(active.submenu) || active.submenu} ›`;
-    container.append(parent);
-  }
-  const leaf = document.createElement("span");
-  leaf.className = "grub-active-leaf";
-  leaf.textContent = active.name;
-  container.append(leaf);
-}
-
 function renderGrubEntries({ container, grub, busy, onSwitch, format = "raw" }) {
   const entries = grub.entries || [];
   // 当前生效的条目：优先看一次性项，其次看永久默认（都来自 ESP 上的环境块）

@@ -9984,17 +9984,15 @@ fn grub_esp_ready(_settings: &Settings) -> bool {
     true
 }
 
-/// 启动/刷新链路的「启动识别」（用户定案 2026-10-12）：同步的硬性条件（ESP
-/// 挂在 /boot 下）**不满足 ≠ 连解析都不做** —— 填了 UUID 或目录就仍做一次
-/// 识别：只解析 + 双向回填，**UUID 优先**（有效就用 UUID 解析 grub.cfg）。
+/// 启动/刷新链路的「启动识别」（用户定案 2026-10-13）：**打开软件就调用一次
+/// 识别**，UUID 优先、目录兜底。识别只解析不写盘（sync=false），解析出的挂载点
+/// 经 `discovered` 回填设置里的「ESP 目录」并显示到目录框。
 ///
-/// 「有效」的判据（启动链路**绝不挂载**、绝不 pkexec）：
-/// * UUID 已挂载（任意位置，不限 /boot —— 识别只解析，挂哪都能读）→ 按 UUID
-///   走 `grub_scan`（内部命中「已挂载」分支，不会触发按需挂载），目录回填走
-///   `rescan_grub` 既有的 `discovered` 逻辑；
-/// * 否则退目录（存在且是 FAT32 才算有效）：清掉 UUID 再扫（防止
-///   `grub_locate` 按需挂载），分区 UUID 取到了回填（与目录「识别」按钮同语义，
-///   仅在 UUID 本来为空时 —— 用户填了的 UUID 不被探测值覆盖）。
+/// * UUID 填了就直接走 `grub_scan` —— 与「识别」按钮同一条链路：先看已挂载的，
+///   没挂载按需挂载（Linux 上 mount 失败/pkexec 被取消 → Err，回落目录分支）。
+///   这取代了早先「启动绝不挂载」的定案：UUID 的意义就在于不用管它挂在哪。
+/// * 目录兜底：清掉 UUID 再扫（识别链路不许再触发第二次按需挂载），分区
+///   UUID 取到了回填（仅在 UUID 本来为空时 —— 用户填了的 UUID 不被覆盖）。
 /// 两个都无效 → 返回 None，调用方维持现状。
 /// 返回 `(scan, 落选时待归还的挂载具柄)`。
 fn startup_identify_scan(
@@ -10005,19 +10003,33 @@ fn startup_identify_scan(
     let uuid = settings.grub_efi_partuuid.trim();
     let dir = settings.grub_efi_dir.trim();
 
-    // ① UUID 优先：已挂载才算启动时「有效」
-    if !uuid.is_empty() && find_mounted_by_partuuid(uuid).is_some() {
-        // 已挂载的 UUID 理论上不该定位失败；真失败时挂载具柄已被 grub_scan 收尾
+    // ① UUID 优先：grub_locate 先看已挂载的，没挂载按需挂载（= 识别按钮行为）
+    if !uuid.is_empty() {
         match grub_scan(settings, reusable, false) {
             Ok(scan) => {
-                trace(app, "grub", "startup identify: via partuuid (mounted)");
+                trace(app, "grub", "startup identify: via partuuid");
                 return (scan, None);
             }
-            Err(_) => return (None, None),
+            // 定位失败（没这分区 / 挂载被取消）：reusable 已被 grub_scan 收尾，
+            // 回落目录分支再试一次 —— 目录可能指向手动挂载的位置。
+            Err(error) => {
+                trace(app, "grub", &format!("startup identify: partuuid failed: {error}"));
+                return fall_back_to_dir(app, settings, None, uuid, dir);
+            }
         }
     }
 
-    // ② 退目录：清掉 UUID 再扫，杜绝 grub_locate 的按需挂载（启动不 pkexec）
+    fall_back_to_dir(app, settings, reusable, uuid, dir)
+}
+
+/// 目录兜底分支（UUID 缺失或定位失败时）：清掉 UUID 再扫，杜绝按需挂载。
+fn fall_back_to_dir(
+    app: &AppHandle,
+    settings: &Settings,
+    reusable: Option<ActiveMount>,
+    uuid: &str,
+    dir: &str,
+) -> (Option<GrubScan>, Option<ActiveMount>) {
     if !dir.is_empty() && Path::new(dir).is_dir() {
         let mut scan_settings = settings.clone();
         scan_settings.grub_efi_partuuid = String::new();

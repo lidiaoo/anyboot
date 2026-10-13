@@ -551,8 +551,6 @@ const grubErrorElement = document.querySelector("#grub-error");
 const grubEmptyElement = document.querySelector("#grub-empty");
 const grubEmptyPickElement = document.querySelector("#grub-empty-pick");
 const grubListElement = document.querySelector("#grub-list");
-// 当前选中启动项的顶部横幅
-const grubActiveElement = document.querySelector("#grub-active");
 // GRUB 区块本体（左栏主流程里）与右栏容器：展示模式切换时把节点搬进/搬出右栏
 const grubSectionElement = document.querySelector("#grub");
 const grubPaneBodyElement = document.querySelector("#grub-pane-body");
@@ -694,11 +692,12 @@ statusBarCloseElement.addEventListener("click", () => {
   hideStatusBar();
 });
 
-function renderSystems(status, busy) {
+function renderSystems(status, busy, grub) {
   systemsElement.replaceChildren();
 
   // 顶部那行大字要说明「下次启动的系统是哪个」，先扫一遍选中项
   let activeName = null;
+  let activeSystem = null;
 
   for (const item of status.variables) {
     const card = document.createElement("article");
@@ -715,6 +714,7 @@ function renderSystems(status, busy) {
     check.setAttribute("aria-hidden", "true");
     if (item.active) {
       activeName = item.displayName;
+      activeSystem = item.system;
     }
 
     const name = document.createElement("div");
@@ -726,6 +726,28 @@ function renderSystems(status, busy) {
       ? item.sourceName
       : `${item.sourceName}（不存在）`;
     name.append(title, source);
+
+    // Linux 项旁的问号提示（用户定案 2026-10-13）：rEFInd 的 Linux 项背后
+    // 是 GRUB 在引导，要能读取 grub 列表 / 操作下次 Linux 启动项，前提是
+    // 装了 09_anyboot 并 update-grub；同时 EFI 第一启动项的设置规则也要讲清。
+    if (item.system === "linux") {
+      const help = document.createElement("span");
+      help.className = "system-help";
+      help.textContent = "?";
+      help.tabIndex = 0;
+      help.setAttribute("role", "note");
+      help.setAttribute(
+        "aria-label",
+        "Linux 启动项说明：需安装 09_anyboot 并执行 update-grub",
+      );
+      help.title =
+        "Linux 由 GRUB 引导：在 Linux 上安装 09_anyboot 脚本（/etc/grub.d/09_anyboot）" +
+        "并执行 update-grub 重建 grub.cfg 之后，AnyBoot 才能读取 GRUB 系统列表、" +
+        "并通过 ESP 上的 grubenv 操作「下次启动哪个 Linux 启动项」。" +
+        "EFI 第一启动项：用 rEFInd 就把 rEFInd 的 EFI 设为第一启动项；" +
+        "不用 rEFInd 就把 GRUB 的 EFI 设为第一启动项。";
+      name.append(help);
+    }
 
     const button = document.createElement("button");
     button.type = "button";
@@ -749,10 +771,32 @@ function renderSystems(status, busy) {
     systemsElement.append(card);
   }
 
+  // 下次启动 = 两层引导的级联总结（用户定案 2026-10-13）：rEFInd 选了 Linux
+  // 时，开机真正进的是 GRUB 环境块里选中的那个启动项 —— 两层一并显示
+  // 「Linux › 启动项名」；rEFInd 选的不是 Linux（Windows/macOS 直接引导），
+  // 或者 GRUB 侧还没选过，就只显示 rEFInd 这一层。
+  let nextBootText = activeName || "未知（没有选中的系统）";
+  if (activeSystem === "linux" && grub) {
+    const selector = grub.nextEntry || grub.savedEntry || "";
+    const entry = (grub.entries || []).find(
+      (candidate) => candidate.selector === selector,
+    );
+    if (entry) {
+      // 与 GRUB 列表/横幅同规则：submenu 子条目带上父级组名 ——
+      // 「Linux › Arch Linux 的高级选项 › Arch Linux, with Linux linux-zen」
+      if (entry.submenu) {
+        const groups = new Map(
+          (grub.groups || []).map((group) => [group.id, group.name]),
+        );
+        nextBootText += ` › ${groups.get(entry.submenu) || entry.submenu}`;
+      }
+      nextBootText += ` › ${entry.name}`;
+    }
+  }
   nextBootElement.classList.toggle("unknown", !activeName);
-  nextBootNameElement.textContent = activeName || "未知（没有选中的系统）";
+  nextBootNameElement.textContent = nextBootText;
   // 顶部状态行要用它去重（见 render）
-  return activeName;
+  return nextBootText;
 }
 
 /// ESP 分区那一行：FAT32 判定 · 分区UUID · fs-uuid · 设备 · 挂载状态 · 出处。
@@ -829,7 +873,7 @@ function renderEsp(grub) {
 /// 展示模式的 DOM 搬位：把 <main> 里 #grub 的子节点按模式搬进/搬出右栏。
 /// 四种模式（与设置里的 grubListView 一一对应）：
 /// · inline 内嵌 / wide 加宽 —— 全部子节点按出厂顺序回 #grub（左栏主流程里）；
-/// · list 列表独立 —— 配置留在 #grub，当前选中横幅 + 列表搬进右栏；
+/// · list 列表独立 —— 配置留在 #grub，列表搬进右栏；
 /// · pane GRUB 独立 —— 全部子节点按出厂顺序搬进右栏（#grub 变空壳，CSS 藏掉）。
 /// 只在模式真正变化时才搬（renderGrub 里比对缓存），别每帧搬 DOM。
 /// 「出厂顺序」在脚本加载完、任何搬移发生之前捕获一次，回搬时靠它复原。
@@ -842,9 +886,7 @@ function applyGrubLayout(mode) {
   grubLayoutMode = mode;
   document.body.dataset.grubMode = mode;
   for (const el of grubCanonicalOrder) {
-    const toPane =
-      mode === "pane" ||
-      (mode === "list" && (el === grubActiveElement || el === grubListElement));
+    const toPane = mode === "pane" || (mode === "list" && el === grubListElement);
     (toPane ? grubPaneBodyElement : grubSectionElement).appendChild(el);
   }
 }
@@ -923,9 +965,6 @@ function renderGrub(grub, script, busy, listViewMode) {
   // efiDir 是后端解析结果（识别过就有值），dir 只是用户填的原文，不算数。
   const unidentified = !grub.partuuid && !grub.efiDir;
   grubEmptyElement.hidden = !unidentified;
-
-  // 当前选中的启动项（右上角横幅，与树列表共用同一个渲染器）
-  renderGrubActive(grubActiveElement, grub);
 
   // 树列表：唯一的渲染处（列表节点在哪由 applyGrubLayout 决定，这里只管往里画；
   // 节点引用不变，搬完位置渲染照常生效）
@@ -1292,13 +1331,12 @@ function render(state) {
     !state.status.temporaryMount,
   );
 
-  const activeName = renderSystems(state.status, busy);
-  // 顶部那行状态文案只在**跟「下次启动：X」不一样**时才显示：
-  // 扫描成功后 status.message 本身就是「下次启动：X」，紧挨着下面的大字再来
-  // 一遍就是用户报的「文字重复」。规则与托盘菜单的 menu_status_line 一致。
+  renderSystems(state.status, busy, state.grub);
+  // 顶部那行状态文案：扫描成功后 status.message 就是「下次启动：X」，
+  // 而下面的大字已经把下次启动说全了（级联时还带 GRUB 启动项，信息更多）
+  // —— 用户定案 2026-10-13：凡是「下次启动：」开头的都算重复，不再显示。
   const statusText = (state.status.message || "").trim();
-  const duplicatesNextBoot =
-    !statusText || statusText === `下次启动：${activeName || "未知"}`;
+  const duplicatesNextBoot = !statusText || statusText.startsWith("下次启动：");
   const label = busyLabel(state.busy);
   statusElement.textContent = label || (duplicatesNextBoot ? "" : statusText);
   statusElement.classList.toggle("hidden", !label && duplicatesNextBoot);
@@ -2540,7 +2578,33 @@ function applyWindowSizeFromSliders() {
 }
 
 for (const slider of [windowSizeWidthElement, windowSizeHeightElement]) {
+  // 拖动状态跟踪（修用户实测的 bug：鼠标离开滑块后 hover 还在改值）。
+  // 根因：拖动中窗口跟着滑块变宽变窄，滑块自己往指针底下挪，WebKit 的
+  // range 输入可能不结束隐式指针捕获 —— 松手后 mousemove 继续产生幽灵
+  // input 事件。对策：input 只认两个来源 —— 指针真按着（dragging）或
+  // 键盘操作（:focus-visible），其余一律忽略。
+  let dragging = false;
+  slider.addEventListener("pointerdown", () => {
+    dragging = true;
+  });
+  slider.addEventListener("pointerup", () => {
+    dragging = false;
+  });
+  slider.addEventListener("pointercancel", () => {
+    dragging = false;
+  });
+  // 兜底：松手落在滑块之外（拖出窗口/捕获异常）也不许卡在「拖动中」状态
+  window.addEventListener(
+    "pointerup",
+    () => {
+      dragging = false;
+    },
+    { capture: true },
+  );
   slider.addEventListener("input", () => {
+    if (!dragging && !slider.matches(":focus-visible")) {
+      return; // 幽灵输入：不是拖动也不是键盘，忽略
+    }
     const width = Number.parseInt(windowSizeWidthElement.value, 10);
     const height = Number.parseInt(windowSizeHeightElement.value, 10);
     updateWindowSizeStateLabels(width, height);

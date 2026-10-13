@@ -1,573 +1,608 @@
 ﻿<!doctype html>
-<html lang="zh-CN">
-  <head>
-    <meta charset="UTF-8" />
-    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+<html lang="zh-CN" data-page-node-id="ipKZaEBYXhuMMawECdW3B5">
+  <head data-page-node-id="g3yPX9BiTlbOqLdJRkXE1J">
+    <meta charset="UTF-8" data-page-node-id="I7Y9wcNb3X4vlQ3AGJteWN" />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" data-page-node-id="EqVHhk2BvU9iAnH7og8YL2" />
     <title>AnyBoot</title>
-    <link href="./styles.css" rel="stylesheet" />
+    <link href="./styles.css" rel="stylesheet" data-page-node-id="TW40ENGyWRZ8hfyIKgbDdc" />
   </head>
-  <body>
+  <body data-page-node-id="hHneRKjKOaDVqQOirfcUOC">
     <!-- 贴边隐藏时，窗口贴在屏幕某条边只露一条缝：这条小白条就是那道缝，
          提示用户「鼠标移到这儿就能把窗口展开」。只在不停靠时由 JS 加类显示。 -->
-    <div id="dock-strip"></div>
+    <div id="dock-strip" data-page-node-id="za8JFIW7TVx0EtkUFcqdgj"></div>
     <!-- 热区可视化层：贴边态下把「鼠标移入即呼出」的触发带画出来（默认全透明
          看不见），调试热区厚度/边界时打开底色或边框。几何由 app.js 按
          「热区厚度 − 贴边缝隙」写入 CSS 变量，超出窗口槽位（40px）的部分
          在窗口外，天然被裁掉。 -->
-    <div id="hotzone"></div>
+    <div id="hotzone" data-page-node-id="8uHDBxXqvTjBBgBExM7mu2"></div>
     <!-- 单窗口双栏：左栏 = 原主窗口的全部元素，右栏 = GRUB 专属区。
          两栏等宽（flex 基准都是 0），中间用一条纯空白长条隔开 —— 宽度取原来
          两个独立窗口之间那条桌面缝隙的 12px，所以窗口总宽 932 = 460 + 12 + 460，
          和以前主窗 + GRUB 窗并排占的总宽度一致。
          展示模式 ③④ 时两栏各自一个滚动容器（左 = <main>，右 = .pane-body），
          滚动条互不影响；模式 ①② 右栏隐藏、左栏独占整窗。 -->
-    <div class="app-columns">
+    <div class="app-columns" data-page-node-id="1OTCHz4amVxgkNtMylMSAx">
       <!-- 左栏：原主窗口的全部内容，GRUB 那一整块搬到右栏去了 -->
-      <main class="pane pane-main">
-        <header>
-          <h1>AnyBoot</h1>
-          <p id="status">正在扫描 rEFInd 变量目录…</p>
+      <main class="pane pane-main" data-page-node-id="EJa4vqxl29IOquEVLGPj5N">
+        <header data-page-node-id="LbHHCD0vLyCxN9CoKPOMr7">
+          <!-- 电源三键贴着应用名放同一行、右对齐（用户定案 2026-10-13）：
+               高频动作抬到最顺手的位置，左栏留给引导主流程 -->
+          <div class="header-row">
+            <h1 data-page-node-id="z7rmJtH6aBtPGSohd0cT0u">AnyBoot</h1>
+            <div class="system-actions">
+              <button class="secondary" id="power-reboot" type="button" data-page-node-id="2RIN6kKHt7BM26YL6EVjzc">重启系统</button>
+              <button class="secondary" id="power-shutdown" type="button" data-page-node-id="xEVk1ZrGxSZHXPzAnd1orK">关机</button>
+              <button class="secondary" id="power-sleep" type="button" data-page-node-id="eiRSB4x9Qn7sTfWEjJnjqH">睡眠</button>
+            </div>
+          </div>
+          <p id="status" data-page-node-id="cAHMTMt6bTdwE2O13BnbnI">正在扫描 rEFInd 变量目录…</p>
         </header>
 
         <!-- 界面栏目页签：主功能（引导切换）在前，设置低频收在后。
              切换纯前端、localStorage 记住上次的栏目。 -->
-        <nav aria-label="界面栏目" class="tabs" id="tabs">
-          <button class="tab active" data-tab="boot" type="button">系统引导</button>
-          <button class="tab" data-tab="settings" type="button">基本设置</button>
+        <nav aria-label="界面栏目" class="tabs" id="tabs" data-page-node-id="ujqjfv4LcoPl00TnoXePfB">
+          <button class="tab active" data-tab="boot" type="button" data-page-node-id="QjwgqcKkegbDMH18R3P0BP">系统引导</button>
+          <button class="tab" data-tab="settings" type="button" data-page-node-id="KewiPZuQfLAU8WJBd1FbQg">基本设置</button>
         </nav>
 
         <!-- 栏目一：系统引导 —— rEFInd（下次启动 / 电源 / 系统列表 / 变量目录）
              与 GRUB 启动项同页，两套引导器并列。 -->
-        <div class="tab-panel active" id="tab-boot">
-        <section aria-label="下次启动" class="next-boot" id="next-boot">
-          <small>下次启动</small>
-          <strong id="next-boot-name">未知</strong>
+        <div class="tab-panel active" id="tab-boot" data-page-node-id="KhgEQEjVWU0ev9h19cGCfq">
+        <section aria-label="下次启动" class="next-boot" id="next-boot" data-page-node-id="Yqo4Jg3zpnxoHdIFHeKkrB">
+          <small data-page-node-id="exBlOMxEq761I1Tej3EyQY">下次启动</small>
+          <strong id="next-boot-name" data-page-node-id="AMVyFOoOKANoXH2D2Yvimg">未知</strong>
         </section>
 
-        <!-- 电源操作摆在最上面、系统列表之上：先选系统再选动作，视线不用往下找 -->
-        <section aria-label="电源操作" class="system-actions">
-          <button class="secondary" id="power-reboot" type="button">重启系统</button>
-          <button class="secondary" id="power-shutdown" type="button">关机</button>
-          <button class="secondary" id="power-sleep" type="button">睡眠</button>
-        </section>
+        <!-- 电源三键已上移到头部（应用名右侧、右对齐），原独立段落取消 -->
 
-        <section aria-label="可启动系统" id="systems"></section>
-        <section aria-label="GRUB 启动项" class="grub" id="grub">
-          <div class="grub-head">
-            <h2>GRUB 启动项</h2>
-            <small class="grub-pane-status" id="grub-status" role="status"></small>
-            <small id="grub-meta"></small>
+        <!-- rEFInd 区（用户定案 2026-10-13）：整块套进与 GRUB 区同款的卡片
+             背板（.refind 与 .grub 同一边框/底色/圆角），圆标 + 标题一行与
+             GRUB 区完全同构 —— 标题就叫「rEFInd 启动项」，与「GRUB 启动项」对齐。 -->
+        <section aria-label="rEFInd 启动项" class="refind" id="refind">
+          <div class="grub-title-row">
+            <span class="zone-tag" id="refind-zone-tag">rEFInd 区</span>
+            <h2>rEFInd 启动项</h2>
           </div>
 
-          <!-- 当前选中的启动项：级联 = 父级小字 › 子级大字 -->
-          <div class="grub-active" id="grub-active"></div>
+          <section aria-label="可启动系统" id="systems" data-page-node-id="Id8skElJCJlzu02uKr9biB"></section>
+
+          <!-- 变量目录属于 rEFInd 区，跟在系统列表正下方（用户定案 2026-10-13） -->
+          <section class="directory" data-page-node-id="bY3QCnDBj6y94lntyxAKEl">
+          <label for="vars-dir" data-page-node-id="AACq8BrwDR4bZWBrPKkTfs">变量目录</label>
+          <input id="vars-dir" placeholder="留空则自动扫描 EFI/refind/vars" spellcheck="false" type="text" data-page-node-id="1yUoG52MASLck2ARaiWp8g" />
+          <div class="actions" data-page-node-id="h9N94Nb2KFxNxXiQ2u64FJ">
+            <button class="secondary" id="open-vars-dir" type="button" data-page-node-id="tXkN6CAEmlKg7iXwd8W9kP">打开变量目录</button>
+            <button id="use-directory" type="button" data-page-node-id="hTqaoTH32yxmTd3KpxSzJp">使用此目录</button>
+            <button class="secondary hidden" id="unmount-temporary" type="button" data-page-node-id="5facgAl7jq1lcpPKiCLq5j">卸载临时挂载</button>
+            <button class="secondary" id="refresh" type="button" data-page-node-id="rG8qunodWqs3ws7YyniDz7">扫描</button>
+          </div>
+        </section>
+        </section><!-- /refind -->
+
+        <!-- rEFInd 区与 GRUB 区的分界：两套引导机制并列，一道明显的横隔
+             防止用户把下面的启动项当成 rEFInd 的一部分（GRUB 独立右栏模式下
+             这道线随 #grub 一起藏掉，见 CSS）。 -->
+        <hr aria-hidden="true" class="boot-divider" id="boot-divider" data-page-node-id="qCCL2xeAguBzMTyKHHMztT" />
+
+        <section aria-label="GRUB 启动项" class="grub" id="grub" data-page-node-id="PJMPhLqMDBSQHKxL7f1Avw">
+          <div class="grub-head" data-page-node-id="2ERY47G82KULQdagoCej2B">
+            <div class="grub-title-row">
+              <span class="zone-tag" id="grub-zone-tag">GRUB 区</span>
+              <h2 data-page-node-id="Pvya5hK0zkLtyPd0NzIA0X">GRUB 启动项</h2>
+            </div>
+            <small class="grub-pane-status" id="grub-status" role="status" data-page-node-id="1DT8K5Hur4K5THcJNfSBEB"></small>
+            <small id="grub-meta" data-page-node-id="yfF4nq97WpiwUYJWnddipQ"></small>
+          </div>
+
+          <!-- 解析的系统列表摆在 GRUB 区最上方（用户定案 2026-10-13）：
+               打开就能看到结果，配置行全部让位到下面。空状态跟列表占同一个位。 -->
+          <div class="grub-empty-state" id="grub-empty" hidden data-page-node-id="EOBeOTB3G44gTvyN1RsDez">
+            <strong data-page-node-id="JjEOrGo6Rl3CADIKmfEN3A">还没识别到 GRUB 启动信息</strong>
+            <small
+               data-page-node-id="WqskiLQdcw0AsB3QZ7Ev68">选 ESP 分区里的文件夹去识别，或直接填上面的 fs-uuid ——
+              两种方式填一个就行，另一个会自动对上</small
+            >
+            <div class="actions" data-page-node-id="nmlwFViptksRAnRXWGN431">
+              <button class="secondary" id="grub-empty-pick" type="button" data-page-node-id="n8pLbwhxNjnrNo50pl4CoZ">
+                选择文件夹识别…
+              </button>
+            </div>
+          </div>
+
+          <div class="grub-list" id="grub-list" data-page-node-id="LCPEAOijd48J8tVo1t58qD"></div>
 
           <!-- 展示方式：① 内嵌 ② 加宽内嵌 ③ 加宽+列表独占右栏 ④ 加宽+GRUB 全在右栏。
                切换由后端落盘并调整窗口宽度；前端按模式把 GRUB 区块搬进/搬出右栏。 -->
-          <div class="grub-row" id="grub-mode-row">
-            <label for="grub-view-mode">展示方式</label>
-            <select id="grub-view-mode">
-              <option value="inline">内嵌列表</option>
-              <option value="wide">加宽窗口展示</option>
-              <option value="list">列表独立区域</option>
-              <option value="pane">GRUB 独立区域</option>
+          <div class="grub-row" id="grub-mode-row" data-page-node-id="lMCQJw47HJcSfH9FudwUu8">
+            <label for="grub-view-mode" data-page-node-id="D5FyCiR6X39LdlaMYKkJFE">展示方式</label>
+            <select id="grub-view-mode" data-page-node-id="stvH0uvUn1BBy4KVabfsQK">
+              <option value="inline" data-page-node-id="liXw7UpXrFCcpe0310Si05">内嵌列表</option>
+              <option value="wide" data-page-node-id="sKeGBcukr1S4x2cnMgSldH">加宽窗口展示</option>
+              <option value="list" data-page-node-id="KVnvDJaX3rZhizGxtLtf4k">列表独立区域</option>
+              <option value="pane" data-page-node-id="T32VJMtWXXXVU5tEP1OwAL">GRUB 独立区域</option>
             </select>
           </div>
 
           <!-- 列表格式：原始（现版样式）/ 极简（去前缀内核名）/ 简易（极简 +
                组头带 ESP 位置）/ 中等（完整内核名）/ 复杂（完整名称 + 内核右对齐）。
                组头按关键字（windows/mac/linux）加系统图标。纯前端渲染偏好。 -->
-          <div class="grub-row" id="grub-format-row">
-            <label for="grub-list-format">列表格式</label>
-            <select id="grub-list-format">
-              <option value="raw">原始</option>
-              <option value="minimal" selected>极简</option>
-              <option value="simple">简易</option>
-              <option value="medium">中等</option>
-              <option value="detailed">复杂</option>
+          <div class="grub-row" id="grub-format-row" data-page-node-id="AhLzGPu8QYiJQBSfZj4H4t">
+            <label for="grub-list-format" data-page-node-id="CZD8oPWxoHqAitmg11hYa7">列表格式</label>
+            <select id="grub-list-format" data-page-node-id="a2M8g69d5WyLflbz17JV4b">
+              <option value="raw" data-page-node-id="hBhezIULIbwCozFZgdcpPD">原始</option>
+              <option value="minimal" selected data-page-node-id="SmwfYe4rLeuyLhCQbPZr1m">极简</option>
+              <option value="simple" data-page-node-id="4r555wva23wPCZCQEIbdKt">简易</option>
+              <option value="medium" data-page-node-id="OJG2gtJA0V5bX3hU4DwGi8">中等</option>
+              <option value="detailed" data-page-node-id="HlzSpvXh2IJoBI3pzEUCDv">复杂</option>
             </select>
           </div>
+
+          <!-- 引导配置须知（用户定案 2026-10-13）：os-prober / EFI 顺序 /
+               Windows 分区标志，是「GRUB 列表里能看到别的系统」的前提。 -->
+          <small class="grub-advice" id="grub-advice" data-page-node-id="yBgBbmYqfxSmFWHG8zjym9">
+            <strong data-page-node-id="V8PjZ9VPqrp8BNI9pTCss9">引导配置须知</strong>
+            <ul data-page-node-id="ozkyMO6JF7TuRObyxDxpsG">
+              <li data-page-node-id="rnRegt5UTcY1aTXOuOkihp">Linux 必须开启 <strong data-page-node-id="zeFbawh0l4hgeOFPTkyZ0W">os-prober</strong>：在 <code data-page-node-id="W6OxfYDkqdfuNAY1kPpYTo">/etc/default/grub</code> 里加
+                <code data-page-node-id="FMmDbYD0gacABUEo5gBvtm">GRUB_DISABLE_OS_PROBER=false</code> 后执行 update-grub，其他系统的启动项才会进 grub.cfg；
+                装了多个 Linux 发行版时，只需让<strong data-page-node-id="LvdZkjb1segkPMRRj5uJWb">一个</strong>发行版管理 EFI（它的 GRUB + os-prober 收集其余系统）。</li>
+              <li data-page-node-id="f052j0rxBHwAxNnmZy5FMH">Windows 的 EFI 分区，GPT 标志必须是 <code data-page-node-id="D4z7ydyrDzXGrDM4dsxzI6">boot, efi</code>（gparted 里给该分区设 boot 标志），
+                否则 os-prober 不识别它。</li>
+              <li data-page-node-id="fWLStrFB90YT37a8qFQP2M"><strong data-page-node-id="nGqy6EHpZjQbhxBEE3xvxs">EFI 第一启动项</strong>：用 rEFInd 就把 rEFInd 的 EFI 设为第一启动项；
+                不用 rEFInd 就把 GRUB 的 EFI 设为第一启动项。</li>
+            </ul>
+          </small>
 
           <!-- 先给目录、点「识别」——自动判断是不是 FAT32 并从中取出 fs-uuid；
                也可以什么都不给、只手工填下面的 fs-uuid，两种方式等价。
                「选择文件夹」呼出系统文件夹选择框，选中后自动走识别。
                「保存」只存目录原文（清空后保存即清掉目录，fs-uuid 不动）。 -->
-          <div class="grub-row">
-            <label for="grub-dir">ESP 目录</label>
+          <div class="grub-row" data-page-node-id="ZYT8Gzp7nhZgh6gQhbhbO0">
+            <label for="grub-dir" data-page-node-id="8aYgzDbg5RyzkwYXgD3gNI">ESP 目录</label>
             <input
               id="grub-dir"
               placeholder="H:\ 或 /boot/efi 或 /Volumes/ARCH-EFI（分区里任意路径都行）"
               spellcheck="false"
-              type="text"
+              type="text" data-page-node-id="ip1eWyBijIA7rc5yLPArkT"
             />
-            <button class="secondary" id="grub-dir-pick" type="button">选择文件夹…</button>
-            <button class="secondary" id="grub-dir-detect" type="button">识别</button>
-            <button class="secondary" id="grub-dir-save" type="button">保存</button>
-            <button class="secondary" id="grub-dir-open" type="button">
+            <button class="secondary" id="grub-dir-pick" type="button" data-page-node-id="cEV12U9W0GUVJMBAUEJ1nK">选择文件夹…</button>
+            <button class="secondary" id="grub-dir-detect" type="button" data-page-node-id="XHx1WDh81vw6PrVR8SSceF">识别</button>
+            <button class="secondary" id="grub-dir-save" type="button" data-page-node-id="tg8I0RHbFBJjxN3DaKxjby">保存</button>
+            <button class="secondary" id="grub-dir-open" type="button" data-page-node-id="FBiFqxy78EjGruVgmffb6n">
               打开文件管理器
             </button>
           </div>
 
-          <div class="grub-row">
-            <label class="grub-check" for="grub-mount">
-              <input id="grub-mount" type="checkbox" />
-              <span id="grub-mount-label">挂载 ESP（勾上后可直接读写）</span>
+          <div class="grub-row" data-page-node-id="Q2wgvOuonjQUlK8boI9dcE">
+            <label class="grub-check" for="grub-mount" data-page-node-id="zvdg5IhTxiS60U3EWAoyZs">
+              <input id="grub-mount" type="checkbox" data-page-node-id="MMIDNHN2BQJ2jpiZ4tmw6Z" />
+              <span id="grub-mount-label" data-page-node-id="ZINZFYWIt8UtD0HLLqhqDL">挂载 ESP（勾上后可直接读写）</span>
             </label>
-            <small class="grub-part" id="grub-part"></small>
+            <small class="grub-part" id="grub-part" data-page-node-id="TKSXMHWEEKYPt2uNWBug38"></small>
           </div>
 
-          <div class="grub-row">
-            <label for="grub-partuuid">ESP 的分区 UUID</label>
+          <div class="grub-row" data-page-node-id="y0ZTlPd72eEyWXAZqVQ3W8">
+            <label for="grub-partuuid" data-page-node-id="GBAJWylnusFh3fymtGqjJu">ESP 的分区 UUID</label>
             <input
               id="grub-partuuid"
               placeholder="GPT 分区 GUID，如 F69D7BF9-E8A9-3135-A5CB-4BD0CA7344E3（三端同值：Linux lsblk -o PARTUUID / macOS diskutil / Windows Get-Partition）"
               spellcheck="false"
-              type="text"
+              type="text" data-page-node-id="jTwP3cJw3YQl41wSG8UOHz"
             />
-            <button class="secondary" id="grub-partuuid-save" type="button">保存</button>
-            <button class="secondary" id="grub-partuuid-detect" type="button">识别</button>
+            <button class="secondary" id="grub-partuuid-save" type="button" data-page-node-id="OcgnXyOVYQU1004Wz5oJsm">保存</button>
+            <button class="secondary" id="grub-partuuid-detect" type="button" data-page-node-id="FWKKiT0OGC95lDVB76GxwG">识别</button>
           </div>
 
           <!-- 同步（用户定案）：把当前系统 /boot/grub（或 grub2）的 grub.cfg 覆盖
                搬进 ESP，grubenv 没有才搬；硬性条件是该分区已挂载到 /boot 或
                /boot/efi，否则不动（不自动挂载、不 pkexec、不写盘）。识别只解析。 -->
-          <div class="grub-row">
-            <button class="secondary" id="grub-sync" type="button">同步</button>
-            <small class="grub-part" id="grub-sync-note"
+          <div class="grub-row" data-page-node-id="AtbiPKZODJ0t3MpmNuBz34">
+            <button class="secondary" id="grub-sync" type="button" data-page-node-id="EzaAhncRF0DurPaAZzLOjR">同步</button>
+            <small class="grub-part" id="grub-sync-note" data-page-node-id="f1hfafUpmu1p7ZeIhAJ1pK"
               >把当前系统 /boot/grub/grub.cfg 同步到 ESP（需已挂载到 /boot 或 /boot/efi）</small
             >
           </div>
 
-          <p class="grub-hint" id="grub-hint"></p>
-          <p class="grub-error hidden" id="grub-error" role="status"></p>
-
-          <!-- 空状态：还没识别出任何 GRUB 信息（没填 fs-uuid、也没识别过目录）
-               时摆出来，替代一片空白。两条入口任选其一，二者自动同步。 -->
-          <div class="grub-empty-state" id="grub-empty" hidden>
-            <strong>还没识别到 GRUB 启动信息</strong>
-            <small
-              >选 ESP 分区里的文件夹去识别，或直接填上面的 fs-uuid ——
-              两种方式填一个就行，另一个会自动对上</small
-            >
-            <div class="actions">
-              <button class="secondary" id="grub-empty-pick" type="button">
-                选择文件夹识别…
-              </button>
-            </div>
-          </div>
-
-          <div class="grub-list" id="grub-list"></div>
+          <p class="grub-hint" id="grub-hint" data-page-node-id="3dawabOWBkuO3puhUVYJxY"></p>
+          <p class="grub-error hidden" id="grub-error" role="status" data-page-node-id="4Gwu6OIMFupjTCE0FeHvI6"></p>
 
           <!-- 安装 / 卸载 09_anyboot：只在 Linux 上出现 -->
-          <div class="actions hidden" id="grub-install-actions">
-            <button class="secondary" id="grub-install" type="button">
+          <div class="actions hidden" id="grub-install-actions" data-page-node-id="rs4TR1K7mWcOHBW2OniR7a">
+            <button class="secondary" id="grub-install" type="button" data-page-node-id="FrD4MFnk0yYAsPaXzE53TF">
               安装 09_anyboot
             </button>
-            <button class="secondary" id="grub-uninstall" type="button">
+            <button class="secondary" id="grub-uninstall" type="button" data-page-node-id="ajDxCqDTUrgBF3dnavWhE2">
               卸载 09_anyboot
             </button>
           </div>
           <!-- 安装 / 卸载的执行过程：跑了哪几条命令、退出码多少、stderr 说了什么 -->
-          <details class="grub-log hidden" id="grub-log-box">
-            <summary id="grub-log-summary">执行过程</summary>
-            <pre id="grub-log"></pre>
+          <details class="grub-log hidden" id="grub-log-box" data-page-node-id="cs8hZg1jYIg5ba9H8nyRD2">
+            <summary id="grub-log-summary" data-page-node-id="flEuBTclDyBBJi7iEyME5j">执行过程</summary>
+            <pre id="grub-log" data-page-node-id="wBWnBo5TUVCDBcJlFhZE2U"></pre>
           </details>
 
-          <details class="grub-script">
-            <summary>查看 / 修改内置脚本（09_anyboot）</summary>
+          <details class="grub-script" data-page-node-id="AdpXjg6u4z6jBBEXv1f5Lk">
+            <summary data-page-node-id="AGUVjPpH0OmCFwBlnu4WnK">查看 / 修改内置脚本（09_anyboot）</summary>
             <small
-              >安装时只把 <code>@@ESP_UUID@@</code> 换成上面填的 fs-uuid，其余按这里的正文来；
+               data-page-node-id="wL190GWBgzKbnXXp96M40A">安装时只把 <code data-page-node-id="BJetAZzrR6iCdUbuQRg11D">@@ESP_UUID@@</code> 换成上面填的 fs-uuid，其余按这里的正文来；
               清空后保存 = 恢复内置模板</small
             >
             <textarea id="grub-script" rows="8" spellcheck="false"></textarea>
-            <div class="actions">
-              <button class="secondary" id="grub-script-save" type="button">
+            <div class="actions" data-page-node-id="HNJOaOD4H2d56IeHFu3nRa">
+              <button class="secondary" id="grub-script-save" type="button" data-page-node-id="8YUhMA1H6qr8fVULLZ3OWK">
                 保存脚本
               </button>
-              <button class="secondary" id="grub-script-reset" type="button">
+              <button class="secondary" id="grub-script-reset" type="button" data-page-node-id="NkzPQCqRUVpOyb3vuYguUa">
                 恢复内置
               </button>
             </div>
           </details>
         </section>
-
-
-        <section class="directory">
-          <label for="vars-dir">变量目录</label>
-          <input id="vars-dir" placeholder="留空则自动扫描 EFI/refind/vars" spellcheck="false" type="text" />
-          <div class="actions">
-            <button class="secondary" id="open-vars-dir" type="button">打开变量目录</button>
-            <button id="use-directory" type="button">使用此目录</button>
-            <button class="secondary hidden" id="unmount-temporary" type="button">卸载临时挂载</button>
-            <button class="secondary" id="refresh" type="button">扫描</button>
-          </div>
-        </section>
         </div><!-- /tab-boot -->
 
         <!-- 栏目二：基本设置 —— 应用设置 + 远程控制 -->
-        <div class="tab-panel" id="tab-settings">
-        <section aria-label="应用设置" class="settings">
-          <h2>应用设置</h2>
-          <label class="setting">
-            <span class="setting-text">
-              <strong>开机启动</strong>
-              <small>登录系统后自动启动，常驻托盘待命</small>
-              <small class="setting-state" id="autostart-state"></small>
+        <div class="tab-panel" id="tab-settings" data-page-node-id="HiFBWeQAK6DDHnCplD8NHx">
+        <section aria-label="应用设置" class="settings" data-page-node-id="dTWHwQ6tJPaQ5pLecKAHOn">
+          <h2 data-page-node-id="jJR2CiOkekhjV0FHh2v9Yx">应用设置</h2>
+          <label class="setting" data-page-node-id="sDCPx0BuJWtXIklVq9qR6j">
+            <span class="setting-text" data-page-node-id="g29ETmPdq1D9jsHY2HabtZ">
+              <strong data-page-node-id="ttMFs0f8vqt4I6zwGr6QAf">开机启动</strong>
+              <small data-page-node-id="fMVyMDSq2klGuQeoXmo0YU">登录系统后自动启动，常驻托盘待命</small>
+              <small class="setting-state" id="autostart-state" data-page-node-id="MvUlE8BoQy74FTC3pxMopE"></small>
             </span>
-            <input id="autostart" type="checkbox" />
+            <input id="autostart" type="checkbox" data-page-node-id="dc3UywUGfTp5j2Xh42DrRs" />
           </label>
-          <label class="setting">
-            <span class="setting-text">
-              <strong>启动时隐藏主界面</strong>
-              <small>启动后不直接打开主菜单，仅显示在托盘</small>
+          <label class="setting" data-page-node-id="BdxG3kK13RqBS5hL4uZ4xp">
+            <span class="setting-text" data-page-node-id="b4qhZ0m7PBmu5YggxWJHbP">
+              <strong data-page-node-id="rgfGwr5R1l7vwoICToE1G6">启动时隐藏主界面</strong>
+              <small data-page-node-id="Q8LTAO4z5gc2J1pTUs4AO8">启动后不直接打开主菜单，仅显示在托盘</small>
             </span>
-            <input id="start-in-tray" type="checkbox" />
+            <input id="start-in-tray" type="checkbox" data-page-node-id="4q2c3E1kfBhieiD6DzSw9s" />
           </label>
-          <label class="setting">
-            <span class="setting-text">
-              <strong>窗口始终置顶</strong>
-              <small>主窗口任何情况下都不被别的窗口盖住；取消勾选后可被正常覆盖</small>
+          <label class="setting" data-page-node-id="JYjXa0Sq6Dyc3I60ByTJy4">
+            <span class="setting-text" data-page-node-id="AAkBfRF6p7ZaCuGksD4sOF">
+              <strong data-page-node-id="0QdRGvc5eB56MFRJBZzAkE">窗口始终置顶</strong>
+              <small data-page-node-id="F6Ee83wLShVbQKsHHpe4vj">主窗口任何情况下都不被别的窗口盖住；取消勾选后可被正常覆盖</small>
             </span>
-            <input id="main-always-on-top" type="checkbox" />
+            <input id="main-always-on-top" type="checkbox" data-page-node-id="O9ZNIVPBLCXfE31isdn2O6" />
           </label>
-          <label class="setting">
-            <span class="setting-text">
-              <strong>贴边自动隐藏</strong>
-              <small>鼠标离开后主窗口贴到最近的屏幕边，只露一条边条；悬停边条再展开</small>
+          <label class="setting" data-page-node-id="zthYAD1BUIo8aEtvsGnHvn">
+            <span class="setting-text" data-page-node-id="1tKU2uCnRIbqylDwt88ix9">
+              <strong data-page-node-id="zWwG050L3myh4BG3YAQPo0">贴边自动隐藏</strong>
+              <small data-page-node-id="FecTFMU6yOH6yDr4r6CRKW">鼠标离开后主窗口贴到最近的屏幕边，只露一条边条；悬停边条再展开</small>
             </span>
-            <input id="main-auto-hide" type="checkbox" />
+            <input id="main-auto-hide" type="checkbox" data-page-node-id="Pa8FWDJgoXg3TR2AS7NqEg" />
           </label>
-          <label class="setting">
-            <span class="setting-text">
-              <strong>贴边触发距离</strong>
-              <small>主窗口距屏幕边框不超过该像素值、且鼠标离开窗口时才隐藏（0–200，越大越灵敏）</small>
+          <label class="setting" data-page-node-id="u5q9qBmYNmKruuKoqA1HZu">
+            <span class="setting-text" data-page-node-id="bKCSrIDOwmOIjQ3MsMTZxZ">
+              <strong data-page-node-id="xtKw2TmcviYf26TzcovIUe">贴边触发距离</strong>
+              <small data-page-node-id="Tq8q5JCj8EXf5OdYTEpSgl">主窗口距屏幕边框不超过该像素值、且鼠标离开窗口时才隐藏（0–200，越大越灵敏）</small>
             </span>
-            <input id="main-auto-hide-edge-distance" type="number" min="0" max="200" step="1" />
+            <input id="main-auto-hide-edge-distance" type="number" min="0" max="200" step="1" data-page-node-id="PFx6X9UlsDgrmunV57XgG6" />
           </label>
-          <div class="setting">
-            <span class="setting-text">
-              <strong>悬浮呼出延时</strong>
-              <small>鼠标压住白条持续这么久才展开主窗（0–2000 毫秒，0 = 立即）</small>
+          <div class="setting" data-page-node-id="EBbEiEuTJgHv7BrV66BfPZ">
+            <span class="setting-text" data-page-node-id="3GNT1BljoSpcFMDL28lyN0">
+              <strong data-page-node-id="1GrUgUOLdV4vgeNnEYZiyp">悬浮呼出延时</strong>
+              <small data-page-node-id="Mxu8JHqcjN53II6qpoz0Qc">鼠标压住白条持续这么久才展开主窗（0–2000 毫秒，0 = 立即）</small>
             </span>
-            <input id="main-dock-strip-hover-ms" type="number" min="0" max="2000" step="50" />
+            <input id="main-dock-strip-hover-ms" type="number" min="0" max="2000" step="50" data-page-node-id="V9WslhHht9o9Ywmuj2gRmO" />
           </div>
-          <div class="setting">
-            <span class="setting-text">
-              <strong>白条距屏幕边界</strong>
-              <small>贴边隐藏时白条离屏幕边框留出的距离（0–100px，0 = 紧贴边缘）</small>
+          <div class="setting" data-page-node-id="X2GGWBXiTLx628ET2Q0nqX">
+            <span class="setting-text" data-page-node-id="5e4Jw4At9upY96unkz133X">
+              <strong data-page-node-id="yOMEfh8aEJFDeWVOrK7VzA">白条距屏幕边界</strong>
+              <small data-page-node-id="hVhtLe52IWHDIMHS25pxtW">贴边隐藏时白条离屏幕边框留出的距离（0–100px，0 = 紧贴边缘）</small>
             </span>
-            <input id="main-dock-strip-edge-gap" type="number" min="0" max="100" step="1" />
+            <input id="main-dock-strip-edge-gap" type="number" min="0" max="100" step="1" data-page-node-id="TN0s4fpGN03aplAc4ddFJq" />
           </div>
-          <div class="setting">
-            <span class="setting-text">
-              <strong>贴边白条厚度</strong>
-              <small id="main-dock-strip-thickness-state">6px（拖动即时预览）</small>
+          <div class="setting" data-page-node-id="WpKGPBDoHFsH94szKH74mZ">
+            <span class="setting-text" data-page-node-id="YDv4uK1c43Z5lYYqd4pykd">
+              <strong data-page-node-id="dGVJqeKGSlgCDfpIHeXL51">贴边白条厚度</strong>
+              <small id="main-dock-strip-thickness-state" data-page-node-id="zvaBOHwihzy4RuizHicdDe">6px（拖动即时预览）</small>
             </span>
-            <span class="remote-inline">
-              <input id="main-dock-strip-thickness" type="range" min="2" max="40" step="1" value="6" />
-            </span>
-          </div>
-          <div class="setting">
-            <span class="setting-text">
-              <strong>贴边白条长度</strong>
-              <small id="main-dock-strip-length-state">100%（主窗那条边长的百分比）</small>
-            </span>
-            <span class="remote-inline">
-              <input id="main-dock-strip-length" type="range" min="10" max="100" step="5" value="100" />
+            <span class="remote-inline" data-page-node-id="AaXwlggBrejUexYzhu792M">
+              <input id="main-dock-strip-thickness" type="range" min="2" max="40" step="1" value="6" data-page-node-id="ojgAYzfupAfPQG0gGAEZIe" />
             </span>
           </div>
-          <div class="setting">
-            <span class="setting-text">
-              <strong>贴边白条不透明度</strong>
-              <small id="main-dock-strip-opacity-state">100%（拖动即时预览）</small>
+          <div class="setting" data-page-node-id="n6BSijJUNTX2YEuCK4hyYN">
+            <span class="setting-text" data-page-node-id="AnAeh2hyJvx0vMO947Z4YL">
+              <strong data-page-node-id="XTYBrD3MEuxd2szGMlZq98">贴边白条长度</strong>
+              <small id="main-dock-strip-length-state" data-page-node-id="A7gGmnTWsvIf7ceIMopsvw">100%（主窗那条边长的百分比）</small>
             </span>
-            <span class="remote-inline">
-              <input id="main-dock-strip-opacity" type="range" min="10" max="100" step="5" value="100" />
-            </span>
-          </div>
-          <div class="setting">
-            <span class="setting-text">
-              <strong>贴边白条颜色</strong>
-              <small>点开调色板选一个色调，即时预览</small>
-            </span>
-            <span class="remote-inline">
-              <input id="main-dock-strip-color" type="color" value="#ffffff" />
+            <span class="remote-inline" data-page-node-id="7b6ZzhhHzF2M1bWAnPQjsr">
+              <input id="main-dock-strip-length" type="range" min="10" max="100" step="5" value="100" data-page-node-id="CzhM2NfDyQVXHDpoS8v3fG" />
             </span>
           </div>
-          <div class="setting">
-            <span class="setting-text">
-              <strong>热区触发厚度</strong>
-              <small id="main-hotzone-thickness-state">40px（鼠标移入屏幕边往内这一段就呼出主窗）</small>
+          <div class="setting" data-page-node-id="KjCVOaqx9WKUcFluVJ49bb">
+            <span class="setting-text" data-page-node-id="3FlJDMo1ABdcycQtEkEhU3">
+              <strong data-page-node-id="sFgdjUBzibqrYuUENqXHqv">贴边白条不透明度</strong>
+              <small id="main-dock-strip-opacity-state" data-page-node-id="lRD86G7pbDf5eW1S0AmFtM">100%（拖动即时预览）</small>
             </span>
-            <span class="remote-inline">
-              <input id="main-hotzone-thickness" type="range" min="1" max="100" step="1" value="40" />
-            </span>
-          </div>
-          <div class="setting">
-            <span class="setting-text">
-              <strong>热区调试底色与透明度</strong>
-              <small id="main-hotzone-opacity-state">0%（默认全透明看不见；调出来可核对热区边界）</small>
-            </span>
-            <span class="remote-inline">
-              <input id="main-hotzone-color" type="color" value="#ff0000" />
-              <input id="main-hotzone-opacity" type="range" min="0" max="100" step="5" value="0" />
+            <span class="remote-inline" data-page-node-id="BVquJJX8S6RIHX9r3hZqvp">
+              <input id="main-dock-strip-opacity" type="range" min="10" max="100" step="5" value="100" data-page-node-id="Wo0eWbqfPJHsFz29LKA5Ax" />
             </span>
           </div>
-          <label class="setting">
-            <span class="setting-text">
-              <strong>热区边框</strong>
-              <small>给热区画一圈边框，调试用（默认关）</small>
+          <div class="setting" data-page-node-id="7bH4nCdA0EMXMqFHBvUoqf">
+            <span class="setting-text" data-page-node-id="IU2RPh6JAxV0I4hqBJJAhD">
+              <strong data-page-node-id="dht74C235wAE756BWA3BN8">贴边白条颜色</strong>
+              <small data-page-node-id="ZNkJa54BSTbidtQJUX1qcF">点开调色板选一个色调，即时预览</small>
             </span>
-            <span class="remote-inline">
-              <input id="main-hotzone-border" type="checkbox" />
-              <input id="main-hotzone-border-color" type="color" value="#ff0000" />
+            <span class="remote-inline" data-page-node-id="PWzAhqD08LyY1ITQqgc0nX">
+              <input id="main-dock-strip-color" type="color" value="#ffffff" data-page-node-id="5NhhCHbpl8rW0Cipln2tXT" />
+            </span>
+          </div>
+          <div class="setting" data-page-node-id="beXTSS7UAF8UU4BSZ6fHy3">
+            <span class="setting-text" data-page-node-id="LerYxAK8xi1tv2VfClXGe3">
+              <strong data-page-node-id="AMwpftEHpGFLYPZesP7qjS">热区触发厚度</strong>
+              <small id="main-hotzone-thickness-state" data-page-node-id="gdWkOWzSnvgJOx1rOzw8xo">40px（鼠标移入屏幕边往内这一段就呼出主窗）</small>
+            </span>
+            <span class="remote-inline" data-page-node-id="OZG7EpDixO1DozLx4hXaqH">
+              <input id="main-hotzone-thickness" type="range" min="1" max="100" step="1" value="40" data-page-node-id="lKtfwSMF2K834gu4PPhxO0" />
+            </span>
+          </div>
+          <div class="setting" data-page-node-id="saGFX18ncbULH0JkOvTjZG">
+            <span class="setting-text" data-page-node-id="PrvyvraLCg4ugJP4CDAc3O">
+              <strong data-page-node-id="rzeD6TW67tMytKtaxWaA1t">热区调试底色与透明度</strong>
+              <small id="main-hotzone-opacity-state" data-page-node-id="Apznm5l8l2M0nYzlKmPyRf">0%（默认全透明看不见；调出来可核对热区边界）</small>
+            </span>
+            <span class="remote-inline" data-page-node-id="3XgXxB6KSiicErGM16Z4lV">
+              <input id="main-hotzone-color" type="color" value="#ff0000" data-page-node-id="bZbBd24mGJLpAcxdjWRcum" />
+              <input id="main-hotzone-opacity" type="range" min="0" max="100" step="5" value="0" data-page-node-id="WwM0Qyi51Zx9G0dpYE97VD" />
+            </span>
+          </div>
+          <label class="setting" data-page-node-id="0LB6mDr0vFxpjfjDyy3NDE">
+            <span class="setting-text" data-page-node-id="Cb4oWan6TL95zzUVMdqaxK">
+              <strong data-page-node-id="HntgdbwjKENAjUPY3tkiEl">热区边框</strong>
+              <small data-page-node-id="aHzIEK4UCyWva9DEeE328S">给热区画一圈边框，调试用（默认关）</small>
+            </span>
+            <span class="remote-inline" data-page-node-id="OBVoDjI3YdVPTLCmAc6bgH">
+              <input id="main-hotzone-border" type="checkbox" data-page-node-id="GtLbJVnau2pBuffGz6dpsm" />
+              <input id="main-hotzone-border-color" type="color" value="#ff0000" data-page-node-id="ZUZlHdauBgrugwY26hknIY" />
             </span>
           </label>
-          <label class="setting">
-            <span class="setting-text">
-              <strong>固定显示位置</strong>
-              <small>屏幕中间=每次显示都居中；上次位置=记住你最后一次摆放的位置；自由=可随意拖动</small>
+          <label class="setting" data-page-node-id="3N0s93HHOq4OVT9fflvko1">
+            <span class="setting-text" data-page-node-id="inNlb5Imo1csNpGU4TOmaV">
+              <strong data-page-node-id="yHC869PPMZeuNmnfuwZ64P">固定显示位置</strong>
+              <small data-page-node-id="c02mcxB4BRDAce55J7c4Lu">屏幕中间=每次显示都居中；上次位置=记住你最后一次摆放的位置；自由=可随意拖动</small>
             </span>
-            <select id="main-window-position">
-              <option value="free">自由拖动</option>
-              <option value="center">屏幕中间</option>
-              <option value="last">上次位置</option>
+            <select id="main-window-position" data-page-node-id="R7Ao26dHIqMDAlFBmSk90E">
+              <option value="free" data-page-node-id="SmpIhti2CqCBWLzymtyM15">自由拖动</option>
+              <option value="center" data-page-node-id="mCGN0zDu8NQ77h5ilO8aPU">屏幕中间</option>
+              <option value="last" data-page-node-id="XKDvf3kHBojr0fFOFfKiAw">上次位置</option>
             </select>
           </label>
-          <div class="setting">
-            <span class="setting-text">
-              <strong>重置位置</strong>
-              <small>把主窗口立即放回屏幕正中央（在「上次位置」模式下也会记忆这个中心点为新的落点）</small>
+          <div class="setting" data-page-node-id="Lk8Buof7Dht9WMplQfBQGE">
+            <span class="setting-text" data-page-node-id="FPTTwvZ0recP5GbWnCZrg7">
+              <strong data-page-node-id="TjMDXbnVX4QtE1T50ZDZBp">重置位置</strong>
+              <small data-page-node-id="JGt5vB56TTKaJDbRdug51t">把主窗口立即放回屏幕正中央（在「上次位置」模式下也会记忆这个中心点为新的落点）</small>
             </span>
-            <button class="secondary" id="reset-main-window-position" type="button">重置到屏幕中央</button>
+            <button class="secondary" id="reset-main-window-position" type="button" data-page-node-id="tJGVFjBjKePLpmrR4nt9dK">重置到屏幕中央</button>
           </div>
-          <div class="setting">
-            <span class="setting-text">
-              <strong>窗口宽度</strong>
-              <small id="window-size-width-state">460px（拖动实时调整窗口）</small>
+          <div class="setting" data-page-node-id="yZn7s6Etu9jXcMDYyHVIRD">
+            <span class="setting-text" data-page-node-id="E9plInC2TiGYcnCyrIQ6DT">
+              <strong data-page-node-id="4AQB0EDjqcxWHAhbhCg2sp">窗口宽度</strong>
+              <small id="window-size-width-state" data-page-node-id="qwSv72thFwVbgxcxxKLp2k">460px（拖动实时调整窗口）</small>
             </span>
-            <span class="remote-inline">
-              <input id="window-size-width" type="range" min="360" max="1600" step="4" value="460" />
-            </span>
-          </div>
-          <div class="setting">
-            <span class="setting-text">
-              <strong>窗口高度</strong>
-              <small id="window-size-height-state">560px（拖动实时调整窗口）</small>
-            </span>
-            <span class="remote-inline">
-              <input id="window-size-height" type="range" min="560" max="1200" step="4" value="560" />
+            <span class="remote-inline" data-page-node-id="0FnOdHlQAB9TZwCb1wGbKO">
+              <input id="window-size-width" type="range" min="360" max="1600" step="4" value="460" data-page-node-id="ua2MxBMx5XqyAMMOrNaM2Y" />
             </span>
           </div>
-          <label class="setting">
-            <span class="setting-text">
-              <strong>锁定窗口大小</strong>
-              <small>锁定后不能拖拽窗口边框改变大小、也不能最大化；上面的宽高滑条同时停用（双向实时生效）</small>
+          <div class="setting" data-page-node-id="Zhx2QftTcMtA1ZblHlLM7e">
+            <span class="setting-text" data-page-node-id="9zA5NCFa91a5xYBn5wibAj">
+              <strong data-page-node-id="NTLkKztCPNEDAMUuG0fq30">窗口高度</strong>
+              <small id="window-size-height-state" data-page-node-id="vaBBv6kfv1Iw9GG13xhNiu">560px（拖动实时调整窗口）</small>
             </span>
-            <input id="window-size-locked" type="checkbox" />
+            <span class="remote-inline" data-page-node-id="NOHxBUxZCIgWHzxSI2RGAG">
+              <input id="window-size-height" type="range" min="560" max="1200" step="4" value="560" data-page-node-id="LAUdkiwB5ZuIsrk3hYIt6b" />
+            </span>
+          </div>
+          <label class="setting" data-page-node-id="JlgaTDxW8z0SjQjfbpQwug">
+            <span class="setting-text" data-page-node-id="hYFDQ0RDgmlgjEQVYCLMfd">
+              <strong data-page-node-id="YxWrIiCRLTa20ON70fzAQk">锁定窗口大小</strong>
+              <small data-page-node-id="B1lZRnBKP3AGoECUHL665L">锁定后不能拖拽窗口边框改变大小、也不能最大化；上面的宽高滑条同时停用（双向实时生效）</small>
+            </span>
+            <input id="window-size-locked" type="checkbox" data-page-node-id="AaE3CxylbpoGGzaAvrRBNl" />
           </label>
-          <label class="setting">
-            <span class="setting-text">
-              <strong>隐藏程序（任务栏/Dock）</strong>
-              <small>Linux/Windows 不显示任务栏图标，macOS 不显示 Dock 图标</small>
+          <label class="setting" data-page-node-id="Fp4g78RHVARxkMkfE1F89e">
+            <span class="setting-text" data-page-node-id="KYTaWhnCMtznePLlWFsg2Y">
+              <strong data-page-node-id="VNcOL8ZGMsNHUZEitGW22V">隐藏程序（任务栏/Dock）</strong>
+              <small data-page-node-id="jxFsr6rzjyMZRVooeq6pFT">Linux/Windows 不显示任务栏图标，macOS 不显示 Dock 图标</small>
             </span>
-            <input id="hide-from-dock-taskbar" type="checkbox" />
+            <input id="hide-from-dock-taskbar" type="checkbox" data-page-node-id="wLAZiP6F0DvXWc12C8NvlQ" />
           </label>
-          <div class="setting">
-            <span class="setting-text">
-              <strong>点击窗口 ❌ 时</strong>
-              <small>可在托盘菜单「显示主窗口」中重新打开</small>
+          <div class="setting" data-page-node-id="jFEK9FEgY9thvhJ97P1nNa">
+            <span class="setting-text" data-page-node-id="1HtnpVDGq7Ow0SZTq108sI">
+              <strong data-page-node-id="wTBIFSd9wP26jOudQo8djE">点击窗口 ❌ 时</strong>
+              <small data-page-node-id="QgIOIO0iEGX7YPrUwgO11j">可在托盘菜单「显示主窗口」中重新打开</small>
             </span>
-            <select id="close-action">
-              <option value="tray">最小化到托盘</option>
-              <option value="quit">退出程序</option>
+            <select id="close-action" data-page-node-id="ZrZc2sp4bQaKJQ2HxFsLdk">
+              <option value="tray" data-page-node-id="FyRqQ7YC0Ms1WLvzcXO6jc">最小化到托盘</option>
+              <option value="quit" data-page-node-id="68xuEaWR1yT8W0cZ3Bu4CE">退出程序</option>
             </select>
           </div>
-          <div class="setting">
-            <span class="setting-text">
-              <strong>界面主题</strong>
-              <small>暗色 / 亮色 / 跟随系统</small>
+          <div class="setting" data-page-node-id="ACvP1uR0kYemN25ORYRC1b">
+            <span class="setting-text" data-page-node-id="YjiXsjnJKJTpvEvUoZuEij">
+              <strong data-page-node-id="MqV2DNLk5BMV9DHLzJmlGp">界面主题</strong>
+              <small data-page-node-id="XxtRD1J05qPsalLz3uAR6D">暗色 / 亮色 / 跟随系统</small>
             </span>
-            <select id="theme">
-              <option value="light">亮色</option>
-              <option value="dark">暗色</option>
-              <option value="system">跟随系统</option>
+            <select id="theme" data-page-node-id="5hPQOWifLI4xqwpByrF0Fg">
+              <option value="light" data-page-node-id="dbcVo4HGI0JhtbvPICpwnd">亮色</option>
+              <option value="dark" data-page-node-id="YAPapoICYUHROgWcBvDUCr">暗色</option>
+              <option value="system" data-page-node-id="dDZUsJ87Iy3Waa1B82FDDC">跟随系统</option>
             </select>
           </div>
-          <div class="setting">
-            <span class="setting-text">
-              <strong>主题色调</strong>
-              <small>点开调色板选强调色，按钮/链接跟着变色（主窗口和 GRUB 窗口同步）</small>
+          <div class="setting" data-page-node-id="F1GjWX4YvLutFnBwSqJ1oP">
+            <span class="setting-text" data-page-node-id="xxNOhU9xJMUr6a5uvaShpB">
+              <strong data-page-node-id="ElJsd8bQ5eEtmhKh8OsVWk">主题色调</strong>
+              <small data-page-node-id="9lURFL4IUtLAxdPStb4xhs">点开调色板选强调色，按钮/链接跟着变色（主窗口和 GRUB 窗口同步）</small>
             </span>
-            <span class="remote-inline">
-              <input id="accent-color" type="color" value="#2f7fe0" />
-            </span>
-          </div>
-          <div class="setting">
-            <span class="setting-text">
-              <strong>窗口不透明度</strong>
-              <small id="opacity-state">90%（拖动即时预览）</small>
-            </span>
-            <span class="remote-inline">
-              <input id="opacity" max="100" min="0" step="5" type="range" value="90" />
+            <span class="remote-inline" data-page-node-id="ZMPJy3fUMPjl6pziwW7C7o">
+              <input id="accent-color" type="color" value="#2f7fe0" data-page-node-id="E4psWGoFhRl3wO8YVE2Ebh" />
             </span>
           </div>
-          <button class="link hidden" id="login-items" type="button">
+          <div class="setting" data-page-node-id="jo1RL1sLBDYFFzjMWxD7pv">
+            <span class="setting-text" data-page-node-id="2EsFnuc6KGJUDAzpFoCVYD">
+              <strong data-page-node-id="QGj3l1vMBSjk8B4DDHgCmQ">窗口不透明度</strong>
+              <small id="opacity-state" data-page-node-id="xkAsIAMPE8AktkI07GVf33">90%（拖动即时预览）</small>
+            </span>
+            <span class="remote-inline" data-page-node-id="jmR69RVjBlstfbYCW7xwhE">
+              <input id="opacity" max="100" min="0" step="5" type="range" value="90" data-page-node-id="KxXvAr7VJ2E1ExqaGhEj3u" />
+            </span>
+          </div>
+          <button class="link hidden" id="login-items" type="button" data-page-node-id="mbw1hhzh0U8RK3dY0Vu5Ef">
             打开「登录项与扩展」设置
           </button>
         </section>
 
-        <section aria-label="远程控制" class="settings" id="remote">
-          <h2>远程控制</h2>
-          <div class="setting">
-            <span class="setting-text">
-              <strong>HTTP 服务</strong>
-              <small class="setting-state" id="http-state">正在读取…</small>
+        <section aria-label="远程控制" class="settings" id="remote" data-page-node-id="hOETMVaZDCBHNhAvKj6yEg">
+          <h2 data-page-node-id="wQvYqrGgyAr3S7cO1iTEn5">远程控制</h2>
+          <div class="setting" data-page-node-id="V6P7wF4868QrcsHvXufoNy">
+            <span class="setting-text" data-page-node-id="RKX5rxuO1v6WvraUZdFSUa">
+              <strong data-page-node-id="gieRiMezGNnOVHl32NKGnE">HTTP 服务</strong>
+              <small class="setting-state" id="http-state" data-page-node-id="kN2lkcGdZBm8M6uERhEdVo">正在读取…</small>
             </span>
-            <input id="http-enabled" type="checkbox" />
+            <input id="http-enabled" type="checkbox" data-page-node-id="TSZIUI797zju9pCOK5QOkh" />
           </div>
-          <div class="setting">
-            <span class="setting-text">
-              <strong>监听地址 / 端口</strong>
-              <small>默认 0.0.0.0:12300；改成 127.0.0.1 则只能本机或 SSH 隧道访问</small>
+          <div class="setting" data-page-node-id="lIe4xulpDgvetEmrY5juw4">
+            <span class="setting-text" data-page-node-id="5XnORxAoUOMpS3waqwKt13">
+              <strong data-page-node-id="HpPDDjyC5ITDD3NAUnigj8">监听地址 / 端口</strong>
+              <small data-page-node-id="N0P32oTpwX5Tdgy0lxVcbu">默认 0.0.0.0:12300；改成 127.0.0.1 则只能本机或 SSH 隧道访问</small>
             </span>
-            <span class="remote-inline">
-              <input id="http-bind" spellcheck="false" type="text" />
-              <input id="http-port" inputmode="numeric" spellcheck="false" type="text" />
-              <button class="secondary" id="http-apply" type="button">应用</button>
-            </span>
-          </div>
-          <div class="setting">
-            <span class="setting-text">
-              <strong>打开 Web 页面</strong>
-              <small>用系统默认浏览器打开控制页，自动带上访问令牌，不用手输</small>
-            </span>
-            <span class="remote-inline">
-              <button class="secondary" id="open-web" type="button">打开 Web 页面</button>
+            <span class="remote-inline" data-page-node-id="0W7la2SLaFohNjQIaVmPeR">
+              <input id="http-bind" spellcheck="false" type="text" data-page-node-id="YQTpjWTjE8tDyRRqEIEZ96" />
+              <input id="http-port" inputmode="numeric" spellcheck="false" type="text" data-page-node-id="I9Zl4MafVofCDO82ccvxW8" />
+              <button class="secondary" id="http-apply" type="button" data-page-node-id="i7LqZpJijz9nYJ0nLtGYoC">应用</button>
             </span>
           </div>
-          <div class="port-occupant hidden" id="port-occupant">
-            <strong>端口被占用</strong>
-            <small id="port-occupant-message"></small>
-            <small class="setting-state" id="port-occupant-hint"></small>
-            <div class="actions">
-              <button class="secondary" id="retry-http" type="button">重试监听</button>
-              <button class="danger" id="kill-occupant" type="button">结束占用进程</button>
+          <div class="setting" data-page-node-id="YTyqujfvzSwWnGUaEQcHf2">
+            <span class="setting-text" data-page-node-id="AcX0XCVkbJCMiMB52CGEhr">
+              <strong data-page-node-id="xERZWPs6bpb7I8AXUmsiCr">打开 Web 页面</strong>
+              <small data-page-node-id="Bacx03mOm6htSpbOsbccSm">用系统默认浏览器打开控制页，自动带上访问令牌，不用手输</small>
+            </span>
+            <span class="remote-inline" data-page-node-id="IChktk9d5FvcVBQNtuGfci">
+              <button class="secondary" id="open-web" type="button" data-page-node-id="Sy4LcCnbwpDF3i0WIvFmaH">打开 Web 页面</button>
+            </span>
+          </div>
+          <div class="port-occupant hidden" id="port-occupant" data-page-node-id="d7EHiyv9CE7oCadEa0LLBH">
+            <strong data-page-node-id="hGbETDF1j4hOTguzwZaWqE">端口被占用</strong>
+            <small id="port-occupant-message" data-page-node-id="V4K1cUOJ6FCCobK1sGrUyL"></small>
+            <small class="setting-state" id="port-occupant-hint" data-page-node-id="neL44EgCeL9jhcq4gcJPxe"></small>
+            <div class="actions" data-page-node-id="OAvKOxgKitIjcyEBRVDTz5">
+              <button class="secondary" id="retry-http" type="button" data-page-node-id="mek7SqHF97E5BQr1YSA3qv">重试监听</button>
+              <button class="danger" id="kill-occupant" type="button" data-page-node-id="m0SLeSSBBUZo8J3HeVXNFh">结束占用进程</button>
             </div>
           </div>
-          <div class="setting setting-block">
-            <span class="setting-text">
-              <strong>访问令牌（token）</strong>
-              <small class="setting-state" id="token-hint"></small>
-              <small>自己填一个也可以：4–128 位可见 ASCII（字母/数字/符号），不能有空格和中文；清空则服务不启动</small>
+          <div class="setting setting-block" data-page-node-id="5Vh7QDvfPcKITk5F9VBCwG">
+            <span class="setting-text" data-page-node-id="XqvEclnsJYGA0L7aUsKwXq">
+              <strong data-page-node-id="Mp4SOFQG573KMF4DFXS7gD">访问令牌（token）</strong>
+              <small class="setting-state" id="token-hint" data-page-node-id="bB2w5ZU5ajVzsfhxAEGhXQ"></small>
+              <small data-page-node-id="RXMhxYGvL9TJsHNMwF9YIX">自己填一个也可以：4–128 位可见 ASCII（字母/数字/符号），不能有空格和中文；清空则服务不启动</small>
             </span>
-            <span class="remote-inline">
-              <input id="token-input" placeholder="自定义 token…" spellcheck="false" type="text" />
-              <button class="secondary" id="token-save" type="button">保存</button>
+            <span class="remote-inline" data-page-node-id="2YY53Q5b5jHUtrHbDRJ19z">
+              <input id="token-input" placeholder="自定义 token…" spellcheck="false" type="text" data-page-node-id="DpScIbbzF26LT17u8AyuSW" />
+              <button class="secondary" id="token-save" type="button" data-page-node-id="1Hud9dqMZXRUjZdxcisWuH">保存</button>
             </span>
-            <span class="remote-inline">
-              <button class="secondary" id="token-reveal" type="button">显示当前</button>
-              <button class="secondary" id="token-copy" type="button">复制</button>
-              <button class="secondary" id="token-regenerate" type="button">重新生成</button>
-            </span>
-          </div>
-          <div class="setting">
-            <span class="setting-text">
-              <strong>远程请求通知</strong>
-              <small>总开关；关掉后不再弹窗，只在主窗口显示待执行请求</small>
-            </span>
-            <input id="notify-enabled" type="checkbox" />
-          </div>
-          <div class="setting">
-            <span class="setting-text">
-              <strong>HTTP 渠道（webhook / curl / 面板）</strong>
-              <small>弹窗通知 + 延迟秒数（0 = 立即执行）</small>
-            </span>
-            <span class="remote-inline">
-              <input id="http-channel-notify" type="checkbox" />
-              <input id="http-channel-delay" inputmode="numeric" spellcheck="false" type="text" />
+            <span class="remote-inline" data-page-node-id="qE5lYyDokai7kMEsZwc8T4">
+              <button class="secondary" id="token-reveal" type="button" data-page-node-id="B2Emz7cdoRoeFIq8ED0y3u">显示当前</button>
+              <button class="secondary" id="token-copy" type="button" data-page-node-id="r5GUN5oxM8YtHFXy8JvZjW">复制</button>
+              <button class="secondary" id="token-regenerate" type="button" data-page-node-id="7r63w2PrMNJpGQ0cyV9PrJ">重新生成</button>
             </span>
           </div>
-          <div class="setting">
-            <span class="setting-text">
-              <strong>SSH / CLI 渠道</strong>
-              <small>ssh 远程调用的通知与延迟（与 webhook 分开配置）</small>
+          <div class="setting" data-page-node-id="0j6bmwkPpD1r6SMnkC0Pvr">
+            <span class="setting-text" data-page-node-id="NYxJoKayyLNN1Sh2I0Q39R">
+              <strong data-page-node-id="ItoGRYjQZcjVg8AuLlPZJW">远程请求通知</strong>
+              <small data-page-node-id="HIhnyTDTRcxfqqXxsh8fo2">总开关；关掉后不再弹窗，只在主窗口显示待执行请求</small>
             </span>
-            <span class="remote-inline">
-              <input id="cli-channel-notify" type="checkbox" />
-              <input id="cli-channel-delay" inputmode="numeric" spellcheck="false" type="text" />
+            <input id="notify-enabled" type="checkbox" data-page-node-id="RTHdBRgjLMjE9Q7tmNhtoL" />
+          </div>
+          <div class="setting" data-page-node-id="ucO2rZROwYTAZajVF6G0w3">
+            <span class="setting-text" data-page-node-id="j1bICIDWxx8xf4ivbDfKZe">
+              <strong data-page-node-id="FnrQICo808M8IQKfczKDEM">HTTP 渠道（webhook / curl / 面板）</strong>
+              <small data-page-node-id="cSH9J0BViOuMGN1zmVE1FP">弹窗通知 + 延迟秒数（0 = 立即执行）</small>
+            </span>
+            <span class="remote-inline" data-page-node-id="3djr6Q7wVMfaoP0KhEWACu">
+              <input id="http-channel-notify" type="checkbox" data-page-node-id="WcJ37UUTs2ZzcRgmgEcWMM" />
+              <input id="http-channel-delay" inputmode="numeric" spellcheck="false" type="text" data-page-node-id="BDk2hbTvL77ncSS2YZAUs6" />
             </span>
           </div>
-          <div class="setting">
-            <span class="setting-text">
-              <strong>远程可触发本机授权框</strong>
-              <small>默认关：远程遇到需要本机授权的操作会直接说明原因，不会挂着等人点确认</small>
+          <div class="setting" data-page-node-id="u6GfI5q3oEXeyQxPiJZq1A">
+            <span class="setting-text" data-page-node-id="cCtjFKubDU7rcctWvu4ei6">
+              <strong data-page-node-id="Ice4wWG95zdGr2PZ8YV8OE">SSH / CLI 渠道</strong>
+              <small data-page-node-id="s1XdQUJzr2nlf8wO15m6wB">ssh 远程调用的通知与延迟（与 webhook 分开配置）</small>
             </span>
-            <input id="remote-allow-gui-auth" type="checkbox" />
+            <span class="remote-inline" data-page-node-id="ZUrHh4ED7EM6EirO5RFgvL">
+              <input id="cli-channel-notify" type="checkbox" data-page-node-id="gSPtaGOFSvC6GJJSaBPCg8" />
+              <input id="cli-channel-delay" inputmode="numeric" spellcheck="false" type="text" data-page-node-id="Hdm1dvtDui4tQCFDq1pf6A" />
+            </span>
           </div>
-          <div class="pending hidden" id="pending-card">
-            <strong id="pending-title">远程请求待执行</strong>
-            <small id="pending-detail"></small>
-            <div class="actions">
-              <button id="pending-run" type="button">立即执行</button>
-              <button class="secondary" id="pending-cancel" type="button">取消</button>
+          <div class="setting" data-page-node-id="AfigEdNWj2CGu6Q5Ns2eS0">
+            <span class="setting-text" data-page-node-id="mFLbP9ftX1365cjZzdRYYT">
+              <strong data-page-node-id="JvNFBNW7CzlmO22b5svVCW">远程可触发本机授权框</strong>
+              <small data-page-node-id="HNvVJwfQNfFprHumUXfBga">默认关：远程遇到需要本机授权的操作会直接说明原因，不会挂着等人点确认</small>
+            </span>
+            <input id="remote-allow-gui-auth" type="checkbox" data-page-node-id="jj4ku7BlRf843uWZPczPG5" />
+          </div>
+          <div class="pending hidden" id="pending-card" data-page-node-id="jKTQG6VwF1Z4Dz2nW5cwt2">
+            <strong id="pending-title" data-page-node-id="GuwGFeXTKteFYXtsfRCbmQ">远程请求待执行</strong>
+            <small id="pending-detail" data-page-node-id="XfTxqsgrBbbVphwU7K56QO"></small>
+            <div class="actions" data-page-node-id="B5BRZJuer3iJXv1wvov481">
+              <button id="pending-run" type="button" data-page-node-id="FoqnKuLzW61lGyLc6PmKhK">立即执行</button>
+              <button class="secondary" id="pending-cancel" type="button" data-page-node-id="3JYjThnNiRCtYmpHlQIp3l">取消</button>
             </div>
           </div>
-          <div class="remote-hint">
-            <strong>远程怎么调</strong>
-            <small>下面这段默认就展开、含明文 token（注意旁人视线）；上面的令牌 / 地址 / 端口一改，这里立刻同步</small>
-            <pre id="http-hint">点「复制命令」拿含 token 的可直接执行示例（含 ssh 用法）</pre>
-            <div class="actions">
-              <button class="secondary" id="http-hint-copy" type="button">复制命令</button>
+          <div class="remote-hint" data-page-node-id="XT4gTdkDjCc5QfnQtXV69d">
+            <strong data-page-node-id="EjdTA2rFNLvWjXWafg9SlQ">远程怎么调</strong>
+            <small data-page-node-id="lnZW5KJe3Gd9MdMLGdbmtc">下面这段默认就展开、含明文 token（注意旁人视线）；上面的令牌 / 地址 / 端口一改，这里立刻同步</small>
+            <pre id="http-hint" data-page-node-id="KB7a6N9HSiF2MxRMhDJfAx">点「复制命令」拿含 token 的可直接执行示例（含 ssh 用法）</pre>
+            <div class="actions" data-page-node-id="m5MucHCV2aKV3WRnOGwJv1">
+              <button class="secondary" id="http-hint-copy" type="button" data-page-node-id="A5FSDlCaC7NhIfSyUCVLQB">复制命令</button>
             </div>
           </div>
-          <div class="remote-log">
-            <strong>最近请求</strong>
-            <ol id="http-requests"></ol>
+          <div class="remote-log" data-page-node-id="lpteMSV9noPigrpiJshkWB">
+            <strong data-page-node-id="okn2iajD6y8wtHqn9HGtSj">最近请求</strong>
+            <ol id="http-requests" data-page-node-id="fmp6Ex61YHMrzKZdRLraPs"></ol>
           </div>
-          <div class="setting" id="setting-sound">
-            <span class="setting-text">
-              <strong>提示音</strong>
-              <small>收到远程请求时播放提示音（系统默认或自定义文件）</small>
+          <div class="setting" id="setting-sound" data-page-node-id="2eyVAm2AArqhlorY8BJtva">
+            <span class="setting-text" data-page-node-id="M94MUi3BlrHC4p22WGLAHm">
+              <strong data-page-node-id="CkzzomF2SyLcQ1FpJHGWg4">提示音</strong>
+              <small data-page-node-id="dBEpH3S4YodkkMTC2EFbgD">收到远程请求时播放提示音（系统默认或自定义文件）</small>
             </span>
-            <span class="remote-inline">
-              <input id="play-sound" type="checkbox" />
-              <input id="sound-file-path" spellcheck="false" type="text" placeholder="自定义路径（留空用内置音）" />
-              <button class="secondary" id="sound-apply" type="button">应用</button>
+            <span class="remote-inline" data-page-node-id="zFa6m4l7yZDdseyCQxQ3ql">
+              <input id="play-sound" type="checkbox" data-page-node-id="nUfi8CG0ecbm18sPMcteWW" />
+              <input id="sound-file-path" spellcheck="false" type="text" placeholder="自定义路径（留空用内置音）" data-page-node-id="okhulc0rk1VAe7a2ZfprUO" />
+              <button class="secondary" id="sound-apply" type="button" data-page-node-id="5dMxDDEpJwwGY6y4MKWd7F">应用</button>
             </span>
           </div>
-          <div class="actions" id="open-dir-actions">
-            <button class="secondary" id="open-config-dir" type="button">打开配置目录（含 trace.log / settings.json）</button>
+          <div class="actions" id="open-dir-actions" data-page-node-id="qIPpl5EC2V3JcebFq22KCw">
+            <button class="secondary" id="open-config-dir" type="button" data-page-node-id="9rJX4w97sedAEciB23eUPh">打开配置目录（含 trace.log / settings.json）</button>
           </div>
         </section>
         </div><!-- /tab-settings -->
       </main>
 
       <!-- 中缝：纯空白长条，不放任何内容，只为把两栏分开 -->
-      <div aria-hidden="true" class="pane-gap"></div>
+      <div aria-hidden="true" class="pane-gap" data-page-node-id="6HxxgMQGVibZShHovgxXsj"></div>
 
       <!-- 右栏 = GRUB 专属区：独立窗口那份（标题 / 元信息 / 回执 / 当前选中项 /
            树列表）和原来主窗口里的 GRUB 配置区合并到这里。
            GRUB 细粒度切换与左边「可启动系统」是两套并列机制 —— 那边走 rEFInd 的
            PreviousBoot，这里走 GRUB 自己的环境块(grubenv)；填了 ESP 的 fs-uuid
            才会列出 grub.cfg 里的启动项。 -->
-      <section aria-label="GRUB 独立区域" class="pane pane-grub">
+      <section aria-label="GRUB 独立区域" class="pane pane-grub" data-page-node-id="pKkRkKMeL5lfRRDok1Ochx">
         <!-- 空壳：内容（GRUB 区块整体或仅列表）由 app.js 按展示模式把
              <main> 里的节点搬进来；模式 ① ② 时整个右栏隐藏。 -->
-        <header class="grub-pane-head">
-          <strong>GRUB</strong>
+        <header class="grub-pane-head" data-page-node-id="ZJH2ygExdfB8gkwSD6TinO">
+          <strong data-page-node-id="E0W65Fir4dk6GD4VajVZnw">GRUB</strong>
         </header>
-        <div class="pane-body" id="grub-pane-body"></div>
+        <div class="pane-body" id="grub-pane-body" data-page-node-id="GzJrbXPjPY9NM3vZ5kKwf8"></div>
       </section>
     </div>
 
     <!-- 窗口自己的底部提示条（在 .app-columns 之外、和它平级）：
          所有操作的回执都落在这里，不用再把滚轮拖到页面底部才看得见。
          有内容才占位，没有就整条收起。 -->
-    <div aria-live="polite" class="status-bar hidden" id="status-bar" role="status">
-      <span class="status-bar-icon" id="status-bar-icon" aria-hidden="true"></span>
-      <span class="status-bar-text" id="status-bar-text"></span>
-      <button class="status-bar-close" id="status-bar-close" title="收起" type="button">×</button>
+    <div aria-live="polite" class="status-bar hidden" id="status-bar" role="status" data-page-node-id="rZ4umO5cuAf2BYX4tBnAEk">
+      <span class="status-bar-icon" id="status-bar-icon" aria-hidden="true" data-page-node-id="3PB006VjWpD4ul6B7PBHiG"></span>
+      <span class="status-bar-text" id="status-bar-text" data-page-node-id="qNG41W45l3idIyauRvLukH"></span>
+      <button class="status-bar-close" id="status-bar-close" title="收起" type="button" data-page-node-id="EjICBUvPHX8z769BSBvEFX">×</button>
     </div>
     <!-- GRUB 树形列表的渲染逻辑（右栏用） -->
     <script src="./grub-list-view.js"></script>
