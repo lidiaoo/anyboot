@@ -588,22 +588,16 @@ body[data-grub-mode="pane"] .pane-body {
 }
 
 body[data-grub-mode="pane"] .pane-body {
-  margin-top: 24px;
+  margin-top: 0;
 }
 
-/* ④ 的 .grub-head 悬浮在卡片顶部不随滚动（用户定案 2026-10-13）：
-   负外边距 + 同款内边距把背板铺满整张卡片宽，配不透明底色，
-   内容从它底下滚过不会透出来；sticky 的 top:0 = 卡片滚动口上沿。 */
-body[data-grub-mode="pane"] .grub-head {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  margin: -14px -16px 0;
-  padding: 14px 16px;
-  background: var(--panel);
-  /* 头部与下个元素之间那条 10px 网格缝是透明的，内容从缝里滚过会露出来
-     —— 用同色实影把缝补上（不占布局）。 */
-  box-shadow: 0 10px 0 var(--panel);
+/* ④ 的 .grub-head 不参与滚动（用户定案 2026-10-13）：applyGrubLayout 把它
+   搬出滚动容器、钉在卡片上方 —— 圆标/标题/EFI·条目数·同步时间常驻，
+   只有卡片内容滚。sticky 方案在 grid 子项上会被约束在自己的网格区里、
+   滚过头照样走，不可靠，已弃。内边距：顶 24px 与左栏首行同高，
+   左右 24px 与卡片同缩进，底 10px 隔开卡片。 */
+body[data-grub-mode="pane"] .pane-grub > .grub-head {
+  padding: 24px 24px 10px;
 }
 
 .grub-pane-head small {

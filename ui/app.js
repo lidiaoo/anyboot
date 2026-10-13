@@ -883,7 +883,10 @@ function renderEsp(grub) {
 /// 四种模式（与设置里的 grubListView 一一对应）：
 /// · inline 内嵌 / wide 加宽 —— 全部子节点按出厂顺序回 #grub（左栏主流程里）；
 /// · list 列表独立 —— 配置留在 #grub，列表搬进右栏；
-/// · pane GRUB 独立 —— 全部子节点按出厂顺序搬进右栏（#grub 变空壳，CSS 藏掉）。
+/// · pane GRUB 独立 —— 子节点搬进右栏（#grub 变空壳，CSS 藏掉），
+///   **但头部（圆标/标题/状态行）钉在卡片上方**：用户定案 2026-10-13，
+///   头部不参与滚动 —— sticky 在 grid 子项上会被约束在自己的网格区里、
+///   滚过头就跟着走，所以直接搬出滚动容器（.pane-body）放到它前面。
 /// 只在模式真正变化时才搬（renderGrub 里比对缓存），别每帧搬 DOM。
 /// 「出厂顺序」在脚本加载完、任何搬移发生之前捕获一次，回搬时靠它复原。
 const grubCanonicalOrder = [...grubSectionElement.children];
@@ -895,6 +898,11 @@ function applyGrubLayout(mode) {
   grubLayoutMode = mode;
   document.body.dataset.grubMode = mode;
   for (const el of grubCanonicalOrder) {
+    if (mode === "pane" && el.classList.contains("grub-head")) {
+      // 头部常驻：插到滚动容器前面，滚轮永远碰不到它
+      grubPaneBodyElement.parentNode.insertBefore(el, grubPaneBodyElement);
+      continue;
+    }
     const toPane = mode === "pane" || (mode === "list" && el === grubListElement);
     (toPane ? grubPaneBodyElement : grubSectionElement).appendChild(el);
   }
