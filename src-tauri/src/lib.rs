@@ -5,6 +5,7 @@ use std::{
     process::{Command, Output, Stdio},
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
+        mpsc::{sync_channel, Receiver, SyncSender, TrySendError},
         Mutex,
     },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -214,12 +215,40 @@ const CHECK_MARK_SIZE: u32 = 16;
 /// 不透明度范围（百分比）。0 = 完全透明（窗口还在、还能操作，只是看不见），100 = 不透明。
 const MIN_OPACITY: u8 = 0;
 const MAX_OPACITY: u8 = 100;
+/// 出厂默认窗口不透明度（百分比）：用户定案 90% —— 略微透出桌面，但不影响阅读。
+const DEFAULT_OPACITY_PERCENT: u8 = 90;
+/// 出厂默认主题：用户定案亮色（暗色改为用户自己选）。
+const DEFAULT_THEME: &str = "light";
+/// 出厂默认窗口落位：屏幕（工作区）正中间。选 center 而非 last：默认就应该在
+/// 视线正前方，而不是「上次拖到哪算哪」。
+const DEFAULT_WINDOW_POSITION: &str = "center";
 /// 阶段 0 的取证日志：只追加、不参与任何逻辑判断，写在应用配置目录。
 /// 里面**永不写入** httpToken（只记前 8 位指纹）。
 const TRACE_FILE: &str = "trace.log";
 const MAIN_WINDOW_LABEL: &str = "main";
 /// 快照版本号：每次发布 +1。前端只在 revision 变大时重绘（阶段 1 修 D4）。
+///
+/// **起点必须跟「时间」挂钩，不能从 0 数起。** 网页端 / 手机端在
+/// `applySnapshot` 里用 `state.revision <= lastRevision` 丢弃过期快照，而
+/// revision 是**进程内**计数器：进程一重启又从 0 数起，客户端手里那个「旧进程的
+/// 高水位」就把新进程的快照**全部**判成旧的丢掉 → 页面永久冻在重启前那份数据上。
+///
+/// 实测（真实 WebKit 客户端 + WebDriver）：旧进程 revision 涨到 7，客户端记下
+/// lastRevision=7；杀掉进程重启后新进程才到 5 → `5 <= 7` → 客户端每 2 秒都收到
+/// HTTP 200、`fetch` 全是 ok，却**一个字段都不更新**（主题、系统列表全停在旧值），
+/// 而且症状是「越用越不同步」——用户根本不会联想到「我重启过 AnyBoot」。
+/// 旧进程跑得越久（revision 越大），新进程要涨过那个高水位就越难，实际等于「不刷新
+/// 页面就永远不同步」。
+///
+/// 用启动时刻（Unix 毫秒）做种子：新进程启动必然更晚 → 起点必然更大 →
+/// 客户端只要继续比大小就能自然接受。真机时钟被大幅往回调（NTP 纠正）才会再现，
+/// 那种情况刷新一次即可。
 static UI_REVISION: AtomicU64 = AtomicU64::new(0);
+
+/// revision 的起始值（纯函数便于单测）：启动时刻的 Unix 毫秒，且不为 0。
+fn ui_revision_seed(now_millis: u64) -> u64 {
+    now_millis.max(1)
+}
 /// **唯一**的状态事件：携带完整快照 + 单调递增 revision。
 ///
 /// 阶段 1 之前是 status-changed / settings-changed / restart-result 三个补丁式事件，
@@ -965,7 +994,13 @@ struct Settings {
     http_port: u16,
     /// 首次运行自动生成的 32 位十六进制 token；为空则服务拒绝启动
     http_token: String,
-    /// 远程 / CLI 请求是否允许触发本机授权弹窗（Q3 已定 false）
+    /// 本机标识（32 位十六进制，首次运行生成后持久化）。手机 / 网页客户端靠它认出
+    /// 「这几条 IP 其实是同一台电脑」—— 一台电脑可能有多块网卡、多次 DHCP 拿到
+    /// 多个 IP，客户端据此把它们归并成一条记录、一个页面，而不是一个 IP 一个标签。
+    /// 通过 `GET /health` **免鉴权**返回：客户端还没填 token 时也要能归并。
+    machine_id: String,
+    /// 远程 / CLI 请求是否允许触发本机授权弹窗（默认开：用户定案「远程可触发
+    /// 本机框」—— 远程动作要不要真的提权，由本机这台机器说了算）
     remote_allow_gui_auth: bool,
     /// 弹窗通知总开关（Q11）
     notify_enabled: bool,
@@ -1050,7 +1085,8 @@ struct Settings {
     /// 锁定窗口大小：锁定后窗口不可拖拽缩放、不可最大化，前端宽高滑条同步停用。
     window_size_locked: bool,
     /// 记忆的窗口尺寸（逻辑像素）。**0 = 还没记过**（serde 缺字段 / 全新配置），
-    /// 此时启动按展示方式给标称尺寸（460/932 × DEFAULT_WINDOW_HEIGHT）。
+    /// 此时启动按展示方式给标称宽度（460/932）、高度按**屏幕工作区的一半**
+    /// （见 default_window_height）。
     /// 任何一次尺寸落位都会写成真实值（clamp 下限 360/560，0 不会存活）。
     /// 不能把默认填成 460/900：serde(default) 会给**所有老配置**伪造一个
     /// 「已记忆 460x900」，用户拖过的尺寸在重启后被悄悄拽回去。
@@ -1070,13 +1106,14 @@ impl Default for Settings {
             http_bind: DEFAULT_HTTP_BIND.to_string(),
             http_port: DEFAULT_HTTP_PORT,
             http_token: String::new(),
-            remote_allow_gui_auth: false,
+            machine_id: String::new(),
+            remote_allow_gui_auth: true,
             notify_enabled: true,
             channels: Channels::default(),
             play_sound: true,
             sound_file_path: String::new(),
-            theme: "dark".to_string(),
-            opacity_percent: MAX_OPACITY,
+            theme: DEFAULT_THEME.to_string(),
+            opacity_percent: DEFAULT_OPACITY_PERCENT,
             grub_efi_partuuid: String::new(),
             grub_efi_dir: String::new(),
             grub_keep_mounted: true,
@@ -1098,7 +1135,7 @@ impl Default for Settings {
             main_hotzone_border: false,
             main_hotzone_border_color: "#ff0000".to_string(),
             accent_color: "#2f7fe0".to_string(),
-            main_window_position: "free".to_string(),
+            main_window_position: DEFAULT_WINDOW_POSITION.to_string(),
             main_window_last: None,
             window_size_locked: false,
             window_width: 0,
@@ -1847,6 +1884,31 @@ fn switch_and_update(app: &AppHandle, system: &str) -> AppStatus {
     status
 }
 
+/// 本机主动切换系统（主窗口按钮 / 托盘菜单）的统一入口。
+///
+/// 先作废「挂着的远程请求」再切换：网页 / 手机端选系统会形成一条 pending（要等
+/// 倒计时到点才执行），本机用户在这段时间里自己点了另一个系统 —— 本机的操作是更
+/// 明确、更权威的意图，绝不能被那条到点的请求盖回去（否则用户看到的是「我明明
+/// 选了 A，几秒后自己变回 B」）。**只在本机入口做这件事**：远程请求到点执行时也
+/// 会走 switch_and_update，从那里清理就等于自己把自己取消掉。
+fn switch_system_locally(app: &AppHandle, system: &str) -> AppStatus {
+    if let Some(pending) = pending_snapshot() {
+        trace(
+            app,
+            "remote",
+            &format!(
+                "本机切换到 {system}：挂着的远程请求 {}（{}）作废",
+                pending.id, pending.summary
+            ),
+        );
+        if let Err(error) = cancel_pending_now(app) {
+            // 作废失败不该拦住切换本身（切换才是用户真正要的事）
+            trace(app, "remote", &format!("作废挂起请求失败（不影响切换）: {error}"));
+        }
+    }
+    switch_and_update(app, system)
+}
+
 fn switch_and_update_inner(app: &AppHandle, system: &str, started: Instant) -> AppStatus {
     let selected = SOURCE_FILES
         .iter()
@@ -2069,6 +2131,231 @@ fn env_flag_from(value: Option<&str>) -> Option<bool> {
         "1" | "true" | "yes" | "on" => Some(true),
         "0" | "false" | "no" | "off" => Some(false),
         _ => None,
+    }
+}
+
+// ==================== WebKitGTK × NVIDIA：窗口一片空白 ====================
+//
+// 上游已知故障（tauri-apps/tauri#9394 / #10702、WebKitGTK Bug 280210）：WebKitGTK 的
+// **DMA-BUF 渲染器**跟 NVIDIA 专有驱动谈不拢缓冲格式，构造不出完整 framebuffer 就
+// 静默放弃 —— 窗口照常打开、托盘照常有、日志一行不报，就是内容一片白。
+// Intel/Mesa 走同一条 DMA-BUF 路径没问题，所以核显模式（或纯集显的机器）看到的是好的，
+// 「独显才白」这个现象就出在这里。
+//
+// 修法不是一个开关通吃，按会话类型分几种：
+//   X11                      → 让 WebKit 把帧走**共享内存**交给窗口系统
+//                              （WEBKIT_DMABUF_RENDERER_FORCE_SHM=1；为什么是它、
+//                              以及试错过程见 X11_GPU_SWITCHES 的注释）
+//   Wayland(Hyprland)        → 关 DMA-BUF 渲染器（缺 acquire point，合成器直接掐连接）
+//   Wayland(KWin 一类严格同步) → 关 NVIDIA 显式同步（否则应用可能起不来）
+//   Wayland(其它 + egl-wayland2) → 不用动（驱动 ≥560 自带，这条路径本来是好的）
+//
+// 一个必须知道的背景：WebKitGTK **2.46 起换了渲染架构**（Skia 取代 Cairo 做 2D）、
+// **2.54 起连合成器也换成 Skia，并把「只合成损伤区域」打开成默认**。老一代靠
+// 「关掉某个加速开关」的招数到新版上会失效、甚至反过来有害，改这一块之前先去
+// 查上面那几个上游 issue，别照着旧帖子抄。
+
+/// 一次会话里 GDK / WebKitGTK 实际选中的显示后端。
+#[cfg(target_os = "linux")]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum LinuxDisplayBackend {
+    X11,
+    Wayland,
+    /// 线索全无（既没有 `GDK_BACKEND` 也没有会话变量）：按 X11 处理，理由见选择表。
+    Unknown,
+}
+
+/// 用户已经自己配过的 WebKit 开关：设过任何一个就完全不插手。
+///
+/// 也包含显式设成 `0` 的情况 —— 那种用户多半跟这个问题搏斗过，
+/// 覆盖掉他自己的配置比什么都不做更糟。
+#[cfg(target_os = "linux")]
+const WEBKIT_ENV_SWITCHES: [&str; 4] = [
+    "WEBKIT_DISABLE_DMABUF_RENDERER",
+    "__NV_DISABLE_EXPLICIT_SYNC",
+    "WEBKIT_DISABLE_COMPOSITING_MODE",
+    "WEBKIT_DMABUF_RENDERER_FORCE_SHM",
+];
+
+/// 从环境变量推断后端（纯函数，便于单测）。
+///
+/// 顺序照抄 GDK 自己的选择逻辑：`GDK_BACKEND` 是硬指定、优先于一切，它是个逗号分隔的
+/// 候选表，第一个认得出的 x11/wayland 算数（`broadway` 这类认不出的项跳过）；
+/// 没设才依次看 `XDG_SESSION_TYPE`、`WAYLAND_DISPLAY`、`DISPLAY`。
+/// 注意 XWayland 下 `DISPLAY` 也在，所以 Wayland 的判定必须排在它前面。
+#[cfg(target_os = "linux")]
+fn linux_display_backend(
+    gdk_backend: Option<&str>,
+    session_type: Option<&str>,
+    wayland_display: Option<&str>,
+    display: Option<&str>,
+) -> LinuxDisplayBackend {
+    if let Some(candidates) = gdk_backend {
+        for candidate in candidates.split(',').map(str::trim) {
+            match candidate.to_ascii_lowercase().as_str() {
+                "x11" => return LinuxDisplayBackend::X11,
+                "wayland" => return LinuxDisplayBackend::Wayland,
+                _ => continue,
+            }
+        }
+    }
+    match session_type.map(|value| value.trim().to_ascii_lowercase()) {
+        Some(kind) if kind == "x11" => return LinuxDisplayBackend::X11,
+        Some(kind) if kind == "wayland" => return LinuxDisplayBackend::Wayland,
+        _ => {}
+    }
+    if wayland_display.is_some_and(|value| !value.is_empty()) {
+        return LinuxDisplayBackend::Wayland;
+    }
+    if display.is_some_and(|value| !value.is_empty()) {
+        return LinuxDisplayBackend::X11;
+    }
+    LinuxDisplayBackend::Unknown
+}
+
+/// 从 `/proc/driver/nvidia/version` 的内容里取驱动主版本号（纯函数，便于单测）。
+///
+/// 文件内容形如：
+/// ```text
+/// NVRM version: NVIDIA UNIX Open Kernel Module for x86_64  615.71.09  Release Build  (root@arch)
+/// GCC version:  gcc 16.2.1 20260810 (GCC)
+/// ```
+/// 「第一个带点的数字词」就是版本号，要的是它的主版本（`egl-wayland2` 看 ≥560）。
+/// **必须锚定 `NVRM version:` 这一行**：下面那行的 `gcc 16.2.1` 也是带点的数字词，
+/// 不锚定就会把编译器版本当成驱动版本。
+#[cfg(target_os = "linux")]
+fn nvidia_major_from_version_text(text: &str) -> Option<u32> {
+    let banner = text
+        .lines()
+        .find(|line| line.trim_start().starts_with("NVRM version:"))?;
+    banner.split_whitespace().find_map(|word| {
+        let (major, rest) = word.split_once('.')?;
+        // 至少得是「主.次」两段数字，`x86_64` 这种词不算
+        if rest.is_empty() || !rest.starts_with(|character: char| character.is_ascii_digit()) {
+            return None;
+        }
+        major.parse::<u32>().ok()
+    })
+}
+
+/// NVIDIA 专有驱动的主版本号；没装 / 没加载（纯核显模式、nouveau）返回 `None`。
+///
+/// `/proc/driver/nvidia/version` 只有 NVIDIA 自己的驱动会建（nouveau 与 Mesa 都不建），
+/// 所以「这文件在」≈「这次会话的渲染有 NVIDIA 参与」，也正是要加开关的时刻；
+/// 反过来，切到纯核显模式后这个文件就没了，开关自动不加，性能也不会白白吃亏。
+#[cfg(target_os = "linux")]
+fn nvidia_driver_major() -> Option<u32> {
+    let text = std::fs::read_to_string("/proc/driver/nvidia/version").ok()?;
+    nvidia_major_from_version_text(&text)
+}
+
+/// 让 WebKit 的 DMA-BUF 渲染器彻底不用 DMA-BUF：Wayland(Hyprland) 上缺 acquire point
+/// 会被合成器当协议错误掐断连接，那里必须把这条路堵死。
+///
+/// **只给 Hyprland 用**。2.52 起这个变量**不再回退到共享内存**，换别的会话用会把传输
+/// 模式清空（X11 上正是它把「全白」变成「只有鼠标扫过的地方才显示」的，见
+/// `X11_GPU_SWITCHES` 的注释）。Hyprland 若也反馈空白/崩溃，同样该换 `FORCE_SHM`。
+#[cfg(target_os = "linux")]
+const DMABUF_RENDERER_OFF: &[(&str, &str)] = &[("WEBKIT_DISABLE_DMABUF_RENDERER", "1")];
+
+/// 关掉 NVIDIA 显式同步：严格的 Wayland 合成器上会让应用根本起不来。
+#[cfg(target_os = "linux")]
+const NVIDIA_EXPLICIT_SYNC_OFF: &[(&str, &str)] = &[("__NV_DISABLE_EXPLICIT_SYNC", "1")];
+
+/// X11（以及后端认不出来的情况）上给 WebKit 的开关：**只有这一个**。
+///
+/// 语义：让 WebKit 把合成好的帧以**共享内存**交给窗口系统，而不是 DMA-BUF / GPU 缓冲。
+/// NVIDIA 专有驱动的 X11/EGL 路径收不下这些 GPU 缓冲，WebKit 就画不出来 ——
+/// 表现可以是全白，也可以是「内容能加载、但只有鼠标扫过的地方才显示」。
+///
+/// 换过两轮才认准，弯路记在这儿（别再回头试）：
+/// - `WEBKIT_DISABLE_DMABUF_RENDERER=1`：**2.52 起不再回退到共享内存**，只会把传输模式
+///   清空。本机实测（2.54.1 + 615 驱动）表现就是「只有鼠标扫过才显示」；上游还报告它会让
+///   `AcceleratedBackingStore::create()` 返回 null 而崩。
+/// - `WEBKIT_DISABLE_COMPOSITING_MODE=1`：**2.54 已失效** —— 非合成渲染器在 2.54 同样走
+///   AcceleratedBackingStore，加它症状一字不变（本机实测）。
+///
+/// 依据：WebKit Bug 324551（同一台 NVIDIA 机器上，唯一能把页面画出来的是 `FORCE_SHM`，
+/// 且明说 `DISABLE_COMPOSITING_MODE` 在 2.54 已不避开该问题）、WebKit PR #20869（变量由来）、
+/// Buzz 桌面端 #3271/#3654（检测到 NVIDIA 就自动设它，并明确不要用 `DISABLE_DMABUF_RENDERER`）、
+/// A2Tools DPS Meter 的 Linux 说明（同症状、同修法）。
+#[cfg(target_os = "linux")]
+const X11_GPU_SWITCHES: &[(&str, &str)] = &[("WEBKIT_DMABUF_RENDERER_FORCE_SHM", "1")];
+
+/// 一条都不用加（例如 Wayland 上驱动自带好用的 egl-wayland2）。
+#[cfg(target_os = "linux")]
+const NO_GPU_SWITCHES: &[(&str, &str)] = &[];
+
+/// 这次会话该给 WebKit 加哪些开关（纯函数，便于单测）：可能一个都不加。
+#[cfg(target_os = "linux")]
+fn linux_gpu_env_overrides(
+    backend: LinuxDisplayBackend,
+    desktop: Option<&str>,
+    driver_major: u32,
+) -> &'static [(&'static str, &'static str)] {
+    let desktop = desktop.unwrap_or("").to_ascii_lowercase();
+    match backend {
+        // 白窗 / 内容看不见都出在这条路上。后端认不出来时也按 X11 处理：
+        // 画不出来比性能掉一点点严重得多。
+        LinuxDisplayBackend::X11 | LinuxDisplayBackend::Unknown => X11_GPU_SWITCHES,
+        // 缺 acquire point 会被合成器当协议错误掐断连接，DMA-BUF 必须关
+        LinuxDisplayBackend::Wayland if desktop.contains("hyprland") => DMABUF_RENDERER_OFF,
+        // KWin 一类严格同步的合成器：关掉 NVIDIA 显式同步就没事了
+        LinuxDisplayBackend::Wayland if desktop.contains("kde") || desktop.contains("plasma") => {
+            NVIDIA_EXPLICIT_SYNC_OFF
+        }
+        // 驱动 ≥560 自带能用的 egl-wayland2，这条路径本来是好的，别动它
+        LinuxDisplayBackend::Wayland if driver_major >= 560 => NO_GPU_SWITCHES,
+        // 更老的 egl-wayland：不关显式同步可能连不上
+        LinuxDisplayBackend::Wayland => NVIDIA_EXPLICIT_SYNC_OFF,
+    }
+}
+
+/// 用户是否已经自己配过 WebKit 的这些开关（纯函数，便于单测）。
+#[cfg(target_os = "linux")]
+fn webkit_env_already_configured(probe: impl Fn(&str) -> bool) -> bool {
+    WEBKIT_ENV_SWITCHES.iter().any(|name| probe(name))
+}
+
+/// 按会话类型给 WebKit 塞进与 NVIDIA 相容的开关。
+///
+/// **必须在 GTK / WebKit 起来之前调用**：WebKit 是在建 WebView 的那一刻读这些变量的，
+/// 之后再设就没用了。所以调用点在 `run()` 的最前面，早于 `tauri::Builder`。
+#[cfg(target_os = "linux")]
+fn apply_linux_gpu_workarounds() {
+    if webkit_env_already_configured(|name| std::env::var_os(name).is_some()) {
+        return;
+    }
+    // 没有 NVIDIA 驱动（核显模式 / nouveau / Mesa）：这条路径本来就没问题，什么都别动
+    let Some(driver_major) = nvidia_driver_major() else {
+        return;
+    };
+    let backend = linux_display_backend(
+        std::env::var("GDK_BACKEND").ok().as_deref(),
+        std::env::var("XDG_SESSION_TYPE").ok().as_deref(),
+        std::env::var("WAYLAND_DISPLAY").ok().as_deref(),
+        std::env::var("DISPLAY").ok().as_deref(),
+    );
+    let overrides = linux_gpu_env_overrides(
+        backend,
+        std::env::var("XDG_CURRENT_DESKTOP").ok().as_deref(),
+        driver_major,
+    );
+    if overrides.is_empty() {
+        return;
+    }
+    for (name, value) in overrides {
+        std::env::set_var(name, value);
+    }
+    // 白窗这类问题现场很难复现，ANYBOOT_TRACE=1 时留一行痕
+    // （启动期还没有日志文件可写，所以走 stderr，和 trace 的口径一致）
+    if env_flag_from(std::env::var("ANYBOOT_TRACE").ok().as_deref()) == Some(true) {
+        let applied = overrides
+            .iter()
+            .map(|(name, value)| format!("{name}={value}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        eprintln!("anyboot: NVIDIA 驱动 {driver_major} / {backend:?}，已设置 {applied}");
     }
 }
 
@@ -2363,7 +2650,118 @@ fn publish_ui(app: &AppHandle) -> UiState {
     if let Err(error) = app.emit(UI_STATE_CHANGED_EVENT, &state) {
         trace(app, "state", &format!("通知主窗口失败: {error}"));
     }
+    // 网页端 / 手机端的推送通道：没人连就没有任何开销（见 websocket_publish）
+    websocket_publish(&state);
     state
+}
+
+// ==================== WebSocket 推送（网页端 / 手机端的 /api/ws） ====================
+//
+// 传输与握手在 http 模块，这里只管「谁订阅了」和「推什么」。推的内容与
+// `/api/ui-state` 完全同源（都是 get_ui_state 的那份快照），所以两条路不会分叉。
+
+/// 已连上的推送客户端：id → 发送端。
+///
+/// 为什么中间隔一条通道、而不是直接把 socket 存在这儿：连接由 http 层的线程抱着
+/// （它的生命周期、读写、关闭都在那边），两边只交接「快照字符串」。发送端一 drop，
+/// 对面 `recv_timeout` 立刻拿到 `Disconnected` 收尾退出 —— 收服务、换 token 时就
+/// 靠这个把它们请走（见 http::RunningServer::stop）。
+static WS_CLIENTS: Mutex<Vec<(u64, SyncSender<String>)>> = Mutex::new(Vec::new());
+/// 推送客户端的发号器，注销时靠它找到自己那一条。
+static WS_NEXT_ID: AtomicU64 = AtomicU64::new(1);
+/// 每个客户端的待发队列容量。
+///
+/// 故意很小：快照是**完整状态**而不是增量，中间几拍丢了不影响正确性（下一拍补齐）。
+/// 队列满说明这个客户端收得比我们发得慢，这时**丢掉这一拍**，绝不阻塞 `publish_ui`
+/// —— 后者会把主窗口自己的重绘一起拖住。
+const WS_QUEUE: usize = 8;
+
+/// 握手前的一次性鉴权 + 首帧内容（当前完整快照）。失败时回一个普通 HTTP 错误。
+pub(crate) fn websocket_hello(app: &AppHandle, token: Option<&str>) -> Result<String, RemoteReply> {
+    let settings = stored_settings(app);
+    if !token_matches(&settings.http_token, token.unwrap_or_default()) {
+        return Err(RemoteReply::error(401, "invalid_token", "token 缺失或无效"));
+    }
+    Ok(ui_state_json(app))
+}
+
+/// 当前快照的 JSON 串（`/api/ui-state`、WS 首帧、WS 广播共用同一份）。
+fn ui_state_json(app: &AppHandle) -> String {
+    serde_json::to_string(&get_ui_state(app.clone())).unwrap_or_else(|_| "{}".to_string())
+}
+
+/// 登记一个推送客户端，返回 (id, 收件口)。
+pub(crate) fn websocket_subscribe() -> (u64, Receiver<String>) {
+    let (sender, receiver) = sync_channel(WS_QUEUE);
+    let id = WS_NEXT_ID.fetch_add(1, Ordering::SeqCst);
+    if let Ok(mut clients) = WS_CLIENTS.lock() {
+        clients.push((id, sender));
+    }
+    (id, receiver)
+}
+
+/// 当前推送客户端数量（只有单测要用；正常路径靠 `websocket_publish` 里的
+/// `is_empty()` 短路，不必单独查一次）。
+#[cfg(test)]
+fn websocket_client_count() -> usize {
+    WS_CLIENTS.lock().map(|clients| clients.len()).unwrap_or(0)
+}
+
+/// 注销一个推送客户端（连接线程退出时调）。
+pub(crate) fn websocket_unsubscribe(id: u64) {
+    if let Ok(mut clients) = WS_CLIENTS.lock() {
+        clients.retain(|(client, _)| *client != id);
+    }
+}
+
+/// 请所有推送客户端离开（收服务 / 换 token 时调）。返回后对面线程很快会自己退出。
+pub(crate) fn websocket_disconnect_all() {
+    if let Ok(mut clients) = WS_CLIENTS.lock() {
+        clients.clear();
+    }
+}
+
+/// 把新快照推给所有客户端。**没人订阅时连序列化都不做**。
+fn websocket_publish<T: Serialize>(state: &T) {
+    let Ok(mut clients) = WS_CLIENTS.lock() else {
+        return;
+    };
+    if clients.is_empty() {
+        return;
+    }
+    let Ok(payload) = serde_json::to_string(state) else {
+        return;
+    };
+    clients.retain(|(_, sender)| match sender.try_send(payload.clone()) {
+        Ok(()) => true,
+        // 队列满（对端收得慢）：丢掉这一拍，连接照留
+        Err(TrySendError::Full(_)) => true,
+        // 对面线程已经退了：顺手清掉
+        Err(TrySendError::Disconnected(_)) => false,
+    });
+}
+
+/// 推送通道**连上时**记一条请求日志 —— 「基本设置 → 远程控制」的最近请求里
+/// 一眼能看出推送到底有没有连上（排查手机端为什么在轮询时最有用）。
+///
+/// **断开只写 trace.log，不写最近请求**：断开是「对方关页面 / 切网」造成的，
+/// 时刻随机，摆进最近请求里只会让人以为「刚刚有人动了什么」；链路抖动时更糟 ——
+/// 一次抖动就是两条，20 条的历史马上被这种噪音顶光，真正要紧的切换/电源记录
+/// 反而被挤出去。排查时看 trace.log（`[http-access] /api/ws -> closed`）就够。
+pub(crate) fn record_websocket_event(app: &AppHandle, source: &str, connected: bool) {
+    if !connected {
+        trace(app, "http-access", &format!("{source} /api/ws -> closed 客户端离开"));
+        return;
+    }
+    record_request_log(
+        app,
+        Channel::Http,
+        source,
+        "/api/ws",
+        "推送通道已连接",
+        "executed",
+        "WebSocket（快照推送）",
+    );
 }
 
 /// 变量目录还没扫出来时，也把三个系统项摆上（禁用），
@@ -2454,8 +2852,36 @@ fn grub_layout_width(mode: &str) -> f64 {
 /// 上限防手滑把窗口拖到比屏幕还大。滑条范围与它一致。
 const WINDOW_MIN_SIZE: (u32, u32) = (360, 560);
 const WINDOW_MAX_SIZE: (u32, u32) = (1600, 1200);
-/// 还没记过尺寸时的标称高度（宽度标称跟展示方式走，见 grub_layout_width）
+/// 拿不到显示器时的兜底高度；正常路径是「屏幕工作区的一半」（见 default_window_height）。
 const DEFAULT_WINDOW_HEIGHT: u32 = 900;
+
+/// 默认窗口高度 = 屏幕工作区高度的一半（纯函数，便于单测）。
+///
+/// 用户定案：默认高度占屏幕一半。夹回合法区间 —— 1080p 屏（逻辑高 1080）上
+/// 一半是 540，会落到最小高度 560，这是有意的：再低界面就挤坏了。
+fn default_window_height_from_work_area(work_height: u32) -> u32 {
+    (work_height / 2).clamp(WINDOW_MIN_SIZE.1, WINDOW_MAX_SIZE.1)
+}
+
+/// 当前显示器的默认窗口高度：工作区高度（逻辑像素）的一半。
+///
+/// 窗口还没映射时 `current_monitor()` 可能给不出，退到主显示器；两个都拿不到
+/// 才回落到兜底常量。工作区（而非整个屏幕）才作数：任务栏/Dock 占掉的那条
+/// 不该算进「屏幕一半」里，否则窗口下沿会被压到任务栏底下。
+fn default_window_height(app: &AppHandle) -> u32 {
+    let monitor = app
+        .get_webview_window(MAIN_WINDOW_LABEL)
+        .and_then(|main| main.current_monitor().ok().flatten())
+        .or_else(|| app.primary_monitor().ok().flatten());
+    let Some(monitor) = monitor else {
+        return DEFAULT_WINDOW_HEIGHT;
+    };
+    // scale_factor 理论上不会是 0，真遇上就按 1:1 处理，别让除零变成 inf→饱和
+    let scale = monitor.scale_factor();
+    let scale = if scale > 0.0 { scale } else { 1.0 };
+    let work_height = (monitor.work_area().size.height as f64 / scale).round() as u32;
+    default_window_height_from_work_area(work_height)
+}
 
 /// 夹回合法窗口尺寸（纯函数）。
 fn clamp_window_size(width: u32, height: u32) -> (u32, u32) {
@@ -2463,6 +2889,40 @@ fn clamp_window_size(width: u32, height: u32) -> (u32, u32) {
         width.clamp(WINDOW_MIN_SIZE.0, WINDOW_MAX_SIZE.0),
         height.clamp(WINDOW_MIN_SIZE.1, WINDOW_MAX_SIZE.1),
     )
+}
+
+/// 「主窗尺寸是在窗口**藏着**的时候请求的」标记（用法见 `centering_size`）。
+///
+/// 为什么需要：GTK 上对**未映射**的窗口 `set_size` 只是登记 pending，映射时才
+/// 生效，而这期间 tao 缓存的尺寸读数还停在建窗时那一对（tauri.conf 的 460x900，
+/// 实测）。谁拿这个旧读数算「居中」，落点就是按 460x900 算出来的 (730,90)，等
+/// ConfigureNotify 到了才跳回正中 (494,260) —— 1920x1080 实测两次间隔 46~51ms，
+/// 肉眼看得见；屏幕更矮时按旧值居中还会把窗口推出工作区底 → `near_edge` →
+/// 直接贴边成条。所以这段窗口期里，居中改用「设置里记的尺寸」。
+static MAIN_SIZE_PENDING: AtomicBool = AtomicBool::new(false);
+
+/// 两个尺寸读数是否算一致：±2px —— WM 可能对请求的尺寸做 1px 内的调整。
+fn size_readings_agree(a: (u32, u32), b: (u32, u32)) -> bool {
+    (a.0 as i64 - b.0 as i64).abs() <= 2 && (a.1 as i64 - b.1 as i64).abs() <= 2
+}
+
+/// 算「居中」时该用哪个尺寸（纯函数）。
+///
+/// `pending` = 刚对着藏着的窗口改过尺寸（见 `MAIN_SIZE_PENDING`）：此刻 `reading`
+/// 还是建窗时的旧值，拿它落位会先错一次，所以改用 `requested`（设置里记的尺寸，
+/// 也就是窗口映射后真正会有的尺寸）。读数一旦跟上就作废 pending（返回 false），
+/// 免得之后用户**手拖**窗口（不走 `set_main_window_size`、不写设置）被旧值盖掉。
+///
+/// 返回 `(用哪个尺寸, pending 是否保留)`。
+fn centering_size(
+    reading: (u32, u32),
+    requested: (u32, u32),
+    pending: bool,
+) -> ((u32, u32), bool) {
+    if !pending || size_readings_agree(reading, requested) {
+        return (reading, false);
+    }
+    (requested, true)
 }
 
 /// 落一个新窗口尺寸：夹取 → 记忆 → 应用。锁定状态下要先把 max 放开再落尺寸
@@ -2488,7 +2948,73 @@ fn set_main_window_size(app: &AppHandle, width: u32, height: u32) -> Result<(), 
             height as f64,
         )));
     }
+    // 藏着的时候改尺寸，读数不会马上跟上（见 MAIN_SIZE_PENDING）：记一笔，
+    // 让紧接着的落位用「请求尺寸」而不是旧读数。窗口可见时 set_size 立即生效、
+    // 读数可信，顺手把标记清掉。
+    let visible = main.is_visible().unwrap_or(false);
+    MAIN_SIZE_PENDING.store(!visible, Ordering::SeqCst);
+    // 改完尺寸要重新落位（仅「固定屏幕中间」，窗口已显示时）：见
+    // recenter_after_window_size。启动期 setup 调进来时窗口还没 show，
+    // 那条路径有一套「等 WM 映射完再落位」的自愈流程，抢在它前面
+    // set_position 会被 WM 忽略或覆盖，所以不插手。
+    if visible {
+        recenter_after_window_size(app, width, height);
+    }
     Ok(())
+}
+
+/// 改完窗口尺寸后重新落位（只在「固定屏幕中间」模式下真正生效）。
+///
+/// 为什么必须补这一下：`set_size` 是**以左上角为锚**改尺寸的，只改高度时
+/// 窗口往下长出去、底边越过工作区底部 → `schedule_clamp`（Moved 后 250ms）
+/// 把它「往上推回工作区内」→ 于是原本居中的窗口被一路推到屏幕上沿，而且
+/// **永远留在那儿**（1920x1080 实测：高 560→900→1000→560 得到
+/// y=260→180→80→**80**，窗口中心从 540 漂到 360）。用户拖一次高度滑条就
+/// 中招，「固定屏幕中间」名不副实。
+///
+/// 落位本身交给 `apply_main_window_position`（它自己判 center/last/free 与
+/// 贴边停靠态），这里只解决「**什么时候**落」：`set_size` 是异步派发的，
+/// 紧接着读 `outer_size()` 还是旧值，拿旧高度算出的落点会让窗口「刚居中又
+/// 被撑歪」。所以先轮询等新尺寸真正落地（通常几十毫秒）再落位 —— 与呼出
+/// 路径那段「等窗口映射完再落位」的自愈线程同一套路，上界 ≈600ms。
+fn recenter_after_window_size(app: &AppHandle, width: u32, height: u32) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        for _ in 0..40 {
+            let Some(main) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
+                return;
+            };
+            // 尺寸落地前窗口被藏了/关了就放弃：这条落位只在「用户正看着窗口
+            // 拖滑条」的语境下有意义，隐藏窗口的几何另有主（show 流程自己落位）。
+            if !main.is_visible().unwrap_or(false) {
+                return;
+            }
+            let scale = main.scale_factor().unwrap_or(1.0);
+            let scale = if scale > 0.0 { scale } else { 1.0 };
+            let want_w = (width as f64 * scale).round();
+            let want_h = (height as f64 * scale).round();
+            let landed = main
+                .inner_size()
+                .map(|size| {
+                    (size.width as f64 - want_w).abs() <= 2.0
+                        && (size.height as f64 - want_h).abs() <= 2.0
+                })
+                .unwrap_or(false);
+            if landed {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(15));
+        }
+        // 等待期间用户可能已经把落位模式改成别的（滑条和下拉框都在同一屏），
+        // 那就按新模式来，别硬居中。
+        if normalize_window_position(&stored_settings(&app).main_window_position) != "center" {
+            return;
+        }
+        // 落位前先立几何抑制期：set_position 的回声是一条 Moved，抑制期内
+        // 不拿它做贴边判定（同 dock/undock 的处理）。
+        mark_geometry_busy(AUTO_HIDE_GEOMETRY_BUSY_MS);
+        apply_main_window_position(&app);
+    });
 }
 
 /// 把「锁定窗口大小」落到窗口属性上：锁定 = 不可拖拽缩放 + 不可最大化 +
@@ -2534,7 +3060,9 @@ fn apply_grub_layout_size(app: &AppHandle, force_nominal_width: bool) {
         settings.window_size_locked,
     );
     let height = if settings.window_height == 0 {
-        DEFAULT_WINDOW_HEIGHT
+        // 还没记过尺寸（新装 / 清过配置）：默认占屏幕工作区的一半。
+        // 落完 set_main_window_size 会把它记进设置，下次就按记忆值来。
+        default_window_height(app)
     } else {
         settings.window_height
     };
@@ -2563,11 +3091,18 @@ fn center_main_window(app: &AppHandle) -> Option<(i32, i32)> {
     // `near_edge=true` → **启动约 1s 后自己贴边成条**（实测 reg2-nudge：
     // `center main -> (800,500) outer_size=0x0` → `moved (800,63)` → `dock begin edge=Bottom`）。
     // 内尺寸在未映射时就可读（只差一个标题栏 37px）。
-    let (main_w, main_h) = usable_window_size_basis(
+    let reading = usable_window_size_basis(
         main.outer_size().ok().map(|s| (s.width, s.height)),
         main.inner_size().ok().map(|s| (s.width, s.height)),
     )?;
-    let (main_w, main_h) = (main_w as i32, main_h as i32);
+    // 刚对着藏着的窗口改过尺寸时，上面这个读数还是建窗时的旧值 —— 改用设置里
+    // 记的尺寸（见 centering_size / MAIN_SIZE_PENDING），免得先落错位置再跳回来。
+    let settings = stored_settings(app);
+    let requested = clamp_window_size(settings.window_width, settings.window_height);
+    let (basis, keep_pending) =
+        centering_size(reading, requested, MAIN_SIZE_PENDING.load(Ordering::SeqCst));
+    MAIN_SIZE_PENDING.store(keep_pending, Ordering::SeqCst);
+    let (main_w, main_h) = (basis.0 as i32, basis.1 as i32);
     let monitor = main
         .current_monitor()
         .ok()
@@ -2650,6 +3185,45 @@ fn generate_token() -> String {
 /// 一次请求的短 id（8 位十六进制），用于 pending / 日志关联。
 fn short_request_id() -> String {
     generate_token()[..8].to_string()
+}
+
+/// 本机名称（给客户端一眼认出「这是哪台电脑」）。取不到返回空串。
+///
+/// 只读环境变量与几个约定路径，不开子进程 —— 它在 `/health` 里每次请求都会走，
+/// 不能有进程开销。
+fn machine_name() -> String {
+    // Windows 是 COMPUTERNAME；Linux / macOS 的 shell 里是 HOSTNAME
+    let from_env = ["COMPUTERNAME", "HOSTNAME"]
+        .iter()
+        .map(|key| std::env::var(key).unwrap_or_default());
+    // Linux 兜底；其它系统这两个文件不存在，read_to_string 会失败并被跳过
+    let from_file = ["/etc/hostname", "/proc/sys/kernel/hostname"]
+        .iter()
+        .map(|path| std::fs::read_to_string(path).unwrap_or_default());
+    first_nonempty(from_env.chain(from_file))
+}
+
+/// 从一组候选里挑第一个「去掉首尾空白后非空」的值（纯函数，便于单测）。
+fn first_nonempty<T: IntoIterator<Item = String>>(values: T) -> String {
+    values
+        .into_iter()
+        .map(|value| value.trim().to_string())
+        .find(|value| !value.is_empty())
+        .unwrap_or_default()
+}
+
+/// `GET /health` 的响应体（纯函数，便于单测）。
+///
+/// `ok`/`service` 是既有的探活字段；`machineId`/`machineName` 是给客户端认机器用的
+/// —— 同一台电脑多块网卡会有多个 IP，客户端靠 `machineId` 把它们归并成一份页面。
+/// 这里**不含任何机密**，所以和探活一样免鉴权。
+fn health_json(machine_id: &str, machine_name: &str) -> serde_json::Value {
+    serde_json::json!({
+        "ok": true,
+        "service": "anyboot",
+        "machineId": machine_id.trim(),
+        "machineName": machine_name.trim(),
+    })
 }
 
 /// 界面上的打码 token：只露前 4 后 4，明文要用 reveal 命令专门取。
@@ -2942,6 +3516,13 @@ fn ensure_settings_complete(app: &AppHandle) {
         settings.http_token = generate_token();
         changed = true;
         trace(app, "http", "首次运行：已生成 32 位十六进制 token");
+    }
+    if settings.machine_id.trim().is_empty() {
+        // 本机标识：跨重启稳定（存在 settings.json 里），客户端靠它归并同一台
+        // 电脑的多个网卡 IP。跟 token 用同一套随机来源，但没有鉴权含义。
+        settings.machine_id = generate_token();
+        changed = true;
+        trace(app, "http", "首次运行：已生成机器标识 machineId");
     }
     if settings.http_bind.trim().is_empty() {
         settings.http_bind = DEFAULT_HTTP_BIND.to_string();
@@ -3325,7 +3906,13 @@ const UI_GRUB_LIST_VIEW_JS: &str = include_str!("../../ui/grub-list-view.js");
 /// 机密（token 只在设置快照接口返回，且那需要 token 本身）。
 fn static_ui_reply(path: &str) -> Option<RemoteReply> {
     let (content_type, body): (&'static str, &str) = match path {
-        "/" | "/ui" | "/ui/" | "/ui/index.html" => ("text/html; charset=utf-8", UI_INDEX_HTML),
+        // `/index.html` 也得挂上：用户/书签很容易直接打这个（浏览器里输
+        // `192.168.1.5:12300/index.html` 是很自然的动作）。漏了它就落到 token
+        // 闸门 → 无 token 时回 401「token 缺失或无效」、带 token 时回 404，
+        // 两种都让人以为是自己 token 的问题，其实是路由没接。
+        "/" | "/index.html" | "/ui" | "/ui/" | "/ui/index.html" => {
+            ("text/html; charset=utf-8", UI_INDEX_HTML)
+        }
         // index.html 里引用的是 ./styles.css 等相对路径，页面在根路径时
         // 解析成 /styles.css —— 根路径与 /ui/ 前缀两套都挂上
         "/app.js" | "/ui/app.js" => ("text/javascript; charset=utf-8", UI_APP_JS),
@@ -3379,6 +3966,56 @@ fn handle_ui_command_request(app: &AppHandle, request: &RemoteRequest) -> Remote
         );
     }
 
+    // 「选择系统」从网页 / 手机客户端发起时，走**远程请求**那条链路
+    // （与 POST /api/switch 完全一致）：本机弹授权窗、显示来源客户端，由本机
+    // 用户确认或取消 —— 而不是借道网页绕过本机直接改引导项。
+    // 本机主窗口点按钮不走这条 HTTP 路径（那是 Tauri IPC 直连命令），
+    // 所以本机自己的操作依然是即时的，不受影响。
+    // 「立即执行」只能在本机点：授权窗的意义就是本机用户点头，远程端能自己确认
+    // 等于自己给自己盖章，弹窗就成了摆设。「取消」放行 —— 撤回自己的请求是安全
+    // 方向的操作，随时能反悔也是授权模型该有的样子（见 ui_command_is_local_only）。
+    if ui_command_is_local_only(&cmd) {
+        record_request_log(
+            app,
+            remote_channel(request),
+            &request.source,
+            &request.path,
+            &cmd,
+            "rejected",
+            "只能在本机点「立即执行」",
+        );
+        return RemoteReply::error(
+            403,
+            "local_only",
+            "「立即执行」需要在电脑本机上点（远程只能取消这条请求）",
+        );
+    }
+
+    if ui_command_requires_local_auth(&cmd) {
+        let system = match ui_str(&args, "system") {
+            Ok(system) => system,
+            Err(message) => return RemoteReply::error(400, "bad_args", &message),
+        };
+        let reply = start_remote_command(
+            app,
+            remote_channel(request),
+            &request.source,
+            RemoteCommand::Switch(system),
+            &request.path,
+        );
+        // 网页端的 invoke 只取 `result`（见 ui/app.js），所以把远程请求的回执
+        // **整块塞进 result** —— 前端要据 `result.pending` 告诉用户
+        // 「已发送到本机，等待确认」，否则这条提示永远不会出现。
+        // 被拒（409 已有待执行请求等）原样返回错误，让前端照常报错。
+        if reply.status >= 400 {
+            return reply;
+        }
+        return RemoteReply::ok(
+            200,
+            serde_json::json!({ "ok": true, "cmd": cmd, "result": reply.json }),
+        );
+    }
+
     let started = std::time::Instant::now();
     let reply = match remote_ui_command(app, &cmd, &args) {
         Ok(result) => RemoteReply::ok(
@@ -3397,6 +4034,23 @@ fn handle_ui_command_request(app: &AppHandle, request: &RemoteRequest) -> Remote
         &format!("{}ms", started.elapsed().as_millis()),
     );
     reply
+}
+
+/// 网页 / 手机端发来的哪些命令**必须先经本机授权**（转成远程请求 → 本机弹窗确认）。
+///
+/// 目前只有「选择系统」：它会改下一次的引导项，属于必须让本机用户点头的事。
+/// 本机主窗口不走这条 HTTP 路径（走 IPC 直连命令），所以不受影响。
+fn ui_command_requires_local_auth(cmd: &str) -> bool {
+    cmd == "switch_system"
+}
+
+/// 哪些网页 / 手机命令**只能在本机点**（远程调用直接拒绝，而不是转成待确认）。
+///
+/// 目前只有「立即执行」：授权窗的意义就是让本机用户点头，远程端要是能自己确认，
+/// 就等于自己给自己盖章、弹窗成了摆设。「取消」（撤回自己刚发的那条请求）是安全
+/// 方向的操作，远程端保留 —— 随时能反悔也是授权模型该有的样子。
+fn ui_command_is_local_only(cmd: &str) -> bool {
+    cmd == "confirm_pending"
 }
 
 // ---------- /api/ui-command 参数提取辅助 ----------
@@ -3490,6 +4144,9 @@ fn remote_ui_command_inner(
             .map_err(|error| format!("序列化失败: {error}")),
         // ---- 引导切换 / 扫描 ----
         "refresh" => status_value(refresh(app.clone())),
+        // 注意：网页 / 手机端的 switch_system 在 handle_ui_command_request 里
+        // 就被拦下改走本机授权流程了（见那里的注释），这里的分支留给非 HTTP 的
+        // 内部调用者，语义是「立即切换」。
         "switch_system" => {
             let system = ui_str(args, "system")?;
             status_value(switch_system(app.clone(), system))
@@ -3497,6 +4154,8 @@ fn remote_ui_command_inner(
         "set_vars_dir" => status_value(set_vars_dir(app.clone(), ui_opt_str(args, "path"))),
         "unmount_temporary" => status_value(unmount_temporary(app.clone())),
         "power_action" => res_unit(power_action(app.clone(), ui_opt_str(args, "action"))),
+        // confirm_pending 在 handle_ui_command_request 里就被拦下了（本机专属，
+        // 见 ui_command_is_local_only）；这里的分支留给非 HTTP 的内部调用者。
         "confirm_pending" => res_unit(confirm_pending(app.clone())),
         "cancel_pending" => res_unit(cancel_pending(app.clone())),
         // ---- GRUB ----
@@ -3670,7 +4329,10 @@ pub(crate) fn handle_remote_request(app: &AppHandle, request: &RemoteRequest) ->
 
     match request.path.as_str() {
         "/health" => {
-            return RemoteReply::ok(200, serde_json::json!({ "ok": true, "service": "anyboot" }));
+            // 免鉴权探活 + 机器身份：客户端（手机 App / 网页）靠 machineId 认出
+            // 「这几条 IP 是同一台电脑」→ 只保留一份页面。不含机密。
+            let settings = stored_settings(app);
+            return RemoteReply::ok(200, health_json(&settings.machine_id, &machine_name()));
         }
         "/api/status" => return RemoteReply::ok(200, remote_status_json(app)),
         "/api/requests" => return RemoteReply::ok(200, remote_requests_json()),
@@ -3837,7 +4499,7 @@ fn start_remote_command(
 
 /// 真正执行一条远程命令。
 ///
-/// `allow_gui_auth` 用 `remoteAllowGuiAuth`（Q3 默认 false：远程不弹本机授权框）。
+/// `allow_gui_auth` 用 `remoteAllowGuiAuth`（默认 true：远程请求可以弹本机授权框）。
 fn execute_remote_command(
     app: &AppHandle,
     channel: Channel,
@@ -6096,11 +6758,11 @@ fn set_window_size_locked(app: AppHandle, locked: bool) -> Result<SettingsView, 
 }
 
 /// 重置窗口大小到当前展示方式的标称尺寸（托盘菜单与设置页共用）。
-/// 宽随模式（460 ⇄ 932）、高回到 900 —— 「重置」就是回到出厂标称。
+/// 宽随模式（460 ⇄ 932）、高回到「屏幕工作区的一半」（默认高度）。
 fn reset_window_size_inner(app: &AppHandle) -> Result<SettingsView, String> {
     let mode = normalize_grub_list_view(&stored_settings(app).grub_list_view);
     let width = grub_layout_width(mode) as u32;
-    set_main_window_size(app, width, DEFAULT_WINDOW_HEIGHT)?;
+    set_main_window_size(app, width, default_window_height(app))?;
     Ok(publish_settings(app))
 }
 
@@ -6153,13 +6815,9 @@ fn cancel_pending_now(app: &AppHandle) -> Result<(), String> {
         "（待执行请求）",
         &pending.summary,
         "cancelled",
-        "本机用户取消",
+        "用户取消",
     );
-    trace(
-        app,
-        "remote",
-        &format!("待执行请求 {} 被本机取消", pending.id),
-    );
+    trace(app, "remote", &format!("待执行请求 {} 已取消", pending.id));
     close_notify_window(app);
     publish_ui(app);
     Ok(())
@@ -7002,7 +7660,7 @@ fn spawn_menu_action(app: &AppHandle, action: MenuAction) {
             unmount_temporary(app);
         }
         MenuAction::Switch(system) => {
-            switch_and_update(&app, &system);
+            switch_system_locally(&app, &system);
         }
         MenuAction::Power(action) => spawn_power(&app, action, true),
         MenuAction::SetHttpEnabled(enabled) => set_http_enabled_setting(&app, enabled),
@@ -10357,7 +11015,8 @@ fn switch_system(app: AppHandle, system: String) -> AppStatus {
         "command",
         &format!("switch_system system={system}（主窗口）"),
     );
-    switch_and_update(&app, &system)
+    // 本机入口：会先作废挂着的远程请求，别让它到点把本机选择盖回去
+    switch_system_locally(&app, &system)
 }
 
 // ---- GRUB 细粒度切换的命令面 ----
@@ -11423,7 +12082,7 @@ fn confirm_pending(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 fn cancel_pending(app: AppHandle) -> Result<(), String> {
-    trace(&app, "command", "cancel_pending（本机取消）");
+    trace(&app, "command", "cancel_pending（取消待执行请求）");
     cancel_pending_now(&app)
 }
 
@@ -11444,6 +12103,14 @@ fn power_action(app: AppHandle, action: Option<String>) -> Result<(), String> {
 }
 
 pub fn run() {
+    // 第一件事：给快照版本号取「跟时间挂钩」的起点。必须早于任何 publish_ui ——
+    // 否则第一份快照还是从 0 数起，客户端跨进程重启就会永久冻在旧快照上
+    // （原因见 UI_REVISION 的注释）。
+    UI_REVISION.store(ui_revision_seed(unix_millis()), Ordering::SeqCst);
+    // 必须在建 WebView 之前：WebKit 是在那一刻读这些环境变量的（NVIDIA 上白窗的修法）
+    #[cfg(target_os = "linux")]
+    apply_linux_gpu_workarounds();
+
     let builder = tauri::Builder::default()
         .manage(Mutex::<AppState>::default())
         .manage(Mutex::<Settings>::default())
@@ -12564,6 +13231,249 @@ mod core_tests {
         );
     }
 
+    /// 出厂默认：亮色主题、90% 不透明度、窗口居中、远程可弹本机授权框。
+    /// 这四条是用户定案的「默认设置」，动它们等于动产品行为 —— 钉住。
+    #[test]
+    fn settings_defaults_match_the_agreed_product_defaults() {
+        let settings = Settings::default();
+        assert_eq!(settings.theme, DEFAULT_THEME);
+        assert_eq!(settings.theme, "light");
+        assert_eq!(settings.opacity_percent, DEFAULT_OPACITY_PERCENT);
+        assert_eq!(settings.opacity_percent, 90);
+        assert_eq!(settings.main_window_position, DEFAULT_WINDOW_POSITION);
+        assert_eq!(settings.main_window_position, "center");
+        // 默认允许远程请求弹本机授权框（用户定案「远程可触发本机框」）
+        assert!(settings.remote_allow_gui_auth);
+        // 尺寸默认「还没记过」→ 启动时按屏幕工作区的一半算，且不锁定
+        assert_eq!(settings.window_height, 0);
+        assert!(!settings.window_size_locked);
+    }
+
+    /// `/health` 是客户端认「这台电脑是谁」的唯一入口：手机端靠 `machineId`
+    /// 把同一台电脑的多块网卡 IP 归并成一份页面。字段名就是契约，钉住。
+    #[test]
+    fn health_payload_exposes_the_machine_identity() {
+        let value = health_json("  abc123  ", "  desk  ");
+        assert_eq!(value["ok"], serde_json::json!(true));
+        assert_eq!(value["service"], serde_json::json!("anyboot"));
+        assert_eq!(value["machineId"], serde_json::json!("abc123"));
+        assert_eq!(value["machineName"], serde_json::json!("desk"));
+        // 取不到标识也不许报错，只给空串 —— 客户端按「空 = 未知」退回分组名判断
+        let unknown = health_json("", "");
+        assert_eq!(unknown["machineId"], serde_json::json!(""));
+        assert_eq!(unknown["machineName"], serde_json::json!(""));
+        assert_eq!(unknown["ok"], serde_json::json!(true), "探活语义不能被身份字段影响");
+    }
+
+    /// 机器标识是新增设置项：老配置（没有这个键）必须能读，且默认是空串
+    /// —— 由 ensure_settings_complete 在首次运行时补上。
+    #[test]
+    fn machine_id_defaults_to_empty_and_is_backwards_compatible() {
+        assert!(Settings::default().machine_id.is_empty());
+        let loaded: Settings = serde_json::from_str(r#"{"httpPort":12300,"theme":"light"}"#)
+            .expect("老配置（缺 machineId）必须能反序列化");
+        assert!(loaded.machine_id.is_empty());
+        // 反序列化后再序列化要带上这个键，客户端下次才读得到同一个值
+        let text = serde_json::to_string(&loaded).expect("序列化");
+        assert!(text.contains("\"machineId\""), "落盘必须包含 machineId: {text}");
+    }
+
+    /// 主机名取第一个非空候选（纯函数）。空白串要跳过，不能拿空格当名字。
+    #[test]
+    fn first_nonempty_skips_blank_candidates() {
+        assert_eq!(first_nonempty(Vec::<String>::new()), "");
+        assert_eq!(
+            first_nonempty(vec!["".to_string(), "   ".to_string()]),
+            "",
+            "全是空白就当取不到"
+        );
+        assert_eq!(
+            first_nonempty(vec!["".to_string(), "  desk  ".to_string(), "other".to_string()]),
+            "desk",
+            "取到就 trim，且不再往后看"
+        );
+        assert_eq!(
+            first_nonempty(["".to_string(), "second".to_string(), "third".to_string()]),
+            "second"
+        );
+    }
+
+    /// 推送订阅表是全局 static，而测试是并行跑的：凡碰它的用例都先拿这把锁串起来
+    /// （否则一条测试的 `disconnect_all()` 会把另一条正在用的客户端清掉 → 偶发红）。
+    fn ws_test_guard() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: Mutex<()> = Mutex::new(());
+        LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// 推送订阅表：登记 → 广播 → 注销 → 收服务清空。
+    #[test]
+    fn websocket_hub_registers_broadcasts_and_drops_clients() {
+        let _serial = ws_test_guard();
+        // 干净开场，免得受别的用例影响
+        websocket_disconnect_all();
+        assert_eq!(websocket_client_count(), 0);
+
+        let (first, first_rx) = websocket_subscribe();
+        let (_second, second_rx) = websocket_subscribe();
+        assert_eq!(websocket_client_count(), 2);
+
+        // 广播：两个客户端各收一份，内容就是推的那个快照
+        websocket_publish(&serde_json::json!({ "revision": 7 }));
+        for receiver in [&first_rx, &second_rx] {
+            let payload = receiver.try_recv().expect("两个客户端都该收到这一拍");
+            assert!(payload.contains("\"revision\":7"), "推的是快照本体：{payload}");
+        }
+
+        // 注销一个：人数减一，而且它再也收不到（发送端已 drop）
+        websocket_unsubscribe(first);
+        assert_eq!(websocket_client_count(), 1);
+        websocket_publish(&serde_json::json!({ "revision": 8 }));
+        assert!(first_rx.try_recv().is_err(), "注销后不该再收到东西");
+        assert!(second_rx.try_recv().is_ok(), "另一个照常收");
+
+        // 只推一次、却没人订阅时不做任何事（连序列化都跳过）；有人订阅才推
+        websocket_disconnect_all();
+        assert_eq!(websocket_client_count(), 0);
+        websocket_publish(&serde_json::json!({ "revision": 9 }));
+        assert!(second_rx.try_recv().is_err(), "清空之后谁都不该收到");
+    }
+
+    /// 对端收得比我们发得慢（队列塞满）时：**丢帧而不是阻塞**。
+    ///
+    /// 这条钉住的是「一个卡住的手机不能把主机拖住」：快照是完整状态不是增量，
+    /// 丢几拍不影响正确性，但 `publish_ui` 一旦被阻塞，主窗口自己的重绘会一起卡。
+    #[test]
+    fn websocket_publish_drops_frames_instead_of_blocking_a_stalled_client() {
+        let _serial = ws_test_guard();
+        websocket_disconnect_all();
+        let (id, receiver) = websocket_subscribe();
+
+        // 推得比队列容量多得多：不该阻塞、不该 panic、也不该把连接丢掉
+        for revision in 0..(WS_QUEUE * 3) {
+            websocket_publish(&serde_json::json!({ "revision": revision }));
+        }
+        assert_eq!(
+            websocket_client_count(),
+            1,
+            "队列满了也该留着连接，只是丢帧"
+        );
+
+        let mut received = 0;
+        while receiver.try_recv().is_ok() {
+            received += 1;
+        }
+        assert_eq!(received, WS_QUEUE, "最多只留得下队列容量那么多帧");
+
+        websocket_unsubscribe(id);
+        websocket_disconnect_all();
+    }
+
+    /// revision 的起点必须跟时间挂钩。**这条是跨进程重启后客户端还能自愈的前提**：
+    /// 客户端按 `revision <= lastRevision` 丢弃过期快照，起点从 0 数会让新进程的
+    /// 全部快照被判成旧的 → 页面永久冻在重启前的数据上。
+    #[test]
+    fn ui_revision_seed_must_not_restart_from_zero() {
+        assert!(ui_revision_seed(1) >= 1, "种子不能是 0");
+        // 启动越晚，种子越大 —— 客户端靠比大小接受新进程的快照
+        assert!(ui_revision_seed(1_700_000_000_000) > ui_revision_seed(1_600_000_000_000));
+        // 旧进程即使跑很久，新进程的起点也一定更大（这就是自愈的机制）
+        let old_process_high_water_mark: u64 = 100_000;
+        assert!(ui_revision_seed(1_700_000_000_000) > old_process_high_water_mark);
+    }
+
+    /// 静态资源路由：用户可能用任何一种自然写法打开网页端。
+    /// `/index.html` 曾经漏掉 —— 无 token 时被闸门回 401「token 缺失或无效」，
+    /// 带着 token 又回 404，两种都会让人误以为是自己 token 的问题。
+    #[test]
+    fn static_ui_routes_cover_the_natural_spellings() {
+        let html_paths = ["/", "/index.html", "/ui", "/ui/", "/ui/index.html"];
+        for path in html_paths {
+            let reply = static_ui_reply(path).unwrap_or_else(|| panic!("{path} 应该能直接拿到页面"));
+            assert_eq!(reply.status, 200);
+            let (content_type, body) = reply.raw.expect("静态资源必须走 raw 响应体");
+            assert_eq!(content_type, "text/html; charset=utf-8", "{path}");
+            assert!(!body.is_empty(), "{path} 的正文不该是空的");
+        }
+
+        // JS / CSS 同理（index.html 里用的是 ./app.js、./styles.css 这种相对路径）
+        for (path, expected) in [
+            ("/app.js", "text/javascript; charset=utf-8"),
+            ("/ui/app.js", "text/javascript; charset=utf-8"),
+            ("/grub-list-view.js", "text/javascript; charset=utf-8"),
+            ("/styles.css", "text/css; charset=utf-8"),
+            ("/ui/styles.css", "text/css; charset=utf-8"),
+        ] {
+            let reply = static_ui_reply(path).unwrap_or_else(|| panic!("{path} 应该能拿到"));
+            let (content_type, body) = reply.raw.expect("静态资源必须走 raw 响应体");
+            assert_eq!(content_type, expected, "{path}");
+            assert!(!body.is_empty(), "{path}");
+        }
+
+        // 不认识的路径必须返回 None（继续走鉴权 / 404），别把什么都当页面发出去
+        for path in ["/nope.js", "/index.htm", "/../etc/passwd", "/ui/app.js.map"] {
+            assert!(static_ui_reply(path).is_none(), "{path} 不该走静态资源");
+        }
+    }
+
+    /// 「立即执行」不允许远程点 —— 授权窗的意义就是本机用户点头，远程能自己确认
+    /// 就等于自己给自己盖章。「取消」（撤回自己的请求）放行，随时能反悔。
+    #[test]
+    fn confirming_a_pending_request_needs_a_local_click() {
+        assert!(ui_command_is_local_only("confirm_pending"));
+        assert!(!ui_command_is_local_only("cancel_pending"));
+        // 其余命令不受影响
+        assert!(!ui_command_is_local_only("refresh"));
+        assert!(!ui_command_is_local_only("switch_system"));
+    }
+
+    /// 网页 / 手机端点「选择系统」必须先经本机授权（远程请求 → 本机弹窗确认）。
+    /// 这是产品决策，钉住：别哪天顺手把它改回「网页直接生效」。
+    #[test]
+    fn selecting_a_system_from_the_web_needs_local_confirmation() {
+        assert!(ui_command_requires_local_auth("switch_system"));
+        // 其余命令保持原样（改设置、刷新、GRUB 切换…）
+        assert!(!ui_command_requires_local_auth("refresh"));
+        assert!(!ui_command_requires_local_auth("set_theme"));
+        assert!(!ui_command_requires_local_auth("switch_grub"));
+    }
+
+    /// 默认窗口高度 = 屏幕工作区高度的一半，夹回合法区间。
+    #[test]
+    fn default_window_height_is_half_the_work_area() {
+        // 常规 1080p：一半 540 → 落到最小高度 560（再低界面就挤坏了，是有意的）
+        assert_eq!(default_window_height_from_work_area(1080), 560);
+        // 1440p：720 在区间内，原样取一半
+        assert_eq!(default_window_height_from_work_area(1440), 720);
+        // 超大屏也夹回上限
+        assert_eq!(default_window_height_from_work_area(4000), 1200);
+        // 极小屏别低于下限
+        assert_eq!(default_window_height_from_work_area(600), 560);
+        // 奇数高度向下取整，不四舍五入（宁可矮一像素也不越界）
+        assert_eq!(default_window_height_from_work_area(2161), 1080);
+    }
+
+    /// 隐藏期间改过尺寸时，居中必须用「请求尺寸」而不是滞后的读数。
+    #[test]
+    fn centering_uses_the_requested_size_until_the_reading_catches_up() {
+        // 藏着时改到 932x560，读数还停在建窗时的 460x900 → 用请求值。
+        // 用读数就会先落到 (730,90)，46ms 后才跳回 (494,260)。
+        assert_eq!(
+            centering_size((460, 900), (932, 560), true),
+            ((932, 560), true),
+            "读数滞后时必须用请求尺寸"
+        );
+        // 读数跟上了（ConfigureNotify 已到）→ 用读数，并作废 pending。
+        assert_eq!(centering_size((932, 560), (932, 560), true), ((932, 560), false));
+        // WM 1~2px 的微调也算跟上，别一直挂着 pending。
+        assert_eq!(centering_size((933, 559), (932, 560), true), ((933, 559), false));
+        // 没有 pending（可见时改的尺寸，读数立即生效）→ 一律用读数：
+        // 用户手拖窗口后设置里记得的还是旧值，不能被它盖掉。
+        assert_eq!(
+            centering_size((700, 800), (932, 560), false),
+            ((700, 800), false)
+        );
+    }
+
     #[test]
     fn settings_debug_trace_defaults_off_and_round_trips() {
         assert!(!Settings::default().debug_trace);
@@ -12986,7 +13896,7 @@ mod core_tests {
     #[test]
     fn settings_defaults_show_up_in_the_file() {
         // 新装/升级后写回磁盘的就是这些默认值：默认开服务、默认 0.0.0.0:12300、
-        // 通知默认开、两条渠道默认各 5 秒、远程默认不弹授权框
+        // 通知默认开、两条渠道默认各 5 秒、远程默认**可以**弹本机授权框
         let settings = Settings::default();
         assert!(settings.http_enabled);
         assert_eq!(settings.http_bind, DEFAULT_HTTP_BIND);
@@ -12995,7 +13905,7 @@ mod core_tests {
         assert_eq!(settings.http_bind, "0.0.0.0");
         assert!(settings.http_token.is_empty(), "token 由首次运行生成");
         assert!(settings.notify_enabled);
-        assert!(!settings.remote_allow_gui_auth);
+        assert!(settings.remote_allow_gui_auth, "远程默认可弹本机授权框");
         assert_eq!(settings.channels, Channels::default());
         assert!(settings.channels.http.notify);
         assert_eq!(settings.channels.http.delay_seconds, 5);
@@ -13997,5 +14907,174 @@ mod core_tests {
             usable_window_size_basis(None, Some((460, 900))),
             Some((460, 900))
         );
+    }
+}
+
+/// NVIDIA 白窗相关的用例：只在真的会加这些开关的平台上跑。
+#[cfg(all(test, target_os = "linux"))]
+mod linux_gpu_tests {
+    use super::*;
+
+    #[test]
+    fn display_backend_follows_gdk_then_session_vars() {
+        use LinuxDisplayBackend::{Unknown, Wayland, X11};
+        // GDK_BACKEND 是硬指定，压过其它一切线索
+        assert_eq!(
+            linux_display_backend(Some("wayland"), Some("x11"), None, Some(":0")),
+            Wayland
+        );
+        assert_eq!(
+            linux_display_backend(Some("x11"), Some("wayland"), Some("wayland-0"), None),
+            X11
+        );
+        // 逗号列表：第一个认得出的算数，认不出的（broadway）跳过
+        assert_eq!(
+            linux_display_backend(Some("broadway,x11"), None, None, None),
+            X11
+        );
+        assert_eq!(
+            linux_display_backend(
+                Some("broadway"),
+                Some("wayland"),
+                Some("wayland-1"),
+                Some(":0")
+            ),
+            Wayland
+        );
+        // 没设 GDK_BACKEND 才轮到 XDG_SESSION_TYPE
+        assert_eq!(
+            linux_display_backend(None, Some("wayland"), Some("wayland-0"), Some(":0")),
+            Wayland
+        );
+        // 都没有就用变量兜底；XWayland 下 DISPLAY 也在，Wayland 的判定必须排在它前面
+        assert_eq!(
+            linux_display_backend(None, None, Some("wayland-0"), Some(":0")),
+            Wayland
+        );
+        assert_eq!(linux_display_backend(None, None, None, Some(":0")), X11);
+        assert_eq!(linux_display_backend(None, None, None, None), Unknown);
+    }
+
+    #[test]
+    fn nvidia_major_comes_from_the_nvrm_banner() {
+        // 本机（615.71.09 开源内核模块）：文件不止一行，下一行的 gcc 版本不能被当成驱动版本
+        assert_eq!(
+            nvidia_major_from_version_text(
+                "NVRM version: NVIDIA UNIX Open Kernel Module for x86_64  615.71.09  Release Build  (root@arch)\n\
+                 GCC version:  gcc 16.2.1 20260810 (GCC)"
+            ),
+            Some(615)
+        );
+        // 闭源模块的排法（版本号前面还有别的词）
+        assert_eq!(
+            nvidia_major_from_version_text(
+                "NVRM version: NVIDIA UNIX x86_64 Kernel Module  550.107.02  Tue Jul 30 01:02:03 UTC 2024"
+            ),
+            Some(550)
+        );
+        assert_eq!(nvidia_major_from_version_text(""), None);
+        // 没有 NVRM 那一行就不认（宁可不动开关，也别被别的版本号带偏）
+        assert_eq!(
+            nvidia_major_from_version_text("GCC version:  gcc 16.2.1"),
+            None
+        );
+        assert_eq!(
+            nvidia_major_from_version_text("NVRM version: 无版本号"),
+            None
+        );
+    }
+
+    #[test]
+    fn gpu_override_depends_on_backend_and_compositor() {
+        use LinuxDisplayBackend::{Unknown, Wayland, X11};
+
+        // X11 的开关集钉死成**这一个**：让帧走共享内存。这是 NVIDIA 上唯一能把页面
+        // 画出来的开关（WebKit Bug 324551 实测）；换成 DISABLE_DMABUF_RENDERER 会退回
+        // 「只有鼠标扫过才显示」，换成 DISABLE_COMPOSITING_MODE 在 2.54 上则完全是空壳。
+        assert_eq!(
+            X11_GPU_SWITCHES.to_vec(),
+            vec![("WEBKIT_DMABUF_RENDERER_FORCE_SHM", "1")]
+        );
+        assert_eq!(
+            linux_gpu_env_overrides(X11, Some("X-Cinnamon"), 615),
+            X11_GPU_SWITCHES
+        );
+        // X11 上不看出身，KDE 也一样（别把 Wayland 的修法串到 X11 上）
+        assert_eq!(
+            linux_gpu_env_overrides(X11, Some("KDE"), 615),
+            X11_GPU_SWITCHES
+        );
+        // 后端认不出来也按 X11 处理，不赌
+        assert_eq!(
+            linux_gpu_env_overrides(Unknown, None, 615),
+            X11_GPU_SWITCHES
+        );
+        // 上一版试过的两个开关已确认无效/有害，不许再加回 X11 这一支：
+        //   DISABLE_DMABUF_RENDERER → 2.52 起会清空传输模式（表现「只有鼠标扫过才显示」）
+        //   DISABLE_COMPOSITING_MODE → 2.54 起完全不生效（空壳）
+        for stale in [
+            "WEBKIT_DISABLE_DMABUF_RENDERER",
+            "WEBKIT_DISABLE_COMPOSITING_MODE",
+        ] {
+            assert!(
+                !X11_GPU_SWITCHES.iter().any(|(name, _)| *name == stale),
+                "X11 上不该再用 {stale}"
+            );
+        }
+
+        // Hyprland：缺 acquire point 会被掐连接，DMA-BUF 必须关
+        assert_eq!(
+            linux_gpu_env_overrides(Wayland, Some("Hyprland"), 615),
+            DMABUF_RENDERER_OFF
+        );
+        // KWin 一类严格同步的合成器：关 NVIDIA 显式同步
+        assert_eq!(
+            linux_gpu_env_overrides(Wayland, Some("KDE"), 615),
+            NVIDIA_EXPLICIT_SYNC_OFF
+        );
+        assert_eq!(
+            linux_gpu_env_overrides(Wayland, Some("Plasma"), 615),
+            NVIDIA_EXPLICIT_SYNC_OFF
+        );
+        // 其它 Wayland + 驱动 ≥560（自带 egl-wayland2）：本来是好的，别动
+        assert_eq!(
+            linux_gpu_env_overrides(Wayland, Some("GNOME"), 615),
+            NO_GPU_SWITCHES
+        );
+        assert_eq!(linux_gpu_env_overrides(Wayland, None, 560), NO_GPU_SWITCHES);
+        // 老驱动没有 egl-wayland2，不关显式同步可能连不上
+        assert_eq!(
+            linux_gpu_env_overrides(Wayland, Some("GNOME"), 470),
+            NVIDIA_EXPLICIT_SYNC_OFF
+        );
+        // X11 专属的「帧走共享内存」开关不许串到 Wayland 各支上：那边的问题是
+        // acquire point / 显式同步，用错了开关反而会引出别的毛病
+        for (desktop, driver) in [
+            (Some("Hyprland"), 615),
+            (Some("KDE"), 615),
+            (Some("GNOME"), 615),
+            (Some("GNOME"), 470),
+        ] {
+            let picked = linux_gpu_env_overrides(Wayland, desktop, driver);
+            assert!(
+                !picked
+                    .iter()
+                    .any(|(name, _)| *name == "WEBKIT_DMABUF_RENDERER_FORCE_SHM"),
+                "Wayland({desktop:?}) 不该用 X11 的共享内存开关"
+            );
+        }
+    }
+
+    #[test]
+    fn user_configured_switches_are_left_alone() {
+        // 四个开关一个都没设：才轮到我们动手
+        assert!(!webkit_env_already_configured(|_| false));
+        // 任何一个被设过（哪怕显式设成 0）都算「用户自己管了」，全部放行
+        for name in WEBKIT_ENV_SWITCHES {
+            assert!(webkit_env_already_configured(|probe| probe == name));
+        }
+        assert!(webkit_env_already_configured(
+            |name| name == "__NV_DISABLE_EXPLICIT_SYNC"
+        ));
     }
 }

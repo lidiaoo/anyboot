@@ -72,18 +72,37 @@ AnyBoot 内置的 HTTP 服务不但对外提供 `/api/*`，还**托管同一份�
 | 客户端 | 是什么 | 怎么用 | 详细说明 |
 | --- | --- | --- | --- |
 | **Web 端** | 浏览器打开 `http://<电脑IP>:12300` | 托盘/主菜单 **远程控制 ▸ 打开 Web 页面**，或手敲地址；首次输一次 token | [`ui/README.md`](ui/README.md) |
-| **Android** | WebView 外壳，一个标签一个服务端 | `gradle assembleDebug` 出 APK 装上；标签栏管理多台电脑、支持分组 | [`mobile/android/README.md`](mobile/android/README.md) |
+| **Android** | WebView 外壳，**一台电脑一个标签**（多网卡地址自动切换） | `gradle assembleDebug` 出 APK 装上（**Linux 开发机与 Windows 机器都能出**，命令见该目录 README）；标签栏管理多台电脑、支持分组 | [`mobile/android/README.md`](mobile/android/README.md) |
 | **iOS** | SwiftUI + WKWebView，同构 | 用 Xcode 把源码拖进工程运行（Windows 上构建不了） | [`mobile/ios/README.md`](mobile/ios/README.md) |
 
 三点要知道的：
 
 - **Web 端 = 主窗口**：同一份 HTML/CSS/JS，栏目用地址栏 hash 寻址（`#/boot` 系统引导、`#/settings` 基本设置），
   刷新 / 收藏 / 分享链接都落回同一个栏目；网页端初始固定进**系统引导**。
-- **不装 App 也能用**：手机浏览器打开同一个地址效果一样；App 只是多了「一台手机同时连多台电脑 + 分组 + 重试面板」。
+- **不装 App 也能用**：手机浏览器打开同一个地址效果一样；App 只是多了「一台手机同时连多台电脑 + 一台电脑多地址自动切换 + 重试面板」。
+- **多网卡只占一份页面**：一台电脑有多块网卡 / 换过 DHCP，地址填多行即可 ——
+  客户端靠 `GET /health` 的 `machineId` 自动认出这是同一台机器，只保留一个标签，
+  首选地址不通就换下一个。（详见 [`mobile/README.md`](mobile/README.md)）
 - **浏览器做不了的事**：弹出文件夹选择框、打开系统设置、需要提权弹框的操作，服务端会显式返回 `gui_only`，
   页面提示「该操作需要在电脑上完成」，不会静默失败。
 
 移动端总览见 [`mobile/README.md`](mobile/README.md)。
+
+客户端上还有两件事是按「经本机同意」设计的：
+
+- **选择系统要先在本机确认**：网页 / 手机上点「切换」，不会直接改引导项，而是变成一条
+  **远程请求** —— 电脑端弹出授权窗（写明来源客户端 IP、渠道、发起时间），本机用户点
+  「立即执行」或等倒计时到点才真的切换，点「取消」就作废。
+  授权窗上的「立即执行」**只能在电脑上点**（远程端是灰的，只能撤回自己那条请求）。
+  桌面主窗口自己点按钮不受影响（走的是应用内直连命令，仍然是即时生效）。
+- **连不上会自动重试**：客户端刚打开的那一拍，电脑端服务可能正在重启、或网络刚通。
+  这时页面不会定格成空白（旧版只探测一次，失败就永久降级成「预览模式」），
+  而是每 2 秒重试一次，一连上就自己接回远程模式，不用手动刷新。
+- **改动走推送，不再靠轮询**：页面默认开着 `GET /api/ws`（WebSocket），电脑那边一改就推到页面上，
+  空闲时几乎不发包（旧版是每 2 秒拉一次 `/api/ui-state`）。横幅里可以改走哪条路
+  （**自动 / 推送 / 轮询**），手机 App 的菜单里也能选、会跟着地址一起传过去。
+  手滑一下就能**下拉刷新**，横幅上还有 **「刷新」** 按钮 —— 推送丢了一拍或你在别的设备刚改完，
+  拉一下立刻对齐。（详见 [`ui/README.md`](ui/README.md)）
 
 ---
 
@@ -104,7 +123,7 @@ AnyBoot 内置的 HTTP 服务不但对外提供 `/api/*`，还**托管同一份�
 | `channels.http.delaySeconds` | `5` | 这条渠道延迟几秒执行（`0` = 立即执行） |
 | `channels.cli.notify` | `true` | ssh / CLI 这条渠道弹不弹窗 |
 | `channels.cli.delaySeconds` | `5` | 这条渠道延迟几秒执行 |
-| `remoteAllowGuiAuth` | `false` | 远程/CLI 请求**不会**弹本机授权框（见 [远程需要“本机授权”时怎么办](#远程需要本机授权时怎么办)） |
+| `remoteAllowGuiAuth` | `true` | 远程/CLI 请求**可以**弹本机授权框（见 [远程需要“本机授权”时怎么办](#远程需要本机授权时怎么办)） |
 
 必须知道的三件事：
 
@@ -187,7 +206,9 @@ HOST='192.168.1.50'      # 目标机的局域网 IP；本机测试用 127.0.0.1
 
 | 端点 | 干什么 | 会改状态吗 |
 | --- | --- | --- |
-| `GET /health` | 服务活着吗（免 token） | 不会 |
+| `GET /health` | 服务活着吗 + **这台机器是谁**（`machineId` / `machineName`，免 token） | 不会 |
+| `GET /api/ws` | 状态快照的**推送通道**（WebSocket；握手用 `?token=` 或 cookie，连上即得一帧完整快照，之后每次变更推一帧） | 不会 |
+| `GET /api/ui-state` | 当前状态快照（轮询兜底 / 手动刷新 / 下拉刷新用） | 不会 |
 | `GET /api/status` | 变量目录、三个系统文件是否存在、下次启动是哪个 | 不会 |
 | `GET /api/requests` | 最近 20 条远程请求（时间/来源/渠道/动作/结果） | 不会 |
 | `POST /api/switch?system=linux` | 切换下次启动为 linux / windows / macos | 会 |
@@ -203,8 +224,14 @@ curl -s http://$HOST:12300/health
 预期回答（HTTP 200）：
 
 ```json
-{"ok":true,"service":"anyboot"}
+{"ok":true,"service":"anyboot","machineId":"9f2c…（32 位十六进制）","machineName":"书房台式机"}
 ```
+
+`machineId` 是**本机标识**：首次运行生成一次、存在 `settings.json` 里，重启不变。
+手机 / 网页客户端拿它认出「这几条 IP 其实是同一台电脑」—— 一台电脑多块网卡、
+或者 DHCP 每次给不同 IP，客户端只保留**一份页面**、自动挑能通的那个地址
+（详见 [`mobile/README.md`](mobile/README.md)）。它免 token 返回，因为客户端在
+填 token 之前就要用它归并；不含任何机密，`machineName` 取不到时是空串。
 
 **② 看当前状态**
 
@@ -441,6 +468,17 @@ diskpart
 
 ## 应用设置
 
+**出厂默认值**（全新安装，或删掉 `settings.json` 里对应字段后重启）：主题**亮色**、
+窗口不透明度 **90%**、窗口位置固定在**屏幕（工作区）正中央**、
+窗口高度默认占**屏幕工作区高度的一半**（宽度随 GRUB 展示方式）、
+「远程可触发本机授权框」**开**。这些都能在主窗口里改，改完立刻落进 `settings.json`。
+
+窗口尺寸一旦拖过就按**记忆值**来（不再每次启动重算）；想回到「屏幕一半」，
+在设置里点**重置窗口大小**即可。
+
+窗口位置选**「屏幕中间」**时，拖高度滑条会**保持居中** —— 窗口上下同时伸缩，不会只往下长、
+更不会被挤到屏幕上沿去。选「上次位置」或「自由」时按原来的锚点伸缩，不做干预。
+
 主窗口「应用设置」区域：
 
 - **开机启动**：登录系统后自动启动应用。
@@ -642,6 +680,27 @@ sudo chown -R "$(id -un):$(id -gn)" ~/.config/com.example.anyboot
 ```
 
 开机启动写的是 `~/.config/autostart`，在这个问题下仍可能正常工作。
+
+### 窗口一片空白 / 只显示白色（Linux + NVIDIA 独显）
+
+WebKitGTK 与 NVIDIA 专有驱动在这条渲染路径上谈不拢，会在**不报任何错**的情况下画不出来：窗口、托盘、日志都正常，就是内容全白。Intel/Mesa 走同一条路径没问题，所以现象常是「核显好好的，一切到独显就白」。
+
+同一个毛病还有第二种表现：**内容其实加载了，但只有鼠标扫过的地方才显示出来**。所以别看到「能加载」就以为过去了。
+
+应用启动时会自己处理，不需要你配任何东西：检测到 NVIDIA 驱动已加载（`/proc/driver/nvidia/version` 存在）时，在 GTK / WebKit 起来之前按会话类型设好对应开关：
+
+| 会话 | 设置的开关 |
+| --- | --- |
+| X11（Cinnamon / KDE / GNOME 等） | `WEBKIT_DMABUF_RENDERER_FORCE_SHM=1` |
+| Wayland + Hyprland | `WEBKIT_DISABLE_DMABUF_RENDERER=1` |
+| Wayland + KWin 等严格要求 acquire point 的合成器 | `__NV_DISABLE_EXPLICIT_SYNC=1` |
+| Wayland + 其它合成器（驱动 ≥560 自带 egl-wayland2） | 不改（这条路径本来是好的） |
+
+X11 用的 `WEBKIT_DMABUF_RENDERER_FORCE_SHM=1` 是让 WebKit 把帧以**共享内存**交给窗口系统，绕开 NVIDIA 收不下的 GPU 缓冲。这是 NVIDIA 上唯一实测能把页面画出来的开关（WebKit Bug 324551）；同类的 `WEBKIT_DISABLE_DMABUF_RENDERER=1` 自 WebKit 2.52 起已不再回退到共享内存、反而会让画面画不全，`WEBKIT_DISABLE_COMPOSITING_MODE=1` 在 2.54 已失效 —— 这两个都别再用了。
+
+- **纯核显模式不加任何开关**：NVIDIA 驱动没加载就什么都不会动，不需要这些开关的机器不会白白掉性能。
+- **你自己设过上面任一个开关**（哪怕设成 `0`）应用就完全不动手，按你的配置来。想手动对照，就用 `WEBKIT_DMABUF_RENDERER_FORCE_SHM=0` 之类跑一次。
+- 想看它到底做了什么：`ANYBOOT_TRACE=1 ./anyboot`，启动时会往 stderr 打一行 `anyboot: NVIDIA 驱动 615 / X11，已设置 WEBKIT_DMABUF_RENDERER_FORCE_SHM=1`。
 
 ### 想看“到底发生了什么”
 

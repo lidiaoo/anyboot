@@ -4,17 +4,23 @@
 //! 这里只负责传输与解析（方法/路径/查询/表单/JSON 里的 token、来源是否 loopback），
 //! 具体路由与执行交给 `super::handle_remote_request`，两边共用同一套核心逻辑。
 
-use std::io::Read;
+use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::RecvTimeoutError;
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+use base64::Engine as _;
+use sha1::{Digest, Sha1};
 use tauri::AppHandle;
 use tiny_http::{Header, Response, Server};
 
-use super::{handle_remote_request, RemoteReply, RemoteRequest, MAX_REQUEST_BODY};
+use super::{
+    handle_remote_request, websocket_disconnect_all, websocket_hello, websocket_subscribe,
+    websocket_unsubscribe, RemoteReply, RemoteRequest, MAX_REQUEST_BODY,
+};
 
 /// 工作线程数：请求都很短（真正耗时的动作在 lib 侧另起线程），4 个足够。
 const WORKER_THREADS: usize = 4;
@@ -26,6 +32,23 @@ const WAKE_TIMEOUT: Duration = Duration::from_millis(500);
 const RELEASE_TIMEOUT: Duration = Duration::from_millis(2000);
 /// 等待期间的重试间隔。
 const RELEASE_POLL: Duration = Duration::from_millis(5);
+
+/// WebSocket 推送通道的路径（网页端 / 手机端用它替掉 2s 一次的 /api/ui-state 轮询）。
+const WS_PATH: &str = "/api/ws";
+/// RFC 6455 握手写死的魔数。
+const WS_GUID: &str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+/// 推送线程等新快照的时长：只是让它周期性地回来看看要不要发心跳，不是延迟上限
+/// （一有新快照立刻返回）。
+const WS_POLL: Duration = Duration::from_millis(1000);
+/// 空闲多久发一个 ping。
+///
+/// 两个作用：① 保活 —— 手机切网/路由器踢空闲连接时，一条 ping 就能把链路重新
+/// 激活；② 它是我们**唯一**的「对端还在吗」探测器（见 `serve_websocket` 的说明，
+/// 这条连接只写不读，对端消失只能从写失败上看出来）。
+const WS_KEEPALIVE: Duration = Duration::from_secs(25);
+/// 网页端把 token 存在这个 cookie 里（前端 `REMOTE_TOKEN_COOKIE` 必须同名）。
+/// WebSocket 握手喝不进自定义请求头，这是浏览器唯一会自动带上的凭据。
+const WS_TOKEN_COOKIE: &str = "anyboot_token";
 
 #[derive(Clone, Debug)]
 pub(crate) struct ServerConfig {
@@ -60,6 +83,10 @@ impl RunningServer {
     /// 一直报 10048、还得退出程序才能恢复」的根因。
     pub(crate) fn stop(self) -> Result<(), String> {
         self.stop.store(true, Ordering::SeqCst);
+        // 推送连接的线程是 detached 的（不归下面这批 worker），收服务时得单独请它们走：
+        // 清掉订阅表 → 那边的 recv 立刻拿到 Disconnected → 线程自己收尾退出。
+        // 不清的话，换 token / 关服务之后这些线程会抱着旧 socket 一直挂着。
+        websocket_disconnect_all();
         wake(&self.wake, WAKE_TIMEOUT);
         for join in self.joins {
             let _ = join.join();
@@ -179,26 +206,44 @@ fn handle_one(app: &AppHandle, mut request: tiny_http::Request) {
         .unwrap_or_else(|| "-".to_string());
     let headers = request.headers().to_vec();
 
+    // WebSocket 升级请求要先分流：它没有 body，而且一旦升级成功，连接的所有权
+    // 就交给推送线程了（`upgrade` 吃掉 request），不能再走常规的「解析 → 路由 → 回包」。
+    let upgrade_key = if path == WS_PATH {
+        websocket_key(&headers)
+    } else {
+        None
+    };
+
     let mut body = String::new();
-    if let Some(length) = request.body_length() {
-        if length > MAX_REQUEST_BODY {
-            // 明确回 413，别静默当空 body（那样会变成看不懂的 401）
-            let reply = RemoteReply::error(413, "body_too_large", "请求体过大");
-            send(request, &reply);
-            return;
+    if upgrade_key.is_none() {
+        if let Some(length) = request.body_length() {
+            if length > MAX_REQUEST_BODY {
+                // 明确回 413，别静默当空 body（那样会变成看不懂的 401）
+                let reply = RemoteReply::error(413, "body_too_large", "请求体过大");
+                send(request, &reply);
+                return;
+            }
+            let _ = request
+                .as_reader()
+                .take(length as u64)
+                .read_to_string(&mut body);
         }
-        let _ = request
-            .as_reader()
-            .take(length as u64)
-            .read_to_string(&mut body);
     }
 
     let body_pairs = parse_pairs(&body);
-    // token 的取值顺序：请求头 X-Auth-Token → query → body（见 plan §4.4）
+    // token 的取值顺序：请求头 X-Auth-Token → query → cookie → body（见 plan §4.4）。
+    // cookie 排在 query 之后：手机 App 用 `?token=` 最省事，网页端则两条路都有
+    // （WebSocket 握手没法带自定义头，cookie 是那条路上的兜底）。
     let token_value = header_value(&headers, "X-Auth-Token")
         .or_else(|| find_pair(&query, "token"))
+        .or_else(|| cookie_token(&headers))
         .or_else(|| find_pair(&body_pairs, "token"))
         .filter(|value| !value.trim().is_empty());
+
+    if let Some(key) = upgrade_key {
+        serve_websocket(app, request, &key, token_value, &source);
+        return;
+    }
 
     let remote_request = RemoteRequest {
         method,
@@ -252,10 +297,42 @@ fn send(request: tiny_http::Request, reply: &RemoteReply) {
 }
 
 fn split_url(url: &str) -> (String, Vec<(String, String)>) {
+    let url = strip_absolute_uri(url);
     match url.split_once('?') {
         Some((path, query)) => (path.to_string(), parse_pairs(query)),
         None => (url.to_string(), Vec::new()),
     }
+}
+
+/// 把「绝对 URI 形式的请求目标」剥成纯路径（纯函数）。
+///
+/// 客户端配了系统代理时，HTTP 请求行发的是**绝对 URI**：
+/// `GET http://192.168.1.5:12300/app.js HTTP/1.1`（普通直连才是 `GET /app.js`）。
+/// 这时 `path` 里带着 scheme 与 host，凡是按路径匹配的路由（`static_ui_reply`
+/// 的静态页、`/health`、`/api/*`）**全部落空** → 落到 token 闸门 → 401。
+///
+/// 实测（Xvfb + WebKit 浏览器，环境里带 `http_proxy=http://127.0.0.1:45611`）：
+/// 页面**整片空白**，宿主日志是
+/// `[http-access] 127.0.0.1 http http://127.0.0.1:12400/styles.css -> rejected token 无效`
+/// —— 连自己的样式表都取不到；把代理摘掉后同一次加载立刻变成
+/// `/api/ui-command -> ok`。这不是测试环境特有的：任何走了系统代理的浏览器
+/// （国内挂 Clash/Surge 之类很常见）打开网页端都会撞上，症状就是「网页一片空白」。
+///
+/// 所以在解析的最前头统一剥掉，代理与非代理行为一致。本来就是相对路径的原样返回。
+fn strip_absolute_uri(target: &str) -> &str {
+    let bytes = target.as_bytes();
+    for scheme in [&b"http://"[..], &b"https://"[..]] {
+        if bytes.len() >= scheme.len() && bytes[..scheme.len()].eq_ignore_ascii_case(scheme) {
+            // 前缀已确认是 ASCII，按字节长度切片不会切坏 UTF-8
+            let rest = &target[scheme.len()..];
+            // 取 host 之后的第一个 '/'；`http://host` 这种退化形式当根路径
+            return match rest.find('/') {
+                Some(index) => &rest[index..],
+                None => "/",
+            };
+        }
+    }
+    target
 }
 
 /// 解析 `k=v&k2=v2`（query 或表单 body 都走这里）。
@@ -325,6 +402,186 @@ pub(crate) fn is_loopback(source: &str) -> bool {
         Ok(addr) => addr.is_loopback(),
         Err(_) => false,
     }
+}
+
+// ==================== WebSocket 推送通道（/api/ws） ====================
+//
+// 网页端与手机端原先靠每 2s 拉一次 `/api/ui-state` 兜底（没有推送通道）。这里给
+// 它们一条真正的推送：连上即为一条长连接，之后每次 `publish_ui` 都把新快照推过去。
+// 传输层只做「发」，业务（鉴权、快照内容）仍旧全部在 lib 侧，和 HTTP 那条路同一个来源。
+
+/// `Sec-WebSocket-Accept` = base64(SHA1(key + GUID))（RFC 6455 §4.2.2，纯函数）。
+fn websocket_accept_key(secret: &str) -> String {
+    let mut hasher = Sha1::new();
+    hasher.update(secret.trim().as_bytes());
+    hasher.update(WS_GUID.as_bytes());
+    base64::engine::general_purpose::STANDARD.encode(hasher.finalize())
+}
+
+/// 认出「这是一个 WebSocket 升级请求」，返回它的 `Sec-WebSocket-Key`。
+///
+/// 三个条件都要满足：`Upgrade` 里有 websocket、`Connection` 里有 upgrade
+/// （可能是逗号列表，比如 `keep-alive, Upgrade`）、以及带了 key。
+fn websocket_key(headers: &[Header]) -> Option<String> {
+    let upgrade = header_value(headers, "Upgrade")?;
+    if !upgrade
+        .split(',')
+        .any(|token| token.trim().eq_ignore_ascii_case("websocket"))
+    {
+        return None;
+    }
+    let connection = header_value(headers, "Connection").unwrap_or_default();
+    if !connection
+        .split(',')
+        .any(|token| token.trim().eq_ignore_ascii_case("upgrade"))
+    {
+        return None;
+    }
+    let key = header_value(headers, "Sec-WebSocket-Key")?;
+    let key = key.trim().to_string();
+    if key.is_empty() {
+        None
+    } else {
+        Some(key)
+    }
+}
+
+/// 从 `Cookie` 头里取 AnyBoot 的访问令牌（找不到返回 None）。
+///
+/// 为什么要有这条路：浏览器建立 WebSocket 时**不能**自定义请求头，`X-Auth-Token`
+/// 根本没机会带上；能自动带上的只有 query 与 cookie。网页端本来就把 token 写在
+/// `anyboot_token` 这个 cookie 里（同源、SameSite=Strict），正好复用。
+fn cookie_token(headers: &[Header]) -> Option<String> {
+    let raw = header_value(headers, "Cookie")?;
+    for pair in raw.split(';') {
+        let Some((name, value)) = pair.split_once('=') else {
+            continue;
+        };
+        if name.trim() == WS_TOKEN_COOKIE {
+            // 前端写入时走的是 encodeURIComponent
+            let value = percent_decode(value.trim()).trim().to_string();
+            if !value.is_empty() {
+                return Some(value);
+            }
+        }
+    }
+    None
+}
+
+/// 编一个 WebSocket 帧（**只做服务端 → 客户端这一个方向**）。
+///
+/// 所以有两件事刻意不做：① 不掩码 —— RFC 6455 §5.1 规定服务端发往客户端的帧
+/// 必须不带掩码（客户端发来的帧才必须掩码）；② 不分片 —— 一个 payload 一帧。
+/// 长度按 §5.2 的三种形式选：<126 一字节、≤65535 用 126 + u16、再大用 127 + u64。
+fn websocket_frame(opcode: u8, payload: &[u8]) -> Vec<u8> {
+    let mut frame = Vec::with_capacity(payload.len() + 10);
+    frame.push(0x80 | opcode); // FIN = 1，不分片
+    match payload.len() {
+        length if length < 126 => frame.push(length as u8),
+        length if length <= u16::MAX as usize => {
+            frame.push(126);
+            frame.extend_from_slice(&(length as u16).to_be_bytes());
+        }
+        length => {
+            frame.push(127);
+            frame.extend_from_slice(&(length as u64).to_be_bytes());
+        }
+    }
+    frame.extend_from_slice(payload);
+    frame
+}
+
+/// 快照帧（opcode 0x1 = 文本）。快照是 JSON，用文本帧省得两端再做一次编解码。
+fn websocket_text_frame(payload: &str) -> Vec<u8> {
+    websocket_frame(0x1, payload.as_bytes())
+}
+
+/// 心跳帧（opcode 0x9 = ping），载荷为空。
+fn websocket_ping_frame() -> Vec<u8> {
+    websocket_frame(0x9, &[])
+}
+
+/// 关闭帧（opcode 0x8），载荷为空（不带状态码 = 1005/无码）。
+fn websocket_close_frame() -> Vec<u8> {
+    websocket_frame(0x8, &[])
+}
+
+/// 把一帧写完并冲出去。返回 Err 表示这条连接已经不可用了。
+fn websocket_send<W: Write + ?Sized>(stream: &mut W, frame: &[u8]) -> std::io::Result<()> {
+    stream.write_all(frame)?;
+    stream.flush()
+}
+
+/// 接管一条已升级的连接，直到对端离开或服务被收掉。
+///
+/// ## 为什么只写不读
+///
+/// `Request::upgrade` 交回来的是一条**不可拆分**的流（`Box<dyn ReadWrite + Send>`，
+/// 底层 reader/writer 被 box 进同一个对象，拿不到 `TcpStream` 也就没法设读超时）。
+/// 而「读对端帧」与「发快照」必须并发 —— 阻塞读会一直占着这条流。所以这里放弃读：
+/// 这条通道本来就是单向推送，客户端不需要往上发任何东西。代价是**对端消失只能从
+/// 写失败上发现**，于是有了 `WS_KEEPALIVE` 定期 ping：它既是保活，也是那个探测器。
+fn serve_websocket(
+    app: &AppHandle,
+    request: tiny_http::Request,
+    key: &str,
+    token: Option<String>,
+    source: &str,
+) {
+    // 先鉴权再升级：token 不对就别把连接开成 WebSocket，直接回一个普通 HTTP 401
+    // （浏览器会把它报成「握手失败」，语义上正是如此）。
+    let hello = match websocket_hello(app, token.as_deref()) {
+        Ok(payload) => payload,
+        Err(reply) => {
+            send(request, &reply);
+            return;
+        }
+    };
+
+    let accept = Header::from_bytes(
+        &b"Sec-WebSocket-Accept"[..],
+        websocket_accept_key(key).as_bytes(),
+    )
+    .expect("base64 的结果一定是合法的 header 值");
+    let mut stream = request.upgrade("websocket", Response::empty(101).with_header(accept));
+
+    super::record_websocket_event(app, source, true);
+    let (client, receiver) = websocket_subscribe();
+    // 首帧就是完整快照：客户端连上即可渲染，不必再单独 GET 一次 /api/ui-state。
+    // 这一步失败（极端情况：对端刚连上就断）也照常走下面的收尾。
+    let mut last_write = Instant::now();
+    if websocket_send(&mut *stream, &websocket_text_frame(&hello)).is_err() {
+        websocket_unsubscribe(client);
+        super::record_websocket_event(app, source, false);
+        return;
+    }
+
+    loop {
+        match receiver.recv_timeout(WS_POLL) {
+            Ok(payload) => {
+                if websocket_send(&mut *stream, &websocket_text_frame(&payload)).is_err() {
+                    break;
+                }
+                last_write = Instant::now();
+            }
+            // 这一拍没有新快照：到点就敲一个 ping 探一下对端还在不在
+            Err(RecvTimeoutError::Timeout) => {
+                if last_write.elapsed() < WS_KEEPALIVE {
+                    continue;
+                }
+                if websocket_send(&mut *stream, &websocket_ping_frame()).is_err() {
+                    break;
+                }
+                last_write = Instant::now();
+            }
+            // 订阅表里我们这条被清掉了（收服务 / 换 token）：主动退出
+            Err(RecvTimeoutError::Disconnected) => break,
+        }
+    }
+
+    let _ = websocket_send(&mut *stream, &websocket_close_frame());
+    websocket_unsubscribe(client);
+    super::record_websocket_event(app, source, false);
 }
 
 #[cfg(test)]
@@ -448,6 +705,37 @@ mod tests {
         assert!(query.is_empty());
     }
 
+    /// 走代理的客户端发绝对 URI（`GET http://host:port/path HTTP/1.1`），
+    /// 不剥掉 scheme+host 的话静态页与 /api 全部匹配不上 → 网页整片空白。
+    #[test]
+    fn split_url_strips_proxy_absolute_uri() {
+        // 静态资源：浏览器配了系统代理时就是这个形状
+        let (path, query) = split_url("http://127.0.0.1:12400/styles.css");
+        assert_eq!(path, "/styles.css");
+        assert!(query.is_empty());
+
+        // 命令通道 + query（token 也走 query，不能丢）
+        let (path, query) = split_url("http://192.168.1.5:12300/api/power?action=sleep&token=abc");
+        assert_eq!(path, "/api/power");
+        assert_eq!(find_pair(&query, "action").as_deref(), Some("sleep"));
+        assert_eq!(find_pair(&query, "token").as_deref(), Some("abc"));
+
+        // 根路径与 /health（后者是免鉴权的探活，剥错就会被 401 挡掉）
+        assert_eq!(split_url("http://127.0.0.1:12400/").0, "/");
+        assert_eq!(split_url("http://127.0.0.1:12400/health").0, "/health");
+        assert_eq!(split_url("http://127.0.0.1:12400?x=1").0, "/");
+
+        // scheme 大小写不敏感；裸 host 也算根路径
+        assert_eq!(split_url("HTTPS://Host:443/health").0, "/health");
+        assert_eq!(split_url("http://host").0, "/");
+
+        // 直连（相对路径）必须原样不动
+        assert_eq!(split_url("/app.js").0, "/app.js");
+        assert_eq!(split_url("/api/status?token=t").0, "/api/status");
+        // 只有前缀像 http:// 才动它，路径里出现 "http://" 不影响
+        assert_eq!(split_url("/redir/http://x").0, "/redir/http://x");
+    }
+
     #[test]
     fn parse_pairs_decodes_percent_and_plus_and_keeps_case_insensitive_keys() {
         let pairs = parse_pairs("Token=a%2Bb%20c&channel=CLI&flag");
@@ -477,5 +765,141 @@ mod tests {
         assert!(!is_loopback("192.168.1.10"));
         assert!(!is_loopback("::ffff:192.168.1.10"));
         assert!(!is_loopback("-"));
+    }
+
+    fn header(pairs: &[(&str, &str)]) -> Vec<Header> {
+        pairs
+            .iter()
+            .map(|(name, value)| Header::from_bytes(name.as_bytes(), value.as_bytes()).unwrap())
+            .collect()
+    }
+
+    /// RFC 6455 §1.3 的示例：这条对了才说明握手摘要算对了（写错一个字节，
+    /// 浏览器和 WKWebView 都会直接把握手判失败，而且不会告诉你哪儿错了）。
+    #[test]
+    fn websocket_accept_key_matches_the_rfc_example() {
+        assert_eq!(
+            websocket_accept_key("dGhlIHNhbXBsZSBub25jZQ=="),
+            "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="
+        );
+        // 头里带来的值可能带首尾空白，不影响结果
+        assert_eq!(
+            websocket_accept_key("  dGhlIHNhbXBsZSBub25jZQ==  "),
+            "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="
+        );
+        // 换个 key 就得换个结果（不是固定串）
+        assert_ne!(
+            websocket_accept_key("AAAAAAAAAAAAAAAAAAAAAA=="),
+            "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="
+        );
+    }
+
+    /// 只有三个条件都满足才算升级请求；普通的 `GET /api/ws` 不能被当成升级。
+    #[test]
+    fn websocket_key_requires_a_real_upgrade_request() {
+        let full = header(&[
+            ("Upgrade", "websocket"),
+            ("Connection", "Upgrade"),
+            ("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ=="),
+        ]);
+        assert_eq!(
+            websocket_key(&full).as_deref(),
+            Some("dGhlIHNhbXBsZSBub25jZQ==")
+        );
+
+        // Chrome / Safari 发的是逗号列表，大小写也不固定
+        let list = header(&[
+            ("Upgrade", "WebSocket"),
+            ("Connection", "keep-alive, Upgrade"),
+            ("Sec-WebSocket-Key", "abc"),
+        ]);
+        assert_eq!(websocket_key(&list).as_deref(), Some("abc"));
+
+        // 少了 Connection / 少了 key / Upgrade 是别的协议：都不认
+        assert_eq!(websocket_key(&header(&[("Upgrade", "websocket")])), None);
+        assert_eq!(
+            websocket_key(&header(&[("Upgrade", "websocket"), ("Connection", "Upgrade")])),
+            None
+        );
+        assert_eq!(
+            websocket_key(&header(&[
+                ("Upgrade", "h2c"),
+                ("Connection", "Upgrade"),
+                ("Sec-WebSocket-Key", "abc"),
+            ])),
+            None
+        );
+        // 空 key 也不算
+        assert_eq!(
+            websocket_key(&header(&[
+                ("Upgrade", "websocket"),
+                ("Connection", "Upgrade"),
+                ("Sec-WebSocket-Key", "   "),
+            ])),
+            None
+        );
+    }
+
+    /// 帧编码的三种长度形式 + 控制帧。服务端发出去的帧**不掩码**，第二个字节
+    /// 的最高位必须是 0（掩码位），否则客户端会直接断连。
+    #[test]
+    fn websocket_frame_covers_all_three_length_forms() {
+        // 短：<126 直接放一个字节
+        assert_eq!(websocket_frame(0x1, b"hi"), vec![0x81, 0x02, b'h', b'i']);
+
+        // 中：126 + u16 大端（真实快照就有这么大）
+        let frame = websocket_frame(0x1, &vec![b'x'; 200]);
+        assert_eq!(&frame[..4], &[0x81, 126, 0x00, 0xC8]);
+        assert_eq!(frame.len(), 4 + 200);
+
+        // 长：127 + u64 大端
+        let frame = websocket_frame(0x1, &vec![b'x'; 70000]);
+        assert_eq!(&frame[..2], &[0x81, 127]);
+        assert_eq!(&frame[2..10], &70_000u64.to_be_bytes());
+        assert_eq!(frame.len(), 10 + 70000);
+
+        // 边界：125 还是短形式，65535 还是中形式，65536 才换长形式
+        assert_eq!(websocket_frame(0x1, &[0u8; 125])[1], 125);
+        assert_eq!(websocket_frame(0x1, &[0u8; 65535])[1], 126);
+        assert_eq!(websocket_frame(0x1, &[0u8; 65536])[1], 127);
+
+        // 掩码位（第二个字节的 bit7）必须是 0
+        for payload in [vec![0u8; 1], vec![0u8; 300]] {
+            assert_eq!(websocket_frame(0x1, &payload)[1] & 0x80, 0);
+        }
+
+        // 控制帧：FIN=1 固定，opcode 0x9 = ping / 0x8 = close，空载荷
+        assert_eq!(websocket_ping_frame(), vec![0x89, 0x00]);
+        assert_eq!(websocket_close_frame(), vec![0x88, 0x00]);
+
+        // 文本帧就是给 JSON 用的
+        assert_eq!(websocket_text_frame("{}"), vec![0x81, 0x02, b'{', b'}']);
+    }
+
+    /// WebSocket 握手带不了自定义请求头，token 只能从 cookie / query 走。
+    #[test]
+    fn cookie_token_reads_the_anyboot_cookie() {
+        assert_eq!(
+            cookie_token(&header(&[(
+                "Cookie",
+                "anyboot_token=abc123; other=1"
+            )]))
+            .as_deref(),
+            Some("abc123")
+        );
+        // 排在后面也能取到；cookie 是 encodeURIComponent 写进去的
+        assert_eq!(
+            cookie_token(&header(&[(
+                "Cookie",
+                "a=1; anyboot_token=a%2Bb%20c; z=9"
+            )]))
+            .as_deref(),
+            Some("a+b c")
+        );
+        // 只有名字没有值 = 没带
+        assert_eq!(cookie_token(&header(&[("Cookie", "anyboot_token=")])), None);
+        // 别的 cookie / 压根没有 Cookie 头
+        assert_eq!(cookie_token(&header(&[("Cookie", "other=1")])), None);
+        assert_eq!(cookie_token(&[]), None);
     }
 }

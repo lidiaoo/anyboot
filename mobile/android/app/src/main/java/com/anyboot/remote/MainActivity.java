@@ -40,18 +40,21 @@ import java.util.Map;
 /**
  * AnyBoot 远程客户端外壳（多服务端版）。
  *
- * <p>它本身不实现业务：每个服务端标签就是一个 {@link WebView}，加载那台电脑上
+ * <p>它本身不实现业务：每台电脑一个标签，每个标签就是一个 {@link WebView}，加载那台电脑上
  * AnyBoot 内置 HTTP 服务托管的前端页面，页面里的 /api/ui-state、/api/ui-command
  * 都是**同源**请求 —— 所以没有 CORS，也不用在这里重复一套 UI：电脑端前端改了，
  * 手机端刷新即最新。
  *
  * <p>手机端额外做四件浏览器不顺手的事：
  * <ol>
- *   <li>同时连多个服务端：每个标签一个独立 WebView，「启动时连接全部」可让它们一起在线；</li>
+ *   <li>同时连多台电脑：每台电脑一个标签、一个 WebView，「启动时连接全部」可让它们一起在线；</li>
  *   <li>顶部标签快速切换，标签名是「组名 · 服务端名」，并带在线状态点；</li>
- *   <li>服务端可以分组 —— 一台电脑可能有多个网卡 / 多次 DHCP 拿到不同 IP，
- *       把同一台电脑的几条地址放进同一个分组，标签配色相同，一眼分得清；</li>
- *   <li>断线时给该服务端一个重试面板。</li>
+ *   <li>**一台电脑只占一份页面**：一台电脑常有不止一个地址（多块网卡 / 多次 DHCP），
+ *       这些地址存在同一条记录的候选列表里 —— 首选地址不通就自动换下一个，
+ *       始终是同一个标签、同一个 WebView，绝不「一个网卡一个标签」。
+ *       「是不是同一台电脑」优先用电脑端 `/health` 的 machineId 判断，
+ *       拿不到标识时退回「分组名相同」这个用户可见的约定；</li>
+ *   <li>断线时给这台电脑一个重试面板。</li>
  * </ol>
  */
 public class MainActivity extends Activity {
@@ -71,7 +74,7 @@ public class MainActivity extends Activity {
     private static final int COLOR_OK = 0xFF2E9E5B;
     private static final int COLOR_FAIL = 0xFFD93025;
 
-    /** 一个服务端的运行时状态（WebView 懒创建：没点过的标签不占内存） */
+    /** 一台电脑的运行时状态（WebView 懒创建：没点过的标签不占内存） */
     private static final class Tab {
         ServerProfile profile;
         WebView view;
@@ -79,6 +82,10 @@ public class MainActivity extends Activity {
         boolean mainFailed = false;
         /** 是否已经发起过加载 —— 切回标签时靠它判断「要不要重新拉页面」 */
         boolean started = false;
+        /** 当前正在用第几个候选地址（见 {@link ServerProfile#addresses}） */
+        int addressIndex = 0;
+        /** 本轮连接里已经试过、失败的地址，用来找下一个没试过的 */
+        final List<String> tried = new ArrayList<>();
     }
 
     private List<ServerProfile> servers = new ArrayList<>();
@@ -88,6 +95,8 @@ public class MainActivity extends Activity {
 
     private String activeId = "";
     private boolean connectAll = false;
+    /** 传输方式偏好：auto / ws / http（加载页面时以 ?transport= 交给网页决定） */
+    private String transport = "auto";
 
     private LinearLayout tabStrip;
     private HorizontalScrollView tabScroll;
@@ -101,6 +110,7 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         servers = ServerStore.load(this);
         connectAll = ServerStore.connectAll(this);
+        transport = ServerStore.transport(this);
         activeId = ServerStore.activeId(this);
         buildUi();
         renderTabs();
@@ -226,7 +236,7 @@ public class MainActivity extends Activity {
         settings.setAllowFileAccess(false);
         settings.setAllowContentAccess(false);
         // 让服务端日志/前端能认出这是 App 客户端而不是普通浏览器
-        settings.setUserAgentString(settings.getUserAgentString() + " AnyBootRemote/1.1");
+        settings.setUserAgentString(settings.getUserAgentString() + " AnyBootRemote/1.2");
 
         CookieManager.getInstance().setAcceptCookie(true);
 
@@ -251,10 +261,12 @@ public class MainActivity extends Activity {
             @Override
             public void onPageStarted(WebView target, String url, Bitmap favicon) {
                 Tab tab = tabs.get(profile.id);
-                if (tab != null) {
-                    tab.mainFailed = false;
-                    setStatus(tab, STATUS_LOADING);
+                if (tab == null || !isCurrentAddress(tab, url)) {
+                    // 换地址之后旧地址的回调，丢掉 —— 否则会把状态改回去
+                    return;
                 }
+                tab.mainFailed = false;
+                setStatus(tab, STATUS_LOADING);
                 if (isActive(profile.id)) {
                     hideError();
                     showLoading(true);
@@ -264,8 +276,13 @@ public class MainActivity extends Activity {
             @Override
             public void onPageFinished(WebView target, String url) {
                 Tab tab = tabs.get(profile.id);
-                if (tab != null && tab.status != STATUS_FAIL) {
+                if (tab == null || !isCurrentAddress(tab, url)) {
+                    return;
+                }
+                if (tab.status != STATUS_FAIL) {
                     setStatus(tab, STATUS_OK);
+                    // 连上了：把这个地址记成首选，下次开机直连它（DHCP 换过 IP 也能自愈）
+                    rememberWorkingAddress(tab);
                 }
                 if (isActive(profile.id)) {
                     showLoading(false);
@@ -279,18 +296,46 @@ public class MainActivity extends Activity {
                 if (request == null || !request.isForMainFrame()) {
                     return;
                 }
+                Uri failed = request.getUrl();
                 Tab tab = tabs.get(profile.id);
-                if (tab != null) {
-                    tab.mainFailed = true;
-                    setStatus(tab, STATUS_FAIL);
+                if (tab == null || !isCurrentAddress(tab, failed == null ? null : failed.toString())) {
+                    return;
                 }
+                tab.mainFailed = true;
+                // 一台电脑常有多个地址（多块网卡）：这个不通就先换下一个，
+                // 别急着把「连不上」摔到用户脸上
+                if (advanceAddress(tab)) {
+                    return;
+                }
+                setStatus(tab, STATUS_FAIL);
                 if (isActive(profile.id)) {
                     String description = error == null ? "" : String.valueOf(error.getDescription());
-                    showError(tab == null ? profile : tab.profile, description);
+                    showError(tab.profile, description);
                 }
             }
         });
         return view;
+    }
+
+    /**
+     * 这个回调说的是「当前正在用的那个地址」吗？
+     *
+     * <p>换地址之后，旧地址的 onPageStarted / onReceivedError / onPageFinished 还会
+     * 陆续回来，不认一下就换错了。
+     */
+    private boolean isCurrentAddress(Tab tab, String url) {
+        if (url == null) {
+            return false;
+        }
+        String address = tab.profile.hostAt(tab.addressIndex);
+        if (address.isEmpty()) {
+            return false;
+        }
+        String prefix = "http://" + address;
+        // 地址后面必须紧跟边界：否则 192.168.1.5 会把 192.168.1.50 的页面认成自己
+        return url.length() > prefix.length()
+                && url.startsWith(prefix)
+                && (url.charAt(prefix.length()) == '/' || url.charAt(prefix.length()) == ':');
     }
 
     // ------------------------------------------------------------------
@@ -425,17 +470,78 @@ public class MainActivity extends Activity {
         return tab;
     }
 
-    /** 保证这个服务端的 WebView 存在并加载（多个标签可以同时在线） */
+    /** 保证这台电脑的 WebView 存在并加载（多台电脑可以同时在线） */
     private void connect(ServerProfile profile, boolean forceReload) {
         Tab tab = ensureTab(profile);
         if (!forceReload && tab.started) {
             // 已经连过就保留后台页面，切回来直接显示，不重新拉
             return;
         }
+        tab.addressIndex = 0;      // 重新连：从首选地址开始
+        tab.tried.clear();
+        loadCurrentAddress(tab);
+    }
+
+    /** 用「当前地址下标」加载这条记录 —— 首次连接和换地址都走这里 */
+    private void loadCurrentAddress(Tab tab) {
+        ServerProfile profile = tab.profile;
+        String address = profile.hostAt(tab.addressIndex);
+        if (address.isEmpty()) {
+            return;
+        }
+        tab.tried.remove(address);     // 正在试的这个不算「试过了」
         tab.mainFailed = false;
         tab.started = true;
         setStatus(tab, STATUS_LOADING);
-        tab.view.loadUrl(profile.url());
+        if (isActive(profile.id)) {
+            hideError();
+            showLoading(true);
+        }
+        // 传输方式从 URL 带进网页 —— 用 localStorage 会随地址（来源）变化而丢
+        tab.view.loadUrl(profile.urlAt(tab.addressIndex, transport));
+    }
+
+    /**
+     * 换到下一个还没试过的地址（同一台电脑的其它网卡）。
+     *
+     * <p>**换地址不换页面**：还是同一个标签、同一个 WebView，用户看到的始终是
+     * 「这台电脑」的界面，不会因为网卡不同就多出一个标签。
+     *
+     * @return 还有地址可试（已经发起加载）返回 true；全试完了返回 false
+     */
+    private boolean advanceAddress(Tab tab) {
+        ServerProfile profile = tab.profile;
+        tab.tried.add(profile.hostAt(tab.addressIndex));
+        for (int i = 0; i < profile.addressCount(); i++) {
+            String address = profile.hostAt(i);
+            if (tab.tried.contains(address)) {
+                continue;
+            }
+            tab.addressIndex = i;
+            setStatus(tab, STATUS_LOADING);
+            if (isActive(profile.id)) {
+                showLoading(true);
+                Toast.makeText(this, "这个地址不通，换一个地址重试：" + address,
+                        Toast.LENGTH_SHORT).show();
+            }
+            loadCurrentAddress(tab);
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * 连上了：把当前地址提到最前（下次优先用它）。
+     *
+     * <p>这就是「多块网卡 / DHCP 换 IP」能自愈的原因：哪块网卡现在通，
+     * 下次开机就直连它。
+     */
+    private void rememberWorkingAddress(Tab tab) {
+        if (!tab.profile.promoteAddress(tab.addressIndex)) {
+            return;   // 本来就是首选，不用落盘
+        }
+        tab.addressIndex = 0;
+        ServerStore.save(this, servers);
     }
 
     private void activate(String id) {
@@ -484,23 +590,23 @@ public class MainActivity extends Activity {
         if (profile == null) {
             return;
         }
-        Tab tab = ensureTab(profile);
-        tab.mainFailed = false;
-        tab.started = true;
-        hideError();
-        showLoading(true);
-        setStatus(tab, STATUS_LOADING);
-        tab.view.loadUrl(profile.url());
+        startAttempt(ensureTab(profile));
     }
 
-    /** 全部重载 = 把没连上的也连上，并把在线的一起刷新 */
+    /** 重新开始一轮地址尝试：清掉「已试过」名单，从当前地址再来（还能继续往后换） */
+    private void startAttempt(Tab tab) {
+        tab.tried.clear();
+        hideError();
+        loadCurrentAddress(tab);
+    }
+
+    /** 全部重载 = 把没连上的也连上，并把在线的一起刷新（一律从首选地址重新试） */
     private void reloadAll() {
         for (ServerProfile profile : servers) {
             Tab tab = ensureTab(profile);
-            tab.mainFailed = false;
-            tab.started = true;
-            setStatus(tab, STATUS_LOADING);
-            tab.view.loadUrl(profile.url());
+            tab.addressIndex = 0;
+            tab.tried.clear();
+            loadCurrentAddress(tab);
         }
         activate(activeId);
     }
@@ -524,9 +630,14 @@ public class MainActivity extends Activity {
                 tab.view.setVisibility(View.GONE);
             }
         }
+        int count = profile == null ? 0 : profile.addressCount();
         errorText.setText("服务端：" + (profile == null ? "" : profile.label())
-                + "\n地址：" + (profile == null ? "" : profile.host)
+                + "\n地址：" + (profile == null ? "" : profile.addressSummary())
                 + "\n\n" + description
+                + (count > 1
+                        ? "\n\n这台电脑的 " + count + " 个地址都试过了：\n  "
+                                + String.join("\n  ", profile.addresses)
+                        : "")
                 + "\n\n请确认：\n"
                 + "· 电脑上 AnyBoot 的「远程控制」已打开，手机和电脑在同一局域网\n"
                 + "· 地址填的是电脑上的 IP 和端口（例如 192.168.0.120:12300）");
@@ -543,7 +654,10 @@ public class MainActivity extends Activity {
     // ------------------------------------------------------------------
 
     /**
-     * 新增（profile == null）或编辑一个服务端。
+     * 新增（profile == null）或编辑**一台电脑**。
+     *
+     * <p>新增时如果分组名和已有记录相同（分组 = 一台电脑），地址会**并进那条记录**
+     * 而不是新建一个标签 —— 这就是「一台电脑多块网卡只占一份页面」的入口。
      *
      * @param firstRun 首次使用：对话框不可取消，且不给「取消」按钮
      */
@@ -568,10 +682,15 @@ public class MainActivity extends Activity {
         nameInput.setText(editing ? profile.name : "");
 
         final EditText hostInput = new EditText(this);
-        hostInput.setSingleLine(true);
+        // 一台电脑的多个地址一次填完：多行输入（每行一个）
         hostInput.setHint("192.168.0.120:12300 或整条带 token 的地址");
-        hostInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
-        hostInput.setText(editing ? profile.host : "");
+        hostInput.setInputType(InputType.TYPE_CLASS_TEXT
+                | InputType.TYPE_TEXT_VARIATION_URI
+                | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+        hostInput.setMinLines(1);
+        hostInput.setMaxLines(4);
+        hostInput.setGravity(Gravity.TOP | Gravity.START);
+        hostInput.setText(editing ? profile.addressText() : "");
 
         final EditText tokenInput = new EditText(this);
         tokenInput.setSingleLine(true);
@@ -589,6 +708,9 @@ public class MainActivity extends Activity {
         box.addView(nameInput);
         box.addView(hint("服务端地址（电脑端「远程控制」里显示的地址）"));
         box.addView(hostInput);
+        // 新增说明（原有文案一字未动）：多行 = 同一台电脑的多个网卡地址
+        box.addView(hint("同一台电脑有多块网卡就填多行，每行一个 —— "
+                + "只占一个标签，哪个通就用哪个"));
         box.addView(hint("访问令牌 token"));
         box.addView(tokenInput);
 
@@ -608,8 +730,8 @@ public class MainActivity extends Activity {
         dialog.setOnShowListener(ignored -> {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
                 String rawHost = hostInput.getText().toString();
-                String host = ServerProfile.normalizeHost(rawHost);
-                if (host.isEmpty()) {
+                List<String> parsed = ServerProfile.parseAddresses(rawHost);
+                if (parsed.isEmpty()) {
                     Toast.makeText(this, "请填服务端地址", Toast.LENGTH_SHORT).show();
                     return;
                 }
@@ -619,25 +741,50 @@ public class MainActivity extends Activity {
                     token = ServerProfile.tokenFromUrl(rawHost);
                 }
                 String name = nameInput.getText().toString().trim();
-                ServerProfile target = editing ? profile : new ServerProfile();
-                target.group = groupInput.getText().toString().trim();
-                target.name = name.isEmpty() ? host : name;
-                target.host = host;
-                target.token = token;
-                if (!editing) {
-                    servers.add(target);
+                String group = groupInput.getText().toString().trim();
+
+                // 记下改前的样子，用来判断「要不要重连」（没变的页面就留着，别白刷一次）
+                List<String> previousAddresses = editing
+                        ? new ArrayList<>(profile.addresses)
+                        : new ArrayList<>();
+                String previousToken = editing ? ServerProfile.text(profile.token) : "";
+
+                ServerProfile target;
+                String notice = "";
+                if (editing) {
+                    target = profile;
+                    // 编辑 = 以输入为准（顺序也照用户写的来），方便删掉过期的地址
+                    target.replaceAddresses(parsed);
+                } else {
+                    // 新增：分组名相同的记录就是同一台电脑，并进去，不新建标签
+                    target = findByGroup(group);
+                    if (target != null) {
+                        notice = "已并入同一台电脑：" + target.label();
+                    } else {
+                        target = new ServerProfile();
+                        servers.add(target);
+                    }
+                    for (String address : parsed) {
+                        target.addAddress(address);
+                    }
                 }
+                target.group = group;
+                target.name = name.isEmpty() ? target.host() : name;
+                target.token = token;
                 ServerStore.sort(servers);
                 ServerStore.save(this, servers);
                 renderTabs();
                 dialog.dismiss();
-                if (editing) {
-                    // 改了地址/token 就按新配置重连这个服务端
-                    connect(target, true);
-                    activate(target.id);
-                } else {
-                    activate(target.id);
+                if (!notice.isEmpty()) {
+                    Toast.makeText(this, notice, Toast.LENGTH_SHORT).show();
                 }
+                boolean changed = !previousAddresses.equals(target.addresses)
+                        || !previousToken.equals(ServerProfile.text(target.token));
+                connect(target, changed);
+                activate(target.id);
+                // 顺手探一次 /health：知道「这台电脑」的机器标识后，才认得出它
+                // 是不是已经有另一块网卡的记录 —— 有就自动并成一条
+                probeMachine(target);
             });
             if (editing) {
                 dialog.getButton(AlertDialog.BUTTON_NEUTRAL)
@@ -685,14 +832,178 @@ public class MainActivity extends Activity {
         for (int i = 0; i < servers.size(); i++) {
             ServerProfile profile = servers.get(i);
             labels[i] = (isActive(profile.id) ? "● " : "　") + profile.label()
-                    + "　" + profile.host;
+                    + "　" + profile.addressSummary();
         }
-        new AlertDialog.Builder(this)
+        final AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle("切换服务端（长按标签也能编辑）")
-                .setItems(labels, (dialog, which) -> activate(servers.get(which).id))
-                .setPositiveButton("添加", (dialog, which) -> showEditDialog(null, false))
+                .setItems(labels, (target, which) -> activate(servers.get(which).id))
+                .setPositiveButton("添加", (target, which) -> showEditDialog(null, false))
+                .setNeutralButton("合并同一台电脑的地址", null)
                 .setNegativeButton("关闭", null)
-                .show();
+                .create();
+        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_NEUTRAL)
+                .setOnClickListener(v -> {
+                    int removed = mergeSameMachine();
+                    // 列表内容已经变了（条目被并掉），关掉重开一次
+                    dialog.dismiss();
+                    Toast.makeText(this, removed > 0
+                                    ? "已合并 " + removed + " 条重复记录 —— 同一台电脑只留一个标签"
+                                    : "没有需要合并的：同一台电脑要么已经只有一条，要么分组名不同",
+                            Toast.LENGTH_LONG).show();
+                }));
+        dialog.show();
+    }
+
+    // ------------------------------------------------------------------
+    // 「同一台电脑」的识别与合并
+    // ------------------------------------------------------------------
+
+    /** 找找有没有这个分组的记录（分组 = 一台电脑） */
+    private ServerProfile findByGroup(String group) {
+        String target = ServerProfile.text(group);
+        if (target.isEmpty()) {
+            return null;
+        }
+        for (ServerProfile profile : servers) {
+            if (target.equalsIgnoreCase(ServerProfile.text(profile.group))) {
+                return profile;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 后台探一次电脑端的 `/health`，拿到机器标识。
+     *
+     * <p>这是「多块网卡自动归并」的关键：用户只填了一个 IP 时，只有问过电脑才知道
+     * 它是不是已经有另一块网卡的记录。探测失败（老版本服务端 / 地址暂时不通）
+     * 什么都不做 —— 不影响任何功能。
+     */
+    private void probeMachine(final ServerProfile profile) {
+        final String host = profile.host();
+        if (host.isEmpty()) {
+            return;
+        }
+        new Thread(() -> {
+            final HealthProbe.Result result = HealthProbe.fetch(host);
+            if (result == null) {
+                return;
+            }
+            runOnUiThread(() -> applyMachineIdentity(profile, result));
+        }, "anyboot-health-probe").start();
+    }
+
+    /** 探到了机器身份：记下来；如果这台电脑已经有别的记录，就把两条并成一条 */
+    private void applyMachineIdentity(ServerProfile profile, HealthProbe.Result result) {
+        if (!servers.contains(profile)) {
+            return;   // 探测期间这条已经被删掉 / 被并走了
+        }
+        if (!result.machineId.isEmpty()) {
+            profile.machineId = result.machineId;
+        }
+        if (!result.machineName.isEmpty()) {
+            profile.machineName = result.machineName;
+        }
+        ServerProfile sibling = null;
+        for (ServerProfile other : servers) {
+            if (profile.sameMachine(other)) {
+                sibling = other;
+                break;
+            }
+        }
+        if (sibling == null) {
+            ServerStore.save(this, servers);   // 只把机器标识记下来
+            return;
+        }
+        // 同一台电脑的两条记录 → 并成一条。正在看的那条留下，免得页面跳走。
+        ServerProfile keep;
+        ServerProfile drop;
+        if (isActive(profile.id)) {
+            keep = profile;
+            drop = sibling;
+        } else if (isActive(sibling.id)) {
+            keep = sibling;
+            drop = profile;
+        } else {
+            keep = sibling;   // 都不在用：留早先那条，并掉刚探到的
+            drop = profile;
+        }
+        mergeInto(keep, drop);
+        dropTab(drop);
+        servers.remove(drop);
+        ServerStore.sort(servers);
+        ServerStore.save(this, servers);
+        renderTabs();
+        if (isActive(drop.id)) {
+            activeId = keep.id;
+            ServerStore.setActiveId(this, keep.id);
+        }
+        activate(activeId);
+        Toast.makeText(this, "已把同一台电脑的地址合并到一个标签：" + keep.label()
+                        + (result.machineName.isEmpty() ? "" : "（" + result.machineName + "）"),
+                Toast.LENGTH_LONG).show();
+    }
+
+    /** 把 drop 的地址并进 keep（去重保序），并补上只有 drop 才知道的信息 */
+    private void mergeInto(ServerProfile keep, ServerProfile drop) {
+        keep.mergeAddresses(drop);
+        if (ServerProfile.text(keep.machineId).isEmpty()) {
+            keep.machineId = drop.machineId;
+        }
+        if (ServerProfile.text(keep.machineName).isEmpty()) {
+            keep.machineName = drop.machineName;
+        }
+        if (ServerProfile.text(keep.group).isEmpty()) {
+            keep.group = drop.group;
+        }
+        if (ServerProfile.text(keep.name).isEmpty()) {
+            keep.name = drop.name;
+        }
+        if (ServerProfile.text(keep.token).isEmpty()) {
+            keep.token = drop.token;
+        }
+    }
+
+    /**
+     * 把「其实是同一台电脑」的多条记录并成一条 —— 给老配置用：以前每个 IP 一条
+     * 记录的老用户，点一下就能收成「一台电脑一份页面」。
+     *
+     * @return 合并掉的条数
+     */
+    private int mergeSameMachine() {
+        int removed = 0;
+        for (int i = 0; i < servers.size(); i++) {
+            ServerProfile keep = servers.get(i);
+            for (int j = servers.size() - 1; j > i; j--) {
+                ServerProfile drop = servers.get(j);
+                if (!keep.sameMachine(drop)) {
+                    continue;
+                }
+                if (isActive(drop.id)) {
+                    // 正在用的那条留下来（页面不跳走）：和 keep 换个位置
+                    servers.set(i, drop);
+                    servers.set(j, keep);
+                    ServerProfile swap = keep;
+                    keep = drop;
+                    drop = swap;
+                }
+                mergeInto(keep, drop);
+                dropTab(drop);
+                servers.remove(j);
+                removed++;
+            }
+        }
+        if (removed > 0) {
+            ServerStore.sort(servers);
+            ServerStore.save(this, servers);
+            renderTabs();
+            if (ServerStore.find(servers, activeId) == null) {
+                activeId = servers.isEmpty() ? "" : servers.get(0).id;
+                ServerStore.setActiveId(this, activeId);
+            }
+            activate(activeId);
+        }
+        return removed;
     }
 
     private TextView hint(String text) {
@@ -717,7 +1028,53 @@ public class MainActivity extends Activity {
         MenuItem auto = menu.add(0, 6, 5, "启动时连接全部服务端");
         auto.setCheckable(true);
         auto.setChecked(connectAll);
+        menu.add(0, 7, 6, "传输方式（" + transportLabel() + "）");
         return true;
+    }
+
+    /** 菜单上那一条「传输方式（…）」给人看的说法 */
+    private String transportLabel() {
+        switch (transport) {
+            case "ws":
+                return "推送";
+            case "http":
+                return "轮询";
+            default:
+                return "自动";
+        }
+    }
+
+    /**
+     * 选传输方式：自动（推送优先，连不上退回轮询）/ 推送（WebSocket）/ 轮询（HTTP）。
+     *
+     * <p>选完不立刻重载页面 —— 只是一个偏好，下一次加载才会带上；当前页面上
+     * 用户自己也能在横幅里即切即用（那个下拉是同一个偏好，网页端会记住）。
+     */
+    private void showTransportDialog() {
+        final String[] values = {"auto", "ws", "http"};
+        String[] labels = {
+                "自动（推送优先，连不上退回轮询）",
+                "推送（WebSocket）",
+                "轮询（HTTP 每 2s）",
+        };
+        int checked = 0;
+        for (int i = 0; i < values.length; i++) {
+            if (values[i].equals(transport)) {
+                checked = i;
+            }
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("传输方式")
+                .setSingleChoiceItems(labels, checked, (dialog, which) -> {
+                    transport = values[which];
+                    ServerStore.setTransport(this, transport);
+                    dialog.dismiss();
+                    Toast.makeText(this,
+                            "已选择「" + transportLabel() + "」：重载页面后生效（页面上也能即切）",
+                            Toast.LENGTH_SHORT).show();
+                })
+                .setNegativeButton("取消", null)
+                .show();
     }
 
     @Override
@@ -749,6 +1106,9 @@ public class MainActivity extends Activity {
                         ? "已开启：启动时把所有服务端一起连上"
                         : "已关闭：只连当前标签", Toast.LENGTH_SHORT).show();
                 return true;
+            case 7:
+                showTransportDialog();
+                return true;
             default:
                 return super.onOptionsItemSelected(item);
         }
@@ -759,6 +1119,12 @@ public class MainActivity extends Activity {
         MenuItem auto = menu.findItem(6);
         if (auto != null) {
             auto.setChecked(connectAll);
+        }
+        // 标题里带着当前档位，每次展开都重算一次 —— onCreateOptionsMenu 只在第一次
+        // 展开时跑，不改的话选完还是显示旧的「自动」。
+        MenuItem transportItem = menu.findItem(7);
+        if (transportItem != null) {
+            transportItem.setTitle("传输方式（" + transportLabel() + "）");
         }
         return super.onPrepareOptionsMenu(menu);
     }

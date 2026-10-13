@@ -1,10 +1,11 @@
 import SwiftUI
 
-/// iOS 端主界面：顶部服务端标签栏 + 每个标签一个独立 WKWebView。
+/// iOS 端主界面：顶部电脑标签栏 + 每台电脑一个 WKWebView。
 ///
-/// 标签文本是「组名 · 服务端名」，左侧小圆点是该服务端的在线状态；
-/// 一台电脑有多块网卡 / 多次 DHCP 拿到多个 IP 时，把这几条放进同一个分组，
-/// 标签描边同色，切换时不会搞混。
+/// 标签文本是「组名 · 服务端名」，左侧小圆点是该电脑的在线状态。
+/// **一台电脑只有一个标签**：多块网卡 / 多次 DHCP 拿到的多个 IP 是同一台机器的
+/// 候选地址（见 `ServerProfile.addresses`），首选地址不通就自动换下一个，
+/// 始终是同一个标签、同一个 WKWebView。
 struct ContentView: View {
 
     @StateObject private var store = ServerStore.shared
@@ -12,17 +13,29 @@ struct ContentView: View {
     @State private var statuses: [String: LoadStatus] = [:]
     @State private var reloadTokens: [String: Int] = [:]
     @State private var errors: [String: String] = [:]
+    /// 每台电脑当前用第几个候选地址
+    @State private var addressIndex: [String: Int] = [:]
+    /// 本轮连接里已经试过、失败的地址（换地址时跳过）
+    @State private var triedAddresses: [String: [String]] = [:]
 
     @State private var editing: ServerProfile?
     @State private var showEditor = false
     @State private var showList = false
     @State private var firstRun = false
+    @State private var notice: String?
 
     var body: some View {
         VStack(spacing: 0) {
             tabBar
             Divider()
             content
+        }
+        .alert("同一台电脑", isPresented: Binding(
+            get: { notice != nil },
+            set: { if !$0 { notice = nil } })) {
+            Button("好") { notice = nil }
+        } message: {
+            Text(notice ?? "")
         }
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
@@ -51,6 +64,21 @@ struct ContentView: View {
                             store.setConnectAll(value)
                             if value { connectAll() }
                         }))
+                    Menu {
+                        ForEach(ServerStore.transports, id: \.self) { mode in
+                            Button {
+                                selectTransport(mode)
+                            } label: {
+                                if store.transport == mode {
+                                    Label(transportTitle(mode), systemImage: "checkmark")
+                                } else {
+                                    Text(transportTitle(mode))
+                                }
+                            }
+                        }
+                    } label: {
+                        Text("传输方式（\(transportLabel(store.transport))）")
+                    }
                 } label: {
                     Label("菜单", systemImage: "ellipsis.circle")
                 }
@@ -60,14 +88,10 @@ struct ContentView: View {
             ServerEditorSheet(profile: editing, firstRun: firstRun, knownGroups: store.knownGroups) { result in
                 switch result {
                 case .save(let profile):
-                    store.upsert(profile)
-                    store.select(profile.id)
-                    // 地址/token 可能变了，按新配置重连这个标签（其它标签不受影响）
-                    reload(profile.id)
+                    save(profile)
                 case .delete(let id):
                     store.remove(id)
-                    statuses[id] = nil
-                    errors[id] = nil
+                    forgetRuntimeState(id)
                     if store.servers.isEmpty {
                         startAdd(first: true)
                     }
@@ -155,10 +179,12 @@ struct ContentView: View {
     private var content: some View {
         ZStack {
             ForEach(store.servers) { profile in
-                if let url = profile.url {
+                // 每台电脑一个 WKWebView：多块网卡只是换 URL，不换实例
+                if let url = profile.url(at: addressIndex[profile.id] ?? 0,
+                                         transport: store.transport) {
                     WebView(url: url,
                             reloadToken: reloadTokens[profile.id] ?? 0,
-                            onStatus: { status in statuses[profile.id] = status })
+                            onStatus: { status in handle(status, for: profile.id) })
                         .opacity(profile.id == store.activeId ? 1 : 0)
                         .allowsHitTesting(profile.id == store.activeId)
                 }
@@ -173,7 +199,7 @@ struct ContentView: View {
         VStack(spacing: 14) {
             Image(systemName: "wifi.exclamationmark").font(.system(size: 44))
             Text("连不上服务端").font(.title3.bold())
-            Text("服务端：\(profile.label)\n地址：\(profile.host)\n\n\(message)")
+            Text(errorDetail(profile, message))
                 .font(.footnote)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
@@ -189,7 +215,39 @@ struct ContentView: View {
         .background(Color(.systemBackground))
     }
 
+    /// 错误面板正文：地址摘要 + 失败原因（这台电脑有多个地址时全列出来）
+    private func errorDetail(_ profile: ServerProfile, _ message: String) -> String {
+        var text = "服务端：\(profile.label)\n地址：\(profile.addressSummary)\n\n\(message)"
+        if profile.addresses.count > 1 {
+            text += "\n\n这台电脑的 \(profile.addresses.count) 个地址都试过了：\n"
+                + profile.addresses.map { "  \($0)" }.joined(separator: "\n")
+        }
+        return text
+    }
+
     // MARK: - 动作
+
+    /// 加载状态回调：连上就记住这个地址，不通就换下一个候选地址
+    private func handle(_ status: LoadStatus, for id: String) {
+        statuses[id] = status
+        switch status {
+        case .ok:
+            rememberWorkingAddress(id)
+        case .failed:
+            advanceAddress(id)
+        case .loading, .unknown:
+            break
+        }
+    }
+
+    /// 手工重载：从头再试一遍（首选地址优先）
+    private func reloadFromFirstAddress(_ id: String) {
+        guard let profile = store.profile(id), !profile.addresses.isEmpty else { return }
+        addressIndex[id] = 0
+        triedAddresses[id] = []
+        errors[id] = nil
+        reload(id)
+    }
 
     private func reload(_ id: String) {
         statuses[id] = .loading
@@ -199,21 +257,160 @@ struct ContentView: View {
 
     private func reloadActive() {
         guard let profile = store.active else { return }
-        reload(profile.id)
+        reloadFromFirstAddress(profile.id)
     }
 
-    /// 全部重载 = 把没连上的也连上，并把在线的一起刷新
+    /// 全部重载 = 把没连上的也连上，并把在线的一起刷新（一律从首选地址重新试）
     private func reloadAll() {
         for profile in store.servers {
-            reload(profile.id)
+            reloadFromFirstAddress(profile.id)
         }
     }
 
-    /// 「启动时连接全部」：让每个服务端各起一个 WebView，同时在线
+    /// 「启动时连接全部」：让每台电脑各起一个 WebView，同时在线
     private func connectAll() {
         for profile in store.servers where reloadTokens[profile.id] == nil {
-            reload(profile.id)
+            reloadFromFirstAddress(profile.id)
         }
+    }
+
+    // MARK: - 传输方式
+
+    /// 菜单上那一条「传输方式（…）」给人看的短说法
+    private func transportLabel(_ mode: String) -> String {
+        switch mode {
+        case ServerStore.transportPush: return "推送"
+        case ServerStore.transportPoll: return "轮询"
+        default: return "自动"
+        }
+    }
+
+    /// 选项行里的完整说法
+    private func transportTitle(_ mode: String) -> String {
+        switch mode {
+        case ServerStore.transportPush: return "推送（WebSocket）"
+        case ServerStore.transportPoll: return "轮询（HTTP 每 2s）"
+        default: return "自动（推送优先，连不上退回轮询）"
+        }
+    }
+
+    /// 选传输方式：只记偏好，**不立刻重载页面** —— 下一次加载才带上（菜单标题即时
+    /// 反映当前选择）。当前页面上用户也能在横幅的下拉里即切即用，那是同一个偏好。
+    private func selectTransport(_ mode: String) {
+        store.setTransport(mode)
+    }
+
+    /// 这个地址不通就换下一个（同一台电脑的另一块网卡）。
+    ///
+    /// **换地址不换页面**：还是同一个标签、同一个 WKWebView，用户看到的始终是
+    /// 「这台电脑」的界面。全试完了就什么都不做 —— 状态留在 `.failed`，错误面板会显示。
+    private func advanceAddress(_ id: String) {
+        guard let profile = store.profile(id) else { return }
+        var tried = triedAddresses[id] ?? []
+        let current = profile.host(at: addressIndex[id] ?? 0)
+        if !current.isEmpty && !tried.contains(current) {
+            tried.append(current)
+        }
+        triedAddresses[id] = tried
+        guard let next = profile.addresses.indices.first(where: { !tried.contains(profile.host(at: $0)) })
+        else {
+            return
+        }
+        addressIndex[id] = next
+        errors[id] = nil
+        reload(id)
+    }
+
+    /// 连上了：把当前地址提到最前，下次开机直连它
+    /// （多块网卡 / DHCP 换过 IP 都能自己找回来）。
+    private func rememberWorkingAddress(_ id: String) {
+        let index = addressIndex[id] ?? 0
+        guard index != 0, let profile = store.profile(id) else { return }
+        var updated = profile
+        guard updated.promoteAddress(index) else { return }
+        addressIndex[id] = 0
+        store.updateInPlace(updated)   // 不重排：标签位置不许因为换网卡而跳
+    }
+
+    private func forgetRuntimeState(_ id: String) {
+        statuses[id] = nil
+        reloadTokens[id] = nil
+        errors[id] = nil
+        addressIndex[id] = nil
+        triedAddresses[id] = nil
+    }
+
+    // MARK: - 保存 / 合并同一台电脑
+
+    /// 保存一条记录：新增时如果这台电脑已经有记录（同一个分组名），把地址**并进去**
+    /// —— 一台电脑只留一条记录、一份页面。
+    private func save(_ profile: ServerProfile) {
+        let isNew = store.profile(profile.id) == nil
+        let group = profile.group.trimmedAnyBoot
+        if isNew, !group.isEmpty,
+           let existing = store.servers.first(where: {
+               group.caseInsensitiveCompare($0.group.trimmedAnyBoot) == .orderedSame
+           }) {
+            var keep = existing
+            keep.mergeAddresses(from: profile)
+            if keep.token.trimmedAnyBoot.isEmpty { keep.token = profile.token }
+            store.upsert(keep)
+            store.select(keep.id)
+            notice = "已并入同一台电脑：\(keep.label)"
+            reloadFromFirstAddress(keep.id)
+            probeMachine(keep)
+            return
+        }
+        store.upsert(profile)
+        store.select(profile.id)
+        // 地址/token 可能变了，按新配置重连这台电脑（其它标签不受影响）
+        reloadFromFirstAddress(profile.id)
+        // 顺手探一次 /health：知道「这台电脑」的机器标识后，才认得出它是不是
+        // 已经有另一块网卡的记录 —— 有就自动并成一条
+        probeMachine(profile)
+    }
+
+    /// 后台探一次电脑端的 `/health`，拿到机器标识
+    private func probeMachine(_ profile: ServerProfile) {
+        HealthProbe.fetch(host: profile.host) { machine in
+            guard let machine else { return }
+            applyMachineIdentity(machine, to: profile.id)
+        }
+    }
+
+    /// 探到了机器身份：记下来；如果这台电脑已经有别的记录，就把两条并成一条
+    private func applyMachineIdentity(_ machine: HealthProbe.Machine, to id: String) {
+        guard var target = store.profile(id) else { return }
+        if !machine.id.isEmpty { target.machineId = machine.id }
+        if !machine.name.isEmpty { target.machineName = machine.name }
+        guard let sibling = store.servers.first(where: { target.sameMachine($0) }) else {
+            store.updateInPlace(target)   // 只把机器标识记下来
+            return
+        }
+        // 同一台电脑的两条记录 → 并成一条。正在看的那条留下，免得页面跳走。
+        let keep: ServerProfile
+        let drop: ServerProfile
+        if store.activeId == sibling.id {
+            keep = sibling
+            drop = target
+        } else {
+            keep = target
+            drop = sibling
+        }
+        var merged = keep
+        if merged.machineName.trimmedAnyBoot.isEmpty { merged.machineName = drop.machineName }
+        merged.mergeAddresses(from: drop)
+        if merged.machineId.trimmedAnyBoot.isEmpty { merged.machineId = drop.machineId }
+        if merged.group.trimmedAnyBoot.isEmpty { merged.group = drop.group }
+        if merged.name.trimmedAnyBoot.isEmpty { merged.name = drop.name }
+        if merged.token.trimmedAnyBoot.isEmpty { merged.token = drop.token }
+        let keepWasActive = store.activeId == merged.id
+        store.upsert(merged)
+        store.remove(drop.id)
+        forgetRuntimeState(drop.id)
+        if keepWasActive { store.select(merged.id) }
+        notice = "已把同一台电脑的地址合并到一个标签：\(merged.label)"
+            + (machine.name.isEmpty ? "" : "（\(machine.name)）")
     }
 
     private func startAdd(first: Bool = false) {
@@ -277,10 +474,16 @@ struct ServerEditorSheet: View {
                         .autocorrectionDisabled()
                 }
                 Section("服务端地址") {
-                    TextField("192.168.0.120:12300 或整条带 token 的地址", text: $host)
+                    // 一台电脑的多个地址一次填完：多行输入（每行一个）
+                    TextField("192.168.0.120:12300 或整条带 token 的地址", text: $host, axis: .vertical)
+                        .lineLimit(1...4)
                         .keyboardType(.URL)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
+                    // 新增说明（原有文案一字未动）：多行 = 同一台电脑的多个网卡地址
+                    Text("同一台电脑有多块网卡就填多行，每行一个 —— 只占一个标签，哪个通就用哪个")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
                 Section("访问令牌 token") {
                     TextField("可留空，页面上也能填", text: $token)
@@ -288,7 +491,7 @@ struct ServerEditorSheet: View {
                         .autocorrectionDisabled()
                 }
                 Section {
-                    Text("在电脑端 AnyBoot 的「远程控制」里能看到地址和 token；手机要和电脑在同一个局域网。同一台电脑的多个 IP 填同一个分组，标签会带同色描边。")
+                    Text("在电脑端 AnyBoot 的「远程控制」里能看到地址和 token；手机要和电脑在同一个局域网。同一台电脑的多个 IP 填同一个分组，只占一个标签（首选地址不通会自动换下一个）。")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -302,6 +505,7 @@ struct ServerEditorSheet: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("保存") { save() }
+                        .disabled(ServerProfile.parseAddresses(host).isEmpty)
                 }
                 if !firstRun {
                     ToolbarItem(placement: .cancellationAction) {
@@ -324,7 +528,7 @@ struct ServerEditorSheet: View {
             .onAppear {
                 group = profile?.group ?? ""
                 name = profile?.name ?? ""
-                host = profile?.host ?? ""
+                host = profile?.addressText ?? ""
                 token = profile?.token ?? ""
             }
         }
@@ -332,20 +536,23 @@ struct ServerEditorSheet: View {
     }
 
     private func save() {
-        guard let normalized = ServerProfile.normalizeHost(host) else { return }
+        let addresses = ServerProfile.parseAddresses(host)
+        guard !addresses.isEmpty else { return }
         var resolved = token.trimmedAnyBoot
         if resolved.isEmpty { resolved = ServerProfile.token(fromURL: host) }
         var result = profile ?? ServerProfile()
         result.group = group.trimmedAnyBoot
-        result.name = name.trimmedAnyBoot.isEmpty ? normalized : name.trimmedAnyBoot
-        result.host = normalized
+        result.name = name.trimmedAnyBoot.isEmpty
+            ? (addresses.first ?? "")
+            : name.trimmedAnyBoot
+        result.replaceAddresses(addresses)
         result.token = resolved
         onFinish(.save(result))
         dismiss()
     }
 }
 
-/// 服务端列表：切换 / 编辑 / 删除
+/// 服务端列表：切换 / 编辑 / 删除 / 合并同一台电脑的多条记录
 struct ServerListSheet: View {
 
     @EnvironmentObject private var store: ServerStore
@@ -353,6 +560,7 @@ struct ServerListSheet: View {
 
     @State private var editing: ServerProfile?
     @State private var showEditor = false
+    @State private var mergeNotice: String?
 
     var body: some View {
         NavigationStack {
@@ -364,7 +572,7 @@ struct ServerListSheet: View {
                             .frame(width: 10, height: 10)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(profile.label).font(.body)
-                            Text(profile.host).font(.caption).foregroundStyle(.secondary)
+                            Text(profile.addressSummary).font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
                         if profile.id == store.activeId {
@@ -377,7 +585,9 @@ struct ServerListSheet: View {
                         dismiss()
                     }
                     .swipeActions {
-                        Button("删除", role: .destructive) { store.remove(profile.id) }
+                        Button("删除", role: .destructive) {
+                            store.remove(profile.id)
+                        }
                         Button("编辑") {
                             editing = profile
                             showEditor = true
@@ -387,9 +597,24 @@ struct ServerListSheet: View {
             }
             .navigationTitle("服务端列表")
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("合并同机地址") {
+                        let removed = store.mergeSameMachine()
+                        mergeNotice = removed > 0
+                            ? "已合并 \(removed) 条重复记录 —— 同一台电脑只留一个标签"
+                            : "没有需要合并的：同一台电脑要么已经只有一条，要么分组名不同"
+                    }
+                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("完成") { dismiss() }
                 }
+            }
+            .alert("合并同一台电脑的地址", isPresented: Binding(
+                get: { mergeNotice != nil },
+                set: { if !$0 { mergeNotice = nil } })) {
+                Button("好") { mergeNotice = nil }
+            } message: {
+                Text(mergeNotice ?? "")
             }
             .sheet(isPresented: $showEditor) {
                 ServerEditorSheet(profile: editing,

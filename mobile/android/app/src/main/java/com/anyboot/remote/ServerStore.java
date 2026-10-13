@@ -22,6 +22,7 @@ final class ServerStore {
     private static final String KEY_SERVERS = "servers";
     private static final String KEY_ACTIVE = "active_id";
     private static final String KEY_CONNECT_ALL = "connect_all";
+    private static final String KEY_TRANSPORT = "transport";
     private static final String KEY_MIGRATED = "migrated_multi_server";
 
     private static final String LEGACY_HOST = "host";
@@ -45,7 +46,7 @@ final class ServerStore {
                     JSONObject object = array.optJSONObject(i);
                     if (object != null) {
                         ServerProfile profile = ServerProfile.fromJson(object);
-                        if (!profile.host.isEmpty()) {
+                        if (!profile.addresses.isEmpty()) {
                             list.add(profile);
                         }
                     }
@@ -80,7 +81,7 @@ final class ServerStore {
         String host = ServerProfile.normalizeHost(preferences.getString(LEGACY_HOST, ""));
         if (!host.isEmpty()) {
             ServerProfile profile = new ServerProfile();
-            profile.host = host;
+            profile.addAddress(host);
             profile.name = host;
             profile.token = value(preferences.getString(LEGACY_TOKEN, ""));
             list.add(profile);
@@ -110,6 +111,22 @@ final class ServerStore {
 
     static void setConnectAll(Context context, boolean value) {
         prefs(context).edit().putBoolean(KEY_CONNECT_ALL, value).apply();
+    }
+
+    /**
+     * 传输方式偏好："auto"（默认）/ "ws"（只用推送）/ "http"（只用轮询）。
+     *
+     * <p>存在 App 侧而不是只存网页端：网页端的 localStorage 按来源站点存，
+     * 这台电脑换网卡就会换地址（= 换来源），偏好会丢。加载页面时以
+     * {@code ?transport=} 追加到 URL 上交给网页决定走哪条通道。
+     */
+    static String transport(Context context) {
+        String value = value(prefs(context).getString(KEY_TRANSPORT, "")).trim();
+        return value.isEmpty() ? "auto" : value;
+    }
+
+    static void setTransport(Context context, String value) {
+        prefs(context).edit().putString(KEY_TRANSPORT, value == null ? "auto" : value).apply();
     }
 
     /** 按「分组 → 名称」排序（未分组排最后） */

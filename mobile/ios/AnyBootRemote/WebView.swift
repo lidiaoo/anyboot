@@ -23,8 +23,9 @@ enum LoadStatus {
 /// 只做三件事：加载 URL、把加载状态报给 SwiftUI、支持外部触发重载。
 /// 页面本身（token、栏目、轮询）全部由服务端托管的前端负责，这里不重复实现。
 ///
-/// 每个服务端标签各持有一个实例（多个同时在线），所以除了 URL 之外，
+/// 每台电脑各持有一个实例（多台同时在线），所以除了 URL 之外，
 /// 还要用 `reloadToken` 区分「同一实例的重新加载」。
+/// **一台电脑的多块网卡共用这一个实例** —— 换地址就是换 URL，不新建实例。
 struct WebView: UIViewRepresentable {
     let url: URL
     /// 每次自增都会强制重新加载（SwiftUI 里拿来当「重试」的触发器）
@@ -75,11 +76,21 @@ struct WebView: UIViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-            parent.onStatus(.failed)
+            report(error)
         }
 
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!,
                      withError error: Error) {
+            report(error)
+        }
+
+        /// 主动取消（-999：例如加载中途又发起了新加载）**不算「连不上」**。
+        /// 不然「加载时手动重载」会被当成地址不通，白跳过一个候选地址。
+        private func report(_ error: Error) {
+            let failure = error as NSError
+            if failure.domain == NSURLErrorDomain && failure.code == NSURLErrorCancelled {
+                return
+            }
             parent.onStatus(.failed)
         }
 

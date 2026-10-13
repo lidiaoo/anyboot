@@ -222,6 +222,73 @@
 
 ---
 
+## 阶段 8 · 推送通道（`/api/ws`）+ 传输方式 + 刷新 —— 已完成（2026-10-13）
+
+目标：手机端能选「推送还是轮询」，页面不必再每 2 秒拉一次；顺手把刷新做成触屏上顺手的动作。
+
+- [x] **新增 `GET /api/ws`**：与 `/api/ui-state` 送**同一份** `ui_state_json()`（区别只在谁先知道）。
+  用 tiny_http `Request::upgrade` 做 RFC6455 握手（`Sec-WebSocket-Accept = base64(SHA1(key + GUID))`，
+  协议写死 SHA-1 → 引 `sha1` + `base64` 两个 crate）；`WS_CLIENTS` 订阅表（`Mutex<Vec<(u64, SyncSender<String>)>>`），
+  `publish_ui` 里广播。**队列满丢帧不阻塞**（`WS_QUEUE = 8`）—— 否则一个收得慢的客户端会把主窗口自己的重绘一起拖住。
+- [x] **首帧就是完整快照**：客户端连上即可渲染，不必再单独 GET 一次 `/api/ui-state`。
+- [x] **握手鉴权复用 `http_token`**：WebSocket 握手喝不进自定义请求头，所以取 `?token=` 或
+  `anyboot_token` cookie（`WS_TOKEN_COOKIE`，与前端 `REMOTE_TOKEN_COOKIE` 同名）。token 不对时**不升级**，
+  直接回普通 HTTP 401（浏览器会把它报成「握手失败」，语义上正是如此）。
+- [x] **只写不读 + 25s ping**：`upgrade` 交回的是读写合一、拿不到 `TcpStream` 的对象（设不了读超时），
+  而「读对端帧」和「发快照」必须并发 → 这条通道只写。代价是对端消失只能从**写失败**上发现，
+  于是空闲 25 秒发一个 ping 当**唯一探测器**（兼作保活）。
+- [x] **前端三档 `transportMode`**：`auto`（默认，推送优先、失败落 2s 轮询并后台退避重连 1s→2s→…→30s）/ `ws` / `http`。
+  `auto` 下推送一通就 `stopUiStatePolling()`（两条一起跑 = 做两份功 + 互相覆盖）；
+  用户明确选了 `ws` 就**不许偷偷改回轮询**（只提示「正在重连…」）。横幅显示**此刻实际在用的通道**。
+- [x] **偏好由客户端从 URL 带过去**：`?transport=`（空值 / `auto` 不加）。因为网页 `localStorage`
+  是按**来源站点**存的，而一台电脑多块网卡会换地址（= 换来源），只存网页端偏好会跟着丢。
+  Android `ServerProfile.urlAt(index, transport)`、iOS `url(at:transport:)`，偏好落 `ServerStore.transport`。
+- [x] **刷新**：`refreshNow()`（横幅「刷新」按钮 + 下拉刷新共用）走 `/api/ui-state` + `applySnapshot(force: true)`
+  —— force 是为了「用户要的是看得见的反馈」；`installPullToRefresh()` 用**非 passive 的 touchmove + preventDefault**
+  （不拦会被浏览器当成整页下拉刷新，两套叠一起），且只在**真的在顶部**时接管手势。
+- [x] **`/api/ws` 的断开不进「最近请求」**：只写 `trace.log`。断开时刻随机（对方关页面/切网），
+  摆进历史只会让人以为「刚刚有人动了什么」；链路抖动时一次两条，20 条的环很快被噪音顶光。
+  连上仍记一条（回答「推送到底连上没有」，排查手机为什么退到轮询时最有用）。
+- [x] 文档：根 `README.md`（端点表 + 客户端小节）、`ui/README.md`（「刷新与传输方式」小节 + 拓扑图）、
+  `mobile/README.md`（新增「刷新与传输方式」一节）、`android|ios/README.md`。
+  验收（实测）：`cargo test --release` **110 passed / 0 failed / 1 ignored**（WS 新增 6 条：RFC 示例 accept key、
+  三种长度形式的帧编码、升级请求识别、cookie 取 token、订阅表增删 + 不阻塞掉帧）；`cargo build --release` 出了 exe；
+  `node --check` 三个前端文件通过；Android `javac` 类型检查通过 + JVM 纯逻辑 **36/36**。
+  实机（Xvfb + 真 Chrome 155）：
+  ① 自写探针（只用 net + crypto）—— 无 token 握手 **401 且不给 101**；带 token **101** + Accept 与 RFC 算法一致；
+  首帧带 `revision`；`POST /api/ui-command` 后收到**第二帧且 revision 变大**；
+  ② 浏览器里横幅显示「自动（现在：推送（WebSocket））」，手势回放「下拉刷新 → 松开刷新 → 正在刷新… → 隐藏」
+  且底栏回执「已刷新」，点「刷新」发出 1 条 `ui-state`，切 `http` 后 5 秒内 3 条请求；
+  ③ **只在电脑端**改设置，页面不刷新也跟着变，而页面自己发起的快照请求数 = 0 → 推送确实送达。
+  未做：真机（手机）上验证 —— 本机没有设备，留在 `mobile/*/README.md` 的安装步骤里由你跑一次。
+
+---
+
+## 阶段 9 · `/health` 暴露机器标识（多网卡只占一份页面）—— 已完成（2026-10-13）
+
+背景：一台电脑多块网卡 / 多次 DHCP → 逻辑上是**同一个客户端**，`/health` 不带身份的话，
+手机端只能按「一个 IP 一个标签」排，同一台机器变成 N 份页面。
+
+- [x] `Settings` 新增 `machine_id`（32 位十六进制，**首次运行生成**、写进 `settings.json`、跨重启不变）。
+  `#[serde(default, rename_all = "camelCase")]` → 老配置零迁移（新增键自动兼容）。
+- [x] `GET /health` 增加 `machineId` / `machineName`，**免鉴权**返回。
+  免鉴权是刻意的：客户端**还没填 token 时**就要能归并（填地址保存时自动探一次）。
+  响应体由纯函数 `health_json()` 拼，便于单测。`machineName` 取不到就是空串 ——
+  **不开子进程**（`/health` 每次请求都会走，只读环境变量与 `/etc/hostname` 这类约定路径）。
+- [x] 客户端模型改成「**一条记录 = 一台电脑**」：`ServerProfile.addresses` 是有序候选地址列表
+  （`host` = `addresses[0]`）。首选地址不通就换下一个（**换 URL 不换实例**，还是同一个标签、同一个 WebView），
+  连上的地址被提到最前并落盘 → DHCP 换 IP 能自愈；全试完才显示重试面板。
+- [x] 同机判定：两边都有 `machineId` 时以它为准（不同就是两台机器，哪怕分组名一样），
+  任一方没有则退回「分组名相同」这个用户可见的约定；老配置一键「合并同一台电脑的地址」。
+- [x] 兼容：客户端写盘时 `addresses`（新）与 `host`（= 首选，旧）**同时写**，
+  1.1 及更早的客户端照读不误；老的单 `host` 记录读进来升级成单元素地址列表。
+  验收（实测）：`/health` 实机返回 `machineId` 32 位小写十六进制、已写回 `settings.json`、**跨重启一致**、
+  不带 token 也 200；Android `javac` 类型检查 + JVM 纯逻辑 36/36（含解析/归一化/去重/提升/归并/JSON 往返/老格式升级/同机判定/URL 归一化）；
+  iOS 本机无 Swift 工具链 → 只做逐行核对（`mobile/ios/README.md` 本就写明必须在 Mac 上构建）。
+  未做：真机（手机）验证，同上。
+
+---
+
 ## 复现清单（阶段 0 请你按序做一遍，把 trace.log 给我）
 
 1. 冷启动应用（确保 ESP 未挂载或扫描耗时），**立刻**右键托盘 → 记录：菜单里有没有系统切换项/「重启系统」/「应用设置」？

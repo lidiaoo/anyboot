@@ -53,6 +53,40 @@ try {
 
 /// 浏览器远程模式是否可用（页面由 AnyBoot 内置 HTTP 服务托管时为 true）
 let remoteApiAvailable = false;
+/// 快照事件的处理函数：listen 注册时记下来，推送/轮询拿到新快照时调它
+let uiStateHandler = null;
+/// 快照轮询定时器（只允许存在一个）
+let uiStatePollTimer = null;
+/// 探测失败后的重试定时器（见 scheduleRemoteApiReprobe）
+let probeRetryTimer = null;
+
+// ---------- 传输方式：推送（WebSocket）还是轮询（HTTP） ----------
+//
+// 两条路送的是**同一份快照**（后端 publish_ui 一个来源），对界面完全等价，
+// 区别只在「谁先知道」和「耗不耗电」：
+//   ws    长连接，改动一到就到（毫秒级），空闲时几乎不发包
+//   http  每 2s 拉一次，穿代理/NAT 最稳，但最坏差 2s，手机端一直有细水长流
+// 默认 auto：先试推送，连不上就落到轮询，并在后台继续试着把推送接回来。
+const TRANSPORT_KEY = "anyboot.transport";
+const TRANSPORT_AUTO = "auto";
+const TRANSPORT_PUSH = "ws";
+const TRANSPORT_POLL = "http";
+/// 轮询间隔（毫秒）
+const POLL_INTERVAL = 2000;
+/// 推送重连退避的上限
+const PUSH_RETRY_MAX = 30000;
+
+/// 选定的传输方式（用户在横幅里选、或手机 App 用 ?transport= 指定）
+/// —— 第一帧横幅就要显示它，所以在这儿就读出来（URL 的 ?transport= 也在这时候落库）
+let transportMode = readTransportPreference();
+/// 眼下**实际**在用的通道："ws" / "http" / "none"（横幅据此显示）
+let activeTransport = "none";
+/// 推送连接的 **中** 概览
+let pushSocket = null;
+let pushRetryTimer = null;
+let pushRetryDelay = 1000;
+/// 手动刷新 / 下拉刷新正在进行（防连点）
+let refreshing = false;
 
 async function probeRemoteApi() {
   try {
@@ -63,6 +97,291 @@ async function probeRemoteApi() {
     remoteApiAvailable = false;
   }
   return remoteApiAvailable;
+}
+
+/// 读传输方式偏好：URL 上的 `?transport=`（手机 App 传进来）> localStorage > 自动。
+///
+/// 为什么 App 要专门传这个参数：网页端的 localStorage 是按**来源站点**存的，
+/// 而一台电脑有多个网卡时地址会换（换地址 = 换来源），偏好就跟着丢了。
+/// 由 App 每次加载时带上，换地址也不会丢。
+function readTransportPreference() {
+  const known = (value) =>
+    value === TRANSPORT_AUTO || value === TRANSPORT_PUSH || value === TRANSPORT_POLL;
+  try {
+    const fromUrl = (new URLSearchParams(window.location.search).get("transport") || "").toLowerCase();
+    if (known(fromUrl)) {
+      // App 里选的就是用户的意思，顺手也记进本页 localStorage
+      localStorage.setItem(TRANSPORT_KEY, fromUrl);
+      return fromUrl;
+    }
+    const stored = (localStorage.getItem(TRANSPORT_KEY) || "").toLowerCase();
+    if (stored === TRANSPORT_PUSH || stored === TRANSPORT_POLL) {
+      return stored;
+    }
+  } catch {
+    // localStorage 不可用（隐私模式等）：按自动来
+  }
+  return TRANSPORT_AUTO;
+}
+
+/// 把一份快照交给页面：推送与轮询**共用同一个出口**，两条路不会分叉。
+function deliverSnapshot(payload) {
+  if (uiStateHandler) {
+    uiStateHandler({ payload });
+  }
+}
+
+/// 网页端的「快照轮询」：每 2s 拉一次 /api/ui-state。只起一个 —— 探测重试接回来
+/// 时会再调一次，重复起会把请求翻倍。
+function startUiStatePolling() {
+  if (uiStatePollTimer !== null || !remoteApiAvailable) {
+    return;
+  }
+  uiStatePollTimer = setInterval(pollUiStateOnce, POLL_INTERVAL);
+}
+
+function stopUiStatePolling() {
+  if (uiStatePollTimer !== null) {
+    clearInterval(uiStatePollTimer);
+    uiStatePollTimer = null;
+  }
+}
+
+async function pollUiStateOnce() {
+  if (document.hidden) {
+    return;
+  }
+  // 手上没有 token 就别轮询了：每次都只会 401，既是噪声，也会把
+  // 「请重新输入」的提示反复糊到用户脸上（token 输入框被打断的帮凶之一）。
+  // 定时器照常在跑，token 一填好（或从 401 恢复）下一拍就自动续上。
+  if (!remoteToken) {
+    return;
+  }
+  try {
+    const response = await fetch("/api/ui-state", {
+      headers: { "X-Auth-Token": remoteToken },
+      cache: "no-store",
+    });
+    if (response.ok) {
+      deliverSnapshot(await response.json());
+    } else if (response.status === 401) {
+      requestRemoteToken();
+    }
+  } catch {
+    // 断线时静默，下一轮再试
+  }
+}
+
+/// 手动刷新（横幅的「刷新」/ 手机上下拉）：立刻抓一份快照，不等下一拍。
+///
+/// 推送通道正常时这个按钮基本用不上，但它是**兜底**：推送连着、界面却看着不对
+/// （比如某一拍被丢帧、或用户在另一台设备上刚改完），下拉一下立刻对齐。
+async function refreshNow({ silent = false } = {}) {
+  if (!IS_BROWSER || !remoteApiAvailable || !remoteToken) {
+    if (!silent) {
+      showStatusBar("还没连上本机服务，无法刷新", { error: true });
+    }
+    return;
+  }
+  if (refreshing) {
+    return;
+  }
+  refreshing = true;
+  setPullIndicator("正在刷新…", 12, true);
+  try {
+    const response = await fetch("/api/ui-state", {
+      headers: { "X-Auth-Token": remoteToken },
+      cache: "no-store",
+    });
+    if (response.status === 401) {
+      requestRemoteToken();
+      return;
+    }
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    // force：手动刷新时后端可能没有新 revision，也要重画一遍
+    // —— 用户要的是「我看得见的反馈」，不是「省一次渲染」
+    applySnapshot(await response.json(), { force: true });
+    if (!silent) {
+      showStatusBar("已刷新");
+    }
+  } catch (error) {
+    if (!silent) {
+      showStatusBar(`刷新失败：${error}`, { error: true });
+    }
+  } finally {
+    refreshing = false;
+    setPullIndicator("", 0, false);
+  }
+}
+
+/// 建推送连接。auto 模式下失败会退到轮询并继续重试；ws 模式下只重试。
+function connectPush() {
+  if (!IS_BROWSER || !remoteApiAvailable || pushSocket) {
+    return;
+  }
+  // 没有 token 就别连了：后端只会回 401，浏览器控制台一片红
+  if (!remoteToken) {
+    setActiveTransport("none");
+    return;
+  }
+  const scheme = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const url = `${scheme}//${window.location.host}/api/ws?token=${encodeURIComponent(remoteToken)}`;
+  let socket;
+  try {
+    socket = new WebSocket(url);
+  } catch {
+    onPushUnavailable();
+    return;
+  }
+  pushSocket = socket;
+
+  socket.addEventListener("open", () => {
+    pushRetryDelay = 1000;
+    // 推送通了就把轮询撤掉：两条一起跑等于做两份功，还会互相覆盖
+    stopUiStatePolling();
+    setActiveTransport("ws");
+  });
+  socket.addEventListener("message", (event) => {
+    try {
+      deliverSnapshot(JSON.parse(event.data));
+    } catch {
+      // 不是 JSON（心跳之类）忽略
+    }
+  });
+  // error 之后 close 一定会跟着来，收尾只写在 close 里，免得做两遍
+  socket.addEventListener("close", () => {
+    if (pushSocket === socket) {
+      pushSocket = null;
+    }
+    onPushUnavailable();
+  });
+}
+
+/// 推送断了（连不上 / 被断开）。
+function onPushUnavailable() {
+  if (!remoteApiAvailable || !remoteToken) {
+    stopPush();
+    setActiveTransport("none");
+    return;
+  }
+  if (transportMode === TRANSPORT_AUTO) {
+    // 退到轮询：页面照常可用，只是慢一拍；同时后台继续试着把推送接回来
+    startUiStatePolling();
+    setActiveTransport("http");
+  } else {
+    // 用户明确选了推送：不偷偷改回轮询（那正是他不想要的），只提示 + 重连。
+    // 但至少抓一份当前快照，别让页面停在旧数据上。
+    setActiveTransport("none");
+    showStatusBar("推送通道已断开，正在重连…", { error: true });
+    refreshNow({ silent: true });
+  }
+  schedulePushRetry();
+}
+
+/// 退避重连：1s → 2s → 4s … 封顶 30s。连上后 open 里会把间隔复位。
+function schedulePushRetry() {
+  if (pushRetryTimer !== null || !remoteApiAvailable || !remoteToken) {
+    return;
+  }
+  pushRetryTimer = setTimeout(() => {
+    pushRetryTimer = null;
+    connectPush();
+  }, pushRetryDelay);
+  pushRetryDelay = Math.min(pushRetryDelay * 2, PUSH_RETRY_MAX);
+}
+
+function stopPush() {
+  if (pushRetryTimer !== null) {
+    clearTimeout(pushRetryTimer);
+    pushRetryTimer = null;
+  }
+  if (pushSocket) {
+    const socket = pushSocket;
+    pushSocket = null;
+    try {
+      socket.close();
+    } catch {
+      // 关不掉就算了（这条连接本来就已经断了）
+    }
+  }
+  pushRetryDelay = 1000;
+}
+
+/// 按当前的 transportMode 重起通道（切换模式 / token 变化 / 探测重连成功都走这里）。
+function restartTransport() {
+  if (!IS_BROWSER) {
+    return;
+  }
+  stopPush();
+  stopUiStatePolling();
+  if (!remoteApiAvailable || !remoteToken) {
+    setActiveTransport("none");
+    return;
+  }
+  if (transportMode === TRANSPORT_POLL) {
+    startUiStatePolling();
+    setActiveTransport("http");
+    return;
+  }
+  // 自动与推送都是先试推送
+  setActiveTransport("none");
+  connectPush();
+}
+
+function setActiveTransport(value) {
+  if (activeTransport === value) {
+    return;
+  }
+  activeTransport = value;
+  renderBrowserBanner();
+}
+
+/// 横幅上那个传输方式下拉：用户手动选，立刻生效并长期记住。
+function setTransportMode(mode) {
+  transportMode = mode;
+  try {
+    localStorage.setItem(TRANSPORT_KEY, mode);
+  } catch {
+    // 存不了就本次会话有效
+  }
+  restartTransport();
+}
+
+/// 把界面接上远程模式（探通那一刻调一次）：横幅、token 引导、通道、首份快照。
+async function attachRemoteApi() {
+  renderBrowserBanner();
+  // 首次访问（没有存过 token）：直接弹模态框要 token，别等第一次 401
+  if (!remoteToken) {
+    showTokenModal();
+  }
+  restartTransport();
+  try {
+    applySnapshot(await invoke("get_ui_state"), { force: true });
+  } catch (error) {
+    showStatusBar(String(error), { error: true });
+  }
+}
+
+/// 探测失败就每 2s 重试一次，直到连上为止。
+///
+/// 为什么必须重试：客户端（手机 / 浏览器）刚打开的那一刻，电脑端服务可能正在
+/// 重启、或者 WiFi 刚连上还没通 —— 只探一次会把「暂时连不上」**永久**定格成
+/// 「纯预览模式」：横幅写着预览，正文永远是空的（没有任何数据源），用户只能
+/// 手动刷新页面。探通的那一拍把界面接回远程模式，省掉这一次刷新。
+function scheduleRemoteApiReprobe() {
+  if (probeRetryTimer !== null) {
+    return;
+  }
+  probeRetryTimer = setInterval(async () => {
+    if (!(await probeRemoteApi())) {
+      return;
+    }
+    clearInterval(probeRetryTimer);
+    probeRetryTimer = null;
+    await attachRemoteApi();
+  }, 2000);
 }
 
 const invoke = IS_BROWSER
@@ -98,35 +417,16 @@ const listen = IS_BROWSER
       // 曾经写成「网页上等价于切到设置栏目」，可这个 shim 是在**注册时**就执行的
       // （见文件末尾 listen("focus-remote", …)），于是每次打开网页都被顶到基本设置，
       // 地址栏 hash 也跟着变成 #/settings —— 「刷新正好停在基本设置」的真凶就是它。
-      if (event !== "ui-state-changed" || !remoteApiAvailable) {
+      if (event !== "ui-state-changed") {
         return () => {};
       }
-      // 无推送通道：轮询完整快照兜底（2s；页面隐藏时跳过）
-      const timer = setInterval(async () => {
-        if (document.hidden) {
-          return;
-        }
-        // 手上没有 token 就别轮询了：每次都只会 401，既是噪声，也会把
-        // 「请重新输入」的提示反复糊到用户脸上（token 输入框被打断的帮凶之一）。
-        // 定时器照常在跑，token 一填好（或从 401 恢复）下一拍就自动续上。
-        if (!remoteToken) {
-          return;
-        }
-        try {
-          const response = await fetch("/api/ui-state", {
-            headers: { "X-Auth-Token": remoteToken },
-            cache: "no-store",
-          });
-          if (response.ok) {
-            handler({ payload: await response.json() });
-          } else if (response.status === 401) {
-            requestRemoteToken();
-          }
-        } catch {
-          // 断线时静默，下一轮再试
-        }
-      }, 2000);
-      return () => clearInterval(timer);
+      // 处理函数先记下：这一刻可能还没探通（远程模式没连上），等接回来再起通道
+      uiStateHandler = handler;
+      restartTransport();
+      return () => {
+        stopPush();
+        stopUiStatePolling();
+      };
     }
   : tauri.event.listen;
 // 拖动不透明度滑条时的**预览广播**：change 才写后端（免得拖一次写十几次），
@@ -302,6 +602,9 @@ const powerLabels = new Map([
 let lastRevision = -1;
 // 最近一次快照：命令失败时用它把界面拉回系统真实状态。
 let currentState = null;
+// 是否成功渲染过任何一份快照 —— 用来判断「页面还是空的」这件事有没有发生过
+// （见 applySnapshot：结构不对时只在对空页面说一次，不刷屏）。
+let hasRenderedSnapshot = false;
 
 function isBusy(busy) {
   if (!busy) {
@@ -430,9 +733,17 @@ function renderSystems(status, busy) {
       ? "已选择"
       : switchButtonLabel.get(item.system);
     button.disabled = !item.exists || busy || Boolean(status.error);
-    button.addEventListener("click", () =>
-      call("switch_system", { system: item.system }),
-    );
+    button.addEventListener("click", async () => {
+      const result = await call("switch_system", { system: item.system });
+      // 网页 / 手机端：选择系统会被后端转成「远程请求」—— 本机弹授权窗、
+      // 显示来源客户端，本机用户确认后才真的切换。这里如实说一声，
+      // 别让用户以为点了没反应（本机主窗口点按钮仍是即时生效的）。
+      if (IS_BROWSER && result && result.pending) {
+        showStatusBar(
+          `已发送到本机：${result.message || "等待本机确认后切换"}`,
+        );
+      }
+    });
 
     card.append(check, name, button);
     systemsElement.append(card);
@@ -915,6 +1226,14 @@ function renderPending(notify) {
   pendingDetailElement.textContent = `${notify.message}｜来源 ${notify.source}｜渠道 ${notify.channel}｜发起 ${formatLocalTime(notify.created)}`;
   pendingRunElement.classList.toggle("hidden", !notify.canCancel);
   pendingCancelElement.classList.toggle("hidden", !notify.canCancel);
+  // 「立即执行」只有电脑本机能点：远程端能点 = 自己给自己盖章，授权窗就成了摆设
+  // （后端也会拒，见 ui_command_is_local_only）。这里灰掉而不是藏起来 —— 藏起来
+  // 像是「没这功能」，灰着 + 悬停提示才能让用户明白要回电脑前点。
+  // 「取消」远程保留：撤回自己刚发的那条请求是安全方向的操作。
+  pendingRunElement.disabled = IS_BROWSER;
+  pendingRunElement.title = IS_BROWSER
+    ? "需要在电脑本机上点（远程只能取消这条请求）"
+    : "";
 }
 
 // 设置项联动：总开关关掉时，它的专属子项一律置灰（改了也不生效的东西不该看起来能改）。
@@ -1027,8 +1346,16 @@ function render(state) {
 
 function applySnapshot(state, { force = false } = {}) {
   if (!state || typeof state.revision !== "number") {
+    // 结构不对（后端刚起来 / 版本不匹配）：别静默什么都不做 —— 客户端会停在
+    // 「一片空白」且不给任何线索。只在从未成功渲染过时说一句，别刷屏。
+    if (!hasRenderedSnapshot) {
+      showStatusBar("已连上本机服务，但状态快照不可用，请刷新页面重试", {
+        error: true,
+      });
+    }
     return;
   }
+  hasRenderedSnapshot = true;
   if (!force && state.revision <= lastRevision) {
     return;
   }
@@ -1117,7 +1444,9 @@ async function refreshSnapshotQuietly() {
 async function call(command, args) {
   hideStatusBar();
   try {
-    await invoke(command, args);
+    // 返回值给调用方用：远程模式下有些命令是「已受理、待本机确认」而不是已执行
+    // （例如网页端选择系统，见 renderSystems），调用方要据 pending 给个说法。
+    return await invoke(command, args);
   } catch (error) {
     showStatusBar(String(error), { error: true });
     try {
@@ -1126,6 +1455,7 @@ async function call(command, args) {
       // 主错误已经显示，这里不再覆盖
       void inner;
     }
+    return undefined;
   }
 }
 
@@ -1241,6 +1571,36 @@ const browserBanner = IS_BROWSER
     })()
   : null;
 
+/// 实际在用的通道给人看的说法（横幅上那一句）
+function transportLabel() {
+  if (activeTransport === "ws") {
+    return "推送（WebSocket）";
+  }
+  if (activeTransport === "http") {
+    return "轮询（HTTP 每 2s）";
+  }
+  return transportMode === TRANSPORT_POLL ? "轮询未启动" : "正在连接推送…";
+}
+
+/// 横幅上那个「传输方式」下拉：选项就是三档，当前档位显示实际在用的通道。
+function buildTransportSelect() {
+  const select = document.createElement("select");
+  select.title = "改用推送（WebSocket）或轮询（HTTP）取快照";
+  for (const [value, label] of [
+    [TRANSPORT_AUTO, `自动（现在：${transportLabel()}）`],
+    [TRANSPORT_PUSH, "推送（WebSocket）"],
+    [TRANSPORT_POLL, "轮询（HTTP）"],
+  ]) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    select.append(option);
+  }
+  select.value = transportMode;
+  select.addEventListener("change", () => setTransportMode(select.value));
+  return select;
+}
+
 function renderBrowserBanner() {
   if (!IS_BROWSER) {
     return;
@@ -1254,6 +1614,14 @@ function renderBrowserBanner() {
   if (remoteToken) {
     browserBanner.textContent =
       "远程控制已连接：这里的设置改动实时作用于本机 AnyBoot";
+    // 手动刷新：推送正常时用不上，但它是兜底（某一拍丢帧 / 另一台设备刚改过）
+    const refresh = document.createElement("button");
+    refresh.type = "button";
+    refresh.className = "banner-link";
+    refresh.textContent = "刷新";
+    refresh.addEventListener("click", () => refreshNow());
+    // 传输方式：推送优先还是轮询
+    browserBanner.append("　", refresh, "　", buildTransportSelect());
     // 给个退路：换 token / 断开重连
     const change = document.createElement("button");
     change.type = "button";
@@ -1271,6 +1639,128 @@ function renderBrowserBanner() {
   enter.textContent = "输入 token";
   enter.addEventListener("click", () => showTokenModal());
   browserBanner.append("　", enter);
+}
+
+// ---------- 下拉刷新（手机 / 触屏） ----------
+
+/// 顶部那个小药丸（下拉时跟着手指走，或显示「正在刷新…」）
+let pullIndicator = null;
+
+function pullIndicatorElement() {
+  if (!pullIndicator) {
+    pullIndicator = document.createElement("div");
+    pullIndicator.className = "pull-refresh";
+    pullIndicator.hidden = true;
+    document.body.append(pullIndicator);
+  }
+  return pullIndicator;
+}
+
+function setPullIndicator(text, offset = 0, visible = true) {
+  if (!IS_BROWSER) {
+    return;
+  }
+  const element = pullIndicatorElement();
+  element.textContent = text;
+  element.style.transform = `translate(-50%, ${offset}px)`;
+  element.hidden = !visible;
+}
+
+/// 装下拉刷新。只在**真的处在顶部**时才接管手势 —— 否则往下拖只是正常往回滚。
+///
+/// 另外刻意用非 passive 的 touchmove（要 preventDefault）：不拦的话浏览器会把这串
+/// 手势当成它自己的「整页回弹刷新」，两套刷新叠在一起，用户看到的是页面自己重载了。
+function installPullToRefresh() {
+  if (!IS_BROWSER) {
+    return;
+  }
+  const THRESHOLD = 64; // 触发阈值
+  const MAX = 96; // 指示器最多往下走多少
+  let startY = null;
+  let distance = 0;
+
+  /// 手指落点这一路是否都在顶部（页面本身 + 沿途每一个滚动容器）
+  const atTop = (node) => {
+    const scroller = document.scrollingElement || document.documentElement;
+    if ((scroller && scroller.scrollTop > 0) || window.scrollY > 0) {
+      return false;
+    }
+    for (let element = node; element && element !== document.body; element = element.parentElement) {
+      if (element.scrollTop > 0) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  const reset = () => {
+    startY = null;
+    distance = 0;
+    // 正在刷新时保留「正在刷新…」（由 refreshNow 收尾）
+    if (!refreshing) {
+      setPullIndicator("", 0, false);
+    }
+  };
+
+  document.addEventListener(
+    "touchstart",
+    (event) => {
+      if (event.touches.length !== 1 || refreshing) {
+        startY = null;
+        return;
+      }
+      const target = event.target;
+      // 弹窗上不接手势（token 框、服务端列表…），不然在里面滚动会误触发
+      if (target instanceof Element && target.closest(".token-modal, .token-modal-overlay")) {
+        startY = null;
+        return;
+      }
+      if (!atTop(target)) {
+        startY = null;
+        return;
+      }
+      startY = event.touches[0].clientY;
+      distance = 0;
+    },
+    { passive: true },
+  );
+
+  document.addEventListener(
+    "touchmove",
+    (event) => {
+      if (startY === null) {
+        return;
+      }
+      const delta = event.touches[0].clientY - startY;
+      if (delta <= 0) {
+        reset();
+        return;
+      }
+      // 阻尼：手指走 2px 指示器走 1px，越拉越沉
+      distance = Math.min(delta / 2, MAX);
+      if (event.cancelable) {
+        event.preventDefault();
+      }
+      setPullIndicator(distance >= THRESHOLD ? "松开刷新" : "下拉刷新", distance);
+    },
+    { passive: false },
+  );
+
+  document.addEventListener(
+    "touchend",
+    () => {
+      if (startY === null) {
+        return;
+      }
+      const trigger = distance >= THRESHOLD;
+      reset();
+      if (trigger) {
+        refreshNow();
+      }
+    },
+    { passive: true },
+  );
+  document.addEventListener("touchcancel", reset, { passive: true });
 }
 
 // ---------- token 模态框（首次访问 / 401 时弹出） ----------
@@ -1367,7 +1857,9 @@ function buildTokenModal() {
       }
       overlay.hidden = true;
       renderBrowserBanner();
-      // 初始快照立刻补上（轮询本来也在跑，这里不等下一拍）
+      // 新 token 到手：按当前传输方式把通道接起来（启动时没 token，那会儿什么都没起）
+      restartTransport();
+      // 初始快照立刻补上，不等下一拍
       applySnapshot(await response.json(), { force: true });
     } catch (connectError) {
       fail(`连接失败：${connectError}`);
@@ -1419,6 +1911,11 @@ function requestRemoteToken() {
   } catch {
     void 0;
   }
+  // 通道也要停：推送还挂着旧 token，轮询再跑下去只会继续 401 刷屏。
+  // 用户把新 token 填好后 restartTransport() 会把通道接回来。
+  stopPush();
+  stopUiStatePolling();
+  setActiveTransport("none");
   renderBrowserBanner();
   // 输入框已经开着：只把提示换成「token 不对」，绝不重开/清空
   if (tokenModal && !tokenModal.overlay.hidden) {
@@ -2013,8 +2510,11 @@ function updateWindowSizeStateLabels(width, height) {
 
 /// 快照 → 控件（锁定状态也在这里落地：禁用滑条 + 变灰）。
 function syncWindowSizeControls(view) {
-  const width = Number(view.windowWidth) || 460;
-  const height = Number(view.windowHeight) || 900;
+  // windowHeight == 0 = 后端「还没记过尺寸」（它会按**屏幕工作区一半**现算）。
+  // 这一刻别拿旧常量 900 去糊滑条 —— 用窗口实际视口高度当近似值，
+  // 免得滑条显示 900、窗口其实是 560（隐藏期 innerHeight 是 0，会落到兜底）。
+  const width = Number(view.windowWidth) || WINDOW_MIN.width;
+  const height = Number(view.windowHeight) || Math.round(window.innerHeight) || 900;
   const locked = Boolean(view.windowSizeLocked);
   if (document.activeElement !== windowSizeWidthElement) {
     windowSizeWidthElement.value = String(width);
@@ -2148,6 +2648,13 @@ loginItemsElement.addEventListener("click", async () => {
     // 首次访问（没有存过 token）：直接弹模态框要 token，别等第一次 401
     if (remoteApiAvailable && !remoteToken) {
       showTokenModal();
+    }
+    // 手指从页面顶部往下拖就刷新（触屏上比去点横幅里的按钮顺手得多）
+    installPullToRefresh();
+    // 探不通不等于没有后端：可能电脑端正在重启、或网络刚起来。别把这一刻
+    // 定格成「纯预览模式」（那会让正文永远空着），挂上重试直到连上。
+    if (!remoteApiAvailable) {
+      scheduleRemoteApiReprobe();
     }
   }
 

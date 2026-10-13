@@ -8,9 +8,16 @@ final class ServerStore: ObservableObject {
 
     static let shared = ServerStore()
 
+    static let transportAuto = "auto"
+    static let transportPush = "ws"
+    static let transportPoll = "http"
+    /// 三个可选值（菜单/对话框的顺序就是这个）
+    static let transports = [transportAuto, transportPush, transportPoll]
+
     private let keyServers = "servers"
     private let keyActive = "active_id"
     private let keyConnectAll = "connect_all"
+    private let keyTransport = "transport"
     private let keyMigrated = "migrated_multi_server"
     private let legacyHost = "host"
     private let legacyToken = "token"
@@ -19,6 +26,8 @@ final class ServerStore: ObservableObject {
     @Published private(set) var activeId: String = ""
     /// 启动时是否把所有服务端一起连上（多个 WKWebView 同时在线）
     @Published private(set) var connectAll: Bool = false
+    /// 传输方式偏好：`auto` / `ws` / `http`（加载页面时以 `?transport=` 交给网页决定）
+    @Published private(set) var transport: String = ServerStore.transportAuto
 
     private let defaults = UserDefaults.standard
 
@@ -32,13 +41,14 @@ final class ServerStore: ObservableObject {
         var list: [ServerProfile] = []
         if let data = defaults.data(forKey: keyServers),
            let decoded = try? JSONDecoder().decode([ServerProfile].self, from: data) {
-            list = decoded.filter { !$0.host.isEmpty }
+            list = decoded.filter { !$0.addresses.isEmpty }
         }
         migrateLegacy(into: &list)
         sort(&list)
         servers = list
         activeId = defaults.string(forKey: keyActive) ?? ""
         connectAll = defaults.bool(forKey: keyConnectAll)
+        transport = Self.cleanTransport(defaults.string(forKey: keyTransport))
         if !servers.contains(where: { $0.id == activeId }) {
             activeId = servers.first?.id ?? ""
         }
@@ -50,7 +60,7 @@ final class ServerStore: ObservableObject {
         let oldToken = defaults.string(forKey: legacyToken) ?? ""
         if let host = ServerProfile.normalizeHost(oldHost) {
             var profile = ServerProfile()
-            profile.host = host
+            profile.addAddress(host)
             profile.name = host
             profile.token = oldToken
             list.append(profile)
@@ -77,6 +87,22 @@ final class ServerStore: ObservableObject {
     func setConnectAll(_ value: Bool) {
         connectAll = value
         defaults.set(value, forKey: keyConnectAll)
+    }
+
+    /// 选传输方式：`auto`（推送优先，连不上退回轮询）/ `ws`（只用推送）/ `http`（只用轮询）。
+    ///
+    /// 存在 App 侧而不是只存网页端：网页端的 localStorage 按**来源站点**存，
+    /// 这台电脑换网卡就会换地址（= 换来源），偏好会跟着丢。加载页面时以
+    /// `?transport=` 追加到 URL 上交给网页决定走哪条通道。
+    func setTransport(_ value: String) {
+        transport = Self.cleanTransport(value)
+        defaults.set(transport, forKey: keyTransport)
+    }
+
+    /// 只认这三个值，其余（含 nil / 空串 / 拼错）一律回落到 `auto`
+    static func cleanTransport(_ raw: String?) -> String {
+        let value = (raw ?? "").trimmedAnyBoot.lowercased()
+        return transports.contains(value) ? value : transportAuto
     }
 
     // MARK: - 增删改查
@@ -112,6 +138,60 @@ final class ServerStore: ObservableObject {
             persistActive()
         }
         save()
+    }
+
+    /// 只更新这一条（**不重排**）：给「记住哪个地址是通的」这类运行期小改动用，
+    /// 免得标签顺序突然变一下。
+    func updateInPlace(_ profile: ServerProfile) {
+        guard let index = servers.firstIndex(where: { $0.id == profile.id }) else { return }
+        servers[index] = profile
+        save()
+    }
+
+    /// 把「其实是同一台电脑」的多条记录并成一条 —— 给老配置用：以前每个 IP 一条
+    /// 记录的老用户，点一下就能收成「一台电脑一份页面」。
+    ///
+    /// @return 合并掉的条数
+    @discardableResult
+    func mergeSameMachine() -> Int {
+        var removed = 0
+        var index = 0
+        while index < servers.count {
+            var keep = servers[index]
+            var scan = servers.count - 1
+            while scan > index {
+                var drop = servers[scan]
+                guard keep.sameMachine(drop) else {
+                    scan -= 1
+                    continue
+                }
+                if drop.id == activeId {
+                    // 正在用的那条留下来（页面不跳走）：和 keep 换个位置
+                    servers.swapAt(index, scan)
+                    swap(&keep, &drop)
+                }
+                keep.mergeAddresses(from: drop)
+                if keep.machineId.trimmedAnyBoot.isEmpty { keep.machineId = drop.machineId }
+                if keep.machineName.trimmedAnyBoot.isEmpty { keep.machineName = drop.machineName }
+                if keep.group.trimmedAnyBoot.isEmpty { keep.group = drop.group }
+                if keep.name.trimmedAnyBoot.isEmpty { keep.name = drop.name }
+                if keep.token.trimmedAnyBoot.isEmpty { keep.token = drop.token }
+                servers.remove(at: scan)
+                removed += 1
+                scan -= 1
+            }
+            servers[index] = keep
+            index += 1
+        }
+        if removed > 0 {
+            sort(&servers)
+            if !servers.contains(where: { $0.id == activeId }) {
+                activeId = servers.first?.id ?? ""
+                persistActive()
+            }
+            save()
+        }
+        return removed
     }
 
     func sort(_ list: inout [ServerProfile]) {
