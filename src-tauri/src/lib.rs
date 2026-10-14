@@ -5640,6 +5640,40 @@ fn dock_main_window(app: &AppHandle) {
         &format!("dock edge={edge:?} target=({},{})", target.0, target.1),
     );
     pin_main_topmost(app);
+    // 停靠落定取证（常开，低频动作）：set_position/set_size 是异步落地的，
+    // 发请求那一刻读数必陈旧 —— 等 200ms 再读回窗口实际矩形。多屏下
+    // 「白条画在哪」要靠这条与前端渲染取证（strip rect css=...）对拍：
+    // 窗口物理矩形 × 前端白条 CSS 矩形 × DPR 一乘，白条的物理落点一清
+    // 二楚，肉眼描述猜不出根因。
+    {
+        let app = app.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            let Some(main) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
+                return;
+            };
+            let docked = app
+                .state::<Mutex<AppState>>()
+                .lock()
+                .map(|state| state.auto_hide_docked)
+                .unwrap_or(false);
+            if !docked {
+                return; // 这 200ms 里用户呼出了/换屏了，读数没有意义
+            }
+            let (Ok(pos), Ok(size)) = (main.outer_position(), main.outer_size()) else {
+                return;
+            };
+            let client_pos = main.inner_position().ok().map(|p| (p.x, p.y));
+            let client_size = main.inner_size().ok().map(|s| (s.width, s.height));
+            startup_debug(
+                &app,
+                &format!(
+                    "dock done pos=({},{}) outer={}x{} client_pos={client_pos:?} client_size={client_size:?}",
+                    pos.x, pos.y, size.width, size.height
+                ),
+            );
+        });
+    }
     // 广播 docked 状态：前端据此在窗口边界画白条（ui-state-changed 顺带同步）
     publish_ui(app);
 }
@@ -7061,6 +7095,28 @@ fn set_main_window_position(app: AppHandle, mode: String) -> Result<SettingsView
     // 立刻按新模式落位（free 模式不动，center 立刻居中，last 立刻回到记忆点）
     apply_main_window_position(&app);
     Ok(publish_settings(&app))
+}
+
+/// 前端白条渲染取证：停靠态下前端把 #dock-strip 的渲染矩形（CSS px）+
+/// 视口尺寸 + DPR 报上来，与后端 `dock done` 的窗口物理矩形对拍 —— 白条
+/// 的物理落点 = 窗口客户区原点 + rect×DPR，一眼算出「画在哪」。
+#[tauri::command]
+fn report_dock_strip_rect(
+    app: AppHandle,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+    viewport_width: f64,
+    viewport_height: f64,
+    dpr: f64,
+) {
+    startup_debug(
+        &app,
+        &format!(
+            "strip rect css=({x},{y} {width}x{height}) viewport={viewport_width}x{viewport_height} dpr={dpr}"
+        ),
+    );
 }
 
 /// 固定显示器（auto / 显示器名，与设置页下拉、托盘子菜单同源）：
@@ -13026,6 +13082,7 @@ pub fn run() {
             set_accent_color,
             set_main_window_position,
             set_main_fixed_monitor,
+            report_dock_strip_rect,
             set_grub_list_view,
             set_grub_list_format,
             set_window_size,

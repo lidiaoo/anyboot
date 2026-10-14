@@ -1484,6 +1484,22 @@ function applyDockStrip(state) {
   );
   if (state.docked && state.dockEdge) {
     body.classList.add("dock-" + state.dockEdge);
+    // 渲染取证：白条的实际矩形 + 视口/缩放报给后端落日志（多屏排障——
+    // 「白条画在哪」必须与后端的窗口物理矩形对拍，肉眼描述定位不了根因）
+    requestAnimationFrame(() => {
+      const strip = document.getElementById("dock-strip");
+      if (!strip) return;
+      const rect = strip.getBoundingClientRect();
+      invoke("report_dock_strip_rect", {
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height,
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+        dpr: window.devicePixelRatio,
+      }).catch(() => {});
+    });
   }
 }
 
