@@ -3125,29 +3125,16 @@ fn main_window_monitor(app: &AppHandle) -> Option<tauri::Monitor> {
 
 fn center_main_window(app: &AppHandle) -> Option<(i32, i32)> {
     let main = app.get_webview_window(MAIN_WINDOW_LABEL)?;
-    // 贴边停靠态：白条不是「窗口」，居中它没有意义 —— 读数是白条尺寸，
-    // 算出的落点是「白条的居中点」，随后展开的完整窗口必然偏出正中
-    // 半个窗口。以前不处理这一态：真正的展开靠 Moved 事件里「拖离停靠
-    // 位」分支顺手做掉，于是第一次点「重置位置」= 展开在偏位上，第二
-    // 次点才在完整尺寸上居中（用户实测要点两次才到屏幕正中）。
-    // 所以停靠态必须先走完整展开链路（还原装饰/尺寸/置顶），再居中。
+    // 贴边停靠态：白条不是「窗口」，居中它没有意义 —— 先完整展开，再把
+    // 物理像素的居中目标交给重锚牛顿步收敛（展开过渡期亲手发 set_position
+    // 会被 WM 重摆吞掉、窗口还会被 near_edge 抢跑贴回，见 center_docked_window）。
     let docked = app
         .state::<Mutex<AppState>>()
         .lock()
         .map(|state| state.auto_hide_docked)
         .unwrap_or(false);
     if docked {
-        undock_main_window(app);
-        // undock 自带的重锚计划瞄准的是停靠位，留着会跟居中落位打架
-        // （watcher 几拍内把窗口拽回边缘）；居中是这次落位的终点，
-        // 展开落位话题就此终结（同 dock 时的处理）。
-        if let Ok(mut state) = app.state::<Mutex<AppState>>().lock() {
-            state.auto_hide_reanchor = None;
-        }
-        // 展开是「隐藏态 set_size → show」：此刻读数还停在白条尺寸、
-        // 未必立刻跟上 —— 与藏窗改尺寸同一招，先按设置里记的尺寸算
-        // 居中（见 centering_size），读数跟上了 pending 自动作废。
-        MAIN_SIZE_PENDING.store(true, Ordering::SeqCst);
+        return center_docked_window(app, &main);
     }
     // 尺寸基准必须挑**可用**的读数：启动落位时窗口还没映射，`outer_size()` 读到
     // `0x0`（tao 的初值取的是坐标）。拿它算「居中」= 把 0 尺寸的矩形居中 →
@@ -3219,6 +3206,104 @@ fn center_main_window(app: &AppHandle) -> Option<(i32, i32)> {
     CENTER_LAST_Y.store(cy, Ordering::SeqCst);
     CENTER_HAS_POS.store(true, Ordering::SeqCst);
     Some((cx, cy))
+}
+
+/// 停靠态「重置位置」的展开过渡等待（毫秒）：undock 的重装饰/改尺寸落地
+/// 期间发出的 set_position 会被 WM 重摆吞掉（实测见 center_docked_window），
+/// 等它落地再把居中交给重锚牛顿步；抑制期同步立起，防 near_edge 抢跑贴回。
+const DOCKED_CENTER_SETTLE_MS: u64 = 600;
+
+/// 停靠态居中的目标**客户区**落点（纯函数，物理像素）：外框（客户区+标题栏）
+/// 在工作区居中 —— 与非停靠路径的外框基准同观感；重锚的收敛判据是
+/// 「客户区实况 == target」，所以 y 要加回标题栏。
+fn docked_center_target(
+    work_x: i32,
+    work_y: i32,
+    work_w: i32,
+    work_h: i32,
+    client_w: i32,
+    client_h: i32,
+    caption: i32,
+) -> (i32, i32) {
+    let outer_h = client_h + caption;
+    (
+        work_x + (work_w - client_w) / 2,
+        work_y + (work_h - outer_h) / 2 + caption,
+    )
+}
+
+/// 停靠态的「重置窗口位置」：先走完整展开链路（还原装饰/尺寸/置顶），再把
+/// 物理像素的居中目标交给重锚牛顿步收敛。返回居中目标（客户区坐标）。
+///
+/// 两个实测教训（10:46 日志，2x 屏 3840x2160，底边贴边）：
+/// 1. **居中不能在过渡期亲手发**：undock 的 hide→show/重装饰/改尺寸过渡要
+///    几百 ms，期间发出的 set_position 会被尺寸落地时的 WM 重摆吞掉 ——
+///    undock 后 2ms 发 center -> (1454,666)，708ms 后窗口仍停在 undock 落点
+///    (1454,484)，随后 near_edge=true 自动贴回底边（用户看到的就是「点了没
+///    反应」）。所以立 600ms 抑制期（防贴回抢跑）等过渡落地，再由重锚牛顿步
+///    补发 —— 它每拍读实况、偏了就修，吞一拍吞不掉整个收敛。
+/// 2. **基准不能用设置里记的尺寸**：那是**逻辑**尺寸（set_size(LogicalSize)），
+///    居中的对面是**物理**工作区，2x 屏差一倍（实测按 932x720 算出
+///    (1454,666)，偏出正中 ~466px）。基准用贴边前的客户区尺寸（物理，
+///    undock 刚拿它展开）。
+fn center_docked_window(app: &AppHandle, main: &tauri::WebviewWindow) -> Option<(i32, i32)> {
+    let (restore, caption) = {
+        let state = app.state::<Mutex<AppState>>();
+        let state = state.lock().expect("state mutex poisoned");
+        (state.auto_hide_restore_size, state.auto_hide_caption)
+    };
+    undock_main_window(app);
+    let monitor = main_window_monitor(app)?;
+    let work = monitor.work_area();
+    let (w, h) = restore.unwrap_or_else(|| {
+        main.inner_size()
+            .map(|s| (s.width.max(1), s.height.max(1)))
+            .unwrap_or((460, 900))
+    });
+    let cap = caption.max(0);
+    let target = docked_center_target(
+        work.position.x,
+        work.position.y,
+        work.size.width as i32,
+        work.size.height as i32,
+        w as i32,
+        h as i32,
+        cap,
+    );
+    // 抑制期必须在过渡落地前立起来：窗口此刻停在贴边落点（near_edge=true），
+    // 不压住的话贴边轮询几拍内就把它收回底边，居中还没开始就输了。牛顿步
+    // 每次补发会各自续 400ms，收敛前贴回一直被压住。
+    mark_geometry_busy(DOCKED_CENTER_SETTLE_MS);
+    let app_for_thread = app.clone();
+    std::thread::spawn(move || {
+        // 等过渡落地（期间的 set_position 会被吞，实测见函数注释），再把
+        // 居中计划交给 watcher 的牛顿步。预置修正量 = live − target：牛顿步
+        // 第一拍的请求 = target + (offset + target − live) = target，
+        // 首发即准、不产生垃圾中间跳。
+        std::thread::sleep(std::time::Duration::from_millis(DOCKED_CENTER_SETTLE_MS));
+        let live = main_client_position(&app_for_thread).unwrap_or(target);
+        if let Ok(mut state) = app_for_thread.state::<Mutex<AppState>>().lock() {
+            state.auto_hide_reanchor = Some(AutoHideReanchor {
+                target,
+                offset: (live.0 - target.0, live.1 - target.1),
+                tries: 0,
+            });
+        }
+    });
+    // 盖回声抑制戳 + 记落点：牛顿步补发产生的 Moved 都在 target ± 标题栏内，
+    // 「屏幕中间」模式的回声/抖动过滤（±80px）天然罩得住。
+    CENTER_ECHO_UNTIL_MS.store(unix_millis().saturating_add(700), Ordering::SeqCst);
+    CENTER_LAST_X.store(target.0, Ordering::SeqCst);
+    CENTER_LAST_Y.store(target.1, Ordering::SeqCst);
+    CENTER_HAS_POS.store(true, Ordering::SeqCst);
+    startup_debug(
+        app,
+        &format!(
+            "center docked -> ({},{}) 客户区={}x{} 标题栏={} 等待={DOCKED_CENTER_SETTLE_MS}ms",
+            target.0, target.1, w, h, cap
+        ),
+    );
+    Some(target)
 }
 
 /// 按固定位置模式落位主窗口（贴边停靠态不干预）。center=居中；last=落到
@@ -13815,21 +13900,28 @@ mod core_tests {
         );
     }
 
-    /// 停靠态下重置位置：先 undock 再居中，展开后读数还停在**白条尺寸**，
-    /// 居中必须立刻改用请求尺寸 —— 否则按白条算出的「居中点」会让完整窗口
-    /// 偏出正中半个窗口（用户实测：贴边后点「重置位置」要点两次才到正中，
-    /// 第一次就是栽在这个读数上）。
+    /// 停靠态居中的目标落点：外框（客户区+标题栏）在工作区居中，target 是
+    /// **客户区**语义（重锚收敛判据），y 加回标题栏。
+    /// 回归：2x 屏 3840x2160、工作区 (0,64,3840,1924)、贴边前客户区
+    /// 1864x1440、标题栏 64 → 客户区目标 (988,338)，外框 [274,1778] 恰好
+    /// 居中（外框中点 1026 = 工作区中点）。此前按逻辑尺寸 932x720 算出
+    /// (1454,666)，偏出正中 ~466px（10:46 日志铁证）。
     #[test]
-    fn centering_after_undock_ignores_the_strip_reading() {
-        // 左/右贴边的白条：厚 40px、高随工作区。请求尺寸 932x720。
-        // 不立 pending 就会拿 (40,1080) 居中 → 完整窗口横向偏出 (932-40)/2 ≈ 446px。
+    fn docked_center_target_centers_the_outer_frame() {
         assert_eq!(
-            centering_size((40, 1080), (932, 720), true),
-            ((932, 720), true),
-            "白条读数必须被请求尺寸顶掉"
+            docked_center_target(0, 64, 3840, 1924, 1864, 1440, 64),
+            (988, 338)
         );
-        // 展开落地、读数跟上后，pending 自动作废，后续居中回归读数。
-        assert_eq!(centering_size((932, 720), (932, 720), true), ((932, 720), false));
+        // 没缓存到标题栏（0）：退化为客户区自身居中，至少不出工作区
+        assert_eq!(
+            docked_center_target(0, 64, 3840, 1924, 1864, 1440, 0),
+            (988, 306)
+        );
+        // 1x 小屏：1920x1080、工作区 (0,37,1920,1043)、客户区 932x720、标题栏 37
+        assert_eq!(
+            docked_center_target(0, 37, 1920, 1043, 932, 720, 37),
+            (494, 217)
+        );
     }
 
     #[test]
