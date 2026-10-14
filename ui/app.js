@@ -2548,6 +2548,12 @@ resetMainWindowPositionElement.addEventListener("click", () =>
   call("reset_main_window_position", {}),
 );
 
+// 重置窗口大小：宽回标称、高回整屏 2/3（与托盘「重置窗口大小」同一条链路）
+const resetMainWindowSizeElement = document.querySelector("#reset-main-window-size");
+resetMainWindowSizeElement.addEventListener("click", () =>
+  call("reset_window_size", {}),
+);
+
 // ============ 窗口大小：滑条 ⇄ 窗口尺寸，双向实时 ============
 // 滑条拖动（input）→ 120ms 防抖后实时应用窗口尺寸；
 // 用户拖窗口边框（onResized）→ 滑条实时跟动，停手 500ms 后把尺寸回写持久化。

@@ -2874,10 +2874,9 @@ fn default_window_height_from_screen(screen_height: u32) -> u32 {
 /// `default_window_height_from_screen` 的注释（任务栏那条交给落位去夹，
 /// 不从高度里扣）。
 fn default_window_height(app: &AppHandle) -> u32 {
-    let monitor = app
-        .get_webview_window(MAIN_WINDOW_LABEL)
-        .and_then(|main| main.current_monitor().ok().flatten())
-        .or_else(|| app.primary_monitor().ok().flatten());
+    // 挑屏走 main_window_monitor：current_monitor() 在窗口不可见时回落主屏
+    // （tao 实锤），多屏下「重置窗口大小」的高度就会按错屏的 2/3 算。
+    let monitor = main_window_monitor(app).or_else(|| app.primary_monitor().ok().flatten());
     let Some(monitor) = monitor else {
         return DEFAULT_WINDOW_HEIGHT;
     };
@@ -3084,6 +3083,46 @@ fn grub_layout_target_width(nominal: u32, remembered: u32, force: bool) -> u32 {
 }
 
 /// 把主窗口摆到当前显示器工作区的中心（物理像素，夹回工作区）。返回落点。
+/// 挑「主窗口此刻所在」的那块显示器。
+///
+/// 为什么不直接用 `current_monitor()`：tao 在 X11 上的实现是
+/// 「`gtk_window.get_window()`（窗口不可见/未映射时返回 `None`）→
+/// `monitor_at_window`，`None` 就**回落主显示器**」（tao 源码实锤）。托盘里
+/// 点「重置窗口位置」时窗口多半藏着 → 永远居中到**主屏**，而不是窗口原来
+/// 待的那块屏 —— 多屏下「居中不在该屏正中间」的直接来源。
+///
+/// 这里的选法按本项目定则来：判位只用**客户区坐标**（真实 configure，唯一
+/// 可信来源）——窗口中心点落在哪块 `available_monitors()` 的矩形里就是哪块；
+/// 都不命中（坐标陈旧/未映射过）退 `current_monitor()`，最后退第一块。
+fn main_window_monitor(app: &AppHandle) -> Option<tauri::Monitor> {
+    let main = app.get_webview_window(MAIN_WINDOW_LABEL)?;
+    let monitors = main.available_monitors().ok()?;
+    if monitors.is_empty() {
+        return main.current_monitor().ok().flatten();
+    }
+    let center = window_client_position(&main)
+        .zip(usable_window_size_basis(
+            main.outer_size().ok().map(|s| (s.width, s.height)),
+            main.inner_size().ok().map(|s| (s.width, s.height)),
+        ))
+        .map(|((x, y), (w, h))| (x + w as i32 / 2, y + h as i32 / 2));
+    if let Some((cx, cy)) = center {
+        for monitor in &monitors {
+            let origin = monitor.position();
+            let size = monitor.size();
+            let (mx, my) = (origin.x, origin.y);
+            let (mw, mh) = (size.width as i32, size.height as i32);
+            if cx >= mx && cx < mx + mw && cy >= my && cy < my + mh {
+                return Some(monitor.clone());
+            }
+        }
+    }
+    main.current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| monitors.into_iter().next())
+}
+
 fn center_main_window(app: &AppHandle) -> Option<(i32, i32)> {
     let main = app.get_webview_window(MAIN_WINDOW_LABEL)?;
     // 尺寸基准必须挑**可用**的读数：启动落位时窗口还没映射，`outer_size()` 读到
@@ -3104,11 +3143,7 @@ fn center_main_window(app: &AppHandle) -> Option<(i32, i32)> {
         centering_size(reading, requested, MAIN_SIZE_PENDING.load(Ordering::SeqCst));
     MAIN_SIZE_PENDING.store(keep_pending, Ordering::SeqCst);
     let (main_w, main_h) = (basis.0 as i32, basis.1 as i32);
-    let monitor = main
-        .current_monitor()
-        .ok()
-        .flatten()
-        .or_else(|| app.primary_monitor().ok().flatten())?;
+    let monitor = main_window_monitor(app)?;
     let work = monitor.work_area();
     // 单窗口了：居中就是把这一个窗口居中（以前独立窗口模式要按「主窗 + GRUB 窗
     // 联合矩形」居中，免得整体偏向 GRUB 一侧；现在两栏在同一个窗口里，不存在这个问题）。
@@ -3131,6 +3166,27 @@ fn center_main_window(app: &AppHandle) -> Option<(i32, i32)> {
             &format!("center main -> ({cx},{cy}) 窗口={}x{}", main_w, main_h),
         );
     }
+    // 居中是低频用户动作，取证常开（同 dock/undock）：挑了哪块屏、工作区是
+    // 哪个矩形、窗口基准多大 —— 多屏下「居中不到正中间」下次一眼定位。
+    let work_desc = {
+        let work = monitor.work_area();
+        format!(
+            "monitor={:?} monitor_rect=({},{},{},{}) work=({},{},{},{})(物理px)",
+            monitor.name(),
+            monitor.position().x,
+            monitor.position().y,
+            monitor.size().width,
+            monitor.size().height,
+            work.position.x,
+            work.position.y,
+            work.size.width,
+            work.size.height
+        )
+    };
+    startup_debug(
+        app,
+        &format!("center main -> ({cx},{cy}) 窗口={main_w}x{main_h} {work_desc}"),
+    );
     let _ = main.set_position(tauri::PhysicalPosition::new(cx, cy));
     // 盖回声抑制戳 + 记落点：「屏幕中间」模式下 handle_main_moved 靠这两样
     // 区分「我们自己居中的回声」和「用户硬拖」（见 CENTER_ECHO_UNTIL_MS）。
@@ -6813,8 +6869,32 @@ fn reset_window_size_inner(app: &AppHandle) -> Result<SettingsView, String> {
     let mode = normalize_grub_list_view(&stored_settings(app).grub_list_view);
     let width = grub_layout_width(mode) as u32;
     set_main_window_size(app, width, default_window_height(app))?;
+    kick_webview_repaint(app);
     Ok(publish_settings(app))
 }
+
+/// Linux/NVIDIA：改几何（尤其跨屏落位）后 WebKit 的损伤合成偶尔不交新帧
+/// —— 窗口内容一片空白。借 dock/undock 同款招数：清屏一拍再放开，强制
+/// WebKit 提交完整新帧（用户实测「重置窗口大小/位置后内容变空白」）。
+/// 只挂 Linux；Windows/macOS 的 resize 重绘一直正常，不折腾。
+#[cfg(target_os = "linux")]
+fn kick_webview_repaint(app: &AppHandle) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        // 等尺寸/落位这两拍异步几何先落地再做清屏-放开，否则清的是旧帧
+        std::thread::sleep(std::time::Duration::from_millis(450));
+        let Some(main) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
+            return;
+        };
+        let _ = main.eval("document.documentElement.classList.add('dock-pending');");
+        std::thread::sleep(std::time::Duration::from_millis(80));
+        let _ = main.eval("document.documentElement.classList.remove('dock-pending');");
+    });
+}
+
+/// 非 Linux：重绘一直正常，无操作。
+#[cfg(not(target_os = "linux"))]
+fn kick_webview_repaint(_app: &AppHandle) {}
 
 #[tauri::command]
 fn reset_window_size(app: AppHandle) -> Result<SettingsView, String> {
@@ -6834,6 +6914,8 @@ fn reset_main_window_position(app: AppHandle) -> Result<SettingsView, String> {
             save_settings(&app, &settings)?;
         }
     }
+    // 跨屏落位后 WebKit 可能不交新帧（内容空白），踢一脚强制重绘
+    kick_webview_repaint(&app);
     Ok(publish_settings(&app))
 }
 
@@ -7238,23 +7320,131 @@ fn build_tray_menu(app: &AppHandle, state: &UiState) -> tauri::Result<Menu<tauri
     }
     menu.append(&PredefinedMenuItem::separator(app)?)?;
 
-    // —— 分区：系统列表（选中项带绿勾，名字靠位图列天然左对齐）——
-    for variable in &variables {
-        // 选中项带绿勾、没选中的不带：勾占的是菜单**独立的位图列**，不挤占文字，
-        // 三个系统的名字因此天然左对齐（以前用「● 」前缀，选中的那个会被顶偏一格）。
-        let item = IconMenuItem::with_id(
-            app,
-            variable.system.clone(),
-            variable.display_name.clone(),
-            variable.exists && !busy,
-            if variable.active {
-                Some(check.clone())
+    // —— 分区：GRUB 启动项菜单项的构造（进顶层菜单 = 平铺展开；进子菜单 = 收起）——
+    // 组头灰字 + 条目（当前选中带绿勾），点击写 grubenv（grub-switch:<selector>），
+    // 与主窗 GRUB 区完全同源。
+    #[cfg(desktop)]
+    fn grub_menu_items(
+        app: &AppHandle,
+        grub: &GrubView,
+        busy: bool,
+        check: &Image<'static>,
+    ) -> tauri::Result<Vec<Box<dyn tauri::menu::IsMenuItem<tauri::Wry>>>> {
+        let mut items: Vec<Box<dyn tauri::menu::IsMenuItem<tauri::Wry>>> = Vec::new();
+        if grub.entries.is_empty() {
+            items.push(Box::new(MenuItem::with_id(
+                app,
+                "grub-empty",
+                if grub.partuuid.is_empty() && grub.dir.is_empty() {
+                    "GRUB：还没配置 ESP"
+                } else {
+                    "GRUB：没解析到启动项"
+                },
+                false,
+                None::<&str>,
+            )?));
+            return Ok(items);
+        }
+        let active = grub
+            .next_entry
+            .as_deref()
+            .or(grub.saved_entry.as_deref())
+            .unwrap_or("");
+        let group_titles: std::collections::HashMap<&str, &str> = grub
+            .groups
+            .iter()
+            .map(|group| (group.id.as_str(), group.name.as_str()))
+            .collect();
+        let mut emitted_groups = std::collections::HashSet::new();
+        for entry in &grub.entries {
+            if let Some(submenu_id) = &entry.submenu {
+                if emitted_groups.insert(submenu_id.as_str()) {
+                    let title = group_titles
+                        .get(submenu_id.as_str())
+                        .copied()
+                        .unwrap_or(submenu_id.as_str());
+                    items.push(Box::new(menu_section_header(
+                        app,
+                        &format!("grub-group:{submenu_id}"),
+                        &format!("▸ {title}"),
+                    )?));
+                }
+            }
+            let label = if entry.submenu.is_some() {
+                format!("↳ {}", entry.name)
             } else {
-                None
-            },
-            None::<&str>,
-        )?;
-        menu.append(&item)?;
+                entry.name.clone()
+            };
+            items.push(Box::new(IconMenuItem::with_id(
+                app,
+                format!("grub-switch:{}", entry.selector),
+                label,
+                !busy,
+                if entry.selector == active {
+                    Some(check.clone())
+                } else {
+                    None
+                },
+                None::<&str>,
+            )?));
+        }
+        Ok(items)
+    }
+
+    // rEFInd 扫到了系统 = 「展开」平铺（现状不变）；没扫到 = 收进子菜单不展开，
+    // 同时 GRUB 区平铺展开顶上 —— 保证总有一块能直接点到。反过来 rEFInd 在时
+    // GRUB 收进子菜单（默认展开 rEFInd，用户定案）。
+    let refind_alive = variables.iter().any(|variable| variable.exists);
+    // —— 分区：系统列表（选中项带绿勾，名字靠位图列天然左对齐）——
+    if refind_alive {
+        for variable in &variables {
+            // 选中项带绿勾、没选中的不带：勾占的是菜单**独立的位图列**，不挤占文字，
+            // 三个系统的名字因此天然左对齐（以前用「● 」前缀，选中的那个会被顶偏一格）。
+            let item = IconMenuItem::with_id(
+                app,
+                variable.system.clone(),
+                variable.display_name.clone(),
+                variable.exists && !busy,
+                if variable.active {
+                    Some(check.clone())
+                } else {
+                    None
+                },
+                None::<&str>,
+            )?;
+            menu.append(&item)?;
+        }
+    } else {
+        let systems_menu = Submenu::with_id(app, "refind-systems", "rEFInd 系统列表", true)?;
+        for variable in &variables {
+            let item = IconMenuItem::with_id(
+                app,
+                variable.system.clone(),
+                variable.display_name.clone(),
+                variable.exists && !busy,
+                if variable.active {
+                    Some(check.clone())
+                } else {
+                    None
+                },
+                None::<&str>,
+            )?;
+            systems_menu.append(&item)?;
+        }
+        menu.append(&systems_menu)?;
+    }
+    menu.append(&PredefinedMenuItem::separator(app)?)?;
+    // —— 分区：GRUB 启动项（与 rEFInd 系统列表并列的第二块）——
+    if refind_alive {
+        let grub_menu = Submenu::with_id(app, "grub-entries", "GRUB 启动项", true)?;
+        for item in grub_menu_items(app, &state.grub, busy, &check)? {
+            grub_menu.append(item.as_ref())?;
+        }
+        menu.append(&grub_menu)?;
+    } else {
+        for item in grub_menu_items(app, &state.grub, busy, &check)? {
+            menu.append(item.as_ref())?;
+        }
     }
     menu.append(&PredefinedMenuItem::separator(app)?)?;
     if state.status.temporary_mount {
@@ -7336,6 +7526,24 @@ fn build_tray_menu(app: &AppHandle, state: &UiState) -> tauri::Result<Menu<tauri
         !busy,
         None::<&str>,
     )?)?;
+    // 固定显示位置（与设置页「固定显示位置」下拉同源）：三种模式各一个勾选项
+    let position_menu = Submenu::with_id(app, "setting-window-position", "固定显示位置", true)?;
+    let position_now = normalize_window_position(&settings.main_window_position);
+    for (mode, label) in [
+        ("free", "自由摆放"),
+        ("center", "屏幕中间"),
+        ("last", "上次位置"),
+    ] {
+        position_menu.append(&CheckMenuItem::with_id(
+            app,
+            format!("setting-main-window-position:{mode}"),
+            label,
+            true,
+            position_now == mode,
+            None::<&str>,
+        )?)?;
+    }
+    menu.append(&position_menu)?;
     let close_action_menu = Submenu::with_id(app, "setting-close-action", "点击窗口 ❌ 时", true)?;
     for (action, label) in [
         (CloseAction::Tray, "最小化到托盘"),
@@ -7523,7 +7731,7 @@ fn popup_tray_menu(app: &AppHandle, cursor: tauri::PhysicalPosition<f64>) {
 /// 阶段 0 trace 实测：启动时扫描两次、每次都全量重建菜单。
 /// 菜单被无意义地替换正是「扫描期间菜单闪断 / 要点两次」的诱因。
 fn menu_signature_for(state: &UiState) -> String {
-    menu_signature(
+    let base = menu_signature(
         &state.status.message,
         state.status.temporary_mount,
         &state.settings.settings,
@@ -7531,7 +7739,30 @@ fn menu_signature_for(state: &UiState) -> String {
         state.status.error.as_deref(),
         &state.busy,
         &state.http.state_text,
-    )
+    );
+    // 固定显示位置的模式进指纹（托盘子菜单三个勾选项跟着变）
+    let position = normalize_window_position(&state.settings.settings.main_window_position);
+    // GRUB 条目也进指纹：条目集 / 选中项变了托盘 GRUB 区要跟着重建
+    let active = state
+        .grub
+        .next_entry
+        .as_deref()
+        .or(state.grub.saved_entry.as_deref())
+        .unwrap_or("");
+    let grub_items = state
+        .grub
+        .entries
+        .iter()
+        .map(|entry| {
+            format!(
+                "{}{}",
+                entry.selector,
+                if entry.selector == active { "+" } else { "-" }
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    format!("{base}|wpos={position}|grub={grub_items}")
 }
 
 /// 记住当前菜单内容，让后续相同内容的刷新直接跳过重建。
@@ -7634,6 +7865,10 @@ enum MenuAction {
     ResetWindowSize,
     /// 主窗口摆回屏幕正中（与设置页「重置位置」同源）
     ResetWindowPosition,
+    /// 固定显示位置模式（free / center / last，与设置页下拉同源）
+    SetMainWindowPosition(String),
+    /// 切换 GRUB 启动项（写 grubenv 的 selector，与主窗 GRUB 区同源）
+    SwitchGrub(String),
     Quit,
 }
 
@@ -7662,6 +7897,14 @@ impl MenuAction {
         }
         if let Some(rest) = id.strip_prefix("setting-delay:") {
             return rest.trim().parse::<u32>().ok().map(Self::SetDelayAll);
+        }
+        if let Some(rest) = id.strip_prefix("setting-main-window-position:") {
+            let mode = rest.trim().to_string();
+            // 归一兜底：脏值会被 normalize 打回 free，不会落进设置
+            return Some(Self::SetMainWindowPosition(mode));
+        }
+        if let Some(rest) = id.strip_prefix("grub-switch:") {
+            return Some(Self::SwitchGrub(rest.to_string()));
         }
         match id {
             "show" => Some(Self::Show),
@@ -7761,6 +8004,17 @@ fn spawn_menu_action(app: &AppHandle, action: MenuAction) {
                 Ok(_) => record_action(&app, "重置窗口位置", true, "窗口已摆回屏幕正中"),
                 Err(error) => record_action(&app, "重置窗口位置", false, &error),
             }
+        }
+        MenuAction::SetMainWindowPosition(mode) => {
+            // 复用设置页同一条链路：落盘 + 立即按新模式落位
+            match set_main_window_position(app.clone(), mode) {
+                Ok(_) => record_action(&app, "固定显示位置", true, "显示位置已更新"),
+                Err(error) => record_action(&app, "固定显示位置", false, &error),
+            }
+        }
+        MenuAction::SwitchGrub(selector) => {
+            // 与主窗 GRUB 区同一条链路：写 grubenv → 重扫 → 广播
+            switch_grub_and_update(&app, &selector);
         }
         MenuAction::Quit => app.exit(0),
     });
