@@ -13696,7 +13696,7 @@ mod linux_sni {
     pub fn spawn(app: AppHandle) {
         std::thread::spawn(move || {
             if let Err(error) = serve(app.clone()) {
-                trace(&app, "tray-sni", &format!("SNI 服务退出: {error}"));
+                startup_debug(&app, &format!("托盘 SNI 服务退出: {error}"));
             }
         });
     }
@@ -13711,29 +13711,55 @@ mod linux_sni {
         let name = format!("org.kde.StatusNotifierItem-{}-1", std::process::id());
         conn.register_name(&name, 0)
             .map_err(|error| format!("请求名字 {name} 失败: {error}"))?;
+        startup_debug(&app, &format!("托盘 SNI 服务就绪，开始向 watcher 注册：{name}{ITEM_PATH}"));
         // 告诉 watcher「托盘图标在这儿」。传对象路径（与 libappindicator 同款做法）。
-        let mut register = Message::new_method_call(
-            WATCHER_NAME,
-            WATCHER_PATH,
-            WATCHER_NAME,
-            "RegisterStatusNotifierItem",
-        )
-        .map_err(|error| format!("构造注册消息失败: {error}"))?;
-        register.append_items(&[MessageItem::Str(ITEM_PATH.to_string())]);
-        match conn.send_with_reply_and_block(register, 5000) {
-            Ok(_) => trace(
-                &app,
-                "tray-sni",
-                &format!("已注册到 StatusNotifierWatcher：{name}{ITEM_PATH}"),
-            ),
-            Err(error) => trace(&app, "tray-sni", &format!("注册到 watcher 失败: {error}")),
+        //
+        // **注册要重试**：开机自启动的应用常常比面板 / watcher 先起来，第一次注册几乎
+        // 必然扑空（ServiceUnknown）—— 只试一次的话托盘图标就永远不出现，直到重启应用。
+        // 所以注册放进主循环：没注册上就每 3 秒再发一次，成功一次就收手。
+        // 取证走常开通道（startup-debug.log），失败只记第一次和之后每 30 秒一次，别刷屏。
+        let mut registered = false;
+        let mut failures = 0u32;
+        let mut next_try = Instant::now();
+        // 消息循环：`iter` 内部会把方法调用交给上面 add_handler 注册的处理器，处理器返回的
+        // 回复由 dbus crate 直接发出去（ffidisp::msghandler_process）。超时时 yield Nothing
+        // —— 正好用来轮转注册重试，不需要额外的定时器。
+        let mut items = conn.iter(200);
+        loop {
+            match items.next() {
+                Some(dbus::ffidisp::ConnectionItem::Nothing) => {}
+                Some(_) => {}
+                None => return Err("会话总线断了".to_string()),
+            }
+            if registered || next_try > Instant::now() {
+                continue;
+            }
+            let Ok(mut register) = Message::new_method_call(
+                WATCHER_NAME,
+                WATCHER_PATH,
+                WATCHER_NAME,
+                "RegisterStatusNotifierItem",
+            ) else {
+                return Err("构造注册消息失败".to_string());
+            };
+            register.append_items(&[MessageItem::Str(ITEM_PATH.to_string())]);
+            match conn.send_with_reply_and_block(register, 2000) {
+                Ok(_) => {
+                    registered = true;
+                    startup_debug(&app, &format!("托盘图标已注册到 StatusNotifierWatcher（第 {failures} 次失败后成功）"));
+                }
+                Err(error) => {
+                    failures += 1;
+                    if failures == 1 || failures % 10 == 0 {
+                        startup_debug(
+                            &app,
+                            &format!("托盘图标注册失败（第 {failures} 次，3 秒后重试）: {error}"),
+                        );
+                    }
+                    next_try = Instant::now() + Duration::from_secs(3);
+                }
+            }
         }
-        trace(&app, "tray-sni", "SNI 服务就绪，等宿主点击…");
-        // 消息循环：`iter` 内部会把消息交给上面 add_handler 注册的处理器，处理器返回的
-        // 回复由 dbus crate 直接发出去（ffidisp::msghandler_process）。空闲时按超时阻塞，
-        // 所以这里是个低频空转。
-        for _ in conn.iter(200) {}
-        Ok(())
     }
 
     /// 宿主（面板 / watcher）对我们这个 SNI 对象的全部调用。
@@ -13777,7 +13803,8 @@ mod linux_sni {
         /// 宿主点了托盘图标。点击语义三端一致：左键=显示主窗口，右键/中键=自绘菜单。
         fn activate(&self, msg: &Message, what: &str, menu: bool) -> Message {
             let (x, y) = msg.read2::<i32, i32>().unwrap_or((0, 0));
-            trace(&self.app, "tray-sni", &format!("{what} → Activate({x}, {y})"));
+            // 用户点了托盘 —— 这是用户可见动作，走常开通道留痕（trace 默认关，等于没有）
+            startup_debug(&self.app, &format!("托盘{what}点击 ({x}, {y}) → {}", if menu { "弹菜单" } else { "主窗口" }));
             if menu {
                 open_tray_menu(&self.app, x as f64, y as f64);
             } else {
