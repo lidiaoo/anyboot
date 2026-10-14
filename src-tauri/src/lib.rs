@@ -183,6 +183,18 @@ const AUTO_HIDE_MOVE_QUIET_MS: u64 = 300;
 /// 位置夹取的静默期：拖动过程中 Moved 连发，期间绝不 set_position（会跟
 /// Windows 的拖动循环互相拉扯 = 窗口乱跳）；拖完 250ms 没动静再夹一次。
 const CLAMP_DELAY_MS: u64 = 250;
+/// 「屏幕中间」模式拖动回中的静默期（毫秒）：拖动全程 Moved 连发，每条都刷新
+/// 世代号；最后一条之后静默这么久才真的把窗口收回居中位 —— 拖动期间我们一个
+/// `set_position` 都不发（与 `schedule_clamp` 同一套哲学：不去和用户的拖动循环
+/// 拉扯，窗口就不抖）。**用户报的「拖着拖着窗口突然弹回中间、像点了按钮」**就是
+/// 旧实现「每条 Moved 都当场回中 + 盖上 700ms 回声窗」这条组合拳的观感。
+const CENTER_SNAP_DELAY_MS: u64 = 250;
+/// 判定「窗口还停在居中位」的容差（物理像素）。Moved 载荷是**窗框**坐标，与
+/// `set_position` 请求（客户区语义）恒定差一个标题栏（Muffin 实测 37px）——
+/// 取 80px 一次吃掉标题栏错拍与 WM 抖动，于是不再需要「居中后 700ms 一律忽略」
+/// 的时间窗：那个时间窗会把用户在这 700ms 里的**真拖动**一起吃掉，松手后既不
+/// 回中也不提示（用户报的另一半）。
+const CENTER_HOLD_TOLERANCE: i32 = 80;
 /// Moved 事件里判定「这是用户在拖、不是我们贴的那次」的容差（物理像素）：
 /// 我们自己的 set_position 会在同一坐标上触发 Moved，用户手拖必然超过这个量。
 const AUTO_HIDE_TOLERANCE: i32 = 24;
@@ -3221,11 +3233,9 @@ fn center_main_window(app: &AppHandle) -> Option<(i32, i32)> {
         ),
     );
     let _ = main.set_position(tauri::PhysicalPosition::new(cx, cy));
-    // 盖回声抑制戳 + 记落点：「屏幕中间」模式下 handle_main_moved 靠这两样
-    // 区分「我们自己居中的回声」和「用户硬拖」（见 CENTER_ECHO_UNTIL_MS）。
-    // 记的是**请求值**：Moved 载荷 = 窗框坐标 = 客户区实况 − 同一份缓存边距
-    // = 请求（陈旧/新鲜语义下都成立），拿它比对才不会自己咬自己。
-    CENTER_ECHO_UNTIL_MS.store(unix_millis().saturating_add(700), Ordering::SeqCst);
+    // 记落点：「屏幕中间」模式下 handle_main_moved 靠它区分「我们自己居中的
+    // 回声 / WM 抖动」与「用户硬拖」（见 CENTER_HOLD_TOLERANCE）。记的是
+    // **请求值**：Moved 载荷是窗框坐标，与它恒定差一个标题栏，80px 容差罩得住。
     CENTER_LAST_X.store(cx, Ordering::SeqCst);
     CENTER_LAST_Y.store(cy, Ordering::SeqCst);
     CENTER_HAS_POS.store(true, Ordering::SeqCst);
@@ -3316,9 +3326,8 @@ fn center_docked_window(app: &AppHandle, main: &tauri::WebviewWindow) -> Option<
             });
         }
     });
-    // 盖回声抑制戳 + 记落点：牛顿步补发产生的 Moved 都在 target ± 标题栏内，
-    // 「屏幕中间」模式的回声/抖动过滤（±80px）天然罩得住。
-    CENTER_ECHO_UNTIL_MS.store(unix_millis().saturating_add(700), Ordering::SeqCst);
+    // 记落点：牛顿步补发产生的 Moved 都落在 target ± 标题栏内，居中模式的
+    // 「还停在居中位」判据（±CENTER_HOLD_TOLERANCE）天然罩得住。
     CENTER_LAST_X.store(target.0, Ordering::SeqCst);
     CENTER_LAST_Y.store(target.1, Ordering::SeqCst);
     CENTER_HAS_POS.store(true, Ordering::SeqCst);
@@ -5181,10 +5190,12 @@ fn mark_geometry_busy(duration_ms: u64) {
 static LAST_MAIN_MOVED_MS: AtomicU64 = AtomicU64::new(0);
 
 /// 「屏幕中间」落位模式的拖动拦截（用户定案 2026-10-13）：居中模式下窗口
-/// 位置固定、不支持拖动。CENTER_ECHO_UNTIL_MS 挡掉我们自己 `set_position`
-/// 的回声；CENTER_LAST_X/Y 记最近一次居中落点（Moved 载荷是窗框坐标，
-/// 与客户区差一个标题栏，判「没怎么动」用 80px 容差一并吃掉）。
-static CENTER_ECHO_UNTIL_MS: AtomicU64 = AtomicU64::new(0);
+/// 位置固定、不支持拖动。CENTER_LAST_X/Y 记最近一次居中落点的**请求值**；
+/// Moved 载荷落在它的 `CENTER_HOLD_TOLERANCE` 内就是「还停在居中位」（我们自己
+/// 的回声、WM 抖动、去装饰后的标题栏错拍），超出才是用户把它拖走了 → 交给
+/// `schedule_center_snap` 在拖动静默后收回。这里刻意**不用**「居中后 N 毫秒
+/// 一律忽略」的时间窗：那会把用户在这段窗口期里的真拖动一起吃下去，松手既不
+/// 回中也不提示（见 CENTER_HOLD_TOLERANCE 的注释）。
 static CENTER_LAST_X: AtomicI32 = AtomicI32::new(0);
 static CENTER_LAST_Y: AtomicI32 = AtomicI32::new(0);
 /// 我们是否已经居中过至少一次：没有的话 Moved 一律不管（启动早期 WM 自己
@@ -6479,6 +6490,24 @@ fn docked_move_action(pos: (i32, i32), dock_pos: (i32, i32), tolerance: i32) -> 
     DockedMove::Release
 }
 
+/// 「屏幕中间」模式下收到主窗 `Moved` 的处置结论。
+#[derive(Debug, PartialEq, Eq)]
+enum CenterMove {
+    /// 载荷仍在最近的居中落点附近（我们自己的回声 / WM 抖动 / 标题栏错拍）
+    Rest,
+    /// 偏离居中位 = 用户把窗口拖走了（或 WM 把它摆走了）→ 收回居中位
+    Snap,
+}
+
+/// 居中模式收到 Moved 时该做什么。纯函数，便于单测。
+/// `payload` = Moved 载荷（窗框坐标），`last` = 最近一次居中落点的请求值。
+fn center_move_action(payload: (i32, i32), last: (i32, i32), tolerance: i32) -> CenterMove {
+    if (payload.0 - last.0).abs() <= tolerance && (payload.1 - last.1).abs() <= tolerance {
+        return CenterMove::Rest;
+    }
+    CenterMove::Snap
+}
+
 /// 贴边停靠态下 watcher 每一拍的处理结论。
 #[derive(Debug, PartialEq, Eq)]
 enum DockedPoll {
@@ -6693,33 +6722,26 @@ fn handle_main_moved(app: &AppHandle, position: tauri::PhysicalPosition<i32>) {
         }
     }
     // 「屏幕中间」模式：窗口位置固定，不支持拖动（用户定案 2026-10-13）。
-    // 谁动了窗口 —— 先滤掉自己的回声与「本来就停在居中位」的抖动，剩下的
-    // 才是真拖动：拉回居中，并提示一次「想自己摆就换落位方式」。
+    // 判据只有一条 —— 载荷还在最近落点附近就是「没动」（我们自己的回声、WM
+    // 抖动、去装饰后的标题栏错拍），超出才是真拖动；真拖动交给静默期后的
+    // `schedule_center_snap` 收回，**拖动全程零 set_position**。
     // 该分支替代 schedule_clamp：居中落点天然在工作区内，不需要再夹取。
     if normalize_window_position(&stored_settings(app).main_window_position) == "center" {
-        let now = unix_millis();
-        if now < CENTER_ECHO_UNTIL_MS.load(Ordering::SeqCst) {
-            return; // 我们自己刚居中过的回声
-        }
         if !CENTER_HAS_POS.load(Ordering::SeqCst) {
-            return; // 还没轮到我们居中过（启动早期），不动也不提示
+            return; // 还没轮到我们居中过（启动早期 WM 自己摆窗），不动也不提示
         }
-        let dx = position.x - CENTER_LAST_X.load(Ordering::SeqCst);
-        let dy = position.y - CENTER_LAST_Y.load(Ordering::SeqCst);
-        if dx.abs() <= 80 && dy.abs() <= 80 {
-            return; // 停在居中位附近的 WM 抖动/重发，不算拖动
+        let action = center_move_action(
+            (position.x, position.y),
+            (
+                CENTER_LAST_X.load(Ordering::SeqCst),
+                CENTER_LAST_Y.load(Ordering::SeqCst),
+            ),
+            CENTER_HOLD_TOLERANCE,
+        );
+        if action == CenterMove::Rest {
+            return; // 还停在居中位
         }
-        center_main_window(app);
-        if now.saturating_sub(LAST_CENTER_HINT_MS.load(Ordering::SeqCst)) >= 4000 {
-            LAST_CENTER_HINT_MS.store(now, Ordering::SeqCst);
-            record_action(
-                app,
-                "window-position",
-                false,
-                "「屏幕中间」模式下窗口位置固定，不能拖动；想自己摆放请把固定显示位置改成其他选项",
-            );
-            publish_ui(app);
-        }
+        schedule_center_snap(app);
         return;
     }
     // 主窗口必须完整显示：夹回工作区。但不能在拖动过程中夹 —— Moved 连发期间
@@ -6784,6 +6806,56 @@ fn schedule_clamp(app: &AppHandle) {
                     let _ = save_settings(&app, &settings);
                 }
             }
+        }
+    });
+}
+
+/// 居中模式下「拖完把窗口收回居中位」：与 `schedule_clamp` 同一套世代号机制 ——
+/// 拖动期间 Moved 连发，每条都刷新世代号，只有「静默 `CENTER_SNAP_DELAY_MS`
+/// 的那一条」才真的执行。于是**拖动全程零 `set_position`**，窗口平滑跟手、不抖。
+///
+/// 旧实现是「每条 Moved 当场回中 + 盖上 700ms 回声窗」：拖动中窗口被反复拽回
+/// （抖），松手那下又常被自己刚盖的 700ms 回声窗吃掉（停在拖到的位置不回中、
+/// 也不提示）——用户报的「弹回中间像点了按钮」和「拖了却不回中」就是这两个
+/// 半截凑出来的观感。判据改纯落点比对后，两个症状一起消失。
+fn schedule_center_snap(app: &AppHandle) {
+    static SNAP_GENERATION: AtomicU64 = AtomicU64::new(0);
+    let generation = SNAP_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(CENTER_SNAP_DELAY_MS));
+        if SNAP_GENERATION.load(Ordering::SeqCst) != generation {
+            return; // 拖动还在继续，有更新的自己来
+        }
+        let Some(main) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
+            return;
+        };
+        if !main.is_visible().unwrap_or(false) {
+            return; // 隐藏窗口的几何没有意义（视口 0x0 那套）
+        }
+        if geometry_busy() {
+            return; // 别的几何过渡（dock/undock/重锚）正在落位，让路
+        }
+        let docked = app
+            .state::<Mutex<AppState>>()
+            .lock()
+            .map(|state| state.auto_hide_docked)
+            .unwrap_or(false);
+        if docked {
+            return; // 停靠态的位置归贴边管（拖白条 = 由 docked 分支解除停靠）
+        }
+        center_main_window(&app);
+        // 提示一次「想自己摆就换落位方式」——拖动全程最多 4 秒一条
+        let now = unix_millis();
+        if now.saturating_sub(LAST_CENTER_HINT_MS.load(Ordering::SeqCst)) >= 4000 {
+            LAST_CENTER_HINT_MS.store(now, Ordering::SeqCst);
+            record_action(
+                &app,
+                "window-position",
+                false,
+                "「屏幕中间」模式下窗口位置固定，不能拖动；想自己摆放请把固定显示位置改成其他选项",
+            );
+            publish_ui(&app);
         }
     });
 }
@@ -15587,6 +15659,55 @@ mod core_tests {
         assert_eq!(
             docked_move_action((1400, 1000 - 36), dock_pos, AUTO_HIDE_TOLERANCE),
             DockedMove::Release
+        );
+    }
+
+    /// 居中模式 Moved 判据：载荷落在最近落点容差内 = 我们自己的回声/WM 抖动
+    /// （不动），超出 = 用户把窗口拖走了 → 收回居中位。
+    #[test]
+    fn center_move_within_tolerance_is_our_own_echo() {
+        let last = (1400, 1000);
+        assert_eq!(
+            center_move_action((1400, 1000), last, CENTER_HOLD_TOLERANCE),
+            CenterMove::Rest
+        );
+        // 去装饰/重装饰瞬间的标题栏错拍（Muffin 实测 37px）仍算「还在居中位」
+        // —— 正是这条让「居中后 700ms 一律忽略」的时间窗可以整段删掉
+        assert_eq!(
+            center_move_action((1400, 1000 - 37), last, CENTER_HOLD_TOLERANCE),
+            CenterMove::Rest
+        );
+        // 容差边界：正好 80 算没动，81 就是拖动
+        assert_eq!(
+            center_move_action((1400 + 80, 1000), last, CENTER_HOLD_TOLERANCE),
+            CenterMove::Rest
+        );
+        assert_eq!(
+            center_move_action((1400 + 81, 1000), last, CENTER_HOLD_TOLERANCE),
+            CenterMove::Snap
+        );
+        // 用户拖走半个屏 → 必须收回（旧实现这条会被 700ms 回声窗吃掉）
+        assert_eq!(
+            center_move_action((2400, 1000), last, CENTER_HOLD_TOLERANCE),
+            CenterMove::Snap
+        );
+        assert_eq!(
+            center_move_action((1400 - 200, 1000 - 200), last, CENTER_HOLD_TOLERANCE),
+            CenterMove::Snap
+        );
+    }
+
+    /// 居中回中的静默期必须够长（拖动中 Moved 连发，短了会在拖动途中抢位），
+    /// 容差必须够宽（吃得下一个标题栏的错拍，否则我们自己的回声被判成拖动）。
+    #[test]
+    fn center_snap_timing_and_tolerance_are_sane() {
+        assert!(
+            CENTER_HOLD_TOLERANCE > 40,
+            "容差必须吃得下标题栏错拍（Muffin 实测 37px）"
+        );
+        assert!(
+            CENTER_SNAP_DELAY_MS >= CLAMP_DELAY_MS,
+            "静默期不该短于位置夹取那套（同一类拖动事件流）"
         );
     }
 
