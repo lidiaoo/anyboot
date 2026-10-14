@@ -46,6 +46,7 @@ name = "anyboot"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "dbus",
  "getrandom 0.3.4",
  "hex",
  "libc",

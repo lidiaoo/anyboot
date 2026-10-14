@@ -1,0 +1,121 @@
+/*
+ * 托盘菜单（自绘）。
+ *
+ * 为什么要有这一扇窗：托盘菜单在 Linux 上原本由宿主按我们导出的 dbusmenu **自己渲染**
+ * （GtkMenu），点任何一项它都会把菜单收掉 —— 而「点选择框不关菜单」是产品要求，
+ * 且 dbusmenu 协议里没有任何开关能改这个行为（2026-10-14 实测）。Windows 的
+ * TrackPopupMenu / macOS 的 NSMenu 同理。所以菜单必须归我们所有：
+ * 宿主/系统只负责告诉我们「托盘图标被点了、在这儿」，菜单由这扇窗画。
+ *
+ * 主题与主界面 styles.css / 远程请求 notify.css 同一套灰阶：同一种灰必须一模一样。
+ * 字体链必须带中文字体，否则 Linux 上整片落空（notify.css 里踩过）。
+ */
+:root {
+  color-scheme: dark;
+  --bg: #1b222e;
+  --border: #3d495c;
+  --text: #f3f6fb;
+  --dim: #c4cddd;
+  --faint: #98a5ba;
+  --hover: #2b3547;
+  --active: #37455c;
+  --disabled: #6f7d92;
+  --ok: #46c46e;
+  --font:
+    "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC",
+    "Source Han Sans SC", "WenQuanYi Micro Hei", system-ui, sans-serif;
+  font-family: var(--font);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #ffffff;
+  --border: #cfd6e0;
+  --text: #1c2330;
+  --dim: #4a5566;
+  --faint: #6d7888;
+  --hover: #eef2f8;
+  --active: #e2e8f2;
+  --disabled: #a3adbb;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  /* 菜单窗口是透明的（建窗时开了 transparent），圆角靠 .menu 自己画 */
+  background: transparent;
+  color: var(--text);
+  overflow: hidden;
+  height: 100%;
+}
+
+.menu {
+  box-sizing: border-box;
+  /* 高度由后端按内容定（前端量 scrollHeight 报给它），这里铺满窗口 */
+  height: 100%;
+  overflow-y: auto;
+  padding: 6px 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.42);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.row,
+.group-row {
+  padding: 6px 14px;
+  cursor: default;
+  user-select: none;
+}
+
+.row {
+  /* 顶部「下次启动\nLinux › OpenCore」那种两行文字靠它保留换行 */
+  white-space: pre-line;
+}
+
+.menu:hover .row:hover,
+.menu:hover .group-row:hover {
+  background: var(--hover);
+}
+
+/* 点完**不关**菜单的项：按下时给一点更实的反馈（动作项点完菜单就没了，自有反馈） */
+.row.choice:active {
+  background: var(--active);
+}
+
+.row.disabled {
+  color: var(--disabled);
+}
+
+/* 展开/收起子菜单的那一行：比普通条目淡一点，像个「容器」 */
+.group-row {
+  color: var(--dim);
+}
+
+.group-row.open {
+  color: var(--text);
+}
+
+/* 展开出来的子项整体缩进一格，一眼看出它们属于上面那一组 */
+.children {
+  padding-left: 12px;
+  border-left: 1px solid var(--border);
+  margin-left: 14px;
+}
+
+.sep {
+  height: 1px;
+  margin: 6px 8px;
+  background: var(--border);
+}
+
+/* 分区标题（应用设置 / 电源操作 / 远程控制） */
+.header {
+  padding: 8px 14px 4px;
+  color: var(--faint);
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
+}
