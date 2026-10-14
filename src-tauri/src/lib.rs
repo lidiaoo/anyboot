@@ -192,7 +192,7 @@ const AUTO_HIDE_TOLERANCE: i32 = 24;
 const AUTO_HIDE_WM_NUDGE_PX: i32 = 8;
 /// undock 重锚的补发次数上限：展开后连续 3 拍（~360ms）没收敛就放弃，
 /// 防 WM 不配合时变成永久 set_position 抖动（与 AUTO_HIDE_RESNAP_LIMIT 同思路）。
-const AUTO_HIDE_REANCHOR_TRIES: u8 = 3;
+const AUTO_HIDE_REANCHOR_TRIES: u8 = 6;
 /// 贴边后窗口缩成的「缝」的厚度（逻辑像素）：窗口只缩到这条缝，白条是
 /// **独立渲染**的白色条（#dock-strip，长度/厚度/透明度全由前端 CSS 控制），
 /// 缝要足够容纳白条最大厚度（40px），所以固定取 40 —— 窗口几何与白条
@@ -2895,43 +2895,11 @@ fn clamp_window_size(width: u32, height: u32) -> (u32, u32) {
     )
 }
 
-/// 「主窗尺寸是在窗口**藏着**的时候请求的」标记（用法见 `centering_size`）。
-///
-/// 为什么需要：GTK 上对**未映射**的窗口 `set_size` 只是登记 pending，映射时才
-/// 生效，而这期间 tao 缓存的尺寸读数还停在建窗时那一对（tauri.conf 的 460x900，
-/// 实测）。谁拿这个旧读数算「居中」，落点就是按 460x900 算出来的 (730,90)，等
-/// ConfigureNotify 到了才跳回正中 (494,260) —— 1920x1080 实测两次间隔 46~51ms，
-/// 肉眼看得见；屏幕更矮时按旧值居中还会把窗口推出工作区底 → `near_edge` →
-/// 直接贴边成条。所以这段窗口期里，居中改用「设置里记的尺寸」。
-static MAIN_SIZE_PENDING: AtomicBool = AtomicBool::new(false);
-
-/// 两个尺寸读数是否算一致：±2px —— WM 可能对请求的尺寸做 1px 内的调整。
-fn size_readings_agree(a: (u32, u32), b: (u32, u32)) -> bool {
-    (a.0 as i64 - b.0 as i64).abs() <= 2 && (a.1 as i64 - b.1 as i64).abs() <= 2
-}
-
-/// 算「居中」时该用哪个尺寸（纯函数）。
-///
-/// `pending` = 刚对着藏着的窗口改过尺寸（见 `MAIN_SIZE_PENDING`）：此刻 `reading`
-/// 还是建窗时的旧值，拿它落位会先错一次，所以改用 `requested`（设置里记的尺寸，
-/// 也就是窗口映射后真正会有的尺寸）。读数一旦跟上就作废 pending（返回 false），
-/// 免得之后用户**手拖**窗口（不走 `set_main_window_size`、不写设置）被旧值盖掉。
-///
-/// 返回 `(用哪个尺寸, pending 是否保留)`。
-fn centering_size(
-    reading: (u32, u32),
-    requested: (u32, u32),
-    pending: bool,
-) -> ((u32, u32), bool) {
-    if !pending || size_readings_agree(reading, requested) {
-        return (reading, false);
-    }
-    (requested, true)
-}
-
 /// 落一个新窗口尺寸：夹取 → 记忆 → 应用。锁定状态下要先把 max 放开再落尺寸
 /// （max_size 对 set_size 也生效，不放开 932 落不进一个 max=460 的窗口），
 /// 落完再按新值收紧。所有改窗口尺寸的入口（滑条 / 切展示方式 / 重置）都走这里。
+/// 居中的尺寸基准一律取「设置值 × 显示器缩放」（见 center_main_window），
+/// 不读窗口实况 —— 2x 屏上未映射/过渡期的读数是逻辑值，会算错落点。
 fn set_main_window_size(app: &AppHandle, width: u32, height: u32) -> Result<(), String> {
     let (width, height) = clamp_window_size(width, height);
     let mut settings = stored_settings(app);
@@ -2952,15 +2920,11 @@ fn set_main_window_size(app: &AppHandle, width: u32, height: u32) -> Result<(), 
             height as f64,
         )));
     }
-    // 藏着的时候改尺寸，读数不会马上跟上（见 MAIN_SIZE_PENDING）：记一笔，
-    // 让紧接着的落位用「请求尺寸」而不是旧读数。窗口可见时 set_size 立即生效、
-    // 读数可信，顺手把标记清掉。
-    let visible = main.is_visible().unwrap_or(false);
-    MAIN_SIZE_PENDING.store(!visible, Ordering::SeqCst);
     // 改完尺寸要重新落位（仅「固定屏幕中间」，窗口已显示时）：见
     // recenter_after_window_size。启动期 setup 调进来时窗口还没 show，
     // 那条路径有一套「等 WM 映射完再落位」的自愈流程，抢在它前面
     // set_position 会被 WM 忽略或覆盖，所以不插手。
+    let visible = main.is_visible().unwrap_or(false);
     if visible {
         recenter_after_window_size(app, width, height);
     }
@@ -3136,49 +3100,62 @@ fn center_main_window(app: &AppHandle) -> Option<(i32, i32)> {
     if docked {
         return center_docked_window(app, &main);
     }
-    // 尺寸基准必须挑**可用**的读数：启动落位时窗口还没映射，`outer_size()` 读到
-    // `0x0`（tao 的初值取的是坐标）。拿它算「居中」= 把 0 尺寸的矩形居中 →
-    // 落点 (800,500)，对 460x937 的窗口整个在屏幕外 → WM 一夹就贴到工作区底边 →
-    // `near_edge=true` → **启动约 1s 后自己贴边成条**（实测 reg2-nudge：
-    // `center main -> (800,500) outer_size=0x0` → `moved (800,63)` → `dock begin edge=Bottom`）。
-    // 内尺寸在未映射时就可读（只差一个标题栏 37px）。
-    let reading = usable_window_size_basis(
-        main.outer_size().ok().map(|s| (s.width, s.height)),
-        main.inner_size().ok().map(|s| (s.width, s.height)),
-    )?;
-    // 刚对着藏着的窗口改过尺寸时，上面这个读数还是建窗时的旧值 —— 改用设置里
-    // 记的尺寸（见 centering_size / MAIN_SIZE_PENDING），免得先落错位置再跳回来。
+    // 尺寸基准 = 设置里记的**逻辑**尺寸 × 显示器缩放 = 物理像素。
+    // 为什么不读窗口实况：本机（2x 屏）实测，未映射 / 刚过 dock-undock 过渡 /
+    // GDK frame extents 陈旧时，tao 的读数返回**逻辑值**（932x720，真窗是
+    // 1864x1440 物理），拿它居中 = 落点偏出正中 ~466px，底边越界 → near_edge
+    // → 自动贴边（10:46~11:07 日志反复实锤：启动首屏、「屏幕中间」拖动回弹、
+    // 重置大小后的重居中全按 932x720 算）。设置值是唯一「用户想要多大」的
+    // 事实源 —— 手拖缩放也实时回写设置（前端 Resized → set_window_size），
+    // × 缩放后永远与工作区同一单位，不存在滞后。
     let settings = stored_settings(app);
-    let requested = clamp_window_size(settings.window_width, settings.window_height);
-    let (basis, keep_pending) =
-        centering_size(reading, requested, MAIN_SIZE_PENDING.load(Ordering::SeqCst));
-    MAIN_SIZE_PENDING.store(keep_pending, Ordering::SeqCst);
-    let (main_w, main_h) = (basis.0 as i32, basis.1 as i32);
     let monitor = main_window_monitor(app)?;
     let work = monitor.work_area();
-    // 单窗口了：居中就是把这一个窗口居中（以前独立窗口模式要按「主窗 + GRUB 窗
-    // 联合矩形」居中，免得整体偏向 GRUB 一侧；现在两栏在同一个窗口里，不存在这个问题）。
-    let x = work.position.x + ((work.size.width as i32 - main_w) / 2);
-    let y = work.position.y + ((work.size.height as i32 - main_h) / 2);
-    // 夹回工作区（贴边不越界）
+    let scale = monitor.scale_factor();
+    let (lw, lh) = clamp_window_size(settings.window_width, settings.window_height);
+    let (client_w, client_h) = (
+        (lw as f64 * scale).round() as i32,
+        (lh as f64 * scale).round() as i32,
+    );
+    // 外框（客户区+标题栏）在工作区居中（见 docked_center_target）。请求按
+    // 「实况边距」反补偿：set_position 由 GDK 按它手头那份 extents 缓存定位，
+    // 现场量出的 inner−outer 就是它将要应用的偏移 → 客户区必然落到 target
+    // （三端统一：Win=窗口矩形语义、mac=窗框语义、Linux= extents 缓存语义，
+    // 各自的缓存值自洽）。Linux 缓存陈旧读到 0 时退回 dock 时缓存的标题栏。
+    let frame_offset = match (main.inner_position(), main.outer_position()) {
+        (Ok(inner), Ok(outer)) => (inner.x - outer.x, inner.y - outer.y),
+        _ => (0, 0),
+    };
+    let caption = if frame_offset.1 > 0 {
+        frame_offset.1
+    } else {
+        app.state::<Mutex<AppState>>()
+            .lock()
+            .map(|state| state.auto_hide_caption)
+            .unwrap_or(0)
+            .max(0)
+    };
+    let target = docked_center_target(
+        work.position.x,
+        work.position.y,
+        work.size.width as i32,
+        work.size.height as i32,
+        client_w,
+        client_h,
+        caption,
+    );
     let (cx, cy) = clamp_to_work(
-        x,
-        y,
-        main_w,
-        main_h,
+        target.0 - frame_offset.0,
+        target.1 - frame_offset.1,
+        client_w,
+        client_h + caption,
         work.position.x,
         work.position.y,
         work.size.width as i32,
         work.size.height as i32,
     );
-    if auto_hide_diag_enabled() {
-        startup_debug(
-            app,
-            &format!("center main -> ({cx},{cy}) 窗口={}x{}", main_w, main_h),
-        );
-    }
     // 居中是低频用户动作，取证常开（同 dock/undock）：挑了哪块屏、工作区是
-    // 哪个矩形、窗口基准多大 —— 多屏下「居中不到正中间」下次一眼定位。
+    // 哪个矩形、窗口基准多大 —— 「居中不到正中间」下次一眼定位。
     let work_desc = {
         let work = monitor.work_area();
         format!(
@@ -3196,11 +3173,16 @@ fn center_main_window(app: &AppHandle) -> Option<(i32, i32)> {
     };
     startup_debug(
         app,
-        &format!("center main -> ({cx},{cy}) 窗口={main_w}x{main_h} {work_desc}"),
+        &format!(
+            "center main -> ({cx},{cy}) target=({},{}) 客户区={client_w}x{client_h} 边距={frame_offset:?} 标题栏={caption} {work_desc}",
+            target.0, target.1
+        ),
     );
     let _ = main.set_position(tauri::PhysicalPosition::new(cx, cy));
     // 盖回声抑制戳 + 记落点：「屏幕中间」模式下 handle_main_moved 靠这两样
     // 区分「我们自己居中的回声」和「用户硬拖」（见 CENTER_ECHO_UNTIL_MS）。
+    // 记的是**请求值**：Moved 载荷 = 窗框坐标 = 客户区实况 − 同一份缓存边距
+    // = 请求（陈旧/新鲜语义下都成立），拿它比对才不会自己咬自己。
     CENTER_ECHO_UNTIL_MS.store(unix_millis().saturating_add(700), Ordering::SeqCst);
     CENTER_LAST_X.store(cx, Ordering::SeqCst);
     CENTER_LAST_Y.store(cy, Ordering::SeqCst);
@@ -5983,6 +5965,17 @@ fn start_auto_hide_watcher(app: &AppHandle) {
                     if let Some(live) = main_client_position(&app) {
                         match undock_reanchor_action(plan, live.0, live.1) {
                             UndockReanchor::Set(new_plan, request) => {
+                                // 取证常开：牛顿步的补发只进 trace（要开
+                                // debugTrace 才有），而 extents 刷新/语义翻转
+                                // 这类时序问题恰恰要看「每拍发了什么、落在哪」。
+                                startup_debug(
+                                    &app,
+                                    &format!(
+                                        "undock#reanchor try={} live=({},{}) -> ({},{}) offset=({},{})",
+                                        new_plan.tries, live.0, live.1, request.0, request.1,
+                                        new_plan.offset.0, new_plan.offset.1
+                                    ),
+                                );
                                 trace(
                                     &app,
                                     "autohide",
@@ -6005,6 +5998,7 @@ fn start_auto_hide_watcher(app: &AppHandle) {
                                 ));
                             }
                             UndockReanchor::Settled => {
+                                startup_debug(&app, "undock#reanchor settled");
                                 trace(&app, "autohide", "undock#reanchor settled");
                                 if let Ok(mut guard) = app.state::<Mutex<AppState>>().lock() {
                                     // 学到的修正量写回：下一次 undock 首发即准
@@ -13876,28 +13870,6 @@ mod core_tests {
         assert_eq!(default_window_height_from_screen(600), 560);
         // 奇数高度向下取整（2161*2/3=1440），再夹回滑条上限 1200
         assert_eq!(default_window_height_from_screen(2161), 1200);
-    }
-
-    /// 隐藏期间改过尺寸时，居中必须用「请求尺寸」而不是滞后的读数。
-    #[test]
-    fn centering_uses_the_requested_size_until_the_reading_catches_up() {
-        // 藏着时改到 932x560，读数还停在建窗时的 460x900 → 用请求值。
-        // 用读数就会先落到 (730,90)，46ms 后才跳回 (494,260)。
-        assert_eq!(
-            centering_size((460, 900), (932, 560), true),
-            ((932, 560), true),
-            "读数滞后时必须用请求尺寸"
-        );
-        // 读数跟上了（ConfigureNotify 已到）→ 用读数，并作废 pending。
-        assert_eq!(centering_size((932, 560), (932, 560), true), ((932, 560), false));
-        // WM 1~2px 的微调也算跟上，别一直挂着 pending。
-        assert_eq!(centering_size((933, 559), (932, 560), true), ((933, 559), false));
-        // 没有 pending（可见时改的尺寸，读数立即生效）→ 一律用读数：
-        // 用户手拖窗口后设置里记得的还是旧值，不能被它盖掉。
-        assert_eq!(
-            centering_size((700, 800), (932, 560), false),
-            ((700, 800), false)
-        );
     }
 
     /// 停靠态居中的目标落点：外框（客户区+标题栏）在工作区居中，target 是
