@@ -13711,7 +13711,43 @@ mod linux_sni {
         let name = format!("org.kde.StatusNotifierItem-{}-1", std::process::id());
         conn.register_name(&name, 0)
             .map_err(|error| format!("请求名字 {name} 失败: {error}"))?;
-        startup_debug(&app, &format!("托盘 SNI 服务就绪，开始向 watcher 注册：{name}{ITEM_PATH}"));
+        startup_debug(
+            &app,
+            &format!(
+                "托盘 SNI 服务就绪，开始向 watcher 注册：{name}{ITEM_PATH}（总线 env={:?} 连接唯一名={}）",
+                std::env::var("DBUS_SESSION_BUS_ADDRESS")
+                    .unwrap_or_else(|_| "(未设置)".to_string()),
+                conn.unique_name(),
+            ),
+        );
+        // 第 1 次失败时顺带列出总线上所有带 Notifier 的名字：区分「应用连错了总线
+        // （终端没继承 DBUS_SESSION_BUS_ADDRESS 时 libdbus 会 autolaunch 一条新的）」
+        // 和「总线没错、面板就是没跑 watcher」这两个完全不同方向的问题。
+        let notifier_names = |conn: &dbus::ffidisp::Connection| -> Vec<String> {
+            let Ok(call) = Message::new_method_call(
+                "org.freedesktop.DBus",
+                "/org/freedesktop/DBus",
+                "org.freedesktop.DBus",
+                "ListNames",
+            ) else {
+                return vec!["(ListNames 构造失败)".to_string()];
+            };
+            match conn.send_with_reply_and_block(call, 2000) {
+                Ok(reply) => match reply.get1::<MessageItem>() {
+                    Some(MessageItem::Array(names)) => names
+                        .iter()
+                        .filter_map(|item| match item {
+                            MessageItem::Str(name) if name.contains("StatusNotifier") => {
+                                Some(name.clone())
+                            }
+                            _ => None,
+                        })
+                        .collect(),
+                    _ => vec!["(ListNames 回执不是字符串数组)".to_string()],
+                },
+                Err(error) => vec![format!("(ListNames 失败: {error})")],
+            }
+        };
         // 告诉 watcher「托盘图标在这儿」。传对象路径（与 libappindicator 同款做法）。
         //
         // **注册要重试**：开机自启动的应用常常比面板 / watcher 先起来，第一次注册几乎
@@ -13753,7 +13789,10 @@ mod linux_sni {
                     if failures == 1 || failures % 10 == 0 {
                         startup_debug(
                             &app,
-                            &format!("托盘图标注册失败（第 {failures} 次，3 秒后重试）: {error}"),
+                            &format!(
+                                "托盘图标注册失败（第 {failures} 次，3 秒后重试）: {error}；总线上带 StatusNotifier 的名字={:?}",
+                                notifier_names(&conn)
+                            ),
                         );
                     }
                     next_try = Instant::now() + Duration::from_secs(3);
