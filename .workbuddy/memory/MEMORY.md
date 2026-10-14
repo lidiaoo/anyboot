@@ -4,6 +4,7 @@
 - `export HOME=/home/jianghh CARGO_HOME=/home/jianghh/.cargo`（$HOME=/root 不可写）；**cargo 必须非沙箱跑**。
 - 前端改动必须强制 codegen：`/usr/bin/rm -rf src-tauri/target/release/build/anyboot-*/out && touch src-tauri/build.rs && cargo build --release --manifest-path src-tauri/Cargo.toml`（out 在 **src-tauri/target** 下，项目根没有 target/；zsh glob 无匹配会中断命令串）。核对：node `zlib.brotliDecompressSync` 解包 `out/tauri-codegen-assets/*` grep；**在二进制里搜中文要 `buf.includes(串,"utf8")`**，latin1 解码后永远匹配不上（ASCII 不受影响）。
 - 交付 = 测试 + `cargo build --release` + 实机验证；`cargo test` 不产出 exe；构建前退出运行中的 anyboot。
+- **打包命令（2026-10-14 改道）**：`TMPDIR=/home/jianghh/.cache/ab-tmp npm run build:linux` = deb+rpm；`... npm run build:linux-portable` = `tauri build --no-bundle` + jammy 脚本（**appimage 已从 tauri 链路移除**：本容器无 /dev/fuse 且无 CAP_MKNOD、userns 下 chown 被拒 → linuxdeploy 必挂，救不了；/tmp 是 10M tmpfs，打包临时文件必换 TMPDIR，mkdir 先建）。jammy 脚本素材来自 `~/.cache/ab-appimage` 缓存的 orig-backup，不需要现打原版 AppImage。
 - Linux 全兼容包：`npm run build:linux-portable` → `scripts/make-appimage-jammy.sh`（jammy 基座 + zig 重链 x86_64-gnu.2.35；cargo 会覆盖 zig 产物，脚本开头自动重链；ELF 内改字符串必须**等长替换**+orig_size 断言）。产物 md5 必核（Text file busy 会静默打包失败、旧包冒充；脚本有三道防线）。
 - `ui/index.html` 含设计工具注入的 **data-page-node-id 属性——编辑必须原样保留**，删改前先核对。
 - 两区同构的样式规则（.grub/.refind 背板、两区 h2）必须走**共用选择器**，别只挂单一容器（踩过：删 .systems-head 后 rEFInd h2 回落浏览器默认 1.5em）。
