@@ -177,7 +177,9 @@ const TRAY_MENU_MIN_HEIGHT: f64 = 40.0;
 const TRAY_MENU_MAX_HEIGHT: f64 = 720.0;
 /// 前端量不出内容高度时的标称高度（正常路径下前端总会量出来，这只是兜底）
 const TRAY_MENU_NOMINAL_HEIGHT: f64 = 420.0;
-/// 菜单与托盘图标之间的缝（逻辑像素）
+/// 菜单与托盘图标之间的缝（逻辑像素）。只有 classic（各自方式）手算落位用得到；
+/// unified 走 positioner 的 TrayCenter，间距由插件定。
+const TRAY_MENU_GAP: f64 = 6.0;
 /// 刚弹出来这一小段时间里收到的「失焦」是假的（WM 还没把焦点交过来就报了一次），
 /// 滤掉它，免得菜单一闪就没。
 const TRAY_MENU_BLUR_GRACE_MS: u64 = 250;
@@ -245,6 +247,10 @@ const DEFAULT_THEME: &str = "light";
 /// 出厂默认窗口落位：屏幕（工作区）正中间。选 center 而非 last：默认就应该在
 /// 视线正前方，而不是「上次拖到哪算哪」。
 const DEFAULT_WINDOW_POSITION: &str = "center";
+/// 托盘菜单方式出厂默认：classic = 三端各自方式（锚点由宿主/托盘事件给出，
+/// 落位按所在显示器工作区手算夹取）；unified = positioner 的 TrayCenter 全局统一。
+/// 默认选 classic：这是长期实测稳定的形态（positioner 在 Linux 上依赖合成事件喂矩形）。
+const DEFAULT_TRAY_MENU_STYLE: &str = "classic";
 /// 阶段 0 的取证日志：只追加、不参与任何逻辑判断，写在应用配置目录。
 /// 里面**永不写入** httpToken（只记前 8 位指纹）。
 const TRACE_FILE: &str = "trace.log";
@@ -1093,6 +1099,12 @@ struct Settings {
     /// 主窗口固定显示位置模式：free=用户自由拖动（默认，保持现状）；
     /// center=每次显示都居中；last=记住上次手动摆放的位置。
     main_window_position: String,
+    /// 托盘菜单方式：classic=三端各自方式（锚点来自宿主点击/托盘事件，落位手算
+    /// 显示器工作区夹取；Linux 不导出 dbusmenu，Cinnamon/KDE 走 ContextMenu 回调，
+    /// GNOME 右键无响应）；unified=positioner 的 TrayCenter 全局统一（Linux 额外
+    /// 导出单项「打开面板」dbusmenu 给 GNOME）。落位在下次弹菜单时即时生效；
+    /// 菜单形态（dbusmenu 有无）因宿主缓存属性，重启应用后完全生效。
+    tray_menu_style: String,
     /// 「上次位置」模式记忆的落点（物理像素；未设定为 None，回退到居中）。
     main_window_last: Option<(i32, i32)>,
     /// 主窗口固定显示器：`auto`（不固定，默认）或某个显示器的名字（tauri
@@ -1155,6 +1167,7 @@ impl Default for Settings {
             main_hotzone_border_color: "#ff0000".to_string(),
             accent_color: "#2f7fe0".to_string(),
             main_window_position: DEFAULT_WINDOW_POSITION.to_string(),
+            tray_menu_style: DEFAULT_TRAY_MENU_STYLE.to_string(),
             main_window_last: None,
             main_fixed_monitor: "auto".to_string(),
             window_size_locked: false,
@@ -2785,6 +2798,14 @@ fn normalize_window_position(value: &str) -> &'static str {
         "center" => "center",
         "last" => "last",
         _ => "free",
+    }
+}
+
+/// 托盘菜单方式归一（纯函数）：不认识的值一律回 classic（出厂默认形态）。
+fn normalize_tray_menu_style(value: &str) -> &'static str {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "unified" => "unified",
+        _ => "classic",
     }
 }
 
@@ -4458,6 +4479,9 @@ fn remote_ui_command_inner(
         "set_main_window_position" => {
             settings_value(set_main_window_position(app.clone(), ui_str(args, "mode")?))
         }
+        "set_tray_menu_style" => {
+            settings_value(set_tray_menu_style(app.clone(), ui_str(args, "mode")?))
+        }
         "reset_main_window_position" => settings_value(reset_main_window_position(app.clone())),
         "set_window_size" => settings_value(set_window_size(
             app.clone(),
@@ -5205,7 +5229,66 @@ fn tray_menu_blur_is_fake(app: &AppHandle) -> bool {
     })
 }
 
-/// 前端量好内容高度后「把菜单摆出来」：定尺寸 → positioner 定位 → 显示 → 拿焦点。
+/// 托盘菜单方式是不是 unified（每次读设置，切了即刻生效于下一次弹菜单）。
+fn tray_menu_style_is_unified(app: &AppHandle) -> bool {
+    normalize_tray_menu_style(&stored_settings(app).tray_menu_style) == "unified"
+}
+
+/// classic（各自方式）的落位：把菜单摆到锚点旁边。
+///
+/// 竖着：图标上方放得下就**往上摆**（面板在屏幕底部时走的就是这条，菜单下沿贴着图标上沿）；
+/// 放不下才往下。横着：菜单左边对齐图标左边，再夹进工作区 —— 用工作区而不是屏幕，
+/// 免得菜单被任务栏/面板盖掉一截。这是 positioner 引入前的原始形态（575ccfe 之前），
+/// 作为 classic 方式原样保留。
+fn place_tray_menu(app: &AppHandle, window: &tauri::WebviewWindow, logical_height: f64) {
+    let Some((anchor_x, anchor_y)) = with_tray_menu_runtime(app, |runtime| runtime.anchor) else {
+        return;
+    };
+    let monitor = app
+        .monitor_from_point(anchor_x, anchor_y)
+        .ok()
+        .flatten()
+        .or_else(|| app.primary_monitor().ok().flatten());
+    let Some(monitor) = monitor else {
+        return;
+    };
+    // 尺寸用「我们正要设成的逻辑高度」换算，不读回 outer_size：set_size 是投递到主线程
+    // 的异步操作，设完立刻读回还是旧尺寸，位置会偏出去（place_notify_window 同款坑）。
+    let scale = monitor.scale_factor();
+    let width = (TRAY_MENU_WIDTH * scale).round() as i32;
+    let height = (logical_height * scale).round() as i32;
+    let gap = (TRAY_MENU_GAP * scale).round() as i32;
+    let work = monitor.work_area();
+    let left = work.position.x;
+    let top = work.position.y;
+    let right = left + work.size.width as i32;
+    let bottom = top + work.size.height as i32;
+    let anchor_x = anchor_x.round() as i32;
+    let anchor_y = anchor_y.round() as i32;
+    let above = anchor_y - gap - height;
+    let y = if above >= top {
+        above
+    } else {
+        (anchor_y + gap).min(bottom - height).max(top)
+    };
+    let x = anchor_x.clamp(left, (right - width).max(left));
+    // 定位全程留痕（常开通道）：「菜单离图标很远」这类报告，靠这一行就能分清是
+    // 锚点坐标空间不对（宿主给逻辑坐标）、显示器/工作区解析错、还是换算错。
+    startup_debug(
+        app,
+        &format!(
+            "菜单定位(classic) 锚点=({anchor_x},{anchor_y}) 显示器={:?} rect=({},{},{},{}) 工作区=({left},{top})-({right},{bottom}) scale={scale} 菜单={width}x{height} → ({x},{y})",
+            monitor.name().map(String::as_str).unwrap_or(""),
+            monitor.position().x,
+            monitor.position().y,
+            monitor.size().width,
+            monitor.size().height,
+        ),
+    );
+    let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
+}
+
+/// 前端量好内容高度后「把菜单摆出来」：定尺寸 → 定位（方式由 trayMenuStyle 决定）→ 显示 → 拿焦点。
 #[tauri::command]
 fn tray_menu_present(app: AppHandle, height: Option<f64>) -> Result<(), String> {
     let Some(window) = app.get_webview_window(TRAY_MENU_WINDOW_LABEL) else {
@@ -5233,24 +5316,30 @@ fn tray_menu_present(app: AppHandle, height: Option<f64>) -> Result<(), String> 
     let _ = window.set_resizable(true);
     let _ = window.set_size(tauri::LogicalSize::new(TRAY_MENU_WIDTH, height));
     let _ = window.set_resizable(false);
-    // 定位交给 positioner：TrayCenter = 图标上方、水平对中（Windows/macOS 放不下会
-    // 自动翻到图标下方），constrained 版还会把窗口夹进屏幕。托盘矩形由
-    // `feed_positioner`（Linux SNI）或 `on_tray_icon_event`（Win/mac 原生托盘）喂给插件。
-    // outer_size 一并留痕：set_size 是异步的，若读回的是旧尺寸，位置就会偏 —— 这行
-    // 日志能直接看出「菜单离图标很远」是不是这个原因。
-    #[cfg(desktop)]
-    {
-        use tauri_plugin_positioner::{Position, WindowExt};
-        match window.move_window_constrained(Position::TrayCenter) {
-            Ok(()) => startup_debug(
-                &app,
-                &format!(
-                    "菜单已按 TrayCenter 摆放 outer={:?}",
-                    window.outer_size().ok()
+    if tray_menu_style_is_unified(&app) {
+        // unified：定位交给 positioner，TrayCenter = 图标上方、水平对中（Windows/macOS
+        // 放不下会自动翻到图标下方），constrained 版还会把窗口夹进屏幕。托盘矩形由
+        // `feed_positioner`（Linux SNI）或 `on_tray_icon_event`（Win/mac 原生托盘）喂给插件。
+        // outer_size 一并留痕：set_size 是异步的，若读回的是旧尺寸，位置就会偏 —— 这行
+        // 日志能直接看出「菜单离图标很远」是不是这个原因。
+        #[cfg(desktop)]
+        {
+            use tauri_plugin_positioner::{Position, WindowExt};
+            match window.move_window_constrained(Position::TrayCenter) {
+                Ok(()) => startup_debug(
+                    &app,
+                    &format!(
+                        "菜单已按 TrayCenter 摆放 outer={:?}",
+                        window.outer_size().ok()
+                    ),
                 ),
-            ),
-            Err(error) => startup_debug(&app, &format!("TrayCenter 摆放失败: {error}")),
+                Err(error) => startup_debug(&app, &format!("TrayCenter 摆放失败: {error}")),
+            }
         }
+    } else {
+        // classic（默认）：三端各自方式 —— 锚点已由 open_tray_menu 记进 runtime，
+        // 落位按所在显示器工作区手算夹取，不依赖 positioner。
+        place_tray_menu(&app, &window, height);
     }
     let _ = window.show();
     let _ = window.set_focus();
@@ -7443,6 +7532,27 @@ fn set_main_window_position(app: AppHandle, mode: String) -> Result<SettingsView
             false,
             "「屏幕中间」与贴边自动隐藏互斥：居中期间贴边已停用，切回其他落位方式后自动恢复",
         );
+    }
+    Ok(publish_settings(&app))
+}
+
+/// 托盘菜单方式：classic（三端各自方式，默认）/ unified（positioner 全局统一）。
+/// 落位在下次弹菜单时按新值走（tray_menu_present 每次现读设置）；菜单形态
+/// （SNI 的 Menu 属性）由宿主在注册时缓存，GNOME 上切完重启应用才完全生效。
+#[tauri::command]
+fn set_tray_menu_style(app: AppHandle, mode: String) -> Result<SettingsView, String> {
+    let mode = normalize_tray_menu_style(&mode).to_string();
+    trace(
+        &app,
+        "command",
+        &format!("set_tray_menu_style mode={mode}"),
+    );
+    let mut settings = stored_settings(&app);
+    if settings.tray_menu_style != mode {
+        settings.tray_menu_style = mode.clone();
+        save_settings(&app, &settings)?;
+        // 用户可见动作留痕（常开通道）：两边各自怎么定位，日志一行可辨
+        startup_debug(&app, &format!("托盘菜单方式 → {mode}（落位下次弹菜单生效；GNOME 菜单形态重启应用后生效）"));
     }
     Ok(publish_settings(&app))
 }
@@ -13445,6 +13555,7 @@ pub fn run() {
             set_main_hotzone_border_color,
             set_accent_color,
             set_main_window_position,
+            set_tray_menu_style,
             set_main_fixed_monitor,
             report_dock_strip_rect,
             set_grub_list_view,
@@ -13811,6 +13922,11 @@ mod linux_sni {
     /// 宿主没给图标尺寸，用 32×32 标称 —— TrayCenter 只拿宽度的一半做水平居中，误差几像素。
     /// 没这一步，插件的 `Tray*` 位置会报 "Tray position not set"（它只认 tauri 原生托盘事件）。
     fn feed_positioner(app: &AppHandle, x: f64, y: f64) {
+        // classic 方式不喂 positioner（落位走 place_tray_menu，插件状态保持干净 ——
+        // 不同用途不共用同一条数据通路）。一处闸住 Linux SNI 与 Win/mac 两个入口。
+        if !tray_menu_style_is_unified(app) {
+            return;
+        }
         use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent, TrayIconId};
         let event = TrayIconEvent::Click {
             id: TrayIconId::new("main"),
@@ -13844,10 +13960,11 @@ mod linux_sni {
             }
             let interface = msg.interface().map(|i| i.to_string()).unwrap_or_default();
             let member = msg.member().map(|m| m.to_string()).unwrap_or_default();
+            let unified = tray_menu_style_is_unified(&self.app);
             let reply = match (interface.as_str(), member.as_str()) {
-                (PROPS_IFACE, "Get") => properties_get(msg),
-                (PROPS_IFACE, "GetAll") => properties_get_all(msg),
-                (INTROSPECT_IFACE, "Introspect") => introspect(msg),
+                (PROPS_IFACE, "Get") => properties_get(msg, unified),
+                (PROPS_IFACE, "GetAll") => properties_get_all(msg, unified),
+                (INTROSPECT_IFACE, "Introspect") => introspect(msg, unified),
                 (ITEM_IFACE, "Activate") => self.activate(msg, "左键", false),
                 (ITEM_IFACE, "SecondaryActivate") => self.activate(msg, "中键", true),
                 (ITEM_IFACE, "ContextMenu") => self.activate(msg, "右键", true),
@@ -14129,9 +14246,10 @@ mod linux_sni {
 
     /// 属性表（`org.kde.StatusNotifierItem` 的全部属性）。
     /// 取值与类型都照实测可行的探针来（见模块头注释）——尤其 `ItemIsMenu = false`：
-    /// 它决定 Cinnamon/KDE 走 `ContextMenu` 回调（菜单归我们画）。`Menu` 指向单项
-    /// dbusmenu，是给 GNOME 的 appindicators 扩展用的（它只认 dbusmenu）。
-    fn item_properties() -> Vec<(&'static str, MessageItem)> {
+    /// 它决定 Cinnamon/KDE 走 `ContextMenu` 回调（菜单归我们画）。
+    /// `Menu`：unified 时指向单项 dbusmenu（给 GNOME 的 appindicators 扩展用，
+    /// 它只认 dbusmenu）；classic 时空串（原生形态，GNOME 右键无响应）。
+    fn item_properties(unified: bool) -> Vec<(&'static str, MessageItem)> {
         vec![
             ("Id", MessageItem::Str("anyboot".to_string())),
             ("Category", MessageItem::Str("ApplicationStatus".to_string())),
@@ -14147,7 +14265,14 @@ mod linux_sni {
             ("OverlayIconPixmap", empty_pixmaps()),
             ("ToolTip", tooltip()),
             ("ItemIsMenu", MessageItem::Bool(false)),
-            ("Menu", MessageItem::ObjectPath(DbusPath::new(MENU_PATH).expect("静态路径合法"))),
+            (
+                "Menu",
+                if unified {
+                    MessageItem::ObjectPath(DbusPath::new(MENU_PATH).expect("静态路径合法"))
+                } else {
+                    MessageItem::Str(String::new())
+                },
+            ),
             ("WindowId", MessageItem::Int32(0)),
         ]
     }
@@ -14220,8 +14345,8 @@ mod linux_sni {
     /// 单个属性的值（`Get` 的返回体；外面还要套一层 variant）。
     ///
     /// 不认识的属性回空串（照探针的做法；回错误会让某些宿主整段属性读失败）。
-    fn property_value(property: &str) -> MessageItem {
-        item_properties()
+    fn property_value(property: &str, unified: bool) -> MessageItem {
+        item_properties(unified)
             .into_iter()
             .find(|(name, _)| *name == property)
             .map(|(_, value)| value)
@@ -14231,8 +14356,8 @@ mod linux_sni {
     /// 整张属性表 → `a{sv}`（`GetAll` 的返回体）。抽出来是为了能在单测里直接按线格式写一遍
     /// —— `method_return()` 要求原消息带真 serial，单测造不出合法的回复消息（libdbus 会
     /// `reply_serial != 0` 断言失败），所以「可编码」这一条只能测返回体本身。
-    fn properties_dict() -> MessageItem {
-        let entries = item_properties()
+    fn properties_dict(unified: bool) -> MessageItem {
+        let entries = item_properties(unified)
             .into_iter()
             .map(|(name, value)| {
                 (
@@ -14250,23 +14375,26 @@ mod linux_sni {
         MessageItem::Dict(dict)
     }
 
-    fn properties_get(msg: &Message) -> Message {
+    fn properties_get(msg: &Message, unified: bool) -> Message {
         let property = msg
             .read2::<String, String>()
             .map(|(_, property)| property)
             .unwrap_or_default();
         let mut reply = msg.method_return();
-        reply.append_items(&[MessageItem::Variant(Box::new(property_value(&property)))]);
+        reply.append_items(&[MessageItem::Variant(Box::new(property_value(&property, unified)))]);
         reply
     }
 
-    fn properties_get_all(msg: &Message) -> Message {
+    fn properties_get_all(msg: &Message, unified: bool) -> Message {
         let mut reply = msg.method_return();
-        reply.append_items(&[properties_dict()]);
+        reply.append_items(&[properties_dict(unified)]);
         reply
     }
 
-    fn introspect(msg: &Message) -> Message {
+    fn introspect(msg: &Message, unified: bool) -> Message {
+        // Menu 的类型跟属性值一致：unified 发 o（object path），classic 发 s（空串）——
+        // 严格校验的宿主（GNOME 扩展按 GIO 规范读）类型不符会静默丢属性。
+        let menu_type = if unified { "o" } else { "s" };
         let xml = format!(
             "<!DOCTYPE node PUBLIC \"-//freedesktop//DTD D-BUS Object Introspection 1.0//EN\" \
              \"http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd\"><node>\
@@ -14276,7 +14404,7 @@ mod linux_sni {
              <method name=\"ContextMenu\"><arg direction=\"in\" type=\"i\"/><arg direction=\"in\" type=\"i\"/></method>\
              <method name=\"Scroll\"><arg direction=\"in\" type=\"i\"/><arg direction=\"in\" type=\"s\"/></method>\
              <property name=\"ItemIsMenu\" type=\"b\" access=\"read\"/>\
-             <property name=\"Menu\" type=\"o\" access=\"read\"/>\
+             <property name=\"Menu\" type=\"{menu_type}\" access=\"read\"/>\
              </interface></node>"
         );
         let mut reply = msg.method_return();
@@ -14345,12 +14473,12 @@ mod linux_sni {
 
         /// ③（点选择项不关菜单）成立的前提在 `ItemIsMenu=false`：Cinnamon/KDE 据此把
         /// 点击坐标回调给我们（Activate/ContextMenu），菜单由应用自己画。
-        /// `Menu=/StatusNotifierMenu` 指向单项「打开面板」dbusmenu，只有 GNOME 的
-        /// appindicators 扩展读它（它点击只认 dbusmenu、从不回调 ContextMenu）。
+        /// `Menu`：unified 时指向单项「打开面板」dbusmenu，只有 GNOME 的 appindicators
+        /// 扩展读它（它点击只认 dbusmenu、从不回调 ContextMenu）；classic 时空串。
         /// 这两条取值一旦变动，两端的行为都会变 —— 必须钉住。
         #[test]
         fn item_properties_keep_the_activate_contract() {
-            let props = item_properties();
+            let props = item_properties(true);
             let value = |name: &str| {
                 props
                     .iter()
@@ -14363,6 +14491,20 @@ mod linux_sni {
                 value("Menu"),
                 MessageItem::ObjectPath(DbusPath::new(MENU_PATH).expect("静态路径合法"))
             );
+            // classic：Menu 空串（原生形态），其余属性不变
+            let classic = item_properties(false);
+            let classic_value = |name: &str| {
+                classic
+                    .iter()
+                    .find(|(key, _)| *key == name)
+                    .map(|(_, value)| value.clone())
+                    .unwrap_or_else(|| panic!("缺属性 {name}"))
+            };
+            assert_eq!(
+                classic_value("Menu"),
+                MessageItem::Str(String::new())
+            );
+            assert_eq!(classic_value("ItemIsMenu"), MessageItem::Bool(false));
             assert_eq!(value("Status"), MessageItem::Str("Active".to_string()));
             assert_eq!(
                 value("Category"),
@@ -14402,12 +14544,12 @@ mod linux_sni {
             // GetAll 的返回体：a{sv}
             let mut msg =
                 Message::new_method_call(":1.1", ITEM_PATH, PROPS_IFACE, "GetAll").expect("构造调用");
-            msg.append_items(&[properties_dict()]);
+            msg.append_items(&[properties_dict(true)]);
             let Some(MessageItem::Dict(entries)) = msg.get1::<MessageItem>() else {
                 panic!("GetAll 应回一个 a{{sv}}");
             };
             assert_eq!(entries.signature().to_string(), "a{sv}");
-            assert_eq!(entries.len(), item_properties().len());
+            assert_eq!(entries.len(), item_properties(true).len());
             // 键都是 s、值都是 v（宿主按签名取属性，错一个整张表就读不成）
             for (key, value) in entries.iter() {
                 assert_eq!(key.signature().to_string(), "s");
@@ -14417,18 +14559,19 @@ mod linux_sni {
             // Get 的返回体是套一层的 variant
             let mut msg =
                 Message::new_method_call(":1.1", ITEM_PATH, PROPS_IFACE, "Get").expect("构造调用");
-            msg.append_items(&[MessageItem::Variant(Box::new(property_value("ItemIsMenu")))]);
+            msg.append_items(&[MessageItem::Variant(Box::new(property_value("ItemIsMenu", true)))]);
             assert_eq!(
                 msg.get1::<MessageItem>(),
                 Some(MessageItem::Variant(Box::new(MessageItem::Bool(false))))
             );
             assert_eq!(
-                property_value("Menu"),
+                property_value("Menu", true),
                 MessageItem::ObjectPath(DbusPath::new(MENU_PATH).expect("静态路径合法"))
             );
+            assert_eq!(property_value("Menu", false), MessageItem::Str(String::new()));
             // 不认识的属性回空串
             assert_eq!(
-                property_value("NoSuchProperty"),
+                property_value("NoSuchProperty", true),
                 MessageItem::Str(String::new())
             );
         }
@@ -14954,6 +15097,15 @@ mod core_tests {
         assert_eq!(settings.opacity_percent, 90);
         assert_eq!(settings.main_window_position, DEFAULT_WINDOW_POSITION);
         assert_eq!(settings.main_window_position, "center");
+        // 托盘菜单方式默认 classic（三端各自方式，positioner 引入前的形态）
+        assert_eq!(settings.tray_menu_style, DEFAULT_TRAY_MENU_STYLE);
+        assert_eq!(settings.tray_menu_style, "classic");
+        // 归一：认识的照收，不认识/空白一律回 classic
+        assert_eq!(normalize_tray_menu_style("unified"), "unified");
+        assert_eq!(normalize_tray_menu_style(" UNIFIED "), "unified");
+        assert_eq!(normalize_tray_menu_style("classic"), "classic");
+        assert_eq!(normalize_tray_menu_style(""), "classic");
+        assert_eq!(normalize_tray_menu_style("whatever"), "classic");
         // 默认允许远程请求弹本机授权框（用户定案「远程可触发本机框」）
         assert!(settings.remote_allow_gui_auth);
         // 尺寸默认「还没记过」→ 启动时按整屏高度的 2/3 算，且不锁定

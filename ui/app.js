@@ -470,6 +470,7 @@ const mainHotzoneOpacityStateElement = document.querySelector("#main-hotzone-opa
 const mainHotzoneBorderElement = document.querySelector("#main-hotzone-border");
 const mainHotzoneBorderColorElement = document.querySelector("#main-hotzone-border-color");
 const mainWindowPositionElement = document.querySelector("#main-window-position");
+const trayMenuStyleElement = document.querySelector("#tray-menu-style");
 const mainFixedMonitorElement = document.querySelector("#main-fixed-monitor");
 const resetMainWindowPositionElement = document.querySelector("#reset-main-window-position");
 // 窗口大小：宽/高滑条 + 锁定开关（滑条 ⇄ 窗口尺寸双向实时）
@@ -1158,6 +1159,10 @@ function renderSettings(view) {
     const mode = view.mainWindowPosition;
     mainWindowPositionElement.value =
       mode === "center" || mode === "last" ? mode : "free";
+  }
+  // 托盘菜单方式：classic（各自方式，默认）/ unified（全局统一）
+  if (document.activeElement !== trayMenuStyleElement) {
+    trayMenuStyleElement.value = view.trayMenuStyle === "unified" ? "unified" : "classic";
   }
   if (document.activeElement !== mainFixedMonitorElement) {
     syncFixedMonitorOptions(view.mainMonitorOptions, view.mainFixedMonitor);
@@ -2576,6 +2581,11 @@ mainWindowPositionElement.addEventListener("change", () => {
   applySettingLinkage();
   call("set_main_window_position", { mode: mainWindowPositionElement.value });
 });
+
+// 托盘菜单方式：各自方式（默认）/ 全局统一（positioner TrayCenter）
+trayMenuStyleElement.addEventListener("change", () =>
+  call("set_tray_menu_style", { mode: trayMenuStyleElement.value }),
+);
 
 // 固定显示器：auto + 每台显示器一项（与托盘「固定显示器」子菜单同源）
 mainFixedMonitorElement.addEventListener("change", () =>
