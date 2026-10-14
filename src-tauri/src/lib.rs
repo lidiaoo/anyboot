@@ -7825,20 +7825,6 @@ fn menu_system_rows(variables: &[VariableInfo]) -> Vec<VariableInfo> {
         .collect()
 }
 
-/// 只负责构建菜单，不碰托盘图标。setup 的第一帧和后续重建走同一份实现。
-/// 分区标题。
-///
-/// 原生菜单没有「分组」这个概念，能表达分区的只有两样东西：分隔线，和一个灰掉的标题项。
-/// 标题项禁用之后 Windows/GTK 都会画成灰色小标题，配合上下两条分隔线，一眼就是独立一块。
-#[cfg(desktop)]
-fn menu_section_header(
-    app: &AppHandle,
-    id: &str,
-    label: &str,
-) -> tauri::Result<MenuItem<tauri::Wry>> {
-    MenuItem::with_id(app, id, label, false, None::<&str>)
-}
-
 /// 选择项的「勾」用**纯文本**画在标签里，不用原生勾选控件。
 ///
 /// 为什么（2026-10-14 实测，见 `.workbuddy/memory/2026-10-14.md`）：托盘菜单在
@@ -7944,7 +7930,162 @@ fn menu_status_line<'a>(message: &'a str, next_boot_label: &str) -> Option<&'a s
 }
 
 #[cfg(desktop)]
-fn build_tray_menu(app: &AppHandle, state: &UiState) -> tauri::Result<Menu<tauri::Wry>> {
+/// —— 托盘菜单的**数据模型**（三端统一的地基）——
+///
+/// 菜单内容只在这里生成一次，而且是**纯数据**：不碰 GTK / Win32 / AppKit 任何控件。
+/// 三端各自把这份模型渲染出来 —— 因此「同一份菜单」在三端必然一致。
+/// 顺带解决一个老隐患：构造原生菜单会真的去创建工具包控件，而重建菜单的调用点
+/// 可能在非主线程（HTTP 线程拿着菜单点击 → publish → 重建），GTK 那边并不欢迎。
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[cfg(desktop)]
+struct MenuNode {
+    /// 点击时回传给应用的动作 id；分隔线与表头没有 id
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<String>,
+    /// 纯文本。开关/单选的勾已经画在里面（见 toggle_label / radio_label）
+    label: String,
+    enabled: bool,
+    /// 结构：`item`（可点）/ `header`（分区标题）/ `sep`（分隔线）/ `sub`（子菜单）
+    kind: &'static str,
+    /// 列表类条目的「当前项」标记（系统列表、GRUB 条目、顶部「下次启动」那行）；
+    /// 不是这类条目时是 None（勾在 label 里，不重复表达）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    checked: Option<bool>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    children: Vec<MenuNode>,
+}
+
+/// 普通条目。
+#[cfg(desktop)]
+fn menu_item(id: impl Into<String>, label: impl Into<String>, enabled: bool) -> MenuNode {
+    MenuNode {
+        id: Some(id.into()),
+        label: label.into(),
+        enabled,
+        kind: "item",
+        checked: None,
+        children: Vec::new(),
+    }
+}
+
+/// 列表类条目：带「当前项」标记（系统列表 / GRUB 条目 / 顶部那行）。
+#[cfg(desktop)]
+fn menu_marked_item(
+    id: impl Into<String>,
+    label: impl Into<String>,
+    enabled: bool,
+    marked: bool,
+) -> MenuNode {
+    MenuNode {
+        checked: Some(marked),
+        ..menu_item(id, label, enabled)
+    }
+}
+
+/// 分区标题：禁用项，配合上下分隔线把菜单切成独立的几块（原生菜单唯一的表达能力）。
+#[cfg(desktop)]
+fn menu_header(id: impl Into<String>, label: impl Into<String>) -> MenuNode {
+    MenuNode {
+        id: Some(id.into()),
+        label: label.into(),
+        enabled: false,
+        kind: "header",
+        checked: None,
+        children: Vec::new(),
+    }
+}
+
+/// 分隔线。
+#[cfg(desktop)]
+fn menu_separator() -> MenuNode {
+    MenuNode {
+        id: None,
+        label: String::new(),
+        enabled: false,
+        kind: "sep",
+        checked: None,
+        children: Vec::new(),
+    }
+}
+
+/// 子菜单。
+#[cfg(desktop)]
+fn menu_submenu(
+    id: impl Into<String>,
+    label: impl Into<String>,
+    children: Vec<MenuNode>,
+) -> MenuNode {
+    MenuNode {
+        id: Some(id.into()),
+        label: label.into(),
+        enabled: true,
+        kind: "sub",
+        checked: None,
+        children,
+    }
+}
+
+/// GRUB 启动项那一块（进顶层菜单 = 平铺展开；进子菜单 = 收起）。
+///
+/// 组头灰字 + 条目（当前选中带标记），点击写 grubenv（`grub-switch:<selector>`），
+/// 与主窗 GRUB 区完全同源。
+#[cfg(desktop)]
+fn grub_menu_nodes(grub: &GrubView, busy: bool) -> Vec<MenuNode> {
+    let mut items: Vec<MenuNode> = Vec::new();
+    if grub.entries.is_empty() {
+        items.push(menu_item(
+            "grub-empty",
+            if grub.partuuid.is_empty() && grub.dir.is_empty() {
+                "GRUB：还没配置 ESP"
+            } else {
+                "GRUB：没解析到启动项"
+            },
+            false,
+        ));
+        return items;
+    }
+    let active = grub
+        .next_entry
+        .as_deref()
+        .or(grub.saved_entry.as_deref())
+        .unwrap_or("");
+    let group_titles: std::collections::HashMap<&str, &str> = grub
+        .groups
+        .iter()
+        .map(|group| (group.id.as_str(), group.name.as_str()))
+        .collect();
+    let mut emitted_groups = std::collections::HashSet::new();
+    for entry in &grub.entries {
+        if let Some(submenu_id) = &entry.submenu {
+            if emitted_groups.insert(submenu_id.as_str()) {
+                let title = group_titles
+                    .get(submenu_id.as_str())
+                    .copied()
+                    .unwrap_or(submenu_id.as_str());
+                items.push(menu_header(
+                    format!("grub-group:{submenu_id}"),
+                    format!("▸ {title}"),
+                ));
+            }
+        }
+        let label = if entry.submenu.is_some() {
+            format!("↳ {}", entry.name)
+        } else {
+            entry.name.clone()
+        };
+        items.push(menu_marked_item(
+            format!("grub-switch:{}", entry.selector),
+            label,
+            !busy,
+            entry.selector == active,
+        ));
+    }
+    items
+}
+
+/// 托盘菜单的全部内容。**纯数据**，与任何工具包无关。
+#[cfg(desktop)]
+fn build_menu_nodes(state: &UiState) -> Vec<MenuNode> {
     let busy = state.busy.affects_menu();
     let message = &state.status.message;
     let settings = &state.settings.settings;
@@ -7962,383 +8103,290 @@ fn build_tray_menu(app: &AppHandle, state: &UiState) -> tauri::Result<Menu<tauri
         "下次启动\n{}",
         next_boot_cascade(&state.status.variables, &state.grub)
     );
-    let check = check_mark_image();
 
-    let menu = Menu::new(app)?;
+    let mut nodes: Vec<MenuNode> = Vec::new();
     // 第一行就把「下次启动哪个系统」摆出来。原生菜单改不了字号/字重，所以靠**位置**
-    // 和绿勾让它够醒目；点它 = 打开主窗口去改。
-    let next_boot_item = IconMenuItem::with_id(
-        app,
+    // 和标记让它够醒目；点它 = 打开主窗口去改。
+    nodes.push(menu_marked_item(
         "next-boot",
-        &next_boot_label,
+        next_boot_label,
         true,
-        next_boot.map(|_| check.clone()),
-        None::<&str>,
-    )?;
-    menu.append(&next_boot_item)?;
+        next_boot.is_some(),
+    ));
     // 状态行只在**跟上面那行不一样**的时候才出现（见 menu_status_line）：
     // 扫描成功后 message 本身就是「下次启动：X」，再摆一行就是「下次启动重复了」，
     // 只有错误提示/临时操作结果才需要单独一行。
     if let Some(line) = menu_status_line(message, &next_boot_scan_line) {
-        let status = MenuItem::with_id(app, "status", line, false, None::<&str>)?;
-        menu.append(&status)?;
+        nodes.push(menu_item("status", line, false));
     }
-    menu.append(&PredefinedMenuItem::separator(app)?)?;
-
-    // —— 分区：GRUB 启动项菜单项的构造（进顶层菜单 = 平铺展开；进子菜单 = 收起）——
-    // 组头灰字 + 条目（当前选中带绿勾），点击写 grubenv（grub-switch:<selector>），
-    // 与主窗 GRUB 区完全同源。
-    #[cfg(desktop)]
-    fn grub_menu_items(
-        app: &AppHandle,
-        grub: &GrubView,
-        busy: bool,
-        check: &Image<'static>,
-    ) -> tauri::Result<Vec<Box<dyn tauri::menu::IsMenuItem<tauri::Wry>>>> {
-        let mut items: Vec<Box<dyn tauri::menu::IsMenuItem<tauri::Wry>>> = Vec::new();
-        if grub.entries.is_empty() {
-            items.push(Box::new(MenuItem::with_id(
-                app,
-                "grub-empty",
-                if grub.partuuid.is_empty() && grub.dir.is_empty() {
-                    "GRUB：还没配置 ESP"
-                } else {
-                    "GRUB：没解析到启动项"
-                },
-                false,
-                None::<&str>,
-            )?));
-            return Ok(items);
-        }
-        let active = grub
-            .next_entry
-            .as_deref()
-            .or(grub.saved_entry.as_deref())
-            .unwrap_or("");
-        let group_titles: std::collections::HashMap<&str, &str> = grub
-            .groups
-            .iter()
-            .map(|group| (group.id.as_str(), group.name.as_str()))
-            .collect();
-        let mut emitted_groups = std::collections::HashSet::new();
-        for entry in &grub.entries {
-            if let Some(submenu_id) = &entry.submenu {
-                if emitted_groups.insert(submenu_id.as_str()) {
-                    let title = group_titles
-                        .get(submenu_id.as_str())
-                        .copied()
-                        .unwrap_or(submenu_id.as_str());
-                    items.push(Box::new(menu_section_header(
-                        app,
-                        &format!("grub-group:{submenu_id}"),
-                        &format!("▸ {title}"),
-                    )?));
-                }
-            }
-            let label = if entry.submenu.is_some() {
-                format!("↳ {}", entry.name)
-            } else {
-                entry.name.clone()
-            };
-            items.push(Box::new(IconMenuItem::with_id(
-                app,
-                format!("grub-switch:{}", entry.selector),
-                label,
-                !busy,
-                if entry.selector == active {
-                    Some(check.clone())
-                } else {
-                    None
-                },
-                None::<&str>,
-            )?));
-        }
-        Ok(items)
-    }
+    nodes.push(menu_separator());
 
     // rEFInd 扫到了系统 = 「展开」平铺（现状不变）；没扫到 = 收进子菜单不展开，
     // 同时 GRUB 区平铺展开顶上 —— 保证总有一块能直接点到。反过来 rEFInd 在时
     // GRUB 收进子菜单（默认展开 rEFInd，用户定案）。
     let refind_alive = variables.iter().any(|variable| variable.exists);
-    // —— 分区：系统列表（选中项带绿勾，名字靠位图列天然左对齐）——
+    // —— 分区：系统列表（选中项带标记）——
     if refind_alive {
         for variable in &variables {
-            // 选中项带绿勾、没选中的不带：勾占的是菜单**独立的位图列**，不挤占文字，
-            // 三个系统的名字因此天然左对齐（以前用「● 」前缀，选中的那个会被顶偏一格）。
-            let item = IconMenuItem::with_id(
-                app,
+            nodes.push(menu_marked_item(
                 variable.system.clone(),
                 variable.display_name.clone(),
                 variable.exists && !busy,
-                if variable.active {
-                    Some(check.clone())
-                } else {
-                    None
-                },
-                None::<&str>,
-            )?;
-            menu.append(&item)?;
+                variable.active,
+            ));
         }
     } else {
-        let systems_menu = Submenu::with_id(app, "refind-systems", "rEFInd 系统列表", true)?;
-        for variable in &variables {
-            let item = IconMenuItem::with_id(
-                app,
-                variable.system.clone(),
-                variable.display_name.clone(),
-                variable.exists && !busy,
-                if variable.active {
-                    Some(check.clone())
-                } else {
-                    None
-                },
-                None::<&str>,
-            )?;
-            systems_menu.append(&item)?;
-        }
-        menu.append(&systems_menu)?;
+        let children = variables
+            .iter()
+            .map(|variable| {
+                menu_marked_item(
+                    variable.system.clone(),
+                    variable.display_name.clone(),
+                    variable.exists && !busy,
+                    variable.active,
+                )
+            })
+            .collect();
+        nodes.push(menu_submenu("refind-systems", "rEFInd 系统列表", children));
     }
-    menu.append(&PredefinedMenuItem::separator(app)?)?;
+    nodes.push(menu_separator());
     // —— 分区：GRUB 启动项（与 rEFInd 系统列表并列的第二块）——
     if refind_alive {
-        let grub_menu = Submenu::with_id(app, "grub-entries", "GRUB 启动项", true)?;
-        for item in grub_menu_items(app, &state.grub, busy, &check)? {
-            grub_menu.append(item.as_ref())?;
-        }
-        menu.append(&grub_menu)?;
+        nodes.push(menu_submenu(
+            "grub-entries",
+            "GRUB 启动项",
+            grub_menu_nodes(&state.grub, busy),
+        ));
     } else {
-        for item in grub_menu_items(app, &state.grub, busy, &check)? {
-            menu.append(item.as_ref())?;
-        }
+        nodes.extend(grub_menu_nodes(&state.grub, busy));
     }
-    menu.append(&PredefinedMenuItem::separator(app)?)?;
+    nodes.push(menu_separator());
     if state.status.temporary_mount {
-        let unmount = MenuItem::with_id(
-            app,
-            "unmount-temporary",
-            "卸载临时挂载",
-            !busy,
-            None::<&str>,
-        )?;
-        menu.append(&unmount)?;
+        nodes.push(menu_item("unmount-temporary", "卸载临时挂载", !busy));
     }
-    menu.append(&MenuItem::with_id(
-        app,
-        "show",
-        "显示主窗口",
-        true,
-        None::<&str>,
-    )?)?;
+    nodes.push(menu_item("show", "显示主窗口", true));
 
     // —— 分区：应用设置 ——
-    menu.append(&PredefinedMenuItem::separator(app)?)?;
-    menu.append(&menu_section_header(app, "settings-label", "应用设置")?)?;
-    let autostart = MenuItem::with_id(
-        app,
+    nodes.push(menu_separator());
+    nodes.push(menu_header("settings-label", "应用设置"));
+    nodes.push(menu_item(
         "setting-autostart",
         toggle_label(settings.autostart, "开机启动"),
         true,
-        None::<&str>,
-    )?;
-    menu.append(&autostart)?;
+    ));
     // 开关项的 id 带「点下去要变成的状态」。原生勾选控件会先把勾翻转再通知我们，
     // 所以分发时必须知道用户想要哪个值；现在是纯文本标记（见 toggle_label），
     // 这个后缀同时也让「重复点同一项」是幂等的（不会来回翻）。
-    let start_in_tray = MenuItem::with_id(
-        app,
+    nodes.push(menu_item(
         toggle_menu_id("setting-start-in-tray", !settings.start_in_tray),
         toggle_label(settings.start_in_tray, "启动时隐藏主界面"),
         true,
-        None::<&str>,
-    )?;
-    menu.append(&start_in_tray)?;
-    let hide_from_dock_taskbar = MenuItem::with_id(
-        app,
+    ));
+    nodes.push(menu_item(
         toggle_menu_id(
             "setting-hide-from-dock-taskbar",
             !settings.hide_from_dock_taskbar,
         ),
         toggle_label(settings.hide_from_dock_taskbar, "隐藏程序（任务栏/Dock）"),
         true,
-        None::<&str>,
-    )?;
-    menu.append(&hide_from_dock_taskbar)?;
+    ));
     // 贴边自动隐藏是高频功能开关，托盘给个快捷入口（与 HTTP 服务/远程请求通知同级）。
     // 「屏幕中间」模式下两者互斥，这里整体置灰（勾选态保持设置原值，
     // 切回其他落位方式即可用）。
-    menu.append(&MenuItem::with_id(
-        app,
+    nodes.push(menu_item(
         toggle_menu_id("setting-main-auto-hide", !settings.main_auto_hide),
         toggle_label(settings.main_auto_hide, "贴边自动隐藏"),
         normalize_window_position(&settings.main_window_position) != "center",
-        None::<&str>,
-    )?)?;
+    ));
     // 窗口大小在设置页能随意调（滑条 / 拖边框），托盘里放一个「重置」入口：
     // 窗口被拖到怪尺寸（或锁定态想恢复标称）时，不用打开主窗口去找
-    menu.append(&MenuItem::with_id(
-        app,
-        "reset-window-size",
-        "重置窗口大小",
-        !busy,
-        None::<&str>,
-    )?)?;
+    nodes.push(menu_item("reset-window-size", "重置窗口大小", !busy));
     // 与设置页「重置位置」同源：窗口被拖丢/飞出屏幕时一键回正中
-    menu.append(&MenuItem::with_id(
-        app,
-        "reset-window-position",
-        "重置窗口位置",
-        !busy,
-        None::<&str>,
-    )?)?;
+    nodes.push(menu_item("reset-window-position", "重置窗口位置", !busy));
     // 固定显示位置（与设置页「固定显示位置」下拉同源）：三种模式各一个单选项
-    let position_menu = Submenu::with_id(app, "setting-window-position", "固定显示位置", true)?;
     let position_now = normalize_window_position(&settings.main_window_position);
-    for (mode, label) in [
-        ("free", "自由摆放"),
-        ("center", "屏幕中间"),
-        ("last", "上次位置"),
-    ] {
-        position_menu.append(&MenuItem::with_id(
-            app,
-            format!("setting-main-window-position:{mode}"),
-            radio_label(position_now == mode, label),
-            true,
-            None::<&str>,
-        )?)?;
-    }
-    menu.append(&position_menu)?;
+    nodes.push(menu_submenu(
+        "setting-window-position",
+        "固定显示位置",
+        [("free", "自由摆放"), ("center", "屏幕中间"), ("last", "上次位置")]
+            .into_iter()
+            .map(|(mode, label)| {
+                menu_item(
+                    format!("setting-main-window-position:{mode}"),
+                    radio_label(position_now == mode, label),
+                    true,
+                )
+            })
+            .collect(),
+    ));
     // 固定显示器（与设置页「固定显示器」下拉同源）：auto + 当前所有显示器。
     // 列表来自快照里的 mainMonitorOptions（与主菜单同源），显示器热插拔后
     // 下一次快照刷新菜单就会跟着变。
-    let monitor_menu = Submenu::with_id(app, "setting-main-fixed-monitor", "固定显示器", true)?;
     let fixed_now = normalize_fixed_monitor(&settings.main_fixed_monitor);
-    monitor_menu.append(&MenuItem::with_id(
-        app,
+    let mut monitors = vec![menu_item(
         "setting-main-fixed-monitor:auto",
         radio_label(fixed_now == "auto", "自动（不固定）"),
         true,
-        None::<&str>,
-    )?)?;
-    for name in &state.settings.main_monitor_options {
-        monitor_menu.append(&MenuItem::with_id(
-            app,
+    )];
+    monitors.extend(state.settings.main_monitor_options.iter().map(|name| {
+        menu_item(
             format!("setting-main-fixed-monitor:{name}"),
             radio_label(fixed_now == *name, name),
             true,
-            None::<&str>,
-        )?)?;
-    }
-    menu.append(&monitor_menu)?;
-    let close_action_menu = Submenu::with_id(app, "setting-close-action", "点击窗口 ❌ 时", true)?;
-    for (action, label) in [
-        (CloseAction::Tray, "最小化到托盘"),
-        (CloseAction::Quit, "退出程序"),
-    ] {
-        let item = MenuItem::with_id(
-            app,
-            close_action_menu_id(action),
-            radio_label(settings.close_action == action, label),
-            true,
-            None::<&str>,
-        )?;
-        close_action_menu.append(&item)?;
-    }
-    menu.append(&close_action_menu)?;
+        )
+    }));
+    nodes.push(menu_submenu(
+        "setting-main-fixed-monitor",
+        "固定显示器",
+        monitors,
+    ));
+    nodes.push(menu_submenu(
+        "setting-close-action",
+        "点击窗口 ❌ 时",
+        [(CloseAction::Tray, "最小化到托盘"), (CloseAction::Quit, "退出程序")]
+            .into_iter()
+            .map(|(action, label)| {
+                menu_item(
+                    close_action_menu_id(action),
+                    radio_label(settings.close_action == action, label),
+                    true,
+                )
+            })
+            .collect(),
+    ));
 
     // —— 分区：扫描 ——
-    menu.append(&PredefinedMenuItem::separator(app)?)?;
-    menu.append(&MenuItem::with_id(
-        app,
-        "refresh",
-        "扫描",
-        !busy,
-        None::<&str>,
-    )?)?;
+    nodes.push(menu_separator());
+    nodes.push(menu_item("refresh", "扫描", !busy));
 
     // —— 分区：电源操作 ——
     // 铺平在主菜单里（不折叠成子菜单：关机/重启是高频动作，多一层展开纯属添堵），
     // 但上下各有一条分隔线 + 一个标题，这样它是一块独立分区，而不是粘在「扫描」下面。
-    menu.append(&PredefinedMenuItem::separator(app)?)?;
-    menu.append(&menu_section_header(app, "power-label", "电源操作")?)?;
+    nodes.push(menu_separator());
+    nodes.push(menu_header("power-label", "电源操作"));
     for action in [
         PowerAction::Reboot,
         PowerAction::Shutdown,
         PowerAction::Sleep,
     ] {
-        let item = MenuItem::with_id(
-            app,
-            power_menu_id(action),
-            action.label(),
-            !busy,
-            None::<&str>,
-        )?;
-        menu.append(&item)?;
+        nodes.push(menu_item(power_menu_id(action), action.label(), !busy));
     }
 
     // —— 分区：远程控制 ——
     // 同样铺平在主菜单里；监听状态是这一区的**第一行**，不展开任何子菜单就能看到在不在听。
-    menu.append(&PredefinedMenuItem::separator(app)?)?;
-    menu.append(&menu_section_header(app, "remote-label", "远程控制")?)?;
-    let listening = MenuItem::with_id(
-        app,
+    nodes.push(menu_separator());
+    nodes.push(menu_header("remote-label", "远程控制"));
+    nodes.push(menu_item(
         "remote-status",
         format!("监听状态：{}", menu_status_text(&state.http.state_text, 48)),
         false,
-        None::<&str>,
-    )?;
-    menu.append(&listening)?;
-    menu.append(&MenuItem::with_id(
-        app,
+    ));
+    nodes.push(menu_item(
         toggle_menu_id("setting-http-enabled", !settings.http_enabled),
         toggle_label(settings.http_enabled, "HTTP 服务"),
         true,
-        None::<&str>,
-    )?)?;
-    menu.append(&MenuItem::with_id(
-        app,
+    ));
+    nodes.push(menu_item(
         toggle_menu_id("setting-notify-enabled", !settings.notify_enabled),
         toggle_label(settings.notify_enabled, "远程请求通知"),
         true,
-        None::<&str>,
-    )?)?;
-    let delay_menu = Submenu::with_id(app, "setting-delay", &delay_submenu_title(settings), true)?;
+    ));
     let delay_now = settings.channels.http.delay_seconds;
     let delay_same = delay_now == settings.channels.cli.delay_seconds;
-    for seconds in [0u32, 3, 5, 10, 30] {
-        let label = if seconds == 0 {
-            "立即执行（0 秒）".to_string()
-        } else {
-            format!("{seconds} 秒")
-        };
-        delay_menu.append(&MenuItem::with_id(
-            app,
-            format!("setting-delay:{seconds}"),
-            radio_label(delay_same && delay_now == seconds, &label),
-            true,
-            None::<&str>,
-        )?)?;
-    }
-    menu.append(&delay_menu)?;
-    menu.append(&MenuItem::with_id(
-        app,
-        "show-remote",
-        "远程控制设置…",
-        true,
-        None::<&str>,
-    )?)?;
+    nodes.push(menu_submenu(
+        "setting-delay",
+        delay_submenu_title(settings),
+        [0u32, 3, 5, 10, 30]
+            .into_iter()
+            .map(|seconds| {
+                let label = if seconds == 0 {
+                    "立即执行（0 秒）".to_string()
+                } else {
+                    format!("{seconds} 秒")
+                };
+                menu_item(
+                    format!("setting-delay:{seconds}"),
+                    radio_label(delay_same && delay_now == seconds, &label),
+                    true,
+                )
+            })
+            .collect(),
+    ));
+    nodes.push(menu_item("show-remote", "远程控制设置…", true));
     // 用系统浏览器打开 Web 控制页（带 token，点开即用）。
     // 没在监听时置灰：没有页面可开，免得点了弹一个必然失败的错误。
-    menu.append(&MenuItem::with_id(
-        app,
-        "open-web",
-        "打开 Web 页面",
-        state.http.listening,
-        None::<&str>,
-    )?)?;
+    nodes.push(menu_item("open-web", "打开 Web 页面", state.http.listening));
 
-    menu.append(&PredefinedMenuItem::separator(app)?)?;
-    menu.append(&MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?)?;
+    nodes.push(menu_separator());
+    nodes.push(menu_item("quit", "退出", true));
+    nodes
+}
+
+/// 把模型里的一条装成**原生**菜单项（Windows / macOS 用；Linux 走宿主渲染也是同一份内容）。
+#[cfg(desktop)]
+fn native_menu_node(
+    app: &AppHandle,
+    node: &MenuNode,
+) -> tauri::Result<Box<dyn tauri::menu::IsMenuItem<tauri::Wry>>> {
+    Ok(match node.kind {
+        "sep" => Box::new(PredefinedMenuItem::separator(app)?),
+        "sub" => {
+            let children: Vec<Box<dyn tauri::menu::IsMenuItem<tauri::Wry>>> = node
+                .children
+                .iter()
+                .map(|child| native_menu_node(app, child))
+                .collect::<tauri::Result<_>>()?;
+            let refs: Vec<&dyn tauri::menu::IsMenuItem<tauri::Wry>> =
+                children.iter().map(|child| child.as_ref()).collect();
+            Box::new(Submenu::with_items(
+                app,
+                &node.label,
+                node.enabled,
+                &refs,
+            )?)
+        }
+        // 列表类条目的「当前项」用勾位图表达（系统列表/GRUB 条目/顶部那行）。
+        // 开关与单选不在这里 —— 它们的勾画在标签文字里（见 toggle_label）。
+        _ => {
+            let id = node.id.clone().unwrap_or_default();
+            if node.checked == Some(true) {
+                Box::new(IconMenuItem::with_id(
+                    app,
+                    id,
+                    &node.label,
+                    node.enabled,
+                    Some(check_mark_image()),
+                    None::<&str>,
+                )?)
+            } else {
+                Box::new(MenuItem::with_id(
+                    app,
+                    id,
+                    &node.label,
+                    node.enabled,
+                    None::<&str>,
+                )?)
+            }
+        }
+    })
+}
+
+/// 把菜单模型装成原生菜单。
+#[cfg(desktop)]
+fn native_menu(app: &AppHandle, nodes: &[MenuNode]) -> tauri::Result<Menu<tauri::Wry>> {
+    let menu = Menu::new(app)?;
+    for node in nodes {
+        menu.append(native_menu_node(app, node)?.as_ref())?;
+    }
     Ok(menu)
+}
+
+/// 托盘菜单（原生形态）。
+///
+/// 只负责构建菜单，不碰托盘图标。setup 的第一帧和后续重建走同一份实现。
+#[cfg(desktop)]
+fn build_tray_menu(app: &AppHandle, state: &UiState) -> tauri::Result<Menu<tauri::Wry>> {
+    native_menu(app, &build_menu_nodes(state))
 }
 
 /// 托盘右键。
