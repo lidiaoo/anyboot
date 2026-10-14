@@ -2543,6 +2543,20 @@ fn record_action(app: &AppHandle, action: &str, ok: bool, message: &str) {
         .expect("action mutex poisoned") = Some(result);
 }
 
+/// 「已提交电源动作」之后忙闸最多挂多久（毫秒）。
+///
+/// 忙闸的用意是「别重复提交」，但**提交成功 ≠ 动作真的发生**：`systemctl suspend`
+/// 在 logind 那边只是**排队**，命令立刻返回 0；随后被 inhibitor 拦下、或内核
+/// suspend 失败立刻 resume，机器照样活着 —— 而闸一直挂着，三个电源项就永远置灰、
+/// 点了毫无反应（用户报的「三个电源按钮都没用」就是这么来的：点过睡眠/被拦下的重启
+/// 之后，后面每一次点击都被静默吞掉，只能重启应用才恢复）。
+/// 真关机/重启了的话没人会看菜单，放掉闸没有任何代价。
+const POWER_RELEASE_MS: u64 = 15_000;
+
+/// 放闸的世代号：新动作一来就把先前排队的放闸作废（与 schedule_clamp /
+/// schedule_center_snap 同一套「世代号 + 静默期」写法）。
+static POWER_RELEASE_GENERATION: AtomicU64 = AtomicU64::new(0);
+
 /// 抢占一个电源动作；已经有动作在跑时返回 false（替代原来的静态原子标志）。
 fn try_begin_power(app: &AppHandle, action: &str) -> bool {
     let acquired = {
@@ -2556,6 +2570,8 @@ fn try_begin_power(app: &AppHandle, action: &str) -> bool {
         }
     };
     if acquired {
+        // 新动作来了：把上一个动作排队的放闸作废（见 schedule_power_release）
+        POWER_RELEASE_GENERATION.fetch_add(1, Ordering::SeqCst);
         publish_ui(app);
     } else {
         trace(
@@ -2563,6 +2579,15 @@ fn try_begin_power(app: &AppHandle, action: &str) -> bool {
             "power",
             &format!("已有电源动作在处理中，忽略 {action}"),
         );
+        // 被忙闸挡掉的点击**也必须留痕**：从前这里只写 trace，而 trace 默认是关的，
+        // 于是「点了没反应」在现场等于彻底无声 —— 正是用户这次报障最难查的地方。
+        record_action(
+            app,
+            "电源操作",
+            false,
+            "上一个电源动作还没结束，这次点击已忽略；若菜单里的电源项一直是灰的，就是它卡住了",
+        );
+        publish_ui(app);
     }
     acquired
 }
@@ -2575,6 +2600,40 @@ fn finish_power(app: &AppHandle) {
         busy.power = None;
     }
     publish_ui(app);
+}
+
+/// 提交成功之后**延时放闸**（见 POWER_RELEASE_MS）。
+///
+/// 到点时若世代号还是最新、且忙闸确实还挂着，就放掉 —— 说明「命令返回成功」之后
+/// 系统并没有真的关机/重启/睡着，别让三个电源项永远灰着。
+/// 线程睡眠走 CLOCK_MONOTONIC（不含 suspend 时间），所以真睡了一觉回来之后，
+/// 剩下的静默期照样会走完、闸照样放掉 —— 正是我们要的。
+fn schedule_power_release(app: &AppHandle) {
+    let generation = POWER_RELEASE_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(POWER_RELEASE_MS));
+        if POWER_RELEASE_GENERATION.load(Ordering::SeqCst) != generation {
+            return;
+        }
+        let latched = app
+            .state::<Mutex<BusyState>>()
+            .lock()
+            .expect("busy mutex poisoned")
+            .power
+            .is_some();
+        if !latched {
+            return;
+        }
+        trace(&app, "power", "提交后系统仍在：放掉忙闸，电源项恢复可用");
+        record_action(
+            &app,
+            "电源操作",
+            false,
+            "已提交的动作在 15 秒内没有关机/重启/睡眠，电源项已恢复可用（真在关机中就不用管）",
+        );
+        finish_power(&app);
+    });
 }
 
 /// 生成当前状态的快照（不改任何东西）。
@@ -6600,6 +6659,37 @@ fn spawn_diag_recall(app: &AppHandle) {
     });
 }
 
+/// 诊断钩子：`ANYBOOT_MENU_DIAG=<菜单项 id>`（可选 `ANYBOOT_MENU_DIAG_MS=<毫秒>`，
+/// 默认 4000）时，启动 N 毫秒后按这个 id 走一次**完整的菜单派发**
+/// （`handle_menu_event`，与真实点击同一条路径）。
+///
+/// 为什么需要它：无头/自动化环境里点不了托盘菜单（本项目文档里早就记着这个
+/// 盲区），于是「菜单 id → MenuAction → 动作」这一段**从来没有自动覆盖**——
+/// 而它恰好是「点了没反应」这类报障的第一嫌疑段。配上 `ANYBOOT_POWER_DRY_RUN=1`
+/// 就能在不真的关机的前提下验证电源项：
+/// `ANYBOOT_MENU_DIAG=power:reboot ANYBOOT_POWER_DRY_RUN=1 anyboot`。
+/// **不设就 return**，产品路径不变。
+fn spawn_diag_menu(app: &AppHandle) {
+    let Ok(id) = std::env::var("ANYBOOT_MENU_DIAG") else {
+        return;
+    };
+    let id = id.trim().to_string();
+    if id.is_empty() {
+        return;
+    }
+    let delay = std::env::var("ANYBOOT_MENU_DIAG_MS")
+        .ok()
+        .and_then(|raw| raw.trim().parse::<u64>().ok())
+        .filter(|delay| *delay > 0)
+        .unwrap_or(4000);
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(delay));
+        startup_debug(&app, &format!("diag: 模拟菜单点击 id={id}（{delay}ms）"));
+        handle_menu_event(&app, &id);
+    });
+}
+
 /// 诊断钩子：`ANYBOOT_AUTOHIDE_DIAG=1` 且 `ANYBOOT_AUTOHIDE_DIAG_FORCE_DOCK_MS=<毫秒>`
 /// 时，启动 N 毫秒后直接调一次 `dock_main_window`（跳过「鼠标离窗 + 贴边」
 /// 的自然触发条件 —— 自动化截图里没法真的去挪鼠标）。**不设就 return**，
@@ -7746,6 +7836,65 @@ fn menu_section_header(
     MenuItem::with_id(app, id, label, false, None::<&str>)
 }
 
+/// GRUB 条目的展示文字：随列表格式变（与 `ui/grub-list-view.js` 的 `rowLabel`
+/// **同一条规则** —— 极简/简易 = 去前缀内核名；中等 = 完整内核名；其余 = 菜单标题）。
+fn grub_entry_label(entry: &grub::GrubEntry, list_format: &str) -> String {
+    // JS 的 `(entry.kernels && entry.kernels[0]) || entry.name`：空内核名也回落到菜单标题
+    let kernel = entry
+        .kernels
+        .first()
+        .filter(|kernel| !kernel.is_empty())
+        .map(String::as_str)
+        .unwrap_or(&entry.name);
+    match list_format {
+        "minimal" | "simple" => {
+            let stripped = kernel
+                .strip_prefix("vmlinuz-")
+                .or_else(|| kernel.strip_prefix("linux-"))
+                .unwrap_or(kernel);
+            stripped.to_string()
+        }
+        "medium" => kernel.to_string(),
+        _ => entry.name.clone(),
+    }
+}
+
+/// 「下次启动」的级联文字：rEFInd 层 → GRUB 层。
+///
+/// 与主窗口顶部那行大字（`ui/app.js` 的 `nextBootText`）**同一条规则**：
+/// rEFInd 选中的不是 Linux（Windows/macOS 是直接引导），或者 GRUB 侧还没选过
+/// → 只显示 rEFInd 这一层；选中 Linux 且能手拿把掐找到那个 GRUB 条目 →
+/// 「Linux › 组名 › 条目文字」。托盘顶部、主窗口大字说的是同一个东西，
+/// **改这里的规则请同步改 `ui/app.js`**（两处一字不差是用户的要求）。
+fn next_boot_cascade(variables: &[VariableInfo], grub: &GrubView) -> String {
+    let Some(active) = variables.iter().find(|variable| variable.active) else {
+        return "未知（没有选中的系统）".to_string();
+    };
+    let mut text = active.display_name.clone();
+    if active.system != "linux" {
+        return text;
+    }
+    let selector = grub
+        .next_entry
+        .as_deref()
+        .or(grub.saved_entry.as_deref())
+        .unwrap_or("");
+    let Some(entry) = grub.entries.iter().find(|entry| entry.selector == selector) else {
+        return text;
+    };
+    if let Some(submenu) = &entry.submenu {
+        let group = grub
+            .groups
+            .iter()
+            .find(|group| &group.id == submenu)
+            .map(|group| group.name.as_str())
+            .unwrap_or(submenu.as_str());
+        text.push_str(&format!(" › {group}"));
+    }
+    text.push_str(&format!(" › {}", grub_entry_label(entry, &grub.list_format)));
+    text
+}
+
 /// 托盘顶部那行状态文案：只在**和「下次启动：X」不一样**的时候才显示。
 ///
 /// 扫描成功之后 `status.message` 本身就是「下次启动：X」，和顶部那行一字不差；
@@ -7766,9 +7915,17 @@ fn build_tray_menu(app: &AppHandle, state: &UiState) -> tauri::Result<Menu<tauri
     let settings = &state.settings.settings;
     let variables = menu_system_rows(&state.status.variables);
     let next_boot = variables.iter().find(|variable| variable.active);
-    let next_boot_label = next_boot.map_or_else(
+    // 扫描成功后 `status.message` 就是这一行的样子（rEFInd 那一层）—— 去重拿它比对，
+    // 与顶部那行改成什么排版无关（见 menu_status_line）。
+    let next_boot_scan_line = next_boot.map_or_else(
         || "下次启动：未知".to_string(),
         |variable| format!("下次启动：{}", variable.display_name),
+    );
+    // 顶部那行：**与主窗口那行大字同一份文字**（级联到 GRUB 条目），并按用户定案
+    // 排成两行「下次启动 / Linux › OpenCore (macOS)」。级联规则见 next_boot_cascade。
+    let next_boot_label = format!(
+        "下次启动\n{}",
+        next_boot_cascade(&state.status.variables, &state.grub)
     );
     let check = check_mark_image();
 
@@ -7787,7 +7944,7 @@ fn build_tray_menu(app: &AppHandle, state: &UiState) -> tauri::Result<Menu<tauri
     // 状态行只在**跟上面那行不一样**的时候才出现（见 menu_status_line）：
     // 扫描成功后 message 本身就是「下次启动：X」，再摆一行就是「下次启动重复了」，
     // 只有错误提示/临时操作结果才需要单独一行。
-    if let Some(line) = menu_status_line(message, &next_boot_label) {
+    if let Some(line) = menu_status_line(message, &next_boot_scan_line) {
         let status = MenuItem::with_id(app, "status", line, false, None::<&str>)?;
         menu.append(&status)?;
     }
@@ -8252,20 +8409,35 @@ fn menu_signature_for(state: &UiState) -> String {
         .as_deref()
         .or(state.grub.saved_entry.as_deref())
         .unwrap_or("");
+    // 条目名 / 分组名 / 列表格式都进指纹：托盘顶部那行现在是**级联文字**
+    // （「Linux › 组名 › 条目文字」，随 list_format 变），GRUB 子菜单也直接
+    // 显示条目名 —— 少一个就会出现「名字变了但托盘没重建」的假状态。
     let grub_items = state
         .grub
         .entries
         .iter()
         .map(|entry| {
             format!(
-                "{}{}",
+                "{}{}{}",
                 entry.selector,
-                if entry.selector == active { "+" } else { "-" }
+                if entry.selector == active { "+" } else { "-" },
+                entry.name
             )
         })
         .collect::<Vec<_>>()
         .join(",");
-    format!("{base}|wpos={position}|fmon={fixed_monitor}|fmons={monitor_options}|grub={grub_items}")
+    let grub_groups = state
+        .grub
+        .groups
+        .iter()
+        .map(|group| format!("{}:{}", group.id, group.name))
+        .collect::<Vec<_>>()
+        .join(",");
+    let next_boot = next_boot_cascade(&state.status.variables, &state.grub);
+    format!(
+        "{base}|wpos={position}|fmon={fixed_monitor}|fmons={monitor_options}|grub={grub_items}|grubgroups={grub_groups}|grublf={}|nb={next_boot}",
+        state.grub.list_format
+    )
 }
 
 /// 记住当前菜单内容，让后续相同内容的刷新直接跳过重建。
@@ -8435,7 +8607,13 @@ impl MenuAction {
 }
 
 /// 托盘菜单事件入口：原始 id → 解析 → 分发，每一步都写 trace（现场取证）。
+///
+/// 另外**无条件**往 startup-debug.log 记一行「收到某个菜单 id」：trace 默认是关的，
+/// 而「点了菜单没反应」这类报障只有两个可能 —— 事件根本没到应用，或到了但被
+/// 某个闸吞了。这一行让两种情形在用户机器上一眼可辨（托盘点击是低频事件，
+/// 一行日志的代价可以忽略）。
 fn handle_menu_event(app: &AppHandle, id: &str) {
+    startup_debug(app, &format!("菜单点击 id={id}"));
     trace(app, "menu-action", &format!("id={id}"));
     let Some(action) = MenuAction::from_id(id) else {
         trace(app, "menu-action", &format!("id={id} 未识别，已忽略"));
@@ -9851,6 +10029,9 @@ fn spawn_power(app: &AppHandle, action: PowerAction, allow_gui_auth: bool) {
                     finish_power(&app);
                 } else {
                     // 成功时系统马上就没了：保留 busy，避免用户再点一次。
+                    // 但「命令返回成功」不等于动作真的发生（见 POWER_RELEASE_MS），
+                    // 所以排一次延时放闸，别让电源项永远灰着。
+                    schedule_power_release(&app);
                     publish_ui(&app);
                 }
             }
@@ -13100,6 +13281,8 @@ pub fn run() {
                 // 这里什么都不做，产品路径一行不变。
                 spawn_diag_recall(app.handle());
                 spawn_diag_force_dock(app.handle());
+                // 诊断钩子：按 id 走一次完整的菜单派发（点不了托盘菜单时用，见 spawn_diag_menu）
+                spawn_diag_menu(app.handle());
             }
 
             // 第一帧就用完整菜单（系统项 / 应用设置 / 电源项都在），
@@ -15254,6 +15437,146 @@ mod core_tests {
         assert_eq!(menu_status_line("下次启动：未知", "下次启动：未知"), None);
     }
 
+    fn next_boot_variable(system: &str, display_name: &str, active: bool, exists: bool) -> VariableInfo {
+        VariableInfo {
+            system: system.to_string(),
+            display_name: display_name.to_string(),
+            source_name: format!("PreviousBoot-{system}"),
+            source: std::path::PathBuf::from("/tmp/PreviousBoot"),
+            exists,
+            active,
+        }
+    }
+
+    fn next_boot_entry(
+        selector: &str,
+        name: &str,
+        submenu: Option<&str>,
+        kernel: Option<&str>,
+    ) -> grub::GrubEntry {
+        grub::GrubEntry {
+            selector: selector.to_string(),
+            id: selector.to_string(),
+            name: name.to_string(),
+            submenu: submenu.map(str::to_string),
+            class: None,
+            chainloader: kernel.is_none(),
+            kernels: kernel.map(|kernel| vec![kernel.to_string()]).unwrap_or_default(),
+            variants: 1,
+        }
+    }
+
+    fn next_boot_grub_view(
+        entries: Vec<grub::GrubEntry>,
+        groups: Vec<grub::GrubGroup>,
+        next_entry: Option<&str>,
+        list_format: &str,
+    ) -> GrubView {
+        GrubView {
+            partuuid: String::new(),
+            dir: String::new(),
+            esp: None,
+            keep_mounted: false,
+            mount_supported: true,
+            efi_dir: None,
+            env_path: None,
+            cfg_path: None,
+            env_exists: true,
+            installed: None,
+            synced_at: None,
+            script_log: ScriptLogView::default(),
+            entries,
+            groups,
+            list_format: list_format.to_string(),
+            saved_entry: None,
+            next_entry: next_entry.map(str::to_string),
+            error: None,
+            hint: None,
+        }
+    }
+
+    /// 托盘顶部那行「下次启动」用的是**主窗口那行大字的同一份级联文字**
+    /// （用户报：托盘只显示 rEFInd 一层，主窗口却是「Linux › OpenCore (macOS)」）。
+    #[test]
+    fn tray_next_boot_line_mirrors_the_main_window_cascade() {
+        let linux = vec![next_boot_variable("linux", "Linux", true, true)];
+        let none = next_boot_grub_view(vec![], vec![], None, "minimal");
+
+        // rEFInd 选的是 Windows（直接引导）→ 只有 rEFInd 这一层，不级联
+        assert_eq!(
+            next_boot_cascade(&[next_boot_variable("windows", "Windows", true, true)], &none),
+            "Windows"
+        );
+        // 没有选中的系统
+        assert_eq!(next_boot_cascade(&[], &none), "未知（没有选中的系统）");
+        // 选中 Linux 但 GRUB 侧还没选过 / 找不到那个条目 → 也只显示这一层
+        assert_eq!(next_boot_cascade(&linux, &none), "Linux");
+
+        // 用户报的那条：GRUB 顶层条目、没有内核 → 用菜单标题
+        let top = vec![next_boot_entry("opencore", "OpenCore (macOS)", None, None)];
+        assert_eq!(
+            next_boot_cascade(
+                &linux,
+                &next_boot_grub_view(top.clone(), vec![], Some("opencore"), "minimal")
+            ),
+            "Linux › OpenCore (macOS)"
+        );
+        // 条目文字随列表格式变（与 GRUB 列表的 rowLabel 同规则）
+        let kernel = vec![next_boot_entry("arch", "Arch Linux", None, Some("vmlinuz-linux"))];
+        assert_eq!(
+            next_boot_cascade(
+                &linux,
+                &next_boot_grub_view(kernel.clone(), vec![], Some("arch"), "minimal")
+            ),
+            "Linux › linux",
+            "极简/简易：去掉 vmlinuz-/linux- 前缀"
+        );
+        assert_eq!(
+            next_boot_cascade(
+                &linux,
+                &next_boot_grub_view(kernel.clone(), vec![], Some("arch"), "simple")
+            ),
+            "Linux › linux"
+        );
+        assert_eq!(
+            next_boot_cascade(
+                &linux,
+                &next_boot_grub_view(kernel.clone(), vec![], Some("arch"), "medium")
+            ),
+            "Linux › vmlinuz-linux",
+            "中等：完整内核名"
+        );
+        assert_eq!(
+            next_boot_cascade(&linux, &next_boot_grub_view(kernel, vec![], Some("arch"), "detailed")),
+            "Linux › Arch Linux",
+            "其余格式：菜单标题"
+        );
+
+        // submenu 子条目带上父级组名：「Linux › 组名 › 条目」
+        let nested = vec![next_boot_entry("macos", "OpenCore", Some("g-macos"), None)];
+        let groups = vec![grub::GrubGroup {
+            id: "g-macos".to_string(),
+            name: "macOS".to_string(),
+        }];
+        assert_eq!(
+            next_boot_cascade(
+                &linux,
+                &next_boot_grub_view(nested, groups, Some("macos"), "minimal")
+            ),
+            "Linux › macOS › OpenCore"
+        );
+
+        // 找不到那个 selector 的条目（比如条目名变了）→ 退回单层，绝不显示半截
+        let entries = vec![next_boot_entry("a", "A", None, None)];
+        assert_eq!(
+            next_boot_cascade(
+                &linux,
+                &next_boot_grub_view(entries, vec![], Some("missing"), "minimal")
+            ),
+            "Linux"
+        );
+    }
+
     #[test]
     fn remote_command_summaries_read_like_sentences() {
         assert_eq!(
@@ -15697,7 +16020,7 @@ mod core_tests {
         );
     }
 
-    /// 居中回中的静默期必须够长（拖动中 Moved 连发，短了会在拖动途中抢位），
+    /// 居中的静默期必须够长（拖动中 Moved 连发，短了会在拖动途中抢位），
     /// 容差必须够宽（吃得下一个标题栏的错拍，否则我们自己的回声被判成拖动）。
     #[test]
     fn center_snap_timing_and_tolerance_are_sane() {
@@ -15708,6 +16031,22 @@ mod core_tests {
         assert!(
             CENTER_SNAP_DELAY_MS >= CLAMP_DELAY_MS,
             "静默期不该短于位置夹取那套（同一类拖动事件流）"
+        );
+    }
+
+    /// 电源忙闸的「延时放闸」窗口必须够长也够短：太短会在真关机/重启途中把闸放掉
+    /// （用户还能再点一次），太长则「命令返回成功但机器没动」期间电源项一直灰着。
+    /// 另外失败路径必须**立刻**放闸，不能也走延时 —— 这条由 spawn_power 里
+    /// `finish_power` 直接调用保证，这里钉住量级。
+    #[test]
+    fn power_latch_release_window_is_sane() {
+        assert!(
+            POWER_RELEASE_MS >= 5_000,
+            "短于 5 秒：真关机途中就可能放闸"
+        );
+        assert!(
+            POWER_RELEASE_MS <= 60_000,
+            "长于 60 秒：一次没生效的动作会白等太久"
         );
     }
 
