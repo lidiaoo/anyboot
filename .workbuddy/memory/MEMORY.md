@@ -17,7 +17,9 @@
 - 脚本放 `~/.cache/`（/tmp 跨沙箱隔离）；`rm -rf` 用 `/usr/bin/rm`；冒烟塞同一个 Bash 调用前台串完，落盘 `echo >>file`；后台进程用 run_in_background 托管、收摊 TaskStop；判活看「应用日志已监听」+端口，**别用 ps/单测端口**（旧实例会骗过）；每次验证换端口。
 - 沙箱 http_proxy 常开：curl 加 `--noproxy '*'`；构建/浏览器全要清代理。
 - `xdotool search --name` 对中文正则不可靠（先枚举窗口再 shell 逐字比较）；**同进程常有 20x20 菜单锚窗 / 32x32 辅助窗，取面积最大的那个才是主窗**；点击用 `getwindowgeometry --shell` 算偏移，别写绝对坐标。
-- 取证两通道：`trace()` → trace.log；`startup_debug()` → `<config>/startup-debug.log`（落位/贴边只认后者）。
+- 取证两通道：`trace()` → trace.log（**默认关**）、`startup_debug()` → `<config>/startup-debug.log`（常开；落位/贴边只认它）。**用户可见动作的失败/被忽略必须走常开通道或 `record_action`**，只写 trace 等于没有（踩过：托盘电源项点击被忙闸吞掉，现场一个字节都没有）。
+- **无头环境也能「点」托盘菜单**（SKILL 里记着的盲区已补齐）：假扮 Cinnamon 面板的 `org.kde.StatusNotifierWatcher`（dbus-python，`RegisterStatusNotifierItem` 的参数以 `/` 开头时服务名=**sender 唯一名**）+ SNI `Menu` 属性 → `com.canonical.dbusmenu.GetLayout(0,-1,[])`（回执 `(revision, layout)` 两层）→ `Event(id,"clicked","",ts)`。脚本 `~/.cache/ab-dock-min/probe-sni-click.py` + `run-app-dbusclick.sh` / `run-app-latchcheck.sh`（假 `systemctl` exit 0 伪造「成功但没关机」）。要点：libdbusmenu 的 `Event` **不检查 enabled**（置灰项照样送达应用）。
+- **读用户运行中应用的实时状态**（排查「用户报的现象」最快的一手）：`curl --noproxy '*' -H "X-Auth-Token: <settings.json 里的 httpToken>" http://127.0.0.1:<httpPort>/api/ui-state`（只读）→ 直接看 `busy` / `lastAction` / `status`。用户机器上的 AppImage 与沙箱共享网络名空间，所以能连（应用日志/挂在 /tmp 的 AppDir 看不到）。
 - 冒烟脚本库：`~/.cache/ab-verify/`（run/real/auth/exec/resize/localclickswitch/explore/recall）、`ab-win/windows.sh`（三窗截图）、`ab-test/`（ws-live/ws-probe）。
 
 ## WebKitGTK × NVIDIA（Linux 白屏/局部重绘）
@@ -28,6 +30,8 @@
 - 落位方式 free/center/last：**center=位置固定禁拖**（拖动弹回居中+提示换方式，节流 4s；回声/WM 抖动过滤见 CENTER_ECHO_* 静态量）。**锁定窗口大小只禁手拖缩放，不拦展示方式落宽**（`grub_layout_target_width` 无 locked 门槛，用户定案 2026-10-13）。
 - 下次启动大字=级联全链（rEFInd›GRUB 组名›条目，条目文字与 grub.listFormat 同规则）；状态行「下次启动：」前缀一律去重。两区（rEFInd/GRUB）卡片背板与标题行共用 CSS 规则；**标题字号规则绝不能挂在会搬家的容器下**——`.grub-head` 搬进右栏后脱离 `.grub`（坑过两次），已单列 `.grub-head h2`。③④ 右栏 `.pane-body` 本身就是卡片（同款边框/底色/圆角，24px padding↔margin 挪位）；pane 模式 `.grub-head` 由 applyGrubLayout **搬出滚动容器**钉在卡片上方常驻（**sticky 对 grid/flex 子项受包含块约束，滚出自身轨道就失效——「钉住」需求直接搬出滚动容器**）。
 - 远程动作=本机点头：`switch_system` 等走 `ui_command_requires_local_auth` → pending+授权窗；「立即执行」仅本机（远程 403）；灰掉而不藏按钮。
+- **托盘顶部「下次启动」= 主窗口那行大字**（两行排版 `下次启动\nLinux › 组名 › 条目`），级联规则由 Rust 侧 `next_boot_cascade`/`grub_entry_label` 重建，**必须与前端 `ui/app.js` 的 `nextBootText`、`ui/grub-list-view.js` 的 `rowLabel` 一字不差**；`menu_signature_for` 里凡是「托盘上看得见的字段」都必须进指纹（含 `entry.name`/`grubgroups`/`grublf`/级联文案 `nb`）。
+- **忙闸（busy）类状态必须有放闸路径，判据不能是「命令返回成功」**：`systemctl suspend` 只是排队就返回 0，被 inhibitor 拦下/内核 suspend 失败立刻 resume 都照样「成功」—— 曾因此让 `busy.power` 永久挂住、三个电源项永远置灰且点击被静默吞掉（用户报「三个电源按钮都没用」）。现在 `POWER_RELEASE_MS=15s` 世代号延时放闸（`schedule_power_release`）；新动作推高世代号作废旧放闸。被闸挡掉的点击必须 `record_action` 留痕，`handle_menu_event` 每次点击无条件写一行 `菜单点击 id=…` 到 startup-debug.log。
 - `UI_REVISION` 起点跟时间挂钩（`ui_revision_seed`）；凡「按版本号丢过期数据」先问跨进程单调性。
 - `split_url()` 先剥代理绝对 URI（否则网页整片空白）；静态路由要覆盖「自然写法」并钉单测；`/api/ui-command` 回执必须放 `result` 里。
 - 验「断线自愈」：断线期间改宿主状态，重连见新值才算真自愈。
