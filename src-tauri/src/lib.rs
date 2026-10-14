@@ -2566,12 +2566,14 @@ fn try_begin_power(app: &AppHandle, action: &str) -> bool {
             false
         } else {
             busy.power = Some(action.to_string());
+            // 新动作一来就把先前排队的放闸作废。**必须在这把锁里推高**：放闸那边
+            // 也是在同一把锁里比对世代号（见 schedule_power_release），两边同锁才
+            // 不会出现「新动作刚置上 busy、世代号还没换，旧放闸把它的闸清掉」的缝。
+            POWER_RELEASE_GENERATION.fetch_add(1, Ordering::SeqCst);
             true
         }
     };
     if acquired {
-        // 新动作来了：把上一个动作排队的放闸作废（见 schedule_power_release）
-        POWER_RELEASE_GENERATION.fetch_add(1, Ordering::SeqCst);
         publish_ui(app);
     } else {
         trace(
@@ -2613,17 +2615,18 @@ fn schedule_power_release(app: &AppHandle) {
     let app = app.clone();
     std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_millis(POWER_RELEASE_MS));
-        if POWER_RELEASE_GENERATION.load(Ordering::SeqCst) != generation {
-            return;
-        }
-        let latched = app
-            .state::<Mutex<BusyState>>()
-            .lock()
-            .expect("busy mutex poisoned")
-            .power
-            .is_some();
-        if !latched {
-            return;
+        // 「世代号还是不是最新」与「清掉 busy」必须在**同一把锁**里做：
+        // 否则新动作刚在 try_begin_power 里置上 busy、世代号还没换的那一刻，
+        // 这里会把它的闸放掉（新动作就没人看了）。
+        {
+            let state = app.state::<Mutex<BusyState>>();
+            let mut busy = state.lock().expect("busy mutex poisoned");
+            if POWER_RELEASE_GENERATION.load(Ordering::SeqCst) != generation
+                || busy.power.is_none()
+            {
+                return;
+            }
+            busy.power = None;
         }
         trace(&app, "power", "提交后系统仍在：放掉忙闸，电源项恢复可用");
         record_action(
@@ -2632,7 +2635,7 @@ fn schedule_power_release(app: &AppHandle) {
             false,
             "已提交的动作在 15 秒内没有关机/重启/睡眠，电源项已恢复可用（真在关机中就不用管）",
         );
-        finish_power(&app);
+        publish_ui(&app);
     });
 }
 
