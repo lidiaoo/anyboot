@@ -18,7 +18,7 @@ use tauri::{image::Image, AppHandle, Emitter, Manager};
 // 都挂在 #[cfg(desktop)] 下），安卓/iOS 目标编译不过 —— 移动端没有托盘。
 #[cfg(desktop)]
 use tauri::{
-    menu::{CheckMenuItem, IconMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
+    menu::{IconMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
 };
 // autostart 插件只支持桌面三端（移动端没有「开机自启」概念）
@@ -7839,6 +7839,38 @@ fn menu_section_header(
     MenuItem::with_id(app, id, label, false, None::<&str>)
 }
 
+/// 选择项的「勾」用**纯文本**画在标签里，不用原生勾选控件。
+///
+/// 为什么（2026-10-14 实测，见 `.workbuddy/memory/2026-10-14.md`）：托盘菜单在
+/// Linux 上并不是我们画的 —— 应用把菜单导出成 dbusmenu，宿主（Cinnamon 面板的
+/// xapp-status applet + xapp-sn-watcher 的桥）按那份导出**自己重新渲染**，勾选态
+/// 来自导出的 `toggle-type / toggle-state`。原生勾选项在这条链路上必然出错：
+///
+/// ① **勾被取消**：点一下勾选项，GTK 会**先自己把控件翻转**再通知我们。若这次点击
+///    没有改变设置（在单选组里再点一次已选中的那个），菜单指纹不变 → 我们不重建
+///    → 导出里那一项永久停在「未勾选」，宿主照单画出来，整个单选组一个勾都不剩。
+/// ② **勾跑到别的行上**：每次重建菜单，dbusmenu 的 item id 会整片重新分配
+///    （实测「开机启动」从 119 变成 171），宿主手里那份还在用旧 id，
+///    勾选态就会落到相邻的另一行上（用户报的「点启动时隐藏，误勾选开机启动」）。
+///
+/// 把状态放进**标签文字**，就与控件无关、与宿主无关：`☑`/`☐`（开关）、`◉`/`○`
+/// （单选）。单选组「必须有且只有一个选中」由我们算标签时保证，不靠任何工具包。
+/// 同一份规则在 GTK / Win32 / AppKit 三种菜单上表现一致 —— 这就是「三端统一」。
+const TOGGLE_ON: &str = "☑";
+const TOGGLE_OFF: &str = "☐";
+const RADIO_ON: &str = "◉";
+const RADIO_OFF: &str = "○";
+
+/// 开关项标签：`☑ 开机启动` / `☐ 开机启动`。
+fn toggle_label(selected: bool, text: &str) -> String {
+    format!("{} {text}", if selected { TOGGLE_ON } else { TOGGLE_OFF })
+}
+
+/// 单选项标签：`◉ 屏幕中间` / `○ 自由摆放`。
+fn radio_label(selected: bool, text: &str) -> String {
+    format!("{} {text}", if selected { RADIO_ON } else { RADIO_OFF })
+}
+
 /// GRUB 条目的展示文字：随列表格式变（与 `ui/grub-list-view.js` 的 `rowLabel`
 /// **同一条规则** —— 极简/简易 = 去前缀内核名；中等 = 完整内核名；其余 = 菜单标题）。
 fn grub_entry_label(entry: &grub::GrubEntry, list_format: &str) -> String {
@@ -8101,47 +8133,44 @@ fn build_tray_menu(app: &AppHandle, state: &UiState) -> tauri::Result<Menu<tauri
     // —— 分区：应用设置 ——
     menu.append(&PredefinedMenuItem::separator(app)?)?;
     menu.append(&menu_section_header(app, "settings-label", "应用设置")?)?;
-    let autostart = CheckMenuItem::with_id(
+    let autostart = MenuItem::with_id(
         app,
         "setting-autostart",
-        "开机启动",
+        toggle_label(settings.autostart, "开机启动"),
         true,
-        settings.autostart,
         None::<&str>,
     )?;
     menu.append(&autostart)?;
-    // 勾选项的 id 带「点下去要变成的状态」：系统会先把勾选翻转，分发时必须知道用户想要哪个值。
-    // 以前这两个 id 没有后缀、而分发只认带后缀的 id → 点了等于没点（阶段 1 修掉的真实 bug）。
-    let start_in_tray = CheckMenuItem::with_id(
+    // 开关项的 id 带「点下去要变成的状态」。原生勾选控件会先把勾翻转再通知我们，
+    // 所以分发时必须知道用户想要哪个值；现在是纯文本标记（见 toggle_label），
+    // 这个后缀同时也让「重复点同一项」是幂等的（不会来回翻）。
+    let start_in_tray = MenuItem::with_id(
         app,
         toggle_menu_id("setting-start-in-tray", !settings.start_in_tray),
-        "启动时隐藏主界面",
+        toggle_label(settings.start_in_tray, "启动时隐藏主界面"),
         true,
-        settings.start_in_tray,
         None::<&str>,
     )?;
     menu.append(&start_in_tray)?;
-    let hide_from_dock_taskbar = CheckMenuItem::with_id(
+    let hide_from_dock_taskbar = MenuItem::with_id(
         app,
         toggle_menu_id(
             "setting-hide-from-dock-taskbar",
             !settings.hide_from_dock_taskbar,
         ),
-        "隐藏程序（任务栏/Dock）",
+        toggle_label(settings.hide_from_dock_taskbar, "隐藏程序（任务栏/Dock）"),
         true,
-        settings.hide_from_dock_taskbar,
         None::<&str>,
     )?;
     menu.append(&hide_from_dock_taskbar)?;
     // 贴边自动隐藏是高频功能开关，托盘给个快捷入口（与 HTTP 服务/远程请求通知同级）。
     // 「屏幕中间」模式下两者互斥，这里整体置灰（勾选态保持设置原值，
     // 切回其他落位方式即可用）。
-    menu.append(&CheckMenuItem::with_id(
+    menu.append(&MenuItem::with_id(
         app,
         toggle_menu_id("setting-main-auto-hide", !settings.main_auto_hide),
-        "贴边自动隐藏",
+        toggle_label(settings.main_auto_hide, "贴边自动隐藏"),
         normalize_window_position(&settings.main_window_position) != "center",
-        settings.main_auto_hide,
         None::<&str>,
     )?)?;
     // 窗口大小在设置页能随意调（滑条 / 拖边框），托盘里放一个「重置」入口：
@@ -8161,7 +8190,7 @@ fn build_tray_menu(app: &AppHandle, state: &UiState) -> tauri::Result<Menu<tauri
         !busy,
         None::<&str>,
     )?)?;
-    // 固定显示位置（与设置页「固定显示位置」下拉同源）：三种模式各一个勾选项
+    // 固定显示位置（与设置页「固定显示位置」下拉同源）：三种模式各一个单选项
     let position_menu = Submenu::with_id(app, "setting-window-position", "固定显示位置", true)?;
     let position_now = normalize_window_position(&settings.main_window_position);
     for (mode, label) in [
@@ -8169,12 +8198,11 @@ fn build_tray_menu(app: &AppHandle, state: &UiState) -> tauri::Result<Menu<tauri
         ("center", "屏幕中间"),
         ("last", "上次位置"),
     ] {
-        position_menu.append(&CheckMenuItem::with_id(
+        position_menu.append(&MenuItem::with_id(
             app,
             format!("setting-main-window-position:{mode}"),
-            label,
+            radio_label(position_now == mode, label),
             true,
-            position_now == mode,
             None::<&str>,
         )?)?;
     }
@@ -8184,21 +8212,19 @@ fn build_tray_menu(app: &AppHandle, state: &UiState) -> tauri::Result<Menu<tauri
     // 下一次快照刷新菜单就会跟着变。
     let monitor_menu = Submenu::with_id(app, "setting-main-fixed-monitor", "固定显示器", true)?;
     let fixed_now = normalize_fixed_monitor(&settings.main_fixed_monitor);
-    monitor_menu.append(&CheckMenuItem::with_id(
+    monitor_menu.append(&MenuItem::with_id(
         app,
         "setting-main-fixed-monitor:auto",
-        "自动（不固定）",
+        radio_label(fixed_now == "auto", "自动（不固定）"),
         true,
-        fixed_now == "auto",
         None::<&str>,
     )?)?;
     for name in &state.settings.main_monitor_options {
-        monitor_menu.append(&CheckMenuItem::with_id(
+        monitor_menu.append(&MenuItem::with_id(
             app,
             format!("setting-main-fixed-monitor:{name}"),
-            name.clone(),
+            radio_label(fixed_now == *name, name),
             true,
-            fixed_now == *name,
             None::<&str>,
         )?)?;
     }
@@ -8208,12 +8234,11 @@ fn build_tray_menu(app: &AppHandle, state: &UiState) -> tauri::Result<Menu<tauri
         (CloseAction::Tray, "最小化到托盘"),
         (CloseAction::Quit, "退出程序"),
     ] {
-        let item = CheckMenuItem::with_id(
+        let item = MenuItem::with_id(
             app,
             close_action_menu_id(action),
-            label,
+            radio_label(settings.close_action == action, label),
             true,
-            settings.close_action == action,
             None::<&str>,
         )?;
         close_action_menu.append(&item)?;
@@ -8262,20 +8287,18 @@ fn build_tray_menu(app: &AppHandle, state: &UiState) -> tauri::Result<Menu<tauri
         None::<&str>,
     )?;
     menu.append(&listening)?;
-    menu.append(&CheckMenuItem::with_id(
+    menu.append(&MenuItem::with_id(
         app,
         toggle_menu_id("setting-http-enabled", !settings.http_enabled),
-        "HTTP 服务",
+        toggle_label(settings.http_enabled, "HTTP 服务"),
         true,
-        settings.http_enabled,
         None::<&str>,
     )?)?;
-    menu.append(&CheckMenuItem::with_id(
+    menu.append(&MenuItem::with_id(
         app,
         toggle_menu_id("setting-notify-enabled", !settings.notify_enabled),
-        "远程请求通知",
+        toggle_label(settings.notify_enabled, "远程请求通知"),
         true,
-        settings.notify_enabled,
         None::<&str>,
     )?)?;
     let delay_menu = Submenu::with_id(app, "setting-delay", &delay_submenu_title(settings), true)?;
@@ -8287,12 +8310,11 @@ fn build_tray_menu(app: &AppHandle, state: &UiState) -> tauri::Result<Menu<tauri
         } else {
             format!("{seconds} 秒")
         };
-        delay_menu.append(&CheckMenuItem::with_id(
+        delay_menu.append(&MenuItem::with_id(
             app,
             format!("setting-delay:{seconds}"),
-            label,
+            radio_label(delay_same && delay_now == seconds, &label),
             true,
-            delay_same && delay_now == seconds,
             None::<&str>,
         )?)?;
     }
@@ -8448,6 +8470,18 @@ fn remember_menu_signature(app: &AppHandle, signature: String) {
     *app.state::<Mutex<Option<String>>>()
         .lock()
         .expect("menu signature mutex poisoned") = Some(signature);
+}
+
+/// 作废指纹记忆：下一次 publish 一定重建菜单（哪怕内容算出来没变）。
+///
+/// 托盘菜单的实时性全靠「重建 + 重挂」：勾选标记、置灰、状态行都是重建那一刻才刷新的。
+/// 而「用户点了菜单」这件事本身就是一个「显示可能与真实状态不符」的信号 ——
+/// 比如单选项点的是已选中的那个（设置没变、指纹没变），但宿主那边的勾选态很可能
+/// 已经被工具包翻过了。所以每次菜单点击都廉价地作废一次指纹，让界面马上回到真实状态。
+fn invalidate_menu_signature(app: &AppHandle) {
+    *app.state::<Mutex<Option<String>>>()
+        .lock()
+        .expect("menu signature mutex poisoned") = None;
 }
 
 fn update_tray_menu(app: &AppHandle, state: &UiState, trigger: &str) -> tauri::Result<()> {
@@ -8623,6 +8657,9 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
         return;
     };
     trace(app, "menu-action", &format!("id={id} → {action:?}"));
+    // 用户交互过菜单：先作废指纹（见 invalidate_menu_signature），
+    // 让这次动作引发的 publish 一定重建菜单、把勾选标记刷成真实状态。
+    invalidate_menu_signature(app);
     // 窗口操作留在事件线程上执行；其余动作放工作线程（可能耗时或要授权）。
     if action == MenuAction::Show {
         show_main_window(app, ShowOrigin::Recall);
@@ -15578,6 +15615,59 @@ mod core_tests {
             ),
             "Linux"
         );
+    }
+
+    /// 选择项的勾是**标签文字**，不是原生勾选控件（本轮 ①②）。
+    ///
+    /// 原生勾选控件在「应用把菜单导出成 dbusmenu、宿主重新渲染」这条链路上会两头出问题：
+    /// 勾被工具包自己翻掉、以及重建菜单后 item id 整片重排导致勾跑到别的行。
+    /// 把状态放进标签，这两件事就不可能发生 —— 这里把这条定则钉住。
+    #[test]
+    fn choice_marks_live_in_the_label_text() {
+        // 开关：☑ / ☐
+        assert_eq!(toggle_label(true, "开机启动"), "☑ 开机启动");
+        assert_eq!(toggle_label(false, "开机启动"), "☐ 开机启动");
+        // 单选：◉ / ○
+        assert_eq!(radio_label(true, "屏幕中间"), "◉ 屏幕中间");
+        assert_eq!(radio_label(false, "屏幕中间"), "○ 屏幕中间");
+        // 两种标记互不串台（开关项不该长成单选的样子，反之亦然）
+        assert!(!toggle_label(true, "x").starts_with(RADIO_ON));
+        assert!(!radio_label(true, "x").starts_with(TOGGLE_ON));
+        // 标记在**最前**（对齐靠它，一眼扫下来成列）
+        assert!(toggle_label(false, "x").starts_with(TOGGLE_OFF));
+        assert!(radio_label(false, "x").starts_with(RADIO_OFF));
+    }
+
+    /// 单选组「必须有且只有一个选中」：三种落位方式轮一遍，每组恰好一个 ◉。
+    #[test]
+    fn radio_groups_always_have_exactly_one_marked() {
+        let group = ["free", "center", "last"];
+        for current in group {
+            let labels: Vec<String> = group
+                .iter()
+                .map(|mode| radio_label(*mode == current, mode))
+                .collect();
+            let marked = labels
+                .iter()
+                .filter(|label| label.starts_with(RADIO_ON))
+                .count();
+            assert_eq!(marked, 1, "落位方式={current} 时勾的数量：{labels:?}");
+        }
+        // 显示器那组：「自动（不固定）」+ 若干显示器名，也恰好一个
+        let monitors = ["auto", "HDMI-A-0", "eDP-1"];
+        for current in monitors {
+            let marked = monitors
+                .iter()
+                .filter(|name| radio_label(**name == current, name).starts_with(RADIO_ON))
+                .count();
+            assert_eq!(marked, 1, "固定显示器={current}");
+        }
+        // 延迟那组：只有两条渠道一致时才有一个勾（不一致 = 一个勾都没有，见 delay_same）
+        let marked = [0u32, 3, 5]
+            .iter()
+            .filter(|seconds| radio_label(false && **seconds == 5, &seconds.to_string()).starts_with(RADIO_ON))
+            .count();
+        assert_eq!(marked, 0, "两条渠道延迟不一致时不该有勾");
     }
 
     #[test]
