@@ -13677,7 +13677,7 @@ mod linux_sni {
     use super::*;
     use dbus::arg::messageitem::{MessageItem, MessageItemArray, MessageItemDict};
     use dbus::ffidisp::{MsgHandler, MsgHandlerResult, MsgHandlerType};
-    use dbus::strings::ErrorName;
+    use dbus::strings::{ErrorName, Path as DbusPath};
     use dbus::{Message, MessageType, Signature};
     use std::ffi::CStr;
 
@@ -14147,8 +14147,8 @@ mod linux_sni {
             ("OverlayIconPixmap", empty_pixmaps()),
             ("ToolTip", tooltip()),
             ("ItemIsMenu", MessageItem::Bool(false)),
-            ("Menu", MessageItem::Str(MENU_PATH.to_string())),
-            ("WindowId", MessageItem::UInt32(0)),
+            ("Menu", MessageItem::ObjectPath(DbusPath::new(MENU_PATH).expect("静态路径合法"))),
+            ("WindowId", MessageItem::Int32(0)),
         ]
     }
 
@@ -14276,7 +14276,7 @@ mod linux_sni {
              <method name=\"ContextMenu\"><arg direction=\"in\" type=\"i\"/><arg direction=\"in\" type=\"i\"/></method>\
              <method name=\"Scroll\"><arg direction=\"in\" type=\"i\"/><arg direction=\"in\" type=\"s\"/></method>\
              <property name=\"ItemIsMenu\" type=\"b\" access=\"read\"/>\
-             <property name=\"Menu\" type=\"s\" access=\"read\"/>\
+             <property name=\"Menu\" type=\"o\" access=\"read\"/>\
              </interface></node>"
         );
         let mut reply = msg.method_return();
@@ -14361,7 +14361,7 @@ mod linux_sni {
             assert_eq!(value("ItemIsMenu"), MessageItem::Bool(false));
             assert_eq!(
                 value("Menu"),
-                MessageItem::Str(MENU_PATH.to_string())
+                MessageItem::ObjectPath(DbusPath::new(MENU_PATH).expect("静态路径合法"))
             );
             assert_eq!(value("Status"), MessageItem::Str("Active".to_string()));
             assert_eq!(
@@ -14422,7 +14422,10 @@ mod linux_sni {
                 msg.get1::<MessageItem>(),
                 Some(MessageItem::Variant(Box::new(MessageItem::Bool(false))))
             );
-            assert_eq!(property_value("Menu"), MessageItem::Str(MENU_PATH.to_string()));
+            assert_eq!(
+                property_value("Menu"),
+                MessageItem::ObjectPath(DbusPath::new(MENU_PATH).expect("静态路径合法"))
+            );
             // 不认识的属性回空串
             assert_eq!(
                 property_value("NoSuchProperty"),
