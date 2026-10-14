@@ -536,7 +536,7 @@ npm run tauri build
 平台专用构建：
 
 ```bash
-# Linux: deb + rpm + AppImage
+# Linux: deb + rpm（AppImage 一律走下一条的「全兼容」包）
 npm run build:linux
 
 # Linux: 全兼容 AppImage（glibc ≤2.35，任何机器能跑；详见「构建产物」）
@@ -571,7 +571,7 @@ Linux 包必须在 Linux 环境生成；macOS 包必须在 macOS 环境生成。
 npm run build:linux-portable
 ```
 
-它在默认构建之后运行 `scripts/make-appimage-jammy.sh`，对 AppImage 做「换基座」处理：
+它先 `tauri build --no-bundle` 只出本体（不打包），再运行 `scripts/make-appimage-jammy.sh`，对 AppImage 做「换基座」处理：
 
 - 整套裹入库替换为 Ubuntu 22.04 (jammy) 的版本，本体用 zig 重链到同一门槛 → **全包 glibc 需求 ≤ 2.35**（脚本自检强制，超标直接拒绝出包）
 - 附带修补：WebKit 辅助进程相对路径补丁（jammy release 版没有 `WEBKIT_EXEC_PATH`）、XInitThreads 垫片（防多线程 X 崩溃）、托盘库（ayatana 全家）入包、gio/pixbuf/immodules 缓存指向包内
@@ -688,13 +688,9 @@ powercfg /hibernate off     # 关闭休眠（会删除 hiberfil.sys，需管理�
 
 ### AppImage 打包失败
 
-出现 `strip: unknown type [0x13] section '.relr.dyn'` 或 `failed to run linuxdeploy` 时，跳过 `linuxdeploy` 的 strip：
+`build:linux` 已不含 AppImage——标准 tauri AppImage 链路依赖 linuxdeploy（AppImage 格式，要 FUSE 自挂载），在无 `/dev/fuse` 的容器 / chown 受限的环境必挂（`failed to run linuxdeploy`、`cp: failed to preserve ownership`），`NO_STRIP=1` 救不了后者。**AppImage 一律走 `npm run build:linux-portable`**（jammy 脚本自组装 AppDir，不用 linuxdeploy）。deb/rpm 不受影响，直接 `npm run build:linux`。
 
-```bash
-NO_STRIP=1 npm run build:linux
-```
-
-该环境变量只影响本次命令，不会修改项目配置。
+在能跑 linuxdeploy 的机器上要出标准 AppImage，可手动 `tauri build --bundles appimage`。
 
 ### Linux 应用设置保存失败
 
