@@ -61,7 +61,7 @@ mobile/android/
 | Gradle 8.11.1 | `~/.cache/ab-android/gradle-8.11.1`（解包即用） |
 | JDK 21 | `/home/disk2/software/jdk/jdk-21` |
 
-一键脚本：`/home/jianghh/.cache/ab-android/build.sh`（等价于下面这段手敲的命令）：
+一键脚本：`~/.cache/ab-android/build.sh`（等价于下面这段手敲的命令）：
 
 ```bash
 export JAVA_HOME=/home/disk2/software/jdk/jdk-21
