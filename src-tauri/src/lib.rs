@@ -3125,6 +3125,30 @@ fn main_window_monitor(app: &AppHandle) -> Option<tauri::Monitor> {
 
 fn center_main_window(app: &AppHandle) -> Option<(i32, i32)> {
     let main = app.get_webview_window(MAIN_WINDOW_LABEL)?;
+    // 贴边停靠态：白条不是「窗口」，居中它没有意义 —— 读数是白条尺寸，
+    // 算出的落点是「白条的居中点」，随后展开的完整窗口必然偏出正中
+    // 半个窗口。以前不处理这一态：真正的展开靠 Moved 事件里「拖离停靠
+    // 位」分支顺手做掉，于是第一次点「重置位置」= 展开在偏位上，第二
+    // 次点才在完整尺寸上居中（用户实测要点两次才到屏幕正中）。
+    // 所以停靠态必须先走完整展开链路（还原装饰/尺寸/置顶），再居中。
+    let docked = app
+        .state::<Mutex<AppState>>()
+        .lock()
+        .map(|state| state.auto_hide_docked)
+        .unwrap_or(false);
+    if docked {
+        undock_main_window(app);
+        // undock 自带的重锚计划瞄准的是停靠位，留着会跟居中落位打架
+        // （watcher 几拍内把窗口拽回边缘）；居中是这次落位的终点，
+        // 展开落位话题就此终结（同 dock 时的处理）。
+        if let Ok(mut state) = app.state::<Mutex<AppState>>().lock() {
+            state.auto_hide_reanchor = None;
+        }
+        // 展开是「隐藏态 set_size → show」：此刻读数还停在白条尺寸、
+        // 未必立刻跟上 —— 与藏窗改尺寸同一招，先按设置里记的尺寸算
+        // 居中（见 centering_size），读数跟上了 pending 自动作废。
+        MAIN_SIZE_PENDING.store(true, Ordering::SeqCst);
+    }
     // 尺寸基准必须挑**可用**的读数：启动落位时窗口还没映射，`outer_size()` 读到
     // `0x0`（tao 的初值取的是坐标）。拿它算「居中」= 把 0 尺寸的矩形居中 →
     // 落点 (800,500)，对 460x937 的窗口整个在屏幕外 → WM 一夹就贴到工作区底边 →
@@ -13789,6 +13813,23 @@ mod core_tests {
             centering_size((700, 800), (932, 560), false),
             ((700, 800), false)
         );
+    }
+
+    /// 停靠态下重置位置：先 undock 再居中，展开后读数还停在**白条尺寸**，
+    /// 居中必须立刻改用请求尺寸 —— 否则按白条算出的「居中点」会让完整窗口
+    /// 偏出正中半个窗口（用户实测：贴边后点「重置位置」要点两次才到正中，
+    /// 第一次就是栽在这个读数上）。
+    #[test]
+    fn centering_after_undock_ignores_the_strip_reading() {
+        // 左/右贴边的白条：厚 40px、高随工作区。请求尺寸 932x720。
+        // 不立 pending 就会拿 (40,1080) 居中 → 完整窗口横向偏出 (932-40)/2 ≈ 446px。
+        assert_eq!(
+            centering_size((40, 1080), (932, 720), true),
+            ((932, 720), true),
+            "白条读数必须被请求尺寸顶掉"
+        );
+        // 展开落地、读数跟上后，pending 自动作废，后续居中回归读数。
+        assert_eq!(centering_size((932, 720), (932, 720), true), ((932, 720), false));
     }
 
     #[test]
