@@ -44,3 +44,8 @@
 - 多电脑=每台一个独立 WebView；一条记录=一台电脑（`addresses` 有序列表 + `/health` 的 machineId 归并，promoteAddress 后 Tab.addressIndex 归零）；传输方式由 App 拼 `?transport=`，不立刻重载。
 - **Linux 本机出 APK**：`/home/jianghh/.cache/ab-android/build.sh`（SDK `~/android-sdk`；JDK 21 `/home/disk2/software/jdk/jdk-21`；`ANDROID_USER_HOME`/`GRADLE_USER_HOME` 必须显式隔离；清代理；无 /dev/kvm 模拟器只能 TCG）。Windows 出包走 `E:\Android`（JAVA_HOME+gradle-8.11.1）。产物核对：`classes2.dex` 才是代码（`strings -a -e S` 查新文案）。
 - 文档三份同步：`ui/README.md`、`mobile/README.md`(+子目录)、根 README 客户端小节；APK/构建产物不入库。
+
+## git 推送（本机限制）
+- 本机**没有任何 GitHub 凭据**：无 `credential.helper`、无 `~/.git-credentials`/`.netrc`、无 `~/.ssh` 密钥、无 `gh` CLI，环境里也没有 GH_TOKEN。`git push` 只会得到 `could not read Username for 'https://github.com'`（沙箱里则是直接卡死）。
+- 所以**提交（commit）由我做，推送（push）由用户在 IDE 里做**——别反复重试 push 浪费时间；提醒一句「本地领先 origin/main N 个提交，得空 push」即可。
+- 远端：`https://github.com/lidiaoo/anyboot.git`。
