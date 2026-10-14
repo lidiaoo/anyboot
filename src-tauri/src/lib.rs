@@ -5622,6 +5622,17 @@ fn dock_main_window(app: &AppHandle) {
     // NSWindow/Windows WebView2/GTK 的默认底色），白条外面那圈「白色底框」
     // 就是它。macOS 上这整套透明能力由 macos-private-api feature 门控。
     let _ = main.set_background_color(Some(tauri::utils::config::Color(0, 0, 0, 0)));
+    // 贴边期间**临时解锁 resizable**：GTK3 对「不可缩放」窗口的尺寸处理是把
+    // 尺寸钉在**子控件最小尺寸**上（WebKitWebView 实测 ≈ 200x200 逻辑px），
+    // 之后 set_size 一律被夹进 [200, max] —— 贴边要缩的 40 逻辑px 细缝根本
+    // 缩不动，窗口停在 200 逻辑px，白条（贴在窗口朝屏幕边那一侧）就画在离
+    // 屏幕边 200px 处；多屏上直接落到隔壁屏（真机复现台 Xvfb+mutter
+    // 3840x2160/2x：贴顶请求 1864x80 物理 → 实测 1864x400 物理，
+    // WM_NORMAL_HINTS min=max=1864x400）。用户设置里 windowSizeLocked=true
+    // 走的就是 set_resizable(false)（apply_window_size_lock），所以「锁定窗口
+    // 大小」开着时必现。展开时由 apply_window_size_lock 重新上锁（探针验证：
+    // 解锁→缩 40x720 ✓，展开→回锁 → 尺寸保持且锁仍生效）。
+    let _ = main.set_resizable(true);
     let _ = main.set_size(new_size);
     let _ = main.set_position(tauri::PhysicalPosition::new(target.0, target.1));
     if was_visible {
@@ -5845,6 +5856,11 @@ fn undock_main_window(app: &AppHandle) {
         // 只有那边正常。设置关掉时 pin_main_topmost 自己会跳过。
         pin_main_topmost(app);
     }
+    // 贴边期间临时解锁过 resizable（见 dock_main_window 的注释）：展开落定后
+    // 按设置重新上锁，保住「锁定窗口大小 = 不能手拖缩放」的语义。放在 show
+    // 之后 —— 此刻尺寸请求已经发出，重新上锁是拿「已请求的尺寸」去夹，不会
+    // 把窗口夹回贴边时的 40px。未开启锁定时这个函数是「解锁 + 清上限」，无害。
+    apply_window_size_lock(app);
     trace(
         app,
         "autohide",
@@ -5921,6 +5937,9 @@ fn restore_main_dock_size(app: &AppHandle) {
         }
         let _ = main.set_decorations(true);
         let _ = main.set_size(tauri::PhysicalSize::new(w, h));
+        // 同 undock：贴边期间临时解锁过 resizable（否则 GTK 把尺寸钉在子控件
+        // 最小尺寸 200 逻辑px 上），恢复完整尺寸后重新上锁。
+        apply_window_size_lock(app);
     }
 }
 
