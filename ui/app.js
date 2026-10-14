@@ -469,6 +469,7 @@ const mainHotzoneOpacityStateElement = document.querySelector("#main-hotzone-opa
 const mainHotzoneBorderElement = document.querySelector("#main-hotzone-border");
 const mainHotzoneBorderColorElement = document.querySelector("#main-hotzone-border-color");
 const mainWindowPositionElement = document.querySelector("#main-window-position");
+const mainFixedMonitorElement = document.querySelector("#main-fixed-monitor");
 const resetMainWindowPositionElement = document.querySelector("#reset-main-window-position");
 // 窗口大小：宽/高滑条 + 锁定开关（滑条 ⇄ 窗口尺寸双向实时）
 const windowSizeWidthElement = document.querySelector("#window-size-width");
@@ -1156,6 +1157,9 @@ function renderSettings(view) {
     const mode = view.mainWindowPosition;
     mainWindowPositionElement.value =
       mode === "center" || mode === "last" ? mode : "free";
+  }
+  if (document.activeElement !== mainFixedMonitorElement) {
+    syncFixedMonitorOptions(view.mainMonitorOptions, view.mainFixedMonitor);
   }
   syncWindowSizeControls(view);
   hideFromDockTaskbarElement.checked = Boolean(view.hideFromDockTaskbar);
@@ -2542,6 +2546,34 @@ accentColorElement.addEventListener("change", () => {
 mainWindowPositionElement.addEventListener("change", () =>
   call("set_main_window_position", { mode: mainWindowPositionElement.value }),
 );
+
+// 固定显示器：auto + 每台显示器一项（与托盘「固定显示器」子菜单同源）
+mainFixedMonitorElement.addEventListener("change", () =>
+  call("set_main_fixed_monitor", { name: mainFixedMonitorElement.value }),
+);
+
+// 固定显示器选项随硬件热插拔变化：选项集没变就不重建（保住焦点/滚动），
+// 选中值失效（那台显示器拔了）回退 auto，与后端回落逻辑一致。
+function syncFixedMonitorOptions(options, current) {
+  const names = Array.isArray(options)
+    ? options.filter((name) => typeof name === "string" && name)
+    : [];
+  const signature = names.join("\u0000");
+  if (mainFixedMonitorElement.dataset.options !== signature) {
+    mainFixedMonitorElement.dataset.options = signature;
+    while (mainFixedMonitorElement.options.length > 1) {
+      mainFixedMonitorElement.remove(1);
+    }
+    for (const name of names) {
+      const option = document.createElement("option");
+      option.value = name;
+      option.textContent = name;
+      mainFixedMonitorElement.append(option);
+    }
+  }
+  const fixed = typeof current === "string" && current ? current : "auto";
+  mainFixedMonitorElement.value = names.includes(fixed) ? fixed : "auto";
+}
 
 // 重置位置：立即把主窗口放到屏幕正中央
 resetMainWindowPositionElement.addEventListener("click", () =>

@@ -1082,6 +1082,12 @@ struct Settings {
     main_window_position: String,
     /// 「上次位置」模式记忆的落点（物理像素；未设定为 None，回退到居中）。
     main_window_last: Option<(i32, i32)>,
+    /// 主窗口固定显示器：`auto`（不固定，默认）或某个显示器的名字（tauri
+    /// Monitor::name()，如 `DP-1` / `\\.\DISPLAY1` / 「内建视网膜显示屏」）。
+    /// 固定后主窗只在这台显示器里活动：居中/呼出/落位/贴边都落在它的工作区，
+    /// 拖到别的显示器会被夹回来。显示器被拔掉时回落既有挑屏逻辑（窗口总得
+    /// 有地方显示），设置值保留 —— 插回来继续生效。
+    main_fixed_monitor: String,
     /// 锁定窗口大小：锁定后窗口不可拖拽缩放、不可最大化，前端宽高滑条同步停用。
     window_size_locked: bool,
     /// 记忆的窗口尺寸（逻辑像素）。**0 = 还没记过**（serde 缺字段 / 全新配置），
@@ -1137,6 +1143,7 @@ impl Default for Settings {
             accent_color: "#2f7fe0".to_string(),
             main_window_position: DEFAULT_WINDOW_POSITION.to_string(),
             main_window_last: None,
+            main_fixed_monitor: "auto".to_string(),
             window_size_locked: false,
             window_width: 0,
             window_height: 0,
@@ -1308,6 +1315,9 @@ struct SettingsView {
     settings: Settings,
     autostart_state: &'static str,
     autostart_hint: Option<String>,
+    /// 当前可用的显示器名列表：设置页「固定显示器」下拉与托盘同名子菜单
+    /// 都用它当选项（与 Settings.mainFixedMonitor 的取值同一来源）。
+    main_monitor_options: Vec<String>,
 }
 
 /// 界面提示：先说明系统状态，再说明实际用的是哪种开机启动实现。
@@ -1356,6 +1366,8 @@ impl SettingsView {
             settings,
             autostart_state: state.as_str(),
             autostart_hint: autostart_hint(state),
+            // 选项列表依赖 AppHandle，由 view_settings 填（见那边）
+            main_monitor_options: Vec::new(),
         }
     }
 }
@@ -2812,6 +2824,27 @@ fn normalize_window_position(value: &str) -> &'static str {
     }
 }
 
+/// 固定显示器设置归一（纯函数）：空 / 空白 = auto（不固定）。
+fn normalize_fixed_monitor(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        "auto".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+/// 在候选显示器名里挑「固定显示器」的下标（纯函数）：名字精确匹配；
+/// 找不到（显示器被拔了）返回 None，调用方回落既有挑屏逻辑 —— 窗口
+/// 总得有地方显示，绝不能因为配置指向了一块不存在的屏就没了落脚点。
+fn fixed_monitor_index(names: &[&str], fixed: &str) -> Option<usize> {
+    let fixed = normalize_fixed_monitor(fixed);
+    if fixed == "auto" {
+        return None;
+    }
+    names.iter().position(|name| *name == fixed)
+}
+
 /// GRUB 区块展示方式归一（纯函数）：inline / wide / list / pane，
 /// 其余一律回落 inline。老配置里的 `window`（独立窗口）已经演进成
 /// 同一窗口里的「独立区域」，语义由 `pane` 承接 —— 老用户无感迁移。
@@ -3063,6 +3096,15 @@ fn main_window_monitor(app: &AppHandle) -> Option<tauri::Monitor> {
     let monitors = main.available_monitors().ok()?;
     if monitors.is_empty() {
         return main.current_monitor().ok().flatten();
+    }
+    // 固定显示器优先：设了名字就按名字挑 —— 不依赖窗口几何，启动落位时
+    // 窗口还没映射也照样成立（这正是固定屏要解决的场景：居中/呼出/重置
+    // 必须落到用户指定的那块屏，而不是「窗口现在在哪块屏」）。显示器被
+    // 拔了就往下走既有逻辑。
+    let fixed = stored_settings(app).main_fixed_monitor;
+    let names: Vec<&str> = monitors.iter().map(|m| m.name().map(|s| s.as_str()).unwrap_or("")).collect();
+    if let Some(index) = fixed_monitor_index(&names, &fixed) {
+        return monitors.into_iter().nth(index);
     }
     let center = window_client_position(&main)
         .zip(usable_window_size_basis(
@@ -3316,7 +3358,72 @@ fn apply_main_window_position(app: &AppHandle) -> Option<(i32, i32)> {
         },
         _ => None,
     };
+    // 固定显示器：center 已由 center_main_window 走 main_window_monitor
+    // （固定屏优先）天然落在固定屏上；free/last 的落点可能指向别的屏
+    // （记忆点在屏 2、用户把窗口拖去过屏 2），这里统一约束回固定屏。
+    enforce_fixed_monitor(app);
     pos
+}
+
+/// 固定显示器约束：窗口不在固定显示器上时，把客户区夹进它的工作区。
+/// auto / 显示器已不在 → 不动。判位与落位跟 clamp_main_window 同款
+/// （客户区判位 + 窗框语义请求，见那边注释），只是挑屏换成固定名。
+fn enforce_fixed_monitor(app: &AppHandle) {
+    if normalize_fixed_monitor(&stored_settings(app).main_fixed_monitor) == "auto" {
+        return;
+    }
+    let Some(main) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
+        return;
+    };
+    if !main.is_visible().unwrap_or(false) {
+        return;
+    }
+    // main_window_monitor 已按固定名挑屏：它返回的若不是配置里那块屏，
+    // 说明显示器不在了（回落逻辑），此时不动窗口。
+    let Some(monitor) = main_window_monitor(app) else {
+        return;
+    };
+    if monitor.name().map(|name| name.as_str())
+        != Some(normalize_fixed_monitor(&stored_settings(app).main_fixed_monitor).as_str())
+    {
+        return;
+    }
+    let (Ok(client), Ok(client_size), Ok(outer)) = (
+        main.inner_position(),
+        main.inner_size(),
+        main.outer_position(),
+    ) else {
+        return;
+    };
+    let (w, h) = (client_size.width as i32, client_size.height as i32);
+    // 客户区中心已在固定屏内 = 正在固定屏上显示，free 模式的既有落位不动它。
+    let origin = monitor.position();
+    let (mw, mh) = (monitor.size().width as i32, monitor.size().height as i32);
+    let (cx, cy) = (client.x + w / 2, client.y + h / 2);
+    if cx >= origin.x && cx < origin.x + mw && cy >= origin.y && cy < origin.y + mh {
+        return;
+    }
+    let work = monitor.work_area();
+    let (x, y) = clamp_to_work(
+        client.x,
+        client.y,
+        w,
+        h,
+        work.position.x,
+        work.position.y,
+        work.size.width as i32,
+        work.size.height as i32,
+    );
+    let request = (x - (client.x - outer.x), y - (client.y - outer.y));
+    let _ = main.set_position(tauri::PhysicalPosition::new(request.0, request.1));
+    pin_main_topmost(app);
+    startup_debug(
+        app,
+        &format!(
+            "fixed monitor -> client ({x},{y}) monitor={:?}",
+            monitor.name()
+        ),
+    );
 }
 
 /// 不透明度夹取到 [MIN_OPACITY, MAX_OPACITY]（纯函数）。
@@ -5349,10 +5456,11 @@ fn dock_main_window(app: &AppHandle) {
     let (Ok(pos), Ok(size)) = (main.outer_position(), main.outer_size()) else {
         return;
     };
-    let Some(monitor) = main
-        .current_monitor()
-        .ok()
-        .flatten()
+    // 贴到哪块屏的边上：固定显示器优先（选了屏 1，白条就贴屏 1 的边，
+    // 哪怕窗口此刻还停在屏 2 —— set_position 会把它搬过去）；没设才跟
+    // 窗口当前所在的屏走。
+    let Some(monitor) = main_window_monitor(app)
+        .or_else(|| main.current_monitor().ok().flatten())
         .or_else(|| app.primary_monitor().ok().flatten())
     else {
         return;
@@ -6597,21 +6705,29 @@ fn clamp_main_window(app: &AppHandle, main: &tauri::WebviewWindow) {
             None => return,
         },
     };
-    // 选与窗口相交面积最大的工作区：跨屏拖动时自动落到目标屏上，
-    // 不会用「重心所在屏」把窗口往回拽。
-    let best = monitors
-        .into_iter()
-        .map(|monitor| {
-            let work = monitor.work_area();
-            let overlap_w = (win_x + win_w).min(work.position.x + work.size.width as i32)
-                - win_x.max(work.position.x);
-            let overlap_h = (win_y + win_h).min(work.position.y + work.size.height as i32)
-                - win_y.max(work.position.y);
-            (monitor, overlap_w.max(0) * overlap_h.max(0))
-        })
-        .max_by_key(|(_, overlap)| *overlap)
-        .map(|(monitor, _)| monitor);
-    let Some(monitor) = best else {
+    // 固定显示器优先：选了固定屏就把窗口夹回它的工作区（用户定案：选了
+    // 显示器 1 就不许待在显示器 2 —— 拖出去松手后夹回）。没设或那块屏
+    // 不在了才按「相交面积最大」自动挑屏（跨屏拖动时自动落到目标屏上，
+    // 不会用「重心所在屏」把窗口往回拽）。
+    let monitor = {
+        let names: Vec<&str> = monitors.iter().map(|m| m.name().map(|s| s.as_str()).unwrap_or("")).collect();
+        match fixed_monitor_index(&names, &stored_settings(app).main_fixed_monitor) {
+            Some(index) => monitors.into_iter().nth(index),
+            None => monitors
+                .into_iter()
+                .map(|monitor| {
+                    let work = monitor.work_area();
+                    let overlap_w = (win_x + win_w).min(work.position.x + work.size.width as i32)
+                        - win_x.max(work.position.x);
+                    let overlap_h = (win_y + win_h).min(work.position.y + work.size.height as i32)
+                        - win_y.max(work.position.y);
+                    (monitor, overlap_w.max(0) * overlap_h.max(0))
+                })
+                .max_by_key(|(_, overlap)| *overlap)
+                .map(|(monitor, _)| monitor),
+        }
+    };
+    let Some(monitor) = monitor else {
         return;
     };
     let work = monitor.work_area();
@@ -6914,6 +7030,33 @@ fn set_main_window_position(app: AppHandle, mode: String) -> Result<SettingsView
     save_settings(&app, &settings)?;
     // 立刻按新模式落位（free 模式不动，center 立刻居中，last 立刻回到记忆点）
     apply_main_window_position(&app);
+    Ok(publish_settings(&app))
+}
+
+/// 固定显示器（auto / 显示器名，与设置页下拉、托盘子菜单同源）：
+/// 落盘 + 立即把主窗约束到新显示器。停靠态先展开再按新屏落位、
+/// 然后重新贴边 —— 白条会贴到新屏的边上。
+#[tauri::command]
+fn set_main_fixed_monitor(app: AppHandle, name: String) -> Result<SettingsView, String> {
+    let name = normalize_fixed_monitor(&name);
+    trace(&app, "command", &format!("set_main_fixed_monitor name={name}"));
+    let docked = app
+        .state::<Mutex<AppState>>()
+        .lock()
+        .map(|state| state.auto_hide_docked)
+        .unwrap_or(false);
+    let mut settings = stored_settings(&app);
+    settings.main_fixed_monitor = name;
+    save_settings(&app, &settings)?;
+    if docked {
+        // 展开才好搬窗：undock 落回旧屏原位 → apply 按新屏约束 → 重新贴边
+        // （dock_main_window 的挑屏走 main_window_monitor，固定屏优先）。
+        undock_main_window(&app);
+    }
+    apply_main_window_position(&app);
+    if docked {
+        dock_main_window(&app);
+    }
     Ok(publish_settings(&app))
 }
 
@@ -7647,6 +7790,30 @@ fn build_tray_menu(app: &AppHandle, state: &UiState) -> tauri::Result<Menu<tauri
         )?)?;
     }
     menu.append(&position_menu)?;
+    // 固定显示器（与设置页「固定显示器」下拉同源）：auto + 当前所有显示器。
+    // 列表来自快照里的 mainMonitorOptions（与主菜单同源），显示器热插拔后
+    // 下一次快照刷新菜单就会跟着变。
+    let monitor_menu = Submenu::with_id(app, "setting-main-fixed-monitor", "固定显示器", true)?;
+    let fixed_now = normalize_fixed_monitor(&settings.main_fixed_monitor);
+    monitor_menu.append(&CheckMenuItem::with_id(
+        app,
+        "setting-main-fixed-monitor:auto",
+        "自动（不固定）",
+        true,
+        fixed_now == "auto",
+        None::<&str>,
+    )?)?;
+    for name in &state.settings.main_monitor_options {
+        monitor_menu.append(&CheckMenuItem::with_id(
+            app,
+            format!("setting-main-fixed-monitor:{name}"),
+            name.clone(),
+            true,
+            fixed_now == *name,
+            None::<&str>,
+        )?)?;
+    }
+    menu.append(&monitor_menu)?;
     let close_action_menu = Submenu::with_id(app, "setting-close-action", "点击窗口 ❌ 时", true)?;
     for (action, label) in [
         (CloseAction::Tray, "最小化到托盘"),
@@ -7845,6 +8012,10 @@ fn menu_signature_for(state: &UiState) -> String {
     );
     // 固定显示位置的模式进指纹（托盘子菜单三个勾选项跟着变）
     let position = normalize_window_position(&state.settings.settings.main_window_position);
+    // 固定显示器及其选项列表也进指纹：勾选态跟着变，显示器热插拔后
+    // 选项集变了也要重建菜单
+    let fixed_monitor = normalize_fixed_monitor(&state.settings.settings.main_fixed_monitor);
+    let monitor_options = state.settings.main_monitor_options.join(",");
     // GRUB 条目也进指纹：条目集 / 选中项变了托盘 GRUB 区要跟着重建
     let active = state
         .grub
@@ -7865,7 +8036,7 @@ fn menu_signature_for(state: &UiState) -> String {
         })
         .collect::<Vec<_>>()
         .join(",");
-    format!("{base}|wpos={position}|grub={grub_items}")
+    format!("{base}|wpos={position}|fmon={fixed_monitor}|fmons={monitor_options}|grub={grub_items}")
 }
 
 /// 记住当前菜单内容，让后续相同内容的刷新直接跳过重建。
@@ -7970,6 +8141,8 @@ enum MenuAction {
     ResetWindowPosition,
     /// 固定显示位置模式（free / center / last，与设置页下拉同源）
     SetMainWindowPosition(String),
+    /// 固定显示器（auto / 显示器名，与设置页下拉同源）
+    SetMainFixedMonitor(String),
     /// 切换 GRUB 启动项（写 grubenv 的 selector，与主窗 GRUB 区同源）
     SwitchGrub(String),
     Quit,
@@ -8005,6 +8178,9 @@ impl MenuAction {
             let mode = rest.trim().to_string();
             // 归一兜底：脏值会被 normalize 打回 free，不会落进设置
             return Some(Self::SetMainWindowPosition(mode));
+        }
+        if let Some(rest) = id.strip_prefix("setting-main-fixed-monitor:") {
+            return Some(Self::SetMainFixedMonitor(rest.to_string()));
         }
         if let Some(rest) = id.strip_prefix("grub-switch:") {
             return Some(Self::SwitchGrub(rest.to_string()));
@@ -8113,6 +8289,13 @@ fn spawn_menu_action(app: &AppHandle, action: MenuAction) {
             match set_main_window_position(app.clone(), mode) {
                 Ok(_) => record_action(&app, "固定显示位置", true, "显示位置已更新"),
                 Err(error) => record_action(&app, "固定显示位置", false, &error),
+            }
+        }
+        MenuAction::SetMainFixedMonitor(name) => {
+            // 复用设置页同一条链路：落盘 + 立即把主窗约束到所选显示器
+            match set_main_fixed_monitor(app.clone(), name.clone()) {
+                Ok(_) => record_action(&app, "固定显示器", true, &format!("固定显示器已设为 {name}")),
+                Err(error) => record_action(&app, "固定显示器", false, &error),
             }
         }
         MenuAction::SwitchGrub(selector) => {
@@ -8521,7 +8704,16 @@ fn view_settings(app: &AppHandle) -> SettingsView {
         settings.autostart = state.is_on();
         settings = save_settings(app, &settings).unwrap_or(settings);
     }
-    SettingsView::new(settings, state)
+    let mut view = SettingsView::new(settings, state);
+    // 显示器名列表：设置页「固定显示器」下拉的选项（托盘子菜单同源）
+    view.main_monitor_options = app
+        .available_monitors()
+        .unwrap_or_default()
+        .iter()
+        .map(|monitor| monitor.name().cloned().unwrap_or_default())
+        .filter(|name| !name.is_empty())
+        .collect();
+    view
 }
 
 /// 设置类命令的统一出口：发布新快照，并把 SettingsView 回给调用方。
@@ -12795,6 +12987,7 @@ pub fn run() {
             set_main_hotzone_border_color,
             set_accent_color,
             set_main_window_position,
+            set_main_fixed_monitor,
             set_grub_list_view,
             set_grub_list_format,
             set_window_size,
@@ -13665,6 +13858,27 @@ mod core_tests {
         // 尺寸默认「还没记过」→ 启动时按整屏高度的 2/3 算，且不锁定
         assert_eq!(settings.window_height, 0);
         assert!(!settings.window_size_locked);
+        // 固定显示器默认 auto（不固定），产品行为不变 —— 用户明确要求默认不限制
+        assert_eq!(settings.main_fixed_monitor, "auto");
+    }
+
+    /// 固定显示器的归一与按名挑屏（纯逻辑，钉住）：
+    /// 空/空白 = auto；auto 永远挑不出；名字精确匹配；显示器被拔（名字
+    /// 不在候选里）回落 None —— 调用方走既有挑屏逻辑，窗口不能消失。
+    #[test]
+    fn fixed_monitor_normalize_and_pick() {
+        assert_eq!(normalize_fixed_monitor(""), "auto");
+        assert_eq!(normalize_fixed_monitor("   "), "auto");
+        assert_eq!(normalize_fixed_monitor(" DP-1 "), "DP-1");
+        let names = ["DP-1", "HDMI-0", "eDP-1"];
+        // auto = 不固定，永远不挑
+        assert_eq!(fixed_monitor_index(&names, "auto"), None);
+        assert_eq!(fixed_monitor_index(&names, ""), None);
+        // 精确匹配，大小写敏感（显示器名是系统标识不是用户输入）
+        assert_eq!(fixed_monitor_index(&names, "HDMI-0"), Some(1));
+        assert_eq!(fixed_monitor_index(&names, "hdmi-0"), None);
+        // 拔掉了：回落 None
+        assert_eq!(fixed_monitor_index(&names, "DP-9"), None);
     }
 
     /// `/health` 是客户端认「这台电脑是谁」的唯一入口：手机端靠 `machineId`
