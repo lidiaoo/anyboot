@@ -3311,6 +3311,8 @@ fn center_docked_window(app: &AppHandle, main: &tauri::WebviewWindow) -> Option<
                 target,
                 offset: (live.0 - target.0, live.1 - target.1),
                 tries: 0,
+                last_live: None,
+                noops: 0,
             });
         }
     });
@@ -5314,6 +5316,13 @@ struct AutoHideReanchor {
     target: (i32, i32),
     offset: (i32, i32),
     tries: u8,
+    /// 上一拍读到的实况。牛顿步的防失控保险丝：连续两拍实况纹丝不动 =
+    /// 补发的 set_position 被 WM 钳制/忽略，再叠修正量只会让请求越飞越远
+    /// （多屏桌面上会真落到远处的屏上，实测 offset 一路加到 11520、请求
+    /// 飞到 15416）—— 见 undock_reanchor_action 的 GiveUp 分支。
+    last_live: Option<(i32, i32)>,
+    /// 实况连续没动的拍数（≥2 放弃）。
+    noops: u8,
 }
 
 /// 重锚一拍的裁决（纯函数，便于单测）。
@@ -5345,15 +5354,30 @@ fn undock_reanchor_action(plan: AutoHideReanchor, live_x: i32, live_y: i32) -> U
     if plan.tries >= AUTO_HIDE_REANCHOR_TRIES {
         return UndockReanchor::GiveUp;
     }
-    let offset = (
-        plan.offset.0 + (plan.target.0 - live_x),
-        plan.offset.1 + (plan.target.1 - live_y),
-    );
+    // 防失控保险丝：上一拍已经补发过一次、这一拍实况还停在原地 = 请求被
+    // WM 钳制/忽略（典型：target 落在窗口够不到的区域）。此时**不再叠**
+    // 修正量（叠了就是把请求往更远处推），照发同一请求再等一拍；连续两拍
+    // 没动静就放弃 —— 牛顿步只负责校准「WM 肯配合」的偏差，追不动就止损。
+    let noop = plan.last_live == Some((live_x, live_y));
+    let noops = if noop { plan.noops + 1 } else { 0 };
+    if noops >= 2 {
+        return UndockReanchor::GiveUp;
+    }
+    let offset = if noop {
+        plan.offset
+    } else {
+        (
+            plan.offset.0 + (plan.target.0 - live_x),
+            plan.offset.1 + (plan.target.1 - live_y),
+        )
+    };
     UndockReanchor::Set(
         AutoHideReanchor {
             target: plan.target,
             offset,
             tries: plan.tries + 1,
+            last_live: Some((live_x, live_y)),
+            noops,
         },
         (plan.target.0 + offset.0, plan.target.1 + offset.1),
     )
@@ -5657,10 +5681,14 @@ fn undock_main_window(app: &AppHandle) {
     // 先把系统装饰（标题栏）还原再恢复尺寸：贴边时 set_decorations(false)
     // 去掉了标题栏，不还原的话展开后窗口没有标题栏、拖不动。
     let _ = main.set_decorations(true);
-    let Some(monitor) = main
-        .current_monitor()
-        .ok()
-        .flatten()
+    // 展开到哪块屏的工作区：固定显示器优先。白条停在 A 右缘时 tao 的
+    // current_monitor 可能判成相邻的那块屏（多屏边界窗口的双归属歧义，
+    // 真机实测：白条在 A [0,3840] 内 3752 处，current_monitor 却给了
+    // B [3840,5760]）→ 按它算 Right 边展开落点 = 3840+1920−1864 = 3896，
+    // **越过 A 的右边界**，整窗落到 B 上 —— 用户看到的就是「白条一呼出，
+    // 窗口跑到另一块屏」。固定名优先后 target 永远落在固定屏工作区内。
+    let Some(monitor) = main_window_monitor(app)
+        .or_else(|| main.current_monitor().ok().flatten())
         .or_else(|| app.primary_monitor().ok().flatten())
     else {
         if was_visible {
@@ -5748,6 +5776,8 @@ fn undock_main_window(app: &AppHandle) {
             target,
             offset,
             tries: 0,
+            last_live: None,
+            noops: 0,
         });
     }
     trace(
@@ -7049,13 +7079,21 @@ fn set_main_fixed_monitor(app: AppHandle, name: String) -> Result<SettingsView, 
     settings.main_fixed_monitor = name;
     save_settings(&app, &settings)?;
     if docked {
-        // 展开才好搬窗：undock 落回旧屏原位 → apply 按新屏约束 → 重新贴边
-        // （dock_main_window 的挑屏走 main_window_monitor，固定屏优先）。
-        undock_main_window(&app);
-    }
-    apply_main_window_position(&app);
-    if docked {
-        dock_main_window(&app);
+        // 停靠态换固定屏：展开+显示到新屏（show_main_window 自带
+        // undock → apply 落位），白条什么时候贴回交给 watcher 的常规节奏
+        // （光标离开窗口后）。这里**不能**手动补 dock：undock 的几何是
+        // 异步落地的，紧跟着的 dock 读到搬运前的旧坐标，实测把白条贴到
+        // 了另一块屏上（target 混了两块屏的工作区）。
+        show_main_window(&app, ShowOrigin::Recall);
+        // show → undock 武装的重锚瞄准**旧屏**的停靠位；enforce 已把窗口
+        // 搬到新屏，留着它会把窗口往旧屏拽 —— 清掉（同 center_main_window
+        // 停靠态分支的处理）。
+        if let Ok(mut state) = app.state::<Mutex<AppState>>().lock() {
+            state.auto_hide_reanchor = None;
+        }
+    } else {
+        // center 模式直接按新屏重居中；其他模式把窗口约束进新屏
+        apply_main_window_position(&app);
     }
     Ok(publish_settings(&app))
 }
@@ -13417,6 +13455,8 @@ mod core_tests {
             target: (0, 428),
             offset: (0, 0),
             tries: 0,
+            last_live: None,
+            noops: 0,
         };
         // 真机首轮：请求 428、实况 492（+64 标题栏）→ 修正 −64，补发请求 364
         let (plan2, request) = match undock_reanchor_action(plan, 0, 492) {
@@ -13436,6 +13476,8 @@ mod core_tests {
             target: (0, 428),
             offset: (0, -64),
             tries: 0,
+            last_live: None,
+            noops: 0,
         };
         assert_eq!(
             undock_reanchor_action(armed, 0, 428),
@@ -13452,11 +13494,58 @@ mod core_tests {
             target: (0, 428),
             offset: (0, 0),
             tries: AUTO_HIDE_REANCHOR_TRIES,
+            last_live: None,
+            noops: 0,
         };
         assert_eq!(
             undock_reanchor_action(exhausted, 0, 492),
             UndockReanchor::GiveUp
         );
+    }
+
+    /// 牛顿步的防失控保险丝（多屏实测翻车：target 落在窗口够不到的区域，
+    /// 每拍 offset += target−live 一路累加到 11520、请求飞到 15416 ——
+    /// 多屏桌面上那些请求会真落到远处的屏上）。实况纹丝不动时**不叠**
+    /// 修正量、照发同一请求再等一拍；连续两拍没动静就止损放弃。
+    #[test]
+    fn undock_reanchor_stops_chasing_an_unreachable_target() {
+        let plan = AutoHideReanchor {
+            target: (3896, 64),
+            offset: (0, 0),
+            tries: 0,
+            last_live: None,
+            noops: 0,
+        };
+        // 第一拍：live 停在 1976（WM 钳制），正常牛顿步叠修正量 +1920
+        let (plan2, request) = match undock_reanchor_action(plan, 1976, 128) {
+            UndockReanchor::Set(plan, request) => (plan, request),
+            other => panic!("expected Set, got {other:?}"),
+        };
+        assert_eq!(plan2.offset, (1920, -64));
+        assert_eq!(plan2.last_live, Some((1976, 128)));
+        assert_eq!(request, (5816, 0));
+        // 第二拍：实况纹丝不动 = 请求被忽略 → **不叠**修正量、照发同一请求
+        let (plan3, request2) = match undock_reanchor_action(plan2, 1976, 128) {
+            UndockReanchor::Set(plan, request) => (plan, request),
+            other => panic!("expected Set, got {other:?}"),
+        };
+        assert_eq!(plan3.offset, (1920, -64), "no-op 拍不许叠修正量");
+        assert_eq!(plan3.noops, 1);
+        assert_eq!(request2, (5816, 0), "no-op 拍照发同一请求");
+        // 第三拍：还是没动 → 止损放弃，不再产生更远的请求
+        assert_eq!(
+            undock_reanchor_action(plan3, 1976, 128),
+            UndockReanchor::GiveUp
+        );
+        // 实况动了（哪怕还没到 target）→ 计数清零，牛顿步继续工作
+        let (plan4, request3) = match undock_reanchor_action(plan2, 2500, 100) {
+            UndockReanchor::Set(plan, request) => (plan, request),
+            other => panic!("expected Set, got {other:?}"),
+        };
+        assert_eq!(plan4.noops, 0, "动了的拍清零 noops");
+        // offset += target − live = (1920+1396, −64−36)
+        assert_eq!(plan4.offset, (3316, -100));
+        assert_eq!(request3, (3896 + 3316, 64 - 100));
     }
 
     #[test]
