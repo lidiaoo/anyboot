@@ -29,8 +29,9 @@
 - 托盘菜单不再交给宿主渲染：`tray-menu` 无边框置顶 webview 窗渲染 `build_menu_nodes` 纯数据；「点完留不留菜单」只在后端算一次 = `MenuNode.keepsOpen`（`menu_choice_item`/`menu_marked_choice_item`=true），前端照字段办事，**不许两处重算**。分发仍走 `handle_menu_event`。
 - **dbus 0.9 坑**：`MessageItemArray::new` 要**整条数组签名（带前导 a）**——内层 `"ay"`、外层 `"a(iiay)"`；传元素签名 = `Err(InvalidSignature)`，且崩在**宿主读属性时**（handler 线程死，症状「注册成功但没图标」）。已有单测钉死。
 - **Tauri 2 ACL 坑**：新建窗口的 label **必须加进 `capabilities/default.json` 的 `windows`**，否则该窗口所有 invoke/listen 被静默拒（症状「页面加载了、前端就是不调命令」）。
-- Linux 托盘图标 = 自写 SNI（`linux_sni` 模块，`dbus::ffidisp` 手工 MsgHandler；`ItemIsMenu=false`+`Menu=""` ⇒ 宿主左键回调 `Activate(图标原点)`）。断链取证看 `tray-menu` trace：窗已建→页面加载→前端拉内容→报高→呈现。
-- 待办：Win/mac 接同一扇窗（托盘只留图标、点击→`open_tray_menu`，删原生菜单路径）。
+- Linux 托盘图标 = 自写 SNI（`linux_sni` 模块，`dbus::ffidisp` 手工 MsgHandler；`ItemIsMenu=false`+`Menu=""` ⇒ 宿主把点击回调给我们）。断链取证看 `tray-menu` trace：窗已建→页面加载→前端拉内容→报高→呈现。
+- **点击语义三端统一**：左键=显示主窗口（Recall），右键=自绘菜单（Linux 中键也是菜单）。原生菜单三端全下线（绿勾位图、菜单指纹、menu-anchor 锚点窗已删，净 -717 行，提交 575e63e）。
+- 待办：**本机无 win/mac target**，`cfg(not(linux))` 只过了 Linux 编译+单测 —— 上 Windows 先 build 再实机点托盘复验 → push → 打包。
 
 ## 产品定则（细节见日志）
 - 默认值常量钉着（改值必须同步单测）：亮色 / 90% / remoteAllowGuiAuth=true / **默认高度=整屏高的 2/3**（1080→720；基准是 `monitor.size()` 不是工作区——工作区基准曾让重置按钮"点了没反应"，2026-10-13）；`window_height==0` 是「没记过尺寸」哨兵，别当尺寸用。
