@@ -25,6 +25,13 @@
 ## WebKitGTK × NVIDIA（Linux 白屏/局部重绘）
 - X11 唯一正解 `WEBKIT_DMABUF_RENDERER_FORCE_SHM=1`（`apply_linux_gpu_workarounds()`，必须早于建 WebView）；`WEBKIT_DISABLE_DMABUF_RENDERER`（2.52+）与 `WEBKIT_DISABLE_COMPOSITING_MODE`（2.54+）已失效**勿回用**（单测钉死）。用户设过任一 WEBKIT_ENV_SWITCHES（含=0）就完全不插手（也是 A/B 开关）。NVIDIA 真机效果待用户确认。
 
+## 托盘菜单三端自绘（③，2026-10-14 修通 Linux 全链，提交 6b7ef6c）
+- 托盘菜单不再交给宿主渲染：`tray-menu` 无边框置顶 webview 窗渲染 `build_menu_nodes` 纯数据；「点完留不留菜单」只在后端算一次 = `MenuNode.keepsOpen`（`menu_choice_item`/`menu_marked_choice_item`=true），前端照字段办事，**不许两处重算**。分发仍走 `handle_menu_event`。
+- **dbus 0.9 坑**：`MessageItemArray::new` 要**整条数组签名（带前导 a）**——内层 `"ay"`、外层 `"a(iiay)"`；传元素签名 = `Err(InvalidSignature)`，且崩在**宿主读属性时**（handler 线程死，症状「注册成功但没图标」）。已有单测钉死。
+- **Tauri 2 ACL 坑**：新建窗口的 label **必须加进 `capabilities/default.json` 的 `windows`**，否则该窗口所有 invoke/listen 被静默拒（症状「页面加载了、前端就是不调命令」）。
+- Linux 托盘图标 = 自写 SNI（`linux_sni` 模块，`dbus::ffidisp` 手工 MsgHandler；`ItemIsMenu=false`+`Menu=""` ⇒ 宿主左键回调 `Activate(图标原点)`）。断链取证看 `tray-menu` trace：窗已建→页面加载→前端拉内容→报高→呈现。
+- 待办：Win/mac 接同一扇窗（托盘只留图标、点击→`open_tray_menu`，删原生菜单路径）。
+
 ## 产品定则（细节见日志）
 - 默认值常量钉着（改值必须同步单测）：亮色 / 90% / remoteAllowGuiAuth=true / **默认高度=整屏高的 2/3**（1080→720；基准是 `monitor.size()` 不是工作区——工作区基准曾让重置按钮"点了没反应"，2026-10-13）；`window_height==0` 是「没记过尺寸」哨兵，别当尺寸用。
 - 落位方式 free/center/last：**center=位置固定禁拖**（拖动弹回居中+提示换方式，节流 4s；回声/WM 抖动过滤见 CENTER_ECHO_* 静态量）。**锁定窗口大小只禁手拖缩放，不拦展示方式落宽**（`grub_layout_target_width` 无 locked 门槛，用户定案 2026-10-13）。
