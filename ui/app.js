@@ -450,6 +450,7 @@ const powerButtons = [
 const startInTrayElement = document.querySelector("#start-in-tray");
 const mainAlwaysOnTopElement = document.querySelector("#main-always-on-top");
 const mainAutoHideElement = document.querySelector("#main-auto-hide");
+const mainAutoHideStateElement = document.querySelector("#main-auto-hide-state");
 const mainAutoHideEdgeDistanceElement = document.querySelector("#main-auto-hide-edge-distance");
 const mainDockStripHoverMsElement = document.querySelector("#main-dock-strip-hover-ms");
 const mainDockStripEdgeGapElement = document.querySelector("#main-dock-strip-edge-gap");
@@ -1329,6 +1330,17 @@ function applySettingLinkage() {
   for (const element of [soundFilePathElement, soundApplyElement]) {
     element.disabled = !playSoundElement.checked;
   }
+  // 贴边自动隐藏与「屏幕中间」互斥：居中要求窗口钉在屏幕正中，贴边要求窗口
+  // 缩到屏幕边上，两个功能会互相拉扯（后端同样拒绝在居中模式下贴边）。
+  // 居中选中时整个开关灰掉，别让用户勾了却看不到任何效果。
+  const centerLocked = mainWindowPositionElement.value === "center";
+  mainAutoHideElement.disabled = centerLocked;
+  if (mainAutoHideStateElement) {
+    mainAutoHideStateElement.classList.toggle("hidden", !centerLocked);
+    mainAutoHideStateElement.textContent = centerLocked
+      ? "与「屏幕中间」互斥：居中期间贴边不可用，切回其他落位方式后自动恢复"
+      : "";
+  }
   for (const element of [
     mainDockStripHoverMsElement,
     mainDockStripEdgeGapElement,
@@ -1337,7 +1349,7 @@ function applySettingLinkage() {
     mainDockStripOpacityElement,
     mainDockStripColorElement,
   ]) {
-    element.disabled = !mainAutoHideElement.checked;
+    element.disabled = centerLocked || !mainAutoHideElement.checked;
   }
 }
 
@@ -2559,9 +2571,11 @@ accentColorElement.addEventListener("change", () => {
 });
 
 // 固定显示位置：free / 屏幕中间 / 上次位置
-mainWindowPositionElement.addEventListener("change", () =>
-  call("set_main_window_position", { mode: mainWindowPositionElement.value }),
-);
+// （切到「屏幕中间」会立刻停用贴边自动隐藏整组 —— 两者互斥，见 applySettingLinkage）
+mainWindowPositionElement.addEventListener("change", () => {
+  applySettingLinkage();
+  call("set_main_window_position", { mode: mainWindowPositionElement.value });
+});
 
 // 固定显示器：auto + 每台显示器一项（与托盘「固定显示器」子菜单同源）
 mainFixedMonitorElement.addEventListener("change", () =>

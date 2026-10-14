@@ -5208,6 +5208,34 @@ fn main_auto_hide_enabled(app: &AppHandle) -> bool {
     stored_settings(app).main_auto_hide
 }
 
+/// 贴边自动隐藏在什么条件下才真正生效：开关开着，且落位方式**不是**「屏幕中间」。
+///
+/// 两者互斥（用户定案 2026-10-14）：居中要求窗口钉在屏幕正中，贴边要求窗口缩到
+/// 屏幕边上 —— 叠在一起就是「贴边 watcher 把窗口搬到边上 → Moved 触发居中回弹
+/// → 回到正中后 watcher 又觉得该贴边」的互闪，用户在贴边位与居中位之间来回抖动。
+/// 设置值**不改**（用户在别的方式下选的开关保留着），只在居中模式下整体停用；
+/// 切回其他落位方式立刻恢复。
+///
+/// 拦截点只有一个：`dock_main_window` 开头的闸（所有贴边路径的唯一入口）。
+/// watcher 线程本身照常活着 —— 它同时承担 undock 落点的重锚收敛，而「停靠态切
+/// 到居中」这条路径正需要它把窗口从贴边落点收敛到屏幕正中（见 center_docked_window）。
+fn auto_hide_should_run(auto_hide_enabled: bool, position_mode: &str) -> bool {
+    auto_hide_enabled && normalize_window_position(position_mode) != "center"
+}
+
+fn auto_hide_active(app: &AppHandle) -> bool {
+    let settings = stored_settings(app);
+    auto_hide_should_run(settings.main_auto_hide, &settings.main_window_position)
+}
+
+/// 按需拉起贴边 watcher：居中模式（互斥）下不起 —— 起了也只会在 `dock_main_window`
+/// 的闸前空转。切回其他落位方式时由 `set_main_window_position` 再调一次。
+fn ensure_auto_hide_watcher(app: &AppHandle) {
+    if auto_hide_active(app) {
+        start_auto_hide_watcher(app);
+    }
+}
+
 /// 算贴边缩条后的窗口尺寸与位置（物理像素）。
 /// 白条 = 主窗口贴边后露出的那条**窗口边界**（不是屏幕边）：贴上下边时
 /// 露出主窗顶/底边（水平，长 = 主窗 client 宽），贴左右边时露出主窗
@@ -5468,7 +5496,8 @@ fn hotzone_hit(
 /// 白条沿屏幕边方向拉伸（长度 = 屏幕边长 × 长度百分比）、垂直方向缩成
 /// 厚度，居中贴边。白条就是窗口本身，任务栏/Dock 永远不被遮挡。
 fn dock_main_window(app: &AppHandle) {
-    if !main_auto_hide_enabled(app) {
+    // 唯一入口闸：开关关着、或落位方式是「屏幕中间」（互斥）都不贴边。
+    if !auto_hide_active(app) {
         return;
     }
     let Some(main) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
@@ -6853,8 +6882,9 @@ fn set_main_auto_hide(app: AppHandle, enabled: bool) -> Result<SettingsView, Str
     settings.main_auto_hide = enabled;
     save_settings(&app, &settings)?;
     if enabled {
-        // 守护线程接管：光标离窗一会儿就贴边（先能看到窗口，别一勾就消失）
-        start_auto_hide_watcher(&app);
+        // 守护线程接管：光标离窗一会儿就贴边（先能看到窗口，别一勾就消失）。
+        // 居中模式下它不会起（互斥），见 ensure_auto_hide_watcher。
+        ensure_auto_hide_watcher(&app);
     } else {
         undock_main_window(&app);
     }
@@ -7109,10 +7139,22 @@ fn set_main_window_position(app: AppHandle, mode: String) -> Result<SettingsView
         &format!("set_main_window_position mode={mode}"),
     );
     let mut settings = stored_settings(&app);
-    settings.main_window_position = mode;
+    settings.main_window_position = mode.clone();
     save_settings(&app, &settings)?;
     // 立刻按新模式落位（free 模式不动，center 立刻居中，last 立刻回到记忆点）
     apply_main_window_position(&app);
+    // 「屏幕中间」与贴边自动隐藏互斥（见 auto_hide_should_run）：切进居中模式
+    // 要停掉 watcher（它在下一拍自己退出），切出去要按需重新拉起 ——
+    // 否则从居中切回自由摆放后贴边就永久失效了。开关值本身不动。
+    ensure_auto_hide_watcher(&app);
+    if mode == "center" && settings.main_auto_hide {
+        record_action(
+            &app,
+            "window-position",
+            false,
+            "「屏幕中间」与贴边自动隐藏互斥：居中期间贴边已停用，切回其他落位方式后自动恢复",
+        );
+    }
     Ok(publish_settings(&app))
 }
 
@@ -7859,12 +7901,14 @@ fn build_tray_menu(app: &AppHandle, state: &UiState) -> tauri::Result<Menu<tauri
         None::<&str>,
     )?;
     menu.append(&hide_from_dock_taskbar)?;
-    // 贴边自动隐藏是高频功能开关，托盘给个快捷入口（与 HTTP 服务/远程请求通知同级）
+    // 贴边自动隐藏是高频功能开关，托盘给个快捷入口（与 HTTP 服务/远程请求通知同级）。
+    // 「屏幕中间」模式下两者互斥，这里整体置灰（勾选态保持设置原值，
+    // 切回其他落位方式即可用）。
     menu.append(&CheckMenuItem::with_id(
         app,
         toggle_menu_id("setting-main-auto-hide", !settings.main_auto_hide),
         "贴边自动隐藏",
-        true,
+        normalize_window_position(&settings.main_window_position) != "center",
         settings.main_auto_hide,
         None::<&str>,
     )?)?;
@@ -9026,7 +9070,8 @@ fn show_main_window(app: &AppHandle, origin: ShowOrigin) {
                 }
             }
         }
-        start_auto_hide_watcher(app);
+        // 居中模式（与贴边互斥）下这里不起线程
+        ensure_auto_hide_watcher(app);
     }
 }
 
@@ -12976,10 +13021,9 @@ pub fn run() {
                     // 贴边隐藏从第一拍起就是可用的（与 Windows 行为一致）。
                     show_main_window(app.handle(), ShowOrigin::Startup);
                 }
-                // 贴边自动隐藏的守护线程：托盘启动也要有（呼出窗口后光标一离就贴边）
-                if stored_settings(app.handle()).main_auto_hide {
-                    start_auto_hide_watcher(app.handle());
-                }
+                // 贴边自动隐藏的守护线程：托盘启动也要有（呼出窗口后光标一离就贴边）；
+                // 居中模式下不起（互斥）
+                ensure_auto_hide_watcher(app.handle());
                 // 诊断钩子：模拟一次「托盘呼出」（见 spawn_diag_recall）。不设环境变量时
                 // 这里什么都不做，产品路径一行不变。
                 spawn_diag_recall(app.handle());
@@ -15637,6 +15681,26 @@ mod core_tests {
         // 主窗刚刚还在动（用户正在拖 / WM 正在摆）
         assert!(!undocked_counts_ticks(true, false, false, false, true));
         assert!(!undocked_counts_ticks(true, false, false, true, true));
+    }
+
+    /// 「屏幕中间」与贴边自动隐藏互斥（用户定案 2026-10-14）：居中要求窗口钉在
+    /// 屏幕正中、贴边要求窗口缩到屏幕边上，两者同时生效就是互相拉扯 —— watcher
+    /// 把窗口搬到边上，居中的 Moved 回弹又把它拉回正中，再贴边再回弹，窗口在
+    /// 贴边位与居中位之间来回抖动（用户报的现象）。
+    /// 开关值本身保留（切回其他落位方式立刻恢复），只在居中模式下整体停用。
+    #[test]
+    fn auto_hide_is_mutually_exclusive_with_center_position() {
+        // 开关开着 + 居中 → 不生效
+        assert!(!auto_hide_should_run(true, "center"));
+        // 开关开着 + 其他落位方式 → 生效（自由摆放 / 上次位置都能贴边）
+        assert!(auto_hide_should_run(true, "free"));
+        assert!(auto_hide_should_run(true, "last"));
+        // 开关关着 → 任何落位方式都不生效
+        assert!(!auto_hide_should_run(false, "free"));
+        assert!(!auto_hide_should_run(false, "center"));
+        // 判据走 normalize：大小写/空白一样算居中；脏值归一为 free，照旧生效
+        assert!(!auto_hide_should_run(true, "  CENTER "));
+        assert!(auto_hide_should_run(true, "乱写"));
     }
 
     /// 展开落点按**客户区**算：客户区的边正好贴回工作区那条边，另一轴保持

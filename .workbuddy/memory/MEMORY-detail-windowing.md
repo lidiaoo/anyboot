@@ -130,3 +130,23 @@ CursorEntered/Left）；光标离开 350ms（`AUTO_HIDE_DELAY_MS`/`TICK_MS`，`d
 - 后端只管：设置落盘 + 窗口宽度（apply_grub_layout_size：inline→460 其余→932），
   setup 启动也调。回合 31 删掉的 OS 独立窗绑定代码不要找回。
 - Xvfb 截图全白 = WebKitGTK 不上屏（改前就白），别拿截图当渲染证据。
+
+## 回合 47：白条位置真因 = 「锁定窗口大小」= set_resizable(false) 钉死窗口尺寸（c536d5d）
+- 现象：右缘贴边后白条不在 A 右边界内（在屏 B 上 300px 处）。
+- 根因链（日志 + 复现台双证）：
+  1. `dock begin edge=Right target=(3752,274)` 请求 client = 80x1440 物理（40 逻辑px 细缝）；
+  2. 实测 `client_size=400x1440`、前端 `viewport=200x720 css (dpr=2)` → **宽度被夹在 200 逻辑px**；
+  3. 200 的来源：GTK3 里**不可缩放窗口**的尺寸 = 子控件最小尺寸（WebKitWebView ≈200x200 逻辑px）。
+     用户 `windowSizeLocked=true` → `apply_window_size_lock` → `set_resizable(false)` → 必现。
+     `xprop -id <win> WM_NORMAL_HINTS` = `min==max==当前尺寸`（GDK 对不可缩放的落地方式）。
+- 修法：`dock_main_window` 缩条前 `set_resizable(true)`（贴边期间临时解锁）；
+  `undock_main_window`（show 后）与 `restore_main_dock_size` 调 `apply_window_size_lock` 回锁。
+  **回锁必须在几何请求之后**：回锁自带夹取（请求被夹进 [子控件最小, 几何提示 max]）。
+- 复现台（本机 `~/.cache/ab-dock-min/`，已收进 skill `linux-x11-window-repro`）：
+  Xvfb 3840x2160 + `GDK_SCALE=2` + `mutter` + **真机 app 本尊**（`XDG_CONFIG_HOME` 副本抄用户 settings.json）
+  + `xdotool` 驱动贴边 + `xprop/xwininfo` 读数。修前右缘 client=400x1440（白条 4140 = 屏 B），
+  修后 80x1440 @3752（白条 3820..3832 = A 右边界内 4 逻辑px），展开后锁仍在（min=max=1864x1440）。
+- 两轮教训：
+  · **dpr=2 / 标题栏 64 物理px 这类「缩放味」数字先别当根因**，本轮它们全自洽，真凶是尺寸夹取；
+  · **设置参数化的差异，裸 GTK 探针会全绿**（4 种 WM × 2x 缩放都能缩到 40px），
+    必须把用户 settings.json 抄进沙箱跑真机本尊。

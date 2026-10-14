@@ -11,11 +11,12 @@
 
 ## 沙箱验证环境
 - Xvfb 三件套缺一即败：① `mkdir -p /tmp/.X11-unix && chmod 1777`；② **Xvfb 本体**加 `__EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/50_mesa.json`（只给它加，别 export）；③ `HOME=/home/jianghh` + XDG 三目录指可写路径。模拟用户屏：1920x1080。
-- **WebKit 渲染在沙箱必崩**（MiniBrowser/anyboot navigate 即 page crash，DMABUF/COMPOSITING 兜底开关也救不了）→ 截图、DOM 校验都过不去，观感验证只能实机。
+- ~~WebKit 渲染在沙箱必崩~~ → **先跑一次再下结论**：2026-10-14 用 Xvfb(3840x2160)+`mutter`+`GDK_SCALE=2`+`__EGL_VENDOR_LIBRARY_FILENAMES` 跑**真机 app 本尊**，页面正常加载、布局/JS 全活（白条取证值就是页面自己报的）。MiniBrowser/navigate 那轮必崩，怀疑与 GL 路径有关。
+- **窗口行为复现台（强烈推荐首选）**：Xvfb 分辨率与 `GDK_SCALE` 对齐真机 + 真 WM（`mutter` 可用；`kwin_x11` 会乱改尺寸、`xfwm4` 缺 xfconfd）+ **app 本尊**，配置走 `XDG_CONFIG_HOME` 副本**照抄用户 settings.json**（设置参数化的 bug 裸探针会全绿）；`xdotool` 摆位/挪光标驱动贴边，`xwininfo -id` 读实际几何，**`xprop -id` 读 WM_NORMAL_HINTS**（本轮实测可用，别再当空壳）。样板 `~/.cache/ab-dock-min/`（probe*.py、run-probe*.sh、run-app*.sh），已收进 skill `linux-x11-window-repro`。
 - WebKitWebDriver：**只认 `-p <port>`**（`--port 4444` 打 Usage）；**MiniBrowser 继承 http_proxy** → 先 unset 全部代理变量；4444 被代理占，换高位端口。脚手架：`~/.cache/ab-ui-dom/wd_ui_batch.py`（UI 批次 14 断言）、`ab-verify/wd_defaults.py`/`wd_pending.py`；`execute/sync` 的 script 要 `return (()=>{...})()`。agent-browser + Chrome 在 `~/.cache/ab-browser`（open+eval 必须同一次 Bash 调用；eval 读不到 let）。
 - 脚本放 `~/.cache/`（/tmp 跨沙箱隔离）；`rm -rf` 用 `/usr/bin/rm`；冒烟塞同一个 Bash 调用前台串完，落盘 `echo >>file`；后台进程用 run_in_background 托管、收摊 TaskStop；判活看「应用日志已监听」+端口，**别用 ps/单测端口**（旧实例会骗过）；每次验证换端口。
 - 沙箱 http_proxy 常开：curl 加 `--noproxy '*'`；构建/浏览器全要清代理。
-- `xdotool search --name` 对中文正则不可靠（先枚举窗口再 shell 逐字比较）；`xprop` 是空壳（读 X 属性用 ctypes 调 libX11.so.6）；点击用 `getwindowgeometry --shell` 算偏移，别写绝对坐标。
+- `xdotool search --name` 对中文正则不可靠（先枚举窗口再 shell 逐字比较）；**同进程常有 20x20 菜单锚窗 / 32x32 辅助窗，取面积最大的那个才是主窗**；点击用 `getwindowgeometry --shell` 算偏移，别写绝对坐标。
 - 取证两通道：`trace()` → trace.log；`startup_debug()` → `<config>/startup-debug.log`（落位/贴边只认后者）。
 - 冒烟脚本库：`~/.cache/ab-verify/`（run/real/auth/exec/resize/localclickswitch/explore/recall）、`ab-win/windows.sh`（三窗截图）、`ab-test/`（ws-live/ws-probe）。
 
@@ -35,7 +36,8 @@
 - 后端 `src-tauri/src/lib.rs`（单文件大）+ `http.rs`（tiny_http 0.12）；前端 `ui/`：index/app.js/styles.css + grub-list-view.js（主窗/GRUB 共用）。`UiState` 唯一事实源，明文 token 不进快照。
 - tiny_http Windows 致命：`RunningServer::stop()` 必须 127.0.0.1 自连接并轮询到端口真能 bind。
 - Linux 写 ESP：先 access(2)，写不动 `pkexec install -p -m 0644`；远程请求圈 `RemoteNoGuiAuth::enter`。
-- 窗口定则：判位只用客户区坐标；改几何=hide→set→show；GTK 带装饰 set_position 是窗框原点；隐藏窗口 `set_size` 不落地且读数陈旧（MAIN_SIZE_PENDING 处理）；隐藏窗口 WebView 视口 0x0；改尺寸后必须等新尺寸落地再重落位。
+- 窗口定则：判位只用客户区坐标；改几何=hide→set→show；GTK 带装饰 set_position 是窗框原点；隐藏窗口 WebView 视口 0x0；改尺寸后必须等新尺寸落地再重落位。
+- **GTK3 定则（必守）**：`set_resizable(false)`（= 「锁定窗口大小」）会把窗口尺寸**钉在子控件最小尺寸**上（WebKitWebView ≈**200x200 逻辑px**），之后 `set_size` 被夹进 `[子控件最小, 几何提示 max]`。任何要缩到 200px 以下的路径（贴边细缝、条形提示）必须先临时 `set_resizable(true)`，落定后再回锁；**回锁必须排在几何请求之后**，否则把尺寸夹回去（全链见 MEMORY-detail-windowing.md「回合 47」）。
 
 ## 移动端（mobile/，WebView 客户端，非原生移植）
 - 只加载电脑端内置 HTTP 服务托管的 `ui/`，`/api/*` 同源；**别交叉编译 Rust 核心**（无 NDK）。
