@@ -5,6 +5,7 @@
   "windows": ["main", "notify", "grub-list", "tray-menu"],
   "permissions": [
     "core:default",
-    "core:window:allow-start-dragging"
+    "core:window:allow-start-dragging",
+    "positioner:default"
   ]
 }

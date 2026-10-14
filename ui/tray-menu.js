@@ -150,6 +150,15 @@ window.addEventListener("keydown", (event) => {
   }
 });
 
+// 点了菜单里的**空白**（分隔线、分组标题、条目之间的空隙）→ 收起菜单 —— 与点菜单
+// 外面的行为一致（菜单本来就该这样）。点在条目上行不行由条目自己的 mousedown 决定，
+// 事件会冒泡到这里，所以用 closest 判断落点。
+document.addEventListener("mousedown", (event) => {
+  if (event.target.closest(".row, .group-row")) return;
+  event.preventDefault();
+  void invoke("tray_menu_close");
+});
+
 /// 主题：跟随主界面的亮/暗（后端给的是 light / dark，与主界面同一套取值）
 function applyTheme(theme) {
   const resolved =

@@ -178,7 +178,6 @@ const TRAY_MENU_MAX_HEIGHT: f64 = 720.0;
 /// 前端量不出内容高度时的标称高度（正常路径下前端总会量出来，这只是兜底）
 const TRAY_MENU_NOMINAL_HEIGHT: f64 = 420.0;
 /// 菜单与托盘图标之间的缝（逻辑像素）
-const TRAY_MENU_GAP: f64 = 6.0;
 /// 刚弹出来这一小段时间里收到的「失焦」是假的（WM 还没把焦点交过来就报了一次），
 /// 滤掉它，免得菜单一闪就没。
 const TRAY_MENU_BLUR_GRACE_MS: u64 = 250;
@@ -5190,7 +5189,7 @@ fn close_tray_menu(app: &AppHandle) {
     if !window.is_visible().unwrap_or(false) {
         return;
     }
-    trace(app, "tray-menu", "收起菜单");
+    startup_debug(app, "托盘菜单收起");
     with_tray_menu_runtime(app, |runtime| {
         runtime.presented = None;
         runtime.opened_at = None;
@@ -5206,47 +5205,7 @@ fn tray_menu_blur_is_fake(app: &AppHandle) -> bool {
     })
 }
 
-/// 把菜单摆到锚点旁边。
-///
-/// 竖着：图标上方放得下就**往上摆**（面板在屏幕底部时走的就是这条，菜单下沿贴着图标上沿）；
-/// 放不下才往下。横着：菜单左边对齐图标左边，再夹进工作区 —— 用工作区而不是屏幕，
-/// 免得菜单被任务栏/面板盖掉一截。
-fn place_tray_menu(app: &AppHandle, window: &tauri::WebviewWindow, logical_height: f64) {
-    let Some((anchor_x, anchor_y)) = with_tray_menu_runtime(app, |runtime| runtime.anchor) else {
-        return;
-    };
-    let monitor = app
-        .monitor_from_point(anchor_x, anchor_y)
-        .ok()
-        .flatten()
-        .or_else(|| app.primary_monitor().ok().flatten());
-    let Some(monitor) = monitor else {
-        return;
-    };
-    // 尺寸用「我们正要设成的逻辑高度」换算，不读回 outer_size：set_size 是投递到主线程
-    // 的异步操作，设完立刻读回还是旧尺寸，位置会偏出去（place_notify_window 同款坑）。
-    let scale = monitor.scale_factor();
-    let width = (TRAY_MENU_WIDTH * scale).round() as i32;
-    let height = (logical_height * scale).round() as i32;
-    let gap = (TRAY_MENU_GAP * scale).round() as i32;
-    let work = monitor.work_area();
-    let left = work.position.x;
-    let top = work.position.y;
-    let right = left + work.size.width as i32;
-    let bottom = top + work.size.height as i32;
-    let anchor_x = anchor_x.round() as i32;
-    let anchor_y = anchor_y.round() as i32;
-    let above = anchor_y - gap - height;
-    let y = if above >= top {
-        above
-    } else {
-        (anchor_y + gap).min(bottom - height).max(top)
-    };
-    let x = anchor_x.clamp(left, (right - width).max(left));
-    let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
-}
-
-/// 前端量好内容高度后「把菜单摆出来」：定尺寸 → 摆到锚点旁 → 显示 → 拿焦点。
+/// 前端量好内容高度后「把菜单摆出来」：定尺寸 → positioner 定位 → 显示 → 拿焦点。
 #[tauri::command]
 fn tray_menu_present(app: AppHandle, height: Option<f64>) -> Result<(), String> {
     let Some(window) = app.get_webview_window(TRAY_MENU_WINDOW_LABEL) else {
@@ -5274,7 +5233,25 @@ fn tray_menu_present(app: AppHandle, height: Option<f64>) -> Result<(), String> 
     let _ = window.set_resizable(true);
     let _ = window.set_size(tauri::LogicalSize::new(TRAY_MENU_WIDTH, height));
     let _ = window.set_resizable(false);
-    place_tray_menu(&app, &window, height);
+    // 定位交给 positioner：TrayCenter = 图标上方、水平对中（Windows/macOS 放不下会
+    // 自动翻到图标下方），constrained 版还会把窗口夹进屏幕。托盘矩形由
+    // `feed_positioner`（Linux SNI）或 `on_tray_icon_event`（Win/mac 原生托盘）喂给插件。
+    // outer_size 一并留痕：set_size 是异步的，若读回的是旧尺寸，位置就会偏 —— 这行
+    // 日志能直接看出「菜单离图标很远」是不是这个原因。
+    #[cfg(desktop)]
+    {
+        use tauri_plugin_positioner::{Position, WindowExt};
+        match window.move_window_constrained(Position::TrayCenter) {
+            Ok(()) => startup_debug(
+                &app,
+                &format!(
+                    "菜单已按 TrayCenter 摆放 outer={:?}",
+                    window.outer_size().ok()
+                ),
+            ),
+            Err(error) => startup_debug(&app, &format!("TrayCenter 摆放失败: {error}")),
+        }
+    }
     let _ = window.show();
     let _ = window.set_focus();
     Ok(())
@@ -13201,6 +13178,11 @@ pub fn run() {
         MacosLauncher::LaunchAgent,
         None,
     ));
+    // 托盘菜单窗的定位交给 positioner：Tray* 位置由插件内部的托盘矩形状态解析
+    // （SNI/托盘事件喂给它，见 feed_positioner 与 on_tray_icon_event），我们不算坐标。
+    // 移动端没有托盘，插件本体也没有 mobile 构建。
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_positioner::init());
     builder
         .plugin(tauri_plugin_dialog::init())
         .on_window_event(|window, event| {
@@ -13212,11 +13194,19 @@ pub fn run() {
                 // 必须拦在下面主窗那条 `Focused` 分支**之前** —— 那条对任何窗口都 `return`。
                 if window.label() == TRAY_MENU_WINDOW_LABEL {
                     match event {
+                        // 拿到焦点也留一行痕：配合失焦行能看出「点外面没关」到底断在哪
+                        tauri::WindowEvent::Focused(true) => {
+                            startup_debug(window.app_handle(), "托盘菜单拿到焦点");
+                        }
                         tauri::WindowEvent::Focused(false) => {
                             let app = window.app_handle().clone();
                             // 刚弹出那一拍会先来一次「假失焦」（WM 还没把焦点交过来），
                             // 不滤掉的话菜单一闪就没。
-                            if !tray_menu_blur_is_fake(&app) {
+                            if tray_menu_blur_is_fake(&app) {
+                                startup_debug(&app, "托盘菜单失焦：刚弹出那一下的假失焦，跳过");
+                            } else {
+                                // 用户可见动作（点外面菜单该消失）没生效时，这行就是取证起点
+                                startup_debug(&app, "托盘菜单失焦 → 收起");
                                 close_tray_menu(&app);
                             }
                         }
@@ -13224,6 +13214,7 @@ pub fn run() {
                         tauri::WindowEvent::CloseRequested { api, .. } => {
                             api.prevent_close();
                             let app = window.app_handle().clone();
+                            startup_debug(&app, "托盘菜单收到关闭请求 → 收起");
                             close_tray_menu(&app);
                         }
                         _ => {}
@@ -13387,6 +13378,9 @@ pub fn run() {
                     .icon(create_tray_image())
                     .show_menu_on_left_click(false)
                     .on_tray_icon_event(|tray, event| {
+                        // 把托盘矩形喂给 positioner（Enter/Move 也带 rect，顺手都收；
+                        // 插件内部会自己过滤只认 Click/Enter/Leave/Move）
+                        tauri_plugin_positioner::on_tray_event(tray.app_handle(), event);
                         let TrayIconEvent::Click {
                             button,
                             button_state: MouseButtonState::Up,
@@ -13839,12 +13833,31 @@ mod linux_sni {
     }
 
     impl SniHandler {
+        /// 把 SNI 拿到的图标原点喂给 positioner：合成一条托盘 Click 事件（插件只读 rect）。
+        /// 宿主没给图标尺寸，用 32×32 标称 —— TrayCenter 只拿宽度的一半做水平居中，误差几像素。
+        /// 没这一步，插件的 `Tray*` 位置会报 "Tray position not set"（它只认 tauri 原生托盘事件）。
+        fn feed_positioner(&self, x: f64, y: f64) {
+            use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent, TrayIconId};
+            let event = TrayIconEvent::Click {
+                id: TrayIconId::new("main"),
+                position: tauri::PhysicalPosition::new(x, y),
+                rect: tauri::Rect {
+                    position: tauri::PhysicalPosition::new(x, y).into(),
+                    size: tauri::PhysicalSize::new(32.0, 32.0).into(),
+                },
+                button: MouseButton::Right,
+                button_state: MouseButtonState::Up,
+            };
+            tauri_plugin_positioner::on_tray_event(&self.app, &event);
+        }
+
         /// 宿主点了托盘图标。点击语义三端一致：左键=显示主窗口，右键/中键=自绘菜单。
         fn activate(&self, msg: &Message, what: &str, menu: bool) -> Message {
             let (x, y) = msg.read2::<i32, i32>().unwrap_or((0, 0));
             // 用户点了托盘 —— 这是用户可见动作，走常开通道留痕（trace 默认关，等于没有）
             startup_debug(&self.app, &format!("托盘{what}点击 ({x}, {y}) → {}", if menu { "弹菜单" } else { "主窗口" }));
             if menu {
+                self.feed_positioner(x as f64, y as f64);
                 open_tray_menu(&self.app, x as f64, y as f64);
             } else {
                 show_main_window(&self.app, ShowOrigin::Recall);
