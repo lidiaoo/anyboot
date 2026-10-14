@@ -13665,7 +13665,13 @@ mod tests {
 // `ContextMenu`=右键（实测坐标是**图标原点**而不是点击点：点 1777 收到 1744）。
 // 点击语义三端一致：左键=显示主窗口，右键（和中键）=弹自绘菜单窗（open_tray_menu）。
 // 属性集与取值照抄实测可行的探针（`~/.cache/ab-dock-min/cin/sni_nomenu.py`）：
-// `ItemIsMenu=false` + `Menu=""` ⇒ 宿主把点击回调给我们，而不是自己弹菜单。
+// `ItemIsMenu=false` + `Menu=/StatusNotifierMenu` ⇒ Cinnamon/KDE 把点击回调给我们
+// （它们只看 ItemIsMenu 决定走不走 ContextMenu），而 GNOME 的 ubuntu-appindicators
+// 扩展**点击（含右键）只按 dbusmenu 渲染宿主菜单、从不回调 ContextMenu**——
+// 曾经 `Menu=""` 时按空路径拉菜单，什么都弹不出来（用户实测：右键没反应）。
+// 所以另外导出一个**只含单项「打开面板」的极简 dbusmenu**（MenuHandler）：GNOME 上
+// 点击 → 扩展渲染这一个原生项 → 点它 → 我们弹自绘菜单窗（坐标取点击瞬间的光标位置，
+// dbusmenu 的 Event 不带坐标）。Cinnamon/KDE 不读这个菜单，行为不变。
 #[cfg(target_os = "linux")]
 mod linux_sni {
     use super::*;
@@ -13682,6 +13688,9 @@ mod linux_sni {
     const INTROSPECT_IFACE: &str = "org.freedesktop.DBus.Introspectable";
     const WATCHER_NAME: &str = "org.kde.StatusNotifierWatcher";
     const WATCHER_PATH: &str = "/StatusNotifierWatcher";
+    /// 单项启动菜单（给 GNOME 的 appindicators 扩展用）的对象路径与接口。
+    const MENU_PATH: &str = "/StatusNotifierMenu";
+    const MENU_IFACE: &str = "com.canonical.dbusmenu";
 
     /// 起一条专用线程跑 SNI 服务。
     ///
@@ -13700,7 +13709,10 @@ mod linux_sni {
             .map_err(|error| format!("连不上会话总线: {error}"))?;
         conn.register_object_path(ITEM_PATH)
             .map_err(|error| format!("注册对象路径 {ITEM_PATH} 失败: {error}"))?;
+        conn.register_object_path(MENU_PATH)
+            .map_err(|error| format!("注册对象路径 {MENU_PATH} 失败: {error}"))?;
         conn.add_handler(SniHandler { app: app.clone() });
+        conn.add_handler(MenuHandler { app: app.clone() });
         // 名字带 pid：多实例互不打架（SNI 惯例，ayatana / KDE 都这么取）
         let name = format!("org.kde.StatusNotifierItem-{}-1", std::process::id());
         conn.register_name(&name, 0)
@@ -13795,6 +13807,24 @@ mod linux_sni {
         }
     }
 
+    /// 把托盘锚点喂给 positioner：合成一条托盘 Click 事件（插件只读 rect）。
+    /// 宿主没给图标尺寸，用 32×32 标称 —— TrayCenter 只拿宽度的一半做水平居中，误差几像素。
+    /// 没这一步，插件的 `Tray*` 位置会报 "Tray position not set"（它只认 tauri 原生托盘事件）。
+    fn feed_positioner(app: &AppHandle, x: f64, y: f64) {
+        use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent, TrayIconId};
+        let event = TrayIconEvent::Click {
+            id: TrayIconId::new("main"),
+            position: tauri::PhysicalPosition::new(x, y),
+            rect: tauri::Rect {
+                position: tauri::PhysicalPosition::new(x, y).into(),
+                size: tauri::PhysicalSize::new(32.0, 32.0).into(),
+            },
+            button: MouseButton::Right,
+            button_state: MouseButtonState::Up,
+        };
+        tauri_plugin_positioner::on_tray_event(app, &event);
+    }
+
     /// 宿主（面板 / watcher）对我们这个 SNI 对象的全部调用。
     ///
     /// `MsgHandlerType` 只能按消息类型过滤、**不能按路径**，所以路径得在这儿自己判。
@@ -13833,31 +13863,13 @@ mod linux_sni {
     }
 
     impl SniHandler {
-        /// 把 SNI 拿到的图标原点喂给 positioner：合成一条托盘 Click 事件（插件只读 rect）。
-        /// 宿主没给图标尺寸，用 32×32 标称 —— TrayCenter 只拿宽度的一半做水平居中，误差几像素。
-        /// 没这一步，插件的 `Tray*` 位置会报 "Tray position not set"（它只认 tauri 原生托盘事件）。
-        fn feed_positioner(&self, x: f64, y: f64) {
-            use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent, TrayIconId};
-            let event = TrayIconEvent::Click {
-                id: TrayIconId::new("main"),
-                position: tauri::PhysicalPosition::new(x, y),
-                rect: tauri::Rect {
-                    position: tauri::PhysicalPosition::new(x, y).into(),
-                    size: tauri::PhysicalSize::new(32.0, 32.0).into(),
-                },
-                button: MouseButton::Right,
-                button_state: MouseButtonState::Up,
-            };
-            tauri_plugin_positioner::on_tray_event(&self.app, &event);
-        }
-
         /// 宿主点了托盘图标。点击语义三端一致：左键=显示主窗口，右键/中键=自绘菜单。
         fn activate(&self, msg: &Message, what: &str, menu: bool) -> Message {
             let (x, y) = msg.read2::<i32, i32>().unwrap_or((0, 0));
             // 用户点了托盘 —— 这是用户可见动作，走常开通道留痕（trace 默认关，等于没有）
             startup_debug(&self.app, &format!("托盘{what}点击 ({x}, {y}) → {}", if menu { "弹菜单" } else { "主窗口" }));
             if menu {
-                self.feed_positioner(x as f64, y as f64);
+                feed_positioner(&self.app, x as f64, y as f64);
                 open_tray_menu(&self.app, x as f64, y as f64);
             } else {
                 show_main_window(&self.app, ShowOrigin::Recall);
@@ -13866,10 +13878,259 @@ mod linux_sni {
         }
     }
 
-    /// 属性表（`org.kde.StatusNotifierItem` 的全部属性）。
+    /// 单项启动菜单的宿主端实现（`com.canonical.dbusmenu`，GNOME 专用）。
     ///
-    /// 取值与类型都照实测可行的探针来（见模块头注释）——尤其这两条决定了 ③ 能不能成：
-    /// `ItemIsMenu = false` 与 `Menu = ""`。
+    /// GNOME 的 appindicators 扩展点击托盘时**只按 dbusmenu 渲染宿主菜单**、从不回调
+    /// `ContextMenu`（`Menu=""` 时它按空路径拉菜单，什么都弹不出来 —— 用户实测）。
+    /// 这里导出**一个 id=1 的单项「打开面板」**：扩展点击 → 渲染这一个原生项 →
+    /// 点它 → `Event("clicked", 1)` → 我们弹自绘菜单窗。Cinnamon/KDE 不读它。
+    ///
+    /// 菜单是**静态**的（revision 恒 1、永远不用 AboutToShow 刷新）：就一项，没什么可变。
+    struct MenuHandler {
+        app: AppHandle,
+    }
+
+    /// 单项的属性表：label / enabled / visible / type（dbusmenu 规范的标准键）。
+    fn menu_item_properties() -> Vec<(&'static str, MessageItem)> {
+        vec![
+            ("type", MessageItem::Str("standard".to_string())),
+            ("label", MessageItem::Str("打开面板".to_string())),
+            ("enabled", MessageItem::Bool(true)),
+            ("visible", MessageItem::Bool(true)),
+        ]
+    }
+
+    /// `a{sv}` 小助手：给 GetLayout / GetGroupProperties 造属性字典。
+    fn menu_props_dict(properties: Vec<(&'static str, MessageItem)>) -> MessageItem {
+        let entries = properties
+            .into_iter()
+            .map(|(name, value)| {
+                (
+                    MessageItem::Str(name.to_string()),
+                    MessageItem::Variant(Box::new(value)),
+                )
+            })
+            .collect();
+        let dict = MessageItemDict::new(
+            entries,
+            Signature::new("s").expect("静态签名"),
+            Signature::new("v").expect("静态签名"),
+        )
+        .expect("键值签名是写死的 s/v，构造不会失败");
+        MessageItem::Dict(dict)
+    }
+
+    /// 一个 dbusmenu 节点：`(i id, a{sv} properties, av children)`。
+    fn menu_node(id: i32, properties: Vec<(&'static str, MessageItem)>) -> MessageItem {
+        MessageItem::Struct(vec![
+            MessageItem::Int32(id),
+            menu_props_dict(properties),
+            MessageItem::Array(
+                MessageItemArray::new(Vec::new(), Signature::new("av").expect("静态签名"))
+                    .expect("元素都是 v"),
+            ),
+        ])
+    }
+
+    impl MsgHandler for MenuHandler {
+        fn handler_type(&self) -> MsgHandlerType {
+            MsgHandlerType::MsgType(MessageType::MethodCall)
+        }
+
+        fn handle_msg(&mut self, msg: &Message) -> Option<MsgHandlerResult> {
+            if msg.path().as_deref() != Some(MENU_PATH) {
+                return None;
+            }
+            let interface = msg.interface().map(|i| i.to_string()).unwrap_or_default();
+            let member = msg.member().map(|m| m.to_string()).unwrap_or_default();
+            let reply = match (interface.as_str(), member.as_str()) {
+                (PROPS_IFACE, "Get") => menu_property_get(msg),
+                (PROPS_IFACE, "GetAll") => menu_properties_get_all(msg),
+                (INTROSPECT_IFACE, "Introspect") => menu_introspect(msg),
+                (MENU_IFACE, "GetLayout") => menu_get_layout(msg),
+                // GNOME 扩展拿到布局后可能再按 id 批量查属性；静态菜单直接回同一张表。
+                (MENU_IFACE, "GetGroupProperties") => menu_group_properties(msg),
+                (MENU_IFACE, "GetProperty") => menu_get_property(msg),
+                (MENU_IFACE, "AboutToShow") => menu_about_to_show(msg),
+                (MENU_IFACE, "AboutToShowGroup") => menu_about_to_show_group(msg),
+                (MENU_IFACE, "Event") => self.menu_event(msg),
+                (MENU_IFACE, "EventGroup") => menu_event_group(msg),
+                _ => unknown_method(msg),
+            };
+            Some(MsgHandlerResult {
+                handled: true,
+                done: false,
+                reply: vec![reply],
+            })
+        }
+    }
+
+    impl MenuHandler {
+        /// 用户点了「打开面板」这一项。`Event(id, eventId, data, timestamp)` 不带坐标，
+        /// 用**点击瞬间的光标位置**当菜单锚点（光标此刻就在托盘图标上，误差一两个像素；
+        /// 内部会派发回主事件循环取值，SNI 线程调用是安全的）。
+        fn menu_event(&self, msg: &Message) -> Message {
+            let items = msg.get_items();
+            // id 按规范是 i32，但有的宿主（含我们自己的探针）发 u32 —— 两种都认。
+            let id_one = matches!(
+                items.first(),
+                Some(MessageItem::Int32(1)) | Some(MessageItem::UInt32(1))
+            );
+            let clicked = matches!(
+                (id_one, items.get(1)),
+                (true, Some(MessageItem::Str(event))) if event == "clicked"
+            );
+            if clicked {
+                let (x, y) = self
+                    .app
+                    .cursor_position()
+                    .map(|position| (position.x, position.y))
+                    .unwrap_or((0.0, 0.0));
+                startup_debug(
+                    &self.app,
+                    &format!("托盘菜单单项点击（dbusmenu）光标=({x},{y}) → 弹菜单"),
+                );
+                feed_positioner(&self.app, x, y);
+                open_tray_menu(&self.app, x, y);
+            }
+            msg.method_return()
+        }
+    }
+
+    /// `Menu` 属性 `Get`：只认 Version / Status，其余回 UnknownProperty 之外的空变体。
+    fn menu_property_get(msg: &Message) -> Message {
+        let property = msg
+            .read2::<String, String>()
+            .map(|(_, property)| property)
+            .unwrap_or_default();
+        let value = match property.as_str() {
+            "Version" => MessageItem::UInt32(3),
+            "Status" => MessageItem::Str("normal".to_string()),
+            _ => MessageItem::Str(String::new()),
+        };
+        let mut reply = msg.method_return();
+        reply.append_items(&[MessageItem::Variant(Box::new(value))]);
+        reply
+    }
+
+    /// `Menu` 属性 `GetAll`。
+    fn menu_properties_get_all(msg: &Message) -> Message {
+        let mut reply = msg.method_return();
+        reply.append_items(&[menu_props_dict(vec![
+            ("Version", MessageItem::UInt32(3)),
+            ("Status", MessageItem::Str("normal".to_string())),
+        ])]);
+        reply
+    }
+
+    /// `GetLayout`：根节点(0) + 单项(1)。无论 depth 给多少都回全树 —— 静态单项，全树最便宜。
+    fn menu_get_layout(msg: &Message) -> Message {
+        // 根(0) 的 children 里挂上单项(1)：dbusmenu 树的层级在 children 的 `av` 里。
+        let item = MessageItem::Variant(Box::new(menu_node(1, menu_item_properties())));
+        let root = MessageItem::Struct(vec![
+            MessageItem::Int32(0),
+            menu_props_dict(vec![(
+                "children-display",
+                MessageItem::Str("submenu".to_string()),
+            )]),
+            MessageItem::Array(
+                MessageItemArray::new(vec![item], Signature::new("av").expect("静态签名"))
+                    .expect("元素都是 v"),
+            ),
+        ]);
+        let mut reply = msg.method_return();
+        reply.append_items(&[
+            MessageItem::UInt32(1), // revision：静态菜单，恒 1
+            root,
+        ]);
+        reply
+    }
+
+    /// `GetGroupProperties(ids, propertyNames)` → `a(ia{sv})`：只有 id=1 一个节点。
+    fn menu_group_properties(msg: &Message) -> Message {
+        let mut reply = msg.method_return();
+        reply.append_items(&[MessageItem::Array(
+            MessageItemArray::new(
+                vec![MessageItem::Struct(vec![
+                    MessageItem::Int32(1),
+                    menu_props_dict(menu_item_properties()),
+                ])],
+                Signature::new("a(ia{sv})").expect("静态签名"),
+            )
+            .expect("元素都是 (ia{sv})"),
+        )]);
+        reply
+    }
+
+    /// `GetProperty(id, name)` → `v`。
+    fn menu_get_property(msg: &Message) -> Message {
+        let (id, property) = msg.read2::<i32, String>().unwrap_or((0, String::new()));
+        let value = if id == 1 {
+            menu_item_properties()
+                .into_iter()
+                .find(|(name, _)| *name == property)
+                .map(|(_, value)| value)
+                .unwrap_or_else(|| MessageItem::Str(String::new()))
+        } else {
+            MessageItem::Str(String::new())
+        };
+        let mut reply = msg.method_return();
+        reply.append_items(&[MessageItem::Variant(Box::new(value))]);
+        reply
+    }
+
+    /// `AboutToShow(id)` → `false`：静态菜单，从来不需刷新。
+    fn menu_about_to_show(msg: &Message) -> Message {
+        let mut reply = msg.method_return();
+        reply.append_items(&[MessageItem::Bool(false)]);
+        reply
+    }
+
+    /// `AboutToShowGroup(ids)` → `(b updateNeeded, ai idErrors)`。
+    fn menu_about_to_show_group(msg: &Message) -> Message {
+        let mut reply = msg.method_return();
+        let empty_ids = MessageItemArray::new(Vec::new(), Signature::new("ai").expect("静态签名"))
+            .expect("元素都是 i");
+        reply.append_items(&[MessageItem::Bool(false), MessageItem::Array(empty_ids)]);
+        reply
+    }
+
+    /// `EventGroup(events)` → `ai idErrors`：逐条按 Event 处理，这里只认 clicks 的简化版
+    /// —— 批量事件宿主实际不会发（扩展逐条发 Event），回空 idErrors 即可。
+    fn menu_event_group(msg: &Message) -> Message {
+        let mut reply = msg.method_return();
+        let empty_ids = MessageItemArray::new(Vec::new(), Signature::new("ai").expect("静态签名"))
+            .expect("元素都是 i");
+        reply.append_items(&[MessageItem::Array(empty_ids)]);
+        reply
+    }
+
+    fn menu_introspect(msg: &Message) -> Message {
+        let xml = "<!DOCTYPE node PUBLIC \"-//freedesktop//DTD D-BUS Object Introspection 1.0//EN\" \
+             \"http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd\"><node>\
+             <interface name=\"com.canonical.dbusmenu\">\
+             <method name=\"GetLayout\"><arg direction=\"in\" type=\"i\"/><arg direction=\"in\" type=\"i\"/><arg direction=\"in\" type=\"as\"/>\
+             <arg direction=\"out\" type=\"u\"/><arg direction=\"out\" type=\"(ia{sv}av)\"/></method>\
+             <method name=\"GetGroupProperties\"><arg direction=\"in\" type=\"ai\"/><arg direction=\"in\" type=\"as\"/>\
+             <arg direction=\"out\" type=\"a(ia{sv})\"/></method>\
+             <method name=\"GetProperty\"><arg direction=\"in\" type=\"i\"/><arg direction=\"in\" type=\"s\"/>\
+             <arg direction=\"out\" type=\"v\"/></method>\
+             <method name=\"Event\"><arg direction=\"in\" type=\"i\"/><arg direction=\"in\" type=\"s\"/><arg direction=\"in\" type=\"v\"/><arg direction=\"in\" type=\"u\"/></method>\
+             <method name=\"EventGroup\"><arg direction=\"in\" type=\"a(iisvu)\"/><arg direction=\"out\" type=\"ai\"/></method>\
+             <method name=\"AboutToShow\"><arg direction=\"in\" type=\"i\"/><arg direction=\"out\" type=\"b\"/></method>\
+             <method name=\"AboutToShowGroup\"><arg direction=\"in\" type=\"ai\"/><arg direction=\"out\" type=\"b\"/><arg direction=\"out\" type=\"ai\"/></method>\
+             <property name=\"Version\" type=\"u\" access=\"read\"/>\
+             <property name=\"Status\" type=\"s\" access=\"read\"/>\
+             </interface></node>";
+        let mut reply = msg.method_return();
+        reply.append_items(&[MessageItem::Str(xml.to_string())]);
+        reply
+    }
+
+    /// 属性表（`org.kde.StatusNotifierItem` 的全部属性）。
+    /// 取值与类型都照实测可行的探针来（见模块头注释）——尤其 `ItemIsMenu = false`：
+    /// 它决定 Cinnamon/KDE 走 `ContextMenu` 回调（菜单归我们画）。`Menu` 指向单项
+    /// dbusmenu，是给 GNOME 的 appindicators 扩展用的（它只认 dbusmenu）。
     fn item_properties() -> Vec<(&'static str, MessageItem)> {
         vec![
             ("Id", MessageItem::Str("anyboot".to_string())),
@@ -13886,7 +14147,7 @@ mod linux_sni {
             ("OverlayIconPixmap", empty_pixmaps()),
             ("ToolTip", tooltip()),
             ("ItemIsMenu", MessageItem::Bool(false)),
-            ("Menu", MessageItem::Str(String::new())),
+            ("Menu", MessageItem::Str(MENU_PATH.to_string())),
             ("WindowId", MessageItem::UInt32(0)),
         ]
     }
@@ -14082,9 +14343,11 @@ mod linux_sni {
             assert_eq!(empty.signature().to_string(), "a(iiay)");
         }
 
-        /// ③（点选择项不关菜单）成立的前提就在头两条：`ItemIsMenu=false` + `Menu=""`
-        /// ⇒ 宿主把点击坐标回调给我们（Activate/ContextMenu），菜单由应用自己画。
-        /// 宿主一旦改回「自己弹菜单」，③ 就没了 —— 所以这两条必须钉住。
+        /// ③（点选择项不关菜单）成立的前提在 `ItemIsMenu=false`：Cinnamon/KDE 据此把
+        /// 点击坐标回调给我们（Activate/ContextMenu），菜单由应用自己画。
+        /// `Menu=/StatusNotifierMenu` 指向单项「打开面板」dbusmenu，只有 GNOME 的
+        /// appindicators 扩展读它（它点击只认 dbusmenu、从不回调 ContextMenu）。
+        /// 这两条取值一旦变动，两端的行为都会变 —— 必须钉住。
         #[test]
         fn item_properties_keep_the_activate_contract() {
             let props = item_properties();
@@ -14096,7 +14359,10 @@ mod linux_sni {
                     .unwrap_or_else(|| panic!("缺属性 {name}"))
             };
             assert_eq!(value("ItemIsMenu"), MessageItem::Bool(false));
-            assert_eq!(value("Menu"), MessageItem::Str(String::new()));
+            assert_eq!(
+                value("Menu"),
+                MessageItem::Str(MENU_PATH.to_string())
+            );
             assert_eq!(value("Status"), MessageItem::Str("Active".to_string()));
             assert_eq!(
                 value("Category"),
@@ -14156,12 +14422,27 @@ mod linux_sni {
                 msg.get1::<MessageItem>(),
                 Some(MessageItem::Variant(Box::new(MessageItem::Bool(false))))
             );
-            assert_eq!(property_value("Menu"), MessageItem::Str(String::new()));
+            assert_eq!(property_value("Menu"), MessageItem::Str(MENU_PATH.to_string()));
             // 不认识的属性回空串
             assert_eq!(
                 property_value("NoSuchProperty"),
                 MessageItem::Str(String::new())
             );
+        }
+
+        /// GetLayout 回执 `(u(ia{sv}av))` 的线格式必须能编码 —— dbusmenu 节点是三层嵌套
+        /// （struct 套 dict 套 av），签名传错宿主会整段解析失败（IconPixmap 同款坑钉过一次）。
+        #[test]
+        fn menu_layout_encodes_to_the_dbusmenu_signature() {
+            let layout = menu_node(
+                0,
+                vec![("children-display", MessageItem::Str("submenu".to_string()))],
+            );
+            assert_eq!(layout.signature().to_string(), "(ia{sv}av)");
+
+            let items = menu_item_properties();
+            let dict = menu_props_dict(items);
+            assert_eq!(dict.signature().to_string(), "a{sv}");
         }
     }
 }
