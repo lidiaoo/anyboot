@@ -13380,7 +13380,7 @@ pub fn run() {
                     .on_tray_icon_event(|tray, event| {
                         // 把托盘矩形喂给 positioner（Enter/Move 也带 rect，顺手都收；
                         // 插件内部会自己过滤只认 Click/Enter/Leave/Move）
-                        tauri_plugin_positioner::on_tray_event(tray.app_handle(), event);
+                        tauri_plugin_positioner::on_tray_event(tray.app_handle(), &event);
                         let TrayIconEvent::Click {
                             button,
                             button_state: MouseButtonState::Up,
