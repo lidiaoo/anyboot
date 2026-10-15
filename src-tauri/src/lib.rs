@@ -3883,6 +3883,23 @@ fn ensure_settings_complete(app: &AppHandle) {
     }
 }
 
+/// 确定性收掉当前 HTTP 监听：`stop()` 返回时端口一定已经放开（tiny_http 的 accept
+/// 线程是异步退场的，等待逻辑在 http::RunningServer::stop 里），所以调用方紧接着
+/// 重绑端口是安全的。
+///
+/// 两个调用方：改配置时的「停旧的再起新的」（apply_http_config），以及「重启程序」
+/// 之前先把端口让出来（restart_app）。
+fn stop_http_server(app: &AppHandle) {
+    let previous = http_lock().server.take();
+    if let Some(server) = previous {
+        let addr = server.addr.clone();
+        match server.stop() {
+            Ok(()) => trace(app, "http", &format!("已停止旧服务 {addr}，端口已放开")),
+            Err(error) => trace(app, "http", &format!("已停止旧服务 {addr}，但{error}")),
+        }
+    }
+}
+
 /// 按当前设置（+ 环境变量覆盖）启动 / 停止 / 重启 HTTP 服务。
 fn apply_http_config(app: &AppHandle) {
     let settings = stored_settings(app);
@@ -3902,14 +3919,7 @@ fn apply_http_config(app: &AppHandle) {
 
     // 先确定性收掉旧服务：stop() 返回时端口一定已经放开（tiny_http 的 accept 线程
     // 是异步退场的，等待逻辑在 http::RunningServer::stop 里），所以下面立刻重绑是安全的。
-    let previous = http_lock().server.take();
-    if let Some(server) = previous {
-        let addr = server.addr.clone();
-        match server.stop() {
-            Ok(()) => trace(app, "http", &format!("已停止旧服务 {addr}，端口已放开")),
-            Err(error) => trace(app, "http", &format!("已停止旧服务 {addr}，但{error}")),
-        }
-    }
+    stop_http_server(app);
 
     let mut last_error = None;
     let mut occupant = None;
@@ -4295,6 +4305,8 @@ fn handle_ui_command_request(app: &AppHandle, request: &RemoteRequest) -> Remote
     let args = parsed.get("args").cloned().unwrap_or(serde_json::Value::Null);
 
     // GUI 交互类命令：要弹**本机**对话框/文件管理器，远程网页没有意义
+    // （「重启程序 / 退出程序」操作的是电脑上那份应用，同理只能在本机点：
+    // 远程端一个误触就把服务关了，谁都连不上）。
     if matches!(
         cmd.as_str(),
         "pick_grub_dir"
@@ -4302,6 +4314,8 @@ fn handle_ui_command_request(app: &AppHandle, request: &RemoteRequest) -> Remote
             | "open_vars_dir"
             | "open_grub_dir"
             | "open_login_items_settings"
+            | "restart_app"
+            | "quit_app"
     ) {
         return RemoteReply::error(
             400,
@@ -14193,6 +14207,36 @@ fn open_vars_dir(app: AppHandle) -> Result<String, String> {
     Ok(vars_dir.display().to_string())
 }
 
+/// 「重启程序」（主窗口顶部标题栏按钮）：拉起一份新实例后本进程退出。
+///
+/// 为什么先停 HTTP 服务再重启：`AppHandle::restart` 是「先 spawn 新进程、再
+/// exit(0)」，新实例起来的那一刻旧进程可能还攥着监听端口 → 新实例第一屏就是
+/// 「端口被本应用的另一个实例占用」的红字。`stop_http_server` 返回时端口一定
+/// 已放开，所以先让出来再拉起。
+///
+/// AppImage 下 tauri 用 `APPIMAGE` 环境变量指回 **.AppImage 文件本身**（而不是挂载
+/// 点里的那份二进制）：否则旧进程一退出、挂载点被卸掉，新进程就成了无源之水
+/// （见 tauri::process::current_binary）。
+#[tauri::command]
+fn restart_app(app: AppHandle) -> Result<(), String> {
+    trace(&app, "command", "restart_app（主窗口）");
+    startup_debug(
+        &app,
+        "用户点「重启程序」：先停 HTTP 监听（放开端口），再拉起新实例并退出本进程",
+    );
+    stop_http_server(&app);
+    app.restart();
+}
+
+/// 「退出程序」（主窗口顶部标题栏按钮）：与托盘菜单里的「退出程序」同一条路。
+#[tauri::command]
+fn quit_app(app: AppHandle) -> Result<(), String> {
+    trace(&app, "command", "quit_app（主窗口）");
+    startup_debug(&app, "用户点「退出程序」（主窗口）");
+    app.exit(0);
+    Ok(())
+}
+
 /// 重试监听（用户点「重试监听」按钮，或端口刚被释放后想再试一次）。
 #[tauri::command]
 fn retry_http(app: AppHandle) -> Result<String, String> {
@@ -14794,6 +14838,8 @@ pub fn run() {
             set_opacity,
             open_config_dir,
             open_vars_dir,
+            restart_app,
+            quit_app,
             retry_http,
             kill_port_occupant,
             confirm_pending,

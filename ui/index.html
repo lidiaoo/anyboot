@@ -33,6 +33,12 @@
               <button class="secondary" id="power-reboot" type="button" data-page-node-id="2RIN6kKHt7BM26YL6EVjzc">重启系统</button>
               <button class="secondary" id="power-shutdown" type="button" data-page-node-id="xEVk1ZrGxSZHXPzAnd1orK">关机</button>
               <button class="secondary" id="power-sleep" type="button" data-page-node-id="eiRSB4x9Qn7sTfWEjJnjqH">睡眠</button>
+              <!-- 应用自身的两个动作跟在电源三键后面（用户定案 2026-10-15）：
+                   系统动作在前、程序动作在后，同一行右对齐 —— 托盘菜单里的
+                   「退出程序」就是这个按钮的托盘版，语义完全一致。
+                   网页端（远程）没有意义也不放行，由 app.js 隐藏。 -->
+              <button class="secondary" id="restart-app" type="button" data-page-node-id="RstAppBtn0012QaZx9CdEf2">重启程序</button>
+              <button class="secondary" id="quit-app" type="button" data-page-node-id="QuitAppBtn001QaZx9CdEf2">退出程序</button>
             </div>
           </div>
           <p id="status" data-page-node-id="cAHMTMt6bTdwE2O13BnbnI">正在扫描 rEFInd 变量目录…</p>

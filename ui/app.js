@@ -447,6 +447,9 @@ const powerButtons = [
   [document.querySelector("#power-shutdown"), "shutdown"],
   [document.querySelector("#power-sleep"), "sleep"],
 ];
+// 程序自身的两个动作（顶部标题栏、电源三键右侧）：重启程序 / 退出程序
+const restartAppElement = document.querySelector("#restart-app");
+const quitAppElement = document.querySelector("#quit-app");
 const startInTrayElement = document.querySelector("#start-in-tray");
 const mainAlwaysOnTopElement = document.querySelector("#main-always-on-top");
 const mainAutoHideElement = document.querySelector("#main-auto-hide");
@@ -1393,6 +1396,8 @@ function render(state) {
   for (const element of [
     refreshElement,
     ...powerButtons.map(([button]) => button),
+    restartAppElement,
+    quitAppElement,
     unmountTemporaryElement,
     useDirectoryElement,
     autostartElement,
@@ -2055,6 +2060,36 @@ unmountTemporaryElement.addEventListener("click", () =>
 
 for (const [button, action] of powerButtons) {
   button.addEventListener("click", () => call("power_action", { action }));
+}
+
+// ---------- 程序自身的两个动作（顶部标题栏） ----------
+// 「重启程序」：后端先停 HTTP 监听（放开端口）再拉起新实例，本进程随即退出 ——
+// 所以这条 invoke 正常永远不返回，走不到下面的 catch。
+restartAppElement.addEventListener("click", async () => {
+  showStatusBar("正在重启程序…");
+  try {
+    await invoke("restart_app");
+  } catch (error) {
+    showStatusBar(String(error), { error: true });
+  }
+});
+
+// 「退出程序」：与托盘菜单里的「退出程序」同一条路（app.exit(0)）。
+quitAppElement.addEventListener("click", async () => {
+  showStatusBar("正在退出程序…");
+  try {
+    await invoke("quit_app");
+  } catch (error) {
+    showStatusBar(String(error), { error: true });
+  }
+});
+
+// 网页端（远程控制页 / 手机客户端）：这两个动作操作的是**电脑上**的应用，
+// 后端也明确不放行（见 ui_command 的本机限定名单）—— 藏起来，别留一个点了
+// 必然报错的死按钮。
+if (IS_BROWSER) {
+  restartAppElement.classList.add("hidden");
+  quitAppElement.classList.add("hidden");
 }
 
 // ---------- GRUB 细粒度切换区 ----------
