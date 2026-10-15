@@ -26,7 +26,8 @@
   - unified = Win/mac 右键直开自绘窗（tray-menu）；Linux 自研 SNI 导出 dbusmenu——**GNOME：壳菜单只有[显示主窗口, 退出程序]两条**（非空弹窗才发 opened），opened→弹自绘窗+150ms 合成 Esc 释 grab；Cinnamon/KDE：全量 dbusmenu 宿主渲染。**AboutToShow=真脏标记（MENU_DIRTY 只在 GetLayout 应答清零，440189c）**——恒 true 会把展开瞬间打回；LayoutUpdated 防重发靠 MENU_SIGNAL_REVISION。
   - **自绘窗落位（9310876 定案）**：unified 优先贴托盘图标**正下方**（水平对图标居中），放不下翻**正上方**，绝不盖图标；classic 上方优先+左对齐。图标矩形用标称 32 物理px（TRAY_MENU_ICON_NOMINAL）。**TrayCenter 已弃用**（固定往上摆、Linux 不翻面）；positioner 插件与喂点保留但落位全手算。
   - **失焦看门狗（9310876）**：收起主路径 Focused(false) 有两漏点（假失焦被宽限吞掉后焦点已丢不再来事件；set_focus 偶发失败从未有焦点）→ spawn_tray_menu_watchdog 250ms 轮询：拿到过焦点又稳定 400ms 无→收；从未拿到→宽限后重试 set_focus、4s 仍无→收（GNOME 点击必聚焦，点在菜单上必有焦点）。runtime 焦点账本 open/close 清零。
-  - **GRUB 区（9310876）**：grub_menu_nodes 对齐主窗列表逻辑（置顶当前项+原位保留、组头▸+系统图标+N 项[+ESP 位置]、条目文字随 grub.listFormat、非原始格式按渲染结果折叠「N 个变体」）——同一份函数喂 unified 自绘窗与 Linux classic dbusmenu，改它两头都变。
+  - **GRUB 区（9310876 + c522443）**：grub_menu_nodes 对齐主窗列表逻辑（置顶当前项+原位保留、组头▸+系统图标+N 项[+ESP 位置]、条目文字随 grub.listFormat、非原始格式按渲染结果折叠「N 个变体」）——**同一份函数喂三处：主窗、unified 自绘窗、Linux classic dbusmenu，以及 Win/mac classic 原生菜单**（c522443 起 build_tray_menu 只做「节点→原生控件」翻译，不再有第二份实现）。改它三头都变。行文字顺序 = **箭头在前、图标在后**（↳ 🐧 linux），与主窗 makeRow 逐字对齐；`menu_signature_for` 的 GRUB 段直接用 grub_menu_nodes 的 JSON，别再自己数。
+  - **macOS 原生对话框不可用（c522443 实测）**：rfd 无 parent 时走 `CFUserNotificationDisplayAlert`，本机只登记不显示（UserNotificationCenter 多一个 4×3/alpha=0 空窗，调用方阻塞 ~30s 才返回）。要弹提示走 `osascript -e 'display dialog … buttons {"好"} default button 1 with icon note giving up after 60'`（实测 420×132 可见、无权限弹框），与电源动作同源。
 - keepsOpen 只在后端算，前端照字段办事；分发统一走 handle_menu_event。
 - positioner：喂点保留（on_tray_event），仅作插件状态维护；落位不再走插件。capabilities 加 positioner:default。
 - Linux SNI 定则：ItemIsMenu=false + Menu=object path（类型错 GNOME 静默丢属性）。GNOME 扩展点击只认 dbusmenu；Cinnamon/KDE 见有效 Menu 会自建宿主菜单消费右键（ContextMenu 回调不来了）。
@@ -46,6 +47,11 @@
 - 远程动作=本机点头（pending+授权窗）；灰掉而不藏按钮。
 - 主窗口顶部标题栏（9bcf278）= 电源三键 + **重启程序 / 退出程序**（系统动作在前、程序动作在后）。两命令走 tauri IPC；`/api/ui-command` 里归 gui_only（400）且网页端隐藏按钮。**restart_app 必须先 stop_http_server 再 app.restart()**（tauri 的 restart 是先 spawn 再 exit(0)，不放开端口新实例第一屏就是「端口被另一个实例占用」）；AppImage 下 tauri 靠 APPIMAGE 指回包本身。两栏布局下 5 个按钮在 460px 左栏会换行（一行 4 + 「退出程序」单占一行），单栏/加宽一行放得下。
 - UI_REVISION 起点跟时间挂钩；split_url() 先剥代理绝对 URI；/api/ui-command 回执放 result 里。
+
+## 单实例（c522443）
+- 配置目录下的 `anyboot.lock`，`File::try_lock`（内核锁，进程死/被杀自动放；同进程第二个 fd 也 WouldBlock，故可单测）。守卫放 `setup` 最前面，拿不到锁就**只提示、后面一行都不做**（不起托盘/不监听/不开窗/不写配置）。
+- **restart_app 的顺序：stop_http_server → release_instance_lock → app.restart()**（少放锁 = 点重启程序直接没了）。
+- 提示：macOS 走 osascript `display dialog`（见上一条 macOS 对话框定则），其余两端走对话框插件（删 DialogExt 里 MessageDialogKind 时要按 cfg 导，macOS 上会变 unused）。`ANYBOOT_CONFIG_DIR` 可跑两套。
 
 ## 结构 / 窗口
 - 后端 src-tauri/src/lib.rs（单文件大）+ http.rs（tiny_http）；前端 ui/（index/app.js/styles.css/grub-list-view.js/tray-menu.js）。UiState 唯一事实源。
