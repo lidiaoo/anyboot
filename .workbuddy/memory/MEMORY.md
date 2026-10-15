@@ -20,12 +20,15 @@
 ## WebKitGTK × NVIDIA
 - X11 唯一正解 `WEBKIT_DMABUF_RENDERER_FORCE_SHM=1`（apply_linux_gpu_workarounds，早于建 WebView）；WEBKIT_DISABLE_DMABUF_RENDERER / COMPOSITING_MODE 已失效勿回用。用户设过任一 WEBKIT 环境开关就不插手。
 
-## 托盘（双形态：classic 原生菜单 / unified 自绘+SNI）
-- **trayMenuStyle 二选一，启动时定接线，切换重启生效**（2026-10-15 用户定案）：
-  - classic（默认）= 三端自绘之前那代：tauri 托盘 + **系统原生菜单**（6b7ef6c^ 恢复）——macOS 菜单挂托盘；Windows 摘菜单+锚点窗 popup_tray_menu 现建现弹（ui/menu-anchor.html，托盘不挂菜单右键仍发事件）；Linux libappindicator 宿主渲染（GNOME 右键也能弹）。绿勾位图 check_mark_*、菜单指纹 menu_signature/remember/invalidate（manage 里 Mutex<Option<String>>）、busy.menu_describe 都是 classic 专用，别再删。
-  - unified = Win/mac 右键直开自绘窗（tray-menu，positioner TrayCenter 落位，**窗口高度封顶=锚点显示器工作区-2×GAP，超出靠 .menu 自滚**）；Linux 自研 SNI（linux_sni，unified 专用）导出**build_menu_nodes 全量内容的动态 dbusmenu** @ /StatusNotifierMenu——右键直接出完整菜单（无「打开面板」中转），点击 run_on_main_thread 派发 handle_menu_event。**AboutToShow=真脏标记（MENU_DIRTY：初始 true、变更置位、只在 GetLayout 清零）**——恒回 true 会把子菜单展开瞬间打回（扩展客户端开子菜单先调 AboutToShow(子id)，true→整树重拉重建=展不开，GNOME 实锤）；LayoutUpdated 防重发靠 MENU_SIGNAL_REVISION（已广播代次）。
+## 托盘（双形态：classic 原生菜单 / unified 自绘+SNI）——当前基线=440189c 线（9310876）
+- **trayMenuStyle 二选一，启动时定接线，切换重启生效**：
+  - classic（默认）= Win/mac：tauri 托盘 + muda 原生菜单（Windows 摘菜单+锚点窗 popup_tray_menu 现建现弹）；**Linux：不建 tauri 托盘，走自研 linux_sni 全量 dbusmenu**（8c96da4 起，muda 0.20 GTK3 子菜单渲染回归绕道；注意与 backup/old-stack-0d43626 分支的「GNOME 回 libayatana」方案相反——那是备选方案，main 走 linux_sni）。绿勾位图 check_mark_*、菜单指纹 menu_signature 链是 classic 依赖，别再删。
+  - unified = Win/mac 右键直开自绘窗（tray-menu）；Linux 自研 SNI 导出 dbusmenu——**GNOME：壳菜单只有[显示主窗口, 退出程序]两条**（非空弹窗才发 opened），opened→弹自绘窗+150ms 合成 Esc 释 grab；Cinnamon/KDE：全量 dbusmenu 宿主渲染。**AboutToShow=真脏标记（MENU_DIRTY 只在 GetLayout 应答清零，440189c）**——恒 true 会把展开瞬间打回；LayoutUpdated 防重发靠 MENU_SIGNAL_REVISION。
+  - **自绘窗落位（9310876 定案）**：unified 优先贴托盘图标**正下方**（水平对图标居中），放不下翻**正上方**，绝不盖图标；classic 上方优先+左对齐。图标矩形用标称 32 物理px（TRAY_MENU_ICON_NOMINAL）。**TrayCenter 已弃用**（固定往上摆、Linux 不翻面）；positioner 插件与喂点保留但落位全手算。
+  - **失焦看门狗（9310876）**：收起主路径 Focused(false) 有两漏点（假失焦被宽限吞掉后焦点已丢不再来事件；set_focus 偶发失败从未有焦点）→ spawn_tray_menu_watchdog 250ms 轮询：拿到过焦点又稳定 400ms 无→收；从未拿到→宽限后重试 set_focus、4s 仍无→收（GNOME 点击必聚焦，点在菜单上必有焦点）。runtime 焦点账本 open/close 清零。
+  - **GRUB 区（9310876）**：grub_menu_nodes 对齐主窗列表逻辑（置顶当前项+原位保留、组头▸+系统图标+N 项[+ESP 位置]、条目文字随 grub.listFormat、非原始格式按渲染结果折叠「N 个变体」）——同一份函数喂 unified 自绘窗与 Linux classic dbusmenu，改它两头都变。
 - keepsOpen 只在后端算，前端照字段办事；分发统一走 handle_menu_event。
-- positioner：插件 Tray* 位置只认原生托盘事件 → `on_tray_event(app,&TrayIconEvent)` 喂入口：Win/mac 在 on_tray_icon_event 喂真实 rect；Linux SNI 在 activate/dbusmenu click 喂 32×32 标称矩形。capabilities 加 positioner:default。
+- positioner：喂点保留（on_tray_event），仅作插件状态维护；落位不再走插件。capabilities 加 positioner:default。
 - Linux SNI 定则：ItemIsMenu=false + Menu=object path（类型错 GNOME 静默丢属性）。GNOME 扩展点击只认 dbusmenu；Cinnamon/KDE 见有效 Menu 会自建宿主菜单消费右键（ContextMenu 回调不来了）。
 - dbus 0.9 坑：MessageItemArray::new 要整条数组签名（带前导 a）；Message::signal(path,iface,name) 直接返 Message（失败 panic）、Connection::send 返 Result<u32,()>；GetLayout 回执 (u(ia{sv}av)) 有单测钉死；快照父节点先 push 再递归（先序，否则 id 错位）。Tauri 2 ACL：新窗口 label 必须进 capabilities/default.json 的 windows，否则 invoke/listen 静默拒。
 - 回归探针：`~/.cache/ab-dock-min/cin/probe40.sh`——假 watcher 总线级回归（不依赖真面板），classic 验 libayatana 全量菜单、unified 验自研 dbusmenu+点击派发；libayatana 不暴露 ItemIsMenu 属性，探针要容错。
