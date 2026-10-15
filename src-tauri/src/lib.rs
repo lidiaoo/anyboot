@@ -15169,15 +15169,78 @@ mod linux_sni {
                 Some(_) => {}
                 None => return Err("会话总线断了".to_string()),
             }
-            // 菜单内容变了（update_tray_menu 置脏）：广播 LayoutUpdated，宿主收到会
-            // 重新 GetLayout —— 菜单是全量动态内容，靠它保鲜。**这里不清脏标记**
-            // （AboutToShow 同读这一位，清零统一在 GetLayout）；靠「已广播代次」防重发。
+            // 菜单内容变了（update_tray_menu 置脏）：两路回显。
+            //
+            // ① **ItemsPropertiesUpdated**：把变了的属性（勾选标记挪动 = label 文字变了）
+            //    主动推给宿主，开着的菜单**就地刷新** —— 这是「双向绑定的回程」。
+            //    只靠 ② 不行：KDE/Qt 宿主对 LayoutUpdated 的响应不可靠（2026-10-15 实测
+            //    菜单开着时不重拉，勾选回显要重开菜单才刷新）。
+            // ② **LayoutUpdated**：兜底信号，宿主收到会重新 GetLayout —— 结构性变化
+            //    （增删条目、子菜单折叠）靠它整树重拉。
+            //
+            // **这里不清脏标记**（AboutToShow 同读这一位，清零统一在 GetLayout）；
+            // 靠「已广播代次」防重发。
             if MENU_DIRTY.load(Ordering::SeqCst) {
                 let revision = MENU_REVISION.load(Ordering::SeqCst);
                 if MENU_SIGNAL_REVISION.swap(revision, Ordering::SeqCst) != revision {
-                    // 三个字符串都是静态字面量，构造失败只可能是代码写错 —— expect 就地崩
-                    let path = DbusPath::new(ITEM_PATH).expect("静态路径合法");
+                    // **信号必须从 Menu 对象路径发**（MENU_PATH，即 Item.Menu 指向的那
+                    // 个）。dbusmenu 规范里 com.canonical.dbusmenu 的信号挂在菜单对象
+                    // 上，宿主按路径匹配订阅 —— 从 ITEM_PATH 发的信号会被所有宿主
+                    // 静默丢弃（2026-10-15 实测：LayoutUpdated 根本到不了探针/宿主，
+                    // 勾选回显不刷新的老病根之一）。静态字面量，构造失败只可能是代码写错。
+                    let path = DbusPath::new(MENU_PATH).expect("静态路径合法");
                     let iface = dbus::strings::Interface::new(MENU_IFACE).expect("静态接口名合法");
+                    // ① 现建新快照与旧快照求属性差分（结构没变才有意义，结构变了
+                    //    交给 ② 整树重拉），换上新快照后推送。
+                    let updates = {
+                        let mut guard = MENU_SNAPSHOT
+                            .lock()
+                            .expect("dbusmenu snapshot mutex poisoned");
+                        match guard.as_ref() {
+                            Some(old) => {
+                                let fresh =
+                                    build_menu_snapshot(&menu_nodes_for_host(&ui_state(&app)));
+                                let updates = menu_property_updates(old, &fresh);
+                                *guard = Some(fresh);
+                                updates
+                            }
+                            None => Vec::new(),
+                        }
+                    };
+                    if !updates.is_empty() {
+                        let updated: Vec<MessageItem> = updates
+                            .into_iter()
+                            .map(|(id, changed)| {
+                                MessageItem::Struct(vec![
+                                    MessageItem::Int32(id),
+                                    menu_props_dict(changed),
+                                ])
+                            })
+                            .collect();
+                        // 信号体：a(ia{sv})a(iias) —— 后半是「被移除的属性」，我们只有
+                        // 属性更新，恒空数组。
+                        let updated = MessageItem::Array(
+                            MessageItemArray::new(
+                                updated,
+                                Signature::new("a(ia{sv})").expect("静态签名"),
+                            )
+                            .expect("元素都是 (ia{sv}) 结构"),
+                        );
+                        let removed = MessageItem::Array(
+                            MessageItemArray::new(
+                                Vec::new(),
+                                Signature::new("a(iias)").expect("静态签名"),
+                            )
+                            .expect("空数组构造不会失败"),
+                        );
+                        let member = dbus::strings::Member::new("ItemsPropertiesUpdated")
+                            .expect("静态成员名合法");
+                        let mut signal = Message::signal(&path, &iface, &member);
+                        signal.append_items(&[updated, removed]);
+                        if let Err(()) = conn.send(signal) {
+                            startup_debug(&app, "ItemsPropertiesUpdated 信号发送失败");
+                        }
+                    }
                     let member =
                         dbus::strings::Member::new("LayoutUpdated").expect("静态成员名合法");
                     let mut signal = Message::signal(&path, &iface, &member);
@@ -15598,6 +15661,43 @@ mod linux_sni {
         };
         snapshot.root_children = walk(nodes, &mut snapshot, &mut next_id);
         snapshot
+    }
+
+    /// 新旧快照的**属性差分**：结构没变（同位同 id、树形一致）时，回每个条目上
+    /// 变了的那几枚属性 —— 供 `ItemsPropertiesUpdated` 让开着的菜单就地刷新勾选
+    /// 回显；结构变了（增删/搬移会让先序 id 整片洗牌）回空，交给 LayoutUpdated
+    /// 让宿主整树重拉（那时按 id 求差分只会对上错行的旧属性）。
+    fn menu_property_updates(
+        old: &MenuSnapshot,
+        new: &MenuSnapshot,
+    ) -> Vec<(i32, Vec<(&'static str, MessageItem)>)> {
+        let structural = old.root_children != new.root_children
+            || old.items.len() != new.items.len()
+            || old
+                .items
+                .iter()
+                .zip(&new.items)
+                .any(|(a, b)| a.dbus_id != b.dbus_id || a.children != b.children);
+        if structural {
+            return Vec::new();
+        }
+        old.items
+            .iter()
+            .zip(&new.items)
+            .filter_map(|(a, b)| {
+                let changed: Vec<(&'static str, MessageItem)> = b
+                    .properties
+                    .iter()
+                    .filter(|(key, value)| {
+                        a.properties
+                            .iter()
+                            .all(|(old_key, old_value)| old_key != key || old_value != value)
+                    })
+                    .cloned()
+                    .collect();
+                (!changed.is_empty()).then_some((b.dbus_id, changed))
+            })
+            .collect()
     }
 
     /// 取当前快照；宿主没先 GetLayout 就来查属性/发事件时现建一份兜底。
@@ -16394,6 +16494,66 @@ mod linux_sni {
             let snapshot = build_menu_snapshot(&[]);
             assert!(snapshot.items.is_empty());
             assert!(snapshot.root_children.is_empty());
+        }
+
+        /// 属性差分：勾选标记挪动 = label 变的两条都要回（ItemsPropertiesUpdated
+        /// 就地刷新回显）；结构变了（增删导致先序 id 洗牌）回空，交给 LayoutUpdated
+        /// 整树重拉；完全一致回空不白发。
+        #[test]
+        fn menu_property_updates_diff_labels_but_not_structures() {
+            let nodes = vec![
+                menu_marked_choice_item("switch:arch", "Arch", true, true),
+                menu_marked_choice_item("switch:mint", "Mint", true, false),
+            ];
+            let before = build_menu_snapshot(&nodes);
+            // 树没变：勾选从 Arch 挪到 Mint
+            let flipped = build_menu_snapshot(&[
+                menu_marked_choice_item("switch:arch", "Arch", true, false),
+                menu_marked_choice_item("switch:mint", "Mint", true, true),
+            ]);
+            let updates = menu_property_updates(&before, &flipped);
+            assert_eq!(updates.len(), 2);
+            assert_eq!(updates[0].0, 1);
+            assert_eq!(
+                updates[0].1,
+                vec![("label", MessageItem::Str("○ Arch".to_string()))]
+            );
+            assert_eq!(updates[1].0, 2);
+            assert_eq!(
+                updates[1].1,
+                vec![("label", MessageItem::Str("◉ Mint".to_string()))]
+            );
+            // 完全一致：无更新
+            assert!(menu_property_updates(&before, &before).is_empty());
+            // 结构变了（多了一条）：回空
+            let grown = build_menu_snapshot(&[
+                nodes[0].clone(),
+                nodes[1].clone(),
+                menu_item("show", "显示主窗口", true),
+            ]);
+            assert!(menu_property_updates(&before, &grown).is_empty());
+        }
+
+        /// ItemsPropertiesUpdated 信号体的线格式必须能编码：`a(ia{sv})a(iias)`
+        /// （后半「被移除的属性」恒空数组）。
+        #[test]
+        fn menu_property_update_bodies_are_wire_encodable() {
+            let updated = MessageItem::Array(
+                MessageItemArray::new(
+                    vec![MessageItem::Struct(vec![
+                        MessageItem::Int32(3),
+                        menu_props_dict(vec![("label", MessageItem::Str("◉ Mint".to_string()))]),
+                    ])],
+                    Signature::new("a(ia{sv})").expect("静态签名"),
+                )
+                .expect("元素都是 (ia{sv})"),
+            );
+            assert_eq!(updated.signature().to_string(), "a(ia{sv})");
+            let removed = MessageItem::Array(
+                MessageItemArray::new(Vec::new(), Signature::new("a(iias)").expect("静态签名"))
+                    .expect("空数组"),
+            );
+            assert_eq!(removed.signature().to_string(), "a(iias)");
         }
     }
 }
