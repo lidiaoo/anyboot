@@ -10882,7 +10882,8 @@ enum PowerAttemptOutcome {
     Success,
     /// 系统里没有这个命令，可以换下一个候选。
     Missing(String),
-    /// 命令在，但**这条候选在本机用不了**（典型：`sudo -n` 没配免密 sudoers）。
+    /// 命令在，但**这条候选在本机用不了**（典型：`sudo -n` 没配免密 sudoers、
+    /// macOS 的「自动化」授权被拒）。
     ///
     /// 必须和 `Missing` 一样按「换下一条候选」处理：它只是「这条方式行不通」，
     /// 不是「用户拒绝了这次操作」。若归进 `Failed`，macOS 上会直接 Stop
@@ -10928,8 +10929,11 @@ fn next_power_step(outcome: &PowerAttemptOutcome, can_escalate: bool) -> PowerSt
 
 /// 各平台的候选命令，按顺序尝试（见 plan §3.2）。
 ///
-/// macOS 先试**免密 sudo**（配了 `/etc/sudoers.d/anyboot` 的 NOPASSWD 就一路无框），
-/// 没配则退回 AppleScript 的管理员授权框（应用自身不需要 root）；
+/// macOS 先走 **AppleEvent → System Events**：这是苹果菜单里「重新启动/关机/睡眠」
+/// 的同一条链路（`loginwindow` 的 `aevt`/`rst`/`sdn` 事件），**任何用户都不需要
+/// 管理员密码**，也不需要改任何配置文件；代价只是首次弹一次「自动化」授权
+/// （「AnyBoot」想要控制「System Events」），点允许后写进该用户的 TCC 库，此后永久免框。
+/// 用不了（系统里没授权、缺 osascript）才退到免密 sudo，最后才是管理员授权框。
 /// Linux 先试免密的 systemctl（本地活动会话下 logind 允许），失败再走 pkexec；
 /// Windows 用自带的 shutdown / rundll32。
 #[cfg(target_os = "macos")]
@@ -10949,22 +10953,31 @@ fn power_attempts(action: PowerAction) -> Vec<PowerAttempt> {
         attempt("sudo", &args, false)
     }
 
+    /// AppleEvent 到 System Events（= 苹果菜单的同一条路，免 root、免配置）。
+    ///
+    /// `needs_gui_auth` 记 false：授权是一次性的**状态**（TCC 库），拿到之后
+    /// 远程/CLI 调也一样免框；只有从未授权过的那一次会弹本机授权框
+    /// （与睡眠那条候选同一约定，见 `docs/remote-api-plan.md` §3.2）。
+    /// macOS 10.14+ 要求 app 声明 `NSAppleEventsUsageDescription`
+    /// （`src-tauri/Info.plist`），否则**连授权框都不弹**、直接报 -1743。
+    fn apple_event(verb: &str) -> PowerAttempt {
+        let script = format!("tell application \"System Events\" to {verb}");
+        attempt("osascript", &["-e", &script], false)
+    }
+
     match action {
         PowerAction::Reboot => vec![
+            apple_event("restart"),
             sudo_nopasswd(&["/sbin/shutdown", "-r", "now"]),
             admin_script("/sbin/shutdown -r now"),
         ],
         PowerAction::Shutdown => vec![
+            apple_event("shut down"),
             sudo_nopasswd(&["/sbin/shutdown", "-h", "now"]),
             admin_script("/sbin/shutdown -h now"),
         ],
         PowerAction::Sleep => vec![
-            // 免 root 的睡眠：首次会要一次「自动化」授权（不是管理员密码框）
-            attempt(
-                "osascript",
-                &["-e", "tell application \"System Events\" to sleep"],
-                false,
-            ),
+            apple_event("sleep"),
             // 配了免密 sudo 的机器：这条就成功，不用再弹框
             sudo_nopasswd(&["/usr/bin/pmset", "sleepnow"]),
             // 兜底：管理员授权框
@@ -11048,6 +11061,25 @@ fn sudo_without_password(program: &str, args: &[String], stderr: &str) -> bool {
         .any(|needle| stderr.contains(needle))
 }
 
+/// AppleEvents（「自动化」授权）被拒时 osascript 的失败文案。
+///
+/// 和 `sudo -n` 一样属于「这条候选在本机用不了」，不算「用户当场取消了授权框」：
+/// TCC 的拒绝是一个**持久状态**（拒了就一直是拒的，不会这次拒下次又问），
+/// 所以归 `Unavailable` 换下一条候选，而不是 `Failed` 停手 —— 停手等于把
+/// 整台机器的重启/关机按钮打死，用户连输密码那条路都走不到。
+/// 判定做成纯函数，单测能钉死文案（osascript 的报错会随系统语言变，按错误码为主）。
+fn apple_events_denied(program: &str, args: &[String], stderr: &str) -> bool {
+    program == "osascript"
+        && args.iter().any(|argument| argument.contains("System Events"))
+        && [
+            "-1743", // errAEEventNotPermitted
+            "Not authorized to send Apple events",
+            "not allowed to send Apple events",
+        ]
+        .iter()
+        .any(|needle| stderr.contains(needle))
+}
+
 fn run_power_command(program: &str, args: &[String]) -> PowerAttemptOutcome {
     let display = render_command(program, args);
     match command(program).args(args).output() {
@@ -11067,6 +11099,10 @@ fn run_power_command(program: &str, args: &[String]) -> PowerAttemptOutcome {
                 .join(" ");
             // 免密 sudo 没配 → 换下一条候选（管理员授权框），别当作用户取消授权。
             if sudo_without_password(program, args, &detail) {
+                return PowerAttemptOutcome::Unavailable(format!("{display}：{detail}"));
+            }
+            // 「自动化」没授权 → 同上，换下一条候选。
+            if apple_events_denied(program, args, &detail) {
                 return PowerAttemptOutcome::Unavailable(format!("{display}：{detail}"));
             }
             if detail.is_empty() {
@@ -11124,7 +11160,8 @@ fn plan_commands(attempts: &[PowerAttempt], allow_gui_auth: bool) -> Vec<String>
 /// 执行电源动作。
 ///
 /// dry-run 时只回传命令清单；真跑时按候选表顺序尝试，沿用既有安全约定——
-/// **只有「命令不存在」才换下一条候选**，命令能跑但失败时要么提权重试、要么停手。
+/// **只有「命令不存在」和「这条候选在本机用不了」才换下一条候选**，
+/// 命令能跑但失败时要么提权重试、要么停手（用户当场取消了授权框就绝不再换方式执行）。
 fn run_power_action(
     action: PowerAction,
     allow_gui_auth: bool,
@@ -14995,16 +15032,23 @@ mod tests {
 
     #[cfg(target_os = "macos")]
     #[test]
-    fn macos_power_table_prefers_nopasswd_sudo_over_the_admin_prompt() {
-        // 重启：先免密 sudo（不弹框），没配免密才退回管理员授权框。
+    fn macos_power_table_starts_with_apple_events_not_a_password_prompt() {
+        // 重启：第一条是 AppleEvent → System Events（苹果菜单同一条路，免密免配置），
+        // 用不了才退免密 sudo，最后才是管理员授权框。
         let reboot = power_attempts(PowerAction::Reboot);
-        assert_eq!(reboot.len(), 2, "macOS 重启：免密 sudo + 管理员授权兜底");
-        assert_eq!(reboot[0].command(), "sudo -n /sbin/shutdown -r now");
-        assert!(!reboot[0].needs_gui_auth, "sudo -n 不会弹密码框");
+        assert_eq!(reboot.len(), 3, "macOS 重启：AppleEvent + 免密 sudo + 授权框兜底");
+        assert_eq!(reboot[0].program, "osascript");
+        assert!(!reboot[0].needs_gui_auth, "AppleEvent 不弹管理员密码框");
+        assert_eq!(
+            reboot[0].args.join(" "),
+            "-e tell application \"System Events\" to restart"
+        );
+        assert_eq!(reboot[1].command(), "sudo -n /sbin/shutdown -r now");
+        assert!(!reboot[1].needs_gui_auth, "sudo -n 不会弹密码框");
 
-        assert_eq!(reboot[1].program, "osascript");
-        assert!(reboot[1].needs_gui_auth);
-        let script = reboot[1].args.join(" ");
+        assert_eq!(reboot[2].program, "osascript");
+        assert!(reboot[2].needs_gui_auth);
+        let script = reboot[2].args.join(" ");
         assert!(
             script.contains("administrator privileges"),
             "实际脚本: {script}"
@@ -15014,16 +15058,25 @@ mod tests {
             "实际脚本: {script}"
         );
         // 候选命令本身就带管理员授权，不需要再提权一层。
-        assert!(escalate_power(&reboot[1], true).is_none());
+        assert!(escalate_power(&reboot[2], true).is_none());
 
-        // 关机同理
+        // 关机同理：AppleScript 的动词是 shut down。
         let shutdown = power_attempts(PowerAction::Shutdown);
-        assert_eq!(shutdown[0].command(), "sudo -n /sbin/shutdown -h now");
-        assert!(shutdown[1].args.join(" ").contains("/sbin/shutdown -h now"));
+        assert_eq!(
+            shutdown[0].args.join(" "),
+            "-e tell application \"System Events\" to shut down"
+        );
+        assert!(!shutdown[0].needs_gui_auth);
+        assert_eq!(shutdown[1].command(), "sudo -n /sbin/shutdown -h now");
+        assert!(shutdown[2].args.join(" ").contains("/sbin/shutdown -h now"));
 
-        // 睡眠：先走免 root 的 System Events，再试免密 sudo，最后才是管理员授权兜底
+        // 睡眠：三条都是免 root 的 AppleEvent 优先，再免密 sudo，最后授权框兜底。
         let sleep = power_attempts(PowerAction::Sleep);
         assert_eq!(sleep.len(), 3);
+        assert_eq!(
+            sleep[0].args.join(" "),
+            "-e tell application \"System Events\" to sleep"
+        );
         assert!(
             !sleep[0].needs_gui_auth && sleep[0].args.join(" ").contains("System Events"),
             "第一条不该弹管理员授权框"
@@ -17555,6 +17608,47 @@ mod core_tests {
             "sudo",
             &nopasswd_args,
             "Request dismissed"
+        ));
+    }
+
+    #[test]
+    fn apple_events_denial_is_a_missing_candidate_not_a_refusal() {
+        let system_events_args = ["-e", "tell application \"System Events\" to restart"]
+            .iter()
+            .map(|value| value.to_string())
+            .collect::<Vec<_>>();
+
+        // 未授权 / 被拒（osascript 原文，中英文都认；错误码优先）。
+        for reason in [
+            "execution error: System Events got an error: Not authorized to send Apple events to System Events. (-1743)",
+            "System Events got an error: osascript is not allowed to send Apple events to System Events. (-1743)",
+            "execution error: (-1743)",
+        ] {
+            assert!(
+                apple_events_denied("osascript", &system_events_args, reason),
+                "应判为「这条候选用不了」: {reason}"
+            );
+        }
+
+        // 管理员授权框（也是 osascript，但脚本里没有 System Events）失败 = 用户取消，
+        // 必须照旧按 Failed 停手。
+        let admin_args = [
+            "-e",
+            "do shell script \"/sbin/shutdown -r now\" with administrator privileges",
+        ]
+        .iter()
+        .map(|value| value.to_string())
+        .collect::<Vec<_>>();
+        assert!(!apple_events_denied(
+            "osascript",
+            &admin_args,
+            "execution error: User canceled. (-128)"
+        ));
+        // 系统里根本没装 osascript 之类，不归这条。
+        assert!(!apple_events_denied(
+            "sudo",
+            &system_events_args,
+            "Not authorized"
         ));
     }
 

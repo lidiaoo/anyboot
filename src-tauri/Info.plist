@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- 这个文件由 Tauri CLI 合并进打包出来的 Info.plist。只加 macOS 需要的
+	     用途说明键，不要覆盖 CLI 生成的值（版本号、bundle id 等）。
+
+	     NSAppleEventsUsageDescription：macOS 10.14+ 的「自动化」（AppleEvents）用途说明。
+	     缺这个键时系统**连授权框都不弹**，直接把事件判为不允许（osascript 报 -1743），
+	     电源动作的 AppleEvent 候选（重启/关机/睡眠）就会白白失败。
+	     有了它，首次执行会弹一次「AnyBoot」想要控制「System Events」，
+	     允许后写进当前用户的 TCC 库，此后永久免框，任何用户都不需要管理员密码。 -->
+	<key>NSAppleEventsUsageDescription</key>
+	<string>AnyBoot 需要通过 System Events 执行重启、关机与睡眠。</string>
+</dict>
+</plist>
