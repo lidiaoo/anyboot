@@ -17,9 +17,13 @@ use tauri::{image::Image, AppHandle, Emitter, Manager};
 // 菜单/托盘是桌面专属（tauri v2 里 menu/tray 模块与几乎全部窗口几何 API
 // 都挂在 #[cfg(desktop)] 下），安卓/iOS 目标编译不过 —— 移动端没有托盘。
 // 原生菜单已经三端全下线：托盘菜单都是同一扇自绘窗（tray-menu），原生点完必关，③ 无从谈起。
-// 托盘图标也只有 Windows / macOS 还用 tauri 的实现：Linux 那颗是自己按 SNI 导出的。
-#[cfg(all(desktop, not(target_os = "linux")))]
+// 托盘图标 classic 方式下三端都用 tauri 的实现（原生菜单挂在托盘上）；
+// unified 方式下只有 Windows / macOS 还用 tauri 的实现，Linux 那颗是自己按 SNI 导出的。
+#[cfg(desktop)]
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+// classic 原生菜单的装配类型（三端自绘之前那套，见 native_menu_node / build_tray_menu）
+#[cfg(desktop)]
+use tauri::menu::{IconMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 // autostart 插件只支持桌面三端（移动端没有「开机自启」概念）
 #[cfg(desktop)]
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
@@ -185,6 +189,14 @@ const TRAY_MENU_GAP: f64 = 6.0;
 const TRAY_MENU_BLUR_GRACE_MS: u64 = 250;
 /// 鼠标离开主窗口后多久贴边隐藏（太灵敏会误触，太迟钝像卡住）
 const AUTO_HIDE_DELAY_MS: u64 = 350;
+/// 托盘右键菜单的锚点窗口标签（Windows 专用、classic 方式用，见 `popup_tray_menu`）
+#[cfg(target_os = "windows")]
+const MENU_ANCHOR_WINDOW_LABEL: &str = "menu-anchor";
+/// 锚点窗口尺寸：只是个坐标原点，多大都行（不可见、无边框）
+#[cfg(target_os = "windows")]
+const MENU_ANCHOR_SIZE: f64 = 8.0;
+/// 绿勾位图边长（classic 原生菜单的「当前项」标记，见 check_mark_image）
+const CHECK_MARK_SIZE: u32 = 16;
 /// 贴边守护线程的轮询周期：光标在不在窗口内、贴没贴边，都靠它扫
 const AUTO_HIDE_TICK_MS: u64 = 120;
 /// 主窗「还在动」的静默期：距最近一条主窗 Moved 不超过它时，watcher 一律不
@@ -928,6 +940,16 @@ impl BusyState {
         self.power.is_some() || self.switching || self.unmounting
     }
 
+    /// 菜单指纹里用的 busy 摘要（只含 affects_menu 的部分）。
+    fn menu_describe(&self) -> String {
+        format!(
+            "power={}|sw={}|un={}",
+            self.power.as_deref().unwrap_or("-"),
+            self.switching as u8,
+            self.unmounting as u8
+        )
+    }
+
     fn describe(&self) -> String {
         let mut parts = Vec::new();
         if let Some(power) = &self.power {
@@ -1099,11 +1121,11 @@ struct Settings {
     /// 主窗口固定显示位置模式：free=用户自由拖动（默认，保持现状）；
     /// center=每次显示都居中；last=记住上次手动摆放的位置。
     main_window_position: String,
-    /// 托盘菜单方式：classic=三端各自方式（锚点来自宿主点击/托盘事件，落位手算
-    /// 显示器工作区夹取；Linux 不导出 dbusmenu，Cinnamon/KDE 走 ContextMenu 回调，
-    /// GNOME 右键无响应）；unified=positioner 的 TrayCenter 全局统一（Linux 额外
-    /// 导出单项「打开面板」dbusmenu 给 GNOME）。落位在下次弹菜单时即时生效；
-    /// 菜单形态（dbusmenu 有无）因宿主缓存属性，重启应用后完全生效。
+    /// 托盘菜单方式：classic=三端各用系统原生托盘菜单（三端自绘之前的原始方案，
+    /// 默认）；unified=全局统一 —— Win/mac 右键直开自绘菜单窗（positioner 的
+    /// TrayCenter 落位），Linux 自研 SNI 导出 build_menu_nodes 全量内容的 dbusmenu
+    /// （GNOME/Cinnamon/KDE 右键都直接出完整菜单）。两种形态的托盘接线在启动时
+    /// 二选一，切换后重启应用生效。
     tray_menu_style: String,
     /// 「上次位置」模式记忆的落点（物理像素；未设定为 None，回退到居中）。
     main_window_last: Option<(i32, i32)>,
@@ -2097,6 +2119,71 @@ fn atomic_copy(source: &Path, target: &Path) -> io::Result<()> {
 
 fn create_tray_image() -> Image<'static> {
     tauri::include_image!("icons/icon.png")
+}
+
+// ==================== classic（各自方式）的原生菜单素材 ====================
+//
+// 托盘菜单的「classic」形态 = 三端各用系统原生菜单（三端自绘之前的原始方案）。
+// 原生菜单改不了文字颜色/字重，所以「哪个系统是选中的」只能用图形表达：
+// 选了的那一行带绿勾、其余行不带 —— 勾占的是菜单**独立的位图列**，
+// 不占用文字，系统的名字因此天然左对齐（以前用「● 」前缀，名字会被顶偏一格）。
+
+/// 绿勾位图（classic 原生菜单的列表类条目用，见 native_menu_node）。
+///
+/// 尺寸固定 16×16：muda 在 Windows 上就是把图标按 16×16 画进位图列的。
+fn check_mark_image() -> Image<'static> {
+    use std::sync::OnceLock;
+    static IMAGE: OnceLock<Image<'static>> = OnceLock::new();
+    IMAGE.get_or_init(build_check_mark_image).clone()
+}
+
+fn build_check_mark_image() -> Image<'static> {
+    Image::new_owned(check_mark_rgba(), CHECK_MARK_SIZE, CHECK_MARK_SIZE)
+}
+
+/// 绿勾的像素（纯函数，便于单测；tauri 的 Image 借不出来，所以拆开）。
+fn check_mark_rgba() -> Vec<u8> {
+    /// 与主界面 --ok 同一个绿（#46c46e）
+    const COLOR: [u8; 3] = [0x46, 0xc4, 0x6e];
+    /// 笔画宽度
+    const STROKE: f32 = 2.2;
+    /// 对勾折线：左下 → 谷底 → 右上
+    const LINE: [(f32, f32); 3] = [(3.2, 8.4), (6.6, 11.8), (12.8, 4.4)];
+
+    let size = CHECK_MARK_SIZE;
+    let mut rgba = vec![0u8; (size * size * 4) as usize];
+    for y in 0..size {
+        for x in 0..size {
+            let (px, py) = (x as f32 + 0.5, y as f32 + 0.5);
+            let distance = LINE
+                .windows(2)
+                .map(|segment| distance_to_segment(px, py, segment[0], segment[1]))
+                .fold(f32::MAX, f32::min);
+            // 半个像素的过渡带：边缘不平滑的话 16px 的勾会全是锯齿
+            let coverage = (STROKE / 2.0 + 0.5 - distance).clamp(0.0, 1.0);
+            if coverage <= 0.0 {
+                continue;
+            }
+            let offset = ((y * size + x) * 4) as usize;
+            rgba[offset..offset + 3].copy_from_slice(&COLOR);
+            rgba[offset + 3] = (coverage * 255.0).round() as u8;
+        }
+    }
+    rgba
+}
+
+/// 点到线段的距离（画对勾用，纯函数）。
+fn distance_to_segment(px: f32, py: f32, a: (f32, f32), b: (f32, f32)) -> f32 {
+    let (ax, ay) = a;
+    let (dx, dy) = (b.0 - ax, b.1 - ay);
+    let length_squared = dx * dx + dy * dy;
+    let t = if length_squared == 0.0 {
+        0.0
+    } else {
+        (((px - ax) * dx + (py - ay) * dy) / length_squared).clamp(0.0, 1.0)
+    };
+    let (cx, cy) = (ax + t * dx, ay + t * dy);
+    ((px - cx).powi(2) + (py - cy).powi(2)).sqrt()
 }
 
 /// 环境变量布尔开关的纯逻辑部分（便于单测）：1/true/yes/on 与 0/false/no/off。
@@ -7551,8 +7638,8 @@ fn set_tray_menu_style(app: AppHandle, mode: String) -> Result<SettingsView, Str
     if settings.tray_menu_style != mode {
         settings.tray_menu_style = mode.clone();
         save_settings(&app, &settings)?;
-        // 用户可见动作留痕（常开通道）：两边各自怎么定位，日志一行可辨
-        startup_debug(&app, &format!("托盘菜单方式 → {mode}（落位下次弹菜单生效；GNOME 菜单形态重启应用后生效）"));
+        // 用户可见动作留痕（常开通道）：两种形态在启动时二选一，切换后重启生效
+        startup_debug(&app, &format!("托盘菜单方式 → {mode}（重启应用后生效）"));
     }
     Ok(publish_settings(&app))
 }
@@ -8600,33 +8687,354 @@ fn build_menu_nodes(state: &UiState) -> Vec<MenuNode> {
     nodes
 }
 
-/// 把最新状态推给托盘：菜单窗开着就重画，Win/mac 顺带刷 tooltip。
-///
-/// 三端都没有原生菜单了，指纹/重建那套机制随之删除 —— 原生菜单「内容没变就不重建」
-/// 的开销（重建 + 重挂会闪断）只属于宿主渲染；自绘窗这里推一份纯数据而已，
-/// 而且只有菜单**开着**才需要推。
-fn update_tray_menu(app: &AppHandle, state: &UiState, trigger: &str) -> tauri::Result<()> {
-    if let Some(window) = app.get_webview_window(TRAY_MENU_WINDOW_LABEL) {
-        if window.is_visible().unwrap_or(false) {
-            trace(app, "tray", &format!("菜单窗开着，推送最新内容 trigger={trigger}"));
-            emit_tray_menu_nodes(app, &window, state);
+// ==================== classic（各自方式）：三端原生托盘菜单 ====================
+//
+// 这是「三端自绘」之前的原始方案（6b7ef6c 之前的形态）：托盘图标由 tauri 托管，
+// 菜单是**原生菜单**——Windows 现建现弹（锚点窗）、macOS 挂在托盘上由系统弹、
+// Linux 挂在托盘上由宿主按 dbusmenu 渲染（libappindicator 那条路）。自绘窗方案
+// 作为「全局统一」方式保留，两种形态按 trayMenuStyle 在启动时二选一。
+
+/// 把模型里的一条装成**原生**菜单项（Windows / macOS 用；Linux 走宿主渲染也是同一份内容）。
+#[cfg(desktop)]
+fn native_menu_node(
+    app: &AppHandle,
+    node: &MenuNode,
+) -> tauri::Result<Box<dyn tauri::menu::IsMenuItem<tauri::Wry>>> {
+    Ok(match node.kind {
+        "sep" => Box::new(PredefinedMenuItem::separator(app)?),
+        "sub" => {
+            let children: Vec<Box<dyn tauri::menu::IsMenuItem<tauri::Wry>>> = node
+                .children
+                .iter()
+                .map(|child| native_menu_node(app, child))
+                .collect::<tauri::Result<_>>()?;
+            let refs: Vec<&dyn tauri::menu::IsMenuItem<tauri::Wry>> =
+                children.iter().map(|child| child.as_ref()).collect();
+            Box::new(Submenu::with_items(
+                app,
+                &node.label,
+                node.enabled,
+                &refs,
+            )?)
         }
+        // 列表类条目的「当前项」用勾位图表达（系统列表/GRUB 条目/顶部那行）。
+        // 开关与单选不在这里 —— 它们的勾画在标签文字里（见 toggle_label）。
+        _ => {
+            let id = node.id.clone().unwrap_or_default();
+            if node.checked == Some(true) {
+                Box::new(IconMenuItem::with_id(
+                    app,
+                    id,
+                    &node.label,
+                    node.enabled,
+                    Some(check_mark_image()),
+                    None::<&str>,
+                )?)
+            } else {
+                Box::new(MenuItem::with_id(
+                    app,
+                    id,
+                    &node.label,
+                    node.enabled,
+                    None::<&str>,
+                )?)
+            }
+        }
+    })
+}
+
+/// 把菜单模型装成原生菜单。
+#[cfg(desktop)]
+fn native_menu(app: &AppHandle, nodes: &[MenuNode]) -> tauri::Result<Menu<tauri::Wry>> {
+    let menu = Menu::new(app)?;
+    for node in nodes {
+        menu.append(native_menu_node(app, node)?.as_ref())?;
     }
-    // Linux 的托盘提示是 SNI 的静态 ToolTip（状态在菜单第一行里），不用跟着刷；
-    // Win/mac 的 tooltip 承担同样的「一眼看状态」职责，跟着状态走。
-    #[cfg(not(target_os = "linux"))]
+    Ok(menu)
+}
+
+/// 托盘菜单（原生形态）。
+///
+/// 只负责构建菜单，不碰托盘图标。setup 的第一帧和后续重建走同一份实现。
+#[cfg(desktop)]
+fn build_tray_menu(app: &AppHandle, state: &UiState) -> tauri::Result<Menu<tauri::Wry>> {
+    native_menu(app, &build_menu_nodes(state))
+}
+
+/// 托盘右键（classic 形态）。
+///
+/// Windows：菜单由我们自己弹（锚点在工作区下沿，见 `popup_tray_menu`），
+/// 所以托盘上**没有**挂菜单，右键只有这个事件可走。
+/// 其他平台：菜单挂在托盘上，什么时候弹、弹在哪由面板/系统决定，这里无事可做。
+fn on_tray_right_click(app: &AppHandle, cursor: tauri::PhysicalPosition<f64>) {
+    #[cfg(not(target_os = "windows"))]
     {
-        let Some(tray) = app.tray_by_id("main") else {
-            trace(app, "tray", "未找到托盘图标 main，tooltip 没有刷新");
-            return Ok(());
-        };
-        let tooltip = state
-            .status
-            .error
-            .clone()
-            .unwrap_or_else(|| format!("AnyBoot：{}", state.status.message));
-        tray.set_tooltip(Some(tooltip))?;
+        let _ = (app, cursor);
     }
+    #[cfg(target_os = "windows")]
+    popup_tray_menu(app, cursor);
+}
+
+/// Windows 上托盘右键菜单**由我们自己弹**，锚点落在工作区下沿（任务栏上沿）。
+///
+/// 为什么不能交给原生实现：tray-icon 的锚点是**光标**，而托盘图标的光标落在任务栏里；
+/// Windows 的 TrackPopupMenu 只保证菜单不越出**屏幕**，不保证不越出**工作区**。
+/// 本机实测（2194×1234、任务栏 40px）：锚在光标上菜单底部 = 1214，把任务栏压住 20px；
+/// 锚在工作区底边（1194）则压住 0px。用 `-flags TPM_BOTTOMALIGN|TPM_LEFTALIGN` 也一样，
+/// 所以只能换锚点，不能换标志位。
+///
+/// 锚点怎么给：`Menu::popup_at` 会把坐标当**锚点窗口的客户区坐标**再 `ClientToScreen` 一次，
+/// 而锚点窗口是无边框的、创建时就停在 (0,0) —— 客户区原点就是屏幕原点，
+/// 于是「屏幕坐标 - 窗口原点」正好是要传的值（窗口原点万一不是 (0,0) 也照样算对）。
+#[cfg(target_os = "windows")]
+fn popup_tray_menu(app: &AppHandle, cursor: tauri::PhysicalPosition<f64>) {
+    // `popup_at` 定义在公开 trait 上，只有 Windows 这条路用到它
+    use tauri::menu::ContextMenu;
+
+    let Some(anchor) = app.get_webview_window(MENU_ANCHOR_WINDOW_LABEL) else {
+        trace(app, "tray", "锚点窗口不在，右键菜单没有弹出");
+        return;
+    };
+    let monitor = app
+        .monitor_from_point(cursor.x, cursor.y)
+        .ok()
+        .flatten()
+        .or_else(|| app.primary_monitor().ok().flatten());
+    let Some(monitor) = monitor else {
+        trace(app, "tray", "拿不到显示器信息，右键菜单没有弹出");
+        return;
+    };
+    let work = monitor.work_area();
+    let target = tauri::PhysicalPosition::new(
+        cursor.x.round() as i32,
+        work.position.y + work.size.height as i32,
+    );
+    let origin = anchor
+        .outer_position()
+        .unwrap_or(tauri::PhysicalPosition::new(0, 0));
+    let position = tauri::PhysicalPosition::new(target.x - origin.x, target.y - origin.y);
+
+    // 菜单按**此刻**的快照现建：这样永远是最新状态，也省掉了「状态变了要记得重建」的坑
+    let menu = match build_tray_menu(app, &ui_state(app)) {
+        Ok(menu) => menu,
+        Err(error) => {
+            trace(app, "tray", &format!("右键菜单构建失败：{error}"));
+            return;
+        }
+    };
+    if let Err(error) = menu.popup_at(anchor.as_ref().window(), position) {
+        trace(app, "tray", &format!("右键菜单弹出失败：{error}"));
+    }
+}
+
+// ==================== 菜单内容指纹（classic 原生菜单的「变了才重建」） ====================
+
+/// 托盘菜单内容摘要：同样内容 → 同样签名。
+///
+/// 用它做「内容没变就不重建菜单」的指纹（原生菜单重建 + 重挂会闪断）；
+/// unified 方式下同一个指纹用来决定要不要给 dbusmenu 发 LayoutUpdated。
+fn menu_signature(
+    message: &str,
+    temporary_mount: bool,
+    settings: &Settings,
+    variables: &[VariableInfo],
+    error: Option<&str>,
+    busy: &BusyState,
+    http_state: &str,
+) -> String {
+    // 系统行上每个可见字段都进指纹：系统名 / 显示名 / 选中 / 存在。
+    // 少一个就会出现「数据变了但菜单没重建」的假状态。
+    let variables = variables
+        .iter()
+        .map(|variable| {
+            format!(
+                "{}:{}:{}{}",
+                variable.system,
+                variable.display_name,
+                if variable.active { "+" } else { "-" },
+                if variable.exists { "o" } else { "x" }
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    format!(
+        "msg={message}|tmp={}|autostart={}|tray={}|dock={}|close={:?}|http={}|notify={}|autohide={}|delay={},{}|vars={variables}|err={}|busy={}|httpState={http_state}",
+        temporary_mount as u8,
+        settings.autostart as u8,
+        settings.start_in_tray as u8,
+        settings.hide_from_dock_taskbar as u8,
+        settings.close_action,
+        // 远程控制子菜单里的勾选与「监听状态」行都从设置/运行态来，
+        // 不进指纹的话主窗口一改，托盘那边就停在旧样子
+        settings.http_enabled as u8,
+        settings.notify_enabled as u8,
+        // 贴边自动隐藏的托盘勾选态也要进指纹
+        settings.main_auto_hide as u8,
+        settings.channels.http.delay_seconds,
+        settings.channels.cli.delay_seconds,
+        error.unwrap_or(""),
+        // 动作进行中菜单项会变灰，所以 busy 必须进指纹，否则置灰不会生效
+        busy.menu_describe()
+    )
+}
+
+fn menu_signature_for(state: &UiState) -> String {
+    let base = menu_signature(
+        &state.status.message,
+        state.status.temporary_mount,
+        &state.settings.settings,
+        &menu_system_rows(&state.status.variables),
+        state.status.error.as_deref(),
+        &state.busy,
+        &state.http.state_text,
+    );
+    // 固定显示位置的模式进指纹（托盘子菜单三个勾选项跟着变）
+    let position = normalize_window_position(&state.settings.settings.main_window_position);
+    // 固定显示器及其选项列表也进指纹：勾选态跟着变，显示器热插拔后
+    // 选项集变了也要重建菜单
+    let fixed_monitor = normalize_fixed_monitor(&state.settings.settings.main_fixed_monitor);
+    let monitor_options = state.settings.main_monitor_options.join(",");
+    // GRUB 条目也进指纹：条目集 / 选中项变了托盘 GRUB 区要跟着重建
+    let active = state
+        .grub
+        .next_entry
+        .as_deref()
+        .or(state.grub.saved_entry.as_deref())
+        .unwrap_or("");
+    // 条目名 / 分组名 / 列表格式都进指纹：托盘顶部那行现在是**级联文字**
+    // （「Linux › 组名 › 条目文字」，随 list_format 变），GRUB 子菜单也直接
+    // 显示条目名 —— 少一个就会出现「名字变了但托盘没重建」的假状态。
+    let grub_items = state
+        .grub
+        .entries
+        .iter()
+        .map(|entry| {
+            format!(
+                "{}{}{}",
+                entry.selector,
+                if entry.selector == active { "+" } else { "-" },
+                entry.name
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    let grub_groups = state
+        .grub
+        .groups
+        .iter()
+        .map(|group| format!("{}:{}", group.id, group.name))
+        .collect::<Vec<_>>()
+        .join(",");
+    let next_boot = next_boot_cascade(&state.status.variables, &state.grub);
+    format!(
+        "{base}|wpos={position}|fmon={fixed_monitor}|fmons={monitor_options}|grub={grub_items}|grubgroups={grub_groups}|grublf={}|nb={next_boot}",
+        state.grub.list_format
+    )
+}
+
+/// 记住当前菜单内容，让后续相同内容的刷新直接跳过重建。
+fn remember_menu_signature(app: &AppHandle, signature: String) {
+    *app.state::<Mutex<Option<String>>>()
+        .lock()
+        .expect("menu signature mutex poisoned") = Some(signature);
+}
+
+/// 作废指纹记忆：下一次 publish 一定重建菜单（哪怕内容算出来没变）。
+///
+/// 托盘菜单的实时性全靠「重建 + 重挂」：勾选标记、置灰、状态行都是重建那一刻才刷新的。
+/// 而「用户点了菜单」这件事本身就是一个「显示可能与真实状态不符」的信号 ——
+/// 比如单选项点的是已选中的那个（设置没变、指纹没变），但宿主那边的勾选态很可能
+/// 已经被工具包翻过了。所以每次菜单点击都廉价地作废一次指纹，让界面马上回到真实状态。
+fn invalidate_menu_signature(app: &AppHandle) {
+    *app.state::<Mutex<Option<String>>>()
+        .lock()
+        .expect("menu signature mutex poisoned") = None;
+}
+
+/// 把最新状态推给托盘（classic 原生菜单 / unified 自绘窗+dbusmenu 两种形态）。
+fn update_tray_menu(app: &AppHandle, state: &UiState, trigger: &str) -> tauri::Result<()> {
+    let signature = menu_signature_for(state);
+    if tray_menu_style_is_unified(app) {
+        // unified：自绘窗开着就推一份纯数据（Linux unified 菜单窗根本不开，天然跳过）；
+        // Linux 的 dbusmenu 按指纹置脏，SNI 线程发 LayoutUpdated 让宿主来重新拉取。
+        if let Some(window) = app.get_webview_window(TRAY_MENU_WINDOW_LABEL) {
+            if window.is_visible().unwrap_or(false) {
+                trace(app, "tray", &format!("菜单窗开着，推送最新内容 trigger={trigger}"));
+                emit_tray_menu_nodes(app, &window, state);
+            }
+        }
+        #[cfg(target_os = "linux")]
+        linux_sni::menu_layout_changed(menu_signature_changed(app, &signature));
+        // Linux 的托盘提示是 SNI 的静态 ToolTip（状态在菜单第一行里），不用跟着刷；
+        // Win/mac 的 tooltip 承担同样的「一眼看状态」职责，跟着状态走。
+        #[cfg(not(target_os = "linux"))]
+        update_tray_tooltip(app, state)?;
+        return Ok(());
+    }
+
+    // classic：原生菜单。**内容没变就不重建**（指纹相同直接返回）——
+    // 重建 + 重挂正是「扫描期间菜单闪断 / 要点两次」的诱因。
+    if !menu_signature_changed(app, &signature) {
+        trace(
+            app,
+            "tray",
+            &format!("菜单内容未变，跳过重建 trigger={trigger} sig={signature}"),
+        );
+        return Ok(());
+    }
+    trace(
+        app,
+        "tray",
+        &format!("菜单内容已变 trigger={trigger} sig={signature}"),
+    );
+    let Some(tray) = app.tray_by_id("main") else {
+        trace(app, "tray", "未找到托盘图标 main，菜单没有挂上");
+        return Ok(());
+    };
+    let tooltip = state
+        .status
+        .error
+        .clone()
+        .unwrap_or_else(|| format!("AnyBoot：{}", state.status.message));
+    // Windows 上菜单**不挂到托盘**：右键那一刻现建现弹（见 popup_tray_menu），
+    // 这里的指纹就只剩「别白刷一遍 tooltip」这一个用处。
+    #[cfg(not(target_os = "windows"))]
+    {
+        tray.set_menu(Some(build_tray_menu(app, state)?))?;
+        trace(app, "tray", "菜单已重建并挂上托盘");
+    }
+    #[cfg(target_os = "windows")]
+    trace(app, "tray", "菜单不挂托盘（Windows 右键时现建现弹）");
+    tray.set_tooltip(Some(tooltip))?;
+    Ok(())
+}
+
+/// 指纹比对 + 记忆。返回「这次和上次比内容变了吗」。
+///
+/// 统一给两种形态用：classic 变了重建原生菜单，unified 变了给 dbusmenu 发更新信号。
+fn menu_signature_changed(app: &AppHandle, signature: &str) -> bool {
+    let cache = app.state::<Mutex<Option<String>>>();
+    let mut cache = cache.lock().expect("menu signature mutex poisoned");
+    if cache.as_deref() == Some(signature) {
+        return false;
+    }
+    *cache = Some(signature.to_string());
+    true
+}
+
+/// unified 方式下 Win/mac 的 tooltip 跟状态走（Linux 是 SNI 静态 ToolTip，不在此列）。
+#[cfg(not(target_os = "linux"))]
+fn update_tray_tooltip(app: &AppHandle, state: &UiState) -> tauri::Result<()> {
+    let Some(tray) = app.tray_by_id("main") else {
+        trace(app, "tray", "未找到托盘图标 main，tooltip 没有刷新");
+        return Ok(());
+    };
+    let tooltip = state
+        .status
+        .error
+        .clone()
+        .unwrap_or_else(|| format!("AnyBoot：{}", state.status.message));
+    tray.set_tooltip(Some(tooltip))?;
     Ok(())
 }
 
@@ -8760,6 +9168,10 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
         return;
     };
     trace(app, "menu-action", &format!("id={id} → {action:?}"));
+    // 用户交互过菜单：先作废指纹（见 invalidate_menu_signature），
+    // 让这次动作引发的 publish 一定刷新菜单（classic 重建原生菜单 / unified 发
+    // LayoutUpdated），把勾选标记刷成真实状态。
+    invalidate_menu_signature(app);
     // 窗口操作留在事件线程上执行；其余动作放工作线程（可能耗时或要授权）。
     if action == MenuAction::Show {
         show_main_window(app, ShowOrigin::Recall);
@@ -13280,7 +13692,9 @@ pub fn run() {
         .manage(Mutex::<BusyState>::default())
         .manage(Mutex::<Option<ActionResult>>::default())
         // 自绘托盘菜单的锚点/已呈现高度/弹出时刻
-        .manage(Mutex::<TrayMenuRuntime>::default());
+        .manage(Mutex::<TrayMenuRuntime>::default())
+        // 菜单内容指纹（classic 原生菜单「变了才重建」/ unified dbusmenu「变了才发信号」）
+        .manage(Mutex::<Option<String>>::default());
     // macOS 13+ 走系统登录项（见 login_item），这里的 LaunchAgent 方式仅作为
     // 旧版 macOS 以及 Windows / Linux 的实现。移动端没有「开机自启」，不注册。
     #[cfg(desktop)]
@@ -13472,43 +13886,111 @@ pub fn run() {
             // —— 托盘与菜单整段桌面专属（移动端没有托盘/原生菜单）——
             #[cfg(desktop)]
             {
-                // Linux：托盘图标**不再交给 tauri**，由我们自己按 SNI 协议导出（见 linux_sni 模块）。
-                // 两个理由：① tray-icon 的 gtk 后端在 X11 上连 activate 信号都没接、不发任何
-                // 点击事件，应用根本不知道托盘被点过；② 只要往托盘挂菜单，菜单就由宿主渲染
-                // （GtkMenu），点完必关，③ 无从谈起。SNI 那条路我们既拿得到点击坐标，也自己弹菜单。
-                #[cfg(target_os = "linux")]
-                linux_sni::spawn(app.handle().clone());
+                // 两种形态在启动时二选一（切换 trayMenuStyle 后重启生效）：
+                // classic（默认）= 三端各用系统原生托盘菜单（三端自绘之前的原始方案）；
+                // unified = 全局统一 —— 自绘菜单窗（Win/mac 右键直开）+ Linux 自研 SNI
+                // 导出**全量菜单内容的 dbusmenu**（GNOME/Cinnamon/KDE 右键都直达内容）。
+                if tray_menu_style_is_unified(app.handle()) {
+                    // Linux：托盘图标**不交给 tauri**，由我们自己按 SNI 协议导出
+                    // （见 linux_sni 模块）：既拿得到点击坐标，也能把菜单内容按
+                    // build_menu_nodes 的纯数据全量导出给宿主渲染。
+                    #[cfg(target_os = "linux")]
+                    linux_sni::spawn(app.handle().clone());
 
-                // Windows / macOS：托盘只留**图标**，不挂任何原生菜单 —— 菜单三端都是
-                // 同一扇自绘窗（tray-menu）。左键=显示主窗口，右键=自绘菜单。
-                // （tray-icon 在这两端的 Click 事件**不依赖菜单**：macOS 是 rightMouseDown
-                // 无条件发事件、空菜单只 highlight；Windows 是 WM_RBUTTONUP 直发事件。）
-                #[cfg(not(target_os = "linux"))]
-                let _tray = TrayIconBuilder::with_id("main")
-                    .icon(create_tray_image())
-                    .show_menu_on_left_click(false)
-                    .on_tray_icon_event(|tray, event| {
-                        // 把托盘矩形喂给 positioner（Enter/Move 也带 rect，顺手都收；
-                        // 插件内部会自己过滤只认 Click/Enter/Leave/Move）
-                        tauri_plugin_positioner::on_tray_event(tray.app_handle(), &event);
-                        let TrayIconEvent::Click {
-                            button,
-                            button_state: MouseButtonState::Up,
-                            position,
-                            ..
-                        } = event
-                        else {
-                            return;
-                        };
-                        let app = tray.app_handle();
-                        match button {
-                            MouseButton::Left => show_main_window(app, ShowOrigin::Recall),
-                            // position = 光标的物理屏幕坐标（左上原点），正好当菜单锚点
-                            MouseButton::Right => open_tray_menu(app, position.x, position.y),
-                            _ => {}
-                        }
-                    })
-                    .build(app.handle())?;
+                    // Windows / macOS：托盘只留**图标**，不挂任何原生菜单 —— 菜单是
+                    // 同一扇自绘窗（tray-menu）。左键=显示主窗口，右键=自绘菜单。
+                    // （tray-icon 在这两端的 Click 事件**不依赖菜单**：macOS 是 rightMouseDown
+                    // 无条件发事件、空菜单只 highlight；Windows 是 WM_RBUTTONUP 直发事件。）
+                    #[cfg(not(target_os = "linux"))]
+                    let _tray = TrayIconBuilder::with_id("main")
+                        .icon(create_tray_image())
+                        .show_menu_on_left_click(false)
+                        .on_tray_icon_event(|tray, event| {
+                            // 把托盘矩形喂给 positioner（Enter/Move 也带 rect，顺手都收；
+                            // 插件内部会自己过滤只认 Click/Enter/Leave/Move）
+                            tauri_plugin_positioner::on_tray_event(tray.app_handle(), &event);
+                            let TrayIconEvent::Click {
+                                button,
+                                button_state: MouseButtonState::Up,
+                                position,
+                                ..
+                            } = event
+                            else {
+                                return;
+                            };
+                            let app = tray.app_handle();
+                            match button {
+                                MouseButton::Left => show_main_window(app, ShowOrigin::Recall),
+                                // position = 光标的物理屏幕坐标（左上原点），正好当菜单锚点
+                                MouseButton::Right => open_tray_menu(app, position.x, position.y),
+                                _ => {}
+                            }
+                        })
+                        .build(app.handle())?;
+                } else {
+                    // classic：三端原生托盘菜单（三端自绘之前的原始方案，原样恢复）。
+                    let initial_state = ui_state(app.handle());
+                    // 预热菜单指纹：这一帧就是当前内容，别让紧接着的首次扫描白重建一次菜单
+                    remember_menu_signature(app.handle(), menu_signature_for(&initial_state));
+
+                    // Windows：右键菜单由我们自己弹（见 popup_tray_menu），先从托盘上**摘掉**菜单，
+                    // 否则原生实现会抢在事件前面用「光标锚点」把它弹出来，压住任务栏。
+                    // 托盘不挂菜单这一点对 tray-icon 是合法的：右键仍会照常发 Click 事件给我们。
+                    // 菜单锚点窗口 —— 8×8、无边框、不可见，创建时就停在 (0,0)。
+                    // `popup_at` 会把坐标当它的**客户区坐标**再 ClientToScreen 一次，停在原点坐标才好算。
+                    //
+                    // 为什么是「带 webview 的窗口」而不是更轻的 `WindowBuilder`：`AppHandle::get_window`
+                    // 被 tauri 的 `unstable` feature 挡着（`windows()` 同理），只有 `get_webview_window`
+                    // 是公开 API；而这里在 setup 里建一次、之后每次右键按 label 取回来，是最省事也最稳的路子。
+                    // 多出来的这个 webview 从头到尾不可见、不参与交互，就是一块坐标基准。
+                    #[cfg(not(target_os = "windows"))]
+                    let initial_menu = build_tray_menu(app.handle(), &initial_state)?;
+                    #[cfg(target_os = "windows")]
+                    tauri::WebviewWindowBuilder::new(
+                        app.handle(),
+                        MENU_ANCHOR_WINDOW_LABEL,
+                        tauri::WebviewUrl::App("menu-anchor.html".into()),
+                    )
+                    .inner_size(MENU_ANCHOR_SIZE, MENU_ANCHOR_SIZE)
+                    .position(0.0, 0.0)
+                    .decorations(false)
+                    .resizable(false)
+                    .skip_taskbar(true)
+                    .visible(false)
+                    .focused(false)
+                    .build()?;
+
+                    // Windows 上托盘不挂菜单，`mut` 只有其他平台用得上
+                    #[allow(unused_mut)]
+                    let mut tray_builder = TrayIconBuilder::with_id("main")
+                        .icon(create_tray_image())
+                        .show_menu_on_left_click(false)
+                        .on_tray_icon_event(|tray, event| {
+                            let TrayIconEvent::Click {
+                                button,
+                                button_state: MouseButtonState::Up,
+                                position,
+                                ..
+                            } = event
+                            else {
+                                return;
+                            };
+                            let app = tray.app_handle();
+                            match button {
+                                MouseButton::Left => show_main_window(app, ShowOrigin::Recall),
+                                MouseButton::Right => on_tray_right_click(app, position),
+                                _ => {}
+                            }
+                        })
+                        .on_menu_event(|app, event| {
+                            handle_menu_event(app, event.id().as_ref());
+                        });
+                    #[cfg(not(target_os = "windows"))]
+                    {
+                        tray_builder = tray_builder.menu(&initial_menu);
+                    }
+                    let _tray = tray_builder.build(app.handle())?;
+                }
             }
 
             // HTTP 服务与待执行请求的调度线程（托盘已就绪，publish_ui 能刷菜单）
@@ -13780,9 +14262,11 @@ mod tests {
 // （它们只看 ItemIsMenu 决定走不走 ContextMenu），而 GNOME 的 ubuntu-appindicators
 // 扩展**点击（含右键）只按 dbusmenu 渲染宿主菜单、从不回调 ContextMenu**——
 // 曾经 `Menu=""` 时按空路径拉菜单，什么都弹不出来（用户实测：右键没反应）。
-// 所以另外导出一个**只含单项「打开面板」的极简 dbusmenu**（MenuHandler）：GNOME 上
-// 点击 → 扩展渲染这一个原生项 → 点它 → 我们弹自绘菜单窗（坐标取点击瞬间的光标位置，
-// dbusmenu 的 Event 不带坐标）。Cinnamon/KDE 不读这个菜单，行为不变。
+//
+// 本模块只在 **unified（全局统一）方式**下启动：导出的 dbusmenu 承载
+// build_menu_nodes 的**全量菜单内容**（不是早期那个单项「打开面板」中转）——
+// 右键托盘，GNOME/Cinnamon/KDE 都直接把完整菜单渲染出来，点条目直达动作。
+// classic（各自方式）不走这里：托盘图标由 tauri 托管、菜单是原生菜单。
 #[cfg(target_os = "linux")]
 mod linux_sni {
     use super::*;
@@ -13791,6 +14275,7 @@ mod linux_sni {
     use dbus::strings::{ErrorName, Path as DbusPath};
     use dbus::{Message, MessageType, Signature};
     use std::ffi::CStr;
+    use std::sync::atomic::AtomicU32;
 
     /// 我们导出的对象路径。注册给 watcher 的也是它，宿主便按「调用方唯一名 + 这个路径」找我们。
     const ITEM_PATH: &str = "/StatusNotifierItem";
@@ -13802,6 +14287,27 @@ mod linux_sni {
     /// 单项启动菜单（给 GNOME 的 appindicators 扩展用）的对象路径与接口。
     const MENU_PATH: &str = "/StatusNotifierMenu";
     const MENU_IFACE: &str = "com.canonical.dbusmenu";
+
+    /// dbusmenu 内容代次：内容每变一次 +1（GetLayout 回执与 LayoutUpdated 信号都用它）。
+    static MENU_REVISION: AtomicU32 = AtomicU32::new(1);
+    /// 内容变脏标记：update_tray_menu 检测到指纹变化时置位，SNI 线程轮询到就发 LayoutUpdated。
+    /// （内容变化发生在主线程，连接在线程内部建不出去 —— 只能隔一个原子标记接力。）
+    static MENU_DIRTY: AtomicBool = AtomicBool::new(false);
+    /// 最近一次 GetLayout 建立的快照：dbusmenu 数字 id ↔ 动作 id 的对应表。
+    /// 宿主先 GetLayout 拿树、再按数字 id 发 Event —— 两边都读这一份才对得上。
+    static MENU_SNAPSHOT: Mutex<Option<MenuSnapshot>> = Mutex::new(None);
+
+    /// unified 菜单内容变化入口（update_tray_menu 在主线程调）。
+    ///
+    /// 指纹变了 → 代次 +1 + 置脏；SNI 线程下一拍发出 LayoutUpdated，宿主收到后重新
+    /// GetLayout 拿到全量新内容。Win/mac 上没有 SNI 线程，置的脏没人消费，无副作用。
+    pub(crate) fn menu_layout_changed(changed: bool) {
+        if !changed {
+            return;
+        }
+        MENU_REVISION.fetch_add(1, Ordering::SeqCst);
+        MENU_DIRTY.store(true, Ordering::SeqCst);
+    }
 
     /// 起一条专用线程跑 SNI 服务。
     ///
@@ -13884,6 +14390,20 @@ mod linux_sni {
                 Some(_) => {}
                 None => return Err("会话总线断了".to_string()),
             }
+            // 菜单内容变了（update_tray_menu 置脏）：广播 LayoutUpdated，
+            // 宿主收到会重新 GetLayout —— 菜单是全量动态内容，靠它保鲜。
+            if MENU_DIRTY.swap(false, Ordering::SeqCst) {
+                let revision = MENU_REVISION.load(Ordering::SeqCst);
+                // 三个字符串都是静态字面量，构造失败只可能是代码写错 —— expect 就地崩
+                let path = DbusPath::new(ITEM_PATH).expect("静态路径合法");
+                let iface = dbus::strings::Interface::new(MENU_IFACE).expect("静态接口名合法");
+                let member = dbus::strings::Member::new("LayoutUpdated").expect("静态成员名合法");
+                let mut signal = Message::signal(&path, &iface, &member);
+                signal.append_items(&[MessageItem::UInt32(revision), MessageItem::Int32(0)]);
+                if let Err(()) = conn.send(signal) {
+                    startup_debug(&app, "LayoutUpdated 信号发送失败");
+                }
+            }
             if registered || next_try > Instant::now() {
                 continue;
             }
@@ -13922,11 +14442,8 @@ mod linux_sni {
     /// 宿主没给图标尺寸，用 32×32 标称 —— TrayCenter 只拿宽度的一半做水平居中，误差几像素。
     /// 没这一步，插件的 `Tray*` 位置会报 "Tray position not set"（它只认 tauri 原生托盘事件）。
     fn feed_positioner(app: &AppHandle, x: f64, y: f64) {
-        // classic 方式不喂 positioner（落位走 place_tray_menu，插件状态保持干净 ——
-        // 不同用途不共用同一条数据通路）。一处闸住 Linux SNI 与 Win/mac 两个入口。
-        if !tray_menu_style_is_unified(app) {
-            return;
-        }
+        // 本模块只在 unified 方式下启动（classic 用原生菜单，不经过这里）；
+        // Win/mac 的入口在 on_tray_icon_event 里直接喂原生事件。
         use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent, TrayIconId};
         let event = TrayIconEvent::Click {
             id: TrayIconId::new("main"),
@@ -13960,11 +14477,10 @@ mod linux_sni {
             }
             let interface = msg.interface().map(|i| i.to_string()).unwrap_or_default();
             let member = msg.member().map(|m| m.to_string()).unwrap_or_default();
-            let unified = tray_menu_style_is_unified(&self.app);
             let reply = match (interface.as_str(), member.as_str()) {
-                (PROPS_IFACE, "Get") => properties_get(msg, unified),
-                (PROPS_IFACE, "GetAll") => properties_get_all(msg, unified),
-                (INTROSPECT_IFACE, "Introspect") => introspect(msg, unified),
+                (PROPS_IFACE, "Get") => properties_get(msg),
+                (PROPS_IFACE, "GetAll") => properties_get_all(msg),
+                (INTROSPECT_IFACE, "Introspect") => introspect(msg),
                 (ITEM_IFACE, "Activate") => self.activate(msg, "左键", false),
                 (ITEM_IFACE, "SecondaryActivate") => self.activate(msg, "中键", true),
                 (ITEM_IFACE, "ContextMenu") => self.activate(msg, "右键", true),
@@ -13995,26 +14511,118 @@ mod linux_sni {
         }
     }
 
-    /// 单项启动菜单的宿主端实现（`com.canonical.dbusmenu`，GNOME 专用）。
+    /// 全量菜单的宿主端实现（`com.canonical.dbusmenu`）。
     ///
-    /// GNOME 的 appindicators 扩展点击托盘时**只按 dbusmenu 渲染宿主菜单**、从不回调
-    /// `ContextMenu`（`Menu=""` 时它按空路径拉菜单，什么都弹不出来 —— 用户实测）。
-    /// 这里导出**一个 id=1 的单项「打开面板」**：扩展点击 → 渲染这一个原生项 →
-    /// 点它 → `Event("clicked", 1)` → 我们弹自绘菜单窗。Cinnamon/KDE 不读它。
+    /// unified 方式下三家的右键都走这里：GNOME 的 appindicators 扩展点击托盘时**只按
+    /// dbusmenu 渲染宿主菜单**、从不回调 `ContextMenu`（`Menu=""` 时它按空路径拉菜单，
+    /// 什么都弹不出来 —— 用户实测）；Cinnamon（xapp）与 KDE 看到有效的 Menu 也会自建
+    /// 宿主菜单消费右键。所以把 build_menu_nodes 的**全量内容**导出成 dbusmenu ——
+    /// 右键直接出完整菜单、点条目直达动作，没有「打开面板」中转。
     ///
-    /// 菜单是**静态**的（revision 恒 1、永远不用 AboutToShow 刷新）：就一项，没什么可变。
+    /// 内容是**动态**的：每次 GetLayout 都按当前 UiState 现建快照；内容变化（指纹变了）
+    /// 走 LayoutUpdated 信号 + AboutToShow 提醒宿主重新拉取。
     struct MenuHandler {
         app: AppHandle,
     }
 
-    /// 单项的属性表：label / enabled / visible / type（dbusmenu 规范的标准键）。
-    fn menu_item_properties() -> Vec<(&'static str, MessageItem)> {
-        vec![
-            ("type", MessageItem::Str("standard".to_string())),
-            ("label", MessageItem::Str("打开面板".to_string())),
-            ("enabled", MessageItem::Bool(true)),
-            ("visible", MessageItem::Bool(true)),
-        ]
+    /// 一次 GetLayout 现建的 dbusmenu 快照。
+    ///
+    /// dbusmenu 的 id 是它自己的 i32 编号（1 起顺序分配，0 恒为根）；
+    /// `node_id` 是点击时要派发的动作 id（与自绘窗同一套，分隔线/表头没有）。
+    /// 宿主先 GetLayout 拿树、再按数字 id 发 Event —— 两边都读 MENU_SNAPSHOT 这一份才对得上。
+    struct MenuSnapshot {
+        items: Vec<SnapshotNode>,
+        root_children: Vec<i32>,
+    }
+
+    struct SnapshotNode {
+        dbus_id: i32,
+        node_id: Option<String>,
+        /// dbusmenu 规范的标准属性（type/label/enabled/visible/toggle-*）。
+        properties: Vec<(&'static str, MessageItem)>,
+        children: Vec<i32>,
+    }
+
+    /// 把菜单模型装成 dbusmenu 快照：深度优先，id 顺序分配。
+    fn build_menu_snapshot(nodes: &[MenuNode]) -> MenuSnapshot {
+        let mut next_id = 1i32;
+        fn walk(
+            nodes: &[MenuNode],
+            snapshot: &mut MenuSnapshot,
+            next_id: &mut i32,
+        ) -> Vec<i32> {
+            let mut ids = Vec::new();
+            for node in nodes {
+                let dbus_id = *next_id;
+                *next_id += 1;
+                let properties = match node.kind {
+                    "sep" => vec![
+                        ("type", MessageItem::Str("separator".to_string())),
+                        ("visible", MessageItem::Bool(true)),
+                    ],
+                    _ => {
+                        let mut properties = vec![
+                            ("type", MessageItem::Str("standard".to_string())),
+                            ("label", MessageItem::Str(node.label.clone())),
+                            ("enabled", MessageItem::Bool(node.enabled)),
+                            ("visible", MessageItem::Bool(true)),
+                        ];
+                        // 列表类条目的「当前项」交给宿主的勾选机制（自绘窗用 checked 字段
+                        // 自己画；原生菜单用绿勾位图 —— 各端各表，语义相同）。
+                        if let Some(checked) = node.checked {
+                            // 单选组（keepsOpen 的列表条目）报 radio，孤立的标记行动作报 checkbox
+                            properties.push((
+                                "toggle-type",
+                                MessageItem::Str(
+                                    if node.keeps_open { "radio" } else { "checkbox" }.to_string(),
+                                ),
+                            ));
+                            properties.push((
+                                "toggle-state",
+                                MessageItem::Int32(if checked { 1 } else { 0 }),
+                            ));
+                        }
+                        properties
+                    }
+                };
+                // 先序入列：父节点先占坑，子节点随后 —— items 的顺序与 id 一致，好排查
+                let index = snapshot.items.len();
+                snapshot.items.push(SnapshotNode {
+                    dbus_id,
+                    node_id: node.id.clone(),
+                    properties,
+                    children: Vec::new(),
+                });
+                ids.push(dbus_id);
+                if node.kind == "sub" {
+                    let children = walk(&node.children, snapshot, next_id);
+                    snapshot.items[index].children = children;
+                }
+            }
+            ids
+        }
+        let mut snapshot = MenuSnapshot {
+            items: Vec::new(),
+            root_children: Vec::new(),
+        };
+        snapshot.root_children = walk(nodes, &mut snapshot, &mut next_id);
+        snapshot
+    }
+
+    /// 取当前快照；宿主没先 GetLayout 就来查属性/发事件时现建一份兜底。
+    fn with_menu_snapshot<R>(
+        app: &AppHandle,
+        use_it: impl FnOnce(&MenuSnapshot) -> R,
+    ) -> R {
+        let mut guard = MENU_SNAPSHOT
+            .lock()
+            .expect("dbusmenu snapshot mutex poisoned");
+        if guard.is_none() {
+            let state = ui_state(app);
+            *guard = Some(build_menu_snapshot(&build_menu_nodes(&state)));
+        }
+        let snapshot = guard.as_ref().expect("快照刚补过，必有");
+        use_it(snapshot)
     }
 
     /// `a{sv}` 小助手：给 GetLayout / GetGroupProperties 造属性字典。
@@ -14038,12 +14646,16 @@ mod linux_sni {
     }
 
     /// 一个 dbusmenu 节点：`(i id, a{sv} properties, av children)`。
-    fn menu_node(id: i32, properties: Vec<(&'static str, MessageItem)>) -> MessageItem {
+    fn menu_node(
+        id: i32,
+        properties: Vec<(&'static str, MessageItem)>,
+        children: Vec<MessageItem>,
+    ) -> MessageItem {
         MessageItem::Struct(vec![
             MessageItem::Int32(id),
             menu_props_dict(properties),
             MessageItem::Array(
-                MessageItemArray::new(Vec::new(), Signature::new("av").expect("静态签名"))
+                MessageItemArray::new(children, Signature::new("av").expect("静态签名"))
                     .expect("元素都是 v"),
             ),
         ])
@@ -14064,10 +14676,10 @@ mod linux_sni {
                 (PROPS_IFACE, "Get") => menu_property_get(msg),
                 (PROPS_IFACE, "GetAll") => menu_properties_get_all(msg),
                 (INTROSPECT_IFACE, "Introspect") => menu_introspect(msg),
-                (MENU_IFACE, "GetLayout") => menu_get_layout(msg),
-                // GNOME 扩展拿到布局后可能再按 id 批量查属性；静态菜单直接回同一张表。
-                (MENU_IFACE, "GetGroupProperties") => menu_group_properties(msg),
-                (MENU_IFACE, "GetProperty") => menu_get_property(msg),
+                (MENU_IFACE, "GetLayout") => self.menu_get_layout(msg),
+                // 宿主拿到布局后可能再按 id 批量查属性；从快照里按 id 查。
+                (MENU_IFACE, "GetGroupProperties") => self.menu_group_properties(msg),
+                (MENU_IFACE, "GetProperty") => self.menu_get_property(msg),
                 (MENU_IFACE, "AboutToShow") => menu_about_to_show(msg),
                 (MENU_IFACE, "AboutToShowGroup") => menu_about_to_show_group(msg),
                 (MENU_IFACE, "Event") => self.menu_event(msg),
@@ -14083,34 +14695,184 @@ mod linux_sni {
     }
 
     impl MenuHandler {
-        /// 用户点了「打开面板」这一项。`Event(id, eventId, data, timestamp)` 不带坐标，
-        /// 用**点击瞬间的光标位置**当菜单锚点（光标此刻就在托盘图标上，误差一两个像素；
-        /// 内部会派发回主事件循环取值，SNI 线程调用是安全的）。
+        /// 用户点了菜单里的某一项。`Event(id, eventId, data, timestamp)` 不带坐标、
+        /// 也带不来自绘窗 —— 这里按快照把数字 id 换回动作 id，派发与自绘窗**同一份**
+        /// handle_menu_event（动作可能碰窗口，必须回主线程执行）。
         fn menu_event(&self, msg: &Message) -> Message {
             let items = msg.get_items();
             // id 按规范是 i32，但有的宿主（含我们自己的探针）发 u32 —— 两种都认。
-            let id_one = matches!(
-                items.first(),
-                Some(MessageItem::Int32(1)) | Some(MessageItem::UInt32(1))
-            );
+            let id = match items.first() {
+                Some(MessageItem::Int32(id)) => Some(*id),
+                Some(MessageItem::UInt32(id)) => Some(*id as i32),
+                _ => None,
+            };
             let clicked = matches!(
-                (id_one, items.get(1)),
-                (true, Some(MessageItem::Str(event))) if event == "clicked"
+                (id, items.get(1)),
+                (Some(_), Some(MessageItem::Str(event))) if event == "clicked"
             );
-            if clicked {
-                let (x, y) = self
-                    .app
-                    .cursor_position()
-                    .map(|position| (position.x, position.y))
-                    .unwrap_or((0.0, 0.0));
-                startup_debug(
-                    &self.app,
-                    &format!("托盘菜单单项点击（dbusmenu）光标=({x},{y}) → 弹菜单"),
-                );
-                feed_positioner(&self.app, x, y);
-                open_tray_menu(&self.app, x, y);
+            if let (true, Some(id)) = (clicked, id) {
+                let node_id = with_menu_snapshot(&self.app, |snapshot| {
+                    snapshot
+                        .items
+                        .iter()
+                        .find(|entry| entry.dbus_id == id)
+                        .and_then(|entry| entry.node_id.clone())
+                });
+                match node_id {
+                    Some(node_id) => {
+                        startup_debug(
+                            &self.app,
+                            &format!("托盘菜单点击（dbusmenu id={id}）→ 动作 {node_id}"),
+                        );
+                        let app = self.app.clone();
+                        let dispatch_app = app.clone();
+                        if let Err(error) = app
+                            .run_on_main_thread(move || handle_menu_event(&dispatch_app, &node_id))
+                        {
+                            startup_debug(
+                                &self.app,
+                                &format!("派发菜单动作回主线程失败: {error}"),
+                            );
+                        }
+                    }
+                    None => {
+                        startup_debug(
+                            &self.app,
+                            &format!("托盘菜单点击（dbusmenu id={id}）快照里没有，已忽略"),
+                        );
+                    }
+                }
             }
             msg.method_return()
+        }
+
+        /// `GetLayout(parentId, depth, propertyNames)` → `(u revision, (ia{sv}av) node)`。
+        ///
+        /// 每次都按**当前** UiState 现建快照（内容永远新鲜）；parentId 给子树查询用
+        /// （宿主展开子菜单时会按子菜单 id 再拉一次），0 = 根。
+        fn menu_get_layout(&self, msg: &Message) -> Message {
+            let parent = msg
+                .get_items()
+                .first()
+                .and_then(|item| match item {
+                    MessageItem::Int32(id) => Some(*id),
+                    MessageItem::UInt32(id) => Some(*id as i32),
+                    _ => None,
+                })
+                .unwrap_or(0);
+            let state = ui_state(&self.app);
+            let snapshot = build_menu_snapshot(&build_menu_nodes(&state));
+            let revision = MENU_REVISION.load(Ordering::SeqCst);
+            // 序列化：把快照里以 parent 为根的子树整体写成 (ia{sv}av)。
+            // 根（0）没有对应条目，属性固定 children-display=submenu。
+            fn serialize(snapshot: &MenuSnapshot, dbus_id: i32) -> MessageItem {
+                let (properties, children_ids) = match snapshot
+                    .items
+                    .iter()
+                    .find(|entry| entry.dbus_id == dbus_id)
+                {
+                    None if dbus_id == 0 => (
+                        vec![(
+                            "children-display",
+                            MessageItem::Str("submenu".to_string()),
+                        )],
+                        snapshot.root_children.clone(),
+                    ),
+                    Some(entry) => {
+                        let mut properties = entry.properties.clone();
+                        if !entry.children.is_empty() {
+                            properties.push((
+                                "children-display",
+                                MessageItem::Str("submenu".to_string()),
+                            ));
+                        }
+                        (properties, entry.children.clone())
+                    }
+                    None => (Vec::new(), Vec::new()),
+                };
+                let children = children_ids
+                    .iter()
+                    .filter_map(|id| {
+                        snapshot
+                            .items
+                            .iter()
+                            .find(|entry| entry.dbus_id == *id)
+                            .map(|entry| MessageItem::Variant(Box::new(serialize(snapshot, entry.dbus_id))))
+                    })
+                    .collect();
+                menu_node(dbus_id, properties, children)
+            }
+            let node = serialize(&snapshot, parent);
+            *MENU_SNAPSHOT
+                .lock()
+                .expect("dbusmenu snapshot mutex poisoned") = Some(snapshot);
+            let mut reply = msg.method_return();
+            reply.append_items(&[MessageItem::UInt32(revision), node]);
+            reply
+        }
+
+        /// `GetGroupProperties(ids, propertyNames)` → `a(ia{sv})`：按快照逐个查。
+        fn menu_group_properties(&self, msg: &Message) -> Message {
+            let ids: Vec<i32> = msg
+                .get_items()
+                .first()
+                .and_then(|item| match item {
+                    MessageItem::Array(ids) => Some(
+                        ids.iter()
+                            .filter_map(|id| match id {
+                                MessageItem::Int32(id) => Some(*id),
+                                MessageItem::UInt32(id) => Some(*id as i32),
+                                _ => None,
+                            })
+                            .collect(),
+                    ),
+                    _ => None,
+                })
+                .unwrap_or_default();
+            let entries = with_menu_snapshot(&self.app, |snapshot| {
+                ids.iter()
+                    .filter_map(|id| {
+                        snapshot
+                            .items
+                            .iter()
+                            .find(|entry| entry.dbus_id == *id)
+                            .map(|entry| {
+                                MessageItem::Struct(vec![
+                                    MessageItem::Int32(entry.dbus_id),
+                                    menu_props_dict(entry.properties.clone()),
+                                ])
+                            })
+                    })
+                    .collect::<Vec<_>>()
+            });
+            let mut reply = msg.method_return();
+            reply.append_items(&[MessageItem::Array(
+                MessageItemArray::new(entries, Signature::new("a(ia{sv})").expect("静态签名"))
+                    .expect("元素都是 (ia{sv})"),
+            )]);
+            reply
+        }
+
+        /// `GetProperty(id, name)` → `v`：按快照查单个属性。
+        fn menu_get_property(&self, msg: &Message) -> Message {
+            let (id, property) = msg.read2::<i32, String>().unwrap_or((0, String::new()));
+            let value = with_menu_snapshot(&self.app, |snapshot| {
+                snapshot
+                    .items
+                    .iter()
+                    .find(|entry| entry.dbus_id == id)
+                    .and_then(|entry| {
+                        entry
+                            .properties
+                            .iter()
+                            .find(|(name, _)| *name == property)
+                            .map(|(_, value)| value.clone())
+                    })
+                    .unwrap_or_else(|| MessageItem::Str(String::new()))
+            });
+            let mut reply = msg.method_return();
+            reply.append_items(&[MessageItem::Variant(Box::new(value))]);
+            reply
         }
     }
 
@@ -14140,66 +14902,10 @@ mod linux_sni {
         reply
     }
 
-    /// `GetLayout`：根节点(0) + 单项(1)。无论 depth 给多少都回全树 —— 静态单项，全树最便宜。
-    fn menu_get_layout(msg: &Message) -> Message {
-        // 根(0) 的 children 里挂上单项(1)：dbusmenu 树的层级在 children 的 `av` 里。
-        let item = MessageItem::Variant(Box::new(menu_node(1, menu_item_properties())));
-        let root = MessageItem::Struct(vec![
-            MessageItem::Int32(0),
-            menu_props_dict(vec![(
-                "children-display",
-                MessageItem::Str("submenu".to_string()),
-            )]),
-            MessageItem::Array(
-                MessageItemArray::new(vec![item], Signature::new("av").expect("静态签名"))
-                    .expect("元素都是 v"),
-            ),
-        ]);
-        let mut reply = msg.method_return();
-        reply.append_items(&[
-            MessageItem::UInt32(1), // revision：静态菜单，恒 1
-            root,
-        ]);
-        reply
-    }
-
-    /// `GetGroupProperties(ids, propertyNames)` → `a(ia{sv})`：只有 id=1 一个节点。
-    fn menu_group_properties(msg: &Message) -> Message {
-        let mut reply = msg.method_return();
-        reply.append_items(&[MessageItem::Array(
-            MessageItemArray::new(
-                vec![MessageItem::Struct(vec![
-                    MessageItem::Int32(1),
-                    menu_props_dict(menu_item_properties()),
-                ])],
-                Signature::new("a(ia{sv})").expect("静态签名"),
-            )
-            .expect("元素都是 (ia{sv})"),
-        )]);
-        reply
-    }
-
-    /// `GetProperty(id, name)` → `v`。
-    fn menu_get_property(msg: &Message) -> Message {
-        let (id, property) = msg.read2::<i32, String>().unwrap_or((0, String::new()));
-        let value = if id == 1 {
-            menu_item_properties()
-                .into_iter()
-                .find(|(name, _)| *name == property)
-                .map(|(_, value)| value)
-                .unwrap_or_else(|| MessageItem::Str(String::new()))
-        } else {
-            MessageItem::Str(String::new())
-        };
-        let mut reply = msg.method_return();
-        reply.append_items(&[MessageItem::Variant(Box::new(value))]);
-        reply
-    }
-
-    /// `AboutToShow(id)` → `false`：静态菜单，从来不需刷新。
+    /// `AboutToShow(id)` → `true`：内容动态变化，让宿主每次都重新拉一遍布局。
     fn menu_about_to_show(msg: &Message) -> Message {
         let mut reply = msg.method_return();
-        reply.append_items(&[MessageItem::Bool(false)]);
+        reply.append_items(&[MessageItem::Bool(true)]);
         reply
     }
 
@@ -14208,7 +14914,7 @@ mod linux_sni {
         let mut reply = msg.method_return();
         let empty_ids = MessageItemArray::new(Vec::new(), Signature::new("ai").expect("静态签名"))
             .expect("元素都是 i");
-        reply.append_items(&[MessageItem::Bool(false), MessageItem::Array(empty_ids)]);
+        reply.append_items(&[MessageItem::Bool(true), MessageItem::Array(empty_ids)]);
         reply
     }
 
@@ -14246,10 +14952,10 @@ mod linux_sni {
 
     /// 属性表（`org.kde.StatusNotifierItem` 的全部属性）。
     /// 取值与类型都照实测可行的探针来（见模块头注释）——尤其 `ItemIsMenu = false`：
-    /// 它决定 Cinnamon/KDE 走 `ContextMenu` 回调（菜单归我们画）。
-    /// `Menu`：unified 时指向单项 dbusmenu（给 GNOME 的 appindicators 扩展用，
-    /// 它只认 dbusmenu）；classic 时空串（原生形态，GNOME 右键无响应）。
-    fn item_properties(unified: bool) -> Vec<(&'static str, MessageItem)> {
+    /// 它决定 Cinnamon/KDE 走 `ContextMenu` 回调。`Menu` 恒指向全量 dbusmenu
+    /// （本模块只在 unified 方式下启动；类型必须是 object path——严格校验的宿主
+    /// 按 GIO 规范读，类型不符会静默丢属性）。
+    fn item_properties() -> Vec<(&'static str, MessageItem)> {
         vec![
             ("Id", MessageItem::Str("anyboot".to_string())),
             ("Category", MessageItem::Str("ApplicationStatus".to_string())),
@@ -14267,11 +14973,7 @@ mod linux_sni {
             ("ItemIsMenu", MessageItem::Bool(false)),
             (
                 "Menu",
-                if unified {
-                    MessageItem::ObjectPath(DbusPath::new(MENU_PATH).expect("静态路径合法"))
-                } else {
-                    MessageItem::Str(String::new())
-                },
+                MessageItem::ObjectPath(DbusPath::new(MENU_PATH).expect("静态路径合法")),
             ),
             ("WindowId", MessageItem::Int32(0)),
         ]
@@ -14345,8 +15047,8 @@ mod linux_sni {
     /// 单个属性的值（`Get` 的返回体；外面还要套一层 variant）。
     ///
     /// 不认识的属性回空串（照探针的做法；回错误会让某些宿主整段属性读失败）。
-    fn property_value(property: &str, unified: bool) -> MessageItem {
-        item_properties(unified)
+    fn property_value(property: &str) -> MessageItem {
+        item_properties()
             .into_iter()
             .find(|(name, _)| *name == property)
             .map(|(_, value)| value)
@@ -14356,8 +15058,8 @@ mod linux_sni {
     /// 整张属性表 → `a{sv}`（`GetAll` 的返回体）。抽出来是为了能在单测里直接按线格式写一遍
     /// —— `method_return()` 要求原消息带真 serial，单测造不出合法的回复消息（libdbus 会
     /// `reply_serial != 0` 断言失败），所以「可编码」这一条只能测返回体本身。
-    fn properties_dict(unified: bool) -> MessageItem {
-        let entries = item_properties(unified)
+    fn properties_dict() -> MessageItem {
+        let entries = item_properties()
             .into_iter()
             .map(|(name, value)| {
                 (
@@ -14375,26 +15077,25 @@ mod linux_sni {
         MessageItem::Dict(dict)
     }
 
-    fn properties_get(msg: &Message, unified: bool) -> Message {
+    fn properties_get(msg: &Message) -> Message {
         let property = msg
             .read2::<String, String>()
             .map(|(_, property)| property)
             .unwrap_or_default();
         let mut reply = msg.method_return();
-        reply.append_items(&[MessageItem::Variant(Box::new(property_value(&property, unified)))]);
+        reply.append_items(&[MessageItem::Variant(Box::new(property_value(&property)))]);
         reply
     }
 
-    fn properties_get_all(msg: &Message, unified: bool) -> Message {
+    fn properties_get_all(msg: &Message) -> Message {
         let mut reply = msg.method_return();
-        reply.append_items(&[properties_dict(unified)]);
+        reply.append_items(&[properties_dict()]);
         reply
     }
 
-    fn introspect(msg: &Message, unified: bool) -> Message {
-        // Menu 的类型跟属性值一致：unified 发 o（object path），classic 发 s（空串）——
-        // 严格校验的宿主（GNOME 扩展按 GIO 规范读）类型不符会静默丢属性。
-        let menu_type = if unified { "o" } else { "s" };
+    fn introspect(msg: &Message) -> Message {
+        // Menu 的类型必须是 o（object path）——严格校验的宿主（GNOME 扩展按 GIO
+        // 规范读）类型不符会静默丢属性。
         let xml = format!(
             "<!DOCTYPE node PUBLIC \"-//freedesktop//DTD D-BUS Object Introspection 1.0//EN\" \
              \"http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd\"><node>\
@@ -14404,7 +15105,7 @@ mod linux_sni {
              <method name=\"ContextMenu\"><arg direction=\"in\" type=\"i\"/><arg direction=\"in\" type=\"i\"/></method>\
              <method name=\"Scroll\"><arg direction=\"in\" type=\"i\"/><arg direction=\"in\" type=\"s\"/></method>\
              <property name=\"ItemIsMenu\" type=\"b\" access=\"read\"/>\
-             <property name=\"Menu\" type=\"{menu_type}\" access=\"read\"/>\
+             <property name=\"Menu\" type=\"o\" access=\"read\"/>\
              </interface></node>"
         );
         let mut reply = msg.method_return();
@@ -14472,13 +15173,12 @@ mod linux_sni {
         }
 
         /// ③（点选择项不关菜单）成立的前提在 `ItemIsMenu=false`：Cinnamon/KDE 据此把
-        /// 点击坐标回调给我们（Activate/ContextMenu），菜单由应用自己画。
-        /// `Menu`：unified 时指向单项「打开面板」dbusmenu，只有 GNOME 的 appindicators
-        /// 扩展读它（它点击只认 dbusmenu、从不回调 ContextMenu）；classic 时空串。
-        /// 这两条取值一旦变动，两端的行为都会变 —— 必须钉住。
+        /// 点击坐标回调给我们（Activate/ContextMenu）。`Menu` 恒指向全量 dbusmenu
+        /// （GNOME 的 appindicators 扩展点击只认 dbusmenu、从不回调 ContextMenu）。
+        /// 这两条取值一旦变动，各端的行为都会变 —— 必须钉住。
         #[test]
         fn item_properties_keep_the_activate_contract() {
-            let props = item_properties(true);
+            let props = item_properties();
             let value = |name: &str| {
                 props
                     .iter()
@@ -14491,20 +15191,6 @@ mod linux_sni {
                 value("Menu"),
                 MessageItem::ObjectPath(DbusPath::new(MENU_PATH).expect("静态路径合法"))
             );
-            // classic：Menu 空串（原生形态），其余属性不变
-            let classic = item_properties(false);
-            let classic_value = |name: &str| {
-                classic
-                    .iter()
-                    .find(|(key, _)| *key == name)
-                    .map(|(_, value)| value.clone())
-                    .unwrap_or_else(|| panic!("缺属性 {name}"))
-            };
-            assert_eq!(
-                classic_value("Menu"),
-                MessageItem::Str(String::new())
-            );
-            assert_eq!(classic_value("ItemIsMenu"), MessageItem::Bool(false));
             assert_eq!(value("Status"), MessageItem::Str("Active".to_string()));
             assert_eq!(
                 value("Category"),
@@ -14544,12 +15230,12 @@ mod linux_sni {
             // GetAll 的返回体：a{sv}
             let mut msg =
                 Message::new_method_call(":1.1", ITEM_PATH, PROPS_IFACE, "GetAll").expect("构造调用");
-            msg.append_items(&[properties_dict(true)]);
+            msg.append_items(&[properties_dict()]);
             let Some(MessageItem::Dict(entries)) = msg.get1::<MessageItem>() else {
                 panic!("GetAll 应回一个 a{{sv}}");
             };
             assert_eq!(entries.signature().to_string(), "a{sv}");
-            assert_eq!(entries.len(), item_properties(true).len());
+            assert_eq!(entries.len(), item_properties().len());
             // 键都是 s、值都是 v（宿主按签名取属性，错一个整张表就读不成）
             for (key, value) in entries.iter() {
                 assert_eq!(key.signature().to_string(), "s");
@@ -14559,19 +15245,18 @@ mod linux_sni {
             // Get 的返回体是套一层的 variant
             let mut msg =
                 Message::new_method_call(":1.1", ITEM_PATH, PROPS_IFACE, "Get").expect("构造调用");
-            msg.append_items(&[MessageItem::Variant(Box::new(property_value("ItemIsMenu", true)))]);
+            msg.append_items(&[MessageItem::Variant(Box::new(property_value("ItemIsMenu")))]);
             assert_eq!(
                 msg.get1::<MessageItem>(),
                 Some(MessageItem::Variant(Box::new(MessageItem::Bool(false))))
             );
             assert_eq!(
-                property_value("Menu", true),
+                property_value("Menu"),
                 MessageItem::ObjectPath(DbusPath::new(MENU_PATH).expect("静态路径合法"))
             );
-            assert_eq!(property_value("Menu", false), MessageItem::Str(String::new()));
             // 不认识的属性回空串
             assert_eq!(
-                property_value("NoSuchProperty", true),
+                property_value("NoSuchProperty"),
                 MessageItem::Str(String::new())
             );
         }
@@ -14583,12 +15268,73 @@ mod linux_sni {
             let layout = menu_node(
                 0,
                 vec![("children-display", MessageItem::Str("submenu".to_string()))],
+                Vec::new(),
             );
             assert_eq!(layout.signature().to_string(), "(ia{sv}av)");
 
-            let items = menu_item_properties();
-            let dict = menu_props_dict(items);
+            let dict = menu_props_dict(vec![
+                ("type", MessageItem::Str("standard".to_string())),
+                ("label", MessageItem::Str("示例".to_string())),
+            ]);
             assert_eq!(dict.signature().to_string(), "a{sv}");
+        }
+
+        /// 快照构建：模型树 → dbusmenu 编号顺序分配、动作 id 对得上、
+        /// 勾选/分隔线/子菜单的属性表各就各位。Event(id) ↔ node_id 的换算靠它。
+        #[test]
+        fn menu_snapshot_maps_ids_and_properties() {
+            let nodes = vec![
+                menu_item("show-main", "显示主窗口", true),
+                menu_header("sys-head", "系统"),
+                MenuNode {
+                    keeps_open: true,
+                    ..menu_marked_choice_item("switch:arch", "Arch", true, true)
+                },
+                MenuNode {
+                    keeps_open: true,
+                    ..menu_marked_choice_item("switch:mint", "Mint", true, false)
+                },
+                menu_separator(),
+                menu_submenu(
+                    "sub",
+                    "子菜单",
+                    vec![menu_item("sub-action", "子项", true)],
+                ),
+            ];
+            let snapshot = build_menu_snapshot(&nodes);
+            // 先序编号：1..=7（子菜单的子项夹在中间），0 留给根
+            let ids: Vec<i32> = snapshot.items.iter().map(|entry| entry.dbus_id).collect();
+            assert_eq!(ids, vec![1, 2, 3, 4, 5, 6, 7]);
+            // 根只挂 6 个顶层节点（子项在子菜单里）
+            assert_eq!(snapshot.root_children, vec![1, 2, 3, 4, 5, 6]);
+            let node = |id: i32| {
+                snapshot
+                    .items
+                    .iter()
+                    .find(|entry| entry.dbus_id == id)
+                    .unwrap_or_else(|| panic!("缺节点 {id}"))
+            };
+            let property = |entry: &SnapshotNode, name: &str| {
+                entry
+                    .properties
+                    .iter()
+                    .find(|(key, _)| *key == name)
+                    .map(|(_, value)| value.clone())
+                    .unwrap_or_else(|| panic!("节点 {} 缺属性 {name}", entry.dbus_id))
+            };
+            // 动作 id 直通（Event 派发的依据）
+            assert_eq!(node(1).node_id.as_deref(), Some("show-main"));
+            assert_eq!(node(2).node_id.as_deref(), Some("sys-head"));
+            // 选中项：radio + toggle-state=1；未选中 0
+            assert_eq!(property(node(3), "toggle-type"), MessageItem::Str("radio".to_string()));
+            assert_eq!(property(node(3), "toggle-state"), MessageItem::Int32(1));
+            assert_eq!(property(node(4), "toggle-state"), MessageItem::Int32(0));
+            // 分隔线：type=separator、没有动作 id
+            assert_eq!(property(node(5), "type"), MessageItem::Str("separator".to_string()));
+            assert_eq!(node(5).node_id, None);
+            // 子菜单：children 挂上
+            assert_eq!(node(6).children, vec![7]);
+            assert_eq!(node(7).node_id.as_deref(), Some("sub-action"));
         }
     }
 }
@@ -16561,6 +17307,224 @@ mod core_tests {
         assert_eq!(menu_status_text("未监听", 3), "未监听");
         assert_eq!(menu_status_text("未监听", 2), "未监…");
         assert_eq!(menu_status_text("", 4), "");
+    }
+
+    /// 菜单指纹必须覆盖每一个可见字段：少一个就是「内容变了但不重建/不发更新」的假状态。
+    #[test]
+    fn menu_signature_tracks_every_visible_field() {
+        let settings = Settings::default();
+        let variables = vec![VariableInfo {
+            system: "linux".to_string(),
+            display_name: "Linux".to_string(),
+            source_name: "PreviousBoot-linux".to_string(),
+            source: PathBuf::from("/mnt/EFI/refind/vars/PreviousBoot-linux"),
+            exists: true,
+            active: false,
+        }];
+        let idle = BusyState::default();
+        // 监听状态是「远程控制」子菜单里的一个可见字段，这里固定住它，
+        // 让下面的断言只针对各自那一项变化。
+        let http = "正在监听 0.0.0.0:12300";
+        let signature = |message: &str,
+                         temporary_mount: bool,
+                         settings: &Settings,
+                         variables: &[VariableInfo],
+                         error: Option<&str>,
+                         busy: &BusyState| {
+            menu_signature(message, temporary_mount, settings, variables, error, busy, http)
+        };
+        let base = signature("下次启动：Windows", false, &settings, &variables, None, &idle);
+        // 同内容同签名
+        assert_eq!(
+            base,
+            signature(
+                "下次启动：Windows",
+                false,
+                &settings,
+                &variables,
+                None,
+                &idle
+            )
+        );
+        // 状态文案 / 临时挂载 / 错误 / 设置 / 变量选中与存在 / busy / 监听状态，
+        // 任一变化都必须换签名，否则「内容没变就不重建菜单」会漏掉真实变更。
+        assert_ne!(
+            base,
+            signature("已连接 rEFInd", false, &settings, &variables, None, &idle)
+        );
+        assert_ne!(
+            base,
+            signature("下次启动：Windows", true, &settings, &variables, None, &idle)
+        );
+        assert_ne!(
+            base,
+            signature(
+                "下次启动：Windows",
+                false,
+                &settings,
+                &variables,
+                Some("扫描失败"),
+                &idle
+            )
+        );
+        let mut toggled = settings.clone();
+        toggled.autostart = true;
+        assert_ne!(
+            base,
+            signature(
+                "下次启动：Windows",
+                false,
+                &toggled,
+                &variables,
+                None,
+                &idle
+            )
+        );
+        // 主窗口里改「HTTP 服务 / 远程请求通知 / 远程执行延迟」，
+        // 托盘「远程控制」子菜单上的勾也必须跟着动
+        let mut http_toggled = settings.clone();
+        http_toggled.http_enabled = !http_toggled.http_enabled;
+        assert_ne!(
+            base,
+            signature(
+                "下次启动：Windows",
+                false,
+                &http_toggled,
+                &variables,
+                None,
+                &idle
+            )
+        );
+        let mut notify_toggled = settings.clone();
+        notify_toggled.notify_enabled = !notify_toggled.notify_enabled;
+        assert_ne!(
+            base,
+            signature(
+                "下次启动：Windows",
+                false,
+                &notify_toggled,
+                &variables,
+                None,
+                &idle
+            )
+        );
+        // 主窗口里改「贴边自动隐藏」开关，托盘里对应的勾也必须跟着动
+        let mut auto_hide_toggled = settings.clone();
+        auto_hide_toggled.main_auto_hide = !auto_hide_toggled.main_auto_hide;
+        assert_ne!(
+            base,
+            signature(
+                "下次启动：Windows",
+                false,
+                &auto_hide_toggled,
+                &variables,
+                None,
+                &idle
+            )
+        );
+        let mut delay_changed = settings.clone();
+        delay_changed.channels.http.delay_seconds += 3;
+        assert_ne!(
+            base,
+            signature(
+                "下次启动：Windows",
+                false,
+                &delay_changed,
+                &variables,
+                None,
+                &idle
+            )
+        );
+        // 监听状态本身变了（服务起来/停了）也要换签名
+        assert_ne!(
+            base,
+            menu_signature(
+                "下次启动：Windows",
+                false,
+                &settings,
+                &variables,
+                None,
+                &idle,
+                "未监听（服务已关闭）"
+            )
+        );
+        let mut active = variables.clone();
+        active[0].active = true;
+        assert_ne!(
+            base,
+            signature("下次启动：Windows", false, &settings, &active, None, &idle)
+        );
+        let mut missing = variables.clone();
+        missing[0].exists = false;
+        assert_ne!(
+            base,
+            signature("下次启动：Windows", false, &settings, &missing, None, &idle)
+        );
+        // 长动作进行中菜单项要变灰 → 必须进指纹，否则置灰不会生效
+        let power = BusyState {
+            power: Some("restart".to_string()),
+            ..Default::default()
+        };
+        assert_ne!(
+            base,
+            signature(
+                "下次启动：Windows",
+                false,
+                &settings,
+                &variables,
+                None,
+                &power
+            )
+        );
+        // 扫描不进指纹：它太快，不值得为它把「每扫描一次重建一次菜单」变成两次
+        let scanning = BusyState {
+            scanning: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            base,
+            signature(
+                "下次启动：Windows",
+                false,
+                &settings,
+                &variables,
+                None,
+                &scanning
+            )
+        );
+    }
+
+    /// busy 的菜单摘要只含 affects_menu 的部分（scanning 刻意不在内，见 menu_signature）。
+    #[test]
+    fn busy_menu_describe_covers_only_menu_affecting_parts() {
+        let idle = BusyState::default();
+        assert_eq!(idle.menu_describe(), "power=-|sw=0|un=0");
+        let power = BusyState {
+            power: Some("restart".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(power.menu_describe(), "power=restart|sw=0|un=0");
+        let unmounting = BusyState {
+            unmounting: true,
+            ..Default::default()
+        };
+        assert_eq!(unmounting.menu_describe(), "power=-|sw=0|un=1");
+    }
+
+    /// 绿勾位图：有实心像素（勾画出来了）、有透明像素（不是色块）、颜色是 --ok 那个绿。
+    #[test]
+    fn check_mark_image_is_an_opaque_green_glyph() {
+        let rgba = check_mark_rgba();
+        assert_eq!(rgba.len(), (CHECK_MARK_SIZE * CHECK_MARK_SIZE * 4) as usize);
+        let opaque = rgba.chunks_exact(4).filter(|pixel| pixel[3] > 200).count();
+        let transparent = rgba.chunks_exact(4).filter(|pixel| pixel[3] == 0).count();
+        assert!(opaque > 20, "绿色像素太少: {opaque}");
+        assert!(transparent > 100, "透明像素太少: {transparent}");
+        let first = rgba
+            .chunks_exact(4)
+            .find(|pixel| pixel[3] > 200)
+            .expect("应有实心像素");
+        assert_eq!(&first[..3], &[0x46, 0xc4, 0x6e]);
     }
 
     fn set16(sector: &mut [u8], offset: usize, value: u16) {
