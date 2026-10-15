@@ -14609,6 +14609,16 @@ mod linux_sni {
                             ("enabled", MessageItem::Bool(node.enabled)),
                             ("visible", MessageItem::Bool(true)),
                         ];
+                        // 子菜单标记必须进快照属性表：GNOME 扩展拿到 GetGroupProperties
+                        // 回应后会 resetProperties() 清空再逐个 set —— 只在 GetLayout
+                        // 序列化时补的话，这枚标记会被那次清洗抹掉，条目被定型为普通项，
+                        // 下拉列表展不开（用户实测）。判定在扩展侧读的是缓存的属性。
+                        if node.kind == "sub" {
+                            properties.push((
+                                "children-display",
+                                MessageItem::Str("submenu".to_string()),
+                            ));
+                        }
                         // 列表类条目的「当前项」交给宿主的勾选机制（自绘窗用 checked 字段
                         // 自己画；原生菜单用绿勾位图 —— 各端各表，语义相同）。
                         if let Some(checked) = node.checked {
@@ -14821,14 +14831,9 @@ mod linux_sni {
                         snapshot.root_children.clone(),
                     ),
                     Some(entry) => {
-                        let mut properties = entry.properties.clone();
-                        if !entry.children.is_empty() {
-                            properties.push((
-                                "children-display",
-                                MessageItem::Str("submenu".to_string()),
-                            ));
-                        }
-                        (properties, entry.children.clone())
+                        // children-display 已在快照属性表里（walk() 按子菜单补好），
+                        // 这里不再重复 push —— a{sv} 出现重复键会被宿主按坏消息处理。
+                        (entry.properties.clone(), entry.children.clone())
                     }
                     None => (Vec::new(), Vec::new()),
                 };
@@ -15385,8 +15390,16 @@ mod linux_sni {
             // 分隔线：type=separator、没有动作 id
             assert_eq!(property(node(5), "type"), MessageItem::Str("separator".to_string()));
             assert_eq!(node(5).node_id, None);
-            // 子菜单：children 挂上
+            // 子菜单：children 挂上，且属性表自带 children-display=submenu ——
+            // GNOME 扩展用 GetGroupProperties 的回应洗一遍属性（resetProperties），
+            // 这枚标记不在快照里就会被洗掉，下拉列表展不开（真机实测）。
             assert_eq!(node(6).children, vec![7]);
+            assert_eq!(
+                property(node(6), "children-display"),
+                MessageItem::Str("submenu".to_string())
+            );
+            // 非子菜单条目不该带这枚标记
+            assert!(node(1).properties.iter().all(|(key, _)| *key != "children-display"));
             assert_eq!(node(7).node_id.as_deref(), Some("sub-action"));
         }
     }
