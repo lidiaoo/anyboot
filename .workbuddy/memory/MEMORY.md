@@ -30,8 +30,12 @@
 - keepsOpen 只在后端算，前端照字段办事；分发统一走 handle_menu_event。
 - positioner：喂点保留（on_tray_event），仅作插件状态维护；落位不再走插件。capabilities 加 positioner:default。
 - Linux SNI 定则：ItemIsMenu=false + Menu=object path（类型错 GNOME 静默丢属性）。GNOME 扩展点击只认 dbusmenu；Cinnamon/KDE 见有效 Menu 会自建宿主菜单消费右键（ContextMenu 回调不来了）。
+- **dbusmenu 导出禁带原生勾选（17baf39）**：toggle-type/toggle-state 一律不下发——宿主（KDE/Qt）对 checkable 条目先本地翻转再通知，协议又没有单选组概念 → 点几个勾几个（KDE 实测「单选点不动/GRUB 变多选」）。勾选标记一律 radio_label 画进 label 文字（◉/○），与 8285 行定则同源；快照单测钉死 label 断言 + 无 toggle-*。
+- **dbusmenu 信号定则（cea8908+42b9539+3a39e22）**：信号必须从 **Item.Menu 指向的对象路径**（MENU_PATH）发——从 ITEM_PATH 发会被所有宿主按路径匹配静默丢弃。回显走 **ItemsPropertiesUpdated 属性差分推送**（menu_property_diff 回 (结构变?, 属性更新)，按结果分流）：只属性变→只推属性；只结构变→只发 LayoutUpdated；**都没变→什么都不发**（invalidate_menu_signature 每次点击强制换代，无差别广播 = 更新风暴）。**信号体签名必须是 `a(ia{sv})a(ias)`**——removedProps 是 `a(ias)`（规范/Chromium/libdbusmenu-qt/Go systray 一致），写成 a(iias) 会被 Qt 宿主按签名精确匹配丢弃（GNOME 走 GDBus 按名字匹配所以不报错）。勾选标记画进 label 文字、不导出 toggle-type/toggle-state。
+- **KDE 侧复现台（3a39e22）**：`~/.cache/ab-kde-repro/`——kdemenu_client.cpp（KDE 面板同一个 libdbusmenu-qt5 的 DBusMenuImporter：updateMenu→dump→QAction::trigger→再 dump，查就地回显）+ probe-kde.sh（TAG/STYLE/APP 同 probe60）。编译 `g++ -fPIC -std=c++17 -o kdemenu_client kdemenu_client.cpp $(pkg-config --cflags --libs dbusmenu-qt5 Qt5Core Qt5Widgets Qt5DBus)`。回显类改动必须过这台（probe60 的 python 客户端是名字匹配，抓不到签名类问题）。
 - dbus 0.9 坑：MessageItemArray::new 要整条数组签名（带前导 a）；Message::signal(path,iface,name) 直接返 Message（失败 panic）、Connection::send 返 Result<u32,()>；GetLayout 回执 (u(ia{sv}av)) 有单测钉死；快照父节点先 push 再递归（先序，否则 id 错位）。Tauri 2 ACL：新窗口 label 必须进 capabilities/default.json 的 windows，否则 invoke/listen 静默拒。
 - 回归探针：`~/.cache/ab-dock-min/cin/probe40.sh`——假 watcher 总线级回归（不依赖真面板），classic 验 libayatana 全量菜单、unified 验自研 dbusmenu+点击派发；libayatana 不暴露 ItemIsMenu 属性，探针要容错。
+- **主窗口 UI 按钮点击台（9bcf278）**：`~/.cache/ab-headerbtn/`（probe-header2.sh + find-buttons.py）——Xvfb 起应用本尊 → `import -window <id>` 截图（透明窗抓 root 全黑）→ 像素自校准定位按钮 → xdotool mousemove+click（无 WM 也能点）→ 用应用自己的 startup-debug/trace 判定。扫描须跳过 h1 文字区（x≥130）并限定左栏（x≤470）；判活/清理按 /proc/PID/exe 比对，**禁用 pkill -f <路径>**（会连自己的 shell 一起杀）。
 - 待办：本机无 win/mac target，上 Windows 先 build 再实机点托盘复验（两形态）→ push → 打包。
 
 ## 产品定则（细节见日志）
@@ -40,6 +44,7 @@
 - 下次启动大字=级联全链；Rust 侧级联文案必须与前端 nextBootText/rowLabel 一字不差；托盘指纹含所有可见字段。
 - 忙闸必须有放闸路径（判据不能是「命令返回成功」——systemctl suspend 排队即返回 0）；POWER_RELEASE_MS=15s 世代号放闸；被闸点击必须 record_action 留痕。
 - 远程动作=本机点头（pending+授权窗）；灰掉而不藏按钮。
+- 主窗口顶部标题栏（9bcf278）= 电源三键 + **重启程序 / 退出程序**（系统动作在前、程序动作在后）。两命令走 tauri IPC；`/api/ui-command` 里归 gui_only（400）且网页端隐藏按钮。**restart_app 必须先 stop_http_server 再 app.restart()**（tauri 的 restart 是先 spawn 再 exit(0)，不放开端口新实例第一屏就是「端口被另一个实例占用」）；AppImage 下 tauri 靠 APPIMAGE 指回包本身。两栏布局下 5 个按钮在 460px 左栏会换行（一行 4 + 「退出程序」单占一行），单栏/加宽一行放得下。
 - UI_REVISION 起点跟时间挂钩；split_url() 先剥代理绝对 URI；/api/ui-command 回执放 result 里。
 
 ## 结构 / 窗口
