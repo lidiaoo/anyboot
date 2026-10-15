@@ -8287,7 +8287,8 @@ fn menu_system_rows(variables: &[VariableInfo]) -> Vec<VariableInfo> {
 /// 为什么（2026-10-14 实测，见 `.workbuddy/memory/2026-10-14.md`）：托盘菜单在
 /// Linux 上并不是我们画的 —— 应用把菜单导出成 dbusmenu，宿主（Cinnamon 面板的
 /// xapp-status applet + xapp-sn-watcher 的桥）按那份导出**自己重新渲染**，勾选态
-/// 来自导出的 `toggle-type / toggle-state`。原生勾选项在这条链路上必然出错：
+/// 同样走 label 里的文字标记（下方 build_menu_snapshot：不导出原生 toggle 属性）。
+/// 原生勾选项在这条链路上必然出错：
 ///
 /// ① **勾被取消**：点一下勾选项，GTK 会**先自己把控件翻转**再通知我们。若这次点击
 ///    没有改变设置（在单选组里再点一次已选中的那个），菜单指纹不变 → 我们不重建
@@ -15538,9 +15539,27 @@ mod linux_sni {
                         ("visible", MessageItem::Bool(true)),
                     ],
                     _ => {
+                        // 列表类条目的「当前项」标记**画进 label 文字**（radio_label 的
+                        // ◉/○），**不导出 toggle-type/toggle-state** —— 与
+                        // toggle_label/radio_label 的定则一致：标记进文字，与工具包/宿主无关。
+                        //
+                        // 为什么（2026-10-15 用户实测 KDE，各自方式与全局统一都中招）：
+                        // 宿主（Plasma 的 Qt 菜单）对 checkable 条目会**先本地翻转再通知
+                        // 我们**（QMenu 点 checkable 动作的标准行为），而 dbusmenu 协议没有
+                        // 「单选组」概念，宿主不知道哪些行互斥 —— 点几个就勾几个（用户报的
+                        // 「GRUB 选择框变成多选」）；本地翻转还把视觉搅乱，我们靠
+                        // LayoutUpdated 推权威状态也追不回来（「单选框点不动」）。不交出
+                        // 勾选机制，宿主只能照纯文本渲染，标记永远以我们算出的文字为准。
+                        let label = match node.checked {
+                            Some(checked) if node.keeps_open => {
+                                radio_label(checked, &node.label)
+                            }
+                            // 顶部「下次启动」这类动作行：文字本身已说明当前项，不补标记
+                            _ => node.label.clone(),
+                        };
                         let mut properties = vec![
                             ("type", MessageItem::Str("standard".to_string())),
-                            ("label", MessageItem::Str(node.label.clone())),
+                            ("label", MessageItem::Str(label)),
                             ("enabled", MessageItem::Bool(node.enabled)),
                             ("visible", MessageItem::Bool(true)),
                         ];
@@ -15552,21 +15571,6 @@ mod linux_sni {
                             properties.push((
                                 "children-display",
                                 MessageItem::Str("submenu".to_string()),
-                            ));
-                        }
-                        // 列表类条目的「当前项」交给宿主的勾选机制（自绘窗用 checked 字段
-                        // 自己画；原生菜单用绿勾位图 —— 各端各表，语义相同）。
-                        if let Some(checked) = node.checked {
-                            // 单选组（keepsOpen 的列表条目）报 radio，孤立的标记行动作报 checkbox
-                            properties.push((
-                                "toggle-type",
-                                MessageItem::Str(
-                                    if node.keeps_open { "radio" } else { "checkbox" }.to_string(),
-                                ),
-                            ));
-                            properties.push((
-                                "toggle-state",
-                                MessageItem::Int32(if checked { 1 } else { 0 }),
                             ));
                         }
                         properties
@@ -16354,10 +16358,19 @@ mod linux_sni {
             // 动作 id 直通（Event 派发的依据）
             assert_eq!(node(1).node_id.as_deref(), Some("show-main"));
             assert_eq!(node(2).node_id.as_deref(), Some("sys-head"));
-            // 选中项：radio + toggle-state=1；未选中 0
-            assert_eq!(property(node(3), "toggle-type"), MessageItem::Str("radio".to_string()));
-            assert_eq!(property(node(3), "toggle-state"), MessageItem::Int32(1));
-            assert_eq!(property(node(4), "toggle-state"), MessageItem::Int32(0));
+            // 选中项：标记画进 label 文字（radio_label），不导出 toggle 属性 ——
+            // 宿主（KDE/Qt）对 checkable 条目先本地翻转再通知，协议又没有单选组
+            // 概念，原生勾选在这条链路上必然出错（2026-10-15 实测「点不动/变多选」）。
+            assert_eq!(
+                property(node(3), "label"),
+                MessageItem::Str("◉ Arch".to_string())
+            );
+            assert_eq!(
+                property(node(4), "label"),
+                MessageItem::Str("○ Mint".to_string())
+            );
+            assert!(node(3).properties.iter().all(|(key, _)| !key.starts_with("toggle-")));
+            assert!(node(4).properties.iter().all(|(key, _)| !key.starts_with("toggle-")));
             // 分隔线：type=separator、没有动作 id
             assert_eq!(property(node(5), "type"), MessageItem::Str("separator".to_string()));
             assert_eq!(node(5).node_id, None);
