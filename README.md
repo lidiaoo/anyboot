@@ -309,11 +309,11 @@ curl -s -H "X-Auth-Token: $TOKEN" http://$HOST:12300/api/requests
 | --- | --- | --- | --- |
 | Windows | `shutdown /r /t 0` | `shutdown /s /t 0` | `rundll32.exe powrprof.dll,SetSuspendState 0,1,0` |
 | Linux | `systemctl reboot`（失败退 `loginctl reboot` → `pkexec systemctl reboot`） | `systemctl poweroff`（同样三级退让） | `systemctl suspend`（退 `loginctl suspend` → `pkexec`） |
-| macOS | `osascript` 管理员授权执行 `/sbin/shutdown -r now` | 同上（`-h now`） | 先试 `System Events` 睡眠 → 失败 `sudo -n pmset sleepnow` → 再失败走管理员授权 |
+| macOS | 先试 `sudo -n /sbin/shutdown -r now`（配了免密 sudo 就一路无框）→ 没配则退回 `osascript` 管理员授权框 | 同上（`-h now`） | 先试 `System Events` 睡眠 → 失败 `sudo -n pmset sleepnow` → 再失败走管理员授权 |
 
 两条安全约定（一直有效）：
 
-- **只有「命令不存在」才换下一条候选**。命令能执行但失败（没权限、用户取消了授权框）就立刻停手并把原因显示出来——不会“取消授权之后换种方式照样关机”。
+- **只有「这条候选在本机用不了」才换下一条**（命令不存在、`sudo -n` 没配免密）。“命令能执行但失败”（没权限、用户取消了授权框）就立刻停手并把原因显示出来——不会“取消授权之后换种方式照样关机”。
 - **提权弹窗可能停留很久**，动作都在后台线程执行；重复点击会被忽略（按钮和托盘项同时置灰）。
 
 Windows 睡眠的实话实说：`SetSuspendState 0,1,0` 在「休眠已启用」的机器上会变成**休眠**而不是睡眠。应用会在动手前做一次**只读**预检（注册表 `HKLM\SYSTEM\CurrentControlSet\Control\Power\HibernateEnabled`，读不到就跑 `powercfg /a`），把结论写进回执与日志（例如「本次会进入睡眠（S3）」或「休眠已启用，本次会变休眠」）。想自己确认：
@@ -450,10 +450,13 @@ sudo mount -a
 ```
 
 ```bash
-# macOS：免密 sudo（睡眠/重启会用到）
-#   sudo visudo
+# macOS：免密 sudo（重启 / 关机 / 睡眠会用到）
+#   sudo visudo -f /etc/sudoers.d/anyboot   （老系统没有 sudoers.d 就 `sudo visudo` 手动加这一行）
+#   把 <user> 换成实际用户名；只放开这两个命令，别写 ALL
 <user> ALL=(ALL) NOPASSWD: /sbin/shutdown, /usr/bin/pmset
 ```
+
+macOS 记完这一条：应用会先试 `sudo -n`（`-n` 保证**绝不问密码**），成功就一路无框；没配则照旧弹系统管理员授权框——所以「配不配」只影响弹不弹框，不影响能不能用。安全等级没有实质变化：macOS 苹果菜单里的「重新启动」本来就不需要密码，这里放开的是同一件事。
 
 ```powershell
 # Windows：让 ESP 一直挂着（管理员 PowerShell / diskpart，一次就够）

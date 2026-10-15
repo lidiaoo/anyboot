@@ -139,9 +139,13 @@ fn run_power_action(action: PowerAction, allow_gui_auth: bool) -> Result<(), Str
 
 | 动作 | macOS | Linux | Windows |
 | --- | --- | --- | --- |
-| reboot（默认） | `osascript -e 'do shell script "/sbin/shutdown -r now" with administrator privileges'`〔GUI 授权〕 | `systemctl reboot` → `loginctl reboot`；可提权：`pkexec systemctl reboot`〔GUI 授权〕 | `shutdown /r /t 0` |
-| shutdown | `osascript -e 'do shell script "/sbin/shutdown -h now" with administrator privileges'`〔GUI 授权〕 | `systemctl poweroff` → `loginctl poweroff`；可提权同上〔GUI 授权〕 | `shutdown /s /t 0` |
+| reboot（默认） | ①`sudo -n /sbin/shutdown -r now`（配了免密 sudo 时不弹框，远程可用）②`osascript -e 'do shell script "/sbin/shutdown -r now" with administrator privileges'`〔GUI 授权〕 | `systemctl reboot` → `loginctl reboot`；可提权：`pkexec systemctl reboot`〔GUI 授权〕 | `shutdown /r /t 0` |
+| shutdown | ①`sudo -n /sbin/shutdown -h now`（同上）②`osascript -e 'do shell script "/sbin/shutdown -h now" with administrator privileges'`〔GUI 授权〕 | `systemctl poweroff` → `loginctl poweroff`；可提权同上〔GUI 授权〕 | `shutdown /s /t 0` |
 | sleep | ①`osascript -e 'tell application "System Events" to sleep'`（免 root，需「自动化」授权，**远程不弹**）②`sudo -n /usr/bin/pmset sleepnow`（配了免密 sudo 时可用）③`osascript ... "/usr/bin/pmset sleepnow" with administrator privileges`〔GUI 授权〕 | `systemctl suspend` → `loginctl suspend`；可提权 `pkexec`〔GUI 授权〕 | `rundll32.exe powrprof.dll,SetSuspendState 0,1,0`（★ 休眠开启时会变成休眠，见 §3.4） |
+
+> 候选链的换人规则：只有「这条候选在本机用不了」才换下一条（命令不存在、或 `sudo -n` 报
+> `a password is required` —— 后者说明没配免密，机器上没人被问过密码）。「命令能跑但失败」
+> 一律停手，不会在用户取消授权之后换个方式照样关机。
 
 要点/坑：
 

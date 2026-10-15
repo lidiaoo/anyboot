@@ -10882,6 +10882,12 @@ enum PowerAttemptOutcome {
     Success,
     /// 系统里没有这个命令，可以换下一个候选。
     Missing(String),
+    /// 命令在，但**这条候选在本机用不了**（典型：`sudo -n` 没配免密 sudoers）。
+    ///
+    /// 必须和 `Missing` 一样按「换下一条候选」处理：它只是「这条方式行不通」，
+    /// 不是「用户拒绝了这次操作」。若归进 `Failed`，macOS 上会直接 Stop
+    /// （`escalate_power` 在 macOS 恒返回 None）→ 后面那条管理员授权候选永远跑不到。
+    Unavailable(String),
     /// 命令存在但执行失败，通常是权限不足或用户取消了授权弹窗。
     Failed(String),
 }
@@ -10890,7 +10896,9 @@ impl PowerAttemptOutcome {
     fn describe(&self) -> String {
         match self {
             Self::Success => "已提交".to_string(),
-            Self::Missing(reason) | Self::Failed(reason) => reason.clone(),
+            Self::Missing(reason) | Self::Unavailable(reason) | Self::Failed(reason) => {
+                reason.clone()
+            }
         }
     }
 }
@@ -10911,7 +10919,8 @@ enum PowerStep {
 fn next_power_step(outcome: &PowerAttemptOutcome, can_escalate: bool) -> PowerStep {
     match outcome {
         PowerAttemptOutcome::Success => PowerStep::Done,
-        PowerAttemptOutcome::Missing(_) => PowerStep::Next,
+        // 「没有这个命令」和「这条候选在本机用不了」都是换下一条，不是停手。
+        PowerAttemptOutcome::Missing(_) | PowerAttemptOutcome::Unavailable(_) => PowerStep::Next,
         PowerAttemptOutcome::Failed(_) if can_escalate => PowerStep::Escalate,
         PowerAttemptOutcome::Failed(_) => PowerStep::Stop,
     }
@@ -10919,7 +10928,8 @@ fn next_power_step(outcome: &PowerAttemptOutcome, can_escalate: bool) -> PowerSt
 
 /// 各平台的候选命令，按顺序尝试（见 plan §3.2）。
 ///
-/// macOS 用 AppleScript 弹系统自带的管理员授权框（应用自身不需要 root）；
+/// macOS 先试**免密 sudo**（配了 `/etc/sudoers.d/anyboot` 的 NOPASSWD 就一路无框），
+/// 没配则退回 AppleScript 的管理员授权框（应用自身不需要 root）；
 /// Linux 先试免密的 systemctl（本地活动会话下 logind 允许），失败再走 pkexec；
 /// Windows 用自带的 shutdown / rundll32。
 #[cfg(target_os = "macos")]
@@ -10930,9 +10940,24 @@ fn power_attempts(action: PowerAction) -> Vec<PowerAttempt> {
         attempt("osascript", &["-e", &script], true)
     }
 
+    /// 免密 sudo：`-n` 保证**绝不问密码** —— 配了免密 sudoers 就直接执行成功（不弹框），
+    /// 没配就立刻失败并被判为 `Unavailable` → 换下一条（管理员授权框）。
+    /// 也就是「配了免密才免框，没配的机器行为与以前完全一样」。
+    fn sudo_nopasswd(arguments: &[&'static str]) -> PowerAttempt {
+        let mut args = vec!["-n"];
+        args.extend(arguments);
+        attempt("sudo", &args, false)
+    }
+
     match action {
-        PowerAction::Reboot => vec![admin_script("/sbin/shutdown -r now")],
-        PowerAction::Shutdown => vec![admin_script("/sbin/shutdown -h now")],
+        PowerAction::Reboot => vec![
+            sudo_nopasswd(&["/sbin/shutdown", "-r", "now"]),
+            admin_script("/sbin/shutdown -r now"),
+        ],
+        PowerAction::Shutdown => vec![
+            sudo_nopasswd(&["/sbin/shutdown", "-h", "now"]),
+            admin_script("/sbin/shutdown -h now"),
+        ],
         PowerAction::Sleep => vec![
             // 免 root 的睡眠：首次会要一次「自动化」授权（不是管理员密码框）
             attempt(
@@ -10940,8 +10965,8 @@ fn power_attempts(action: PowerAction) -> Vec<PowerAttempt> {
                 &["-e", "tell application \"System Events\" to sleep"],
                 false,
             ),
-            // 配了免密 sudo 的机器：远程也能用（sudo -n 不会弹密码框）
-            attempt("sudo", &["-n", "/usr/bin/pmset", "sleepnow"], false),
+            // 配了免密 sudo 的机器：这条就成功，不用再弹框
+            sudo_nopasswd(&["/usr/bin/pmset", "sleepnow"]),
             // 兜底：管理员授权框
             admin_script("/usr/bin/pmset sleepnow"),
         ],
@@ -11006,6 +11031,23 @@ fn escalate_power(attempt: &PowerAttempt, allow_gui_auth: bool) -> Option<PowerA
 }
 
 /// 真的去执行一条候选命令（dry-run 时不会走到这里）。
+/// `sudo -n`（免密模式）在**没有配免密 sudoers** 时的失败文案。
+///
+/// 这几种都不是「用户取消了授权框」，而是「这条候选在本机用不了」——
+/// `-n` 的语义就是「绝不问密码」，所以它失败时机器上根本没人被问过。
+/// 判定做成纯函数，单测能钉死文案（sudo 的原文随版本略有差别，多认几种）。
+fn sudo_without_password(program: &str, args: &[String], stderr: &str) -> bool {
+    program == "sudo"
+        && args.iter().any(|argument| argument == "-n")
+        && [
+            "a password is required",
+            "no tty present",
+            "a terminal is required",
+        ]
+        .iter()
+        .any(|needle| stderr.contains(needle))
+}
+
 fn run_power_command(program: &str, args: &[String]) -> PowerAttemptOutcome {
     let display = render_command(program, args);
     match command(program).args(args).output() {
@@ -11023,6 +11065,10 @@ fn run_power_command(program: &str, args: &[String]) -> PowerAttemptOutcome {
                 .filter(|line| !line.is_empty())
                 .collect::<Vec<_>>()
                 .join(" ");
+            // 免密 sudo 没配 → 换下一条候选（管理员授权框），别当作用户取消授权。
+            if sudo_without_password(program, args, &detail) {
+                return PowerAttemptOutcome::Unavailable(format!("{display}：{detail}"));
+            }
             if detail.is_empty() {
                 PowerAttemptOutcome::Failed(format!("{display} 失败（退出码 {code}）"))
             } else {
@@ -14949,12 +14995,16 @@ mod tests {
 
     #[cfg(target_os = "macos")]
     #[test]
-    fn macos_power_table_uses_administrator_privileges() {
+    fn macos_power_table_prefers_nopasswd_sudo_over_the_admin_prompt() {
+        // 重启：先免密 sudo（不弹框），没配免密才退回管理员授权框。
         let reboot = power_attempts(PowerAction::Reboot);
-        assert_eq!(reboot.len(), 1, "macOS 重启只走一条提权路径");
-        assert_eq!(reboot[0].program, "osascript");
-        assert!(reboot[0].needs_gui_auth);
-        let script = reboot[0].args.join(" ");
+        assert_eq!(reboot.len(), 2, "macOS 重启：免密 sudo + 管理员授权兜底");
+        assert_eq!(reboot[0].command(), "sudo -n /sbin/shutdown -r now");
+        assert!(!reboot[0].needs_gui_auth, "sudo -n 不会弹密码框");
+
+        assert_eq!(reboot[1].program, "osascript");
+        assert!(reboot[1].needs_gui_auth);
+        let script = reboot[1].args.join(" ");
         assert!(
             script.contains("administrator privileges"),
             "实际脚本: {script}"
@@ -14964,11 +15014,12 @@ mod tests {
             "实际脚本: {script}"
         );
         // 候选命令本身就带管理员授权，不需要再提权一层。
-        assert!(escalate_power(&reboot[0], true).is_none());
+        assert!(escalate_power(&reboot[1], true).is_none());
 
         // 关机同理
         let shutdown = power_attempts(PowerAction::Shutdown);
-        assert!(shutdown[0].args.join(" ").contains("/sbin/shutdown -h now"));
+        assert_eq!(shutdown[0].command(), "sudo -n /sbin/shutdown -h now");
+        assert!(shutdown[1].args.join(" ").contains("/sbin/shutdown -h now"));
 
         // 睡眠：先走免 root 的 System Events，再试免密 sudo，最后才是管理员授权兜底
         let sleep = power_attempts(PowerAction::Sleep);
@@ -14977,7 +15028,7 @@ mod tests {
             !sleep[0].needs_gui_auth && sleep[0].args.join(" ").contains("System Events"),
             "第一条不该弹管理员授权框"
         );
-        assert_eq!(sleep[1].program, "sudo");
+        assert_eq!(sleep[1].command(), "sudo -n /usr/bin/pmset sleepnow");
         assert!(!sleep[1].needs_gui_auth, "sudo -n 不会弹密码框");
         assert!(sleep[2].needs_gui_auth, "最后一条才是管理员授权兜底");
     }
@@ -17434,13 +17485,19 @@ mod core_tests {
 
     #[test]
     fn power_attempt_chain_stops_after_cancelled_authorization() {
-        use PowerAttemptOutcome::{Failed, Missing, Success};
+        use PowerAttemptOutcome::{Failed, Missing, Success, Unavailable};
 
         // 命令执行成功：结束。
         assert_eq!(next_power_step(&Success, true), PowerStep::Done);
         // 系统里没有这个命令：换下一个候选（例如没有 systemd 的发行版）。
         assert_eq!(
             next_power_step(&Missing("没有 systemctl".to_string()), true),
+            PowerStep::Next
+        );
+        // 这条候选在本机用不了（没配免密 sudo）：也换下一条，
+        // 否则 macOS 上管理员授权候选永远轮不到。
+        assert_eq!(
+            next_power_step(&Unavailable("sudo -n：a password is required".to_string()), false),
             PowerStep::Next
         );
         // 权限不足且还有提权方案：用 pkexec 重试。
@@ -17457,6 +17514,48 @@ mod core_tests {
             next_power_step(&Failed("Request dismissed".to_string()), false),
             PowerStep::Stop
         );
+    }
+
+    #[test]
+    fn sudo_without_password_is_a_missing_candidate_not_a_refusal() {
+        let nopasswd_args = ["-n", "/sbin/shutdown", "-r", "now"]
+            .iter()
+            .map(|value| value.to_string())
+            .collect::<Vec<_>>();
+
+        // sudo 的原文（各版本措辞略有差别，都要认）。
+        for reason in [
+            "sudo: a password is required",
+            "sudo: no tty present and no askpass program specified",
+            "sudo: a terminal is required to read the password",
+        ] {
+            assert!(
+                sudo_without_password("sudo", &nopasswd_args, reason),
+                "应判为「这条候选用不了」: {reason}"
+            );
+        }
+
+        // 没带 -n 的 sudo 可能真的弹了密码框，那是用户的决定，不能当「用不了」。
+        let plain_sudo = ["/sbin/shutdown", "-r", "now"]
+            .iter()
+            .map(|value| value.to_string())
+            .collect::<Vec<_>>();
+        assert!(!sudo_without_password(
+            "sudo",
+            &plain_sudo,
+            "sudo: a password is required"
+        ));
+        // 别的程序 / 别的失败原因照旧按 Failed 处理。
+        assert!(!sudo_without_password(
+            "osascript",
+            &nopasswd_args,
+            "a password is required"
+        ));
+        assert!(!sudo_without_password(
+            "sudo",
+            &nopasswd_args,
+            "Request dismissed"
+        ));
     }
 
     #[test]
