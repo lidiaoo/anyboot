@@ -19,7 +19,9 @@ use tauri::{image::Image, AppHandle, Emitter, Manager};
 // 原生菜单已经三端全下线：托盘菜单都是同一扇自绘窗（tray-menu），原生点完必关，③ 无从谈起。
 // 托盘图标 classic 方式下三端都用 tauri 的实现（原生菜单挂在托盘上）；
 // unified 方式下只有 Windows / macOS 还用 tauri 的实现，Linux 那颗是自己按 SNI 导出的。
-#[cfg(desktop)]
+// 2026-10-15 定案：Linux 两种方式都不再用 tauri 托盘（muda 0.20 GTK3 子菜单渲染回归，
+// 两形态统一走自研 linux_sni），这些类型只剩 Win/mac 用。
+#[cfg(all(desktop, not(target_os = "linux")))]
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 // classic 原生菜单的装配类型（三端自绘之前那套，见 native_menu_node / build_tray_menu）
 #[cfg(desktop)]
@@ -9145,6 +9147,8 @@ fn build_tray_menu(app: &AppHandle, state: &UiState) -> tauri::Result<Menu<tauri
 /// Windows：菜单由我们自己弹（锚点在工作区下沿，见 `popup_tray_menu`），
 /// 所以托盘上**没有**挂菜单，右键只有这个事件可走。
 /// 其他平台：菜单挂在托盘上，什么时候弹、弹在哪由面板/系统决定，这里无事可做。
+/// Linux 已不建 tauri 托盘（classic 也走 linux_sni），本函数只剩 Win/mac 用。
+#[cfg(not(target_os = "linux"))]
 fn on_tray_right_click(app: &AppHandle, cursor: tauri::PhysicalPosition<f64>) {
     #[cfg(not(target_os = "windows"))]
     {
@@ -9312,6 +9316,8 @@ fn menu_signature_for(state: &UiState) -> String {
 }
 
 /// 记住当前菜单内容，让后续相同内容的刷新直接跳过重建。
+/// Linux 已不建 tauri 托盘（classic 也走 linux_sni），预热只剩 Win/mac 用。
+#[cfg_attr(target_os = "linux", allow(dead_code))]
 fn remember_menu_signature(app: &AppHandle, signature: String) {
     *app.state::<Mutex<Option<String>>>()
         .lock()
@@ -14269,14 +14275,15 @@ pub fn run() {
                 // 两种形态在启动时二选一（切换 trayMenuStyle 后重启生效）：
                 // classic（默认）= 三端各用系统原生托盘菜单（三端自绘之前的原始方案）；
                 // unified = 全局统一 —— 右键都开同一扇自绘菜单窗（Win/mac 托盘事件直开；
-                // Linux 自研 SNI 按 WM 分流：GNOME 空根+opened 弹自绘窗，其余全量）。
+                // Linux 按 WM 分流：GNOME 单条+opened 弹自绘窗，其余全量）。
+                // Linux 例外（2026-10-15 定案）：**两种形态都走自研 linux_sni** ——
+                // muda 0.20 的 GTK3 菜单子菜单渲染有回归（展开变宽但条目全空，GNOME
+                // 实机反复复现），tauri 托盘那条路不再可靠；差别只剩分流（见
+                // linux_sni::UNIFIED_STYLE）：unified 在 GNOME 弹自绘窗，classic 全量
+                // dbusmenu 由宿主渲染（GtkMenu 自带滚动）。Win/mac 不受影响。
+                #[cfg(target_os = "linux")]
+                linux_sni::spawn(app.handle().clone());
                 if tray_menu_style_is_unified(app.handle()) {
-                    // Linux：托盘图标**不交给 tauri**，由我们自己按 SNI 协议导出
-                    // （见 linux_sni 模块）：既拿得到点击坐标，dbusmenu 这条「点击来源」
-                    // 也由我们全权掌握。
-                    #[cfg(target_os = "linux")]
-                    linux_sni::spawn(app.handle().clone());
-
                     // Windows / macOS：托盘只留**图标**，不挂任何原生菜单 —— 菜单是
                     // 同一扇自绘窗（tray-menu）。左键=显示主窗口，右键=自绘菜单。
                     // （tray-icon 在这两端的 Click 事件**不依赖菜单**：macOS 是 rightMouseDown
@@ -14308,68 +14315,72 @@ pub fn run() {
                         })
                         .build(app.handle())?;
                 } else {
-                    // classic：三端原生托盘菜单（三端自绘之前的原始方案，原样恢复）。
-                    let initial_state = ui_state(app.handle());
-                    // 预热菜单指纹：这一帧就是当前内容，别让紧接着的首次扫描白重建一次菜单
-                    remember_menu_signature(app.handle(), menu_signature_for(&initial_state));
-
-                    // Windows：右键菜单由我们自己弹（见 popup_tray_menu），先从托盘上**摘掉**菜单，
-                    // 否则原生实现会抢在事件前面用「光标锚点」把它弹出来，压住任务栏。
-                    // 托盘不挂菜单这一点对 tray-icon 是合法的：右键仍会照常发 Click 事件给我们。
-                    // 菜单锚点窗口 —— 8×8、无边框、不可见，创建时就停在 (0,0)。
-                    // `popup_at` 会把坐标当它的**客户区坐标**再 ClientToScreen 一次，停在原点坐标才好算。
-                    //
-                    // 为什么是「带 webview 的窗口」而不是更轻的 `WindowBuilder`：`AppHandle::get_window`
-                    // 被 tauri 的 `unstable` feature 挡着（`windows()` 同理），只有 `get_webview_window`
-                    // 是公开 API；而这里在 setup 里建一次、之后每次右键按 label 取回来，是最省事也最稳的路子。
-                    // 多出来的这个 webview 从头到尾不可见、不参与交互，就是一块坐标基准。
-                    #[cfg(not(target_os = "windows"))]
-                    let initial_menu = build_tray_menu(app.handle(), &initial_state)?;
-                    #[cfg(target_os = "windows")]
-                    tauri::WebviewWindowBuilder::new(
-                        app.handle(),
-                        MENU_ANCHOR_WINDOW_LABEL,
-                        tauri::WebviewUrl::App("menu-anchor.html".into()),
-                    )
-                    .inner_size(MENU_ANCHOR_SIZE, MENU_ANCHOR_SIZE)
-                    .position(0.0, 0.0)
-                    .decorations(false)
-                    .resizable(false)
-                    .skip_taskbar(true)
-                    .visible(false)
-                    .focused(false)
-                    .build()?;
-
-                    // Windows 上托盘不挂菜单，`mut` 只有其他平台用得上
-                    #[allow(unused_mut)]
-                    let mut tray_builder = TrayIconBuilder::with_id("main")
-                        .icon(create_tray_image())
-                        .show_menu_on_left_click(false)
-                        .on_tray_icon_event(|tray, event| {
-                            let TrayIconEvent::Click {
-                                button,
-                                button_state: MouseButtonState::Up,
-                                position,
-                                ..
-                            } = event
-                            else {
-                                return;
-                            };
-                            let app = tray.app_handle();
-                            match button {
-                                MouseButton::Left => show_main_window(app, ShowOrigin::Recall),
-                                MouseButton::Right => on_tray_right_click(app, position),
-                                _ => {}
-                            }
-                        })
-                        .on_menu_event(|app, event| {
-                            handle_menu_event(app, event.id().as_ref());
-                        });
-                    #[cfg(not(target_os = "windows"))]
+                    // classic：Win/mac 原生托盘菜单（三端自绘之前的原始方案，原样恢复）；
+                    // Linux 已在上方交给 linux_sni（见开头注释），不再建 tauri 托盘。
+                    #[cfg(not(target_os = "linux"))]
                     {
-                        tray_builder = tray_builder.menu(&initial_menu);
+                        let initial_state = ui_state(app.handle());
+                        // 预热菜单指纹：这一帧就是当前内容，别让紧接着的首次扫描白重建一次菜单
+                        remember_menu_signature(app.handle(), menu_signature_for(&initial_state));
+
+                        // Windows：右键菜单由我们自己弹（见 popup_tray_menu），先从托盘上**摘掉**菜单，
+                        // 否则原生实现会抢在事件前面用「光标锚点」把它弹出来，压住任务栏。
+                        // 托盘不挂菜单这一点对 tray-icon 是合法的：右键仍会照常发 Click 事件给我们。
+                        // 菜单锚点窗口 —— 8×8、无边框、不可见，创建时就停在 (0,0)。
+                        // `popup_at` 会把坐标当它的**客户区坐标**再 ClientToScreen 一次，停在原点坐标才好算。
+                        //
+                        // 为什么是「带 webview 的窗口」而不是更轻的 `WindowBuilder`：`AppHandle::get_window`
+                        // 被 tauri 的 `unstable` feature 挡着（`windows()` 同理），只有 `get_webview_window`
+                        // 是公开 API；而这里在 setup 里建一次、之后每次右键按 label 取回来，是最省事也最稳的路子。
+                        // 多出来的这个 webview 从头到尾不可见、不参与交互，就是一块坐标基准。
+                        #[cfg(not(target_os = "windows"))]
+                        let initial_menu = build_tray_menu(app.handle(), &initial_state)?;
+                        #[cfg(target_os = "windows")]
+                        tauri::WebviewWindowBuilder::new(
+                            app.handle(),
+                            MENU_ANCHOR_WINDOW_LABEL,
+                            tauri::WebviewUrl::App("menu-anchor.html".into()),
+                        )
+                        .inner_size(MENU_ANCHOR_SIZE, MENU_ANCHOR_SIZE)
+                        .position(0.0, 0.0)
+                        .decorations(false)
+                        .resizable(false)
+                        .skip_taskbar(true)
+                        .visible(false)
+                        .focused(false)
+                        .build()?;
+
+                        // Windows 上托盘不挂菜单，`mut` 只有其他平台用得上
+                        #[allow(unused_mut)]
+                        let mut tray_builder = TrayIconBuilder::with_id("main")
+                            .icon(create_tray_image())
+                            .show_menu_on_left_click(false)
+                            .on_tray_icon_event(|tray, event| {
+                                let TrayIconEvent::Click {
+                                    button,
+                                    button_state: MouseButtonState::Up,
+                                    position,
+                                    ..
+                                } = event
+                                else {
+                                    return;
+                                };
+                                let app = tray.app_handle();
+                                match button {
+                                    MouseButton::Left => show_main_window(app, ShowOrigin::Recall),
+                                    MouseButton::Right => on_tray_right_click(app, position),
+                                    _ => {}
+                                }
+                            })
+                            .on_menu_event(|app, event| {
+                                handle_menu_event(app, event.id().as_ref());
+                            });
+                        #[cfg(not(target_os = "windows"))]
+                        {
+                            tray_builder = tray_builder.menu(&initial_menu);
+                        }
+                        let _tray = tray_builder.build(app.handle())?;
                     }
-                    let _tray = tray_builder.build(app.handle())?;
                 }
             }
 
@@ -14675,10 +14686,22 @@ mod linux_sni {
     const MENU_IFACE: &str = "com.canonical.dbusmenu";
 
     /// 宿主是不是 GNOME Shell（serve() 启动时经 X11 查 WM 名一次性判定）。
-    /// GNOME 走「空根 + opened 时机弹自绘窗」，其余宿主走全量 dbusmenu。
+    /// 「GNOME + unified」走「单条 + opened 时机弹自绘窗」，其余组合走全量 dbusmenu。
     static GNOME_HOST: AtomicBool = AtomicBool::new(false);
     fn gnome_host() -> bool {
         GNOME_HOST.load(Ordering::SeqCst)
+    }
+
+    /// 当前是不是 unified 方式（serve() 启动时读 trayMenuStyle 一次性判定）。
+    ///
+    /// 2026-10-15 定案：classic 在 Linux 也走本模块（muda 0.20 的 GTK3 菜单
+    /// 子菜单渲染回归——展开变宽但条目全空，用户 GNOME 实机反复复现）。
+    /// 分流收窄为「GNOME 且 unified」才弹自绘窗；classic 一律全量 dbusmenu
+    /// （GNOME 扩展用 GtkMenu 渲染，自带滚动与封顶，AboutToShow 脏标记 /
+    /// children-display 修复后子菜单可正常展开）。
+    static UNIFIED_STYLE: AtomicBool = AtomicBool::new(false);
+    fn unified_style() -> bool {
+        UNIFIED_STYLE.load(Ordering::SeqCst)
     }
 
     /// dbusmenu 内容代次：内容每变一次 +1（GetLayout 回执与 LayoutUpdated 信号都用它）。
@@ -14725,8 +14748,12 @@ mod linux_sni {
     }
 
     fn serve(app: AppHandle) -> Result<(), String> {
-        // 宿主判定（一次性）：GNOME Shell 的弹窗不滚动不封顶，全量菜单装不下 ——
-        // 必须走「空根 + opened 时机弹自绘窗」；其余宿主（KWin/Muffin/查不到）走全量。
+        // 方式判定（一次性）：classic/unified 都走本模块（Linux），差别只在分流——
+        // 「GNOME 且 unified」单条+opened 弹自绘窗；classic 永远全量 dbusmenu。
+        let unified = tray_menu_style_is_unified(&app);
+        UNIFIED_STYLE.store(unified, Ordering::SeqCst);
+        // 宿主判定（一次性）：GNOME Shell 的宿主弹窗不滚动不封顶，unified 的全量菜单
+        // 装不下 —— 走「单条 + opened 时机弹自绘窗」；classic 与其余宿主走全量。
         let wm_name = detect_wm_name();
         let gnome = wm_name
             .as_deref()
@@ -14736,10 +14763,11 @@ mod linux_sni {
         startup_debug(
             &app,
             &format!(
-                "托盘 SNI 宿主判定：WM={} → {}",
+                "托盘 SNI 启动：方式={} WM={} → {}",
+                if unified { "unified" } else { "classic" },
                 wm_name.as_deref().unwrap_or("(查不到)"),
-                if gnome {
-                    "GNOME 模式（dbusmenu 空根，opened 时弹自绘窗）"
+                if gnome && unified {
+                    "GNOME 模式（dbusmenu 单条，opened 时弹自绘窗）"
                 } else {
                     "全量 dbusmenu"
                 }
@@ -15149,11 +15177,12 @@ mod linux_sni {
         children: Vec<i32>,
     }
 
-    /// 按宿主取要导出的菜单模型。GNOME 只留一条「显示主窗口」：**非空菜单宿主弹窗
-    /// 才开得出来**（空菜单实测连弹窗都不开、opened 事件也不发），弹出瞬间 opened
-    /// 触发自绘窗一步直达；这条本身只是兜底可点。其余宿主全量导出。
+    /// 按宿主与方式取要导出的菜单模型。「GNOME + unified」只留一条「显示主窗口」：
+    /// **非空菜单宿主弹窗才开得出来**（空菜单实测连弹窗都不开、opened 事件也不发），
+    /// 弹出瞬间 opened 触发自绘窗一步直达；这条本身只是兜底可点。
+    /// classic（含 GNOME）与其余宿主一律全量导出（见 UNIFIED_STYLE 注释）。
     fn menu_nodes_for_host(state: &UiState) -> Vec<MenuNode> {
-        if gnome_host() {
+        if gnome_host() && unified_style() {
             vec![menu_item("show", "显示主窗口", true)]
         } else {
             build_menu_nodes(state)
@@ -15342,9 +15371,9 @@ mod linux_sni {
                 Some(MessageItem::Str(event)) => Some(event.as_str()),
                 _ => None,
             };
-            if event_name == Some("opened") && gnome_host() {
-                // 光标查询放在 SNI 线程（X11 调用别占主线程）；弹窗那一刻光标就停在
-                // 托盘图标上，是最贴切的锚点。
+            if event_name == Some("opened") && gnome_host() && unified_style() {
+                // 仅「GNOME + unified」响应 opened（单条壳弹出 → 弹自绘窗）。
+                // classic 的全量菜单就是宿主渲染的最终形态，opened 只当普通事件忽略。
                 let (x, y) = cursor_position().unwrap_or_else(|| fallback_anchor(&self.app));
                 startup_debug(
                     &self.app,
