@@ -20,13 +20,16 @@
 ## WebKitGTK × NVIDIA
 - X11 唯一正解 `WEBKIT_DMABUF_RENDERER_FORCE_SHM=1`（apply_linux_gpu_workarounds，早于建 WebView）；WEBKIT_DISABLE_DMABUF_RENDERER / COMPOSITING_MODE 已失效勿回用。用户设过任一 WEBKIT 环境开关就不插手。
 
-## 托盘（自绘菜单 + positioner + SNI）
-- 三端自绘菜单窗 `tray-menu`（无边框置顶 webview，渲染 build_menu_nodes 纯数据）；keepsOpen 只在后端算，前端照字段办事。分发走 handle_menu_event。
-- 定位：tauri-plugin-positioner `move_window_constrained(Position::TrayCenter)`，不手算坐标。插件 Tray* 位置只认原生托盘事件 → `on_tray_event(app,&TrayIconEvent)` 公开喂入口：Win/mac 在 on_tray_icon_event 喂真实 rect；Linux SNI 在 activate/dbusmenu click 喂 32×32 标称矩形。不喂报 "Tray position not set"。capabilities 加 positioner:default。
-- Linux SNI（linux_sni 模块，dbus::ffidisp 手工 MsgHandler）：ItemIsMenu=false ⇒ Cinnamon/KDE 回调 Activate/ContextMenu。**GNOME appindicators 扩展点击只认 Menu 属性的 dbusmenu、从不回调 ContextMenu**（Menu="" 就什么弹不出）→ 静态单项「打开面板」dbusmenu @ /StatusNotifierMenu（MenuHandler），Event(clicked,1) → cursor_position() 当锚点（dbusmenu Event 不带坐标；SNI 线程调安全）→ open_tray_menu。
-- dbus 0.9 坑：MessageItemArray::new 要整条数组签名（带前导 a）；GetLayout 回执 (u(ia{sv}av)) 有单测钉死。Tauri 2 ACL：新窗口 label 必须进 capabilities/default.json 的 windows，否则 invoke/listen 静默拒。
-- 点击语义三端统一：左键=主窗口（Recall），右键/中键=自绘菜单（GNOME 上点击弹原生单项「打开面板」，双击=Activate）。
-- 待办：本机无 win/mac target，上 Windows 先 build 再实机点托盘复验 → push → 打包。
+## 托盘（双形态：classic 原生菜单 / unified 自绘+SNI）
+- **trayMenuStyle 二选一，启动时定接线，切换重启生效**（2026-10-15 用户定案）：
+  - classic（默认）= 三端自绘之前那代：tauri 托盘 + **系统原生菜单**（6b7ef6c^ 恢复）——macOS 菜单挂托盘；Windows 摘菜单+锚点窗 popup_tray_menu 现建现弹（ui/menu-anchor.html，托盘不挂菜单右键仍发事件）；Linux libappindicator 宿主渲染（GNOME 右键也能弹）。绿勾位图 check_mark_*、菜单指纹 menu_signature/remember/invalidate（manage 里 Mutex<Option<String>>）、busy.menu_describe 都是 classic 专用，别再删。
+  - unified = Win/mac 右键直开自绘窗（tray-menu，positioner TrayCenter 落位）；Linux 自研 SNI（linux_sni，unified 专用）导出**build_menu_nodes 全量内容的动态 dbusmenu** @ /StatusNotifierMenu——右键直接出完整菜单（无「打开面板」中转），点击 run_on_main_thread 派发 handle_menu_event；AboutToShow(0)=true + 指纹变化发 LayoutUpdated（MENU_DIRTY/MENU_REVISION 原子接力）。
+- keepsOpen 只在后端算，前端照字段办事；分发统一走 handle_menu_event。
+- positioner：插件 Tray* 位置只认原生托盘事件 → `on_tray_event(app,&TrayIconEvent)` 喂入口：Win/mac 在 on_tray_icon_event 喂真实 rect；Linux SNI 在 activate/dbusmenu click 喂 32×32 标称矩形。capabilities 加 positioner:default。
+- Linux SNI 定则：ItemIsMenu=false + Menu=object path（类型错 GNOME 静默丢属性）。GNOME 扩展点击只认 dbusmenu；Cinnamon/KDE 见有效 Menu 会自建宿主菜单消费右键（ContextMenu 回调不来了）。
+- dbus 0.9 坑：MessageItemArray::new 要整条数组签名（带前导 a）；Message::signal(path,iface,name) 直接返 Message（失败 panic）、Connection::send 返 Result<u32,()>；GetLayout 回执 (u(ia{sv}av)) 有单测钉死；快照父节点先 push 再递归（先序，否则 id 错位）。Tauri 2 ACL：新窗口 label 必须进 capabilities/default.json 的 windows，否则 invoke/listen 静默拒。
+- 回归探针：`~/.cache/ab-dock-min/cin/probe40.sh`——假 watcher 总线级回归（不依赖真面板），classic 验 libayatana 全量菜单、unified 验自研 dbusmenu+点击派发；libayatana 不暴露 ItemIsMenu 属性，探针要容错。
+- 待办：本机无 win/mac target，上 Windows 先 build 再实机点托盘复验（两形态）→ push → 打包。
 
 ## 产品定则（细节见日志）
 - 默认值常量钉着（改值同步单测）：亮色/90%/remoteAllowGuiAuth=true/默认高度=整屏高 2/3（基准 monitor.size()）；window_height==0 是「没记过尺寸」哨兵。
