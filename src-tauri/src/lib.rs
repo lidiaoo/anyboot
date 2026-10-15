@@ -6,7 +6,7 @@ use std::{
     sync::{
         atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering},
         mpsc::{sync_channel, Receiver, SyncSender, TrySendError},
-        Mutex,
+        Mutex, OnceLock,
     },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -33,6 +33,10 @@ use tauri::menu::{CheckMenuItem, IconMenuItem, Menu, MenuItem, PredefinedMenuIte
 #[cfg(desktop)]
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 use tauri_plugin_dialog::DialogExt;
+// `MessageDialogKind` 只有非 macOS 的「已经启动」提示在用（macOS 走 osascript，见
+// `announce_already_running`）：按 cfg 导，免得 macOS 上白挨一条 unused_imports。
+#[cfg(not(target_os = "macos"))]
+use tauri_plugin_dialog::MessageDialogKind;
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -151,6 +155,8 @@ const GRUB_SCRIPT_PATH: &str = "/etc/grub.d/09_anyboot";
 pub use cli::{is_cli_invocation as cli_requested, run as run_cli};
 
 const SETTINGS_FILE: &str = "settings.json";
+/// 单实例锁文件（放配置目录里，因此 `ANYBOOT_CONFIG_DIR` 也生效 —— 沙箱/多套配置互不干扰）
+const INSTANCE_LOCK_FILE: &str = "anyboot.lock";
 /// 内置 HTTP 服务的默认监听地址与端口（plan §4.1：默认开启、0.0.0.0:12300）
 const DEFAULT_HTTP_BIND: &str = "0.0.0.0";
 const DEFAULT_HTTP_PORT: u16 = 12300;
@@ -8613,7 +8619,7 @@ fn grub_menu_nodes(grub: &GrubView, busy: bool) -> Vec<MenuNode> {
 
     // 主体：顶层一套折叠状态，各组独立一套（与主窗一致）；原始格式不折叠
     let mut emitted_groups = std::collections::HashSet::new();
-    let mut top_counts = grub_collapse(
+    let top_counts = grub_collapse(
         format,
         grub.entries
             .iter()
@@ -8654,7 +8660,7 @@ fn grub_menu_nodes(grub: &GrubView, busy: bool) -> Vec<MenuNode> {
                 location
             ),
         ));
-        let mut counts = grub_collapse(
+        let counts = grub_collapse(
             format,
             children_of
                 .get(submenu_id.as_str())
@@ -8736,7 +8742,9 @@ fn grub_collapse<'a>(
 }
 
 /// 出一行 GRUB 条目：非原始格式先按渲染结果折叠（重复的只出面一次，与主窗同一规则），
-/// 行文字 = 系统图标 +（组前缀/↳）+ 格式化文字 + 行尾附注（变体数/内核）。
+/// 行文字 = **缩进箭头 + 系统图标** +（组前缀）+ 格式化文字 + 行尾附注（变体数/内核）。
+/// 箭头在图标的**前面** —— 与主窗 `makeRow`（`arrow + icon + text`）逐字对齐，
+/// 组头那行也是「▸ 图标 组名」同一顺序。
 /// 置顶行带 `group_prefix`（组名 › ）、不做缩进箭头；原位行顶层无箭头、组内 ↳。
 fn grub_push_entry(
     items: &mut Vec<MenuNode>,
@@ -8782,7 +8790,7 @@ fn grub_push_entry(
     let arrow = if top { "" } else { "↳ " };
     items.push(menu_marked_choice_item(
         format!("grub-switch:{}", entry.selector),
-        format!("{icon}{arrow}{group_prefix}{label}{suffix}"),
+        format!("{arrow}{icon}{group_prefix}{label}{suffix}"),
         !busy,
         entry.selector == active,
     ));
@@ -9104,69 +9112,53 @@ fn build_tray_menu(app: &AppHandle, state: &UiState) -> tauri::Result<Menu<tauri
     menu.append(&PredefinedMenuItem::separator(app)?)?;
 
     // —— 分区：GRUB 启动项菜单项的构造（进顶层菜单 = 平铺展开；进子菜单 = 收起）——
-    // 组头灰字 + 条目（当前选中带绿勾），点击写 grubenv（grub-switch:<selector>），
-    // 与主窗 GRUB 区完全同源。
+    // **内容来自共享菜单模型**（`grub_menu_nodes`，与主窗 GRUB 区、统一方式同一份函数）：
+    // 列表格式随 `grub.listFormat`、当前项置顶、组头带（N 项 · ESP 位置）、变体折叠。
+    // 这里只把纯数据节点翻译成原生控件，不再自己算一遍 —— 以前那套是第二份实现，
+    // 于是「各自方式」的托盘 GRUB 区跟主窗/统一方式长期对不上。
+    // GRUB 节点只有 item / header 两类、不含子菜单，因此不涉及上方注释里
+    // 「转换层在 GNOME 宿主下子菜单展开为空」那个坑（那条说的是 sub 节点）。
     fn grub_menu_items(
         app: &AppHandle,
         grub: &GrubView,
         busy: bool,
         check: &Image<'static>,
     ) -> tauri::Result<Vec<Box<dyn tauri::menu::IsMenuItem<tauri::Wry>>>> {
+        let nodes = grub_menu_nodes(grub, busy);
+        // 常开通道留一行痕：原生菜单这一块现在只有一份来源（上面的 nodes），
+        // 出问题时能直接跟主窗 GRUB 区对行。只在菜单真的重建时打（指纹拦着）。
+        startup_debug(
+            app,
+            &format!(
+                "托盘菜单(classic) GRUB 区 {} 行: {}",
+                nodes.len(),
+                nodes
+                    .iter()
+                    .map(|node| node.label.as_str())
+                    .collect::<Vec<_>>()
+                    .join(" | ")
+            ),
+        );
         let mut items: Vec<Box<dyn tauri::menu::IsMenuItem<tauri::Wry>>> = Vec::new();
-        if grub.entries.is_empty() {
-            items.push(Box::new(MenuItem::with_id(
-                app,
-                "grub-empty",
-                if grub.partuuid.is_empty() && grub.dir.is_empty() {
-                    "GRUB：还没配置 ESP"
-                } else {
-                    "GRUB：没解析到启动项"
-                },
-                false,
-                None::<&str>,
-            )?));
-            return Ok(items);
-        }
-        let active = grub
-            .next_entry
-            .as_deref()
-            .or(grub.saved_entry.as_deref())
-            .unwrap_or("");
-        let group_titles: std::collections::HashMap<&str, &str> = grub
-            .groups
-            .iter()
-            .map(|group| (group.id.as_str(), group.name.as_str()))
-            .collect();
-        let mut emitted_groups = std::collections::HashSet::new();
-        for entry in &grub.entries {
-            if let Some(submenu_id) = &entry.submenu {
-                if emitted_groups.insert(submenu_id.as_str()) {
-                    let title = group_titles
-                        .get(submenu_id.as_str())
-                        .copied()
-                        .unwrap_or(submenu_id.as_str());
-                    items.push(Box::new(menu_section_header(
-                        app,
-                        &format!("grub-group:{submenu_id}"),
-                        &format!("▸ {title}"),
-                    )?));
-                }
+        for node in nodes {
+            let id = node.id.unwrap_or_default();
+            // 组头（`▸ 🐧 组名（N 项 · 位于…）`）——原生菜单里就是一条禁用条目
+            if node.kind == "header" {
+                items.push(Box::new(menu_section_header(app, &id, &node.label)?));
+                continue;
             }
-            let label = if entry.submenu.is_some() {
-                format!("↳ {}", entry.name)
-            } else {
-                entry.name.clone()
+            // 「当前项」在原生菜单里用绿勾位图表达（与系统列表同一套做法）；
+            // 条目的 ◉/○ 是给文字型宿主（dbusmenu / 自绘窗）的，这里不复用。
+            let icon = match node.checked {
+                Some(true) => Some(check.clone()),
+                _ => None,
             };
             items.push(Box::new(IconMenuItem::with_id(
                 app,
-                format!("grub-switch:{}", entry.selector),
-                label,
-                !busy,
-                if entry.selector == active {
-                    Some(check.clone())
-                } else {
-                    None
-                },
+                id,
+                node.label,
+                node.enabled,
+                icon,
                 None::<&str>,
             )?));
         }
@@ -9601,41 +9593,19 @@ fn menu_signature_for(state: &UiState) -> String {
     // 选项集变了也要重建菜单
     let fixed_monitor = normalize_fixed_monitor(&state.settings.settings.main_fixed_monitor);
     let monitor_options = state.settings.main_monitor_options.join(",");
-    // GRUB 条目也进指纹：条目集 / 选中项变了托盘 GRUB 区要跟着重建
-    let active = state
-        .grub
-        .next_entry
-        .as_deref()
-        .or(state.grub.saved_entry.as_deref())
-        .unwrap_or("");
-    // 条目名 / 分组名 / 列表格式都进指纹：托盘顶部那行现在是**级联文字**
-    // （「Linux › 组名 › 条目文字」，随 list_format 变），GRUB 子菜单也直接
-    // 显示条目名 —— 少一个就会出现「名字变了但托盘没重建」的假状态。
-    let grub_items = state
-        .grub
-        .entries
-        .iter()
-        .map(|entry| {
-            format!(
-                "{}{}{}",
-                entry.selector,
-                if entry.selector == active { "+" } else { "-" },
-                entry.name
-            )
-        })
-        .collect::<Vec<_>>()
-        .join(",");
-    let grub_groups = state
-        .grub
-        .groups
-        .iter()
-        .map(|group| format!("{}:{}", group.id, group.name))
-        .collect::<Vec<_>>()
-        .join(",");
+    // GRUB 区进指纹：**直接用托盘菜单真正会显示的那份 GRUB 节点**（grub_menu_nodes，
+    // 与主窗 GRUB 区、统一方式同一份渲染逻辑）—— 列表格式、当前项置顶、组头
+    // （N 项 · ESP 位置）、变体折叠、哪一条是当前项，全在里面。
+    // 以前是自己再数一遍「条目名 + 分组名 + 列表格式」，等于把同一份内容算了两遍：
+    // 改渲染规则时极易漏掉指纹，症状就是「显示的名字变了但托盘没重建」的假状态。
+    let grub_menu = serde_json::to_string(&grub_menu_nodes(
+        &state.grub,
+        state.busy.affects_menu(),
+    ))
+    .expect("GRUB 菜单节点一定能序列化");
     let next_boot = next_boot_cascade(&state.status.variables, &state.grub);
     format!(
-        "{base}|wpos={position}|fmon={fixed_monitor}|fmons={monitor_options}|grub={grub_items}|grubgroups={grub_groups}|grublf={}|nb={next_boot}",
-        state.grub.list_format
+        "{base}|wpos={position}|fmon={fixed_monitor}|fmons={monitor_options}|grubmenu={grub_menu}|nb={next_boot}"
     )
 }
 
@@ -9986,6 +9956,96 @@ fn spawn_menu_action(app: &AppHandle, action: MenuAction) {
         }
         MenuAction::Quit => app.exit(0),
     });
+}
+
+/// 本进程持有的单实例锁。拿到之后一直拿着（不主动放）：`File::try_lock` 用的是内核的
+/// 文件锁（Unix flock / Windows LockFileEx），进程一结束 —— 哪怕是崩溃、被 kill ——
+/// 内核就把锁放了。不会出现 pid 文件方案那种「进程早没了、文件还在，于是谁都起不来」
+/// 的假死状态，也不需要「探测旧 pid 是否还活着」那套。
+static INSTANCE_LOCK: OnceLock<fs::File> = OnceLock::new();
+
+/// 抢单实例锁的结果。
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum InstanceLockError {
+    /// 已经有实例在跑（锁被别的进程拿着）。
+    AlreadyRunning,
+    /// 锁本身用不了（配置目录建不出来 / 文件打不开 / 锁定出错）。
+    Io(String),
+}
+
+/// 抢锁的核心（只吃路径，单测能直接验）：`Ok(file)` = 本进程就是唯一实例。
+fn try_lock_instance_file(path: &Path) -> Result<fs::File, InstanceLockError> {
+    let file = fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(path)
+        .map_err(|error| InstanceLockError::Io(format!("无法打开 {}: {error}", path.display())))?;
+    match file.try_lock() {
+        Ok(()) => Ok(file),
+        Err(fs::TryLockError::WouldBlock) => Err(InstanceLockError::AlreadyRunning),
+        Err(error) => Err(InstanceLockError::Io(format!(
+            "无法锁定 {}: {error}",
+            path.display()
+        ))),
+    }
+}
+
+/// 试着成为「唯一实例」。`Ok(())` = 本进程拿到了锁。
+fn acquire_instance_lock(app: &AppHandle) -> Result<(), InstanceLockError> {
+    let directory = config_dir(app).map_err(InstanceLockError::Io)?;
+    fs::create_dir_all(&directory).map_err(|error| {
+        InstanceLockError::Io(format!("无法创建配置目录 {}: {error}", directory.display()))
+    })?;
+    let file = try_lock_instance_file(&directory.join(INSTANCE_LOCK_FILE))?;
+    let _ = INSTANCE_LOCK.set(file);
+    Ok(())
+}
+
+/// 放锁。**只有「重启程序」用得上**：tauri 的 `restart()` 是「先拉起新进程、再退出本进程」，
+/// 不放锁的话新进程第一眼就看见锁还在，会把自己当第二个实例提示「已经启动」然后退出 ——
+/// 用户看到的就是「点重启，程序没了」。
+fn release_instance_lock() {
+    if let Some(file) = INSTANCE_LOCK.get() {
+        let _ = file.unlock();
+    }
+}
+
+/// 告诉用户「已经有一个 AnyBoot 在跑了」。**两类形态都会让本进程随后退出**：
+/// macOS 这条同步阻塞到用户关掉提示之后自己 `exit`，不返回；其余两端把退出交给
+/// 异步对话框的回调（所以那里函数会立刻返回，进程过一会儿才走）。
+///
+/// **macOS 为什么不用 tauri 的对话框插件**：没有 parent 时 rfd 走
+/// `CFUserNotificationDisplayAlert`。实测（macOS 15）这条 API **只登记、不显示** ——
+/// UserNotificationCenter 里多出一个 4×3、alpha=0 的空窗口，调用方一直阻塞
+/// （默认 30 秒后才返回），用户屏幕上什么都没有。改用 osascript 的
+/// `display dialog`：系统脚本引擎自己弹 NSAlert（实测 378×120、alpha=1，可见），
+/// 与本应用已经用着的电源动作同一条「osascript 子进程」路子，不需要任何额外权限、
+/// 也不碰 TCC。另外两端 rfd 的后端是 GTK / MessageBox，没这个毛病，继续用插件。
+#[cfg(target_os = "macos")]
+fn announce_already_running(app: &AppHandle) {
+    // `giving up after` 是兜底：用户不理它的话 60 秒后自己关掉、进程跟着退，
+    // 不至于留下一个「看不见又退不掉」的进程。
+    const SCRIPT: &str = "display dialog \"AnyBoot 已经启动，只能运行一个实例。\" \
+                          with title \"AnyBoot\" buttons {\"好\"} default button 1 \
+                          with icon note giving up after 60";
+    match Command::new("osascript").arg("-e").arg(SCRIPT).status() {
+        Ok(status) => startup_debug(
+            app,
+            &format!("已提示「已经启动」（osascript {status}）→ 退出"),
+        ),
+        Err(error) => startup_debug(app, &format!("提示「已经启动」失败（照常退出）: {error}")),
+    }
+    std::process::exit(0);
+}
+
+#[cfg(not(target_os = "macos"))]
+fn announce_already_running(app: &AppHandle) {
+    app.dialog()
+        .message("AnyBoot 已经启动，只能运行一个实例。")
+        .title("AnyBoot")
+        .kind(MessageDialogKind::Info)
+        .show(|_| std::process::exit(0));
 }
 
 /// 配置目录：默认是系统的 `app_config_dir`；
@@ -14297,6 +14357,9 @@ fn open_vars_dir(app: AppHandle) -> Result<String, String> {
 /// 「端口被本应用的另一个实例占用」的红字。`stop_http_server` 返回时端口一定
 /// 已放开，所以先让出来再拉起。
 ///
+/// 单实例锁（`release_instance_lock`）同理必须先放：不然新进程会把自己当成
+/// 「第二个实例」，提示一句「已经启动」就退出 —— 点一次重启应用直接没了。
+///
 /// AppImage 下 tauri 用 `APPIMAGE` 环境变量指回 **.AppImage 文件本身**（而不是挂载
 /// 点里的那份二进制）：否则旧进程一退出、挂载点被卸掉，新进程就成了无源之水
 /// （见 tauri::process::current_binary）。
@@ -14305,9 +14368,12 @@ fn restart_app(app: AppHandle) -> Result<(), String> {
     trace(&app, "command", "restart_app（主窗口）");
     startup_debug(
         &app,
-        "用户点「重启程序」：先停 HTTP 监听（放开端口），再拉起新实例并退出本进程",
+        "用户点「重启程序」：先停 HTTP 监听（放开端口）并放掉单实例锁，再拉起新实例并退出本进程",
     );
     stop_http_server(&app);
+    // 单实例锁必须在拉起新进程**之前**放掉：tauri 是先 spawn 再 exit(0)，
+    // 新进程会立刻来抢这把锁（与放开端口同一个道理，见上方注释）。
+    release_instance_lock();
     app.restart();
 }
 
@@ -14637,6 +14703,25 @@ pub fn run() {
             let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
         })
         .setup(|app| {
+            // —— 单实例守卫（放在最前面）——
+            // 拿不到锁 = 已经有实例在跑：说一句就退出。**后面一行都不做** ——
+            // 建托盘会多出第二颗图标、起监听会跟第一例抢端口、显示主窗口会凭空
+            // 多出一扇窗，那些都是「另一个实例」在用户眼里的样子。
+            match acquire_instance_lock(app.handle()) {
+                Ok(()) => {}
+                Err(InstanceLockError::AlreadyRunning) => {
+                    startup_debug(app.handle(), "检测到已有实例在运行 → 提示「已经启动」后退出");
+                    // 提示完就退（macOS 上这个函数阻塞到用户关掉提示才返回，
+                    // 另外两端是异步弹窗、回调里退）。
+                    announce_already_running(app.handle());
+                    return Ok(());
+                }
+                Err(InstanceLockError::Io(detail)) => {
+                    // 锁文件本身用不了（配置目录只读之类）：不因此拒绝启动，
+                    // 但留一行痕 —— 这时「单实例」这条保证是**没有**的。
+                    startup_debug(app.handle(), &format!("单实例锁不可用（照常启动）: {detail}"));
+                }
+            }
             let settings = read_settings_file(app.handle());
             {
                 let state = app.state::<Mutex<Settings>>();
@@ -15113,6 +15198,34 @@ mod tests {
             description.contains("Request dismissed"),
             "应带 stderr: {description}"
         );
+    }
+
+    #[test]
+    fn instance_lock_is_exclusive_until_released() {
+        // 单实例的机制全在一个函数里：拿到锁 = 本进程是唯一实例，拿不到 =
+        // 已经有实例在跑。文件锁是内核级的，所以同进程再开一个 fd 也会撞上 ——
+        // 这点让它可以在单测里验证（不必真的起第二个进程）。
+        let dir = std::env::temp_dir().join(format!("anyboot-lock-{}", std::process::id()));
+        fs::create_dir_all(&dir).expect("建临时目录");
+        let path = dir.join(INSTANCE_LOCK_FILE);
+        let _ = fs::remove_file(&path);
+
+        let first = try_lock_instance_file(&path).expect("第一个实例应该拿到锁");
+        assert_eq!(
+            try_lock_instance_file(&path).unwrap_err(),
+            InstanceLockError::AlreadyRunning,
+            "第二个必须被判为「已经有实例在跑」"
+        );
+
+        // 放锁（只有「重启程序」需要放，见 release_instance_lock）之后新进程才抢得到
+        first.unlock().expect("放锁");
+        let second = try_lock_instance_file(&path).expect("放锁后应该能再拿到");
+        drop(second);
+        // 锁文件留在原地不影响下次启动：不读里面的内容、不等 pid（没有过期概念）
+        assert!(try_lock_instance_file(&path).is_ok());
+
+        let _ = fs::remove_file(&path);
+        let _ = fs::remove_dir(&dir);
     }
 }
 
@@ -18611,10 +18724,8 @@ mod core_tests {
             name: "Linux".to_string(),
         }];
         let view = next_boot_grub_view(entries, groups, Some("l1"), "minimal");
-        let labels: Vec<String> = grub_menu_nodes(&view, false)
-            .into_iter()
-            .map(|node| node.label)
-            .collect();
+        let nodes = grub_menu_nodes(&view, false);
+        let labels: Vec<String> = nodes.iter().map(|node| node.label.clone()).collect();
         // 置顶当前项在最前：组内子项带「组名 › 」前缀 + 去前缀内核名 + 系统图标
         // （图标取自「组名 › 条目名」整串 —— 组名里有 linux → 🐧，与主窗同一规则）
         assert_eq!(labels[0], "🐧 Linux › cachyos", "labels={labels:?}");
@@ -18624,6 +18735,42 @@ mod core_tests {
         assert_eq!(labels[2], "▸ 🐧 Linux（2 项）", "labels={labels:?}");
         // 同名折叠：组内只出一行，标 2 个变体（条目名 CachyOS 不含系统关键字 → 无图标）
         assert_eq!(labels[3], "↳ cachyos · 2 个变体", "labels={labels:?}");
+
+        // 这两条是「各端渲染器」共同依赖的契约（classic 原生菜单也照它翻译）：
+        // * 组头 kind=header（原生菜单据此渲染成禁用标题而不是可点条目），
+        //   其余 kind=item 且带动作 id；
+        // * 「当前项」是数据字段 checked（原生菜单拿它决定挂不挂绿勾），
+        //   不在 label 文字里 —— 把 ◉/○ 画进文字是文字型宿主（dbusmenu/自绘窗）的事。
+        assert_eq!(nodes[2].kind, "header");
+        assert_eq!(nodes[2].id.as_deref(), Some("grub-group:linux"));
+        assert_eq!(nodes[3].kind, "item");
+        assert_eq!(nodes[3].id.as_deref(), Some("grub-switch:l1"));
+        assert_eq!(nodes[0].checked, Some(true), "置顶的当前项要带标记");
+        assert_eq!(nodes[1].checked, Some(false));
+    }
+
+    /// 组内子项的行文字 = 「↳ 图标 文字」—— **箭头在图标的后面**，与主窗 `makeRow`
+    /// （`arrow + icon + text`）和组头（`▸ 图标 组名`）同一个顺序。
+    /// 这里曾经是「图标 箭头」，于是同一行在托盘是「🐧 ↳ linux」、在主窗是
+    /// 「↳ 🐧 linux」，两处对不上。
+    #[test]
+    fn tray_grub_child_rows_put_the_arrow_before_the_icon() {
+        let entries = vec![
+            next_boot_entry("w", "Windows 11", None, None),
+            next_boot_entry("a", "Arch Linux", Some("linux"), Some("vmlinuz-linux")),
+        ];
+        let groups = vec![grub::GrubGroup {
+            id: "linux".to_string(),
+            name: "Linux".to_string(),
+        }];
+        // 当前项是 Windows → 组内那条原位出行（带 ↳ 缩进），置顶的是 Windows
+        let view = next_boot_grub_view(entries, groups, Some("w"), "minimal");
+        let labels: Vec<String> = grub_menu_nodes(&view, false)
+            .into_iter()
+            .map(|node| node.label)
+            .collect();
+        assert_eq!(labels[2], "▸ 🐧 Linux（1 项）", "labels={labels:?}");
+        assert_eq!(labels[3], "↳ 🐧 linux", "labels={labels:?}");
     }
 
     /// 原始格式：完整标题、不做折叠，变体数用解析期合并的 `entry.variants`，
