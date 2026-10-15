@@ -49,6 +49,8 @@ Windows / macOS / Linux 三端同一份代码，行为对齐。
 ## 功能一览
 
 - 托盘菜单直接切换下次启动 Linux / Windows / macOS（读 `PreviousBoot-linux|windows|mac` 模板，写 `PreviousBoot`）。菜单**第一行**就写明「下次启动：X」，选中项带 ◉（未选中是 ○，标在文字里）。整张菜单按**分区**排布（分隔线 + 灰标题）：「应用设置」「扫描」「电源操作」「远程控制」各自独立成块；电源动作（重启 / 关机 / 睡眠）直接铺开、不折叠；「远程控制」区第一行就是**监听状态**，不用展开任何子菜单就能看到有没有在听。
+- 托盘菜单的 **GRUB 启动项区**在「各自方式」「全局统一」两种形态下都是**同一份内容**：按主窗口「列表格式」渲染条目文字（极简去内核前缀 / 中等完整内核名 / 原始完整标题）、当前项置顶、组头带（N 项 · ESP 位置）、同名条目折叠成「N 个变体」—— 与主窗口 GRUB 区一字不差。
+- **单实例**：同一时间只跑一个 AnyBoot。重复启动不会再起托盘/窗口/监听，而是弹一句「AnyBoot 已经启动，只能运行一个实例。」然后退出（详见 [常见问题](#再启动一个-anyboot-为什么提示已经启动)）。
 - 主窗口不占任务栏 / Dock，只在托盘常驻；托盘与主窗口**双向联动**（同一份状态快照，一边改另一边立刻跟着变）。
 - **电源动作**：重启、关机、睡眠，主窗口三个按钮与托盘上的三个菜单项都能用（见 [电源动作](#电源动作重启--关机--睡眠)）。
 - **内置 HTTP 服务**：默认开启、默认 `0.0.0.0:12300`、必须带 token；webhook / curl / 面板 / 手机 App 都能远程切系统与电源动作。端口被别的程序占了会在界面上写清占用者（PID + 进程名），并给「结束占用进程」「重试监听」两个按钮。
@@ -309,12 +311,29 @@ curl -s -H "X-Auth-Token: $TOKEN" http://$HOST:12300/api/requests
 | --- | --- | --- | --- |
 | Windows | `shutdown /r /t 0` | `shutdown /s /t 0` | `rundll32.exe powrprof.dll,SetSuspendState 0,1,0` |
 | Linux | `systemctl reboot`（失败退 `loginctl reboot` → `pkexec systemctl reboot`） | `systemctl poweroff`（同样三级退让） | `systemctl suspend`（退 `loginctl suspend` → `pkexec`） |
-| macOS | `osascript` 管理员授权执行 `/sbin/shutdown -r now` | 同上（`-h now`） | 先试 `System Events` 睡眠 → 失败 `sudo -n pmset sleepnow` → 再失败走管理员授权 |
+| macOS | 先走 AppleEvent → `System Events`（和苹果菜单的「重新启动」同一条路，**任何用户都不用管理员密码、不用改配置**；首次弹一次「自动化」授权，允许后永久免框）→ 用不了才试 `sudo -n /sbin/shutdown -r now`（配了免密 sudo 的机器）→ 最后才是 `osascript` 管理员授权框 | 同上（`shut down` / `-h now`） | 同上（`sleep`，再 `sudo -n pmset sleepnow`，最后管理员授权） |
 
 两条安全约定（一直有效）：
 
-- **只有「命令不存在」才换下一条候选**。命令能执行但失败（没权限、用户取消了授权框）就立刻停手并把原因显示出来——不会“取消授权之后换种方式照样关机”。
+- **只有「这条候选在本机用不了」才换下一条**（命令不存在、`sudo -n` 没配免密、macOS 的「自动化」未授权）。“命令能执行但失败”（没权限、用户当场取消了授权框）就立刻停手并把原因显示出来——不会“取消授权之后换种方式照样关机”。
 - **提权弹窗可能停留很久**，动作都在后台线程执行；重复点击会被忽略（按钮和托盘项同时置灰）。
+
+### macOS：一次授权，永久免密
+
+macOS 的重启 / 关机 / 睡眠**不需要管理员密码**：走的是 `System Events` 的 AppleEvent（系统内部转成 `loginwindow` 的 `aevt`/`rst`/`sdn`），
+也就是苹果菜单里那三个菜单项用的同一条链路。代价只是**首次**会弹一次系统的「自动化」授权框：
+
+> “AnyBoot”想要控制“System Events”。
+
+点「允许」后写进当前用户的 TCC 库（`~/Library/Application Support/com.apple.TCC/TCC.db`），此后永久免框、不再询问，也不需要 root、不需要 `sudoers`、不需要任何配置文件。
+换个用户登录时，该用户要自己点一次（这是 macOS 的按用户授权模型，应用无法代劳）。
+
+- 忘了点过什么：**系统设置 → 隐私与安全性 → 自动化** 里能看到并随时改。
+- 想重新弹一次授权框：`tccutil reset AppleEvents com.example.anyboot`。
+- **开发期注意**：TCC 记的是应用的代码签名要求。当前构建是 ad-hoc 签名（`tauri.conf.json` 里 `signingIdentity: "-"`），
+  签名随构建内容变化（cdhash 变），所以**每次重新构建并覆盖 /Applications 里的 app，才会再弹一次**（一次点击，不用密码）。
+  正式发布用固定的 Developer ID 证书签名后，授权对同一份签名永久有效。
+
 
 Windows 睡眠的实话实说：`SetSuspendState 0,1,0` 在「休眠已启用」的机器上会变成**休眠**而不是睡眠。应用会在动手前做一次**只读**预检（注册表 `HKLM\SYSTEM\CurrentControlSet\Control\Power\HibernateEnabled`，读不到就跑 `powercfg /a`），把结论写进回执与日志（例如「本次会进入睡眠（S3）」或「休眠已启用，本次会变休眠」）。想自己确认：
 
@@ -450,10 +469,17 @@ sudo mount -a
 ```
 
 ```bash
-# macOS：免密 sudo（睡眠/重启会用到）
-#   sudo visudo
-<user> ALL=(ALL) NOPASSWD: /sbin/shutdown, /usr/bin/pmset
+# macOS：不需要配任何东西。首次在本机点一次「重启系统」/「关机」/「睡眠」时
+# 会弹一次系统授权框「“AnyBoot”想要控制“System Events”」——点「允许」即可，
+# 之后永久免框（按用户记在 TCC 库里）。不想点也可以什么都不做：
+# 应用会退回系统管理员授权框，功能不受影响。
+# 想重新弹一次：tccutil reset AppleEvents com.example.anyboot
 ```
+
+macOS 这条授权不是「给 root 权限」，而是**自动化（AppleEvents）**：应用通过 `System Events` 发
+重启/关机/睡眠事件，和苹果菜单里那三个菜单项用的是同一条链路，所以本来就不需要管理员密码——
+也不需要 `sudoers`。`/etc/sudoers.d/anyboot` 那条免密规则现在只是**可选**的中间候选（配了就在
+自动化被拒时也免框），不配完全不影响使用。
 
 ```powershell
 # Windows：让 ESP 一直挂着（管理员 PowerShell / diskpart，一次就够）
@@ -656,11 +682,21 @@ curl -s -X POST -H "X-Auth-Token: <token>" \
 4. `/health` 通但 `/api/status` 返回 401：token 不对（重新复制一次）。
 5. 返回 409：有条待执行请求在倒计时，等它执行完或去主窗口/弹窗点「取消」。
 
+### 再启动一个 AnyBoot 为什么提示已经启动
+
+AnyBoot 是**单实例**应用：同一时间只允许跑一个。第二次启动（双击图标、命令行又跑一次、脚本里再拉一遍）不会再起托盘图标、不会再开窗口、也不会再抢 HTTP 端口，而是弹一句「AnyBoot 已经启动，只能运行一个实例。」然后自己退出。
+
+- 用的是**配置目录下的文件锁**（`anyboot.lock`），进程一结束锁由内核自动释放 —— 崩溃、强杀都不会留下「进程早没了、锁还在，于是谁都起不来」的假死状态，也不用手工删锁文件。
+- 这句提示在 macOS 上走 `osascript` 的 `display dialog`（跟电源动作同一条路），弹的是系统模态提醒；Linux / Windows 用应用自带的对话框。两边都是「关掉提示即退出」，macOS 那边还带 60 秒自动关闭兜底，不会留一个看不见又退不掉的进程。
+- 「重启程序」按钮会**先放锁再拉起新进程**（tauri 的重启是「先起新进程、再退旧进程」），所以点它不会把自己锁在门外。
+- 想同时跑两套（比如做验证）：`ANYBOOT_CONFIG_DIR=/tmp/ab-test <可执行文件>` —— 锁跟着配置目录走，两套互不干扰。
+- macOS 上**双击图标**时是系统（LaunchServices）直接把已有实例激活，本来就不会起第二个进程，所以那句提示主要出现在命令行 / 脚本 / `open -n` 再拉一次的时候。
+
 ### 端口被占用 / 想换端口
 
 应用**不会**自动换端口（避免你以为在 12300 其实是别的）。如果勾上服务却起不来，主窗口「远程控制」区会直接出现一块**端口被占用**提示，写清是谁占的：
 
-- **是本应用的另一个实例**（升级后旧版本还驻留在跑，最常见）：
+- **是本应用的另一个实例**（旧版本驻留：老版本没有单实例保护，升级后它可能还占着端口）：
   `端口被本应用的另一个实例占用：PID 40048（anyboot.exe）`
   下面有「结束占用进程」按钮，点了就结束那个实例（按钮上写着 PID，不会杀错人）。
 - **是别的程序**：

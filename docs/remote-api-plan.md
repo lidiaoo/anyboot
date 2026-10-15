@@ -139,15 +139,23 @@ fn run_power_action(action: PowerAction, allow_gui_auth: bool) -> Result<(), Str
 
 | 动作 | macOS | Linux | Windows |
 | --- | --- | --- | --- |
-| reboot（默认） | `osascript -e 'do shell script "/sbin/shutdown -r now" with administrator privileges'`〔GUI 授权〕 | `systemctl reboot` → `loginctl reboot`；可提权：`pkexec systemctl reboot`〔GUI 授权〕 | `shutdown /r /t 0` |
-| shutdown | `osascript -e 'do shell script "/sbin/shutdown -h now" with administrator privileges'`〔GUI 授权〕 | `systemctl poweroff` → `loginctl poweroff`；可提权同上〔GUI 授权〕 | `shutdown /s /t 0` |
-| sleep | ①`osascript -e 'tell application "System Events" to sleep'`（免 root，需「自动化」授权，**远程不弹**）②`sudo -n /usr/bin/pmset sleepnow`（配了免密 sudo 时可用）③`osascript ... "/usr/bin/pmset sleepnow" with administrator privileges`〔GUI 授权〕 | `systemctl suspend` → `loginctl suspend`；可提权 `pkexec`〔GUI 授权〕 | `rundll32.exe powrprof.dll,SetSuspendState 0,1,0`（★ 休眠开启时会变成休眠，见 §3.4） |
+| reboot（默认） | ①`osascript -e 'tell application "System Events" to restart'`（AppleEvent，**任何用户都不用管理员密码、不用改配置**；首次弹一次「自动化」授权，之后永久免框）②`sudo -n /sbin/shutdown -r now`（配了免密 sudo 的机器）③`osascript -e 'do shell script "/sbin/shutdown -r now" with administrator privileges'`〔GUI 授权〕 | `systemctl reboot` → `loginctl reboot`；可提权：`pkexec systemctl reboot`〔GUI 授权〕 | `shutdown /r /t 0` |
+| shutdown | 同上，动词换成 `shut down` / `-h now` | `systemctl poweroff` → `loginctl poweroff`；可提权同上〔GUI 授权〕 | `shutdown /s /t 0` |
+| sleep | ①`osascript -e 'tell application "System Events" to sleep'`（同上的 AppleEvent 链路）②`sudo -n /usr/bin/pmset sleepnow`（配了免密 sudo 时可用）③`osascript ... "/usr/bin/pmset sleepnow" with administrator privileges`〔GUI 授权〕 | `systemctl suspend` → `loginctl suspend`；可提权 `pkexec`〔GUI 授权〕 | `rundll32.exe powrprof.dll,SetSuspendState 0,1,0`（★ 休眠开启时会变成休眠，见 §3.4） |
+
+> 候选链的换人规则：只有「这条候选在本机用不了」才换下一条（命令不存在、`sudo -n` 报
+> `a password is required`（没配免密，机器上没人被问过密码）、osascript 报 `-1743`（「自动化」未授权，
+> 是持久状态而不是这次点了「不允许」））。「命令能跑但失败」一律停手，不会在用户取消授权之后
+> 换个方式照样关机。
 
 要点/坑：
 
 - **Windows 睡眠**：`SetSuspendState` 在系统**启用了休眠**时会变成「休眠」而不是「睡眠」——平台行为，代码绕不开。你要的是**睡眠**，所以这块单独走 §3.4（只读预检 + 三选一，待你定 Q10′）。
 - **Windows 关机/重启**：普通用户默认有 `SeShutdownPrivilege`，不需要提权；但 `shutdown` 与其它 GUI 程序一样需要能访问会话（服务会话下不可用）——远程场景由 ssh 进去执行本应用属于用户会话，正常。
-- **macOS sleep 的 ①** 需要用户的「自动化」权限（首次会弹一次同意框，和密码框不同），且 ad-hoc 签名每次更新会重新弹——README 写清。
+- **macOS 的 ①**：`System Events` 的 `restart`/`shut down`/`sleep` 内部就是给 `loginwindow` 发 `aevt`/`rst`/`sdn`，**和苹果菜单里那三项是同一条链路**（Apple 的 QA1134），所以天然不需要管理员密码。代价是首次弹一次「自动化」授权（不是密码框），允许后按**用户**写进 TCC 库、永久有效；换用户登录要该用户自己点一次（应用无法代劳）。`needs_gui_auth=false`：授权是持久状态，拿到之后远程/CLI 也免框。
+  - 必须声明 `NSAppleEventsUsageDescription`（`src-tauri/Info.plist`，由 Tauri CLI 合并进 bundle），否则 macOS **连授权框都不弹**、直接判 -1743。
+  - ad-hoc 签名（当前 `signingIdentity: "-"`）下，TCC 记的是 cdhash，**每次重新构建覆盖安装会再弹一次**；正式发布用固定证书签名后不再弹。
+  - 忘了/想重来：`tccutil reset AppleEvents com.example.anyboot`。
 - **Windows/macOS 写 ESP 的前置条件**（远程切换时同样适用）：Windows 上 ESP 必须已经被挂载（`mountvol` 需要管理员），macOS 上 ESP 未挂载要先挂载；Linux 上未挂载时应用会用 `pkexec` 提权临时挂载〔GUI 授权〕——这些在远程场景下的处理见 §4.5。
 
 ### 3.3 dry-run 探针（已定稿，验证用）
@@ -241,7 +249,7 @@ HTTP 状态码：`200` 成功；`400` 参数非法；`401` token 缺失/错误�
 
 ### 4.5 远程触发时的授权策略（已定稿）
 
-远程请求**默认不允许**触发需要本机 GUI 交互的授权框（macOS 管理员框 / Linux pkexec），因为那会挂住 HTTP 请求且需要有人坐在机器前点确认。命中这种候选时：整条跳过，直接返回 `needs_local_authorization` 并附上可照做的建议（README 里给出具体配置：Linux 的 `sudoers` 免密行、把 ESP 写进 `/etc/fstab` 预先挂载、macOS 的 `sudo -n` 免密；Windows 预先 `mountvol` 挂载 ESP）。`remoteAllowGuiAuth=true` 时行为回到「和本机点击一样」（Q3）。
+远程请求**默认不允许**触发需要本机 GUI 交互的授权框（macOS 管理员框 / Linux pkexec），因为那会挂住 HTTP 请求且需要有人坐在机器前点确认。命中这种候选时：整条跳过，直接返回 `needs_local_authorization` 并附上可照做的建议（README 里给出具体配置：Linux 的 `sudoers` 免密行、把 ESP 写进 `/etc/fstab` 预先挂载、macOS 在本机点一次「自动化」授权（或在被拒时用 `sudo -n` 免密）、Windows 预先 `mountvol` 挂载 ESP）。`remoteAllowGuiAuth=true` 时行为回到「和本机点击一样」（Q3）。
 
 ### 4.6 主窗口「远程控制」区（已定稿）
 
