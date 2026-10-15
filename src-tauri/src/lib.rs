@@ -186,8 +186,8 @@ const TRAY_MENU_MIN_HEIGHT: f64 = 40.0;
 const TRAY_MENU_MAX_HEIGHT: f64 = 720.0;
 /// 前端量不出内容高度时的标称高度（正常路径下前端总会量出来，这只是兜底）
 const TRAY_MENU_NOMINAL_HEIGHT: f64 = 420.0;
-/// 菜单与托盘图标之间的缝（逻辑像素）。只有 classic（各自方式）手算落位用得到；
-/// unified 走 positioner 的 TrayCenter，间距由插件定。
+/// 菜单与托盘图标之间的缝（逻辑像素）。两种方式的手算落位都用
+/// （unified 曾交给 positioner 的 TrayCenter，2026-10-15 起两种都自己算坐标）。
 const TRAY_MENU_GAP: f64 = 6.0;
 /// 刚弹出来这一小段时间里收到的「失焦」是假的（WM 还没把焦点交过来就报了一次），
 /// 滤掉它，免得菜单一闪就没。
@@ -266,8 +266,8 @@ const DEFAULT_THEME: &str = "light";
 /// 视线正前方，而不是「上次拖到哪算哪」。
 const DEFAULT_WINDOW_POSITION: &str = "center";
 /// 托盘菜单方式出厂默认：classic = 三端各自方式（锚点由宿主/托盘事件给出，
-/// 落位按所在显示器工作区手算夹取）；unified = positioner 的 TrayCenter 全局统一。
-/// 默认选 classic：这是长期实测稳定的形态（positioner 在 Linux 上依赖合成事件喂矩形）。
+/// 落位按所在显示器工作区手算夹取）；unified = 全局统一自绘窗（落位同为手算，
+/// 优先贴图标正下方、放不下翻正上方）。默认选 classic：这是长期实测稳定的形态。
 const DEFAULT_TRAY_MENU_STYLE: &str = "classic";
 /// 阶段 0 的取证日志：只追加、不参与任何逻辑判断，写在应用配置目录。
 /// 里面**永不写入** httpToken（只记前 8 位指纹）。
@@ -5202,6 +5202,13 @@ struct TrayMenuRuntime {
     /// 每次「开菜单」自增，随内容一起发给前端 —— 前端据此知道「这是新开的一次」，
     /// 哪怕高度与上次一样也要重新呈现（不然重开菜单时窗口永远不显示）
     seq: u64,
+    /// 弹出后是否**真的**拿到过焦点（失焦看门狗用，见 `spawn_tray_menu_watchdog`）：
+    /// 拿到过又没了 = 真失焦，但事件可能被假失焦宽限吞掉或干脆没送达。
+    focus_seen: bool,
+    /// 连续无焦点的起点（看门狗去抖：稳定无焦点才收，别跟点击本窗抢焦点的竞态打架）
+    unfocused_since: Option<Instant>,
+    /// 「始终没拿到焦点」时是否已重试过一次 set_focus
+    focus_retried: bool,
 }
 
 /// 摸一下菜单运行时状态。
@@ -5267,6 +5274,10 @@ fn open_tray_menu(app: &AppHandle, x: f64, y: f64) {
         runtime.anchor = Some((x, y));
         runtime.presented = None;
         runtime.seq = runtime.seq.wrapping_add(1);
+        // 新开的一次：焦点账本清零（看门狗字段，见 spawn_tray_menu_watchdog）
+        runtime.focus_seen = false;
+        runtime.unfocused_since = None;
+        runtime.focus_retried = false;
     });
     trace(app, "tray-menu", &format!("打开菜单 锚点=({x:.0},{y:.0})"));
     if let Some(window) = app.get_webview_window(TRAY_MENU_WINDOW_LABEL) {
@@ -5341,6 +5352,9 @@ fn close_tray_menu(app: &AppHandle) {
     with_tray_menu_runtime(app, |runtime| {
         runtime.presented = None;
         runtime.opened_at = None;
+        runtime.focus_seen = false;
+        runtime.unfocused_since = None;
+        runtime.focus_retried = false;
     });
     let _ = window.hide();
 }
@@ -5353,18 +5367,88 @@ fn tray_menu_blur_is_fake(app: &AppHandle) -> bool {
     })
 }
 
+/// 托盘图标尺寸拿不到实值时的标称（物理像素）：菜单落位用它估「图标下沿/上沿」，
+/// 与 `feed_positioner` 喂给 positioner 的标称矩形同一套近似。
+const TRAY_MENU_ICON_NOMINAL: f64 = 32.0;
+
+/// 自绘托盘菜单的**失焦看门狗**：收起菜单的主路径是 `Focused(false)` 事件，但它有两个
+/// 已知漏点 ——①刚弹出的假失焦被宽限吞掉时焦点其实已经丢了，后面**不会再有**失焦事件；
+/// ②`set_focus` 偶尔没成功，窗从头到尾没焦点，失焦事件自然一次都不来。两种都表现为
+/// 「点外面菜单挂在那里怎么都不消失」（用户实机偶发）。所以菜单开着时每 250ms 摸一次
+/// 焦点状态兜底：
+/// * 拿到过焦点又没了 → 稳定 400ms 仍无焦点就收（去抖是给「点击本窗重新拿焦点」的
+///   竞态留余量 —— GNOME 点击必聚焦，用户点在菜单上时这里不会误判）；
+/// * 从头没拿到焦点 → 宽限期后重试一次 `set_focus`；再过 4 秒还没拿到也收 ——
+///   还是那个道理：用户点在菜单上窗口必然有焦点，持续没焦点说明人已点去别处。
+#[cfg(desktop)]
+fn spawn_tray_menu_watchdog(app: AppHandle) {
+    std::thread::spawn(move || loop {
+        std::thread::sleep(Duration::from_millis(250));
+        let Some(window) = app.get_webview_window(TRAY_MENU_WINDOW_LABEL) else {
+            continue;
+        };
+        let Ok(visible) = window.is_visible() else {
+            continue;
+        };
+        if !visible {
+            continue;
+        }
+        let focused = window.is_focused().unwrap_or(true);
+        let verdict = with_tray_menu_runtime(&app, |runtime| {
+            if runtime.opened_at.is_none() {
+                return None;
+            }
+            if focused {
+                runtime.focus_seen = true;
+                runtime.unfocused_since = None;
+                return None;
+            }
+            let since = *runtime.unfocused_since.get_or_insert(Instant::now());
+            if runtime.focus_seen {
+                return (since.elapsed() >= Duration::from_millis(400))
+                    .then_some("拿到过焦点后失焦");
+            }
+            let opened = runtime.opened_at.expect("opened_at 刚判过非空");
+            if !runtime.focus_retried
+                && opened.elapsed() >= Duration::from_millis(TRAY_MENU_BLUR_GRACE_MS)
+            {
+                runtime.focus_retried = true;
+                let _ = window.set_focus();
+                return None;
+            }
+            (opened.elapsed() >= Duration::from_secs(4)).then_some("始终没拿到焦点")
+        });
+        if let Some(reason) = verdict {
+            startup_debug(&app, &format!("托盘菜单看门狗收起（{reason}）"));
+            close_tray_menu(&app);
+        }
+    });
+}
+
 /// 托盘菜单方式是不是 unified（每次读设置，切了即刻生效于下一次弹菜单）。
 fn tray_menu_style_is_unified(app: &AppHandle) -> bool {
     normalize_tray_menu_style(&stored_settings(app).tray_menu_style) == "unified"
 }
 
-/// classic（各自方式）的落位：把菜单摆到锚点旁边。
+/// 托盘菜单的落位：把菜单摆到托盘图标旁边（两种方式共用同一套几何代码）。
 ///
-/// 竖着：图标上方放得下就**往上摆**（面板在屏幕底部时走的就是这条，菜单下沿贴着图标上沿）；
-/// 放不下才往下。横着：菜单左边对齐图标左边，再夹进工作区 —— 用工作区而不是屏幕，
-/// 免得菜单被任务栏/面板盖掉一截。这是 positioner 引入前的原始形态（575ccfe 之前），
-/// 作为 classic 方式原样保留。
-fn place_tray_menu(app: &AppHandle, window: &tauri::WebviewWindow, logical_height: f64) {
+/// 竖着：
+/// * classic（各自方式）：图标上方放得下就**往上摆**（面板在屏幕底部时走的就是这条，
+///   菜单下沿贴着图标上沿）；放不下才往下。
+/// * unified（全局统一）：反过来 —— **优先贴图标正下方**（菜单上沿贴图标下沿+缝）；
+///   图标在屏幕底部放不下 → 翻到**正上方**（菜单下沿贴图标上沿-缝）。两种都**不盖图标**。
+/// 横着：classic 菜单左边对齐图标左边；unified 对图标**水平居中** —— 再都夹进工作区
+/// （用工作区而不是屏幕，免得菜单被任务栏/面板盖掉一截）。
+///
+/// 图标矩形拿不到实值，用 `TRAY_MENU_ICON_NOMINAL` 标称（与 feed_positioner 同一套近似）；
+/// 尺寸用「我们正要设成的逻辑高度」换算，不读回 outer_size：set_size 是投递到主线程的
+/// 异步操作，设完立刻读回还是旧尺寸，位置会偏出去（place_notify_window 同款坑）。
+fn place_tray_menu(
+    app: &AppHandle,
+    window: &tauri::WebviewWindow,
+    logical_height: f64,
+    unified: bool,
+) {
     let Some((anchor_x, anchor_y)) = with_tray_menu_runtime(app, |runtime| runtime.anchor) else {
         return;
     };
@@ -5389,19 +5473,43 @@ fn place_tray_menu(app: &AppHandle, window: &tauri::WebviewWindow, logical_heigh
     let bottom = top + work.size.height as i32;
     let anchor_x = anchor_x.round() as i32;
     let anchor_y = anchor_y.round() as i32;
-    let above = anchor_y - gap - height;
-    let y = if above >= top {
-        above
+    let icon = TRAY_MENU_ICON_NOMINAL as i32;
+    // 竖着：unified 优先「图标下沿+缝」往下摆，放不下翻到「图标上沿-缝」上面去；
+    // classic 沿用「先上后下」。两条路径都保证菜单与图标矩形不相交（不盖托盘）。
+    let y = if unified {
+        let below = anchor_y + icon + gap;
+        if below + height <= bottom {
+            below
+        } else {
+            let above = anchor_y - gap - height;
+            if above >= top {
+                above
+            } else {
+                below.min(bottom - height).max(top)
+            }
+        }
     } else {
-        (anchor_y + gap).min(bottom - height).max(top)
+        let above = anchor_y - gap - height;
+        if above >= top {
+            above
+        } else {
+            (anchor_y + icon + gap).min(bottom - height).max(top)
+        }
     };
-    let x = anchor_x.clamp(left, (right - width).max(left));
+    // 横着：unified 对图标水平居中，classic 左边对齐图标左边 —— 都夹进工作区
+    let x = if unified {
+        anchor_x + icon / 2 - width / 2
+    } else {
+        anchor_x
+    }
+    .clamp(left, (right - width).max(left));
     // 定位全程留痕（常开通道）：「菜单离图标很远」这类报告，靠这一行就能分清是
     // 锚点坐标空间不对（宿主给逻辑坐标）、显示器/工作区解析错、还是换算错。
     startup_debug(
         app,
         &format!(
-            "菜单定位(classic) 锚点=({anchor_x},{anchor_y}) 显示器={:?} rect=({},{},{},{}) 工作区=({left},{top})-({right},{bottom}) scale={scale} 菜单={width}x{height} → ({x},{y})",
+            "菜单定位({}) 锚点=({anchor_x},{anchor_y}) 显示器={:?} rect=({},{},{},{}) 工作区=({left},{top})-({right},{bottom}) scale={scale} 菜单={width}x{height} → ({x},{y})",
+            if unified { "unified" } else { "classic" },
             monitor.name().map(String::as_str).unwrap_or(""),
             monitor.position().x,
             monitor.position().y,
@@ -5445,35 +5553,16 @@ fn tray_menu_present(app: AppHandle, height: Option<f64>) -> Result<(), String> 
     let _ = window.set_size(tauri::LogicalSize::new(TRAY_MENU_WIDTH, height));
     let _ = window.set_resizable(false);
     if tray_menu_style_is_unified(&app) {
-        // unified：定位交给 positioner，TrayCenter = 图标上方、水平对中（Windows/macOS
-        // 放不下会自动翻到图标下方），constrained 版还会把窗口夹进屏幕。托盘矩形由
-        // `feed_positioner`（Linux SNI）或 `on_tray_icon_event`（Win/mac 原生托盘）喂给插件。
-        // outer_size 一并留痕：set_size 是异步的，若读回的是旧尺寸，位置就会偏 —— 这行
-        // 日志能直接看出「菜单离图标很远」是不是这个原因。
-        #[cfg(desktop)]
-        {
-            use tauri_plugin_positioner::{Position, WindowExt};
-            match window.move_window_constrained(Position::TrayCenter) {
-                Ok(()) => startup_debug(
-                    &app,
-                    &format!(
-                        "菜单已按 TrayCenter 摆放 outer={:?}",
-                        window.outer_size().ok()
-                    ),
-                ),
-                // positioner 首开常报 "No monitor found for the window"（窗口还没映射
-                // 到任何显示器上）—— 退回手算锚点落位（与 classic 同款），别把菜单窗
-                // 留在上一轮的旧位置。
-                Err(error) => {
-                    startup_debug(&app, &format!("TrayCenter 摆放失败（退回锚点落位）: {error}"));
-                    place_tray_menu(&app, &window, height);
-                }
-            }
-        }
+        // unified：贴托盘图标**正下方**（水平对图标居中）；图标在屏幕底部放不下
+        // → 翻到**正上方**。不再交给 positioner 的 TrayCenter —— 它固定往上摆、
+        // Linux 不翻面，与「优先下方 + 不盖托盘」的要求相反（用户定案）。
+        // positioner 插件与喂点（feed_positioner / on_tray_icon_event）保留不动，
+        // 只是落位不再走它。
+        place_tray_menu(&app, &window, height, true);
     } else {
         // classic（默认）：三端各自方式 —— 锚点已由 open_tray_menu 记进 runtime，
         // 落位按所在显示器工作区手算夹取，不依赖 positioner。
-        place_tray_menu(&app, &window, height);
+        place_tray_menu(&app, &window, height, false);
     }
     let _ = window.show();
     let _ = window.set_focus();
@@ -8422,8 +8511,12 @@ fn menu_submenu(
 
 /// GRUB 启动项那一块（进顶层菜单 = 平铺展开；进子菜单 = 收起）。
 ///
-/// 组头灰字 + 条目（当前选中带标记），点击写 grubenv（`grub-switch:<selector>`），
-/// 与主窗 GRUB 区完全同源。
+/// 与主窗 GRUB 区**同一套列表格式逻辑**（`ui/grub-list-view.js` 的 renderGrubEntries）：
+/// * 当前选中项置顶（原位照常保留 —— 同一条出现两次是主窗定案的行为）；
+/// * 组头 = ▸ + 系统图标 + 组名 +（N 项[ · ESP 位置]），位置按格式带不带（极简/原始不带）；
+/// * 条目文字随 `grub.listFormat` 变（极简/简易 = 去前缀内核名、中等 = 完整内核名、
+///   原始/复杂 = 完整标题），非原始格式按渲染结果折叠同名条目（首个出面、其余并成
+///   「· N 个变体」）；点击写 grubenv（`grub-switch:<selector>`），与主窗完全同源。
 fn grub_menu_nodes(grub: &GrubView, busy: bool) -> Vec<MenuNode> {
     let mut items: Vec<MenuNode> = Vec::new();
     if grub.entries.is_empty() {
@@ -8438,6 +8531,7 @@ fn grub_menu_nodes(grub: &GrubView, busy: bool) -> Vec<MenuNode> {
         ));
         return items;
     }
+    let format = normalize_grub_list_format(&grub.list_format);
     let active = grub
         .next_entry
         .as_deref()
@@ -8448,33 +8542,235 @@ fn grub_menu_nodes(grub: &GrubView, busy: bool) -> Vec<MenuNode> {
         .iter()
         .map(|group| (group.id.as_str(), group.name.as_str()))
         .collect();
-    let mut emitted_groups = std::collections::HashSet::new();
+    let mut children_of: std::collections::HashMap<&str, Vec<&grub::GrubEntry>> =
+        std::collections::HashMap::new();
     for entry in &grub.entries {
-        if let Some(submenu_id) = &entry.submenu {
-            if emitted_groups.insert(submenu_id.as_str()) {
-                let title = group_titles
-                    .get(submenu_id.as_str())
-                    .copied()
-                    .unwrap_or(submenu_id.as_str());
-                items.push(menu_header(
-                    format!("grub-group:{submenu_id}"),
-                    format!("▸ {title}"),
-                ));
-            }
+        if let Some(submenu) = &entry.submenu {
+            children_of.entry(submenu.as_str()).or_default().push(entry);
         }
-        let label = if entry.submenu.is_some() {
-            format!("↳ {}", entry.name)
+    }
+    // 组头附加的 ESP 位置（简易/中等/复杂带，极简/原始不带 —— 与主窗同一规则）
+    let location = if format == "minimal" || format == "raw" {
+        String::new()
+    } else {
+        let mut parts: Vec<String> = Vec::new();
+        if let Some(dir) = &grub.efi_dir {
+            parts.push(format!("位于{dir}"));
+        }
+        let uuid = (!grub.partuuid.is_empty())
+            .then(|| format!("UUID={}", grub.partuuid))
+            .or_else(|| {
+                grub.esp
+                    .as_ref()
+                    .and_then(|esp| esp.partuuid.clone().or_else(|| esp.uuid.clone()))
+                    .map(|uuid| format!("UUID={uuid}"))
+            });
+        if let Some(uuid) = uuid {
+            parts.push(uuid);
+        }
+        if parts.is_empty() {
+            String::new()
         } else {
-            entry.name.clone()
+            format!(" · {}", parts.join(" "))
+        }
+    };
+
+    // 置顶当前选中项（组内子项补「组名 › 」前缀，与主窗置顶行同一规则）
+    if let Some(pinned) = grub.entries.iter().find(|entry| entry.selector == active) {
+        let prefix = pinned
+            .submenu
+            .as_deref()
+            .and_then(|id| group_titles.get(id))
+            .map(|title| format!("{title} › "))
+            .unwrap_or_default();
+        grub_push_entry(
+            &mut items,
+            format,
+            pinned,
+            true,
+            &prefix,
+            &std::collections::HashMap::new(),
+            &mut std::collections::HashSet::new(),
+            busy,
+            active,
+        );
+    }
+
+    // 主体：顶层一套折叠状态，各组独立一套（与主窗一致）；原始格式不折叠
+    let mut emitted_groups = std::collections::HashSet::new();
+    let mut top_counts = grub_collapse(
+        format,
+        grub.entries
+            .iter()
+            .filter(|entry| entry.submenu.is_none()),
+    );
+    let mut top_emitted = std::collections::HashSet::new();
+    for entry in &grub.entries {
+        let Some(submenu_id) = &entry.submenu else {
+            grub_push_entry(
+                &mut items,
+                format,
+                entry,
+                true,
+                "",
+                &top_counts,
+                &mut top_emitted,
+                busy,
+                active,
+            );
+            continue;
         };
-        items.push(menu_marked_choice_item(
-            format!("grub-switch:{}", entry.selector),
-            label,
-            !busy,
-            entry.selector == active,
+        if !emitted_groups.insert(submenu_id.as_str()) {
+            continue;
+        }
+        let title = group_titles
+            .get(submenu_id.as_str())
+            .copied()
+            .unwrap_or(submenu_id.as_str());
+        let count = children_of
+            .get(submenu_id.as_str())
+            .map(Vec::len)
+            .unwrap_or(0);
+        items.push(menu_header(
+            format!("grub-group:{submenu_id}"),
+            format!(
+                "▸ {}{title}（{count} 项{}）",
+                grub_os_icon(title),
+                location
+            ),
         ));
+        let mut counts = grub_collapse(
+            format,
+            children_of
+                .get(submenu_id.as_str())
+                .into_iter()
+                .flatten()
+                .copied(),
+        );
+        let mut emitted = std::collections::HashSet::new();
+        for child in children_of.get(submenu_id.as_str()).into_iter().flatten() {
+            grub_push_entry(
+                &mut items,
+                format,
+                child,
+                false,
+                "",
+                &counts,
+                &mut emitted,
+                busy,
+                active,
+            );
+        }
     }
     items
+}
+
+/// 条目/组名的系统图标：windows → 🪟，mac/apple → 🍎，linux → 🐧，都不中就不加
+/// （与主窗 grubOsIcon 同一规则，不猜）。
+fn grub_os_icon(text: &str) -> &'static str {
+    let lowered = text.to_ascii_lowercase();
+    if lowered.contains("windows") {
+        "🪟 "
+    } else if lowered.contains("mac") || lowered.contains("apple") {
+        "🍎 "
+    } else if lowered.contains("linux") {
+        "🐧 "
+    } else {
+        ""
+    }
+}
+
+/// 条目的内核名：优先 `linux` 行解析出的内核文件名，取不到退回标题原文。
+fn grub_kernel_of(entry: &grub::GrubEntry) -> String {
+    entry
+        .kernels
+        .first()
+        .cloned()
+        .unwrap_or_else(|| entry.name.clone())
+}
+
+/// 去内核名前缀：先去 `vmlinuz-`，再去 `linux-`（与主窗 grubStripKernel 一致）。
+fn grub_strip_kernel(name: &str) -> String {
+    let stripped = name.strip_prefix("vmlinuz-").unwrap_or(name);
+    stripped.strip_prefix("linux-").unwrap_or(stripped).to_string()
+}
+
+/// 行文字随 `grub.listFormat` 变（与主窗 rowLabel 一致）。
+fn grub_row_label(format: &str, entry: &grub::GrubEntry) -> String {
+    match format {
+        "minimal" | "simple" => grub_strip_kernel(&grub_kernel_of(entry)),
+        "medium" => grub_kernel_of(entry),
+        _ => entry.name.clone(),
+    }
+}
+
+/// 按渲染结果数一遍变体数（非原始格式用；原始格式不折叠，回空表 —— 变体数
+/// 已在解析期并进 `entry.variants`）。
+fn grub_collapse<'a>(
+    format: &str,
+    entries: impl Iterator<Item = &'a grub::GrubEntry>,
+) -> std::collections::HashMap<String, usize> {
+    let mut counts = std::collections::HashMap::new();
+    if format == "raw" {
+        return counts;
+    }
+    for entry in entries {
+        *counts.entry(grub_row_label(format, entry)).or_insert(0) += 1;
+    }
+    counts
+}
+
+/// 出一行 GRUB 条目：非原始格式先按渲染结果折叠（重复的只出面一次，与主窗同一规则），
+/// 行文字 = 系统图标 +（组前缀/↳）+ 格式化文字 + 行尾附注（变体数/内核）。
+/// 置顶行带 `group_prefix`（组名 › ）、不做缩进箭头；原位行顶层无箭头、组内 ↳。
+fn grub_push_entry(
+    items: &mut Vec<MenuNode>,
+    format: &str,
+    entry: &grub::GrubEntry,
+    top: bool,
+    group_prefix: &str,
+    counts: &std::collections::HashMap<String, usize>,
+    emitted: &mut std::collections::HashSet<String>,
+    busy: bool,
+    active: &str,
+) {
+    let label = grub_row_label(format, entry);
+    let variants = if format == "raw" {
+        entry.variants.max(1)
+    } else if !emitted.insert(label.clone()) {
+        return;
+    } else {
+        counts.get(&label).copied().unwrap_or(1)
+    };
+    let mut parts: Vec<String> = Vec::new();
+    if variants > 1 {
+        parts.push(format!("{variants} 个变体"));
+    }
+    if format == "raw" || format == "detailed" {
+        let tag = if !entry.kernels.is_empty() {
+            entry.kernels[0].clone()
+        } else if entry.chainloader {
+            "转交引导".to_string()
+        } else {
+            entry.class.clone().unwrap_or_default()
+        };
+        if !tag.is_empty() {
+            parts.push(tag);
+        }
+    }
+    let suffix = if parts.is_empty() {
+        String::new()
+    } else {
+        format!(" · {}", parts.join(" · "))
+    };
+    let icon = grub_os_icon(&format!("{group_prefix}{}", entry.name));
+    let arrow = if top { "" } else { "↳ " };
+    items.push(menu_marked_choice_item(
+        format!("grub-switch:{}", entry.selector),
+        format!("{icon}{arrow}{group_prefix}{label}{suffix}"),
+        !busy,
+        entry.selector == active,
+    ));
 }
 
 /// 在模型里按 id 找那一条，回答「点完要不要留着菜单」（找不到 = 动作项，关）。
@@ -8730,7 +9026,7 @@ fn build_menu_nodes(state: &UiState) -> Vec<MenuNode> {
     nodes.push(menu_item("open-web", "打开 Web 页面", state.http.listening));
 
     nodes.push(menu_separator());
-    nodes.push(menu_item("quit", "退出", true));
+    nodes.push(menu_item("quit", "退出程序", true));
     nodes
 }
 
@@ -9151,7 +9447,7 @@ fn build_tray_menu(app: &AppHandle, state: &UiState) -> tauri::Result<Menu<tauri
     )?)?;
 
     menu.append(&PredefinedMenuItem::separator(app)?)?;
-    menu.append(&MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?)?;
+    menu.append(&MenuItem::with_id(app, "quit", "退出程序", true, None::<&str>)?)?;
     Ok(menu)
 }
 
@@ -14408,6 +14704,11 @@ pub fn run() {
                         let _tray = tray_builder.build(app.handle())?;
                     }
                 }
+
+                // 自绘菜单窗的失焦看门狗：Focused(false) 事件偶发丢失/被宽限吞掉时，
+                // 「点外面不消失」就没了兜底 —— 见 spawn_tray_menu_watchdog。
+                #[cfg(desktop)]
+                spawn_tray_menu_watchdog(app.handle().clone());
             }
 
             // HTTP 服务与待执行请求的调度线程（托盘已就绪，publish_ui 能刷菜单）
@@ -14920,8 +15221,8 @@ mod linux_sni {
     }
 
     /// 把托盘锚点喂给 positioner：合成一条托盘 Click 事件（插件只读 rect）。
-    /// 宿主没给图标尺寸，用 32×32 标称 —— TrayCenter 只拿宽度的一半做水平居中，误差几像素。
-    /// 没这一步，插件的 `Tray*` 位置会报 "Tray position not set"（它只认 tauri 原生托盘事件）。
+    /// 宿主没给图标尺寸，用 32×32 标称。落位已改手算（不再用 TrayCenter），
+    /// 这一步只剩「保持插件状态有人喂」的意义 —— 插件仍注册着，别让它拿到过期矩形。
     fn feed_positioner(app: &AppHandle, x: f64, y: f64) {
         // 本模块只在 unified 方式下启动（classic 用原生菜单，不经过这里）；
         // Win/mac 的入口在 on_tray_icon_event 里直接喂原生事件。
@@ -15203,13 +15504,17 @@ mod linux_sni {
         children: Vec<i32>,
     }
 
-    /// 按宿主与方式取要导出的菜单模型。「GNOME + unified」只留一条「显示主窗口」：
+    /// 按宿主与方式取要导出的菜单模型。「GNOME + unified」留两条「显示主窗口 / 退出程序」：
     /// **非空菜单宿主弹窗才开得出来**（空菜单实测连弹窗都不开、opened 事件也不发），
-    /// 弹出瞬间 opened 触发自绘窗一步直达；这条本身只是兜底可点。
+    /// 弹出瞬间 opened 触发自绘窗一步直达；这两条本身只是兜底可点（万一 opened 不来，
+    /// 右键也不至于毫无反应，还能就地退出）。
     /// classic（含 GNOME）与其余宿主一律全量导出（见 UNIFIED_STYLE 注释）。
     fn menu_nodes_for_host(state: &UiState) -> Vec<MenuNode> {
         if gnome_host() && unified_style() {
-            vec![menu_item("show", "显示主窗口", true)]
+            vec![
+                menu_item("show", "显示主窗口", true),
+                menu_item("quit", "退出程序", true),
+            ]
         } else {
             build_menu_nodes(state)
         }
@@ -17849,6 +18154,63 @@ mod core_tests {
             ),
             "Linux"
         );
+    }
+
+    /// 托盘 GRUB 区与主窗 GRUB 列表**同一套格式逻辑**：置顶当前项（组内子项带
+    /// 「组名 › 」前缀）、组头带系统图标与条目数、极简格式去内核前缀、
+    /// 同名条目折叠成「N 个变体」。
+    #[test]
+    fn tray_grub_nodes_follow_the_main_window_list_logic() {
+        let entries = vec![
+            next_boot_entry("w", "Windows 11", None, None),
+            next_boot_entry("l1", "CachyOS", Some("linux"), Some("vmlinuz-linux-cachyos")),
+            next_boot_entry("l2", "CachyOS", Some("linux"), Some("vmlinuz-linux-cachyos")),
+        ];
+        let groups = vec![grub::GrubGroup {
+            id: "linux".to_string(),
+            name: "Linux".to_string(),
+        }];
+        let view = next_boot_grub_view(entries, groups, Some("l1"), "minimal");
+        let labels: Vec<String> = grub_menu_nodes(&view, false)
+            .into_iter()
+            .map(|node| node.label)
+            .collect();
+        // 置顶当前项在最前：组内子项带「组名 › 」前缀 + 去前缀内核名 + 系统图标
+        // （图标取自「组名 › 条目名」整串 —— 组名里有 linux → 🐧，与主窗同一规则）
+        assert_eq!(labels[0], "🐧 Linux › cachyos", "labels={labels:?}");
+        // 顶层 Windows 原位照常出行（原始顺序）
+        assert_eq!(labels[1], "🪟 Windows 11", "labels={labels:?}");
+        // 组头带图标与条目数（极简格式不带 ESP 位置）
+        assert_eq!(labels[2], "▸ 🐧 Linux（2 项）", "labels={labels:?}");
+        // 同名折叠：组内只出一行，标 2 个变体（条目名 CachyOS 不含系统关键字 → 无图标）
+        assert_eq!(labels[3], "↳ cachyos · 2 个变体", "labels={labels:?}");
+    }
+
+    /// 原始格式：完整标题、不做折叠，变体数用解析期合并的 `entry.variants`，
+    /// 行尾附内核（与主窗 raw 的右侧小字同一份信息）。
+    #[test]
+    fn tray_grub_nodes_raw_keeps_full_titles_and_parsed_variants() {
+        let mut entry = next_boot_entry("m", "Memtest86+", None, Some("vmlinuz-memtest"));
+        entry.variants = 3;
+        let view = next_boot_grub_view(vec![entry], vec![], Some("m"), "raw");
+        let labels: Vec<String> = grub_menu_nodes(&view, false)
+            .into_iter()
+            .map(|node| node.label)
+            .collect();
+        // 置顶行 + 原位行（置顶只复制、不从原位删除 —— 主窗定案），文字一致；
+        // 顶层条目没有 ↳ 缩进箭头（那是组内子项的标记）
+        assert_eq!(labels[0], "Memtest86+ · 3 个变体 · vmlinuz-memtest");
+        assert_eq!(labels[1], "Memtest86+ · 3 个变体 · vmlinuz-memtest");
+    }
+
+    /// 系统图标规则与主窗 grubOsIcon 一致：windows/mac/linux 关键字，都不中不加。
+    #[test]
+    fn grub_os_icon_matches_the_frontend_rule() {
+        assert_eq!(grub_os_icon("Windows 11"), "🪟 ");
+        assert_eq!(grub_os_icon("Mac OS X"), "🍎 ");
+        assert_eq!(grub_os_icon("apple silicon"), "🍎 ");
+        assert_eq!(grub_os_icon("CachyOS Linux"), "🐧 ");
+        assert_eq!(grub_os_icon("Memtest86+"), "");
     }
 
     /// 选择项的勾是**标签文字**，不是原生勾选控件（本轮 ①②）。
