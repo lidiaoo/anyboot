@@ -1,10 +1,10 @@
 # AnyBoot 项目长期备忘（细则查当日日志 2026-10-10~14.md 与 MEMORY-detail-windowing.md）
 
 ## 构建 / 打包
-- **cargo 位置（2026-10-14 晚起）**：只在**沙箱内**有（/usr/bin/cargo，Arch rust 1.99，HOME=/root）；宿主机全盘无 cargo。构建走沙箱 + `export HOME=/home/jianghh CARGO_HOME=/home/jianghh/.cargo`；X11/dbus 探针才需要非沙箱。「cargo 必须非沙箱跑」已作废。
+- **cargo 位置（2026-10-14 晚起）**：只在**沙箱内**有（/usr/bin/cargo，Arch rust 1.99，HOME=/root）；宿主机全盘无 cargo。构建走沙箱 + `export HOME=/home/jianghh CARGO_HOME=/home/jianghh/.cargo`；X11/dbus 探针才需要非沙箱。「cargo 必须非沙箱跑」已作废。2026-10-15 观察到用户终端可直接 `npm run build:linux` 完整编译——宿主机已有可用 cargo（rustup/PATH），以实况为准。
 - 前端改动必须强制 codegen：`/usr/bin/rm -rf src-tauri/target/release/build/anyboot-*/out && touch src-tauri/build.rs && cargo build --release --manifest-path src-tauri/Cargo.toml`（out 在 src-tauri/target 下；zsh glob 无匹配会中断命令串）。核对用 node `zlib.brotliDecompressSync` 解包 `out/tauri-codegen-assets/*`；**二进制里搜中文要 `buf.includes(串,"utf8")`**（latin1 永远匹配不上）。
 - 交付 = 测试 + release 构建 + 实机验证；`cargo test` 不产出 exe；构建前退出运行中的 anyboot。
-- 打包：`TMPDIR=~/.cache/ab-tmp npm run build:linux`（deb+rpm）；`build:linux-portable` = no-bundle + `scripts/make-appimage-jammy.sh`（jammy 基座 + zig 重链 gnu.2.35，脚本开头自动重链；ELF 改字符串必须等长替换）。appimage 已从 tauri 链路移除（无 fuse/CAP_MKNOD）。产物 md5 必核（Text file busy 会静默失败）。文档路径写 ~，不写死 /home/jianghh。
+- 打包：`TMPDIR=~/.cache/ab-tmp npm run build:linux`（deb+rpm）；`build:linux-portable` = no-bundle + `scripts/make-appimage-jammy.sh`（jammy 基座 + zig 重链 gnu.2.35，脚本开头自动重链；ELF 改字符串必须等长替换）。appimage（7ce6504 已加回 build:linux）：真机链路 2026-10-15 跑通——**~/.cache/tauri/linuxdeploy-x86_64.AppImage 必须用新版**（continuous build 369+，内置 binutils 2.47 认 RELR；旧 2024 版 strip 全挂 `.relr.dyn` → 整链挂，NO_STRIP 无效），备份 .bak-2024；runtime 下载偶发挂 → `LDAI_RUNTIME_FILE=~/.cache/tauri/runtime-x86_64`。沙箱内打包仍走 jammy 脚本。产物 md5 必核（Text file busy 会静默失败）。文档路径写 ~，不写死 /home/jianghh。
 - `ui/index.html` 的 data-page-node-id 属性必须原样保留；两区同构样式走共用选择器；标题字号别挂在会搬家的容器下（`.grub-head h2` 单列）。
 
 ## 沙箱验证环境
