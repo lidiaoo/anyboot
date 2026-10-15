@@ -15190,9 +15190,12 @@ mod linux_sni {
                     // 勾选回显不刷新的老病根之一）。静态字面量，构造失败只可能是代码写错。
                     let path = DbusPath::new(MENU_PATH).expect("静态路径合法");
                     let iface = dbus::strings::Interface::new(MENU_IFACE).expect("静态接口名合法");
-                    // ① 现建新快照与旧快照求属性差分（结构没变才有意义，结构变了
-                    //    交给 ② 整树重拉），换上新快照后推送。
-                    let updates = {
+                    // ① 现建新快照与旧快照求差分，换上新快照后**按结果分流**：
+                    //    只属性变 → 只推 ItemsPropertiesUpdated（就地刷新回显）；
+                    //    只结构变 → 只发 LayoutUpdated（宿主整树重拉）；
+                    //    两者都没变 → 什么都不发（无操作点击不许有更新风暴）。
+                    //    宿主还没拉过快照（没有开着的菜单）时无回显可言，只发兜底。
+                    let (structural, updates) = {
                         let mut guard = MENU_SNAPSHOT
                             .lock()
                             .expect("dbusmenu snapshot mutex poisoned");
@@ -15200,11 +15203,11 @@ mod linux_sni {
                             Some(old) => {
                                 let fresh =
                                     build_menu_snapshot(&menu_nodes_for_host(&ui_state(&app)));
-                                let updates = menu_property_updates(old, &fresh);
+                                let diff = menu_property_diff(old, &fresh);
                                 *guard = Some(fresh);
-                                updates
+                                diff
                             }
-                            None => Vec::new(),
+                            None => (true, Vec::new()),
                         }
                     };
                     if !updates.is_empty() {
@@ -15241,12 +15244,16 @@ mod linux_sni {
                             startup_debug(&app, "ItemsPropertiesUpdated 信号发送失败");
                         }
                     }
-                    let member =
-                        dbus::strings::Member::new("LayoutUpdated").expect("静态成员名合法");
-                    let mut signal = Message::signal(&path, &iface, &member);
-                    signal.append_items(&[MessageItem::UInt32(revision), MessageItem::Int32(0)]);
-                    if let Err(()) = conn.send(signal) {
-                        startup_debug(&app, "LayoutUpdated 信号发送失败");
+                    // ② 结构兜底：只有结构真变了才发 LayoutUpdated —— 无变化时不许白发
+                    //    （宿主整树重拉会销毁展开中的子菜单，见 menu_property_diff 注释）。
+                    if structural {
+                        let member = dbus::strings::Member::new("LayoutUpdated")
+                            .expect("静态成员名合法");
+                        let mut signal = Message::signal(&path, &iface, &member);
+                        signal.append_items(&[MessageItem::UInt32(revision), MessageItem::Int32(0)]);
+                        if let Err(()) = conn.send(signal) {
+                            startup_debug(&app, "LayoutUpdated 信号发送失败");
+                        }
                     }
                 }
             }
@@ -15663,14 +15670,21 @@ mod linux_sni {
         snapshot
     }
 
-    /// 新旧快照的**属性差分**：结构没变（同位同 id、树形一致）时，回每个条目上
-    /// 变了的那几枚属性 —— 供 `ItemsPropertiesUpdated` 让开着的菜单就地刷新勾选
-    /// 回显；结构变了（增删/搬移会让先序 id 整片洗牌）回空，交给 LayoutUpdated
-    /// 让宿主整树重拉（那时按 id 求差分只会对上错行的旧属性）。
-    fn menu_property_updates(
+    /// 新旧快照差分。返回 `(结构是否变了, 属性更新列表)`：
+    ///
+    /// - 结构没变：回每个条目上**变了的那几枚属性** —— `ItemsPropertiesUpdated`
+    ///   让开着的菜单就地刷新勾选回显；
+    /// - 结构变了（增删/搬移会让先序 id 整片洗牌）：属性列表为空，交给
+    ///   LayoutUpdated 让宿主整树重拉（按 id 求差分只会对上错行的旧属性）。
+    ///
+    /// **调用方必须按结果分流**：只属性变 → 只推 ItemsPropertiesUpdated；只结构变 →
+    /// 只发 LayoutUpdated；两者都没变 → 什么都不发。GNOME 客户端 propertySet 不去重、
+    /// 收到 LayoutUpdated 会整树重拉 —— 无变化时白发信号就是更新风暴，会当场销毁
+    /// 展开中的子菜单（cea8908 之后的 H 步探针抓过：无操作点击也广播 LayoutUpdated）。
+    fn menu_property_diff(
         old: &MenuSnapshot,
         new: &MenuSnapshot,
-    ) -> Vec<(i32, Vec<(&'static str, MessageItem)>)> {
+    ) -> (bool, Vec<(i32, Vec<(&'static str, MessageItem)>)>) {
         let structural = old.root_children != new.root_children
             || old.items.len() != new.items.len()
             || old
@@ -15679,9 +15693,10 @@ mod linux_sni {
                 .zip(&new.items)
                 .any(|(a, b)| a.dbus_id != b.dbus_id || a.children != b.children);
         if structural {
-            return Vec::new();
+            return (true, Vec::new());
         }
-        old.items
+        let updates = old
+            .items
             .iter()
             .zip(&new.items)
             .filter_map(|(a, b)| {
@@ -15697,7 +15712,8 @@ mod linux_sni {
                     .collect();
                 (!changed.is_empty()).then_some((b.dbus_id, changed))
             })
-            .collect()
+            .collect();
+        (false, updates)
     }
 
     /// 取当前快照；宿主没先 GetLayout 就来查属性/发事件时现建一份兜底。
@@ -16496,11 +16512,11 @@ mod linux_sni {
             assert!(snapshot.root_children.is_empty());
         }
 
-        /// 属性差分：勾选标记挪动 = label 变的两条都要回（ItemsPropertiesUpdated
-        /// 就地刷新回显）；结构变了（增删导致先序 id 洗牌）回空，交给 LayoutUpdated
-        /// 整树重拉；完全一致回空不白发。
+        /// 差分分流：勾选标记挪动 = 属性变（只推 ItemsPropertiesUpdated，结构位 false）；
+        /// 结构变了（增删导致先序 id 洗牌）= 结构变 + 属性列表空（只发 LayoutUpdated）；
+        /// 完全一致 = 两者都空（无操作点击不许白发信号）。
         #[test]
-        fn menu_property_updates_diff_labels_but_not_structures() {
+        fn menu_property_diff_splits_structure_from_labels() {
             let nodes = vec![
                 menu_marked_choice_item("switch:arch", "Arch", true, true),
                 menu_marked_choice_item("switch:mint", "Mint", true, false),
@@ -16511,7 +16527,8 @@ mod linux_sni {
                 menu_marked_choice_item("switch:arch", "Arch", true, false),
                 menu_marked_choice_item("switch:mint", "Mint", true, true),
             ]);
-            let updates = menu_property_updates(&before, &flipped);
+            let (structural, updates) = menu_property_diff(&before, &flipped);
+            assert!(!structural);
             assert_eq!(updates.len(), 2);
             assert_eq!(updates[0].0, 1);
             assert_eq!(
@@ -16523,15 +16540,19 @@ mod linux_sni {
                 updates[1].1,
                 vec![("label", MessageItem::Str("◉ Mint".to_string()))]
             );
-            // 完全一致：无更新
-            assert!(menu_property_updates(&before, &before).is_empty());
-            // 结构变了（多了一条）：回空
+            // 完全一致：结构位 false、无更新 —— 什么都不发
+            let (structural, updates) = menu_property_diff(&before, &before);
+            assert!(!structural);
+            assert!(updates.is_empty());
+            // 结构变了（多了一条）：结构位 true、属性列表空
             let grown = build_menu_snapshot(&[
                 nodes[0].clone(),
                 nodes[1].clone(),
                 menu_item("show", "显示主窗口", true),
             ]);
-            assert!(menu_property_updates(&before, &grown).is_empty());
+            let (structural, updates) = menu_property_diff(&before, &grown);
+            assert!(structural);
+            assert!(updates.is_empty());
         }
 
         /// ItemsPropertiesUpdated 信号体的线格式必须能编码：`a(ia{sv})a(iias)`
