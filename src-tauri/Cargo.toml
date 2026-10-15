@@ -45,6 +45,9 @@ libc = "0.2"
 # 菜单由我们自己弹 —— 只有拿到 Activate(x,y) 才谈得上。dbus 本来就在依赖树里
 # （Cargo.lock 有 dbus 0.9.12），加它不引入任何新 crate、也不需要联网。
 dbus = "0.9"
+# dbusmenu 那条「打开菜单」被点击时取光标位置当自绘菜单窗的锚点（Event 不带坐标）。
+# x11-dl 同样已在依赖树里（tao/wry 都用它），锁 2.21 不引入新 crate。
+x11-dl = "2.21"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 # 睡眠预检：读 HKLM\...\Control\Power\HibernateEnabled（语言无关，见 plan §3.4）

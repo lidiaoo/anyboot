@@ -1122,9 +1122,10 @@ struct Settings {
     /// center=每次显示都居中；last=记住上次手动摆放的位置。
     main_window_position: String,
     /// 托盘菜单方式：classic=三端各用系统原生托盘菜单（三端自绘之前的原始方案，
-    /// 默认）；unified=全局统一 —— Win/mac 右键直开自绘菜单窗（positioner 的
-    /// TrayCenter 落位），Linux 自研 SNI 导出 build_menu_nodes 全量内容的 dbusmenu
-    /// （GNOME/Cinnamon/KDE 右键都直接出完整菜单）。两种形态的托盘接线在启动时
+    /// 默认）；unified=全局统一 —— 三端右键都开**同一扇自绘菜单窗**（Win/mac 托盘
+    /// 事件直开；Linux 自研 SNI 只导出一条「打开菜单」的 dbusmenu，点击后弹自绘窗，
+    /// 2026-10-15 定案：GNOME 宿主弹窗不滚动不封顶、长菜单顶出屏幕、单选子菜单
+    /// 展不开，全量 dbusmenu 这条路走不通）。两种形态的托盘接线在启动时
     /// 二选一，切换后重启应用生效。
     tray_menu_style: String,
     /// 「上次位置」模式记忆的落点（物理像素；未设定为 None，回退到居中）。
@@ -8984,16 +8985,15 @@ fn invalidate_menu_signature(app: &AppHandle) {
 fn update_tray_menu(app: &AppHandle, state: &UiState, trigger: &str) -> tauri::Result<()> {
     let signature = menu_signature_for(state);
     if tray_menu_style_is_unified(app) {
-        // unified：自绘窗开着就推一份纯数据（Linux unified 菜单窗根本不开，天然跳过）；
-        // Linux 的 dbusmenu 按指纹置脏，SNI 线程发 LayoutUpdated 让宿主来重新拉取。
+        // unified：自绘窗开着就推一份纯数据 —— Linux 的 dbusmenu 只是一条「打开菜单」，
+        // 内容写死不随状态变（不用置脏，见 linux_sni 模块注释）；真正的菜单面是这扇
+        // 自绘窗，状态一变就要把新内容推给它重画。
         if let Some(window) = app.get_webview_window(TRAY_MENU_WINDOW_LABEL) {
             if window.is_visible().unwrap_or(false) {
                 trace(app, "tray", &format!("菜单窗开着，推送最新内容 trigger={trigger}"));
                 emit_tray_menu_nodes(app, &window, state);
             }
         }
-        #[cfg(target_os = "linux")]
-        linux_sni::menu_layout_changed(menu_signature_changed(app, &signature));
         // Linux 的托盘提示是 SNI 的静态 ToolTip（状态在菜单第一行里），不用跟着刷；
         // Win/mac 的 tooltip 承担同样的「一眼看状态」职责，跟着状态走。
         #[cfg(not(target_os = "linux"))]
@@ -13917,12 +13917,12 @@ pub fn run() {
             {
                 // 两种形态在启动时二选一（切换 trayMenuStyle 后重启生效）：
                 // classic（默认）= 三端各用系统原生托盘菜单（三端自绘之前的原始方案）；
-                // unified = 全局统一 —— 自绘菜单窗（Win/mac 右键直开）+ Linux 自研 SNI
-                // 导出**全量菜单内容的 dbusmenu**（GNOME/Cinnamon/KDE 右键都直达内容）。
+                // unified = 全局统一 —— 右键都开同一扇自绘菜单窗（Win/mac 托盘事件直开；
+                // Linux 自研 SNI 导出一条「打开菜单」的 dbusmenu，点击后弹自绘窗）。
                 if tray_menu_style_is_unified(app.handle()) {
                     // Linux：托盘图标**不交给 tauri**，由我们自己按 SNI 协议导出
-                    // （见 linux_sni 模块）：既拿得到点击坐标，也能把菜单内容按
-                    // build_menu_nodes 的纯数据全量导出给宿主渲染。
+                    // （见 linux_sni 模块）：既拿得到点击坐标，dbusmenu 这条「点击来源」
+                    // 也由我们全权掌握。
                     #[cfg(target_os = "linux")]
                     linux_sni::spawn(app.handle().clone());
 
@@ -14279,22 +14279,25 @@ mod tests {
 // ——— Linux 托盘：自己实现 StatusNotifierItem ———
 //
 // 为什么要自己写：tauri 用的 tray-icon 在 GTK/X11 上**不发任何点击事件**（连 activate
-// 信号都没接、`rect()` 恒 None），应用根本不知道托盘图标被点过。而只要往托盘挂菜单，
-// 菜单就交给宿主渲染（Cinnamon 面板的 xapp-status applet → /usr/lib/xapps/xapp-sn-watcher，
-// GtkMenu + libdbusmenu-gtk3），点任何一项它都会把菜单收掉 —— ③ 就无从谈起。
+// 信号都没接、`rect()` 恒 None），应用根本不知道托盘图标被点过。
 //
 // SNI 这条路两头都拿得到：宿主把点击坐标交给我们 —— `Activate(x, y)`=左键、
 // `ContextMenu`=右键（实测坐标是**图标原点**而不是点击点：点 1777 收到 1744）。
 // 点击语义三端一致：左键=显示主窗口，右键（和中键）=弹自绘菜单窗（open_tray_menu）。
-// 属性集与取值照抄实测可行的探针（`~/.cache/ab-dock-min/cin/sni_nomenu.py`）：
-// `ItemIsMenu=false` + `Menu=/StatusNotifierMenu` ⇒ Cinnamon/KDE 把点击回调给我们
-// （它们只看 ItemIsMenu 决定走不走 ContextMenu），而 GNOME 的 ubuntu-appindicators
-// 扩展**点击（含右键）只按 dbusmenu 渲染宿主菜单、从不回调 ContextMenu**——
-// 曾经 `Menu=""` 时按空路径拉菜单，什么都弹不出来（用户实测：右键没反应）。
 //
-// 本模块只在 **unified（全局统一）方式**下启动：导出的 dbusmenu 承载
-// build_menu_nodes 的**全量菜单内容**（不是早期那个单项「打开面板」中转）——
-// 右键托盘，GNOME/Cinnamon/KDE 都直接把完整菜单渲染出来，点条目直达动作。
+// **dbusmenu 只导出一条「打开菜单」**（2026-10-15 定案，取代之前的「全量内容导出」）：
+// 曾经把 build_menu_nodes 的 52 个节点全量导出，让 GNOME/Cinnamon/KDE 的宿主自己渲染
+// 完整菜单 —— 实测走不通：GNOME 的 appindicators 扩展用 Shell 弹窗渲染，**不滚动、
+// 不封顶**，几十行的菜单直接顶出屏幕（用户实测三个问题：超出屏幕 / 没有滚轮 /
+// 底部的单选列表展不开 —— 子菜单要往下开，屏幕底下已经没有空间）；Cinnamon/KDE 的
+// GtkMenu 虽然能滚，但点任何一项菜单照样收掉，「点选择框不关菜单」无从谈起。
+// 所以：宿主菜单退化成一条「打开菜单」，点了以后由**我们自己的自绘菜单窗**承接 ——
+// 高度按工作区封顶、超出靠窗内滚轮、单选列表窗内展开、点选不关菜单，三端同一扇窗。
+// （GNOME 扩展点击只按 dbusmenu 渲染宿主菜单、从不回调 ContextMenu —— `Menu=""` 时
+// 它按空路径拉菜单什么都弹不出来，用户实测 —— 所以这条「单项 dbusmenu」不是可选项，
+// 是 GNOME 上拿到右键点击的唯一通道。）
+//
+// 本模块只在 **unified（全局统一）方式**下启动。
 // classic（各自方式）不走这里：托盘图标由 tauri 托管、菜单是原生菜单。
 #[cfg(target_os = "linux")]
 mod linux_sni {
@@ -14316,36 +14319,20 @@ mod linux_sni {
     /// 单项启动菜单（给 GNOME 的 appindicators 扩展用）的对象路径与接口。
     const MENU_PATH: &str = "/StatusNotifierMenu";
     const MENU_IFACE: &str = "com.canonical.dbusmenu";
+    /// dbusmenu 里唯一那一条的文案：宿主弹出的小菜单里就这一项，点了开自绘菜单窗。
+    const MENU_OPEN_ITEM_LABEL: &str = "打开菜单";
+    /// 唯一条目的动作 id（不进 handle_menu_event 的动作表 —— 开菜单窗这件事
+    /// 由本模块直接做，不走动作分发）。
+    const MENU_OPEN_ITEM_ID: &str = "open-tray-menu";
 
-    /// dbusmenu 内容代次：内容每变一次 +1（GetLayout 回执与 LayoutUpdated 信号都用它）。
+    /// dbusmenu 内容代次：GetLayout 回执里的 revision。内容是写死的一条，
+    /// 恒为 1 —— 宿主不靠 revision 判断新鲜度（我们每次 GetLayout 都现答）。
     static MENU_REVISION: AtomicU32 = AtomicU32::new(1);
-    /// 内容待宿主重拉：`menu_layout_changed` 置位，**只在 GetLayout 应答时清零**。
-    /// 初始 true —— 扩展客户端只有 AboutToShow 回 true（或收到 LayoutUpdated）才会
-    /// 发起第一次布局拉取，开机得先脏一回。
-    ///
-    /// 为什么不能"随手清"：AboutToShow 与 LayoutUpdated 是**两条并列的重拉促发路径**，
-    /// 读的是同一位 —— SNI 线程发信号时清了，AboutToShow 就可能漏报。各走各的，
-    /// 清零统一交给 GetLayout（宿主拿到新内容的那一刻才算"不脏"）。
-    /// 注意它不分条目：快照本来就是整树现建，全局一位足够。
-    static MENU_DIRTY: AtomicBool = AtomicBool::new(true);
-    /// 已广播过 LayoutUpdated 的代次：防重发（脏标记可能持续为 true，直到宿主来拉；
-    /// 代次没变就不必再广播一遍）。
-    static MENU_SIGNAL_REVISION: AtomicU32 = AtomicU32::new(0);
     /// 最近一次 GetLayout 建立的快照：dbusmenu 数字 id ↔ 动作 id 的对应表。
     /// 宿主先 GetLayout 拿树、再按数字 id 发 Event —— 两边都读这一份才对得上。
+    /// 内容是写死的一条，快照其实恒定；留这层结构是为了 GetGroupProperties /
+    /// GetProperty / Event 走同一套按 id 查表的代码。
     static MENU_SNAPSHOT: Mutex<Option<MenuSnapshot>> = Mutex::new(None);
-
-    /// unified 菜单内容变化入口（update_tray_menu 在主线程调）。
-    ///
-    /// 指纹变了 → 代次 +1 + 置脏；SNI 线程下一拍发出 LayoutUpdated，宿主收到后重新
-    /// GetLayout 拿到全量新内容。Win/mac 上没有 SNI 线程，置的脏没人消费，无副作用。
-    pub(crate) fn menu_layout_changed(changed: bool) {
-        if !changed {
-            return;
-        }
-        MENU_REVISION.fetch_add(1, Ordering::SeqCst);
-        MENU_DIRTY.store(true, Ordering::SeqCst);
-    }
 
     /// 起一条专用线程跑 SNI 服务。
     ///
@@ -14428,24 +14415,6 @@ mod linux_sni {
                 Some(_) => {}
                 None => return Err("会话总线断了".to_string()),
             }
-            // 菜单内容变了（update_tray_menu 置脏）：广播 LayoutUpdated，宿主收到会
-            // 重新 GetLayout —— 菜单是全量动态内容，靠它保鲜。**这里不清脏标记**
-            // （AboutToShow 同读这一位，清零统一在 GetLayout）；靠「已广播代次」防重发。
-            if MENU_DIRTY.load(Ordering::SeqCst) {
-                let revision = MENU_REVISION.load(Ordering::SeqCst);
-                if MENU_SIGNAL_REVISION.swap(revision, Ordering::SeqCst) != revision {
-                    // 三个字符串都是静态字面量，构造失败只可能是代码写错 —— expect 就地崩
-                    let path = DbusPath::new(ITEM_PATH).expect("静态路径合法");
-                    let iface = dbus::strings::Interface::new(MENU_IFACE).expect("静态接口名合法");
-                    let member =
-                        dbus::strings::Member::new("LayoutUpdated").expect("静态成员名合法");
-                    let mut signal = Message::signal(&path, &iface, &member);
-                    signal.append_items(&[MessageItem::UInt32(revision), MessageItem::Int32(0)]);
-                    if let Err(()) = conn.send(signal) {
-                        startup_debug(&app, "LayoutUpdated 信号发送失败");
-                    }
-                }
-            }
             if registered || next_try > Instant::now() {
                 continue;
             }
@@ -14498,6 +14467,64 @@ mod linux_sni {
             button_state: MouseButtonState::Up,
         };
         tauri_plugin_positioner::on_tray_event(app, &event);
+    }
+
+    /// 取当前光标的屏幕物理坐标（X11 根窗口坐标，与 Activate 给的原点同空间）。
+    ///
+    /// dbusmenu 的 `Event(id, event, data, timestamp)` 不带坐标，而「打开菜单」点击的
+    /// 那一刻光标正停在宿主弹出的小菜单上 —— 离托盘图标就几像素，拿它当自绘菜单窗
+    /// 的锚点最贴切。X11 查询失败（Wayland / 打不开 Display）回 None，调用方退回
+    /// `fallback_anchor`。
+    fn cursor_position() -> Option<(f64, f64)> {
+        let xlib = x11_dl::xlib::Xlib::open().ok()?;
+        unsafe {
+            let display = (xlib.XOpenDisplay)(std::ptr::null());
+            if display.is_null() {
+                return None;
+            }
+            let mut root_return = 0u64;
+            let mut child = 0u64;
+            let mut root_x = 0i32;
+            let mut root_y = 0i32;
+            let mut win_x = 0i32;
+            let mut win_y = 0i32;
+            let mut mask = 0u32;
+            let root = (xlib.XDefaultRootWindow)(display);
+            let on_screen = (xlib.XQueryPointer)(
+                display,
+                root,
+                &mut root_return,
+                &mut child,
+                &mut root_x,
+                &mut root_y,
+                &mut win_x,
+                &mut win_y,
+                &mut mask,
+            );
+            (xlib.XCloseDisplay)(display);
+            if on_screen != 0 {
+                Some((root_x as f64, root_y as f64))
+            } else {
+                None
+            }
+        }
+    }
+
+    /// 光标查不到时的兜底锚点：主显示器偏下的位置（大多数托盘在屏幕角落，
+    /// 这里宁可退而求其次也别把菜单开出屏幕）。
+    fn fallback_anchor(app: &AppHandle) -> (f64, f64) {
+        app.primary_monitor()
+            .ok()
+            .flatten()
+            .map(|monitor| {
+                let position = monitor.position();
+                let size = monitor.size();
+                (
+                    (position.x + size.width as i32 / 2) as f64,
+                    (position.y + size.height as i32 * 3 / 4) as f64,
+                )
+            })
+            .unwrap_or((0.0, 0.0))
     }
 
     /// 宿主（面板 / watcher）对我们这个 SNI 对象的全部调用。
@@ -14553,25 +14580,23 @@ mod linux_sni {
         }
     }
 
-    /// 全量菜单的宿主端实现（`com.canonical.dbusmenu`）。
+    /// dbusmenu 宿主端实现（`com.canonical.dbusmenu`）—— **单条「打开菜单」**。
     ///
     /// unified 方式下三家的右键都走这里：GNOME 的 appindicators 扩展点击托盘时**只按
     /// dbusmenu 渲染宿主菜单**、从不回调 `ContextMenu`（`Menu=""` 时它按空路径拉菜单，
     /// 什么都弹不出来 —— 用户实测）；Cinnamon（xapp）与 KDE 看到有效的 Menu 也会自建
-    /// 宿主菜单消费右键。所以把 build_menu_nodes 的**全量内容**导出成 dbusmenu ——
-    /// 右键直接出完整菜单、点条目直达动作，没有「打开面板」中转。
+    /// 宿主菜单消费右键。所以 dbusmenu 是三端拿到「右键点击」的共同通道 —— 但内容
+    /// 只放一条「打开菜单」：宿主渲染的菜单装不下全量内容（GNOME 不滚动不封顶，
+    /// Cinnamon/KDE 点一下就收），点了这条以后由**自绘菜单窗**承接完整菜单。
     ///
-    /// 内容是**动态**的：每次 GetLayout 都按当前 UiState 现建快照；内容变化（指纹变了）
-    /// 走 LayoutUpdated 信号 + AboutToShow 提醒宿主重新拉取。
+    /// 内容是**写死的**：不随 UiState 变，不需要 LayoutUpdated / AboutToShow 脏标记。
     struct MenuHandler {
         app: AppHandle,
     }
 
-    /// 一次 GetLayout 现建的 dbusmenu 快照。
+    /// dbusmenu 快照：唯一条目「打开菜单」= 数字 id 1（0 恒为根）。
     ///
-    /// dbusmenu 的 id 是它自己的 i32 编号（1 起顺序分配，0 恒为根）；
-    /// `node_id` 是点击时要派发的动作 id（与自绘窗同一套，分隔线/表头没有）。
-    /// 宿主先 GetLayout 拿树、再按数字 id 发 Event —— 两边都读 MENU_SNAPSHOT 这一份才对得上。
+    /// `node_id` 存的是 MENU_OPEN_ITEM_ID，menu_event 据此开自绘菜单窗。
     struct MenuSnapshot {
         items: Vec<SnapshotNode>,
         root_children: Vec<i32>,
@@ -14585,93 +14610,33 @@ mod linux_sni {
         children: Vec<i32>,
     }
 
-    /// 把菜单模型装成 dbusmenu 快照：深度优先，id 顺序分配。
-    fn build_menu_snapshot(nodes: &[MenuNode]) -> MenuSnapshot {
-        let mut next_id = 1i32;
-        fn walk(
-            nodes: &[MenuNode],
-            snapshot: &mut MenuSnapshot,
-            next_id: &mut i32,
-        ) -> Vec<i32> {
-            let mut ids = Vec::new();
-            for node in nodes {
-                let dbus_id = *next_id;
-                *next_id += 1;
-                let properties = match node.kind {
-                    "sep" => vec![
-                        ("type", MessageItem::Str("separator".to_string())),
-                        ("visible", MessageItem::Bool(true)),
-                    ],
-                    _ => {
-                        let mut properties = vec![
-                            ("type", MessageItem::Str("standard".to_string())),
-                            ("label", MessageItem::Str(node.label.clone())),
-                            ("enabled", MessageItem::Bool(node.enabled)),
-                            ("visible", MessageItem::Bool(true)),
-                        ];
-                        // 子菜单标记必须进快照属性表：GNOME 扩展拿到 GetGroupProperties
-                        // 回应后会 resetProperties() 清空再逐个 set —— 只在 GetLayout
-                        // 序列化时补的话，这枚标记会被那次清洗抹掉，条目被定型为普通项，
-                        // 下拉列表展不开（用户实测）。判定在扩展侧读的是缓存的属性。
-                        if node.kind == "sub" {
-                            properties.push((
-                                "children-display",
-                                MessageItem::Str("submenu".to_string()),
-                            ));
-                        }
-                        // 列表类条目的「当前项」交给宿主的勾选机制（自绘窗用 checked 字段
-                        // 自己画；原生菜单用绿勾位图 —— 各端各表，语义相同）。
-                        if let Some(checked) = node.checked {
-                            // 单选组（keepsOpen 的列表条目）报 radio，孤立的标记行动作报 checkbox
-                            properties.push((
-                                "toggle-type",
-                                MessageItem::Str(
-                                    if node.keeps_open { "radio" } else { "checkbox" }.to_string(),
-                                ),
-                            ));
-                            properties.push((
-                                "toggle-state",
-                                MessageItem::Int32(if checked { 1 } else { 0 }),
-                            ));
-                        }
-                        properties
-                    }
-                };
-                // 先序入列：父节点先占坑，子节点随后 —— items 的顺序与 id 一致，好排查
-                let index = snapshot.items.len();
-                snapshot.items.push(SnapshotNode {
-                    dbus_id,
-                    node_id: node.id.clone(),
-                    properties,
-                    children: Vec::new(),
-                });
-                ids.push(dbus_id);
-                if node.kind == "sub" {
-                    let children = walk(&node.children, snapshot, next_id);
-                    snapshot.items[index].children = children;
-                }
-            }
-            ids
+    /// 装出单条目的 dbusmenu 快照。id 固定 1，属性写死。
+    fn build_menu_snapshot() -> MenuSnapshot {
+        MenuSnapshot {
+            items: vec![SnapshotNode {
+                dbus_id: 1,
+                node_id: Some(MENU_OPEN_ITEM_ID.to_string()),
+                properties: vec![
+                    ("type", MessageItem::Str("standard".to_string())),
+                    ("label", MessageItem::Str(MENU_OPEN_ITEM_LABEL.to_string())),
+                    ("enabled", MessageItem::Bool(true)),
+                    ("visible", MessageItem::Bool(true)),
+                ],
+                children: Vec::new(),
+            }],
+            root_children: vec![1],
         }
-        let mut snapshot = MenuSnapshot {
-            items: Vec::new(),
-            root_children: Vec::new(),
-        };
-        snapshot.root_children = walk(nodes, &mut snapshot, &mut next_id);
-        snapshot
     }
 
-    /// 取当前快照；宿主没先 GetLayout 就来查属性/发事件时现建一份兜底。
+    /// 取快照；宿主没先 GetLayout 就来查属性/发事件时现建一份兜底（内容恒定）。
     fn with_menu_snapshot<R>(
-        app: &AppHandle,
         use_it: impl FnOnce(&MenuSnapshot) -> R,
     ) -> R {
         let mut guard = MENU_SNAPSHOT
             .lock()
             .expect("dbusmenu snapshot mutex poisoned");
         if guard.is_none() {
-            let state = ui_state(app);
-            *guard = Some(build_menu_snapshot(&build_menu_nodes(&state)));
+            *guard = Some(build_menu_snapshot());
         }
         let snapshot = guard.as_ref().expect("快照刚补过，必有");
         use_it(snapshot)
@@ -14763,7 +14728,7 @@ mod linux_sni {
                 (Some(_), Some(MessageItem::Str(event))) if event == "clicked"
             );
             if let (true, Some(id)) = (clicked, id) {
-                let node_id = with_menu_snapshot(&self.app, |snapshot| {
+                let node_id = with_menu_snapshot(|snapshot| {
                     snapshot
                         .items
                         .iter()
@@ -14771,21 +14736,34 @@ mod linux_sni {
                         .and_then(|entry| entry.node_id.clone())
                 });
                 match node_id {
-                    Some(node_id) => {
+                    // 唯一条目「打开菜单」：取光标当锚点，开自绘菜单窗。
+                    // 光标查询放在 SNI 线程（X11 调用别占主线程）；点击那一刻光标
+                    // 正停在宿主弹出的小菜单上，离托盘图标就几像素，是最贴切的锚点。
+                    Some(node_id) if node_id == MENU_OPEN_ITEM_ID => {
+                        let (x, y) = cursor_position().unwrap_or_else(|| {
+                            fallback_anchor(&self.app)
+                        });
                         startup_debug(
                             &self.app,
-                            &format!("托盘菜单点击（dbusmenu id={id}）→ 动作 {node_id}"),
+                            &format!("托盘菜单点击（dbusmenu id={id}）→ 弹自绘菜单窗 锚点=({x:.0},{y:.0})"),
                         );
                         let app = self.app.clone();
                         let dispatch_app = app.clone();
-                        if let Err(error) = app
-                            .run_on_main_thread(move || handle_menu_event(&dispatch_app, &node_id))
-                        {
+                        if let Err(error) = app.run_on_main_thread(move || {
+                            feed_positioner(&dispatch_app, x, y);
+                            open_tray_menu(&dispatch_app, x, y);
+                        }) {
                             startup_debug(
                                 &self.app,
-                                &format!("派发菜单动作回主线程失败: {error}"),
+                                &format!("派发开菜单回主线程失败: {error}"),
                             );
                         }
+                    }
+                    Some(node_id) => {
+                        startup_debug(
+                            &self.app,
+                            &format!("托盘菜单点击（dbusmenu id={id}）→ 未认识的动作 {node_id}，已忽略"),
+                        );
                     }
                     None => {
                         startup_debug(
@@ -14800,8 +14778,7 @@ mod linux_sni {
 
         /// `GetLayout(parentId, depth, propertyNames)` → `(u revision, (ia{sv}av) node)`。
         ///
-        /// 每次都按**当前** UiState 现建快照（内容永远新鲜）；parentId 给子树查询用
-        /// （宿主展开子菜单时会按子菜单 id 再拉一次），0 = 根。
+        /// 快照是写死的一条；parentId 给子树查询用，0 = 根。
         fn menu_get_layout(&self, msg: &Message) -> Message {
             let parent = msg
                 .get_items()
@@ -14812,8 +14789,7 @@ mod linux_sni {
                     _ => None,
                 })
                 .unwrap_or(0);
-            let state = ui_state(&self.app);
-            let snapshot = build_menu_snapshot(&build_menu_nodes(&state));
+            let snapshot = build_menu_snapshot();
             let revision = MENU_REVISION.load(Ordering::SeqCst);
             // 序列化：把快照里以 parent 为根的子树整体写成 (ia{sv}av)。
             // 根（0）没有对应条目，属性固定 children-display=submenu。
@@ -14830,11 +14806,7 @@ mod linux_sni {
                         )],
                         snapshot.root_children.clone(),
                     ),
-                    Some(entry) => {
-                        // children-display 已在快照属性表里（walk() 按子菜单补好），
-                        // 这里不再重复 push —— a{sv} 出现重复键会被宿主按坏消息处理。
-                        (entry.properties.clone(), entry.children.clone())
-                    }
+                    Some(entry) => (entry.properties.clone(), entry.children.clone()),
                     None => (Vec::new(), Vec::new()),
                 };
                 let children = children_ids
@@ -14853,9 +14825,6 @@ mod linux_sni {
         *MENU_SNAPSHOT
             .lock()
             .expect("dbusmenu snapshot mutex poisoned") = Some(snapshot);
-        // 宿主拿到了这份代次的全量内容 —— 不脏了（AboutToShow / LayoutUpdated 靠
-        // 这一位促发重拉，现在起回 false，直到下次内容真变）。
-        MENU_DIRTY.store(false, Ordering::SeqCst);
         let mut reply = msg.method_return();
         reply.append_items(&[MessageItem::UInt32(revision), node]);
         reply
@@ -14879,7 +14848,7 @@ mod linux_sni {
                     _ => None,
                 })
                 .unwrap_or_default();
-            let entries = with_menu_snapshot(&self.app, |snapshot| {
+            let entries = with_menu_snapshot(|snapshot| {
                 ids.iter()
                     .filter_map(|id| {
                         snapshot
@@ -14906,7 +14875,7 @@ mod linux_sni {
         /// `GetProperty(id, name)` → `v`：按快照查单个属性。
         fn menu_get_property(&self, msg: &Message) -> Message {
             let (id, property) = msg.read2::<i32, String>().unwrap_or((0, String::new()));
-            let value = with_menu_snapshot(&self.app, |snapshot| {
+            let value = with_menu_snapshot(|snapshot| {
                 snapshot
                     .items
                     .iter()
@@ -14952,25 +14921,25 @@ mod linux_sni {
         reply
     }
 
-    /// `AboutToShow(id)` → 是否需要宿主重拉布局：回当前脏标记。
+    /// `AboutToShow(id)` → 是否需要宿主重拉布局：恒 false。
     ///
-    /// **不能恒 true**：扩展客户端每次展开子菜单都会先调 AboutToShow(子菜单id)，
-    /// 回 true 会促发整树重拉重建，刚展开的子菜单瞬间被销毁又重建 —— 表现就是
-    /// 「子菜单展不开」（GNOME 扩展 dbusMenu.js sendAboutToShow → _requestLayoutUpdate
-    /// 实锤，2026-10-15）。平时子菜单随便开；内容真变了走脏标记让宿主刷新。
+    /// 内容是写死的一条，永远不存在「变了要重拉」。**绝不能回 true**：扩展客户端
+    /// 每次展开子菜单都会先调 AboutToShow(子菜单id)，回 true 会促发整树重拉重建，
+    /// 刚展开的子菜单瞬间被销毁又重建 —— 表现就是「子菜单展不开」
+    /// （GNOME 扩展 dbusMenu.js sendAboutToShow → _requestLayoutUpdate 实锤）。
     fn menu_about_to_show(msg: &Message) -> Message {
         let mut reply = msg.method_return();
-        reply.append_items(&[MessageItem::Bool(MENU_DIRTY.load(Ordering::SeqCst))]);
+        reply.append_items(&[MessageItem::Bool(false)]);
         reply
     }
 
-    /// `AboutToShowGroup(ids)` → `(b updateNeeded, ai idErrors)`：语义同上，全局一位。
+    /// `AboutToShowGroup(ids)` → `(b updateNeeded, ai idErrors)`：语义同上，恒 false。
     fn menu_about_to_show_group(msg: &Message) -> Message {
         let mut reply = msg.method_return();
         let empty_ids = MessageItemArray::new(Vec::new(), Signature::new("ai").expect("静态签名"))
             .expect("元素都是 i");
         reply.append_items(&[
-            MessageItem::Bool(MENU_DIRTY.load(Ordering::SeqCst)),
+            MessageItem::Bool(false),
             MessageItem::Array(empty_ids),
         ]);
         reply
@@ -15337,70 +15306,34 @@ mod linux_sni {
             assert_eq!(dict.signature().to_string(), "a{sv}");
         }
 
-        /// 快照构建：模型树 → dbusmenu 编号顺序分配、动作 id 对得上、
-        /// 勾选/分隔线/子菜单的属性表各就各位。Event(id) ↔ node_id 的换算靠它。
+        /// 快照：唯一条目「打开菜单」= id 1，挂在根下，动作 id 与文案对得上。
+        /// Event(id=1) → MENU_OPEN_ITEM_ID → 开自绘菜单窗，换算靠它。
         #[test]
-        fn menu_snapshot_maps_ids_and_properties() {
-            let nodes = vec![
-                menu_item("show-main", "显示主窗口", true),
-                menu_header("sys-head", "系统"),
-                MenuNode {
-                    keeps_open: true,
-                    ..menu_marked_choice_item("switch:arch", "Arch", true, true)
-                },
-                MenuNode {
-                    keeps_open: true,
-                    ..menu_marked_choice_item("switch:mint", "Mint", true, false)
-                },
-                menu_separator(),
-                menu_submenu(
-                    "sub",
-                    "子菜单",
-                    vec![menu_item("sub-action", "子项", true)],
-                ),
-            ];
-            let snapshot = build_menu_snapshot(&nodes);
-            // 先序编号：1..=7（子菜单的子项夹在中间），0 留给根
-            let ids: Vec<i32> = snapshot.items.iter().map(|entry| entry.dbus_id).collect();
-            assert_eq!(ids, vec![1, 2, 3, 4, 5, 6, 7]);
-            // 根只挂 6 个顶层节点（子项在子菜单里）
-            assert_eq!(snapshot.root_children, vec![1, 2, 3, 4, 5, 6]);
-            let node = |id: i32| {
-                snapshot
-                    .items
-                    .iter()
-                    .find(|entry| entry.dbus_id == id)
-                    .unwrap_or_else(|| panic!("缺节点 {id}"))
-            };
-            let property = |entry: &SnapshotNode, name: &str| {
+        fn menu_snapshot_maps_single_open_item() {
+            let snapshot = build_menu_snapshot();
+            // 根只挂一条；没有别的节点
+            assert_eq!(snapshot.root_children, vec![1]);
+            assert_eq!(snapshot.items.len(), 1);
+            let entry = &snapshot.items[0];
+            assert_eq!(entry.dbus_id, 1);
+            assert_eq!(entry.children, Vec::<i32>::new());
+            assert_eq!(entry.node_id.as_deref(), Some(MENU_OPEN_ITEM_ID));
+            let property = |name: &str| {
                 entry
                     .properties
                     .iter()
                     .find(|(key, _)| *key == name)
                     .map(|(_, value)| value.clone())
-                    .unwrap_or_else(|| panic!("节点 {} 缺属性 {name}", entry.dbus_id))
+                    .unwrap_or_else(|| panic!("缺属性 {name}"))
             };
-            // 动作 id 直通（Event 派发的依据）
-            assert_eq!(node(1).node_id.as_deref(), Some("show-main"));
-            assert_eq!(node(2).node_id.as_deref(), Some("sys-head"));
-            // 选中项：radio + toggle-state=1；未选中 0
-            assert_eq!(property(node(3), "toggle-type"), MessageItem::Str("radio".to_string()));
-            assert_eq!(property(node(3), "toggle-state"), MessageItem::Int32(1));
-            assert_eq!(property(node(4), "toggle-state"), MessageItem::Int32(0));
-            // 分隔线：type=separator、没有动作 id
-            assert_eq!(property(node(5), "type"), MessageItem::Str("separator".to_string()));
-            assert_eq!(node(5).node_id, None);
-            // 子菜单：children 挂上，且属性表自带 children-display=submenu ——
-            // GNOME 扩展用 GetGroupProperties 的回应洗一遍属性（resetProperties），
-            // 这枚标记不在快照里就会被洗掉，下拉列表展不开（真机实测）。
-            assert_eq!(node(6).children, vec![7]);
+            assert_eq!(property("type"), MessageItem::Str("standard".to_string()));
             assert_eq!(
-                property(node(6), "children-display"),
-                MessageItem::Str("submenu".to_string())
+                property("label"),
+                MessageItem::Str(MENU_OPEN_ITEM_LABEL.to_string())
             );
-            // 非子菜单条目不该带这枚标记
-            assert!(node(1).properties.iter().all(|(key, _)| *key != "children-display"));
-            assert_eq!(node(7).node_id.as_deref(), Some("sub-action"));
+            assert_eq!(property("enabled"), MessageItem::Bool(true));
+            // 普通条目不该带子菜单标记（根才带 children-display，由 serialize 补）
+            assert!(entry.properties.iter().all(|(key, _)| *key != "children-display"));
         }
     }
 }
