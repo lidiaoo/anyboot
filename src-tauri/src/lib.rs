@@ -15517,6 +15517,11 @@ mod linux_sni {
         *MENU_SNAPSHOT
             .lock()
             .expect("dbusmenu snapshot mutex poisoned") = Some(snapshot);
+        // 宿主拿到新内容的那一刻才算"不脏"——清零只在这里（AboutToShow/广播同读这一位）。
+        // 漏掉这一步的后果（2026-10-15 实测）：脏标记永真 → 扩展每次展开子菜单
+        // AboutToShow(子id) 恒 true → 整树重拉 → _replaceSelf 把刚展开的子菜单行
+        // 当场销毁重建 → 折叠展开永远失效。
+        MENU_DIRTY.store(false, Ordering::SeqCst);
         let mut reply = msg.method_return();
         reply.append_items(&[MessageItem::UInt32(revision), node]);
         reply
