@@ -35,7 +35,7 @@
 - **KDE 侧复现台（3a39e22）**：`~/.cache/ab-kde-repro/`——kdemenu_client.cpp（KDE 面板同一个 libdbusmenu-qt5 的 DBusMenuImporter：updateMenu→dump→QAction::trigger→再 dump，查就地回显）+ probe-kde.sh（TAG/STYLE/APP 同 probe60）。编译 `g++ -fPIC -std=c++17 -o kdemenu_client kdemenu_client.cpp $(pkg-config --cflags --libs dbusmenu-qt5 Qt5Core Qt5Widgets Qt5DBus)`。回显类改动必须过这台（probe60 的 python 客户端是名字匹配，抓不到签名类问题）。
 - dbus 0.9 坑：MessageItemArray::new 要整条数组签名（带前导 a）；Message::signal(path,iface,name) 直接返 Message（失败 panic）、Connection::send 返 Result<u32,()>；GetLayout 回执 (u(ia{sv}av)) 有单测钉死；快照父节点先 push 再递归（先序，否则 id 错位）。Tauri 2 ACL：新窗口 label 必须进 capabilities/default.json 的 windows，否则 invoke/listen 静默拒。
 - 回归探针：`~/.cache/ab-dock-min/cin/probe40.sh`——假 watcher 总线级回归（不依赖真面板），classic 验 libayatana 全量菜单、unified 验自研 dbusmenu+点击派发；libayatana 不暴露 ItemIsMenu 属性，探针要容错。
-- **主窗口 UI 按钮点击台（9bcf278）**：`~/.cache/ab-headerbtn/`（probe-header2.sh + find-buttons.py）——Xvfb 起应用本尊 → `import -window <id>` 截图（透明窗抓 root 全黑）→ 像素自校准定位按钮 → xdotool mousemove+click（无 WM 也能点）→ 用应用自己的 startup-debug/trace 判定。扫描须跳过 h1 文字区（x≥130）并限定左栏（x≤470）；判活/清理按 /proc/PID/exe 比对，**禁用 pkill -f <路径>**（会连自己的 shell 一起杀）。
+- **主窗口 UI 按钮点击台（9bcf278）**：`~/.cache/ab-headerbtn/`（probe-header2.sh + find-buttons.py）——Xvfb 起应用本尊 → `import -window <id>` 截图（透明窗抓 root 全黑）→ 像素自校准定位按钮 → xdotool mousemove+click（无 WM 也能点）→ 用应用自己的 startup-debug/trace 判定。扫描须跳过 h1 文字区（x≥130）并限定左栏（x≤470），扫不到 `^RESTART` 要按全宽重扫兜底；判活/清理按 /proc/PID/exe 比对，**禁用 pkill -f <路径>**（会连自己的 shell 一起杀）。泛化版已进技能 `linux-x11-window-repro/scripts/repro-main-window-buttons.sh`（+ find-header-buttons.py，拷出后需改名 find-buttons.py）；`MODE=layout` 只量换行不点击。
 - 待办：本机无 win/mac target，上 Windows 先 build 再实机点托盘复验（两形态）→ push → 打包。
 
 ## 产品定则（细节见日志）

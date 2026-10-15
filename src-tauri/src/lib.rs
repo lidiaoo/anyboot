@@ -15842,7 +15842,7 @@ mod linux_sni {
                 (MENU_IFACE, "AboutToShow") => menu_about_to_show(msg),
                 (MENU_IFACE, "AboutToShowGroup") => menu_about_to_show_group(msg),
                 (MENU_IFACE, "Event") => self.menu_event(msg),
-                (MENU_IFACE, "EventGroup") => menu_event_group(msg),
+                (MENU_IFACE, "EventGroup") => self.menu_event_group(msg),
                 _ => unknown_method(msg),
             };
             Some(MsgHandlerResult {
@@ -15902,44 +15902,75 @@ mod linux_sni {
                 }
                 return msg.method_return();
             }
-            let clicked = matches!(
-                (id, event_name),
-                (Some(_), Some("clicked"))
-            );
-            if let (true, Some(id)) = (clicked, id) {
-                let node_id = with_menu_snapshot(&self.app, |snapshot| {
-                    snapshot
-                        .items
-                        .iter()
-                        .find(|entry| entry.dbus_id == id)
-                        .and_then(|entry| entry.node_id.clone())
-                });
-                match node_id {
-                    Some(node_id) => {
+            if let (Some(id), Some("clicked")) = (id, event_name) {
+                self.dispatch_menu_clicked(id);
+            }
+            msg.method_return()
+        }
+
+        /// 用户点了菜单条目：把 dbusmenu 数字 id 换回动作 id，派发到主线程执行。
+        ///
+        /// `Event`（单条）与 `EventGroup`（批量）两条通道共用这一段 —— 不同宿主家族
+        /// 走的方法不同，语义一模一样（动作可能碰窗口，必须回主线程）。
+        fn dispatch_menu_clicked(&self, id: i32) {
+            let node_id = with_menu_snapshot(&self.app, |snapshot| {
+                snapshot
+                    .items
+                    .iter()
+                    .find(|entry| entry.dbus_id == id)
+                    .and_then(|entry| entry.node_id.clone())
+            });
+            match node_id {
+                Some(node_id) => {
+                    startup_debug(
+                        &self.app,
+                        &format!("托盘菜单点击（dbusmenu id={id}）→ 动作 {node_id}"),
+                    );
+                    let app = self.app.clone();
+                    let dispatch_app = app.clone();
+                    if let Err(error) = app
+                        .run_on_main_thread(move || handle_menu_event(&dispatch_app, &node_id))
+                    {
                         startup_debug(
                             &self.app,
-                            &format!("托盘菜单点击（dbusmenu id={id}）→ 动作 {node_id}"),
-                        );
-                        let app = self.app.clone();
-                        let dispatch_app = app.clone();
-                        if let Err(error) = app
-                            .run_on_main_thread(move || handle_menu_event(&dispatch_app, &node_id))
-                        {
-                            startup_debug(
-                                &self.app,
-                                &format!("派发菜单动作回主线程失败: {error}"),
-                            );
-                        }
-                    }
-                    None => {
-                        startup_debug(
-                            &self.app,
-                            &format!("托盘菜单点击（dbusmenu id={id}）快照里没有，已忽略"),
+                            &format!("派发菜单动作回主线程失败: {error}"),
                         );
                     }
                 }
+                None => {
+                    startup_debug(
+                        &self.app,
+                        &format!("托盘菜单点击（dbusmenu id={id}）快照里没有，已忽略"),
+                    );
+                }
             }
-            msg.method_return()
+        }
+
+        /// `EventGroup(events: a(isvu))` → `ai idErrors`。
+        ///
+        /// **这是 libdbusmenu 家族点条目的正式通道**：Cinnamon 的 xapp-sn-watcher
+        /// （libdbusmenu-gtk3）、MATE 的 mate-xapp-status-applet，以及一切 indicator 系
+        /// 宿主，点菜单项发的都是本方法 —— **不是 `Event`**。只有 GNOME 的 appindicators
+        /// 扩展（dbusMenu.js）与 KDE 的 libdbusmenu-qt5 用 `Event`。
+        ///
+        /// 线上签名是 **`a(isvu)`**：每项 `(i 条目id, s 事件名, v 数据, u 时间戳)`。
+        /// （本文件早先的内省 XML 把它写成 `a(iisvu)` —— 多了一个 i，错误签名。）
+        ///
+        /// 2026-10-15 用户实测（Cinnamon，各自方式与全局统一都一样）：菜单能弹、内容也对，
+        /// 但**点任何条目都毫无反应**。根因就在这里 —— 老实现只回一个空 idErrors、把批里
+        /// 的事件全丢了（注释还写着「批量事件宿主实际不会发」）。复现台
+        /// `~/.cache/ab-cin-repro/`（libdbusmenu-gtk3 客户端，xapp-sn-watcher 同款调用
+        /// `dbusmenu_gtkmenu_new`）抓到的正是 `EventGroup{ int32 109, "clicked" }`，
+        /// 应用侧一条派发日志都没有。
+        fn menu_event_group(&self, msg: &Message) -> Message {
+            for id in event_group_clicks(msg) {
+                self.dispatch_menu_clicked(id);
+            }
+            let mut reply = msg.method_return();
+            let empty_ids = MessageItemArray::new(Vec::new(), Signature::new("ai").expect("静态签名"))
+                .expect("元素都是 i");
+            reply.append_items(&[MessageItem::Array(empty_ids)]);
+            reply
         }
 
         /// `GetLayout(parentId, depth, propertyNames)` → `(u revision, (ia{sv}av) node)`。
@@ -16119,14 +16150,37 @@ mod linux_sni {
         reply
     }
 
-    /// `EventGroup(events)` → `ai idErrors`：逐条按 Event 处理，这里只认 clicks 的简化版
-    /// —— 批量事件宿主实际不会发（扩展逐条发 Event），回空 idErrors 即可。
-    fn menu_event_group(msg: &Message) -> Message {
-        let mut reply = msg.method_return();
-        let empty_ids = MessageItemArray::new(Vec::new(), Signature::new("ai").expect("静态签名"))
-            .expect("元素都是 i");
-        reply.append_items(&[MessageItem::Array(empty_ids)]);
-        reply
+    /// 从 `EventGroup` 的入参里取出「点了哪些条目」。
+    ///
+    /// 线上签名是 **`a(isvu)`**（见 `MenuHandler::menu_event_group` 的注释）。
+    /// 拆出来成独立函数是为了能单测 —— 这条通道丢了事件的后果是「点了完全没反应」，
+    /// 而它只在这几家的宿主上才走得到，真机上很难靠肉眼发现。
+    fn event_group_clicks(msg: &Message) -> Vec<i32> {
+        let items = msg.get_items();
+        let Some(MessageItem::Array(events)) = items.first() else {
+            return Vec::new();
+        };
+        events
+            .iter()
+            .filter_map(|event| {
+                let MessageItem::Struct(fields) = event else {
+                    return None;
+                };
+                let clicked = matches!(
+                    fields.get(1),
+                    Some(MessageItem::Str(name)) if name.as_str() == "clicked"
+                );
+                if !clicked {
+                    return None;
+                }
+                match fields.first() {
+                    Some(MessageItem::Int32(id)) => Some(*id),
+                    // 有的宿主（含我们自己的探针）把 id 发成 u32 —— 照认
+                    Some(MessageItem::UInt32(id)) => Some(*id as i32),
+                    _ => None,
+                }
+            })
+            .collect()
     }
 
     fn menu_introspect(msg: &Message) -> Message {
@@ -16140,7 +16194,7 @@ mod linux_sni {
              <method name=\"GetProperty\"><arg direction=\"in\" type=\"i\"/><arg direction=\"in\" type=\"s\"/>\
              <arg direction=\"out\" type=\"v\"/></method>\
              <method name=\"Event\"><arg direction=\"in\" type=\"i\"/><arg direction=\"in\" type=\"s\"/><arg direction=\"in\" type=\"v\"/><arg direction=\"in\" type=\"u\"/></method>\
-             <method name=\"EventGroup\"><arg direction=\"in\" type=\"a(iisvu)\"/><arg direction=\"out\" type=\"ai\"/></method>\
+             <method name=\"EventGroup\"><arg direction=\"in\" type=\"a(isvu)\"/><arg direction=\"out\" type=\"ai\"/></method>\
              <method name=\"AboutToShow\"><arg direction=\"in\" type=\"i\"/><arg direction=\"out\" type=\"b\"/></method>\
              <method name=\"AboutToShowGroup\"><arg direction=\"in\" type=\"ai\"/><arg direction=\"out\" type=\"b\"/><arg direction=\"out\" type=\"ai\"/></method>\
              <property name=\"Version\" type=\"u\" access=\"read\"/>\
@@ -16562,6 +16616,64 @@ mod linux_sni {
             let snapshot = build_menu_snapshot(&[]);
             assert!(snapshot.items.is_empty());
             assert!(snapshot.root_children.is_empty());
+        }
+
+        /// **`EventGroup` 里的事件必须被认出来。**
+        ///
+        /// libdbusmenu 家族（Cinnamon 的 xapp-sn-watcher / MATE / indicator 系）点菜单项
+        /// 发的就是这条 `a(isvu)`；老实现把它整个丢掉 → 菜单能弹、点条目毫无反应
+        /// （2026-10-15 用户实测，各自方式与全局统一都一样）。
+        ///
+        /// 顺便钉住线上签名：写成 `a(iisvu)`（多一个 i）会构造失败 —— 这正是老代码
+        /// 内省 XML 里的错签名，也是「当初以为宿主不发批量事件」的来源。
+        #[test]
+        fn event_group_clicks_reads_the_wire_signature() {
+            fn event(id: i32, name: &str) -> MessageItem {
+                MessageItem::Struct(vec![
+                    MessageItem::Int32(id),
+                    MessageItem::Str(name.to_string()),
+                    MessageItem::Variant(Box::new(MessageItem::Int32(0))),
+                    MessageItem::UInt32(0),
+                ])
+            }
+            let group = |entries: Vec<MessageItem>| {
+                let mut msg = Message::new_method_call(":1.1", MENU_PATH, MENU_IFACE, "EventGroup")
+                    .expect("构造调用");
+                msg.append_items(&[MessageItem::Array(
+                    MessageItemArray::new(entries, Signature::new("a(isvu)").expect("静态签名"))
+                        .expect("元素都是 (isvu)"),
+                )]);
+                msg
+            };
+
+            // 单个点击：id 原样取出
+            assert_eq!(event_group_clicks(&group(vec![event(109, "clicked")])), vec![109]);
+            // 一批：只取 clicked，非 clicked 的同批事件不派发
+            assert_eq!(
+                event_group_clicks(&group(vec![
+                    event(3, "hovered"),
+                    event(109, "clicked"),
+                    event(0, "opened"),
+                ])),
+                vec![109]
+            );
+            // 空批 / 不是数组：不 panic，什么都不派发
+            assert!(event_group_clicks(&group(Vec::new())).is_empty());
+            let empty = Message::new_method_call(":1.1", MENU_PATH, MENU_IFACE, "EventGroup")
+                .expect("构造调用");
+            assert!(event_group_clicks(&empty).is_empty());
+            // 错签名 `a(iisvu)` 构造即失败 —— 老 XML 里的写法，钉住别再回去
+            assert!(MessageItemArray::new(
+                vec![MessageItem::Struct(vec![
+                    MessageItem::Int32(1),
+                    MessageItem::Int32(1),
+                    MessageItem::Str("clicked".to_string()),
+                    MessageItem::Variant(Box::new(MessageItem::Int32(0))),
+                    MessageItem::UInt32(0),
+                ])],
+                Signature::new("a(isvu)").expect("静态签名")
+            )
+            .is_err());
         }
 
         /// 差分分流：勾选标记挪动 = 属性变（只推 ItemsPropertiesUpdated，结构位 false）；
