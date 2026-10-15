@@ -5449,7 +5449,13 @@ fn tray_menu_present(app: AppHandle, height: Option<f64>) -> Result<(), String> 
                         window.outer_size().ok()
                     ),
                 ),
-                Err(error) => startup_debug(&app, &format!("TrayCenter 摆放失败: {error}")),
+                // positioner 首开常报 "No monitor found for the window"（窗口还没映射
+                // 到任何显示器上）—— 退回手算锚点落位（与 classic 同款），别把菜单窗
+                // 留在上一轮的旧位置。
+                Err(error) => {
+                    startup_debug(&app, &format!("TrayCenter 摆放失败（退回锚点落位）: {error}"));
+                    place_tray_menu(&app, &window, height);
+                }
             }
         }
     } else {
@@ -14286,21 +14292,20 @@ mod tests {
 // `ContextMenu`=右键（实测坐标是**图标原点**而不是点击点：点 1777 收到 1744）。
 // 点击语义三端一致：左键=显示主窗口，右键（和中键）=弹自绘菜单窗（open_tray_menu）。
 //
-// **dbusmenu 按宿主分流**（2026-10-15 三轮定案，取代「全量导出」与「单项打开菜单」）：
-// 曾经把 build_menu_nodes 全量导出让宿主渲染 —— GNOME 的 Shell 弹窗**不滚动、不封顶**，
-// 几十行菜单顶出屏幕（超出屏幕/没滚轮/单选列表展不开三问一根因，用户实测）；
-// 后来退成一条「打开菜单」二阶段中转 —— 多一步点击，被用户否掉。
-// 现在的方案：
-// - **GNOME**（启动时经 X11 查 WM 名判定）：dbusmenu 导出**空根**。右键时扩展照常
-//   `menu.toggle()` 开宿主弹窗 —— 空壳没有内容可渲染；打开瞬间扩展会向根发
-//   `Event(0, "opened")`（dbusMenu.js _onMenuOpenStateChanged 实证）—— 抓住这个时机
-//   取光标、原位弹**自绘菜单窗**：右键一步直达，无二阶段条目，封顶/滚轮/单选窗内
-//   展开/点选不关全是自绘窗的既有能力。
-// - **Cinnamon/KDE**（以及查不到 WM 的兜底）：导出 build_menu_nodes **全量内容** ——
-//   这两家的宿主菜单（GtkMenu/QMenu）自带超长滚动，不会超屏；"opened" 事件忽略，
-//   "clicked" 照旧按快照派发动作。
-// 内容变化走 LayoutUpdated 信号 + AboutToShow 脏标记让宿主重新拉取（GNOME 空根永远
-// 不变，脏标记对它无感）。
+// **dbusmenu 按宿主分流**（2026-10-15 四轮定案）：
+// GNOME 的 Shell 弹窗**不滚动、不封顶、dbusmenu 子菜单渲染为空**（classic 的
+// libappindicator 与我们自研服务两套实现同样症状，总线层数据都完整 —— 宿主渲染
+// 这条路在 GNOME 上彻底没戏），所以 GNOME 的菜单面只能是**自绘窗**。抓手：
+// 宿主弹窗**打开瞬间**扩展必向根发 `Event(0, "opened")`（dbusMenu.js
+// _onMenuOpenStateChanged 实证）—— 但**空菜单连弹窗都开不了、opened 不来**
+// （12:29 实机实测），所以 dbusmenu 导出**一条「显示主窗口」**（非空弹窗必开必发
+// opened）：右键 → 弹窗瞬间我们取光标、原位弹自绘菜单窗（封顶/滚轮/单选窗内展开/
+// 点选不关），**一步直达、无二阶段点击**；那条「显示主窗口」只是兜底可点（万一
+// opened 不来，右键也不至于毫无反应）。弹出的空壳弹窗带着输入 grab，会吃掉自绘窗
+// 的第一次点击 —— 弹出后补一个**合成 Esc**（XTEST）把它关掉，grab 释放。
+// Cinnamon/KDE（以及查不到 WM 的兜底）：导出 build_menu_nodes **全量内容** ——
+// 这两家的宿主菜单（GtkMenu/QMenu）自带超长滚动、子菜单渲染正常；"opened" 忽略，
+// "clicked" 照旧按快照派发动作。内容变化走 LayoutUpdated + AboutToShow 脏标记。
 //
 // 本模块只在 **unified（全局统一）方式**下启动。
 // classic（各自方式）不走这里：托盘图标由 tauri 托管、菜单是原生菜单。
@@ -14664,6 +14669,36 @@ mod linux_sni {
         }
     }
 
+    /// 给 X 输入队列注入一次 Esc 按下+抬起（XTEST，合成事件等同真实键盘）。
+    ///
+    /// 用途：GNOME 上宿主弹窗（壳）开着时持有输入 grab，自绘菜单窗的第一次点击会被
+    /// 它吃掉；壳弹出后注入 Esc，Shell 的菜单 grab 收到 Esc 就收起菜单、释放 grab。
+    /// keycode 9 = evdev 布局的 Esc（Xorg 默认）。注入失败（无 XTEST/非 X11）静默
+    /// 放弃 —— 最坏情况只是壳多留一会儿、第一次点击被吃。
+    fn send_escape_key() {
+        let Ok(xlib) = x11_dl::xlib::Xlib::open() else {
+            return;
+        };
+        // x11-dl 的 xtest 绑定沿用 link 宏名，结构体叫 Xf86vmode（上游如此，非笔误）
+        let Ok(xtest) = x11_dl::xtest::Xf86vmode::open() else {
+            return;
+        };
+        unsafe {
+            let display = (xlib.XOpenDisplay)(std::ptr::null());
+            if display.is_null() {
+                return;
+            }
+            const KEY_ESC: u32 = 9;
+            let pressed = (xtest.XTestFakeKeyEvent)(display, KEY_ESC, 1, 0);
+            let released = (xtest.XTestFakeKeyEvent)(display, KEY_ESC, 0, 0);
+            (xlib.XSync)(display, 0);
+            (xlib.XCloseDisplay)(display);
+            if pressed == 0 || released == 0 {
+                // 注入失败没法在这条线程里留痕（拿不到 app 句柄），XSync 错误也无需处理
+            }
+        }
+    }
+
     /// 光标查不到时的兜底锚点：主显示器偏下的位置（大多数托盘在屏幕角落，
     /// 这里宁可退而求其次也别把菜单开出屏幕）。
     fn fallback_anchor(app: &AppHandle) -> (f64, f64) {
@@ -14770,10 +14805,12 @@ mod linux_sni {
         children: Vec<i32>,
     }
 
-    /// 按宿主取要导出的菜单模型：GNOME 空根（自绘窗才是菜单面），其余全量。
+    /// 按宿主取要导出的菜单模型。GNOME 只留一条「显示主窗口」：**非空菜单宿主弹窗
+    /// 才开得出来**（空菜单实测连弹窗都不开、opened 事件也不发），弹出瞬间 opened
+    /// 触发自绘窗一步直达；这条本身只是兜底可点。其余宿主全量导出。
     fn menu_nodes_for_host(state: &UiState) -> Vec<MenuNode> {
         if gnome_host() {
-            Vec::new()
+            vec![menu_item("show", "显示主窗口", true)]
         } else {
             build_menu_nodes(state)
         }
@@ -14974,6 +15011,13 @@ mod linux_sni {
                 if let Err(error) = app.run_on_main_thread(move || {
                     feed_positioner(&dispatch_app, x, y);
                     open_tray_menu(&dispatch_app, x, y);
+                    // 宿主弹窗（壳）开着时持有输入 grab，自绘窗的第一次点击会被它吃掉。
+                    // 稍候补一个合成 Esc（XTEST 注入，走 grab 通道）把壳收掉、grab 释放，
+                    // 之后自绘窗的点击一次到位。延迟留给壳完成弹出动画。
+                    std::thread::spawn(|| {
+                        std::thread::sleep(Duration::from_millis(150));
+                        send_escape_key();
+                    });
                 }) {
                     startup_debug(
                         &self.app,
