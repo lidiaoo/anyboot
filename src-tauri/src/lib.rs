@@ -15220,8 +15220,14 @@ mod linux_sni {
                                 ])
                             })
                             .collect();
-                        // 信号体：a(ia{sv})a(iias) —— 后半是「被移除的属性」，我们只有
-                        // 属性更新，恒空数组。
+                        // 信号体：a(ia{sv})a(ias) —— 后半是「被移除的属性」，我们只有
+                        // 属性更新，恒空数组。**第二个签名必须是 a(ias) 而不是 a(iias)**：
+                        // 规范/各家实现（Chromium `OpenArray("(ias)")`、libdbusmenu-qt、
+                        // Go systray）都是 (id, 属性名数组) 这个结构；Qt 的
+                        // QDBusConnection::connect 按**签名精确匹配**，签名不符的信号
+                        // 直接被丢掉（2026-10-15 真 KDE 客户端复现：a(iias) 时
+                        // ItemsPropertiesUpdated 发了没人收，勾选回显不刷新；
+                        // GNOME/Cinnamon 走 GDBus 按名字匹配，所以一直没暴露）。
                         let updated = MessageItem::Array(
                             MessageItemArray::new(
                                 updated,
@@ -15232,7 +15238,7 @@ mod linux_sni {
                         let removed = MessageItem::Array(
                             MessageItemArray::new(
                                 Vec::new(),
-                                Signature::new("a(iias)").expect("静态签名"),
+                                Signature::new("a(ias)").expect("静态签名"),
                             )
                             .expect("空数组构造不会失败"),
                         );
@@ -16555,8 +16561,9 @@ mod linux_sni {
             assert!(updates.is_empty());
         }
 
-        /// ItemsPropertiesUpdated 信号体的线格式必须能编码：`a(ia{sv})a(iias)`
-        /// （后半「被移除的属性」恒空数组）。
+        /// ItemsPropertiesUpdated 信号体的线格式必须能编码：`a(ia{sv})a(ias)`
+        /// （后半「被移除的属性」恒空数组；**必须是 a(ias)** —— Qt 宿主按签名精确
+        /// 匹配，写成 a(iias) 的信号会被静默丢弃，勾选回显不刷新）。
         #[test]
         fn menu_property_update_bodies_are_wire_encodable() {
             let updated = MessageItem::Array(
@@ -16571,10 +16578,10 @@ mod linux_sni {
             );
             assert_eq!(updated.signature().to_string(), "a(ia{sv})");
             let removed = MessageItem::Array(
-                MessageItemArray::new(Vec::new(), Signature::new("a(iias)").expect("静态签名"))
+                MessageItemArray::new(Vec::new(), Signature::new("a(ias)").expect("静态签名"))
                     .expect("空数组"),
             );
-            assert_eq!(removed.signature().to_string(), "a(iias)");
+            assert_eq!(removed.signature().to_string(), "a(ias)");
         }
     }
 }
