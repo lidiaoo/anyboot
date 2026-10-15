@@ -35,10 +35,7 @@ sha1 = "0.10"
 base64 = "0.22"
 # 首次运行生成 32 位十六进制 token
 getrandom = "0.3"
-# 2.3 而不是 2.4：positioner 2.4 把 tauri 拉到 2.12，连带 tray-icon 0.25/muda 0.20，
-# muda 0.20 的 gtk3 重构在 GNOME 宿主渲染下子菜单全空（classic 空子菜单回归，
-# 2026-10-15）。锁回 tauri 2.11 + tray-icon 0.24 + muda 0.19 的旧组合。
-tauri-plugin-positioner = { version = "2.3", features = ["tray-icon"] }
+tauri-plugin-positioner = { version = "2.4.0", features = ["tray-icon"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2"
