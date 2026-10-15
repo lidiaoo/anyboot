@@ -5222,6 +5222,31 @@ fn tray_menu_height(raw: Option<f64>) -> f64 {
     }
 }
 
+/// 菜单窗高度上限（逻辑像素）：锚点所在显示器**工作区**高减去上下各一个间隙。
+/// 工作区已扣掉任务栏/面板，所以这个上限保证窗口（连同上下的摆放余量）完整落在可视区内。
+/// 锚点还没记（窗口没开过）或显示器拿不到时回 None —— 不封顶，交给既有逻辑。
+fn tray_menu_max_height(app: &AppHandle) -> Option<f64> {
+    let (anchor_x, anchor_y) = with_tray_menu_runtime(app, |runtime| runtime.anchor)?;
+    let monitor = app
+        .monitor_from_point(anchor_x, anchor_y)
+        .ok()
+        .flatten()
+        .or_else(|| app.primary_monitor().ok().flatten())?;
+    let scale = monitor.scale_factor();
+    let work = monitor.work_area();
+    let margin = (TRAY_MENU_GAP * 2.0 * scale).round() as i32;
+    let height = (work.size.height as i32 - margin).max(0);
+    Some(height as f64 / scale)
+}
+
+/// 内容高度按上限截断（纯函数，便于单测）：上限缺位或非法就不截。
+fn clamp_tray_menu_height(height: f64, max: Option<f64>) -> f64 {
+    match max {
+        Some(max) if max.is_finite() && max > 0.0 => height.min(max),
+        _ => height,
+    }
+}
+
 /// 打开托盘菜单：记下锚点、把最新内容推给菜单窗（窗口不在就现建一个，建完前端会来拉）。
 ///
 /// `x` / `y` 是**托盘图标的原点**（物理像素）。
@@ -5384,6 +5409,10 @@ fn tray_menu_present(app: AppHandle, height: Option<f64>) -> Result<(), String> 
     };
     trace(&app, "tray-menu", &format!("前端报高 {height:?}"));
     let height = tray_menu_height(height);
+    // 封顶：内容再长也不能把窗口开得比工作区还高 —— 窗口 = 内容高时没有滚动可言，
+    // 超出的部分直接顶出屏幕。封顶后多出的内容由 `.menu` 自己的滚动条看
+    // （tray-menu.css 本来就是 height:100% + overflow-y:auto，滚轮直接可用）。
+    let height = clamp_tray_menu_height(height, tray_menu_max_height(&app));
     let needs_presenting = with_tray_menu_runtime(&app, |runtime| {
         // 已经按这个高度摆着、而且就在眼前 —— 不必再折腾一次（内容没变时的重复回调）
         if runtime.presented == Some(height) && window.is_visible().unwrap_or(false) {
@@ -14290,9 +14319,18 @@ mod linux_sni {
 
     /// dbusmenu 内容代次：内容每变一次 +1（GetLayout 回执与 LayoutUpdated 信号都用它）。
     static MENU_REVISION: AtomicU32 = AtomicU32::new(1);
-    /// 内容变脏标记：update_tray_menu 检测到指纹变化时置位，SNI 线程轮询到就发 LayoutUpdated。
-    /// （内容变化发生在主线程，连接在线程内部建不出去 —— 只能隔一个原子标记接力。）
-    static MENU_DIRTY: AtomicBool = AtomicBool::new(false);
+    /// 内容待宿主重拉：`menu_layout_changed` 置位，**只在 GetLayout 应答时清零**。
+    /// 初始 true —— 扩展客户端只有 AboutToShow 回 true（或收到 LayoutUpdated）才会
+    /// 发起第一次布局拉取，开机得先脏一回。
+    ///
+    /// 为什么不能"随手清"：AboutToShow 与 LayoutUpdated 是**两条并列的重拉促发路径**，
+    /// 读的是同一位 —— SNI 线程发信号时清了，AboutToShow 就可能漏报。各走各的，
+    /// 清零统一交给 GetLayout（宿主拿到新内容的那一刻才算"不脏"）。
+    /// 注意它不分条目：快照本来就是整树现建，全局一位足够。
+    static MENU_DIRTY: AtomicBool = AtomicBool::new(true);
+    /// 已广播过 LayoutUpdated 的代次：防重发（脏标记可能持续为 true，直到宿主来拉；
+    /// 代次没变就不必再广播一遍）。
+    static MENU_SIGNAL_REVISION: AtomicU32 = AtomicU32::new(0);
     /// 最近一次 GetLayout 建立的快照：dbusmenu 数字 id ↔ 动作 id 的对应表。
     /// 宿主先 GetLayout 拿树、再按数字 id 发 Event —— 两边都读这一份才对得上。
     static MENU_SNAPSHOT: Mutex<Option<MenuSnapshot>> = Mutex::new(None);
@@ -14390,18 +14428,22 @@ mod linux_sni {
                 Some(_) => {}
                 None => return Err("会话总线断了".to_string()),
             }
-            // 菜单内容变了（update_tray_menu 置脏）：广播 LayoutUpdated，
-            // 宿主收到会重新 GetLayout —— 菜单是全量动态内容，靠它保鲜。
-            if MENU_DIRTY.swap(false, Ordering::SeqCst) {
+            // 菜单内容变了（update_tray_menu 置脏）：广播 LayoutUpdated，宿主收到会
+            // 重新 GetLayout —— 菜单是全量动态内容，靠它保鲜。**这里不清脏标记**
+            // （AboutToShow 同读这一位，清零统一在 GetLayout）；靠「已广播代次」防重发。
+            if MENU_DIRTY.load(Ordering::SeqCst) {
                 let revision = MENU_REVISION.load(Ordering::SeqCst);
-                // 三个字符串都是静态字面量，构造失败只可能是代码写错 —— expect 就地崩
-                let path = DbusPath::new(ITEM_PATH).expect("静态路径合法");
-                let iface = dbus::strings::Interface::new(MENU_IFACE).expect("静态接口名合法");
-                let member = dbus::strings::Member::new("LayoutUpdated").expect("静态成员名合法");
-                let mut signal = Message::signal(&path, &iface, &member);
-                signal.append_items(&[MessageItem::UInt32(revision), MessageItem::Int32(0)]);
-                if let Err(()) = conn.send(signal) {
-                    startup_debug(&app, "LayoutUpdated 信号发送失败");
+                if MENU_SIGNAL_REVISION.swap(revision, Ordering::SeqCst) != revision {
+                    // 三个字符串都是静态字面量，构造失败只可能是代码写错 —— expect 就地崩
+                    let path = DbusPath::new(ITEM_PATH).expect("静态路径合法");
+                    let iface = dbus::strings::Interface::new(MENU_IFACE).expect("静态接口名合法");
+                    let member =
+                        dbus::strings::Member::new("LayoutUpdated").expect("静态成员名合法");
+                    let mut signal = Message::signal(&path, &iface, &member);
+                    signal.append_items(&[MessageItem::UInt32(revision), MessageItem::Int32(0)]);
+                    if let Err(()) = conn.send(signal) {
+                        startup_debug(&app, "LayoutUpdated 信号发送失败");
+                    }
                 }
             }
             if registered || next_try > Instant::now() {
@@ -14802,13 +14844,16 @@ mod linux_sni {
                     .collect();
                 menu_node(dbus_id, properties, children)
             }
-            let node = serialize(&snapshot, parent);
-            *MENU_SNAPSHOT
-                .lock()
-                .expect("dbusmenu snapshot mutex poisoned") = Some(snapshot);
-            let mut reply = msg.method_return();
-            reply.append_items(&[MessageItem::UInt32(revision), node]);
-            reply
+        let node = serialize(&snapshot, parent);
+        *MENU_SNAPSHOT
+            .lock()
+            .expect("dbusmenu snapshot mutex poisoned") = Some(snapshot);
+        // 宿主拿到了这份代次的全量内容 —— 不脏了（AboutToShow / LayoutUpdated 靠
+        // 这一位促发重拉，现在起回 false，直到下次内容真变）。
+        MENU_DIRTY.store(false, Ordering::SeqCst);
+        let mut reply = msg.method_return();
+        reply.append_items(&[MessageItem::UInt32(revision), node]);
+        reply
         }
 
         /// `GetGroupProperties(ids, propertyNames)` → `a(ia{sv})`：按快照逐个查。
@@ -14902,19 +14947,27 @@ mod linux_sni {
         reply
     }
 
-    /// `AboutToShow(id)` → `true`：内容动态变化，让宿主每次都重新拉一遍布局。
+    /// `AboutToShow(id)` → 是否需要宿主重拉布局：回当前脏标记。
+    ///
+    /// **不能恒 true**：扩展客户端每次展开子菜单都会先调 AboutToShow(子菜单id)，
+    /// 回 true 会促发整树重拉重建，刚展开的子菜单瞬间被销毁又重建 —— 表现就是
+    /// 「子菜单展不开」（GNOME 扩展 dbusMenu.js sendAboutToShow → _requestLayoutUpdate
+    /// 实锤，2026-10-15）。平时子菜单随便开；内容真变了走脏标记让宿主刷新。
     fn menu_about_to_show(msg: &Message) -> Message {
         let mut reply = msg.method_return();
-        reply.append_items(&[MessageItem::Bool(true)]);
+        reply.append_items(&[MessageItem::Bool(MENU_DIRTY.load(Ordering::SeqCst))]);
         reply
     }
 
-    /// `AboutToShowGroup(ids)` → `(b updateNeeded, ai idErrors)`。
+    /// `AboutToShowGroup(ids)` → `(b updateNeeded, ai idErrors)`：语义同上，全局一位。
     fn menu_about_to_show_group(msg: &Message) -> Message {
         let mut reply = msg.method_return();
         let empty_ids = MessageItemArray::new(Vec::new(), Signature::new("ai").expect("静态签名"))
             .expect("元素都是 i");
-        reply.append_items(&[MessageItem::Bool(true), MessageItem::Array(empty_ids)]);
+        reply.append_items(&[
+            MessageItem::Bool(MENU_DIRTY.load(Ordering::SeqCst)),
+            MessageItem::Array(empty_ids),
+        ]);
         reply
     }
 
@@ -17207,6 +17260,16 @@ mod core_tests {
         assert_eq!(tray_menu_height(Some(5.0)), TRAY_MENU_MIN_HEIGHT);
         assert_eq!(tray_menu_height(Some(400.0)), 400.0);
         assert_eq!(tray_menu_height(Some(9999.0)), TRAY_MENU_MAX_HEIGHT);
+    }
+
+    /// 工作区封顶：上限缺位/非法不截，超了就截到上限 —— 窗口绝不比工作区高。
+    #[test]
+    fn tray_menu_height_respects_the_workarea_cap() {
+        assert_eq!(clamp_tray_menu_height(400.0, None), 400.0);
+        assert_eq!(clamp_tray_menu_height(400.0, Some(0.0)), 400.0);
+        assert_eq!(clamp_tray_menu_height(400.0, Some(f64::NAN)), 400.0);
+        assert_eq!(clamp_tray_menu_height(400.0, Some(1000.0)), 400.0);
+        assert_eq!(clamp_tray_menu_height(1200.0, Some(900.0)), 900.0);
     }
 
     #[test]

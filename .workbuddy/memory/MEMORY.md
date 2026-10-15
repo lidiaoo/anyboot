@@ -23,7 +23,7 @@
 ## 托盘（双形态：classic 原生菜单 / unified 自绘+SNI）
 - **trayMenuStyle 二选一，启动时定接线，切换重启生效**（2026-10-15 用户定案）：
   - classic（默认）= 三端自绘之前那代：tauri 托盘 + **系统原生菜单**（6b7ef6c^ 恢复）——macOS 菜单挂托盘；Windows 摘菜单+锚点窗 popup_tray_menu 现建现弹（ui/menu-anchor.html，托盘不挂菜单右键仍发事件）；Linux libappindicator 宿主渲染（GNOME 右键也能弹）。绿勾位图 check_mark_*、菜单指纹 menu_signature/remember/invalidate（manage 里 Mutex<Option<String>>）、busy.menu_describe 都是 classic 专用，别再删。
-  - unified = Win/mac 右键直开自绘窗（tray-menu，positioner TrayCenter 落位）；Linux 自研 SNI（linux_sni，unified 专用）导出**build_menu_nodes 全量内容的动态 dbusmenu** @ /StatusNotifierMenu——右键直接出完整菜单（无「打开面板」中转），点击 run_on_main_thread 派发 handle_menu_event；AboutToShow(0)=true + 指纹变化发 LayoutUpdated（MENU_DIRTY/MENU_REVISION 原子接力）。
+  - unified = Win/mac 右键直开自绘窗（tray-menu，positioner TrayCenter 落位，**窗口高度封顶=锚点显示器工作区-2×GAP，超出靠 .menu 自滚**）；Linux 自研 SNI（linux_sni，unified 专用）导出**build_menu_nodes 全量内容的动态 dbusmenu** @ /StatusNotifierMenu——右键直接出完整菜单（无「打开面板」中转），点击 run_on_main_thread 派发 handle_menu_event。**AboutToShow=真脏标记（MENU_DIRTY：初始 true、变更置位、只在 GetLayout 清零）**——恒回 true 会把子菜单展开瞬间打回（扩展客户端开子菜单先调 AboutToShow(子id)，true→整树重拉重建=展不开，GNOME 实锤）；LayoutUpdated 防重发靠 MENU_SIGNAL_REVISION（已广播代次）。
 - keepsOpen 只在后端算，前端照字段办事；分发统一走 handle_menu_event。
 - positioner：插件 Tray* 位置只认原生托盘事件 → `on_tray_event(app,&TrayIconEvent)` 喂入口：Win/mac 在 on_tray_icon_event 喂真实 rect；Linux SNI 在 activate/dbusmenu click 喂 32×32 标称矩形。capabilities 加 positioner:default。
 - Linux SNI 定则：ItemIsMenu=false + Menu=object path（类型错 GNOME 静默丢属性）。GNOME 扩展点击只认 dbusmenu；Cinnamon/KDE 见有效 Menu 会自建宿主菜单消费右键（ContextMenu 回调不来了）。
