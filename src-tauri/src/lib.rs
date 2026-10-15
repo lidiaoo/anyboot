@@ -23,8 +23,11 @@ use tauri::{image::Image, AppHandle, Emitter, Manager};
 // 两形态统一走自研 linux_sni），这些类型只剩 Win/mac 用。
 #[cfg(all(desktop, not(target_os = "linux")))]
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-// classic 原生菜单的装配类型（三端自绘之前那套，见 native_menu_node / build_tray_menu）
+// classic 原生菜单的装配类型（三端自绘之前那套，见 build_tray_menu）；
+// Linux 已不走 tauri 托盘（classic 由 linux_sni 承载），这套类型只剩 Win/mac，
+// 但 MenuItem 等仍有 Linux 使用点，allow 而非 cfg 掉。
 #[cfg(desktop)]
+#[cfg_attr(target_os = "linux", allow(unused_imports))]
 use tauri::menu::{CheckMenuItem, IconMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 // autostart 插件只支持桌面三端（移动端没有「开机自启」概念）
 #[cfg(desktop)]
@@ -198,6 +201,7 @@ const MENU_ANCHOR_WINDOW_LABEL: &str = "menu-anchor";
 #[cfg(target_os = "windows")]
 const MENU_ANCHOR_SIZE: f64 = 8.0;
 /// 绿勾位图边长（classic 原生菜单的「当前项」标记，见 check_mark_image）
+#[cfg_attr(target_os = "linux", allow(dead_code))]
 const CHECK_MARK_SIZE: u32 = 16;
 /// 贴边守护线程的轮询周期：光标在不在窗口内、贴没贴边，都靠它扫
 const AUTO_HIDE_TICK_MS: u64 = 120;
@@ -2130,20 +2134,25 @@ fn create_tray_image() -> Image<'static> {
 // 选了的那一行带绿勾、其余行不带 —— 勾占的是菜单**独立的位图列**，
 // 不占用文字，系统的名字因此天然左对齐（以前用「● 」前缀，名字会被顶偏一格）。
 
-/// 绿勾位图（classic 原生菜单的列表类条目用，见 native_menu_node）。
+/// 绿勾位图（classic 原生菜单的列表类条目用）。
 ///
 /// 尺寸固定 16×16：muda 在 Windows 上就是把图标按 16×16 画进位图列的。
+/// Linux 已不走 tauri 托盘（classic 也由 linux_sni 承载），只剩 Win/mac 用；
+/// 单测仍跑，故 allow 而非 cfg 掉。
+#[cfg_attr(target_os = "linux", allow(dead_code))]
 fn check_mark_image() -> Image<'static> {
     use std::sync::OnceLock;
     static IMAGE: OnceLock<Image<'static>> = OnceLock::new();
     IMAGE.get_or_init(build_check_mark_image).clone()
 }
 
+#[cfg_attr(target_os = "linux", allow(dead_code))]
 fn build_check_mark_image() -> Image<'static> {
     Image::new_owned(check_mark_rgba(), CHECK_MARK_SIZE, CHECK_MARK_SIZE)
 }
 
 /// 绿勾的像素（纯函数，便于单测；tauri 的 Image 借不出来，所以拆开）。
+#[cfg_attr(target_os = "linux", allow(dead_code))]
 fn check_mark_rgba() -> Vec<u8> {
     /// 与主界面 --ok 同一个绿（#46c46e）
     const COLOR: [u8; 3] = [0x46, 0xc4, 0x6e];
@@ -2175,6 +2184,7 @@ fn check_mark_rgba() -> Vec<u8> {
 }
 
 /// 点到线段的距离（画对勾用，纯函数）。
+#[cfg_attr(target_os = "linux", allow(dead_code))]
 fn distance_to_segment(px: f32, py: f32, a: (f32, f32), b: (f32, f32)) -> f32 {
     let (ax, ay) = a;
     let (dx, dy) = (b.0 - ax, b.1 - ay);
@@ -8732,6 +8742,8 @@ fn build_menu_nodes(state: &UiState) -> Vec<MenuNode> {
 // 作为「全局统一」方式保留，两种形态按 trayMenuStyle 在启动时二选一。
 
 /// 菜单里的「小节标题」：灰色禁用项，纯视觉分区用。
+/// 只被手写 build_tray_menu（Win/mac）使用；单测与 Linux 编译下 allow。
+#[cfg_attr(target_os = "linux", allow(dead_code))]
 fn menu_section_header(
     app: &AppHandle,
     id: &str,
@@ -8745,7 +8757,8 @@ fn menu_section_header(
 /// 只负责构建菜单，不碰托盘图标。setup 的第一帧和后续重建走同一份实现。
 /// 注意：不要换回「MenuNode 模型 → native_menu 转换层」——转换层在 GNOME
 /// 宿主渲染下子菜单展开为空（GRUB 启动项/固定显示器等），手写版没有这个问题。
-#[cfg(desktop)]
+/// Linux 已不走 tauri 托盘（classic 也由 linux_sni 承载），本函数只剩 Win/mac。
+#[cfg(all(desktop, not(target_os = "linux")))]
 fn build_tray_menu(app: &AppHandle, state: &UiState) -> tauri::Result<Menu<tauri::Wry>> {
     let busy = state.busy.affects_menu();
     let message = &state.status.message;
@@ -9373,26 +9386,39 @@ fn update_tray_menu(app: &AppHandle, state: &UiState, trigger: &str) -> tauri::R
         "tray",
         &format!("菜单内容已变 trigger={trigger} sig={signature}"),
     );
-    let Some(tray) = app.tray_by_id("main") else {
-        trace(app, "tray", "未找到托盘图标 main，菜单没有挂上");
-        return Ok(());
-    };
-    let tooltip = state
-        .status
-        .error
-        .clone()
-        .unwrap_or_else(|| format!("AnyBoot：{}", state.status.message));
-    // Windows 上菜单**不挂到托盘**：右键那一刻现建现弹（见 popup_tray_menu），
-    // 这里的指纹就只剩「别白刷一遍 tooltip」这一个用处。
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "linux")]
     {
-        tray.set_menu(Some(build_tray_menu(app, state)?))?;
-        trace(app, "tray", "菜单已重建并挂上托盘");
+        // Linux classic：菜单由 linux_sni 的 dbusmenu 承载（setup 不建 tauri 托盘，
+        // tray_by_id 恒 None —— 不在这里早退的话，内容变化永远到不了置脏广播，
+        // dbusmenu 会停在首次拉取的快照）。走到这里说明指纹已判定「变了」，
+        // 直接置脏 —— SNI 线程广播 LayoutUpdated，宿主重拉全量新内容。
+        linux_sni::menu_layout_changed(true);
+        return Ok(());
     }
-    #[cfg(target_os = "windows")]
-    trace(app, "tray", "菜单不挂托盘（Windows 右键时现建现弹）");
-    tray.set_tooltip(Some(tooltip))?;
-    Ok(())
+    // Linux classic 在上方 cfg 块已 return；以下只剩 Win/mac 的 tauri 托盘路径。
+    #[cfg(not(target_os = "linux"))]
+    {
+        let Some(tray) = app.tray_by_id("main") else {
+            trace(app, "tray", "未找到托盘图标 main，菜单没有挂上");
+            return Ok(());
+        };
+        let tooltip = state
+            .status
+            .error
+            .clone()
+            .unwrap_or_else(|| format!("AnyBoot：{}", state.status.message));
+        // Windows 上菜单**不挂到托盘**：右键那一刻现建现弹（见 popup_tray_menu），
+        // 这里的指纹就只剩「别白刷一遍 tooltip」这一个用处。
+        #[cfg(not(target_os = "windows"))]
+        {
+            tray.set_menu(Some(build_tray_menu(app, state)?))?;
+            trace(app, "tray", "菜单已重建并挂上托盘");
+        }
+        #[cfg(target_os = "windows")]
+        trace(app, "tray", "菜单不挂托盘（Windows 右键时现建现弹）");
+        tray.set_tooltip(Some(tooltip))?;
+        Ok(())
+    }
 }
 
 /// 指纹比对 + 记忆。返回「这次和上次比内容变了吗」。
