@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -32,11 +33,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -76,8 +80,9 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * 服务器模块（跳板机管理）：FinalShell 风格的服务器列表 + 模块内底部导航四页
- * （会话 / 终端 / 密钥 / 文件）。Jetpack Compose / Material 3 重写，业务逻辑平移。
+ * 服务器模块（跳板机管理）：FinalShell 风格的服务器列表 + 模块内底部导航五页
+ * （服务器 / 会话 / 密钥 / 传输 / 文件）。标题栏右侧的齿轮进「终端设置」。
+ * Jetpack Compose / Material 3 重写，业务逻辑平移。
  */
 class ServersActivity : ComponentActivity() {
 
@@ -90,6 +95,7 @@ class ServersActivity : ComponentActivity() {
     private val expanded = mutableStateListOf<Boolean>()
     private var search by mutableStateOf("")
     private var tick by mutableIntStateOf(0)   // 会话注册表变化时自增
+    private var transferTick by mutableIntStateOf(0)   // 传输任务有变时自增
 
     // 编辑/删除/生成弹窗
     private var editTarget by mutableStateOf<JumpServer?>(null)
@@ -130,7 +136,7 @@ class ServersActivity : ComponentActivity() {
         AppTheme {
             val palette = LocalPalette.current
             Column(Modifier.fillMaxSize().background(palette.base)) {
-                // 标题栏
+                // 标题栏（齿轮 = 终端设置，就摆在 ＋ 左边；图标无文字）
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
@@ -145,25 +151,38 @@ class ServersActivity : ComponentActivity() {
                         color = palette.fg,
                         modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
                     )
+                    Icon(
+                        Icons.Filled.Settings,
+                        contentDescription = "终端设置",
+                        tint = palette.fgDim,
+                        modifier = Modifier
+                            .size(20.dp)
+                            .clickable {
+                                startActivity(
+                                    Intent(this@ServersActivity, TerminalSettingsActivity::class.java)
+                                )
+                            },
+                    )
                     BarIcon("＋", "添加服务器") {
                         editTarget = null
                         editOpen = true
                     }
                 }
 
-                // 四页（切页重组，无需叠放显隐）
+                // 五页：服务器 / 会话 / 密钥 / 传输 / 文件（切页重组，无需叠放显隐）
                 Box(Modifier.fillMaxWidth().weight(1f)) {
                     when (currentPage) {
-                        0 -> SessionsPage()
-                        1 -> ServersPage()
+                        0 -> ServersPage()
+                        1 -> SessionsPage()
                         2 -> KeysPage()
+                        3 -> TransfersPage()
                         else -> FilesPage()
                     }
                 }
 
-                // 底部导航：会话 / 终端 / 密钥 / 文件
+                // 底部导航：顺序与上面的下标一一对应
                 NavigationBar(containerColor = palette.card, tonalElevation = 0.dp) {
-                    listOf("会话", "终端", "密钥", "文件").forEachIndexed { index, label ->
+                    listOf("服务器", "会话", "密钥", "传输", "文件").forEachIndexed { index, label ->
                         NavigationBarItem(
                             selected = currentPage == index,
                             onClick = { currentPage = index },
@@ -193,11 +212,16 @@ class ServersActivity : ComponentActivity() {
             ConfirmDialog(bus)
         }
 
-        // 会话注册表变化 → 会话页刷新
+        // 会话注册表变化 → 会话页刷新；传输任务变化 → 传输页/文件页刷新
         DisposableEffect(Unit) {
             val listener = { tick += 1 }
             SessionEvents.register(listener)
-            onDispose { SessionEvents.unregister(listener) }
+            val transferListener = { transferTick += 1 }
+            TransferEvents.register(transferListener)
+            onDispose {
+                SessionEvents.unregister(listener)
+                TransferEvents.unregister(transferListener)
+            }
         }
     }
 
@@ -212,7 +236,7 @@ class ServersActivity : ComponentActivity() {
             SectionTitle("进行中")
             val live = TerminalRegistry.all()
             if (live.isEmpty()) {
-                EmptyHint("没有进行中的会话。到「终端」页点「▶ 打开终端」开始。")
+                EmptyHint("没有进行中的会话。到「服务器」页点「▶ 打开终端」开始。")
             }
             for (session in live) {
                 Row(
@@ -433,7 +457,7 @@ class ServersActivity : ComponentActivity() {
                 if (server.isSsh()) {
                     ChipButton("▶ 打开终端") { openTerminal(server) }
                     ChipButton("浏览文件") {
-                        currentPage = 3
+                        currentPage = 4
                         sftpServerId = server.id
                         sftpPath = "/"
                         sftpEntries = emptyList()
@@ -1022,7 +1046,7 @@ class ServersActivity : ComponentActivity() {
 
             val sshServers = jumps.filter { it.isSsh() }
             if (sshServers.isEmpty()) {
-                EmptyHint("没有 SSH 服务器 —— 先到「终端」页添加。Telnet 不支持文件传输。")
+                EmptyHint("没有 SSH 服务器 —— 先到「服务器」页添加。Telnet 不支持文件传输。")
                 return@Column
             }
             var serverOpen by remember { mutableStateOf(false) }
@@ -1089,7 +1113,7 @@ class ServersActivity : ComponentActivity() {
             }
 
             if (!SshSessionManager.shared().isUp(sftpServerId)) {
-                SecondaryText("　（先在「终端」页连上这台服务器，或点行内「▶ 终端」——"
+                SecondaryText("　（先在「服务器」页连上这台服务器，或点行内「▶ 终端」——"
                         + " SFTP 复用同一条 SSH 会话）", Modifier.padding(horizontal = 12.dp))
             }
 
@@ -1120,7 +1144,7 @@ class ServersActivity : ComponentActivity() {
                                         sftpError = ""
                                         sftpLoadedKey = ""
                                     } else {
-                                        downloadSftpFile(entryName, sizeText.toLong())
+                                        startDownload(entryName)
                                     }
                                 }
                                 .padding(start = 12.dp, top = 12.dp, end = 8.dp, bottom = 12.dp),
@@ -1142,6 +1166,22 @@ class ServersActivity : ComponentActivity() {
                 if (sftpLoadedKey != "$sftpServerId|$sftpPath" && !sftpBusy
                     && sftpServerId.isNotEmpty() && sshServers.isNotEmpty()) {
                     loadSftpListing()
+                }
+            }
+
+            // 上传完成 → 当前目录内容变了，重拉一次。
+            // 只在「刚收尾的那条上传」正好落在当前目录时才清 key，否则会来回空拉。
+            var lastSeenUpload by remember { mutableStateOf("") }
+            LaunchedEffect(transferTick) {
+                val done = TransferManager.newestFinishedUpload() ?: return@LaunchedEffect
+                if (done.id == lastSeenUpload) return@LaunchedEffect
+                lastSeenUpload = done.id
+                if (done.state == TransferManager.STATE_DONE
+                    && done.serverId == sftpServerId && done.remoteDir == sftpPath
+                ) {
+                    sftpEntries = emptyList()
+                    sftpError = ""
+                    sftpLoadedKey = ""
                 }
             }
         }
@@ -1200,77 +1240,181 @@ class ServersActivity : ComponentActivity() {
         }, "anyboot-sftp-ls").start()
     }
 
-    private fun downloadSftpFile(name: String, size: Long) {
-        toast("开始下载 $name（${humanSize(size)}）")
-        val serverId = sftpServerId
-        val path = sftpPath
-        val appContext = applicationContext
-        Thread({
-            try {
-                val server = JumpStore.findJump(JumpStore.loadJumps(appContext), serverId)
-                val session: Session = SshSessionManager.shared().ensureSession(
-                    appContext, server
-                ) { title, message -> bus.confirm(title, message) }
-                val sftp = session.openChannel("sftp") as ChannelSftp
-                sftp.connect(15000)
-                try {
-                    var dir = getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS)
-                    if (dir == null) dir = filesDir
-                    dir.mkdirs()
-                    val target = java.io.File(dir, name)
-                    target.outputStream().use { out ->
-                        sftp.get(path + (if (path.endsWith("/")) "" else "/") + name, out)
-                    }
-                    val where = target.absolutePath
-                    runOnUiThread { toast("已下载到：$where", long = true) }
-                } finally {
-                    sftp.disconnect()
-                }
-            } catch (error: Exception) {
-                val message = error.message ?: "下载失败"
-                runOnUiThread { toast("下载失败：$message", long = true) }
-            }
-        }, "anyboot-sftp-get").start()
+    /**
+     * 下载：交给传输中心（进度、取消、结果都在「传输」页；这里只负责发起）。
+     * 传完落盘的位置由 TransferManager 决定（App 的下载目录），完成提示里给绝对路径。
+     */
+    private fun startDownload(fileName: String) {
+        val server = JumpStore.findJump(JumpStore.loadJumps(this), sftpServerId)
+        if (server == null) {
+            toast("服务器不存在（可能已删除）")
+            return
+        }
+        TransferManager.startDownload(applicationContext, server, sftpPath, fileName) { title, message ->
+            bus.confirm(title, message)
+        }
+        toast("已加入传输：$fileName（进度见「传输」页）")
     }
 
+    /** 上传：同上，交给传输中心 */
     private fun uploadPicked(uri: Uri) {
-        if (sftpServerId.isEmpty()) {
+        val server = JumpStore.findJump(JumpStore.loadJumps(this), sftpServerId)
+        if (server == null) {
             toast("先选择服务器")
             return
         }
         var name = queryFileName(uri)
         if (name.isNullOrEmpty()) name = "upload-" + System.currentTimeMillis()
-        val fileName = name
-        toast("开始上传 $fileName")
-        val serverId = sftpServerId
-        val path = sftpPath
-        val appContext = applicationContext
-        Thread({
-            try {
-                contentResolver.openInputStream(uri)?.use { input ->
-                    val server = JumpStore.findJump(JumpStore.loadJumps(appContext), serverId)
-                    val session: Session = SshSessionManager.shared().ensureSession(
-                        appContext, server
-                    ) { title, message -> bus.confirm(title, message) }
-                    val sftp = session.openChannel("sftp") as ChannelSftp
-                    sftp.connect(15000)
-                    try {
-                        sftp.put(input, path + (if (path.endsWith("/")) "" else "/") + fileName)
-                    } finally {
-                        sftp.disconnect()
-                    }
-                }
-                runOnUiThread {
-                    toast("上传完成：$fileName")
-                    sftpEntries = emptyList()
-                    sftpError = ""
-                    sftpLoadedKey = ""
-                }
-            } catch (error: Exception) {
-                val message = error.message ?: "上传失败"
-                runOnUiThread { toast("上传失败：$message", long = true) }
+        TransferManager.startUpload(applicationContext, server, sftpPath, uri, name) { title, message ->
+            bus.confirm(title, message)
+        }
+        toast("已加入传输：$name（进度见「传输」页）")
+    }
+
+    // ------------------------------------------------------------------
+    // 传输页（上传 / 下载任务；发起在「文件」页）
+    // ------------------------------------------------------------------
+
+    @Composable
+    private fun TransfersPage() {
+        transferTick // 订阅任务变化
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+            val running = TransferManager.active()
+            SectionTitle(if (running.isEmpty()) "进行中" else "进行中（${running.size}）")
+            if (running.isEmpty()) {
+                EmptyHint(
+                    "没有正在传输的文件。到「文件」页点「上传」，或点一个远端文件下载 —— "
+                            + "任务都会出现在这里，可以看进度、取消。"
+                )
             }
-        }, "anyboot-sftp-put").start()
+            for (task in running) {
+                TransferRow(task)
+            }
+
+            SectionTitle("已完成 / 失败")
+            val finished = TransferManager.finished()
+            if (finished.isEmpty()) {
+                EmptyHint("还没有传输记录。")
+            }
+            for (task in finished) {
+                TransferRow(task)
+            }
+            if (finished.isNotEmpty()) {
+                TextButton(
+                    onClick = { TransferManager.clearFinished() },
+                    modifier = Modifier.align(Alignment.CenterHorizontally),
+                ) { Text("清空记录") }
+            }
+            Spacer(Modifier.height(12.dp))
+        }
+    }
+
+    @Composable
+    private fun TransferRow(task: TransferManager.Task) {
+        val palette = LocalPalette.current
+        val uploading = task.direction == TransferManager.DIR_UPLOAD
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(start = 12.dp, top = 10.dp, end = 8.dp, bottom = 10.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    if (uploading) "↑" else "↓",
+                    fontSize = 16.sp,
+                    color = if (task.isRunning()) palette.accent else palette.fgDim,
+                )
+                Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
+                    PrimaryText(task.name)
+                    SecondaryText(
+                        (if (uploading) "上传到 " else "下载自 ")
+                                + task.serverName + " · " + task.remoteDir
+                    )
+                }
+                if (task.isRunning()) {
+                    ChipButton("取消") { TransferManager.cancel(task.id) }
+                } else {
+                    ChipButton("重试") { retryTransfer(task) }
+                }
+            }
+            if (task.isRunning()) {
+                Spacer(Modifier.height(8.dp))
+                TransferProgressBar(task.fraction(), task.total <= 0)
+                Spacer(Modifier.height(4.dp))
+                SecondaryText(progressText(task))
+            } else {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    task.message,
+                    fontSize = 12.sp,
+                    color = when (task.state) {
+                        TransferManager.STATE_DONE -> palette.ok
+                        TransferManager.STATE_FAILED -> palette.bad
+                        else -> palette.fgDim
+                    },
+                    modifier = Modifier.padding(start = 24.dp),
+                )
+            }
+        }
+    }
+
+    private fun retryTransfer(task: TransferManager.Task) {
+        val reason = TransferManager.retry(this, task) { title, message ->
+            bus.confirm(title, message)
+        }
+        if (reason == null) {
+            toast("已重新加入传输：${task.name}（进度见上面「进行中」）")
+        } else {
+            toast(reason, long = true)
+        }
+    }
+
+    private fun progressText(task: TransferManager.Task): String {
+        if (task.total <= 0) {
+            // 总量未知（有的 provider 不给长度）：只报已传多少 + 速度，不假装有百分比
+            return "已传 ${TransferManager.humanBytes(task.transferred)} · ${speedText(task)}"
+        }
+        val done = TransferManager.humanBytes(task.transferred)
+        val total = TransferManager.humanBytes(task.total)
+        return "$done / $total · ${speedText(task)}"
+    }
+
+    private fun speedText(task: TransferManager.Task): String {
+        val speed = task.bytesPerSecond()
+        if (speed <= 0) {
+            return "计算中 …"
+        }
+        return TransferManager.humanBytes(speed) + "/s"
+    }
+
+    /** 细进度条：手绘一条，省得跟 Material3 进度条的 API 形状较劲 */
+    @Composable
+    private fun TransferProgressBar(fraction: Float, indeterminate: Boolean) {
+        val palette = LocalPalette.current
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .padding(start = 24.dp)
+                .height(4.dp)
+                .clip(RoundedCornerShape(2.dp))
+                .background(palette.elevate),
+        ) {
+            if (indeterminate) {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .fillMaxHeight()
+                        .background(palette.accent.copy(alpha = 0.35f))
+                )
+            } else {
+                Box(
+                    Modifier
+                        .fillMaxWidth(fraction.coerceIn(0.01f, 1f))
+                        .fillMaxHeight()
+                        .background(palette.accent)
+                )
+            }
+        }
     }
 
     // ------------------------------------------------------------------

@@ -3,7 +3,7 @@
 **细则：** 当日日志 `2026-10-*.md`；桌面/打包/沙箱 → `MEMORY-detail-desktop.md`；托盘/dbusmenu → `MEMORY-detail-tray.md`；窗口/贴边 → `MEMORY-detail-windowing.md`。
 
 ## git
-- **commit 由我做，push 由用户在 IDE 做**（本机无 GitHub 凭据）。只提交本轮相关文件——`src-tauri/src/hub*.rs`、`ui/hub.html`、`docs/client-ui/`、`debx/` 属 PC 端 server-hub 另一条线，别混进移动端提交。
+- **commit 由我做，push 由用户在 IDE 做**（本机无 GitHub 凭据）。只提交本轮相关文件 —— `src-tauri/src/hub*.rs`、`ui/hub.html`、`docs/client-ui/`、`debx/` 属 PC 端 server-hub 另一条线，别混进移动端提交。
 
 ## 桌面端（细则见 detail-desktop）
 - 前端改动**必须强制 codegen**（删 `out` + `touch build.rs` 重编）；核对解 `out/tauri-codegen-assets/*`；**二进制里搜中文用 `buf.includes(串,"utf8")`**。
@@ -25,11 +25,14 @@
 - 单实例 `anyboot.lock`（`File::try_lock`，守卫放 `setup` 最前）；tiny_http Windows `stop()` 必须自连接轮询。
 
 ## 移动端（mobile/）——当前主战场
-- Android 已迁 **Jetpack Compose**（业务 Java 类保留）。构建 env：`GRADLE_USER_HOME=~/.cache/ab-gradle`、`JAVA_HOME=~/.sdkm/links/java`、`ANDROID_HOME=~/Android/Sdk`、`ANDROID_USER_HOME=~/.android`、`HOME=/home/jianghh`；AGP 8.7.3 / Gradle 8.11.1 / android-34。**`ulimit -v` 4G 硬限** → 加 `_JAVA_OPTIONS="-Xmx768m -Xms64m"`。skill：`android-gradle-compose-build` / `android-apk-lite-build` / `android-compose-ui-debug`。
-- 驱动脚本 `~/.cache/ab-droid/drv.py`（`dump`/`rows`/`find`/`tap`/`tapxy`）。坑：dump 失败会留旧 `/sdcard/ui.xml`（先 rm，判据看 `dumped to`）；`tap` 子串会命中引用该符号的正文。模拟器 `emulator-5554` 1080x2400 @420；界面归属以 `dumpsys window|grep mCurrentFocus` 为准（screencap 滞后）。
-- 终端页（WebView + xterm.js）**尺寸绝不能依赖百分比高度**（解析成 0 → 兜底 1 行 → 回车无输出）；唯一来源 JS `syncSize()`，会话绑定与 onResume 必须 `termSync()` 重报 PTY。诊断 tag **ABTERM**。
+- Android 已迁 **Jetpack Compose**（业务 Java 类保留）。构建 env：`GRADLE_USER_HOME=~/.cache/ab-gradle`、`JAVA_HOME=~/.sdkm/links/java`、`ANDROID_HOME=~/Android/Sdk`、`ANDROID_USER_HOME=~/.android`、`HOME=/home/jianghh`；AGP 8.7.3 / Gradle 8.11.1 / android-34。**`ulimit -v` 4G 硬限** → 加 `_JAVA_OPTIONS="-Xmx768m -Xms64m -XX:MaxMetaspaceSize=512m"`。skill：`android-gradle-compose-build` / `android-apk-lite-build` / `android-compose-ui-debug`。
+- 驱动脚本 `~/.cache/ab-droid/drv.py`（`dump`/`rows`/`find`/`tap`/`tapxy`）。坑：dump 失败会留旧 `/sdcard/ui.xml`（先 rm，判据看 `dumped to`）；`tap` 子串会命中引用该符号的正文（底部导航一律 `tapxy`，1080 宽五格中心 x=100/320/540/760/980, y=2243）；dump 连续调会饿死 UI（进度数字看着不动）；dump 看不到 `content-desc`（图标）→ 截图核。模拟器 `emulator-5554` 1080x2400 @420；界面归属以 `dumpsys window|grep mCurrentFocus` 为准（screencap 滞后）。
+- **`ServersActivity` 是 `exported=false`，`am start -n` 必抛 SecurityException** → `monkey -p com.anyboot.remote -c android.intent.category.LAUNCHER 1` 再走抽屉（☰ → 🖧 服务器）。
+- 服务器模块结构：标题栏（齿轮=终端设置 / ＋=添加）+ 五页底部导航 **服务器 / 会话 / 密钥 / 传输 / 文件**（0 起下标，默认页 0）。
+- **传输中心 `TransferManager.java`**（静态任务表 + 单槽 Observer，`Common.kt` 的 `TransferEvents` 转主线程）：跑在共享会话的独立 sftp 通道上。**取消依据：jsch 0.2.20 `SftpProgressMonitor.count(long)` 收到的是本块增量（不是累计），返回 false 就地把循环 break，不抛异常、不用断会话**（`javap -c` 核过）——代价是留半截文件，尽力清理。Java 侧不能调 Kotlin 顶层函数（`humanSize`）→ 自备 `humanBytes`。
+- 终端页（WebView + xterm.js）**尺寸绝不能依赖百分比高度**（解析成 0 → 兜底 1 行 → 回车无输出）；唯一来源 JS `syncSize()`，会话绑定与 onResume 必须 `termSync()` 重报 PTY。诊断 tag **ABTERM**（onCreate 一行打全 dark/fontSize/keyBar/autoKeyboard，核对设置是否吃进去最快）。终端偏好键：`terminal_font_size`(14,8~28) / `terminal_auto_keyboard`(false) / `terminal_key_bar`(true)，改完 `onResume` 走 `applyStoredSettings()` 热套用。
 - **iOS PTY 尺寸是坏的**（`ShellHandle.resize()` 空实现 → 恒 80x24）；**本机无 swift 工具链，改 iOS 原生一律无法编译验证**。共享页 `terminal/index.html` 两端逐字一致。
 - **KeyVault**：`generateKey()` 对已存在 alias 是**覆盖**不是复用 → 必须 `getEntry(alias,null)` 先查；否则每调一次 encrypt/decrypt 就换钥匙、密文当场作废（密码 / 私钥 PEM / 口令共用一把）。历史密文救不回，用户需重输一次。
 - **Ed25519 本机生成不了、当前不能修**：jsch 0.2.20 无 EdDSA 落盘 API，缺 BC 类加载即炸；但加 BC 或升 jsch ≥0.2.27 **会改变主机密钥协商**，而 TOFU 是**按服务器记一条指纹** → 老装机全部 `reject HostKey`。故 `generateKey` 前置拦截给可读提示；要真支持须先改 TOFU。
-- **Compose**：窄屏行内长文本 Row 溢出时末尾 Text 压成 0 宽逐字换行（行高 48dp → 300dp+）→ **只给较长的那条**加 `Modifier.weight(1f, fill = false)`，放不下就拆行。**含输入框的 AlertDialog 必须 `imePadding()` + `DialogProperties(decorFitsSystemWindows=false)`**（dump 不含 IME，坐标须截图交叉验证）。
+- **Compose**：窄屏行内长文本 Row 溢出时末尾 Text 压成 0 宽逐字换行（行高 48dp → 300dp+）→ **只给较长的那条**加 `Modifier.weight(1f, fill = false)`，放不下就拆行。**含输入框的 AlertDialog 必须 `imePadding()` + `DialogProperties(decorFitsSystemWindows=false)`**（dump 不含 IME，坐标须截图交叉验证）。**新 Activity 取色必须包在 `AppTheme{}` 里** —— `LocalPalette` 是 `staticCompositionLocalOf`，默认值 `paletteOf(Application())` 没有 base context，在外面读 `LocalPalette.current` 直接 NPE。Kotlin `return` 的续行若以 `+` 开头会被当一元 `unaryPlus` → 编译失败，用字符串模板。
 - 主题：Compose `Theme.kt`/`Common.kt`；PC 设计稿 `docs/client-ui/*.html`。待办：iOS 同套 token 重构；PC server-hub 独立窗口。

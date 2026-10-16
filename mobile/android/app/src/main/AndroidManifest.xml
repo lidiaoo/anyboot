@@ -24,9 +24,15 @@
             </intent-filter>
         </activity>
 
-        <!-- 服务器模块（跳板机管理 + 底部导航：会话/终端/密钥/文件） -->
+        <!-- 服务器模块（跳板机管理 + 底部导航：服务器/会话/密钥/传输/文件） -->
         <activity
             android:name=".ServersActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
+            android:exported="false" />
+
+        <!-- 终端设置（服务器模块标题栏齿轮图标 → 独立界面） -->
+        <activity
+            android:name=".TerminalSettingsActivity"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
             android:exported="false" />
 

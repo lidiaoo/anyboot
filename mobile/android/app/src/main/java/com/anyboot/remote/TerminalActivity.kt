@@ -85,8 +85,15 @@ class TerminalActivity : ComponentActivity() {
     private var tick by mutableIntStateOf(0)   // 标签集合变化时自增
     private var statusMessage by mutableStateOf<String?>("正在连接 …")
     private var ctrlArmed by mutableStateOf(false)
-    private var fontSize by mutableIntStateOf(14)
+
+    // 以下四项都是「终端设置」页里的偏好：初值先给默认，onCreate 里再从 prefs 读（属性初始化
+    // 阶段 Activity 还没 attach 上 base context，那时取 prefs 会炸）
+    private var fontSize by mutableIntStateOf(JumpStore.TERMINAL_FONT_DEFAULT)
     private var dark by mutableStateOf(true)
+    private var showKeyBar by mutableStateOf(true)
+    private var autoKeyboard by mutableStateOf(false)
+    private var keyboardAutoShown = false
+
     private var killTarget by mutableStateOf<TerminalSession?>(null)
     private var manualPassword by mutableStateOf<ManualPwdRequest?>(null)
 
@@ -105,15 +112,37 @@ class TerminalActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         Ui.applySystemBars(this)
         dark = JumpStore.terminalDark(this)
+        fontSize = JumpStore.terminalFontSize(this)
+        showKeyBar = JumpStore.terminalKeyBar(this)
+        autoKeyboard = JumpStore.terminalAutoKeyboard(this)
         val jumpId = intent.getStringExtra("jumpId")
         if (jumpId.isNullOrEmpty()) {
             finish()
             return
         }
         currentId = jumpId
-        tlog("onCreate jumpId=$jumpId")
+        tlog("onCreate jumpId=$jumpId dark=$dark fontSize=$fontSize keyBar=$showKeyBar autoKeyboard=$autoKeyboard")
         setContent { Root() }
         ensureSession(jumpId, false)
+    }
+
+    /**
+     * 与「终端设置」页对齐：在那边改完返回本页时，这里把差异补到当前会话上（不用重新开会话）。
+     * 顶栏的 🌓 / A- / A+ 也会即时落盘，所以平时这里是空转。
+     */
+    private fun applyStoredSettings() {
+        val storedDark = JumpStore.terminalDark(this)
+        val storedFont = JumpStore.terminalFontSize(this)
+        showKeyBar = JumpStore.terminalKeyBar(this)
+        autoKeyboard = JumpStore.terminalAutoKeyboard(this)
+        if (storedDark != dark) {
+            dark = storedDark
+            eval("termSetTheme('" + (if (dark) "dark" else "light") + "')")
+        }
+        if (storedFont != fontSize) {
+            fontSize = storedFont
+            eval("termSetFont($fontSize)")
+        }
     }
 
     // ------------------------------------------------------------------
@@ -308,11 +337,14 @@ class TerminalActivity : ComponentActivity() {
                         eval("termSetTheme('" + (if (dark) "dark" else "light") + "')")
                     }
                     BarIcon("A-", "缩小字号") {
-                        fontSize = (fontSize - 1).coerceAtLeast(8)
+                        fontSize = (fontSize - 1).coerceAtLeast(JumpStore.TERMINAL_FONT_MIN)
+                        // 落盘：与「终端设置」页共用一份偏好，返回设置页时能对上
+                        JumpStore.setTerminalFontSize(this@TerminalActivity, fontSize)
                         eval("termSetFont($fontSize)")
                     }
                     BarIcon("A+", "放大字号") {
-                        fontSize = (fontSize + 1).coerceAtMost(28)
+                        fontSize = (fontSize + 1).coerceAtMost(JumpStore.TERMINAL_FONT_MAX)
+                        JumpStore.setTerminalFontSize(this@TerminalActivity, fontSize)
                         eval("termSetFont($fontSize)")
                     }
                     BarIcon("⌨", "弹出/收起键盘") { toggleKeyboard() }
@@ -396,6 +428,14 @@ class TerminalActivity : ComponentActivity() {
                                         while (pendingFeeds.isNotEmpty()) {
                                             eval("termFeed('" + pendingFeeds.removeFirst() + "')")
                                         }
+                                        // 设置里勾了「进入终端自动弹出键盘」：稍等一下再弹，
+                                        // 让 WebView 先拿到焦点（否则 IME 会挂到一个没焦点的窗口上）
+                                        if (autoKeyboard && !keyboardAutoShown) {
+                                            keyboardAutoShown = true
+                                            android.os.Handler(mainLooper).postDelayed(
+                                                { toggleKeyboard() }, 400L
+                                            )
+                                        }
                                         // 几何追踪：容器尺寸是否最终长起来（1 行高问题的取证；VERBOSE 打开时才有）
                                         if (VERBOSE) {
                                             val handler = android.os.Handler(mainLooper)
@@ -452,8 +492,10 @@ class TerminalActivity : ComponentActivity() {
                     }
                 }
 
-                // 按键栏 + Ctrl 字母行
-                KeyBar()
+                // 按键栏 + Ctrl 字母行（快捷键栏可以在「终端设置」里关掉）
+                if (showKeyBar) {
+                    KeyBar()
+                }
                 if (ctrlArmed) LettersRow()
             }
 
@@ -669,6 +711,8 @@ class TerminalActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         terminalView?.onResume()
+        // 可能刚从「终端设置」页回来：把改过的偏好补到当前会话上
+        applyStoredSettings()
         val session = TerminalRegistry.get(currentId)
         tlog("onResume currentId=$currentId registry=${TerminalRegistry.all().size} session=${session != null} current=${current != null}")
         when {

@@ -21,6 +21,9 @@ final class JumpStore {
     private static final String KEY_KEYS = "ssh_keys";
     private static final String KEY_HISTORY = "session_history";
     private static final String KEY_TERMINAL_DARK = "terminal_dark";
+    private static final String KEY_TERMINAL_FONT = "terminal_font_size";
+    private static final String KEY_TERMINAL_AUTO_KEYBOARD = "terminal_auto_keyboard";
+    private static final String KEY_TERMINAL_KEY_BAR = "terminal_key_bar";
     private static final String KEY_GITHUB_CACHE = "github_cache";
     private static final String KEY_TRUSTED_HOSTS = "trusted_hosts";
 
@@ -232,8 +235,13 @@ final class JumpStore {
     }
 
     // ------------------------------------------------------------------
-    // 终端主题 / GitHub 缓存 / TOFU 指纹
+    // 终端偏好（「终端设置」页 + 终端页顶栏的 🌓 / A- / A+ 共用同一份）
     // ------------------------------------------------------------------
+
+    /** 终端字号范围与默认值（设置页与终端页都从这里取，避免两处各写一份） */
+    static final int TERMINAL_FONT_DEFAULT = 14;
+    static final int TERMINAL_FONT_MIN = 8;
+    static final int TERMINAL_FONT_MAX = 28;
 
     static boolean terminalDark(Context context) {
         return ServerStore.prefs(context).getBoolean(KEY_TERMINAL_DARK, true);
@@ -242,6 +250,42 @@ final class JumpStore {
     static void setTerminalDark(Context context, boolean dark) {
         ServerStore.prefs(context).edit().putBoolean(KEY_TERMINAL_DARK, dark).apply();
     }
+
+    static int terminalFontSize(Context context) {
+        int value = ServerStore.prefs(context).getInt(KEY_TERMINAL_FONT, TERMINAL_FONT_DEFAULT);
+        if (value < TERMINAL_FONT_MIN) {
+            return TERMINAL_FONT_MIN;
+        }
+        return value > TERMINAL_FONT_MAX ? TERMINAL_FONT_MAX : value;
+    }
+
+    static void setTerminalFontSize(Context context, int size) {
+        int value = size < TERMINAL_FONT_MIN ? TERMINAL_FONT_MIN
+                : (size > TERMINAL_FONT_MAX ? TERMINAL_FONT_MAX : size);
+        ServerStore.prefs(context).edit().putInt(KEY_TERMINAL_FONT, value).apply();
+    }
+
+    /** 进终端就自动把软键盘弹出来（默认关：老行为是先看到输出，要打字时自己点） */
+    static boolean terminalAutoKeyboard(Context context) {
+        return ServerStore.prefs(context).getBoolean(KEY_TERMINAL_AUTO_KEYBOARD, false);
+    }
+
+    static void setTerminalAutoKeyboard(Context context, boolean auto) {
+        ServerStore.prefs(context).edit().putBoolean(KEY_TERMINAL_AUTO_KEYBOARD, auto).apply();
+    }
+
+    /** 终端底部的快捷键栏（Esc/Tab/Ctrl/方向键/Enter），默认开 */
+    static boolean terminalKeyBar(Context context) {
+        return ServerStore.prefs(context).getBoolean(KEY_TERMINAL_KEY_BAR, true);
+    }
+
+    static void setTerminalKeyBar(Context context, boolean show) {
+        ServerStore.prefs(context).edit().putBoolean(KEY_TERMINAL_KEY_BAR, show).apply();
+    }
+
+    // ------------------------------------------------------------------
+    // GitHub 缓存 / TOFU 指纹
+    // ------------------------------------------------------------------
 
     static String githubCache(Context context) {
         return ServerStore.prefs(context).getString(KEY_GITHUB_CACHE, "");

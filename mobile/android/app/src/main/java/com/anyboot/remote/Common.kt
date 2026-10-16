@@ -76,6 +76,29 @@ object SessionEvents {
     }
 }
 
+/**
+ * TransferManager 的多播：传输进度是从传输线程回调上来的，这里统一跳到主线程再通知，
+ * 免得 Compose 状态在后台线程被写。
+ */
+object TransferEvents {
+    private val listeners = mutableListOf<() -> Unit>()
+    private val main = android.os.Handler(android.os.Looper.getMainLooper())
+
+    init {
+        TransferManager.setObserver {
+            main.post { listeners.toList().forEach { it() } }
+        }
+    }
+
+    fun register(listener: () -> Unit) {
+        listeners.add(listener)
+    }
+
+    fun unregister(listener: () -> Unit) {
+        listeners.remove(listener)
+    }
+}
+
 fun Context.toast(message: String, long: Boolean = false) {
     Toast.makeText(this, message, if (long) Toast.LENGTH_LONG else Toast.LENGTH_SHORT).show()
 }
