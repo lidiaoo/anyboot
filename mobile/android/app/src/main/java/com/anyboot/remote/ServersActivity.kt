@@ -896,6 +896,16 @@ class ServersActivity : ComponentActivity() {
     private fun generateKey(name: String, ed: Boolean) {
         Thread({
             try {
+                // ssh-ed25519 在本机生成不出来，两头都堵死，所以先拦下并说清楚：
+                //  · 没 Bouncy Castle 时 jsch 的 EdDSA 实现类加载不到 → NoClassDefFoundError；
+                //  · 补上 Bouncy Castle 则会改变主机密钥协商，让老装机已存的 TOFU 指纹对不上、
+                //    连接被硬拒（见 build.gradle.kts 的长注释），代价比收益大，暂不能加。
+                // 于是干脆别让它跑到一半才炸 —— 老版本是在导出私钥那步抛
+                // UnsupportedOperationException（message 为 null，界面只显示「未知错误」）。
+                if (ed) {
+                    throw Exception("当前版本还不能在本机生成 Ed25519 私钥。"
+                            + "请改选 RSA 4096，或用 ssh-keygen 生成后走「导入私钥文件」。")
+                }
                 val jsch = JSch()
                 val pair = if (ed) KeyPair.genKeyPair(jsch, KeyPair.ED25519)
                 else KeyPair.genKeyPair(jsch, KeyPair.RSA, 4096)
@@ -923,6 +933,8 @@ class ServersActivity : ComponentActivity() {
                     )
                 }
             } catch (error: Exception) {
+                // 以前只 toast 不落日志 —— 这类失败在 logcat 里完全看不见（message 为 null 时 toast 只显示「未知错误」）。
+                TerminalActivity.tlog("生成密钥失败: " + android.util.Log.getStackTraceString(error))
                 val message = error.message ?: "未知错误"
                 runOnUiThread { toast("生成失败：$message", long = true) }
             }
