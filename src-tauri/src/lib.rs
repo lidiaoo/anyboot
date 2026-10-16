@@ -69,6 +69,7 @@ const FAT_FILESYSTEMS: [&str; 6] = ["vfat", "fat", "fat12", "fat16", "fat32", "e
 mod cli;
 mod grub;
 mod hub;
+mod hub_term;
 mod http;
 
 /// Linux 侧数据收集脚本（把 grubenv 迁到 ESP），装到 `/etc/grub.d/09_anyboot`。
@@ -188,7 +189,7 @@ const NOTIFY_MARGIN: f64 = 24.0;
 const TRAY_MENU_WINDOW_LABEL: &str = "tray-menu";
 /// 远程管理（server-hub）独立窗口标签。主窗口零改动：hub 是一扇常规窗口，
 /// 托盘菜单「远程管理…」是它目前唯一的入口（点开常驻，再次点击只是唤起）。
-const HUB_WINDOW_LABEL: &str = "server-hub";
+pub(crate) const HUB_WINDOW_LABEL: &str = "server-hub";
 /// 菜单宽度（逻辑像素）：固定宽度，三端长得一样，也只有这样「一组里恰好一个 ◉」才好扫。
 const TRAY_MENU_WIDTH: f64 = 320.0;
 /// 前端报上来的高度夹到这个区间（太低会裁掉文字，太高会把托盘图标顶出屏幕）。
@@ -14634,7 +14635,9 @@ pub fn run() {
         // 自绘托盘菜单的锚点/已呈现高度/弹出时刻
         .manage(Mutex::<TrayMenuRuntime>::default())
         // 菜单内容指纹（classic 原生菜单「变了才重建」/ unified dbusmenu「变了才发信号」）
-        .manage(Mutex::<Option<String>>::default());
+        .manage(Mutex::<Option<String>>::default())
+        // server-hub 的终端会话表（PTY + 系统 ssh，窗口销毁时全收，见 hub_term::kill_all）
+        .manage(hub_term::HubTermState::default());
     // macOS 13+ 走系统登录项（见 login_item），这里的 LaunchAgent 方式仅作为
     // 旧版 macOS 以及 Windows / Linux 的实现。移动端没有「开机自启」，不注册。
     #[cfg(desktop)]
@@ -14654,6 +14657,14 @@ pub fn run() {
             // 这些 API（set_always_on_top / 位置处理）在移动目标上不存在。
             #[cfg(desktop)]
             {
+                // server-hub 窗口销毁（用户关窗 / 应用退出）：收掉它名下的所有终端
+                // 会话 —— PTY 子进程不越窗存活，不然 ssh 会变成无主的孤儿进程。
+                if window.label() == HUB_WINDOW_LABEL {
+                    if let tauri::WindowEvent::Destroyed = event {
+                        hub_term::kill_all(window.app_handle());
+                    }
+                    return;
+                }
                 // 自绘托盘菜单：失焦就收起、别想真关掉（下次打开还要用这扇窗）。
                 // 必须拦在下面主窗那条 `Focused` 分支**之前** —— 那条对任何窗口都 `return`。
                 if window.label() == TRAY_MENU_WINDOW_LABEL {
@@ -14975,6 +14986,10 @@ pub fn run() {
             hub::hub_save_server,
             hub::hub_delete_server,
             hub::hub_test_server,
+            hub_term::hub_term_open,
+            hub_term::hub_term_write,
+            hub_term::hub_term_resize,
+            hub_term::hub_term_close,
             get_ui_state,
             current_status,
             refresh,

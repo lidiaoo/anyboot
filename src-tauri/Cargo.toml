@@ -35,6 +35,8 @@ sha1 = "0.10"
 base64 = "0.22"
 # 首次运行生成 32 位十六进制 token
 getrandom = "0.3"
+# server-hub M3 终端：PTY 直跑系统 ssh（认证/known_hosts 全由 ssh 本尊在 PTY 里交互）
+portable-pty = "0.8"
 tauri-plugin-positioner = { version = "2.4.0", features = ["tray-icon"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]

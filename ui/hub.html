@@ -8,6 +8,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>AnyBoot 远程管理</title>
+<link rel="stylesheet" href="terminal/xterm.css">
+<script src="terminal/xterm.js"></script>
+<script src="terminal/addon-fit.js"></script>
 <style>
   :root {
     --base: #020617;
@@ -229,6 +232,40 @@
   .field-row .field { flex: 1; }
   .dialog .btn-row { justify-content: flex-end; margin-top: 18px; }
   .form-error { color: var(--bad); font-size: 12px; min-height: 16px; margin: 4px 0 0; }
+
+  /* —— 终端（M3） —— */
+  #termPanel { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+  #termPanel[hidden] { display: none !important; }
+  .term-tabs {
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 10px;
+    background: var(--card);
+    border-bottom: 1px solid var(--line);
+    overflow-x: auto; flex: none;
+  }
+  .term-tab {
+    display: flex; align-items: center; gap: 8px;
+    border: 1px solid var(--line); background: var(--elevate);
+    border-radius: 9px; padding: 4px 8px 4px 12px;
+    cursor: pointer; flex: none; max-width: 260px;
+  }
+  .term-tab.active { border-color: var(--ok); background: var(--ok-dim); }
+  .term-tab .t-name {
+    font-size: 12px; font-weight: 600; color: var(--fg);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .term-tab .t-host { font-size: 11px; color: var(--fg-faint); white-space: nowrap; }
+  .term-tab .t-close {
+    border: 0; background: transparent; color: var(--fg-faint);
+    width: 18px; height: 18px; border-radius: 5px; cursor: pointer;
+    display: grid; place-items: center; font-size: 12px; line-height: 1;
+  }
+  .term-tab .t-close:hover { background: var(--bad-dim); color: var(--bad); }
+  .term-area { flex: 1; min-height: 0; padding: 4px; background: var(--base); }
+  .term-area .term-host { position: absolute; visibility: hidden; }
+  .term-area > .term-page { width: 100%; height: 100%; display: none; }
+  .term-area > .term-page.active { display: block; }
+  .term-area, .term-area * { user-select: text; }
 </style>
 </head>
 <body>
@@ -260,14 +297,19 @@
         <div class="card-hint">
           <div class="big">🖥️</div>
           <h2>选择左侧服务器</h2>
-          <p class="muted">查看详情、测试连通性；终端连接在 M3 开通。</p>
+          <p class="muted">查看详情、测试连通性，或点「连接终端」直接进 SSH。</p>
         </div>
       </div>
+    </div>
+    <!-- 终端面板：多会话标签 + xterm -->
+    <div id="termPanel" hidden>
+      <div class="term-tabs" id="termTabs"></div>
+      <div class="term-area" id="termArea"></div>
     </div>
     <div class="foot">
       <span class="dot"></span>
       <span id="footText">未连接任何服务器</span>
-      <span class="ver">server-hub · M2</span>
+      <span class="ver">server-hub · M3</span>
     </div>
   </main>
 
@@ -431,14 +473,236 @@
       row.appendChild(proto);
       row.addEventListener('click', function () {
         selectedId = s.id;
+        activeTermId = null;   // 点列表 = 回到详情视图；终端标签还在，点标签回去
         render();
       });
       list.appendChild(row);
     }
     document.getElementById('sideFoot').textContent =
       servers.length === 0 ? '服务器档案存在本机配置目录' : servers.length + ' 台服务器';
-    renderDetail();
+    renderMain();
   }
+
+  // ============ 终端（M3） ============
+  const HAS_XTERM = typeof window.Terminal !== 'undefined' && typeof window.FitAddon !== 'undefined';
+  const terms = new Map();      // id -> {id, meta, term, fitAddon, page}
+  let activeTermId = null;
+
+  const TERM_THEMES = {
+    dark: {
+      background: '#020617', foreground: '#e2e8f0',
+      cursor: '#e2e8f0', cursorAccent: '#020617',
+      selectionBackground: '#334155'
+    },
+    light: {
+      background: '#ffffff', foreground: '#0f172a',
+      cursor: '#0f172a', cursorAccent: '#ffffff',
+      selectionBackground: '#bfd7fe'
+    }
+  };
+
+  function bytesToB64(bytes) {
+    let binary = '';
+    const chunk = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunk) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+    }
+    return btoa(binary);
+  }
+  function b64ToBytes(b64) {
+    const binary = atob(b64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes;
+  }
+
+  /** 主区切换：有激活的终端页就显示终端面板，否则显示服务器详情 */
+  function renderMain() {
+    const hasTerm = activeTermId && terms.has(activeTermId);
+    document.getElementById('detail').style.display = hasTerm ? 'none' : '';
+    document.getElementById('termPanel').hidden = !hasTerm;
+    if (hasTerm) {
+      renderTermTabs();
+      for (const [id, t] of terms) {
+        t.page.classList.toggle('active', id === activeTermId);
+      }
+      const current = terms.get(activeTermId);
+      if (current) {
+        requestAnimationFrame(function () {
+          try { current.fitAddon.fit(); } catch (e) { }
+          current.term.focus();
+          if (invoke) {
+            invoke('hub_term_resize', { sessionId: current.id, rows: current.term.rows, cols: current.term.cols })
+              .catch(function () { });
+          }
+        });
+      }
+    } else {
+      renderDetail();
+    }
+    const footText = document.getElementById('footText');
+    if (hasTerm) {
+      footText.textContent = '已连接 ' + terms.size + ' 个终端会话';
+    } else {
+      footText.textContent = terms.size > 0
+        ? '后台保持 ' + terms.size + ' 个终端会话（点标签回去）'
+        : '未连接任何服务器';
+    }
+  }
+
+  function renderTermTabs() {
+    const bar = document.getElementById('termTabs');
+    bar.textContent = '';
+    for (const [id, t] of terms) {
+      const tab = document.createElement('div');
+      tab.className = 'term-tab' + (id === activeTermId ? ' active' : '');
+      const name = document.createElement('span');
+      name.className = 't-name';
+      name.textContent = t.meta.server_name || '(未命名)';
+      const host = document.createElement('span');
+      host.className = 't-host';
+      host.textContent = t.meta.host_label;
+      const close = document.createElement('button');
+      close.className = 't-close';
+      close.textContent = '×';
+      close.title = '结束会话';
+      close.addEventListener('click', function (e) {
+        e.stopPropagation();
+        closeTerminal(id);
+      });
+      tab.appendChild(name);
+      tab.appendChild(host);
+      tab.appendChild(close);
+      tab.addEventListener('click', function () {
+        activeTermId = id;
+        renderMain();
+      });
+      bar.appendChild(tab);
+    }
+  }
+
+  async function openTerminal(server) {
+    if (!invoke || !HAS_XTERM) {
+      alert('终端需要应用环境（xterm 组件未加载）');
+      return;
+    }
+    let meta;
+    try {
+      meta = await invoke('hub_term_open', { server });
+    } catch (error) {
+      alert('打开终端失败：' + error);
+      return;
+    }
+    if (terms.has(meta.id)) { activeTermId = meta.id; renderMain(); return; }
+
+    const area = document.getElementById('termArea');
+    const page = document.createElement('div');
+    page.className = 'term-page';
+    area.appendChild(page);
+
+    const term = new window.Terminal({
+      theme: TERM_THEMES[dark ? 'dark' : 'light'],
+      fontFamily: 'Menlo, Consolas, "JetBrains Mono", monospace',
+      fontSize: 13,
+      cursorBlink: true,
+      allowProposedApi: true,
+      scrollback: 5000
+    });
+    const fitAddon = new window.FitAddon.FitAddon();
+    term.loadAddon(fitAddon);
+    term.open(page);
+
+    const entry = { id: meta.id, meta: meta, term: term, fitAddon: fitAddon, page: page };
+    terms.set(meta.id, entry);
+
+    term.onData(function (data) {
+      if (invoke) {
+        invoke('hub_term_write', {
+          sessionId: meta.id,
+          data: bytesToB64(new TextEncoder().encode(data))
+        }).catch(function () { });
+      }
+    });
+    // 容器尺寸变化（窗口缩放 / 标签切换）都重新量一遍
+    const observer = new ResizeObserver(function () {
+      if (activeTermId !== meta.id) return;
+      try { fitAddon.fit(); } catch (e) { }
+      if (invoke) {
+        invoke('hub_term_resize', { sessionId: meta.id, rows: term.rows, cols: term.cols })
+          .catch(function () { });
+      }
+    });
+    observer.observe(page);
+
+    activeTermId = meta.id;
+    renderMain();
+    // 首帧量完尺寸后再 resize 一次（open 时容器刚挂载，首量可能不准）
+    setTimeout(function () {
+      try { fitAddon.fit(); } catch (e) { }
+      if (invoke) {
+        invoke('hub_term_resize', { sessionId: meta.id, rows: term.rows, cols: term.cols })
+          .catch(function () { });
+      }
+    }, 150);
+  }
+
+  function closeTerminal(id) {
+    const entry = terms.get(id);
+    if (!entry) return;
+    if (invoke) { invoke('hub_term_close', { sessionId: id }).catch(function () { }); }
+    destroyTerminalLocally(id);
+  }
+
+  /** 后端 closed 事件 / 本地关闭共用的清理 */
+  function destroyTerminalLocally(id) {
+    const entry = terms.get(id);
+    if (!entry) return;
+    try { entry.term.dispose(); } catch (e) { }
+    entry.page.remove();
+    terms.delete(id);
+    if (activeTermId === id) {
+      activeTermId = terms.size > 0 ? terms.keys().next().value : null;
+    }
+    renderMain();
+  }
+
+  // 下行 / 结束事件：注册一次
+  if (HAS_TAURI) {
+    const listen = window.__TAURI__.event.listen;
+    listen('hub-term-data', function (event) {
+      const payload = event.payload || {};
+      const entry = terms.get(payload.id);
+      if (entry && payload.data) {
+        entry.term.write(b64ToBytes(payload.data));
+      }
+    });
+    listen('hub-term-closed', function (event) {
+      const payload = event.payload || {};
+      if (terms.has(payload.id)) {
+        destroyTerminalLocally(payload.id);
+      }
+    });
+  }
+  // 窗口缩放：所有终端都重量一遍（只有激活的真的 fit，后台标签切回去时会再量）
+  window.addEventListener('resize', function () {
+    const current = terms.get(activeTermId);
+    if (current) {
+      try { current.fitAddon.fit(); } catch (e) { }
+      if (invoke) {
+        invoke('hub_term_resize', { sessionId: current.id, rows: current.term.rows, cols: current.term.cols })
+          .catch(function () { });
+      }
+    }
+  });
+
+  // ============ 主题切换时终端跟随 ============
+  (function () {
+    const originalToggle = document.getElementById('themeToggle');
+    originalToggle.addEventListener('click', function () {
+      const theme = TERM_THEMES[dark ? 'dark' : 'light'];
+      for (const [, t] of terms) { t.term.options.theme = theme; }
+    });
+  })();
 
   function esc(text) {
     return String(text == null ? '' : text)
@@ -453,7 +717,7 @@
       box.innerHTML =
         '<div class="placeholder"><div class="card-hint">' +
         '<div class="big">🖥️</div><h2>选择左侧服务器</h2>' +
-        '<p class="muted">查看详情、测试连通性；终端连接在 M3 开通。</p>' +
+        '<p class="muted">查看详情、测试连通性，或点「连接终端」直接进 SSH。</p>' +
         '</div></div>';
       return;
     }
@@ -474,12 +738,16 @@
         '<div class="k">备注</div><div class="v">' + esc(server.notes || '—') + '</div>' +
       '</div>' +
       '<div class="btn-row">' +
-        '<button class="btn primary" id="testBtn">测试连接</button>' +
-        '<button class="btn" id="connectBtn" disabled title="M3 开通">连接终端</button>' +
+        '<button class="btn primary" id="connectBtn"' +
+          ((server.protocol === 'ssh' && HAS_TAURI) ? '' :
+            (server.protocol === 'ssh' ? ' disabled title="需要在应用内使用"' : ' disabled title="Telnet 终端在后续版本开通"')) +
+        '>连接终端</button>' +
+        '<button class="btn" id="testBtn">测试连接</button>' +
         '<button class="btn" id="editBtn">编辑</button>' +
         '<button class="btn danger" id="delBtn">删除</button>' +
       '</div>' +
       testLine;
+    document.getElementById('connectBtn').addEventListener('click', function () { openTerminal(server); });
     document.getElementById('testBtn').addEventListener('click', function () { runTest(server); });
     document.getElementById('editBtn').addEventListener('click', function () { openEdit(server); });
     document.getElementById('delBtn').addEventListener('click', function () { openDelete(server); });

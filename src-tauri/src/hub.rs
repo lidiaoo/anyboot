@@ -47,7 +47,7 @@ impl HubServer {
         }
     }
 
-    fn normalize(mut self) -> Self {
+    pub(crate) fn normalize(mut self) -> Self {
         self.id = self.id.trim().to_string();
         self.name = self.name.trim().to_string();
         self.protocol = match self.protocol.as_str() {
