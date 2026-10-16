@@ -572,18 +572,17 @@ class MainActivity : ComponentActivity() {
                     FieldLabel("多网卡探测（有多个地址时怎么探）")
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         RadioButton(selected = !serialProbe, onClick = { serialProbe = false })
+                        // 只给较长的那条加 weight，且 fill = false：文字按自身宽度排版，
+                        // 放不下时最多被压到分配宽度内换行，绝不会把整行撑爆。
+                        // 两条都加 weight 会平分宽度，反而把长的那条挤成两行。
                         Text(
                             "并发探测（推荐）",
                             fontSize = 13.sp, color = palette.fg,
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier.weight(1f, fill = false),
                         )
                         Spacer(Modifier.width(12.dp))
                         RadioButton(selected = serialProbe, onClick = { serialProbe = true })
-                        Text(
-                            "串行探测",
-                            fontSize = 13.sp, color = palette.fg,
-                            modifier = Modifier.weight(1f),
-                        )
+                        Text("串行探测", fontSize = 13.sp, color = palette.fg)
                     }
                 }
             },

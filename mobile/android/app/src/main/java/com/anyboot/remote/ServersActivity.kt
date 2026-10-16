@@ -614,10 +614,10 @@ class ServersActivity : ComponentActivity() {
                     FieldLabel("认证方式")
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         RadioButton(selected = !authKey, onClick = { authKey = false })
-                        Text("密码", fontSize = 13.sp, modifier = Modifier.weight(1f))
+                        Text("密码", fontSize = 13.sp)
                         Spacer(Modifier.width(8.dp))
                         RadioButton(selected = authKey, onClick = { authKey = true })
-                        Text("密钥", fontSize = 13.sp, modifier = Modifier.weight(1f))
+                        Text("密钥", fontSize = 13.sp)
                     }
                     OutlinedTextField(
                         value = password,
@@ -870,10 +870,14 @@ class ServersActivity : ComponentActivity() {
                     )
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         RadioButton(selected = ed25519, onClick = { ed25519 = true })
-                        Text("Ed25519（推荐）", fontSize = 13.sp, modifier = Modifier.weight(1f))
+                        Text(
+                            "Ed25519（推荐）",
+                            fontSize = 13.sp,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
                         Spacer(Modifier.width(8.dp))
                         RadioButton(selected = !ed25519, onClick = { ed25519 = false })
-                        Text("RSA 4096", fontSize = 13.sp, modifier = Modifier.weight(1f))
+                        Text("RSA 4096", fontSize = 13.sp)
                     }
                 }
             },
