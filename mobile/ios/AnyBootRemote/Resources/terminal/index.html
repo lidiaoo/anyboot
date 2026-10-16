@@ -146,10 +146,10 @@
     term.open(document.getElementById('term'));
     syncSize();
     // 上行：键盘输入（字节流原样转发，不做任何解析）
+    // 不再卡 window.__ready：term 已建即转发，会话还没通时原生侧安全丢弃
+    // （挂门槛会让任何 __ready 异常态静默吞掉输入，与 Android 侧对齐）
     term.onData(function (data) {
-      if (window.__ready) {
-        sendUpstream(new TextEncoder().encode(data));
-      }
+      sendUpstream(new TextEncoder().encode(data));
     });
     // 布局晚到的兜底：首帧常常还没量到真实高度
     requestAnimationFrame(syncSize);
