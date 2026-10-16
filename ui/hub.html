@@ -1,377 +1,656 @@
 <!DOCTYPE html>
 <!-- AnyBoot 远程管理（server-hub）。
      独立窗口，主窗口零改动；托盘「远程管理…」是唯一入口。
-     M2：服务器档案 CRUD（配置目录 hub-servers.json）+ 测试连接（TCP）。
-     M3 起：终端（系统 ssh + PTY）→ 隧道 → SFTP。 -->
-<html lang="zh-CN">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+     视觉按 docs/client-ui/pc-hub-redesign.html 实现（vanilla CSS，不用 CDN）。
+     M2：服务器档案 CRUD（配置目录 hub-servers.json）+ 测试连接（TCP，顺带采样延迟）。
+     M3：终端（系统 ssh + PTY + xterm，多会话标签）。
+     M4：隧道（本地转发 / SOCKS5 动态转发）。
+     设计稿里后端尚不支持的元素不做假数据：TOFU 指纹、跳板机、密钥库、自绘标题栏
+     （本窗口用系统标题栏）；「延迟趋势」用的是测试连接的真实 TCP 耗时（会话内采样）。 -->
+<html lang="zh-CN" data-page-node-id="2KZPRyyjAb6RJfhJfEOSpk">
+<head data-page-node-id="Rrq56VrqFCsji63VNMRbSl">
+<meta charset="utf-8" data-page-node-id="YYIGXXLvBnTvx8oemPIIgx">
+<meta name="viewport" content="width=device-width, initial-scale=1" data-page-node-id="bqxa9XMtxYbdX2Yd3eD4wg">
 <title>AnyBoot 远程管理</title>
-<link rel="stylesheet" href="terminal/xterm.css">
+<link rel="stylesheet" href="terminal/xterm.css" data-page-node-id="c1HNiSIuXYT2oSZzRBD2CG">
 <script src="terminal/xterm.js"></script>
 <script src="terminal/addon-fit.js"></script>
 <style>
-  :root {
-    --base: #020617;
-    --card: #0e1223;
-    --elevate: #151a2e;
-    --line: #232941;
-    --line-strong: #323a58;
-    --fg: #e2e8f0;
-    --fg-dim: #94a3b8;
-    --fg-faint: #64748b;
-    --ok: #22c55e;
-    --ok-dim: rgba(34, 197, 94, 0.12);
-    --bad: #ef4444;
-    --bad-dim: rgba(239, 68, 68, 0.12);
+  /* ---- 主题 token：亮/暗双套（与设计稿一致的色板） ---- */
+  :root, html.dark {
+    --base: 2 6 23;
+    --term: 4 7 15;          /* 终端区恒深色（终端惯例） */
+    --card: 14 18 35;
+    --elevate: 20 26 46;
+    --line: 36 43 65;
+    --line-strong: 51 65 85;
+    --fg: 248 250 252;
+    --fg-dim: 148 163 184;
+    --fg-faint: 100 116 139;
+    --ok: 34 197 94;
+    --warn: 245 158 11;
+    --bad: 239 68 68;
+    color-scheme: dark;
   }
   html.light {
-    --base: #f1f5f9;
-    --card: #ffffff;
-    --elevate: #f8fafc;
-    --line: #e2e8f0;
-    --line-strong: #cbd5e1;
-    --fg: #0f172a;
-    --fg-dim: #475569;
-    --fg-faint: #94a3b8;
-    --ok: #16a34a;
-    --ok-dim: rgba(22, 163, 74, 0.10);
-    --bad: #dc2626;
-    --bad-dim: rgba(220, 38, 38, 0.08);
+    --base: 244 246 250;
+    --term: 4 7 15;
+    --card: 255 255 255;
+    --elevate: 241 245 250;
+    --line: 226 232 240;
+    --line-strong: 203 213 225;
+    --fg: 15 23 42;
+    --fg-dim: 90 100 118;
+    --fg-faint: 138 148 166;
+    --ok: 22 163 74;
+    --warn: 180 83 9;
+    --bad: 220 38 38;
+    color-scheme: light;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; }
   body {
-    background: var(--base);
-    color: var(--fg);
+    background:
+      radial-gradient(1100px 560px at 70% -10%, rgb(var(--ok) / .06), transparent 60%),
+      rgb(var(--base));
+    color: rgb(var(--fg));
     font: 14px/1.5 -apple-system, "Segoe UI", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
     display: flex;
+    flex-direction: column;
     overflow: hidden;
     user-select: none;
   }
-  button { font: inherit; }
+  button { font: inherit; color: inherit; }
+  /* Tailwind 式 display 工具类会压过 hidden 属性——全局强制恢复隐藏语义 */
+  [hidden] { display: none !important; }
+  .scroll-thin::-webkit-scrollbar { width: 8px; height: 8px; }
+  .scroll-thin::-webkit-scrollbar-thumb { background: rgb(var(--line-strong)); border-radius: 4px; }
+  .scroll-thin::-webkit-scrollbar-track { background: transparent; }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { transition: none !important; animation: none !important; }
+  }
 
-  /* —— 左栏 —— */
-  aside {
-    width: 320px;
-    min-width: 280px;
-    background: var(--card);
-    border-right: 1px solid var(--line);
-    display: flex;
-    flex-direction: column;
-  }
-  .brand { display: flex; align-items: center; gap: 10px; padding: 14px 16px 10px; }
-  .brand .logo {
-    width: 28px; height: 28px; border-radius: 8px;
-    background: var(--ok-dim); color: var(--ok);
-    display: grid; place-items: center; font-weight: 700; font-size: 13px;
-  }
-  .brand h1 { margin: 0; font-size: 14px; font-weight: 600; letter-spacing: .02em; }
-  .brand .spacer { flex: 1; }
-  .icon-btn {
-    border: 0; background: transparent; color: var(--fg-faint);
-    width: 26px; height: 26px; border-radius: 7px; cursor: pointer;
-    display: grid; place-items: center; font-size: 13px;
-  }
-  .icon-btn:hover { background: var(--elevate); color: var(--fg); }
+  .mono { font-family: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace; }
 
-  .search-wrap { margin: 0 16px 10px; position: relative; }
+  /* ============ 工具栏 ============ */
+  .toolbar {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 12px;
+    padding: 12px 20px;
+    border-bottom: 1px solid rgb(var(--line));
+    background: rgb(var(--card) / .5);
+    flex: none;
+  }
+  .search-wrap { position: relative; flex: 1; min-width: 200px; max-width: 380px; }
+  .search-wrap svg {
+    position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+    width: 16px; height: 16px; color: rgb(var(--fg-faint)); pointer-events: none;
+  }
   .search-wrap input {
-    width: 100%;
-    background: var(--elevate);
-    border: 1px solid var(--line);
-    border-radius: 9px;
-    padding: 7px 11px;
-    color: var(--fg);
-    font: inherit; font-size: 13px;
-    outline: none;
+    height: 36px; width: 100%;
+    border: 1px solid rgb(var(--line)); border-radius: 9px;
+    background: rgb(var(--elevate));
+    padding: 0 12px 0 36px;
+    color: rgb(var(--fg)); font: inherit; font-size: 13px;
+    outline: none; transition: border-color .15s;
   }
-  .search-wrap input:focus { border-color: var(--line-strong); }
-  .search-wrap input::placeholder { color: var(--fg-faint); }
+  .search-wrap input:focus { border-color: rgb(var(--ok) / .6); }
+  .search-wrap input::placeholder { color: rgb(var(--fg-faint)); }
 
-  .section-label {
-    padding: 4px 18px 4px;
-    font-size: 11px; font-weight: 600; letter-spacing: .14em;
-    color: var(--fg-faint); text-transform: uppercase;
+  .segmented {
+    display: flex; border: 1px solid rgb(var(--line));
+    background: rgb(var(--elevate)); border-radius: 9px; padding: 2px;
   }
-  .filter-row { display: flex; gap: 6px; padding: 2px 16px 10px; }
-  .chip {
-    border: 1px solid var(--line); background: transparent; color: var(--fg-dim);
-    border-radius: 999px; padding: 2px 12px; font-size: 12px; cursor: pointer;
+  .segmented button {
+    border: 0; background: transparent; color: rgb(var(--fg-dim));
+    border-radius: 7px; padding: 5px 12px; font-size: 12px; font-weight: 500; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 4px;
   }
-  .chip.active { background: var(--ok-dim); border-color: var(--ok); color: var(--ok); }
+  .segmented button:hover { color: rgb(var(--fg)); }
+  .segmented button[aria-selected="true"] { background: rgb(var(--ok) / .15); color: rgb(var(--ok)); }
 
-  .list { flex: 1; overflow-y: auto; padding: 0 8px 8px; }
-  .server-row {
-    display: flex; align-items: center; gap: 10px;
-    border-radius: 10px; padding: 9px 10px; cursor: pointer;
-    border: 1px solid transparent;
+  .toolbar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+  .summary { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: rgb(var(--fg-dim)); }
+  .pulse { position: relative; display: inline-flex; width: 8px; height: 8px; }
+  .pulse::before {
+    content: ""; position: absolute; inset: 0; border-radius: 50%;
+    background: rgb(var(--ok) / .6); animation: ab-ping 1.6s cubic-bezier(0,0,.2,1) infinite;
   }
-  .server-row:hover { background: var(--elevate); }
-  .server-row.active { background: var(--elevate); border-color: var(--line-strong); }
-  .server-row .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--fg-faint); flex: none; }
-  .server-row .dot.ok { background: var(--ok); }
-  .server-row .dot.bad { background: var(--bad); }
-  .server-row .meta { flex: 1; min-width: 0; }
-  .server-row .name {
-    font-size: 13px; font-weight: 600; color: var(--fg);
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  }
-  .server-row .sub {
-    font-size: 11px; color: var(--fg-faint);
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  }
-  .server-row .proto {
-    flex: none; font-size: 10px; font-weight: 700; letter-spacing: .06em;
-    border-radius: 5px; padding: 1px 6px;
-    background: var(--ok-dim); color: var(--ok);
-  }
-  .server-row .proto.telnet { background: var(--bad-dim); color: var(--bad); }
-  .server-row .row-acts { display: none; gap: 2px; flex: none; }
-  .server-row:hover .row-acts { display: flex; }
-  .empty {
-    margin: 22px 10px;
-    border: 1px dashed var(--line-strong);
-    border-radius: 12px;
-    padding: 26px 18px;
-    text-align: center;
-    color: var(--fg-faint);
-    font-size: 13px;
-  }
-  .empty .big { font-size: 26px; margin-bottom: 8px; }
+  .pulse::after { content: ""; position: relative; border-radius: 50%; width: 8px; height: 8px; background: rgb(var(--ok)); }
+  @keyframes ab-ping { 0% { transform: scale(1); opacity: .8; } 80%, 100% { transform: scale(2.2); opacity: 0; } }
 
-  .side-foot {
-    border-top: 1px solid var(--line);
-    padding: 10px 16px;
-    font-size: 11px;
-    color: var(--fg-faint);
-  }
-
-  /* —— 右侧详情 —— */
-  main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-  .detail { flex: 1; overflow-y: auto; padding: 28px 32px; }
-  .detail .placeholder {
-    height: 100%; display: grid; place-items: center;
-    color: var(--fg-faint); text-align: center;
-  }
-  .detail .placeholder .card-hint {
-    border: 1px solid var(--line); background: var(--card);
-    border-radius: 14px; padding: 30px 40px; max-width: 420px;
-  }
-  .detail .placeholder .big { font-size: 32px; margin-bottom: 10px; }
-  .detail h2 { margin: 0 0 6px; font-size: 15px; color: var(--fg); }
-  .detail p { margin: 0; font-size: 13px; line-height: 1.7; }
-  .muted { color: var(--fg-faint); }
-
-  .detail-head { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
-  .detail-head h2 { margin: 0; font-size: 18px; }
-  .detail-head .proto { font-size: 10px; font-weight: 700; border-radius: 5px; padding: 2px 7px; background: var(--ok-dim); color: var(--ok); }
-  .detail-head .proto.telnet { background: var(--bad-dim); color: var(--bad); }
-  .kv {
-    display: grid; grid-template-columns: 84px 1fr;
-    gap: 8px 14px; margin: 18px 0;
-    max-width: 460px;
-  }
-  .kv .k { color: var(--fg-faint); font-size: 12px; padding-top: 2px; }
-  .kv .v { font-size: 13px; color: var(--fg); word-break: break-all; user-select: text; }
-  .test-line { margin: 6px 0 0; font-size: 12px; min-height: 18px; }
-  .test-line.ok { color: var(--ok); }
-  .test-line.bad { color: var(--bad); }
-  .btn-row { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+  /* ============ 通用按钮 ============ */
   .btn {
-    border: 1px solid var(--line-strong); background: var(--card); color: var(--fg);
-    border-radius: 9px; padding: 7px 16px; cursor: pointer; font-size: 13px;
+    border: 1px solid rgb(var(--line)); background: rgb(var(--elevate)); color: rgb(var(--fg));
+    border-radius: 9px; height: 36px; padding: 0 14px;
+    font-size: 13px; font-weight: 500; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    transition: border-color .15s, background .15s;
   }
-  .btn:hover { background: var(--elevate); }
-  .btn.primary { background: var(--ok); border-color: var(--ok); color: #fff; }
-  .btn.primary:hover { filter: brightness(1.08); }
-  .btn.primary:disabled { opacity: .45; cursor: not-allowed; }
-  .btn.danger { color: var(--bad); border-color: var(--bad); background: transparent; }
-  .btn.danger:hover { background: var(--bad-dim); }
+  .btn:hover { border-color: rgb(var(--line-strong)); background: rgb(var(--line) / .4); }
   .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .btn.primary {
+    border: 0; background: rgb(var(--ok)); color: rgb(var(--base));
+    font-weight: 600; box-shadow: 0 8px 24px -8px rgb(var(--ok) / .5);
+  }
+  .btn.primary:hover { filter: brightness(1.08); background: rgb(var(--ok)); }
+  .btn.primary:active { transform: scale(.98); }
+  .btn.small { height: 30px; padding: 0 12px; font-size: 12px; border-radius: 8px; }
+  .btn.danger { color: rgb(var(--bad)); }
+  .btn.danger:hover { border-color: rgb(var(--bad) / .6); background: rgb(var(--bad) / .08); }
+  .btn.warn { border: 0; background: rgb(var(--warn)); color: rgb(var(--base)); font-weight: 600; }
+  .btn.warn:hover { filter: brightness(1.08); background: rgb(var(--warn)); }
+  .btn.ghost { border: 0; background: transparent; color: rgb(var(--fg-dim)); }
+  .btn.ghost:hover { color: rgb(var(--fg)); background: rgb(var(--elevate)); }
 
-  .foot {
-    border-top: 1px solid var(--line);
-    background: var(--card);
-    padding: 8px 18px;
-    display: flex; align-items: center; gap: 8px;
-    font-size: 12px; color: var(--fg-faint);
+  .icon-btn {
+    border: 0; background: transparent; color: rgb(var(--fg-faint));
+    width: 30px; height: 30px; border-radius: 8px; cursor: pointer;
+    display: grid; place-items: center;
   }
-  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--fg-faint); }
-  .foot .ver { margin-left: auto; }
+  .icon-btn:hover { background: rgb(var(--elevate)); color: rgb(var(--fg)); }
+  .icon-btn.boxed {
+    width: 36px; height: 36px;
+    border: 1px solid rgb(var(--line)); background: rgb(var(--elevate)); color: rgb(var(--fg-dim));
+    border-radius: 9px;
+  }
+  .icon-btn.boxed:hover { border-color: rgb(var(--line-strong)); color: rgb(var(--fg)); }
+  .icon-btn.boxed.danger:hover { border-color: rgb(var(--bad) / .6); color: rgb(var(--bad)); background: rgb(var(--elevate)); }
 
-  /* —— 弹窗 —— */
-  .overlay {
-    position: fixed; inset: 0; background: rgba(2, 6, 23, 0.55);
-    display: grid; place-items: center; z-index: 40;
+  .link-btn {
+    display: inline-flex; align-items: center; gap: 4px;
+    border: 0; background: transparent; color: rgb(var(--fg-dim));
+    font-size: 11px; cursor: pointer; border-radius: 4px; padding: 2px 4px;
   }
-  html.light .overlay { background: rgba(15, 23, 42, 0.35); }
-  .overlay[hidden] { display: none !important; }
-  .dialog {
-    width: 420px; max-width: calc(100vw - 48px); max-height: calc(100vh - 48px);
-    overflow-y: auto;
-    background: var(--card); border: 1px solid var(--line-strong);
-    border-radius: 14px; padding: 20px 22px;
-  }
-  .dialog h3 { margin: 0 0 14px; font-size: 15px; }
-  .field { margin-bottom: 12px; }
-  .field label { display: block; font-size: 12px; color: var(--fg-dim); margin-bottom: 4px; }
-  .field input, .field select, .field textarea {
-    width: 100%;
-    background: var(--elevate);
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    padding: 7px 10px;
-    color: var(--fg);
-    font: inherit; font-size: 13px;
-    outline: none;
-  }
-  .field input:focus, .field select:focus, .field textarea:focus { border-color: var(--line-strong); }
-  .field-row { display: flex; gap: 10px; }
-  .field-row .field { flex: 1; }
-  .dialog .btn-row { justify-content: flex-end; margin-top: 18px; }
-  .form-error { color: var(--bad); font-size: 12px; min-height: 16px; margin: 4px 0 0; }
+  .link-btn:hover { color: rgb(var(--fg)); }
+  .link-btn svg { width: 12px; height: 12px; }
+  .link-btn.spinning svg { animation: ab-spin 1s linear infinite; }
+  @keyframes ab-spin { to { transform: rotate(360deg); } }
 
-  /* —— 终端（M3） —— */
+  /* ============ 主体两栏 ============ */
+  .cols { flex: 1; display: flex; min-height: 0; }
+  aside {
+    width: 380px; min-width: 300px; flex: none;
+    border-right: 1px solid rgb(var(--line));
+    display: flex; flex-direction: column; min-height: 0;
+  }
+  .aside-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 20px 8px; flex: none;
+  }
+  .aside-head h2 {
+    margin: 0; font-size: 11px; font-weight: 600;
+    letter-spacing: .14em; text-transform: uppercase; color: rgb(var(--fg-faint));
+  }
+  .list {
+    flex: 1; overflow-y: auto;
+    padding: 0 12px 16px;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+
+  /* 服务器卡片行 */
+  .server-row {
+    display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px;
+    width: 100%; text-align: left;
+    border: 1px solid rgb(var(--line)); border-radius: 12px;
+    background: rgb(var(--card));
+    padding: 11px 14px; cursor: pointer;
+    transition: border-color .15s, background .15s;
+  }
+  .server-row:hover { border-color: rgb(var(--line-strong)); background: rgb(var(--elevate)); }
+  .server-row.active { border-color: rgb(var(--ok) / .5); background: rgb(var(--ok) / .05); }
+  .server-row:focus-visible { outline: 2px solid rgb(var(--ok)); outline-offset: 2px; }
+  .server-row .s-icon {
+    width: 36px; height: 36px; border-radius: 9px;
+    display: grid; place-items: center;
+    border: 1px solid rgb(var(--line)); background: rgb(var(--elevate)); color: rgb(var(--fg-dim));
+  }
+  .server-row.active .s-icon { border-color: rgb(var(--ok) / .3); background: rgb(var(--ok) / .1); color: rgb(var(--ok)); }
+  .server-row .s-icon svg { width: 18px; height: 18px; }
+  .server-row .s-main { min-width: 0; }
+  .server-row .s-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .server-row .s-name {
+    font-size: 13px; font-weight: 500; color: rgb(var(--fg));
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .server-row .s-proto {
+    flex: none; font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 9px; border-radius: 4px; padding: 0 4px;
+    border: 1px solid rgb(var(--line)); background: rgb(var(--elevate)); color: rgb(var(--fg-faint));
+  }
+  .server-row .s-host {
+    display: flex; align-items: center; gap: 6px; margin-top: 3px;
+    font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; color: rgb(var(--fg-dim));
+  }
+  .server-row .s-host .txt { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .server-row .s-right { text-align: right; flex: none; }
+  .server-row .s-ms { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
+  .server-row .s-state { display: block; font-size: 10px; color: rgb(var(--fg-faint)); margin-top: 1px; }
+  .ms-ok { color: rgb(var(--ok)); }
+  .ms-warn { color: rgb(var(--warn)); }
+  .ms-bad { color: rgb(var(--bad)); }
+  .ms-none { color: rgb(var(--fg-faint)); }
+
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: rgb(var(--fg-faint)); flex: none; }
+  .dot.ok { background: rgb(var(--ok)); }
+  .dot.warn { background: rgb(var(--warn)); }
+  .dot.bad { background: rgb(var(--bad)); }
+
+  .empty {
+    margin: 8px 4px;
+    border: 1px dashed rgb(var(--line-strong)); border-radius: 12px;
+    padding: 36px 22px; text-align: center;
+    color: rgb(var(--fg-dim)); font-size: 13px;
+  }
+  .empty svg { width: 32px; height: 32px; color: rgb(var(--fg-faint)); }
+  .empty .t { margin: 12px 0 4px; font-weight: 500; color: rgb(var(--fg)); font-size: 13px; }
+  .empty .s { margin: 0; font-size: 12px; color: rgb(var(--fg-faint)); line-height: 1.7; }
+
+  /* ============ 右侧详情 ============ */
+  main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  #detail { flex: 1; overflow-y: auto; min-height: 0; }
+  #detail .placeholder { height: 100%; display: grid; place-items: center; }
+  #detail .placeholder .card-hint {
+    border: 1px solid rgb(var(--line)); background: rgb(var(--card));
+    border-radius: 14px; padding: 30px 40px; max-width: 420px; text-align: center;
+    color: rgb(var(--fg-faint));
+  }
+  #detail .placeholder .big { font-size: 30px; margin-bottom: 10px; }
+  #detail .placeholder h2 { margin: 0 0 6px; font-size: 15px; color: rgb(var(--fg)); }
+  #detail .placeholder p { margin: 0; font-size: 13px; line-height: 1.7; }
+
+  .d-head {
+    display: flex; flex-wrap: wrap; align-items: flex-start; gap: 16px;
+    padding: 20px 24px; border-bottom: 1px solid rgb(var(--line));
+  }
+  .d-icon {
+    width: 48px; height: 48px; border-radius: 12px; flex: none;
+    border: 1px solid rgb(var(--line)); background: rgb(var(--elevate));
+    display: grid; place-items: center; color: rgb(var(--fg));
+  }
+  .d-icon svg { width: 24px; height: 24px; }
+  .d-title { min-width: 0; flex: 1; }
+  .d-title .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .d-title h3 { margin: 0; font-size: 18px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .d-title .host {
+    margin: 4px 0 0; font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 13px; color: rgb(var(--fg-dim));
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .d-title .notes { margin: 2px 0 0; font-size: 12px; color: rgb(var(--fg-faint)); }
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    border-radius: 999px; padding: 2px 10px; font-size: 12px; font-weight: 500; flex: none;
+  }
+  .pill.ok { background: rgb(var(--ok) / .1); color: rgb(var(--ok)); }
+  .pill.ok .pdot { width: 6px; height: 6px; border-radius: 50%; background: rgb(var(--ok)); }
+  .pill.bad { background: rgb(var(--bad) / .1); color: rgb(var(--bad)); }
+  .pill.bad .pdot { width: 6px; height: 6px; border-radius: 50%; background: rgb(var(--bad)); }
+  .pill.dim { background: rgb(var(--elevate)); color: rgb(var(--fg-dim)); }
+  .pill.dim .pdot { width: 6px; height: 6px; border-radius: 50%; background: rgb(var(--fg-faint)); }
+  .badge {
+    border: 1px solid rgb(var(--line)); background: rgb(var(--elevate)); color: rgb(var(--fg-dim));
+    border-radius: 5px; padding: 1px 6px;
+    font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 10px; flex: none;
+  }
+  .d-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-left: auto; }
+
+  .info-grid {
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    gap: 1px; background: rgb(var(--line));
+  }
+  @media (max-width: 820px) { .info-grid { grid-template-columns: repeat(2, 1fr); } }
+  .info-grid > div { background: rgb(var(--card)); padding: 14px 20px; }
+  .info-grid .k {
+    margin: 0; font-size: 11px; font-weight: 500;
+    letter-spacing: .08em; text-transform: uppercase; color: rgb(var(--fg-faint));
+  }
+  .info-grid .v { margin: 6px 0 0; font-size: 13px; word-break: break-all; user-select: text; }
+  .info-grid .v svg { width: 14px; height: 14px; vertical-align: -2px; color: rgb(var(--ok)); }
+
+  .d-section { border-top: 1px solid rgb(var(--line)); padding: 18px 24px 20px; }
+  .d-section .sec-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .d-section h4 {
+    margin: 0; font-size: 11px; font-weight: 600;
+    letter-spacing: .14em; text-transform: uppercase; color: rgb(var(--fg-faint));
+  }
+  .d-section .sec-sub { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; color: rgb(var(--fg-dim)); }
+  .spark { display: block; width: 100%; margin-top: 12px; }
+  .spark-hint { margin: 12px 0 0; font-size: 12px; color: rgb(var(--fg-faint)); }
+
+  /* 测试结果行 */
+  .test-line { margin: 10px 0 0; font-size: 12px; min-height: 18px; user-select: text; }
+  .test-line.ok { color: rgb(var(--ok)); }
+  .test-line.bad { color: rgb(var(--bad)); }
+
+  /* ============ 隧道 ============ */
+  .tunnel-list { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+  .tunnel-row {
+    display: flex; align-items: center; gap: 12px;
+    border: 1px solid rgb(var(--line)); background: rgb(var(--card));
+    border-radius: 10px; padding: 10px 16px;
+    transition: border-color .15s;
+  }
+  .tunnel-row:hover { border-color: rgb(var(--line-strong)); }
+  .tunnel-row.off { opacity: .7; }
+  .tunnel-row:hover.off { opacity: 1; }
+  .tunnel-row .t-main { flex: 1; min-width: 0; }
+  .tunnel-row .t-name {
+    font-size: 13px; font-weight: 500; color: rgb(var(--fg));
+    display: flex; align-items: center; gap: 8px; min-width: 0;
+  }
+  .tunnel-row .t-name .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tunnel-row .t-sub {
+    margin-top: 2px;
+    font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; color: rgb(var(--fg-dim));
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .tunnel-kind {
+    flex: none; font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 10px; border-radius: 4px; padding: 1px 6px;
+    background: rgb(var(--ok) / .12); color: rgb(var(--ok));
+  }
+  .tunnel-kind.dyn { background: rgb(var(--bad) / .12); color: rgb(var(--bad)); }
+  .tunnel-row .t-acts { display: flex; align-items: center; gap: 6px; flex: none; }
+  .tunnel-empty {
+    margin-top: 12px;
+    border: 1px dashed rgb(var(--line-strong)); border-radius: 10px;
+    padding: 14px 16px; text-align: center; color: rgb(var(--fg-faint)); font-size: 12px; line-height: 1.8;
+  }
+  .tunnel-add { margin-top: 12px; }
+
+  /* ============ 底部状态栏 ============ */
+  footer {
+    flex: none;
+    border-top: 1px solid rgb(var(--line));
+    background: rgb(var(--card) / .6);
+    padding: 8px 20px;
+    display: flex; align-items: center; gap: 10px;
+    font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; color: rgb(var(--fg-faint));
+  }
+  footer .sep { opacity: .5; }
+  footer .clock { margin-left: auto; }
+
+  /* ============ 终端（M3） ============ */
   #termPanel { flex: 1; display: flex; flex-direction: column; min-height: 0; }
-  #termPanel[hidden] { display: none !important; }
   .term-tabs {
     display: flex; align-items: center; gap: 6px;
     padding: 6px 10px;
-    background: var(--card);
-    border-bottom: 1px solid var(--line);
+    background: rgb(var(--card));
+    border-bottom: 1px solid rgb(var(--line));
     overflow-x: auto; flex: none;
   }
   .term-tab {
     display: flex; align-items: center; gap: 8px;
-    border: 1px solid var(--line); background: var(--elevate);
+    border: 1px solid rgb(var(--line)); background: rgb(var(--elevate));
     border-radius: 9px; padding: 4px 8px 4px 12px;
     cursor: pointer; flex: none; max-width: 260px;
   }
-  .term-tab.active { border-color: var(--ok); background: var(--ok-dim); }
+  .term-tab.active { border-color: rgb(var(--ok)); background: rgb(var(--ok) / .12); }
   .term-tab .t-name {
-    font-size: 12px; font-weight: 600; color: var(--fg);
+    font-size: 12px; font-weight: 600; color: rgb(var(--fg));
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  .term-tab .t-host { font-size: 11px; color: var(--fg-faint); white-space: nowrap; }
+  .term-tab .t-host { font-size: 11px; color: rgb(var(--fg-faint)); white-space: nowrap; }
   .term-tab .t-close {
-    border: 0; background: transparent; color: var(--fg-faint);
+    border: 0; background: transparent; color: rgb(var(--fg-faint));
     width: 18px; height: 18px; border-radius: 5px; cursor: pointer;
     display: grid; place-items: center; font-size: 12px; line-height: 1;
   }
-  .term-tab .t-close:hover { background: var(--bad-dim); color: var(--bad); }
-  .term-area { flex: 1; min-height: 0; padding: 4px; background: var(--base); }
-  .term-area .term-host { position: absolute; visibility: hidden; }
+  .term-tab .t-close:hover { background: rgb(var(--bad) / .12); color: rgb(var(--bad)); }
+  .term-area { flex: 1; min-height: 0; padding: 4px; background: rgb(var(--term)); }
   .term-area > .term-page { width: 100%; height: 100%; display: none; }
   .term-area > .term-page.active { display: block; }
   .term-area, .term-area * { user-select: text; }
+
+  /* ============ 弹窗 ============ */
+  .overlay {
+    position: fixed; inset: 0; z-index: 40;
+    background: rgba(2, 6, 23, .6);
+    display: grid; place-items: center; padding: 24px;
+  }
+  html.light .overlay { background: rgba(15, 23, 42, .35); }
+  .dialog {
+    width: 480px; max-width: 100%; max-height: calc(100vh - 48px);
+    overflow-y: auto;
+    background: rgb(var(--card)); border: 1px solid rgb(var(--line-strong));
+    border-radius: 14px;
+    box-shadow: 0 16px 48px -8px rgba(0, 0, 0, .55);
+  }
+  .dialog-head {
+    display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 1px solid rgb(var(--line)); padding: 14px 24px;
+  }
+  .dialog-head h3 { margin: 0; font-size: 15px; font-weight: 600; }
+  .dialog-body { padding: 18px 24px 20px; }
+  .dialog-foot {
+    display: flex; align-items: center; gap: 8px;
+    border-top: 1px solid rgb(var(--line)); padding: 14px 24px;
+  }
+  .dialog-foot .spacer { flex: 1; }
+
+  .field { margin-bottom: 12px; }
+  .field > label, .field > .flabel {
+    display: block; font-size: 12px; font-weight: 500;
+    color: rgb(var(--fg-dim)); margin-bottom: 5px;
+  }
+  .field input, .field textarea {
+    width: 100%;
+    background: rgb(var(--elevate));
+    border: 1px solid rgb(var(--line));
+    border-radius: 9px;
+    padding: 8px 11px;
+    color: rgb(var(--fg));
+    font: inherit; font-size: 13px;
+    outline: none;
+    transition: border-color .15s;
+  }
+  .field input:focus, .field textarea:focus { border-color: rgb(var(--ok) / .6); }
+  .field input.mono, .field textarea.mono {
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+  }
+  .field-row { display: flex; gap: 10px; }
+  .field-row .field { flex: 1; }
+  .field-row .field.fixed { flex: 0 0 96px; }
+  .form-error { color: rgb(var(--bad)); font-size: 12px; min-height: 16px; margin: 4px 0 0; }
+  .field-hint { margin: 6px 0 0; font-size: 11px; line-height: 1.6; color: rgb(var(--fg-faint)); }
+
+  /* ============ Toast ============ */
+  #toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 60;
+    border: 1px solid rgb(var(--line-strong)); background: rgb(var(--elevate)); color: rgb(var(--fg));
+    border-radius: 9px; padding: 10px 16px; font-size: 13px; max-width: min(520px, 90vw);
+    box-shadow: 0 16px 48px -8px rgba(0, 0, 0, .55);
+    transition: opacity .2s;
+  }
+  #toast.bad { border-color: rgb(var(--bad) / .5); color: rgb(var(--bad)); }
 </style>
 </head>
-<body>
-  <aside>
-    <div class="brand">
-      <div class="logo">AB</div>
-      <h1>远端管理</h1>
-      <div class="spacer"></div>
-      <button class="icon-btn" id="themeToggle" title="切换亮暗主题" aria-label="切换亮暗主题">🌙</button>
-    </div>
-    <div class="search-wrap">
-      <input id="searchBox" type="text" placeholder="搜索名称或地址…" aria-label="搜索服务器">
-    </div>
-    <div class="section-label">服务器</div>
-    <div class="filter-row">
-      <button class="chip active" data-proto="">全部</button>
-      <button class="chip" data-proto="ssh">SSH</button>
-      <button class="chip" data-proto="telnet">Telnet</button>
-      <span class="spacer" style="flex:1"></span>
-      <button class="icon-btn" id="addBtn" title="添加服务器" aria-label="添加服务器">＋</button>
-    </div>
-    <div class="list" id="serverList" aria-label="服务器列表"></div>
-    <div class="side-foot" id="sideFoot">—</div>
-  </aside>
+<body data-page-node-id="3arxyFzn5g5YuOo1U38bND">
 
-  <main>
-    <div class="detail" id="detail">
-      <div class="placeholder">
-        <div class="card-hint">
-          <div class="big">🖥️</div>
-          <h2>选择左侧服务器</h2>
-          <p class="muted">查看详情、测试连通性，或点「连接终端」直接进 SSH。</p>
-        </div>
-      </div>
+  <!-- ============ 工具栏 ============ -->
+  <div class="toolbar" data-page-node-id="Qc3StsHFdSaaD4ek1x4rry">
+    <div class="search-wrap" data-page-node-id="YOrenVlfC0CWNNtCZM4vwm">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" data-page-node-id="AXfsHclpDSgrWHJqBq3pnZ"><circle cx="11" cy="11" r="7" data-page-node-id="YJTvR8dyNt8USovI5tcdoy"/><path d="M20 20l-3.5-3.5" data-page-node-id="QAwn2pMZW6qPMyzFhAUhyW"/></svg>
+      <input id="searchBox" type="search" placeholder="搜索名称 / 地址" aria-label="搜索服务器" data-page-node-id="tAKBNeARUSN26NSivVWVn5">
     </div>
-    <!-- 终端面板：多会话标签 + xterm -->
-    <div id="termPanel" hidden>
-      <div class="term-tabs" id="termTabs"></div>
-      <div class="term-area" id="termArea"></div>
+    <div class="segmented" role="tablist" aria-label="协议筛选" id="protoTabs" data-page-node-id="AM1nFkP8F22Ht7SNsS8kVD">
+      <button role="tab" data-proto="" aria-selected="true" data-page-node-id="9i49lv5jIYRC3K06wuXxT4">全部 <span id="cntAll" class="mono" data-page-node-id="rbvnFvNeF9nJWMJrM76XuX">0</span></button>
+      <button role="tab" data-proto="ssh" aria-selected="false" data-page-node-id="rJpvzfYaWMojM5eFiLhuf3">SSH <span id="cntSsh" class="mono" data-page-node-id="x7bprNAkQlYzme8OsMeMrL">0</span></button>
+      <button role="tab" data-proto="telnet" aria-selected="false" data-page-node-id="uGXOQG4L00FmuyxBTBWZb5">Telnet <span id="cntTel" class="mono" data-page-node-id="vmHUOQ6uuJ5ZzC8uDVXA9E">0</span></button>
     </div>
-    <div class="foot">
-      <span class="dot"></span>
-      <span id="footText">未连接任何服务器</span>
-      <span class="ver">server-hub · M3</span>
+    <div class="toolbar-right" data-page-node-id="IAbQScldl6A9RK47HmxQPv">
+      <span class="summary" id="summary" data-page-node-id="OsNEMrJeUnmkMgpeCmKz0R"></span>
+      <button class="icon-btn" id="themeToggle" title="切换亮暗主题" aria-label="切换亮暗主题" data-page-node-id="XKQOAIbL0CzdV7HJ5CbT1y">🌙</button>
+      <button class="btn primary" id="addBtn" data-page-node-id="L82BKcBdXPjORJo1NG4WeV">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true" data-page-node-id="RjZ8wwbQCLZOELyqPfFc18"><path d="M12 5v14M5 12h14" data-page-node-id="H77nNeriHH7slIZGRRMXll"/></svg>
+        添加服务器
+      </button>
     </div>
-  </main>
+  </div>
 
-  <!-- 添加 / 编辑 -->
-  <div class="overlay" id="editOverlay" hidden>
-    <div class="dialog" role="dialog" aria-label="编辑服务器">
-      <h3 id="editTitle">添加服务器</h3>
-      <div class="field">
-        <label>名称</label>
-        <input id="fName" type="text" placeholder="如：办公室 NAS">
+  <!-- ============ 主体两栏 ============ -->
+  <div class="cols" data-page-node-id="pxIo3eMbhvlCH7fqckhZsF">
+    <aside aria-label="服务器列表" data-page-node-id="O6BY3CGaA51K3saAgoeror">
+      <div class="aside-head" data-page-node-id="f25zgMdDAPDxqmqXZCZ8lA">
+        <h2 data-page-node-id="1DtqcBJASiFMB7si4TUecu">服务器</h2>
+        <button class="link-btn" id="refreshBtn" aria-label="测试全部连接" data-page-node-id="rZ0oVwOZVkCn9ZiknhP002">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" data-page-node-id="nDHPeJ5yW5jPMagtn3nilN"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 3v6h-6" data-page-node-id="bG9m3CVOY29o1DD3Kts4D7"/></svg>
+          刷新
+        </button>
       </div>
-      <div class="field-row">
-        <div class="field">
-          <label>协议</label>
-          <select id="fProto">
-            <option value="ssh">SSH</option>
-            <option value="telnet">Telnet</option>
-          </select>
+      <div class="list scroll-thin" id="serverList" role="listbox" aria-label="服务器" data-page-node-id="HONyROMVWdgmiwELFkzUdn"></div>
+    </aside>
+
+    <main data-page-node-id="bGna3qXA05R1DyBaHRXX6y">
+      <div id="detail" class="scroll-thin" data-page-node-id="3aZaJ9yAs1upReD7iZpiAG">
+        <div class="placeholder" data-page-node-id="Ouw1YZRWXUdbxp79ENREwE">
+          <div class="card-hint" data-page-node-id="GUGvBT8OpmAujTHAF2lOO5">
+            <div class="big" data-page-node-id="nw7Xto2TAjN45mxWbMXCbi">🖥️</div>
+            <h2 data-page-node-id="CJEzAapyNjaEhNdK1Aot5Q">选择左侧服务器</h2>
+            <p data-page-node-id="1VNVbhS62lZa0rWt6Lvfo2">查看详情、测试连通性，或点「打开终端」直接进 SSH。</p>
+          </div>
         </div>
-        <div class="field">
-          <label>端口（留空用默认）</label>
-          <input id="fPort" type="text" inputmode="numeric" placeholder="22">
+      </div>
+      <!-- 终端面板：多会话标签 + xterm -->
+      <div id="termPanel" hidden data-page-node-id="OlBPrgwuu40IC6D3UbanX3">
+        <div class="term-tabs" id="termTabs" data-page-node-id="AgE7rAWTEcAx4PE0rjzGxH"></div>
+        <div class="term-area" id="termArea" data-page-node-id="d48tKIJDBJAa8SFkqXrwKn"></div>
+      </div>
+    </main>
+  </div>
+
+  <!-- ============ 底部状态栏 ============ -->
+  <footer data-page-node-id="XZI08sKi7Sj2GTB9dwrCcd">
+    <span class="dot" data-page-node-id="iWBxZGLihzLbFjbnLSPdpn"></span>
+    <span id="footText" data-page-node-id="It1UfXtRneJOYWkUAOLgBA">未连接任何服务器</span>
+    <span class="sep" data-page-node-id="hzulfkkTvsvBZIBbkAyGd9">·</span>
+    <span id="footCount" data-page-node-id="6HlZsBD7JYZU2E0pFnqlBA">0 台服务器</span>
+    <span class="clock" id="clock" data-page-node-id="UFBMW21VHLM9XCpOyucJ2j">--:--:--</span>
+  </footer>
+
+  <!-- ============ 添加 / 编辑 ============ -->
+  <div class="overlay" id="editOverlay" hidden data-page-node-id="33s0C3BFJe54gNPqceVe3x">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="editTitle" data-page-node-id="KtsINNze3oV2URoyWwJBGA">
+      <div class="dialog-head" data-page-node-id="NINOqzl5QE2FbUI40ZJCgO">
+        <h3 id="editTitle" data-page-node-id="HoHQm8woSoahXPMNdxAqHj">添加服务器</h3>
+        <button class="icon-btn" id="editX" aria-label="关闭" data-page-node-id="mH0d4gCalmHDNDtgUztjs0">✕</button>
+      </div>
+      <div class="dialog-body" data-page-node-id="cttrBnBR22rqZBBtEEqBVX">
+        <div class="field-row" data-page-node-id="jJkD5iQ5DXpvMsrqnV9QgA">
+          <div class="field" data-page-node-id="EJzFpdLlBWT0nEaBkGk3oP">
+            <label for="fName" data-page-node-id="cRaTAKZGAyi9Hk3BwmzdAl">名称</label>
+            <input id="fName" type="text" placeholder="如：办公室 NAS" data-page-node-id="f5RQHDRUJFXTeTGKA4Ut39">
+          </div>
+          <div class="field fixed" style="flex:0 0 auto" data-page-node-id="8Kw3CZ7yf5yh1Fa0tO4IMW">
+            <span class="flabel" data-page-node-id="q8Q5Z2cxyIXBxead6ff5HC">协议</span>
+            <div class="segmented" id="fProtoSeg" data-page-node-id="k08hQ8xjsusYBcTJfsqkRi">
+              <button type="button" data-proto="ssh" aria-selected="true" data-page-node-id="gtralJ3pTX2dKMynZ7PI9h">SSH</button>
+              <button type="button" data-proto="telnet" aria-selected="false" data-page-node-id="ZJFp51AfJc1UgYhzhAqJo7">Telnet</button>
+            </div>
+          </div>
         </div>
+        <div class="field-row" data-page-node-id="XXLgy7PD65su7Huq7VYGjH">
+          <div class="field" data-page-node-id="YDRNRCh8K3yOVSyaAOZDMA">
+            <label for="fHost" data-page-node-id="akOFhXsUNBDhAGfRw5JxYj">地址</label>
+            <input id="fHost" type="text" class="mono" placeholder="IP 或域名" data-page-node-id="gGLUNXA4nWSHreVsrh6wVH">
+          </div>
+          <div class="field fixed" data-page-node-id="jHACtnI1R4ZhfCbW3nSPgN">
+            <label for="fPort" data-page-node-id="LAfjQdxhAtZyLxxAzk1xqn">端口</label>
+            <input id="fPort" type="text" class="mono" inputmode="numeric" placeholder="默认" data-page-node-id="hgyq53o6HIzLXsSLGVyWB4">
+          </div>
+        </div>
+        <div class="field" data-page-node-id="3LtY5X3ZUFSlVeHx9DGWf3">
+          <label for="fUser" data-page-node-id="UgvgCdDa99t1bLKd5CHNlZ">用户名</label>
+          <input id="fUser" type="text" class="mono" placeholder="root" data-page-node-id="imVeBXmFtZcQzVXeyYjx0h">
+        </div>
+        <div class="field" data-page-node-id="fR4FQAB6M72wCWFaFAH6eO">
+          <label for="fNotes" data-page-node-id="rlBknBjrbCcCulB2QXeCDj">备注</label>
+          <textarea id="fNotes" rows="2" placeholder="可选"></textarea>
+        </div>
+        <p class="field-hint" data-page-node-id="0AjBbFkYqbEuJ7r8XQcryp">认证由系统 ssh 在终端内交互完成，密码 / 密钥口令不落盘。</p>
+        <p class="test-line" id="editTestLine" data-page-node-id="Ge3nhKeb3d56bcDlj0j6nX"></p>
+        <p class="form-error" id="editError" data-page-node-id="ZXjryaZQoeG2vEVFgjzAdC"></p>
       </div>
-      <div class="field">
-        <label>主机地址</label>
-        <input id="fHost" type="text" placeholder="IP 或域名">
-      </div>
-      <div class="field">
-        <label>用户名</label>
-        <input id="fUser" type="text" placeholder="root">
-      </div>
-      <div class="field">
-        <label>备注</label>
-        <textarea id="fNotes" rows="2" placeholder="可选"></textarea>
-      </div>
-      <p class="form-error" id="editError"></p>
-      <div class="btn-row">
-        <button class="btn" id="editCancel">取消</button>
-        <button class="btn primary" id="editSave">保存</button>
+      <div class="dialog-foot" data-page-node-id="MhTvtI1qtHSyRG3hUCKUCg">
+        <button class="btn" id="editTest" data-page-node-id="0XA9J7sa1bYx2QlUTpjNKU">测试连接</button>
+        <span class="spacer" data-page-node-id="WwSZiUzgAyKh17ff5LGZdw"></span>
+        <button class="btn ghost" id="editCancel" data-page-node-id="2NyYTBVP1iCWrkszKy30jc">取消</button>
+        <button class="btn primary" id="editSave" data-page-node-id="hMzu8LdrxYbCdRk0AYMMOe">保存</button>
       </div>
     </div>
   </div>
 
-  <!-- 删除确认 -->
-  <div class="overlay" id="deleteOverlay" hidden>
-    <div class="dialog" role="dialog" aria-label="删除服务器">
-      <h3>删除服务器</h3>
-      <p style="font-size:13px" class="muted">确定删除「<span id="deleteName"></span>」吗？此操作不可恢复。</p>
-      <div class="btn-row">
-        <button class="btn" id="deleteCancel">取消</button>
-        <button class="btn danger" id="deleteConfirm">删除</button>
+  <!-- ============ 删除确认 ============ -->
+  <div class="overlay" id="deleteOverlay" hidden data-page-node-id="fAwe2B3CMeQCN36QLvylNP">
+    <div class="dialog" role="dialog" aria-modal="true" aria-label="删除服务器" data-page-node-id="mto3HblM8ARr74vke1lsxF">
+      <div class="dialog-head" data-page-node-id="WHenPkOJ33CkfyMOFkAHFr">
+        <h3 data-page-node-id="BSc0B60bnfarleu0tZnF21">删除服务器</h3>
+        <button class="icon-btn" id="deleteX" aria-label="关闭" data-page-node-id="ROQ6rrSE0RlVmZl7DLQNOf">✕</button>
+      </div>
+      <div class="dialog-body" data-page-node-id="aHeliHMH0I4NwOvIbO663Z">
+        <p style="margin:0;font-size:13px" class="d-text" data-page-node-id="IaDffpUFnD0BXBFh2v1jJn">确定删除「<b id="deleteName" data-page-node-id="vYX8DK9YdkNVXhCqmdvGli"></b>」吗？此操作不可恢复。</p>
+      </div>
+      <div class="dialog-foot" data-page-node-id="O3tSfBrBpL256PNHB9ZMN0">
+        <span class="spacer" data-page-node-id="GCuQnL83trelJf40nnZFfO"></span>
+        <button class="btn ghost" id="deleteCancel" data-page-node-id="aVJHT5CYj0RFek2MN3iUU0">取消</button>
+        <button class="btn danger" id="deleteConfirm" data-page-node-id="GDphFiAlyi1AY90xHQUj6R">删除</button>
       </div>
     </div>
   </div>
+
+  <!-- ============ 隧道编辑 ============ -->
+  <div class="overlay" id="tunnelOverlay" hidden data-page-node-id="07nrNZmj0lXqp5tGYNuIZj">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="tunnelTitle" data-page-node-id="XTjSgQRjuY5zjdSh8BvnAT">
+      <div class="dialog-head" data-page-node-id="jXhpUI2dM9aOOS6zfypEAG">
+        <h3 id="tunnelTitle" data-page-node-id="HOUR1uBr2nmo4Li8eqEqcE">新建隧道</h3>
+        <button class="icon-btn" id="tunnelX" aria-label="关闭" data-page-node-id="ekbxAuDBAPpqQss0GMZ2ev">✕</button>
+      </div>
+      <div class="dialog-body" data-page-node-id="TFVN3o9wCpa2pVM895i2B5">
+        <div class="field" data-page-node-id="YFsDTQGIwcRAzpRCo7dV5E">
+          <label for="tName" data-page-node-id="jvew57GxFSFNLh5vH9zqkM">名称</label>
+          <input id="tName" type="text" placeholder="如：内网 Web" data-page-node-id="FBVVouueDrBnA5j9H8E3Vt">
+        </div>
+        <div class="field-row" data-page-node-id="EXsK8RxEDAqrcrfdWh5sNy">
+          <div class="field" data-page-node-id="gdvKG8EDMRorkaFNQbXS5m">
+            <label for="tKind" data-page-node-id="QkRCxxy53R4aR9mvBW5HDh">类型</label>
+            <select id="tKind" style="width:100%;background:rgb(var(--elevate));border:1px solid rgb(var(--line));border-radius:9px;padding:8px 11px;color:rgb(var(--fg));font:inherit;font-size:13px;outline:none" data-page-node-id="7ad6fzoF9x8HjZ8pduvVzD">
+              <option value="local" data-page-node-id="ImG7zyg5VDHEBXp6DL6aCJ">本地转发</option>
+              <option value="dynamic" data-page-node-id="IzHrfLzOLfbM1Rqr4odDEC">SOCKS5 动态转发</option>
+            </select>
+          </div>
+          <div class="field fixed" data-page-node-id="JECZEeo3ret85gwYNz1o2i">
+            <label for="tLocalPort" data-page-node-id="mDQWNE4psVM0WlvDWhBeeT">本地端口</label>
+            <input id="tLocalPort" type="text" class="mono" inputmode="numeric" placeholder="8080" data-page-node-id="1UE2D2fFuNJBXrwR6t81yA">
+          </div>
+        </div>
+        <div class="field-row" id="tTargetRow" data-page-node-id="7a1CHE4yGwvqdu9QSPjgZn">
+          <div class="field" data-page-node-id="5SDumg5qbWcNuTDJIsVJ9a">
+            <label for="tTargetHost" data-page-node-id="LFwQDlOgGKGhTbldpN13tb">目标主机（从服务器侧看）</label>
+            <input id="tTargetHost" type="text" class="mono" placeholder="127.0.0.1" data-page-node-id="y6LOrPeqGGQcg7seUNlECA">
+          </div>
+          <div class="field fixed" style="flex:0 0 110px" data-page-node-id="nsQDPlH45AHyCavcdvQnHg">
+            <label for="tTargetPort" data-page-node-id="ESED0ruoY1kffUWriFdeVz">目标端口</label>
+            <input id="tTargetPort" type="text" class="mono" inputmode="numeric" placeholder="80" data-page-node-id="mIEpZx1N0sEHlVx6SbyAz2">
+          </div>
+        </div>
+        <p class="field-hint" id="tunnelHint" data-page-node-id="EEoybsGBLGCvjzdlCzAokS">本地转发：访问本机端口 = 经该服务器访问目标；动态转发：本机端口变成 SOCKS5 代理。</p>
+        <p class="form-error" id="tunnelError" data-page-node-id="IOUj1kwqvwfhiDlwqfUWIX"></p>
+      </div>
+      <div class="dialog-foot" data-page-node-id="fXtoQQVoQV8aU26G6oBb3r">
+        <span class="spacer" data-page-node-id="wW5Fw7Wsj8Ky4kB5x9Etou"></span>
+        <button class="btn ghost" id="tunnelCancel" data-page-node-id="LKJiIRIpsjTtR7HEVeoFcu">取消</button>
+        <button class="btn primary" id="tunnelSave" data-page-node-id="Xx9XBQ7D8XdQxhHAzWFFZA">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" hidden data-page-node-id="jafNKZwwBDNtT2DOvAjgV6"></div>
 
 <script>
   // ============ 环境 ============
   const HAS_TAURI = typeof window.__TAURI__ !== "undefined";
   const invoke = HAS_TAURI ? window.__TAURI__.core.invoke : null;
-  // 请求/响应都在内存里存一份测试结果（不落盘），行上的圆点只是「最近一次测试」的显示
-  const testResults = {};   // id -> "ok" | "bad"
 
   // ============ 主题 ============
   const root = document.documentElement;
@@ -396,6 +675,9 @@
   let filterProto = "";
   let searchText = "";
   let deleteTargetId = null;
+  // 连接测试记录（不落盘，会话内有效）：
+  // id -> { state: 'ok'|'bad', ms: number|null, hist: number[]（最多 60 次）, message: string }
+  const probes = {};
 
   // ============ 数据 ============
   async function loadServers() {
@@ -421,7 +703,36 @@
     return await invoke("hub_test_server", { server });
   }
 
-  // ============ 渲染 ============
+  // ============ 工具 ============
+  function esc(text) {
+    return String(text == null ? '' : text)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  function hostLabel(s) {
+    return (s.username ? s.username + '@' : '') + s.host + ':' + (s.port || (s.protocol === 'telnet' ? 23 : 22));
+  }
+
+  function msClass(ms) {
+    return ms < 50 ? 'ms-ok' : ms < 100 ? 'ms-warn' : 'ms-bad';
+  }
+
+  let toastTimer = null;
+  function toast(msg, kind) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = kind === 'bad' ? 'bad' : '';
+    t.hidden = false;
+    t.style.opacity = 1;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () {
+      t.style.opacity = 0;
+      setTimeout(function () { t.hidden = true; }, 220);
+    }, 2400);
+  }
+
+  // ============ 渲染：列表 ============
   function visibleServers() {
     const text = searchText.trim().toLowerCase();
     return servers.filter(function (s) {
@@ -432,91 +743,84 @@
     });
   }
 
-  function render() {
+  const SERVER_ICON =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<rect x="2" y="4" width="20" height="14" rx="2"/><path d="M6 9h4M6 13h2M8 21h8M12 18v3"/></svg>';
+
+  function stateLabel(id) {
+    const p = probes[id];
+    if (!p) return '未测';
+    return p.state === 'ok' ? '在线' : '离线';
+  }
+
+  function renderList() {
     const list = document.getElementById('serverList');
     const items = visibleServers();
     list.textContent = "";
     if (items.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'empty';
-      empty.innerHTML = '<div class="big">🖥️</div>' + (
-        servers.length === 0
-          ? '还没有服务器<br>点右上角「＋」添加'
-          : '没有匹配的服务器');
+      empty.innerHTML = SERVER_ICON +
+        (servers.length === 0
+          ? '<p class="t">还没有服务器</p><p class="s">添加 SSH / Telnet 服务器后可在此打开终端、管理隧道</p>'
+          : '<p class="t">没有匹配的服务器</p>');
       list.appendChild(empty);
+      return;
     }
     for (const s of items) {
-      const row = document.createElement('div');
-      row.className = 'server-row' + (s.id === selectedId ? ' active' : '');
-
-      const dot = document.createElement('span');
-      const result = testResults[s.id];
-      dot.className = 'dot' + (result === 'ok' ? ' ok' : result === 'bad' ? ' bad' : '');
-
-      const meta = document.createElement('div');
-      meta.className = 'meta';
-      const name = document.createElement('div');
-      name.className = 'name';
-      name.textContent = s.name || '(未命名)';
-      const sub = document.createElement('div');
-      sub.className = 'sub';
-      sub.textContent = (s.username ? s.username + '@' : '') + s.host + ':' + (s.port || (s.protocol === 'telnet' ? 23 : 22));
-      meta.appendChild(name);
-      meta.appendChild(sub);
-
-      const proto = document.createElement('span');
-      proto.className = 'proto' + (s.protocol === 'telnet' ? ' telnet' : '');
-      proto.textContent = s.protocol === 'telnet' ? 'TEL' : 'SSH';
-
-      row.appendChild(dot);
-      row.appendChild(meta);
-      row.appendChild(proto);
-      row.addEventListener('click', function () {
+      const p = probes[s.id];
+      const sel = s.id === selectedId;
+      const li = document.createElement('div');
+      li.setAttribute('role', 'option');
+      li.setAttribute('aria-selected', String(sel));
+      const dotCls = !p ? '' : p.state === 'ok' ? 'ok' : 'bad';
+      const msHtml = (p && p.state === 'ok' && p.ms != null)
+        ? '<span class="s-ms ' + msClass(p.ms) + '">' + p.ms + 'ms</span>'
+        : '<span class="s-ms ms-none">—</span>';
+      li.innerHTML =
+        '<button class="server-row' + (sel ? ' active' : '') + '" type="button">' +
+          '<span class="s-icon">' + SERVER_ICON + '</span>' +
+          '<span class="s-main">' +
+            '<span class="s-line">' +
+              '<span class="s-name">' + esc(s.name || '(未命名)') + '</span>' +
+              '<span class="s-proto">' + (s.protocol === 'telnet' ? 'TEL' : 'SSH') + '</span>' +
+            '</span>' +
+            '<span class="s-host"><span class="dot ' + dotCls + '"></span><span class="txt">' + esc(hostLabel(s)) + '</span></span>' +
+          '</span>' +
+          '<span class="s-right">' + msHtml + '<span class="s-state">' + stateLabel(s.id) + '</span></span>' +
+        '</button>';
+      li.querySelector('button').addEventListener('click', function () {
         selectedId = s.id;
         activeTermId = null;   // 点列表 = 回到详情视图；终端标签还在，点标签回去
         render();
       });
-      list.appendChild(row);
+      list.appendChild(li);
     }
-    document.getElementById('sideFoot').textContent =
-      servers.length === 0 ? '服务器档案存在本机配置目录' : servers.length + ' 台服务器';
-    renderMain();
   }
 
-  // ============ 终端（M3） ============
-  const HAS_XTERM = typeof window.Terminal !== 'undefined' && typeof window.FitAddon !== 'undefined';
-  const terms = new Map();      // id -> {id, meta, term, fitAddon, page}
-  let activeTermId = null;
-
-  const TERM_THEMES = {
-    dark: {
-      background: '#020617', foreground: '#e2e8f0',
-      cursor: '#e2e8f0', cursorAccent: '#020617',
-      selectionBackground: '#334155'
-    },
-    light: {
-      background: '#ffffff', foreground: '#0f172a',
-      cursor: '#0f172a', cursorAccent: '#ffffff',
-      selectionBackground: '#bfd7fe'
-    }
-  };
-
-  function bytesToB64(bytes) {
-    let binary = '';
-    const chunk = 0x8000;
-    for (let i = 0; i < bytes.length; i += chunk) {
-      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
-    }
-    return btoa(binary);
-  }
-  function b64ToBytes(b64) {
-    const binary = atob(b64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-    return bytes;
+  function renderCounts() {
+    const ssh = servers.filter(function (s) { return s.protocol === 'ssh'; }).length;
+    const tel = servers.filter(function (s) { return s.protocol === 'telnet'; }).length;
+    document.getElementById('cntAll').textContent = servers.length;
+    document.getElementById('cntSsh').textContent = ssh;
+    document.getElementById('cntTel').textContent = tel;
+    document.getElementById('footCount').textContent = servers.length + ' 台服务器';
   }
 
-  /** 主区切换：有激活的终端页就显示终端面板，否则显示服务器详情 */
+  function renderSummary() {
+    const box = document.getElementById('summary');
+    const tested = servers.filter(function (s) { return probes[s.id]; });
+    if (tested.length === 0) {
+      box.textContent = '';
+      return;
+    }
+    const online = tested.filter(function (s) { return probes[s.id].state === 'ok'; }).length;
+    const offline = tested.length - online;
+    box.innerHTML = (online > 0 ? '<span class="pulse" aria-hidden="true"></span>' : '') +
+      online + ' 在线 / ' + offline + ' 离线';
+  }
+
+  // ============ 渲染：主区（详情 / 终端） ============
   function renderMain() {
     const hasTerm = activeTermId && terms.has(activeTermId);
     document.getElementById('detail').style.display = hasTerm ? 'none' : '';
@@ -548,6 +852,199 @@
         ? '后台保持 ' + terms.size + ' 个终端会话（点标签回去）'
         : '未连接任何服务器';
     }
+  }
+
+  function render() {
+    renderList();
+    renderCounts();
+    renderSummary();
+    renderMain();
+  }
+
+  // ============ 延迟趋势（会话内采样） ============
+  function sparkline(hist) {
+    const W = 520, H = 64, PAD = 4;
+    if (hist.length < 2) return '';
+    let max = Math.max.apply(null, hist), min = Math.min.apply(null, hist);
+    const span = Math.max(max - min, 1);
+    const step = W / (hist.length - 1);
+    const y = function (v) { return PAD + (H - 2 * PAD) * (1 - (v - min) / span); };
+    const pts = hist.map(function (v, i) { return (i * step).toFixed(1) + ' ' + y(v).toFixed(1); });
+    const line = 'M' + pts.join(' L');
+    const area = line + ' L' + W + ' ' + H + ' L0 ' + H + ' Z';
+    return '<svg viewBox="0 0 ' + W + ' ' + H + '" class="spark" role="img" aria-label="延迟折线图">' +
+      '<defs><linearGradient id="lg' + '" x1="0" y1="0" x2="0" y2="1">' +
+      '<stop offset="0" stop-color="rgb(var(--ok))" stop-opacity=".35"/>' +
+      '<stop offset="1" stop-color="rgb(var(--ok))" stop-opacity="0"/></linearGradient></defs>' +
+      '<path d="' + area + '" fill="url(#lg)"/>' +
+      '<path d="' + line + '" fill="none" stroke="rgb(var(--ok))" stroke-width="1.5" stroke-linejoin="round"/>' +
+      '</svg>';
+  }
+
+  function p95(hist) {
+    const sorted = hist.slice().sort(function (a, b) { return a - b; });
+    return sorted[Math.max(0, Math.ceil(sorted.length * 0.95) - 1)];
+  }
+
+  // ============ 测试连接（顺带采样延迟） ============
+  async function probe(server) {
+    const t0 = performance.now();
+    const p = probes[server.id] || { hist: [] };
+    p.hist = p.hist || [];
+    try {
+      p.message = await testServer(server);
+      p.state = 'ok';
+      p.ms = Math.max(1, Math.round(performance.now() - t0));
+      p.hist.push(p.ms);
+      if (p.hist.length > 60) p.hist.shift();
+    } catch (error) {
+      p.state = 'bad';
+      p.ms = null;
+      p.message = String(error);
+    }
+    probes[server.id] = p;
+  }
+
+  async function runTest(server, btn) {
+    if (btn) { btn.disabled = true; btn.textContent = '测试中…'; }
+    await probe(server);
+    render();
+    if (btn) { btn.disabled = false; btn.textContent = '测试连接'; }
+    // 详情里的结果行单独更新（render 后节点是新 的）
+    const p = probes[server.id];
+    const line = document.getElementById('detailTestLine');
+    if (line && selectedId === server.id) {
+      line.className = 'test-line ' + (p.state === 'ok' ? 'ok' : 'bad');
+      line.textContent = (p.state === 'ok' ? '✓ ' : '✗ ') + p.message;
+    }
+  }
+
+  let refreshing = false;
+  async function refreshAll(btn) {
+    if (refreshing || servers.length === 0) return;
+    refreshing = true;
+    btn.classList.add('spinning');
+    const targets = visibleServers();
+    await Promise.all(targets.map(function (s) { return probe(s); }));
+    refreshing = false;
+    btn.classList.remove('spinning');
+    render();
+    const online = targets.filter(function (s) { return probes[s.id].state === 'ok'; }).length;
+    toast('已测 ' + targets.length + ' 台：' + online + ' 在线 / ' + (targets.length - online) + ' 离线');
+  }
+
+  // ============ 详情 ============
+  function renderDetail() {
+    const box = document.getElementById('detail');
+    const server = servers.find(function (s) { return s.id === selectedId; });
+    if (!server) {
+      box.innerHTML =
+        '<div class="placeholder"><div class="card-hint">' +
+        '<div class="big">🖥️</div><h2>选择左侧服务器</h2>' +
+        '<p>查看详情、测试连通性，或点「打开终端」直接进 SSH。</p>' +
+        '</div></div>';
+      return;
+    }
+    const port = server.port || (server.protocol === 'telnet' ? 23 : 22);
+    const p = probes[server.id];
+    const isSsh = server.protocol === 'ssh';
+    const statePill = !p
+      ? '<span class="pill dim"><span class="pdot"></span>未测</span>'
+      : p.state === 'ok'
+        ? '<span class="pill ok"><span class="pdot"></span>在线</span>'
+        : '<span class="pill bad"><span class="pdot"></span>离线</span>';
+    const msText = (p && p.state === 'ok' && p.ms != null)
+      ? '<span class="' + msClass(p.ms) + '">' + p.ms + ' ms</span>' : '—';
+
+    // 延迟趋势区
+    let sparkBlock;
+    if (p && p.hist && p.hist.length >= 2) {
+      sparkBlock =
+        '<div class="sec-head"><h4>延迟趋势 · 近 ' + p.hist.length + ' 次</h4>' +
+        '<span class="sec-sub">p95 · ' + p95(p.hist) + 'ms</span></div>' +
+        sparkline(p.hist);
+    } else {
+      sparkBlock =
+        '<div class="sec-head"><h4>延迟趋势</h4></div>' +
+        '<p class="spark-hint">点「测试连接」采样（TCP 握手耗时，会话内最多记 60 次；满 2 次出图）。</p>';
+    }
+
+    // 隧道区
+    let tunnelHtml = '<div class="d-section" id="tunnelBlock"></div>';
+
+    box.innerHTML =
+      '<div class="d-head">' +
+        '<span class="d-icon">' + SERVER_ICON + '</span>' +
+        '<div class="d-title">' +
+          '<div class="row">' +
+            '<h3>' + esc(server.name || '(未命名)') + '</h3>' +
+            statePill +
+            '<span class="badge">' + (isSsh ? 'SSH' : 'TELNET') + '</span>' +
+          '</div>' +
+          '<p class="host">' + esc(hostLabel(server)) + '</p>' +
+          (server.notes ? '<p class="notes">' + esc(server.notes) + '</p>' : '') +
+        '</div>' +
+        '<div class="d-actions">' +
+          '<button class="btn primary" id="connectBtn"' +
+            (isSsh ? '' : ' disabled title="Telnet 终端在后续版本开通"') + '>' +
+            '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M6 9l3 3-3 3"/></svg>' +
+            '打开终端</button>' +
+          '<button class="btn" id="filesBtn" disabled title="SFTP 文件浏览在后续版本开通">' +
+            '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>' +
+            '浏览文件</button>' +
+          '<button class="icon-btn boxed" id="editBtn" aria-label="编辑服务器" title="编辑">' +
+            '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z"/></svg></button>' +
+          '<button class="icon-btn boxed danger" id="delBtn" aria-label="删除服务器" title="删除">' +
+            '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M6 6l1 15h10l1-15M10 11v6M14 11v6"/></svg></button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="info-grid" role="group" aria-label="连接信息">' +
+        '<div><p class="k">用户</p><p class="v mono">' + esc(server.username || '—') + '</p></div>' +
+        '<div><p class="k">认证方式</p><p class="v">系统 ssh · 终端内交互</p></div>' +
+        '<div><p class="k">端口</p><p class="v mono">' + port + '</p></div>' +
+        '<div><p class="k">延迟</p><p class="v mono">' + msText + '</p></div>' +
+      '</div>' +
+      '<div class="d-section">' +
+        '<div class="sec-head"><h4>连通性</h4>' +
+          '<button class="btn small" id="testBtn">测试连接</button></div>' +
+        '<p class="test-line" id="detailTestLine">' +
+          (p ? ((p.state === 'ok' ? '✓ ' : '✗ ') + esc(p.message || '')) : '') + '</p>' +
+      '</div>' +
+      '<div class="d-section">' + sparkBlock + '</div>' +
+      tunnelHtml;
+
+    document.getElementById('connectBtn').addEventListener('click', function () { openTerminal(server); });
+    document.getElementById('testBtn').addEventListener('click', function () { runTest(server, document.getElementById('testBtn')); });
+    document.getElementById('editBtn').addEventListener('click', function () { openEdit(server); });
+    document.getElementById('delBtn').addEventListener('click', function () { openDelete(server); });
+    renderTunnelBlock(server);
+  }
+
+  // ============ 终端（M3） ============
+  const HAS_XTERM = typeof window.Terminal !== 'undefined' && typeof window.FitAddon !== 'undefined';
+  const terms = new Map();      // id -> {id, meta, term, fitAddon, page}
+  let activeTermId = null;
+
+  // 终端区恒深色（终端惯例，亮色主题下也如此）
+  const TERM_THEME = {
+    background: '#04070f', foreground: '#e2e8f0',
+    cursor: '#e2e8f0', cursorAccent: '#04070f',
+    selectionBackground: '#334155'
+  };
+
+  function bytesToB64(bytes) {
+    let binary = '';
+    const chunk = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunk) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+    }
+    return btoa(binary);
+  }
+  function b64ToBytes(b64) {
+    const binary = atob(b64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes;
   }
 
   function renderTermTabs() {
@@ -583,14 +1080,14 @@
 
   async function openTerminal(server) {
     if (!invoke || !HAS_XTERM) {
-      alert('终端需要应用环境（xterm 组件未加载）');
+      toast('终端需要应用环境（xterm 组件未加载）', 'bad');
       return;
     }
     let meta;
     try {
       meta = await invoke('hub_term_open', { server });
     } catch (error) {
-      alert('打开终端失败：' + error);
+      toast('打开终端失败：' + error, 'bad');
       return;
     }
     if (terms.has(meta.id)) { activeTermId = meta.id; renderMain(); return; }
@@ -601,7 +1098,7 @@
     area.appendChild(page);
 
     const term = new window.Terminal({
-      theme: TERM_THEMES[dark ? 'dark' : 'light'],
+      theme: TERM_THEME,
       fontFamily: 'Menlo, Consolas, "JetBrains Mono", monospace',
       fontSize: 13,
       cursorBlink: true,
@@ -695,125 +1192,254 @@
     }
   });
 
-  // ============ 主题切换时终端跟随 ============
-  (function () {
-    const originalToggle = document.getElementById('themeToggle');
-    originalToggle.addEventListener('click', function () {
-      const theme = TERM_THEMES[dark ? 'dark' : 'light'];
-      for (const [, t] of terms) { t.term.options.theme = theme; }
-    });
-  })();
+  // ============ 隧道（M4） ============
+  let tunnels = [];            // 全部隧道档案（前端按 server_id 过滤显示）
+  let tunnelRunning = {};      // id -> 是否在跑
+  let editingTunnelId = null;
 
-  function esc(text) {
-    return String(text == null ? '' : text)
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-  }
-
-  function renderDetail() {
-    const box = document.getElementById('detail');
-    const server = servers.find(function (s) { return s.id === selectedId; });
-    if (!server) {
-      box.innerHTML =
-        '<div class="placeholder"><div class="card-hint">' +
-        '<div class="big">🖥️</div><h2>选择左侧服务器</h2>' +
-        '<p class="muted">查看详情、测试连通性，或点「连接终端」直接进 SSH。</p>' +
-        '</div></div>';
-      return;
-    }
-    const port = server.port || (server.protocol === 'telnet' ? 23 : 22);
-    const result = testResults[server.id];
-    const testLine = result === 'ok' ? '<p class="test-line ok">✓ 连通</p>'
-                   : result === 'bad' ? '<p class="test-line bad">✗ 连不上</p>'
-                   : '';
-    box.innerHTML =
-      '<div class="detail-head">' +
-        '<h2>' + esc(server.name || '(未命名)') + '</h2>' +
-        '<span class="proto' + (server.protocol === 'telnet' ? ' telnet' : '') + '">' +
-          (server.protocol === 'telnet' ? 'TELNET' : 'SSH') + '</span>' +
-      '</div>' +
-      '<div class="kv">' +
-        '<div class="k">地址</div><div class="v">' + esc(server.host) + ':' + port + '</div>' +
-        '<div class="k">用户名</div><div class="v">' + esc(server.username || '—') + '</div>' +
-        '<div class="k">备注</div><div class="v">' + esc(server.notes || '—') + '</div>' +
-      '</div>' +
-      '<div class="btn-row">' +
-        '<button class="btn primary" id="connectBtn"' +
-          ((server.protocol === 'ssh' && HAS_TAURI) ? '' :
-            (server.protocol === 'ssh' ? ' disabled title="需要在应用内使用"' : ' disabled title="Telnet 终端在后续版本开通"')) +
-        '>连接终端</button>' +
-        '<button class="btn" id="testBtn">测试连接</button>' +
-        '<button class="btn" id="editBtn">编辑</button>' +
-        '<button class="btn danger" id="delBtn">删除</button>' +
-      '</div>' +
-      testLine;
-    document.getElementById('connectBtn').addEventListener('click', function () { openTerminal(server); });
-    document.getElementById('testBtn').addEventListener('click', function () { runTest(server); });
-    document.getElementById('editBtn').addEventListener('click', function () { openEdit(server); });
-    document.getElementById('delBtn').addEventListener('click', function () { openDelete(server); });
-  }
-
-  async function runTest(server) {
-    const btn = document.getElementById('testBtn');
-    if (btn) { btn.disabled = true; btn.textContent = '测试中…'; }
-    let ok = false;
-    let message = '';
+  async function loadTunnels() {
+    if (!invoke) { tunnels = []; return; }
     try {
-      message = await testServer(server);
-      ok = true;
+      tunnels = await invoke('hub_list_tunnels') || [];
     } catch (error) {
-      message = String(error);
+      console.error(error);
+      tunnels = [];
     }
-    testResults[server.id] = ok ? 'ok' : 'bad';
+  }
+
+  function renderTunnelBlock(server) {
+    const block = document.getElementById('tunnelBlock');
+    if (!block) return;
+    const mine = tunnels.filter(function (t) { return t.server_id === server.id; });
+    let html = '<div class="sec-head"><h4>隧道</h4></div>';
+    if (mine.length === 0) {
+      html += '<div class="tunnel-empty">还没有隧道。建一条：把本机端口转发到服务器的内网（本地转发）或变成 SOCKS5 代理（动态转发）。' +
+        '<br>认证复用终端会话 —— 起隧道前先在该服务器上开一次终端。</div>';
+    } else {
+      html += '<div class="tunnel-list">';
+      for (const t of mine) {
+        const running = !!tunnelRunning[t.id];
+        const sub = t.kind === 'dynamic'
+          ? '本机 127.0.0.1:' + t.local_port + ' → SOCKS5 动态代理'
+          : '本机 127.0.0.1:' + t.local_port + ' → ' + (t.target_host || '?') + ':' + (t.target_port || '?');
+        html +=
+          '<div class="tunnel-row' + (running ? '' : ' off') + '">' +
+            '<span class="dot' + (running ? ' ok' : '') + '"></span>' +
+            '<div class="t-main">' +
+              '<div class="t-name"><span class="nm">' + esc(t.name || '(未命名)') + '</span>' +
+                '<span class="tunnel-kind' + (t.kind === 'dynamic' ? ' dyn' : '') + '">' +
+                  (t.kind === 'dynamic' ? 'SOCKS5' : '转发') + '</span></div>' +
+              '<div class="t-sub">' + esc(sub) + '</div>' +
+            '</div>' +
+            '<div class="t-acts">' +
+              (running
+                ? '<button class="btn small" data-act="stop" data-id="' + esc(t.id) + '">停止</button>'
+                : '<button class="btn small primary" data-act="start" data-id="' + esc(t.id) + '">启动</button>') +
+              '<button class="btn small" data-act="edit" data-id="' + esc(t.id) + '">编辑</button>' +
+              '<button class="btn small danger" data-act="del" data-id="' + esc(t.id) + '">删除</button>' +
+            '</div>' +
+          '</div>';
+      }
+      html += '</div>';
+    }
+    html += '<div class="tunnel-add"><button class="btn small" id="tunnelAddBtn">＋ 新建隧道</button></div>';
+    block.innerHTML = html;
+    block.querySelectorAll('button[data-act]').forEach(function (btn) {
+      const id = btn.dataset.id;
+      const tunnel = tunnels.find(function (t) { return t.id === id; });
+      if (!tunnel) return;
+      btn.addEventListener('click', function () {
+        const act = btn.dataset.act;
+        if (act === 'start') startTunnel(tunnel);
+        else if (act === 'stop') stopTunnel(tunnel);
+        else if (act === 'edit') openTunnelDialog(server, tunnel);
+        else if (act === 'del') deleteTunnel(tunnel);
+      });
+    });
+    const addBtn = document.getElementById('tunnelAddBtn');
+    if (addBtn) addBtn.addEventListener('click', function () { openTunnelDialog(server, null); });
+  }
+
+  async function startTunnel(tunnel) {
+    try {
+      await invoke('hub_tunnel_start', { tunnelId: tunnel.id });
+      tunnelRunning[tunnel.id] = true;
+      render();
+    } catch (error) {
+      toast('启动失败：' + error, 'bad');
+    }
+  }
+
+  async function stopTunnel(tunnel) {
+    try {
+      await invoke('hub_tunnel_stop', { tunnelId: tunnel.id });
+    } catch (error) {
+      // 未在运行也当停了
+    }
+    tunnelRunning[tunnel.id] = false;
     render();
-    const line = document.querySelector('.test-line');
-    if (line) {
-      line.className = 'test-line ' + (ok ? 'ok' : 'bad');
-      line.textContent = (ok ? '✓ ' : '✗ ') + message;
+  }
+
+  async function deleteTunnel(tunnel) {
+    if (!confirm('删除隧道「' + (tunnel.name || '(未命名)') + '」吗？')) return;
+    try {
+      await invoke('hub_delete_tunnel', { tunnelId: tunnel.id });
+      tunnelRunning[tunnel.id] = false;
+      await loadTunnels();
+      render();
+    } catch (error) {
+      toast('删除失败：' + error, 'bad');
     }
-    if (btn) { btn.disabled = false; btn.textContent = '测试连接'; }
+  }
+
+  function openTunnelDialog(server, tunnel) {
+    editingTunnelId = tunnel ? tunnel.id : null;
+    document.getElementById('tunnelTitle').textContent = tunnel ? '编辑隧道' : '新建隧道';
+    document.getElementById('tName').value = tunnel ? tunnel.name : '';
+    document.getElementById('tKind').value = tunnel ? tunnel.kind : 'local';
+    document.getElementById('tLocalPort').value = tunnel && tunnel.local_port ? tunnel.local_port : '';
+    document.getElementById('tTargetHost').value = tunnel ? tunnel.target_host : '127.0.0.1';
+    document.getElementById('tTargetPort').value = tunnel && tunnel.target_port ? tunnel.target_port : '';
+    document.getElementById('tunnelError').textContent = '';
+    document.getElementById('tunnelOverlay').hidden = false;
+    document.getElementById('tName').focus();
+  }
+  function closeTunnelDialog() {
+    document.getElementById('tunnelOverlay').hidden = true;
+  }
+  function toggleTargetRow() {
+    document.getElementById('tTargetRow').style.display =
+      document.getElementById('tKind').value === 'dynamic' ? 'none' : '';
+  }
+  document.getElementById('tKind').addEventListener('change', toggleTargetRow);
+
+  async function submitTunnel() {
+    const errorBox = document.getElementById('tunnelError');
+    errorBox.textContent = '';
+    const server = servers.find(function (s) { return s.id === selectedId; });
+    if (!server) { errorBox.textContent = '先选择一台服务器'; return; }
+    const localPort = parseInt(document.getElementById('tLocalPort').value.trim(), 10) || 0;
+    const targetPort = parseInt(document.getElementById('tTargetPort').value.trim(), 10) || 0;
+    const tunnel = {
+      id: editingTunnelId || '',
+      server_id: server.id,
+      name: document.getElementById('tName').value,
+      kind: document.getElementById('tKind').value,
+      local_port: localPort,
+      target_host: document.getElementById('tTargetHost').value,
+      target_port: targetPort,
+      created_at: 0,
+    };
+    try {
+      await invoke('hub_save_tunnel', { tunnel });
+      closeTunnelDialog();
+      await loadTunnels();
+      render();
+    } catch (error) {
+      errorBox.textContent = String(error);
+    }
+  }
+  document.getElementById('tunnelCancel').addEventListener('click', closeTunnelDialog);
+  document.getElementById('tunnelX').addEventListener('click', closeTunnelDialog);
+  document.getElementById('tunnelSave').addEventListener('click', submitTunnel);
+  document.getElementById('tunnelOverlay').addEventListener('click', function (e) {
+    if (e.target === this) closeTunnelDialog();
+  });
+
+  // 隧道进程退出 → 状态点熄灭（带 ssh 的报错尾巴）
+  if (HAS_TAURI) {
+    window.__TAURI__.event.listen('hub-tunnel-stopped', function (event) {
+      const payload = event.payload || {};
+      tunnelRunning[payload.id] = false;
+      render();
+      if (payload.tail) {
+        console.warn('隧道退出：' + payload.tail);
+      }
+    });
   }
 
   // ============ 添加 / 编辑弹窗 ============
-  let editingId = null;   // null = 新增
+  let editingId = null;      // null = 新增
+  let editingProto = 'ssh';  // 弹窗内的协议分段状态
+  function setEditProto(proto) {
+    editingProto = proto === 'telnet' ? 'telnet' : 'ssh';
+    document.querySelectorAll('#fProtoSeg button').forEach(function (b) {
+      b.setAttribute('aria-selected', String(b.dataset.proto === editingProto));
+    });
+  }
+  document.querySelectorAll('#fProtoSeg button').forEach(function (b) {
+    b.addEventListener('click', function () { setEditProto(b.dataset.proto); });
+  });
+
   function openEdit(server) {
     editingId = server ? server.id : null;
     document.getElementById('editTitle').textContent = server ? '编辑服务器' : '添加服务器';
     document.getElementById('fName').value = server ? server.name : '';
-    document.getElementById('fProto').value = server ? server.protocol : 'ssh';
+    setEditProto(server ? server.protocol : 'ssh');
     document.getElementById('fPort').value = server && server.port ? server.port : '';
     document.getElementById('fHost').value = server ? server.host : '';
     document.getElementById('fUser').value = server ? server.username : '';
     document.getElementById('fNotes').value = server ? server.notes : '';
     document.getElementById('editError').textContent = '';
+    document.getElementById('editTestLine').textContent = '';
+    document.getElementById('editTestLine').className = 'test-line';
     document.getElementById('editOverlay').hidden = false;
     document.getElementById('fName').focus();
   }
   function closeEdit() {
     document.getElementById('editOverlay').hidden = true;
   }
-  async function submitEdit() {
-    const errorBox = document.getElementById('editError');
-    errorBox.textContent = '';
+
+  /** 弹窗表单 → 服务器对象（供保存 / 弹窗内测试连接共用） */
+  function formServer() {
     const portText = document.getElementById('fPort').value.trim();
-    const server = {
+    return {
       id: editingId || '',
       name: document.getElementById('fName').value,
-      protocol: document.getElementById('fProto').value,
+      protocol: editingProto,
       host: document.getElementById('fHost').value,
       port: portText ? (parseInt(portText, 10) || 0) : 0,
       username: document.getElementById('fUser').value,
       notes: document.getElementById('fNotes').value,
       created_at: 0,
     };
+  }
+
+  async function submitEdit() {
+    const errorBox = document.getElementById('editError');
+    errorBox.textContent = '';
     try {
-      const savedServer = await saveServer(server);
+      const savedServer = await saveServer(formServer());
       closeEdit();
       selectedId = savedServer.id;
       await loadServers();
     } catch (error) {
       errorBox.textContent = String(error);
     }
+  }
+
+  async function testFromDialog() {
+    const line = document.getElementById('editTestLine');
+    const btn = document.getElementById('editTest');
+    const server = formServer();
+    if (!server.host.trim()) {
+      line.className = 'test-line bad';
+      line.textContent = '✗ 先填主机地址';
+      return;
+    }
+    btn.disabled = true;
+    line.className = 'test-line';
+    line.textContent = '测试中…';
+    const t0 = performance.now();
+    try {
+      const message = await testServer(server);
+      line.className = 'test-line ok';
+      line.textContent = '✓ ' + message + ' · ' + Math.max(1, Math.round(performance.now() - t0)) + ' ms';
+    } catch (error) {
+      line.className = 'test-line bad';
+      line.textContent = '✗ ' + String(error);
+    }
+    btn.disabled = false;
   }
 
   // ============ 删除 ============
@@ -831,30 +1457,34 @@
     try {
       await deleteServer(deleteTargetId);
       if (selectedId === deleteTargetId) selectedId = null;
-      delete testResults[deleteTargetId];
+      delete probes[deleteTargetId];
       closeDelete();
       await loadServers();
     } catch (error) {
       closeDelete();
-      alert('删除失败：' + error);
+      toast('删除失败：' + error, 'bad');
     }
   }
 
   // ============ 事件绑定 ============
   document.getElementById('addBtn').addEventListener('click', function () { openEdit(null); });
   document.getElementById('editCancel').addEventListener('click', closeEdit);
+  document.getElementById('editX').addEventListener('click', closeEdit);
   document.getElementById('editSave').addEventListener('click', submitEdit);
+  document.getElementById('editTest').addEventListener('click', testFromDialog);
   document.getElementById('deleteCancel').addEventListener('click', closeDelete);
+  document.getElementById('deleteX').addEventListener('click', closeDelete);
   document.getElementById('deleteConfirm').addEventListener('click', confirmDelete);
+  document.getElementById('refreshBtn').addEventListener('click', function () { refreshAll(this); });
   document.getElementById('searchBox').addEventListener('input', function (e) {
     searchText = e.target.value;
     render();
   });
-  document.querySelectorAll('.chip').forEach(function (chip) {
-    chip.addEventListener('click', function () {
-      document.querySelectorAll('.chip').forEach(function (c) { c.classList.remove('active'); });
-      chip.classList.add('active');
-      filterProto = chip.dataset.proto || "";
+  document.querySelectorAll('#protoTabs button').forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      document.querySelectorAll('#protoTabs button').forEach(function (t) { t.setAttribute('aria-selected', 'false'); });
+      tab.setAttribute('aria-selected', 'true');
+      filterProto = tab.dataset.proto || "";
       render();
     });
   });
@@ -867,7 +1497,8 @@
   });
   document.addEventListener('keydown', function (e) {
     if (e.key !== 'Escape') return;
-    if (!document.getElementById('deleteOverlay').hidden) closeDelete();
+    if (!document.getElementById('tunnelOverlay').hidden) closeTunnelDialog();
+    else if (!document.getElementById('deleteOverlay').hidden) closeDelete();
     else if (!document.getElementById('editOverlay').hidden) closeEdit();
   });
   document.addEventListener('keydown', function (e) {
@@ -878,8 +1509,17 @@
     }
   });
 
+  // ============ 状态栏时钟 ============
+  function tick() {
+    document.getElementById('clock').textContent =
+      new Date().toLocaleTimeString('zh-CN', { hour12: false });
+  }
+  tick();
+  setInterval(tick, 1000);
+
   // ============ 启动 ============
   loadServers();
+  loadTunnels();
 </script>
 </body>
 </html>
