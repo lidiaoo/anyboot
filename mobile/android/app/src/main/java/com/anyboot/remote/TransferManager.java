@@ -6,10 +6,17 @@ import android.net.Uri;
 
 import com.jcraft.jsch.ChannelSftp;
 import com.jcraft.jsch.Session;
+import com.jcraft.jsch.SftpATTRS;
 import com.jcraft.jsch.SftpProgressMonitor;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -44,8 +51,15 @@ import java.util.UUID;
  * 得自己先 {@code lstat} 拿远端长度当起点 —— 这个差异在 {@link Progress} 里用
  * {@code swallowFirstCount} 与 {@code initialTransferred} 分开处理，改动这里时务必注意。
  *
- * <p>已知边界：任务表是进程内的静态结构，**杀掉进程后暂停中的记录会丢**（半截文件还在，
- * 但没人认领它）。跨进程续传要先做任务持久化，是另一件事。
+ * <p><b>任务表会落盘</b>（{@code filesDir/transfers.json}）：进程被杀之后重新打开，
+ * 暂停中的任务还在，半截文件也认领得回来。恢复时把「上次还在传」的一律降成暂停
+ * （线程早没了），并按磁盘上的半截文件长度纠正进度。上传来源是 SAF 的 content Uri，
+ * 靠 {@code takePersistableUriPermission}（在 ServersActivity 里申请）挺过重启；
+ * 万一还是读不到，{@link #resume} 会直接给一句人话，而不是甩个 SecurityException。
+ *
+ * <p><b>续传前会核对远端有没有变</b>：下载比对「大小 + mtime」，上传比对远端长度有没有比
+ * 我们记录的多。对不上就**不追加**（追加会拼出一个看着完整、其实内容错位的坏文件），
+ * 改为删掉断点重新来一遍，并在结果里写明原因。
  */
 final class TransferManager {
 
@@ -80,9 +94,10 @@ final class TransferManager {
 
     /** 一条传输任务（字段基本都在传输线程与 UI 线程之间共享，所以用 volatile / synchronized 兜着） */
     static final class Task {
-        final String id = UUID.randomUUID().toString();
+        final String id;
         final int direction;
-        final long startedAt = System.currentTimeMillis();
+        /** 这条任务是什么时候起的（恢复出来的用落盘值） */
+        long startedAt = System.currentTimeMillis();
 
         String serverId = "";
         String serverName = "";
@@ -96,14 +111,23 @@ final class TransferManager {
         volatile long total = -1;  // 总字节，-1 = 未知（无法显示百分比，走不确定态）
         volatile long transferred;
         volatile long baseline;    // 本次启动时的起点（续传不为 0）—— 算速度要减掉，否则一续传就虚报
+        volatile long remoteSize = -1;   // 断点核对用：下载=起手时远端大小；上传=暂停时远端应有的大小
+        volatile long remoteMTime = -1;  // 断点核对用（下载）：起手时远端文件的 mtime（秒）
         volatile int state = STATE_RUNNING;
         volatile long finishedAt;
         volatile int stop = STOP_NONE;
         /** 这次是接着上次的断点传的（不是重头来） */
         volatile boolean resumed;
+        /** 是被上次进程中断留下的（装回来的），UI 上要额外说明一句 */
+        volatile boolean interrupted;
 
         Task(int direction) {
+            this(direction, UUID.randomUUID().toString());
+        }
+
+        Task(int direction, String id) {
             this.direction = direction;
+            this.id = id;
         }
 
         boolean isRunning() {
@@ -153,6 +177,188 @@ final class TransferManager {
 
     static void setObserver(Observer callback) {
         observer = callback;
+    }
+
+    // ------------------------------------------------------------------
+    // 落盘 / 装回（进程被杀之后，暂停的任务还在）
+    // ------------------------------------------------------------------
+
+    /** 记录文件名（放 filesDir，私有目录，不需要任何权限） */
+    private static final String STORE_FILE = "transfers.json";
+
+    /** 进度中的落盘节流（毫秒）。太密没必要，太疏则「被杀」那条记录里啥也没有 */
+    private static final long PROGRESS_PERSIST_MS = 3000;
+
+    private static Context appContext;
+    private static boolean restored;
+    private static volatile long lastPersistAt;
+
+    /**
+     * 装回上次留下的任务清单 —— **启动后调一次**（ServersActivity.onCreate）。
+     *
+     * <p>「上次还在传」的一律降成暂停：传输线程是进程内的东西，进程没了线程就没了，
+     * 那条任务只可能是停在半路。进度按磁盘上的半截文件长度纠正（比落盘那个数字准）。
+     */
+    static void restore(Context context) {
+        if (restored) {
+            return;
+        }
+        restored = true;
+        appContext = context.getApplicationContext();
+        File file = new File(appContext.getFilesDir(), STORE_FILE);
+        if (!file.isFile()) {
+            return;
+        }
+        List<Task> loaded = new ArrayList<>();
+        try {
+            JSONArray array = new JSONArray(readText(file));
+            for (int i = 0; i < array.length(); i++) {
+                Task task = fromJson(array.optJSONObject(i));
+                if (task != null) {
+                    loaded.add(task);
+                }
+            }
+        } catch (Exception error) {
+            // 读坏了就当没有：宁可丢历史，也不能让半截解析结果进清单
+            TerminalActivity.tlog("传输：上次的任务记录读不出来（" + error + "），忽略");
+            return;
+        }
+        synchronized (TASKS) {
+            for (Task task : loaded) {
+                if (!TASKS.containsKey(task.id)) {
+                    TASKS.put(task.id, task);
+                }
+            }
+        }
+        if (!loaded.isEmpty()) {
+            TerminalActivity.tlog("传输：装回 " + loaded.size() + " 条任务记录");
+            notifyChanged();
+        }
+    }
+
+    /** 落盘。只在「状态有实质变化」时调（发起 / 收尾 / 清空）—— 进度每块都存太费，也没必要 */
+    private static void persist() {
+        Context context = appContext;
+        if (context == null) {
+            return;
+        }
+        try {
+            JSONArray array = new JSONArray();
+            for (Task task : all()) {
+                array.put(toJson(task));
+            }
+            writeText(new File(context.getFilesDir(), STORE_FILE), array.toString());
+            lastPersistAt = System.currentTimeMillis();
+        } catch (Exception error) {
+            // 存不上不影响这一轮传输，下次状态变化会再试
+            TerminalActivity.tlog("传输：任务记录存不下来（" + error + "）");
+        }
+    }
+
+    /** 进度中的**节流**落盘：让「传到一半被杀」那条记录不至于是全 0（总量、断点核对值都在里面） */
+    private static void persistProgress() {
+        if (System.currentTimeMillis() - lastPersistAt < PROGRESS_PERSIST_MS) {
+            return;
+        }
+        persist();
+    }
+
+    private static JSONObject toJson(Task task) throws Exception {
+        JSONObject json = new JSONObject();
+        json.put("id", task.id);
+        json.put("direction", task.direction);
+        json.put("state", task.state);
+        json.put("serverId", task.serverId);
+        json.put("serverName", task.serverName);
+        json.put("name", task.name);
+        json.put("remoteDir", task.remoteDir);
+        json.put("remotePath", task.remotePath);
+        json.put("localPath", task.localPath);
+        json.put("message", task.message);
+        json.put("sourceUri", task.sourceUri == null ? "" : task.sourceUri.toString());
+        json.put("total", task.total);
+        json.put("transferred", task.transferred);
+        json.put("startedAt", task.startedAt);
+        json.put("finishedAt", task.finishedAt);
+        json.put("remoteSize", task.remoteSize);
+        json.put("remoteMTime", task.remoteMTime);
+        json.put("interrupted", task.interrupted);
+        return json;
+    }
+
+    private static Task fromJson(JSONObject json) {
+        if (json == null) {
+            return null;
+        }
+        int direction = json.optInt("direction", 0);
+        if (direction != DIR_UPLOAD && direction != DIR_DOWNLOAD) {
+            return null;
+        }
+        Task task = new Task(direction, json.optString("id", UUID.randomUUID().toString()));
+        task.serverId = json.optString("serverId", "");
+        task.serverName = json.optString("serverName", "");
+        task.name = json.optString("name", "");
+        task.remoteDir = json.optString("remoteDir", "");
+        task.remotePath = json.optString("remotePath", "");
+        task.localPath = json.optString("localPath", "");
+        task.message = json.optString("message", "");
+        String uri = json.optString("sourceUri", "");
+        if (!uri.isEmpty()) {
+            task.sourceUri = Uri.parse(uri);
+        }
+        task.total = json.optLong("total", -1);
+        task.transferred = json.optLong("transferred", 0);
+        task.remoteSize = json.optLong("remoteSize", -1);
+        task.remoteMTime = json.optLong("remoteMTime", -1);
+        task.interrupted = json.optBoolean("interrupted", false);
+        task.state = json.optInt("state", STATE_RUNNING);
+        task.startedAt = json.optLong("startedAt", System.currentTimeMillis());
+        task.finishedAt = json.optLong("finishedAt", 0);
+
+        if (task.state == STATE_RUNNING) {
+            task.state = STATE_PAUSED;
+            task.transferred = Math.max(task.transferred, partialLength(task));
+            task.baseline = task.transferred;
+            task.interrupted = true;
+            task.message = "上次没传完（App 关掉了），点「继续」接着传";
+        }
+        return task;
+    }
+
+    /** 半截文件现在多长。只有下载能从磁盘问出来；上传的「进度」在远端，离线问不到，沿用落盘值 */
+    private static long partialLength(Task task) {
+        if (task.direction != DIR_DOWNLOAD || task.localPath.isEmpty()) {
+            return 0L;
+        }
+        File file = new File(task.localPath);
+        return file.isFile() ? file.length() : 0L;
+    }
+
+    private static String readText(File file) throws Exception {
+        try (FileInputStream in = new FileInputStream(file)) {
+            java.io.ByteArrayOutputStream buffer = new java.io.ByteArrayOutputStream();
+            byte[] chunk = new byte[8192];
+            int read;
+            while ((read = in.read(chunk)) > 0) {
+                buffer.write(chunk, 0, read);
+            }
+            return new String(buffer.toByteArray(), StandardCharsets.UTF_8);
+        }
+    }
+
+    private static void writeText(File file, String text) throws Exception {
+        // 先写临时文件再改名：进度里也在写，被杀在写一半就会留下坏 JSON（那时只能整份丢掉）
+        File temp = new File(file.getParentFile(), file.getName() + ".tmp");
+        try (FileOutputStream out = new FileOutputStream(temp)) {
+            out.write(text.getBytes(StandardCharsets.UTF_8));
+            out.flush();
+            out.getFD().sync();
+        }
+        if (!temp.renameTo(file)) {
+            try (FileOutputStream out = new FileOutputStream(file)) {
+                out.write(text.getBytes(StandardCharsets.UTF_8));
+            }
+        }
     }
 
     // ------------------------------------------------------------------
@@ -262,6 +468,9 @@ final class TransferManager {
         task.name = fileName;
         task.remoteDir = remoteDir;
         task.remotePath = joinRemote(remoteDir, fileName);
+        // 落盘前就把落点算出来：进程要是被杀在这条任务「还在传」的状态上，
+        // 装回时得靠 localPath 找到半截文件、把进度纠正过来（不给就只能显示 0）
+        task.localPath = defaultTarget(context, fileName).getAbsolutePath();
         register(task);
         final Context app = context.getApplicationContext();
         new Thread(() -> runDownload(app, task, server, prompt, false), "anyboot-xfer-down").start();
@@ -298,8 +507,8 @@ final class TransferManager {
         if (server == null) {
             return "服务器已删除，接不上了";
         }
-        if (previous.direction == DIR_UPLOAD && previous.sourceUri == null) {
-            return "找不到原来的本地文件，只能重新上传";
+        if (previous.direction == DIR_UPLOAD && !canRead(context, previous.sourceUri)) {
+            return "本地文件读不到了（重进 App 后授权可能失效），只能重新上传";
         }
         Task clashing = pendingFor(previous.direction, previous.remotePath);
         if (clashing != null && clashing != previous) {
@@ -317,6 +526,11 @@ final class TransferManager {
         task.total = previous.total;
         task.transferred = previous.transferred;
         task.baseline = previous.transferred;
+        // ⚠️ 这两个必须一起带走：runDownload / runUpload 的断点核对拿它们当基线，
+        // 落成 -1 的话「远端被换过」的条件永远不成立 —— 校验会变成一段死代码
+        // （症状：远端文件改过了，续传还是闷头往后追加，拼出一个看着完整、其实错位的文件）
+        task.remoteSize = previous.remoteSize;
+        task.remoteMTime = previous.remoteMTime;
         // 暂停那条就此收尾（只是留个说法），否则它会挂成一行没有意义的「已暂停」
         finish(previous, STATE_SUPERSEDED, "已接续（本次从 "
                 + humanBytes(previous.transferred) + " 接着传）");
@@ -394,6 +608,7 @@ final class TransferManager {
                 TASKS.remove(id);
             }
         }
+        persist();
         notifyChanged();
     }
 
@@ -408,12 +623,21 @@ final class TransferManager {
         try {
             input = app.getContentResolver().openInputStream(task.sourceUri);
             if (input == null) {
-                throw new Exception("打不开本地文件");
+                throw new Exception("打不开本地文件（授权可能已失效）");
             }
             Session session = SshSessionManager.shared().ensureSession(app, server, prompt);
             sftp = openSftp(session);
             // 远端已经有多少 = 本地要跳过多少（jsch 的 RESUME 自己会 skip 源流，这里只是给进度条定起点）
             long startAt = resume ? Math.max(sizeAt(sftp, task.remotePath), 0L) : 0L;
+            String note = "";
+            if (resume && task.remoteSize >= 0 && startAt > task.remoteSize) {
+                // 远端比我们记录的多 —— 有别人往里写过，接着追加会拼出一个内容错位的文件，重来
+                TerminalActivity.tlog("传输：远端比记录大（" + startAt + " > " + task.remoteSize
+                        + "），改为重新上传");
+                resume = false;
+                startAt = 0L;
+                note = "（服务器上的文件比预期大，已改为重新上传）";
+            }
             task.resumed = resume && startAt > 0;
             task.transferred = startAt;
             if (resume) {
@@ -426,7 +650,7 @@ final class TransferManager {
                 return;
             }
             settleAtTotal(task);
-            finish(task, STATE_DONE, "已上传到 " + task.remotePath);
+            finish(task, STATE_DONE, "已上传到 " + task.remotePath + note);
         } catch (Exception error) {
             if (task.shouldStop()) {
                 stopUpload(sftp, task);
@@ -441,7 +665,9 @@ final class TransferManager {
 
     private static void stopUpload(ChannelSftp sftp, Task task) {
         if (task.stoppingForPause()) {
-            // 远端那半截留着 —— 它就是「继续」的起点
+            // 远端那半截留着 —— 它就是「继续」的起点。顺手把「此刻远端应该有多大」记下来，
+            // 续传前拿它核对（比记录多 = 有人动过，接着追加会拼出内容错位的文件）
+            task.remoteSize = task.transferred;
             finish(task, STATE_PAUSED, pausedMessage(task, "已传"));
             return;
         }
@@ -457,7 +683,13 @@ final class TransferManager {
         try {
             Session session = SshSessionManager.shared().ensureSession(app, server, prompt);
             sftp = openSftp(session);
-            task.total = sizeAt(sftp, task.remotePath);
+            long[] remote = statOf(sftp, task.remotePath);
+            task.total = remote[0];
+            if (!resume) {
+                // 起手把远端的「大小 + mtime」记下来，之后续传要拿它核对文件有没有被换过
+                task.remoteSize = remote[0];
+                task.remoteMTime = remote[1];
+            }
 
             // 续传认原来那个半截文件；否则（首传 / 半截文件没了）新开一个
             target = (resume && !task.localPath.isEmpty())
@@ -465,11 +697,26 @@ final class TransferManager {
                     : newTarget(app, task);
 
             long already = (resume && target.isFile()) ? target.length() : 0L;
+            String note = "";
+            if (already > 0 && task.remoteSize > 0 && task.remoteMTime > 0
+                    && (remote[0] != task.remoteSize || remote[1] != task.remoteMTime)) {
+                // 远端变了：断点跟它已经对不上，追加只会拼出一个「看着完整、内容错位」的文件
+                TerminalActivity.tlog("传输：远端文件变了（大小 " + task.remoteSize + "->" + remote[0]
+                        + "，mtime " + task.remoteMTime + "->" + remote[1] + "），断点作废、改为重下");
+                cleanupLocal(target);
+                already = 0L;
+                note = "（服务器上的文件变过，已改为重新下载）";
+                // 基线跟着换成新文件：不然这次重下再被暂停、再继续时，还会拿旧值比一次、
+                // 又白白从头下一遍
+                task.remoteSize = remote[0];
+                task.remoteMTime = remote[1];
+            }
             if (already > 0 && task.total > 0 && already > task.total) {
-                // 远端被换小了，断点对不上 —— 留着只会拼出一个坏文件，删掉重下
+                // 兜底（远端大小/mtime 没拿到时走这条）：断点比远端还长，留着只会拼出坏文件
                 TerminalActivity.tlog("传输：断点 " + already + " 大于远端 " + task.total + "，改为重下");
                 cleanupLocal(target);
                 already = 0L;
+                note = "（断点比远端文件还长，已改为重新下载）";
             }
 
             if (resume && already > 0) {
@@ -488,7 +735,7 @@ final class TransferManager {
                 return;
             }
             settleAtTotal(task);
-            finish(task, STATE_DONE, "已下载到 " + task.localPath);
+            finish(task, STATE_DONE, "已下载到 " + task.localPath + note);
         } catch (Exception error) {
             if (task.shouldStop()) {
                 stopDownload(target, task);
@@ -519,14 +766,19 @@ final class TransferManager {
     }
 
     private static File newTarget(Context app, Task task) {
+        File target = defaultTarget(app, task.name);
+        task.localPath = target.getAbsolutePath();
+        return target;
+    }
+
+    /** 下载落盘位置（提前算得出来，所以完成任务只靠文件名就能对上磁盘上的半截文件） */
+    private static File defaultTarget(Context app, String name) {
         File dir = app.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS);
         if (dir == null) {
             dir = app.getFilesDir();
         }
         dir.mkdirs();
-        File target = new File(dir, task.name);
-        task.localPath = target.getAbsolutePath();
-        return target;
+        return new File(dir, name);
     }
 
     /**
@@ -623,6 +875,7 @@ final class TransferManager {
                 TASKS.remove(finishedIds.get(i));
             }
         }
+        persist();
         notifyChanged();
     }
 
@@ -633,6 +886,7 @@ final class TransferManager {
         // 收尾都写一行 logcat（这类问题光看界面看不出方向）
         TerminalActivity.tlog("传输 " + (task.direction == DIR_UPLOAD ? "上传" : "下载")
                 + " " + task.name + " -> " + state + " " + message);
+        persist();
         notifyChanged();
     }
 
@@ -700,6 +954,7 @@ final class TransferManager {
             boolean reachedEnd = task.total > 0 && task.transferred >= task.total;
             if (now - lastNotify >= 250 || reachedEnd) {
                 lastNotify = now;
+                persistProgress();
                 notifyChanged();
             }
             return !task.shouldStop();
@@ -768,11 +1023,33 @@ final class TransferManager {
         return -1;
     }
 
+    /** 上传来源现在还能不能读（重进 App 后 SAF 的临时授权会失效，得给人话而不是抛异常） */
+    private static boolean canRead(Context context, Uri uri) {
+        if (uri == null) {
+            return false;
+        }
+        try (InputStream probe = context.getContentResolver().openInputStream(uri)) {
+            return probe != null;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
     private static long sizeAt(ChannelSftp sftp, String path) {
         try {
             return sftp.lstat(path).getSize();
         } catch (Exception ignored) {
             return -1;
+        }
+    }
+
+    /** 远端文件的 {大小, mtime(秒)}；拿不到给 {-1, -1}（续传前核对用） */
+    private static long[] statOf(ChannelSftp sftp, String path) {
+        try {
+            SftpATTRS attr = sftp.lstat(path);
+            return new long[]{attr.getSize(), attr.getMTime()};
+        } catch (Exception ignored) {
+            return new long[]{-1L, -1L};
         }
     }
 

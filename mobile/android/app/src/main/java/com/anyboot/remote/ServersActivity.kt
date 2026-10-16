@@ -121,6 +121,8 @@ class ServersActivity : ComponentActivity() {
         Ui.applySystemBars(this)
         jumps.addAll(JumpStore.loadJumps(this))
         keys.addAll(JumpStore.loadKeys(this))
+        // 装回上次进程留下的传输任务（暂停中的那条还在，半截文件也认领得回来）
+        TransferManager.restore(this)
         setContent { Root() }
     }
 
@@ -1039,7 +1041,20 @@ class ServersActivity : ComponentActivity() {
     private fun FilesPage() {
         val uploadLauncher = rememberLauncherForActivityResult(
             ActivityResultContracts.OpenDocument()
-        ) { uri -> if (uri != null) uploadPicked(uri) }
+        ) { uri ->
+            if (uri != null) {
+                // OpenDocument 的授权默认只活到进程结束 —— 申请持久化，上传暂停后重进 App 才接得上
+                try {
+                    contentResolver.takePersistableUriPermission(
+                        uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    )
+                } catch (e: Exception) {
+                    // 个别 provider 不支持持久化授权：不影响本次上传，只是跨进程续不了
+                    TerminalActivity.tlog("上传：拿不到持久化授权（${e.message}）")
+                }
+                uploadPicked(uri)
+            }
+        }
 
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
             SectionTitle("文件（SFTP，仅 SSH 服务器）")
@@ -1383,7 +1398,17 @@ class ServersActivity : ComponentActivity() {
                 Spacer(Modifier.height(8.dp))
                 TransferProgressBar(task.fraction(), task.total <= 0 && !paused)
                 Spacer(Modifier.height(4.dp))
-                SecondaryText(if (paused) "已暂停 · ${progressText(task)}" else progressText(task))
+                SecondaryText(if (paused) pausedText(task) else progressText(task))
+                // 被上次进程中断留下的，额外说明一句（普通暂停不用，行里已经写了「已暂停」）
+                if (paused && task.interrupted) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        task.message,
+                        fontSize = 12.sp,
+                        color = palette.fgDim,
+                        modifier = Modifier.padding(start = 24.dp),
+                    )
+                }
             } else {
                 Spacer(Modifier.height(4.dp))
                 Text(
@@ -1430,6 +1455,16 @@ class ServersActivity : ComponentActivity() {
         val done = TransferManager.humanBytes(task.transferred)
         val total = TransferManager.humanBytes(task.total)
         return "$done / $total · ${speedText(task)}"
+    }
+
+    /** 暂停行不报速度：那是「停下来那一刻的均值」，续传过、或重启后装回来的都没有意义 */
+    private fun pausedText(task: TransferManager.Task): String {
+        val size = if (task.total <= 0) {
+            "已传 ${TransferManager.humanBytes(task.transferred)}"
+        } else {
+            "${TransferManager.humanBytes(task.transferred)} / ${TransferManager.humanBytes(task.total)}"
+        }
+        return "已暂停 · $size"
     }
 
     private fun speedText(task: TransferManager.Task): String {
