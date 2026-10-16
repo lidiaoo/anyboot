@@ -14,8 +14,10 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -25,11 +27,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -43,7 +48,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -111,6 +119,11 @@ class TerminalActivity : ComponentActivity() {
 
     /** 宿主页 xterm 是否就绪（onPageFinished 后为 true） */
     private var pageReady = false
+
+    /** 键帽 / Ctrl 字母行的写出线程：单线程保序，离网线程写 socket */
+    private val keyWriter = java.util.concurrent.Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "anyboot-key-writer").apply { isDaemon = true }
+    }
 
     /** 页面就绪前的下行缓冲（b64），就绪后按序冲给 xterm —— 防积攒回显在 WebView 建好前丢失 */
     private val pendingFeeds = ArrayDeque<String>()
@@ -339,88 +352,87 @@ class TerminalActivity : ComponentActivity() {
             BackHandler(enabled = true) { finish() }
 
             Column(Modifier.fillMaxSize().background(shellColor)) {
-                // 顶栏
+                // 顶栏（设计稿 term 屏）：终端图标块 + 名称/状态行 + 主题 / 字号 / 键盘
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(palette.card)
-                        .padding(start = 4.dp, top = 6.dp, end = 4.dp, bottom = 6.dp),
+                        .padding(start = 4.dp, top = 8.dp, end = 8.dp, bottom = 8.dp),
                 ) {
                     BarIcon("‹", "返回") { finish() }
+                    Box(
+                        Modifier
+                            .size(32.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(palette.accent.copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center,
+                    ) { TermIcon(palette.accent, 16.dp) }
+                    Spacer(Modifier.width(10.dp))
                     val session = TerminalRegistry.get(currentId)
-                    Text(
-                        session?.server?.name ?: "终端",
-                        fontSize = 16.sp,
-                        color = palette.fg,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
-                    )
+                    tick // 订阅会话注册表变化（标签集合 / 状态行）
+                    Column(Modifier.weight(1f)) {
+                        // 服务器没起名时回退到地址，别让标题空着
+                        val title = session?.server?.let { s ->
+                            JumpStore.text(s.name).ifEmpty { s.addressLabel() }
+                        } ?: "终端"
+                        Text(
+                            title,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = palette.fg,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        val connected = session != null && statusMessage == null
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                Modifier
+                                    .size(6.dp)
+                                    .clip(androidx.compose.foundation.shape.CircleShape)
+                                    .background(if (connected) palette.accent else palette.fgFaint)
+                            )
+                            Spacer(Modifier.width(5.dp))
+                            Text(
+                                when {
+                                    statusMessage != null -> statusMessage!!
+                                    session != null -> "已连接 · " + humanDuration(
+                                        System.currentTimeMillis() - session.startedAt
+                                    )
+                                    else -> "未连接"
+                                },
+                                fontSize = 10.sp,
+                                color = if (connected) palette.accent else palette.fgDim,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                    var fontMenuOpen by remember { mutableStateOf(false) }
                     BarIcon("🌓", "切换终端主题") {
                         dark = !dark
                         JumpStore.setTerminalDark(this@TerminalActivity, dark)
                         eval("termSetTheme('" + (if (dark) "dark" else "light") + "')")
                     }
-                    BarIcon("A-", "缩小字号") {
-                        fontSize = (fontSize - 1).coerceAtLeast(JumpStore.TERMINAL_FONT_MIN)
-                        // 落盘：与「终端设置」页共用一份偏好，返回设置页时能对上
-                        JumpStore.setTerminalFontSize(this@TerminalActivity, fontSize)
-                        eval("termSetFont($fontSize)")
-                    }
-                    BarIcon("A+", "放大字号") {
-                        fontSize = (fontSize + 1).coerceAtMost(JumpStore.TERMINAL_FONT_MAX)
-                        JumpStore.setTerminalFontSize(this@TerminalActivity, fontSize)
-                        eval("termSetFont($fontSize)")
+                    Box {
+                        BarIcon("Aa", "字号") { fontMenuOpen = true }
+                        DropdownMenu(expanded = fontMenuOpen, onDismissRequest = { fontMenuOpen = false }) {
+                            DropdownMenuItem(text = { Text("缩小字号（当前 $fontSize）") }, onClick = {
+                                fontMenuOpen = false
+                                fontSize = (fontSize - 1).coerceAtLeast(JumpStore.TERMINAL_FONT_MIN)
+                                // 落盘：与「终端设置」页共用一份偏好，返回设置页时能对上
+                                JumpStore.setTerminalFontSize(this@TerminalActivity, fontSize)
+                                eval("termSetFont($fontSize)")
+                            })
+                            DropdownMenuItem(text = { Text("放大字号（当前 $fontSize）") }, onClick = {
+                                fontMenuOpen = false
+                                fontSize = (fontSize + 1).coerceAtMost(JumpStore.TERMINAL_FONT_MAX)
+                                JumpStore.setTerminalFontSize(this@TerminalActivity, fontSize)
+                                eval("termSetFont($fontSize)")
+                            })
+                        }
                     }
                     BarIcon("⌨", "弹出/收起键盘") { toggleKeyboard() }
-                }
-
-                // 多会话标签条
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(36.dp)
-                        .background(palette.elevate)
-                        .horizontalScroll(rememberScrollState())
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                ) {
-                    tick // 订阅会话注册表变化
-                    for (session in TerminalRegistry.all()) {
-                        val active = session.server.id == currentId
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(if (active) palette.accent else palette.card)
-                                .padding(horizontal = 4.dp)
-                                .height(24.dp),
-                        ) {
-                            Text(
-                                session.server.name,
-                                fontSize = 13.sp,
-                                color = if (active) Color.White else palette.fg,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier
-                                    .clickable {
-                                        val target = TerminalRegistry.get(session.server.id)
-                                        if (target != null && target !== current) bind(target)
-                                    }
-                                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                            )
-                            Text(
-                                "×",
-                                fontSize = 15.sp,
-                                color = if (active) Color(0xCCFFFFFF) else palette.fgFaint,
-                                modifier = Modifier
-                                    .clickable { killTarget = session }
-                                    .padding(horizontal = 6.dp, vertical = 2.dp),
-                            )
-                        }
-                        Spacer(Modifier.width(6.dp))
-                    }
                 }
 
                 // 终端区 + 连接状态覆盖
@@ -518,6 +530,55 @@ class TerminalActivity : ComponentActivity() {
                     }
                 }
 
+                // 会话标签（设计稿：终端区下方的 pill 行；active=强调色浅底，×=结束会话）
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .drawBehind { drawLine(palette.line, Offset.Zero, Offset(size.width, 0f), 1.dp.toPx()) }
+                        .background(palette.card)
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                ) {
+                    for (session in TerminalRegistry.all()) {
+                        val active = session.server.id == currentId
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(999.dp))
+                                .background(if (active) palette.accent.copy(alpha = 0.15f) else Color.Transparent)
+                                .then(
+                                    if (active) Modifier
+                                    else Modifier.border(1.dp, palette.line, RoundedCornerShape(999.dp))
+                                )
+                                .padding(start = 10.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
+                        ) {
+                            Text(
+                                session.server.name,
+                                fontSize = 11.sp,
+                                color = if (active) palette.accent else palette.fgDim,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier
+                                    .clickable {
+                                        val target = TerminalRegistry.get(session.server.id)
+                                        if (target != null && target !== current) bind(target)
+                                    }
+                                    .padding(end = 4.dp),
+                            )
+                            Text(
+                                "×",
+                                fontSize = 13.sp,
+                                color = if (active) palette.accent else palette.fgFaint,
+                                modifier = Modifier
+                                    .clickable { killTarget = session }
+                                    .padding(horizontal = 4.dp),
+                            )
+                        }
+                        Spacer(Modifier.width(6.dp))
+                    }
+                }
+
                 // 按键栏 + Ctrl 字母行（快捷键栏可以在「终端设置」里关掉）
                 if (showKeyBar) {
                     KeyBar()
@@ -542,36 +603,58 @@ class TerminalActivity : ComponentActivity() {
         manager.toggleSoftInput(InputMethodManager.SHOW_FORCED, 0)
     }
 
-    /** 按键栏：Esc / Tab / Ctrl / 方向键 / Enter / 键盘 */
+    /**
+     * 按键栏（设计稿 8 键排布：Esc / Tab / Ctrl / / / - / ↑ / ↓ / |）。
+     * 设计稿没有的方向键 ← → 与 Enter、键盘钮按「功能保留」放进第二行；
+     * Ctrl 臂上的字母行照旧（武装后才出现）。
+     */
     @Composable
     private fun KeyBar() {
         val palette = LocalPalette.current
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
+        Column(
+            verticalArrangement = Arrangement.spacedBy(4.dp),
             modifier = Modifier
                 .fillMaxWidth()
                 .background(palette.card)
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 6.dp, vertical = 4.dp),
+                .padding(horizontal = 8.dp, vertical = 8.dp),
         ) {
-            TerminalKey("Esc") { sendRaw(byteArrayOf(0x1b)) }
-            TerminalKey("Tab") { sendRaw(byteArrayOf(0x09)) }
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                KeyCap("Esc", modifier = Modifier.weight(1f)) { sendRaw(byteArrayOf(0x1b)) }
+                KeyCap("Tab", modifier = Modifier.weight(1f)) { sendRaw(byteArrayOf(0x09)) }
+                KeyCap("Ctrl", armed = ctrlArmed, modifier = Modifier.weight(1f)) { ctrlArmed = !ctrlArmed }
+                KeyCap("/", modifier = Modifier.weight(1f)) { sendRaw("/".toByteArray()) }
+                KeyCap("-", modifier = Modifier.weight(1f)) { sendRaw("-".toByteArray()) }
+                KeyCap("↑", modifier = Modifier.weight(1f)) { sendRaw(byteArrayOf(0x1b, '['.code.toByte(), 'A'.code.toByte())) }
+                KeyCap("↓", modifier = Modifier.weight(1f)) { sendRaw(byteArrayOf(0x1b, '['.code.toByte(), 'B'.code.toByte())) }
+                KeyCap("|", modifier = Modifier.weight(1f)) { sendRaw("|".toByteArray()) }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                KeyCap("←", modifier = Modifier.weight(1f)) { sendRaw(byteArrayOf(0x1b, '['.code.toByte(), 'D'.code.toByte())) }
+                KeyCap("→", modifier = Modifier.weight(1f)) { sendRaw(byteArrayOf(0x1b, '['.code.toByte(), 'C'.code.toByte())) }
+                KeyCap("Enter", modifier = Modifier.weight(1f)) { sendRaw(byteArrayOf(0x0d)) }
+                KeyCap("⌨", modifier = Modifier.weight(1f)) { toggleKeyboard() }
+            }
+        }
+    }
+
+    /** 一枚键帽：h-36dp 圆角抬升底，Ctrl 武装时反色 */
+    @Composable
+    private fun KeyCap(label: String, armed: Boolean = false, modifier: Modifier = Modifier, onClick: () -> Unit) {
+        val palette = LocalPalette.current
+        Box(
+            modifier
+                .height(36.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(if (armed) palette.accent else palette.elevate)
+                .clickable(onClick = onClick),
+            contentAlignment = Alignment.Center,
+        ) {
             Text(
-                "Ctrl",
-                fontSize = 13.sp,
-                color = if (ctrlArmed) palette.onAccent else palette.fgDim,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(if (ctrlArmed) palette.accent else Color.Transparent)
-                    .clickable { ctrlArmed = !ctrlArmed }
-                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                label,
+                fontSize = 12.sp,
+                fontFamily = FontFamily.Monospace,
+                color = if (armed) palette.onAccent else palette.fgDim,
             )
-            TerminalKey("↑") { sendRaw(byteArrayOf(0x1b, '['.code.toByte(), 'A'.code.toByte())) }
-            TerminalKey("↓") { sendRaw(byteArrayOf(0x1b, '['.code.toByte(), 'B'.code.toByte())) }
-            TerminalKey("←") { sendRaw(byteArrayOf(0x1b, '['.code.toByte(), 'D'.code.toByte())) }
-            TerminalKey("→") { sendRaw(byteArrayOf(0x1b, '['.code.toByte(), 'C'.code.toByte())) }
-            TerminalKey("Enter") { sendRaw(byteArrayOf(0x0d)) }
-            TerminalKey("⌨") { toggleKeyboard() }
         }
     }
 
@@ -600,19 +683,6 @@ class TerminalActivity : ComponentActivity() {
                 )
             }
         }
-    }
-
-    @Composable
-    private fun TerminalKey(label: String, onClick: () -> Unit) {
-        Text(
-            label,
-            fontSize = 13.sp,
-            color = LocalPalette.current.fgDim,
-            modifier = Modifier
-                .padding(horizontal = 3.dp)
-                .clickable(onClick = onClick)
-                .padding(horizontal = 11.dp, vertical = 6.dp),
-        )
     }
 
     @Composable
@@ -708,8 +778,14 @@ class TerminalActivity : ComponentActivity() {
     // ------------------------------------------------------------------
 
     private fun sendRaw(bytes: ByteArray) {
-        tlogV("KeyBar->write ${bytes.size}B  current=${current?.server?.id}")
-        current?.write(bytes)
+        val session = current ?: return
+        tlogV("KeyBar->write ${bytes.size}B  current=${session.server?.id}")
+        // ⚠️ write 是真网络 I/O，主线程直接写会 NetworkOnMainThreadException 并把会话
+        // 关成「发送失败」（xterm.js 的键盘输入走 WebView 桥线程所以一直没炸，键帽按钮
+        // 在主线程一点就炸）。单线程执行器既离网线程又保按键顺序；onDestroy 里关闭。
+        keyWriter.execute {
+            session.write(bytes)
+        }
     }
 
     private fun feed(b64: String) {
@@ -769,7 +845,8 @@ class TerminalActivity : ComponentActivity() {
 
     override fun onDestroy() {
         tlog("onDestroy")
-        // 会话不关（注册表持有），只把 WebView 拆了
+        // 会话不关（注册表持有），只把 WebView 拆了；键帽写出线程一并收掉
+        keyWriter.shutdownNow()
         terminalView?.destroy()
         terminalView = null
         super.onDestroy()

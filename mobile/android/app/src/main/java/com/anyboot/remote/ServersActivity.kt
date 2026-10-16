@@ -12,6 +12,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -27,6 +28,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -39,20 +41,26 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -66,8 +74,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -183,73 +194,30 @@ class ServersActivity : ComponentActivity() {
     private fun Root() {
         AppTheme {
             val palette = LocalPalette.current
-            Column(Modifier.fillMaxSize().background(palette.base)) {
-                // 标题栏（齿轮 = 终端设置，就摆在 ＋ 左边；图标无文字）
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(palette.card)
-                        .padding(8.dp),
-                ) {
-                    BarIcon("‹", "返回") { finish() }
-                    Text(
-                        "服务器（SSH / Telnet 跳板机）",
-                        fontSize = 16.sp,
-                        color = palette.fg,
-                        modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
-                    )
-                    Icon(
-                        Icons.Filled.Settings,
-                        contentDescription = "终端设置",
-                        tint = palette.fgDim,
-                        modifier = Modifier
-                            .size(20.dp)
-                            .clickable {
-                                startActivity(
-                                    Intent(this@ServersActivity, TerminalSettingsActivity::class.java)
-                                )
-                            },
-                    )
-                    BarIcon("＋", "添加服务器") {
-                        editTarget = null
-                        editOpen = true
-                    }
-                }
+            val importLauncher = rememberLauncherForActivityResult(
+                ActivityResultContracts.OpenDocument()
+            ) { uri -> if (uri != null) importKey(uri) }
 
-                // 五页：服务器 / 会话 / 密钥 / 传输 / 文件（切页重组，无需叠放显隐）
+            Column(Modifier.fillMaxSize().background(palette.base)) {
+                // 顶部栏（设计稿：标题 + 计数/状态 pill + ⋮ + FAB；齿轮 = 终端设置）
+                TopBar(importLauncher)
+
+                // 五个页面：设计稿底部导航四项（服务器/密钥/文件）+ ⋮ 里的会话/传输。
+                // 「终端」导航项直接跳最近会话的终端页，不是本 Activity 里的一页。
                 Box(Modifier.fillMaxWidth().weight(1f)) {
                     when (currentPage) {
                         0 -> ServersPage()
-                        1 -> SessionsPage()
-                        2 -> KeysPage()
-                        3 -> TransfersPage()
-                        else -> FilesPage()
+                        1 -> KeysPage(importLauncher)
+                        2 -> FilesPage()
+                        3 -> SessionsPage()
+                        else -> TransfersPage()
                     }
                 }
 
-                // 底部导航：顺序与上面的下标一一对应
-                NavigationBar(containerColor = palette.card, tonalElevation = 0.dp) {
-                    listOf("服务器", "会话", "密钥", "传输", "文件").forEachIndexed { index, label ->
-                        NavigationBarItem(
-                            selected = currentPage == index,
-                            onClick = { currentPage = index },
-                            icon = {},
-                            label = {
-                                Text(
-                                    label,
-                                    fontSize = 14.sp,
-                                    fontWeight = if (currentPage == index) FontWeight.Bold else FontWeight.Normal,
-                                )
-                            },
-                            colors = androidx.compose.material3.NavigationBarItemDefaults.colors(
-                                selectedTextColor = palette.accent,
-                                unselectedTextColor = palette.fgDim,
-                                indicatorColor = palette.elevate,
-                            ),
-                        )
-                    }
-                }
+                // 文件页底部的传输状态条（设计稿 files 屏：spin + 进度 + 百分比）
+                if (currentPage == 2) TransferStatusBar()
+
+                BottomNav()
             }
 
             if (editOpen) EditJumpDialog(editTarget)
@@ -260,7 +228,7 @@ class ServersActivity : ComponentActivity() {
             ConfirmDialog(bus)
         }
 
-        // 会话注册表变化 → 会话页刷新；传输任务变化 → 传输页/文件页刷新
+        // 会话注册表变化 → 会话页/顶栏刷新；传输任务变化 → 传输条/传输页/文件页刷新
         DisposableEffect(Unit) {
             val listener = { tick += 1 }
             SessionEvents.register(listener)
@@ -270,6 +238,291 @@ class ServersActivity : ComponentActivity() {
                 SessionEvents.unregister(listener)
                 TransferEvents.unregister(transferListener)
             }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // 顶部栏 / 底部导航（设计稿公共骨架）
+    // ------------------------------------------------------------------
+
+    /** 顶部栏：‹ + 标题 + 状态 pill + 齿轮(终端设置，仅服务器页) + ⋮ + FAB */
+    @Composable
+    private fun TopBar(
+        importLauncher: androidx.activity.compose.ManagedActivityResultLauncher<Array<String>, Uri?>,
+    ) {
+        val palette = LocalPalette.current
+        tick // 订阅会话注册表变化：在线数 / SFTP 状态 pill 要跟着刷
+        var moreOpen by remember { mutableStateOf(false) }
+        var fabMenuOpen by remember { mutableStateOf(false) }
+
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(palette.base)
+                .padding(start = 4.dp, top = 10.dp, end = 20.dp, bottom = 8.dp),
+        ) {
+            BarIcon("‹", "返回") { finish() }
+            Text(
+                when (currentPage) {
+                    1 -> "密钥"; 2 -> "文件"; 3 -> "会话"; 4 -> "传输"; else -> "服务器"
+                },
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                color = palette.fg,
+            )
+            Spacer(Modifier.width(10.dp))
+            PagePill()
+            Spacer(Modifier.weight(1f))
+            if (currentPage == 0) {
+                Icon(
+                    Icons.Filled.Settings,
+                    contentDescription = "终端设置",
+                    tint = palette.fgDim,
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clickable {
+                            startActivity(
+                                Intent(this@ServersActivity, TerminalSettingsActivity::class.java)
+                            )
+                        }
+                        .padding(8.dp),
+                )
+            }
+            Box {
+                BarIcon("⋮", "更多") { moreOpen = true }
+                DropdownMenu(expanded = moreOpen, onDismissRequest = { moreOpen = false }) {
+                    DropdownMenuItem(text = { Text("会话（进行中 / 历史）") }, onClick = {
+                        moreOpen = false; currentPage = 3
+                    })
+                    DropdownMenuItem(text = { Text("传输管理") }, onClick = {
+                        moreOpen = false; currentPage = 4
+                    })
+                    DropdownMenuItem(text = { Text("终端设置") }, onClick = {
+                        moreOpen = false
+                        startActivity(Intent(this@ServersActivity, TerminalSettingsActivity::class.java))
+                    })
+                }
+            }
+            if (currentPage == 0 || currentPage == 1) {
+                // FAB：服务器页 = 添加服务器；密钥页 = 生成 / 导入菜单（设计稿为「生成密钥」）
+                Box {
+                    Box(
+                        Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(palette.accent)
+                            .clickable {
+                                if (currentPage == 0) {
+                                    editTarget = null
+                                    editOpen = true
+                                } else {
+                                    fabMenuOpen = true
+                                }
+                            },
+                        contentAlignment = Alignment.Center,
+                    ) { Icon(Icons.Filled.Add, "添加", tint = palette.onAccent, modifier = Modifier.size(20.dp)) }
+                    DropdownMenu(expanded = fabMenuOpen, onDismissRequest = { fabMenuOpen = false }) {
+                        DropdownMenuItem(text = { Text("生成密钥对") }, onClick = {
+                            fabMenuOpen = false; generateKeyOpen = true
+                        })
+                        DropdownMenuItem(text = { Text("导入私钥文件") }, onClick = {
+                            fabMenuOpen = false
+                            importLauncher.launch(arrayOf("*/*"))
+                        })
+                    }
+                }
+            }
+        }
+    }
+
+    /** 标题旁的状态 pill：服务器页=在线数；密钥页=把数；文件页=SFTP 状态（都是真实数据） */
+    @Composable
+    private fun PagePill() {
+        val palette = LocalPalette.current
+        when (currentPage) {
+            0 -> {
+                tick
+                val online = jumps.count { it.isSsh() && SshSessionManager.shared().isUp(it.id) }
+                PillText("$online 在线")
+            }
+            1 -> PillText("${keys.size} 把")
+            2 -> {
+                val up = sftpServerId.isNotEmpty() && SshSessionManager.shared().isUp(sftpServerId)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(if (up) palette.accent.copy(alpha = 0.1f) else palette.elevate)
+                        .padding(horizontal = 8.dp, vertical = 3.dp),
+                ) {
+                    Box(
+                        Modifier
+                            .size(6.dp)
+                            .clip(CircleShape)
+                            .background(if (up) palette.accent else palette.fgFaint)
+                    )
+                    Spacer(Modifier.width(5.dp))
+                    Text(
+                        if (up) "SFTP 就绪" else "未连接",
+                        fontSize = 10.sp,
+                        color = if (up) palette.accent else palette.fgDim,
+                    )
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun PillText(text: String) {
+        val palette = LocalPalette.current
+        Text(
+            text,
+            fontSize = 10.sp,
+            fontFamily = FontFamily.Monospace,
+            color = palette.fgDim,
+            modifier = Modifier
+                .clip(RoundedCornerShape(999.dp))
+                .background(palette.elevate)
+                .border(1.dp, palette.line, RoundedCornerShape(999.dp))
+                .padding(horizontal = 8.dp, vertical = 3.dp),
+        )
+    }
+
+    /** 底部导航（设计稿四项：服务器 / 终端 / 密钥 / 文件；终端跳最近会话） */
+    @Composable
+    private fun BottomNav() {
+        val palette = LocalPalette.current
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .drawBehind { drawLine(palette.line, Offset.Zero, Offset(size.width, 0f), 1.dp.toPx()) }
+                .background(palette.card)
+                .navigationBarsPadding()
+                .padding(top = 8.dp, bottom = 6.dp),
+        ) {
+            NavItem("服务器", active = currentPage == 0, onClick = { currentPage = 0 },
+                modifier = Modifier.weight(1f)) { tint, size ->
+                ServerStackIcon(tint, size)
+            }
+            NavItem("终端", active = false, onClick = { openLatestSession() },
+                modifier = Modifier.weight(1f)) { tint, size ->
+                TermIcon(tint, size)
+            }
+            NavItem("密钥", active = currentPage == 1, onClick = { currentPage = 1 },
+                modifier = Modifier.weight(1f)) { tint, size ->
+                KeyIcon(tint, size)
+            }
+            NavItem("文件", active = currentPage == 2, onClick = { currentPage = 2 },
+                modifier = Modifier.weight(1f)) { tint, size ->
+                FolderIcon(tint, size)
+            }
+        }
+    }
+
+    @Composable
+    private fun NavItem(
+        label: String,
+        active: Boolean,
+        onClick: () -> Unit,
+        modifier: Modifier = Modifier,
+        icon: @Composable (Color, androidx.compose.ui.unit.Dp) -> Unit,
+    ) {
+        val palette = LocalPalette.current
+        val tint = if (active) palette.accent else palette.fgFaint
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = modifier
+                .clickable(onClick = onClick)
+                .padding(vertical = 2.dp),
+        ) {
+            icon(tint, 20.dp)
+            Text(
+                label,
+                fontSize = 10.sp,
+                fontWeight = if (active) FontWeight.Medium else FontWeight.Normal,
+                color = tint,
+                modifier = Modifier.padding(top = 3.dp),
+            )
+        }
+    }
+
+    /** 「终端」导航项：跳最近一个活会话的终端页；没有就说明去哪开 */
+    private fun openLatestSession() {
+        val live = TerminalRegistry.all()
+        if (live.isEmpty()) {
+            toast("没有进行中的会话 —— 到「服务器」页点「终端」开始", long = true)
+            return
+        }
+        val intent = Intent(this, TerminalActivity::class.java)
+        intent.putExtra("jumpId", live.last().server.id)
+        startActivity(intent)
+    }
+
+    /** 文件页底部的传输状态条：有活动任务才出现，点一下进「传输」页看全部 */
+    @Composable
+    private fun TransferStatusBar() {
+        transferTick
+        val active = TransferManager.active()
+        if (active.isEmpty()) return
+        val task = active.first()
+        val palette = LocalPalette.current
+        val fraction = task.fraction()
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .drawBehind { drawLine(palette.line, Offset.Zero, Offset(size.width, 0f), 1.dp.toPx()) }
+                .background(palette.card)
+                .clickable { currentPage = 4 }
+                .padding(horizontal = 20.dp, vertical = 10.dp),
+        ) {
+            CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp, color = palette.accent)
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    task.name,
+                    fontSize = 11.sp,
+                    color = palette.fg,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(4.dp))
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(6.dp)
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(palette.elevate)
+                ) {
+                    if (task.state == TransferManager.STATE_PAUSED) {
+                        Box(
+                            Modifier
+                                .fillMaxWidth(fraction.coerceIn(0.01f, 1f))
+                                .fillMaxHeight()
+                                .background(palette.warn)
+                        )
+                    } else {
+                        Box(
+                            Modifier
+                                .fillMaxWidth(fraction.coerceIn(0.02f, 1f))
+                                .fillMaxHeight()
+                                .background(palette.accent)
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.width(10.dp))
+            Text(
+                when {
+                    task.state == TransferManager.STATE_PAUSED -> "暂停"
+                    task.total <= 0 -> "…"
+                    else -> "${(fraction * 100).toInt()}%"
+                },
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace,
+                color = if (task.state == TransferManager.STATE_PAUSED) palette.warn else palette.accent,
+            )
         }
     }
 
@@ -371,11 +624,12 @@ class ServersActivity : ComponentActivity() {
                 value = search,
                 onValueChange = { search = it.trim() },
                 singleLine = true,
-                placeholder = { Text("🔍  搜索名称 / 地址", fontSize = 14.sp) },
+                placeholder = { Text("搜索名称 / 地址", fontSize = 14.sp) },
+                leadingIcon = { Icon(Icons.Filled.Search, "搜索", tint = LocalPalette.current.fgFaint) },
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 12.dp, top = 8.dp, end = 12.dp, bottom = 4.dp),
+                    .padding(start = 20.dp, top = 4.dp, end = 20.dp, bottom = 8.dp),
             )
 
             if (jumps.isEmpty()) {
@@ -392,6 +646,7 @@ class ServersActivity : ComponentActivity() {
             while (expanded.size < jumps.size) expanded.add(false)
 
             val query = search.lowercase(Locale.ROOT)
+            var last = true
             jumps.forEachIndexed { index, server ->
                 val name = JumpStore.text(server.name)
                 if (query.isNotEmpty()
@@ -400,124 +655,235 @@ class ServersActivity : ComponentActivity() {
                 ) {
                     return@forEachIndexed
                 }
-                if (index > 0) ListDivider()
-                ServerRow(server, index)
-                if (index < expanded.size && expanded[index]) {
-                    DetailPanel(server, index)
-                }
+                last = false
+                ServerCard(server, index)
+                Spacer(Modifier.height(10.dp))
             }
-            Spacer(Modifier.height(12.dp))
+            if (!last) Spacer(Modifier.height(4.dp))
         }
     }
 
+    /**
+     * 服务器卡片（设计稿 servers 屏）：44dp 图标块 + 名称/协议徽标 + mono 地址 +
+     * 右侧 ms 与状态点；点击展开三格信息与终端/文件/测试/编辑四钮。
+     */
     @Composable
-    private fun ServerRow(server: JumpServer, index: Int) {
+    private fun ServerCard(server: JumpServer, index: Int) {
         val palette = LocalPalette.current
         val expand = index < expanded.size && expanded[index]
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
+        val name = JumpStore.text(server.name)
+        val up = server.isSsh() && SshSessionManager.shared().isUp(server.id)
+        Column(
+            Modifier
                 .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .background(palette.card)
+                .border(
+                    1.dp,
+                    if (expand) palette.accent.copy(alpha = 0.4f) else palette.line,
+                    RoundedCornerShape(16.dp),
+                )
                 .clickable {
                     while (expanded.size < jumps.size) expanded.add(false)
                     expanded[index] = !expanded[index]
                 }
-                .padding(start = 12.dp, top = 12.dp, end = 8.dp, bottom = 12.dp),
+                .padding(16.dp),
         ) {
-            // 字母徽标（FinalShell 的发行版图标用首字母兜底）
-            val name = JumpStore.text(server.name)
-            Box(
-                Modifier
-                    .size(36.dp)
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(palette.accent),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    if (name.isEmpty()) "S" else name.substring(0, 1).uppercase(Locale.ROOT),
-                    color = Color.White,
-                    fontSize = 15.sp,
-                )
-            }
-            Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // 图标块：SSH 在线 = 绿底图标；其余抬升底
+                Box(
+                    Modifier
+                        .size(44.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(
+                            if (up) palette.accent.copy(alpha = 0.1f) else palette.elevate
+                        )
+                        .border(
+                            1.dp,
+                            if (up) palette.accent.copy(alpha = 0.3f) else palette.line,
+                            RoundedCornerShape(12.dp),
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    ServerStackIcon(if (up) palette.accent else palette.fgDim, 22.dp)
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            if (name.isEmpty()) server.addressLabel() else name,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = palette.fg,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            server.protocolLabel(),
+                            fontSize = 9.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = if (server.isSsh()) palette.fgDim else palette.warn,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(palette.elevate)
+                                .padding(horizontal = 4.dp, vertical = 1.dp),
+                        )
+                    }
+                    // 名称没填时主标题已经是地址了，副行别再重复一遍 —— 换成用户/端口摘要
+                    val subtitle = buildString {
+                        if (name.isEmpty()) {
+                            append("用户 ")
+                            append(if (JumpStore.text(server.username).isEmpty()) "root" else server.username)
+                            append(" · 端口 ")
+                            append(server.port())
+                        } else {
+                            append(server.addressLabel())
+                        }
+                        if (!server.isSsh()) append("（实验性终端）")
+                    }
                     Text(
-                        if (name.isEmpty()) server.addressLabel() else name,
-                        fontSize = 15.sp,
-                        color = palette.fg,
+                        subtitle,
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        color = palette.fgDim,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 2.dp),
                     )
-                    Spacer(Modifier.width(4.dp))
-                    Text(
-                        " ${server.protocolLabel()} ",
-                        fontSize = 10.sp,
-                        color = if (server.isSsh()) palette.accent else palette.warn,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(palette.elevate),
-                    )
+                }
+                Column(horizontalAlignment = Alignment.End) {
                     if (server.lastRttMs >= 0) {
-                        Spacer(Modifier.width(6.dp))
-                        Text("  ${server.lastRttMs}ms", fontSize = 11.sp, color = palette.ok)
+                        Text(
+                            "${server.lastRttMs}ms",
+                            fontSize = 12.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = palette.accent,
+                        )
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        val (dotColor, label) = when {
+                            server.isSsh() && up -> palette.accent to "在线"
+                            !server.isSsh() -> palette.warn to "实验性"
+                            else -> palette.fgFaint to "未连接"
+                        }
+                        Box(
+                            Modifier
+                                .size(6.dp)
+                                .clip(CircleShape)
+                                .background(dotColor)
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(label, fontSize = 10.sp, color = dotColor)
                     }
                 }
-                // 名称没填时主标题已经是地址了，副行别再重复一遍 —— 换成用户/端口摘要
-                var secondary = if (name.isEmpty()) {
-                    "用户 " + (if (JumpStore.text(server.username).isEmpty()) "root" else server.username) + " · 端口 " + server.port()
-                } else {
-                    server.addressLabel()
-                }
-                if (!server.isSsh()) secondary += "（实验性终端）"
-                SecondaryText(secondary, Modifier.padding(top = 2.dp))
             }
 
-            if (server.isSsh()) {
-                ChipButton("▶ 终端") { openTerminal(server) }
+            if (expand) {
+                Spacer(Modifier.height(14.dp))
+                // 详情展开：分隔线 + 三格信息 + 四格按钮
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(1.dp)
+                        .background(palette.line)
+                )
+                Spacer(Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    InfoCell("用户", if (JumpStore.text(server.username).isEmpty()) "root" else server.username,
+                        Modifier.weight(1f))
+                    InfoCell("认证", server.authLabel(), Modifier.weight(1f))
+                    InfoCell("端口", server.port().toString(), Modifier.weight(1f))
+                }
+                if (JumpStore.text(server.note).isNotEmpty()) {
+                    SecondaryText("备注：" + server.note, Modifier.padding(top = 8.dp))
+                }
+                if (server.isSsh()) {
+                    SecondaryText(
+                        "经由此服务器的电脑：" + JumpStore.computersVia(this@ServersActivity, server.id) + " 台",
+                        Modifier.padding(top = 2.dp),
+                    )
+                }
+                if (server.isSsh() && up) {
+                    SecondaryText("SSH 会话在线（隧道与终端共享）", Modifier.padding(top = 2.dp))
+                }
+                Spacer(Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (server.isSsh()) {
+                        CardAction("终端", filled = true, Modifier.weight(1f)) { openTerminal(server) }
+                        CardAction("文件", filled = false, Modifier.weight(1f)) {
+                            currentPage = 2
+                            sftpServerId = server.id
+                            // 走统一的切目录入口：它会顺手把「加载中」点亮，免得闪一下「（空目录）」
+                            gotoDir("/", true)
+                        }
+                    }
+                    CardAction("测试", filled = false, Modifier.weight(1f)) { testConnection(server) }
+                    CardAction("编辑", filled = false, Modifier.weight(1f)) { editTarget = server; editOpen = true }
+                }
             }
-            Text(
-                if (expand) "▾" else "▸",
-                fontSize = 16.sp,
-                color = palette.fgDim,
-                modifier = Modifier.padding(start = 10.dp, end = 4.dp),
-            )
         }
     }
 
-    /** 展开的详情面板：信息 + 测试连接 / 打开终端 / 编辑 / 删除 */
-    @OptIn(ExperimentalLayoutApi::class)
+    /** 展开区的信息格（用户 / 认证 / 端口） */
     @Composable
-    private fun DetailPanel(server: JumpServer, position: Int) {
-        Column(Modifier.padding(start = 48.dp, top = 4.dp, end = 12.dp, bottom = 10.dp)) {
-            SecondaryText(
-                "端口 " + server.port()
-                        + " · 用户 " + (if (JumpStore.text(server.username).isEmpty()) "（未填，连接时用 root）" else server.username)
-                        + " · 认证 " + server.authLabel()
+    private fun InfoCell(label: String, value: String, modifier: Modifier = Modifier) {
+        val palette = LocalPalette.current
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = modifier
+                .clip(RoundedCornerShape(8.dp))
+                .background(palette.elevate.copy(alpha = 0.6f))
+                .padding(vertical = 8.dp),
+        ) {
+            Text(
+                value,
+                fontSize = 12.sp,
+                color = palette.fg,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(horizontal = 6.dp),
             )
-            if (JumpStore.text(server.note).isNotEmpty()) {
-                SecondaryText("备注：" + server.note)
+            Text(label, fontSize = 9.sp, color = palette.fgFaint, modifier = Modifier.padding(top = 1.dp))
+        }
+    }
+
+    /** 展开区的操作钮（终端为实底强调色，其余描边抬升底） */
+    @Composable
+    private fun CardAction(label: String, filled: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+        val palette = LocalPalette.current
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+            modifier = modifier
+                .height(40.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(if (filled) palette.accent else palette.elevate)
+                .border(
+                    1.dp,
+                    if (filled) Color.Transparent else palette.line,
+                    RoundedCornerShape(12.dp),
+                )
+                .clickable(onClick = onClick),
+        ) {
+            when (label) {
+                "终端" -> TermIcon(palette.onAccent, 15.dp)
+                "文件" -> FolderIcon(palette.fg, 15.dp)
+                "测试" -> Icon(
+                    Icons.Filled.Refresh, label, tint = palette.fg,
+                    modifier = Modifier.size(15.dp),
+                )
+                "编辑" -> Icon(
+                    Icons.Filled.Edit, label, tint = palette.fgDim,
+                    modifier = Modifier.size(15.dp),
+                )
             }
-            if (server.isSsh()) {
-                SecondaryText("经由此服务器的电脑：" + JumpStore.computersVia(this@ServersActivity, server.id) + " 台")
-            }
-            Spacer(Modifier.height(6.dp))
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                if (server.isSsh()) {
-                    ChipButton("▶ 打开终端") { openTerminal(server) }
-                    ChipButton("浏览文件") {
-                        currentPage = 4
-                        sftpServerId = server.id
-                        // 走统一的切目录入口：它会顺手把「加载中」点亮，免得闪一下「（空目录）」
-                        gotoDir("/", true)
-                    }
-                }
-                ChipButton("测试连接") { testConnection(server) }
-                ChipButton("编辑") { editTarget = server; editOpen = true }
-                ChipButton("删除") { deleteTarget = server }
-            }
-            if (server.isSsh() && SshSessionManager.shared().isUp(server.id)) {
-                SecondaryText("SSH 会话在线（隧道与终端共享）", Modifier.padding(top = 4.dp))
-            }
+            Text(
+                label,
+                fontSize = 9.sp,
+                fontWeight = if (filled) FontWeight.SemiBold else FontWeight.Normal,
+                color = if (filled) palette.onAccent else if (label == "编辑") palette.fgDim else palette.fg,
+            )
         }
     }
 
@@ -601,6 +967,11 @@ class ServersActivity : ComponentActivity() {
     // 添加 / 编辑服务器
     // ------------------------------------------------------------------
 
+    /**
+     * 添加 / 编辑服务器（设计稿 edit 屏：底部上拉弹层 + 把手 + 全宽保存钮）。
+     * 原AlertDialog 里的全部字段平移过来；「删除」从列表卡片挪进这里（设计稿卡片四钮里没有删除）。
+     */
+    @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     private fun EditJumpDialog(existing: JumpServer?) {
         val palette = LocalPalette.current
@@ -608,7 +979,11 @@ class ServersActivity : ComponentActivity() {
 
         var name by remember(existing) { mutableStateOf(existing?.name ?: "") }
         var isTelnet by remember(existing) { mutableStateOf(editing && existing?.isSsh() == false) }
-        var host by remember(existing) { mutableStateOf(existing?.host ?: "") }
+        // 设计稿把地址 / 端口拆成两格；存储仍是 host:port 合一，保存时拼回去
+        var hostInput by remember(existing) { mutableStateOf(existing?.hostname() ?: "") }
+        var portInput by remember(existing) {
+            mutableStateOf(if (editing) existing?.port()?.toString() ?: "" else "")
+        }
         var username by remember(existing) { mutableStateOf(existing?.username ?: "") }
         var authKey by remember(existing) {
             mutableStateOf(editing && JumpServer.AUTH_KEY == existing?.authType)
@@ -634,61 +1009,102 @@ class ServersActivity : ComponentActivity() {
             if (editing) KeyVault.decrypt(existing?.passwordEnc ?: "") else ""
         }
 
-        AlertDialog(
+        /** 地址框 + 端口框 → 存储用的 host(:port)；端口留空交给 applyHostInput 补协议默认值 */
+        fun combinedHost(): String {
+            val port = portInput.trim()
+            return if (port.isNotEmpty()) hostInput.trim() + ":" + port else hostInput.trim()
+        }
+
+        ModalBottomSheet(
             onDismissRequest = { editOpen = false },
-            // 键盘弹出时不能把底部的「保存 / 取消」盖住（对话框已经顶到屏幕上沿、无处可让），
-            // 让内容区把 IME 的高度让出来——它本来就是 verticalScroll，能自己压缩。
-            modifier = Modifier.imePadding(),
-            properties = DialogProperties(decorFitsSystemWindows = false),
-            title = { Text(if (editing) "编辑服务器" else "添加服务器") },
-            text = {
-                Column(Modifier.verticalScroll(rememberScrollState())) {
-                    FieldLabel("名称")
-                    OutlinedTextField(
-                        value = name, onValueChange = { name = it }, singleLine = true,
-                        placeholder = { Text("例如：pve / 家里路由器", fontSize = 12.sp) },
-                        modifier = Modifier.fillMaxWidth(),
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            containerColor = palette.card,
+            dragHandle = {
+                // 设计稿的把手：40×4 圆头
+                Box(
+                    Modifier
+                        .padding(top = 12.dp, bottom = 4.dp)
+                        .width(40.dp)
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(palette.lineStrong)
+                )
+            },
+        ) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .imePadding()
+                    .padding(horizontal = 20.dp)
+                    .padding(bottom = 28.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        if (editing) "编辑服务器" else "添加服务器",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = palette.fg,
+                        modifier = Modifier.weight(1f),
                     )
-                    // 两个选项各占一行：窄屏下一行塞不下两段中文说明，Row 溢出会把末尾 Text
-                    // 压成 0 宽逐字换行、整行撑到 ~300dp（并把它后面的「保存密码」顶出视口）。
-                    FieldLabel("协议")
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(selected = !isTelnet, onClick = { isTelnet = false })
-                        Text(
-                            "SSH（推荐：隧道+终端+文件）",
-                            fontSize = 13.sp,
-                            modifier = Modifier.weight(1f),
+                    Icon(
+                        Icons.Filled.Close,
+                        contentDescription = "关闭",
+                        tint = palette.fgDim,
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clickable { editOpen = false }
+                            .padding(8.dp),
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
+
+                FieldLabel("名称")
+                OutlinedTextField(
+                    value = name, onValueChange = { name = it }, singleLine = true,
+                    placeholder = { Text("例如：pve / 家里路由器", fontSize = 12.sp) },
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                FieldLabel("协议")
+                Segmented(listOf("SSH", "Telnet（实验性）"), if (isTelnet) 1 else 0) {
+                    isTelnet = it == 1
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Column(Modifier.weight(1f)) {
+                        FieldLabel("地址")
+                        OutlinedTextField(
+                            value = hostInput, onValueChange = { hostInput = it }, singleLine = true,
+                            placeholder = { Text("host 或 user@host", fontSize = 12.sp) },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth(),
                         )
                     }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(selected = isTelnet, onClick = { isTelnet = true })
-                        Text(
-                            "Telnet（实验性，仅终端）",
-                            fontSize = 13.sp,
-                            modifier = Modifier.weight(1f),
+                    Column(Modifier.width(88.dp)) {
+                        FieldLabel("端口")
+                        OutlinedTextField(
+                            value = portInput, onValueChange = { portInput = it.filter { c -> c.isDigit() } },
+                            singleLine = true,
+                            placeholder = { Text(if (isTelnet) "23" else "22", fontSize = 12.sp) },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth(),
                         )
                     }
-                    FieldLabel("地址（host:port）")
-                    OutlinedTextField(
-                        value = host, onValueChange = { host = it }, singleLine = true,
-                        placeholder = { Text("host:port 或 user@host:port（如 1.2.3.4:22）", fontSize = 12.sp) },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    FieldLabel("用户名")
-                    OutlinedTextField(
-                        value = username, onValueChange = { username = it }, singleLine = true,
-                        placeholder = { Text("root", fontSize = 12.sp) },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    FieldLabel("认证方式")
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(selected = !authKey, onClick = { authKey = false })
-                        Text("密码", fontSize = 13.sp)
-                        Spacer(Modifier.width(8.dp))
-                        RadioButton(selected = authKey, onClick = { authKey = true })
-                        Text("密钥", fontSize = 13.sp)
-                    }
+                }
+                FieldLabel("用户名")
+                OutlinedTextField(
+                    value = username, onValueChange = { username = it }, singleLine = true,
+                    placeholder = { Text("root", fontSize = 12.sp) },
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                FieldLabel("认证方式")
+                Segmented(listOf("密码", "密钥"), if (authKey) 1 else 0) {
+                    authKey = it == 1
+                }
+                if (!authKey) {
                     OutlinedTextField(
                         value = password,
                         onValueChange = { password = it },
@@ -708,12 +1124,34 @@ class ServersActivity : ComponentActivity() {
                         },
                         visualTransformation = PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 12.dp),
                     )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    // 「保存密码」卡片（设计稿样式）
+                    Row(
+                        verticalAlignment = Alignment.Top,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 12.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(palette.base)
+                            .border(1.dp, palette.line, RoundedCornerShape(12.dp))
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                    ) {
                         Checkbox(checked = savePassword, onCheckedChange = { savePassword = it })
-                        Text("保存密码（加密存本机 · 连接免输）", fontSize = 13.sp)
+                        Column(Modifier.padding(top = 2.dp)) {
+                            Text("保存密码 / 凭据", fontSize = 14.sp, color = palette.fg)
+                            Text(
+                                "加密存本机（Keystore），连接免输；不勾则清除已存凭据",
+                                fontSize = 11.sp,
+                                color = palette.fgFaint,
+                                modifier = Modifier.padding(top = 2.dp),
+                            )
+                        }
                     }
+                } else {
                     FieldLabel("密钥")
                     Box {
                         OutlinedTextField(
@@ -724,6 +1162,7 @@ class ServersActivity : ComponentActivity() {
                             onValueChange = {}, readOnly = true, singleLine = true,
                             // 必须 disabled：readOnly 的 TextField 会吃掉点击，clickable 收不到（详见 disabledFieldColors）
                             enabled = false,
+                            shape = RoundedCornerShape(12.dp),
                             colors = disabledFieldColors(palette.fg, palette.lineStrong, palette.fgDim),
                             trailingIcon = { Text(if (keyOpen) "▴" else "▾") },
                             modifier = Modifier
@@ -746,46 +1185,110 @@ class ServersActivity : ComponentActivity() {
                         placeholder = { Text("密钥口令（可空）", fontSize = 12.sp) },
                         visualTransformation = PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    FieldLabel("备注")
-                    OutlinedTextField(
-                        value = note, onValueChange = { note = it }, singleLine = true,
-                        placeholder = { Text("可选", fontSize = 12.sp) },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    FieldLabel(
-                        "SSH：支持隧道（外网连家里的电脑）+ 终端 + 文件；"
-                                + "Telnet：只有终端，明文传输，仅实验。"
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 12.dp),
                     )
                 }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    if (persistJump(existing, name, isTelnet, host, username, authKey,
-                            password, savePassword, keyIndex, passphrase, note)) {
-                        editOpen = false
-                    }
-                }) { Text("保存") }
-            },
-            dismissButton = {
-                Row {
-                    if (editing) {
-                        TextButton(onClick = {
-                            // 先把表单落下来再测（改了地址没保存就测会测到旧的）
-                            if (persistJump(existing, name, isTelnet, host, username, authKey,
+                FieldLabel("备注")
+                OutlinedTextField(
+                    value = note, onValueChange = { note = it }, singleLine = true,
+                    placeholder = { Text("可选", fontSize = 12.sp) },
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                FieldLabel(
+                    "SSH：支持隧道（外网连家里的电脑）+ 终端 + 文件；"
+                            + "Telnet：只有终端，明文传输，仅实验。"
+                )
+                Spacer(Modifier.height(16.dp))
+
+                // 保存（设计稿：全宽强调色大按钮）
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(palette.accent)
+                        .clickable {
+                            if (persistJump(existing, name, isTelnet, combinedHost(), username, authKey,
                                     password, savePassword, keyIndex, passphrase, note)) {
                                 editOpen = false
-                                testConnection(existing)
                             }
-                        }) { Text("测试连接") }
-                        TextButton(onClick = { editOpen = false }) { Text("取消") }
-                    } else {
-                        TextButton(onClick = { editOpen = false }) { Text("取消") }
-                    }
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text("保存", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = palette.onAccent)
                 }
-            },
-        )
+                Spacer(Modifier.height(10.dp))
+                if (editing) {
+                    // 测试连接（先落表单再测，改了地址没保存就测会测到旧的）
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .border(1.dp, palette.line, RoundedCornerShape(12.dp))
+                            .clickable {
+                                if (persistJump(existing, name, isTelnet, combinedHost(), username, authKey,
+                                        password, savePassword, keyIndex, passphrase, note)) {
+                                    editOpen = false
+                                    testConnection(existing)
+                                }
+                            },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            "测试连接",
+                            fontSize = 14.sp,
+                            color = palette.fgDim,
+                        )
+                    }
+                    // 删除入口（设计稿卡片四钮里没有删除；收进编辑弹层，删除确认弹窗照旧）
+                    TextButton(
+                        onClick = {
+                            editOpen = false
+                            deleteTarget = existing
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 6.dp),
+                    ) { Text("删除此服务器", color = palette.bad, fontSize = 13.sp) }
+                }
+            }
+        }
+    }
+
+    /** 设计稿的分段控件：容器描边 + 选中格强调色浅底 */
+    @Composable
+    private fun Segmented(options: List<String>, selected: Int, onSelect: (Int) -> Unit) {
+        val palette = LocalPalette.current
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(palette.base)
+                .border(1.dp, palette.line, RoundedCornerShape(12.dp))
+                .padding(4.dp),
+        ) {
+            options.forEachIndexed { index, label ->
+                Text(
+                    label,
+                    fontSize = 12.sp,
+                    fontWeight = if (selected == index) FontWeight.SemiBold else FontWeight.Normal,
+                    color = if (selected == index) palette.accent else palette.fgDim,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (selected == index) palette.accent.copy(alpha = 0.15f) else Color.Transparent)
+                        .clickable { onSelect(index) }
+                        .padding(vertical = 9.dp),
+                )
+            }
+        }
     }
 
     /** 保存表单；返回 false = 校验没过（比如密码加密失败），对话框保持打开 */
@@ -845,14 +1348,12 @@ class ServersActivity : ComponentActivity() {
     // 密钥页
     // ------------------------------------------------------------------
 
+    /** 密钥页（设计稿 keys 屏）：密钥卡 + 底部虚线提示框；生成/导入从 FAB 菜单进 */
     @Composable
-    private fun KeysPage() {
-        val importLauncher = rememberLauncherForActivityResult(
-            ActivityResultContracts.OpenDocument()
-        ) { uri -> if (uri != null) importKey(uri) }
-
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-            SectionTitle("密钥（私钥只存本机，Keystore 加密落盘）")
+    private fun KeysPage(
+        importLauncher: androidx.activity.compose.ManagedActivityResultLauncher<Array<String>, Uri?>,
+    ) {
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
             if (keys.isEmpty()) {
                 EmptyHint(
                     "还没有密钥。导入已有的私钥，或直接在本机生成一对 —— "
@@ -860,47 +1361,14 @@ class ServersActivity : ComponentActivity() {
                 )
             }
             for (entry in keys) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 12.dp, top = 12.dp, end = 8.dp, bottom = 12.dp),
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        PrimaryText(if (JumpStore.text(entry.name).isEmpty()) "未命名密钥" else entry.name)
-                        SecondaryText(
-                            entry.algorithm
-                                    + (if (JumpStore.text(entry.fingerprint).isEmpty()) "" else " · " + entry.fingerprint)
-                                    + " · 关联 " + JumpStore.keysInUse(jumps, entry.id) + " 台服务器"
-                        )
-                    }
-                    ChipButton("复制公钥") {
-                        if (JumpStore.text(entry.publicKey).isEmpty()) {
-                            toast("这把密钥没有记录公钥")
-                        } else {
-                            copyClipboard(JumpStore.text(entry.name) + " 公钥", entry.publicKey)
-                        }
-                    }
-                    ChipButton("删除") {
-                        val inUse = JumpStore.keysInUse(jumps, entry.id)
-                        if (inUse > 0) {
-                            toast("有 $inUse 台服务器在用这把密钥，先改它们的认证方式", long = true)
-                        } else {
-                            deleteTargetKey = entry
-                        }
-                    }
-                }
+                KeyCard(entry)
+                Spacer(Modifier.height(10.dp))
             }
-            TextButton(
-                onClick = {
-                    importLauncher.launch(arrayOf("*/*"))
-                },
-                modifier = Modifier.align(Alignment.CenterHorizontally),
-            ) { Text("导入私钥文件") }
-            TextButton(
-                onClick = { generateKeyOpen = true },
-                modifier = Modifier.align(Alignment.CenterHorizontally),
-            ) { Text("在本机生成密钥对") }
+            // 设计稿的虚线提示框
+            DashedHint(
+                "公钥需追加到服务器 ~/.ssh/authorized_keys\n私钥加密存本机，永不上传"
+            )
+            Spacer(Modifier.height(12.dp))
         }
 
         deleteTargetKey?.let { entry ->
@@ -918,6 +1386,146 @@ class ServersActivity : ComponentActivity() {
                 dismissButton = {
                     TextButton(onClick = { deleteTargetKey = null }) { Text("取消") }
                 },
+            )
+        }
+    }
+
+    /** 一张密钥卡：图标块 + 名称/使用徽标 + 指纹行 + 复制公钥 / 删除 */
+    @Composable
+    private fun KeyCard(entry: SshKeyEntry) {
+        val palette = LocalPalette.current
+        val inUse = JumpStore.keysInUse(jumps, entry.id)
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .background(palette.card)
+                .border(1.dp, palette.line, RoundedCornerShape(16.dp))
+                .padding(16.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(if (inUse > 0) palette.accent.copy(alpha = 0.1f) else palette.elevate),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    KeyIcon(if (inUse > 0) palette.accent else palette.fgDim, 20.dp)
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            if (JumpStore.text(entry.name).isEmpty()) "未命名密钥" else entry.name,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = palette.fg,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        if (inUse > 0) {
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                "N 台使用".replace("N", inUse.toString()),
+                                fontSize = 9.sp,
+                                fontFamily = FontFamily.Monospace,
+                                color = palette.accent,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(palette.accent.copy(alpha = 0.1f))
+                                    .padding(horizontal = 5.dp, vertical = 1.dp),
+                            )
+                        }
+                    }
+                    Text(
+                        entry.algorithm
+                                + (if (JumpStore.text(entry.fingerprint).isEmpty()) ""
+                                   else " · " + shortenFingerprint(entry.fingerprint)),
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        color = palette.fgDim,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .height(36.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(palette.elevate)
+                        .border(1.dp, palette.line, RoundedCornerShape(12.dp))
+                        .clickable {
+                            if (JumpStore.text(entry.publicKey).isEmpty()) {
+                                toast("这把密钥没有记录公钥")
+                            } else {
+                                copyClipboard(JumpStore.text(entry.name) + " 公钥", entry.publicKey)
+                            }
+                        },
+                    contentAlignment = Alignment.Center,
+                ) { Text("复制公钥", fontSize = 12.sp, color = palette.fg) }
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .height(36.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(palette.elevate)
+                        .border(1.dp, palette.line, RoundedCornerShape(12.dp))
+                        .clickable {
+                            if (inUse > 0) {
+                                toast("有 $inUse 台服务器在用这把密钥，先改它们的认证方式", long = true)
+                            } else {
+                                deleteTargetKey = entry
+                            }
+                        },
+                    contentAlignment = Alignment.Center,
+                ) { Text("删除", fontSize = 12.sp, color = palette.fgDim) }
+            }
+        }
+    }
+
+    /** SHA256:abcd…wxyz 形式的指纹缩写（设计稿样式） */
+    private fun shortenFingerprint(fingerprint: String): String {
+        val clean = fingerprint.removePrefix("SHA256:")
+        if (clean.length <= 12) return fingerprint
+        return "SHA256:" + clean.substring(0, 4) + "…" + clean.substring(clean.length - 4)
+    }
+
+    /** 设计稿的虚线提示框（keys 屏底部说明） */
+    @Composable
+    private fun DashedHint(text: String) {
+        val palette = LocalPalette.current
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .drawBehind {
+                    val stroke = androidx.compose.ui.graphics.drawscope.Stroke(
+                        width = 1.dp.toPx(),
+                        pathEffect = androidx.compose.ui.graphics.PathEffect
+                            .dashPathEffect(floatArrayOf(6.dp.toPx(), 5.dp.toPx())),
+                    )
+                    drawRoundRect(
+                        color = palette.lineStrong,
+                        topLeft = Offset.Zero,
+                        size = size,
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(16.dp.toPx()),
+                        style = stroke,
+                    )
+                }
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text,
+                fontSize = 12.sp,
+                lineHeight = 19.sp,
+                color = palette.fgFaint,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
             )
         }
     }
@@ -1086,6 +1694,7 @@ class ServersActivity : ComponentActivity() {
     @OptIn(ExperimentalLayoutApi::class)
     @Composable
     private fun FilesPage() {
+        val palette = LocalPalette.current
         val uploadLauncher = rememberLauncherForActivityResult(
             ActivityResultContracts.OpenDocument()
         ) { uri ->
@@ -1110,9 +1719,7 @@ class ServersActivity : ComponentActivity() {
         else sshServers.firstOrNull()?.id?.also { sftpServerId = it } ?: ""
         val selected = sshServers.firstOrNull { it.id == selectedId }
 
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-            SectionTitle("文件（SFTP，仅 SSH 服务器）")
-
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
             val server = selected
             if (server == null) {
                 EmptyHint("没有 SSH 服务器 —— 先到「服务器」页添加。Telnet 不支持文件传输。")
@@ -1136,7 +1743,7 @@ class ServersActivity : ComponentActivity() {
                     trailingIcon = { Text(if (serverOpen) "▴" else "▾") },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 4.dp)
+                        .padding(vertical = 4.dp)
                         .clickable { serverOpen = true },
                 )
                 DropdownMenu(expanded = serverOpen, onDismissRequest = { serverOpen = false }) {
@@ -1161,8 +1768,19 @@ class ServersActivity : ComponentActivity() {
                 }
             }
 
-            // 路径面包屑：每一段都能点着往回跳，长路径横向滚动、不挤爆整行
-            PathBar()
+            // 路径面包屑（设计稿 files 屏：rounded-xl 卡片容器内的 mono 路径段），
+            // 每一段都能点着往回跳，长路径横向滚动、不挤爆整行
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 6.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(palette.card)
+                    .border(1.dp, palette.line, RoundedCornerShape(12.dp))
+                    .padding(horizontal = 10.dp, vertical = 4.dp),
+            ) {
+                PathBar()
+            }
 
             // 工具行（FlowRow 会自动换行，窄屏上也不会把某一条压成 0 宽）
             FlowRow(
@@ -1170,7 +1788,7 @@ class ServersActivity : ComponentActivity() {
                 verticalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                    .padding(vertical = 4.dp),
             ) {
                 ChipButton("上级") { gotoDir(SftpOps.parent(sftpPath)) }
                 ChipButton("上传") { uploadLauncher.launch(arrayOf("*/*")) }
@@ -1217,14 +1835,14 @@ class ServersActivity : ComponentActivity() {
                     },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 2.dp),
+                        .padding(vertical = 2.dp),
                 )
             }
 
             if (sftpOpLabel.isNotEmpty()) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(start = 12.dp, top = 6.dp),
+                    modifier = Modifier.padding(top = 6.dp),
                 ) {
                     CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
                     Spacer(Modifier.width(8.dp))
@@ -1237,7 +1855,7 @@ class ServersActivity : ComponentActivity() {
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                        .padding(vertical = 6.dp),
                 ) {
                     Text(
                         (if (sftpClip == SftpClip.COPY) "📋 已复制 " else "✂️ 已剪切 ") + sftpClipNames,
@@ -1254,8 +1872,23 @@ class ServersActivity : ComponentActivity() {
             }
 
             if (!SshSessionManager.shared().isUp(sftpServerId)) {
-                SecondaryText("　（先在「服务器」页连上这台服务器，或点行内「▶ 终端」——"
-                        + " SFTP 复用同一条 SSH 会话）", Modifier.padding(horizontal = 12.dp))
+                SecondaryText("　（先在「服务器」页连上这台服务器，或点行内「终端」——"
+                        + " SFTP 复用同一条 SSH 会话）")
+            }
+
+            // 设计稿的三列表头：名称 / 大小 / 修改时间
+            if (sftpError.isEmpty() && !sftpBusy && sftpEntries.isNotEmpty()) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                ) {
+                    Text("名称", fontSize = 10.sp, color = palette.fgFaint, modifier = Modifier.weight(1f))
+                    Text("大小", fontSize = 10.sp, color = palette.fgFaint, modifier = Modifier.width(64.dp))
+                    Text("修改时间", fontSize = 10.sp, color = palette.fgFaint, modifier = Modifier.width(72.dp), textAlign = androidx.compose.ui.text.style.TextAlign.End)
+                    Spacer(Modifier.width(30.dp)) // 行末 ⋮ 的占位
+                }
             }
 
             val shown = orderEntries(
@@ -1354,7 +1987,7 @@ class ServersActivity : ComponentActivity() {
         }
     }
 
-    /** 文件 / 目录一行：点一下进目录或下载；长按整行、或点行末 ⋮ 都出操作菜单 */
+    /** 文件 / 目录一行（设计稿三列行卡）：点一下进目录或下载；长按整行、或点行末 ⋮ 都出操作菜单 */
     @OptIn(ExperimentalFoundationApi::class)
     @Composable
     private fun FileRow(entry: SftpOps.Entry, server: JumpServer) {
@@ -1364,6 +1997,10 @@ class ServersActivity : ComponentActivity() {
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .fillMaxWidth()
+                .padding(vertical = 3.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(palette.card)
+                .border(1.dp, palette.line, RoundedCornerShape(12.dp))
                 .combinedClickable(
                     onClick = {
                         if (entry.dir) {
@@ -1374,13 +2011,41 @@ class ServersActivity : ComponentActivity() {
                     },
                     onLongClick = { sftpRowMenu = entry.name },
                 )
-                .padding(start = 12.dp, top = 10.dp, end = 2.dp, bottom = 10.dp),
+                .padding(start = 14.dp, end = 2.dp, top = 10.dp, bottom = 10.dp),
         ) {
-            Text(entry.icon())
-            Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
-                PrimaryText(entry.name)
-                if (!entry.dir) SecondaryText(humanSize(entry.size))
+            // 图标：目录=文件夹（强调色）/ 脚本=闪电（警示色）/ 其他=文档
+            when {
+                entry.dir -> FolderIcon(palette.accent, 18.dp)
+                entry.name.endsWith(".sh") -> BoltIcon(palette.warn, 18.dp)
+                else -> DocFileIcon(palette.fgDim, 18.dp)
             }
+            Text(
+                entry.name,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                color = if (entry.name.endsWith(".sh") && !entry.dir) palette.warn else palette.fg,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 10.dp),
+            )
+            Text(
+                if (entry.dir) "—" else humanSize(entry.size),
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace,
+                color = if (entry.dir) palette.fgFaint else palette.fgDim,
+                modifier = Modifier.width(64.dp),
+            )
+            Text(
+                timeText(entry.mtime),
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace,
+                color = palette.fgDim,
+                maxLines = 1,
+                textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                modifier = Modifier.width(72.dp),
+            )
             Box {
                 Text(
                     "⋮",

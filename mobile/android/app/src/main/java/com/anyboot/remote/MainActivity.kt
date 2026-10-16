@@ -40,8 +40,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -68,6 +71,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -124,6 +129,8 @@ class MainActivity : ComponentActivity() {
     private var deleteServerTarget by mutableStateOf<ServerProfile?>(null)
     private var serverListOpen by mutableStateOf(false)
     private var transportOpen by mutableStateOf(false)
+    /** 跳板机总数（抽屉「服务器」项的计数徽标；后台读一次就够） */
+    private var jumpCount by mutableIntStateOf(0)
 
     // ---- 非 UI 状态（WebView 指令式管理，同旧实现） ----
     private val tabs = LinkedHashMap<String, Tab>()
@@ -165,6 +172,12 @@ class MainActivity : ComponentActivity() {
             }
         })
         heartbeat?.tunnelResolver = tunnelResolver
+
+        // 抽屉里的跳板机计数徽标（列表很小，后台读一次即可）
+        Thread {
+            val count = JumpStore.loadJumps(this).size
+            runOnUiThread { jumpCount = count }
+        }.start()
 
         setContent { Root() }
     }
@@ -381,7 +394,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** 抽屉侧边栏：AB 标识 + 电脑 / 服务器 / 关于 / 主题 */
+    /**
+     * 抽屉侧边栏（对齐设计稿 drawer 屏）：显示器图标块 + AnyBoot 版本行、
+     * 导航（电脑 / 服务器[计数徽标] / 关于 / 主题）、底部心跳与 GitHub 说明。
+     * 宽 290dp；主题项是设计稿没有的既有功能，保留在导航末尾。
+     */
     @Composable
     private fun DrawerOverlay() {
         val palette = LocalPalette.current
@@ -397,70 +414,135 @@ class MainActivity : ComponentActivity() {
             Column(
                 Modifier
                     .fillMaxHeight()
-                    .width(264.dp)
+                    .width(290.dp)
                     .background(palette.card)
                     .align(Alignment.CenterStart),
             ) {
+                // 头部：图标块 + 名称/版本
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(palette.accent)
-                        .padding(horizontal = 16.dp, vertical = 20.dp),
+                        .drawBehind { drawLine(palette.line, Offset(0f, size.height), Offset(size.width, size.height), 1.dp.toPx()) }
+                        .padding(horizontal = 20.dp, vertical = 28.dp)
+                        .padding(top = 0.dp),
                 ) {
                     Box(
                         Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .background(Color(0x33FFFFFF)),
+                            .size(44.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(palette.accent.copy(alpha = 0.15f)),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text("AB", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                        DesktopIcon(palette.accent, 24.dp)
                     }
                     Spacer(Modifier.width(12.dp))
-                    Text("AnyBoot", color = Color.White, fontSize = 17.sp)
+                    Column {
+                        Text("AnyBoot", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = palette.fg)
+                        Text(
+                            "v" + versionLabel() + " · remote",
+                            fontSize = 10.sp,
+                            color = palette.fgFaint,
+                            modifier = Modifier.padding(top = 1.dp),
+                        )
+                    }
                 }
-                DrawerItem("🖥  电脑", "回到电脑列表") { drawerOpen = false }
-                DrawerItem("🖧  服务器", "SSH / Telnet 跳板机管理") {
-                    drawerOpen = false
-                    context.startActivity(Intent(context, ServersActivity::class.java))
+                // 导航
+                Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(12.dp)) {
+                    DrawerNavRow("🖥", "电脑", iconSlot = { tint, size -> DesktopIcon(tint, size) }) {
+                        drawerOpen = false
+                    }
+                    DrawerNavRow("🖧", "服务器", badge = jumpCount,
+                        iconSlot = { tint, size -> ServerStackIcon(tint, size) }) {
+                        drawerOpen = false
+                        context.startActivity(Intent(context, ServersActivity::class.java))
+                    }
+                    DrawerNavRow("ⓘ", "关于", iconSlot = { tint, size ->
+                        Icon(Icons.Filled.Info, "关于", tint = tint,
+                            modifier = Modifier.size(size))
+                    }) {
+                        drawerOpen = false
+                        context.startActivity(Intent(context, AboutActivity::class.java))
+                    }
+                    DrawerNavRow("🌓", "主题：" + Ui.modeLabel(this@MainActivity)) {
+                        Ui.cycle(this@MainActivity)
+                        drawerOpen = false
+                        (context as? MainActivity)?.recreate()
+                    }
                 }
-                DrawerItem("ⓘ  关于", "项目信息与 Star") {
-                    drawerOpen = false
-                    context.startActivity(Intent(context, AboutActivity::class.java))
-                }
-                DrawerItem(
-                    "🌓  主题：" + Ui.modeLabel(this@MainActivity),
-                    "点按在 跟随系统 / 暗色 / 亮色 之间切换",
+                // 底部说明
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .drawBehind { drawLine(palette.line, Offset(0f, 0f), Offset(size.width, 0f), 1.dp.toPx()) }
+                        .padding(16.dp),
                 ) {
-                    Ui.cycle(this@MainActivity)
-                    drawerOpen = false
-                    (context as? MainActivity)?.recreate()
+                    Text(
+                        "心跳 10s · 并发探测\nGitHub · lidiaoo/anyboot",
+                        fontSize = 10.sp,
+                        lineHeight = 16.sp,
+                        color = palette.fgFaint,
+                    )
+                    Text(
+                        "外网连家里的电脑：先把家里能公网访问的机器加成 SSH 服务器，"
+                                + "再在电脑的「经由跳板机」里选它。",
+                        fontSize = 10.sp,
+                        lineHeight = 15.sp,
+                        color = palette.fgFaint,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
                 }
-                Spacer(Modifier.weight(1f))
-                Text(
-                    text = "外网连家里的电脑：先把家里能公网访问的机器加成 SSH 服务器，"
-                            + "再在电脑的「经由跳板机」里选它。",
-                    fontSize = 12.sp,
-                    color = palette.fgFaint,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp),
-                )
             }
         }
     }
 
+    /**
+     * 抽屉导航行：图标 + 文字（服务器行右侧带跳板机计数徽标）。
+     * [iconSlot] 提供自绘线性图标；没提供就用 [icon] 文本（emoji 兜底）。
+     */
     @Composable
-    private fun DrawerItem(label: String, description: String, onClick: () -> Unit) {
+    private fun DrawerNavRow(
+        icon: String,
+        label: String,
+        badge: Int = -1,
+        iconSlot: (@Composable (Color, androidx.compose.ui.unit.Dp) -> Unit)? = null,
+        onClick: () -> Unit,
+    ) {
         val palette = LocalPalette.current
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
                 .clickable(onClick = onClick)
-                .padding(start = 20.dp, top = 14.dp, end = 12.dp, bottom = 14.dp),
+                .padding(horizontal = 14.dp, vertical = 12.dp),
         ) {
-            Text(label, fontSize = 15.sp, color = palette.fg, modifier = Modifier.weight(1f))
-            Text("›", fontSize = 16.sp, color = palette.fgFaint)
+            if (iconSlot != null) {
+                iconSlot(palette.fgDim, 20.dp)
+            } else {
+                Text(icon, fontSize = 16.sp)
+            }
+            Spacer(Modifier.width(12.dp))
+            Text(label, fontSize = 14.sp, color = palette.fgDim, modifier = Modifier.weight(1f))
+            if (badge >= 0) {
+                Text(
+                    badge.toString(),
+                    fontSize = 10.sp,
+                    color = palette.fgDim,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(palette.elevate)
+                        .padding(horizontal = 8.dp, vertical = 2.dp),
+                )
+            }
+        }
+    }
+
+    private fun versionLabel(): String {
+        return try {
+            packageManager.getPackageInfo(packageName, 0).versionName ?: "1.1"
+        } catch (ignored: Exception) {
+            "1.1"
         }
     }
 
