@@ -31,6 +31,10 @@ pub struct HubServer {
     pub username: String,
     #[serde(default)]
     pub notes: String,
+    /// 认证方式：空 = 交互（密码/首次指纹在 ssh 里输）；非空 = 密钥 id
+    /// （hub_keys 的文件基名，起 ssh 时拼 `-i`）。密码永不落盘。
+    #[serde(default)]
+    pub key_id: String,
     #[serde(default)]
     pub created_at: u64,
 }
@@ -56,6 +60,7 @@ impl HubServer {
         };
         self.host = self.host.trim().to_string();
         self.username = self.username.trim().to_string();
+        self.key_id = self.key_id.trim().to_string();
         self
     }
 }
@@ -94,6 +99,16 @@ fn save_servers_to(path: &Path, servers: &[HubServer]) -> Result<(), String> {
 
 fn load_servers(app: &AppHandle) -> Result<Vec<HubServer>, String> {
     Ok(load_servers_from(&servers_path(app)?))
+}
+
+/// hub_keys 统计「被 N 台服务器使用」要用（跨模块只读）
+pub(crate) fn load_servers_pub(app: &AppHandle) -> Result<Vec<HubServer>, String> {
+    load_servers(app)
+}
+
+/// hub_tunnel / hub_keys 按 id 查服务器（只读快照语义）
+pub(crate) fn load_servers_for_tunnel(app: &AppHandle) -> Result<Vec<HubServer>, String> {
+    load_servers(app)
 }
 
 fn save_servers(app: &AppHandle, servers: &[HubServer]) -> Result<(), String> {
@@ -209,6 +224,7 @@ mod tests {
             port: 0,
             username: "root".to_string(),
             notes: String::new(),
+            key_id: String::new(),
             created_at: 0,
         }
     }

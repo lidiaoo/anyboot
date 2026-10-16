@@ -1,0 +1,530 @@
+//! server-hub M4：SSH 隧道（本地转发 / SOCKS5 动态转发）。
+//!
+//! 认证定则与终端同源：**hub 不碰凭据**。隧道 ssh 进程不带 PTY、BatchMode，
+//! 通过 ControlPath 复用终端会话建立的 ControlMaster 连接（M3 的终端 ssh
+//! 带 `ControlMaster=auto` + `ControlPersist`）——所以规则是：
+//! **先在该服务器上开过一次终端（认证完成），隧道才能起**。没有 master
+//! 时给明确报错，而不是无声挂死。
+
+use serde::{Deserialize, Serialize};
+use serde_json::json;
+use std::collections::HashMap;
+use std::io::Read;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+use tauri::{AppHandle, Emitter, Manager};
+
+use crate::hub::HubServer;
+use crate::HUB_WINDOW_LABEL;
+
+/// 隧道档案文件名
+pub(crate) const HUB_TUNNELS_FILE: &str = "hub-tunnels.json";
+
+/// 事件：隧道进程退出
+const EVENT_STOPPED: &str = "hub-tunnel-stopped";
+
+// ==================== 档案 ====================
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct HubTunnel {
+    pub id: String,
+    /// 关联的服务器（hub-servers.json 里的 id）
+    pub server_id: String,
+    pub name: String,
+    /// "local" = 本地转发 | "dynamic" = SOCKS5 动态转发
+    pub kind: String,
+    /// 本地监听端口
+    pub local_port: u16,
+    /// local 转发的目标主机（如 127.0.0.1 / 内网 IP）
+    #[serde(default)]
+    pub target_host: String,
+    /// local 转发的目标端口
+    #[serde(default)]
+    pub target_port: u16,
+    #[serde(default)]
+    pub created_at: u64,
+}
+
+impl HubTunnel {
+    pub(crate) fn normalize(mut self) -> Self {
+        self.id = self.id.trim().to_string();
+        self.server_id = self.server_id.trim().to_string();
+        self.name = self.name.trim().to_string();
+        self.kind = match self.kind.as_str() {
+            "dynamic" => "dynamic".to_string(),
+            _ => "local".to_string(),
+        };
+        self.target_host = self.target_host.trim().to_string();
+        self
+    }
+
+    fn validate(&self) -> Result<(), String> {
+        if self.name.is_empty() {
+            return Err("名称不能为空".to_string());
+        }
+        if self.server_id.is_empty() {
+            return Err("必须关联一台服务器".to_string());
+        }
+        if self.local_port == 0 {
+            return Err("本地端口不能为空".to_string());
+        }
+        if self.kind == "local" {
+            if self.target_host.is_empty() {
+                return Err("目标主机不能为空".to_string());
+            }
+            if self.target_port == 0 {
+                return Err("目标端口不能为空".to_string());
+            }
+        }
+        Ok(())
+    }
+
+    /// ssh 的转发参数（-L / -D）
+    pub(crate) fn forward_arg(&self) -> String {
+        match self.kind.as_str() {
+            "dynamic" => format!("127.0.0.1:{}", self.local_port),
+            _ => format!(
+                "127.0.0.1:{}:{}:{}",
+                self.local_port, self.target_host, self.target_port
+            ),
+        }
+    }
+}
+
+fn tunnels_path(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(crate::config_dir(app)?.join(HUB_TUNNELS_FILE))
+}
+
+fn load_tunnels_from(path: &std::path::Path) -> Vec<HubTunnel> {
+    let content = match std::fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(_) => return Vec::new(),
+    };
+    serde_json::from_str(&content).unwrap_or_else(|error| {
+        eprintln!("hub-tunnels.json 解析失败（按空表处理）: {error}");
+        Vec::new()
+    })
+}
+
+fn save_tunnels_to(path: &std::path::Path, tunnels: &[HubTunnel]) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|error| format!("无法创建配置目录: {error}"))?;
+    }
+    let temporary = path.with_extension("json.tmp");
+    let content = serde_json::to_string_pretty(tunnels)
+        .map_err(|error| format!("序列化失败: {error}"))?;
+    std::fs::write(&temporary, content.as_bytes())
+        .map_err(|error| format!("无法写入 {temporary:?}: {error}"))?;
+    std::fs::rename(&temporary, path).map_err(|error| format!("无法落盘 {path:?}: {error}"))?;
+    Ok(())
+}
+
+fn load_tunnels(app: &AppHandle) -> Result<Vec<HubTunnel>, String> {
+    Ok(load_tunnels_from(&tunnels_path(app)?))
+}
+
+fn save_tunnels(app: &AppHandle, tunnels: &[HubTunnel]) -> Result<(), String> {
+    save_tunnels_to(&tunnels_path(app)?, tunnels)
+}
+
+fn new_tunnel_id() -> String {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    format!("tun-{nanos:016x}")
+}
+
+/// 终端 / 隧道共用的 ControlMaster 套接字路径（按服务器 id 一把锁）
+pub(crate) fn control_path(app: &AppHandle, server_id: &str) -> Result<PathBuf, String> {
+    Ok(crate::config_dir(app)?.join(format!("hub-cm-{server_id}")))
+}
+
+// ==================== 运行时 ====================
+
+#[derive(Default)]
+pub struct HubTunnelState {
+    /// key = tunnel id
+    pub processes: Mutex<HashMap<String, Arc<TunnelProc>>>,
+}
+
+pub struct TunnelProc {
+    pub id: String,
+    /// 轮询 try_wait 与 kill 共用一把锁（各自只锁一瞬）
+    child: Mutex<std::process::Child>,
+    /// ssh 的 stderr 尾巴（失败时报给前端）
+    stderr_tail: Arc<Mutex<String>>,
+}
+
+#[derive(Clone, Serialize)]
+pub struct TunnelStatus {
+    pub id: String,
+    pub pid: u32,
+}
+
+fn stderr_tail_of(tail: &Arc<Mutex<String>>) -> String {
+    tail.lock().map(|t| t.clone()).unwrap_or_default()
+}
+
+fn watch_stderr(mut stderr: std::process::ChildStderr, tail: Arc<Mutex<String>>) {
+    let mut buffer = [0u8; 512];
+    let mut recent: Vec<u8> = Vec::new();
+    loop {
+        match stderr.read(&mut buffer) {
+            Ok(0) | Err(_) => break,
+            Ok(n) => {
+                recent.extend_from_slice(&buffer[..n]);
+                if recent.len() > 800 {
+                    let cut = recent.len() - 400;
+                    recent.drain(..cut);
+                }
+            }
+        }
+    }
+    if let Ok(mut t) = tail.lock() {
+        *t = String::from_utf8_lossy(&recent).trim().to_string();
+    }
+}
+
+#[tauri::command]
+pub fn hub_list_tunnels(app: AppHandle) -> Result<Vec<HubTunnel>, String> {
+    let mut tunnels = load_tunnels(&app)?;
+    tunnels.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    Ok(tunnels)
+}
+
+/// 新增或更新隧道档案（按 id 区分）
+#[tauri::command]
+pub fn hub_save_tunnel(app: AppHandle, tunnel: HubTunnel) -> Result<HubTunnel, String> {
+    let mut tunnel = tunnel.normalize();
+    tunnel.validate()?;
+    let mut tunnels = load_tunnels(&app)?;
+    if tunnel.id.is_empty() {
+        tunnel.id = new_tunnel_id();
+        tunnel.created_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        tunnels.push(tunnel.clone());
+    } else if let Some(existing) = tunnels.iter_mut().find(|t| t.id == tunnel.id) {
+        let created_at = existing.created_at;
+        *existing = tunnel.clone();
+        existing.created_at = created_at;
+    } else {
+        return Err(format!("要编辑的隧道不存在（{}）", tunnel.id));
+    }
+    save_tunnels(&app, &tunnels)?;
+    Ok(tunnel)
+}
+
+#[tauri::command]
+pub fn hub_delete_tunnel(app: AppHandle, state: tauri::State<'_, HubTunnelState>, id: String) -> Result<(), String> {
+    // 还在跑就先停
+    if let Some(process) = state
+        .processes
+        .lock()
+        .map_err(|_| "隧道进程表已被锁死")?
+        .get(&id)
+        .cloned()
+    {
+        if let Ok(mut child) = process.child.lock() {
+            let _ = child.kill();
+        }
+    }
+    let mut tunnels = load_tunnels(&app)?;
+    let before = tunnels.len();
+    tunnels.retain(|t| t.id != id);
+    if tunnels.len() == before {
+        return Err(format!("要删除的隧道不存在（{id}）"));
+    }
+    save_tunnels(&app, &tunnels)
+}
+
+/// 启动隧道：复用该服务器的 ControlMaster；进程活过 1.2s 视为已建立
+#[tauri::command]
+pub fn hub_tunnel_start(
+    app: AppHandle,
+    state: tauri::State<'_, HubTunnelState>,
+    tunnel_id: String,
+) -> Result<TunnelStatus, String> {
+    {
+        let map = state.processes.lock().map_err(|_| "隧道进程表已被锁死")?;
+        if map.contains_key(&tunnel_id) {
+            return Err("该隧道已在运行".to_string());
+        }
+    }
+    let tunnels = load_tunnels(&app)?;
+    let tunnel = tunnels
+        .iter()
+        .find(|t| t.id == tunnel_id)
+        .ok_or_else(|| format!("隧道不存在（{tunnel_id}）"))?
+        .clone();
+    let servers = crate::hub::load_servers_for_tunnel(&app)?;
+    let server = servers
+        .iter()
+        .find(|s| s.id == tunnel.server_id)
+        .ok_or_else(|| "关联的服务器已被删除，请重新选择".to_string())?
+        .clone();
+    spawn_tunnel(app, state.inner(), &server, tunnel)
+}
+
+fn spawn_tunnel(
+    app: AppHandle,
+    state: &HubTunnelState,
+    server: &HubServer,
+    tunnel: HubTunnel,
+) -> Result<TunnelStatus, String> {
+    let control = control_path(&app, &server.id)?;
+    if !control.exists() {
+        return Err(
+            "该服务器还没有可复用的认证连接：先打开一次终端（输完密码/通过认证）再启动隧道"
+                .to_string(),
+        );
+    }
+
+    let target = if server.username.is_empty() {
+        server.host.clone()
+    } else {
+        format!("{}@{}", server.username, server.host)
+    };
+    let mut command = std::process::Command::new("ssh");
+    command
+        .arg("-N")
+        .arg("-T")
+        .arg("-o")
+        .arg("BatchMode=yes")
+        .arg("-o")
+        .arg(format!("ControlPath={}", control.display()))
+        .arg("-o")
+        .arg("ExitOnForwardFailure=yes");
+    if tunnel.kind == "dynamic" {
+        command.arg("-D").arg(tunnel.forward_arg());
+    } else {
+        command.arg("-L").arg(tunnel.forward_arg());
+    }
+    command
+        .arg("-p")
+        .arg(server.effective_port().to_string())
+        .arg(&target);
+
+    command
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped());
+    let mut child = command
+        .spawn()
+        .map_err(|error| format!("无法启动 ssh: {error}"))?;
+    let pid = child.id();
+    let tail = Arc::new(Mutex::new(String::new()));
+    if let Some(stderr) = child.stderr.take() {
+        let tail_clone = tail.clone();
+        std::thread::Builder::new()
+            .name(format!("hub-tunnel-err-{pid}"))
+            .spawn(move || watch_stderr(stderr, tail_clone))
+            .ok();
+    }
+
+    // 1.2s 内就退出 = 转发没建立（端口占用 / master 断了），把 stderr 尾巴报出来
+    std::thread::sleep(Duration::from_millis(1200));
+    let exited_early = child.try_wait().ok().flatten().is_some();
+    if exited_early {
+        let message = stderr_tail_of(&tail);
+        return Err(if message.is_empty() {
+            format!("隧道启动失败（ssh 立即退出，pid {pid}）")
+        } else {
+            format!("隧道启动失败：{message}")
+        });
+    }
+
+    let process = Arc::new(TunnelProc {
+        id: tunnel.id.clone(),
+        child: Mutex::new(child),
+        stderr_tail: tail,
+    });
+    state
+        .processes
+        .lock()
+        .map_err(|_| "隧道进程表已被锁死")?
+        .insert(tunnel.id.clone(), process.clone());
+
+    // 看护线程：退出即摘表 + 发事件
+    let watch_app = app.clone();
+    let watch_id = tunnel.id.clone();
+    let watch_proc = process.clone();
+    std::thread::Builder::new()
+        .name(format!("hub-tunnel-wait-{pid}"))
+        .spawn(move || loop {
+            std::thread::sleep(Duration::from_millis(300));
+            let status = {
+                let Ok(mut guard) = watch_proc.child.lock() else {
+                    continue;
+                };
+                guard.try_wait().ok().flatten()
+            };
+            if let Some(status) = status {
+                if let Some(state) = watch_app.try_state::<HubTunnelState>() {
+                    if let Ok(mut map) = state.processes.lock() {
+                        map.remove(&watch_id);
+                    }
+                }
+                let message = stderr_tail_of(&watch_proc.stderr_tail);
+                eprintln!("[hub-tunnel] stopped id={watch_id} code={:?} tail={message}", status.code());
+                let _ = watch_app.emit_to(
+                    HUB_WINDOW_LABEL,
+                    EVENT_STOPPED,
+                    json!({ "id": watch_id, "tail": message }),
+                );
+                break;
+            }
+        })
+        .map_err(|error| format!("无法启动看护线程: {error}"))?;
+
+    eprintln!("[hub-tunnel] started id={} pid={pid}", tunnel.id);
+    Ok(TunnelStatus { id: tunnel.id, pid })
+}
+
+/// 停止隧道（进程退出后看护线程补发 stopped 事件）
+#[tauri::command]
+pub fn hub_tunnel_stop(
+    state: tauri::State<'_, HubTunnelState>,
+    tunnel_id: String,
+) -> Result<(), String> {
+    let process = state
+        .processes
+        .lock()
+        .map_err(|_| "隧道进程表已被锁死")?
+        .get(&tunnel_id)
+        .cloned()
+        .ok_or_else(|| format!("隧道未在运行（{tunnel_id}）"))?;
+    if let Ok(mut child) = process.child.lock() {
+        let _ = child.kill();
+    }
+    Ok(())
+}
+
+/// 应用退出：收掉所有隧道进程
+pub fn kill_all(app: &AppHandle) {
+    let Some(state) = app.try_state::<HubTunnelState>() else {
+        return;
+    };
+    let Ok(map) = state.processes.lock() else {
+        return;
+    };
+    for (_, process) in map.iter() {
+        if let Ok(mut child) = process.child.lock() {
+            let _ = child.kill();
+        }
+    }
+}
+
+// ==================== 单测 ====================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample(name: &str) -> HubTunnel {
+        HubTunnel {
+            id: String::new(),
+            server_id: "srv-1".to_string(),
+            name: name.to_string(),
+            kind: "local".to_string(),
+            local_port: 8080,
+            target_host: "10.0.0.2".to_string(),
+            target_port: 80,
+            created_at: 0,
+        }
+    }
+
+    #[test]
+    fn forward_arg_by_kind() {
+        assert_eq!(sample("a").forward_arg(), "127.0.0.1:8080:10.0.0.2:80");
+        let dynamic = HubTunnel {
+            kind: "dynamic".to_string(),
+            ..sample("b")
+        }
+        .normalize();
+        assert_eq!(dynamic.forward_arg(), "127.0.0.1:8080");
+    }
+
+    #[test]
+    fn validate_rejects_incomplete() {
+        assert!(sample("a").validate().is_ok());
+        assert!(HubTunnel {
+            name: "  ".to_string(),
+            ..sample("b")
+        }
+        .normalize()
+        .validate()
+        .is_err());
+        assert!(HubTunnel {
+            local_port: 0,
+            ..sample("c")
+        }
+        .normalize()
+        .validate()
+        .is_err());
+        assert!(HubTunnel {
+            target_host: String::new(),
+            ..sample("d")
+        }
+        .normalize()
+        .validate()
+        .is_err());
+        // dynamic 不需要 target
+        let dynamic = HubTunnel {
+            kind: "dynamic".to_string(),
+            target_host: String::new(),
+            target_port: 0,
+            ..sample("e")
+        }
+        .normalize();
+        assert!(dynamic.validate().is_ok());
+    }
+
+    #[test]
+    fn store_roundtrip_and_crud() {
+        let dir = std::env::temp_dir().join(format!(
+            "ab-tunnel-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&dir).expect("建临时目录");
+        let path = dir.join(HUB_TUNNELS_FILE);
+        assert!(load_tunnels_from(&path).is_empty());
+
+        let mut a = sample("alpha");
+        a.id = new_tunnel_id();
+        let mut b = sample("beta");
+        b.id = new_tunnel_id();
+        save_tunnels_to(&path, &[a.clone(), b.clone()]).expect("落盘");
+        assert_eq!(load_tunnels_from(&path).len(), 2);
+
+        let mut tunnels = load_tunnels_from(&path);
+        tunnels.retain(|t| t.id != b.id);
+        save_tunnels_to(&path, &tunnels).expect("落盘");
+        assert_eq!(load_tunnels_from(&path).len(), 1);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn broken_store_file_reads_as_empty() {
+        let dir = std::env::temp_dir().join(format!(
+            "ab-tunnel-broken-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&dir).expect("建临时目录");
+        let path = dir.join(HUB_TUNNELS_FILE);
+        std::fs::write(&path, "{not json").unwrap();
+        assert!(load_tunnels_from(&path).is_empty());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+}

@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<!-- server-files SFTP 文件浏览独立窗 —— docs/client-ui/pc-files-redesign.html 的一比一实现。
+     数据全部走真实后端（hub_sftp.rs，系统 sftp CLI + ControlMaster 复用）：
+     列表/建目录/删除/改名/上传/下载。Telnet 不提供 —— 标题栏 pill 显示原因。
+     自绘关闭钮由系统标题栏承担（省略）。 -->
+<html lang="zh-CN" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AnyBoot 文件</title>
+<style>
+  /* ---- 主题 token：与设计稿同一套色板 ---- */
+  html.dark{
+    --base:2 6 23; --term:4 7 15; --card:14 18 35; --elevate:20 26 46;
+    --line:36 43 65; --linestrong:51 65 85;
+    --fg:248 250 252; --fgdim:148 163 184; --fgfaint:100 116 139;
+    --ok:34 197 94; --warn:245 158 11; --bad:239 68 68; --accent:34 197 94;
+    --tblue:96 165 250;
+    color-scheme:dark;
+  }
+  html.light{
+    --base:244 246 250; --term:4 7 15; --card:255 255 255; --elevate:241 245 250;
+    --line:226 232 240; --linestrong:203 213 225;
+    --fg:15 23 42; --fgdim:90 100 118; --fgfaint:138 148 166;
+    --ok:22 163 74; --warn:180 83 9; --bad:220 38 38; --accent:22 163 74;
+    --tblue:37 99 235;
+    color-scheme:light;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; }
+  body {
+    background: rgb(var(--base));
+    color: rgb(var(--fg));
+    font: 14px/1.5 -apple-system, "Segoe UI", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+    display:flex; flex-direction:column; overflow:hidden;
+  }
+  button { font: inherit; color: inherit; }
+  [hidden] { display:none !important; }
+  .scroll-thin::-webkit-scrollbar { width:8px; height:8px; }
+  .scroll-thin::-webkit-scrollbar-thumb { background: rgb(var(--linestrong)); border-radius:4px; }
+  @media (prefers-reduced-motion: reduce) { *,*::before,*::after { transition:none!important; animation:none!important; } }
+  .mono { font-family: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace; }
+
+  /* ============ 标题栏 ============ */
+  header {
+    display:flex; align-items:center; gap:10px; min-height:44px; padding:6px 16px;
+    border-bottom:1px solid rgb(var(--line)); background:rgb(var(--card) / .6);
+    user-select:none; flex:none;
+  }
+  header .appicon {
+    display:grid; place-items:center; width:24px; height:24px; border-radius:6px; flex:none;
+    background:rgb(var(--tblue) / .15); color:rgb(var(--tblue));
+  }
+  header h1 { margin:0; font-size:13px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
+  .pill {
+    display:inline-flex; align-items:center; gap:6px; border-radius:9999px;
+    padding:2px 9px; font-size:11px; font-weight:500; flex:none;
+  }
+  .pill.ok { background:rgb(var(--ok) / .1); color:rgb(var(--ok)); }
+  .pill.bad { background:rgb(var(--bad) / .1); color:rgb(var(--bad)); }
+  .pill .dot { width:6px; height:6px; border-radius:50%; background:currentColor; }
+  header .tools { margin-left:auto; display:flex; align-items:center; gap:2px; color:rgb(var(--fgfaint)); flex:none; }
+  .toolbtn {
+    display:inline-flex; align-items:center; gap:5px; height:26px; padding:0 9px;
+    border:0; background:transparent; border-radius:6px; font-size:12px; cursor:pointer; color:inherit;
+    transition: background .15s, color .15s;
+  }
+  .toolbtn:hover { background:rgb(var(--elevate)); color:rgb(var(--fg)); }
+
+  /* ============ 路径栏 + 操作 ============ */
+  .pathbar {
+    display:flex; flex-wrap:wrap; align-items:center; gap:8px; flex:none;
+    border-bottom:1px solid rgb(var(--line)); background:rgb(var(--card) / .3);
+    padding:9px 14px;
+  }
+  .iconbtn {
+    display:grid; place-items:center; width:32px; height:32px; flex:none;
+    border:1px solid rgb(var(--line)); border-radius:9px; background:rgb(var(--elevate));
+    color:rgb(var(--fgdim)); cursor:pointer; transition: border-color .15s, color .15s;
+  }
+  .iconbtn:hover { border-color:rgb(var(--linestrong)); color:rgb(var(--fg)); }
+  .crumbs {
+    display:flex; align-items:center; gap:2px; min-width:0; flex:1; overflow-x:auto;
+    border:1px solid rgb(var(--line)); border-radius:9px; background:rgb(var(--term));
+    padding:6px 10px; font-family:ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace; font-size:12px;
+  }
+  .crumbs::-webkit-scrollbar { height:0; }
+  .crumb { border:0; background:transparent; padding:1px 5px; border-radius:4px; color:rgb(var(--tblue)); cursor:pointer; white-space:nowrap; }
+  .crumb:hover { background:rgb(var(--elevate)); }
+  .crumb[aria-current="true"] { color:rgb(var(--fg)); cursor:default; }
+  .crumb-sep { color:rgb(var(--fg-faint)); }
+  .btn {
+    display:inline-flex; align-items:center; gap:6px; height:32px; padding:0 12px;
+    border:1px solid rgb(var(--line)); border-radius:9px; background:rgb(var(--elevate));
+    font-size:12px; font-weight:500; cursor:pointer; white-space:nowrap;
+    transition: border-color .15s, background .15s;
+  }
+  .btn:hover { border-color:rgb(var(--linestrong)); }
+  .btn.primary { border:0; background:rgb(var(--ok)); color:rgb(var(--base)); font-weight:600; }
+  .btn.primary:hover { background:rgb(var(--ok) / .85); }
+  .btn:disabled { opacity:.5; cursor:not-allowed; }
+
+  /* ============ 文件表 ============ */
+  .table-wrap { flex:1; min-height:0; overflow:auto; }
+  table { width:100%; min-width:640px; border-collapse:collapse; text-align:left; font-size:13px; }
+  thead { position:sticky; top:0; z-index:10; background:rgb(var(--card) / .95); backdrop-filter: blur(4px); }
+  thead tr { border-bottom:1px solid rgb(var(--line)); }
+  th {
+    padding:9px 12px; font-size:11px; font-weight:600; text-transform:uppercase;
+    letter-spacing:.08em; color:rgb(var(--fg-faint));
+  }
+  tbody { font-family:ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace; font-size:13px; }
+  tbody tr { border-bottom:1px solid rgb(var(--line) / .6); cursor:default; }
+  tbody tr:hover { background:rgb(var(--elevate) / .6); }
+  tbody tr.selected { background:rgb(var(--tblue) / .07); }
+  td { padding:9px 12px; }
+  td .namecell { display:flex; align-items:center; gap:10px; }
+  td .namecell svg { width:16px; height:16px; flex:none; }
+  td .namecell.dir svg { color:rgb(var(--tblue)); }
+  td .namecell.link svg { color:rgb(var(--warn)); }
+  td .namecell.file svg { color:rgb(var(--fgdim)); }
+  td .namecell span { font-family:-apple-system,"Segoe UI","Noto Sans SC",sans-serif; }
+  .dim { color:rgb(var(--fg-dim)); } .faint { color:rgb(var(--fg-faint)); }
+  .rowdl {
+    border:0; background:transparent; border-radius:6px; padding:4px; cursor:pointer;
+    color:rgb(var(--fg-faint)); display:inline-grid; place-items:center;
+  }
+  .rowdl:hover { color:rgb(var(--ok)); }
+  .empty-tip { padding:44px 0; text-align:center; color:rgb(var(--fg-faint)); font-size:13px; }
+
+  /* ============ 传输队列 + 状态栏 ============ */
+  .transfer {
+    display:flex; align-items:center; gap:12px; flex:none;
+    border-top:1px solid rgb(var(--line)); background:rgb(var(--card) / .4);
+    padding:7px 14px; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12px; color:rgb(var(--fgdim));
+  }
+  .transfer[hidden] { display:none; }
+  .spin { width:14px; height:14px; flex:none; color:rgb(var(--ok)); animation:ab-spin 1s linear infinite; }
+  @keyframes ab-spin { to { transform: rotate(360deg); } }
+  .bar { height:6px; min-width:120px; flex:1; border-radius:9999px; background:rgb(var(--elevate)); overflow:hidden; }
+  .bar > div { height:100%; border-radius:9999px; background:rgb(var(--ok)); transition: width .25s; }
+  .bar.indet > div { width:40% !important; animation:ab-slide 1.1s ease-in-out infinite; }
+  @keyframes ab-slide { 0% { margin-left:-40%; } 100% { margin-left:100%; } }
+  .pct { font-size:12px; color:rgb(var(--ok)); min-width:38px; text-align:right; }
+  .pct.fail { color:rgb(var(--bad)); }
+  footer {
+    display:flex; align-items:center; gap:14px; flex:none;
+    border-top:1px solid rgb(var(--line)); background:rgb(var(--card) / .6);
+    padding:7px 20px; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px; color:rgb(var(--fgfaint));
+  }
+  footer .clock { margin-left:auto; }
+
+  /* 弹层 & Toast */
+  .modal { position:fixed; inset:0; z-index:40; display:grid; place-items:center; background:rgba(0,0,0,.6); padding:24px; }
+  .modal-card { width:100%; max-width:380px; background:rgb(var(--card)); border:1px solid rgb(var(--linestrong)); border-radius:14px; box-shadow:0 16px 48px -8px rgba(0,0,0,.65); }
+  .modal-head { display:flex; align-items:center; justify-content:space-between; padding:14px 22px; border-bottom:1px solid rgb(var(--line)); }
+  .modal-head h3 { margin:0; font-size:15px; font-weight:600; }
+  .modal-body { padding:18px 22px; display:flex; flex-direction:column; gap:8px; }
+  .modal-body label { font-size:12px; font-weight:500; color:rgb(var(--fgdim)); }
+  .modal-body input {
+    height:36px; width:100%; border:1px solid rgb(var(--line)); border-radius:9px;
+    background:rgb(var(--elevate)); padding:0 12px; color:rgb(var(--fg)); font-size:13px; outline:none;
+  }
+  .modal-body input:focus { border-color:rgb(var(--ok) / .6); }
+  .modal-foot { display:flex; justify-content:flex-end; gap:8px; border-top:1px solid rgb(var(--line)); padding:14px 22px; }
+  .btn.plain { border:0; background:transparent; color:rgb(var(--fgdim)); }
+  .btn.plain:hover { color:rgb(var(--fg)); }
+  #toast {
+    position:fixed; bottom:24px; left:50%; transform:translateX(-50%); z-index:50;
+    background:rgb(var(--elevate)); border:1px solid rgb(var(--linestrong)); border-radius:9px;
+    padding:10px 16px; font-size:13px; box-shadow:0 16px 40px -8px rgba(0,0,0,.65); transition:opacity .2s;
+    max-width:80vw; word-break:break-all;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <span class="appicon" aria-hidden="true">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+  </span>
+  <h1 id="title">文件</h1>
+  <span id="connPill" class="pill bad" hidden><span class="dot"></span><span id="connText">连接中…</span></span>
+  <div class="tools">
+    <button class="toolbtn" id="themeBtn" aria-label="切换主题">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none"/></svg>
+      主题
+    </button>
+  </div>
+</header>
+
+<div class="pathbar">
+  <button class="iconbtn" id="upBtn" aria-label="上一级" title="上一级">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M11 18l-6-6 6-6"/></svg>
+  </button>
+  <button class="iconbtn" id="refreshBtn" aria-label="刷新" title="刷新">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 3v6h-6"/></svg>
+  </button>
+  <nav class="crumbs scroll-thin" id="crumbs" aria-label="路径"></nav>
+  <button class="btn" id="mkdirBtn">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+    新建目录
+  </button>
+  <button class="btn primary" id="uploadBtn">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+    上传
+  </button>
+  <button class="btn" id="downloadBtn" disabled title="未选中文件">下载</button>
+</div>
+
+<div class="table-wrap scroll-thin" id="tableWrap">
+  <table aria-label="文件列表">
+    <thead>
+      <tr>
+        <th>名称</th>
+        <th style="width:90px">大小</th>
+        <th style="width:120px">权限</th>
+        <th style="width:130px">修改时间</th>
+        <th style="width:64px; text-align:right">操作</th>
+      </tr>
+    </thead>
+    <tbody id="tbody"></tbody>
+  </table>
+  <div class="empty-tip" id="emptyTip" hidden></div>
+</div>
+
+<div class="transfer" id="transfer" hidden>
+  <svg class="spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-9-9"/></svg>
+  <span id="transferName">—</span>
+  <div class="bar" id="transferBar"><div id="transferFill" style="width:0%"></div></div>
+  <span class="pct" id="transferPct">0%</span>
+</div>
+
+<footer>
+  <span id="footCount">—</span>
+  <span aria-hidden="true">·</span><span>SFTP 复用 SSH 会话</span>
+  <span class="clock" id="footClock">—</span>
+</footer>
+
+<!-- 新建目录弹层 -->
+<div class="modal" id="mkdirModal" hidden role="dialog" aria-modal="true" aria-labelledby="mkdirTitle">
+  <div class="modal-card">
+    <div class="modal-head">
+      <h3 id="mkdirTitle">新建目录</h3>
+      <button id="mkdirClose" aria-label="关闭">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <form class="modal-body" id="mkdirForm">
+      <label for="mkdirName">目录名（当前目录下创建）</label>
+      <input id="mkdirName" placeholder="例如 backup" autocomplete="off" required>
+    </form>
+    <div class="modal-foot">
+      <button class="btn plain" id="mkdirCancel">取消</button>
+      <button class="btn primary" id="mkdirOk">创建</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" hidden></div>
+
+<script>
+const HAS_TAURI = typeof window.__TAURI__ !== "undefined";
+const invoke = HAS_TAURI ? window.__TAURI__.core.invoke : null;
+const listen = HAS_TAURI ? window.__TAURI__.event.listen : null;
+
+let toastTimer;
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.hidden = false; t.style.opacity = 1;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.style.opacity = 0; setTimeout(() => t.hidden = true, 200); }, 2600);
+}
+
+/* ---------- 主题 ---------- */
+function applyTheme(t) {
+  document.documentElement.classList.remove('light', 'dark');
+  document.documentElement.classList.add(t);
+  try { localStorage.setItem('ab-theme', t); } catch (e) {}
+}
+document.getElementById('themeBtn').addEventListener('click', () => {
+  applyTheme(document.documentElement.classList.contains('light') ? 'dark' : 'light');
+});
+try { applyTheme(localStorage.getItem('ab-theme') || 'dark'); } catch (e) { applyTheme('dark'); }
+
+/* ---------- 状态 ---------- */
+let server = null;          // HubServer json
+let cwd = '/';              // 当前远端目录
+let entries = [];           // SftpEntry[]
+let selected = null;        // 选中的文件（仅文件可下载）
+let busy = false;           // 列表/传输进行中
+
+const $ = (id) => document.getElementById(id);
+const DIR_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>';
+const FILE_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>';
+const LINK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h7l-1 8 10-12h-7z"/></svg>';
+
+function humanSize(n) {
+  if (n < 1024) return n + 'B';
+  const units = ['K', 'M', 'G', 'T'];
+  let v = n;
+  for (const u of units) {
+    v /= 1024;
+    if (v < 1024) return (v >= 100 ? v.toFixed(0) : v.toFixed(1)) + u;
+  }
+  return v.toFixed(1) + 'P';
+}
+
+function joinPath(dir, name) {
+  return dir.endsWith('/') ? dir + name : dir + '/' + name;
+}
+
+/* ---------- 面包屑 ---------- */
+function renderCrumbs() {
+  const nav = $('crumbs');
+  nav.textContent = '';
+  const parts = cwd.split('/').filter((p) => p !== '');
+  const addCrumb = (label, target, isCurrent) => {
+    if (!isCurrent) {
+      const sep = document.createElement('span');
+      sep.className = 'crumb-sep'; sep.textContent = '›'; sep.setAttribute('aria-hidden', 'true');
+      nav.appendChild(sep);
+    }
+    const b = document.createElement('button');
+    b.className = 'crumb';
+    b.textContent = label;
+    b.setAttribute('aria-current', String(isCurrent));
+    if (!isCurrent) b.addEventListener('click', () => gotoDir(target));
+    nav.appendChild(b);
+  };
+  addCrumb('/', '/', parts.length === 0);
+  let acc = '';
+  parts.forEach((part, i) => {
+    acc += '/' + part;
+    addCrumb(part, acc, i === parts.length - 1);
+  });
+  nav.scrollLeft = nav.scrollWidth;
+}
+
+/* ---------- 列表 ---------- */
+function renderTable() {
+  const tbody = $('tbody');
+  tbody.textContent = '';
+  let totalSize = 0;
+  for (const entry of entries) {
+    totalSize += entry.size || 0;
+    const tr = document.createElement('tr');
+    tr.dataset.name = entry.name;
+    const kind = entry.dir ? 'dir' : (entry.link ? 'link' : 'file');
+    tr.innerHTML =
+      '<td><span class="namecell ' + kind + '">' +
+      (kind === 'dir' ? DIR_SVG : kind === 'link' ? LINK_SVG : FILE_SVG) +
+      '<span></span></span></td>' +
+      '<td class="' + (entry.dir ? 'faint' : '') + '">' + (entry.dir ? '—' : humanSize(entry.size)) + '</td>' +
+      '<td class="dim">' + (entry.perms || '—') + '</td>' +
+      '<td class="dim">' + (entry.mtime || '—') + '</td>' +
+      '<td style="text-align:right"></td>';
+    tr.querySelector('.namecell span').textContent = entry.name;
+    const opTd = tr.lastElementChild;
+    if (!entry.dir) {
+      const dl = document.createElement('button');
+      dl.className = 'rowdl'; dl.title = '下载 ' + entry.name; dl.setAttribute('aria-label', '下载 ' + entry.name);
+      dl.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M19 12l-7 7-7-7"/></svg>';
+      dl.addEventListener('click', (e) => { e.stopPropagation(); downloadEntry(entry); });
+      opTd.appendChild(dl);
+    }
+    tr.addEventListener('click', () => selectEntry(tr, entry));
+    tr.addEventListener('dblclick', () => { if (entry.dir) gotoDir(joinPath(cwd, entry.name)); });
+    tbody.appendChild(tr);
+  }
+  $('footCount').textContent = entries.length
+    ? `${entries.length} 项 · ${humanSize(totalSize)}`
+    : '0 项';
+  const tip = $('emptyTip');
+  if (!entries.length) {
+    tip.hidden = false;
+    tip.textContent = busy ? '读取中…' : '（空目录）';
+  } else {
+    tip.hidden = true;
+  }
+}
+
+function selectEntry(tr, entry) {
+  if (entry.dir) return;
+  selected = entry;
+  document.querySelectorAll('#tbody tr.selected').forEach((row) => row.classList.remove('selected'));
+  tr.classList.add('selected');
+  $('downloadBtn').disabled = false;
+  $('downloadBtn').title = '下载 ' + entry.name;
+}
+
+async function gotoDir(path, force) {
+  if (!invoke || !server) return;
+  if (busy && !force) return;
+  busy = true;
+  selected = null;
+  $('downloadBtn').disabled = true;
+  try {
+    const list = await invoke('hub_sftp_list', { server, path });
+    cwd = path;
+    entries = list || [];
+    renderCrumbs();
+    renderTable();
+  } catch (e) {
+    toast('读取失败：' + e);
+  } finally {
+    busy = false;
+  }
+}
+
+async function refresh() {
+  await gotoDir(cwd, true);
+}
+
+/* ---------- 传输 ---------- */
+function showTransfer(name, indeterminate) {
+  $('transfer').hidden = false;
+  $('transferName').textContent = name;
+  const bar = $('transferBar');
+  bar.classList.toggle('indet', !!indeterminate);
+  $('transferFill').style.width = indeterminate ? '40%' : '0%';
+  $('transferPct').textContent = '0%';
+  $('transferPct').classList.remove('fail');
+}
+function updateTransfer(bytes, total) {
+  const pct = total > 0 ? Math.min(100, Math.round((bytes / total) * 100)) : 0;
+  $('transferFill').style.width = pct + '%';
+  $('transferPct').textContent = pct + '%';
+}
+function hideTransfer() { $('transfer').hidden = true; }
+
+async function downloadEntry(entry) {
+  if (!invoke || !server || busy) return;
+  busy = true;
+  showTransfer('下载 ' + entry.name + ' → ' + (entry.dir ? '' : humanSize(entry.size)), false);
+  try {
+    const local = await invoke('hub_sftp_download', {
+      server,
+      remotePath: joinPath(cwd, entry.name),
+      total: entry.size || 0,
+      filename: entry.name,
+    });
+    toast('已下载到 ' + local);
+  } catch (e) {
+    hideTransfer();
+    toast('下载失败：' + e);
+  } finally {
+    busy = false;
+    setTimeout(hideTransfer, 600);
+  }
+}
+
+async function upload() {
+  if (!invoke || !server || busy) return;
+  busy = true;
+  try {
+    const uploaded = await invoke('hub_sftp_upload', { server, remoteDir: cwd });
+    if (uploaded?.length) toast('已上传 ' + uploaded.length + ' 个文件');
+  } catch (e) {
+    const msg = String(e);
+    if (msg !== '未选择文件') toast('上传失败：' + msg);
+  } finally {
+    busy = false;
+    hideTransfer();
+    await refresh();
+  }
+}
+
+/* ---------- 新建目录 ---------- */
+function openMkdir() {
+  $('mkdirName').value = '';
+  $('mkdirModal').hidden = false;
+  $('mkdirName').focus();
+}
+function closeMkdir() { $('mkdirModal').hidden = true; }
+async function submitMkdir() {
+  const name = $('mkdirName').value.trim();
+  if (!name) return;
+  try {
+    await invoke('hub_sftp_mkdir', { server, path: joinPath(cwd, name) });
+    closeMkdir();
+    toast('已创建 ' + name);
+    await refresh();
+  } catch (e) {
+    toast('创建失败：' + e);
+  }
+}
+$('mkdirBtn').addEventListener('click', openMkdir);
+$('mkdirClose').addEventListener('click', closeMkdir);
+$('mkdirCancel').addEventListener('click', closeMkdir);
+$('mkdirOk').addEventListener('click', submitMkdir);
+$('mkdirForm').addEventListener('submit', (e) => { e.preventDefault(); submitMkdir(); });
+$('mkdirModal').addEventListener('click', (e) => { if (e.target.id === 'mkdirModal') closeMkdir(); });
+
+/* ---------- 工具钮 / 键盘 ---------- */
+$('upBtn').addEventListener('click', () => { if (cwd !== '/') gotoDir(cwd.replace(/\/[^/]*\/?$/, '') || '/'); });
+$('refreshBtn').addEventListener('click', refresh);
+$('downloadBtn').addEventListener('click', () => { if (selected) downloadEntry(selected); });
+$('uploadBtn').addEventListener('click', upload);
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMkdir(); });
+
+/* ---------- 时钟 ---------- */
+function tickClock() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  $('footClock').textContent =
+    `${d.getMonth() + 1}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+setInterval(tickClock, 1000); tickClock();
+
+/* ---------- 后端事件 ---------- */
+if (listen) {
+  listen('hub-sftp-progress', (event) => {
+    const { name, dir, bytes, total, done, failed } = event.payload;
+    if (failed) {
+      $('transferPct').textContent = '失败';
+      $('transferPct').classList.add('fail');
+      $('transferBar').classList.remove('indet');
+      $('transferFill').style.width = '0%';
+      return;
+    }
+    showTransfer((dir === 'up' ? '上传 ' : '下载 ') + name, dir === 'up' && !done);
+    if (done) {
+      $('transferBar').classList.remove('indet');
+      $('transferFill').style.width = '100%';
+      $('transferPct').textContent = '100%';
+    } else if (total > 0) {
+      $('transferBar').classList.remove('indet');
+      updateTransfer(bytes, total);
+    }
+  });
+  // hub 再点一次「浏览文件」：换服务器并回到家目录
+  listen('hub-files-open-server', async (event) => {
+    server = event.payload;
+    renderHeader();
+    await bootDir();
+  });
+}
+
+/* ---------- 头部与启动 ---------- */
+function renderHeader() {
+  $('title').textContent = '文件 — ' + (server ? server.name : '');
+  const pill = $('connPill');
+  pill.hidden = false;
+  if (server && server.protocol === 'ssh') {
+    pill.className = 'pill ok';
+    $('connText').textContent = 'SFTP 已连接';
+  } else {
+    pill.className = 'pill bad';
+    $('connText').textContent = 'Telnet 不支持文件浏览';
+  }
+}
+
+async function bootDir() {
+  if (!invoke || !server) return;
+  try {
+    cwd = await invoke('hub_sftp_home', { server });
+  } catch (e) {
+    cwd = '/';
+    toast(String(e));
+  }
+  await gotoDir(cwd, true);
+}
+
+(async function boot() {
+  if (!invoke) { $('emptyTip').hidden = false; $('emptyTip').textContent = '非 Tauri 环境（预览）'; return; }
+  try { server = await invoke('hub_sftp_take_pending'); } catch (e) { console.error(e); }
+  if (!server) { $('emptyTip').hidden = false; $('emptyTip').textContent = '没有指定服务器'; return; }
+  renderHeader();
+  await bootDir();
+})();
+</script>
+</body>
+</html>

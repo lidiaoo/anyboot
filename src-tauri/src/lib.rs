@@ -69,7 +69,12 @@ const FAT_FILESYSTEMS: [&str; 6] = ["vfat", "fat", "fat12", "fat16", "fat32", "e
 mod cli;
 mod grub;
 mod hub;
+mod hub_keys;
+// pub(crate)：async 命令的 __cmd__ 宏可见性跟着模块走（private mod 会报
+// "macro import is private"，sync 命令没这问题）
+pub(crate) mod hub_sftp;
 mod hub_term;
+mod hub_tunnel;
 mod http;
 
 /// Linux 侧数据收集脚本（把 grubenv 迁到 ESP），装到 `/etc/grub.d/09_anyboot`。
@@ -190,6 +195,12 @@ const TRAY_MENU_WINDOW_LABEL: &str = "tray-menu";
 /// 远程管理（server-hub）独立窗口标签。主窗口零改动：hub 是一扇常规窗口，
 /// 托盘菜单「远程管理…」是它目前唯一的入口（点开常驻，再次点击只是唤起）。
 pub(crate) const HUB_WINDOW_LABEL: &str = "server-hub";
+/// hub 的三个子窗口：终端 / 文件浏览（SFTP）/ 密钥管理。
+/// 每个标签都必须进 capabilities/default.json 的 windows 列表，否则该窗口
+/// 所有 invoke/listen 被静默拒（ACL 教训见 capabilities 文件头注释）。
+pub(crate) const HUB_TERM_WINDOW_LABEL: &str = "server-term";
+pub(crate) const HUB_FILES_WINDOW_LABEL: &str = "server-files";
+pub(crate) const HUB_KEYS_WINDOW_LABEL: &str = "server-keys";
 /// 菜单宽度（逻辑像素）：固定宽度，三端长得一样，也只有这样「一组里恰好一个 ◉」才好扫。
 const TRAY_MENU_WIDTH: f64 = 320.0;
 /// 前端报上来的高度夹到这个区间（太低会裁掉文字，太高会把托盘图标顶出屏幕）。
@@ -5133,6 +5144,56 @@ fn open_hub_window(app: &AppHandle) -> Result<(), String> {
     .map_err(|error| format!("无法创建远程管理窗口: {error}"))?;
     trace(app, "hub", "远程管理窗口已创建");
     Ok(())
+}
+
+/// 打开/唤起密钥管理窗（server-keys）：无上下文参数，已存在就聚焦。
+pub(crate) fn open_keys_window(app: &AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window(HUB_KEYS_WINDOW_LABEL) {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+        return Ok(());
+    }
+    tauri::WebviewWindowBuilder::new(
+        app,
+        HUB_KEYS_WINDOW_LABEL,
+        tauri::WebviewUrl::App("hub-keys.html".into()),
+    )
+    .title("AnyBoot 密钥管理")
+    .inner_size(720.0, 560.0)
+    .min_inner_size(560.0, 420.0)
+    .resizable(true)
+    .center()
+    .build()
+    .map_err(|error| format!("无法创建密钥管理窗口: {error}"))?;
+    trace(app, "hub", "密钥管理窗口已创建");
+    Ok(())
+}
+
+/// 前端按钮入口：hub 工具栏「密钥」
+#[tauri::command]
+fn hub_open_keys_window(app: AppHandle) -> Result<(), String> {
+    open_keys_window(&app)
+}
+
+/// 前端按钮入口：hub 详情「打开终端」（按 server_id 查档案 → 开/聚焦终端窗）
+#[tauri::command]
+fn hub_open_term_window(app: AppHandle, server_id: String) -> Result<(), String> {
+    let server = hub::load_servers_pub(&app)?
+        .into_iter()
+        .find(|s| s.id == server_id)
+        .ok_or_else(|| format!("服务器不存在（{server_id}）"))?;
+    hub_term::open_term_window(&app, server)
+}
+
+/// 前端按钮入口：hub 详情「浏览文件」
+#[tauri::command]
+fn hub_open_files_window(app: AppHandle, server_id: String) -> Result<(), String> {
+    let server = hub::load_servers_pub(&app)?
+        .into_iter()
+        .find(|s| s.id == server_id)
+        .ok_or_else(|| format!("服务器不存在（{server_id}）"))?;
+    hub_sftp::open_files_window(&app, server)
 }
 
 fn show_notify_window(app: &AppHandle) -> Result<(), String> {
@@ -14637,7 +14698,11 @@ pub fn run() {
         // 菜单内容指纹（classic 原生菜单「变了才重建」/ unified dbusmenu「变了才发信号」）
         .manage(Mutex::<Option<String>>::default())
         // server-hub 的终端会话表（PTY + 系统 ssh，窗口销毁时全收，见 hub_term::kill_all）
-        .manage(hub_term::HubTermState::default());
+        .manage(hub_term::HubTermState::default())
+        // server-hub 的文件浏览窗状态（pending 服务器 + 传输子进程表，见 hub_sftp.rs）
+        .manage(hub_sftp::HubSftpState::default())
+        // server-hub 的隧道进程表（应用退出时全收，见 hub_tunnel::kill_all）
+        .manage(hub_tunnel::HubTunnelState::default());
     // macOS 13+ 走系统登录项（见 login_item），这里的 LaunchAgent 方式仅作为
     // 旧版 macOS 以及 Windows / Linux 的实现。移动端没有「开机自启」，不注册。
     #[cfg(desktop)]
@@ -14659,9 +14724,23 @@ pub fn run() {
             {
                 // server-hub 窗口销毁（用户关窗 / 应用退出）：收掉它名下的所有终端
                 // 会话 —— PTY 子进程不越窗存活，不然 ssh 会变成无主的孤儿进程。
+                // hub 窗口销毁：什么都不收 —— 终端会话已归属独立的 server-term 窗
+                //（见下面那条分支），关管理窗不该连带弄死正在用的终端。
+                // 应用退出路径统一 kill_all（见 setup 里的 RunEvent::ExitRequested）。
                 if window.label() == HUB_WINDOW_LABEL {
+                    return;
+                }
+                // 终端窗销毁：只收归它管的会话（别的终端窗不受牵连）
+                if window.label() == HUB_TERM_WINDOW_LABEL {
                     if let tauri::WindowEvent::Destroyed = event {
-                        hub_term::kill_all(window.app_handle());
+                        hub_term::kill_window(window.app_handle(), window.label());
+                    }
+                    return;
+                }
+                // 文件浏览窗销毁：收掉还在跑的传输子进程
+                if window.label() == HUB_FILES_WINDOW_LABEL {
+                    if let tauri::WindowEvent::Destroyed = event {
+                        hub_sftp::kill_window(window.app_handle(), window.label());
                     }
                     return;
                 }
@@ -14986,10 +15065,33 @@ pub fn run() {
             hub::hub_save_server,
             hub::hub_delete_server,
             hub::hub_test_server,
+            hub_open_keys_window,
+            hub_open_term_window,
+            hub_open_files_window,
             hub_term::hub_term_open,
             hub_term::hub_term_write,
             hub_term::hub_term_resize,
             hub_term::hub_term_close,
+            hub_term::hub_term_take_pending,
+            hub_term::hub_term_sessions,
+            hub_sftp::hub_sftp_take_pending,
+            hub_sftp::hub_sftp_home,
+            hub_sftp::hub_sftp_list,
+            hub_sftp::hub_sftp_mkdir,
+            hub_sftp::hub_sftp_remove,
+            hub_sftp::hub_sftp_rename,
+            hub_sftp::hub_sftp_download,
+            hub_sftp::hub_sftp_upload,
+            hub_keys::hub_keys_list,
+            hub_keys::hub_key_generate,
+            hub_keys::hub_key_import,
+            hub_keys::hub_key_delete,
+            hub_keys::hub_key_public_key,
+            hub_tunnel::hub_list_tunnels,
+            hub_tunnel::hub_save_tunnel,
+            hub_tunnel::hub_delete_tunnel,
+            hub_tunnel::hub_tunnel_start,
+            hub_tunnel::hub_tunnel_stop,
             get_ui_state,
             current_status,
             refresh,
@@ -15071,8 +15173,17 @@ pub fn run() {
             cancel_pending,
             present_notify_window
         ])
-        .run(tauri::generate_context!())
-        .expect("failed to run AnyBoot");
+        .build(tauri::generate_context!())
+        .expect("failed to build AnyBoot")
+        .run(|app, event| {
+            // 应用退出：收掉 server-hub 名下的终端会话与隧道进程，
+            // 别让 ssh 子进程被过继给 init 变成孤儿。
+            if let tauri::RunEvent::Exit = event {
+                hub_term::kill_all(app);
+                hub_sftp::kill_all(app);
+                hub_tunnel::kill_all(app);
+            }
+        });
 }
 
 #[cfg(all(test, target_os = "macos"))]

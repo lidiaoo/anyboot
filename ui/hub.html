@@ -3,18 +3,17 @@
      独立窗口，主窗口零改动；托盘「远程管理…」是唯一入口。
      视觉按 docs/client-ui/pc-hub-redesign.html 实现（vanilla CSS，不用 CDN）。
      M2：服务器档案 CRUD（配置目录 hub-servers.json）+ 测试连接（TCP，顺带采样延迟）。
-     M3：终端（系统 ssh + PTY + xterm，多会话标签）。
+     M3：终端在独立窗 server-term（hub-term.html，PTY + 系统 ssh + xterm）。
      M4：隧道（本地转发 / SOCKS5 动态转发）。
-     设计稿里后端尚不支持的元素不做假数据：TOFU 指纹、跳板机、密钥库、自绘标题栏
+     M5：文件浏览在独立窗 server-files（hub-files.html，系统 sftp CLI）；密钥管理在
+     server-keys（hub-keys.html，系统 ssh-keygen）；服务器编辑可选密钥认证（key_id）。
+     设计稿里后端尚不支持的元素不做假数据：TOFU 指纹、跳板机、自绘标题栏
      （本窗口用系统标题栏）；「延迟趋势」用的是测试连接的真实 TCP 耗时（会话内采样）。 -->
 <html lang="zh-CN" data-page-node-id="2KZPRyyjAb6RJfhJfEOSpk">
 <head data-page-node-id="Rrq56VrqFCsji63VNMRbSl">
 <meta charset="utf-8" data-page-node-id="YYIGXXLvBnTvx8oemPIIgx">
 <meta name="viewport" content="width=device-width, initial-scale=1" data-page-node-id="bqxa9XMtxYbdX2Yd3eD4wg">
 <title>AnyBoot 远程管理</title>
-<link rel="stylesheet" href="terminal/xterm.css" data-page-node-id="c1HNiSIuXYT2oSZzRBD2CG">
-<script src="terminal/xterm.js"></script>
-<script src="terminal/addon-fit.js"></script>
 <style>
   /* ---- 主题 token：亮/暗双套（与设计稿一致的色板） ---- */
   :root, html.dark {
@@ -370,38 +369,6 @@
   footer .sep { opacity: .5; }
   footer .clock { margin-left: auto; }
 
-  /* ============ 终端（M3） ============ */
-  #termPanel { flex: 1; display: flex; flex-direction: column; min-height: 0; }
-  .term-tabs {
-    display: flex; align-items: center; gap: 6px;
-    padding: 6px 10px;
-    background: rgb(var(--card));
-    border-bottom: 1px solid rgb(var(--line));
-    overflow-x: auto; flex: none;
-  }
-  .term-tab {
-    display: flex; align-items: center; gap: 8px;
-    border: 1px solid rgb(var(--line)); background: rgb(var(--elevate));
-    border-radius: 9px; padding: 4px 8px 4px 12px;
-    cursor: pointer; flex: none; max-width: 260px;
-  }
-  .term-tab.active { border-color: rgb(var(--ok)); background: rgb(var(--ok) / .12); }
-  .term-tab .t-name {
-    font-size: 12px; font-weight: 600; color: rgb(var(--fg));
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  }
-  .term-tab .t-host { font-size: 11px; color: rgb(var(--fg-faint)); white-space: nowrap; }
-  .term-tab .t-close {
-    border: 0; background: transparent; color: rgb(var(--fg-faint));
-    width: 18px; height: 18px; border-radius: 5px; cursor: pointer;
-    display: grid; place-items: center; font-size: 12px; line-height: 1;
-  }
-  .term-tab .t-close:hover { background: rgb(var(--bad) / .12); color: rgb(var(--bad)); }
-  .term-area { flex: 1; min-height: 0; padding: 4px; background: rgb(var(--term)); }
-  .term-area > .term-page { width: 100%; height: 100%; display: none; }
-  .term-area > .term-page.active { display: block; }
-  .term-area, .term-area * { user-select: text; }
-
   /* ============ 弹窗 ============ */
   .overlay {
     position: fixed; inset: 0; z-index: 40;
@@ -480,6 +447,10 @@
     </div>
     <div class="toolbar-right" data-page-node-id="IAbQScldl6A9RK47HmxQPv">
       <span class="summary" id="summary" data-page-node-id="OsNEMrJeUnmkMgpeCmKz0R"></span>
+      <button class="btn" id="keysBtn">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="15" r="4"/><path d="M10.8 12.2 20 3M17 6l2.5 2.5"/></svg>
+        密钥
+      </button>
       <button class="icon-btn" id="themeToggle" title="切换亮暗主题" aria-label="切换亮暗主题" data-page-node-id="XKQOAIbL0CzdV7HJ5CbT1y">🌙</button>
       <button class="btn primary" id="addBtn" data-page-node-id="L82BKcBdXPjORJo1NG4WeV">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true" data-page-node-id="RjZ8wwbQCLZOELyqPfFc18"><path d="M12 5v14M5 12h14" data-page-node-id="H77nNeriHH7slIZGRRMXll"/></svg>
@@ -510,11 +481,6 @@
             <p data-page-node-id="1VNVbhS62lZa0rWt6Lvfo2">查看详情、测试连通性，或点「打开终端」直接进 SSH。</p>
           </div>
         </div>
-      </div>
-      <!-- 终端面板：多会话标签 + xterm -->
-      <div id="termPanel" hidden data-page-node-id="OlBPrgwuu40IC6D3UbanX3">
-        <div class="term-tabs" id="termTabs" data-page-node-id="AgE7rAWTEcAx4PE0rjzGxH"></div>
-        <div class="term-area" id="termArea" data-page-node-id="d48tKIJDBJAa8SFkqXrwKn"></div>
       </div>
     </main>
   </div>
@@ -563,11 +529,26 @@
           <label for="fUser" data-page-node-id="UgvgCdDa99t1bLKd5CHNlZ">用户名</label>
           <input id="fUser" type="text" class="mono" placeholder="root" data-page-node-id="imVeBXmFtZcQzVXeyYjx0h">
         </div>
+        <div class="field-row">
+          <div class="field fixed" style="flex:0 0 auto">
+            <span class="flabel">认证方式</span>
+            <div class="segmented" id="fAuthSeg">
+              <button type="button" data-auth="interactive" aria-selected="true">交互</button>
+              <button type="button" data-auth="key" aria-selected="false">密钥</button>
+            </div>
+          </div>
+          <div class="field" id="fKeyField" hidden>
+            <label for="fKey">选择钥匙</label>
+            <select id="fKey" style="width:100%;background:rgb(var(--elevate));border:1px solid rgb(var(--line));border-radius:9px;padding:8px 11px;color:rgb(var(--fg));font:inherit;font-size:13px;outline:none">
+              <option value="">（还没有密钥，去工具栏「密钥」生成）</option>
+            </select>
+          </div>
+        </div>
         <div class="field" data-page-node-id="fR4FQAB6M72wCWFaFAH6eO">
           <label for="fNotes" data-page-node-id="rlBknBjrbCcCulB2QXeCDj">备注</label>
           <textarea id="fNotes" rows="2" placeholder="可选"></textarea>
         </div>
-        <p class="field-hint" data-page-node-id="0AjBbFkYqbEuJ7r8XQcryp">认证由系统 ssh 在终端内交互完成，密码 / 密钥口令不落盘。</p>
+        <p class="field-hint" data-page-node-id="0AjBbFkYqbEuJ7r8XQcryp">「交互」= 系统 ssh 在终端内要密码 / 确认指纹，凭据不落盘；「密钥」= 起 ssh 带 -i（带口令的钥匙仍在终端里解锁一次）。</p>
         <p class="test-line" id="editTestLine" data-page-node-id="Ge3nhKeb3d56bcDlj0j6nX"></p>
         <p class="form-error" id="editError" data-page-node-id="ZXjryaZQoeG2vEVFgjzAdC"></p>
       </div>
@@ -791,7 +772,6 @@
         '</button>';
       li.querySelector('button').addEventListener('click', function () {
         selectedId = s.id;
-        activeTermId = null;   // 点列表 = 回到详情视图；终端标签还在，点标签回去
         render();
       });
       list.appendChild(li);
@@ -820,38 +800,10 @@
       online + ' 在线 / ' + offline + ' 离线';
   }
 
-  // ============ 渲染：主区（详情 / 终端） ============
+  // ============ 渲染：主区（详情） ============
   function renderMain() {
-    const hasTerm = activeTermId && terms.has(activeTermId);
-    document.getElementById('detail').style.display = hasTerm ? 'none' : '';
-    document.getElementById('termPanel').hidden = !hasTerm;
-    if (hasTerm) {
-      renderTermTabs();
-      for (const [id, t] of terms) {
-        t.page.classList.toggle('active', id === activeTermId);
-      }
-      const current = terms.get(activeTermId);
-      if (current) {
-        requestAnimationFrame(function () {
-          try { current.fitAddon.fit(); } catch (e) { }
-          current.term.focus();
-          if (invoke) {
-            invoke('hub_term_resize', { sessionId: current.id, rows: current.term.rows, cols: current.term.cols })
-              .catch(function () { });
-          }
-        });
-      }
-    } else {
-      renderDetail();
-    }
-    const footText = document.getElementById('footText');
-    if (hasTerm) {
-      footText.textContent = '已连接 ' + terms.size + ' 个终端会话';
-    } else {
-      footText.textContent = terms.size > 0
-        ? '后台保持 ' + terms.size + ' 个终端会话（点标签回去）'
-        : '未连接任何服务器';
-    }
+    renderDetail();
+    document.getElementById('footText').textContent = '终端 / 文件 / 密钥均在独立窗口';
   }
 
   function render() {
@@ -989,8 +941,9 @@
             (isSsh ? '' : ' disabled title="Telnet 终端在后续版本开通"') + '>' +
             '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M6 9l3 3-3 3"/></svg>' +
             '打开终端</button>' +
-          '<button class="btn" id="filesBtn" disabled title="SFTP 文件浏览在后续版本开通">' +
-            '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>' +
+          '<button class="btn" id="filesBtn"' +
+            (isSsh ? '' : ' disabled title="Telnet 不提供文件浏览"') + '>' +
+            '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>' +
             '浏览文件</button>' +
           '<button class="icon-btn boxed" id="editBtn" aria-label="编辑服务器" title="编辑">' +
             '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z"/></svg></button>' +
@@ -1000,7 +953,9 @@
       '</div>' +
       '<div class="info-grid" role="group" aria-label="连接信息">' +
         '<div><p class="k">用户</p><p class="v mono">' + esc(server.username || '—') + '</p></div>' +
-        '<div><p class="k">认证方式</p><p class="v">系统 ssh · 终端内交互</p></div>' +
+        '<div><p class="k">认证方式</p><p class="v">' +
+          (server.key_id ? '密钥 · <span class="mono">' + esc(server.key_id) + '</span>' : '系统 ssh · 终端内交互') +
+        '</p></div>' +
         '<div><p class="k">端口</p><p class="v mono">' + port + '</p></div>' +
         '<div><p class="k">延迟</p><p class="v mono">' + msText + '</p></div>' +
       '</div>' +
@@ -1013,184 +968,21 @@
       '<div class="d-section">' + sparkBlock + '</div>' +
       tunnelHtml;
 
-    document.getElementById('connectBtn').addEventListener('click', function () { openTerminal(server); });
+    document.getElementById('connectBtn').addEventListener('click', function () {
+      if (!invoke) { toast('终端需要应用环境', 'bad'); return; }
+      invoke('hub_open_term_window', { serverId: server.id })
+        .catch(function (error) { toast('打开终端失败：' + error, 'bad'); });
+    });
+    document.getElementById('filesBtn').addEventListener('click', function () {
+      if (!invoke) { toast('文件浏览需要应用环境', 'bad'); return; }
+      invoke('hub_open_files_window', { serverId: server.id })
+        .catch(function (error) { toast('打开文件浏览失败：' + error, 'bad'); });
+    });
     document.getElementById('testBtn').addEventListener('click', function () { runTest(server, document.getElementById('testBtn')); });
     document.getElementById('editBtn').addEventListener('click', function () { openEdit(server); });
     document.getElementById('delBtn').addEventListener('click', function () { openDelete(server); });
     renderTunnelBlock(server);
   }
-
-  // ============ 终端（M3） ============
-  const HAS_XTERM = typeof window.Terminal !== 'undefined' && typeof window.FitAddon !== 'undefined';
-  const terms = new Map();      // id -> {id, meta, term, fitAddon, page}
-  let activeTermId = null;
-
-  // 终端区恒深色（终端惯例，亮色主题下也如此）
-  const TERM_THEME = {
-    background: '#04070f', foreground: '#e2e8f0',
-    cursor: '#e2e8f0', cursorAccent: '#04070f',
-    selectionBackground: '#334155'
-  };
-
-  function bytesToB64(bytes) {
-    let binary = '';
-    const chunk = 0x8000;
-    for (let i = 0; i < bytes.length; i += chunk) {
-      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
-    }
-    return btoa(binary);
-  }
-  function b64ToBytes(b64) {
-    const binary = atob(b64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-    return bytes;
-  }
-
-  function renderTermTabs() {
-    const bar = document.getElementById('termTabs');
-    bar.textContent = '';
-    for (const [id, t] of terms) {
-      const tab = document.createElement('div');
-      tab.className = 'term-tab' + (id === activeTermId ? ' active' : '');
-      const name = document.createElement('span');
-      name.className = 't-name';
-      name.textContent = t.meta.server_name || '(未命名)';
-      const host = document.createElement('span');
-      host.className = 't-host';
-      host.textContent = t.meta.host_label;
-      const close = document.createElement('button');
-      close.className = 't-close';
-      close.textContent = '×';
-      close.title = '结束会话';
-      close.addEventListener('click', function (e) {
-        e.stopPropagation();
-        closeTerminal(id);
-      });
-      tab.appendChild(name);
-      tab.appendChild(host);
-      tab.appendChild(close);
-      tab.addEventListener('click', function () {
-        activeTermId = id;
-        renderMain();
-      });
-      bar.appendChild(tab);
-    }
-  }
-
-  async function openTerminal(server) {
-    if (!invoke || !HAS_XTERM) {
-      toast('终端需要应用环境（xterm 组件未加载）', 'bad');
-      return;
-    }
-    let meta;
-    try {
-      meta = await invoke('hub_term_open', { server });
-    } catch (error) {
-      toast('打开终端失败：' + error, 'bad');
-      return;
-    }
-    if (terms.has(meta.id)) { activeTermId = meta.id; renderMain(); return; }
-
-    const area = document.getElementById('termArea');
-    const page = document.createElement('div');
-    page.className = 'term-page';
-    area.appendChild(page);
-
-    const term = new window.Terminal({
-      theme: TERM_THEME,
-      fontFamily: 'Menlo, Consolas, "JetBrains Mono", monospace',
-      fontSize: 13,
-      cursorBlink: true,
-      allowProposedApi: true,
-      scrollback: 5000
-    });
-    const fitAddon = new window.FitAddon.FitAddon();
-    term.loadAddon(fitAddon);
-    term.open(page);
-
-    const entry = { id: meta.id, meta: meta, term: term, fitAddon: fitAddon, page: page };
-    terms.set(meta.id, entry);
-
-    term.onData(function (data) {
-      if (invoke) {
-        invoke('hub_term_write', {
-          sessionId: meta.id,
-          data: bytesToB64(new TextEncoder().encode(data))
-        }).catch(function () { });
-      }
-    });
-    // 容器尺寸变化（窗口缩放 / 标签切换）都重新量一遍
-    const observer = new ResizeObserver(function () {
-      if (activeTermId !== meta.id) return;
-      try { fitAddon.fit(); } catch (e) { }
-      if (invoke) {
-        invoke('hub_term_resize', { sessionId: meta.id, rows: term.rows, cols: term.cols })
-          .catch(function () { });
-      }
-    });
-    observer.observe(page);
-
-    activeTermId = meta.id;
-    renderMain();
-    // 首帧量完尺寸后再 resize 一次（open 时容器刚挂载，首量可能不准）
-    setTimeout(function () {
-      try { fitAddon.fit(); } catch (e) { }
-      if (invoke) {
-        invoke('hub_term_resize', { sessionId: meta.id, rows: term.rows, cols: term.cols })
-          .catch(function () { });
-      }
-    }, 150);
-  }
-
-  function closeTerminal(id) {
-    const entry = terms.get(id);
-    if (!entry) return;
-    if (invoke) { invoke('hub_term_close', { sessionId: id }).catch(function () { }); }
-    destroyTerminalLocally(id);
-  }
-
-  /** 后端 closed 事件 / 本地关闭共用的清理 */
-  function destroyTerminalLocally(id) {
-    const entry = terms.get(id);
-    if (!entry) return;
-    try { entry.term.dispose(); } catch (e) { }
-    entry.page.remove();
-    terms.delete(id);
-    if (activeTermId === id) {
-      activeTermId = terms.size > 0 ? terms.keys().next().value : null;
-    }
-    renderMain();
-  }
-
-  // 下行 / 结束事件：注册一次
-  if (HAS_TAURI) {
-    const listen = window.__TAURI__.event.listen;
-    listen('hub-term-data', function (event) {
-      const payload = event.payload || {};
-      const entry = terms.get(payload.id);
-      if (entry && payload.data) {
-        entry.term.write(b64ToBytes(payload.data));
-      }
-    });
-    listen('hub-term-closed', function (event) {
-      const payload = event.payload || {};
-      if (terms.has(payload.id)) {
-        destroyTerminalLocally(payload.id);
-      }
-    });
-  }
-  // 窗口缩放：所有终端都重量一遍（只有激活的真的 fit，后台标签切回去时会再量）
-  window.addEventListener('resize', function () {
-    const current = terms.get(activeTermId);
-    if (current) {
-      try { current.fitAddon.fit(); } catch (e) { }
-      if (invoke) {
-        invoke('hub_term_resize', { sessionId: current.id, rows: current.term.rows, cols: current.term.cols })
-          .catch(function () { });
-      }
-    }
-  });
 
   // ============ 隧道（M4） ============
   let tunnels = [];            // 全部隧道档案（前端按 server_id 过滤显示）
@@ -1361,6 +1153,8 @@
   // ============ 添加 / 编辑弹窗 ============
   let editingId = null;      // null = 新增
   let editingProto = 'ssh';  // 弹窗内的协议分段状态
+  let editingAuth = 'interactive'; // interactive = 交互认证 | key = 密钥认证
+  let keyOptions = [];       // hub_keys_list 的快照（弹窗打开时刷新）
   function setEditProto(proto) {
     editingProto = proto === 'telnet' ? 'telnet' : 'ssh';
     document.querySelectorAll('#fProtoSeg button').forEach(function (b) {
@@ -1370,8 +1164,39 @@
   document.querySelectorAll('#fProtoSeg button').forEach(function (b) {
     b.addEventListener('click', function () { setEditProto(b.dataset.proto); });
   });
+  function setEditAuth(auth) {
+    editingAuth = auth === 'key' ? 'key' : 'interactive';
+    document.querySelectorAll('#fAuthSeg button').forEach(function (b) {
+      b.setAttribute('aria-selected', String(b.dataset.auth === editingAuth));
+    });
+    document.getElementById('fKeyField').hidden = editingAuth !== 'key';
+  }
+  document.querySelectorAll('#fAuthSeg button').forEach(function (b) {
+    b.addEventListener('click', function () { setEditAuth(b.dataset.auth); });
+  });
+  async function loadKeyOptions(selectedKeyId) {
+    const select = document.getElementById('fKey');
+    select.textContent = '';
+    if (invoke) {
+      try { keyOptions = await invoke('hub_keys_list') || []; } catch (error) { keyOptions = []; }
+    }
+    if (!keyOptions.length) {
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = '（还没有密钥，去工具栏「密钥」生成）';
+      select.appendChild(opt);
+      return;
+    }
+    for (const key of keyOptions) {
+      const opt = document.createElement('option');
+      opt.value = key.id;
+      opt.textContent = key.id + '（' + key.kind + (key.has_passphrase ? ' · 有口令' : '') + '）';
+      select.appendChild(opt);
+    }
+    select.value = selectedKeyId || keyOptions[0].id;
+  }
 
-  function openEdit(server) {
+  async function openEdit(server) {
     editingId = server ? server.id : null;
     document.getElementById('editTitle').textContent = server ? '编辑服务器' : '添加服务器';
     document.getElementById('fName').value = server ? server.name : '';
@@ -1380,6 +1205,8 @@
     document.getElementById('fHost').value = server ? server.host : '';
     document.getElementById('fUser').value = server ? server.username : '';
     document.getElementById('fNotes').value = server ? server.notes : '';
+    setEditAuth(server && server.key_id ? 'key' : 'interactive');
+    await loadKeyOptions(server ? server.key_id : '');
     document.getElementById('editError').textContent = '';
     document.getElementById('editTestLine').textContent = '';
     document.getElementById('editTestLine').className = 'test-line';
@@ -1401,6 +1228,7 @@
       port: portText ? (parseInt(portText, 10) || 0) : 0,
       username: document.getElementById('fUser').value,
       notes: document.getElementById('fNotes').value,
+      key_id: editingAuth === 'key' ? (document.getElementById('fKey').value || '') : '',
       created_at: 0,
     };
   }
@@ -1468,6 +1296,10 @@
 
   // ============ 事件绑定 ============
   document.getElementById('addBtn').addEventListener('click', function () { openEdit(null); });
+  document.getElementById('keysBtn').addEventListener('click', function () {
+    if (!invoke) { toast('密钥管理需要应用环境', 'bad'); return; }
+    invoke('hub_open_keys_window').catch(function (error) { toast('打开密钥管理失败：' + error, 'bad'); });
+  });
   document.getElementById('editCancel').addEventListener('click', closeEdit);
   document.getElementById('editX').addEventListener('click', closeEdit);
   document.getElementById('editSave').addEventListener('click', submitEdit);

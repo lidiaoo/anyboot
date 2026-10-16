@@ -19,7 +19,6 @@ use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::hub::HubServer;
-use crate::HUB_WINDOW_LABEL;
 
 /// 下行事件名（ssh 输出 → 前端 xterm）
 const EVENT_DATA: &str = "hub-term-data";
@@ -35,6 +34,9 @@ const INITIAL_COLS: u16 = 100;
 #[derive(Default)]
 pub struct HubTermState {
     sessions: Mutex<HashMap<String, Arc<TermSession>>>,
+    /// hub「打开终端」排队的服务器：server-term 窗口首次加载时来取。
+    /// 窗口已存在时走 hub-term-open-server 事件，不走这条队列。
+    pending: Mutex<Option<HubServer>>,
 }
 
 pub struct TermSession {
@@ -43,6 +45,8 @@ pub struct TermSession {
     /// user@host:port（标签条显示用）
     pub host_label: String,
     pub protocol: String,
+    /// 承载本会话的窗口 label（事件只发给它；窗口销毁按它收会话）
+    pub window: String,
     /// MasterPty 本身不是 Sync，全部收进锁里；会话经 Arc 共享给等待线程/命令层
     master: Mutex<Box<dyn MasterPty + Send>>,
     writer: Mutex<Box<dyn Write + Send>>,
@@ -59,11 +63,87 @@ pub struct TermMeta {
 
 // ==================== 命令 ====================
 
+/// hub「打开终端」：确保 server-term 窗口存在并聚焦。窗口是新建的 → 把服务器
+/// 放进 pending 队列（页面加载后取走）；窗口已存在 → 直接给它发事件加会话标签。
+/// 返回 false 表示窗口是新开的（hub 端可用于提示文案，一般忽略）。
+pub fn open_term_window(app: &AppHandle, server: HubServer) -> Result<(), String> {
+    const LABEL: &str = crate::HUB_TERM_WINDOW_LABEL;
+    let existing = app.get_webview_window(LABEL);
+    match existing {
+        Some(window) => {
+            let _ = window.unminimize();
+            let _ = window.show();
+            let _ = window.set_focus();
+            // 复用窗口：直接通知页面加一个会话标签（页面按 server.id 去重）
+            tauri::async_runtime::spawn(async move {
+                let _ = tauri::Emitter::emit(
+                    &window,
+                    "hub-term-open-server",
+                    serde_json::to_value(&server).unwrap_or_default(),
+                );
+            });
+        }
+        None => {
+            let state = app.state::<HubTermState>();
+            // match + 分号：让 Result 临时值先于 state 析构（E0597）
+            match state.pending.lock() {
+                Ok(mut pending) => *pending = Some(server),
+                Err(_) => {}
+            };
+            tauri::WebviewWindowBuilder::new(
+                app,
+                LABEL,
+                tauri::WebviewUrl::App("hub-term.html".into()),
+            )
+            .title("AnyBoot 终端")
+            .inner_size(980.0, 640.0)
+            .min_inner_size(720.0, 420.0)
+            .resizable(true)
+            .center()
+            .build()
+            .map_err(|error| format!("无法创建终端窗口: {error}"))?;
+        }
+    }
+    Ok(())
+}
+
+/// server-term 页面加载后取走排队的启动服务器（取走即清空）。
+#[tauri::command]
+pub fn hub_term_take_pending(state: tauri::State<'_, HubTermState>) -> Option<HubServer> {
+    state.pending.lock().ok().and_then(|mut p| p.take())
+}
+
+/// 本窗口当前活着的会话清单（页面刷新后重建标签用）
+#[tauri::command]
+pub fn hub_term_sessions(
+    state: tauri::State<'_, HubTermState>,
+    window: tauri::WebviewWindow,
+) -> Vec<TermMeta> {
+    let label = window.label().to_string();
+    state
+        .sessions
+        .lock()
+        .map(|map| {
+            map.values()
+                .filter(|s| s.window == label)
+                .map(|s| TermMeta {
+                    id: s.id.clone(),
+                    server_name: s.server_name.clone(),
+                    host_label: s.host_label.clone(),
+                    protocol: s.protocol.clone(),
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// 打开终端：PTY 里跑 `ssh -p PORT user@host`，读线程/等待线程开始推事件。
+/// `window` 由 Tauri 注入 = 调用方窗口（server-term 页内的标签全归它）。
 #[tauri::command]
 pub fn hub_term_open(
     app: AppHandle,
     state: tauri::State<'_, HubTermState>,
+    window: tauri::WebviewWindow,
     server: HubServer,
 ) -> Result<TermMeta, String> {
     let server = server.normalize();
@@ -97,6 +177,20 @@ pub fn hub_term_open(
     command.args(["-p", &port.to_string(), &target]);
     // xterm-256color：远端 vim/htop 之类才肯出彩色；终端类型由我们这侧的 xterm.js 兑现
     command.env("TERM", "xterm-256color");
+    // 选了密钥认证：-i 指定私钥（带口令的钥匙由 ssh 在 PTY 里交互要，与本模块哲学一致）
+    if !server.key_id.is_empty() {
+        let key = crate::hub_keys::private_key_path(&app, &server.key_id)?;
+        command.args(["-i", &key.display().to_string()]);
+        command.args(["-o", "IdentitiesOnly=yes"]);
+    }
+    // ControlMaster：认证连接留一把复用（M4 隧道靠它免二次认证，见 hub_tunnel.rs）
+    if !server.id.is_empty() {
+        if let Ok(control) = crate::hub_tunnel::control_path(&app, &server.id) {
+            command.args(["-o", "ControlMaster=auto"]);
+            command.args(["-o", &format!("ControlPath={}", control.display())]);
+            command.args(["-o", "ControlPersist=600"]);
+        }
+    }
     let mut child = pair
         .slave
         .spawn_command(command)
@@ -132,6 +226,7 @@ pub fn hub_term_open(
         server_name: server.name.clone(),
         host_label: meta.host_label.clone(),
         protocol: meta.protocol.clone(),
+        window: window.label().to_string(),
         master: Mutex::new(pair.master),
         writer: Mutex::new(writer),
         killer: Mutex::new(killer),
@@ -142,17 +237,20 @@ pub fn hub_term_open(
         .map_err(|_| "会话表已被锁死")?
         .insert(id.clone(), session);
 
-    // 读线程：ssh 输出 → hub-term-data（b64）
+    // 读线程：ssh 输出 → hub-term-data（b64），只发给承载窗口
     let emit_app = app.clone();
     let read_id = id.clone();
+    let read_window = window.label().to_string();
     std::thread::Builder::new()
         .name(format!("hub-term-read-{id}"))
-        .spawn(move || pump_output(&emit_app, &read_id, reader))
+        .spawn(move || pump_output(&emit_app, &read_id, &read_window, reader))
         .map_err(|error| format!("无法启动读线程: {error}"))?;
 
-    // 等待线程：ssh 退出 → hub-term-closed，并从会话表摘除（master 随之释放，读线程收尾）
+    // 等待线程：ssh 退出 → hub-term-closed（发给承载窗口），并从会话表摘除
+    // （master 随之释放，读线程收尾）
     let wait_app = app.clone();
     let wait_id = id.clone();
+    let wait_window = window.label().to_string();
     std::thread::Builder::new()
         .name(format!("hub-term-wait-{id}"))
         .spawn(move || {
@@ -167,10 +265,29 @@ pub fn hub_term_open(
             }
             eprintln!("[hub-term] closed id={wait_id} code={code}");
             let _ = wait_app.emit_to(
-                HUB_WINDOW_LABEL,
+                wait_window.clone(),
                 EVENT_CLOSED,
                 json!({ "id": wait_id, "code": code }),
             );
+            // 这个窗口的最后一个会话结束了 → 自动关窗（前端没有 close 权限，
+            // 用户敲 exit / ssh 掉线都走这条路径收尾）
+            let empty = wait_app
+                .try_state::<HubTermState>()
+                .map(|state| {
+                    // 判空在 map 里做：State 守卫不能借值出闭包（E0515）
+                    state
+                        .sessions
+                        .lock()
+                        .map(|map| map.values().all(|s| s.window != wait_window))
+                        .unwrap_or(true)
+                })
+                .unwrap_or(true);
+            if empty {
+                if let Some(window) = wait_app.get_webview_window(&wait_window) {
+                    eprintln!("[hub-term] last session gone, closing {wait_window}");
+                    let _ = window.close();
+                }
+            }
         })
         .map_err(|error| format!("无法启动等待线程: {error}"))?;
 
@@ -243,8 +360,8 @@ fn get_session(state: &HubTermState, id: &str) -> Result<Arc<TermSession>, Strin
         .ok_or_else(|| format!("终端会话不存在或已结束（{id}）"))
 }
 
-/// 读线程主体：PTY → b64 → 事件
-fn pump_output(app: &AppHandle, id: &str, mut reader: Box<dyn Read + Send>) {
+/// 读线程主体：PTY → b64 → 事件（只发给承载窗口）
+fn pump_output(app: &AppHandle, id: &str, window: &str, mut reader: Box<dyn Read + Send>) {
     let mut chunk = [0u8; 8192];
     loop {
         match reader.read(&mut chunk) {
@@ -254,7 +371,7 @@ fn pump_output(app: &AppHandle, id: &str, mut reader: Box<dyn Read + Send>) {
                     "id": id,
                     "data": B64.encode(&chunk[..n]),
                 });
-                if app.emit_to(HUB_WINDOW_LABEL, EVENT_DATA, payload).is_err() {
+                if app.emit_to(window, EVENT_DATA, payload).is_err() {
                     break; // 窗口没了，没必要再读
                 }
             }
@@ -262,6 +379,26 @@ fn pump_output(app: &AppHandle, id: &str, mut reader: Box<dyn Read + Send>) {
                 if error.kind() != std::io::ErrorKind::Interrupted {
                     break;
                 }
+            }
+        }
+    }
+}
+
+/// 某个窗口销毁：只收归它管的会话（别的终端窗口不受牵连）
+pub fn kill_window(app: &AppHandle, window: &str) {
+    let state = app.state::<HubTermState>();
+    let Ok(mut map) = state.sessions.lock() else {
+        return;
+    };
+    let orphan: Vec<String> = map
+        .iter()
+        .filter(|(_, s)| s.window == window)
+        .map(|(id, _)| id.clone())
+        .collect();
+    for id in orphan {
+        if let Some(session) = map.remove(&id) {
+            if let Ok(mut killer) = session.killer.lock() {
+                killer.kill();
             }
         }
     }
@@ -298,6 +435,7 @@ mod tests {
             port: 23,
             username: String::new(),
             notes: String::new(),
+            key_id: String::new(),
             created_at: 0,
         };
         let normalized = server.normalize();
@@ -311,6 +449,7 @@ mod tests {
             port: 0,
             username: String::new(),
             notes: String::new(),
+            key_id: String::new(),
             created_at: 0,
         };
         assert!(empty.host.trim().is_empty());
@@ -326,6 +465,7 @@ mod tests {
             port: 0,
             username: "root".into(),
             notes: String::new(),
+            key_id: String::new(),
             created_at: 0,
         }
         .normalize();

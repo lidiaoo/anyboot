@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "各窗口的 IPC 权限。**新建窗口必须把 label 加进 windows，否则该窗口所有 invoke/listen 都被 Tauri 的 ACL 拒掉**（tray-menu 踩过：页面加载了、JS 也跑了，但命令全被静默拒绝，菜单永远不出现）",
-  "windows": ["main", "notify", "grub-list", "tray-menu", "server-hub"],
+  "windows": ["main", "notify", "grub-list", "tray-menu", "server-hub", "server-term", "server-files", "server-keys"],
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",

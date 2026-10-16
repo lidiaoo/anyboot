@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<!-- server-keys 密钥管理独立窗 —— docs/client-ui/pc-keys-redesign.html 的一比一实现。
+     后端 hub_keys.rs：私钥只落配置目录 keys/，接口永不回私钥体（私钥永不出本机）。
+     生成借系统 ssh-keygen；「被 N 台服务器使用」= hub-servers.json 里 key_id 的引用数。
+     自绘关闭钮由系统标题栏承担（省略）。 -->
+<html lang="zh-CN" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AnyBoot 密钥管理</title>
+<style>
+  /* ---- 主题 token：与设计稿同一套色板 ---- */
+  html.dark{
+    --base:2 6 23; --term:4 7 15; --card:14 18 35; --elevate:20 26 46;
+    --line:36 43 65; --linestrong:51 65 85;
+    --fg:248 250 252; --fgdim:148 163 184; --fgfaint:100 116 139;
+    --ok:34 197 94; --warn:245 158 11; --bad:239 68 68; --accent:34 197 94;
+    color-scheme:dark;
+  }
+  html.light{
+    --base:244 246 250; --term:4 7 15; --card:255 255 255; --elevate:241 245 250;
+    --line:226 232 240; --linestrong:203 213 225;
+    --fg:15 23 42; --fgdim:90 100 118; --fgfaint:138 148 166;
+    --ok:22 163 74; --warn:180 83 9; --bad:220 38 38; --accent:22 163 74;
+    color-scheme:light;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin:0; min-height:100%; }
+  body {
+    background: rgb(var(--base));
+    color: rgb(var(--fg));
+    font: 14px/1.5 -apple-system, "Segoe UI", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+    display:flex; flex-direction:column;
+  }
+  button { font: inherit; color: inherit; }
+  [hidden] { display:none !important; }
+  .scroll-thin::-webkit-scrollbar { width:8px; }
+  .scroll-thin::-webkit-scrollbar-thumb { background: rgb(var(--linestrong)); border-radius:4px; }
+  @media (prefers-reduced-motion: reduce) { *,*::before,*::after { transition:none!important; animation:none!important; } }
+  .mono { font-family: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace; }
+
+  header {
+    display:flex; align-items:center; gap:10px; min-height:44px; padding:6px 16px;
+    border-bottom:1px solid rgb(var(--line)); background:rgb(var(--card) / .6);
+    user-select:none; flex:none;
+  }
+  header .appicon {
+    display:grid; place-items:center; width:24px; height:24px; border-radius:6px; flex:none;
+    background:rgb(var(--ok) / .15); color:rgb(var(--ok));
+  }
+  header h1 { margin:0; font-size:13px; font-weight:600; }
+  .count { border:1px solid rgb(var(--line)); border-radius:9999px; background:rgb(var(--elevate));
+    padding:2px 9px; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:10px; color:rgb(var(--fgdim)); }
+  header .tools { margin-left:auto; display:flex; }
+  .toolbtn {
+    display:inline-flex; align-items:center; gap:5px; height:26px; padding:0 9px;
+    border:0; background:transparent; border-radius:6px; font-size:12px; cursor:pointer; color:rgb(var(--fgfaint));
+  }
+  .toolbtn:hover { background:rgb(var(--elevate)); color:rgb(var(--fg)); }
+
+  .toolbar {
+    display:flex; align-items:center; gap:8px; flex:none;
+    border-bottom:1px solid rgb(var(--line)); background:rgb(var(--card) / .3); padding:11px 20px;
+  }
+  .btn {
+    display:inline-flex; align-items:center; gap:6px; height:34px; padding:0 13px;
+    border:1px solid rgb(var(--line)); border-radius:9px; background:rgb(var(--elevate));
+    font-size:13px; font-weight:500; cursor:pointer; transition: border-color .15s, background .15s;
+  }
+  .btn:hover { border-color:rgb(var(--linestrong)); }
+  .btn.primary { border:0; background:rgb(var(--ok)); color:rgb(var(--base)); font-weight:600; }
+  .btn.primary:hover { background:rgb(var(--ok) / .85); }
+  .btn.danger { border:0; background:rgb(var(--bad)); color:rgb(var(--base)); font-weight:600; }
+  .btn.plain { border:0; background:transparent; color:rgb(var(--fgdim)); }
+  .btn.plain:hover { color:rgb(var(--fg)); }
+  .hint { margin-left:auto; font-size:11px; color:rgb(var(--fg-faint)); }
+
+  ul.keys { list-style:none; margin:0; padding:16px 20px; display:flex; flex-direction:column; gap:12px; overflow:auto; flex:1; }
+  .key-card {
+    border:1px solid rgb(var(--line)); border-radius:12px; background:rgb(var(--card));
+    padding:13px 16px; display:flex; align-items:center; gap:14px; transition: border-color .15s;
+  }
+  .key-card:hover { border-color:rgb(var(--linestrong)); }
+  .key-icon {
+    display:grid; place-items:center; width:40px; height:40px; flex:none;
+    border:1px solid rgb(var(--line)); border-radius:12px; background:rgb(var(--elevate));
+    color:rgb(var(--fgdim));
+  }
+  .key-main { min-width:0; flex:1; }
+  .key-badges { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+  .key-badges .name { margin:0; font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .badge { border-radius:5px; padding:2px 6px; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:10px; }
+  .badge.kind { border:1px solid rgb(var(--line)); background:rgb(var(--elevate)); color:rgb(var(--fgdim)); }
+  .badge.nowarn { background:rgb(var(--warn) / .1); color:rgb(var(--warn)); display:inline-flex; align-items:center; gap:4px; font-size:10px; }
+  .key-meta { margin:5px 0 0; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12px; color:rgb(var(--fgdim));
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .key-actions { display:flex; align-items:center; gap:6px; flex:none; }
+  .btn.small { height:30px; padding:0 10px; font-size:12px; color:rgb(var(--fgdim)); }
+  .btn.small:hover { border-color:rgb(var(--ok) / .5); color:rgb(var(--ok)); }
+  .delbtn {
+    display:grid; place-items:center; width:30px; height:30px; border-radius:9px;
+    border:1px solid rgb(var(--line)); background:rgb(var(--elevate)); color:rgb(var(--fgdim)); cursor:pointer;
+  }
+  .delbtn:hover { border-color:rgb(var(--bad) / .6); color:rgb(var(--bad)); }
+  .empty-tip { padding:48px 20px; text-align:center; color:rgb(var(--fg-faint)); font-size:13px; }
+
+  footer {
+    flex:none; border-top:1px solid rgb(var(--line)); background:rgb(var(--card) / .6);
+    padding:11px 20px; font-size:11px; line-height:1.7; color:rgb(var(--fg-faint));
+  }
+  footer b { font-weight:500; color:rgb(var(--fgdim)); }
+  footer code { font-family:ui-monospace,Menlo,Consolas,monospace; color:rgb(var(--fgdim)); }
+
+  .modal { position:fixed; inset:0; z-index:40; display:grid; place-items:center; background:rgba(0,0,0,.6); padding:24px; }
+  .modal-card { width:100%; max-width:400px; background:rgb(var(--card)); border:1px solid rgb(var(--linestrong)); border-radius:14px; box-shadow:0 16px 48px -8px rgba(0,0,0,.65); }
+  .modal-head { display:flex; align-items:center; justify-content:space-between; padding:14px 22px; border-bottom:1px solid rgb(var(--line)); }
+  .modal-head h3 { margin:0; font-size:15px; font-weight:600; }
+  .modal-head button { border:0; background:transparent; cursor:pointer; color:rgb(var(--fgdim)); display:grid; place-items:center; width:30px; height:30px; border-radius:8px; }
+  .modal-head button:hover { background:rgb(var(--elevate)); color:rgb(var(--fg)); }
+  .modal-body { padding:18px 22px; display:flex; flex-direction:column; gap:14px; }
+  .modal-body label { display:block; font-size:12px; font-weight:500; color:rgb(var(--fgdim)); margin-bottom:6px; }
+  .modal-body input {
+    height:36px; width:100%; border:1px solid rgb(var(--line)); border-radius:9px;
+    background:rgb(var(--elevate)); padding:0 12px; color:rgb(var(--fg)); font-size:13px; outline:none;
+  }
+  .modal-body input:focus { border-color:rgb(var(--ok) / .6); }
+  .field-tip { margin-top:6px; font-size:11px; color:rgb(var(--fg-faint)); }
+  .seg { display:flex; border:1px solid rgb(var(--line)); border-radius:9px; background:rgb(var(--elevate)); padding:2px; }
+  .seg button { flex:1; border:0; background:transparent; border-radius:7px; padding:8px 10px; font-size:12px; font-weight:500; color:rgb(var(--fgdim)); cursor:pointer; }
+  .seg button[aria-selected="true"] { background:rgb(var(--ok) / .15); color:rgb(var(--ok)); }
+  .modal-note { border:1px solid rgb(var(--line)); border-radius:9px; background:rgb(var(--elevate)); padding:10px 14px; font-size:11px; color:rgb(var(--fg-faint)); margin:0; }
+  .modal-foot { display:flex; justify-content:flex-end; gap:8px; border-top:1px solid rgb(var(--line)); padding:14px 22px; }
+  .del-hero { display:flex; align-items:center; gap:12px; padding:20px 22px 0; }
+  .del-hero .icon { display:grid; place-items:center; width:40px; height:40px; border-radius:12px; background:rgb(var(--bad) / .1); color:rgb(var(--bad)); flex:none; }
+  .del-hero h3 { margin:0; font-size:15px; font-weight:600; }
+  .del-body { padding:12px 22px 0; font-size:13px; line-height:1.7; color:rgb(var(--fgdim)); }
+  .del-body b { color:rgb(var(--fg)); font-weight:600; }
+
+  #toast {
+    position:fixed; bottom:24px; left:50%; transform:translateX(-50%); z-index:50;
+    background:rgb(var(--elevate)); border:1px solid rgb(var(--linestrong)); border-radius:9px;
+    padding:10px 16px; font-size:13px; box-shadow:0 16px 40px -8px rgba(0,0,0,.65); transition:opacity .2s;
+    max-width:80vw; word-break:break-all;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <span class="appicon" aria-hidden="true">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="M10.8 12.2 20 3M17 6l2.5 2.5M14 9l2 2"/></svg>
+  </span>
+  <h1>密钥管理</h1>
+  <span class="count mono" id="count">0 把</span>
+  <div class="tools">
+    <button class="toolbtn" id="themeBtn" aria-label="切换主题">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none"/></svg>
+      主题
+    </button>
+  </div>
+</header>
+
+<div class="toolbar">
+  <button class="btn primary" id="genBtn">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+    生成密钥
+  </button>
+  <button class="btn" id="importBtn">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M8 7l4-4 4 4M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg>
+    导入私钥
+  </button>
+  <p class="hint">私钥加密存本机 · 公钥可一键复制</p>
+</div>
+
+<ul class="keys scroll-thin" id="list"></ul>
+<div class="empty-tip" id="emptyTip" hidden>还没有密钥 —— 生成一把 Ed25519（推荐）或导入现有私钥</div>
+
+<footer>
+  使用方式：在服务器编辑里把认证方式切到「密钥」并选择钥匙；把对应<b>公钥</b>追加到服务器的
+  <code>~/.ssh/authorized_keys</code> 即可。私钥不离开本机，删除服务器不会删除密钥。
+</footer>
+
+<!-- 生成密钥弹层 -->
+<div class="modal" id="genModal" hidden role="dialog" aria-modal="true" aria-labelledby="genTitle">
+  <div class="modal-card">
+    <div class="modal-head">
+      <h3 id="genTitle">生成密钥</h3>
+      <button id="genClose" aria-label="关闭">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <form class="modal-body" id="genForm">
+      <div>
+        <label>类型</label>
+        <div class="seg" id="genKind">
+          <button type="button" data-kind="ed25519" aria-selected="true">Ed25519 <span class="mono" style="font-size:10px;opacity:.7">推荐</span></button>
+          <button type="button" data-kind="rsa" aria-selected="false">RSA-4096</button>
+        </div>
+      </div>
+      <div>
+        <label for="genName">名称</label>
+        <input id="genName" placeholder="例如 id_ed25519_home" autocomplete="off" required>
+      </div>
+      <div>
+        <label for="genPass">口令（可选）</label>
+        <input id="genPass" type="password" placeholder="留空则不设口令" autocomplete="new-password">
+        <span class="field-tip">设口令后每次连接需在终端里解锁一次；不设则开箱即用，泄露风险略高</span>
+      </div>
+      <p class="modal-note">生成后将展示公钥指纹，并提示复制公钥到目标服务器</p>
+      <div class="modal-foot" style="border:0; padding:4px 0 0">
+        <button type="button" class="btn plain" id="genCancel">取消</button>
+        <button type="submit" class="btn primary">生成</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- 删除确认弹层 -->
+<div class="modal" id="delModal" hidden role="dialog" aria-modal="true" aria-labelledby="delTitle">
+  <div class="modal-card">
+    <div class="del-hero">
+      <span class="icon" aria-hidden="true">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+      </span>
+      <h3 id="delTitle">删除密钥？</h3>
+    </div>
+    <p class="del-body" id="delBody"></p>
+    <div class="modal-foot">
+      <button class="btn plain" id="delCancel">取消</button>
+      <button class="btn danger" id="delOk">删除</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" hidden></div>
+
+<script>
+const HAS_TAURI = typeof window.__TAURI__ !== "undefined";
+const invoke = HAS_TAURI ? window.__TAURI__.core.invoke : null;
+
+let toastTimer;
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.hidden = false; t.style.opacity = 1;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.style.opacity = 0; setTimeout(() => t.hidden = true, 200); }, 2600);
+}
+
+function applyTheme(t) {
+  document.documentElement.classList.remove('light', 'dark');
+  document.documentElement.classList.add(t);
+  try { localStorage.setItem('ab-theme', t); } catch (e) {}
+}
+document.getElementById('themeBtn').addEventListener('click', () => {
+  applyTheme(document.documentElement.classList.contains('light') ? 'dark' : 'light');
+});
+try { applyTheme(localStorage.getItem('ab-theme') || 'dark'); } catch (e) { applyTheme('dark'); }
+
+const $ = (id) => document.getElementById(id);
+const KEY_SVG = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="M10.8 12.2 20 3M17 6l2.5 2.5"/></svg>';
+
+let keys = [];
+
+function fmtDate(ms) {
+  if (!ms) return '';
+  const d = new Date(ms);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+function shortenFp(fp) {
+  if (!fp || !fp.startsWith('SHA256:')) return fp || '—';
+  const body = fp.slice(7);
+  if (body.length <= 12) return fp;
+  return 'SHA256:' + body.slice(0, 6) + '…' + body.slice(-4);
+}
+
+function render() {
+  $('count').textContent = keys.length + ' 把';
+  const list = $('list');
+  list.textContent = '';
+  $('emptyTip').hidden = keys.length > 0;
+  for (const key of keys) {
+    const li = document.createElement('li');
+    li.className = 'key-card';
+    li.innerHTML =
+      '<span class="key-icon">' + KEY_SVG + '</span>' +
+      '<div class="key-main">' +
+        '<div class="key-badges"><p class="name"></p>' +
+        '<span class="badge kind"></span>' +
+        (key.has_passphrase ? '' : '<span class="badge nowarn"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 9v4M12 17h.01"/></svg>未设口令</span>') +
+        '</div>' +
+        '<p class="key-meta"></p>' +
+      '</div>' +
+      '<div class="key-actions">' +
+        '<button class="btn small copy">复制公钥</button>' +
+        '<button class="delbtn" aria-label="删除密钥" title="删除密钥"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 15h10l1-15"/></svg></button>' +
+      '</div>';
+    li.querySelector('.name').textContent = key.id;
+    li.querySelector('.badge.kind').textContent = key.kind;
+    li.querySelector('.key-meta').textContent =
+      `${shortenFp(key.fingerprint)} · ${fmtDate(key.updated_at)} · 被 ${key.used_by} 台服务器使用`;
+    li.querySelector('.copy').addEventListener('click', () => copyPub(key));
+    li.querySelector('.delbtn').addEventListener('click', () => openDel(key));
+    list.appendChild(li);
+  }
+}
+
+async function reload() {
+  if (!invoke) return;
+  try { keys = await invoke('hub_keys_list') || []; } catch (e) { toast(String(e)); keys = []; }
+  render();
+}
+
+async function copyPub(key) {
+  if (!invoke) return;
+  try {
+    const pub = await invoke('hub_key_public_key', { id: key.id });
+    try {
+      await navigator.clipboard.writeText(pub.trim());
+    } catch (e) {
+      // WebView 剪贴板 API 不可用时的兜底
+      const ta = document.createElement('textarea');
+      ta.value = pub.trim(); document.body.appendChild(ta);
+      ta.select(); document.execCommand('copy'); ta.remove();
+    }
+    toast('公钥已复制（' + key.id + '）');
+  } catch (e) {
+    toast('复制失败：' + e);
+  }
+}
+
+/* ---------- 生成 ---------- */
+let genKind = 'ed25519';
+document.querySelectorAll('#genKind button').forEach((b) => {
+  b.addEventListener('click', () => {
+    genKind = b.dataset.kind;
+    document.querySelectorAll('#genKind button').forEach((x) => x.setAttribute('aria-selected', String(x === b)));
+  });
+});
+function openGen() { $('genName').value = ''; $('genPass').value = ''; $('genModal').hidden = false; $('genName').focus(); }
+function closeGen() { $('genModal').hidden = true; }
+$('genBtn').addEventListener('click', openGen);
+$('genClose').addEventListener('click', closeGen);
+$('genCancel').addEventListener('click', closeGen);
+$('genModal').addEventListener('click', (e) => { if (e.target.id === 'genModal') closeGen(); });
+$('genForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (!invoke) return;
+  const name = $('genName').value.trim();
+  const pass = $('genPass').value;
+  if (!name) return;
+  try {
+    const meta = await invoke('hub_key_generate', { name, kind: genKind, passphrase: pass });
+    closeGen();
+    toast('已生成 ' + meta.id + '（' + shortenFp(meta.fingerprint) + '）— 记得把公钥装到服务器');
+    await reload();
+  } catch (err) {
+    toast('生成失败：' + err);
+  }
+});
+
+/* ---------- 导入 ---------- */
+$('importBtn').addEventListener('click', async () => {
+  if (!invoke) return;
+  try {
+    const meta = await invoke('hub_key_import');
+    toast('已导入 ' + meta.id + '（' + shortenFp(meta.fingerprint) + '）');
+    await reload();
+  } catch (e) {
+    const msg = String(e);
+    if (msg !== '未选择文件') toast('导入失败：' + msg);
+  }
+});
+
+/* ---------- 删除 ---------- */
+let delTarget = null;
+function openDel(key) {
+  delTarget = key;
+  $('delBody').innerHTML = '';
+  const text = document.createElement('span');
+  if (key.used_by > 0) {
+    text.innerHTML = '「<b></b>」正被 <b></b> 台服务器使用，删除后这些服务器的密钥认证将失效。此操作不可撤销。';
+    text.querySelectorAll('b')[0].textContent = key.id;
+    text.querySelectorAll('b')[1].textContent = key.used_by;
+  } else {
+    text.innerHTML = '「<b></b>」没有被任何服务器引用。删除后不可恢复。';
+    text.querySelector('b').textContent = key.id;
+  }
+  $('delBody').appendChild(text);
+  $('delModal').hidden = false;
+}
+function closeDel() { $('delModal').hidden = true; delTarget = null; }
+$('delCancel').addEventListener('click', closeDel);
+$('delModal').addEventListener('click', (e) => { if (e.target.id === 'delModal') closeDel(); });
+$('delOk').addEventListener('click', async () => {
+  if (!delTarget || !invoke) return;
+  try {
+    await invoke('hub_key_delete', { id: delTarget.id });
+    toast('已删除 ' + delTarget.id);
+    closeDel();
+    await reload();
+  } catch (e) {
+    toast(String(e));
+  }
+});
+
+/* ---------- 键盘 ---------- */
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeGen(); closeDel(); } });
+
+/* ---------- 启动 ---------- */
+(async function boot() {
+  render();
+  if (!invoke) { $('emptyTip').hidden = false; $('emptyTip').textContent = '非 Tauri 环境（预览）'; return; }
+  await reload();
+})();
+</script>
+</body>
+</html>
