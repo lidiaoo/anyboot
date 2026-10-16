@@ -182,6 +182,18 @@ pub fn hub_term_open(
         let key = crate::hub_keys::private_key_path(&app, &server.key_id)?;
         command.args(["-i", &key.display().to_string()]);
         command.args(["-o", "IdentitiesOnly=yes"]);
+    } else if !server.password_enc.is_empty() {
+        if server.id.is_empty() {
+            return Err("这台服务器还没保存档案：存密码连接需要先保存（askpass 按 id 取密文）".to_string());
+        }
+        // 密码认证（M6）：SSH_ASKPASS_REQUIRE=force 让 ssh 把要密码这件事交给
+        // askpass 程序 —— 本程序自身经 hub-askpass.sh 回环（内存解密 → stdout），
+        // ssh 拿到后免输登录。PTY 里不再出现密码提示，指纹确认仍会走 PTY。
+        // 注意带口令的密钥解锁也走 askpass，所以这两个分支必须互斥（表单三选一）。
+        let config = crate::config_dir(&app)?;
+        let script = crate::hub_vault::write_askpass_script(&config, &server.id)?;
+        command.env("SSH_ASKPASS", script.display().to_string());
+        command.env("SSH_ASKPASS_REQUIRE", "force");
     }
     // ControlMaster：认证连接留一把复用（M4 隧道靠它免二次认证，见 hub_tunnel.rs）
     if !server.id.is_empty() {
@@ -436,6 +448,8 @@ mod tests {
             username: String::new(),
             notes: String::new(),
             key_id: String::new(),
+            password_enc: String::new(),
+            password_new: None,
             created_at: 0,
         };
         let normalized = server.normalize();
@@ -450,6 +464,8 @@ mod tests {
             username: String::new(),
             notes: String::new(),
             key_id: String::new(),
+            password_enc: String::new(),
+            password_new: None,
             created_at: 0,
         };
         assert!(empty.host.trim().is_empty());
@@ -466,6 +482,8 @@ mod tests {
             username: "root".into(),
             notes: String::new(),
             key_id: String::new(),
+            password_enc: String::new(),
+            password_new: None,
             created_at: 0,
         }
         .normalize();

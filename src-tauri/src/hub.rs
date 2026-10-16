@@ -4,8 +4,9 @@
 //! - 存储是配置目录下自己的一个 JSON 文件（`hub-servers.json`）；
 //! - 命令只服务 hub 窗口，语义自足，不碰 UiState。
 //!
-//! 密码刻意不落盘：PC 端走系统 `ssh`（M3 起，PTY 内交互认证），
-//! 认证细节交给 ssh 本尊，hub 只管「连到哪」。
+//! 密码可存可存（M6）：AES-256-GCM 密文落盘（hub_vault.rs），ssh 经
+//! SSH_ASKPASS 免输喂入；不存则保持 M3 的 PTY 内交互认证。认证细节交给
+//! ssh 本尊，hub 只管「连到哪 + 带什么凭据」。
 
 use serde::{Deserialize, Serialize};
 use std::net::{TcpStream, ToSocketAddrs};
@@ -31,10 +32,20 @@ pub struct HubServer {
     pub username: String,
     #[serde(default)]
     pub notes: String,
-    /// 认证方式：空 = 交互（密码/首次指纹在 ssh 里输）；非空 = 密钥 id
-    /// （hub_keys 的文件基名，起 ssh 时拼 `-i`）。密码永不落盘。
+    /// 认证方式（三选一，编辑表单里分段）：
+    /// - 交互：三个字段全空，密码/首次指纹在 ssh 里输（凭据不落盘）
+    /// - 密码：password_enc 非空（AES-GCM 密文，hub_vault），ssh 经 askpass 免输
+    /// - 密钥：key_id 非空（hub_keys 文件基名），起 ssh 拼 `-i`；带口令的钥匙仍在终端解锁
     #[serde(default)]
     pub key_id: String,
+    /// 存的密码（AES-256-GCM 密文）。空 = 未存。
+    #[serde(default)]
+    pub password_enc: String,
+    /// 前端提交的新密码明文。只作为 hub_save_server 的入参字段：
+    /// `skip_serializing` 保证它永不落盘、也永不回传给前端；
+    /// hub_save_server 里消化成 password_enc（None = 不动已存密码，空串 = 清除）。
+    #[serde(default, skip_serializing)]
+    pub password_new: Option<String>,
     #[serde(default)]
     pub created_at: u64,
 }
@@ -123,6 +134,21 @@ fn new_server_id() -> String {
     format!("srv-{nanos:016x}")
 }
 
+/// askpass 分支的核心（cli.rs `--hub-askpass <id>` 调用，单测也走这里）：
+/// 按 id 找服务器 → 内存解密出密码。config 目录由调用方给（CLI 没有 AppHandle）。
+pub(crate) fn askpass_password(config: &Path, server_id: &str) -> Result<String, String> {
+    let servers = load_servers_from(&config.join(HUB_SERVERS_FILE));
+    let server = servers
+        .iter()
+        .find(|s| s.id == server_id)
+        .ok_or_else(|| format!("找不到服务器（{server_id}）"))?;
+    if server.password_enc.is_empty() {
+        return Err("这台服务器没有存密码".to_string());
+    }
+    let key = crate::hub_vault::load_or_create_key(config)?;
+    crate::hub_vault::decrypt_with(&key, &server.password_enc)
+}
+
 // ==================== 命令 ====================
 
 #[tauri::command]
@@ -136,6 +162,17 @@ pub fn hub_list_servers(app: AppHandle) -> Result<Vec<HubServer>, String> {
 #[tauri::command]
 pub fn hub_save_server(app: AppHandle, server: HubServer) -> Result<HubServer, String> {
     let mut server = server.normalize();
+    // 密码三态：None = 前端没碰密码框（保留已存）；Some("") = 清除；Some(p) = 换新密文。
+    // 交互/密钥两种认证方式下前端一律提交空串，切换认证方式即顺手清掉存着的密码。
+    let keep_existing_password = server.password_new.is_none();
+    if let Some(plain) = server.password_new.take() {
+        server.password_enc = if plain.is_empty() {
+            String::new()
+        } else {
+            crate::hub_vault::encrypt(&app, &plain)?
+        };
+    }
+    server.password_enc = server.password_enc.trim().to_string();
     if server.name.is_empty() {
         return Err("名称不能为空".to_string());
     }
@@ -152,6 +189,11 @@ pub fn hub_save_server(app: AppHandle, server: HubServer) -> Result<HubServer, S
         servers.push(server.clone());
     } else if let Some(existing) = servers.iter_mut().find(|s| s.id == server.id) {
         let created_at = existing.created_at;
+        // 前端对象不回传 password_enc（密文不进表单往返）：password_new == None
+        // 表示用户没碰密码框，此时以磁盘上的旧密文为准，别被入参里的空串冲掉。
+        if keep_existing_password {
+            server.password_enc = existing.password_enc.clone();
+        }
         *existing = server.clone();
         existing.created_at = created_at;
     } else {
@@ -225,6 +267,8 @@ mod tests {
             username: "root".to_string(),
             notes: String::new(),
             key_id: String::new(),
+            password_enc: String::new(),
+            password_new: None,
             created_at: 0,
         }
     }
@@ -315,5 +359,35 @@ mod tests {
             ..sample("e")
         };
         assert!(hub_test_server(server).is_err());
+    }
+
+    #[test]
+    fn askpass_decrypts_stored_password() {
+        let dir = temp_dir("askpass");
+        let key = crate::hub_vault::load_or_create_key(&dir).unwrap();
+        let mut stored = sample("p");
+        stored.id = "srv-askpass".to_string();
+        stored.password_enc = crate::hub_vault::encrypt_with(&key, "s3cret 密码").unwrap();
+        std::fs::write(
+            dir.join(HUB_SERVERS_FILE),
+            serde_json::to_string(&vec![stored]).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(askpass_password(&dir, "srv-askpass").unwrap(), "s3cret 密码");
+        assert!(askpass_password(&dir, "srv-none").is_err());
+    }
+
+    #[test]
+    fn password_new_none_keeps_and_empty_clears() {
+        // 只验证 serde 语义：password_new 带 skip_serializing，绝不落盘/回传
+        let mut stored = sample("q");
+        stored.password_enc = "sealed".to_string();
+        let json = serde_json::to_string(&stored).unwrap();
+        assert!(!json.contains("password_new"));
+        assert!(json.contains("\"password_enc\":\"sealed\""));
+        // None 反序列化回来 = 不动已存密码
+        let back: HubServer = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.password_new, None);
+        assert_eq!(back.password_enc, "sealed");
     }
 }

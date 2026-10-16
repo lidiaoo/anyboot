@@ -75,6 +75,7 @@ mod hub_keys;
 pub(crate) mod hub_sftp;
 mod hub_term;
 mod hub_tunnel;
+mod hub_vault;
 mod http;
 
 /// Linux 侧数据收集脚本（把 grubenv 迁到 ESP），装到 `/etc/grub.d/09_anyboot`。

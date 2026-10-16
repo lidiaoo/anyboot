@@ -534,6 +534,7 @@
             <span class="flabel">认证方式</span>
             <div class="segmented" id="fAuthSeg">
               <button type="button" data-auth="interactive" aria-selected="true">交互</button>
+              <button type="button" data-auth="password" aria-selected="false">密码</button>
               <button type="button" data-auth="key" aria-selected="false">密钥</button>
             </div>
           </div>
@@ -544,11 +545,15 @@
             </select>
           </div>
         </div>
+        <div class="field" id="fPasswordField" hidden>
+          <label for="fPassword">密码（AES-256-GCM 加密存本机，连接免输）</label>
+          <input id="fPassword" type="password" autocomplete="off" placeholder="">
+        </div>
         <div class="field" data-page-node-id="fR4FQAB6M72wCWFaFAH6eO">
           <label for="fNotes" data-page-node-id="rlBknBjrbCcCulB2QXeCDj">备注</label>
           <textarea id="fNotes" rows="2" placeholder="可选"></textarea>
         </div>
-        <p class="field-hint" data-page-node-id="0AjBbFkYqbEuJ7r8XQcryp">「交互」= 系统 ssh 在终端内要密码 / 确认指纹，凭据不落盘；「密钥」= 起 ssh 带 -i（带口令的钥匙仍在终端里解锁一次）。</p>
+        <p class="field-hint" data-page-node-id="0AjBbFkYqbEuJ7r8XQcryp">「交互」= 系统 ssh 在终端内要密码 / 确认指纹，凭据不落盘；「密码」= 密文落盘（AES-256-GCM），ssh 经 askpass 免输，指纹确认仍在终端里；「密钥」= 起 ssh 带 -i（带口令的钥匙仍在终端里解锁一次）。三种方式互斥，切换即清掉另一种存的凭据。</p>
         <p class="test-line" id="editTestLine" data-page-node-id="Ge3nhKeb3d56bcDlj0j6nX"></p>
         <p class="form-error" id="editError" data-page-node-id="ZXjryaZQoeG2vEVFgjzAdC"></p>
       </div>
@@ -954,7 +959,8 @@
       '<div class="info-grid" role="group" aria-label="连接信息">' +
         '<div><p class="k">用户</p><p class="v mono">' + esc(server.username || '—') + '</p></div>' +
         '<div><p class="k">认证方式</p><p class="v">' +
-          (server.key_id ? '密钥 · <span class="mono">' + esc(server.key_id) + '</span>' : '系统 ssh · 终端内交互') +
+          (server.key_id ? '密钥 · <span class="mono">' + esc(server.key_id) + '</span>'
+            : (server.password_enc ? '密码 · 已存（免输）' : '系统 ssh · 终端内交互')) +
         '</p></div>' +
         '<div><p class="k">端口</p><p class="v mono">' + port + '</p></div>' +
         '<div><p class="k">延迟</p><p class="v mono">' + msText + '</p></div>' +
@@ -1153,7 +1159,9 @@
   // ============ 添加 / 编辑弹窗 ============
   let editingId = null;      // null = 新增
   let editingProto = 'ssh';  // 弹窗内的协议分段状态
-  let editingAuth = 'interactive'; // interactive = 交互认证 | key = 密钥认证
+  // 编辑中的服务器是否已存密码（前端只有密文有无这个信息，明文永不回传）
+  let editingServerPassword = false;
+  let editingAuth = 'interactive'; // interactive = 交互认证 | password = 密码认证 | key = 密钥认证
   let keyOptions = [];       // hub_keys_list 的快照（弹窗打开时刷新）
   function setEditProto(proto) {
     editingProto = proto === 'telnet' ? 'telnet' : 'ssh';
@@ -1165,11 +1173,18 @@
     b.addEventListener('click', function () { setEditProto(b.dataset.proto); });
   });
   function setEditAuth(auth) {
-    editingAuth = auth === 'key' ? 'key' : 'interactive';
+    editingAuth = auth === 'key' ? 'key' : (auth === 'password' ? 'password' : 'interactive');
     document.querySelectorAll('#fAuthSeg button').forEach(function (b) {
       b.setAttribute('aria-selected', String(b.dataset.auth === editingAuth));
     });
     document.getElementById('fKeyField').hidden = editingAuth !== 'key';
+    const passwordField = document.getElementById('fPasswordField');
+    passwordField.hidden = editingAuth !== 'password';
+    if (editingAuth === 'password') {
+      // 已存密码不回填明文（前端只拿到密文）；占位符提示可改可不改
+      document.getElementById('fPassword').placeholder =
+        (editingServerPassword ? '已存密码（输入新值可改，留空保持不变）' : '输入密码');
+    }
   }
   document.querySelectorAll('#fAuthSeg button').forEach(function (b) {
     b.addEventListener('click', function () { setEditAuth(b.dataset.auth); });
@@ -1198,6 +1213,7 @@
 
   async function openEdit(server) {
     editingId = server ? server.id : null;
+    editingServerPassword = !!(server && server.password_enc);
     document.getElementById('editTitle').textContent = server ? '编辑服务器' : '添加服务器';
     document.getElementById('fName').value = server ? server.name : '';
     setEditProto(server ? server.protocol : 'ssh');
@@ -1205,7 +1221,8 @@
     document.getElementById('fHost').value = server ? server.host : '';
     document.getElementById('fUser').value = server ? server.username : '';
     document.getElementById('fNotes').value = server ? server.notes : '';
-    setEditAuth(server && server.key_id ? 'key' : 'interactive');
+    document.getElementById('fPassword').value = '';
+    setEditAuth(server && server.key_id ? 'key' : (editingServerPassword ? 'password' : 'interactive'));
     await loadKeyOptions(server ? server.key_id : '');
     document.getElementById('editError').textContent = '';
     document.getElementById('editTestLine').textContent = '';
@@ -1220,6 +1237,15 @@
   /** 弹窗表单 → 服务器对象（供保存 / 弹窗内测试连接共用） */
   function formServer() {
     const portText = document.getElementById('fPort').value.trim();
+    // password_new 三态：密码段填了 → 换新；密码段留空 → null=不动已存的；
+    // 切到交互/密钥段 → 空串=清掉已存密码（后端消化成密文或清除）
+    let passwordNew = null;
+    if (editingAuth === 'password') {
+      const typed = document.getElementById('fPassword').value;
+      if (typed) passwordNew = typed;
+    } else {
+      passwordNew = '';
+    }
     return {
       id: editingId || '',
       name: document.getElementById('fName').value,
@@ -1229,6 +1255,7 @@
       username: document.getElementById('fUser').value,
       notes: document.getElementById('fNotes').value,
       key_id: editingAuth === 'key' ? (document.getElementById('fKey').value || '') : '',
+      password_new: passwordNew,
       created_at: 0,
     };
   }

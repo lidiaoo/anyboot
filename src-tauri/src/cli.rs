@@ -42,6 +42,7 @@ pub fn is_cli_invocation(args: &[String]) -> bool {
                 | "-V"
                 | "--grub-list"
                 | "--switch-grub"
+                | "--hub-askpass"
         )
     })
 }
@@ -59,6 +60,9 @@ struct CliArgs {
     grub_list: bool,
     /// 切换 GRUB 启动项：值是 grub.cfg 里解析出的 selector 原文
     switch_grub: Option<String>,
+    /// server-hub 密码认证（M6）：`--hub-askpass <server_id>` 由
+    /// SSH_ASKPASS 机制调起（hub-askpass.sh 回环），stdout 只输出解密后的密码
+    hub_askpass: Option<String>,
 }
 
 fn parse_args(args: &[String]) -> Result<CliArgs, String> {
@@ -112,6 +116,16 @@ fn parse_args(args: &[String]) -> Result<CliArgs, String> {
                 parsed.switch_grub = Some(value.clone());
                 index += 1;
             }
+            "--hub-askpass" => {
+                let value = args
+                    .get(index + 1)
+                    .ok_or("--hub-askpass 需要一个 server_id")?;
+                if value.trim().is_empty() {
+                    return Err("--hub-askpass 的 server_id 不能为空".to_string());
+                }
+                parsed.hub_askpass = Some(value.clone());
+                index += 1;
+            }
             other => return Err(format!("未知参数: {other}")),
         }
         index += 1;
@@ -123,6 +137,7 @@ fn parse_args(args: &[String]) -> Result<CliArgs, String> {
         && parsed.action.is_none()
         && !parsed.grub_list
         && parsed.switch_grub.is_none()
+        && parsed.hub_askpass.is_none()
     {
         return Err(
             "至少要有一个动作：--status / --switch / --grub-list / --switch-grub / --action"
@@ -339,6 +354,29 @@ pub fn run(args: &[String]) -> i32 {
     if parsed.version {
         println!("AnyBoot {}", env!("CARGO_PKG_VERSION"));
         return EXIT_OK;
+    }
+
+    // askpass 分支：ssh 的 SSH_ASKPASS 调进来要密码。必须**本地**解密，
+    // 绝不转发给在跑的实例（stdout 只许有密码一行，别的都是噪音）；
+    // 出错走 stderr，ssh 会当这次认证失败处理。
+    if let Some(server_id) = &parsed.hub_askpass {
+        let dir = match config_dir() {
+            Some(dir) => dir,
+            None => {
+                eprintln!("hub-askpass: 无法定位配置目录");
+                return EXIT_FAILED;
+            }
+        };
+        return match super::hub::askpass_password(&dir, server_id) {
+            Ok(password) => {
+                println!("{password}");
+                EXIT_OK
+            }
+            Err(error) => {
+                eprintln!("hub-askpass: {error}");
+                EXIT_FAILED
+            }
+        };
     }
 
     let config = CliConfig::load();
