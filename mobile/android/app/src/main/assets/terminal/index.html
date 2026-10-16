@@ -114,11 +114,9 @@
     term.loadAddon(fitAddon);
     term.open(document.getElementById('term'));
     fit();
-    // 上行：键盘输入（字节流原样转发，不做任何解析）
+    // 上行：键盘输入（字节流原样转发，不做任何解析；term 已建即放行，未连上时原生侧安全丢弃）
     term.onData(function (data) {
-      if (window.__ready) {
-        sendUpstream(new TextEncoder().encode(data));
-      }
+      sendUpstream(new TextEncoder().encode(data));
     });
     // 行高变了主动报一次
     setTimeout(fit, 100);

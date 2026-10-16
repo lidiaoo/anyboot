@@ -33,7 +33,8 @@ final class TerminalSession {
     final JumpServer server;
     final long startedAt = System.currentTimeMillis();
 
-    private final Listener listener;
+    /** 可更换：会话比 Activity 活得久，界面重建后要重挂到活着的那个上 */
+    private volatile Listener listener;
     private ChannelShell shell;
     private TelnetSession telnet;
     private Thread reader;
@@ -131,6 +132,13 @@ final class TerminalSession {
         }
     }
 
+    /** 重挂监听器（bind 时调用）：否则回显仍喂给已销毁的旧 Activity，输入的字有去无回 */
+    void setListener(Listener replacement) {
+        synchronized (dataLock) {
+            this.listener = replacement;
+        }
+    }
+
     /** 挂上界面并取走积攒的回显（切回终端页 / 切会话标签都走这里） */
     byte[] attachAndDrain() {
         synchronized (dataLock) {
@@ -212,9 +220,9 @@ final class TerminalSession {
 
     private void deliver(byte[] bytes) {
         synchronized (dataLock) {
-            if (backlog.size() < BACKLOG_CAP) {
+            if (!attached && backlog.size() < BACKLOG_CAP) {
                 backlog.write(bytes, 0, bytes.length);
-            }   // 超了就丢：滚动回看有限即可，保内存
+            }   // 只攒「未挂界面」期间的；挂着时 backlog 不再积累，attachAndDrain 才不会把历史重印一遍
             if (attached) {
                 listener.onData(bytes);
             }

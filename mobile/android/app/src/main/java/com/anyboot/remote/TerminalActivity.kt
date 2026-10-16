@@ -203,11 +203,13 @@ class TerminalActivity : ComponentActivity() {
         }
     }
 
-    /** 绑定一个会话到界面：切积攒回显、刷标签条 */
+    /** 绑定一个会话到界面：重挂监听器、切积攒回显、刷标签条 */
     private fun bind(session: TerminalSession) {
         current?.let { if (it !== session) it.detach() }
         current = session
         currentId = session.server.id
+        // 会话比 Activity 活得久：监听器可能还挂在已销毁的旧实例上（回显喂进死 WebView → 输入字消失），重挂到本 Activity
+        session.setListener(listenerFor(session.server.id))
         val backlog = session.attachAndDrain()
         if (pageReady) {
             // 单 WebView 多会话共用一个 xterm：切会话先清屏，再喂目标会话的积攒回显
