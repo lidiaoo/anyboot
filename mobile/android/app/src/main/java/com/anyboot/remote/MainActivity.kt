@@ -759,7 +759,9 @@ class MainActivity : ComponentActivity() {
                                 transportOpen = false
                                 toast("已选择「${transportLabel()}」：重载页面后生效（页面上也能即切）")
                             })
-                            Text(labels[index], fontSize = 14.sp)
+                            // 最长一条「自动（推送优先，连不上退回轮询）」在 14sp 下已接近本行可用宽度，
+                            // 系统字体一放大就会复现「末尾 Text 被压成 0 宽逐字换行」那种崩坏，提前上 weight
+                            Text(labels[index], fontSize = 14.sp, modifier = Modifier.weight(1f, fill = false))
                         }
                     }
                 }
