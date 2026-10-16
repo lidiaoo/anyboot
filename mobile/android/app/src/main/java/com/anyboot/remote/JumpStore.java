@@ -78,6 +78,30 @@ final class JumpStore {
         return null;
     }
 
+    /**
+     * 应急通道（连接前手输密码）里勾了「保存密码」：加密后写回那条跳板机，下次连接免输。
+     *
+     * @return true = 已落盘；false = 密码为空 / 加密失败（Keystore 异常）/ 配置里找不到该条
+     */
+    static boolean rememberPassword(Context context, String jumpId, String password) {
+        if (text(password).isEmpty()) {
+            return false;
+        }
+        String encrypted = KeyVault.encrypt(password);
+        if (encrypted.isEmpty()) {
+            // 宁可这次不落盘，也不能把明文写进配置
+            return false;
+        }
+        List<JumpServer> list = loadJumps(context);
+        JumpServer target = findJump(list, jumpId);
+        if (target == null) {
+            return false;
+        }
+        target.passwordEnc = encrypted;
+        saveJumps(context, list);
+        return true;
+    }
+
     /** 有几台电脑经由这台跳板机（详情页「经由此服务器的电脑」） */
     static int computersVia(Context context, String jumpId) {
         int count = 0;

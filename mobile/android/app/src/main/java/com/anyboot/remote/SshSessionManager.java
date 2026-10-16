@@ -128,9 +128,17 @@ final class SshSessionManager {
 
     /** 密码认证但本机没存到密码（Keystore 失败/未保存）→ 连接前需要用户手输一次 */
     boolean needsManualPassword(JumpServer server) {
-        return JumpServer.AUTH_PASSWORD.equals(server.authType)
-                && !manualPasswords.containsKey(server.id)
-                && KeyVault.decrypt(server.passwordEnc).isEmpty();
+        boolean typed = manualPasswords.containsKey(server.id);
+        String blob = JumpStore.text(server.passwordEnc);
+        boolean decryptable = !KeyVault.decrypt(blob).isEmpty();
+        boolean needs = JumpServer.AUTH_PASSWORD.equals(server.authType)
+                && !typed
+                && !decryptable;
+        // 密文长度非 0 却解不开 = 密钥库那把密钥被换过（每次调 key() 都会覆盖的历史遗留）
+        TerminalActivity.tlog("needsManualPassword 认证=" + server.authType
+                + " 手输过=" + typed + " 密文=" + blob.length() + "B 可解=" + decryptable
+                + " -> " + needs);
+        return needs;
     }
 
     /** 记住本次运行手动输入的密码（只放内存）；传空串清除 */

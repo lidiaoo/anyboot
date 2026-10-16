@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -53,6 +54,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -542,9 +544,10 @@ class ServersActivity : ComponentActivity() {
             mutableStateOf(editing && JumpServer.AUTH_KEY == existing?.authType)
         }
         var password by remember(existing) { mutableStateOf("") }
-        var savePassword by remember(existing) {
-            mutableStateOf(!editing || JumpStore.text(existing?.passwordEnc).isNotEmpty())
-        }
+        // 默认就存：以前这里是「编辑一台没存过密码的服务器 → 不勾」，
+        // 而那个复选框又被上面协议行的空白顶出了视口，
+        // 用户填了密码却在保存时被丢成空串，连接时只好再输一次「临时密码」。
+        var savePassword by remember(existing) { mutableStateOf(true) }
         var keyIndex by remember(existing) {
             mutableStateOf(
                 if (editing && JumpServer.AUTH_KEY == existing?.authType) {
@@ -563,6 +566,10 @@ class ServersActivity : ComponentActivity() {
 
         AlertDialog(
             onDismissRequest = { editOpen = false },
+            // 键盘弹出时不能把底部的「保存 / 取消」盖住（对话框已经顶到屏幕上沿、无处可让），
+            // 让内容区把 IME 的高度让出来——它本来就是 verticalScroll，能自己压缩。
+            modifier = Modifier.imePadding(),
+            properties = DialogProperties(decorFitsSystemWindows = false),
             title = { Text(if (editing) "编辑服务器" else "添加服务器") },
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
@@ -572,13 +579,24 @@ class ServersActivity : ComponentActivity() {
                         placeholder = { Text("例如：pve / 家里路由器", fontSize = 12.sp) },
                         modifier = Modifier.fillMaxWidth(),
                     )
+                    // 两个选项各占一行：窄屏下一行塞不下两段中文说明，Row 溢出会把末尾 Text
+                    // 压成 0 宽逐字换行、整行撑到 ~300dp（并把它后面的「保存密码」顶出视口）。
                     FieldLabel("协议")
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         RadioButton(selected = !isTelnet, onClick = { isTelnet = false })
-                        Text("SSH（推荐：隧道+终端+文件）", fontSize = 13.sp)
-                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "SSH（推荐：隧道+终端+文件）",
+                            fontSize = 13.sp,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         RadioButton(selected = isTelnet, onClick = { isTelnet = true })
-                        Text("Telnet（实验性，仅终端）", fontSize = 13.sp)
+                        Text(
+                            "Telnet（实验性，仅终端）",
+                            fontSize = 13.sp,
+                            modifier = Modifier.weight(1f),
+                        )
                     }
                     FieldLabel("地址（host:port）")
                     OutlinedTextField(
@@ -596,10 +614,10 @@ class ServersActivity : ComponentActivity() {
                     FieldLabel("认证方式")
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         RadioButton(selected = !authKey, onClick = { authKey = false })
-                        Text("密码", fontSize = 13.sp)
+                        Text("密码", fontSize = 13.sp, modifier = Modifier.weight(1f))
                         Spacer(Modifier.width(8.dp))
                         RadioButton(selected = authKey, onClick = { authKey = true })
-                        Text("密钥", fontSize = 13.sp)
+                        Text("密钥", fontSize = 13.sp, modifier = Modifier.weight(1f))
                     }
                     OutlinedTextField(
                         value = password,
@@ -607,7 +625,14 @@ class ServersActivity : ComponentActivity() {
                         singleLine = true,
                         placeholder = {
                             Text(
-                                if (savedPassword.isNotEmpty()) "已保存密码（可改）" else "留空保持原密码不变",
+                                when {
+                                    savedPassword.isNotEmpty() -> "已保存密码（可改）"
+                                    // 有密文却解不开：密钥库那把钥匙换过（老版本每次调用都覆盖），
+                                    // 留空保存只会把这份坏密文继续留着，必须提示重输
+                                    JumpStore.text(existing?.passwordEnc).isNotEmpty() ->
+                                        "已存密码已失效，请重新输入一次"
+                                    else -> "留空保持原密码不变"
+                                },
                                 fontSize = 12.sp,
                             )
                         },
@@ -833,6 +858,8 @@ class ServersActivity : ComponentActivity() {
         var ed25519 by remember { mutableStateOf(true) }
         AlertDialog(
             onDismissRequest = { generateKeyOpen = false },
+            modifier = Modifier.imePadding(),
+            properties = DialogProperties(decorFitsSystemWindows = false),
             title = { Text("生成密钥对") },
             text = {
                 Column {
@@ -843,10 +870,10 @@ class ServersActivity : ComponentActivity() {
                     )
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         RadioButton(selected = ed25519, onClick = { ed25519 = true })
-                        Text("Ed25519（推荐）", fontSize = 13.sp)
+                        Text("Ed25519（推荐）", fontSize = 13.sp, modifier = Modifier.weight(1f))
                         Spacer(Modifier.width(8.dp))
                         RadioButton(selected = !ed25519, onClick = { ed25519 = false })
-                        Text("RSA 4096", fontSize = 13.sp)
+                        Text("RSA 4096", fontSize = 13.sp, modifier = Modifier.weight(1f))
                     }
                 }
             },
@@ -1245,12 +1272,16 @@ class ServersActivity : ComponentActivity() {
         )
     }
 
-    /** 应急：手输 SSH 密码（只放内存，不保存），输完继续原流程 */
+    /** 应急：手输 SSH 密码。默认勾「保存密码」——勾了就加密落盘，下次连接免输 */
     @Composable
     private fun ManualPasswordDialog(request: ManualPwdRequest) {
         var password by remember { mutableStateOf("") }
+        var remember by remember { mutableStateOf(true) }
         AlertDialog(
             onDismissRequest = { manualPassword = null },
+            // 同上：输完密码要能直接点到「连接」，不被键盘挡住
+            modifier = Modifier.imePadding(),
+            properties = DialogProperties(decorFitsSystemWindows = false),
             title = { Text("输入 SSH 密码") },
             text = {
                 Column {
@@ -1266,17 +1297,33 @@ class ServersActivity : ComponentActivity() {
                         value = password,
                         onValueChange = { password = it },
                         singleLine = true,
-                        placeholder = { Text("仅本次连接有效，不保存", fontSize = 12.sp) },
+                        placeholder = {
+                            Text(
+                                if (remember) "输一次就存下来（下次免输）" else "仅本次连接有效，不保存",
+                                fontSize = 12.sp,
+                            )
+                        },
                         visualTransformation = PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                         modifier = Modifier.fillMaxWidth(),
                     )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = remember, onCheckedChange = { remember = it })
+                        Text(
+                            "保存密码（加密存本机 · 下次免输）",
+                            fontSize = 13.sp,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
                 }
             },
             confirmButton = {
                 TextButton(onClick = {
                     manualPassword = null
                     SshSessionManager.shared().setManualPassword(request.server.id, password)
+                    if (remember) {
+                        JumpStore.rememberPassword(this@ServersActivity, request.server.id, password)
+                    }
                     request.onReady.run()
                 }) { Text("连接") }
             },

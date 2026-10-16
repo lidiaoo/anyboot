@@ -23,11 +23,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -49,6 +51,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.DialogProperties
 
 /**
  * xterm 终端会话页：WebView 里跑 xterm.js，字节流和 [TerminalSession] 双向桥接。
@@ -569,12 +572,16 @@ class TerminalActivity : ComponentActivity() {
         )
     }
 
-    /** 应急：手输 SSH 密码（只放内存，不保存），输完继续原流程 */
+    /** 应急：手输 SSH 密码。默认勾「保存密码」——勾了就加密落盘，下次连接免输 */
     @Composable
     private fun ManualPasswordDialog(request: ManualPwdRequest) {
         var password by remember { mutableStateOf("") }
+        var remember by remember { mutableStateOf(true) }
         AlertDialog(
             onDismissRequest = { manualPassword = null },
+            // 输完密码要能直接点到「连接」，不被键盘挡住
+            modifier = Modifier.imePadding(),
+            properties = DialogProperties(decorFitsSystemWindows = false),
             title = { Text("输入 SSH 密码") },
             text = {
                 Column {
@@ -590,19 +597,35 @@ class TerminalActivity : ComponentActivity() {
                         value = password,
                         onValueChange = { password = it },
                         singleLine = true,
-                        placeholder = { Text("仅本次连接有效，不保存", fontSize = 12.sp) },
+                        placeholder = {
+                            Text(
+                                if (remember) "输一次就存下来（下次免输）" else "仅本次连接有效，不保存",
+                                fontSize = 12.sp,
+                            )
+                        },
                         visualTransformation = PasswordVisualTransformation(),
                         keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                             keyboardType = KeyboardType.Password
                         ),
                         modifier = Modifier.fillMaxWidth(),
                     )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = remember, onCheckedChange = { remember = it })
+                        Text(
+                            "保存密码（加密存本机 · 下次免输）",
+                            fontSize = 13.sp,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
                 }
             },
             confirmButton = {
                 TextButton(onClick = {
                     manualPassword = null
                     SshSessionManager.shared().setManualPassword(request.server.id, password)
+                    if (remember) {
+                        JumpStore.rememberPassword(this@TerminalActivity, request.server.id, password)
+                    }
                     request.onReady.run()
                 }) { Text("连接") }
             },

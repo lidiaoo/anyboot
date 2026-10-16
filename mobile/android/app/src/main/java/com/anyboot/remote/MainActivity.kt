@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -75,6 +76,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.launch
 
 /**
@@ -492,6 +494,9 @@ class MainActivity : ComponentActivity() {
 
         AlertDialog(
             onDismissRequest = { if (!request.firstRun) editRequest = null },
+            // 键盘弹出时不让底部的按钮被盖住（内容区自己让出 IME 的高度）
+            modifier = Modifier.imePadding(),
+            properties = DialogProperties(decorFitsSystemWindows = false),
             title = {
                 Text(
                     when {
@@ -567,10 +572,18 @@ class MainActivity : ComponentActivity() {
                     FieldLabel("多网卡探测（有多个地址时怎么探）")
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         RadioButton(selected = !serialProbe, onClick = { serialProbe = false })
-                        Text("并发探测（推荐）", fontSize = 13.sp, color = palette.fg)
+                        Text(
+                            "并发探测（推荐）",
+                            fontSize = 13.sp, color = palette.fg,
+                            modifier = Modifier.weight(1f),
+                        )
                         Spacer(Modifier.width(12.dp))
                         RadioButton(selected = serialProbe, onClick = { serialProbe = true })
-                        Text("串行探测", fontSize = 13.sp, color = palette.fg)
+                        Text(
+                            "串行探测",
+                            fontSize = 13.sp, color = palette.fg,
+                            modifier = Modifier.weight(1f),
+                        )
                     }
                 }
             },
