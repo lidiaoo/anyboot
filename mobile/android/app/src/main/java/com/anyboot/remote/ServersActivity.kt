@@ -1250,6 +1250,11 @@ class ServersActivity : ComponentActivity() {
             toast("服务器不存在（可能已删除）")
             return
         }
+        // 同一条文件已经在传了就别再起一个：两个任务写同一个本地文件会互相踩
+        if (TransferManager.pendingFor(TransferManager.DIR_DOWNLOAD, remotePathOf(fileName)) != null) {
+            toast("这条已经在传了，进度见「传输」页")
+            return
+        }
         TransferManager.startDownload(applicationContext, server, sftpPath, fileName) { title, message ->
             bus.confirm(title, message)
         }
@@ -1265,11 +1270,20 @@ class ServersActivity : ComponentActivity() {
         }
         var name = queryFileName(uri)
         if (name.isNullOrEmpty()) name = "upload-" + System.currentTimeMillis()
+        if (TransferManager.pendingFor(TransferManager.DIR_UPLOAD, remotePathOf(name)) != null) {
+            toast("这条已经在传了，进度见「传输」页")
+            return
+        }
         TransferManager.startUpload(applicationContext, server, sftpPath, uri, name) { title, message ->
             bus.confirm(title, message)
         }
         toast("已加入传输：$name（进度见「传输」页）")
     }
+
+    /** 与 TransferManager.joinRemote 同一口径（重复发起检查要用完整远端路径比对） */
+    private fun remotePathOf(name: String): String =
+        if (sftpPath.isEmpty() || sftpPath == "/") "/$name"
+        else if (sftpPath.endsWith("/")) sftpPath + name else "$sftpPath/$name"
 
     // ------------------------------------------------------------------
     // 传输页（上传 / 下载任务；发起在「文件」页）
@@ -1279,16 +1293,23 @@ class ServersActivity : ComponentActivity() {
     private fun TransfersPage() {
         transferTick // 订阅任务变化
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-            val running = TransferManager.active()
-            SectionTitle(if (running.isEmpty()) "进行中" else "进行中（${running.size}）")
-            if (running.isEmpty()) {
+            val pending = TransferManager.active()
+            val paused = pending.count { it.state == TransferManager.STATE_PAUSED }
+            SectionTitle(
+                when {
+                    pending.isEmpty() -> "进行中"
+                    paused == 0 -> "进行中（${pending.size}）"
+                    else -> "进行中（${pending.size - paused}）· 已暂停（$paused）"
+                }
+            )
+            if (pending.isEmpty()) {
                 EmptyHint(
                     "没有正在传输的文件。到「文件」页点「上传」，或点一个远端文件下载 —— "
-                            + "任务都会出现在这里，可以看进度、取消。"
+                            + "任务都会出现在这里，可以看进度、暂停 / 继续、取消。"
                 )
             }
-            for (task in running) {
-                TransferRow(task)
+            for (task in pending) {
+                TransferRow(task, transferTick)
             }
 
             SectionTitle("已完成 / 失败")
@@ -1297,7 +1318,7 @@ class ServersActivity : ComponentActivity() {
                 EmptyHint("还没有传输记录。")
             }
             for (task in finished) {
-                TransferRow(task)
+                TransferRow(task, transferTick)
             }
             if (finished.isNotEmpty()) {
                 TextButton(
@@ -1309,10 +1330,22 @@ class ServersActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * 一条任务。
+     *
+     * <p>⚠️ `tick` 不是多余的：`Task` 里全是普通字段（volatile long / int），Compose 看不见它们的变化；
+     * 而这个函数是**独立的 composable**，参数又是同一个 `Task` 实例 —— 少了这个每变一次就不同的
+     * `Int` 参数，整行会被 Compose 判定「入参没变」直接跳过重画，于是进度、按钮全停在最后一帧
+     * （表现是「表头已经变了、行里还是旧状态」）。加它纯粹是为了把本行拉起来重读。
+     */
     @Composable
-    private fun TransferRow(task: TransferManager.Task) {
+    private fun TransferRow(task: TransferManager.Task, tick: Int) {
+        tick // 订阅任务变化（见上面的说明，别删）
         val palette = LocalPalette.current
         val uploading = task.direction == TransferManager.DIR_UPLOAD
+        val paused = task.state == TransferManager.STATE_PAUSED
+        // 续传的标一下，一眼看得出这条是从断点接着传的（不是重头来）
+        val resumedTag = if (task.resumed) " · 续传" else ""
         Column(
             Modifier
                 .fillMaxWidth()
@@ -1327,21 +1360,30 @@ class ServersActivity : ComponentActivity() {
                 Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
                     PrimaryText(task.name)
                     SecondaryText(
-                        (if (uploading) "上传到 " else "下载自 ")
-                                + task.serverName + " · " + task.remoteDir
+                        "${if (uploading) "上传到 " else "下载自 "}${task.serverName} · ${task.remoteDir}$resumedTag"
                     )
                 }
-                if (task.isRunning()) {
-                    ChipButton("取消") { TransferManager.cancel(task.id) }
-                } else {
-                    ChipButton("重试") { retryTransfer(task) }
+                when (task.state) {
+                    TransferManager.STATE_RUNNING -> {
+                        ChipButton("暂停") { TransferManager.pause(task.id) }
+                        Spacer(Modifier.width(6.dp))
+                        ChipButton("取消") { TransferManager.cancel(this@ServersActivity, task.id) }
+                    }
+                    TransferManager.STATE_PAUSED -> {
+                        ChipButton("继续") { resumeTransfer(task) }
+                        Spacer(Modifier.width(6.dp))
+                        ChipButton("取消") { TransferManager.cancel(this@ServersActivity, task.id) }
+                    }
+                    // 已被新任务接替：没有可点的动作，只留一行说明
+                    TransferManager.STATE_SUPERSEDED -> Unit
+                    else -> ChipButton("重试") { retryTransfer(task) }
                 }
             }
-            if (task.isRunning()) {
+            if (task.isPending()) {
                 Spacer(Modifier.height(8.dp))
-                TransferProgressBar(task.fraction(), task.total <= 0)
+                TransferProgressBar(task.fraction(), task.total <= 0 && !paused)
                 Spacer(Modifier.height(4.dp))
-                SecondaryText(progressText(task))
+                SecondaryText(if (paused) "已暂停 · ${progressText(task)}" else progressText(task))
             } else {
                 Spacer(Modifier.height(4.dp))
                 Text(
@@ -1355,6 +1397,17 @@ class ServersActivity : ComponentActivity() {
                     modifier = Modifier.padding(start = 24.dp),
                 )
             }
+        }
+    }
+
+    private fun resumeTransfer(task: TransferManager.Task) {
+        val reason = TransferManager.resume(this, task) { title, message ->
+            bus.confirm(title, message)
+        }
+        if (reason == null) {
+            toast("接着传：${task.name}（进度见上面「进行中」）")
+        } else {
+            toast(reason, long = true)
         }
     }
 
