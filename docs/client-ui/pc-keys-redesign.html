@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AnyBoot 密钥管理（PC）— 设计稿</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script>
+tailwind.config = {
+  darkMode: 'class',
+  theme: { extend: {
+    fontFamily: { sans:['Inter','PingFang SC','Microsoft YaHei','sans-serif'], mono:['JetBrains Mono','monospace'] },
+    colors: {
+      base:'rgb(var(--base) / <alpha-value>)', card:'rgb(var(--card) / <alpha-value>)', elevate:'rgb(var(--elevate) / <alpha-value>)', line:'rgb(var(--line) / <alpha-value>)', lineStrong:'rgb(var(--linestrong) / <alpha-value>)',
+      fg:'rgb(var(--fg) / <alpha-value>)', fgDim:'rgb(var(--fgdim) / <alpha-value>)', fgFaint:'rgb(var(--fgfaint) / <alpha-value>)',
+      ok:'rgb(var(--ok) / <alpha-value>)', warn:'rgb(var(--warn) / <alpha-value>)', bad:'rgb(var(--bad) / <alpha-value>)', accent:'rgb(var(--accent) / <alpha-value>)',
+    },
+    boxShadow: { frame:'0 24px 80px -12px rgba(0,0,0,.75)', pop:'0 16px 48px -8px rgba(0,0,0,.65)' },
+  }}
+}
+</script>
+<style>
+  html { color-scheme: dark; }
+  body { background:
+    radial-gradient(1100px 560px at 65% -10%, rgba(34,197,94,.06), transparent 60%),
+    #0A0E1D; }
+  ::selection { background:#22C55E33; }
+  [hidden] { display:none !important; }
+  .scroll-thin::-webkit-scrollbar { width:8px }
+  .scroll-thin::-webkit-scrollbar-thumb { background:#242B41; border-radius:4px }
+  @media (prefers-reduced-motion: reduce) { *{transition:none!important;animation:none!important} }
+</style>
+<style id="ab-theme">
+  /* ---- 亮/暗双主题：token 全部走 CSS 变量（Tailwind 配置引用 rgb(var(--x)/<alpha>)） ---- */
+  html.dark{
+    --base:2 6 23; --term:4 7 15; --card:14 18 35; --elevate:20 26 46;
+    --line:36 43 65; --linestrong:51 65 85;
+    --fg:248 250 252; --fgdim:148 163 184; --fgfaint:100 116 139;
+    --ok:34 197 94; --warn:245 158 11; --bad:239 68 68; --accent:34 197 94;
+    --tblue:96 165 250; --tgreen:74 222 128; --tyellow:250 204 21; --tcyan:34 211 238; --tmagenta:244 114 182;
+    --frame:28 34 51;
+    color-scheme:dark;
+  }
+  html.light{
+    --base:244 246 250; --card:255 255 255; --elevate:241 245 250;
+    --line:226 232 240; --linestrong:203 213 225;
+    --fg:15 23 42; --fgdim:90 100 118; --fgfaint:138 148 166;
+    --ok:22 163 74; --warn:180 83 9; --bad:220 38 38; --accent:22 163 74;
+    --tblue:37 99 235; --tgreen:22 163 74; --tyellow:202 138 4; --tcyan:8 145 178; --tmagenta:219 39 119;
+    --frame:215 222 232;
+    color-scheme:light;
+  }
+  /* 亮色下的页面底色与阴影减淡（终端区保持深色——终端惯例） */
+  html.light body{background:radial-gradient(1100px 560px at 50% -10%,rgba(34,197,94,.09),transparent 60%),#EDF1F6 !important;}
+  html.light .shadow-frame{box-shadow:0 24px 60px -12px rgba(15,23,42,.22) !important;}
+  html.light .shadow-pop{box-shadow:0 16px 40px -8px rgba(15,23,42,.2) !important;}
+  html.light .phone{border-color:rgb(var(--frame)) !important;}
+  ::selection{background:rgba(34,197,94,.2);}
+</style>
+</head>
+<body class="min-h-screen font-sans text-fg antialiased p-6 md:p-10 flex items-start justify-center">
+
+<div class="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 rounded-full border border-line bg-card/90 px-4 py-1.5 text-xs text-fgDim backdrop-blur">
+  <svg class="size-3.5 text-ok" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 7a2 2 0 0 1 4 0v4h-4zM11 19H8a4 4 0 0 1-4-4v-3a4 4 0 0 1 4-4h7v11a4 4 0 0 1-4 4z"/></svg>
+  设计稿 · 密钥管理独立窗（从 hub 工具栏打开）· 私钥永不出本机
+</div>
+
+<main class="w-full max-w-3xl mt-10 rounded-2xl border border-lineStrong bg-base shadow-frame overflow-hidden" role="application" aria-label="密钥管理窗口">
+
+  <!-- 标题栏 -->
+  <header class="flex items-center h-11 px-4 border-b border-line bg-card/60 select-none">
+    <div class="flex items-center gap-2.5">
+      <span class="grid size-6 place-items-center rounded-md bg-ok/15 text-ok">
+        <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="15" r="4"/><path d="M10.8 12.2 20 3M17 6l2.5 2.5M14 9l2 2"/></svg>
+      </span>
+      <h1 class="text-sm font-semibold">密钥管理</h1>
+      <span class="rounded-full border border-line bg-elevate px-2 py-0.5 font-mono text-[10px] text-fgDim">2 把</span>
+    </div>
+    <div class="ml-auto flex items-center gap-1 text-fgFaint">
+      <button class="grid size-7 cursor-pointer place-items-center rounded-md transition-colors hover:bg-elevate hover:text-fg focus-visible:outline-2 focus-visible:outline-ok" aria-label="关闭">
+        <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- 工具栏 -->
+  <div class="flex items-center gap-2 border-b border-line bg-card/30 px-5 py-3">
+    <button onclick="openGen()" class="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-lg bg-ok px-3.5 text-sm font-semibold text-base transition-all hover:bg-ok/85 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ok active:scale-[.98]">
+      <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+      生成密钥
+    </button>
+    <button class="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-lg border border-line bg-elevate px-3.5 text-sm font-medium text-fg transition-colors hover:border-lineStrong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ok">
+      <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M8 7l4-4 4 4M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg>
+      导入私钥
+    </button>
+    <p class="ml-auto text-[11px] text-fgFaint">私钥加密存本机 · 公钥可一键复制</p>
+  </div>
+
+  <!-- 密钥列表 -->
+  <ul class="scroll-thin max-h-[440px] space-y-3 overflow-y-auto px-5 py-4">
+    <!-- 密钥条目 1 -->
+    <li class="rounded-xl border border-line bg-card transition-colors hover:border-lineStrong">
+      <div class="flex items-center gap-4 px-4 py-3.5">
+        <span class="grid size-10 shrink-0 place-items-center rounded-xl border border-line bg-elevate text-ok">
+          <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="15" r="4"/><path d="M10.8 12.2 20 3M17 6l2.5 2.5"/></svg>
+        </span>
+        <div class="min-w-0 flex-1">
+          <div class="flex flex-wrap items-center gap-2">
+            <p class="truncate text-sm font-semibold">id_ed25519_work</p>
+            <span class="rounded bg-ok/10 px-1.5 py-0.5 font-mono text-[10px] text-ok">默认</span>
+            <span class="rounded border border-line bg-elevate px-1.5 py-0.5 font-mono text-[10px] text-fgDim">Ed25519</span>
+          </div>
+          <p class="mt-1 truncate font-mono text-xs text-fgDim">SHA256:9mQx…K4tW · 2026-10-01 生成 · 被 2 台服务器使用</p>
+        </div>
+        <div class="flex shrink-0 items-center gap-1.5">
+          <button class="inline-flex h-8 cursor-pointer items-center gap-1 rounded-lg border border-line bg-elevate px-2.5 text-xs text-fgDim transition-colors hover:border-ok/50 hover:text-ok focus-visible:outline-2 focus-visible:outline-ok" onclick="toast('公钥已复制')">
+            <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            复制公钥
+          </button>
+          <button class="inline-flex size-8 cursor-pointer items-center justify-center rounded-lg border border-line bg-elevate text-fgDim transition-colors hover:border-bad/60 hover:text-bad focus-visible:outline-2 focus-visible:outline-ok" aria-label="删除密钥" onclick="openDel()">
+            <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 15h10l1-15"/></svg>
+          </button>
+        </div>
+      </div>
+    </li>
+    <!-- 密钥条目 2 -->
+    <li class="rounded-xl border border-line bg-card transition-colors hover:border-lineStrong">
+      <div class="flex items-center gap-4 px-4 py-3.5">
+        <span class="grid size-10 shrink-0 place-items-center rounded-xl border border-line bg-elevate text-fgDim">
+          <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="15" r="4"/><path d="M10.8 12.2 20 3M17 6l2.5 2.5"/></svg>
+        </span>
+        <div class="min-w-0 flex-1">
+          <div class="flex flex-wrap items-center gap-2">
+            <p class="truncate text-sm font-semibold">nas_rsa</p>
+            <span class="rounded border border-line bg-elevate px-1.5 py-0.5 font-mono text-[10px] text-fgDim">RSA-4096</span>
+            <span class="inline-flex items-center gap-1 rounded-full bg-warn/10 px-2 py-0.5 text-[10px] font-medium text-warn">
+              <svg class="size-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 9v4M12 17h.01"/></svg>
+              未设口令
+            </span>
+          </div>
+          <p class="mt-1 truncate font-mono text-xs text-fgDim">SHA256:hT2v…Xb8L · 导入于 2026-10-12 · 被 1 台服务器使用</p>
+        </div>
+        <div class="flex shrink-0 items-center gap-1.5">
+          <button class="inline-flex h-8 cursor-pointer items-center gap-1 rounded-lg border border-line bg-elevate px-2.5 text-xs text-fgDim transition-colors hover:border-ok/50 hover:text-ok focus-visible:outline-2 focus-visible:outline-ok" onclick="toast('公钥已复制')">
+            <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            复制公钥
+          </button>
+          <button class="inline-flex size-8 cursor-pointer items-center justify-center rounded-lg border border-line bg-elevate text-fgDim transition-colors hover:border-bad/60 hover:text-bad focus-visible:outline-2 focus-visible:outline-ok" aria-label="删除密钥">
+            <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 15h10l1-15"/></svg>
+          </button>
+        </div>
+      </div>
+    </li>
+  </ul>
+
+  <!-- 底部说明 -->
+  <footer class="border-t border-line bg-card/60 px-5 py-3 text-[11px] leading-relaxed text-fgFaint">
+    使用方式：在服务器编辑里把认证方式切到「密钥」并选择钥匙；把对应<b class="font-medium text-fgDim">公钥</b>追加到服务器的
+    <code class="font-mono text-fgDim">~/.ssh/authorized_keys</code> 即可。私钥不离开本机，删除服务器不会删除密钥。
+  </footer>
+</main>
+
+<!-- ============ 生成密钥弹层 ============ -->
+<div id="genModal" hidden class="fixed inset-0 z-40 grid place-items-center bg-black/60 p-6 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="genTitle">
+  <div class="w-full max-w-md rounded-2xl border border-lineStrong bg-card shadow-pop">
+    <div class="flex items-center justify-between border-b border-line px-6 py-4">
+      <h3 id="genTitle" class="text-base font-semibold">生成密钥</h3>
+      <button onclick="closeGen()" class="grid size-8 cursor-pointer place-items-center rounded-lg text-fgDim transition-colors hover:bg-elevate hover:text-fg focus-visible:outline-2 focus-visible:outline-ok" aria-label="关闭">
+        <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <form class="space-y-4 px-6 py-5" onsubmit="event.preventDefault(); closeGen(); toast('密钥已生成并加密保存')">
+      <div>
+        <span class="mb-1.5 block text-xs font-medium text-fgDim">类型</span>
+        <div class="flex rounded-lg border border-line bg-elevate p-0.5">
+          <button type="button" class="flex-1 cursor-pointer rounded-md bg-ok/15 px-3 py-2 text-xs font-medium text-ok">Ed25519 <span class="font-mono text-[10px] opacity-70">推荐</span></button>
+          <button type="button" class="flex-1 cursor-pointer rounded-md px-3 py-2 text-xs text-fgDim transition-colors hover:text-fg">RSA-4096</button>
+        </div>
+      </div>
+      <label class="block">
+        <span class="mb-1.5 block text-xs font-medium text-fgDim">名称</span>
+        <input placeholder="例如 id_ed25519_home" class="h-9 w-full rounded-lg border border-line bg-elevate px-3 font-mono text-sm transition-colors focus:border-ok/60 focus:outline-2 focus:outline-ok/40">
+      </label>
+      <label class="block">
+        <span class="mb-1.5 block text-xs font-medium text-fgDim">口令（可选）</span>
+        <input type="password" placeholder="留空则不设口令" class="h-9 w-full rounded-lg border border-line bg-elevate px-3 text-sm transition-colors focus:border-ok/60 focus:outline-2 focus:outline-ok/40">
+        <span class="mt-1.5 block text-[11px] text-fgFaint">设口令后每次连接需解锁一次；不设则开箱即用，泄露风险略高</span>
+      </label>
+      <div class="rounded-lg border border-line bg-elevate px-3.5 py-2.5">
+        <p class="text-[11px] text-fgFaint">生成后将展示公钥指纹，并提示复制公钥到目标服务器</p>
+      </div>
+      <div class="flex justify-end gap-2 border-t border-line pt-4">
+        <button type="button" onclick="closeGen()" class="inline-flex h-9 cursor-pointer items-center rounded-lg px-4 text-sm font-medium text-fgDim transition-colors hover:text-fg focus-visible:outline-2 focus-visible:outline-ok">取消</button>
+        <button type="submit" class="inline-flex h-9 cursor-pointer items-center rounded-lg bg-ok px-5 text-sm font-semibold text-base transition-all hover:bg-ok/85 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ok active:scale-[.98]">生成</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ============ 删除确认 ============ -->
+<div id="delModal" hidden class="fixed inset-0 z-40 grid place-items-center bg-black/60 p-6 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="delTitle">
+  <div class="w-full max-w-md rounded-2xl border border-lineStrong bg-card shadow-pop">
+    <div class="px-6 pt-6">
+      <div class="flex items-center gap-3">
+        <span class="grid size-10 place-items-center rounded-xl bg-bad/10 text-bad">
+          <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+        </span>
+        <h3 id="delTitle" class="text-base font-semibold">删除密钥？</h3>
+      </div>
+      <p class="mt-3 text-sm leading-relaxed text-fgDim">「id_ed25519_work」正被 <b class="text-fg">2 台服务器</b>使用，删除后这些服务器的密钥认证将失效。此操作不可撤销。</p>
+    </div>
+    <div class="mt-5 flex justify-end gap-2 border-t border-line px-6 py-4">
+      <button onclick="closeDel()" class="inline-flex h-9 cursor-pointer items-center rounded-lg px-4 text-sm font-medium text-fgDim transition-colors hover:text-fg focus-visible:outline-2 focus-visible:outline-ok">取消</button>
+      <button onclick="closeDel(); toast('已删除')" class="inline-flex h-9 cursor-pointer items-center rounded-lg bg-bad px-5 text-sm font-semibold text-base transition-all hover:bg-bad/85 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-bad">删除</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" hidden class="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-lg border border-lineStrong bg-elevate px-4 py-2.5 text-sm shadow-pop transition-opacity"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+function openGen(){ $('genModal').hidden = false; }
+function closeGen(){ $('genModal').hidden = true; }
+function openDel(){ $('delModal').hidden = false; }
+function closeDel(){ $('delModal').hidden = true; }
+['genModal','delModal'].forEach(id => $(id).addEventListener('click', e => { if (e.target === $(id)) $(id).hidden = true; }));
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeGen(); closeDel(); } });
+let toastTimer;
+function toast(msg){
+  const t = $('toast'); t.textContent = msg; t.hidden = false; t.style.opacity = 1;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>{ t.style.opacity = 0; setTimeout(()=>t.hidden=true, 200); }, 2200);
+}
+</script>
+<button id="abThemeToggle" aria-label="切换亮暗主题" title="切换亮 / 暗主题" style="position:fixed;top:14px;right:14px;z-index:9999;cursor:pointer;border:1px solid rgb(var(--linestrong));background:rgb(var(--card));color:rgb(var(--fg));border-radius:9999px;padding:6px 14px;font:500 12px/1 Inter,'PingFang SC',sans-serif;box-shadow:0 4px 16px rgba(0,0,0,.18);display:flex;align-items:center;gap:6px;transition:background .15s,border-color .15s">
+  <svg id="abThemeIcon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"></svg>
+  <span id="abThemeLabel">亮色</span>
+</button>
+<script>
+(function(){
+  var root=document.documentElement,
+      btn=document.getElementById('abThemeToggle'),
+      lb=document.getElementById('abThemeLabel'),
+      ic=document.getElementById('abThemeIcon');
+  var SUN='<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>';
+  var MOON='<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>';
+  function apply(t){
+    root.classList.remove('light','dark');
+    root.classList.add(t);
+    lb.textContent = t==='light' ? '暗色' : '亮色';   /* 按钮显示将要切换到的主题 */
+    ic.innerHTML  = t==='light' ? MOON : SUN;
+    try{ localStorage.setItem('ab-theme',t); }catch(e){}
+  }
+  var saved='dark';
+  try{ saved=localStorage.getItem('ab-theme')||'dark'; }catch(e){}
+  apply(saved);
+  btn.addEventListener('click',function(){
+    apply(root.classList.contains('light') ? 'dark' : 'light');
+  });
+})();
+</script>
+</body>
+</html>

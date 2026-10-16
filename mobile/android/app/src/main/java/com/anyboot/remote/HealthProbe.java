@@ -1,5 +1,7 @@
 package com.anyboot.remote;
 
+import android.os.SystemClock;
+
 import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
@@ -38,6 +40,11 @@ final class HealthProbe {
 
     /** 阻塞式探测；地址不通 / 不是 AnyBoot 时返回 null。**必须在后台线程调用。** */
     static Result fetch(String host) {
+        return fetch(host, TIMEOUT_MS);
+    }
+
+    /** 同上，超时自己带 —— 心跳要比保存时的顺带探测宽容一点，弱网别误报离线 */
+    static Result fetch(String host, int timeoutMs) {
         String target = ServerProfile.text(host);
         if (target.isEmpty()) {
             return null;
@@ -46,8 +53,8 @@ final class HealthProbe {
         try {
             connection = (HttpURLConnection) new URL("http://" + target + "/health").openConnection();
             connection.setRequestMethod("GET");
-            connection.setConnectTimeout(TIMEOUT_MS);
-            connection.setReadTimeout(TIMEOUT_MS);
+            connection.setConnectTimeout(timeoutMs);
+            connection.setReadTimeout(timeoutMs);
             connection.setInstanceFollowRedirects(false);
             if (connection.getResponseCode() != 200) {
                 return null;
@@ -56,6 +63,43 @@ final class HealthProbe {
         } catch (Exception ignored) {
             // 连不上 / 超时 / 地址不合法：都当「没探到」，别打扰用户
             return null;
+        } finally {
+            if (connection != null) {
+                connection.disconnect();
+            }
+        }
+    }
+
+    /**
+     * 心跳探测：只看通不通，通了返回往返毫秒，不通返回 -1。**必须在后台线程调用。**
+     *
+     * <p>跟 {@link #fetch} 的分工：fetch 是「保存地址后顺手认一次机器」要解析内容，
+     * 10 秒心跳走这里 —— 只要状态码，开销最小。
+     */
+    static long ping(String host, int timeoutMs) {
+        String target = ServerProfile.text(host);
+        if (target.isEmpty()) {
+            return -1;
+        }
+        HttpURLConnection connection = null;
+        long started = SystemClock.uptimeMillis();
+        try {
+            connection = (HttpURLConnection) new URL("http://" + target + "/health").openConnection();
+            connection.setRequestMethod("GET");
+            connection.setConnectTimeout(timeoutMs);
+            connection.setReadTimeout(timeoutMs);
+            connection.setInstanceFollowRedirects(false);
+            if (connection.getResponseCode() != 200) {
+                return -1;
+            }
+            // 响应体不读也行，但读掉再断开能复用连接池；只读一小口防畸形容器
+            InputStream input = connection.getInputStream();
+            byte[] chunk = new byte[1024];
+            // noinspection ResultOfMethodCallIgnored
+            input.read(chunk);
+            return SystemClock.uptimeMillis() - started;
+        } catch (Exception ignored) {
+            return -1;
         } finally {
             if (connection != null) {
                 connection.disconnect();

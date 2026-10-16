@@ -32,8 +32,18 @@ struct ServerProfile: Identifiable, Hashable {
     var machineId: String = ""
     /// 电脑端 `/health` 给的机器名（「这是哪台电脑」）；未知为空
     var machineName: String = ""
+    /// 多网卡探测模式：`parallel`（并发，默认）/ `serial`（串行，按地址顺序）
+    var probeMode: String = ServerProfile.probeParallel
+    /// 经由哪台跳板机（JumpServer.id）；空 = 直连。
+    /// 走跳板机时 addresses 语义变为「跳板机视角的内网地址」。
+    var jumpServerId: String = ""
 
     static let defaultPort = 12300
+
+    /// 并发探测：心跳同时探所有候选地址，取延迟最低的（故障切换零等待）
+    static let probeParallel = "parallel"
+    /// 串行探测：按地址顺序逐个探，第一个通的用之（保留地址优先级）
+    static let probeSerial = "serial"
 
     init() {
     }
@@ -41,7 +51,7 @@ struct ServerProfile: Identifiable, Hashable {
     // MARK: - 序列化（自己写：老数据只有单个 host，要能读进来）
 
     private enum CodingKeys: String, CodingKey {
-        case id, group, name, addresses, host, token, machineId, machineName
+        case id, group, name, addresses, host, token, machineId, machineName, probeMode, jumpServerId
     }
 
     /// 旧版（1.1 及更早）一个条目只有一个 `host` —— 读的时候当成唯一的候选地址。
@@ -54,6 +64,8 @@ struct ServerProfile: Identifiable, Hashable {
         token = (try? container.decode(String.self, forKey: .token)) ?? ""
         machineId = (try? container.decode(String.self, forKey: .machineId)) ?? ""
         machineName = (try? container.decode(String.self, forKey: .machineName)) ?? ""
+        probeMode = Self.cleanProbeMode((try? container.decode(String.self, forKey: .probeMode)))
+        jumpServerId = (try? container.decode(String.self, forKey: .jumpServerId)) ?? ""
         let list = (try? container.decode([String].self, forKey: .addresses)) ?? []
         let legacy = (try? container.decode(String.self, forKey: .host)) ?? ""
         addresses = Self.clean(legacy.isEmpty ? list : list + [legacy])
@@ -70,6 +82,13 @@ struct ServerProfile: Identifiable, Hashable {
         try container.encode(token, forKey: .token)
         try container.encode(machineId, forKey: .machineId)
         try container.encode(machineName, forKey: .machineName)
+        try container.encode(probeMode, forKey: .probeMode)
+        try container.encode(jumpServerId, forKey: .jumpServerId)
+    }
+
+    /// 只认两个值，其余（含 nil / 空串 / 拼错）一律回落到并发
+    static func cleanProbeMode(_ raw: String?) -> String {
+        raw == probeSerial ? probeSerial : probeParallel
     }
 
     // MARK: - 地址
@@ -140,6 +159,36 @@ struct ServerProfile: Identifiable, Hashable {
             }
         }
         return result
+    }
+
+    /// 用给定的 host:port 造访问地址（token / transport 照常带上）。
+    ///
+    /// 走跳板机的电脑：主机不是 addresses 里那个，而是隧道解析出的
+    /// `127.0.0.1:本地端口` —— 页面照常从 localhost 加载，所有请求都经
+    /// SSH 加密通道 → 跳板机 → 内网 anyboot。
+    func url(for hostPort: String, transport: String) -> URL? {
+        let value = hostPort.trimmedAnyBoot
+        guard !value.isEmpty else { return nil }
+        var components = URLComponents()
+        components.scheme = "http"
+        let parts = value.split(separator: ":")
+        components.host = parts.first.map(String.init)
+        if parts.count > 1, let port = Int(parts[1]) {
+            components.port = port
+        }
+        var items: [URLQueryItem] = []
+        let secret = token.trimmedAnyBoot
+        if !secret.isEmpty {
+            items.append(URLQueryItem(name: "token", value: secret))
+        }
+        let mode = transport.trimmedAnyBoot
+        if !mode.isEmpty && mode != ServerStore.transportAuto {
+            items.append(URLQueryItem(name: "transport", value: mode))
+        }
+        if !items.isEmpty {
+            components.queryItems = items
+        }
+        return components.url
     }
 
     // MARK: - 展示

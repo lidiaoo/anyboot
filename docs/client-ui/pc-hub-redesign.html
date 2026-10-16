@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="dark" data-page-node-id="Mi6B5DGIT2aal3DHaFruWH">
+<head data-page-node-id="LVJZyJpF1xT9ctr7TjCIme">
+<meta charset="UTF-8" data-page-node-id="EoWpFFA5TsjKnryh8h9M7d">
+<meta name="viewport" content="width=device-width, initial-scale=1.0" data-page-node-id="Md6o7dsfG7GH16NyCdAYeQ">
+<title>AnyBoot Hub · 远端管理窗口 — 设计稿</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com" data-page-node-id="jGnl8t8EkPH9N0ZMyYZt9u">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" data-page-node-id="YZpFTW6wH8M5WnbuWMHaZW">
+<script>
+tailwind.config = {
+  darkMode: 'class',
+  theme: {
+    extend: {
+      fontFamily: {
+        sans: ['Inter', 'PingFang SC', 'Microsoft YaHei', 'sans-serif'],
+        mono: ['JetBrains Mono', 'monospace'],
+      },
+      colors: {
+        base:      'rgb(var(--base) / <alpha-value>)',
+        card:      'rgb(var(--card) / <alpha-value>)',
+        elevate:   'rgb(var(--elevate) / <alpha-value>)',
+        line:      'rgb(var(--line) / <alpha-value>)',
+        lineStrong:'rgb(var(--linestrong) / <alpha-value>)',
+        fg:        'rgb(var(--fg) / <alpha-value>)',
+        fgDim:     'rgb(var(--fgdim) / <alpha-value>)',
+        fgFaint:   'rgb(var(--fgfaint) / <alpha-value>)',
+        ok:        'rgb(var(--ok) / <alpha-value>)',
+        warn:      'rgb(var(--warn) / <alpha-value>)',
+        bad:       'rgb(var(--bad) / <alpha-value>)',
+        accent:    'rgb(var(--accent) / <alpha-value>)',
+      },
+      boxShadow: {
+        frame: '0 24px 80px -12px rgba(0,0,0,.75)',
+        pop:   '0 16px 48px -8px rgba(0,0,0,.65)',
+      },
+    }
+  }
+}
+</script>
+<style>
+  html { color-scheme: dark; }
+  body { background:
+    radial-gradient(1200px 600px at 70% -10%, rgba(34,197,94,.07), transparent 60%),
+    #0A0E1D; }
+  ::selection { background:#22C55E33; }
+  /* 修复：Tailwind 的 display 工具类（grid 等）会覆盖 hidden 属性，这里强制恢复隐藏语义 */
+  [hidden] { display:none !important; }
+  .scroll-thin::-webkit-scrollbar { width:8px; height:8px }
+  .scroll-thin::-webkit-scrollbar-thumb { background:#242B41; border-radius:4px }
+  .scroll-thin::-webkit-scrollbar-track { background:transparent }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { transition:none !important; animation:none !important }
+  }
+</style>
+<style id="ab-theme">
+  /* ---- 亮/暗双主题：token 全部走 CSS 变量（Tailwind 配置引用 rgb(var(--x)/<alpha>)） ---- */
+  html.dark{
+    --base:2 6 23; --term:4 7 15; --card:14 18 35; --elevate:20 26 46;
+    --line:36 43 65; --linestrong:51 65 85;
+    --fg:248 250 252; --fgdim:148 163 184; --fgfaint:100 116 139;
+    --ok:34 197 94; --warn:245 158 11; --bad:239 68 68; --accent:34 197 94;
+    --tblue:96 165 250; --tgreen:74 222 128; --tyellow:250 204 21; --tcyan:34 211 238; --tmagenta:244 114 182;
+    --frame:28 34 51;
+    color-scheme:dark;
+  }
+  html.light{
+    --base:244 246 250; --card:255 255 255; --elevate:241 245 250;
+    --line:226 232 240; --linestrong:203 213 225;
+    --fg:15 23 42; --fgdim:90 100 118; --fgfaint:138 148 166;
+    --ok:22 163 74; --warn:180 83 9; --bad:220 38 38; --accent:22 163 74;
+    --tblue:37 99 235; --tgreen:22 163 74; --tyellow:202 138 4; --tcyan:8 145 178; --tmagenta:219 39 119;
+    --frame:215 222 232;
+    color-scheme:light;
+  }
+  /* 亮色下的页面底色与阴影减淡（终端区保持深色——终端惯例） */
+  html.light body{background:radial-gradient(1100px 560px at 50% -10%,rgba(34,197,94,.09),transparent 60%),#EDF1F6 !important;}
+  html.light .shadow-frame{box-shadow:0 24px 60px -12px rgba(15,23,42,.22) !important;}
+  html.light .shadow-pop{box-shadow:0 16px 40px -8px rgba(15,23,42,.2) !important;}
+  html.light .phone{border-color:rgb(var(--frame)) !important;}
+  ::selection{background:rgba(34,197,94,.2);}
+</style>
+</head>
+<body class="min-h-screen font-sans text-fg antialiased p-6 md:p-10 flex items-start justify-center" data-page-node-id="Yp583jH4f0yshfT8nbs7Yg">
+
+<!-- ============ 说明条 ============ -->
+<div class="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 rounded-full border border-line bg-card/90 px-4 py-1.5 text-xs text-fgDim backdrop-blur" data-page-node-id="TNQ5Z807hPK0PBzXGkg5xE">
+  <svg class="size-3.5 text-ok" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-page-node-id="bxw3xjsonh6nNGzf967KBF"><path d="M12 3l1.9 5.8H20l-4.9 3.6 1.9 5.8-5-3.6-5 3.6 1.9-5.8L4 8.8h6.1z" data-page-node-id="9LWrJYWN8h63FS7gTjTBsh"/></svg>
+  设计稿 · AnyBoot 远端管理独立窗口（server-hub）· 主窗口零改动 · 可点击行/按钮预览交互
+</div>
+
+<!-- ============ 应用窗口框架 ============ -->
+<main class="w-full max-w-6xl mt-10 rounded-2xl border border-lineStrong bg-base shadow-frame overflow-hidden" role="application" aria-label="AnyBoot 远端管理窗口" data-page-node-id="V1W31hpMPoii9CDV2SQGiN">
+
+  <!-- 标题栏 -->
+  <header class="flex items-center h-11 px-4 border-b border-line bg-card/60 select-none" data-page-node-id="zNpkfOXJwQn6YvxzgkpQDD">
+    <div class="flex items-center gap-2.5" data-page-node-id="jaVf7FwEUEthHdqQOU9WBG">
+      <span class="grid size-6 place-items-center rounded-md bg-ok/15 text-ok" data-page-node-id="qTwlCMGDbfeFZoCSCArD46">
+        <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-page-node-id="FlsmLlQTybVG4dED7VmVwV"><rect x="2" y="4" width="20" height="14" rx="2" data-page-node-id="r7KZUakip6Of4fu88QBRMv"/><path d="M8 21h8M12 18v3" data-page-node-id="dQXhwPnHRTA1Q7EPb7xu9t"/></svg>
+      </span>
+      <h1 class="text-sm font-semibold tracking-wide" data-page-node-id="7scvuy5NwWklyxTnUrmsho">远端管理</h1>
+      <span class="rounded-full border border-line bg-elevate px-2 py-0.5 font-mono text-[10px] text-fgDim" data-page-node-id="aV1yd8etZoTr2m4lrOforS">server-hub</span>
+    </div>
+    <div class="ml-auto flex items-center gap-1 text-fgFaint" data-page-node-id="KnpoGBy6H34aWrGJvT7Uy8">
+      <button class="grid size-7 cursor-pointer place-items-center rounded-md transition-colors hover:bg-elevate hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ok" aria-label="最小化" data-page-node-id="GrgW7tA9CXAj9nJ9Xp0Y13">
+        <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" data-page-node-id="485AbAv661DHVwG1uctJSq"><path d="M5 12h14" data-page-node-id="vHFWT84Ls46vQtue4yyPfk"/></svg>
+      </button>
+      <button class="grid size-7 cursor-pointer place-items-center rounded-md transition-colors hover:bg-elevate hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ok" aria-label="最大化" data-page-node-id="bcSF6VYKp1DVpwklxWfrqz">
+        <svg class="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" data-page-node-id="cEzZ1vdlrOBXI7vpaajgIM"><rect x="5" y="5" width="14" height="14" rx="1.5" data-page-node-id="jdZ9KRcFomi5UljOUhDUJk"/></svg>
+      </button>
+      <button class="grid size-7 cursor-pointer place-items-center rounded-md transition-colors hover:bg-bad/20 hover:text-bad focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ok" aria-label="关闭" data-page-node-id="6u6fr1JQ4T2DggcGf0GBcv">
+        <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" data-page-node-id="I4HMiEZyvfBAZBN9vyPYKr"><path d="M6 6l12 12M18 6L6 18" data-page-node-id="rogMJW9PoNhEk9Mj3pbHzp"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- 工具栏 -->
+  <div class="flex flex-wrap items-center gap-3 px-5 py-3 border-b border-line bg-card/30" data-page-node-id="dMVsL4gvri0pn0TejN9FLx">
+    <div class="relative min-w-[220px] flex-1 max-w-sm" data-page-node-id="5rP3BDKXyAI7YcWLzZu1IL">
+      <svg class="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-fgFaint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" data-page-node-id="prLRRILybzoGPWfHKP4ojM"><circle cx="11" cy="11" r="7" data-page-node-id="xVeFbbydaUJmYYMrOe7vno"/><path d="M20 20l-3.5-3.5" data-page-node-id="JvEGvYCxjutYst1PAmvAat"/></svg>
+      <input type="search" placeholder="搜索名称 / 地址" aria-label="搜索服务器"
+        class="h-9 w-full rounded-lg border border-line bg-elevate pl-9 pr-3 text-sm placeholder:text-fgFaint transition-colors focus:border-ok/60 focus:outline-2 focus:outline-offset-0 focus:outline-ok/40" data-page-node-id="AKy7ueRl35ogXihLZ4nnrM">
+    </div>
+
+    <!-- 协议分段 -->
+    <div class="flex rounded-lg border border-line bg-elevate p-0.5" role="tablist" aria-label="协议筛选" data-page-node-id="hDfn2OY7SBkNC7F3ZExv1U">
+      <button role="tab" aria-selected="true" class="cursor-pointer rounded-md bg-ok/15 px-3 py-1 text-xs font-medium text-ok transition-colors focus-visible:outline-2 focus-visible:outline-ok" data-page-node-id="NgnwWU03W58ju9hYqpHkYe">全部 4</button>
+      <button role="tab" aria-selected="false" class="cursor-pointer rounded-md px-3 py-1 text-xs font-medium text-fgDim transition-colors hover:text-fg focus-visible:outline-2 focus-visible:outline-ok" data-page-node-id="LsvJh8nqKcFQWznP0ANLcn">SSH 3</button>
+      <button role="tab" aria-selected="false" class="cursor-pointer rounded-md px-3 py-1 text-xs font-medium text-fgDim transition-colors hover:text-fg focus-visible:outline-2 focus-visible:outline-ok" data-page-node-id="j6c7gcQNHAVd5yI6tTRUju">Telnet 1</button>
+    </div>
+
+    <!-- 心跳汇总 -->
+    <div class="ml-auto flex items-center gap-2 text-xs text-fgDim" data-page-node-id="qR7A7ek5jEzJuVwrUbjBmi">
+      <span class="relative flex size-2" data-page-node-id="BoN3I7nI1Gy9Zua1uZvlc7"><span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-ok/60 motion-reduce:animate-none" data-page-node-id="h1QX6wCSiNv2dGLIR8p0OE"></span><span class="relative inline-flex size-2 rounded-full bg-ok" data-page-node-id="kLoUVMZNG2BLCpHd17NPip"></span></span>
+      心跳 10s · 3 在线 / 1 离线
+    </div>
+    <button onclick="openEdit()" class="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-lg bg-ok px-3.5 text-sm font-semibold text-base shadow-pop transition-all hover:bg-ok/85 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ok active:scale-[.98]" data-page-node-id="bbwyn8jJ1K7k1oJM5s0Djj">
+      <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" data-page-node-id="Aj3ynpfcVspZ6OGHn12i0U"><path d="M12 5v14M5 12h14" data-page-node-id="fcR9z9yeGTaopAduxo2ZVI"/></svg>
+      添加服务器
+    </button>
+  </div>
+
+  <!-- 主体两栏 -->
+  <div class="grid grid-cols-1 lg:grid-cols-[380px_1fr]" data-page-node-id="8Ey1Xgj3nVXa8hi5MdhUbJ">
+
+    <!-- 左：服务器列表 -->
+    <section class="border-b lg:border-b-0 lg:border-r border-line" aria-label="服务器列表" data-page-node-id="5GzBKzo59jXrOrTnrcLCxK">
+      <div class="flex items-center justify-between px-5 pt-4 pb-2" data-page-node-id="UZaNLnRynCmky9dqfmjNej">
+        <h2 class="text-[11px] font-semibold uppercase tracking-[.14em] text-fgFaint" data-page-node-id="MrdTJHgRAeW1nGfuizN18v">服务器</h2>
+        <button class="inline-flex cursor-pointer items-center gap-1 text-[11px] text-fgDim transition-colors hover:text-fg focus-visible:outline-2 focus-visible:outline-ok rounded" aria-label="刷新状态" data-page-node-id="1wCfYmDSE9K6rEFHNq3XEx">
+          <svg class="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" data-page-node-id="Ij1tNZfMYxYQaMoZvvVAcB"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 3v6h-6" data-page-node-id="2IenKolfq2SmnDSXjSkKAh"/></svg>
+          刷新
+        </button>
+      </div>
+
+      <ul id="serverList" class="scroll-thin max-h-[560px] space-y-2 overflow-y-auto px-3 pb-4" role="listbox" aria-label="服务器" data-page-node-id="I0NFhPqbTlEOaBCBiZdgKc">
+        <!-- 行模板由 JS 生成 -->
+      </ul>
+
+      <!-- 空状态（示例，列表为空时显示） -->
+      <div hidden class="m-4 rounded-xl border border-dashed border-lineStrong px-6 py-10 text-center" data-page-node-id="yySwluJ4kI9Njw7wTyrEyD">
+        <svg class="mx-auto size-8 text-fgFaint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-page-node-id="6badOaKPGCseLER2RXBb0L"><rect x="2" y="4" width="20" height="14" rx="2" data-page-node-id="FLKS6KrHXoMDZqCUxAga8W"/><path d="M8 21h8M12 18v3M6 9h4M6 13h2" data-page-node-id="UUCh9aJGgmfbARQDOE9FBP"/></svg>
+        <p class="mt-3 text-sm font-medium" data-page-node-id="DKc1KadAnT0coyDmySMoWM">还没有服务器</p>
+        <p class="mt-1 text-xs text-fgDim" data-page-node-id="TyyNOE3vRNG5kOxbfz4csX">添加 SSH / Telnet 服务器后可在此打开终端、浏览文件、经跳板机连内网 anyboot</p>
+      </div>
+    </section>
+
+    <!-- 右：详情面板 -->
+    <section class="scroll-thin max-h-[620px] overflow-y-auto" aria-label="服务器详情" data-page-node-id="5XA7lKtt2WBVof0ohy2FGI">
+
+      <!-- 选中服务器头部 -->
+      <div class="flex flex-wrap items-start gap-4 border-b border-line px-6 py-5" data-page-node-id="D8XXBBeyooFxfCS2WdH60Q">
+        <span class="grid size-12 shrink-0 place-items-center rounded-xl border border-line bg-elevate" data-page-node-id="KYjmAG9b1XER1q2MCqpbFy">
+          <svg class="size-6 text-fg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-page-node-id="dXdcC5iSZHnah11xw5A2Ny"><path d="M12 2c-2.5 0-4.5 2-4.5 4.5 0 1 .3 1.9.9 2.6-.9.6-1.6 1.5-2 2.6-1 .3-1.9 1-2.4 2-.6 1.4-.3 3.1.9 4.2 1.3 1.2 3.2 1.3 4.6.4.5 1 1.4 1.7 2.5 1.7s2-.7 2.5-1.7c1.4.9 3.3.8 4.6-.4 1.2-1.1 1.5-2.8.9-4.2-.5-1-1.4-1.7-2.4-2-.4-1.1-1.1-2-2-2.6.6-.7.9-1.6.9-2.6C16.5 4 14.5 2 12 2z" data-page-node-id="TuBS8WXU3ESzjIuPwBCeMj"/></svg>
+        </span>
+        <div class="min-w-0 flex-1" data-page-node-id="ekhTUhefGW72UQEn6kM6BZ">
+          <div class="flex flex-wrap items-center gap-2" data-page-node-id="WVz92WukFVQjotn3HF1QW6">
+            <h3 class="truncate text-lg font-semibold" data-page-node-id="pAa3COZobZCVmwLYgdncog">家用工作站</h3>
+            <span class="inline-flex items-center gap-1.5 rounded-full bg-ok/10 px-2.5 py-0.5 text-xs font-medium text-ok" data-page-node-id="z5s92lgrZyDmyhgYxhYLg2">
+              <span class="size-1.5 rounded-full bg-ok" data-page-node-id="uN4Bz5aLxkXh70Qig3KLja"></span>在线
+            </span>
+            <span class="rounded border border-line bg-elevate px-1.5 py-0.5 font-mono text-[10px] text-fgDim" data-page-node-id="hLbf4OckLOh0yHlZI6teCz">SSH</span>
+          </div>
+          <p class="mt-1 truncate font-mono text-sm text-fgDim" data-page-node-id="HbhCHgvM4RyR53wWHK3eP2">arch@192.168.0.120:22</p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2" data-page-node-id="DU65zwRHIkg8UTfZCIuGUE">
+          <button class="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-lg bg-ok px-3.5 text-sm font-semibold text-base transition-all hover:bg-ok/85 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ok active:scale-[.98]" data-page-node-id="2isKnQe3bBV3S6pXkQ3rBf">
+            <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="yxS1m66cRScDMhuy1P86EB"><rect x="2" y="4" width="20" height="14" rx="2" data-page-node-id="Og4ulZBkxgnUC1YXUpC1vG"/><path d="M6 9l3 3-3 3" data-page-node-id="lMLphhOPa3JnFazBK6Jg6s"/></svg>
+            打开终端
+          </button>
+          <button class="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-lg border border-line bg-elevate px-3.5 text-sm font-medium text-fg transition-colors hover:border-lineStrong hover:bg-line/40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ok" data-page-node-id="C5h5DGsIAzQxEqSuMX0cwf">
+            <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="Kj8OzGlYA7yy4RBi7Caez9"><path d="M4 6h16M4 12h16M4 18h10" data-page-node-id="uiuW9TINXidjGlyRc52v88"/></svg>
+            浏览文件
+          </button>
+          <button class="inline-flex size-9 cursor-pointer items-center justify-center rounded-lg border border-line bg-elevate text-fgDim transition-colors hover:border-lineStrong hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ok" aria-label="编辑服务器" onclick="openEdit()" data-page-node-id="OcU3fjs8lbDGSW7y8ewvZw">
+            <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="HB0zcjb9PvadBPxrbjF50N"><path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z" data-page-node-id="16fHIbQouMeLS4DNXEaK2C"/></svg>
+          </button>
+          <button class="inline-flex size-9 cursor-pointer items-center justify-center rounded-lg border border-line bg-elevate text-fgDim transition-colors hover:border-bad/60 hover:text-bad focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ok" aria-label="删除服务器" data-page-node-id="gUmgTWYGBGSvP2fNS6ZLve">
+            <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="qpouG9Px08ps6iaCVDaYeG"><path d="M3 6h18M8 6V4h8v2M6 6l1 15h10l1-15M10 11v6M14 11v6" data-page-node-id="KIBclOEvjycA4SUEap9BUh"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- 信息网格 -->
+      <div class="grid grid-cols-2 gap-px bg-line md:grid-cols-4" role="group" aria-label="连接信息" data-page-node-id="XgJCmlZBJRewGcRwtkFPIo">
+        <div class="bg-card px-5 py-4" data-page-node-id="hAPM44k6oWYRKkessLDcwD">
+          <p class="text-[11px] font-medium uppercase tracking-wider text-fgFaint" data-page-node-id="COvBb5k4UH0ucpMj0egImq">用户</p>
+          <p class="mt-1.5 font-mono text-sm" data-page-node-id="fHqsf1RlUABAqMPRn7I8Ko">arch</p>
+        </div>
+        <div class="bg-card px-5 py-4" data-page-node-id="Hvzh60XJ9CGjCCdodCLtkZ">
+          <p class="text-[11px] font-medium uppercase tracking-wider text-fgFaint" data-page-node-id="FoElX2zFuxqlPJtKttjuIv">认证方式</p>
+          <p class="mt-1.5 flex items-center gap-1.5 text-sm" data-page-node-id="AaUfZ7rIug0tQKiyGlwIIe">
+            <svg class="size-3.5 text-ok" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-page-node-id="oSQfS809eMJc9DpgvT2T6r"><path d="M15 7a2 2 0 0 1 4 0v4h-4zM11 19H8a4 4 0 0 1-4-4v-3a4 4 0 0 1 4-4h7v11a4 4 0 0 1-4 4z" data-page-node-id="muf9EFTGA3FL8knfPLB6oM"/></svg>
+            密钥 · 已保存
+          </p>
+        </div>
+        <div class="bg-card px-5 py-4" data-page-node-id="zwH86NUveRDT9D1x7wAY4b">
+          <p class="text-[11px] font-medium uppercase tracking-wider text-fgFaint" data-page-node-id="YRfFHCafU4d8XuAiX05m8i">跳板机</p>
+          <p class="mt-1.5 text-sm text-fgDim" data-page-node-id="yzsDhWXtLKDo21axe9zsaA">直连</p>
+        </div>
+        <div class="bg-card px-5 py-4" data-page-node-id="6p9h5l3BtSzNQKKNPHPQ50">
+          <p class="text-[11px] font-medium uppercase tracking-wider text-fgFaint" data-page-node-id="rBj8jWFBSQkrodvFIN15cj">延迟</p>
+          <p class="mt-1.5 font-mono text-sm text-ok" data-page-node-id="8VtxnxKaDKeMDpKspAgSfr">12 ms</p>
+        </div>
+      </div>
+
+      <!-- 延迟趋势 -->
+      <div class="border-t border-line px-6 py-5" data-page-node-id="WOvvg8sLOCYiCFqZPhQGtZ">
+        <div class="flex items-center justify-between" data-page-node-id="7xTnLpTYOQQqrdi1HCuGBs">
+          <h4 class="text-[11px] font-semibold uppercase tracking-[.14em] text-fgFaint" data-page-node-id="5uVt0HfwbGesiX3uvMiqpO">延迟趋势 · 近 60 次</h4>
+          <span class="font-mono text-xs text-fgDim" data-page-node-id="hcb02tGkHWvpr5pJPkFzol">p95 · 18ms</span>
+        </div>
+        <svg viewBox="0 0 520 64" class="mt-3 w-full" role="img" aria-label="延迟折线图，稳定在 10 至 16 毫秒" data-page-node-id="50Bm6GAGQ9UBq3jCvTUgzp">
+          <defs data-page-node-id="vdpyvSFPAYSBipmD7XJrnC">
+            <linearGradient id="lg" x1="0" y1="0" x2="0" y2="1" data-page-node-id="157k4B7M9VqjImlaNJ6VZd">
+              <stop offset="0" stop-color="#22C55E" stop-opacity=".35" data-page-node-id="zqfaC1jbrxo54reJF1UPjT"/>
+              <stop offset="1" stop-color="#22C55E" stop-opacity="0" data-page-node-id="oybX7R7pT2aI99wCTHCu4E"/>
+            </linearGradient>
+          </defs>
+          <path d="M0 40 L30 38 L60 42 L90 36 L120 39 L150 34 L180 41 L210 37 L240 44 L270 38 L300 35 L330 40 L360 42 L390 36 L420 39 L450 33 L480 38 L510 37 L520 39 V64 H0 Z" fill="url(#lg)" data-page-node-id="IVOMDRi1AHeXz8zVmxZrnK"/>
+          <path d="M0 40 L30 38 L60 42 L90 36 L120 39 L150 34 L180 41 L210 37 L240 44 L270 38 L300 35 L330 40 L360 42 L390 36 L420 39 L450 33 L480 38 L510 37 L520 39" fill="none" stroke="#22C55E" stroke-width="1.5" stroke-linejoin="round" data-page-node-id="7EmolFA1AeFIJUhC4jGskC"/>
+        </svg>
+      </div>
+
+      <!-- 主机指纹（TOFU） -->
+      <div class="border-t border-line px-6 py-5" data-page-node-id="pXBsQNGEHOtkqMGiePkYKn">
+        <div class="flex items-center justify-between" data-page-node-id="tX7LuSFQTyddcHMvvST5Un">
+          <h4 class="text-[11px] font-semibold uppercase tracking-[.14em] text-fgFaint" data-page-node-id="JaIypV003ggvN0b99P5K9G">主机指纹 · TOFU</h4>
+          <span class="inline-flex items-center gap-1 rounded-full bg-ok/10 px-2 py-0.5 text-[11px] font-medium text-ok" data-page-node-id="oszKjGj5fTnYYKibxwEfkS">
+            <svg class="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="ZJFKR3XHnb5LWSO08zxKip"><path d="M20 6L9 17l-5-5" data-page-node-id="T0yzyzTnY7dXwgxlgXRJNV"/></svg>
+            已信任 · 2026-10-16
+          </span>
+        </div>
+        <div class="mt-3 flex items-center gap-2 rounded-lg border border-line bg-elevate px-3.5 py-2.5" data-page-node-id="CHE73COK40Ejg6GN47V38K">
+          <code class="min-w-0 flex-1 truncate font-mono text-xs text-fgDim" title="SHA256:kJ8fW2xQ..." data-page-node-id="QwZgeS4wpAjhcUxgaPJCGU">SHA256:kJ8fW2xQ0m7RvN1pLd3YsB9cHaTgEo6uZqXiM4wKvF2</code>
+          <button class="inline-flex h-7 cursor-pointer shrink-0 items-center gap-1 rounded-md border border-line px-2 text-[11px] text-fgDim transition-colors hover:border-lineStrong hover:text-fg focus-visible:outline-2 focus-visible:outline-ok" onclick="toast('指纹已复制')" data-page-node-id="lCHxt83oCYrA7Xwell0QJa">
+            <svg class="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="FQb4cMAVkFcbr85jPJyxyL"><rect x="9" y="9" width="12" height="12" rx="2" data-page-node-id="ClAjEj0Nm7ElK7jQJkO7tq"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" data-page-node-id="1Vp6uNzClDMZrqS1vbeH8r"/></svg>
+            复制
+          </button>
+          <button class="inline-flex h-7 cursor-pointer shrink-0 items-center rounded-md border border-line px-2 text-[11px] text-fgDim transition-colors hover:border-warn/60 hover:text-warn focus-visible:outline-2 focus-visible:outline-ok" onclick="openTofu()" data-page-node-id="0ECsCmxURdpyiXp9KAlfRj">
+            重置信任
+          </button>
+        </div>
+      </div>
+
+      <!-- 经由该服务器连接的 anyboot -->
+      <div class="border-t border-line px-6 py-5" data-page-node-id="rtgBItPlqrdbAPe6XHjdZ9">
+        <h4 class="text-[11px] font-semibold uppercase tracking-[.14em] text-fgFaint" data-page-node-id="DTN3Z2jEPXA3ilP6bV6dEC">经由它连接的 AnyBoot</h4>
+        <ul class="mt-3 space-y-2" data-page-node-id="B1DDLYszg4uIkx1TH1rUyI">
+          <li class="flex items-center gap-3 rounded-lg border border-line bg-card px-4 py-3 transition-colors hover:border-lineStrong" data-page-node-id="OCOWPnGsfkMQsklhT4Uhzz">
+            <span class="relative flex size-2 shrink-0" data-page-node-id="ernsPLRI3c4Ch1N29bI9dO"><span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-ok/60 motion-reduce:animate-none" data-page-node-id="SGaEwzo8MUqdcDMCL9KQVr"></span><span class="relative inline-flex size-2 rounded-full bg-ok" data-page-node-id="2ugcTy9S88fnistEKveDEC"></span></span>
+            <div class="min-w-0 flex-1" data-page-node-id="6DuLWlkSzo7vLjHvK9BywD">
+              <p class="truncate text-sm font-medium" data-page-node-id="lqSwjEaGCCCY3u5NuSuili">书房 anyboot <span class="ml-1 rounded bg-elevate px-1 py-0.5 font-mono text-[10px] text-fgFaint" data-page-node-id="Zp0LTC2UgsvUVLAqkNphn4">隧道 127.0.0.1:41923</span></p>
+              <p class="truncate font-mono text-xs text-fgDim" data-page-node-id="X2TmuAi178pO7R7RECqFZ6">10.0.0.8:12300 · 心跳 3s 前</p>
+            </div>
+            <button class="inline-flex h-8 cursor-pointer items-center rounded-lg border border-line bg-elevate px-3 text-xs font-medium text-fg transition-colors hover:border-ok/50 hover:text-ok focus-visible:outline-2 focus-visible:outline-ok" data-page-node-id="xUlLsazQae2MPaOIFGm872">打开</button>
+          </li>
+          <li class="flex items-center gap-3 rounded-lg border border-line bg-card px-4 py-3 opacity-70 transition-opacity hover:opacity-100" data-page-node-id="XTKpmYEo4DQ3DnqWLqMLZS">
+            <span class="size-2 shrink-0 rounded-full bg-bad" data-page-node-id="ByaDwjg1QC8qCBpcOWQbbX"></span>
+            <div class="min-w-0 flex-1" data-page-node-id="xklY6SSPOtTDy1HvCjiYcn">
+              <p class="truncate text-sm font-medium" data-page-node-id="emFWrkDdgBh2LvgBIHI5FK">客厅 HTPC <span class="ml-1 rounded bg-elevate px-1 py-0.5 font-mono text-[10px] text-fgFaint" data-page-node-id="UdpsQHUKh5etO0XyrhX7pR">隧道未建立</span></p>
+              <p class="truncate font-mono text-xs text-fgDim" data-page-node-id="cBRsIuANlMy3xmayUcj11x">10.0.0.12:12300 · 连续 2 次心跳失败</p>
+            </div>
+            <button class="inline-flex h-8 cursor-pointer items-center rounded-lg border border-line bg-elevate px-3 text-xs font-medium text-fgDim transition-colors hover:border-lineStrong hover:text-fg focus-visible:outline-2 focus-visible:outline-ok" data-page-node-id="5d2MB5YBGEF7KskhrnnaUY">重连</button>
+          </li>
+        </ul>
+      </div>
+    </section>
+  </div>
+
+  <!-- 底部状态栏 -->
+  <footer class="flex items-center gap-4 border-t border-line bg-card/60 px-5 py-2 font-mono text-[11px] text-fgFaint" data-page-node-id="PhWz712q0DwUe9yKkyZJ7u">
+    <span class="flex items-center gap-1.5" data-page-node-id="9Jj98gW5JtcsqQ3FAL2iat"><span class="size-1.5 rounded-full bg-ok" data-page-node-id="GBIG6lLKVddmH4jBpfMpQS"></span>SSH 会话 1 条复用中</span>
+    <span aria-hidden="true" data-page-node-id="jqfAcFKrZh8t22wkKJ12ng">·</span>
+    <span data-page-node-id="uqNB0Xq7jBDgvD50uXKMGl">密钥 2 把</span>
+    <span aria-hidden="true" data-page-node-id="JGwGyi07EGCbE6KLIofdRj">·</span>
+    <span data-page-node-id="h2lZu3EozbjHn1yAleOlKD">token 已脱敏</span>
+    <span class="ml-auto" id="clock" data-page-node-id="2lWqjGbrWccOBsj6zOCwK8">--:--:--</span>
+  </footer>
+</main>
+
+<!-- ============ 编辑/新增 弹层 ============ -->
+<div id="editModal" hidden class="fixed inset-0 z-40 grid place-items-center bg-black/60 p-6 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="editTitle" data-page-node-id="T0DAnxaUE0U2AxbdPVai1Z">
+  <div class="w-full max-w-lg rounded-2xl border border-lineStrong bg-card shadow-pop" data-page-node-id="rnNMBZBrsllidVwXAE5Fps">
+    <div class="flex items-center justify-between border-b border-line px-6 py-4" data-page-node-id="8VroqOURGDDyDodTrwQGiT">
+      <h3 id="editTitle" class="text-base font-semibold" data-page-node-id="mtYgk7HAVYfmKXj3XbMFbB">编辑服务器</h3>
+      <button onclick="closeEdit()" class="grid size-8 cursor-pointer place-items-center rounded-lg text-fgDim transition-colors hover:bg-elevate hover:text-fg focus-visible:outline-2 focus-visible:outline-ok" aria-label="关闭" data-page-node-id="pzeW0BlF3YP8NzkvXkjEb9">
+        <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" data-page-node-id="iQrynOwpyQNFA31UqDHe2k"><path d="M6 6l12 12M18 6L6 18" data-page-node-id="m7VJAm2COwrI3zb1MGcEnA"/></svg>
+      </button>
+    </div>
+    <form class="space-y-4 px-6 py-5" onsubmit="event.preventDefault(); closeEdit(); toast('已保存并清除断线退避')" data-page-node-id="xZ047iYQvbM6fng8AsiFms">
+      <div class="grid grid-cols-[1fr_auto] gap-3" data-page-node-id="qYWMJSFjgc9Kz1Qm9Mkww5">
+        <label class="block" data-page-node-id="rK0mcarnkRBefwnOchBdbE">
+          <span class="mb-1.5 block text-xs font-medium text-fgDim" data-page-node-id="4Go5uDUwBmTNNH3AEkSXDi">名称</span>
+          <input value="家用工作站" class="h-9 w-full rounded-lg border border-line bg-elevate px-3 text-sm transition-colors focus:border-ok/60 focus:outline-2 focus:outline-ok/40" data-page-node-id="U3j6wPWWGU59JBDuy3Yakg">
+        </label>
+        <div data-page-node-id="J9AYwaHAkkYDgAVbTxXS6K">
+          <span class="mb-1.5 block text-xs font-medium text-fgDim" data-page-node-id="rMZm4SUD9iabTpZ1tZmpIV">协议</span>
+          <div class="flex rounded-lg border border-line bg-elevate p-0.5" data-page-node-id="w7Q5EQTNoSA6zdMUOgutDB">
+            <button type="button" class="cursor-pointer rounded-md bg-ok/15 px-3 py-1.5 text-xs font-medium text-ok" data-page-node-id="tqZN6bzWccfT10kZQeKxC9">SSH</button>
+            <button type="button" class="cursor-pointer rounded-md px-3 py-1.5 text-xs text-fgDim transition-colors hover:text-fg" data-page-node-id="PmnjLHPe13SK5OlzHRoGC7">Telnet</button>
+          </div>
+        </div>
+      </div>
+      <div class="grid grid-cols-[1fr_96px] gap-3" data-page-node-id="qEW657h4v9Sb7lpuJqpjV2">
+        <label class="block" data-page-node-id="lcTRpkBxJP3Dhvle4latFC">
+          <span class="mb-1.5 block text-xs font-medium text-fgDim" data-page-node-id="axTmPxXw8RfA0Dd1HsCDlp">地址</span>
+          <input value="192.168.0.120" class="h-9 w-full rounded-lg border border-line bg-elevate px-3 font-mono text-sm transition-colors focus:border-ok/60 focus:outline-2 focus:outline-ok/40" data-page-node-id="bEheEupDl9L7lSywXZR6a1">
+        </label>
+        <label class="block" data-page-node-id="uVyICpuq7Yn9tD4fdzY13F">
+          <span class="mb-1.5 block text-xs font-medium text-fgDim" data-page-node-id="TekakoZCuj4YedVAoH3bwN">端口</span>
+          <input value="22" class="h-9 w-full rounded-lg border border-line bg-elevate px-3 font-mono text-sm transition-colors focus:border-ok/60 focus:outline-2 focus:outline-ok/40" data-page-node-id="jBCTk0l9AlRrgcpVWUgR9a">
+        </label>
+      </div>
+      <label class="block" data-page-node-id="D7ZAp49OGNCDRCy8pPsQyg">
+        <span class="mb-1.5 block text-xs font-medium text-fgDim" data-page-node-id="RicwWe6BVOwN3yzRhhvmnc">用户名</span>
+        <input value="arch" class="h-9 w-full rounded-lg border border-line bg-elevate px-3 text-sm transition-colors focus:border-ok/60 focus:outline-2 focus:outline-ok/40" data-page-node-id="aPD8B8W2DvFdh5yN5elPTM">
+      </label>
+      <div class="grid grid-cols-2 gap-3" data-page-node-id="JzVjegbijWKHiTfxrG07Wk">
+        <div data-page-node-id="uEVOpxNcORkcgvqCQtdkuA">
+          <span class="mb-1.5 block text-xs font-medium text-fgDim" data-page-node-id="uMFYxBEjmz6JofHClsCvrQ">认证方式</span>
+          <div class="flex rounded-lg border border-line bg-elevate p-0.5" data-page-node-id="qNIMqbDKyxchTLeG1Anun9">
+            <button type="button" class="cursor-pointer rounded-md px-3 py-1.5 text-xs text-fgDim transition-colors hover:text-fg" data-page-node-id="MKJwZ0CckGKA0lLWRL7aFm">密码</button>
+            <button type="button" class="cursor-pointer rounded-md bg-ok/15 px-3 py-1.5 text-xs font-medium text-ok" data-page-node-id="x167oBzTyBYqvADovjk4SN">密钥</button>
+          </div>
+        </div>
+        <label class="block" data-page-node-id="Kfg4sL5uYObQeTLn5ZVgKH">
+          <span class="mb-1.5 block text-xs font-medium text-fgDim" data-page-node-id="BAHCyoXWl56oRucuXmhgbK">密钥</span>
+          <select class="h-9 w-full cursor-pointer rounded-lg border border-line bg-elevate px-2.5 text-sm transition-colors focus:border-ok/60 focus:outline-2 focus:outline-ok/40" data-page-node-id="2dmun63acZwgm9OR8sdGNM">
+            <option data-page-node-id="NGWQF4udBpRJt0gqvkOt7I">id_ed25519（本机生成）</option>
+            <option data-page-node-id="TyJZoFciFpfxfCFxWLbFPu">导入新密钥…</option>
+          </select>
+        </label>
+      </div>
+      <label class="block" data-page-node-id="Cxbff5WtVi8fJr9IdNBrLo">
+        <span class="mb-1.5 block text-xs font-medium text-fgDim" data-page-node-id="xmKzGrLAHlpvOxVwH9fHhK">经由跳板机</span>
+        <select class="h-9 w-full cursor-pointer rounded-lg border border-line bg-elevate px-2.5 text-sm transition-colors focus:border-ok/60 focus:outline-2 focus:outline-ok/40" data-page-node-id="GVGkSLYSl6CSYJoSze15xV">
+          <option data-page-node-id="WdFLBcBvoX2080QGoD3pI7">不经由（直连）</option>
+          <option data-page-node-id="DyIqR7KnsohxaeJq7zGhot">办公室中转 · 203.0.113.7</option>
+        </select>
+        <span class="mt-1.5 block text-[11px] leading-relaxed text-fgFaint" data-page-node-id="sebbE2RZ4yjep62Fj4aBhj">选定后终端 / 文件 / 对 anyboot 的所有交互请求均经该跳板机隧道</span>
+      </label>
+      <div class="flex items-center gap-2 border-t border-line pt-4" data-page-node-id="e07bpCnHkueSQpclWrFH99">
+        <button type="button" onclick="toast('正在测试连接…')" class="inline-flex h-9 cursor-pointer items-center rounded-lg border border-line bg-elevate px-4 text-sm font-medium text-fg transition-colors hover:border-lineStrong focus-visible:outline-2 focus-visible:outline-ok" data-page-node-id="CSlyPtQfpoecgB0ywwplix">测试连接</button>
+        <button type="button" onclick="closeEdit()" class="ml-auto inline-flex h-9 cursor-pointer items-center rounded-lg px-4 text-sm font-medium text-fgDim transition-colors hover:text-fg focus-visible:outline-2 focus-visible:outline-ok" data-page-node-id="caXStDL4pbb7qJLRn9BkEe">取消</button>
+        <button type="submit" class="inline-flex h-9 cursor-pointer items-center rounded-lg bg-ok px-5 text-sm font-semibold text-base transition-all hover:bg-ok/85 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ok active:scale-[.98]" data-page-node-id="cPeD8jjGtBa4H7sx8jn7r6">保存</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ============ TOFU 重置确认 ============ -->
+<div id="tofuModal" hidden class="fixed inset-0 z-40 grid place-items-center bg-black/60 p-6 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="tofuTitle" data-page-node-id="9sWF9pzC69PnSaHOquEX3C">
+  <div class="w-full max-w-md rounded-2xl border border-lineStrong bg-card shadow-pop" data-page-node-id="RWJXP2hmUhul1GzOHthxvA">
+    <div class="px-6 pt-6" data-page-node-id="xS0jOBEBK3oJLbpKt7Hxf7">
+      <div class="flex items-center gap-3" data-page-node-id="PbbbQl8HWT6RTKCse7ifjD">
+        <span class="grid size-10 place-items-center rounded-xl bg-warn/10 text-warn" data-page-node-id="bUQmhhLrtjR5CwuqSi2Fb0">
+          <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="Jzh3Bn1uOlwaN7aQ4ucpmM"><path d="M12 9v4M12 17h.01M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" data-page-node-id="roejI9B07HI1H6l2dLxA4C"/></svg>
+        </span>
+        <h3 id="tofuTitle" class="text-base font-semibold" data-page-node-id="qUUcBS4JFr6NVLEzSNa0mE">重置主机指纹信任？</h3>
+      </div>
+      <p class="mt-3 text-sm leading-relaxed text-fgDim" data-page-node-id="cxt3s6OYhgLmmOBuE5RNNe">下次连接将重新提示确认指纹。若服务端确实重装过，这是预期行为；若没有，请警惕中间人攻击。</p>
+    </div>
+    <div class="mt-5 flex justify-end gap-2 border-t border-line px-6 py-4" data-page-node-id="AiJeBJZTMSROadAIsurHQk">
+      <button onclick="closeTofu()" class="inline-flex h-9 cursor-pointer items-center rounded-lg px-4 text-sm font-medium text-fgDim transition-colors hover:text-fg focus-visible:outline-2 focus-visible:outline-ok" data-page-node-id="jjAf2mMdDrjpGR0C4bsvhZ">取消</button>
+      <button onclick="closeTofu(); toast('已重置，下次连接将重新确认指纹')" class="inline-flex h-9 cursor-pointer items-center rounded-lg bg-warn px-5 text-sm font-semibold text-base transition-all hover:bg-warn/85 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warn" data-page-node-id="dDTxinRCHxc339rhQLDnwt">重置信任</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast" hidden class="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-lg border border-lineStrong bg-elevate px-4 py-2.5 text-sm shadow-pop transition-opacity" data-page-node-id="LmydkyDQ9ckzkmpnHsK863"></div>
+
+<script>
+// ---- 列表数据（演示） ----
+const servers = [
+  { id:'a1', name:'家用工作站',   host:'arch@192.168.0.120:22',   proto:'SSH',    os:'arch',   state:'online',  ms:12,  sel:true  },
+  { id:'a2', name:'办公室 NAS',  host:'root@10.8.0.6:22',        proto:'SSH',    os:'debian', state:'online',  ms:38,  sel:false },
+  { id:'a3', name:'旧路由调试口', host:'admin@192.168.0.1:23',    proto:'Telnet', os:'router', state:'warn',    ms:104, sel:false },
+  { id:'a4', name:'备份小主机',   host:'mint@192.168.0.140:22',   proto:'SSH',    os:'mint',   state:'offline', ms:null, sel:false },
+];
+const osIcon = {
+  arch:  '<path d="M12 2c-2.5 0-4.5 2-4.5 4.5 0 1 .3 1.9.9 2.6-.9.6-1.6 1.5-2 2.6-1 .3-1.9 1-2.4 2-.6 1.4-.3 3.1.9 4.2 1.3 1.2 3.2 1.3 4.6.4.5 1 1.4 1.7 2.5 1.7s2-.7 2.5-1.7c1.4.9 3.3.8 4.6-.4 1.2-1.1 1.5-2.8.9-4.2-.5-1-1.4-1.7-2.4-2-.4-1.1-1.1-2-2-2.6.6-.7.9-1.6.9-2.6C16.5 4 14.5 2 12 2z"/>',
+  debian:'<path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm-2 5.5c.8 0 1.5.4 1.8 1.1l1.4 3.2a3 3 0 1 1-4.4 3.4A3 3 0 0 1 10 7.5z"/>',
+  mint:  '<path d="M4 4h4v9a4 4 0 0 0 8 0V4h4v9a8 8 0 0 1-16 0z"/>',
+  router:'<rect x="2" y="13" width="20" height="7" rx="2"/><path d="M6.5 16.5h.01M10 16.5h.01M17 5.5a5 5 0 0 0-10 0M19 9a7 7 0 0 0-14 0"/>',
+};
+const stateMeta = {
+  online:  { dot:'bg-ok',    label:'在线',  cls:'text-ok' },
+  warn:    { dot:'bg-warn',  label:'校验中', cls:'text-warn' },
+  offline: { dot:'bg-bad',   label:'离线',  cls:'text-bad' },
+};
+const listEl = document.getElementById('serverList');
+function renderList() {
+  listEl.innerHTML = '';
+  for (const s of servers) {
+    const m = stateMeta[s.state];
+    const li = document.createElement('li');
+    li.setAttribute('role','option');
+    li.setAttribute('aria-selected', s.sel);
+    li.innerHTML = `
+      <button class="group grid w-full cursor-pointer grid-cols-[auto_1fr_auto] items-center gap-3 rounded-xl border px-3.5 py-3 text-left transition-all
+        ${s.sel ? 'border-ok/50 bg-ok/5' : 'border-line bg-card hover:border-lineStrong hover:bg-elevate'} focus-visible:outline-2 focus-visible:outline-ok">
+        <span class="grid size-9 place-items-center rounded-lg border ${s.sel?'border-ok/30 bg-ok/10 text-ok':'border-line bg-elevate text-fgDim'}">
+          <svg class="size-4.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${osIcon[s.os]}</svg>
+        </span>
+        <span class="min-w-0">
+          <span class="flex items-center gap-2">
+            <span class="truncate text-sm font-medium">${s.name}</span>
+            <span class="shrink-0 rounded border border-line bg-elevate px-1 py-px font-mono text-[9px] text-fgFaint">${s.proto}</span>
+          </span>
+          <span class="mt-0.5 flex items-center gap-1.5 font-mono text-[11px] text-fgDim">
+            <span class="size-1.5 shrink-0 rounded-full ${m.dot}"></span>
+            <span class="truncate">${s.host}</span>
+          </span>
+        </span>
+        <span class="shrink-0 text-right">
+          ${s.ms != null ? `<span class="font-mono text-xs ${s.ms<50?'text-ok':s.ms<100?'text-warn':'text-bad'}">${s.ms}ms</span>` : '<span class="font-mono text-xs text-fgFaint">—</span>'}
+          <span class="block text-[10px] text-fgFaint">${m.label}</span>
+        </span>
+      </button>`;
+    li.querySelector('button').onclick = () => { servers.forEach(x=>x.sel=false); s.sel=true; renderList(); };
+    listEl.appendChild(li);
+  }
+}
+renderList();
+
+// ---- 弹层 ----
+const editModal = document.getElementById('editModal');
+const tofuModal = document.getElementById('tofuModal');
+function openEdit(){ editModal.hidden = false; }
+function closeEdit(){ editModal.hidden = true; }
+function openTofu(){ tofuModal.hidden = false; }
+function closeTofu(){ tofuModal.hidden = true; }
+editModal.addEventListener('click', e => { if (e.target === editModal) closeEdit(); });
+tofuModal.addEventListener('click', e => { if (e.target === tofuModal) closeTofu(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeEdit(); closeTofu(); } });
+
+// ---- Toast ----
+let toastTimer;
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.hidden = false; t.style.opacity = 1;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>{ t.style.opacity = 0; setTimeout(()=>t.hidden=true, 200); }, 2200);
+}
+
+// ---- 状态栏时钟 ----
+function tick(){
+  document.getElementById('clock').textContent =
+    new Date().toLocaleTimeString('zh-CN', { hour12:false });
+}
+tick(); setInterval(tick, 1000);
+</script>
+<button id="abThemeToggle" aria-label="切换亮暗主题" title="切换亮 / 暗主题" style="position:fixed;top:14px;right:14px;z-index:9999;cursor:pointer;border:1px solid rgb(var(--linestrong));background:rgb(var(--card));color:rgb(var(--fg));border-radius:9999px;padding:6px 14px;font:500 12px/1 Inter,'PingFang SC',sans-serif;box-shadow:0 4px 16px rgba(0,0,0,.18);display:flex;align-items:center;gap:6px;transition:background .15s,border-color .15s">
+  <svg id="abThemeIcon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"></svg>
+  <span id="abThemeLabel">亮色</span>
+</button>
+<script>
+(function(){
+  var root=document.documentElement,
+      btn=document.getElementById('abThemeToggle'),
+      lb=document.getElementById('abThemeLabel'),
+      ic=document.getElementById('abThemeIcon');
+  var SUN='<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>';
+  var MOON='<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>';
+  function apply(t){
+    root.classList.remove('light','dark');
+    root.classList.add(t);
+    lb.textContent = t==='light' ? '暗色' : '亮色';   /* 按钮显示将要切换到的主题 */
+    ic.innerHTML  = t==='light' ? MOON : SUN;
+    try{ localStorage.setItem('ab-theme',t); }catch(e){}
+  }
+  var saved='dark';
+  try{ saved=localStorage.getItem('ab-theme')||'dark'; }catch(e){}
+  apply(saved);
+  btn.addEventListener('click',function(){
+    apply(root.classList.contains('light') ? 'dark' : 'light');
+  });
+})();
+</script>
+</body>
+</html>

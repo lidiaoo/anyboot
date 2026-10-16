@@ -27,3 +27,11 @@ mobile/ios/*.xcodeproj/project.xcworkspace/xcuserdata/
 mobile/ios/*.xcworkspace/xcuserdata/
 mobile/ios/.build/
 xcuserdata/
+
+# JVM 崩溃日志与签名产物
+hs_err_pid*.log
+*.idsig
+
+# JVM 崩溃日志与签名产物
+hs_err_pid*.log
+*.idsig

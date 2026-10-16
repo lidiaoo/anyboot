@@ -1,0 +1,134 @@
+<svg viewBox="0 0 720 496" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system,'PingFang SC',sans-serif">
+  <text x="360" y="26" text-anchor="middle" font-size="15" font-weight="700" fill="#2b2e35">服务器模块 · 底部导航（会话 / 终端 / 密钥 / 文件）</text>
+  <text x="360" y="42" text-anchor="middle" font-size="9" fill="#8a8e99">会话右上角切终端主题 · 文件页仅 SSH（SFTP）</text>
+
+  <!-- ═══ ① 会话页 ═══ -->
+  <g>
+    <rect x="16" y="56" width="216" height="396" rx="28" fill="#ffffff" stroke="#d9dce3" stroke-width="1.5"/>
+    <rect x="24" y="64" width="200" height="380" rx="22" fill="#f3f4f8"/>
+    <path d="M24 100 h200" stroke="#e4e6ec"/>
+    <text x="124" y="88" text-anchor="middle" font-size="11.5" font-weight="600" fill="#23262e">会话</text>
+    <circle cx="196" cy="84" r="7" fill="none" stroke="#6a6e78" stroke-width="1.3"/>
+    <path d="M196 77 a7 7 0 0 1 0 14 z" fill="#6a6e78"/>
+
+    <text x="36" y="120" font-size="8.5" font-weight="600" fill="#8a8e99">进行中 · 2</text>
+    <rect x="36" y="128" width="176" height="48" rx="12" fill="#ffffff" stroke="#e1e3ea"/>
+    <circle cx="54" cy="152" r="10" fill="#c7303e"/><text x="54" y="156" text-anchor="middle" font-size="9" font-weight="700" fill="#fff">D</text>
+    <text x="70" y="148" font-size="10.5" font-weight="600" fill="#23262e">pve</text>
+    <text x="70" y="163" font-size="8.5" fill="#8a8e99">SSH · 已连 12:34</text>
+    <circle cx="192" cy="152" r="3.5" fill="#22a35a"/>
+
+    <rect x="36" y="184" width="176" height="48" rx="12" fill="#ffffff" stroke="#e1e3ea"/>
+    <circle cx="54" cy="208" r="10" fill="#2f6fb2"/><text x="54" y="212" text-anchor="middle" font-size="9" font-weight="700" fill="#fff">O</text>
+    <text x="70" y="204" font-size="10.5" font-weight="600" fill="#23262e">x-wrt</text>
+    <text x="70" y="219" font-size="8.5" fill="#8a8e99">Telnet · 已连 03:05</text>
+    <circle cx="192" cy="208" r="3.5" fill="#e0a01f"/>
+
+    <text x="36" y="256" font-size="8.5" font-weight="600" fill="#8a8e99">历史</text>
+    <g font-size="9.5" fill="#4a4e58">
+      <text x="36" y="276">fnos　　昨天 22:41 · 15 分钟</text>
+      <text x="36" y="294">pve　　 昨天 09:12 · 1 小时</text>
+      <text x="36" y="312">pve　　 10-14 20:03 · 8 分钟</text>
+    </g>
+
+    <!-- 底部导航 -->
+    <rect x="24" y="398" width="200" height="46" fill="#ffffff"/>
+    <path d="M24 398 h200" stroke="#e4e6ec"/>
+    <g font-size="8.5">
+      <circle cx="48" cy="409" r="5.5" fill="#22a35a"/><rect x="39" y="418" width="18" height="9" rx="2.5" fill="none" stroke="#22a35a" stroke-width="1.3"/>
+      <text x="48" y="438" text-anchor="middle" fill="#22a35a" font-weight="700">会话</text>
+      <rect x="97" y="407" width="22" height="16" rx="3" fill="none" stroke="#8a8e99" stroke-width="1.3"/><text x="108" y="418" text-anchor="middle" font-size="7.5" fill="#8a8e99">▸_</text>
+      <text x="108" y="438" text-anchor="middle" fill="#8a8e99">终端</text>
+      <path d="M164 407 l-4.5 7 h3.5 l-2.5 8 7-10 h-3.5 l3.5-5 z" fill="#8a8e99"/>
+      <text x="164" y="438" text-anchor="middle" fill="#8a8e99">密钥</text>
+      <rect x="199" y="408" width="11" height="14" rx="2.5" fill="none" stroke="#8a8e99" stroke-width="1.3"/><path d="M201.5 413 h6 M201.5 417.5 h6" stroke="#8a8e99" stroke-width="1.1"/>
+      <text x="204" y="438" text-anchor="middle" fill="#8a8e99">文件</text>
+    </g>
+
+    <text x="124" y="478" text-anchor="middle" font-size="12.5" font-weight="600" fill="#3a3d45">① 会话（右上角切终端主题）</text>
+  </g>
+
+  <!-- ═══ ② 密钥页 ═══ -->
+  <g>
+    <rect x="252" y="56" width="216" height="396" rx="28" fill="#ffffff" stroke="#d9dce3" stroke-width="1.5"/>
+    <rect x="260" y="64" width="200" height="380" rx="22" fill="#f3f4f8"/>
+    <path d="M260 100 h200" stroke="#e4e6ec"/>
+    <text x="360" y="88" text-anchor="middle" font-size="11.5" font-weight="600" fill="#23262e">密钥</text>
+    <text x="440" y="88" text-anchor="end" font-size="14" fill="#3c4048">＋</text>
+
+    <rect x="272" y="112" width="176" height="66" rx="12" fill="#ffffff" stroke="#e1e3ea"/>
+    <rect x="282" y="124" width="24" height="24" rx="7" fill="#eef4ee"/>
+    <path d="M289 132 v7 M289 132 a4.5 4.5 0 0 1 9 0 v7 z" fill="none" stroke="#22a35a" stroke-width="1.5"/>
+    <text x="314" y="131" font-size="10" font-weight="600" fill="#23262e">nas-ed25519</text>
+    <text x="314" y="146" font-size="8.5" fill="#8a8e99">Ed25519 · SHA256:Kx9…fQ</text>
+    <text x="314" y="162" font-size="8.5" fill="#5a8e5a">关联 2 台服务器</text>
+    <text x="438" y="132" text-anchor="end" font-size="11" fill="#8a8e99">⋮</text>
+
+    <rect x="272" y="186" width="176" height="66" rx="12" fill="#ffffff" stroke="#e1e3ea"/>
+    <rect x="282" y="198" width="24" height="24" rx="7" fill="#eef4ee"/>
+    <path d="M289 206 v7 M289 206 a4.5 4.5 0 0 1 9 0 v7 z" fill="none" stroke="#22a35a" stroke-width="1.5"/>
+    <text x="314" y="205" font-size="10" font-weight="600" fill="#23262e">id_rsa_2048</text>
+    <text x="314" y="220" font-size="8.5" fill="#8a8e99">RSA · SHA256:mQ2…tA</text>
+    <text x="314" y="236" font-size="8.5" fill="#5a8e5a">关联 1 台服务器</text>
+    <text x="438" y="206" text-anchor="end" font-size="11" fill="#8a8e99">⋮</text>
+
+    <rect x="272" y="266" width="176" height="28" rx="9" fill="#3b76d2"/>
+    <text x="360" y="284" text-anchor="middle" font-size="10" font-weight="700" fill="#ffffff">导入私钥 / 公钥</text>
+    <rect x="272" y="302" width="176" height="26" rx="8" fill="#eef0f5"/>
+    <text x="360" y="319" text-anchor="middle" font-size="9.5" fill="#3c4048">在本机生成新密钥对</text>
+    <text x="360" y="348" text-anchor="middle" font-size="8.5" fill="#8a8e99">私钥存入系统钥匙串，导出需验证</text>
+
+    <text x="360" y="478" text-anchor="middle" font-size="12.5" font-weight="600" fill="#3a3d45">② 密钥（认证方式可选「密钥」）</text>
+  </g>
+
+  <!-- ═══ ③ 文件页（SFTP） ═══ -->
+  <g>
+    <rect x="488" y="56" width="216" height="396" rx="28" fill="#ffffff" stroke="#d9dce3" stroke-width="1.5"/>
+    <rect x="496" y="64" width="200" height="380" rx="22" fill="#f3f4f8"/>
+    <path d="M496 100 h200" stroke="#e4e6ec"/>
+    <rect x="508" y="74" width="112" height="20" rx="7" fill="#ffffff" stroke="#d9dce3"/>
+    <circle cx="518" cy="84" r="4.5" fill="#c7303e"/>
+    <text x="566" y="88" text-anchor="middle" font-size="9" fill="#23262e">pve</text>
+    <text x="584" y="88" font-size="8" fill="#8a8e99">▾</text>
+    <text x="682" y="88" text-anchor="end" font-size="12" fill="#3c4048">↑</text>
+
+    <rect x="508" y="102" width="176" height="20" rx="6" fill="#ffffff" stroke="#e1e3ea"/>
+    <text x="516" y="116" font-size="8.5" font-family="ui-monospace,monospace" fill="#4a4e58">/　root　etc　anyboot</text>
+
+    <g font-size="9.5" fill="#23262e">
+      <rect x="508" y="130" width="176" height="28" rx="8" fill="#ffffff" stroke="#e8eaef"/>
+      <text x="518" y="148">📁 anyboot-backup</text>
+      <rect x="508" y="164" width="176" height="28" rx="8" fill="#ffffff" stroke="#e8eaef"/>
+      <text x="518" y="182">📁 documents</text>
+      <rect x="508" y="198" width="176" height="28" rx="8" fill="#ffffff" stroke="#e8eaef"/>
+      <text x="518" y="216">📄 anyboot.lock</text>
+      <text x="674" y="216" text-anchor="end" font-size="8" fill="#8a8e99">4 B</text>
+      <rect x="508" y="232" width="176" height="28" rx="8" fill="#ffffff" stroke="#e8eaef"/>
+      <text x="518" y="250">📄 settings.json</text>
+      <text x="674" y="250" text-anchor="end" font-size="8" fill="#8a8e99">2.1 KB</text>
+    </g>
+
+    <text x="508" y="284" font-size="8.5" font-weight="600" fill="#8a8e99">传输中 · 1</text>
+    <rect x="508" y="292" width="176" height="36" rx="9" fill="#ffffff" stroke="#e1e3ea"/>
+    <text x="516" y="307" font-size="8.5" fill="#23262e">settings.json → 上传</text>
+    <rect x="516" y="314" width="128" height="4" rx="2" fill="#e4e6ec"/>
+    <rect x="516" y="314" width="79" height="4" rx="2" fill="#3b76d2"/>
+    <text x="674" y="318" text-anchor="end" font-size="8" fill="#4a4e58">62%</text>
+    <text x="596" y="352" text-anchor="middle" font-size="8.5" fill="#8a8e99">SFTP 仅 SSH；Telnet 服务器此页置灰</text>
+
+    <rect x="496" y="398" width="200" height="46" fill="#ffffff"/>
+    <path d="M496 398 h200" stroke="#e4e6ec"/>
+    <g font-size="8.5" fill="#8a8e99">
+      <circle cx="520" cy="409" r="5.5" fill="none" stroke="#8a8e99" stroke-width="1.3"/><rect x="511" y="418" width="18" height="9" rx="2.5" fill="none" stroke="#8a8e99" stroke-width="1.3"/>
+      <text x="520" y="438" text-anchor="middle">会话</text>
+      <rect x="569" y="407" width="22" height="16" rx="3" fill="none" stroke="#8a8e99" stroke-width="1.3"/><text x="580" y="418" text-anchor="middle" font-size="7.5">▸_</text>
+      <text x="580" y="438" text-anchor="middle">终端</text>
+      <path d="M636 407 l-4.5 7 h3.5 l-2.5 8 7-10 h-3.5 l3.5-5 z" fill="none" stroke="#8a8e99" stroke-width="1.1"/>
+      <text x="636" y="438" text-anchor="middle">密钥</text>
+      <rect x="671" y="408" width="11" height="14" rx="2.5" fill="none" stroke="#22a35a" stroke-width="1.5"/><path d="M673.5 413 h6 M673.5 417.5 h6" stroke="#22a35a" stroke-width="1.2"/>
+      <text x="676" y="438" text-anchor="middle" fill="#22a35a" font-weight="700">文件</text>
+    </g>
+
+    <text x="596" y="478" text-anchor="middle" font-size="12.5" font-weight="600" fill="#3a3d45">③ 文件（SFTP 浏览 / 上传下载）</text>
+  </g>
+</svg>

@@ -9,6 +9,8 @@ import SwiftUI
 struct ContentView: View {
 
     @StateObject private var store = ServerStore.shared
+    /// 10 秒心跳：顶部标签状态点的事实来源（在线绿 / 离线灰）
+    @ObservedObject private var heartbeat = Heartbeat.shared
 
     @State private var statuses: [String: LoadStatus] = [:]
     @State private var reloadTokens: [String: Int] = [:]
@@ -23,12 +25,25 @@ struct ContentView: View {
     @State private var showList = false
     @State private var firstRun = false
     @State private var notice: String?
+    /// 抽屉侧边栏（电脑 / 服务器 / 关于）
+    @State private var showSidebar = false
+    @State private var showServerModule = false
+    @State private var showAbout = false
+    /// 「经由跳板机」的电脑：隧道解析出的本地加载地址（127.0.0.1:端口）
+    @State private var tunnelUrls: [String: URL] = [:]
+    /// TOFU 主机指纹确认（SSH 首连）：continuation 存状态里等按钮回填
+    @State private var tofuAlert: TofuPrompt?
 
     var body: some View {
-        VStack(spacing: 0) {
-            tabBar
-            Divider()
-            content
+        ZStack {
+            VStack(spacing: 0) {
+                tabBar
+                Divider()
+                content
+            }
+            if showSidebar {
+                sidebar
+            }
         }
         .alert("同一台电脑", isPresented: Binding(
             get: { notice != nil },
@@ -37,7 +52,28 @@ struct ContentView: View {
         } message: {
             Text(notice ?? "")
         }
+        .alert(tofuAlert?.title ?? "", isPresented: Binding(
+            get: { tofuAlert != nil },
+            set: { if !$0 { tofuAlert?.resume(false) } })) {
+            Button("信任并连接") { tofuAlert?.resume(true) }
+            Button("取消", role: .cancel) { tofuAlert?.resume(false) }
+        } message: {
+            Text(tofuAlert?.message ?? "")
+        }
+        .sheet(isPresented: $showServerModule) {
+            ServerModuleView()
+        }
+        .sheet(isPresented: $showAbout) {
+            AboutView()
+        }
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    showSidebar = true
+                } label: {
+                    Label("侧边栏", systemImage: "line.3.horizontal")
+                }
+            }
             ToolbarItem(placement: .topBarLeading) {
                 Button {
                     reloadActive()
@@ -105,6 +141,29 @@ struct ContentView: View {
                 .environmentObject(store)
         }
         .onAppear {
+            // 心跳上线自愈：还停在错误面板上的那台，一探通就自动重连（不用手点重试）
+            heartbeat.onWentOnline = { id in
+                if statuses[id] == .failed {
+                    if let profile = store.profile(id),
+                       !profile.jumpServerId.trimmedAnyBoot.isEmpty {
+                        resolveTunnel(profile)   // 走跳板机：隧道通了再重连
+                    } else {
+                        reloadFromFirstAddress(id)
+                    }
+                }
+            }
+            // 心跳走隧道（经由跳板机的电脑，探测也从 SSH 通道里发）
+            heartbeat.tunnelResolver = { profile in
+                try await SshSessionManager.shared.tunnelAddress(for: profile)
+            }
+            // TOFU 主机指纹确认（SSH 首连）：转成系统弹窗
+            SshSessionManager.shared.confirmHandler = { title, message in
+                await withCheckedContinuation { continuation in
+                    tofuAlert = TofuPrompt(title: title, message: message,
+                                           continuation: continuation)
+                }
+            }
+            heartbeat.refreshNow()
             if store.servers.isEmpty {
                 startAdd(first: true)
             } else if store.connectAll {
@@ -112,6 +171,63 @@ struct ContentView: View {
             } else {
                 reloadActive()
             }
+        }
+    }
+
+    // MARK: - 侧边栏
+
+    private var sidebar: some View {
+        ZStack(alignment: .leading) {
+            Color.black.opacity(0.33)
+                .ignoresSafeArea()
+                .onTapGesture { showSidebar = false }
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 12) {
+                    Text("AB")
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundColor(.white)
+                        .frame(width: 40, height: 40)
+                        .background(Circle().fill(Color.white.opacity(0.2)))
+                    Text("AnyBoot")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundColor(.white)
+                }
+                .padding(20)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.accentColor)
+
+                sidebarItem("🖥  电脑", "回到电脑列表") { showSidebar = false }
+                sidebarItem("🖧  服务器（\(JumpStore.shared.jumps.count)）",
+                            "SSH / Telnet 跳板机管理") {
+                    showSidebar = false
+                    showServerModule = true
+                }
+                sidebarItem("ⓘ  关于", "项目信息与 Star") {
+                    showSidebar = false
+                    showAbout = true
+                }
+                Spacer()
+                Text("外网连家里的电脑：先把家里能公网访问的机器加成 SSH 服务器，"
+                     + "再在电脑的「经由跳板机」里选它。")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .padding(16)
+            }
+            .frame(width: 272)
+            .background(Color(.systemBackground))
+        }
+    }
+
+    private func sidebarItem(_ title: String, _ subtitle: String,
+                             action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.body).foregroundColor(.primary)
+                Text(subtitle).font(.caption2).foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
         }
     }
 
@@ -149,11 +265,14 @@ struct ContentView: View {
     private func chip(_ profile: ServerProfile) -> some View {
         let active = profile.id == store.activeId
         let status = statuses[profile.id] ?? .unknown
+        // 状态点：WebView 加载中黄点优先，其余由 10 秒心跳说了算
+        //（在线绿 / 离线灰）—— 「下线了及时变、上线了也及时变」
+        let dot = heartbeat.dotColor(profile.id, loading: status == .loading)
         let border = profile.group.trimmedAnyBoot.isEmpty
             ? Color(.systemGray4)
             : profile.groupColor
         return HStack(spacing: 6) {
-            Circle().fill(status.color).frame(width: 8, height: 8)
+            Circle().fill(dot).frame(width: 8, height: 8)
             Text(profile.label)
                 .font(.system(size: 13))
                 .lineLimit(1)
@@ -179,18 +298,56 @@ struct ContentView: View {
     private var content: some View {
         ZStack {
             ForEach(store.servers) { profile in
-                // 每台电脑一个 WKWebView：多块网卡只是换 URL，不换实例
-                if let url = profile.url(at: addressIndex[profile.id] ?? 0,
-                                         transport: store.transport) {
+                // 每台电脑一个 WKWebView：多块网卡只是换 URL，不换实例；
+                // 经由跳板机的电脑加载的是隧道地址（127.0.0.1:端口）
+                if let url = loadURL(for: profile) {
                     WebView(url: url,
                             reloadToken: reloadTokens[profile.id] ?? 0,
                             onStatus: { status in handle(status, for: profile.id) })
                         .opacity(profile.id == store.activeId ? 1 : 0)
                         .allowsHitTesting(profile.id == store.activeId)
+                } else if !profile.jumpServerId.trimmedAnyBoot.isEmpty {
+                    tunnelConnecting(profile)
                 }
             }
             if let message = errors[store.activeId], let profile = store.active {
                 errorPanel(profile, message)
+            }
+        }
+    }
+
+    /// 电脑的加载地址：直连用候选地址；走跳板机用隧道解析出的本地地址
+    private func loadURL(for profile: ServerProfile) -> URL? {
+        if !profile.jumpServerId.trimmedAnyBoot.isEmpty {
+            return tunnelUrls[profile.id]
+        }
+        return profile.url(at: addressIndex[profile.id] ?? 0, transport: store.transport)
+    }
+
+    private func tunnelConnecting(_ profile: ServerProfile) -> some View {
+        VStack(spacing: 12) {
+            ProgressView()
+            Text("正在经由跳板机建立隧道 …")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// 走跳板机的电脑：解析（或复用）本地端口转发，然后照常加载 localhost
+    private func resolveTunnel(_ profile: ServerProfile) {
+        Task {
+            do {
+                let local = try await SshSessionManager.shared.tunnelAddress(for: profile)
+                guard let url = profile.url(for: local, transport: store.transport) else { return }
+                let fresh = tunnelUrls[profile.id] != url
+                tunnelUrls[profile.id] = url
+                if fresh || statuses[profile.id] == .failed {
+                    reloadFromFirstAddress(profile.id)
+                }
+            } catch {
+                errors[profile.id] = "经由跳板机连接失败：\(error.localizedDescription)"
+                statuses[profile.id] = .failed
             }
         }
     }
@@ -240,9 +397,15 @@ struct ContentView: View {
         }
     }
 
-    /// 手工重载：从头再试一遍（首选地址优先）
+    /// 手工重载：从头再试一遍（首选地址优先；走跳板机的先解析隧道）
     private func reloadFromFirstAddress(_ id: String) {
         guard let profile = store.profile(id), !profile.addresses.isEmpty else { return }
+        if !profile.jumpServerId.trimmedAnyBoot.isEmpty {
+            statuses[id] = .loading
+            errors[id] = nil
+            resolveTunnel(profile)
+            return
+        }
         addressIndex[id] = 0
         triedAddresses[id] = []
         errors[id] = nil
@@ -442,11 +605,16 @@ struct ServerEditorSheet: View {
     let onFinish: (Result) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var jumps = JumpStore.shared
 
     @State private var group = ""
     @State private var name = ""
     @State private var host = ""
     @State private var token = ""
+    /// 多网卡探测模式（一台电脑多个地址时怎么探）：并发（默认）/ 串行
+    @State private var probeMode = ServerProfile.probeParallel
+    /// 经由哪台跳板机（空 = 直连）
+    @State private var jumpServerId = ""
     @State private var showDeleteConfirm = false
 
     private var editing: Bool { profile.map { ServerStore.shared.profile($0.id) != nil } ?? false }
@@ -490,6 +658,31 @@ struct ServerEditorSheet: View {
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                 }
+                Section("经由跳板机（外网连家里）") {
+                    Picker("跳板机", selection: $jumpServerId) {
+                        Text("直连（默认）").tag("")
+                        ForEach(jumps.jumps.filter { $0.isSsh }) { jump in
+                            Text("经由：\(jump.displayName)").tag(jump.id)
+                        }
+                    }
+                    Text("先把家里能公网访问的机器加成 SSH 服务器（侧边栏 → 服务器）。"
+                         + "选定后，上面填的地址就变成「跳板机视角的内网地址」，"
+                         + "页面和所有请求都经 SSH 加密通道 → 跳板机 → 内网。")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                Section("多网卡探测（有多个地址时怎么探）") {
+                    Picker("探测模式", selection: $probeMode) {
+                        Text("并发探测（推荐）").tag(ServerProfile.probeParallel)
+                        Text("串行探测").tag(ServerProfile.probeSerial)
+                    }
+                    .pickerStyle(.segmented)
+                    Text(probeMode == ServerProfile.probeSerial
+                         ? "按地址顺序逐个探，第一个通的用之 —— 适合有明确优先级（比如优先走内网 IP）"
+                         : "同时探所有地址，用延迟最低的那个；断线直接切到已探活的地址，不用等超时")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
                 Section {
                     Text("在电脑端 AnyBoot 的「远程控制」里能看到地址和 token；手机要和电脑在同一个局域网。同一台电脑的多个 IP 填同一个分组，只占一个标签（首选地址不通会自动换下一个）。")
                         .font(.footnote)
@@ -530,6 +723,8 @@ struct ServerEditorSheet: View {
                 name = profile?.name ?? ""
                 host = profile?.addressText ?? ""
                 token = profile?.token ?? ""
+                probeMode = ServerProfile.cleanProbeMode(profile?.probeMode)
+                jumpServerId = profile?.jumpServerId ?? ""
             }
         }
         .interactiveDismissDisabled(firstRun)
@@ -547,6 +742,8 @@ struct ServerEditorSheet: View {
             : name.trimmedAnyBoot
         result.replaceAddresses(addresses)
         result.token = resolved
+        result.probeMode = probeMode
+        result.jumpServerId = jumpServerId
         onFinish(.save(result))
         dismiss()
     }
@@ -630,4 +827,16 @@ struct ServerListSheet: View {
 
 #Preview {
     ContentView()
+}
+
+/// TOFU 主机指纹确认（SSH 首连）：continuation 挂在 State 里等按钮回填
+struct TofuPrompt: Identifiable {
+    let id = UUID()
+    let title: String
+    let message: String
+    let continuation: CheckedContinuation<Bool, Never>
+
+    func resume(_ accepted: Bool) {
+        continuation.resume(returning: accepted)
+    }
 }

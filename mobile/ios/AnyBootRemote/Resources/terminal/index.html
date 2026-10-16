@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<!-- AnyBoot 手机端终端宿主页：xterm.js 渲染，字节流经 AndroidBridge 与原生会话互通。
+     本文件不碰网络 —— 所有数据都来自 Activity 注入的 TerminalSession。 -->
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<link rel="stylesheet" href="xterm.css">
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; background: transparent; overflow: hidden; }
+  #term { position: absolute; inset: 6px 4px 4px 4px; }
+  .xterm .xterm-viewport { background-color: transparent !important; }
+</style>
+</head>
+<body>
+<div id="term"></div>
+<script src="xterm.js"></script>
+<script src="addon-fit.js"></script>
+<script>
+  var term = null;
+  var fitAddon = null;
+  var bridge = null;
+  var fontSize = 14;
+  var pending = [];   // 页面没就绪时的下行缓冲，termInit 后冲给终端
+
+  var THEMES = {
+    dark: {
+      background: '#1E1E1E', foreground: '#D4D4D4',
+      cursor: '#D4D4D4', cursorAccent: '#1E1E1E',
+      selectionBackground: '#5A5A5A'
+    },
+    light: {
+      background: '#FFFFFF', foreground: '#333A45',
+      cursor: '#333A45', cursorAccent: '#FFFFFF',
+      selectionBackground: '#B3D4FC'
+    }
+  };
+
+  function b64FromBytes(bytes) {
+    var binary = '';
+    var chunk = 0x8000;
+    for (var i = 0; i < bytes.length; i += chunk) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+    }
+    return btoa(binary);
+  }
+
+  function b64ToBytes(b64) {
+    var binary = atob(b64);
+    var bytes = new Uint8Array(binary.length);
+    for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes;
+  }
+
+  // Activity 注入的下行（积攒回显 + 实时数据共用一个口子）
+  window.termFeed = function (b64) {
+    if (!term) { pending.push(b64); return; }
+    term.write(b64ToBytes(b64));
+  };
+
+  window.termSetFont = function (size) {
+    fontSize = size;
+    if (term) {
+      term.options.fontSize = size;
+      fit();
+    }
+  };
+
+  window.termSetTheme = function (name) {
+    if (term) term.options.theme = THEMES[name] || THEMES.dark;
+  };
+
+  // 上行通道：Android = addJavascriptInterface 对象；iOS = WKScriptMessageHandler
+  function sendUpstream(bytes) {
+    var b64 = b64FromBytes(bytes);
+    if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.iosTerminal) {
+      window.webkit.messageHandlers.iosTerminal.postMessage({ data: b64 });
+    } else if (window.AndroidTerminal) {
+      window.AndroidTerminal.onData(b64);
+    }
+  }
+
+  function reportResize() {
+    if (!window.__ready) return;
+    if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.iosTerminal) {
+      window.webkit.messageHandlers.iosTerminal.postMessage({ cols: String(term.cols), rows: String(term.rows) });
+    } else if (window.AndroidTerminal) {
+      window.AndroidTerminal.onResize(String(term.cols), String(term.rows));
+    }
+  }
+
+  function fit() {
+    if (!fitAddon) return;
+    try {
+      fitAddon.fit();
+      reportResize();
+    } catch (e) { /* 容器还没量出尺寸，下一轮 resize 再试 */ }
+  }
+
+  window.addEventListener('resize', fit);
+
+  window.termInit = function (themeName, size) {
+    if (term) return;
+    fontSize = size || 14;
+    term = new Terminal({
+      theme: THEMES[themeName] || THEMES.dark,
+      fontSize: fontSize,
+      fontFamily: 'Menlo, monospace',
+      cursorBlink: true,
+      allowProposedApi: true,
+      scrollback: 5000
+    });
+    fitAddon = new FitAddon.FitAddon();
+    term.loadAddon(fitAddon);
+    term.open(document.getElementById('term'));
+    fit();
+    // 上行：键盘输入（字节流原样转发，不做任何解析）
+    term.onData(function (data) {
+      if (window.__ready) {
+        sendUpstream(new TextEncoder().encode(data));
+      }
+    });
+    // 行高变了主动报一次
+    setTimeout(fit, 100);
+    setTimeout(fit, 400);
+    // 就绪：把页面打开前积攒的下行冲进去，再放开上行
+    while (pending.length > 0) {
+      term.write(b64ToBytes(pending.shift()));
+    }
+    window.__ready = true;
+  };
+</script>
+</body>
+</html>

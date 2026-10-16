@@ -1,0 +1,117 @@
+<svg viewBox="0 0 720 496" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system,'PingFang SC',sans-serif">
+  <text x="360" y="26" text-anchor="middle" font-size="15" font-weight="700" fill="#2b2e35">终端 · xterm.js 交互</text>
+  <text x="360" y="42" text-anchor="middle" font-size="9" fill="#8a8e99">SSH / Telnet 通用 · 深浅主题可切 · 多会话并行</text>
+
+  <!-- ═══ ① 终端会话页 ═══ -->
+  <g>
+    <rect x="16" y="56" width="216" height="396" rx="28" fill="#ffffff" stroke="#d9dce3" stroke-width="1.5"/>
+    <rect x="24" y="64" width="200" height="380" rx="22" fill="#f3f4f8"/>
+    <path d="M24 100 h200" stroke="#e4e6ec"/>
+    <text x="44" y="88" font-size="12" fill="#6a6e78">‹</text>
+    <text x="124" y="88" text-anchor="middle" font-size="11.5" font-weight="600" fill="#23262e">pve · SSH</text>
+    <circle cx="164" cy="84" r="3.5" fill="#22a35a"/>
+    <text x="172" y="88" font-size="9" fill="#22a35a">23ms</text>
+    <text x="206" y="88" text-anchor="end" font-size="11" fill="#6a6e78">⋮</text>
+
+    <rect x="36" y="110" width="176" height="230" rx="10" fill="#15151d"/>
+    <g font-family="ui-monospace,Menlo,monospace" font-size="9" fill="#c8cad2">
+      <text x="46" y="130" fill="#8be28b">$ ssh root@192.168.1.6</text>
+      <text x="46" y="148">Linux pve 6.8.12-4-pve #1 SMP …</text>
+      <text x="46" y="166">Last login: Fri Oct 16 08:40:11</text>
+      <text x="46" y="190" fill="#7ab8ff">root@pve:~#</text>
+      <text x="46" y="214">systemctl status anyboot</text>
+      <text x="46" y="238" fill="#8be28b">● anyboot.service — active (running)</text>
+      <text x="46" y="256">   Loaded: loaded (/lib/systemd/…)</text>
+      <text x="46" y="274">   Memory: 86.2M</text>
+      <text x="46" y="298" fill="#7ab8ff">root@pve:~#</text>
+      <rect x="112" y="289" width="6" height="11" fill="#8be28b"/>
+    </g>
+    <rect x="164" y="314" width="38" height="22" rx="7" fill="#2b2d36" opacity="0.92"/>
+    <text x="183" y="329" text-anchor="middle" font-size="10" fill="#e6e8ef">⌘</text>
+
+    <rect x="24" y="366" width="200" height="52" fill="#ffffff"/>
+    <path d="M24 366 h200" stroke="#e4e6ec"/>
+    <g font-size="9" fill="#4a4e58">
+      <rect x="32" y="374" width="26" height="16" rx="5" fill="#ffffff" stroke="#d9dce3"/><text x="45" y="385" text-anchor="middle">Esc</text>
+      <rect x="62" y="374" width="26" height="16" rx="5" fill="#ffffff" stroke="#d9dce3"/><text x="75" y="385" text-anchor="middle">Tab</text>
+      <rect x="92" y="374" width="28" height="16" rx="5" fill="#ffffff" stroke="#d9dce3"/><text x="106" y="385" text-anchor="middle">Ctrl</text>
+      <rect x="124" y="374" width="18" height="16" rx="5" fill="#ffffff" stroke="#d9dce3"/><text x="133" y="385" text-anchor="middle">↑</text>
+      <rect x="146" y="374" width="18" height="16" rx="5" fill="#ffffff" stroke="#d9dce3"/><text x="155" y="385" text-anchor="middle">↓</text>
+      <rect x="168" y="374" width="18" height="16" rx="5" fill="#ffffff" stroke="#d9dce3"/><text x="177" y="385" text-anchor="middle">←</text>
+      <rect x="190" y="374" width="18" height="16" rx="5" fill="#ffffff" stroke="#d9dce3"/><text x="199" y="385" text-anchor="middle">→</text>
+      <text x="32" y="408" font-size="8.5" fill="#8a8e99">⌨︎ 唤起系统键盘 · 📋 粘贴 · Aa 字号 / 主题</text>
+    </g>
+
+    <text x="124" y="478" text-anchor="middle" font-size="12.5" font-weight="600" fill="#3a3d45">① 终端会话页</text>
+  </g>
+
+  <!-- ═══ ② 入口：服务器详情 ═══ -->
+  <g>
+    <rect x="252" y="56" width="216" height="396" rx="28" fill="#ffffff" stroke="#d9dce3" stroke-width="1.5"/>
+    <rect x="260" y="64" width="200" height="380" rx="22" fill="#f3f4f8"/>
+    <path d="M260 100 h200" stroke="#e4e6ec"/>
+    <text x="280" y="88" font-size="12" fill="#6a6e78">‹</text>
+    <text x="360" y="88" text-anchor="middle" font-size="11.5" font-weight="600" fill="#23262e">服务器</text>
+    <text x="440" y="88" text-anchor="end" font-size="14" fill="#3c4048">＋</text>
+
+    <rect x="272" y="112" width="176" height="152" rx="12" fill="#ffffff" stroke="#e1e3ea"/>
+    <circle cx="290" cy="132" r="10" fill="#c7303e"/><text x="290" y="136" text-anchor="middle" font-size="9" font-weight="700" fill="#fff">D</text>
+    <text x="306" y="130" font-size="10.5" font-weight="600" fill="#23262e">pve</text>
+    <rect x="336" y="121" width="28" height="13" rx="4" fill="#e8f1fd"/><text x="350" y="131" text-anchor="middle" font-size="8" fill="#3b76d2">SSH</text>
+    <circle cx="376" cy="127" r="3" fill="#22a35a"/><text x="383" y="131" font-size="8.5" fill="#22a35a">23ms</text>
+    <text x="306" y="146" font-size="8.5" fill="#8a8e99">root@192.168.1.6:22</text>
+    <path d="M284 158 h152" stroke="#eef0f5"/>
+    <g font-size="9" fill="#4a4e58">
+      <text x="284" y="176">端口　　22</text>
+      <text x="284" y="192">认证　　密码（已保存）</text>
+      <text x="284" y="208">备注　　家用 PVE 宿主机</text>
+      <text x="284" y="224">经由　　书房台式机（anyboot）</text>
+    </g>
+    <path d="M284 236 h152" stroke="#eef0f5"/>
+    <rect x="284" y="244" width="152" height="24" rx="8" fill="#22a35a"/>
+    <text x="360" y="260" text-anchor="middle" font-size="10" font-weight="700" fill="#ffffff">▶ 打开终端</text>
+
+    <rect x="284" y="276" width="73" height="22" rx="7" fill="#eef0f5"/><text x="320" y="291" text-anchor="middle" font-size="9" fill="#3c4048">测试连接</text>
+    <rect x="363" y="276" width="73" height="22" rx="7" fill="#eef0f5"/><text x="399" y="291" text-anchor="middle" font-size="9" fill="#3c4048">编辑</text>
+
+    <rect x="272" y="312" width="176" height="46" rx="12" fill="#ffffff" stroke="#e1e3ea" opacity="0.45"/>
+    <circle cx="290" cy="335" r="10" fill="#2f6fb2" opacity="0.5"/>
+    <text x="306" y="331" font-size="10.5" fill="#23262e" opacity="0.6">x-wrt</text>
+    <text x="306" y="346" font-size="8.5" fill="#8a8e99" opacity="0.6">Telnet · 未连接</text>
+
+    <rect x="272" y="366" width="176" height="46" rx="12" fill="#ffffff" stroke="#e1e3ea" opacity="0.45"/>
+    <circle cx="290" cy="389" r="10" fill="#e07a1f" opacity="0.5"/>
+    <text x="306" y="385" font-size="10.5" fill="#23262e" opacity="0.6">fnos</text>
+    <text x="306" y="400" font-size="8.5" fill="#8a8e99" opacity="0.6">SSH · 41ms</text>
+
+    <text x="360" y="478" text-anchor="middle" font-size="12.5" font-weight="600" fill="#3a3d45">② 入口：服务器详情「打开终端」</text>
+  </g>
+
+  <!-- ═══ ③ 多会话标签 ═══ -->
+  <g>
+    <rect x="488" y="56" width="216" height="396" rx="28" fill="#ffffff" stroke="#d9dce3" stroke-width="1.5"/>
+    <rect x="496" y="64" width="200" height="380" rx="22" fill="#f3f4f8"/>
+
+    <rect x="508" y="76" width="64" height="24" rx="8" fill="#e7f5ec" stroke="#22a35a"/>
+    <circle cx="520" cy="88" r="3" fill="#22a35a"/>
+    <text x="544" y="92" text-anchor="middle" font-size="9.5" font-weight="600" fill="#1d1f26">pve</text>
+    <rect x="578" y="76" width="64" height="24" rx="8" fill="#ffffff" stroke="#e1e3ea"/>
+    <text x="610" y="92" text-anchor="middle" font-size="9.5" fill="#8a8e99">x-wrt</text>
+    <text x="668" y="93" text-anchor="middle" font-size="13" fill="#4a4e58">＋</text>
+
+    <rect x="508" y="110" width="176" height="270" rx="10" fill="#15151d"/>
+    <g font-family="ui-monospace,Menlo,monospace" font-size="9" fill="#c8cad2">
+      <text x="518" y="132" fill="#7ab8ff">root@pve:~#</text>
+      <text x="518" y="156">qm list</text>
+      <text x="518" y="180">VMID NAME    STATUS MEM</text>
+      <text x="518" y="204">101 anyboot running 4G</text>
+      <text x="518" y="234" fill="#7ab8ff">root@pve:~# ssh 192.168.1.10</text>
+      <text x="518" y="258" fill="#8be28b">Welcome to AnyBoot Linux…</text>
+      <text x="518" y="282" fill="#7ab8ff">jianghh@anyboot:~$</text>
+      <rect x="586" y="273" width="6" height="11" fill="#8be28b"/>
+    </g>
+    <text x="596" y="404" text-anchor="middle" font-size="8.5" fill="#8a8e99">断开 = 长按标签 → 结束会话</text>
+
+    <text x="596" y="478" text-anchor="middle" font-size="12.5" font-weight="600" fill="#3a3d45">③ 多会话标签切换</text>
+  </g>
+</svg>

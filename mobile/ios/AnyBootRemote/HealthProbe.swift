@@ -52,4 +52,26 @@ enum HealthProbe {
             DispatchQueue.main.async { completion(machine) }
         }.resume()
     }
+
+    /// 心跳探测：只看通不通，通了附带往返毫秒（不通给 nil）。回调在主线程。
+    ///
+    /// 跟 `fetch` 的分工：`fetch` 是「保存地址后顺手认一次机器」，10 秒心跳走这里
+    /// —— 不解析内容、超时自己带（心跳要比 `fetch` 宽容一点，弱网别误报）。
+    static func ping(host: String, timeout: TimeInterval, completion: @escaping (Double?) -> Void) {
+        let value = host.trimmedAnyBoot
+        guard !value.isEmpty, let url = URL(string: "http://\(value)/health") else {
+            completion(nil)
+            return
+        }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = timeout
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        let started = Date()
+        URLSession.shared.dataTask(with: request) { _, response, _ in
+            let ok = (response as? HTTPURLResponse)?.statusCode == 200
+            DispatchQueue.main.async {
+                completion(ok ? Date().timeIntervalSince(started) * 1000 : nil)
+            }
+        }.resume()
+    }
 }

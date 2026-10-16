@@ -31,6 +31,11 @@ final class ServerProfile {
     /** 电脑端「远程控制」的默认端口 */
     static final int DEFAULT_PORT = 12300;
 
+    /** 多网卡探测：并发（默认）—— 同探所有地址取延迟最低 */
+    static final String PROBE_PARALLEL = "parallel";
+    /** 多网卡探测：串行 —— 按地址顺序逐个探，第一个通的用之 */
+    static final String PROBE_SERIAL = "serial";
+
     String id;
     /** 分组名（用来区分不同的电脑）；空串表示「未分组」 */
     String group;
@@ -47,6 +52,11 @@ final class ServerProfile {
     String machineId = "";
     /** 电脑端 `/health` 给的机器名（「这是哪台电脑」）；未知为空 */
     String machineName = "";
+    /** 多网卡探测模式：{@link #PROBE_PARALLEL}（默认）/ {@link #PROBE_SERIAL} */
+    String probeMode = PROBE_PARALLEL;
+    /** 经由哪台跳板机（JumpServer.id）；空 = 直连，行为与现在完全一致。
+     *  走跳板机时 addresses 语义变为「跳板机视角的内网地址」。 */
+    String jumpServerId = "";
 
     ServerProfile() {
         this.id = UUID.randomUUID().toString();
@@ -175,6 +185,34 @@ final class ServerProfile {
     }
 
     // ------------------------------------------------------------------
+    // 访问地址
+    // ------------------------------------------------------------------
+
+    /**
+     * 用给定的 host:port 造访问地址（token / transport 照常带上）。
+     *
+     * <p>走跳板机的电脑：主机不是 addresses 里那个，而是隧道解析出的
+     * {@code 127.0.0.1:本地端口} —— 页面照常从 localhost 加载，所有请求
+     * 都经 SSH 加密通道 → 跳板机 → 内网 anyboot。
+     */
+    String urlFor(String hostPort, String transport) {
+        String value = text(hostPort);
+        if (value.isEmpty()) {
+            return "";
+        }
+        StringBuilder url = new StringBuilder("http://").append(value).append("/");
+        String secret = text(token);
+        if (!secret.isEmpty()) {
+            url.append("?token=").append(Uri.encode(secret));
+        }
+        String mode = text(transport);
+        if (!mode.isEmpty() && !"auto".equals(mode)) {
+            url.append(secret.isEmpty() ? "?" : "&").append("transport=").append(mode);
+        }
+        return url.toString();
+    }
+
+    // ------------------------------------------------------------------
     // 展示
     // ------------------------------------------------------------------
 
@@ -248,6 +286,8 @@ final class ServerProfile {
         other.token = token;
         other.machineId = machineId;
         other.machineName = machineName;
+        other.probeMode = probeMode;
+        other.jumpServerId = jumpServerId;
         return other;
     }
 
@@ -271,6 +311,8 @@ final class ServerProfile {
         object.put("token", text(token));
         object.put("machineId", text(machineId));
         object.put("machineName", text(machineName));
+        object.put("probeMode", text(probeMode).isEmpty() ? PROBE_PARALLEL : probeMode);
+        object.put("jumpServerId", text(jumpServerId));
         return object;
     }
 
@@ -295,6 +337,10 @@ final class ServerProfile {
         profile.token = object.optString("token", "");
         profile.machineId = object.optString("machineId", "");
         profile.machineName = object.optString("machineName", "");
+        // 只认两个值，其余（含缺失 / 拼错）一律回落到并发
+        profile.probeMode = PROBE_SERIAL.equals(object.optString("probeMode", ""))
+                ? PROBE_SERIAL : PROBE_PARALLEL;
+        profile.jumpServerId = object.optString("jumpServerId", "");
         return profile;
     }
 

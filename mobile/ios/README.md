@@ -22,20 +22,53 @@ HTTP 服务（默认 `12300`）托管的同一份前端页面。业务逻辑一�
 | 一键合并老配置 | 服务端列表页左上角**「合并同机地址」** |
 | 标签名 = 组名 ＋ 服务端名 | 未分组时只显示服务端名；名字留空则用地址兜底 |
 | 分组配色 | 同一分组标签描边同色（组名哈希定色相，恒定不变） |
-| 在线状态点 | 标签左侧小圆点：灰 / 橙（加载中）/ 绿 / 红 |
+| 在线状态点 | 标签左侧小圆点，**由 10 秒心跳驱动**：绿=在线、灰=离线/未探到、橙=仅加载中 |
+| 10 秒心跳 | 前台每 10 秒探一遍所有服务端 `/health`（`Heartbeat.swift`）：上线立即变绿，**连续 2 轮全失败**才判离线；多网卡探测**并发（默认，同探所有地址用最快的）/ 串行（按顺序）**在编辑服务端里选；停在错误面板上的那台一探通就自动重连；退后台停表省电；**经由跳板机的电脑，探测也从 SSH 隧道里走** |
 | 增删改 | `＋` 添加、**长按标签**编辑、`⋯` 菜单或列表页切换删除；列表页支持左滑编辑/删除 |
 | 1.0 / 1.1 升级 | 旧版单服务端 `host`/`token` 自动迁移成列表第一条；旧版只有单个 `host` 的条目会升级成「只有一个候选地址」的记录 |
+
+## 服务器模块（跳板机）与外网连接 —— F2–F7
+
+侧边栏（左上 ☰）：**电脑 / 服务器 / 关于**。
+
+| 能力 | 说明 |
+| --- | --- |
+| 服务器管理 | 独立服务器页（FinalShell 风格：徽标 + 名称 + 协议徽标 + 延迟 + 地址 + 行展开详情：端口/认证/备注/经由电脑数 + 测试连接/编辑/删除/▶ 终端/浏览文件） |
+| SSH 隧道（外网连家里） | 添加电脑表单里选「经由跳板机」→ 地址语义变为「跳板机视角的内网地址」；WebView / 心跳 / 全部请求都从 `127.0.0.1:随机端口` 走 SSH `direct-tcpip` 通道（`SshSessionManager.swift`，NWListener + `createDirectTCPIPChannel`） |
+| 终端 | xterm.js（`TerminalView.swift` + `Resources/terminal/`，与 Android 同一份）+ 底部按键栏（Esc/Tab/Ctrl/方向键）+ 深/亮主题 + 多会话标签（后台保持） |
+| 密钥 | 密钥页：导入私钥 / 本机生成 **Ed25519**（OpenSSH 双格式导出，`JumpEditorSheet.swift` + `KeyVault.swift`）；私钥只进 **Keychain**；SSH 首连 **TOFU 指纹确认**并存住，对不上（中间人）拒连 |
+| 文件 | SFTP（`FilesPage.swift`，Citadel `openSFTP`）：浏览/上级/上传/下载；Telnet 服务器该页置灰提示 |
+| 会话 | 进行中（时长）+ 历史（最近 50 条，`JumpStore`） |
+| 关于页 | GitHub 仓库卡片（★/⑂/Issues 实时拉 API，失败用缓存）+ **★ Star** 按钮（打开仓库网页，App 不代点） |
+| Telnet | 实验性：NWConnection 直连 + IAC 过滤（`TelnetSession.swift`），只有终端，无隧道无文件 |
+
+**依赖**：Xcode 工程需要加 SwiftPM 包 **Citadel**（`https://github.com/orlandos-nl/Citadel`，
+SSH/Telnet 会话栈；macOS 14+ / iOS 15+）。SSH 相关代码按 2026-10 的 Citadel main 分支
+API 校对（`SSHClient.connect` / `createDirectTCPIPChannel` / `openSFTP` / `withPTY` /
+`SSHHostKeyValidator.custom`）—— 升级时若有小幅漂移先看 `SshSessionManager.swift` 的注释。
+本机（Windows / Linux）无法编译验证 iOS，**首次 Xcode 构建如报 API 漂移按注释校准**。
 
 ## 文件
 
 | 文件 | 作用 |
 | --- | --- |
 | `AnyBootRemote/AnyBootRemoteApp.swift` | `@main` 入口 |
-| `AnyBootRemote/ContentView.swift` | 标签栏、多 WebView 容器、多地址切换、错误面板、增删改表单 |
-| `AnyBootRemote/ServerProfile.swift` | 一条记录（= 一台电脑）：地址列表 + 标签文本/排序/**分组配色** + 地址归一化 + 同机判定 |
+| `AnyBootRemote/ContentView.swift` | 标签栏、多 WebView 容器、多地址切换、错误面板、增删改表单、**侧边栏**、**跳板机隧道接线**、**TOFU 弹窗** |
+| `AnyBootRemote/ServerProfile.swift` | 一条记录（= 一台电脑）：地址列表 + 标签文本/排序/**分组配色** + 地址归一化 + 同机判定 + **jumpServerId** |
 | `AnyBootRemote/ServerStore.swift` | `UserDefaults`(JSON) 持久化 + 旧版迁移 + 一键合并同机记录 + 传输方式偏好 |
 | `AnyBootRemote/WebView.swift` | `WKWebView` 的 `UIViewRepresentable` 封装 + 加载状态回调 |
-| `AnyBootRemote/HealthProbe.swift` | 探 `/health` 拿 `machineId`（自动归并同一台电脑） |
+| `AnyBootRemote/HealthProbe.swift` | 探 `/health` 拿 `machineId`（自动归并同一台电脑）+ 心跳 ping |
+| `AnyBootRemote/Heartbeat.swift` | 10 秒心跳（在线状态轮询，多网卡并发/串行探测，**隧道解析器注入**） |
+| `AnyBootRemote/JumpStore.swift` | 跳板机 + 密钥持久化、终端主题、会话历史 |
+| `AnyBootRemote/KeyVault.swift` | Keychain 存取（密码/私钥/口令）+ SHA256 指纹 |
+| `AnyBootRemote/SshSessionManager.swift` | SSH 会话栈：连接复用/退避、TOFU 校验、**隧道**（NWListener+direct-tcpip）、PTY、会话关停 |
+| `AnyBootRemote/TerminalSessions.swift` | 终端会话统一外壳（SSH/Telnet）+ 静态注册表（页面销毁会话不断） |
+| `AnyBootRemote/TelnetSession.swift` | Telnet 直连 + IAC 过滤（实验性） |
+| `AnyBootRemote/TerminalView.swift` | xterm.js 的 WKWebView 桥（与 Android 共用同一份 index.html） |
+| `AnyBootRemote/ServerModuleView.swift` | 服务器模块四页（会话/终端/密钥/文件）+ 列表 + TOFU/删除确认 |
+| `AnyBootRemote/JumpEditorSheet.swift` | 添加/编辑服务器表单（协议/认证/测试连接）+ Ed25519 OpenSSH 格式生成 |
+| `AnyBootRemote/FilesPage.swift` | SFTP 文件页 + **关于页**（GitHub 卡片 + Star） |
+| `Resources/terminal/` | xterm.js 5.3.0 + fit 插件 + 宿主页 index.html（与 Android assets 同一份） |
 | `Info.plist` | ATS 明文放行 + 本地网络用途说明（**不能少**） |
 
 ## 怎么建工程（Windows 上做不了，需要在 Mac 上操作）
@@ -43,11 +76,13 @@ HTTP 服务（默认 `12300`）托管的同一份前端页面。业务逻辑一�
 1. Xcode → **File ▸ New ▸ Project ▸ iOS ▸ App**；
    Product Name 填 `AnyBootRemote`，Interface 选 **SwiftUI**，Language 选 **Swift**。
 2. 删除模板生成的 `ContentView.swift` 和 `XXXApp.swift`，把本目录 `AnyBootRemote/` 下的
-   **6 个** `.swift` 拖进工程（勾选 *Copy items if needed*、目标 target 打勾）。
-3. 选中 target ▸ **Info**，加上这两项（内容照 `../ios/Info.plist`）：
+   **全部** `.swift` 拖进工程（勾选 *Copy items if needed*、目标 target 打勾）；
+   `Resources/terminal/` 整个文件夹作为 **folder reference（蓝色文件夹）**拖进去。
+3. **File ▸ Add Package Dependencies…** 加 **Citadel**（`https://github.com/orlandos-nl/Citadel`）。
+4. 选中 target ▸ **Info**，加上这两项（内容照 `../ios/Info.plist`）：
    - `App Transport Security Settings` → `Allow Arbitrary Loads` = YES
    - `Privacy - Local Network Usage Description` = 上面那段说明文字
-4. 真机运行：target ▸ Signing & Capabilities ▸ 勾 *Automatically manage signing*，
+5. 真机运行：target ▸ Signing & Capabilities ▸ 勾 *Automatically manage signing*，
    Team 选自己的 Apple ID（免费账号即可，App 7 天要重签一次）。
    模拟器直接 ⌘R 也能跑，模拟器走宿主网络，连局域网 IP 没问题。
 

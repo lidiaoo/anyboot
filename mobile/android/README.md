@@ -25,7 +25,29 @@
 | 一键合并老配置 | 以前「每个 IP 一条记录」的老配置：`☰` 列表里点**「合并同一台电脑的地址」** |
 | 标签名 = 组名 ＋ 服务端名 | 未分组时只显示服务端名；名字留空则用地址兜底 |
 | 分组配色 | 同一个分组的标签描边同色（颜色由组名哈希决定，恒定不变） |
-| 在线状态点 | 标签左侧小圆点：灰=还没连、橙=加载中、绿=已加载、红=连不上 |
+| 在线状态点 | 标签左侧小圆点，**由 10 秒心跳驱动**：绿=在线、灰=离线/未探到、橙=仅加载中 |
+| 10 秒心跳 | 前台每 10 秒探一遍所有服务端 `/health`（`HeartbeatManager.java`）：上线立即变绿，**连续 2 轮全失败**才判离线；多网卡探测**并发（默认，同探所有地址用最快的）/ 串行（按顺序）**在编辑服务端里选；停在错误面板上的那台一探通就自动重连；退后台停表省电；**经由跳板机的电脑，探测也从 SSH 隧道里走** |
+
+## 服务器模块（跳板机）与外网连接 —— F2–F7
+
+侧边栏（左上 ☰）：**电脑 / 服务器 / 关于**。
+
+| 能力 | 说明 |
+| --- | --- |
+| 服务器管理 | 独立 `ServersActivity`（FinalShell 风格：徽标 + 名称 + 协议徽标 + 延迟 + 地址 + 行展开详情：端口/认证/备注/经由电脑数 + 测试连接/编辑/删除/▶ 终端/浏览文件） |
+| SSH 隧道（外网连家里） | 添加电脑表单里选「经由跳板机」→ 地址语义变为「跳板机视角的内网地址」；WebView / 心跳 / 全部请求都从 `127.0.0.1:随机端口` 走 SSH `direct-tcpip` 本地转发（`SshSessionManager.setPortForwardingL`） |
+| 终端 | `TerminalActivity`：xterm.js（assets/terminal/）+ 底部按键栏（Esc/Tab/Ctrl/方向键，Ctrl 臂上字母行）+ 深/亮主题 + 字号/键盘 + 多会话标签（Activity 销毁会话不断，`TerminalRegistry` 静态持有） |
+| 密钥 | 密钥页：导入私钥（文件选择器）/ 本机生成（Ed25519 / RSA4096，JSch KeyPair）；私钥**只进 Android Keystore 加密落盘**（`KeyVault` AES-GCM）；SSH 首连 **TOFU 指纹弹窗确认**并存住，对不上（中间人）拒连 |
+| 文件 | 文件页（`ChannelSftp`）：浏览/上级/上传（文件选择器）/下载到 App 私有 Downloads；Telnet 服务器该页提示不支持 |
+| 会话 | 会话页：进行中（状态点 + 时长）+ 历史（最近 50 条，`JumpStore`） |
+| 关于页 | `AboutActivity`：GitHub 仓库卡片（★/⑂/Issues 实时拉 API，失败用缓存）+ **★ Star** 按钮（打开仓库网页，App 不代点） |
+| 断线重连 | SSH 会话断线指数退避重连（1s→2s→…封顶 60s）；`ServerAliveInterval` 15s NAT 保活；回前台心跳先补探一轮 |
+| Telnet | 实验性：socket 直连 + IAC 过滤（`TelnetSession.java`），只有终端，无隧道无文件 |
+
+**依赖**：`com.github.mwiede:jsch:0.2.20`（app/build.gradle.kts）。mwiede 分叉支持
+rsa-sha2-*，老版 0.1.55 连现代 OpenSSH 会被拒。API 与老 JSch 有差异处
+（HostKeyRepository 是 interface、KeyPair.getPrivateKey 包私有走 writePrivateKey 导出）
+已在 `SshSessionManager` / `ServersActivity` 注释里标明。
 | 增删改 | 标签栏 `＋` 添加；**长按标签**直接编辑；`☰` 或菜单「服务端列表」切换/删除；编辑框里也有「删除」 |
 | 1.0 / 1.1 升级 | 旧版单服务端配置（`host`/`token`）自动迁移成列表第一条；旧版本每条只有一个 `host` 的记录会升级成「只有一个候选地址」的记录，用户无感 |
 
@@ -40,10 +62,21 @@ mobile/android/
     └── src/main/
         ├── AndroidManifest.xml              # INTERNET + usesCleartextTraffic
         ├── java/com/anyboot/remote/
-        │   ├── MainActivity.java            # 标签栏 + 每台电脑一个 WebView + 多地址切换 + 增删改对话框
-        │   ├── ServerProfile.java           # 一条记录（= 一台电脑）：地址列表/分组/名称/token + 地址归一化
+        │   ├── MainActivity.java            # 标签栏 + 每台电脑一个 WebView + 多地址切换 + 增删改对话框 + 侧边栏 + 跳板机隧道接线
+        │   ├── ServerProfile.java           # 一条记录（= 一台电脑）：地址列表/分组/名称/token + 地址归一化 + jumpServerId
         │   ├── ServerStore.java             # SharedPreferences(JSON) 持久化 + 旧版迁移
-        │   └── HealthProbe.java             # 探 /health 拿 machineId（自动归并同一台电脑）
+        │   ├── HealthProbe.java             # 探 /health 拿 machineId（自动归并同一台电脑）+ 心跳 ping
+        │   ├── HeartbeatManager.java        # 10 秒心跳（在线状态轮询，多网卡并发/串行探测，隧道解析器注入）
+        │   ├── JumpServer.java              # 一台跳板机（SSH/Telnet）：协议/认证/密钥引用
+        │   ├── JumpStore.java               # 跳板机 + 密钥持久化、会话历史、终端主题、TOFU 指纹、GitHub 缓存
+        │   ├── SshKeyEntry.java / KeyVault.java  # 密钥模型 + Keystore AES-GCM 加密落盘
+        │   ├── SshSessionManager.java       # SSH 会话栈：连接复用/退避、TOFU、隧道（setPortForwardingL）、shell 通道
+        │   ├── TelnetSession.java           # Telnet 直连 + IAC 过滤（实验性）
+        │   ├── TerminalSession.java / TerminalRegistry.java  # 终端会话统一外壳（backlog/resize）+ 静态注册表
+        │   ├── TerminalActivity.java        # xterm.js 终端页（按键栏/主题/字号/键盘/多会话标签）
+        │   ├── ServersActivity.java         # 服务器模块四页（会话/终端/密钥/文件 SFTP）+ 增删改表单
+        │   └── AboutActivity.java           # 关于页（GitHub 卡片 + Star）
+        ├── assets/terminal/                 # xterm.js 5.3.0 + fit 插件 + 宿主页（iOS 共用同一份）
         └── res/                             # 图标 + app_name
 ```
 

@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AnyBoot 远端管理 — 入口与窗口关系（PC）</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script>
+tailwind.config = {
+  darkMode: 'class',
+  theme: { extend: {
+    fontFamily: { sans:['Inter','PingFang SC','Microsoft YaHei','sans-serif'], mono:['JetBrains Mono','monospace'] },
+    colors: {
+      base:'rgb(var(--base) / <alpha-value>)', card:'rgb(var(--card) / <alpha-value>)', elevate:'rgb(var(--elevate) / <alpha-value>)', line:'rgb(var(--line) / <alpha-value>)', lineStrong:'rgb(var(--linestrong) / <alpha-value>)',
+      fg:'rgb(var(--fg) / <alpha-value>)', fgDim:'rgb(var(--fgdim) / <alpha-value>)', fgFaint:'rgb(var(--fgfaint) / <alpha-value>)',
+      ok:'rgb(var(--ok) / <alpha-value>)', tBlue:'rgb(var(--tblue) / <alpha-value>)', warn:'rgb(var(--warn) / <alpha-value>)', bad:'rgb(var(--bad) / <alpha-value>)',
+    },
+    boxShadow: { pop:'0 16px 48px -8px rgba(0,0,0,.55)' },
+  }}
+}
+</script>
+<style>
+  html { color-scheme: dark; }
+  body { background:
+    radial-gradient(1100px 560px at 50% -10%, rgba(96,165,250,.05), transparent 60%),
+    #0A0E1D; }
+  ::selection { background:#22C55E33; }
+  @media (prefers-reduced-motion: reduce) { *{transition:none!important;animation:none!important} }
+</style>
+<style id="ab-theme">
+  /* ---- 亮/暗双主题：token 全部走 CSS 变量（Tailwind 配置引用 rgb(var(--x)/<alpha>)） ---- */
+  html.dark{
+    --base:2 6 23; --term:4 7 15; --card:14 18 35; --elevate:20 26 46;
+    --line:36 43 65; --linestrong:51 65 85;
+    --fg:248 250 252; --fgdim:148 163 184; --fgfaint:100 116 139;
+    --ok:34 197 94; --warn:245 158 11; --bad:239 68 68; --accent:34 197 94;
+    --tblue:96 165 250; --tgreen:74 222 128; --tyellow:250 204 21; --tcyan:34 211 238; --tmagenta:244 114 182;
+    --frame:28 34 51;
+    color-scheme:dark;
+  }
+  html.light{
+    --base:244 246 250; --card:255 255 255; --elevate:241 245 250;
+    --line:226 232 240; --linestrong:203 213 225;
+    --fg:15 23 42; --fgdim:90 100 118; --fgfaint:138 148 166;
+    --ok:22 163 74; --warn:180 83 9; --bad:220 38 38; --accent:22 163 74;
+    --tblue:37 99 235; --tgreen:22 163 74; --tyellow:202 138 4; --tcyan:8 145 178; --tmagenta:219 39 119;
+    --frame:215 222 232;
+    color-scheme:light;
+  }
+  /* 亮色下的页面底色与阴影减淡（终端区保持深色——终端惯例） */
+  html.light body{background:radial-gradient(1100px 560px at 50% -10%,rgba(34,197,94,.09),transparent 60%),#EDF1F6 !important;}
+  html.light .shadow-frame{box-shadow:0 24px 60px -12px rgba(15,23,42,.22) !important;}
+  html.light .shadow-pop{box-shadow:0 16px 40px -8px rgba(15,23,42,.2) !important;}
+  html.light .phone{border-color:rgb(var(--frame)) !important;}
+  ::selection{background:rgba(34,197,94,.2);}
+</style>
+</head>
+<body class="min-h-screen font-sans text-fg antialiased p-6 md:p-10">
+
+<div class="mx-auto max-w-4xl">
+  <header class="mb-8 text-center">
+    <h1 class="text-xl font-bold">远端管理 · 入口与窗口关系</h1>
+    <p class="mt-2 text-sm text-fgDim">主窗口零改动 · 新增内容全部在独立窗口 · 连接/隧道挂在进程级，窗口随开随关</p>
+  </header>
+
+  <!-- ===== 三层结构图 ===== -->
+  <div class="space-y-8">
+
+    <!-- 第 1 层：托盘 -->
+    <section class="flex justify-center" aria-label="托盘入口">
+      <div class="w-72 rounded-xl border border-line bg-card p-4 shadow-pop">
+        <div class="flex items-center gap-2 border-b border-line pb-2.5">
+          <svg class="size-4 text-fgDim" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>
+          <h2 class="text-sm font-semibold">托盘菜单（唯一新增入口）</h2>
+        </div>
+        <ul class="mt-2.5 space-y-1 text-sm text-fgDim">
+          <li class="rounded px-2 py-1 transition-colors hover:bg-elevate">显示主窗口 <span class="ml-auto font-mono text-[10px] text-fgFaint">不变</span></li>
+          <li class="rounded bg-ok/10 px-2 py-1 font-medium text-ok">
+            服务器
+            <svg class="ml-1 inline size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+            <span class="ml-1 font-mono text-[10px] text-ok/80">新增</span>
+          </li>
+          <li class="rounded px-2 py-1 transition-colors hover:bg-elevate">重启程序 / 退出程序 <span class="ml-auto font-mono text-[10px] text-fgFaint">不变</span></li>
+        </ul>
+        <p class="mt-2.5 text-[11px] leading-relaxed text-fgFaint">build_tray_menu 加一个节点，classic / unified 双形态托盘同时生效</p>
+      </div>
+    </section>
+
+    <div class="flex justify-center" aria-hidden="true">
+      <svg class="size-8 text-lineStrong" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v14M6 12l6 6 6-6"/></svg>
+    </div>
+
+    <!-- 第 2 层：hub -->
+    <section class="flex justify-center" aria-label="hub 窗口">
+      <div class="w-[420px] rounded-xl border border-ok/40 bg-card p-4 shadow-pop">
+        <div class="flex items-center gap-2 border-b border-line pb-2.5">
+          <svg class="size-4 text-ok" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M8 21h8M12 18v3"/></svg>
+          <h2 class="text-sm font-semibold">server-hub 窗口</h2>
+          <span class="ml-auto rounded-full bg-ok/10 px-2 py-0.5 text-[10px] font-medium text-ok">管理中枢</span>
+        </div>
+        <ul class="mt-2.5 grid grid-cols-2 gap-1.5 text-sm text-fgDim">
+          <li class="rounded-lg border border-line bg-elevate/60 px-2.5 py-1.5">服务器列表 / 详情</li>
+          <li class="rounded-lg border border-line bg-elevate/60 px-2.5 py-1.5">编辑 / 测试连接</li>
+          <li class="rounded-lg border border-line bg-elevate/60 px-2.5 py-1.5">TOFU 指纹信任</li>
+          <li class="rounded-lg border border-line bg-elevate/60 px-2.5 py-1.5">密钥管理 <span class="font-mono text-[10px] text-fgFaint">→ 独立窗</span></li>
+          <li class="col-span-2 rounded-lg border border-line bg-elevate/60 px-2.5 py-1.5">经由跳板机的 anyboot 隧道状态</li>
+        </ul>
+        <p class="mt-2.5 text-[11px] leading-relaxed text-fgFaint">SSH 会话 / 隧道挂在 Rust 全局状态 —— 关掉 hub，连接不断</p>
+      </div>
+    </section>
+
+    <div class="flex justify-center gap-40" aria-hidden="true">
+      <svg class="size-8 text-lineStrong" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v14M6 12l6 6 6-6"/></svg>
+      <svg class="size-8 text-lineStrong" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v14M6 12l6 6 6-6"/></svg>
+    </div>
+
+    <!-- 第 3 层：功能窗 -->
+    <section class="flex flex-wrap justify-center gap-5" aria-label="功能窗口">
+      <div class="w-[300px] rounded-xl border border-line bg-card p-4 shadow-pop">
+        <div class="flex items-center gap-2 border-b border-line pb-2.5">
+          <svg class="size-4 text-tBlue" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M6 9l3 3-3 3"/></svg>
+          <h3 class="text-sm font-semibold">终端窗（一会话一窗）</h3>
+        </div>
+        <ul class="mt-2.5 space-y-1 text-[13px] text-fgDim">
+          <li class="rounded px-2 py-1">xterm.js · 主题 / 字号切换</li>
+          <li class="rounded px-2 py-1">多标签 · ✕ 显式结束会话</li>
+          <li class="rounded px-2 py-1">状态栏：地址 / 尺寸 / 延迟</li>
+        </ul>
+      </div>
+      <div class="w-[300px] rounded-xl border border-line bg-card p-4 shadow-pop">
+        <div class="flex items-center gap-2 border-b border-line pb-2.5">
+          <svg class="size-4 text-tBlue" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          <h3 class="text-sm font-semibold">文件窗（SFTP）</h3>
+        </div>
+        <ul class="mt-2.5 space-y-1 text-[13px] text-fgDim">
+          <li class="rounded px-2 py-1">路径面包屑 / 权限时间列</li>
+          <li class="rounded px-2 py-1">上传 / 下载带进度反馈</li>
+          <li class="rounded px-2 py-1">Telnet 不提供（置灰）</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- 主窗口不动 -->
+    <section class="flex justify-center pb-4" aria-label="主窗口">
+      <div class="w-72 rounded-xl border border-dashed border-lineStrong bg-card/50 p-4 text-center opacity-70">
+        <svg class="mx-auto size-5 text-fgFaint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M3 9h18"/></svg>
+        <h3 class="mt-2 text-sm font-semibold text-fgDim">主窗口</h3>
+        <p class="mt-1 text-[11px] leading-relaxed text-fgFaint">ui/index.html 一行不动 · 多系统 / GRUB / 电源管理照旧 · 远程动作 gui_only 边界不变</p>
+      </div>
+    </section>
+  </div>
+
+  <!-- 实施顺序 -->
+  <section class="mt-10 rounded-xl border border-line bg-card p-5" aria-label="实施顺序">
+    <h2 class="text-[11px] font-semibold uppercase tracking-[.14em] text-fgFaint">实施顺序（每步可独立交付）</h2>
+    <ol class="mt-3 flex flex-wrap gap-2 text-[13px]">
+      <li class="flex items-center gap-2 rounded-lg border border-line bg-elevate px-3 py-1.5"><span class="grid size-5 place-items-center rounded-full bg-ok/15 font-mono text-[10px] font-bold text-ok">1</span>hub 骨架 + 托盘入口 + 列表/编辑</li>
+      <li class="flex items-center gap-2 text-fgFaint" aria-hidden="true">→</li>
+      <li class="flex items-center gap-2 rounded-lg border border-line bg-elevate px-3 py-1.5"><span class="grid size-5 place-items-center rounded-full bg-ok/15 font-mono text-[10px] font-bold text-ok">2</span>终端窗</li>
+      <li class="flex items-center gap-2 text-fgFaint" aria-hidden="true">→</li>
+      <li class="flex items-center gap-2 rounded-lg border border-line bg-elevate px-3 py-1.5"><span class="grid size-5 place-items-center rounded-full bg-ok/15 font-mono text-[10px] font-bold text-ok">3</span>隧道（russh / 系统 ssh）</li>
+      <li class="flex items-center gap-2 text-fgFaint" aria-hidden="true">→</li>
+      <li class="flex items-center gap-2 rounded-lg border border-line bg-elevate px-3 py-1.5"><span class="grid size-5 place-items-center rounded-full bg-ok/15 font-mono text-[10px] font-bold text-ok">4</span>SFTP</li>
+    </ol>
+    <p class="mt-3 text-[11px] text-fgFaint">注意：新窗口 label 必须加进 capabilities/default.json 的 windows 列表，否则 invoke/listen 静默拒</p>
+  </section>
+</div>
+<button id="abThemeToggle" aria-label="切换亮暗主题" title="切换亮 / 暗主题" style="position:fixed;top:14px;right:14px;z-index:9999;cursor:pointer;border:1px solid rgb(var(--linestrong));background:rgb(var(--card));color:rgb(var(--fg));border-radius:9999px;padding:6px 14px;font:500 12px/1 Inter,'PingFang SC',sans-serif;box-shadow:0 4px 16px rgba(0,0,0,.18);display:flex;align-items:center;gap:6px;transition:background .15s,border-color .15s">
+  <svg id="abThemeIcon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"></svg>
+  <span id="abThemeLabel">亮色</span>
+</button>
+<script>
+(function(){
+  var root=document.documentElement,
+      btn=document.getElementById('abThemeToggle'),
+      lb=document.getElementById('abThemeLabel'),
+      ic=document.getElementById('abThemeIcon');
+  var SUN='<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>';
+  var MOON='<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>';
+  function apply(t){
+    root.classList.remove('light','dark');
+    root.classList.add(t);
+    lb.textContent = t==='light' ? '暗色' : '亮色';   /* 按钮显示将要切换到的主题 */
+    ic.innerHTML  = t==='light' ? MOON : SUN;
+    try{ localStorage.setItem('ab-theme',t); }catch(e){}
+  }
+  var saved='dark';
+  try{ saved=localStorage.getItem('ab-theme')||'dark'; }catch(e){}
+  apply(saved);
+  btn.addEventListener('click',function(){
+    apply(root.classList.contains('light') ? 'dark' : 'light');
+  });
+})();
+</script>
+</body>
+</html>

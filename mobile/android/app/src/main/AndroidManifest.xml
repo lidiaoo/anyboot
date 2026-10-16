@@ -23,5 +23,23 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- 服务器模块（跳板机管理 + 底部导航：会话/终端/密钥/文件） -->
+        <activity
+            android:name=".ServersActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
+            android:exported="false" />
+
+        <!-- xterm 终端会话页 -->
+        <activity
+            android:name=".TerminalActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
+            android:windowSoftInputMode="adjustResize"
+            android:exported="false" />
+
+        <!-- 关于页（GitHub 仓库卡片 + Star 引导） -->
+        <activity
+            android:name=".AboutActivity"
+            android:exported="false" />
     </application>
 </manifest>

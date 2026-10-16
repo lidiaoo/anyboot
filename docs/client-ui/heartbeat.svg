@@ -1,0 +1,53 @@
+<svg viewBox="0 0 720 350" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system,'PingFang SC',sans-serif">
+  <text x="360" y="26" text-anchor="middle" font-size="15" font-weight="700" fill="#2b2e35">电脑列表 / 顶部标签 · 10 秒心跳在线状态</text>
+  <text x="360" y="42" text-anchor="middle" font-size="9" fill="#8a8e99">前台每 10s 探 /health · 连续 2 次失败判离线 · 上线立即亮</text>
+
+  <rect x="170" y="56" width="380" height="248" rx="24" fill="#ffffff" stroke="#d9dce3" stroke-width="1.5"/>
+  <rect x="178" y="64" width="364" height="232" rx="18" fill="#f3f4f8"/>
+  <path d="M178 100 h364" stroke="#e4e6ec"/>
+  <text x="360" y="88" text-anchor="middle" font-size="11.5" font-weight="600" fill="#23262e">电脑</text>
+
+  <!-- 在线行 -->
+  <rect x="188" y="112" width="344" height="52" rx="12" fill="#ffffff" stroke="#e1e3ea"/>
+  <circle cx="210" cy="138" r="10" fill="#c7303e"/><text x="210" y="142" text-anchor="middle" font-size="9" font-weight="700" fill="#fff">D</text>
+  <text x="228" y="134" font-size="10.5" font-weight="600" fill="#23262e">书房台式机</text>
+  <text x="228" y="150" font-size="8.5" fill="#8a8e99">192.168.1.10 · GRUB 重定向开启</text>
+  <circle cx="440" cy="130" r="4" fill="#22a35a"/>
+  <text x="450" y="134" font-size="9" fill="#22a35a" font-weight="600">在线 · 18ms</text>
+  <text x="520" y="150" text-anchor="end" font-size="8" fill="#8a8e99">心跳 10s</text>
+
+  <!-- 在线（经隧道） -->
+  <rect x="188" y="172" width="344" height="52" rx="12" fill="#ffffff" stroke="#e1e3ea"/>
+  <circle cx="210" cy="198" r="10" fill="#e07a1f"/><text x="210" y="202" text-anchor="middle" font-size="9" font-weight="700" fill="#fff">U</text>
+  <text x="228" y="194" font-size="10.5" font-weight="600" fill="#23262e">客厅主机</text>
+  <text x="228" y="210" font-size="8.5" fill="#8a8e99">经由 pve 隧道 · 192.168.1.11</text>
+  <circle cx="440" cy="190" r="4" fill="#22a35a"/>
+  <text x="450" y="194" font-size="9" fill="#22a35a" font-weight="600">在线 · 65ms</text>
+
+  <!-- 离线行 -->
+  <rect x="188" y="232" width="344" height="52" rx="12" fill="#ffffff" stroke="#e1e3ea" opacity="0.75"/>
+  <circle cx="210" cy="258" r="10" fill="#8a8e99" opacity="0.6"/><text x="210" y="262" text-anchor="middle" font-size="9" font-weight="700" fill="#fff">N</text>
+  <text x="228" y="254" font-size="10.5" font-weight="600" fill="#23262e" opacity="0.7">宿舍笔记本</text>
+  <text x="228" y="270" font-size="8.5" fill="#8a8e99">10.8.0.6 · 关机中</text>
+  <circle cx="440" cy="250" r="4" fill="#c0c3cb"/>
+  <text x="450" y="254" font-size="9" fill="#8a8e99">离线 · 最近在线 10:32</text>
+
+  <!-- 图例 -->
+  <g font-size="8.5" fill="#8a8e99">
+    <circle cx="216" cy="300" r="3.5" fill="#22a35a"/><text x="224" y="303">在线（/health 200）</text>
+    <circle cx="366" cy="300" r="3.5" fill="#c0c3cb"/><text x="374" y="303">离线（连续 2 次失败）</text>
+  </g>
+
+  <!-- 顶部标签条示意 -->
+  <g>
+    <rect x="216" y="152" width="76" height="24" rx="9" fill="#dfe8df" stroke="#22a35a"/>
+    <circle cx="227" cy="164" r="2.5" fill="#22a35a"/>
+    <text x="258" y="168" text-anchor="middle" font-size="8.5" fill="#1d1f26">书房 · 台式机</text>
+    <rect x="298" y="152" width="76" height="24" rx="9" fill="#e8eaef"/>
+    <circle cx="309" cy="164" r="2.5" fill="#c0c3cb"/>
+    <text x="340" y="168" text-anchor="middle" font-size="8.5" fill="#7a7e88">宿舍 · 笔记本</text>
+    <text x="560" y="169" font-size="8" fill="#8a8e99">← 顶部标签同样由心跳驱动</text>
+  </g>
+
+  <text x="360" y="336" text-anchor="middle" font-size="12.5" font-weight="600" fill="#3a3d45">电脑列表与顶部标签：状态同源于心跳</text>
+</svg>

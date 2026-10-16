@@ -1,0 +1,104 @@
+<svg viewBox="0 0 720 496" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system,'PingFang SC',sans-serif">
+  <text x="360" y="26" text-anchor="middle" font-size="15" font-weight="700" fill="#2b2e35">终端服务器 · 新增 / 编辑</text>
+  <text x="360" y="42" text-anchor="middle" font-size="9" fill="#8a8e99">表单分两屏 · 首次连接走 TOFU 指纹确认</text>
+
+  <!-- ═══ ① 连接信息 ═══ -->
+  <g>
+    <rect x="16" y="56" width="216" height="396" rx="28" fill="#ffffff" stroke="#d9dce3" stroke-width="1.5"/>
+    <rect x="24" y="64" width="200" height="380" rx="22" fill="#f3f4f8"/>
+    <path d="M24 100 h200" stroke="#e4e6ec"/>
+    <text x="44" y="88" font-size="12" fill="#6a6e78">‹</text>
+    <text x="124" y="88" text-anchor="middle" font-size="11.5" font-weight="600" fill="#23262e">编辑服务器</text>
+    <text x="206" y="88" text-anchor="end" font-size="10" fill="#6a6e78">取消</text>
+
+    <text x="36" y="118" font-size="8.5" fill="#8a8e99">名称</text>
+    <rect x="36" y="126" width="176" height="26" rx="8" fill="#ffffff" stroke="#e1e3ea"/>
+    <text x="46" y="143" font-size="9.5" fill="#23262e">pve</text>
+
+    <text x="36" y="168" font-size="8.5" fill="#8a8e99">协议</text>
+    <rect x="36" y="176" width="86" height="26" rx="8" fill="#22a35a"/>
+    <text x="79" y="193" text-anchor="middle" font-size="9.5" font-weight="700" fill="#ffffff">SSH</text>
+    <rect x="126" y="176" width="86" height="26" rx="8" fill="#ffffff" stroke="#e1e3ea"/>
+    <text x="169" y="193" text-anchor="middle" font-size="9.5" fill="#8a8e99">Telnet</text>
+
+    <text x="36" y="218" font-size="8.5" fill="#8a8e99">地址</text>
+    <rect x="36" y="226" width="118" height="26" rx="8" fill="#ffffff" stroke="#e1e3ea"/>
+    <text x="46" y="243" font-size="9.5" fill="#23262e">192.168.1.6</text>
+    <text x="166" y="243" font-size="8.5" fill="#8a8e99">端口</text>
+    <rect x="186" y="226" width="26" height="26" rx="8" fill="#ffffff" stroke="#e1e3ea"/>
+    <text x="199" y="243" text-anchor="middle" font-size="9.5" fill="#23262e">22</text>
+
+    <text x="36" y="268" font-size="8.5" fill="#8a8e99">用户名</text>
+    <rect x="36" y="276" width="176" height="26" rx="8" fill="#ffffff" stroke="#e1e3ea"/>
+    <text x="46" y="293" font-size="9.5" fill="#23262e">root</text>
+
+    <text x="36" y="318" font-size="8.5" fill="#8a8e99">认证方式</text>
+    <rect x="36" y="326" width="86" height="26" rx="8" fill="#22a35a"/>
+    <text x="79" y="343" text-anchor="middle" font-size="9.5" font-weight="700" fill="#ffffff">密码</text>
+    <rect x="126" y="326" width="86" height="26" rx="8" fill="#ffffff" stroke="#e1e3ea"/>
+    <text x="169" y="343" text-anchor="middle" font-size="9.5" fill="#8a8e99">密钥</text>
+
+    <rect x="36" y="360" width="176" height="26" rx="8" fill="#ffffff" stroke="#e1e3ea"/>
+    <text x="46" y="377" font-size="9.5" fill="#23262e">••••••••••</text>
+    <text x="202" y="377" text-anchor="end" font-size="9" fill="#8a8e99">👁</text>
+
+    <rect x="36" y="396" width="12" height="12" rx="3.5" fill="#22a35a"/>
+    <path d="M39 402 l3 3 l5.5 -6" stroke="#ffffff" stroke-width="1.8" fill="none"/>
+    <text x="54" y="406" font-size="9" fill="#3c4048">保存密码（加密存本机 · 连接免输）</text>
+    <text x="36" y="424" font-size="8.5" fill="#8a8e99">密钥同理：私钥存系统钥匙串，不上传</text>
+
+    <text x="124" y="478" text-anchor="middle" font-size="12.5" font-weight="600" fill="#3a3d45">① 连接信息 · 密码可保存</text>
+  </g>
+
+  <!-- ═══ ② 隧道 / 指纹 / 保存 ═══ -->
+  <g>
+    <rect x="252" y="56" width="216" height="396" rx="28" fill="#ffffff" stroke="#d9dce3" stroke-width="1.5"/>
+    <rect x="260" y="64" width="200" height="380" rx="22" fill="#f3f4f8"/>
+    <path d="M260 100 h200" stroke="#e4e6ec"/>
+    <text x="360" y="88" text-anchor="middle" font-size="11.5" font-weight="600" fill="#23262e">编辑服务器</text>
+
+    <text x="272" y="118" font-size="8.5" fill="#8a8e99">经由跳板机</text>
+    <rect x="272" y="126" width="176" height="26" rx="8" fill="#ffffff" stroke="#e1e3ea"/>
+    <text x="282" y="143" font-size="9.5" fill="#23262e">书房台式机（anyboot · 在线）</text>
+    <text x="440" y="143" text-anchor="end" font-size="9" fill="#8a8e99">▾</text>
+    <text x="272" y="168" font-size="8.5" fill="#8a8e99">选定后 WebView / API / 心跳全部走该跳板机隧道</text>
+
+    <text x="272" y="192" font-size="8.5" fill="#8a8e99">备注</text>
+    <rect x="272" y="200" width="176" height="34" rx="8" fill="#ffffff" stroke="#e1e3ea"/>
+    <text x="282" y="216" font-size="9.5" fill="#23262e">家用 PVE 宿主机</text>
+
+    <text x="272" y="256" font-size="8.5" fill="#8a8e99">主机指纹（TOFU）</text>
+    <rect x="272" y="264" width="176" height="42" rx="8" fill="#ffffff" stroke="#e1e3ea"/>
+    <text x="282" y="280" font-size="8.5" font-family="ui-monospace,Menlo,monospace" fill="#4a4e58">SHA256:3xk9mT…8fQ2a</text>
+    <text x="282" y="296" font-size="8.5" fill="#c05050">变更时弹窗确认，防中间人</text>
+
+    <path d="M272 324 h176" stroke="#e8eaef"/>
+
+    <rect x="272" y="336" width="176" height="28" rx="9" fill="#22a35a"/>
+    <text x="360" y="354" text-anchor="middle" font-size="10.5" font-weight="700" fill="#ffffff">保存</text>
+    <rect x="272" y="372" width="176" height="26" rx="8" fill="#eef0f5"/>
+    <text x="360" y="389" text-anchor="middle" font-size="9.5" fill="#3c4048">测试连接</text>
+    <text x="360" y="422" text-anchor="middle" font-size="9.5" fill="#c05050">删除此服务器</text>
+
+    <text x="360" y="478" text-anchor="middle" font-size="12.5" font-weight="600" fill="#3a3d45">② 经由跳板机 · 指纹 · 保存</text>
+  </g>
+
+  <!-- ═══ ③ 首次连接 TOFU 弹窗 ═══ -->
+  <g>
+    <rect x="488" y="56" width="216" height="396" rx="28" fill="#ffffff" stroke="#d9dce3" stroke-width="1.5"/>
+    <rect x="496" y="64" width="200" height="380" rx="22" fill="#3a3d45" opacity="0.28"/>
+    <rect x="506" y="164" width="180" height="172" rx="14" fill="#ffffff"/>
+    <text x="596" y="192" text-anchor="middle" font-size="11" font-weight="700" fill="#23262e">确认主机指纹</text>
+    <text x="596" y="210" text-anchor="middle" font-size="9" fill="#8a8e99">首次连接 pve（192.168.1.6:22）</text>
+    <rect x="518" y="222" width="156" height="44" rx="8" fill="#f3f4f8"/>
+    <text x="596" y="240" text-anchor="middle" font-size="8.5" font-family="ui-monospace,Menlo,monospace" fill="#4a4e58">SHA256:3xk9mT…8fQ2a</text>
+    <text x="596" y="256" text-anchor="middle" font-size="8.5" fill="#8a8e99">SSH-Ed25519 · 256 位</text>
+    <rect x="518" y="278" width="74" height="28" rx="9" fill="#22a35a"/>
+    <text x="555" y="296" text-anchor="middle" font-size="9.5" font-weight="700" fill="#ffffff">信任并连接</text>
+    <rect x="600" y="278" width="74" height="28" rx="9" fill="#eef0f5"/>
+    <text x="637" y="296" text-anchor="middle" font-size="9.5" fill="#3c4048">取消</text>
+    <text x="596" y="326" text-anchor="middle" font-size="8.5" fill="#8a8e99">指纹登记到钥匙串，此后变更需确认</text>
+
+    <text x="596" y="478" text-anchor="middle" font-size="12.5" font-weight="600" fill="#3a3d45">③ 首次连接 · TOFU 确认</text>
+  </g>
+</svg>

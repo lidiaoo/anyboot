@@ -1,0 +1,1288 @@
+package com.anyboot.remote
+
+import android.annotation.SuppressLint
+import android.content.Intent
+import android.net.Uri
+import android.os.Bundle
+import android.provider.OpenableColumns
+import android.text.format.Formatter
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.jcraft.jsch.ChannelSftp
+import com.jcraft.jsch.JSch
+import com.jcraft.jsch.KeyPair
+import com.jcraft.jsch.Session
+import com.jcraft.jsch.SftpATTRS
+import java.io.OutputStream
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+/**
+ * 服务器模块（跳板机管理）：FinalShell 风格的服务器列表 + 模块内底部导航四页
+ * （会话 / 终端 / 密钥 / 文件）。Jetpack Compose / Material 3 重写，业务逻辑平移。
+ */
+class ServersActivity : ComponentActivity() {
+
+    private val bus = ConfirmBus()
+
+    // ---- 可观察状态 ----
+    private val jumps = mutableStateListOf<JumpServer>()
+    private val keys = mutableStateListOf<SshKeyEntry>()
+    private var currentPage by mutableIntStateOf(0)
+    private val expanded = mutableStateListOf<Boolean>()
+    private var search by mutableStateOf("")
+    private var tick by mutableIntStateOf(0)   // 会话注册表变化时自增
+
+    // 编辑/删除/生成弹窗
+    private var editTarget by mutableStateOf<JumpServer?>(null)
+    private var editOpen by mutableStateOf(false)
+    private var deleteTarget by mutableStateOf<JumpServer?>(null)
+    private var killTarget by mutableStateOf<TerminalSession?>(null)
+    private var generateKeyOpen by mutableStateOf(false)
+    private var manualPassword by mutableStateOf<ManualPwdRequest?>(null)
+
+    private class ManualPwdRequest(val server: JumpServer, val onReady: Runnable)
+
+    // 文件页状态
+    private var sftpServerId by mutableStateOf("")
+    private var sftpPath by mutableStateOf("/")
+    private var sftpEntries by mutableStateOf<List<List<String>>>(emptyList()) // [name, kind, size]
+    private var sftpBusy by mutableStateOf(false)
+    private var sftpError by mutableStateOf("")
+    /** 已经拉取过的「服务器|路径」标记 —— 空目录也不能反复重拉（否则死循环） */
+    private var sftpLoadedKey by mutableStateOf("")
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        Ui.applySystemBars(this)
+        jumps.addAll(JumpStore.loadJumps(this))
+        keys.addAll(JumpStore.loadKeys(this))
+        setContent { Root() }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        jumps.clear(); jumps.addAll(JumpStore.loadJumps(this))
+        keys.clear(); keys.addAll(JumpStore.loadKeys(this))
+        tick++
+    }
+
+    @Composable
+    private fun Root() {
+        AppTheme {
+            val palette = LocalPalette.current
+            Column(Modifier.fillMaxSize().background(palette.base)) {
+                // 标题栏
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(palette.card)
+                        .padding(8.dp),
+                ) {
+                    BarIcon("‹", "返回") { finish() }
+                    Text(
+                        "服务器（SSH / Telnet 跳板机）",
+                        fontSize = 16.sp,
+                        color = palette.fg,
+                        modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+                    )
+                    BarIcon("＋", "添加服务器") {
+                        editTarget = null
+                        editOpen = true
+                    }
+                }
+
+                // 四页（切页重组，无需叠放显隐）
+                Box(Modifier.fillMaxWidth().weight(1f)) {
+                    when (currentPage) {
+                        0 -> SessionsPage()
+                        1 -> ServersPage()
+                        2 -> KeysPage()
+                        else -> FilesPage()
+                    }
+                }
+
+                // 底部导航：会话 / 终端 / 密钥 / 文件
+                NavigationBar(containerColor = palette.card, tonalElevation = 0.dp) {
+                    listOf("会话", "终端", "密钥", "文件").forEachIndexed { index, label ->
+                        NavigationBarItem(
+                            selected = currentPage == index,
+                            onClick = { currentPage = index },
+                            icon = {},
+                            label = {
+                                Text(
+                                    label,
+                                    fontSize = 14.sp,
+                                    fontWeight = if (currentPage == index) FontWeight.Bold else FontWeight.Normal,
+                                )
+                            },
+                            colors = androidx.compose.material3.NavigationBarItemDefaults.colors(
+                                selectedTextColor = palette.accent,
+                                unselectedTextColor = palette.fgDim,
+                                indicatorColor = palette.elevate,
+                            ),
+                        )
+                    }
+                }
+            }
+
+            if (editOpen) EditJumpDialog(editTarget)
+            deleteTarget?.let { DeleteJumpDialog(it) }
+            killTarget?.let { KillDialog(it) }
+            if (generateKeyOpen) GenerateKeyDialog()
+            manualPassword?.let { ManualPasswordDialog(it) }
+            ConfirmDialog(bus)
+        }
+
+        // 会话注册表变化 → 会话页刷新
+        DisposableEffect(Unit) {
+            val listener = { tick += 1 }
+            SessionEvents.register(listener)
+            onDispose { SessionEvents.unregister(listener) }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // 会话页
+    // ------------------------------------------------------------------
+
+    @Composable
+    private fun SessionsPage() {
+        tick // 订阅会话注册表变化
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+            SectionTitle("进行中")
+            val live = TerminalRegistry.all()
+            if (live.isEmpty()) {
+                EmptyHint("没有进行中的会话。到「终端」页点「▶ 打开终端」开始。")
+            }
+            for (session in live) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            val intent = Intent(this@ServersActivity, TerminalActivity::class.java)
+                            intent.putExtra("jumpId", session.server.id)
+                            startActivity(intent)
+                        }
+                        .padding(start = 12.dp, top = 12.dp, end = 8.dp, bottom = 12.dp),
+                ) {
+                    Text("●", color = LocalPalette.current.ok)
+                    Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
+                        PrimaryText(session.server.name)
+                        SecondaryText("已连接 " + humanDuration(System.currentTimeMillis() - session.startedAt))
+                    }
+                    ChipButton("结束") { killTarget = session }
+                }
+            }
+
+            SectionTitle("历史")
+            val history = JumpStore.loadHistory(this@ServersActivity)
+            if (history.isEmpty()) {
+                EmptyHint("还没有会话历史。")
+            }
+            val format = SimpleDateFormat("MM-dd HH:mm", Locale.getDefault())
+            for (entry in history) {
+                if (entry.endedAt <= 0) continue
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 12.dp, top = 12.dp, end = 8.dp, bottom = 12.dp),
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        PrimaryText(if (JumpStore.text(entry.serverName).isEmpty()) "服务器" else entry.serverName)
+                        val duration = Math.max(0, entry.endedAt - Math.max(entry.startedAt, 0))
+                        SecondaryText(format.format(Date(entry.startedAt)) + " · 时长 " + humanDuration(duration))
+                    }
+                }
+            }
+            if (history.isNotEmpty()) {
+                TextButton(
+                    onClick = {
+                        ServerStore.prefs(this@ServersActivity).edit()
+                            .putString("session_history", "").apply()
+                        tick++
+                    },
+                    modifier = Modifier.align(Alignment.CenterHorizontally),
+                ) { Text("清空历史") }
+            }
+        }
+    }
+
+    /** 「结束会话」确认弹窗（状态驱动，别在点击回调里直接组 UI） */
+    @Composable
+    private fun KillDialog(session: TerminalSession) {
+        AlertDialog(
+            onDismissRequest = { killTarget = null },
+            title = { Text("结束会话") },
+            text = { Text("结束「${session.server.name}」的终端会话吗？") },
+            confirmButton = {
+                TextButton(onClick = {
+                    killTarget = null
+                    session.close("用户结束")
+                    TerminalRegistry.remove(session.server.id)
+                    tick++
+                }) { Text("结束") }
+            },
+            dismissButton = { TextButton(onClick = { killTarget = null }) { Text("取消") } },
+        )
+    }
+
+    // ------------------------------------------------------------------
+    // 终端页（服务器列表）
+    // ------------------------------------------------------------------
+
+    @Composable
+    private fun ServersPage() {
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+            OutlinedTextField(
+                value = search,
+                onValueChange = { search = it.trim() },
+                singleLine = true,
+                placeholder = { Text("🔍  搜索名称 / 地址", fontSize = 14.sp) },
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 12.dp, top = 8.dp, end = 12.dp, bottom = 4.dp),
+            )
+
+            if (jumps.isEmpty()) {
+                EmptyHint(
+                    "还没有服务器。\n\nSSH 跳板机：外网连家里的必经之路 —— 手机先 SSH 登录它，"
+                            + "再由它访问局域网内的 anyboot 电脑。\nTelnet：只有实验性终端。"
+                )
+                TextButton(
+                    onClick = { editTarget = null; editOpen = true },
+                    modifier = Modifier.align(Alignment.CenterHorizontally),
+                ) { Text("＋ 添加服务器") }
+                return@Column
+            }
+            while (expanded.size < jumps.size) expanded.add(false)
+
+            val query = search.lowercase(Locale.ROOT)
+            jumps.forEachIndexed { index, server ->
+                val name = JumpStore.text(server.name)
+                if (query.isNotEmpty()
+                    && !name.lowercase(Locale.ROOT).contains(query)
+                    && !server.host.lowercase(Locale.ROOT).contains(query)
+                ) {
+                    return@forEachIndexed
+                }
+                if (index > 0) ListDivider()
+                ServerRow(server, index)
+                if (index < expanded.size && expanded[index]) {
+                    DetailPanel(server, index)
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+        }
+    }
+
+    @Composable
+    private fun ServerRow(server: JumpServer, index: Int) {
+        val palette = LocalPalette.current
+        val expand = index < expanded.size && expanded[index]
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable {
+                    while (expanded.size < jumps.size) expanded.add(false)
+                    expanded[index] = !expanded[index]
+                }
+                .padding(start = 12.dp, top = 12.dp, end = 8.dp, bottom = 12.dp),
+        ) {
+            // 字母徽标（FinalShell 的发行版图标用首字母兜底）
+            val name = JumpStore.text(server.name)
+            Box(
+                Modifier
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(palette.accent),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    if (name.isEmpty()) "S" else name.substring(0, 1).uppercase(Locale.ROOT),
+                    color = Color.White,
+                    fontSize = 15.sp,
+                )
+            }
+            Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        if (name.isEmpty()) server.addressLabel() else name,
+                        fontSize = 15.sp,
+                        color = palette.fg,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        " ${server.protocolLabel()} ",
+                        fontSize = 10.sp,
+                        color = if (server.isSsh()) palette.accent else palette.warn,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(palette.elevate),
+                    )
+                    if (server.lastRttMs >= 0) {
+                        Spacer(Modifier.width(6.dp))
+                        Text("  ${server.lastRttMs}ms", fontSize = 11.sp, color = palette.ok)
+                    }
+                }
+                // 名称没填时主标题已经是地址了，副行别再重复一遍 —— 换成用户/端口摘要
+                var secondary = if (name.isEmpty()) {
+                    "用户 " + (if (JumpStore.text(server.username).isEmpty()) "root" else server.username) + " · 端口 " + server.port()
+                } else {
+                    server.addressLabel()
+                }
+                if (!server.isSsh()) secondary += "（实验性终端）"
+                SecondaryText(secondary, Modifier.padding(top = 2.dp))
+            }
+
+            if (server.isSsh()) {
+                ChipButton("▶ 终端") { openTerminal(server) }
+            }
+            Text(
+                if (expand) "▾" else "▸",
+                fontSize = 16.sp,
+                color = palette.fgDim,
+                modifier = Modifier.padding(start = 10.dp, end = 4.dp),
+            )
+        }
+    }
+
+    /** 展开的详情面板：信息 + 测试连接 / 打开终端 / 编辑 / 删除 */
+    @OptIn(ExperimentalLayoutApi::class)
+    @Composable
+    private fun DetailPanel(server: JumpServer, position: Int) {
+        Column(Modifier.padding(start = 48.dp, top = 4.dp, end = 12.dp, bottom = 10.dp)) {
+            SecondaryText(
+                "端口 " + server.port()
+                        + " · 用户 " + (if (JumpStore.text(server.username).isEmpty()) "（未填，连接时用 root）" else server.username)
+                        + " · 认证 " + server.authLabel()
+            )
+            if (JumpStore.text(server.note).isNotEmpty()) {
+                SecondaryText("备注：" + server.note)
+            }
+            if (server.isSsh()) {
+                SecondaryText("经由此服务器的电脑：" + JumpStore.computersVia(this@ServersActivity, server.id) + " 台")
+            }
+            Spacer(Modifier.height(6.dp))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (server.isSsh()) {
+                    ChipButton("▶ 打开终端") { openTerminal(server) }
+                    ChipButton("浏览文件") {
+                        currentPage = 3
+                        sftpServerId = server.id
+                        sftpPath = "/"
+                        sftpEntries = emptyList()
+                        sftpError = ""
+                        sftpLoadedKey = ""
+                    }
+                }
+                ChipButton("测试连接") { testConnection(server) }
+                ChipButton("编辑") { editTarget = server; editOpen = true }
+                ChipButton("删除") { deleteTarget = server }
+            }
+            if (server.isSsh() && SshSessionManager.shared().isUp(server.id)) {
+                SecondaryText("SSH 会话在线（隧道与终端共享）", Modifier.padding(top = 4.dp))
+            }
+        }
+    }
+
+    private fun openTerminal(server: JumpServer) {
+        val intent = Intent(this, TerminalActivity::class.java)
+        intent.putExtra("jumpId", server.id)
+        startActivity(intent)
+    }
+
+    /** 测试连接：SSH 握手 / Telnet TCP，量往返 */
+    private fun testConnection(server: JumpServer) {
+        // 密码认证但本机没存上密码 → 先弹输入框（应急通道，本次连接有效）
+        if (server.isSsh() && SshSessionManager.shared().needsManualPassword(server)) {
+            manualPassword = ManualPwdRequest(server) { testConnection(server) }
+            return
+        }
+        toast("正在测试 ${server.addressLabel()} …")
+        val appContext = applicationContext
+        Thread({
+            var result: String
+            val started = System.currentTimeMillis()
+            try {
+                if (server.isSsh()) {
+                    SshSessionManager.shared().ensureSession(
+                        appContext, server
+                    ) { title, message -> bus.confirm(title, message) }
+                } else {
+                    java.net.Socket().use { socket ->
+                        socket.connect(
+                            java.net.InetSocketAddress(server.hostname(), server.port()), 8000
+                        )
+                    }
+                }
+                result = "连接成功（${System.currentTimeMillis() - started}ms）"
+                server.lastRttMs = System.currentTimeMillis() - started
+                server.lastSeen = System.currentTimeMillis()
+                JumpStore.saveJumps(this, jumps)
+            } catch (error: Exception) {
+                result = "连接失败：" + (error.message ?: error.javaClass.simpleName)
+            }
+            val message = result
+            runOnUiThread {
+                tick++
+                toast(message, long = true)
+            }
+        }, "anyboot-test-conn").start()
+    }
+
+    @Composable
+    private fun DeleteJumpDialog(server: JumpServer) {
+        val via = JumpStore.computersVia(this, server.id)
+        AlertDialog(
+            onDismissRequest = { deleteTarget = null },
+            title = { Text("删除服务器") },
+            text = {
+                Text(
+                    "确定删除「" + JumpStore.text(server.name) + "」吗？"
+                            + (if (via > 0) "\n\n注意：有 $via 台电脑配置了经由它连接，删除后这些电脑会退回直连。" else "")
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    deleteTarget = null
+                    SshSessionManager.shared().shutdown(server.id)
+                    val session = TerminalRegistry.get(server.id)
+                    if (session != null) {
+                        session.close("服务器已删除")
+                        TerminalRegistry.remove(server.id)
+                    }
+                    jumps.remove(server)
+                    JumpStore.saveJumps(this, jumps)
+                }) { Text("删除", color = LocalPalette.current.bad) }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteTarget = null }) { Text("取消") }
+            },
+        )
+    }
+
+    // ------------------------------------------------------------------
+    // 添加 / 编辑服务器
+    // ------------------------------------------------------------------
+
+    @Composable
+    private fun EditJumpDialog(existing: JumpServer?) {
+        val palette = LocalPalette.current
+        val editing = existing != null
+
+        var name by remember(existing) { mutableStateOf(existing?.name ?: "") }
+        var isTelnet by remember(existing) { mutableStateOf(editing && existing?.isSsh() == false) }
+        var host by remember(existing) { mutableStateOf(existing?.host ?: "") }
+        var username by remember(existing) { mutableStateOf(existing?.username ?: "") }
+        var authKey by remember(existing) {
+            mutableStateOf(editing && JumpServer.AUTH_KEY == existing?.authType)
+        }
+        var password by remember(existing) { mutableStateOf("") }
+        var savePassword by remember(existing) {
+            mutableStateOf(!editing || JumpStore.text(existing?.passwordEnc).isNotEmpty())
+        }
+        var keyIndex by remember(existing) {
+            mutableStateOf(
+                if (editing && JumpServer.AUTH_KEY == existing?.authType) {
+                    val found = keys.indexOfFirst { it.id == existing.keyId }
+                    if (found >= 0) found else 0
+                } else 0
+            )
+        }
+        var keyOpen by remember { mutableStateOf(false) }
+        var passphrase by remember(existing) { mutableStateOf("") }
+        var note by remember(existing) { mutableStateOf(existing?.note ?: "") }
+        // 已存密码要回显 —— 否则用户没法确认到底存没存（解不开等于没存，一并暴露）
+        val savedPassword = remember(existing) {
+            if (editing) KeyVault.decrypt(existing?.passwordEnc ?: "") else ""
+        }
+
+        AlertDialog(
+            onDismissRequest = { editOpen = false },
+            title = { Text(if (editing) "编辑服务器" else "添加服务器") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    FieldLabel("名称")
+                    OutlinedTextField(
+                        value = name, onValueChange = { name = it }, singleLine = true,
+                        placeholder = { Text("例如：pve / 家里路由器", fontSize = 12.sp) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    FieldLabel("协议")
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(selected = !isTelnet, onClick = { isTelnet = false })
+                        Text("SSH（推荐：隧道+终端+文件）", fontSize = 13.sp)
+                        Spacer(Modifier.width(8.dp))
+                        RadioButton(selected = isTelnet, onClick = { isTelnet = true })
+                        Text("Telnet（实验性，仅终端）", fontSize = 13.sp)
+                    }
+                    FieldLabel("地址（host:port）")
+                    OutlinedTextField(
+                        value = host, onValueChange = { host = it }, singleLine = true,
+                        placeholder = { Text("host:port 或 user@host:port（如 1.2.3.4:22）", fontSize = 12.sp) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    FieldLabel("用户名")
+                    OutlinedTextField(
+                        value = username, onValueChange = { username = it }, singleLine = true,
+                        placeholder = { Text("root", fontSize = 12.sp) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    FieldLabel("认证方式")
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(selected = !authKey, onClick = { authKey = false })
+                        Text("密码", fontSize = 13.sp)
+                        Spacer(Modifier.width(8.dp))
+                        RadioButton(selected = authKey, onClick = { authKey = true })
+                        Text("密钥", fontSize = 13.sp)
+                    }
+                    OutlinedTextField(
+                        value = password,
+                        onValueChange = { password = it },
+                        singleLine = true,
+                        placeholder = {
+                            Text(
+                                if (savedPassword.isNotEmpty()) "已保存密码（可改）" else "留空保持原密码不变",
+                                fontSize = 12.sp,
+                            )
+                        },
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = savePassword, onCheckedChange = { savePassword = it })
+                        Text("保存密码（加密存本机 · 连接免输）", fontSize = 13.sp)
+                    }
+                    FieldLabel("密钥")
+                    Box {
+                        OutlinedTextField(
+                            value = if (keys.isEmpty()) "（还没有密钥，先到「密钥」页导入/生成）"
+                            else keys[keyIndex.coerceIn(0, keys.size - 1)].let {
+                                JumpStore.text(it.name) + "（" + it.algorithm + "）"
+                            },
+                            onValueChange = {}, readOnly = true, singleLine = true,
+                            enabled = keys.isNotEmpty(),
+                            trailingIcon = { Text(if (keyOpen) "▴" else "▾") },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(enabled = keys.isNotEmpty()) { keyOpen = true },
+                        )
+                        DropdownMenu(expanded = keyOpen, onDismissRequest = { keyOpen = false }) {
+                            keys.forEachIndexed { index, entry ->
+                                DropdownMenuItem(
+                                    text = { Text(JumpStore.text(entry.name) + "（" + entry.algorithm + "）") },
+                                    onClick = { keyIndex = index; keyOpen = false },
+                                )
+                            }
+                        }
+                    }
+                    OutlinedTextField(
+                        value = passphrase,
+                        onValueChange = { passphrase = it },
+                        singleLine = true,
+                        placeholder = { Text("密钥口令（可空）", fontSize = 12.sp) },
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    FieldLabel("备注")
+                    OutlinedTextField(
+                        value = note, onValueChange = { note = it }, singleLine = true,
+                        placeholder = { Text("可选", fontSize = 12.sp) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    FieldLabel(
+                        "SSH：支持隧道（外网连家里的电脑）+ 终端 + 文件；"
+                                + "Telnet：只有终端，明文传输，仅实验。"
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (persistJump(existing, name, isTelnet, host, username, authKey,
+                            password, savePassword, keyIndex, passphrase, note)) {
+                        editOpen = false
+                    }
+                }) { Text("保存") }
+            },
+            dismissButton = {
+                Row {
+                    if (editing) {
+                        TextButton(onClick = {
+                            // 先把表单落下来再测（改了地址没保存就测会测到旧的）
+                            if (persistJump(existing, name, isTelnet, host, username, authKey,
+                                    password, savePassword, keyIndex, passphrase, note)) {
+                                editOpen = false
+                                testConnection(existing)
+                            }
+                        }) { Text("测试连接") }
+                        TextButton(onClick = { editOpen = false }) { Text("取消") }
+                    } else {
+                        TextButton(onClick = { editOpen = false }) { Text("取消") }
+                    }
+                }
+            },
+        )
+    }
+
+    /** 保存表单；返回 false = 校验没过（比如密码加密失败），对话框保持打开 */
+    private fun persistJump(
+        existing: JumpServer?,
+        name: String,
+        isTelnet: Boolean,
+        host: String,
+        username: String,
+        authKey: Boolean,
+        password: String,
+        savePassword: Boolean,
+        keyIndex: Int,
+        passphrase: String,
+        note: String,
+    ): Boolean {
+        val target = existing ?: JumpServer()
+        target.name = name.trim()
+        target.protocol = if (isTelnet) JumpServer.PROTO_TELNET else JumpServer.PROTO_SSH
+        target.applyHostInput(host)
+        target.username = username.trim()
+        target.authType = if (authKey) JumpServer.AUTH_KEY else JumpServer.AUTH_PASSWORD
+        if (!savePassword) {
+            // 不勾「保存密码」：清掉已存的（连接时将回退到密钥 / 失败提示）
+            target.passwordEnc = ""
+        } else if (password.isNotEmpty()) {
+            val encrypted = KeyVault.encrypt(password)
+            if (encrypted.isEmpty()) {
+                // 设备密钥库异常：宁可拒绝保存也别静默吞掉密码
+                toast("密码加密保存失败（设备密钥库异常），请重试一次", long = true)
+                return false
+            }
+            target.passwordEnc = encrypted
+        }
+        if (authKey && keys.isNotEmpty()) {
+            val key = keys[keyIndex.coerceIn(0, keys.size - 1)]
+            target.keyId = key.id
+            if (passphrase.isNotEmpty()) {
+                target.keyPassphraseEnc = KeyVault.encrypt(passphrase)
+            }
+        } else if (!authKey) {
+            target.keyId = ""
+        }
+        target.note = note.trim()
+        if (existing == null) {
+            jumps.add(target)
+        }
+        JumpStore.saveJumps(this, jumps)
+        if (existing != null) {
+            // 改完（尤其是改了密码/用户名）立刻能重连，别被退避挡住
+            SshSessionManager.shared().resetBackoff(target.id)
+        }
+        return true
+    }
+
+    // ------------------------------------------------------------------
+    // 密钥页
+    // ------------------------------------------------------------------
+
+    @Composable
+    private fun KeysPage() {
+        val importLauncher = rememberLauncherForActivityResult(
+            ActivityResultContracts.OpenDocument()
+        ) { uri -> if (uri != null) importKey(uri) }
+
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+            SectionTitle("密钥（私钥只存本机，Keystore 加密落盘）")
+            if (keys.isEmpty()) {
+                EmptyHint(
+                    "还没有密钥。导入已有的私钥，或直接在本机生成一对 —— "
+                            + "把公钥放到服务器上（authorized_keys）就能免密登录。"
+                )
+            }
+            for (entry in keys) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 12.dp, top = 12.dp, end = 8.dp, bottom = 12.dp),
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        PrimaryText(if (JumpStore.text(entry.name).isEmpty()) "未命名密钥" else entry.name)
+                        SecondaryText(
+                            entry.algorithm
+                                    + (if (JumpStore.text(entry.fingerprint).isEmpty()) "" else " · " + entry.fingerprint)
+                                    + " · 关联 " + JumpStore.keysInUse(jumps, entry.id) + " 台服务器"
+                        )
+                    }
+                    ChipButton("复制公钥") {
+                        if (JumpStore.text(entry.publicKey).isEmpty()) {
+                            toast("这把密钥没有记录公钥")
+                        } else {
+                            copyClipboard(JumpStore.text(entry.name) + " 公钥", entry.publicKey)
+                        }
+                    }
+                    ChipButton("删除") {
+                        val inUse = JumpStore.keysInUse(jumps, entry.id)
+                        if (inUse > 0) {
+                            toast("有 $inUse 台服务器在用这把密钥，先改它们的认证方式", long = true)
+                        } else {
+                            deleteTargetKey = entry
+                        }
+                    }
+                }
+            }
+            TextButton(
+                onClick = {
+                    importLauncher.launch(arrayOf("*/*"))
+                },
+                modifier = Modifier.align(Alignment.CenterHorizontally),
+            ) { Text("导入私钥文件") }
+            TextButton(
+                onClick = { generateKeyOpen = true },
+                modifier = Modifier.align(Alignment.CenterHorizontally),
+            ) { Text("在本机生成密钥对") }
+        }
+
+        deleteTargetKey?.let { entry ->
+            AlertDialog(
+                onDismissRequest = { deleteTargetKey = null },
+                title = { Text("删除密钥") },
+                text = { Text("确定删除「" + JumpStore.text(entry.name) + "」吗？私钥不可恢复。") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        deleteTargetKey = null
+                        keys.remove(entry)
+                        JumpStore.saveKeys(this@ServersActivity, keys)
+                    }) { Text("删除", color = LocalPalette.current.bad) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { deleteTargetKey = null }) { Text("取消") }
+                },
+            )
+        }
+    }
+
+    private var deleteTargetKey by mutableStateOf<SshKeyEntry?>(null)
+
+    @Composable
+    private fun GenerateKeyDialog() {
+        var name by remember { mutableStateOf("") }
+        var ed25519 by remember { mutableStateOf(true) }
+        AlertDialog(
+            onDismissRequest = { generateKeyOpen = false },
+            title = { Text("生成密钥对") },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = name, onValueChange = { name = it }, singleLine = true,
+                        placeholder = { Text("名称，如 home-ed25519", fontSize = 12.sp) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(selected = ed25519, onClick = { ed25519 = true })
+                        Text("Ed25519（推荐）", fontSize = 13.sp)
+                        Spacer(Modifier.width(8.dp))
+                        RadioButton(selected = !ed25519, onClick = { ed25519 = false })
+                        Text("RSA 4096", fontSize = 13.sp)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    generateKeyOpen = false
+                    generateKey(name.trim(), ed25519)
+                }) { Text("生成") }
+            },
+            dismissButton = {
+                TextButton(onClick = { generateKeyOpen = false }) { Text("取消") }
+            },
+        )
+    }
+
+    private fun generateKey(name: String, ed: Boolean) {
+        Thread({
+            try {
+                val jsch = JSch()
+                val pair = if (ed) KeyPair.genKeyPair(jsch, KeyPair.ED25519)
+                else KeyPair.genKeyPair(jsch, KeyPair.RSA, 4096)
+                val entry = SshKeyEntry()
+                entry.name = if (name.isEmpty()) "key-" + keys.size else name
+                entry.algorithm = pair.keyTypeString
+                val publicBlob = pair.publicKeyBlob
+                entry.fingerprint = publicBlob?.let { KeyVault.sha256Fingerprint(it) } ?: ""
+                // getPrivateKey 是包私有 —— 导出走 writePrivateKey(OutputStream)
+                val pemOut = java.io.ByteArrayOutputStream()
+                pair.writePrivateKey(pemOut)
+                entry.privateEnc = KeyVault.encrypt(pemOut.toString("UTF-8"))
+                entry.publicKey = publicBlob?.let {
+                    pair.keyTypeString + " " + android.util.Base64.encodeToString(
+                        it, android.util.Base64.NO_WRAP
+                    )
+                } ?: ""
+                pair.dispose()
+                runOnUiThread {
+                    keys.add(entry)
+                    JumpStore.saveKeys(this, keys)
+                    toast(
+                        "已生成 " + entry.algorithm + " 密钥「" + entry.name + "」—— 复制公钥放到服务器的"
+                                + " authorized_keys", long = true
+                    )
+                }
+            } catch (error: Exception) {
+                val message = error.message ?: "未知错误"
+                runOnUiThread { toast("生成失败：$message", long = true) }
+            }
+        }, "anyboot-keygen").start()
+    }
+
+    private fun importKey(uri: Uri) {
+        try {
+            contentResolver.openInputStream(uri)?.use { stream ->
+                val buffer = java.io.ByteArrayOutputStream()
+                val chunk = ByteArray(8192)
+                var count: Int
+                while (stream.read(chunk).also { count = it } > 0) {
+                    buffer.write(chunk, 0, count)
+                    if (buffer.size() > 256 * 1024) throw Exception("文件太大，不像私钥")
+                }
+                val pem = buffer.toString("UTF-8").trim()
+                if (!pem.startsWith("-----BEGIN")) {
+                    throw Exception("不像 PEM 格式的私钥（应以 -----BEGIN 开头）")
+                }
+                Thread({
+                    try {
+                        val pair = KeyPair.load(JSch(), pem.toByteArray(Charsets.UTF_8), null)
+                        val entry = SshKeyEntry()
+                        val fileName = queryFileName(uri)
+                        entry.name = fileName ?: ("imported-" + keys.size)
+                        entry.algorithm = pair.keyTypeString
+                        val publicBlob = pair.publicKeyBlob
+                        entry.fingerprint = publicBlob?.let { KeyVault.sha256Fingerprint(it) } ?: ""
+                        entry.privateEnc = KeyVault.encrypt(pem)
+                        entry.publicKey = publicBlob?.let {
+                            pair.keyTypeString + " " + android.util.Base64.encodeToString(
+                                it, android.util.Base64.NO_WRAP
+                            )
+                        } ?: ""
+                        pair.dispose()
+                        runOnUiThread {
+                            keys.add(entry)
+                            JumpStore.saveKeys(this, keys)
+                            toast("已导入 " + entry.algorithm + " 密钥")
+                        }
+                    } catch (error: Exception) {
+                        val message = error.message ?: "未知错误"
+                        runOnUiThread { toast("导入失败：$message", long = true) }
+                    }
+                }, "anyboot-key-import").start()
+            }
+        } catch (error: Exception) {
+            toast("读取失败：" + error.message, long = true)
+        }
+    }
+
+    private fun queryFileName(uri: Uri): String? {
+        try {
+            contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (index >= 0) return cursor.getString(index)
+                }
+            }
+        } catch (ignored: Exception) {
+            // 拿不到文件名就用默认名
+        }
+        return null
+    }
+
+    private fun copyClipboard(label: String, text: String) {
+        val manager = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        manager.setPrimaryClip(android.content.ClipData.newPlainText(label, text))
+        toast("已复制")
+    }
+
+    // ------------------------------------------------------------------
+    // 文件页（SFTP，仅 SSH）
+    // ------------------------------------------------------------------
+
+    @Composable
+    private fun FilesPage() {
+        val uploadLauncher = rememberLauncherForActivityResult(
+            ActivityResultContracts.OpenDocument()
+        ) { uri -> if (uri != null) uploadPicked(uri) }
+
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+            SectionTitle("文件（SFTP，仅 SSH 服务器）")
+
+            val sshServers = jumps.filter { it.isSsh() }
+            if (sshServers.isEmpty()) {
+                EmptyHint("没有 SSH 服务器 —— 先到「终端」页添加。Telnet 不支持文件传输。")
+                return@Column
+            }
+            var serverOpen by remember { mutableStateOf(false) }
+            val selectedId = if (sshServers.any { it.id == sftpServerId }) sftpServerId
+            else sshServers[0].id.also { sftpServerId = it }
+            val selected = sshServers.first { it.id == selectedId }
+
+            Box {
+                OutlinedTextField(
+                    value = if (JumpStore.text(selected.name).isEmpty()) selected.addressLabel()
+                    else JumpStore.text(selected.name),
+                    onValueChange = {}, readOnly = true, singleLine = true,
+                    label = { Text("服务器") },
+                    trailingIcon = { Text(if (serverOpen) "▴" else "▾") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 4.dp)
+                        .clickable { serverOpen = true },
+                )
+                DropdownMenu(expanded = serverOpen, onDismissRequest = { serverOpen = false }) {
+                    sshServers.forEach { server ->
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    if (JumpStore.text(server.name).isEmpty()) server.addressLabel()
+                                    else JumpStore.text(server.name)
+                                )
+                            },
+                            onClick = {
+                                serverOpen = false
+                                if (server.id != sftpServerId) {
+                                    sftpServerId = server.id
+                                    sftpPath = "/"
+                                    sftpEntries = emptyList()
+                                    sftpError = ""
+                                    sftpLoadedKey = ""
+                                }
+                            },
+                        )
+                    }
+                }
+            }
+
+            // 面包屑 + 上传
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
+            ) {
+                Text(sftpPath, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f))
+                ChipButton("上级") {
+                    if (sftpPath != "/") {
+                        val cut = sftpPath.lastIndexOf('/')
+                        sftpPath = if (cut <= 0) "/" else sftpPath.substring(0, cut)
+                        sftpEntries = emptyList()
+                        sftpError = ""
+                        sftpLoadedKey = ""
+                    }
+                }
+                Spacer(Modifier.width(4.dp))
+                ChipButton("上传") { uploadLauncher.launch(arrayOf("*/*")) }
+            }
+
+            if (!SshSessionManager.shared().isUp(sftpServerId)) {
+                SecondaryText("　（先在「终端」页连上这台服务器，或点行内「▶ 终端」——"
+                        + " SFTP 复用同一条 SSH 会话）", Modifier.padding(horizontal = 12.dp))
+            }
+
+            when {
+                sftpError.isNotEmpty() -> SecondaryText("　读取失败：$sftpError",
+                    Modifier.padding(horizontal = 12.dp))
+                sftpBusy -> Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(16.dp),
+                ) {
+                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(8.dp))
+                    SecondaryText("加载中 …")
+                }
+                sftpEntries.isEmpty() -> SecondaryText("　（空目录）", Modifier.padding(16.dp))
+                else -> {
+                    sftpEntries.forEach { entry ->
+                        val (entryName, kind, sizeText) = entry
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    if (kind == "dir") {
+                                        sftpPath = if (sftpPath == "/") "/$entryName"
+                                        else "$sftpPath/$entryName"
+                                        sftpEntries = emptyList()
+                                        sftpError = ""
+                                        sftpLoadedKey = ""
+                                    } else {
+                                        downloadSftpFile(entryName, sizeText.toLong())
+                                    }
+                                }
+                                .padding(start = 12.dp, top = 12.dp, end = 8.dp, bottom = 12.dp),
+                        ) {
+                            Text(if (kind == "dir") "📁" else "📄")
+                            Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
+                                PrimaryText(entryName)
+                                if (kind == "file") {
+                                    SecondaryText(humanSize(sizeText.toLong()))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 目录还没拉取过时自动加载一次
+            LaunchedEffect(sftpServerId, sftpPath, sftpLoadedKey) {
+                if (sftpLoadedKey != "$sftpServerId|$sftpPath" && !sftpBusy
+                    && sftpServerId.isNotEmpty() && sshServers.isNotEmpty()) {
+                    loadSftpListing()
+                }
+            }
+        }
+    }
+
+    /** 后台拉目录（结果落 sftpEntries / sftpError 状态） */
+    private fun loadSftpListing() {
+        val serverId = sftpServerId
+        val path = sftpPath
+        sftpBusy = true
+        val appContext = applicationContext
+        Thread({
+            val entries = ArrayList<List<String>>()
+            var error: String? = null
+            try {
+                val server = JumpStore.findJump(JumpStore.loadJumps(appContext), serverId)
+                    ?: throw Exception("服务器不存在")
+                val session: Session = SshSessionManager.shared().ensureSession(
+                    appContext, server
+                ) { title, message -> bus.confirm(title, message) }
+                @Suppress("UNCHECKED_CAST")
+                val sftp = session.openChannel("sftp") as ChannelSftp
+                sftp.connect(15000)
+                try {
+                    val raw = sftp.ls(path)
+                    for (item in raw) {
+                        val entryName = item.filename
+                        if ("." == entryName || ".." == entryName) continue
+                        val attrs: SftpATTRS = item.attrs
+                        entries.add(listOf(
+                            entryName,
+                            if (attrs.isDir) "dir" else "file",
+                            attrs.size.toString(),
+                        ))
+                    }
+                } finally {
+                    sftp.disconnect()
+                }
+            } catch (failure: Exception) {
+                error = failure.message ?: failure.javaClass.simpleName
+            }
+            val result = entries
+            val failureMessage = error
+            runOnUiThread {
+                sftpBusy = false
+                if (serverId != sftpServerId || path != sftpPath) {
+                    return@runOnUiThread   // 用户已经切走了
+                }
+                sftpLoadedKey = "$serverId|$path"   // 成功失败都算「拉过了」，空目录别再循环拉
+                if (failureMessage != null) {
+                    sftpError = failureMessage
+                    return@runOnUiThread
+                }
+                sftpEntries = result
+            }
+        }, "anyboot-sftp-ls").start()
+    }
+
+    private fun downloadSftpFile(name: String, size: Long) {
+        toast("开始下载 $name（${humanSize(size)}）")
+        val serverId = sftpServerId
+        val path = sftpPath
+        val appContext = applicationContext
+        Thread({
+            try {
+                val server = JumpStore.findJump(JumpStore.loadJumps(appContext), serverId)
+                val session: Session = SshSessionManager.shared().ensureSession(
+                    appContext, server
+                ) { title, message -> bus.confirm(title, message) }
+                val sftp = session.openChannel("sftp") as ChannelSftp
+                sftp.connect(15000)
+                try {
+                    var dir = getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS)
+                    if (dir == null) dir = filesDir
+                    dir.mkdirs()
+                    val target = java.io.File(dir, name)
+                    target.outputStream().use { out ->
+                        sftp.get(path + (if (path.endsWith("/")) "" else "/") + name, out)
+                    }
+                    val where = target.absolutePath
+                    runOnUiThread { toast("已下载到：$where", long = true) }
+                } finally {
+                    sftp.disconnect()
+                }
+            } catch (error: Exception) {
+                val message = error.message ?: "下载失败"
+                runOnUiThread { toast("下载失败：$message", long = true) }
+            }
+        }, "anyboot-sftp-get").start()
+    }
+
+    private fun uploadPicked(uri: Uri) {
+        if (sftpServerId.isEmpty()) {
+            toast("先选择服务器")
+            return
+        }
+        var name = queryFileName(uri)
+        if (name.isNullOrEmpty()) name = "upload-" + System.currentTimeMillis()
+        val fileName = name
+        toast("开始上传 $fileName")
+        val serverId = sftpServerId
+        val path = sftpPath
+        val appContext = applicationContext
+        Thread({
+            try {
+                contentResolver.openInputStream(uri)?.use { input ->
+                    val server = JumpStore.findJump(JumpStore.loadJumps(appContext), serverId)
+                    val session: Session = SshSessionManager.shared().ensureSession(
+                        appContext, server
+                    ) { title, message -> bus.confirm(title, message) }
+                    val sftp = session.openChannel("sftp") as ChannelSftp
+                    sftp.connect(15000)
+                    try {
+                        sftp.put(input, path + (if (path.endsWith("/")) "" else "/") + fileName)
+                    } finally {
+                        sftp.disconnect()
+                    }
+                }
+                runOnUiThread {
+                    toast("上传完成：$fileName")
+                    sftpEntries = emptyList()
+                    sftpError = ""
+                    sftpLoadedKey = ""
+                }
+            } catch (error: Exception) {
+                val message = error.message ?: "上传失败"
+                runOnUiThread { toast("上传失败：$message", long = true) }
+            }
+        }, "anyboot-sftp-put").start()
+    }
+
+    // ------------------------------------------------------------------
+    // 小件
+    // ------------------------------------------------------------------
+
+    @Composable
+    private fun PrimaryText(text: String) {
+        Text(
+            text,
+            fontSize = 15.sp,
+            color = LocalPalette.current.fg,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+
+    /** 应急：手输 SSH 密码（只放内存，不保存），输完继续原流程 */
+    @Composable
+    private fun ManualPasswordDialog(request: ManualPwdRequest) {
+        var password by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { manualPassword = null },
+            title = { Text("输入 SSH 密码") },
+            text = {
+                Column {
+                    Text(
+                        request.server.addressLabel() + " · 用户 "
+                                + (if (JumpStore.text(request.server.username).isEmpty()) "root"
+                        else request.server.username),
+                        fontSize = 14.sp,
+                        color = LocalPalette.current.fgDim,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = password,
+                        onValueChange = { password = it },
+                        singleLine = true,
+                        placeholder = { Text("仅本次连接有效，不保存", fontSize = 12.sp) },
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    manualPassword = null
+                    SshSessionManager.shared().setManualPassword(request.server.id, password)
+                    request.onReady.run()
+                }) { Text("连接") }
+            },
+            dismissButton = {
+                TextButton(onClick = { manualPassword = null }) { Text("取消") }
+            },
+        )
+    }
+}
