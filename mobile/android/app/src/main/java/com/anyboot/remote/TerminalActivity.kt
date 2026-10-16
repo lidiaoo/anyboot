@@ -71,6 +71,12 @@ class TerminalActivity : ComponentActivity() {
     private var terminalView: WebView? = null
     private var current: TerminalSession? = null
 
+    /** 宿主页 xterm 是否就绪（onPageFinished 后为 true） */
+    private var pageReady = false
+
+    /** 页面就绪前的下行缓冲（b64），就绪后按序冲给 xterm —— 防积攒回显在 WebView 建好前丢失 */
+    private val pendingFeeds = ArrayDeque<String>()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Ui.applySystemBars(this)
@@ -203,6 +209,10 @@ class TerminalActivity : ComponentActivity() {
         current = session
         currentId = session.server.id
         val backlog = session.attachAndDrain()
+        if (pageReady) {
+            // 单 WebView 多会话共用一个 xterm：切会话先清屏，再喂目标会话的积攒回显
+            eval("if (term) term.reset()")
+        }
         if (backlog.isNotEmpty()) {
             feed(Base64.encodeToString(backlog, Base64.NO_WRAP))
         }
@@ -325,6 +335,11 @@ class TerminalActivity : ComponentActivity() {
                                     override fun onPageFinished(target: WebView, url: String) {
                                         eval("termInit('" + (if (dark) "dark" else "light")
                                                 + "', " + fontSize + ")")
+                                        pageReady = true
+                                        // 冲就绪前积压的下行（含 bind 时取走的积攒回显）
+                                        while (pendingFeeds.isNotEmpty()) {
+                                            eval("termFeed('" + pendingFeeds.removeFirst() + "')")
+                                        }
                                     }
                                 }
                                 view.loadUrl("file:///android_asset/terminal/index.html")
@@ -518,6 +533,14 @@ class TerminalActivity : ComponentActivity() {
     }
 
     private fun feed(b64: String) {
+        if (!pageReady) {
+            // WebView 还没建好/页面没加载完：先攒着，onPageFinished 里按序冲给 xterm
+            pendingFeeds.addLast(b64)
+            while (pendingFeeds.size > 128) {
+                pendingFeeds.removeFirst()   // 上限 ~512KB，保内存
+            }
+            return
+        }
         eval("termFeed('$b64')")
     }
 
@@ -533,8 +556,16 @@ class TerminalActivity : ComponentActivity() {
         super.onResume()
         terminalView?.onResume()
         val session = TerminalRegistry.get(currentId)
-        if (session != null && session !== current) {
-            bind(session)
+        when {
+            session == null -> Unit
+            session !== current -> bind(session)
+            else -> {
+                // 同一会话从后台回来：onPause 时 detach 了，把后台期间积攒的回显补喂上
+                val backlog = session.attachAndDrain()
+                if (backlog.isNotEmpty()) {
+                    feed(Base64.encodeToString(backlog, Base64.NO_WRAP))
+                }
+            }
         }
     }
 
