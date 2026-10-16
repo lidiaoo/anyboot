@@ -40,5 +40,6 @@
 ## 移动端（mobile/）
 - Android 已迁 **Jetpack Compose**（Kotlin；业务 Java 类保留）。构建：`GRADLE_USER_HOME=~/.cache/ab-gradle`、`JAVA_HOME=~/.sdkm/links/java`（21.0.11）、`ANDROID_HOME=~/Android/Sdk`、`ANDROID_USER_HOME=~/.android`；AGP 8.7.3 / Gradle 8.11.1。**本机 shell ulimit -v 4G（硬限）**：daemon jvmargs 压小 + `_JAVA_OPTIONS="-Xmx768m -Xms64m"`（救 jlink 子进程），否则 metaspace 映射崩（hs_err）。SDK android-34。skill：android-gradle-compose-build / android-apk-lite-build。
 - 终端页（WebView + xterm.js）**尺寸绝不能依赖 html/body 百分比高度**——本机 WebView 会解析成 0，FitAddon 兜底 1 行，表现为「回车无输出 / 输入被吞」。唯一尺寸来源是 JS `syncSize()`（视口像素→#term→fit）；会话绑定与 onResume 时必须调 `termSync()` 把真实行列重报给 PTY（否则 PTY 停在 openShell 定死的 80x24）。诊断 tag **ABTERM**（tlog 常开 / tlogV 关）。细节见 2026-10-16.md 第四十四轮。
+- **iOS 侧 PTY 尺寸是坏的**：`ShellHandle.resize()` 是空实现（Citadel `withPTY` 不暴露 resize，代码里留了 TODO）→ iOS PTY 恒为 `openShell(columns:80, rows:24)`，且 `Coordinator.ensureAttached()` 不调 `termSync`。要修需 NIOSSH `WindowChangeRequest` + `channel.triggerUserOutboundEvent`，并补 pendingSize 暂存。**本机是 Linux、无 swift 工具链，改 iOS 原生一律无法编译验证**。两端共享页 `terminal/index.html` 应保持逐字一致（除 Android 独有诊断日志）。
 - 主题：Compose 版 Theme.kt/Common.kt（三挡 auto/dark/light，终端区恒深 OLED）；PC 设计稿 docs/client-ui/*.html 双主题（ab-theme + localStorage）。
 - 待办：iOS 同套 token 重构；PC 端 server-hub 独立窗口（设计已定稿）；密码 Keystore 问题定性（应急手输通道已加）。
