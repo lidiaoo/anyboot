@@ -68,6 +68,7 @@ const ESP_PARTTYPE: &str = "c12a7328-f81f-11d2-ba4b-00a0c93ec93b";
 const FAT_FILESYSTEMS: [&str; 6] = ["vfat", "fat", "fat12", "fat16", "fat32", "exfat"];
 mod cli;
 mod grub;
+mod hub;
 mod http;
 
 /// Linux 侧数据收集脚本（把 grubenv 迁到 ESP），装到 `/etc/grub.d/09_anyboot`。
@@ -14970,6 +14971,10 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            hub::hub_list_servers,
+            hub::hub_save_server,
+            hub::hub_delete_server,
+            hub::hub_test_server,
             get_ui_state,
             current_status,
             refresh,

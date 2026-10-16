@@ -1,7 +1,8 @@
 <!DOCTYPE html>
-<!-- AnyBoot 远程管理（server-hub）骨架版 M1。
+<!-- AnyBoot 远程管理（server-hub）。
      独立窗口，主窗口零改动；托盘「远程管理…」是唯一入口。
-     本期只落窗口骨架 + 双主题 + 空状态；服务器列表数据 / 连接 / 终端 / 隧道 / SFTP 随 M2+ 开通。 -->
+     M2：服务器档案 CRUD（配置目录 hub-servers.json）+ 测试连接（TCP）。
+     M3 起：终端（系统 ssh + PTY）→ 隧道 → SFTP。 -->
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
@@ -19,6 +20,8 @@
     --fg-faint: #64748b;
     --ok: #22c55e;
     --ok-dim: rgba(34, 197, 94, 0.12);
+    --bad: #ef4444;
+    --bad-dim: rgba(239, 68, 68, 0.12);
   }
   html.light {
     --base: #f1f5f9;
@@ -31,6 +34,8 @@
     --fg-faint: #94a3b8;
     --ok: #16a34a;
     --ok-dim: rgba(22, 163, 74, 0.10);
+    --bad: #dc2626;
+    --bad-dim: rgba(220, 38, 38, 0.08);
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; }
@@ -42,29 +47,22 @@
     overflow: hidden;
     user-select: none;
   }
+  button { font: inherit; }
 
-  /* —— 左栏：导航 + 服务器列表 —— */
+  /* —— 左栏 —— */
   aside {
-    width: 300px;
-    min-width: 260px;
+    width: 320px;
+    min-width: 280px;
     background: var(--card);
     border-right: 1px solid var(--line);
     display: flex;
     flex-direction: column;
   }
-  .brand {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 16px 16px 12px;
-  }
+  .brand { display: flex; align-items: center; gap: 10px; padding: 14px 16px 10px; }
   .brand .logo {
-    width: 28px; height: 28px;
-    border-radius: 8px;
-    background: var(--ok-dim);
-    color: var(--ok);
-    display: grid; place-items: center;
-    font-weight: 700; font-size: 13px;
+    width: 28px; height: 28px; border-radius: 8px;
+    background: var(--ok-dim); color: var(--ok);
+    display: grid; place-items: center; font-weight: 700; font-size: 13px;
   }
   .brand h1 { margin: 0; font-size: 14px; font-weight: 600; letter-spacing: .02em; }
   .brand .spacer { flex: 1; }
@@ -75,37 +73,65 @@
   }
   .icon-btn:hover { background: var(--elevate); color: var(--fg); }
 
-  .search {
-    margin: 0 16px 10px;
+  .search-wrap { margin: 0 16px 10px; position: relative; }
+  .search-wrap input {
+    width: 100%;
     background: var(--elevate);
     border: 1px solid var(--line);
     border-radius: 9px;
     padding: 7px 11px;
-    color: var(--fg-faint);
-    font-size: 13px;
+    color: var(--fg);
+    font: inherit; font-size: 13px;
+    outline: none;
   }
+  .search-wrap input:focus { border-color: var(--line-strong); }
+  .search-wrap input::placeholder { color: var(--fg-faint); }
+
   .section-label {
-    padding: 6px 18px 4px;
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: .14em;
-    color: var(--fg-faint);
-    text-transform: uppercase;
+    padding: 4px 18px 4px;
+    font-size: 11px; font-weight: 600; letter-spacing: .14em;
+    color: var(--fg-faint); text-transform: uppercase;
   }
   .filter-row { display: flex; gap: 6px; padding: 2px 16px 10px; }
   .chip {
-    border: 1px solid var(--line);
-    background: transparent; color: var(--fg-dim);
+    border: 1px solid var(--line); background: transparent; color: var(--fg-dim);
     border-radius: 999px; padding: 2px 12px; font-size: 12px; cursor: pointer;
   }
   .chip.active { background: var(--ok-dim); border-color: var(--ok); color: var(--ok); }
 
   .list { flex: 1; overflow-y: auto; padding: 0 8px 8px; }
+  .server-row {
+    display: flex; align-items: center; gap: 10px;
+    border-radius: 10px; padding: 9px 10px; cursor: pointer;
+    border: 1px solid transparent;
+  }
+  .server-row:hover { background: var(--elevate); }
+  .server-row.active { background: var(--elevate); border-color: var(--line-strong); }
+  .server-row .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--fg-faint); flex: none; }
+  .server-row .dot.ok { background: var(--ok); }
+  .server-row .dot.bad { background: var(--bad); }
+  .server-row .meta { flex: 1; min-width: 0; }
+  .server-row .name {
+    font-size: 13px; font-weight: 600; color: var(--fg);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .server-row .sub {
+    font-size: 11px; color: var(--fg-faint);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .server-row .proto {
+    flex: none; font-size: 10px; font-weight: 700; letter-spacing: .06em;
+    border-radius: 5px; padding: 1px 6px;
+    background: var(--ok-dim); color: var(--ok);
+  }
+  .server-row .proto.telnet { background: var(--bad-dim); color: var(--bad); }
+  .server-row .row-acts { display: none; gap: 2px; flex: none; }
+  .server-row:hover .row-acts { display: flex; }
   .empty {
     margin: 22px 10px;
     border: 1px dashed var(--line-strong);
     border-radius: 12px;
-    padding: 28px 18px;
+    padding: 26px 18px;
     text-align: center;
     color: var(--fg-faint);
     font-size: 13px;
@@ -119,40 +145,90 @@
     color: var(--fg-faint);
   }
 
-  /* —— 右侧：详情区 —— */
-  main { flex: 1; display: flex; flex-direction: column; }
-  .detail {
-    flex: 1;
-    display: grid;
-    place-items: center;
-    color: var(--fg-faint);
-    text-align: center;
-    padding: 24px;
+  /* —— 右侧详情 —— */
+  main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .detail { flex: 1; overflow-y: auto; padding: 28px 32px; }
+  .detail .placeholder {
+    height: 100%; display: grid; place-items: center;
+    color: var(--fg-faint); text-align: center;
   }
-  .detail .card-hint {
-    border: 1px solid var(--line);
-    background: var(--card);
-    border-radius: 14px;
-    padding: 30px 40px;
-    max-width: 420px;
+  .detail .placeholder .card-hint {
+    border: 1px solid var(--line); background: var(--card);
+    border-radius: 14px; padding: 30px 40px; max-width: 420px;
   }
-  .detail .card-hint .big { font-size: 32px; margin-bottom: 10px; }
+  .detail .placeholder .big { font-size: 32px; margin-bottom: 10px; }
   .detail h2 { margin: 0 0 6px; font-size: 15px; color: var(--fg); }
   .detail p { margin: 0; font-size: 13px; line-height: 1.7; }
-  .detail .muted { color: var(--fg-faint); }
+  .muted { color: var(--fg-faint); }
+
+  .detail-head { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
+  .detail-head h2 { margin: 0; font-size: 18px; }
+  .detail-head .proto { font-size: 10px; font-weight: 700; border-radius: 5px; padding: 2px 7px; background: var(--ok-dim); color: var(--ok); }
+  .detail-head .proto.telnet { background: var(--bad-dim); color: var(--bad); }
+  .kv {
+    display: grid; grid-template-columns: 84px 1fr;
+    gap: 8px 14px; margin: 18px 0;
+    max-width: 460px;
+  }
+  .kv .k { color: var(--fg-faint); font-size: 12px; padding-top: 2px; }
+  .kv .v { font-size: 13px; color: var(--fg); word-break: break-all; user-select: text; }
+  .test-line { margin: 6px 0 0; font-size: 12px; min-height: 18px; }
+  .test-line.ok { color: var(--ok); }
+  .test-line.bad { color: var(--bad); }
+  .btn-row { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+  .btn {
+    border: 1px solid var(--line-strong); background: var(--card); color: var(--fg);
+    border-radius: 9px; padding: 7px 16px; cursor: pointer; font-size: 13px;
+  }
+  .btn:hover { background: var(--elevate); }
+  .btn.primary { background: var(--ok); border-color: var(--ok); color: #fff; }
+  .btn.primary:hover { filter: brightness(1.08); }
+  .btn.primary:disabled { opacity: .45; cursor: not-allowed; }
+  .btn.danger { color: var(--bad); border-color: var(--bad); background: transparent; }
+  .btn.danger:hover { background: var(--bad-dim); }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
 
   .foot {
     border-top: 1px solid var(--line);
     background: var(--card);
     padding: 8px 18px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 12px;
-    color: var(--fg-faint);
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12px; color: var(--fg-faint);
   }
   .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--fg-faint); }
   .foot .ver { margin-left: auto; }
+
+  /* —— 弹窗 —— */
+  .overlay {
+    position: fixed; inset: 0; background: rgba(2, 6, 23, 0.55);
+    display: grid; place-items: center; z-index: 40;
+  }
+  html.light .overlay { background: rgba(15, 23, 42, 0.35); }
+  .overlay[hidden] { display: none !important; }
+  .dialog {
+    width: 420px; max-width: calc(100vw - 48px); max-height: calc(100vh - 48px);
+    overflow-y: auto;
+    background: var(--card); border: 1px solid var(--line-strong);
+    border-radius: 14px; padding: 20px 22px;
+  }
+  .dialog h3 { margin: 0 0 14px; font-size: 15px; }
+  .field { margin-bottom: 12px; }
+  .field label { display: block; font-size: 12px; color: var(--fg-dim); margin-bottom: 4px; }
+  .field input, .field select, .field textarea {
+    width: 100%;
+    background: var(--elevate);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 7px 10px;
+    color: var(--fg);
+    font: inherit; font-size: 13px;
+    outline: none;
+  }
+  .field input:focus, .field select:focus, .field textarea:focus { border-color: var(--line-strong); }
+  .field-row { display: flex; gap: 10px; }
+  .field-row .field { flex: 1; }
+  .dialog .btn-row { justify-content: flex-end; margin-top: 18px; }
+  .form-error { color: var(--bad); font-size: 12px; min-height: 16px; margin: 4px 0 0; }
 </style>
 </head>
 <body>
@@ -163,71 +239,379 @@
       <div class="spacer"></div>
       <button class="icon-btn" id="themeToggle" title="切换亮暗主题" aria-label="切换亮暗主题">🌙</button>
     </div>
-    <div class="search">🔍 搜索服务器（M2 开通）</div>
+    <div class="search-wrap">
+      <input id="searchBox" type="text" placeholder="搜索名称或地址…" aria-label="搜索服务器">
+    </div>
     <div class="section-label">服务器</div>
     <div class="filter-row">
-      <button class="chip active">全部</button>
-      <button class="chip">SSH</button>
-      <button class="chip">Telnet</button>
+      <button class="chip active" data-proto="">全部</button>
+      <button class="chip" data-proto="ssh">SSH</button>
+      <button class="chip" data-proto="telnet">Telnet</button>
+      <span class="spacer" style="flex:1"></span>
+      <button class="icon-btn" id="addBtn" title="添加服务器" aria-label="添加服务器">＋</button>
     </div>
-    <div class="list">
-      <div class="empty">
-        <div class="big">🖥️</div>
-        还没有服务器<br>
-        添加与连接能力将在下个版本（M2）开通
-      </div>
-    </div>
-    <div class="side-foot">连接记录 · 密钥 · 文件（M2+）</div>
+    <div class="list" id="serverList" aria-label="服务器列表"></div>
+    <div class="side-foot" id="sideFoot">—</div>
   </aside>
 
   <main>
-    <div class="detail">
-      <div class="card-hint">
-        <div class="big">🚧</div>
-        <h2>骨架版预览（M1）</h2>
-        <p>
-          这是 server-hub 独立窗口的第一块骨架：窗口、导航与主题已经就位。
-        </p>
-        <p class="muted">
-          服务器管理 → 终端 → 隧道 → 文件<br>
-          会按里程碑逐个搬进来，主窗口不受影响。
-        </p>
+    <div class="detail" id="detail">
+      <div class="placeholder">
+        <div class="card-hint">
+          <div class="big">🖥️</div>
+          <h2>选择左侧服务器</h2>
+          <p class="muted">查看详情、测试连通性；终端连接在 M3 开通。</p>
+        </div>
       </div>
     </div>
     <div class="foot">
       <span class="dot"></span>
-      <span>未连接任何服务器</span>
-      <span class="ver">server-hub · M1</span>
+      <span id="footText">未连接任何服务器</span>
+      <span class="ver">server-hub · M2</span>
     </div>
   </main>
 
+  <!-- 添加 / 编辑 -->
+  <div class="overlay" id="editOverlay" hidden>
+    <div class="dialog" role="dialog" aria-label="编辑服务器">
+      <h3 id="editTitle">添加服务器</h3>
+      <div class="field">
+        <label>名称</label>
+        <input id="fName" type="text" placeholder="如：办公室 NAS">
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>协议</label>
+          <select id="fProto">
+            <option value="ssh">SSH</option>
+            <option value="telnet">Telnet</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>端口（留空用默认）</label>
+          <input id="fPort" type="text" inputmode="numeric" placeholder="22">
+        </div>
+      </div>
+      <div class="field">
+        <label>主机地址</label>
+        <input id="fHost" type="text" placeholder="IP 或域名">
+      </div>
+      <div class="field">
+        <label>用户名</label>
+        <input id="fUser" type="text" placeholder="root">
+      </div>
+      <div class="field">
+        <label>备注</label>
+        <textarea id="fNotes" rows="2" placeholder="可选"></textarea>
+      </div>
+      <p class="form-error" id="editError"></p>
+      <div class="btn-row">
+        <button class="btn" id="editCancel">取消</button>
+        <button class="btn primary" id="editSave">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 删除确认 -->
+  <div class="overlay" id="deleteOverlay" hidden>
+    <div class="dialog" role="dialog" aria-label="删除服务器">
+      <h3>删除服务器</h3>
+      <p style="font-size:13px" class="muted">确定删除「<span id="deleteName"></span>」吗？此操作不可恢复。</p>
+      <div class="btn-row">
+        <button class="btn" id="deleteCancel">取消</button>
+        <button class="btn danger" id="deleteConfirm">删除</button>
+      </div>
+    </div>
+  </div>
+
 <script>
-  // 主题：默认跟随系统，手动切换后记住选择（独立于主窗口的设置）
-  var root = document.documentElement;
-  var saved = null;
-  try { saved = localStorage.getItem('ab-hub-theme'); } catch (e) { /* 隐私模式等 */ }
-  var dark = saved ? saved === 'dark'
+  // ============ 环境 ============
+  const HAS_TAURI = typeof window.__TAURI__ !== "undefined";
+  const invoke = HAS_TAURI ? window.__TAURI__.core.invoke : null;
+  // 请求/响应都在内存里存一份测试结果（不落盘），行上的圆点只是「最近一次测试」的显示
+  const testResults = {};   // id -> "ok" | "bad"
+
+  // ============ 主题 ============
+  const root = document.documentElement;
+  let saved = null;
+  try { saved = localStorage.getItem('ab-hub-theme'); } catch (e) { }
+  let dark = saved ? saved === 'dark'
                    : !window.matchMedia || !window.matchMedia('(prefers-color-scheme: light)').matches;
-  apply();
-
-  document.getElementById('themeToggle').addEventListener('click', function () {
-    dark = !dark;
-    try { localStorage.setItem('ab-hub-theme', dark ? 'dark' : 'light'); } catch (e) { }
-    apply();
-  });
-
-  function apply() {
+  function applyTheme() {
     root.classList.toggle('light', !dark);
     document.getElementById('themeToggle').textContent = dark ? '🌙' : '☀️';
   }
+  document.getElementById('themeToggle').addEventListener('click', function () {
+    dark = !dark;
+    try { localStorage.setItem('ab-hub-theme', dark ? 'dark' : 'light'); } catch (e) { }
+    applyTheme();
+  });
+  applyTheme();
 
-  // 协议筛选 chip：骨架期纯视觉切换
+  // ============ 状态 ============
+  let servers = [];
+  let selectedId = null;
+  let filterProto = "";
+  let searchText = "";
+  let deleteTargetId = null;
+
+  // ============ 数据 ============
+  async function loadServers() {
+    if (!invoke) { servers = []; render(); return; }
+    try {
+      servers = await invoke("hub_list_servers");
+    } catch (error) {
+      console.error(error);
+      servers = [];
+    }
+    render();
+  }
+
+  async function saveServer(server) {
+    return await invoke("hub_save_server", { server });
+  }
+
+  async function deleteServer(id) {
+    return await invoke("hub_delete_server", { id });
+  }
+
+  async function testServer(server) {
+    return await invoke("hub_test_server", { server });
+  }
+
+  // ============ 渲染 ============
+  function visibleServers() {
+    const text = searchText.trim().toLowerCase();
+    return servers.filter(function (s) {
+      if (filterProto && s.protocol !== filterProto) return false;
+      if (!text) return true;
+      return (s.name || "").toLowerCase().includes(text)
+          || (s.host || "").toLowerCase().includes(text);
+    });
+  }
+
+  function render() {
+    const list = document.getElementById('serverList');
+    const items = visibleServers();
+    list.textContent = "";
+    if (items.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'empty';
+      empty.innerHTML = '<div class="big">🖥️</div>' + (
+        servers.length === 0
+          ? '还没有服务器<br>点右上角「＋」添加'
+          : '没有匹配的服务器');
+      list.appendChild(empty);
+    }
+    for (const s of items) {
+      const row = document.createElement('div');
+      row.className = 'server-row' + (s.id === selectedId ? ' active' : '');
+
+      const dot = document.createElement('span');
+      const result = testResults[s.id];
+      dot.className = 'dot' + (result === 'ok' ? ' ok' : result === 'bad' ? ' bad' : '');
+
+      const meta = document.createElement('div');
+      meta.className = 'meta';
+      const name = document.createElement('div');
+      name.className = 'name';
+      name.textContent = s.name || '(未命名)';
+      const sub = document.createElement('div');
+      sub.className = 'sub';
+      sub.textContent = (s.username ? s.username + '@' : '') + s.host + ':' + (s.port || (s.protocol === 'telnet' ? 23 : 22));
+      meta.appendChild(name);
+      meta.appendChild(sub);
+
+      const proto = document.createElement('span');
+      proto.className = 'proto' + (s.protocol === 'telnet' ? ' telnet' : '');
+      proto.textContent = s.protocol === 'telnet' ? 'TEL' : 'SSH';
+
+      row.appendChild(dot);
+      row.appendChild(meta);
+      row.appendChild(proto);
+      row.addEventListener('click', function () {
+        selectedId = s.id;
+        render();
+      });
+      list.appendChild(row);
+    }
+    document.getElementById('sideFoot').textContent =
+      servers.length === 0 ? '服务器档案存在本机配置目录' : servers.length + ' 台服务器';
+    renderDetail();
+  }
+
+  function esc(text) {
+    return String(text == null ? '' : text)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  function renderDetail() {
+    const box = document.getElementById('detail');
+    const server = servers.find(function (s) { return s.id === selectedId; });
+    if (!server) {
+      box.innerHTML =
+        '<div class="placeholder"><div class="card-hint">' +
+        '<div class="big">🖥️</div><h2>选择左侧服务器</h2>' +
+        '<p class="muted">查看详情、测试连通性；终端连接在 M3 开通。</p>' +
+        '</div></div>';
+      return;
+    }
+    const port = server.port || (server.protocol === 'telnet' ? 23 : 22);
+    const result = testResults[server.id];
+    const testLine = result === 'ok' ? '<p class="test-line ok">✓ 连通</p>'
+                   : result === 'bad' ? '<p class="test-line bad">✗ 连不上</p>'
+                   : '';
+    box.innerHTML =
+      '<div class="detail-head">' +
+        '<h2>' + esc(server.name || '(未命名)') + '</h2>' +
+        '<span class="proto' + (server.protocol === 'telnet' ? ' telnet' : '') + '">' +
+          (server.protocol === 'telnet' ? 'TELNET' : 'SSH') + '</span>' +
+      '</div>' +
+      '<div class="kv">' +
+        '<div class="k">地址</div><div class="v">' + esc(server.host) + ':' + port + '</div>' +
+        '<div class="k">用户名</div><div class="v">' + esc(server.username || '—') + '</div>' +
+        '<div class="k">备注</div><div class="v">' + esc(server.notes || '—') + '</div>' +
+      '</div>' +
+      '<div class="btn-row">' +
+        '<button class="btn primary" id="testBtn">测试连接</button>' +
+        '<button class="btn" id="connectBtn" disabled title="M3 开通">连接终端</button>' +
+        '<button class="btn" id="editBtn">编辑</button>' +
+        '<button class="btn danger" id="delBtn">删除</button>' +
+      '</div>' +
+      testLine;
+    document.getElementById('testBtn').addEventListener('click', function () { runTest(server); });
+    document.getElementById('editBtn').addEventListener('click', function () { openEdit(server); });
+    document.getElementById('delBtn').addEventListener('click', function () { openDelete(server); });
+  }
+
+  async function runTest(server) {
+    const btn = document.getElementById('testBtn');
+    if (btn) { btn.disabled = true; btn.textContent = '测试中…'; }
+    let ok = false;
+    let message = '';
+    try {
+      message = await testServer(server);
+      ok = true;
+    } catch (error) {
+      message = String(error);
+    }
+    testResults[server.id] = ok ? 'ok' : 'bad';
+    render();
+    const line = document.querySelector('.test-line');
+    if (line) {
+      line.className = 'test-line ' + (ok ? 'ok' : 'bad');
+      line.textContent = (ok ? '✓ ' : '✗ ') + message;
+    }
+    if (btn) { btn.disabled = false; btn.textContent = '测试连接'; }
+  }
+
+  // ============ 添加 / 编辑弹窗 ============
+  let editingId = null;   // null = 新增
+  function openEdit(server) {
+    editingId = server ? server.id : null;
+    document.getElementById('editTitle').textContent = server ? '编辑服务器' : '添加服务器';
+    document.getElementById('fName').value = server ? server.name : '';
+    document.getElementById('fProto').value = server ? server.protocol : 'ssh';
+    document.getElementById('fPort').value = server && server.port ? server.port : '';
+    document.getElementById('fHost').value = server ? server.host : '';
+    document.getElementById('fUser').value = server ? server.username : '';
+    document.getElementById('fNotes').value = server ? server.notes : '';
+    document.getElementById('editError').textContent = '';
+    document.getElementById('editOverlay').hidden = false;
+    document.getElementById('fName').focus();
+  }
+  function closeEdit() {
+    document.getElementById('editOverlay').hidden = true;
+  }
+  async function submitEdit() {
+    const errorBox = document.getElementById('editError');
+    errorBox.textContent = '';
+    const portText = document.getElementById('fPort').value.trim();
+    const server = {
+      id: editingId || '',
+      name: document.getElementById('fName').value,
+      protocol: document.getElementById('fProto').value,
+      host: document.getElementById('fHost').value,
+      port: portText ? (parseInt(portText, 10) || 0) : 0,
+      username: document.getElementById('fUser').value,
+      notes: document.getElementById('fNotes').value,
+      created_at: 0,
+    };
+    try {
+      const savedServer = await saveServer(server);
+      closeEdit();
+      selectedId = savedServer.id;
+      await loadServers();
+    } catch (error) {
+      errorBox.textContent = String(error);
+    }
+  }
+
+  // ============ 删除 ============
+  function openDelete(server) {
+    deleteTargetId = server.id;
+    document.getElementById('deleteName').textContent = server.name || '(未命名)';
+    document.getElementById('deleteOverlay').hidden = false;
+  }
+  function closeDelete() {
+    document.getElementById('deleteOverlay').hidden = true;
+    deleteTargetId = null;
+  }
+  async function confirmDelete() {
+    if (!deleteTargetId) return;
+    try {
+      await deleteServer(deleteTargetId);
+      if (selectedId === deleteTargetId) selectedId = null;
+      delete testResults[deleteTargetId];
+      closeDelete();
+      await loadServers();
+    } catch (error) {
+      closeDelete();
+      alert('删除失败：' + error);
+    }
+  }
+
+  // ============ 事件绑定 ============
+  document.getElementById('addBtn').addEventListener('click', function () { openEdit(null); });
+  document.getElementById('editCancel').addEventListener('click', closeEdit);
+  document.getElementById('editSave').addEventListener('click', submitEdit);
+  document.getElementById('deleteCancel').addEventListener('click', closeDelete);
+  document.getElementById('deleteConfirm').addEventListener('click', confirmDelete);
+  document.getElementById('searchBox').addEventListener('input', function (e) {
+    searchText = e.target.value;
+    render();
+  });
   document.querySelectorAll('.chip').forEach(function (chip) {
     chip.addEventListener('click', function () {
       document.querySelectorAll('.chip').forEach(function (c) { c.classList.remove('active'); });
       chip.classList.add('active');
+      filterProto = chip.dataset.proto || "";
+      render();
     });
   });
+  // 点击遮罩关弹窗；Esc 也能关
+  document.getElementById('editOverlay').addEventListener('click', function (e) {
+    if (e.target === this) closeEdit();
+  });
+  document.getElementById('deleteOverlay').addEventListener('click', function (e) {
+    if (e.target === this) closeDelete();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    if (!document.getElementById('deleteOverlay').hidden) closeDelete();
+    else if (!document.getElementById('editOverlay').hidden) closeEdit();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && !document.getElementById('editOverlay').hidden
+        && document.activeElement && document.activeElement.tagName !== 'TEXTAREA'
+        && document.activeElement.tagName !== 'BUTTON') {
+      submitEdit();
+    }
+  });
+
+  // ============ 启动 ============
+  loadServers();
 </script>
 </body>
 </html>
