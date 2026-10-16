@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<!-- AnyBoot 远程管理（server-hub）骨架版 M1。
+     独立窗口，主窗口零改动；托盘「远程管理…」是唯一入口。
+     本期只落窗口骨架 + 双主题 + 空状态；服务器列表数据 / 连接 / 终端 / 隧道 / SFTP 随 M2+ 开通。 -->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AnyBoot 远程管理</title>
+<style>
+  :root {
+    --base: #020617;
+    --card: #0e1223;
+    --elevate: #151a2e;
+    --line: #232941;
+    --line-strong: #323a58;
+    --fg: #e2e8f0;
+    --fg-dim: #94a3b8;
+    --fg-faint: #64748b;
+    --ok: #22c55e;
+    --ok-dim: rgba(34, 197, 94, 0.12);
+  }
+  html.light {
+    --base: #f1f5f9;
+    --card: #ffffff;
+    --elevate: #f8fafc;
+    --line: #e2e8f0;
+    --line-strong: #cbd5e1;
+    --fg: #0f172a;
+    --fg-dim: #475569;
+    --fg-faint: #94a3b8;
+    --ok: #16a34a;
+    --ok-dim: rgba(22, 163, 74, 0.10);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--base);
+    color: var(--fg);
+    font: 14px/1.5 -apple-system, "Segoe UI", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+    display: flex;
+    overflow: hidden;
+    user-select: none;
+  }
+
+  /* —— 左栏：导航 + 服务器列表 —— */
+  aside {
+    width: 300px;
+    min-width: 260px;
+    background: var(--card);
+    border-right: 1px solid var(--line);
+    display: flex;
+    flex-direction: column;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 16px 16px 12px;
+  }
+  .brand .logo {
+    width: 28px; height: 28px;
+    border-radius: 8px;
+    background: var(--ok-dim);
+    color: var(--ok);
+    display: grid; place-items: center;
+    font-weight: 700; font-size: 13px;
+  }
+  .brand h1 { margin: 0; font-size: 14px; font-weight: 600; letter-spacing: .02em; }
+  .brand .spacer { flex: 1; }
+  .icon-btn {
+    border: 0; background: transparent; color: var(--fg-faint);
+    width: 26px; height: 26px; border-radius: 7px; cursor: pointer;
+    display: grid; place-items: center; font-size: 13px;
+  }
+  .icon-btn:hover { background: var(--elevate); color: var(--fg); }
+
+  .search {
+    margin: 0 16px 10px;
+    background: var(--elevate);
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    padding: 7px 11px;
+    color: var(--fg-faint);
+    font-size: 13px;
+  }
+  .section-label {
+    padding: 6px 18px 4px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .14em;
+    color: var(--fg-faint);
+    text-transform: uppercase;
+  }
+  .filter-row { display: flex; gap: 6px; padding: 2px 16px 10px; }
+  .chip {
+    border: 1px solid var(--line);
+    background: transparent; color: var(--fg-dim);
+    border-radius: 999px; padding: 2px 12px; font-size: 12px; cursor: pointer;
+  }
+  .chip.active { background: var(--ok-dim); border-color: var(--ok); color: var(--ok); }
+
+  .list { flex: 1; overflow-y: auto; padding: 0 8px 8px; }
+  .empty {
+    margin: 22px 10px;
+    border: 1px dashed var(--line-strong);
+    border-radius: 12px;
+    padding: 28px 18px;
+    text-align: center;
+    color: var(--fg-faint);
+    font-size: 13px;
+  }
+  .empty .big { font-size: 26px; margin-bottom: 8px; }
+
+  .side-foot {
+    border-top: 1px solid var(--line);
+    padding: 10px 16px;
+    font-size: 11px;
+    color: var(--fg-faint);
+  }
+
+  /* —— 右侧：详情区 —— */
+  main { flex: 1; display: flex; flex-direction: column; }
+  .detail {
+    flex: 1;
+    display: grid;
+    place-items: center;
+    color: var(--fg-faint);
+    text-align: center;
+    padding: 24px;
+  }
+  .detail .card-hint {
+    border: 1px solid var(--line);
+    background: var(--card);
+    border-radius: 14px;
+    padding: 30px 40px;
+    max-width: 420px;
+  }
+  .detail .card-hint .big { font-size: 32px; margin-bottom: 10px; }
+  .detail h2 { margin: 0 0 6px; font-size: 15px; color: var(--fg); }
+  .detail p { margin: 0; font-size: 13px; line-height: 1.7; }
+  .detail .muted { color: var(--fg-faint); }
+
+  .foot {
+    border-top: 1px solid var(--line);
+    background: var(--card);
+    padding: 8px 18px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--fg-faint);
+  }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--fg-faint); }
+  .foot .ver { margin-left: auto; }
+</style>
+</head>
+<body>
+  <aside>
+    <div class="brand">
+      <div class="logo">AB</div>
+      <h1>远端管理</h1>
+      <div class="spacer"></div>
+      <button class="icon-btn" id="themeToggle" title="切换亮暗主题" aria-label="切换亮暗主题">🌙</button>
+    </div>
+    <div class="search">🔍 搜索服务器（M2 开通）</div>
+    <div class="section-label">服务器</div>
+    <div class="filter-row">
+      <button class="chip active">全部</button>
+      <button class="chip">SSH</button>
+      <button class="chip">Telnet</button>
+    </div>
+    <div class="list">
+      <div class="empty">
+        <div class="big">🖥️</div>
+        还没有服务器<br>
+        添加与连接能力将在下个版本（M2）开通
+      </div>
+    </div>
+    <div class="side-foot">连接记录 · 密钥 · 文件（M2+）</div>
+  </aside>
+
+  <main>
+    <div class="detail">
+      <div class="card-hint">
+        <div class="big">🚧</div>
+        <h2>骨架版预览（M1）</h2>
+        <p>
+          这是 server-hub 独立窗口的第一块骨架：窗口、导航与主题已经就位。
+        </p>
+        <p class="muted">
+          服务器管理 → 终端 → 隧道 → 文件<br>
+          会按里程碑逐个搬进来，主窗口不受影响。
+        </p>
+      </div>
+    </div>
+    <div class="foot">
+      <span class="dot"></span>
+      <span>未连接任何服务器</span>
+      <span class="ver">server-hub · M1</span>
+    </div>
+  </main>
+
+<script>
+  // 主题：默认跟随系统，手动切换后记住选择（独立于主窗口的设置）
+  var root = document.documentElement;
+  var saved = null;
+  try { saved = localStorage.getItem('ab-hub-theme'); } catch (e) { /* 隐私模式等 */ }
+  var dark = saved ? saved === 'dark'
+                   : !window.matchMedia || !window.matchMedia('(prefers-color-scheme: light)').matches;
+  apply();
+
+  document.getElementById('themeToggle').addEventListener('click', function () {
+    dark = !dark;
+    try { localStorage.setItem('ab-hub-theme', dark ? 'dark' : 'light'); } catch (e) { }
+    apply();
+  });
+
+  function apply() {
+    root.classList.toggle('light', !dark);
+    document.getElementById('themeToggle').textContent = dark ? '🌙' : '☀️';
+  }
+
+  // 协议筛选 chip：骨架期纯视觉切换
+  document.querySelectorAll('.chip').forEach(function (chip) {
+    chip.addEventListener('click', function () {
+      document.querySelectorAll('.chip').forEach(function (c) { c.classList.remove('active'); });
+      chip.classList.add('active');
+    });
+  });
+</script>
+</body>
+</html>

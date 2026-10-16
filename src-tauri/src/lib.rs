@@ -185,6 +185,9 @@ const NOTIFY_MARGIN: f64 = 24.0;
 /// 要求，dbusmenu 协议里又没有任何开关能改这个行为（2026-10-14 实测）。Windows 的
 /// TrackPopupMenu / macOS 的 NSMenu 同理。所以菜单生命周期只能归我们所有。
 const TRAY_MENU_WINDOW_LABEL: &str = "tray-menu";
+/// 远程管理（server-hub）独立窗口标签。主窗口零改动：hub 是一扇常规窗口，
+/// 托盘菜单「远程管理…」是它目前唯一的入口（点开常驻，再次点击只是唤起）。
+const HUB_WINDOW_LABEL: &str = "server-hub";
 /// 菜单宽度（逻辑像素）：固定宽度，三端长得一样，也只有这样「一组里恰好一个 ◉」才好扫。
 const TRAY_MENU_WIDTH: f64 = 320.0;
 /// 前端报上来的高度夹到这个区间（太低会裁掉文字，太高会把托盘图标顶出屏幕）。
@@ -5105,6 +5108,31 @@ fn notify_height(raw: Option<f64>) -> f64 {
     }
 }
 
+/// 打开/唤起远程管理（server-hub）窗口：已存在就 unminimize + 聚焦，不存在才建。
+/// 普通常规窗口（系统标题栏、可缩放、进任务栏），与主窗口的贴边/置顶语义完全无关。
+fn open_hub_window(app: &AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window(HUB_WINDOW_LABEL) {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+        return Ok(());
+    }
+    tauri::WebviewWindowBuilder::new(
+        app,
+        HUB_WINDOW_LABEL,
+        tauri::WebviewUrl::App("hub.html".into()),
+    )
+    .title("AnyBoot 远程管理")
+    .inner_size(1080.0, 720.0)
+    .min_inner_size(860.0, 560.0)
+    .resizable(true)
+    .center()
+    .build()
+    .map_err(|error| format!("无法创建远程管理窗口: {error}"))?;
+    trace(app, "hub", "远程管理窗口已创建");
+    Ok(())
+}
+
 fn show_notify_window(app: &AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window(NOTIFY_WINDOW_LABEL) {
         let _ = window.show();
@@ -8896,6 +8924,8 @@ fn build_menu_nodes(state: &UiState) -> Vec<MenuNode> {
         nodes.push(menu_item("unmount-temporary", "卸载临时挂载", !busy));
     }
     nodes.push(menu_item("show", "显示主窗口", true));
+    // 远程管理（server-hub）独立窗口的入口：托盘是唯一新增入口，主窗口零改动。
+    nodes.push(menu_item("open-hub", "远程管理…", true));
 
     // —— 分区：应用设置 ——
     nodes.push(menu_separator());
@@ -9774,6 +9804,8 @@ enum MenuAction {
     ShowRemote,
     /// 用系统默认浏览器打开 Web 控制页（带 token）
     OpenWeb,
+    /// 打开/唤起远程管理（server-hub）独立窗口
+    OpenHub,
     SetAutostart,
     SetStartInTray(bool),
     SetHideFromDockTaskbar(bool),
@@ -9838,6 +9870,7 @@ impl MenuAction {
             "setting-autostart" => Some(Self::SetAutostart),
             "show-remote" => Some(Self::ShowRemote),
             "open-web" => Some(Self::OpenWeb),
+            "open-hub" => Some(Self::OpenHub),
             "reset-window-size" => Some(Self::ResetWindowSize),
             "reset-window-position" => Some(Self::ResetWindowPosition),
             "quit" => Some(Self::Quit),
@@ -9916,6 +9949,10 @@ fn spawn_menu_action(app: &AppHandle, action: MenuAction) {
         MenuAction::OpenWeb => match open_web_page_now(&app) {
             Ok(url) => record_action(&app, "打开 Web 页面", true, &format!("已打开 {url}")),
             Err(error) => record_action(&app, "打开 Web 页面", false, &error),
+        },
+        MenuAction::OpenHub => match open_hub_window(&app) {
+            Ok(_) => record_action(&app, "打开远程管理", true, "远程管理窗口已打开"),
+            Err(error) => record_action(&app, "打开远程管理", false, &error),
         },
         MenuAction::SetAutostart => toggle_autostart_setting(&app),
         MenuAction::SetStartInTray(enabled) => {
