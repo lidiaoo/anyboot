@@ -29,7 +29,7 @@
 
 ## 移动端（mobile/）——当前主战场
 - Android 已迁 **Jetpack Compose**（业务 Java 类保留）。构建 env：`GRADLE_USER_HOME=~/.cache/ab-gradle`、`JAVA_HOME=~/.sdkm/links/java`(21.0.11)、`ANDROID_HOME=~/Android/Sdk`、`ANDROID_USER_HOME=~/.android`、`HOME=/home/jianghh`；AGP 8.7.3 / Gradle 8.11.1（`~/.gradle/wrapper/dists/gradle-8.11.1-bin/*/gradle-8.11.1/bin/gradle`）、SDK android-34。**shell `ulimit -v` 4G 硬限** → 加 `_JAVA_OPTIONS="-Xmx768m -Xms64m"`，否则 metaspace 映射崩。skill：`android-gradle-compose-build` / `android-apk-lite-build` / `android-compose-ui-debug`。
-- 驱动脚本 `~/.cache/ab-droid/drv.py`：`dump` / `rows`（按 y 打印 text 节点看行高与留白）/ `find` / `tap <子串>`，自带 HOME。模拟器 `emulator-5554`，1080x2400 @420（1dp=2.625px）。
+- 驱动脚本 `~/.cache/ab-droid/drv.py`：`dump` / `rows`（按 y 打印 text 节点看行高与留白）/ `find` / `tap <子串>` / `tapxy x y`，自带 HOME。**两个已修的坑**：dump 失败会留旧 `/sdcard/ui.xml`（→ 先 rm，判据看 `dumped to`，别信 returncode）；`tap` 子串会命中引用该符号的正文（→ 优先精确、再取最小节点）。模拟器 `emulator-5554`，1080x2400 @420（1dp=2.625px）。判界面归属以 `dumpsys window | grep mCurrentFocus` 为准（screencap 帧会滞后）。
 - 终端页（WebView + xterm.js）**尺寸绝不能依赖 html/body 百分比高度**（本机 WebView 解析成 0 → 兜底 1 行 → 「回车无输出 / 输入被吞」）。唯一来源是 JS `syncSize()`；会话绑定与 onResume 必须调 `termSync()` 把真实行列重报 PTY。诊断 tag **ABTERM**。
 - **iOS PTY 尺寸是坏的**：`ShellHandle.resize()` 空实现 → 恒 `openShell(80,24)`，且 `ensureAttached()` 不调 `termSync`。修需 NIOSSH `WindowChangeRequest` + `triggerUserOutboundEvent` + pendingSize。**本机无 swift 工具链，改 iOS 原生一律无法编译验证**。两端共享页 `terminal/index.html` 保持逐字一致。
 - **KeyVault（Android Keystore）**：`generateKey()` 对已存在 alias 是**覆盖**不是复用 → 必须 `getEntry(alias,null)` 先查、只在缺失时生成；否则每调一次 encrypt/decrypt 就换钥匙、密文当场作废（密码 / 私钥 PEM / 密钥口令**共用同一把**；连「编辑框回显」都会调 decrypt 而废掉别的条目）。异常必须留痕；历史密文救不回，用户需重输一次。
