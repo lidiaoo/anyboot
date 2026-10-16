@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.os.Bundle
 import android.util.Base64
+import android.util.Log
 import android.view.ViewGroup
 import android.view.inputmethod.InputMethodManager
 import android.webkit.JavascriptInterface
@@ -57,6 +58,26 @@ class TerminalActivity : ComponentActivity() {
 
     private val bus = ConfirmBus()
 
+    /**
+     * 诊断通道：终端链路每一环都留痕（`adb logcat -s ABTERM`）。
+     * tlog = 关键状态与异常（常开）；tlogV = 高频事件（每帧数据 / 每次按键），默认关。
+     */
+    companion object {
+        private const val VERBOSE = false
+
+        @JvmStatic
+        fun tlog(message: String) {
+            Log.i("ABTERM", message)
+        }
+
+        @JvmStatic
+        fun tlogV(message: String) {
+            if (VERBOSE) {
+                Log.i("ABTERM", message)
+            }
+        }
+    }
+
     private var currentId by mutableStateOf("")
     private var tick by mutableIntStateOf(0)   // 标签集合变化时自增
     private var statusMessage by mutableStateOf<String?>("正在连接 …")
@@ -87,6 +108,7 @@ class TerminalActivity : ComponentActivity() {
             return
         }
         currentId = jumpId
+        tlog("onCreate jumpId=$jumpId")
         setContent { Root() }
         ensureSession(jumpId, false)
     }
@@ -128,6 +150,7 @@ class TerminalActivity : ComponentActivity() {
                     fresh.startTelnet()
                 }
                 TerminalRegistry.put(fresh)
+                tlog("会话建立成功 id=${server.id} closed=${fresh.isClosed()}")
                 runOnUiThread {
                     statusMessage = null
                     val live = TerminalRegistry.get(jumpId) ?: return@runOnUiThread
@@ -135,6 +158,7 @@ class TerminalActivity : ComponentActivity() {
                 }
             } catch (error: Exception) {
                 val message = error.message ?: "连接失败"
+                tlog("会话建立失败: ${error.javaClass.simpleName}: $message")
                 runOnUiThread {
                     statusMessage = "连接失败：$message"
                     toast("连接失败：$message", long = true)
@@ -148,11 +172,13 @@ class TerminalActivity : ComponentActivity() {
     private fun listenerFor(serverId: String): TerminalSession.Listener {
         return object : TerminalSession.Listener {
             override fun onData(bytes: ByteArray) {
+                tlogV("down ${bytes.size}B (server=$serverId)")
                 val b64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
                 runOnUiThread { feed(b64) }
             }
 
             override fun onClosed(reason: String?) {
+                tlog("onClosed server=$serverId reason=$reason")
                 runOnUiThread {
                     TerminalRegistry.remove(serverId)
                     // 落一条完成的会话历史（时长 = 结束 - 开始）
@@ -181,20 +207,34 @@ class TerminalActivity : ComponentActivity() {
     /** JS → 原生上行（桥接方法跑在 WebView 的桥线程，不在主线程） */
     private inner class Bridge {
         @JavascriptInterface
+        fun log(text: String) {
+            tlog("JS: $text")
+        }
+
+        @JavascriptInterface
         fun onData(b64: String) {
             val session = current
-            if (session == null || b64.isEmpty()) return
+            if (session == null || b64.isEmpty()) {
+                tlog("JS->up DROP (session=${session != null}, len=${b64.length})")
+                return
+            }
             try {
-                session.write(Base64.decode(b64, Base64.NO_WRAP))
-            } catch (ignored: Exception) {
-                // 坏数据直接丢
+                val bytes = Base64.decode(b64, Base64.NO_WRAP)
+                tlogV("JS->up ${bytes.size}B")
+                session.write(bytes)
+            } catch (e: Exception) {
+                tlog("JS->up 解码失败: ${e.message}")
             }
         }
 
         @JavascriptInterface
         fun onResize(columns: String, rows: String) {
             val session = current
-            if (session == null) return
+            if (session == null) {
+                tlog("JS->resize DROP cols=$columns rows=$rows")
+                return
+            }
+            tlogV("JS->resize cols=$columns rows=$rows")
             try {
                 session.resize(columns.toInt(), rows.toInt())
             } catch (ignored: Exception) {
@@ -205,15 +245,21 @@ class TerminalActivity : ComponentActivity() {
 
     /** 绑定一个会话到界面：重挂监听器、切积攒回显、刷标签条 */
     private fun bind(session: TerminalSession) {
+        tlog("bind id=${session.server.id} pageReady=$pageReady current=${current?.server?.id}")
         current?.let { if (it !== session) it.detach() }
         current = session
         currentId = session.server.id
         // 会话比 Activity 活得久：监听器可能还挂在已销毁的旧实例上（回显喂进死 WebView → 输入字消失），重挂到本 Activity
         session.setListener(listenerFor(session.server.id))
         val backlog = session.attachAndDrain()
+        tlog("bind backlog=${backlog.size}B")
         if (pageReady) {
             // 单 WebView 多会话共用一个 xterm：切会话先清屏，再喂目标会话的积攒回显
             eval("if (term) term.reset()")
+            // 会话刚绑上：把 xterm 的真实行列数重报给 PTY。
+            // 新会话的 PTY 尺寸是 openShell 里定死的 80x24，与 xterm 对不上会导致换行错位、
+            // 回车后输出被滚掉。会话建立前的 resize 上报（current==null）会被丢掉，这里补一次。
+            eval("if (window.termSync) termSync()")
         }
         if (backlog.isNotEmpty()) {
             feed(Base64.encodeToString(backlog, Base64.NO_WRAP))
@@ -335,12 +381,28 @@ class TerminalActivity : ComponentActivity() {
                                 )
                                 view.webViewClient = object : WebViewClient() {
                                     override fun onPageFinished(target: WebView, url: String) {
-                                        eval("termInit('" + (if (dark) "dark" else "light")
-                                                + "', " + fontSize + ")")
+                                        tlog("onPageFinished url=$url pageReady=$pageReady")
+                                        val theme = if (dark) "dark" else "light"
+                                        view.evaluateJavascript(
+                                            "(function(){try{termInit('$theme', $fontSize);return 'ok:" +
+                                                    "term='+(term?'yes':'no')}catch(e){return 'ERR:'+e.message}})()"
+                                        ) { result -> tlog("termInit -> $result") }
                                         pageReady = true
                                         // 冲就绪前积压的下行（含 bind 时取走的积攒回显）
+                                        tlog("flush pending=${pendingFeeds.size}")
                                         while (pendingFeeds.isNotEmpty()) {
                                             eval("termFeed('" + pendingFeeds.removeFirst() + "')")
+                                        }
+                                        // 几何追踪：容器尺寸是否最终长起来（1 行高问题的取证；VERBOSE 打开时才有）
+                                        if (VERBOSE) {
+                                            val handler = android.os.Handler(mainLooper)
+                                            listOf(300L, 1000L, 3000L).forEach { delay ->
+                                                handler.postDelayed({
+                                                    view.evaluateJavascript(
+                                                        "typeof termGeom==='function'?termGeom():'no'"
+                                                    ) { r -> tlog("几何(+${delay}ms) -> $r") }
+                                                }, delay)
+                                            }
                                         }
                                     }
 
@@ -350,6 +412,7 @@ class TerminalActivity : ComponentActivity() {
                                     ): Boolean {
                                         // 渲染进程崩了（否则表现为无声黑屏+输入全吞，查不到方向）：
                                         // 明示用户重进，别让系统顺手把整个应用杀掉
+                                        tlog("onRenderProcessGone didCrash=${detail.didCrash()} pageReady=$pageReady")
                                         pageReady = false
                                         pendingFeeds.clear()
                                         runOnUiThread {
@@ -357,7 +420,16 @@ class TerminalActivity : ComponentActivity() {
                                         }
                                         return true
                                     }
+
+                                    override fun onReceivedError(
+                                        view: WebView,
+                                        request: android.webkit.WebResourceRequest,
+                                        error: android.webkit.WebResourceError
+                                    ) {
+                                        tlog("onReceivedError ${request.url} ${error.errorCode} ${error.description}")
+                                    }
                                 }
+                                tlog("WebView 创建，开始加载 index.html")
                                 view.loadUrl("file:///android_asset/terminal/index.html")
                             }
                         },
@@ -545,6 +617,7 @@ class TerminalActivity : ComponentActivity() {
     // ------------------------------------------------------------------
 
     private fun sendRaw(bytes: ByteArray) {
+        tlogV("KeyBar->write ${bytes.size}B  current=${current?.server?.id}")
         current?.write(bytes)
     }
 
@@ -552,11 +625,13 @@ class TerminalActivity : ComponentActivity() {
         if (!pageReady) {
             // WebView 还没建好/页面没加载完：先攒着，onPageFinished 里按序冲给 xterm
             pendingFeeds.addLast(b64)
+            tlogV("feed 缓冲 (pageReady=false) 队列=${pendingFeeds.size} len=${b64.length}")
             while (pendingFeeds.size > 128) {
                 pendingFeeds.removeFirst()   // 上限 ~512KB，保内存
             }
             return
         }
+        tlogV("feed->termFeed len=${b64.length}")
         eval("termFeed('$b64')")
     }
 
@@ -572,6 +647,7 @@ class TerminalActivity : ComponentActivity() {
         super.onResume()
         terminalView?.onResume()
         val session = TerminalRegistry.get(currentId)
+        tlog("onResume currentId=$currentId registry=${TerminalRegistry.all().size} session=${session != null} current=${current != null}")
         when {
             session == null -> Unit
             session !== current -> bind(session)
@@ -581,20 +657,25 @@ class TerminalActivity : ComponentActivity() {
                 session.setListener(listenerFor(session.server.id))
                 // 同一会话从后台回来：onPause 时 detach 了，把后台期间积攒的回显补喂上
                 val backlog = session.attachAndDrain()
+                tlog("onResume 同会话 reattach backlog=${backlog.size}B")
                 if (backlog.isNotEmpty()) {
                     feed(Base64.encodeToString(backlog, Base64.NO_WRAP))
                 }
+                // 从后台回来：软键盘/系统栏可能改过可用高度，重算尺寸并同步给 PTY
+                eval("if (window.termSync) termSync()")
             }
         }
     }
 
     override fun onPause() {
+        tlog("onPause")
         terminalView?.onPause()
         current?.detach()
         super.onPause()
     }
 
     override fun onDestroy() {
+        tlog("onDestroy")
         // 会话不关（注册表持有），只把 WebView 拆了
         terminalView?.destroy()
         terminalView = null

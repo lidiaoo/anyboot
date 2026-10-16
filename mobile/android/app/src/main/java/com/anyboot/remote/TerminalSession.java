@@ -58,10 +58,13 @@ final class TerminalSession {
 
     /** SSH：先确保会话，再开 shell 通道 */
     void startSsh(android.content.Context context, SshSessionManager.Prompt prompt) throws Exception {
+        TerminalActivity.tlog("startSsh 开始");
         shell = SshSessionManager.shared().openShell(context, server, prompt);
         final InputStream input = shell.getInputStream();
         final OutputStream output = shell.getOutputStream();
         this.output = output;
+        TerminalActivity.tlog("startSsh shell 就绪 connected=" + shell.isConnected()
+                + " input=" + (input != null) + " output=" + (output != null));
         reader = new Thread(() -> pump(input, "连接已关闭"), "anyboot-shell");
         reader.setDaemon(true);
         reader.start();
@@ -120,6 +123,9 @@ final class TerminalSession {
     void write(byte[] bytes) {
         OutputStream out = output;
         if (out == null || closed) {
+            // 静默丢弃就是「输入被吞」的现场：必须留痕，否则分不清是没发还是发失败
+            TerminalActivity.tlog("write 丢弃 (out=" + (out != null) + " closed=" + closed
+                    + " len=" + bytes.length + ")");
             return;
         }
         try {
@@ -127,7 +133,9 @@ final class TerminalSession {
                 out.write(bytes);
                 out.flush();
             }
-        } catch (Exception ignored) {
+            TerminalActivity.tlogV("write 成功 " + bytes.length + "B");
+        } catch (Exception error) {
+            TerminalActivity.tlog("write 异常: " + error.getClass().getName() + ": " + error.getMessage());
             close("发送失败");
         }
     }
@@ -135,6 +143,7 @@ final class TerminalSession {
     /** 重挂监听器（bind 时调用）：否则回显仍喂给已销毁的旧 Activity，输入的字有去无回 */
     void setListener(Listener replacement) {
         synchronized (dataLock) {
+            TerminalActivity.tlogV("setListener 重挂 (listener 变了=" + (this.listener != replacement) + ")");
             this.listener = replacement;
         }
     }
@@ -157,11 +166,13 @@ final class TerminalSession {
 
     /** 终端窗口变了（xterm.js fit 之后调）：SSH 侧会触发远端 SIGWINCH */
     void resize(int columns, int rows) {
+        TerminalActivity.tlog("resize " + columns + "x" + rows
+                + " (shell=" + (shell != null) + " connected=" + (shell != null && shell.isConnected()) + ")");
         if (shell != null && shell.isConnected()) {
             try {
                 shell.setPtySize(columns, rows, 0, 0);
-            } catch (Exception ignored) {
-                // resize 失败不影响终端继续用
+            } catch (Exception error) {
+                TerminalActivity.tlog("resize 失败: " + error.getMessage());
             }
         }
     }
@@ -180,6 +191,7 @@ final class TerminalSession {
         }
         closed = true;
         closeReason = reason == null ? "" : reason;
+        TerminalActivity.tlog("close(" + closeReason + ") 调用栈=" + Thread.currentThread().getName());
         try {
             if (shell != null) {
                 shell.disconnect();
@@ -203,15 +215,18 @@ final class TerminalSession {
     /** 读线程：远端 → 派发（关闭回调统一在 {@link #close} 里发，别发两次） */
     private void pump(InputStream input, String endReason) {
         byte[] chunk = new byte[4096];
-        int count;
+        int count = -1;
+        TerminalActivity.tlog("pump 启动");
         try {
             while (!closed && (count = input.read(chunk)) > 0) {
                 byte[] slice = new byte[count];
                 System.arraycopy(chunk, 0, slice, 0, count);
                 deliver(slice);
             }
+            TerminalActivity.tlog("pump 退出：读到 " + count + "（closed=" + closed + "）");
             close(endReason);
         } catch (Exception error) {
+            TerminalActivity.tlog("pump 异常: " + error.getClass().getName() + ": " + error.getMessage());
             if (!closed) {
                 close("连接断开：" + error.getMessage());
             }
@@ -225,6 +240,8 @@ final class TerminalSession {
             }   // 只攒「未挂界面」期间的；挂着时 backlog 不再积累，attachAndDrain 才不会把历史重印一遍
             if (attached) {
                 listener.onData(bytes);
+            } else {
+                TerminalActivity.tlogV("deliver 未挂界面 → backlog(" + backlog.size() + "B)");
             }
         }
     }

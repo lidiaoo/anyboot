@@ -7,8 +7,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <link rel="stylesheet" href="xterm.css">
 <style>
-  html, body { margin: 0; padding: 0; height: 100%; background: transparent; overflow: hidden; }
-  #term { position: absolute; inset: 6px 4px 4px 4px; }
+  html, body { margin: 0; padding: 0; background: transparent; overflow: hidden; }
+  /* 兜底：vw/vh 直接取自视口，不经过 html/body 的百分比高度（百分比高度在 WebView 里可能算成 0）。
+     JS 的 syncSize() 随后会用精确像素覆盖（含四周留白）。 */
+  #term { position: absolute; left: 0; top: 0; width: 100vw; height: 100vh; }
   .xterm .xterm-viewport { background-color: transparent !important; }
 </style>
 </head>
@@ -80,8 +82,15 @@
     }
   }
 
-  function reportResize() {
-    if (!window.__ready) return;
+  var lastCols = -1, lastRows = -1;
+
+  // force=true 时无条件上报（会话绑定后必须重报一次：新会话的 PTY 是打开通道时定的 80x24，
+  // 与 xterm 的真实尺寸对不上；同尺寸重报不会触发远端 SIGWINCH，OpenSSH 会自己比对）
+  function reportResize(force) {
+    if (!window.__ready || !term) return;
+    if (!force && term.cols === lastCols && term.rows === lastRows) return;
+    lastCols = term.cols;
+    lastRows = term.rows;
     if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.iosTerminal) {
       window.webkit.messageHandlers.iosTerminal.postMessage({ cols: String(term.cols), rows: String(term.rows) });
     } else if (window.AndroidTerminal) {
@@ -97,7 +106,29 @@
     } catch (e) { /* 容器还没量出尺寸，下一轮 resize 再试 */ }
   }
 
-  window.addEventListener('resize', fit);
+  var INSET_X = 4, INSET_TOP = 6, INSET_BOTTOM = 4;
+
+  // 唯一尺寸来源：视口像素 → #term 像素 → fit。
+  // 绕开百分比高度/inset 解析的坑：算不出高度时 FitAddon 会兜底成 1 行，
+  // 终端只剩一行高 —— 回车后输出全被滚掉、只剩提示符，看着就像"命令没执行"。
+  function syncSize() {
+    var el = document.getElementById('term');
+    if (!el || !window.innerWidth || !window.innerHeight) return;
+    el.style.width = Math.max(80, window.innerWidth - INSET_X * 2) + 'px';
+    el.style.height = Math.max(40, window.innerHeight - INSET_TOP - INSET_BOTTOM) + 'px';
+    fit();
+  }
+
+  // 原生侧在会话绑定时调：把当前真实行列数重新报给 PTY
+  window.termSync = function () { syncSize(); reportResize(true); };
+
+  window.addEventListener('resize', syncSize);
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', syncSize);
+  }
+  if (window.ResizeObserver) {
+    try { new ResizeObserver(syncSize).observe(document.documentElement); } catch (e) { /* 不支持就算了 */ }
+  }
 
   window.termInit = function (themeName, size) {
     if (term) return;
@@ -113,16 +144,17 @@
     fitAddon = new FitAddon.FitAddon();
     term.loadAddon(fitAddon);
     term.open(document.getElementById('term'));
-    fit();
+    syncSize();
     // 上行：键盘输入（字节流原样转发，不做任何解析）
     term.onData(function (data) {
       if (window.__ready) {
         sendUpstream(new TextEncoder().encode(data));
       }
     });
-    // 行高变了主动报一次
-    setTimeout(fit, 100);
-    setTimeout(fit, 400);
+    // 布局晚到的兜底：首帧常常还没量到真实高度
+    requestAnimationFrame(syncSize);
+    setTimeout(syncSize, 100);
+    setTimeout(syncSize, 400);
     // 就绪：把页面打开前积攒的下行冲进去，再放开上行
     while (pending.length > 0) {
       term.write(b64ToBytes(pending.shift()));
