@@ -15,6 +15,8 @@
 - **`ServersActivity` 是 `exported=false`**，`am start -n` 必抛 SecurityException → `monkey -p com.anyboot.remote -c android.intent.category.LAUNCHER 1` 再走抽屉（☰ → 🖧 服务器）。
 - **顶栏图标点了没反应，先怀疑弹着模态对话框**：主界面在遮罩下，dumpsys/dump 里看不到 TopBar 节点，应用窗口 bounds 明显小于屏幕（如 `[120,63][960,2337]`），灰色那圈是被压暗的主界面而非桌面。`pm clear` 后 MainActivity 会自动弹「连接 AnyBoot 服务端」添加框，正好踩这个坑。
 - ⚠️ **别对应用用 `adb shell pm clear`**：会清掉用户配好的跳板机（密码只以密文存在应用里，没别处备份）。
+- **删掉最后一台服务端 → App 被锁在「连接 AnyBoot 服务端」**：MainActivity 的 `firstRun` 分支**不给「取消」按钮、`onDismissRequest` 也被 `if (!request.firstRun)` 拦住**，退无可退，只能保存一台才出得来。想绕过它去别的页（如传输页）也不行 —— `ServersActivity` 不导出（见上）。此时要清数据只能 `adb shell run-as com.anyboot.remote rm -f files/transfers.json`（debug 包 run-as 可用，比 `pm clear` 精确，不碰跳板机配置）。
+- **清测试残留**：`run-as` 删 `files/transfers.json`（任务记录）+ `rm -f /storage/emulated/0/Android/data/com.anyboot.remote/files/Download/*`（下载产物）。靶机侧 `~/.cache/ab-droid/sftp-root/` 那几个 8/16/18 MiB 的测试文件加起来 45 MB，记得也删（靶机下次起会自己重铺）。
 
 ## 结构
 - 服务器模块：标题栏（齿轮=终端设置 / ＋=添加）+ 五页底导 **服务器 / 会话 / 密钥 / 传输 / 文件**（0 起下标，默认页 0）。
