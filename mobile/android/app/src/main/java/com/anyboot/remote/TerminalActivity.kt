@@ -343,6 +343,20 @@ class TerminalActivity : ComponentActivity() {
                                             eval("termFeed('" + pendingFeeds.removeFirst() + "')")
                                         }
                                     }
+
+                                    override fun onRenderProcessGone(
+                                        view: WebView,
+                                        detail: android.webkit.RenderProcessGoneDetail
+                                    ): Boolean {
+                                        // 渲染进程崩了（否则表现为无声黑屏+输入全吞，查不到方向）：
+                                        // 明示用户重进，别让系统顺手把整个应用杀掉
+                                        pageReady = false
+                                        pendingFeeds.clear()
+                                        runOnUiThread {
+                                            statusMessage = "终端渲染进程崩溃，请退出本页重进"
+                                        }
+                                        return true
+                                    }
                                 }
                                 view.loadUrl("file:///android_asset/terminal/index.html")
                             }
@@ -562,6 +576,9 @@ class TerminalActivity : ComponentActivity() {
             session == null -> Unit
             session !== current -> bind(session)
             else -> {
+                // 监听器一律先重挂到本 Activity：返回栈里可能压着更早的终端页实例，
+                // 会话的监听器还指着已销毁的那个（回显喂进死 WebView → 输入被吞）
+                session.setListener(listenerFor(session.server.id))
                 // 同一会话从后台回来：onPause 时 detach 了，把后台期间积攒的回显补喂上
                 val backlog = session.attachAndDrain()
                 if (backlog.isNotEmpty()) {
