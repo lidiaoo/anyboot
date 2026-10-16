@@ -102,6 +102,13 @@ class TerminalActivity : ComponentActivity() {
     private var terminalView: WebView? = null
     private var current: TerminalSession? = null
 
+    /**
+     * 「文件」页点「终端」跳过来时带的目录：会话一连上就把这条 cd 打进 shell。
+     * 只在第一次绑定时发（从终端设置页返回会重新 bind，那时不能再 cd 一次，会把用户敲的路径顶掉）。
+     */
+    private var pendingCd: String? = null
+    private var pendingCdSent = false
+
     /** 宿主页 xterm 是否就绪（onPageFinished 后为 true） */
     private var pageReady = false
 
@@ -121,7 +128,9 @@ class TerminalActivity : ComponentActivity() {
             return
         }
         currentId = jumpId
-        tlog("onCreate jumpId=$jumpId dark=$dark fontSize=$fontSize keyBar=$showKeyBar autoKeyboard=$autoKeyboard")
+        pendingCd = intent.getStringExtra("cdPath")?.takeIf { it.isNotEmpty() }
+        tlog("onCreate jumpId=$jumpId dark=$dark fontSize=$fontSize keyBar=$showKeyBar "
+                + "autoKeyboard=$autoKeyboard cd=$pendingCd")
         setContent { Root() }
         ensureSession(jumpId, false)
     }
@@ -298,6 +307,23 @@ class TerminalActivity : ComponentActivity() {
         }
         statusMessage = null
         tick++
+        // 从「文件」页跳来的话，在这儿把 cd 打进去（会话已连上、输入通道可用）
+        val cdTarget = pendingCd
+        if (cdTarget != null && !pendingCdSent) {
+            pendingCdSent = true
+            pendingCd = null
+            // ⚠️ session.write 是网络 IO，绝不能在主线程调 —— NetworkOnMainThreadException
+            // 会把整个会话掐死（现象就是「会话已结束：发送失败」）。bind 常在主线程被调
+            // （首连就绪的通知路径），所以这里必须甩到后台线程。
+            Thread({
+                try {
+                    session.write(("cd " + SftpOps.shellQuote(cdTarget) + "\n").toByteArray(Charsets.UTF_8))
+                    tlog("bind 后补 cd $cdTarget")
+                } catch (e: Exception) {
+                    tlog("补 cd 失败：${e.message}")
+                }
+            }, "anyboot-term-cd").start()
+        }
     }
 
     // ------------------------------------------------------------------

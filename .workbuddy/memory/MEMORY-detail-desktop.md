@@ -35,3 +35,8 @@
   编译：`g++ -fPIC -std=c++17 -o kdemenu_client kdemenu_client.cpp $(pkg-config --cflags --libs dbusmenu-qt5 Qt5Core Qt5Widgets Qt5DBus)`
 - 总线级回归：`~/.cache/ab-dock-min/cin/probe40.sh`（假 watcher，不依赖真面板）。
 - 主窗 UI 按钮点击台：`~/.cache/ab-headerbtn/`（`probe-header2.sh` + `find-buttons.py`；Xvfb 起应用 → `import -window <id>` 截图 → 像素自校准定位 → xdotool 点击；透明窗抓 root 全黑，扫描须跳过 h1 文字区 x≥130 并限定左栏 x≤470）。
+
+## 网页控制台（ui/）
+- **styles.css 里凡是 class 设了 `display:flex/grid` 的元素，用 `hidden` 属性控制显隐必须显式补 `[hidden]{display:none}`**——作者样式永远压过 UA 的 `[hidden]` 规则。已踩两次：`.grub-empty-state`、`.token-modal-overlay`（后者症状：token 弹窗连接成功/点「暂不连接」后永远盖在屏幕上，手机端整页被锁死；JS 状态其实都对）。排查第一步：CDP 读 `getComputedStyle(el).display` 和 `el.hidden` 对不对得上。
+- **PC 端网页 UI 是 `include_str!` 编译期嵌进二进制的**（lib.rs `UI_INDEX_HTML/UI_APP_JS/UI_STYLES_CSS/UI_GRUB_LIST_VIEW_JS`）——改 `ui/*` 必须 `cargo build --release` + 重启 PC 端才到浏览器/手机 WebView；只改前端源码不重编等于没改。
+- 鉴权链路排查入口：`curl -H "X-Auth-Token: <token>" http://127.0.0.1:12300/api/requests` 能看每个请求的来源 IP/路径/被拒原因（token 无效）；`/api/ui-state` 成功请求不记日志，401 才记。服务端 token 在 `~/.config/com.example.anyboot/settings.json` 的 `httpToken`。

@@ -201,6 +201,13 @@ main {
   background: rgba(0, 0, 0, 0.5);
 }
 
+/* display:flex 会压过 [hidden] 的 UA 样式，显式补一条（和 .grub-empty-state
+   同一个坑）：不然 JS 里 overlay.hidden = true 只是改了属性，弹窗永远关不掉 ——
+   连接成功/点「暂不连接」后它都还盖在屏幕上，手机端整个页面跟着被锁死。 */
+.token-modal-overlay[hidden] {
+  display: none;
+}
+
 .token-modal {
   width: min(380px, 92vw);
   padding: 22px 24px;

@@ -53,3 +53,7 @@
 ## 产物核验
 - **别拿 APK 体积当「有没有变更」的判据**：本轮加约 320 行（持久化 + 校验）后，clean 包体积与上一轮的暂停/续传包**一模一样**（都是 9,361,632），只有 md5 不同；增量构建当时还产出过 9,685,741 的一份。逐条目比对过：解压后 154 个文件、内容 md5 全同、压缩后总量也全同，差的 324 KB 全在打包层（zip 条目顺序 / 对齐 / 签名块）。
 - 核变更一律解 dex 搜符号；ASCII 串 `strings` 能捞，**中文串 `strings` 认不出**，要在字节里按 UTF-8 找。
+
+## 文件页 / SftpOps
+- **jsch 同一条 sftp 通道绝不能既 `get()` 又 `put()`**：会死锁——只写出一个数据包（2 MiB 源只落 32,755 B）后 `read()` 永不返回。修法是开两条通道（`SftpOps.withTwo()`：reader 只读 / writer 只写）；实测两通道直连对流 5.3s，比「先落本地临时文件再上传」(10.4s) 快一倍还不占磁盘。对照探针在 `~/.cache/ab-droid/SftpCopyProbe.java`（A/B/C/D 四组，可重跑复现）。
+- 手机 WebView 排查网页弹窗/状态：`uiautomator dump` 看不到 WebView 内容，走 CDP——`adb forward tcp:9222 localabstract:webview_devtools_remote_<pid>` + `~/.cache/ab-droid/cdp.py eval "<js>"` 直读页面变量与 computed style。websocket-client 必须 `suppress_origin=True`，否则 403。

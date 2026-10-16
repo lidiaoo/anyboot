@@ -552,6 +552,11 @@ class MainActivity : ComponentActivity() {
                             onValueChange = {},
                             readOnly = true,
                             singleLine = true,
+                            // ⚠️ 必须 disabled：readOnly 的 TextField 会把点击吃成「聚焦」（边框绿一下），
+                            // 挂在它身上的 clickable 一次都不触发 —— 下拉菜单永远打不开。
+                            // disabled 的 TextField 不处理指针，clickable 才收得到；配色见 disabledFieldColors。
+                            enabled = false,
+                            colors = disabledFieldColors(palette.fg, palette.lineStrong, palette.fgDim),
                             trailingIcon = { Text(if (jumpOpen) "▴" else "▾") },
                             modifier = Modifier
                                 .fillMaxWidth()

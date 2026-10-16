@@ -10,8 +10,10 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,11 +25,14 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -110,11 +115,52 @@ class ServersActivity : ComponentActivity() {
     // 文件页状态
     private var sftpServerId by mutableStateOf("")
     private var sftpPath by mutableStateOf("/")
-    private var sftpEntries by mutableStateOf<List<List<String>>>(emptyList()) // [name, kind, size]
+    private var sftpEntries by mutableStateOf<List<SftpOps.Entry>>(emptyList())
     private var sftpBusy by mutableStateOf(false)
     private var sftpError by mutableStateOf("")
     /** 已经拉取过的「服务器|路径」标记 —— 空目录也不能反复重拉（否则死循环） */
     private var sftpLoadedKey by mutableStateOf("")
+
+    // 文件页：工具行（排序 / 显示隐藏 / 过滤 / 操作进行中）
+    private var sftpSort by mutableStateOf(SftpSort.NAME)
+    private var sftpSortDesc by mutableStateOf(false)
+    private var sftpShowHidden by mutableStateOf(false)
+    private var sftpFilterOpen by mutableStateOf(false)
+    private var sftpFilter by mutableStateOf("")
+    /** 非空 = 正有一个目录操作在跑，期间不再接第二个 */
+    private var sftpOpLabel by mutableStateOf("")
+
+    // 文件页：应用内剪贴板（不碰手机的系统剪贴板；「复制路径」才走系统剪贴板）
+    private var sftpClip by mutableStateOf(SftpClip.NONE)
+    private var sftpClipServer by mutableStateOf("")
+    private var sftpClipPaths by mutableStateOf<List<String>>(emptyList())
+    private var sftpClipNames by mutableStateOf("")
+
+    // 文件页：弹窗
+    private var sftpRowMenu by mutableStateOf<String?>(null)
+    private var sftpAskDelete by mutableStateOf<SftpOps.Entry?>(null)
+    private var sftpAskRename by mutableStateOf<SftpOps.Entry?>(null)
+    private var sftpAskDetail by mutableStateOf<SftpOps.Entry?>(null)
+    private var sftpMkdirOpen by mutableStateOf(false)
+    private var sftpLocateOpen by mutableStateOf(false)
+    private var sftpPick by mutableStateOf<SftpPick?>(null)
+
+    /** 排序键（目录恒定排在最前，见 [orderEntries]） */
+    private enum class SftpSort { NAME, SIZE, TIME }
+
+    /** 应用内剪贴板的两种模式 */
+    private enum class SftpClip { NONE, COPY, CUT }
+
+    /**
+     * 「复制到… / 移动到…」的目标目录选择器请求。刻意不复用剪贴板 ——
+     * 用户点「复制到…」时不该把手上那份剪贴板内容悄悄换掉。
+     */
+    private class SftpPick(
+        val cut: Boolean,
+        val paths: List<String>,
+        val label: String,
+        val startDir: String,
+    )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -461,10 +507,8 @@ class ServersActivity : ComponentActivity() {
                     ChipButton("浏览文件") {
                         currentPage = 4
                         sftpServerId = server.id
-                        sftpPath = "/"
-                        sftpEntries = emptyList()
-                        sftpError = ""
-                        sftpLoadedKey = ""
+                        // 走统一的切目录入口：它会顺手把「加载中」点亮，免得闪一下「（空目录）」
+                        gotoDir("/", true)
                     }
                 }
                 ChipButton("测试连接") { testConnection(server) }
@@ -678,7 +722,9 @@ class ServersActivity : ComponentActivity() {
                                 JumpStore.text(it.name) + "（" + it.algorithm + "）"
                             },
                             onValueChange = {}, readOnly = true, singleLine = true,
-                            enabled = keys.isNotEmpty(),
+                            // 必须 disabled：readOnly 的 TextField 会吃掉点击，clickable 收不到（详见 disabledFieldColors）
+                            enabled = false,
+                            colors = disabledFieldColors(palette.fg, palette.lineStrong, palette.fgDim),
                             trailingIcon = { Text(if (keyOpen) "▴" else "▾") },
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -1037,6 +1083,7 @@ class ServersActivity : ComponentActivity() {
     // 文件页（SFTP，仅 SSH）
     // ------------------------------------------------------------------
 
+    @OptIn(ExperimentalLayoutApi::class)
     @Composable
     private fun FilesPage() {
         val uploadLauncher = rememberLauncherForActivityResult(
@@ -1056,25 +1103,36 @@ class ServersActivity : ComponentActivity() {
             }
         }
 
+        val sshServers = jumps.filter { it.isSsh() }
+        // 选中的服务器在 Column 之前算好：下面那层弹窗也要用它。写 sftpServerId 只会在
+        // 「当前选中的服务器没了」时发生一次，之后条件成立、不再写，不会自激。
+        val selectedId = if (sshServers.any { it.id == sftpServerId }) sftpServerId
+        else sshServers.firstOrNull()?.id?.also { sftpServerId = it } ?: ""
+        val selected = sshServers.firstOrNull { it.id == selectedId }
+
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
             SectionTitle("文件（SFTP，仅 SSH 服务器）")
 
-            val sshServers = jumps.filter { it.isSsh() }
-            if (sshServers.isEmpty()) {
+            val server = selected
+            if (server == null) {
                 EmptyHint("没有 SSH 服务器 —— 先到「服务器」页添加。Telnet 不支持文件传输。")
                 return@Column
             }
-            var serverOpen by remember { mutableStateOf(false) }
-            val selectedId = if (sshServers.any { it.id == sftpServerId }) sftpServerId
-            else sshServers[0].id.also { sftpServerId = it }
-            val selected = sshServers.first { it.id == selectedId }
 
+            var serverOpen by remember { mutableStateOf(false) }
             Box {
                 OutlinedTextField(
-                    value = if (JumpStore.text(selected.name).isEmpty()) selected.addressLabel()
-                    else JumpStore.text(selected.name),
+                    value = if (JumpStore.text(server.name).isEmpty()) server.addressLabel()
+                    else JumpStore.text(server.name),
                     onValueChange = {}, readOnly = true, singleLine = true,
                     label = { Text("服务器") },
+                    // 必须 disabled：readOnly 的 TextField 会吃掉点击，clickable 收不到（详见 disabledFieldColors）
+                    enabled = false,
+                    colors = disabledFieldColors(
+                        LocalPalette.current.fg,
+                        LocalPalette.current.lineStrong,
+                        LocalPalette.current.fgDim,
+                    ),
                     trailingIcon = { Text(if (serverOpen) "▴" else "▾") },
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1082,22 +1140,20 @@ class ServersActivity : ComponentActivity() {
                         .clickable { serverOpen = true },
                 )
                 DropdownMenu(expanded = serverOpen, onDismissRequest = { serverOpen = false }) {
-                    sshServers.forEach { server ->
+                    sshServers.forEach { item ->
                         DropdownMenuItem(
                             text = {
                                 Text(
-                                    if (JumpStore.text(server.name).isEmpty()) server.addressLabel()
-                                    else JumpStore.text(server.name)
+                                    if (JumpStore.text(item.name).isEmpty()) item.addressLabel()
+                                    else JumpStore.text(item.name)
                                 )
                             },
                             onClick = {
                                 serverOpen = false
-                                if (server.id != sftpServerId) {
-                                    sftpServerId = server.id
-                                    sftpPath = "/"
-                                    sftpEntries = emptyList()
-                                    sftpError = ""
-                                    sftpLoadedKey = ""
+                                if (item.id != sftpServerId) {
+                                    sftpServerId = item.id
+                                    clearClip()
+                                    gotoDir("/", true)
                                 }
                             },
                         )
@@ -1105,26 +1161,96 @@ class ServersActivity : ComponentActivity() {
                 }
             }
 
-            // 面包屑 + 上传
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
+            // 路径面包屑：每一段都能点着往回跳，长路径横向滚动、不挤爆整行
+            PathBar()
+
+            // 工具行（FlowRow 会自动换行，窄屏上也不会把某一条压成 0 宽）
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 12.dp, vertical = 4.dp),
             ) {
-                Text(sftpPath, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f))
-                ChipButton("上级") {
-                    if (sftpPath != "/") {
-                        val cut = sftpPath.lastIndexOf('/')
-                        sftpPath = if (cut <= 0) "/" else sftpPath.substring(0, cut)
-                        sftpEntries = emptyList()
-                        sftpError = ""
-                        sftpLoadedKey = ""
+                ChipButton("上级") { gotoDir(SftpOps.parent(sftpPath)) }
+                ChipButton("上传") { uploadLauncher.launch(arrayOf("*/*")) }
+                ChipButton("＋ 新建目录") { sftpMkdirOpen = true }
+                ChipButton("刷新") { reloadDir() }
+                ChipButton("路径") { sftpLocateOpen = true }
+                ChipButton("终端") { openTerminalAt(server, sftpPath) }
+
+                var sortOpen by remember { mutableStateOf(false) }
+                Box {
+                    ChipButton("排序 " + sortName(sftpSort) + (if (sftpSortDesc) " ↓" else " ↑")) {
+                        sortOpen = true
+                    }
+                    DropdownMenu(expanded = sortOpen, onDismissRequest = { sortOpen = false }) {
+                        SftpSort.entries.forEach { key ->
+                            DropdownMenuItem(
+                                text = { Text(sortName(key) + if (sftpSort == key) "　✓" else "") },
+                                onClick = { sftpSort = key; sortOpen = false },
+                            )
+                        }
+                        DropdownMenuItem(
+                            text = { Text(if (sftpSortDesc) "改为升序 ↑" else "改为降序 ↓") },
+                            onClick = { sftpSortDesc = !sftpSortDesc; sortOpen = false },
+                        )
                     }
                 }
-                Spacer(Modifier.width(4.dp))
-                ChipButton("上传") { uploadLauncher.launch(arrayOf("*/*")) }
+
+                ChipButton("显示隐藏", selected = sftpShowHidden) {
+                    sftpShowHidden = !sftpShowHidden
+                }
+                ChipButton("过滤", selected = sftpFilterOpen) {
+                    sftpFilterOpen = !sftpFilterOpen
+                    if (!sftpFilterOpen) sftpFilter = ""
+                }
+            }
+
+            if (sftpFilterOpen) {
+                OutlinedTextField(
+                    value = sftpFilter,
+                    onValueChange = { sftpFilter = it },
+                    singleLine = true,
+                    placeholder = {
+                        Text("按名称过滤（不区分大小写），清空就全显示", fontSize = 12.sp)
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 2.dp),
+                )
+            }
+
+            if (sftpOpLabel.isNotEmpty()) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(start = 12.dp, top = 6.dp),
+                ) {
+                    CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(8.dp))
+                    SecondaryText("正在$sftpOpLabel …")
+                }
+            }
+
+            if (sftpClip != SftpClip.NONE) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                ) {
+                    Text(
+                        (if (sftpClip == SftpClip.COPY) "📋 已复制 " else "✂️ 已剪切 ") + sftpClipNames,
+                        fontSize = 12.sp,
+                        color = LocalPalette.current.fgDim,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    ChipButton("粘贴到当前目录") { pasteClipboard(server, sftpPath) }
+                    Spacer(Modifier.width(6.dp))
+                    ChipButton("取消") { clearClip() }
+                }
             }
 
             if (!SshSessionManager.shared().isUp(sftpServerId)) {
@@ -1132,8 +1258,17 @@ class ServersActivity : ComponentActivity() {
                         + " SFTP 复用同一条 SSH 会话）", Modifier.padding(horizontal = 12.dp))
             }
 
+            val shown = orderEntries(
+                sftpEntries.filter {
+                    (sftpShowHidden || !it.name.startsWith("."))
+                            && (sftpFilter.isEmpty() || it.name.contains(sftpFilter, true))
+                }
+            )
+
             when {
-                sftpError.isNotEmpty() -> SecondaryText("　读取失败：$sftpError",
+                // sftpError 已经带着「读取失败：…」前缀（sftpReason 生成），这里别再加一层，
+                // 不然就是「读取失败：读取失败：…」套娃
+                sftpError.isNotEmpty() -> SecondaryText("　$sftpError",
                     Modifier.padding(horizontal = 12.dp))
                 sftpBusy -> Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -1144,44 +1279,17 @@ class ServersActivity : ComponentActivity() {
                     SecondaryText("加载中 …")
                 }
                 sftpEntries.isEmpty() -> SecondaryText("　（空目录）", Modifier.padding(16.dp))
-                else -> {
-                    sftpEntries.forEach { entry ->
-                        val (entryName, kind, sizeText) = entry
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    if (kind == "dir") {
-                                        sftpPath = if (sftpPath == "/") "/$entryName"
-                                        else "$sftpPath/$entryName"
-                                        sftpEntries = emptyList()
-                                        sftpError = ""
-                                        sftpLoadedKey = ""
-                                    } else {
-                                        startDownload(entryName)
-                                    }
-                                }
-                                .padding(start = 12.dp, top = 12.dp, end = 8.dp, bottom = 12.dp),
-                        ) {
-                            Text(if (kind == "dir") "📁" else "📄")
-                            Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
-                                PrimaryText(entryName)
-                                if (kind == "file") {
-                                    SecondaryText(humanSize(sizeText.toLong()))
-                                }
-                            }
-                        }
-                    }
-                }
+                shown.isEmpty() -> SecondaryText("　（没有匹配的项）", Modifier.padding(16.dp))
+                else -> shown.forEach { entry -> FileRow(entry, server) }
             }
 
-            // 目录还没拉取过时自动加载一次
+            // 目录还没按「服务器|路径」拉取过时自动加载一次。
+            // 判据不再看 sftpBusy —— 快速连点两个目录时，前一个请求还在跑会把新目录的加载
+            // 整个挡掉，然后谁都拉不动（LaunchedEffect 的 key 已经变过、不会再触发）。
             LaunchedEffect(sftpServerId, sftpPath, sftpLoadedKey) {
-                if (sftpLoadedKey != "$sftpServerId|$sftpPath" && !sftpBusy
-                    && sftpServerId.isNotEmpty() && sshServers.isNotEmpty()) {
-                    loadSftpListing()
-                }
+                if (sftpLoadedKey == "$sftpServerId|$sftpPath") return@LaunchedEffect
+                if (sftpServerId.isEmpty()) return@LaunchedEffect
+                loadSftpListing()
             }
 
             // 上传完成 → 当前目录内容变了，重拉一次。
@@ -1194,12 +1302,133 @@ class ServersActivity : ComponentActivity() {
                 if (done.state == TransferManager.STATE_DONE
                     && done.serverId == sftpServerId && done.remoteDir == sftpPath
                 ) {
-                    sftpEntries = emptyList()
-                    sftpError = ""
-                    sftpLoadedKey = ""
+                    reloadDir()
                 }
             }
         }
+
+        // 弹窗都挂在 Column 外面（Dialog 是独立窗口，放这儿不占布局，也不会被滚动带走）
+        val dialogServer = selected
+        if (dialogServer != null) {
+            sftpAskDetail?.let { FileDetailDialog(it, dialogServer) }
+            sftpAskRename?.let { RenameFileDialog(it, dialogServer) }
+            sftpAskDelete?.let { DeleteFileDialog(it, dialogServer) }
+            if (sftpMkdirOpen) MkdirDialog(dialogServer)
+            if (sftpLocateOpen) LocateDialog(dialogServer)
+            sftpPick?.let { DestPickerDialog(it, dialogServer) }
+        }
+    }
+
+    /** 路径面包屑：/ a / b / c，每一段点一下跳过去 */
+    @Composable
+    private fun PathBar() {
+        val palette = LocalPalette.current
+        val segments = remember(sftpPath) { pathSegments(sftpPath) }
+        val state = rememberLazyListState()
+        // 当前目录优先可见（路径很长时，尾巴比开头有用）
+        LaunchedEffect(segments) {
+            if (segments.isNotEmpty()) state.scrollToItem(segments.size - 1)
+        }
+        LazyRow(
+            state = state,
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp),
+        ) {
+            itemsIndexed(segments) { index, segment ->
+                if (index > 0) {
+                    Text("/", fontSize = 13.sp, color = palette.fgFaint)
+                }
+                Text(
+                    segment,
+                    fontSize = 13.sp,
+                    color = if (index == segments.size - 1) palette.fg else palette.accent,
+                    maxLines = 1,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable { gotoDir(pathUpTo(segments, index)) }
+                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                )
+            }
+        }
+    }
+
+    /** 文件 / 目录一行：点一下进目录或下载；长按整行、或点行末 ⋮ 都出操作菜单 */
+    @OptIn(ExperimentalFoundationApi::class)
+    @Composable
+    private fun FileRow(entry: SftpOps.Entry, server: JumpServer) {
+        val palette = LocalPalette.current
+        val path = SftpOps.join(sftpPath, entry.name)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .combinedClickable(
+                    onClick = {
+                        if (entry.dir) {
+                            gotoDir(path)
+                        } else {
+                            startDownload(entry.name)
+                        }
+                    },
+                    onLongClick = { sftpRowMenu = entry.name },
+                )
+                .padding(start = 12.dp, top = 10.dp, end = 2.dp, bottom = 10.dp),
+        ) {
+            Text(entry.icon())
+            Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
+                PrimaryText(entry.name)
+                if (!entry.dir) SecondaryText(humanSize(entry.size))
+            }
+            Box {
+                Text(
+                    "⋮",
+                    fontSize = 17.sp,
+                    color = palette.fgDim,
+                    modifier = Modifier
+                        .clickable { sftpRowMenu = entry.name }
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                )
+                DropdownMenu(
+                    expanded = sftpRowMenu == entry.name,
+                    onDismissRequest = { sftpRowMenu = null },
+                ) {
+                    RowMenuItem("详情") { sftpAskDetail = entry }
+                    RowMenuItem("重命名") { sftpAskRename = entry }
+                    RowMenuItem("复制") { setClip(SftpClip.COPY, entry) }
+                    RowMenuItem("剪切") { setClip(SftpClip.CUT, entry) }
+                    if (entry.dir && sftpClip != SftpClip.NONE) {
+                        RowMenuItem("粘贴到此处") { pasteClipboard(server, path) }
+                    }
+                    if (entry.dir) {
+                        RowMenuItem("在终端打开") { openTerminalAt(server, path) }
+                    }
+                    RowMenuItem("复制到…") {
+                        sftpPick = SftpPick(false, listOf(path), entry.name, sftpPath)
+                    }
+                    RowMenuItem("移动到…") {
+                        sftpPick = SftpPick(true, listOf(path), entry.name, sftpPath)
+                    }
+                    RowMenuItem("复制路径") { copyClipboard("路径", path) }
+                    RowMenuItem("删除", palette.bad) { sftpAskDelete = entry }
+                }
+            }
+        }
+    }
+
+    /** 行菜单里的一项：点完先把菜单收起来，再干活 */
+    @Composable
+    private fun RowMenuItem(text: String, color: Color? = null, onClick: () -> Unit) {
+        DropdownMenuItem(
+            text = {
+                Text(text, color = color ?: LocalPalette.current.fg, fontSize = 14.sp)
+            },
+            onClick = {
+                sftpRowMenu = null
+                onClick()
+            },
+        )
     }
 
     /** 后台拉目录（结果落 sftpEntries / sftpError 状态） */
@@ -1209,42 +1438,25 @@ class ServersActivity : ComponentActivity() {
         sftpBusy = true
         val appContext = applicationContext
         Thread({
-            val entries = ArrayList<List<String>>()
+            var entries: List<SftpOps.Entry> = emptyList()
             var error: String? = null
             try {
                 val server = JumpStore.findJump(JumpStore.loadJumps(appContext), serverId)
-                    ?: throw Exception("服务器不存在")
-                val session: Session = SshSessionManager.shared().ensureSession(
-                    appContext, server
-                ) { title, message -> bus.confirm(title, message) }
-                @Suppress("UNCHECKED_CAST")
-                val sftp = session.openChannel("sftp") as ChannelSftp
-                sftp.connect(15000)
-                try {
-                    val raw = sftp.ls(path)
-                    for (item in raw) {
-                        val entryName = item.filename
-                        if ("." == entryName || ".." == entryName) continue
-                        val attrs: SftpATTRS = item.attrs
-                        entries.add(listOf(
-                            entryName,
-                            if (attrs.isDir) "dir" else "file",
-                            attrs.size.toString(),
-                        ))
-                    }
-                } finally {
-                    sftp.disconnect()
+                    ?: throw Exception("服务器不存在（可能已删除）")
+                entries = SftpOps.list(appContext, server, path) { title, message ->
+                    bus.confirm(title, message)
                 }
             } catch (failure: Exception) {
-                error = failure.message ?: failure.javaClass.simpleName
+                error = sftpReason("读取", path, failure)
             }
             val result = entries
             val failureMessage = error
             runOnUiThread {
-                sftpBusy = false
+                // 已经被后来的请求接管了：busy 由那个请求的收尾负责清，这里别抢
                 if (serverId != sftpServerId || path != sftpPath) {
-                    return@runOnUiThread   // 用户已经切走了
+                    return@runOnUiThread
                 }
+                sftpBusy = false
                 sftpLoadedKey = "$serverId|$path"   // 成功失败都算「拉过了」，空目录别再循环拉
                 if (failureMessage != null) {
                     sftpError = failureMessage
@@ -1299,6 +1511,589 @@ class ServersActivity : ComponentActivity() {
     private fun remotePathOf(name: String): String =
         if (sftpPath.isEmpty() || sftpPath == "/") "/$name"
         else if (sftpPath.endsWith("/")) sftpPath + name else "$sftpPath/$name"
+
+    // ------------------------------------------------------------------
+    // 文件页：目录导航与排序
+    // ------------------------------------------------------------------
+
+    /** 切目录。force=true 用于「就地重拉」（路径没变也要重新拉一遍） */
+    private fun gotoDir(path: String, force: Boolean = false) {
+        if (path == sftpPath && !force) return
+        sftpPath = path
+        sftpEntries = emptyList()
+        sftpError = ""
+        sftpBusy = true     // 先亮「加载中」，免得中间闪一下「（空目录）」
+        sftpLoadedKey = ""
+    }
+
+    /** 刷新当前目录 */
+    private fun reloadDir() = gotoDir(sftpPath, true)
+
+    /** /a/b/c → ["/", "a", "b", "c"]（根目录就是 ["/"]） */
+    private fun pathSegments(path: String): List<String> {
+        val clean = path.trim().ifEmpty { "/" }
+        if (clean == "/") return listOf("/")
+        return listOf("/") + clean.trim('/').split('/').filter { it.isNotEmpty() }
+    }
+
+    /** 面包屑第 index 段对应的完整路径（index=0 是根） */
+    private fun pathUpTo(segments: List<String>, index: Int): String {
+        if (index <= 0) return "/"
+        return "/" + segments.subList(1, minOf(index + 1, segments.size)).joinToString("/")
+    }
+
+    /**
+     * 排序：目录恒定排在最前（跟手机上的文件管理器一个习惯），组内再按用户选的规则，
+     * 最后拿名字兜底 —— 大小 / 时间相同的项顺序也稳定，不会每刷一次就跳动。
+     */
+    private fun orderEntries(raw: List<SftpOps.Entry>): List<SftpOps.Entry> {
+        var key: Comparator<SftpOps.Entry> = when (sftpSort) {
+            SftpSort.NAME -> compareBy<SftpOps.Entry> { it.name.lowercase(Locale.ROOT) }
+            SftpSort.SIZE -> compareBy<SftpOps.Entry> { it.size }
+            SftpSort.TIME -> compareBy<SftpOps.Entry> { it.mtime }
+        }
+        if (sftpSortDesc) key = key.reversed()
+        return raw.sortedWith(
+            compareBy<SftpOps.Entry> { if (it.dir) 0 else 1 }
+                .then(key)
+                .thenBy { it.name.lowercase(Locale.ROOT) }
+        )
+    }
+
+    private fun sortName(sort: SftpSort): String = when (sort) {
+        SftpSort.NAME -> "名称"
+        SftpSort.SIZE -> "大小"
+        SftpSort.TIME -> "时间"
+    }
+
+    private fun timeText(seconds: Long): String {
+        if (seconds <= 0) return "-"
+        return SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date(seconds * 1000L))
+    }
+
+    // ------------------------------------------------------------------
+    // 文件页：目录操作（都在后台线程跑，主线程只负责发指令和刷状态）
+    // ------------------------------------------------------------------
+
+    private fun sftpPrompt(): SshSessionManager.Prompt =
+        SshSessionManager.Prompt { title, message -> bus.confirm(title, message) }
+
+    /**
+     * 后台跑一次目录操作。期间 [sftpOpLabel] 非空（工具行亮「正在…」、再点也只提示不并发）。
+     * 完成后：成功 → [after]（默认重拉当前目录）；失败 → 长提示弹出来。
+     * [work] 里直接抛异常就行，message 会原样给用户看。
+     *
+     * ⚠️ [after] 必须排在 [work] 前面：尾随 lambda 只会绑到最后一个函数参数上，
+     * 换言之 `sftpRun("删除") { … }` 里的 lambda 永远进 [work]。反过来写会直接编译不过。
+     */
+    private fun sftpRun(label: String, after: (() -> Unit)? = null, work: () -> Unit) {
+        if (sftpOpLabel.isNotEmpty()) {
+            toast("正在$sftpOpLabel，稍等一下")
+            return
+        }
+        sftpOpLabel = label
+        Thread({
+            var failure: String? = null
+            try {
+                work()
+            } catch (error: Exception) {
+                failure = error.message ?: error.javaClass.simpleName
+            }
+            val message = failure
+            runOnUiThread {
+                sftpOpLabel = ""
+                if (message != null) {
+                    toast(message, long = true)
+                } else if (after != null) {
+                    after()
+                } else {
+                    reloadDir()
+                }
+            }
+        }, "anyboot-sftp-op").start()
+    }
+
+    /**
+     * jsch 的英文报错换成中文；我们自己抛的（已经是给用户看的中文）原样透出，
+     * 免得出现「删除失败：删除失败：权限不够」这种套娃。
+     */
+    private fun sftpReason(action: String, label: String, error: Exception): String {
+        val fromJsch = error is com.jcraft.jsch.SftpException
+                || error is com.jcraft.jsch.JSchException
+        return if (fromJsch) SftpOps.reason(error, action, label)
+        else (error.message ?: "$action 失败")
+    }
+
+    private fun mkdirHere(server: JumpServer, name: String) {
+        val target = SftpOps.join(sftpPath, name)
+        sftpRun("新建目录") {
+            try {
+                SftpOps.mkdir(applicationContext, server, target, sftpPrompt())
+            } catch (error: Exception) {
+                throw Exception(sftpReason("新建目录", name, error))
+            }
+        }
+    }
+
+    private fun renameEntry(server: JumpServer, entry: SftpOps.Entry, newName: String) {
+        val from = SftpOps.join(sftpPath, entry.name)
+        val to = SftpOps.join(sftpPath, newName)
+        sftpRun("重命名") {
+            try {
+                SftpOps.rename(applicationContext, server, from, to, sftpPrompt())
+            } catch (error: Exception) {
+                throw Exception(sftpReason("重命名", entry.name, error))
+            }
+        }
+    }
+
+    private fun deleteEntry(server: JumpServer, entry: SftpOps.Entry) {
+        val path = SftpOps.join(sftpPath, entry.name)
+        sftpRun("删除") {
+            try {
+                SftpOps.delete(applicationContext, server, path, sftpPrompt())
+            } catch (error: Exception) {
+                throw Exception(sftpReason("删除", entry.name, error))
+            }
+        }
+    }
+
+    /** 定位路径：支持绝对路径、~/ 家目录、相对当前目录；交给服务器 realpath 校验一遍再跳 */
+    private fun locate(server: JumpServer, input: String) {
+        val raw = input.trim()
+        if (raw.isEmpty()) return
+        var resolved: String? = null
+        sftpRun("定位路径", work = {
+            try {
+                var value = raw
+                if (raw == "~" || raw.startsWith("~/")) {
+                    value = SftpOps.home(applicationContext, server, sftpPrompt()) + raw.substring(1)
+                } else if (!raw.startsWith("/")) {
+                    value = SftpOps.join(sftpPath, raw)
+                }
+                resolved = SftpOps.resolve(applicationContext, server, value, sftpPrompt())
+            } catch (error: Exception) {
+                throw Exception(sftpReason("定位", raw, error))
+            }
+        }, after = { resolved?.let { gotoDir(it) } })
+    }
+
+    /** 复制 / 剪切进剪贴板（应用内，不碰手机的系统剪贴板） */
+    private fun setClip(mode: SftpClip, entry: SftpOps.Entry) {
+        sftpClip = mode
+        sftpClipServer = sftpServerId
+        sftpClipPaths = listOf(SftpOps.join(sftpPath, entry.name))
+        sftpClipNames = entry.name
+        toast((if (mode == SftpClip.CUT) "已剪切：" else "已复制：") + entry.name)
+    }
+
+    private fun clearClip() {
+        sftpClip = SftpClip.NONE
+        sftpClipServer = ""
+        sftpClipPaths = emptyList()
+        sftpClipNames = ""
+    }
+
+    /** 粘贴到指定目录 */
+    private fun pasteClipboard(server: JumpServer, destDir: String) {
+        if (sftpClip == SftpClip.NONE) return
+        if (sftpClipServer != server.id) {
+            toast("剪贴板里的东西在另一台服务器上，只能在同一台里粘贴")
+            return
+        }
+        val request = SftpPick(sftpClip == SftpClip.CUT, sftpClipPaths, sftpClipNames, destDir)
+        transferInto(server, request, destDir)
+    }
+
+    /**
+     * 复制 / 移动到目标目录。
+     * 目标已有同名项时：复制会自动改名成「名字 (2)」，剪切直接报错 ——
+     * 剪切是「移动」，静默改个名会让用户以为东西没了，不如让他自己决定。
+     */
+    private fun transferInto(server: JumpServer, request: SftpPick, destDir: String) {
+        sftpRun(if (request.cut) "移动" else "复制") {
+            for (source in request.paths) {
+                if (request.cut && SftpOps.parent(source) == destDir) continue   // 剪到自己待的目录：没意义，跳过
+                val name = SftpOps.nameOf(source)
+                var target = SftpOps.join(destDir, name)
+                try {
+                    if (SftpOps.exists(applicationContext, server, target, sftpPrompt())) {
+                        if (request.cut) {
+                            throw Exception("目标目录里已经有「$name」了")
+                        }
+                        target = uniqueTarget(server, destDir, name)
+                    }
+                    if (request.cut) {
+                        SftpOps.move(applicationContext, server, source, target, sftpPrompt())
+                    } else {
+                        SftpOps.copy(applicationContext, server, source, target, sftpPrompt())
+                    }
+                } catch (error: Exception) {
+                    throw Exception(sftpReason(if (request.cut) "移动" else "复制", name, error))
+                }
+            }
+            if (request.cut) {
+                // 剪切成功 → 剪贴板空了（Compose 状态只能在主线程写）
+                runOnUiThread { clearClip() }
+            }
+        }
+    }
+
+    /** 复制时避免覆盖：foo.txt → foo (2).txt */
+    private fun uniqueTarget(server: JumpServer, dir: String, name: String): String {
+        val dot = name.lastIndexOf('.')
+        val stem = if (dot > 0) name.substring(0, dot) else name
+        val ext = if (dot > 0) name.substring(dot) else ""
+        for (index in 2..99) {
+            val candidate = SftpOps.join(dir, "$stem ($index)$ext")
+            if (!SftpOps.exists(applicationContext, server, candidate, sftpPrompt())) {
+                return candidate
+            }
+        }
+        throw Exception("同名副本太多了（已经到 99 个）")
+    }
+
+    /** 打开这台服务器的终端，并让它 cd 到指定目录（终端页读 cdPath，会话一连上就打进去） */
+    private fun openTerminalAt(server: JumpServer, dir: String) {
+        if (!server.isSsh()) {
+            toast("Telnet 只有终端，没有文件功能")
+            return
+        }
+        val intent = Intent(this, TerminalActivity::class.java)
+        intent.putExtra("jumpId", server.id)
+        intent.putExtra("cdPath", dir)
+        startActivity(intent)
+    }
+
+    // ------------------------------------------------------------------
+    // 文件页：弹窗
+    // ------------------------------------------------------------------
+
+    /** 文件详情（字段现取，软链接会连指向一起给） */
+    @Composable
+    private fun FileDetailDialog(entry: SftpOps.Entry, server: JumpServer) {
+        val palette = LocalPalette.current
+        val path = SftpOps.join(sftpPath, entry.name)
+        var fields by remember(entry) { mutableStateOf<List<Pair<String, String>>?>(null) }
+        var error by remember(entry) { mutableStateOf("") }
+        LaunchedEffect(entry, sftpPath) {
+            Thread({
+                var failure: String? = null
+                val rows = ArrayList<Pair<String, String>>()
+                try {
+                    val detail = SftpOps.detail(applicationContext, server, path) { title, message ->
+                        bus.confirm(title, message)
+                    }
+                    rows.add("名称" to detail.name)
+                    rows.add("类型" to detail.typeLabel)
+                    rows.add("完整路径" to detail.path)
+                    if (!detail.dir) {
+                        rows.add("大小" to (humanSize(detail.size) + "（" + detail.size + " 字节）"))
+                    }
+                    rows.add("修改时间" to timeText(detail.mtime))
+                    rows.add("访问时间" to timeText(detail.atime))
+                    rows.add("权限" to detail.permissions.ifEmpty { "-" })
+                    rows.add("属主" to (detail.uid.toString() + " : " + detail.gid))
+                    if (detail.linkTarget.isNotEmpty()) {
+                        rows.add("指向" to detail.linkTarget)
+                    }
+                } catch (e: Exception) {
+                    failure = sftpReason("读取详情", entry.name, e)
+                }
+                val done = rows
+                val message = failure
+                runOnUiThread {
+                    if (message != null) error = message else fields = done
+                }
+            }, "anyboot-sftp-detail").start()
+        }
+        AlertDialog(
+            onDismissRequest = { sftpAskDetail = null },
+            title = { Text("文件详情") },
+            text = {
+                Column {
+                    val errorText = error
+                    val list = fields
+                    when {
+                        errorText.isNotEmpty() -> Text(errorText, fontSize = 13.sp, color = palette.bad)
+                        list == null -> Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                            Spacer(Modifier.width(8.dp))
+                            SecondaryText("读取中 …")
+                        }
+                        else -> list.forEach { row ->
+                            Row(Modifier.padding(vertical = 3.dp)) {
+                                Text(row.first, fontSize = 12.sp, color = palette.fgDim,
+                                    modifier = Modifier.width(68.dp))
+                                Text(row.second, fontSize = 13.sp, color = palette.fg,
+                                    modifier = Modifier.weight(1f))
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    sftpAskDetail = null
+                    copyClipboard("路径", path)
+                }) { Text("复制路径") }
+            },
+            dismissButton = {
+                TextButton(onClick = { sftpAskDetail = null }) { Text("关闭") }
+            },
+        )
+    }
+
+    @Composable
+    private fun RenameFileDialog(entry: SftpOps.Entry, server: JumpServer) {
+        var name by remember(entry) { mutableStateOf(entry.name) }
+        AlertDialog(
+            onDismissRequest = { sftpAskRename = null },
+            modifier = Modifier.imePadding(),
+            properties = DialogProperties(decorFitsSystemWindows = false),
+            title = { Text("重命名") },
+            text = {
+                Column {
+                    SecondaryText(entry.name)
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = name,
+                        onValueChange = { name = it },
+                        singleLine = true,
+                        placeholder = { Text("新名称", fontSize = 12.sp) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val target = name.trim()
+                    when {
+                        target.isEmpty() -> toast("名称不能为空")
+                        target.contains('/') -> toast("名称里不能带 /")
+                        target == entry.name -> sftpAskRename = null
+                        else -> {
+                            sftpAskRename = null
+                            renameEntry(server, entry, target)
+                        }
+                    }
+                }) { Text("重命名") }
+            },
+            dismissButton = {
+                TextButton(onClick = { sftpAskRename = null }) { Text("取消") }
+            },
+        )
+    }
+
+    @Composable
+    private fun DeleteFileDialog(entry: SftpOps.Entry, server: JumpServer) {
+        val palette = LocalPalette.current
+        AlertDialog(
+            onDismissRequest = { sftpAskDelete = null },
+            title = { Text("删除") },
+            text = {
+                Text(
+                    if (entry.dir) {
+                        "删除目录「" + entry.name + "」？\n里面的东西会一起删掉，删了就找不回来。"
+                    } else {
+                        "删除文件「" + entry.name + "」？删了就找不回来。"
+                    },
+                    fontSize = 14.sp,
+                    color = palette.fg,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    sftpAskDelete = null
+                    deleteEntry(server, entry)
+                }) { Text("删除", color = palette.bad) }
+            },
+            dismissButton = {
+                TextButton(onClick = { sftpAskDelete = null }) { Text("取消") }
+            },
+        )
+    }
+
+    @Composable
+    private fun MkdirDialog(server: JumpServer) {
+        var name by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { sftpMkdirOpen = false },
+            modifier = Modifier.imePadding(),
+            properties = DialogProperties(decorFitsSystemWindows = false),
+            title = { Text("新建目录") },
+            text = {
+                Column {
+                    SecondaryText("位置：" + sftpPath)
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = name,
+                        onValueChange = { name = it },
+                        singleLine = true,
+                        placeholder = { Text("目录名", fontSize = 12.sp) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val target = name.trim()
+                    when {
+                        target.isEmpty() -> toast("目录名不能为空")
+                        target.contains('/') -> toast("目录名里不能带 /")
+                        else -> {
+                            sftpMkdirOpen = false
+                            mkdirHere(server, target)
+                        }
+                    }
+                }) { Text("新建") }
+            },
+            dismissButton = {
+                TextButton(onClick = { sftpMkdirOpen = false }) { Text("取消") }
+            },
+        )
+    }
+
+    @Composable
+    private fun LocateDialog(server: JumpServer) {
+        var path by remember { mutableStateOf(sftpPath) }
+        AlertDialog(
+            onDismissRequest = { sftpLocateOpen = false },
+            modifier = Modifier.imePadding(),
+            properties = DialogProperties(decorFitsSystemWindows = false),
+            title = { Text("定位路径") },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = path,
+                        onValueChange = { path = it },
+                        singleLine = true,
+                        placeholder = { Text("/home/pi 或 ~/logs", fontSize = 12.sp) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    SecondaryText("绝对路径、~ 开头（家目录）、或相对当前目录都行")
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    sftpLocateOpen = false
+                    locate(server, path)
+                }) { Text("前往") }
+            },
+            dismissButton = {
+                TextButton(onClick = { sftpLocateOpen = false }) { Text("取消") }
+            },
+        )
+    }
+
+    /** 「复制到… / 移动到…」的目标目录选择器：只列目录，能往下钻，点「选这里」才动手 */
+    @Composable
+    private fun DestPickerDialog(request: SftpPick, server: JumpServer) {
+        val palette = LocalPalette.current
+        val appContext = applicationContext
+        var path by remember { mutableStateOf(request.startDir) }
+        var dirs by remember { mutableStateOf<List<SftpOps.Entry>>(emptyList()) }
+        var busy by remember { mutableStateOf(true) }
+        var error by remember { mutableStateOf("") }
+
+        LaunchedEffect(path) {
+            val target = path
+            busy = true
+            error = ""
+            dirs = emptyList()
+            Thread({
+                var failure: String? = null
+                var list: List<SftpOps.Entry> = emptyList()
+                try {
+                    list = SftpOps.list(appContext, server, target) { title, message ->
+                        bus.confirm(title, message)
+                    }.filter { it.dir && !it.link }
+                        .sortedBy { it.name.lowercase(Locale.ROOT) }
+                } catch (e: Exception) {
+                    failure = sftpReason("打开", target, e)
+                }
+                val done = list
+                val message = failure
+                runOnUiThread {
+                    if (path != target) return@runOnUiThread   // 已经钻到别的目录去了
+                    busy = false
+                    if (message != null) error = message else dirs = done
+                }
+            }, "anyboot-sftp-dest").start()
+        }
+
+        AlertDialog(
+            onDismissRequest = { sftpPick = null },
+            title = { Text(if (request.cut) "移动到…" else "复制到…") },
+            text = {
+                Column {
+                    SecondaryText(request.label)
+                    Spacer(Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            path,
+                            fontSize = 13.sp,
+                            color = palette.fg,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        ChipButton("上级") { path = SftpOps.parent(path) }
+                    }
+                    when {
+                        busy -> Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(vertical = 10.dp),
+                        ) {
+                            CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                            Spacer(Modifier.width(8.dp))
+                            SecondaryText("读取中 …")
+                        }
+                        error.isNotEmpty() -> SecondaryText(error,
+                            Modifier.padding(vertical = 8.dp))
+                        else -> Column(
+                            Modifier
+                                .heightIn(max = 280.dp)
+                                .verticalScroll(rememberScrollState())
+                        ) {
+                            if (dirs.isEmpty()) SecondaryText("（没有子目录）")
+                            dirs.forEach { dir ->
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { path = SftpOps.join(path, dir.name) }
+                                        .padding(vertical = 10.dp),
+                                ) {
+                                    Text("📁")
+                                    Text(
+                                        dir.name,
+                                        fontSize = 14.sp,
+                                        color = palette.fg,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.padding(start = 8.dp),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val dest = path
+                    sftpPick = null
+                    transferInto(server, request, dest)
+                }) { Text("选这里") }
+            },
+            dismissButton = {
+                TextButton(onClick = { sftpPick = null }) { Text("取消") }
+            },
+        )
+    }
 
     // ------------------------------------------------------------------
     // 传输页（上传 / 下载任务；发起在「文件」页）

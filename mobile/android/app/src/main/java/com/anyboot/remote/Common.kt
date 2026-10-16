@@ -15,6 +15,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
@@ -187,17 +188,23 @@ fun SecondaryText(text: String, modifier: Modifier = Modifier) {
     )
 }
 
-/** 小按钮 chip（强调色文字 + 圆角抬升底），旧 smallButton 的对应物 */
+/**
+ * 小按钮 chip（强调色文字 + 圆角抬升底），旧 smallButton 的对应物。
+ *
+ * [selected] 是「开着」的状态（如「显示隐藏」这类开关）—— 反色显示。
+ * 注意它排在 [onClick] 前面：排后面的话 `ChipButton("上级") { … }` 这种尾随 lambda
+ * 会去匹配 [selected]，直接编译不过。
+ */
 @Composable
-fun ChipButton(text: String, onClick: () -> Unit) {
+fun ChipButton(text: String, selected: Boolean = false, onClick: () -> Unit) {
     val palette = LocalPalette.current
     Text(
         text = text,
         fontSize = 12.sp,
-        color = palette.accent,
+        color = if (selected) palette.onAccent else palette.accent,
         modifier = Modifier
             .clip(RoundedCornerShape(12.dp))
-            .background(palette.elevate)
+            .background(if (selected) palette.accent else palette.elevate)
             .padding(horizontal = 10.dp, vertical = 6.dp)
             .clickable(onClick = onClick),
     )
@@ -228,6 +235,30 @@ fun FieldLabel(text: String) {
         modifier = Modifier.padding(top = 10.dp, bottom = 2.dp),
     )
 }
+
+/**
+ * 「只读下拉触发框」的配色：把**禁用态**配成跟正常态一模一样。
+ *
+ * 为什么要吃这个亏：下拉触发框必须写成 `enabled = false`。
+ * readOnly 的 TextField 自己会把点击吃成「聚焦」（边框绿一下），挂在它身上的
+ * `Modifier.clickable` 一次都收不到事件 —— 下拉菜单于是永远打不开。
+ * 只有 disabled 的 TextField 不处理指针，我们的 clickable 才会生效；代价是文字/边框
+ * 默认变灰，所以在这里把四个禁用色配回来。
+ *
+ * 也试过「盖一层透明 Box 接点击」：菜单是能开，但那层会把输入框整个挡在无障碍树外
+ * （`isVisibleToUser=false`），uiautomator 和 TalkBack 都读不到这个字段的文本。
+ */
+@Composable
+fun disabledFieldColors(
+    textColor: Color,
+    borderColor: Color,
+    labelColor: Color,
+) = OutlinedTextFieldDefaults.colors(
+    disabledTextColor = textColor,
+    disabledBorderColor = borderColor,
+    disabledLabelColor = labelColor,
+    disabledTrailingIconColor = labelColor,
+)
 
 /** 列表行之间的细分隔线（缩进对齐文字列，避开徽标） */
 @Composable
