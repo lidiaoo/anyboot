@@ -1913,7 +1913,7 @@ class ServersActivity : ComponentActivity() {
                 }
                 sftpEntries.isEmpty() -> SecondaryText("　（空目录）", Modifier.padding(16.dp))
                 shown.isEmpty() -> SecondaryText("　（没有匹配的项）", Modifier.padding(16.dp))
-                else -> shown.forEach { entry -> FileRow(entry, server) }
+                else -> shown.forEach { entry -> FileRow(entry) }
             }
 
             // 目录还没按「服务器|路径」拉取过时自动加载一次。
@@ -2084,7 +2084,7 @@ class ServersActivity : ComponentActivity() {
                 SheetAction("复制", small = true) { close(); setClip(SftpClip.COPY, entry) }
                 SheetAction("剪切", small = true) { close(); setClip(SftpClip.CUT, entry) }
                 if (entry.dir && sftpClip != SftpClip.NONE) {
-                    SheetAction("粘贴到此目录", small = true) { close(); pasteClipboard(server, sftpPath) }
+                    SheetAction("粘贴到此处", small = true) { close(); pasteClipboard(server, sftpPath) }
                 }
                 if (entry.dir) {
                     SheetAction("在终端打开", small = true) { close(); openTerminalAt(server, path) }
@@ -2131,7 +2131,7 @@ class ServersActivity : ComponentActivity() {
     /** 文件 / 目录一行（设计稿三列行卡）：点一下进目录或下载；长按整行、或点行末 ⋮ 都出操作菜单 */
     @OptIn(ExperimentalFoundationApi::class)
     @Composable
-    private fun FileRow(entry: SftpOps.Entry, server: JumpServer) {
+    private fun FileRow(entry: SftpOps.Entry) {
         val palette = LocalPalette.current
         val path = SftpOps.join(sftpPath, entry.name)
         Row(
