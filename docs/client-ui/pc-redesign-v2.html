@@ -75,6 +75,7 @@ tailwind.config = {
 <div class="mx-auto mb-6 flex max-w-6xl flex-wrap items-center justify-center gap-2" role="tablist" aria-label="页面切换" data-page-node-id="zHjDnmBzJXTO1F90OiPCTG">
   <button role="tab" data-page="main" aria-selected="true"  class="pgtab cursor-pointer rounded-full border border-accentT/40 bg-accentT/10 px-4 py-1.5 text-xs font-semibold text-accentT" data-page-node-id="BjP8BGd3FlCpJthxFYpmuY">主窗口（旧界面 · 不受影响）</button>
   <button role="tab" data-page="hub"    aria-selected="false" class="pgtab cursor-pointer rounded-full border border-line bg-card px-4 py-1.5 text-xs font-medium text-fgDim transition-colors hover:text-fg" data-page-node-id="4BeYuGjWMkAJEMQG8yvDBs">远程管理（入口：托盘菜单）</button>
+  <button role="tab" data-page="hub-menu" aria-selected="false" class="pgtab cursor-pointer rounded-full border border-line bg-card px-4 py-1.5 text-xs font-medium text-fgDim transition-colors hover:text-fg" data-page-node-id="pcMenuTab01">电脑 · 右上角更多菜单</button>
   <span class="mx-2 h-5 w-px bg-line" data-page-node-id="Y9kxz2i1pUu87zGGpYMh4M"></span>
   <button id="themeToggle" class="cursor-pointer rounded-full border border-line bg-card px-4 py-1.5 text-xs font-medium text-fgDim transition-colors hover:text-fg" data-page-node-id="nG8tVNd5RBnyKnlU6IiGyo">☀️ 亮色</button>
 </div>
@@ -309,7 +310,7 @@ tailwind.config = {
         </button>
         <button class="hubtab inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-full border border-dashed border-line px-3 py-1.5 text-xs font-medium text-fgDim transition-colors hover:border-accentT/50 hover:text-accentT" data-sub="home-add-pc">＋ 添加</button>
       </div>
-      <button class="grid size-8 cursor-pointer place-items-center rounded-lg text-fgDim transition-colors hover:bg-elevate hover:text-fg" aria-label="更多">
+      <button class="hubtab grid size-8 cursor-pointer place-items-center rounded-lg text-fgDim transition-colors hover:bg-elevate hover:text-fg" aria-label="更多" data-sub="home-pc-menu">
         <svg class="size-5" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg>
       </button>
     </div>
@@ -324,6 +325,37 @@ tailwind.config = {
         </div>
       </div>
     </div>
+  </section>
+
+  <!-- ============ ②b 电脑 · 右上角更多菜单（⋮ 触发；对齐手机主界面 ⋮ 下拉菜单：会话 / 传输管理 / 终端设置） ============ -->
+  <section data-screen="home-pc-menu" hidden class="relative flex min-h-0 flex-1 flex-col overflow-hidden" data-page-node-id="pcMenuRoot01">
+    <!-- 底衬：电脑页原样压暗（示意） -->
+    <div class="pointer-events-none flex-1 opacity-25 blur-[2px]" aria-hidden="true" data-page-node-id="pcMenuBlur01">
+      <div class="flex items-center gap-1.5 border-b border-line bg-card px-3 py-2" data-page-node-id="pcMenuBlurBar01">
+        <span class="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-accent px-3 py-1.5 text-xs font-semibold text-white"><span class="size-2 rounded-full bg-white/90"></span>本机 · CachyOS</span>
+        <span class="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-elevate px-3 py-1.5 text-xs text-fg"><span class="size-2 rounded-full bg-ok"></span>书房台式机</span>
+        <span class="ml-auto grid size-8 place-items-center rounded-lg bg-elevate text-fg"><svg class="size-5" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg></span>
+      </div>
+      <div class="grid h-full min-h-56 place-items-center px-4"><div class="h-40 w-full max-w-sm rounded-2xl border border-dashed border-line bg-card"></div></div>
+    </div>
+    <!-- 遮罩：点空白处关闭 -->
+    <div id="pcMenuScrim" class="absolute inset-0 bg-black/25" aria-hidden="true" data-page-node-id="pcMenuScrim01"></div>
+    <!-- 下拉面板：锚定右上角 ⋮ 正下方，右对齐 -->
+    <div class="absolute right-3 top-12 w-64 overflow-hidden rounded-xl border border-lineStrong bg-card shadow-pop" role="menu" aria-label="更多" data-page-node-id="pcMenuPanel01">
+      <button role="menuitem" data-goto="sessions" class="flex h-10 w-full cursor-pointer items-center gap-3 px-4 text-left text-sm text-fg transition-colors hover:bg-elevate" data-page-node-id="pcMenuSessions01">
+        <svg class="size-4.5 shrink-0 text-fgDim" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+        会话（进行中 / 历史）
+      </button>
+      <button role="menuitem" data-goto="transfers" class="flex h-10 w-full cursor-pointer items-center gap-3 px-4 text-left text-sm text-fg transition-colors hover:bg-elevate" data-page-node-id="pcMenuTransfers01">
+        <svg class="size-4.5 shrink-0 text-fgDim" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4v12M4 13l3 3 3-3M17 20V8M14 11l3-3 3 3"/></svg>
+        传输管理
+      </button>
+      <button role="menuitem" data-goto="term-settings" class="flex h-10 w-full cursor-pointer items-center gap-3 px-4 text-left text-sm text-fg transition-colors hover:bg-elevate" data-page-node-id="pcMenuTermset01">
+        <svg class="size-4.5 shrink-0 text-fgDim" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg>
+        终端设置
+      </button>
+    </div>
+    <p class="absolute inset-x-0 bottom-4 text-center text-[11px] text-fgFaint" data-page-node-id="pcMenuNote01">电脑页右上角 ⋮ 菜单 · 三项与手机主界面 ⋮ 一致 · 点空白处关闭</p>
   </section>
 
   <!-- ============ ①b 添加 AnyBoot 服务端（PC 版，对应手机 home-add；首启必连态：无取消/无删除） ============ -->
@@ -934,13 +966,13 @@ tailwind.config = {
 
 <p class="mx-auto mt-6 max-w-3xl text-center text-xs leading-relaxed text-fgDim" data-page-node-id="xIQ6WMVWteB4wHxEALv75B">
   交互与移动端完全一致：托盘菜单「远程管理」只是入口 —— 打开的远程管理窗口 = 常驻左边栏（电脑/服务器/终端/会话/传输/文件/密钥/终端设置/关于/主题，对应手机抽屉）+ 右侧内容区<br>
-  主窗口 = 旧界面，一字不动。13 屏与手机端 v2（13 屏）一一对应：电脑↔手机主界面（服务端 chips 顶栏 + 内容现状保持） · 服务器/终端/会话/传输/文件/密钥/终端设置/关于 同名对应 · 手机抽屉 = PC 常驻左边栏<br>
+  主窗口 = 旧界面，一字不动。14 屏与手机端 v2（14 屏）一一对应：电脑↔手机主界面（服务端 chips 顶栏 + 内容现状保持） · 电脑·右上角更多菜单↔手机主界面 ⋮ 菜单（会话/传输管理/终端设置） · 服务器/终端/会话/传输/文件/密钥/终端设置/关于 同名对应 · 手机抽屉 = PC 常驻左边栏<br>
   同一套设计令牌：靛蓝主色 + 青色 info 点缀 · JetBrains Mono 数据字体
 </p>
 
 <script>
   // 入口切换：主窗口（旧界面） / 远程管理（托盘入口打开；交互与移动端一致：常驻左边栏 + 内容区）
-  const HUB_FAMILY = ['home-pc','hub','term','sessions','transfers','files','keys','term-settings','about','hub-add','hub-edit','home-add-pc'];
+  const HUB_FAMILY = ['home-pc','home-pc-menu','hub','term','sessions','transfers','files','keys','term-settings','about','hub-add','hub-edit','home-add-pc'];
   const screens = {};
   for (const n of ['main', ...HUB_FAMILY]) screens[n] = document.querySelector('[data-screen="' + n + '"]');
   const hubshell = document.getElementById('hubshell');
@@ -952,7 +984,9 @@ tailwind.config = {
 
   function paintOuter() {
     outerTabs.forEach(t => {
-      const on = t.dataset.page === currentOuter;
+      const on = t.dataset.page === 'hub-menu'
+        ? (currentOuter === 'hub' && currentSub === 'home-pc-menu')
+        : (t.dataset.page === currentOuter && currentSub !== 'home-pc-menu');
       t.setAttribute('aria-selected', on);
       t.className = on
         ? 'pgtab cursor-pointer rounded-full border border-accentT/40 bg-accentT/10 px-4 py-1.5 text-xs font-semibold text-accentT'
@@ -960,8 +994,9 @@ tailwind.config = {
     });
   }
   function paintSide() {
+    const menuOnPc = currentSub === 'home-pc-menu'; // ⋮ 菜单屏归属「电脑」：左边栏同步点亮
     sideBtns.forEach(b => {
-      const on = b.dataset.sub === currentSub;
+      const on = menuOnPc ? b.dataset.sub === 'home-pc' : b.dataset.sub === currentSub;
       b.classList.toggle('bg-accent/10', on);
       b.classList.toggle('font-semibold', on);
       b.classList.toggle('text-accentT', on);
@@ -975,9 +1010,17 @@ tailwind.config = {
     screens['main'].hidden = currentOuter !== 'main';
     paintOuter(); paintSide();
   }
-  outerTabs.forEach(t => t.addEventListener('click', () => { currentOuter = t.dataset.page; apply(); }));
+  outerTabs.forEach(t => t.addEventListener('click', () => {
+    const p = t.dataset.page;
+    if (p === 'hub-menu') { currentOuter = 'hub'; currentSub = 'home-pc-menu'; }
+    else { currentOuter = p; if (currentSub === 'home-pc-menu') currentSub = 'hub'; }
+    apply();
+  }));
   sideBtns.forEach(b => b.addEventListener('click', () => { currentSub = b.dataset.sub; apply(); }));
   hubtabs.forEach(t => t.addEventListener('click', () => { currentSub = t.dataset.sub; apply(); }));
+  // ⋮ 菜单屏内：点菜单项跳对应页（与手机 ⋮ 行为一致）；点遮罩回电脑页
+  document.querySelectorAll('[data-goto]').forEach(b => b.addEventListener('click', () => { currentSub = b.dataset.goto; apply(); }));
+  document.getElementById('pcMenuScrim').addEventListener('click', () => { currentSub = 'home-pc'; apply(); });
   apply();
 
   // 主题切换（顶栏按钮与侧栏「主题：跟随系统」行共用）
