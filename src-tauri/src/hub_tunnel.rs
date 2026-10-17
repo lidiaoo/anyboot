@@ -283,7 +283,7 @@ pub(crate) fn ensure_control(
     } else {
         format!("{}@{}", server.username, server.host)
     };
-    let mut command = std::process::Command::new("ssh");
+    let mut command = crate::command("ssh");
     command
         .args(["-o", "ControlMaster=auto"])
         .arg("-o")
@@ -457,7 +457,7 @@ fn spawn_tunnel(
     } else {
         format!("{}@{}", server.username, server.host)
     };
-    let mut command = std::process::Command::new("ssh");
+    let mut command = crate::command("ssh");
     command.arg("-N").arg("-T").arg("-o").arg("ExitOnForwardFailure=yes");
     // 认证（含跳板与 Unix 的 ControlMaster 复用）统一走 apply_auth：
     // Unix 上能白用终端建好的 master；Windows 上每次自己认证。

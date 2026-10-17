@@ -573,7 +573,7 @@ fn remote_endpoint_inner(
     } else {
         format!("{}@", jump.username)
     };
-    let mut command = std::process::Command::new("ssh");
+    let mut command = crate::command("ssh");
     command
         .arg("-N")
         .arg("-T")

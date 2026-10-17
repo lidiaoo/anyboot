@@ -269,6 +269,10 @@
   <h1 id="title" data-page-node-id="YTUm127elCWJVJR8U4kV2R">文件</h1>
   <span id="connPill" class="pill bad" hidden data-page-node-id="YXB3HBu36pjRYDksf6CAIm"><span class="dot" data-page-node-id="LWSrPF2f4EnPplLCnypyjP"></span><span id="connText" data-page-node-id="gxRQayK7QQK5RdghFsl9fH">连接中…</span></span>
   <div class="tools" data-page-node-id="wq2Th5Min4ByfBaiZEElep">
+    <button class="toolbtn" id="hubBtn" aria-label="打开远程管理" title="打开远程管理">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="7" rx="2"/><rect x="2" y="14" width="20" height="7" rx="2"/><path d="M6 6.5h.01M6 17.5h.01"/></svg>
+      远程管理
+    </button>
     <button class="toolbtn" id="themeBtn" aria-label="切换主题" data-page-node-id="NgJKRLDEdvgsn8dDKwZBqA">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" data-page-node-id="Ah2E8mSoc38romBkPchono"><circle cx="12" cy="12" r="9" data-page-node-id="zrIcAQbuKCiq1VMCHuUnSf"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none" data-page-node-id="gQxH94I7V6zU214ndxbHXN"/></svg>
       主题
@@ -512,6 +516,20 @@ function applyTheme(t) {
   document.documentElement.classList.add(t);
   try { localStorage.setItem('ab-theme', t); } catch (e) {}
 }
+/* ---------- 远程管理入口（顶栏） ---------- */
+// 文件窗顶栏的「远程管理」：回到 server-hub（已开则聚焦），与终端/密钥窗一致。
+const hubBtnElement = document.getElementById('hubBtn');
+if (hubBtnElement) {
+  hubBtnElement.addEventListener('click', async function () {
+    if (!invoke) { toast('浏览器里无法打开本机窗口'); return; }
+    try {
+      await invoke('hub_open_window');
+    } catch (error) {
+      toast(String(error));
+    }
+  });
+}
+
 document.getElementById('themeBtn').addEventListener('click', () => {
   applyTheme(document.documentElement.classList.contains('light') ? 'dark' : 'light');
 });
@@ -745,18 +763,23 @@ async function downloadEntry(entry) {
   busy = true;
   showTransfer('down', '下载 ' + entry.name, false);
   try {
-    // 下载路径取终端设置的「下载路径」（默认 ~，由后端展开主目录）
-    let downDir = '~';
+    // 下载路径取终端设置的「下载路径」；没设置就落系统下载目录
+    let downDir = '';
     try {
       const s = JSON.parse(localStorage.getItem('ab-term-settings') || '{}');
-      if (typeof s.downDir === 'string' && s.downDir.trim()) downDir = s.downDir.trim();
+      const raw = typeof s.downDir === 'string' ? s.downDir.trim() : '';
+      // 空 / `~`（旧版本写死的默认值）= 未设置 → 用系统下载目录
+      if (raw && raw !== '~' && raw !== '~/') downDir = raw;
     } catch (e) {}
+    if (!downDir) {
+      try { downDir = await invoke('hub_download_dir_default'); } catch (e) {}
+    }
     const local = await invoke('hub_sftp_download', {
       server,
       remotePath: joinPath(cwd, entry.name),
       total: entry.size || 0,
       filename: entry.name,
-      localDir: downDir,
+      localDir: downDir || null,
     });
     toast('已下载到 ' + local);
   } catch (e) {

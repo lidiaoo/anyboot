@@ -47,7 +47,7 @@ fn quote_for_shell(path: &Path) -> String {
 }
 
 fn run_ssh_keygen(args: &[&str]) -> Result<String, String> {
-    let output = std::process::Command::new("ssh-keygen")
+    let output = crate::command("ssh-keygen")
         .args(args)
         .env("LC_ALL", "C")
         .output()

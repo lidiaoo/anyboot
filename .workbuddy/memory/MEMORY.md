@@ -46,3 +46,10 @@
   （不导航、不执行 JS），用户看到「空白窗口卡死」。改成 `async fn` 即在 tokio 线程创建，正常加载。
   本轮 `hub_open_term_window` / `hub_open_files_window` / `hub_open_keys_window` 三个都踩了这个坑。
 - 平台能力/排错/验收边界都在 `docs/server-hub.md`；改这条线先跑 Windows 目标 `cargo check`（Linux 通过不代表 Win 通过）。
+- **子进程一律走 `crate::command(program)`**（`lib.rs`，带 `CREATE_NO_WINDOW`）。hub 系列曾直接
+  `std::process::Command::new` → 文件列表/上传下载/远端复制每次都闪黑框。终端是 ConPTY，无需处理。
+- **下载目录空值 = 系统下载目录**（`hub_download_dir_default`：Windows 已知文件夹 / mac `~/Downloads` /
+  Linux XDG）。旧版本的 `~` 在前端也当空（`normalizeDownDir`）；`expand_home` 要读 `HOME` **和**
+  `USERPROFILE` —— Windows 没有 `HOME`，只读它会让 `~` 落到进程工作目录。
+- **远程管理入口现在四处**：托盘、「远程管理」主窗标题栏、终端/文件/密钥三窗顶栏（都调 `hub_open_window`，
+  必须 async）。

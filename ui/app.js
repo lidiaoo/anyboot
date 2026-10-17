@@ -2092,6 +2092,23 @@ if (IS_BROWSER) {
   quitAppElement.classList.add("hidden");
 }
 
+// ---------- 远程管理（SSH/SFTP 独立窗）入口 ----------
+// 只在本机窗口有意义：开的是电脑上的 webview 窗口，网页端点了没有落点。
+const openHubElement = document.querySelector("#open-hub");
+if (openHubElement) {
+  if (IS_BROWSER) {
+    openHubElement.classList.add("hidden");
+  } else {
+    openHubElement.addEventListener("click", async () => {
+      try {
+        await invoke("hub_open_window");
+      } catch (error) {
+        showStatusBar(String(error), { error: true });
+      }
+    });
+  }
+}
+
 // ---------- GRUB 细粒度切换区 ----------
 
 /// 这一区的操作回执（识别 / 挂载 / 打开目录）：统一落到窗口最下方那条独立提示条

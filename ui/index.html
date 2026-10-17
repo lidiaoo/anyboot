@@ -30,6 +30,10 @@
           <div class="header-row">
             <h1 data-page-node-id="z7rmJtH6aBtPGSohd0cT0u">AnyBoot</h1>
             <div class="system-actions">
+              <!-- 远程管理（SSH 终端 / SFTP 文件 / 密钥 / 隧道）是同级的另一个模块：
+                   入口在这里给一份全局的；终端、文件、密钥三个独立窗的顶栏也各有一份，
+                   走到哪儿都能一步回到远程管理。网页端（远程控制页）无意义，由 app.js 隐藏。 -->
+              <button class="secondary" id="open-hub" type="button" data-page-node-id="OpenHubBtn001QaZx9CdEf2">远程管理</button>
               <button class="secondary" id="power-reboot" type="button" data-page-node-id="2RIN6kKHt7BM26YL6EVjzc">重启系统</button>
               <button class="secondary" id="power-shutdown" type="button" data-page-node-id="xEVk1ZrGxSZHXPzAnd1orK">关机</button>
               <button class="secondary" id="power-sleep" type="button" data-page-node-id="eiRSB4x9Qn7sTfWEjJnjqH">睡眠</button>

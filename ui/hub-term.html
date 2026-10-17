@@ -160,6 +160,10 @@
   <h1 id="title">终端</h1>
   <span id="connPill" class="pill bad" hidden><span class="dot"></span><span id="connText">连接中…</span></span>
   <div class="tools">
+    <button class="toolbtn" id="hubBtn" aria-label="打开远程管理" title="打开远程管理">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="7" rx="2"/><rect x="2" y="14" width="20" height="7" rx="2"/><path d="M6 6.5h.01M6 17.5h.01"/></svg>
+      远程管理
+    </button>
     <button class="toolbtn" id="themeBtn" aria-label="切换主题">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none"/></svg>
       主题
@@ -225,6 +229,21 @@ function applyTheme(t) {
   try { localStorage.setItem('ab-theme', t); } catch (e) {}
   if (window.term) { /* xterm 主题随 token 由 CSS 变量处取，重建主题映射 */ refreshTermTheme(); }
 }
+/* ---------- 远程管理入口（顶栏） ---------- */
+// 终端 / 文件 / 密钥三个独立窗顶栏各挂一份：任何一步都能回到 server-hub，
+// 不用先关窗再去找主窗或托盘。窗口已开时后端只做聚焦。
+const hubBtnElement = document.getElementById('hubBtn');
+if (hubBtnElement) {
+  hubBtnElement.addEventListener('click', async function () {
+    if (!invoke) { toast('浏览器里无法打开本机窗口'); return; }
+    try {
+      await invoke('hub_open_window');
+    } catch (error) {
+      toast(String(error));
+    }
+  });
+}
+
 document.getElementById('themeBtn').addEventListener('click', () => {
   const root = document.documentElement;
   applyTheme(root.classList.contains('light') ? 'dark' : 'light');

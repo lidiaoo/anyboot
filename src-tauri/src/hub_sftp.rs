@@ -251,7 +251,7 @@ fn run_sftp_batch(app: &AppHandle, server: &HubServer, commands: &str) -> Result
     } else {
         format!("{}@{}", server.username, server.host)
     };
-    let mut command = std::process::Command::new("sftp");
+    let mut command = crate::command("sftp");
     // 认证参数必须排在 target 之前（sftp 把 target 之后的一切当远端路径）
     crate::hub_tunnel::apply_auth(app, server, &mut command, NO_CRED_MESSAGE)?;
     command
@@ -317,7 +317,7 @@ fn spawn_sftp_transfer(
     } else {
         format!("{}@{}", server.username, server.host)
     };
-    let mut command = std::process::Command::new("sftp");
+    let mut command = crate::command("sftp");
     // 认证参数必须排在 target 之前（sftp 把 target 之后的一切当远端路径）
     crate::hub_tunnel::apply_auth(app, server, &mut command, NO_CRED_MESSAGE)?;
     command
@@ -1085,7 +1085,7 @@ pub fn hub_sftp_copy(app: AppHandle, server: HubServer, from: String, to: String
     } else {
         format!("{}@{}", server.username, server.host)
     };
-    let mut command = std::process::Command::new("ssh");
+    let mut command = crate::command("ssh");
     crate::hub_tunnel::apply_auth(&app, &server, &mut command, NO_CRED_MESSAGE)?;
     command
         .arg("-p")
@@ -1123,7 +1123,7 @@ pub fn hub_sftp_readlink(app: AppHandle, server: HubServer, path: String) -> Res
     } else {
         format!("{}@{}", server.username, server.host)
     };
-    let mut command = std::process::Command::new("ssh");
+    let mut command = crate::command("ssh");
     crate::hub_tunnel::apply_auth(&app, &server, &mut command, NO_CRED_MESSAGE)?;
     command
         .arg("-p")
@@ -1152,19 +1152,80 @@ pub fn hub_sftp_readlink(app: AppHandle, server: HubServer, path: String) -> Res
     }
 }
 
-/// 展开 `~` 前缀为用户主目录（HOME；展开失败时原样返回）。
+/// 用户主目录：Windows 没有 POSIX 的 `HOME` 变量（只有 `USERPROFILE`），
+/// 只读 `HOME` 会让 `~` 展开失败，落成相对路径 `~\文件`（跑到进程工作目录）。
+fn user_home() -> Option<String> {
+    ["HOME", "USERPROFILE"]
+        .iter()
+        .filter_map(|key| std::env::var(key).ok())
+        .map(|value| value.trim().to_string())
+        .find(|value| !value.is_empty())
+}
+
+/// 展开 `~` 前缀为用户主目录（`HOME` / `USERPROFILE`；都取不到时原样返回）。
+/// 拼接统一用 `/`：Windows 的 Win32-OpenSSH 同样接受正斜杠，且不依赖平台分隔符。
 fn expand_home(dir: &str) -> String {
     let trimmed = dir.trim();
-    if trimmed == "~" {
-        std::env::var("HOME").unwrap_or_else(|_| trimmed.to_string())
-    } else if let Some(rest) = trimmed.strip_prefix("~/") {
-        match std::env::var("HOME") {
-            Ok(home) => format!("{}/{}", home.trim_end_matches('/'), rest),
-            Err(_) => trimmed.to_string(),
-        }
+    let home = user_home();
+    let rest = if trimmed == "~" {
+        Some("")
     } else {
-        trimmed.to_string()
+        trimmed
+            .strip_prefix("~/")
+            .or_else(|| trimmed.strip_prefix("~\\"))
+    };
+    match (rest, home) {
+        (Some(""), Some(home)) => home.trim_end_matches(['/', '\\']).to_string(),
+        (Some(rest), Some(home)) => {
+            let rest = rest.trim_start_matches(['/', '\\']);
+            format!("{}/{}", home.trim_end_matches(['/', '\\']), rest)
+        }
+        _ => trimmed.to_string(),
     }
+}
+
+/// 默认下载目录：系统「下载」目录（Windows 已知文件夹 / macOS `~/Downloads` /
+/// Linux 的 XDG 下载目录），取不到再退回用户主目录。
+///
+/// 前端设置页与新装用户的 `downDir` 初始值都来自这里 —— 不再写死 `~`
+/// （Windows 上 `~` 曾展开失败，文件直接落到程序工作目录）。
+#[tauri::command]
+pub fn hub_download_dir_default(app: AppHandle) -> Result<String, String> {
+    if let Ok(dir) = app.path().download_dir() {
+        return Ok(dir.display().to_string());
+    }
+    app.path()
+        .home_dir()
+        .map(|dir| dir.display().to_string())
+        .map_err(|error| format!("取不到用户目录: {error}"))
+}
+
+/// 目录选择框（设置页「下载路径 → 选择…」）：返回选中的绝对路径，取消返回 `None`。
+#[tauri::command]
+pub async fn hub_pick_directory(
+    app: AppHandle,
+    current: Option<String>,
+) -> Result<Option<String>, String> {
+    let start = current
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(expand_home)
+        .filter(|value| std::path::Path::new(value).is_dir());
+    tauri::async_runtime::spawn_blocking(move || {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut dialog = app.dialog().file().set_title("选择下载目录");
+        if let Some(dir) = start {
+            dialog = dialog.set_directory(dir);
+        }
+        dialog.pick_folder(move |path| {
+            let _ = tx.send(path.and_then(|p| p.into_path().ok()));
+        });
+        rx.recv().map_err(|_| "目录选择框被关闭".to_string())
+    })
+    .await
+    .map_err(|error| format!("目录选择框执行失败: {error}"))?
+    .map(|path| path.map(|path| path.display().to_string()))
 }
 
 /// 下载单个文件：`local_dir` 给定时直接落到该目录（`~` 展开，默认主目录），

@@ -47,8 +47,12 @@ use std::os::windows::process::CommandExt;
 /// 新建一个控制台窗口 —— 用户在倒计时弹窗旁看到的那个蓝色 PowerShell 窗口就是这么来的
 /// （提示音走 powershell 播放；网口诊断、电源命令也都一样会闪一下）。
 /// 统一带上 CREATE_NO_WINDOW，子进程就在后台静默跑完。
+///
+/// `pub(crate)`：hub 系列（ssh / sftp / ssh-keygen）也必须走这里 ——
+/// 之前它们直接 `std::process::Command::new(...)`，于是文件列表、上传下载、
+/// 远端复制每次操作都在桌面上闪一个黑窗口。
 #[allow(unused_mut)]
-fn command(program: &str) -> Command {
+pub(crate) fn command(program: &str) -> Command {
     let mut command = Command::new(program);
     #[cfg(target_os = "windows")]
     {
@@ -5173,6 +5177,15 @@ pub(crate) fn open_keys_window(app: &AppHandle) -> Result<(), String> {
     .map_err(|error| format!("无法创建密钥管理窗口: {error}"))?;
     trace(app, "hub", "密钥管理窗口已创建");
     Ok(())
+}
+
+/// 前端按钮入口：任意窗口都能唤起「远程管理」主窗。
+///
+/// 主窗口标题栏、终端 / 文件 / 密钥三个独立窗顶栏都挂这个 —— 统一入口，
+/// 用户不必退回主窗或托盘。async 的理由同 `hub_open_keys_window`。
+#[tauri::command]
+async fn hub_open_window(app: AppHandle) -> Result<(), String> {
+    open_hub_window(&app)
 }
 
 /// 前端按钮入口：hub 工具栏「密钥」
@@ -14880,20 +14893,32 @@ pub fn run() {
             // 测试钩子（默认不生效）：WebView2 不接受注入的鼠标点击（原生菜单可以、
             // 网页里不行），所以「远程管理 → 打开终端」这条链没法靠脚本点出来。
             // 设 ANYBOOT_TEST_OPEN_HUB=1 → 启动后自动打开远程管理窗；
-            // 再加 ANYBOOT_TEST_OPEN_TERM=1 → 顺带用第一台服务器开一个终端会话。
+            // 再加 ANYBOOT_TEST_OPEN_TERM / _FILES / _KEYS = 1 → 顺带用第一台服务器
+            // 开终端窗 / 文件窗（密钥窗不需要服务器）。
             // 只影响「开哪个窗口」，不改变任何业务路径 —— 验证的就是用户点出来的那条链。
             if std::env::var("ANYBOOT_TEST_OPEN_HUB").is_ok() {
                 let handle = app.handle().clone();
                 std::thread::spawn(move || {
                     std::thread::sleep(std::time::Duration::from_secs(3));
                     let _ = open_hub_window(&handle);
-                    if std::env::var("ANYBOOT_TEST_OPEN_TERM").is_err() {
+                    let want_term = std::env::var("ANYBOOT_TEST_OPEN_TERM").is_ok();
+                    let want_files = std::env::var("ANYBOOT_TEST_OPEN_FILES").is_ok();
+                    let want_keys = std::env::var("ANYBOOT_TEST_OPEN_KEYS").is_ok();
+                    if !(want_term || want_files || want_keys) {
                         return;
+                    }
+                    if want_keys {
+                        let _ = open_keys_window(&handle);
                     }
                     std::thread::sleep(std::time::Duration::from_secs(2));
                     if let Ok(list) = hub::load_servers_pub(&handle) {
                         if let Some(server) = list.into_iter().next() {
-                            let _ = hub_term::open_term_window(&handle, server);
+                            if want_term {
+                                let _ = hub_term::open_term_window(&handle, server.clone());
+                            }
+                            if want_files {
+                                let _ = hub_sftp::open_files_window(&handle, server);
+                            }
                         }
                     }
                 });
@@ -15126,6 +15151,7 @@ pub fn run() {
             hub_open_keys_window,
             hub_open_term_window,
             hub_open_files_window,
+            hub_open_window,
             hub_term::hub_term_open,
             hub_term::hub_term_write,
             hub_term::hub_term_resize,
@@ -15145,6 +15171,8 @@ pub fn run() {
             hub_sftp::hub_sftp_readlink,
             hub_sftp::hub_sftp_download,
             hub_sftp::hub_sftp_upload,
+            hub_sftp::hub_download_dir_default,
+            hub_sftp::hub_pick_directory,
             hub_keys::hub_keys_list,
             hub_keys::hub_key_generate,
             hub_keys::hub_key_import,

@@ -1285,8 +1285,11 @@
               <input class="ts-num" type="number" id="tsScroll" min="500" max="100000" step="500" value="5000">
             </div>
             <div class="ts-row">
-              <div><p class="ts-t">下载路径</p><p class="ts-s">文件下载到本机的目录（~ = 用户主目录）</p></div>
-              <input class="ts-num" type="text" id="tsDownDir" value="~" placeholder="~" style="width:180px">
+              <div><p class="ts-t">下载路径</p><p class="ts-s">文件下载到本机的目录（留空 = 系统下载目录；<span class="mono">~</span> = 用户主目录）</p></div>
+              <div style="display:flex;gap:8px;align-items:center;flex:none">
+                <input class="ts-num" type="text" id="tsDownDir" placeholder="系统下载目录" style="width:210px">
+                <button class="btn" id="tsDownBrowse" type="button" style="height:32px;padding:0 12px">选择…</button>
+              </div>
             </div>
           </div>
           <button class="btn primary" id="tsApply" style="height:40px;width:100%;justify-content:center">应用设置</button>
@@ -3355,8 +3358,15 @@
 
   // ============ 终端设置页（localStorage 持久化 + 事件热更终端窗口） ============
   const TERM_SET_KEY = 'ab-term-settings';
+  // 下载目录：空 = 系统「下载」目录（各平台不同，由后端 hub_download_dir_default 给），
+  // `~` 是旧版本写死的默认值，同样按「未设置」处理 —— 否则 Windows 上会展开失败。
+  function normalizeDownDir(raw) {
+    const value = (typeof raw === 'string' ? raw : '').trim();
+    if (!value || value === '~' || value === '~/') return '';
+    return value;
+  }
   function loadTermSettings() {
-    const d = { fontSize: 14, cursorBlink: true, copyOnSelect: false, bell: false, scrollback: 5000, downDir: '~' };
+    const d = { fontSize: 14, cursorBlink: true, copyOnSelect: false, bell: false, scrollback: 5000, downDir: '' };
     try {
       const s = JSON.parse(localStorage.getItem(TERM_SET_KEY) || '{}');
       return {
@@ -3365,7 +3375,7 @@
         copyOnSelect: !!s.copyOnSelect,
         bell: !!s.bell,
         scrollback: Math.min(100000, Math.max(500, Number(s.scrollback) || d.scrollback)),
-        downDir: (typeof s.downDir === 'string' && s.downDir.trim()) ? s.downDir.trim() : d.downDir,
+        downDir: normalizeDownDir(s.downDir),
       };
     } catch (e) { return d; }
   }
@@ -3378,9 +3388,27 @@
     document.getElementById('tsBell').checked = s.bell;
     document.getElementById('tsScroll').value = s.scrollback;
     document.getElementById('tsDownDir').value = s.downDir;
+    // 占位符直接显示这台机器实际的默认落盘位置，用户不用猜
+    if (invoke) {
+      invoke('hub_download_dir_default').then(function (dir) {
+        if (dir) document.getElementById('tsDownDir').placeholder = dir;
+      }).catch(function () {});
+    }
   }
   document.getElementById('tsFont').addEventListener('input', function () {
     document.getElementById('tsFontVal').textContent = this.value + ' pt';
+  });
+  // 「选择…」：系统目录选择框（Windows 资源管理器 / macOS Finder / Linux 文件管理器）
+  document.getElementById('tsDownBrowse').addEventListener('click', async function () {
+    if (!invoke) { toast('浏览器里无法打开本机目录选择框'); return; }
+    try {
+      const picked = await invoke('hub_pick_directory', {
+        current: document.getElementById('tsDownDir').value.trim() || null,
+      });
+      if (picked) document.getElementById('tsDownDir').value = picked;
+    } catch (error) {
+      toast('选择目录失败：' + error);
+    }
   });
   document.getElementById('tsApply').addEventListener('click', function () {
     const settings = {
@@ -3389,7 +3417,7 @@
       copyOnSelect: document.getElementById('tsCopy').checked,
       bell: document.getElementById('tsBell').checked,
       scrollback: Math.min(100000, Math.max(500, Number(document.getElementById('tsScroll').value) || 5000)),
-      downDir: document.getElementById('tsDownDir').value.trim() || '~',
+      downDir: normalizeDownDir(document.getElementById('tsDownDir').value),
     };
     try { localStorage.setItem(TERM_SET_KEY, JSON.stringify(settings)); } catch (e) {}
     if (window.__TAURI__ && window.__TAURI__.event) {
@@ -3670,18 +3698,18 @@
     fbBusy = true;
     fbShowTransfer('down', '下载 ' + entry.name, false);
     try {
-      // 下载路径取终端设置的「下载路径」（默认 ~，由后端展开主目录）
-      let downDir = '~';
-      try {
-        const s = JSON.parse(localStorage.getItem('ab-term-settings') || '{}');
-        if (typeof s.downDir === 'string' && s.downDir.trim()) downDir = s.downDir.trim();
-      } catch (e) {}
+      // 下载路径取终端设置的「下载路径」；没设置就落系统下载目录
+      // （Windows 是 known folder，macOS/Linux 是 ~/Downloads，均由后端解析）。
+      let downDir = normalizeDownDir(loadTermSettings().downDir);
+      if (!downDir && invoke) {
+        try { downDir = await invoke('hub_download_dir_default'); } catch (e) {}
+      }
       const local = await invoke('hub_sftp_download', {
         server: fbSrv,
         remotePath: fbJoin(fbCwd, entry.name),
         total: entry.size || 0,
         filename: entry.name,
-        localDir: downDir,
+        localDir: downDir || null,
       });
       toast('已下载到 ' + local);
     } catch (e) {
