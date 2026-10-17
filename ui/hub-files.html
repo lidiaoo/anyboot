@@ -1,7 +1,8 @@
 <!DOCTYPE html>
-<!-- server-files SFTP 文件浏览独立窗 —— docs/client-ui/pc-files-redesign.html 的一比一实现。
+<!-- server-files SFTP 文件浏览独立窗 —— docs/client-ui/pc-files-redesign.html + pc-redesign-v2 files 屏的一比一实现。
      数据全部走真实后端（hub_sftp.rs，系统 sftp CLI + ControlMaster 复用）：
-     列表/建目录/删除/改名/上传/下载。Telnet 不提供 —— 标题栏 pill 显示原因。
+     列表/建目录/重命名/删除/上传/下载（行内 ⋯ 菜单）+ 传输方向徽标/速度/剩余时间
+     + 已连接 user@host pill + 路径 ▾ 快跳。Telnet 不提供 —— 标题栏 pill 显示原因。
      自绘关闭钮由系统标题栏承担（省略）。 -->
 <html lang="zh-CN" class="dark">
 <head>
@@ -125,7 +126,35 @@
     border:0; background:transparent; border-radius:6px; padding:4px; cursor:pointer;
     color:rgb(var(--fg-faint)); display:inline-grid; place-items:center;
   }
-  .rowdl:hover { color:rgb(var(--accent)); }
+  .rowdl:hover { color:rgb(var(--fg)); }
+
+  /* 行内 ⋯ 菜单 / 路径快跳菜单（设计稿 files 屏） */
+  .popmenu {
+    position:fixed; z-index:60; min-width:132px; padding:4px;
+    background:rgb(var(--card)); border:1px solid rgb(var(--linestrong)); border-radius:9px;
+    box-shadow:0 16px 40px -8px rgba(0,0,0,.65);
+  }
+  .popmenu button {
+    display:flex; width:100%; align-items:center; gap:8px; border:0; background:transparent;
+    border-radius:6px; padding:7px 10px; font-size:12.5px; cursor:pointer; color:rgb(var(--fg)); text-align:left;
+  }
+  .popmenu button:hover { background:rgb(var(--elevate)); }
+  .popmenu button.danger { color:rgb(var(--bad)); }
+  .popmenu button.cur { color:rgb(var(--fgfaint)); cursor:default; }
+  .popmenu button.cur:hover { background:transparent; }
+  .popmenu .mono { font-size:12px; }
+  .btn.dangerbtn { border:0; background:rgb(var(--bad)); color:#fff; font-weight:600; }
+  .btn.dangerbtn:hover { background:rgb(var(--bad) / .85); }
+  .modal-body p { margin:0; font-size:13px; line-height:1.6; color:rgb(var(--fgdim)); word-break:break-all; }
+
+  /* 传输徽标 + 速度/剩余（设计稿：64% · 18.2 MB/s · 剩余 12s） */
+  .tbadge {
+    display:inline-flex; align-items:center; flex:none; border-radius:9999px; padding:1px 8px;
+    font-size:10px; font-weight:700; font-family:-apple-system,"Segoe UI","Noto Sans SC",sans-serif;
+  }
+  .tbadge.down { background:rgb(var(--tblue) / .14); color:rgb(var(--tblue)); }
+  .tbadge.up { background:rgb(var(--accent) / .14); color:rgb(var(--accent)); }
+  .tmeta { color:rgb(var(--fgfaint)); white-space:nowrap; }
   .empty-tip { padding:44px 0; text-align:center; color:rgb(var(--fg-faint)); font-size:13px; }
 
   /* ============ 传输队列 + 状态栏 ============ */
@@ -138,7 +167,7 @@
   .spin { width:14px; height:14px; flex:none; color:rgb(var(--accent)); animation:ab-spin 1s linear infinite; }
   @keyframes ab-spin { to { transform: rotate(360deg); } }
   .bar { height:6px; min-width:120px; flex:1; border-radius:9999px; background:rgb(var(--elevate)); overflow:hidden; }
-  .bar > div { height:100%; border-radius:9999px; background:rgb(var(--accent)); transition: width .25s; }
+  .bar > div { height:100%; border-radius:9999px; background:linear-gradient(90deg, rgb(var(--accent)), rgb(var(--tblue))); transition: width .25s; }
   .bar.indet > div { width:40% !important; animation:ab-slide 1.1s ease-in-out infinite; }
   @keyframes ab-slide { 0% { margin-left:-40%; } 100% { margin-left:100%; } }
   .pct { font-size:12px; color:rgb(var(--accent)); min-width:38px; text-align:right; }
@@ -197,6 +226,9 @@
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 3v6h-6"/></svg>
   </button>
   <nav class="crumbs scroll-thin" id="crumbs" aria-label="路径"></nav>
+  <button class="iconbtn" id="pathDropBtn" aria-label="路径快跳" title="上级目录快跳">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+  </button>
   <button class="btn" id="mkdirBtn">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
     新建目录
@@ -226,8 +258,10 @@
 
 <div class="transfer" id="transfer" hidden>
   <svg class="spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-9-9"/></svg>
+  <span class="tbadge down" id="transferDir" hidden>↓ 下载</span>
   <span id="transferName">—</span>
   <div class="bar" id="transferBar"><div id="transferFill" style="width:0%"></div></div>
+  <span class="tmeta" id="transferMeta"></span>
   <span class="pct" id="transferPct">0%</span>
 </div>
 
@@ -253,6 +287,55 @@
     <div class="modal-foot">
       <button class="btn plain" id="mkdirCancel">取消</button>
       <button class="btn primary" id="mkdirOk">创建</button>
+    </div>
+  </div>
+</div>
+
+<!-- 行内 ⋯ 操作菜单 -->
+<div class="popmenu" id="rowMenu" hidden role="menu" aria-label="文件操作">
+  <button role="menuitem" id="rmDownload">下载</button>
+  <button role="menuitem" id="rmRename">重命名</button>
+  <button role="menuitem" id="rmDelete" class="danger">删除</button>
+</div>
+
+<!-- 路径快跳菜单 -->
+<div class="popmenu" id="pathMenu" hidden role="menu" aria-label="上级目录"></div>
+
+<!-- 重命名弹层 -->
+<div class="modal" id="renameModal" hidden role="dialog" aria-modal="true" aria-labelledby="renameTitle">
+  <div class="modal-card">
+    <div class="modal-head">
+      <h3 id="renameTitle">重命名</h3>
+      <button id="renameClose" aria-label="关闭">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <form class="modal-body" id="renameForm">
+      <label for="renameName">新名称</label>
+      <input id="renameName" autocomplete="off" required>
+    </form>
+    <div class="modal-foot">
+      <button class="btn plain" id="renameCancel">取消</button>
+      <button class="btn primary" id="renameOk">重命名</button>
+    </div>
+  </div>
+</div>
+
+<!-- 删除确认弹层 -->
+<div class="modal" id="delModal" hidden role="dialog" aria-modal="true" aria-labelledby="delTitle">
+  <div class="modal-card">
+    <div class="modal-head">
+      <h3 id="delTitle">删除</h3>
+      <button id="delClose" aria-label="关闭">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <p id="delText"></p>
+    </div>
+    <div class="modal-foot">
+      <button class="btn plain" id="delCancel">取消</button>
+      <button class="btn dangerbtn" id="delOk">删除</button>
     </div>
   </div>
 </div>
@@ -294,6 +377,7 @@ const $ = (id) => document.getElementById(id);
 const DIR_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>';
 const FILE_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>';
 const LINK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h7l-1 8 10-12h-7z"/></svg>';
+const MORE_SVG = '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>';
 
 function humanSize(n) {
   if (n < 1024) return n + 'B';
@@ -357,13 +441,11 @@ function renderTable() {
       '<td style="text-align:right"></td>';
     tr.querySelector('.namecell span').textContent = entry.name;
     const opTd = tr.lastElementChild;
-    if (!entry.dir) {
-      const dl = document.createElement('button');
-      dl.className = 'rowdl'; dl.title = '下载 ' + entry.name; dl.setAttribute('aria-label', '下载 ' + entry.name);
-      dl.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M19 12l-7 7-7-7"/></svg>';
-      dl.addEventListener('click', (e) => { e.stopPropagation(); downloadEntry(entry); });
-      opTd.appendChild(dl);
-    }
+    const op = document.createElement('button');
+    op.className = 'rowdl'; op.title = '操作'; op.setAttribute('aria-label', entry.name + ' 操作');
+    op.innerHTML = MORE_SVG;
+    op.addEventListener('click', (e) => { e.stopPropagation(); openRowMenu(op, entry); });
+    opTd.appendChild(op);
     tr.addEventListener('click', () => selectEntry(tr, entry));
     tr.addEventListener('dblclick', () => { if (entry.dir) gotoDir(joinPath(cwd, entry.name)); });
     tbody.appendChild(tr);
@@ -413,7 +495,14 @@ async function refresh() {
 }
 
 /* ---------- 传输 ---------- */
-function showTransfer(name, indeterminate) {
+let prog = { key: '', lastBytes: 0, lastT: 0, speed: 0 };
+function showTransfer(dir, name, indeterminate) {
+  const badge = $('transferDir');
+  badge.hidden = !dir;
+  badge.textContent = dir === 'up' ? '↑ 上传' : '↓ 下载';
+  badge.className = 'tbadge ' + (dir === 'up' ? 'up' : 'down');
+  const key = dir + '|' + name;
+  if (prog.key !== key) prog = { key, lastBytes: 0, lastT: 0, speed: 0 };
   $('transfer').hidden = false;
   $('transferName').textContent = name;
   const bar = $('transferBar');
@@ -421,18 +510,45 @@ function showTransfer(name, indeterminate) {
   $('transferFill').style.width = indeterminate ? '40%' : '0%';
   $('transferPct').textContent = '0%';
   $('transferPct').classList.remove('fail');
+  $('transferMeta').textContent = '';
+}
+function progTick(bytes, total) {
+  const now = performance.now();
+  if (prog.lastT) {
+    const dt = (now - prog.lastT) / 1000;
+    if (dt > 0.25) {
+      prog.speed = Math.max(0, (bytes - prog.lastBytes) / dt);
+      prog.lastBytes = bytes;
+      prog.lastT = now;
+    }
+  } else {
+    prog.lastBytes = bytes;
+    prog.lastT = now;
+  }
+  let meta = '';
+  if (prog.speed > 0) {
+    meta = humanSize(prog.speed) + '/s';
+    if (total > 0 && prog.speed > 0) {
+      const remain = Math.max(0, (total - bytes) / prog.speed);
+      meta += remain < 60
+        ? ' · 剩余 ' + Math.ceil(remain) + 's'
+        : ' · 剩余 ' + Math.floor(remain / 60) + 'm' + String(Math.floor(remain % 60)).padStart(2, '0') + 's';
+    }
+  }
+  $('transferMeta').textContent = meta;
 }
 function updateTransfer(bytes, total) {
   const pct = total > 0 ? Math.min(100, Math.round((bytes / total) * 100)) : 0;
   $('transferFill').style.width = pct + '%';
   $('transferPct').textContent = pct + '%';
+  progTick(bytes, total);
 }
 function hideTransfer() { $('transfer').hidden = true; }
 
 async function downloadEntry(entry) {
   if (!invoke || !server || busy) return;
   busy = true;
-  showTransfer('下载 ' + entry.name + ' → ' + (entry.dir ? '' : humanSize(entry.size)), false);
+  showTransfer('down', '下载 ' + entry.name, false);
   try {
     const local = await invoke('hub_sftp_download', {
       server,
@@ -492,12 +608,135 @@ $('mkdirOk').addEventListener('click', submitMkdir);
 $('mkdirForm').addEventListener('submit', (e) => { e.preventDefault(); submitMkdir(); });
 $('mkdirModal').addEventListener('click', (e) => { if (e.target.id === 'mkdirModal') closeMkdir(); });
 
+/* ---------- 行内 ⋯ 操作菜单 ---------- */
+let menuTarget = null;
+function openRowMenu(btn, entry) {
+  menuTarget = entry;
+  $('rmDownload').hidden = !!entry.dir;
+  $('rmDownload').disabled = busy;
+  const m = $('rowMenu');
+  m.hidden = false;
+  const r = btn.getBoundingClientRect();
+  const mw = m.offsetWidth, mh = m.offsetHeight;
+  let x = Math.min(r.right - mw, window.innerWidth - mw - 8);
+  let y = r.bottom + 4;
+  if (y + mh > window.innerHeight - 8) y = Math.max(8, r.top - mh - 4);
+  m.style.left = Math.max(8, x) + 'px';
+  m.style.top = y + 'px';
+}
+function closeRowMenu() { $('rowMenu').hidden = true; }
+$('rmDownload').addEventListener('click', () => { const e = menuTarget; closeRowMenu(); if (e && !e.dir) downloadEntry(e); });
+$('rmRename').addEventListener('click', () => { const e = menuTarget; closeRowMenu(); if (e) openRename(e); });
+$('rmDelete').addEventListener('click', () => { const e = menuTarget; closeRowMenu(); if (e) openDelete(e); });
+
+/* ---------- 重命名 ---------- */
+let renameTarget = null;
+function openRename(entry) {
+  renameTarget = entry;
+  $('renameName').value = entry.name;
+  $('renameModal').hidden = false;
+  $('renameName').focus();
+  $('renameName').select();
+}
+function closeRename() { $('renameModal').hidden = true; }
+async function submitRename() {
+  const to = $('renameName').value.trim();
+  const from = renameTarget;
+  closeRename();
+  if (!from || !to || to === from.name) return;
+  try {
+    await invoke('hub_sftp_rename', { server, from: joinPath(cwd, from.name), to: joinPath(cwd, to) });
+    if (selected && selected.name === from.name) { selected = null; $('downloadBtn').disabled = true; }
+    toast('已重命名为 ' + to);
+    await refresh();
+  } catch (e) {
+    toast('重命名失败：' + e);
+  }
+}
+$('renameClose').addEventListener('click', closeRename);
+$('renameCancel').addEventListener('click', closeRename);
+$('renameOk').addEventListener('click', submitRename);
+$('renameForm').addEventListener('submit', (e) => { e.preventDefault(); submitRename(); });
+$('renameModal').addEventListener('click', (e) => { if (e.target.id === 'renameModal') closeRename(); });
+
+/* ---------- 删除 ---------- */
+let delTarget = null;
+function openDelete(entry) {
+  delTarget = entry;
+  $('delText').textContent = entry.dir
+    ? '删除目录 ' + entry.name + '？（目录须为空，此操作不可恢复）'
+    : '删除文件 ' + entry.name + '？此操作不可恢复。';
+  $('delModal').hidden = false;
+}
+function closeDel() { $('delModal').hidden = true; }
+async function submitDelete() {
+  const e = delTarget;
+  closeDel();
+  if (!e) return;
+  try {
+    await invoke('hub_sftp_remove', { server, path: joinPath(cwd, e.name), isDir: e.dir });
+    if (selected && selected.name === e.name) { selected = null; $('downloadBtn').disabled = true; }
+    toast('已删除 ' + e.name);
+    await refresh();
+  } catch (err) {
+    toast('删除失败：' + err);
+  }
+}
+
+/* ---------- 路径快跳（▾） ---------- */
+function openPathMenu(btn) {
+  const m = $('pathMenu');
+  m.textContent = '';
+  const parts = cwd.split('/').filter((p) => p !== '');
+  const add = (label, path, isCurrent) => {
+    const b = document.createElement('button');
+    b.className = 'mono' + (isCurrent ? ' cur' : '');
+    b.textContent = label;
+    b.setAttribute('aria-current', String(isCurrent));
+    if (!isCurrent) b.addEventListener('click', () => { closePathMenu(); gotoDir(path); });
+    m.appendChild(b);
+  };
+  add('/ （根目录）', '/', parts.length === 0);
+  let acc = '';
+  parts.forEach((part, i) => {
+    acc += '/' + part;
+    add(acc, acc, i === parts.length - 1);
+  });
+  m.hidden = false;
+  const r = btn.getBoundingClientRect();
+  const mw = m.offsetWidth, mh = m.offsetHeight;
+  m.style.left = Math.max(8, Math.min(r.left, window.innerWidth - mw - 8)) + 'px';
+  let y = r.bottom + 4;
+  if (y + mh > window.innerHeight - 8) y = Math.max(8, r.top - mh - 4);
+  m.style.top = y + 'px';
+}
+function closePathMenu() { $('pathMenu').hidden = true; }
+
 /* ---------- 工具钮 / 键盘 ---------- */
 $('upBtn').addEventListener('click', () => { if (cwd !== '/') gotoDir(cwd.replace(/\/[^/]*\/?$/, '') || '/'); });
 $('refreshBtn').addEventListener('click', refresh);
 $('downloadBtn').addEventListener('click', () => { if (selected) downloadEntry(selected); });
 $('uploadBtn').addEventListener('click', upload);
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMkdir(); });
+$('pathDropBtn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  const m = $('pathMenu');
+  if (m.hidden) openPathMenu($('pathDropBtn')); else closePathMenu();
+});
+$('delClose').addEventListener('click', closeDel);
+$('delCancel').addEventListener('click', closeDel);
+$('delOk').addEventListener('click', submitDelete);
+$('delModal').addEventListener('click', (e) => { if (e.target.id === 'delModal') closeDel(); });
+document.addEventListener('click', (e) => {
+  if (!$('rowMenu').hidden && !$('rowMenu').contains(e.target)) closeRowMenu();
+  if (!$('pathMenu').hidden && !$('pathMenu').contains(e.target)) closePathMenu();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  closeRowMenu(); closePathMenu();
+  if (!$('delModal').hidden) closeDel();
+  if (!$('renameModal').hidden) closeRename();
+  closeMkdir();
+});
 
 /* ---------- 时钟 ---------- */
 function tickClock() {
@@ -517,13 +756,15 @@ if (listen) {
       $('transferPct').classList.add('fail');
       $('transferBar').classList.remove('indet');
       $('transferFill').style.width = '0%';
+      $('transferMeta').textContent = '';
       return;
     }
-    showTransfer((dir === 'up' ? '上传 ' : '下载 ') + name, dir === 'up' && !done);
+    showTransfer(dir, (dir === 'up' ? '上传 ' : '下载 ') + name, dir === 'up' && !done);
     if (done) {
       $('transferBar').classList.remove('indet');
       $('transferFill').style.width = '100%';
       $('transferPct').textContent = '100%';
+      $('transferMeta').textContent = '';
     } else if (total > 0) {
       $('transferBar').classList.remove('indet');
       updateTransfer(bytes, total);
@@ -544,7 +785,7 @@ function renderHeader() {
   pill.hidden = false;
   if (server && server.protocol === 'ssh') {
     pill.className = 'pill ok';
-    $('connText').textContent = 'SFTP 已连接';
+    $('connText').textContent = '已连接 ' + (server.user || '?') + '@' + (server.host || '?');
   } else {
     pill.className = 'pill bad';
     $('connText').textContent = 'Telnet 不支持文件浏览';
