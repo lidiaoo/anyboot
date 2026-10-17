@@ -484,16 +484,16 @@ if (listen) {
     writeData(session, data);
   });
   listen('hub-term-closed', (event) => {
-    const { id } = event.payload;
+    const { id, code } = event.payload;
     earlyData.delete(id);
     const session = sessions.get(id);
     if (!session) return;
     session.dead = true;
     renderTabs();
     if (id === activeId) renderFooter(session);
-    toast(`会话已结束（${session.meta.server_name}）`);
-    // 3 秒后自动收掉死标签（若期间没有新会话，Rust 端也会把窗口关掉）
-    setTimeout(() => { if (sessions.get(id)?.dead) dropSession(id); }, 3000);
+    toast(`会话已结束：${session.meta.server_name}（code ${code}）`);
+    // 死标签保留不自动收：连接失败时 ssh 的报错就在终端里，闪没 = 黑箱。
+    // 由用户点标签上的 ✕ 手动关（Rust 端 abnormal 退出同样不自动关窗）。
   });
   listen('hub-term-open-server', (event) => {
     openSession(event.payload);

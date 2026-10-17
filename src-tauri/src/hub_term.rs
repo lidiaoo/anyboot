@@ -15,6 +15,7 @@ use serde::Serialize;
 use serde_json::json;
 use std::collections::HashMap;
 use std::io::{Read, Write};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -51,6 +52,10 @@ pub struct TermSession {
     master: Mutex<Box<dyn MasterPty + Send>>,
     writer: Mutex<Box<dyn Write + Send>>,
     killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
+    /// 用户主动关的标签（hub_term_close 置位）：算「干净收尾」，最后一个会话
+    /// 结束照常自动关窗。ssh 自己 abnormal 退出（连不上/认证失败/指纹被拒）
+    /// 则**不**自动关窗 —— 报错文本留在死标签里让用户看清死因（闪关即黑箱）。
+    user_closed: AtomicBool,
 }
 
 #[derive(Clone, Serialize)]
@@ -191,12 +196,16 @@ pub fn hub_term_open(
         }
         // 密码认证（M6）：SSH_ASKPASS_REQUIRE=force 让 ssh 把要密码这件事交给
         // askpass 程序 —— 本程序自身经 hub-askpass.sh 回环（内存解密 → stdout），
-        // ssh 拿到后免输登录。PTY 里不再出现密码提示，指纹确认仍会走 PTY。
+        // ssh 拿到后免输登录。PTY 里不再出现密码提示。
         // 注意带口令的密钥解锁也走 askpass，所以这两个分支必须互斥（表单三选一）。
+        // 首连指纹确认必须 accept-new：OpenSSH ≤9 的「(yes/no)」确认也会被
+        // force 进 askpass，而 askpass 只会吐密码 → 永远答不出 yes → 首连必死
+        // （OpenSSH 10 起默认就是 accept-new，这里显式写齐对齐各发行版行为）。
         let config = crate::config_dir(&app)?;
         let script = crate::hub_vault::write_askpass_script(&config, &server.id)?;
         command.env("SSH_ASKPASS", script.display().to_string());
         command.env("SSH_ASKPASS_REQUIRE", "force");
+        command.args(["-o", "StrictHostKeyChecking=accept-new"]);
     }
     // ControlMaster：认证连接留一把复用（M4 隧道靠它免二次认证，见 hub_tunnel.rs）
     if !server.id.is_empty() {
@@ -245,7 +254,10 @@ pub fn hub_term_open(
         master: Mutex::new(pair.master),
         writer: Mutex::new(writer),
         killer: Mutex::new(killer),
+        user_closed: AtomicBool::new(false),
     });
+    // 等待线程要看 user_closed（用户主动 ✕ = 干净收尾），在入表前先留一个把手
+    let wait_session = session.clone();
     state
         .sessions
         .lock()
@@ -273,19 +285,23 @@ pub fn hub_term_open(
                 .wait()
                 .map(|status| status.exit_code())
                 .unwrap_or(u32::MAX);
+            // 用户主动关的标签（或 exit 正常退出 0）= 干净收尾；
+            // ssh 自己 abnormal 退出则留窗，报错文本在死标签里看得见
+            let user_closed = wait_session.user_closed.load(Ordering::Relaxed);
             if let Some(state) = wait_app.try_state::<HubTermState>() {
                 if let Ok(mut map) = state.sessions.lock() {
                     map.remove(&wait_id);
                 }
             }
-            eprintln!("[hub-term] closed id={wait_id} code={code}");
+            eprintln!("[hub-term] closed id={wait_id} code={code} user_closed={user_closed}");
             let _ = wait_app.emit_to(
                 wait_window.clone(),
                 EVENT_CLOSED,
                 json!({ "id": wait_id, "code": code }),
             );
             // 这个窗口的最后一个会话结束了 → 自动关窗（前端没有 close 权限，
-            // 用户敲 exit / ssh 掉线都走这条路径收尾）
+            // 用户敲 exit 走 code=0；手动 ✕ 关标签走 user_closed）。
+            // 连接失败（abnormal code）故意**不**关窗：闪关 = 报错黑箱，谁也修不了。
             let empty = wait_app
                 .try_state::<HubTermState>()
                 .map(|state| {
@@ -297,7 +313,7 @@ pub fn hub_term_open(
                         .unwrap_or(true)
                 })
                 .unwrap_or(true);
-            if empty {
+            if empty && (code == 0 || user_closed) {
                 if let Some(window) = wait_app.get_webview_window(&wait_window) {
                     eprintln!("[hub-term] last session gone, closing {wait_window}");
                     let _ = window.close();
@@ -348,13 +364,14 @@ pub fn hub_term_resize(
         .map_err(|error| format!("调整尺寸失败: {error}"))
 }
 
-/// 用户关标签：杀掉 ssh；等待线程会补发 closed 事件
+/// 用户关标签：标记「主动收尾」后杀掉 ssh；等待线程会补发 closed 事件
 #[tauri::command]
 pub fn hub_term_close(
     state: tauri::State<'_, HubTermState>,
     session_id: String,
 ) -> Result<(), String> {
     let session = get_session(&state, &session_id)?;
+    session.user_closed.store(true, Ordering::Relaxed);
     session
         .killer
         .lock()
