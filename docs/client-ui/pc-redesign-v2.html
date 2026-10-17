@@ -92,25 +92,23 @@ tailwind.config = {
 <!-- 桌面窗口框 -->
 <div class="desk mx-auto flex flex-col overflow-hidden rounded-2xl border-2 border-[rgb(var(--frame))] bg-base shadow-frame" role="application" data-page-node-id="uyvRyprDrCbY91yNMVZpZo">
 
-  <!-- ============ ① 主窗口（服务端标签条新样式 + 本机内容示意保持现状；＋ 添加 → 见「添加 AnyBoot 服务端」屏） ============ -->
+  <!-- ============ ① 主窗口（旧内容一字不动：下次启动/rEFInd 启动项/变量目录/应用设置；顶部仅抽象标签栏换新样式） ============ -->
   <section data-screen="main" class="flex min-h-0 flex-1 flex-col" data-page-node-id="sc13yZHykfL25t2VixNXW5">
-    <!-- 标题栏：电源三键 + 重启/退出 -->
+    <!-- 标题栏（原有按钮原样：重启系统/关机/睡眠/重启程序/退出程序） -->
     <div class="flex h-12 shrink-0 items-center gap-2 border-b border-line bg-card px-4" data-page-node-id="NfGq2ryj7Y2Gw7l1AoyX6g">
       <span class="grid size-6 place-items-center rounded-lg bg-accent font-mono text-[11px] font-bold text-white" data-page-node-id="dX4SphIQYmof7XuXhrnOEn">A</span>
       <span class="text-sm font-semibold" data-page-node-id="AKCIJuYpfsRgEtAon521ni">AnyBoot</span>
-      <span class="ml-2 rounded-md bg-elevate px-2 py-0.5 font-mono text-[10px] text-fgDim" data-page-node-id="3stGkAOPlrhLqWJY7gutCJ">本机 · CachyOS</span>
       <div class="ml-auto flex items-center gap-1.5" data-page-node-id="SebLpEBqTD60wDc6BsNpI4">
-        <button class="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-line bg-elevate px-3 text-xs font-medium transition-colors hover:text-fgDim" data-page-node-id="CIRyKEtbI5BZCaMWBZOyae"><svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" data-page-node-id="BSynnivOL7xxh8NdxOMg2N"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 3v6h-6" data-page-node-id="CLG3hIvSJe3UO61u2ee8D7"/></svg>重启</button>
-        <button class="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-warn/30 bg-warn/10 px-3 text-xs font-medium text-warn" data-page-node-id="A6FXmhNcdIlRrDDlhiqwK7"><svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" data-page-node-id="ZvJGfXNnLrESmczgyvft7n"><path d="M12 2v10M18.4 6.6a9 9 0 1 1-12.8 0" data-page-node-id="6CLBpEJpG5cdubnuR2jND6"/></svg>关机</button>
-        <button class="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-line bg-elevate px-3 text-xs font-medium" data-page-node-id="M8lNlWPagRllto4CqaOLkd"><svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" data-page-node-id="aik6t5WXExdA95Mty9RJBY"><path d="M12 8v4l2.5 2.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" data-page-node-id="hxpthUj212jmUMfPHd2BuJ"/></svg>睡眠</button>
-        <span class="mx-1 h-5 w-px bg-line" data-page-node-id="qoNs4TzdtVGEeBTRaFnAKV"></span>
-        <button class="h-8 cursor-pointer rounded-lg px-2.5 text-xs text-fgDim transition-colors hover:text-fg" data-page-node-id="vDWcNDvq6gb5zEMcLHOqdz">重启应用</button>
-        <button class="h-8 cursor-pointer rounded-lg px-2.5 text-xs text-fgDim transition-colors hover:text-bad" data-page-node-id="H1yFSh4smD5L3FxDLd7BP2">退出</button>
+        <button class="h-8 cursor-pointer rounded-lg border border-line bg-elevate px-3 text-xs font-medium transition-colors hover:text-fgDim" data-page-node-id="CIRyKEtbI5BZCaMWBZOyae">重启系统</button>
+        <button class="h-8 cursor-pointer rounded-lg border border-warn/30 bg-warn/10 px-3 text-xs font-medium text-warn" data-page-node-id="A6FXmhNcdIlRrDDlhiqwK7">关机</button>
+        <button class="h-8 cursor-pointer rounded-lg border border-line bg-elevate px-3 text-xs font-medium" data-page-node-id="M8lNlWPagRllto4CqaOLkd">睡眠</button>
+        <button class="h-8 cursor-pointer rounded-lg border border-line bg-elevate px-3 text-xs font-medium" data-page-node-id="vDWcNDvq6gb5zEMcLHOqdz">重启程序</button>
+        <button class="h-8 cursor-pointer rounded-lg px-2.5 text-xs text-fgDim transition-colors hover:text-bad" data-page-node-id="H1yFSh4smD5L3FxDLd7BP2">退出程序</button>
       </div>
     </div>
 
-    <!-- 服务端标签条：与手机主界面同形态（一台 AnyBoot 服务端一个标签，＋ 添加）；标签为新样式，面板内容保持现状 -->
-    <nav class="flex h-11 shrink-0 items-center gap-1.5 border-b border-line bg-card px-4">
+    <!-- 服务端标签条（新增能力）：不同 AnyBoot 服务端各一个标签，PC 默认连接自己（本机·本地）；切换标签即切换下方内容来源 -->
+    <nav class="flex h-10 shrink-0 items-center gap-1.5 border-b border-line bg-card px-4">
       <button class="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-full bg-accentT/12 px-3 text-xs font-semibold text-accentT">
         <span class="size-1.5 rounded-full bg-ok"></span>本机 · CachyOS
         <span class="rounded-md bg-accent/20 px-1.5 py-px font-mono text-[9px]">默认 · 本地</span>
@@ -119,127 +117,141 @@ tailwind.config = {
         <span class="size-1.5 rounded-full bg-ok"></span>书房台式机
       </button>
       <button class="inline-flex h-7 cursor-pointer items-center gap-1 rounded-full border border-dashed border-line px-2.5 text-xs font-medium text-fgDim transition-colors hover:border-accentT/50 hover:text-accentT">＋ 添加</button>
-      <span class="ml-auto font-mono text-[10px] text-fgFaint">PC 默认连接自己（本机 · 本地），其余标签为已添加的 AnyBoot 服务端 · 标签样式新增，面板内容保持现状</span>
     </nav>
 
-    <div class="flex min-h-0 flex-1" data-page-node-id="GULHDJBUF176XXHkR4horj">
-      <!-- 左：系统引导 -->
-      <div class="flex min-h-0 flex-1 flex-col overflow-y-auto scroll-thin p-5" data-page-node-id="kY9AcvkoOLx3HPzUlS7WB4">
-        <div class="mb-4 flex items-center justify-between" data-page-node-id="IydfBTRBBcYDN42CABHsZ0">
-          <div data-page-node-id="B5aiXLo3LFoSnJzRCmkbec">
-            <h2 class="text-lg font-bold" data-page-node-id="DxuwL2HD4ElTjuOSra93q7">GRUB 启动项</h2>
-            <p class="mt-0.5 font-mono text-[11px] text-fgDim" data-page-node-id="sa4E2lOp0KC1LYwMGw50EH">/boot/grub/grub.cfg · 上次扫描 08:32</p>
-          </div>
-          <div class="flex gap-2" data-page-node-id="jVF61imctM6lSzHGgOf09F">
-            <button class="h-8 cursor-pointer rounded-lg border border-line bg-elevate px-3 text-xs font-medium transition-colors active:scale-95" data-page-node-id="zv8oyTGgHGsRRnvAj4XAPv">扫描</button>
-            <button class="h-8 cursor-pointer rounded-lg bg-accent px-3 text-xs font-bold text-white transition-all active:scale-95" data-page-node-id="RnCVldCtA3TJJEuwqDIpMe">同步</button>
-          </div>
+    <!-- ★ 重设计：系统引导/基本设置标签栏换 Cobalt 样式（原有两个标签，行为不变）——内容面板一字不动 -->
+    <nav class="flex h-11 shrink-0 items-center gap-1 border-b border-line bg-card px-4">
+      <button class="mtab relative h-full cursor-pointer px-4 text-sm font-semibold text-accentT transition-colors" data-mtab="boot">
+        系统引导
+        <span class="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-accentT"></span>
+      </button>
+      <button class="mtab relative h-full cursor-pointer px-4 text-sm font-medium text-fgDim transition-colors hover:text-fg" data-mtab="settings">
+        基本设置
+        <span class="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-transparent transition-colors"></span>
+      </button>
+      <span class="ml-auto font-mono text-[10px] text-fgFaint">仅标签栏样式更新 · 下方内容原样保留（点标签可预览切换）</span>
+    </nav>
+
+    <!-- ===== 面板一：系统引导（内容与真机截图逐项一致，实现时零改动） ===== -->
+    <div class="mpanel min-h-0 flex-1 overflow-y-auto scroll-thin p-5" data-mpanel="boot">
+      <div class="mx-auto max-w-2xl space-y-4">
+        <!-- 下次启动 -->
+        <div class="rounded-2xl border-l-4 border-ok bg-card p-4">
+          <p class="text-xs text-fgDim">下次启动</p>
+          <p class="mt-1 text-2xl font-bold text-ok">Linux</p>
         </div>
 
-        <div class="space-y-2.5" data-page-node-id="x4usAEhpGItE0Qlnpj8AY5">
-          <article class="relative overflow-hidden rounded-2xl border border-accent/35 bg-card p-4 shadow-glow" data-page-node-id="qNAQzJ91oX3ags2sr5bDI4">
-            <div class="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-accent/70 to-transparent" data-page-node-id="S4BW2gUMmY8rI8cIGUbTXa"></div>
-            <div class="flex items-center gap-3" data-page-node-id="RdMdHYW8rbJTMH4bmwcnd8">
-              <span class="grid size-10 place-items-center rounded-xl bg-accent/12 text-accentT" data-page-node-id="KFarMQQnURGpPXF12ZXMYv">
-                <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" data-page-node-id="QVHEho1rXJagNnXj9JFyd3"><path d="M13 2L3 14h7l-1 8 10-12h-7z" data-page-node-id="oxUwQIE2MmwasfSkffsNFI"/></svg>
-              </span>
-              <div class="min-w-0 flex-1" data-page-node-id="gDuH5HMbjvIkILh5D1W6fT">
-                <p class="flex items-center gap-2 text-sm font-semibold" data-page-node-id="Wig4gsOUq781D8To0Ajf8R">CachyOS <span class="rounded-md bg-accent/15 px-1.5 py-px font-mono text-[9px] font-semibold text-accentT" data-page-node-id="kXnUhaFrpcFcqapOBBxrVZ">当前启动</span><span class="rounded-md bg-ok/12 px-1.5 py-px font-mono text-[9px] font-semibold text-ok" data-page-node-id="xWUyO7OVe2m818EhqqA4Ml">default</span></p>
-                <p class="mt-0.5 font-mono text-[11px] text-fgDim" data-page-node-id="aYbYpsP5p2kFVaxSYTtoOr">root=UUID=4f2a…  ·  上次启动 06:12</p>
-              </div>
-              <button class="h-9 cursor-pointer rounded-xl bg-accent px-4 text-xs font-bold text-white transition-all active:scale-95" data-page-node-id="UhqCCtrQozz0xTL7lpYUIy">重启进入</button>
-              <button class="h-9 cursor-pointer rounded-xl border border-line bg-elevate px-4 text-xs font-medium transition-colors active:scale-95" data-page-node-id="oqcO5fuG3GcJflZ6N46VI8">设为默认</button>
-            </div>
-          </article>
-          <article class="rounded-2xl border border-line bg-card p-4" data-page-node-id="RuXQCax1Sv5XlfRLtDG9hq">
-            <div class="flex items-center gap-3" data-page-node-id="MQu7osDu9sA1dowO2nSm5q">
-              <span class="grid size-10 place-items-center rounded-xl bg-elevate text-fgDim" data-page-node-id="KlAgMwyXpUuMMSiXoUrjpB">
-                <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" data-page-node-id="BIw3lr5ve5D78xySRPp9O9"><rect x="3" y="4" width="18" height="14" rx="2" data-page-node-id="9k993AaMVKoXjXkbejaHW0"/><path d="M3 9h18" data-page-node-id="dtufSZEhtrqBUVhUKQ4JBq"/></svg>
-              </span>
-              <div class="min-w-0 flex-1" data-page-node-id="EbpiGXhqhWXgPeQquWSwLd">
-                <p class="text-sm font-semibold" data-page-node-id="yCOM0nKxNorstwBj2cGcXU">Arch Linux</p>
-                <p class="mt-0.5 font-mono text-[11px] text-fgDim" data-page-node-id="3GG4D3ZXXDpb2QBvxzdqLp">/boot/vmlinuz-linux · root=UUID=9c1d…</p>
-              </div>
-              <button class="h-8 cursor-pointer rounded-lg border border-line bg-elevate px-3 text-xs font-medium transition-colors active:scale-95" data-page-node-id="VAJe2RgDNlxyfFve15DePV">切换</button>
-              <button class="h-8 cursor-pointer rounded-lg px-2 text-xs text-fgDim transition-colors hover:text-fg" data-page-node-id="73RROip1Y84MwMrb0wzmxe">设为默认</button>
-            </div>
-          </article>
-          <article class="rounded-2xl border border-line bg-card p-4" data-page-node-id="HnF5XlCr0uO8jj3fUjmI4J">
-            <div class="flex items-center gap-3" data-page-node-id="pFvQrn7xvYRPj6wHtDNRkB">
-              <span class="grid size-10 place-items-center rounded-xl bg-elevate text-fgDim" data-page-node-id="JGdniQTT7Xmq4gBPFotxWo">
-                <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" data-page-node-id="YEwnK7ByGXyqJaTrnF5CL8"><rect x="3" y="4" width="18" height="14" rx="2" data-page-node-id="Cj0d8JskWemd3kkU6oDprW"/><path d="M3 9h18" data-page-node-id="v0hK2JAgVgHxjAd0kF4ktr"/></svg>
-              </span>
-              <div class="min-w-0 flex-1" data-page-node-id="i93DBJST7UvXhG56No625B">
-                <p class="text-sm font-semibold" data-page-node-id="knfDyAZVApYAP3SFUxo8mW">Kali Linux</p>
-                <p class="mt-0.5 font-mono text-[11px] text-fgDim" data-page-node-id="1HAqZdCPOEuTwojEYzaEXR">/boot/vmlinuz-kali · root=UUID=b7e3…</p>
-              </div>
-              <button class="h-8 cursor-pointer rounded-lg border border-line bg-elevate px-3 text-xs font-medium transition-colors active:scale-95" data-page-node-id="Sjgn7VVCzk2UdQXOOSpFHt">切换</button>
-              <button class="h-8 cursor-pointer rounded-lg px-2 text-xs text-fgDim transition-colors hover:text-fg" data-page-node-id="HPSDjtF8pXbJUZXjhpz1gK">设为默认</button>
-            </div>
-          </article>
-        </div>
-
-        <!-- rEFInd 区 -->
-        <div class="mt-5" data-page-node-id="FEGL6ZmJdBGaBYZiEHuaCh">
-          <div class="mb-2 flex items-center justify-between" data-page-node-id="WlOmSy3eZS2e1SpW9bSiBA">
-            <h3 class="text-sm font-bold" data-page-node-id="VoZxTJBMorlSh3qqRAHpBd">rEFInd 启动项</h3>
-            <span class="rounded-full bg-elevate px-2 py-0.5 font-mono text-[10px] text-fgDim" data-page-node-id="0emrT5jpOmwD8PmawGx0QW">2 项</span>
+        <!-- rEFInd 启动项 -->
+        <div class="rounded-2xl border border-line bg-card p-4">
+          <div class="mb-3 flex items-center gap-2">
+            <span class="rounded-full border border-line bg-elevate px-2 py-0.5 font-mono text-[10px] text-fgDim">rEFInd 区</span>
+            <p class="text-sm font-semibold">rEFInd 启动项</p>
           </div>
-          <div class="space-y-2" data-page-node-id="ly1o3XqSMceX0zJ3op1s0R">
-            <div class="flex items-center gap-3 rounded-xl border border-line bg-card px-4 py-2.5" data-page-node-id="hGKv9andThMbSG0pmbkLpQ">
-              <span class="size-2 rounded-full bg-info" data-page-node-id="J73uVO7XLodc9gMxRjfGTM"></span>
-              <p class="flex-1 text-sm" data-page-node-id="tGfGGyIxnbzezAgqJ0dGkm">rEFInd 主菜单</p>
-              <p class="font-mono text-[11px] text-fgDim" data-page-node-id="2s6I0SzCb5W8YtA1ZOyKCI">esp/EFI/refind</p>
+          <div class="space-y-2.5">
+            <div class="flex items-center gap-3 rounded-xl border-2 border-ok/50 bg-ok/5 p-3.5">
+              <svg class="size-5 text-ok" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M4 12.5l5 5L20 6.5"/></svg>
+              <div class="min-w-0 flex-1">
+                <p class="text-base font-bold">Linux</p>
+                <p class="mt-0.5 font-mono text-xs text-fgDim">PreviousBoot-linux</p>
+                <p class="mt-0.5 text-[11px] text-fgFaint">?</p>
+              </div>
+              <span class="rounded-lg bg-ok px-3.5 py-1.5 text-xs font-bold text-white">已 选 择</span>
             </div>
-            <div class="flex items-center gap-3 rounded-xl border border-line bg-card px-4 py-2.5" data-page-node-id="jKxHhb2rq9G7PT8YGdeFQp">
-              <span class="size-2 rounded-full bg-fgFaint" data-page-node-id="RE9SQceOyN1Mwa8Dol9dEE"></span>
-              <p class="flex-1 text-sm" data-page-node-id="smFlaTlywD4oriVPsGk8sc">Windows Boot Manager</p>
-              <p class="font-mono text-[11px] text-fgDim" data-page-node-id="DP267G4qy2Ux2JCRV2acnI">esp/EFI/Microsoft</p>
+            <div class="flex items-center gap-3 rounded-xl border border-line p-3.5">
+              <div class="min-w-0 flex-1">
+                <p class="text-base font-bold">Windows</p>
+                <p class="mt-0.5 font-mono text-xs text-fgDim">PreviousBoot-windows</p>
+              </div>
+              <button class="h-9 cursor-pointer rounded-lg bg-info px-4 text-xs font-bold text-white transition-all active:scale-95">下次启动 Windows</button>
+            </div>
+            <div class="flex items-center gap-3 rounded-xl border border-line p-3.5">
+              <div class="min-w-0 flex-1">
+                <p class="text-base font-bold">macOS</p>
+                <p class="mt-0.5 font-mono text-xs text-fgDim">PreviousBoot-mac</p>
+              </div>
+              <button class="h-9 cursor-pointer rounded-lg bg-info px-4 text-xs font-bold text-white transition-all active:scale-95">下次启动 macOS</button>
+            </div>
+          </div>
+
+          <!-- 变量目录 -->
+          <div class="mt-4 rounded-xl border border-line p-3.5">
+            <p class="mb-2 text-sm">变量目录</p>
+            <input value="/tmp/anyboot-597148/EFI/refind/vars" readonly class="h-10 w-full cursor-text rounded-lg border border-line bg-base px-3 font-mono text-xs text-fgDim" />
+            <div class="mt-2.5 flex justify-end gap-2">
+              <button class="h-9 cursor-pointer rounded-lg border border-line bg-elevate px-3.5 text-xs font-medium transition-colors">打开变量目录</button>
+              <button class="h-9 cursor-pointer rounded-lg bg-accent px-4 text-xs font-bold text-white transition-all active:scale-95">使用此目录</button>
+              <button class="h-9 cursor-pointer rounded-lg border border-line bg-elevate px-3.5 text-xs font-medium transition-colors">卸载临时挂载</button>
             </div>
           </div>
         </div>
       </div>
-
-      <!-- 右：目录与设置 -->
-      <aside class="flex w-80 shrink-0 flex-col gap-4 overflow-y-auto scroll-thin border-l border-line bg-card/50 p-5" data-page-node-id="1ix91m3R3FqUHvanDHfjjL">
-        <div data-page-node-id="5WHicSxhv7K86N0NQyuNfI">
-          <h3 class="mb-2.5 text-sm font-bold" data-page-node-id="5CdYB58dMAshtSKasgUYyu">系统引导目录</h3>
-          <div class="space-y-2" data-page-node-id="x6g5XPotcJ9emHWXf9JI1U">
-            <div class="rounded-xl border border-line bg-card px-3.5 py-2.5" data-page-node-id="w1LbhEwmdoONnjCEiGjhZM">
-              <p class="text-xs font-semibold text-fgDim" data-page-node-id="ZxZGdqrM5cVYqe4mFCImbS">ESP 目录</p>
-              <p class="mt-1 truncate font-mono text-[11px]" data-page-node-id="cpBOlbJXnR8CAKADVaEshL">/boot/efi</p>
-            </div>
-            <div class="rounded-xl border border-line bg-card px-3.5 py-2.5" data-page-node-id="JtFBn52fClkeI1QnQvZbKj">
-              <p class="text-xs font-semibold text-fgDim" data-page-node-id="s02lFYIsd9d4gAryjfkhty">GRUB 区</p>
-              <p class="mt-1 truncate font-mono text-[11px]" data-page-node-id="Wv5kuNRxv8ltnAADj7nRhV">/boot/grub</p>
-            </div>
-            <div class="rounded-xl border border-line bg-card px-3.5 py-2.5" data-page-node-id="iSXkZ1jdOCWTeIp3oc045o">
-              <p class="text-xs font-semibold text-fgDim" data-page-node-id="yX80RK4wHWJBjsckuP7eqb">变量目录</p>
-              <p class="mt-1 truncate font-mono text-[11px]" data-page-node-id="1YxshEBZYpJJn7NVI25oFh">efivars · 已挂载</p>
-            </div>
-          </div>
-          <button class="mt-2.5 h-9 w-full cursor-pointer rounded-xl border border-line bg-elevate text-xs font-medium transition-colors active:scale-95" data-page-node-id="QpY0YuytDfKuIPjpMj4FdK">使用此目录</button>
-        </div>
-        <div class="border-t border-line pt-4" data-page-node-id="PEllZ6Cr7jOIQPndtBSodd">
-          <h3 class="mb-2.5 text-sm font-bold" data-page-node-id="cIHK5Pj3dwQLhIzGABKg1P">基本设置</h3>
-          <div class="space-y-1" data-page-node-id="JaMf3NmsSMOwj8aHTRoPuB">
-            <div class="flex items-center justify-between rounded-xl px-2 py-2 hover:bg-elevate" data-page-node-id="CYwA0LUryDO3oSCFfoGsU3">
-              <div data-page-node-id="NkYHJjde8M5v0z2P0l9sDC"><p class="text-sm" data-page-node-id="QtYeYg5soZZ6wFwZyCarbp">列表格式</p><p class="text-[11px] text-fgDim" data-page-node-id="ni9X7X5RJJaEXDV7FCfBjz">启动项列表的排版</p></div>
-              <span class="rounded-md bg-elevate px-2 py-1 font-mono text-[10px] text-fgDim" data-page-node-id="KtUEHBdB4iuBo0AdfOT1MG">紧凑 ▾</span>
-            </div>
-            <div class="flex items-center justify-between rounded-xl px-2 py-2 hover:bg-elevate" data-page-node-id="nuQRybLDTyqDbLDFyBfpdJ">
-              <div data-page-node-id="67e79kigh4tvOnIeszKCDu"><p class="text-sm" data-page-node-id="C6g84YKowf710NH4uqU6HL">展示方式</p><p class="text-[11px] text-fgDim" data-page-node-id="AGLJkCKhpsJ2RoYTPBa7E9">GRUB / rEFInd 合并显示</p></div>
-              <span class="inline-flex h-5 w-9 items-center rounded-full bg-accent px-0.5" data-page-node-id="7AIAEXzDX2w0HA2lgT2CWH"><span class="ml-auto size-4 rounded-full bg-white" data-page-node-id="vbGr9O9gxrc8iuPUsN8H9T"></span></span>
-            </div>
-          </div>
-          <button class="mt-3 h-9 w-full cursor-pointer rounded-xl bg-accent text-xs font-bold text-white transition-all active:scale-95" data-page-node-id="xch7pkFn35EkwBPWhl6YTL">应用设置</button>
-        </div>
-      </aside>
     </div>
 
+    <!-- ===== 面板二：基本设置（应用设置各项原样，实现时零改动） ===== -->
+    <div class="mpanel hidden min-h-0 flex-1 overflow-y-auto scroll-thin p-5" data-mpanel="settings">
+      <div class="mx-auto max-w-2xl space-y-4">
+        <div class="rounded-2xl border border-line bg-card p-5">
+          <p class="mb-4 text-base font-bold">应用设置</p>
+          <div class="space-y-4">
+            <div class="flex items-start justify-between gap-4">
+              <div><p class="text-sm font-semibold">开机启动</p><p class="mt-0.5 text-xs text-fgDim">登录系统后自动启动，常驻托盘待命</p><p class="mt-0.5 text-xs text-fgDim">已加入系统登录项</p></div>
+              <span class="mt-1 inline-flex size-5 shrink-0 items-center justify-center rounded-md bg-accent"><svg class="size-3.5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M4 12.5l5 5L20 6.5"/></svg></span>
+            </div>
+            <div class="flex items-start justify-between gap-4">
+              <div><p class="text-sm font-semibold">启动时隐藏主界面</p><p class="mt-0.5 text-xs text-fgDim">启动后不直接打开主菜单，仅显示在托盘</p></div>
+              <span class="mt-1 inline-flex size-5 shrink-0 items-center justify-center rounded-md bg-accent"><svg class="size-3.5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M4 12.5l5 5L20 6.5"/></svg></span>
+            </div>
+            <div class="flex items-start justify-between gap-4">
+              <div><p class="text-sm font-semibold">窗口始终置顶</p><p class="mt-0.5 text-xs text-fgDim">主窗口任何情况下都不被别的窗口盖住；取消勾选后可被正常覆盖</p></div>
+              <span class="mt-1 inline-flex size-5 shrink-0 items-center justify-center rounded-md bg-accent"><svg class="size-3.5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M4 12.5l5 5L20 6.5"/></svg></span>
+            </div>
+            <div class="flex items-start justify-between gap-4">
+              <div><p class="text-sm font-semibold">贴边自动隐藏</p><p class="mt-0.5 text-xs text-fgDim">鼠标离开后主窗口贴到最近的屏幕边，只露一条边条；悬停边条再展开</p><p class="mt-0.5 text-xs text-fgDim">与「屏幕中间」互斥：居中间期间贴边不可用，切回其他落位方式后自动恢复</p></div>
+              <span class="mt-1 inline-flex size-5 shrink-0 items-center justify-center rounded-md border border-line bg-elevate"></span>
+            </div>
+            <div class="flex items-center justify-between gap-4 pl-0">
+              <div><p class="text-sm font-semibold">贴边触发距离</p><p class="mt-0.5 max-w-sm text-xs text-fgDim">主窗口距屏幕边框不超过该像素值、且鼠标离开窗口时才隐藏（0–200，越大越灵敏）</p></div>
+              <div class="flex h-9 w-24 shrink-0 items-center justify-between rounded-lg border border-line bg-base px-2.5 font-mono text-sm">24<span class="flex flex-col gap-px text-fgFaint"><svg class="size-2.5" viewBox="0 0 24 24" fill="currentColor"><path d="M12 6l6 8H6z"/></svg><svg class="size-2.5" viewBox="0 0 24 24" fill="currentColor"><path d="M12 18l6-8H6z"/></svg></span></div>
+            </div>
+            <div class="flex items-center justify-between gap-4">
+              <div><p class="text-sm font-semibold">悬浮呼出延时</p><p class="mt-0.5 max-w-sm text-xs text-fgDim">鼠标压住白条持续这么久才展开主窗（0–2000 毫秒，0 = 立即）</p></div>
+              <div class="flex h-9 w-24 shrink-0 items-center justify-between rounded-lg border border-line bg-base px-2.5 font-mono text-sm">0<span class="flex flex-col gap-px text-fgFaint"><svg class="size-2.5" viewBox="0 0 24 24" fill="currentColor"><path d="M12 6l6 8H6z"/></svg><svg class="size-2.5" viewBox="0 0 24 24" fill="currentColor"><path d="M12 18l6-8H6z"/></svg></span></div>
+            </div>
+            <div class="flex items-center justify-between gap-4">
+              <div><p class="text-sm font-semibold">白条距离屏幕边界</p><p class="mt-0.5 max-w-sm text-xs text-fgDim">贴边隐藏时白条离屏幕边框留出的距离（0–100px，0 = 紧贴边缘）</p></div>
+              <div class="flex h-9 w-24 shrink-0 items-center justify-between rounded-lg border border-line bg-base px-2.5 font-mono text-sm">0<span class="flex flex-col gap-px text-fgFaint"><svg class="size-2.5" viewBox="0 0 24 24" fill="currentColor"><path d="M12 6l6 8H6z"/></svg><svg class="size-2.5" viewBox="0 0 24 24" fill="currentColor"><path d="M12 18l6-8H6z"/></svg></span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
 
+    <!-- 底部状态条（原样） -->
+    <div class="flex h-9 shrink-0 items-center gap-2 border-t border-line bg-card px-4 text-xs text-fgDim">
+      <svg class="size-3.5 text-ok" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M4 12.5l5 5L20 6.5"/></svg>
+      远程管理窗口已打开
+      <button class="ml-auto cursor-pointer text-fgFaint transition-colors hover:text-fg">✕</button>
+    </div>
   </section>
 
+  <script>
+    (() => {
+      const mtabs = [...document.querySelectorAll('.mtab')];
+      mtabs.forEach((tab) => tab.addEventListener('click', () => {
+        mtabs.forEach((t) => {
+          const on = t === tab;
+          t.classList.toggle('text-accentT', on);
+          t.classList.toggle('font-semibold', on);
+          t.classList.toggle('text-fgDim', !on);
+          t.lastElementChild.classList.toggle('bg-accentT', on);
+          t.lastElementChild.classList.toggle('bg-transparent', !on);
+        });
+        document.querySelectorAll('.mpanel').forEach((p) => {
+          p.classList.toggle('hidden', p.dataset.mpanel !== tab.dataset.mtab);
+        });
+      }));
+    })();
+  </script>
   <!-- ============ ①b 添加 AnyBoot 服务端（PC 版，对应手机 home-add；首启必连态：无取消/无删除） ============ -->
   <section data-screen="home-add-pc" hidden class="relative flex min-h-0 flex-1 flex-col overflow-hidden">
     <div class="absolute inset-0 bg-black/55 backdrop-blur-[2px]"></div>
