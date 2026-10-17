@@ -439,14 +439,79 @@ tailwind.config = {
 
   <!-- ============ ②b 电脑 · 右上角更多菜单（⋮ 触发；对齐手机主界面 ⋮ 下拉菜单：会话 / 传输管理 / 终端设置） ============ -->
   <section data-screen="home-pc-menu" hidden class="relative flex min-h-0 flex-1 flex-col overflow-hidden" data-page-node-id="pcMenuRoot01">
-    <!-- 底衬：电脑页原样压暗（示意） -->
+    <!-- 底衬：电脑页原样压暗（与 home-pc 屏同内容静态复制，不可点） -->
     <div class="pointer-events-none flex-1 opacity-25 blur-[2px]" aria-hidden="true" data-page-node-id="pcMenuBlur01">
-      <div class="flex items-center gap-1.5 border-b border-line bg-card px-3 py-2" data-page-node-id="pcMenuBlurBar01">
-        <span class="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-accent px-3 py-1.5 text-xs font-semibold text-white"><span class="size-2 rounded-full bg-white/90"></span>本机 · CachyOS</span>
+      <div class="flex items-center gap-1.5 border-b border-line bg-card px-3 py-2">
+        <span class="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-accent px-3 py-1.5 text-xs font-semibold text-white"><span class="size-2 rounded-full bg-white/90"></span>本机 · CachyOS<span class="rounded-md bg-white/20 px-1.5 py-px font-mono text-[9px]">默认 · 本地</span></span>
         <span class="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-elevate px-3 py-1.5 text-xs text-fg"><span class="size-2 rounded-full bg-ok"></span>书房台式机</span>
+        <span class="inline-flex shrink-0 items-center gap-1 rounded-full border border-dashed border-line px-3 py-1.5 text-xs font-medium text-fgDim">＋ 添加</span>
         <span class="ml-auto grid size-8 place-items-center rounded-lg bg-elevate text-fg"><svg class="size-5" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg></span>
       </div>
-      <div class="grid h-full min-h-56 place-items-center px-4"><div class="h-40 w-full max-w-sm rounded-2xl border border-dashed border-line bg-card"></div></div>
+      <div class="h-full overflow-hidden bg-base px-4 py-4">
+        <div class="mx-auto max-w-2xl overflow-hidden rounded-2xl border border-line bg-card shadow-pop">
+          <div class="flex h-11 shrink-0 items-center gap-2 border-b border-line px-4">
+            <span class="text-sm font-semibold">AnyBoot</span>
+            <div class="ml-auto flex items-center gap-1.5">
+              <span class="inline-flex h-8 items-center rounded-lg border border-line bg-elevate px-3 text-xs font-medium">重启系统</span>
+              <span class="inline-flex h-8 items-center rounded-lg border border-warn/30 bg-warn/10 px-3 text-xs font-medium text-warn">关机</span>
+              <span class="inline-flex h-8 items-center rounded-lg border border-line bg-elevate px-3 text-xs font-medium">睡眠</span>
+              <span class="inline-flex h-8 items-center rounded-lg border border-line bg-elevate px-3 text-xs font-medium">重启程序</span>
+              <span class="inline-flex h-8 items-center px-2.5 text-xs text-fgDim">退出程序</span>
+            </div>
+          </div>
+          <nav class="flex h-11 shrink-0 items-center gap-1 border-b border-line px-4">
+            <span class="relative inline-flex h-full items-center px-4 text-sm font-semibold text-accentT">系统引导<span class="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-accentT"></span></span>
+            <span class="inline-flex h-full items-center px-4 text-sm font-medium text-fgDim">基本设置</span>
+          </nav>
+          <div class="p-5">
+            <div class="space-y-4">
+              <div class="rounded-2xl border-l-4 border-ok bg-card p-4">
+                <p class="text-xs text-fgDim">下次启动</p>
+                <p class="mt-1 text-2xl font-bold text-ok">Linux</p>
+              </div>
+              <div class="rounded-2xl border border-line bg-card p-4">
+                <div class="mb-3 flex items-center gap-2">
+                  <span class="rounded-full border border-line bg-elevate px-2 py-0.5 font-mono text-[10px] text-fgDim">rEFInd 区</span>
+                  <p class="text-sm font-semibold">rEFInd 启动项</p>
+                </div>
+                <div class="space-y-2.5">
+                  <div class="flex items-center gap-3 rounded-xl border-2 border-ok/50 bg-ok/5 p-3.5">
+                    <svg class="size-5 shrink-0 text-ok" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M4 12.5l5 5L20 6.5"/></svg>
+                    <div class="min-w-0 flex-1">
+                      <p class="text-base font-bold">Linux</p>
+                      <p class="mt-0.5 font-mono text-xs text-fgDim">PreviousBoot-linux</p>
+                    </div>
+                    <span class="rounded-lg bg-ok px-3.5 py-1.5 text-xs font-bold text-white">已 选 择</span>
+                  </div>
+                  <div class="flex items-center gap-3 rounded-xl border border-line p-3.5">
+                    <div class="min-w-0 flex-1">
+                      <p class="text-base font-bold">Windows</p>
+                      <p class="mt-0.5 font-mono text-xs text-fgDim">PreviousBoot-windows</p>
+                    </div>
+                    <span class="inline-flex h-9 items-center rounded-lg bg-info px-4 text-xs font-bold text-white">下次启动 Windows</span>
+                  </div>
+                  <div class="flex items-center gap-3 rounded-xl border border-line p-3.5">
+                    <div class="min-w-0 flex-1">
+                      <p class="text-base font-bold">macOS</p>
+                      <p class="mt-0.5 font-mono text-xs text-fgDim">PreviousBoot-mac</p>
+                    </div>
+                    <span class="inline-flex h-9 items-center rounded-lg bg-info px-4 text-xs font-bold text-white">下次启动 macOS</span>
+                  </div>
+                </div>
+                <div class="mt-4 rounded-xl border border-line p-3.5">
+                  <p class="mb-2 text-sm">变量目录</p>
+                  <div class="flex h-10 w-full items-center rounded-lg border border-line bg-base px-3 font-mono text-xs text-fgDim">/tmp/anyboot-597148/EFI/refind/vars</div>
+                  <div class="mt-2.5 flex justify-end gap-2">
+                    <span class="inline-flex h-9 items-center rounded-lg border border-line bg-elevate px-3.5 text-xs font-medium">打开变量目录</span>
+                    <span class="inline-flex h-9 items-center rounded-lg bg-accent px-4 text-xs font-bold text-white">使用此目录</span>
+                    <span class="inline-flex h-9 items-center rounded-lg border border-line bg-elevate px-3.5 text-xs font-medium">卸载临时挂载</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
     <!-- 遮罩：点空白处关闭 -->
     <div id="pcMenuScrim" class="absolute inset-0 bg-black/25" aria-hidden="true" data-page-node-id="pcMenuScrim01"></div>
