@@ -242,6 +242,26 @@ document.getElementById('fontBtn').addEventListener('click', () => {
   }
 });
 
+/* ---------- 终端设置（hub「终端设置」页持久化；跨窗口 localStorage 共享） ---------- */
+const TERM_SET_KEY = 'ab-term-settings';
+function loadTermSettings() {
+  const d = { fontSize: 14, cursorBlink: true, copyOnSelect: false, bell: false, scrollback: 5000 };
+  try {
+    const s = JSON.parse(localStorage.getItem(TERM_SET_KEY) || '{}');
+    return {
+      fontSize: Math.min(24, Math.max(10, Number(s.fontSize) || d.fontSize)),
+      cursorBlink: s.cursorBlink !== undefined ? !!s.cursorBlink : d.cursorBlink,
+      copyOnSelect: !!s.copyOnSelect,
+      bell: !!s.bell,
+      scrollback: Math.min(100000, Math.max(500, Number(s.scrollback) || d.scrollback)),
+    };
+  } catch (e) { return d; }
+}
+let termSettings = loadTermSettings();
+const termFlag = { copyOnSelect: termSettings.copyOnSelect, bell: termSettings.bell };
+const _fi = FONT_SIZES.indexOf(termSettings.fontSize);
+if (_fi >= 0) fontIdx = _fi;
+
 /* ---------- xterm ---------- */
 function termTheme() {
   const css = getComputedStyle(document.documentElement);
@@ -277,10 +297,10 @@ function ensureTerm(session) {
   if (session.term) return session.term;
   const t = new Terminal({
     fontFamily: 'ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace',
-    fontSize: FONT_SIZES[fontIdx],
-    cursorBlink: true,
+    fontSize: FONT_SIZES.includes(termSettings.fontSize) ? FONT_SIZES[fontIdx] : termSettings.fontSize,
+    cursorBlink: termSettings.cursorBlink,
     theme: termTheme(),
-    scrollback: 5000,
+    scrollback: termSettings.scrollback,
   });
   const f = new FitAddon.FitAddon();
   t.loadAddon(f);
@@ -296,6 +316,23 @@ function ensureTerm(session) {
   t.onResize(({ cols, rows }) => {
     if (!invoke) return;
     invoke('hub_term_resize', { sessionId: session.meta.id, rows, cols }).catch(() => {});
+  });
+  // 选中即复制（终端设置页开关）
+  t.onSelectionChange(() => {
+    if (!termFlag.copyOnSelect || !t.hasSelection()) return;
+    try { navigator.clipboard.writeText(t.getSelection()).catch(() => {}); } catch (e) {}
+  });
+  // 响铃提示（BEL → 短提示音）
+  t.onBell(() => {
+    if (!termFlag.bell) return;
+    try {
+      const ac = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ac.createOscillator(), gain = ac.createGain();
+      osc.connect(gain); gain.connect(ac.destination);
+      osc.frequency.value = 880; gain.gain.value = 0.05;
+      osc.start();
+      setTimeout(() => { osc.stop(); ac.close(); }, 130);
+    } catch (e) {}
   });
   return t;
 }
@@ -470,6 +507,23 @@ window.addEventListener('resize', () => { fitTerm(); const s = sessions.get(acti
 
 /* ---------- 后端事件 ---------- */
 if (listen) {
+  // 终端设置热更新：hub「终端设置」页保存后即时应用（含已开会话）
+  listen('ab-term-settings-changed', (event) => {
+    const s = event.payload || {};
+    if (s.fontSize !== undefined) termSettings.fontSize = Math.min(24, Math.max(10, Number(s.fontSize) || termSettings.fontSize));
+    if (s.cursorBlink !== undefined) termSettings.cursorBlink = !!s.cursorBlink;
+    if (s.copyOnSelect !== undefined) termFlag.copyOnSelect = !!s.copyOnSelect;
+    if (s.bell !== undefined) termFlag.bell = !!s.bell;
+    if (s.scrollback !== undefined) termSettings.scrollback = Math.min(100000, Math.max(500, Number(s.scrollback) || termSettings.scrollback));
+    for (const session of sessions.values()) {
+      if (!session.term) continue;
+      session.term.options.fontSize = termSettings.fontSize;
+      session.term.options.cursorBlink = termSettings.cursorBlink;
+      session.term.options.scrollback = termSettings.scrollback;
+    }
+    fitTerm();
+    toast('终端设置已应用');
+  });
   listen('hub-term-data', (event) => {
     const { id, data } = event.payload;
     const session = sessions.get(id);

@@ -263,6 +263,59 @@ fn parse_ls_line(line: &str) -> Option<SftpEntry> {
 
 // ==================== 命令 ====================
 
+/// 传输进度事件：发给文件窗，同时抄送 hub 主窗（传输页跨窗口汇总）。
+fn emit_progress(app: &AppHandle, files_label: &str, payload: serde_json::Value) {
+    let _ = app.emit_to(files_label, EVENT_PROGRESS, payload.clone());
+    let _ = app.emit_to(crate::HUB_WINDOW_LABEL, EVENT_PROGRESS, payload);
+}
+
+/// 传输控制：对文件窗（server-files）里还在跑的 sftp 下载子进程发信号。
+/// pause=SIGSTOP 挂起（本地文件大小停住，进度自然停）、resume=SIGCONT 继续、
+/// cancel=SIGTERM 终止（轮询线程会以 failed 收尾，前端清队列）。返回作用的进程数。
+#[tauri::command]
+pub fn hub_sftp_transfer_ctl(
+    state: tauri::State<'_, HubSftpState>,
+    action: String,
+) -> Result<usize, String> {
+    let sig: i32 = match action.as_str() {
+        "pause" => libc::SIGSTOP,
+        "resume" => libc::SIGCONT,
+        "cancel" => libc::SIGTERM,
+        other => return Err(format!("未知传输控制动作: {other}")),
+    };
+    let mut acted = 0usize;
+    if let Ok(list) = state.running.lock() {
+        for (window, handle) in list.iter() {
+            if window != crate::HUB_FILES_WINDOW_LABEL {
+                continue;
+            }
+            if let Ok(mut child) = handle.lock() {
+                // 只对还没退出的进程发信号（stopped 状态 try_wait 仍是 None，不误伤）
+                if child.try_wait().ok().flatten().is_none() {
+                    // SAFETY: libc::kill 传子进程 pid，仅发送信号
+                    if unsafe { libc::kill(child.id() as i32, sig) } == 0 {
+                        acted += 1;
+                    }
+                }
+            }
+        }
+    }
+    Ok(acted)
+}
+
+/// hub 传输页「聚焦」独立窗口（前端 window API 无 ACL 权限，走后端）。
+#[tauri::command]
+pub fn hub_focus_window(app: AppHandle, label: String) -> Result<(), String> {
+    match app.get_webview_window(&label) {
+        Some(window) => {
+            let _ = window.show();
+            let _ = window.set_focus();
+            Ok(())
+        }
+        None => Err(format!("窗口不存在（{label}）")),
+    }
+}
+
 /// hub「浏览文件」：确保 server-files 窗口存在并聚焦；窗口新开 → pending 队列，
 /// 已存在 → 给页面发 hub-files-open-server 事件（页面换服务器并回到家目录）。
 pub fn open_files_window(app: &AppHandle, server: HubServer) -> Result<(), String> {
@@ -431,9 +484,9 @@ pub async fn hub_sftp_download(
             let bytes = std::fs::metadata(&local).map(|m| m.len()).unwrap_or(0);
             if bytes != last_bytes {
                 last_bytes = bytes;
-                let _ = emit_app.emit_to(
+                emit_progress(
+                    &emit_app,
                     &window_label,
-                    EVENT_PROGRESS,
                     json!({ "name": poll_name, "dir": "down", "bytes": bytes, "total": total }),
                 );
             }
@@ -441,15 +494,15 @@ pub async fn hub_sftp_download(
             match status {
                 Some(status) => {
                     if status.success() {
-                        let _ = emit_app.emit_to(
+                        emit_progress(
+                            &emit_app,
                             &window_label,
-                            EVENT_PROGRESS,
                             json!({ "name": poll_name, "dir": "down", "bytes": total, "total": total, "done": true }),
                         );
                     } else {
-                        let _ = emit_app.emit_to(
+                        emit_progress(
+                            &emit_app,
                             &window_label,
-                            EVENT_PROGRESS,
                             json!({ "name": poll_name, "dir": "down", "failed": true }),
                         );
                     }
@@ -511,9 +564,9 @@ pub async fn hub_sftp_upload(
             .map(|n| n.to_string_lossy().to_string())
             .ok_or_else(|| format!("路径没有文件名（{local}）"))?;
         let remote = format!("{}/{}", remote_dir.trim_end_matches('/'), name);
-        let _ = app.emit_to(
+        emit_progress(
+            &app,
             &window_label,
-            EVENT_PROGRESS,
             json!({ "name": name, "dir": "up", "bytes": 0, "total": 0 }),
         );
         let result = run_sftp_batch(
@@ -524,16 +577,16 @@ pub async fn hub_sftp_upload(
         match result {
             Ok(_) => {
                 uploaded.push(name.clone());
-                let _ = app.emit_to(
+                emit_progress(
+                    &app,
                     &window_label,
-                    EVENT_PROGRESS,
                     json!({ "name": name, "dir": "up", "done": true }),
                 );
             }
             Err(error) => {
-                let _ = app.emit_to(
+                emit_progress(
+                    &app,
                     &window_label,
-                    EVENT_PROGRESS,
                     json!({ "name": name, "dir": "up", "failed": true }),
                 );
                 return Err(error);

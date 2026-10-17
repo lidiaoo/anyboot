@@ -130,7 +130,8 @@ pub fn hub_term_sessions(
         .lock()
         .map(|map| {
             map.values()
-                .filter(|s| s.window == label)
+                // hub 主窗（会话页）看全部；终端窗只看自己的
+                .filter(|s| label == crate::HUB_WINDOW_LABEL || s.window == label)
                 .map(|s| TermMeta {
                     id: s.id.clone(),
                     server_name: s.server_name.clone(),

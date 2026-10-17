@@ -498,6 +498,69 @@
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
 
+  /* ============ 终端设置页 ============ */
+  .ts-wrap { max-width: 560px; padding: 14px 20px 20px; }
+  .ts-card {
+    border: 1px solid rgb(var(--line)); background: rgb(var(--card));
+    border-radius: 14px; padding: 14px 18px; margin-bottom: 14px;
+  }
+  .ts-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 9px 0; }
+  .ts-row .ts-t { margin: 0; font-size: 14px; font-weight: 500; }
+  .ts-row .ts-s { margin: 2px 0 0; font-size: 11px; color: rgb(var(--fg-faint)); }
+  .ts-val {
+    font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px;
+    background: rgb(var(--elevate)); border-radius: 8px; padding: 4px 10px; color: rgb(var(--fg-dim));
+    white-space: nowrap;
+  }
+  .ts-num {
+    width: 110px; height: 32px; border: 1px solid rgb(var(--line)); border-radius: 8px;
+    background: rgb(var(--elevate)); color: rgb(var(--fg)); padding: 0 10px; outline: none;
+    font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px;
+  }
+  .ts-num:focus { border-color: rgb(var(--accent) / .6); }
+  .ts-toggle-row { cursor: pointer; position: relative; border-radius: 10px; }
+  .ts-toggle-row:hover { background: rgb(var(--elevate) / .6); }
+  .ts-check { position: absolute; opacity: 0; width: 0; height: 0; }
+  .ts-switch {
+    flex: none; width: 36px; height: 20px; border-radius: 9999px;
+    background: rgb(var(--elevate)); position: relative; transition: background .15s;
+  }
+  .ts-switch::after {
+    content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px;
+    border-radius: 50%; background: rgb(var(--fg-faint)); transition: transform .15s, background .15s;
+  }
+  .ts-check:checked ~ .ts-switch { background: rgb(var(--accent)); }
+  .ts-check:checked ~ .ts-switch::after { transform: translateX(16px); background: #fff; }
+  .ts-range { width: 100%; accent-color: rgb(var(--accent)); }
+
+  /* ============ 传输页 ============ */
+  .tx-list { padding: 14px 20px 20px; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; }
+  .tx-card {
+    border: 1px solid rgb(var(--line)); background: rgb(var(--card));
+    border-radius: 14px; padding: 12px 16px;
+  }
+  .tx-top { display: flex; align-items: center; gap: 10px; font-size: 12px; margin-bottom: 8px; }
+  .tx-badge {
+    flex: none; border-radius: 9999px; padding: 2px 9px; font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 10px; font-weight: 700; white-space: nowrap;
+  }
+  .tx-badge.down { background: rgb(var(--accent) / .12); color: rgb(var(--accent)); }
+  .tx-badge.up { background: rgb(var(--warn) / .12); color: rgb(var(--warn)); }
+  .tx-badge.paused { background: rgb(var(--warn) / .18); color: rgb(var(--warn)); }
+  .tx-badge.done { background: rgb(var(--ok) / .12); color: rgb(var(--ok)); }
+  .tx-name { flex: 1; min-width: 0; font-family: ui-monospace, Menlo, Consolas, monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tx-meta { font-family: ui-monospace, Menlo, Consolas, monospace; color: rgb(var(--fg-dim)); white-space: nowrap; }
+  .tx-bar { height: 6px; border-radius: 9999px; background: rgb(var(--elevate)); overflow: hidden; }
+  .tx-bar > div { height: 100%; border-radius: 9999px; background: linear-gradient(90deg, rgb(var(--accent)), rgb(var(--fg-dim))); transition: width .25s; }
+  .tx-bar.paused > div { background: rgb(var(--warn) / .7); }
+  .tx-mini {
+    flex: none; height: 26px; padding: 0 10px; border-radius: 8px; font-size: 11px; cursor: pointer;
+    border: 1px solid rgb(var(--line)); background: rgb(var(--elevate)); color: rgb(var(--fg));
+  }
+  .tx-mini:hover { border-color: rgb(var(--linestrong)); }
+  .tx-mini.danger { border-color: rgb(var(--bad) / .4); color: rgb(var(--bad)); }
+  .tx-mini:disabled { opacity: .5; cursor: not-allowed; }
+
   /* ============ 弹窗 ============ */
   .overlay {
     position: fixed; inset: 0; z-index: 40;
@@ -893,13 +956,18 @@
         <div class="session-list scroll-thin" id="sessionList"></div>
       </section>
 
-      <!-- ---- 传输（如实说明：SFTP 在文件窗口内） ---- -->
+      <!-- ---- 传输（设计稿 transfers 屏：文件窗 SFTP 实时队列 + 历史；下载可暂停/续传/取消） ---- -->
       <section class="page" id="page-transfers" hidden data-page-node-id="pageTransfers1">
-        <div class="act-card" data-page-node-id="acTransfers1">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4v12M4 13l3 3 3-3M17 20V8M14 11l3-3 3 3"/></svg>
-          <p class="t">传输</p>
-          <p class="s">文件上传 / 下载在「文件」窗口的 SFTP 里直接进行（系统 sftp CLI）。此页暂不做跨窗口的传输汇总。</p>
+        <div class="page-head" style="display:flex;align-items:center;gap:10px">
+          <div>
+            <h2>传输</h2>
+            <span class="sub">「文件」窗口的 SFTP 实时队列 · 下载支持暂停 / 续传 / 取消，上传为整批执行</span>
+          </div>
+          <span style="flex:1"></span>
+          <button class="btn" id="txPauseAll">全部暂停</button>
+          <button class="btn" id="txClearDone">清空已完成</button>
         </div>
+        <div class="tx-list scroll-thin" id="txList"></div>
       </section>
 
       <!-- ---- 文件（独立窗 server-files 的入口页） ---- -->
@@ -925,12 +993,36 @@
         </div>
       </section>
 
-      <!-- ---- 终端设置（如实说明：暂无可调项） ---- -->
+      <!-- ---- 终端设置（设计稿 term-settings 屏：字号 / 行为开关 / 回滚行数） ---- -->
       <section class="page" id="page-termset" hidden data-page-node-id="pageTermset1">
-        <div class="act-card" data-page-node-id="acTermset1">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg>
-          <p class="t">终端设置</p>
-          <p class="s">终端窗口（xterm + 系统 ssh）暂无可调项：配色遵循终端惯例恒深色，字号为内置默认。后续加入设置项后会在此页提供。</p>
+        <div class="page-head"><h2>终端设置</h2><span class="sub">保存后对所有终端会话即时生效（含已开窗口）</span></div>
+        <div class="ts-wrap">
+          <div class="ts-card">
+            <div class="ts-row">
+              <div><p class="ts-t">字号</p><p class="ts-s">终端字体大小</p></div>
+              <span class="ts-val" id="tsFontVal">14 pt</span>
+            </div>
+            <input class="ts-range" type="range" id="tsFont" min="10" max="24" step="1" value="14" aria-label="字号">
+          </div>
+          <div class="ts-card">
+            <label class="ts-row ts-toggle-row">
+              <div><p class="ts-t">光标闪烁</p><p class="ts-s">终端光标呼吸闪烁</p></div>
+              <input type="checkbox" class="ts-check" id="tsCursor"><span class="ts-switch" aria-hidden="true"></span>
+            </label>
+            <label class="ts-row ts-toggle-row">
+              <div><p class="ts-t">选中即复制</p><p class="ts-s">划选文本自动进剪贴板</p></div>
+              <input type="checkbox" class="ts-check" id="tsCopy"><span class="ts-switch" aria-hidden="true"></span>
+            </label>
+            <label class="ts-row ts-toggle-row">
+              <div><p class="ts-t">响铃提示</p><p class="ts-s">BEL 字符触发提示音</p></div>
+              <input type="checkbox" class="ts-check" id="tsBell"><span class="ts-switch" aria-hidden="true"></span>
+            </label>
+            <div class="ts-row">
+              <div><p class="ts-t">滚动回滚行数</p><p class="ts-s">缓冲区保留的历史输出（500–100000）</p></div>
+              <input class="ts-num" type="number" id="tsScroll" min="500" max="100000" step="500" value="5000">
+            </div>
+          </div>
+          <button class="btn primary" id="tsApply" style="height:40px;width:100%;justify-content:center">应用设置</button>
         </div>
       </section>
 
@@ -1147,6 +1239,7 @@
     // 进入即刷新该页的真实数据
     if (name === 'home') pcShow();
     else if (name === 'sessions') renderSessions();
+    else if (name === 'transfers') renderTransfers();
     else if (name === 'keys') renderKeysPage();
     else syncActionPages();
   }
@@ -1525,7 +1618,7 @@
       invoke('hub_open_term_window', { serverId: server.id })
         .then(function () {
           // 会话页真实记录：本窗口打开过的终端（不追踪关闭，仅本窗口会话内）
-          termLog.unshift({ name: server.name || '(未命名)', host: hostLabel(server), at: Date.now() });
+          termLog.unshift({ name: server.name || '(未命名)', host: hostLabel(server), serverId: server.id, at: Date.now() });
           if (termLog.length > 50) termLog.pop();
         })
         .catch(function (error) { toast('打开终端失败：' + error, 'bad'); });
@@ -1985,7 +2078,7 @@
     if (!s || s.protocol !== 'ssh') { toast('先在「服务器」页选中一台 SSH 服务器', 'bad'); return; }
     invoke('hub_open_term_window', { serverId: s.id })
       .then(function () {
-        termLog.unshift({ name: s.name || '(未命名)', host: hostLabel(s), at: Date.now() });
+        termLog.unshift({ name: s.name || '(未命名)', host: hostLabel(s), serverId: s.id, at: Date.now() });
         if (termLog.length > 50) termLog.pop();
         renderSessions();
       })
@@ -2006,30 +2099,83 @@
     return new Date(ts).toLocaleTimeString('zh-CN', { hour12: false });
   }
 
-  function renderSessions() {
+  async function renderSessions() {
     const box = document.getElementById('sessionList');
     if (!box) return;
     box.textContent = '';
     const running = tunnels.filter(function (t) { return tunnelRunning[t.id]; });
-    if (termLog.length === 0 && running.length === 0) {
+    // 进行中的终端会话（后端会话表；hub 窗口调用返回全部窗口的会话）
+    let metas = [];
+    if (invoke) {
+      try { metas = await invoke('hub_term_sessions') || []; } catch (e) { metas = []; }
+    }
+    if (!metas.length && termLog.length === 0 && running.length === 0) {
       box.innerHTML = '<div class="act-card" style="margin:8px 0"><p class="t">暂无会话</p>' +
         '<p class="s">在「服务器」页打开终端、或启动隧道后，这里会显示本窗口的真实会话记录。</p></div>';
       return;
     }
-    if (termLog.length > 0) {
-      const h = document.createElement('p');
-      h.className = 'session-sec';
-      h.textContent = '终端（本窗口打开过 · 会话内记录）';
-      box.appendChild(h);
-      for (const t of termLog) {
+    if (metas.length > 0) {
+      const h0 = document.createElement('p');
+      h0.className = 'session-sec';
+      h0.textContent = '进行中的终端会话';
+      box.appendChild(h0);
+      for (const m of metas) {
         const row = document.createElement('div');
         row.className = 'session-row';
         row.innerHTML = '<span class="dot ok"></span>' +
+          '<div class="s-main"><div>' + esc(m.server_name || '(未命名)') + '</div>' +
+          '<div class="s-sub">' + esc(m.host_label || '') + '</div></div>';
+        const focus = document.createElement('button');
+        focus.className = 'btn'; focus.textContent = '聚焦';
+        focus.addEventListener('click', function () {
+          if (!invoke) return;
+          invoke('hub_focus_window', { label: 'server-term' })
+            .catch(function (e) { toast('聚焦失败：' + e, 'bad'); });
+        });
+        const kill = document.createElement('button');
+        kill.className = 'btn'; kill.textContent = '断开';
+        kill.addEventListener('click', function () {
+          if (!invoke) return;
+          invoke('hub_term_close', { sessionId: m.id })
+            .then(function () { toast('已断开 ' + (m.server_name || '会话')); return renderSessions(); })
+            .catch(function (e) { toast('断开失败：' + e, 'bad'); });
+        });
+        row.appendChild(focus);
+        row.appendChild(kill);
+        box.appendChild(row);
+      }
+    }
+    if (termLog.length > 0) {
+      const h = document.createElement('p');
+      h.className = 'session-sec';
+      h.textContent = '历史 · 本窗口打开过';
+      box.appendChild(h);
+      termLog.forEach(function (t, idx) {
+        const row = document.createElement('div');
+        row.className = 'session-row';
+        row.innerHTML = '<span class="dot"></span>' +
           '<div class="s-main"><div>' + esc(t.name) + '</div>' +
           '<div class="s-sub">' + esc(t.host) + '</div></div>' +
           '<span class="mono" style="font-size:11px;color:rgb(var(--fg-faint))">' + fmtTime(t.at) + '</span>';
+        if (t.serverId) {
+          const again = document.createElement('button');
+          again.className = 'btn'; again.textContent = '重连';
+          again.addEventListener('click', function () {
+            if (!invoke) return;
+            invoke('hub_open_term_window', { serverId: t.serverId })
+              .catch(function (e) { toast('重连失败：' + e, 'bad'); });
+          });
+          row.appendChild(again);
+        }
+        const drop = document.createElement('button');
+        drop.className = 'btn'; drop.textContent = '移除';
+        drop.addEventListener('click', function () {
+          termLog.splice(idx, 1);
+          renderSessions();
+        });
+        row.appendChild(drop);
         box.appendChild(row);
-      }
+      });
     }
     if (running.length > 0) {
       const h2 = document.createElement('p');
@@ -2493,6 +2639,204 @@
   }
   tick();
   setInterval(tick, 1000);
+
+  // ============ 传输页（文件窗 SFTP 实时队列抄送 + 历史） ============
+  const txActive = new Map();   // key = dir|name → {dir,name,bytes,total,paused,lastB,lastT,speed}
+  let txHistory = [];
+  try { txHistory = JSON.parse(localStorage.getItem('ab-transfer-history') || '[]') || []; } catch (e) { txHistory = []; }
+  function txPersist() {
+    try { localStorage.setItem('ab-transfer-history', JSON.stringify(txHistory.slice(0, 20))); } catch (e) {}
+  }
+  function humanTxSize(n) {
+    if (!(n > 0)) return '0';
+    const units = ['B', 'K', 'M', 'G', 'T'];
+    let v = n, u = 0;
+    while (v >= 1024 && u < units.length - 1) { v /= 1024; u++; }
+    return (v >= 100 || u === 0 ? v.toFixed(0) : v.toFixed(1)) + units[u];
+  }
+  function txSpeedTick(tx, bytes, total) {
+    const now = performance.now();
+    if (tx.lastT) {
+      const dt = (now - tx.lastT) / 1000;
+      if (dt > 0.25) {
+        tx.speed = Math.max(0, (bytes - tx.lastB) / dt);
+        tx.lastB = bytes; tx.lastT = now;
+      }
+    } else { tx.lastB = bytes; tx.lastT = now; }
+    let meta = '';
+    if (tx.speed > 0.5) {
+      meta = humanTxSize(tx.speed) + '/s';
+      if (total > 0) {
+        const remain = Math.max(0, (total - bytes) / tx.speed);
+        meta += remain < 60 ? ' · 剩余 ' + Math.ceil(remain) + 's'
+          : ' · 剩余 ' + Math.floor(remain / 60) + 'm' + String(Math.floor(remain % 60)).padStart(2, '0') + 's';
+      }
+    }
+    return meta;
+  }
+  function txCtl(action) {
+    if (!invoke) return Promise.resolve(0);
+    return invoke('hub_sftp_transfer_ctl', { action: action }).catch(function (e) { toast('传输控制失败：' + e, 'bad'); return 0; });
+  }
+  function renderTransfers() {
+    const box = document.getElementById('txList');
+    if (!box) return;
+    box.textContent = '';
+    if (!txActive.size && !txHistory.length) {
+      box.innerHTML = '<div class="act-card" style="margin:8px 0"><p class="t">当前没有传输任务</p>' +
+        '<p class="s">在「文件」窗口上传 / 下载时，进度会实时汇总到这里。</p></div>';
+      return;
+    }
+    for (const tx of txActive.values()) {
+      const card = document.createElement('div');
+      card.className = 'tx-card';
+      const top = document.createElement('div');
+      top.className = 'tx-top';
+      const pct = tx.total > 0 ? Math.min(100, Math.round((tx.bytes / tx.total) * 100)) : 0;
+      const badge = document.createElement('span');
+      badge.className = 'tx-badge ' + (tx.paused ? 'paused' : tx.dir === 'up' ? 'up' : 'down');
+      badge.textContent = tx.paused ? '↑↓ 已暂停' : tx.dir === 'up' ? '↑ 上传' : '↓ 下载';
+      top.appendChild(badge);
+      const name = document.createElement('span');
+      name.className = 'tx-name'; name.textContent = tx.name || '—';
+      top.appendChild(name);
+      const meta = document.createElement('span');
+      meta.className = 'tx-meta';
+      meta.textContent = (tx.total > 0 ? pct + '% · ' : '') + txSpeedTick(tx, tx.bytes, tx.total);
+      top.appendChild(meta);
+      if (tx.dir === 'down') {
+        const act = document.createElement('button');
+        act.className = 'tx-mini'; act.textContent = tx.paused ? '续传' : '暂停';
+        act.addEventListener('click', function () {
+          txCtl(tx.paused ? 'resume' : 'pause').then(function (n) {
+            if (!n) return;
+            tx.paused = !tx.paused;
+            renderTransfers();
+          });
+        });
+        top.appendChild(act);
+        const cancel = document.createElement('button');
+        cancel.className = 'tx-mini danger'; cancel.textContent = '取消';
+        cancel.addEventListener('click', function () { txCtl('cancel'); });
+        top.appendChild(cancel);
+      } else {
+        const note = document.createElement('span');
+        note.className = 'tx-meta'; note.title = '上传为整批同步执行';
+        note.textContent = '整批执行';
+        top.appendChild(note);
+      }
+      card.appendChild(top);
+      const bar = document.createElement('div');
+      bar.className = 'tx-bar' + (tx.paused ? ' paused' : '');
+      const fill = document.createElement('div');
+      fill.style.width = (tx.total > 0 ? pct : 8) + '%';
+      bar.appendChild(fill);
+      card.appendChild(bar);
+      box.appendChild(card);
+    }
+    if (txHistory.length) {
+      for (const h of txHistory) {
+        const card = document.createElement('div');
+        card.className = 'tx-card';
+        const top = document.createElement('div');
+        top.className = 'tx-top';
+        const badge = document.createElement('span');
+        badge.className = 'tx-badge done'; badge.textContent = '✓ 已完成';
+        top.appendChild(badge);
+        const name = document.createElement('span');
+        name.className = 'tx-name'; name.textContent = (h.dir === 'up' ? '[↑] ' : '') + (h.name || '—');
+        top.appendChild(name);
+        const meta = document.createElement('span');
+        meta.className = 'tx-meta';
+        const d = new Date(h.at);
+        meta.textContent = humanTxSize(h.total || h.bytes) +
+          ' · ' + (d.getMonth() + 1) + '-' + String(d.getDate()).padStart(2, '0') + ' ' +
+          String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+        top.appendChild(meta);
+        card.appendChild(top);
+        box.appendChild(card);
+      }
+    }
+  }
+  if (window.__TAURI__ && window.__TAURI__.event && window.__TAURI__.event.listen) {
+    window.__TAURI__.event.listen('hub-sftp-progress', function (event) {
+      const p = event.payload || {};
+      if (!p.name) return;
+      const key = (p.dir || 'down') + '|' + p.name;
+      if (p.failed) { txActive.delete(key); renderTransfers(); return; }
+      let tx = txActive.get(key);
+      if (!tx) {
+        tx = { dir: p.dir || 'down', name: p.name, bytes: 0, total: 0, paused: false, lastB: 0, lastT: 0, speed: 0 };
+        txActive.set(key, tx);
+      }
+      if (p.done) {
+        txActive.delete(key);
+        txHistory.unshift({ dir: tx.dir, name: tx.name, bytes: p.bytes || tx.bytes, total: p.total || tx.total, at: Date.now() });
+        txHistory = txHistory.slice(0, 20);
+        txPersist();
+      } else {
+        tx.bytes = p.bytes || tx.bytes;
+        if (p.total) tx.total = p.total;
+      }
+      renderTransfers();
+    });
+  }
+  document.getElementById('txPauseAll').addEventListener('click', function () {
+    txCtl('pause').then(function (n) {
+      if (!n) { toast('没有可暂停的下载'); return; }
+      txActive.forEach(function (tx) { if (tx.dir === 'down') tx.paused = true; });
+      renderTransfers();
+      toast('已暂停 ' + n + ' 个下载');
+    });
+  });
+  document.getElementById('txClearDone').addEventListener('click', function () {
+    txHistory = [];
+    txPersist();
+    renderTransfers();
+  });
+
+  // ============ 终端设置页（localStorage 持久化 + 事件热更终端窗口） ============
+  const TERM_SET_KEY = 'ab-term-settings';
+  function loadTermSettings() {
+    const d = { fontSize: 14, cursorBlink: true, copyOnSelect: false, bell: false, scrollback: 5000 };
+    try {
+      const s = JSON.parse(localStorage.getItem(TERM_SET_KEY) || '{}');
+      return {
+        fontSize: Math.min(24, Math.max(10, Number(s.fontSize) || d.fontSize)),
+        cursorBlink: s.cursorBlink !== undefined ? !!s.cursorBlink : d.cursorBlink,
+        copyOnSelect: !!s.copyOnSelect,
+        bell: !!s.bell,
+        scrollback: Math.min(100000, Math.max(500, Number(s.scrollback) || d.scrollback)),
+      };
+    } catch (e) { return d; }
+  }
+  function paintTermSettings() {
+    const s = loadTermSettings();
+    document.getElementById('tsFont').value = s.fontSize;
+    document.getElementById('tsFontVal').textContent = s.fontSize + ' pt';
+    document.getElementById('tsCursor').checked = s.cursorBlink;
+    document.getElementById('tsCopy').checked = s.copyOnSelect;
+    document.getElementById('tsBell').checked = s.bell;
+    document.getElementById('tsScroll').value = s.scrollback;
+  }
+  document.getElementById('tsFont').addEventListener('input', function () {
+    document.getElementById('tsFontVal').textContent = this.value + ' pt';
+  });
+  document.getElementById('tsApply').addEventListener('click', function () {
+    const settings = {
+      fontSize: Math.min(24, Math.max(10, Number(document.getElementById('tsFont').value) || 14)),
+      cursorBlink: document.getElementById('tsCursor').checked,
+      copyOnSelect: document.getElementById('tsCopy').checked,
+      bell: document.getElementById('tsBell').checked,
+      scrollback: Math.min(100000, Math.max(500, Number(document.getElementById('tsScroll').value) || 5000)),
+    };
+    try { localStorage.setItem(TERM_SET_KEY, JSON.stringify(settings)); } catch (e) {}
+    if (window.__TAURI__ && window.__TAURI__.event) {
+      window.__TAURI__.event.emit('ab-term-settings-changed', settings).catch(function () {});
+    }
+    toast('已应用：已开的终端窗口与新会话均生效');
+  });
+  paintTermSettings();
 
   // ============ 启动 ============
   showPage('servers');

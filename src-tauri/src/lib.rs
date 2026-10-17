@@ -15087,6 +15087,8 @@ pub fn run() {
             hub_sftp::hub_sftp_list,
             hub_sftp::hub_sftp_mkdir,
             hub_sftp::hub_sftp_remove,
+            hub_sftp::hub_sftp_transfer_ctl,
+            hub_sftp::hub_focus_window,
             hub_sftp::hub_sftp_rename,
             hub_sftp::hub_sftp_download,
             hub_sftp::hub_sftp_upload,
