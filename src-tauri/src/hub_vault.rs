@@ -126,11 +126,18 @@ pub(crate) fn encrypt(app: &tauri::AppHandle, plain: &str) -> Result<String, Str
 
 /// askpass 脚本：ssh 通过 `SSH_ASKPASS` 调它，它 exec 回本程序的 CLI 分支。
 /// server_id 写死在脚本里（ssh 只会以 `<askpass> <提示语>` 的形式调用，没法传参）。
+/// 只有 Unix 会真的落地这个脚本，非 Unix 分支不生成 → 一并 cfg 掉，免得 Windows 报死代码。
+#[cfg(unix)]
 pub(crate) fn askpass_script_path(config: &std::path::Path) -> std::path::PathBuf {
     config.join("hub-askpass.sh")
 }
 
 /// （重）写 askpass 脚本并补执行位。每次起 ssh 都重写：服务器 id / 程序路径变了也不怕。
+///
+/// 只有 Unix 能这么干：askpass 是 `#!/bin/sh` 的 shebang 文件，靠 0700 执行位
+/// 让 OpenSSH 直接 exec 它。Windows 的 CreateProcess 不认 shebang（跑不了 .sh），
+/// 所以非 Unix 上直接报错，由调用方把原因原样显示给用户。
+#[cfg(unix)]
 pub(crate) fn write_askpass_script(
     config: &std::path::Path,
     server_id: &str,
@@ -144,6 +151,18 @@ pub(crate) fn write_askpass_script(
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700))
         .map_err(|error| format!("无法设 {} 执行位: {error}", path.display()))?;
     Ok(path)
+}
+
+/// 非 Unix（Windows）：没有 shebang / 执行位，askpass 回环落不了地。
+/// 明确报错而不是悄悄失败 —— 用户至少知道该改用密钥还是手输密码。
+#[cfg(not(unix))]
+pub(crate) fn write_askpass_script(
+    _config: &std::path::Path,
+    _server_id: &str,
+) -> Result<std::path::PathBuf, String> {
+    Err("这台系统上暂不支持「保存密码」免输登录（askpass 脚本依赖 Unix 的 shebang + 执行位）：\
+         请改用密钥认证，或直接在终端里输入密码"
+        .to_string())
 }
 
 #[cfg(test)]

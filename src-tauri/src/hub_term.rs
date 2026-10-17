@@ -420,7 +420,7 @@ pub fn hub_term_resize(
     cols: u16,
 ) -> Result<(), String> {
     let session = get_session(&state, &session_id)?;
-    let mut master = session.master.lock().map_err(|_| "PTY 把手已被锁死")?;
+    let master = session.master.lock().map_err(|_| "PTY 把手已被锁死")?;
     master
         .resize(PtySize {
             rows: rows.max(2),
