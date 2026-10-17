@@ -515,22 +515,38 @@ tailwind.config = {
     </div>
     <!-- 遮罩：点空白处关闭 -->
     <div id="pcMenuScrim" class="absolute inset-0 bg-black/25" aria-hidden="true" data-page-node-id="pcMenuScrim01"></div>
-    <!-- 下拉面板：锚定右上角 ⋮ 正下方，右对齐 -->
-    <div class="absolute right-3 top-12 w-64 overflow-hidden rounded-xl border border-lineStrong bg-card shadow-pop" role="menu" aria-label="更多" data-page-node-id="pcMenuPanel01">
-      <button role="menuitem" data-goto="sessions" class="flex h-10 w-full cursor-pointer items-center gap-3 px-4 text-left text-sm text-fg transition-colors hover:bg-elevate" data-page-node-id="pcMenuSessions01">
-        <svg class="size-4 shrink-0 text-fgDim" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
-        会话（进行中 / 历史）
+    <!-- 下拉面板：锚定右上角 ⋮ 正下方，右对齐（七项 = 手机主界面 ⋮ OverflowMenu 一字不差） -->
+    <div class="absolute right-3 top-12 w-64 overflow-hidden rounded-xl border border-lineStrong bg-card py-1 shadow-pop" role="menu" aria-label="更多" data-page-node-id="pcMenuPanel01">
+      <button role="menuitem" data-goto="home-add-pc" class="flex h-10 w-full cursor-pointer items-center gap-3 px-4 text-left text-sm text-fg transition-colors hover:bg-elevate" data-page-node-id="pcMenuAdd01">
+        <svg class="size-4 shrink-0 text-fgDim" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        添加服务端
       </button>
-      <button role="menuitem" data-goto="transfers" class="flex h-10 w-full cursor-pointer items-center gap-3 px-4 text-left text-sm text-fg transition-colors hover:bg-elevate" data-page-node-id="pcMenuTransfers01">
+      <button role="menuitem" data-goto="home-add-pc" class="flex h-10 w-full cursor-pointer items-center gap-3 px-4 text-left text-sm text-fg transition-colors hover:bg-elevate" data-page-node-id="pcMenuEdit01">
+        <svg class="size-4 shrink-0 text-fgDim" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+        编辑当前服务端
+      </button>
+      <button role="menuitem" class="flex h-10 w-full cursor-pointer items-center gap-3 px-4 text-left text-sm text-fg transition-colors hover:bg-elevate" title="弹出服务端列表面板（切换 / 编辑 / 删除），同手机" data-page-node-id="pcMenuList01">
+        <svg class="size-4 shrink-0 text-fgDim" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 6h13M8 12h13M8 18h13"/><circle cx="4" cy="6" r="1" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="4" cy="18" r="1" fill="currentColor" stroke="none"/></svg>
+        服务端列表
+      </button>
+      <button role="menuitem" class="flex h-10 w-full cursor-pointer items-center gap-3 px-4 text-left text-sm text-fg transition-colors hover:bg-elevate" title="重载当前服务端页面（WebView）" data-page-node-id="pcMenuReload01">
+        <svg class="size-4 shrink-0 text-fgDim" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg>
+        重载当前页面
+      </button>
+      <button role="menuitem" class="flex h-10 w-full cursor-pointer items-center gap-3 px-4 text-left text-sm text-fg transition-colors hover:bg-elevate" title="重载全部服务端页面" data-page-node-id="pcMenuReloadAll01">
+        <svg class="size-4 shrink-0 text-fgDim" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 0 1 14-5.3"/><path d="M20 12a8 8 0 0 1-14 5.3"/><path d="M18 2v5h-5M6 22v-5h5"/></svg>
+        全部重载
+      </button>
+      <button role="menuitem" class="flex h-10 w-full cursor-pointer items-center gap-3 px-4 text-left text-sm text-accentT transition-colors hover:bg-elevate" title="开启后启动时把所有服务端一起连上；点这里切换开关（同手机菜单内切换）" data-page-node-id="pcMenuConnectAll01">
+        <svg class="size-4 shrink-0 text-accentT" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg>
+        ✓ 启动时连接全部服务端
+      </button>
+      <button role="menuitem" class="flex h-10 w-full cursor-pointer items-center gap-3 px-4 text-left text-sm text-fg transition-colors hover:bg-elevate" title="弹出传输方式选择：自动 / 推送 / 轮询（括号内为当前值）" data-page-node-id="pcMenuTransport01">
         <svg class="size-4 shrink-0 text-fgDim" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4v12M4 13l3 3 3-3M17 20V8M14 11l3-3 3 3"/></svg>
-        传输管理
-      </button>
-      <button role="menuitem" data-goto="term-settings" class="flex h-10 w-full cursor-pointer items-center gap-3 px-4 text-left text-sm text-fg transition-colors hover:bg-elevate" data-page-node-id="pcMenuTermset01">
-        <svg class="size-4 shrink-0 text-fgDim" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg>
-        终端设置
+        传输方式（自动）
       </button>
     </div>
-    <p class="absolute inset-x-0 bottom-4 text-center text-[11px] text-fgFaint" data-page-node-id="pcMenuNote01">电脑页右上角 ⋮ 菜单 · 三项与手机主界面 ⋮ 一致 · 点空白处关闭</p>
+    <p class="absolute inset-x-0 bottom-4 text-center text-[11px] text-fgFaint" data-page-node-id="pcMenuNote01">电脑页右上角 ⋮ 菜单 · 七项与手机主界面 ⋮（OverflowMenu）一字不差 · 后四项为菜单内动作无独立页 · 点空白处关闭</p>
   </section>
 
   <!-- ============ ①b 添加 AnyBoot 服务端（PC 版，对应手机 home-add；首启必连态：无取消/无删除） ============ -->
