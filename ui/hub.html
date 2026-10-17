@@ -1,14 +1,17 @@
 <!DOCTYPE html>
 <!-- AnyBoot 远程管理（server-hub）。
      独立窗口，主窗口零改动；托盘「远程管理…」是唯一入口。
-     视觉按 docs/client-ui/pc-hub-redesign.html 实现（vanilla CSS，不用 CDN）。
+     视觉按 docs/client-ui/pc-redesign-v2.html 一比一还原：常驻左边栏
+     （电脑/服务器/终端/会话/传输/文件/密钥/终端设置/关于 + 主题行），
+     支持收起成纯图标栏（localStorage ab-hub-side）；靛蓝 accent。
      M2：服务器档案 CRUD（配置目录 hub-servers.json）+ 测试连接（TCP，顺带采样延迟）。
      M3：终端在独立窗 server-term（hub-term.html，PTY + 系统 ssh + xterm）。
      M4：隧道（本地转发 / SOCKS5 动态转发）。
      M5：文件浏览在独立窗 server-files（hub-files.html，系统 sftp CLI）；密钥管理在
      server-keys（hub-keys.html，系统 ssh-keygen）；服务器编辑可选密钥认证（key_id）。
      设计稿里后端尚不支持的元素不做假数据：TOFU 指纹、跳板机、自绘标题栏
-     （本窗口用系统标题栏）；「延迟趋势」用的是测试连接的真实 TCP 耗时（会话内采样）。 -->
+     （本窗口用系统标题栏）；「延迟趋势」用的是测试连接的真实 TCP 耗时（会话内采样）；
+     会话页 = 本窗口打开过的终端 + 运行中隧道（真实记录）；传输页如实说明汇总未做。 -->
 <html lang="zh-CN" data-page-node-id="2KZPRyyjAb6RJfhJfEOSpk">
 <head data-page-node-id="Rrq56VrqFCsji63VNMRbSl">
 <meta charset="utf-8" data-page-node-id="YYIGXXLvBnTvx8oemPIIgx">
@@ -29,6 +32,7 @@
     --ok: 34 197 94;
     --warn: 245 158 11;
     --bad: 239 68 68;
+    --accent: 99 102 241;    /* 靛蓝主色（曜蓝 Cobalt） */
     color-scheme: dark;
   }
   html.light {
@@ -44,6 +48,7 @@
     --ok: 22 163 74;
     --warn: 180 83 9;
     --bad: 220 38 38;
+    --accent: 79 70 229;
     color-scheme: light;
   }
   * { box-sizing: border-box; }
@@ -92,7 +97,7 @@
     color: rgb(var(--fg)); font: inherit; font-size: 13px;
     outline: none; transition: border-color .15s;
   }
-  .search-wrap input:focus { border-color: rgb(var(--ok) / .6); }
+  .search-wrap input:focus { border-color: rgb(var(--accent) / .6); }
   .search-wrap input::placeholder { color: rgb(var(--fg-faint)); }
 
   .segmented {
@@ -105,7 +110,7 @@
     display: inline-flex; align-items: center; gap: 4px;
   }
   .segmented button:hover { color: rgb(var(--fg)); }
-  .segmented button[aria-selected="true"] { background: rgb(var(--ok) / .15); color: rgb(var(--ok)); }
+  .segmented button[aria-selected="true"] { background: rgb(var(--accent) / .15); color: rgb(var(--accent)); }
 
   .toolbar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
   .summary { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: rgb(var(--fg-dim)); }
@@ -128,10 +133,10 @@
   .btn:hover { border-color: rgb(var(--line-strong)); background: rgb(var(--line) / .4); }
   .btn:disabled { opacity: .45; cursor: not-allowed; }
   .btn.primary {
-    border: 0; background: rgb(var(--ok)); color: rgb(var(--base));
-    font-weight: 600; box-shadow: 0 8px 24px -8px rgb(var(--ok) / .5);
+    border: 0; background: rgb(var(--accent)); color: #fff;
+    font-weight: 600; box-shadow: 0 8px 24px -8px rgb(var(--accent) / .5);
   }
-  .btn.primary:hover { filter: brightness(1.08); background: rgb(var(--ok)); }
+  .btn.primary:hover { filter: brightness(1.08); background: rgb(var(--accent)); }
   .btn.primary:active { transform: scale(.98); }
   .btn.small { height: 30px; padding: 0 12px; font-size: 12px; border-radius: 8px; }
   .btn.danger { color: rgb(var(--bad)); }
@@ -165,9 +170,9 @@
   .link-btn.spinning svg { animation: ab-spin 1s linear infinite; }
   @keyframes ab-spin { to { transform: rotate(360deg); } }
 
-  /* ============ 主体两栏 ============ */
+  /* ============ 主体两栏（服务器页内） ============ */
   .cols { flex: 1; display: flex; min-height: 0; }
-  aside {
+  .cols > aside {
     width: 380px; min-width: 300px; flex: none;
     border-right: 1px solid rgb(var(--line));
     display: flex; flex-direction: column; min-height: 0;
@@ -196,14 +201,14 @@
     transition: border-color .15s, background .15s;
   }
   .server-row:hover { border-color: rgb(var(--line-strong)); background: rgb(var(--elevate)); }
-  .server-row.active { border-color: rgb(var(--ok) / .5); background: rgb(var(--ok) / .05); }
+  .server-row.active { border-color: rgb(var(--accent) / .5); background: rgb(var(--accent) / .05); }
   .server-row:focus-visible { outline: 2px solid rgb(var(--ok)); outline-offset: 2px; }
   .server-row .s-icon {
     width: 36px; height: 36px; border-radius: 9px;
     display: grid; place-items: center;
     border: 1px solid rgb(var(--line)); background: rgb(var(--elevate)); color: rgb(var(--fg-dim));
   }
-  .server-row.active .s-icon { border-color: rgb(var(--ok) / .3); background: rgb(var(--ok) / .1); color: rgb(var(--ok)); }
+  .server-row.active .s-icon { border-color: rgb(var(--accent) / .3); background: rgb(var(--accent) / .1); color: rgb(var(--accent)); }
   .server-row .s-icon svg { width: 18px; height: 18px; }
   .server-row .s-main { min-width: 0; }
   .server-row .s-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
@@ -369,6 +374,130 @@
   footer .sep { opacity: .5; }
   footer .clock { margin-left: auto; }
 
+  /* ============ 壳：常驻左边栏 + 内容区 ============ */
+  .shell { flex: 1; display: flex; min-height: 0; }
+  .side {
+    width: 248px; flex: none;
+    border-right: 1px solid rgb(var(--line));
+    background: rgb(var(--card) / .5);
+    display: flex; flex-direction: column; min-height: 0;
+    transition: width .18s ease;
+    overflow: hidden;
+  }
+  .side.collapsed { width: 60px; }
+  .side-head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 14px 14px 12px;
+    border-bottom: 1px solid rgb(var(--line));
+    flex: none;
+  }
+  .side.collapsed .side-head { flex-direction: column; gap: 8px; padding: 12px 6px; }
+  .side-logo {
+    width: 34px; height: 34px; flex: none;
+    display: grid; place-items: center;
+    border-radius: 10px; background: rgb(var(--accent) / .14);
+    color: rgb(var(--accent));
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 14px; font-weight: 700;
+  }
+  .side-name { min-width: 0; line-height: 1.25; }
+  .side-name b { display: block; font-size: 13px; font-weight: 700; }
+  .side-name i {
+    display: block; font-style: normal;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 10px; color: rgb(var(--fg-faint));
+  }
+  .side-toggle { margin-left: auto; flex: none; }
+  .side.collapsed .side-toggle { margin-left: 0; }
+  .side-toggle svg { width: 15px; height: 15px; transition: transform .18s ease; }
+  .side.collapsed .side-toggle svg { transform: rotate(180deg); }
+
+  .side-nav { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 2px; }
+  .snav {
+    display: flex; align-items: center; gap: 10px;
+    width: 100%; border: 0; background: transparent;
+    color: rgb(var(--fg-dim)); font-size: 13px;
+    padding: 9px 12px; border-radius: 10px;
+    cursor: pointer; text-align: left;
+    transition: background .15s, color .15s;
+  }
+  .snav:hover { background: rgb(var(--elevate)); color: rgb(var(--fg)); }
+  .snav.active { background: rgb(var(--accent) / .12); color: rgb(var(--accent)); font-weight: 600; }
+  .snav svg { width: 18px; height: 18px; flex: none; }
+  .snav .s-label { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .snav .s-badge {
+    margin-left: auto; flex: none;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 10px; border-radius: 999px; padding: 1px 7px;
+    background: rgb(var(--accent) / .15); color: rgb(var(--accent));
+  }
+  .side.collapsed .s-label, .side.collapsed .s-badge { display: none; }
+  .side.collapsed .snav { justify-content: center; padding: 9px 0; }
+  .side-foot {
+    flex: none; border-top: 1px solid rgb(var(--line));
+    padding: 10px 14px;
+    font-size: 10px; line-height: 1.6; color: rgb(var(--fg-faint));
+    white-space: nowrap; overflow: hidden;
+  }
+  .content { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .page { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+
+  /* 页头 / 统计卡 / 提示卡（电脑、会话等页） */
+  .page-head {
+    display: flex; align-items: center; gap: 12px;
+    padding: 16px 20px 4px; flex: none;
+  }
+  .page-head h2 { margin: 0; font-size: 17px; font-weight: 600; }
+  .page-head .sub { font-size: 12px; color: rgb(var(--fg-faint)); }
+  .stat-cards {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
+    padding: 14px 20px 0;
+  }
+  @media (max-width: 860px) { .stat-cards { grid-template-columns: repeat(2, 1fr); } }
+  .stat-card {
+    border: 1px solid rgb(var(--line)); background: rgb(var(--card));
+    border-radius: 14px; padding: 14px 18px;
+  }
+  .stat-card .k {
+    margin: 0; font-size: 11px; font-weight: 500;
+    letter-spacing: .1em; text-transform: uppercase; color: rgb(var(--fg-faint));
+  }
+  .stat-card .v {
+    margin: 6px 0 0; font-size: 26px; font-weight: 700;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+  }
+  .stat-card .v small { font-size: 12px; font-weight: 500; color: rgb(var(--fg-faint)); }
+  .act-card {
+    margin: 20px;
+    border: 1px dashed rgb(var(--line-strong)); border-radius: 14px;
+    padding: 30px 26px;
+    display: flex; flex-direction: column; align-items: center; gap: 10px;
+    text-align: center; color: rgb(var(--fg-dim)); font-size: 13px;
+  }
+  .act-card svg { width: 30px; height: 30px; color: rgb(var(--fg-faint)); }
+  .act-card .t { font-weight: 600; color: rgb(var(--fg)); font-size: 14px; }
+  .act-card .s { margin: 0; font-size: 12px; line-height: 1.8; color: rgb(var(--fg-faint)); max-width: 460px; }
+  .act-card .btn { margin-top: 6px; }
+
+  /* 会话页行 */
+  .session-list { padding: 14px 20px 20px; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
+  .session-sec {
+    margin: 0; font-size: 11px; font-weight: 600;
+    letter-spacing: .14em; text-transform: uppercase; color: rgb(var(--fg-faint));
+    padding: 8px 2px 2px;
+  }
+  .session-row {
+    display: flex; align-items: center; gap: 12px;
+    border: 1px solid rgb(var(--line)); background: rgb(var(--card));
+    border-radius: 10px; padding: 10px 14px; font-size: 13px;
+  }
+  .session-row .s-main { flex: 1; min-width: 0; }
+  .session-row .s-sub {
+    margin-top: 2px; font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 11px; color: rgb(var(--fg-dim));
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
   /* ============ 弹窗 ============ */
   .overlay {
     position: fixed; inset: 0; z-index: 40;
@@ -411,7 +540,7 @@
     outline: none;
     transition: border-color .15s;
   }
-  .field input:focus, .field textarea:focus { border-color: rgb(var(--ok) / .6); }
+  .field input:focus, .field textarea:focus { border-color: rgb(var(--accent) / .6); }
   .field input.mono, .field textarea.mono {
     font-family: ui-monospace, Menlo, Consolas, monospace;
   }
@@ -434,6 +563,91 @@
 </head>
 <body data-page-node-id="3arxyFzn5g5YuOo1U38bND">
 
+  <!-- ============ 壳：常驻左边栏 + 内容区 ============ -->
+  <div class="shell" data-page-node-id="pxIo3eMbhvlCH7fqckhZsF">
+
+    <aside class="side" id="hubSide" aria-label="远程管理导航" data-page-node-id="sideHubRoot01">
+      <div class="side-head" data-page-node-id="sideHubHead01">
+        <span class="side-logo" aria-hidden="true" data-page-node-id="sideHubLogo01">A</span>
+        <span class="side-name" data-page-node-id="sideName1">
+          <b>AnyBoot</b>
+          <i class="mono" id="sideVersion">remote</i>
+        </span>
+        <button class="icon-btn side-toggle" id="sideToggle" title="收起侧栏" aria-label="收起侧栏" data-page-node-id="sideTgl1">
+          <svg id="sideChevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-page-node-id="sideChv1"><path d="M11 17l-5-5 5-5M18 17l-5-5 5-5"/></svg>
+        </button>
+      </div>
+      <nav class="side-nav" id="hubSideNav" aria-label="导航" data-page-node-id="sideNav1">
+        <button class="snav" data-page="home" title="电脑">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M8 21h8M12 18v3"/></svg>
+          <span class="s-label">电脑</span>
+        </button>
+        <button class="snav" data-page="servers" title="服务器">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="3" width="20" height="7" rx="2"/><rect x="2" y="14" width="20" height="7" rx="2"/><path d="M6 6.5h.01M6 17.5h.01"/></svg>
+          <span class="s-label">服务器</span>
+          <span class="s-badge" id="sideBadge" hidden>0</span>
+        </button>
+        <button class="snav" data-page="term" title="终端">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M6 9l3 3-3 3"/></svg>
+          <span class="s-label">终端</span>
+        </button>
+        <button class="snav" data-page="sessions" title="会话">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+          <span class="s-label">会话</span>
+        </button>
+        <button class="snav" data-page="transfers" title="传输">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4v12M4 13l3 3 3-3M17 20V8M14 11l3-3 3 3"/></svg>
+          <span class="s-label">传输</span>
+        </button>
+        <button class="snav" data-page="files" title="文件">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          <span class="s-label">文件</span>
+        </button>
+        <button class="snav" data-page="keys" title="密钥">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="15" r="4"/><path d="M10.8 12.2 20 3M17 6l2.5 2.5"/></svg>
+          <span class="s-label">密钥</span>
+        </button>
+        <button class="snav" data-page="termset" title="终端设置">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg>
+          <span class="s-label">终端设置</span>
+        </button>
+        <button class="snav" data-page="about" title="关于">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/></svg>
+          <span class="s-label">关于</span>
+        </button>
+      </nav>
+      <button class="snav" id="themeToggle" title="切换亮暗主题" aria-label="切换亮暗主题" data-page-node-id="XKQOAIbL0CzdV7HJ5CbT1y">
+        <span id="themeIcon" aria-hidden="true" style="width:18px;text-align:center;flex:none">🌙</span>
+        <span class="s-label">主题</span>
+      </button>
+      <div class="side-foot mono" data-page-node-id="sideFoot1">
+        <span class="s-label">GitHub · XIEXU/AnyBoot<br>MIT · 心跳 10s · 并发探测</span>
+      </div>
+    </aside>
+
+    <div class="content" data-page-node-id="contentWrap1">
+
+      <!-- ---- 电脑（本机即服务端：真实统计） ---- -->
+      <section class="page" id="page-home" hidden data-page-node-id="pageHome1">
+        <div class="page-head" data-page-node-id="phHome1">
+          <h2>电脑</h2>
+          <span class="sub">本机 · AnyBoot 服务端</span>
+        </div>
+        <div class="stat-cards" data-page-node-id="scHome1">
+          <div class="stat-card"><p class="k">服务器</p><p class="v" id="statServers">0</p></div>
+          <div class="stat-card"><p class="k">已测在线</p><p class="v" id="statOnline">0</p></div>
+          <div class="stat-card"><p class="k">隧道</p><p class="v" id="statTunnels">0 <small id="statTunnelsRun"></small></p></div>
+        </div>
+        <div class="act-card" data-page-node-id="acHome1">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 4v5"/></svg>
+          <p class="t">本机就是 AnyBoot 服务端</p>
+          <p class="s">手机端通过本机「远程控制」页面显示的地址连接到这里；本窗口管理的是可以远程操作的 SSH / Telnet 服务器。上方是当前的真实统计。</p>
+        </div>
+      </section>
+
+      <!-- ---- 服务器（原有完整功能） ---- -->
+      <section class="page" id="page-servers" hidden data-page-node-id="pageServers1">
+
   <!-- ============ 工具栏 ============ -->
   <div class="toolbar" data-page-node-id="Qc3StsHFdSaaD4ek1x4rry">
     <div class="search-wrap" data-page-node-id="YOrenVlfC0CWNNtCZM4vwm">
@@ -447,11 +661,6 @@
     </div>
     <div class="toolbar-right" data-page-node-id="IAbQScldl6A9RK47HmxQPv">
       <span class="summary" id="summary" data-page-node-id="OsNEMrJeUnmkMgpeCmKz0R"></span>
-      <button class="btn" id="keysBtn">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="15" r="4"/><path d="M10.8 12.2 20 3M17 6l2.5 2.5"/></svg>
-        密钥
-      </button>
-      <button class="icon-btn" id="themeToggle" title="切换亮暗主题" aria-label="切换亮暗主题" data-page-node-id="XKQOAIbL0CzdV7HJ5CbT1y">🌙</button>
       <button class="btn primary" id="addBtn" data-page-node-id="L82BKcBdXPjORJo1NG4WeV">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true" data-page-node-id="RjZ8wwbQCLZOELyqPfFc18"><path d="M12 5v14M5 12h14" data-page-node-id="H77nNeriHH7slIZGRRMXll"/></svg>
         添加服务器
@@ -460,7 +669,7 @@
   </div>
 
   <!-- ============ 主体两栏 ============ -->
-  <div class="cols" data-page-node-id="pxIo3eMbhvlCH7fqckhZsF">
+  <div class="cols" data-page-node-id="colsWrap1">
     <aside aria-label="服务器列表" data-page-node-id="O6BY3CGaA51K3saAgoeror">
       <div class="aside-head" data-page-node-id="f25zgMdDAPDxqmqXZCZ8lA">
         <h2 data-page-node-id="1DtqcBJASiFMB7si4TUecu">服务器</h2>
@@ -483,6 +692,80 @@
         </div>
       </div>
     </main>
+  </div>
+      </section>
+
+      <!-- ---- 终端（独立窗 server-term 的入口页） ---- -->
+      <section class="page" id="page-term" hidden data-page-node-id="pageTerm1">
+        <div class="act-card" data-page-node-id="acTerm1">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M6 9l3 3-3 3"/></svg>
+          <p class="t">终端</p>
+          <p class="s" id="termPageHint">在「服务器」页选中一台 SSH 服务器后打开终端（PTY + 系统 ssh，独立窗口）。</p>
+          <button class="btn primary" id="pageTermBtn" disabled>打开终端</button>
+        </div>
+      </section>
+
+      <!-- ---- 会话（本窗口真实记录：打开过的终端 + 运行中隧道） ---- -->
+      <section class="page" id="page-sessions" hidden data-page-node-id="pageSessions1">
+        <div class="page-head"><h2>会话</h2><span class="sub">本窗口打开的终端 · 运行中的隧道</span></div>
+        <div class="session-list scroll-thin" id="sessionList"></div>
+      </section>
+
+      <!-- ---- 传输（如实说明：SFTP 在文件窗口内） ---- -->
+      <section class="page" id="page-transfers" hidden data-page-node-id="pageTransfers1">
+        <div class="act-card" data-page-node-id="acTransfers1">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4v12M4 13l3 3 3-3M17 20V8M14 11l3-3 3 3"/></svg>
+          <p class="t">传输</p>
+          <p class="s">文件上传 / 下载在「文件」窗口的 SFTP 里直接进行（系统 sftp CLI）。此页暂不做跨窗口的传输汇总。</p>
+        </div>
+      </section>
+
+      <!-- ---- 文件（独立窗 server-files 的入口页） ---- -->
+      <section class="page" id="page-files" hidden data-page-node-id="pageFiles1">
+        <div class="act-card" data-page-node-id="acFiles1">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          <p class="t">文件</p>
+          <p class="s" id="filesPageHint">在「服务器」页选中一台 SSH 服务器后打开文件浏览（SFTP，独立窗口）。</p>
+          <button class="btn primary" id="pageFilesBtn" disabled>浏览文件</button>
+        </div>
+      </section>
+
+      <!-- ---- 密钥（独立窗 server-keys 的入口页） ---- -->
+      <section class="page" id="page-keys" hidden data-page-node-id="pageKeys1">
+        <div class="act-card" data-page-node-id="acKeys1">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="15" r="4"/><path d="M10.8 12.2 20 3M17 6l2.5 2.5"/></svg>
+          <p class="t">密钥</p>
+          <p class="s" id="keysPageHint">正在读取密钥列表…</p>
+          <button class="btn primary" id="keysBtn">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="15" r="4"/><path d="M10.8 12.2 20 3M17 6l2.5 2.5"/></svg>
+            打开密钥管理
+          </button>
+        </div>
+      </section>
+
+      <!-- ---- 终端设置（如实说明：暂无可调项） ---- -->
+      <section class="page" id="page-termset" hidden data-page-node-id="pageTermset1">
+        <div class="act-card" data-page-node-id="acTermset1">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg>
+          <p class="t">终端设置</p>
+          <p class="s">终端窗口（xterm + 系统 ssh）暂无可调项：配色遵循终端惯例恒深色，字号为内置默认。后续加入设置项后会在此页提供。</p>
+        </div>
+      </section>
+
+      <!-- ---- 关于（真实版本 / 开源信息） ---- -->
+      <section class="page" id="page-about" hidden data-page-node-id="pageAbout1">
+        <div class="act-card" data-page-node-id="acAbout1">
+          <span class="side-logo" style="width:52px;height:52px;font-size:22px;border-radius:14px" aria-hidden="true">A</span>
+          <p class="t">AnyBoot 远程管理</p>
+          <p class="s">
+            版本 <span class="mono" id="aboutVersion">—</span><br>
+            开源 · GitHub XIEXU/AnyBoot · MIT 许可<br>
+            凭据 AES-256-GCM 加密存本机 · 终端 / 文件 / 密钥基于系统 ssh / sftp / ssh-keygen
+          </p>
+        </div>
+      </section>
+
+    </div>
   </div>
 
   <!-- ============ 底部状态栏 ============ -->
@@ -646,7 +929,8 @@
                    : !window.matchMedia || !window.matchMedia('(prefers-color-scheme: light)').matches;
   function applyTheme() {
     root.classList.toggle('light', !dark);
-    document.getElementById('themeToggle').textContent = dark ? '🌙' : '☀️';
+    const icon = document.getElementById('themeIcon');
+    if (icon) icon.textContent = dark ? '🌙' : '☀️';
   }
   document.getElementById('themeToggle').addEventListener('click', function () {
     dark = !dark;
@@ -654,6 +938,49 @@
     applyTheme();
   });
   applyTheme();
+
+  // ============ 侧栏导航 / 收起 ============
+  const PAGES = ['home', 'servers', 'term', 'sessions', 'transfers', 'files', 'keys', 'termset', 'about'];
+  let currentPage = 'servers';
+  const sideEl = document.getElementById('hubSide');
+
+  function showPage(name) {
+    currentPage = name;
+    for (const p of PAGES) {
+      const el = document.getElementById('page-' + p);
+      if (el) el.hidden = p !== name;
+    }
+    document.querySelectorAll('#hubSideNav .snav').forEach(function (b) {
+      const on = b.dataset.page === name;
+      b.classList.toggle('active', on);
+      if (on) b.setAttribute('aria-current', 'page');
+      else b.removeAttribute('aria-current');
+    });
+    // 进入即刷新该页的真实数据
+    if (name === 'home') renderHomeStats();
+    else if (name === 'sessions') renderSessions();
+    else if (name === 'keys') renderKeysPage();
+    else syncActionPages();
+  }
+  document.querySelectorAll('#hubSideNav .snav').forEach(function (b) {
+    b.addEventListener('click', function () { showPage(b.dataset.page); });
+  });
+
+  let sideCollapsed = false;
+  try { sideCollapsed = localStorage.getItem('ab-hub-side') === 'collapsed'; } catch (e) { }
+  function applySide() {
+    sideEl.classList.toggle('collapsed', sideCollapsed);
+    const t = document.getElementById('sideToggle');
+    t.title = sideCollapsed ? '展开侧栏' : '收起侧栏';
+    t.setAttribute('aria-label', t.title);
+    t.setAttribute('aria-expanded', String(!sideCollapsed));
+  }
+  document.getElementById('sideToggle').addEventListener('click', function () {
+    sideCollapsed = !sideCollapsed;
+    try { localStorage.setItem('ab-hub-side', sideCollapsed ? 'collapsed' : 'expanded'); } catch (e) { }
+    applySide();
+  });
+  applySide();
 
   // ============ 状态 ============
   let servers = [];
@@ -790,6 +1117,29 @@
     document.getElementById('cntSsh').textContent = ssh;
     document.getElementById('cntTel').textContent = tel;
     document.getElementById('footCount').textContent = servers.length + ' 台服务器';
+    // 侧栏徽标 + 电脑页统计（全部真实数据）
+    const badge = document.getElementById('sideBadge');
+    badge.textContent = servers.length;
+    badge.hidden = servers.length === 0;
+    renderHomeStats();
+  }
+
+  function onlineCount() {
+    return servers.filter(function (s) { return probes[s.id] && probes[s.id].state === 'ok'; }).length;
+  }
+
+  function runningTunnelCount() {
+    return tunnels.filter(function (t) { return tunnelRunning[t.id]; }).length;
+  }
+
+  function renderHomeStats() {
+    const elS = document.getElementById('statServers');
+    if (!elS) return;
+    elS.textContent = servers.length;
+    document.getElementById('statOnline').textContent = onlineCount();
+    document.getElementById('statTunnels').childNodes[0].textContent = tunnels.length + ' ';
+    document.getElementById('statTunnelsRun').textContent =
+      runningTunnelCount() > 0 ? '· 运行 ' + runningTunnelCount() : '';
   }
 
   function renderSummary() {
@@ -816,6 +1166,7 @@
     renderCounts();
     renderSummary();
     renderMain();
+    syncActionPages();
   }
 
   // ============ 延迟趋势（会话内采样） ============
@@ -831,10 +1182,10 @@
     const area = line + ' L' + W + ' ' + H + ' L0 ' + H + ' Z';
     return '<svg viewBox="0 0 ' + W + ' ' + H + '" class="spark" role="img" aria-label="延迟折线图">' +
       '<defs><linearGradient id="lg' + '" x1="0" y1="0" x2="0" y2="1">' +
-      '<stop offset="0" stop-color="rgb(var(--ok))" stop-opacity=".35"/>' +
-      '<stop offset="1" stop-color="rgb(var(--ok))" stop-opacity="0"/></linearGradient></defs>' +
+      '<stop offset="0" stop-color="rgb(var(--accent))" stop-opacity=".35"/>' +
+      '<stop offset="1" stop-color="rgb(var(--accent))" stop-opacity="0"/></linearGradient></defs>' +
       '<path d="' + area + '" fill="url(#lg)"/>' +
-      '<path d="' + line + '" fill="none" stroke="rgb(var(--ok))" stroke-width="1.5" stroke-linejoin="round"/>' +
+      '<path d="' + line + '" fill="none" stroke="rgb(var(--accent))" stroke-width="1.5" stroke-linejoin="round"/>' +
       '</svg>';
   }
 
@@ -977,6 +1328,11 @@
     document.getElementById('connectBtn').addEventListener('click', function () {
       if (!invoke) { toast('终端需要应用环境', 'bad'); return; }
       invoke('hub_open_term_window', { serverId: server.id })
+        .then(function () {
+          // 会话页真实记录：本窗口打开过的终端（不追踪关闭，仅本窗口会话内）
+          termLog.unshift({ name: server.name || '(未命名)', host: hostLabel(server), at: Date.now() });
+          if (termLog.length > 50) termLog.pop();
+        })
         .catch(function (error) { toast('打开终端失败：' + error, 'bad'); });
     });
     document.getElementById('filesBtn').addEventListener('click', function () {
@@ -1368,6 +1724,133 @@
     }
   });
 
+  // ============ 终端 / 文件 / 密钥 / 会话 页（真实数据，不做假数据） ============
+  // 本窗口打开过的终端（会话内记录，不追踪关闭）
+  const termLog = [];
+
+  function selectedServer() {
+    return servers.find(function (s) { return s.id === selectedId; }) || null;
+  }
+
+  /** 终端 / 文件入口页跟随当前选中服务器 */
+  function syncActionPages() {
+    const s = selectedServer();
+    const termBtn = document.getElementById('pageTermBtn');
+    const filesBtn = document.getElementById('pageFilesBtn');
+    if (termBtn) {
+      const ok = !!(s && s.protocol === 'ssh');
+      termBtn.disabled = !ok;
+      termBtn.textContent = ok ? '打开终端 · ' + (s.name || '(未命名)') : '打开终端';
+      document.getElementById('termPageHint').textContent = ok
+        ? '当前选中：' + esc(hostLabel(s)) + '。点下方按钮打开终端（PTY + 系统 ssh，独立窗口）。'
+        : '在「服务器」页选中一台 SSH 服务器后打开终端（PTY + 系统 ssh，独立窗口）。';
+    }
+    if (filesBtn) {
+      const ok = !!(s && s.protocol === 'ssh');
+      filesBtn.disabled = !ok;
+      filesBtn.textContent = ok ? '浏览文件 · ' + (s.name || '(未命名)') : '浏览文件';
+      document.getElementById('filesPageHint').textContent = ok
+        ? '当前选中：' + esc(hostLabel(s)) + '。点下方按钮打开文件浏览（SFTP，独立窗口）。'
+        : '在「服务器」页选中一台 SSH 服务器后打开文件浏览（SFTP，独立窗口）。';
+    }
+  }
+
+  function openTermFromPage() {
+    const s = selectedServer();
+    if (!invoke) { toast('终端需要应用环境', 'bad'); return; }
+    if (!s || s.protocol !== 'ssh') { toast('先在「服务器」页选中一台 SSH 服务器', 'bad'); return; }
+    invoke('hub_open_term_window', { serverId: s.id })
+      .then(function () {
+        termLog.unshift({ name: s.name || '(未命名)', host: hostLabel(s), at: Date.now() });
+        if (termLog.length > 50) termLog.pop();
+        renderSessions();
+      })
+      .catch(function (error) { toast('打开终端失败：' + error, 'bad'); });
+  }
+
+  function openFilesFromPage() {
+    const s = selectedServer();
+    if (!invoke) { toast('文件浏览需要应用环境', 'bad'); return; }
+    if (!s || s.protocol !== 'ssh') { toast('先在「服务器」页选中一台 SSH 服务器', 'bad'); return; }
+    invoke('hub_open_files_window', { serverId: s.id })
+      .catch(function (error) { toast('打开文件浏览失败：' + error, 'bad'); });
+  }
+  document.getElementById('pageTermBtn').addEventListener('click', openTermFromPage);
+  document.getElementById('pageFilesBtn').addEventListener('click', openFilesFromPage);
+
+  function fmtTime(ts) {
+    return new Date(ts).toLocaleTimeString('zh-CN', { hour12: false });
+  }
+
+  function renderSessions() {
+    const box = document.getElementById('sessionList');
+    if (!box) return;
+    box.textContent = '';
+    const running = tunnels.filter(function (t) { return tunnelRunning[t.id]; });
+    if (termLog.length === 0 && running.length === 0) {
+      box.innerHTML = '<div class="act-card" style="margin:8px 0"><p class="t">暂无会话</p>' +
+        '<p class="s">在「服务器」页打开终端、或启动隧道后，这里会显示本窗口的真实会话记录。</p></div>';
+      return;
+    }
+    if (termLog.length > 0) {
+      const h = document.createElement('p');
+      h.className = 'session-sec';
+      h.textContent = '终端（本窗口打开过 · 会话内记录）';
+      box.appendChild(h);
+      for (const t of termLog) {
+        const row = document.createElement('div');
+        row.className = 'session-row';
+        row.innerHTML = '<span class="dot ok"></span>' +
+          '<div class="s-main"><div>' + esc(t.name) + '</div>' +
+          '<div class="s-sub">' + esc(t.host) + '</div></div>' +
+          '<span class="mono" style="font-size:11px;color:rgb(var(--fg-faint))">' + fmtTime(t.at) + '</span>';
+        box.appendChild(row);
+      }
+    }
+    if (running.length > 0) {
+      const h2 = document.createElement('p');
+      h2.className = 'session-sec';
+      h2.textContent = '运行中的隧道';
+      box.appendChild(h2);
+      for (const t of running) {
+        const row = document.createElement('div');
+        row.className = 'session-row';
+        const sub = t.kind === 'dynamic'
+          ? '127.0.0.1:' + t.local_port + ' → SOCKS5'
+          : '127.0.0.1:' + t.local_port + ' → ' + (t.target_host || '?') + ':' + (t.target_port || '?');
+        row.innerHTML = '<span class="dot ok"></span>' +
+          '<div class="s-main"><div>' + esc(t.name || '(未命名)') + '</div>' +
+          '<div class="s-sub">' + esc(sub) + '</div></div>';
+        box.appendChild(row);
+      }
+    }
+  }
+
+  async function renderKeysPage() {
+    const hint = document.getElementById('keysPageHint');
+    if (!hint) return;
+    if (!invoke) { hint.textContent = '密钥列表需要应用环境。'; return; }
+    try {
+      const keys = await invoke('hub_keys_list') || [];
+      hint.textContent = keys.length === 0
+        ? '还没有密钥。打开密钥管理可生成（ssh-keygen）或导入。'
+        : '本机共 ' + keys.length + ' 把密钥（' +
+          keys.map(function (k) { return k.id; }).join('、') + '）。打开密钥管理可生成 / 导入 / 删除。';
+    } catch (error) {
+      hint.textContent = '密钥列表读取失败：' + error;
+    }
+  }
+
+  // 版本号（真实）：Tauri app.getVersion()
+  if (HAS_TAURI && window.__TAURI__.app && window.__TAURI__.app.getVersion) {
+    window.__TAURI__.app.getVersion().then(function (v) {
+      const sv = document.getElementById('sideVersion');
+      const av = document.getElementById('aboutVersion');
+      if (sv) sv.textContent = 'v' + v + ' · remote';
+      if (av) av.textContent = 'v' + v;
+    }).catch(function () { });
+  }
+
   // ============ 状态栏时钟 ============
   function tick() {
     document.getElementById('clock').textContent =
@@ -1377,6 +1860,7 @@
   setInterval(tick, 1000);
 
   // ============ 启动 ============
+  showPage('servers');
   loadServers();
   loadTunnels();
 </script>
