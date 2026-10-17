@@ -550,6 +550,76 @@
   .form-error { color: rgb(var(--bad)); font-size: 12px; min-height: 16px; margin: 4px 0 0; }
   .field-hint { margin: 6px 0 0; font-size: 11px; line-height: 1.6; color: rgb(var(--fg-faint)); }
 
+  /* ============ 电脑页（AnyBoot 服务端标签 + 内嵌页面 + ⋮ 菜单） ============ */
+  .pc-top {
+    display: flex; align-items: center; gap: 6px; flex: none;
+    border-bottom: 1px solid rgb(var(--line)); background: rgb(var(--card));
+    padding: 8px 12px;
+  }
+  .pc-chips {
+    display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0;
+    overflow-x: auto; scrollbar-width: thin;
+  }
+  .pc-chip {
+    display: inline-flex; align-items: center; gap: 6px; flex: none;
+    border: 0; border-radius: 999px; padding: 6px 12px;
+    background: rgb(var(--elevate)); color: rgb(var(--fg));
+    font: inherit; font-size: 12px; cursor: pointer;
+    transition: background .15s, color .15s;
+  }
+  .pc-chip:hover { color: rgb(var(--fg-dim)); }
+  .pc-chip .dot { width: 8px; height: 8px; border-radius: 999px; background: rgb(var(--fg-faint)); flex: none; }
+  .pc-chip.active { background: rgb(var(--accent)); color: #fff; font-weight: 600; }
+  .pc-chip.active .dot { background: rgba(255, 255, 255, .9); }
+  .pc-chip .mini {
+    font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 9px;
+    background: rgba(255, 255, 255, .2); border-radius: 6px; padding: 1px 6px;
+  }
+  .pc-chip.add { background: transparent; border: 1px dashed rgb(var(--line)); color: rgb(var(--fg-dim)); }
+  .pc-chip.add:hover { border-color: rgb(var(--accent) / .5); color: rgb(var(--accent)); }
+  .pc-menu {
+    position: absolute; top: 52px; right: 12px; z-index: 30; width: 256px;
+    background: rgb(var(--card)); border: 1px solid rgb(var(--line-strong));
+    border-radius: 12px; padding: 4px;
+    box-shadow: 0 16px 48px -8px rgba(0, 0, 0, .55);
+  }
+  .pc-menu button {
+    display: flex; align-items: center; gap: 10px; width: 100%;
+    border: 0; background: transparent; color: rgb(var(--fg));
+    font: inherit; font-size: 13px; text-align: left;
+    padding: 0 14px; height: 38px; border-radius: 8px; cursor: pointer;
+  }
+  .pc-menu button:hover { background: rgb(var(--elevate)); }
+  .pc-menu button:disabled { opacity: .45; cursor: not-allowed; }
+  .pc-menu button svg { width: 16px; height: 16px; flex: none; color: rgb(var(--fg-dim)); }
+  .pc-menu button.on { color: rgb(var(--accent)); }
+  .pc-menu button.on svg { color: rgb(var(--accent)); }
+  .pc-body { flex: 1; min-height: 0; padding: 12px 16px 16px; display: flex; }
+  .pc-frame-host {
+    position: relative; flex: 1; min-height: 0;
+    background: rgb(var(--base));
+    border: 1px solid rgb(var(--line)); border-radius: 16px; overflow: hidden;
+  }
+  .pc-frame-host iframe { width: 100%; height: 100%; border: 0; display: block; background: rgb(var(--base)); }
+  .pc-empty {
+    position: absolute; inset: 0; display: grid; place-items: center; padding: 24px;
+  }
+  .pc-empty > div {
+    max-width: 380px; text-align: center; color: rgb(var(--fg-dim)); font-size: 12px; line-height: 1.7;
+    border: 1px dashed rgb(var(--line)); border-radius: 14px; padding: 22px 20px;
+  }
+  .pc-empty svg { width: 40px; height: 40px; color: rgb(var(--fg-faint)); margin-bottom: 8px; }
+  .rs-list-row {
+    display: flex; align-items: center; gap: 10px; width: 100%;
+    border: 1px solid rgb(var(--line)); border-radius: 11px;
+    padding: 10px 12px; margin-bottom: 8px; background: rgb(var(--elevate));
+  }
+  .rs-list-row .dot { width: 8px; height: 8px; border-radius: 999px; flex: none; }
+  .rs-list-row .info { flex: 1; min-width: 0; }
+  .rs-list-row .info b { display: block; font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rs-list-row .info i { font-style: normal; font-size: 11px; color: rgb(var(--fg-faint)); font-family: ui-monospace, Menlo, Consolas, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+  .rs-list-row .acts { display: flex; gap: 4px; flex: none; }
+
   /* ============ Toast ============ */
   #toast {
     position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 60;
@@ -629,19 +699,131 @@
 
       <!-- ---- 电脑（本机即服务端：真实统计） ---- -->
       <section class="page" id="page-home" hidden data-page-node-id="pageHome1">
-        <div class="page-head" data-page-node-id="phHome1">
-          <h2>电脑</h2>
-          <span class="sub">本机 · AnyBoot 服务端</span>
+        <!-- chips 顶栏：本机（固定）+ 远端 AnyBoot 服务端标签 + ＋添加；右侧 ⋮ -->
+        <div class="pc-top" data-page-node-id="pcTop1">
+          <div class="pc-chips" id="pcChips" role="tablist" aria-label="AnyBoot 服务端标签" data-page-node-id="pcChips1">
+            <button class="pc-chip active" data-rid="local" aria-current="true" data-page-node-id="pcChipLocal1">
+              <span class="dot" aria-hidden="true"></span>本机<span class="mini">默认 · 本地</span>
+            </button>
+            <!-- 远端服务端 chips 由 JS 渲染 -->
+            <button class="pc-chip add" id="pcAddChip" data-page-node-id="pcChipAdd1">＋ 添加</button>
+          </div>
+          <button class="icon-btn" id="pcMore" aria-label="更多" aria-haspopup="menu" aria-expanded="false" data-page-node-id="pcMore1">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg>
+          </button>
         </div>
-        <div class="stat-cards" data-page-node-id="scHome1">
-          <div class="stat-card"><p class="k">服务器</p><p class="v" id="statServers">0</p></div>
-          <div class="stat-card"><p class="k">已测在线</p><p class="v" id="statOnline">0</p></div>
-          <div class="stat-card"><p class="k">隧道</p><p class="v" id="statTunnels">0 <small id="statTunnelsRun"></small></p></div>
+        <!-- 内容区：当前标签的服务端页面（本机/远端同路径，与手机 WebView 一致） -->
+        <div class="pc-body" data-page-node-id="pcBody1">
+          <div class="pc-frame-host" id="pcFrameHost" data-page-node-id="pcFrameHost1">
+            <div class="pc-empty" id="pcEmpty" data-page-node-id="pcEmpty1">
+              <div>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 4v5"/></svg>
+                <p><b>选择上方标签查看对应电脑的页面</b></p>
+                <p>本机 = 这台电脑的主界面；其余标签 = 已添加的 AnyBoot 服务端页面。点右上角 ⋮ 可添加服务端、重载页面等。</p>
+              </div>
+            </div>
+          </div>
         </div>
-        <div class="act-card" data-page-node-id="acHome1">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 4v5"/></svg>
-          <p class="t">本机就是 AnyBoot 服务端</p>
-          <p class="s">手机端通过本机「远程控制」页面显示的地址连接到这里；本窗口管理的是可以远程操作的 SSH / Telnet 服务器。上方是当前的真实统计。</p>
+        <!-- ⋮ 下拉菜单：七项与手机主界面 ⋮（OverflowMenu）一字不差 -->
+        <div class="pc-menu" id="pcMenu" hidden role="menu" aria-label="更多" data-page-node-id="pcMenu1">
+          <button role="menuitem" data-act="add" data-page-node-id="pcMenuAdd1">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+            添加服务端
+          </button>
+          <button role="menuitem" data-act="edit" data-page-node-id="pcMenuEdit1">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+            编辑当前服务端
+          </button>
+          <button role="menuitem" data-act="list" data-page-node-id="pcMenuList1">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13"/><circle cx="4" cy="6" r="1" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="4" cy="18" r="1" fill="currentColor" stroke="none"/></svg>
+            服务端列表
+          </button>
+          <button role="menuitem" data-act="reload" data-page-node-id="pcMenuReload1">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg>
+            重载当前页面
+          </button>
+          <button role="menuitem" data-act="reloadAll" data-page-node-id="pcMenuReloadAll1">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12a8 8 0 0 1 14-5.3"/><path d="M20 12a8 8 0 0 1-14 5.3"/><path d="M18 2v5h-5M6 22v-5h5"/></svg>
+            全部重载
+          </button>
+          <button role="menuitem" data-act="connectAll" id="pcConnectAllItem" data-page-node-id="pcMenuConnectAll1">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12.5l5 5L20 6.5"/></svg>
+            <span id="pcConnectAllText">启动时连接全部服务端</span>
+          </button>
+          <button role="menuitem" data-act="transport" disabled title="PC 端经系统浏览器内核直连服务端页面，无需选择传输方式（手机端才需要）" data-page-node-id="pcMenuTransport1">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4v12M4 13l3 3 3-3M17 20V8M14 11l3-3 3 3"/></svg>
+            传输方式（直连）
+          </button>
+        </div>
+
+        <!-- 添加 / 编辑 AnyBoot 服务端弹窗（字段对齐手机编辑弹层） -->
+        <div class="overlay" id="rsEditOverlay" hidden data-page-node-id="rsEditOverlay1">
+          <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="rsEditTitle" data-page-node-id="rsEditDialog1">
+            <div class="dialog-head" data-page-node-id="rsEditHead1">
+              <h3 id="rsEditTitle">连接 AnyBoot 服务端</h3>
+              <button class="icon-btn" id="rsEditClose" aria-label="关闭" data-page-node-id="rsEditClose1">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+              </button>
+            </div>
+            <div class="dialog-body" data-page-node-id="rsEditBody1">
+              <div class="field-row">
+                <div class="field" data-page-node-id="rsFieldGroup1">
+                  <label for="rsGroup">分组（用来区分不同的电脑）</label>
+                  <input id="rsGroup" placeholder="例如：书房台式机（可留空）">
+                </div>
+                <div class="field" data-page-node-id="rsFieldName1">
+                  <label for="rsName">服务端名（可选）</label>
+                  <input id="rsName" placeholder="例如：有线网卡 / 5G WiFi">
+                </div>
+              </div>
+              <div class="field" data-page-node-id="rsFieldAddr1">
+                <label for="rsAddr">服务端地址（对方电脑「远程控制」里显示的地址）</label>
+                <textarea id="rsAddr" rows="2" class="mono" placeholder="192.168.0.120:12300 或整条带 token 的地址"></textarea>
+                <p class="field-hint">同一台电脑有多块网卡就填多行，每行一个 —— 只占一个标签，哪个通用哪个</p>
+              </div>
+              <div class="field" data-page-node-id="rsFieldToken1">
+                <label for="rsToken">访问令牌 token（已存的不显示；留空 = 保持不变）</label>
+                <input id="rsToken" class="mono" placeholder="可留空，页面上也能填">
+              </div>
+              <div class="field" data-page-node-id="rsFieldJump1">
+                <label for="rsJump">经由跳板机（外网连家里：复用远程管理里已保存的 SSH 服务器）</label>
+                <select id="rsJump" style="width:100%;background:rgb(var(--elevate));border:1px solid rgb(var(--line));border-radius:9px;padding:8px 11px;color:rgb(var(--fg));font:inherit;font-size:13px;outline:none"></select>
+                <p class="field-hint">经跳板机中转的连接方式将在后续版本启用，当前先保存档案</p>
+              </div>
+              <div class="field" data-page-node-id="rsFieldProbe1">
+                <label>多网卡探测（有多个地址时怎么探）</label>
+                <div style="display:flex;gap:4px" role="group" aria-label="多网卡探测">
+                  <button type="button" class="btn small seg-on" id="rsProbeParallel" style="flex:1">并发探测（推荐）</button>
+                  <button type="button" class="btn small" id="rsProbeSerial" style="flex:1">串行探测</button>
+                </div>
+              </div>
+              <p class="form-error" id="rsEditError"></p>
+              <p class="form-error" id="rsTestOut" style="color:rgb(var(--ok))"></p>
+            </div>
+            <div class="dialog-foot" data-page-node-id="rsEditFoot1">
+              <button class="btn danger" id="rsDelete" hidden>删除</button>
+              <span class="spacer"></span>
+              <button class="btn" id="rsTestBtn">测试连接</button>
+              <button class="btn" id="rsCancel">取消</button>
+              <button class="btn primary" id="rsSave">保存</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 服务端列表弹层（切换 / 编辑 / 删除） -->
+        <div class="overlay" id="rsListOverlay" hidden data-page-node-id="rsListOverlay1">
+          <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="rsListTitle" data-page-node-id="rsListDialog1">
+            <div class="dialog-head" data-page-node-id="rsListHead1">
+              <h3 id="rsListTitle">服务端列表</h3>
+              <button class="icon-btn" id="rsListClose" aria-label="关闭" data-page-node-id="rsListClose1">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+              </button>
+            </div>
+            <div class="dialog-body" data-page-node-id="rsListBody1">
+              <div id="rsListRows"></div>
+              <p class="field-hint">点击条目切换标签；本机始终保留，不可编辑删除。</p>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -963,7 +1145,7 @@
       else b.removeAttribute('aria-current');
     });
     // 进入即刷新该页的真实数据
-    if (name === 'home') renderHomeStats();
+    if (name === 'home') pcShow();
     else if (name === 'sessions') renderSessions();
     else if (name === 'keys') renderKeysPage();
     else syncActionPages();
@@ -1893,6 +2075,417 @@
     }).catch(function () { });
   }
 
+  // ============ 电脑页（AnyBoot 服务端标签 + 内嵌页面 + ⋮ 菜单） ============
+  // 对齐 pc-redesign-v2 的 home-pc / home-pc-menu / home-add-pc 三屏与手机主界面 OverflowMenu。
+  // 一条标签 = 一台 AnyBoot 电脑（remote_servers.rs 档案）；页面 = 该电脑
+  // `http://addr/?token=…` 的 iframe —— 与手机 WebView 加载的是同一个页面、同一条路径。
+  let remotes = [];
+  let connectAll = false;
+  let activeRemote = 'local'; // 'local' | RemoteServer.id
+  let localEndpoint = null;   // { port, token, enabled }
+  const pcFrames = new Map(); // rid -> iframe（lazy 创建；重载 = 重建）
+
+  function pcName(r) { return r.name || r.group || r.addresses[0] || '(未命名)'; }
+  function pcFirstAddr(r) {
+    const addr = ((r.addresses && r.addresses[0]) || '').trim();
+    if (!addr) return '';
+    return addr.indexOf(':') >= 0 ? addr : addr + ':12300';
+  }
+  function pcUrl(r) { return 'http://' + pcFirstAddr(r) + '/?token=' + encodeURIComponent(r.token || ''); }
+  function localUrl() {
+    if (!localEndpoint || !localEndpoint.port) return '';
+    return 'http://127.0.0.1:' + localEndpoint.port + '/?token=' + encodeURIComponent(localEndpoint.token || '');
+  }
+
+  async function loadRemotes() {
+    if (!invoke) return;
+    try { localEndpoint = await invoke('local_http_endpoint'); } catch (e) { localEndpoint = null; }
+    try {
+      const store = await invoke('remote_list');
+      remotes = store.servers || [];
+      connectAll = !!store.connect_all;
+    } catch (error) {
+      console.error(error);
+      remotes = [];
+    }
+    renderPcChips();
+    updatePcMenuState();
+    // 「启动时连接全部服务端」：预载所有远端页面（加载即连接，对齐手机 connectAllServers）
+    if (connectAll) remotes.forEach(function (r) { pcEnsureFrame(r.id); });
+    // 端点晚到时补挂挂起的 iframe
+    pcFrames.forEach(function (frame, rid) {
+      if (!frame.getAttribute('src')) {
+        const url = rid === 'local' ? localUrl() : (function () {
+          const r = remotes.find(function (x) { return x.id === rid; });
+          return r ? pcUrl(r) : '';
+        })();
+        if (url) frame.setAttribute('src', url);
+      }
+    });
+    if (currentPage === 'home') pcShow();
+  }
+
+  function renderPcChips() {
+    const box = document.getElementById('pcChips');
+    const addChip = document.getElementById('pcAddChip');
+    // 只重建远端 chips（本机 chip 与 ＋添加 是静态的）
+    box.querySelectorAll('.pc-chip[data-rid]:not([data-rid="local"])').forEach(function (chip) { chip.remove(); });
+    remotes.forEach(function (r) {
+      const chip = document.createElement('button');
+      chip.className = 'pc-chip' + (activeRemote === r.id ? ' active' : '');
+      chip.dataset.rid = r.id;
+      chip.setAttribute('role', 'tab');
+      chip.title = (r.group ? r.group + ' · ' : '') + pcFirstAddr(r);
+      const dot = document.createElement('span');
+      dot.className = 'dot';
+      chip.appendChild(dot);
+      chip.appendChild(document.createTextNode(pcName(r)));
+      chip.addEventListener('click', function () { pcSelect(r.id); });
+      box.insertBefore(chip, addChip);
+    });
+    document.querySelectorAll('#pcChips .pc-chip[data-rid]').forEach(function (chip) {
+      const on = chip.dataset.rid === activeRemote;
+      chip.classList.toggle('active', on);
+      if (on) chip.setAttribute('aria-current', 'true');
+      else chip.removeAttribute('aria-current');
+    });
+  }
+
+  function pcSelect(rid) {
+    activeRemote = rid;
+    renderPcChips();
+    pcShow();
+  }
+
+  function pcEnsureFrame(rid) {
+    let frame = pcFrames.get(rid);
+    if (frame) return frame;
+    frame = document.createElement('iframe');
+    frame.title = rid === 'local' ? '本机页面' : '服务端页面';
+    const url = rid === 'local' ? localUrl() : (function () {
+      const r = remotes.find(function (x) { return x.id === rid; });
+      return r ? pcUrl(r) : '';
+    })();
+    if (url) frame.setAttribute('src', url);
+    document.getElementById('pcFrameHost').appendChild(frame);
+    pcFrames.set(rid, frame);
+    return frame;
+  }
+
+  function pcShow() {
+    pcFrames.forEach(function (frame) { frame.style.display = 'none'; });
+    const empty = document.getElementById('pcEmpty');
+    const r = activeRemote === 'local' ? null : remotes.find(function (x) { return x.id === activeRemote; });
+    if (activeRemote !== 'local' && !r) activeRemote = 'local';
+    if (activeRemote === 'local' && localEndpoint && localEndpoint.enabled === false) {
+      // 本机 HTTP 服务没开（或没设 token）：iframe 连不上，给可见说明
+      empty.hidden = false;
+      empty.querySelector('p').innerHTML = '<b>本机 HTTP 服务未启用</b>';
+      return;
+    }
+    empty.hidden = true;
+    pcEnsureFrame(activeRemote).style.display = 'block';
+  }
+
+  // 重载 = 重建 iframe（跨源页面的 contentWindow 不可碰，重建语义等价且稳妥）
+  function pcReload(rid) {
+    const old = pcFrames.get(rid);
+    if (!old) { pcEnsureFrame(rid); pcShow(); return; }
+    old.remove();
+    pcFrames.delete(rid);
+    if (rid === activeRemote) pcShow();
+  }
+
+  // ---- ⋮ 菜单 ----
+  const pcMenu = document.getElementById('pcMenu');
+  function togglePcMenu(force) {
+    const open = force != null ? force : pcMenu.hidden;
+    pcMenu.hidden = !open;
+    document.getElementById('pcMore').setAttribute('aria-expanded', String(open));
+  }
+  document.getElementById('pcMore').addEventListener('click', function (e) {
+    e.stopPropagation();
+    togglePcMenu();
+  });
+  document.addEventListener('click', function (e) {
+    if (!pcMenu.hidden && !pcMenu.contains(e.target) && e.target !== document.getElementById('pcMore')) {
+      togglePcMenu(false);
+    }
+  });
+  function updatePcMenuState() {
+    const item = document.getElementById('pcConnectAllItem');
+    item.classList.toggle('on', connectAll);
+    document.getElementById('pcConnectAllText').textContent =
+      (connectAll ? '✓ ' : '') + '启动时连接全部服务端';
+  }
+  pcMenu.addEventListener('click', function (e) {
+    const btn = e.target.closest('[data-act]');
+    if (!btn || btn.disabled) return;
+    const act = btn.dataset.act;
+    if (act === 'add') { togglePcMenu(false); openRsEdit(null); }
+    else if (act === 'edit') {
+      togglePcMenu(false);
+      if (activeRemote === 'local') toast('本机是默认连接，不可编辑；选中其它服务端标签后再编辑');
+      else openRsEdit(activeRemote);
+    }
+    else if (act === 'list') { togglePcMenu(false); openRsList(); }
+    else if (act === 'reload') {
+      togglePcMenu(false);
+      pcReload(activeRemote);
+      toast('已重载当前页面');
+    }
+    else if (act === 'reloadAll') {
+      togglePcMenu(false);
+      pcReload('local');
+      remotes.forEach(function (r) { pcReload(r.id); });
+      toast('已重载全部页面（' + (remotes.length + 1) + ' 个标签）');
+    }
+    else if (act === 'connectAll') {
+      // 菜单内切换（同手机），不关菜单
+      connectAll = !connectAll;
+      updatePcMenuState();
+      if (!invoke) { toast('需要应用环境', 'bad'); return; }
+      invoke('remote_set_connect_all', { on: connectAll })
+        .then(function () {
+          toast(connectAll ? '已开启：启动时把所有服务端一起连上' : '已关闭：只连当前标签');
+          if (connectAll) remotes.forEach(function (r) { pcEnsureFrame(r.id); });
+        })
+        .catch(function (error) { toast('保存开关失败：' + error, 'bad'); });
+    }
+    // transport 是禁用项：无动作
+  });
+  document.getElementById('pcAddChip').addEventListener('click', function () { openRsEdit(null); });
+
+  // ---- 添加 / 编辑弹窗 ----
+  let rsEditing = null; // null = 新建；否则 RemoteServer.id
+  let rsProbe = 'parallel';
+  let rsDeleteArmed = false;
+  const rsEditOverlay = document.getElementById('rsEditOverlay');
+
+  function populateRsJump(selected) {
+    const select = document.getElementById('rsJump');
+    select.textContent = '';
+    const none = document.createElement('option');
+    none.value = '';
+    none.textContent = '直连（默认）';
+    select.appendChild(none);
+    servers.filter(function (s) { return s.protocol === 'ssh'; }).forEach(function (s) {
+      const option = document.createElement('option');
+      option.value = s.id;
+      option.textContent = (s.name || '(未命名)') + '（' + s.host + ':' + (s.port || 22) + '）';
+      select.appendChild(option);
+    });
+    select.value = selected || '';
+  }
+
+  function rsProbeButtons() {
+    document.getElementById('rsProbeParallel').classList.toggle('primary', rsProbe === 'parallel');
+    document.getElementById('rsProbeSerial').classList.toggle('primary', rsProbe === 'serial');
+  }
+  document.getElementById('rsProbeParallel').addEventListener('click', function () { rsProbe = 'parallel'; rsProbeButtons(); });
+  document.getElementById('rsProbeSerial').addEventListener('click', function () { rsProbe = 'serial'; rsProbeButtons(); });
+
+  function openRsEdit(id) {
+    rsEditing = id;
+    rsDeleteArmed = false;
+    const r = id ? remotes.find(function (x) { return x.id === id; }) : null;
+    document.getElementById('rsEditTitle').textContent = r ? '编辑服务端' : '连接 AnyBoot 服务端';
+    document.getElementById('rsGroup').value = r ? r.group : '';
+    document.getElementById('rsName').value = r ? r.name : '';
+    document.getElementById('rsAddr').value = r ? r.addresses.join('\n') : '';
+    document.getElementById('rsToken').value = '';
+    populateRsJump(r ? r.jump_id : '');
+    rsProbe = r ? (r.probe_mode || 'parallel') : 'parallel';
+    rsProbeButtons();
+    document.getElementById('rsDelete').hidden = !r;
+    document.getElementById('rsDelete').textContent = '删除';
+    document.getElementById('rsEditError').textContent = '';
+    const out = document.getElementById('rsTestOut');
+    out.textContent = '';
+    out.classList.remove('bad');
+    rsEditOverlay.hidden = false;
+    document.getElementById('rsAddr').focus();
+  }
+  function closeRsEdit() { rsEditOverlay.hidden = true; }
+  document.getElementById('rsEditClose').addEventListener('click', closeRsEdit);
+  document.getElementById('rsCancel').addEventListener('click', closeRsEdit);
+  rsEditOverlay.addEventListener('click', function (e) { if (e.target === rsEditOverlay) closeRsEdit(); });
+
+  document.getElementById('rsTestBtn').addEventListener('click', function () {
+    const addresses = document.getElementById('rsAddr').value.split('\n')
+      .map(function (s) { return s.trim(); }).filter(Boolean);
+    if (addresses.length === 0) {
+      document.getElementById('rsEditError').textContent = '先填至少一个服务端地址';
+      return;
+    }
+    const out = document.getElementById('rsTestOut');
+    out.classList.remove('bad');
+    out.textContent = '探测中…';
+    invoke('remote_test', { addresses: addresses, probeMode: rsProbe })
+      .then(function (result) {
+        if (result.ok) {
+          out.textContent = '✓ ' + result.addr + ' · ' + result.ms + 'ms' +
+            (result.machine_name ? ' · ' + result.machine_name : '');
+        } else {
+          out.classList.add('bad');
+          out.textContent = result.error || '连不上';
+        }
+      })
+      .catch(function (error) { out.classList.add('bad'); out.textContent = String(error); });
+  });
+
+  document.getElementById('rsDelete').addEventListener('click', function () {
+    if (!rsEditing) return;
+    if (!rsDeleteArmed) {
+      rsDeleteArmed = true;
+      document.getElementById('rsDelete').textContent = '确认删除？';
+      return;
+    }
+    invoke('remote_delete', { id: rsEditing })
+      .then(function () {
+        const frame = pcFrames.get(rsEditing);
+        if (frame) { frame.remove(); pcFrames.delete(rsEditing); }
+        if (activeRemote === rsEditing) activeRemote = 'local';
+        closeRsEdit();
+        loadRemotes();
+        pcShow();
+        toast('已删除；该标签退回直连');
+      })
+      .catch(function (error) { toast('删除失败：' + error, 'bad'); });
+  });
+
+  document.getElementById('rsSave').addEventListener('click', function () {
+    const addresses = document.getElementById('rsAddr').value.split('\n')
+      .map(function (s) { return s.trim(); }).filter(Boolean);
+    if (addresses.length === 0) {
+      document.getElementById('rsEditError').textContent = '至少要填一个服务端地址';
+      return;
+    }
+    const payload = {
+      id: rsEditing || '',
+      group: document.getElementById('rsGroup').value.trim(),
+      name: document.getElementById('rsName').value.trim(),
+      addresses: addresses,
+      token: document.getElementById('rsToken').value.trim(),
+      machine_id: '',
+      machine_name: '',
+      probe_mode: rsProbe,
+      jump_id: document.getElementById('rsJump').value || '',
+      created_at: 0,
+    };
+    invoke('remote_save', { server: payload })
+      .then(function (saved) {
+        const isNew = !rsEditing;
+        closeRsEdit();
+        if (isNew) activeRemote = saved.id;
+        return loadRemotes().then(function () {
+          pcSelect(activeRemote);
+          toast(isNew ? '已保存并连接' : '已保存');
+        });
+      })
+      .catch(function (error) {
+        document.getElementById('rsEditError').textContent = String(error);
+      });
+  });
+
+  // ---- 服务端列表弹层 ----
+  const rsListOverlay = document.getElementById('rsListOverlay');
+  function openRsList() {
+    const rows = document.getElementById('rsListRows');
+    rows.textContent = '';
+    // 本机行（固定，只可切换）
+    rows.appendChild(rsListRow({
+      rid: 'local',
+      title: '本机',
+      sub: localEndpoint && localEndpoint.port ? '127.0.0.1:' + localEndpoint.port + ' · 默认 · 本地' : '默认 · 本地',
+      dotColor: 'rgb(var(--accent))',
+      editable: false,
+    }));
+    remotes.forEach(function (r) {
+      rows.appendChild(rsListRow({
+        rid: r.id,
+        title: pcName(r),
+        sub: (r.group ? r.group + ' · ' : '') + pcFirstAddr(r),
+        dotColor: 'rgb(var(--fg-faint))',
+        editable: true,
+      }));
+    });
+    if (remotes.length === 0) {
+      const hint = document.createElement('p');
+      hint.className = 'field-hint';
+      hint.textContent = '还没有添加其它服务端 —— 点右上角 ⋮「添加服务端」或电脑页顶栏「＋ 添加」。';
+      rows.appendChild(hint);
+    }
+    rsListOverlay.hidden = false;
+  }
+  function rsListRow(opt) {
+    const row = document.createElement('div');
+    row.className = 'rs-list-row';
+    const dot = document.createElement('span');
+    dot.className = 'dot';
+    dot.style.background = opt.dotColor;
+    row.appendChild(dot);
+    const info = document.createElement('span');
+    info.className = 'info';
+    const b = document.createElement('b');
+    b.textContent = opt.title;
+    const i = document.createElement('i');
+    i.textContent = opt.sub;
+    info.appendChild(b);
+    info.appendChild(i);
+    row.appendChild(info);
+    if (opt.editable) {
+      const acts = document.createElement('span');
+      acts.className = 'acts';
+      const editBtn = document.createElement('button');
+      editBtn.className = 'btn small';
+      editBtn.textContent = '编辑';
+      editBtn.addEventListener('click', function () { rsListOverlay.hidden = true; openRsEdit(opt.rid); });
+      const delBtn = document.createElement('button');
+      delBtn.className = 'btn small danger';
+      delBtn.textContent = '删除';
+      delBtn.addEventListener('click', function () {
+        invoke('remote_delete', { id: opt.rid })
+          .then(function () {
+            const frame = pcFrames.get(opt.rid);
+            if (frame) { frame.remove(); pcFrames.delete(opt.rid); }
+            if (activeRemote === opt.rid) activeRemote = 'local';
+            rsListOverlay.hidden = true;
+            loadRemotes();
+            pcShow();
+            toast('已删除');
+          })
+          .catch(function (error) { toast('删除失败：' + error, 'bad'); });
+      });
+      acts.appendChild(editBtn);
+      acts.appendChild(delBtn);
+      row.appendChild(acts);
+    } else if (activeRemote !== 'local') {
+      const switchBtn = document.createElement('button');
+      switchBtn.className = 'btn small';
+      switchBtn.textContent = '切到这里';
+      switchBtn.addEventListener('click', function () { rsListOverlay.hidden = true; pcSelect('local'); });
+      row.appendChild(switchBtn);
+    }
+    row.style.cursor = 'pointer';
+    row.addEventListener('click', function (e) {
+      if (e.target.closest('button')) return;
+      rsListOverlay.hidden = true;
+      pcSelect(opt.rid);
+    });
+    return row;
+  }
+  document.getElementById('rsListClose').addEventListener('click', function () { rsListOverlay.hidden = true; });
+  rsListOverlay.addEventListener('click', function (e) { if (e.target === rsListOverlay) rsListOverlay.hidden = true; });
+
+  // Esc 逐层关闭：菜单 → 弹层
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    if (!pcMenu.hidden) { togglePcMenu(false); return; }
+    if (!rsEditOverlay.hidden) { closeRsEdit(); return; }
+    if (!rsListOverlay.hidden) { rsListOverlay.hidden = true; }
+  });
+
   // ============ 状态栏时钟 ============
   function tick() {
     document.getElementById('clock').textContent =
@@ -1905,6 +2498,7 @@
   showPage('servers');
   loadServers();
   loadTunnels();
+  loadRemotes();
 </script>
 </body>
 </html>

@@ -77,6 +77,7 @@ mod hub_term;
 mod hub_tunnel;
 mod hub_vault;
 mod http;
+mod remote_servers;
 
 /// Linux 侧数据收集脚本（把 grubenv 迁到 ESP），装到 `/etc/grub.d/09_anyboot`。
 ///
@@ -15062,6 +15063,12 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            remote_servers::remote_list,
+            remote_servers::remote_save,
+            remote_servers::remote_delete,
+            remote_servers::remote_set_connect_all,
+            remote_servers::remote_test,
+            remote_servers::local_http_endpoint,
             hub::hub_list_servers,
             hub::hub_save_server,
             hub::hub_delete_server,
