@@ -9336,6 +9336,16 @@ fn build_tray_menu(app: &AppHandle, state: &UiState) -> tauri::Result<Menu<tauri
         true,
         None::<&str>,
     )?)?;
+    // 远程管理（server-hub）独立窗口：classic 形态的原生菜单是**手写**的另一套
+    // 实现（不走 grub_menu_nodes），入口要单独补 —— 否则用 classic 时托盘上
+    // 根本没有打开远程管理的入口。动作 id 与自绘菜单保持一致（open-hub）。
+    menu.append(&MenuItem::with_id(
+        app,
+        "open-hub",
+        "远程管理…",
+        true,
+        None::<&str>,
+    )?)?;
 
     // —— 分区：应用设置 ——
     menu.append(&PredefinedMenuItem::separator(app)?)?;
@@ -14857,6 +14867,27 @@ pub fn run() {
                 }
             }
             let settings = read_settings_file(app.handle());
+            // 测试钩子（默认不生效）：WebView2 不接受注入的鼠标点击（原生菜单可以、
+            // 网页里不行），所以「远程管理 → 打开终端」这条链没法靠脚本点出来。
+            // 设 ANYBOOT_TEST_OPEN_HUB=1 → 启动后自动打开远程管理窗；
+            // 再加 ANYBOOT_TEST_OPEN_TERM=1 → 顺带用第一台服务器开一个终端会话。
+            // 只影响「开哪个窗口」，不改变任何业务路径 —— 验证的就是用户点出来的那条链。
+            if std::env::var("ANYBOOT_TEST_OPEN_HUB").is_ok() {
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(3));
+                    let _ = open_hub_window(&handle);
+                    if std::env::var("ANYBOOT_TEST_OPEN_TERM").is_err() {
+                        return;
+                    }
+                    std::thread::sleep(std::time::Duration::from_secs(2));
+                    if let Ok(list) = hub::load_servers_pub(&handle) {
+                        if let Some(server) = list.into_iter().next() {
+                            let _ = hub_term::open_term_window(&handle, server);
+                        }
+                    }
+                });
+            }
             {
                 let state = app.state::<Mutex<Settings>>();
                 *state.lock().expect("settings mutex poisoned") = settings;

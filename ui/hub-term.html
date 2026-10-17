@@ -122,7 +122,7 @@
   /* ============ 空态 / 服务器选择弹层 ============ */
   .empty {
     position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px;
-    color:rgb(var(--fg-faint)); background:rgb(var(--term));
+    color:rgb(var(--fgfaint)); background:rgb(var(--term));
   }
   .modal { position:fixed; inset:0; z-index:40; display:grid; place-items:center; background:rgba(0,0,0,.6); padding:24px; }
   .modal-card {
@@ -141,7 +141,7 @@
   }
   .server-item:hover { border-color:rgb(var(--tblue) / .5); }
   .server-item .name { font-size:13px; font-weight:600; }
-  .server-item .host { font-size:11px; color:rgb(var(--fg-dim,148 163 184)); font-family:ui-monospace,Menlo,Consolas,monospace; }
+  .server-item .host { font-size:11px; color:rgb(var(--fgdim)); font-family:ui-monospace,Menlo,Consolas,monospace; }
 
   /* Toast */
   #toast {
@@ -479,7 +479,7 @@ async function openPicker() {
   list.textContent = '';
   if (!servers.length) {
     const p = document.createElement('p');
-    p.style.cssText = 'padding:14px;color:rgb(var(--fg-faint));font-size:13px;text-align:center;margin:0';
+    p.style.cssText = 'padding:14px;color:rgb(var(--fgfaint));font-size:13px;text-align:center;margin:0';
     p.textContent = '还没有服务器 —— 先在远程管理窗口里添加';
     list.appendChild(p);
   }
@@ -561,7 +561,14 @@ if (listen) {
   // 1) hub 排队的启动服务器
   let pending = null;
   try { pending = await invoke('hub_term_take_pending'); } catch (e) { error(e); }
-  if (pending) { openSession(pending); return; }
+  if (pending) {
+    try {
+      await openSession(pending);
+    } catch (e) {
+      error(e);
+    }
+    return;
+  }
   // 2) 窗口重载：捡回还活着的会话
   try {
     const alive = await invoke('hub_term_sessions') || [];
