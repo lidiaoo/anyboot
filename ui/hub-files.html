@@ -689,11 +689,18 @@ async function downloadEntry(entry) {
   busy = true;
   showTransfer('down', '下载 ' + entry.name, false);
   try {
+    // 下载路径取终端设置的「下载路径」（默认 ~，由后端展开主目录）
+    let downDir = '~';
+    try {
+      const s = JSON.parse(localStorage.getItem('ab-term-settings') || '{}');
+      if (typeof s.downDir === 'string' && s.downDir.trim()) downDir = s.downDir.trim();
+    } catch (e) {}
     const local = await invoke('hub_sftp_download', {
       server,
       remotePath: joinPath(cwd, entry.name),
       total: entry.size || 0,
       filename: entry.name,
+      localDir: downDir,
     });
     toast('已下载到 ' + local);
   } catch (e) {

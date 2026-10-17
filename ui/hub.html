@@ -1039,6 +1039,10 @@
               <div><p class="ts-t">滚动回滚行数</p><p class="ts-s">缓冲区保留的历史输出（500–100000）</p></div>
               <input class="ts-num" type="number" id="tsScroll" min="500" max="100000" step="500" value="5000">
             </div>
+            <div class="ts-row">
+              <div><p class="ts-t">下载路径</p><p class="ts-s">文件下载到本机的目录（~ = 用户主目录）</p></div>
+              <input class="ts-num" type="text" id="tsDownDir" value="~" placeholder="~" style="width:180px">
+            </div>
           </div>
           <button class="btn primary" id="tsApply" style="height:40px;width:100%;justify-content:center">应用设置</button>
         </div>
@@ -2866,7 +2870,7 @@
   // ============ 终端设置页（localStorage 持久化 + 事件热更终端窗口） ============
   const TERM_SET_KEY = 'ab-term-settings';
   function loadTermSettings() {
-    const d = { fontSize: 14, cursorBlink: true, copyOnSelect: false, bell: false, scrollback: 5000 };
+    const d = { fontSize: 14, cursorBlink: true, copyOnSelect: false, bell: false, scrollback: 5000, downDir: '~' };
     try {
       const s = JSON.parse(localStorage.getItem(TERM_SET_KEY) || '{}');
       return {
@@ -2875,6 +2879,7 @@
         copyOnSelect: !!s.copyOnSelect,
         bell: !!s.bell,
         scrollback: Math.min(100000, Math.max(500, Number(s.scrollback) || d.scrollback)),
+        downDir: (typeof s.downDir === 'string' && s.downDir.trim()) ? s.downDir.trim() : d.downDir,
       };
     } catch (e) { return d; }
   }
@@ -2886,6 +2891,7 @@
     document.getElementById('tsCopy').checked = s.copyOnSelect;
     document.getElementById('tsBell').checked = s.bell;
     document.getElementById('tsScroll').value = s.scrollback;
+    document.getElementById('tsDownDir').value = s.downDir;
   }
   document.getElementById('tsFont').addEventListener('input', function () {
     document.getElementById('tsFontVal').textContent = this.value + ' pt';
@@ -2897,6 +2903,7 @@
       copyOnSelect: document.getElementById('tsCopy').checked,
       bell: document.getElementById('tsBell').checked,
       scrollback: Math.min(100000, Math.max(500, Number(document.getElementById('tsScroll').value) || 5000)),
+      downDir: document.getElementById('tsDownDir').value.trim() || '~',
     };
     try { localStorage.setItem(TERM_SET_KEY, JSON.stringify(settings)); } catch (e) {}
     if (window.__TAURI__ && window.__TAURI__.event) {

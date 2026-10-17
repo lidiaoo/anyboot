@@ -476,7 +476,23 @@ pub fn hub_sftp_copy(app: AppHandle, server: HubServer, from: String, to: String
     }
 }
 
-/// 下载单个文件：系统存盘对话框选本地路径 → sftp get → 轮询本地文件大小推进度。
+/// 展开 `~` 前缀为用户主目录（HOME；展开失败时原样返回）。
+fn expand_home(dir: &str) -> String {
+    let trimmed = dir.trim();
+    if trimmed == "~" {
+        std::env::var("HOME").unwrap_or_else(|_| trimmed.to_string())
+    } else if let Some(rest) = trimmed.strip_prefix("~/") {
+        match std::env::var("HOME") {
+            Ok(home) => format!("{}/{}", home.trim_end_matches('/'), rest),
+            Err(_) => trimmed.to_string(),
+        }
+    } else {
+        trimmed.to_string()
+    }
+}
+
+/// 下载单个文件：`local_dir` 给定时直接落到该目录（`~` 展开，默认主目录），
+/// 未给定时退回系统存盘对话框 → sftp get → 轮询本地文件大小推进度。
 /// 返回落盘路径。
 #[tauri::command]
 pub async fn hub_sftp_download(
@@ -487,6 +503,7 @@ pub async fn hub_sftp_download(
     remote_path: String,
     total: u64,
     filename: String,
+    local_dir: Option<String>,
 ) -> Result<String, String> {
     let server = server.normalize();
     if server.id.is_empty() {
@@ -496,24 +513,34 @@ pub async fn hub_sftp_download(
     if !control.exists() {
         return Err("先打开一次终端完成认证，再用文件浏览".to_string());
     }
-    // 存盘对话框（阻塞等结果，丢 spawn_blocking）
-    let dialog_app = app.clone();
-    let suggested = filename.clone();
-    let picked = tauri::async_runtime::spawn_blocking(move || {
-        let (tx, rx) = std::sync::mpsc::channel();
-        dialog_app
-            .dialog()
-            .file()
-            .set_title("保存到本机")
-            .set_file_name(&suggested)
-            .pick_file(move |path| {
-                let _ = tx.send(path.and_then(|p| p.into_path().ok()));
-            });
-        rx.recv().map_err(|_| "存盘对话框被关闭".to_string())
-    })
-    .await
-    .map_err(|error| format!("存盘对话框执行失败: {error}"))??;
-    let local = picked.ok_or_else(|| "未选择保存位置".to_string())?;
+    let local = match local_dir.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        Some(dir) => {
+            let dir = expand_home(dir);
+            let mut p = std::path::PathBuf::from(&dir);
+            p.push(&filename);
+            p
+        }
+        // 存盘对话框（阻塞等结果，丢 spawn_blocking）
+        None => {
+            let dialog_app = app.clone();
+            let suggested = filename.clone();
+            let picked = tauri::async_runtime::spawn_blocking(move || {
+                let (tx, rx) = std::sync::mpsc::channel();
+                dialog_app
+                    .dialog()
+                    .file()
+                    .set_title("保存到本机")
+                    .set_file_name(&suggested)
+                    .pick_file(move |path| {
+                        let _ = tx.send(path.and_then(|p| p.into_path().ok()));
+                    });
+                rx.recv().map_err(|_| "存盘对话框被关闭".to_string())
+            })
+            .await
+            .map_err(|error| format!("存盘对话框执行失败: {error}"))??;
+            picked.ok_or_else(|| "未选择保存位置".to_string())?
+        }
+    };
     let local_display = local.display().to_string();
 
     let commands = format!(
@@ -681,6 +708,16 @@ pub fn kill_window(app: &AppHandle, label: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn expand_home_variants() {
+        std::env::set_var("HOME", "/home/tester");
+        assert_eq!(expand_home("~"), "/home/tester");
+        assert_eq!(expand_home("~/downloads"), "/home/tester/downloads");
+        assert_eq!(expand_home(" ~/x "), "/home/tester/x");
+        assert_eq!(expand_home("/abs/path"), "/abs/path");
+        assert_eq!(expand_home("rel/path"), "rel/path");
+    }
 
     #[test]
     fn parse_ls_line_variants() {
