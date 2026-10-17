@@ -563,11 +563,12 @@ fn remote_endpoint_inner(
         return Err("跳板机必须是 SSH 服务器".to_string());
     }
     let control = crate::hub_tunnel::control_path(app, &jump.id)?;
-    if !control.exists() {
-        return Err(
-            "跳板机还没有可复用的认证连接：先在「服务器」页对它开一次终端完成认证".to_string(),
-        );
-    }
+    crate::hub_tunnel::ensure_control(
+        app,
+        &jump,
+        &control,
+        "跳板机还没有可复用的认证连接：先在「服务器」页对它开一次终端完成认证",
+    )?;
     // 找一个空闲本地端口
     let listener = std::net::TcpListener::bind(("127.0.0.1", 0))
         .map_err(|e| format!("拿不到空闲本地端口: {e}"))?;

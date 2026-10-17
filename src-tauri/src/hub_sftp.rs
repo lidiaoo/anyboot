@@ -62,7 +62,7 @@ fn shell_quote(path: &str) -> String {
     format!("'{}'", path.replace('\'', "'\\''"))
 }
 
-fn stderr_tail(bytes: &[u8]) -> String {
+pub(crate) fn stderr_tail(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes)
         .lines()
         .filter(|l| !l.trim().is_empty())
@@ -74,113 +74,20 @@ fn stderr_tail(bytes: &[u8]) -> String {
 
 // ==================== 认证连接 ====================
 
-/// master 不在时自动拨通认证连接（文件浏览免先开终端）：与终端
-/// （hub_term_open）同款的认证参数跑一次 `ssh … exit`，认证成功后
-/// `ControlMaster=auto + ControlPersist=600` 把 master 留在后台，后续
-/// sftp/ssh 子进程照旧 BatchMode 复用 —— 每台服务器至多拨一次。没存
-/// 凭据（只在终端里手输过密码）确实无法非交互认证，维持原来的明确报错。
+/// master 不在时自动拨通认证连接（逻辑在 hub_tunnel::ensure_control，与
+/// 隧道/跳板共用）。没存凭据（只在终端里手输过密码）无法非交互认证，
+/// 维持原来的明确报错。
 fn ensure_control(
     app: &AppHandle,
     server: &HubServer,
     control: &std::path::Path,
 ) -> Result<(), String> {
-    if control.exists() {
-        return Ok(());
-    }
-    if server.key_id.is_empty() && server.password_enc.is_empty() {
-        return Err(
-            "该服务器还没有可复用的认证连接：先打开一次终端（输完密码/通过认证）再用文件浏览"
-                .to_string(),
-        );
-    }
-    let target = if server.username.is_empty() {
-        server.host.clone()
-    } else {
-        format!("{}@{}", server.username, server.host)
-    };
-    let mut command = std::process::Command::new("ssh");
-    command
-        .args(["-o", "ControlMaster=auto"])
-        .arg("-o")
-        .arg(format!("ControlPath={}", control.display()))
-        .args(["-o", "ControlPersist=600"])
-        .args(["-o", "StrictHostKeyChecking=accept-new"])
-        .args(["-o", "ConnectTimeout=10"]);
-    // 密钥认证：-i 指定私钥（带口令的钥匙没有 askpass，非交互下快速失败报错）
-    if !server.key_id.is_empty() {
-        let key = crate::hub_keys::private_key_path(app, &server.key_id)?;
-        command
-            .args(["-o", "IdentitiesOnly=yes"])
-            .arg("-i")
-            .arg(key.display().to_string());
-    } else {
-        // 存档密码（M6）：SSH_ASKPASS_REQUIRE=force，认证走 hub-askpass.sh 回环，
-        // 不需要终端也不弹框（与终端密码分支同源）
-        let config = crate::config_dir(app)?;
-        let script = crate::hub_vault::write_askpass_script(&config, &server.id)?;
-        command.env("SSH_ASKPASS", script.display().to_string());
-        command.env("SSH_ASKPASS_REQUIRE", "force");
-    }
-    // 经由跳板机：与终端同一条 ProxyCommand（跳板凭据必须是跳板自己的存档）
-    if !server.jump_id.is_empty() {
-        if server.jump_id == server.id {
-            return Err("跳板机不能是服务器自己".to_string());
-        }
-        let jump = crate::hub::load_servers_pub(app)?
-            .into_iter()
-            .find(|s| s.id == server.jump_id)
-            .ok_or_else(|| "找不到经由的跳板机，请在「编辑」里重新选择或改回直连".to_string())?;
-        if jump.protocol != "ssh" {
-            return Err(format!("跳板机「{}」不是 SSH 服务器", jump.name));
-        }
-        if jump.key_id.is_empty() && jump.password_enc.is_empty() {
-            return Err(format!(
-                "跳板机「{}」没有保存凭据，无法自动认证：先对它开一次终端完成认证",
-                jump.name
-            ));
-        }
-        let askpass = if jump.password_enc.is_empty() {
-            None
-        } else {
-            let config = crate::config_dir(app)?;
-            Some(crate::hub_vault::write_askpass_script(&config, &jump.id)?)
-        };
-        let key = if jump.key_id.is_empty() {
-            None
-        } else {
-            Some(crate::hub_keys::private_key_path(app, &jump.key_id)?)
-        };
-        command.args([
-            "-o",
-            &format!(
-                "ProxyCommand={}",
-                crate::hub_term::jump_proxy_command(&jump, askpass.as_deref(), key.as_deref())
-            ),
-        ]);
-    }
-    command
-        .arg("-p")
-        .arg(server.effective_port().to_string())
-        .arg(&target)
-        .arg("exit"); // 远端跑 exit：拨通即走，master 由 ControlPersist 留下
-    command.env("LC_ALL", "C.UTF-8");
-    let output = command
-        .output()
-        .map_err(|error| format!("无法启动 ssh: {error}"))?;
-    if output.status.success() {
-        eprintln!("[hub-sftp] master established for {}", server.id);
-        Ok(())
-    } else {
-        let tail = stderr_tail(&output.stderr);
-        Err(if tail.is_empty() {
-            format!(
-                "自动认证失败（退出码 {:?}），可先开一次终端手动认证",
-                output.status.code()
-            )
-        } else {
-            format!("自动认证失败：{tail}")
-        })
-    }
+    crate::hub_tunnel::ensure_control(
+        app,
+        server,
+        control,
+        "该服务器还没有可复用的认证连接：先打开一次终端（输完密码/通过认证）再用文件浏览",
+    )
 }
 
 /// 跑一批 sftp 命令（-b -），返回 stdout。批里任何一条失败都会整体失败。
