@@ -1097,7 +1097,7 @@ if (listen) {
     if (paused) {
       tx.paused = true;
       // 后端已兜底，这里是保险：满进度的"暂停"其实是已传完，按完成收尾
-      if (total > 0 && bytes >= total) {
+      if ((total > 0 && bytes >= total) || (total === undefined && tx.total > 0 && tx.bytes >= tx.total)) {
         tx = null;
         $('transferBar').classList.remove('indet');
         $('transferFill').style.width = '100%';

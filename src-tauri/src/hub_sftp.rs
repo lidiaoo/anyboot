@@ -312,6 +312,7 @@ fn run_sftp_batch(app: &AppHandle, server: &HubServer, commands: &str) -> Result
 
 /// 还在跑的传输子进程登记项：窗口、任务信息（暂停时要用）、子进程把。
 /// 任务快照在 spawn 时拷好 —— pause 拿它直接入断点清单，不必反查。
+#[derive(Clone)]
 struct RunningXfer {
     window: String,
     task: XferTask,
@@ -555,6 +556,8 @@ pub fn hub_sftp_transfer_list(
 
 /// 暂停：杀掉 sftp 子进程（本地留半截文件）、任务入断点清单。
 /// key=None 时作用于全部跑着的下载/上传（「全部暂停」按钮）。
+/// 收尾事件的**所有权**归摘除方：从 running 表摘走后由这里直接发 paused/done
+/// 事件，轮询线程发现自己已不持有该条目时保持沉默（见 finish_transfer）。
 fn pause_transfers(
     app: &AppHandle,
     state: &HubSftpState,
@@ -585,14 +588,18 @@ fn pause_transfers(
             // 竞态：点暂停那一刻其实已经传完了（最后字节已落盘、sftp 还没
             // 干净退出）。文件是完整的 → 直接按完成收尾，绝不记断点，
             // 否则传输页会卡出「100% 已暂停」永远按不出结果。
-            let bytes = if task.total > 0 { task.total } else { task.bytes };
             emit_progress(
                 app,
                 &running.window,
-                json!({ "name": task.name, "key": task.key, "dir": task.dir, "bytes": bytes, "total": task.total, "done": true }),
+                json!({ "name": task.name, "key": task.key, "dir": task.dir, "bytes": task.total, "total": task.total, "done": true }),
             );
         } else {
-            upsert_paused(state, app, task);
+            upsert_paused(state, app, task.clone());
+            emit_progress(
+                app,
+                &running.window,
+                json!({ "name": task.name, "key": task.key, "dir": task.dir, "bytes": task.bytes, "total": task.total, "paused": true }),
+            );
         }
         acted += 1;
     }
@@ -616,6 +623,10 @@ fn resume_transfer(
     let commands = match task.dir.as_str() {
         "down" => {
             let have = partial_size(&task.local_path);
+            // 本地半截文件没了（用户手动删过/放弃竞态）：没有断点可续
+            if have == 0 {
+                return Err("本地半截文件已不在，没有断点可续；请放弃这个任务后重新下载".to_string());
+            }
             // 远端文件比断点小 = 服务器上文件换过了，续出来必然是错的
             let remote_size = match remote_size_of(app, &server, &task.remote_path)? {
                 Some(size) => size,
@@ -664,13 +675,35 @@ fn resume_transfer(
 }
 
 /// 放弃（cancel 是它的旧名）：删半截文件（down 删本地、up 删远端）+ 删记录。
+/// 三个位置都兜：断点清单、跑着的任务（先杀再清）、都没有时也返回成功——
+/// 前端幽灵卡（清单已清但 UI 没同步掉）点放弃必须能消卡，而不是报错卡死。
 fn abandon_transfer(
     app: &AppHandle,
     state: &HubSftpState,
     key: Option<&str>,
 ) -> Result<usize, String> {
+    // 跑着的同键任务先杀掉（放弃 running 里的任务同样合法）
+    if let Ok(mut list) = state.running.lock() {
+        let victims: Vec<RunningXfer> = match key {
+            Some(k) => list.iter().filter(|r| r.task.key == k).cloned().collect(),
+            None => list.clone(),
+        };
+        for running in victims {
+            if let Ok(mut child) = running.child.lock() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+            list.retain(|r| r.task.key != running.task.key);
+            // 半截文件顺手清（清单路径里没有这条时也不留垃圾）
+            if running.task.dir == "down" {
+                let _ = std::fs::remove_file(&running.task.local_path);
+            }
+        }
+    }
     let Some(task) = pick_paused(state, key) else {
-        return Err("没有可放弃的任务".to_string());
+        // 清单里没有这条（可能从未入过或已被 resume 摘掉）：按"无事可做但成功"
+        // 处理，前端据此消卡。杀 running 的动作上面已经做过。
+        return Ok(1);
     };
     // 半截文件先清掉再摘记录：清失败不拦着放弃，记录也照样走
     match task.dir.as_str() {
@@ -874,11 +907,26 @@ fn finish_transfer(
     if successor {
         return;
     }
+    // 收尾事件的所有权：只有 running 表还认得这个把（=这条目没被别人摘走）
+    // 时，本线程才负责发终态事件；已被摘走（暂停/接管）的不重复发。
+    let owned = state
+        .running
+        .lock()
+        .map(|list| list.iter().any(|r| r.task.key == task.key && Arc::ptr_eq(&r.child, child)))
+        .unwrap_or(false);
+    if !owned {
+        return;
+    }
     // 杀进程/断线可能正好落在"最后字节已落盘、退出码还没来得及是 0"的窗口：
     // 文件已完整 → 按完成收尾（清掉竞态断点记录），不进任何暂停/失败分支。
     let mut task = task.clone();
     task.bytes = xfer_bytes_now(&task);
     if xfer_is_complete(&task) {
+        // 摘除 + 发终态一把抓：先从 running 表摘掉自己，再发 done ——
+        // 别让并发的第二个查询看到"已完成却还在跑"。
+        if let Ok(mut list) = state.running.lock() {
+            list.retain(|r| !(r.task.key == task.key && Arc::ptr_eq(&r.child, child)));
+        }
         remove_paused(state, app, &task.key);
         emit_progress(
             app,

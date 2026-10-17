@@ -3181,7 +3181,8 @@
       cancel.title = '删除半截文件并清掉这条记录';
       cancel.addEventListener('click', function () {
         txCtl('abandon', tx.key).then(function (n) {
-          if (!n) return;
+          // 无论后端有没有这条记录（n=0 也可能是幽灵卡），本地都消卡
+          if (n === null || n === undefined) return;   // 调用失败（txCtl 已 toast）
           txActive.delete(tx.key);
           renderTransfers();
           toast('已放弃 ' + (tx.name || ''));
@@ -3221,15 +3222,29 @@
       }
     }
   }
-  // 断点清单进队列（暂停/中断的任务；跑着的靠事件，别重复挂）
+  // 断点清单进队列（暂停/中断的任务；跑着的靠事件，别重复挂）。
+  // 双向对账：后端清单里没有的暂停卡是幽灵（收尾事件丢了/竞态），直接清掉——
+  // 否则会出现「放弃/继续都报没有此任务」的死卡。
   function txAbsorbList(tasks) {
     if (!Array.isArray(tasks)) return;
+    const backendKeys = new Set(tasks.map(function (t) { return t && t.key; }).filter(Boolean));
     let changed = false;
+    txActive.forEach(function (tx, key) {
+      if (tx.paused && !backendKeys.has(key)) {
+        // 后端已没有这条暂停任务：多半已在远端完成/被接管。探一次清单防抖：
+        // 文件已完整 → 记历史；否则静默消卡。
+        txActive.delete(key);
+        if (tx.total > 0 && tx.bytes >= tx.total) {
+          txHistory.unshift({ dir: tx.dir, name: tx.name, bytes: tx.bytes, total: tx.total, at: Date.now() });
+          txHistory = txHistory.slice(0, 20);
+          txPersist();
+        }
+        changed = true;
+      }
+    });
     for (const t of tasks) {
       if (!t || !t.key || !t.paused) continue;
-      if (txActive.has(t.key)) continue;             // 跑着的版本已在列
-      const exist = txActive.get(t.key);
-      if (exist) continue;
+      if (txActive.has(t.key)) continue;
       txActive.set(t.key, {
         key: t.key, dir: t.dir || 'down', name: t.name, bytes: t.bytes || 0,
         total: t.total || 0, paused: true, lastB: 0, lastT: 0, speed: 0,
@@ -3257,6 +3272,7 @@
       if (p.paused) {
         tx.paused = true;
         tx.bytes = p.bytes || tx.bytes;
+        if (p.total) tx.total = p.total;
         // 后端已兜底，这里是保险：满进度的"暂停"其实是已传完，按完成收尾
         if (tx.total > 0 && tx.bytes >= tx.total) {
           txActive.delete(key);
