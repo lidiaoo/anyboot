@@ -39,4 +39,10 @@
 - **`main.rs` 的 askpass 分支必须排在 `cli_requested` 之前**：argv 是提示语，不像命令，否则会被当 GUI 启动。
 - **Windows 没有 ControlMaster**（Win32-OpenSSH 实测 `getsockname failed: Not a socket`，不落 socket 文件）：
   Unix 复用 master、`BatchMode=yes`；Windows 每次自己认证，且**只有密钥能开 BatchMode**（它会连 askpass 一起禁）。
+- **`sftp -b` 会自己把 BatchMode 打开** → 密码认证必死（`No more authentication methods to try`，文件列表恒空）。
+  `apply_auth` 在「有密码没密钥」时显式补 `-o BatchMode=no`；新加 sftp 调用别再自己拼参数。
+- **在 IPC 回调里建 webview 必须走 async 命令**：`#[tauri::command] fn` 是同步的，跑在 WebView2 的
+  `WebMessageReceived`（UI 线程）上，在同一线程重入建新 webview → 窗口建得出来但页面**永远停在白底首帧**
+  （不导航、不执行 JS），用户看到「空白窗口卡死」。改成 `async fn` 即在 tokio 线程创建，正常加载。
+  本轮 `hub_open_term_window` / `hub_open_files_window` / `hub_open_keys_window` 三个都踩了这个坑。
 - 平台能力/排错/验收边界都在 `docs/server-hub.md`；改这条线先跑 Windows 目标 `cargo check`（Linux 通过不代表 Win 通过）。
