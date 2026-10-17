@@ -6,7 +6,8 @@
 - **commit 我做、push 用户做**（本机无 GitHub 凭据）。只提交本轮相关文件；`src-tauri/src/hub*.rs`、`ui/hub.html`、`docs/client-ui/`、`debx/` 属 PC 端 server-hub 另一条线，别混进移动端提交。
 
 ## 桌面端
-- 前端改动**必须强制 codegen**（删 `out` + `touch build.rs` 重编）；核对解 `out/tauri-codegen-assets/*`；**二进制里搜中文按 UTF-8 字节比**。`data-page-node-id` 原样保留；文档路径写 `~`。
+- 前端改动**必须强制 codegen**（删 `out` + `touch build.rs` 重编）；核对解 `out/tauri-codegen-assets/*`；**二进制里搜中文按 UTF-8 字节比**（HTML 资产是 brotli 压缩嵌入，裸搜原串必为 0，要拿 codegen 资产字节做精确匹配）。`data-page-node-id` 原样保留；文档路径写 `~`。
+- **ui/*.html 里 id 严禁与 `window.xxx` 状态变量同名**：带 id 的元素会被 named access 挂成 window 同名属性（真值），`if (window.term)` 之类判空全失效——hub-term 黑屏教训（`id="term"`→`termHost`，已修）。
 - 交付 = 测试 + release 构建 + 实机验证；构建前退出运行中的 anyboot；**md5 必核**。
 
 ## 托盘
