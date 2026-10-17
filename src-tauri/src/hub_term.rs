@@ -175,6 +175,9 @@ pub fn hub_term_open(
 
     let mut command = CommandBuilder::new("ssh");
     command.args(["-p", &port.to_string(), &target]);
+    // TCP 连不上 10 秒就报错：stderr 进 PTY 直接显示在终端里，
+    // 别让用户对着黑屏干等内核默认的 ~130s 超时（连接错误也走 stderr，见 M3 注释）
+    command.args(["-o", "ConnectTimeout=10"]);
     // xterm-256color：远端 vim/htop 之类才肯出彩色；终端类型由我们这侧的 xterm.js 兑现
     command.env("TERM", "xterm-256color");
     // 选了密钥认证：-i 指定私钥（带口令的钥匙由 ssh 在 PTY 里交互要，与本模块哲学一致）
