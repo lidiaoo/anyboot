@@ -14597,7 +14597,7 @@ fn open_directory_in_explorer(dir: &std::path::Path) -> Result<(), String> {
 /// 常常什么都不打开；而且一旦弹出错误对话框，explorer 进程会一直不退出，
 /// 用 `.status()` 同步等它就把整个命令挂死（按钮停在禁用态，看着就是「没反应」）。
 /// `ShellExecuteW` 是即发即返回，不阻塞。其余平台用 xdg-open / open，spawn 后不等。
-fn open_url_in_browser(url: &str) -> Result<(), String> {
+pub(crate) fn open_url_in_browser(url: &str) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::ffi::OsStrExt;
@@ -15072,6 +15072,7 @@ pub fn run() {
             remote_servers::remote_endpoint,
             remote_servers::remote_test_via,
             remote_servers::local_http_endpoint,
+            remote_servers::hub_about_open,
             hub::hub_list_servers,
             hub::hub_save_server,
             hub::hub_delete_server,

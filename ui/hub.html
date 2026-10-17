@@ -561,6 +561,24 @@
   .tx-mini.danger { border-color: rgb(var(--bad) / .4); color: rgb(var(--bad)); }
   .tx-mini:disabled { opacity: .5; cursor: not-allowed; }
 
+  /* ============ 关于页 ============ */
+  .about-wrap { flex: 1; display: grid; place-items: center; padding: 24px; overflow-y: auto; }
+  .about-card {
+    width: 100%; max-width: 340px; text-align: center;
+    border: 1px solid rgb(var(--line)); background: rgb(var(--card));
+    border-radius: 18px; padding: 28px 24px 22px;
+  }
+  .about-logo { width: 60px; height: 60px; font-size: 26px; border-radius: 16px; }
+  .about-title { margin: 12px 0 0; font-size: 19px; font-weight: 700; }
+  .about-ver { margin: 4px 0 0; font-size: 12px; color: rgb(var(--fg-dim)); }
+  .about-desc { margin: 12px auto 0; max-width: 260px; font-size: 12px; line-height: 1.7; color: rgb(var(--fg-dim)); }
+  .about-btns { margin-top: 18px; display: flex; justify-content: center; gap: 8px; }
+  .about-btns .btn { height: 36px; padding: 0 14px; }
+  .about-foot {
+    margin-top: 18px; padding-top: 14px; border-top: 1px solid rgb(var(--line));
+    font-size: 11px; line-height: 1.8; color: rgb(var(--fg-faint));
+  }
+
   /* ============ 弹窗 ============ */
   .overlay {
     position: fixed; inset: 0; z-index: 40;
@@ -1026,16 +1044,24 @@
         </div>
       </section>
 
-      <!-- ---- 关于（真实版本 / 开源信息） ---- -->
+      <!-- ---- 关于（设计稿 about 屏：居中卡片 + 检查更新/GitHub） ---- -->
       <section class="page" id="page-about" hidden data-page-node-id="pageAbout1">
-        <div class="act-card" data-page-node-id="acAbout1">
-          <span class="side-logo" style="width:52px;height:52px;font-size:22px;border-radius:14px" aria-hidden="true">A</span>
-          <p class="t">AnyBoot 远程管理</p>
-          <p class="s">
-            版本 <span class="mono" id="aboutVersion">—</span><br>
-            开源 · GitHub lidiaoo/anyboot · MIT 许可<br>
-            凭据 AES-256-GCM 加密存本机 · 终端 / 文件 / 密钥基于系统 ssh / sftp / ssh-keygen
-          </p>
+        <div class="about-wrap">
+          <div class="about-card">
+            <span class="side-logo about-logo" aria-hidden="true">A</span>
+            <h2 class="about-title">AnyBoot</h2>
+            <p class="about-ver mono">v<span id="aboutVersion">—</span> · remote</p>
+            <p class="about-desc">多系统引导管理 · 远程电源控制 · SSH 跳板机隧道 · SFTP 文件传输</p>
+            <div class="about-btns">
+              <button class="btn primary" id="aboutCheckUpdate" title="打开 GitHub Releases 查看最新版本">检查更新</button>
+              <button class="btn" id="aboutGitHub">GitHub · lidiaoo/anyboot</button>
+            </div>
+            <div class="about-foot">
+              开源许可 · MIT<br>
+              心跳 10s · 并发探测 · AES-256-GCM 凭据加密<br>
+              终端 / 文件 / 密钥基于系统 ssh / sftp / ssh-keygen
+            </div>
+          </div>
         </div>
       </section>
 
@@ -2217,7 +2243,7 @@
       const sv = document.getElementById('sideVersion');
       const av = document.getElementById('aboutVersion');
       if (sv) sv.textContent = 'v' + v + ' · remote';
-      if (av) av.textContent = 'v' + v;
+      if (av) av.textContent = v; // 卡片模板里已带「v」前缀
     }).catch(function () { });
   }
 
@@ -2667,6 +2693,20 @@
   }
   tick();
   setInterval(tick, 1000);
+
+  // ============ 关于页：GitHub 白名单跳转 ============
+  document.getElementById('aboutCheckUpdate').addEventListener('click', function () {
+    if (!invoke) { toast('需要应用环境', 'bad'); return; }
+    invoke('hub_about_open', { page: 'releases' })
+      .then(function () { toast('已在浏览器打开 Releases 页'); })
+      .catch(function (e) { toast('打开失败：' + e, 'bad'); });
+  });
+  document.getElementById('aboutGitHub').addEventListener('click', function () {
+    if (!invoke) { toast('需要应用环境', 'bad'); return; }
+    invoke('hub_about_open', { page: 'repo' })
+      .then(function () { toast('已在浏览器打开项目主页'); })
+      .catch(function (e) { toast('打开失败：' + e, 'bad'); });
+  });
 
   // ============ 传输页（文件窗 SFTP 实时队列抄送 + 历史） ============
   const txActive = new Map();   // key = dir|name → {dir,name,bytes,total,paused,lastB,lastT,speed}

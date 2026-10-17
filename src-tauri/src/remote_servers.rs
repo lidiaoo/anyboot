@@ -666,6 +666,17 @@ pub fn remote_test_via(
     }
 }
 
+/// 关于页：打开项目 GitHub 页面（白名单限定本项目域名，不开放任意 URL）。
+#[tauri::command]
+pub fn hub_about_open(page: String) -> Result<(), String> {
+    let url = match page.as_str() {
+        "repo" => "https://github.com/lidiaoo/anyboot",
+        "releases" => "https://github.com/lidiaoo/anyboot/releases",
+        _ => return Err(format!("未知页面: {page}")),
+    };
+    crate::open_url_in_browser(url)
+}
+
 // ==================== 单测 ====================
 
 #[cfg(test)]
