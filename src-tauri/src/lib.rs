@@ -5176,14 +5176,22 @@ pub(crate) fn open_keys_window(app: &AppHandle) -> Result<(), String> {
 }
 
 /// 前端按钮入口：hub 工具栏「密钥」
+///
+/// **必须是 async**：同步命令跑在 WebView2 的 IPC 回调里（UI 线程），在那里
+/// 再建一个 webview 属于「在 webview 回调里重入 WebView2 消息循环」——
+/// 窗口建得出来、但新页面永远停在白底首帧（不导航、不执行 JS），
+/// 用户看到的就是「点开空白窗口卡死」。async 命令改在 tokio 工作线程上跑，
+/// 开窗时不再重入，页面正常加载（与启动钩子那条后台线程路径一致）。
 #[tauri::command]
-fn hub_open_keys_window(app: AppHandle) -> Result<(), String> {
+async fn hub_open_keys_window(app: AppHandle) -> Result<(), String> {
     open_keys_window(&app)
 }
 
 /// 前端按钮入口：hub 详情「打开终端」（按 server_id 查档案 → 开/聚焦终端窗）
+///
+/// async 的理由同 `hub_open_keys_window`：别在 IPC 回调里建 webview。
 #[tauri::command]
-fn hub_open_term_window(app: AppHandle, server_id: String) -> Result<(), String> {
+async fn hub_open_term_window(app: AppHandle, server_id: String) -> Result<(), String> {
     let server = hub::load_servers_pub(&app)?
         .into_iter()
         .find(|s| s.id == server_id)
@@ -5192,8 +5200,10 @@ fn hub_open_term_window(app: AppHandle, server_id: String) -> Result<(), String>
 }
 
 /// 前端按钮入口：hub 详情「浏览文件」
+///
+/// async 的理由同 `hub_open_keys_window`：别在 IPC 回调里建 webview。
 #[tauri::command]
-fn hub_open_files_window(app: AppHandle, server_id: String) -> Result<(), String> {
+async fn hub_open_files_window(app: AppHandle, server_id: String) -> Result<(), String> {
     let server = hub::load_servers_pub(&app)?
         .into_iter()
         .find(|s| s.id == server_id)

@@ -247,6 +247,11 @@ pub(crate) fn apply_auth(
     {
         if !server.key_id.is_empty() {
             command.args(["-o", "BatchMode=yes"]);
+        } else {
+            // 密码认证**必须显式**关掉 BatchMode：默认值虽然是 no，但 `sftp -b`
+            // 会在内部把它打开，那时 askpass 一起被禁 → 只剩
+            // `No more authentication methods to try`（Windows 实测）。
+            command.args(["-o", "BatchMode=no"]);
         }
     }
     Ok(())

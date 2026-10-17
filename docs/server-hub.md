@@ -72,6 +72,11 @@ Unix 上终端先建立一条 ControlMaster，sftp / 隧道 / 远端命令都靠
 - 保存密码：`SSH_ASKPASS_REQUIRE=force` 走 askpass，每次多一次进程启动 + 一次握手
   （本地实测百毫秒级，文件浏览这种批操作一个批次只认证一次）。
 
+> **`sftp -b` 必须显式 `-o BatchMode=no`**：`sftp` 拿到 `-b` 会在内部把 BatchMode 打开，
+> 而 BatchMode 会连 askpass 一起禁掉 —— 密码认证的服务器于是只报
+> `No more authentication methods to try` / `Permission denied (password)`，
+> 文件列表永远空。`apply_auth` 在「只有密码、没有密钥」时会补上这个开关。
+
 副作用：Windows 上每次操作都会在服务器 `auth.log` 里留一条认证记录；Unix 上靠复用则会少很多。
 
 ---
@@ -93,5 +98,12 @@ Unix 上终端先建立一条 ControlMaster，sftp / 隧道 / 远端命令都靠
 - Windows：`cargo test` 166 项全过；askpass 端到端（真实二进制 + 真实加密配置）验证了
   「目标机密码 / 跳板机密码 / 回落 / CLI 不被劫持」四条；真实 `ssh` / `sftp` 进程确认会消费这套
   环境变量、参数顺序正确（以错误密码得到 `Permission denied` 收尾，不是挂死）。
-- **未验证**：Windows 上对真实服务器的完整密码登录 / sftp 列目录 / 隧道转发（本机没有可连的
-  测试服务器，Docker 与 PyPI 均被网络拦截）。这部分请在可连的服务器上按上表走一遍。
+- Windows 实机（2026-10-18，真实服务器 81.68.251.231，保存密码）：终端开窗即连上（MOTD + 提示符
+  + 延迟上报）、文件页能列 `/root`（36 项，权限/大小/时间正确）。
+- 同轮修掉的两个 Windows 专属缺陷：
+  ① hub 里点「打开终端 / 浏览文件 / 密钥」开出来的子窗**全白**——原因是这些命令是**同步命令**，
+     跑在 WebView2 的 IPC 回调（UI 线程）里，在同一线程重入 WebView2 建新 webview，窗口建得出来
+     但页面永不导航。改成 `async fn`（在 tokio 工作线程创建）即恢复正常。
+  ② 文件列表恒空——见上「`sftp -b` 必须显式 `BatchMode=no`」。
+- **未验证**：macOS / Linux 实机（mac 上 hub 开窗同样是 async 路径，但没跑过）。
+
