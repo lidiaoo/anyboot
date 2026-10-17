@@ -159,3 +159,68 @@ fun CodeIcon(tint: Color, size: Dp = 20.dp, modifier: Modifier = Modifier) = Dra
     drawLine(tint, Offset(15f * s, 6f * s), Offset(20.5f * s, 12f * s), 1.8f * s, StrokeCap.Round)
     drawLine(tint, Offset(20.5f * s, 12f * s), Offset(15f * s, 18f * s), 1.8f * s, StrokeCap.Round)
 }
+
+/** 下载（↓ + 底部托盘）：文件动作菜单「下载到本机」 */
+@Composable
+fun DownloadIcon(tint: Color, size: Dp = 20.dp, modifier: Modifier = Modifier) = DrawnIcon(size, tint, modifier) {
+    val s = it
+    drawLine(tint, Offset(12f * s, 3f * s), Offset(12f * s, 15f * s), 1.8f * s, StrokeCap.Round)
+    drawLine(tint, Offset(7f * s, 10f * s), Offset(12f * s, 15f * s), 1.8f * s, StrokeCap.Round)
+    drawLine(tint, Offset(17f * s, 10f * s), Offset(12f * s, 15f * s), 1.8f * s, StrokeCap.Round)
+    drawLine(tint, Offset(4f * s, 21f * s), Offset(20f * s, 21f * s), 1.8f * s, StrokeCap.Round)
+}
+
+/** 铅笔：文件动作菜单「重命名」/ 更多操作 */
+@Composable
+fun PencilIcon(tint: Color, size: Dp = 20.dp, modifier: Modifier = Modifier) = DrawnIcon(size, tint, modifier) {
+    val s = it
+    drawLine(tint, Offset(12f * s, 20f * s), Offset(21f * s, 20f * s), 1.8f * s, StrokeCap.Round)
+    val path = Path().apply {
+        moveTo(16.5f * s, 3.5f * s)
+        lineTo(19.5f * s, 6.5f * s)
+        lineTo(7f * s, 19f * s)
+        lineTo(3f * s, 20f * s)
+        lineTo(4f * s, 16f * s)
+        close()
+    }
+    drawPath(path, tint, style = Stroke(1.8f * s, cap = StrokeCap.Round))
+}
+
+/** 复制（双层方块）：文件动作菜单「复制路径」/ 更多操作 */
+@Composable
+fun CopyIcon(tint: Color, size: Dp = 20.dp, modifier: Modifier = Modifier) = DrawnIcon(size, tint, modifier) {
+    val s = it
+    drawRoundRect(
+        tint, topLeft = Offset(9f * s, 9f * s), size = Size(12f * s, 12f * s),
+        cornerRadius = CornerRadius(2f * s), style = pen(s),
+    )
+    val path = Path().apply {
+        moveTo(5f * s, 15f * s)
+        lineTo(4f * s, 15f * s)
+        lineTo(4f * s, 4f * s)
+        lineTo(15f * s, 4f * s)
+        lineTo(15f * s, 5f * s)
+    }
+    drawPath(path, tint, style = Stroke(1.8f * s, cap = StrokeCap.Round))
+}
+
+/** 垃圾桶：文件动作菜单「删除」/ 密钥/服务器删除入口 */
+@Composable
+fun TrashIcon(tint: Color, size: Dp = 20.dp, modifier: Modifier = Modifier) = DrawnIcon(size, tint, modifier) {
+    val s = it
+    drawLine(tint, Offset(3f * s, 6f * s), Offset(21f * s, 6f * s), 1.8f * s, StrokeCap.Round)
+    val lid = Path().apply {
+        moveTo(8f * s, 6f * s)
+        lineTo(8f * s, 4f * s)
+        lineTo(16f * s, 4f * s)
+        lineTo(16f * s, 6f * s)
+    }
+    drawPath(lid, tint, style = Stroke(1.8f * s, cap = StrokeCap.Round))
+    val body = Path().apply {
+        moveTo(19f * s, 6f * s)
+        lineTo(18f * s, 20f * s)
+        lineTo(6f * s, 20f * s)
+        lineTo(5f * s, 6f * s)
+    }
+    drawPath(body, tint, style = Stroke(1.8f * s, cap = StrokeCap.Round))
+}

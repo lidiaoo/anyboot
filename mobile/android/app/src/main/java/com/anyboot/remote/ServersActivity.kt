@@ -148,7 +148,7 @@ class ServersActivity : ComponentActivity() {
     private var sftpClipNames by mutableStateOf("")
 
     // 文件页：弹窗
-    private var sftpRowMenu by mutableStateOf<String?>(null)
+    private var sftpSheetEntry by mutableStateOf<SftpOps.Entry?>(null)
     private var sftpAskDelete by mutableStateOf<SftpOps.Entry?>(null)
     private var sftpAskRename by mutableStateOf<SftpOps.Entry?>(null)
     private var sftpAskDetail by mutableStateOf<SftpOps.Entry?>(null)
@@ -1946,6 +1946,7 @@ class ServersActivity : ComponentActivity() {
             sftpAskDetail?.let { FileDetailDialog(it, dialogServer) }
             sftpAskRename?.let { RenameFileDialog(it, dialogServer) }
             sftpAskDelete?.let { DeleteFileDialog(it, dialogServer) }
+            sftpSheetEntry?.let { FileActionSheet(it, dialogServer) }
             if (sftpMkdirOpen) MkdirDialog(dialogServer)
             if (sftpLocateOpen) LocateDialog(dialogServer)
             sftpPick?.let { DestPickerDialog(it, dialogServer) }
@@ -1987,6 +1988,146 @@ class ServersActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * 文件 / 目录「⋯」底部动作面板（设计稿 file-menu 屏一比一）：
+     * 预览卡（图标/名称/大小·时间）→ 变体动作（文件=下载到本机/重命名/复制路径/删除；
+     * 目录=重命名/复制路径/删除含全部内容）→ 分隔线后折叠「更多操作」收纳原有全套能力。
+     * 每个动作先收面板再干活；删除等确认弹窗沿用原有 sftpAsk* 通道。
+     */
+    @OptIn(ExperimentalMaterial3Api::class)
+    @Composable
+    private fun FileActionSheet(entry: SftpOps.Entry, server: JumpServer) {
+        val palette = LocalPalette.current
+        val path = SftpOps.join(sftpPath, entry.name)
+        val close = { sftpSheetEntry = null }
+
+        ModalBottomSheet(
+            onDismissRequest = { sftpSheetEntry = null },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            containerColor = palette.card,
+        ) {
+            Column(Modifier.padding(horizontal = 20.dp).padding(bottom = 24.dp)) {
+                // 对象预览卡
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(palette.base)
+                        .border(1.dp, palette.line, RoundedCornerShape(16.dp))
+                        .padding(12.dp),
+                ) {
+                    Box(
+                        Modifier
+                            .size(40.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(palette.accent.copy(alpha = 0.12f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        when {
+                            entry.dir -> FolderIcon(palette.accent, 20.dp)
+                            entry.name.endsWith(".sh") -> BoltIcon(palette.warn, 20.dp)
+                            else -> DocFileIcon(palette.accent, 20.dp)
+                        }
+                    }
+                    Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
+                        Text(
+                            entry.name,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (entry.name.endsWith(".sh") && !entry.dir) palette.warn else palette.fg,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            (if (entry.dir) "目录" else humanSize(entry.size)) + " · " + timeText(entry.mtime),
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = palette.fgDim,
+                        )
+                    }
+                    Text(
+                        "✕",
+                        fontSize = 14.sp,
+                        color = palette.fgDim,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(999.dp))
+                            .clickable { close() }
+                            .padding(8.dp),
+                    )
+                }
+
+                Spacer(Modifier.height(12.dp))
+
+                // 变体动作（设计稿主区）
+                if (entry.dir) {
+                    SheetAction("重命名") { close(); sftpAskRename = entry }
+                    SheetAction("复制路径") { close(); copyClipboard("路径", path) }
+                    SheetAction("删除（含目录内全部内容）", palette.bad) { close(); sftpAskDelete = entry }
+                } else {
+                    SheetAction("下载到本机", palette.accent) { close(); startDownload(entry.name) }
+                    SheetAction("重命名") { close(); sftpAskRename = entry }
+                    SheetAction("复制路径") { close(); copyClipboard("路径", path) }
+                    SheetAction("删除", palette.bad) { close(); sftpAskDelete = entry }
+                }
+
+                // 分隔线 + 折叠「更多操作」：原有全套能力原样保留
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 10.dp)
+                        .height(1.dp)
+                        .background(palette.line),
+                )
+                Text("更多操作", fontSize = 11.sp, color = palette.fgFaint, modifier = Modifier.padding(bottom = 4.dp))
+                SheetAction("详情", small = true) { close(); sftpAskDetail = entry }
+                SheetAction("复制", small = true) { close(); setClip(SftpClip.COPY, entry) }
+                SheetAction("剪切", small = true) { close(); setClip(SftpClip.CUT, entry) }
+                if (entry.dir && sftpClip != SftpClip.NONE) {
+                    SheetAction("粘贴到此目录", small = true) { close(); pasteClipboard(server, sftpPath) }
+                }
+                if (entry.dir) {
+                    SheetAction("在终端打开", small = true) { close(); openTerminalAt(server, path) }
+                }
+                SheetAction("复制到…", small = true) {
+                    close(); sftpPick = SftpPick(false, listOf(path), entry.name, sftpPath)
+                }
+                SheetAction("移动到…", small = true) {
+                    close(); sftpPick = SftpPick(true, listOf(path), entry.name, sftpPath)
+                }
+            }
+        }
+    }
+
+    /** 动作面板里的一行（设计稿 h-11 行：图标 + 文案；small=「更多操作」组的小字行） */
+    @Composable
+    private fun SheetAction(text: String, color: Color? = null, small: Boolean = false, onClick: () -> Unit) {
+        val palette = LocalPalette.current
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = if (small) 38.dp else 44.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .clickable { onClick() }
+                .padding(horizontal = 12.dp),
+        ) {
+            when {
+                text.startsWith("下载") -> DownloadIcon(color ?: palette.fgDim, if (small) 15.dp else 18.dp)
+                text.startsWith("重命名") -> PencilIcon(color ?: palette.fgDim, if (small) 15.dp else 18.dp)
+                text.startsWith("复制路径") -> CopyIcon(color ?: palette.fgDim, if (small) 15.dp else 18.dp)
+                text.startsWith("删除") -> TrashIcon(color ?: palette.bad, if (small) 15.dp else 18.dp)
+            }
+            Text(
+                text,
+                fontSize = if (small) 13.sp else 14.sp,
+                fontWeight = if (!small && color != null) FontWeight.Medium else FontWeight.Normal,
+                color = color ?: palette.fg,
+                modifier = Modifier.padding(start = 12.dp),
+            )
+        }
+    }
+
     /** 文件 / 目录一行（设计稿三列行卡）：点一下进目录或下载；长按整行、或点行末 ⋮ 都出操作菜单 */
     @OptIn(ExperimentalFoundationApi::class)
     @Composable
@@ -2009,7 +2150,7 @@ class ServersActivity : ComponentActivity() {
                             startDownload(entry.name)
                         }
                     },
-                    onLongClick = { sftpRowMenu = entry.name },
+                    onLongClick = { sftpSheetEntry = entry },
                 )
                 .padding(start = 14.dp, end = 2.dp, top = 10.dp, bottom = 10.dp),
         ) {
@@ -2046,54 +2187,16 @@ class ServersActivity : ComponentActivity() {
                 textAlign = androidx.compose.ui.text.style.TextAlign.End,
                 modifier = Modifier.width(72.dp),
             )
-            Box {
-                Text(
-                    "⋮",
-                    fontSize = 17.sp,
-                    color = palette.fgDim,
-                    modifier = Modifier
-                        .clickable { sftpRowMenu = entry.name }
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                )
-                DropdownMenu(
-                    expanded = sftpRowMenu == entry.name,
-                    onDismissRequest = { sftpRowMenu = null },
-                ) {
-                    RowMenuItem("详情") { sftpAskDetail = entry }
-                    RowMenuItem("重命名") { sftpAskRename = entry }
-                    RowMenuItem("复制") { setClip(SftpClip.COPY, entry) }
-                    RowMenuItem("剪切") { setClip(SftpClip.CUT, entry) }
-                    if (entry.dir && sftpClip != SftpClip.NONE) {
-                        RowMenuItem("粘贴到此处") { pasteClipboard(server, path) }
-                    }
-                    if (entry.dir) {
-                        RowMenuItem("在终端打开") { openTerminalAt(server, path) }
-                    }
-                    RowMenuItem("复制到…") {
-                        sftpPick = SftpPick(false, listOf(path), entry.name, sftpPath)
-                    }
-                    RowMenuItem("移动到…") {
-                        sftpPick = SftpPick(true, listOf(path), entry.name, sftpPath)
-                    }
-                    RowMenuItem("复制路径") { copyClipboard("路径", path) }
-                    RowMenuItem("删除", palette.bad) { sftpAskDelete = entry }
-                }
-            }
+            // 行末 ⋮：底部动作面板（设计稿 file-menu 屏一比一：预览卡 + 文件/目录变体动作 + 折叠更多）
+            Text(
+                "⋮",
+                fontSize = 17.sp,
+                color = palette.fgDim,
+                modifier = Modifier
+                    .clickable { sftpSheetEntry = entry }
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+            )
         }
-    }
-
-    /** 行菜单里的一项：点完先把菜单收起来，再干活 */
-    @Composable
-    private fun RowMenuItem(text: String, color: Color? = null, onClick: () -> Unit) {
-        DropdownMenuItem(
-            text = {
-                Text(text, color = color ?: LocalPalette.current.fg, fontSize = 14.sp)
-            },
-            onClick = {
-                sftpRowMenu = null
-                onClick()
-            },
-        )
     }
 
     /** 后台拉目录（结果落 sftpEntries / sftpError 状态） */
