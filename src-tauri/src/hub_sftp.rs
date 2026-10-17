@@ -705,21 +705,29 @@ fn abandon_transfer(
         // 处理，前端据此消卡。杀 running 的动作上面已经做过。
         return Ok(1);
     };
-    // 半截文件先清掉再摘记录：清失败不拦着放弃，记录也照样走
-    match task.dir.as_str() {
-        "down" => {
-            let _ = std::fs::remove_file(&task.local_path);
-        }
-        "up" => {
-            if let Ok(server) = load_server_by_id(app, &task.server_id) {
-                let _ = run_sftp_batch(
-                    app,
-                    &server,
-                    &format!("rm {}\n", sftp_quote(&task.remote_path)),
-                );
+    // 半截文件先清掉再摘记录：清失败不拦着放弃，记录也照样走。
+    // 已传满的记录（旧版本竞态留下的 100% 断点）文件是完整的，绝不能删。
+    let complete = {
+        let mut probe = task.clone();
+        probe.bytes = xfer_bytes_now(&probe);
+        xfer_is_complete(&probe)
+    };
+    if !complete {
+        match task.dir.as_str() {
+            "down" => {
+                let _ = std::fs::remove_file(&task.local_path);
             }
+            "up" => {
+                if let Ok(server) = load_server_by_id(app, &task.server_id) {
+                    let _ = run_sftp_batch(
+                        app,
+                        &server,
+                        &format!("rm {}\n", sftp_quote(&task.remote_path)),
+                    );
+                }
+            }
+            _ => {}
         }
-        _ => {}
     }
     remove_paused(state, app, &task.key);
     Ok(1)
