@@ -2230,6 +2230,7 @@
   let activeRemote = 'local'; // 'local' | RemoteServer.id
   let localEndpoint = null;   // { port, token, enabled }
   const pcFrames = new Map(); // rid -> iframe（lazy 创建；重载 = 重建）
+  const pcEps = new Map();    // rid -> {host,port}（经跳板机的本地转发端点，异步解析）
 
   function pcName(r) { return r.name || r.group || r.addresses[0] || '(未命名)'; }
   function pcFirstAddr(r) {
@@ -2237,7 +2238,25 @@
     if (!addr) return '';
     return addr.indexOf(':') >= 0 ? addr : addr + ':12300';
   }
-  function pcUrl(r) { return 'http://' + pcFirstAddr(r) + '/?token=' + encodeURIComponent(r.token || ''); }
+  function pcUrl(r) {
+    const token = encodeURIComponent(r.token || '');
+    if (r.jump_id) {
+      const ep = pcEps.get(r.id);
+      // 跳板端点还没解析好：返回空串，pcResolveEp 到货后重建 iframe
+      return ep ? 'http://' + ep.host + ':' + ep.port + '/?token=' + token : '';
+    }
+    return 'http://' + pcFirstAddr(r) + '/?token=' + token;
+  }
+  // 经跳板机：后端起 ControlMaster 复用的 ssh -L 转发，端点 = 127.0.0.1:<port>
+  function pcResolveEp(r) {
+    if (!invoke || pcEps.has(r.id)) return;
+    invoke('remote_endpoint', { serverId: r.id })
+      .then(function (ep) {
+        pcEps.set(r.id, ep);
+        if (pcFrames.has(r.id)) pcReload(r.id);
+      })
+      .catch(function (e) { toast('「' + pcName(r) + '」经跳板机连接失败：' + e, 'bad'); });
+  }
   function localUrl() {
     if (!localEndpoint || !localEndpoint.port) return '';
     return 'http://127.0.0.1:' + localEndpoint.port + '/?token=' + encodeURIComponent(localEndpoint.token || '');
@@ -2256,6 +2275,8 @@
     }
     renderPcChips();
     updatePcMenuState();
+    // 经跳板机的服务端：后台解析本地转发端点，到货后 iframe 才有 src
+    remotes.forEach(function (r) { if (r.jump_id) pcResolveEp(r); });
     // 「启动时连接全部服务端」：预载所有远端页面（加载即连接，对齐手机 connectAllServers）
     if (connectAll) remotes.forEach(function (r) { pcEnsureFrame(r.id); });
     // 端点晚到时补挂挂起的 iframe
@@ -2467,7 +2488,14 @@
     const out = document.getElementById('rsTestOut');
     out.classList.remove('bad');
     out.textContent = '探测中…';
-    invoke('remote_test', { addresses: addresses, probeMode: rsProbe })
+    // 选了跳板机 → 走后端转发后探测（真实链路）；未保存的新档案先落库才能建转发
+    const viaJump = !!document.getElementById('rsJump').value;
+    const call = !viaJump
+      ? invoke('remote_test', { addresses: addresses, probeMode: rsProbe })
+      : (rsEditing
+          ? invoke('remote_test_via', { serverId: rsEditing })
+          : Promise.reject(new Error('经跳板机测试需先保存档案：先点一次「保存」，再回来测试')));
+    call
       .then(function (result) {
         if (result.ok) {
           out.textContent = '✓ ' + result.addr + ' · ' + result.ms + 'ms' +

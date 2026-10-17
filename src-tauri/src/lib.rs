@@ -14704,7 +14704,8 @@ pub fn run() {
         // server-hub 的文件浏览窗状态（pending 服务器 + 传输子进程表，见 hub_sftp.rs）
         .manage(hub_sftp::HubSftpState::default())
         // server-hub 的隧道进程表（应用退出时全收，见 hub_tunnel::kill_all）
-        .manage(hub_tunnel::HubTunnelState::default());
+        .manage(hub_tunnel::HubTunnelState::default())
+        .manage(remote_servers::RemoteJumpState::default());
     // macOS 13+ 走系统登录项（见 login_item），这里的 LaunchAgent 方式仅作为
     // 旧版 macOS 以及 Windows / Linux 的实现。移动端没有「开机自启」，不注册。
     #[cfg(desktop)]
@@ -15068,6 +15069,8 @@ pub fn run() {
             remote_servers::remote_delete,
             remote_servers::remote_set_connect_all,
             remote_servers::remote_test,
+            remote_servers::remote_endpoint,
+            remote_servers::remote_test_via,
             remote_servers::local_http_endpoint,
             hub::hub_list_servers,
             hub::hub_save_server,
@@ -15192,6 +15195,13 @@ pub fn run() {
                 hub_term::kill_all(app);
                 hub_sftp::kill_all(app);
                 hub_tunnel::kill_all(app);
+                // 电脑页「经跳板机」的本地转发子进程
+                if let Ok(mut state) = app.state::<remote_servers::RemoteJumpState>().forwards.lock() {
+                    for (_, f) in state.iter_mut() {
+                        let _ = f.child.kill();
+                        let _ = f.child.wait();
+                    }
+                }
             }
         });
 }

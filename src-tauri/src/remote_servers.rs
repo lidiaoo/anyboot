@@ -335,7 +335,12 @@ pub fn remote_save(app: AppHandle, server: RemoteServer) -> Result<RemoteServer,
 }
 
 #[tauri::command]
-pub fn remote_delete(app: AppHandle, id: String) -> Result<(), String> {
+pub fn remote_delete(
+    app: AppHandle,
+    state: tauri::State<'_, RemoteJumpState>,
+    id: String,
+) -> Result<(), String> {
+    kill_forward(state.inner(), &id);
     let mut store = load_store(&app)?;
     let before = store.servers.len();
     store.servers.retain(|s| s.id != id);
@@ -456,6 +461,209 @@ pub fn remote_test(addresses: Vec<String>, probe_mode: String) -> RemoteTestResu
             first_error
         },
     })
+}
+
+// ==================== 经跳板机连接远端 AnyBoot ====================
+
+/// 远端端点：直连 = 目标地址原样；经跳板 = 复用跳板机 ControlMaster 的本地转发端口。
+#[derive(Clone, Debug, Serialize)]
+pub struct RemoteEndpoint {
+    pub host: String,
+    pub port: u16,
+    pub via_jump: bool,
+}
+
+/// 经跳板机的本地转发子进程（按远端档案 id 记，应用退出统一收掉）。
+pub struct JumpForward {
+    pub child: std::process::Child,
+    pub local_port: u16,
+    pub target: String,
+}
+
+/// 经跳板转发进程表
+#[derive(Default)]
+pub struct RemoteJumpState {
+    pub forwards: std::sync::Mutex<std::collections::HashMap<String, JumpForward>>,
+}
+
+/// 地址 → 转发目标 (host, port)：URL / host:port / 裸 host 都吃，缺省端口 12300。
+fn remote_target(raw: &str) -> (String, u16) {
+    let (host, port) = split_address(raw);
+    if let Some(p) = port.and_then(|x| x.parse::<u16>().ok()) {
+        return (host, p);
+    }
+    // 非 URL 且自带端口（split_address 对 host:port 原样返回）
+    if let Some(idx) = host.rfind(':') {
+        if let Ok(p) = host[idx + 1..].parse::<u16>() {
+            return (host[..idx].to_string(), p);
+        }
+    }
+    (host, DEFAULT_PORT)
+}
+
+/// `-L` 转发参数（纯函数，单测）
+fn remote_forward_arg(local_port: u16, host: &str, port: u16) -> String {
+    format!("127.0.0.1:{local_port}:{host}:{port}")
+}
+
+fn kill_forward(state: &RemoteJumpState, id: &str) {
+    if let Ok(mut map) = state.forwards.lock() {
+        if let Some(mut f) = map.remove(id) {
+            let _ = f.child.kill();
+            let _ = f.child.wait();
+        }
+    }
+}
+
+/// 端点解析（命令体）：直连返回首个地址；经跳板确保本地转发活着并返回 127.0.0.1:port。
+fn remote_endpoint_inner(
+    app: &AppHandle,
+    state: &RemoteJumpState,
+    server_id: &str,
+) -> Result<RemoteEndpoint, String> {
+    let store = load_store(app)?;
+    let server = store
+        .servers
+        .iter()
+        .find(|s| s.id == server_id)
+        .ok_or_else(|| format!("服务端不存在（{server_id}）"))?
+        .clone();
+    let raw = server
+        .addresses
+        .iter()
+        .map(|s| s.trim())
+        .find(|s| !s.is_empty())
+        .ok_or_else(|| "该服务端没有可连的地址".to_string())?
+        .to_string();
+    let (host, port) = remote_target(&raw);
+    if server.jump_id.is_empty() {
+        return Ok(RemoteEndpoint { host, port, via_jump: false });
+    }
+
+    // 已有活转发且目标一致 → 直接复用（地址改了就走重建）
+    let target = remote_forward_arg(0, &host, port);
+    if let Ok(mut map) = state.forwards.lock() {
+        if let Some(f) = map.get_mut(server_id) {
+            if f.target == target && f.child.try_wait().ok().flatten().is_none() {
+                return Ok(RemoteEndpoint {
+                    host: "127.0.0.1".into(),
+                    port: f.local_port,
+                    via_jump: true,
+                });
+            }
+        }
+    }
+    kill_forward(state, server_id);
+
+    let jump = crate::hub::load_servers_pub(app)?
+        .into_iter()
+        .find(|s| s.id == server.jump_id)
+        .ok_or_else(|| "跳板机已被删除，请重新选择".to_string())?;
+    if jump.protocol != "ssh" {
+        return Err("跳板机必须是 SSH 服务器".to_string());
+    }
+    let control = crate::hub_tunnel::control_path(app, &jump.id)?;
+    if !control.exists() {
+        return Err(
+            "跳板机还没有可复用的认证连接：先在「服务器」页对它开一次终端完成认证".to_string(),
+        );
+    }
+    // 找一个空闲本地端口
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0))
+        .map_err(|e| format!("拿不到空闲本地端口: {e}"))?;
+    let local_port = listener.local_addr().map_err(|e| e.to_string())?.port();
+    drop(listener);
+
+    let jump_user = if jump.username.is_empty() {
+        String::new()
+    } else {
+        format!("{}@", jump.username)
+    };
+    let mut command = std::process::Command::new("ssh");
+    command
+        .arg("-N")
+        .arg("-T")
+        .arg("-o")
+        .arg("BatchMode=yes")
+        .arg("-o")
+        .arg(format!("ControlPath={}", control.display()))
+        .arg("-o")
+        .arg("ExitOnForwardFailure=yes")
+        .arg("-L")
+        .arg(remote_forward_arg(local_port, &host, port))
+        .arg("-p")
+        .arg(jump.effective_port().to_string())
+        .arg(format!("{jump_user}{}", jump.host));
+    command
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    let mut child = command
+        .spawn()
+        .map_err(|error| format!("无法启动 ssh: {error}"))?;
+    // 1.2s 内就退出 = 转发没建立（跳板连接断了等）
+    std::thread::sleep(Duration::from_millis(1200));
+    if let Ok(Some(status)) = child.try_wait() {
+        let _ = child.wait();
+        return Err(format!("跳板转发建立失败（exit {status}）"));
+    }
+    if let Ok(mut map) = state.forwards.lock() {
+        map.insert(
+            server_id.to_string(),
+            JumpForward { child, local_port, target },
+        );
+    }
+    Ok(RemoteEndpoint { host: "127.0.0.1".into(), port: local_port, via_jump: true })
+}
+
+/// 电脑页 iframe / 健康检查要连的端点。
+#[tauri::command]
+pub fn remote_endpoint(
+    app: AppHandle,
+    state: tauri::State<'_, RemoteJumpState>,
+    server_id: String,
+) -> Result<RemoteEndpoint, String> {
+    remote_endpoint_inner(&app, state.inner(), &server_id)
+}
+
+/// 经跳板机探测：先确保本地转发，再对 127.0.0.1:port 做 /health 探测。
+#[tauri::command]
+pub fn remote_test_via(
+    app: AppHandle,
+    state: tauri::State<'_, RemoteJumpState>,
+    server_id: String,
+) -> RemoteTestResult {
+    let endpoint = match remote_endpoint_inner(&app, state.inner(), &server_id) {
+        Ok(ep) => ep,
+        Err(error) => {
+            return RemoteTestResult {
+                ok: false,
+                addr: String::new(),
+                ms: 0,
+                machine_id: String::new(),
+                machine_name: String::new(),
+                error,
+            }
+        }
+    };
+    match probe_health(&format!("{}:{}", endpoint.host, endpoint.port), PROBE_TIMEOUT) {
+        Ok((ms, machine_id, machine_name)) => RemoteTestResult {
+            ok: true,
+            addr: format!("127.0.0.1:{}（经跳板机）", endpoint.port),
+            ms,
+            machine_id,
+            machine_name,
+            error: String::new(),
+        },
+        Err(error) => RemoteTestResult {
+            ok: false,
+            addr: String::new(),
+            ms: 0,
+            machine_id: String::new(),
+            machine_name: String::new(),
+            error,
+        },
+    }
 }
 
 // ==================== 单测 ====================
@@ -580,6 +788,22 @@ mod tests {
         let loaded = load_store_from(&path);
         assert_eq!(loaded, store);
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn remote_target_forms() {
+        // 裸 host → 默认端口
+        assert_eq!(remote_target("192.168.0.120"), ("192.168.0.120".into(), 12300));
+        // host:port
+        assert_eq!(remote_target("10.0.0.8:12400"), ("10.0.0.8".into(), 12400));
+        // URL 形态（split_address 拆出 authority 与端口）
+        assert_eq!(remote_target("http://192.168.0.120:12300/"), ("192.168.0.120".into(), 12300));
+        assert_eq!(remote_target("  http://home.example.com  "), ("home.example.com".into(), 12300));
+    }
+
+    #[test]
+    fn remote_forward_arg_shape() {
+        assert_eq!(remote_forward_arg(15300, "192.168.0.120", 12300), "127.0.0.1:15300:192.168.0.120:12300");
     }
 
     #[test]
