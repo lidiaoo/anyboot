@@ -142,6 +142,40 @@ pub fn hub_term_sessions(
         .unwrap_or_default()
 }
 
+/// 组装跳板机 ProxyCommand（纯函数：单测直接喂参数，不依赖 AppHandle）。
+/// 形态：`ssh -o StrictHostKeyChecking=accept-new [env SSH_ASKPASS='…'
+/// SSH_ASKPASS_REQUIRE=force] [-o IdentitiesOnly=yes -i '…'] -p PORT user@host -W %h:%p`
+fn jump_proxy_command(
+    jump: &crate::hub::HubServer,
+    askpass_path: Option<&std::path::Path>,
+    key_path: Option<&std::path::Path>,
+) -> String {
+    let mut proxy = String::from("ssh -o StrictHostKeyChecking=accept-new");
+    if let Some(script) = askpass_path {
+        // 显式 env 前缀（OpenSSH 10 实测：`VAR=x cmd` 形式在 ProxyCommand 里
+        // 会被当成可执行文件名解析直接挂）；单引号包路径，配置目录可能带空格
+        proxy.push_str(&format!(
+            " env SSH_ASKPASS='{}' SSH_ASKPASS_REQUIRE=force",
+            script.display()
+        ));
+    }
+    if let Some(key) = key_path {
+        proxy.push_str(&format!(" -o IdentitiesOnly=yes -i '{}'", key.display()));
+    }
+    let jump_user = if jump.username.is_empty() {
+        String::new()
+    } else {
+        format!("{}@", jump.username)
+    };
+    proxy.push_str(&format!(
+        " -p {} {}{} -W %h:%p",
+        jump.effective_port(),
+        jump_user,
+        jump.host
+    ));
+    proxy
+}
+
 /// 打开终端：PTY 里跑 `ssh -p PORT user@host`，读线程/等待线程开始推事件。
 /// `window` 由 Tauri 注入 = 调用方窗口（server-term 页内的标签全归它）。
 #[tauri::command]
@@ -232,28 +266,18 @@ pub fn hub_term_open(
         if jump.protocol != "ssh" {
             return Err(format!("跳板机「{}」不是 SSH 服务器", jump.name));
         }
-        let mut proxy = String::from("ssh -o StrictHostKeyChecking=accept-new");
-        if !jump.password_enc.is_empty() {
-            let config = crate::config_dir(&app)?;
-            let script = crate::hub_vault::write_askpass_script(&config, &jump.id)?;
-            // 单引号包路径：配置目录可能带空格；命令整体作为一个 argv 传给 sh -c
-            proxy.push_str(&format!(" SSH_ASKPASS='{}' SSH_ASKPASS_REQUIRE=force", script.display()));
-        }
-        if !jump.key_id.is_empty() {
-            let key = crate::hub_keys::private_key_path(&app, &jump.key_id)?;
-            proxy.push_str(&format!(" -o IdentitiesOnly=yes -i '{}'", key.display()));
-        }
-        let jump_user = if jump.username.is_empty() {
-            String::new()
+        let askpass = if jump.password_enc.is_empty() {
+            None
         } else {
-            format!("{}@", jump.username)
+            let config = crate::config_dir(&app)?;
+            Some(crate::hub_vault::write_askpass_script(&config, &jump.id)?)
         };
-        proxy.push_str(&format!(
-            " -p {} {}{} -W %h:%p",
-            jump.effective_port(),
-            jump_user,
-            jump.host
-        ));
+        let key = if jump.key_id.is_empty() {
+            None
+        } else {
+            Some(crate::hub_keys::private_key_path(&app, &jump.key_id)?)
+        };
+        let proxy = jump_proxy_command(&jump, askpass.as_deref(), key.as_deref());
         command.args(["-o", &format!("ProxyCommand={proxy}")]);
     }
     let mut child = pair
@@ -612,5 +636,51 @@ mod tests {
             format!("{}@{}", server.username, server.host)
         };
         assert_eq!(format!("{target}:{port}"), "root@127.0.0.1:22");
+    }
+
+    #[test]
+    fn jump_proxy_command_shapes() {
+        let mut jump = HubServer {
+            id: "j".into(),
+            name: "跳板".into(),
+            protocol: "ssh".into(),
+            host: "10.0.0.2".into(),
+            port: 0,
+            username: "root".into(),
+            notes: String::new(),
+            key_id: String::new(),
+            password_enc: String::new(),
+            jump_id: String::new(),
+            password_new: None,
+            created_at: 0,
+        };
+
+        // 密码跳板：显式 env 前缀（OpenSSH 10 兼容），路径单引号包裹（可含空格）
+        let p = jump_proxy_command(&jump, Some(std::path::Path::new("/c dir/ask.sh")), None);
+        assert!(p.starts_with("ssh -o StrictHostKeyChecking=accept-new"));
+        assert!(p.contains(" env SSH_ASKPASS='/c dir/ask.sh' SSH_ASKPASS_REQUIRE=force"));
+        assert!(!p.contains("IdentitiesOnly"));
+        assert!(p.ends_with(" -p 22 root@10.0.0.2 -W %h:%p"));
+
+        // 密钥跳板：-i，无 askpass
+        let p = jump_proxy_command(&jump, None, Some(std::path::Path::new("/keys/k")));
+        assert!(p.contains(" -o IdentitiesOnly=yes -i '/keys/k'"));
+        assert!(!p.contains("SSH_ASKPASS"));
+
+        // 交互跳板：两者都没有（密码提示走 /dev/tty）
+        let p = jump_proxy_command(&jump, None, None);
+        assert!(!p.contains("SSH_ASKPASS") && !p.contains("IdentitiesOnly"));
+
+        // 无用户名 → 不带 user@；显式端口；Telnet 默认端口 23
+        jump.username = String::new();
+        let p = jump_proxy_command(&jump, None, None);
+        assert!(p.ends_with(" -p 22 10.0.0.2 -W %h:%p"));
+        jump.port = 2222;
+        let p = jump_proxy_command(&jump, None, None);
+        assert!(p.ends_with(" -p 2222 10.0.0.2 -W %h:%p"));
+        jump.protocol = "telnet".into();
+        jump.port = 0;
+        let p = jump_proxy_command(&jump, None, None);
+        assert!(p.ends_with(" -p 23 10.0.0.2 -W %h:%p"));
     }
 }
