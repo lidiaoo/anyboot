@@ -215,6 +215,47 @@ pub fn hub_term_open(
             command.args(["-o", "ControlPersist=600"]);
         }
     }
+    // 经由跳板机（M-jump）：ProxyCommand 先登录跳板机，再 `-W %h:%p` 把 stdin/stdout
+    // 接到目标主机 —— 外层 ssh 只看到一条已经打通的管道。文件 / 隧道复用本连接的
+    // ControlMaster，自动跟着走同一条链路。跳板凭据它自己的：
+    // - 存了密码 → 内联 SSH_ASKPASS 指向跳板自己的 askpass 脚本（内联 env 只作用
+    //   于 ProxyCommand 这个 sh，不污染外层 ssh 的 askpass）；
+    // - 密钥 → 内联 `-i`；两者都没有 → 跳板的密码提示走 /dev/tty，在 PTY 里手输。
+    if !server.jump_id.is_empty() {
+        if server.jump_id == server.id {
+            return Err("跳板机不能是服务器自己".to_string());
+        }
+        let jump = crate::hub::load_servers_pub(&app)?
+            .into_iter()
+            .find(|s| s.id == server.jump_id)
+            .ok_or_else(|| "找不到经由的跳板机，请在「编辑」里重新选择或改回直连".to_string())?;
+        if jump.protocol != "ssh" {
+            return Err(format!("跳板机「{}」不是 SSH 服务器", jump.name));
+        }
+        let mut proxy = String::from("ssh -o StrictHostKeyChecking=accept-new");
+        if !jump.password_enc.is_empty() {
+            let config = crate::config_dir(&app)?;
+            let script = crate::hub_vault::write_askpass_script(&config, &jump.id)?;
+            // 单引号包路径：配置目录可能带空格；命令整体作为一个 argv 传给 sh -c
+            proxy.push_str(&format!(" SSH_ASKPASS='{}' SSH_ASKPASS_REQUIRE=force", script.display()));
+        }
+        if !jump.key_id.is_empty() {
+            let key = crate::hub_keys::private_key_path(&app, &jump.key_id)?;
+            proxy.push_str(&format!(" -o IdentitiesOnly=yes -i '{}'", key.display()));
+        }
+        let jump_user = if jump.username.is_empty() {
+            String::new()
+        } else {
+            format!("{}@", jump.username)
+        };
+        proxy.push_str(&format!(
+            " -p {} {}{} -W %h:%p",
+            jump.effective_port(),
+            jump_user,
+            jump.host
+        ));
+        command.args(["-o", &format!("ProxyCommand={proxy}")]);
+    }
     let mut child = pair
         .slave
         .spawn_command(command)
@@ -469,6 +510,7 @@ mod tests {
             notes: String::new(),
             key_id: String::new(),
             password_enc: String::new(),
+            jump_id: String::new(),
             password_new: None,
             created_at: 0,
         };
@@ -485,6 +527,7 @@ mod tests {
             notes: String::new(),
             key_id: String::new(),
             password_enc: String::new(),
+            jump_id: String::new(),
             password_new: None,
             created_at: 0,
         };
@@ -557,6 +600,7 @@ mod tests {
             notes: String::new(),
             key_id: String::new(),
             password_enc: String::new(),
+            jump_id: String::new(),
             password_new: None,
             created_at: 0,
         }

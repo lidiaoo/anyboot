@@ -41,6 +41,11 @@ pub struct HubServer {
     /// 存的密码（AES-256-GCM 密文）。空 = 未存。
     #[serde(default)]
     pub password_enc: String,
+    /// 经由哪台跳板机（另一台 HubServer.id）；空 = 直连，行为与现在完全一致。
+    /// 一个 SSH 服务器可以借助另一台 SSH 服务器连上：终端的 ssh 走 ProxyCommand
+    /// 先登录跳板机再转发；文件 / 隧道复用终端的 ControlMaster，自动跟着走。
+    #[serde(default)]
+    pub jump_id: String,
     /// 前端提交的新密码明文。只作为 hub_save_server 的入参字段：
     /// `skip_serializing` 保证它永不落盘、也永不回传给前端；
     /// hub_save_server 里消化成 password_enc（None = 不动已存密码，空串 = 清除）。
@@ -72,6 +77,7 @@ impl HubServer {
         self.host = self.host.trim().to_string();
         self.username = self.username.trim().to_string();
         self.key_id = self.key_id.trim().to_string();
+        self.jump_id = self.jump_id.trim().to_string();
         self
     }
 }
@@ -179,6 +185,15 @@ pub fn hub_save_server(app: AppHandle, server: HubServer) -> Result<HubServer, S
     if server.host.is_empty() {
         return Err("主机地址不能为空".to_string());
     }
+    // 跳板机只对 SSH 有意义：Telnet 没有转发能力；自引用直接拦下
+    if !server.jump_id.is_empty() {
+        if server.protocol != "ssh" {
+            return Err("经由跳板机只支持 SSH 服务器（Telnet 没有转发能力）".to_string());
+        }
+        if server.jump_id == server.id {
+            return Err("跳板机不能是服务器自己".to_string());
+        }
+    }
     let mut servers = load_servers(&app)?;
     if server.id.is_empty() {
         server.id = new_server_id();
@@ -215,12 +230,31 @@ pub fn hub_delete_server(app: AppHandle, id: String) -> Result<(), String> {
 }
 
 /// 测试连接：TCP 能不能握上手（不认证，认证在 M3 终端里由 ssh 本尊管）。
+/// 经由跳板机时，目标主机往往只有跳板机可达，直测 TCP 没有意义 ——
+/// 改测「跳板机通不通」，端到端连通性在终端里由 ssh 验证。
 #[tauri::command]
-pub fn hub_test_server(server: HubServer) -> Result<String, String> {
+pub fn hub_test_server(app: AppHandle, server: HubServer) -> Result<String, String> {
     let server = server.normalize();
+    check_test_target(&server)?;
+    if server.jump_id.is_empty() {
+        test_direct_tcp(server)
+    } else {
+        test_via_jump(&app, server)
+    }
+}
+
+/// 测试前的公共校验（独立成纯函数：单测不依赖 AppHandle）
+fn check_test_target(server: &HubServer) -> Result<(), String> {
     if server.host.is_empty() {
         return Err("主机地址不能为空".to_string());
     }
+    if !server.jump_id.is_empty() && server.jump_id == server.id {
+        return Err("跳板机不能是服务器自己".to_string());
+    }
+    Ok(())
+}
+
+fn test_direct_tcp(server: HubServer) -> Result<String, String> {
     let port = server.effective_port();
     let target = format!("{}:{}", server.host, port);
     let addresses: std::net::SocketAddr = target
@@ -236,6 +270,37 @@ pub fn hub_test_server(server: HubServer) -> Result<String, String> {
             addresses.ip()
         )),
         Err(error) => Err(format!("连不上 {target}: {error}")),
+    }
+}
+
+fn test_via_jump(app: &AppHandle, server: HubServer) -> Result<String, String> {
+    let target = format!("{}:{}", server.host, server.effective_port());
+    let jump = load_servers(app)?
+        .into_iter()
+        .find(|s| s.id == server.jump_id)
+        .ok_or_else(|| "找不到经由的跳板机，请重新选择或改回直连".to_string())?;
+    if jump.protocol != "ssh" {
+        return Err(format!("跳板机「{}」不是 SSH 服务器", jump.name));
+    }
+    let jump_port = jump.effective_port();
+    let jump_target = format!("{}:{}", jump.host, jump_port);
+    let addresses: std::net::SocketAddr = jump_target
+        .to_socket_addrs()
+        .map_err(|error| format!("无法解析 {jump_target}: {error}"))?
+        .next()
+        .ok_or_else(|| format!("无法解析 {jump_target}"))?;
+    match TcpStream::connect_timeout(&addresses, TEST_TIMEOUT) {
+        Ok(_) => Ok(format!(
+            "跳板机「{}」已连通 {}:{}（{}）—— 目标 {target} 将经由它中转，端到端连通性请打开终端验证",
+            jump.name,
+            jump.host,
+            jump_port,
+            addresses.ip()
+        )),
+        Err(error) => Err(format!(
+            "连不上跳板机「{}」（{jump_target}）: {error}",
+            jump.name
+        )),
     }
 }
 
@@ -268,6 +333,7 @@ mod tests {
             notes: String::new(),
             key_id: String::new(),
             password_enc: String::new(),
+            jump_id: String::new(),
             password_new: None,
             created_at: 0,
         }
@@ -357,8 +423,21 @@ mod tests {
         let server = HubServer {
             host: String::new(),
             ..sample("e")
+        }
+        .normalize();
+        assert!(check_test_target(&server).is_err());
+        // 自引用（跳板机 = 自己）同样拦下
+        let selfref = HubServer {
+            id: "srv-self".to_string(),
+            jump_id: "srv-self".to_string(),
+            ..sample("self")
         };
-        assert!(hub_test_server(server).is_err());
+        assert!(check_test_target(&selfref).is_err());
+        let fine = HubServer {
+            jump_id: "srv-other".to_string(),
+            ..sample("ok")
+        };
+        assert!(check_test_target(&fine).is_ok());
     }
 
     #[test]

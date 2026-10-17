@@ -832,6 +832,12 @@
           <label for="fPassword">密码（AES-256-GCM 加密存本机，连接免输）</label>
           <input id="fPassword" type="password" autocomplete="off" placeholder="">
         </div>
+        <div class="field" id="fJumpField">
+          <label for="fJump">经由跳板机（借助另一台已保存的 SSH 服务器中转：外网连内网机器）</label>
+          <select id="fJump" style="width:100%;background:rgb(var(--elevate));border:1px solid rgb(var(--line));border-radius:9px;padding:8px 11px;color:rgb(var(--fg));font:inherit;font-size:13px;outline:none">
+            <option value="">直连（默认）</option>
+          </select>
+        </div>
         <div class="field" data-page-node-id="fR4FQAB6M72wCWFaFAH6eO">
           <label for="fNotes" data-page-node-id="rlBknBjrbCcCulB2QXeCDj">备注</label>
           <textarea id="fNotes" rows="2" placeholder="可选"></textarea>
@@ -1314,6 +1320,13 @@
             : (server.password_enc ? '密码 · 已存（免输）' : '系统 ssh · 终端内交互')) +
         '</p></div>' +
         '<div><p class="k">端口</p><p class="v mono">' + port + '</p></div>' +
+        '<div><p class="k">经由</p><p class="v">' +
+          (() => {
+            if (!server.jump_id) return '直连';
+            const jump = servers.find(function (s) { return s.id === server.jump_id; });
+            return jump ? '跳板机 · ' + esc(jump.name || hostLabel(jump)) : '跳板机（已删除，保存后回落直连）';
+          })() +
+        '</p></div>' +
         '<div><p class="k">延迟</p><p class="v mono">' + msText + '</p></div>' +
       '</div>' +
       '<div class="d-section">' +
@@ -1524,6 +1537,10 @@
     document.querySelectorAll('#fProtoSeg button').forEach(function (b) {
       b.setAttribute('aria-selected', String(b.dataset.proto === editingProto));
     });
+    // 跳板机只对 SSH 有意义：Telnet 没有转发能力，整行收起并清空选择
+    const jumpField = document.getElementById('fJumpField');
+    jumpField.hidden = editingProto !== 'ssh';
+    if (editingProto !== 'ssh') document.getElementById('fJump').value = '';
   }
   document.querySelectorAll('#fProtoSeg button').forEach(function (b) {
     b.addEventListener('click', function () { setEditProto(b.dataset.proto); });
@@ -1567,6 +1584,29 @@
     select.value = selectedKeyId || keyOptions[0].id;
   }
 
+  /** 经由跳板机候选：其他已保存的 SSH 服务器（排除自己，自引用没有意义） */
+  function populateJumpOptions(selectedJumpId) {
+    const select = document.getElementById('fJump');
+    select.textContent = '';
+    const direct = document.createElement('option');
+    direct.value = '';
+    direct.textContent = '直连（默认）';
+    select.appendChild(direct);
+    for (const server of servers) {
+      if (server.id === editingId) continue;
+      if (server.protocol !== 'ssh') continue;
+      const opt = document.createElement('option');
+      opt.value = server.id;
+      opt.textContent = (server.name || hostLabel(server)) + '（' + hostLabel(server) + '）';
+      select.appendChild(opt);
+    }
+    select.value = selectedJumpId || '';
+    if (select.value !== (selectedJumpId || '')) {
+      // 选中的跳板机已被删：回落直连，别留着死 id
+      select.value = '';
+    }
+  }
+
   async function openEdit(server) {
     editingId = server ? server.id : null;
     editingServerPassword = !!(server && server.password_enc);
@@ -1578,6 +1618,7 @@
     document.getElementById('fUser').value = server ? server.username : '';
     document.getElementById('fNotes').value = server ? server.notes : '';
     document.getElementById('fPassword').value = '';
+    populateJumpOptions(server ? server.jump_id : '');
     setEditAuth(server && server.key_id ? 'key' : (editingServerPassword ? 'password' : 'interactive'));
     await loadKeyOptions(server ? server.key_id : '');
     document.getElementById('editError').textContent = '';
@@ -1611,6 +1652,7 @@
       username: document.getElementById('fUser').value,
       notes: document.getElementById('fNotes').value,
       key_id: editingAuth === 'key' ? (document.getElementById('fKey').value || '') : '',
+      jump_id: editingProto === 'ssh' ? (document.getElementById('fJump').value || '') : '',
       password_new: passwordNew,
       created_at: 0,
     };
