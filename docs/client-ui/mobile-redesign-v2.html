@@ -429,6 +429,14 @@ tailwind.config = {
             <p class="mt-0.5 text-[11px] leading-relaxed text-fgFaint" data-page-node-id="wJbz9soio5DkCBCfcaLSeS">加密存本机（Keystore），连接免输；关掉则清除已存凭据</p>
           </div>
         </div>
+        <div>
+          <span class="mb-1.5 block text-xs font-medium text-fgDim">经由跳板机（借助另一台 SSH 服务器中转）</span>
+          <button class="flex h-11 w-full cursor-pointer items-center justify-between rounded-xl border border-line bg-base px-3.5 text-sm transition-colors hover:border-lineStrong">
+            <span>直连（默认）</span>
+            <svg class="size-4 text-fgFaint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+          <span class="mt-1.5 block text-[11px] text-fgFaint">选中后先登录跳板机，再由它转发到这台服务器；Telnet 不支持</span>
+        </div>
         <button class="h-12 w-full cursor-pointer rounded-xl bg-accent text-sm font-bold text-white shadow-glow transition-all active:scale-[.98]" data-page-node-id="rjSY2xGL90zdv4TPYIZ3Z5">保存</button>
         <button class="h-12 w-full cursor-pointer rounded-xl border border-line text-sm font-medium text-fgDim transition-colors hover:border-lineStrong hover:text-fg" data-page-node-id="le9tWQTacS8mgVk1ypAQNA">测试连接</button>
       </div>
