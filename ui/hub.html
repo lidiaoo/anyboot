@@ -815,8 +815,17 @@
   .fb-bar > div { height:100%; border-radius:9999px; background:linear-gradient(90deg, rgb(var(--accent)), rgb(var(--fb-blue))); transition:width .25s; }
   .fb-bar.fb-indet > div { width:40% !important; animation:fb-slide 1.1s ease-in-out infinite; }
   @keyframes fb-slide { 0% { margin-left:-40%; } 100% { margin-left:100%; } }
+  .fb-bar.fb-paused > div { background:rgb(var(--warn) / .7); }
   .fb-pct { font-size:12px; color:rgb(var(--accent)); min-width:38px; text-align:right; }
   .fb-pct.fb-fail { color:rgb(var(--bad)); }
+  .fb-tbtn {
+    flex:none; height:24px; padding:0 10px; border-radius:7px; font-size:11px; cursor:pointer;
+    border:1px solid rgb(var(--line-strong)); background:rgb(var(--elevate)); color:rgb(var(--fg));
+    font-family:-apple-system,"Segoe UI","Noto Sans SC",sans-serif;
+  }
+  .fb-tbtn:hover { border-color:rgb(var(--accent)); }
+  .fb-tbtn.danger { border-color:rgb(var(--bad) / .4); color:rgb(var(--bad)); }
+  .fb-tbtn[hidden] { display:none; }
   .fb-foot {
     display:flex; align-items:center; gap:14px; flex:none;
     border-top:1px solid rgb(var(--line)); padding:7px 20px;
@@ -1160,15 +1169,16 @@
         <div class="session-list scroll-thin" id="sessionList"></div>
       </section>
 
-      <!-- ---- 传输（设计稿 transfers 屏：文件窗 SFTP 实时队列 + 历史；下载可暂停/续传/取消） ---- -->
+      <!-- ---- 传输（设计稿 transfers 屏：文件窗 SFTP 实时队列 + 历史；断点续传：暂停/继续/放弃对下载与上传都可用） ---- -->
       <section class="page" id="page-transfers" hidden data-page-node-id="pageTransfers1">
         <div class="page-head" style="display:flex;align-items:center;gap:10px">
           <div>
             <h2>传输</h2>
-            <span class="sub">「文件」窗口的 SFTP 实时队列 · 下载支持暂停 / 续传 / 取消，上传为整批执行</span>
+            <span class="sub">「文件」窗口的 SFTP 实时队列 · 暂停后可从断点继续（应用重启也不丢），放弃会清掉半截文件</span>
           </div>
           <span style="flex:1"></span>
           <button class="btn" id="txPauseAll">全部暂停</button>
+          <button class="btn" id="txResumeAll">全部继续</button>
           <button class="btn" id="txClearDone">清空已完成</button>
         </div>
         <div class="tx-list scroll-thin" id="txList"></div>
@@ -1220,12 +1230,14 @@
             <div class="fb-emptytip" id="fbEmptyTip" hidden></div>
           </div>
           <div class="fb-transfer" id="fbTransfer" hidden>
-            <svg class="fb-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-9-9"/></svg>
+            <svg class="fb-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" width="14" height="14"><path d="M21 12a9 9 0 1 1-9-9"/></svg>
             <span class="fb-tbadge fb-down" id="fbTransferDir" hidden>↓ 下载</span>
             <span id="fbTransferName">—</span>
             <div class="fb-bar" id="fbTransferBar"><div id="fbTransferFill" style="width:0%"></div></div>
             <span class="fb-tmeta" id="fbTransferMeta"></span>
             <span class="fb-pct" id="fbTransferPct">0%</span>
+            <button class="fb-tbtn" id="fbTransferAct" hidden>暂停</button>
+            <button class="fb-tbtn danger" id="fbTransferGiveup" hidden>放弃</button>
           </div>
           <div class="fb-foot"><span id="fbCount">—</span><span aria-hidden="true">·</span><span>SFTP 复用 SSH 会话</span></div>
         </div>
@@ -3078,8 +3090,11 @@
       .catch(function (e) { toast('打开失败：' + e, 'bad'); });
   });
 
-  // ============ 传输页（文件窗 SFTP 实时队列抄送 + 历史） ============
-  const txActive = new Map();   // key = dir|name → {dir,name,bytes,total,paused,lastB,lastT,speed}
+  // ============ 传输页（文件窗 SFTP 实时队列抄送 + 断点续传清单 + 历史） ============
+  // 数据双源：跑着的任务靠 hub-sftp-progress 事件实时推（txActive），暂停的
+  // 任务以后端断点清单为准（hub_sftp_transfer_list 轮询）—— 应用重启后事件
+  // 没了，清单还在，传输页照样能继续/放弃。
+  const txActive = new Map();   // key → {key,dir,name,bytes,total,paused,lastB,lastT,speed}
   let txHistory = [];
   try { txHistory = JSON.parse(localStorage.getItem('ab-transfer-history') || '[]') || []; } catch (e) { txHistory = []; }
   function txPersist() {
@@ -3094,6 +3109,7 @@
   }
   function txSpeedTick(tx, bytes, total) {
     const now = performance.now();
+    if (tx.paused) return tx.total > 0 ? '断点 ' + humanTxSize(tx.bytes) : '';
     if (tx.lastT) {
       const dt = (now - tx.lastT) / 1000;
       if (dt > 0.25) {
@@ -3112,9 +3128,10 @@
     }
     return meta;
   }
-  function txCtl(action) {
+  function txCtl(action, key) {
     if (!invoke) return Promise.resolve(0);
-    return invoke('hub_sftp_transfer_ctl', { action: action }).catch(function (e) { toast('传输控制失败：' + e, 'bad'); return 0; });
+    return invoke('hub_sftp_transfer_ctl', { action: action, key: key || null })
+      .catch(function (e) { toast('传输控制失败：' + e, 'bad'); return 0; });
   }
   function renderTransfers() {
     const box = document.getElementById('txList');
@@ -3122,7 +3139,7 @@
     box.textContent = '';
     if (!txActive.size && !txHistory.length) {
       box.innerHTML = '<div class="act-card" style="margin:8px 0"><p class="t">当前没有传输任务</p>' +
-        '<p class="s">在「文件」窗口上传 / 下载时，进度会实时汇总到这里。</p></div>';
+        '<p class="s">在「文件」窗口上传 / 下载时，进度会实时汇总到这里；暂停的任务可从断点继续。</p></div>';
       return;
     }
     for (const tx of txActive.values()) {
@@ -3133,36 +3150,44 @@
       const pct = tx.total > 0 ? Math.min(100, Math.round((tx.bytes / tx.total) * 100)) : 0;
       const badge = document.createElement('span');
       badge.className = 'tx-badge ' + (tx.paused ? 'paused' : tx.dir === 'up' ? 'up' : 'down');
-      badge.textContent = tx.paused ? '↑↓ 已暂停' : tx.dir === 'up' ? '↑ 上传' : '↓ 下载';
+      badge.textContent = tx.paused ? (tx.dir === 'up' ? '↑ 已暂停' : '↓ 已暂停') : tx.dir === 'up' ? '↑ 上传' : '↓ 下载';
       top.appendChild(badge);
       const name = document.createElement('span');
       name.className = 'tx-name'; name.textContent = tx.name || '—';
+      name.title = (tx.server_name ? tx.server_name + ' · ' : '') + (tx.paused ? '已暂停，可从断点继续' : '传输中');
       top.appendChild(name);
       const meta = document.createElement('span');
       meta.className = 'tx-meta';
       meta.textContent = (tx.total > 0 ? pct + '% · ' : '') + txSpeedTick(tx, tx.bytes, tx.total);
       top.appendChild(meta);
-      if (tx.dir === 'down') {
-        const act = document.createElement('button');
-        act.className = 'tx-mini'; act.textContent = tx.paused ? '续传' : '暂停';
-        act.addEventListener('click', function () {
-          txCtl(tx.paused ? 'resume' : 'pause').then(function (n) {
-            if (!n) return;
-            tx.paused = !tx.paused;
-            renderTransfers();
-          });
+      // 暂停/继续/放弃对下载与上传都可用（后端 reget/reput 断点续传）
+      const act = document.createElement('button');
+      act.className = 'tx-mini'; act.textContent = tx.paused ? '继续' : '暂停';
+      act.addEventListener('click', function () {
+        const goingPause = !tx.paused;
+        txCtl(goingPause ? 'pause' : 'resume', tx.key).then(function (n) {
+          if (!n) return;
+          if (goingPause) {
+            tx.paused = true;
+          } else {
+            txActive.delete(tx.key);   // 后端起新进程，清单轮询会把跑着的任务挂回来
+          }
+          renderTransfers();
         });
-        top.appendChild(act);
-        const cancel = document.createElement('button');
-        cancel.className = 'tx-mini danger'; cancel.textContent = '取消';
-        cancel.addEventListener('click', function () { txCtl('cancel'); });
-        top.appendChild(cancel);
-      } else {
-        const note = document.createElement('span');
-        note.className = 'tx-meta'; note.title = '上传为整批同步执行';
-        note.textContent = '整批执行';
-        top.appendChild(note);
-      }
+      });
+      top.appendChild(act);
+      const cancel = document.createElement('button');
+      cancel.className = 'tx-mini danger'; cancel.textContent = '放弃';
+      cancel.title = '删除半截文件并清掉这条记录';
+      cancel.addEventListener('click', function () {
+        txCtl('abandon', tx.key).then(function (n) {
+          if (!n) return;
+          txActive.delete(tx.key);
+          renderTransfers();
+          toast('已放弃 ' + (tx.name || ''));
+        });
+      });
+      top.appendChild(cancel);
       card.appendChild(top);
       const bar = document.createElement('div');
       bar.className = 'tx-bar' + (tx.paused ? ' paused' : '');
@@ -3196,23 +3221,49 @@
       }
     }
   }
+  // 断点清单进队列（暂停/中断的任务；跑着的靠事件，别重复挂）
+  function txAbsorbList(tasks) {
+    if (!Array.isArray(tasks)) return;
+    let changed = false;
+    for (const t of tasks) {
+      if (!t || !t.key || !t.paused) continue;
+      if (txActive.has(t.key)) continue;             // 跑着的版本已在列
+      const exist = txActive.get(t.key);
+      if (exist) continue;
+      txActive.set(t.key, {
+        key: t.key, dir: t.dir || 'down', name: t.name, bytes: t.bytes || 0,
+        total: t.total || 0, paused: true, lastB: 0, lastT: 0, speed: 0,
+        server_name: t.server_name || '',
+      });
+      changed = true;
+    }
+    if (changed) renderTransfers();
+  }
+  function txPollList() {
+    if (!invoke) return;
+    invoke('hub_sftp_transfer_list').then(txAbsorbList).catch(function () {});
+  }
   if (window.__TAURI__ && window.__TAURI__.event && window.__TAURI__.event.listen) {
     window.__TAURI__.event.listen('hub-sftp-progress', function (event) {
       const p = event.payload || {};
-      if (!p.name) return;
-      const key = (p.dir || 'down') + '|' + p.name;
+      if (!p.name || !p.key) return;
+      const key = p.key;
       if (p.failed) { txActive.delete(key); renderTransfers(); return; }
       let tx = txActive.get(key);
       if (!tx) {
-        tx = { dir: p.dir || 'down', name: p.name, bytes: 0, total: 0, paused: false, lastB: 0, lastT: 0, speed: 0 };
+        tx = { key: key, dir: p.dir || 'down', name: p.name, bytes: 0, total: 0, paused: false, lastB: 0, lastT: 0, speed: 0 };
         txActive.set(key, tx);
       }
-      if (p.done) {
+      if (p.paused) {
+        tx.paused = true;
+        tx.bytes = p.bytes || tx.bytes;
+      } else if (p.done) {
         txActive.delete(key);
         txHistory.unshift({ dir: tx.dir, name: tx.name, bytes: p.bytes || tx.bytes, total: p.total || tx.total, at: Date.now() });
         txHistory = txHistory.slice(0, 20);
         txPersist();
       } else {
+        tx.paused = false;
         tx.bytes = p.bytes || tx.bytes;
         if (p.total) tx.total = p.total;
       }
@@ -3221,10 +3272,26 @@
   }
   document.getElementById('txPauseAll').addEventListener('click', function () {
     txCtl('pause').then(function (n) {
-      if (!n) { toast('没有可暂停的下载'); return; }
-      txActive.forEach(function (tx) { if (tx.dir === 'down') tx.paused = true; });
+      if (!n) { toast('没有正在进行的传输'); return; }
+      txActive.forEach(function (tx) { if (!tx.paused) tx.paused = true; });
       renderTransfers();
-      toast('已暂停 ' + n + ' 个下载');
+      toast('已暂停 ' + n + ' 个传输，可从断点继续');
+    });
+  });
+  document.getElementById('txResumeAll').addEventListener('click', function () {
+    const paused = [];
+    txActive.forEach(function (tx) { if (tx.paused) paused.push(tx); });
+    if (!paused.length) { toast('没有已暂停的传输'); return; }
+    let ok = 0;
+    Promise.all(paused.map(function (tx) {
+      return txCtl('resume', tx.key).then(function (n) {
+        if (n) { ok++; txActive.delete(tx.key); }
+        return n;
+      });
+    })).then(function () {
+      renderTransfers();
+      toast(ok ? '已从断点继续 ' + ok + ' 个传输' : '没有续传成功，查看报错');
+      txPollList();
     });
   });
   document.getElementById('txClearDone').addEventListener('click', function () {
@@ -3232,6 +3299,9 @@
     txPersist();
     renderTransfers();
   });
+  // 启动 + 周期轮询：断点清单（应用重启后的暂停任务就在这里）
+  txPollList();
+  setInterval(txPollList, 3000);
 
   // ============ 终端设置页（localStorage 持久化 + 事件热更终端窗口） ============
   const TERM_SET_KEY = 'ab-term-settings';
@@ -3459,10 +3529,53 @@
   }
 
   /* ---- 传输条 ---- */
+  // 当前传输条指向的任务：{key, dir, paused}。按 key 调后端暂停/继续/放弃。
+  let fbTx = null;
+  function fbTxPaint() {
+    const has = !!fbTx;
+    fb$('fbTransferAct').hidden = !has;
+    fb$('fbTransferGiveup').hidden = !has;
+    if (!has) return;
+    fb$('fbTransferAct').textContent = fbTx.paused ? '继续' : '暂停';
+    fb$('fbTransferBar').classList.toggle('fb-paused', !!fbTx.paused);
+    fb$('fbTransferDir').textContent = fbTx.dir === 'up' ? (fbTx.paused ? '↑ 已暂停' : '↑ 上传') : (fbTx.paused ? '↓ 已暂停' : '↓ 下载');
+  }
+  function fbTxCtl(action) {
+    if (!invoke || !fbTx) return;
+    const key = fbTx.key;
+    const goingPause = action === 'pause';
+    invoke('hub_sftp_transfer_ctl', { action: action, key: key })
+      .then(function (n) {
+        if (!n) return;
+        if (goingPause) {
+          fbTx.paused = true;
+          fbTxPaint();
+          toast('已暂停，可稍后从断点继续');
+        } else {
+          // 继续后端会起新进程、进度事件重新推；条子回到跑动态
+          fbTx.paused = false;
+          fbTxPaint();
+          fb$('fbTransferPct').classList.remove('fb-fail');
+        }
+      })
+      .catch(function (e) { toast('传输控制失败：' + e, 'bad'); });
+  }
+  fb$('fbTransferAct').addEventListener('click', function () { fbTxCtl(fbTx && fbTx.paused ? 'resume' : 'pause'); });
+  fb$('fbTransferGiveup').addEventListener('click', function () {
+    if (!invoke || !fbTx) return;
+    invoke('hub_sftp_transfer_ctl', { action: 'abandon', key: fbTx.key })
+      .then(function (n) {
+        if (!n) return;
+        toast('已放弃：半截文件已清理');
+        fbTx = null;
+        fbHideTransfer();
+      })
+      .catch(function (e) { toast('放弃失败：' + e, 'bad'); });
+  });
   function fbShowTransfer(dir, name, indeterminate) {
     const badge = fb$('fbTransferDir');
     badge.hidden = !dir;
-    badge.textContent = dir === 'up' ? '↑ 上传' : '↓ 下载';
+    if (dir) badge.textContent = dir === 'up' ? '↑ 上传' : '↓ 下载';
     badge.className = 'fb-tbadge ' + (dir === 'up' ? 'fb-up' : 'fb-down');
     const key = dir + '|' + name;
     if (fbProg.key !== key) fbProg = { key: key, lastBytes: 0, lastT: 0, speed: 0 };
@@ -3802,27 +3915,48 @@
   if (window.__TAURI__ && window.__TAURI__.event && window.__TAURI__.event.listen) {
     window.__TAURI__.event.listen('hub-sftp-progress', function (event) {
       const p = event.payload || {};
-      if (!p.name) return;
+      if (!p.name || !p.key) return;
+      // 传输条指向跟随最新任务；同 key 的后续事件直接刷
+      if (!fbTx || fbTx.key !== p.key) fbTx = { key: p.key, dir: p.dir || 'down', paused: false };
       if (p.failed) {
+        fbTx = null;
         fb$('fbTransferPct').textContent = '失败';
         fb$('fbTransferPct').classList.add('fb-fail');
         fb$('fbTransferBar').classList.remove('fb-indet');
         fb$('fbTransferFill').style.width = '0%';
         fb$('fbTransferMeta').textContent = '';
+        fbTxPaint();
         return;
       }
-      fbShowTransfer(p.dir, (p.dir === 'up' ? '上传 ' : '下载 ') + p.name, p.dir === 'up' && !p.done);
+      fbShowTransfer(p.dir, (p.dir === 'up' ? '上传 ' : '下载 ') + p.name, p.dir === 'up' && !p.done && !p.paused && p.bytes === undefined);
+      if (p.paused) {
+        fbTx.paused = true;
+        fb$('fbTransferBar').classList.remove('fb-indet');
+        if (p.total > 0) {
+          const pct = Math.min(100, Math.round((p.bytes / p.total) * 100));
+          fb$('fbTransferFill').style.width = pct + '%';
+          fb$('fbTransferPct').textContent = pct + '%（断点）';
+        }
+        fb$('fbTransferMeta').textContent = '已暂停';
+        fbTxPaint();
+        return;
+      }
+      fbTxPaint();
       if (p.done) {
+        fbTx = null;
         fb$('fbTransferBar').classList.remove('fb-indet');
         fb$('fbTransferFill').style.width = '100%';
         fb$('fbTransferPct').textContent = '100%';
         fb$('fbTransferMeta').textContent = '';
+        fbTxPaint();
       } else if (p.total > 0) {
         fb$('fbTransferBar').classList.remove('fb-indet');
         const pct = Math.min(100, Math.round((p.bytes / p.total) * 100));
         fb$('fbTransferFill').style.width = pct + '%';
         fb$('fbTransferPct').textContent = pct + '%';
         fbProgTick(p.bytes, p.total);
+      } else {
+        fbTxPaint();
       }
     });
   }

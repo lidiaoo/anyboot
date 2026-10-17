@@ -14858,6 +14858,8 @@ pub fn run() {
                 let state = app.state::<Mutex<Settings>>();
                 *state.lock().expect("settings mutex poisoned") = settings;
             }
+            // 断点续传清单：应用重启后把暂停/中断的传输读回内存（传输页能看见、能续传）
+            hub_sftp::load_queue_at_startup(app.handle());
             #[cfg(target_os = "macos")]
             let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             // 「开机自启」同步是桌面专属（autostart 插件）
@@ -15092,6 +15094,7 @@ pub fn run() {
             hub_sftp::hub_sftp_mkdir,
             hub_sftp::hub_sftp_remove,
             hub_sftp::hub_sftp_transfer_ctl,
+            hub_sftp::hub_sftp_transfer_list,
             hub_sftp::hub_focus_window,
             hub_sftp::hub_sftp_rename,
             hub_sftp::hub_sftp_copy,

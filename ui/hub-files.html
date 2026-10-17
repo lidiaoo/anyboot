@@ -218,9 +218,18 @@
   .bar { height:6px; min-width:120px; flex:1; border-radius:9999px; background:rgb(var(--elevate)); overflow:hidden; }
   .bar > div { height:100%; border-radius:9999px; background:linear-gradient(90deg, rgb(var(--accent)), rgb(var(--tblue))); transition: width .25s; }
   .bar.indet > div { width:40% !important; animation:ab-slide 1.1s ease-in-out infinite; }
+  .bar.paused > div { background:rgb(var(--warn) / .7); }
   @keyframes ab-slide { 0% { margin-left:-40%; } 100% { margin-left:100%; } }
   .pct { font-size:12px; color:rgb(var(--accent)); min-width:38px; text-align:right; }
   .pct.fail { color:rgb(var(--bad)); }
+  .tbtn {
+    flex:none; height:24px; padding:0 10px; border-radius:7px; font-size:11px; cursor:pointer;
+    border:1px solid rgb(var(--linestrong)); background:rgb(var(--elevate)); color:rgb(var(--fg));
+    font-family:-apple-system,"Segoe UI","Noto Sans SC",sans-serif;
+  }
+  .tbtn:hover { border-color:rgb(var(--accent)); }
+  .tbtn.danger { border-color:rgb(var(--bad) / .4); color:rgb(var(--bad)); }
+  .tbtn[hidden] { display:none; }
   footer {
     display:flex; align-items:center; gap:14px; flex:none;
     border-top:1px solid rgb(var(--line)); background:rgb(var(--card) / .6);
@@ -306,12 +315,14 @@
 </div>
 
 <div class="transfer" id="transfer" hidden data-page-node-id="UFqs6GmrHkGHmcJJNWg5PX">
-  <svg class="spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" data-page-node-id="wSD8h36tA5ljKb5zQU6T4N"><path d="M21 12a9 9 0 1 1-9-9" data-page-node-id="PTbw9uqnBGRXmUFE4rGAMk"/></svg>
+  <svg class="spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" width="14" height="14" data-page-node-id="wSD8h36tA5ljKb5zQU6T4N"><path d="M21 12a9 9 0 1 1-9-9" data-page-node-id="PTbw9uqnBGRXmUFE4rGAMk"/></svg>
   <span class="tbadge down" id="transferDir" hidden data-page-node-id="MsFV8YwsTsbSPyupBPTsOO">↓ 下载</span>
   <span id="transferName" data-page-node-id="GD92drNmWPOJfdYCRylkv9">—</span>
   <div class="bar" id="transferBar" data-page-node-id="9ZYKnBrPQ7K86cpre1M16B"><div id="transferFill" style="width:0%" data-page-node-id="9Y6QAOfGGizgdx2v7K9vmJ"></div></div>
   <span class="tmeta" id="transferMeta" data-page-node-id="aBENSY1eW4mjhIDivRNsrd"></span>
   <span class="pct" id="transferPct" data-page-node-id="dw91cnMinFlnZ4veO3AwLz">0%</span>
+  <button class="tbtn" id="transferAct" hidden data-page-node-id="txActBtn1">暂停</button>
+  <button class="tbtn danger" id="transferGiveup" hidden data-page-node-id="txGiveupBtn1">放弃</button>
 </div>
 
 <footer data-page-node-id="DslhveVixpYawtZdkOAuVW">
@@ -685,6 +696,50 @@ function updateTransfer(bytes, total) {
 }
 function hideTransfer() { $('transfer').hidden = true; }
 
+/* ---------- 传输条暂停/继续/放弃（断点续传；按 key 调后端） ---------- */
+let tx = null;   // 当前传输条指向的任务 {key, dir, paused}
+function txPaint() {
+  const has = !!tx;
+  $('transferAct').hidden = !has;
+  $('transferGiveup').hidden = !has;
+  if (!has) return;
+  $('transferAct').textContent = tx.paused ? '继续' : '暂停';
+  $('transferBar').classList.toggle('paused', !!tx.paused);
+  $('transferDir').textContent = tx.dir === 'up'
+    ? (tx.paused ? '↑ 已暂停' : '↑ 上传')
+    : (tx.paused ? '↓ 已暂停' : '↓ 下载');
+}
+function txBarPausedCls(on) { $('transferBar').classList.toggle('paused', !!on); }
+$('transferAct').addEventListener('click', () => {
+  if (!invoke || !tx) return;
+  const goingPause = !tx.paused;
+  invoke('hub_sftp_transfer_ctl', { action: goingPause ? 'pause' : 'resume', key: tx.key })
+    .then((n) => {
+      if (!n) return;
+      if (goingPause) {
+        tx.paused = true;
+        txPaint();
+        toast('已暂停，可稍后从断点继续');
+      } else {
+        tx.paused = false;
+        $('transferPct').classList.remove('fail');
+        txPaint();
+      }
+    })
+    .catch((e) => toast('传输控制失败：' + e));
+});
+$('transferGiveup').addEventListener('click', () => {
+  if (!invoke || !tx) return;
+  invoke('hub_sftp_transfer_ctl', { action: 'abandon', key: tx.key })
+    .then((n) => {
+      if (!n) return;
+      toast('已放弃：半截文件已清理');
+      tx = null;
+      hideTransfer();
+    })
+    .catch((e) => toast('放弃失败：' + e));
+});
+
 async function downloadEntry(entry) {
   if (!invoke || !server || busy) return;
   busy = true;
@@ -1025,21 +1080,40 @@ setInterval(tickClock, 1000); tickClock();
 /* ---------- 后端事件 ---------- */
 if (listen) {
   listen('hub-sftp-progress', (event) => {
-    const { name, dir, bytes, total, done, failed } = event.payload;
+    const { name, key, dir, bytes, total, done, failed, paused } = event.payload;
+    // 传输条指向跟随最新任务；同 key 的后续事件直接刷
+    if (!tx || tx.key !== key) tx = { key, dir: dir || 'down', paused: false };
     if (failed) {
+      tx = null;
       $('transferPct').textContent = '失败';
       $('transferPct').classList.add('fail');
       $('transferBar').classList.remove('indet');
       $('transferFill').style.width = '0%';
       $('transferMeta').textContent = '';
+      txPaint();
       return;
     }
-    showTransfer(dir, (dir === 'up' ? '上传 ' : '下载 ') + name, dir === 'up' && !done);
+    showTransfer(dir, (dir === 'up' ? '上传 ' : '下载 ') + name, dir === 'up' && !done && !paused && bytes === undefined);
+    if (paused) {
+      tx.paused = true;
+      $('transferBar').classList.remove('indet');
+      if (total > 0) {
+        const pct = Math.min(100, Math.round((bytes / total) * 100));
+        $('transferFill').style.width = pct + '%';
+        $('transferPct').textContent = pct + '%（断点）';
+      }
+      $('transferMeta').textContent = '已暂停';
+      txPaint();
+      return;
+    }
+    txPaint();
     if (done) {
+      tx = null;
       $('transferBar').classList.remove('indet');
       $('transferFill').style.width = '100%';
       $('transferPct').textContent = '100%';
       $('transferMeta').textContent = '';
+      txPaint();
     } else if (total > 0) {
       $('transferBar').classList.remove('indet');
       updateTransfer(bytes, total);
