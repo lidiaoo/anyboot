@@ -53,6 +53,9 @@ final class SshSessionManager {
         long nextAttemptAt = 0;
         /** jumpId|destHost|destPort → 本地转发端口（复用） */
         final Map<String, Integer> tunnels = new HashMap<>();
+        /** 经由跳板机连接时：跳板会话 + 在它上面占的那条转发端口（断开时撤） */
+        Session viaSession;
+        int viaForwardPort = -1;
     }
 
     private final Map<String, Entry> entries = new HashMap<>();
@@ -92,6 +95,7 @@ final class SshSessionManager {
             }
             entry.session = null;
         }
+        releaseVia(entry);
         entry.tunnels.clear();
         entry.consecutiveFails++;
         long delay = Math.min(BACKOFF_CAP_MS, 1000L << Math.min(entry.consecutiveFails, 6));
@@ -101,13 +105,29 @@ final class SshSessionManager {
     /** 主动关闭（删除服务器时） */
     void shutdown(String jumpId) {
         Entry entry = entries.remove(jumpId);
-        if (entry != null && entry.session != null) {
+        if (entry != null) {
+            if (entry.session != null) {
+                try {
+                    entry.session.disconnect();
+                } catch (Exception ignored) {
+                    // 同上
+                }
+            }
+            releaseVia(entry);
+        }
+    }
+
+    /** 经由跳板机连接时，撤掉在跳板会话上占的那条转发（会话可能已死，异常忽略） */
+    private void releaseVia(Entry entry) {
+        if (entry.viaSession != null && entry.viaForwardPort > 0) {
             try {
-                entry.session.disconnect();
+                entry.viaSession.delPortForwardingL("127.0.0.1", entry.viaForwardPort);
             } catch (Exception ignored) {
-                // 同上
+                // 跳板会话都没了，转发自然跟着没了
             }
         }
+        entry.viaSession = null;
+        entry.viaForwardPort = -1;
     }
 
     /** 编辑保存后清退避状态（不动在线会话）—— 改完密码能立刻重连 */
@@ -156,6 +176,15 @@ final class SshSessionManager {
      * @throws Exception 连接失败 / 退避期内 / 用户拒绝了主机指纹
      */
     Session ensureSession(Context context, JumpServer server, Prompt prompt) throws Exception {
+        return ensureSession(context, server, prompt, true);
+    }
+
+    /**
+     * 带链路开关的内部版。{@code allowChain=false} 用在「作为跳板机被别人连」的
+     * 递归里：单层链，跳板自己的 jumpServerId 不再跟（防自引 / 成环）。
+     */
+    private Session ensureSession(Context context, JumpServer server, Prompt prompt,
+                                  boolean allowChain) throws Exception {
         Session live = liveSession(server.id);
         if (live != null) {
             return live;
@@ -187,9 +216,34 @@ final class SshSessionManager {
                         key.publicKey == null ? null : key.publicKey.getBytes("UTF-8"),
                         passphrase.getBytes("UTF-8"));
             }
+            // —— 经由跳板机：先确保跳板在线，再在跳板会话上开一条自动端口的
+            //    本地转发指向目标 ssh 端口，目标会话改连 127.0.0.1:转发口 ——
+            String connectHost = server.hostname();
+            int connectPort = server.port();
+            if (allowChain && !JumpStore.text(server.jumpServerId).isEmpty()) {
+                if (!server.isSsh()) {
+                    throw new Exception("Telnet 服务器不支持经由跳板机连接（隧道只走 SSH）");
+                }
+                JumpServer jump = JumpStore.findJump(JumpStore.loadJumps(context), server.jumpServerId);
+                if (jump == null) {
+                    throw new Exception("找不到经由的跳板机，请到「服务器」页检查，或改回直连");
+                }
+                if (!jump.isSsh()) {
+                    throw new Exception("跳板机只支持 SSH：「" + JumpStore.text(jump.name) + "」是 Telnet");
+                }
+                Session viaSession = ensureSession(context, jump, prompt, false);
+                connectPort = viaSession.setPortForwardingL("127.0.0.1", 0, connectHost, connectPort);
+                connectHost = "127.0.0.1";
+                entry.viaSession = viaSession;
+                entry.viaForwardPort = connectPort;
+            }
             Session session = jsch.getSession(
                     JumpStore.text(server.username).isEmpty() ? "root" : server.username,
-                    server.hostname(), server.port());
+                    connectHost, connectPort);
+            if (entry.viaSession != null) {
+                // 指纹按真实主机记/查（TOFU 存储以 server.host 为键），别记成 127.0.0.1
+                session.setHostKeyAlias(server.host);
+            }
             if (JumpServer.AUTH_PASSWORD.equals(server.authType)) {
                 // 优先用手动输入的应急密码，其次读落盘的
                 String password = manualPasswords.containsKey(server.id)
@@ -217,6 +271,7 @@ final class SshSessionManager {
             entry.nextAttemptAt = 0;
             return session;
         } catch (com.jcraft.jsch.JSchException error) {
+            releaseVia(entry);   // 连接没成，跳板上占的转发一并撤掉
             String message = String.valueOf(error.getMessage());
             if (message.startsWith("Auth fail")) {
                 throw new Exception("认证失败：用户名或密码不正确（服务器拒绝了登录）", error);
@@ -226,6 +281,7 @@ final class SshSessionManager {
             }
             throw error;
         } catch (Exception error) {
+            releaseVia(entry);   // 同上
             entry.consecutiveFails++;
             long delay = Math.min(BACKOFF_CAP_MS, 1000L << Math.min(entry.consecutiveFails, 6));
             entry.nextAttemptAt = System.currentTimeMillis() + delay;

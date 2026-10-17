@@ -47,6 +47,9 @@ final class JumpServer {
     /** 密钥口令（可空），同样 KeyVault 加密落盘 */
     String keyPassphraseEnc = "";
     String note = "";
+    /** 经由哪台跳板机（JumpServer.id）；空 = 直连，行为与现在完全一致。
+     *  一个 SSH 服务器可以借助另一台 SSH 服务器连上：先登录跳板机，再由它转发过来。 */
+    String jumpServerId = "";
     /** 最近一次连通的往返毫秒；-1 = 未知 / 不通（展示用） */
     long lastRttMs = -1;
     long lastSeen = 0;
@@ -145,6 +148,7 @@ final class JumpServer {
         object.put("keyId", JumpStore.text(keyId));
         object.put("keyPassphraseEnc", JumpStore.text(keyPassphraseEnc));
         object.put("note", JumpStore.text(note));
+        object.put("jumpServerId", JumpStore.text(jumpServerId));
         object.put("lastRttMs", lastRttMs);
         object.put("lastSeen", lastSeen);
         return object;
@@ -167,6 +171,7 @@ final class JumpServer {
         server.keyId = object.optString("keyId", "");
         server.keyPassphraseEnc = object.optString("keyPassphraseEnc", "");
         server.note = object.optString("note", "");
+        server.jumpServerId = object.optString("jumpServerId", "");
         server.lastRttMs = object.optLong("lastRttMs", -1);
         server.lastSeen = object.optLong("lastSeen", 0);
         return server;
@@ -184,6 +189,7 @@ final class JumpServer {
         other.keyId = keyId;
         other.keyPassphraseEnc = keyPassphraseEnc;
         other.note = note;
+        other.jumpServerId = jumpServerId;
         other.lastRttMs = lastRttMs;
         other.lastSeen = lastSeen;
         return other;

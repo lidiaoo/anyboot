@@ -935,6 +935,7 @@ class ServersActivity : ComponentActivity() {
     @Composable
     private fun DeleteJumpDialog(server: JumpServer) {
         val via = JumpStore.computersVia(this, server.id)
+        val viaServers = jumps.count { it.id != server.id && it.jumpServerId == server.id }
         AlertDialog(
             onDismissRequest = { deleteTarget = null },
             title = { Text("删除服务器") },
@@ -942,6 +943,7 @@ class ServersActivity : ComponentActivity() {
                 Text(
                     "确定删除「" + JumpStore.text(server.name) + "」吗？"
                             + (if (via > 0) "\n\n注意：有 $via 台电脑配置了经由它连接，删除后这些电脑会退回直连。" else "")
+                            + (if (viaServers > 0) "\n\n另有 $viaServers 台服务器经由它中转，删除后退回直连。" else "")
                 )
             },
             confirmButton = {
@@ -954,6 +956,12 @@ class ServersActivity : ComponentActivity() {
                         TerminalRegistry.remove(server.id)
                     }
                     jumps.remove(server)
+                    // 经由它中转的其他服务器退回直连（与电脑经由跳板机删除时同口径）
+                    for (other in jumps) {
+                        if (server.id == other.jumpServerId) {
+                            other.jumpServerId = ""
+                        }
+                    }
                     JumpStore.saveJumps(this, jumps)
                 }) { Text("删除", color = LocalPalette.current.bad) }
             },
@@ -1004,6 +1012,10 @@ class ServersActivity : ComponentActivity() {
         var keyOpen by remember { mutableStateOf(false) }
         var passphrase by remember(existing) { mutableStateOf("") }
         var note by remember(existing) { mutableStateOf(existing?.note ?: "") }
+        // 经由跳板机：存的是 JumpServer.id（空 = 直连）；候选排除自己（编辑时），不许自引
+        var jumpId by remember(existing) { mutableStateOf(existing?.jumpServerId ?: "") }
+        var jumpOpen by remember { mutableStateOf(false) }
+        val jumpChoices = jumps.filter { existing == null || it.id != existing.id }
         // 已存密码要回显 —— 否则用户没法确认到底存没存（解不开等于没存，一并暴露）
         val savedPassword = remember(existing) {
             if (editing) KeyVault.decrypt(existing?.passwordEnc ?: "") else ""
@@ -1198,6 +1210,36 @@ class ServersActivity : ComponentActivity() {
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth(),
                 )
+                // 经由跳板机（设计稿 server-edit 屏：直连（默认）/ 其他 SSH 服务器）
+                FieldLabel("经由跳板机")
+                Box {
+                    OutlinedTextField(
+                        value = if (jumpId.isEmpty()) "直连（默认）"
+                        else jumpChoices.firstOrNull { it.id == jumpId }?.let { JumpStore.text(it.name) }
+                            ?: "（已删除，保存后回到直连）",
+                        onValueChange = {}, readOnly = true, singleLine = true,
+                        enabled = false,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = disabledFieldColors(palette.fg, palette.lineStrong, palette.fgDim),
+                        trailingIcon = { Text(if (jumpOpen) "▴" else "▾") },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { jumpOpen = true },
+                    )
+                    DropdownMenu(expanded = jumpOpen, onDismissRequest = { jumpOpen = false }) {
+                        DropdownMenuItem(
+                            text = { Text("直连（默认）") },
+                            onClick = { jumpId = ""; jumpOpen = false },
+                        )
+                        jumpChoices.forEach { choice ->
+                            DropdownMenuItem(
+                                text = { Text(JumpStore.text(choice.name) + "（" + choice.addressLabel() + "）") },
+                                onClick = { jumpId = choice.id; jumpOpen = false },
+                            )
+                        }
+                    }
+                }
+                FieldLabel("选中后先登录跳板机，再由它转发到这台服务器（外网连内网机器）；Telnet 不支持")
                 FieldLabel(
                     "SSH：支持隧道（外网连家里的电脑）+ 终端 + 文件；"
                             + "Telnet：只有终端，明文传输，仅实验。"
@@ -1213,7 +1255,7 @@ class ServersActivity : ComponentActivity() {
                         .background(palette.accent)
                         .clickable {
                             if (persistJump(existing, name, isTelnet, combinedHost(), username, authKey,
-                                    password, savePassword, keyIndex, passphrase, note)) {
+                                    password, savePassword, keyIndex, passphrase, note, jumpId)) {
                                 editOpen = false
                             }
                         },
@@ -1232,7 +1274,7 @@ class ServersActivity : ComponentActivity() {
                             .border(1.dp, palette.line, RoundedCornerShape(12.dp))
                             .clickable {
                                 if (persistJump(existing, name, isTelnet, combinedHost(), username, authKey,
-                                        password, savePassword, keyIndex, passphrase, note)) {
+                                        password, savePassword, keyIndex, passphrase, note, jumpId)) {
                                     editOpen = false
                                     testConnection(existing)
                                 }
@@ -1304,7 +1346,13 @@ class ServersActivity : ComponentActivity() {
         keyIndex: Int,
         passphrase: String,
         note: String,
+        jumpId: String,
     ): Boolean {
+        // 跳板机只对 SSH 有意义：Telnet 选了跳板机直接拦下（表单提示里写明了）
+        if (isTelnet && jumpId.isNotEmpty()) {
+            toast("Telnet 服务器不支持经由跳板机连接，请改回直连", long = true)
+            return false
+        }
         val target = existing ?: JumpServer()
         target.name = name.trim()
         target.protocol = if (isTelnet) JumpServer.PROTO_TELNET else JumpServer.PROTO_SSH
@@ -1333,6 +1381,7 @@ class ServersActivity : ComponentActivity() {
             target.keyId = ""
         }
         target.note = note.trim()
+        target.jumpServerId = if (isTelnet) "" else jumpId.trim()
         if (existing == null) {
             jumps.add(target)
         }
