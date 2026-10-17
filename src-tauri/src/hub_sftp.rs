@@ -7,7 +7,7 @@
 //!   给明确报错，而不是无声挂死。
 //! - 批命令走 `sftp -b -`（stdin），出错即中止 —— stderr 尾巴就是给用户的
 //!   错误信息。
-//! - 列表解析 `ls -la` 输出（LC_ALL=C 固定月份名为英文），日期归一成
+//! - 列表解析 `ls -la` 输出（LC_ALL=C.UTF-8：月份名仍是英文、且 OpenSSH 客户端不会把非 ASCII 文件名转义成 \303\251 八进制），日期归一成
 //!   `MM-DD HH:MM` / `YYYY-MM-DD`。
 
 use serde::Serialize;
@@ -99,7 +99,7 @@ fn run_sftp_batch(app: &AppHandle, server: &HubServer, commands: &str) -> Result
         .arg("-")
         .arg(&target);
     command
-        .env("LC_ALL", "C")
+        .env("LC_ALL", "C.UTF-8")
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
@@ -157,7 +157,7 @@ fn spawn_sftp_transfer(
         .arg("-")
         .arg(&target);
     command
-        .env("LC_ALL", "C")
+        .env("LC_ALL", "C.UTF-8")
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
@@ -506,7 +506,7 @@ pub fn hub_sftp_copy(app: AppHandle, server: HubServer, from: String, to: String
         .arg(&target)
         .arg("--")
         .arg(format!("cp -a -- {} {}", shell_quote(&from), shell_quote(&to)));
-    command.env("LC_ALL", "C");
+    command.env("LC_ALL", "C.UTF-8");
     let output = command
         .output()
         .map_err(|error| format!("无法启动 ssh: {error}"))?;
@@ -786,6 +786,28 @@ mod tests {
         assert_eq!(bare_name("docs/", "/root").as_deref(), Some("docs"));
         // 软链接名字（parse 已拆掉 " -> target"，此处是纯路径）原样保留
         assert_eq!(bare_name("/root/link", "/root").as_deref(), Some("link"));
+    }
+
+    #[test]
+    fn parse_real_sftp_output_samples() {
+        // 真实 OpenSSH sftp CLI 采集（paramiko 靶机 + 真 sshd 各采过，字段间距勿改）：
+        // paramiko 风格 longname：日期「日 月」顺序、é 原样（LC_ALL=C.UTF-8 下客户端不转义）
+        let e =
+            parse_ls_line("-rw-r--r--   1 0        0              10 17 Oct 19:14 a b'c\"d é.txt")
+                .unwrap();
+        assert_eq!(e.name, "a b'c\"d é.txt");
+        // 单文件 ls：客户端自排版（nlink 为 ?、日期「月 日」顺序、名字带全路径）
+        let f =
+            parse_ls_line("-rw-r--r--    ? 0        0               1 Oct 17 19:14 /.hidden")
+                .unwrap();
+        assert_eq!(f.name, "/.hidden");
+        assert_eq!(bare_name(&f.name, "/").as_deref(), Some(".hidden"));
+        // 真 sshd 的软链接行：箭头前带全路径
+        let l = parse_ls_line("lrwxrwxrwx 1 root root 11 Oct  2 10:00 /srv/latest -> v1.2.3")
+            .unwrap();
+        assert_eq!(l.name, "/srv/latest");
+        assert_eq!(l.target.as_deref(), Some("v1.2.3"));
+        assert_eq!(bare_name(&l.name, "/srv").as_deref(), Some("latest"));
     }
 
     #[test]
