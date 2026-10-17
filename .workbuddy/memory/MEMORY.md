@@ -6,6 +6,7 @@
 - **commit 我做、push 用户做**（本机无 GitHub 凭据）。只提交本轮相关文件；`src-tauri/src/hub*.rs`、`ui/hub.html`、`docs/client-ui/`、`debx/` 属 PC 端 server-hub 另一条线，别混进移动端提交。
 
 ## 桌面端
+- **验证 PC 端 UI 的四条铁律**（见 `2026-10-18.md`）：① 必须用**计划任务跑 .bat** 启动（`set` 环境变量 + `start ""`），工具沙箱会杀 WebView2 浏览器进程 → 全窗口黑屏/卡死假象；② `PrintWindow` 抓 WebView2 恒黑，用 `GetDC(NULL)+BitBlt` 抓屏，读坐标要在 1:1 裁剪图上量；③ webview 不吃注入点击（hover 有效、点击无效），验证走 `ANYBOOT_TEST_OPEN_HUB=1` / 再 `ANYBOOT_TEST_OPEN_TERM=1` 钩子；④ 本机**没有 `strings` 命令**，静默返回 0 会骗人，用 Python 提串。
 - 前端改动**必须强制 codegen**（删 `out` + `touch build.rs` 重编）；核对解 `out/tauri-codegen-assets/*`；**二进制里搜中文按 UTF-8 字节比**（HTML 资产是 brotli 压缩嵌入，裸搜原串必为 0，要拿 codegen 资产字节做精确匹配）。`data-page-node-id` 原样保留；文档路径写 `~`。
 - **验证闭环全流程已沉淀技能 `~/.workbuddy/skills/anyboot-pc-ui-verify/SKILL.md`**（jsdom 姿势 / 资产哈希名与 zig 重链后新旧共存坑 / jammy 打包 env / 无头冒烟不可行）。要点：资产名是内容哈希，嵌入核验先在目标二进制里定位资产再验内容；curl 探活加 `--noproxy '*'`。
 - **ui/*.html 里 id 严禁与 `window.xxx` 状态变量同名**：带 id 的元素会被 named access 挂成 window 同名属性（真值），`if (window.term)` 之类判空全失效——hub-term 黑屏教训（`id="term"`→`termHost`，已修）。
@@ -13,6 +14,7 @@
 - 交付 = 测试 + release 构建 + 实机验证；构建前退出运行中的 anyboot；**md5 必核**。
 
 ## 托盘
+- **菜单有两套实现**：`grub_menu_nodes`（主窗/自绘窗/Linux dbusmenu）与 `build_tray_menu`（Win/mac classic 手写原生版）。**新增菜单项必须两边都加**——hub「远程管理…」当初只加进前者，classic 用户托盘上根本没有入口（2cd1168 修）。
 - `trayMenuStyle` 启动定接线、切换需重启：classic = Win/mac muda 原生菜单 / **Linux 自研 `linux_sni` 全量 dbusmenu**；unified = Win/mac 自绘窗 / Linux SNI 导出（GNOME 壳菜单只两条，opened → 弹自绘窗）。
 - 自绘窗落位：**unified 贴图标正下方居中、放不下翻上、绝不盖图标**；classic 上方 + 左对齐；`TrayCenter` 弃用。`grub_menu_nodes` **一份函数喂四处**（主窗/自绘窗/Linux dbusmenu/原生菜单）。其余（失焦看门狗、dbusmenu 信号与 `toggle-*` 定则、macOS 对话框走 `osascript`）见 detail-tray。
 
