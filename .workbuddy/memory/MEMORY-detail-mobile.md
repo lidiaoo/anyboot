@@ -62,7 +62,7 @@
 - 底部导航设计稿四项（服务器/终端/密钥/文件）；**会话/传输页整体保留，入口在顶栏 ⋮**；「终端」导航项=跳最近活会话。
 - **键帽写 socket 必须离网线程**：`sendRaw` 曾在主线程调 `TerminalSession.write`（真网络 I/O）→ NetworkOnMainThreadException，会话关成「发送失败」。xterm.js 键盘输入走 WebView 桥线程所以一直没暴露；键帽一点就炸。修法：`keyWriter` 单线程执行器（daemon）保序写出。新加的任何往 session 写字节的 UI 入口都得走它。
 - 编辑弹窗已改 ModalBottomSheet（skipPartiallyExpanded+自绘把手+imePadding）；地址/端口两格输入、保存拼回 host:port，**存储仍是 host:port 合一**（persistJump 没动）。
-- 设计稿的「经由跳板机」下拉/三格「跳板机」没做——JumpServer 无 via 字段，不做假数据。
+- ~~设计稿的「经由跳板机」下拉没做~~ **（过时，勿再引用）**：ServerProfile 现已全量支持——`addresses` 多行候选列表（一行一地址、兼容逗号/分号/空格，粘 URL 自动归一+挖 token）、`probeMode` 并发/串行（HeartbeatManager 真消费）、`jumpServerId` 跳板机下拉；编辑/首启添加共用一个弹层（MainActivity ~L561）。数据层/探针/UI 三层都已接通，勿再当缺口。
 - **Compose 坑**：拆出去的子 Composable 里 `Modifier.weight()` Unresolved（RowScope 扩展）→ 加 `modifier` 参数在调用点传；`ManagedActivityResultLauncher` 的结果泛型要写 `Uri?`；ModalBottomSheet 要 `@OptIn(ExperimentalMaterial3Api::class)`；material icons 不能全限定 `Icons.Filled.Info`（Icons.Filled 是对象扩展），必须 import。
 - 设计稿图标 material-icons-core 没有（显示器/机架/终端/钥匙/文件夹/文档/闪电/时钟/代码括号）→ `Icons.kt` Canvas 手绘（24dp 网格×grid() 缩放，线宽 1.8 圆头）。
 - 本沙箱无 /dev/kvm（kvm 模块在但 mknod 被拒），模拟器死掉后起不回来；软模拟（-no-accel）API 37 卡死不出日志。AI 侧实机验证依赖用户环境已有模拟器。
