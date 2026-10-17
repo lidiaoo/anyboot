@@ -27,3 +27,14 @@
 - **`ServersActivity` 是 `exported=false`** → `monkey … LAUNCHER 1` 再走抽屉（☰ → 🖧 服务器）；**顶栏图标点了没反应先怀疑弹着模态对话框**；**别对该应用用 `adb shell pm clear`**（清掉用户配好的跳板机，密码没别处备份）。
 - **`Task` 加字段必须同步改 `resume()` 的逐字段拷贝**，漏一个整道续传校验静默变死代码。
 - **别拿 APK 体积当变更判据** → 解 dex 搜符号。待办：iOS 同套 token 重构；PC server-hub 独立窗口。
+
+## 远端管理（server-hub）：认证层铁律
+- **唯一入口 `hub_tunnel::apply_auth`**：凭据（密钥 `-i` / 存档密码 askpass）→ 跳板 ProxyCommand → 复用策略。
+  新加任何要跑 ssh/sftp 的地方都挂它，别再手写 `BatchMode/ControlPath`。
+- **askpass = 本程序自身**：`SSH_ASKPASS=<exe>`、`SSH_ASKPASS_REQUIRE=force`、`ANYBOOT_ASKPASS_SERVER=<id>`，
+  **全是环境变量**（`SSH_ASKPASS_REQUIRE` 写成 `-o` 会被 Win32-OpenSSH 判非法）。ssh 传回提示语，
+  按提示语里的 `user@host` 区分目标机/跳板机 → 所以 ProxyCommand **不要**再加 `env VAR=…` 前缀。
+- **`main.rs` 的 askpass 分支必须排在 `cli_requested` 之前**：argv 是提示语，不像命令，否则会被当 GUI 启动。
+- **Windows 没有 ControlMaster**（Win32-OpenSSH 实测 `getsockname failed: Not a socket`，不落 socket 文件）：
+  Unix 复用 master、`BatchMode=yes`；Windows 每次自己认证，且**只有密钥能开 BatchMode**（它会连 askpass 一起禁）。
+- 平台能力/排错/验收边界都在 `docs/server-hub.md`；改这条线先跑 Windows 目标 `cargo check`（Linux 通过不代表 Win 通过）。
