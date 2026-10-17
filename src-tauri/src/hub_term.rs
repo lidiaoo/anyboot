@@ -146,7 +146,8 @@ pub fn hub_term_sessions(
 /// 组装跳板机 ProxyCommand（纯函数：单测直接喂参数，不依赖 AppHandle）。
 /// 形态：`ssh -o StrictHostKeyChecking=accept-new [env SSH_ASKPASS='…'
 /// SSH_ASKPASS_REQUIRE=force] [-o IdentitiesOnly=yes -i '…'] -p PORT user@host -W %h:%p`
-fn jump_proxy_command(
+/// 文件浏览自建 master（hub_sftp::ensure_control）复用同一形态。
+pub(crate) fn jump_proxy_command(
     jump: &crate::hub::HubServer,
     askpass_path: Option<&std::path::Path>,
     key_path: Option<&std::path::Path>,
