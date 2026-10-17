@@ -266,6 +266,23 @@ fn parse_ls_line(line: &str) -> Option<SftpEntry> {
     })
 }
 
+/// OpenSSH sftp 客户端对 `ls -la <绝对路径>` 的长格式输出自带完整路径前缀
+/// （`ls -la /root` → `/root/.cache`、`/root/.`、`/root/..`）。
+/// 剥掉查询路径前缀还原裸名字；`.` / `..` 行返回 None（前端有自己的面包屑/上一级）。
+/// 服务器本来就输出裸名字时（strip_prefix 不中）原样保留。
+fn bare_name(name: &str, path: &str) -> Option<String> {
+    let trimmed = path.trim_end_matches('/');
+    let prefix = if trimmed.is_empty() { "/" } else { trimmed };
+    let rest = match name.strip_prefix(prefix) {
+        Some(rest) => rest.trim_start_matches('/'),
+        None => name,
+    };
+    if rest.is_empty() || rest == "." || rest == ".." {
+        return None;
+    }
+    Some(rest.to_string())
+}
+
 // ==================== 命令 ====================
 
 /// 传输进度事件：发给文件窗，同时抄送 hub 主窗（传输页跨窗口汇总）。
@@ -390,7 +407,17 @@ pub fn hub_sftp_list(
 ) -> Result<Vec<SftpEntry>, String> {
     let server = server.normalize();
     let out = run_sftp_batch(&app, &server, &format!("ls -la {}\n", sftp_quote(&path)))?;
-    let mut entries: Vec<SftpEntry> = out.lines().filter_map(parse_ls_line).collect();
+    let mut entries: Vec<SftpEntry> = out
+        .lines()
+        .filter_map(parse_ls_line)
+        .filter_map(|mut entry| match bare_name(&entry.name, &path) {
+            Some(name) => {
+                entry.name = name;
+                Some(entry)
+            }
+            None => None,
+        })
+        .collect();
     entries.sort_by(|a, b| {
         b.dir.cmp(&a.dir).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
     });
@@ -717,6 +744,29 @@ mod tests {
         assert_eq!(expand_home(" ~/x "), "/home/tester/x");
         assert_eq!(expand_home("/abs/path"), "/abs/path");
         assert_eq!(expand_home("rel/path"), "rel/path");
+    }
+
+    #[test]
+    fn bare_name_strips_list_prefix() {
+        // OpenSSH sftp 长格式输出：查询路径作前缀
+        assert_eq!(bare_name("/root/.cache", "/root").as_deref(), Some(".cache"));
+        assert_eq!(bare_name("/root/docker", "/root").as_deref(), Some("docker"));
+        // `.` / `..` 行丢弃
+        assert_eq!(bare_name("/root/.", "/root"), None);
+        assert_eq!(bare_name("/root/..", "/root"), None);
+        // 查询路径带尾部斜杠 / 输出双斜杠都能剥干净
+        assert_eq!(bare_name("/root//.cache", "/root/").as_deref(), Some(".cache"));
+        assert_eq!(bare_name("/root/.cache", "/root/").as_deref(), Some(".cache"));
+        // 根目录查询
+        assert_eq!(bare_name("/root", "/").as_deref(), Some("root"));
+        assert_eq!(bare_name("/.", "/"), None);
+        // 服务器输出裸名字时原样保留
+        assert_eq!(bare_name(".cache", "/root").as_deref(), Some(".cache"));
+        // 软链接的 " -> target" 一起还原
+        assert_eq!(
+            bare_name("/root/link -> /etc/hosts", "/root").as_deref(),
+            Some("link -> /etc/hosts")
+        );
     }
 
     #[test]
