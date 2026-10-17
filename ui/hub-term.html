@@ -103,7 +103,9 @@
 
   /* ============ 终端区 ============ */
   .term-wrap { position:relative; flex:1; min-height:0; padding:6px 8px; }
-  #term { width:100%; height:100%; }
+  /* id 不能叫 term：带 id 的元素会被浏览器自动挂成 window.term，
+     而本页用 window.term 指当前 xterm 实例——同名会撞车导致启动脚本暴毙（黑屏）。 */
+  #termHost { width:100%; height:100%; }
   .crt-fade { pointer-events:none; position:absolute; left:0; right:0; bottom:0; height:36px;
     background:linear-gradient(180deg, rgba(2,6,23,0) 92%, rgba(2,6,23,.55)); }
 
@@ -171,7 +173,7 @@
 <div class="tabbar" id="tabbar" role="tablist" aria-label="终端会话"></div>
 
 <div class="term-wrap">
-  <div id="term"></div>
+  <div id="termHost"></div>
   <div class="crt-fade" aria-hidden="true"></div>
   <div class="empty" id="empty" hidden>
     <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M6 9l3 3-3 3"/><path d="M12 15h6"/></svg>
@@ -262,6 +264,14 @@ function fitTerm() {
 
 let activeId = null;              // 当前选中的会话 id
 const sessions = new Map();       // id → { meta, server, term, dead }
+const earlyData = new Map();      // id → [b64]：会话还没注册时先到的 ssh 输出，注册后补写
+// （ssh 走 ControlMaster 复用旧主连接时，banner+提示符可能早于 hub_term_open 的
+//   promise 落地就到——不缓存的话终端就永远黑着。）
+
+function writeData(session, data) {
+  const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
+  session.term.write(bytes);
+}
 
 function ensureTerm(session) {
   if (session.term) return session.term;
@@ -274,7 +284,7 @@ function ensureTerm(session) {
   });
   const f = new FitAddon.FitAddon();
   t.loadAddon(f);
-  t.open(document.getElementById('term'));
+  t.open(document.getElementById('termHost'));
   session.term = t; session.fit = f;
   if (!window.term) { window.term = t; window.fit = f; }
 
@@ -301,7 +311,7 @@ function showSession(id) {
   }
   ensureTerm(session);
   if (!session.term.element.isConnected) {
-    document.getElementById('term').appendChild(session.term.element);
+    document.getElementById('termHost').appendChild(session.term.element);
   }
   activeId = id;
   window.term = session.term; window.fit = session.fit;
@@ -383,14 +393,19 @@ function dropSession(id) {
 async function openSession(server) {
   if (!invoke) { toast('非 Tauri 环境（预览）：无后端'); return; }
   // 同一台服务器已有活会话 → 直接切过去，不重复开
+  // （server 可能为 null：窗口重载捡回的会话只有 meta）
   for (const [id, s] of sessions) {
-    if (!s.dead && s.server.id === server.id) { showSession(id); return; }
+    if (!s.dead && s.server && s.server.id === server.id) { showSession(id); return; }
   }
   try {
     const meta = await invoke('hub_term_open', { server });
     const session = { meta, server, term: null, fit: null, dead: false, latencyMs: null };
     sessions.set(meta.id, session);
     showSession(meta.id);
+    // 注册后补写会话建立前就到的 ssh 输出（banner/提示符），再清缓存
+    const buffered = earlyData.get(meta.id);
+    earlyData.delete(meta.id);
+    if (buffered) for (const data of buffered) writeData(session, data);
     startLatencyPoll(meta.id, server);
   } catch (e) {
     toast(String(e));
@@ -458,13 +473,19 @@ if (listen) {
   listen('hub-term-data', (event) => {
     const { id, data } = event.payload;
     const session = sessions.get(id);
-    if (!session) return;
-    const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
+    if (!session) {
+      // 会话还没注册：缓存，openSession 注册后补写（见 earlyData 注释）
+      let list = earlyData.get(id);
+      if (!list) { list = []; earlyData.set(id, list); }
+      if (list.length < 64) list.push(data);
+      return;
+    }
     ensureTerm(session);
-    session.term.write(bytes);
+    writeData(session, data);
   });
   listen('hub-term-closed', (event) => {
     const { id } = event.payload;
+    earlyData.delete(id);
     const session = sessions.get(id);
     if (!session) return;
     session.dead = true;

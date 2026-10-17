@@ -471,6 +471,60 @@ mod tests {
         assert!(empty.host.trim().is_empty());
     }
 
+    /// portable_pty 行为护栏：stdout/stderr 都必须进 PTY（ssh 的连接错误、
+    /// Permission denied 全靠 stderr 展示，吞了就是「黑屏终端」），
+    /// 且行规程回显开着（用户敲键要能看见自己打的字）。
+    /// 本开发容器无 /dev/ptmx，真机验证：cargo test -- --ignored pty_carries
+    #[test]
+    #[ignore = "需要 /dev/ptmx（真机跑）"]
+    fn pty_carries_stdout_stderr_and_echo() {
+        let pair = native_pty_system()
+            .openpty(PtySize { rows: 30, cols: 100, pixel_width: 0, pixel_height: 0 })
+            .expect("openpty");
+        let mut command = CommandBuilder::new("/bin/sh");
+        command.args(["-c", "echo OUT-OK; echo ERR-OK >&2; cat"]);
+        let mut child = pair.slave.spawn_command(command).expect("spawn");
+        drop(pair.slave);
+        let mut reader = pair.master.try_clone_reader().expect("reader");
+        let mut writer = pair.master.take_writer().expect("writer");
+        let mut killer = child.clone_killer();
+
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            let _ = writer.write_all(b"hi\n");
+            let _ = writer.flush();
+        });
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let mut buf = Vec::new();
+        let mut chunk = [0u8; 4096];
+        loop {
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            // 阻塞读 + 外层超时：简单起见读到 5 秒上限就收
+            match reader.read(&mut chunk) {
+                Ok(0) => break,
+                Ok(n) => buf.extend_from_slice(&chunk[..n]),
+                Err(_) => break,
+            }
+            let text = String::from_utf8_lossy(&buf);
+            let echo_count = text.matches("hi").count();
+            if text.contains("OUT-OK") && text.contains("ERR-OK") && echo_count >= 2 {
+                break;
+            }
+        }
+        killer.kill();
+        let _ = child.wait();
+
+        let text = String::from_utf8_lossy(&buf);
+        assert!(text.contains("OUT-OK"), "stdout 未进 PTY：{text:?}");
+        assert!(text.contains("ERR-OK"), "stderr 未进 PTY：{text:?}");
+        // 「hi」至少出现两次 = 行规程回显一次 + cat 原样输出一次
+        assert!(text.matches("hi").count() >= 2, "回显未开启：{text:?}");
+    }
+
     #[test]
     fn host_label_formats_user_and_port() {
         let server = HubServer {
