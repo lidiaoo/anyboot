@@ -1,6 +1,6 @@
 # 移动端细则（Android / iOS）
 
-入口在 `MEMORY.md`。构建 skill：`android-gradle-compose-build` / `android-apk-lite-build` / `android-compose-ui-debug` / `android-sftp-fixture`。
+入口在 `MEMORY.md`。构建 skill：`anyboot-android-build`（2026-10-17 由 android-gradle-compose-build + android-apk-lite-build 合并：A=gradle 完整链 / B=aapt2 轻量链） / `android-compose-ui-debug` / `android-sftp-fixture`。
 
 ## 构建
 - Android 已迁 **Jetpack Compose**（业务 Java 类保留）。env：`GRADLE_USER_HOME=~/.cache/ab-gradle`、`JAVA_HOME=~/.sdkm/links/java`、`ANDROID_HOME=~/Android/Sdk`、`ANDROID_USER_HOME=~/.android`、`HOME=/home/jianghh`；AGP 8.7.3 / Gradle 8.11.1 / android-34。
