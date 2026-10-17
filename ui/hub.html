@@ -3257,6 +3257,13 @@
       if (p.paused) {
         tx.paused = true;
         tx.bytes = p.bytes || tx.bytes;
+        // 后端已兜底，这里是保险：满进度的"暂停"其实是已传完，按完成收尾
+        if (tx.total > 0 && tx.bytes >= tx.total) {
+          txActive.delete(key);
+          txHistory.unshift({ dir: tx.dir, name: tx.name, bytes: tx.bytes, total: tx.total, at: Date.now() });
+          txHistory = txHistory.slice(0, 20);
+          txPersist();
+        }
       } else if (p.done) {
         txActive.delete(key);
         txHistory.unshift({ dir: tx.dir, name: tx.name, bytes: p.bytes || tx.bytes, total: p.total || tx.total, at: Date.now() });
@@ -3931,6 +3938,16 @@
       fbShowTransfer(p.dir, (p.dir === 'up' ? '上传 ' : '下载 ') + p.name, p.dir === 'up' && !p.done && !p.paused && p.bytes === undefined);
       if (p.paused) {
         fbTx.paused = true;
+        // 后端已兜底，这里是保险：满进度的"暂停"其实是已传完，按完成收尾
+        if (p.total > 0 && p.bytes >= p.total) {
+          fbTx = null;
+          fb$('fbTransferBar').classList.remove('fb-indet');
+          fb$('fbTransferFill').style.width = '100%';
+          fb$('fbTransferPct').textContent = '100%';
+          fb$('fbTransferMeta').textContent = '';
+          fbTxPaint();
+          return;
+        }
         fb$('fbTransferBar').classList.remove('fb-indet');
         if (p.total > 0) {
           const pct = Math.min(100, Math.round((p.bytes / p.total) * 100));

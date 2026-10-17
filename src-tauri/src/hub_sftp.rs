@@ -167,6 +167,23 @@ fn partial_size(path: &str) -> u64 {
     std::fs::metadata(path).map(|m| m.len()).unwrap_or(0)
 }
 
+/// 任务当前已传字节：down=本地半截文件（实时、准），up=轮询线程最后一次
+/// 摸到的远端尺寸（可能有 ~1.5s 滞后；本地路径是源文件，不能拿它当进度）。
+fn xfer_bytes_now(task: &XferTask) -> u64 {
+    if task.dir == "down" {
+        partial_size(&task.local_path)
+    } else {
+        task.bytes
+    }
+}
+
+/// 传输是否已经传完：total 已知且已传 ≥ total。
+/// 杀进程/断线都可能发生在"最后字节已落盘、sftp 还没来得及干净退出"的窗口
+/// 里 —— 那一刻文件是完整的，绝不能记成断点（会卡出「100% 已暂停」的死卡）。
+fn xfer_is_complete(task: &XferTask) -> bool {
+    task.total > 0 && xfer_bytes_now(task) >= task.total
+}
+
 /// upsert 一条断点记录（同键更新，否则追加）并落盘。落盘的记录都是暂停态。
 fn upsert_paused(state: &HubSftpState, app: &AppHandle, mut task: XferTask) {
     task.paused = true;
@@ -517,8 +534,12 @@ pub fn hub_sftp_transfer_list(
     if let Ok(list) = state.running.lock() {
         for running in list.iter() {
             let mut task = running.task.clone();
-            // 进度以最新事实为准：down 看本地半截文件，up 轮询线程会顺手刷
-            task.bytes = partial_size(&task.local_path).max(task.bytes);
+            // 进度以最新事实为准（down 看本地半截文件；up 保持轮询值，
+            // 本地路径是源文件不能当进度）；已传满的按完成口径报。
+            task.bytes = xfer_bytes_now(&task);
+            if xfer_is_complete(&task) {
+                task.bytes = task.total;
+            }
             tasks.push(task);
         }
     }
@@ -558,9 +579,21 @@ fn pause_transfers(
             let _ = child.wait();
         }
         let mut task = running.task;
-        task.bytes = partial_size(&task.local_path);
+        task.bytes = xfer_bytes_now(&task);
         task.at = now_ms();
-        upsert_paused(state, app, task);
+        if xfer_is_complete(&task) {
+            // 竞态：点暂停那一刻其实已经传完了（最后字节已落盘、sftp 还没
+            // 干净退出）。文件是完整的 → 直接按完成收尾，绝不记断点，
+            // 否则传输页会卡出「100% 已暂停」永远按不出结果。
+            let bytes = if task.total > 0 { task.total } else { task.bytes };
+            emit_progress(
+                app,
+                &running.window,
+                json!({ "name": task.name, "key": task.key, "dir": task.dir, "bytes": bytes, "total": task.total, "done": true }),
+            );
+        } else {
+            upsert_paused(state, app, task);
+        }
         acted += 1;
     }
     Ok(acted)
@@ -841,27 +874,30 @@ fn finish_transfer(
     if successor {
         return;
     }
-    if is_paused(state, &task.key) {
-        // 被暂停：本地半截文件大小就是断点（up 的 bytes 轮询已刷进 task）
-        let bytes = if task.dir == "down" {
-            partial_size(&task.local_path)
-        } else {
-            task.bytes
-        };
+    // 杀进程/断线可能正好落在"最后字节已落盘、退出码还没来得及是 0"的窗口：
+    // 文件已完整 → 按完成收尾（清掉竞态断点记录），不进任何暂停/失败分支。
+    let mut task = task.clone();
+    task.bytes = xfer_bytes_now(&task);
+    if xfer_is_complete(&task) {
+        remove_paused(state, app, &task.key);
         emit_progress(
             app,
             window_label,
-            json!({ "name": task.name, "key": task.key, "dir": task.dir, "bytes": bytes, "total": task.total, "paused": true }),
+            json!({ "name": task.name, "key": task.key, "dir": task.dir, "bytes": task.total, "total": task.total, "done": true }),
+        );
+        return;
+    }
+    if is_paused(state, &task.key) {
+        // 被暂停：down 的断点=本地半截文件；up 的断点=轮询刷进来的远端尺寸
+        emit_progress(
+            app,
+            window_label,
+            json!({ "name": task.name, "key": task.key, "dir": task.dir, "bytes": task.bytes, "total": task.total, "paused": true }),
         );
     } else {
         // 非用户暂停的退出（网络断、连接被重置等）= 中断：自动挂进断点清单，
         // 半截文件留着，传输页/文件窗都能从断点继续 —— 与手机端行为对齐。
         let mut interrupted = task.clone();
-        interrupted.bytes = if task.dir == "down" {
-            partial_size(&task.local_path)
-        } else {
-            task.bytes
-        };
         interrupted.at = now_ms();
         upsert_paused(state, app, interrupted);
         emit_progress(app, window_label, json!({ "name": task.name, "key": task.key, "dir": task.dir, "failed": true }));
@@ -1491,8 +1527,46 @@ mod tests {
     }
 
     #[test]
-    fn queue_roundtrip_and_bad_json() {
-        let dir = std::env::temp_dir().join(format!("ab-xfer-test-{}", std::process::id()));
+    fn xfer_is_complete_guard() {
+        // 完成判定：total 未知时永不判完成（只能靠成功退出码）
+        let base = XferTask {
+            key: xfer_key("up", "/srv/a", "/tmp/src-a"),
+            dir: "up".into(),
+            name: "a".into(),
+            remote_path: "/srv/a".into(),
+            local_path: "/tmp/src-a".into(),
+            total: 100,
+            bytes: 100,
+            server_id: "s".into(),
+            server_name: "n".into(),
+            paused: false,
+            at: 0,
+        };
+        assert!(xfer_is_complete(&base), "up：已传=total 判完成");
+        let mut t = base.clone();
+        t.bytes = 99;
+        assert!(!xfer_is_complete(&t), "差一字节不算完");
+        t.total = 0;
+        t.bytes = 100;
+        assert!(!xfer_is_complete(&t), "total 未知不判完成");
+        // down 的进度读的是磁盘：拿真实临时文件测
+        let dir = std::env::temp_dir().join(format!("ab-xfer-done-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let local = dir.join("a.iso");
+        std::fs::write(&local, vec![0u8; 100]).unwrap();
+        let mut down = base.clone();
+        down.dir = "down".into();
+        down.key = xfer_key("down", "/srv/a", &local.display().to_string());
+        down.local_path = local.display().to_string();
+        assert!(xfer_is_complete(&down), "down：本地文件=total 判完成");
+        std::fs::write(&local, vec![0u8; 99]).unwrap();
+        assert!(!xfer_is_complete(&down), "down：差一字节不算完");
+        let _ = std::fs::remove_file(&local);
+        let _ = std::fs::remove_dir(&dir);
+    }
+
+    #[test]
+    fn queue_roundtrip_and_bad_json() {        let dir = std::env::temp_dir().join(format!("ab-xfer-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("transfer-queue.json");
         let tasks = vec![XferTask {
