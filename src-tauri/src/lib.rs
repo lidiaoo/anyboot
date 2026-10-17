@@ -15094,6 +15094,7 @@ pub fn run() {
             hub_sftp::hub_sftp_transfer_ctl,
             hub_sftp::hub_focus_window,
             hub_sftp::hub_sftp_rename,
+            hub_sftp::hub_sftp_copy,
             hub_sftp::hub_sftp_download,
             hub_sftp::hub_sftp_upload,
             hub_keys::hub_keys_list,

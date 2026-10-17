@@ -1,9 +1,10 @@
 <!DOCTYPE html>
-<!-- server-files SFTP 文件浏览独立窗 —— docs/client-ui/pc-files-redesign.html + pc-redesign-v2 files 屏的一比一实现。
+<!-- server-files SFTP 文件浏览独立窗 —— docs/client-ui/pc-redesign-v2 files + files-menu 屏的一比一实现。
      数据全部走真实后端（hub_sftp.rs，系统 sftp CLI + ControlMaster 复用）：
-     列表/建目录/重命名/删除/上传/下载（行内 ⋯ 菜单）+ 传输方向徽标/速度/剩余时间
-     + 已连接 user@host pill + 路径 ▾ 快跳。Telnet 不提供 —— 标题栏 pill 显示原因。
-     自绘关闭钮由系统标题栏承担（省略）。 -->
+     列表/建目录/重命名/删除/上传/下载 + 文件操作面板（对象预览 + 下载到本机/重命名/复制路径/删除
+     + 更多操作：详情/复制/剪切/复制到.../移动到...，复制/剪切只做标记、由复制到/移动到落位）
+     + 传输方向徽标/速度/剩余时间 + 已连接 user@host pill + 路径 ▾ 快跳。
+     Telnet 不提供 —— 标题栏 pill 显示原因。自绘关闭钮由系统标题栏承担（省略）。 -->
 <html lang="zh-CN" class="dark">
 <head>
 <meta charset="UTF-8">
@@ -15,6 +16,7 @@
     --base:2 6 23; --term:4 7 15; --card:14 18 35; --elevate:20 26 46;
     --line:36 43 65; --linestrong:51 65 85;
     --fg:248 250 252; --fgdim:148 163 184; --fgfaint:100 116 139;
+    --fg-dim:148 163 184; --fg-faint:100 116 139;
     --ok:34 197 94; --warn:245 158 11; --bad:239 68 68; --accent:99 102 241;
     --tblue:96 165 250;
     color-scheme:dark;
@@ -23,6 +25,7 @@
     --base:244 246 250; --term:4 7 15; --card:255 255 255; --elevate:241 245 250;
     --line:226 232 240; --linestrong:203 213 225;
     --fg:15 23 42; --fgdim:90 100 118; --fgfaint:138 148 166;
+    --fg-dim:90 100 118; --fg-faint:138 148 166;
     --ok:22 163 74; --warn:180 83 9; --bad:220 38 38; --accent:79 70 229;
     --tblue:37 99 235;
     color-scheme:light;
@@ -143,6 +146,51 @@
   .popmenu button.cur { color:rgb(var(--fgfaint)); cursor:default; }
   .popmenu button.cur:hover { background:transparent; }
   .popmenu .mono { font-size:12px; }
+
+  /* 行尾 ⋯ 文件操作面板（设计稿 pc-redesign-v2 files-menu 屏一比一） */
+  .filemenu {
+    position:fixed; z-index:60; width:272px; padding:10px;
+    background:rgb(var(--card)); border:1px solid rgb(var(--linestrong)); border-radius:14px;
+    box-shadow:0 16px 40px -8px rgba(0,0,0,.65);
+  }
+  .fm-preview {
+    display:flex; align-items:center; gap:10px; padding:9px;
+    border:1px solid rgb(var(--line)); border-radius:10px; background:rgb(var(--base));
+  }
+  .fm-icon {
+    display:grid; place-items:center; width:34px; height:34px; flex:none; border-radius:8px;
+    background:rgb(var(--tblue) / .12); color:rgb(var(--tblue));
+  }
+  .fm-icon svg { width:16px; height:16px; }
+  .fm-names { min-width:0; flex:1; display:flex; flex-direction:column; gap:1px; }
+  .fm-name { font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .fm-meta { font-size:11px; color:rgb(var(--fgdim)); }
+  .fm-close {
+    display:grid; place-items:center; width:26px; height:26px; flex:none; border:0; border-radius:9999px;
+    background:transparent; color:rgb(var(--fgdim)); cursor:pointer;
+  }
+  .fm-close:hover { background:rgb(var(--elevate)); color:rgb(var(--fg)); }
+  .fm-group { display:flex; flex-direction:column; gap:2px; margin-top:8px; }
+  .fm-label { margin:8px 0 0; padding:0 12px; font-size:11px; color:rgb(var(--fgfaint)); }
+  .fm-act {
+    display:flex; width:100%; align-items:center; gap:10px; height:34px; padding:0 12px;
+    border:0; background:transparent; border-radius:8px; font-size:12.5px; cursor:pointer;
+    color:rgb(var(--fg)); text-align:left;
+  }
+  .fm-act svg { width:15px; height:15px; flex:none; color:rgb(var(--fgdim)); }
+  .fm-act:hover { background:rgb(var(--elevate)); }
+  .fm-act.accent { color:rgb(var(--accent)); font-weight:500; }
+  .fm-act.accent svg { color:rgb(var(--accent)); }
+  .fm-act.danger { color:rgb(var(--bad)); font-weight:500; }
+  .fm-act.danger svg { color:rgb(var(--bad)); }
+  .fm-act.danger:hover { background:rgb(var(--bad) / .1); }
+
+  /* 详情键值行 */
+  .kv { display:flex; justify-content:space-between; gap:14px; font-size:13px; }
+  .kv > span:first-child { flex:none; color:rgb(var(--fg-faint)); }
+  .kv > span:last-child { text-align:right; word-break:break-all; font-family:ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace; }
+  .modal-body .hint { font-size:11px; color:rgb(var(--fg-faint)); }
+
   .btn.dangerbtn { border:0; background:rgb(var(--bad)); color:#fff; font-weight:600; }
   .btn.dangerbtn:hover { background:rgb(var(--bad) / .85); }
   .modal-body p { margin:0; font-size:13px; line-height:1.6; color:rgb(var(--fgdim)); word-break:break-all; }
@@ -291,11 +339,65 @@
   </div>
 </div>
 
-<!-- 行内 ⋯ 操作菜单 -->
-<div class="popmenu" id="rowMenu" hidden role="menu" aria-label="文件操作">
-  <button role="menuitem" id="rmDownload">下载</button>
-  <button role="menuitem" id="rmRename">重命名</button>
-  <button role="menuitem" id="rmDelete" class="danger">删除</button>
+<!-- 行尾 ⋯ 文件操作面板（设计稿 files-menu 屏：对象预览 + 主动作四项 + 更多操作五项） -->
+<div class="filemenu" id="rowMenu" hidden role="menu" aria-label="文件操作">
+  <div class="fm-preview">
+    <span class="fm-icon" id="fmIcon" aria-hidden="true">
+      <svg id="fmIcoFile" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+      <svg id="fmIcoDir" hidden viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+      <svg id="fmIcoLink" hidden viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h7l-1 8 10-12h-7z"/></svg>
+    </span>
+    <span class="fm-names">
+      <span class="fm-name" id="fmName">—</span>
+      <span class="fm-meta mono" id="fmMeta">—</span>
+    </span>
+    <button class="fm-close" id="fmClose" aria-label="关闭">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </div>
+  <div class="fm-group" style="margin-top:10px">
+    <button role="menuitem" class="fm-act accent" id="rmDownload">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 21h16"/></svg>
+      下载到本机
+    </button>
+    <button role="menuitem" class="fm-act" id="rmRename">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+      重命名
+    </button>
+    <button role="menuitem" class="fm-act" id="rmCopyPath">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+      复制路径
+    </button>
+    <button role="menuitem" class="fm-act danger" id="rmDelete">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+      删除
+    </button>
+  </div>
+  <div class="fm-more">
+    <p class="fm-label">更多操作</p>
+    <div class="fm-group">
+      <button role="menuitem" class="fm-act" id="rmInfo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01"/></svg>
+        详情
+      </button>
+      <button role="menuitem" class="fm-act" id="rmCopy">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        复制
+      </button>
+      <button role="menuitem" class="fm-act" id="rmCut">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.12 15.88M14.47 14.48 20 20M8.12 8.12 12 12"/></svg>
+        剪切
+      </button>
+      <button role="menuitem" class="fm-act" id="rmCopyTo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9"/><path d="M2 13h10"/><path d="m9 10 3 3-3 3"/></svg>
+        复制到...
+      </button>
+      <button role="menuitem" class="fm-act" id="rmMoveTo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9"/><path d="M2 13h6"/><path d="m9 16-3-3 3-3"/></svg>
+        移动到...
+      </button>
+    </div>
+  </div>
 </div>
 
 <!-- 路径快跳菜单 -->
@@ -336,6 +438,43 @@
     <div class="modal-foot">
       <button class="btn plain" id="delCancel">取消</button>
       <button class="btn dangerbtn" id="delOk">删除</button>
+    </div>
+  </div>
+</div>
+
+<!-- 详情弹层 -->
+<div class="modal" id="infoModal" hidden role="dialog" aria-modal="true" aria-labelledby="infoTitle">
+  <div class="modal-card">
+    <div class="modal-head">
+      <h3 id="infoTitle">详情</h3>
+      <button id="infoClose" aria-label="关闭">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body" id="infoRows"></div>
+    <div class="modal-foot">
+      <button class="btn primary" id="infoOk">好</button>
+    </div>
+  </div>
+</div>
+
+<!-- 复制到 / 移动到 弹层（目标路径） -->
+<div class="modal" id="destModal" hidden role="dialog" aria-modal="true" aria-labelledby="destTitle">
+  <div class="modal-card">
+    <div class="modal-head">
+      <h3 id="destTitle">复制到</h3>
+      <button id="destClose" aria-label="关闭">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <form class="modal-body" id="destForm">
+      <label for="destPath" id="destLabel">目标路径（含文件名）</label>
+      <input id="destPath" autocomplete="off" required>
+      <p class="hint">目录不存在会原样报错；目标已存在会被覆盖。</p>
+    </form>
+    <div class="modal-foot">
+      <button class="btn plain" id="destCancel">取消</button>
+      <button class="btn primary" id="destOk">执行</button>
     </div>
   </div>
 </div>
@@ -608,11 +747,27 @@ $('mkdirOk').addEventListener('click', submitMkdir);
 $('mkdirForm').addEventListener('submit', (e) => { e.preventDefault(); submitMkdir(); });
 $('mkdirModal').addEventListener('click', (e) => { if (e.target.id === 'mkdirModal') closeMkdir(); });
 
-/* ---------- 行内 ⋯ 操作菜单 ---------- */
-let menuTarget = null;
+/* ---------- 行尾 ⋯ 文件操作面板（设计稿 files-menu 屏） ---------- */
+let menuTarget = null;                       // 面板当前指向的条目
+let clip = null;                             // 复制/剪切标记 { entry, dir, mode: 'copy'|'cut' }
+let destState = null;                        // 复制到/移动到待执行 { mode, src, fromDir }
+
+function kindOf(entry) { return entry.dir ? 'dir' : (entry.link ? 'link' : 'file'); }
+
 function openRowMenu(btn, entry) {
   menuTarget = entry;
-  $('rmDownload').hidden = !!entry.dir;
+  // 对象预览：图标/配色随类型（与文件表同款），meta = 大小 · 修改时间
+  const kind = kindOf(entry);
+  $('fmIcoFile').hidden = kind !== 'file';
+  $('fmIcoDir').hidden = kind !== 'dir';
+  $('fmIcoLink').hidden = kind !== 'link';
+  const icon = $('fmIcon');
+  const color = kind === 'dir' ? 'var(--tblue)' : kind === 'link' ? 'var(--warn)' : 'var(--fgdim)';
+  icon.style.color = `rgb(${color})`;
+  icon.style.background = `rgb(${color} / .12)`;
+  $('fmName').textContent = entry.name;
+  $('fmMeta').textContent = (entry.dir ? '—' : humanSize(entry.size)) + ' · ' + (entry.mtime || '—');
+  $('rmDownload').hidden = !!entry.dir;   // 目录无下载（对齐手机：动作对齐 SFTP 实际能力）
   $('rmDownload').disabled = busy;
   const m = $('rowMenu');
   m.hidden = false;
@@ -625,9 +780,112 @@ function openRowMenu(btn, entry) {
   m.style.top = y + 'px';
 }
 function closeRowMenu() { $('rowMenu').hidden = true; }
+
+async function writeClipboard(text) {
+  try { await navigator.clipboard.writeText(text); }
+  catch (e) {
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); } catch (e2) {}
+    ta.remove();
+  }
+}
+
+/* 主动作 */
 $('rmDownload').addEventListener('click', () => { const e = menuTarget; closeRowMenu(); if (e && !e.dir) downloadEntry(e); });
 $('rmRename').addEventListener('click', () => { const e = menuTarget; closeRowMenu(); if (e) openRename(e); });
+$('rmCopyPath').addEventListener('click', () => { const e = menuTarget; closeRowMenu(); if (!e) return; writeClipboard(joinPath(cwd, e.name.split(' -> ')[0])); toast('已复制路径'); });
 $('rmDelete').addEventListener('click', () => { const e = menuTarget; closeRowMenu(); if (e) openDelete(e); });
+$('fmClose').addEventListener('click', closeRowMenu);
+
+/* 详情：全部来自列表元数据，不再打后端 */
+$('rmInfo').addEventListener('click', () => {
+  const e = menuTarget; closeRowMenu(); if (!e) return;
+  const rows = [
+    ['名称', e.name.split(' -> ')[0]],
+    ['类型', e.dir ? '目录' : e.link ? '软链接' : '文件'],
+    ['大小', e.dir ? '—' : humanSize(e.size) + '（' + e.size + ' B）'],
+    ['权限', e.perms || '—'],
+    ['修改时间', e.mtime || '—'],
+    ['路径', joinPath(cwd, e.name.split(' -> ')[0])],
+  ];
+  if (e.link && e.name.includes(' -> ')) rows.splice(2, 0, ['指向', e.name.split(' -> ').slice(1).join(' -> ')]);
+  const box = $('infoRows');
+  box.textContent = '';
+  for (const [k, v] of rows) {
+    const line = document.createElement('div');
+    line.className = 'kv';
+    const a = document.createElement('span'); a.textContent = k;
+    const b = document.createElement('span'); b.textContent = v;
+    line.append(a, b);
+    box.appendChild(line);
+  }
+  $('infoModal').hidden = false;
+});
+function closeInfo() { $('infoModal').hidden = true; }
+$('infoClose').addEventListener('click', closeInfo);
+$('infoOk').addEventListener('click', closeInfo);
+$('infoModal').addEventListener('click', (e) => { if (e.target.id === 'infoModal') closeInfo(); });
+
+/* 复制 / 剪切：只做标记（与手机一致），由「复制到 / 移动到」落到目标路径 */
+$('rmCopy').addEventListener('click', () => {
+  const e = menuTarget; closeRowMenu(); if (!e) return;
+  clip = { entry: e, dir: cwd, mode: 'copy' };
+  toast('已复制 ' + e.name + ' —— 到目标位置用「复制到...」落下');
+});
+$('rmCut').addEventListener('click', () => {
+  const e = menuTarget; closeRowMenu(); if (!e) return;
+  clip = { entry: e, dir: cwd, mode: 'cut' };
+  toast('已剪切 ' + e.name + ' —— 到目标位置用「移动到...」落下');
+});
+
+/* 复制到 / 移动到：优先消费复制/剪切标记，否则对当前面板条目 */
+$('rmCopyTo').addEventListener('click', () => { closeRowMenu(); openDest('copy'); });
+$('rmMoveTo').addEventListener('click', () => { closeRowMenu(); openDest('move'); });
+
+function openDest(mode) {
+  let src, fromDir;
+  const wantClip = mode === 'copy' ? 'copy' : 'cut';   // clip 标记是 copy/cut，动作是 copy/move
+  if (clip && clip.mode === wantClip) { src = clip.entry; fromDir = clip.dir; }
+  else if (menuTarget) { src = menuTarget; fromDir = cwd; }
+  else { toast('先在文件上选「' + (mode === 'copy' ? '复制' : '剪切') + '」'); return; }
+  destState = { mode, src, fromDir };
+  $('destTitle').textContent = mode === 'copy' ? '复制到' : '移动到';
+  $('destLabel').textContent = (mode === 'copy' ? '复制 ' : '移动 ') + src.name.split(' -> ')[0] + ' 到（目标路径，含文件名）';
+  $('destPath').value = joinPath(cwd, src.name.split(' -> ')[0]);
+  $('destModal').hidden = false;
+  $('destPath').focus();
+  $('destPath').select();
+}
+function closeDest() { $('destModal').hidden = true; destState = null; }
+async function submitDest() {
+  const st = destState;
+  closeDest();
+  if (!st) return;
+  const to = $('destPath').value.trim();
+  const from = joinPath(st.fromDir, st.src.name.split(' -> ')[0]);
+  if (!to || to === from) return;
+  try {
+    if (st.mode === 'copy') {
+      await invoke('hub_sftp_copy', { server, from, to });
+      toast('已复制到 ' + to);
+    } else {
+      await invoke('hub_sftp_rename', { server, from, to });
+      if (clip && clip.mode === 'cut' && clip.entry.name === st.src.name) clip = null;
+      if (selected && selected.name === st.src.name) { selected = null; $('downloadBtn').disabled = true; }
+      toast('已移动到 ' + to);
+    }
+    await refresh();
+  } catch (e) {
+    toast((st.mode === 'copy' ? '复制失败：' : '移动失败：') + e);
+  }
+}
+$('destClose').addEventListener('click', closeDest);
+$('destCancel').addEventListener('click', closeDest);
+$('destOk').addEventListener('click', submitDest);
+$('destForm').addEventListener('submit', (e) => { e.preventDefault(); submitDest(); });
+$('destModal').addEventListener('click', (e) => { if (e.target.id === 'destModal') closeDest(); });
 
 /* ---------- 重命名 ---------- */
 let renameTarget = null;
@@ -735,6 +993,8 @@ document.addEventListener('keydown', (e) => {
   closeRowMenu(); closePathMenu();
   if (!$('delModal').hidden) closeDel();
   if (!$('renameModal').hidden) closeRename();
+  if (!$('infoModal').hidden) closeInfo();
+  if (!$('destModal').hidden) closeDest();
   closeMkdir();
 });
 
