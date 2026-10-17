@@ -1,12 +1,12 @@
 <!DOCTYPE html>
-<html lang="zh-CN" class="dark">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<html lang="zh-CN" class="dark" data-page-node-id="BI7ZtiGnHbgv3gUfphgmuQ">
+<head data-page-node-id="KG0vC0nT2pzawbKMBTHbNM">
+<meta charset="UTF-8" data-page-node-id="u5BB6Pp5Du4ogvtz58V3fn">
+<meta name="viewport" content="width=device-width, initial-scale=1.0" data-page-node-id="Xu2QPEdIkEAZtudJKmBzcR">
 <title>AnyBoot PC 端 · 全界面重设计 v2（曜蓝 Cobalt · 亮暗双主题）</title>
 <script src="https://cdn.tailwindcss.com"></script>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com" data-page-node-id="ZWKzdxEC1vU7SjRHHgPYCp">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" data-page-node-id="dEUX9UJQXk6oqnIrD0BbEd">
 <script>
 tailwind.config = {
   darkMode: 'class',
@@ -69,284 +69,515 @@ tailwind.config = {
   html.light .desk{border-color:rgb(var(--frame)) !important;}
 </style>
 </head>
-<body class="min-h-screen font-sans text-fg antialiased p-4 md:p-10">
+<body class="min-h-screen font-sans text-fg antialiased p-4 md:p-10" data-page-node-id="eQmAOjmqkduUz4N3YV8xhG">
 
 <!-- 顶栏：页面切换器 + 主题切换 -->
-<div class="mx-auto mb-6 flex max-w-6xl flex-wrap items-center justify-center gap-2" role="tablist" aria-label="页面切换">
-  <button role="tab" data-page="main"   aria-selected="true"  class="pgtab cursor-pointer rounded-full border border-accentT/40 bg-accentT/10 px-4 py-1.5 text-xs font-semibold text-accentT">主窗口</button>
-  <button role="tab" data-page="hub"    aria-selected="false" class="pgtab cursor-pointer rounded-full border border-line bg-card px-4 py-1.5 text-xs font-medium text-fgDim transition-colors hover:text-fg">远程管理</button>
-  <button role="tab" data-page="hub-edit" aria-selected="false" class="pgtab cursor-pointer rounded-full border border-line bg-card px-4 py-1.5 text-xs font-medium text-fgDim transition-colors hover:text-fg">服务器编辑</button>
-  <button role="tab" data-page="term"   aria-selected="false" class="pgtab cursor-pointer rounded-full border border-line bg-card px-4 py-1.5 text-xs font-medium text-fgDim transition-colors hover:text-fg">终端</button>
-  <button role="tab" data-page="files"  aria-selected="false" class="pgtab cursor-pointer rounded-full border border-line bg-card px-4 py-1.5 text-xs font-medium text-fgDim transition-colors hover:text-fg">文件</button>
-  <button role="tab" data-page="keys"   aria-selected="false" class="pgtab cursor-pointer rounded-full border border-line bg-card px-4 py-1.5 text-xs font-medium text-fgDim transition-colors hover:text-fg">密钥</button>
-  <span class="mx-2 h-5 w-px bg-line"></span>
-  <button id="themeToggle" class="cursor-pointer rounded-full border border-line bg-card px-4 py-1.5 text-xs font-medium text-fgDim transition-colors hover:text-fg">☀️ 亮色</button>
+<div class="mx-auto mb-6 flex max-w-6xl flex-wrap items-center justify-center gap-2" role="tablist" aria-label="页面切换" data-page-node-id="zHjDnmBzJXTO1F90OiPCTG">
+  <button role="tab" data-page="main"   aria-selected="true"  class="pgtab cursor-pointer rounded-full border border-accentT/40 bg-accentT/10 px-4 py-1.5 text-xs font-semibold text-accentT" data-page-node-id="BjP8BGd3FlCpJthxFYpmuY">主窗口</button>
+  <button role="tab" data-page="hub"    aria-selected="false" class="pgtab cursor-pointer rounded-full border border-line bg-card px-4 py-1.5 text-xs font-medium text-fgDim transition-colors hover:text-fg" data-page-node-id="4BeYuGjWMkAJEMQG8yvDBs">远程管理</button>
+  <button role="tab" data-page="hub-edit" aria-selected="false" class="pgtab cursor-pointer rounded-full border border-line bg-card px-4 py-1.5 text-xs font-medium text-fgDim transition-colors hover:text-fg" data-page-node-id="R8CUUuk24VfRQsZTaWyd4J">服务器编辑</button>
+  <button role="tab" data-page="hub-add" aria-selected="false" class="pgtab cursor-pointer rounded-full border border-line bg-card px-4 py-1.5 text-xs font-medium text-fgDim transition-colors hover:text-fg">新建服务器</button>
+  <button role="tab" data-page="term"   aria-selected="false" class="pgtab cursor-pointer rounded-full border border-line bg-card px-4 py-1.5 text-xs font-medium text-fgDim transition-colors hover:text-fg" data-page-node-id="WyOrabukO4EdxRF3VAr6PG">终端</button>
+  <button role="tab" data-page="sessions" aria-selected="false" class="pgtab cursor-pointer rounded-full border border-line bg-card px-4 py-1.5 text-xs font-medium text-fgDim transition-colors hover:text-fg">会话</button>
+  <button role="tab" data-page="files"  aria-selected="false" class="pgtab cursor-pointer rounded-full border border-line bg-card px-4 py-1.5 text-xs font-medium text-fgDim transition-colors hover:text-fg" data-page-node-id="ss3sD980vanmJuwwnEXmBO">文件</button>
+  <button role="tab" data-page="transfers" aria-selected="false" class="pgtab cursor-pointer rounded-full border border-line bg-card px-4 py-1.5 text-xs font-medium text-fgDim transition-colors hover:text-fg">传输</button>
+  <button role="tab" data-page="keys"   aria-selected="false" class="pgtab cursor-pointer rounded-full border border-line bg-card px-4 py-1.5 text-xs font-medium text-fgDim transition-colors hover:text-fg" data-page-node-id="Pp9MN8or7nB3Rmql7Y8SBB">密钥</button>
+  <button role="tab" data-page="term-settings" aria-selected="false" class="pgtab cursor-pointer rounded-full border border-line bg-card px-4 py-1.5 text-xs font-medium text-fgDim transition-colors hover:text-fg">终端设置</button>
+  <button role="tab" data-page="about" aria-selected="false" class="pgtab cursor-pointer rounded-full border border-line bg-card px-4 py-1.5 text-xs font-medium text-fgDim transition-colors hover:text-fg">关于</button>
+  <span class="mx-2 h-5 w-px bg-line" data-page-node-id="Y9kxz2i1pUu87zGGpYMh4M"></span>
+  <button id="themeToggle" class="cursor-pointer rounded-full border border-line bg-card px-4 py-1.5 text-xs font-medium text-fgDim transition-colors hover:text-fg" data-page-node-id="nG8tVNd5RBnyKnlU6IiGyo">☀️ 亮色</button>
 </div>
 
 <!-- 桌面窗口框 -->
-<div class="desk mx-auto flex flex-col overflow-hidden rounded-2xl border-2 border-[rgb(var(--frame))] bg-base shadow-frame" role="application">
+<div class="desk mx-auto flex flex-col overflow-hidden rounded-2xl border-2 border-[rgb(var(--frame))] bg-base shadow-frame" role="application" data-page-node-id="uyvRyprDrCbY91yNMVZpZo">
 
   <!-- ============ ① 主窗口（index.html：系统引导 + 电源 + 设置） ============ -->
-  <section data-screen="main" class="flex min-h-0 flex-1 flex-col">
+  <section data-screen="main" class="flex min-h-0 flex-1 flex-col" data-page-node-id="sc13yZHykfL25t2VixNXW5">
     <!-- 标题栏：电源三键 + 重启/退出 -->
-    <div class="flex h-12 shrink-0 items-center gap-2 border-b border-line bg-card px-4">
-      <span class="grid size-6 place-items-center rounded-lg bg-accent font-mono text-[11px] font-bold text-white">A</span>
-      <span class="text-sm font-semibold">AnyBoot</span>
-      <span class="ml-2 rounded-md bg-elevate px-2 py-0.5 font-mono text-[10px] text-fgDim">本机 · CachyOS</span>
-      <div class="ml-auto flex items-center gap-1.5">
-        <button class="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-line bg-elevate px-3 text-xs font-medium transition-colors hover:text-fgDim"><svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 3v6h-6"/></svg>重启</button>
-        <button class="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-warn/30 bg-warn/10 px-3 text-xs font-medium text-warn"><svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2v10M18.4 6.6a9 9 0 1 1-12.8 0"/></svg>关机</button>
-        <button class="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-line bg-elevate px-3 text-xs font-medium"><svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 8v4l2.5 2.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z"/></svg>睡眠</button>
-        <span class="mx-1 h-5 w-px bg-line"></span>
-        <button class="h-8 cursor-pointer rounded-lg px-2.5 text-xs text-fgDim transition-colors hover:text-fg">重启应用</button>
-        <button class="h-8 cursor-pointer rounded-lg px-2.5 text-xs text-fgDim transition-colors hover:text-bad">退出</button>
+    <div class="flex h-12 shrink-0 items-center gap-2 border-b border-line bg-card px-4" data-page-node-id="NfGq2ryj7Y2Gw7l1AoyX6g">
+      <span class="grid size-6 place-items-center rounded-lg bg-accent font-mono text-[11px] font-bold text-white" data-page-node-id="dX4SphIQYmof7XuXhrnOEn">A</span>
+      <span class="text-sm font-semibold" data-page-node-id="AKCIJuYpfsRgEtAon521ni">AnyBoot</span>
+      <span class="ml-2 rounded-md bg-elevate px-2 py-0.5 font-mono text-[10px] text-fgDim" data-page-node-id="3stGkAOPlrhLqWJY7gutCJ">本机 · CachyOS</span>
+      <div class="ml-auto flex items-center gap-1.5" data-page-node-id="SebLpEBqTD60wDc6BsNpI4">
+        <button class="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-line bg-elevate px-3 text-xs font-medium transition-colors hover:text-fgDim" data-page-node-id="CIRyKEtbI5BZCaMWBZOyae"><svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" data-page-node-id="BSynnivOL7xxh8NdxOMg2N"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 3v6h-6" data-page-node-id="CLG3hIvSJe3UO61u2ee8D7"/></svg>重启</button>
+        <button class="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-warn/30 bg-warn/10 px-3 text-xs font-medium text-warn" data-page-node-id="A6FXmhNcdIlRrDDlhiqwK7"><svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" data-page-node-id="ZvJGfXNnLrESmczgyvft7n"><path d="M12 2v10M18.4 6.6a9 9 0 1 1-12.8 0" data-page-node-id="6CLBpEJpG5cdubnuR2jND6"/></svg>关机</button>
+        <button class="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-line bg-elevate px-3 text-xs font-medium" data-page-node-id="M8lNlWPagRllto4CqaOLkd"><svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" data-page-node-id="aik6t5WXExdA95Mty9RJBY"><path d="M12 8v4l2.5 2.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" data-page-node-id="hxpthUj212jmUMfPHd2BuJ"/></svg>睡眠</button>
+        <span class="mx-1 h-5 w-px bg-line" data-page-node-id="qoNs4TzdtVGEeBTRaFnAKV"></span>
+        <button class="h-8 cursor-pointer rounded-lg px-2.5 text-xs text-fgDim transition-colors hover:text-fg" data-page-node-id="vDWcNDvq6gb5zEMcLHOqdz">重启应用</button>
+        <button class="h-8 cursor-pointer rounded-lg px-2.5 text-xs text-fgDim transition-colors hover:text-bad" data-page-node-id="H1yFSh4smD5L3FxDLd7BP2">退出</button>
       </div>
     </div>
 
-    <div class="flex min-h-0 flex-1">
+    <div class="flex min-h-0 flex-1" data-page-node-id="GULHDJBUF176XXHkR4horj">
       <!-- 左：系统引导 -->
-      <div class="flex min-h-0 flex-1 flex-col overflow-y-auto scroll-thin p-5">
-        <div class="mb-4 flex items-center justify-between">
-          <div>
-            <h2 class="text-lg font-bold">GRUB 启动项</h2>
-            <p class="mt-0.5 font-mono text-[11px] text-fgDim">/boot/grub/grub.cfg · 上次扫描 08:32</p>
+      <div class="flex min-h-0 flex-1 flex-col overflow-y-auto scroll-thin p-5" data-page-node-id="kY9AcvkoOLx3HPzUlS7WB4">
+        <div class="mb-4 flex items-center justify-between" data-page-node-id="IydfBTRBBcYDN42CABHsZ0">
+          <div data-page-node-id="B5aiXLo3LFoSnJzRCmkbec">
+            <h2 class="text-lg font-bold" data-page-node-id="DxuwL2HD4ElTjuOSra93q7">GRUB 启动项</h2>
+            <p class="mt-0.5 font-mono text-[11px] text-fgDim" data-page-node-id="sa4E2lOp0KC1LYwMGw50EH">/boot/grub/grub.cfg · 上次扫描 08:32</p>
           </div>
-          <div class="flex gap-2">
-            <button class="h-8 cursor-pointer rounded-lg border border-line bg-elevate px-3 text-xs font-medium transition-colors active:scale-95">扫描</button>
-            <button class="h-8 cursor-pointer rounded-lg bg-accent px-3 text-xs font-bold text-white transition-all active:scale-95">同步</button>
+          <div class="flex gap-2" data-page-node-id="jVF61imctM6lSzHGgOf09F">
+            <button class="h-8 cursor-pointer rounded-lg border border-line bg-elevate px-3 text-xs font-medium transition-colors active:scale-95" data-page-node-id="zv8oyTGgHGsRRnvAj4XAPv">扫描</button>
+            <button class="h-8 cursor-pointer rounded-lg bg-accent px-3 text-xs font-bold text-white transition-all active:scale-95" data-page-node-id="RnCVldCtA3TJJEuwqDIpMe">同步</button>
           </div>
         </div>
 
-        <div class="space-y-2.5">
-          <article class="relative overflow-hidden rounded-2xl border border-accent/35 bg-card p-4 shadow-glow">
-            <div class="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-accent/70 to-transparent"></div>
-            <div class="flex items-center gap-3">
-              <span class="grid size-10 place-items-center rounded-xl bg-accent/12 text-accentT">
-                <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M13 2L3 14h7l-1 8 10-12h-7z"/></svg>
+        <div class="space-y-2.5" data-page-node-id="x4usAEhpGItE0Qlnpj8AY5">
+          <article class="relative overflow-hidden rounded-2xl border border-accent/35 bg-card p-4 shadow-glow" data-page-node-id="qNAQzJ91oX3ags2sr5bDI4">
+            <div class="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-accent/70 to-transparent" data-page-node-id="S4BW2gUMmY8rI8cIGUbTXa"></div>
+            <div class="flex items-center gap-3" data-page-node-id="RdMdHYW8rbJTMH4bmwcnd8">
+              <span class="grid size-10 place-items-center rounded-xl bg-accent/12 text-accentT" data-page-node-id="KFarMQQnURGpPXF12ZXMYv">
+                <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" data-page-node-id="QVHEho1rXJagNnXj9JFyd3"><path d="M13 2L3 14h7l-1 8 10-12h-7z" data-page-node-id="oxUwQIE2MmwasfSkffsNFI"/></svg>
               </span>
-              <div class="min-w-0 flex-1">
-                <p class="flex items-center gap-2 text-sm font-semibold">CachyOS <span class="rounded-md bg-accent/15 px-1.5 py-px font-mono text-[9px] font-semibold text-accentT">当前启动</span><span class="rounded-md bg-ok/12 px-1.5 py-px font-mono text-[9px] font-semibold text-ok">default</span></p>
-                <p class="mt-0.5 font-mono text-[11px] text-fgDim">root=UUID=4f2a…  ·  上次启动 06:12</p>
+              <div class="min-w-0 flex-1" data-page-node-id="gDuH5HMbjvIkILh5D1W6fT">
+                <p class="flex items-center gap-2 text-sm font-semibold" data-page-node-id="Wig4gsOUq781D8To0Ajf8R">CachyOS <span class="rounded-md bg-accent/15 px-1.5 py-px font-mono text-[9px] font-semibold text-accentT" data-page-node-id="kXnUhaFrpcFcqapOBBxrVZ">当前启动</span><span class="rounded-md bg-ok/12 px-1.5 py-px font-mono text-[9px] font-semibold text-ok" data-page-node-id="xWUyO7OVe2m818EhqqA4Ml">default</span></p>
+                <p class="mt-0.5 font-mono text-[11px] text-fgDim" data-page-node-id="aYbYpsP5p2kFVaxSYTtoOr">root=UUID=4f2a…  ·  上次启动 06:12</p>
               </div>
-              <button class="h-9 cursor-pointer rounded-xl bg-accent px-4 text-xs font-bold text-white transition-all active:scale-95">重启进入</button>
-              <button class="h-9 cursor-pointer rounded-xl border border-line bg-elevate px-4 text-xs font-medium transition-colors active:scale-95">设为默认</button>
+              <button class="h-9 cursor-pointer rounded-xl bg-accent px-4 text-xs font-bold text-white transition-all active:scale-95" data-page-node-id="UhqCCtrQozz0xTL7lpYUIy">重启进入</button>
+              <button class="h-9 cursor-pointer rounded-xl border border-line bg-elevate px-4 text-xs font-medium transition-colors active:scale-95" data-page-node-id="oqcO5fuG3GcJflZ6N46VI8">设为默认</button>
             </div>
           </article>
-          <article class="rounded-2xl border border-line bg-card p-4">
-            <div class="flex items-center gap-3">
-              <span class="grid size-10 place-items-center rounded-xl bg-elevate text-fgDim">
-                <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M3 9h18"/></svg>
+          <article class="rounded-2xl border border-line bg-card p-4" data-page-node-id="RuXQCax1Sv5XlfRLtDG9hq">
+            <div class="flex items-center gap-3" data-page-node-id="MQu7osDu9sA1dowO2nSm5q">
+              <span class="grid size-10 place-items-center rounded-xl bg-elevate text-fgDim" data-page-node-id="KlAgMwyXpUuMMSiXoUrjpB">
+                <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" data-page-node-id="BIw3lr5ve5D78xySRPp9O9"><rect x="3" y="4" width="18" height="14" rx="2" data-page-node-id="9k993AaMVKoXjXkbejaHW0"/><path d="M3 9h18" data-page-node-id="dtufSZEhtrqBUVhUKQ4JBq"/></svg>
               </span>
-              <div class="min-w-0 flex-1">
-                <p class="text-sm font-semibold">Arch Linux</p>
-                <p class="mt-0.5 font-mono text-[11px] text-fgDim">/boot/vmlinuz-linux · root=UUID=9c1d…</p>
+              <div class="min-w-0 flex-1" data-page-node-id="EbpiGXhqhWXgPeQquWSwLd">
+                <p class="text-sm font-semibold" data-page-node-id="yCOM0nKxNorstwBj2cGcXU">Arch Linux</p>
+                <p class="mt-0.5 font-mono text-[11px] text-fgDim" data-page-node-id="3GG4D3ZXXDpb2QBvxzdqLp">/boot/vmlinuz-linux · root=UUID=9c1d…</p>
               </div>
-              <button class="h-8 cursor-pointer rounded-lg border border-line bg-elevate px-3 text-xs font-medium transition-colors active:scale-95">切换</button>
-              <button class="h-8 cursor-pointer rounded-lg px-2 text-xs text-fgDim transition-colors hover:text-fg">设为默认</button>
+              <button class="h-8 cursor-pointer rounded-lg border border-line bg-elevate px-3 text-xs font-medium transition-colors active:scale-95" data-page-node-id="VAJe2RgDNlxyfFve15DePV">切换</button>
+              <button class="h-8 cursor-pointer rounded-lg px-2 text-xs text-fgDim transition-colors hover:text-fg" data-page-node-id="73RROip1Y84MwMrb0wzmxe">设为默认</button>
             </div>
           </article>
-          <article class="rounded-2xl border border-line bg-card p-4">
-            <div class="flex items-center gap-3">
-              <span class="grid size-10 place-items-center rounded-xl bg-elevate text-fgDim">
-                <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M3 9h18"/></svg>
+          <article class="rounded-2xl border border-line bg-card p-4" data-page-node-id="HnF5XlCr0uO8jj3fUjmI4J">
+            <div class="flex items-center gap-3" data-page-node-id="pFvQrn7xvYRPj6wHtDNRkB">
+              <span class="grid size-10 place-items-center rounded-xl bg-elevate text-fgDim" data-page-node-id="JGdniQTT7Xmq4gBPFotxWo">
+                <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" data-page-node-id="YEwnK7ByGXyqJaTrnF5CL8"><rect x="3" y="4" width="18" height="14" rx="2" data-page-node-id="Cj0d8JskWemd3kkU6oDprW"/><path d="M3 9h18" data-page-node-id="v0hK2JAgVgHxjAd0kF4ktr"/></svg>
               </span>
-              <div class="min-w-0 flex-1">
-                <p class="text-sm font-semibold">Kali Linux</p>
-                <p class="mt-0.5 font-mono text-[11px] text-fgDim">/boot/vmlinuz-kali · root=UUID=b7e3…</p>
+              <div class="min-w-0 flex-1" data-page-node-id="i93DBJST7UvXhG56No625B">
+                <p class="text-sm font-semibold" data-page-node-id="knfDyAZVApYAP3SFUxo8mW">Kali Linux</p>
+                <p class="mt-0.5 font-mono text-[11px] text-fgDim" data-page-node-id="1HAqZdCPOEuTwojEYzaEXR">/boot/vmlinuz-kali · root=UUID=b7e3…</p>
               </div>
-              <button class="h-8 cursor-pointer rounded-lg border border-line bg-elevate px-3 text-xs font-medium transition-colors active:scale-95">切换</button>
-              <button class="h-8 cursor-pointer rounded-lg px-2 text-xs text-fgDim transition-colors hover:text-fg">设为默认</button>
+              <button class="h-8 cursor-pointer rounded-lg border border-line bg-elevate px-3 text-xs font-medium transition-colors active:scale-95" data-page-node-id="Sjgn7VVCzk2UdQXOOSpFHt">切换</button>
+              <button class="h-8 cursor-pointer rounded-lg px-2 text-xs text-fgDim transition-colors hover:text-fg" data-page-node-id="HPSDjtF8pXbJUZXjhpz1gK">设为默认</button>
             </div>
           </article>
         </div>
 
         <!-- rEFInd 区 -->
-        <div class="mt-5">
-          <div class="mb-2 flex items-center justify-between">
-            <h3 class="text-sm font-bold">rEFInd 启动项</h3>
-            <span class="rounded-full bg-elevate px-2 py-0.5 font-mono text-[10px] text-fgDim">2 项</span>
+        <div class="mt-5" data-page-node-id="FEGL6ZmJdBGaBYZiEHuaCh">
+          <div class="mb-2 flex items-center justify-between" data-page-node-id="WlOmSy3eZS2e1SpW9bSiBA">
+            <h3 class="text-sm font-bold" data-page-node-id="VoZxTJBMorlSh3qqRAHpBd">rEFInd 启动项</h3>
+            <span class="rounded-full bg-elevate px-2 py-0.5 font-mono text-[10px] text-fgDim" data-page-node-id="0emrT5jpOmwD8PmawGx0QW">2 项</span>
           </div>
-          <div class="space-y-2">
-            <div class="flex items-center gap-3 rounded-xl border border-line bg-card px-4 py-2.5">
-              <span class="size-2 rounded-full bg-info"></span>
-              <p class="flex-1 text-sm">rEFInd 主菜单</p>
-              <p class="font-mono text-[11px] text-fgDim">esp/EFI/refind</p>
+          <div class="space-y-2" data-page-node-id="ly1o3XqSMceX0zJ3op1s0R">
+            <div class="flex items-center gap-3 rounded-xl border border-line bg-card px-4 py-2.5" data-page-node-id="hGKv9andThMbSG0pmbkLpQ">
+              <span class="size-2 rounded-full bg-info" data-page-node-id="J73uVO7XLodc9gMxRjfGTM"></span>
+              <p class="flex-1 text-sm" data-page-node-id="tGfGGyIxnbzezAgqJ0dGkm">rEFInd 主菜单</p>
+              <p class="font-mono text-[11px] text-fgDim" data-page-node-id="2s6I0SzCb5W8YtA1ZOyKCI">esp/EFI/refind</p>
             </div>
-            <div class="flex items-center gap-3 rounded-xl border border-line bg-card px-4 py-2.5">
-              <span class="size-2 rounded-full bg-fgFaint"></span>
-              <p class="flex-1 text-sm">Windows Boot Manager</p>
-              <p class="font-mono text-[11px] text-fgDim">esp/EFI/Microsoft</p>
+            <div class="flex items-center gap-3 rounded-xl border border-line bg-card px-4 py-2.5" data-page-node-id="jKxHhb2rq9G7PT8YGdeFQp">
+              <span class="size-2 rounded-full bg-fgFaint" data-page-node-id="RE9SQceOyN1Mwa8Dol9dEE"></span>
+              <p class="flex-1 text-sm" data-page-node-id="smFlaTlywD4oriVPsGk8sc">Windows Boot Manager</p>
+              <p class="font-mono text-[11px] text-fgDim" data-page-node-id="DP267G4qy2Ux2JCRV2acnI">esp/EFI/Microsoft</p>
             </div>
           </div>
         </div>
       </div>
 
       <!-- 右：目录与设置 -->
-      <aside class="flex w-80 shrink-0 flex-col gap-4 overflow-y-auto scroll-thin border-l border-line bg-card/50 p-5">
-        <div>
-          <h3 class="mb-2.5 text-sm font-bold">系统引导目录</h3>
-          <div class="space-y-2">
-            <div class="rounded-xl border border-line bg-card px-3.5 py-2.5">
-              <p class="text-xs font-semibold text-fgDim">ESP 目录</p>
-              <p class="mt-1 truncate font-mono text-[11px]">/boot/efi</p>
+      <aside class="flex w-80 shrink-0 flex-col gap-4 overflow-y-auto scroll-thin border-l border-line bg-card/50 p-5" data-page-node-id="1ix91m3R3FqUHvanDHfjjL">
+        <div data-page-node-id="5WHicSxhv7K86N0NQyuNfI">
+          <h3 class="mb-2.5 text-sm font-bold" data-page-node-id="5CdYB58dMAshtSKasgUYyu">系统引导目录</h3>
+          <div class="space-y-2" data-page-node-id="x6g5XPotcJ9emHWXf9JI1U">
+            <div class="rounded-xl border border-line bg-card px-3.5 py-2.5" data-page-node-id="w1LbhEwmdoONnjCEiGjhZM">
+              <p class="text-xs font-semibold text-fgDim" data-page-node-id="ZxZGdqrM5cVYqe4mFCImbS">ESP 目录</p>
+              <p class="mt-1 truncate font-mono text-[11px]" data-page-node-id="cpBOlbJXnR8CAKADVaEshL">/boot/efi</p>
             </div>
-            <div class="rounded-xl border border-line bg-card px-3.5 py-2.5">
-              <p class="text-xs font-semibold text-fgDim">GRUB 区</p>
-              <p class="mt-1 truncate font-mono text-[11px]">/boot/grub</p>
+            <div class="rounded-xl border border-line bg-card px-3.5 py-2.5" data-page-node-id="JtFBn52fClkeI1QnQvZbKj">
+              <p class="text-xs font-semibold text-fgDim" data-page-node-id="s02lFYIsd9d4gAryjfkhty">GRUB 区</p>
+              <p class="mt-1 truncate font-mono text-[11px]" data-page-node-id="Wv5kuNRxv8ltnAADj7nRhV">/boot/grub</p>
             </div>
-            <div class="rounded-xl border border-line bg-card px-3.5 py-2.5">
-              <p class="text-xs font-semibold text-fgDim">变量目录</p>
-              <p class="mt-1 truncate font-mono text-[11px]">efivars · 已挂载</p>
+            <div class="rounded-xl border border-line bg-card px-3.5 py-2.5" data-page-node-id="iSXkZ1jdOCWTeIp3oc045o">
+              <p class="text-xs font-semibold text-fgDim" data-page-node-id="yX80RK4wHWJBjsckuP7eqb">变量目录</p>
+              <p class="mt-1 truncate font-mono text-[11px]" data-page-node-id="1YxshEBZYpJJn7NVI25oFh">efivars · 已挂载</p>
             </div>
           </div>
-          <button class="mt-2.5 h-9 w-full cursor-pointer rounded-xl border border-line bg-elevate text-xs font-medium transition-colors active:scale-95">使用此目录</button>
+          <button class="mt-2.5 h-9 w-full cursor-pointer rounded-xl border border-line bg-elevate text-xs font-medium transition-colors active:scale-95" data-page-node-id="QpY0YuytDfKuIPjpMj4FdK">使用此目录</button>
         </div>
-        <div class="border-t border-line pt-4">
-          <h3 class="mb-2.5 text-sm font-bold">基本设置</h3>
-          <div class="space-y-1">
-            <div class="flex items-center justify-between rounded-xl px-2 py-2 hover:bg-elevate">
-              <div><p class="text-sm">列表格式</p><p class="text-[11px] text-fgDim">启动项列表的排版</p></div>
-              <span class="rounded-md bg-elevate px-2 py-1 font-mono text-[10px] text-fgDim">紧凑 ▾</span>
+        <div class="border-t border-line pt-4" data-page-node-id="PEllZ6Cr7jOIQPndtBSodd">
+          <h3 class="mb-2.5 text-sm font-bold" data-page-node-id="cIHK5Pj3dwQLhIzGABKg1P">基本设置</h3>
+          <div class="space-y-1" data-page-node-id="JaMf3NmsSMOwj8aHTRoPuB">
+            <div class="flex items-center justify-between rounded-xl px-2 py-2 hover:bg-elevate" data-page-node-id="CYwA0LUryDO3oSCFfoGsU3">
+              <div data-page-node-id="NkYHJjde8M5v0z2P0l9sDC"><p class="text-sm" data-page-node-id="QtYeYg5soZZ6wFwZyCarbp">列表格式</p><p class="text-[11px] text-fgDim" data-page-node-id="ni9X7X5RJJaEXDV7FCfBjz">启动项列表的排版</p></div>
+              <span class="rounded-md bg-elevate px-2 py-1 font-mono text-[10px] text-fgDim" data-page-node-id="KtUEHBdB4iuBo0AdfOT1MG">紧凑 ▾</span>
             </div>
-            <div class="flex items-center justify-between rounded-xl px-2 py-2 hover:bg-elevate">
-              <div><p class="text-sm">展示方式</p><p class="text-[11px] text-fgDim">GRUB / rEFInd 合并显示</p></div>
-              <span class="inline-flex h-5 w-9 items-center rounded-full bg-accent px-0.5"><span class="ml-auto size-4 rounded-full bg-white"></span></span>
+            <div class="flex items-center justify-between rounded-xl px-2 py-2 hover:bg-elevate" data-page-node-id="nuQRybLDTyqDbLDFyBfpdJ">
+              <div data-page-node-id="67e79kigh4tvOnIeszKCDu"><p class="text-sm" data-page-node-id="C6g84YKowf710NH4uqU6HL">展示方式</p><p class="text-[11px] text-fgDim" data-page-node-id="AGLJkCKhpsJ2RoYTPBa7E9">GRUB / rEFInd 合并显示</p></div>
+              <span class="inline-flex h-5 w-9 items-center rounded-full bg-accent px-0.5" data-page-node-id="7AIAEXzDX2w0HA2lgT2CWH"><span class="ml-auto size-4 rounded-full bg-white" data-page-node-id="vbGr9O9gxrc8iuPUsN8H9T"></span></span>
             </div>
           </div>
-          <button class="mt-3 h-9 w-full cursor-pointer rounded-xl bg-accent text-xs font-bold text-white transition-all active:scale-95">应用设置</button>
+          <button class="mt-3 h-9 w-full cursor-pointer rounded-xl bg-accent text-xs font-bold text-white transition-all active:scale-95" data-page-node-id="xch7pkFn35EkwBPWhl6YTL">应用设置</button>
         </div>
       </aside>
     </div>
   </section>
 
   <!-- ============ ② 远程管理（hub.html：服务器列表 + 详情 + 隧道） ============ -->
-  <section data-screen="hub" hidden class="flex min-h-0 flex-1 flex-col">
-    <div class="flex h-12 shrink-0 items-center gap-2 border-b border-line bg-card px-4">
-      <span class="grid size-6 place-items-center rounded-lg bg-accent font-mono text-[11px] font-bold text-white">A</span>
-      <span class="text-sm font-semibold">AnyBoot 远程管理</span>
-      <div class="ml-auto flex items-center gap-2">
-        <span class="rounded-full bg-ok/10 px-2.5 py-1 font-mono text-[10px] font-semibold text-ok">2 在线</span>
-        <button class="grid size-8 cursor-pointer place-items-center rounded-lg text-fgDim transition-colors hover:bg-elevate hover:text-fg" aria-label="切换主题">🌙</button>
+  <section data-screen="hub" hidden class="flex min-h-0 flex-1 flex-col" data-page-node-id="xKmdhp5Lv9VsrkOqACl88R">
+    <div class="flex h-12 shrink-0 items-center gap-2 border-b border-line bg-card px-4" data-page-node-id="ynBJjFUhBsCtLGk29ZRW7R">
+      <span class="grid size-6 place-items-center rounded-lg bg-accent font-mono text-[11px] font-bold text-white" data-page-node-id="Tcq7gkrcOAI39T7HNm96Jr">A</span>
+      <span class="text-sm font-semibold" data-page-node-id="PkOy3cyuFTssGqphn7UwY9">AnyBoot 远程管理</span>
+      <div class="ml-auto flex items-center gap-2" data-page-node-id="qIh0vuKtNfEgEwwuQT03hZ">
+        <span class="rounded-full bg-ok/10 px-2.5 py-1 font-mono text-[10px] font-semibold text-ok" data-page-node-id="WAmh5CcFD4ulzQPoA1JYhZ">2 在线</span>
+        <button class="grid size-8 cursor-pointer place-items-center rounded-lg text-fgDim transition-colors hover:bg-elevate hover:text-fg" aria-label="切换主题" data-page-node-id="cJeKmtPv1EOH5rLuDQkRxG">🌙</button>
       </div>
     </div>
 
-    <div class="flex min-h-0 flex-1">
+    <div class="flex min-h-0 flex-1" data-page-node-id="6guanLu4eO2JsqILpVNBea">
       <!-- 左：服务器列表 -->
-      <aside class="flex w-64 shrink-0 flex-col border-r border-line bg-card/50">
-        <div class="flex items-center justify-between px-4 pb-2 pt-4">
-          <h2 class="text-sm font-bold">服务器</h2>
-          <button class="grid size-7 cursor-pointer place-items-center rounded-lg border border-line bg-elevate text-fgDim transition-colors hover:text-fg" aria-label="新建">＋</button>
+      <aside class="flex w-64 shrink-0 flex-col border-r border-line bg-card/50" data-page-node-id="xrRCmBMBZZP8hl1dXhRMVV">
+        <div class="flex items-center justify-between px-4 pb-2 pt-4" data-page-node-id="DNVRcmakPy7lA4c45s1y28">
+          <h2 class="text-sm font-bold" data-page-node-id="r0FGwPBPvJppeBI3wnlcXx">服务器</h2>
+          <button class="grid size-7 cursor-pointer place-items-center rounded-lg border border-line bg-elevate text-fgDim transition-colors hover:text-fg" aria-label="新建" data-page-node-id="kqK4rMr0LifKXcZaeYRKaG">＋</button>
         </div>
-        <div class="flex-1 space-y-1 overflow-y-auto scroll-thin px-2 pb-3">
-          <div class="cursor-pointer rounded-xl border border-accent/40 bg-accent/10 px-3 py-2.5" aria-current="true">
-            <p class="flex items-center gap-2 text-sm font-semibold"><span class="relative flex size-2"><span class="absolute h-full w-full animate-ping rounded-full bg-ok opacity-60 motion-reduce:hidden"></span><span class="relative size-2 rounded-full bg-ok"></span></span>书房台式机</p>
-            <p class="mt-0.5 pl-4 font-mono text-[10px] text-fgDim">root@192.168.0.120:22</p>
+        <div class="flex-1 space-y-1 overflow-y-auto scroll-thin px-2 pb-3" data-page-node-id="jMlqLWl9FHBaec6EyqcXYZ">
+          <div class="cursor-pointer rounded-xl border border-accent/40 bg-accent/10 px-3 py-2.5" aria-current="true" data-page-node-id="4TGPVHPpX50IvhtNxsTXLR">
+            <p class="flex items-center gap-2 text-sm font-semibold" data-page-node-id="BUjMrn8AVDMHMRisASyij0"><span class="relative flex size-2" data-page-node-id="u4Ws0LkiHHu0gxYsH0pK2u"><span class="absolute h-full w-full animate-ping rounded-full bg-ok opacity-60 motion-reduce:hidden" data-page-node-id="tfUAzq4yr3rI97y0CNmXYD"></span><span class="relative size-2 rounded-full bg-ok" data-page-node-id="MkLwV4QgKVwB7KMNNtbkfP"></span></span>书房台式机</p>
+            <p class="mt-0.5 pl-4 font-mono text-[10px] text-fgDim" data-page-node-id="NpPcDa5IX5YanBW2LKny4a">root@192.168.0.120:22</p>
           </div>
-          <div class="cursor-pointer rounded-xl px-3 py-2.5 transition-colors hover:bg-elevate">
-            <p class="flex items-center gap-2 text-sm"><span class="size-2 rounded-full bg-ok"></span>书房台式机·5G</p>
-            <p class="mt-0.5 pl-4 font-mono text-[10px] text-fgDim">root@192.168.1.35:22</p>
+          <div class="cursor-pointer rounded-xl px-3 py-2.5 transition-colors hover:bg-elevate" data-page-node-id="gDigLuUhk64jnsPaapiNIm">
+            <p class="flex items-center gap-2 text-sm" data-page-node-id="FB9EJhIonfl79De99sT8AH"><span class="size-2 rounded-full bg-ok" data-page-node-id="n1kum2QpMaljIcs0iUHI6U"></span>书房台式机·5G</p>
+            <p class="mt-0.5 pl-4 font-mono text-[10px] text-fgDim" data-page-node-id="bg3tD002AnOprVMOvZUkPj">root@192.168.1.35:22</p>
           </div>
-          <div class="cursor-pointer rounded-xl px-3 py-2.5 transition-colors hover:bg-elevate">
-            <p class="flex items-center gap-2 text-sm"><span class="size-2 rounded-full bg-bad"></span>办公室 NAS</p>
-            <p class="mt-0.5 pl-4 font-mono text-[10px] text-fgDim">admin@10.0.0.8:22 · 离线</p>
+          <div class="cursor-pointer rounded-xl px-3 py-2.5 transition-colors hover:bg-elevate" data-page-node-id="8jfJkWyPzKb8U9FKgtEM2f">
+            <p class="flex items-center gap-2 text-sm" data-page-node-id="XrMhJgag8LAbFbM3aPddX7"><span class="size-2 rounded-full bg-bad" data-page-node-id="CkKn6qAw7NxgzRYgOrKoqI"></span>办公室 NAS</p>
+            <p class="mt-0.5 pl-4 font-mono text-[10px] text-fgDim" data-page-node-id="bXEhnufkEmVJdKMaioQQNQ">admin@10.0.0.8:22 · 离线</p>
           </div>
-          <div class="cursor-pointer rounded-xl px-3 py-2.5 transition-colors hover:bg-elevate">
-            <p class="flex items-center gap-2 text-sm"><span class="size-2 rounded-full bg-fgFaint"></span>测试机</p>
-            <p class="mt-0.5 pl-4 font-mono text-[10px] text-fgDim">root@127.0.0.1:2222 · 未测</p>
+          <div class="cursor-pointer rounded-xl px-3 py-2.5 transition-colors hover:bg-elevate" data-page-node-id="f8q2UjF8fkobVxh1U4E0tX">
+            <p class="flex items-center gap-2 text-sm" data-page-node-id="a9gtvCUXF0RDqVIeE3Ex49"><span class="size-2 rounded-full bg-fgFaint" data-page-node-id="R8fg7E1HOBaSD7HA9vXIVu"></span>测试机</p>
+            <p class="mt-0.5 pl-4 font-mono text-[10px] text-fgDim" data-page-node-id="mAZOAHZsE1CTGRjGQoMj8m">root@127.0.0.1:2222 · 未测</p>
           </div>
         </div>
-        <div class="border-t border-line p-3">
-          <button class="h-9 w-full cursor-pointer rounded-xl border border-line bg-elevate text-xs font-medium transition-colors">＋ 新建服务器</button>
+        <div class="border-t border-line p-3" data-page-node-id="RG8DzXCsPKZWCmos59LGCR">
+          <button class="h-9 w-full cursor-pointer rounded-xl border border-line bg-elevate text-xs font-medium transition-colors" data-page-node-id="6HgPBAaFaSwGt1ii1Ka13G">＋ 新建服务器</button>
         </div>
       </aside>
 
       <!-- 右：详情 -->
-      <div class="min-h-0 flex-1 overflow-y-auto scroll-thin p-5">
-        <div class="mb-4 flex items-start justify-between">
-          <div>
-            <h2 class="text-lg font-bold">书房台式机</h2>
-            <p class="mt-0.5 font-mono text-[11px] text-fgDim">SSH · root@192.168.0.120:22 · 密码 · 已存（免输）</p>
+      <div class="min-h-0 flex-1 overflow-y-auto scroll-thin p-5" data-page-node-id="vC3HhZGjNl5m2BXTPrxVgl">
+        <div class="mb-4 flex items-start justify-between" data-page-node-id="MwRsjncp5McOguxPmV4AG0">
+          <div data-page-node-id="TaM8ApKhptb55GBTxC1h27">
+            <h2 class="text-lg font-bold" data-page-node-id="3SnLTOmEBihoesfDKC42J8">书房台式机</h2>
+            <p class="mt-0.5 font-mono text-[11px] text-fgDim" data-page-node-id="iU5JwAJSLXnDlfMA7vmkur">SSH · root@192.168.0.120:22 · 密码 · 已存（免输）</p>
           </div>
-          <div class="flex gap-2">
-            <button class="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-xl bg-accent px-4 text-xs font-bold text-white transition-all active:scale-95"><svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M6 20h12"/></svg>打开终端</button>
-            <button class="h-9 cursor-pointer rounded-xl border border-line bg-elevate px-4 text-xs font-medium transition-colors">文件</button>
-            <button class="h-9 cursor-pointer rounded-xl border border-line bg-elevate px-4 text-xs font-medium transition-colors">编辑</button>
+          <div class="flex gap-2" data-page-node-id="sMbDZUIbUMHEQLe4wMUQwX">
+            <button class="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-xl bg-accent px-4 text-xs font-bold text-white transition-all active:scale-95" data-page-node-id="XuCT8DNsDYl6b5v6IpdG5N"><svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" data-page-node-id="lil1MAhiWleUz20Ghn2mdz"><rect x="2" y="4" width="20" height="14" rx="2" data-page-node-id="yqcO2pvEB15e4op6Z5WmHb"/><path d="M6 20h12" data-page-node-id="ScCOwyf1RGXZ41uBKp7Nzq"/></svg>打开终端</button>
+            <button class="h-9 cursor-pointer rounded-xl border border-line bg-elevate px-4 text-xs font-medium transition-colors" data-page-node-id="Kg2wPj1FiWeso2b7C0pIIY">文件</button>
+            <button class="h-9 cursor-pointer rounded-xl border border-line bg-elevate px-4 text-xs font-medium transition-colors" data-page-node-id="KMQDhYQQwa6uYEQtzzoCRy">编辑</button>
           </div>
         </div>
 
-        <div class="grid grid-cols-3 gap-3">
-          <div class="rounded-2xl border border-line bg-card p-4">
-            <p class="text-xs font-semibold text-fgDim">连通性</p>
-            <p class="mt-1.5 flex items-center gap-2 text-sm font-semibold"><span class="relative flex size-2"><span class="absolute h-full w-full animate-ping rounded-full bg-ok opacity-60 motion-reduce:hidden"></span><span class="relative size-2 rounded-full bg-ok"></span></span>在线</p>
-            <p class="mt-1 font-mono text-[10px] text-fgDim">心跳 3s · 刚刚</p>
+        <div class="grid grid-cols-3 gap-3" data-page-node-id="MtiwMtkRfcAKRD2d0C2RkA">
+          <div class="rounded-2xl border border-line bg-card p-4" data-page-node-id="5gV3AfAQOH1O9HyCQ3IID3">
+            <p class="text-xs font-semibold text-fgDim" data-page-node-id="Gvx8yZJxjCGY2BWFCpxm9X">连通性</p>
+            <p class="mt-1.5 flex items-center gap-2 text-sm font-semibold" data-page-node-id="TaaEfjUGjcuCq1X9vIhWb0"><span class="relative flex size-2" data-page-node-id="Os05WJlBBri60L8sw6Tsov"><span class="absolute h-full w-full animate-ping rounded-full bg-ok opacity-60 motion-reduce:hidden" data-page-node-id="xEvfzjXPWKbAQiKgXVxXAQ"></span><span class="relative size-2 rounded-full bg-ok" data-page-node-id="HW3dBd9tTz885TrMJ6GveY"></span></span>在线</p>
+            <p class="mt-1 font-mono text-[10px] text-fgDim" data-page-node-id="1AXoulscyH4sdP38LKwr5v">心跳 3s · 刚刚</p>
           </div>
-          <div class="rounded-2xl border border-line bg-card p-4">
-            <p class="text-xs font-semibold text-fgDim">延迟</p>
-            <p class="mt-1.5 font-mono text-lg font-semibold">12<span class="ml-1 text-[10px] text-fgDim">ms</span></p>
-            <p class="mt-1 font-mono text-[10px] text-fgDim">min 9 / max 21</p>
+          <div class="rounded-2xl border border-line bg-card p-4" data-page-node-id="afTZzBK84ayxqbSkZDAah6">
+            <p class="text-xs font-semibold text-fgDim" data-page-node-id="ZK7jKQgoGYdzPMLNozM6lU">延迟</p>
+            <p class="mt-1.5 font-mono text-lg font-semibold" data-page-node-id="KeIz64FGEFdO7AGTco16Jd">12<span class="ml-1 text-[10px] text-fgDim" data-page-node-id="bIFAPYeJFgSlZJGyvmMaEf">ms</span></p>
+            <p class="mt-1 font-mono text-[10px] text-fgDim" data-page-node-id="6XGyVfffDxony5EooHLbpY">min 9 / max 21</p>
           </div>
-          <div class="rounded-2xl border border-line bg-card p-4">
-            <p class="text-xs font-semibold text-fgDim">延迟趋势</p>
-            <svg class="mt-1 h-8 w-full" viewBox="0 0 120 32" preserveAspectRatio="none" fill="none">
-              <polyline points="0,20 15,16 30,22 45,12 60,18 75,10 90,14 105,8 120,12" stroke="rgb(var(--accent))" stroke-width="2" stroke-linecap="round"/>
+          <div class="rounded-2xl border border-line bg-card p-4" data-page-node-id="xA0ZFQ0htyx5S4zsirFFkb">
+            <p class="text-xs font-semibold text-fgDim" data-page-node-id="ePnlcxBP3biTFttqHRnj2Z">延迟趋势</p>
+            <svg class="mt-1 h-8 w-full" viewBox="0 0 120 32" preserveAspectRatio="none" fill="none" data-page-node-id="6xt7v8SNBhGurJSPVd9Esp">
+              <polyline points="0,20 15,16 30,22 45,12 60,18 75,10 90,14 105,8 120,12" stroke="rgb(var(--accent))" stroke-width="2" stroke-linecap="round" data-page-node-id="gNgvXlPwDzwHmTSB8iE4qg"/>
             </svg>
           </div>
         </div>
 
         <!-- 隧道 -->
-        <div class="mt-5">
-          <div class="mb-2.5 flex items-center justify-between">
-            <h3 class="text-sm font-bold">隧道</h3>
-            <button class="h-8 cursor-pointer rounded-lg border border-line bg-elevate px-3 text-xs font-medium transition-colors">＋ 新建隧道</button>
+        <div class="mt-5" data-page-node-id="cVUeRXQGygvcGMA3M01cfZ">
+          <div class="mb-2.5 flex items-center justify-between" data-page-node-id="eZqcNdGGAQQYbAmkojqLlg">
+            <h3 class="text-sm font-bold" data-page-node-id="1veF6UPQWGFJOHBglvK04Q">隧道</h3>
+            <button class="h-8 cursor-pointer rounded-lg border border-line bg-elevate px-3 text-xs font-medium transition-colors" data-page-node-id="NhbJdQCotBOAy8RehVAA8C">＋ 新建隧道</button>
           </div>
-          <div class="space-y-2">
-            <div class="flex items-center gap-3 rounded-xl border border-line bg-card px-4 py-3">
-              <span class="grid size-8 place-items-center rounded-lg bg-ok/12 font-mono text-[10px] font-bold text-ok">L</span>
-              <div class="min-w-0 flex-1">
-                <p class="text-sm font-medium">本地 <span class="font-mono">8080</span> → 远程 <span class="font-mono">80</span></p>
-                <p class="font-mono text-[10px] text-fgDim">-L 8080:localhost:80 · 运行 42 分钟</p>
+          <div class="space-y-2" data-page-node-id="17XPcFXLTyDk8ZZwBoPMl0">
+            <div class="flex items-center gap-3 rounded-xl border border-line bg-card px-4 py-3" data-page-node-id="AFfTLxn1EhR37Y2wKHDyHR">
+              <span class="grid size-8 place-items-center rounded-lg bg-ok/12 font-mono text-[10px] font-bold text-ok" data-page-node-id="4ClCUWO2VqFHUUGq3tvy8r">L</span>
+              <div class="min-w-0 flex-1" data-page-node-id="UBjWl8JeaX24gQjoennR4b">
+                <p class="text-sm font-medium" data-page-node-id="ejUDoP3DF7KCbd1Nrg0A5K">本地 <span class="font-mono" data-page-node-id="jYAXyJcaKrPWrs3mQNemKE">8080</span> → 远程 <span class="font-mono" data-page-node-id="oGcqodviQusw0IF1hLPJMX">80</span></p>
+                <p class="font-mono text-[10px] text-fgDim" data-page-node-id="6JPv4UotBAAL9suUvGhYzF">-L 8080:localhost:80 · 运行 42 分钟</p>
               </div>
-              <span class="rounded-full bg-ok/10 px-2 py-0.5 font-mono text-[10px] font-semibold text-ok">运行中</span>
-              <button class="h-8 cursor-pointer rounded-lg border border-warn/30 bg-warn/10 px-3 text-xs font-medium text-warn transition-colors">停止</button>
+              <span class="rounded-full bg-ok/10 px-2 py-0.5 font-mono text-[10px] font-semibold text-ok" data-page-node-id="B9qgj7iaYDutbNy2e9IBbk">运行中</span>
+              <button class="h-8 cursor-pointer rounded-lg border border-warn/30 bg-warn/10 px-3 text-xs font-medium text-warn transition-colors" data-page-node-id="8hgwGITEHAhHp7UQnAhqgi">停止</button>
             </div>
-            <div class="flex items-center gap-3 rounded-xl border border-line bg-card px-4 py-3">
-              <span class="grid size-8 place-items-center rounded-lg bg-elevate font-mono text-[10px] font-bold text-fgDim">R</span>
-              <div class="min-w-0 flex-1">
-                <p class="text-sm font-medium">远程 <span class="font-mono">12300</span> → 本地 <span class="font-mono">12300</span></p>
-                <p class="font-mono text-[10px] text-fgDim">-R 12300:localhost:12300 · 未启动</p>
+            <div class="flex items-center gap-3 rounded-xl border border-line bg-card px-4 py-3" data-page-node-id="2guTbsmBLjiGMEHuXKFWF4">
+              <span class="grid size-8 place-items-center rounded-lg bg-elevate font-mono text-[10px] font-bold text-fgDim" data-page-node-id="OFAlllKWF59OFJaRpyvDMF">R</span>
+              <div class="min-w-0 flex-1" data-page-node-id="ioyzZcA5N7gUChNZpKwTZR">
+                <p class="text-sm font-medium" data-page-node-id="AYs4pZlxPh7YfsYNMs8lsn">远程 <span class="font-mono" data-page-node-id="qqhZFJvGJKEQ7L2kFkX605">12300</span> → 本地 <span class="font-mono" data-page-node-id="hWdC89QK6Hwj9BHEFr9wDF">12300</span></p>
+                <p class="font-mono text-[10px] text-fgDim" data-page-node-id="kgGTXuFD3cSI9Zfg4RSZkg">-R 12300:localhost:12300 · 未启动</p>
               </div>
-              <span class="rounded-full bg-elevate px-2 py-0.5 font-mono text-[10px] text-fgDim">已停止</span>
-              <button class="h-8 cursor-pointer rounded-lg bg-accent px-3 text-xs font-bold text-white transition-all active:scale-95">启动</button>
+              <span class="rounded-full bg-elevate px-2 py-0.5 font-mono text-[10px] text-fgDim" data-page-node-id="HhrWtADZRhFuMaYQvS8qvs">已停止</span>
+              <button class="h-8 cursor-pointer rounded-lg bg-accent px-3 text-xs font-bold text-white transition-all active:scale-95" data-page-node-id="nQnC3ZfW5xf510BI20dwva">启动</button>
             </div>
           </div>
         </div>
 
         <!-- 危险区 -->
-        <div class="mt-5 flex items-center justify-between rounded-2xl border border-bad/25 bg-bad/5 px-4 py-3">
-          <p class="text-xs text-fgDim">删除会同时清除该服务器已保存的密码与密钥绑定。</p>
-          <button class="h-8 cursor-pointer rounded-lg border border-bad/40 px-3 text-xs font-medium text-bad transition-colors">删除服务器</button>
+        <div class="mt-5 flex items-center justify-between rounded-2xl border border-bad/25 bg-bad/5 px-4 py-3" data-page-node-id="3tJa1BDcyO9tf5bsCGKFiB">
+          <p class="text-xs text-fgDim" data-page-node-id="2ZfDtczxybXkIVXkZ3zCgC">删除会同时清除该服务器已保存的密码与密钥绑定。</p>
+          <button class="h-8 cursor-pointer rounded-lg border border-bad/40 px-3 text-xs font-medium text-bad transition-colors" data-page-node-id="msGucgkeKYjDHcA5fYLv7u">删除服务器</button>
         </div>
       </div>
     </div>
   </section>
 
   <!-- ============ ③ 服务器编辑弹窗（hub.html dialog：认证三段 + 测试连接） ============ -->
-  <section data-screen="hub-edit" hidden class="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+  <section data-screen="hub-edit" hidden class="relative flex min-h-0 flex-1 flex-col overflow-hidden" data-page-node-id="VFCCCJakNXG3TPib8DNvua">
+    <div class="absolute inset-0 bg-black/55 backdrop-blur-[2px]" data-page-node-id="1AR8OCEVxBDxhLCvsKgQdx"></div>
+    <div class="relative m-auto w-[460px] max-w-full overflow-hidden rounded-2xl border border-lineStrong bg-card shadow-pop" data-page-node-id="EWkn7bFzzQw8hd0fWeWxAh">
+      <div class="flex items-center justify-between border-b border-line px-5 py-3.5" data-page-node-id="VKdHdpoGXeOWEHDZgJRLZL">
+        <h2 class="text-sm font-bold" data-page-node-id="DX4CYSIoAuADhfUGBcAqZ5">编辑服务器</h2>
+        <button class="grid size-7 cursor-pointer place-items-center rounded-lg text-fgDim transition-colors hover:bg-elevate hover:text-fg" data-page-node-id="xxEshTq8TjHS97XHsPV09w">✕</button>
+      </div>
+      <div class="max-h-[560px] space-y-4 overflow-y-auto scroll-thin px-5 py-4" data-page-node-id="C0ZbCPIkoOk1y7lh7nBDle">
+        <div data-page-node-id="jZGaNjD0uvyfRqmsQoRlWu">
+          <label class="mb-1.5 block text-xs font-semibold text-fgDim" data-page-node-id="4tnyNpyGLQkp1zAEIi36Pa">名称 <span class="text-bad" data-page-node-id="AhegMGCnVvXDzEFgtDsg5y">*</span></label>
+          <input value="书房台式机" class="h-10 w-full rounded-xl border border-line bg-base px-3 text-sm outline-none focus:border-accentT/60" data-page-node-id="XuUkXGGG1hAvl9HBUm6bqY">
+        </div>
+        <div class="grid grid-cols-[1fr_100px] gap-3" data-page-node-id="inJXY9bC7fZPQW2yDYq9B4">
+          <div data-page-node-id="WzKUF3dAM3MvZkNTbHHy64">
+            <label class="mb-1.5 block text-xs font-semibold text-fgDim" data-page-node-id="zMDBMIwtz2nSfvFSLGfw8x">主机 <span class="text-bad" data-page-node-id="B4peEf7czAR991FLgulE2O">*</span></label>
+            <input value="192.168.0.120" class="h-10 w-full rounded-xl border border-line bg-base px-3 font-mono text-sm outline-none focus:border-accentT/60" data-page-node-id="ntj9DNtIpGalci4p5FZ0Mz">
+          </div>
+          <div data-page-node-id="ACkPxFTrP21yrqQrV6hDKG">
+            <label class="mb-1.5 block text-xs font-semibold text-fgDim" data-page-node-id="kF7HpGCfiH8wNsiEyFLYTJ">端口</label>
+            <input value="22" class="h-10 w-full rounded-xl border border-line bg-base px-3 font-mono text-sm outline-none focus:border-accentT/60" data-page-node-id="OKyDZJ9HwO45sart5QSucm">
+          </div>
+        </div>
+        <div data-page-node-id="eqL2sVjK7ZD5avUqU8u2g2">
+          <label class="mb-1.5 block text-xs font-semibold text-fgDim" data-page-node-id="8tCnYRZmLrSOeRDcB4tQqh">用户名</label>
+          <input value="root" class="h-10 w-full rounded-xl border border-line bg-base px-3 font-mono text-sm outline-none focus:border-accentT/60" data-page-node-id="vL6cfxHwwxOHPeQXRDuuOu">
+        </div>
+        <div data-page-node-id="sWfcR4GXxFutHm0a4kBhUF">
+          <label class="mb-1.5 block text-xs font-semibold text-fgDim" data-page-node-id="vQ10qbEkvguF7oA726RZn7">协议</label>
+          <div class="grid grid-cols-2 gap-1 rounded-xl border border-line bg-base p-1" data-page-node-id="zyPbesdoZ1zHfR6QqDQOBt">
+            <button class="h-8 cursor-pointer rounded-lg bg-accent text-xs font-bold text-white" data-page-node-id="j1CLIAjoTdVgmMJUoBm9Iu">SSH</button>
+            <button class="h-8 cursor-pointer rounded-lg text-xs text-fgDim transition-colors hover:text-fg" data-page-node-id="WM2EJ1hoKaNxCDxkEDYPw2">Telnet</button>
+          </div>
+        </div>
+        <div data-page-node-id="7mHuscgjdI0VPPMK7dHHO8">
+          <label class="mb-1.5 block text-xs font-semibold text-fgDim" data-page-node-id="zy9WlYp9CsBeEgZxuhsMXj">认证方式</label>
+          <div class="grid grid-cols-3 gap-1 rounded-xl border border-line bg-base p-1" data-page-node-id="R0WnMXv8iq9TqSsESn4R5G">
+            <button class="h-8 cursor-pointer rounded-lg text-xs text-fgDim transition-colors hover:text-fg" data-page-node-id="sAy8N1kFg1SeGGBGX9ZSYo">交互</button>
+            <button class="h-8 cursor-pointer rounded-lg bg-accent text-xs font-bold text-white" data-page-node-id="WSHxFlDarvbEtSr3iF1uRo">密码</button>
+            <button class="h-8 cursor-pointer rounded-lg text-xs text-fgDim transition-colors hover:text-fg" data-page-node-id="nUneVlKtDhwqhawjifin9G">密钥</button>
+          </div>
+        </div>
+        <div data-page-node-id="ZxnjEEuQQNBd2AFqbOoNuC">
+          <label class="mb-1.5 block text-xs font-semibold text-fgDim" data-page-node-id="hYpHMR5356LN7AdRwsF2bb">密码</label>
+          <input type="password" placeholder="已存密码（输入新值可改，留空保持不变）" class="h-10 w-full rounded-xl border border-line bg-base px-3 font-mono text-sm outline-none placeholder:text-fgFaint focus:border-accentT/60" data-page-node-id="bfrCg4YFMSry7laenNDunN">
+          <p class="mt-1.5 text-[11px] leading-relaxed text-fgDim" data-page-node-id="P81RLWyTkpRFzfoOpqjgRm">密码经 AES-256-GCM 加密保存在本机，连接时免输。切换认证方式会清掉另一种凭据。</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-2 border-t border-line px-5 py-3.5" data-page-node-id="5DL1AukuzDpABXy609ClRA">
+        <button class="h-9 cursor-pointer rounded-xl border border-bad/40 px-3.5 text-xs font-medium text-bad transition-colors" data-page-node-id="WvgzrkwWPUvTqH1FXyD8lu">删除</button>
+        <div class="ml-auto flex gap-2" data-page-node-id="Sf4ASvfR5grnifTVxWfkBU">
+          <button class="h-9 cursor-pointer rounded-xl border border-line bg-elevate px-4 text-xs font-medium transition-colors" data-page-node-id="1YlzROoObIDskIgEvnRCbj">测试连接</button>
+          <button class="h-9 cursor-pointer rounded-xl border border-line bg-elevate px-4 text-xs font-medium transition-colors" data-page-node-id="0dUuCfeFWezaQzkjtPjAcE">取消</button>
+          <button class="h-9 cursor-pointer rounded-xl bg-accent px-5 text-xs font-bold text-white transition-all active:scale-95" data-page-node-id="NjinvH9edqIOaIg81YQDnw">保存</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ ④ 终端（hub-term.html：tab + xterm + 状态栏） ============ -->
+  <section data-screen="term" hidden class="flex min-h-0 flex-1 flex-col bg-term" data-page-node-id="33Qsya3XGQPBp88PQJNiqa">
+    <div class="flex h-11 shrink-0 items-center gap-1.5 border-b border-line bg-card px-3" data-page-node-id="BoqdhPvp1tMHjJA5DPmjL5">
+      <div class="flex items-center gap-2 rounded-t-lg border-x border-t border-line bg-base px-3.5 py-1.5 text-xs" data-page-node-id="bWWoRC0mLezpQkRHUKIMK7">
+        <span class="size-2 rounded-full bg-ok" data-page-node-id="qqZtFAqJU2AivK231p8SEA"></span>
+        <span class="font-medium" data-page-node-id="ya7gxzFXjOpFa5x4UAINau">root@192.168.0.120</span>
+        <button class="ml-1 cursor-pointer text-fgFaint transition-colors hover:text-bad" data-page-node-id="42D5BIPZl7ytSNEAgAW0mP">✕</button>
+      </div>
+      <button class="grid size-7 cursor-pointer place-items-center rounded-lg text-fgDim transition-colors hover:bg-elevate hover:text-fg" aria-label="新建会话" data-page-node-id="PeGR6jXZ6ZzS903r6A9Phn">＋</button>
+      <div class="ml-auto flex items-center gap-1.5" data-page-node-id="F5e1Y8YkpR3lNamqa8gcsG">
+        <span class="rounded-md bg-elevate px-2 py-1 font-mono text-[10px] text-fgDim" data-page-node-id="kjE9djsRKCnwhhqmUtW9bm">SSH · xterm-256color</span>
+      </div>
+    </div>
+    <div class="min-h-0 flex-1 overflow-hidden p-3" data-page-node-id="ONZWEULO2YavMLWFjSOASL">
+      <div class="flex h-full flex-col rounded-xl border border-lineStrong bg-term p-3 font-mono text-[12.5px] leading-relaxed" data-page-node-id="rDBiwFkGQFDResn8xBCthr">
+        <p class="text-fgDim" data-page-node-id="OT8AQMBgBFGthNtdWsgZcH">Last login: Sat Oct 17 08:32:04 2026 from 192.168.0.66</p>
+        <p data-page-node-id="yLg1Xpxy818DxmvmyjWiaA"><span class="text-tGreen" data-page-node-id="q00i5VcDZUSwGgxbhiGGJF">root@cachyos</span><span class="text-fgDim" data-page-node-id="AxrmRPGDQtfEUNvFAHbBGs">:</span><span class="text-tBlue" data-page-node-id="9e4YSpLazYWPPoRycORGtF">~</span><span class="text-fgDim" data-page-node-id="1xFbCnSY2c376q76EA8AYQ">$</span> <span class="text-fg" data-page-node-id="HW4ConxdTncYKHW1pUX1GT">uname -a</span></p>
+        <p class="text-fg" data-page-node-id="lfxy4Yl3e2Y5YaR3USVoCY">Linux cachyos 6.12.4-zen1-1-zen #1 ZEN SMP PREEMPT_DYNAMIC x86_64 GNU/Linux</p>
+        <p data-page-node-id="X6j7l43WxsA0VGpV5xoIqU"><span class="text-tGreen" data-page-node-id="cegKuEQYnKYdarORStCVVX">root@cachyos</span><span class="text-fgDim" data-page-node-id="NNsB2TsCYtWjOmEEEeSXWj">:</span><span class="text-tBlue" data-page-node-id="LKT0Od8h0y8mnaMzIIwFPa">~</span><span class="text-fgDim" data-page-node-id="c05pT9pfVhwDItvliKefEH">$</span> <span class="animate-pulse text-fg" data-page-node-id="9ghzhlYHWpT8ES8h19nmdM">▊</span></p>
+      </div>
+    </div>
+    <div class="flex h-9 shrink-0 items-center gap-3 border-t border-line bg-card px-4 font-mono text-[10px] text-fgDim" data-page-node-id="9hbZ8EYfSIJhLje0jSAsMN">
+      <span class="flex items-center gap-1.5" data-page-node-id="fVhzJHswehljyDZvAktEuS"><span class="size-1.5 rounded-full bg-ok" data-page-node-id="3sVNrC4SQQFxmqX2VgANPC"></span>已连接</span>
+      <span data-page-node-id="UjiGqp48ti7V6TkL89cVO6">延迟 12ms</span>
+      <span data-page-node-id="T4QwrTcdA2slbhvWnyyvsR">UTF-8</span>
+      <span class="ml-auto" data-page-node-id="jbDC0IC6EYzozYHAY8dIlv">Ctrl+Shift+C 复制 · Ctrl+Shift+V 粘贴</span>
+    </div>
+  </section>
+
+  <!-- ============ ⑤ 文件（hub-files.html：路径栏 + 文件表 + 传输条） ============ -->
+  <section data-screen="files" hidden class="flex min-h-0 flex-1 flex-col" data-page-node-id="oAOXbDkFggI6keStrWUzeB">
+    <div class="flex h-12 shrink-0 items-center gap-2 border-b border-line bg-card px-4" data-page-node-id="RB9Q4cI9p7Oyx4UI47s5Xe">
+      <span class="grid size-6 place-items-center rounded-lg bg-accent font-mono text-[11px] font-bold text-white" data-page-node-id="PBB7JXYf08RgQrvhGNmDZj">A</span>
+      <span class="text-sm font-semibold" data-page-node-id="CEkVETGY5MF1mCXBDBb4yw">AnyBoot 文件</span>
+      <span class="ml-2 flex items-center gap-1.5 rounded-full bg-ok/10 px-2.5 py-1 text-[10px] font-semibold text-ok" data-page-node-id="bImQ0UZBmfKftywGH9nYt2"><span class="size-1.5 rounded-full bg-ok" data-page-node-id="sJqua9evIZCVKSm0xLf52F"></span>已连接 root@192.168.0.120</span>
+      <div class="ml-auto flex gap-2" data-page-node-id="m4IgwM3fOw3zG9eUeoCjSK">
+        <button class="h-8 cursor-pointer rounded-lg bg-accent px-3 text-xs font-bold text-white transition-all active:scale-95" data-page-node-id="CtqiAcGMMNU5DDeYQE1EGS">上传</button>
+        <button class="h-8 cursor-pointer rounded-lg border border-line bg-elevate px-3 text-xs font-medium transition-colors" data-page-node-id="uzEFyFkuGtAe0AQuXyV3nc">下载</button>
+        <button class="h-8 cursor-pointer rounded-lg border border-line bg-elevate px-3 text-xs font-medium transition-colors" data-page-node-id="JjlStUXIliRF6Hdicl8in2">＋ 新建目录</button>
+        <button class="h-8 cursor-pointer rounded-lg border border-line bg-elevate px-3 text-xs font-medium transition-colors" data-page-node-id="6HpYuJVCax2rBo1LJtn6zI">刷新</button>
+      </div>
+    </div>
+    <div class="shrink-0 border-b border-line bg-card/50 px-4 py-2.5" data-page-node-id="57gqvsAzdaaXuYrWR5OaOy">
+      <div class="flex h-9 items-center gap-1 rounded-xl border border-line bg-base px-3 font-mono text-xs" data-page-node-id="DipaQPmnDLrGJKKdQRbsnr">
+        <span class="text-accentT" data-page-node-id="1he92lEK5rBgDK9Fa9uzrY">/</span><span data-page-node-id="wQXHypYEoCCPBbnDQS05i9">root</span><span class="text-fgFaint" data-page-node-id="SFpGJuQMbX3vOzcUZBblpH">/</span><span data-page-node-id="OlEn4GC2rfSpBlzfmgLKoI">projects</span><span class="text-fgFaint" data-page-node-id="aWBiHwjp0gx8IEAjE8gXWP">/</span><span class="text-fg" data-page-node-id="2czGkyQHC2vkrsZ39EOh3A">anyboot</span>
+        <span class="ml-auto text-fgFaint" data-page-node-id="ttVZEBYM5DOmw9k640T0Oa">▾</span>
+      </div>
+    </div>
+    <div class="min-h-0 flex-1 overflow-y-auto scroll-thin px-4 py-3" data-page-node-id="X5gntpXswPWLbArGh3cDQK">
+      <table class="w-full text-left text-sm" data-page-node-id="Z7OpMKQpLZMU3Xk4vpOufd">
+        <thead data-page-node-id="dNb7A1lEf1iCmcAK2h3BnP">
+          <tr class="border-b border-line text-xs text-fgDim" data-page-node-id="HGwRZ7eqRNN23g20UQhBRj">
+            <th class="py-2 font-semibold" data-page-node-id="Yg6K0MjvX2nPgfrnTWOw2U">名称</th>
+            <th class="w-24 py-2 font-semibold" data-page-node-id="4cr3nttBEHDo5UEzjopBex">大小</th>
+            <th class="w-28 py-2 font-semibold" data-page-node-id="IGOx2PT8S7qcxJSETZlFlR">权限</th>
+            <th class="w-40 py-2 font-semibold" data-page-node-id="SCpKiXPhYv4WwcXDR7oIf2">修改时间</th>
+            <th class="w-20 py-2 font-semibold" data-page-node-id="aaeHEpPWbZt2n8VWM3SkvD">操作</th>
+          </tr>
+        </thead>
+        <tbody class="font-mono text-[12.5px]" data-page-node-id="4RAHMJNiONmocl4Baj6pe9">
+          <tr class="border-b border-line/60 transition-colors hover:bg-elevate" data-page-node-id="kI6HR24eruTnuM0Ozm7NLn">
+            <td class="cursor-pointer py-2.5" data-page-node-id="njiY8sEJNzHhWwbiuoWD0o"><span class="mr-2 text-tYellow" data-page-node-id="Z4lH7DgkeY0nbcgPUlujjE">📁</span><span class="font-sans" data-page-node-id="L1UUiutyYlvMVukS0TGjq3">docs</span></td>
+            <td class="text-fgDim" data-page-node-id="hsD2HSGnET0djOXDhBpVVW">—</td><td class="text-fgDim" data-page-node-id="ILMKeE60vriTG2SwiT9XzR">drwxr-xr-x</td><td class="text-fgDim" data-page-node-id="r5U7cGDjDRqIWSPwFcO65u">10-17 08:12</td>
+            <td data-page-node-id="gpUj47GS8DwNsM1Phz95aY"><button class="cursor-pointer text-xs text-fgDim transition-colors hover:text-fg" data-page-node-id="mkVBpTIUcOey8uTmCYfrIr">⋯</button></td>
+          </tr>
+          <tr class="border-b border-line/60 transition-colors hover:bg-elevate" data-page-node-id="ZXGOCdUxNG3y59kpi53HHV">
+            <td class="cursor-pointer py-2.5" data-page-node-id="aMiZMw5FRbQOy0tFb21HHq"><span class="mr-2 text-tYellow" data-page-node-id="wObn0zrOcDSS2LgUPTlTIw">📁</span><span class="font-sans" data-page-node-id="4gHm1NjZHf3UniLrGK7Yez">src</span></td>
+            <td class="text-fgDim" data-page-node-id="KALRw30iyDJhwNzSH6iAiH">—</td><td class="text-fgDim" data-page-node-id="CLX5tM8QebwHBulhvEBghY">drwxr-xr-x</td><td class="text-fgDim" data-page-node-id="FwIxPQsciRa2LVvcpFNuyW">10-16 21:47</td>
+            <td data-page-node-id="YdArA3UZM0msivR0lySals"><button class="cursor-pointer text-xs text-fgDim transition-colors hover:text-fg" data-page-node-id="QtYGJy4mO2yC4IqsAnmfBU">⋯</button></td>
+          </tr>
+          <tr class="border-b border-line/60 transition-colors hover:bg-elevate" data-page-node-id="8LpC8Zl8aiO5HyHx3y0dEG">
+            <td class="py-2.5" data-page-node-id="DaGOPGdXEAUKdHDaUjcOej"><span class="mr-2 text-tBlue" data-page-node-id="l0yXpWYaiGoMJzT8eySBkD">📄</span>anyboot</td>
+            <td data-page-node-id="5C3YNoE9TW06CzQY6KgkOv">92.1 MB</td><td class="text-fgDim" data-page-node-id="pxGtLU6azc9WGU8ZTtHGWu">-rwxr-xr-x</td><td class="text-fgDim" data-page-node-id="EIyg2XSfQgc7YBLHMcevbv">10-17 08:58</td>
+            <td data-page-node-id="YpGeJ2veh71AYvEBLnUGdy"><button class="cursor-pointer text-xs text-fgDim transition-colors hover:text-fg" data-page-node-id="tGjvbx2ExyaKj7mImPEu9q">⋯</button></td>
+          </tr>
+          <tr class="border-b border-line/60 transition-colors hover:bg-elevate" data-page-node-id="vIlRt8ORWDARbEHGEkfoNL">
+            <td class="py-2.5" data-page-node-id="biuE92DRMWOUE2wl8tNzhF"><span class="mr-2 text-tBlue" data-page-node-id="DzRw0sD2sqanpNddgn2Hau">📄</span>README.md</td>
+            <td data-page-node-id="vZ8becjQDjQijQdz1UKxeU">4.2 KB</td><td class="text-fgDim" data-page-node-id="lDVSDC08GXWZQ4PsIKjiOn">-rw-r--r--</td><td class="text-fgDim" data-page-node-id="AOkqcO7tg17o3Rsvl7C3rp">10-15 14:03</td>
+            <td data-page-node-id="i8oAFASIDfLQ5Bb3eScj42"><button class="cursor-pointer text-xs text-fgDim transition-colors hover:text-fg" data-page-node-id="YDZRFvg10vv7tfLv1qOwx4">⋯</button></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <!-- 传输进度条 -->
+    <div class="shrink-0 border-t border-line bg-card px-4 py-3" data-page-node-id="eGpAIFvO2QSwkfSlqzOFY6">
+      <div class="mb-1.5 flex items-center justify-between text-xs" data-page-node-id="XIZdoBxd7ustiyqNHDS3tU">
+        <p class="flex items-center gap-2" data-page-node-id="ecPAgrVzH7JZumaIcUgQ5s"><span class="rounded-full bg-info/10 px-2 py-0.5 font-mono text-[10px] font-semibold text-info" data-page-node-id="9WGHNer8T041wlXyHoidfE">↓ 下载</span><span class="font-mono" data-page-node-id="oj9TQbErOMWM78r6Wwd6ek">src-tauri/target/release/anyboot → ~/Downloads/</span></p>
+        <p class="font-mono text-fgDim" data-page-node-id="v750CNIEKvbxyyDSepTFSn">64% · 18.2 MB/s · 剩余 12s</p>
+      </div>
+      <div class="h-1.5 overflow-hidden rounded-full bg-elevate" data-page-node-id="cdi4HN1RnjvA5N2BCd8y4w">
+        <div class="h-full w-[64%] rounded-full bg-gradient-to-r from-accent to-info" data-page-node-id="PSlETg86hZNL803DiFj9vi"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ ⑥ 密钥管理（hub-keys.html：列表 + 生成） ============ -->
+  <section data-screen="keys" hidden class="flex min-h-0 flex-1 flex-col" data-page-node-id="xN5N7KecbuGRDi6QSJ8JkB">
+    <div class="flex h-12 shrink-0 items-center gap-2 border-b border-line bg-card px-4" data-page-node-id="It57zpll80MDOqrtHFgghS">
+      <span class="grid size-6 place-items-center rounded-lg bg-accent font-mono text-[11px] font-bold text-white" data-page-node-id="ksERXRsUhTo7UQcWf0q1Ix">A</span>
+      <span class="text-sm font-semibold" data-page-node-id="X9h1PfUFrLkLNKGG51Yk8X">AnyBoot 密钥管理</span>
+      <button class="ml-auto h-8 cursor-pointer rounded-lg bg-accent px-3.5 text-xs font-bold text-white transition-all active:scale-95" data-page-node-id="CbI1GrWKPtCXPaWHvCs14J">生成密钥</button>
+      <button class="h-8 cursor-pointer rounded-lg border border-line bg-elevate px-3.5 text-xs font-medium transition-colors" data-page-node-id="dRh8VWTUNx0VU4ozTAtQ9H">导入</button>
+    </div>
+    <div class="min-h-0 flex-1 overflow-y-auto scroll-thin p-5" data-page-node-id="omntqI1uZnrrXnDJmMwhRh">
+      <div class="grid grid-cols-2 gap-3" data-page-node-id="CGMrC4xDx0V9INoDBYvPR3">
+        <article class="rounded-2xl border border-accent/35 bg-card p-4 shadow-glow" data-page-node-id="mP1w0sFtYjuDGg04LWlDgo">
+          <div class="flex items-center gap-3" data-page-node-id="ABFu9A1dI3FCpCAkmay38U">
+            <span class="grid size-10 place-items-center rounded-xl bg-accent/12 text-accentT" data-page-node-id="ixBHKjtYXB7yycN16uH079">
+              <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" data-page-node-id="ZocOYsVbaZmVfHnAe3lkgx"><circle cx="8" cy="15" r="4" data-page-node-id="Lb6PY57o132w65P8c7Y4vO"/><path d="M10.8 12.2 20 3m-4 1 2 2m-5 1 2 2" data-page-node-id="BOTHSFxPhiNweJvAHB0ubk"/></svg>
+            </span>
+            <div class="min-w-0 flex-1" data-page-node-id="2swdkSpPLqg1ffTgP2Lpl6">
+              <p class="flex items-center gap-2 text-sm font-semibold" data-page-node-id="sr8DaI2cdc93fcQfvO9Pjq">id_ed25519 <span class="rounded-md bg-accent/15 px-1.5 py-px font-mono text-[9px] font-semibold text-accentT" data-page-node-id="rmBTstvmkbAsWIwpLUeNQc">使用中</span></p>
+              <p class="mt-0.5 font-mono text-[11px] text-fgDim" data-page-node-id="PrYjOtQwy2OBXVldiLNWHO">ED25519 · 已设口令 · 绑定 2 台</p>
+            </div>
+          </div>
+          <p class="mt-3 truncate rounded-lg bg-base px-3 py-2 font-mono text-[10px] text-fgDim" data-page-node-id="kFzKjNdNZpnoSTseODcRoQ">ssh-ed25519 AAAAC3NzaC1lZDI1…</p>
+          <div class="mt-3 flex gap-2" data-page-node-id="eukK7z1cy3McArlw7agGQn">
+            <button class="h-8 flex-1 cursor-pointer rounded-lg border border-line bg-elevate text-xs font-medium transition-colors" data-page-node-id="Yzc7N5yPduFqqHTWy85HMc">复制公钥</button>
+            <button class="h-8 cursor-pointer rounded-lg border border-bad/40 px-3 text-xs font-medium text-bad transition-colors" data-page-node-id="vimYAlImDmtvZZDxoB8fQT">删除</button>
+          </div>
+        </article>
+        <article class="rounded-2xl border border-line bg-card p-4" data-page-node-id="p7poxpS7JIMowPKGK5H048">
+          <div class="flex items-center gap-3" data-page-node-id="2rEzc3KyFULqZzWGzD0Z3H">
+            <span class="grid size-10 place-items-center rounded-xl bg-elevate text-fgDim" data-page-node-id="4CmMqaw4GLXkq2Oe2Vaq9b">
+              <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" data-page-node-id="B6MAegvs8gRvr6haChYNDn"><circle cx="8" cy="15" r="4" data-page-node-id="Nhf7NvrNHtA6tzCMgLqgS8"/><path d="M10.8 12.2 20 3m-4 1 2 2m-5 1 2 2" data-page-node-id="2JdHcFjVObiC7iQav85B5y"/></svg>
+            </span>
+            <div class="min-w-0 flex-1" data-page-node-id="IU5CbKgZ1bIuBntixlT8wp">
+              <p class="flex items-center gap-2 text-sm font-semibold" data-page-node-id="0gr6Ulo2VgsBrEVRtZp2sL">legacy_rsa <span class="rounded-md bg-elevate px-1.5 py-px font-mono text-[9px] text-fgDim" data-page-node-id="FHTiImTvAQ1DRNMgjm94a1">未设口令</span></p>
+              <p class="mt-0.5 font-mono text-[11px] text-fgDim" data-page-node-id="9cnAy2WCDrpaWyCTAHmeGi">RSA-4096 · 绑定 0 台</p>
+            </div>
+          </div>
+          <p class="mt-3 truncate rounded-lg bg-base px-3 py-2 font-mono text-[10px] text-fgDim" data-page-node-id="PFyb72nDme8xBJwygOA4Gx">ssh-rsa AAAAB3NzaC1yc2E…</p>
+          <div class="mt-3 flex gap-2" data-page-node-id="SlrTqohf1UwGJMnT4gqrnG">
+            <button class="h-8 flex-1 cursor-pointer rounded-lg border border-line bg-elevate text-xs font-medium transition-colors" data-page-node-id="tWf86RdVbcV2bO1LMCjhFO">复制公钥</button>
+            <button class="h-8 cursor-pointer rounded-lg border border-bad/40 px-3 text-xs font-medium text-bad transition-colors" data-page-node-id="Q3SFgeTT4RF09CK97JysjV">删除</button>
+          </div>
+        </article>
+      </div>
+
+      <!-- 生成密钥面板 -->
+      <div class="mt-5 rounded-2xl border border-line bg-card p-5" data-page-node-id="gqkh1X9brOzAdxDL99OQ7B">
+        <h3 class="mb-4 text-sm font-bold" data-page-node-id="nJH9Lv3spp5xyAQn2dPvcx">生成密钥</h3>
+        <div class="grid grid-cols-2 gap-4" data-page-node-id="pLJgMSHgtKR5jqgZGHDGzq">
+          <div data-page-node-id="L1T9UuRUBz4Bz2rmrfAYrN">
+            <label class="mb-1.5 block text-xs font-semibold text-fgDim" data-page-node-id="zB2jgeaD2ERxgqrjuzMPnH">类型</label>
+            <div class="grid grid-cols-2 gap-1 rounded-xl border border-line bg-base p-1" data-page-node-id="9Sm3ivnv7W1DXM5fifmvmc">
+              <button class="h-8 cursor-pointer rounded-lg bg-accent text-xs font-bold text-white" data-page-node-id="7FRnqrgW6zTHWjmE4RDznb">ED25519</button>
+              <button class="h-8 cursor-pointer rounded-lg text-xs text-fgDim transition-colors hover:text-fg" data-page-node-id="IxoZt4nFI2PchlK1dKAsrE">RSA-4096</button>
+            </div>
+            <p class="mt-1.5 text-[11px] text-fgDim" data-page-node-id="kn6597cPNdIYN5salPeePP">推荐 ED25519：更快、密钥更短。</p>
+          </div>
+          <div data-page-node-id="TZ24DyY325vNuax41K5SSZ">
+            <label class="mb-1.5 block text-xs font-semibold text-fgDim" data-page-node-id="AAGBylk3wpDbqOqDvlm5bX">名称</label>
+            <input placeholder="如 id_ed25519_nas" class="h-10 w-full rounded-xl border border-line bg-base px-3 font-mono text-sm outline-none placeholder:text-fgFaint focus:border-accentT/60" data-page-node-id="vw6gzVOSXDPPKPaAYOxPaq">
+            <label class="mb-1.5 mt-3 block text-xs font-semibold text-fgDim" data-page-node-id="5ag2xuCR8GBTVzvMyCN3IS">口令（可选）</label>
+            <input type="password" placeholder="留空 = 未设口令" class="h-10 w-full rounded-xl border border-line bg-base px-3 font-mono text-sm outline-none placeholder:text-fgFaint focus:border-accentT/60" data-page-node-id="6XTCbIIPFeiENTrvZd9uzz">
+          </div>
+        </div>
+        <div class="mt-4 flex justify-end gap-2" data-page-node-id="cSxNSOIjqBVGkAsRQXHT7L">
+          <button class="h-9 cursor-pointer rounded-xl border border-line bg-elevate px-4 text-xs font-medium transition-colors" data-page-node-id="CtGjLsQi87PgCC6QL0zJ1m">取消</button>
+          <button class="h-9 cursor-pointer rounded-xl bg-accent px-5 text-xs font-bold text-white transition-all active:scale-95" data-page-node-id="Z8HhY8CFLylS1htzwSimOM">生成</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ ⑦ 新建服务器（hub 编辑弹窗空态：无删除） ============ -->
+  <section data-screen="hub-add" hidden class="relative flex min-h-0 flex-1 flex-col overflow-hidden">
     <div class="absolute inset-0 bg-black/55 backdrop-blur-[2px]"></div>
     <div class="relative m-auto w-[460px] max-w-full overflow-hidden rounded-2xl border border-lineStrong bg-card shadow-pop">
       <div class="flex items-center justify-between border-b border-line px-5 py-3.5">
-        <h2 class="text-sm font-bold">编辑服务器</h2>
+        <h2 class="text-sm font-bold">新建服务器</h2>
         <button class="grid size-7 cursor-pointer place-items-center rounded-lg text-fgDim transition-colors hover:bg-elevate hover:text-fg">✕</button>
       </div>
       <div class="max-h-[560px] space-y-4 overflow-y-auto scroll-thin px-5 py-4">
+        <p class="rounded-xl border border-accent/25 bg-accent/8 px-3.5 py-2.5 text-[11px] leading-relaxed text-fgDim">填电脑端「远程控制」显示的 SSH 地址；保存密码后连接免输（AES-256-GCM 存本机）。</p>
         <div>
           <label class="mb-1.5 block text-xs font-semibold text-fgDim">名称 <span class="text-bad">*</span></label>
-          <input value="书房台式机" class="h-10 w-full rounded-xl border border-line bg-base px-3 text-sm outline-none focus:border-accentT/60">
+          <input placeholder="例如：书房台式机" class="h-10 w-full rounded-xl border border-line bg-base px-3 text-sm outline-none placeholder:text-fgFaint focus:border-accentT/60">
         </div>
         <div class="grid grid-cols-[1fr_100px] gap-3">
           <div>
             <label class="mb-1.5 block text-xs font-semibold text-fgDim">主机 <span class="text-bad">*</span></label>
-            <input value="192.168.0.120" class="h-10 w-full rounded-xl border border-line bg-base px-3 font-mono text-sm outline-none focus:border-accentT/60">
+            <input placeholder="192.168.0.120" class="h-10 w-full rounded-xl border border-line bg-base px-3 font-mono text-sm outline-none placeholder:text-fgFaint focus:border-accentT/60">
           </div>
           <div>
             <label class="mb-1.5 block text-xs font-semibold text-fgDim">端口</label>
@@ -355,7 +586,7 @@ tailwind.config = {
         </div>
         <div>
           <label class="mb-1.5 block text-xs font-semibold text-fgDim">用户名</label>
-          <input value="root" class="h-10 w-full rounded-xl border border-line bg-base px-3 font-mono text-sm outline-none focus:border-accentT/60">
+          <input placeholder="root" class="h-10 w-full rounded-xl border border-line bg-base px-3 font-mono text-sm outline-none placeholder:text-fgFaint focus:border-accentT/60">
         </div>
         <div>
           <label class="mb-1.5 block text-xs font-semibold text-fgDim">协议</label>
@@ -367,189 +598,182 @@ tailwind.config = {
         <div>
           <label class="mb-1.5 block text-xs font-semibold text-fgDim">认证方式</label>
           <div class="grid grid-cols-3 gap-1 rounded-xl border border-line bg-base p-1">
-            <button class="h-8 cursor-pointer rounded-lg text-xs text-fgDim transition-colors hover:text-fg">交互</button>
-            <button class="h-8 cursor-pointer rounded-lg bg-accent text-xs font-bold text-white">密码</button>
+            <button class="h-8 cursor-pointer rounded-lg bg-accent text-xs font-bold text-white">交互</button>
+            <button class="h-8 cursor-pointer rounded-lg text-xs text-fgDim transition-colors hover:text-fg">密码</button>
             <button class="h-8 cursor-pointer rounded-lg text-xs text-fgDim transition-colors hover:text-fg">密钥</button>
           </div>
         </div>
         <div>
           <label class="mb-1.5 block text-xs font-semibold text-fgDim">密码</label>
-          <input type="password" placeholder="已存密码（输入新值可改，留空保持不变）" class="h-10 w-full rounded-xl border border-line bg-base px-3 font-mono text-sm outline-none placeholder:text-fgFaint focus:border-accentT/60">
-          <p class="mt-1.5 text-[11px] leading-relaxed text-fgDim">密码经 AES-256-GCM 加密保存在本机，连接时免输。切换认证方式会清掉另一种凭据。</p>
+          <input type="password" placeholder="可留空（交互连接一次后保存即可免输）" class="h-10 w-full rounded-xl border border-line bg-base px-3 font-mono text-sm outline-none placeholder:text-fgFaint focus:border-accentT/60">
+          <p class="mt-1.5 text-[11px] leading-relaxed text-fgDim">切换认证方式会清掉另一种凭据。</p>
         </div>
       </div>
-      <div class="flex items-center gap-2 border-t border-line px-5 py-3.5">
-        <button class="h-9 cursor-pointer rounded-xl border border-bad/40 px-3.5 text-xs font-medium text-bad transition-colors">删除</button>
-        <div class="ml-auto flex gap-2">
-          <button class="h-9 cursor-pointer rounded-xl border border-line bg-elevate px-4 text-xs font-medium transition-colors">测试连接</button>
-          <button class="h-9 cursor-pointer rounded-xl border border-line bg-elevate px-4 text-xs font-medium transition-colors">取消</button>
-          <button class="h-9 cursor-pointer rounded-xl bg-accent px-5 text-xs font-bold text-white transition-all active:scale-95">保存</button>
-        </div>
+      <div class="flex items-center justify-end gap-2 border-t border-line px-5 py-3.5">
+        <button class="h-9 cursor-pointer rounded-xl border border-line bg-elevate px-4 text-xs font-medium transition-colors">测试连接</button>
+        <button class="h-9 cursor-pointer rounded-xl border border-line bg-elevate px-4 text-xs font-medium transition-colors">取消</button>
+        <button class="h-9 cursor-pointer rounded-xl bg-accent px-5 text-xs font-bold text-white transition-all active:scale-95">保存</button>
       </div>
     </div>
   </section>
 
-  <!-- ============ ④ 终端（hub-term.html：tab + xterm + 状态栏） ============ -->
-  <section data-screen="term" hidden class="flex min-h-0 flex-1 flex-col bg-term">
-    <div class="flex h-11 shrink-0 items-center gap-1.5 border-b border-line bg-card px-3">
-      <div class="flex items-center gap-2 rounded-t-lg border-x border-t border-line bg-base px-3.5 py-1.5 text-xs">
-        <span class="size-2 rounded-full bg-ok"></span>
-        <span class="font-medium">root@192.168.0.120</span>
-        <button class="ml-1 cursor-pointer text-fgFaint transition-colors hover:text-bad">✕</button>
-      </div>
-      <button class="grid size-7 cursor-pointer place-items-center rounded-lg text-fgDim transition-colors hover:bg-elevate hover:text-fg" aria-label="新建会话">＋</button>
-      <div class="ml-auto flex items-center gap-1.5">
-        <span class="rounded-md bg-elevate px-2 py-1 font-mono text-[10px] text-fgDim">SSH · xterm-256color</span>
-      </div>
-    </div>
-    <div class="min-h-0 flex-1 overflow-hidden p-3">
-      <div class="flex h-full flex-col rounded-xl border border-lineStrong bg-term p-3 font-mono text-[12.5px] leading-relaxed">
-        <p class="text-fgDim">Last login: Sat Oct 17 08:32:04 2026 from 192.168.0.66</p>
-        <p><span class="text-tGreen">root@cachyos</span><span class="text-fgDim">:</span><span class="text-tBlue">~</span><span class="text-fgDim">$</span> <span class="text-fg">uname -a</span></p>
-        <p class="text-fg">Linux cachyos 6.12.4-zen1-1-zen #1 ZEN SMP PREEMPT_DYNAMIC x86_64 GNU/Linux</p>
-        <p><span class="text-tGreen">root@cachyos</span><span class="text-fgDim">:</span><span class="text-tBlue">~</span><span class="text-fgDim">$</span> <span class="animate-pulse text-fg">▊</span></p>
-      </div>
-    </div>
-    <div class="flex h-9 shrink-0 items-center gap-3 border-t border-line bg-card px-4 font-mono text-[10px] text-fgDim">
-      <span class="flex items-center gap-1.5"><span class="size-1.5 rounded-full bg-ok"></span>已连接</span>
-      <span>延迟 12ms</span>
-      <span>UTF-8</span>
-      <span class="ml-auto">Ctrl+Shift+C 复制 · Ctrl+Shift+V 粘贴</span>
-    </div>
-  </section>
-
-  <!-- ============ ⑤ 文件（hub-files.html：路径栏 + 文件表 + 传输条） ============ -->
-  <section data-screen="files" hidden class="flex min-h-0 flex-1 flex-col">
+  <!-- ============ ⑧ 会话（活动终端/文件会话管理） ============ -->
+  <section data-screen="sessions" hidden class="flex min-h-0 flex-1 flex-col">
     <div class="flex h-12 shrink-0 items-center gap-2 border-b border-line bg-card px-4">
       <span class="grid size-6 place-items-center rounded-lg bg-accent font-mono text-[11px] font-bold text-white">A</span>
-      <span class="text-sm font-semibold">AnyBoot 文件</span>
-      <span class="ml-2 flex items-center gap-1.5 rounded-full bg-ok/10 px-2.5 py-1 text-[10px] font-semibold text-ok"><span class="size-1.5 rounded-full bg-ok"></span>已连接 root@192.168.0.120</span>
-      <div class="ml-auto flex gap-2">
-        <button class="h-8 cursor-pointer rounded-lg bg-accent px-3 text-xs font-bold text-white transition-all active:scale-95">上传</button>
-        <button class="h-8 cursor-pointer rounded-lg border border-line bg-elevate px-3 text-xs font-medium transition-colors">下载</button>
-        <button class="h-8 cursor-pointer rounded-lg border border-line bg-elevate px-3 text-xs font-medium transition-colors">＋ 新建目录</button>
-        <button class="h-8 cursor-pointer rounded-lg border border-line bg-elevate px-3 text-xs font-medium transition-colors">刷新</button>
+      <span class="text-sm font-semibold">AnyBoot 会话</span>
+      <div class="ml-auto flex gap-2 text-[11px]">
+        <span class="rounded-full bg-ok/10 px-2.5 py-1 font-semibold text-ok">进行中 2</span>
+        <span class="rounded-full bg-bad/10 px-2.5 py-1 font-semibold text-bad">已断开 1</span>
       </div>
-    </div>
-    <div class="shrink-0 border-b border-line bg-card/50 px-4 py-2.5">
-      <div class="flex h-9 items-center gap-1 rounded-xl border border-line bg-base px-3 font-mono text-xs">
-        <span class="text-accentT">/</span><span>root</span><span class="text-fgFaint">/</span><span>projects</span><span class="text-fgFaint">/</span><span class="text-fg">anyboot</span>
-        <span class="ml-auto text-fgFaint">▾</span>
-      </div>
-    </div>
-    <div class="min-h-0 flex-1 overflow-y-auto scroll-thin px-4 py-3">
-      <table class="w-full text-left text-sm">
-        <thead>
-          <tr class="border-b border-line text-xs text-fgDim">
-            <th class="py-2 font-semibold">名称</th>
-            <th class="w-24 py-2 font-semibold">大小</th>
-            <th class="w-28 py-2 font-semibold">权限</th>
-            <th class="w-40 py-2 font-semibold">修改时间</th>
-            <th class="w-20 py-2 font-semibold">操作</th>
-          </tr>
-        </thead>
-        <tbody class="font-mono text-[12.5px]">
-          <tr class="border-b border-line/60 transition-colors hover:bg-elevate">
-            <td class="cursor-pointer py-2.5"><span class="mr-2 text-tYellow">📁</span><span class="font-sans">docs</span></td>
-            <td class="text-fgDim">—</td><td class="text-fgDim">drwxr-xr-x</td><td class="text-fgDim">10-17 08:12</td>
-            <td><button class="cursor-pointer text-xs text-fgDim transition-colors hover:text-fg">⋯</button></td>
-          </tr>
-          <tr class="border-b border-line/60 transition-colors hover:bg-elevate">
-            <td class="cursor-pointer py-2.5"><span class="mr-2 text-tYellow">📁</span><span class="font-sans">src</span></td>
-            <td class="text-fgDim">—</td><td class="text-fgDim">drwxr-xr-x</td><td class="text-fgDim">10-16 21:47</td>
-            <td><button class="cursor-pointer text-xs text-fgDim transition-colors hover:text-fg">⋯</button></td>
-          </tr>
-          <tr class="border-b border-line/60 transition-colors hover:bg-elevate">
-            <td class="py-2.5"><span class="mr-2 text-tBlue">📄</span>anyboot</td>
-            <td>92.1 MB</td><td class="text-fgDim">-rwxr-xr-x</td><td class="text-fgDim">10-17 08:58</td>
-            <td><button class="cursor-pointer text-xs text-fgDim transition-colors hover:text-fg">⋯</button></td>
-          </tr>
-          <tr class="border-b border-line/60 transition-colors hover:bg-elevate">
-            <td class="py-2.5"><span class="mr-2 text-tBlue">📄</span>README.md</td>
-            <td>4.2 KB</td><td class="text-fgDim">-rw-r--r--</td><td class="text-fgDim">10-15 14:03</td>
-            <td><button class="cursor-pointer text-xs text-fgDim transition-colors hover:text-fg">⋯</button></td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-    <!-- 传输进度条 -->
-    <div class="shrink-0 border-t border-line bg-card px-4 py-3">
-      <div class="mb-1.5 flex items-center justify-between text-xs">
-        <p class="flex items-center gap-2"><span class="rounded-full bg-info/10 px-2 py-0.5 font-mono text-[10px] font-semibold text-info">↓ 下载</span><span class="font-mono">src-tauri/target/release/anyboot → ~/Downloads/</span></p>
-        <p class="font-mono text-fgDim">64% · 18.2 MB/s · 剩余 12s</p>
-      </div>
-      <div class="h-1.5 overflow-hidden rounded-full bg-elevate">
-        <div class="h-full w-[64%] rounded-full bg-gradient-to-r from-accent to-info"></div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ============ ⑥ 密钥管理（hub-keys.html：列表 + 生成） ============ -->
-  <section data-screen="keys" hidden class="flex min-h-0 flex-1 flex-col">
-    <div class="flex h-12 shrink-0 items-center gap-2 border-b border-line bg-card px-4">
-      <span class="grid size-6 place-items-center rounded-lg bg-accent font-mono text-[11px] font-bold text-white">A</span>
-      <span class="text-sm font-semibold">AnyBoot 密钥管理</span>
-      <button class="ml-auto h-8 cursor-pointer rounded-lg bg-accent px-3.5 text-xs font-bold text-white transition-all active:scale-95">生成密钥</button>
-      <button class="h-8 cursor-pointer rounded-lg border border-line bg-elevate px-3.5 text-xs font-medium transition-colors">导入</button>
     </div>
     <div class="min-h-0 flex-1 overflow-y-auto scroll-thin p-5">
-      <div class="grid grid-cols-2 gap-3">
-        <article class="rounded-2xl border border-accent/35 bg-card p-4 shadow-glow">
+      <div class="space-y-2.5">
+        <article class="rounded-2xl border border-ok/30 bg-card p-4">
           <div class="flex items-center gap-3">
-            <span class="grid size-10 place-items-center rounded-xl bg-accent/12 text-accentT">
-              <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="8" cy="15" r="4"/><path d="M10.8 12.2 20 3m-4 1 2 2m-5 1 2 2"/></svg>
+            <span class="grid size-10 place-items-center rounded-xl bg-ok/12 text-ok">
+              <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M6 20h12"/></svg>
             </span>
             <div class="min-w-0 flex-1">
-              <p class="flex items-center gap-2 text-sm font-semibold">id_ed25519 <span class="rounded-md bg-accent/15 px-1.5 py-px font-mono text-[9px] font-semibold text-accentT">使用中</span></p>
-              <p class="mt-0.5 font-mono text-[11px] text-fgDim">ED25519 · 已设口令 · 绑定 2 台</p>
+              <p class="flex items-center gap-2 text-sm font-semibold">终端 · 书房台式机 <span class="rounded-full bg-ok/10 px-2 py-0.5 font-mono text-[9px] font-semibold text-ok">运行中</span></p>
+              <p class="mt-0.5 font-mono text-[11px] text-fgDim">root@192.168.0.120:22 · 12ms · 已连 42 分钟</p>
             </div>
-          </div>
-          <p class="mt-3 truncate rounded-lg bg-base px-3 py-2 font-mono text-[10px] text-fgDim">ssh-ed25519 AAAAC3NzaC1lZDI1…</p>
-          <div class="mt-3 flex gap-2">
-            <button class="h-8 flex-1 cursor-pointer rounded-lg border border-line bg-elevate text-xs font-medium transition-colors">复制公钥</button>
-            <button class="h-8 cursor-pointer rounded-lg border border-bad/40 px-3 text-xs font-medium text-bad transition-colors">删除</button>
+            <button class="h-8 cursor-pointer rounded-lg bg-accent px-3.5 text-xs font-bold text-white transition-all active:scale-95">聚焦</button>
+            <button class="h-8 cursor-pointer rounded-lg border border-warn/30 bg-warn/10 px-3.5 text-xs font-medium text-warn transition-colors">断开</button>
           </div>
         </article>
         <article class="rounded-2xl border border-line bg-card p-4">
           <div class="flex items-center gap-3">
-            <span class="grid size-10 place-items-center rounded-xl bg-elevate text-fgDim">
-              <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="8" cy="15" r="4"/><path d="M10.8 12.2 20 3m-4 1 2 2m-5 1 2 2"/></svg>
+            <span class="grid size-10 place-items-center rounded-xl bg-info/12 text-info">
+              <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M14 3v5h5M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg>
             </span>
             <div class="min-w-0 flex-1">
-              <p class="flex items-center gap-2 text-sm font-semibold">legacy_rsa <span class="rounded-md bg-elevate px-1.5 py-px font-mono text-[9px] text-fgDim">未设口令</span></p>
-              <p class="mt-0.5 font-mono text-[11px] text-fgDim">RSA-4096 · 绑定 0 台</p>
+              <p class="flex items-center gap-2 text-sm font-semibold">文件 · 书房台式机 <span class="rounded-full bg-ok/10 px-2 py-0.5 font-mono text-[9px] font-semibold text-ok">SFTP 已连接</span></p>
+              <p class="mt-0.5 font-mono text-[11px] text-fgDim">root@192.168.0.120:22 · ControlMaster 复用</p>
             </div>
+            <button class="h-8 cursor-pointer rounded-lg border border-line bg-elevate px-3.5 text-xs font-medium transition-colors">打开</button>
           </div>
-          <p class="mt-3 truncate rounded-lg bg-base px-3 py-2 font-mono text-[10px] text-fgDim">ssh-rsa AAAAB3NzaC1yc2E…</p>
-          <div class="mt-3 flex gap-2">
-            <button class="h-8 flex-1 cursor-pointer rounded-lg border border-line bg-elevate text-xs font-medium transition-colors">复制公钥</button>
-            <button class="h-8 cursor-pointer rounded-lg border border-bad/40 px-3 text-xs font-medium text-bad transition-colors">删除</button>
+        </article>
+        <article class="rounded-2xl border border-bad/25 bg-card p-4">
+          <div class="flex items-center gap-3">
+            <span class="grid size-10 place-items-center rounded-xl bg-bad/12 text-bad">
+              <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M6 20h12"/></svg>
+            </span>
+            <div class="min-w-0 flex-1">
+              <p class="flex items-center gap-2 text-sm font-semibold">终端 · 办公室 NAS <span class="rounded-full bg-bad/10 px-2 py-0.5 font-mono text-[9px] font-semibold text-bad">已断开 · code 255</span></p>
+              <p class="mt-0.5 font-mono text-[11px] text-fgDim">admin@10.0.0.8:22 · 报错保留在终端里可查看</p>
+            </div>
+            <button class="h-8 cursor-pointer rounded-lg bg-accent px-3.5 text-xs font-bold text-white transition-all active:scale-95">重连</button>
+            <button class="h-8 cursor-pointer rounded-lg border border-line bg-elevate px-3.5 text-xs font-medium transition-colors">关闭</button>
           </div>
         </article>
       </div>
+      <p class="mt-4 text-center text-[11px] text-fgFaint">关闭终端窗口不断开会话，重新打开自动捡回。</p>
+    </div>
+  </section>
 
-      <!-- 生成密钥面板 -->
-      <div class="mt-5 rounded-2xl border border-line bg-card p-5">
-        <h3 class="mb-4 text-sm font-bold">生成密钥</h3>
-        <div class="grid grid-cols-2 gap-4">
-          <div>
-            <label class="mb-1.5 block text-xs font-semibold text-fgDim">类型</label>
-            <div class="grid grid-cols-2 gap-1 rounded-xl border border-line bg-base p-1">
-              <button class="h-8 cursor-pointer rounded-lg bg-accent text-xs font-bold text-white">ED25519</button>
-              <button class="h-8 cursor-pointer rounded-lg text-xs text-fgDim transition-colors hover:text-fg">RSA-4096</button>
-            </div>
-            <p class="mt-1.5 text-[11px] text-fgDim">推荐 ED25519：更快、密钥更短。</p>
+  <!-- ============ ⑨ 传输（下载/上传队列，暂停/续传/取消） ============ -->
+  <section data-screen="transfers" hidden class="flex min-h-0 flex-1 flex-col">
+    <div class="flex h-12 shrink-0 items-center gap-2 border-b border-line bg-card px-4">
+      <span class="grid size-6 place-items-center rounded-lg bg-accent font-mono text-[11px] font-bold text-white">A</span>
+      <span class="text-sm font-semibold">AnyBoot 传输</span>
+      <div class="ml-auto flex gap-2">
+        <button class="h-8 cursor-pointer rounded-lg border border-line bg-elevate px-3 text-xs font-medium transition-colors">全部暂停</button>
+        <button class="h-8 cursor-pointer rounded-lg border border-line bg-elevate px-3 text-xs font-medium transition-colors">清空已完成</button>
+      </div>
+    </div>
+    <div class="min-h-0 flex-1 space-y-2.5 overflow-y-auto scroll-thin p-5">
+      <article class="rounded-2xl border border-line bg-card p-4">
+        <div class="mb-2 flex items-center gap-2 text-xs">
+          <span class="rounded-full bg-info/10 px-2 py-0.5 font-mono text-[10px] font-semibold text-info">↓ 下载</span>
+          <span class="min-w-0 flex-1 truncate font-mono">src-tauri/target/release/anyboot → ~/Downloads/</span>
+          <span class="font-mono text-fgDim">64% · 18.2 MB/s · 剩余 12s</span>
+          <button class="h-7 cursor-pointer rounded-lg border border-line bg-elevate px-2.5 transition-colors">暂停</button>
+          <button class="h-7 cursor-pointer rounded-lg border border-bad/30 px-2.5 text-bad transition-colors">取消</button>
+        </div>
+        <div class="h-1.5 overflow-hidden rounded-full bg-elevate"><div class="h-full w-[64%] rounded-full bg-gradient-to-r from-accent to-info"></div></div>
+      </article>
+      <article class="rounded-2xl border border-line bg-card p-4">
+        <div class="mb-2 flex items-center gap-2 text-xs">
+          <span class="rounded-full bg-warn/10 px-2 py-0.5 font-mono text-[10px] font-semibold text-warn">↑ 上传 · 已暂停</span>
+          <span class="min-w-0 flex-1 truncate font-mono">~/Videos/demo.mp4 → /root/media/</span>
+          <span class="font-mono text-fgDim">37% · 断点 1.4GB</span>
+          <button class="h-7 cursor-pointer rounded-lg bg-accent px-2.5 text-xs font-bold text-white transition-all">续传</button>
+          <button class="h-7 cursor-pointer rounded-lg border border-bad/30 px-2.5 text-bad transition-colors">取消</button>
+        </div>
+        <div class="h-1.5 overflow-hidden rounded-full bg-elevate"><div class="h-full w-[37%] rounded-full bg-warn/70"></div></div>
+      </article>
+      <article class="flex items-center gap-3 rounded-2xl border border-line bg-card px-4 py-3 text-xs">
+        <span class="rounded-full bg-ok/10 px-2 py-0.5 font-mono text-[10px] font-semibold text-ok">✓ 已完成</span>
+        <span class="min-w-0 flex-1 truncate font-mono">hub-snapshot.tar.gz · 4.1 GB · 08:12</span>
+        <button class="h-7 cursor-pointer rounded-lg border border-line bg-elevate px-2.5 transition-colors">打开所在目录</button>
+      </article>
+    </div>
+  </section>
+
+  <!-- ============ ⑩ 终端设置（字号/行为开关） ============ -->
+  <section data-screen="term-settings" hidden class="flex min-h-0 flex-1 flex-col">
+    <div class="flex h-12 shrink-0 items-center gap-2 border-b border-line bg-card px-4">
+      <span class="grid size-6 place-items-center rounded-lg bg-accent font-mono text-[11px] font-bold text-white">A</span>
+      <span class="text-sm font-semibold">终端设置</span>
+    </div>
+    <div class="min-h-0 flex-1 overflow-y-auto scroll-thin p-5">
+      <div class="mx-auto max-w-xl space-y-4">
+        <div class="rounded-2xl border border-line bg-card p-5">
+          <div class="mb-2 flex items-center justify-between">
+            <p class="text-sm font-semibold">字号</p>
+            <span class="rounded-md bg-elevate px-2 py-1 font-mono text-xs text-fgDim">14 pt</span>
           </div>
-          <div>
-            <label class="mb-1.5 block text-xs font-semibold text-fgDim">名称</label>
-            <input placeholder="如 id_ed25519_nas" class="h-10 w-full rounded-xl border border-line bg-base px-3 font-mono text-sm outline-none placeholder:text-fgFaint focus:border-accentT/60">
-            <label class="mb-1.5 mt-3 block text-xs font-semibold text-fgDim">口令（可选）</label>
-            <input type="password" placeholder="留空 = 未设口令" class="h-10 w-full rounded-xl border border-line bg-base px-3 font-mono text-sm outline-none placeholder:text-fgFaint focus:border-accentT/60">
+          <div class="flex h-6 items-center gap-3">
+            <span class="font-mono text-[10px] text-fgFaint">10</span>
+            <div class="relative h-1.5 flex-1 rounded-full bg-elevate">
+              <div class="absolute inset-y-0 left-0 w-[40%] rounded-full bg-accent"></div>
+              <span class="absolute left-[40%] top-1/2 size-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-accent bg-white shadow"></span>
+            </div>
+            <span class="font-mono text-[10px] text-fgFaint">24</span>
           </div>
         </div>
-        <div class="mt-4 flex justify-end gap-2">
-          <button class="h-9 cursor-pointer rounded-xl border border-line bg-elevate px-4 text-xs font-medium transition-colors">取消</button>
-          <button class="h-9 cursor-pointer rounded-xl bg-accent px-5 text-xs font-bold text-white transition-all active:scale-95">生成</button>
+        <div class="rounded-2xl border border-line bg-card p-2">
+          <div class="flex items-center justify-between rounded-xl px-3 py-2.5 hover:bg-elevate">
+            <div><p class="text-sm">光标闪烁</p><p class="text-[11px] text-fgDim">终端光标呼吸闪烁</p></div>
+            <span class="inline-flex h-5 w-9 items-center rounded-full bg-accent px-0.5"><span class="ml-auto size-4 rounded-full bg-white"></span></span>
+          </div>
+          <div class="flex items-center justify-between rounded-xl px-3 py-2.5 hover:bg-elevate">
+            <div><p class="text-sm">选中即复制</p><p class="text-[11px] text-fgDim">划选文本自动进剪贴板</p></div>
+            <span class="inline-flex h-5 w-9 items-center rounded-full bg-elevate px-0.5"><span class="size-4 rounded-full bg-fgFaint"></span></span>
+          </div>
+          <div class="flex items-center justify-between rounded-xl px-3 py-2.5 hover:bg-elevate">
+            <div><p class="text-sm">响铃提示</p><p class="text-[11px] text-fgDim">BEL 字符触发系统提示音</p></div>
+            <span class="inline-flex h-5 w-9 items-center rounded-full bg-elevate px-0.5"><span class="size-4 rounded-full bg-fgFaint"></span></span>
+          </div>
+          <div class="flex items-center justify-between rounded-xl px-3 py-2.5 hover:bg-elevate">
+            <div><p class="text-sm">滚动回滚行数</p><p class="text-[11px] text-fgDim">缓冲区保留的历史输出</p></div>
+            <span class="rounded-md bg-elevate px-2 py-1 font-mono text-xs text-fgDim">10000</span>
+          </div>
+        </div>
+        <button class="h-10 w-full cursor-pointer rounded-xl bg-accent text-sm font-bold text-white transition-all active:scale-95">应用设置</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ ⑪ 关于 ============ -->
+  <section data-screen="about" hidden class="flex min-h-0 flex-1 flex-col">
+    <div class="flex h-12 shrink-0 items-center gap-2 border-b border-line bg-card px-4">
+      <span class="grid size-6 place-items-center rounded-lg bg-accent font-mono text-[11px] font-bold text-white">A</span>
+      <span class="text-sm font-semibold">关于</span>
+    </div>
+    <div class="grid min-h-0 flex-1 place-items-center overflow-y-auto scroll-thin p-5">
+      <div class="w-full max-w-sm rounded-2xl border border-line bg-card p-6 text-center shadow-pop">
+        <span class="mx-auto grid size-16 place-items-center rounded-2xl bg-accent font-mono text-2xl font-bold text-white shadow-glow">A</span>
+        <h2 class="mt-3 text-lg font-bold">AnyBoot</h2>
+        <p class="mt-1 font-mono text-xs text-fgDim">v0.1.0 · build 2026.10.17</p>
+        <p class="mx-auto mt-3 max-w-[260px] text-xs leading-relaxed text-fgDim">多系统引导管理 · 远程电源控制 · SSH 跳板机隧道 · SFTP 文件传输</p>
+        <div class="mt-5 flex justify-center gap-2">
+          <button class="h-9 cursor-pointer rounded-xl bg-accent px-4 text-xs font-bold text-white transition-all active:scale-95">检查更新</button>
+          <button class="h-9 cursor-pointer rounded-xl border border-line bg-elevate px-4 text-xs font-medium transition-colors">GitHub · XIEXU/AnyBoot</button>
+        </div>
+        <div class="mt-5 border-t border-line pt-4 text-[11px] leading-relaxed text-fgFaint">
+          开源许可 · MIT<br>心跳 10s · 并发探测 · AES-256-GCM 凭据加密
         </div>
       </div>
     </div>
@@ -557,8 +781,8 @@ tailwind.config = {
 
 </div>
 
-<p class="mx-auto mt-6 max-w-3xl text-center text-xs leading-relaxed text-fgDim">
-  AnyBoot PC 端 · 曜蓝 Cobalt · 亮暗双主题 · 内容全部对应真实界面（index / hub / hub-term / hub-files / hub-keys）<br>
+<p class="mx-auto mt-6 max-w-3xl text-center text-xs leading-relaxed text-fgDim" data-page-node-id="xIQ6WMVWteB4wHxEALv75B">
+  AnyBoot PC 端 · 曜蓝 Cobalt · 亮暗双主题 · 内容全部对应真实界面（index / hub / hub-term / hub-files / hub-keys）<br data-page-node-id="9gCHBUNecrvqVCSfXGGldC">
   与手机端 v2 同一套设计令牌：靛蓝主色 + 青色 info 点缀 · JetBrains Mono 数据字体 · 渐变顶光线 / 状态点 / 药丸徽标
 </p>
 
