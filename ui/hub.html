@@ -3734,9 +3734,10 @@
       ['修改时间', e.mtime || '—'],
       ['路径', fbJoin(fbCwd, e.name.split(' -> ')[0])],
     ];
-    if (e.link && e.target) rows.splice(2, 0, ['指向', e.target]);
+    if (e.link) rows.splice(2, 0, ['指向', e.target || '读取中…']);
     const box = fb$('fbInfoRows');
     box.textContent = '';
+    const valueEls = {};
     for (const kv of rows) {
       const line = document.createElement('div');
       line.className = 'fb-kv';
@@ -3744,8 +3745,14 @@
       const b = document.createElement('span'); b.textContent = kv[1];
       line.append(a, b);
       box.appendChild(line);
+      valueEls[kv[0]] = b;
     }
     fb$('fbInfoModal').hidden = false;
+    if (e.link && !e.target) {
+      invoke('hub_sftp_readlink', { server: fbSrv, path: fbJoin(fbCwd, e.name) })
+        .then(function (target) { if (!fb$('fbInfoModal').hidden && valueEls['指向']) valueEls['指向'].textContent = target || '（无法读取）'; })
+        .catch(function () { if (!fb$('fbInfoModal').hidden && valueEls['指向']) valueEls['指向'].textContent = '（无法读取）'; });
+    }
   });
   fb$('fbRmCopy').addEventListener('click', function () {
     const e = fbMenuTarget; fbCloseMenu(); if (!e) return;

@@ -522,6 +522,56 @@ pub fn hub_sftp_copy(app: AppHandle, server: HubServer, from: String, to: String
     }
 }
 
+/// 软链接指向（详情弹层按需拉取）：sftp CLI 没暴露协议级 readlink（真机验证
+/// "Invalid command."），且真 sshd 的 `ls -la` longname 不带 ` -> target`——
+/// 走 exec 通道 `readlink -f`（与 cp 同一远端 shell 依赖），返回绝对指向。
+#[tauri::command]
+pub fn hub_sftp_readlink(app: AppHandle, server: HubServer, path: String) -> Result<String, String> {
+    let server = server.normalize();
+    if server.id.is_empty() {
+        return Err("该服务器还没保存档案，无法复用认证连接".to_string());
+    }
+    let control = crate::hub_tunnel::control_path(&app, &server.id)?;
+    if !control.exists() {
+        return Err("先打开一次终端完成认证，再用文件浏览".to_string());
+    }
+    let target = if server.username.is_empty() {
+        server.host.clone()
+    } else {
+        format!("{}@{}", server.username, server.host)
+    };
+    let mut command = std::process::Command::new("ssh");
+    command
+        .arg("-o")
+        .arg("BatchMode=yes")
+        .arg("-o")
+        .arg(format!("ControlPath={}", control.display()))
+        .arg("-p")
+        .arg(server.effective_port().to_string())
+        .arg(&target)
+        .arg("--")
+        .arg(format!("readlink -f -- {}", shell_quote(&path)));
+    command.env("LC_ALL", "C.UTF-8");
+    let output = command
+        .output()
+        .map_err(|error| format!("无法启动 ssh: {error}"))?;
+    if output.status.success() {
+        let target = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if target.is_empty() {
+            Err("远端未返回指向".to_string())
+        } else {
+            Ok(target)
+        }
+    } else {
+        let tail = stderr_tail(&output.stderr);
+        Err(if tail.is_empty() {
+            format!("读取指向失败（退出码 {:?}）", output.status.code())
+        } else {
+            tail
+        })
+    }
+}
+
 /// 展开 `~` 前缀为用户主目录（HOME；展开失败时原样返回）。
 fn expand_home(dir: &str) -> String {
     let trimmed = dir.trim();

@@ -807,7 +807,7 @@ $('rmCopyPath').addEventListener('click', () => { const e = menuTarget; closeRow
 $('rmDelete').addEventListener('click', () => { const e = menuTarget; closeRowMenu(); if (e) openDelete(e); });
 $('fmClose').addEventListener('click', closeRowMenu);
 
-/* 详情：全部来自列表元数据，不再打后端 */
+/* 详情：来自列表元数据；软链接指向后端按需拉取（真 sshd 的 ls -la longname 不带 -> target） */
 $('rmInfo').addEventListener('click', () => {
   const e = menuTarget; closeRowMenu(); if (!e) return;
   const rows = [
@@ -818,9 +818,10 @@ $('rmInfo').addEventListener('click', () => {
     ['修改时间', e.mtime || '—'],
     ['路径', joinPath(cwd, e.name)],
   ];
-  if (e.link && e.target) rows.splice(2, 0, ['指向', e.target]);
+  if (e.link) rows.splice(2, 0, ['指向', e.target || '读取中…']);
   const box = $('infoRows');
   box.textContent = '';
+  const valueEls = {};
   for (const [k, v] of rows) {
     const line = document.createElement('div');
     line.className = 'kv';
@@ -828,8 +829,14 @@ $('rmInfo').addEventListener('click', () => {
     const b = document.createElement('span'); b.textContent = v;
     line.append(a, b);
     box.appendChild(line);
+    valueEls[k] = b;
   }
   $('infoModal').hidden = false;
+  if (e.link && !e.target) {
+    invoke('hub_sftp_readlink', { server, path: joinPath(cwd, e.name) })
+      .then((target) => { if (!$('infoModal').hidden && valueEls['指向']) valueEls['指向'].textContent = target || '（无法读取）'; })
+      .catch(() => { if (!$('infoModal').hidden && valueEls['指向']) valueEls['指向'].textContent = '（无法读取）'; });
+  }
 });
 function closeInfo() { $('infoModal').hidden = true; }
 $('infoClose').addEventListener('click', closeInfo);
