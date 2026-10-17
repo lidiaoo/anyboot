@@ -294,6 +294,8 @@ fn bare_name(name: &str, path: &str) -> Option<String> {
         Some(rest) => rest.trim_start_matches('/'),
         None => name,
     };
+    // 个别服务器目录名带尾斜杠（手机端 SftpOps 已实机踩过），剥掉防排序/拼路径带错
+    let rest = rest.trim_end_matches('/');
     if rest.is_empty() || rest == "." || rest == ".." {
         return None;
     }
@@ -779,6 +781,9 @@ mod tests {
         assert_eq!(bare_name("/.", "/"), None);
         // 服务器输出裸名字时原样保留
         assert_eq!(bare_name(".cache", "/root").as_deref(), Some(".cache"));
+        // 目录名带尾斜杠（个别服务器实机场景）剥干净
+        assert_eq!(bare_name("/root/docs/", "/root").as_deref(), Some("docs"));
+        assert_eq!(bare_name("docs/", "/root").as_deref(), Some("docs"));
         // 软链接名字（parse 已拆掉 " -> target"，此处是纯路径）原样保留
         assert_eq!(bare_name("/root/link", "/root").as_deref(), Some("link"));
     }
