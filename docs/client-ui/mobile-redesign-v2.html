@@ -77,6 +77,7 @@ tailwind.config = {
   <button role="tab" data-page="drawer"      aria-selected="false" class="pgtab cursor-pointer rounded-full border border-line bg-card px-4 py-1.5 text-xs font-medium text-fgDim transition-colors hover:text-fg" data-page-node-id="lQxCUYQHuZFiXiwhaytNLO">抽屉</button>
   <button role="tab" data-page="home-edit"   aria-selected="false" class="pgtab cursor-pointer rounded-full border border-line bg-card px-4 py-1.5 text-xs font-medium text-fgDim transition-colors hover:text-fg" data-page-node-id="mGnmf9V4VXJPDK4qOUFJOR">服务端编辑</button>
   <button role="tab" data-page="servers"     aria-selected="true"  class="pgtab cursor-pointer rounded-full border border-accentT/40 bg-accentT/10 px-4 py-1.5 text-xs font-semibold text-accentT" data-page-node-id="X7GDE7jNkaxF4z0pw6Wrkn">服务器</button>
+  <button role="tab" data-page="home-add"   aria-selected="false" class="pgtab cursor-pointer rounded-full border border-line bg-card px-4 py-1.5 text-xs font-medium text-fgDim transition-colors hover:text-fg" data-page-node-id="mGnmf9V4VXJPDK4qOUFJOR2">添加 AnyBoot 服务端</button>
   <button role="tab" data-page="server-edit" aria-selected="false" class="pgtab cursor-pointer rounded-full border border-line bg-card px-4 py-1.5 text-xs font-medium text-fgDim transition-colors hover:text-fg" data-page-node-id="f6Z6H77FLzj9mSPKPDYwQJ">SSH 编辑弹层</button>
   <button role="tab" data-page="sessions"    aria-selected="false" class="pgtab cursor-pointer rounded-full border border-line bg-card px-4 py-1.5 text-xs font-medium text-fgDim transition-colors hover:text-fg" data-page-node-id="NIvhcqgK8kIFqoGMuhhvUB">会话</button>
   <button role="tab" data-page="term"        aria-selected="false" class="pgtab cursor-pointer rounded-full border border-line bg-card px-4 py-1.5 text-xs font-medium text-fgDim transition-colors hover:text-fg" data-page-node-id="R489UKiuBN4cbedz6x1BoD">终端</button>
@@ -230,6 +231,51 @@ tailwind.config = {
           <button class="cursor-pointer rounded-lg px-4 py-2 text-sm text-fgDim transition-colors hover:bg-elevate hover:text-fg" data-page-node-id="7nuzAJCwp0oTrotMLrvJKI">取消</button>
           <button class="cursor-pointer rounded-xl bg-accent px-5 py-2 text-sm font-bold text-white shadow-glow transition-all active:scale-95" data-page-node-id="ox58pHp4neuOfHKnStH6Cv">保存</button>
         </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ ③b 添加 AnyBoot 服务端（首启必连态：无取消/无删除） ============ -->
+  <section data-screen="home-add" hidden class="relative flex min-h-0 flex-1 flex-col items-center justify-center overflow-hidden px-6">
+    <div class="absolute inset-0 bg-base opacity-60" aria-hidden="true"></div>
+    <div class="relative w-full rounded-2xl border border-lineStrong bg-card p-5 shadow-pop">
+      <h2 class="text-base font-bold">连接 AnyBoot 服务端</h2>
+      <p class="mb-4 mt-1 text-[11px] leading-relaxed text-fgDim">首次使用必须先连接一台电脑端（PC「远程控制」页面会显示地址）。保存成功前无法关闭此窗口。</p>
+      <div class="space-y-3.5">
+        <label class="block">
+          <span class="mb-1.5 block text-xs font-medium text-fgDim">分组（用来区分不同的电脑）</span>
+          <input placeholder="例如：书房台式机（同一台电脑的多个 IP 填同一个分组）" class="h-11 w-full rounded-xl border border-line bg-base px-3.5 text-sm placeholder:text-fgFaint transition-colors focus:border-accent/60 focus:outline-2 focus:outline-accent/35">
+        </label>
+        <label class="block">
+          <span class="mb-1.5 block text-xs font-medium text-fgDim">服务端名（同一台电脑的不同网卡/地址，用名字区分）</span>
+          <input placeholder="例如：有线网卡 / 5G WiFi（可留空，用地址兜底）" class="h-11 w-full rounded-xl border border-line bg-base px-3.5 text-sm placeholder:text-fgFaint transition-colors focus:border-accent/60 focus:outline-2 focus:outline-accent/35">
+        </label>
+        <label class="block">
+          <span class="mb-1.5 block text-xs font-medium text-fgDim">服务端地址（电脑端「远程控制」里显示的地址）</span>
+          <textarea rows="2" placeholder="192.168.0.120:12300 或整条带 token 的地址" class="w-full rounded-xl border border-line bg-base px-3.5 py-2.5 font-mono text-sm placeholder:text-fgFaint transition-colors focus:border-accent/60 focus:outline-2 focus:outline-accent/35"></textarea>
+          <span class="mt-1 block text-[11px] leading-relaxed text-fgFaint">同一台电脑有多块网卡就填多行，每行一个 —— 只占一个标签，哪个通就用哪个</span>
+        </label>
+        <label class="block">
+          <span class="mb-1.5 block text-xs font-medium text-fgDim">访问令牌 token</span>
+          <input placeholder="可留空，页面上也能填" class="h-11 w-full rounded-xl border border-line bg-base px-3.5 font-mono text-sm placeholder:text-fgFaint transition-colors focus:border-accent/60 focus:outline-2 focus:outline-accent/35">
+        </label>
+        <div>
+          <span class="mb-1.5 block text-xs font-medium text-fgDim">经由跳板机（外网连家里：先到「☰ → 服务器」添加 SSH 跳板机）</span>
+          <button class="flex h-11 w-full cursor-pointer items-center justify-between rounded-xl border border-line bg-base px-3.5 text-sm transition-colors hover:border-lineStrong">
+            <span class="text-fgDim">直连（默认）</span>
+            <svg class="size-4 text-fgFaint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+        </div>
+        <div>
+          <span class="mb-1.5 block text-xs font-medium text-fgDim">多网卡探测（有多个地址时怎么探）</span>
+          <div class="grid grid-cols-2 gap-1 rounded-xl border border-line bg-base p-1">
+            <button class="cursor-pointer rounded-lg bg-accent/12 py-2 text-xs font-semibold text-accentT">并发探测（推荐）</button>
+            <button class="cursor-pointer rounded-lg py-2 text-xs text-fgDim transition-colors hover:text-fg">串行探测</button>
+          </div>
+        </div>
+      </div>
+      <div class="mt-5 flex justify-end border-t border-line pt-4">
+        <button class="w-full cursor-pointer rounded-xl bg-accent py-2.5 text-sm font-bold text-white shadow-glow transition-all active:scale-95">保存并连接</button>
       </div>
     </div>
   </section>
