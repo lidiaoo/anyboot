@@ -160,8 +160,11 @@ function savedefault {
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 const GRUB_SCRIPT_PATH: &str = "/etc/grub.d/09_anyboot";
 
-/// 二进制入口（`main.rs`）用这两个：带参数走 CLI，不带参数开 GUI。
-pub use cli::{is_cli_invocation as cli_requested, run as run_cli};
+/// 二进制入口（`main.rs`）用这三个：askpass 先答密码，带参数走 CLI，不带参数开 GUI。
+pub use cli::{
+    is_cli_invocation as cli_requested, run as run_cli,
+    run_askpass_if_invoked as cli_askpass,
+};
 
 const SETTINGS_FILE: &str = "settings.json";
 /// 单实例锁文件（放配置目录里，因此 `ANYBOOT_CONFIG_DIR` 也生效 —— 沙箱/多套配置互不干扰）

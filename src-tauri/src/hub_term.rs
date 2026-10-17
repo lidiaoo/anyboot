@@ -144,23 +144,17 @@ pub fn hub_term_sessions(
 }
 
 /// 组装跳板机 ProxyCommand（纯函数：单测直接喂参数，不依赖 AppHandle）。
-/// 形态：`ssh -o StrictHostKeyChecking=accept-new [env SSH_ASKPASS='…'
-/// SSH_ASKPASS_REQUIRE=force] [-o IdentitiesOnly=yes -i '…'] -p PORT user@host -W %h:%p`
-/// 文件浏览自建 master（hub_sftp::ensure_control）复用同一形态。
+/// 形态：`ssh -o StrictHostKeyChecking=accept-new [-o IdentitiesOnly=yes -i '…']
+///        -p PORT user@host -W %h:%p`
+///
+/// 密码跳板**不在这里拼 askpass**：ProxyCommand 子进程继承外层 ssh 的
+/// `SSH_ASKPASS` / `SSH_ASKPASS_REQUIRE`，由 askpass 按提示语里的 host 认领跳板的密码。
+/// 以前是 `env SSH_ASKPASS='…' ssh …` 前缀，Windows 上没有 shell，这条前缀根本执行不了。
 pub(crate) fn jump_proxy_command(
     jump: &crate::hub::HubServer,
-    askpass_path: Option<&std::path::Path>,
     key_path: Option<&std::path::Path>,
 ) -> String {
     let mut proxy = String::from("ssh -o StrictHostKeyChecking=accept-new");
-    if let Some(script) = askpass_path {
-        // 显式 env 前缀（OpenSSH 10 实测：`VAR=x cmd` 形式在 ProxyCommand 里
-        // 会被当成可执行文件名解析直接挂）；单引号包路径，配置目录可能带空格
-        proxy.push_str(&format!(
-            " env SSH_ASKPASS='{}' SSH_ASKPASS_REQUIRE=force",
-            script.display()
-        ));
-    }
     if let Some(key) = key_path {
         proxy.push_str(&format!(" -o IdentitiesOnly=yes -i '{}'", key.display()));
     }
@@ -237,13 +231,19 @@ pub fn hub_term_open(
         // 首连指纹确认必须 accept-new：OpenSSH ≤9 的「(yes/no)」确认也会被
         // force 进 askpass，而 askpass 只会吐密码 → 永远答不出 yes → 首连必死
         // （OpenSSH 10 起默认就是 accept-new，这里显式写齐对齐各发行版行为）。
-        let config = crate::config_dir(&app)?;
-        let script = crate::hub_vault::write_askpass_script(&config, &server.id)?;
-        command.env("SSH_ASKPASS", script.display().to_string());
+        // 密码认证（M6）：SSH_ASKPASS 指向**本程序自身**（不是 .sh 脚本），
+        // server_id 走环境变量；ssh 把提示语当 argv[1] 传回来，我们按提示语里的
+        // host 决定取哪一份密码 —— 跳板机与目标机共用同一个 askpass 程序。
+        let exe = crate::hub_vault::askpass_program()?;
+        command.env("SSH_ASKPASS", exe.display().to_string());
         command.env("SSH_ASKPASS_REQUIRE", "force");
+        command.env(crate::hub_vault::ASKPASS_SERVER_ENV, &server.id);
         command.args(["-o", "StrictHostKeyChecking=accept-new"]);
     }
-    // ControlMaster：认证连接留一把复用（M4 隧道靠它免二次认证，见 hub_tunnel.rs）
+    // ControlMaster：认证连接留一把复用（M4 隧道靠它免二次认证，见 hub_tunnel.rs）。
+    // 只有 Unix 有多路复用 —— Win32-OpenSSH 不支持（实测 ControlMaster 直接报
+    // `getsockname failed: Not a socket`），Windows 上的文件/隧道改为每次自己认证。
+    #[cfg(unix)]
     if !server.id.is_empty() {
         if let Ok(control) = crate::hub_tunnel::control_path(&app, &server.id) {
             command.args(["-o", "ControlMaster=auto"]);
@@ -252,11 +252,11 @@ pub fn hub_term_open(
         }
     }
     // 经由跳板机（M-jump）：ProxyCommand 先登录跳板机，再 `-W %h:%p` 把 stdin/stdout
-    // 接到目标主机 —— 外层 ssh 只看到一条已经打通的管道。文件 / 隧道复用本连接的
-    // ControlMaster，自动跟着走同一条链路。跳板凭据它自己的：
-    // - 存了密码 → 内联 SSH_ASKPASS 指向跳板自己的 askpass 脚本（内联 env 只作用
-    //   于 ProxyCommand 这个 sh，不污染外层 ssh 的 askpass）；
-    // - 密钥 → 内联 `-i`；两者都没有 → 跳板的密码提示走 /dev/tty，在 PTY 里手输。
+    // 接到目标主机 —— 外层 ssh 只看到一条已经打通的管道。Unix 上文件 / 隧道
+    // 复用本连接的 ControlMaster，自动跟着走同一条链路。跳板凭据它自己的：
+    // - 存了密码 → ProxyCommand 子进程继承外层的 SSH_ASKPASS / SSH_ASKPASS_REQUIRE，
+    //   同一个 askpass 程序按提示语里的 host 认出是跳板机，自己去取跳板的密码；
+    // - 密钥 → 内联 `-i`；两者都没有 → 跳板的密码提示在 PTY 里手输。
     if !server.jump_id.is_empty() {
         if server.jump_id == server.id {
             return Err("跳板机不能是服务器自己".to_string());
@@ -268,18 +268,15 @@ pub fn hub_term_open(
         if jump.protocol != "ssh" {
             return Err(format!("跳板机「{}」不是 SSH 服务器", jump.name));
         }
-        let askpass = if jump.password_enc.is_empty() {
-            None
-        } else {
-            let config = crate::config_dir(&app)?;
-            Some(crate::hub_vault::write_askpass_script(&config, &jump.id)?)
-        };
+        // 跳板的密码不用在这里单独挂：ProxyCommand 子进程继承外层 ssh 的环境变量，
+        // 同一个 askpass 程序按提示语里的 host 认出是跳板机，自己去取跳板的密码。
+        // （以前给 ProxyCommand 塞 `env SSH_ASKPASS=…` 前缀，Windows 上没有 shell，跑不了。）
         let key = if jump.key_id.is_empty() {
             None
         } else {
             Some(crate::hub_keys::private_key_path(&app, &jump.key_id)?)
         };
-        let proxy = jump_proxy_command(&jump, askpass.as_deref(), key.as_deref());
+        let proxy = jump_proxy_command(&jump, key.as_deref());
         command.args(["-o", &format!("ProxyCommand={proxy}")]);
     }
     let mut child = pair
@@ -657,32 +654,28 @@ mod tests {
             created_at: 0,
         };
 
-        // 密码跳板：显式 env 前缀（OpenSSH 10 兼容），路径单引号包裹（可含空格）
-        let p = jump_proxy_command(&jump, Some(std::path::Path::new("/c dir/ask.sh")), None);
+        // 纯密钥跳板：-i + IdentitiesOnly，不含任何 askpass 痕迹
+        // （密码跳板由外层 ssh 的 SSH_ASKPASS 继承下去处理，不在 ProxyCommand 里拼）
+        let p = jump_proxy_command(&jump, Some(std::path::Path::new("/keys/k")));
         assert!(p.starts_with("ssh -o StrictHostKeyChecking=accept-new"));
-        assert!(p.contains(" env SSH_ASKPASS='/c dir/ask.sh' SSH_ASKPASS_REQUIRE=force"));
-        assert!(!p.contains("IdentitiesOnly"));
+        assert!(p.contains(" -o IdentitiesOnly=yes -i '/keys/k'"));
+        assert!(!p.contains("SSH_ASKPASS") && !p.contains(" env "));
         assert!(p.ends_with(" -p 22 root@10.0.0.2 -W %h:%p"));
 
-        // 密钥跳板：-i，无 askpass
-        let p = jump_proxy_command(&jump, None, Some(std::path::Path::new("/keys/k")));
-        assert!(p.contains(" -o IdentitiesOnly=yes -i '/keys/k'"));
-        assert!(!p.contains("SSH_ASKPASS"));
-
-        // 交互跳板：两者都没有（密码提示走 /dev/tty）
-        let p = jump_proxy_command(&jump, None, None);
+        // 什么都没存（交互跳板）：不带 -i，密码提示留给 PTY / askpass
+        let p = jump_proxy_command(&jump, None);
         assert!(!p.contains("SSH_ASKPASS") && !p.contains("IdentitiesOnly"));
 
         // 无用户名 → 不带 user@；显式端口；Telnet 默认端口 23
         jump.username = String::new();
-        let p = jump_proxy_command(&jump, None, None);
+        let p = jump_proxy_command(&jump, None);
         assert!(p.ends_with(" -p 22 10.0.0.2 -W %h:%p"));
         jump.port = 2222;
-        let p = jump_proxy_command(&jump, None, None);
+        let p = jump_proxy_command(&jump, None);
         assert!(p.ends_with(" -p 2222 10.0.0.2 -W %h:%p"));
         jump.protocol = "telnet".into();
         jump.port = 0;
-        let p = jump_proxy_command(&jump, None, None);
+        let p = jump_proxy_command(&jump, None);
         assert!(p.ends_with(" -p 23 10.0.0.2 -W %h:%p"));
     }
 }

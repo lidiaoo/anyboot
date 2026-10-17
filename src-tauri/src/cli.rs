@@ -336,6 +336,42 @@ impl CliConfig {
     }
 }
 
+/// ssh 的 `SSH_ASKPASS` 把我们当程序调起来时，只要把密码打到 stdout。
+///
+/// 这个分支必须**早于参数解析**：ssh 传进来的是提示语（`user@host's password: `），
+/// 拿去跑 parse_args 只会得到「未知参数」；也不能走 GUI（进程里没有窗口）。
+/// 判据是 hub 起 ssh 时设的环境变量 —— 只有我们从 ssh 子进程继承时才有。
+///
+/// 提示语里的 host 用来区分「目标机」和「跳板机」：两条连接共用一个 askpass 程序，
+/// 各问各的密码（见 `hub::askpass_password_for_prompt`）。
+pub fn run_askpass_if_invoked(args: &[String]) -> Option<i32> {
+    let preferred = std::env::var(super::hub_vault::ASKPASS_SERVER_ENV).ok()?;
+    // 带 --flag 的是真实 CLI 调用（含 --hub-askpass）：别把用户命令误当 askpass
+    if args.iter().any(|arg| arg.starts_with("--")) {
+        return None;
+    }
+    let prompt = args.first().map(String::as_str).unwrap_or("");
+    let dir = match config_dir() {
+        Some(dir) => dir,
+        None => {
+            eprintln!("hub-askpass: 无法定位配置目录");
+            return Some(EXIT_FAILED);
+        }
+    };
+    Some(
+        match super::hub::askpass_password_for_prompt(&dir, &preferred, prompt) {
+            Ok(password) => {
+                println!("{password}");
+                EXIT_OK
+            }
+            Err(error) => {
+                eprintln!("hub-askpass: {error}");
+                EXIT_FAILED
+            }
+        },
+    )
+}
+
 pub fn run(args: &[String]) -> i32 {
     attach_console();
 

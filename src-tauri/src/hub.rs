@@ -155,6 +155,73 @@ pub(crate) fn askpass_password(config: &Path, server_id: &str) -> Result<String,
     crate::hub_vault::decrypt_with(&key, &server.password_enc)
 }
 
+/// askpass 分支：优先按提示语里的 host 找服务器，找不到再退回环境变量给的 id。
+///
+/// 为什么要看提示语：跳板机和目标机共用**同一个** askpass 程序（ssh 内部起的
+/// ProxyCommand 子进程只会继承外层进程的环境变量），而 Windows 上没有 shell，
+/// 没法像以前那样给 ProxyCommand 塞 `env SSH_ASKPASS=…` 前缀。所以改成
+/// 「谁问的密码，就看提示语里的 `user@host` 是谁」，两条连接各取各的密码。
+pub(crate) fn askpass_password_for_prompt(
+    config: &Path,
+    preferred_id: &str,
+    prompt: &str,
+) -> Result<String, String> {
+    let mut id = preferred_id.to_string();
+    if let Some((user, host)) = host_from_askpass_prompt(prompt) {
+        let servers = load_servers_from(&config.join(HUB_SERVERS_FILE));
+        let preferred_matches = servers
+            .iter()
+            .find(|server| server.id == preferred_id)
+            .is_some_and(|server| host_matches(&server.host, &host));
+        if !preferred_matches {
+            let hit = servers.iter().find(|server| {
+                host_matches(&server.host, &host)
+                    && (user.is_empty()
+                        || server.username.is_empty()
+                        || server.username.eq_ignore_ascii_case(&user))
+            });
+            if let Some(server) = hit {
+                id = server.id.clone();
+            }
+        }
+    }
+    askpass_password(config, &id)
+}
+
+/// 从 ssh 的 askpass 提示语里抠出 `(user, host)`。
+/// 形态是固定的英文：`user@host's password: `（没有 user 时是 `host's password: `）。
+/// 抠不出来（比如 `Enter passphrase for key '…':`）就返回 None —— 那是密钥口令，
+/// 不该拿存档密码去答。
+pub(crate) fn host_from_askpass_prompt(prompt: &str) -> Option<(String, String)> {
+    let text = prompt.trim();
+    let head = text.split("'s password").next()?;
+    if head.len() == text.len() {
+        return None;
+    }
+    let (user, host) = match head.rsplit_once('@') {
+        Some((user, host)) => (user.trim().to_string(), host.trim().to_string()),
+        None => (String::new(), head.trim().to_string()),
+    };
+    if host.is_empty() {
+        None
+    } else {
+        Some((user, host))
+    }
+}
+
+/// host 比对：忽略大小写与首尾点，`[::1]` 这种带方括号的拆掉再比。
+fn host_matches(configured: &str, prompted: &str) -> bool {
+    fn norm(value: &str) -> String {
+        value
+            .trim()
+            .trim_start_matches('[')
+            .trim_end_matches(']')
+            .trim_end_matches('.')
+            .to_ascii_lowercase()
+    }
+    norm(configured) == norm(prompted)
+}
+
 // ==================== 命令 ====================
 
 #[tauri::command]
@@ -454,6 +521,74 @@ mod tests {
         .unwrap();
         assert_eq!(askpass_password(&dir, "srv-askpass").unwrap(), "s3cret 密码");
         assert!(askpass_password(&dir, "srv-none").is_err());
+    }
+
+    #[test]
+    fn askpass_prompt_parsing() {
+        // 标准形态：user@host's password:
+        assert_eq!(
+            host_from_askpass_prompt("root@10.0.0.2's password: "),
+            Some(("root".to_string(), "10.0.0.2".to_string()))
+        );
+        // 没有 user 前缀
+        assert_eq!(
+            host_from_askpass_prompt("10.0.0.2's password:"),
+            Some((String::new(), "10.0.0.2".to_string()))
+        );
+        // IPv6：方括号在后面比对时剥
+        assert_eq!(
+            host_from_askpass_prompt("me@[fe80::1]'s password: "),
+            Some(("me".to_string(), "[fe80::1]".to_string()))
+        );
+        // 密钥口令：不是密码提示，不能拿存档密码去答
+        assert_eq!(host_from_askpass_prompt("Enter passphrase for key '/k':"), None);
+        assert_eq!(host_from_askpass_prompt(""), None);
+        assert_eq!(host_from_askpass_prompt("Password:"), None);
+    }
+
+    #[test]
+    fn askpass_resolves_jump_by_prompt_host() {
+        // 跳板机与目标机共用同一个 askpass 程序：只有提示语里的 host 能区分，
+        // 这是 Windows 上不能给 ProxyCommand 塞 `env` 前缀之后的替代方案。
+        let dir = temp_dir("askpass-prompt");
+        let key = crate::hub_vault::load_or_create_key(&dir).unwrap();
+        let mut jump = sample("jump");
+        jump.id = "srv-jump".to_string();
+        jump.host = "10.0.0.2".to_string();
+        jump.password_enc = crate::hub_vault::encrypt_with(&key, "jump-pw").unwrap();
+        let mut target = sample("target");
+        target.id = "srv-target".to_string();
+        target.host = "192.168.1.5".to_string();
+        target.username = "me".to_string();
+        target.password_enc = crate::hub_vault::encrypt_with(&key, "target-pw").unwrap();
+        std::fs::write(
+            dir.join(HUB_SERVERS_FILE),
+            serde_json::to_string(&vec![target, jump.clone()]).unwrap(),
+        )
+        .unwrap();
+
+        // 跳板的提示语 → 取跳板的密码（preferred 是目标机也不影响）
+        assert_eq!(
+            askpass_password_for_prompt(&dir, "srv-target", "root@10.0.0.2's password: ").unwrap(),
+            "jump-pw"
+        );
+        // 目标的提示语 → 取目标的密码
+        assert_eq!(
+            askpass_password_for_prompt(&dir, "srv-target", "me@192.168.1.5's password: ").unwrap(),
+            "target-pw"
+        );
+        // 认不出来的（密钥口令）→ 回落 preferred
+        assert_eq!(
+            askpass_password_for_prompt(&dir, "srv-target", "Enter passphrase for key 'x':")
+                .unwrap(),
+            "target-pw"
+        );
+        // host 大小写 / 结尾点不影响
+        assert_eq!(
+            askpass_password_for_prompt(&dir, "srv-target", "root@10.0.0.2.'s password: ").unwrap(),
+            "jump-pw"
+        );
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

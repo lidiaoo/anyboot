@@ -1,10 +1,12 @@
 //! server-hub M4：SSH 隧道（本地转发 / SOCKS5 动态转发）。
 //!
-//! 认证定则与终端同源：**hub 不碰凭据**。隧道 ssh 进程不带 PTY、BatchMode，
-//! 通过 ControlPath 复用终端会话建立的 ControlMaster 连接（M3 的终端 ssh
-//! 带 `ControlMaster=auto` + `ControlPersist`）——所以规则是：
-//! **先在该服务器上开过一次终端（认证完成），隧道才能起**。没有 master
-//! 时给明确报错，而不是无声挂死。
+//! 认证定则与终端同源：**hub 不碰凭据**，只把凭据挂到 ssh 进程上
+//! （`apply_auth`）：
+//! - 密钥 → `-i`；
+//! - 存档密码 → `SSH_ASKPASS` 指向本程序自身（提示语里的 host 决定取哪份密码）；
+//! - Unix 额外用 ControlPath 复用终端建好的 ControlMaster（没有就先拨一次）；
+//! - 非 Unix（Windows）**没有多路复用**（Win32-OpenSSH 实测不支持），每次自己认证。
+//! 没存凭据时给明确报错，而不是无声挂死。
 
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -137,12 +139,120 @@ fn new_tunnel_id() -> String {
     format!("tun-{nanos:016x}")
 }
 
-/// 终端 / 隧道共用的 ControlMaster 套接字路径（按服务器 id 一把锁）
+/// 终端 / 隧道共用的 ControlMaster 套接字路径（按服务器 id 一把锁）。
+///
+/// **只有 Unix 有多路复用**：Win32-OpenSSH 明确不支持（实测带
+/// `ControlMaster=yes + ControlPath=…` 直接 `getsockname failed: Not a socket`，
+/// 套接字文件根本不落地）。所以这套机制整个按 cfg 门控，Windows 走「每次自己认证」。
+#[cfg(unix)]
 pub(crate) fn control_path(app: &AppHandle, server_id: &str) -> Result<PathBuf, String> {
     Ok(crate::config_dir(app)?.join(format!("hub-cm-{server_id}")))
 }
 
-// ==================== 认证连接自建 ====================
+// ==================== 认证 ====================
+
+/// 把「凭据」挂到一条 ssh / sftp 命令上（只挂凭据：密钥或 askpass；不含跳板、不含复用）。
+/// 两者都没有时什么都不挂 —— 交互认证交给调用方的 PTY。
+fn apply_credentials(
+    app: &AppHandle,
+    server: &HubServer,
+    command: &mut std::process::Command,
+) -> Result<(), String> {
+    if !server.key_id.is_empty() {
+        let key = crate::hub_keys::private_key_path(app, &server.key_id)?;
+        command
+            .args(["-o", "IdentitiesOnly=yes"])
+            .arg("-i")
+            .arg(key.display().to_string());
+    } else if !server.password_enc.is_empty() {
+        // askpass 指向**本程序自身**：ssh 把提示语当 argv[1] 传回来，
+        // server_id 走环境变量；跳板机的提示语由同一个程序按 host 认领。
+        crate::hub_vault::apply_askpass(command, &server.id)?;
+    }
+    Ok(())
+}
+
+/// 跳板机 ProxyCommand（目标机与跳板机共用一段形态）。
+/// 密码跳板不在这里拼 askpass：ProxyCommand 子进程继承外层 ssh 的
+/// `SSH_ASKPASS` / `SSH_ASKPASS_REQUIRE`，由 askpass 按提示语里的 host 认领。
+fn apply_jump_proxy(
+    app: &AppHandle,
+    server: &HubServer,
+    command: &mut std::process::Command,
+) -> Result<(), String> {
+    if server.jump_id.is_empty() {
+        return Ok(());
+    }
+    if server.jump_id == server.id {
+        return Err("跳板机不能是服务器自己".to_string());
+    }
+    let jump = crate::hub::load_servers_pub(app)?
+        .into_iter()
+        .find(|s| s.id == server.jump_id)
+        .ok_or_else(|| "找不到经由的跳板机，请在「编辑」里重新选择或改回直连".to_string())?;
+    if jump.protocol != "ssh" {
+        return Err(format!("跳板机「{}」不是 SSH 服务器", jump.name));
+    }
+    if jump.key_id.is_empty() && jump.password_enc.is_empty() {
+        return Err(format!(
+            "跳板机「{}」没有保存凭据，无法自动认证：先对它开一次终端完成认证",
+            jump.name
+        ));
+    }
+    let key = if jump.key_id.is_empty() {
+        None
+    } else {
+        Some(crate::hub_keys::private_key_path(app, &jump.key_id)?)
+    };
+    command.args([
+        "-o",
+        &format!(
+            "ProxyCommand={}",
+            crate::hub_term::jump_proxy_command(&jump, key.as_deref())
+        ),
+    ]);
+    Ok(())
+}
+
+/// 给「非交互 ssh / sftp」命令挂齐认证：凭据 + 跳板 + 复用策略。
+/// 文件浏览、上传下载、远端复制、隧道全走这里，免得每处各写一套。
+///
+/// - 凭据：密钥（-i）或存档密码（askpass），都没有 → 原样抛出 `no_cred_message`；
+/// - 跳板：统一 ProxyCommand；
+/// - 复用：Unix 走 ControlMaster（终端建过就直接白用，没建就先拨一次，随后
+///   `BatchMode=yes` 快进快出）；非 Unix 没有复用，只有密钥才敢开 `BatchMode`
+///   （`BatchMode=yes` 会把 askpass 一起禁掉，密码认证必须留 `BatchMode=no`）。
+pub(crate) fn apply_auth(
+    app: &AppHandle,
+    server: &HubServer,
+    command: &mut std::process::Command,
+    no_cred_message: &str,
+) -> Result<(), String> {
+    if server.key_id.is_empty() && server.password_enc.is_empty() {
+        return Err(no_cred_message.to_string());
+    }
+    apply_credentials(app, server, command)?;
+    apply_jump_proxy(app, server, command)?;
+
+    #[cfg(unix)]
+    {
+        let control = control_path(app, &server.id)?;
+        ensure_control(app, server, &control, no_cred_message)?;
+        command.args(["-o", "BatchMode=yes"]).arg("-o").arg(format!(
+            "ControlPath={}",
+            control.display()
+        ));
+    }
+    #[cfg(not(unix))]
+    {
+        if !server.key_id.is_empty() {
+            command.args(["-o", "BatchMode=yes"]);
+        }
+    }
+    Ok(())
+}
+
+// ==================== 认证连接自建（仅 Unix：Windows 没有多路复用） ====================
 
 /// master 不在时自动拨通认证连接（文件浏览 / 隧道 / 跳板转发共用，免先开
 /// 终端）：与终端（hub_term_open）同款的认证参数跑一次 `ssh … exit`，认证
@@ -150,6 +260,7 @@ pub(crate) fn control_path(app: &AppHandle, server_id: &str) -> Result<PathBuf, 
 /// 后续 ssh/sftp 子进程照旧 BatchMode 复用 —— 每台服务器至多拨一次。
 /// `no_cred_message`：没存凭据（只在终端里手输过密码）确实无法非交互
 /// 认证，把调用方原有的报错文案原样抛出。
+#[cfg(unix)]
 pub(crate) fn ensure_control(
     app: &AppHandle,
     server: &HubServer,
@@ -175,58 +286,8 @@ pub(crate) fn ensure_control(
         .args(["-o", "ControlPersist=600"])
         .args(["-o", "StrictHostKeyChecking=accept-new"])
         .args(["-o", "ConnectTimeout=10"]);
-    // 密钥认证：-i 指定私钥（带口令的钥匙没有 askpass，非交互下快速失败报错）
-    if !server.key_id.is_empty() {
-        let key = crate::hub_keys::private_key_path(app, &server.key_id)?;
-        command
-            .args(["-o", "IdentitiesOnly=yes"])
-            .arg("-i")
-            .arg(key.display().to_string());
-    } else {
-        // 存档密码（M6）：SSH_ASKPASS_REQUIRE=force，认证走 hub-askpass.sh 回环，
-        // 不需要终端也不弹框（与终端密码分支同源）
-        let config = crate::config_dir(app)?;
-        let script = crate::hub_vault::write_askpass_script(&config, &server.id)?;
-        command.env("SSH_ASKPASS", script.display().to_string());
-        command.env("SSH_ASKPASS_REQUIRE", "force");
-    }
-    // 经由跳板机：与终端同一条 ProxyCommand（跳板凭据必须是跳板自己的存档）
-    if !server.jump_id.is_empty() {
-        if server.jump_id == server.id {
-            return Err("跳板机不能是服务器自己".to_string());
-        }
-        let jump = crate::hub::load_servers_pub(app)?
-            .into_iter()
-            .find(|s| s.id == server.jump_id)
-            .ok_or_else(|| "找不到经由的跳板机，请在「编辑」里重新选择或改回直连".to_string())?;
-        if jump.protocol != "ssh" {
-            return Err(format!("跳板机「{}」不是 SSH 服务器", jump.name));
-        }
-        if jump.key_id.is_empty() && jump.password_enc.is_empty() {
-            return Err(format!(
-                "跳板机「{}」没有保存凭据，无法自动认证：先对它开一次终端完成认证",
-                jump.name
-            ));
-        }
-        let askpass = if jump.password_enc.is_empty() {
-            None
-        } else {
-            let config = crate::config_dir(app)?;
-            Some(crate::hub_vault::write_askpass_script(&config, &jump.id)?)
-        };
-        let key = if jump.key_id.is_empty() {
-            None
-        } else {
-            Some(crate::hub_keys::private_key_path(app, &jump.key_id)?)
-        };
-        command.args([
-            "-o",
-            &format!(
-                "ProxyCommand={}",
-                crate::hub_term::jump_proxy_command(&jump, askpass.as_deref(), key.as_deref())
-            ),
-        ]);
-    }
+    apply_credentials(app, server, &mut command)?;
+    apply_jump_proxy(app, server, &mut command)?;
     command
         .arg("-p")
         .arg(server.effective_port().to_string())
@@ -386,29 +447,21 @@ fn spawn_tunnel(
     server: &HubServer,
     tunnel: HubTunnel,
 ) -> Result<TunnelStatus, String> {
-    let control = control_path(&app, &server.id)?;
-    ensure_control(
-        &app,
-        &server,
-        &control,
-        "该服务器还没有可复用的认证连接：先打开一次终端（输完密码/通过认证）再启动隧道",
-    )?;
-
     let target = if server.username.is_empty() {
         server.host.clone()
     } else {
         format!("{}@{}", server.username, server.host)
     };
     let mut command = std::process::Command::new("ssh");
-    command
-        .arg("-N")
-        .arg("-T")
-        .arg("-o")
-        .arg("BatchMode=yes")
-        .arg("-o")
-        .arg(format!("ControlPath={}", control.display()))
-        .arg("-o")
-        .arg("ExitOnForwardFailure=yes");
+    command.arg("-N").arg("-T").arg("-o").arg("ExitOnForwardFailure=yes");
+    // 认证（含跳板与 Unix 的 ControlMaster 复用）统一走 apply_auth：
+    // Unix 上能白用终端建好的 master；Windows 上每次自己认证。
+    apply_auth(
+        &app,
+        server,
+        &mut command,
+        "这台服务器还没有保存凭据，隧道无法自动认证：请改用密钥或保存密码，或先打开一次终端完成认证",
+    )?;
     if tunnel.kind == "dynamic" {
         command.arg("-D").arg(tunnel.forward_arg());
     } else {

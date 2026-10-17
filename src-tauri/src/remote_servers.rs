@@ -562,13 +562,6 @@ fn remote_endpoint_inner(
     if jump.protocol != "ssh" {
         return Err("跳板机必须是 SSH 服务器".to_string());
     }
-    let control = crate::hub_tunnel::control_path(app, &jump.id)?;
-    crate::hub_tunnel::ensure_control(
-        app,
-        &jump,
-        &control,
-        "跳板机还没有可复用的认证连接：先在「服务器」页对它开一次终端完成认证",
-    )?;
     // 找一个空闲本地端口
     let listener = std::net::TcpListener::bind(("127.0.0.1", 0))
         .map_err(|e| format!("拿不到空闲本地端口: {e}"))?;
@@ -585,11 +578,16 @@ fn remote_endpoint_inner(
         .arg("-N")
         .arg("-T")
         .arg("-o")
-        .arg("BatchMode=yes")
-        .arg("-o")
-        .arg(format!("ControlPath={}", control.display()))
-        .arg("-o")
-        .arg("ExitOnForwardFailure=yes")
+        .arg("ExitOnForwardFailure=yes");
+    // 认证统一走 apply_auth：Unix 复用 ControlMaster（终端建过就直接用），
+    // Windows 没有多路复用，改由每次自己认证（密钥 / askpass）。
+    crate::hub_tunnel::apply_auth(
+        app,
+        &jump,
+        &mut command,
+        "跳板机还没有保存凭据，无法自动建立转发：请改用密钥或保存密码",
+    )?;
+    command
         .arg("-L")
         .arg(remote_forward_arg(local_port, &host, port))
         .arg("-p")

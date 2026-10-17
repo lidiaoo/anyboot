@@ -1,12 +1,11 @@
 //! server-hub M5：SFTP 文件浏览 / 传输（独立窗 `server-files`）的后端。
 //!
 //! 哲学与终端/隧道同源：**不引 SSH 库，直接复用系统 `sftp` CLI**。
-//! - 认证：sftp 用 `BatchMode=yes` + `ControlPath` 复用终端建立的
-//!   ControlMaster 连接（见 hub_tunnel.rs 的 control_path）。master 不在时
-//!   `ensure_control` 用与终端同款的认证参数（存档密码 askpass / 密钥 -i /
-//!   跳板 ProxyCommand）跑一次 `ssh … exit` 自建 master 并留
-//!   `ControlPersist=600` —— 所以**存了凭据的服务器文件浏览免先开终端**；
-//!   没存凭据（只在终端里手输过密码）维持明确报错。
+//! - 认证：统一走 `hub_tunnel::apply_auth` —— 密钥 `-i`，或存档密码经
+//!   `SSH_ASKPASS`（指向本程序自身）免输；Unix 额外用 `ControlPath` 复用
+//!   终端建立的 ControlMaster 连接（master 不在时 `ensure_control` 先拨通一次），
+//!   Windows 的 Win32-OpenSSH 不支持多路复用，改成每次自己认证。
+//!   没存凭据（只在终端里手输过密码）无法非交互认证，维持明确报错。
 //! - 批命令走 `sftp -b -`（stdin），出错即中止 —— stderr 尾巴就是给用户的
 //!   错误信息。
 //! - 列表解析 `ls -la` 输出（LC_ALL=C.UTF-8：月份名仍是英文、且 OpenSSH 客户端不会把非 ASCII 文件名转义成 \303\251 八进制），日期归一成
@@ -236,42 +235,26 @@ pub(crate) fn stderr_tail(bytes: &[u8]) -> String {
         .to_string()
 }
 
-// ==================== 认证连接 ====================
+// ==================== 认证 ====================
 
-/// master 不在时自动拨通认证连接（逻辑在 hub_tunnel::ensure_control，与
-/// 隧道/跳板共用）。没存凭据（只在终端里手输过密码）无法非交互认证，
-/// 维持原来的明确报错。
-fn ensure_control(
-    app: &AppHandle,
-    server: &HubServer,
-    control: &std::path::Path,
-) -> Result<(), String> {
-    crate::hub_tunnel::ensure_control(
-        app,
-        server,
-        control,
-        "该服务器还没有可复用的认证连接：先打开一次终端（输完密码/通过认证）再用文件浏览",
-    )
-}
+/// 文件浏览 / 传输共用的一句「没凭据」提示（apply_auth 原样抛给前端）
+const NO_CRED_MESSAGE: &str =
+    "这台服务器还没有保存凭据，文件功能无法自动认证：请在「编辑」里改用密钥或保存密码";
 
 /// 跑一批 sftp 命令（-b -），返回 stdout。批里任何一条失败都会整体失败。
 fn run_sftp_batch(app: &AppHandle, server: &HubServer, commands: &str) -> Result<String, String> {
     if server.id.is_empty() {
-        return Err("该服务器还没保存档案，无法复用认证连接".to_string());
+        return Err("该服务器还没保存档案，无法自动认证".to_string());
     }
-    let control = crate::hub_tunnel::control_path(app, &server.id)?;
-    ensure_control(app, server, &control)?;
     let target = if server.username.is_empty() {
         server.host.clone()
     } else {
         format!("{}@{}", server.username, server.host)
     };
     let mut command = std::process::Command::new("sftp");
+    // 认证参数必须排在 target 之前（sftp 把 target 之后的一切当远端路径）
+    crate::hub_tunnel::apply_auth(app, server, &mut command, NO_CRED_MESSAGE)?;
     command
-        .arg("-o")
-        .arg("BatchMode=yes")
-        .arg("-o")
-        .arg(format!("ControlPath={}", control.display()))
         .arg("-P")
         .arg(server.effective_port().to_string())
         .arg("-b")
@@ -322,10 +305,10 @@ struct RunningXfer {
 /// 起一个不等待的 sftp 传输子进程（下载/上传）：登记进 running 表（按窗口），
 /// 返回 Arc 把手给进度轮询线程。
 fn spawn_sftp_transfer(
+    app: &AppHandle,
     state: &HubSftpState,
     window: &str,
     server: &HubServer,
-    control: &std::path::Path,
     commands: &str,
     task: XferTask,
 ) -> Result<Arc<Mutex<std::process::Child>>, String> {
@@ -335,11 +318,9 @@ fn spawn_sftp_transfer(
         format!("{}@{}", server.username, server.host)
     };
     let mut command = std::process::Command::new("sftp");
+    // 认证参数必须排在 target 之前（sftp 把 target 之后的一切当远端路径）
+    crate::hub_tunnel::apply_auth(app, server, &mut command, NO_CRED_MESSAGE)?;
     command
-        .arg("-o")
-        .arg("BatchMode=yes")
-        .arg("-o")
-        .arg(format!("ControlPath={}", control.display()))
         .arg("-P")
         .arg(server.effective_port().to_string())
         .arg("-b")
@@ -618,8 +599,6 @@ fn resume_transfer(
         return Err("没有可续传的任务".to_string());
     };
     let server = load_server_by_id(app, &task.server_id)?;
-    let control = crate::hub_tunnel::control_path(app, &server.id)?;
-    ensure_control(app, &server, &control).map_err(|error| format!("续传失败：{error}"))?;
     let commands = match task.dir.as_str() {
         "down" => {
             let have = partial_size(&task.local_path);
@@ -662,10 +641,10 @@ fn resume_transfer(
     // 先起新子进程再摘记录：spawn 失败（连不上/断点校验不过）时记录还在清单
     // 里，用户可以重试或放弃 —— 先摘就会把任务弄丢。
     let child = spawn_sftp_transfer(
+        app,
         state,
         crate::HUB_FILES_WINDOW_LABEL,
         &server,
-        &control,
         &commands,
         task.clone(),
     )?;
@@ -1093,28 +1072,22 @@ pub fn hub_sftp_rename(
     .map(|_| ())
 }
 
-/// 远端复制（操作面板「复制到...」）：sftp 协议没有 copy，复用 ControlMaster
-/// 连接走远端 shell 的 `cp -a` 一次到位（同盘远端复制不过本机中转）。
-/// 目标已存在则覆盖。
+/// 远端复制（操作面板「复制到...」）：sftp 协议没有 copy，走远端 shell 的
+/// `cp -a` 一次到位（同盘远端复制不过本机中转）。目标已存在则覆盖。
 #[tauri::command]
 pub fn hub_sftp_copy(app: AppHandle, server: HubServer, from: String, to: String) -> Result<(), String> {
     let server = server.normalize();
     if server.id.is_empty() {
         return Err("该服务器还没保存档案，无法复用认证连接".to_string());
     }
-    let control = crate::hub_tunnel::control_path(&app, &server.id)?;
-    ensure_control(&app, &server, &control)?;
     let target = if server.username.is_empty() {
         server.host.clone()
     } else {
         format!("{}@{}", server.username, server.host)
     };
     let mut command = std::process::Command::new("ssh");
+    crate::hub_tunnel::apply_auth(&app, &server, &mut command, NO_CRED_MESSAGE)?;
     command
-        .arg("-o")
-        .arg("BatchMode=yes")
-        .arg("-o")
-        .arg(format!("ControlPath={}", control.display()))
         .arg("-p")
         .arg(server.effective_port().to_string())
         .arg(&target)
@@ -1145,19 +1118,14 @@ pub fn hub_sftp_readlink(app: AppHandle, server: HubServer, path: String) -> Res
     if server.id.is_empty() {
         return Err("该服务器还没保存档案，无法复用认证连接".to_string());
     }
-    let control = crate::hub_tunnel::control_path(&app, &server.id)?;
-    ensure_control(&app, &server, &control)?;
     let target = if server.username.is_empty() {
         server.host.clone()
     } else {
         format!("{}@{}", server.username, server.host)
     };
     let mut command = std::process::Command::new("ssh");
+    crate::hub_tunnel::apply_auth(&app, &server, &mut command, NO_CRED_MESSAGE)?;
     command
-        .arg("-o")
-        .arg("BatchMode=yes")
-        .arg("-o")
-        .arg(format!("ControlPath={}", control.display()))
         .arg("-p")
         .arg(server.effective_port().to_string())
         .arg(&target)
@@ -1215,10 +1183,8 @@ pub async fn hub_sftp_download(
 ) -> Result<String, String> {
     let server = server.normalize();
     if server.id.is_empty() {
-        return Err("该服务器还没保存档案，无法复用认证连接".to_string());
+        return Err("该服务器还没保存档案，无法自动认证".to_string());
     }
-    let control = crate::hub_tunnel::control_path(&app, &server.id)?;
-    ensure_control(&app, &server, &control)?;
     let local = match local_dir.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         Some(dir) => {
             let dir = expand_home(dir);
@@ -1267,7 +1233,7 @@ pub async fn hub_sftp_download(
         paused: false,
         at: now_ms(),
     };
-    let child = spawn_sftp_transfer(state.inner(), window.label(), &server, &control, &commands, task.clone())?;
+    let child = spawn_sftp_transfer(&app, state.inner(), window.label(), &server, &commands, task.clone())?;
 
     // 轮询本地文件大小 → 进度事件；传输完成后再核 sftp 退出码
     spawn_progress_poller(
@@ -1292,10 +1258,8 @@ pub async fn hub_sftp_upload(
 ) -> Result<Vec<String>, String> {
     let server = server.normalize();
     if server.id.is_empty() {
-        return Err("该服务器还没保存档案，无法复用认证连接".to_string());
+        return Err("该服务器还没保存档案，无法自动认证".to_string());
     }
-    let control = crate::hub_tunnel::control_path(&app, &server.id)?;
-    ensure_control(&app, &server, &control)?;
     let dialog_app = app.clone();
     let picked = tauri::async_runtime::spawn_blocking(move || {
         let (tx, rx) = std::sync::mpsc::channel();
@@ -1349,10 +1313,10 @@ pub async fn hub_sftp_upload(
         );
         // 每个文件一个子进程：暂停/放弃能精确到单个文件，上传失败也不连坐
         let child = spawn_sftp_transfer(
+            &app,
             state.inner(),
             &window_label,
             &server,
-            &control,
             &format!("put {} {}\n", sftp_quote(&local), sftp_quote(&remote)),
             task.clone(),
         )?;

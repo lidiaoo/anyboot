@@ -3,9 +3,11 @@
 //! 定则：**明文密码只在内存里活一瞬** ——
 //! - 落盘：AES-256-GCM 密文，写在 hub-servers.json 的 `password_enc` 字段；
 //!   密钥是 `hub-vault.key`（32B 随机，0600，首次用密时生成）。
-//! - 使用：ssh 进程要密码时走 `SSH_ASKPASS_REQUIRE=force`，askpass = 本程序
-//!   自身（`--hub-askpass <server_id>`，见 cli.rs）：内存解密 → stdout 喂给
-//!   ssh 的管道 → 进程退出，明文不碰磁盘、不进环境变量。
+//! - 使用：ssh 进程要密码时走 `SSH_ASKPASS_REQUIRE=force`（**环境变量**，不是
+//!   `-o` 选项），askpass = **本程序自身**（`main.rs` 里最先处理的
+//!   `cli_askpass` 分支）：内存解密 → stdout 喂给 ssh 的管道 → 进程退出，
+//!   明文不碰磁盘、不进环境变量。server_id 由 `ANYBOOT_ASKPASS_SERVER` 带下去，
+//!   提示语里的 `user@host` 用来区分目标机与跳板机。
 //!
 //! 与密钥认证互斥：编辑表单三选一（交互 / 密码 / 密钥），起 ssh 时只带其一。
 
@@ -124,45 +126,31 @@ pub(crate) fn encrypt(app: &tauri::AppHandle, plain: &str) -> Result<String, Str
     encrypt_with(&key, plain)
 }
 
-/// askpass 脚本：ssh 通过 `SSH_ASKPASS` 调它，它 exec 回本程序的 CLI 分支。
-/// server_id 写死在脚本里（ssh 只会以 `<askpass> <提示语>` 的形式调用，没法传参）。
-/// 只有 Unix 会真的落地这个脚本，非 Unix 分支不生成 → 一并 cfg 掉，免得 Windows 报死代码。
-#[cfg(unix)]
-pub(crate) fn askpass_script_path(config: &std::path::Path) -> std::path::PathBuf {
-    config.join("hub-askpass.sh")
-}
+/// askpass 的 server_id 传递通道：ssh 只会把提示语当 argv[1] 传进来，唯一能带上下文的
+/// 就是环境变量（子进程继承）。
+pub(crate) const ASKPASS_SERVER_ENV: &str = "ANYBOOT_ASKPASS_SERVER";
 
-/// （重）写 askpass 脚本并补执行位。每次起 ssh 都重写：服务器 id / 程序路径变了也不怕。
+/// askpass 程序 = **本程序自身**。
 ///
-/// 只有 Unix 能这么干：askpass 是 `#!/bin/sh` 的 shebang 文件，靠 0700 执行位
-/// 让 OpenSSH 直接 exec 它。Windows 的 CreateProcess 不认 shebang（跑不了 .sh），
-/// 所以非 Unix 上直接报错，由调用方把原因原样显示给用户。
-#[cfg(unix)]
-pub(crate) fn write_askpass_script(
-    config: &std::path::Path,
-    server_id: &str,
-) -> Result<std::path::PathBuf, String> {
-    use std::os::unix::fs::PermissionsExt;
-    let exe = std::env::current_exe().map_err(|error| format!("定位自身可执行文件失败: {error}"))?;
-    let exe = exe.display().to_string().replace('\'', "'\\''");
-    let path = askpass_script_path(config);
-    let script = format!("#!/bin/sh\nexec '{exe}' --hub-askpass '{server_id}'\n");
-    std::fs::write(&path, script).map_err(|error| format!("无法写 {}: {error}", path.display()))?;
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700))
-        .map_err(|error| format!("无法设 {} 执行位: {error}", path.display()))?;
-    Ok(path)
+/// 之前是写一个 `#!/bin/sh` 脚本 + 0700 执行位，那套在 Windows 上落不了地
+/// （CreateProcess 不认 shebang）。改成直接把 `SSH_ASKPASS` 指向自己的 exe：
+/// 三端一套代码、不用写脚本、不用 chmod，ssh 调过来时 argv[1] 是提示语，
+/// server_id 走 {@link ASKPASS_SERVER_ENV}。
+pub(crate) fn askpass_program() -> Result<std::path::PathBuf, String> {
+    std::env::current_exe().map_err(|error| format!("定位自身可执行文件失败: {error}"))
 }
 
-/// 非 Unix（Windows）：没有 shebang / 执行位，askpass 回环落不了地。
-/// 明确报错而不是悄悄失败 —— 用户至少知道该改用密钥还是手输密码。
-#[cfg(not(unix))]
-pub(crate) fn write_askpass_script(
-    _config: &std::path::Path,
-    _server_id: &str,
-) -> Result<std::path::PathBuf, String> {
-    Err("这台系统上暂不支持「保存密码」免输登录（askpass 脚本依赖 Unix 的 shebang + 执行位）：\
-         请改用密钥认证，或直接在终端里输入密码"
-        .to_string())
+/// 免输密码三件套。`SSH_ASKPASS_REQUIRE` 必须是**环境变量**（不是 `-o` 配置项：
+/// Win32-OpenSSH 9.5 实测把 `-o SSH_ASKPASS_REQUIRE=…` 当非法选项拒绝）。
+pub(crate) fn apply_askpass(
+    command: &mut std::process::Command,
+    server_id: &str,
+) -> Result<(), String> {
+    let exe = askpass_program()?;
+    command.env("SSH_ASKPASS", exe);
+    command.env("SSH_ASKPASS_REQUIRE", "force");
+    command.env(ASKPASS_SERVER_ENV, server_id);
+    Ok(())
 }
 
 #[cfg(test)]
