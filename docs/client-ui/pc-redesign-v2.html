@@ -73,18 +73,8 @@ tailwind.config = {
 
 <!-- 顶栏：页面切换器 + 主题切换 -->
 <div class="mx-auto mb-6 flex max-w-6xl flex-wrap items-center justify-center gap-2" role="tablist" aria-label="页面切换" data-page-node-id="zHjDnmBzJXTO1F90OiPCTG">
-  <button role="tab" data-page="main"   aria-selected="true"  class="pgtab cursor-pointer rounded-full border border-accentT/40 bg-accentT/10 px-4 py-1.5 text-xs font-semibold text-accentT" data-page-node-id="BjP8BGd3FlCpJthxFYpmuY">主窗口</button>
-  <button role="tab" data-page="home-add-pc" aria-selected="false" class="pgtab cursor-pointer rounded-full border border-line bg-card px-4 py-1.5 text-xs font-medium text-fgDim transition-colors hover:text-fg">添加 AnyBoot 服务端</button>
-  <button role="tab" data-page="hub"    aria-selected="false" class="pgtab cursor-pointer rounded-full border border-line bg-card px-4 py-1.5 text-xs font-medium text-fgDim transition-colors hover:text-fg" data-page-node-id="4BeYuGjWMkAJEMQG8yvDBs">远程管理</button>
-  <button role="tab" data-page="hub-edit" aria-selected="false" class="pgtab cursor-pointer rounded-full border border-line bg-card px-4 py-1.5 text-xs font-medium text-fgDim transition-colors hover:text-fg" data-page-node-id="R8CUUuk24VfRQsZTaWyd4J">服务器编辑</button>
-  <button role="tab" data-page="hub-add" aria-selected="false" class="pgtab cursor-pointer rounded-full border border-line bg-card px-4 py-1.5 text-xs font-medium text-fgDim transition-colors hover:text-fg">新建服务器</button>
-  <button role="tab" data-page="term"   aria-selected="false" class="pgtab cursor-pointer rounded-full border border-line bg-card px-4 py-1.5 text-xs font-medium text-fgDim transition-colors hover:text-fg" data-page-node-id="WyOrabukO4EdxRF3VAr6PG">终端</button>
-  <button role="tab" data-page="sessions" aria-selected="false" class="pgtab cursor-pointer rounded-full border border-line bg-card px-4 py-1.5 text-xs font-medium text-fgDim transition-colors hover:text-fg">会话</button>
-  <button role="tab" data-page="files"  aria-selected="false" class="pgtab cursor-pointer rounded-full border border-line bg-card px-4 py-1.5 text-xs font-medium text-fgDim transition-colors hover:text-fg" data-page-node-id="ss3sD980vanmJuwwnEXmBO">文件</button>
-  <button role="tab" data-page="transfers" aria-selected="false" class="pgtab cursor-pointer rounded-full border border-line bg-card px-4 py-1.5 text-xs font-medium text-fgDim transition-colors hover:text-fg">传输</button>
-  <button role="tab" data-page="keys"   aria-selected="false" class="pgtab cursor-pointer rounded-full border border-line bg-card px-4 py-1.5 text-xs font-medium text-fgDim transition-colors hover:text-fg" data-page-node-id="Pp9MN8or7nB3Rmql7Y8SBB">密钥</button>
-  <button role="tab" data-page="term-settings" aria-selected="false" class="pgtab cursor-pointer rounded-full border border-line bg-card px-4 py-1.5 text-xs font-medium text-fgDim transition-colors hover:text-fg">终端设置</button>
-  <button role="tab" data-page="about" aria-selected="false" class="pgtab cursor-pointer rounded-full border border-line bg-card px-4 py-1.5 text-xs font-medium text-fgDim transition-colors hover:text-fg">关于</button>
+  <button role="tab" data-page="main" aria-selected="true"  class="pgtab cursor-pointer rounded-full border border-accentT/40 bg-accentT/10 px-4 py-1.5 text-xs font-semibold text-accentT" data-page-node-id="BjP8BGd3FlCpJthxFYpmuY">主窗口（旧界面 · 不受影响）</button>
+  <button role="tab" data-page="hub"    aria-selected="false" class="pgtab cursor-pointer rounded-full border border-line bg-card px-4 py-1.5 text-xs font-medium text-fgDim transition-colors hover:text-fg" data-page-node-id="4BeYuGjWMkAJEMQG8yvDBs">远程管理（所有内容入口）</button>
   <span class="mx-2 h-5 w-px bg-line" data-page-node-id="Y9kxz2i1pUu87zGGpYMh4M"></span>
   <button id="themeToggle" class="cursor-pointer rounded-full border border-line bg-card px-4 py-1.5 text-xs font-medium text-fgDim transition-colors hover:text-fg" data-page-node-id="nG8tVNd5RBnyKnlU6IiGyo">☀️ 亮色</button>
 </div>
@@ -106,18 +96,6 @@ tailwind.config = {
         <button class="h-8 cursor-pointer rounded-lg px-2.5 text-xs text-fgDim transition-colors hover:text-bad" data-page-node-id="H1yFSh4smD5L3FxDLd7BP2">退出程序</button>
       </div>
     </div>
-
-    <!-- 服务端标签条（新增能力）：不同 AnyBoot 服务端各一个标签，PC 默认连接自己（本机·本地）；切换标签即切换下方内容来源 -->
-    <nav class="flex h-10 shrink-0 items-center gap-1.5 border-b border-line bg-card px-4">
-      <button class="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-full bg-accentT/12 px-3 text-xs font-semibold text-accentT">
-        <span class="size-1.5 rounded-full bg-ok"></span>本机 · CachyOS
-        <span class="rounded-md bg-accent/20 px-1.5 py-px font-mono text-[9px]">默认 · 本地</span>
-      </button>
-      <button class="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-full border border-line bg-elevate px-3 text-xs font-medium text-fgDim transition-colors hover:text-fg">
-        <span class="size-1.5 rounded-full bg-ok"></span>书房台式机
-      </button>
-      <button class="inline-flex h-7 cursor-pointer items-center gap-1 rounded-full border border-dashed border-line px-2.5 text-xs font-medium text-fgDim transition-colors hover:border-accentT/50 hover:text-accentT">＋ 添加</button>
-    </nav>
 
     <!-- ★ 重设计：系统引导/基本设置标签栏换 Cobalt 样式（原有两个标签，行为不变）——内容面板一字不动 -->
     <nav class="flex h-11 shrink-0 items-center gap-1 border-b border-line bg-card px-4">
@@ -301,6 +279,36 @@ tailwind.config = {
   </section>
 
   <!-- ============ ② 远程管理（hub.html：服务器列表 + 详情 + 隧道） ============ -->
+  <!-- 远程管理 · 内容导航（外层选中「远程管理」时显示，覆盖其下所有内容屏） -->
+  <div id="hubnav" hidden class="flex shrink-0 flex-col border-b border-line bg-card">
+    <div class="flex h-10 items-center gap-1.5 border-b border-line/60 px-4">
+      <span class="mr-1 text-[10px] font-semibold uppercase tracking-wide text-fgFaint">AnyBoot 服务端</span>
+      <button class="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-full bg-accentT/12 px-3 text-xs font-semibold text-accentT">
+        <span class="size-1.5 rounded-full bg-ok"></span>本机 · CachyOS
+        <span class="rounded-md bg-accent/20 px-1.5 py-px font-mono text-[9px]">默认 · 本地</span>
+      </button>
+      <button class="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-full border border-line bg-elevate px-3 text-xs font-medium text-fgDim transition-colors hover:text-fg">
+        <span class="size-1.5 rounded-full bg-ok"></span>书房台式机
+      </button>
+      <button class="hubtab inline-flex h-7 cursor-pointer items-center gap-1 rounded-full border border-dashed border-line px-2.5 text-xs font-medium text-fgDim transition-colors hover:border-accentT/50 hover:text-accentT" data-sub="home-add-pc">＋ 添加 AnyBoot 服务端</button>
+      <span class="ml-auto font-mono text-[10px] text-fgFaint">旧主界面不受影响 · 全部内容从这里进</span>
+    </div>
+    <nav class="flex h-10 items-center gap-1 px-4">
+      <button class="hubtab relative h-full cursor-pointer px-3.5 text-sm font-semibold text-accentT" data-sub="hub">服务器<span class="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-accentT"></span></button>
+      <button class="hubtab relative h-full cursor-pointer px-3.5 text-sm font-medium text-fgDim transition-colors hover:text-fg" data-sub="term">终端<span class="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-transparent"></span></button>
+      <button class="hubtab relative h-full cursor-pointer px-3.5 text-sm font-medium text-fgDim transition-colors hover:text-fg" data-sub="sessions">会话<span class="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-transparent"></span></button>
+      <button class="hubtab relative h-full cursor-pointer px-3.5 text-sm font-medium text-fgDim transition-colors hover:text-fg" data-sub="transfers">传输<span class="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-transparent"></span></button>
+      <button class="hubtab relative h-full cursor-pointer px-3.5 text-sm font-medium text-fgDim transition-colors hover:text-fg" data-sub="files">文件<span class="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-transparent"></span></button>
+      <button class="hubtab relative h-full cursor-pointer px-3.5 text-sm font-medium text-fgDim transition-colors hover:text-fg" data-sub="keys">密钥<span class="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-transparent"></span></button>
+      <button class="hubtab relative h-full cursor-pointer px-3.5 text-sm font-medium text-fgDim transition-colors hover:text-fg" data-sub="term-settings">终端设置<span class="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-transparent"></span></button>
+      <button class="hubtab relative h-full cursor-pointer px-3.5 text-sm font-medium text-fgDim transition-colors hover:text-fg" data-sub="about">关于<span class="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-transparent"></span></button>
+      <span class="ml-auto flex gap-1.5">
+        <button class="hubtab h-7 cursor-pointer rounded-lg bg-accent px-3 text-xs font-bold text-white transition-all active:scale-95" data-sub="hub-add">＋ 新建 SSH 服务器</button>
+        <button class="hubtab h-7 cursor-pointer rounded-lg border border-line bg-elevate px-3 text-xs font-medium transition-colors" data-sub="hub-edit">编辑当前服务器</button>
+      </span>
+    </nav>
+  </div>
+
   <section data-screen="hub" hidden class="flex min-h-0 flex-1 flex-col" data-page-node-id="xKmdhp5Lv9VsrkOqACl88R">
     <div class="flex h-12 shrink-0 items-center gap-2 border-b border-line bg-card px-4" data-page-node-id="ynBJjFUhBsCtLGk29ZRW7R">
       <span class="grid size-6 place-items-center rounded-lg bg-accent font-mono text-[11px] font-bold text-white" data-page-node-id="Tcq7gkrcOAI39T7HNm96Jr">A</span>
@@ -858,24 +866,53 @@ tailwind.config = {
 </div>
 
 <p class="mx-auto mt-6 max-w-3xl text-center text-xs leading-relaxed text-fgDim" data-page-node-id="xIQ6WMVWteB4wHxEALv75B">
-  12 屏与手机端 v2（13 屏）一一对照：主窗口（服务端标签条+本机内容保持现状）↔主界面 · 添加 AnyBoot 服务端↔同名屏 · 远程管理/新建/编辑服务器↔服务器/添加/编辑 AnyBoot·SSH 服务端 · 终端/会话/传输/文件/密钥/终端设置/关于 ↔ 同名屏<br>
+  交互：主窗口 = 旧界面（内容一字不动，仅标签栏换样式）；「远程管理」= 独立窗口、所有内容唯一入口（服务端 chips 默认本机·本地 + 服务器/终端/会话/传输/文件/密钥/终端设置/关于 + 新建/编辑服务器 + 添加 AnyBoot 服务端）<br>
+  12 屏与手机端 v2（13 屏）对照：主窗口↔主界面 · 其余 11 屏经远程管理进入 · 手机「抽屉」对应远程管理常驻侧栏<br>
   手机「抽屉」在 PC 上对应远程管理常驻侧栏，不设独立屏；主界面 WebView 宿主在 PC 上对应本机主窗口（native）。同一套设计令牌：靛蓝主色 + 青色 info 点缀 · JetBrains Mono 数据字体
 </p>
 
 <script>
-  // 页面切换
-  const tabs = document.querySelectorAll('.pgtab');
-  const screens = document.querySelectorAll('[data-screen]');
-  tabs.forEach(t => t.addEventListener('click', () => {
-    tabs.forEach(x => {
-      const on = x === t;
-      x.setAttribute('aria-selected', on);
-      x.className = on
+  // 入口切换：主窗口（旧界面） / 远程管理（所有内容入口）
+  const HUB_FAMILY = ['hub','term','sessions','transfers','files','keys','term-settings','about','hub-add','hub-edit','home-add-pc'];
+  const screens = {};
+  for (const n of ['main', ...HUB_FAMILY]) screens[n] = document.querySelector('[data-screen="' + n + '"]');
+  const hubnav = document.getElementById('hubnav');
+  const outerTabs = [...document.querySelectorAll('.pgtab')];
+  const hubtabs = [...document.querySelectorAll('.hubtab')];
+  let currentOuter = 'main';
+  let currentSub = 'hub';
+
+  function paintOuter() {
+    outerTabs.forEach(t => {
+      const on = t.dataset.page === currentOuter;
+      t.setAttribute('aria-selected', on);
+      t.className = on
         ? 'pgtab cursor-pointer rounded-full border border-accentT/40 bg-accentT/10 px-4 py-1.5 text-xs font-semibold text-accentT'
         : 'pgtab cursor-pointer rounded-full border border-line bg-card px-4 py-1.5 text-xs font-medium text-fgDim transition-colors hover:text-fg';
     });
-    screens.forEach(s => s.hidden = s.dataset.screen !== t.dataset.page);
-  }));
+  }
+  function paintHubtabs() {
+    hubtabs.forEach(t => {
+      const on = t.dataset.sub === currentSub;
+      if (t.classList.contains('relative')) { // 下划线式内容标签
+        t.classList.toggle('text-accentT', on);
+        t.classList.toggle('font-semibold', on);
+        t.classList.toggle('text-fgDim', !on);
+        t.lastElementChild.classList.toggle('bg-accentT', on);
+        t.lastElementChild.classList.toggle('bg-transparent', !on);
+      }
+    });
+  }
+  function apply() {
+    for (const n of HUB_FAMILY) screens[n].hidden = !(currentOuter === 'hub' && n === currentSub);
+    screens['main'].hidden = currentOuter !== 'main';
+    hubnav.hidden = currentOuter !== 'hub';
+    paintOuter(); paintHubtabs();
+  }
+  outerTabs.forEach(t => t.addEventListener('click', () => { currentOuter = t.dataset.page; apply(); }));
+  hubtabs.forEach(t => t.addEventListener('click', () => { currentSub = t.dataset.sub; apply(); }));
+  apply();
+
   // 主题切换
   const tt = document.getElementById('themeToggle');
   tt.addEventListener('click', () => {
