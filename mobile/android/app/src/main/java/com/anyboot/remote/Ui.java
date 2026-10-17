@@ -10,8 +10,9 @@ import android.view.View;
 import android.view.Window;
 
 /**
- * 全局 UI 主题（对齐 docs/client-ui/mobile-redesign-all.html 定稿）：
+ * 全局 UI 主题（对齐 docs/client-ui/mobile-redesign-v2.html「曜蓝 Cobalt」定稿）：
  * OLED 深色为默认，支持亮色；所有界面取色都走这里，不再散落硬编码。
+ * 主色 = 靛蓝（accent），状态绿（ok）仅保留在线/成功语义，chrome 不再复用。
  *
  * <p>主题模式三挡：auto（跟系统深色模式，默认）/ dark / light，切换后 recreate() 生效。
  *
@@ -116,18 +117,19 @@ public final class Ui {
         return dark(c) ? 0xFF64748B : 0xFF8A94A6;
     }
 
-    /** 主色（终端绿） */
+    /** 主色（状态绿：在线 / 成功，仅状态语义） */
     public static int ok(Context c) {
         return dark(c) ? 0xFF22C55E : 0xFF16A34A;
     }
 
     /** 主色底上的文字 */
     public static int onAccent(Context c) {
-        return dark(c) ? 0xFF052E16 : 0xFFFFFFFF;
+        return 0xFFFFFFFF;
     }
 
+    /** 强调主色（曜蓝 Cobalt 靛蓝：chips 选中 / 底导选中 / 抽屉头部 / 主按钮） */
     public static int accent(Context c) {
-        return ok(c);
+        return dark(c) ? 0xFF6366F1 : 0xFF4F46E5;
     }
 
     public static int warn(Context c) {
