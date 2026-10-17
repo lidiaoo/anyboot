@@ -3165,12 +3165,16 @@
       act.className = 'tx-mini'; act.textContent = tx.paused ? '继续' : '暂停';
       act.addEventListener('click', function () {
         const goingPause = !tx.paused;
+        txOpsInFlight.add(tx.key);   // 对账护栏：请求在途时别把这张卡当幽灵清掉
         txCtl(goingPause ? 'pause' : 'resume', tx.key).then(function (n) {
-          if (!n) return;
+          if (!n) { txOpsInFlight.delete(tx.key); return; }
           if (goingPause) {
             tx.paused = true;
+            txPausedSince.set(tx.key, Date.now());
           } else {
             txActive.delete(tx.key);   // 后端起新进程，清单轮询会把跑着的任务挂回来
+            txPausedSince.delete(tx.key);
+            txOpsInFlight.delete(tx.key);
           }
           renderTransfers();
         });
@@ -3180,10 +3184,13 @@
       cancel.className = 'tx-mini danger'; cancel.textContent = '放弃';
       cancel.title = '删除半截文件并清掉这条记录';
       cancel.addEventListener('click', function () {
+        txOpsInFlight.add(tx.key);
         txCtl('abandon', tx.key).then(function (n) {
+          txOpsInFlight.delete(tx.key);
           // 无论后端有没有这条记录（n=0 也可能是幽灵卡），本地都消卡
           if (n === null || n === undefined) return;   // 调用失败（txCtl 已 toast）
           txActive.delete(tx.key);
+          txPausedSince.delete(tx.key);
           renderTransfers();
           toast('已放弃 ' + (tx.name || ''));
         });
@@ -3225,26 +3232,38 @@
   // 断点清单进队列（暂停/中断的任务；跑着的靠事件，别重复挂）。
   // 双向对账：后端清单里没有的暂停卡是幽灵（收尾事件丢了/竞态），直接清掉——
   // 否则会出现「放弃/继续都报没有此任务」的死卡。
+  // 防误清两条护栏：① 刚点过暂停/继续的 key 在 txOpsInFlight 里，对账跳过
+  // （pause 后端要先杀进程再落清单，轮询可能抢在前面回来发现"还没有"）；
+  // ② 卡的暂停态要活了超过一个轮询周期（TX_PAUSE_GRACE_MS）才参与对账。
+  const txOpsInFlight = new Set();
+  const txPausedSince = new Map();   // key → 进入暂停态的时间戳
+  const TX_PAUSE_GRACE_MS = 6000;
   function txAbsorbList(tasks) {
     if (!Array.isArray(tasks)) return;
     const backendKeys = new Set(tasks.map(function (t) { return t && t.key; }).filter(Boolean));
     let changed = false;
     txActive.forEach(function (tx, key) {
-      if (tx.paused && !backendKeys.has(key)) {
-        // 后端已没有这条暂停任务：多半已在远端完成/被接管。探一次清单防抖：
-        // 文件已完整 → 记历史；否则静默消卡。
-        txActive.delete(key);
-        if (tx.total > 0 && tx.bytes >= tx.total) {
-          txHistory.unshift({ dir: tx.dir, name: tx.name, bytes: tx.bytes, total: tx.total, at: Date.now() });
-          txHistory = txHistory.slice(0, 20);
-          txPersist();
-        }
-        changed = true;
+      if (!tx.paused || backendKeys.has(key)) return;
+      // 护栏①：这个 key 上刚发过 pause/resume 请求，等后端清单确认
+      if (txOpsInFlight.has(key)) return;
+      // 护栏②：刚进暂停态的卡，后端清单可能还没落，别急着判幽灵
+      const since = txPausedSince.get(key);
+      if (since && Date.now() - since < TX_PAUSE_GRACE_MS) return;
+      // 后端已没有这条暂停任务：多半已在远端完成/被接管。满进度 → 记历史；否则静默消卡。
+      txActive.delete(key);
+      txPausedSince.delete(key);
+      if (tx.total > 0 && tx.bytes >= tx.total) {
+        txHistory.unshift({ dir: tx.dir, name: tx.name, bytes: tx.bytes, total: tx.total, at: Date.now() });
+        txHistory = txHistory.slice(0, 20);
+        txPersist();
       }
+      changed = true;
     });
     for (const t of tasks) {
       if (!t || !t.key || !t.paused) continue;
+      txOpsInFlight.delete(t.key);   // 后端确认在清单里了，解除护栏
       if (txActive.has(t.key)) continue;
+      txPausedSince.set(t.key, Date.now());
       txActive.set(t.key, {
         key: t.key, dir: t.dir || 'down', name: t.name, bytes: t.bytes || 0,
         total: t.total || 0, paused: true, lastB: 0, lastT: 0, speed: 0,
@@ -3296,7 +3315,13 @@
   document.getElementById('txPauseAll').addEventListener('click', function () {
     txCtl('pause').then(function (n) {
       if (!n) { toast('没有正在进行的传输'); return; }
-      txActive.forEach(function (tx) { if (!tx.paused) tx.paused = true; });
+      txActive.forEach(function (tx) {
+        if (!tx.paused) {
+          tx.paused = true;
+          txOpsInFlight.add(tx.key);          // 对账护栏
+          txPausedSince.set(tx.key, Date.now());
+        }
+      });
       renderTransfers();
       toast('已暂停 ' + n + ' 个传输，可从断点继续');
     });
@@ -3307,8 +3332,10 @@
     if (!paused.length) { toast('没有已暂停的传输'); return; }
     let ok = 0;
     Promise.all(paused.map(function (tx) {
+      txOpsInFlight.add(tx.key);
       return txCtl('resume', tx.key).then(function (n) {
-        if (n) { ok++; txActive.delete(tx.key); }
+        txOpsInFlight.delete(tx.key);
+        if (n) { ok++; txActive.delete(tx.key); txPausedSince.delete(tx.key); }
         return n;
       });
     })).then(function () {
