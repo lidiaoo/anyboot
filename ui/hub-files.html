@@ -816,9 +816,9 @@ $('rmInfo').addEventListener('click', () => {
     ['大小', e.dir ? '—' : humanSize(e.size) + '（' + e.size + ' B）'],
     ['权限', e.perms || '—'],
     ['修改时间', e.mtime || '—'],
-    ['路径', joinPath(cwd, e.name.split(' -> ')[0])],
+    ['路径', joinPath(cwd, e.name)],
   ];
-  if (e.link && e.name.includes(' -> ')) rows.splice(2, 0, ['指向', e.name.split(' -> ').slice(1).join(' -> ')]);
+  if (e.link && e.target) rows.splice(2, 0, ['指向', e.target]);
   const box = $('infoRows');
   box.textContent = '';
   for (const [k, v] of rows) {

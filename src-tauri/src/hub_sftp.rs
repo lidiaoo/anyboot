@@ -30,6 +30,8 @@ pub struct SftpEntry {
     pub name: String,
     pub dir: bool,
     pub link: bool,
+    /// 软链接指向（`ls` 行里 `名字 -> 指向` 的后半段；非软链接为 None）
+    pub target: Option<String>,
     pub size: u64,
     /// 展示用："10-16 09:12" / "2025-03-01"
     pub mtime: String,
@@ -256,10 +258,25 @@ fn parse_ls_line(line: &str) -> Option<SftpEntry> {
     if name.is_empty() || name == "." || name == ".." {
         return None;
     }
+    let link = perms.starts_with('l');
+    // 软链接行是 "名字 -> 指向"：拆开，名字保持纯路径（否则 rename/rm/download
+    // 拼出 "dir/foo -> /target" 必错）；指向单独带给前端详情。
+    let (name, target) = if link {
+        match name.find(" -> ") {
+            Some(idx) => (name[..idx].to_string(), Some(name[idx + 4..].to_string())),
+            None => (name, None),
+        }
+    } else {
+        (name, None)
+    };
+    if name.is_empty() {
+        return None;
+    }
     Some(SftpEntry {
         name,
         dir: perms.starts_with('d'),
-        link: perms.starts_with('l'),
+        link,
+        target,
         size,
         mtime: normalize_mtime(mon, &day, &tail),
         perms,
@@ -762,11 +779,8 @@ mod tests {
         assert_eq!(bare_name("/.", "/"), None);
         // 服务器输出裸名字时原样保留
         assert_eq!(bare_name(".cache", "/root").as_deref(), Some(".cache"));
-        // 软链接的 " -> target" 一起还原
-        assert_eq!(
-            bare_name("/root/link -> /etc/hosts", "/root").as_deref(),
-            Some("link -> /etc/hosts")
-        );
+        // 软链接名字（parse 已拆掉 " -> target"，此处是纯路径）原样保留
+        assert_eq!(bare_name("/root/link", "/root").as_deref(), Some("link"));
     }
 
     #[test]
@@ -807,11 +821,18 @@ mod tests {
             parse_ls_line("-rw-r--r-- 1 root root 12 Oct  1 08:00 my file.txt").unwrap();
         assert_eq!(spaced.name, "my file.txt");
 
-        // 软链接行（名字含 " -> target"，保留可读）
+        // 软链接行：名字与指向拆开（名字保持纯路径，指向单独带给前端）
         let link =
             parse_ls_line("lrwxrwxrwx 1 root root 11 Oct  2 10:00 latest -> v1.2.3").unwrap();
         assert!(link.link);
-        assert_eq!(link.name, "latest -> v1.2.3");
+        assert_eq!(link.name, "latest");
+        assert_eq!(link.target.as_deref(), Some("v1.2.3"));
+
+        // 软链接名字本身带 " ->"（少见但合法）时按第一处拆
+        let link2 =
+            parse_ls_line("lrwxrwxrwx 1 root root 11 Oct  2 10:00 a -> b -> c").unwrap();
+        assert_eq!(link2.name, "a");
+        assert_eq!(link2.target.as_deref(), Some("b -> c"));
 
         // 解析不了的行
         assert!(parse_ls_line("sftp> ls -la").is_none());

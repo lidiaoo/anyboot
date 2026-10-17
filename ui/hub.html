@@ -976,7 +976,7 @@
             <button class="pc-chip add" id="pcAddChip" data-page-node-id="pcChipAdd1">＋ 添加</button>
           </div>
           <button class="icon-btn" id="pcMore" aria-label="更多" aria-haspopup="menu" aria-expanded="false" data-page-node-id="pcMore1">
-            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg>
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg>
           </button>
         </div>
         <!-- 内容区：当前标签的服务端页面（本机/远端同路径，与手机 WebView 一致） -->
@@ -3734,7 +3734,7 @@
       ['修改时间', e.mtime || '—'],
       ['路径', fbJoin(fbCwd, e.name.split(' -> ')[0])],
     ];
-    if (e.link && e.name.includes(' -> ')) rows.splice(2, 0, ['指向', e.name.split(' -> ').slice(1).join(' -> ')]);
+    if (e.link && e.target) rows.splice(2, 0, ['指向', e.target]);
     const box = fb$('fbInfoRows');
     box.textContent = '';
     for (const kv of rows) {
