@@ -22,6 +22,7 @@ final class JumpStore {
     private static final String KEY_HISTORY = "session_history";
     private static final String KEY_TERMINAL_DARK = "terminal_dark";
     private static final String KEY_TERMINAL_FONT = "terminal_font_size";
+    private static final String KEY_TERMINAL_FONT_FAMILY = "terminal_font_family";
     private static final String KEY_TERMINAL_AUTO_KEYBOARD = "terminal_auto_keyboard";
     private static final String KEY_TERMINAL_KEY_BAR = "terminal_key_bar";
     private static final String KEY_GITHUB_CACHE = "github_cache";
@@ -263,6 +264,18 @@ final class JumpStore {
         int value = size < TERMINAL_FONT_MIN ? TERMINAL_FONT_MIN
                 : (size > TERMINAL_FONT_MAX ? TERMINAL_FONT_MAX : size);
         ServerStore.prefs(context).edit().putInt(KEY_TERMINAL_FONT, value).apply();
+    }
+
+    /** 终端字体族（xterm 的 CSS font-family）：空 = 内置 Menlo/等宽栈。
+     *  字体缺失时 WebView 自动回落，不会白屏 —— 不做存在性检查。 */
+    static String terminalFontFamily(Context context) {
+        String value = ServerStore.prefs(context).getString(KEY_TERMINAL_FONT_FAMILY, "");
+        return value == null ? "" : value.trim();
+    }
+
+    static void setTerminalFontFamily(Context context, String family) {
+        String value = family == null ? "" : family.trim();
+        ServerStore.prefs(context).edit().putString(KEY_TERMINAL_FONT_FAMILY, value).apply();
     }
 
     /** 进终端就自动把软键盘弹出来（默认关：老行为是先看到输出，要打字时自己点） */

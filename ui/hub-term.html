@@ -264,7 +264,7 @@ document.getElementById('fontBtn').addEventListener('click', () => {
 /* ---------- 终端设置（hub「终端设置」页持久化；跨窗口 localStorage 共享） ---------- */
 const TERM_SET_KEY = 'ab-term-settings';
 function loadTermSettings() {
-  const d = { fontSize: 14, cursorBlink: true, copyOnSelect: false, bell: false, scrollback: 5000 };
+  const d = { fontSize: 14, cursorBlink: true, copyOnSelect: false, bell: false, scrollback: 5000, fontFamily: '' };
   try {
     const s = JSON.parse(localStorage.getItem(TERM_SET_KEY) || '{}');
     return {
@@ -273,8 +273,13 @@ function loadTermSettings() {
       copyOnSelect: !!s.copyOnSelect,
       bell: !!s.bell,
       scrollback: Math.min(100000, Math.max(500, Number(s.scrollback) || d.scrollback)),
+      fontFamily: (typeof s.fontFamily === 'string' ? s.fontFamily : '').trim(),
     };
   } catch (e) { return d; }
+}
+/* 字体族：终端设置页留空 = 内置等宽栈；填了就用用户字体（缺失时浏览器回落等宽） */
+function termFontFamily() {
+  return termSettings.fontFamily || 'ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace';
 }
 let termSettings = loadTermSettings();
 const termFlag = { copyOnSelect: termSettings.copyOnSelect, bell: termSettings.bell };
@@ -315,7 +320,7 @@ function writeData(session, data) {
 function ensureTerm(session) {
   if (session.term) return session.term;
   const t = new Terminal({
-    fontFamily: 'ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace',
+    fontFamily: termFontFamily(),
     fontSize: FONT_SIZES.includes(termSettings.fontSize) ? FONT_SIZES[fontIdx] : termSettings.fontSize,
     cursorBlink: termSettings.cursorBlink,
     theme: termTheme(),
@@ -583,11 +588,13 @@ if (listen) {
     if (s.copyOnSelect !== undefined) termFlag.copyOnSelect = !!s.copyOnSelect;
     if (s.bell !== undefined) termFlag.bell = !!s.bell;
     if (s.scrollback !== undefined) termSettings.scrollback = Math.min(100000, Math.max(500, Number(s.scrollback) || termSettings.scrollback));
+    if (s.fontFamily !== undefined) termSettings.fontFamily = String(s.fontFamily || '').trim();
     for (const session of sessions.values()) {
       if (!session.term) continue;
       session.term.options.fontSize = termSettings.fontSize;
       session.term.options.cursorBlink = termSettings.cursorBlink;
       session.term.options.scrollback = termSettings.scrollback;
+      session.term.options.fontFamily = termFontFamily();
     }
     fitTerm();
     toast('终端设置已应用');

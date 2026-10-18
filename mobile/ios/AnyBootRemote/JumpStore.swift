@@ -21,6 +21,12 @@ struct JumpServer: Identifiable, Hashable, Codable {
     /// Keychain 里密钥口令的 account 键
     var keyPassphraseRef: String = ""
     var note: String = ""
+    /// 终端启动路径（可选，每台服务器各自配）：非空时登录后先 `cd` 过去；目录打不通
+    /// 时终端里报错、照常落家目录（与 PC/Android 同语义）。可选让老档案照常解码。
+    var termPath: String? = nil
+    /// 终端 shell（可选）：/bin/bash /bin/sh /bin/zsh /bin/fish 等预设，或自定义命令
+    /// 原样 exec。空/nil = 远端账号的登录 shell，零干预。
+    var termShell: String? = nil
     /// 最近一次连通的往返毫秒；-1 = 未知
     var lastRttMs: Double = -1
     var lastSeen: Date?
@@ -107,6 +113,8 @@ final class JumpStore: ObservableObject {
     @Published private(set) var keys: [SshKeyEntry] = []
     /// 终端主题（深色默认）
     @Published private(set) var terminalDark: Bool = true
+    /// 终端字体族（xterm 的 CSS font-family）：空 = 资产页内置 Menlo/等宽栈
+    @Published private(set) var terminalFontFamily: String = ""
     /// 会话历史（最近 50 条）
     @Published private(set) var history: [HistoryEntry] = []
 
@@ -121,6 +129,7 @@ final class JumpStore: ObservableObject {
     private let keyJumps = "jump_servers"
     private let keyKeys = "ssh_keys"
     private let keyTerminalDark = "terminal_dark"
+    private let keyTerminalFontFamily = "terminal_font_family"
     private let keyHistory = "session_history"
     private let defaults = UserDefaults.standard
 
@@ -134,6 +143,7 @@ final class JumpStore: ObservableObject {
             keys = list
         }
         terminalDark = defaults.object(forKey: keyTerminalDark) as? Bool ?? true
+        terminalFontFamily = (defaults.string(forKey: keyTerminalFontFamily) ?? "").trimmingCharacters(in: .whitespaces)
         if let data = defaults.data(forKey: keyHistory),
            let list = try? JSONDecoder().decode([HistoryEntry].self, from: data) {
             history = list
@@ -207,6 +217,13 @@ final class JumpStore: ObservableObject {
     func setTerminalDark(_ dark: Bool) {
         terminalDark = dark
         defaults.set(dark, forKey: keyTerminalDark)
+    }
+
+    /// 终端字体族：字体缺失由 WebView 自动回落等宽，不做存在性检查
+    func setTerminalFontFamily(_ family: String) {
+        let value = family.trimmingCharacters(in: .whitespaces)
+        terminalFontFamily = value
+        defaults.set(value, forKey: keyTerminalFontFamily)
     }
 
     func appendHistory(_ entry: HistoryEntry) {

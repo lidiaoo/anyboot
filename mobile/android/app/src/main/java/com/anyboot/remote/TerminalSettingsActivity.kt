@@ -20,6 +20,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -155,6 +156,33 @@ class TerminalSettingsActivity : ComponentActivity() {
             )
         }
 
+        // ---- 字体族 ----
+        // xterm 的 CSS font-family：空 = 资产页内置 Menlo/等宽栈；字体缺失由
+        // WebView 自动回落等宽，不会白屏 —— 所以不做存在性检查，改动即时落盘。
+        SectionTitle("终端字体族")
+        var fontFamily by remember {
+            mutableStateOf(JumpStore.terminalFontFamily(this@TerminalSettingsActivity))
+        }
+        OutlinedTextField(
+            value = fontFamily,
+            onValueChange = {
+                fontFamily = it
+                JumpStore.setTerminalFontFamily(this@TerminalSettingsActivity, it)
+            },
+            singleLine = true,
+            placeholder = { Text("留空 = 内置等宽", fontSize = 12.sp) },
+            supportingText = {
+                Text(
+                    "填 CSS font-family，如 JetBrains Mono / Menlo；缺失自动回落等宽。返回终端页即生效。",
+                    fontSize = 11.sp,
+                )
+            },
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp),
+        )
+
         // ---- 行为 ----
         SectionTitle("终端行为")
         CheckRow("进入终端自动弹出键盘", "默认关：先看到输出，要打字时点一下终端区或 ⌨", autoKeyboard) {
@@ -171,10 +199,12 @@ class TerminalSettingsActivity : ComponentActivity() {
             onClick = {
                 dark = true
                 fontSize = JumpStore.TERMINAL_FONT_DEFAULT
+                fontFamily = ""
                 autoKeyboard = false
                 keyBar = true
                 JumpStore.setTerminalDark(this@TerminalSettingsActivity, true)
                 JumpStore.setTerminalFontSize(this@TerminalSettingsActivity, JumpStore.TERMINAL_FONT_DEFAULT)
+                JumpStore.setTerminalFontFamily(this@TerminalSettingsActivity, "")
                 JumpStore.setTerminalAutoKeyboard(this@TerminalSettingsActivity, false)
                 JumpStore.setTerminalKeyBar(this@TerminalSettingsActivity, true)
                 toast("已恢复默认：暗色 · 字号 ${JumpStore.TERMINAL_FONT_DEFAULT} · 快捷键栏开")

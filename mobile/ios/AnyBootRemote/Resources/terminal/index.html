@@ -23,6 +23,7 @@
   var fitAddon = null;
   var bridge = null;
   var fontSize = 14;
+  var fontFamily = 'Menlo, monospace';
   var pending = [];   // 页面没就绪时的下行缓冲，termInit 后冲给终端
 
   var THEMES = {
@@ -66,6 +67,11 @@
       term.options.fontSize = size;
       fit();
     }
+  };
+
+  window.termSetFontFamily = function (family) {
+    fontFamily = family || 'Menlo, monospace';
+    if (term) term.options.fontFamily = fontFamily;
   };
 
   window.termSetTheme = function (name) {
@@ -130,13 +136,14 @@
     try { new ResizeObserver(syncSize).observe(document.documentElement); } catch (e) { /* 不支持就算了 */ }
   }
 
-  window.termInit = function (themeName, size) {
+  window.termInit = function (themeName, size, family) {
     if (term) return;
     fontSize = size || 14;
+    fontFamily = family || 'Menlo, monospace';
     term = new Terminal({
       theme: THEMES[themeName] || THEMES.dark,
       fontSize: fontSize,
-      fontFamily: 'Menlo, monospace',
+      fontFamily: fontFamily,
       cursorBlink: true,
       allowProposedApi: true,
       scrollback: 5000

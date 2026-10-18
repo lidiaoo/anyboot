@@ -1015,6 +1015,9 @@ class ServersActivity : ComponentActivity() {
         // 经由跳板机：存的是 JumpServer.id（空 = 直连）；候选排除自己（编辑时），不许自引
         var jumpId by remember(existing) { mutableStateOf(existing?.jumpServerId ?: "") }
         var jumpOpen by remember { mutableStateOf(false) }
+        // 终端启动路径 / 默认 shell（每台服务器各自配，留空 = 远端家目录 + 登录 shell）
+        var termPath by remember(existing) { mutableStateOf(existing?.termPath ?: "") }
+        var termShell by remember(existing) { mutableStateOf(existing?.termShell ?: "") }
         val jumpChoices = jumps.filter { existing == null || it.id != existing.id }
         // 已存密码要回显 —— 否则用户没法确认到底存没存（解不开等于没存，一并暴露）
         val savedPassword = remember(existing) {
@@ -1203,6 +1206,22 @@ class ServersActivity : ComponentActivity() {
                             .padding(top = 12.dp),
                     )
                 }
+                // 终端启动路径 / shell（可选）：目录打不通时终端里报错、照常落家目录
+                FieldLabel("终端启动路径（可选）")
+                OutlinedTextField(
+                    value = termPath, onValueChange = { termPath = it }, singleLine = true,
+                    placeholder = { Text("如 /data/logs，留空 = 远端家目录", fontSize = 12.sp) },
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                FieldLabel("终端 shell（可选）")
+                OutlinedTextField(
+                    value = termShell, onValueChange = { termShell = it }, singleLine = true,
+                    placeholder = { Text("/bin/bash /bin/zsh 等，留空 = 登录 shell", fontSize = 12.sp) },
+                    supportingText = { Text("预设 shell 自动带 -l；也可填自定义命令原样执行（如 tmux attach）", fontSize = 11.sp) },
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                )
                 FieldLabel("备注")
                 OutlinedTextField(
                     value = note, onValueChange = { note = it }, singleLine = true,
@@ -1255,7 +1274,7 @@ class ServersActivity : ComponentActivity() {
                         .background(palette.accent)
                         .clickable {
                             if (persistJump(existing, name, isTelnet, combinedHost(), username, authKey,
-                                    password, savePassword, keyIndex, passphrase, note, jumpId)) {
+                                    password, savePassword, keyIndex, passphrase, note, jumpId, termPath, termShell)) {
                                 editOpen = false
                             }
                         },
@@ -1274,7 +1293,7 @@ class ServersActivity : ComponentActivity() {
                             .border(1.dp, palette.line, RoundedCornerShape(12.dp))
                             .clickable {
                                 if (persistJump(existing, name, isTelnet, combinedHost(), username, authKey,
-                                        password, savePassword, keyIndex, passphrase, note, jumpId)) {
+                                        password, savePassword, keyIndex, passphrase, note, jumpId, termPath, termShell)) {
                                     editOpen = false
                                     testConnection(existing)
                                 }
@@ -1347,6 +1366,8 @@ class ServersActivity : ComponentActivity() {
         passphrase: String,
         note: String,
         jumpId: String,
+        termPath: String,
+        termShell: String,
     ): Boolean {
         // 跳板机只对 SSH 有意义：Telnet 选了跳板机直接拦下（表单提示里写明了）
         if (isTelnet && jumpId.isNotEmpty()) {
@@ -1382,6 +1403,8 @@ class ServersActivity : ComponentActivity() {
         }
         target.note = note.trim()
         target.jumpServerId = if (isTelnet) "" else jumpId.trim()
+        target.termPath = termPath.trim()
+        target.termShell = termShell.trim()
         if (existing == null) {
             jumps.add(target)
         }

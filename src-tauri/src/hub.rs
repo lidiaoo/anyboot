@@ -46,6 +46,15 @@ pub struct HubServer {
     /// 先登录跳板机再转发；文件 / 隧道复用终端的 ControlMaster，自动跟着走。
     #[serde(default)]
     pub jump_id: String,
+    /// 终端启动路径（可选，每台服务器各自配）：非空时登录后先 `cd` 过去。
+    /// 目录不存在/无权限时把报错打进终端，然后**照常**落进远端默认目录
+    /// （用户定案：不因填错路径把自己锁在外面）。空 = 远端家目录，零干预。
+    #[serde(default)]
+    pub term_path: String,
+    /// 终端 shell（可选，每台服务器各自配）：`/bin/bash` `/bin/sh` `/bin/zsh`
+    /// `/bin/fish` 等预设，或任意自定义命令原样 exec。空 = 远端账号的登录 shell。
+    #[serde(default)]
+    pub term_shell: String,
     /// 前端提交的新密码明文。只作为 hub_save_server 的入参字段：
     /// `skip_serializing` 保证它永不落盘、也永不回传给前端；
     /// hub_save_server 里消化成 password_enc（None = 不动已存密码，空串 = 清除）。
@@ -78,6 +87,8 @@ impl HubServer {
         self.username = self.username.trim().to_string();
         self.key_id = self.key_id.trim().to_string();
         self.jump_id = self.jump_id.trim().to_string();
+        self.term_path = self.term_path.trim().to_string();
+        self.term_shell = self.term_shell.trim().to_string();
         self
     }
 }
@@ -411,6 +422,8 @@ mod tests {
             key_id: String::new(),
             password_enc: String::new(),
             jump_id: String::new(),
+            term_path: String::new(),
+            term_shell: String::new(),
             password_new: None,
             created_at: 0,
         }

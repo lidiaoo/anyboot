@@ -146,7 +146,43 @@ fn new_tunnel_id() -> String {
 /// 套接字文件根本不落地）。所以这套机制整个按 cfg 门控，Windows 走「每次自己认证」。
 #[cfg(unix)]
 pub(crate) fn control_path(app: &AppHandle, server_id: &str) -> Result<PathBuf, String> {
-    Ok(crate::config_dir(app)?.join(format!("hub-cm-{server_id}")))
+    let path = crate::config_dir(app)?.join(control_socket_name(server_id));
+    // Unix domain socket 的 sun_path 上限：macOS 104 / Linux 108 字节，ssh 绑定时
+    // 还会临时加 `.XXXXXXXXXXXXXXXX` 随机后缀（实测 17 字节）。超限就让 ssh 在
+    // 深处报一句 `unix_listener: path "…" too long`（macOS 实测），这里提前按
+    // 同一余量拦下，把「配置目录太深」这个根因写进报错。
+    const SUN_PATH_MAX: usize = if cfg!(target_os = "macos") { 104 } else { 108 };
+    const MKTEMP_SUFFIX: usize = 17;
+    let rendered = path.display().to_string();
+    if rendered.len() + MKTEMP_SUFFIX > SUN_PATH_MAX {
+        return Err(format!(
+            "连接复用套接字路径过长（{rendered}）：配置目录太深，无法建立 ControlMaster"
+        ));
+    }
+    Ok(path)
+}
+
+/// 套接字文件名：server id 的短哈希（固定种子的 SipHash，同 id 恒同名）。
+/// **12 个 hex（48 位）就够**：macOS 配置目录本身 ~62 字节，16 hex 会把
+/// control_path 顶过 sun_path 上限；12 hex 留出 ssh 临时后缀后还有余量。
+#[cfg(unix)]
+fn control_socket_name(server_id: &str) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    server_id.hash(&mut hasher);
+    // 取低 48 位（12 hex）：u64 全宽有 16 位，会把文件名顶过预算
+    format!("hub-cm-{:012x}", hasher.finish() & 0xffff_ffff_ffff)
+}
+
+/// `-o` 用的 `ControlPath=…` 选项串：路径**必须双引号包住**。
+/// macOS 配置目录是 `~/Library/Application Support/…`，带空格 —— 裸拼的话
+/// ssh 把空格后的部分当成多余参数，直接拒连：
+/// `command-line line 0: keyword controlpath extra arguments at end of line`
+/// （Linux 的 `~/.config/anyboot` 没空格，所以一直没暴露）。
+/// ssh 配置行支持双引号包带空格的参数（实测 `ssh -G` 解析正常）。
+#[cfg(unix)]
+pub(crate) fn control_path_option(control: &std::path::Path) -> String {
+    format!("ControlPath=\"{}\"", control.display())
 }
 
 // ==================== 认证 ====================
@@ -238,10 +274,10 @@ pub(crate) fn apply_auth(
     {
         let control = control_path(app, &server.id)?;
         ensure_control(app, server, &control, no_cred_message)?;
-        command.args(["-o", "BatchMode=yes"]).arg("-o").arg(format!(
-            "ControlPath={}",
-            control.display()
-        ));
+        command
+            .args(["-o", "BatchMode=yes"])
+            .arg("-o")
+            .arg(control_path_option(&control));
     }
     #[cfg(not(unix))]
     {
@@ -287,7 +323,7 @@ pub(crate) fn ensure_control(
     command
         .args(["-o", "ControlMaster=auto"])
         .arg("-o")
-        .arg(format!("ControlPath={}", control.display()))
+        .arg(control_path_option(control))
         .args(["-o", "ControlPersist=600"])
         .args(["-o", "StrictHostKeyChecking=accept-new"])
         .args(["-o", "ConnectTimeout=10"]);
@@ -622,6 +658,34 @@ mod tests {
         }
         .normalize();
         assert_eq!(dynamic.forward_arg(), "127.0.0.1:8080");
+    }
+
+    /// macOS 配置目录 `~/Library/Application Support/…` 带空格：裸拼进
+    /// `ControlPath=` 会被 ssh 拆成多个参数，报
+    /// `keyword controlpath extra arguments at end of line`（实测）。
+    /// 双引号包住后 `ssh -G` 能整段解析（macOS 实测）。
+    #[test]
+    fn control_path_option_quotes_spaces() {
+        let option = control_path_option(std::path::Path::new(
+            "/Users/x/Library/Application Support/com.example.anyboot/hub-cm-srv-1",
+        ));
+        assert_eq!(
+            option,
+            "ControlPath=\"/Users/x/Library/Application Support/com.example.anyboot/hub-cm-srv-1\""
+        );
+    }
+
+    /// 套接字名必须短：macOS 配置目录 ~62 字节 + ssh 临时后缀 17 字节，
+    /// 完整 server id / 16 hex 拼上去实测顶破 104 字节（unix_listener too long，
+    /// 或被 control_path 的提前拦截跳过复用）。12 hex 定长，同一 id 恒同名
+    /// （终端 / 隧道 / 文件三处各自推导要能对上）。
+    #[test]
+    fn control_socket_name_is_short_and_stable() {
+        let first = control_socket_name("srv-18df82cee170ddb8");
+        let second = control_socket_name("srv-18df82cee170ddb8");
+        assert_eq!(first, second);
+        assert_eq!(first.len(), "hub-cm-".len() + 12);
+        assert_ne!(control_socket_name("srv-other"), first);
     }
 
     #[test]

@@ -1282,6 +1282,10 @@
               <input type="checkbox" class="ts-check" id="tsBell"><span class="ts-switch" aria-hidden="true"></span>
             </label>
             <div class="ts-row">
+              <div><p class="ts-t">字体族</p><p class="ts-s">本机已装的等宽字体名（留空 = 内置等宽栈；字体缺失自动回落，不会坏）</p></div>
+              <input class="ts-num" type="text" id="tsFontFamily" placeholder="内置等宽" style="width:210px">
+            </div>
+            <div class="ts-row">
               <div><p class="ts-t">滚动回滚行数</p><p class="ts-s">缓冲区保留的历史输出（500–100000）</p></div>
               <input class="ts-num" type="number" id="tsScroll" min="500" max="100000" step="500" value="5000">
             </div>
@@ -1390,6 +1394,22 @@
           <select id="fJump" style="width:100%;background:rgb(var(--elevate));border:1px solid rgb(var(--line));border-radius:9px;padding:8px 11px;color:rgb(var(--fg));font:inherit;font-size:13px;outline:none">
             <option value="">直连（默认）</option>
           </select>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label for="fTermPath">终端启动路径（登录后先 cd 过去；进不去会报错并落在家目录）</label>
+            <input id="fTermPath" type="text" class="mono" placeholder="如 /data/logs，留空 = 远端家目录">
+          </div>
+          <div class="field">
+            <label for="fTermShell">终端 shell（留空 = 远端登录 shell）</label>
+            <input id="fTermShell" type="text" class="mono" list="termShellPresets" placeholder="/bin/bash 等，或自定义命令">
+            <datalist id="termShellPresets">
+              <option value="/bin/bash"></option>
+              <option value="/bin/sh"></option>
+              <option value="/bin/zsh"></option>
+              <option value="/bin/fish"></option>
+            </datalist>
+          </div>
         </div>
         <div class="field" data-page-node-id="fR4FQAB6M72wCWFaFAH6eO">
           <label for="fNotes" data-page-node-id="rlBknBjrbCcCulB2QXeCDj">备注</label>
@@ -2335,6 +2355,8 @@
     document.getElementById('fHost').value = server ? server.host : '';
     document.getElementById('fUser').value = server ? server.username : '';
     document.getElementById('fNotes').value = server ? server.notes : '';
+    document.getElementById('fTermPath').value = server ? (server.term_path || '') : '';
+    document.getElementById('fTermShell').value = server ? (server.term_shell || '') : '';
     document.getElementById('fPassword').value = '';
     populateJumpOptions(server ? server.jump_id : '');
     setEditAuth(server && server.key_id ? 'key' : (editingServerPassword ? 'password' : 'interactive'));
@@ -2371,6 +2393,8 @@
       notes: document.getElementById('fNotes').value,
       key_id: editingAuth === 'key' ? (document.getElementById('fKey').value || '') : '',
       jump_id: editingProto === 'ssh' ? (document.getElementById('fJump').value || '') : '',
+      term_path: document.getElementById('fTermPath').value,
+      term_shell: document.getElementById('fTermShell').value,
       password_new: passwordNew,
       created_at: 0,
     };
@@ -3461,7 +3485,7 @@
     return value;
   }
   function loadTermSettings() {
-    const d = { fontSize: 14, cursorBlink: true, copyOnSelect: false, bell: false, scrollback: 5000, downDir: '' };
+    const d = { fontSize: 14, cursorBlink: true, copyOnSelect: false, bell: false, scrollback: 5000, downDir: '', fontFamily: '' };
     try {
       const s = JSON.parse(localStorage.getItem(TERM_SET_KEY) || '{}');
       return {
@@ -3471,6 +3495,7 @@
         bell: !!s.bell,
         scrollback: Math.min(100000, Math.max(500, Number(s.scrollback) || d.scrollback)),
         downDir: normalizeDownDir(s.downDir),
+        fontFamily: (typeof s.fontFamily === 'string' ? s.fontFamily : '').trim(),
       };
     } catch (e) { return d; }
   }
@@ -3483,6 +3508,7 @@
     document.getElementById('tsBell').checked = s.bell;
     document.getElementById('tsScroll').value = s.scrollback;
     document.getElementById('tsDownDir').value = s.downDir;
+    document.getElementById('tsFontFamily').value = s.fontFamily;
     // 占位符直接显示这台机器实际的默认落盘位置，用户不用猜
     if (invoke) {
       invoke('hub_download_dir_default').then(function (dir) {
@@ -3513,6 +3539,7 @@
       bell: document.getElementById('tsBell').checked,
       scrollback: Math.min(100000, Math.max(500, Number(document.getElementById('tsScroll').value) || 5000)),
       downDir: normalizeDownDir(document.getElementById('tsDownDir').value),
+      fontFamily: document.getElementById('tsFontFamily').value.trim(),
     };
     try { localStorage.setItem(TERM_SET_KEY, JSON.stringify(settings)); } catch (e) {}
     if (window.__TAURI__ && window.__TAURI__.event) {

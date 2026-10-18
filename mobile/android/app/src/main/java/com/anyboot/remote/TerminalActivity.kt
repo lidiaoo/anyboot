@@ -97,6 +97,8 @@ class TerminalActivity : ComponentActivity() {
     // 以下四项都是「终端设置」页里的偏好：初值先给默认，onCreate 里再从 prefs 读（属性初始化
     // 阶段 Activity 还没 attach 上 base context，那时取 prefs 会炸）
     private var fontSize by mutableIntStateOf(JumpStore.TERMINAL_FONT_DEFAULT)
+    /** 终端字体族（空 = 资产页内置 Menlo/等宽栈）：设置页改完返回时对齐 */
+    private var fontFamily by mutableStateOf("")
     private var dark by mutableStateOf(true)
     private var showKeyBar by mutableStateOf(true)
     private var autoKeyboard by mutableStateOf(false)
@@ -133,6 +135,7 @@ class TerminalActivity : ComponentActivity() {
         Ui.applySystemBars(this)
         dark = JumpStore.terminalDark(this)
         fontSize = JumpStore.terminalFontSize(this)
+        fontFamily = JumpStore.terminalFontFamily(this)
         showKeyBar = JumpStore.terminalKeyBar(this)
         autoKeyboard = JumpStore.terminalAutoKeyboard(this)
         val jumpId = intent.getStringExtra("jumpId")
@@ -165,6 +168,16 @@ class TerminalActivity : ComponentActivity() {
             fontSize = storedFont
             eval("termSetFont($fontSize)")
         }
+        val storedFamily = JumpStore.terminalFontFamily(this)
+        if (storedFamily != fontFamily) {
+            fontFamily = storedFamily
+            eval("termSetFontFamily('" + jsEscape(storedFamily) + "')")
+        }
+    }
+
+    /** JS 单引号字符串里的转义：反斜杠与单引号。字体名是用户输入，不能裸拼。 */
+    private fun jsEscape(value: String): String {
+        return value.replace("\\", "\\\\").replace("'", "\\'")
     }
 
     // ------------------------------------------------------------------
@@ -457,7 +470,8 @@ class TerminalActivity : ComponentActivity() {
                                         tlog("onPageFinished url=$url pageReady=$pageReady")
                                         val theme = if (dark) "dark" else "light"
                                         view.evaluateJavascript(
-                                            "(function(){try{termInit('$theme', $fontSize);return 'ok:" +
+                                            "(function(){try{termInit('$theme', $fontSize, '" +
+                                                    jsEscape(fontFamily) + "');return 'ok:" +
                                                     "term='+(term?'yes':'no')}catch(e){return 'ERR:'+e.message}})()"
                                         ) { result -> tlog("termInit -> $result") }
                                         pageReady = true

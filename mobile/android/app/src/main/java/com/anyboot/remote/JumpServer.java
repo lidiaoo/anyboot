@@ -50,6 +50,12 @@ final class JumpServer {
     /** 经由哪台跳板机（JumpServer.id）；空 = 直连，行为与现在完全一致。
      *  一个 SSH 服务器可以借助另一台 SSH 服务器连上：先登录跳板机，再由它转发过来。 */
     String jumpServerId = "";
+    /** 终端启动路径（可选，每台服务器各自配）：非空时登录后先 `cd` 过去。目录
+     *  不存在/无权限时把报错打进终端，然后照常落在家目录（不因填错路径锁死）。 */
+    String termPath = "";
+    /** 终端 shell（可选）：/bin/bash /bin/sh /bin/zsh /bin/fish 等预设，或自定义
+     *  命令原样 exec。空 = 远端账号的登录 shell，零干预。 */
+    String termShell = "";
     /** 最近一次连通的往返毫秒；-1 = 未知 / 不通（展示用） */
     long lastRttMs = -1;
     long lastSeen = 0;
@@ -149,6 +155,8 @@ final class JumpServer {
         object.put("keyPassphraseEnc", JumpStore.text(keyPassphraseEnc));
         object.put("note", JumpStore.text(note));
         object.put("jumpServerId", JumpStore.text(jumpServerId));
+        object.put("termPath", JumpStore.text(termPath));
+        object.put("termShell", JumpStore.text(termShell));
         object.put("lastRttMs", lastRttMs);
         object.put("lastSeen", lastSeen);
         return object;
@@ -172,6 +180,8 @@ final class JumpServer {
         server.keyPassphraseEnc = object.optString("keyPassphraseEnc", "");
         server.note = object.optString("note", "");
         server.jumpServerId = object.optString("jumpServerId", "");
+        server.termPath = object.optString("termPath", "");
+        server.termShell = object.optString("termShell", "");
         server.lastRttMs = object.optLong("lastRttMs", -1);
         server.lastSeen = object.optLong("lastSeen", 0);
         return server;
@@ -190,6 +200,8 @@ final class JumpServer {
         other.keyPassphraseEnc = keyPassphraseEnc;
         other.note = note;
         other.jumpServerId = jumpServerId;
+        other.termPath = termPath;
+        other.termShell = termShell;
         other.lastRttMs = lastRttMs;
         other.lastSeen = lastSeen;
         return other;

@@ -313,6 +313,15 @@ final class SshSessionManager {
             terminalModes: .init([:])
         )
         let channel = try await client.withPTY(request) { ttyOutput, ttyStdinWriter in
+            // 启动路径 / 默认 shell（与 PC 端 hub_term.rs 同一套语义）：往登录
+            // shell 的 stdin 写一行命令，像手敲一样执行。目录打不通时把报错
+            // 留在终端里，`;` 继续往下走，绝不因填错路径断会话。
+            let startup = Self.terminalStartupLine(for: jump)
+            if !startup.isEmpty {
+                var line = ByteBufferAllocator().buffer(capacity: startup.utf8.count + 1)
+                line.writeString(startup + "\n")
+                try? await ttyStdinWriter.write(line)
+            }
             stdinBox.bind { data in
                 var buffer = ByteBufferAllocator().buffer(capacity: data.count)
                 buffer.writeBytes(data)
@@ -333,6 +342,36 @@ final class SshSessionManager {
             onClosed("连接已关闭")
         }
         return ShellHandle(stdinBox: stdinBox, channel: channel, done: done)
+    }
+
+    /// 组终端启动行（PC 端 term_remote_command 的 nio-ssh 版）：
+    /// - 路径与 shell 都空 → 空串（什么都不写，纯登录）；
+    /// - 只配路径 → `cd '<path>'`（PTY 通道本来就是交互登录 shell，不用 exec）；
+    /// - 配了 shell → `exec <shell>`。预设（bash/sh/zsh/fish）带 `-l` 对齐
+    ///   login-shell 语义并单引号包住；自定义内容原样 exec（tmux 之类自己写完整命令）。
+    static func terminalStartupLine(for jump: JumpServer) -> String {
+        let path = (jump.termPath ?? "").trimmingCharacters(in: .whitespaces)
+        let shell = (jump.termShell ?? "").trimmingCharacters(in: .whitespaces)
+        var parts: [String] = []
+        if !path.isEmpty {
+            parts.append("cd " + shQuote(path))
+        }
+        if !shell.isEmpty {
+            let exec: String
+            switch shell {
+            case "/bin/bash", "/bin/sh", "/bin/zsh", "/bin/fish":
+                exec = "exec " + shQuote(shell) + " -l"
+            default:
+                exec = "exec " + shell
+            }
+            parts.append(exec)
+        }
+        return parts.joined(separator: "; ")
+    }
+
+    /// 远程命令里的安全引号：单引号包住，内嵌 `'` 按 `'\''` 断开再接。
+    private static func shQuote(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     enum SshError: Error, LocalizedError {

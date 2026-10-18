@@ -406,7 +406,57 @@ final class SshSessionManager {
         // xterm.js 全权负责回显 —— shell 端关掉回显请求，避免输入重影
         channel.setPtyType("xterm-256color", 80, 24, 0, 0);
         channel.connect(15000);
+        // 启动路径 / 默认 shell（与 PC 端 hub_term.rs 同一套语义）：
+        // 往登录 shell 的 stdin 写一行命令，像手敲一样执行。目录打不通时
+        // 报错留在终端里，`;` 继续往下走，绝不因填错路径断会话。
+        String startup = terminalStartupLine(server);
+        if (!startup.isEmpty()) {
+            java.io.OutputStream stdin = channel.getOutputStream();
+            stdin.write(startup.getBytes("UTF-8"));
+            stdin.write('\n');
+            stdin.flush();
+        }
         return channel;
+    }
+
+    /**
+     * 组终端启动行（PC 端 term_remote_command 的 ChannelShell 版）：
+     * <ul>
+     *   <li>路径与 shell 都空 → 空串（什么都不注入，纯登录）；</li>
+     *   <li>只配路径 → {@code cd '<path>'}（shell 通道本来就是交互登录 shell，不用 exec）；</li>
+     *   <li>配了 shell → {@code exec <shell>}。预设（bash/sh/zsh/fish）带 {@code -l}
+     *       对齐 login-shell 语义并单引号包住；自定义内容原样 exec（tmux 之类自己写完整命令）。</li>
+     * </ul>
+     */
+    static String terminalStartupLine(JumpServer server) {
+        String path = server.termPath == null ? "" : server.termPath.trim();
+        String shell = server.termShell == null ? "" : server.termShell.trim();
+        StringBuilder line = new StringBuilder();
+        if (!path.isEmpty()) {
+            line.append("cd ").append(shQuote(path));
+        }
+        if (!shell.isEmpty()) {
+            if (line.length() > 0) {
+                line.append("; ");
+            }
+            switch (shell) {
+                case "/bin/bash":
+                case "/bin/sh":
+                case "/bin/zsh":
+                case "/bin/fish":
+                    line.append("exec ").append(shQuote(shell)).append(" -l");
+                    break;
+                default:
+                    line.append("exec ").append(shell);
+                    break;
+            }
+        }
+        return line.toString();
+    }
+
+    /** 远程命令里的安全引号：单引号包住，内嵌 {@code '} 按 {@code '\''} 断开再接。 */
+    private static String shQuote(String value) {
+        return "'" + value.replace("'", "'\\''") + "'";
     }
 
     // ------------------------------------------------------------------

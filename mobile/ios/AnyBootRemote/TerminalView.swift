@@ -50,7 +50,7 @@ struct TerminalView: UIViewRepresentable {
         weak var webView: WKWebView?
         private var pageReady = false
         private var pending: [String] = []
-        private var observer: NSObjectProtocol?
+        private var observers: [NSObjectProtocol] = []
 
         init(_ session: TerminalSessionRef) {
             self.session = session
@@ -58,7 +58,9 @@ struct TerminalView: UIViewRepresentable {
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             let theme = JumpStore.shared.terminalDark ? "dark" : "light"
-            webView.evaluateJavaScript("termInit('\(theme)', 14)", completionHandler: nil)
+            webView.evaluateJavaScript(
+                "termInit('\(theme)', 14, '\(Self.jsEscape(JumpStore.shared.terminalFontFamily))')",
+                completionHandler: nil)
             pageReady = true
             for chunk in pending {
                 feed(chunk)
@@ -66,15 +68,29 @@ struct TerminalView: UIViewRepresentable {
             pending.removeAll()
             ensureAttached()
             // 挂上原生层的下行监听（同一会话可能被多个视图挂过，先清旧的）
-            if let observer {
+            for observer in observers {
                 NotificationCenter.default.removeObserver(observer)
             }
-            observer = NotificationCenter.default.addObserver(
+            observers.removeAll()
+            observers.append(NotificationCenter.default.addObserver(
                 forName: .init("anyboot-term-\(session.server.id)"),
                 object: nil, queue: .main) { [weak self] note in
                 guard let data = note.object as? Data else { return }
                 self?.feedNative(data)
-            }
+            })
+            // 终端设置热更：字体族改动即时套到本页（终端 sheet 的菜单里改）
+            observers.append(NotificationCenter.default.addObserver(
+                forName: .init("anyboot-term-font"), object: nil, queue: .main) { [weak self] note in
+                guard let family = note.object as? String else { return }
+                self?.webView?.evaluateJavaScript(
+                    "termSetFontFamily('\(Self.jsEscape(family))')", completionHandler: nil)
+            })
+        }
+
+        /// JS 单引号字符串里的转义：反斜杠与单引号（字体名是用户输入，不能裸拼）
+        static func jsEscape(_ value: String) -> String {
+            value.replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "'", with: "\\'")
         }
 
         /// 挂会话：把积攒的回显冲进去

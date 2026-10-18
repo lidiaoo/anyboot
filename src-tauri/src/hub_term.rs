@@ -190,6 +190,41 @@ pub(crate) fn jump_proxy_command(
     proxy
 }
 
+/// 组「启动路径 / 默认 shell」的远程命令（服务器档案里的可选字段，用户定案）。
+///
+/// - 两个都空 → `None`：一条参数都不加，纯交互登录（远端家目录 + 登录 shell）。
+/// - 用 `;` 串接而不是 `&&`：cd 失败（路径被删/拼错/无权限）时 sshd 把报错打进
+///   终端，然后**照常**落进默认目录、shell 照常起 —— 不因填错路径锁死会话。
+/// - 结尾必须 exec 一个 shell：sshd 跑完命令就收摊，不 exec 的话会话直接断。
+///   没配 shell 就 `exec "$SHELL"`（sshd 会把 `SHELL` 设成账号的登录 shell）。
+/// - 预设 shell 加 `-l`（对齐交互登录的 login-shell 语义）；自定义内容**原样**
+///   exec、不附加任何参数（高级用法如 `tmux new -A -s main` 自己写完整命令）。
+/// - 路径与预设 shell 用单引号包住，路径里的 `'` 按 `'\''` 转义。
+pub(crate) fn term_remote_command(path: &str, shell: &str) -> Option<String> {
+    let path = path.trim();
+    let shell = shell.trim();
+    if path.is_empty() && shell.is_empty() {
+        return None;
+    }
+    let mut parts: Vec<String> = Vec::new();
+    if !path.is_empty() {
+        parts.push(format!("cd {}", shell_quote(path)));
+    }
+    if shell.is_empty() {
+        parts.push("exec \"$SHELL\" -l".to_string());
+    } else if matches!(shell, "/bin/bash" | "/bin/sh" | "/bin/zsh" | "/bin/fish") {
+        parts.push(format!("exec {} -l", shell_quote(shell)));
+    } else {
+        parts.push(format!("exec {shell}"));
+    }
+    Some(parts.join("; "))
+}
+
+/// 远程命令里的安全引号：单引号包住，内嵌 `'` 按 `'\''` 断开再接。
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
 /// 打开终端：PTY 里跑 `ssh -p PORT user@host`，读线程/等待线程开始推事件。
 /// `window` 由 Tauri 注入 = 调用方窗口（server-term 页内的标签全归它）。
 ///
@@ -289,7 +324,10 @@ fn open_term_session(
     if !server.id.is_empty() {
         if let Ok(control) = crate::hub_tunnel::control_path(app, &server.id) {
             command.args(["-o", "ControlMaster=auto"]);
-            command.args(["-o", &format!("ControlPath={}", control.display())]);
+            command.args([
+                "-o",
+                &crate::hub_tunnel::control_path_option(&control),
+            ]);
             command.args(["-o", "ControlPersist=600"]);
         }
     }
@@ -320,6 +358,14 @@ fn open_term_session(
         };
         let proxy = jump_proxy_command(&jump, key.as_deref());
         command.args(["-o", &format!("ProxyCommand={proxy}")]);
+    }
+    // 启动路径 / 默认 shell（服务器档案里的可选字段）：任一非空才用远程命令进入，
+    // 否则一条参数都不加 —— 纯交互登录，行为与从前一字不差。本地有真 PTY，
+    // `-t` 让带命令的 ssh 也分配远端终端（否则远端不给你行编辑/颜色）。
+    if let Some(remote) = term_remote_command(&server.term_path, &server.term_shell) {
+        // CommandBuilder 的 arg 返回 ()（不是 builder 链），只能一条条来
+        command.arg("-t");
+        command.arg(remote);
     }
     let mut child = pair
         .slave
@@ -638,6 +684,8 @@ mod tests {
             key_id: String::new(),
             password_enc: String::new(),
             jump_id: String::new(),
+            term_path: String::new(),
+            term_shell: String::new(),
             password_new: None,
             created_at: 0,
         };
@@ -655,6 +703,8 @@ mod tests {
             key_id: String::new(),
             password_enc: String::new(),
             jump_id: String::new(),
+            term_path: String::new(),
+            term_shell: String::new(),
             password_new: None,
             created_at: 0,
         };
@@ -728,6 +778,8 @@ mod tests {
             key_id: String::new(),
             password_enc: String::new(),
             jump_id: String::new(),
+            term_path: String::new(),
+            term_shell: String::new(),
             password_new: None,
             created_at: 0,
         }
@@ -754,6 +806,8 @@ mod tests {
             key_id: String::new(),
             password_enc: String::new(),
             jump_id: String::new(),
+            term_path: String::new(),
+            term_shell: String::new(),
             password_new: None,
             created_at: 0,
         };
@@ -781,5 +835,56 @@ mod tests {
         jump.port = 0;
         let p = jump_proxy_command(&jump, None);
         assert!(p.ends_with(" -p 23 10.0.0.2 -W %h:%p"));
+    }
+
+    /// 路径/shell 都空 = `None`：一条参数都不加，纯交互登录，行为与从前一字不差。
+    #[test]
+    fn term_remote_command_none_when_both_empty() {
+        assert_eq!(term_remote_command("", ""), None);
+        assert_eq!(term_remote_command("  ", "  "), None);
+    }
+
+    /// 只配路径：cd 完 exec `$SHELL`（sshd 把它设成账号登录 shell）。
+    /// 用 `;` 串接 —— cd 失败照样往下走（用户定案：报错后仍进默认目录）。
+    #[test]
+    fn term_remote_command_path_only_execs_login_shell() {
+        assert_eq!(
+            term_remote_command("/data/logs", ""),
+            Some("cd '/data/logs'; exec \"$SHELL\" -l".to_string())
+        );
+    }
+
+    /// 预设 shell（带 -l 对齐 login shell）+ 路径；只有 shell 时也一样。
+    #[test]
+    fn term_remote_command_preset_shell_gets_login_flag() {
+        for preset in ["/bin/bash", "/bin/sh", "/bin/zsh", "/bin/fish"] {
+            assert_eq!(
+                term_remote_command("", preset),
+                Some(format!("exec '{preset}' -l")),
+                "预设 {preset} 必须 -l"
+            );
+        }
+        assert_eq!(
+            term_remote_command("/root", "/bin/zsh"),
+            Some("cd '/root'; exec '/bin/zsh' -l".to_string())
+        );
+    }
+
+    /// 自定义内容原样 exec、不附加参数（tmux 之类的完整命令自己写）。
+    #[test]
+    fn term_remote_command_custom_shell_is_verbatim() {
+        assert_eq!(
+            term_remote_command("", "tmux new -A -s main"),
+            Some("exec tmux new -A -s main".to_string())
+        );
+    }
+
+    /// 路径里的单引号按 `'\''` 转义，不会把命令拆散。
+    #[test]
+    fn term_remote_command_escapes_single_quotes() {
+        assert_eq!(
+            term_remote_command("/a'b/c", ""),
+            Some("cd '/a'\\''b/c'; exec \"$SHELL\" -l".to_string())
+        );
     }
 }

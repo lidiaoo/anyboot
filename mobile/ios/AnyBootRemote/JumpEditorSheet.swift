@@ -83,6 +83,9 @@ struct TerminalSheet: View {
     @State private var ctrlArmed = false
     @State private var fontSize: CGFloat = 14
     @State private var dark = JumpStore.shared.terminalDark
+    // 字体族编辑（终端设置的一部分：改动落盘 + 通知已开页面热更）
+    @State private var fontEditorOpen = false
+    @State private var fontFamilyDraft = ""
 
     var body: some View {
         NavigationStack {
@@ -103,6 +106,10 @@ struct TerminalSheet: View {
                             dark.toggle()
                             JumpStore.shared.setTerminalDark(dark)
                         }
+                        Button("终端字体族…") {
+                            fontFamilyDraft = JumpStore.shared.terminalFontFamily
+                            fontEditorOpen = true
+                        }
                         Button("粘贴") {
                             if let text = UIPasteboard.general.string {
                                 session.write(Data(text.utf8))
@@ -118,6 +125,21 @@ struct TerminalSheet: View {
                 }
             }
             .safeAreaInset(edge: .bottom) { keyBar }
+            .alert("终端字体族", isPresented: $fontEditorOpen) {
+                TextField("留空 = 内置等宽", text: $fontFamilyDraft)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                Button("应用") {
+                    JumpStore.shared.setTerminalFontFamily(fontFamilyDraft)
+                    // 已开的终端页热更；新开的页面从 JumpStore 里读
+                    NotificationCenter.default.post(
+                        name: .init("anyboot-term-font"),
+                        object: JumpStore.shared.terminalFontFamily)
+                }
+                Button("取消", role: .cancel) { }
+            } message: {
+                Text("填 CSS font-family（如 JetBrains Mono / Menlo）；字体缺失自动回落等宽。")
+            }
         }
     }
 
@@ -185,6 +207,9 @@ struct JumpEditorSheet: View {
     @State private var keyId = ""
     @State private var passphrase = ""
     @State private var note = ""
+    // 终端启动路径 / 默认 shell（每台服务器各自配，留空 = 远端家目录 + 登录 shell）
+    @State private var termPath = ""
+    @State private var termShell = ""
 
     private var editing: Bool { jump != nil && store.jump(jump?.id ?? "") != nil }
 
@@ -242,6 +267,18 @@ struct JumpEditorSheet: View {
                         }
                     }
                 }
+                Section("终端") {
+                    TextField("启动路径（如 /data/logs，留空 = 家目录）", text: $termPath)
+                        .autocorrectionDisabled()
+                        .keyboardType(.URL)
+                        .textInputAutocapitalization(.never)
+                    TextField("shell（如 /bin/zsh，留空 = 登录 shell）", text: $termShell)
+                        .autocorrectionDisabled()
+                        .keyboardType(.URL)
+                        .textInputAutocapitalization(.never)
+                    Text("路径打不通时终端里报错、照常落家目录；预设 shell 自动带 -l，也可填自定义命令原样执行。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
                 Section("备注") {
                     TextField("可选", text: $note)
                 }
@@ -291,6 +328,8 @@ struct JumpEditorSheet: View {
                     useKey = jump.authType == JumpServer.authKey
                     keyId = jump.keyId
                     note = jump.note
+                    termPath = jump.termPath ?? ""
+                    termShell = jump.termShell ?? ""
                     // 已存密码回显，用户能确认到底存没存；读不出来 = 没存上
                     if !useKey && !jump.passwordRef.isEmpty {
                         let saved = KeyVault.load(account: jump.passwordRef)
@@ -311,6 +350,8 @@ struct JumpEditorSheet: View {
         target.authType = useKey ? JumpServer.authKey : JumpServer.authPassword
         target.keyId = useKey ? keyId : ""
         target.note = note.trimmedAnyBoot
+        target.termPath = termPath.trimmedAnyBoot.isEmpty ? nil : termPath.trimmedAnyBoot
+        target.termShell = termShell.trimmedAnyBoot.isEmpty ? nil : termShell.trimmedAnyBoot
         if !useKey {
             if savePassword {
                 if !password.trimmedAnyBoot.isEmpty {
