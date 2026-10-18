@@ -87,6 +87,18 @@ mod hub_tunnel;
 mod hub_vault;
 mod http;
 mod remote_servers;
+mod scan;
+mod switch_flow;
+mod gpu_compat;
+mod trace;
+mod ui_state;
+
+pub(crate) use scan::*;
+pub(crate) use switch_flow::*;
+pub(crate) use gpu_compat::*;
+pub(crate) use trace::*;
+pub(crate) use ui_state::*;
+
 mod window_geometry;
 mod dock_autohide;
 mod dock_commands;
@@ -236,9 +248,6 @@ const DEFAULT_WINDOW_POSITION: &str = "center";
 /// 落位按所在显示器工作区手算夹取）；unified = 全局统一自绘窗（落位同为手算，
 /// 优先贴图标正下方、放不下翻正上方）。默认选 classic：这是长期实测稳定的形态。
 const DEFAULT_TRAY_MENU_STYLE: &str = "classic";
-/// 阶段 0 的取证日志：只追加、不参与任何逻辑判断，写在应用配置目录。
-/// 里面**永不写入** httpToken（只记前 8 位指纹）。
-const TRACE_FILE: &str = "trace.log";
 const MAIN_WINDOW_LABEL: &str = "main";
 
 /// **唯一**的状态事件：携带完整快照 + 单调递增 revision。
@@ -291,107 +300,6 @@ fn clamp_to_work(
 #[cfg(target_os = "linux")]
 fn is_root() -> bool {
     unsafe { libc::geteuid() == 0 }
-}
-
-fn system_display_name(system: &str) -> String {
-    SOURCE_FILES
-        .iter()
-        .find(|(candidate, _, _)| *candidate == system)
-        .map(|(_, display_name, _)| (*display_name).to_string())
-        .unwrap_or_else(|| system.to_string())
-}
-
-#[derive(Deserialize)]
-struct LsblkOutput {
-    blockdevices: Vec<LsblkDevice>,
-}
-
-#[derive(Deserialize)]
-struct LsblkDevice {
-    path: Option<String>,
-    fstype: Option<String>,
-    label: Option<String>,
-    partlabel: Option<String>,
-    parttype: Option<String>,
-    mountpoints: Option<Vec<Option<String>>>,
-    /// 文件系统 UUID —— GRUB `search --fs-uuid` 比的那串（**不是**识别键）。
-    /// 老代码的 lsblk 调用没要这一列，`Option` 让缺失列也能反序列化。
-    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-    uuid: Option<String>,
-    /// 分区 UUID（GPT PARTUUID）—— 识别 ESP 的权威键，三端同值。
-    /// 只有 Linux 的定位函数读它（lsblk 输出列），其余平台缺列也能反序列化。
-    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-    partuuid: Option<String>,
-}
-
-struct ScanResult {
-    vars_dir: PathBuf,
-    active_mount: Option<ActiveMount>,
-    variables: Vec<VariableInfo>,
-}
-
-#[derive(Clone)]
-struct MountedScanCandidate {
-    vars_dir: PathBuf,
-    active_mount: Option<ActiveMount>,
-}
-
-fn file_hash(path: &Path) -> io::Result<String> {
-    let mut file = fs::File::open(path)?;
-    let mut hasher = Sha256::new();
-    let mut buffer = [0u8; 64 * 1024];
-    loop {
-        let count = file.read(&mut buffer)?;
-        if count == 0 {
-            break;
-        }
-        hasher.update(&buffer[..count]);
-    }
-    Ok(hex::encode(hasher.finalize()))
-}
-
-fn hashes_match(left: &Path, right: &Path) -> bool {
-    let (Ok(left), Ok(right)) = (file_hash(left), file_hash(right)) else {
-        return false;
-    };
-    left == right
-}
-
-fn display_path(path: &Path) -> PathBuf {
-    let path_text = path.as_os_str().to_string_lossy();
-    if let Some(unc_path) = path_text.strip_prefix(r"\\?\UNC\") {
-        PathBuf::from(format!(r"\\{unc_path}"))
-    } else if let Some(local_path) = path_text.strip_prefix(r"\\?\") {
-        PathBuf::from(local_path)
-    } else {
-        path.to_path_buf()
-    }
-}
-
-fn inspect_variables(directory: &Path) -> io::Result<Vec<VariableInfo>> {
-    let target = directory.join("PreviousBoot");
-    let mut variables = Vec::new();
-    for (system, display_name, source_name) in SOURCE_FILES {
-        let source = directory.join(source_name);
-        let exists = source.is_file();
-        variables.push(VariableInfo {
-            system: system.to_string(),
-            display_name: display_name.to_string(),
-            source_name: source_name.to_string(),
-            source: source.clone(),
-            exists,
-            active: exists && hashes_match(&source, &target),
-        });
-    }
-    Ok(variables)
-}
-
-fn push_unique(candidates: &mut Vec<PathBuf>, candidate: PathBuf) {
-    if let Ok(resolved) = candidate.canonicalize() {
-        if resolved.is_dir() && !candidates.contains(&resolved) {
-            candidates.push(resolved);
-        }
-    }
 }
 
 fn mounted_candidate_directories() -> Vec<PathBuf> {
@@ -457,414 +365,12 @@ fn decode_mountinfo_path(path: &str) -> PathBuf {
     PathBuf::from(decoded)
 }
 
-fn scan_unmounted_partition() -> Result<ScanResult, String> {
-    if !cfg!(target_os = "linux") {
-        return Err("未找到已挂载的 EFI/refind/vars 目录".to_string());
-    }
-
-    let output = command("lsblk")
-        .args([
-            "--json",
-            "--output",
-            "PATH,TYPE,FSTYPE,LABEL,PARTLABEL,PARTTYPE,MOUNTPOINTS",
-        ])
-        .stderr(Stdio::null())
-        .output()
-        .map_err(|error| format!("无法执行 lsblk: {error}"))?;
-    let devices: LsblkOutput = serde_json::from_slice(&output.stdout)
-        .map_err(|error| format!("无法解析 lsblk 输出: {error}"))?;
-
-    let mut candidates = Vec::new();
-    for device in devices.blockdevices {
-        let Some(device_path) = device.path else {
-            continue;
-        };
-        let Some(filesystem) = device.fstype else {
-            continue;
-        };
-        if !FAT_FILESYSTEMS.contains(&filesystem.as_str()) {
-            continue;
-        }
-        let mounted = device
-            .mountpoints
-            .unwrap_or_default()
-            .iter()
-            .flatten()
-            .any(|mountpoint| !mountpoint.is_empty());
-        if mounted {
-            continue;
-        }
-        let label = device.label.unwrap_or_default().to_lowercase();
-        let partlabel = device.partlabel.unwrap_or_default().to_lowercase();
-        let parttype = device.parttype.unwrap_or_default().to_lowercase();
-        let hints = format!("{label} {partlabel}");
-        let priority = if hints.contains("refind") {
-            0
-        } else if parttype == ESP_PARTTYPE || hints.contains("efi system partition") {
-            1
-        } else {
-            2
-        };
-        candidates.push((priority, device_path, filesystem));
-    }
-    candidates.sort_by(|left, right| (left.0, &left.1).cmp(&(right.0, &right.1)));
-
-    let mountpoint = std::env::temp_dir().join(format!("anyboot-{}", std::process::id()));
-    let _ = fs::remove_dir(&mountpoint);
-    fs::create_dir(&mountpoint).map_err(|error| format!("无法创建临时挂载点: {error}"))?;
-
-    for (_, device, filesystem) in candidates {
-        let result = mount_command("mount")
-            .args(["-o", &mount_options("ro"), "-t", &filesystem])
-            .arg(&device)
-            .arg(&mountpoint)
-            .output();
-        match result {
-            Ok(output) if output.status.success() => {
-                let vars_dir = mountpoint.join("EFI/refind/vars");
-                if vars_dir.is_dir() {
-                    let resolved = vars_dir
-                        .canonicalize()
-                        .map_err(|error| format!("无法解析变量目录: {error}"))?;
-                    let variables = inspect_variables(&resolved)
-                        .map_err(|error| format!("无法读取变量目录: {error}"))?;
-                    return Ok(ScanResult {
-                        vars_dir: resolved,
-                        active_mount: Some(ActiveMount {
-                            device: PathBuf::from(device),
-                            mountpoint,
-                            owned: true,
-                        }),
-                        variables,
-                    });
-                }
-                let _ = mount_command("umount").arg(&mountpoint).status();
-            }
-            Ok(output) => {
-                let _ = format!(
-                    "mount {device}: {}",
-                    String::from_utf8_lossy(&output.stderr).trim()
-                );
-            }
-            Err(_) => {}
-        }
-    }
-    let _ = fs::remove_dir(&mountpoint);
-
-    let root_hint = if cfg!(target_os = "linux") {
-        "；应用已尝试通过 pkexec 临时提权挂载，若取消授权或 pkexec 不可用，请手动挂载后再扫描"
-    } else {
-        ""
-    };
-    Err(format!(
-        "已扫描未挂载的 FAT/ESP 分区，但未找到 EFI/refind/vars 目录{root_hint}"
-    ))
-}
-
-fn scan_vars_directory(explicit_dir: Option<&Path>) -> Result<ScanResult, String> {
-    if let Some(directory) = explicit_dir {
-        if !directory.is_dir() {
-            return Err(format!("rEFInd 变量目录不存在: {}", directory.display()));
-        }
-        let resolved_directory = directory
-            .canonicalize()
-            .unwrap_or_else(|_| directory.to_path_buf());
-        let variables = inspect_variables(&resolved_directory)
-            .map_err(|error| format!("无法读取变量目录: {error}"))?;
-        return Ok(ScanResult {
-            vars_dir: resolved_directory.clone(),
-            active_mount: active_mount_for_directory(directory, &resolved_directory),
-            variables,
-        });
-    }
-
-    let mut candidates = mounted_scan_candidates();
-    candidates.sort_by_key(|candidate| {
-        candidate
-            .active_mount
-            .as_ref()
-            .map(|mount| !mount.owned)
-            .unwrap_or(true)
-    });
-    if candidates.len() > 1 {
-        let names = candidates
-            .iter()
-            .map(|candidate| format!("  {}", candidate.vars_dir.display()))
-            .collect::<Vec<_>>()
-            .join("\n");
-        return Err(format!(
-            "找到多个 rEFInd 变量目录，请在主窗口指定其中一个：\n{names}"
-        ));
-    }
-    if let Some(directory) = candidates.first() {
-        let variables = inspect_variables(&directory.vars_dir)
-            .map_err(|error| format!("无法读取变量目录: {error}"))?;
-        return Ok(ScanResult {
-            vars_dir: directory.vars_dir.clone(),
-            active_mount: directory.active_mount.clone(),
-            variables,
-        });
-    }
-    scan_unmounted_partition()
-}
-
-fn state_snapshot(app: &AppHandle) -> AppStatus {
-    let state = app.state::<Mutex<AppState>>();
-    let state = state.lock().expect("state mutex poisoned");
-    AppStatus {
-        vars_dir: state.vars_dir.as_deref().map(display_path),
-        temporary_mount: state.active_mount.as_ref().is_some_and(|mount| mount.owned),
-        variables: state.variables.clone(),
-        message: state.message.clone(),
-        error: state.error.clone(),
-    }
-}
-
-/// 兼容旧调用点：状态本身已经写进 AppState，这里只把新快照发出去。
-fn publish_status(app: &AppHandle, status: &AppStatus) {
-    trace(
-        app,
-        "event",
-        &format!(
-            "状态已更新 msg={} err={} tmp={}",
-            status.message,
-            status.error.as_deref().unwrap_or("-"),
-            status.temporary_mount
-        ),
-    );
-    publish_ui(app);
-}
-
-fn refresh_and_update(app: &AppHandle) -> AppStatus {
-    let started = Instant::now();
-    trace(app, "scan", "开始扫描");
-    set_busy(app, |busy| busy.scanning = true);
-    let (explicit_dir, old_mount) = {
-        let state = app.state::<Mutex<AppState>>();
-        let mut state = state.lock().expect("state mutex poisoned");
-        (state.explicit_dir.clone(), state.active_mount.take())
-    };
-    if let Some(mount) = old_mount {
-        let _ = mount.unmount();
-    }
-
-    let status = match scan_vars_directory(explicit_dir.as_deref()) {
-        Ok(result) => {
-            let message = result
-                .variables
-                .iter()
-                .find(|item| item.active)
-                .map(|item| format!("下次启动：{}", item.display_name))
-                .unwrap_or_else(|| "已连接 rEFInd；PreviousBoot 未匹配模板".to_string());
-            let status = AppStatus {
-                vars_dir: Some(display_path(&result.vars_dir)),
-                temporary_mount: result
-                    .active_mount
-                    .as_ref()
-                    .is_some_and(|mount| mount.owned),
-                variables: result.variables.clone(),
-                message: message.clone(),
-                error: None,
-            };
-            let state = app.state::<Mutex<AppState>>();
-            let mut state = state.lock().expect("state mutex poisoned");
-            state.vars_dir = Some(result.vars_dir);
-            state.active_mount = result.active_mount;
-            state.variables = result.variables;
-            state.message = message;
-            state.error = None;
-            status
-        }
-        Err(error) => {
-            let message = "未找到可用的 rEFInd 变量目录".to_string();
-            let status = AppStatus {
-                vars_dir: None,
-                temporary_mount: false,
-                variables: Vec::new(),
-                message: message.clone(),
-                error: Some(error),
-            };
-            let state = app.state::<Mutex<AppState>>();
-            let mut state = state.lock().expect("state mutex poisoned");
-            state.vars_dir = None;
-            state.variables = Vec::new();
-            state.message = message;
-            state.error = status.error.clone();
-            status
-        }
-    };
-
-    trace(
-        app,
-        "scan",
-        &format!(
-            "完成 耗时={}ms result={}",
-            started.elapsed().as_millis(),
-            status.error.as_deref().unwrap_or("ok")
-        ),
-    );
-    // GRUB 那条链路跟着一起刷新：Linux 端顺带把 /boot/grub 的两份数据同步到 ESP，
-    // 其它端就是重新解析 ESP 上的副本。用户要的「每次启动软件自动同步一次」在这里。
-    // **硬性条件（用户定案）**：ESP 必须已经由当前系统挂载在 /boot 下（fstab
-    // 统一方案）—— 没挂就整条跳过：不自动挂载、不 pkexec、不写盘。手动链路
-    // （识别/挂载/同步按钮）不受此限。
-    refresh_grub(app);
-    // 扫描结束：清 busy 并发布快照（托盘菜单与主窗口一起更新、菜单指纹相同就跳过重建）
-    set_busy(app, |busy| busy.scanning = false);
-    status
-}
-
-/// 切换下次启动系统。busy.switching 由外层统一置位/清除，
-/// 这样「未知系统」「目录未就绪」这些提前返回也不会把状态卡在 busy 上。
-fn switch_and_update(app: &AppHandle, system: &str) -> AppStatus {
-    let started = Instant::now();
-    trace(app, "switch", &format!("请求 system={system}"));
-    set_busy(app, |busy| busy.switching = true);
-    let status = switch_and_update_inner(app, system, started);
-    set_busy(app, |busy| busy.switching = false);
-    status
-}
-
-/// 本机主动切换系统（主窗口按钮 / 托盘菜单）的统一入口。
-///
-/// 先作废「挂着的远程请求」再切换：网页 / 手机端选系统会形成一条 pending（要等
-/// 倒计时到点才执行），本机用户在这段时间里自己点了另一个系统 —— 本机的操作是更
-/// 明确、更权威的意图，绝不能被那条到点的请求盖回去（否则用户看到的是「我明明
-/// 选了 A，几秒后自己变回 B」）。**只在本机入口做这件事**：远程请求到点执行时也
-/// 会走 switch_and_update，从那里清理就等于自己把自己取消掉。
-fn switch_system_locally(app: &AppHandle, system: &str) -> AppStatus {
-    if let Some(pending) = pending_snapshot() {
-        trace(
-            app,
-            "remote",
-            &format!(
-                "本机切换到 {system}：挂着的远程请求 {}（{}）作废",
-                pending.id, pending.summary
-            ),
-        );
-        if let Err(error) = cancel_pending_now(app) {
-            // 作废失败不该拦住切换本身（切换才是用户真正要的事）
-            trace(app, "remote", &format!("作废挂起请求失败（不影响切换）: {error}"));
-        }
-    }
-    switch_and_update(app, system)
-}
-
-fn switch_and_update_inner(app: &AppHandle, system: &str, started: Instant) -> AppStatus {
-    let selected = SOURCE_FILES
-        .iter()
-        .find(|(candidate, _, _)| *candidate == system)
-        .cloned();
-    let Some((_system, display_name, source_name)) = selected else {
-        let mut status = state_snapshot(app);
-        status.error = Some(format!("未知系统: {system}"));
-        status.temporary_mount = {
-            let state = app.state::<Mutex<AppState>>();
-            let state = state.lock().expect("state mutex poisoned");
-            state.active_mount.as_ref().is_some_and(|mount| mount.owned)
-        };
-        return status;
-    };
-
-    let (directory, active_mount) = {
-        let state = app.state::<Mutex<AppState>>();
-        let state = state.lock().expect("state mutex poisoned");
-        (state.vars_dir.clone(), state.active_mount.clone())
-    };
-    let Some(directory) = directory else {
-        refresh_and_update(app);
-        let mut status = state_snapshot(app);
-        status.error = Some("变量目录尚未就绪".to_string());
-        return status;
-    };
-
-    let result = write_with_mount(active_mount.as_ref(), || {
-        let source = directory.join(source_name);
-        let target = directory.join("PreviousBoot");
-        if !source.is_file() {
-            return Err(format!("变量文件不存在: {}", source.display()));
-        }
-        atomic_copy(&source, &target)
-            .and_then(|_| {
-                if hashes_match(&source, &target) {
-                    Ok(())
-                } else {
-                    Err(io::Error::other(format!(
-                        "写入校验失败: {}",
-                        target.display()
-                    )))
-                }
-            })
-            .map_err(|error| format!("写入失败: {error}"))
-    });
-
-    trace(
-        app,
-        "switch",
-        &format!(
-            "完成 system={system} 耗时={}ms result={}",
-            started.elapsed().as_millis(),
-            result.as_ref().err().map(String::as_str).unwrap_or("ok")
-        ),
-    );
-    match result {
-        Ok(()) => {
-            let status = refresh_and_update(app);
-            let message = format!("下次启动：{display_name}");
-            record_action(app, "切换系统", true, &message);
-            status
-        }
-        Err(error) => {
-            record_action(app, "切换系统", false, &error);
-            update_failure_status(app, &format!("切换 {display_name} 失败"), error)
-        }
-    }
-}
-
-fn update_failure_status(app: &AppHandle, message: &str, error: String) -> AppStatus {
-    let (existing_directory, existing_variables) = {
-        let state = app.state::<Mutex<AppState>>();
-        let state = state.lock().expect("state mutex poisoned");
-        (state.vars_dir.clone(), state.variables.clone())
-    };
-    let status = AppStatus {
-        vars_dir: existing_directory,
-        temporary_mount: {
-            let state = app.state::<Mutex<AppState>>();
-            let state = state.lock().expect("state mutex poisoned");
-            state.active_mount.as_ref().is_some_and(|mount| mount.owned)
-        },
-        variables: existing_variables,
-        message: message.to_string(),
-        error: Some(error),
-    };
-    {
-        let state = app.state::<Mutex<AppState>>();
-        let mut state = state.lock().expect("state mutex poisoned");
-        state.message = message.to_string();
-        state.error = status.error.clone();
-    }
-    publish_status(app, &status);
-    status
-}
-
 // ==================== classic（各自方式）的原生菜单素材 ====================
 //
 // 托盘菜单的「classic」形态 = 三端各用系统原生菜单（三端自绘之前的原始方案）。
 // 原生菜单改不了文字颜色/字重，所以「哪个系统是选中的」只能用图形表达：
 // 选了的那一行带绿勾、其余行不带 —— 勾占的是菜单**独立的位图列**，
 // 不占用文字，系统的名字因此天然左对齐（以前用「● 」前缀，名字会被顶偏一格）。
-
-/// 环境变量布尔开关的纯逻辑部分（便于单测）：1/true/yes/on 与 0/false/no/off。
-///
-/// trace 与电源 dry-run 两个探针共用。
-fn env_flag_from(value: Option<&str>) -> Option<bool> {
-    match value?.trim().to_ascii_lowercase().as_str() {
-        "1" | "true" | "yes" | "on" => Some(true),
-        "0" | "false" | "no" | "off" => Some(false),
-        _ => None,
-    }
-}
 
 // ==================== WebKitGTK × NVIDIA：窗口一片空白 ====================
 //
@@ -887,16 +393,6 @@ fn env_flag_from(value: Option<&str>) -> Option<bool> {
 // 「关掉某个加速开关」的招数到新版上会失效、甚至反过来有害，改这一块之前先去
 // 查上面那几个上游 issue，别照着旧帖子抄。
 
-/// 一次会话里 GDK / WebKitGTK 实际选中的显示后端。
-#[cfg(target_os = "linux")]
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum LinuxDisplayBackend {
-    X11,
-    Wayland,
-    /// 线索全无（既没有 `GDK_BACKEND` 也没有会话变量）：按 X11 处理，理由见选择表。
-    Unknown,
-}
-
 /// 用户已经自己配过的 WebKit 开关：设过任何一个就完全不插手。
 ///
 /// 也包含显式设成 `0` 的情况 —— 那种用户多半跟这个问题搏斗过，
@@ -908,78 +404,6 @@ const WEBKIT_ENV_SWITCHES: [&str; 4] = [
     "WEBKIT_DISABLE_COMPOSITING_MODE",
     "WEBKIT_DMABUF_RENDERER_FORCE_SHM",
 ];
-
-/// 从环境变量推断后端（纯函数，便于单测）。
-///
-/// 顺序照抄 GDK 自己的选择逻辑：`GDK_BACKEND` 是硬指定、优先于一切，它是个逗号分隔的
-/// 候选表，第一个认得出的 x11/wayland 算数（`broadway` 这类认不出的项跳过）；
-/// 没设才依次看 `XDG_SESSION_TYPE`、`WAYLAND_DISPLAY`、`DISPLAY`。
-/// 注意 XWayland 下 `DISPLAY` 也在，所以 Wayland 的判定必须排在它前面。
-#[cfg(target_os = "linux")]
-fn linux_display_backend(
-    gdk_backend: Option<&str>,
-    session_type: Option<&str>,
-    wayland_display: Option<&str>,
-    display: Option<&str>,
-) -> LinuxDisplayBackend {
-    if let Some(candidates) = gdk_backend {
-        for candidate in candidates.split(',').map(str::trim) {
-            match candidate.to_ascii_lowercase().as_str() {
-                "x11" => return LinuxDisplayBackend::X11,
-                "wayland" => return LinuxDisplayBackend::Wayland,
-                _ => continue,
-            }
-        }
-    }
-    match session_type.map(|value| value.trim().to_ascii_lowercase()) {
-        Some(kind) if kind == "x11" => return LinuxDisplayBackend::X11,
-        Some(kind) if kind == "wayland" => return LinuxDisplayBackend::Wayland,
-        _ => {}
-    }
-    if wayland_display.is_some_and(|value| !value.is_empty()) {
-        return LinuxDisplayBackend::Wayland;
-    }
-    if display.is_some_and(|value| !value.is_empty()) {
-        return LinuxDisplayBackend::X11;
-    }
-    LinuxDisplayBackend::Unknown
-}
-
-/// 从 `/proc/driver/nvidia/version` 的内容里取驱动主版本号（纯函数，便于单测）。
-///
-/// 文件内容形如：
-/// ```text
-/// NVRM version: NVIDIA UNIX Open Kernel Module for x86_64  615.71.09  Release Build  (root@arch)
-/// GCC version:  gcc 16.2.1 20260810 (GCC)
-/// ```
-/// 「第一个带点的数字词」就是版本号，要的是它的主版本（`egl-wayland2` 看 ≥560）。
-/// **必须锚定 `NVRM version:` 这一行**：下面那行的 `gcc 16.2.1` 也是带点的数字词，
-/// 不锚定就会把编译器版本当成驱动版本。
-#[cfg(target_os = "linux")]
-fn nvidia_major_from_version_text(text: &str) -> Option<u32> {
-    let banner = text
-        .lines()
-        .find(|line| line.trim_start().starts_with("NVRM version:"))?;
-    banner.split_whitespace().find_map(|word| {
-        let (major, rest) = word.split_once('.')?;
-        // 至少得是「主.次」两段数字，`x86_64` 这种词不算
-        if rest.is_empty() || !rest.starts_with(|character: char| character.is_ascii_digit()) {
-            return None;
-        }
-        major.parse::<u32>().ok()
-    })
-}
-
-/// NVIDIA 专有驱动的主版本号；没装 / 没加载（纯核显模式、nouveau）返回 `None`。
-///
-/// `/proc/driver/nvidia/version` 只有 NVIDIA 自己的驱动会建（nouveau 与 Mesa 都不建），
-/// 所以「这文件在」≈「这次会话的渲染有 NVIDIA 参与」，也正是要加开关的时刻；
-/// 反过来，切到纯核显模式后这个文件就没了，开关自动不加，性能也不会白白吃亏。
-#[cfg(target_os = "linux")]
-fn nvidia_driver_major() -> Option<u32> {
-    let text = std::fs::read_to_string("/proc/driver/nvidia/version").ok()?;
-    nvidia_major_from_version_text(&text)
-}
 
 /// 让 WebKit 的 DMA-BUF 渲染器彻底不用 DMA-BUF：Wayland(Hyprland) 上缺 acquire point
 /// 会被合成器当协议错误掐断连接，那里必须把这条路堵死。
@@ -1018,95 +442,6 @@ const X11_GPU_SWITCHES: &[(&str, &str)] = &[("WEBKIT_DMABUF_RENDERER_FORCE_SHM",
 #[cfg(target_os = "linux")]
 const NO_GPU_SWITCHES: &[(&str, &str)] = &[];
 
-/// 这次会话该给 WebKit 加哪些开关（纯函数，便于单测）：可能一个都不加。
-#[cfg(target_os = "linux")]
-fn linux_gpu_env_overrides(
-    backend: LinuxDisplayBackend,
-    desktop: Option<&str>,
-    driver_major: u32,
-) -> &'static [(&'static str, &'static str)] {
-    let desktop = desktop.unwrap_or("").to_ascii_lowercase();
-    match backend {
-        // 白窗 / 内容看不见都出在这条路上。后端认不出来时也按 X11 处理：
-        // 画不出来比性能掉一点点严重得多。
-        LinuxDisplayBackend::X11 | LinuxDisplayBackend::Unknown => X11_GPU_SWITCHES,
-        // 缺 acquire point 会被合成器当协议错误掐断连接，DMA-BUF 必须关
-        LinuxDisplayBackend::Wayland if desktop.contains("hyprland") => DMABUF_RENDERER_OFF,
-        // KWin 一类严格同步的合成器：关掉 NVIDIA 显式同步就没事了
-        LinuxDisplayBackend::Wayland if desktop.contains("kde") || desktop.contains("plasma") => {
-            NVIDIA_EXPLICIT_SYNC_OFF
-        }
-        // 驱动 ≥560 自带能用的 egl-wayland2，这条路径本来是好的，别动它
-        LinuxDisplayBackend::Wayland if driver_major >= 560 => NO_GPU_SWITCHES,
-        // 更老的 egl-wayland：不关显式同步可能连不上
-        LinuxDisplayBackend::Wayland => NVIDIA_EXPLICIT_SYNC_OFF,
-    }
-}
-
-/// 用户是否已经自己配过 WebKit 的这些开关（纯函数，便于单测）。
-#[cfg(target_os = "linux")]
-fn webkit_env_already_configured(probe: impl Fn(&str) -> bool) -> bool {
-    WEBKIT_ENV_SWITCHES.iter().any(|name| probe(name))
-}
-
-/// 按会话类型给 WebKit 塞进与 NVIDIA 相容的开关。
-///
-/// **必须在 GTK / WebKit 起来之前调用**：WebKit 是在建 WebView 的那一刻读这些变量的，
-/// 之后再设就没用了。所以调用点在 `run()` 的最前面，早于 `tauri::Builder`。
-#[cfg(target_os = "linux")]
-fn apply_linux_gpu_workarounds() {
-    if webkit_env_already_configured(|name| std::env::var_os(name).is_some()) {
-        return;
-    }
-    // 没有 NVIDIA 驱动（核显模式 / nouveau / Mesa）：这条路径本来就没问题，什么都别动
-    let Some(driver_major) = nvidia_driver_major() else {
-        return;
-    };
-    let backend = linux_display_backend(
-        std::env::var("GDK_BACKEND").ok().as_deref(),
-        std::env::var("XDG_SESSION_TYPE").ok().as_deref(),
-        std::env::var("WAYLAND_DISPLAY").ok().as_deref(),
-        std::env::var("DISPLAY").ok().as_deref(),
-    );
-    let overrides = linux_gpu_env_overrides(
-        backend,
-        std::env::var("XDG_CURRENT_DESKTOP").ok().as_deref(),
-        driver_major,
-    );
-    if overrides.is_empty() {
-        return;
-    }
-    for (name, value) in overrides {
-        std::env::set_var(name, value);
-    }
-    // 白窗这类问题现场很难复现，ANYBOOT_TRACE=1 时留一行痕
-    // （启动期还没有日志文件可写，所以走 stderr，和 trace 的口径一致）
-    if env_flag_from(std::env::var("ANYBOOT_TRACE").ok().as_deref()) == Some(true) {
-        let applied = overrides
-            .iter()
-            .map(|(name, value)| format!("{name}={value}"))
-            .collect::<Vec<_>>()
-            .join(" ");
-        eprintln!("anyboot: NVIDIA 驱动 {driver_major} / {backend:?}，已设置 {applied}");
-    }
-}
-
-/// 是否记 trace。**注意**：会锁 Settings 互斥量，所以禁止在已持有该锁的
-/// 代码路径里调用 trace()（会死锁）。
-///
-/// 启动早期（设置文件还没读进内存时）只有环境变量生效，
-/// 想抓启动阶段的日志请用 `ANYBOOT_TRACE=1`。
-fn trace_enabled(app: &AppHandle) -> bool {
-    let from_env = env_flag_from(std::env::var("ANYBOOT_TRACE").ok().as_deref());
-    from_env.unwrap_or_else(|| stored_settings(app).debug_trace)
-}
-
-fn trace_file_path(app: &AppHandle) -> Option<PathBuf> {
-    config_dir(app)
-        .ok()
-        .map(|directory| directory.join(TRACE_FILE))
-}
-
 /// 追加一行 trace，同时打到 stderr。
 ///
 /// 这是取证探针：**任何失败都吞掉**（打不开文件、磁盘满、没权限都不影响应用行为），
@@ -1130,156 +465,11 @@ pub(crate) fn trace(app: &AppHandle, category: &str, message: &str) {
         .and_then(|mut file| file.write_all(line.as_bytes()));
 }
 
-fn now_epoch_seconds() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_secs())
-        .unwrap_or_default()
-}
-
-/// 无依赖的 UTC 时间戳（本地时区需要平台 API，这里统一记 UTC，便于三端互相比对）。
-fn utc_timestamp(seconds: u64) -> String {
-    let days = (seconds / 86_400) as i64;
-    let rest = seconds % 86_400;
-    let (year, month, day) = civil_from_days(days);
-    format!(
-        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
-        rest / 3600,
-        (rest % 3600) / 60,
-        rest % 60
-    )
-}
-
-/// Howard Hinnant 的 civil_from_days：1970-01-01 起的天数 → (年, 月, 日)。
-fn civil_from_days(days: i64) -> (i64, u32, u32) {
-    let z = days + 719_468;
-    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
-    let doe = (z - era * 146_097) as i64;
-    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
-    let year = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = (doy - (153 * mp + 2) / 5 + 1) as u32;
-    let month = (if mp < 10 { mp + 3 } else { mp - 9 }) as u32;
-    (if month <= 2 { year + 1 } else { year }, month, day)
-}
-
-/// 生成当前状态的快照（不改任何东西）。
-fn ui_state(app: &AppHandle) -> UiState {
-    let settings = view_settings(app);
-    let http = {
-        let runtime = http_lock();
-        let (listening, addr) = match runtime.server.as_ref() {
-            Some(server) => (true, Some(server.addr.clone())),
-            None => (false, None),
-        };
-        let last_error = runtime.last_error.clone();
-        let token_set = !settings.settings.http_token.trim().is_empty();
-        HttpView {
-            enabled: settings.settings.http_enabled,
-            bind: settings.settings.http_bind.clone(),
-            port: settings.settings.http_port,
-            listening,
-            state_text: http_state_text(
-                listening,
-                addr.as_deref(),
-                last_error.as_deref(),
-                token_set,
-            ),
-            addr,
-            last_error,
-            port_occupant: runtime.occupant.as_ref().map(PortOccupant::to_view),
-            token_set,
-            token_hint: token_hint(&settings.settings.http_token),
-            requests: runtime.requests.clone(),
-        }
-    };
-    // GRUB 那块：先算好（下面 `settings` 会被整体移进快照，不能再借）
-    let grub = grub_snapshot(app, &settings.settings);
-    // 09_anyboot 模板里嵌的是 fs-uuid（GRUB 的 search --fs-uuid 只认它）。
-    // fs-uuid 不再存设置 —— 用最近一次扫描探到的（Linux 上 findmnt/引导扇区
-    // 都报得出来）；探不到就留占位符，安装时（grub_install_script）会现场解析。
-    let grub_script = grub_script_content(
-        grub_template(&settings.settings),
-        &grub
-            .esp
-            .as_ref()
-            .and_then(|esp| esp.uuid.clone())
-            .unwrap_or_else(|| "@@ESP_UUID@@".to_string()),
-    );
-    UiState {
-        revision: UI_REVISION.load(Ordering::SeqCst),
-        status: state_snapshot(app),
-        // 唯一真相：设置的 autostart 取系统真实状态（阶段 1 修 D1，
-        // 以前托盘菜单读的是设置文件里的旧值，主窗口读的是系统真实值，两边会不一致）
-        settings,
-        busy: busy_snapshot(app),
-        last_action: last_action_snapshot(app),
-        http,
-        notify: notify_view(app),
-        grub,
-        grub_script,
-        docked: {
-            let state = app.state::<Mutex<AppState>>();
-            state
-                .lock()
-                .map(|state| state.auto_hide_docked)
-                .unwrap_or(false)
-        },
-        dock_edge: {
-            let state = app.state::<Mutex<AppState>>();
-            state
-                .lock()
-                .ok()
-                .and_then(|state| state.auto_hide_edge.map(|edge| edge.as_str().to_string()))
-        },
-    }
-}
-
-/// **唯一**的发布入口：先 +1 revision，再用同一份快照重建托盘菜单 + 通知主窗口。
-///
-/// 主窗口和托盘菜单从此不存在「各读各的」，也不需要三个补丁式事件。
-fn publish_ui(app: &AppHandle) -> UiState {
-    UI_REVISION.fetch_add(1, Ordering::SeqCst);
-    let state = ui_state(app);
-    // 移动端没有托盘/菜单，跳过重建（快照本身照发）
-    #[cfg(desktop)]
-    if let Err(error) = update_tray_menu(app, &state, "publish") {
-        trace(app, "tray", &format!("刷新托盘菜单失败: {error}"));
-    }
-    trace(
-        app,
-        "state",
-        &format!(
-            "revision={} busy={} msg={} err={}",
-            state.revision,
-            state.busy.describe(),
-            state.status.message,
-            state.status.error.as_deref().unwrap_or("-")
-        ),
-    );
-    if let Err(error) = app.emit(UI_STATE_CHANGED_EVENT, &state) {
-        trace(app, "state", &format!("通知主窗口失败: {error}"));
-    }
-    // 网页端 / 手机端的推送通道：没人连就没有任何开销（见 websocket_publish）
-    websocket_publish(&state);
-    state
-}
-
 // ==================== WebSocket 推送（网页端 / 手机端的 /api/ws） ====================
 //
 // 传输与握手在 http 模块，这里只管「谁订阅了」和「推什么」。推的内容与
 // `/api/ui-state` 完全同源（都是 get_ui_state 的那份快照），所以两条路不会分叉。
 
-/// 已连上的推送客户端：id → 发送端。
-///
-/// 为什么中间隔一条通道、而不是直接把 socket 存在这儿：连接由 http 层的线程抱着
-/// （它的生命周期、读写、关闭都在那边），两边只交接「快照字符串」。发送端一 drop，
-/// 对面 `recv_timeout` 立刻拿到 `Disconnected` 收尾退出 —— 收服务、换 token 时就
-/// 靠这个把它们请走（见 http::RunningServer::stop）。
-static WS_CLIENTS: Mutex<Vec<(u64, SyncSender<String>)>> = Mutex::new(Vec::new());
-/// 推送客户端的发号器，注销时靠它找到自己那一条。
-static WS_NEXT_ID: AtomicU64 = AtomicU64::new(1);
 /// 每个客户端的待发队列容量。
 ///
 /// 故意很小：快照是**完整状态**而不是增量，中间几拍丢了不影响正确性（下一拍补齐）。
@@ -1296,11 +486,6 @@ pub(crate) fn websocket_hello(app: &AppHandle, token: Option<&str>) -> Result<St
     Ok(ui_state_json(app))
 }
 
-/// 当前快照的 JSON 串（`/api/ui-state`、WS 首帧、WS 广播共用同一份）。
-fn ui_state_json(app: &AppHandle) -> String {
-    serde_json::to_string(&get_ui_state(app.clone())).unwrap_or_else(|_| "{}".to_string())
-}
-
 /// 登记一个推送客户端，返回 (id, 收件口)。
 pub(crate) fn websocket_subscribe() -> (u64, Receiver<String>) {
     let (sender, receiver) = sync_channel(WS_QUEUE);
@@ -1309,13 +494,6 @@ pub(crate) fn websocket_subscribe() -> (u64, Receiver<String>) {
         clients.push((id, sender));
     }
     (id, receiver)
-}
-
-/// 当前推送客户端数量（只有单测要用；正常路径靠 `websocket_publish` 里的
-/// `is_empty()` 短路，不必单独查一次）。
-#[cfg(test)]
-fn websocket_client_count() -> usize {
-    WS_CLIENTS.lock().map(|clients| clients.len()).unwrap_or(0)
 }
 
 /// 注销一个推送客户端（连接线程退出时调）。
@@ -1330,26 +508,6 @@ pub(crate) fn websocket_disconnect_all() {
     if let Ok(mut clients) = WS_CLIENTS.lock() {
         clients.clear();
     }
-}
-
-/// 把新快照推给所有客户端。**没人订阅时连序列化都不做**。
-fn websocket_publish<T: Serialize>(state: &T) {
-    let Ok(mut clients) = WS_CLIENTS.lock() else {
-        return;
-    };
-    if clients.is_empty() {
-        return;
-    }
-    let Ok(payload) = serde_json::to_string(state) else {
-        return;
-    };
-    clients.retain(|(_, sender)| match sender.try_send(payload.clone()) {
-        Ok(()) => true,
-        // 队列满（对端收得慢）：丢掉这一拍，连接照留
-        Err(TrySendError::Full(_)) => true,
-        // 对面线程已经退了：顺手清掉
-        Err(TrySendError::Disconnected(_)) => false,
-    });
 }
 
 /// 推送通道**连上时**记一条请求日志 —— 「基本设置 → 远程控制」的最近请求里
@@ -2370,42 +1528,6 @@ extern "system" {
 // Linux 专属：安装 / 卸载 09_anyboot
 // ---------------------------------------------------------------------------
 
-#[tauri::command]
-fn current_status(app: AppHandle) -> AppStatus {
-    state_snapshot(&app)
-}
-
-#[tauri::command]
-fn refresh(app: AppHandle) -> AppStatus {
-    trace(&app, "command", "refresh（主窗口）");
-    refresh_and_update(&app)
-}
-
-#[tauri::command]
-fn set_vars_dir(app: AppHandle, path: Option<String>) -> AppStatus {
-    trace(&app, "command", &format!("set_vars_dir path={:?}", path));
-    let directory = path
-        .filter(|path| !path.trim().is_empty())
-        .map(PathBuf::from);
-    {
-        let state = app.state::<Mutex<AppState>>();
-        let mut state = state.lock().expect("state mutex poisoned");
-        state.explicit_dir = directory;
-    }
-    refresh_and_update(&app)
-}
-
-#[tauri::command]
-fn switch_system(app: AppHandle, system: String) -> AppStatus {
-    trace(
-        &app,
-        "command",
-        &format!("switch_system system={system}（主窗口）"),
-    );
-    // 本机入口：会先作废挂着的远程请求，别让它到点把本机选择盖回去
-    switch_system_locally(&app, &system)
-}
-
 // ---- GRUB 细粒度切换的命令面 ----
 
 #[tauri::command]
@@ -2635,13 +1757,6 @@ fn finish_script_log(app: &AppHandle, title: &str, lines: Vec<String>, ok: bool)
 #[tauri::command]
 fn get_settings(app: AppHandle) -> SettingsView {
     view_settings(&app)
-}
-
-/// 主窗口首次加载用：拿一份完整快照（含 revision）。
-#[tauri::command]
-fn get_ui_state(app: AppHandle) -> UiState {
-    trace(&app, "command", "get_ui_state（主窗口）");
-    ui_state(&app)
 }
 
 #[tauri::command]
