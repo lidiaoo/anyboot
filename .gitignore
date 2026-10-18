@@ -35,3 +35,6 @@ hs_err_pid*.log
 # JVM 崩溃日志与签名产物
 hs_err_pid*.log
 *.idsig
+
+# WorkBuddy 工作区临时脚本（一次性工具，可复用版在 ~/.workbuddy/skills/）
+.workbuddy/tmp/
