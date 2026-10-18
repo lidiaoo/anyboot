@@ -98,6 +98,28 @@ GUI 程序（`windows_subsystem = "windows"`）起 `ssh` / `sftp` / `ssh-keygen`
 
 终端窗是例外：portable-pty 走 ConPTY，它的 conhost 命令行带 `--headless`，本来就不显示窗口。
 
+### 会阻塞的命令必须是 `async`（否则整窗无响应）
+
+同步的 `#[tauri::command]` 跑在 **WebView2 的 IPC 回调线程，也就是 UI 线程**上。
+在这些命令里做任何会等的事 —— 建 PTY、起 `ssh`/`sftp` 子进程、TCP 连接、`thread::sleep` ——
+都不只是「慢一点」：UI 线程被占住时窗口不重绘、不响应消息，用户看到的就是**点一下终端，
+窗口卡死/白屏**。
+
+定则：
+
+- 只要命令里有上面任意一种调用，一律写成 `pub async fn`，把真正干活的同步函数放进
+  `tauri::async_runtime::spawn_blocking(...)`（命名习惯：`foo` 是 async 包装，`foo_blocking`
+  才是原实现，函数上写明「只允许在阻塞池里调用」）。
+- 纯内存操作（查表、解 base64、往有界通道 `try_send`）可以保持同步 —— 比如 `hub_term_write`
+  故意同步：它只入队，真正会阻塞的 `write_all` 在专属写线程上（`INPUT_QUEUE` 满了就明确报错）。
+- **守卫单测**：`src-tauri/src/blocking_guard.rs` 会扫描 `src/*.rs`，同步命令体里出现
+  `Command::new` / `openpty` / `spawn_command` / `TcpStream::connect` / `thread::sleep` /
+  `.wait()` / `.output()` / `dialog()` 就测试失败（含「调了同文件里另一个同步函数」的间接命中）。
+  绕不过去时在函数体里写 `// blocking-ok: <理由>`（守卫只认这个词），别删测试。
+
+前端也要给可见进展：终端页 `openSession` 立刻显示「正在连接…」、按 server.id 防重入、
+`OPEN_TIMEOUT_MS`（10s）超时后报错而不是静默黑屏。
+
 ### 下载目录
 
 设置页「下载路径」留空 = 系统下载目录，由后端 `hub_download_dir_default` 给
@@ -119,6 +141,7 @@ GUI 程序（`windows_subsystem = "windows"`）起 `ssh` / `sftp` / `ssh-keygen`
 | 提示「无法启动 ssh」 | PATH 里没有 ssh：Windows 装「OpenSSH 客户端」；Linux 装 `openssh-client` |
 | 跳板机报「没有保存凭据」 | 跳板机自己也必须是密钥或保存密码，不能只在终端里手输过一次 |
 | Windows 上文件浏览很慢 | 没有连接复用，每次重新认证；属预期 |
+| `Connection closed by <host> port <port>`，`-v` 里是 `banner line 0: Not allowed at this time` | **服务端主动拒绝**，握手第一行就没给 banner。常见于 fail2ban / CrowdSec / 云厂商的爆破防护把本机 IP 临时拉黑（反复试错密码就会触发）。与客户端无关，换网络/等封禁过期/改用密钥 |
 
 ---
 
@@ -138,4 +161,19 @@ GUI 程序（`windows_subsystem = "windows"`）起 `ssh` / `sftp` / `ssh-keygen`
      但页面永不导航。改成 `async fn`（在 tokio 工作线程创建）即恢复正常。
   ② 文件列表恒空——见上「`sftp -b` 必须显式 `BatchMode=no`」。
 - **未验证**：macOS / Linux 实机（mac 上 hub 开窗同样是 async 路径，但没跑过）。
+- Windows 实机（2026-10-18 三轮，症状「点开终端卡死」根治）：
+  - 病根同上一轮 ①，但位置在**命令体**而不是建窗：`hub_term_open`（openpty + 起 ssh）、
+    `hub_sftp_home/list/mkdir/remove/rename/copy/readlink`（起 sftp/ssh 子进程）、`hub_test_server`
+    （TCP 连接）、`hub_key_generate`、`hub_key_public_key`、`hub_keys_list`、`hub_tunnel_start/stop`、
+    `remote_test` / `remote_delete` / `remote_test_via`、grub 的 `detect_esp` / `sync_grub` /
+    `install_grub_script` / `uninstall_grub_script` 全是同步命令。
+  - 全部改为 `async fn` + `spawn_blocking`；终端上行从「命令里直接 `write_all`」改成有界队列
+    + 专属写线程（满了返回明确错误，不静默排队）。
+  - 量测方式：对 anyboot 每个顶层窗口 20ms 一次 `WM_NULL` + `SendMessageTimeout`（UI 线程被占就
+    必然出现尖峰或 timeout）。覆盖「启动 → 开远程管理窗 → 开终端窗 → 建 ssh 会话」全程
+    45s / 3837 样本：**最大往返 23ms，>100ms 尖峰 0 次，timeout 0 次**。
+  - 另修一条验证链路的坑：启动脚本用 bat 时，**UTF-8 中文注释 + LF 行尾会让后面的 `set` 不生效**
+    （hook 静默不跑，看起来像「功能坏了」）。改为纯 ASCII 启动器（Python），hook 才有输出。
+  - `[hub-term]` 现在会把 ssh 的报错原文抄进 stderr（会话非 0 退出时打印最近 4KB），
+    连不上不再只有界面里那个死标签可看。
 

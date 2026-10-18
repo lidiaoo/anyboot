@@ -53,3 +53,11 @@
   `USERPROFILE` —— Windows 没有 `HOME`，只读它会让 `~` 落到进程工作目录。
 - **远程管理入口现在四处**：托盘、「远程管理」主窗标题栏、终端/文件/密钥三窗顶栏（都调 `hub_open_window`，
   必须 async）。
+- **同步 `#[tauri::command]` = 跑在 UI 线程**：命令体里出现 openpty / 起 ssh·sftp 子进程 / TCP 连接 /
+  `thread::sleep`，用户看到的就是「点一下终端整窗卡死」。定则：写成 `pub async fn` 包装 +
+  真正实现在 `foo_blocking` 里走 `spawn_blocking`。守卫单测 `src/blocking_guard.rs` 扫 `src/*.rs`
+  同步命令体（含间接调用），违规即 `cargo test` 红；转义词只有一个：`// blocking-ok: 理由`。
+  终端上行故意保持同步 —— 它只往有界队列 `try_send`，`write_all` 在专属写线程上。
+- **验证脚本别用带中文注释的 bat**：UTF-8 中文 + LF 行尾会让后面的 `set` 整行失效，hook 静默不跑，
+  看起来像功能坏了（白查半天）。启动一律用纯 ASCII 启动器（Python + DETACHED_PROCESS），
+  且 `[hub-term]` 会把 ssh 报错原文抄进 stderr，连不上时先看它。

@@ -492,13 +492,27 @@ fn emit_progress(app: &AppHandle, files_label: &str, payload: serde_json::Value)
 /// （旧实现是 SIGSTOP/SIGCONT 冻结进程：Windows 没有 POSIX 信号直接编译不过，
 /// 且应用重启后进程没了传输就永远卡死 —— 换成「杀进程+reget/reput」的
 /// 断点续传语义后三端一致、跨重启也成立。）
+/// **必须 async + spawn_blocking**：abandon 要 kill 子进程再等它退出
+/// （`child.wait()`），同步跑在 UI 线程上就是「点放弃 → 界面僵住」。
 #[tauri::command]
-pub fn hub_sftp_transfer_ctl(
+pub async fn hub_sftp_transfer_ctl(
     app: AppHandle,
-    state: tauri::State<'_, HubSftpState>,
     action: String,
     key: Option<String>,
 ) -> Result<usize, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        hub_sftp_transfer_ctl_blocking(app, action, key)
+    })
+    .await
+    .map_err(|error| format!("传输控制任务失败: {error}"))?
+}
+
+fn hub_sftp_transfer_ctl_blocking(
+    app: AppHandle,
+    action: String,
+    key: Option<String>,
+) -> Result<usize, String> {
+    let state = app.state::<HubSftpState>();
     match action.as_str() {
         "pause" => pause_transfers(&app, &state, key.as_deref()),
         "resume" => resume_transfer(&app, &state, key.as_deref()),
@@ -1002,7 +1016,15 @@ pub fn hub_sftp_take_pending(state: tauri::State<'_, HubSftpState>) -> Option<Hu
 /// 远端家目录（`pwd` → "Remote working directory: /home/arch"）。
 /// 注意别用 `pwd -P`：老版 OpenSSH 的 sftp 不认这个旗子。
 #[tauri::command]
-pub fn hub_sftp_home(app: AppHandle, server: HubServer) -> Result<String, String> {
+pub async fn hub_sftp_home(app: AppHandle, server: HubServer) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || hub_sftp_home_blocking(app, server))
+        .await
+        .map_err(|error| format!("hub_sftp_home 任务失败: {error}"))?
+}
+
+/// 原实现：同步起 sftp/ssh 子进程（会阻塞到子进程收工），
+/// **只允许在阻塞线程池里调用** —— 同步命令跑在 UI 线程上，一阻塞就是整窗无响应。
+fn hub_sftp_home_blocking(app: AppHandle, server: HubServer) -> Result<String, String> {
     let server = server.normalize();
     let out = run_sftp_batch(&app, &server, "pwd\n")?;
     for line in out.lines() {
@@ -1014,11 +1036,15 @@ pub fn hub_sftp_home(app: AppHandle, server: HubServer) -> Result<String, String
 }
 
 #[tauri::command]
-pub fn hub_sftp_list(
-    app: AppHandle,
-    server: HubServer,
-    path: String,
-) -> Result<Vec<SftpEntry>, String> {
+pub async fn hub_sftp_list(app: AppHandle, server: HubServer, path: String) -> Result<Vec<SftpEntry>, String> {
+    tauri::async_runtime::spawn_blocking(move || hub_sftp_list_blocking(app, server, path))
+        .await
+        .map_err(|error| format!("hub_sftp_list 任务失败: {error}"))?
+}
+
+/// 原实现：同步起 sftp/ssh 子进程（会阻塞到子进程收工），
+/// **只允许在阻塞线程池里调用** —— 同步命令跑在 UI 线程上，一阻塞就是整窗无响应。
+fn hub_sftp_list_blocking(app: AppHandle, server: HubServer, path: String) -> Result<Vec<SftpEntry>, String> {
     let server = server.normalize();
     let out = run_sftp_batch(&app, &server, &format!("ls -la {}\n", sftp_quote(&path)))?;
     let mut entries: Vec<SftpEntry> = out
@@ -1039,30 +1065,44 @@ pub fn hub_sftp_list(
 }
 
 #[tauri::command]
-pub fn hub_sftp_mkdir(app: AppHandle, server: HubServer, path: String) -> Result<(), String> {
+pub async fn hub_sftp_mkdir(app: AppHandle, server: HubServer, path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || hub_sftp_mkdir_blocking(app, server, path))
+        .await
+        .map_err(|error| format!("hub_sftp_mkdir 任务失败: {error}"))?
+}
+
+/// 原实现：同步起 sftp/ssh 子进程（会阻塞到子进程收工），
+/// **只允许在阻塞线程池里调用** —— 同步命令跑在 UI 线程上，一阻塞就是整窗无响应。
+fn hub_sftp_mkdir_blocking(app: AppHandle, server: HubServer, path: String) -> Result<(), String> {
     let server = server.normalize();
     run_sftp_batch(&app, &server, &format!("mkdir {}\n", sftp_quote(&path))).map(|_| ())
 }
 
 #[tauri::command]
-pub fn hub_sftp_remove(
-    app: AppHandle,
-    server: HubServer,
-    path: String,
-    is_dir: bool,
-) -> Result<(), String> {
+pub async fn hub_sftp_remove(app: AppHandle, server: HubServer, path: String, is_dir: bool) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || hub_sftp_remove_blocking(app, server, path, is_dir))
+        .await
+        .map_err(|error| format!("hub_sftp_remove 任务失败: {error}"))?
+}
+
+/// 原实现：同步起 sftp/ssh 子进程（会阻塞到子进程收工），
+/// **只允许在阻塞线程池里调用** —— 同步命令跑在 UI 线程上，一阻塞就是整窗无响应。
+fn hub_sftp_remove_blocking(app: AppHandle, server: HubServer, path: String, is_dir: bool) -> Result<(), String> {
     let server = server.normalize();
     let verb = if is_dir { "rmdir" } else { "rm" };
     run_sftp_batch(&app, &server, &format!("{verb} {}\n", sftp_quote(&path))).map(|_| ())
 }
 
 #[tauri::command]
-pub fn hub_sftp_rename(
-    app: AppHandle,
-    server: HubServer,
-    from: String,
-    to: String,
-) -> Result<(), String> {
+pub async fn hub_sftp_rename(app: AppHandle, server: HubServer, from: String, to: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || hub_sftp_rename_blocking(app, server, from, to))
+        .await
+        .map_err(|error| format!("hub_sftp_rename 任务失败: {error}"))?
+}
+
+/// 原实现：同步起 sftp/ssh 子进程（会阻塞到子进程收工），
+/// **只允许在阻塞线程池里调用** —— 同步命令跑在 UI 线程上，一阻塞就是整窗无响应。
+fn hub_sftp_rename_blocking(app: AppHandle, server: HubServer, from: String, to: String) -> Result<(), String> {
     let server = server.normalize();
     run_sftp_batch(
         &app,
@@ -1075,7 +1115,15 @@ pub fn hub_sftp_rename(
 /// 远端复制（操作面板「复制到...」）：sftp 协议没有 copy，走远端 shell 的
 /// `cp -a` 一次到位（同盘远端复制不过本机中转）。目标已存在则覆盖。
 #[tauri::command]
-pub fn hub_sftp_copy(app: AppHandle, server: HubServer, from: String, to: String) -> Result<(), String> {
+pub async fn hub_sftp_copy(app: AppHandle, server: HubServer, from: String, to: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || hub_sftp_copy_blocking(app, server, from, to))
+        .await
+        .map_err(|error| format!("hub_sftp_copy 任务失败: {error}"))?
+}
+
+/// 原实现：同步起 sftp/ssh 子进程（会阻塞到子进程收工），
+/// **只允许在阻塞线程池里调用** —— 同步命令跑在 UI 线程上，一阻塞就是整窗无响应。
+fn hub_sftp_copy_blocking(app: AppHandle, server: HubServer, from: String, to: String) -> Result<(), String> {
     let server = server.normalize();
     if server.id.is_empty() {
         return Err("该服务器还没保存档案，无法复用认证连接".to_string());
@@ -1113,7 +1161,15 @@ pub fn hub_sftp_copy(app: AppHandle, server: HubServer, from: String, to: String
 /// "Invalid command."），且真 sshd 的 `ls -la` longname 不带 ` -> target`——
 /// 走 exec 通道 `readlink -f`（与 cp 同一远端 shell 依赖），返回绝对指向。
 #[tauri::command]
-pub fn hub_sftp_readlink(app: AppHandle, server: HubServer, path: String) -> Result<String, String> {
+pub async fn hub_sftp_readlink(app: AppHandle, server: HubServer, path: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || hub_sftp_readlink_blocking(app, server, path))
+        .await
+        .map_err(|error| format!("hub_sftp_readlink 任务失败: {error}"))?
+}
+
+/// 原实现：同步起 sftp/ssh 子进程（会阻塞到子进程收工），
+/// **只允许在阻塞线程池里调用** —— 同步命令跑在 UI 线程上，一阻塞就是整窗无响应。
+fn hub_sftp_readlink_blocking(app: AppHandle, server: HubServer, path: String) -> Result<String, String> {
     let server = server.normalize();
     if server.id.is_empty() {
         return Err("该服务器还没保存档案，无法复用认证连接".to_string());

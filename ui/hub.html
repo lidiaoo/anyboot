@@ -2043,18 +2043,32 @@
 
     document.getElementById('connectBtn').addEventListener('click', function () {
       if (!invoke) { toast('终端需要应用环境', 'bad'); return; }
+      // 开窗期间把按钮锁住、文案改成「正在打开」：后端已经不阻塞 UI 了，
+      // 但用户点一下没动静就会连点，这里给出立刻可见的响应。
+      const button = this;
+      if (button.disabled) return;
+      const label = button.textContent;
+      button.disabled = true;
+      button.textContent = '正在打开…';
       invoke('hub_open_term_window', { serverId: server.id })
         .then(function () {
           // 会话页真实记录：本窗口打开过的终端（不追踪关闭，仅本窗口会话内）
           termLog.unshift({ name: server.name || '(未命名)', host: hostLabel(server), serverId: server.id, at: Date.now() });
           if (termLog.length > 50) termLog.pop();
         })
-        .catch(function (error) { toast('打开终端失败：' + error, 'bad'); });
+        .catch(function (error) { toast('打开终端失败：' + error, 'bad'); })
+        .finally(function () { button.disabled = false; button.textContent = label; });
     });
     document.getElementById('filesBtn').addEventListener('click', function () {
       if (!invoke) { toast('文件浏览需要应用环境', 'bad'); return; }
+      const button = this;
+      if (button.disabled) return;
+      const label = button.textContent;
+      button.disabled = true;
+      button.textContent = '正在打开…';
       invoke('hub_open_files_window', { serverId: server.id })
-        .catch(function (error) { toast('打开文件浏览失败：' + error, 'bad'); });
+        .catch(function (error) { toast('打开文件浏览失败：' + error, 'bad'); })
+        .finally(function () { button.disabled = false; button.textContent = label; });
     });
     document.getElementById('testBtn').addEventListener('click', function () { runTest(server, document.getElementById('testBtn')); });
     document.getElementById('editBtn').addEventListener('click', function () { openEdit(server); });

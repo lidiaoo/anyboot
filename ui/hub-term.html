@@ -446,6 +446,45 @@ function dropSession(id) {
   }
 }
 
+/* 正在连接中的服务器 id：连点两下「+」不会再开一个会话（也不会重复卡一发）。
+   后端已经做到不阻塞 UI，前端这一层是保证「任何一次点击都有可见反馈」。 */
+const opening = new Set();
+/** 开终端的时间上限：openpty + spawn 正常是毫秒级，超过这个数就是出问题了。 */
+const OPEN_TIMEOUT_MS = 10000;
+
+/** 给 promise 加超时：后端万一真卡住，用户看到的是错误提示而不是无限等待。 */
+function withTimeout(promise, ms, message) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms);
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      (error) => { clearTimeout(timer); reject(error); },
+    );
+  });
+}
+
+/** 建立会话期间的状态：标题/胶囊/底栏立刻显示「正在连接」，不要让用户对黑屏。 */
+function showConnecting(server) {
+  const host = (server.username ? server.username + '@' : '') + server.host + ':' + (server.port || 22);
+  document.getElementById('empty').hidden = true;
+  document.getElementById('title').textContent = server.name + ' — 正在连接';
+  const pill = document.getElementById('connPill');
+  pill.hidden = false;
+  pill.className = 'pill bad';
+  document.getElementById('connText').textContent = '连接中…';
+  document.getElementById('footHost').textContent = host;
+}
+
+/** 连接失败：把界面退回「还没有会话」，并留下错误 toast。 */
+function clearConnecting() {
+  if (sessions.size > 0) return;
+  document.getElementById('empty').hidden = false;
+  document.getElementById('title').textContent = '终端';
+  document.getElementById('connPill').hidden = true;
+  document.getElementById('footHost').textContent = '—';
+  document.getElementById('footSize').textContent = '—';
+}
+
 async function openSession(server) {
   if (!invoke) { toast('非 Tauri 环境（预览）：无后端'); return; }
   // 同一台服务器已有活会话 → 直接切过去，不重复开
@@ -453,8 +492,15 @@ async function openSession(server) {
   for (const [id, s] of sessions) {
     if (!s.dead && s.server && s.server.id === server.id) { showSession(id); return; }
   }
+  if (opening.has(server.id)) { toast('这台服务器正在连接中，稍等…'); return; }
+  opening.add(server.id);
+  showConnecting(server);
   try {
-    const meta = await invoke('hub_term_open', { server });
+    const meta = await withTimeout(
+      invoke('hub_term_open', { server }),
+      OPEN_TIMEOUT_MS,
+      '打开终端超时（后端没有响应）。请再点一次，或查看设置里的诊断日志。',
+    );
     const session = { meta, server, term: null, fit: null, dead: false, latencyMs: null };
     sessions.set(meta.id, session);
     showSession(meta.id);
@@ -464,7 +510,10 @@ async function openSession(server) {
     if (buffered) for (const data of buffered) writeData(session, data);
     startLatencyPoll(meta.id, server);
   } catch (e) {
-    toast(String(e));
+    toast(String(e && e.message ? e.message : e));
+    clearConnecting();
+  } finally {
+    opening.delete(server.id);
   }
 }
 

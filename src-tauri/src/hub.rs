@@ -299,14 +299,24 @@ pub fn hub_delete_server(app: AppHandle, id: String) -> Result<(), String> {
 /// 测试连接：TCP 能不能握上手（不认证，认证在 M3 终端里由 ssh 本尊管）。
 /// 经由跳板机时，目标主机往往只有跳板机可达，直测 TCP 没有意义 ——
 /// 改测「跳板机通不通」，端到端连通性在终端里由 ssh 验证。
+///
+/// **必须 async + spawn_blocking**：`connect_timeout` 最长要等满整个
+/// `TEST_TIMEOUT`，而终端页每 10 秒调一次做延迟探测。同步命令跑在 UI 线程上，
+/// 一次连不通就是一次整窗卡顿（用户视角：界面一抽一抽）。
 #[tauri::command]
-pub fn hub_test_server(app: AppHandle, server: HubServer) -> Result<String, String> {
+pub async fn hub_test_server(app: AppHandle, server: HubServer) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || test_server_blocking(&app, server))
+        .await
+        .map_err(|error| format!("测试连接任务失败: {error}"))?
+}
+
+fn test_server_blocking(app: &AppHandle, server: HubServer) -> Result<String, String> {
     let server = server.normalize();
     check_test_target(&server)?;
     if server.jump_id.is_empty() {
         test_direct_tcp(server)
     } else {
-        test_via_jump(&app, server)
+        test_via_jump(app, server)
     }
 }
 

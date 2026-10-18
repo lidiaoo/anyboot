@@ -156,8 +156,16 @@ fn meta_of(app: &AppHandle, private: &Path) -> Option<HubKeyMeta> {
 
 // ==================== 命令 ====================
 
+/// 密钥清单。每个私钥都要跑两次 `ssh-keygen`（取指纹 + 试空口令），
+/// 三把钥匙就是六个子进程 —— 同步跑在 UI 线程上，密钥窗一打开就整窗卡住。
 #[tauri::command]
-pub fn hub_keys_list(app: AppHandle) -> Result<Vec<HubKeyMeta>, String> {
+pub async fn hub_keys_list(app: AppHandle) -> Result<Vec<HubKeyMeta>, String> {
+    tauri::async_runtime::spawn_blocking(move || hub_keys_list_blocking(app))
+        .await
+        .map_err(|error| format!("读取密钥清单任务失败: {error}"))?
+}
+
+fn hub_keys_list_blocking(app: AppHandle) -> Result<Vec<HubKeyMeta>, String> {
     let dir = keys_dir(&app)?;
     let mut keys: Vec<HubKeyMeta> = Vec::new();
     let entries = std::fs::read_dir(&dir).map_err(|error| format!("无法读取密钥目录: {error}"))?;
@@ -176,8 +184,25 @@ pub fn hub_keys_list(app: AppHandle) -> Result<Vec<HubKeyMeta>, String> {
 }
 
 /// 生成密钥：`ssh-keygen -t <ed25519|rsa> [-b 4096] -N <口令> -f <keys>/<name> -C <注释>`
+///
+/// **必须 async + spawn_blocking**：ssh-keygen 是子进程，RSA 4096 生成在低配机上
+/// 能跑好几秒。同步命令跑在 UI 线程上，用户看到的就是「点生成密钥 → 整个窗口
+/// 白掉/不响应」。
 #[tauri::command]
-pub fn hub_key_generate(
+pub async fn hub_key_generate(
+    app: AppHandle,
+    name: String,
+    kind: String,
+    passphrase: String,
+) -> Result<HubKeyMeta, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        hub_key_generate_blocking(app, name, kind, passphrase)
+    })
+    .await
+    .map_err(|error| format!("生成密钥任务失败: {error}"))?
+}
+
+fn hub_key_generate_blocking(
     app: AppHandle,
     name: String,
     kind: String,

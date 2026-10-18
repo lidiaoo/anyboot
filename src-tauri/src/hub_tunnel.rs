@@ -419,31 +419,38 @@ pub fn hub_delete_tunnel(app: AppHandle, state: tauri::State<'_, HubTunnelState>
 }
 
 /// 启动隧道：复用该服务器的 ControlMaster；进程活过 1.2s 视为已建立
+///
+/// **必须 async + spawn_blocking**：这里要起 ssh 子进程，还要**故意等 1.2 秒**
+/// 观察它有没有立刻死掉。同步命令跑在 UI 线程上，等于用户每点一次「启动隧道」
+/// 界面就硬化一秒多（ssh 握手慢时更久）。
 #[tauri::command]
-pub fn hub_tunnel_start(
-    app: AppHandle,
-    state: tauri::State<'_, HubTunnelState>,
-    tunnel_id: String,
-) -> Result<TunnelStatus, String> {
+pub async fn hub_tunnel_start(app: AppHandle, tunnel_id: String) -> Result<TunnelStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || tunnel_start_blocking(&app, &tunnel_id))
+        .await
+        .map_err(|error| format!("启动隧道任务失败: {error}"))?
+}
+
+fn tunnel_start_blocking(app: &AppHandle, tunnel_id: &str) -> Result<TunnelStatus, String> {
+    let state = app.state::<HubTunnelState>();
     {
         let map = state.processes.lock().map_err(|_| "隧道进程表已被锁死")?;
-        if map.contains_key(&tunnel_id) {
+        if map.contains_key(tunnel_id) {
             return Err("该隧道已在运行".to_string());
         }
     }
-    let tunnels = load_tunnels(&app)?;
+    let tunnels = load_tunnels(app)?;
     let tunnel = tunnels
         .iter()
         .find(|t| t.id == tunnel_id)
         .ok_or_else(|| format!("隧道不存在（{tunnel_id}）"))?
         .clone();
-    let servers = crate::hub::load_servers_for_tunnel(&app)?;
+    let servers = crate::hub::load_servers_for_tunnel(app)?;
     let server = servers
         .iter()
         .find(|s| s.id == tunnel.server_id)
         .ok_or_else(|| "关联的服务器已被删除，请重新选择".to_string())?
         .clone();
-    spawn_tunnel(app, state.inner(), &server, tunnel)
+    spawn_tunnel(app.clone(), state.inner(), &server, tunnel)
 }
 
 fn spawn_tunnel(

@@ -14,7 +14,7 @@ use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
 /// 档案文件名（放配置目录，随 `ANYBOOT_CONFIG_DIR` 走）
 pub(crate) const REMOTE_SERVERS_FILE: &str = "remote-servers.json";
@@ -334,12 +334,17 @@ pub fn remote_save(app: AppHandle, server: RemoteServer) -> Result<RemoteServer,
     Ok(server)
 }
 
+/// 删除服务端（顺带收掉它的隧道子进程）。
+/// **必须 async + spawn_blocking**：`kill_forward` 要 kill 再 wait 子进程。
 #[tauri::command]
-pub fn remote_delete(
-    app: AppHandle,
-    state: tauri::State<'_, RemoteJumpState>,
-    id: String,
-) -> Result<(), String> {
+pub async fn remote_delete(app: AppHandle, id: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || remote_delete_blocking(app, id))
+        .await
+        .map_err(|error| format!("删除服务端任务失败: {error}"))?
+}
+
+fn remote_delete_blocking(app: AppHandle, id: String) -> Result<(), String> {
+    let state = app.state::<RemoteJumpState>();
     kill_forward(state.inner(), &id);
     let mut store = load_store(&app)?;
     let before = store.servers.len();
@@ -360,8 +365,22 @@ pub fn remote_set_connect_all(app: AppHandle, on: bool) -> Result<(), String> {
 
 /// 探测一台电脑：并发模式 = 所有地址同时探取最快成功；串行 = 按顺序第一个成功。
 /// `GET /health` 免鉴权，token 参数仅保证签名对齐（后续健康检查可能带）。
+/// **必须 async + spawn_blocking**：内部要 join 并发探测线程 / 等 TCP 超时。
 #[tauri::command]
-pub fn remote_test(addresses: Vec<String>, probe_mode: String) -> RemoteTestResult {
+pub async fn remote_test(addresses: Vec<String>, probe_mode: String) -> RemoteTestResult {
+    tauri::async_runtime::spawn_blocking(move || remote_test_blocking(addresses, probe_mode))
+        .await
+        .unwrap_or_else(|error| RemoteTestResult {
+            ok: false,
+            addr: String::new(),
+            ms: 0,
+            machine_id: String::new(),
+            machine_name: String::new(),
+            error: format!("探测任务失败: {error}"),
+        })
+}
+
+fn remote_test_blocking(addresses: Vec<String>, probe_mode: String) -> RemoteTestResult {
     let candidates: Vec<String> = addresses
         .iter()
         .filter_map(|raw| {
@@ -616,23 +635,41 @@ fn remote_endpoint_inner(
 }
 
 /// 电脑页 iframe / 健康检查要连的端点。
+/// **必须 async + spawn_blocking**：没现成转发时要起 ssh 子进程并等它就绪。
 #[tauri::command]
-pub fn remote_endpoint(
-    app: AppHandle,
-    state: tauri::State<'_, RemoteJumpState>,
-    server_id: String,
-) -> Result<RemoteEndpoint, String> {
-    remote_endpoint_inner(&app, state.inner(), &server_id)
+pub async fn remote_endpoint(app: AppHandle, server_id: String) -> Result<RemoteEndpoint, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<RemoteJumpState>();
+        remote_endpoint_inner(&app, state.inner(), &server_id)
+    })
+    .await
+    .map_err(|error| format!("获取端点任务失败: {error}"))?
 }
 
 /// 经跳板机探测：先确保本地转发，再对 127.0.0.1:port 做 /health 探测。
 #[tauri::command]
-pub fn remote_test_via(
-    app: AppHandle,
-    state: tauri::State<'_, RemoteJumpState>,
-    server_id: String,
+pub async fn remote_test_via(app: AppHandle, server_id: String) -> RemoteTestResult {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<RemoteJumpState>();
+        remote_test_via_blocking(&app, state.inner(), &server_id)
+    })
+    .await
+    .unwrap_or_else(|error| RemoteTestResult {
+        ok: false,
+        addr: String::new(),
+        ms: 0,
+        machine_id: String::new(),
+        machine_name: String::new(),
+        error: format!("探测任务失败: {error}"),
+    })
+}
+
+fn remote_test_via_blocking(
+    app: &AppHandle,
+    state: &RemoteJumpState,
+    server_id: &str,
 ) -> RemoteTestResult {
-    let endpoint = match remote_endpoint_inner(&app, state.inner(), &server_id) {
+    let endpoint = match remote_endpoint_inner(app, state, server_id) {
         Ok(ep) => ep,
         Err(error) => {
             return RemoteTestResult {
@@ -818,7 +855,7 @@ mod tests {
 
     #[test]
     fn remote_test_reports_missing_addresses() {
-        let result = remote_test(vec![" ".into()], "parallel".into());
+        let result = remote_test_blocking(vec![" ".into()], "parallel".into());
         assert!(!result.ok);
         assert_eq!(result.error, "没有可探测的地址");
     }

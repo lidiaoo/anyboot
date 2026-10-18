@@ -30,6 +30,14 @@ const EVENT_CLOSED: &str = "hub-term-closed";
 const INITIAL_ROWS: u16 = 30;
 const INITIAL_COLS: u16 = 100;
 
+/// 上行队列容量（条）。每条最多是一段粘贴内容，1024 条足够吸收
+/// 「按住键不放 + 远端一时不回显」的突发，同时给 PTY 缓冲满留出明确的
+/// 失败边界（满了就报错，而不是无声排队到天荒地老）。
+const INPUT_QUEUE: usize = 1024;
+
+/// 会话异常退出时，往 stderr 抄多少字节的 ssh 原文（够装下一条完整报错）。
+const TAIL_LIMIT: usize = 4096;
+
 // ==================== 状态 ====================
 
 #[derive(Default)]
@@ -50,7 +58,13 @@ pub struct TermSession {
     pub window: String,
     /// MasterPty 本身不是 Sync，全部收进锁里；会话经 Arc 共享给等待线程/命令层
     master: Mutex<Box<dyn MasterPty + Send>>,
-    writer: Mutex<Box<dyn Write + Send>>,
+    /// 上行队列：`hub_term_write` 只负责入队，真正写 PTY 的是专属写线程。
+    ///
+    /// 以前命令里直接 `write_all + flush`：PTY 缓冲满（远端不读、网络卡住、
+    /// 用户粘贴一大段）时 write 会阻塞，而同步命令跑在 UI 线程上 —— 一阻塞
+    /// 整个窗口就不响应。改成队列后命令只做一次 `try_send`（纯内存 + 有界
+    /// 通道，满则立刻报错），UI 线程永远不会卡在这一步。
+    input: std::sync::mpsc::SyncSender<Vec<u8>>,
     killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
     /// 用户主动关的标签（hub_term_close 置位）：算「干净收尾」，最后一个会话
     /// 结束照常自动关窗。ssh 自己 abnormal 退出（连不上/认证失败/指纹被拒）
@@ -174,11 +188,35 @@ pub(crate) fn jump_proxy_command(
 
 /// 打开终端：PTY 里跑 `ssh -p PORT user@host`，读线程/等待线程开始推事件。
 /// `window` 由 Tauri 注入 = 调用方窗口（server-term 页内的标签全归它）。
+///
+/// **必须 async + spawn_blocking**。`openpty` 在 Windows 上是「起一个 conhost
+/// 并等它连上命名管道」的同步握手，`spawn_command` 也是同步 CreateProcess，
+/// 两者合计几十毫秒到数秒。同步 `#[tauri::command]` 跑在 WebView2 的 IPC
+/// 回调线程（就是 UI 线程）上，这期间窗口不绘制、不吃输入 —— 用户看到的
+/// 就是「点开终端卡死」，与上一轮「在 IPC 回调里建 webview」同一个病根。
+/// 放进阻塞线程池后 UI 线程全程空闲，慢也只慢终端自己转圈。
 #[tauri::command]
-pub fn hub_term_open(
+pub async fn hub_term_open(
     app: AppHandle,
-    state: tauri::State<'_, HubTermState>,
     window: tauri::WebviewWindow,
+    server: HubServer,
+) -> Result<TermMeta, String> {
+    let window_label = window.label().to_string();
+    let result =
+        tauri::async_runtime::spawn_blocking(move || open_term_session(&app, &window_label, server))
+            .await
+            .map_err(|error| format!("打开终端任务失败: {error}"))?;
+    // 失败原因必须进 stderr：前端只弹一个 toast，落不成可查的证据
+    if let Err(ref error) = result {
+        eprintln!("[hub-term] open 失败: {error}");
+    }
+    result
+}
+
+/// 开终端的真正逻辑：同步、会阻塞，**只允许在阻塞线程池里调用**。
+fn open_term_session(
+    app: &AppHandle,
+    window_label: &str,
     server: HubServer,
 ) -> Result<TermMeta, String> {
     let server = server.normalize();
@@ -217,7 +255,7 @@ pub fn hub_term_open(
     command.env("TERM", "xterm-256color");
     // 选了密钥认证：-i 指定私钥（带口令的钥匙由 ssh 在 PTY 里交互要，与本模块哲学一致）
     if !server.key_id.is_empty() {
-        let key = crate::hub_keys::private_key_path(&app, &server.key_id)?;
+        let key = crate::hub_keys::private_key_path(app, &server.key_id)?;
         command.args(["-i", &key.display().to_string()]);
         command.args(["-o", "IdentitiesOnly=yes"]);
     } else if !server.password_enc.is_empty() {
@@ -245,7 +283,7 @@ pub fn hub_term_open(
     // `getsockname failed: Not a socket`），Windows 上的文件/隧道改为每次自己认证。
     #[cfg(unix)]
     if !server.id.is_empty() {
-        if let Ok(control) = crate::hub_tunnel::control_path(&app, &server.id) {
+        if let Ok(control) = crate::hub_tunnel::control_path(app, &server.id) {
             command.args(["-o", "ControlMaster=auto"]);
             command.args(["-o", &format!("ControlPath={}", control.display())]);
             command.args(["-o", "ControlPersist=600"]);
@@ -261,7 +299,7 @@ pub fn hub_term_open(
         if server.jump_id == server.id {
             return Err("跳板机不能是服务器自己".to_string());
         }
-        let jump = crate::hub::load_servers_pub(&app)?
+        let jump = crate::hub::load_servers_pub(app)?
             .into_iter()
             .find(|s| s.id == server.jump_id)
             .ok_or_else(|| "找不到经由的跳板机，请在「编辑」里重新选择或改回直连".to_string())?;
@@ -274,7 +312,7 @@ pub fn hub_term_open(
         let key = if jump.key_id.is_empty() {
             None
         } else {
-            Some(crate::hub_keys::private_key_path(&app, &jump.key_id)?)
+            Some(crate::hub_keys::private_key_path(app, &jump.key_id)?)
         };
         let proxy = jump_proxy_command(&jump, key.as_deref());
         command.args(["-o", &format!("ProxyCommand={proxy}")]);
@@ -289,7 +327,7 @@ pub fn hub_term_open(
         .master
         .try_clone_reader()
         .map_err(|error| format!("无法读取 PTY 输出: {error}"))?;
-    let writer = pair
+    let mut writer = pair
         .master
         .take_writer()
         .map_err(|error| format!("无法写入 PTY: {error}"))?;
@@ -309,20 +347,38 @@ pub fn hub_term_open(
         protocol: server.protocol.clone(),
     };
 
+    // 写线程：命令侧只往队列里塞，写 PTY 的阻塞全部收在这条线程上。
+    // 通道关闭（会话从表里摘掉 / 结构体释放）时 for 循环结束，线程自然退出。
+    let (input, input_rx) = std::sync::mpsc::sync_channel::<Vec<u8>>(INPUT_QUEUE);
+    std::thread::Builder::new()
+        .name(format!("hub-term-write-{id}"))
+        .spawn(move || {
+            for chunk in input_rx {
+                if writer
+                    .write_all(&chunk)
+                    .and_then(|_| writer.flush())
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        })
+        .map_err(|error| format!("无法启动写线程: {error}"))?;
+
     let session = Arc::new(TermSession {
         id: id.clone(),
         server_name: server.name.clone(),
         host_label: meta.host_label.clone(),
         protocol: meta.protocol.clone(),
-        window: window.label().to_string(),
+        window: window_label.to_string(),
         master: Mutex::new(pair.master),
-        writer: Mutex::new(writer),
+        input,
         killer: Mutex::new(killer),
         user_closed: AtomicBool::new(false),
     });
     // 等待线程要看 user_closed（用户主动 ✕ = 干净收尾），在入表前先留一个把手
     let wait_session = session.clone();
-    state
+    app.state::<HubTermState>()
         .sessions
         .lock()
         .map_err(|_| "会话表已被锁死")?
@@ -331,17 +387,20 @@ pub fn hub_term_open(
     // 读线程：ssh 输出 → hub-term-data（b64），只发给承载窗口
     let emit_app = app.clone();
     let read_id = id.clone();
-    let read_window = window.label().to_string();
+    let read_window = window_label.to_string();
+    let tail = Arc::new(Mutex::new(Vec::<u8>::new()));
+    let read_tail = tail.clone();
     std::thread::Builder::new()
         .name(format!("hub-term-read-{id}"))
-        .spawn(move || pump_output(&emit_app, &read_id, &read_window, reader))
+        .spawn(move || pump_output(&emit_app, &read_id, &read_window, reader, read_tail))
         .map_err(|error| format!("无法启动读线程: {error}"))?;
 
     // 等待线程：ssh 退出 → hub-term-closed（发给承载窗口），并从会话表摘除
     // （master 随之释放，读线程收尾）
     let wait_app = app.clone();
     let wait_id = id.clone();
-    let wait_window = window.label().to_string();
+    let wait_window = window_label.to_string();
+    let wait_tail = tail.clone();
     std::thread::Builder::new()
         .name(format!("hub-term-wait-{id}"))
         .spawn(move || {
@@ -358,6 +417,16 @@ pub fn hub_term_open(
                 }
             }
             eprintln!("[hub-term] closed id={wait_id} code={code} user_closed={user_closed}");
+            if code != 0 && !user_closed {
+                // 把 ssh 自己的报错抄进 stderr：连不上的原因不该只活在界面里
+                let text = wait_tail
+                    .lock()
+                    .map(|buf| String::from_utf8_lossy(&buf).trim().to_string())
+                    .unwrap_or_default();
+                if !text.is_empty() {
+                    eprintln!("[hub-term] 最后输出: {text}");
+                }
+            }
             let _ = wait_app.emit_to(
                 wait_window.clone(),
                 EVENT_CLOSED,
@@ -391,6 +460,10 @@ pub fn hub_term_open(
 }
 
 /// 键盘 → ssh
+///
+/// 这条命令**故意保持同步**：它只做「解 base64 + 查会话表 + 往有界通道
+/// try_send」，全是内存操作，微秒级，没有阻塞点。真正会阻塞的 `write_all`
+/// 在专属写线程里，所以 UI 线程既不会等 PTY，也不会被远端卡住拖死。
 #[tauri::command]
 pub fn hub_term_write(
     state: tauri::State<'_, HubTermState>,
@@ -401,14 +474,21 @@ pub fn hub_term_write(
         .decode(data.as_bytes())
         .map_err(|error| format!("上行数据不是合法 base64: {error}"))?;
     let session = get_session(&state, &session_id)?;
-    let mut writer = session.writer.lock().map_err(|_| "写入端已被锁死")?;
-    writer
-        .write_all(&bytes)
-        .and_then(|_| writer.flush())
-        .map_err(|error| format!("发送失败: {error}"))
+    match session.input.try_send(bytes) {
+        Ok(()) => Ok(()),
+        Err(std::sync::mpsc::TrySendError::Full(_)) => {
+            Err("输入积压太多（远端迟迟不回显），请稍等一下再输入".to_string())
+        }
+        Err(std::sync::mpsc::TrySendError::Disconnected(_)) => {
+            Err("会话已结束".to_string())
+        }
+    }
 }
 
 /// xterm fit 之后报尺寸 → PTY resize（远端收到 SIGWINCH）
+///
+/// 同步是安全的，但**只拿 try_lock**：拿不到（说明别处正握着 PTY 把手）就
+/// 静默跳过，下次窗口变动还会再报一次。让 UI 线程为一个尺寸等锁不值得。
 #[tauri::command]
 pub fn hub_term_resize(
     state: tauri::State<'_, HubTermState>,
@@ -417,7 +497,9 @@ pub fn hub_term_resize(
     cols: u16,
 ) -> Result<(), String> {
     let session = get_session(&state, &session_id)?;
-    let master = session.master.lock().map_err(|_| "PTY 把手已被锁死")?;
+    let Ok(master) = session.master.try_lock() else {
+        return Ok(());
+    };
     master
         .resize(PtySize {
             rows: rows.max(2),
@@ -457,12 +539,30 @@ fn get_session(state: &HubTermState, id: &str) -> Result<Arc<TermSession>, Strin
 }
 
 /// 读线程主体：PTY → b64 → 事件（只发给承载窗口）
-fn pump_output(app: &AppHandle, id: &str, window: &str, mut reader: Box<dyn Read + Send>) {
+/// 读线程：ssh 输出 → hub-term-data（b64），只发给承载窗口。
+///
+/// 顺手把最近 `TAIL_LIMIT` 字节留在 `tail` 里：ssh 非 0 退出时（最常见的是
+/// 认证失败 255），等待线程会把这段原文打进 stderr —— 否则「终端连不上」
+/// 只有黑箱，报错文本只活在用户眼前那个死标签里。
+fn pump_output(
+    app: &AppHandle,
+    id: &str,
+    window: &str,
+    mut reader: Box<dyn Read + Send>,
+    tail: Arc<Mutex<Vec<u8>>>,
+) {
     let mut chunk = [0u8; 8192];
     loop {
         match reader.read(&mut chunk) {
             Ok(0) => break,             // EOF：ssh 退出，等待线程会收尾
             Ok(n) => {
+                if let Ok(mut buf) = tail.lock() {
+                    buf.extend_from_slice(&chunk[..n]);
+                    if buf.len() > TAIL_LIMIT {
+                        let cut = buf.len() - TAIL_LIMIT;
+                        buf.drain(..cut);
+                    }
+                }
                 let payload = json!({
                     "id": id,
                     "data": B64.encode(&chunk[..n]),

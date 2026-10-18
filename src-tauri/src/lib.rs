@@ -73,6 +73,10 @@ const FAT_FILESYSTEMS: [&str; 6] = ["vfat", "fat", "fat12", "fat16", "fat32", "e
 mod cli;
 mod grub;
 mod hub;
+// 只在测试里编译的守卫：同步 `#[tauri::command]` 不许出现阻塞调用
+// （两次「点了就卡死」都是这个病根，见模块注释）。
+#[cfg(test)]
+mod blocking_guard;
 mod hub_keys;
 // pub(crate)：async 命令的 __cmd__ 宏可见性跟着模块走（private mod 会报
 // "macro import is private"，sync 命令没这问题）
@@ -4554,7 +4558,7 @@ fn remote_ui_command_inner(
         }
         "detect_esp" => {
             let path = ui_str(args, "path")?;
-            detect_esp(app.clone(), path).map(serde_json::Value::String)
+            detect_esp_blocking(app.clone(), path).map(serde_json::Value::String)
         }
         "detect_grub_by_partuuid" => {
             detect_grub_by_partuuid(app.clone()).map(serde_json::Value::String)
@@ -4565,9 +4569,9 @@ fn remote_ui_command_inner(
         }
         "set_grub_script" => res_unit(set_grub_script(app.clone(), ui_str(args, "script")?)),
         "set_grub_mount" => res_unit(set_grub_mount(app.clone(), ui_bool(args, "enabled")?)),
-        "sync_grub" => res_unit(sync_grub(app.clone())),
-        "install_grub_script" => res_unit(install_grub_script(app.clone())),
-        "uninstall_grub_script" => res_unit(uninstall_grub_script(app.clone())),
+        "sync_grub" => res_unit(sync_grub_blocking(app.clone())),
+        "install_grub_script" => res_unit(install_grub_script_blocking(app.clone())),
+        "uninstall_grub_script" => res_unit(uninstall_grub_script_blocking(app.clone())),
         "set_grub_list_view" => {
             settings_value(set_grub_list_view(app.clone(), ui_str(args, "mode")?))
         }
@@ -13679,7 +13683,15 @@ async fn pick_grub_dir(app: AppHandle) -> Result<Option<String>, String> {
 /// 填目录是**可选的入口**：分区 UUID 才是权威键。识别成功后存的是**分区根目录**，
 /// 所以用户填 `H:\EFI` 或 `/boot/efi/EFI/grub.cfg` 都会归一化成 `H:\` / `/boot/efi`。
 #[tauri::command]
-fn detect_esp(app: AppHandle, path: String) -> Result<String, String> {
+async fn detect_esp(app: AppHandle, path: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || detect_esp_blocking(app, path))
+        .await
+        .map_err(|error| format!("detect_esp 任务失败: {error}"))?
+}
+
+/// 原实现：同步跑 lsblk/mount/grub-mkconfig 等子进程，**只在阻塞池里调用**。
+fn detect_esp_blocking(app: AppHandle, path: String) -> Result<String, String> {
+
     let raw = path.trim().to_string();
     trace(&app, "command", &format!("detect_esp path={raw}"));
     if raw.is_empty() {
@@ -13920,7 +13932,15 @@ fn open_grub_dir(app: AppHandle) -> Result<String, String> {
 /// ESP，grubenv 没有才搬。硬性条件：该分区已挂载到 /boot 或 /boot/efi，
 /// 否则不动（不自动挂载、不 pkexec、不写盘）。
 #[tauri::command]
-fn sync_grub(app: AppHandle) -> Result<(), String> {
+async fn sync_grub(app: AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || sync_grub_blocking(app))
+        .await
+        .map_err(|error| format!("sync_grub 任务失败: {error}"))?
+}
+
+/// 原实现：同步跑 lsblk/mount/grub-mkconfig 等子进程，**只在阻塞池里调用**。
+fn sync_grub_blocking(app: AppHandle) -> Result<(), String> {
+
     trace(&app, "command", "sync_grub");
     let settings = stored_settings(&app);
     let uuid = settings.grub_efi_partuuid.trim();
@@ -13994,7 +14014,15 @@ fn switch_grub(app: AppHandle, selector: String) -> AppStatus {
 
 /// 安装 09_anyboot + 重新生成 grub.cfg（仅 Linux）。
 #[tauri::command]
-fn install_grub_script(app: AppHandle) -> Result<(), String> {
+async fn install_grub_script(app: AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || install_grub_script_blocking(app))
+        .await
+        .map_err(|error| format!("install_grub_script 任务失败: {error}"))?
+}
+
+/// 原实现：同步跑 lsblk/mount/grub-mkconfig 等子进程，**只在阻塞池里调用**。
+fn install_grub_script_blocking(app: AppHandle) -> Result<(), String> {
+
     trace(&app, "command", "install_grub_script");
     let mut log = Vec::new();
     let outcome = grub_install_script(&app, &mut log);
@@ -14020,7 +14048,15 @@ fn install_grub_script(app: AppHandle) -> Result<(), String> {
 /// 卸载 09_anyboot + 重新生成 grub.cfg（仅 Linux）。
 /// 按用户定案：只删脚本、不把环境块迁回 ext4。
 #[tauri::command]
-fn uninstall_grub_script(app: AppHandle) -> Result<(), String> {
+async fn uninstall_grub_script(app: AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || uninstall_grub_script_blocking(app))
+        .await
+        .map_err(|error| format!("uninstall_grub_script 任务失败: {error}"))?
+}
+
+/// 原实现：同步跑 lsblk/mount/grub-mkconfig 等子进程，**只在阻塞池里调用**。
+fn uninstall_grub_script_blocking(app: AppHandle) -> Result<(), String> {
+
     trace(&app, "command", "uninstall_grub_script");
     let mut log = Vec::new();
     let outcome = grub_uninstall_script(&mut log);
@@ -14900,7 +14936,11 @@ pub fn run() {
                 let handle = app.handle().clone();
                 std::thread::spawn(move || {
                     std::thread::sleep(std::time::Duration::from_secs(3));
-                    let _ = open_hub_window(&handle);
+                    // 钩子失败必须留痕：`let _ =` 吞掉错误会让「窗口没开」变成悬案
+                    match open_hub_window(&handle) {
+                        Ok(()) => eprintln!("[hook] 远程管理窗口已打开"),
+                        Err(error) => eprintln!("[hook] 打开远程管理窗口失败: {error}"),
+                    }
                     let want_term = std::env::var("ANYBOOT_TEST_OPEN_TERM").is_ok();
                     let want_files = std::env::var("ANYBOOT_TEST_OPEN_FILES").is_ok();
                     let want_keys = std::env::var("ANYBOOT_TEST_OPEN_KEYS").is_ok();
@@ -14908,18 +14948,31 @@ pub fn run() {
                         return;
                     }
                     if want_keys {
-                        let _ = open_keys_window(&handle);
+                        match open_keys_window(&handle) {
+                            Ok(()) => eprintln!("[hook] 密钥窗口已打开"),
+                            Err(error) => eprintln!("[hook] 打开密钥窗口失败: {error}"),
+                        }
                     }
                     std::thread::sleep(std::time::Duration::from_secs(2));
-                    if let Ok(list) = hub::load_servers_pub(&handle) {
-                        if let Some(server) = list.into_iter().next() {
-                            if want_term {
-                                let _ = hub_term::open_term_window(&handle, server.clone());
+                    match hub::load_servers_pub(&handle) {
+                        Ok(list) => match list.into_iter().next() {
+                            Some(server) => {
+                                if want_term {
+                                    match hub_term::open_term_window(&handle, server.clone()) {
+                                        Ok(()) => eprintln!("[hook] 终端窗口已打开 server={}", server.name),
+                                        Err(error) => eprintln!("[hook] 打开终端窗口失败: {error}"),
+                                    }
+                                }
+                                if want_files {
+                                    match hub_sftp::open_files_window(&handle, server) {
+                                        Ok(()) => eprintln!("[hook] 文件窗口已打开"),
+                                        Err(error) => eprintln!("[hook] 打开文件窗口失败: {error}"),
+                                    }
+                                }
                             }
-                            if want_files {
-                                let _ = hub_sftp::open_files_window(&handle, server);
-                            }
-                        }
+                            None => eprintln!("[hook] hub-servers.json 里没有服务器"),
+                        },
+                        Err(error) => eprintln!("[hook] 读取服务器列表失败: {error}"),
                     }
                 });
             }
