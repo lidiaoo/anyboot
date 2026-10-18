@@ -736,10 +736,12 @@ $('transferAct').addEventListener('click', () => {
       if (!n) return;
       if (goingPause) {
         tx.paused = true;
+        tx.pausedAt = Date.now();   // 暂停宽限锚点：2s 内的迟到 running 事件不许解暂停
         txPaint();
         toast('已暂停，可稍后从断点继续');
       } else {
         tx.paused = false;
+        tx.pausedAt = 0;
         $('transferPct').classList.remove('fail');
         txPaint();
       }
@@ -1113,7 +1115,12 @@ if (listen) {
     }
     // 传输条指向跟随最新任务；同 key 的后续事件直接刷
     if (!tx || tx.key !== key) tx = { key, dir: dir || 'down', paused: false };
-    if (phase === 'running') tx.paused = false;   // 续传成功 → 断点标记要清掉
+    // running 不许盲目解暂停：暂停后可能还有迟到的 running 事件（后端已修，
+    // 这里防微秒竞态），只有不在暂停宽限期内才清标记 —— 续传恢复走按钮点击，
+    // 本地就置 false，不依赖这条。
+    if (phase === 'running' && !(tx.paused && Date.now() - (tx.pausedAt || 0) < 2000)) {
+      tx.paused = false;
+    }
     if (failed) {
       tx = null;
       $('transferPct').textContent = '失败';
@@ -1127,6 +1134,7 @@ if (listen) {
     showTransfer(dir, (dir === 'up' ? '上传 ' : '下载 ') + name, dir === 'up' && !done && !paused && bytes === undefined);
     if (paused) {
       tx.paused = true;
+      tx.pausedAt = Date.now();
       // 后端已兜底，这里是保险：满进度的"暂停"其实是已传完，按完成收尾
       if ((total > 0 && bytes >= total) || (total === undefined && tx.total > 0 && tx.bytes >= tx.total)) {
         tx = null;

@@ -3377,6 +3377,11 @@
         tx.paused = true;
         if (!txPausedSince.has(key)) txPausedSince.set(key, Date.now());
       }
+    } else if (txPausedSince.has(key) && Date.now() - txPausedSince.get(key) < 2000) {
+      // 暂停宽限期内的迟到 running 事件：不翻转状态（后端已修发出侧，
+      // 这里防摘表与 emit 之间的微秒竞态）。用户点「继续」会先删
+      // txPausedSince，之后的 running 事件照常恢复。
+      renderTransfers();
     } else {
       // running：续传成功/开跑 → 暂停态必须立刻清掉，否则卡片还显示「已暂停」
       tx.paused = false;

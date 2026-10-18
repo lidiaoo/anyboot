@@ -966,6 +966,18 @@ fn is_paused(state: &HubSftpState, key: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// running 表还认不认这个把（同 key 可能已被换成 resume 起的新进程，按指针比）。
+/// 轮询线程发**进度**事件前必须先过这道检查：任务被暂停/放弃摘走后，
+/// 迟到的 running 事件会把前端刚置上的「已暂停」弹回「传输中」——按钮
+/// 显示暂停、实际已停，两边从此对不上账（实测复现的病根）。
+fn running_owns(state: &HubSftpState, key: &str, child: &Arc<Mutex<std::process::Child>>) -> bool {
+    state
+        .running
+        .lock()
+        .map(|list| list.iter().any(|r| r.task.key == key && Arc::ptr_eq(&r.child, child)))
+        .unwrap_or(false)
+}
+
 /// 传输子进程的进度轮询 + 收尾（down 用本地文件大小、up 定期摸远端大小）。
 /// 退出收尾三态：成功 → done 事件（顺手清可能的竞态断点记录）；
 /// 被 resume 接管（新进程同键）→ 静默退出；被暂停 → paused 事件；
@@ -990,7 +1002,7 @@ fn spawn_progress_poller(
             if is_up {
                 // 上传的进度在远端：每 ~1.5s 摸一次（复用 ControlMaster，开销可忽略）
                 tick += 1;
-                if tick % 5 == 0 && status.is_none() {
+                if tick % 5 == 0 && status.is_none() && running_owns(&state, &task.key, &child) {
                     if let Ok(Some(bytes)) = remote_size_of(&app, &server, &task.remote_path) {
                         task.bytes = bytes;
                         emit_xfer(&app, &task, "running", bytes, task.total);
@@ -999,7 +1011,7 @@ fn spawn_progress_poller(
                 }
             } else {
                 let bytes = partial_size(&task.local_path);
-                if bytes != last_bytes {
+                if bytes != last_bytes && running_owns(&state, &task.key, &child) {
                     last_bytes = bytes;
                     emit_xfer(&app, &task, "running", bytes, task.total);
                     update_running_bytes(&state, &task.key, bytes);
