@@ -1,4 +1,4 @@
-//! 远程命令路由 + 延迟确认
+//! 远程命令路由、延迟确认（pending 四件套）与 Web 面板静态资源。
 
 use super::*;
 
@@ -918,3 +918,13 @@ pub(crate) fn run_pending_now(app: &AppHandle, pending: PendingRequest) {
     close_notify_window(app);
     publish_ui(app);
 }
+
+/// 网页控制台静态资源（编译期嵌入）：内置 HTTP 服务直接把主窗口那套前端
+/// 托管给局域网/外网浏览器，设置改动通过 /api/ui-command 真正作用于本机应用。
+pub(crate) const UI_INDEX_HTML: &str = include_str!("../../ui/index.html");
+
+pub(crate) const UI_APP_JS: &str = include_str!("../../ui/app.js");
+
+pub(crate) const UI_STYLES_CSS: &str = include_str!("../../ui/styles.css");
+
+pub(crate) const UI_GRUB_LIST_VIEW_JS: &str = include_str!("../../ui/grub-list-view.js");

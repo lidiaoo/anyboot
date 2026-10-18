@@ -1,3 +1,41 @@
+//! # lib.rs —— 装配与命令注册表（2026-10-18 拆分后）
+//!
+//! 本文件只保留：`run()` 装配、子进程辅助 `command()`、settings/实例锁/配置目录
+//! IO、命令注册表（`generate_handler!`）与命令面（set_* / 远程命令同款入口）、
+//! hub 开窗命令、`ShowOrigin`/`show_main_window`、测试模块（不搬，见方案规则 8）。
+//!
+//! ## 分区地图（谁在哪）
+//!
+//! | 文件 | 职责 |
+//! |---|---|
+//! | state.rs | 共享结构与共享 static（AppState/Settings/BusyState/Channels/UI_REVISION），冻结勿动 |
+//! | scan.rs | lsblk / 变量目录扫描 |
+//! | switch_flow.rs | 切换状态流（state_snapshot/发布/切换命令） |
+//! | esp.rs | ESP 分区识别（三平台 probe） |
+//! | mount.rs | 挂载辅助（ActiveMount / 临时挂载 / 原子写） |
+//! | login_item.rs | 开机自启（三平台副本成组；内含 macOS SMAppService 内联 mod） |
+//! | power.rs | 电源动作 + 并发护栏（POWER_RELEASE_*） |
+//! | grub_esp.rs | GRUB/ESP 定位 / 提权写入 / 扫描切换 + 命令面 |
+//! | grub_install.rs | mkconfig / 09_anyboot 安装卸载脚本 |
+//! | gpu_compat.rs | NVIDIA / WebKitGTK 兼容环境变量 |
+//! | trace.rs | trace 日志与时间工具 |
+//! | ui_state.rs | UI 快照发布 + WebSocket |
+//! | http_server.rs | HTTP 服务：token / 健康检查 / 端口诊断 |
+//! | remote_routing.rs | 远程命令路由 + 延迟确认 + 静态资源 |
+//! | settings_commands.rs | settings 归一化 / 发布 / 更新命令面 |
+//! | window_geometry.rs | 窗口尺寸 / 居中 / 固定显示器 |
+//! | dock_autohide.rs | dock / undock / 自动隐藏 / hotzone / watcher |
+//! | dock_commands.rs | set_main_* 命令面 |
+//! | tray_classic.rs | classic 原生托盘菜单 + 托盘位图 |
+//! | menu_model.rs | MenuNode 模型 / 菜单构建 / 指纹 |
+//! | tray_menu_window.rs | 自绘托盘菜单窗 runtime |
+//! | notify.rs | 提示音 + 通知窗 + 调度器 |
+//! | linux_sni.rs | Linux 托盘 SNI/dbusmenu（cfg(linux)） |
+//! | cli.rs / grub.rs / http.rs / hub*.rs / remote_servers.rs / blocking_guard.rs | 既有模块，未动 |
+//!
+//! 共享定位规则：lib.rs 对每个分区 `pub(crate) use <mod>::*;`，子模块 `use super::*;`
+//! 顺着 glob 链能看到全 crate；跨分区条目一律 pub(crate)，私有的只在本文件用。
+
 use std::{
     fs,
     io::{self, Read, Write},
@@ -68,7 +106,6 @@ const SOURCE_FILES: [(&str, &str, &str); 3] = [
     ("windows", "Windows", "PreviousBoot-windows"),
     ("macos", "macOS", "PreviousBoot-mac"),
 ];
-const ESP_PARTTYPE: &str = "c12a7328-f81f-11d2-ba4b-00a0c93ec93b";
 const FAT_FILESYSTEMS: [&str; 6] = ["vfat", "fat", "fat12", "fat16", "fat32", "exfat"];
 mod cli;
 mod grub;
@@ -171,8 +208,6 @@ pub(crate) const HUB_WINDOW_LABEL: &str = "server-hub";
 pub(crate) const HUB_TERM_WINDOW_LABEL: &str = "server-term";
 pub(crate) const HUB_FILES_WINDOW_LABEL: &str = "server-files";
 pub(crate) const HUB_KEYS_WINDOW_LABEL: &str = "server-keys";
-/// 鼠标离开主窗口后多久贴边隐藏（太灵敏会误触，太迟钝像卡住）
-const AUTO_HIDE_DELAY_MS: u64 = 350;
 /// 托盘右键菜单的锚点窗口标签（Windows 专用、classic 方式用，见 `popup_tray_menu`）
 #[cfg(target_os = "windows")]
 const MENU_ANCHOR_WINDOW_LABEL: &str = "menu-anchor";
@@ -182,16 +217,6 @@ const MENU_ANCHOR_SIZE: f64 = 8.0;
 /// 绿勾位图边长（classic 原生菜单的「当前项」标记，见 check_mark_image）
 #[cfg_attr(target_os = "linux", allow(dead_code))]
 const CHECK_MARK_SIZE: u32 = 16;
-/// 贴边守护线程的轮询周期：光标在不在窗口内、贴没贴边，都靠它扫
-const AUTO_HIDE_TICK_MS: u64 = 120;
-/// 主窗「还在动」的静默期：距最近一条主窗 Moved 不超过它时，watcher 一律不
-/// 累计「离窗时钟」（也就不会贴边）。用户拖窗口、拖白条、WM 自己摆窗口都会
-/// 连发 Moved，这期间读到的「光标在窗外」是**拖动过程的中间态**，不是
-/// 「用户离开了」。实测（poke-1 复现台：贴边成条 → 抓住白条往工作区里拖）：
-/// 松手瞬间窗口从条子展开成 460x900，**176ms 后** watcher 就按拖动途中的
-/// 「光标在窗外」把它缩回条子 —— 主窗闪一下（用户报的「主界面会变长」）、
-/// GRUB 独立窗 129ms 内翻两次（用户报的「乱闪乱跳」）。
-const AUTO_HIDE_MOVE_QUIET_MS: u64 = 300;
 /// 位置夹取的静默期：拖动过程中 Moved 连发，期间绝不 set_position（会跟
 /// Windows 的拖动循环互相拉扯 = 窗口乱跳）；拖完 250ms 没动静再夹一次。
 const CLAMP_DELAY_MS: u64 = 250;
@@ -217,23 +242,9 @@ const AUTO_HIDE_WM_NUDGE_PX: i32 = 8;
 /// undock 重锚的补发次数上限：展开后连续 3 拍（~360ms）没收敛就放弃，
 /// 防 WM 不配合时变成永久 set_position 抖动（与 AUTO_HIDE_RESNAP_LIMIT 同思路）。
 const AUTO_HIDE_REANCHOR_TRIES: u8 = 6;
-/// 贴边后窗口缩成的「缝」的厚度（逻辑像素）：窗口只缩到这条缝，白条是
-/// **独立渲染**的白色条（#dock-strip，长度/厚度/透明度全由前端 CSS 控制），
-/// 缝要足够容纳白条最大厚度（40px），所以固定取 40 —— 窗口几何与白条
-/// 参数彻底解耦，改白条参数不用动窗口。
-const DOCK_STRIP_SLOT_PX: f64 = 40.0;
 /// 延迟秒数的上限（配置里乱填也不会把请求挂到天上去）
 const MAX_DELAY_SECONDS: u32 = 600;
-/// 自定义 token 的长度范围（太短不安全，太长粘贴起来也难受）
-const MIN_TOKEN_LEN: usize = 4;
 const MAX_TOKEN_LEN: usize = 128;
-/// 内置提示音（KakaoTalk 通知音）落到配置目录后的文件名
-const SOUND_DIR: &str = "sounds";
-const BUILTIN_SOUND_FILE: &str = "notify.wav";
-/// 内置提示音本体（WAV PCM，编进二进制 —— 不依赖打包资源路径，AppImage/NSIS 都稳）
-const BUILTIN_SOUND: &[u8] = include_bytes!("../assets/kakaotalk-notify.wav");
-/// 主题可取值
-const THEMES: [&str; 3] = ["dark", "light", "system"];
 /// 不透明度范围（百分比）。0 = 完全透明（窗口还在、还能操作，只是看不见），100 = 不透明。
 const MIN_OPACITY: u8 = 0;
 const MAX_OPACITY: u8 = 100;
@@ -300,69 +311,6 @@ fn clamp_to_work(
 #[cfg(target_os = "linux")]
 fn is_root() -> bool {
     unsafe { libc::geteuid() == 0 }
-}
-
-fn mounted_candidate_directories() -> Vec<PathBuf> {
-    let mut candidates = Vec::new();
-    if cfg!(windows) {
-        for letter in b'A'..=b'Z' {
-            let root = format!("{}:\\", letter as char);
-            push_unique(&mut candidates, PathBuf::from(root).join("EFI/refind/vars"));
-        }
-    } else {
-        for path in [
-            "/Volumes/REFIND",
-            "/boot/efi",
-            "/efi",
-            "/boot",
-            "/mnt/REFIND",
-            "/media/REFIND",
-        ] {
-            push_unique(&mut candidates, PathBuf::from(path).join("EFI/refind/vars"));
-        }
-        for base in ["/Volumes", "/mnt", "/media", "/run/media"] {
-            let base = PathBuf::from(base);
-            let Ok(entries) = fs::read_dir(&base) else {
-                continue;
-            };
-            for entry in entries.flatten() {
-                let root = entry.path();
-                push_unique(&mut candidates, root.join("EFI/refind/vars"));
-                let Ok(nested) = fs::read_dir(&root) else {
-                    continue;
-                };
-                for nested_entry in nested.flatten() {
-                    push_unique(&mut candidates, nested_entry.path().join("EFI/refind/vars"));
-                }
-            }
-        }
-    }
-    candidates
-}
-
-#[cfg(target_os = "linux")]
-fn decode_mountinfo_path(path: &str) -> PathBuf {
-    let mut decoded = String::with_capacity(path.len());
-    let mut characters = path.chars();
-    while let Some(character) = characters.next() {
-        if character == '\\' {
-            let mut escape = String::new();
-            for _ in 0..3 {
-                if let Some(digit) = characters.next() {
-                    escape.push(digit);
-                }
-            }
-            if let Ok(byte) = u8::from_str_radix(&escape, 8) {
-                decoded.push(byte as char);
-                continue;
-            }
-            decoded.push(character);
-            decoded.push_str(&escape);
-        } else {
-            decoded.push(character);
-        }
-    }
-    PathBuf::from(decoded)
 }
 
 // ==================== classic（各自方式）的原生菜单素材 ====================
@@ -538,92 +486,10 @@ pub(crate) fn record_websocket_event(app: &AppHandle, source: &str, connected: b
 /// 只能看到一个没有系统项、没有「重启系统」、没有「应用设置」的残缺菜单）。
 // ==================== 远程控制（阶段 3/4） ====================
 
-/// 窗口尺寸的合法范围（逻辑像素）：下限是前端 CSS 的 min-width + 内容最低可用，
-/// 上限防手滑把窗口拖到比屏幕还大。滑条范围与它一致。
-const WINDOW_MIN_SIZE: (u32, u32) = (360, 560);
-const WINDOW_MAX_SIZE: (u32, u32) = (1600, 1200);
-/// 拿不到显示器时的兜底高度；正常路径是「整屏高度的 2/3」（见 default_window_height）。
-const DEFAULT_WINDOW_HEIGHT: u32 = 900;
-
 /// 停靠态「重置位置」的展开过渡等待（毫秒）：undock 的重装饰/改尺寸落地
 /// 期间发出的 set_position 会被 WM 重摆吞掉（实测见 center_docked_window），
 /// 等它落地再把居中交给重锚牛顿步；抑制期同步立起，防 near_edge 抢跑贴回。
 const DOCKED_CENTER_SETTLE_MS: u64 = 600;
-
-/// 停靠态的「重置窗口位置」：先走完整展开链路（还原装饰/尺寸/置顶），再把
-/// 物理像素的居中目标交给重锚牛顿步收敛。返回居中目标（客户区坐标）。
-///
-/// 两个实测教训（10:46 日志，2x 屏 3840x2160，底边贴边）：
-/// 1. **居中不能在过渡期亲手发**：undock 的 hide→show/重装饰/改尺寸过渡要
-///    几百 ms，期间发出的 set_position 会被尺寸落地时的 WM 重摆吞掉 ——
-///    undock 后 2ms 发 center -> (1454,666)，708ms 后窗口仍停在 undock 落点
-///    (1454,484)，随后 near_edge=true 自动贴回底边（用户看到的就是「点了没
-///    反应」）。所以立 600ms 抑制期（防贴回抢跑）等过渡落地，再由重锚牛顿步
-///    补发 —— 它每拍读实况、偏了就修，吞一拍吞不掉整个收敛。
-/// 2. **基准不能用设置里记的尺寸**：那是**逻辑**尺寸（set_size(LogicalSize)），
-///    居中的对面是**物理**工作区，2x 屏差一倍（实测按 932x720 算出
-///    (1454,666)，偏出正中 ~466px）。基准用贴边前的客户区尺寸（物理，
-///    undock 刚拿它展开）。
-fn center_docked_window(app: &AppHandle, main: &tauri::WebviewWindow) -> Option<(i32, i32)> {
-    let (restore, caption) = {
-        let state = app.state::<Mutex<AppState>>();
-        let state = state.lock().expect("state mutex poisoned");
-        (state.auto_hide_restore_size, state.auto_hide_caption)
-    };
-    undock_main_window(app);
-    let monitor = main_window_monitor(app)?;
-    let work = monitor.work_area();
-    let (w, h) = restore.unwrap_or_else(|| {
-        main.inner_size()
-            .map(|s| (s.width.max(1), s.height.max(1)))
-            .unwrap_or((460, 900))
-    });
-    let cap = caption.max(0);
-    let target = docked_center_target(
-        work.position.x,
-        work.position.y,
-        work.size.width as i32,
-        work.size.height as i32,
-        w as i32,
-        h as i32,
-        cap,
-    );
-    // 抑制期必须在过渡落地前立起来：窗口此刻停在贴边落点（near_edge=true），
-    // 不压住的话贴边轮询几拍内就把它收回底边，居中还没开始就输了。牛顿步
-    // 每次补发会各自续 400ms，收敛前贴回一直被压住。
-    mark_geometry_busy(DOCKED_CENTER_SETTLE_MS);
-    let app_for_thread = app.clone();
-    std::thread::spawn(move || {
-        // 等过渡落地（期间的 set_position 会被吞，实测见函数注释），再把
-        // 居中计划交给 watcher 的牛顿步。预置修正量 = live − target：牛顿步
-        // 第一拍的请求 = target + (offset + target − live) = target，
-        // 首发即准、不产生垃圾中间跳。
-        std::thread::sleep(std::time::Duration::from_millis(DOCKED_CENTER_SETTLE_MS));
-        let live = main_client_position(&app_for_thread).unwrap_or(target);
-        if let Ok(mut state) = app_for_thread.state::<Mutex<AppState>>().lock() {
-            state.auto_hide_reanchor = Some(AutoHideReanchor {
-                target,
-                offset: (live.0 - target.0, live.1 - target.1),
-                tries: 0,
-                last_live: None,
-                noops: 0,
-            });
-        }
-    });
-    // 记落点：牛顿步补发产生的 Moved 都落在 target ± 标题栏内，居中模式的
-    // 「还停在居中位」判据（±CENTER_HOLD_TOLERANCE）天然罩得住。
-    CENTER_LAST_X.store(target.0, Ordering::SeqCst);
-    CENTER_LAST_Y.store(target.1, Ordering::SeqCst);
-    CENTER_HAS_POS.store(true, Ordering::SeqCst);
-    startup_debug(
-        app,
-        &format!(
-            "center docked -> ({},{}) 客户区={}x{} 标题栏={} 等待={DOCKED_CENTER_SETTLE_MS}ms",
-            target.0, target.1, w, h, cap
-        ),
-    );
-    Some(target)
-}
 
 /// 监听状态的一句话（纯函数）。主窗口与托盘菜单都读它，同一份真相。
 fn http_state_text(
@@ -655,13 +521,6 @@ fn menu_status_text(text: &str, max_chars: usize) -> String {
         head
     }
 }
-
-/// 网页控制台静态资源（编译期嵌入）：内置 HTTP 服务直接把主窗口那套前端
-/// 托管给局域网/外网浏览器，设置改动通过 /api/ui-command 真正作用于本机应用。
-const UI_INDEX_HTML: &str = include_str!("../../ui/index.html");
-const UI_APP_JS: &str = include_str!("../../ui/app.js");
-const UI_STYLES_CSS: &str = include_str!("../../ui/styles.css");
-const UI_GRUB_LIST_VIEW_JS: &str = include_str!("../../ui/grub-list-view.js");
 
 // ---------- /api/ui-command 参数提取辅助 ----------
 
@@ -940,18 +799,6 @@ pub(crate) fn apply_browser_args<R: tauri::Runtime, M: tauri::Manager<R>>(
     builder
 }
 
-/// 监听重启后的实况（正在监听哪个地址 / 为什么没听起来）。纯读，不改任何状态。
-fn http_listener_summary() -> String {
-    let runtime = http_lock();
-    match runtime.server.as_ref() {
-        Some(server) => format!("监听已重启：{}", server.addr),
-        None => runtime
-            .last_error
-            .clone()
-            .unwrap_or_else(|| "监听未运行（HTTP 服务已关闭）".to_string()),
-    }
-}
-
 /// 选择项的「勾」用**纯文本**画在标签里，不用原生勾选控件。
 ///
 /// 为什么（2026-10-14 实测，见 `.workbuddy/memory/2026-10-14.md`）：托盘菜单在
@@ -984,22 +831,6 @@ const RADIO_OFF: &str = "○";
 
 // ==================== 菜单内容指纹（classic 原生菜单的「变了才重建」） ====================
 
-/// unified 方式下 Win/mac 的 tooltip 跟状态走（Linux 是 SNI 静态 ToolTip，不在此列）。
-#[cfg(not(target_os = "linux"))]
-fn update_tray_tooltip(app: &AppHandle, state: &UiState) -> tauri::Result<()> {
-    let Some(tray) = app.tray_by_id("main") else {
-        trace(app, "tray", "未找到托盘图标 main，tooltip 没有刷新");
-        return Ok(());
-    };
-    let tooltip = state
-        .status
-        .error
-        .clone()
-        .unwrap_or_else(|| format!("AnyBoot：{}", state.status.message));
-    tray.set_tooltip(Some(tooltip))?;
-    Ok(())
-}
-
 /// 勾选项 id 的生成：name + 点下去要变成的状态。
 fn toggle_menu_id(name: &str, target: bool) -> String {
     format!("{name}:{target}")
@@ -1012,14 +843,6 @@ fn close_action_menu_id(action: CloseAction) -> String {
 /// 电源动作菜单项 id：`power:reboot` / `power:shutdown` / `power:sleep`。
 fn power_menu_id(action: PowerAction) -> String {
     format!("power:{}", action.as_str())
-}
-
-fn parse_menu_bool(value: &str) -> Option<bool> {
-    match value.trim() {
-        "true" => Some(true),
-        "false" => Some(false),
-        _ => None,
-    }
 }
 
 /// 本进程持有的单实例锁。拿到之后一直拿着（不主动放）：`File::try_lock` 用的是内核的
@@ -1232,50 +1055,6 @@ fn save_settings(app: &AppHandle, settings: &Settings) -> Result<Settings, Strin
     let state = app.state::<Mutex<Settings>>();
     *state.lock().expect("settings mutex poisoned") = settings.clone();
     Ok(settings.clone())
-}
-
-#[cfg(target_os = "linux")]
-fn linux_autostart_state(app: &AppHandle) -> AutostartState {
-    match linux_autostart_file(app) {
-        Ok(path) if path.exists() => AutostartState::Enabled,
-        Ok(_) => AutostartState::Disabled,
-        Err(_) => AutostartState::Unavailable,
-    }
-}
-
-#[cfg(target_os = "linux")]
-fn linux_autostart_set(app: &AppHandle, enabled: bool) -> Result<AutostartState, String> {
-    let path = linux_autostart_file(app)?;
-    if path.exists() {
-        let stale = fs::read_to_string(&path)
-            .map(|contents| !contents.contains("AnyBoot") && !contents.contains("anyboot"))
-            .unwrap_or(false);
-        if stale {
-            let _ = fs::remove_file(&path);
-        }
-    }
-    if !enabled {
-        if path.exists() {
-            fs::remove_file(&path).map_err(|error| format!("无法关闭开机启动: {error}"))?;
-        }
-        return Ok(AutostartState::Disabled);
-    }
-
-    let executable = std::env::current_exe()
-        .map_err(|error| format!("无法定位当前程序: {error}"))?
-        .canonicalize()
-        .map_err(|error| format!("无法解析当前程序路径: {error}"))?;
-    let appimage = std::env::var_os("APPIMAGE")
-        .map(PathBuf::from)
-        .filter(|path| path.is_file());
-    let launch_path = appimage.unwrap_or(executable);
-    let content = format!(
-        "[Desktop Entry]\nType=Application\nVersion=1.0\nName={}\nComment=AnyBoot\nExec={} --from-autostart\nStartupNotify=false\nTerminal=false\nX-GNOME-Autostart-enabled=true\n",
-        app.package_info().name,
-        shell_quote(&launch_path.to_string_lossy())
-    );
-    fs::write(&path, content).map_err(|error| format!("无法写入用户自启动项: {error}"))?;
-    Ok(AutostartState::Enabled)
 }
 
 /// 这一次「显示主窗口」是谁触发的。裸 bool 在 6 个调用点上太容易传反，

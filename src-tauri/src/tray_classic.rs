@@ -1,4 +1,4 @@
-//! classic 原生托盘菜单 + 托盘位图
+//! classic 形态的托盘装配与托盘位图（Win/mac tauri 托盘）。
 
 use super::*;
 
@@ -605,4 +605,20 @@ pub(crate) fn update_tray_menu(app: &AppHandle, state: &UiState, trigger: &str) 
         tray.set_tooltip(Some(tooltip))?;
         Ok(())
     }
+}
+
+/// unified 方式下 Win/mac 的 tooltip 跟状态走（Linux 是 SNI 静态 ToolTip，不在此列）。
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn update_tray_tooltip(app: &AppHandle, state: &UiState) -> tauri::Result<()> {
+    let Some(tray) = app.tray_by_id("main") else {
+        trace(app, "tray", "未找到托盘图标 main，tooltip 没有刷新");
+        return Ok(());
+    };
+    let tooltip = state
+        .status
+        .error
+        .clone()
+        .unwrap_or_else(|| format!("AnyBoot：{}", state.status.message));
+    tray.set_tooltip(Some(tooltip))?;
+    Ok(())
 }

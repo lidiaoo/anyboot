@@ -1,4 +1,5 @@
-//! 电源动作（重启/关机/休眠）与并发护栏
+//! 电源动作（重启 / 关机 / 睡眠）+ 并发护栏（POWER_RELEASE_*）。
+//! RemoteNoGuiAuth 在这里；远程 GUI 认证定则见 docs/server-hub.md。
 
 use super::*;
 

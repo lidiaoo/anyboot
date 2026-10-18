@@ -1,4 +1,4 @@
-//! settings 归一化 / 发布 / 更新命令面
+//! settings 归一化、发布与更新命令面（含 TraySetting / 延迟全链文案）。
 
 use super::*;
 
@@ -473,4 +473,19 @@ pub(crate) fn update_close_action_setting(app: &AppHandle, close_action: CloseAc
         Err(error) => record_action(app, "点击 ❌ 时", false, &error),
     }
     publish_settings(app);
+}
+
+/// 主题可取值
+pub(crate) const THEMES: [&str; 3] = ["dark", "light", "system"];
+
+/// 监听重启后的实况（正在监听哪个地址 / 为什么没听起来）。纯读，不改任何状态。
+pub(crate) fn http_listener_summary() -> String {
+    let runtime = http_lock();
+    match runtime.server.as_ref() {
+        Some(server) => format!("监听已重启：{}", server.addr),
+        None => runtime
+            .last_error
+            .clone()
+            .unwrap_or_else(|| "监听未运行（HTTP 服务已关闭）".to_string()),
+    }
 }

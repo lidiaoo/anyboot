@@ -1,4 +1,4 @@
-//! NVIDIA / WebKitGTK 兼容环境变量
+//! NVIDIA / WebKitGTK 兼容环境变量（自包含，不依赖共享状态）。
 
 
 /// 环境变量布尔开关的纯逻辑部分（便于单测）：1/true/yes/on 与 0/false/no/off。

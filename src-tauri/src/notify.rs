@@ -1,4 +1,4 @@
-//! 提示音 + 通知窗 + 调度器
+//! 提示音 + 通知窗 + 调度器。
 
 use super::*;
 
@@ -319,3 +319,11 @@ pub(crate) fn spawn_notify_scheduler(app: &AppHandle) {
         }
     });
 }
+
+/// 内置提示音（KakaoTalk 通知音）落到配置目录后的文件名
+pub(crate) const SOUND_DIR: &str = "sounds";
+
+pub(crate) const BUILTIN_SOUND_FILE: &str = "notify.wav";
+
+/// 内置提示音本体（WAV PCM，编进二进制 —— 不依赖打包资源路径，AppImage/NSIS 都稳）
+pub(crate) const BUILTIN_SOUND: &[u8] = include_bytes!("../assets/kakaotalk-notify.wav");

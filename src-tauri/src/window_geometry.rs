@@ -1,4 +1,4 @@
-//! 窗口尺寸/居中/固定显示器
+//! 窗口尺寸 / 居中 / 固定显示器。默认值常量钉在方案定则（90% 高度等）。
 
 use super::*;
 
@@ -543,4 +543,88 @@ pub(crate) fn reset_main_window_position(app: AppHandle) -> Result<SettingsView,
     // 跨屏落位后 WebKit 可能不交新帧（内容空白），踢一脚强制重绘
     kick_webview_repaint(&app);
     Ok(publish_settings(&app))
+}
+
+/// 窗口尺寸的合法范围（逻辑像素）：下限是前端 CSS 的 min-width + 内容最低可用，
+/// 上限防手滑把窗口拖到比屏幕还大。滑条范围与它一致。
+pub(crate) const WINDOW_MIN_SIZE: (u32, u32) = (360, 560);
+
+pub(crate) const WINDOW_MAX_SIZE: (u32, u32) = (1600, 1200);
+
+/// 拿不到显示器时的兜底高度；正常路径是「整屏高度的 2/3」（见 default_window_height）。
+pub(crate) const DEFAULT_WINDOW_HEIGHT: u32 = 900;
+
+/// 停靠态的「重置窗口位置」：先走完整展开链路（还原装饰/尺寸/置顶），再把
+/// 物理像素的居中目标交给重锚牛顿步收敛。返回居中目标（客户区坐标）。
+///
+/// 两个实测教训（10:46 日志，2x 屏 3840x2160，底边贴边）：
+/// 1. **居中不能在过渡期亲手发**：undock 的 hide→show/重装饰/改尺寸过渡要
+///    几百 ms，期间发出的 set_position 会被尺寸落地时的 WM 重摆吞掉 ——
+///    undock 后 2ms 发 center -> (1454,666)，708ms 后窗口仍停在 undock 落点
+///    (1454,484)，随后 near_edge=true 自动贴回底边（用户看到的就是「点了没
+///    反应」）。所以立 600ms 抑制期（防贴回抢跑）等过渡落地，再由重锚牛顿步
+///    补发 —— 它每拍读实况、偏了就修，吞一拍吞不掉整个收敛。
+/// 2. **基准不能用设置里记的尺寸**：那是**逻辑**尺寸（set_size(LogicalSize)），
+///    居中的对面是**物理**工作区，2x 屏差一倍（实测按 932x720 算出
+///    (1454,666)，偏出正中 ~466px）。基准用贴边前的客户区尺寸（物理，
+///    undock 刚拿它展开）。
+pub(crate) fn center_docked_window(app: &AppHandle, main: &tauri::WebviewWindow) -> Option<(i32, i32)> {
+    let (restore, caption) = {
+        let state = app.state::<Mutex<AppState>>();
+        let state = state.lock().expect("state mutex poisoned");
+        (state.auto_hide_restore_size, state.auto_hide_caption)
+    };
+    undock_main_window(app);
+    let monitor = main_window_monitor(app)?;
+    let work = monitor.work_area();
+    let (w, h) = restore.unwrap_or_else(|| {
+        main.inner_size()
+            .map(|s| (s.width.max(1), s.height.max(1)))
+            .unwrap_or((460, 900))
+    });
+    let cap = caption.max(0);
+    let target = docked_center_target(
+        work.position.x,
+        work.position.y,
+        work.size.width as i32,
+        work.size.height as i32,
+        w as i32,
+        h as i32,
+        cap,
+    );
+    // 抑制期必须在过渡落地前立起来：窗口此刻停在贴边落点（near_edge=true），
+    // 不压住的话贴边轮询几拍内就把它收回底边，居中还没开始就输了。牛顿步
+    // 每次补发会各自续 400ms，收敛前贴回一直被压住。
+    mark_geometry_busy(DOCKED_CENTER_SETTLE_MS);
+    let app_for_thread = app.clone();
+    std::thread::spawn(move || {
+        // 等过渡落地（期间的 set_position 会被吞，实测见函数注释），再把
+        // 居中计划交给 watcher 的牛顿步。预置修正量 = live − target：牛顿步
+        // 第一拍的请求 = target + (offset + target − live) = target，
+        // 首发即准、不产生垃圾中间跳。
+        std::thread::sleep(std::time::Duration::from_millis(DOCKED_CENTER_SETTLE_MS));
+        let live = main_client_position(&app_for_thread).unwrap_or(target);
+        if let Ok(mut state) = app_for_thread.state::<Mutex<AppState>>().lock() {
+            state.auto_hide_reanchor = Some(AutoHideReanchor {
+                target,
+                offset: (live.0 - target.0, live.1 - target.1),
+                tries: 0,
+                last_live: None,
+                noops: 0,
+            });
+        }
+    });
+    // 记落点：牛顿步补发产生的 Moved 都落在 target ± 标题栏内，居中模式的
+    // 「还停在居中位」判据（±CENTER_HOLD_TOLERANCE）天然罩得住。
+    CENTER_LAST_X.store(target.0, Ordering::SeqCst);
+    CENTER_LAST_Y.store(target.1, Ordering::SeqCst);
+    CENTER_HAS_POS.store(true, Ordering::SeqCst);
+    startup_debug(
+        app,
+        &format!(
+            "center docked -> ({},{}) 客户区={}x{} 标题栏={} 等待={DOCKED_CENTER_SETTLE_MS}ms",
+            target.0, target.1, w, h, cap
+        ),
+    );
+    Some(target)
 }

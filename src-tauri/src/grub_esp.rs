@@ -1,4 +1,5 @@
-//! GRUB/ESP 链路：定位、提权写入、扫描与切换
+//! GRUB/ESP 链路：定位、提权写入、扫描切换与命令面。依赖 mount.rs 与
+//! grub_install.rs；grubenv 同步语义见 docs。
 
 use super::*;
 

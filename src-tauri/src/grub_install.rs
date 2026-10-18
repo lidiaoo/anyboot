@@ -1,4 +1,4 @@
-//! grub 安装/卸载脚本（mkconfig、09_anyboot）
+//! grub 安装 / 卸载脚本：mkconfig、09_anyboot（GRUB_SCRIPT_TEMPLATE）。
 
 use super::*;
 

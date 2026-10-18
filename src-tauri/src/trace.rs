@@ -1,4 +1,4 @@
-//! trace 日志与时间工具
+//! trace 日志（只追加、永不写 token）与时间工具。
 
 use super::*;
 

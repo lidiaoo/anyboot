@@ -1,4 +1,4 @@
-//! HTTP 服务：token、健康检查、端口诊断
+//! HTTP 服务：token 校验 / 健康检查 / 端口诊断 / HTTP_RUNTIME 生命周期。
 
 use super::*;
 
@@ -451,3 +451,6 @@ pub(crate) fn apply_http_config(app: &AppHandle) {
     }
     publish_ui(app);
 }
+
+/// 自定义 token 的长度范围（太短不安全，太长粘贴起来也难受）
+pub(crate) const MIN_TOKEN_LEN: usize = 4;

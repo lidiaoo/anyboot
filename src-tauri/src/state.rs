@@ -1,5 +1,6 @@
-// 共享结构与共享 static（拆分方案第 1 步落地）。
-// 之后任何刀都不再动这个文件里的共享状态。
+//! 共享结构与共享 static（AppState / Settings / BusyState / Channels /
+//! UI_REVISION 等）。拆分方案第 1 步落地后冻结：任何刀不得再改动这里的条目，
+//! 需要新共享字段时先在这里加 pub(crate)。
 
 use super::*;
 

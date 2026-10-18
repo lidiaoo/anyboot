@@ -1,4 +1,5 @@
-//! 挂载辅助（ActiveMount 生命周期 / 临时挂载 / 原子写）
+//! 挂载辅助：ActiveMount 生命周期、临时挂载、原子写。ActiveMount 被
+//! AppState 直接持有（state.rs），字段可见性不要收窄。
 
 use super::*;
 
@@ -370,4 +371,67 @@ pub(crate) fn unmount_temporary_inner(app: &AppHandle) -> AppStatus {
     };
     publish_status(app, &status);
     status
+}
+
+pub(crate) fn mounted_candidate_directories() -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    if cfg!(windows) {
+        for letter in b'A'..=b'Z' {
+            let root = format!("{}:\\", letter as char);
+            push_unique(&mut candidates, PathBuf::from(root).join("EFI/refind/vars"));
+        }
+    } else {
+        for path in [
+            "/Volumes/REFIND",
+            "/boot/efi",
+            "/efi",
+            "/boot",
+            "/mnt/REFIND",
+            "/media/REFIND",
+        ] {
+            push_unique(&mut candidates, PathBuf::from(path).join("EFI/refind/vars"));
+        }
+        for base in ["/Volumes", "/mnt", "/media", "/run/media"] {
+            let base = PathBuf::from(base);
+            let Ok(entries) = fs::read_dir(&base) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let root = entry.path();
+                push_unique(&mut candidates, root.join("EFI/refind/vars"));
+                let Ok(nested) = fs::read_dir(&root) else {
+                    continue;
+                };
+                for nested_entry in nested.flatten() {
+                    push_unique(&mut candidates, nested_entry.path().join("EFI/refind/vars"));
+                }
+            }
+        }
+    }
+    candidates
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn decode_mountinfo_path(path: &str) -> PathBuf {
+    let mut decoded = String::with_capacity(path.len());
+    let mut characters = path.chars();
+    while let Some(character) = characters.next() {
+        if character == '\\' {
+            let mut escape = String::new();
+            for _ in 0..3 {
+                if let Some(digit) = characters.next() {
+                    escape.push(digit);
+                }
+            }
+            if let Ok(byte) = u8::from_str_radix(&escape, 8) {
+                decoded.push(byte as char);
+                continue;
+            }
+            decoded.push(character);
+            decoded.push_str(&escape);
+        } else {
+            decoded.push(character);
+        }
+    }
+    PathBuf::from(decoded)
 }

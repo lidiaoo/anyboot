@@ -1,4 +1,5 @@
-//! dock/undock/自动隐藏/hotzone/watcher
+//! dock / undock / 自动隐藏 / hotzone / watcher。与 window_geometry 共用
+//! 几何护栏（geometry_busy）。
 
 use super::*;
 
@@ -1860,3 +1861,24 @@ pub(crate) fn apply_dock_taskbar_visibility(app: &AppHandle, hide: bool) -> Resu
         .map_err(|error| format!("无法更新 Dock 显示状态: {error}"))?;
     Ok(())
 }
+
+/// 鼠标离开主窗口后多久贴边隐藏（太灵敏会误触，太迟钝像卡住）
+pub(crate) const AUTO_HIDE_DELAY_MS: u64 = 350;
+
+/// 贴边守护线程的轮询周期：光标在不在窗口内、贴没贴边，都靠它扫
+pub(crate) const AUTO_HIDE_TICK_MS: u64 = 120;
+
+/// 主窗「还在动」的静默期：距最近一条主窗 Moved 不超过它时，watcher 一律不
+/// 累计「离窗时钟」（也就不会贴边）。用户拖窗口、拖白条、WM 自己摆窗口都会
+/// 连发 Moved，这期间读到的「光标在窗外」是**拖动过程的中间态**，不是
+/// 「用户离开了」。实测（poke-1 复现台：贴边成条 → 抓住白条往工作区里拖）：
+/// 松手瞬间窗口从条子展开成 460x900，**176ms 后** watcher 就按拖动途中的
+/// 「光标在窗外」把它缩回条子 —— 主窗闪一下（用户报的「主界面会变长」）、
+/// GRUB 独立窗 129ms 内翻两次（用户报的「乱闪乱跳」）。
+pub(crate) const AUTO_HIDE_MOVE_QUIET_MS: u64 = 300;
+
+/// 贴边后窗口缩成的「缝」的厚度（逻辑像素）：窗口只缩到这条缝，白条是
+/// **独立渲染**的白色条（#dock-strip，长度/厚度/透明度全由前端 CSS 控制），
+/// 缝要足够容纳白条最大厚度（40px），所以固定取 40 —— 窗口几何与白条
+/// 参数彻底解耦，改白条参数不用动窗口。
+pub(crate) const DOCK_STRIP_SLOT_PX: f64 = 40.0;

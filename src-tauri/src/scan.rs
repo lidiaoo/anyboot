@@ -1,4 +1,4 @@
-//! lsblk / 变量目录扫描
+//! lsblk / 变量目录扫描。依赖 state.rs 的 VariableInfo / ScanResult 共享结构。
 
 use super::*;
 
@@ -253,3 +253,5 @@ pub(crate) fn scan_vars_directory(explicit_dir: Option<&Path>) -> Result<ScanRes
     }
     scan_unmounted_partition()
 }
+
+pub(crate) const ESP_PARTTYPE: &str = "c12a7328-f81f-11d2-ba4b-00a0c93ec93b";

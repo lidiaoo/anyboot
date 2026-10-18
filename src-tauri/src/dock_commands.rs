@@ -1,4 +1,4 @@
-//! set_main_* 命令面
+//! set_main_* 命令面（dock strip / hotzone / 位置模式）。
 
 use super::*;
 

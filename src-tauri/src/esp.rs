@@ -1,4 +1,4 @@
-//! ESP 分区识别（三平台 probe / 扇区解析 / 临时挂载）
+//! ESP 分区识别（esp_probe 三平台副本成组）。产出 EspInfo / ActiveMount。
 
 use super::*;
 

@@ -1,4 +1,5 @@
-//! MenuNode 模型 + 菜单构建 + 指纹
+//! MenuNode 模型、菜单构建（grub_menu_nodes 等）与菜单指纹。
+//! linux_sni.rs 也消费这里的构建函数。
 
 use super::*;
 
@@ -1085,4 +1086,12 @@ pub(crate) fn spawn_menu_action(app: &AppHandle, action: MenuAction) {
         }
         MenuAction::Quit => app.exit(0),
     });
+}
+
+pub(crate) fn parse_menu_bool(value: &str) -> Option<bool> {
+    match value.trim() {
+        "true" => Some(true),
+        "false" => Some(false),
+        _ => None,
+    }
 }

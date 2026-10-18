@@ -1,4 +1,4 @@
-//! UI 快照发布 + WebSocket
+//! UI 快照发布（UI_STATE_CHANGED_EVENT）+ WebSocket 广播（WS_CLIENTS）。
 
 use super::*;
 

@@ -1,4 +1,5 @@
-//! 开机自启（系统登录项 / LaunchAgent / 各平台入口）
+//! 开机自启：三平台副本（macOS 登录项 / LaunchAgent / Linux XDG autostart）
+//! 成组维护；内含 macOS SMAppService 的内联 mod login_item，路径别改。
 
 use super::*;
 
@@ -488,4 +489,48 @@ pub(crate) fn toggle_autostart_setting(app: &AppHandle) {
             trace(app, "tray-setting", &format!("切换开机启动失败: {error}"));
         }
     }
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn linux_autostart_state(app: &AppHandle) -> AutostartState {
+    match linux_autostart_file(app) {
+        Ok(path) if path.exists() => AutostartState::Enabled,
+        Ok(_) => AutostartState::Disabled,
+        Err(_) => AutostartState::Unavailable,
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn linux_autostart_set(app: &AppHandle, enabled: bool) -> Result<AutostartState, String> {
+    let path = linux_autostart_file(app)?;
+    if path.exists() {
+        let stale = fs::read_to_string(&path)
+            .map(|contents| !contents.contains("AnyBoot") && !contents.contains("anyboot"))
+            .unwrap_or(false);
+        if stale {
+            let _ = fs::remove_file(&path);
+        }
+    }
+    if !enabled {
+        if path.exists() {
+            fs::remove_file(&path).map_err(|error| format!("无法关闭开机启动: {error}"))?;
+        }
+        return Ok(AutostartState::Disabled);
+    }
+
+    let executable = std::env::current_exe()
+        .map_err(|error| format!("无法定位当前程序: {error}"))?
+        .canonicalize()
+        .map_err(|error| format!("无法解析当前程序路径: {error}"))?;
+    let appimage = std::env::var_os("APPIMAGE")
+        .map(PathBuf::from)
+        .filter(|path| path.is_file());
+    let launch_path = appimage.unwrap_or(executable);
+    let content = format!(
+        "[Desktop Entry]\nType=Application\nVersion=1.0\nName={}\nComment=AnyBoot\nExec={} --from-autostart\nStartupNotify=false\nTerminal=false\nX-GNOME-Autostart-enabled=true\n",
+        app.package_info().name,
+        shell_quote(&launch_path.to_string_lossy())
+    );
+    fs::write(&path, content).map_err(|error| format!("无法写入用户自启动项: {error}"))?;
+    Ok(AutostartState::Enabled)
 }

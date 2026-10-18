@@ -1,4 +1,4 @@
-//! 自绘托盘菜单窗 runtime
+//! 自绘托盘菜单窗 runtime（unified 形态两窗共用）。
 
 use super::*;
 
