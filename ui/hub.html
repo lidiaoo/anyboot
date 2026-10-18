@@ -4173,5 +4173,18 @@
   loadTunnels();
   loadRemotes();
 </script>
+<!-- 页面心跳：后端据此区分「窗口对象还在」和「页面还活着」。
+     白框（webview 渲染进程崩掉 / 首帧没加载出来 / 页面 JS 未起来）时这里不跑，
+     后端下次点按钮就会销毁重建，而不是一直 show 那个白框。 -->
+<script>
+(function () {
+  if (!window.__TAURI__ || !window.__TAURI__.core) return;
+  function beat(ready) {
+    try { window.__TAURI__.core.invoke('hub_page_ping', { ready: !!ready }); } catch (e) {}
+  }
+  beat(true);                                  // 脚本跑到了 = 页面已经起来了
+  setInterval(function () { beat(true); }, 3000);
+})();
+</script>
 </body>
 </html>

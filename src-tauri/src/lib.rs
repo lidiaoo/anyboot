@@ -77,6 +77,7 @@ mod hub;
 // （两次「点了就卡死」都是这个病根，见模块注释）。
 #[cfg(test)]
 mod blocking_guard;
+mod hub_health;
 mod hub_keys;
 // pub(crate)：async 命令的 __cmd__ 宏可见性跟着模块走（private mod 会报
 // "macro import is private"，sync 命令没这问题）
@@ -2489,7 +2490,7 @@ fn trace_file_path(app: &AppHandle) -> Option<PathBuf> {
 ///
 /// 这是取证探针：**任何失败都吞掉**（打不开文件、磁盘满、没权限都不影响应用行为），
 /// 也不能在日志里写敏感数据。
-fn trace(app: &AppHandle, category: &str, message: &str) {
+pub(crate) fn trace(app: &AppHandle, category: &str, message: &str) {
     if !trace_enabled(app) {
         return;
     }
@@ -5137,17 +5138,19 @@ fn notify_height(raw: Option<f64>) -> f64 {
 /// 打开/唤起远程管理（server-hub）窗口：已存在就 unminimize + 聚焦，不存在才建。
 /// 普通常规窗口（系统标题栏、可缩放、进任务栏），与主窗口的贴边/置顶语义完全无关。
 fn open_hub_window(app: &AppHandle) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window(HUB_WINDOW_LABEL) {
+    // 复用前先体检：窗口对象在 ≠ 页面活着。白框（webview 崩了 / 首帧没加载）
+    // 时只 show 会把那个白框一直 show 给用户，点多少次都一样。
+    if let Some(window) = hub_health::reuse_or_clear(app, HUB_WINDOW_LABEL) {
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
         return Ok(());
     }
-    tauri::WebviewWindowBuilder::new(
+    apply_browser_args(tauri::WebviewWindowBuilder::new(
         app,
         HUB_WINDOW_LABEL,
         tauri::WebviewUrl::App("hub.html".into()),
-    )
+    ))
     .title("AnyBoot 远程管理")
     .inner_size(1080.0, 720.0)
     .min_inner_size(860.0, 560.0)
@@ -5155,23 +5158,25 @@ fn open_hub_window(app: &AppHandle) -> Result<(), String> {
     .center()
     .build()
     .map_err(|error| format!("无法创建远程管理窗口: {error}"))?;
+    hub_health::note_created(app, HUB_WINDOW_LABEL);
+    hub_health::watch_first_frame(app, HUB_WINDOW_LABEL);
     trace(app, "hub", "远程管理窗口已创建");
     Ok(())
 }
 
 /// 打开/唤起密钥管理窗（server-keys）：无上下文参数，已存在就聚焦。
 pub(crate) fn open_keys_window(app: &AppHandle) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window(HUB_KEYS_WINDOW_LABEL) {
+    if let Some(window) = hub_health::reuse_or_clear(app, HUB_KEYS_WINDOW_LABEL) {
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
         return Ok(());
     }
-    tauri::WebviewWindowBuilder::new(
+    apply_browser_args(tauri::WebviewWindowBuilder::new(
         app,
         HUB_KEYS_WINDOW_LABEL,
         tauri::WebviewUrl::App("hub-keys.html".into()),
-    )
+    ))
     .title("AnyBoot 密钥管理")
     .inner_size(720.0, 560.0)
     .min_inner_size(560.0, 420.0)
@@ -5179,6 +5184,8 @@ pub(crate) fn open_keys_window(app: &AppHandle) -> Result<(), String> {
     .center()
     .build()
     .map_err(|error| format!("无法创建密钥管理窗口: {error}"))?;
+    hub_health::note_created(app, HUB_KEYS_WINDOW_LABEL);
+    hub_health::watch_first_frame(app, HUB_KEYS_WINDOW_LABEL);
     trace(app, "hub", "密钥管理窗口已创建");
     Ok(())
 }
@@ -5233,11 +5240,11 @@ fn show_notify_window(app: &AppHandle) -> Result<(), String> {
         let _ = window.show();
         return Ok(());
     }
-    tauri::WebviewWindowBuilder::new(
+    apply_browser_args(tauri::WebviewWindowBuilder::new(
         app,
         NOTIFY_WINDOW_LABEL,
         tauri::WebviewUrl::App("notify.html".into()),
-    )
+    ))
     .title("远程请求")
     .inner_size(NOTIFY_WIDTH, NOTIFY_HEIGHT)
     .resizable(false)
@@ -5438,11 +5445,11 @@ fn open_tray_menu(app: &AppHandle, x: f64, y: f64) {
 /// 先不显示 —— 等前端量出真实内容高度回调 `tray_menu_present` 时才定尺寸、定位置、显示
 /// （与 `notify` 那扇窗同一套约定，理由一样：只有前端知道内容有多高）。
 fn build_tray_menu_window(app: &AppHandle) -> tauri::Result<()> {
-    tauri::WebviewWindowBuilder::new(
+    apply_browser_args(tauri::WebviewWindowBuilder::new(
         app,
         TRAY_MENU_WINDOW_LABEL,
         tauri::WebviewUrl::App("tray-menu.html".into()),
-    )
+    ))
     .title("AnyBoot")
     .inner_size(TRAY_MENU_WIDTH, TRAY_MENU_NOMINAL_HEIGHT)
     .resizable(false)
@@ -6647,7 +6654,7 @@ fn unix_millis() -> u64 {
 
 /// 【临时诊断】托盘启动时独立窗口仍闪现的问题排查：无条件追加写
 /// startup-debug.log（配置目录下），定位完成后整段删除。
-fn startup_debug(app: &AppHandle, message: &str) {
+pub(crate) fn startup_debug(app: &AppHandle, message: &str) {
     let Ok(mut path) = config_dir(app) else {
         return;
     };
@@ -6661,6 +6668,39 @@ fn startup_debug(app: &AppHandle, message: &str) {
         .append(true)
         .open(&path)
         .and_then(|mut file| file.write_all(line.as_bytes()));
+}
+
+/// 各窗统一走的 WebView2 additional_browser_args（见 [`apply_browser_args`]）。
+#[cfg(windows)]
+fn webview_browser_args() -> Option<String> {
+    let port = std::env::var("ANYBOOT_CDP_PORT").ok()?;
+    let port = port.trim();
+    if port.is_empty() {
+        return None;
+    }
+    Some(format!(
+        // wry 的默认参数原样保留（整串替换语义，缺了默认项行为会漂移），
+        // 再追加 CDP 调试端口 —— WebView2 155 实测已不再应用
+        // WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS 环境变量，只能这样显式传。
+        "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --remote-debugging-port={port}"
+    ))
+}
+
+/// 建窗统一入口包装：给 `WebviewWindowBuilder::new(...)` 的返回值套这一层。
+///
+/// **为什么所有窗都要过这里**：同一 user data folder 下的所有 webview 的
+/// 环境参数（含 additional_browser_args）必须完全一致，否则 WebView2 直接报
+/// 0x8007139F（ERROR_INVALID_STATE），一个窗都开不出来 —— 见 tauri#11144。
+/// 所以「要不要带 CDP 端口」不能按窗决定，只能全局决定：设了
+/// `ANYBOOT_CDP_PORT` 所有窗统一带，没设所有窗统一走 wry 默认。
+pub(crate) fn apply_browser_args<R: tauri::Runtime, M: tauri::Manager<R>>(
+    builder: tauri::WebviewWindowBuilder<'_, R, M>,
+) -> tauri::WebviewWindowBuilder<'_, R, M> {
+    #[cfg(windows)]
+    if let Some(args) = webview_browser_args() {
+        return builder.additional_browser_args(&args);
+    }
+    builder
 }
 
 /// 贴边 watcher 的逐拍取证开关：环境变量 `ANYBOOT_AUTOHIDE_DIAG=1` 打开时，
@@ -14777,6 +14817,8 @@ pub fn run() {
         .manage(hub_sftp::HubSftpState::default())
         // server-hub 的隧道进程表（应用退出时全收，见 hub_tunnel::kill_all）
         .manage(hub_tunnel::HubTunnelState::default())
+        // hub 独立窗的页面心跳：窗口对象还在 ≠ 页面还活着（白框判据，见 hub_health.rs）
+        .manage(hub_health::HubPageHealth::default())
         .manage(remote_servers::RemoteJumpState::default());
     // macOS 13+ 走系统登录项（见 login_item），这里的 LaunchAgent 方式仅作为
     // 旧版 macOS 以及 Windows / Linux 的实现。移动端没有「开机自启」，不注册。
@@ -14923,6 +14965,31 @@ pub fn run() {
                     // 锁文件本身用不了（配置目录只读之类）：不因此拒绝启动，
                     // 但留一行痕 —— 这时「单实例」这条保证是**没有**的。
                     startup_debug(app.handle(), &format!("单实例锁不可用（照常启动）: {detail}"));
+                }
+            }
+            // —— 主窗从 config 挪到代码里建 ——
+            // 理由：CDP 调试端口。WebView2 运行时（155.0.4283.60 实测）不再把
+            // WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS 拼进浏览器进程命令行 —— wry 经
+            // API 传的 additional_browser_args 优先生效，环境变量路线静默失效。
+            // 主窗是第一个 webview（浏览器进程参数由它决定），在代码里建才能在
+            // 需要时显式带上 --remote-debugging-port。未设 ANYBOOT_CDP_PORT 时，
+            // 这里的参数与原 config「windows」逐项一致，生产行为不变。
+            {
+                let mut builder = apply_browser_args(tauri::WebviewWindowBuilder::new(
+                    app.handle(),
+                    MAIN_WINDOW_LABEL,
+                    tauri::WebviewUrl::default(),
+                ))
+                .title("AnyBoot")
+                .inner_size(460.0, 900.0)
+                .resizable(true)
+                .transparent(true)
+                .skip_taskbar(true)
+                .always_on_top(true)
+                .visible(false);
+                if let Err(error) = builder.build() {
+                    startup_debug(app.handle(), &format!("主窗口创建失败: {error}"));
+                    return Err(error.into());
                 }
             }
             let settings = read_settings_file(app.handle());
@@ -15126,11 +15193,11 @@ pub fn run() {
                         #[cfg(not(target_os = "windows"))]
                         let initial_menu = build_tray_menu(app.handle(), &initial_state)?;
                         #[cfg(target_os = "windows")]
-                        tauri::WebviewWindowBuilder::new(
+                        apply_browser_args(tauri::WebviewWindowBuilder::new(
                             app.handle(),
                             MENU_ANCHOR_WINDOW_LABEL,
                             tauri::WebviewUrl::App("menu-anchor.html".into()),
-                        )
+                        ))
                         .inner_size(MENU_ANCHOR_SIZE, MENU_ANCHOR_SIZE)
                         .position(0.0, 0.0)
                         .decorations(false)
@@ -15198,6 +15265,8 @@ pub fn run() {
             remote_servers::local_http_endpoint,
             remote_servers::hub_about_open,
             hub::hub_list_servers,
+            // hub 独立窗的页面心跳（白框判据，见 hub_health.rs）
+            hub_health::hub_page_ping,
             hub::hub_save_server,
             hub::hub_delete_server,
             hub::hub_test_server,

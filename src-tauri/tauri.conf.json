@@ -9,19 +9,7 @@
   "app": {
     "withGlobalTauri": true,
     "macOSPrivateApi": true,
-    "windows": [
-      {
-        "label": "main",
-        "title": "AnyBoot",
-        "width": 460,
-        "height": 900,
-        "resizable": true,
-        "transparent": true,
-        "skipTaskbar": true,
-        "alwaysOnTop": true,
-        "visible": false
-      }
-    ],
+    "windows": [],
     "security": {
       "csp": null
     }

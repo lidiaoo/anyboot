@@ -204,8 +204,7 @@ GUI 程序（`windows_subsystem = "windows"`）起 `ssh` / `sftp` / `ssh-keygen`
   - `[hub-term]` 现在会把 ssh 的报错原文抄进 stderr（会话非 0 退出时打印最近 4KB），
     连不上不再只有界面里那个死标签可看。
 - Windows 实机（2026-10-18 四轮，症状「下载进度/暂停/继续/放弃没有同步到传输列表」）：
-  用 WebView2 调试端口（`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9223`）
-  在真实页面 JS 上下文里驱动，服务器当前被服务端 fail2ban 拒绝，正好走**失败/中断**分支
+  用 WebView2 调试端口在真实页面 JS 上下文里驱动，服务器当前被服务端 fail2ban 拒绝，正好走**失败/中断**分支
   —— 状态机的每条边都能验：
   - `hub_sftp_download` 立即返回（7ms，不阻塞 UI）；4s 后 `transfer_list` 只有一条
     `state=paused`（修复前是 `running` + `paused` 两条，running 就是僵尸进程）。
@@ -215,3 +214,49 @@ GUI 程序（`windows_subsystem = "windows"`）起 `ssh` / `sftp` / `ssh-keygen`
   - **未验证**：真实下载完成（`done`）路径与「全部继续」真的把多条续起来 ——
     需要一台能连上的服务器，当前被服务端拒绝。
 
+
+### 白框（窗口在、页面死了）—— 心跳体检（2026-10-18 五轮）
+
+**症状**：重启电脑后点「远程管理 → 终端 / 文件」出白框、无响应，点多少次都一样；
+只重启 anyboot 软件没用。
+
+**成因**：复用窗口的分支只看 `get_webview_window(label)` 有没有返回。窗口对象在 ≠
+页面还活着 —— WebView2 渲染进程崩掉 / 首帧没加载出来时，窗口壳还在注册表里，
+内容是纯白。之后每次点击都只是 `show` 那个白壳、往死页面 emit（错误被 `let _ =`
+吞掉），永远不会重建。只有重启系统把进程清掉才恢复。
+
+**修复**：新增 `src-tauri/src/hub_health.rs`（心跳体检层）：
+
+- 四个 hub 页面（hub / term / files / keys）每 3s 发一次 `hub_page_ping{ready}`。
+- 所有复用分支先过 `reuse_or_clear`：心跳新鲜 → 复用；**窗口在但页面已死
+  （曾 ready 后停跳 >15s，或从未 ready 且超首帧宽限 25s）→ 销毁重建**，绝不再
+  show 白框。判据是纯函数 `beat_alive`，5 个单测钉死。
+- 建窗后挂一次性首帧看门狗（12s 未 ready → 记日志 + 隐藏，下次点击走重建）。
+- 诊断无条件写 `startup-debug.log`（`[hub] server-term: 窗口在但页面已死
+  （ready=… pings=… 建窗后=… 最后心跳=… 前）→ 销毁重建`）。
+
+**实机验证**（CDP 驱动，2026-10-18）：P1 term 页可执行 JS；P2 取到服务器 id；
+P3 正常点击走复用（无销毁重建日志）；P4 用 JS 死循环冻结页面 → 22s 后再点 →
+日志出现「窗口在但页面已死 → 销毁重建」，新页面 `readyState=complete`。
+
+**注意**：往主窗或新窗加页面时，必须在页面里带同款心跳脚本（`</body>` 前的
+`hub_page_ping` invoke + setInterval 3000），否则 25s 宽限期后该窗会被判死、
+点一次重建一次。
+
+### CDP 调试端口：环境变量路线已死，用 `ANYBOOT_CDP_PORT`（2026-10-18）
+
+WebView2 运行时 155.0.4283.60 实测**不再应用** `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`
+环境变量（wry 经 API 传的 additional_browser_args 优先生效，变量进了进程但进不了
+浏览器命令行，端口永远不监听）。现改为应用内显式传参：
+
+- 启动前设 `ANYBOOT_CDP_PORT=9223`，主窗（第一个 webview，决定浏览器进程参数）
+  以 `additional_browser_args` 带上 `--remote-debugging-port`；不设则与原 config
+  建窗完全一致，生产无感知。
+- **铁律**（tauri#11144）：同一 user data folder 下的所有 webview 的环境参数必须
+  完全一致，否则 webview 创建直接报 0x8007139F（ERROR_INVALID_STATE）。所以全部
+  8 个 `WebviewWindowBuilder` 调用点统一过 `lib.rs::apply_browser_args` —— 新加窗
+  必须同样包裹，别手写 `additional_browser_args`。
+- 主窗因此从 tauri.conf.json 的 `windows` 挪到 setup 里用 builder 建（参数逐项
+  与原 config 一致）。
+- 连 CDP 必须连 `127.0.0.1`（localhost 解析 ::1 会 ConnectionRefused）；重启测试
+  前杀掉旧实例后等几秒再启动，撞上参数不一致的残留浏览器进程同样 0x8007139F。

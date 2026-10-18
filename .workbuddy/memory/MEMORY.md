@@ -7,6 +7,7 @@
 
 ## 桌面端
 - **验证 PC 端 UI 的四条铁律**（见 `2026-10-18.md`）：① 必须用**计划任务跑 .bat** 启动（`set` 环境变量 + `start ""`），工具沙箱会杀 WebView2 浏览器进程 → 全窗口黑屏/卡死假象；② `PrintWindow` 抓 WebView2 恒黑，用 `GetDC(NULL)+BitBlt` 抓屏，读坐标要在 1:1 裁剪图上量；③ webview 不吃注入点击（hover 有效、点击无效），验证走 `ANYBOOT_TEST_OPEN_HUB=1` / 再 `ANYBOOT_TEST_OPEN_TERM=1` 钩子；④ 本机**没有 `strings` 命令**，静默返回 0 会骗人，用 Python 提串。
+- **WebView2 CDP 调试端口**：`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` 在运行时 155 已失效（wry API 参数优先）；用 `ANYBOOT_CDP_PORT=9223` + 所有 `WebviewWindowBuilder` 统一过 `lib.rs::apply_browser_args`。铁律（tauri#11144）：同一 data folder 的所有 webview 环境参数必须一致，不一致 = 0x8007139F 开不出窗；杀旧实例后等 5s 再启动。
 - 前端改动**必须强制 codegen**（删 `out` + `touch build.rs` 重编）；核对解 `out/tauri-codegen-assets/*`；**二进制里搜中文按 UTF-8 字节比**（HTML 资产是 brotli 压缩嵌入，裸搜原串必为 0，要拿 codegen 资产字节做精确匹配）。`data-page-node-id` 原样保留；文档路径写 `~`。
 - **验证闭环全流程已沉淀技能 `~/.workbuddy/skills/anyboot-pc-ui-verify/SKILL.md`**（jsdom 姿势 / 资产哈希名与 zig 重链后新旧共存坑 / jammy 打包 env / 无头冒烟不可行）。要点：资产名是内容哈希，嵌入核验先在目标二进制里定位资产再验内容；curl 探活加 `--noproxy '*'`。
 - **ui/*.html 里 id 严禁与 `window.xxx` 状态变量同名**：带 id 的元素会被 named access 挂成 window 同名属性（真值），`if (window.term)` 之类判空全失效——hub-term 黑屏教训（`id="term"`→`termHost`，已修）。

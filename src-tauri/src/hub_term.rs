@@ -87,7 +87,9 @@ pub struct TermMeta {
 /// 返回 false 表示窗口是新开的（hub 端可用于提示文案，一般忽略）。
 pub fn open_term_window(app: &AppHandle, server: HubServer) -> Result<(), String> {
     const LABEL: &str = crate::HUB_TERM_WINDOW_LABEL;
-    let existing = app.get_webview_window(LABEL);
+    // 复用前体检：窗口在但页面已死（白框）时会把这个僵尸窗口销毁，
+    // 往下走建窗流程 —— 否则只 show，用户永远停在那个白框里。
+    let existing = crate::hub_health::reuse_or_clear(app, LABEL);
     match existing {
         Some(window) => {
             let _ = window.unminimize();
@@ -109,11 +111,11 @@ pub fn open_term_window(app: &AppHandle, server: HubServer) -> Result<(), String
                 Ok(mut pending) => *pending = Some(server),
                 Err(_) => {}
             };
-            tauri::WebviewWindowBuilder::new(
+            crate::apply_browser_args(tauri::WebviewWindowBuilder::new(
                 app,
                 LABEL,
                 tauri::WebviewUrl::App("hub-term.html".into()),
-            )
+            ))
             .title("AnyBoot 终端")
             .inner_size(980.0, 640.0)
             .min_inner_size(720.0, 420.0)
@@ -121,6 +123,8 @@ pub fn open_term_window(app: &AppHandle, server: HubServer) -> Result<(), String
             .center()
             .build()
             .map_err(|error| format!("无法创建终端窗口: {error}"))?;
+            crate::hub_health::note_created(app, LABEL);
+            crate::hub_health::watch_first_frame(app, LABEL);
         }
     }
     Ok(())
@@ -518,7 +522,7 @@ pub fn hub_term_close(
 ) -> Result<(), String> {
     let session = get_session(&state, &session_id)?;
     session.user_closed.store(true, Ordering::Relaxed);
-    session
+    let _ = session
         .killer
         .lock()
         .map_err(|_| "结束把手已被锁死")?
@@ -594,7 +598,7 @@ pub fn kill_window(app: &AppHandle, window: &str) {
     for id in orphan {
         if let Some(session) = map.remove(&id) {
             if let Ok(mut killer) = session.killer.lock() {
-                killer.kill();
+                let _ = killer.kill();
             }
         }
     }
@@ -608,7 +612,7 @@ pub fn kill_all(app: &AppHandle) {
     };
     for (_, session) in map.iter() {
         if let Ok(mut killer) = session.killer.lock() {
-            killer.kill();
+            let _ = killer.kill();
         }
     }
     map.clear();

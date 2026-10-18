@@ -1113,7 +1113,8 @@ pub fn hub_focus_window(app: AppHandle, label: String) -> Result<(), String> {
 /// 已存在 → 给页面发 hub-files-open-server 事件（页面换服务器并回到家目录）。
 pub fn open_files_window(app: &AppHandle, server: HubServer) -> Result<(), String> {
     const LABEL: &str = crate::HUB_FILES_WINDOW_LABEL;
-    if let Some(window) = app.get_webview_window(LABEL) {
+    // 复用前体检：白框（页面已死）的窗口会被销毁，往下重建 —— 见 hub_health
+    if let Some(window) = crate::hub_health::reuse_or_clear(app, LABEL) {
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
@@ -1135,11 +1136,11 @@ pub fn open_files_window(app: &AppHandle, server: HubServer) -> Result<(), Strin
             Err(_) => {}
         };
     }
-    tauri::WebviewWindowBuilder::new(
+    crate::apply_browser_args(tauri::WebviewWindowBuilder::new(
         app,
         LABEL,
         tauri::WebviewUrl::App("hub-files.html".into()),
-    )
+    ))
     .title("AnyBoot 文件")
     .inner_size(980.0, 660.0)
     .min_inner_size(760.0, 480.0)
@@ -1147,6 +1148,8 @@ pub fn open_files_window(app: &AppHandle, server: HubServer) -> Result<(), Strin
     .center()
     .build()
     .map_err(|error| format!("无法创建文件浏览窗口: {error}"))?;
+    crate::hub_health::note_created(app, LABEL);
+    crate::hub_health::watch_first_frame(app, LABEL);
     Ok(())
 }
 
