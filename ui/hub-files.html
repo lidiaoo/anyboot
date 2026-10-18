@@ -671,15 +671,21 @@ function showTransfer(dir, name, indeterminate) {
   badge.textContent = dir === 'up' ? '↑ 上传' : '↓ 下载';
   badge.className = 'tbadge ' + (dir === 'up' ? 'up' : 'down');
   const key = dir + '|' + name;
-  if (prog.key !== key) prog = { key, lastBytes: 0, lastT: 0, speed: 0 };
+  // 只有换目标（新传输）才清零进度条：同一任务的后续事件（尤其 paused，
+  // 此时后端可能没带 total，下面的分支重设不了百分比）必须保留 running
+  // 阶段攒出的显示 —— 否则暂停那一帧进度条会被清掉，看起来像「渲染丢失」。
+  const fresh = prog.key !== key;
+  if (fresh) prog = { key, lastBytes: 0, lastT: 0, speed: 0 };
   $('transfer').hidden = false;
   $('transferName').textContent = name;
   const bar = $('transferBar');
   bar.classList.toggle('indet', !!indeterminate);
-  $('transferFill').style.width = indeterminate ? '40%' : '0%';
-  $('transferPct').textContent = '0%';
+  if (fresh || indeterminate) {
+    $('transferFill').style.width = indeterminate ? '40%' : '0%';
+    $('transferPct').textContent = '0%';
+  }
   $('transferPct').classList.remove('fail');
-  $('transferMeta').textContent = '';
+  if (fresh) $('transferMeta').textContent = '';
 }
 function progTick(bytes, total) {
   const now = performance.now();
@@ -1113,8 +1119,11 @@ if (listen) {
       if (tx && tx.key === key) { tx = null; hideTransfer(); txPaint(); }
       return;
     }
-    // 传输条指向跟随最新任务；同 key 的后续事件直接刷
-    if (!tx || tx.key !== key) tx = { key, dir: dir || 'down', paused: false };
+    // 传输条指向跟随最新任务；同 key 的后续事件直接刷（bytes/total 记进 tx，
+    // 满进度兜底与续传判断都要用）
+    if (!tx || tx.key !== key) tx = { key, dir: dir || 'down', paused: false, bytes: bytes || 0, total: total || 0 };
+    if (typeof bytes === 'number') tx.bytes = bytes;
+    if (typeof total === 'number' && total > 0) tx.total = total;
     // running 不许盲目解暂停：暂停后可能还有迟到的 running 事件（后端已修，
     // 这里防微秒竞态），只有不在暂停宽限期内才清标记 —— 续传恢复走按钮点击，
     // 本地就置 false，不依赖这条。
@@ -1146,8 +1155,12 @@ if (listen) {
         return;
       }
       $('transferBar').classList.remove('indet');
-      if (total > 0) {
-        const pct = Math.min(100, Math.round((bytes / total) * 100));
+      // 事件没带 total 时用记账值（tx.bytes/tx.total）——保证暂停帧一定有
+      // 断点百分比，进度条不会空着
+      const bt = total > 0 ? total : tx.total;
+      const bb = total > 0 ? bytes : tx.bytes;
+      if (bt > 0) {
+        const pct = Math.min(100, Math.round((bb / bt) * 100));
         $('transferFill').style.width = pct + '%';
         $('transferPct').textContent = pct + '%（断点）';
       }
