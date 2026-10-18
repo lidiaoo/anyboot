@@ -1576,7 +1576,7 @@ fn open_login_items_settings(app: AppHandle) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         let _ = &app;
-        login_item::open_system_settings()
+        crate::login_item::login_item::open_system_settings()
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -2388,7 +2388,7 @@ pub fn run() {
             // 需要时显式带上 --remote-debugging-port。未设 ANYBOOT_CDP_PORT 时，
             // 这里的参数与原 config「windows」逐项一致，生产行为不变。
             {
-                let mut builder = apply_browser_args(tauri::WebviewWindowBuilder::new(
+                let builder = apply_browser_args(tauri::WebviewWindowBuilder::new(
                     app.handle(),
                     MAIN_WINDOW_LABEL,
                     tauri::WebviewUrl::default(),
