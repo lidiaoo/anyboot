@@ -1,5 +1,12 @@
 //! NVIDIA / WebKitGTK 兼容环境变量（自包含，不依赖共享状态）。
 
+// 开关常量定义在 lib.rs（crate 根）。Rust 子模块**不继承**父模块作用域，
+// 同 crate 也必须显式引入，否则 E0425（不要裸写常量名）。
+#[cfg(target_os = "linux")]
+use crate::{
+    DMABUF_RENDERER_OFF, NO_GPU_SWITCHES, NVIDIA_EXPLICIT_SYNC_OFF, WEBKIT_ENV_SWITCHES,
+    X11_GPU_SWITCHES,
+};
 
 /// 环境变量布尔开关的纯逻辑部分（便于单测）：1/true/yes/on 与 0/false/no/off。
 ///
