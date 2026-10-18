@@ -58,6 +58,12 @@
   真正实现在 `foo_blocking` 里走 `spawn_blocking`。守卫单测 `src/blocking_guard.rs` 扫 `src/*.rs`
   同步命令体（含间接调用），违规即 `cargo test` 红；转义词只有一个：`// blocking-ok: 理由`。
   终端上行故意保持同步 —— 它只往有界队列 `try_send`，`write_all` 在专属写线程上。
+- **传输状态只有一个真相源**：`XferTask.state` 五态（running/paused/done/failed/abandoned），
+  变更一律 `app.emit` **广播**（别用 `emit_to(窗口)`：主窗没开时直接丢事件），
+  快照 `hub_sftp_transfer_list` = running + 断点清单 + `recent`（最近 30 条终态）。
+  进程退出必须 `detach_running`（按 `Arc::ptr_eq` 只摘本进程）—— 漏了就是清单永远报
+  `running` 的僵尸卡，这是实测复现的坑。中断报 `paused` 不报 `failed`（要能续传）。
+  批量 `key=null`：pause 全部 running / resume 逐条全部 / abandon 清 running+paused 全部。
 - **验证脚本别用带中文注释的 bat**：UTF-8 中文 + LF 行尾会让后面的 `set` 整行失效，hook 静默不跑，
   看起来像功能坏了（白查半天）。启动一律用纯 ASCII 启动器（Python + DETACHED_PROCESS），
   且 `[hub-term]` 会把 ssh 报错原文抄进 stderr，连不上时先看它。

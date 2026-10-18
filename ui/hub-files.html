@@ -1103,9 +1103,17 @@ setInterval(tickClock, 1000); tickClock();
 /* ---------- 后端事件 ---------- */
 if (listen) {
   listen('hub-sftp-progress', (event) => {
-    const { name, key, dir, bytes, total, done, failed, paused } = event.payload;
+    const { name, key, dir, bytes, total, done, failed, paused, state } = event.payload;
+    // state 是后端给的权威状态；旧布尔兜底
+    const phase = state || (failed ? 'failed' : done ? 'done' : paused ? 'paused' : 'running');
+    if (phase === 'abandoned') {
+      // 传输页里点了「放弃」/「全部放弃」：本窗的进度条必须同步消失
+      if (tx && tx.key === key) { tx = null; hideTransfer(); txPaint(); }
+      return;
+    }
     // 传输条指向跟随最新任务；同 key 的后续事件直接刷
     if (!tx || tx.key !== key) tx = { key, dir: dir || 'down', paused: false };
+    if (phase === 'running') tx.paused = false;   // 续传成功 → 断点标记要清掉
     if (failed) {
       tx = null;
       $('transferPct').textContent = '失败';

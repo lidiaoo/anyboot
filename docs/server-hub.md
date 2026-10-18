@@ -120,6 +120,33 @@ GUI 程序（`windows_subsystem = "windows"`）起 `ssh` / `sftp` / `ssh-keygen`
 前端也要给可见进展：终端页 `openSession` 立刻显示「正在连接…」、按 server.id 防重入、
 `OPEN_TIMEOUT_MS`（10s）超时后报错而不是静默黑屏。
 
+### 传输状态同步（文件窗 ↔ 传输页）
+
+传输状态只有一个真相源：后端每条任务带 `state`，五态之一
+`running / paused / done / failed / abandoned`，任何变更都**广播**
+（`app.emit`，不是 `emit_to`）一条 `hub-sftp-progress`。三个订阅方都吃同一份：
+文件窗进度条、主窗内嵌文件浏览的进度条、传输页列表。
+
+几条踩过的坑，改这块之前先读：
+
+- **不要用 `emit_to(窗口)`**：传输页开在主窗里，主窗没打开时 emit_to 直接失败
+  （返回值过去被丢弃），用户再打开传输页就什么都看不到。广播 + 快照兜底才对。
+- **快照必须带终态**：`hub_sftp_transfer_list` 返回 running + 断点清单 + `recent`
+  （最近 30 条 done/failed/abandoned）。只给前两类的话，「刚才下载完的」在传输页里
+  根本不存在、「刚才放弃的」卡片永远消不掉 —— 事件丢了没有第二条路可走。
+- **进程退出就要从 running 表摘掉自己**（`detach_running`，按 `Arc::ptr_eq` 只摘本进程）。
+  暂停/中断分支过去漏了这一步，于是清单一直把死进程报成 `running`，前端卡片永远停在
+  「下载中」。这条是实测复现出来的，不是推测。
+- **中断（网络断/连接被重置）报 `paused` 而不是 `failed`**：它确实还能续传，而
+  `failed` 会让前端删卡、清单里却还留着记录 —— 两边对不上账就是「状态不同步」。
+- **批量操作的 `key=null` 语义**：`pause` 作用于所有 running、`resume` 逐条续传
+  **全部**断点、`abandon` 清掉「所有 running + 全部断点」。`resume` 以前走
+  `pick_paused(None)` 只取最近一条，于是「全部继续」看着成功、实际只续了一个。
+- **开跑即广播 `running`**：下载过去没有初始事件，列表要等第一次字节变化才出现卡片，
+  小文件甚至连一条都没有。现在统一放在 `spawn_sftp_transfer` 入表之后发。
+- **续传沿用原窗口**：`XferTask.window` 记任务来源窗口，续传时按它发事件、关窗时按它
+  收进程（旧任务是主窗内嵌浏览发起的，不能硬编码成文件窗）。
+
 ### 下载目录
 
 设置页「下载路径」留空 = 系统下载目录，由后端 `hub_download_dir_default` 给
@@ -176,4 +203,15 @@ GUI 程序（`windows_subsystem = "windows"`）起 `ssh` / `sftp` / `ssh-keygen`
     （hook 静默不跑，看起来像「功能坏了」）。改为纯 ASCII 启动器（Python），hook 才有输出。
   - `[hub-term]` 现在会把 ssh 的报错原文抄进 stderr（会话非 0 退出时打印最近 4KB），
     连不上不再只有界面里那个死标签可看。
+- Windows 实机（2026-10-18 四轮，症状「下载进度/暂停/继续/放弃没有同步到传输列表」）：
+  用 WebView2 调试端口（`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9223`）
+  在真实页面 JS 上下文里驱动，服务器当前被服务端 fail2ban 拒绝，正好走**失败/中断**分支
+  —— 状态机的每条边都能验：
+  - `hub_sftp_download` 立即返回（7ms，不阻塞 UI）；4s 后 `transfer_list` 只有一条
+    `state=paused`（修复前是 `running` + `paused` 两条，running 就是僵尸进程）。
+  - 传输页 DOM：卡片从「↓ 已暂停 / 0% · 断点」出现，点「全部放弃」后消失回空态。
+  - 两张暂停卡 → 「全部放弃」一次清掉，两张同时消失（`abandon` 返回 2）。
+  - `resume(key=null)` 在空清单上返回可读错误而不是崩溃。
+  - **未验证**：真实下载完成（`done`）路径与「全部继续」真的把多条续起来 ——
+    需要一台能连上的服务器，当前被服务端拒绝。
 

@@ -20,6 +20,7 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::collections::VecDeque;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -58,8 +59,21 @@ pub struct XferTask {
     /// 是否处于暂停/中断态（清单接口输出用；落盘的都是 true）
     #[serde(default)]
     pub paused: bool,
+    /// 任务状态：running / paused / done / failed / abandoned。
+    /// 传输页与文件窗都按它渲染 —— 之前只有 paused/done/failed 三个布尔，
+    /// 「放弃」根本没有事件，两端只能靠 3s 轮询猜，这就是状态不同步的根。
+    #[serde(default = "state_running")]
+    pub state: String,
+    /// 这条任务最初是从哪个窗口发起的（续传时沿用它去发事件、关窗时按它收进程）。
+    /// 旧版落盘文件里没有这个字段 → 空串，读回时回退到文件窗。
+    #[serde(default)]
+    pub window: String,
     /// 最后活动时间（毫秒）
     pub at: u64,
+}
+
+fn state_running() -> String {
+    "running".to_string()
 }
 
 #[derive(Clone, Serialize)]
@@ -83,7 +97,14 @@ pub struct HubSftpState {
     running: Mutex<Vec<RunningXfer>>,
     /// 暂停/中断的传输（断点续传清单）。窗口重开自动重挂、应用重启后落盘。
     paused: Mutex<Vec<XferTask>>,
+    /// 最近的终态任务（完成/失败/放弃）。传输页可能比任务晚打开（事件早就发过了），
+    /// 只靠 running+paused 快照会让「刚才那个下载」凭空消失 —— 这份短期历史
+    /// 让清单接口能补齐终态，双向对账才完整。
+    recent: Mutex<VecDeque<XferTask>>,
 }
+
+/// 终态历史容量（够覆盖传输页后开的场景，又不至于让清单膨胀）
+const RECENT_LIMIT: usize = 30;
 
 // ==================== 断点清单（落盘） ====================
 
@@ -342,15 +363,22 @@ fn spawn_sftp_transfer(
             .map_err(|error| format!("写 sftp 批命令失败: {error}"))?;
     }
     let handle = Arc::new(Mutex::new(child));
+    let mut started = task;
+    started.state = "running".to_string();
+    started.paused = false;
+    started.window = window.to_string();
     state
         .running
         .lock()
         .map_err(|_| "传输进程表已被锁死")?
         .push(RunningXfer {
             window: window.to_string(),
-            task,
+            task: started.clone(),
             child: handle.clone(),
         });
+    // 入表即广播「开跑」。下载过去完全没有初始事件，传输列表要等第一次
+    // 字节变化才出现卡片 —— 小文件/秒传甚至一条都不出，只剩最后的 done。
+    emit_xfer(app, &started, "running", started.bytes, started.total);
     reap_finished(state);
     Ok(handle)
 }
@@ -479,10 +507,45 @@ fn bare_name(name: &str, path: &str) -> Option<String> {
 
 // ==================== 命令 ====================
 
-/// 传输进度事件：发给文件窗，同时抄送 hub 主窗（传输页跨窗口汇总）。
-fn emit_progress(app: &AppHandle, files_label: &str, payload: serde_json::Value) {
-    let _ = app.emit_to(files_label, EVENT_PROGRESS, payload.clone());
-    let _ = app.emit_to(crate::HUB_WINDOW_LABEL, EVENT_PROGRESS, payload);
+/// 传输状态事件：把一条任务的当前状态**广播**给所有窗口。
+///
+/// 为什么不用 `emit_to(files_label)`：传输页开在 hub 主窗里，主窗没打开时
+/// emit_to 直接失败（返回值过去被丢弃），用户之后打开传输页就什么都看不到 ——
+/// 这是「下载进度没同步到传输列表」的一半原因。广播是谁在听谁收；
+/// 另一半由 `recent` 快照补齐（见 `hub_sftp_transfer_list`），事件丢了也能对账。
+fn emit_xfer(app: &AppHandle, task: &XferTask, state: &str, bytes: u64, total: u64) {
+    let payload = json!({
+        "key": task.key,
+        "name": task.name,
+        "dir": task.dir,
+        "state": state,
+        "bytes": bytes,
+        "total": total,
+        "server_id": task.server_id,
+        "server_name": task.server_name,
+        // 旧布尔字段继续带上：文件窗/主窗里还有按它们分支的老逻辑
+        "paused": state == "paused",
+        "done": state == "done",
+        "failed": state == "failed",
+        "abandoned": state == "abandoned",
+    });
+    let _ = app.emit(EVENT_PROGRESS, payload);
+}
+
+/// 记一条终态进短期历史（同 key 去重、最新的在前）。
+/// 传输页后开时靠它补上「刚才完成/放弃的那条」。
+fn push_recent(state: &HubSftpState, task: &XferTask, status: &str) {
+    let mut entry = task.clone();
+    entry.state = status.to_string();
+    entry.paused = false;
+    entry.at = now_ms();
+    if let Ok(mut recent) = state.recent.lock() {
+        recent.retain(|t| t.key != entry.key);
+        recent.push_front(entry);
+        while recent.len() > RECENT_LIMIT {
+            recent.pop_back();
+        }
+    }
 }
 
 /// 传输控制：pause=杀掉 sftp 子进程留下半截文件记入断点清单（真正可续传的
@@ -521,7 +584,12 @@ fn hub_sftp_transfer_ctl_blocking(
     }
 }
 
-/// 传输页实时清单（跑着的 + 暂停的，附已传/总字节）。前端隔 1s 拉一次。
+/// 传输页实时清单：跑着的 + 断点清单 + 最近终态（完成/失败/放弃）。
+///
+/// 前端把它当**对账快照**用：事件是主路径，事件丢了（传输页后开、主窗没开时
+/// 广播没人收）就靠这份快照把卡片补回来或清掉。所以三类都必须给：
+/// 只给 running+paused 时，「刚才下载完的」在传输页里根本不存在，
+/// 「刚才放弃的」卡片也永远消不掉。
 #[tauri::command]
 pub fn hub_sftp_transfer_list(
     state: tauri::State<'_, HubSftpState>,
@@ -536,6 +604,8 @@ pub fn hub_sftp_transfer_list(
             if xfer_is_complete(&task) {
                 task.bytes = task.total;
             }
+            task.paused = false;
+            task.state = "running".to_string();
             tasks.push(task);
         }
     }
@@ -543,8 +613,21 @@ pub fn hub_sftp_transfer_list(
         tasks.extend(paused.iter().map(|t| {
             let mut task = t.clone();
             task.paused = true;
+            task.state = "paused".to_string();
             task
         }));
+    }
+    // 终态补录：同 key 已经在 running/paused 里的跳过（续传中的任务不该
+    // 被上一次的 done/abandoned 顶掉）
+    if let Ok(recent) = state.recent.lock() {
+        let live: std::collections::HashSet<String> =
+            tasks.iter().map(|t| t.key.clone()).collect();
+        tasks.extend(
+            recent
+                .iter()
+                .filter(|t| !live.contains(&t.key))
+                .cloned(),
+        );
     }
     Ok(tasks)
 }
@@ -583,18 +666,16 @@ fn pause_transfers(
             // 竞态：点暂停那一刻其实已经传完了（最后字节已落盘、sftp 还没
             // 干净退出）。文件是完整的 → 直接按完成收尾，绝不记断点，
             // 否则传输页会卡出「100% 已暂停」永远按不出结果。
-            emit_progress(
-                app,
-                &running.window,
-                json!({ "name": task.name, "key": task.key, "dir": task.dir, "bytes": task.total, "total": task.total, "done": true }),
-            );
+            let total = task.total;
+            push_recent(state, &task, "done");
+            emit_xfer(app, &task, "done", total, total);
         } else {
+            task.state = "paused".to_string();
+            // 记住来源窗口：续传时按它发事件、关窗时按它收进程
+            task.window = running.window.clone();
             upsert_paused(state, app, task.clone());
-            emit_progress(
-                app,
-                &running.window,
-                json!({ "name": task.name, "key": task.key, "dir": task.dir, "bytes": task.bytes, "total": task.total, "paused": true }),
-            );
+            let (bytes, total) = (task.bytes, task.total);
+            emit_xfer(app, &task, "paused", bytes, total);
         }
         acted += 1;
     }
@@ -604,14 +685,38 @@ fn pause_transfers(
 /// 继续：按断点记录重起 sftp 子进程。down 用 `reget`（从本地半截文件大小
 /// 接着拉）、up 用 `reput`（往远端半截文件接着推）。远端文件尺寸变了就
 /// 拒绝续传（内容对不上传出来是损坏文件）。
+///
+/// `key=None`（「全部继续」）时把断点清单里的**每一条**都续起来 —— 旧实现
+/// 走 `pick_paused(None)` 只取最近一条，于是「全部继续」名义上成功、实际
+/// 只续了一个，其余卡片留在原地不动。
 fn resume_transfer(
     app: &AppHandle,
     state: &HubSftpState,
     key: Option<&str>,
 ) -> Result<usize, String> {
-    let Some(task) = pick_paused(state, key) else {
-        return Err("没有可续传的任务".to_string());
+    let targets: Vec<XferTask> = match key {
+        Some(k) => pick_paused(state, Some(k)).into_iter().collect(),
+        None => state.paused.lock().map(|p| p.clone()).unwrap_or_default(),
     };
+    if targets.is_empty() {
+        return Err("没有可续传的任务".to_string());
+    }
+    let mut done = 0usize;
+    let mut last_error: Option<String> = None;
+    for task in targets {
+        match resume_one(app, state, task) {
+            Ok(()) => done += 1,
+            Err(error) => last_error = Some(error),
+        }
+    }
+    if done == 0 {
+        return Err(last_error.unwrap_or_else(|| "没有可续传的任务".to_string()));
+    }
+    Ok(done)
+}
+
+/// 续传单条（resume_transfer 的实现体）
+fn resume_one(app: &AppHandle, state: &HubSftpState, task: XferTask) -> Result<(), String> {
     let server = load_server_by_id(app, &task.server_id)?;
     let commands = match task.dir.as_str() {
         "down" => {
@@ -638,7 +743,8 @@ fn resume_transfer(
         }
         "up" => {
             let have = remote_size_of(app, &server, &task.remote_path)?.unwrap_or(0);
-            let src_size = partial_size(&task.local_path);            if src_size == 0 {
+            let src_size = partial_size(&task.local_path);
+            if src_size == 0 {
                 return Err("本地源文件已不存在，无法续传；请放弃这个任务".to_string());
             }
             if src_size < have {
@@ -652,78 +758,123 @@ fn resume_transfer(
         }
         other => return Err(format!("未知传输方向: {other}")),
     };
+    // 事件与进程归属沿用原任务的来源窗口（旧任务可能来自主窗内嵌文件浏览）
+    let window = if task.window.is_empty() {
+        crate::HUB_FILES_WINDOW_LABEL.to_string()
+    } else {
+        task.window.clone()
+    };
+    let mut resumed = task.clone();
+    resumed.state = "running".to_string();
+    resumed.paused = false;
+    resumed.window = window.clone();
     // 先起新子进程再摘记录：spawn 失败（连不上/断点校验不过）时记录还在清单
     // 里，用户可以重试或放弃 —— 先摘就会把任务弄丢。
-    let child = spawn_sftp_transfer(
-        app,
-        state,
-        crate::HUB_FILES_WINDOW_LABEL,
-        &server,
-        &commands,
-        task.clone(),
-    )?;
+    // spawn_sftp_transfer 内部会立刻广播一条 running 事件（卡片从"已暂停"
+    // 立刻切回"下载中"，不必等第一次进度）。
+    let child = spawn_sftp_transfer(app, state, &window, &server, &commands, resumed.clone())?;
     remove_paused(state, app, &task.key);
-    spawn_progress_poller(app.clone(), child, task, server, crate::HUB_FILES_WINDOW_LABEL.to_string());
-    Ok(1)
+    spawn_progress_poller(app.clone(), child, resumed, server);
+    Ok(())
 }
 
 /// 放弃（cancel 是它的旧名）：删半截文件（down 删本地、up 删远端）+ 删记录。
-/// 三个位置都兜：断点清单、跑着的任务（先杀再清）、都没有时也返回成功——
+///
+/// `key=None`（「全部放弃」）时清掉**跑着的全部 + 断点清单的全部**。旧实现
+/// 只 `pick_paused(None)` 取最近一条删，于是「全部放弃」之后清单里还躺着
+/// 其余暂停任务 —— 卡片永远消不掉。
+///
+/// 每个真正被清掉的任务都广播一条 `abandoned`：这是过去完全没有事件的动作，
+/// 所以「文件窗点放弃、传输页卡片还在」只能等 3s 轮询甚至永远不消失。
+/// 三个位置都兜：断点清单、跑着的任务（先杀再清）、都没有时也返回成功 ——
 /// 前端幽灵卡（清单已清但 UI 没同步掉）点放弃必须能消卡，而不是报错卡死。
 fn abandon_transfer(
     app: &AppHandle,
     state: &HubSftpState,
     key: Option<&str>,
 ) -> Result<usize, String> {
-    // 跑着的同键任务先杀掉（放弃 running 里的任务同样合法）
-    if let Ok(mut list) = state.running.lock() {
+    let mut acted = 0usize;
+
+    // ① 跑着的同键任务先杀掉（放弃 running 里的任务同样合法）
+    let victims: Vec<RunningXfer> = {
+        let Ok(mut list) = state.running.lock() else {
+            return Err("传输进程表已被锁死".to_string());
+        };
         let victims: Vec<RunningXfer> = match key {
             Some(k) => list.iter().filter(|r| r.task.key == k).cloned().collect(),
             None => list.clone(),
         };
-        for running in victims {
-            if let Ok(mut child) = running.child.lock() {
-                let _ = child.kill();
-                let _ = child.wait();
-            }
+        for running in &victims {
             list.retain(|r| r.task.key != running.task.key);
-            // 半截文件顺手清（清单路径里没有这条时也不留垃圾）
-            if running.task.dir == "down" {
-                let _ = std::fs::remove_file(&running.task.local_path);
-            }
         }
+        victims
+    };
+    for running in victims {
+        if let Ok(mut child) = running.child.lock() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        // 半截文件顺手清（清单路径里没有这条时也不留垃圾）
+        if running.task.dir == "down" {
+            let _ = std::fs::remove_file(&running.task.local_path);
+        }
+        acted += 1;
+        push_recent(state, &running.task, "abandoned");
+        emit_xfer(app, &running.task, "abandoned", 0, running.task.total);
     }
-    let Some(task) = pick_paused(state, key) else {
-        // 清单里没有这条（可能从未入过或已被 resume 摘掉）：按"无事可做但成功"
-        // 处理，前端据此消卡。杀 running 的动作上面已经做过。
-        return Ok(1);
-    };
-    // 半截文件先清掉再摘记录：清失败不拦着放弃，记录也照样走。
-    // 已传满的记录（旧版本竞态留下的 100% 断点）文件是完整的，绝不能删。
-    let complete = {
-        let mut probe = task.clone();
-        probe.bytes = xfer_bytes_now(&probe);
-        xfer_is_complete(&probe)
-    };
-    if !complete {
-        match task.dir.as_str() {
-            "down" => {
-                let _ = std::fs::remove_file(&task.local_path);
-            }
-            "up" => {
-                if let Ok(server) = load_server_by_id(app, &task.server_id) {
-                    let _ = run_sftp_batch(
-                        app,
-                        &server,
-                        &format!("rm {}\n", sftp_quote(&task.remote_path)),
-                    );
+
+    // ② 断点清单：key 给定删一条，没给就整清
+    let mut queue_dirty = false;
+    let tasks: Vec<XferTask> = match state.paused.lock() {
+        Ok(mut paused) => {
+            let before = paused.len();
+            let taken: Vec<XferTask> = match key {
+                Some(k) => {
+                    let found = paused.iter().find(|t| t.key == k).cloned();
+                    paused.retain(|t| t.key != k);
+                    found.into_iter().collect()
                 }
-            }
-            _ => {}
+                None => paused.drain(..).collect(),
+            };
+            queue_dirty = paused.len() != before;
+            taken
         }
+        Err(_) => Vec::new(),
+    };
+    for task in tasks {
+        // 半截文件先清掉再摘记录：清失败不拦着放弃，记录也照样走。
+        // 已传满的记录（旧版本竞态留下的 100% 断点）文件是完整的，绝不能删。
+        let complete = {
+            let mut probe = task.clone();
+            probe.bytes = xfer_bytes_now(&probe);
+            xfer_is_complete(&probe)
+        };
+        if !complete {
+            match task.dir.as_str() {
+                "down" => {
+                    let _ = std::fs::remove_file(&task.local_path);
+                }
+                "up" => {
+                    if let Ok(server) = load_server_by_id(app, &task.server_id) {
+                        let _ = run_sftp_batch(
+                            app,
+                            &server,
+                            &format!("rm {}\n", sftp_quote(&task.remote_path)),
+                        );
+                    }
+                }
+                _ => {}
+            }
+        }
+        acted += 1;
+        push_recent(state, &task, "abandoned");
+        emit_xfer(app, &task, "abandoned", 0, task.total);
     }
-    remove_paused(state, app, &task.key);
-    Ok(1)
+    if queue_dirty {
+        persist_queue(state, app);
+    }
+    // 一条都没清到（幽灵卡）：按「无事可做但成功」处理，前端据此消卡
+    Ok(acted.max(1))
 }
 
 /// 挑一条要操作的断点记录：key 给定就精确找，没给就取最近活动的一条。
@@ -824,7 +975,6 @@ fn spawn_progress_poller(
     child: Arc<Mutex<std::process::Child>>,
     mut task: XferTask,
     server: HubServer,
-    window_label: String,
 ) {
     std::thread::spawn(move || {
         let state = app.state::<HubSftpState>();
@@ -843,11 +993,7 @@ fn spawn_progress_poller(
                 if tick % 5 == 0 && status.is_none() {
                     if let Ok(Some(bytes)) = remote_size_of(&app, &server, &task.remote_path) {
                         task.bytes = bytes;
-                        emit_progress(
-                            &app,
-                            &window_label,
-                            json!({ "name": task.name, "key": task.key, "dir": "up", "bytes": bytes, "total": task.total }),
-                        );
+                        emit_xfer(&app, &task, "running", bytes, task.total);
                         update_running_bytes(&state, &task.key, bytes);
                     }
                 }
@@ -855,20 +1001,24 @@ fn spawn_progress_poller(
                 let bytes = partial_size(&task.local_path);
                 if bytes != last_bytes {
                     last_bytes = bytes;
-                    emit_progress(
-                        &app,
-                        &window_label,
-                        json!({ "name": task.name, "key": task.key, "dir": "down", "bytes": bytes, "total": task.total }),
-                    );
+                    emit_xfer(&app, &task, "running", bytes, task.total);
                     update_running_bytes(&state, &task.key, bytes);
                 }
             }
             if let Some(status) = status {
-                finish_transfer(&app, &state, &child, &task, &window_label, status);
+                finish_transfer(&app, &state, &child, &task, status);
                 return;
             }
         }
     });
+}
+
+/// 从 running 表摘掉「本进程」这一条。
+/// 同 key 可能已被 resume 换成新进程（Arc 不同），按指针比才不会误摘新任务。
+fn detach_running(state: &HubSftpState, key: &str, child: &Arc<Mutex<std::process::Child>>) {
+    if let Ok(mut list) = state.running.lock() {
+        list.retain(|r| !(r.task.key == key && Arc::ptr_eq(&r.child, child)));
+    }
 }
 
 /// 子进程退出后的收尾（见 spawn_progress_poller 的三态注释）
@@ -877,7 +1027,6 @@ fn finish_transfer(
     state: &tauri::State<'_, HubSftpState>,
     child: &Arc<Mutex<std::process::Child>>,
     task: &XferTask,
-    window_label: &str,
     status: std::process::ExitStatus,
 ) {
     if status.success() {
@@ -888,11 +1037,8 @@ fn finish_transfer(
         } else {
             partial_size(&task.local_path)
         };
-        emit_progress(
-            app,
-            window_label,
-            json!({ "name": task.name, "key": task.key, "dir": task.dir, "bytes": bytes, "total": task.total, "done": true }),
-        );
+        push_recent(state, task, "done");
+        emit_xfer(app, task, "done", bytes, task.total);
         return;
     }
     // resume 已经用新进程接管（同键不同把）→ 这个老轮询的退出事件别发，
@@ -925,31 +1071,28 @@ fn finish_transfer(
     if xfer_is_complete(&task) {
         // 摘除 + 发终态一把抓：先从 running 表摘掉自己，再发 done ——
         // 别让并发的第二个查询看到"已完成却还在跑"。
-        if let Ok(mut list) = state.running.lock() {
-            list.retain(|r| !(r.task.key == task.key && Arc::ptr_eq(&r.child, child)));
-        }
+        detach_running(state, &task.key, child);
         remove_paused(state, app, &task.key);
-        emit_progress(
-            app,
-            window_label,
-            json!({ "name": task.name, "key": task.key, "dir": task.dir, "bytes": task.total, "total": task.total, "done": true }),
-        );
+        push_recent(state, &task, "done");
+        emit_xfer(app, &task, "done", task.total, task.total);
         return;
     }
+    // 无论暂停还是中断，进程都已经退出 —— 必须先从 running 表摘掉自己。
+    // 过去这两个分支没摘，于是 transfer_list 一直把死进程报成 running，
+    // 前端卡片永远停在「下载中」（实测复现：sftp 失败 4s 后清单里还挂着 running）。
+    detach_running(state, &task.key, child);
     if is_paused(state, &task.key) {
         // 被暂停：down 的断点=本地半截文件；up 的断点=轮询刷进来的远端尺寸
-        emit_progress(
-            app,
-            window_label,
-            json!({ "name": task.name, "key": task.key, "dir": task.dir, "bytes": task.bytes, "total": task.total, "paused": true }),
-        );
+        emit_xfer(app, &task, "paused", task.bytes, task.total);
     } else {
         // 非用户暂停的退出（网络断、连接被重置等）= 中断：自动挂进断点清单，
         // 半截文件留着，传输页/文件窗都能从断点继续 —— 与手机端行为对齐。
+        // 状态统一报 paused 而不是 failed：它确实还能续传，报 failed 会让前端
+        // 把卡片删掉，而清单里又留着记录 —— 两边对不上账就是「状态不同步」。
         let mut interrupted = task.clone();
         interrupted.at = now_ms();
-        upsert_paused(state, app, interrupted);
-        emit_progress(app, window_label, json!({ "name": task.name, "key": task.key, "dir": task.dir, "failed": true }));
+        upsert_paused(state, app, interrupted.clone());
+        emit_xfer(app, &interrupted, "paused", interrupted.bytes, interrupted.total);
     }
 }
 
@@ -1348,18 +1491,14 @@ pub async fn hub_sftp_download(
         server_id: server.id.clone(),
         server_name: server.name.clone(),
         paused: false,
+        state: "running".to_string(),
+        window: window.label().to_string(),
         at: now_ms(),
     };
     let child = spawn_sftp_transfer(&app, state.inner(), window.label(), &server, &commands, task.clone())?;
 
     // 轮询本地文件大小 → 进度事件；传输完成后再核 sftp 退出码
-    spawn_progress_poller(
-        app,
-        child,
-        task,
-        server,
-        window.label().to_string(),
-    );
+    spawn_progress_poller(app, child, task, server);
     Ok(local_display)
 }
 
@@ -1421,13 +1560,10 @@ pub async fn hub_sftp_upload(
             server_id: server.id.clone(),
             server_name: server.name.clone(),
             paused: false,
+            state: "running".to_string(),
+            window: window_label.clone(),
             at: now_ms(),
         };
-        emit_progress(
-            &app,
-            &window_label,
-            json!({ "name": name, "dir": "up", "bytes": 0, "total": total }),
-        );
         // 每个文件一个子进程：暂停/放弃能精确到单个文件，上传失败也不连坐
         let child = spawn_sftp_transfer(
             &app,
@@ -1439,7 +1575,7 @@ pub async fn hub_sftp_upload(
         )?;
         // 不等它：起轮询线程接管进度与收尾，主循环继续排下一个文件。
         // 顺序语义由 picked 的迭代顺序保证（多文件仍是一个接一个传）。
-        spawn_progress_poller(app.clone(), child, task, server.clone(), window_label.clone());
+        spawn_progress_poller(app.clone(), child, task, server.clone());
         uploaded.push(name);
     }
     Ok(uploaded)
@@ -1621,6 +1757,20 @@ mod tests {
     }
 
     #[test]
+    fn xfer_task_reads_old_queue_file() {
+        // 旧版 transfer-queue.json 没有 state / window 字段：
+        // 升级后必须还能读回（读不回来 = 用户的断点清单全丢）
+        let old = r#"[{"key":"down|/a|/b","dir":"down","name":"a","remote_path":"/a",
+            "local_path":"/b","total":10,"bytes":5,"server_id":"s","server_name":"n",
+            "paused":true,"at":1}]"#;
+        let tasks: Vec<XferTask> = serde_json::from_str(old).expect("旧清单必须能读回");
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].state, "running");
+        assert_eq!(tasks[0].window, "");
+        assert!(tasks[0].paused);
+    }
+
+    #[test]
     fn xfer_key_format() {
         // 键 = dir|remote|local：三段拼死，前端只透传不解析
         assert_eq!(
@@ -1677,6 +1827,8 @@ mod tests {
             server_id: "s".into(),
             server_name: "n".into(),
             paused: false,
+            state: "running".to_string(),
+            window: String::new(),
             at: 0,
         };
         assert!(xfer_is_complete(&base), "up：已传=total 判完成");
@@ -1717,6 +1869,8 @@ mod tests {
             server_id: "srv-1".into(),
             server_name: "测试机".into(),
             paused: true,
+            state: "paused".to_string(),
+            window: String::new(),
             at: 1700000000000,
         }];
         save_queue(&path, &tasks).unwrap();

@@ -1179,6 +1179,7 @@
           <span style="flex:1"></span>
           <button class="btn" id="txPauseAll">全部暂停</button>
           <button class="btn" id="txResumeAll">全部继续</button>
+          <button class="btn" id="txAbandonAll">全部放弃</button>
           <button class="btn" id="txClearDone">清空已完成</button>
         </div>
         <div class="tx-list scroll-thin" id="txList"></div>
@@ -3257,76 +3258,135 @@
   const TX_PAUSE_GRACE_MS = 6000;
   function txAbsorbList(tasks) {
     if (!Array.isArray(tasks)) return;
-    const backendKeys = new Set(tasks.map(function (t) { return t && t.key; }).filter(Boolean));
+    const live = new Map();
+    const finished = [];
+    for (const t of tasks) {
+      if (!t || !t.key) continue;
+      const state = t.state || (t.paused ? 'paused' : 'running');
+      if (state === 'running' || state === 'paused') live.set(t.key, t);
+      else finished.push(t);   // done / failed / abandoned
+    }
     let changed = false;
+    // ① 后端还活着的（跑着 / 暂停）：没卡就建，有卡就按后端覆盖状态。
+    //    续传成功后后端变 running —— 这里必须把 paused 清掉，
+    //    否则「继续」点了卡片还挂着「已暂停」。
+    live.forEach(function (t, key) {
+      const paused = t.state === 'paused';
+      let tx = txActive.get(key);
+      if (!tx) {
+        tx = {
+          key: key, dir: t.dir || 'down', name: t.name || '—', bytes: t.bytes || 0, total: t.total || 0,
+          paused: paused, lastB: 0, lastT: 0, speed: 0, server_name: t.server_name || '',
+        };
+        txActive.set(key, tx);
+        changed = true;
+      } else {
+        if (typeof t.bytes === 'number' && t.bytes !== tx.bytes) { tx.bytes = t.bytes; changed = true; }
+        if (t.total && t.total !== tx.total) { tx.total = t.total; changed = true; }
+        if (paused !== tx.paused) { tx.paused = paused; changed = true; }
+        if (t.name && t.name !== tx.name) { tx.name = t.name; changed = true; }
+      }
+      if (paused) { if (!txPausedSince.has(key)) txPausedSince.set(key, Date.now()); }
+      else { txPausedSince.delete(key); }
+      txOpsInFlight.delete(key);
+    });
+    // ② 后端说已经结束（完成 / 失败 / 放弃）→ 本地卡片必须消掉。
+    //    这是「放弃/完成没同步」的对账兜底：事件丢了，靠快照也能收敛。
+    for (const t of finished) {
+      const tx = txActive.get(t.key);
+      if (!tx) continue;
+      txRemoveCard(t.key);
+      if (t.state === 'done') {
+        txAddHistory({
+          key: t.key, dir: t.dir || tx.dir, name: t.name || tx.name,
+          bytes: t.bytes || tx.bytes, total: t.total || tx.total, at: Date.now(),
+        });
+      }
+      changed = true;
+    }
+    // ③ 幽灵卡：后端既不在 live 也不在 finished（清单已清、事件也丢了）。
+    //    两道护栏保留：刚发过请求的 key、刚进暂停态还没过一个宽限期的 key。
     txActive.forEach(function (tx, key) {
-      if (!tx.paused || backendKeys.has(key)) return;
-      // 护栏①：这个 key 上刚发过 pause/resume 请求，等后端清单确认
+      if (live.has(key)) return;
       if (txOpsInFlight.has(key)) return;
-      // 护栏②：刚进暂停态的卡，后端清单可能还没落，别急着判幽灵
       const since = txPausedSince.get(key);
       if (since && Date.now() - since < TX_PAUSE_GRACE_MS) return;
-      // 后端已没有这条暂停任务：多半已在远端完成/被接管。满进度 → 记历史；否则静默消卡。
-      txActive.delete(key);
-      txPausedSince.delete(key);
+      txRemoveCard(key);
       if (tx.total > 0 && tx.bytes >= tx.total) {
-        txHistory.unshift({ dir: tx.dir, name: tx.name, bytes: tx.bytes, total: tx.total, at: Date.now() });
-        txHistory = txHistory.slice(0, 20);
-        txPersist();
+        txAddHistory({ key: key, dir: tx.dir, name: tx.name, bytes: tx.bytes, total: tx.total, at: Date.now() });
       }
       changed = true;
     });
-    for (const t of tasks) {
-      if (!t || !t.key || !t.paused) continue;
-      txOpsInFlight.delete(t.key);   // 后端确认在清单里了，解除护栏
-      if (txActive.has(t.key)) continue;
-      txPausedSince.set(t.key, Date.now());
-      txActive.set(t.key, {
-        key: t.key, dir: t.dir || 'down', name: t.name, bytes: t.bytes || 0,
-        total: t.total || 0, paused: true, lastB: 0, lastT: 0, speed: 0,
-        server_name: t.server_name || '',
-      });
-      changed = true;
-    }
     if (changed) renderTransfers();
   }
   function txPollList() {
     if (!invoke) return;
     invoke('hub_sftp_transfer_list').then(txAbsorbList).catch(function () {});
   }
-  if (window.__TAURI__ && window.__TAURI__.event && window.__TAURI__.event.listen) {
-    window.__TAURI__.event.listen('hub-sftp-progress', function (event) {
-      const p = event.payload || {};
-      if (!p.name || !p.key) return;
-      const key = p.key;
-      if (p.failed) { txActive.delete(key); renderTransfers(); return; }
-      let tx = txActive.get(key);
-      if (!tx) {
-        tx = { key: key, dir: p.dir || 'down', name: p.name, bytes: 0, total: 0, paused: false, lastB: 0, lastT: 0, speed: 0 };
-        txActive.set(key, tx);
-      }
-      if (p.paused) {
-        tx.paused = true;
-        tx.bytes = p.bytes || tx.bytes;
-        if (p.total) tx.total = p.total;
-        // 后端已兜底，这里是保险：满进度的"暂停"其实是已传完，按完成收尾
-        if (tx.total > 0 && tx.bytes >= tx.total) {
-          txActive.delete(key);
-          txHistory.unshift({ dir: tx.dir, name: tx.name, bytes: tx.bytes, total: tx.total, at: Date.now() });
-          txHistory = txHistory.slice(0, 20);
-          txPersist();
-        }
-      } else if (p.done) {
-        txActive.delete(key);
-        txHistory.unshift({ dir: tx.dir, name: tx.name, bytes: p.bytes || tx.bytes, total: p.total || tx.total, at: Date.now() });
-        txHistory = txHistory.slice(0, 20);
-        txPersist();
-      } else {
-        tx.paused = false;
-        tx.bytes = p.bytes || tx.bytes;
-        if (p.total) tx.total = p.total;
+  /* 传输事件：state 是唯一真相（running / paused / done / failed / abandoned）。
+     后端同时带旧布尔 paused/done/failed，旧前端逻辑仍能跑。
+     放弃过去完全没有事件 —— 文件窗里点「放弃」，这张卡只能等轮询、甚至永远不消。 */
+  function txAddHistory(entry) {
+    // 去重：同 key 只记一条（轮询补录和事件可能都送一次）
+    for (const h of txHistory) {
+      if (h.key && entry.key && h.key === entry.key) return;
+    }
+    txHistory.unshift(entry);
+    txHistory = txHistory.slice(0, 20);
+    txPersist();
+  }
+  function txRemoveCard(key) {
+    txActive.delete(key);
+    txPausedSince.delete(key);
+    txOpsInFlight.delete(key);
+  }
+  function txApplyEvent(p) {
+    if (!p || !p.key) return;
+    const key = p.key;
+    const state = p.state || (p.failed ? 'failed' : p.done ? 'done' : p.paused ? 'paused' : 'running');
+    if (state === 'done' || state === 'failed' || state === 'abandoned') {
+      const tx = txActive.get(key);
+      txRemoveCard(key);
+      if (tx && state === 'done') {
+        txAddHistory({
+          key: key, dir: tx.dir, name: tx.name,
+          bytes: p.bytes || tx.bytes, total: p.total || tx.total, at: Date.now(),
+        });
       }
       renderTransfers();
+      return;
+    }
+    let tx = txActive.get(key);
+    if (!tx) {
+      tx = {
+        key: key, dir: p.dir || 'down', name: p.name || '—', bytes: 0, total: 0,
+        paused: false, lastB: 0, lastT: 0, speed: 0, server_name: p.server_name || '',
+      };
+      txActive.set(key, tx);
+    }
+    if (p.name) tx.name = p.name;
+    if (p.server_name) tx.server_name = p.server_name;
+    if (p.total) tx.total = p.total;
+    if (typeof p.bytes === 'number') tx.bytes = p.bytes;
+    if (state === 'paused') {
+      // 后端已兜底，这里是保险：满进度的"暂停"其实是已传完，按完成收尾
+      if (tx.total > 0 && tx.bytes >= tx.total) {
+        txRemoveCard(key);
+        txAddHistory({ key: key, dir: tx.dir, name: tx.name, bytes: tx.total, total: tx.total, at: Date.now() });
+      } else {
+        tx.paused = true;
+        if (!txPausedSince.has(key)) txPausedSince.set(key, Date.now());
+      }
+    } else {
+      // running：续传成功/开跑 → 暂停态必须立刻清掉，否则卡片还显示「已暂停」
+      tx.paused = false;
+      txPausedSince.delete(key);
+    }
+    renderTransfers();
+  }
+  if (window.__TAURI__ && window.__TAURI__.event && window.__TAURI__.event.listen) {
+    window.__TAURI__.event.listen('hub-sftp-progress', function (event) {
+      txApplyEvent(event.payload);
     });
   }
   document.getElementById('txPauseAll').addEventListener('click', function () {
@@ -3341,23 +3401,38 @@
       });
       renderTransfers();
       toast('已暂停 ' + n + ' 个传输，可从断点继续');
+      txPollList();
     });
   });
   document.getElementById('txResumeAll').addEventListener('click', function () {
     const paused = [];
-    txActive.forEach(function (tx) { if (tx.paused) paused.push(tx); });
+    txActive.forEach(function (tx, key) { if (tx.paused) paused.push(key); });
     if (!paused.length) { toast('没有已暂停的传输'); return; }
-    let ok = 0;
-    Promise.all(paused.map(function (tx) {
-      txOpsInFlight.add(tx.key);
-      return txCtl('resume', tx.key).then(function (n) {
-        txOpsInFlight.delete(tx.key);
-        if (n) { ok++; txActive.delete(tx.key); txPausedSince.delete(tx.key); }
-        return n;
+    paused.forEach(function (key) { txOpsInFlight.add(key); });
+    // 一次 key=null：后端把断点清单里的每一条都续起来。
+    // 旧实现（以及逐条调用）在 key=null 时只取最近一条 → 「全部继续」只续一个。
+    txCtl('resume').then(function (n) {
+      paused.forEach(function (key) { txOpsInFlight.delete(key); });
+      if (!n) { toast('没有续传成功，查看报错'); return; }
+      txActive.forEach(function (tx, key) {
+        if (paused.indexOf(key) >= 0) { tx.paused = false; txPausedSince.delete(key); }
       });
-    })).then(function () {
       renderTransfers();
-      toast(ok ? '已从断点继续 ' + ok + ' 个传输' : '没有续传成功，查看报错');
+      toast('已从断点继续 ' + n + ' 个传输');
+      txPollList();
+    });
+  });
+  document.getElementById('txAbandonAll').addEventListener('click', function () {
+    const keys = Array.from(txActive.keys());
+    if (!keys.length) { toast('当前没有传输任务'); return; }
+    keys.forEach(function (key) { txOpsInFlight.add(key); });
+    // 后端清掉「跑着的全部 + 断点清单的全部」；本地全消（包括对不上账的幽灵卡）
+    txCtl('abandon').then(function (n) {
+      txActive.clear();
+      txPausedSince.clear();
+      txOpsInFlight.clear();
+      renderTransfers();
+      toast(n ? '已放弃 ' + n + ' 个传输，半截文件已清理' : '没有可放弃的传输');
       txPollList();
     });
   });
@@ -3368,7 +3443,8 @@
   });
   // 启动 + 周期轮询：断点清单（应用重启后的暂停任务就在这里）
   txPollList();
-  setInterval(txPollList, 3000);
+  // 事件是主路径，轮询只做兜底对账；1s 兼顾及时性与开销
+  setInterval(txPollList, 1000);
 
   // ============ 终端设置页（localStorage 持久化 + 事件热更终端窗口） ============
   const TERM_SET_KEY = 'ab-term-settings';
@@ -4008,8 +4084,23 @@
     window.__TAURI__.event.listen('hub-sftp-progress', function (event) {
       const p = event.payload || {};
       if (!p.name || !p.key) return;
+      // 传输页里点了「放弃」/「全部放弃」：内嵌进度条同步消失（双向联动）
+      if (p.state === 'abandoned' || p.abandoned) {
+        if (fbTx && fbTx.key === p.key) {
+          fbTx = null;
+          fb$('fbTransferBar').classList.remove('fb-indet');
+          fb$('fbTransferFill').style.width = '0%';
+          fb$('fbTransferPct').textContent = '';
+          fb$('fbTransferPct').classList.remove('fb-fail');
+          fb$('fbTransferMeta').textContent = '';
+          fbTxPaint();
+        }
+        return;
+      }
       // 传输条指向跟随最新任务；同 key 的后续事件直接刷
       if (!fbTx || fbTx.key !== p.key) fbTx = { key: p.key, dir: p.dir || 'down', paused: false };
+      // 续传成功（后端发 running）：把「已暂停」的标记清掉，别让按钮一直显示「继续」
+      if (p.state === 'running') fbTx.paused = false;
       if (p.failed) {
         fbTx = null;
         fb$('fbTransferPct').textContent = '失败';
