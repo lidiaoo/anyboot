@@ -1157,7 +1157,7 @@ struct Settings {
     main_hotzone_border: bool,
     /// 热区边框颜色（#rrggbb）
     main_hotzone_border_color: String,
-    /// 主题强调色（#rrggbb，默认内置蓝 #2f7fe0）：调色板选的色调，
+    /// 主题强调色（#rrggbb，默认内置靛蓝 #6366f1，与远程管理同色）：调色板选的色调，
     /// 前端据此派生按钮/链接/悬停色
     accent_color: String,
     /// 主窗口固定显示位置模式：free=用户自由拖动（默认，保持现状）；
@@ -1229,7 +1229,7 @@ impl Default for Settings {
             main_hotzone_opacity: 0,
             main_hotzone_border: false,
             main_hotzone_border_color: "#ff0000".to_string(),
-            accent_color: "#2f7fe0".to_string(),
+            accent_color: "#6366f1".to_string(),
             main_window_position: DEFAULT_WINDOW_POSITION.to_string(),
             tray_menu_style: DEFAULT_TRAY_MENU_STYLE.to_string(),
             main_window_last: None,
@@ -6588,11 +6588,11 @@ fn undock_mask_color(
     let alpha = (settings.opacity_percent.min(100) as u32 * 255 / 100) as u8;
     let (r, g, b) = match settings.theme.as_str() {
         "light" => (244, 246, 250),
-        "dark" => (20, 25, 34),
+        "dark" => (2, 6, 23),
         // system：按系统当前主题解析（解析不了按暗色兜底，与前端默认一致）
         _ => match main.theme() {
             Ok(tauri::Theme::Light) => (244, 246, 250),
-            _ => (20, 25, 34),
+            _ => (2, 6, 23),
         },
     };
     tauri::utils::config::Color(r, g, b, alpha)
@@ -14506,6 +14506,10 @@ fn set_http_token(app: AppHandle, token: String) -> Result<(), String> {
 }
 
 /// 设置界面主题（dark / light / system）
+///
+/// 主题只有一个真相源（settings.theme），主窗口、远程管理（server-hub / server-term /
+/// server-files / server-keys）、托盘菜单全都读它。任何一处入口改主题，落盘后这里
+/// 广播 `theme-changed`，其它窗口立即跟随 —— 前端各入口只调 set_theme + 监听本事件。
 #[tauri::command]
 fn set_theme(app: AppHandle, theme: String) -> Result<(), String> {
     trace(&app, "command", "set_theme（主窗口）");
@@ -14514,8 +14518,21 @@ fn set_theme(app: AppHandle, theme: String) -> Result<(), String> {
         &app,
         "界面主题",
         &format!("已切换为 {theme}"),
-        |settings| settings.theme = theme,
-        |_app| {},
+        |settings| settings.theme = theme.clone(),
+        |app| {
+            // 广播给所有窗口（hub 系列 / 托盘菜单 / 弹窗），没开的窗口收不到就算了
+            const THEME_CHANGED_EVENT: &str = "theme-changed";
+            for label in [
+                HUB_WINDOW_LABEL,
+                HUB_TERM_WINDOW_LABEL,
+                HUB_FILES_WINDOW_LABEL,
+                HUB_KEYS_WINDOW_LABEL,
+                TRAY_MENU_WINDOW_LABEL,
+                NOTIFY_WINDOW_LABEL,
+            ] {
+                let _ = app.emit_to(label, THEME_CHANGED_EVENT, &theme);
+            }
+        },
     )?;
     Ok(())
 }

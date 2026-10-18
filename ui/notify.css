@@ -8,18 +8,18 @@
  */
 :root {
   color-scheme: dark;
-  --bg: #141922;
+  /* 与远程管理（hub.html）暗色同一套灰阶 */
+  --bg: #020617;
   --panel-bg: #1d1a13;
   --panel-border: #6b4a1f;
-  /* 和主界面 styles.css 同一套灰阶：两个窗口的「同一种灰」必须一模一样 */
-  --text: #f3f6fb;
+  --text: #f8fafc;
   --title: #f5d39a;
-  --dim: #c4cddd;
-  --faint: #b2bed1;
-  --track: #2c3544;
+  --dim: #94a3b8;
+  --faint: #64748b;
+  --track: #242b41;
   --fill: #e0a44f;
   --btn-text: #201a10;
-  --btn-secondary: #333d4d;
+  --btn-secondary: #334155;
   --font:
     "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC",
     "Source Han Sans SC", "WenQuanYi Micro Hei", system-ui, sans-serif;
@@ -29,7 +29,7 @@
 }
 
 /*
- * 亮色主题。弹窗跟着主界面的「界面主题」走（notify.js 把快照里的 theme 写到这里），
+ * 亮色主题。弹窗跟着全局「界面主题」走（notify.js 把快照里的 theme 写到这里），
  * 否则用户选了亮色，偏偏这个最显眼的弹窗还是黑底，观感割裂。
  */
 [data-theme="light"] {
@@ -37,14 +37,14 @@
   --bg: #f4f6fa;
   --panel-bg: #fffdf6;
   --panel-border: #e6cf94;
-  --text: #0c1017;
+  --text: #0f172a;
   --title: #7a4c08;
-  --dim: #2c3543;
-  --faint: #3b4553;
-  --track: #e3e7ee;
+  --dim: #5a6476;
+  --faint: #6d798c;
+  --track: #e2e8f0;
   --fill: #d99a3f;
   --btn-text: #201a10;
-  --btn-secondary: #e7eaf0;
+  --btn-secondary: #e2e8f0;
 }
 
 * {

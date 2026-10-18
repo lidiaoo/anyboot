@@ -172,10 +172,27 @@ function applyTheme(theme) {
   document.documentElement.dataset.theme = resolved;
 }
 
+// theme-changed 广播（payload 就是主题原始取值）：菜单开着时主题改了立即跟随
+function applyThemeValue(theme) {
+  const resolved =
+    theme === "light"
+      ? "light"
+      : theme === "dark"
+        ? "dark"
+        : window.matchMedia("(prefers-color-scheme: light)").matches
+          ? "light"
+          : "dark";
+  document.documentElement.dataset.theme = resolved;
+}
+
 (async () => {
   // 后端每次「开菜单」都会推一份最新内容；菜单开着而状态变了也会再推一次
   await listen("tray-menu-nodes", (event) => {
     apply(event.payload);
+  });
+  // 主题广播：任何入口改了主题，开着的菜单立即跟随
+  await listen("theme-changed", (event) => {
+    applyThemeValue(event.payload);
   });
   // 首次打开时窗口可能刚建出来、上面那条事件已经发过去了 —— 主动拉一次兜住
   try {

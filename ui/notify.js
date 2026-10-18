@@ -120,6 +120,11 @@ function applyTheme(settings) {
   document.documentElement.dataset.theme = resolvedTheme(settings && settings.theme);
 }
 
+/// theme-changed 广播（payload 就是主题原始取值）：弹窗活着时主题改了立即跟随
+function applyThemeValue(theme) {
+  document.documentElement.dataset.theme = resolvedTheme(theme);
+}
+
 function render(notify) {
   if (!notify) {
     stopLocalTick();
@@ -187,6 +192,7 @@ document.querySelector("#cancel").addEventListener("click", async () => {
   });
 
   await listen("ui-state-changed", (event) => applySnapshot(event.payload));
+  await listen("theme-changed", (event) => applyThemeValue(event.payload));
   try {
     applySnapshot(await invoke("get_ui_state"), { force: true });
   } catch (error) {

@@ -8,32 +8,33 @@
  */
 :root {
   color-scheme: dark;
-  --bg-rgb: 20, 25, 34;
-  --panel: #1b222e;
-  --border: #2c3544;
-  --border-strong: #3d495c;
+  /* 灰阶与远程管理（hub.html）同一套：暗色 base 2,6,23 / card 14,18,35 */
+  --bg-rgb: 2, 6, 23;
+  --panel: #0e1223;
+  --border: #242b41;
+  --border-strong: #334155;
   /* 字体灰阶整体提亮一档：调低窗口不透明度后，文字会落在被桌面透过来的背景上，
      原来的 #a5b0c2 / #6f7d92 一淡就糊成一片，现在每一档都留足对比度。 */
-  --text: #f3f6fb;
-  --text-dim: #c4cddd;
-  --text-faint: #b2bed1;
-  --text-fainter: #98a5ba;
-  --input-bg: #101620;
+  --text: #f8fafc;
+  --text-dim: #94a3b8;
+  --text-faint: #64748b;
+  --text-fainter: #475569;
+  --input-bg: #141a2e;
   /* 按钮/链接色走 --accent 系列（调色板选的强调色，app.js 派生并写入；
-     未写入时回退到内置蓝，观感与原来一致） */
-  --btn: var(--accent, #2f7fe0);
-  --btn-hover: var(--accent-hover, #3d8dee);
-  --btn-secondary: #333d4d;
-  --btn-secondary-hover: #3f4b5e;
+     未写入时回退到内置靛蓝，与 hub 同色） */
+  --btn: var(--accent, #6366f1);
+  --btn-hover: var(--accent-hover, #7070f2);
+  --btn-secondary: #334155;
+  --btn-secondary-hover: #42536e;
   --btn-text: #ffffff;
-  --btn-secondary-text: #e7ebf2;
+  --btn-secondary-text: #e2e8f0;
   /* 选中系统的那一抹绿（勾 + 边框 + 底色） */
-  --ok: #46c46e;
-  --ok-border: #3aa95f;
-  --ok-bg: #14261a;
-  --warn: #f0b073;
-  --link: var(--accent-link, #4f9bff);
-  --link-hover: var(--accent-link-hover, #7cb6ff);
+  --ok: #22c55e;
+  --ok-border: #16a34a;
+  --ok-bg: #0f2a1a;
+  --warn: #f59e0b;
+  --link: var(--accent-link, #7f82f4);
+  --link-hover: var(--accent-link-hover, #9296f8);
   --port-border: #6b3a1f;
   --port-bg: #2a1b13;
   --port-strong: #f0a98a;
@@ -61,27 +62,28 @@
  */
 [data-theme="light"] {
   color-scheme: light;
+  /* 与远程管理亮色同一套：base 244,246,250 / card #ffffff / line 226,232,240 */
   --bg-rgb: 244, 246, 250;
   --panel: #ffffff;
-  --border: #ccd3de;
-  --border-strong: #a7b2c3;
-  --text: #0c1017;
-  --text-dim: #2c3543;
-  --text-faint: #3b4553;
-  --text-fainter: #505b6b;
+  --border: #e2e8f0;
+  --border-strong: #cbd5e1;
+  --text: #0f172a;
+  --text-dim: #5a6476;
+  --text-faint: #6d798c;
+  --text-fainter: #8a94a6;
   --input-bg: #fbfcfe;
-  --btn: var(--accent, #2f7fe0);
-  --btn-hover: var(--accent-hover, #256fd0);
-  --btn-secondary: #e7eaf0;
-  --btn-secondary-hover: #d8dde6;
+  --btn: var(--accent, #4f46e5);
+  --btn-hover: var(--accent-hover, #4338ca);
+  --btn-secondary: #e2e8f0;
+  --btn-secondary-hover: #d3dbe6;
   --btn-text: #ffffff;
-  --btn-secondary-text: #2a3340;
-  --ok: #1f9d4d;
-  --ok-border: #2aa85a;
+  --btn-secondary-text: #1e293b;
+  --ok: #16a34a;
+  --ok-border: #22c55e;
   --ok-bg: #eaf7ee;
-  --warn: #9c4614;
-  --link: var(--accent-link, #1a6fd4);
-  --link-hover: var(--accent-link-hover, #0d5cbb);
+  --warn: #b45309;
+  --link: var(--accent-link, #4338ca);
+  --link-hover: var(--accent-link-hover, #3730a3);
   --port-border: #e2b48a;
   --port-bg: #fdf4ea;
   --port-strong: #a85a15;

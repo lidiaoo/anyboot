@@ -12,15 +12,16 @@
  */
 :root {
   color-scheme: dark;
-  --bg: #1b222e;
-  --border: #3d495c;
-  --text: #f3f6fb;
-  --dim: #c4cddd;
-  --faint: #98a5ba;
-  --hover: #2b3547;
-  --active: #37455c;
-  --disabled: #6f7d92;
-  --ok: #46c46e;
+  /* 与远程管理（hub.html）暗色同一套灰阶 */
+  --bg: #0e1223;
+  --border: #334155;
+  --text: #f8fafc;
+  --dim: #94a3b8;
+  --faint: #475569;
+  --hover: #1c2338;
+  --active: #252e4a;
+  --disabled: #64748b;
+  --ok: #22c55e;
   --font:
     "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC",
     "Source Han Sans SC", "WenQuanYi Micro Hei", system-ui, sans-serif;
@@ -30,10 +31,10 @@
 :root[data-theme="light"] {
   color-scheme: light;
   --bg: #ffffff;
-  --border: #cfd6e0;
-  --text: #1c2330;
-  --dim: #4a5566;
-  --faint: #6d7888;
+  --border: #cbd5e1;
+  --text: #0f172a;
+  --dim: #5a6476;
+  --faint: #8a94a6;
   --hover: #eef2f8;
   --active: #e2e8f2;
   --disabled: #a3adbb;

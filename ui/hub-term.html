@@ -221,12 +221,16 @@ function toast(msg) {
   toastTimer = setTimeout(() => { t.style.opacity = 0; setTimeout(() => t.hidden = true, 200); }, 2200);
 }
 
-/* ---------- 主题（与设计稿同一份 toggle 逻辑） ---------- */
+/* ---------- 主题（与主界面同一个真相源：settings.theme） ---------- */
+// 初始问后端，切换调 set_theme，theme-changed 广播让所有窗口跟着变。
+// localStorage 的 ab-theme 已废弃。
 const SUN='<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>';
+const resolvedTheme = (t) =>
+  t === 'light' || t === 'dark' ? t
+  : (!window.matchMedia || !window.matchMedia('(prefers-color-scheme: light)').matches) ? 'dark' : 'light';
 function applyTheme(t) {
   document.documentElement.classList.remove('light', 'dark');
   document.documentElement.classList.add(t);
-  try { localStorage.setItem('ab-theme', t); } catch (e) {}
   if (window.term) { /* xterm 主题随 token 由 CSS 变量处取，重建主题映射 */ refreshTermTheme(); }
 }
 /* ---------- 远程管理入口（顶栏） ---------- */
@@ -245,10 +249,20 @@ if (hubBtnElement) {
 }
 
 document.getElementById('themeBtn').addEventListener('click', () => {
-  const root = document.documentElement;
-  applyTheme(root.classList.contains('light') ? 'dark' : 'light');
+  const next = document.documentElement.classList.contains('light') ? 'dark' : 'light';
+  applyTheme(next);
+  if (invoke) invoke('set_theme', { theme: next }).catch(() => {});
 });
-try { applyTheme(localStorage.getItem('ab-theme') || 'dark'); } catch (e) { applyTheme('dark'); }
+if (invoke) {
+  invoke('get_ui_state').then((state) => {
+    applyTheme(resolvedTheme(state && state.settings && state.settings.theme));
+  }).catch(() => {});
+  window.__TAURI__.event.listen('theme-changed', (event) => {
+    applyTheme(resolvedTheme(event && event.payload));
+  }).catch(() => {});
+} else {
+  applyTheme('dark');
+}
 
 /* ---------- 字号 ---------- */
 const FONT_SIZES = [12, 13, 14, 16];

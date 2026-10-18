@@ -1650,22 +1650,39 @@
   const invoke = HAS_TAURI ? window.__TAURI__.core.invoke : null;
 
   // ============ 主题 ============
+  // 与主界面同一个真相源（settings.theme）：初始值问后端，切换调 set_theme，
+  // 主界面或其它窗口改了主题会收到 theme-changed 事件跟着变。
+  // 以前存在 localStorage 的 ab-hub-theme 已废弃 —— 只剩这一个参数、两个入口。
   const root = document.documentElement;
-  let saved = null;
-  try { saved = localStorage.getItem('ab-hub-theme'); } catch (e) { }
-  let dark = saved ? saved === 'dark'
-                   : !window.matchMedia || !window.matchMedia('(prefers-color-scheme: light)').matches;
+  const resolvedTheme = function (t) {
+    if (t === 'light' || t === 'dark') return t;
+    return (!window.matchMedia || !window.matchMedia('(prefers-color-scheme: light)').matches) ? 'dark' : 'light';
+  };
+  let dark = true;
   function applyTheme() {
     root.classList.toggle('light', !dark);
     const icon = document.getElementById('themeIcon');
     if (icon) icon.textContent = dark ? '🌙' : '☀️';
   }
   document.getElementById('themeToggle').addEventListener('click', function () {
+    // 立即预览，再落盘（落盘后广播会原样发回，applyTheme 幂等）
     dark = !dark;
-    try { localStorage.setItem('ab-hub-theme', dark ? 'dark' : 'light'); } catch (e) { }
     applyTheme();
+    if (invoke) invoke('set_theme', { theme: dark ? 'dark' : 'light' }).catch(function () {});
   });
   applyTheme();
+  (function () {
+    // 初始主题 + 后续同步。浏览器预览（无 Tauri）保持本地切换。
+    if (!invoke) return;
+    invoke('get_ui_state').then(function (state) {
+      dark = resolvedTheme(state && state.settings && state.settings.theme) === 'dark';
+      applyTheme();
+    }).catch(function () {});
+    window.__TAURI__.event.listen('theme-changed', function (event) {
+      dark = resolvedTheme(event && event.payload) === 'dark';
+      applyTheme();
+    }).catch(function () {});
+  })();
 
   // ============ 侧栏导航 / 收起 ============
   const PAGES = ['home', 'servers', 'term', 'sessions', 'transfers', 'files', 'keys', 'termset', 'about'];

@@ -1055,7 +1055,7 @@ function resolvedTheme(theme) {
 
 // ---- 调色板：主题强调色派生 ----------------------------------------
 // amount > 0 往白混（提亮），< 0 往黑混（压暗）。暗色主题悬停提亮、
-// 亮色主题悬停压暗，与内置配色（#2f7fe0 → hover #3d8dee / #256fd0）同方向。
+// 亮色主题悬停压暗，与内置配色（#6366f1 靛蓝，与远程管理同色）同方向。
 function shadeHex(hex, amount = 0) {
   const match = /^#?([0-9a-f]{6})$/i.exec(String(hex || "").trim());
   if (!match) return null;
@@ -1071,8 +1071,14 @@ function shadeHex(hex, amount = 0) {
 
 /// 把调色板选的强调色落到 CSS 变量上（按钮/链接/悬停色一起派生）。
 /// 暗色主题：悬停提亮 8%、链接提亮 18%；亮色主题反过来压暗。
+const DEFAULT_ACCENT_DARK = "#6366f1";
+const DEFAULT_ACCENT_LIGHT = "#4f46e5";
+function defaultAccent(theme) {
+  return resolvedTheme(theme) === "dark" ? DEFAULT_ACCENT_DARK : DEFAULT_ACCENT_LIGHT;
+}
+
 function applyAccent(accent, theme) {
-  const base = shadeHex(accent) || "#2f7fe0";
+  const base = shadeHex(accent) || defaultAccent(theme);
   const dark = resolvedTheme(theme) === "dark";
   const hover = shadeHex(base, dark ? 0.08 : -0.12) || base;
   const link = shadeHex(base, dark ? 0.18 : -0.18) || base;
@@ -1085,7 +1091,7 @@ function applyAccent(accent, theme) {
 }
 
 // 当前强调色：快照渲染与调色板输入都会更新它，主题切换时要用它重算明暗档
-let currentAccent = "#2f7fe0";
+let currentAccent = DEFAULT_ACCENT_DARK;
 
 /// 把主题与不透明度落到 documentElement 上（CSS 用 var(--ui-alpha) 读）
 function applyAppearance(theme, percent) {
@@ -1199,7 +1205,7 @@ function renderSettings(view) {
     opacityElement.value = String(percent);
   }
   themeElement.value = theme;
-  currentAccent = shadeHex(view.accentColor) || "#2f7fe0";
+  currentAccent = shadeHex(view.accentColor) || defaultAccent(theme);
   if (document.activeElement !== accentColorElement) {
     accentColorElement.value = currentAccent;
   }

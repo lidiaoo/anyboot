@@ -250,11 +250,15 @@ function toast(msg) {
   toastTimer = setTimeout(() => { t.style.opacity = 0; setTimeout(() => t.hidden = true, 200); }, 2600);
 }
 
+// 与主界面同一个真相源（settings.theme）：初始问后端，切换调 set_theme，
+// theme-changed 广播让所有窗口跟着变。localStorage 的 ab-theme 已废弃。
 function applyTheme(t) {
   document.documentElement.classList.remove('light', 'dark');
   document.documentElement.classList.add(t);
-  try { localStorage.setItem('ab-theme', t); } catch (e) {}
 }
+const resolvedTheme = (t) =>
+  t === 'light' || t === 'dark' ? t
+  : (!window.matchMedia || !window.matchMedia('(prefers-color-scheme: light)').matches) ? 'dark' : 'light';
 /* ---------- 远程管理入口（顶栏） ---------- */
 // 密钥窗顶栏的「远程管理」：回到 server-hub（已开则聚焦），与终端/文件窗一致。
 const hubBtnElement = document.getElementById('hubBtn');
@@ -270,9 +274,20 @@ if (hubBtnElement) {
 }
 
 document.getElementById('themeBtn').addEventListener('click', () => {
-  applyTheme(document.documentElement.classList.contains('light') ? 'dark' : 'light');
+  const next = document.documentElement.classList.contains('light') ? 'dark' : 'light';
+  applyTheme(next);
+  if (invoke) invoke('set_theme', { theme: next }).catch(() => {});
 });
-try { applyTheme(localStorage.getItem('ab-theme') || 'dark'); } catch (e) { applyTheme('dark'); }
+if (invoke) {
+  invoke('get_ui_state').then((state) => {
+    applyTheme(resolvedTheme(state && state.settings && state.settings.theme));
+  }).catch(() => {});
+  window.__TAURI__.event.listen('theme-changed', (event) => {
+    applyTheme(resolvedTheme(event && event.payload));
+  }).catch(() => {});
+} else {
+  applyTheme('dark');
+}
 
 const $ = (id) => document.getElementById(id);
 const KEY_SVG = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="M10.8 12.2 20 3M17 6l2.5 2.5"/></svg>';
