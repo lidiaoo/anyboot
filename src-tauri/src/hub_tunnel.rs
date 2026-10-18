@@ -664,6 +664,7 @@ mod tests {
     /// `ControlPath=` 会被 ssh 拆成多个参数，报
     /// `keyword controlpath extra arguments at end of line`（实测）。
     /// 双引号包住后 `ssh -G` 能整段解析（macOS 实测）。
+    #[cfg(unix)]
     #[test]
     fn control_path_option_quotes_spaces() {
         let option = control_path_option(std::path::Path::new(
@@ -679,6 +680,7 @@ mod tests {
     /// 完整 server id / 16 hex 拼上去实测顶破 104 字节（unix_listener too long，
     /// 或被 control_path 的提前拦截跳过复用）。12 hex 定长，同一 id 恒同名
     /// （终端 / 隧道 / 文件三处各自推导要能对上）。
+    #[cfg(unix)]
     #[test]
     fn control_socket_name_is_short_and_stable() {
         let first = control_socket_name("srv-18df82cee170ddb8");
