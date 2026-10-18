@@ -1,9 +1,18 @@
-// 本页面有两个运行环境：
+// 本页面有三个运行环境：
 // 1. Tauri 主窗口：window.__TAURI__ 注入，命令/事件走 IPC（原路径，不变）；
-// 2. 任意浏览器：由内置 HTTP 服务（默认 12300）托管 —— 命令走 POST /api/ui-command、
-//    状态走轮询 GET /api/ui-state（token 鉴权），设置改动**真正作用于本机应用**。
+// 2. 任意浏览器（含 hub「电脑」页 iframe、手机 WebView）：由内置 HTTP 服务
+//    （默认 12300）托管 —— 命令走 POST /api/ui-command、状态走轮询
+//    GET /api/ui-state（token 鉴权），设置改动**真正作用于本机应用**。
 //    只有当页面由无后端的静态服务托管（探测 /health 失败）时才降级为纯预览。
-const IS_BROWSER = typeof window.__TAURI__ === "undefined";
+// 判据不能只看 __TAURI__ 是否存在：withGlobalTauri 的初始化脚本会被 WebView2
+// 注入**所有 frame**，hub「电脑」页的 iframe（http://127.0.0.1:12300）里也有
+// __TAURI__ —— 走 IPC 会被 Tauri 的远程 origin ACL 全部拒绝（capabilities 没
+// 配 remote.urls），页面就「任何数据都拿不到」。所以必须再认宿主 origin：
+// 只有 Tauri 自己的 webview 顶层（tauri:// 或 http://tauri.localhost）才算 IPC 模式。
+const IS_TAURI_HOST =
+  location.protocol === "tauri:" || location.hostname === "tauri.localhost";
+const IS_BROWSER =
+  typeof window.__TAURI__ === "undefined" || !IS_TAURI_HOST;
 const tauri = window.__TAURI__ ?? {};
 
 // 远程访问令牌：URL ?token= 优先（顺手存起来，方便扫码/点链接直达），
