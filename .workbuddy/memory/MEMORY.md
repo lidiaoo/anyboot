@@ -4,6 +4,7 @@
 
 ## git
 - **commit 我做、push 用户做**（本机无 GitHub 凭据）。只提交本轮相关文件；`src-tauri/src/hub*.rs`、`ui/hub.html`、`docs/client-ui/`、`debx/` 属 PC 端 server-hub 另一条线，别混进移动端提交。
+- **Rust 改动提交前必须至少 `cargo check` 一次**（E0425 教训：曾提交编译不过的 gpu_compat.rs）。**Rust 子模块不继承父模块作用域**——lib.rs（crate 根）的私有 const 在子模块里裸用名字必炸，`use crate::XXX;` 引入即可（crate 根私有 item 对后代模块可见，不必改 pub(crate)）。细则见 2026-10-18.md。
 
 ## 桌面端
 - **验证 PC 端 UI 的四条铁律**（见 `2026-10-18.md`）：① 必须用**计划任务跑 .bat** 启动（`set` 环境变量 + `start ""`），工具沙箱会杀 WebView2 浏览器进程 → 全窗口黑屏/卡死假象；② `PrintWindow` 抓 WebView2 恒黑，用 `GetDC(NULL)+BitBlt` 抓屏，读坐标要在 1:1 裁剪图上量；③ webview 不吃注入点击（hover 有效、点击无效），验证走 `ANYBOOT_TEST_OPEN_HUB=1` / 再 `ANYBOOT_TEST_OPEN_TERM=1` 钩子；④ 本机**没有 `strings` 命令**，静默返回 0 会骗人，用 Python 提串。
