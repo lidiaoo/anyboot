@@ -179,6 +179,11 @@ pub(crate) use mount::*;
 mod state;
 pub(crate) use state::*;
 
+/// SOL 远程唤醒标签页（sol 接收器管理：状态 / 下载 / 解压 / 安装 / 卸载 /
+/// 配置 / 打开目录）。命令经 `sol_panel::` 全路径注册（generate_handler!），
+/// 不走 glob —— 面板类型只在本模块与前端之间流转。
+mod sol_panel;
+
 /// 09_anyboot 的安装路径（仅 Linux 有意义）。
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 const GRUB_SCRIPT_PATH: &str = "/etc/grub.d/09_anyboot";
@@ -2791,6 +2796,23 @@ pub fn run() {
             set_opacity,
             open_config_dir,
             open_vars_dir,
+            sol_panel::sol_status,
+            sol_panel::sol_config_read,
+            sol_panel::sol_config_write,
+            sol_panel::sol_install_download,
+            sol_panel::sol_extract,
+            sol_panel::sol_pick_dir,
+            sol_panel::sol_default_dir,
+            sol_panel::sol_pick_archive,
+            sol_panel::sol_http_get,
+            sol_panel::sol_http_set,
+            sol_panel::sol_token_generate,
+            sol_panel::sol_logs,
+            sol_panel::sol_one_click_install,
+            sol_panel::sol_install,
+            sol_panel::sol_uninstall,
+            sol_panel::sol_service_ctl,
+            sol_panel::sol_open_dir,
             restart_app,
             quit_app,
             retry_http,

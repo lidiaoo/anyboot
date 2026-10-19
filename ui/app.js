@@ -1574,17 +1574,20 @@ async function call(command, args) {
 refreshElement.addEventListener("click", () => call("refresh"));
 
 // ---------- 界面栏目页签（地址栏可寻址） ----------
-// 主窗口内容分两个栏目：系统引导（rEFInd + GRUB 同页，主功能）和
-// 基本设置（应用设置 + 远程控制）。切换纯前端，但**栏目写进地址栏 hash**：
+// 主窗口内容分三个栏目：系统引导（rEFInd + GRUB 同页，主功能）、
+// 基本设置（应用设置 + 远程控制）、SOL 远程唤醒（sol 接收器管理）。
+// 切换纯前端，但**栏目写进地址栏 hash**：
 //   #/boot  → 系统引导
 //   #/settings → 基本设置
+//   #/sol   → SOL 远程唤醒
 // 这样刷新页面、收藏、把链接发给别人，都落回同一个栏目里。
 const TAB_STORAGE_KEY = "anyboot.active-tab";
-const TAB_ROUTES = { boot: "#/boot", settings: "#/settings" };
+const TAB_ROUTES = { boot: "#/boot", settings: "#/settings", sol: "#/sol" };
 const tabButtons = Array.from(document.querySelectorAll("#tabs .tab"));
 const tabPanels = {
   boot: document.querySelector("#tab-boot"),
   settings: document.querySelector("#tab-settings"),
+  sol: document.querySelector("#tab-sol"),
 };
 
 // 从地址栏 hash 读栏目名；不是已知栏目一律返回空串（脏 hash 不生效）。
@@ -1627,6 +1630,15 @@ function activateTab(name, options = {}) {
   if (grubPane) {
     grubPane.style.display = name === "boot" ? "" : "none";
   }
+  // SOL 面板按需拉取：只在**进**这个栏目时读一次 sol 状态（独立服务，
+  // 不进 UiState 快照），离开不动作，回来再刷。
+  if (name === "sol") {
+    solPkgTargetElement.textContent = SOL_PKG_TARGET;
+    renderSolDir();
+    refreshSolPanel();
+    refreshSolHttp();
+    loadSolLogs();
+  }
   try {
     localStorage.setItem(TAB_STORAGE_KEY, name);
   } catch (error) {
@@ -1661,7 +1673,7 @@ function initialTab() {
   if (!IS_BROWSER) {
     try {
       const saved = localStorage.getItem(TAB_STORAGE_KEY);
-      if (saved === "boot" || saved === "settings") {
+      if (saved === "boot" || saved === "settings" || saved === "sol") {
         return saved;
       }
     } catch (error) {
@@ -1671,6 +1683,752 @@ function initialTab() {
   return "boot";
 }
 activateTab(initialTab());
+
+// ---------- SOL 远程唤醒标签页（sol 接收器管理） ----------
+// 面板状态不进 UiState 快照：sol 是独立服务，按需拉取（进页时 / 刷新按钮 / 动作后）。
+// 配置编辑器的「脏」状态只留在前端 —— 保存走 sol_config_write，后端备份后原子写。
+const solStateTextElement = document.querySelector("#sol-state-text");
+const solRefreshElement = document.querySelector("#sol-refresh");
+const solRestartServiceElement = document.querySelector("#sol-restart-service");
+const solInstallElement = document.querySelector("#sol-install");
+const solUninstallElement = document.querySelector("#sol-uninstall");
+const solOpenDirElement = document.querySelector("#sol-open-dir");
+const solInstallHintElement = document.querySelector("#sol-install-hint");
+const solConfigPathElement = document.querySelector("#sol-config-path");
+const solConfigTextElement = document.querySelector("#sol-config-text");
+const solConfigSaveElement = document.querySelector("#sol-config-save");
+const solConfigReloadElement = document.querySelector("#sol-config-reload");
+// 安装包：下载 → 解压 → 安装，目录可自定义
+const solPkgStateElement = document.querySelector("#sol-pkg-state");
+const solPkgTargetElement = document.querySelector("#sol-pkg-target");
+const solDirInputElement = document.querySelector("#sol-dir-input");
+const solDirStateElement = document.querySelector("#sol-dir-state");
+const solOpenDirInputElement = document.querySelector("#sol-open-dir-input");
+const solPickDirElement = document.querySelector("#sol-pick-dir");
+const solDownloadElement = document.querySelector("#sol-download");
+const solPickArchiveElement = document.querySelector("#sol-pick-archive");
+const solExtractElement = document.querySelector("#sol-extract");
+const solInstallFromPkgElement = document.querySelector("#sol-install-from-pkg");
+const solPkgHintElement = document.querySelector("#sol-pkg-hint");
+const solOneClickElement = document.querySelector("#sol-one-click");
+const solProgressElement = document.querySelector("#sol-progress");
+const solProgressFillElement = document.querySelector("#sol-progress-fill");
+const solProgressTextElement = document.querySelector("#sol-progress-text");
+const solLogElement = document.querySelector("#sol-log");
+const solLogCountElement = document.querySelector("#sol-log-count");
+const solLogClearElement = document.querySelector("#sol-log-clear");
+// HTTP 控制面三选项（与 sol.yaml 双向联动）
+const solHttpEnabledElement = document.querySelector("#sol-http-enabled");
+const solHttpEnabledStateElement = document.querySelector("#sol-http-enabled-state");
+const solHttpListenElement = document.querySelector("#sol-http-listen");
+const solHttpListenStateElement = document.querySelector("#sol-http-listen-state");
+const solHttpListenSaveElement = document.querySelector("#sol-http-listen-save");
+const solHttpTokenElement = document.querySelector("#sol-http-token");
+const solHttpTokenStateElement = document.querySelector("#sol-http-token-state");
+const solHttpTokenCurrentElement = document.querySelector("#sol-http-token-current");
+const solHttpTokenCopyElement = document.querySelector("#sol-http-token-copy");
+const solHttpTokenGenerateElement = document.querySelector("#sol-http-token-generate");
+const solHttpTokenSaveElement = document.querySelector("#sol-http-token-save");
+
+// 编辑器正在展示的配置文件路径（保存时回传后端）
+let solConfigEditingPath = "";
+// 编辑器是否已被用户改脏（改脏后切走再切回来不覆盖用户未保存的修改）
+let solConfigDirty = false;
+// 安装包工作目录（下载落盘 + 解压 + 安装源）：localStorage 记住，跨启动沿用
+const SOL_DIR_KEY = "anyboot.sol-dir";
+let solDir = (() => {
+  try {
+    return localStorage.getItem(SOL_DIR_KEY) || "";
+  } catch (error) {
+    void error;
+    return "";
+  }
+})();
+// 最近下载/解压出的包路径（解压按钮只在有包时亮）
+let solPkgArchivePath = "";
+// 日志行数上限（超过就丢最老的，防长会话内存涨）
+const SOL_LOG_MAX_LINES = 200;
+let solLogLines = 0;
+
+// ---------- 日志区 ----------
+// 两路来源：① 后端 sol-log 事件（实时）；② sol_logs 命令（进页面回填历史）。
+function solLogAppend(message, time) {
+  if (solLogLines === 0) {
+    solLogElement.textContent = "";
+  }
+  const line = document.createElement("span");
+  line.className = "sol-log-line";
+  const stamp = document.createElement("span");
+  stamp.className = "sol-log-time";
+  stamp.textContent = (time || solNowTime()) + " ";
+  line.append(stamp, document.createTextNode(message));
+  solLogElement.append(line);
+  solLogLines += 1;
+  // 超限从前面摘
+  while (solLogLines > SOL_LOG_MAX_LINES) {
+    if (solLogElement.firstChild) {
+      solLogElement.removeChild(solLogElement.firstChild);
+    }
+    solLogLines -= 1;
+  }
+  solLogElement.scrollTop = solLogElement.scrollHeight;
+  solLogCountElement.textContent = `${solLogLines} 条`;
+}
+
+function solNowTime() {
+  const now = new Date();
+  const pad = (value) => String(value).padStart(2, "0");
+  return `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+}
+
+solLogClearElement.addEventListener("click", () => {
+  solLogElement.textContent = "（还没有日志）";
+  solLogLines = 0;
+  solLogCountElement.textContent = "0 条";
+});
+
+// ---------- 下载进度条 ----------
+// 后端每 500ms 推一条 sol-download-progress { bytes, total, done, ok }。
+function solProgressShow(visible) {
+  solProgressElement.hidden = !visible;
+}
+
+function solProgressPaint(bytes, total) {
+  if (total && total > 0) {
+    const percent = Math.min(100, Math.round((bytes / total) * 100));
+    solProgressFillElement.style.width = `${percent}%`;
+    const mb = (bytes / 1048576).toFixed(1);
+    const mbTotal = (total / 1048576).toFixed(1);
+    solProgressTextElement.textContent = `${percent}%（${mb}/${mbTotal} MB）`;
+  } else {
+    // 总大小未知：只显示已落盘字节，进度条走"流动"样式
+    solProgressFillElement.style.width = "100%";
+    solProgressFillElement.style.background =
+      "repeating-linear-gradient(90deg, var(--btn, #6366f1) 0 12px, var(--btn-hover, #7070f2) 12px 24px)";
+    solProgressTextElement.textContent = `${(bytes / 1048576).toFixed(1)} MB`;
+    return;
+  }
+  solProgressFillElement.style.background = "var(--btn, var(--accent, #6366f1))";
+}
+
+function solProgressDone(ok) {
+  if (ok) {
+    solProgressFillElement.style.width = "100%";
+    solProgressFillElement.style.background = "var(--ok, #22c55e)";
+    solProgressTextElement.textContent = "完成";
+  }
+  setTimeout(() => solProgressShow(false), ok ? 1500 : 200);
+}
+
+// ---------- 事件监听（sol-log / sol-download-progress） ----------
+if (!IS_BROWSER) {
+  listen("sol-log", (event) => {
+    const { message, time } = event.payload || {};
+    solLogAppend(String(message || ""), time);
+  });
+  listen("sol-download-progress", (event) => {
+    const { bytes, total, done, ok } = event.payload || {};
+    if (done) {
+      solProgressDone(Boolean(ok));
+      return;
+    }
+    solProgressShow(true);
+    solProgressPaint(Number(bytes) || 0, Number(total) || 0);
+  });
+}
+
+// 进页面回填历史日志（trace.log 里本会话的 [sol] 段，倒序取 50 条）
+async function loadSolLogs() {
+  if (IS_BROWSER) {
+    return;
+  }
+  try {
+    const logs = await invoke("sol_logs");
+    if (Array.isArray(logs) && logs.length) {
+      solLogElement.textContent = "";
+      solLogLines = 0;
+      for (const entry of logs) {
+        solLogAppend(String(entry));
+      }
+    }
+  } catch (error) {
+    void error; // 历史日志取不到不碍事，实时日志照收
+  }
+}
+
+// 用一次状态拉取渲染整个面板顶部（状态行）。配置编辑器只有在
+// 「没有未保存修改」时才跟随刷新 —— 用户正在改的草稿不被后台数据冲掉。
+async function refreshSolPanel() {
+  if (IS_BROWSER) {
+    // 远程 / 网页端不透出（与「重启程序」同一策略：面板命令只在本机窗口放行）
+    solStateTextElement.textContent = "远程模式不可用（仅本机主窗口）";
+    solInstallHintElement.textContent = "sol 管理仅在本机主窗口开放，网页远程端只读不可操作。";
+    for (const element of [
+      solRefreshElement,
+      solRestartServiceElement,
+      solInstallElement,
+      solUninstallElement,
+      solOpenDirElement,
+      solConfigSaveElement,
+      solConfigReloadElement,
+      solConfigTextElement,
+      solPickDirElement,
+      solDownloadElement,
+      solExtractElement,
+      solInstallFromPkgElement,
+      solOneClickElement,
+      solPickArchiveElement,
+      solLogClearElement,
+      solDirInputElement,
+      solOpenDirInputElement,
+      solHttpEnabledElement,
+      solHttpListenElement,
+      solHttpListenSaveElement,
+      solHttpTokenElement,
+      solHttpTokenGenerateElement,
+      solHttpTokenSaveElement,
+    ]) {
+      element.disabled = true;
+    }
+    return;
+  }
+  for (const element of [solRefreshElement, solRestartServiceElement]) {
+    element.disabled = true;
+  }
+  try {
+    const status = await invoke("sol_status");
+    renderSolStatus(status);
+    // 配置编辑器：只在「没在编辑」或路径变了时加载
+    if (!solConfigDirty || !status.configPath || status.configPath !== solConfigEditingPath) {
+      await loadSolConfig(status.configPath);
+    }
+  } catch (error) {
+    solStateTextElement.textContent = `读取状态失败：${error}`;
+    solStateTextElement.classList.add("setting-state-error");
+  } finally {
+    for (const element of [solRefreshElement, solRestartServiceElement]) {
+      element.disabled = false;
+    }
+  }
+}
+
+function renderSolStatus(status) {
+  // 运行状态一行话：版本 + 服务 + 进程
+  const parts = [];
+  if (status.installed) {
+    parts.push(status.version || "已安装");
+  } else {
+    parts.push("未安装");
+  }
+  if (status.serviceLoaded) {
+    parts.push(status.serviceActive ? "服务运行中" : "服务已停止");
+  } else if (status.installed) {
+    parts.push("服务未注册");
+  }
+  if (!status.serviceActive && status.processRunning) {
+    parts.push("进程在跑（非服务方式）");
+  }
+  solStateTextElement.textContent = parts.join(" · ");
+  solStateTextElement.classList.toggle("setting-state-error", !status.installed || !status.serviceActive);
+  if (status.serviceDetail) {
+    solStateTextElement.title = status.serviceDetail;
+  } else {
+    solStateTextElement.removeAttribute("title");
+  }
+
+  // 安装 / 卸载的可用性与提示
+  solUninstallElement.disabled = !status.installed && !status.serviceLoaded;
+  solInstallHintElement.textContent = status.installed
+    ? `已安装在 ${status.binPath || "未知路径"}；重新安装会覆盖二进制与 /etc/sol/sol.yaml（原文件有备份）。`
+    : "安装需要 sol 的解包目录（里面有 sol 二进制和 sol.yaml）；会自动探测 /usr/local/software、/opt 下的 sol* 目录。";
+}
+
+async function loadSolConfig(path, { force = false } = {}) {
+  solConfigPathElement.textContent = "读取中…";
+  try {
+    const result = await invoke("sol_config_read", { path: path || null });
+    solConfigEditingPath = result.path;
+    solConfigPathElement.textContent = result.path;
+    solConfigTextElement.value = result.content;
+    solConfigDirty = false;
+    solConfigTextElement.disabled = false;
+    solConfigSaveElement.disabled = false;
+    solConfigReloadElement.disabled = false;
+  } catch (error) {
+    solConfigPathElement.textContent = "未找到配置文件";
+    solConfigTextElement.value = "";
+    solConfigTextElement.placeholder = String(error);
+    solConfigTextElement.disabled = true;
+    solConfigSaveElement.disabled = true;
+    solConfigReloadElement.disabled = true;
+  }
+}
+
+// 用户改了编辑器 → 标脏；此后后台刷新不再覆盖草稿，直到保存或放弃修改
+solConfigTextElement.addEventListener("input", () => {
+  solConfigDirty = true;
+});
+
+solRefreshElement.addEventListener("click", () => refreshSolPanel());
+
+solRestartServiceElement.addEventListener("click", async () => {
+  solRestartServiceElement.disabled = true;
+  try {
+    showStatusBar("正在重启 sol 服务…");
+    const message = await call("sol_service_ctl", { action: "restart" });
+    showStatusBar(message || "sol 服务已重启");
+  } finally {
+    solRestartServiceElement.disabled = false;
+  }
+  refreshSolPanel();
+});
+
+solInstallElement.addEventListener("click", async () => {
+  solInstallElement.disabled = true;
+  try {
+    showStatusBar("正在安装 sol…（可能弹出提权窗口）");
+    const message = await call("sol_install", { installDir: null });
+    showStatusBar(message || "已安装");
+  } finally {
+    solInstallElement.disabled = false;
+  }
+  refreshSolPanel();
+});
+
+solUninstallElement.addEventListener("click", async () => {
+  if (!window.confirm("确定卸载 sol？服务会停止并移除，配置文件保留在 /etc/sol/。")) {
+    return;
+  }
+  solUninstallElement.disabled = true;
+  try {
+    showStatusBar("正在卸载 sol…（可能弹出提权窗口）");
+    const message = await call("sol_uninstall");
+    showStatusBar(message || "已卸载");
+  } finally {
+    solUninstallElement.disabled = false;
+  }
+  refreshSolPanel();
+});
+
+solOpenDirElement.addEventListener("click", async () => {
+  try {
+    const opened = await call("sol_open_dir", { dir: null });
+    if (typeof opened === "string" && opened) {
+      showStatusBar(`已打开 ${opened}`);
+    }
+  } catch (error) {
+    // call() 已经把错误显示在底部提示条了
+  }
+});
+
+solConfigSaveElement.addEventListener("click", async () => {
+  if (!solConfigEditingPath) {
+    return;
+  }
+  solConfigSaveElement.disabled = true;
+  try {
+    showStatusBar("正在保存 sol 配置…");
+    const message = await call("sol_config_write", {
+      path: solConfigEditingPath,
+      content: solConfigTextElement.value,
+    });
+    showStatusBar(message || "已保存");
+    // 保存成功后强制重载编辑器：盘上内容已是权威版本，textarea 必须跟盘同步，
+    // 否则下次保存会把这份旧快照再写回去（覆盖掉选项写入的任何改动）。
+    solConfigDirty = false;
+    loadSolConfig(solConfigEditingPath, { force: true });
+    // 编辑器保存也可能改了 http 段（enabled/listen/token）——选项一并刷新
+    refreshSolHttp();
+  } catch (error) {
+    // 保存失败：保持编辑器可编辑，让用户改完再存
+    solConfigSaveElement.disabled = false;
+    return;
+  }
+  solConfigSaveElement.disabled = false;
+});
+
+solConfigReloadElement.addEventListener("click", () => {
+  solConfigDirty = false;
+  loadSolConfig(solConfigEditingPath || null);
+});
+
+// ---------- HTTP 控制面三选项（与 sol.yaml 双向联动） ----------
+// 读：sol_http_get 解析 YAML → 回填开关/输入框/状态字；
+// 写：任一选项改动 → sol_http_set 单键写回（自动备份 + pkexec 提权），
+// sol watch 到文件变化自动热重载；其它选项不受影响。
+// 非内联 token 模式（token_env / token_file）输入框照常可填，应用后配置切回
+// 内联 token —— 状态字里说明这一点。
+// 任何写入成功后都调 syncEditorToDisk()：配置编辑器里的旧快照必须作废重读，
+// 否则编辑器「保存配置」会把旧内容整篇写回，覆盖掉刚写入的选项（踩过的坑：
+// 取消勾选 → 编辑器保存旧快照 → enabled 复活为 true）。
+function syncEditorToDisk() {
+  if (!IS_BROWSER && solConfigEditingPath) {
+    solConfigDirty = false;
+    loadSolConfig(solConfigEditingPath, { force: true });
+  }
+}
+
+async function refreshSolHttp() {
+  if (IS_BROWSER) {
+    solHttpEnabledStateElement.textContent = "远程模式不可用（仅本机主窗口）";
+    for (const element of [solHttpEnabledElement, solHttpListenElement, solHttpListenSaveElement, solHttpTokenElement, solHttpTokenGenerateElement, solHttpTokenSaveElement, solHttpTokenCurrentElement, solHttpTokenCopyElement]) {
+      element.disabled = true;
+    }
+    return;
+  }
+  try {
+    const http = await invoke("sol_http_get");
+    solHttpEnabledElement.checked = Boolean(http.enabled);
+    solHttpEnabledStateElement.textContent = http.enabled ? "已开启（sol 控制面在跑）" : "已关闭";
+    if (document.activeElement !== solHttpListenElement) {
+      solHttpListenElement.value = http.listen || "";
+    }
+    // 当前 token 展示 + 复制（token_env / token_file 模式下原文在别处，提示之）
+    if (http.authKind === "token") {
+      solHttpTokenCurrentElement.value = http.token || "";
+      solHttpTokenCopyElement.disabled = !http.token;
+    } else {
+      solHttpTokenCurrentElement.value = "";
+      solHttpTokenCurrentElement.placeholder = `（${http.authKind} 模式，原文不在此文件）`;
+      solHttpTokenCopyElement.disabled = true;
+    }
+    solHttpTokenStateElement.textContent = http.authKind === "token"
+      ? `内联 bearer token，${(http.token || "").length} 位`
+      : `当前 ${http.authKind} 模式（未内联存储）`;
+    for (const element of [solHttpEnabledElement, solHttpListenElement, solHttpListenSaveElement, solHttpTokenElement, solHttpTokenGenerateElement, solHttpTokenSaveElement, solHttpTokenCopyElement]) {
+      element.disabled = false;
+    }
+  } catch (error) {
+    solHttpEnabledStateElement.textContent = `读取失败：${error}`;
+  }
+}
+
+// 开关：勾选/取消立即写配置
+solHttpEnabledElement.addEventListener("change", async () => {
+  const flag = solHttpEnabledElement.checked;
+  solHttpEnabledElement.disabled = true;
+  try {
+    showStatusBar(flag ? "正在开启 HTTP 服务监听…" : "正在关闭 HTTP 服务监听…");
+    const message = await call("sol_http_set", { path: null, option: "enabled", value: String(flag) });
+    showStatusBar(message || "已写入");
+    solLogAppend(`HTTP 服务监听 → ${flag ? "开启" : "关闭"}`);
+    syncEditorToDisk();
+  } catch (error) {
+    // call() 已展示错误；开关回弹由 refreshSolHttp 纠正
+  } finally {
+    solHttpEnabledElement.disabled = false;
+  }
+  refreshSolHttp();
+});
+
+// 监听地址：应用按钮写配置
+solHttpListenSaveElement.addEventListener("click", async () => {
+  const value = solHttpListenElement.value.trim();
+  if (!value) {
+    showStatusBar("监听地址不能为空（host:port）", { error: true });
+    return;
+  }
+  solHttpListenSaveElement.disabled = true;
+  try {
+    showStatusBar("正在写入监听地址…");
+    const message = await call("sol_http_set", { path: null, option: "listen", value });
+    showStatusBar(message || "已写入");
+    solLogAppend(`监听地址 → ${value}`);
+    syncEditorToDisk();
+  } catch (error) {
+    // 错误已在底部提示条
+  } finally {
+    solHttpListenSaveElement.disabled = false;
+  }
+  refreshSolHttp();
+});
+// 输入框回车 = 应用
+solHttpListenElement.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    solHttpListenSaveElement.click();
+  }
+});
+
+// Token：生成 → **立即写入配置** → 面板回显同步（用户要求：生成即落盘）。
+// 新值同时出现在「当前 token」展示框里，可点复制。
+solHttpTokenGenerateElement.addEventListener("click", async () => {
+  solHttpTokenGenerateElement.disabled = true;
+  try {
+    showStatusBar("正在生成并写入新 token…");
+    const token = await invoke("sol_token_generate");
+    const message = await call("sol_http_set", { path: null, option: "token", value: token });
+    showStatusBar(message || "新 token 已写入配置");
+    solLogAppend(`Token 已重新生成并写入（${token.length} 位）`);
+    solHttpTokenElement.value = ""; // 新 token 已在「当前 token」框里，输入框清空
+    syncEditorToDisk();
+  } catch (error) {
+    // 错误已在底部提示条
+  } finally {
+    solHttpTokenGenerateElement.disabled = false;
+  }
+  refreshSolHttp();
+});
+
+// 复制当前 token（优先剪贴板 API，降级 execCommand）
+solHttpTokenCopyElement.addEventListener("click", async () => {
+  const token = solHttpTokenCurrentElement.value;
+  if (!token) {
+    showStatusBar("没有可复制的 token（当前为非内联模式）", { error: true });
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(token);
+    showStatusBar("token 已复制到剪贴板");
+  } catch (error) {
+    // 非安全上下文 / 权限拒绝：降级选中文本让用户 Ctrl+C
+    solHttpTokenCurrentElement.focus();
+    solHttpTokenCurrentElement.select();
+    try {
+      document.execCommand("copy");
+      showStatusBar("token 已复制（降级方式）");
+    } catch (inner) {
+      showStatusBar("复制失败：已选中全文，请按 Ctrl+C", { error: true });
+    }
+  }
+});
+
+solHttpTokenSaveElement.addEventListener("click", async () => {
+  const value = solHttpTokenElement.value.trim();
+  if (!value) {
+    showStatusBar("token 为空：留空 = 不改动，要换就先生成或粘贴一个", { error: true });
+    return;
+  }
+  solHttpTokenSaveElement.disabled = true;
+  try {
+    showStatusBar("正在写入 token…");
+    const message = await call("sol_http_set", { path: null, option: "token", value });
+    showStatusBar(message || "已写入");
+    solLogAppend(`Token 已更新（${value.length} 位）`);
+    solHttpTokenElement.value = "";
+    syncEditorToDisk();
+  } catch (error) {
+    // 错误已在底部提示条
+  } finally {
+    solHttpTokenSaveElement.disabled = false;
+  }
+  refreshSolHttp();
+});
+// token 输入框回车 = 应用
+solHttpTokenElement.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    solHttpTokenSaveElement.click();
+  }
+});
+
+// ---------- 安装包：下载 → 解压 → 一键安装 ----------
+// 目录记忆在本页 localStorage（改了立刻落盘，跨启动沿用）。
+// 双向回显：输入框（手填）↔ 选择框（文件管理器）写同一个 solDir，
+// 副文字实时提示「~ 展开后的真实路径」，空 = 用后端默认（~/sol）。
+function renderSolDir() {
+  solDirInputElement.value = solDir;
+  // 默认值从后端拿（首次渲染时懒加载，写进 placeholder）
+  if (!renderSolDir._defaultLoaded && !IS_BROWSER) {
+    renderSolDir._defaultLoaded = true;
+    invoke("sol_default_dir")
+      .then((dir) => {
+        if (dir) {
+          solDirInputElement.placeholder = dir;
+          solDirStateElement.textContent = solDir ? `当前生效：${solDir}` : `留空 = 默认 ${dir}`;
+          solDirStateElement.title = dir;
+        }
+      })
+      .catch(() => {});
+  }
+  solDirStateElement.textContent = solDir
+    ? `当前生效：${solDir}`
+    : `留空 = 默认 ${solDirInputElement.placeholder || "~/sol"}`;
+  if (solDir) {
+    try {
+      localStorage.setItem(SOL_DIR_KEY, solDir);
+    } catch (error) {
+      void error;
+    }
+  } else {
+    try {
+      localStorage.removeItem(SOL_DIR_KEY);
+    } catch (error) {
+      void error;
+    }
+  }
+}
+
+// 手动输入：双向回显的另一向（输入 → 状态字），trim 后为空视作恢复默认
+solDirInputElement.addEventListener("input", () => {
+  solDir = solDirInputElement.value.trim();
+  renderSolDir();
+});
+// 失焦时若填了 ~ 开头，提示会由后端原样收到后自行展开（后端 PathBuf 不展开 ~，
+// 所以在前端先把 ~ 解掉，保证提示与实际生效路径一致）
+solDirInputElement.addEventListener("change", () => {
+  let value = solDirInputElement.value.trim();
+  if (value === "~" || value.startsWith("~/")) {
+    if (IS_BROWSER) {
+      showStatusBar("远程模式下 ~ 无法展开，请填完整路径", { error: true });
+      return;
+    }
+    invoke("sol_default_dir")
+      .then((dir) => {
+        // dir 本身就是 <home>/sol：取它的父目录当 HOME
+        const home = dir.replace(/[/\\]sol[/\\]?$/, "");
+        if (home && home !== dir) {
+          value = value === "~" ? home : home + value.slice(1);
+          solDirInputElement.value = value;
+          solDir = value;
+          renderSolDir();
+        }
+      })
+      .catch(() => {});
+    return;
+  }
+  solDir = value;
+  renderSolDir();
+});
+
+// 「打开」：把输入框里填的目录（空 = 后端默认）在文件管理器里打开
+solOpenDirInputElement.addEventListener("click", async () => {
+  try {
+    const opened = await call("sol_open_dir", { dir: solDir || null });
+    if (typeof opened === "string" && opened) {
+      showStatusBar(`已打开 ${opened}`);
+    }
+  } catch (error) {
+    // call() 已把错误写底部提示条
+  }
+});
+
+// 平台目录名只做提示文案，真实文件名以后端返回的落盘路径为准
+const SOL_PKG_TARGET = (() => {
+  const platform = navigator.platform || "";
+  if (/Win/i.test(platform)) return "windows-amd64";
+  if (/Mac/i.test(platform))
+    return /arm/i.test(navigator.userAgent) ? "darwin-arm64" : "darwin-amd64";
+  if (/arm|aarch/i.test(navigator.userAgent)) return "linux-arm64";
+  return "linux-amd64";
+})();
+
+solPickDirElement.addEventListener("click", async () => {
+  try {
+    const picked = await invoke("sol_pick_dir", { current: solDir || null });
+    if (picked) {
+      solDir = picked;
+      solDirInputElement.value = picked; // 双向回显：选择框 → 输入框
+      renderSolDir();
+      showStatusBar(`安装目录：${picked}`);
+    }
+  } catch (error) {
+    // 取消 / 关闭选择框：静默（不是错误）
+    if (!String(error).includes("被关闭")) {
+      showStatusBar(String(error), { error: true });
+    }
+  }
+});
+
+solDownloadElement.addEventListener("click", async () => {
+  solDownloadElement.disabled = true;
+  solOneClickElement.disabled = true;
+  solPkgStateElement.textContent = "正在下载…";
+  solProgressShow(true);
+  try {
+    const saved = await call("sol_install_download", { dir: solDir || null });
+    if (typeof saved === "string" && saved) {
+      solPkgArchivePath = saved;
+      solPkgStateElement.textContent = `已下载：${saved.split("/").pop() || saved}`;
+      solPkgStateElement.title = saved;
+      solExtractElement.disabled = false;
+      solProgressDone(true);
+      showStatusBar(`已下载到 ${saved}`);
+    }
+  } catch (error) {
+    solProgressDone(false);
+  } finally {
+    solDownloadElement.disabled = false;
+    solOneClickElement.disabled = false;
+  }
+});
+
+// 手动选安装包：文件管理器挑一个 .tar.gz / .zip，选中后解压按钮直接亮
+solPickArchiveElement.addEventListener("click", async () => {
+  try {
+    const picked = await invoke("sol_pick_archive");
+    if (picked) {
+      solPkgArchivePath = picked;
+      solPkgStateElement.textContent = `已选择：${picked.split("/").pop() || picked}`;
+      solPkgStateElement.title = picked;
+      solExtractElement.disabled = false;
+      solLogAppend(`手动选择安装包：${picked}`);
+      showStatusBar(`已选择 ${picked}`);
+    }
+  } catch (error) {
+    if (!String(error).includes("被关闭")) {
+      showStatusBar(String(error), { error: true });
+    }
+  }
+});
+
+// 一键下载安装：下载 → 解压 → 安装全流程，后端顺序执行并推日志
+solOneClickElement.addEventListener("click", async () => {
+  for (const element of [solOneClickElement, solDownloadElement, solInstallElement, solUninstallElement, solExtractElement, solInstallFromPkgElement]) {
+    element.disabled = true;
+  }
+  solProgressShow(true);
+  try {
+    showStatusBar("一键下载安装中…（全程日志见下方）");
+    const message = await call("sol_one_click_install", { dir: solDir || null });
+    showStatusBar(message || "一键安装完成");
+    solProgressDone(true);
+    // 一键成功后状态全刷新：解压/安装按钮随新状态复位
+    solPkgArchivePath = "";
+    solInstallFromPkgElement.disabled = true;
+  } catch (error) {
+    solProgressDone(false);
+  } finally {
+    for (const element of [solOneClickElement, solDownloadElement, solInstallElement, solUninstallElement]) {
+      element.disabled = false;
+    }
+  }
+  refreshSolPanel();
+});
+
+solExtractElement.addEventListener("click", async () => {
+  if (!solPkgArchivePath) {
+    return;
+  }
+  solExtractElement.disabled = true;
+  solPkgStateElement.textContent = "正在解压…";
+  try {
+    const root = await call("sol_extract", { archive: solPkgArchivePath, dir: solDir || null });
+    if (typeof root === "string" && root) {
+      solPkgStateElement.textContent = `已解压：${root}`;
+      solPkgStateElement.title = root;
+      solPkgHintElement.dataset.root = root;
+      solInstallFromPkgElement.disabled = false;
+      solInstallHintElement.textContent = `解压完成：${root}。点「安装（用解压目录）」继续，或手工到别处安装。`;
+      showStatusBar(`已解压到 ${root}`);
+    }
+  } finally {
+    solExtractElement.disabled = false;
+  }
+});
+
+solInstallFromPkgElement.addEventListener("click", async () => {
+  // 安装源就是解压根目录：从解压回执（或目录记忆）里带过去
+  const source = solPkgHintElement.dataset.root || solDir || null;
+  solInstallFromPkgElement.disabled = true;
+  try {
+    showStatusBar("正在安装 sol…（可能弹出提权窗口）");
+    const message = await call("sol_install", { installDir: source });
+    showStatusBar(message || "已安装");
+    solInstallFromPkgElement.disabled = true;
+  } catch (error) {
+    solInstallFromPkgElement.disabled = false;
+  }
+  refreshSolPanel();
+});
 
 // 浏览器端顶部横幅：预览模式说明 / 远程已连接 / token 输入（三态）。
 // 仅浏览器模式创建 —— Tauri 主窗口不需要这条横幅。
