@@ -2340,7 +2340,7 @@ pub(crate) async fn sol_install_terminal_inner(
     _guard: SolOpGuard,
 ) -> Result<String, String> {
     let dir: PathBuf = tauri::async_runtime::spawn_blocking(move || -> Result<PathBuf, String> {
-        let dir = resolve_sol_dir(install_dir)?;
+        let dir = resolve_sol_dir(install_dir.clone())?;
         require_official_package(&dir)?;
         Ok(dir)
     })
@@ -2390,7 +2390,7 @@ pub(crate) async fn sol_install_silent_inner(
     #[cfg(target_os = "macos")]
     let app_handle = app.clone();
     let message = tauri::async_runtime::spawn_blocking(move || {
-        let dir = resolve_sol_dir(install_dir)?;
+        let dir = resolve_sol_dir(install_dir.clone())?;
         require_official_package(&dir)?;
         let script = dir.join("install.sh");
 
@@ -2521,16 +2521,18 @@ pub(crate) async fn sol_uninstall_silent(
     trace(&app, "command", "sol_uninstall_silent");
     let _guard = SolOpGuard::acquire()?;
     clean_orphan_install_lock(&app);
-    // 先判已安装：没装就不弹终端/不跑脚本（卸载一个不存在的 sol 没有意义）
-    let snapshot = tauri::async_runtime::spawn_blocking(sol_status_snapshot)
-        .await
-        .map_err(|error| format!("读取安装状态失败：{error}"))?;
-    if !snapshot.installed && !snapshot.service_loaded {
-        return Err("sol 还没有安装（本机找不到 sol 二进制，服务也没注册），无需卸载".to_string());
+    // 先看安装目录里有没有官方包（install.sh）：可能安装包还没下载/解压，
+    // 没有可执行的东西就别往下走（弹终端/跑脚本都会失败）
+    let dir = resolve_sol_dir(install_dir.clone())?;
+    if !dir.join("install.sh").is_file() {
+        return Err(format!(
+            "安装目录 {} 里没有官方包（install.sh）—— 可能安装包还没下载或没解压，先「一键下载安装」",
+            dir.display()
+        ));
     }
     sol_log(&app, "＝＝＝ 静默卸载开始 ＝＝＝".to_string());
     let message = tauri::async_runtime::spawn_blocking(move || {
-        let dir = resolve_sol_dir(install_dir)?;
+        let dir = resolve_sol_dir(install_dir.clone())?;
         require_official_package(&dir)?;
         let script = dir.join("install.sh");
 
@@ -2619,15 +2621,17 @@ pub(crate) async fn sol_uninstall_terminal(
     trace(&app, "command", "sol_uninstall_terminal");
     let _guard = SolOpGuard::acquire()?;
     clean_orphan_install_lock(&app);
-    // 先判已安装：没装就不弹终端/不跑脚本（卸载一个不存在的 sol 没有意义）
-    let snapshot = tauri::async_runtime::spawn_blocking(sol_status_snapshot)
-        .await
-        .map_err(|error| format!("读取安装状态失败：{error}"))?;
-    if !snapshot.installed && !snapshot.service_loaded {
-        return Err("sol 还没有安装（本机找不到 sol 二进制，服务也没注册），无需卸载".to_string());
+    // 先看安装目录里有没有官方包（install.sh）：可能安装包还没下载/解压，
+    // 没有可执行的东西就别往下走（弹终端/跑脚本都会失败）
+    let dir = resolve_sol_dir(install_dir.clone())?;
+    if !dir.join("install.sh").is_file() {
+        return Err(format!(
+            "安装目录 {} 里没有官方包（install.sh）—— 可能安装包还没下载或没解压，先「一键下载安装」",
+            dir.display()
+        ));
     }
     let dir: PathBuf = tauri::async_runtime::spawn_blocking(move || -> Result<PathBuf, String> {
-        let dir = resolve_sol_dir(install_dir)?;
+        let dir = resolve_sol_dir(install_dir.clone())?;
         require_official_package(&dir)?;
         Ok(dir)
     })
