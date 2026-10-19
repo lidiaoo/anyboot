@@ -2069,6 +2069,8 @@ pub(crate) fn sol_logs(app: AppHandle) -> Vec<String> {
 #[tauri::command]
 pub(crate) async fn sol_one_click_install(app: AppHandle, dir: Option<String>) -> Result<String, String> {
     trace(&app, "command", "sol_one_click_install");
+    let _guard = SolOpGuard::acquire()?;
+    clean_orphan_install_lock(&app);
     sol_log(&app, "＝＝＝ 一键下载安装开始 ＝＝＝".to_string());
 
     // 1) 下载（进度条独立走事件）
@@ -2090,7 +2092,7 @@ pub(crate) async fn sol_one_click_install(app: AppHandle, dir: Option<String>) -
 
     // 3) 静默安装（官方脚本无人值守）
     sol_log(&app, "③ 静默安装（官方 install.sh，可能弹一次管理员授权框）".to_string());
-    let message = sol_install_silent(app.clone(), Some(root)).await.map_err(|error| {
+    let message = sol_install_silent_inner(app.clone(), Some(root), _guard).await.map_err(|error| {
         sol_log(&app, format!("一键安装中止（安装失败）：{error}"));
         error
     })?;
@@ -2106,6 +2108,8 @@ pub(crate) async fn sol_one_click_install_terminal(
     dir: Option<String>,
 ) -> Result<String, String> {
     trace(&app, "command", "sol_one_click_install_terminal");
+    let _guard = SolOpGuard::acquire()?;
+    clean_orphan_install_lock(&app);
     sol_log(&app, "＝＝＝ 一键安装（调终端）开始 ＝＝＝".to_string());
 
     let archive = sol_install_download(app.clone(), dir.clone()).await.map_err(|error| {
@@ -2125,7 +2129,7 @@ pub(crate) async fn sol_one_click_install_terminal(
     sol_log(&app, format!("② 解压完成 {root}"));
 
     sol_log(&app, "③ 呼出终端跑官方 install.sh（请在终端里确认）".to_string());
-    let message = sol_install_terminal(app.clone(), Some(root)).await?;
+    let message = sol_install_terminal_inner(app.clone(), Some(root), _guard).await?;
     sol_log(&app, "＝＝＝ 一键安装（调终端）完成 ＝＝＝".to_string());
     Ok(message)
 }
@@ -2246,6 +2250,75 @@ fn spawn_terminal(dir: &Path, command_line: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// 官方 install.sh 的互斥锁路径（脚本自己创建：进锁的 pid 写在目录里）。
+const SOL_INSTALL_LOCK: &str = "/tmp/sol-install.lock";
+
+/// 进程内安装/卸载互斥：多个终端/静默安装并发时只放一个进去（官方脚本
+/// 自己还有文件锁兜底，这里管的是「本面板别自己打自己」）。AtomicBool
+/// compare_exchange：跨 await 持有安全（MutexGuard 不是 Send 不能跨 await）。
+static SOL_OP_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// 尝试占住安装标志。true = 占到（用完必须 release）；false = 已有操作在跑。
+fn sol_op_try_acquire() -> bool {
+    SOL_OP_RUNNING
+        .compare_exchange(
+            false,
+            true,
+            std::sync::atomic::Ordering::SeqCst,
+            std::sync::atomic::Ordering::SeqCst,
+        )
+        .is_ok()
+}
+
+/// 释放安装标志（Drop 守卫，panic 路径也不漏）。
+struct SolOpGuard;
+impl SolOpGuard {
+    fn acquire() -> Result<Self, String> {
+        if sol_op_try_acquire() {
+            Ok(SolOpGuard)
+        } else {
+            Err("另一个安装/卸载操作正在进行中（刚点过？），等它完成或关闭已弹出的终端窗口再试".to_string())
+        }
+    }
+}
+impl Drop for SolOpGuard {
+    fn drop(&mut self) {
+        SOL_OP_RUNNING.store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+/// 清理官方脚本留下的孤儿锁：锁目录存在但 pid 已死 → 删掉（脚本上次被
+/// 强杀/终端直接关闭时残留，不清掉后续安装永远报「另一个安装/卸载正在进行」）。
+fn clean_orphan_install_lock(app: &AppHandle) -> bool {
+    let lock_dir = std::path::Path::new(SOL_INSTALL_LOCK);
+    if !lock_dir.exists() {
+        return false;
+    }
+    let pid_alive = fs::read_to_string(lock_dir.join("pid"))
+        .ok()
+        .and_then(|text| text.trim().parse::<u32>().ok())
+        .map(|pid| {
+            // pid 存活 = /proc/<pid> 存在（Linux）；其它平台保守当作存活
+            #[cfg(target_os = "linux")]
+            {
+                std::path::Path::new(&format!("/proc/{pid}")).exists()
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                let _ = pid;
+                true
+            }
+        })
+        // 读不到 pid：当存活处理（宁可让用户手动 rm，不误删别人的锁）
+        .unwrap_or(true);
+    if !pid_alive {
+        let _ = fs::remove_dir_all(lock_dir);
+        sol_log(app, format!("检测到上次安装的孤儿锁（进程已退出），已自动清理 {SOL_INSTALL_LOCK}"));
+        return true;
+    }
+    false
+}
+
 /// 呼出系统终端，在安装目录里跑官方安装脚本（交互模式）。
 /// 用户在弹出的终端里按脚本提示确认（菜单选 1 = apply）；脚本管提权、装服务、
 /// 生成配置 —— AnyBoot 只负责「把终端开到正确目录并带上命令」。
@@ -2255,6 +2328,17 @@ pub(crate) async fn sol_install_terminal(
     install_dir: Option<String>,
 ) -> Result<String, String> {
     trace(&app, "command", "sol_install_terminal");
+    let _guard = SolOpGuard::acquire()?;
+    clean_orphan_install_lock(&app);
+    sol_install_terminal_inner(app, install_dir, _guard).await
+}
+
+/// 实体（不带锁）：一键终端流程已持锁时直接调这里。
+pub(crate) async fn sol_install_terminal_inner(
+    app: AppHandle,
+    install_dir: Option<String>,
+    _guard: SolOpGuard,
+) -> Result<String, String> {
     let dir: PathBuf = tauri::async_runtime::spawn_blocking(move || -> Result<PathBuf, String> {
         let dir = resolve_sol_dir(install_dir)?;
         require_official_package(&dir)?;
@@ -2291,6 +2375,17 @@ pub(crate) async fn sol_install_silent(
     install_dir: Option<String>,
 ) -> Result<String, String> {
     trace(&app, "command", "sol_install_silent");
+    let _guard = SolOpGuard::acquire()?;
+    clean_orphan_install_lock(&app);
+    sol_install_silent_inner(app, install_dir, _guard).await
+}
+
+/// 实体（不带锁）：一键静默流程已持锁时直接调这里。
+pub(crate) async fn sol_install_silent_inner(
+    app: AppHandle,
+    install_dir: Option<String>,
+    _guard: SolOpGuard,
+) -> Result<String, String> {
     sol_log(&app, "＝＝＝ 静默安装开始 ＝＝＝".to_string());
     #[cfg(target_os = "macos")]
     let app_handle = app.clone();
@@ -2424,6 +2519,8 @@ pub(crate) async fn sol_uninstall_silent(
     install_dir: Option<String>,
 ) -> Result<String, String> {
     trace(&app, "command", "sol_uninstall_silent");
+    let _guard = SolOpGuard::acquire()?;
+    clean_orphan_install_lock(&app);
     sol_log(&app, "＝＝＝ 静默卸载开始 ＝＝＝".to_string());
     let message = tauri::async_runtime::spawn_blocking(move || {
         let dir = resolve_sol_dir(install_dir)?;
@@ -2513,6 +2610,8 @@ pub(crate) async fn sol_uninstall_terminal(
     install_dir: Option<String>,
 ) -> Result<String, String> {
     trace(&app, "command", "sol_uninstall_terminal");
+    let _guard = SolOpGuard::acquire()?;
+    clean_orphan_install_lock(&app);
     let dir: PathBuf = tauri::async_runtime::spawn_blocking(move || -> Result<PathBuf, String> {
         let dir = resolve_sol_dir(install_dir)?;
         require_official_package(&dir)?;
