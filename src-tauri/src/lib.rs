@@ -1107,8 +1107,35 @@ fn show_main_window(app: &AppHandle, origin: ShowOrigin) {
         // （Windows 把它挪到 −32000），反过来先 unminimize 会被吞掉，
         // 窗口"可见"却仍停在屏幕外 —— 用户看到的就是只剩 GRUB 独立窗口。
         let was_minimized = window.is_minimized().unwrap_or(false);
+        // show **之前**先铺一层主题底色：主窗是 transparent 窗体，而页面在首份
+        // 快照渲染完成前 body 是 opacity:0（防「闪旧页面」），这段时间窗口是空的
+        // —— 用户看到的「闪一下」就是这一帧透出桌面/白色。NSWindow 背景色是主线程
+        // 原生属性、立即生效，不等 WebView 进程，正好兜住这一帧。
+        // 页面渲染完（data-ready）后 body 自己铺满实色，这层底色被完全盖住。
+        let _ = window.set_background_color(Some(dock_autohide::undock_mask_color(app, &window)));
+        // **先落位再显示**：窗口隐藏期间 WKWebView 不合成，此时 set_position 只是
+        // 记下目标坐标，OS 不会画出来 —— show 的第一帧就在最终位置，不再「先按
+        // 上次位置出现、再跳到目标位置」（用户反馈的历史遗留「位置跳一下」）。
+        // 只处理未被最小化的常规呼出；最小化的窗口位置交给下方自愈线程
+        //（OS 的异步恢复会覆盖我们提前设的坐标）。
+        if !was_minimized {
+            apply_main_window_position(app);
+        }
         let _ = window.show();
         let _ = window.unminimize();
+        // 呼出即唤醒页面：主窗隐藏期间 WKWebView 的 JS 会被 macOS 深度冻结
+        //（实测：startInTray 启动即 hide 后，get_ui_state/listen/setInterval
+        // 全部没跑完就停了，show 出来也不会自动恢复 —— 三个栏目「有框架没数据」
+        // 100% 复现，而 hub 等常显窗口正常）。show 这一拍 eval 前端唤醒钩子：
+        // 页面渲染过 = 补拉一拍快照；没渲染过 = 整页重载（此刻窗口可见，重载的
+        // 初始化会正常执行）。随后再 publish 一份最新快照给已活过来的监听器。
+        // 延迟 250ms 再唤醒：立即 eval 可能撞上「页面首次加载还没完成」。
+        let wake = window.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(250));
+            let _ = wake.eval("window.__ANYBOOT_REVIVE__ && window.__ANYBOOT_REVIVE__()");
+        });
+        publish_ui(app);
         // 呼出即置顶（受「窗口始终置顶」设置控制）：Linux 下 WM 的
         // focus-stealing-prevention 会让 set_focus 无效，于是窗口被别的窗口
         // 盖住（用户看到的就是「点了托盘但窗口没跳出来」）。设置关掉时窗口
@@ -1117,14 +1144,10 @@ fn show_main_window(app: &AppHandle, origin: ShowOrigin) {
             let _ = window.set_always_on_top(true);
         }
         let _ = window.set_focus();
-        // 固定显示位置（free 不动；center 居中；last 回到记忆点）：窗口没被
-        // 最小化过（只是藏着）时立刻落位，避免恢复完成后再跳一下；被最小化过
-        // 则交给下面的自愈线程在「窗口真正恢复后」再落位，否则 Windows 上
-        // unminimize 的异步恢复会把我们的 set_position 覆盖掉（用户看到的就是
-        // 「选了居中重开却还是上次的位置」）。
-        if !was_minimized {
-            apply_main_window_position(app);
-        }
+        // 固定显示位置：**未被最小化**的常规呼出已在 show 之前落好位（见上），
+        // 这里不再重复调用 —— 重复 set_position 会让 macOS 合成两帧、看起来
+        // 就是「位置跳一下」。被最小化过的窗口仍交给下方自愈线程在真正恢复后落位
+        //（OS 的 unminimize 异步恢复会覆盖提前设的坐标）。
         // 自愈 + 落位：show/unminimize 都是异步派发。先等窗口真正脱离最小化
         // （位置离开 −32000），这期间 OS 的恢复会先把窗口摆回「上次位置」，
         // 必须等它稳定之后再 set_position，否则会被覆盖。窗口恢复后，按固定
@@ -1176,12 +1199,15 @@ fn show_main_window(app: &AppHandle, origin: ShowOrigin) {
                     Err(_) => false,
                 };
                 if !docked {
-                    apply_main_window_position(&app);
-                    if let Ok(pos) = main.outer_position() {
-                        if !is_minimized_position(pos) {
-                            clamp_main_window(&app, &main);
-                        }
+                    // 常规呼出（未最小化）：show 之前已落好位，这里**只在位置确实
+                    // 不对时**纠正（比如 OS 把窗口摆到了屏幕外），避免重复 set_position
+                    // 造成「位置跳一下」的第二帧。最小化恢复：必须重新落位。
+                    if was_minimized {
+                        apply_main_window_position(&app);
                     }
+                    // 位置合法性已由 apply_main_window_position 内部的
+                    // enforce_fixed_monitor / clamp 保证；常规呼出时不再额外 set_position
+                    //（多做一次就会看到窗口跳一下）。
                 }
             });
         }
@@ -2320,6 +2346,27 @@ pub fn run() {
                             // 回到焦点：回到最上层（常态就是置顶，这里再确认）
                             let _ = window.set_always_on_top(true);
                         }
+                        // **主窗拿到焦点 = 任何让它变可见的路径**（托盘「显示」、
+                        // 拖拽、Dock 点击、Cmd+Tab…）。只挂在 show_main_window 上
+                        // 覆盖不全：用户直接拖着贴边白条展开窗口时根本不会走那条路，
+                        // 而 macOS 上 startInTray 隐藏过的主窗 WKWebView 可能整页
+                        // 没加载（实测：启动后主窗窗口在、贴边事件有，但零 IPC、
+                        // 零 render 心跳 —— 三个栏目只剩 HTML 框架）。这里统一唤醒：
+                        // 页面活着就补拉一拍，没加载就 reload —— 与 show_main_window
+                        // 同一钩子。前端钩子幂等（渲染过只 pull），不会反复重载。
+                        // 这里是 Window 事件（不带 webview 方法），按 label 取回 webview 再 eval。
+                        // 延迟 250ms：立即 eval 会撞上「页面首次加载还没完成」，钩子不存
+                        // 在就只能重载，反而闪一下。钩子幂等，已渲染过只补拉一拍。
+                        if let Some(webview) =
+                            window.app_handle().get_webview_window(MAIN_WINDOW_LABEL)
+                        {
+                            std::thread::spawn(move || {
+                                std::thread::sleep(std::time::Duration::from_millis(250));
+                                let _ = webview.eval(
+                                    "window.__ANYBOOT_REVIVE__ && window.__ANYBOOT_REVIVE__()",
+                                );
+                            });
+                        }
                     }
                     // 失焦：保持现状（设置开着就是置顶，关了就是普通层级）。
                     return;
@@ -2808,9 +2855,17 @@ pub fn run() {
             sol_panel::sol_http_set,
             sol_panel::sol_token_generate,
             sol_panel::sol_logs,
+            sol_panel::sol_status_privileged,
+            sol_panel::sol_local_package,
+            sol_panel::sol_project_info,
+            sol_panel::sol_project_open,
+            sol_panel::sol_log_client_error,
             sol_panel::sol_one_click_install,
-            sol_panel::sol_install,
-            sol_panel::sol_uninstall,
+            sol_panel::sol_one_click_install_terminal,
+            sol_panel::sol_install_terminal,
+            sol_panel::sol_install_silent,
+            sol_panel::sol_uninstall_terminal,
+            sol_panel::sol_uninstall_silent,
             sol_panel::sol_service_ctl,
             sol_panel::sol_open_dir,
             restart_app,
@@ -2824,6 +2879,13 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("failed to build AnyBoot")
         .run(|app, event| {
+            // macOS Dock 图标点击 / `open -a`（应用已运行时）触发 Reopen：
+            // 与托盘「显示」同一条路 —— show_main_window（内含唤醒 eval + publish）。
+            // 没有这条，隐藏期间被冻结的主窗页面永远等不到初始化机会。
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = event {
+                show_main_window(app, ShowOrigin::Recall);
+            }
             // 应用退出：收掉 server-hub 名下的终端会话与隧道进程，
             // 别让 ssh 子进程被过继给 init 变成孤儿。
             if let tauri::RunEvent::Exit = event {
