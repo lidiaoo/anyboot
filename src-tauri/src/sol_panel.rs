@@ -2521,6 +2521,13 @@ pub(crate) async fn sol_uninstall_silent(
     trace(&app, "command", "sol_uninstall_silent");
     let _guard = SolOpGuard::acquire()?;
     clean_orphan_install_lock(&app);
+    // 先判已安装：没装就不弹终端/不跑脚本（卸载一个不存在的 sol 没有意义）
+    let snapshot = tauri::async_runtime::spawn_blocking(sol_status_snapshot)
+        .await
+        .map_err(|error| format!("读取安装状态失败：{error}"))?;
+    if !snapshot.installed && !snapshot.service_loaded {
+        return Err("sol 还没有安装（本机找不到 sol 二进制，服务也没注册），无需卸载".to_string());
+    }
     sol_log(&app, "＝＝＝ 静默卸载开始 ＝＝＝".to_string());
     let message = tauri::async_runtime::spawn_blocking(move || {
         let dir = resolve_sol_dir(install_dir)?;
@@ -2612,6 +2619,13 @@ pub(crate) async fn sol_uninstall_terminal(
     trace(&app, "command", "sol_uninstall_terminal");
     let _guard = SolOpGuard::acquire()?;
     clean_orphan_install_lock(&app);
+    // 先判已安装：没装就不弹终端/不跑脚本（卸载一个不存在的 sol 没有意义）
+    let snapshot = tauri::async_runtime::spawn_blocking(sol_status_snapshot)
+        .await
+        .map_err(|error| format!("读取安装状态失败：{error}"))?;
+    if !snapshot.installed && !snapshot.service_loaded {
+        return Err("sol 还没有安装（本机找不到 sol 二进制，服务也没注册），无需卸载".to_string());
+    }
     let dir: PathBuf = tauri::async_runtime::spawn_blocking(move || -> Result<PathBuf, String> {
         let dir = resolve_sol_dir(install_dir)?;
         require_official_package(&dir)?;
