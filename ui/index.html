@@ -2,6 +2,40 @@
 <html lang="zh-CN" data-page-node-id="ipKZaEBYXhuMMawECdW3B5">
   <head data-page-node-id="g3yPX9BiTlbOqLdJRkXE1J">
     <meta charset="UTF-8" data-page-node-id="I7Y9wcNb3X4vlQ3AGJteWN" />
+    <!-- 首帧防闪：在 CSS 之前、脚本之前就把主题与不透明度写到 <html> 上。
+         后端 settings 仍是唯一真相源（app.js 拿到快照后会覆盖），这里只是
+         把「上一次已知的值」提前用上 —— 否则重载那一拍会先按默认暗色画一遍，
+         用户设置是亮色时就闪一下。localStorage 是只读镜像，不影响真实设置。 -->
+    <script>
+      (function () {
+        var ACCENT_KEYS = [
+          "--accent",
+          "--accent-hover",
+          "--accent-link",
+          "--accent-link-hover",
+        ];
+        try {
+          var theme = localStorage.getItem("anyboot.theme-resolved");
+          if (theme === "light" || theme === "dark") {
+            document.documentElement.dataset.theme = theme;
+          }
+          var alpha = localStorage.getItem("anyboot.ui-alpha");
+          if (alpha) {
+            document.documentElement.style.setProperty("--ui-alpha", alpha);
+          }
+          // 强调色四项（含派生色阶）一并还原，首帧按钮/链接色不跳
+          for (var i = 0; i < ACCENT_KEYS.length; i++) {
+            var name = ACCENT_KEYS[i];
+            var value = localStorage.getItem("anyboot." + name.slice(2));
+            if (value) {
+              document.documentElement.style.setProperty(name, value);
+            }
+          }
+        } catch (e) {
+          /* localStorage 不可用：按默认暗色走 */
+        }
+      })();
+    </script>
     <meta content="width=device-width, initial-scale=1.0" name="viewport" data-page-node-id="EqVHhk2BvU9iAnH7og8YL2" />
     <title>AnyBoot</title>
     <link href="./styles.css" rel="stylesheet" data-page-node-id="TW40ENGyWRZ8hfyIKgbDdc" />
@@ -666,18 +700,18 @@
             </span>
             <span class="remote-inline">
               <button class="secondary" id="sol-refresh" type="button">刷新状态</button>
+              <button class="secondary hidden" id="sol-status-privileged" type="button" title="服务状态被系统权限挡住时才出现">授权查看状态</button>
               <button class="secondary" id="sol-restart-service" type="button">重启服务</button>
             </span>
           </div>
 
-          <!-- 动作区：一键安装 / 安装 / 卸载 / 打开安装目录 -->
+          <!-- 动作区：一键安装（终端/静默）+ 卸载；安装一律走官方 install.sh -->
           <div class="actions">
-            <button class="primary-sol" id="sol-one-click" type="button">一键下载安装</button>
-            <button class="secondary" id="sol-install" type="button">安装 sol</button>
+            <button class="primary-sol" id="sol-one-click" type="button">一键安装（静默）</button>
+            <button class="secondary" id="sol-one-click-terminal" type="button">一键安装（调终端）</button>
             <button class="secondary" id="sol-uninstall" type="button">卸载 sol</button>
-            <button class="secondary" id="sol-open-dir" type="button">打开安装目录</button>
           </div>
-          <small class="sol-hint" id="sol-install-hint">一键 = 下载 → 解压 → 安装，全程日志见下方；安装用官方脚本，非 root 时会弹提权窗口；卸载保留配置文件（/etc/sol/sol.yaml）以便回滚。</small>
+          <small class="sol-hint" id="sol-install-hint">安装 = 下载 → 解压到安装目录 → 官方 install.sh（静默 = 无人值守自动确认；调终端 = 弹出终端由你回答脚本问句）。配置 sol.yaml 就在安装目录里；卸载保留它以便回滚。</small>
 
           <!-- 安装包：下载（进度条）→ 解压 → 安装；目录可自定义，也支持手工选包 -->
           <div class="setting-block sol-pkg-block">
@@ -706,10 +740,19 @@
             <span class="remote-inline">
               <button class="secondary" id="sol-download" type="button">下载安装包</button>
               <button class="secondary" id="sol-pick-archive" type="button">选择安装包…</button>
-              <button class="secondary" id="sol-extract" type="button" disabled>解压</button>
-              <button class="secondary" id="sol-install-from-pkg" type="button" disabled>安装（用解压目录）</button>
+              <button class="secondary" id="sol-extract" type="button" disabled>解压到安装目录</button>
+              <button class="secondary" id="sol-install-from-pkg" type="button" disabled>安装（静默）</button>
+              <button class="secondary" id="sol-install-from-pkg-terminal" type="button" disabled>安装（调终端）</button>
             </span>
             <small class="sol-hint" id="sol-pkg-hint">从 GitHub release 下载当前平台的 sol-vX.Y.Z-<span id="sol-pkg-target">…</span>.tar.gz；也可以点「选择安装包…」从文件管理器挑一个已有包（.tar.gz / .zip）。</small>
+            <small class="sol-hint" id="sol-project-line">
+              项目：
+              <a href="#" id="sol-project-repo" title="打开 GitHub 仓库">lidiaoo/sol</a>
+              ·
+              <a href="#" id="sol-project-releases" title="打开 Releases 页面">Releases</a>
+              ·
+              <span id="sol-project-version">…</span>
+            </small>
           </div>
 
           <!-- 日志区：一键安装 / 下载 / 解压 / 安装的全过程输出 -->
@@ -737,7 +780,7 @@
               <button class="primary-sol" id="sol-config-save" type="button">保存配置</button>
               <button class="secondary" id="sol-config-reload" type="button">放弃修改</button>
             </span>
-            <small class="sol-hint">保存后 sol 自动热重载（改坏了也不会顶掉正在跑的那份）；原文件自动备份为 *.bak-anyboot。</small>
+            <small class="sol-hint">保存后 sol 自动热重载（改坏了也不会顶掉正在跑的那份）；原文件自动备份为 *.bak-anyboot。配置在安装时会自动放宽为 0644（本机所有登录用户可读），所以读取不再需要密码；配置里有控制面 token，请勿在不信任的多用户机器上使用。</small>
           </div>
         </section>
         </div><!-- /tab-sol -->

@@ -105,6 +105,11 @@ body {
   margin: 0;
   /* 内嵌模式窗口只有 460 宽；分栏模式（③④）在下面另给 640 的下限 */
   min-width: 360px;
+  /* 首帧前不可见：页面重载（窗口呼出时的唤醒钩子会 reload）时，HTML 初始态是
+     「正在扫描…」+ 空列表，直接画出来会「闪一下旧页面」。等首份快照渲染完
+     由 app.js 给 <html data-ready> 再显示 —— 用户只看到成品。
+     遮罩底色与 body 同源，避免白闪。 */
+  opacity: 0;
   background: rgba(var(--bg-rgb), var(--ui-alpha, 1));
   color: var(--text);
   /* 窗口竖着切成两块：左右双栏（.app-columns，各自可滚） + 底部提示条
@@ -114,6 +119,14 @@ body {
   flex-direction: column;
   height: 100vh;
   overflow: hidden;
+}
+
+/* 首帧渲染完成后才显示：页面重载（窗口呼出时的唤醒钩子会 reload）期间，
+   HTML 初始态是「正在扫描…」+ 空列表，直接画出来就是「闪一下旧页面」。
+   app.js 在首份快照渲染完时给 <html data-ready>，这里才让它出现。 */
+html[data-ready] body {
+  opacity: 1;
+  transition: opacity 80ms ease-out;
 }
 
 /* 左栏（左半区）：原主窗口的全部内容，自己一个滚动容器 */

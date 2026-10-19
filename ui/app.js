@@ -619,6 +619,31 @@ let currentState = null;
 // （见 applySnapshot：结构不对时只在对空页面说一次，不刷屏）。
 let hasRenderedSnapshot = false;
 
+// ---- 事件丢失兜底轮询（仅 Tauri 主窗） ----
+// ui-state-changed 是主路径，但 macOS WKWebView 上实测偶发丢失（主窗卡在
+// 「正在扫描 rEFInd 变量目录…」不再更新，HTTP/WS 通道都正常）——事件一发即失，
+// 页面永远停在最后一帧。轮询按 revision 去重，事件正常时多拿的快照会被丢弃，
+// 只在事件丢失时起作用；页面隐藏时暂停（隐藏的窗没人看，也免得空转）。
+const TAURI_POLL_INTERVAL = 3000;
+let tauriPollTimer = null;
+
+function startTauriStatePolling() {
+  if (IS_BROWSER || tauriPollTimer !== null) {
+    return;
+  }
+  tauriPollTimer = setInterval(async () => {
+    // 注意：不做 document.hidden 跳过 —— macOS 上主窗启动即隐藏（startInTray），
+    // WKWebView 的 JS 在隐藏期被冻结/迟到，若连首次初始化都被吞掉，只有靠
+    // 这里的轮询在窗口显示前后把首份快照拉回来。按 revision 去重，事件正常时
+    // 同拍快照直接丢弃，隐藏期多拉的几拍也无害。
+    try {
+      applySnapshot(await tauri.core.invoke("get_ui_state"));
+    } catch {
+      // 后端正忙/重启中：静默，下一拍再试
+    }
+  }, TAURI_POLL_INTERVAL);
+}
+
 function isBusy(busy) {
   if (!busy) {
     return false;
@@ -1095,13 +1120,35 @@ let currentAccent = DEFAULT_ACCENT_DARK;
 
 /// 把主题与不透明度落到 documentElement 上（CSS 用 var(--ui-alpha) 读）
 function applyAppearance(theme, percent) {
-  document.documentElement.dataset.theme = resolvedTheme(theme);
+  const resolved = resolvedTheme(theme);
+  document.documentElement.dataset.theme = resolved;
   const value = Number(percent);
   const clamped = Math.min(100, Math.max(0, Number.isFinite(value) ? value : 100));
   const alpha = clamped / 100;
   document.documentElement.style.setProperty("--ui-alpha", String(alpha));
   applyAccent(currentAccent, theme);
   opacityStateElement.textContent = `${clamped}%（拖动即时预览）`;
+  // 镜像到 localStorage：只供**下次页面重载的首帧**使用（见 index.html 的防闪脚本）。
+  // 后端 settings 仍是唯一真相源，这里只是让重载那一拍不必先按默认暗色画一遍。
+  try {
+    localStorage.setItem("anyboot.theme-resolved", resolved);
+    localStorage.setItem("anyboot.ui-alpha", String(alpha));
+    // 强调色派生值一并缓存：首帧脚本没法算色阶，直接读成品
+    const style = document.documentElement.style;
+    for (const name of [
+      "--accent",
+      "--accent-hover",
+      "--accent-link",
+      "--accent-link-hover",
+    ]) {
+      const value = style.getPropertyValue(name);
+      if (value) {
+        localStorage.setItem(`anyboot.${name.slice(2)}`, value.trim());
+      }
+    }
+  } catch (error) {
+    void error;
+  }
 }
 
 function renderSettings(view) {
@@ -1378,6 +1425,19 @@ function applySettingLinkage() {
 
 function render(state) {
   const busy = isBusy(state.busy);
+  // 渲染心跳：把「这次渲染画了什么」回传后端 trace。沙箱环境拿不到截图，
+  // 「主界面数据为空」这类问题只能靠它判断是渲染层没跑还是画了被盖。
+  // 只在主窗启用；上报失败静默（不能让诊断破坏渲染）。
+  if (!IS_BROWSER) {
+    try {
+      void tauri.core.invoke("sol_log_client_error", {
+        kind: "render",
+        detail: `rev=${state.revision} vars=${(state.status.variables || []).length} busy=${JSON.stringify(busy)}`,
+      });
+    } catch {
+      void busy;
+    }
+  }
 
   // 操作回执统一走底部固定提示条（不再写在正文末尾，用户看不看得见全凭滚轮）
   syncStatusBarFromState(state);
@@ -1459,7 +1519,23 @@ function applySnapshot(state, { force = false } = {}) {
   currentState = state;
   render(state);
   applyDockStrip(state);
+  markReady();
 }
+
+/// 首帧渲染完成 → 解除 body 的隐藏（见 styles.css 的 html[data-ready]）。
+/// 只在第一次调用时生效；之后不再动，避免每拍都触发样式写。
+let readyMarked = false;
+function markReady() {
+  if (readyMarked) {
+    return;
+  }
+  readyMarked = true;
+  document.documentElement.dataset.ready = "1";
+}
+
+/// 兜底：万一快照迟迟不来（后端异常/预览模式），1.2 秒后也把页面显示出来，
+/// 免得用户对着透明窗口发愣。此时至少能看到框架和状态条的错误提示。
+setTimeout(markReady, 1200);
 
 // 后端统一记 UTC ISO 串（…T…Z）。Webview 的时区 = 系统时区，用 toLocaleString
 // 转成本地时间显示，与 Windows 任务栏 / macOS 菜单栏 / Linux 桌面时钟一致。
@@ -1581,7 +1657,6 @@ refreshElement.addEventListener("click", () => call("refresh"));
 //   #/settings → 基本设置
 //   #/sol   → SOL 远程唤醒
 // 这样刷新页面、收藏、把链接发给别人，都落回同一个栏目里。
-const TAB_STORAGE_KEY = "anyboot.active-tab";
 const TAB_ROUTES = { boot: "#/boot", settings: "#/settings", sol: "#/sol" };
 const tabButtons = Array.from(document.querySelectorAll("#tabs .tab"));
 const tabPanels = {
@@ -1637,13 +1712,11 @@ function activateTab(name, options = {}) {
     renderSolDir();
     refreshSolPanel();
     refreshSolHttp();
+    refreshSolPackage();
+    refreshSolProjectInfo();
     loadSolLogs();
   }
-  try {
-    localStorage.setItem(TAB_STORAGE_KEY, name);
-  } catch (error) {
-    void error;
-  }
+  // 不再记忆栏目：启动一律回「系统引导」（用户定案 2026-10-19）。
   if (options.syncLocation !== false) {
     syncTabToLocation(name);
   }
@@ -1660,29 +1733,36 @@ window.addEventListener("hashchange", () => {
   }
 });
 
-// 初始栏目优先级：
-// 1) 地址栏带了 #/xxx → 听地址栏的（刷新 / 分享链接都靠这条）；
-// 2) 网页端（含手机 App 的 WebView）没有 hash → 固定进「系统引导」，
-//    不继承上次栏目，免得每次打开都停在基本设置；
-// 3) 桌面主窗口没有地址栏语义 → 沿用 localStorage 记忆。
+// 初始栏目：**一律进「系统引导」**（用户定案 2026-10-19）。
+//
+// 以前的优先级是「地址栏 hash > 桌面端 localStorage 记忆」，导致桌面主窗每次
+// 启动都停在上次那个栏目（上次退出在 SOL，重启还进 SOL）。主窗内容的主功能
+// 就是系统引导，启动就该回到它；「记住上次栏目」那条规则不再生效。
+//
+// 保留 hash 的唯一用途：**同一次运行中刷新页面**（dev 热重载 / 手动刷新）
+// 不跳栏目 —— 由下面的 boot 判断实现，而不是靠 initialState。
+const TAB_STORAGE_KEY_LEGACY = "anyboot.active-tab";
+try {
+  // 清掉历史遗留的记忆，免得老用户机器上的旧值继续被别处读到
+  localStorage.removeItem(TAB_STORAGE_KEY_LEGACY);
+} catch (error) {
+  void error;
+}
+
 function initialTab() {
+  // 只在本页面**已经处于某个栏目路由**且是刷新场景时才沿用；
+  // 冷启动（hash 为空或根路径）一律系统引导。
   const fromLocation = tabFromLocation();
-  if (fromLocation) {
+  if (fromLocation && window.location.hash) {
     return fromLocation;
-  }
-  if (!IS_BROWSER) {
-    try {
-      const saved = localStorage.getItem(TAB_STORAGE_KEY);
-      if (saved === "boot" || saved === "settings" || saved === "sol") {
-        return saved;
-      }
-    } catch (error) {
-      void error;
-    }
   }
   return "boot";
 }
-activateTab(initialTab());
+// 初始栏目**不能在这里立即激活**：activateTab 进 SOL 栏目会立刻调
+// refreshSolPanel()/refreshSolHttp()，而它们用到的 solStateTextElement 等
+// const 声明在下面几十行之后 —— TDZ 下直接 ReferenceError，面板永久停在
+// 「正在读取…」（偶现：只有上次停在 SOL 栏目时触发）。改到脚本末尾激活。
+let pendingInitialTab = initialTab();
 
 // ---------- SOL 远程唤醒标签页（sol 接收器管理） ----------
 // 面板状态不进 UiState 快照：sol 是独立服务，按需拉取（进页时 / 刷新按钮 / 动作后）。
@@ -1690,9 +1770,10 @@ activateTab(initialTab());
 const solStateTextElement = document.querySelector("#sol-state-text");
 const solRefreshElement = document.querySelector("#sol-refresh");
 const solRestartServiceElement = document.querySelector("#sol-restart-service");
-const solInstallElement = document.querySelector("#sol-install");
+const solStatusPrivilegedElement = document.querySelector("#sol-status-privileged");
 const solUninstallElement = document.querySelector("#sol-uninstall");
-const solOpenDirElement = document.querySelector("#sol-open-dir");
+const solOneClickTerminalElement = document.querySelector("#sol-one-click-terminal");
+const solInstallFromPkgTerminalElement = document.querySelector("#sol-install-from-pkg-terminal");
 const solInstallHintElement = document.querySelector("#sol-install-hint");
 const solConfigPathElement = document.querySelector("#sol-config-path");
 const solConfigTextElement = document.querySelector("#sol-config-text");
@@ -1700,6 +1781,9 @@ const solConfigSaveElement = document.querySelector("#sol-config-save");
 const solConfigReloadElement = document.querySelector("#sol-config-reload");
 // 安装包：下载 → 解压 → 安装，目录可自定义
 const solPkgStateElement = document.querySelector("#sol-pkg-state");
+const solProjectRepoElement = document.querySelector("#sol-project-repo");
+const solProjectReleasesElement = document.querySelector("#sol-project-releases");
+const solProjectVersionElement = document.querySelector("#sol-project-version");
 const solPkgTargetElement = document.querySelector("#sol-pkg-target");
 const solDirInputElement = document.querySelector("#sol-dir-input");
 const solDirStateElement = document.querySelector("#sol-dir-state");
@@ -1858,6 +1942,73 @@ async function loadSolLogs() {
 
 // 用一次状态拉取渲染整个面板顶部（状态行）。配置编辑器只有在
 // 「没有未保存修改」时才跟随刷新 —— 用户正在改的草稿不被后台数据冲掉。
+/// 回填「安装包」一栏：本地已有包 → 显示已下载 + 进度条 100%。
+/// 进页面时调一次（之前只在点了下载/解压那一刻才写文案，刷新就丢）。
+/// 回填 sol 项目信息（仓库 / Releases / 当前跟随版本），并接上打开链接。
+async function refreshSolProjectInfo() {
+  if (IS_BROWSER) {
+    // 网页端不打开本机浏览器：链接直接指向 GitHub
+    solProjectRepoElement.href = "https://github.com/lidiaoo/sol";
+    solProjectReleasesElement.href = "https://github.com/lidiaoo/sol/releases";
+    return;
+  }
+  try {
+    const info = await invoke("sol_project_info");
+    solProjectVersionElement.textContent = `v${info.version}（${info.asset}）`;
+    solProjectVersionElement.title = info.asset;
+    for (const [element, page] of [
+      [solProjectRepoElement, "repo"],
+      [solProjectReleasesElement, "releases"],
+    ]) {
+      element.addEventListener("click", async (event) => {
+        event.preventDefault();
+        try {
+          await invoke("sol_project_open", { page });
+        } catch (error) {
+          showStatusBar(String(error), { error: true });
+        }
+      });
+    }
+  } catch (error) {
+    void error;
+  }
+}
+
+async function refreshSolPackage() {
+  if (IS_BROWSER) {
+    return;
+  }
+  try {
+    const local = await invoke("sol_local_package", { dir: solDir || null });
+    if (local.archive) {
+      const name = local.archive.split("/").pop() || local.archive;
+      const mb = (local.size / 1024 / 1024).toFixed(1);
+      solPkgStateElement.textContent = local.verified
+        ? `已下载：${name}（${mb} MB，md5 校验通过）`
+        : `已有安装包：${name}（${mb} MB）`;
+      solPkgStateElement.title = local.archive;
+      // 已有包 = 下载已完成：进度条直接画满（100%）
+      solProgressShow(true);
+      solProgressPaint(local.size, local.size);
+    } else if (local.extracted) {
+      solPkgStateElement.textContent = `已解压就绪：${local.dir}`;
+      solPkgStateElement.title = local.dir;
+    } else {
+      solPkgStateElement.textContent = "未下载";
+      solPkgStateElement.removeAttribute("title");
+    }
+    // 解压完成 → 允许直接从包安装
+    solInstallFromPkgElement.disabled = !local.extracted;
+    solInstallFromPkgTerminalElement.disabled = !local.extracted;
+    solExtractElement.disabled = !local.archive;
+    if (local.extracted) {
+      solPkgHintElement.dataset.root = local.dir;
+    }
+  } catch (error) {
+    void error;
+  }
+}
+
 async function refreshSolPanel() {
   if (IS_BROWSER) {
     // 远程 / 网页端不透出（与「重启程序」同一策略：面板命令只在本机窗口放行）
@@ -1866,11 +2017,11 @@ async function refreshSolPanel() {
     for (const element of [
       solRefreshElement,
       solRestartServiceElement,
-      solInstallElement,
       solUninstallElement,
-      solOpenDirElement,
+      solOneClickTerminalElement,
       solConfigSaveElement,
       solConfigReloadElement,
+      solStatusPrivilegedElement,
       solConfigTextElement,
       solPickDirElement,
       solDownloadElement,
@@ -1912,6 +2063,20 @@ async function refreshSolPanel() {
   }
 }
 
+// 状态被权限挡住时：用户显式点击 → 弹一次授权 → 读回真实状态
+solStatusPrivilegedElement.addEventListener("click", async () => {
+  solStatusPrivilegedElement.disabled = true;
+  try {
+    const status = await invoke("sol_status_privileged");
+    renderSolStatus(status);
+    showStatusBar("已通过授权读取服务状态");
+  } catch (error) {
+    showStatusBar(String(error), { error: true });
+  } finally {
+    solStatusPrivilegedElement.disabled = false;
+  }
+});
+
 function renderSolStatus(status) {
   // 运行状态一行话：版本 + 服务 + 进程
   const parts = [];
@@ -1928,8 +2093,13 @@ function renderSolStatus(status) {
   if (!status.serviceActive && status.processRunning) {
     parts.push("进程在跑（非服务方式）");
   }
+  if (status.statusNeedsPrivilege) {
+    parts.push("状态需授权查看");
+  }
   solStateTextElement.textContent = parts.join(" · ");
   solStateTextElement.classList.toggle("setting-state-error", !status.installed || !status.serviceActive);
+  // 只有「权限挡住」时才需要用户点一下授权（不是自动弹）
+  solStatusPrivilegedElement.classList.toggle("hidden", !status.statusNeedsPrivilege);
   if (status.serviceDetail) {
     solStateTextElement.title = status.serviceDetail;
   } else {
@@ -1939,8 +2109,8 @@ function renderSolStatus(status) {
   // 安装 / 卸载的可用性与提示
   solUninstallElement.disabled = !status.installed && !status.serviceLoaded;
   solInstallHintElement.textContent = status.installed
-    ? `已安装在 ${status.binPath || "未知路径"}；重新安装会覆盖二进制与 /etc/sol/sol.yaml（原文件有备份）。`
-    : "安装需要 sol 的解包目录（里面有 sol 二进制和 sol.yaml）；会自动探测 /usr/local/software、/opt 下的 sol* 目录。";
+    ? `已安装在 ${status.binPath || "未知路径"}；重新安装会覆盖二进制与服务注册（安装目录里的 sol.yaml 原文件有备份）。`
+    : "先「一键安装」（下载 → 解压到安装目录 → 官方 install.sh）；也可先「下载安装包」「选择安装包…」再解压、安装。安装目录看上面那一行。";
 }
 
 async function loadSolConfig(path, { force = false } = {}) {
@@ -1983,42 +2153,38 @@ solRestartServiceElement.addEventListener("click", async () => {
   refreshSolPanel();
 });
 
-solInstallElement.addEventListener("click", async () => {
-  solInstallElement.disabled = true;
+// 当前安装目录输入框的值（null = 留空走后端默认 ~/sol）
+function solDirArg() {
+  const value = solDirInputElement.value.trim();
+  return value ? value : null;
+}
+
+solOneClickTerminalElement.addEventListener("click", async () => {
+  solOneClickTerminalElement.disabled = true;
   try {
-    showStatusBar("正在安装 sol…（可能弹出提权窗口）");
-    const message = await call("sol_install", { installDir: null });
-    showStatusBar(message || "已安装");
+    showStatusBar("① 下载 → ② 解压 → ③ 呼出终端跑官方安装脚本…");
+    const message = await call("sol_one_click_install_terminal", { dir: solDirArg() });
+    showStatusBar(message || "已呼出终端");
   } finally {
-    solInstallElement.disabled = false;
+    solOneClickTerminalElement.disabled = false;
   }
   refreshSolPanel();
 });
 
 solUninstallElement.addEventListener("click", async () => {
-  if (!window.confirm("确定卸载 sol？服务会停止并移除，配置文件保留在 /etc/sol/。")) {
-    return;
-  }
+  const viaTerminal = window.confirm(
+    "卸载 sol：\n\n确定 = 弹出终端跑官方脚本（菜单选 2）\n取消 = 静默卸载（自动确认，不弹窗）",
+  );
   solUninstallElement.disabled = true;
   try {
-    showStatusBar("正在卸载 sol…（可能弹出提权窗口）");
-    const message = await call("sol_uninstall");
+    const message = viaTerminal
+      ? await call("sol_uninstall_terminal", { installDir: solDirArg() })
+      : await call("sol_uninstall_silent", { installDir: solDirArg() });
     showStatusBar(message || "已卸载");
   } finally {
     solUninstallElement.disabled = false;
   }
   refreshSolPanel();
-});
-
-solOpenDirElement.addEventListener("click", async () => {
-  try {
-    const opened = await call("sol_open_dir", { dir: null });
-    if (typeof opened === "string" && opened) {
-      showStatusBar(`已打开 ${opened}`);
-    }
-  } catch (error) {
-    // call() 已经把错误显示在底部提示条了
-  }
 });
 
 solConfigSaveElement.addEventListener("click", async () => {
@@ -2372,22 +2538,48 @@ solPickArchiveElement.addEventListener("click", async () => {
 
 // 一键下载安装：下载 → 解压 → 安装全流程，后端顺序执行并推日志
 solOneClickElement.addEventListener("click", async () => {
-  for (const element of [solOneClickElement, solDownloadElement, solInstallElement, solUninstallElement, solExtractElement, solInstallFromPkgElement]) {
+  for (const element of [solOneClickElement, solOneClickTerminalElement, solDownloadElement, solUninstallElement, solExtractElement, solInstallFromPkgElement, solInstallFromPkgTerminalElement]) {
     element.disabled = true;
   }
   solProgressShow(true);
   try {
-    showStatusBar("一键下载安装中…（全程日志见下方）");
+    showStatusBar("一键安装（静默）：① 下载 → ② 解压 → ③ 官方脚本无人值守…");
     const message = await call("sol_one_click_install", { dir: solDir || null });
     showStatusBar(message || "一键安装完成");
     solProgressDone(true);
     // 一键成功后状态全刷新：解压/安装按钮随新状态复位
     solPkgArchivePath = "";
     solInstallFromPkgElement.disabled = true;
+    solInstallFromPkgTerminalElement.disabled = true;
   } catch (error) {
     solProgressDone(false);
   } finally {
-    for (const element of [solOneClickElement, solDownloadElement, solInstallElement, solUninstallElement]) {
+    for (const element of [solOneClickElement, solOneClickTerminalElement, solDownloadElement, solUninstallElement]) {
+      element.disabled = false;
+    }
+  }
+  refreshSolPanel();
+  refreshSolPackage();
+});
+
+// 一键（调终端）：同一套下载/解压，第三步呼出终端让用户确认
+solOneClickTerminalElement.addEventListener("click", async () => {
+  for (const element of [solOneClickElement, solOneClickTerminalElement, solDownloadElement, solUninstallElement, solExtractElement, solInstallFromPkgElement, solInstallFromPkgTerminalElement]) {
+    element.disabled = true;
+  }
+  solProgressShow(true);
+  try {
+    showStatusBar("一键安装（调终端）：① 下载 → ② 解压 → ③ 呼出终端…");
+    const message = await call("sol_one_click_install_terminal", { dir: solDir || null });
+    showStatusBar(message || "已在终端打开安装脚本");
+    solProgressDone(true);
+    solPkgArchivePath = "";
+    solInstallFromPkgElement.disabled = true;
+    solInstallFromPkgTerminalElement.disabled = true;
+  } catch (error) {
+    solProgressDone(false);
+  } finally {
+    for (const element of [solOneClickElement, solOneClickTerminalElement, solDownloadElement, solUninstallElement]) {
       element.disabled = false;
     }
   }
@@ -2407,7 +2599,8 @@ solExtractElement.addEventListener("click", async () => {
       solPkgStateElement.title = root;
       solPkgHintElement.dataset.root = root;
       solInstallFromPkgElement.disabled = false;
-      solInstallHintElement.textContent = `解压完成：${root}。点「安装（用解压目录）」继续，或手工到别处安装。`;
+      solInstallFromPkgTerminalElement.disabled = false;
+      solInstallHintElement.textContent = `解压完成：${root}。点「安装（静默）」或「安装（调终端）」继续。`;
       showStatusBar(`已解压到 ${root}`);
     }
   } finally {
@@ -2415,20 +2608,23 @@ solExtractElement.addEventListener("click", async () => {
   }
 });
 
-solInstallFromPkgElement.addEventListener("click", async () => {
-  // 安装源就是解压根目录：从解压回执（或目录记忆）里带过去
+// 已解压的包直接安装（安装源 = 解压根目录 = 安装目录本身）
+async function installFromPkg(viaTerminal) {
   const source = solPkgHintElement.dataset.root || solDir || null;
   solInstallFromPkgElement.disabled = true;
+  solInstallFromPkgTerminalElement.disabled = true;
   try {
-    showStatusBar("正在安装 sol…（可能弹出提权窗口）");
-    const message = await call("sol_install", { installDir: source });
+    const message = viaTerminal
+      ? await call("sol_install_terminal", { installDir: source })
+      : await call("sol_install_silent", { installDir: source });
     showStatusBar(message || "已安装");
-    solInstallFromPkgElement.disabled = true;
-  } catch (error) {
-    solInstallFromPkgElement.disabled = false;
+  } finally {
+    // 安装完按钮状态由 refreshSolPanel 按新状态复位
   }
   refreshSolPanel();
-});
+}
+solInstallFromPkgElement.addEventListener("click", () => installFromPkg(false));
+solInstallFromPkgTerminalElement.addEventListener("click", () => installFromPkg(true));
 
 // 浏览器端顶部横幅：预览模式说明 / 远程已连接 / token 输入（三态）。
 // 仅浏览器模式创建 —— Tauri 主窗口不需要这条横幅。
@@ -3624,8 +3820,58 @@ loginItemsElement.addEventListener("click", async () => {
   }
 });
 
+// ---- 唤醒钩子（主窗，后端 show 时 eval 调用） ----
+// macOS 上主窗启动即隐藏（startInTray）时，WKWebView 的 JS 会被深度冻结：
+// 启动早期的 get_ui_state/listen/setInterval 全部没跑或跑一半就停，show 出来
+// 也不会自动恢复 —— 用户看到的就是「三个栏目都有框架但全没数据」（100% 复现）。
+// 后端 show_main_window 时 eval 这个钩子：渲染过 = 只补拉一拍；没渲染过 =
+// 整页重载（此刻窗口已可见，重载后的初始化会正常执行）。
+window.__ANYBOOT_REVIVE__ = async () => {
+  try {
+    if (hasRenderedSnapshot) {
+      // 已经渲染过：补一拍即可，绝不重载（重载 = 可见的闪烁/白屏）
+      applySnapshot(await tauri.core.invoke("get_ui_state"));
+      return "pulled";
+    }
+    // 还没渲染过 = 页面初始化可能被冻结吞掉了。
+    // **不重载**：重载会让窗口白一下、再重新初始化，用户看到闪烁。
+    // 改为就地重跑一次「首拉」：等 kickstart 完成后主动 invoke 拿快照并渲染。
+    // （启动早期的初始化若只跑到一半，listen 可能没注册成功；但这里的主动拉
+    //   不依赖 listen —— 直接 invoke，拿到就 render。）
+    startTauriStatePolling();
+    applySnapshot(await tauri.core.invoke("get_ui_state"), { force: true });
+    return "bootstrapped";
+  } catch (error) {
+    // 连 invoke 都失败（页面根本没加载完）：只能重载兜底
+    location.reload();
+    return `error:${error}`;
+  }
+};
+
+// ---- 页面级异常上报（主窗） ----
+// WKWebView 的 console 我们看不到；「数据不加载」这类问题必须让 JS 侧异常
+// 落到后端 trace.log 才能定位。只 Tauri 主窗启用；上报本身失败静默。
+if (!IS_BROWSER) {
+  const report = (kind, detail) => {
+    try {
+      void tauri.core.invoke("sol_log_client_error", { kind, detail });
+    } catch {
+      void kind;
+    }
+  };
+  window.addEventListener("error", (event) =>
+    report("error", `${event.message} @ ${event.filename}:${event.lineno}`),
+  );
+  window.addEventListener("unhandledrejection", (event) =>
+    report("rejection", String(event.reason)),
+  );
+}
+
+// 所有元素都已声明完毕 —— 现在才能安全地激活初始栏目
+//（见 pendingInitialTab 处的注释：提前激活会撞 SOL 面板的 const TDZ）
+activateTab(pendingInitialTab);
+
 (async () => {
-  // 浏览器端：先探测后端（区分「远程控制」与「纯预览」），再决定横幅形态
   if (IS_BROWSER) {
     await probeRemoteApi();
     renderBrowserBanner();
@@ -3644,6 +3890,8 @@ loginItemsElement.addEventListener("click", async () => {
 
   // 托盘里的改动会通过同一个事件把完整快照推过来，两边永远同源。
   await listen("ui-state-changed", (event) => applySnapshot(event.payload));
+  // 兜底：事件偶发丢失时按 revision 去重轮询（只 Tauri 主窗；见 startTauriStatePolling）
+  startTauriStatePolling();
 
   // 托盘里的「远程控制设置…」：先把主窗口切到「基本设置」栏目再滚到这一区。
   // 只滚不切的话，窗口停在「系统引导」时远程控制区整块是隐藏的，滚了也看不见。
