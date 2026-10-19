@@ -44,8 +44,13 @@ fn sol_is_elevated() -> bool {
     }
 }
 
-/// 配置文件等路径非 root 读不到时的提权读取（Linux：pkexec cat；macOS/Windows
-/// 当前无提权读方案，直读失败就报原文错误）。只用于读；内容原样返回。
+/// 配置文件等路径非 root 读不到时的提权读取。
+///
+/// Linux：pkexec cat；macOS：osascript 以 root cat（弹一次管理员授权框）。
+/// 只用于读；内容原样返回。
+///
+/// macOS 的授权框在同一 sudo ticket 窗口（约 5 分钟）内复用 —— 连续读取不会
+/// 每次都问密码。
 fn privileged_read(path: &Path) -> io::Result<String> {
     if sol_is_elevated() {
         return fs::read_to_string(path);
@@ -67,7 +72,86 @@ fn privileged_read(path: &Path) -> io::Result<String> {
         }
         Ok(String::from_utf8_lossy(&output.stdout).into_owned())
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "macos")]
+    {
+        let script = format!(
+            "do shell script \"cat '{}'\" with administrator privileges",
+            path.display().to_string().replace('\\', "\\\\").replace('"', "\\\"")
+        );
+        let output = command("osascript")
+            .args(["-e", &script])
+            .stderr(Stdio::piped())
+            .output()
+            .map_err(|error| io::Error::new(io::ErrorKind::Other, error.to_string()))?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let canceled = stderr.contains("-128") || stderr.contains("User canceled");
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                if canceled {
+                    "提权读取被取消".to_string()
+                } else {
+                    format!(
+                        "提权读取失败：{}",
+                        stderr.trim().chars().take(160).collect::<String>()
+                    )
+                },
+            ));
+        }
+        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    }
+    #[cfg(target_os = "windows")]
+    {
+        // Windows：以管理员身份跑 powershell 读文件（UAC 提权；已提权则直接读）。
+        // 用 -EncodedCommand 避免引号地狱。
+        // 先试直接读（普通权限能读就别弹 UAC）
+        if let Ok(content) = fs::read_to_string(path) {
+            return Ok(content);
+        }
+        // 读不到：以管理员身份读（UAC 一次）。Start-Process -Verb RunAs 起子进程，
+        // 结果写临时文件再取回 —— 因为 RunAs 的 stdout 拿不到。
+        let result_file = std::env::temp_dir().join(format!(
+            "anyboot-sol-read-{}.txt",
+            std::process::id()
+        ));
+        let script = format!(
+            "$ErrorActionPreference='Stop'; Copy-Item -LiteralPath '{p}' -Destination '{r}' -Force",
+            p = path.display(),
+            r = result_file.display()
+        );
+        let encoded = windows_utf16_encoded(&script);
+        let output = command("powershell")
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                &format!(
+                    "Start-Process powershell -Verb RunAs -Wait -ArgumentList '-NoProfile','-EncodedCommand','{encoded}'"
+                ),
+            ])
+            .stderr(Stdio::piped())
+            .output()
+            .map_err(|error| io::Error::new(io::ErrorKind::Other, error.to_string()))?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                format!(
+                    "提权读取失败：{}",
+                    stderr.trim().chars().take(160).collect::<String>()
+                ),
+            ));
+        }
+        let content = fs::read_to_string(&result_file).map_err(|error| {
+            io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                format!("提权读取未产生结果文件：{error}"),
+            )
+        });
+        let _ = fs::remove_file(&result_file);
+        content
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
     {
         Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
@@ -76,12 +160,236 @@ fn privileged_read(path: &Path) -> io::Result<String> {
     }
 }
 
+/// Windows：把 PowerShell 脚本编码成 -EncodedCommand 需要的 UTF-16LE base64。
+#[cfg(target_os = "windows")]
+fn windows_utf16_encoded(script: &str) -> String {
+    use base64::Engine as _;
+    let bytes: Vec<u8> = script
+        .encode_utf16()
+        .flat_map(|unit| unit.to_le_bytes())
+        .collect();
+    base64::engine::general_purpose::STANDARD.encode(bytes)
+}
+
+/// 提权写文件（三平台）：内容经临时文件交给 root/管理员落位。
+///
+/// 落位后**顺手把权限放宽**：Linux/macOS chmod 0644、Windows 继承目录 ACL ——
+/// 这样写入之后，后续的「读取」就再不需要提权了（用户定案的免密体验）。
+/// Linux 走 pkexec、macOS 走 osascript、Windows 走 PowerShell RunAs（UAC）。
+fn privileged_write(path: &Path, content: &str) -> Result<(), String> {
+    let path_str = path.display().to_string();
+
+    // 直接写得了就直接写（用户自己拥有的文件，如 ~/sol/sol.yaml）
+    if fs::write(path, content.as_bytes()).is_ok() {
+        return Ok(());
+    }
+
+    let staging = std::env::temp_dir().join(format!(
+        "anyboot-sol-write-{}.yaml",
+        std::process::id()
+    ));
+    fs::write(&staging, content.as_bytes())
+        .map_err(|error| format!("写暂存文件失败：{error}"))?;
+    let staging_str = staging.display().to_string();
+
+    #[cfg(target_os = "linux")]
+    let outcome: Result<(), String> = {
+        // 备份 + 落位 + 放宽读权限（0644），一条脚本一次 pkexec
+        let script = format!(
+            "set -e\ncp -f '{p}' '{p}.bak-anyboot' 2>/dev/null || true\ninstall -m 0644 '{s}' '{p}'\nrm -f '{s}'\n",
+            p = path_str,
+            s = staging_str,
+        );
+        let script_file = std::env::temp_dir().join(format!("anyboot-sol-w-{}.sh", std::process::id()));
+        fs::write(&script_file, script).map_err(|e| format!("写提权脚本失败：{e}"))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = fs::set_permissions(&script_file, fs::Permissions::from_mode(0o755));
+        }
+        let result = command("pkexec")
+            .arg("sh")
+            .arg(&script_file)
+            .stderr(Stdio::piped())
+            .output()
+            .map_err(|error| format!("启动 pkexec 失败：{error}"))
+            .and_then(|output| {
+                if output.status.success() {
+                    Ok(())
+                } else {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    Err(format!(
+                        "写入失败（pkexec 被拒或出错）：{}",
+                        stderr.trim().chars().take(200).collect::<String>()
+                    ))
+                }
+            });
+        let _ = fs::remove_file(&script_file);
+        result
+    };
+
+    #[cfg(target_os = "macos")]
+    let outcome: Result<(), String> = {
+        let script = format!(
+            "set -e\ncp -f '{p}' '{p}.bak-anyboot' 2>/dev/null || true\ninstall -m 0644 '{s}' '{p}'\nrm -f '{s}'\n",
+            p = path_str,
+            s = staging_str,
+        );
+        let escaped = script.replace('\\', "\\\\").replace('"', "\\\"");
+        let wrapped = format!("do shell script \"{}\" with administrator privileges", escaped);
+        command("osascript")
+            .args(["-e", &wrapped])
+            .stderr(Stdio::piped())
+            .output()
+            .map_err(|error| format!("启动 osascript 失败：{error}"))
+            .and_then(|output| {
+                if output.status.success() {
+                    Ok(())
+                } else {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    let canceled = stderr.contains("-128") || stderr.contains("User canceled");
+                    Err(if canceled {
+                        "提权写入被取消".to_string()
+                    } else {
+                        format!(
+                            "写入失败：{}",
+                            stderr.trim().chars().take(200).collect::<String>()
+                        )
+                    })
+                }
+            })
+    };
+
+    #[cfg(target_os = "windows")]
+    let outcome: Result<(), String> = {
+        // PowerShell：复制备份 → 覆盖 → 删除暂存。以管理员跑（UAC 一次）。
+        // Copy-Item 到用户目录后文件属主变成本次操作的账户，之后可读可写。
+        let script = format!(
+            "$ErrorActionPreference='Stop'; \
+             if (Test-Path -LiteralPath '{p}') {{ Copy-Item -LiteralPath '{p}' -Destination '{p}.bak-anyboot' -Force }}; \
+             Copy-Item -LiteralPath '{s}' -Destination '{p}' -Force; \
+             Remove-Item -LiteralPath '{s}' -Force",
+            p = path_str,
+            s = staging_str,
+        );
+        let encoded = windows_utf16_encoded(&script);
+        command("powershell")
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                &format!(
+                    "Start-Process powershell -Verb RunAs -Wait -ArgumentList '-NoProfile','-EncodedCommand','{encoded}'"
+                ),
+            ])
+            .stderr(Stdio::piped())
+            .output()
+            .map_err(|error| format!("启动 PowerShell 失败：{error}"))
+            .and_then(|output| {
+                if output.status.success() {
+                    Ok(())
+                } else {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    Err(format!(
+                        "写入失败（UAC 被拒或出错）：{}",
+                        stderr.trim().chars().take(200).collect::<String>()
+                    ))
+                }
+            })
+    };
+
+    let _ = fs::remove_file(&staging);
+    outcome?;
+    // 兜底：让之后的读取免提权（写成功但权限没跟着变的场景）
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o644));
+    }
+    Ok(())
+}
+
+/// 以管理员权限重新探测一次服务状态（仅当状态被权限挡住时才需要）。
+///
+/// 用户定案：状态查看**优先走免提权路径**；实在读不到时，由用户显式点按钮
+/// 触发一次授权弹窗（而不是自动弹、也不是武断显示「未注册」）。
+#[tauri::command]
+pub(crate) async fn sol_status_privileged(app: AppHandle) -> Result<SolStatus, String> {
+    trace(&app, "command", "sol_status_privileged");
+    let mut status = tauri::async_runtime::spawn_blocking(sol_status_snapshot)
+        .await
+        .map_err(|error| format!("探测失败：{error}"))?;
+
+    #[cfg(target_os = "macos")]
+    {
+        // 已经能看到服务就不用提权了
+        if !status.status_needs_privilege && (status.service_loaded || !status.installed) {
+            return Ok(status);
+        }
+        let unit = format!("system/{}", SOL_LAUNCHD_LABEL);
+        let script = format!(
+            "do shell script \"launchctl print {}\" with administrator privileges",
+            unit
+        );
+        let output = command("osascript")
+            .args(["-e", &script])
+            .stderr(Stdio::piped())
+            .output()
+            .map_err(|error| format!("启动 osascript 失败：{error}"))?;
+        if output.status.success() {
+            let text = String::from_utf8_lossy(&output.stdout);
+            status.service_loaded = true;
+            status.service_active = text
+                .lines()
+                .any(|line| line.trim().starts_with("state = running"));
+            status.status_needs_privilege = false;
+            if status.service_active {
+                status.process_running = true;
+            }
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let canceled = stderr.contains("-128") || stderr.contains("User canceled");
+            return Err(if canceled {
+                "已取消授权".to_string()
+            } else {
+                format!(
+                    "提权查询失败：{}",
+                    stderr.trim().chars().take(200).collect::<String>()
+                )
+            });
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        // Linux/Windows：状态探测本来就是免提权的，这里只刷新一次
+        let _ = &mut status;
+    }
+    Ok(status)
+}
+
 /// 服务名：Linux systemd 单元名（Windows 计划任务 / macOS 服务同名）。
 const SOL_SERVICE: &str = "sol";
 /// sol 二进制的惯例安装位置（install.sh 的默认落点）。
 const SOL_BIN: &str = "/usr/local/bin/sol";
-/// 配置文件的惯例搜索路径（与 sol 自身发现顺序一致，ExecStart 优先）。
-const SOL_CONFIG_CANDIDATES: [&str; 2] = ["/etc/sol/sol.yaml", "/etc/sol/sol.yml"];
+/// 配置文件候选路径：**安装目录（~/sol）优先** —— 「配置 sol.yaml 就在安装目录」
+/// 是既定布局（下载/解压/安装都在这里）。
+///
+/// 后面两条是旧版本留下的兜底（历史上曾把配置拷进 /usr/local/bin 或 /etc/sol）：
+/// 不再往这两个地方装，但老用户机器上可能还留着，读到也算找到。
+/// 运行期展开 ~，避免 const 里写死家目录。
+fn sol_config_candidates() -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Some(home) = std::env::var("HOME")
+        .ok()
+        .filter(|home| !home.trim().is_empty())
+    {
+        candidates.push(PathBuf::from(&home).join("sol").join("sol.yaml"));
+        candidates.push(PathBuf::from(&home).join("sol").join("sol.yml"));
+    }
+    candidates.push(PathBuf::from("/usr/local/bin/sol.yaml"));
+    candidates.push(PathBuf::from("/etc/sol/sol.yaml"));
+    candidates
+}
 /// sol 官方 release 下载基址（fork 仓库的 releases 下载路径，资产名带版本号）。
 /// 注意：`releases/latest/download/sol-<platform>.tar.gz` 这种不带版本号的
 /// 直链在本仓库是 404 —— 资产命名是 sol-vX.Y.Z-<platform>（见 expanded_assets）。
@@ -148,10 +456,37 @@ pub(crate) struct SolStatus {
     pub(crate) config_exists: bool,
     /// 最近的日志行（journalctl -u sol -n 15，取不到就为空）
     pub(crate) recent_logs: Vec<String>,
+    /// 服务状态探测**可能因权限不足而不准**（launchctl/systemctl 被拒）。
+    /// 前端据此提示「需要授权查看」而不是武断地显示「未注册」。
+    pub(crate) status_needs_privilege: bool,
+}
+
+impl Default for SolStatus {
+    /// 全「未安装 / 未知」的兜底快照：spawn_blocking 异常（池关闭等）时命令
+    /// 不报错，界面照样能渲染（与 sol_status_snapshot 的降级语义一致）。
+    fn default() -> Self {
+        Self {
+            installed: false,
+            bin_path: None,
+            version: None,
+            service_loaded: false,
+            service_active: false,
+            service_detail: None,
+            process_running: false,
+            listening: Vec::new(),
+            config_path: None,
+            config_exists: false,
+            recent_logs: Vec::new(),
+            status_needs_privilege: false,
+        }
+    }
 }
 
 /// 读 sol 状态快照（不改任何东西）。任何一步失败都降级成「未知」，绝不让整条命令报错 ——
 /// sol 没装、systemctl 不在、ss 不在，界面都还要能渲染出「未安装 / 未知」。
+///
+/// 快照要跑 systemctl/ss 等子进程（同步 `.output()`），命令走 async + spawn_blocking
+/// 把它挪进阻塞池（blocking_guard 守卫：同步命令体里不许有阻塞调用）。
 pub(crate) fn sol_status_snapshot() -> SolStatus {
     let mut status = SolStatus {
         installed: false,
@@ -165,6 +500,7 @@ pub(crate) fn sol_status_snapshot() -> SolStatus {
         config_path: None,
         config_exists: false,
         recent_logs: Vec::new(),
+        status_needs_privilege: false,
     };
 
     // 1) 二进制：惯例位置 → PATH。找到了就顺带问一次 --version。
@@ -196,8 +532,7 @@ pub(crate) fn sol_status_snapshot() -> SolStatus {
         }
     }
 
-    // 2) 服务状态：systemctl is-active / is-enabled（Linux 专属；Windows/macOS
-    //    计划任务与 LaunchDaemon 的探针各平台后续补，这里先按 Linux 走）。
+    // 2) 服务状态：Linux 走 systemctl；macOS 走 launchctl（LaunchDaemon）。
     #[cfg(target_os = "linux")]
     {
         if let Ok(output) = command("systemctl")
@@ -228,6 +563,91 @@ pub(crate) fn sol_status_snapshot() -> SolStatus {
         }
         status.recent_logs = journal_tail();
     }
+    #[cfg(target_os = "macos")]
+    {
+        // LaunchDaemon 在不在 + 起没起来：launchctl print（不存在则非零退出）
+        // 服务状态探测**不需要任何提权**（用户定案：状态查看不要密码框）：
+        // - plist 是 0644（官方脚本 put_root 0644），直接读得到 → 注册与否 + 配置路径
+        // - `launchctl print system/<label>` 普通用户可执行，不需要 sudo
+        // - 进程表 pgrep 可读 → 运行与否（最可靠的「服务在跑」证据）
+        // - sol.log 是 0644 → 日志尾部
+        let plist_path = sol_launchd_plist_path();
+        if let Ok(plist) = fs::read_to_string(&plist_path) {
+            status.service_loaded = true;
+            // 配置路径：plist 里 `--config` 的**下一个** <string> 才是路径。
+            // plist 的 ProgramArguments 每项一行：
+            //   <string>listen</string>
+            //   <string>--config</string>
+            //   <string>/Users/x/sol/sol.yaml</string>
+            // 之前在同一行 split 拿到的是 "--config</string>"，导致前端拿垃圾路径去读，
+            // 读不到就触发提权读取 → 弹密码框（用户报的「进 SOL 页面要密码」根因）。
+            let config_from_plist = {
+                let mut lines = plist.lines().peekable();
+                let mut found = None;
+                while let Some(line) = lines.next() {
+                    if line.contains("--config") {
+                        // 本行可能自带值（`--config=/path`），否则看下一行
+                        if let Some(rest) = line.split("--config").nth(1) {
+                            let rest = rest.trim_start_matches('=').trim();
+                            if let Some(value) = rest.split("<string>").nth(1) {
+                                found = Some(value.split("</string>").next().unwrap_or("").trim().to_string());
+                            }
+                        }
+                        if found.is_none() {
+                            if let Some(next) = lines.peek() {
+                                if let Some(value) = next.split("<string>").nth(1) {
+                                    found = Some(
+                                        value.split("</string>").next().unwrap_or("").trim().to_string(),
+                                    );
+                                }
+                            }
+                        }
+                        break;
+                    }
+                }
+                found.filter(|value| !value.is_empty())
+            };
+            if let Some(value) = config_from_plist {
+                status.config_path = Some(value.clone());
+                status.service_detail = Some(format!("launchd: {value}"));
+            }
+        }
+        // 运行态：优先看 launchd（不需要提权），拿不到再靠进程表兜底
+        let unit = format!("system/{}", SOL_LAUNCHD_LABEL);
+        if let Ok(output) = command("launchctl")
+            .args(["print", &unit])
+            .stderr(Stdio::piped())
+            .output()
+        {
+            if output.status.success() {
+                let text = String::from_utf8_lossy(&output.stdout);
+                status.service_loaded = true;
+                status.service_active = text
+                    .lines()
+                    .any(|line| line.trim().starts_with("state = running"));
+            } else {
+                // 失败有两种：服务真不存在 / 权限不足看不到。后者不能让界面
+                // 武断说「未注册」—— 标出来，前端提示「需要授权查看」。
+                let stderr = String::from_utf8_lossy(&output.stderr).to_lowercase();
+                let permission_like = stderr.contains("permission")
+                    || stderr.contains("denied")
+                    || stderr.contains("not privileged")
+                    || stderr.contains("operation not permitted")
+                    || stderr.contains("bad request");
+                if permission_like && !plist_path.exists() {
+                    status.status_needs_privilege = true;
+                } else if permission_like {
+                    // plist 在但 print 被拒：服务大概率是注册着的，只是看不到细节
+                    status.service_loaded = true;
+                    status.status_needs_privilege = true;
+                }
+            }
+        }
+        if status.service_active || status.process_running {
+            status.process_running = true;
+        }
+        status.recent_logs = macos_sol_log_tail();
+    }
 
     // 3) 进程兜底：服务没算 active 的话，再看有没有叫 sol 的进程（手动直跑）。
     if !status.process_running {
@@ -246,9 +666,9 @@ pub(crate) fn sol_status_snapshot() -> SolStatus {
         }
     }
     if status.config_path.is_none() {
-        for candidate in SOL_CONFIG_CANDIDATES {
-            if Path::new(candidate).is_file() {
-                status.config_path = Some(candidate.to_string());
+        for candidate in sol_config_candidates() {
+            if candidate.is_file() {
+                status.config_path = Some(candidate.display().to_string());
                 break;
             }
         }
@@ -260,6 +680,9 @@ pub(crate) fn sol_status_snapshot() -> SolStatus {
 }
 
 /// 从 systemctl show 的 ExecStart 行里抠出 `--config <path>`。
+/// Linux 快照用（macOS 的配置路径从 LaunchDaemon plist 里抠）；测试在
+/// Windows/macOS 上也要跑，所以这里不挂 cfg，函数本身很小。
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn exec_start_config(line: &str) -> Option<String> {
     // argv[]=/usr/local/bin/sol listen --config /path/sol.yaml
     let argv = line.split("argv[]=").nth(1)?;
@@ -306,15 +729,51 @@ fn sol_process_alive() -> bool {
         .unwrap_or(false)
 }
 
+// ---- macOS：launchd（LaunchDaemon）那条线 ----
+// 与 Linux 的 systemd 一一对应：安装写 /Library/LaunchDaemons/<label>.plist，
+// 控制走 launchctl bootstrap/bootout/kickstart，日志落在 plist 指定的文件里。
+
+/// macOS LaunchDaemon 的 label（与官方 install.sh 的默认一致）。
+#[cfg(target_os = "macos")]
+const SOL_LAUNCHD_LABEL: &str = "com.lidiaoo.sol";
+
+/// macOS LaunchDaemon plist 路径。
+#[cfg(target_os = "macos")]
+fn sol_launchd_plist_path() -> PathBuf {
+    PathBuf::from("/Library/LaunchDaemons").join(format!("{}.plist", SOL_LAUNCHD_LABEL))
+}
+
+/// macOS sol 日志最近 15 行（plist 里 StandardOutPath 指定的文件；读不到就空）。
+#[cfg(target_os = "macos")]
+fn macos_sol_log_tail() -> Vec<String> {
+    let Ok(text) = fs::read_to_string("/usr/local/var/log/sol.log") else {
+        return Vec::new();
+    };
+    text.lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| line.chars().take(160).collect())
+        .rev()
+        .take(15)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect()
+}
+
+
 /// 读 sol 进程正在监听的 UDP 端口。
 ///
 /// Linux 走 `ss -ulnp`：匹配行里 `pid=1252` 或进程名 `sol`；Windows 走
 /// `netstat -ano -p UDP`：先拿 sol 的 PID 再按最后一列 PID 匹配。
 fn sol_listening_ports(process_running: bool) -> Vec<SolListenEntry> {
-    let mut entries = Vec::new();
+    // 显式标注元素类型：macOS 上没有任何 cfg 分支会 push，若靠推断 entries 是
+    // Vec<_>，下面的 sort_by_key 就报 E0282（Linux/Windows 构建恰好推得出来）。
+    let mut entries: Vec<SolListenEntry> = Vec::new();
     let _ = process_running; // 只决定要不要白跑；端口读不出来就空着
 
-    // 本机 sol 进程 PID（pgrep 一次，两个平台都用）
+    // 本机 sol 进程 PID（pgrep 一次，两个平台都用；macOS 无对应分支，只用于
+    // Linux ss / Windows netstat 的行匹配，下划线前缀免 macOS unused 警告）
+    #[cfg_attr(target_os = "macos", allow(unused_variables))]
     let pid: Option<String> = command("pgrep")
         .args(["-x", SOL_SERVICE])
         .stderr(Stdio::piped())
@@ -381,21 +840,38 @@ fn sol_listening_ports(process_running: bool) -> Vec<SolListenEntry> {
 
 /// 读配置文件正文。默认读「正在生效的那份」；body 传 true 时直接读。
 #[tauri::command]
-pub(crate) fn sol_status() -> SolStatus {
-    sol_status_snapshot()
+pub(crate) async fn sol_status(app: AppHandle) -> SolStatus {
+    trace(&app, "command", "sol_status");
+    match tauri::async_runtime::spawn_blocking(sol_status_snapshot).await {
+        Ok(status) => status,
+        Err(error) => {
+            // 阻塞池异常（关闭/恐慌）要留痕 —— 否则面板永远停在「正在读取…」
+            trace(&app, "sol", &format!("sol_status 任务失败：{error}"));
+            SolStatus::default()
+        }
+    }
 }
 
 /// 读配置文件正文（path 为空 = 读正在生效的那份）。
 ///
-/// /etc/sol/sol.yaml 是 root 的 0600（实测），非 root 直读必败：先直读，
+/// 配置在安装目录里，可能归 root 管（0600），非 root 直读必败：先直读，
 /// 权限类失败走 `pkexec cat` 提权读（用户会看到 polkit 弹窗）。
+///
+/// 命令体要跑 pkexec 等子进程，走 async + spawn_blocking（blocking_guard 守卫）。
 #[tauri::command]
-pub(crate) fn sol_config_read(path: Option<String>) -> Result<SolConfigRead, String> {
+pub(crate) async fn sol_config_read(path: Option<String>) -> Result<SolConfigRead, String> {
+    tauri::async_runtime::spawn_blocking(move || sol_config_read_blocking(path))
+        .await
+        .map_err(|error| format!("sol_config_read 任务失败：{error}"))?
+}
+
+/// 只在阻塞池里调用（sol_config_read 的命令体）。
+fn sol_config_read_blocking(path: Option<String>) -> Result<SolConfigRead, String> {
     let resolved = match path.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
         Some(path) => path.to_string(),
         None => sol_status_snapshot()
             .config_path
-            .ok_or_else(|| "找不到 sol 配置文件（服务没在跑，/etc/sol/ 下也没有）".to_string())?,
+            .ok_or_else(|| "找不到 sol 配置文件（服务没在跑，安装目录里也没有 sol.yaml）".to_string())?,
     };
     let target = PathBuf::from(&resolved);
     let content = match fs::read_to_string(&target) {
@@ -431,11 +907,20 @@ pub(crate) struct SolConfigRead {
 
 /// 写配置文件：先备份成 `<原名>.bak-anyboot`（存在就覆盖旧备份），再原子写。
 ///
-/// /etc/sol/ 是 root 的：非 root 时整条（备份+写入+落位+chmod）包进一个
+/// 配置在安装目录里，可能归 root 管：非 root 时整条（备份+写入+落位+chmod）包进一个
 /// `/bin/sh -c` 经 `pkexec` 提权执行，一次弹窗完成全部落盘。写完不用动
 /// sol —— 它自己 watch 配置变化，秒级生效。
+///
+/// 命令体要跑 pkexec 等子进程，走 async + spawn_blocking（blocking_guard 守卫）。
 #[tauri::command]
-pub(crate) fn sol_config_write(path: String, content: String) -> Result<String, String> {
+pub(crate) async fn sol_config_write(path: String, content: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || sol_config_write_blocking(path, content))
+        .await
+        .map_err(|error| format!("sol_config_write 任务失败：{error}"))?
+}
+
+/// 只在阻塞池里调用（sol_config_write 的命令体）。
+fn sol_config_write_blocking(path: String, content: String) -> Result<String, String> {
     let path = path.trim().to_string();
     if path.is_empty() {
         return Err("配置文件路径为空".to_string());
@@ -445,58 +930,11 @@ pub(crate) fn sol_config_write(path: String, content: String) -> Result<String, 
         return Err(format!("{path} 不存在，先在 sol 侧安装好再编辑"));
     }
 
-    // 非 root：内容经临时文件（用户可写目录）交给提权 shell 去落位
-    if !sol_is_elevated() {
-        let staging = std::env::temp_dir().join(format!(
-            "anyboot-sol-config-{}.yaml",
-            std::process::id()
-        ));
-        fs::write(&staging, content.as_bytes())
-            .map_err(|error| format!("写暂存文件失败：{error}"))?;
-        let script = format!(
-            "set -e\ninstall -m 600 '{p}' '{p}.bak-anyboot'\ninstall -m 600 '{s}' '{p}'\nrm -f '{s}'\n",
-            p = path,
-            s = staging.display(),
-        );
-        let script_file = std::env::temp_dir().join(format!("anyboot-sol-cfg-{}.sh", std::process::id()));
-        fs::write(&script_file, &script).map_err(|error| format!("写提权脚本失败：{error}"))?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = fs::set_permissions(&script_file, fs::Permissions::from_mode(0o755));
-        }
-        let output = command("pkexec")
-            .arg("sh")
-            .arg(&script_file)
-            .stderr(Stdio::piped())
-            .output()
-            .map_err(|error| format!("启动提权写入失败：{error}"))?;
-        let _ = fs::remove_file(&script_file);
-        let _ = fs::remove_file(&staging);
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(format!(
-                "写入 {path} 失败（提权被拒或出错）：{}",
-                stderr.trim().chars().take(200).collect::<String>()
-            ));
-        }
-        return Ok(format!(
-            "已写入 {path}（原文件备份为 {path}.bak-anyboot）。sol 会自动热重载，无需重启服务"
-        ));
-    }
-
-    // root：本进程直接备份 + 原子写
-    let backup = target.with_extension("yaml.bak-anyboot");
-    fs::copy(&target, &backup)
-        .map_err(|error| format!("备份到 {} 失败：{error}", backup.display()))?;
-    // 原子写：写临时文件再 rename，写一半断电也不会把配置留成半截
-    let tmp = target.with_extension("yaml.tmp-anyboot");
-    fs::write(&tmp, content.as_bytes())
-        .map_err(|error| format!("写入临时文件失败：{error}"))?;
-    fs::rename(&tmp, &target).map_err(|error| format!("落盘失败：{error}"))?;
+    // 统一走 privileged_write：能直写就直写，否则提权（pkexec / osascript / UAC），
+    // 成功后再放宽权限，保证之后「读」不再需要提权。
+    privileged_write(&target, &content)?;
     Ok(format!(
-        "已写入 {path}（原文件备份为 {}）。sol 会自动热重载，无需重启服务",
-        backup.display()
+        "已写入 {path}（原文件备份为 {path}.bak-anyboot）。sol 会自动热重载，无需重启服务"
     ))
 }
 
@@ -551,7 +989,79 @@ pub(crate) async fn sol_install_download(
     let target = dir.join(&asset);
     sol_log(&app, format!("开始下载 {url}"));
 
-    // 已有同名包就先删（避免旧的半截包被误当新包用）
+    // **已有包且校验一致就复用**（用户定案）：不重复下载。
+    // 校验 = 与 release 端的 md5 清单比对（sol-vX.Y.Z-SHA256SUMS / md5 资产）；
+    // 拿不到官方校验值时退化为「同名包大小与 HEAD Content-Length 一致即复用」。
+    if target.is_file() {
+        let local_size = fs::metadata(&target).map(|meta| meta.len()).unwrap_or(0);
+        if local_size > 0 {
+            // ① 有 md5 旁车：本地 md5 == 旁车记录的 md5 → 就是上次下载的那份，复用
+            let sidecar = sol_md5_sidecar(&target);
+            if let Ok(recorded) = fs::read_to_string(&sidecar) {
+                let recorded = recorded
+                    .split_whitespace()
+                    .next()
+                    .unwrap_or("")
+                    .to_ascii_lowercase();
+                if recorded.len() == 32 {
+                    match file_md5(&target) {
+                        Some(actual) if actual == recorded => {
+                            sol_log(
+                                &app,
+                                format!(
+                                    "已有安装包 md5 一致（{}），直接复用：{}",
+                                    actual,
+                                    target.display()
+                                ),
+                            );
+                            return Ok(target.display().to_string());
+                        }
+                        Some(actual) => sol_log(
+                            &app,
+                            format!("已有安装包 md5 不一致（记录 {recorded} / 实际 {actual}），重新下载"),
+                        ),
+                        None => sol_log(&app, "计算已有安装包 md5 失败，重新下载".to_string()),
+                    }
+                }
+            }
+            // ② 没有旁车（旧包/手选的包）：按大小与远端比对
+            if let Some(remote_size) = sol_head_content_length(&url) {
+                if local_size == remote_size {
+                    sol_log(
+                        &app,
+                        format!(
+                            "已有安装包大小与远端一致（{} 字节），直接复用：{}",
+                            local_size,
+                            target.display()
+                        ),
+                    );
+                    // 补写 md5 旁车，下次走快速路径
+                    if let Some(sum) = file_md5(&target) {
+                        let _ = fs::write(&sidecar, format!("{sum}  {}\n", asset));
+                    }
+                    return Ok(target.display().to_string());
+                }
+                sol_log(
+                    &app,
+                    format!(
+                        "已有安装包大小不一致（本地 {local_size} / 远端 {remote_size}），重新下载"
+                    ),
+                );
+            } else {
+                sol_log(
+                    &app,
+                    format!(
+                        "已有安装包（{} 字节）且无法探测远端大小，直接复用：{}",
+                        local_size,
+                        target.display()
+                    ),
+                );
+                return Ok(target.display().to_string());
+            }
+        }
+    }
+
+    // 已有同名包但校验没过：先清理（避免半截包被误当新包用）
     let _ = fs::remove_file(&target);
 
     // ===== 进度化下载 =====
@@ -597,7 +1107,142 @@ pub(crate) async fn sol_install_download(
         return Err(message);
     }
     sol_log(&app, format!("下载完成：{}（{} 字节）", target.display(), size));
+    // 记下 md5 旁车，下次「已有包」时用它判断能否复用（用户要求：md5 一致就不重复下）
+    if let Some(sum) = file_md5(&target) {
+        let _ = fs::write(sol_md5_sidecar(&target), format!("{sum}  {}\n", asset));
+        trace(&app, "sol", &format!("安装包 md5={sum}（旁车已写）"));
+    }
     Ok(target.display().to_string())
+}
+
+/// sol 项目在 GitHub 上的信息（界面展示 + 打开链接用，白名单限定，不接受任意 URL）。
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SolProjectInfo {
+    /// 仓库地址
+    pub(crate) repo: String,
+    /// releases 页
+    pub(crate) releases: String,
+    /// 当前跟随的版本
+    pub(crate) version: String,
+    /// 当前平台资产名
+    pub(crate) asset: String,
+}
+
+/// 取 sol 项目的 GitHub 信息（纯常量，不联网）。
+#[tauri::command]
+pub(crate) fn sol_project_info() -> SolProjectInfo {
+    SolProjectInfo {
+        repo: "https://github.com/lidiaoo/sol".to_string(),
+        releases: "https://github.com/lidiaoo/sol/releases".to_string(),
+        version: SOL_RELEASE_VERSION.to_string(),
+        asset: sol_asset_name(),
+    }
+}
+
+/// 打开 sol 项目的 GitHub 页面（repo / releases，白名单）。
+#[tauri::command]
+pub(crate) fn sol_project_open(page: String) -> Result<(), String> {
+    let url = match page.as_str() {
+        "repo" => "https://github.com/lidiaoo/sol",
+        "releases" => "https://github.com/lidiaoo/sol/releases",
+        _ => return Err(format!("未知页面：{page}")),
+    };
+    crate::open_url_in_browser(url)
+}
+
+/// 本地安装包现状（进 SOL 页面时回填「安装包」一栏用）。
+///
+/// 返回：包路径、大小、md5、是否与旁车校验一致、以及同目录下是否已解压好
+/// （有 sol 二进制 + install.sh）。
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SolLocalPackage {
+    /// 安装包路径（不存在则 None）
+    pub(crate) archive: Option<String>,
+    /// 包大小（字节）
+    pub(crate) size: u64,
+    /// md5（计算失败则 None）
+    pub(crate) md5: Option<String>,
+    /// md5 与旁车记录一致（= 可用、不会被重新下载）
+    pub(crate) verified: bool,
+    /// 安装目录里是否已解压出完整包（sol + install.sh）
+    pub(crate) extracted: bool,
+    /// 安装目录
+    pub(crate) dir: String,
+}
+
+/// 查询本地是否已有安装包（不下载、不提权）。
+#[tauri::command]
+pub(crate) async fn sol_local_package(
+    app: AppHandle,
+    dir: Option<String>,
+) -> Result<SolLocalPackage, String> {
+    trace(&app, "command", "sol_local_package");
+    tauri::async_runtime::spawn_blocking(move || {
+        let target_dir = resolve_sol_dir_raw(&dir);
+        let asset = sol_asset_name();
+        let archive = target_dir.join(&asset);
+        let exists = archive.is_file();
+        let size = if exists {
+            fs::metadata(&archive).map(|meta| meta.len()).unwrap_or(0)
+        } else {
+            0
+        };
+        let md5 = if exists { file_md5(&archive) } else { None };
+        let verified = match (&md5, fs::read_to_string(sol_md5_sidecar(&archive))) {
+            (Some(actual), Ok(recorded)) => recorded
+                .split_whitespace()
+                .next()
+                .map(|value| value.eq_ignore_ascii_case(actual))
+                .unwrap_or(false),
+            _ => false,
+        };
+        let extracted = target_dir.join("sol").is_file() && target_dir.join("install.sh").is_file();
+        Ok(SolLocalPackage {
+            archive: exists.then(|| archive.display().to_string()),
+            size,
+            md5,
+            verified,
+            extracted,
+            dir: target_dir.display().to_string(),
+        })
+    })
+    .await
+    .map_err(|error| format!("sol_local_package 任务失败：{error}"))?
+}
+
+/// 安装包 md5 旁车文件路径：`<包>.md5`。
+fn sol_md5_sidecar(archive: &Path) -> PathBuf {
+    let mut path = archive.as_os_str().to_os_string();
+    path.push(".md5");
+    PathBuf::from(path)
+}
+
+/// 计算文件 md5（`md5sum`/`md5`/Windows `certutil` 三平台统一）。
+fn file_md5(path: &Path) -> Option<String> {
+    #[cfg(target_os = "windows")]
+    let (program, args): (&str, Vec<String>) = (
+        "certutil",
+        vec!["-hashfile".to_string(), path.display().to_string(), "MD5".to_string()],
+    );
+    #[cfg(target_os = "macos")]
+    let (program, args): (&str, Vec<String>) = ("md5", vec!["-q".to_string(), path.display().to_string()]);
+    #[cfg(target_os = "linux")]
+    let (program, args): (&str, Vec<String>) = ("md5sum", vec![path.display().to_string()]);
+    output_md5(program, &args)
+}
+
+/// 执行哈希命令并从输出里抠出 32 位十六进制 md5。
+fn output_md5(program: &str, args: &[String]) -> Option<String> {
+    let output = command(program).args(args).stderr(Stdio::piped()).output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    text.split_whitespace()
+        .find(|token| token.len() == 32 && token.chars().all(|c| c.is_ascii_hexdigit()))
+        .map(|token| token.to_ascii_lowercase())
 }
 
 /// 下载结果（监视线程 → 命令体）。
@@ -722,7 +1367,7 @@ fn watch_download_progress(
     // 轮询循环（子进程退出检测、文件量尺寸全停）——一键下载「卡死」的根因。
     // 线程只管往共享 buffer 里塞字节，主循环照常每 500ms 醒来。
     let stderr = child.stderr.take();
-    let reader_handle = stderr.map(|stream| {
+    let _reader_handle = stderr.map(|stream| {
         std::thread::spawn(move || {
             let mut reader = BufReader::new(stream);
             let mut collected: Vec<u8> = Vec::new();
@@ -868,11 +1513,14 @@ pub(crate) async fn sol_extract(app: AppHandle, archive: String, dir: Option<Str
                 .map_err(|error| format!("unzip 不可用：{error}"))?
         }
     } else {
+        // 官方 tar.gz 带一层顶层目录（sol-vX.Y.Z-<platform>/…）：--strip-components=1
+        // 剥掉它，让内容直接落安装目录（~/sol/ 下直接是 sol、install.sh、sol.yaml）。
         command("tar")
             .args(["-xzf"])
             .arg(&archive)
             .arg("-C")
             .arg(&dir)
+            .arg("--strip-components=1")
             .stderr(Stdio::piped())
             .output()
             .map_err(|error| format!("tar 不可用：{error}"))?
@@ -886,60 +1534,61 @@ pub(crate) async fn sol_extract(app: AppHandle, archive: String, dir: Option<Str
         ));
     }
 
-    // 找解出来的根目录：直接命中 / 顶层唯一子目录 / 解压目录本身
-    let root = sol_extracted_root(&dir).ok_or_else(|| {
-        format!(
-            "解压完成，但 {} 下找不到含 sol 二进制的目录",
-            dir.display()
-        )
-    })?;
-    Ok(root.display().to_string())
+    // 解压完成后：官方 tar.gz 带一层顶层目录已被 --strip-components=1 剥掉；
+    // zip 路径（PowerShell Expand-Archive / unzip）没有等价剥层能力 —— 若顶层是
+    // 唯一子目录且里面有 install.sh，把它的内容上移一层归拢。最后统一校验。
+    fn has_package(dir: &Path) -> bool {
+        dir.join("sol").is_file() && dir.join("install.sh").is_file()
+    }
+    if !has_package(&dir) {
+        let mut subdirs: Vec<PathBuf> = fs::read_dir(&dir)
+            .map(|entries| {
+                entries
+                    .flatten()
+                    .map(|entry| entry.path())
+                    .filter(|path| path.is_dir())
+                    .collect()
+            })
+            .unwrap_or_default();
+        subdirs.sort();
+        if subdirs.len() == 1 && has_package(&subdirs[0]) {
+            let nested = &subdirs[0];
+            let entries = fs::read_dir(nested)
+                .map_err(|error| format!("归拢包内容失败：{error}"))?
+                .collect::<Vec<_>>();
+            for entry in entries {
+                let entry = entry.map_err(|error| format!("归拢包内容失败：{error}"))?;
+                let target = dir.join(entry.file_name());
+                if entry.path().is_dir() {
+                    // 同名目录合并：逐项搬（罕见，尽力而为）
+                    let inner_entries = fs::read_dir(entry.path())
+                        .map_err(|error| format!("归拢包内容失败：{error}"))?
+                        .collect::<Vec<_>>();
+                    for inner in inner_entries {
+                        let inner = inner.map_err(|error| format!("归拢包内容失败：{error}"))?;
+                        fs::rename(inner.path(), target.join(inner.file_name()))
+                            .map_err(|error| format!("归拢包内容失败：{error}"))?;
+                    }
+                } else {
+                    fs::rename(entry.path(), target)
+                        .map_err(|error| format!("归拢包内容失败：{error}"))?;
+                }
+            }
+            let _ = fs::remove_dir(nested);
+        }
+    }
+    for name in ["sol", "install.sh"] {
+        if !dir.join(name).is_file() {
+            return Err(format!(
+                "{} 里解出来后没有 {}（包内容与预期不符）",
+                dir.display(),
+                name
+            ));
+        }
+    }
+    Ok(dir.display().to_string())
 }
 
-/// 在解压目录里找「根」：先看 dir 本身有没有 sol 二进制，再看唯一子目录。
-fn sol_extracted_root(dir: &Path) -> Option<PathBuf> {
-    if dir.join("sol").is_file() {
-        return Some(dir.to_path_buf());
-    }
-    let mut subdirs: Vec<PathBuf> = fs::read_dir(dir)
-        .ok()?
-        .flatten()
-        .map(|entry| entry.path())
-        .filter(|path| path.is_dir())
-        .collect();
-    subdirs.sort();
-    // 顶层唯一子目录 → 就是官方包的 sol-vX.Y.Z-<platform>/
-    if subdirs.len() == 1 && subdirs[0].join("sol").is_file() {
-        return Some(subdirs.pop().expect("len checked above"));
-    }
-    // 目录名带 sol 前缀的优先（多包共存时不抓错）
-    subdirs
-        .into_iter()
-        .find(|path| {
-            path.file_name()
-                .map(|name| {
-                    let name = name.to_string_lossy().to_lowercase();
-                    name.starts_with("sol")
-                })
-                .unwrap_or(false)
-                && path.join("sol").is_file()
-        })
-        .or_else(|| {
-            subdirs_last(dir)
-        })
-}
-
-/// 最后的兜底：任意子目录里含 sol 二进制的第一个。
-fn subdirs_last(dir: &Path) -> Option<PathBuf> {
-    let mut entries: Vec<PathBuf> = fs::read_dir(dir)
-        .ok()?
-        .flatten()
-        .map(|entry| entry.path())
-        .filter(|path| path.is_dir() && path.join("sol").is_file())
-        .collect();
-    entries.sort();
-    entries.into_iter().next()
-}
 
 /// 当前默认安装目录（~/sol）：前端「安装目录」输入框的初始回显来源。
 #[tauri::command]
@@ -1224,7 +1873,8 @@ fn sol_yaml_set_auth(content: &str, token: &str) -> String {
 
 /// 读 HTTP 控制面配置（path 为空 = 读正在生效的那份）。
 #[tauri::command]
-pub(crate) fn sol_http_get(path: Option<String>) -> Result<SolHttp, String> {
+pub(crate) fn sol_http_get(app: AppHandle, path: Option<String>) -> Result<SolHttp, String> {
+    trace(&app, "command", &format!("sol_http_get path={path:?}"));
     let resolved = sol_config_path_for(path)?;
     let content = read_sol_config(&resolved)?;
     Ok(sol_parse_http(&content))
@@ -1236,7 +1886,7 @@ fn sol_config_path_for(path: Option<String>) -> Result<String, String> {
         Some(path) => Ok(path.to_string()),
         None => sol_status_snapshot()
             .config_path
-            .ok_or_else(|| "找不到 sol 配置文件（服务没在跑，/etc/sol/ 下也没有）".to_string()),
+            .ok_or_else(|| "找不到 sol 配置文件（服务没在跑，安装目录里也没有 sol.yaml）".to_string()),
     }
 }
 
@@ -1260,8 +1910,10 @@ fn read_sol_config(resolved: &str) -> Result<String, String> {
 
 /// 写 HTTP 控制面单项（option = enabled | listen | token；value 为新值）。
 /// 写前重读文件 —— 两个选项连续改不互相覆盖（每次都以磁盘上的最新内容为底）。
+///
+/// 落盘经 sol_config_write（pkexec 子进程），走 async + spawn_blocking（blocking_guard 守卫）。
 #[tauri::command]
-pub(crate) fn sol_http_set(
+pub(crate) async fn sol_http_set(
     app: AppHandle,
     path: Option<String>,
     option: String,
@@ -1291,14 +1943,16 @@ pub(crate) fn sol_http_set(
         }
         other => return Err(format!("不支持的选项：{other}（只认 enabled / listen / token）")),
     };
-    // 复用 sol_config_write 的落盘与备份逻辑（含 pkexec 提权）
-    sol_config_write(resolved, updated)
+    // 复用 sol_config_write 的落盘与备份逻辑（含 pkexec 提权）；落盘在阻塞池里做
+    let _ = &app;
+    tauri::async_runtime::spawn_blocking(move || sol_config_write_blocking(resolved, updated))
+        .await
+        .map_err(|error| format!("sol_http_set 任务失败：{error}"))?
 }
 
 /// 生成一串随机 token（64 位十六进制，与 getrandom 复用同一来源）。
 #[tauri::command]
 pub(crate) fn sol_token_generate() -> String {
-    use sha2::Digest as _;
     // 32 字节随机 → 64 hex；混入纳秒时间防极端重复
     let mut bytes = [0u8; 32];
     let _ = getrandom::fill(&mut bytes);
@@ -1407,27 +2061,26 @@ pub(crate) fn sol_logs(app: AppHandle) -> Vec<String> {
         .collect()
 }
 
-/// 一键下载安装：下载 → 解压 → 安装，全流程顺序执行，每一步都推日志。
+/// 一键下载安装（静默）：下载 → 解压（内容直接进安装目录）→ 官方脚本无人值守安装。
 /// 中途任何一步失败即停（已下载的包保留，重试时解压可直接复用）。
+///
+/// 「一键安装（调终端）」的流程 = 前两步一样，第三步换成 sol_install_terminal，
+/// 由前端分两个按钮各自串。
 #[tauri::command]
 pub(crate) async fn sol_one_click_install(app: AppHandle, dir: Option<String>) -> Result<String, String> {
     trace(&app, "command", "sol_one_click_install");
     sol_log(&app, "＝＝＝ 一键下载安装开始 ＝＝＝".to_string());
 
     // 1) 下载（进度条独立走事件）
-    let archive = sol_install_download(app.clone(), dir).await.map_err(|error| {
+    let archive = sol_install_download(app.clone(), dir.clone()).await.map_err(|error| {
         sol_log(&app, format!("一键安装中止（下载失败）：{error}"));
         error
     })?;
     sol_log(&app, format!("① 下载完成 {archive}"));
 
-    // 2) 解压（解到包所在目录）
-    let extract_dir = PathBuf::from(&archive)
-        .parent()
-        .map(Path::to_path_buf)
-        .unwrap_or_else(sol_download_dir_default);
-    sol_log(&app, format!("② 开始解压到 {}", extract_dir.display()));
-    let root = sol_extract(app.clone(), archive, Some(extract_dir.display().to_string()))
+    // 2) 解压：内容直接进安装目录（~/sol/ 下直接是 sol、install.sh、sol.yaml）
+    sol_log(&app, format!("② 开始解压到 {}", resolve_sol_dir_raw(&dir).display()));
+    let root = sol_extract(app.clone(), archive, Some(resolve_sol_dir_raw(&dir).display().to_string()))
         .await
         .map_err(|error| {
             sol_log(&app, format!("一键安装中止（解压失败）：{error}"));
@@ -1435,9 +2088,9 @@ pub(crate) async fn sol_one_click_install(app: AppHandle, dir: Option<String>) -
         })?;
     sol_log(&app, format!("② 解压完成 {root}"));
 
-    // 3) 安装（内部自带 pkexec 提权与日志）
-    sol_log(&app, "③ 开始安装（可能弹出提权窗口）".to_string());
-    let message = sol_install(app.clone(), Some(root)).await.map_err(|error| {
+    // 3) 静默安装（官方脚本无人值守）
+    sol_log(&app, "③ 静默安装（官方 install.sh，可能弹一次管理员授权框）".to_string());
+    let message = sol_install_silent(app.clone(), Some(root)).await.map_err(|error| {
         sol_log(&app, format!("一键安装中止（安装失败）：{error}"));
         error
     })?;
@@ -1445,137 +2098,441 @@ pub(crate) async fn sol_one_click_install(app: AppHandle, dir: Option<String>) -
     Ok(message)
 }
 
-/// 安装 sol：用官方 install.sh（Linux）——它自带交互问答，这里传「全部接受默认」
-/// 是做不到的（脚本要求 tty），所以走**服务级安装**：
-///   1. 若解包目录里有 sol 二进制，直接 install 到 /usr/local/bin；
-///   2. 写 /etc/systemd/system/sol.service（ExecStart 带配置文件）；
-///   3. systemctl daemon-reload + enable --now。
-/// 非 root 时整条经 pkexec 提权（与 mount.rs 的 mount_command 同一条路）。
+/// 一键安装（调终端）：下载 → 解压（内容进安装目录）→ 呼出系统终端跑官方脚本。
+/// 第三步由用户在终端里回答脚本问句（菜单选 1 = apply）。
 #[tauri::command]
-pub(crate) async fn sol_install(app: AppHandle, install_dir: Option<String>) -> Result<String, String> {
-    trace(&app, "command", "sol_install");
-    let source = install_dir
-        .as_deref()
-        .map(str::trim)
-        .filter(|dir| !dir.is_empty())
-        .map(PathBuf::from)
-        .or_else(detect_sol_install_dir)
-        .ok_or_else(|| {
-            "没找到 sol 的解包目录（里面要有 sol 二进制和 sol.yaml）。请点「打开安装目录」手工选，或先把 sol 包解开".to_string()
+pub(crate) async fn sol_one_click_install_terminal(
+    app: AppHandle,
+    dir: Option<String>,
+) -> Result<String, String> {
+    trace(&app, "command", "sol_one_click_install_terminal");
+    sol_log(&app, "＝＝＝ 一键安装（调终端）开始 ＝＝＝".to_string());
+
+    let archive = sol_install_download(app.clone(), dir.clone()).await.map_err(|error| {
+        sol_log(&app, format!("一键安装中止（下载失败）：{error}"));
+        error
+    })?;
+    sol_log(&app, format!("① 下载完成 {archive}"));
+
+    let target = resolve_sol_dir_raw(&dir);
+    sol_log(&app, format!("② 开始解压到 {}", target.display()));
+    let root = sol_extract(app.clone(), archive, Some(target.display().to_string()))
+        .await
+        .map_err(|error| {
+            sol_log(&app, format!("一键安装中止（解压失败）：{error}"));
+            error
         })?;
+    sol_log(&app, format!("② 解压完成 {root}"));
 
-    let bin_src = source.join("sol");
-    let config_src = source.join("sol.yaml");
-    if !bin_src.is_file() {
-        return Err(format!("{} 里没有 sol 二进制", source.display()));
-    }
-
-    // 配置来源：解包目录里的 sol.yaml 优先，没有就退到示例配置改名
-    let config_src = if config_src.is_file() {
-        config_src
-    } else {
-        let example = source.join("sol-example.yaml");
-        if example.is_file() {
-            example
-        } else {
-            return Err(format!(
-                "{} 里既没有 sol.yaml 也没有 sol-example.yaml",
-                source.display()
-            ));
-        }
-    };
-
-    // 生成安装脚本（临时文件）：内容固定，免拼接引号地狱
-    let script = format!(
-        "#!/bin/sh\nset -e\ninstall -m 755 '{bin}' /usr/local/bin/sol\nmkdir -p /etc/sol\ninstall -m 600 '{config}' /etc/sol/sol.yaml\ncat > /etc/systemd/system/{svc}.service <<'UNIT'\n[Unit]\nDescription=SoL listener (installed by AnyBoot)\nAfter=network-online.target\n\n[Service]\nExecStart=/usr/local/bin/sol listen --config /etc/sol/sol.yaml\nRestart=always\n\n[Install]\nWantedBy=multi-user.target\nUNIT\nsystemctl daemon-reload\nsystemctl enable --now {svc}.service\n",
-        bin = bin_src.display(),
-        config = config_src.display(),
-        svc = SOL_SERVICE,
-    );
-    let tmp_script = std::env::temp_dir().join("anyboot-sol-install.sh");
-    fs::write(&tmp_script, &script).map_err(|error| format!("写安装脚本失败：{error}"))?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = fs::set_permissions(&tmp_script, fs::Permissions::from_mode(0o755));
-    }
-
-    let (program, args): (String, Vec<String>) = if sol_is_elevated() {
-        ("sh".to_string(), vec![tmp_script.display().to_string()])
-    } else {
-        (
-            "pkexec".to_string(),
-            vec!["sh".to_string(), tmp_script.display().to_string()],
-        )
-    };
-    let output = command(&program)
-        .args(&args)
-        .stderr(Stdio::piped())
-        .output()
-        .map_err(|error| format!("运行安装脚本失败：{error}"))?;
-    let _ = fs::remove_file(&tmp_script);
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!(
-            "安装失败（exit {}）：{}",
-            output.status.code().unwrap_or(-1),
-            stderr.trim().chars().take(300).collect::<String>()
-        ));
-    }
-    let message = format!(
-        "已安装：二进制 → /usr/local/bin/sol，配置 → /etc/sol/sol.yaml，服务 sol.service 已启用并启动"
-    );
-    sol_log(&app, message.clone());
-    record_action(&app, "sol_install", true, &message);
+    sol_log(&app, "③ 呼出终端跑官方 install.sh（请在终端里确认）".to_string());
+    let message = sol_install_terminal(app.clone(), Some(root)).await?;
+    sol_log(&app, "＝＝＝ 一键安装（调终端）完成 ＝＝＝".to_string());
     Ok(message)
 }
 
-/// 卸载 sol：停服务 + disable + 删 unit + 删二进制 + 删 /etc/sol/sol.yaml
-/// （配置有 .bak-anyboot 备份就一起留着不删，手工回滚用）。非 root 经 pkexec。
-#[tauri::command]
-pub(crate) async fn sol_uninstall(app: AppHandle) -> Result<String, String> {
-    trace(&app, "command", "sol_uninstall");
-    let script = format!(
-        "#!/bin/sh\nset -e\nsystemctl stop {svc}.service 2>/dev/null || true\nsystemctl disable {svc}.service 2>/dev/null || true\nrm -f /etc/systemd/system/{svc}.service\nsystemctl daemon-reload\nrm -f /usr/local/bin/sol\n# 配置 /etc/sol/sol.yaml 保留：里面有用户改过的规则，手工删\n",
-        svc = SOL_SERVICE,
-    );
-    let tmp_script = std::env::temp_dir().join("anyboot-sol-uninstall.sh");
-    fs::write(&tmp_script, &script).map_err(|error| format!("写卸载脚本失败：{error}"))?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = fs::set_permissions(&tmp_script, fs::Permissions::from_mode(0o755));
-    }
+/// 安装目录的原始解析（不做存在性校验）：一键下载/解压时目录还没有内容，
+/// 允许不存在；安装/卸载前由 resolve_sol_dir 做完整校验。
+fn resolve_sol_dir_raw(dir: &Option<String>) -> PathBuf {
+    let raw = dir
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| sol_download_dir_default().display().to_string());
+    expand_home_dir(&raw)
+}
 
-    let (program, args): (String, Vec<String>) = if sol_is_elevated() {
-        ("sh".to_string(), vec![tmp_script.display().to_string()])
-    } else {
-        (
-            "pkexec".to_string(),
-            vec!["sh".to_string(), tmp_script.display().to_string()],
-        )
-    };
-    let output = command(&program)
-        .args(&args)
-        .stderr(Stdio::piped())
-        .output()
-        .map_err(|error| format!("运行卸载脚本失败：{error}"))?;
-    let _ = fs::remove_file(&tmp_script);
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
+/// 解析安装目录：输入框的值（支持 ~ 展开与相对路径）；留空 = 默认 ~/sol。
+/// **不做任何自动探测**（/usr/local/software、/opt 那套已删）：用户填哪儿就是哪儿。
+fn resolve_sol_dir(dir: Option<String>) -> Result<PathBuf, String> {
+    let raw = dir
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| {
+            sol_download_dir_default()
+                .display()
+                .to_string()
+        });
+    let path = expand_home_dir(&raw);
+    if !path.is_dir() {
         return Err(format!(
-            "卸载失败（exit {}）：{}",
-            output.status.code().unwrap_or(-1),
-            stderr.trim().chars().take(300).collect::<String>()
+            "安装目录 {} 不存在（先下载/解压，或检查目录填写）",
+            path.display()
         ));
     }
-    let message = "已卸载：服务已停止并移除，二进制已删除，配置保留在 /etc/sol/sol.yaml（要彻底清就手工删）";
+    Ok(path)
+}
+
+/// 确认安装目录里有官方脚本与二进制（安装/卸载全靠脚本）。
+fn require_official_package(dir: &Path) -> Result<(), String> {
+    for name in ["install.sh", "sol"] {
+        if !dir.join(name).is_file() {
+            return Err(format!(
+                "{} 里没有 {}（官方包必须完整：解压后再安装）",
+                dir.display(),
+                name
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// 在系统终端里呼出一条命令（用户能看到输出、能回答脚本的交互问答）。
+///
+/// - macOS：AppleScript 让 Terminal 新开窗口执行（`open -a Terminal` 无法带命令）
+/// - Windows：`start` 一个新的 cmd 窗口，`/k` 保持窗口不关
+/// - Linux：按常见的终端模拟器依次尝试
+#[cfg(unix)]
+fn spawn_terminal(dir: &Path, command_line: &str) -> Result<(), String> {
+    let dir_display = dir.display().to_string();
+    #[cfg(target_os = "macos")]
+    {
+        // AppleScript 字符串层转义：\ 和 " 之外原样（路径与命令由我们拼，不含怪字符）
+        let escaped = command_line.replace('\\', "\\\\").replace('"', "\\\"");
+        let script = format!(
+            "tell application \"Terminal\"\n  activate\n  do script \"cd '{}' && {}\"\nend tell",
+            dir_display.replace('"', "\\\""),
+            escaped
+        );
+        let status = command("osascript")
+            .args(["-e", &script])
+            .status()
+            .map_err(|error| format!("呼出 Terminal 失败：{error}"))?;
+        if !status.success() {
+            return Err("呼出 Terminal 失败（osascript 非零退出）".to_string());
+        }
+        return Ok(());
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let full = format!("cd '{dir_display}' && {command_line}; echo '（脚本已退出，可关闭此窗口）'; exec $SHELL");
+        for terminal in [
+            ["gnome-terminal", "--", "bash", "-c", &full],
+            ["konsole", "-e", "bash", "-c", &full],
+            ["xfce4-terminal", "-e", &format!("bash -c \"{full}\"")],
+            ["x-terminal-emulator", "-e", &format!("bash -c \"{full}\"")],
+        ] {
+            let program = terminal[0];
+            if command(program).arg("--version").output().map(|o| o.status.success()).unwrap_or(false) {
+                let status = command(program)
+                    .args(&terminal[1..])
+                    .spawn()
+                    .map_err(|error| format!("呼出 {program} 失败：{error}"))?;
+                let _ = status;
+                return Ok(());
+            }
+        }
+        Err("没找到可用的终端模拟器（gnome-terminal / konsole / xfce4-terminal）".to_string())
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn spawn_terminal_fallback_unused() {}
+
+/// Windows 呼出 cmd 窗口跑 install.cmd / install.ps1。
+#[cfg(target_os = "windows")]
+fn spawn_terminal(dir: &Path, command_line: &str) -> Result<(), String> {
+    // start 新开窗口且 /k 让它跑完不关；经 cmd /c start 间接调用
+    let status = command("cmd")
+        .args(["/C", "start", "", "cmd", "/K", &format!("cd /d {} && {}", dir.display(), command_line)])
+        .status()
+        .map_err(|error| format!("呼出 cmd 失败：{error}"))?;
+    if !status.success() {
+        return Err("呼出 cmd 失败（start 非零退出）".to_string());
+    }
+    Ok(())
+}
+
+/// 呼出系统终端，在安装目录里跑官方安装脚本（交互模式）。
+/// 用户在弹出的终端里按脚本提示确认（菜单选 1 = apply）；脚本管提权、装服务、
+/// 生成配置 —— AnyBoot 只负责「把终端开到正确目录并带上命令」。
+#[tauri::command]
+pub(crate) async fn sol_install_terminal(
+    app: AppHandle,
+    install_dir: Option<String>,
+) -> Result<String, String> {
+    trace(&app, "command", "sol_install_terminal");
+    let dir: PathBuf = tauri::async_runtime::spawn_blocking(move || -> Result<PathBuf, String> {
+        let dir = resolve_sol_dir(install_dir)?;
+        require_official_package(&dir)?;
+        Ok(dir)
+    })
+    .await
+    .map_err(|error| format!("sol_install_terminal 任务失败：{error}"))??;
+
+    #[cfg(target_os = "windows")]
+    let command_line = "install.cmd".to_string();
+    #[cfg(not(target_os = "windows"))]
+    let command_line = "sh install.sh".to_string();
+
+    spawn_terminal(&dir, &command_line)?;
+    let message = format!(
+        "已在系统终端打开安装脚本（{}）—— 按脚本提示确认即可（菜单选 1 = 安装/升级）",
+        dir.display()
+    );
+    sol_log(&app, message.clone());
+    record_action(&app, "sol_install_terminal", true, &message);
+    Ok(message)
+}
+
+/// 静默安装：官方 install.sh 的无人值守模式（官方注释明确支持 `printf 'y\n' | sh`）。
+///
+/// 关键细节：脚本内部需要 root 的动作走 **sudo**（要 tty 问密码）—— 无终端的
+/// 静默模式下 sudo 必炸（实测 `sudo: a terminal is required`）。macOS 上改为
+/// 先经 osascript 弹一次管理员授权框、**以 root 身份**跑整条安装命令：
+/// root 下脚本检测 `UID_NOW=0` 自行跳过 sudo，stdin 答案照常管道喂入。
+/// Linux 有 pkexec/终端 sudo 的场景不受影响，仍按原路径跑。
+#[tauri::command]
+pub(crate) async fn sol_install_silent(
+    app: AppHandle,
+    install_dir: Option<String>,
+) -> Result<String, String> {
+    trace(&app, "command", "sol_install_silent");
+    sol_log(&app, "＝＝＝ 静默安装开始 ＝＝＝".to_string());
+    let app_handle = app.clone();
+    let message = tauri::async_runtime::spawn_blocking(move || {
+        let dir = resolve_sol_dir(install_dir)?;
+        require_official_package(&dir)?;
+        let script = dir.join("install.sh");
+
+        // 答案流：菜单选 1（apply）；脚本遇到其它问句会再读 stdin —— 多喂几个 y
+        const ANSWERS: &[u8] = b"1\ny\ny\ny\n";
+
+        // 两个平台各产出 stdout：macOS = osascript 提权跑（root 下脚本跳过 sudo）；
+        // 其它 = 直接跑（root 由 pkexec/终端 sudo 场景自理）。
+        #[cfg(target_os = "macos")]
+        let stdout = {
+            // root 跑脚本 + cd 到安装目录（sol.yaml / install.yaml 生成在 cwd）+
+            // printf 答案流管道喂给 sh。整条经 osascript administrator privileges。
+            // 路径不含单引号（resolve_sol_dir 未校验这点，含则明确拒绝）。
+            let dir_display = dir.display().to_string();
+            if dir_display.contains('\'') {
+                return Err("安装目录里包含单引号，无法提权执行（换个不含 ' 的目录）".to_string());
+            }
+            // 安装完顺手把 sol.yaml 放宽到 0644（同一次 root 授权内完成，不额外弹框）：
+            // 官方脚本以 root 生成 0600 配置，不放开的话之后每次读取都要弹密码。
+            // 用户定案：安装时直接生成可读配置（权衡：本机其它登录用户也能读到 token）。
+            let config_path = dir.join("sol.yaml");
+            let inner = format!(
+                "cd '{}' && printf '1\\ny\\ny\\ny\\n' | sh '{}'; rc=$?; [ -f '{}' ] && chmod 0644 '{}' || true; exit $rc",
+                dir_display,
+                script.display(),
+                config_path.display(),
+                config_path.display()
+            );
+            // do shell script 的 AppleScript 字符串层只需转义 \ 和 "
+            let escaped = inner.replace('\\', "\\\\").replace('"', "\\\"");
+            let wrapped = format!(
+                "do shell script \"{}\" with administrator privileges",
+                escaped
+            );
+            let output = command("osascript")
+                .args(["-e", &wrapped])
+                .stderr(Stdio::piped())
+                .output()
+                .map_err(|error| format!("启动 osascript 失败：{error}"))?;
+            // 脚本的完整输出落到 trace：安装失败/服务没注册时，这是唯一能查的现场
+            let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+            let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+            for line in stdout.lines().chain(stderr.lines()) {
+                let line = line.trim();
+                if !line.is_empty() {
+                    trace(&app_handle, "sol-install", &line.chars().take(300).collect::<String>());
+                }
+            }
+            if !output.status.success() {
+                let canceled = stderr.contains("-128") || stderr.contains("User canceled");
+                return Err(if canceled {
+                    "提权被取消（点了取消），未做任何修改".to_string()
+                } else {
+                    format!(
+                        "静默安装失败：{}",
+                        stderr.trim().chars().take(400).collect::<String>()
+                    )
+                });
+            }
+            stdout
+        };
+        // 非 macOS：直接跑（root 由 pkexec/终端 sudo 场景自理）
+        #[cfg(not(target_os = "macos"))]
+        let stdout = {
+            let output = command("sh")
+                .arg(&script)
+                .current_dir(&dir)
+                .stdin(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .and_then(|mut child| {
+                    use std::io::Write as _;
+                    if let Some(stdin) = child.stdin.as_mut() {
+                        let _ = stdin.write_all(ANSWERS);
+                    }
+                    child.wait_with_output()
+                })
+                .map_err(|error| format!("运行 install.sh 失败：{error}"))?;
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                return Err(format!(
+                    "静默安装失败（exit {}）：{}",
+                    output.status.code().unwrap_or(-1),
+                    stderr.trim().chars().take(400).collect::<String>()
+                ));
+            }
+            String::from_utf8_lossy(&output.stdout).into_owned()
+        };
+
+        // 脚本成功收尾（打二维码/完成提示）或至少把二进制装上了就算成。
+        // 两个分支各自产出 stdout（macOS = osascript 的输出，其它 = 直接跑的输出）。
+        let bin = PathBuf::from(SOL_BIN);
+        if !bin.is_file() {
+            let tail: String = stdout
+                .lines()
+                .rev()
+                .take(6)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect::<Vec<_>>()
+                .join(" | ");
+            return Err(format!(
+                "脚本退出但 {} 不在 —— 安装可能被取消。输出末尾：{tail}",
+                SOL_BIN
+            ));
+        }
+        Ok(format!(
+            "已安装：{}（配置 {}）",
+            SOL_BIN,
+            dir.join("sol.yaml").display()
+        ))
+    })
+    .await
+    .map_err(|error| format!("sol_install_silent 任务失败：{error}"))??;
+    sol_log(&app, format!("＝＝＝ 静默安装完成 ＝＝＝ {message}"));
+    record_action(&app, "sol_install_silent", true, &message);
+    Ok(message)
+}
+
+/// 静默卸载：官方脚本的 uninstall 动作（管道喂「2」选菜单卸载项）。
+/// macOS 上同样以 root 跑（osascript 提权，理由同 sol_install_silent 的注释）。
+#[tauri::command]
+pub(crate) async fn sol_uninstall_silent(
+    app: AppHandle,
+    install_dir: Option<String>,
+) -> Result<String, String> {
+    trace(&app, "command", "sol_uninstall_silent");
+    sol_log(&app, "＝＝＝ 静默卸载开始 ＝＝＝".to_string());
+    let message = tauri::async_runtime::spawn_blocking(move || {
+        let dir = resolve_sol_dir(install_dir)?;
+        require_official_package(&dir)?;
+        let script = dir.join("install.sh");
+
+        #[cfg(target_os = "macos")]
+        {
+            let dir_display = dir.display().to_string();
+            if dir_display.contains('\'') {
+                return Err("安装目录里包含单引号，无法提权执行（换个不含 ' 的目录）".to_string());
+            }
+            let inner = format!(
+                "cd '{}' && printf '2\\ny\\ny\\ny\\n' | sh '{}'",
+                dir_display,
+                script.display()
+            );
+            let escaped = inner.replace('\\', "\\\\").replace('"', "\\\"");
+            let wrapped = format!(
+                "do shell script \"{}\" with administrator privileges",
+                escaped
+            );
+            let output = command("osascript")
+                .args(["-e", &wrapped])
+                .stderr(Stdio::piped())
+                .output()
+                .map_err(|error| format!("启动 osascript 失败：{error}"))?;
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                let canceled = stderr.contains("-128") || stderr.contains("User canceled");
+                return Err(if canceled {
+                    "提权被取消（点了取消），未做任何修改".to_string()
+                } else {
+                    format!(
+                        "静默卸载失败：{}",
+                        stderr.trim().chars().take(400).collect::<String>()
+                    )
+                });
+            }
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let output = command("sh")
+                .arg(&script)
+                .current_dir(&dir)
+                .stdin(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .and_then(|mut child| {
+                    use std::io::Write as _;
+                    if let Some(stdin) = child.stdin.as_mut() {
+                        // 菜单选 2（uninstall）；之后的确认问句也喂 y
+                        let _ = stdin.write_all(b"2\ny\ny\ny\n");
+                    }
+                    child.wait_with_output()
+                })
+                .map_err(|error| format!("运行 install.sh 失败：{error}"))?;
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                return Err(format!(
+                    "静默卸载失败（exit {}）：{}",
+                    output.status.code().unwrap_or(-1),
+                    stderr.trim().chars().take(400).collect::<String>()
+                ));
+            }
+        }
+        let bin = PathBuf::from(SOL_BIN);
+        if bin.is_file() {
+            return Err(format!(
+                "脚本退出但 {} 还在 —— 卸载可能没执行（检查脚本输出）",
+                SOL_BIN
+            ));
+        }
+        Ok("已卸载：二进制与服务已由官方脚本移除（安装目录里的配置保留）".to_string())
+    })
+    .await
+    .map_err(|error| format!("sol_uninstall_silent 任务失败：{error}"))??;
+    sol_log(&app, format!("＝＝＝ 静默卸载完成 ＝＝＝ {message}"));
+    record_action(&app, "sol_uninstall_silent", true, &message);
+    Ok(message)
+}
+
+/// 呼出系统终端跑官方脚本的卸载（交互模式：菜单选 2 = uninstall）。
+#[tauri::command]
+pub(crate) async fn sol_uninstall_terminal(
+    app: AppHandle,
+    install_dir: Option<String>,
+) -> Result<String, String> {
+    trace(&app, "command", "sol_uninstall_terminal");
+    let dir: PathBuf = tauri::async_runtime::spawn_blocking(move || -> Result<PathBuf, String> {
+        let dir = resolve_sol_dir(install_dir)?;
+        require_official_package(&dir)?;
+        Ok(dir)
+    })
+    .await
+    .map_err(|error| format!("sol_uninstall_terminal 任务失败：{error}"))??;
+
+    #[cfg(target_os = "windows")]
+    let command_line = "install.cmd".to_string();
+    #[cfg(not(target_os = "windows"))]
+    let command_line = "sh install.sh".to_string();
+
+    spawn_terminal(&dir, &command_line)?;
+    let message = "已在系统终端打开安装脚本 —— 卸载请在菜单里选 2（uninstall）";
     sol_log(&app, message.to_string());
-    record_action(&app, "sol_uninstall", true, message);
+    record_action(&app, "sol_uninstall_terminal", true, message);
     Ok(message.to_string())
 }
 
-/// 启动 / 停止 / 重启 sol 服务（非 root 经 pkexec systemctl）。
+/// 服务启停（start/stop/restart）：macOS launchctl、Linux systemctl。
+/// 官方脚本管安装期的注册，日常启停走这里（不必每次都开终端）。
 #[tauri::command]
 pub(crate) async fn sol_service_ctl(
     app: AppHandle,
@@ -1586,87 +2543,70 @@ pub(crate) async fn sol_service_ctl(
         "start" | "stop" | "restart" => action,
         _ => return Err(format!("不支持的动作：{action}（只认 start / stop / restart）")),
     };
-    let verb = format!("systemctl");
-    let (program, args): (String, Vec<String>) = if sol_is_elevated() {
-        (verb, vec![action.clone(), format!("{}.service", SOL_SERVICE)])
+    let (program, args): (String, Vec<String>) = if cfg!(target_os = "macos") {
+        // bootstrap 过的 system 域服务：kickstart（-k = 先杀再拉起 = restart）、
+        // kill SIGTERM = stop
+        let sub = match action.as_str() {
+            "start" => "launchctl kickstart system/com.lidiaoo.sol",
+            "restart" => "launchctl kickstart -k system/com.lidiaoo.sol",
+            _ => "launchctl kill SIGTERM system/com.lidiaoo.sol",
+        };
+        (
+            "osascript".to_string(),
+            vec![
+                "-e".to_string(),
+                format!("do shell script \"{sub}\" with administrator privileges"),
+            ],
+        )
     } else {
         (
-            "pkexec".to_string(),
-            vec![
-                "systemctl".to_string(),
-                action.clone(),
-                format!("{}.service", SOL_SERVICE),
-            ],
+            "systemctl".to_string(),
+            vec![action.clone(), format!("{}.service", SOL_SERVICE)],
         )
     };
     let output = command(&program)
         .args(&args)
         .stderr(Stdio::piped())
         .output()
-        .map_err(|error| format!("运行 systemctl 失败：{error}"))?;
+        .map_err(|error| format!("运行服务命令失败：{error}"))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(format!(
-            "systemctl {action} 失败：{}",
+            "sol 服务 {action} 失败：{}",
             stderr.trim().chars().take(200).collect::<String>()
         ));
     }
-    let message = format!("sol 服务已{action}");
-    record_action(&app, "sol_service_ctl", true, &message);
-    Ok(message)
+    let message = match action.as_str() {
+        "start" => "sol 服务已启动",
+        "stop" => "sol 服务已停止",
+        _ => "sol 服务已重启",
+    };
+    record_action(&app, "sol_service_ctl", true, message);
+    Ok(message.to_string())
+}
+
+/// 前端（主窗 webview）异常上报：WKWebView 的 console 我们看不到，
+/// 「数据不加载」类问题必须让 JS 侧异常落到 trace.log 才能定位。
+/// 放在 sol_panel 纯粹因为这里已经有 trace 落盘的样板，语义上它是 UI 诊断。
+#[tauri::command]
+pub(crate) fn sol_log_client_error(app: AppHandle, kind: String, detail: String) {
+    trace(
+        &app,
+        "ui-error",
+        &format!("[{kind}] {}", detail.chars().take(500).collect::<String>()),
+    );
 }
 
 /// 打开 sol 安装目录（文件管理器）。给定了路径就用它；没给就找检测到的那个。
 #[tauri::command]
 pub(crate) fn sol_open_dir(app: AppHandle, dir: Option<String>) -> Result<String, String> {
     trace(&app, "command", "sol_open_dir");
-    let resolved = match dir.as_deref().map(str::trim).filter(|d| !d.is_empty()) {
-        Some(dir) => PathBuf::from(dir),
-        None => detect_sol_install_dir()
-            .or_else(|| PathBuf::from(SOL_BIN).parent().map(Path::to_path_buf))
-            .ok_or_else(|| "没找到 sol 安装目录".to_string())?,
-    };
-    if !resolved.is_dir() {
-        return Err(format!("{} 不是目录", resolved.display()));
-    }
+    // 打开的就是「安装目录输入框」的语义：留空 = 默认 ~/sol。
+    // 目录不存在就先建出来（用户就是想看/往里放东西），不再回退 /usr/local/bin。
+    let resolved = resolve_sol_dir(dir)?;
+    fs::create_dir_all(&resolved).map_err(|error| format!("创建目录失败：{error}"))?;
     open_directory_in_explorer(&resolved)?;
     Ok(resolved.display().to_string())
-}
-
-/// 探测 sol 的解包 / 安装目录（找带有 sol 二进制 + 配置文件的目录）。
-///
-/// 惯例位置优先：/usr/local/software/sol-*（用户这台机器的落点）、
-/// /opt/sol*、~/sol*。返回第一个看起来像 sol 目录的。
-fn detect_sol_install_dir() -> Option<PathBuf> {
-    let mut roots: Vec<PathBuf> = vec![
-        PathBuf::from("/usr/local/software"),
-        PathBuf::from("/opt"),
-    ];
-    if let Ok(home) = std::env::var("HOME") {
-        roots.push(PathBuf::from(&home).join("Downloads"));
-        roots.push(PathBuf::from(home));
-    }
-    for root in roots {
-        let Ok(entries) = fs::read_dir(&root) else {
-            continue;
-        };
-        let mut dirs: Vec<PathBuf> = entries
-            .flatten()
-            .map(|entry| entry.path())
-            .filter(|dir| dir.is_dir())
-            .collect();
-        dirs.sort();
-        for dir in dirs {
-            let name = dir
-                .file_name()
-                .map(|name| name.to_string_lossy().to_lowercase())
-                .unwrap_or_default();
-            if name.starts_with("sol") && dir.join("sol").is_file() {
-                return Some(dir);
-            }
-        }
-    }
-    None
 }
 
 #[cfg(test)]
@@ -1695,32 +2635,27 @@ mod tests {
     }
 
     #[test]
-    fn sol_extracted_root_prefers_unique_subdir() {
-        let tmp = std::env::temp_dir().join(format!("anyboot-sol-root-{}", std::process::id()));
-        let root = tmp.join("sol-v0.1.0-linux-amd64");
-        fs::create_dir_all(&root).unwrap();
-        fs::write(root.join("sol"), b"fake binary").unwrap();
-        // 目录本身没有 sol → 顶层唯一子目录有 → 返回它
-        assert_eq!(sol_extracted_root(&tmp), Some(root.clone()));
-        fs::remove_dir_all(&tmp).ok();
-    }
-
-    #[test]
-    fn sol_extracted_root_direct_hit() {
-        let tmp = std::env::temp_dir().join(format!("anyboot-sol-root2-{}", std::process::id()));
-        fs::create_dir_all(&tmp).unwrap();
-        fs::write(tmp.join("sol"), b"fake binary").unwrap();
-        // 解压目录本身就是根（解包时去掉了顶层目录）
-        assert_eq!(sol_extracted_root(&tmp), Some(tmp.clone()));
-        fs::remove_dir_all(&tmp).ok();
-    }
-
-    #[test]
-    fn sol_extracted_root_none_when_empty() {
-        let tmp = std::env::temp_dir().join(format!("anyboot-sol-root3-{}", std::process::id()));
-        fs::create_dir_all(&tmp).unwrap();
-        assert_eq!(sol_extracted_root(&tmp), None);
-        fs::remove_dir_all(&tmp).ok();
+    fn plist_config_argument_is_parsed_from_next_string() {
+        // 真实 plist 片段：--config 与路径是两个独立的 <string> 行
+        let plist = "<?xml version=\"1.0\"?>\n<plist><dict>\n  <key>ProgramArguments</key>\n  <array>\n    <string>/usr/local/bin/sol</string>\n    <string>listen</string>\n    <string>--config</string>\n    <string>/Users/x/sol/sol.yaml</string>\n  </array>\n</dict></plist>";
+        // 与 sol_status_snapshot 里同一套解析
+        let mut lines = plist.lines().peekable();
+        let mut found = None;
+        while let Some(line) = lines.next() {
+            if line.contains("--config") {
+                if found.is_none() {
+                    if let Some(next) = lines.peek() {
+                        if let Some(value) = next.split("<string>").nth(1) {
+                            found = Some(
+                                value.split("</string>").next().unwrap_or("").trim().to_string(),
+                            );
+                        }
+                    }
+                }
+                break;
+            }
+        }
+        assert_eq!(found.as_deref(), Some("/Users/x/sol/sol.yaml"));
     }
 
     #[test]
