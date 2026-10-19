@@ -18,7 +18,7 @@
 //!   非 root 时经 pkexec / UAC 提权（与 grub_install.rs 同一条路）；
 //! - 打开安装目录：open_directory_in_explorer（lib.rs 的跨平台入口）。
 
-use std::io::{BufReader, Read as _};
+use std::io::BufReader;
 
 use super::*;
 
@@ -2208,11 +2208,12 @@ fn spawn_terminal(dir: &Path, command_line: &str) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     {
         let full = format!("cd '{dir_display}' && {command_line}; echo '（脚本已退出，可关闭此窗口）'; exec $SHELL");
+        let xfce = format!("bash -c \"{full}\"");
         for terminal in [
             ["gnome-terminal", "--", "bash", "-c", &full],
             ["konsole", "-e", "bash", "-c", &full],
-            ["xfce4-terminal", "-e", &format!("bash -c \"{full}\"")],
-            ["x-terminal-emulator", "-e", &format!("bash -c \"{full}\"")],
+            ["xfce4-terminal", "-e", &xfce, "", ""],
+            ["x-terminal-emulator", "-e", &xfce, "", ""],
         ] {
             let program = terminal[0];
             if command(program).arg("--version").output().map(|o| o.status.success()).unwrap_or(false) {
@@ -2291,6 +2292,7 @@ pub(crate) async fn sol_install_silent(
 ) -> Result<String, String> {
     trace(&app, "command", "sol_install_silent");
     sol_log(&app, "＝＝＝ 静默安装开始 ＝＝＝".to_string());
+    #[cfg(target_os = "macos")]
     let app_handle = app.clone();
     let message = tauri::async_runtime::spawn_blocking(move || {
         let dir = resolve_sol_dir(install_dir)?;
