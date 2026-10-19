@@ -74,12 +74,20 @@ pub(crate) fn ui_state(app: &AppHandle) -> UiState {
     }
 }
 
-/// **唯一**的发布入口：先 +1 revision，再用同一份快照重建托盘菜单 + 通知主窗口。
+/// **唯一**的发布入口：先取号（fetch_add 原子地拿走自己的 revision），再用同一份
+/// 快照重建托盘菜单 + 通知主窗口。
 ///
 /// 主窗口和托盘菜单从此不存在「各读各的」，也不需要三个补丁式事件。
+///
+/// 为什么用 fetch_add 的**返回值**而不是发布时再 load：
+/// 两个线程（启动扫描线程 + 主窗 refresh 命令）并发 publish 时，A add 完、B 又 add，
+/// A 再 load 会读到 B 的号 —— 两个**内容不同**的快照带同一个 revision。
+/// 前端按 revision 去重，后到的内容可能被当「过期」丢掉（主窗卡在「正在扫描…」
+/// 的实测根因之一）。fetch_add 返回的号是唯一归属，永不重复。
 pub(crate) fn publish_ui(app: &AppHandle) -> UiState {
-    UI_REVISION.fetch_add(1, Ordering::SeqCst);
-    let state = ui_state(app);
+    let revision = UI_REVISION.fetch_add(1, Ordering::SeqCst) + 1;
+    let mut state = ui_state(app);
+    state.revision = revision;
     // 移动端没有托盘/菜单，跳过重建（快照本身照发）
     #[cfg(desktop)]
     if let Err(error) = update_tray_menu(app, &state, "publish") {
@@ -148,6 +156,10 @@ pub(crate) fn websocket_publish<T: Serialize>(state: &T) {
 }
 
 /// 主窗口首次加载用：拿一份完整快照（含 revision）。
+///
+/// 这里读的是 UI_REVISION 的**当前值**（不加号）：它可能落后于最后一次 publish
+/// 刚发的快照，但绝不可能超前 —— 前端按 revision 去重，「等于上一拍」的快照
+/// 会被丢，所以轮询兜底拿到与事件同一拍的快照时不会重复渲染。
 #[tauri::command]
 pub(crate) fn get_ui_state(app: AppHandle) -> UiState {
     trace(&app, "command", "get_ui_state（主窗口）");
