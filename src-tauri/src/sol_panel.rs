@@ -374,10 +374,10 @@ const SOL_SERVICE: &str = "sol";
 /// | 平台 | 二进制 | 台账 | 运行配置 | 单元 |
 /// |---|---|---|---|---|
 /// | Linux/macOS | `~/sol/bin/sol` | `~/sol/install.json` | `~/sol/sol.yaml` | `~/sol/sol.service` / `~/sol/com.lidiaoo.sol.plist` |
-/// | Windows | `%ProgramData%\sol\sol.exe` | `%ProgramData%\sol\install.json` | `%USERPROFILE%\sol\sol.yaml` | 计划任务 `sol` |
+/// | Windows | `%USERPROFILE%\sol\sol.exe` | `%USERPROFILE%\sol\install.json` | `%USERPROFILE%\sol\sol.yaml` | 计划任务 `sol`（无文件） |
 ///
-/// **不再兼容旧路径**（/usr/local/bin/sol、/etc/sol/sol.yaml 等）：三端已统一收进
-/// 用户目录（Windows 二进制因需 SYSTEM 计划任务仍在 ProgramData），旧路径一律不查。
+/// 三端**全部**收在用户目录；不再兼容旧路径（/usr/local/bin/sol、/etc/sol/sol.yaml、
+/// C:\ProgramData\sol 等一律不查）。
 /// 从安装目录的 `install.yaml` 里读出 `run.args` 的 `--config` 取值。
 ///
 /// 这份文件是 sol 官方脚本生成的「sol 怎么跑」的唯一权威来源（三端一致）：
@@ -609,18 +609,12 @@ impl Default for SolStatus {
 /// 官方台账 install.json 里的 **binary** 字段（「已安装」的唯一依据是台账，
 /// 但二进制路径是台账里记的，按它去找最准）。
 ///
-/// 台账位置（官方脚本实测）：
-/// - Linux/macOS：`~/sol/install.json`
-/// - Windows：`%ProgramData%\sol\install.json`
+/// 台账位置（三端一致）：`~/sol/install.json`（Windows 为 `%USERPROFILE%\sol\install.json`）
 fn sol_ledger_paths() -> Vec<PathBuf> {
     #[cfg(target_os = "windows")]
     {
-        let root = std::env::var("ProgramData")
-            .ok()
-            .filter(|value| !value.trim().is_empty())
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from(r"C:\ProgramData"));
-        vec![root.join("sol").join("install.json")]
+        let root = windows_install_root();
+        vec![root.join("install.json")]
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -628,6 +622,24 @@ fn sol_ledger_paths() -> Vec<PathBuf> {
             .map(|dir| vec![dir.join("install.json")])
             .unwrap_or_default()
     }
+}
+
+/// Windows 的安装根目录（**已迁移到用户目录**，2026-10-20 定案）。
+///
+/// 官方 install.ps1 本次迁移后，二进制/台账/历史/运行日志/安装配置/运行配置
+/// **全部**在 `%USERPROFILE%\sol`（原来的 `C:\ProgramData\sol` 已弃用，不兼容）。
+/// `SOL_INSTALL_ROOT` 仍是官方 ps1 认的沙箱变量（多实例测试用），会覆盖家目录。
+#[cfg(target_os = "windows")]
+fn windows_install_root() -> PathBuf {
+    if let Ok(root) = std::env::var("SOL_INSTALL_ROOT") {
+        let root = root.trim().to_string();
+        if !root.is_empty() {
+            return PathBuf::from(root).join("sol");
+        }
+    }
+    std::env::var("USERPROFILE")
+        .map(|home| PathBuf::from(home).join(SOL_SERVICE))
+        .unwrap_or_else(|_| PathBuf::from(r"C:\sol"))
 }
 
 /// 台账里的 binary 字段（文件存在才算命中）。
@@ -836,6 +848,27 @@ pub(crate) fn sol_status_snapshot() -> SolStatus {
         status.recent_logs = macos_sol_log_tail();
     }
 
+    #[cfg(target_os = "windows")]
+    {
+        // 计划任务 `sol`（ONSTART + SYSTEM）：schtasks /query 能查到即注册过
+        if let Ok(output) = command("schtasks")
+            .args(["/Query", "/TN", SOL_SERVICE, "/FO", "LIST"])
+            .stderr(Stdio::piped())
+            .output()
+        {
+            if output.status.success() {
+                let text = String::from_utf8_lossy(&output.stdout);
+                status.service_loaded = true;
+                status.service_detail = Some("计划任务 sol（ONSTART + SYSTEM）".to_string());
+                // 状态行里出现 Running 即认为在跑（中文版 Windows 是「正在运行」）
+                let lower = text.to_lowercase();
+                status.service_active =
+                    lower.contains("running") || text.contains("正在运行");
+            }
+        }
+        status.recent_logs = windows_sol_log_tail();
+    }
+
     // 3) 进程兜底：服务没算 active 的话，再看有没有叫 sol 的进程（手动直跑）。
     if !status.process_running {
         status.process_running = sol_process_alive();
@@ -953,6 +986,25 @@ fn macos_sol_log_tail() -> Vec<String> {
         .collect()
 }
 
+
+/// Windows sol 日志最近 15 行：`%USERPROFILE%\sol\sol.log`
+/// （官方 ps1 把 `logging.output: file` 补进配置，sol 自己写这个文件）。
+#[cfg(target_os = "windows")]
+fn windows_sol_log_tail() -> Vec<String> {
+    let log_path = windows_install_root().join("sol.log");
+    let Ok(text) = fs::read_to_string(&log_path) else {
+        return Vec::new();
+    };
+    text.lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| line.chars().take(160).collect())
+        .rev()
+        .take(15)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect()
+}
 
 /// 读 sol 进程正在监听的 UDP 端口。
 ///
@@ -2995,43 +3047,25 @@ pub(crate) async fn sol_install_silent_inner(
 /// 安装完成后真正的配置文件路径。
 ///
 /// 唯一权威：安装目录 `install.yaml` 里的 `--config`（官方脚本写的「怎么跑」）。
-/// 没有 install.yaml 时：Linux/macOS 用 `<安装目录>/sol.yaml`，
-/// Windows 用 `%USERPROFILE%\sol\sol.yaml`（官方分工：二进制进 ProgramData、
-/// 配置进用户目录 —— 绝不能拿 bin.parent() 猜，那会指向 ProgramData）。
+/// 没有 install.yaml 时三端一致用 `<安装目录>/sol.yaml` —— 二进制、配置、
+/// 台账全在同一个用户目录（Windows 也是 %USERPROFILE%\sol）。
 fn sol_installed_config_path(install_dir: &Path, bin: &Path) -> PathBuf {
     if let Some(config) = sol_install_yaml_config(install_dir) {
         return config;
     }
-    #[cfg(target_os = "windows")]
-    {
-        let _ = bin;
-        sol_install_dir_from_env()
-            .unwrap_or_else(|| install_dir.to_path_buf())
-            .join("sol.yaml")
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let _ = bin;
-        install_dir.join("sol.yaml")
-    }
+    // 三端一致：配置就在安装目录（Windows 也是 %USERPROFILE%\sol）
+    let _ = bin;
+    install_dir.join("sol.yaml")
 }
 
-/// 安装完成后 sol 二进制的落点（官方布局）。
-/// Linux/macOS：`~/sol/bin/sol`；Windows：`%ProgramData%\sol\sol.exe`
-/// （可用 SOL_INSTALL_ROOT 改根，官方 ps1 也认这个变量）。
+/// 安装完成后 sol 二进制的落点（官方布局，三端都在用户目录）。
+/// Linux/macOS：`~/sol/bin/sol`；Windows：`%USERPROFILE%\sol\sol.exe`
+/// （`SOL_INSTALL_ROOT` 是官方 ps1 认的沙箱变量，会覆盖家目录）。
 fn sol_installed_bin_path() -> PathBuf {
     #[cfg(target_os = "windows")]
     {
-        // Windows 二进制仍在 ProgramData（SYSTEM 计划任务需要），不在用户目录。
-        // SOL_INSTALL_ROOT 是官方 ps1 自己认的沙箱变量（多实例测试用），不是旧版兼容。
-        let root = std::env::var("SOL_INSTALL_ROOT")
-            .ok()
-            .map(|value| value.trim().to_string())
-            .filter(|value| !value.is_empty())
-            .map(PathBuf::from)
-            .or_else(|| std::env::var("ProgramData").ok().map(PathBuf::from))
-            .unwrap_or_else(|| PathBuf::from(r"C:\ProgramData"));
-        root.join("sol").join("sol.exe")
+        // Windows 二进制也在用户目录：%USERPROFILE%\sol\sol.exe（本次迁移后）
+        windows_install_root().join("sol.exe")
     }
     #[cfg(not(target_os = "windows"))]
     {
