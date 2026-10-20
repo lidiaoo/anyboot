@@ -369,8 +369,15 @@ pub(crate) async fn sol_status_privileged(app: AppHandle) -> Result<SolStatus, S
 
 /// 服务名：Linux systemd 单元名（Windows 计划任务 / macOS 服务同名）。
 const SOL_SERVICE: &str = "sol";
-/// sol 二进制的惯例安装位置（install.sh 的默认落点）。
-const SOL_BIN: &str = "/usr/local/bin/sol";
+/// 三端落点（官方 install.sh / install.ps1 的真实布局，2026-10 实测）：
+///
+/// | 平台 | 二进制 | 台账 | 运行配置 | 单元 |
+/// |---|---|---|---|---|
+/// | Linux/macOS | `~/sol/bin/sol` | `~/sol/install.json` | `~/sol/sol.yaml` | `~/sol/sol.service` / `~/sol/com.lidiaoo.sol.plist` |
+/// | Windows | `%ProgramData%\sol\sol.exe` | `%ProgramData%\sol\install.json` | `%USERPROFILE%\sol\sol.yaml` | 计划任务 `sol` |
+///
+/// **不再兼容旧路径**（/usr/local/bin/sol、/etc/sol/sol.yaml 等）：三端已统一收进
+/// 用户目录（Windows 二进制因需 SYSTEM 计划任务仍在 ProgramData），旧路径一律不查。
 /// 从安装目录的 `install.yaml` 里读出 `run.args` 的 `--config` 取值。
 ///
 /// 这份文件是 sol 官方脚本生成的「sol 怎么跑」的唯一权威来源（三端一致）：
@@ -417,11 +424,8 @@ fn sol_install_yaml_config(dir: &Path) -> Option<PathBuf> {
 /// 是既定布局（下载/解压/安装都在这里）。
 ///
 /// 第一条会先读安装目录里的 `install.yaml`（官方脚本写的「怎么跑」），它指哪儿就是哪儿；
-/// 读不到（还没安装 / 文件被删）才退回惯例路径。
-///
-/// 后面两条是旧版本留下的兜底（历史上曾把配置拷进 /usr/local/bin 或 /etc/sol）：
-/// 不再往这两个地方装，但老用户机器上可能还留着，读到也算找到。
-/// 运行期展开 ~，避免 const 里写死家目录。
+/// 读不到（还没安装 / 文件被删）才退回同目录的 `sol.yaml`。
+/// 旧路径（/usr/local/bin、/etc/sol）不再兼容 —— 三端已统一用户目录。
 fn sol_config_candidates() -> Vec<PathBuf> {
     let mut candidates = Vec::new();
     if let Some(dir) = sol_install_dir_from_env() {
@@ -432,8 +436,7 @@ fn sol_config_candidates() -> Vec<PathBuf> {
         candidates.push(dir.join("sol.yaml"));
         candidates.push(dir.join("sol.yml"));
     }
-    candidates.push(PathBuf::from("/usr/local/bin/sol.yaml"));
-    candidates.push(PathBuf::from("/etc/sol/sol.yaml"));
+    // 旧路径（/usr/local/bin/sol.yaml、/etc/sol/sol.yaml）已删：三端统一 ~/sol
     candidates
 }
 
@@ -441,7 +444,7 @@ fn sol_config_candidates() -> Vec<PathBuf> {
 ///
 /// Windows 没有 `HOME`，家目录在 `USERPROFILE`（`LOCALAPPDATA` 兜底）；
 /// Linux/macOS 用 `HOME`。以前这里只读 `HOME`，于是 Windows 上前两条候选**永远是空的**，
-/// 只能去碰 /usr/local/bin 和 /etc/sol 这种 Unix 路径 —— 装好的 ~/sol/sol.yaml 反而读不到。
+/// 只能去碰 Unix 固定路径 —— 装好的 ~/sol/sol.yaml 反而读不到。
 fn sol_install_dir_from_env() -> Option<PathBuf> {
     #[cfg(target_os = "windows")]
     let home = std::env::var("USERPROFILE").or_else(|_| std::env::var("LOCALAPPDATA"));
@@ -607,19 +610,33 @@ impl Default for SolStatus {
 ///
 /// 快照要跑 systemctl/ss 等子进程（同步 `.output()`），命令走 async + spawn_blocking
 /// 把它挪进阻塞池（blocking_guard 守卫：同步命令体里不许有阻塞调用）。
-/// 官方台账 install.json（install.sh 装完写的）里的 binary 路径。
-/// 台账位置：$prefix/install.json（用户前缀安装，如 ~/sol/install.json）与
-/// /usr/local/share/sol/install.json（root 安装）。
+/// 官方台账 install.json 里的 **binary** 字段（「已安装」的唯一依据是台账，
+/// 但二进制路径是台账里记的，按它去找最准）。
+///
+/// 台账位置（官方脚本实测）：
+/// - Linux/macOS：`~/sol/install.json`
+/// - Windows：`%ProgramData%\sol\install.json`
+fn sol_ledger_paths() -> Vec<PathBuf> {
+    #[cfg(target_os = "windows")]
+    {
+        let root = std::env::var("ProgramData")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(r"C:\ProgramData"));
+        vec![root.join("sol").join("install.json")]
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        sol_install_dir_from_env()
+            .map(|dir| vec![dir.join("install.json")])
+            .unwrap_or_default()
+    }
+}
+
+/// 台账里的 binary 字段（文件存在才算命中）。
 fn sol_binary_from_ledger() -> Option<PathBuf> {
-    let mut candidates: Vec<PathBuf> = Vec::new();
-    if let Some(dir) = sol_install_dir_from_env() {
-        candidates.push(dir.join("install.json"));
-    }
-    candidates.push(PathBuf::from("/usr/local/share/sol/install.json"));
-    if let Some(home) = std::env::var("HOME").ok().filter(|h| !h.is_empty()) {
-        candidates.push(PathBuf::from(&home).join("sol").join("install.json"));
-    }
-    for ledger in candidates {
+    for ledger in sol_ledger_paths() {
         let Ok(content) = fs::read_to_string(&ledger) else {
             continue;
         };
@@ -680,27 +697,19 @@ pub(crate) fn sol_status_snapshot() -> SolStatus {
         status_needs_privilege: false,
     };
 
-    // 1) 二进制：官方台账 install.json 的 binary 字段（权威，用户前缀安装
-    //    ~/sol/bin/sol 也记在里面）→ ExecStart 里跑的那个 → 惯例位置 → PATH。
-    //    只看 /usr/local/bin 会漏掉官方脚本按用户前缀装的实例（"未安装 ·
-    //    服务运行中" 的自相矛盾就是这么来的）。
+    // 1) 二进制：官方台账 install.json 的 binary 字段（权威）→ ExecStart 里
+    //    跑的那个（服务在跑时必然命中）→ 平台惯例落点。
+    //    旧路径（/usr/local/bin/sol、PATH 扫描）不再兼容 —— 三端已统一。
     let bin = sol_binary_from_ledger()
         .or_else(sol_binary_from_service_unit)
-        .into_iter()
-        .chain([PathBuf::from(SOL_BIN)])
-        .chain(
-            std::env::var("PATH")
-                .unwrap_or_default()
-                .split(':')
-                .filter(|part| !part.is_empty())
-                .map(PathBuf::from)
-                .map(|dir| dir.join(SOL_SERVICE)),
-        )
-        .find(|candidate| candidate.is_file());
+        .or_else(|| {
+            let expected = sol_installed_bin_path();
+            expected.is_file().then_some(expected)
+        });
     if let Some(bin) = bin {
         status.installed = true;
         status.bin_path = Some(bin.display().to_string());
-        if let Ok(output) = command(bin.to_str().unwrap_or(SOL_BIN))
+        if let Ok(output) = command(bin.to_str().unwrap_or_default())
             .arg("--version")
             .stderr(Stdio::piped())
             .output()
@@ -736,7 +745,7 @@ pub(crate) fn sol_status_snapshot() -> SolStatus {
         {
             let text = String::from_utf8_lossy(&output.stdout);
             if let Some(line) = text.lines().next() {
-                // ExecStart={ path=/usr/local/bin/sol ; argv[]=/usr/local/bin/sol listen --config /path/sol.yaml ; ... }
+                // ExecStart={ path=/home/u/sol/bin/sol ; argv[]=/home/u/sol/bin/sol listen --config /home/u/sol/sol.yaml ; ... }
                 status.service_detail = Some(line.trim().to_string());
                 if let Some(config) = exec_start_config(line.trim()) {
                     status.config_path = Some(config);
@@ -866,7 +875,7 @@ pub(crate) fn sol_status_snapshot() -> SolStatus {
 /// Windows/macOS 上也要跑，所以这里不挂 cfg，函数本身很小。
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn exec_start_config(line: &str) -> Option<String> {
-    // argv[]=/usr/local/bin/sol listen --config /path/sol.yaml
+    // argv[]=/home/u/sol/bin/sol listen --config /home/u/sol/sol.yaml
     let argv = line.split("argv[]=").nth(1)?;
     let mut parts = argv.split_whitespace().peekable();
     while let Some(part) = parts.next() {
@@ -912,23 +921,29 @@ fn sol_process_alive() -> bool {
 }
 
 // ---- macOS：launchd（LaunchDaemon）那条线 ----
-// 与 Linux 的 systemd 一一对应：安装写 /Library/LaunchDaemons/<label>.plist，
-// 控制走 launchctl bootstrap/bootout/kickstart，日志落在 plist 指定的文件里。
+// 与 Linux 的 systemd 一一对应：官方脚本把 plist 写在 ~/sol/com.lidiaoo.sol.plist，
+// 用 launchctl bootstrap system 注册（system 域）；日志 plist 指到 ~/sol/sol.log。
 
 /// macOS LaunchDaemon 的 label（与官方 install.sh 的默认一致）。
 #[cfg(target_os = "macos")]
 const SOL_LAUNCHD_LABEL: &str = "com.lidiaoo.sol";
 
-/// macOS LaunchDaemon plist 路径。
+/// macOS 服务定义 plist 路径：官方脚本写在 `~/sol/com.lidiaoo.sol.plist`，
+/// 再用 `launchctl bootstrap system <该文件>` 注册（system 域，但文件在用户目录）。
 #[cfg(target_os = "macos")]
 fn sol_launchd_plist_path() -> PathBuf {
-    PathBuf::from("/Library/LaunchDaemons").join(format!("{}.plist", SOL_LAUNCHD_LABEL))
+    sol_install_dir_from_env()
+        .unwrap_or_else(|| PathBuf::from("/tmp/sol"))
+        .join(format!("{}.plist", SOL_LAUNCHD_LABEL))
 }
 
-/// macOS sol 日志最近 15 行（plist 里 StandardOutPath 指定的文件；读不到就空）。
+/// macOS sol 日志最近 15 行：官方 plist 把 StandardOutPath 指到 `~/sol/sol.log`。
 #[cfg(target_os = "macos")]
 fn macos_sol_log_tail() -> Vec<String> {
-    let Ok(text) = fs::read_to_string("/usr/local/var/log/sol.log") else {
+    let log_path = sol_install_dir_from_env()
+        .unwrap_or_else(|| PathBuf::from("/tmp/sol"))
+        .join("sol.log");
+    let Ok(text) = fs::read_to_string(&log_path) else {
         return Vec::new();
     };
     text.lines()
@@ -1122,7 +1137,7 @@ fn sol_config_write_blocking(path: String, content: String) -> Result<String, St
 
 /// 安装 sol 的默认下载目录（用户没设置时）：三平台统一 **用户主目录下的 sol**
 /// （Linux/macOS ~/sol，Windows %USERPROFILE%\sol）。用户目录一定可写，下载/
-/// 解压不需要提权；提权只发生在「安装」（写 /usr/local/bin、/etc、注册服务）
+/// 解压不需要提权；提权只发生在「安装」（写 ~/sol/bin、~/sol/sol.service、注册服务）
 /// 那一步 —— 权限边界与动作语义一一对应。
 pub(crate) fn sol_download_dir_default() -> PathBuf {
     #[cfg(target_os = "windows")]
@@ -3002,11 +3017,13 @@ fn sol_installed_config_path(install_dir: &Path, bin: &Path) -> PathBuf {
         .join("sol.yaml")
 }
 
-/// 安装完成后 sol 二进制的落点（判断「装上了没有」用）。
-/// Linux/macOS：/usr/local/bin/sol；Windows：官方 install.ps1 装到
-/// `%ProgramData%`（可用 SOL_INSTALL_ROOT 改根）下的 `sol\sol.exe`。
-fn sol_installed_bin_path() -> PathBuf {    #[cfg(target_os = "windows")]
+/// 安装完成后 sol 二进制的落点（官方布局）。
+/// Linux/macOS：`~/sol/bin/sol`；Windows：`%ProgramData%\sol\sol.exe`
+/// （可用 SOL_INSTALL_ROOT 改根，官方 ps1 也认这个变量）。
+fn sol_installed_bin_path() -> PathBuf {
+    #[cfg(target_os = "windows")]
     {
+        // Windows 二进制仍在 ProgramData（SYSTEM 计划任务需要），不在用户目录
         let root = std::env::var("SOL_INSTALL_ROOT")
             .ok()
             .map(|value| value.trim().to_string())
@@ -3018,7 +3035,11 @@ fn sol_installed_bin_path() -> PathBuf {    #[cfg(target_os = "windows")]
     }
     #[cfg(not(target_os = "windows"))]
     {
-        PathBuf::from(SOL_BIN)
+        // Linux/macOS：~/sol/bin/sol
+        sol_install_dir_from_env()
+            .unwrap_or_else(|| PathBuf::from("/tmp/sol"))
+            .join("bin")
+            .join("sol")
     }
 }
 
@@ -3359,10 +3380,10 @@ mod tests {
         );
 
         // --config=X 也要认
-        fs::write(&cfg, "run:\n  args: [listen, --config=/etc/sol/sol.yaml]\n").unwrap();
+        fs::write(&cfg, "run:\n  args: [listen, --config=/home/u/sol/sol.yaml]\n").unwrap();
         assert_eq!(
             sol_install_yaml_config(&dir).as_deref(),
-            Some(Path::new("/etc/sol/sol.yaml"))
+            Some(Path::new("/home/u/sol/sol.yaml"))
         );
 
         // 没有 --config：返回 None，让调用方走惯例路径
@@ -3404,29 +3425,29 @@ mod tests {
 
     #[test]
     fn exec_start_config_extracts_path() {
-        let line = "ExecStart={ path=/usr/local/bin/sol ; argv[]=/usr/local/bin/sol listen --config /usr/local/software/sol-v0.1.0-linux-amd64/sol.yaml ; ignore_errors=no ; start_time=[Mon 2026-10-19 10:55:08 CST] }";
+        let line = "ExecStart={ path=/home/u/sol/bin/sol ; argv[]=/home/u/sol/bin/sol listen --config /home/u/sol/sol.yaml ; ignore_errors=no ; start_time=[Mon 2026-10-19 10:55:08 CST] }";
         assert_eq!(
             exec_start_config(line).as_deref(),
-            Some("/usr/local/software/sol-v0.1.0-linux-amd64/sol.yaml")
+            Some("/home/u/sol/sol.yaml")
         );
     }
 
     #[test]
     fn exec_start_config_supports_equals_form() {
-        let line = "ExecStart={ path=/usr/local/bin/sol ; argv[]=/usr/local/bin/sol listen --config=/etc/sol/sol.yaml }";
-        assert_eq!(exec_start_config(line).as_deref(), Some("/etc/sol/sol.yaml"));
+        let line = "ExecStart={ path=/home/u/sol/bin/sol ; argv[]=/home/u/sol/bin/sol listen --config=/home/u/sol/sol.yaml }";
+        assert_eq!(exec_start_config(line).as_deref(), Some("/home/u/sol/sol.yaml"));
     }
 
     #[test]
     fn exec_start_config_without_config_is_none() {
-        let line = "ExecStart={ path=/usr/local/bin/sol ; argv[]=/usr/local/bin/sol listen }";
+        let line = "ExecStart={ path=/home/u/sol/bin/sol ; argv[]=/home/u/sol/bin/sol listen }";
         assert_eq!(exec_start_config(line), None);
     }
 
     #[test]
     fn plist_config_argument_is_parsed_from_next_string() {
         // 真实 plist 片段：--config 与路径是两个独立的 <string> 行
-        let plist = "<?xml version=\"1.0\"?>\n<plist><dict>\n  <key>ProgramArguments</key>\n  <array>\n    <string>/usr/local/bin/sol</string>\n    <string>listen</string>\n    <string>--config</string>\n    <string>/Users/x/sol/sol.yaml</string>\n  </array>\n</dict></plist>";
+        let plist = "<?xml version=\"1.0\"?>\n<plist><dict>\n  <key>ProgramArguments</key>\n  <array>\n    <string>/Users/x/sol/bin/sol</string>\n    <string>listen</string>\n    <string>--config</string>\n    <string>/Users/x/sol/sol.yaml</string>\n  </array>\n</dict></plist>";
         // 与 sol_status_snapshot 里同一套解析
         let mut lines = plist.lines().peekable();
         let mut found = None;
