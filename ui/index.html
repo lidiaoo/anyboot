@@ -711,7 +711,7 @@
             <button class="primary-sol" id="sol-one-click" type="button">一键安装（静默）</button>
             <button class="secondary" id="sol-one-click-terminal" type="button">一键安装（调终端）</button>
           </div>
-          <small class="sol-hint" id="sol-install-hint">安装 = 下载 → <b>清空安装目录</b> → 解压到安装目录 → 官方 install.sh（静默 = 无人值守自动确认；调终端 = 弹出终端由你回答脚本问句）。<b>解压前会清空安装目录，但保留 sol.yaml / sol.yml 配置文件</b>（端口、token 等设置不丢）；包内容直接铺在安装目录下，不保留 sol-v* 子目录。配置 sol.yaml 就在安装目录里；卸载保留它以便回滚。<br />落点：Linux/macOS 全部在 <code>~/sol</code>（二进制 <code>bin/sol</code>）；Windows 配置在 <code>%USERPROFILE%\sol</code>，二进制与台账在 <code>%ProgramData%\sol</code>（计划任务需要）。</small>
+          <small class="sol-hint" id="sol-install-hint">安装 = 下载 → <b>清空安装目录</b> → 解压到安装目录 → 官方 install.sh（静默 = 无人值守自动确认；调终端 = 弹出终端由你回答脚本问句）。<b>解压前会清空安装目录，但保留 sol.yaml 配置文件</b>（端口、token 等设置不丢）；包内容直接铺在安装目录下，不保留 sol-v* 子目录。配置 sol.yaml 就在安装目录里；卸载保留它以便回滚。<br />落点：Linux/macOS 全部在 <code>~/sol</code>（二进制 <code>bin/sol</code>）；Windows 配置在 <code>%USERPROFILE%\sol</code>，二进制与台账在 <code>%ProgramData%\sol</code>（计划任务需要）。</small>
 
           <!-- 安装包：下载（进度条）→ 解压 → 安装；目录可自定义，也支持手工选包 -->
           <div class="setting-block sol-pkg-block">
@@ -740,7 +740,7 @@
             <span class="remote-inline">
               <button class="secondary" id="sol-download" type="button">下载</button>
               <button class="secondary" id="sol-pick-archive" type="button">选择安装包…</button>
-              <button class="secondary" id="sol-extract" type="button" disabled title="解压前会先清空安装目录（保留 sol.yaml / sol.yml 配置文件），再把包内容直接铺到安装目录，不再保留 sol-v* 子目录">解压到安装目录</button>
+              <button class="secondary" id="sol-extract" type="button" disabled title="解压前会先清空安装目录（保留 sol.yaml 配置文件），再把包内容直接铺到安装目录，不再保留 sol-v* 子目录">解压到安装目录</button>
               <button class="secondary" id="sol-install-from-pkg" type="button">安装（静默）</button>
               <button class="secondary" id="sol-install-from-pkg-terminal" type="button">安装（调终端）</button>
             </span>

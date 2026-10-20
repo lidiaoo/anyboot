@@ -423,31 +423,27 @@ fn sol_install_yaml_config(dir: &Path) -> Option<PathBuf> {
 /// 配置文件候选路径：**安装目录（~/sol）优先** —— 「配置 sol.yaml 就在安装目录」
 /// 是既定布局（下载/解压/安装都在这里）。
 ///
-/// 第一条会先读安装目录里的 `install.yaml`（官方脚本写的「怎么跑」），它指哪儿就是哪儿；
-/// 读不到（还没安装 / 文件被删）才退回同目录的 `sol.yaml`。
-/// 旧路径（/usr/local/bin、/etc/sol）不再兼容 —— 三端已统一用户目录。
+/// 顺序：安装目录的 `install.yaml` 里 `--config` 指哪儿就是哪儿（官方脚本写的
+/// 「怎么跑」，唯一权威）；没有才用同目录的 `sol.yaml`（官方默认生成位置）。
+/// 没有 `sol.yml` 兜底、没有 /usr/local/bin、没有 /etc/sol —— 官方只会写 `sol.yaml`。
 fn sol_config_candidates() -> Vec<PathBuf> {
     let mut candidates = Vec::new();
     if let Some(dir) = sol_install_dir_from_env() {
-        // 先信 install.yaml（官方脚本写的「怎么跑」），再信惯例（同一个目录，顺序不能反）
         if let Some(declared) = sol_install_yaml_config(&dir) {
             candidates.push(declared);
         }
         candidates.push(dir.join("sol.yaml"));
-        candidates.push(dir.join("sol.yml"));
     }
-    // 旧路径（/usr/local/bin/sol.yaml、/etc/sol/sol.yaml）已删：三端统一 ~/sol
     candidates
 }
 
 /// 默认安装目录（= 下载/解压目录）：`~/sol`。
 ///
-/// Windows 没有 `HOME`，家目录在 `USERPROFILE`（`LOCALAPPDATA` 兜底）；
-/// Linux/macOS 用 `HOME`。以前这里只读 `HOME`，于是 Windows 上前两条候选**永远是空的**，
-/// 只能去碰 Unix 固定路径 —— 装好的 ~/sol/sol.yaml 反而读不到。
+/// Windows 家目录 = `%USERPROFILE%`（官方 install.ps1 的 RunDir）；
+/// Linux/macOS 用 `$HOME`。三端唯一落点。
 fn sol_install_dir_from_env() -> Option<PathBuf> {
     #[cfg(target_os = "windows")]
-    let home = std::env::var("USERPROFILE").or_else(|_| std::env::var("LOCALAPPDATA"));
+    let home = std::env::var("USERPROFILE");
     #[cfg(not(target_os = "windows"))]
     let home = std::env::var("HOME");
     home.ok()
@@ -1142,9 +1138,8 @@ fn sol_config_write_blocking(path: String, content: String) -> Result<String, St
 pub(crate) fn sol_download_dir_default() -> PathBuf {
     #[cfg(target_os = "windows")]
     {
-        // %USERPROFILE% = C:\Users\<name>
+        // %USERPROFILE% = C:\Users\<name>（官方 install.ps1 的 RunDir 就是这个）
         std::env::var("USERPROFILE")
-            .or_else(|_| std::env::var("LOCALAPPDATA"))
             .map(|home| PathBuf::from(home).join(SOL_SERVICE))
             .unwrap_or_else(|_| PathBuf::from(r"C:\sol"))
     }
@@ -1162,9 +1157,9 @@ pub(crate) fn sol_download_dir_default() -> PathBuf {
 
 /// 下载 sol 安装包到指定目录（dir 为空 = 默认目录）。
 ///
-/// 流程：目录不存在就建 → 落盘名为 sol-<platform>.tar.gz（Windows 同样是 tar.gz，
-/// 官方 release 的 Windows 包也是 tar.gz；zip 只是历史兼容）→ 用系统自带的
-/// curl → wget（Windows 走 PowerShell Invoke-WebRequest）下载，带
+/// 流程：目录不存在就建 → 落盘名按平台（Linux/macOS: .tar.gz，Windows: .zip，
+/// 与官方 release 一致）→ 用系统自带的 curl → wget（Windows 走 PowerShell
+/// Invoke-WebRequest）下载，带
 /// `-L` 跟随 GitHub 的 302 重定向 → 校验文件非空 → 返回落盘绝对路径。
 /// 不做断点续传（安装包就几 MB，失败重下比续传省心）。
 #[tauri::command]
@@ -1665,7 +1660,7 @@ fn now_string() -> String {
 ///
 /// 用户定案：解压采用「先清空安装目录再解压」，但**配置文件不能跟着被清掉** ——
 /// 那是用户手改过的 sol.yaml（监听端口、token、动作白名单）。日志/界面都要提前说清楚。
-const SOL_PRESERVED_FILES: &[&str] = &["sol.yaml", "sol.yml"];
+const SOL_PRESERVED_FILES: &[&str] = &["sol.yaml"];
 
 /// 安装包文件名（小写比较）：`sol-vX.Y.Z-windows-amd64.zip` 之类。
 ///
@@ -1691,7 +1686,7 @@ fn sol_is_archive_name(name: &str) -> bool {
 ///
 /// 三端统一行为（用户定案）：
 ///   1. 先**清空**安装目录（旧版本残留、上一次解压的 sol-v*/ 目录），避免新旧文件混在一起；
-///   2. 保留 `sol.yaml` / `sol.yml`（用户配置）—— 清空后原样放回；
+///   2. 保留 `sol.yaml`（用户配置）—— 清空后原样放回；
 ///   3. 解压后如果唯一顶层是 `sol-vX.Y.Z-<平台>/`，把它里面的**内容上移到安装目录**，
 ///      再删掉这层空壳。这样 `~/sol/` 下直接就是 sol(.exe)、install.sh(.cmd)、skills/，
 ///      不再是 `~/sol/sol-v0.1.0-windows-amd64/sol.exe`。
@@ -1722,7 +1717,7 @@ fn sol_clear_install_dir(dir: &Path) -> Result<(Vec<String>, Vec<String>), Strin
         let path = entry.path();
         let name = entry.file_name().to_string_lossy().into_owned();
         let is_file = path.is_file();
-        // 用户配置：sol.yaml / sol.yml
+        // 用户配置：sol.yaml
         let preserved_config = is_file
             && SOL_PRESERVED_FILES
                 .iter()
@@ -1768,7 +1763,7 @@ fn sol_clear_install_dir(dir: &Path) -> Result<(Vec<String>, Vec<String>), Strin
 /// 目录里是否「只有」唯一顶层目录 `sol-v*`，且它本身是个完整包。
 /// 是的话返回这个子目录路径 —— 解压后要把它的内容上移到安装目录。
 ///
-/// 注意：清空时**保留**下来的 `sol.yaml` / `sol.yml` 会留在同一层，它们不算障碍
+/// 注意：清空时**保留**下来的 `sol.yaml` 会留在同层，它不算障碍
 /// （上移时逐项 rename，只会碰包里自己的文件，配置文件不受影响）；除此之外
 /// 顶层不能有任何其它文件或第二个目录，否则不动 —— 避免误删/误盖别的东西。
 fn sol_single_package_child(dir: &Path) -> Option<PathBuf> {
@@ -1857,7 +1852,7 @@ pub(crate) async fn sol_extract(app: AppHandle, archive: String, dir: Option<Str
     };
     fs::create_dir_all(&dir).map_err(|error| format!("创建解压目录失败：{error}"))?;
 
-    // 先清空安装目录（保留 sol.yaml / sol.yml + 安装包本身），再解压 —— 三端同一条路径。
+    // 先清空安装目录（保留 sol.yaml + 安装包本身），再解压 —— 三端同一条路径。
     let (removed, kept) = sol_clear_install_dir(&dir)?;
     if removed.is_empty() && kept.is_empty() {
         sol_log(&app, "① 安装目录是空的，无需清理".to_string());
@@ -2500,7 +2495,7 @@ pub(crate) async fn sol_one_click_install(app: AppHandle, dir: Option<String>) -
     })?;
     sol_log(&app, format!("① 下载完成 {archive}"));
 
-    // 2) 清空 + 解压：sol_extract 内部先清空安装目录（保留 sol.yaml/sol.yml），
+    // 2) 清空 + 解压：sol_extract 内部先清空安装目录（保留 sol.yaml），
     //    再把包内容上移铺平 —— 最终 ~/sol/ 下直接是 sol(.exe)、install.sh(.cmd)、skills/
     sol_log(&app, format!("② 开始解压到 {}", resolve_sol_dir_raw(&dir).display()));
     let root = sol_extract(app.clone(), archive, Some(resolve_sol_dir_raw(&dir).display().to_string()))
@@ -2661,9 +2656,6 @@ fn spawn_terminal(dir: &Path, command_line: &str) -> Result<(), String> {
         Err("没找到可用的终端模拟器（gnome-terminal / konsole / xfce4-terminal）".to_string())
     }
 }
-
-#[cfg(target_os = "windows")]
-fn spawn_terminal_fallback_unused() {}
 
 /// 跑官方安装脚本时用的工作目录：安装目录的**父目录**（不是安装目录本身）。
 ///
@@ -3000,21 +2992,28 @@ pub(crate) async fn sol_install_silent_inner(
     Ok(message)
 }
 
-/// 安装完成后真正的配置文件路径：优先读安装目录 install.yaml 里的
-/// `--config`（官方脚本生成，指向实际运行配置），没有再按平台惯例猜。
-/// Windows 官方分工是二进制进 `%ProgramData%\sol`、配置进 `%USERPROFILE%\sol`，
-/// 不能拿 bin.parent() 当配置目录（那是 Unix 惯性，会报不存在的 ProgramData 路径）。
+/// 安装完成后真正的配置文件路径。
+///
+/// 唯一权威：安装目录 `install.yaml` 里的 `--config`（官方脚本写的「怎么跑」）。
+/// 没有 install.yaml 时：Linux/macOS 用 `<安装目录>/sol.yaml`，
+/// Windows 用 `%USERPROFILE%\sol\sol.yaml`（官方分工：二进制进 ProgramData、
+/// 配置进用户目录 —— 绝不能拿 bin.parent() 猜，那会指向 ProgramData）。
 fn sol_installed_config_path(install_dir: &Path, bin: &Path) -> PathBuf {
     if let Some(config) = sol_install_yaml_config(install_dir) {
         return config;
     }
-    let from_dir = install_dir.join("sol.yaml");
-    if from_dir.is_file() {
-        return from_dir;
+    #[cfg(target_os = "windows")]
+    {
+        let _ = bin;
+        sol_install_dir_from_env()
+            .unwrap_or_else(|| install_dir.to_path_buf())
+            .join("sol.yaml")
     }
-    bin.parent()
-        .unwrap_or(Path::new("."))
-        .join("sol.yaml")
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = bin;
+        install_dir.join("sol.yaml")
+    }
 }
 
 /// 安装完成后 sol 二进制的落点（官方布局）。
@@ -3023,7 +3022,8 @@ fn sol_installed_config_path(install_dir: &Path, bin: &Path) -> PathBuf {
 fn sol_installed_bin_path() -> PathBuf {
     #[cfg(target_os = "windows")]
     {
-        // Windows 二进制仍在 ProgramData（SYSTEM 计划任务需要），不在用户目录
+        // Windows 二进制仍在 ProgramData（SYSTEM 计划任务需要），不在用户目录。
+        // SOL_INSTALL_ROOT 是官方 ps1 自己认的沙箱变量（多实例测试用），不是旧版兼容。
         let root = std::env::var("SOL_INSTALL_ROOT")
             .ok()
             .map(|value| value.trim().to_string())

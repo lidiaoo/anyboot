@@ -2603,12 +2603,12 @@ solExtractElement.addEventListener("click", async () => {
   if (!solPkgArchivePath) {
     return;
   }
-  // 解压前会清空安装目录（保留 sol.yaml / sol.yml），这一步不可撤销，先让用户确认。
+  // 解压前会清空安装目录（保留 sol.yaml），这一步不可撤销，先让用户确认。
   const target = solDir || "默认目录（~/sol）";
   if (
     !window.confirm(
       `解压前会先清空安装目录：\n\n${target}\n\n` +
-        "· 目录里除 sol.yaml / sol.yml 之外的内容都会被删除\n" +
+        "· 目录里除 sol.yaml 之外的内容都会被删除\n" +
         "· 这两个配置文件会保留，不会被覆盖\n" +
         "· 包内容会直接铺到安装目录，不保留 sol-v* 子目录\n\n" +
         "确认清空并解压？",
