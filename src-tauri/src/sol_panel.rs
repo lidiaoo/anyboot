@@ -607,6 +607,63 @@ impl Default for SolStatus {
 ///
 /// 快照要跑 systemctl/ss 等子进程（同步 `.output()`），命令走 async + spawn_blocking
 /// 把它挪进阻塞池（blocking_guard 守卫：同步命令体里不许有阻塞调用）。
+/// 官方台账 install.json（install.sh 装完写的）里的 binary 路径。
+/// 台账位置：$prefix/install.json（用户前缀安装，如 ~/sol/install.json）与
+/// /usr/local/share/sol/install.json（root 安装）。
+fn sol_binary_from_ledger() -> Option<PathBuf> {
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    if let Some(dir) = sol_install_dir_from_env() {
+        candidates.push(dir.join("install.json"));
+    }
+    candidates.push(PathBuf::from("/usr/local/share/sol/install.json"));
+    if let Some(home) = std::env::var("HOME").ok().filter(|h| !h.is_empty()) {
+        candidates.push(PathBuf::from(&home).join("sol").join("install.json"));
+    }
+    for ledger in candidates {
+        let Ok(content) = fs::read_to_string(&ledger) else {
+            continue;
+        };
+        // 不引 JSON crate 依赖：binary 字段一行正则级提取足够
+        for line in content.lines() {
+            let trimmed = line.trim().trim_end_matches(',');
+            if let Some(rest) = trimmed.strip_prefix("\"binary\"") {
+                let rest = rest.trim().strip_prefix(':')?.trim();
+                let value = rest.trim_matches(|c| c == '"' || c == ',');
+                let path = PathBuf::from(value);
+                if path.is_file() {
+                    return Some(path);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// systemd ExecStart 里跑的那个 sol（服务在跑，二进制必然存在且就是它在用）。
+fn sol_binary_from_service_unit() -> Option<PathBuf> {
+    let output = command("systemctl")
+        .args([
+            "show",
+            SOL_SERVICE,
+            "--property=ExecStart",
+            "--no-pager",
+        ])
+        .stderr(Stdio::piped())
+        .output()
+        .ok()?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    let line = text.lines().next()?.trim();
+    // ExecStart={ path=/home/x/sol/bin/sol ; argv[]=/home/x/sol/bin/sol listen ... }
+    let path_part = line.split("path=").nth(1)?;
+    let path = path_part.split(';').next()?.trim();
+    let path = PathBuf::from(path);
+    if path.is_file() {
+        Some(path)
+    } else {
+        None
+    }
+}
+
 pub(crate) fn sol_status_snapshot() -> SolStatus {
     let mut status = SolStatus {
         installed: false,
@@ -623,9 +680,14 @@ pub(crate) fn sol_status_snapshot() -> SolStatus {
         status_needs_privilege: false,
     };
 
-    // 1) 二进制：惯例位置 → PATH。找到了就顺带问一次 --version。
-    let bin = [PathBuf::from(SOL_BIN)]
+    // 1) 二进制：官方台账 install.json 的 binary 字段（权威，用户前缀安装
+    //    ~/sol/bin/sol 也记在里面）→ ExecStart 里跑的那个 → 惯例位置 → PATH。
+    //    只看 /usr/local/bin 会漏掉官方脚本按用户前缀装的实例（"未安装 ·
+    //    服务运行中" 的自相矛盾就是这么来的）。
+    let bin = sol_binary_from_ledger()
+        .or_else(sol_binary_from_service_unit)
         .into_iter()
+        .chain([PathBuf::from(SOL_BIN)])
         .chain(
             std::env::var("PATH")
                 .unwrap_or_default()
