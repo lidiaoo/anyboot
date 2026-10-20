@@ -371,24 +371,85 @@ pub(crate) async fn sol_status_privileged(app: AppHandle) -> Result<SolStatus, S
 const SOL_SERVICE: &str = "sol";
 /// sol 二进制的惯例安装位置（install.sh 的默认落点）。
 const SOL_BIN: &str = "/usr/local/bin/sol";
+/// 从安装目录的 `install.yaml` 里读出 `run.args` 的 `--config` 取值。
+///
+/// 这份文件是 sol 官方脚本生成的「sol 怎么跑」的唯一权威来源（三端一致）：
+/// 用户改了 `--config` 就是真的改了，anyboot 不该再用「惯例路径」去猜。
+/// 返回文件名与路径都不做存在性假设 —— 文件可能还不存在（没装过），此时返回 None 让调用方走兜底。
+///
+/// 只认脚本自己写出的那种写法（`args: [listen, --config, <path>]`，一行、逗号分隔），
+/// 与 install.sh 的 parse_args 保持同一套约定，不去猜别的 YAML 形态。
+fn sol_install_yaml_config(dir: &Path) -> Option<PathBuf> {
+    let text = fs::read_to_string(dir.join("install.yaml")).ok()?;
+    for line in text.lines() {
+        let trimmed = line.trim_start();
+        if !trimmed.starts_with("args:") {
+            continue;
+        }
+        let value = trimmed["args:".len()..].trim();
+        let inner = value
+            .strip_prefix('[')
+            .and_then(|rest| rest.strip_suffix(']'))
+            .unwrap_or(value);
+        let mut tokens = inner.split(',').map(|token| token.trim());
+        let mut prev: Option<&str> = None;
+        while let Some(token) = tokens.next() {
+            // 同时认 `--config X` 与 `--config=X`
+            if let Some(inline) = token.strip_prefix("--config=") {
+                let inline = inline.trim().trim_matches('"').trim_matches('\'');
+                if !inline.is_empty() {
+                    return Some(PathBuf::from(inline));
+                }
+            }
+            if prev == Some("--config") {
+                let value = token.trim_matches('"').trim_matches('\'');
+                if !value.is_empty() {
+                    return Some(PathBuf::from(value));
+                }
+            }
+            prev = Some(token);
+        }
+    }
+    None
+}
+
 /// 配置文件候选路径：**安装目录（~/sol）优先** —— 「配置 sol.yaml 就在安装目录」
 /// 是既定布局（下载/解压/安装都在这里）。
+///
+/// 第一条会先读安装目录里的 `install.yaml`（官方脚本写的「怎么跑」），它指哪儿就是哪儿；
+/// 读不到（还没安装 / 文件被删）才退回惯例路径。
 ///
 /// 后面两条是旧版本留下的兜底（历史上曾把配置拷进 /usr/local/bin 或 /etc/sol）：
 /// 不再往这两个地方装，但老用户机器上可能还留着，读到也算找到。
 /// 运行期展开 ~，避免 const 里写死家目录。
 fn sol_config_candidates() -> Vec<PathBuf> {
     let mut candidates = Vec::new();
-    if let Some(home) = std::env::var("HOME")
-        .ok()
-        .filter(|home| !home.trim().is_empty())
-    {
-        candidates.push(PathBuf::from(&home).join("sol").join("sol.yaml"));
-        candidates.push(PathBuf::from(&home).join("sol").join("sol.yml"));
+    if let Some(dir) = sol_install_dir_from_env() {
+        // 先信 install.yaml（官方脚本写的「怎么跑」），再信惯例（同一个目录，顺序不能反）
+        if let Some(declared) = sol_install_yaml_config(&dir) {
+            candidates.push(declared);
+        }
+        candidates.push(dir.join("sol.yaml"));
+        candidates.push(dir.join("sol.yml"));
     }
     candidates.push(PathBuf::from("/usr/local/bin/sol.yaml"));
     candidates.push(PathBuf::from("/etc/sol/sol.yaml"));
     candidates
+}
+
+/// 默认安装目录（= 下载/解压目录）：`~/sol`。
+///
+/// Windows 没有 `HOME`，家目录在 `USERPROFILE`（`LOCALAPPDATA` 兜底）；
+/// Linux/macOS 用 `HOME`。以前这里只读 `HOME`，于是 Windows 上前两条候选**永远是空的**，
+/// 只能去碰 /usr/local/bin 和 /etc/sol 这种 Unix 路径 —— 装好的 ~/sol/sol.yaml 反而读不到。
+fn sol_install_dir_from_env() -> Option<PathBuf> {
+    #[cfg(target_os = "windows")]
+    let home = std::env::var("USERPROFILE").or_else(|_| std::env::var("LOCALAPPDATA"));
+    #[cfg(not(target_os = "windows"))]
+    let home = std::env::var("HOME");
+    home.ok()
+        .filter(|home| !home.trim().is_empty())
+        .map(|home| PathBuf::from(home).join(SOL_SERVICE))
 }
 /// sol 官方 release 下载基址（fork 仓库的 releases 下载路径，资产名带版本号）。
 /// 注意：`releases/latest/download/sol-<platform>.tar.gz` 这种不带版本号的
@@ -418,6 +479,65 @@ fn sol_asset_name() -> String {
     } else {
         format!("sol-v{SOL_RELEASE_VERSION}-{SOL_RELEASE_TARGET}.tar.gz")
     }
+}
+
+/// 官方包目录名前缀：release 压缩包内唯一顶层目录就是 `sol-vX.Y.Z-<平台>/`。
+/// （实际解压出来的目录，安装包里的二进制/脚本都在这层下面。）
+const SOL_PACKAGE_DIR_PREFIX: &str = "sol-v";
+
+/// 安装包里的二进制文件名：Windows 是 sol.exe，其它平台是不带后缀的 sol。
+fn sol_package_bin() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "sol.exe"
+    } else {
+        "sol"
+    }
+}
+
+/// 安装包里的安装脚本：Windows 官方发 install.cmd / install.ps1，其它平台 install.sh。
+/// 「一键安装」要跑的就是它 —— 以前在所有平台都写死了 install.sh，Windows 上必然找不到。
+fn sol_package_script() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "install.cmd"
+    } else {
+        "install.sh"
+    }
+}
+
+/// 判断 dir 是不是**完整**的官方安装包：二进制 + 安装脚本都在。
+///
+/// 以前只认 `sol` + `install.sh` 两个固定名字，Windows 包（sol.exe / install.cmd）永远
+/// 匹配不上 —— 一键安装在解压后的校验那一步就报「包内容与预期不符」。
+fn sol_package_complete(dir: &Path) -> bool {
+    dir.join(sol_package_bin()).is_file() && dir.join(sol_package_script()).is_file()
+}
+
+/// 从父目录里挑出官方包目录：先看 `sol-v*` 命名的子目录（release 包内唯一的那个），
+/// 再看解压目录本身（--strip-components=1 / 归拢之后的状态）。多个候选时取版本最高的。
+fn sol_find_package_dir(parent: &Path) -> Option<PathBuf> {
+    if sol_package_complete(parent) {
+        return Some(parent.to_path_buf());
+    }
+    let mut candidates: Vec<PathBuf> = fs::read_dir(parent)
+        .map(|entries| {
+            entries
+                .flatten()
+                .map(|entry| entry.path())
+                .filter(|path| path.is_dir())
+                .filter(|path| {
+                    path.file_name()
+                        .and_then(|name| name.to_str())
+                        .map(|name| name.starts_with(SOL_PACKAGE_DIR_PREFIX))
+                        .unwrap_or(false)
+                })
+                .filter(|path| sol_package_complete(path))
+                .collect()
+        })
+        .unwrap_or_default();
+    // 目录名 sol-vX.Y.Z-<平台> 按字典序 == 按版本序（0.9.0 < 0.10.0 时 0.10 排在前面，
+    // 这里只是兜底多版本并存的场景，取最后一个即可）
+    candidates.sort();
+    candidates.pop()
 }
 
 /// 一条监听端口信息。
@@ -1154,7 +1274,7 @@ pub(crate) fn sol_project_open(page: String) -> Result<(), String> {
 /// 本地安装包现状（进 SOL 页面时回填「安装包」一栏用）。
 ///
 /// 返回：包路径、大小、md5、是否与旁车校验一致、以及同目录下是否已解压好
-/// （有 sol 二进制 + install.sh）。
+/// （有 sol-v*/ 官方包：sol(.exe) + install.sh/.cmd）。
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct SolLocalPackage {
@@ -1166,7 +1286,7 @@ pub(crate) struct SolLocalPackage {
     pub(crate) md5: Option<String>,
     /// md5 与旁车记录一致（= 可用、不会被重新下载）
     pub(crate) verified: bool,
-    /// 安装目录里是否已解压出完整包（sol + install.sh）
+    /// 安装目录里是否已解压出完整包（sol(.exe) + install.sh/.cmd）
     pub(crate) extracted: bool,
     /// 安装目录
     pub(crate) dir: String,
@@ -1198,7 +1318,10 @@ pub(crate) async fn sol_local_package(
                 .unwrap_or(false),
             _ => false,
         };
-        let extracted = target_dir.join("sol").is_file() && target_dir.join("install.sh").is_file();
+        // 解压状态 = 安装目录下有官方包（sol-v*/ 里的 sol(.exe) + install.sh/.cmd）。
+        // Windows 包是 sol.exe + install.cmd，以前写死的 `sol` + `install.sh` 永远为假，
+        // 面板上因此始终显示「未解压」。
+        let extracted = sol_find_package_dir(&target_dir).is_some();
         Ok(SolLocalPackage {
             archive: exists.then(|| archive.display().to_string()),
             size,
@@ -1461,10 +1584,185 @@ fn now_string() -> String {
     format!("{h:02}:{m:02}:{s:02}")
 }
 
-/// 解压 sol 安装包（tar.gz / zip）到指定目录，返回解出来的根目录。
+/// 需要跨「清空 + 解压」保留下来的运行时文件（相对安装目录）。
 ///
-/// 根目录的判定：tar 包里顶层只有一个 `sol-vX.Y.Z-<platform>/` 目录，解完
-/// 直接取它；zip 同理。解出来的目录里必须能找到 sol 二进制，否则报错。
+/// 用户定案：解压采用「先清空安装目录再解压」，但**配置文件不能跟着被清掉** ——
+/// 那是用户手改过的 sol.yaml（监听端口、token、动作白名单）。日志/界面都要提前说清楚。
+const SOL_PRESERVED_FILES: &[&str] = &["sol.yaml", "sol.yml"];
+
+/// 安装包文件名（小写比较）：`sol-vX.Y.Z-windows-amd64.zip` 之类。
+///
+/// 安装目录同时是**下载目录**，包和它的 `.md5` 旁车就躺在里面。清空前绝不能连包一起删 ——
+/// 否则紧接着的解压无包可解，用户想重解一次也得重新下一遍。三端共用同一规则。
+fn sol_is_archive_name(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    // 先剥掉校验旁车后缀，`sol-v0.1.0-windows-amd64.zip.md5` 和包本体同样保留
+    let base = lower
+        .strip_suffix(".md5")
+        .or_else(|| lower.strip_suffix(".sha256"))
+        .or_else(|| lower.strip_suffix(".sha1"))
+        .unwrap_or(&lower);
+    base.starts_with("sol-v")
+        && (base.ends_with(".zip")
+            || base.ends_with(".tar.gz")
+            || base.ends_with(".tgz")
+            || base.ends_with(".tar.xz")
+            || base.ends_with(".txz"))
+}
+
+/// 解压 sol 安装包（tar.gz / zip）到指定目录，返回**安装目录**（包根目录）。
+///
+/// 三端统一行为（用户定案）：
+///   1. 先**清空**安装目录（旧版本残留、上一次解压的 sol-v*/ 目录），避免新旧文件混在一起；
+///   2. 保留 `sol.yaml` / `sol.yml`（用户配置）—— 清空后原样放回；
+///   3. 解压后如果唯一顶层是 `sol-vX.Y.Z-<平台>/`，把它里面的**内容上移到安装目录**，
+///      再删掉这层空壳。这样 `~/sol/` 下直接就是 sol(.exe)、install.sh(.cmd)、skills/，
+///      不再是 `~/sol/sol-v0.1.0-windows-amd64/sol.exe`。
+///
+/// 解压**写入阶段**仍按包原样展开（不用 tar 的 --strip-components）：Windows 上那是
+/// GNU tar 专有参数，bsdtar/libarchive 不认；而且先完整落地再上移，中途失败时目录里
+/// 至少还有一份完整包可查。上移是解压成功之后的独立一步，三平台走同一段代码。
+///
+/// 官方脚本以「自己所在目录」为基准找二进制和 skills/，上移之后这一基准变成安装目录
+/// 本身，脚本照常工作（install.sh 用 $0 所在目录，install.ps1 用 $PSScriptRoot）。
+/// 清空安装目录，但把用户配置（`SOL_PRESERVED_FILES`）和**安装包本身**留下。
+///
+/// 安装目录同时是下载目录：`sol-vX.Y.Z-<平台>.zip` 和它的 `.md5` 旁车就躺在这里。
+/// 清空时如果把包一起删了，紧接着的解压就无包可解（以前就是这么自毁的），
+/// 而且用户想「重解一次」也得重新下一遍 —— 所以包 + 旁车必须在保留清单里。
+///
+/// 返回 (清掉的条目名, 保留的条目名)。目录本身不存在时返回空清单（不需要清）。
+/// 只删目录/文件的**内容**，不删目录本身 —— 后面的解压还要往这里写。
+fn sol_clear_install_dir(dir: &Path) -> Result<(Vec<String>, Vec<String>), String> {
+    if !dir.is_dir() {
+        return Ok((Vec::new(), Vec::new()));
+    }
+    let mut removed: Vec<String> = Vec::new();
+    let mut kept: Vec<String> = Vec::new();
+    let mut blocked: Vec<String> = Vec::new();
+    let entries = fs::read_dir(dir).map_err(|error| format!("读取安装目录 {} 失败：{error}", dir.display()))?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let is_file = path.is_file();
+        // 用户配置：sol.yaml / sol.yml
+        let preserved_config = is_file
+            && SOL_PRESERVED_FILES
+                .iter()
+                .any(|preserved| name.eq_ignore_ascii_case(preserved));
+        // 「怎么跑」：由 anyboot 在解压后重新生成，清空时先留着，生成失败也不至于丢
+        let preserved_run = is_file && name.eq_ignore_ascii_case("install.yaml");
+        // 安装包本体：sol-v*.zip / .tar.gz / .tar.xz，以及它们的 .md5 旁车
+        let preserved_archive = is_file && sol_is_archive_name(&name);
+        if preserved_config || preserved_run || preserved_archive {
+            kept.push(name);
+            continue;
+        }
+        let outcome = if path.is_dir() {
+            fs::remove_dir_all(&path)
+        } else {
+            fs::remove_file(&path)
+        };
+        match outcome {
+            Ok(()) => removed.push(name),
+            // 某个条目删不掉**不立刻中止**：继续清剩下的，最后统一汇总报告。
+            // 这样用户一次就能看到「到底哪些东西挡住了」，而不是修一个再跑一次、
+            // 一次只暴露一个问题（error 32 = 共享冲突，通常是进程把目录当 cwd 钉住了）。
+            Err(error) => blocked.push(format!("{name}（{error}）")),
+        }
+    }
+    if !blocked.is_empty() {
+        return Err(format!(
+            "清空安装目录 {} 失败，有 {} 项删不掉：{}\n\
+             常见原因是进程正占用这些文件或把它们所在目录当工作目录：\n\
+             · sol 服务/终端里还开着 install 脚本 —— 先停服务、关掉那个终端窗口\n\
+             · 查占用进程：Get-CimInstance Win32_Process | Where-Object {{ $_.CommandLine -like '*sol-v0.1.0*' }}\n\
+             处理后重新点「解压到安装目录」即可（已删除的部分不用管）。",
+            dir.display(),
+            blocked.len(),
+            blocked.join("；")
+        ));
+    }
+    removed.sort();
+    kept.sort();
+    Ok((removed, kept))
+}
+
+/// 目录里是否「只有」唯一顶层目录 `sol-v*`，且它本身是个完整包。
+/// 是的话返回这个子目录路径 —— 解压后要把它的内容上移到安装目录。
+///
+/// 注意：清空时**保留**下来的 `sol.yaml` / `sol.yml` 会留在同一层，它们不算障碍
+/// （上移时逐项 rename，只会碰包里自己的文件，配置文件不受影响）；除此之外
+/// 顶层不能有任何其它文件或第二个目录，否则不动 —— 避免误删/误盖别的东西。
+fn sol_single_package_child(dir: &Path) -> Option<PathBuf> {
+    // 安装目录本身已经是完整包（包直接铺在这一层）就不用再动
+    if sol_package_complete(dir) {
+        return None;
+    }
+    let entries: Vec<PathBuf> = fs::read_dir(dir).ok()?.flatten().map(|entry| entry.path()).collect();
+    let mut package_dirs: Vec<PathBuf> = Vec::new();
+    for path in &entries {
+        if path.is_dir() {
+            package_dirs.push(path.clone());
+            continue;
+        }
+        // 文件：保留下来的配置文件、install.yaml、以及安装包本体 + .md5 旁车（安装目录也是下载目录）都是允许的
+        let allowed = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .map(|name| {
+                SOL_PRESERVED_FILES
+                    .iter()
+                    .any(|preserved| name.eq_ignore_ascii_case(preserved))
+                    || name.eq_ignore_ascii_case("install.yaml")
+                    || sol_is_archive_name(name)
+            })
+            .unwrap_or(false);
+        if !allowed {
+            return None;
+        }
+    }
+    if package_dirs.len() != 1 {
+        return None;
+    }
+    let child = &package_dirs[0];
+    let named_like_package = child
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(|name| name.starts_with(SOL_PACKAGE_DIR_PREFIX))
+        .unwrap_or(false);
+    (named_like_package && sol_package_complete(child)).then(|| child.clone())
+}
+
+/// 把 `child` 的内容逐个移到 `parent`，成功后删掉空的 `child`。
+///
+/// 同名冲突时**直接替换**（`rename` 在 Unix 上语义如此；Windows 先删再移）。
+/// 返回被上移的条目名。
+fn sol_flatten_package_dir(parent: &Path, child: &Path) -> Result<Vec<String>, String> {
+    let mut moved: Vec<String> = Vec::new();
+    let entries = fs::read_dir(child).map_err(|error| format!("读取 {} 失败：{error}", child.display()))?;
+    for entry in entries.flatten() {
+        let from = entry.path();
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let to = parent.join(&name);
+        // 上一轮留下的同名项先清掉，保证是「解压出来的新版本」而不是叠加
+        if to.exists() {
+            let _ = if to.is_dir() {
+                fs::remove_dir_all(&to)
+            } else {
+                fs::remove_file(&to)
+            };
+        }
+        fs::rename(&from, &to)
+            .map_err(|error| format!("上移 {} → {} 失败：{error}", from.display(), to.display()))?;
+        moved.push(name);
+    }
+    // 壳已经空了，删掉（删不掉不算失败：内容已经到位，只是留了个空目录）
+    let _ = fs::remove_dir(child);
+    moved.sort();
+    Ok(moved)
+}
+
 #[tauri::command]
 pub(crate) async fn sol_extract(app: AppHandle, archive: String, dir: Option<String>) -> Result<String, String> {
     trace(&app, "command", "sol_extract");
@@ -1482,21 +1780,70 @@ pub(crate) async fn sol_extract(app: AppHandle, archive: String, dir: Option<Str
     };
     fs::create_dir_all(&dir).map_err(|error| format!("创建解压目录失败：{error}"))?;
 
-    // tar.exe（Win10+ 内置）与 GNU tar 都认 -xzf；zip 退 unzip / Expand-Archive
+    // 先清空安装目录（保留 sol.yaml / sol.yml + 安装包本身），再解压 —— 三端同一条路径。
+    let (removed, kept) = sol_clear_install_dir(&dir)?;
+    if removed.is_empty() && kept.is_empty() {
+        sol_log(&app, "① 安装目录是空的，无需清理".to_string());
+    } else {
+        sol_log(
+            &app,
+            format!(
+                "① 已清空安装目录{}（清掉 {} 项：{}）",
+                dir.display(),
+                removed.len(),
+                if removed.is_empty() {
+                    "无".to_string()
+                } else {
+                    removed.join("、")
+                }
+            ),
+        );
+        if !kept.is_empty() {
+            // 分成两类说清楚：用户手改的配置 vs 安装包（包留着才能「重解一次」而不必重新下载）
+            let (configs, archives): (Vec<&String>, Vec<&String>) = kept
+                .iter()
+                .partition(|name| sol_is_archive_name(name).eq(&false));
+            if !configs.is_empty() {
+                sol_log(
+                    &app,
+                    format!(
+                        "① 已保留配置文件（不会被覆盖）：{}",
+                        configs.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("、")
+                    ),
+                );
+            }
+            if !archives.is_empty() {
+                sol_log(
+                    &app,
+                    format!(
+                        "① 已保留安装包（可重复解压，无需重新下载）：{}",
+                        archives.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("、")
+                    ),
+                );
+            }
+        }
+    }
+
+    // tar.gz：Windows 10+ 自带的 bsdtar 与 GNU tar 都认 -xzf（**不带** --strip-components，
+    // 那是 GNU 专有参数，bsdtar 会报 unrecognized option）。
+    // zip：Windows 走 Expand-Archive，其它平台 unzip。
     let output = if archive
         .extension()
         .map(|ext| ext.eq_ignore_ascii_case("zip"))
         .unwrap_or(false)
     {
         if cfg!(target_os = "windows") {
+            // 路径里的单引号按 PowerShell 规则翻倍，避免拼坏命令
+            let quote = |path: &Path| path.display().to_string().replace('\'', "''");
             command("powershell")
                 .args([
                     "-NoProfile",
+                    "-NonInteractive",
                     "-Command",
                     &format!(
-                        "Expand-Archive -Path '{}' -DestinationPath '{}' -Force",
-                        archive.display(),
-                        dir.display()
+                        "Expand-Archive -LiteralPath '{}' -DestinationPath '{}' -Force",
+                        quote(&archive),
+                        quote(&dir)
                     ),
                 ])
                 .stderr(Stdio::piped())
@@ -1513,14 +1860,11 @@ pub(crate) async fn sol_extract(app: AppHandle, archive: String, dir: Option<Str
                 .map_err(|error| format!("unzip 不可用：{error}"))?
         }
     } else {
-        // 官方 tar.gz 带一层顶层目录（sol-vX.Y.Z-<platform>/…）：--strip-components=1
-        // 剥掉它，让内容直接落安装目录（~/sol/ 下直接是 sol、install.sh、sol.yaml）。
         command("tar")
-            .args(["-xzf"])
+            .arg("-xzf")
             .arg(&archive)
             .arg("-C")
             .arg(&dir)
-            .arg("--strip-components=1")
             .stderr(Stdio::piped())
             .output()
             .map_err(|error| format!("tar 不可用：{error}"))?
@@ -1534,59 +1878,58 @@ pub(crate) async fn sol_extract(app: AppHandle, archive: String, dir: Option<Str
         ));
     }
 
-    // 解压完成后：官方 tar.gz 带一层顶层目录已被 --strip-components=1 剥掉；
-    // zip 路径（PowerShell Expand-Archive / unzip）没有等价剥层能力 —— 若顶层是
-    // 唯一子目录且里面有 install.sh，把它的内容上移一层归拢。最后统一校验。
-    fn has_package(dir: &Path) -> bool {
-        dir.join("sol").is_file() && dir.join("install.sh").is_file()
+    // 解压成功：如果唯一顶层是 sol-v*/，把内容上移到安装目录（三端同一条逻辑），
+    // 得到「~/sol/ 下直接是 sol(.exe)、install.sh(.cmd)、skills/」的布局。
+    if let Some(child) = sol_single_package_child(&dir) {
+        let moved = sol_flatten_package_dir(&dir, &child)?;
+        sol_log(
+            &app,
+            format!(
+                "② 已把 {} 的内容上移到安装目录（{} 项：{}）",
+                child.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default(),
+                moved.len(),
+                moved.join("、")
+            ),
+        );
     }
-    if !has_package(&dir) {
-        let mut subdirs: Vec<PathBuf> = fs::read_dir(&dir)
-            .map(|entries| {
-                entries
-                    .flatten()
-                    .map(|entry| entry.path())
-                    .filter(|path| path.is_dir())
-                    .collect()
-            })
-            .unwrap_or_default();
-        subdirs.sort();
-        if subdirs.len() == 1 && has_package(&subdirs[0]) {
-            let nested = &subdirs[0];
-            let entries = fs::read_dir(nested)
-                .map_err(|error| format!("归拢包内容失败：{error}"))?
-                .collect::<Vec<_>>();
-            for entry in entries {
-                let entry = entry.map_err(|error| format!("归拢包内容失败：{error}"))?;
-                let target = dir.join(entry.file_name());
-                if entry.path().is_dir() {
-                    // 同名目录合并：逐项搬（罕见，尽力而为）
-                    let inner_entries = fs::read_dir(entry.path())
-                        .map_err(|error| format!("归拢包内容失败：{error}"))?
-                        .collect::<Vec<_>>();
-                    for inner in inner_entries {
-                        let inner = inner.map_err(|error| format!("归拢包内容失败：{error}"))?;
-                        fs::rename(inner.path(), target.join(inner.file_name()))
-                            .map_err(|error| format!("归拢包内容失败：{error}"))?;
+
+    // 官方包根目录 = 安装目录本身，或（保底）唯一的顶层 sol-v*/。
+    // 找不到就把实际解出来的东西列出来，报错信息直接指路而不是只说「不符」。
+    if sol_package_complete(&dir) {
+        sol_log(&app, format!("解压完成：安装目录 {}", dir.display()));
+        return Ok(dir.display().to_string());
+    }
+    if let Some(root) = sol_find_package_dir(&dir) {
+        sol_log(&app, format!("解压完成：包根目录 {}", root.display()));
+        return Ok(root.display().to_string());
+    }
+    let mut listing: Vec<String> = fs::read_dir(&dir)
+        .map(|entries| {
+            entries
+                .flatten()
+                .map(|entry| {
+                    let name = entry.file_name().to_string_lossy().into_owned();
+                    if entry.path().is_dir() {
+                        format!("{name}/")
+                    } else {
+                        name
                     }
-                } else {
-                    fs::rename(entry.path(), target)
-                        .map_err(|error| format!("归拢包内容失败：{error}"))?;
-                }
-            }
-            let _ = fs::remove_dir(nested);
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    listing.sort();
+    Err(format!(
+        "{} 里没有找到官方包（需要 {} + {}，通常在 sol-v*/ 目录下）。实际解出来的内容：{}",
+        dir.display(),
+        sol_package_bin(),
+        sol_package_script(),
+        if listing.is_empty() {
+            "（空目录）".to_string()
+        } else {
+            listing.join("、")
         }
-    }
-    for name in ["sol", "install.sh"] {
-        if !dir.join(name).is_file() {
-            return Err(format!(
-                "{} 里解出来后没有 {}（包内容与预期不符）",
-                dir.display(),
-                name
-            ));
-        }
-    }
-    Ok(dir.display().to_string())
+    ))
 }
 
 
@@ -2061,7 +2404,7 @@ pub(crate) fn sol_logs(app: AppHandle) -> Vec<String> {
         .collect()
 }
 
-/// 一键下载安装（静默）：下载 → 解压（内容直接进安装目录）→ 官方脚本无人值守安装。
+/// 一键下载安装（静默）：下载 → 清空安装目录（保留 sol.yaml）→ 解压铺平 → 官方脚本无人值守安装。
 /// 中途任何一步失败即停（已下载的包保留，重试时解压可直接复用）。
 ///
 /// 「一键安装（调终端）」的流程 = 前两步一样，第三步换成 sol_install_terminal，
@@ -2080,7 +2423,8 @@ pub(crate) async fn sol_one_click_install(app: AppHandle, dir: Option<String>) -
     })?;
     sol_log(&app, format!("① 下载完成 {archive}"));
 
-    // 2) 解压：内容直接进安装目录（~/sol/ 下直接是 sol、install.sh、sol.yaml）
+    // 2) 清空 + 解压：sol_extract 内部先清空安装目录（保留 sol.yaml/sol.yml），
+    //    再把包内容上移铺平 —— 最终 ~/sol/ 下直接是 sol(.exe)、install.sh(.cmd)、skills/
     sol_log(&app, format!("② 开始解压到 {}", resolve_sol_dir_raw(&dir).display()));
     let root = sol_extract(app.clone(), archive, Some(resolve_sol_dir_raw(&dir).display().to_string()))
         .await
@@ -2100,7 +2444,7 @@ pub(crate) async fn sol_one_click_install(app: AppHandle, dir: Option<String>) -
     Ok(message)
 }
 
-/// 一键安装（调终端）：下载 → 解压（内容进安装目录）→ 呼出系统终端跑官方脚本。
+/// 一键安装（调终端）：下载 → 清空 + 解压铺平 → 呼出系统终端跑官方脚本。
 /// 第三步由用户在终端里回答脚本问句（菜单选 1 = apply）。
 #[tauri::command]
 pub(crate) async fn sol_one_click_install_terminal(
@@ -2169,18 +2513,26 @@ fn resolve_sol_dir(dir: Option<String>) -> Result<PathBuf, String> {
     Ok(path)
 }
 
-/// 确认安装目录里有官方脚本与二进制（安装/卸载全靠脚本）。
+/// 确认安装目录里有平台对应的官方脚本与二进制（安装/卸载全靠脚本）。
+/// 传进来的是「解压后返回的包根目录」，不是父目录：`sol-vX.Y.Z-<平台>/` 本身。
 fn require_official_package(dir: &Path) -> Result<(), String> {
-    for name in ["install.sh", "sol"] {
+    for name in [sol_package_script(), sol_package_bin()] {
         if !dir.join(name).is_file() {
             return Err(format!(
-                "{} 里没有 {}（官方包必须完整：解压后再安装）",
+                "{} 里没有 {}（官方包必须完整：{} + {}，通常在 sol-v*/ 目录下）",
                 dir.display(),
-                name
+                name,
+                sol_package_bin(),
+                sol_package_script()
             ));
         }
     }
     Ok(())
+}
+
+/// 官方安装脚本的完整路径（Windows = install.cmd，其它 = install.sh）。
+fn sol_install_script_path(dir: &Path) -> PathBuf {
+    dir.join(sol_package_script())
 }
 
 /// 在系统终端里呼出一条命令（用户能看到输出、能回答脚本的交互问答）。
@@ -2236,12 +2588,61 @@ fn spawn_terminal(dir: &Path, command_line: &str) -> Result<(), String> {
 #[cfg(target_os = "windows")]
 fn spawn_terminal_fallback_unused() {}
 
-/// Windows 呼出 cmd 窗口跑 install.cmd / install.ps1。
+/// 跑官方安装脚本时用的工作目录：安装目录的**父目录**（不是安装目录本身）。
+///
+/// 为什么不能用安装目录本身：官方 `install.ps1:512-516` 有一段 legacy 配置迁移判定，
+/// 把 `Join-Path (Get-Location).Path 'sol.yaml'`（也就是 `cwd\sol.yaml`）也列进了
+/// 「老位置」清单，一旦命中就执行 `install.ps1:537`：
+///
+/// ```powershell
+/// Say "运行配置   改到用户目录：$RunConfig$(if (...) {...} else { '' }；你另外指定的路径不受影响)"
+/// ```
+///
+/// 全角 `；你另外指定的路径不受影响` 落在 `$( ... )` 子表达式**内部**，PowerShell 会把它
+/// 当成命令名去执行，于是整个安装以
+/// `无法将"；你另外指定的路径不受影响"项识别为 cmdlet ...` + exit 1 崩掉。
+///
+/// 默认安装目录正好是 `%USERPROFILE%\sol`，而 `$RunConfig` 也是
+/// `%USERPROFILE%\sol\sol.yaml` —— cwd 设成安装目录时 `cwd\sol.yaml` 恰好命中，
+/// 所以「在安装目录里跑安装脚本」是必崩的（官方双击 install.cmd 同样会踩到）。
+///
+/// 这是上游脚本的 bug，我们不改脚本内容（用户定案），改用 cwd 绕开：父目录
+/// `%USERPROFILE%` 下没有同名 `sol.yaml`，判定不命中，脚本正常跑完。脚本自己用
+/// `$PSScriptRoot` 找 `sol.exe`（`install.ps1:151-157`），install.yaml / sol.yaml 的
+/// 位置也都由 `$RunDir` 决定，与 cwd 无关，所以换 cwd 不影响它认出安装包。
+#[cfg(target_os = "windows")]
+fn sol_installer_cwd(dir: &Path) -> PathBuf {
+    match dir.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() && parent != dir => parent.to_path_buf(),
+        // 安装目录是盘符根（没有可用的父目录）时的兜底：退回系统临时目录，
+        // 只要不是安装目录本身，就不会命中那段 legacy 判定。
+        _ => std::env::temp_dir(),
+    }
+}
+
+/// Windows 呼出 cmd 窗口跑 install.cmd（官方双击入口，它自己调 install.ps1）。
+/// 交互模式不给环境变量：脚本走正常交互流程，用户在窗口里按菜单选。
+///
+/// cwd 用 `sol_installer_cwd`（父目录）而不是安装目录 —— 见那里的注释；
+/// 也正因为 cwd 不在安装目录，command_line 必须是脚本的**绝对路径**。
 #[cfg(target_os = "windows")]
 fn spawn_terminal(dir: &Path, command_line: &str) -> Result<(), String> {
-    // start 新开窗口且 /k 让它跑完不关；经 cmd /c start 间接调用
+    // 与上午可用的基线同构：`start "" cmd /K cd /d <cwd> && <脚本>`。
+    // 与基线唯一的不同是 cwd = 安装目录的**父目录**（sol_installer_cwd，绕
+    // install.ps1:537 的 legacy 判定崩溃），因此 command_line 必须是绝对路径。
+    // 注意不要在这里加引号/改用 /D：嵌套引号会被 cmd 剥错层（实测报
+    // `'"cd /d "C:\..."' 不是内部或外部命令`），基线的不带引号形式反而能跑
+    // —— 默认路径 C:\Users\<user>\sol 都不含空格。
+    let cwd = sol_installer_cwd(dir);
     let status = command("cmd")
-        .args(["/C", "start", "", "cmd", "/K", &format!("cd /d {} && {}", dir.display(), command_line)])
+        .args([
+            "/C",
+            "start",
+            "",
+            "cmd",
+            "/K",
+            &format!("cd /d {} && {}", cwd.display(), command_line),
+        ])
         .status()
         .map_err(|error| format!("呼出 cmd 失败：{error}"))?;
     if !status.success() {
@@ -2347,14 +2748,16 @@ pub(crate) async fn sol_install_terminal_inner(
     .await
     .map_err(|error| format!("sol_install_terminal 任务失败：{error}"))??;
 
+    // Windows：走 install.cmd 的**绝对路径** —— spawn_terminal 把 cwd 放在安装目录的
+    // 父目录（绕开 install.ps1 的 legacy 判定，见 sol_installer_cwd），相对名会找不到文件。
     #[cfg(target_os = "windows")]
-    let command_line = "install.cmd".to_string();
+    let command_line = sol_install_script_path(&dir).display().to_string();
     #[cfg(not(target_os = "windows"))]
-    let command_line = "sh install.sh".to_string();
+    let command_line = format!("sh {}", sol_package_script());
 
     spawn_terminal(&dir, &command_line)?;
     let message = format!(
-        "已在系统终端打开安装脚本（{}）—— 按脚本提示确认即可（菜单选 1 = 安装/升级）",
+        "已在系统终端打开官方安装入口 install.cmd（{}）—— 按脚本提示确认即可（菜单选 1 = 安装/升级）",
         dir.display()
     );
     sol_log(&app, message.clone());
@@ -2392,10 +2795,15 @@ pub(crate) async fn sol_install_silent_inner(
     let message = tauri::async_runtime::spawn_blocking(move || {
         let dir = resolve_sol_dir(install_dir.clone())?;
         require_official_package(&dir)?;
-        let script = dir.join("install.sh");
+        // Windows 是 install.cmd，其它平台是 install.sh
+        let script = sol_install_script_path(&dir);
 
         // 答案流：菜单选 1（apply）；脚本遇到其它问句会再读 stdin —— 多喂几个 y
         const ANSWERS: &[u8] = b"1\ny\ny\ny\n";
+
+        // Windows：走官方 install.cmd 入口（环境变量传动作：无人值守、脚本自己提权）
+        #[cfg(target_os = "windows")]
+        let stdout = run_windows_installer(&dir, &script, "install", "yes")?;
 
         // 两个平台各产出 stdout：macOS = osascript 提权跑（root 下脚本跳过 sudo）；
         // 其它 = 直接跑（root 由 pkexec/终端 sudo 场景自理）。
@@ -2452,8 +2860,8 @@ pub(crate) async fn sol_install_silent_inner(
             }
             stdout
         };
-        // 非 macOS：直接跑（root 由 pkexec/终端 sudo 场景自理）
-        #[cfg(not(target_os = "macos"))]
+        // 非 macOS / 非 Windows：直接跑（root 由 pkexec/终端 sudo 场景自理）
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
         let stdout = {
             let output = command("sh")
                 .arg(&script)
@@ -2468,7 +2876,7 @@ pub(crate) async fn sol_install_silent_inner(
                     }
                     child.wait_with_output()
                 })
-                .map_err(|error| format!("运行 install.sh 失败：{error}"))?;
+                .map_err(|error| format!("运行 {} 失败：{error}", sol_package_script()))?;
             if !output.status.success() {
                 let stderr = String::from_utf8_lossy(&output.stderr);
                 return Err(format!(
@@ -2481,8 +2889,8 @@ pub(crate) async fn sol_install_silent_inner(
         };
 
         // 脚本成功收尾（打二维码/完成提示）或至少把二进制装上了就算成。
-        // 两个分支各自产出 stdout（macOS = osascript 的输出，其它 = 直接跑的输出）。
-        let bin = PathBuf::from(SOL_BIN);
+        // 三个分支各自产出 stdout（macOS = osascript，Windows = install.cmd，其它 = 直接跑）。
+        let bin = sol_installed_bin_path();
         if !bin.is_file() {
             let tail: String = stdout
                 .lines()
@@ -2495,13 +2903,17 @@ pub(crate) async fn sol_install_silent_inner(
                 .join(" | ");
             return Err(format!(
                 "脚本退出但 {} 不在 —— 安装可能被取消。输出末尾：{tail}",
-                SOL_BIN
+                bin.display()
             ));
         }
+        // Windows 上官方 install.ps1 用 PS 5.1 默认 ANSI 写 sol.yaml，中文注释会
+        // 双重编码乱码 —— 上游 bug，等上游修复（anyboot 不做编码兜底）。
+        #[cfg(target_os = "windows")]
+        let _ = &dir;
         Ok(format!(
             "已安装：{}（配置 {}）",
-            SOL_BIN,
-            dir.join("sol.yaml").display()
+            bin.display(),
+            sol_installed_config_path(&dir, &bin).display()
         ))
     })
     .await
@@ -2509,6 +2921,117 @@ pub(crate) async fn sol_install_silent_inner(
     sol_log(&app, format!("＝＝＝ 静默安装完成 ＝＝＝ {message}"));
     record_action(&app, "sol_install_silent", true, &message);
     Ok(message)
+}
+
+/// 安装完成后真正的配置文件路径：优先读安装目录 install.yaml 里的
+/// `--config`（官方脚本生成，指向实际运行配置），没有再按平台惯例猜。
+/// Windows 官方分工是二进制进 `%ProgramData%\sol`、配置进 `%USERPROFILE%\sol`，
+/// 不能拿 bin.parent() 当配置目录（那是 Unix 惯性，会报不存在的 ProgramData 路径）。
+fn sol_installed_config_path(install_dir: &Path, bin: &Path) -> PathBuf {
+    if let Some(config) = sol_install_yaml_config(install_dir) {
+        return config;
+    }
+    let from_dir = install_dir.join("sol.yaml");
+    if from_dir.is_file() {
+        return from_dir;
+    }
+    bin.parent()
+        .unwrap_or(Path::new("."))
+        .join("sol.yaml")
+}
+
+/// 安装完成后 sol 二进制的落点（判断「装上了没有」用）。
+/// Linux/macOS：/usr/local/bin/sol；Windows：官方 install.ps1 装到
+/// `%ProgramData%`（可用 SOL_INSTALL_ROOT 改根）下的 `sol\sol.exe`。
+fn sol_installed_bin_path() -> PathBuf {    #[cfg(target_os = "windows")]
+    {
+        let root = std::env::var("SOL_INSTALL_ROOT")
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from)
+            .or_else(|| std::env::var("ProgramData").ok().map(PathBuf::from))
+            .unwrap_or_else(|| PathBuf::from(r"C:\ProgramData"));
+        root.join("sol").join("sol.exe")
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        PathBuf::from(SOL_BIN)
+    }
+}
+
+/// Windows：无人值守跑官方 **install.cmd**，返回脚本输出（stdout + stderr 合并）。
+///
+/// 为什么调 .cmd 而不是 .ps1：.cmd 是官方给用户双击的入口，它自己用
+/// `powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0install.ps1"` 去调 .ps1
+/// —— PowerShell 版本探测、执行策略、路径引号这些封装在里面。anyboot 走官方入口，
+/// 而不是绕过它自己重做一遍。
+///
+/// **动作用环境变量传，不是命令行参数**：官方 install.cmd 不带 `%*`（它明确写着
+/// no arguments to remember），给它加参数会被整段丢掉。install.ps1 自己留了后门
+/// （install.ps1:1195-1204）：参数没给时回落到 `$env:SOL_INSTALL_ACTION` /
+/// `SOL_INSTALL_SERVICE` / `SOL_INSTALL_DELCONFIGS`。经环境变量进去，.cmd 一个字都不用改，
+/// 效果跟 `-SolAction install -SolService yes` 完全一致：走「已升权子进程」分支，
+/// 不问、不展示、直接执行，需要管理员时脚本自己弹一次 UAC，结束 exit 0。
+///
+/// stdin 立刻关掉（EOF）：install.cmd 末尾的 `pause` 收到 EOF 立即返回，不会挂死；
+/// 脚本若要提问也只拿到默认值。
+#[cfg(target_os = "windows")]
+fn run_windows_installer(dir: &Path, script: &Path, action: &str, service: &str) -> Result<String, String> {
+    // /U 让 cmd 用 UTF-16 输出，中文不会被控制台代码页吃掉。
+    // 动作用环境变量传（见上方说明）：install.cmd 不转交参数，但 install.ps1 认 SOL_INSTALL_*。
+    let script_arg = script.display().to_string();
+    let output = command("cmd")
+        .args(["/U", "/C", script_arg.as_str()])
+        .env("SOL_INSTALL_ACTION", action)
+        .env("SOL_INSTALL_SERVICE", service)
+        // cwd 不放在安装目录：install.ps1 的 legacy 判定会把
+        // `cwd\sol.yaml` 与 `%USERPROFILE%\sol\sol.yaml` 撞上，命中后踩
+        // install.ps1:537 的坏行直接 exit 1（实测安装动作 exit=1）。父目录
+        // 没有同名 sol.yaml，判定不命中。脚本内部路径全用 $PSScriptRoot /
+        // $RunDir，与 cwd 无关，换 cwd 无副作用。
+        .current_dir(sol_installer_cwd(dir))
+        .stdin(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            // stdin 立刻关掉（EOF）：.cmd 的 pause 与 .ps1 的 Read-Host 都立即返回默认值
+            drop(child.stdin.take());
+            child.wait_with_output()
+        })
+        .map_err(|error| format!("运行 {} 失败：{error}", sol_package_script()))?;
+    // /U 的 stdout 是 UTF-16LE，去掉 BOM 再解码；万一没走 /U 则按 UTF-8 兜底。
+    let stdout = decode_cmd_output(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    if !output.status.success() {
+        let detail: &str = if stderr.trim().is_empty() { &stdout } else { &stderr };
+        return Err(format!(
+            "静默安装失败（exit {}）：{}",
+            output.status.code().unwrap_or(-1),
+            detail.trim().chars().take(400).collect::<String>()
+        ));
+    }
+    Ok(if stderr.trim().is_empty() {
+        stdout
+    } else {
+        format!("{stdout}\n{stderr}")
+    })
+}
+
+/// 解出 `cmd /U` 的 UTF-16LE 输出；不是 UTF-16 就按 UTF-8 处理。
+#[cfg(target_os = "windows")]
+fn decode_cmd_output(bytes: &[u8]) -> String {
+    let body = bytes.strip_prefix(&[0xFF, 0xFE]).unwrap_or(bytes);
+    let looks_utf16 = body.len() >= 2 && body.len() % 2 == 0 && body.iter().skip(1).step_by(2).all(|b| *b == 0);
+    if looks_utf16 {
+        let units: Vec<u16> = body
+            .chunks_exact(2)
+            .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+            .collect();
+        String::from_utf16_lossy(&units)
+    } else {
+        String::from_utf8_lossy(body).into_owned()
+    }
 }
 
 /// 静默卸载：官方脚本的 uninstall 动作（管道喂「2」选菜单卸载项）。
@@ -2521,20 +3044,26 @@ pub(crate) async fn sol_uninstall_silent(
     trace(&app, "command", "sol_uninstall_silent");
     let _guard = SolOpGuard::acquire()?;
     clean_orphan_install_lock(&app);
-    // 先看安装目录里有没有官方包（install.sh）：可能安装包还没下载/解压，
+    // 先看安装目录里有没有官方包（install.sh / install.cmd）：可能安装包还没下载/解压，
     // 没有可执行的东西就别往下走（弹终端/跑脚本都会失败）
     let dir = resolve_sol_dir(install_dir.clone())?;
-    if !dir.join("install.sh").is_file() {
+    if !sol_package_complete(&dir) {
         return Err(format!(
-            "安装目录 {} 里没有官方包（install.sh）—— 可能安装包还没下载或没解压，先「一键下载安装」",
-            dir.display()
+            "安装目录 {} 里没有官方包（{} + {}）—— 可能安装包还没下载或没解压，先「一键下载安装」",
+            dir.display(),
+            sol_package_bin(),
+            sol_package_script()
         ));
     }
     sol_log(&app, "＝＝＝ 静默卸载开始 ＝＝＝".to_string());
     let message = tauri::async_runtime::spawn_blocking(move || {
         let dir = resolve_sol_dir(install_dir.clone())?;
         require_official_package(&dir)?;
-        let script = dir.join("install.sh");
+        let script = sol_install_script_path(&dir);
+
+        // Windows：同一个官方入口跑卸载（SOL_INSTALL_ACTION=uninstall 经环境变量转交 install.ps1）
+        #[cfg(target_os = "windows")]
+        run_windows_installer(&dir, &script, "uninstall", "yes")?;
 
         #[cfg(target_os = "macos")]
         {
@@ -2570,7 +3099,7 @@ pub(crate) async fn sol_uninstall_silent(
                 });
             }
         }
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
         {
             let output = command("sh")
                 .arg(&script)
@@ -2586,7 +3115,7 @@ pub(crate) async fn sol_uninstall_silent(
                     }
                     child.wait_with_output()
                 })
-                .map_err(|error| format!("运行 install.sh 失败：{error}"))?;
+                .map_err(|error| format!("运行 {} 失败：{error}", sol_package_script()))?;
             if !output.status.success() {
                 let stderr = String::from_utf8_lossy(&output.stderr);
                 return Err(format!(
@@ -2596,11 +3125,11 @@ pub(crate) async fn sol_uninstall_silent(
                 ));
             }
         }
-        let bin = PathBuf::from(SOL_BIN);
+        let bin = sol_installed_bin_path();
         if bin.is_file() {
             return Err(format!(
                 "脚本退出但 {} 还在 —— 卸载可能没执行（检查脚本输出）",
-                SOL_BIN
+                bin.display()
             ));
         }
         Ok("已卸载：二进制与服务已由官方脚本移除（安装目录里的配置保留）".to_string())
@@ -2621,13 +3150,15 @@ pub(crate) async fn sol_uninstall_terminal(
     trace(&app, "command", "sol_uninstall_terminal");
     let _guard = SolOpGuard::acquire()?;
     clean_orphan_install_lock(&app);
-    // 先看安装目录里有没有官方包（install.sh）：可能安装包还没下载/解压，
+    // 先看安装目录里有没有官方包：可能安装包还没下载/解压，
     // 没有可执行的东西就别往下走（弹终端/跑脚本都会失败）
     let dir = resolve_sol_dir(install_dir.clone())?;
-    if !dir.join("install.sh").is_file() {
+    if !sol_package_complete(&dir) {
         return Err(format!(
-            "安装目录 {} 里没有官方包（install.sh）—— 可能安装包还没下载或没解压，先「一键下载安装」",
-            dir.display()
+            "安装目录 {} 里没有官方包（{} + {}）—— 可能安装包还没下载或没解压，先「一键下载安装」",
+            dir.display(),
+            sol_package_bin(),
+            sol_package_script()
         ));
     }
     let dir: PathBuf = tauri::async_runtime::spawn_blocking(move || -> Result<PathBuf, String> {
@@ -2639,9 +3170,11 @@ pub(crate) async fn sol_uninstall_terminal(
     .map_err(|error| format!("sol_uninstall_terminal 任务失败：{error}"))??;
 
     #[cfg(target_os = "windows")]
-    let command_line = "install.cmd".to_string();
+    // spawn_terminal 的 cwd 是安装目录的**父目录**（sol_installer_cwd），
+    // 相对名 install.cmd 会在父目录里找不到文件 —— 必须给绝对路径。
+    let command_line = sol_install_script_path(&dir).display().to_string();
     #[cfg(not(target_os = "windows"))]
-    let command_line = "sh install.sh".to_string();
+    let command_line = format!("sh {}", sol_package_script());
 
     spawn_terminal(&dir, &command_line)?;
     let message = "已在系统终端打开安装脚本 —— 卸载请在菜单里选 2（uninstall）";
@@ -2731,6 +3264,81 @@ pub(crate) fn sol_open_dir(app: AppHandle, dir: Option<String>) -> Result<String
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// install.yaml 是官方脚本写的「sol 怎么跑」的唯一权威来源：它指哪儿，anyboot 就读哪儿。
+    #[test]
+    fn install_yaml_config_path_is_parsed() {
+        // 用工作区里的临时目录而不是系统 TEMP：CI / 沙箱下 TEMP 常被收紧成只读，
+        // 同一个测试在别人机器上就红给你看。CARGO_MANIFEST_DIR 一定是可写的。
+        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("test-tmp")
+            .join(format!("install-yaml-{}", std::process::id()));
+        // Windows 的路径可能有多级还不存在：先建全路径，再往里写
+        fs::create_dir_all(&dir).unwrap();
+        let cfg = dir.join("install.yaml");
+
+        // 官方脚本写出的标准形态（一行 args，逗号分隔）
+        fs::write(
+            &cfg,
+            "# 由 install.ps1 生成：sol 怎么跑。改这里，然后重新运行一遍脚本。\nrun:\n  args: [listen, --config, C:\\Users\\x\\sol\\sol.yaml]\n",
+        )
+        .unwrap();
+        assert_eq!(
+            sol_install_yaml_config(&dir).as_deref(),
+            Some(Path::new("C:\\Users\\x\\sol\\sol.yaml"))
+        );
+
+        // Unix 形态
+        fs::write(&cfg, "run:\n  args: [listen, --config, /home/u/sol/sol.yaml]\n").unwrap();
+        assert_eq!(
+            sol_install_yaml_config(&dir).as_deref(),
+            Some(Path::new("/home/u/sol/sol.yaml"))
+        );
+
+        // --config=X 也要认
+        fs::write(&cfg, "run:\n  args: [listen, --config=/etc/sol/sol.yaml]\n").unwrap();
+        assert_eq!(
+            sol_install_yaml_config(&dir).as_deref(),
+            Some(Path::new("/etc/sol/sol.yaml"))
+        );
+
+        // 没有 --config：返回 None，让调用方走惯例路径
+        fs::write(&cfg, "run:\n  args: [listen]\n").unwrap();
+        assert_eq!(sol_install_yaml_config(&dir), None);
+
+        // 文件不存在：None 而不是 panic
+        let _ = fs::remove_file(&cfg);
+        assert_eq!(sol_install_yaml_config(&dir), None);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// 安装目录同时是下载目录：清空时安装包和它的校验旁车必须保住，否则解压无包可解。
+    #[test]
+    fn clear_install_dir_keeps_archive_and_md5() {
+        for name in [
+            "sol-v0.1.0-windows-amd64.zip",
+            "sol-v0.1.0-windows-amd64.zip.md5",
+            "sol-v0.1.0-linux-amd64.tar.gz",
+            "sol-v0.1.0-linux-arm64.tar.gz.md5",
+            "sol-v0.1.0-darwin-arm64.tar.xz",
+            "SOL-V0.2.0-WINDOWS-AMD64.ZIP.MD5",
+        ] {
+            assert!(sol_is_archive_name(name), "应保留安装包：{name}");
+        }
+        // 下载中断留下的半截文件照删，别让残缺包永远赖在安装目录里
+        for name in [
+            "sol-v0.1.0-windows-amd64.zip.part",
+            "install.ps1",
+            "sol.exe",
+            "sol.yaml",
+            "soldier.zip",
+            "contract.txt",
+        ] {
+            assert!(!sol_is_archive_name(name), "不该按安装包保留：{name}");
+        }
+    }
 
     #[test]
     fn exec_start_config_extracts_path() {

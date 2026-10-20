@@ -135,6 +135,11 @@ main {
   /* 单列网格：minmax(0,1fr) 让子项可以收缩到 0 —— grid 项默认 min-width:auto，
    * 长路径/token 会把列撑到内容宽度，出现横向滚动条（用户要求去掉） */
   grid-template-columns: minmax(0, 1fr);
+  /* 行不许拉伸：本容器是 flex 撑满整高的 grid，内容比容器矮时 align-content 的
+   * 默认值 normal=stretch 会把 header / tabs / 正文行按剩余空间等比例拉高。
+   * GRUB 独立模式（④）把 GRUB 整块搬到右栏后左栏内容变短，就正好触发 ——
+   * 表现是页签上方一大片空白（用户报的正是这个）。start = 行保持自然高度、贴顶。 */
+  align-content: start;
   gap: 20px;
   padding: 24px;
   /* 正文自己滚，提示条永远钉在窗口底边 */

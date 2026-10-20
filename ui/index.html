@@ -656,6 +656,19 @@
           <h2>SOL 远程唤醒</h2>
           <p class="sol-desc">sol 监听本机网卡的 Wake-on-LAN 魔法包：手机 / 别的电脑发一个包，这台机器就按规则执行关机、重启、睡眠等动作（本机已配端口 10=睡眠、11=关机、12=重启）。</p>
 
+  <!-- 运行状态一览 -->
+          <div class="setting" id="sol-state-row">
+            <span class="setting-text">
+              <strong>运行状态</strong>
+              <small class="setting-state" id="sol-state-text">正在读取…</small>
+            </span>
+            <span class="remote-inline">
+              <button class="secondary" id="sol-refresh" type="button">刷新状态</button>
+              <button class="secondary hidden" id="sol-status-privileged" type="button" title="服务状态被系统权限挡住时才出现">授权查看状态</button>
+              <button class="secondary" id="sol-restart-service" type="button">重启服务</button>
+            </span>
+          </div>
+
           <!-- HTTP 控制面：三个独立选项，与 sol.yaml 双向联动（sol 自动热重载） -->
           <div class="setting" id="sol-http-enabled-row">
             <span class="setting-text">
@@ -692,26 +705,13 @@
             </span>
           </div>
 
-          <!-- 运行状态一览 -->
-          <div class="setting" id="sol-state-row">
-            <span class="setting-text">
-              <strong>运行状态</strong>
-              <small class="setting-state" id="sol-state-text">正在读取…</small>
-            </span>
-            <span class="remote-inline">
-              <button class="secondary" id="sol-refresh" type="button">刷新状态</button>
-              <button class="secondary hidden" id="sol-status-privileged" type="button" title="服务状态被系统权限挡住时才出现">授权查看状态</button>
-              <button class="secondary" id="sol-restart-service" type="button">重启服务</button>
-            </span>
-          </div>
 
           <!-- 动作区：一键安装（终端/静默）+ 卸载；安装一律走官方 install.sh -->
           <div class="actions">
             <button class="primary-sol" id="sol-one-click" type="button">一键安装（静默）</button>
             <button class="secondary" id="sol-one-click-terminal" type="button">一键安装（调终端）</button>
-            <button class="secondary" id="sol-uninstall" type="button">卸载 sol</button>
           </div>
-          <small class="sol-hint" id="sol-install-hint">安装 = 下载 → 解压到安装目录 → 官方 install.sh（静默 = 无人值守自动确认；调终端 = 弹出终端由你回答脚本问句）。配置 sol.yaml 就在安装目录里；卸载保留它以便回滚。</small>
+          <small class="sol-hint" id="sol-install-hint">安装 = 下载 → <b>清空安装目录</b> → 解压到安装目录 → 官方 install.sh（静默 = 无人值守自动确认；调终端 = 弹出终端由你回答脚本问句）。<b>解压前会清空安装目录，但保留 sol.yaml / sol.yml 配置文件</b>（端口、token 等设置不丢）；包内容直接铺在安装目录下，不保留 sol-v* 子目录。配置 sol.yaml 就在安装目录里；卸载保留它以便回滚。</small>
 
           <!-- 安装包：下载（进度条）→ 解压 → 安装；目录可自定义，也支持手工选包 -->
           <div class="setting-block sol-pkg-block">
@@ -738,11 +738,11 @@
               </span>
             </div>
             <span class="remote-inline">
-              <button class="secondary" id="sol-download" type="button">下载安装包</button>
+              <button class="secondary" id="sol-download" type="button">下载</button>
               <button class="secondary" id="sol-pick-archive" type="button">选择安装包…</button>
-              <button class="secondary" id="sol-extract" type="button" disabled>解压到安装目录</button>
-              <button class="secondary" id="sol-install-from-pkg" type="button" disabled>安装（静默）</button>
-              <button class="secondary" id="sol-install-from-pkg-terminal" type="button" disabled>安装（调终端）</button>
+              <button class="secondary" id="sol-extract" type="button" disabled title="解压前会先清空安装目录（保留 sol.yaml / sol.yml 配置文件），再把包内容直接铺到安装目录，不再保留 sol-v* 子目录">解压到安装目录</button>
+              <button class="secondary" id="sol-install-from-pkg" type="button">安装（静默）</button>
+              <button class="secondary" id="sol-install-from-pkg-terminal" type="button">安装（调终端）</button>
             </span>
             <small class="sol-hint" id="sol-pkg-hint">从 GitHub release 下载当前平台的 sol-vX.Y.Z-<span id="sol-pkg-target">…</span>.tar.gz；也可以点「选择安装包…」从文件管理器挑一个已有包（.tar.gz / .zip）。</small>
             <small class="sol-hint" id="sol-project-line">
@@ -777,6 +777,7 @@
             </span>
             <textarea id="sol-config-text" class="sol-config-editor" spellcheck="false" rows="16" placeholder="正在读取配置…"></textarea>
             <span class="remote-inline">
+              <button class="secondary" id="sol-config-refresh" type="button">刷新配置</button>
               <button class="primary-sol" id="sol-config-save" type="button">保存配置</button>
               <button class="secondary" id="sol-config-reload" type="button">放弃修改</button>
             </span>
