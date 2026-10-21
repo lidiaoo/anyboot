@@ -138,13 +138,23 @@ pub(crate) fn route_remote_command(request: &RemoteRequest) -> Result<RemoteComm
             Ok(RemoteCommand::Switch(system))
         }
         "/api/power" => {
+            // wake 特殊处理：这条 HTTP 能送达就说明机器本来就醒着，什么都不用做
+            // （给「唤醒路由勾了 HTTP 兜底」一条说得通的回执，而不是 400）
+            if request
+                .param("action")
+                .as_deref()
+                .map(str::trim)
+                .is_some_and(|value| value.eq_ignore_ascii_case("wake"))
+            {
+                return Ok(RemoteCommand::WakeAck);
+            }
             let action = match request.param("action").as_deref().map(str::trim) {
                 None | Some("") => PowerAction::default(),
                 Some(value) => PowerAction::parse(value).ok_or_else(|| {
                     RemoteReply::error(
                         400,
                         "unknown_action",
-                        &format!("未知的电源动作: {value}（可用 reboot/shutdown/sleep）"),
+                        &format!("未知的电源动作: {value}（可用 wake/reboot/shutdown/sleep）"),
                     )
                 })?,
             };
@@ -340,6 +350,14 @@ pub(crate) fn handle_ui_command_request(app: &AppHandle, request: &RemoteRequest
             | "open_login_items_settings"
             | "restart_app"
             | "quit_app"
+            // SOL 面板里要弹**被控机**对话框 / 终端 / 授权框的一批：
+            // 远程网页点了也只会在这台电脑上弹，操作的人根本看不见。
+            | "sol_pick_dir"
+            | "sol_pick_archive"
+            | "sol_open_dir"
+            | "sol_project_open"
+            | "sol_status_privileged"
+            | "sol_one_click_install_terminal"
     ) {
         return RemoteReply::error(
             400,
@@ -678,6 +696,86 @@ pub(crate) fn remote_ui_command_inner(
         "kill_port_occupant" => kill_port_occupant(app.clone()).map(serde_json::Value::String),
         "reveal_http_token" => Ok(serde_json::Value::String(reveal_http_token(app.clone()))),
         "http_access_hint" => Ok(serde_json::Value::String(http_access_hint(app.clone()))),
+        // ---- SOL 面板（独立服务，不进 UI 快照；网页端按需拉取 / 直调）----
+        // sol 那批命令多数是 async fn（内部 spawn_blocking），这里在 tiny_http 的
+        // std 线程上 block_on 同步等结果 —— 长任务（下载/安装）会占住一个 worker，
+        // 与 detect_esp / sync_grub_blocking 同一模式，可接受。
+        "sol_status" => serde_json::to_value(tauri::async_runtime::block_on(sol_panel::sol_status(
+            app.clone(),
+        )))
+        .map_err(|error| format!("序列化失败: {error}")),
+        "sol_logs" => Ok(serde_json::Value::Array(
+            sol_panel::sol_logs(app.clone())
+                .into_iter()
+                .map(serde_json::Value::String)
+                .collect(),
+        )),
+        "sol_config_read" => {
+            let config = tauri::async_runtime::block_on(sol_panel::sol_config_read(ui_opt_str(
+                args, "path",
+            )))?;
+            serde_json::to_value(config).map_err(|error| format!("序列化失败: {error}"))
+        }
+        "sol_config_write" => {
+            let path = ui_str(args, "path")?;
+            let content = ui_str(args, "content")?;
+            tauri::async_runtime::block_on(sol_panel::sol_config_write(path, content))
+                .map(serde_json::Value::String)
+        }
+        "sol_http_get" => {
+            let http = sol_panel::sol_http_get(app.clone(), ui_opt_str(args, "path"))?;
+            serde_json::to_value(http).map_err(|error| format!("序列化失败: {error}"))
+        }
+        "sol_http_set" => {
+            let path = ui_opt_str(args, "path");
+            let option = ui_str(args, "option")?;
+            let value = ui_str(args, "value")?;
+            tauri::async_runtime::block_on(sol_panel::sol_http_set(app.clone(), path, option, value))
+                .map(serde_json::Value::String)
+        }
+        "sol_token_generate" => Ok(serde_json::Value::String(sol_panel::sol_token_generate())),
+        "sol_default_dir" => Ok(serde_json::Value::String(sol_panel::sol_default_dir())),
+        "sol_local_package" => {
+            let local = tauri::async_runtime::block_on(sol_panel::sol_local_package(
+                app.clone(),
+                ui_opt_str(args, "dir"),
+            ))?;
+            serde_json::to_value(local).map_err(|error| format!("序列化失败: {error}"))
+        }
+        "sol_install_download" => {
+            tauri::async_runtime::block_on(sol_panel::sol_install_download(
+                app.clone(),
+                ui_opt_str(args, "dir"),
+            ))
+            .map(serde_json::Value::String)
+        }
+        "sol_extract" => {
+            let archive = ui_str(args, "archive")?;
+            let dir = ui_opt_str(args, "dir");
+            tauri::async_runtime::block_on(sol_panel::sol_extract(app.clone(), archive, dir))
+                .map(serde_json::Value::String)
+        }
+        "sol_one_click_install" => {
+            let dir = ui_opt_str(args, "dir");
+            let archive = ui_opt_str(args, "archive");
+            tauri::async_runtime::block_on(sol_panel::sol_one_click_install(
+                app.clone(), dir, archive,
+            ))
+            .map(serde_json::Value::String)
+        }
+        "sol_service_ctl" => {
+            let action = ui_str(args, "action")?;
+            tauri::async_runtime::block_on(sol_panel::sol_service_ctl(app.clone(), action))
+                .map(serde_json::Value::String)
+        }
+        "sol_log_client_error" => {
+            sol_panel::sol_log_client_error(
+                app.clone(),
+                ui_str(args, "kind")?,
+                ui_str(args, "detail")?,
+            );
+            Ok(serde_json::Value::Null)
+        }
         _ => Err(format!("未知或不受支持的命令: {cmd}")),
     }
 }
@@ -832,6 +930,10 @@ pub(crate) fn execute_remote_command(
             spawn_power(app, *action, allow_gui_auth);
             (true, format!("{}（已提交）", action.label()))
         }
+        RemoteCommand::WakeAck => (
+            true,
+            "机器在线（这条 HTTP 能送达就说明它醒着），不需要唤醒".to_string(),
+        ),
         RemoteCommand::SwitchAndPower { system, power } => {
             let status = switch_and_update(app, system);
             if let Some(error) = status.error {

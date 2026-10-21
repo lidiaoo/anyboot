@@ -1740,6 +1740,54 @@ body.dock-right #hotzone {
   select {
     font-size: 16px;
   }
+
+  /* ---------- SOL 远程唤醒页（#/sol）手机适配 ----------
+   * SOL 的行大多是「标题在左 + 输入框/按钮组在右」，右列在窄屏里太宽：
+   * 监听地址输入 200px、安装目录输入 280px（都是内联定宽）+ 两三个按钮
+   * 挤在 auto 列 → 溢出/挤压歪七扭八。统一改上下堆叠：标题/状态一行，
+   * 控件组自己成一行、可换行铺开。 */
+  #sol-section .setting {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: stretch;
+    gap: 8px;
+  }
+
+  /* 例外：单个勾选框的行（HTTP 服务监听）保持「文字 | 勾选框」两列 */
+  #sol-section #sol-http-enabled-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  #sol-section .remote-inline {
+    flex: 1 1 auto;
+    flex-wrap: wrap;
+  }
+
+  /* 行内输入框不再定宽：内联的 width / flex 用 !important 顶掉，
+   * 弹性占满剩余宽度、按钮贴着排 */
+  #sol-section .remote-inline input[type="text"],
+  #sol-section .sol-token-line input[type="text"] {
+    width: auto !important;
+    flex: 1 1 140px;
+    min-width: 0;
+  }
+
+  /* token 展示牌也放开最小宽度，长 token 正常断行 */
+  #sol-section .sol-token-value {
+    flex: 1 1 160px;
+  }
+
+  /* 两个安装按钮平铺整行（右对齐 flex-end 在窄屏里就是歪的） */
+  #sol-section .actions {
+    justify-content: stretch;
+  }
+  #sol-section .actions button {
+    flex: 1 1 46%;
+  }
+
+  /* 配置编辑器同样防 iOS 聚焦缩放（textarea 不在上面的 input 规则里） */
+  #sol-section textarea {
+    font-size: 16px;
+  }
 }
 
 /* ---------- SOL 远程唤醒标签页 ----------

@@ -1937,9 +1937,6 @@ if (!IS_BROWSER) {
 
 // 进页面回填历史日志（trace.log 里本会话的 [sol] 段，倒序取 50 条）
 async function loadSolLogs() {
-  if (IS_BROWSER) {
-    return;
-  }
   try {
     const logs = await invoke("sol_logs");
     if (Array.isArray(logs) && logs.length) {
@@ -1989,9 +1986,6 @@ async function refreshSolProjectInfo() {
 }
 
 async function refreshSolPackage() {
-  if (IS_BROWSER) {
-    return;
-  }
   try {
     const local = await invoke("sol_local_package", { dir: solDir || null });
     if (local.archive) {
@@ -2029,35 +2023,19 @@ async function refreshSolPackage() {
 
 async function refreshSolPanel() {
   if (IS_BROWSER) {
-    // 远程 / 网页端不透出（与「重启程序」同一策略：面板命令只在本机窗口放行）
-    solStateTextElement.textContent = "远程模式不可用（仅本机主窗口）";
-    solInstallHintElement.textContent = "sol 管理仅在本机主窗口开放，网页远程端只读不可操作。";
+    // 远程模式：数据与动作全部走 /api/ui-command（在被控电脑上执行），照常拉取。
+    // 只有要弹**被控机**对话框 / 终端 / 授权框的按钮没有意义 —— 灰掉 + 悬停说明
+    // （后端同样会拒，见 handle_ui_command_request 的 gui_only 清单）。
     for (const element of [
-      solRefreshElement,
-      solRestartServiceElement,
-      solOneClickTerminalElement,
-      solConfigSaveElement,
-      solConfigReloadElement,
       solStatusPrivilegedElement,
-      solConfigTextElement,
       solPickDirElement,
-      solDownloadElement,
-      solExtractElement,
-      solOneClickElement,
       solPickArchiveElement,
-      solLogClearElement,
-      solDirInputElement,
+      solOneClickTerminalElement,
       solOpenDirInputElement,
-      solHttpEnabledElement,
-      solHttpListenElement,
-      solHttpListenSaveElement,
-      solHttpTokenElement,
-      solHttpTokenGenerateElement,
-      solHttpTokenSaveElement,
     ]) {
       element.disabled = true;
+      element.title = "该操作要在被控电脑上完成（远程网页不支持）";
     }
-    return;
   }
   for (const element of [solRefreshElement, solRestartServiceElement]) {
     element.disabled = true;
@@ -2188,6 +2166,9 @@ function refreshSolAfterAction({ forceConfig = false } = {}) {
     solConfigDirty = false;
   }
   refreshSolPanel();
+  // 远程模式收不到 sol-log 实时事件，动作完成后主动拉一次历史日志兜底
+  // （本机模式重复拉也没坏处：loadSolLogs 只在有内容时整体重填）。
+  loadSolLogs();
 }
 
 // 手动安装（调终端）的点击处理统一放在下面安装包那一段（要先判断「是否已解压」）。
@@ -2247,20 +2228,13 @@ solConfigRefreshElement.addEventListener("click", async () => {
 // 否则编辑器「保存配置」会把旧内容整篇写回，覆盖掉刚写入的选项（踩过的坑：
 // 取消勾选 → 编辑器保存旧快照 → enabled 复活为 true）。
 function syncEditorToDisk() {
-  if (!IS_BROWSER && solConfigEditingPath) {
+  if (solConfigEditingPath) {
     solConfigDirty = false;
     loadSolConfig(solConfigEditingPath, { force: true });
   }
 }
 
 async function refreshSolHttp() {
-  if (IS_BROWSER) {
-    solHttpEnabledStateElement.textContent = "远程模式不可用（仅本机主窗口）";
-    for (const element of [solHttpEnabledElement, solHttpListenElement, solHttpListenSaveElement, solHttpTokenElement, solHttpTokenGenerateElement, solHttpTokenSaveElement, solHttpTokenCopyElement]) {
-      element.disabled = true;
-    }
-    return;
-  }
   try {
     const http = await invoke("sol_http_get");
     solHttpEnabledElement.checked = Boolean(http.enabled);
@@ -2421,8 +2395,9 @@ solHttpTokenElement.addEventListener("keydown", (event) => {
 // 副文字实时提示「~ 展开后的真实路径」，空 = 用后端默认（~/sol）。
 function renderSolDir() {
   solDirInputElement.value = solDir;
-  // 默认值从后端拿（首次渲染时懒加载，写进 placeholder）
-  if (!renderSolDir._defaultLoaded && !IS_BROWSER) {
+  // 默认值从后端拿（首次渲染时懒加载，写进 placeholder）。
+  // 远程模式下同样有效：返回的是**被控电脑**上的默认安装目录。
+  if (!renderSolDir._defaultLoaded) {
     renderSolDir._defaultLoaded = true;
     invoke("sol_default_dir")
       .then((dir) => {
@@ -2462,10 +2437,6 @@ solDirInputElement.addEventListener("input", () => {
 solDirInputElement.addEventListener("change", () => {
   let value = solDirInputElement.value.trim();
   if (value === "~" || value.startsWith("~/")) {
-    if (IS_BROWSER) {
-      showStatusBar("远程模式下 ~ 无法展开，请填完整路径", { error: true });
-      return;
-    }
     invoke("sol_default_dir")
       .then((dir) => {
         // dir 本身就是 <home>/sol：取它的父目录当 HOME
@@ -2665,6 +2636,7 @@ solExtractElement.addEventListener("click", async () => {
       // 安装按钮不再在这里反复启用/禁用 —— 任何情况都亮着（用户定案）。
       solExtractElement.disabled = false;
       await refreshSolPackage();
+      loadSolLogs();
     }
   } finally {
     solExtractElement.disabled = false;
