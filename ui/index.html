@@ -689,29 +689,30 @@
             </span>
           </div>
 
-          <div class="setting" id="sol-http-token-row">
+          <!-- Token：上下两排 —— 上排「当前 token（纯文字）」+ 复制，下排「新 token」+ 生成 / 应用 -->
+          <div class="setting setting-block" id="sol-http-token-row">
             <span class="setting-text">
               <strong>Token 设置</strong>
               <small class="setting-state" id="sol-http-token-state">—</small>
             </span>
-            <span class="remote-inline">
-              <input id="sol-http-token-current" spellcheck="false" type="text" readonly placeholder="—" style="width: 300px;" title="当前配置里的 token（只读），点「复制」拷贝" />
+            <div class="sol-token-line">
+              <span class="sol-token-value" id="sol-http-token-current" title="当前配置里的 token（只读），点右边「复制」拷贝">—</span>
               <button class="secondary" id="sol-http-token-copy" type="button">复制</button>
-            </span>
-            <span class="remote-inline">
-              <input id="sol-http-token" spellcheck="false" type="text" placeholder="新 token（≥8 位），留空不改动" style="width: 260px;" />
+            </div>
+            <div class="sol-token-line">
+              <input id="sol-http-token" spellcheck="false" type="text" placeholder="新 token（≥8 位），留空不改动" style="flex: 1 1 220px;" />
               <button class="secondary" id="sol-http-token-generate" type="button">生成</button>
               <button class="secondary" id="sol-http-token-save" type="button">应用</button>
-            </span>
+            </div>
           </div>
 
 
-          <!-- 动作区：一键安装（终端/静默）+ 卸载；安装一律走官方 install.sh -->
+          <!-- 动作区：一键安装（静默）/ 手动安装（调终端）；安装一律走官方 install.sh -->
           <div class="actions">
             <button class="primary-sol" id="sol-one-click" type="button">一键安装（静默）</button>
-            <button class="secondary" id="sol-one-click-terminal" type="button">一键安装（调终端）</button>
+            <button class="secondary" id="sol-one-click-terminal" type="button">手动安装（调终端）</button>
           </div>
-          <small class="sol-hint" id="sol-install-hint">安装 = 下载 → <b>清空安装目录</b> → 解压到安装目录 → 官方 install.sh（静默 = 无人值守自动确认；调终端 = 弹出终端由你回答脚本问句）。<b>解压前会清空安装目录，但保留 sol.yaml 配置文件</b>（端口、token 等设置不丢）；包内容直接铺在安装目录下，不保留 sol-v* 子目录。配置 sol.yaml 就在安装目录里；卸载保留它以便回滚。<br />落点：三端全部在用户目录 —— Linux/macOS <code>~/sol</code>（二进制 <code>bin/sol</code>）；Windows <code>%USERPROFILE%\sol</code>（二进制 <code>sol.exe</code> 同目录）。</small>
+          <small class="sol-hint" id="sol-install-hint">安装 = 下载 → <b>清空安装目录</b> → 解压到安装目录 → 官方 install.sh（静默 = 无人值守自动确认；手动 = 呼出终端由你回答脚本问句）。<b>解压前会清空安装目录，但保留 sol.yaml 配置文件</b>（端口、token 等设置不丢）；包内容直接铺在安装目录下，不保留 sol-v* 子目录。配置 sol.yaml 就在安装目录里；卸载保留它以便回滚。<br />已经解压好（比如用「选择安装包…」自己挑的包）时，「手动安装（调终端）」直接在终端里跑官方脚本，不再重新下载。<br />落点：三端全部在用户目录 —— Linux/macOS <code>~/sol</code>（二进制 <code>bin/sol</code>）；Windows <code>%USERPROFILE%\sol</code>（二进制 <code>sol.exe</code> 同目录）。</small>
 
           <!-- 安装包：下载（进度条）→ 解压 → 安装；目录可自定义，也支持手工选包 -->
           <div class="setting-block sol-pkg-block">
@@ -741,10 +742,8 @@
               <button class="secondary" id="sol-download" type="button">下载</button>
               <button class="secondary" id="sol-pick-archive" type="button">选择安装包…</button>
               <button class="secondary" id="sol-extract" type="button" disabled title="解压前会先清空安装目录（保留 sol.yaml 配置文件），再把包内容直接铺到安装目录，不再保留 sol-v* 子目录">解压到安装目录</button>
-              <button class="secondary" id="sol-install-from-pkg" type="button">安装（静默）</button>
-              <button class="secondary" id="sol-install-from-pkg-terminal" type="button">安装（调终端）</button>
             </span>
-            <small class="sol-hint" id="sol-pkg-hint">从 GitHub release 下载当前平台的 sol-vX.Y.Z-<span id="sol-pkg-target">…</span>.tar.gz；也可以点「选择安装包…」从文件管理器挑一个已有包（.tar.gz / .zip）。</small>
+            <small class="sol-hint" id="sol-pkg-hint">从 GitHub release 下载当前平台的 sol-vX.Y.Z-<span id="sol-pkg-target">…</span>.tar.gz；也可以点「选择安装包…」从文件管理器挑一个已有包（.tar.gz / .zip），解压完回到上面点「手动安装（调终端）」即可安装。</small>
             <small class="sol-hint" id="sol-project-line">
               项目：
               <a href="#" id="sol-project-repo" title="打开 GitHub 仓库">lidiaoo/sol</a>

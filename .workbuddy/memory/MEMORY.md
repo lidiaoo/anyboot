@@ -69,3 +69,13 @@
 - **验证脚本别用带中文注释的 bat**：UTF-8 中文 + LF 行尾会让后面的 `set` 整行失效，hook 静默不跑，
   看起来像功能坏了（白查半天）。启动一律用纯 ASCII 启动器（Python + DETACHED_PROCESS），
   且 `[hub-term]` 会把 ssh 报错原文抄进 stderr，连不上时先看它。
+
+## SOL 面板
+- **`~/sol` 是上游压缩包解压出来的，禁止改里面的文件**（`install.ps1` / `install.cmd` / `install.sh` /
+  `sol.exe` / `README*` / `sol.schema.json` / `sol-example.yaml` / `install-windows.yaml`）。
+  那是上游产物，本项目只做**调用方**：改脚本 = 下次升级覆盖 + 排查时分不清是谁的问题。
+  要改行为只能改 `src-tauri/src/sol_panel.rs` 的调用方式（环境变量、stdin 喂菜单、参数）。
+- 区分「我改的」和「脚本自己写的」：运行 `/sol` 安装脚本会重写 `install.json`（台账）、`install.yaml`、
+  `sol.yaml`、`install.log`、`elevated-install.progress`、`skills/` —— 这些是运行产物，正常。
+  核验有没有手改过源文件：`ls -la --time-style=+%m-%d\ %H:%M:%S ~/sol`，源文件时间戳应全部等于
+  解压时间（本机 = `10-21 09:03:30`）。

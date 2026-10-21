@@ -1772,7 +1772,6 @@ const solRefreshElement = document.querySelector("#sol-refresh");
 const solRestartServiceElement = document.querySelector("#sol-restart-service");
 const solStatusPrivilegedElement = document.querySelector("#sol-status-privileged");
 const solOneClickTerminalElement = document.querySelector("#sol-one-click-terminal");
-const solInstallFromPkgTerminalElement = document.querySelector("#sol-install-from-pkg-terminal");
 const solInstallHintElement = document.querySelector("#sol-install-hint");
 const solConfigPathElement = document.querySelector("#sol-config-path");
 const solConfigTextElement = document.querySelector("#sol-config-text");
@@ -1792,7 +1791,6 @@ const solPickDirElement = document.querySelector("#sol-pick-dir");
 const solDownloadElement = document.querySelector("#sol-download");
 const solPickArchiveElement = document.querySelector("#sol-pick-archive");
 const solExtractElement = document.querySelector("#sol-extract");
-const solInstallFromPkgElement = document.querySelector("#sol-install-from-pkg");
 const solPkgHintElement = document.querySelector("#sol-pkg-hint");
 const solOneClickElement = document.querySelector("#sol-one-click");
 const solProgressElement = document.querySelector("#sol-progress");
@@ -1809,10 +1807,13 @@ const solHttpListenStateElement = document.querySelector("#sol-http-listen-state
 const solHttpListenSaveElement = document.querySelector("#sol-http-listen-save");
 const solHttpTokenElement = document.querySelector("#sol-http-token");
 const solHttpTokenStateElement = document.querySelector("#sol-http-token-state");
+// 当前 token 是**纯文字**（span），不放进输入框：只读输入框会暗示"能改"，
+// 长 token 还会被截断。值另存一份，复制 / 降级选中都从这里拿。
 const solHttpTokenCurrentElement = document.querySelector("#sol-http-token-current");
 const solHttpTokenCopyElement = document.querySelector("#sol-http-token-copy");
 const solHttpTokenGenerateElement = document.querySelector("#sol-http-token-generate");
 const solHttpTokenSaveElement = document.querySelector("#sol-http-token-save");
+let solHttpTokenValue = "";
 
 // 编辑器正在展示的配置文件路径（保存时回传后端）
 let solConfigEditingPath = "";
@@ -1830,8 +1831,13 @@ let solDir = (() => {
 })();
 // 最近下载/解压出的包路径（解压按钮只在有包时亮）
 let solPkgArchivePath = "";
-// 日志行数上限（超过就丢最老的，防长会话内存涨）
-const SOL_LOG_MAX_LINES = 200;
+// 「选择安装包…」手挑的本地包路径：两个安装按钮都优先用它，不联网。
+// 点「下载」成功后清空 —— 那时用的是官方包，不该再带着旧的本地包。
+let solPickedArchivePath = "";
+// 日志行数上限（超过就丢最老的，防长会话内存涨）。
+// 静默安装会把官方脚本的逐行输出全推上来（一次几十到上百行），200 条会被
+// 安装日志一口气顶掉前面的上下文，放到 500。
+const SOL_LOG_MAX_LINES = 500;
 let solLogLines = 0;
 
 // ---------- 日志区 ----------
@@ -2011,12 +2017,11 @@ async function refreshSolPackage() {
     // 下载按钮文案跟着状态走：下载过 → 「重新下载」；没下载过 → 「下载」。
     // 只改文案不改 id，事件监听绑的是 sol-download，不受影响。
     solDownloadElement.textContent = local.archive ? "重新下载" : "下载";
-    // 「安装（静默）/（调终端）」任何情况都亮着（用户定案）：未解压时点它后端会给出
+    // 两个安装按钮任何情况都亮着（用户定案）：未解压时点它后端会给出
     // 明确报错提示，比灰着让用户猜强。这里不再按 extracted 禁用它们。
     solExtractElement.disabled = !local.archive;
-    if (local.extracted) {
-      solPkgHintElement.dataset.root = local.dir;
-    }
+    // 不再把解压根目录塞进 dataset.root：那个字段以前是给「已解压就直接装」的捷径用的，
+    // 捷径已删（手动安装要走和静默安装同一段前置流程）。
   } catch (error) {
     void error;
   }
@@ -2038,7 +2043,6 @@ async function refreshSolPanel() {
       solPickDirElement,
       solDownloadElement,
       solExtractElement,
-      solInstallFromPkgElement,
       solOneClickElement,
       solPickArchiveElement,
       solLogClearElement,
@@ -2121,7 +2125,7 @@ function renderSolStatus(status) {
   // 安装 / 卸载的可用性与提示
   solInstallHintElement.textContent = status.installed
     ? `已安装在 ${status.binPath || "未知路径"}；重新安装会覆盖二进制与服务注册（安装目录里的 sol.yaml 原文件有备份）。`
-    : "先「一键安装」（下载 → 解压到安装目录 → 官方 install.sh）；也可先「下载安装包」「选择安装包…」再解压、安装。安装目录看上面那一行。";
+    : "先「一键安装（静默）」（下载 → 解压到安装目录 → 官方 install.sh 无人值守）；想自己在终端里回答脚本问句就用「手动安装（调终端）」。也可以先「下载」「选择安装包…」再解压，然后点「手动安装（调终端）」。安装目录看上面那一行。";
 }
 
 async function loadSolConfig(path, { force = false } = {}) {
@@ -2155,9 +2159,15 @@ solRefreshElement.addEventListener("click", () => refreshSolPanel());
 solRestartServiceElement.addEventListener("click", async () => {
   solRestartServiceElement.disabled = true;
   try {
-    showStatusBar("正在重启 sol 服务…");
+    // 三端都可能弹系统授权框（Linux polkit / macOS 管理员授权 / Windows UAC），
+    // 后端会等到进程真的换掉才返回，这里先把这个预期告诉用户，别让人以为卡了。
+    showStatusBar("正在重启 sol 服务…（可能会弹出系统授权框）");
     const message = await call("sol_service_ctl", { action: "restart" });
-    showStatusBar(message || "sol 服务已重启");
+    // call() 失败时已经把错误写进状态栏并返回 undefined —— 这里**不能**再兜一句
+    // 「已重启」把它盖掉，那就是假成功（后端失败 ≠ 重启完成）。
+    if (message) {
+      showStatusBar(message);
+    }
   } finally {
     solRestartServiceElement.disabled = false;
   }
@@ -2180,17 +2190,9 @@ function refreshSolAfterAction({ forceConfig = false } = {}) {
   refreshSolPanel();
 }
 
-solOneClickTerminalElement.addEventListener("click", async () => {
-  solOneClickTerminalElement.disabled = true;
-  try {
-    showStatusBar("① 下载 → ② 解压 → ③ 呼出终端跑官方安装脚本…");
-    const message = await call("sol_one_click_install_terminal", { dir: solDirArg() });
-    showStatusBar(message || "已呼出终端");
-  } finally {
-    solOneClickTerminalElement.disabled = false;
-  }
-  refreshSolPanel();
-});
+// 手动安装（调终端）的点击处理统一放在下面安装包那一段（要先判断「是否已解压」）。
+// 这里原先还有一个同名按钮的监听器，两个一起注册会导致一次点击触发两条流程、
+// 第二条必然撞上 SolOpGuard 报「另一个安装/卸载操作正在进行中」—— 已删除。
 
 solConfigSaveElement.addEventListener("click", async () => {
   if (!solConfigEditingPath) {
@@ -2254,7 +2256,7 @@ function syncEditorToDisk() {
 async function refreshSolHttp() {
   if (IS_BROWSER) {
     solHttpEnabledStateElement.textContent = "远程模式不可用（仅本机主窗口）";
-    for (const element of [solHttpEnabledElement, solHttpListenElement, solHttpListenSaveElement, solHttpTokenElement, solHttpTokenGenerateElement, solHttpTokenSaveElement, solHttpTokenCurrentElement, solHttpTokenCopyElement]) {
+    for (const element of [solHttpEnabledElement, solHttpListenElement, solHttpListenSaveElement, solHttpTokenElement, solHttpTokenGenerateElement, solHttpTokenSaveElement, solHttpTokenCopyElement]) {
       element.disabled = true;
     }
     return;
@@ -2268,11 +2270,14 @@ async function refreshSolHttp() {
     }
     // 当前 token 展示 + 复制（token_env / token_file 模式下原文在别处，提示之）
     if (http.authKind === "token") {
-      solHttpTokenCurrentElement.value = http.token || "";
-      solHttpTokenCopyElement.disabled = !http.token;
+      solHttpTokenValue = http.token || "";
+      solHttpTokenCurrentElement.textContent = solHttpTokenValue || "（配置里没有 token）";
+      solHttpTokenCurrentElement.classList.toggle("is-empty", !solHttpTokenValue);
+      solHttpTokenCopyElement.disabled = !solHttpTokenValue;
     } else {
-      solHttpTokenCurrentElement.value = "";
-      solHttpTokenCurrentElement.placeholder = `（${http.authKind} 模式，原文不在此文件）`;
+      solHttpTokenValue = "";
+      solHttpTokenCurrentElement.textContent = `（${http.authKind} 模式，原文不在此文件）`;
+      solHttpTokenCurrentElement.classList.add("is-empty");
       solHttpTokenCopyElement.disabled = true;
     }
     solHttpTokenStateElement.textContent = http.authKind === "token"
@@ -2342,7 +2347,7 @@ solHttpTokenGenerateElement.addEventListener("click", async () => {
     const message = await call("sol_http_set", { path: null, option: "token", value: token });
     showStatusBar(message || "新 token 已写入配置");
     solLogAppend(`Token 已重新生成并写入（${token.length} 位）`);
-    solHttpTokenElement.value = ""; // 新 token 已在「当前 token」框里，输入框清空
+    solHttpTokenElement.value = ""; // 新 token 由 refreshSolHttp 在「当前 token」那排以文字回显
     syncEditorToDisk();
   } catch (error) {
     // 错误已在底部提示条
@@ -2352,9 +2357,9 @@ solHttpTokenGenerateElement.addEventListener("click", async () => {
   refreshSolHttp();
 });
 
-// 复制当前 token（优先剪贴板 API，降级 execCommand）
+// 复制当前 token（优先剪贴板 API，降级用一个临时 textarea + execCommand）
 solHttpTokenCopyElement.addEventListener("click", async () => {
-  const token = solHttpTokenCurrentElement.value;
+  const token = solHttpTokenValue;
   if (!token) {
     showStatusBar("没有可复制的 token（当前为非内联模式）", { error: true });
     return;
@@ -2363,14 +2368,21 @@ solHttpTokenCopyElement.addEventListener("click", async () => {
     await navigator.clipboard.writeText(token);
     showStatusBar("token 已复制到剪贴板");
   } catch (error) {
-    // 非安全上下文 / 权限拒绝：降级选中文本让用户 Ctrl+C
-    solHttpTokenCurrentElement.focus();
-    solHttpTokenCurrentElement.select();
+    // 非安全上下文 / 权限拒绝：token 已经以文字展示，用离屏 textarea 走降级复制
+    const scratch = document.createElement("textarea");
+    scratch.value = token;
+    scratch.setAttribute("readonly", "readonly");
+    scratch.style.position = "fixed";
+    scratch.style.opacity = "0";
+    document.body.append(scratch);
+    scratch.select();
     try {
       document.execCommand("copy");
       showStatusBar("token 已复制（降级方式）");
     } catch (inner) {
-      showStatusBar("复制失败：已选中全文，请按 Ctrl+C", { error: true });
+      showStatusBar("复制失败：token 已整段选中，请按 Ctrl+C", { error: true });
+    } finally {
+      scratch.remove();
     }
   }
 });
@@ -2520,6 +2532,8 @@ solDownloadElement.addEventListener("click", async () => {
     const saved = await call("sol_install_download", { dir: solDir || null });
     if (typeof saved === "string" && saved) {
       solPkgArchivePath = saved;
+      // 走的是官方下载 → 之前手挑的本地包不再代表"这次要装的包"
+      solPickedArchivePath = "";
       solPkgStateElement.textContent = `已下载：${solBaseName(saved) || saved}`;
       solPkgStateElement.title = saved;
       solExtractElement.disabled = false;
@@ -2540,6 +2554,9 @@ solPickArchiveElement.addEventListener("click", async () => {
     const picked = await invoke("sol_pick_archive");
     if (picked) {
       solPkgArchivePath = picked;
+      // 记下来给两个安装按钮用：手动安装/静默安装都会先"① 使用本地安装包"，
+      // 不联网也不重新下载（与官方下载走同一段前置流程，只是包来源不同）。
+      solPickedArchivePath = picked;
       solPkgStateElement.textContent = `已选择：${solBaseName(picked) || picked}`;
       solPkgStateElement.title = picked;
       solExtractElement.disabled = false;
@@ -2555,13 +2572,20 @@ solPickArchiveElement.addEventListener("click", async () => {
 
 // 一键下载安装：下载 → 解压 → 安装全流程，后端顺序执行并推日志
 solOneClickElement.addEventListener("click", async () => {
-  for (const element of [solOneClickElement, solOneClickTerminalElement, solDownloadElement, solExtractElement, solInstallFromPkgElement, solInstallFromPkgTerminalElement]) {
+  for (const element of [solOneClickElement, solOneClickTerminalElement, solDownloadElement, solExtractElement]) {
     element.disabled = true;
   }
   solProgressShow(true);
   try {
-    showStatusBar("一键安装（静默）：① 下载 → ② 解压 → ③ 官方脚本无人值守…");
-    const message = await call("sol_one_click_install", { dir: solDir || null });
+    showStatusBar(
+      solPickedArchivePath
+        ? "一键安装（静默）：① 使用本地安装包 → ② 解压 → ③ 官方脚本无人值守…"
+        : "一键安装（静默）：① 下载 → ② 解压 → ③ 官方脚本无人值守…",
+    );
+    const message = await call("sol_one_click_install", {
+      dir: solDirArg(),
+      archive: solPickedArchivePath || null,
+    });
     showStatusBar(message || "一键安装完成");
     solProgressDone(true);
     // 一键成功后状态全刷新；安装按钮不再置灰（任何情况都亮着）
@@ -2569,7 +2593,7 @@ solOneClickElement.addEventListener("click", async () => {
   } catch (error) {
     solProgressDone(false);
   } finally {
-    for (const element of [solOneClickElement, solOneClickTerminalElement, solDownloadElement, solExtractElement, solInstallFromPkgElement, solInstallFromPkgTerminalElement]) {
+    for (const element of [solOneClickElement, solOneClickTerminalElement, solDownloadElement, solExtractElement]) {
       element.disabled = false;
     }
   }
@@ -2577,26 +2601,38 @@ solOneClickElement.addEventListener("click", async () => {
   refreshSolPackage();
 });
 
-// 一键（调终端）：同一套下载/解压，第三步呼出终端让用户确认
+// 手动安装（调终端）：前两步与「一键安装（静默）」**完全同一段流程**
+// （① 下载/复用安装包 → ② 清空安装目录并解压铺平），只有第三步换成呼出系统终端。
+// 不再做"已解压就跳过下载解压"的捷径 —— 两个按钮点下去，日志区应该长得一样，
+// 用户只需要判断最后一步是自动跑还是自己回答。
+// 「选择安装包…」挑的本地包会通过 archive 参数带下去（不联网）。
 solOneClickTerminalElement.addEventListener("click", async () => {
-  for (const element of [solOneClickElement, solOneClickTerminalElement, solDownloadElement, solExtractElement, solInstallFromPkgElement, solInstallFromPkgTerminalElement]) {
+  for (const element of [solOneClickElement, solOneClickTerminalElement, solDownloadElement, solExtractElement]) {
     element.disabled = true;
   }
   solProgressShow(true);
   try {
-    showStatusBar("一键安装（调终端）：① 下载 → ② 解压 → ③ 呼出终端…");
-    const message = await call("sol_one_click_install_terminal", { dir: solDir || null });
+    showStatusBar(
+      solPickedArchivePath
+        ? "手动安装（调终端）：① 使用本地安装包 → ② 解压 → ③ 呼出终端…"
+        : "手动安装（调终端）：① 下载 → ② 解压 → ③ 呼出终端…",
+    );
+    const message = await call("sol_one_click_install_terminal", {
+      dir: solDirArg(),
+      archive: solPickedArchivePath || null,
+    });
     showStatusBar(message || "已在终端打开安装脚本");
     solProgressDone(true);
     solPkgArchivePath = "";
   } catch (error) {
     solProgressDone(false);
   } finally {
-    for (const element of [solOneClickElement, solOneClickTerminalElement, solDownloadElement, solExtractElement, solInstallFromPkgElement, solInstallFromPkgTerminalElement]) {
+    for (const element of [solOneClickElement, solOneClickTerminalElement, solDownloadElement, solExtractElement]) {
       element.disabled = false;
     }
   }
   refreshSolAfterAction({ forceConfig: true });
+  refreshSolPackage();
 });
 
 solExtractElement.addEventListener("click", async () => {
@@ -2623,8 +2659,7 @@ solExtractElement.addEventListener("click", async () => {
     if (typeof root === "string" && root) {
       solPkgStateElement.textContent = `已解压：${root}`;
       solPkgStateElement.title = root;
-      solPkgHintElement.dataset.root = root;
-      solInstallHintElement.textContent = `解压完成：${root}。点「安装（静默）」或「安装（调终端）」继续。`;
+      solInstallHintElement.textContent = `解压完成：${root}。点上面的「手动安装（调终端）」会在终端里跑官方脚本（前置流程与静默安装一致，会再校一次包）。`;
       showStatusBar(`已解压到 ${root}`);
       // 解压成功后**重新查一次**包状态：状态文案最终由 refreshSolPackage 说了算。
       // 安装按钮不再在这里反复启用/禁用 —— 任何情况都亮着（用户定案）。
@@ -2636,25 +2671,9 @@ solExtractElement.addEventListener("click", async () => {
   }
 });
 
-// 已解压的包直接安装（安装源 = 解压根目录 = 安装目录本身）
-async function installFromPkg(viaTerminal) {
-  const source = solPkgHintElement.dataset.root || solDir || null;
-  // 运行期间防重复点击（这是唯一的禁用场景），跑完立即恢复
-  solInstallFromPkgElement.disabled = true;
-  solInstallFromPkgTerminalElement.disabled = true;
-  try {
-    const message = viaTerminal
-      ? await call("sol_install_terminal", { installDir: source })
-      : await call("sol_install_silent", { installDir: source });
-    showStatusBar(message || "已安装");
-  } finally {
-    solInstallFromPkgElement.disabled = false;
-    solInstallFromPkgTerminalElement.disabled = false;
-  }
-  refreshSolAfterAction({ forceConfig: true });
-}
-solInstallFromPkgElement.addEventListener("click", () => installFromPkg(false));
-solInstallFromPkgTerminalElement.addEventListener("click", () => installFromPkg(true));
+// 注意：这里**故意不做"已解压就直接装"的捷径**（曾经有过 installFromExtracted）。
+// 用户定案：两个安装按钮的前几步必须和「一键安装（静默）」一模一样 ——
+// 下载/复用包 → 清空 + 解压 → 最后一步才分叉（自动跑 / 呼出终端）。
 
 // 浏览器端顶部横幅：预览模式说明 / 远程已连接 / token 输入（三态）。
 // 仅浏览器模式创建 —— Tauri 主窗口不需要这条横幅。

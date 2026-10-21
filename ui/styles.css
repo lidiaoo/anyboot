@@ -1275,6 +1275,9 @@ input {
 /* token 那一行内容多：标题在上、两排控件在下的竖排 */
 .setting-block {
   display: grid;
+  /* 隐式列不会自己撑满：不写死 minmax(0, 1fr)，整行会缩到 max-content（实测
+     771 的容器里只占 293），两排控件就被挤成「复制」掉行、「应用」掉行。 */
+  grid-template-columns: minmax(0, 1fr);
   justify-items: stretch;
   gap: 8px;
 }
@@ -1792,6 +1795,32 @@ body.dock-right #hotzone {
   font-size: 12px;
   color: var(--text-faint, #64748b);
   line-height: 1.5;
+}
+
+/* Token 行：上排＝当前 token（纯文字 + 复制），下排＝新 token 输入 + 生成 / 应用。
+ * 不用输入框展示 token：只读文本框会有"能改"的暗示，长 token 也会被截断；
+ * 纯文字 + 虚线框，点一下整段选中（user-select: all）方便手动 Ctrl+C。 */
+.sol-token-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.sol-token-value {
+  flex: 1 1 240px;
+  min-width: 0;
+  padding: 7px 10px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: var(--input-bg, #141a2e);
+  color: var(--text, #f8fafc);
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  word-break: break-all;
+  user-select: all;
+}
+.sol-token-value.is-empty {
+  color: var(--text-faint, #64748b);
 }
 
 /* 配置编辑器：等宽、暗底、与 textarea/输入框同款边框 */

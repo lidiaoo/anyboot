@@ -664,6 +664,62 @@ fn sol_binary_from_ledger() -> Option<PathBuf> {
     None
 }
 
+/// 台账里「服务单元注册过没有」的那一段，纯函数（好单测）。
+///
+/// 官方 install.sh / install.ps1 装完会把 `service` 块写进 install.json：
+/// `{ "kind": "schtasks" | "systemd" | "launchd", "name": "sol", "created_unit": true }`。
+/// Windows 上这是**唯一免提权**的注册凭据 —— 任务由 SYSTEM 注册，任务文件的 ACL
+/// 只给 SYSTEM / Administrators，非管理员用 schtasks / Get-ScheduledTask 一律"看不清"。
+///
+/// 只认全中：`incomplete == false`（装完的台账）+ `created_unit == true` +
+/// `kind` 等于本平台期望值 + `name` 为空或就是 sol。任何一项不符返回 None。
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn parse_ledger_service(json: &str, expect_kind: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(json).ok()?;
+    if value
+        .get("incomplete")
+        .and_then(|flag| flag.as_bool())
+        .unwrap_or(false)
+    {
+        return None;
+    }
+    let service = value.get("service")?;
+    let kind = service.get("kind")?.as_str()?.trim().to_string();
+    if !kind.eq_ignore_ascii_case(expect_kind) {
+        return None;
+    }
+    if !service
+        .get("created_unit")
+        .and_then(|flag| flag.as_bool())
+        .unwrap_or(false)
+    {
+        return None;
+    }
+    let name = service
+        .get("name")
+        .and_then(|name| name.as_str())
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    if !name.is_empty() && !name.eq_ignore_ascii_case(SOL_SERVICE) {
+        return None;
+    }
+    Some(kind)
+}
+
+/// 从台账里读「服务注册过」的平台类型（Windows 用；其余平台有各自的实时探针）。
+#[cfg(target_os = "windows")]
+fn sol_service_from_ledger() -> Option<String> {
+    for ledger in sol_ledger_paths() {
+        if let Ok(text) = fs::read_to_string(&ledger) {
+            if let Some(kind) = parse_ledger_service(&text, "schtasks") {
+                return Some(kind);
+            }
+        }
+    }
+    None
+}
+
 /// systemd ExecStart 里跑的那个 sol（服务在跑，二进制必然存在且就是它在用）。
 fn sol_binary_from_service_unit() -> Option<PathBuf> {
     let output = command("systemctl")
@@ -734,14 +790,28 @@ pub(crate) fn sol_status_snapshot() -> SolStatus {
     // 2) 服务状态：Linux 走 systemctl；macOS 走 launchctl（LaunchDaemon）。
     #[cfg(target_os = "linux")]
     {
+        // 注册与否看 LoadState（单元文件在不在）：`is-active` 对「单元存在但没起」
+        // 也回 inactive，拿它当注册判据会把「服务已停止」误报成「服务未注册」。
+        if let Ok(output) = command("systemctl")
+            .args([
+                "show",
+                SOL_SERVICE,
+                "--property=LoadState",
+                "--value",
+                "--no-pager",
+            ])
+            .stderr(Stdio::piped())
+            .output()
+        {
+            let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            status.service_loaded = !text.is_empty() && text != "not-found";
+        }
         if let Ok(output) = command("systemctl")
             .args(["is-active", SOL_SERVICE])
             .stderr(Stdio::piped())
             .output()
         {
-            let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            status.service_loaded = !text.is_empty() && text != "inactive";
-            status.service_active = text == "active";
+            status.service_active = String::from_utf8_lossy(&output.stdout).trim() == "active";
             if status.service_active {
                 status.process_running = true;
             }
@@ -850,7 +920,14 @@ pub(crate) fn sol_status_snapshot() -> SolStatus {
 
     #[cfg(target_os = "windows")]
     {
-        // 计划任务 `sol`（ONSTART + SYSTEM）：schtasks /query 能查到即注册过
+        // 计划任务 `sol`（ONSTART + SYSTEM）：schtasks 查得到就以它为准。
+        //
+        // 但**非管理员根本查不动**：任务文件（C:\Windows\System32\Tasks\sol）的 ACL
+        // 只给 SYSTEM / Administrators，`schtasks /Query /TN sol` 回「拒绝访问」，
+        // `Get-ScheduledTask` 连枚举都会悄悄跳过它 —— "读不到"被当"不存在"，就是
+        // 「服务明明在跑却显示服务未注册」的根因（官方 install.ps1 的 Task-State
+        // 备注写了同一件事，它也只在管理员下才敢说 installed / absent）。
+        // 所以查不动时改用官方台账认注册，运行态交给进程表佐证，绝不弹密码框。
         if let Ok(output) = command("schtasks")
             .args(["/Query", "/TN", SOL_SERVICE, "/FO", "LIST"])
             .stderr(Stdio::piped())
@@ -864,6 +941,17 @@ pub(crate) fn sol_status_snapshot() -> SolStatus {
                 let lower = text.to_lowercase();
                 status.service_active =
                     lower.contains("running") || text.contains("正在运行");
+            }
+        }
+        if !status.service_loaded {
+            if let Some(kind) = sol_service_from_ledger() {
+                status.service_loaded = true;
+                status.service_detail = Some(format!(
+                    "计划任务 sol（ONSTART + SYSTEM）· 注册来自台账（{kind}），运行态由进程确认（任务状态需管理员）"
+                ));
+                // 任务只可能由 ONSTART 拉起，进程在跑就等于任务是起来的；
+                // 这里不能留 false —— 否则界面会出现「服务已停止 · 进程在跑」的自相矛盾。
+                status.service_active = sol_process_alive();
             }
         }
         status.recent_logs = windows_sol_log_tail();
@@ -939,14 +1027,55 @@ fn journal_tail() -> Vec<String> {
         .collect()
 }
 
-/// 是否有名为 sol 的进程在跑（pgrep -x sol）。
+/// 本机 sol 进程的 PID 列表（Windows 走 tasklist，Unix 走 pgrep -x）。
+///
+/// 老实现三端一律 `pgrep -x sol` —— **Windows 根本没有 pgrep**，于是进程兜底恒
+/// false、`sol_listening_ports` 拿不到 PID、netstat 那一段成了死代码。改用
+/// `tasklist`：它不带管理员身份也能列出以 SYSTEM 身份跑的进程（本机实测可以），
+/// 输出里只有 exe 名和数字，不受中文系统 GBK 编码影响。
+fn sol_process_pids() -> Vec<u32> {
+    #[cfg(target_os = "windows")]
+    {
+        let Ok(output) = command("tasklist")
+            .args(["/FI", "IMAGENAME eq sol.exe", "/FO", "CSV", "/NH"])
+            .stderr(Stdio::piped())
+            .output()
+        else {
+            return Vec::new();
+        };
+        // 命中："sol.exe","3264","Services","0","11,024 K"
+        // 未命中：一行本地化的提示语（没有逗号分列，解析自然落空）
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .filter_map(|line| {
+                let mut columns = line.split("\",\"");
+                let name = columns.next()?.trim_matches('"').trim();
+                if !name.eq_ignore_ascii_case("sol.exe") {
+                    return None;
+                }
+                columns.next()?.trim_matches('"').trim().parse::<u32>().ok()
+            })
+            .collect()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let Ok(output) = command("pgrep")
+            .args(["-x", SOL_SERVICE])
+            .stderr(Stdio::piped())
+            .output()
+        else {
+            return Vec::new();
+        };
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .filter_map(|line| line.trim().parse::<u32>().ok())
+            .collect()
+    }
+}
+
+/// 是否有名为 sol 的进程在跑。
 fn sol_process_alive() -> bool {
-    command("pgrep")
-        .args(["-x", SOL_SERVICE])
-        .stderr(Stdio::piped())
-        .output()
-        .map(|output| output.status.success())
-        .unwrap_or(false)
+    !sol_process_pids().is_empty()
 }
 
 // ---- macOS：launchd（LaunchDaemon）那条线 ----
@@ -1016,24 +1145,19 @@ fn sol_listening_ports(process_running: bool) -> Vec<SolListenEntry> {
     let mut entries: Vec<SolListenEntry> = Vec::new();
     let _ = process_running; // 只决定要不要白跑；端口读不出来就空着
 
-    // 本机 sol 进程 PID（pgrep 一次，两个平台都用；macOS 无对应分支，只用于
-    // Linux ss / Windows netstat 的行匹配，下划线前缀免 macOS unused 警告）
+    // 本机 sol 进程 PID（一次问清，后面按 PID 匹配监听行；Windows 走 tasklist，
+    // Unix 走 pgrep —— 老实现三端都用 pgrep，Windows 上这里恒空，端口永远读不出来）
     #[cfg_attr(target_os = "macos", allow(unused_variables))]
-    let pid: Option<String> = command("pgrep")
-        .args(["-x", SOL_SERVICE])
-        .stderr(Stdio::piped())
-        .output()
-        .ok()
-        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
-        .filter(|text| !text.is_empty());
+    let pids = sol_process_pids();
 
     #[cfg(target_os = "linux")]
     {
         if let Ok(output) = command("ss").args(["-ulnp"]).stderr(Stdio::piped()).output() {
             let text = String::from_utf8_lossy(&output.stdout);
             for line in text.lines().skip(1) {
+                // 别拿裸 PID 做 contains：短 PID 会撞上端口号 / 队列长度
                 let is_sol = line.contains("sol")
-                    || pid.as_deref().map(|pid| line.contains(pid)).unwrap_or(false);
+                    || pids.iter().any(|pid| line.contains(&format!("pid={pid},")));
                 if !is_sol {
                     continue;
                 }
@@ -1056,7 +1180,7 @@ fn sol_listening_ports(process_running: bool) -> Vec<SolListenEntry> {
     }
     #[cfg(target_os = "windows")]
     {
-        if let Some(pid) = pid {
+        if !pids.is_empty() {
             if let Ok(output) = command("netstat")
                 .args(["-ano", "-p", "UDP"])
                 .stderr(Stdio::piped())
@@ -1066,7 +1190,12 @@ fn sol_listening_ports(process_running: bool) -> Vec<SolListenEntry> {
                 for line in text.lines() {
                     let cols: Vec<&str> = line.split_whitespace().collect();
                     // Proto Local-Address Foreign-Address PID
-                    if cols.len() >= 4 && cols[0].eq_ignore_ascii_case("UDP") && cols[3] == pid {
+                    let pid_hit = cols
+                        .get(3)
+                        .and_then(|pid| pid.parse::<u32>().ok())
+                        .map(|pid| pids.contains(&pid))
+                        .unwrap_or(false);
+                    if cols.len() >= 4 && cols[0].eq_ignore_ascii_case("UDP") && pid_hit {
                         if let Some(port) = cols[1].rsplit(':').next().and_then(|p| p.parse::<u16>().ok()) {
                             entries.push(SolListenEntry {
                                 port,
@@ -1904,6 +2033,17 @@ pub(crate) async fn sol_extract(app: AppHandle, archive: String, dir: Option<Str
     };
     fs::create_dir_all(&dir).map_err(|error| format!("创建解压目录失败：{error}"))?;
 
+    // Windows：运行中的 sol.exe 删不掉（访问被拒绝），不清空就没法铺新文件 ——
+    // 整条安装链会卡死在这一步（终端也呼不出来）。先停服务，装完由官方脚本重新拉起。
+    #[cfg(target_os = "windows")]
+    if stop_sol_before_replace()? {
+        sol_log(
+            &app,
+            "① 安装目录里的 sol 正在运行，已先停服务（否则 sol.exe 被占用、清不掉）—— 装完由官方脚本重新拉起"
+                .to_string(),
+        );
+    }
+
     // 先清空安装目录（保留 sol.yaml + 安装包本身），再解压 —— 三端同一条路径。
     let (removed, kept) = sol_clear_install_dir(&dir)?;
     if removed.is_empty() && kept.is_empty() {
@@ -2528,35 +2668,76 @@ pub(crate) fn sol_logs(app: AppHandle) -> Vec<String> {
         .collect()
 }
 
-/// 一键下载安装（静默）：下载 → 清空安装目录（保留 sol.yaml）→ 解压铺平 → 官方脚本无人值守安装。
-/// 中途任何一步失败即停（已下载的包保留，重试时解压可直接复用）。
+/// 一键安装的前置两步（两个安装按钮**共用这一段**，用户定案：
+/// 「手动安装」除最后一步外，行为必须和「自动安装」完全一致）：
 ///
-/// 「一键安装（调终端）」的流程 = 前两步一样，第三步换成 sol_install_terminal，
-/// 由前端分两个按钮各自串。
+/// ① 拿包 —— 有本地手选包就用它，否则走官方下载（下载内部自带 md5/大小复用判定，
+///    包已存在且合规时不会重新下载）。
+/// ② 清空安装目录（保留 sol.yaml）+ 解压铺平 —— 三端同一条路径，Windows 会先停服。
+///
+/// 返回解压铺平后的包根目录（= 安装目录本身）。任何一步失败都往日志区写一行再返回 Err，
+/// 静默安装没有终端，日志区是唯一现场。
+async fn sol_prepare_package(
+    app: &AppHandle,
+    dir: &Option<String>,
+    archive: Option<String>,
+) -> Result<String, String> {
+    // ① 拿包
+    let archive = match archive
+        .map(|path| path.trim().to_string())
+        .filter(|path| !path.is_empty())
+    {
+        Some(path) => {
+            // 「选择安装包…」挑的本地包：不联网，直接用
+            let path = expand_home_dir(&path);
+            if !path.is_file() {
+                let error = format!("{} 不存在，请重新选择安装包", path.display());
+                sol_log(app, format!("一键安装中止（安装包无效）：{error}"));
+                return Err(error);
+            }
+            sol_log(app, format!("① 使用本地安装包 {}", path.display()));
+            path.display().to_string()
+        }
+        None => sol_install_download(app.clone(), dir.clone())
+            .await
+            .map_err(|error| {
+                sol_log(app, format!("一键安装中止（下载失败）：{error}"));
+                error
+            })?,
+    };
+    sol_log(app, format!("① 安装包就绪 {archive}"));
+
+    // ② 清空 + 解压：sol_extract 内部先清空安装目录（保留 sol.yaml），
+    //    再把包内容上移铺平 —— 最终 ~/sol/ 下直接是 sol(.exe)、install.sh(.cmd)、skills/
+    let target = resolve_sol_dir_raw(dir);
+    sol_log(app, format!("② 开始解压到 {}", target.display()));
+    let root = sol_extract(app.clone(), archive, Some(target.display().to_string()))
+        .await
+        .map_err(|error| {
+            sol_log(app, format!("一键安装中止（解压失败）：{error}"));
+            error
+        })?;
+    sol_log(app, format!("② 解压完成 {root}"));
+    Ok(root)
+}
+
+/// 一键下载安装（静默）：[`sol_prepare_package`] → 官方脚本无人值守安装。
+/// 中途任何一步失败即停（已下载的包保留，重试时可直接复用）。
+///
+/// `archive` = 「选择安装包…」手挑的本地包（不联网）；传 None 走官方下载。
 #[tauri::command]
-pub(crate) async fn sol_one_click_install(app: AppHandle, dir: Option<String>) -> Result<String, String> {
+pub(crate) async fn sol_one_click_install(
+    app: AppHandle,
+    dir: Option<String>,
+    archive: Option<String>,
+) -> Result<String, String> {
     trace(&app, "command", "sol_one_click_install");
     let _guard = SolOpGuard::acquire()?;
     clean_orphan_install_lock(&app);
     sol_log(&app, "＝＝＝ 一键下载安装开始 ＝＝＝".to_string());
 
-    // 1) 下载（进度条独立走事件）
-    let archive = sol_install_download(app.clone(), dir.clone()).await.map_err(|error| {
-        sol_log(&app, format!("一键安装中止（下载失败）：{error}"));
-        error
-    })?;
-    sol_log(&app, format!("① 下载完成 {archive}"));
-
-    // 2) 清空 + 解压：sol_extract 内部先清空安装目录（保留 sol.yaml），
-    //    再把包内容上移铺平 —— 最终 ~/sol/ 下直接是 sol(.exe)、install.sh(.cmd)、skills/
-    sol_log(&app, format!("② 开始解压到 {}", resolve_sol_dir_raw(&dir).display()));
-    let root = sol_extract(app.clone(), archive, Some(resolve_sol_dir_raw(&dir).display().to_string()))
-        .await
-        .map_err(|error| {
-            sol_log(&app, format!("一键安装中止（解压失败）：{error}"));
-            error
-        })?;
-    sol_log(&app, format!("② 解压完成 {root}"));
+    // 1+2) 下载 + 解压：与「调终端」逐字同一段代码，只差第三步
+    let root = sol_prepare_package(&app, &dir, archive).await?;
 
     // 3) 静默安装（官方脚本无人值守）
     sol_log(&app, "③ 静默安装（官方 install.sh，可能弹一次管理员授权框）".to_string());
@@ -2568,33 +2749,23 @@ pub(crate) async fn sol_one_click_install(app: AppHandle, dir: Option<String>) -
     Ok(message)
 }
 
-/// 一键安装（调终端）：下载 → 清空 + 解压铺平 → 呼出系统终端跑官方脚本。
-/// 第三步由用户在终端里回答脚本问句（菜单选 1 = apply）。
+/// 一键安装（调终端）：[`sol_prepare_package`] → 呼出系统终端跑官方脚本。
+/// **前两步与静默安装逐字相同**，只有第三步不同：由用户在终端里回答脚本问句
+/// （菜单选 1 = apply）。
 #[tauri::command]
 pub(crate) async fn sol_one_click_install_terminal(
     app: AppHandle,
     dir: Option<String>,
+    archive: Option<String>,
 ) -> Result<String, String> {
     trace(&app, "command", "sol_one_click_install_terminal");
     let _guard = SolOpGuard::acquire()?;
     clean_orphan_install_lock(&app);
     sol_log(&app, "＝＝＝ 一键安装（调终端）开始 ＝＝＝".to_string());
 
-    let archive = sol_install_download(app.clone(), dir.clone()).await.map_err(|error| {
-        sol_log(&app, format!("一键安装中止（下载失败）：{error}"));
-        error
-    })?;
-    sol_log(&app, format!("① 下载完成 {archive}"));
-
-    let target = resolve_sol_dir_raw(&dir);
-    sol_log(&app, format!("② 开始解压到 {}", target.display()));
-    let root = sol_extract(app.clone(), archive, Some(target.display().to_string()))
-        .await
-        .map_err(|error| {
-            sol_log(&app, format!("一键安装中止（解压失败）：{error}"));
-            error
-        })?;
-    sol_log(&app, format!("② 解压完成 {root}"));
+    // 1+2) 下载 + 解压：与静默安装同一段代码（archive 为「选择安装包…」挑的本地包，
+    //      没挑就传 null 走官方下载）
+    let root = sol_prepare_package(&app, &dir, archive).await?;
 
     sol_log(&app, "③ 呼出终端跑官方 install.sh（请在终端里确认）".to_string());
     let message = sol_install_terminal_inner(app.clone(), Some(root), _guard).await?;
@@ -2741,34 +2912,71 @@ fn sol_installer_cwd(dir: &Path) -> PathBuf {
     }
 }
 
-/// Windows 呼出 cmd 窗口跑 install.cmd（官方双击入口，它自己调 install.ps1）。
-/// 交互模式不给环境变量：脚本走正常交互流程，用户在窗口里按菜单选。
+/// PowerShell 单引号字面量的转义（单引号内只有 `'` 需要写成 `''`）。
+///
+/// 路径一律走**单引号**字面量：这样 `$`、空格、中文、反引号都不会被 PowerShell
+/// 当语法解析，比双引号 + 转义可靠得多。
+#[cfg(target_os = "windows")]
+fn ps_quote(text: &str) -> String {
+    format!("'{}'", text.replace('\'', "''"))
+}
+
+/// Windows 呼出 PowerShell 窗口跑 install.cmd（官方双击入口，它自己调 install.ps1）。
+/// 交互模式不给环境变量：脚本走自己的流程（有 install.yaml 就按配置直接装，
+/// 没有才弹菜单；需要管理员时会自己 UAC 提权重跑）。
 ///
 /// cwd 用 `sol_installer_cwd`（父目录）而不是安装目录 —— 见那里的注释；
 /// 也正因为 cwd 不在安装目录，command_line 必须是脚本的**绝对路径**。
+///
+/// 三条硬约束（都是实测踩出来的，改动前请先读）：
+///
+/// 1. **不能走 `crate::command`**。它给每个子进程带 `CREATE_NO_WINDOW`
+///    （lib.rs:87-99），新开的窗口会继承"隐藏"，用户只看到提权步骤那个窗口
+///    闪一下、真正的安装窗口根本不出现（2026-10-21 的现象）。这里显式
+///    `CREATE_NEW_CONSOLE`，保证窗口可见。
+/// 2. **不走 `cmd /C start "" cmd /K ...`**。路径/命令要塞进 `/K` 的字符串里，
+///    嵌套引号会被 cmd 剥错层（实测 `'"cd /d "C:\..."' 不是内部或外部命令`），
+///    而且 `start` 从无控制台的 GUI 进程里拉起窗口时，显示状态不可控。
+///    直接起 PowerShell 只有一层参数解析，路径用单引号字面量传，空格/中文都安全。
+/// 3. **必须 `-NoExit`**。安装脚本自己会 `Start-Process -Verb RunAs` 提权重跑，
+///    父进程拿到退出码就结束；没有 `-NoExit` 的话窗口立刻关闭，用户看到的
+///    就是"蓝窗口一闪而过"，连跑成功还是失败都不知道。`-NoExit` 让它停在
+///    提示符，最后一行还能看到退出码。
 #[cfg(target_os = "windows")]
 fn spawn_terminal(dir: &Path, command_line: &str) -> Result<(), String> {
-    // 与上午可用的基线同构：`start "" cmd /K cd /d <cwd> && <脚本>`。
-    // 与基线唯一的不同是 cwd = 安装目录的**父目录**（sol_installer_cwd，绕
-    // install.ps1:537 的 legacy 判定崩溃），因此 command_line 必须是绝对路径。
-    // 注意不要在这里加引号/改用 /D：嵌套引号会被 cmd 剥错层（实测报
-    // `'"cd /d "C:\..."' 不是内部或外部命令`），基线的不带引号形式反而能跑
-    // —— 默认路径 C:\Users\<user>\sol 都不含空格。
+    use std::os::windows::process::CommandExt;
+    /// CREATE_NEW_CONSOLE：给子进程单独开一个可见的控制台窗口
+    const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
+
     let cwd = sol_installer_cwd(dir);
-    let status = command("cmd")
+    // 全部用单引号拼接，避免任何双引号进入命令行 —— Rust 的 Windows 参数转义
+    // 只会对 `"` 做处理，绕开它就绕开了整层转义歧义。
+    let script = format!(
+        "$Host.UI.RawUI.WindowTitle = {}; \
+Set-Location -LiteralPath {}; \
+& {}; \
+$rc = $LASTEXITCODE; \
+Write-Host ''; \
+Write-Host ('[AnyBoot] 安装脚本已退出（退出码 ' + $rc + '），窗口保留供你查看输出。') -ForegroundColor Cyan",
+        ps_quote("sol 安装"),
+        ps_quote(&cwd.display().to_string()),
+        ps_quote(command_line)
+    );
+
+    std::process::Command::new("powershell")
         .args([
-            "/C",
-            "start",
-            "",
-            "cmd",
-            "/K",
-            &format!("cd /d {} && {}", cwd.display(), command_line),
+            "-NoProfile",
+            "-NoLogo",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-NoExit",
+            "-Command",
+            &script,
         ])
-        .status()
-        .map_err(|error| format!("呼出 cmd 失败：{error}"))?;
-    if !status.success() {
-        return Err("呼出 cmd 失败（start 非零退出）".to_string());
-    }
+        .current_dir(&cwd)
+        .creation_flags(CREATE_NEW_CONSOLE)
+        .spawn()
+        .map_err(|error| format!("呼出终端失败：{error}"))?;
     Ok(())
 }
 
@@ -2878,7 +3086,8 @@ pub(crate) async fn sol_install_terminal_inner(
 
     spawn_terminal(&dir, &command_line)?;
     let message = format!(
-        "已在系统终端打开官方安装入口 install.cmd（{}）—— 按脚本提示确认即可（菜单选 1 = 安装/升级）",
+        "已打开终端运行官方安装入口 install.cmd（{}）—— 若弹出管理员授权请点「是」；\
+窗口会保留，跑完能看到输出和退出码（日志同时写进 install.log）",
         dir.display()
     );
     sol_log(&app, message.clone());
@@ -2911,9 +3120,11 @@ pub(crate) async fn sol_install_silent_inner(
     _guard: SolOpGuard,
 ) -> Result<String, String> {
     sol_log(&app, "＝＝＝ 静默安装开始 ＝＝＝".to_string());
-    #[cfg(target_os = "macos")]
-    let app_handle = app.clone();
+    // 闭包里要往日志区推脚本输出，先克隆一份句柄；`app` 本体留给闭包外的状态快照。
+    let log_app = app.clone();
     let message = tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(target_os = "macos")]
+        let app_handle = log_app.clone();
         let dir = resolve_sol_dir(install_dir.clone())?;
         require_official_package(&dir)?;
         // Windows 是 install.cmd，其它平台是 install.sh
@@ -2924,7 +3135,16 @@ pub(crate) async fn sol_install_silent_inner(
 
         // Windows：走官方 install.cmd 入口（环境变量传动作：无人值守、脚本自己提权）
         #[cfg(target_os = "windows")]
-        let stdout = run_windows_installer(&dir, &script, "install", "yes")?;
+        let stdout = {
+            sol_log(
+                &log_app,
+                "→ 执行官方 install.cmd（静默：自动选「1 按配置应用」；需要管理员时脚本自己弹 UAC 升权）",
+            );
+            let result = run_windows_installer(&dir, &script, ANSWERS, |line| {
+                sol_log(&log_app, format!("  {line}"));
+            });
+            result?
+        };
 
         // 两个平台各产出 stdout：macOS = osascript 提权跑（root 下脚本跳过 sudo）；
         // 其它 = 直接跑（root 由 pkexec/终端 sudo 场景自理）。
@@ -3038,8 +3258,47 @@ pub(crate) async fn sol_install_silent_inner(
         ))
     })
     .await
-    .map_err(|error| format!("sol_install_silent 任务失败：{error}"))??;
+    // JoinError（线程 panic / 被取消）先拍平；脚本自己的失败在下一层。
+    .map_err(|error| format!("sol_install_silent 任务失败：{error}"))?;
+    // 脚本失败也要在日志区留一行：静默安装没有终端，日志区是唯一现场。
+    let message = match message {
+        Ok(message) => message,
+        Err(error) => {
+            sol_log(&app, format!("✗ 静默安装失败：{error}"));
+            return Err(error);
+        }
+    };
     sol_log(&app, format!("＝＝＝ 静默安装完成 ＝＝＝ {message}"));
+    // 装完立刻把服务状态摊在日志里：静默安装最常见的坑是「脚本 exit 0，
+    // 但计划任务 / systemd 单元没真的把进程拉起来」—— 这里一眼能看到 active=false。
+    if let Ok(status) = tauri::async_runtime::spawn_blocking(sol_status_snapshot).await {
+        let ports = status
+            .listening
+            .iter()
+            .map(|entry| entry.port.to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        sol_log(
+            &app,
+            format!(
+                "服务状态：installed={} loaded={} active={} process={} ports=[{}]",
+                status.installed,
+                status.service_loaded,
+                status.service_active,
+                status.process_running,
+                ports
+            ),
+        );
+        if !status.service_active && !status.process_running {
+            sol_log(
+                &app,
+                "⚠ 服务没在跑。两种常见原因：① 脚本判定「已是最新，无需操作」时只会写台账、不会启动计划任务；② 计划任务注册失败（看上面输出里 schtasks 那段）。点上面的「重启服务」即可拉起；还不行再看安装目录下的 install.log / sol.log",
+            );
+        }
+        for line in status.recent_logs.iter().take(8) {
+            sol_log(&app, format!("  [sol] {line}"));
+        }
+    }
     record_action(&app, "sol_install_silent", true, &message);
     Ok(message)
 }
@@ -3077,31 +3336,74 @@ fn sol_installed_bin_path() -> PathBuf {
     }
 }
 
-/// Windows：无人值守跑官方 **install.cmd**，返回脚本输出（stdout + stderr 合并）。
+/// 按行流式读取子进程输出（UTF-8），每读到完整一行就交给回调，同时拼成完整文本返回。
 ///
-/// 为什么调 .cmd 而不是 .ps1：.cmd 是官方给用户双击的入口，它自己用
-/// `powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0install.ps1"` 去调 .ps1
-/// —— PowerShell 版本探测、执行策略、路径引号这些封装在里面。anyboot 走官方入口，
-/// 而不是绕过它自己重做一遍。
+/// 为什么流式：`wait_with_output` 只能等脚本跑完才拿到输出；静默安装要跑几十秒到
+/// 几分钟，等结束再打印等于用户在界面上一个字都看不到。
 ///
-/// **动作用环境变量传，不是命令行参数**：官方 install.cmd 不带 `%*`（它明确写着
-/// no arguments to remember），给它加参数会被整段丢掉。install.ps1 自己留了后门
-/// （install.ps1:1195-1204）：参数没给时回落到 `$env:SOL_INSTALL_ACTION` /
-/// `SOL_INSTALL_SERVICE` / `SOL_INSTALL_DELCONFIGS`。经环境变量进去，.cmd 一个字都不用改，
-/// 效果跟 `-SolAction install -SolService yes` 完全一致：走「已升权子进程」分支，
-/// 不问、不展示、直接执行，需要管理员时脚本自己弹一次 UAC，结束 exit 0。
+/// 为什么是 UTF-8 而不是 `cmd /U` 的 UTF-16：`/U` 只让 **cmd 自己**写 UTF-16，
+/// 被它调起来的 powershell.exe 仍按控制台代码页（936）写 GBK —— 两段混在同一条
+/// 管道里，按任何单一编码解都会把另一半变成乱码（2026-10-21 实测）。改用
+/// `chcp 65001` 让整条链统一 UTF-8，中文才正常。
 ///
-/// stdin 立刻关掉（EOF）：install.cmd 末尾的 `pause` 收到 EOF 立即返回，不会挂死；
-/// 脚本若要提问也只拿到默认值。
+/// 切行必须在**字节层**做：先转 String 再 `lines()`，跨读取块的行会被截成两条。
+/// UTF-8 的 `\n` 是单字节、多字节字符的续字节都 >= 0x80，按 `\n` 切不会切坏字符。
 #[cfg(target_os = "windows")]
-fn run_windows_installer(dir: &Path, script: &Path, action: &str, service: &str) -> Result<String, String> {
-    // /U 让 cmd 用 UTF-16 输出，中文不会被控制台代码页吃掉。
-    // 动作用环境变量传（见上方说明）：install.cmd 不转交参数，但 install.ps1 认 SOL_INSTALL_*。
+fn stream_utf8_lines<R: std::io::Read, F: FnMut(&str)>(mut reader: R, mut on_line: F) -> String {
+    let mut pending: Vec<u8> = Vec::new();
+    let mut whole = String::new();
+    let mut buffer = [0u8; 8192];
+    loop {
+        let read = match reader.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(read) => read,
+            // 读中断不该让整个安装失败：已经拿到的输出照常返回
+            Err(_) => break,
+        };
+        pending.extend_from_slice(&buffer[..read]);
+        while let Some(pos) = pending.iter().position(|byte| *byte == b'\n') {
+            let chunk: Vec<u8> = pending.drain(..=pos).collect();
+            let text = String::from_utf8_lossy(&chunk);
+            let line = text.trim_end_matches(|c| c == '\r' || c == '\n');
+            if !line.trim().is_empty() {
+                on_line(line);
+            }
+            whole.push_str(&text);
+        }
+    }
+    if !pending.is_empty() {
+        let text = String::from_utf8_lossy(&pending);
+        let line = text.trim_end_matches(|c| c == '\r' || c == '\n');
+        if !line.trim().is_empty() {
+            on_line(line);
+        }
+        whole.push_str(&text);
+    }
+    whole
+}
+
+/// 跑官方 install.cmd（静默模式），**边跑边把每一行交给 `on_line`**。
+///
+/// `answers` 是喂给脚本交互问答的字节流（菜单编号 + 后续 yes/no），例如安装是
+/// `1\ny\ny\ny\n`，卸载是 `2\nn\ny\n`。答案喂完就关 stdin。
+#[cfg(target_os = "windows")]
+fn run_windows_installer<F: FnMut(&str)>(
+    dir: &Path,
+    script: &Path,
+    answers: &[u8],
+    mut on_line: F,
+) -> Result<String, String> {
+    use std::io::Read as _;
+    use std::io::Write as _;
+    // chcp 65001：让 cmd + powershell 整条链统一 UTF-8 输出（理由见 stream_utf8_lines）。
+    // 不要用 /U —— 那只管 cmd 自己，它调起来的 powershell 仍按 936 写 GBK，混在
+    // 一条管道里按哪种编码解都会乱掉一半。
+    // SOL_INSTALL_NO_OPEN：官方的静默开关，别让脚本弹资源管理器去改配置。
     let script_arg = script.display().to_string();
-    let output = command("cmd")
-        .args(["/U", "/C", script_arg.as_str()])
-        .env("SOL_INSTALL_ACTION", action)
-        .env("SOL_INSTALL_SERVICE", service)
+    let cmdline = format!("chcp 65001 >nul && {script_arg}");
+    let mut child = command("cmd")
+        .args(["/C", cmdline.as_str()])
+        .env("SOL_INSTALL_NO_OPEN", "1")
         // cwd 不放在安装目录：install.ps1 的 legacy 判定会把
         // `cwd\sol.yaml` 与 `%USERPROFILE%\sol\sol.yaml` 撞上，命中后踩
         // install.ps1:537 的坏行直接 exit 1（实测安装动作 exit=1）。父目录
@@ -3109,22 +3411,52 @@ fn run_windows_installer(dir: &Path, script: &Path, action: &str, service: &str)
         // $RunDir，与 cwd 无关，换 cwd 无副作用。
         .current_dir(sol_installer_cwd(dir))
         .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .and_then(|mut child| {
-            // stdin 立刻关掉（EOF）：.cmd 的 pause 与 .ps1 的 Read-Host 都立即返回默认值
-            drop(child.stdin.take());
-            child.wait_with_output()
-        })
         .map_err(|error| format!("运行 {} 失败：{error}", sol_package_script()))?;
-    // /U 的 stdout 是 UTF-16LE，去掉 BOM 再解码；万一没走 /U 则按 UTF-8 兜底。
-    let stdout = decode_cmd_output(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
-    if !output.status.success() {
-        let detail: &str = if stderr.trim().is_empty() { &stdout } else { &stderr };
+    // 把菜单答案写进 stdin 再关掉（EOF）。
+    //
+    // **千万不要改成「设 SOL_INSTALL_ACTION 环境变量」**：install.ps1:1240 一看到
+    // 这个变量就把当前进程当成「UAC 升权后的子进程」，直接跳过 Escalate-IfNeeded。
+    // 而我们并没有升权 —— 于是注册计划任务 / 改 PATH / 加防火墙这些 [admin] 步骤
+    // 全被跳过，脚本还 exit 0。现场特征：install.log 里只有 [user] 几行、
+    // 没有 `[admin] 注册并启动计划任务`，界面显示装完了但服务根本不跑（2026-10-21 实测）。
+    // 喂菜单答案则走完整流程：菜单 → 升权（弹一次 UAC）→ 管理员身份装完。
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(answers);
+        // stdin 在这里 drop：.cmd 的 pause 与 .ps1 后续的 Read-Host 立刻拿到 EOF
+    }
+
+    // stderr 另开线程抽干：stdout / stderr 两个管道只读一个，脚本输出一多就
+    // 会把对方写满、双方互等卡死。
+    let stderr_pipe = child.stderr.take();
+    let stderr_task = std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        if let Some(mut pipe) = stderr_pipe {
+            let _ = pipe.read_to_end(&mut bytes);
+        }
+        bytes
+    });
+
+    let stdout = match child.stdout.take() {
+        Some(pipe) => stream_utf8_lines(pipe, |line| on_line(line)),
+        None => String::new(),
+    };
+    let status = child
+        .wait()
+        .map_err(|error| format!("等待安装脚本结束失败：{error}"))?;
+    let stderr = String::from_utf8_lossy(&stderr_task.join().unwrap_or_default()).into_owned();
+
+    if !status.success() {
+        let detail: &str = if stderr.trim().is_empty() {
+            &stdout
+        } else {
+            &stderr
+        };
         return Err(format!(
             "静默安装失败（exit {}）：{}",
-            output.status.code().unwrap_or(-1),
+            status.code().unwrap_or(-1),
             detail.trim().chars().take(400).collect::<String>()
         ));
     }
@@ -3133,22 +3465,6 @@ fn run_windows_installer(dir: &Path, script: &Path, action: &str, service: &str)
     } else {
         format!("{stdout}\n{stderr}")
     })
-}
-
-/// 解出 `cmd /U` 的 UTF-16LE 输出；不是 UTF-16 就按 UTF-8 处理。
-#[cfg(target_os = "windows")]
-fn decode_cmd_output(bytes: &[u8]) -> String {
-    let body = bytes.strip_prefix(&[0xFF, 0xFE]).unwrap_or(bytes);
-    let looks_utf16 = body.len() >= 2 && body.len() % 2 == 0 && body.iter().skip(1).step_by(2).all(|b| *b == 0);
-    if looks_utf16 {
-        let units: Vec<u16> = body
-            .chunks_exact(2)
-            .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
-            .collect();
-        String::from_utf16_lossy(&units)
-    } else {
-        String::from_utf8_lossy(body).into_owned()
-    }
 }
 
 /// 静默卸载：官方脚本的 uninstall 动作（管道喂「2」选菜单卸载项）。
@@ -3173,14 +3489,19 @@ pub(crate) async fn sol_uninstall_silent(
         ));
     }
     sol_log(&app, "＝＝＝ 静默卸载开始 ＝＝＝".to_string());
+    // 同静默安装：闭包要把脚本输出推日志区，句柄先克隆一份。
+    let log_app = app.clone();
     let message = tauri::async_runtime::spawn_blocking(move || {
         let dir = resolve_sol_dir(install_dir.clone())?;
         require_official_package(&dir)?;
         let script = sol_install_script_path(&dir);
 
-        // Windows：同一个官方入口跑卸载（SOL_INSTALL_ACTION=uninstall 经环境变量转交 install.ps1）
+        // Windows：同一个官方入口跑卸载。答案 = 菜单 2（卸载）+ 配置不跟着删。
+        // 同样**不设 SOL_INSTALL_ACTION**（理由见 run_windows_installer 的注释）。
         #[cfg(target_os = "windows")]
-        run_windows_installer(&dir, &script, "uninstall", "yes")?;
+        run_windows_installer(&dir, &script, b"2\nn\ny\n", |line| {
+            sol_log(&log_app, format!("  {line}"));
+        })?;
 
         #[cfg(target_os = "macos")]
         {
@@ -3300,8 +3621,15 @@ pub(crate) async fn sol_uninstall_terminal(
     Ok(message.to_string())
 }
 
-/// 服务启停（start/stop/restart）：macOS launchctl、Linux systemctl。
+/// 服务启停（start/stop/restart）：Linux systemctl、macOS launchctl、Windows 计划任务。
 /// 官方脚本管安装期的注册，日常启停走这里（不必每次都开终端）。
+///
+/// 三端共同的一条硬规矩：**不拿命令的退出码当成功**。
+/// - Windows：`schtasks /Run` 返回 0 只代表「请求被接受」，任务没设 MultipleInstances
+///   时默认 IgnoreNew —— 老进程还活着的话它会静默什么都不做却报成功。只能靠
+///   「旧 PID 消失 + 新 PID 出现」判真假。
+/// - Linux/macOS：单元里是 `Restart=always` / `KeepAlive=true`，纯 kill 不等于停止
+///   （官方 install.sh:166 自己记过这条坑），所以 stop 必须走 systemctl stop / bootout。
 #[tauri::command]
 pub(crate) async fn sol_service_ctl(
     app: AppHandle,
@@ -3312,46 +3640,406 @@ pub(crate) async fn sol_service_ctl(
         "start" | "stop" | "restart" => action,
         _ => return Err(format!("不支持的动作：{action}（只认 start / stop / restart）")),
     };
-    let (program, args): (String, Vec<String>) = if cfg!(target_os = "macos") {
-        // bootstrap 过的 system 域服务：kickstart（-k = 先杀再拉起 = restart）、
-        // kill SIGTERM = stop
-        let sub = match action.as_str() {
-            "start" => "launchctl kickstart system/com.lidiaoo.sol",
-            "restart" => "launchctl kickstart -k system/com.lidiaoo.sol",
-            _ => "launchctl kill SIGTERM system/com.lidiaoo.sol",
-        };
-        (
-            "osascript".to_string(),
-            vec![
-                "-e".to_string(),
-                format!("do shell script \"{sub}\" with administrator privileges"),
-            ],
-        )
-    } else {
-        (
-            "systemctl".to_string(),
-            vec![action.clone(), format!("{}.service", SOL_SERVICE)],
-        )
-    };
-    let output = command(&program)
-        .args(&args)
+    // 命令体要跑 systemctl / launchctl / 提权 PowerShell：系统授权框和 UAC 框
+    // 都要等人操作（几十秒到几分钟），不能占着 tokio 的工作线程 —— 与
+    // sol_status_snapshot / sol_config_write 同一条规矩，走阻塞池。
+    let result = tauri::async_runtime::spawn_blocking(move || sol_service_ctl_blocking(&action))
+        .await
+        .map_err(|error| format!("sol_service_ctl 任务失败：{error}"))?;
+    match result {
+        Ok(message) => {
+            record_action(&app, "sol_service_ctl", true, &message);
+            Ok(message)
+        }
+        // 失败也要落回执：以前失败直接 return Err，动作历史里查不到 —— 用户看到
+        // 弹窗却翻不到原因。
+        Err(error) => {
+            record_action(&app, "sol_service_ctl", false, &error);
+            Err(error)
+        }
+    }
+}
+
+/// 真正干活的那一层（同步，跑在 spawn_blocking 里）。
+fn sol_service_ctl_blocking(action: &str) -> Result<String, String> {
+    // 与安装/卸载互斥：装到一半点重启，会把刚替换上去的二进制再打一次。
+    let _guard = SolOpGuard::acquire()?;
+    #[cfg(target_os = "linux")]
+    {
+        linux_service_ctl(action)
+    }
+    #[cfg(target_os = "macos")]
+    {
+        macos_service_ctl(action)
+    }
+    #[cfg(target_os = "windows")]
+    {
+        windows_service_ctl(action)
+    }
+}
+
+/// 轮询进程表，直到 sol 的存亡与 `expect_alive` 一致（最多 `timeout_secs` 秒）。
+///
+/// 200ms 一次：命令返回时进程通常已经在/已经没了，轮询只是兜住「刚 fork 还没
+/// 出现在进程表」那几十毫秒，不构成额外延迟。
+fn wait_process_state(expect_alive: bool, timeout_secs: u32) -> bool {
+    let deadline =
+        std::time::Instant::now() + std::time::Duration::from_secs(u64::from(timeout_secs));
+    loop {
+        if sol_process_alive() == expect_alive {
+            return true;
+        }
+        if std::time::Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+}
+
+/// 起/停动作的收尾：动作名 → 成功文案，外加一次独立的进程复核。
+#[cfg_attr(target_os = "windows", allow(dead_code))]
+fn service_ctl_outcome(action: &str, extra: &str) -> Result<String, String> {
+    let alive = action != "stop";
+    if !wait_process_state(alive, 3) {
+        return Err(if alive {
+            format!("{extra}命令报成功，但没等到 sol 进程起来 —— 看服务日志确认为什么立刻退了")
+        } else {
+            format!("{extra}命令报成功，但 sol 进程还在 —— 停止没真正生效")
+        });
+    }
+    Ok(match action {
+        "start" => "sol 服务已启动".to_string(),
+        "stop" => "sol 服务已停止".to_string(),
+        _ => "sol 服务已重启".to_string(),
+    })
+}
+
+/// Linux：systemctl 一条命令搞定，失败时把「没有 polkit 授权代理」单独说清楚。
+#[cfg(target_os = "linux")]
+fn linux_service_ctl(action: &str) -> Result<String, String> {
+    let unit = format!("{SOL_SERVICE}.service");
+    let output = command("systemctl")
+        .args([action, unit.as_str()])
         .stderr(Stdio::piped())
         .output()
-        .map_err(|error| format!("运行服务命令失败：{error}"))?;
+        .map_err(|error| format!("运行 systemctl 失败：{error}"))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
+        let text = stderr.trim();
+        // 只有「非 root 且没有 polkit 授权代理」才走到这里（桌面会话里 systemctl
+        // 自己会弹密码框）。再套一层 pkexec 没用 —— 它要的是同一个 polkit，
+        // 所以这里只把话说明白，并给出手动命令。
+        if text.contains("Interactive authentication required") {
+            return Err(format!(
+                "sol 服务需要 root，但这台机器没有可用的 polkit 授权代理：请在终端手动执行 `sudo systemctl {action} {unit}`"
+            ));
+        }
         return Err(format!(
             "sol 服务 {action} 失败：{}",
+            text.chars().take(200).collect::<String>()
+        ));
+    }
+    service_ctl_outcome(action, "")
+}
+
+/// macOS：launchctl（system 域 LaunchDaemon）。
+///
+/// plist 里是 `KeepAlive=true`，所以：
+/// - stop 必须 `bootout`（真正卸载），`kill SIGTERM` 会被 launchd 毫秒级拉回来；
+/// - restart 用 `kickstart -k`（先杀再拉起）；
+/// - start 先 kickstart（已 bootstrap 时最快），失败再 `bootstrap` 从 plist 重新注册
+///   （被 bootout 过的情形）。
+#[cfg(target_os = "macos")]
+fn macos_service_ctl(action: &str) -> Result<String, String> {
+    let target = format!("system/{SOL_LAUNCHD_LABEL}");
+    let plist = sol_launchd_plist_path();
+    let plist_arg = shell_single_quote(&plist.display().to_string());
+    let inner = match action {
+        "restart" => format!("launchctl kickstart -k {target}"),
+        "start" => format!(
+            "launchctl kickstart {target} 2>/dev/null || launchctl bootstrap system {plist_arg}"
+        ),
+        // || true：本来就没在跑时 bootout 会非零退出，那不是错误；真没停掉的话
+        // 下面的进程复核会兜住。
+        _ => format!("launchctl bootout {target} 2>/dev/null || true"),
+    };
+    let script = format!(
+        "do shell script \"{}\" with administrator privileges",
+        inner.replace('\\', "\\\\").replace('"', "\\\"")
+    );
+    let output = command("osascript")
+        .args(["-e", script.as_str()])
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|error| format!("运行 osascript 失败：{error}"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let text = stderr.trim();
+        // -128 / User canceled：用户在授权框点了取消
+        if text.contains("-128") || text.contains("User canceled") || text.contains("用户已取消")
+        {
+            return Err("已取消管理员授权，sol 服务没有变动".to_string());
+        }
+        return Err(format!(
+            "sol 服务 {action} 失败：{}",
+            text.chars().take(200).collect::<String>()
+        ));
+    }
+    service_ctl_outcome(action, "")
+}
+
+/// 单引号包一个 shell 参数（路径里可能有空格）。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn shell_single_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', r"'\''"))
+}
+
+/// Windows：计划任务既是「注册」也是「服务身份」。
+///
+/// 为什么不能自己 spawn sol.exe：那会起一个**当前登录用户**的进程，权限、会话、
+/// 任务计划归属全都不对，等于野进程，还可能跟原进程抢 UDP 端口。真重启只能是
+/// 「结束 SYSTEM 任务实例 → 由任务计划以 SYSTEM 重新拉起」。
+///
+/// 权限：任务是 `/RU SYSTEM /RL HIGHEST` 建的，非管理员连 /Query 都回「拒绝访问」，
+/// /End、/Run 更不行 —— 所以整段（查状态 → 停 → 等退出 → 起 → 等起来）塞进
+/// **同一个**提权 PowerShell 里做，只弹一次 UAC。RunAs 的 stdout 拿不到，
+/// 结果经临时文件回传（与 privileged_read 同一套办法）。
+#[cfg(target_os = "windows")]
+fn windows_service_ctl(action: &str) -> Result<String, String> {
+    let result_file = std::env::temp_dir().join(format!(
+        "anyboot-sol-svc-{}-{}.txt",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_millis())
+            .unwrap_or(0)
+    ));
+    let _ = fs::remove_file(&result_file);
+    let script = windows_service_script(action, &result_file);
+    let encoded = windows_utf16_encoded(&script);
+    let output = command("powershell")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            &format!(
+                "Start-Process powershell -Verb RunAs -Wait -ArgumentList '-NoProfile','-NonInteractive','-EncodedCommand','{encoded}'"
+            ),
+        ])
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|error| format!("无法启动提权 PowerShell：{error}"))?;
+    let report = fs::read_to_string(&result_file).unwrap_or_default();
+    let _ = fs::remove_file(&result_file);
+    if report.trim().is_empty() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!(
+            "没拿到提权执行的结果 —— 多半是 UAC 授权被取消：{}",
             stderr.trim().chars().take(200).collect::<String>()
         ));
     }
-    let message = match action.as_str() {
-        "start" => "sol 服务已启动",
-        "stop" => "sol 服务已停止",
-        _ => "sol 服务已重启",
+    let field = |key: &str| -> String {
+        report
+            .lines()
+            .filter_map(|line| line.split_once('='))
+            .find(|(name, _)| *name == key)
+            .map(|(_, value)| value.trim().to_string())
+            .unwrap_or_default()
     };
-    record_action(&app, "sol_service_ctl", true, message);
-    Ok(message.to_string())
+    let state = field("state");
+    let outcome = field("result");
+    let detail = field("detail");
+    let after = field("after");
+    match outcome.as_str() {
+        "ok" => {
+            let message = match action {
+                "stop" => "sol 服务已停止".to_string(),
+                "start" if !detail.is_empty() => format!("sol 服务本来就在运行（PID {after}）"),
+                "start" => format!("sol 服务已启动（PID {after}）"),
+                _ => format!("sol 服务已重启（PID {after}）"),
+            };
+            let alive = action != "stop";
+            if !wait_process_state(alive, 3) {
+                return Err(if alive {
+                    format!("提权脚本报成功，但独立复核没看到 sol 进程（任务状态 {state}）")
+                } else {
+                    format!("提权脚本报已停止，但独立复核看到 sol 进程还在（任务状态 {state}）")
+                });
+            }
+            Ok(message)
+        }
+        "no-task" => {
+            let hint = if sol_service_from_ledger().is_some() {
+                "台账记着注册过，但任务确实查不到了（可能被手工删了）—— 重新安装一次即可恢复"
+            } else {
+                "这台机器上还没有注册过 sol 计划任务 —— 先安装"
+            };
+            Err(hint.to_string())
+        }
+        "manual-process" => {
+            let first = detail.split(',').next().unwrap_or_default();
+            Err(format!(
+                "有一个 sol 进程（PID {detail}）不属于计划任务，直接启动会撞 UDP 端口。先结束它：taskkill /F /PID {first}（需管理员）"
+            ))
+        }
+        "still-running" => Err(format!(
+            "已结束任务实例，但进程（PID {detail}）5 秒内没退出，服务没重启"
+        )),
+        "run-failed" => Err(format!("schtasks /Run 失败：{detail}")),
+        "not-started" => Err(format!("{detail} —— 看 %USERPROFILE%\\sol\\sol.log")),
+        _ => Err(format!("提权执行出错：{detail}")),
+    }
+}
+
+/// Windows：清空/覆盖安装目录之前，先把正在跑的 sol 停下。
+///
+/// **为什么必须停**：运行中的 sol.exe 删不掉 —— DeleteFile 返回「访问被拒绝」
+/// （实测同一份文件：运行中能改名，删不掉；进程退出后立刻可删）。而
+/// `sol_clear_install_dir` 对删不掉的条目会汇总成 Err 返回，于是
+/// 「一键安装（静默）/ 手动安装（调终端）」在清空这一步就中止，连终端都呼不出来 ——
+/// 用户看到的现象就是「点了没反应，终端没弹出」。
+///
+/// 官方 install.ps1 装之前同样是先 `/End` 停任务，这里只是把这一步提到清空之前。
+///
+/// 返回 `true` = 之前确实在跑、这次被停掉了（调用方据此在日志里说明现状）。
+#[cfg(target_os = "windows")]
+fn stop_sol_before_replace() -> Result<bool, String> {
+    if !sol_process_alive() {
+        return Ok(false);
+    }
+    // 注意：不能调 sol_service_ctl_blocking —— 它会拿 SolOpGuard，而调用方
+    // （sol_extract，经一键流程进来）已经持有同一把锁，会直接报
+    // 「另一个安装/卸载操作正在进行中」。这里用不带锁的实体。
+    windows_service_ctl("stop").map_err(|error| {
+        format!("安装目录里的 sol.exe 正在运行（占用文件，无法替换），但停服务失败：{error}")
+    })?;
+    if !wait_process_state(false, 5) {
+        return Err(
+            "已请求停止 sol 服务，但 5 秒后进程还在 —— sol.exe 仍被占用，没法替换文件。\
+             先手动结束它再重试：taskkill /F /IM sol.exe（需管理员）"
+                .to_string(),
+        );
+    }
+    Ok(true)
+}
+
+/// Windows 提权脚本：`__OUT__` / `__ACTION__` 由调用方替换（避免 format! 和大括号打架）。
+///
+/// 输出格式（每行 key=value）：state / result / detail / before / after。
+/// 用无 BOM 的 UTF-8 落盘 —— 带 BOM 的话第一行的 key 会变成「\u{feff}state」。
+#[cfg(target_os = "windows")]
+const WINDOWS_SERVICE_SCRIPT: &str = r#"
+$task = 'sol'
+$action = '__ACTION__'
+$out = '__OUT__'
+$state = 'missing'
+$result = ''
+$detail = ''
+$after = ''
+$before = @(Get-Process -Name sol -ErrorAction SilentlyContinue | ForEach-Object { $_.Id })
+try {
+    $procs = @(Get-Process -Name sol -ErrorAction SilentlyContinue)
+    try {
+        $t = Get-ScheduledTask -TaskName $task -ErrorAction Stop
+        $state = [string]$t.State
+    } catch {
+        $state = 'missing'
+    }
+    if ($state -eq 'missing') {
+        $result = 'no-task'
+        $detail = 'Get-ScheduledTask 查不到名为 sol 的任务'
+    } elseif (($procs.Count -gt 0) -and ($state -ne 'Running')) {
+        $result = 'manual-process'
+        $detail = ($before -join ',')
+    } elseif ($action -eq 'stop') {
+        if ($state -ne 'Running') {
+            $result = 'ok'
+            $detail = 'task-was-idle'
+        } else {
+            $null | schtasks /End /TN $task | Out-Null
+            $deadline = (Get-Date).AddSeconds(5)
+            while (((Get-Date) -lt $deadline) -and (Get-Process -Name sol -ErrorAction SilentlyContinue)) {
+                Start-Sleep -Milliseconds 200
+            }
+            if (Get-Process -Name sol -ErrorAction SilentlyContinue) {
+                $result = 'still-running'
+                $detail = ((Get-Process -Name sol | ForEach-Object { $_.Id }) -join ',')
+            } else {
+                $result = 'ok'
+            }
+        }
+    } else {
+        if (($action -eq 'start') -and ($procs.Count -gt 0)) {
+            $result = 'ok'
+            $after = ($before -join ',')
+            $detail = 'already-running'
+        } else {
+            if ($state -eq 'Running') {
+                $null | schtasks /End /TN $task | Out-Null
+                $deadline = (Get-Date).AddSeconds(5)
+                while (((Get-Date) -lt $deadline) -and (Get-Process -Name sol -ErrorAction SilentlyContinue)) {
+                    Start-Sleep -Milliseconds 200
+                }
+                if (Get-Process -Name sol -ErrorAction SilentlyContinue) {
+                    $result = 'still-running'
+                    $detail = ((Get-Process -Name sol | ForEach-Object { $_.Id }) -join ',')
+                }
+            }
+            if ($result -eq '') {
+                $runCode = 1
+                $attempt = 0
+                while ($attempt -lt 3) {
+                    $null | schtasks /Run /TN $task | Out-Null
+                    $runCode = $LASTEXITCODE
+                    if ($runCode -eq 0) { break }
+                    Start-Sleep -Milliseconds 400
+                    if (Get-Process -Name sol -ErrorAction SilentlyContinue) { $runCode = 0; break }
+                    $attempt = $attempt + 1
+                }
+                if ($runCode -ne 0) {
+                    $result = 'run-failed'
+                    $detail = ('schtasks /Run 退出码 ' + $runCode)
+                } else {
+                    $deadline = (Get-Date).AddSeconds(8)
+                    $alive = @()
+                    while ((Get-Date) -lt $deadline) {
+                        $alive = @(Get-Process -Name sol -ErrorAction SilentlyContinue | ForEach-Object { $_.Id })
+                        if ($alive.Count -gt 0) { break }
+                        Start-Sleep -Milliseconds 200
+                    }
+                    if ($alive.Count -eq 0) {
+                        $result = 'not-started'
+                        $detail = 'schtasks /Run 返回成功，但 8 秒内没等到 sol 进程'
+                    } else {
+                        $result = 'ok'
+                        $after = ($alive -join ',')
+                    }
+                }
+            }
+        }
+    }
+} catch {
+    if ($result -eq '') { $result = 'error' }
+    $detail = $_.Exception.Message
+} finally {
+    if ($result -eq '') { $result = 'error' }
+    $lines = @(
+        ('state=' + $state),
+        ('result=' + $result),
+        ('detail=' + $detail),
+        ('before=' + ($before -join ',')),
+        ('after=' + $after)
+    )
+    [System.IO.File]::WriteAllText($out, ($lines -join "`n"), (New-Object System.Text.UTF8Encoding($false)))
+}
+"#;
+
+/// 把动作名与输出路径填进 Windows 提权脚本。
+#[cfg(target_os = "windows")]
+fn windows_service_script(action: &str, result_file: &Path) -> String {
+    WINDOWS_SERVICE_SCRIPT
+        .replace("__ACTION__", action)
+        .replace("__OUT__", &result_file.display().to_string().replace('\'', "''"))
 }
 
 /// 前端（主窗 webview）异常上报：WKWebView 的 console 我们看不到，
@@ -3381,6 +4069,38 @@ pub(crate) fn sol_open_dir(app: AppHandle, dir: Option<String>) -> Result<String
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 静默安装的日志要逐行实时推到界面上（`chcp 65001` 之后的 UTF-8 输出）。
+    /// 这里模拟「每次只读 1 字节」（最极端的分块），确认跨块的**多字节中文**、
+    /// 空行、CRLF、以及末尾没有换行的最后一行都不会被切坏或乱码。
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn utf8_install_output_streams_line_by_line() {
+        struct Trickle {
+            data: Vec<u8>,
+            pos: usize,
+        }
+        impl std::io::Read for Trickle {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                if self.pos >= self.data.len() || buf.is_empty() {
+                    return Ok(0);
+                }
+                buf[0] = self.data[self.pos];
+                self.pos += 1;
+                Ok(1)
+            }
+        }
+
+        let text = "第一行\r\nsecond line\r\n\r\n  第三行  ";
+        let bytes = text.as_bytes().to_vec();
+
+        let mut lines = Vec::new();
+        let whole = stream_utf8_lines(Trickle { data: bytes, pos: 0 }, |line| lines.push(line.to_string()));
+
+        // 空行丢弃；CRLF 的 \r 去掉；末尾无换行的那行照样推出去
+        assert_eq!(lines, vec!["第一行", "second line", "  第三行  "]);
+        assert!(whole.contains("第三行"));
+    }
 
     /// install.yaml 是官方脚本写的「sol 怎么跑」的唯一权威来源：它指哪儿，anyboot 就读哪儿。
     #[test]
@@ -3455,6 +4175,47 @@ mod tests {
         ] {
             assert!(!sol_is_archive_name(name), "不该按安装包保留：{name}");
         }
+    }
+
+    #[test]
+    fn ledger_service_counts_only_finished_registration() {
+        // 真实 install.json 的 service 块（Windows，官方 install.ps1 写的）
+        let installed = r#"
+        {
+            "schema": 1,
+            "method": "script",
+            "installed_version": "v0.1.0",
+            "incomplete": false,
+            "service": {
+                "kind": "schtasks",
+                "name": "sol",
+                "unit_path": "\\\\sol",
+                "created_unit": true,
+                "created_user": false
+            }
+        }"#;
+        assert_eq!(
+            parse_ledger_service(installed, "schtasks").as_deref(),
+            Some("schtasks")
+        );
+        // 别的平台的服务类型不能拿来给 Windows 作证
+        assert_eq!(parse_ledger_service(installed, "systemd"), None);
+
+        // 装到一半（incomplete）的台账不算数
+        let unfinished = installed.replace("\"incomplete\": false", "\"incomplete\": true");
+        assert_eq!(parse_ledger_service(&unfinished, "schtasks"), None);
+
+        // 脚本没建单元（比如只解压了二进制）：不算注册
+        let no_unit = installed.replace("\"created_unit\": true", "\"created_unit\": false");
+        assert_eq!(parse_ledger_service(&no_unit, "schtasks"), None);
+
+        // 名字对不上的任务不认（多实例 / 测试残留）
+        let other_name = installed.replace("\"name\": \"sol\"", "\"name\": \"sol-test\"");
+        assert_eq!(parse_ledger_service(&other_name, "schtasks"), None);
+
+        // 没有 service 块 / 根本不是 JSON：一律 None，绝不让整条状态命令报错
+        assert_eq!(parse_ledger_service("{\"schema\":1}", "schtasks"), None);
+        assert_eq!(parse_ledger_service("not json at all", "schtasks"), None);
     }
 
     #[test]
