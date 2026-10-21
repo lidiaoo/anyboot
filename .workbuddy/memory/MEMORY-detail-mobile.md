@@ -4,6 +4,11 @@
 
 ## 构建
 - Android 已迁 **Jetpack Compose**（业务 Java 类保留）。env：`GRADLE_USER_HOME=~/.cache/ab-gradle`、`JAVA_HOME=~/.sdkm/links/java`、`ANDROID_HOME=~/Android/Sdk`、`ANDROID_USER_HOME=~/.android`、`HOME=/home/jianghh`；AGP 8.7.3 / Gradle 8.11.1 / android-34。
+- **Windows 本机构建（2026-10-21 实测）**：`JAVA_HOME="E:/ENV/JDK/jdk-17.0.20+8"` +
+  `GRADLE_USER_HOME=E:/tmp/gradle-home`（init.gradle 换阿里云镜像，**别用 E:/Android/gradle-8.11.1 + env.sh，没镜像连不上 repo1**）+
+  系统侧现成发行版 `~/.gradle/wrapper/dists/gradle-8.10.2-all/7iv73wktx1xtkvlq19urqw1wm/gradle-8.10.2/bin/gradle`
+  `-p mobile/android --offline assembleDebug -x lint`（47s，依赖缓存热时 offline 也能过）。
+  产物 `app/build/outputs/apk/debug/app-debug.apk`，副本惯例拷到 `mobile/../dist/`（项目根 dist/）。
 - **`ulimit -v` 4G 硬限** → `_JAVA_OPTIONS="-Xmx768m -Xms64m -XX:MaxMetaspaceSize=512m"`（只放大 metaspace，heap 仍压着）。
 - 交付包 `mobile/AnyBoot-remote-v1.2-compose-debug.apk`。
 
