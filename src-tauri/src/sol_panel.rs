@@ -108,8 +108,8 @@ fn privileged_read(path: &Path) -> io::Result<String> {
         if let Ok(content) = fs::read_to_string(path) {
             return Ok(content);
         }
-        // 读不到：以管理员身份读（UAC 一次）。Start-Process -Verb RunAs 起子进程，
-        // 结果写临时文件再取回 —— 因为 RunAs 的 stdout 拿不到。
+        // 读不到：以管理员身份读（UAC 一次），结果写临时文件再取回
+        // —— 提权进程的 stdout 拿不到。窗口用 run_elevated_hidden（不创建控制台）。
         let result_file = std::env::temp_dir().join(format!(
             "anyboot-sol-read-{}.txt",
             std::process::id()
@@ -119,27 +119,13 @@ fn privileged_read(path: &Path) -> io::Result<String> {
             p = path.display(),
             r = result_file.display()
         );
-        let encoded = windows_utf16_encoded(&script);
-        let output = command("powershell")
-            .args([
-                "-NoProfile",
-                "-NonInteractive",
-                "-Command",
-                &format!(
-                    "Start-Process powershell -Verb RunAs -Wait -ArgumentList '-NoProfile','-EncodedCommand','{encoded}'"
-                ),
-            ])
-            .stderr(Stdio::piped())
-            .output()
-            .map_err(|error| io::Error::new(io::ErrorKind::Other, error.to_string()))?;
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
+        let code = run_elevated_hidden(&script).map_err(|error| {
+            io::Error::new(io::ErrorKind::PermissionDenied, format!("提权读取失败：{error}"))
+        })?;
+        if code != 0 {
             return Err(io::Error::new(
                 io::ErrorKind::PermissionDenied,
-                format!(
-                    "提权读取失败：{}",
-                    stderr.trim().chars().take(160).collect::<String>()
-                ),
+                format!("提权读取失败：PowerShell 退出码 {code}"),
             ));
         }
         let content = fs::read_to_string(&result_file).map_err(|error| {
@@ -169,6 +155,76 @@ fn windows_utf16_encoded(script: &str) -> String {
         .flat_map(|unit| unit.to_le_bytes())
         .collect();
     base64::engine::general_purpose::STANDARD.encode(bytes)
+}
+
+/// UTF-16 带 NUL —— Win32 宽字符 API 要的形态。
+#[cfg(target_os = "windows")]
+fn to_wide(value: &str) -> Vec<u16> {
+    value.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
+/// 以管理员身份跑一段 PowerShell 脚本，**全程不创建控制台窗口**，等它结束并返回退出码。
+///
+/// 为什么不用 `Start-Process -Verb RunAs`（原来的写法）：
+/// 1. 它会为子进程开一个控制台窗口 —— 用户看到蓝色窗口一闪（实测抓到
+///    `管理员: Windows PowerShell`，pid 可查）；
+/// 2. 给子进程加 `-WindowStyle Hidden` 只是「先创建、后隐藏」：10ms 轮询照样抓得到窗口；
+/// 3. 外层 Start-Process 想加 `-WindowStyle` 也不行 —— PowerShell 禁止它与 `-Verb` 同用。
+///
+/// 正解：`ShellExecuteExW` + `SEE_MASK_NO_CONSOLE`，由 shell 以 runas 提权创建进程，
+/// 并且**创建时就不给控制台**；`SW_HIDE` 双保险，`SEE_MASK_NOCLOSEPROCESS` 拿句柄等结束。
+/// 实测：提权进程里再调 `schtasks`（控制台程序）也不会自己开一个窗口。
+///
+/// 提权进程的 stdout 本来拿不到，输出一律经临时文件回传，由调用方自己读。
+#[cfg(target_os = "windows")]
+fn run_elevated_hidden(script: &str) -> Result<i32, String> {
+    use windows_sys::Win32::Foundation::{CloseHandle, ERROR_CANCELLED};
+    use windows_sys::Win32::System::Threading::{GetExitCodeProcess, WaitForSingleObject};
+    use windows_sys::Win32::UI::Shell::{
+        ShellExecuteExW, SEE_MASK_NOCLOSEPROCESS, SEE_MASK_NO_CONSOLE, SHELLEXECUTEINFOW,
+    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::SW_HIDE;
+
+    let encoded = windows_utf16_encoded(script);
+    let verb = to_wide("runas");
+    let file = to_wide("powershell.exe");
+    let params = to_wide(&format!(
+        "-NoProfile -NonInteractive -EncodedCommand {encoded}"
+    ));
+
+    // SAFETY: 先全零再逐字段填；三个字符串都是带 NUL 的 UTF-16，且活到调用结束之后。
+    let mut info: SHELLEXECUTEINFOW = unsafe { std::mem::zeroed() };
+    info.cbSize = std::mem::size_of::<SHELLEXECUTEINFOW>() as u32;
+    info.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_NO_CONSOLE;
+    info.lpVerb = verb.as_ptr();
+    info.lpFile = file.as_ptr();
+    info.lpParameters = params.as_ptr();
+    info.nShow = SW_HIDE;
+
+    if unsafe { ShellExecuteExW(&mut info) } == 0 {
+        let error = std::io::Error::last_os_error();
+        let code = error.raw_os_error().unwrap_or(-1);
+        return Err(if code == ERROR_CANCELLED as i32 {
+            "管理员授权被取消".to_string()
+        } else {
+            format!("启动提权进程失败：{error}")
+        });
+    }
+    if info.hProcess.is_null() {
+        return Err("提权进程没有返回句柄（SEE_MASK_NOCLOSEPROCESS 未生效）".to_string());
+    }
+    // 3 分钟上限：脚本内部自己还有几秒级等待，真卡死也不该把界面一直挂着。
+    let wait = unsafe { WaitForSingleObject(info.hProcess, 180_000) };
+    let mut exit_code: u32 = 0;
+    let got_code = unsafe { GetExitCodeProcess(info.hProcess, &mut exit_code) };
+    unsafe { CloseHandle(info.hProcess) };
+    if wait != 0 {
+        return Err("提权进程等待超时（180 秒）".to_string());
+    }
+    if got_code == 0 {
+        return Err("读不到提权进程的退出码".to_string());
+    }
+    Ok(exit_code as i32)
 }
 
 /// 提权写文件（三平台）：内容经临时文件交给 root/管理员落位。
@@ -272,30 +328,13 @@ fn privileged_write(path: &Path, content: &str) -> Result<(), String> {
             p = path_str,
             s = staging_str,
         );
-        let encoded = windows_utf16_encoded(&script);
-        command("powershell")
-            .args([
-                "-NoProfile",
-                "-NonInteractive",
-                "-Command",
-                &format!(
-                    "Start-Process powershell -Verb RunAs -Wait -ArgumentList '-NoProfile','-EncodedCommand','{encoded}'"
-                ),
-            ])
-            .stderr(Stdio::piped())
-            .output()
-            .map_err(|error| format!("启动 PowerShell 失败：{error}"))
-            .and_then(|output| {
-                if output.status.success() {
-                    Ok(())
-                } else {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    Err(format!(
-                        "写入失败（UAC 被拒或出错）：{}",
-                        stderr.trim().chars().take(200).collect::<String>()
-                    ))
-                }
-            })
+        run_elevated_hidden(&script).and_then(|code| {
+            if code == 0 {
+                Ok(())
+            } else {
+                Err(format!("写入失败（PowerShell 退出码 {code}）"))
+            }
+        })
     };
 
     let _ = fs::remove_file(&staging);
@@ -3802,8 +3841,11 @@ fn shell_single_quote(value: &str) -> String {
 ///
 /// 权限：任务是 `/RU SYSTEM /RL HIGHEST` 建的，非管理员连 /Query 都回「拒绝访问」，
 /// /End、/Run 更不行 —— 所以整段（查状态 → 停 → 等退出 → 起 → 等起来）塞进
-/// **同一个**提权 PowerShell 里做，只弹一次 UAC。RunAs 的 stdout 拿不到，
+/// **同一个**提权 PowerShell 里做，只弹一次 UAC。提权进程的 stdout 拿不到，
 /// 结果经临时文件回传（与 privileged_read 同一套办法）。
+/// **窗口可见性**：必须走 `run_elevated_hidden` —— 它用 ShellExecuteEx + NO_CONSOLE，
+/// 压根不创建控制台窗口。以前的 `Start-Process -Verb RunAs` 会开一个蓝色窗口一闪而过，
+/// 「重启服务」和「安装前先停服」都看得见。
 #[cfg(target_os = "windows")]
 fn windows_service_ctl(action: &str) -> Result<String, String> {
     let result_file = std::env::temp_dir().join(format!(
@@ -3816,26 +3858,13 @@ fn windows_service_ctl(action: &str) -> Result<String, String> {
     ));
     let _ = fs::remove_file(&result_file);
     let script = windows_service_script(action, &result_file);
-    let encoded = windows_utf16_encoded(&script);
-    let output = command("powershell")
-        .args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            &format!(
-                "Start-Process powershell -Verb RunAs -Wait -ArgumentList '-NoProfile','-NonInteractive','-EncodedCommand','{encoded}'"
-            ),
-        ])
-        .stderr(Stdio::piped())
-        .output()
-        .map_err(|error| format!("无法启动提权 PowerShell：{error}"))?;
+    // 不创建控制台窗口：用户只会看到 UAC 授权框（如果还没提权）。
+    let code = run_elevated_hidden(&script)?;
     let report = fs::read_to_string(&result_file).unwrap_or_default();
     let _ = fs::remove_file(&result_file);
     if report.trim().is_empty() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(format!(
-            "没拿到提权执行的结果 —— 多半是 UAC 授权被取消：{}",
-            stderr.trim().chars().take(200).collect::<String>()
+            "没拿到提权执行的结果（PowerShell 退出码 {code}）—— 多半是 UAC 授权被取消，或脚本在写结果前就退出了"
         ));
     }
     let field = |key: &str| -> String {
@@ -4069,6 +4098,34 @@ pub(crate) fn sol_open_dir(app: AppHandle, dir: Option<String>) -> Result<String
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 提权通路的端到端验证（**手动跑**，默认 ignored：会弹 UAC）。
+    ///
+    /// ```text
+    /// cargo test --lib elevated_hidden_no_console -- --ignored --nocapture
+    /// ```
+    ///
+    /// 验的是 `run_elevated_hidden` 真的能把脚本跑起来（退出码 0 + 结果文件落地），
+    /// 且**看不到控制台窗口**（窗口隐藏靠 ShellExecuteEx 的 SEE_MASK_NO_CONSOLE，
+    /// 由人工观察 / 外部 EnumWindows 探针确认）。
+    #[cfg(target_os = "windows")]
+    #[test]
+    #[ignore = "会弹 UAC，手动验证用"]
+    fn elevated_hidden_no_console() {
+        let marker = std::env::temp_dir().join(format!(
+            "anyboot-elevated-probe-{}.txt",
+            std::process::id()
+        ));
+        let _ = fs::remove_file(&marker);
+        let script = format!(
+            "Start-Sleep -Milliseconds 1500; Set-Content -LiteralPath '{p}' -Value 'elevated-ran' -Encoding utf8",
+            p = marker.display()
+        );
+        let code = run_elevated_hidden(&script).expect("提权执行应成功");
+        assert_eq!(code, 0, "提权 PowerShell 退出码应为 0");
+        assert!(marker.is_file(), "结果文件没落地，说明脚本没真跑");
+        let _ = fs::remove_file(&marker);
+    }
 
     /// 静默安装的日志要逐行实时推到界面上（`chcp 65001` 之后的 UTF-8 输出）。
     /// 这里模拟「每次只读 1 字节」（最极端的分块），确认跨块的**多字节中文**、

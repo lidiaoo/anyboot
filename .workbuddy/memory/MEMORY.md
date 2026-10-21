@@ -8,6 +8,12 @@
 - **Rust 改动提交前必须至少 `cargo check` 一次**（E0425 教训：曾提交编译不过的 gpu_compat.rs）。**Rust 子模块不继承父模块作用域**——lib.rs（crate 根）的私有 const 在子模块里裸用名字必炸，`use crate::XXX;` 引入即可（crate 根私有 item 对后代模块可见，不必改 pub(crate)）。细则见 2026-10-18.md。
 
 ## 桌面端
+- **Windows 提权不闪窗：`ShellExecuteExW` + `SEE_MASK_NO_CONSOLE`（`sol_panel.rs::run_elevated_hidden`）**。
+  `Start-Process -Verb RunAs` 会为子进程开控制台 → 蓝窗口一闪；给子进程加 `-WindowStyle Hidden`
+  **不够**（只是创建后隐藏，10ms `EnumWindows` 轮询照样抓得到）；外层 Start-Process 又不能加
+  `-WindowStyle`（PowerShell 禁止它与 `-Verb` 同用）。正解：`fMask=SEE_MASK_NOCLOSEPROCESS|SEE_MASK_NO_CONSOLE`、
+  `nShow=SW_HIDE`、句柄 `WaitForSingleObject` + `GetExitCodeProcess`。提权进程里再调 `schtasks` 也不闪。
+  改完必须实测（`cargo test --lib elevated_hidden_no_console -- --ignored` + 窗口采样器），别只看代码。
 - **验证 PC 端 UI 的四条铁律**（见 `2026-10-18.md`）：① 必须用**计划任务跑 .bat** 启动（`set` 环境变量 + `start ""`），工具沙箱会杀 WebView2 浏览器进程 → 全窗口黑屏/卡死假象；② `PrintWindow` 抓 WebView2 恒黑，用 `GetDC(NULL)+BitBlt` 抓屏，读坐标要在 1:1 裁剪图上量；③ webview 不吃注入点击（hover 有效、点击无效），验证走 `ANYBOOT_TEST_OPEN_HUB=1` / 再 `ANYBOOT_TEST_OPEN_TERM=1` 钩子；④ 本机**没有 `strings` 命令**，静默返回 0 会骗人，用 Python 提串。
 - **WebView2 CDP 调试端口**：`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` 在运行时 155 已失效（wry API 参数优先）；用 `ANYBOOT_CDP_PORT=9223` + 所有 `WebviewWindowBuilder` 统一过 `lib.rs::apply_browser_args`。铁律（tauri#11144）：同一 data folder 的所有 webview 环境参数必须一致，不一致 = 0x8007139F 开不出窗；杀旧实例后等 5s 再启动。
 - 前端改动**必须强制 codegen**（删 `out` + `touch build.rs` 重编）；核对解 `out/tauri-codegen-assets/*`；**二进制里搜中文按 UTF-8 字节比**（HTML 资产是 brotli 压缩嵌入，裸搜原串必为 0，要拿 codegen 资产字节做精确匹配）。`data-page-node-id` 原样保留；文档路径写 `~`。
