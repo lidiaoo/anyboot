@@ -38,3 +38,11 @@ hs_err_pid*.log
 
 # WorkBuddy 工作区临时脚本（一次性工具，可复用版在 ~/.workbuddy/skills/）
 .workbuddy/tmp/
+
+# --- WorkBuddy 工作区数据 ---
+# memory/（MEMORY.md + 每日日志）和 probes/（量窗口坐标的小工具）**照常入库**：
+#   memory 记的是「为什么这么改」和踩过的坑，比代码注释值钱。
+# artifacts/ 是每次修完 UI 的验证截图，属于一次性现场证据：没有文档引用，
+#   二进制只增不减，事后也分不清是哪次改动的。忽略，只留本地。
+#   要把证据跟改动绑一起，就写进 commit message，别塞进仓库。
+.workbuddy/artifacts/
