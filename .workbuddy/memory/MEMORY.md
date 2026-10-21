@@ -4,6 +4,7 @@
 
 ## git
 - **commit 我做、push 用户做**（本机无 GitHub 凭据）。只提交本轮相关文件；`src-tauri/src/hub*.rs`、`ui/hub.html`、`docs/client-ui/`、`debx/` 属 PC 端 server-hub 另一条线，别混进移动端提交。
+- **`.workbuddy` 三块待遇不同**（用户定案）：`memory/`（MEMORY.md + 每日日志）和 `probes/`（量窗口坐标的小工具）**入库**；`artifacts/`（UI 验证截图）**已 gitignore**——一次性现场证据，二进制只增不减、事后对不上改动。要把证据跟改动绑一起就写进 commit message。
 - **Rust 改动提交前必须至少 `cargo check` 一次**（E0425 教训：曾提交编译不过的 gpu_compat.rs）。**Rust 子模块不继承父模块作用域**——lib.rs（crate 根）的私有 const 在子模块里裸用名字必炸，`use crate::XXX;` 引入即可（crate 根私有 item 对后代模块可见，不必改 pub(crate)）。细则见 2026-10-18.md。
 
 ## 桌面端
