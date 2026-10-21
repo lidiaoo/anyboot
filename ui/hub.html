@@ -343,6 +343,12 @@
   }
   .route-row select:focus, .route-row input:focus { border-color: rgb(var(--accent)); }
   .route-row .route-act { flex: 0 0 auto; }
+  .route-row .route-mode { flex: 0 0 auto; }
+  /* 路由卡片三分区：共同（头行）/ 广播包 / HTTP */
+  .route-row .route-zone { display: flex; flex-direction: column; gap: 6px; padding: 6px 0 2px 10px; border-left: 2px solid rgb(var(--line)); margin-top: 6px; }
+  .route-row .route-zone-title { font-size: 11px; font-weight: 600; color: rgb(var(--accent)); }
+  .route-row .route-zone-inline { font-size: 11px; color: rgb(var(--fg-faint)); }
+  .route-row .route-zone-hint { font-size: 11px; color: rgb(var(--fg-faint)); line-height: 1.5; }
   .route-row .route-target { flex: 1 1 150px; min-width: 110px; font-family: ui-monospace, Menlo, Consolas, monospace; }
   .route-row .route-port { width: 72px; font-family: ui-monospace, Menlo, Consolas, monospace; }
   .route-row .route-del {
@@ -1547,7 +1553,7 @@
           </div>
           <p class="field-hint" style="margin:8px 0 0">
             没写端口按协议默认（SSH 22 / Telnet 23）。地址已存在时只把 MAC 追加进去（可以拿它给已有地址补网卡）；
-            点 MAC 标签可以单独删掉那块网卡。MAC 只用于唤醒，不影响连接。
+            点 MAC 标签可以单独删掉那块网卡。MAC 是局域网电源的必填项（包体就是魔术包），不影响连接。
           </p>
         </div>
         <div class="field" data-page-node-id="3LtY5X3ZUFSlVeHx9DGWf3">
@@ -2318,7 +2324,7 @@
     ids: { list: 'fAddrList', quick: 'fAddrQuick', recognize: 'fAddrRecognize', hint: 'fAddrHint', host: 'fAddrHost', macs: 'fAddrMacs', add: 'fAddrAdd' },
     defaultPort: function () { return defaultPortFor(editingProto); },
     emptyText: '还没加地址 —— 上面粘一段，或者下面手动填一个。',
-    noMacText: '没配 MAC —— 唤醒发不出去',
+    noMacText: '没配 MAC —— 局域网电源发不出去',
     hintDefault: '换行 / 空格 / 逗号 / 分号都能分开；认不出的文字（备注、括号）自动忽略',
     onPairingChange: function () {}
   });
@@ -2331,6 +2337,23 @@
     { value: 'shutdown', label: '关机' },
     { value: 'sleep', label: '睡眠' }
   ];
+
+  /** 发送模式（共同设置区里、动作后面的单选） */
+  const ROUTE_MODES = [
+    { value: 'auto', label: '优先广播包' },
+    { value: 'http_first', label: '优先 HTTP' },
+    { value: 'http_only', label: '仅 HTTP' },
+    { value: 'packet_only', label: '仅广播包' },
+    { value: 'hybrid', label: '混合（同时发）' }
+  ];
+
+  /** 路由的发送模式：没存过 mode 的老档案按旧 http_fallback 推导 */
+  function routeModeOf(route) {
+    if (route && ROUTE_MODES.some(function (item) { return item.value === route.mode; })) {
+      return route.mode;
+    }
+    return route && route.http_fallback === false ? 'packet_only' : 'auto';
+  }
 
   /** 各种写法归一成四个动作之一 */
   function powerActionOf(value) {
@@ -2408,43 +2431,54 @@
         // 回填默认值会让用户删字符时被弹回去（光标一直跳）
         const burstValue = route.burst > 0 ? route.burst : '';
         const retryValue = route.retry > 0 ? route.retry : '';
+        // 每条路由一个卡片，内部分三区：共同（动作+模式）/ 广播包（地址/端口/数量/重试/MAC）/ HTTP（说明）
         return '<div class="route-row" data-index="' + index + '">' +
           '<div class="route-head">' +
             '<span class="route-no">路由 ' + (index + 1) + '</span>' +
+            '<span class="route-zone-inline">动作</span>' +
             '<select class="route-act" data-route="' + index + '">' +
               POWER_ACTIONS.map(function (item) {
                 return '<option value="' + item.value + '"' +
                   (powerActionOf(route.action) === item.value ? ' selected' : '') + '>' + item.label + '</option>';
               }).join('') +
             '</select>' +
-            '<span class="route-head-label">端口</span>' +
-            '<input class="route-port" data-route="' + index + '" type="number" min="1" max="65535"' +
-              ' placeholder="9" value="' + (route.port > 0 ? route.port : '') + '">' +
+            '<span class="route-zone-inline">模式</span>' +
+            '<select class="route-mode" data-route="' + index + '" title="发送模式：广播包 = 局域网 sol/魔术包；HTTP = 这台电脑自带的 AnyBoot 接口；混合 = 两者同时发">' +
+              ROUTE_MODES.map(function (item) {
+                return '<option value="' + item.value + '"' +
+                  (routeModeOf(route) === item.value ? ' selected' : '') + '>' + item.label + '</option>';
+              }).join('') +
+            '</select>' +
             '<span class="route-head-spacer"></span>' +
             '<button type="button" class="route-del" data-remove="' + index + '" aria-label="删掉这条" title="删掉这条">✕</button>' +
           '</div>' +
-          '<div class="route-main">' +
-            '<span class="route-num-label">广播地址</span>' +
-            '<input class="route-target" data-route="' + index + '" type="text" spellcheck="false"' +
-              ' placeholder="留空 = 自动：全局广播 + 各地址的 /24" value="' + esc(route.target || '') + '">' +
+          '<div class="route-zone route-zone-packet">' +
+            '<span class="route-zone-title">广播包</span>' +
+            '<div class="route-main">' +
+              '<span class="route-num-label">广播地址</span>' +
+              '<input class="route-target" data-route="' + index + '" type="text" spellcheck="false"' +
+                ' placeholder="留空 = 自动：全局广播 + 各地址的 /24" value="' + esc(route.target || '') + '">' +
+              '<span class="route-num-label">端口</span>' +
+              '<input class="route-port" data-route="' + index + '" type="number" min="1" max="65535"' +
+                ' placeholder="9" value="' + (route.port > 0 ? route.port : '') + '">' +
+            '</div>' +
+            '<div class="route-main">' +
+              '<span class="route-num-label">' + (waking ? '每块网卡发' : '发') +
+                '<input class="route-burst" data-route="' + index + '" type="number" min="1" max="50"' +
+                ' placeholder="' + routeDefaultBurst(route) + '" value="' + burstValue + '"> 个包</span>' +
+              '<span class="route-num-label">没发出就重试<input class="route-retry" data-route="' + index +
+                '" type="number" min="1" max="20" placeholder="' + routeDefaultRetry(route) +
+                '" value="' + retryValue + '"> 次</span>' +
+              '<span class="route-macs-label">留空 = 默认 ' + routeDefaultBurst(route) + ' / ' +
+                routeDefaultRetry(route) + (waking ? '（唤醒包多、丢得多）' : '（执行类动作别调大，会重复执行）') + '</span>' +
+            '</div>' +
+            '<div class="route-macs"><span class="route-macs-label">MAC</span>' + chips + '</div>' +
           '</div>' +
-          '<div class="route-main">' +
-            '<span class="route-num-label">' + (waking ? '每块网卡发' : '发') +
-              '<input class="route-burst" data-route="' + index + '" type="number" min="1" max="50"' +
-              ' placeholder="' + routeDefaultBurst(route) + '" value="' + burstValue + '"> 个包</span>' +
-            '<span class="route-num-label">没发出就重试<input class="route-retry" data-route="' + index +
-              '" type="number" min="1" max="20" placeholder="' + routeDefaultRetry(route) +
-              '" value="' + retryValue + '"> 次</span>' +
-            '<span class="route-macs-label">留空 = 默认 ' + routeDefaultBurst(route) + ' / ' +
-              routeDefaultRetry(route) + (waking ? '（唤醒包多、丢得多）' : '（执行类动作别调大，会重复执行）') + '</span>' +
+          '<div class="route-zone route-zone-http">' +
+            '<span class="route-zone-title">HTTP</span>' +
+            '<span class="route-zone-hint">调这台电脑自带的 /api/power 接口（token 与连接共用，无需单独配置）。' +
+              '混合 = HTTP 与广播包同时发</span>' +
           '</div>' +
-          '<div class="route-main">' +
-            '<label class="route-fb" title="sol 包一个都没发出去时，改调这台电脑自带的 /api/power 接口。唤醒也能兜：请求能送达就说明机器其实醒着，服务端会直接回执">' +
-              '<input type="checkbox" class="route-httpfb" data-route="' + index + '"' +
-                (route.http_fallback !== false ? ' checked' : '') + '> sol 没发出去就走 HTTP 兜底（调它自己的 AnyBoot 接口）' +
-            '</label>' +
-          '</div>' +
-          '<div class="route-macs"><span class="route-macs-label">MAC</span>' + chips + '</div>' +
         '</div>';
       }).join('');
       if (html === st.html) return;
@@ -2473,8 +2507,8 @@
       if (!box || !add) return;
       add.addEventListener('click', function () {
         // 0 / 0 = 跟动作默认（唤醒 10/10，其余 1/1），别把默认值抄成「用户改过的值」；
-        // HTTP 兜底默认勾上（旧档案没存这个字段的也按勾选显示）
-        st.routes.push({ action: 'wake', target: '', port: 9, macs: [], enabled: true, burst: 0, retry: 0, http_fallback: true });
+        // 发送模式默认「优先广播包」（= 旧的 HTTP 兜底勾选）
+        st.routes.push({ action: 'wake', target: '', port: 9, macs: [], enabled: true, burst: 0, retry: 0, mode: 'auto', http_fallback: true });
         render();
       });
       box.addEventListener('input', function (event) {
@@ -2496,8 +2530,8 @@
         const target = event.target;
         const index = Number(target.dataset.route);
         const route = st.routes[index];
-        if (target.classList.contains('route-httpfb') && route) {
-          route.http_fallback = target.checked;
+        if (target.classList.contains('route-mode') && route) {
+          route.mode = target.value;
           return;
         }
         if (target.classList.contains('route-act') && route) {
@@ -2541,7 +2575,8 @@
             enabled: route.enabled !== false,
             burst: route.burst || 0,
             retry: route.retry || 0,
-            http_fallback: route.http_fallback !== false
+            mode: routeModeOf(route),
+            http_fallback: routeModeOf(route) !== 'packet_only' && routeModeOf(route) !== 'http_only'
           };
         });
         st.html = null;
@@ -2553,9 +2588,12 @@
     };
   }
 
-  /** 保存用整形：动作归一、端口兜底 9、burst/retry 空着就兜成该动作的默认值 */
+  /** 保存用整形：动作归一、端口兜底 9、burst/retry 空着就兜成该动作的默认值。
+   *  mode 写成显式的四个值之一；http_fallback 按 mode 派生落盘 ——
+   *  旧版本客户端（只认 http_fallback）读新档案不会行为反转。 */
   function routesForSave(routes) {
     return (routes || []).map(function (route) {
+      const mode = routeModeOf(route);
       return {
         action: powerActionOf(route.action),
         target: String(route.target || '').trim(),
@@ -2564,7 +2602,8 @@
         enabled: route.enabled !== false,
         burst: Math.min(50, Math.max(1, parseInt(route.burst, 10) || routeDefaultBurst(route))),
         retry: Math.min(20, Math.max(1, parseInt(route.retry, 10) || routeDefaultRetry(route))),
-        http_fallback: !!route.http_fallback
+        mode: mode,
+        http_fallback: mode === 'auto' || mode === 'http_first'
       };
     });
   }
@@ -2997,7 +3036,8 @@
     '为什么「重启 / 关机 / 睡眠」也能走局域网：',
     '这三个动作 WOL 做不到，是目标机上装的 sol 在监听 UDP 端口，收到包就执行对应动作。',
     '所以“哪个端口 = 哪个动作”是你在「编辑 → 局域网电源路由」里自己绑的',
-    '（例如唤醒 9、重启 9200、关机 9201、睡眠 9202）。包体是标准魔术包 + 一行 ANYBOOT-POWER:<动作>。',
+    '（例如唤醒 9、重启 9200、关机 9201、睡眠 9202）。包体永远是标准的 102 字节魔术包，',
+    '不带任何自定义内容 —— 端口就是指令，MAC 是所有动作的必填项。',
     '没装 sol，包能发出去但没人执行 —— 这时就还是走 SSH（需要 sudo 免密）。',
     '',
     '点了没反应，按顺序检查：',

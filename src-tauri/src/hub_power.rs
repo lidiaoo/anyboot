@@ -3,10 +3,11 @@
 //! 两条路，按有没有配「局域网电源路由」自动选：
 //!
 //! 1. **配了路由**（`HubServer.power_routes`，在「编辑服务器」里逐条加）：
-//!    往「广播地址 + 端口」发 UDP 包。包体是标准魔术包（6×0xFF + MAC×16）
-//!    后面跟一行 `ANYBOOT-POWER:<动作>`。目标机上装的是 **sol**，它按端口区分
-//!    收到的是唤醒 / 重启 / 关机 / 睡眠 —— 所以同一台机器的四个动作可以各自
-//!    绑不同端口。这条路的优点是机器睡着、SSH 不通也能操作；缺点是没有 sol 就没人收包。
+//!    往「广播地址 + 端口」发 UDP 包。包体是**标准的 102 字节魔术包**
+//!    （6×0xFF + MAC×16），不带任何自定义尾巴 —— 端口就是指令：目标机上装的
+//!    **sol** 按端口区分收到的是唤醒 / 重启 / 关机 / 睡眠，同一台机器的四个动作
+//!    各自绑不同端口。这条路的优点是机器睡着、SSH 不通也能操作；
+//!    缺点是没有 sol 就没人收包。
 //! 2. **没配路由**（老行为，完全保留）：重启 / 关机 / 睡眠登录目标机跑 systemctl
 //!    （要求该账号 `sudo -n` 免密）；唤醒自己拼魔术包，配了跳板机就由跳板机广播。
 //!
@@ -27,7 +28,8 @@ use crate::hub::{
 /// 没有可用凭据时给用户的话（与 sftp 那句同一风格）
 const NO_CRED: &str = "这台服务器没有可用的自动认证凭据：请在「编辑」里改用密钥或保存密码（交互模式没法在后台跑命令）";
 
-/// 局域网电源包的尾标：sol 侧既可以按端口判断动作，也可以读这一行
+/// 跳板机 shell 握手标记（OK / NOTOOL）：只出现在命令输出里，**不进包体**。
+/// 包体永远是最标准的 102 字节魔术包，端口即指令，不多一个字节。
 const POWER_TAG: &str = "ANYBOOT-POWER";
 
 /// 读一台服务器（找不到就给一句能看懂的错）
@@ -41,17 +43,68 @@ fn find_server(app: &AppHandle, id: &str) -> Result<HubServer, String> {
 /// PC 端电源操作（异步包装，真正的活走 spawn_blocking —— 起 ssh 是阻塞的）
 #[tauri::command]
 pub async fn hub_server_power(app: AppHandle, id: String, action: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || dispatch(&app, &id, &action))
-        .await
-        .map_err(|error| format!("电源操作任务失败：{error}"))?
+    run_power_command(app, "hub_server_power", id, action).await
 }
 
 /// PC 端网络唤醒（同上）
 #[tauri::command]
 pub async fn hub_wake_server(app: AppHandle, id: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || dispatch(&app, &id, POWER_WAKE))
-        .await
-        .map_err(|error| format!("唤醒任务失败：{error}"))?
+    run_power_command(app, "hub_wake_server", id, POWER_WAKE.to_string()).await
+}
+
+// ==================== 埋点日志 ====================
+
+/// 电源动作埋点：**无条件**追加到 trace.log（不受 debug_trace 开关限制）——
+/// 「按了唤醒没反应」这类问题必须能查到按没按、发没发、发去哪。所有写入
+/// 失败全部吞掉：日志写不进去也绝不影响电源动作本身。
+pub(crate) fn power_log(app: &AppHandle, message: &str) {
+    let line = format!("{}ms [power] {message}\n", crate::unix_millis());
+    eprint!("trace {line}");
+    let Some(path) = crate::trace_file_path(app) else {
+        return;
+    };
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _ = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .and_then(|mut file| std::io::Write::write_all(&mut file, line.as_bytes()));
+}
+
+/// 按钮接口的统一埋点包装：进命令记一条入口（哪个按钮 / 哪台机器 / 什么动作），
+/// 出来再记一条结果原文（成功信息或失败原因）。`entry` 就是前端 invoke 的命令名，
+/// 借此能对上「界面上哪个按钮」。
+async fn run_power_command(
+    app: AppHandle,
+    entry: &'static str,
+    id: String,
+    action: String,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let name = crate::hub::load_servers_pub(&app)
+            .ok()
+            .and_then(|servers| {
+                servers
+                    .iter()
+                    .find(|server| server.id == id)
+                    .map(|server| server.name.clone())
+            })
+            .unwrap_or_else(|| "?".to_string());
+        power_log(
+            &app,
+            &format!("{entry} 入口：服务器「{name}」({id}) 动作 {action}"),
+        );
+        let result = dispatch(&app, &id, &action);
+        match &result {
+            Ok(message) => power_log(&app, &format!("{entry} 完成：{message}")),
+            Err(message) => power_log(&app, &format!("{entry} 失败：{message}")),
+        }
+        result
+    })
+    .await
+    .map_err(|error| format!("电源操作任务失败：{error}"))?
 }
 
 // ==================== 分发 ====================
@@ -103,6 +156,16 @@ fn send_routes(
     action: &str,
     routes: &[PowerRoute],
 ) -> Result<String, String> {
+    // 服务器通道没有它的 AnyBoot HTTP 凭据（token 在「电脑」档案里），
+    // 「仅 HTTP」在这里永远发不出去，直接说清楚别让人等
+    let mode = crate::hub::routes_mode(routes);
+    if mode == "http_only" {
+        return Err(
+            "「仅 HTTP」模式走的是这台机器自带的 AnyBoot 接口，但服务器档案里没有它的 HTTP 凭据 \
+             —— 要用 HTTP 模式请改在「远程管理 -> 电脑」里配"
+                .to_string(),
+        );
+    }
     let all_macs = server.all_macs();
     let jump = if server.jump_id.is_empty() {
         None
@@ -114,6 +177,13 @@ fn send_routes(
 
     let label = action_label(action);
     let mut message = format!("已从{where_from}按路由发送{}：{}", label, plan.described.join(" · "));
+    if mode == "http_first" {
+        // HTTP 兜底只在「电脑」档案里有：服务器通道只能发广播包
+        message.insert_str(0, "（服务器档案没有 HTTP 凭据，「优先 HTTP」按广播包发送）");
+    }
+    if mode == "hybrid" {
+        message.insert_str(0, "（服务器档案没有 HTTP 凭据，混合模式只发了广播包）");
+    }
     if action != POWER_WAKE {
         message.push_str("。这个动作靠目标机上的 sol 监听该端口执行 —— 没装 sol 不会有反应");
     }
@@ -163,9 +233,10 @@ pub(crate) fn plan_routes(
         } else {
             route.macs.clone()
         };
-        if macs.is_empty() && action == POWER_WAKE {
+        if macs.is_empty() {
+            // 包体是标准魔术包，没有 MAC 就没有包体 —— 所有动作都必须配 MAC
             problems.push(format!(
-                "「{}」这条路由没配 MAC，唤醒包发不出去（在「编辑」里给地址行加上 MAC）",
+                "「{}」这条路由没配 MAC，标准魔术包发不出去（在「编辑」里给地址行加上 MAC）",
                 if route.target.is_empty() { "自动广播".to_string() } else { route.target.clone() }
             ));
             continue;
@@ -189,10 +260,10 @@ pub(crate) fn plan_routes(
         let retry = route.effective_retry();
         let packets: Vec<Vec<u8>> = if waking {
             macs.iter()
-                .map(|mac| power_packet(Some(mac), action))
+                .map(|mac| magic_packet(mac))
                 .collect::<Result<Vec<_>, _>>()?
         } else {
-            vec![power_packet(macs.first().map(|mac| mac.as_str()), action)?]
+            vec![magic_packet(macs.first().map(|mac| mac.as_str()).unwrap_or(""))?]
         };
         for target in &targets {
             for packet in &packets {
@@ -209,9 +280,7 @@ pub(crate) fn plan_routes(
             "{label} → {}:{}（{}）",
             targets.join(" / "),
             port,
-            if macs.is_empty() {
-                "不带 MAC".to_string()
-            } else if waking {
+            if waking {
                 format!("{} 个 MAC × {} 包 / 重试 {}", macs.len(), times, retry)
             } else {
                 format!("{} 包 / 重试 {}", times, retry)
@@ -270,20 +339,6 @@ pub(crate) fn auto_targets_from(addresses: &[String]) -> Vec<String> {
 
 fn auto_targets(server: &HubServer) -> Vec<String> {
     auto_targets_from(&server.addresses)
-}
-
-/// 包体：标准魔术包（可选）+ 一行尾标。
-///
-/// 为什么带尾标：光靠端口区分动作对 sol 来说够了，但端口是用户自己分的，
-/// 尾标能让 sol 侧多一层校验（也方便抓包看出到底发的是什么）。网卡收 WOL
-/// 只看前 102 字节，多出来的尾巴不影响唤醒。
-fn power_packet(mac: Option<&str>, action: &str) -> Result<Vec<u8>, String> {
-    let mut packet = match mac {
-        Some(mac) => magic_packet(mac)?,
-        None => Vec::new(),
-    };
-    packet.extend_from_slice(format!("\n{POWER_TAG}:{action}\n").as_bytes());
-    Ok(packet)
 }
 
 /// 本机直接发（PC 和目标机同网段时最省事）
@@ -769,19 +824,35 @@ mod tests {
     }
 
     #[test]
-    fn wake_packet_is_magic_plus_action_tag() {
-        let packet = power_packet(Some("aa:bb:cc:dd:ee:ff"), POWER_WAKE).unwrap();
+    fn packet_is_pure_standard_magic_packet() {
+        let packet = magic_packet("aa:bb:cc:dd:ee:ff").unwrap();
+        // 标准结构：6×0xFF 同步头 + MAC 连续重复 16 次，总长恰好 102 字节，
+        // 一个自定义字节都不多 —— 端口即指令，包体与标准 WOL 完全一致
+        assert_eq!(packet.len(), 102);
         assert_eq!(&packet[..6], &[0xFF; 6]);
-        assert_eq!(packet.len(), 6 + 16 * 6 + format!("\n{POWER_TAG}:wake\n").len());
-        let trailer = String::from_utf8_lossy(&packet[102..]).to_string();
-        assert!(trailer.contains("ANYBOOT-POWER:wake"));
+        let mac = [0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff];
+        for repeat in 0..16 {
+            assert_eq!(&packet[6 + repeat * 6..12 + repeat * 6], &mac);
+        }
     }
 
     #[test]
-    fn non_wake_packet_without_mac_is_just_the_tag() {
-        let packet = power_packet(None, POWER_REBOOT).unwrap();
-        assert!(!packet.starts_with(&[0xFF]));
-        assert!(String::from_utf8_lossy(&packet).contains("ANYBOOT-POWER:reboot"));
+    fn non_wake_route_without_mac_is_rejected() {
+        let route = crate::hub::PowerRoute {
+            action: POWER_REBOOT.to_string(),
+            target: "192.168.0.255".to_string(),
+            port: 11,
+            macs: vec![],
+            enabled: true,
+            burst: 0,
+            retry: 0,
+            mode: String::new(),
+            http_fallback: false,
+        };
+        let plan = plan_routes(POWER_REBOOT, &[], &[], &[route]).expect("编译路由");
+        // 没配 MAC 就没有包体：这条路由进 problems，不产生投递
+        assert!(plan.deliveries.is_empty());
+        assert!(plan.problems.iter().any(|p| p.contains("没配 MAC")));
     }
 
     #[test]
@@ -793,6 +864,37 @@ mod tests {
         assert_eq!(targets.first().map(String::as_str), Some("192.168.0.255"));
     }
 
+    /// 「路由里填的端口」必须原样进投递任务 —— 用户怀疑端口没生效，这是证据链
+    /// 的第一环：路由 port=10 → plan_routes → Delivery.port=10（发送那一环由
+    /// 下面的回环收包测试覆盖：Delivery.port 是几就发到几）。
+    #[test]
+    fn route_port_flows_into_the_delivery() {
+        let route = crate::hub::PowerRoute {
+            action: POWER_SLEEP.to_string(),
+            target: String::new(),
+            port: 10,
+            macs: vec!["aa:bb:cc:dd:ee:ff".to_string()],
+            enabled: true,
+            burst: 0,
+            retry: 0,
+            mode: String::new(),
+            http_fallback: false,
+        };
+        let plan = plan_routes(
+            POWER_SLEEP,
+            &["192.168.0.131:12300".to_string()],
+            &["aa:bb:cc:dd:ee:ff".to_string()],
+            &[route],
+        )
+        .expect("编译路由");
+        assert_eq!(plan.deliveries.len(), 1);
+        assert_eq!(plan.deliveries[0].port, 10);
+        assert_eq!(plan.deliveries[0].target, "192.168.0.255");
+        // 非唤醒：单包，包体也是纯标准魔术包（端口才是指令）
+        assert_eq!(plan.deliveries[0].packet.len(), 102);
+        assert_eq!(&plan.deliveries[0].packet[..6], &[0xFF; 6]);
+    }
+
     /// 真发一次 UDP：确认「构造的包」和「发送路径」是通的（在本机回环上收）
     #[test]
     fn local_delivery_reaches_a_listening_socket() {
@@ -801,7 +903,7 @@ mod tests {
             .set_read_timeout(Some(std::time::Duration::from_secs(2)))
             .expect("设超时");
         let port = listener.local_addr().expect("本地地址").port();
-        let packet = power_packet(Some("aa:bb:cc:dd:ee:ff"), POWER_REBOOT).expect("造包");
+        let packet = magic_packet("aa:bb:cc:dd:ee:ff").expect("造包");
         let deliveries = vec![Delivery {
             target: "127.0.0.1".to_string(),
             port,
@@ -814,7 +916,7 @@ mod tests {
         let mut buffer = [0u8; 512];
         let (count, _) = listener.recv_from(&mut buffer).expect("收到包");
         assert_eq!(&buffer[..count], packet.as_slice());
-        assert!(String::from_utf8_lossy(&buffer[..count]).contains("ANYBOOT-POWER:reboot"));
+        assert_eq!(count, 102);
     }
 
     /// 一次唤醒要把 burst 个包都发出去（默认 10）—— 这里用回环收全部
@@ -825,7 +927,7 @@ mod tests {
             .set_read_timeout(Some(std::time::Duration::from_millis(600)))
             .expect("设超时");
         let port = listener.local_addr().expect("本地地址").port();
-        let packet = power_packet(Some("aa:bb:cc:dd:ee:ff"), POWER_WAKE).expect("造包");
+        let packet = magic_packet("aa:bb:cc:dd:ee:ff").expect("造包");
         let deliveries = vec![Delivery {
             target: "127.0.0.1".to_string(),
             port,

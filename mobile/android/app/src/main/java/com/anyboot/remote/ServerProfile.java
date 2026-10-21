@@ -110,6 +110,25 @@ final class ServerProfile {
         /** sol 包没发出去时，改调这台电脑自带的 /api/power。所有动作默认勾上
          *（唤醒也能勾：HTTP 能送达就说明机器其实醒着，服务端直接回执） */
         boolean httpFallback;
+        /**
+         * 发送模式（跟在动作选择后面的单选）：
+         * auto = 优先广播包（没发出去再走 HTTP，即旧 httpFallback=true 的语义）
+         * http_first = 优先 HTTP（接口没通再发广播包）
+         * http_only = 仅 HTTP（一个广播包都不发）
+         * packet_only = 仅广播包（绝不调 HTTP）
+         * 空 = 老数据，按 httpFallback 推导
+         */
+        String mode = "";
+
+        /** 这条路由的发送模式（空 / 不认识按旧 httpFallback 推导，老档案平滑升级） */
+        String effectiveMode() {
+            if ("auto".equals(mode) || "http_first".equals(mode)
+                    || "http_only".equals(mode) || "packet_only".equals(mode)
+                    || "hybrid".equals(mode)) {
+                return mode;
+            }
+            return httpFallback ? "auto" : "packet_only";
+        }
 
         PowerRoute() {
         }
@@ -163,6 +182,7 @@ final class ServerProfile {
             other.enabled = enabled;
             other.burst = burst;
             other.retry = retry;
+            other.mode = mode;
             other.httpFallback = httpFallback;
             return other;
         }
@@ -174,14 +194,18 @@ final class ServerProfile {
             other.enabled = enabled;
             other.burst = burst;
             other.retry = retry;
+            other.mode = mode;
             other.httpFallback = httpFallback;
             return other;
         }
 
-        /** 只改「sol 没发出去要不要走 HTTP 兜底」（其余字段照抄） */
-        PowerRoute withHttpFallback(boolean on) {
+        /** 只改「发送模式」（其余字段照抄）；httpFallback 跟着派生，旧版兼容 */
+        PowerRoute withMode(String value) {
             PowerRoute other = copy();
-            other.httpFallback = on;
+            other.mode = "auto".equals(value) || "http_first".equals(value)
+                    || "http_only".equals(value) || "packet_only".equals(value) ? value : "";
+            other.httpFallback = "auto".equals(other.effectiveMode())
+                    || "http_first".equals(other.effectiveMode());
             return other;
         }
 
@@ -346,6 +370,62 @@ final class ServerProfile {
             }
         }
         return result;
+    }
+
+    /**
+     * 一个动作下所有路由**聚合**后的发送模式（与 PC 端 hub.rs routes_mode 同一套）：
+     * 任何一条 hybrid → hybrid（同时发两条通道，覆盖面最大）；
+     * 任何一条 http_first → http_first；全部 http_only → http_only（混进别的模式
+     * 就按 auto，别把想发广播包的那条闷掉）；否则有 auto → auto；否则 packet_only。
+     */
+    static String routesMode(List<PowerRoute> routes) {
+        if (routes == null || routes.isEmpty()) {
+            return "auto";
+        }
+        boolean anyHybrid = false;
+        boolean anyHttpFirst = false;
+        boolean allHttpOnly = true;
+        boolean anyAuto = false;
+        for (PowerRoute route : routes) {
+            String m = route.effectiveMode();
+            if ("hybrid".equals(m)) {
+                anyHybrid = true;
+            } else if ("http_first".equals(m)) {
+                anyHttpFirst = true;
+            } else if ("auto".equals(m)) {
+                anyAuto = true;
+                allHttpOnly = false;
+            } else if (!"http_only".equals(m)) {
+                allHttpOnly = false;
+            }
+        }
+        if (anyHybrid) {
+            return "hybrid";
+        }
+        if (anyHttpFirst) {
+            return "http_first";
+        }
+        if (allHttpOnly) {
+            return "http_only";
+        }
+        return anyAuto ? "auto" : "packet_only";
+    }
+
+    /** 发送模式的展示文案（与 PC 端一致） */
+    static String modeLabel(String mode) {
+        if ("http_first".equals(mode)) {
+            return "优先 HTTP";
+        }
+        if ("http_only".equals(mode)) {
+            return "仅 HTTP";
+        }
+        if ("packet_only".equals(mode)) {
+            return "仅广播包";
+        }
+        if ("hybrid".equals(mode)) {
+            return "混合（同时发）";
+        }
+        return "优先广播包";
     }
 
     /** 这条路由实际要发的 MAC：路由里选了就用选的，没选 = 这台电脑配过的全部 */
@@ -616,7 +696,10 @@ final class ServerProfile {
             item.put("enabled", route.enabled);
             item.put("burst", route.burst <= 0 ? 0 : route.effectiveBurst());
             item.put("retry", route.retry <= 0 ? 0 : route.effectiveRetry());
-            item.put("httpFallback", route.httpFallback);
+            // mode 是权威值；httpFallback 按 mode 派生落盘（旧版客户端读新档案不反转）
+            item.put("mode", route.effectiveMode());
+            item.put("httpFallback", route.effectiveMode().equals("auto")
+                    || route.effectiveMode().equals("http_first"));
             routeArray.put(item);
         }
         object.put("powerRoutes", routeArray);
@@ -693,6 +776,7 @@ final class ServerProfile {
                 route.burst = item.optInt("burst", 0);
                 route.retry = item.optInt("retry", 0);
                 route.httpFallback = item.optBoolean("httpFallback", true);
+                route.mode = item.optString("mode", "");
                 JSONArray values = item.optJSONArray("macs");
                 if (values != null) {
                     for (int j = 0; j < values.length(); j++) {

@@ -106,9 +106,10 @@ final class WakeOnLan {
     /**
      * 按这台电脑配的「局域网电源路由」发一个动作。**必须在后台线程调用**。
      *
-     * <p>包体 = 标准魔术包（可选）+ 一行 {@code ANYBOOT-POWER:<动作>}。目标机上的
-     * sol 按端口执行对应动作，所以同一个动作可以配多条路由（多个广播地址/端口），
-     * 也可以只挑其中几块网卡的 MAC。
+     * <p>包体 = **标准的 102 字节魔术包**（6×0xFF + MAC×16），一个自定义字节都
+     * 不带 —— 端口就是指令：目标机上的 sol 按端口执行对应动作，所以同一个动作
+     * 可以配多条路由（多个广播地址/端口），也可以只挑其中几块网卡的 MAC。
+     * MAC 是所有动作的必填项（没有 MAC 就没有包体）。
      *
      * @param action wake / reboot / shutdown / sleep
      * @return 给用户看的提示；这台电脑没给该动作配路由时返回 {@code null}
@@ -128,8 +129,8 @@ final class WakeOnLan {
 
         for (ServerProfile.PowerRoute route : routes) {
             List<String> macs = profile.routeMacs(route);
-            if (waking && macs.isEmpty()) {
-                problems.add("唤醒路由没配 MAC，发不出去");
+            if (macs.isEmpty()) {
+                problems.add("这条路由没配 MAC，标准魔术包发不出去");
                 continue;
             }
             List<String> targets = ServerProfile.text(route.target).isEmpty()
@@ -140,7 +141,7 @@ final class WakeOnLan {
                 // 唤醒：每块网卡各发一份魔术包（不知道现在插的是哪根网线），
                 // 每块发 burst 个（默认 10）+ 没发出去重试 retry 次（默认 10）
                 for (String mac : macs) {
-                    byte[] packet = powerPacket(mac, wanted);
+                    byte[] packet = magicPacket(mac);
                     for (String target : targets) {
                         deliveries.add(new Delivery(target, port, packet,
                                 route.effectiveBurst(), route.effectiveRetry()));
@@ -149,7 +150,7 @@ final class WakeOnLan {
             } else {
                 // 其余动作：只发一个目标，但发包数 / 重试次数照样按路由走 ——
                 // 默认 1 包 / 1 重试；改大了就是「发几次就执行几次」，由用户决定
-                byte[] packet = powerPacket(macs.isEmpty() ? "" : macs.get(0), wanted);
+                byte[] packet = magicPacket(macs.get(0));
                 deliveries.add(new Delivery(targets.get(0), port, packet,
                         route.effectiveBurst(), route.effectiveRetry()));
             }
@@ -161,13 +162,11 @@ final class WakeOnLan {
                 summary.append(target);
             }
             described.add(ServerProfile.powerActionLabel(wanted) + " → " + summary + ":" + port
-                    + (macs.isEmpty()
-                        ? "（不带 MAC）"
-                        : waking
-                            ? "（" + macs.size() + " 个 MAC × " + route.effectiveBurst() + " 包 / 重试 "
-                                + route.effectiveRetry() + " 次）"
-                            : "（" + route.effectiveBurst() + " 包 / 重试 "
-                                + route.effectiveRetry() + " 次）"));
+                    + (waking
+                        ? "（" + macs.size() + " 个 MAC × " + route.effectiveBurst() + " 包 / 重试 "
+                            + route.effectiveRetry() + " 次）"
+                        : "（" + route.effectiveBurst() + " 包 / 重试 "
+                            + route.effectiveRetry() + " 次）"));
         }
 
         if (deliveries.isEmpty()) {
@@ -208,16 +207,6 @@ final class WakeOnLan {
                     .append(join(problems, "；")).append("）");
         }
         return message.toString();
-    }
-
-    /** 包体：魔术包（mac 为空时不要）+ 一行动作尾标 */
-    private static byte[] powerPacket(String mac, String action) throws Exception {
-        byte[] magic = ServerProfile.text(mac).isEmpty() ? new byte[0] : magicPacket(mac);
-        byte[] tag = ("\nANYBOOT-POWER:" + action + "\n").getBytes(StandardCharsets.UTF_8);
-        byte[] packet = new byte[magic.length + tag.length];
-        System.arraycopy(magic, 0, packet, 0, magic.length);
-        System.arraycopy(tag, 0, packet, magic.length, tag.length);
-        return packet;
     }
 
     /** 手机自己发（和目标机同网段时有效）：每条按 times 发，没全发出去再试，最多 retry 次 */

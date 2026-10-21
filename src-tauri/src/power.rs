@@ -615,6 +615,17 @@ pub(crate) fn spawn_power(app: &AppHandle, action: PowerAction, allow_gui_auth: 
     if !try_begin_power(app, action.as_str()) {
         return;
     }
+    // 无条件埋点（不受 debug_trace 开关限制）：本机执行侧的入口 —— 托盘菜单、
+    // 主窗电源三键、HTTP /api/power（sol 兜底 / 远程网页的唤醒）都汇到这里
+    crate::hub_power::power_log(
+        app,
+        &format!(
+            "spawn_power 入口：动作 {}（dry_run={} allow_gui_auth={}）",
+            action.as_str(),
+            power_dry_run(),
+            allow_gui_auth
+        ),
+    );
     trace(
         app,
         "power",
@@ -660,6 +671,14 @@ pub(crate) fn spawn_power(app: &AppHandle, action: PowerAction, allow_gui_auth: 
                         report.commands
                     ),
                 );
+                crate::hub_power::power_log(
+                    &app,
+                    &format!(
+                        "spawn_power 完成：{}（dry_run={}）",
+                        action.as_str(),
+                        report.dry_run
+                    ),
+                );
                 record_action(&app, action.label(), true, &message);
                 if report.dry_run {
                     // dry-run 没真的执行：立刻解除 busy，方便继续验证
@@ -674,6 +693,7 @@ pub(crate) fn spawn_power(app: &AppHandle, action: PowerAction, allow_gui_auth: 
             }
             Err(error) => {
                 trace(&app, "power", &format!("{} 失败: {error}", action.as_str()));
+                crate::hub_power::power_log(&app, &format!("spawn_power 失败：{} {error}", action.as_str()));
                 record_action(&app, action.label(), false, &error);
                 // 失败时解除 busy，允许再试一次（finish_power 内部会发布快照）
                 finish_power(&app);

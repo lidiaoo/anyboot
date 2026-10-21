@@ -156,7 +156,12 @@ impl RemoteServer {
                 enabled: raw.enabled,
                 burst: if raw.burst == 0 { 0 } else { raw.effective_burst() },
                 retry: if raw.retry == 0 { 0 } else { raw.effective_retry() },
-                http_fallback: raw.http_fallback,
+                // mode 只认四个合法值；http_fallback 按 mode 派生（与 hub.rs 同一套）
+                mode: match raw.mode.as_str() {
+                    "auto" | "http_first" | "http_only" | "packet_only" => raw.mode.clone(),
+                    _ => String::new(),
+                },
+                http_fallback: matches!(raw.effective_mode(), "auto" | "http_first"),
             });
         }
         self.power_routes = routes;
@@ -391,9 +396,30 @@ pub async fn remote_power(
     server_id: String,
     action: String,
 ) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || remote_power_blocking(&app, &server_id, &action))
-        .await
-        .map_err(|error| format!("电源操作任务失败：{error}"))?
+    tauri::async_runtime::spawn_blocking(move || {
+        let name = load_store(&app)
+            .ok()
+            .and_then(|store| {
+                store
+                    .servers
+                    .iter()
+                    .find(|server| server.id == server_id)
+                    .map(|server| server.name.clone())
+            })
+            .unwrap_or_else(|| "?".to_string());
+        crate::hub_power::power_log(
+            &app,
+            &format!("remote_power 入口：电脑「{name}」({server_id}) 动作 {action}"),
+        );
+        let result = remote_power_blocking(&app, &server_id, &action);
+        match &result {
+            Ok(message) => crate::hub_power::power_log(&app, &format!("remote_power 完成：{message}")),
+            Err(message) => crate::hub_power::power_log(&app, &format!("remote_power 失败：{message}")),
+        }
+        result
+    })
+    .await
+    .map_err(|error| format!("电源操作任务失败：{error}"))?
 }
 
 fn remote_power_blocking(app: &AppHandle, id: &str, action: &str) -> Result<String, String> {
@@ -437,6 +463,7 @@ fn remote_power_blocking(app: &AppHandle, id: &str, action: &str) -> Result<Stri
                 enabled: true,
                 burst: 0,
                 retry: 0,
+                mode: String::new(),
                 http_fallback: false,
             };
             let plan = crate::hub_power::plan_routes(
@@ -458,11 +485,70 @@ fn remote_power_blocking(app: &AppHandle, id: &str, action: &str) -> Result<Stri
         ));
     }
 
+    let mode = crate::hub::routes_mode(&routes);
+
+    // 仅 HTTP：一个广播包都不发，直接调它自己的接口
+    if mode == "http_only" {
+        let message = remote_http_power(&server, action)?;
+        return Ok(format!("（仅 HTTP 模式）已调它自己的 AnyBoot 接口：{message}"));
+    }
+
+    // 优先 HTTP：先调接口，通了就完事（一个广播包都不发）；没通退回广播包
+    let mut http_first_error: Option<String> = None;
+    if mode == "http_first" {
+        match remote_http_power(&server, action) {
+            Ok(message) => {
+                return Ok(format!("（优先 HTTP 模式）已调它自己的 AnyBoot 接口：{message}"));
+            }
+            Err(http_error) => {
+                http_first_error = Some(http_error);
+            }
+        }
+    }
+
+    // 混合：HTTP 接口与广播包**同时**发 —— HTTP 起独立线程，广播包走当前线程，
+    // 互不等待；最后把两边结果合并汇报（哪边成了哪边败都说清楚）。
+    if mode == "hybrid" {
+        let plan = crate::hub_power::plan_routes(action, &server.addresses, &all_macs, &routes)?;
+        let http_server = server.clone();
+        let http_action = action.to_string();
+        let http = std::thread::spawn(move || remote_http_power(&http_server, &http_action));
+        let send_result = crate::hub_power::send_plan(app, jump.as_ref(), &plan);
+        let http_result =
+            http.join()
+                .unwrap_or_else(|_| Err("HTTP 线程异常退出".to_string()));
+        let packet_text = match &send_result {
+            Ok((_sent, where_from)) => format!(
+                "已从{where_from}按路由发送{label}：{}",
+                plan.described.join(" · ")
+            ),
+            Err(error) => format!("广播包没发出去（{error}）"),
+        };
+        return match (&send_result, &http_result) {
+            (Ok(_), Ok(http_message)) => Ok(format!(
+                "（混合模式）HTTP 与广播包已同时发送 —— HTTP：{http_message}；广播包：{packet_text}"
+            )),
+            (Ok(_), Err(http_error)) => Ok(format!(
+                "（混合模式）广播包已发出：{packet_text}；HTTP 接口失败：{http_error}"
+            )),
+            (Err(_), Ok(http_message)) => Ok(format!(
+                "（混合模式）HTTP 接口已执行：{http_message}；{packet_text}"
+            )),
+            (Err(_), Err(http_error)) => Err(format!(
+                "（混合模式）两边都失败 —— {packet_text}；HTTP：{http_error}"
+            )),
+        };
+    }
+
     let plan = crate::hub_power::plan_routes(action, &server.addresses, &all_macs, &routes)?;
     match crate::hub_power::send_plan(app, jump.as_ref(), &plan) {
         Ok((_sent, where_from)) => {
             let mut message =
                 format!("已从{where_from}按路由发送{label}：{}", plan.described.join(" · "));
+            if let Some(http_error) = &http_first_error {
+                message =
+                    format!("（优先 HTTP 模式）接口没通（{http_error}），改发广播包 —— {message}");
+            }
             if action != crate::hub::POWER_WAKE {
                 message.push_str("。这个动作靠目标机上的 sol 监听该端口执行 —— 没装 sol 不会有反应");
             }
@@ -476,9 +562,14 @@ fn remote_power_blocking(app: &AppHandle, id: &str, action: &str) -> Result<Stri
             Ok(message)
         }
         Err(send_error) => {
-            let can_fallback = routes.iter().any(|route| route.http_fallback);
-            if !can_fallback {
-                return Err(send_error);
+            // 兜底条件：只有 auto（优先广播包）才回头调 HTTP。packet_only 明确不要；
+            // http_first 开头已经试过一次 HTTP 了，不再重复，把两边错误一起报。
+            let prefix = match &http_first_error {
+                Some(http_error) => format!("（优先 HTTP 模式）接口没通（{http_error}）；"),
+                None => String::new(),
+            };
+            if mode != "auto" {
+                return Err(format!("{prefix}{send_error}"));
             }
             match remote_http_power(&server, action) {
                 Ok(message) => Ok(format!(

@@ -589,41 +589,118 @@ class MainActivity : ComponentActivity() {
     private fun runPowerAction(profile: ServerProfile, action: String) {
         if (powerBusy) return
         powerBusy = true
+        // 埋点：电源动作必须可追溯（logcat 过滤 ABPOWER）—— 记入口与结果原文
+        android.util.Log.i(
+            "ABPOWER",
+            "runPowerAction 入口：电脑「${profile.name}」(${profile.id}) 动作 $action " +
+                "模式 ${ServerProfile.routesMode(profile.routesFor(action))} 路由 ${profile.routesFor(action).size} 条",
+        )
         Thread({
             try {
                 val prompt = object : SshSessionManager.Prompt {
                     override fun confirm(title: String, message: String): Boolean =
                         bus.confirm(title, message)
                 }
-                val message = try {
-                    val routed = WakeOnLan.sendRoutes(this, profile, action, prompt)
+                val message = run {
+                    // 聚合发送模式（与 PC 端同一套）：没配路由 = 老路，按 auto 处理
+                    val routes = profile.routesFor(action)
+                    val mode = ServerProfile.routesMode(routes)
+                    fun packets(): String {
+                        val routed = WakeOnLan.sendRoutes(this, profile, action, prompt)
+                        return when {
+                            routed != null -> routed
+                            ServerProfile.POWER_WAKE == action -> WakeOnLan.wake(this, profile, prompt)
+                            else -> PowerOps.send(powerAddress(profile), profile.token, action)
+                        }
+                    }
+                    fun http(): String = PowerOps.send(powerAddress(profile), profile.token, action)
                     when {
-                        routed != null -> routed
-                        ServerProfile.POWER_WAKE == action -> WakeOnLan.wake(this, profile, prompt)
-                        else -> PowerOps.send(powerAddress(profile), profile.token, action)
+                        // 没配路由：老路 —— 唤醒广播 / 其余直接调接口（都在 packets() 里）
+                        routes.isEmpty() -> packets()
+                        // 仅 HTTP：一个广播包都不发
+                        mode == "http_only" -> "（仅 HTTP 模式）" + http()
+                        // 优先 HTTP：接口通了就完事；没通退回广播包，两边错误都要让人看到
+                        mode == "http_first" -> try {
+                            "（优先 HTTP 模式）" + http()
+                        } catch (httpError: Exception) {
+                            try {
+                                "HTTP 没通（${httpError.message ?: "未知错误"}），已改发广播包：${packets()}"
+                            } catch (packetError: Exception) {
+                                throw Exception(
+                                    "HTTP 没通（${httpError.message ?: "未知错误"}）；" +
+                                        "广播包也没发出去：${packetError.message ?: "未知错误"}"
+                                )
+                            }
+                        }
+                        // 混合：HTTP 与广播包同时发 —— HTTP 起独立线程，广播包走当前
+                        // 线程，互不等待；最后把两边结果合并汇报（哪边成了哪边败都说明白）
+                        mode == "hybrid" -> {
+                            val httpOutcome = java.util.concurrent.atomic.AtomicReference<Any>(null)
+                            val httpThread = Thread {
+                                httpOutcome.set(
+                                    try {
+                                        http()
+                                    } catch (error: Exception) {
+                                        error
+                                    }
+                                )
+                            }.apply { start() }
+                            var packetMessage: String? = null
+                            var packetError: Exception? = null
+                            try {
+                                packetMessage = packets()
+                            } catch (error: Exception) {
+                                packetError = error
+                            }
+                            httpThread.join()
+                            when (val httpValue = httpOutcome.get()) {
+                                is Exception -> if (packetMessage != null) {
+                                    "（混合模式）广播包已发出：$packetMessage；" +
+                                        "HTTP 接口失败：${httpValue.message ?: "未知错误"}"
+                                } else {
+                                    throw Exception(
+                                        "（混合模式）两边都失败 —— 广播包：" +
+                                            "${packetError?.message ?: "未知错误"}；" +
+                                            "HTTP：${httpValue.message ?: "未知错误"}"
+                                    )
+                                }
+                                else -> if (packetMessage != null) {
+                                    "（混合模式）HTTP 与广播包已同时发送 —— HTTP：$httpValue；广播包：$packetMessage"
+                                } else {
+                                    "（混合模式）HTTP 接口已执行：$httpValue；" +
+                                        "广播包没发出去（${packetError?.message ?: "未知错误"}）"
+                                }
+                            }
+                        }
+                        // auto = 优先广播包（失败走 HTTP 兜底）；packet_only = 失败就失败
+                        else -> try {
+                            packets()
+                        } catch (packetError: Exception) {
+                            if (mode != "auto") {
+                                throw packetError
+                            }
+                            val http = try {
+                                http()
+                            } catch (httpError: Exception) {
+                                throw Exception(
+                                    "${packetError.message ?: "sol 包没发出去"}；" +
+                                        "HTTP 兜底也失败：${httpError.message ?: "未知错误"}"
+                                )
+                            }
+                            "sol 包没发出去（${packetError.message ?: "未知错误"}），已改走它自己的 AnyBoot 接口：$http"
+                        }
                     }
-                } catch (error: Exception) {
-                    // 路由失败了，且这个动作的路由勾了「HTTP 兜底」→ 改调它自己的接口。
-                    // 唤醒也允许：请求能送达就说明机器其实醒着，服务端直接回执。
-                    val canFallback = profile.routesFor(action).any { it.httpFallback }
-                    if (!canFallback) {
-                        throw error
-                    }
-                    val http = try {
-                        PowerOps.send(powerAddress(profile), profile.token, action)
-                    } catch (httpError: Exception) {
-                        throw Exception(
-                            "${error.message ?: "sol 包没发出去"}；" +
-                                "HTTP 兜底也失败：${httpError.message ?: "未知错误"}"
-                        )
-                    }
-                    "sol 包没发出去（${error.message ?: "未知错误"}），已改走它自己的 AnyBoot 接口：$http"
                 }
                 runOnUiThread {
                     powerBusy = false
+                    android.util.Log.i("ABPOWER", "runPowerAction 完成：$message")
                     toast(message)
                 }
             } catch (error: Exception) {
+                android.util.Log.w(
+                    "ABPOWER",
+                    "runPowerAction 失败：${ServerProfile.powerActionLabel(action)} ${error.message ?: "未知错误"}",
+                )
                 runOnUiThread {
                     powerBusy = false
                     toast("${ServerProfile.powerActionLabel(action)}没发出去：${error.message ?: "未知错误"}")
@@ -919,6 +996,7 @@ class MainActivity : ComponentActivity() {
         }
         var routeMenuIndex by remember { mutableStateOf(-1) }
         var macMenuIndex by remember { mutableStateOf(-1) }
+        var modeMenuIndex by remember { mutableStateOf(-1) }
         // MAC 池：以「已添加的地址」为准（地址 / 网卡变了，可选项跟着变）
         val macPool = addressEntries.flatMap { it.macs }.distinct()
 
@@ -1066,7 +1144,7 @@ class MainActivity : ComponentActivity() {
                             }
                             if (entry.macs.isEmpty()) {
                                 Text(
-                                    "没配 MAC —— 唤醒发不出去",
+                                    "没配 MAC —— 局域网电源发不出去",
                                     fontSize = 10.sp, color = palette.fgFaint,
                                 )
                             } else {
@@ -1221,31 +1299,67 @@ class MainActivity : ComponentActivity() {
                                         }
                                     }
                                 }
-                                Spacer(Modifier.width(8.dp))
-                                OutlinedTextField(
-                                    value = if (route.port <= 0) "" else route.port.toString(),
-                                    onValueChange = { value ->
-                                        val digits = value.filter { it.isDigit() }.take(5)
-                                        routeList[index] = route.with(
-                                            route.action, route.target, digits.toIntOrNull() ?: 0,
-                                            route.macs, route.enabled,
-                                        )
-                                    },
-                                    label = { Text("端口", fontSize = 10.sp) },
-                                    singleLine = true,
-                                    textStyle = MaterialTheme.typography.bodySmall,
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                    modifier = Modifier.width(92.dp),
-                                )
                                 Spacer(Modifier.weight(1f))
                                 TextButton(onClick = {
                                     routeList.removeAt(index)
                                     routeMenuIndex = -1
+                                    modeMenuIndex = -1
                                     macMenuIndex = -1
                                 }) {
                                     Text("删除", fontSize = 12.sp, color = palette.bad)
                                 }
                             }
+                            // 发送模式（共同设置区：动作后面、端口前面）。广播包 = 局域网
+                            // sol / WOL 魔术包；HTTP = 这台电脑自带的 AnyBoot 接口；
+                            // 混合 = 两者同时发。
+                            Box {
+                                OutlinedButton(
+                                    onClick = { modeMenuIndex = if (modeMenuIndex == index) -1 else index },
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                                ) {
+                                    Text(
+                                        "模式：" + ServerProfile.modeLabel(route.effectiveMode()),
+                                        fontSize = 12.sp,
+                                    )
+                                }
+                                DropdownMenu(
+                                    expanded = modeMenuIndex == index,
+                                    onDismissRequest = { modeMenuIndex = -1 },
+                                ) {
+                                    listOf("auto", "http_first", "http_only", "packet_only", "hybrid").forEach { value ->
+                                        DropdownMenuItem(
+                                            text = { Text(ServerProfile.modeLabel(value)) },
+                                            onClick = {
+                                                routeList[index] = route.withMode(value)
+                                                modeMenuIndex = -1
+                                            },
+                                        )
+                                    }
+                                }
+                            }
+                            // —— 广播包设置区：地址 / 端口 / MAC / 发包数 / 重试 ——
+                            Text(
+                                "广播包",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = palette.fgDim,
+                                modifier = Modifier.padding(top = 8.dp),
+                            )
+                            OutlinedTextField(
+                                value = if (route.port <= 0) "" else route.port.toString(),
+                                onValueChange = { value ->
+                                    val digits = value.filter { it.isDigit() }.take(5)
+                                    routeList[index] = route.with(
+                                        route.action, route.target, digits.toIntOrNull() ?: 0,
+                                        route.macs, route.enabled,
+                                    )
+                                },
+                                label = { Text("端口", fontSize = 10.sp) },
+                                singleLine = true,
+                                textStyle = MaterialTheme.typography.bodySmall,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                modifier = Modifier.width(92.dp),
+                            )
                             OutlinedTextField(
                                 value = route.target,
                                 onValueChange = { value ->
@@ -1350,31 +1464,27 @@ class MainActivity : ComponentActivity() {
                                     modifier = Modifier.width(104.dp),
                                 )
                             }
-                            // HTTP 兜底：所有动作都显示、默认勾上。唤醒也能兜 ——
-                            // 请求能送达就说明机器其实醒着，服务端会直接回执。
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                Checkbox(
-                                    checked = route.httpFallback,
-                                    onCheckedChange = { on ->
-                                        routeList[index] = route.withHttpFallback(on)
-                                    },
-                                )
-                                Text(
-                                    "sol 没发出去就走 HTTP 兜底（调它自己的 AnyBoot 接口）",
-                                    fontSize = 11.sp, color = palette.fgDim,
-                                    modifier = Modifier.weight(1f, fill = false),
-                                )
-                            }
+                            // —— HTTP 设置区：无可配置项，仅说明（HTTP 走这台电脑
+                            // 自带的接口，token 与连接共用）；混合模式两条通道同时发。
+                            Text(
+                                "HTTP",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = palette.fgDim,
+                                modifier = Modifier.padding(top = 8.dp),
+                            )
+                            Text(
+                                "调这台电脑自带的 /api/power 接口（token 与连接共用，无需单独配置）。" +
+                                    "混合模式 = HTTP 与广播包同时发。",
+                                fontSize = 10.sp, color = palette.fgFaint,
+                            )
                         }
                     }
                     TextButton(onClick = {
-                        // HTTP 兜底默认勾上
+                        // 发送模式默认「优先广播包」（= 旧的 HTTP 兜底勾选）
                         routeList.add(
                             ServerProfile.PowerRoute(ServerProfile.POWER_WAKE, "", 9)
-                                .withHttpFallback(true)
+                                .withMode("auto")
                         )
                     }) { Text("+ 添加一条路由", fontSize = 13.sp) }
                     FieldLabel("多网卡探测（有多个地址时怎么探）")

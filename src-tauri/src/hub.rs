@@ -73,15 +73,63 @@ pub struct PowerRoute {
     /// 一轮没全发出去时的重试次数（0 = 按动作默认：唤醒 10、其余 1）。每个动作都能设。
     #[serde(default)]
     pub retry: u32,
-    /// sol 包没发出去时，改调这台电脑自带的 /api/power 接口兜底。唤醒也能勾：
-    /// HTTP 能送达就说明机器其实醒着（服务端回 WakeAck，不做任何动作）。
-    /// 所有动作默认勾上。
+    /// 发送模式（路由编辑里跟在动作下拉框后面的单选）：
+    /// auto = 优先广播包（没发出去再调 HTTP，即旧「HTTP 兜底」勾选的语义）
+    /// http_first = 优先 HTTP（接口没通再发广播包）
+    /// http_only = 仅 HTTP（一个广播包都不发）
+    /// packet_only = 仅广播包（绝不调 HTTP）
+    /// 空 = 老数据没这个字段，按 http_fallback 推导（true→auto / false→packet_only）
+    #[serde(default)]
+    pub mode: String,
+    /// 旧字段（已由 mode 取代）：sol 包没发出去时改调这台电脑自带的 /api/power。
+    /// 保留读写是为了旧版本客户端打开新档案不至于行为反转；归一化时按 mode 派生。
     #[serde(default = "default_true")]
     pub http_fallback: bool,
 }
 
 fn default_true() -> bool {
     true
+}
+
+/// 一个动作下所有路由**聚合**后的发送模式。HTTP 调的是「这台电脑的接口」，
+/// 一调就是整台机器级别、不分路由，所以只能聚合成一个：
+/// 任何一条 hybrid → hybrid（同时发两条通道，覆盖面最大，压过一切单选）；
+/// 任何一条 http_first → http_first；全部都是 http_only → http_only
+/// （只要混进别的模式就按 auto 发包，别把想发广播包的那条闷掉）；
+/// 否则有 auto → auto；全是 packet_only → packet_only。
+pub fn routes_mode(routes: &[PowerRoute]) -> &'static str {
+    if routes.is_empty() {
+        return "auto";
+    }
+    let mut any_hybrid = false;
+    let mut any_http_first = false;
+    let mut all_http_only = true;
+    let mut any_auto = false;
+    for route in routes {
+        match route.effective_mode() {
+            "hybrid" => any_hybrid = true,
+            "http_first" => any_http_first = true,
+            "http_only" => {}
+            "auto" => {
+                any_auto = true;
+                all_http_only = false;
+            }
+            _ => all_http_only = false,
+        }
+    }
+    if any_hybrid {
+        return "hybrid";
+    }
+    if any_http_first {
+        return "http_first";
+    }
+    if all_http_only {
+        return "http_only";
+    }
+    if any_auto {
+        return "auto";
+    }
+    "packet_only"
 }
 
 /// 唤醒包默认发几个（每条路由、每块网卡）
@@ -100,6 +148,19 @@ impl PowerRoute {
     /// 归一化后的动作（空 / 不认识一律按唤醒处理，别让一条路由失效）
     pub fn action_or_wake(&self) -> &'static str {
         normalize_power_action(&self.action).unwrap_or(POWER_WAKE)
+    }
+
+    /// 这条路由的发送模式（空 / 不认识按旧 http_fallback 推导，老档案平滑升级）
+    pub fn effective_mode(&self) -> &'static str {
+        match self.mode.as_str() {
+            "auto" => "auto",
+            "http_first" => "http_first",
+            "http_only" => "http_only",
+            "packet_only" => "packet_only",
+            "hybrid" => "hybrid",
+            _ if self.http_fallback => "auto",
+            _ => "packet_only",
+        }
     }
 
     /// 归一化后的端口
@@ -336,7 +397,13 @@ impl HubServer {
                 enabled: raw.enabled,
                 burst: if raw.burst == 0 { 0 } else { raw.effective_burst() },
                 retry: if raw.retry == 0 { 0 } else { raw.effective_retry() },
-                http_fallback: raw.http_fallback,
+                // mode 只认四个合法值，别的丢空按旧字段推导；http_fallback 反过来
+                // 按 mode 派生落盘 —— 旧版本客户端读新档案不会行为反转
+                mode: match raw.mode.as_str() {
+                    "auto" | "http_first" | "http_only" | "packet_only" => raw.mode.clone(),
+                    _ => String::new(),
+                },
+                http_fallback: matches!(raw.effective_mode(), "auto" | "http_first"),
             });
         }
         self.power_routes = cleaned;
@@ -836,6 +903,46 @@ mod tests {
     }
 
     #[test]
+    fn power_route_mode_maps_legacy_and_aggregates() {
+        // 老数据平滑升级：没存过 mode 时按旧 http_fallback 推导
+        let legacy_on = PowerRoute {
+            action: "wake".to_string(),
+            target: String::new(),
+            port: 9,
+            macs: Vec::new(),
+            enabled: true,
+            burst: 0,
+            retry: 0,
+            mode: String::new(),
+            http_fallback: true,
+        };
+        let legacy_off = PowerRoute {
+            http_fallback: false,
+            ..legacy_on.clone()
+        };
+        assert_eq!(legacy_on.effective_mode(), "auto");
+        assert_eq!(legacy_off.effective_mode(), "packet_only");
+
+        let route = |mode: &str| PowerRoute {
+            mode: mode.to_string(),
+            ..legacy_on.clone()
+        };
+        // 聚合：任何一条 http_first 就是 http_first；全部 http_only 才是 http_only；
+        // 有 auto 混进来就不是 http_only；全 packet_only 才是 packet_only
+        assert_eq!(routes_mode(&[route("http_first"), route("http_only")]), "http_first");
+        assert_eq!(routes_mode(&[route("http_only"), route("http_only")]), "http_only");
+        assert_eq!(routes_mode(&[route("http_only"), route("auto")]), "auto");
+        assert_eq!(routes_mode(&[route("auto"), route("packet_only")]), "auto");
+        assert_eq!(routes_mode(&[route("packet_only"), route("packet_only")]), "packet_only");
+        assert_eq!(routes_mode(&[]), "auto");
+        // 混合（同时发两条通道）覆盖面最大，压过一切单选
+        assert_eq!(route("hybrid").effective_mode(), "hybrid");
+        assert_eq!(routes_mode(&[route("hybrid")]), "hybrid");
+        assert_eq!(routes_mode(&[route("hybrid"), route("http_only")]), "hybrid");
+        assert_eq!(routes_mode(&[route("http_first"), route("hybrid")]), "hybrid");
+    }
+
+    #[test]
     fn power_routes_normalize_and_match_action() {
         let mut macmap = std::collections::BTreeMap::new();
         macmap.insert(
@@ -854,6 +961,7 @@ mod tests {
                     enabled: true,
                     burst: 0,
                     retry: 0,
+                    mode: String::new(),
                     http_fallback: false,
                 },
                 PowerRoute {
@@ -864,6 +972,7 @@ mod tests {
                     enabled: true,
                     burst: 0,
                     retry: 0,
+                    mode: String::new(),
                     http_fallback: false,
                 },
                 PowerRoute {
@@ -874,6 +983,7 @@ mod tests {
                     enabled: false,
                     burst: 0,
                     retry: 0,
+                    mode: String::new(),
                     http_fallback: false,
                 },
             ],
@@ -911,6 +1021,7 @@ mod tests {
             enabled: true,
             burst: 0,
             retry: 0,
+            mode: String::new(),
             http_fallback: false,
         };
         assert_eq!(route.effective_burst(), 10);
@@ -945,6 +1056,7 @@ mod tests {
                 enabled: true,
                 burst: 0,
                 retry: 0,
+                mode: String::new(),
                 http_fallback: false,
             }],
             ..sample("burst")
