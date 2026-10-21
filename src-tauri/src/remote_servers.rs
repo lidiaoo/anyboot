@@ -9,6 +9,7 @@
 //! 与 hub（SSH 服务器）完全解耦：配置目录下自己的 JSON（`remote-servers.json`），
 //! 命令只服务 hub 窗口的「电脑」页，不碰 UiState。
 
+use crate::hub::{normalize_mac, normalize_route_target, PowerRoute};
 use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
 use std::net::TcpStream;
@@ -52,6 +53,14 @@ pub struct RemoteServer {
     /// 经由哪台跳板机（hub SSH 服务器 id）；本轮仅存储校验，转发链路后续接入
     #[serde(default)]
     pub jump_id: String,
+    /// 每个地址对应的网卡 MAC（局域网电源包要用）：地址 → MAC 列表（小写、冒号分隔）。
+    /// 只影响电源 / 唤醒，不参与连接。字段语义与手机端 `ServerProfile.macs` 一致。
+    #[serde(default)]
+    pub macs: std::collections::BTreeMap<String, Vec<String>>,
+    /// 局域网电源路由（唤醒 / 重启 / 关机 / 睡眠 各发到哪个广播地址、哪个端口、
+    /// 带哪块网卡的 MAC、发几个包、重试几次）。空 = 没配，走原来的老路。
+    #[serde(default)]
+    pub power_routes: Vec<PowerRoute>,
     #[serde(default)]
     pub created_at: u64,
 }
@@ -107,7 +116,73 @@ impl RemoteServer {
             self.token = token;
         }
         self.addresses = addresses;
+        // MAC：只留还存在的地址（地址删了 MAC 跟着丢），MAC 统一小写冒号、去重
+        let mut macs: std::collections::BTreeMap<String, Vec<String>> = std::collections::BTreeMap::new();
+        for (address, values) in std::mem::take(&mut self.macs) {
+            let (address, _) = split_address(&address);
+            if !self.addresses.contains(&address) {
+                continue;
+            }
+            let mut list: Vec<String> = Vec::new();
+            for value in values {
+                if let Some(mac) = normalize_mac(&value) {
+                    if !list.contains(&mac) {
+                        list.push(mac);
+                    }
+                }
+            }
+            if !list.is_empty() {
+                macs.insert(address, list);
+            }
+        }
+        self.macs = macs;
+        // 电源路由：动作认成四个之一、端口 0 补 9、广播地址去掉 scheme/路径、
+        // MAC 归一去重；burst/retry 保留 0 = 「按动作默认」的语义
+        let mut routes: Vec<PowerRoute> = Vec::new();
+        for raw in std::mem::take(&mut self.power_routes) {
+            let mut list: Vec<String> = Vec::new();
+            for value in &raw.macs {
+                if let Some(mac) = normalize_mac(value) {
+                    if !list.contains(&mac) {
+                        list.push(mac);
+                    }
+                }
+            }
+            routes.push(PowerRoute {
+                action: raw.action_or_wake().to_string(),
+                target: normalize_route_target(&raw.target),
+                port: raw.effective_port(),
+                macs: list,
+                enabled: raw.enabled,
+                burst: if raw.burst == 0 { 0 } else { raw.effective_burst() },
+                retry: if raw.retry == 0 { 0 } else { raw.effective_retry() },
+                http_fallback: raw.http_fallback,
+            });
+        }
+        self.power_routes = routes;
         self
+    }
+
+    /// 这台电脑配过的所有 MAC（去重、按地址顺序）—— 电源包要用
+    pub fn all_macs(&self) -> Vec<String> {
+        let mut result: Vec<String> = Vec::new();
+        for address in &self.addresses {
+            if let Some(values) = self.macs.get(address) {
+                for mac in values {
+                    if !result.contains(mac) {
+                        result.push(mac.clone());
+                    }
+                }
+            }
+        }
+        for values in self.macs.values() {
+            for mac in values {
+                if !result.contains(mac) {
+                    result.push(mac.clone());
+                }
+            }
+        }
+        result
     }
 }
 
@@ -212,6 +287,209 @@ fn probe_health(addr: &str, timeout: Duration) -> Result<(u64, String, String), 
     let (machine_id, machine_name) = parse_health(body);
     let ms = started.elapsed().as_millis() as u64;
     Ok((ms, machine_id, machine_name))
+}
+
+// ==================== 局域网电源（路由 sol + HTTP 兜底） ====================
+
+/// URL 查询串转义：保留字母数字和 -_.~，其余转 %XX（token 里出现 & %= 都不怕）
+fn encode_query(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(byte as char)
+            }
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
+}
+
+/// 调这台电脑自带的 AnyBoot 接口（`GET /api/power?action=..&token=..`）。
+///
+/// 前提是这台电脑还在线 —— 睡了 / 关了它的 HTTP 服务也没了。对「唤醒」这反而是
+/// 有效的探测：请求能送达就说明机器醒着（服务端回 WakeAck，不做任何动作）。
+fn remote_http_power(server: &RemoteServer, action: &str) -> Result<String, String> {
+    let address = server
+        .addresses
+        .iter()
+        .map(|raw| raw.trim())
+        .find(|raw| !raw.is_empty())
+        .ok_or_else(|| "这台电脑还没有可用地址".to_string())?;
+    let target = with_default_port(address);
+    let mut query = format!("action={action}");
+    let token = server.token.trim();
+    if !token.is_empty() {
+        query.push_str("&token=");
+        query.push_str(&encode_query(token));
+    }
+    let mut stream = TcpStream::connect(&target)
+        .map_err(|error| format!("连接 {target} 失败: {error}"))
+        .and_then(|stream| {
+            stream
+                .set_read_timeout(Some(Duration::from_secs(15)))
+                .map_err(|error| format!("设置读超时失败: {error}"))?;
+            stream
+                .set_write_timeout(Some(Duration::from_secs(4)))
+                .map_err(|error| format!("设置写超时失败: {error}"))?;
+            Ok(stream)
+        })?;
+    let request =
+        format!("GET /api/power?{query} HTTP/1.1\r\nHost: {target}\r\nConnection: close\r\n\r\n");
+    stream
+        .write_all(request.as_bytes())
+        .map_err(|error| format!("发送请求失败: {error}"))?;
+    let mut raw = Vec::new();
+    stream
+        .read_to_end(&mut raw)
+        .map_err(|error| format!("读取响应失败: {error}"))?;
+    let text = String::from_utf8_lossy(&raw);
+    let status = text
+        .split_whitespace()
+        .nth(1)
+        .and_then(|code| code.parse::<u16>().ok())
+        .unwrap_or(0);
+    let body = match text.find("\r\n\r\n") {
+        Some(index) => text[index + 4..].to_string(),
+        None => String::new(),
+    };
+    if status == 401 {
+        return Err("这台电脑不认这个 token（401）—— 到「编辑」里核对访问令牌".to_string());
+    }
+    if status >= 400 {
+        return Err(format!("这台电脑返回 {status}：{}", body.trim()));
+    }
+    if status == 0 {
+        return Err("这台电脑的响应不是有效的 HTTP".to_string());
+    }
+    // 优先 message，其次 error，都不是 JSON 就把原文带回去
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(body.trim()) {
+        for key in ["message", "error"] {
+            if let Some(text) = value.get(key).and_then(|item| item.as_str()) {
+                if !text.trim().is_empty() {
+                    return Ok(text.to_string());
+                }
+            }
+        }
+    }
+    let fallback = body.trim();
+    Ok(if fallback.is_empty() {
+        "已提交".to_string()
+    } else {
+        fallback.to_string()
+    })
+}
+
+/// 电脑档案的电源动作：按「局域网电源路由」发 sol 包；唤醒没配路由就按默认
+/// （每块网卡 10 包 / 重试 10 次）广播魔术包，其余动作没配路由就调这台电脑
+/// 自带的 AnyBoot 接口；配了但一个包都没发出去、且路由勾了「HTTP 兜底」
+/// → 也改走它的接口（唤醒时 HTTP 能通 = 机器本来就醒着）。语义与手机端
+/// `runPowerAction` 一致。
+#[tauri::command]
+pub async fn remote_power(
+    app: AppHandle,
+    server_id: String,
+    action: String,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || remote_power_blocking(&app, &server_id, &action))
+        .await
+        .map_err(|error| format!("电源操作任务失败：{error}"))?
+}
+
+fn remote_power_blocking(app: &AppHandle, id: &str, action: &str) -> Result<String, String> {
+    let action = crate::hub::normalize_power_action(action)
+        .ok_or_else(|| format!("未知电源动作：{action}"))?;
+    let server = load_store(app)?
+        .servers
+        .into_iter()
+        .find(|candidate| candidate.id == id)
+        .ok_or_else(|| format!("这台电脑不存在（可能已被删除）：{id}"))?;
+    let label = crate::hub_power::action_label(action);
+    let jump = if server.jump_id.is_empty() {
+        None
+    } else {
+        Some(
+            crate::hub::load_servers_pub(app)?
+                .into_iter()
+                .find(|candidate| candidate.id == server.jump_id)
+                .ok_or_else(|| "跳板机不存在（可能已被删除），请到服务器列表检查".to_string())?,
+        )
+    };
+    let all_macs = server.all_macs();
+    let routes: Vec<PowerRoute> = server
+        .power_routes
+        .iter()
+        .filter(|route| {
+            route.enabled && crate::hub::normalize_power_action(&route.action) == Some(action)
+        })
+        .cloned()
+        .collect();
+    if routes.is_empty() {
+        if action == crate::hub::POWER_WAKE {
+            // 没配唤醒路由：不调 HTTP（机器关着接口是死的），按默认广播魔术包 ——
+            // 每块网卡 10 个 / 重试 10 次，目标 = 各地址的 /24 广播 + 全局广播
+            // （与手机端 runPowerAction 的回落一致）。
+            let default_route = PowerRoute {
+                action: crate::hub::POWER_WAKE.to_string(),
+                target: String::new(),
+                port: 9,
+                macs: Vec::new(),
+                enabled: true,
+                burst: 0,
+                retry: 0,
+                http_fallback: false,
+            };
+            let plan = crate::hub_power::plan_routes(
+                crate::hub::POWER_WAKE,
+                &server.addresses,
+                &all_macs,
+                std::slice::from_ref(&default_route),
+            )?;
+            let (_sent, where_from) = crate::hub_power::send_plan(app, jump.as_ref(), &plan)?;
+            return Ok(format!(
+                "（这台电脑没配「唤醒」路由，按默认每块网卡 10 个魔术包 / 重试 10 次广播）\
+                 已从{where_from}发送：{}",
+                plan.described.join(" · ")
+            ));
+        }
+        let message = remote_http_power(&server, action)?;
+        return Ok(format!(
+            "（这台电脑没配「{label}」路由，走的是它自己的 AnyBoot 接口）{message}"
+        ));
+    }
+
+    let plan = crate::hub_power::plan_routes(action, &server.addresses, &all_macs, &routes)?;
+    match crate::hub_power::send_plan(app, jump.as_ref(), &plan) {
+        Ok((_sent, where_from)) => {
+            let mut message =
+                format!("已从{where_from}按路由发送{label}：{}", plan.described.join(" · "));
+            if action != crate::hub::POWER_WAKE {
+                message.push_str("。这个动作靠目标机上的 sol 监听该端口执行 —— 没装 sol 不会有反应");
+            }
+            if !plan.problems.is_empty() {
+                message.push_str(&format!(
+                    "（另有 {} 条路由被跳过：{}）",
+                    plan.problems.len(),
+                    plan.problems.join("；")
+                ));
+            }
+            Ok(message)
+        }
+        Err(send_error) => {
+            let can_fallback = routes.iter().any(|route| route.http_fallback);
+            if !can_fallback {
+                return Err(send_error);
+            }
+            match remote_http_power(&server, action) {
+                Ok(message) => Ok(format!(
+                    "sol 包没发出去（{send_error}），已改走它自己的 AnyBoot 接口：{message}"
+                )),
+                Err(http_error) => {
+                    Err(format!("sol 包没发出去（{send_error}）；HTTP 兜底也失败：{http_error}"))
+                }
+            }
+        }
+    }
 }
 
 // ==================== 存储 ====================
@@ -777,6 +1055,8 @@ mod tests {
             machine_name: String::new(),
             probe_mode: " other ".into(),
             jump_id: " j1 ".into(),
+            macs: Default::default(),
+            power_routes: vec![],
             created_at: 0,
         };
         let normalized = server.normalize();
@@ -801,6 +1081,8 @@ mod tests {
             machine_name: String::new(),
             probe_mode: "serial".into(),
             jump_id: String::new(),
+            macs: Default::default(),
+            power_routes: vec![],
             created_at: 0,
         };
         let normalized = server.normalize();
@@ -828,6 +1110,8 @@ mod tests {
                 machine_name: String::new(),
                 probe_mode: "parallel".into(),
                 jump_id: String::new(),
+                macs: Default::default(),
+                power_routes: vec![],
                 created_at: 42,
             }],
         };

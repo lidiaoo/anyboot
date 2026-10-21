@@ -116,7 +116,7 @@ mod hub;
 mod blocking_guard;
 mod hub_health;
 mod hub_keys;
-// pub(crate)：async 命令的 __cmd__ 宏可见性跟着模块走（private mod 会报
+mod hub_power;// pub(crate)：async 命令的 __cmd__ 宏可见性跟着模块走（private mod 会报
 // "macro import is private"，sync 命令没这问题）
 pub(crate) mod hub_sftp;
 mod hub_term;
@@ -2725,6 +2725,7 @@ pub fn run() {
             remote_servers::remote_delete,
             remote_servers::remote_set_connect_all,
             remote_servers::remote_test,
+            remote_servers::remote_power,
             remote_servers::remote_endpoint,
             remote_servers::remote_test_via,
             remote_servers::local_http_endpoint,
@@ -2735,6 +2736,9 @@ pub fn run() {
             hub::hub_save_server,
             hub::hub_delete_server,
             hub::hub_test_server,
+            // 远程电源 / 网络唤醒（hub_power.rs：重启·关机·睡眠走 SSH，唤醒走 MAC 魔术包）
+            hub_power::hub_server_power,
+            hub_power::hub_wake_server,
             hub_open_keys_window,
             hub_open_term_window,
             hub_open_files_window,
@@ -4575,6 +4579,15 @@ mod core_tests {
                 true
             )),
             Ok(RemoteCommand::Power(PowerAction::Shutdown))
+        );
+        // wake：HTTP 能送达 = 机器醒着，直接回执不做动作（唤醒路由的 HTTP 兜底靠它）
+        assert_eq!(
+            route_remote_command(&sample_request("/api/power", &[("action", "wake")], true)),
+            Ok(RemoteCommand::WakeAck)
+        );
+        assert_eq!(
+            route_remote_command(&sample_request("/api/power", &[("action", "WAKE")], true)),
+            Ok(RemoteCommand::WakeAck)
         );
         let reply = route_remote_command(&sample_request(
             "/api/power",

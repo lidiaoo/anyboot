@@ -22,6 +22,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -85,6 +86,13 @@ import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.launch
 
 /**
+ * 编辑弹窗里的一个地址条目：地址 + 这块（这几块）网卡的 MAC。
+ *
+ * <p>用不可变数据类 + 替换元素，Compose 的 mutableStateList 才会重组成列表。
+ */
+private data class AddrEntry(val address: String, val macs: List<String> = emptyList())
+
+/**
  * AnyBoot 远程客户端外壳（多服务端版，Jetpack Compose / Material 3 重写）。
  *
  * 它本身不实现业务：每台电脑一个标签，每个标签就是一个 WebView，加载那台电脑上
@@ -131,6 +139,14 @@ class MainActivity : ComponentActivity() {
     private var transportOpen by mutableStateOf(false)
     /** 跳板机总数（抽屉「服务器」项的计数徽标；后台读一次就够） */
     private var jumpCount by mutableIntStateOf(0)
+
+    // ---- 电源悬浮球 ----
+    /** 有电源请求在飞（球上转圈，防止连点） */
+    private var powerBusy by mutableStateOf(false)
+    /** 待二次确认的动作（reboot / shutdown / sleep） */
+    private var powerConfirm by mutableStateOf<String?>(null)
+    /** 睡眠旁的 ? 说明 */
+    private var sleepHelpOpen by mutableStateOf(false)
 
     // ---- 非 UI 状态（WebView 指令式管理，同旧实现） ----
     private val tabs = LinkedHashMap<String, Tab>()
@@ -204,6 +220,7 @@ class MainActivity : ComponentActivity() {
                                 )
                             }
                             errorInfo?.let { info -> ErrorPanel(info) }
+                            PowerFab()
                         }
                     }
                     DrawerOverlay()
@@ -212,6 +229,8 @@ class MainActivity : ComponentActivity() {
                 deleteServerTarget?.let { DeleteServerDialog(it) }
                 if (serverListOpen) ServerListDialog()
                 if (transportOpen) TransportDialog()
+                powerConfirm?.let { action -> PowerConfirmDialog(action) }
+                if (sleepHelpOpen) SleepHelpDialog()
                 ConfirmDialog(bus)
         }
 
@@ -394,6 +413,310 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // ------------------------------------------------------------------
+    // 电源悬浮球（重启 / 关机 / 睡眠 / 唤醒）
+    // ------------------------------------------------------------------
+
+    /**
+     * 右下角悬浮球：点一下向上展开四个电源操作。
+     *
+     * <p>每个动作先看「局域网电源路由」：配了就发 UDP 包给目标机上的 sol（按端口执行），
+     * 没配才回落 —— 唤醒走标准 WOL，重启/关机/睡眠走电脑端 {@code /api/power}。
+     */
+    @Composable
+    private fun PowerFab() {
+        val palette = LocalPalette.current
+        val profile = ServerStore.find(servers, activeId) ?: return
+        var expanded by remember { mutableStateOf(false) }
+
+        Box(
+            modifier = Modifier.fillMaxSize().padding(14.dp),
+            contentAlignment = Alignment.BottomEnd,
+        ) {
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (expanded) {
+                    // 说明条：这一列按钮走的是局域网，能执行全靠目标机上的 sol
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(palette.card)
+                            .clickable { sleepHelpOpen = true }
+                            .padding(start = 10.dp, top = 5.dp, end = 5.dp, bottom = 5.dp),
+                    ) {
+                        Text("电源走局域网 · 需 sol", fontSize = 10.sp, color = palette.fgFaint)
+                        Spacer(Modifier.width(4.dp))
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .size(18.dp)
+                                .clip(CircleShape)
+                                .background(palette.elevate),
+                        ) {
+                            Text("?", fontSize = 10.sp, color = palette.fgDim)
+                        }
+                    }
+                    PowerChip(
+                        "唤醒",
+                        powerHint(profile, ServerProfile.POWER_WAKE, if (profile.hasMacs()) "MAC 魔术包" else "未配 MAC"),
+                    ) {
+                        expanded = false
+                        runPowerAction(profile, ServerProfile.POWER_WAKE)
+                    }
+                    PowerChip(
+                        "睡眠",
+                        powerHint(profile, ServerProfile.POWER_SLEEP, "挂起到内存"),
+                    ) {
+                        expanded = false
+                        powerConfirm = ServerProfile.POWER_SLEEP
+                    }
+                    PowerChip("关机", powerHint(profile, ServerProfile.POWER_SHUTDOWN, "")) {
+                        expanded = false
+                        powerConfirm = ServerProfile.POWER_SHUTDOWN
+                    }
+                    PowerChip("重启", powerHint(profile, ServerProfile.POWER_REBOOT, "")) {
+                        expanded = false
+                        powerConfirm = ServerProfile.POWER_REBOOT
+                    }
+                }
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .size(52.dp)
+                        .clip(CircleShape)
+                        .background(if (powerBusy) palette.fgFaint else palette.accent)
+                        .clickable { if (!powerBusy) expanded = !expanded },
+                ) {
+                    if (powerBusy) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(22.dp),
+                            color = Color.White,
+                            strokeWidth = 2.dp,
+                        )
+                    } else {
+                        Text(
+                            text = if (expanded) "×" else "⏻",
+                            fontSize = 20.sp,
+                            color = Color.White,
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    /** 悬浮球上的小字：配了路由显示「→ 地址:端口」，否则用老逻辑的说明 */
+    private fun powerHint(profile: ServerProfile, action: String, fallback: String): String {
+        val routes = profile.routesFor(action)
+        if (routes.isEmpty()) {
+            return fallback
+        }
+        val route = routes[0]
+        val target = ServerProfile.text(route.target).ifEmpty { "自动广播" }
+        val suffix = if (routes.size > 1) " 等 ${routes.size} 条" else ""
+        return "→ $target:${route.effectivePort()}$suffix"
+    }
+
+
+    /** 悬浮球展开后的一个操作条；`help` 非空时右侧多一个 ? 圆点 */
+    @Composable
+    private fun PowerChip(
+        label: String,
+        hint: String = "",
+        help: (() -> Unit)? = null,
+        onClick: () -> Unit,
+    ) {
+        val palette = LocalPalette.current
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .clip(RoundedCornerShape(12.dp))
+                .background(palette.card)
+                .clickable(onClick = onClick)
+                .padding(start = 14.dp, top = 7.dp, end = if (help == null) 14.dp else 6.dp, bottom = 7.dp),
+        ) {
+            Column {
+                Text(label, fontSize = 14.sp, color = palette.fg)
+                if (hint.isNotEmpty()) {
+                    Text(hint, fontSize = 10.sp, color = palette.fgFaint)
+                }
+            }
+            if (help != null) {
+                Spacer(Modifier.width(8.dp))
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .size(24.dp)
+                        .clip(CircleShape)
+                        .background(palette.elevate)
+                        .clickable(onClick = help),
+                ) {
+                    Text("?", fontSize = 12.sp, color = palette.fgDim)
+                }
+            }
+        }
+    }
+
+    /** 当前这台电脑「能访问到的地址」：直连就是候选地址，走跳板机就先解析成隧道端口 */
+    private fun powerAddress(profile: ServerProfile): String {
+        val tab = tabs[profile.id]
+        val index = tab?.addressIndex ?: 0
+        val address = profile.hostAt(index)
+        if (address.isEmpty()) {
+            throw Exception("这台电脑还没有可用地址")
+        }
+        val tunnel = tab?.effectiveAddress ?: ""
+        if (ServerProfile.text(profile.jumpServerId).isEmpty()) {
+            return if (tunnel.isNotEmpty()) tunnel else address
+        }
+        val jump = JumpStore.findJump(JumpStore.loadJumps(this), profile.jumpServerId)
+            ?: throw Exception("跳板机不存在，请到「服务器」页检查")
+        return SshSessionManager.shared().tunnelAddress(this, jump, address) { title, message ->
+            bus.confirm(title, message)
+        }
+    }
+
+    /**
+     * 发一个电源动作。后台线程；结果用 toast 回。
+     *
+     * <p>优先级：这台电脑给该动作配了「局域网电源路由」→ 按路由发 UDP（目标机 sol
+     * 按端口执行）；没配才回落 —— 唤醒走标准 WOL，重启/关机/睡眠走电脑端 /api/power。
+     * 走路由时**不解析隧道地址**：机器可能已经关机，SSH 根本连不上。
+     */
+    private fun runPowerAction(profile: ServerProfile, action: String) {
+        if (powerBusy) return
+        powerBusy = true
+        Thread({
+            try {
+                val prompt = object : SshSessionManager.Prompt {
+                    override fun confirm(title: String, message: String): Boolean =
+                        bus.confirm(title, message)
+                }
+                val message = try {
+                    val routed = WakeOnLan.sendRoutes(this, profile, action, prompt)
+                    when {
+                        routed != null -> routed
+                        ServerProfile.POWER_WAKE == action -> WakeOnLan.wake(this, profile, prompt)
+                        else -> PowerOps.send(powerAddress(profile), profile.token, action)
+                    }
+                } catch (error: Exception) {
+                    // 路由失败了，且这个动作的路由勾了「HTTP 兜底」→ 改调它自己的接口。
+                    // 唤醒也允许：请求能送达就说明机器其实醒着，服务端直接回执。
+                    val canFallback = profile.routesFor(action).any { it.httpFallback }
+                    if (!canFallback) {
+                        throw error
+                    }
+                    val http = try {
+                        PowerOps.send(powerAddress(profile), profile.token, action)
+                    } catch (httpError: Exception) {
+                        throw Exception(
+                            "${error.message ?: "sol 包没发出去"}；" +
+                                "HTTP 兜底也失败：${httpError.message ?: "未知错误"}"
+                        )
+                    }
+                    "sol 包没发出去（${error.message ?: "未知错误"}），已改走它自己的 AnyBoot 接口：$http"
+                }
+                runOnUiThread {
+                    powerBusy = false
+                    toast(message)
+                }
+            } catch (error: Exception) {
+                runOnUiThread {
+                    powerBusy = false
+                    toast("${ServerProfile.powerActionLabel(action)}没发出去：${error.message ?: "未知错误"}")
+                }
+            }
+        }, "anyboot-power").start()
+    }
+
+    /** 重启 / 关机 / 睡眠的二次确认（这三个都会让这台电脑失联） */
+    @Composable
+    private fun PowerConfirmDialog(action: String) {
+        val palette = LocalPalette.current
+        val label = PowerOps.label(action)
+        val detail = when (action) {
+            PowerOps.SLEEP ->
+                "电脑会挂起到内存、网页服务立刻停掉：这个标签会显示离线，页面也打不开 —— " + "这是正常的。要叫醒它请点悬浮球里的「唤醒」（需要配好 MAC 并开启网络唤醒）。"
+            PowerOps.SHUTDOWN ->
+                "电脑会立刻关机，网页服务随之中断。关机后只能用「唤醒」开机（需要配好 MAC 并开启网络唤醒），" + "或到机器旁边按电源键。"
+            else ->
+                "电脑会立刻重启，网页会话会断开；重启完成后心跳会自动恢复在线。"
+        }
+        AlertDialog(
+            onDismissRequest = { powerConfirm = null },
+            title = { Text("确认${label}这台电脑？") },
+            text = { Text(detail, fontSize = 14.sp, color = palette.fgDim) },
+            confirmButton = {
+                TextButton(onClick = {
+                    val profile = ServerStore.find(servers, activeId)
+                    powerConfirm = null
+                    if (profile != null) {
+                        runPowerAction(profile, action)
+                    }
+                }) { Text(label, color = palette.bad) }
+            },
+            dismissButton = {
+                TextButton(onClick = { powerConfirm = null }) { Text("取消") }
+            },
+        )
+    }
+
+    /** 睡眠旁的 ?：讲清楚「睡眠之后怎么叫醒」 */
+    @Composable
+    private fun SleepHelpDialog() {
+        val palette = LocalPalette.current
+        AlertDialog(
+            onDismissRequest = { sleepHelpOpen = false },
+            title = { Text("电源 · 睡眠与唤醒") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    Text(
+                        "睡眠 = 内存不断电（挂起到内存）：几乎立刻能醒，但任何网络服务都停了。" + "所以点完「睡眠」这个标签会变离线、页面打不开，这是预期的。",
+                        fontSize = 13.sp, color = palette.fgDim,
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Text("这些按钮怎么执行（局域网 / sol）", fontSize = 13.sp, color = palette.fg)
+                    Text(
+                        "给这台电脑配了「局域网电源路由」的动作，会往路由里的**广播地址:端口**发一个 UDP 包，" +
+                            "由目标机上装着的 **sol** 按端口执行 —— 这样机器睡着、网页服务没起来也能操作。" +
+                            "没装 sol，包发得出去但没人执行。\n" +
+                            "没配路由的动作走老路：唤醒发标准 WOL（魔术包），重启/关机/睡眠调电脑端的网页接口。",
+                        fontSize = 13.sp, color = palette.fgDim,
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Text("唤醒包从哪发：", fontSize = 13.sp, color = palette.fg)
+                    Text(
+                        "· 配了「唤醒」路由 → 按路由里的地址和端口发（MAC 可只挑几块网卡）；\n" +
+                            "· 配了 SSH 跳板机 → 由跳板机在内网广播（在外网也能用）；\n" +
+                            "· 都没有 → 手机自己往局域网广播（手机必须和电脑同一网段）。",
+                        fontSize = 13.sp, color = palette.fgDim,
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Text("点了没反应，按顺序检查：", fontSize = 13.sp, color = palette.fg)
+                    Text(
+                        "① 主板 BIOS 里开启了 Wake on LAN / 网络唤醒（只影响唤醒）；\n" +
+                            "② 用的是**有线网卡**的 MAC —— 绝大多数无线网卡不支持关机唤醒；\n" +
+                            "③ MAC 填在「编辑服务端」里对应地址那一行（如 192.168.0.120:12300 AA:BB:CC:DD:EE:FF）；\n" +
+                            "④ 路由里的广播地址和端口对不对（要和 sol 侧监听的一致）；\n" +
+                            "⑤ 主机没被拔电源、插排没断电（关机后网卡要靠待机供电收包）。",
+                        fontSize = 13.sp, color = palette.fgDim,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Windows 还要在「设备管理器 → 网卡 → 电源管理」勾上「允许此设备唤醒计算机」，" + "并关掉「快速启动」（快速启动是休眠，会跳过 WOL）。",
+                        fontSize = 13.sp, color = palette.fgDim,
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { sleepHelpOpen = false }) { Text("知道了") }
+            },
+        )
+    }
+
     /**
      * 抽屉侧边栏（对齐设计稿 drawer 屏）：显示器图标块 + AnyBoot 版本行、
      * 导航（电脑 / 服务器[计数徽标] / 关于 / 主题）、底部心跳与 GitHub 说明。
@@ -558,7 +881,22 @@ class MainActivity : ComponentActivity() {
 
         var group by remember(request) { mutableStateOf(profile?.group ?: "") }
         var name by remember(request) { mutableStateOf(profile?.name ?: "") }
-        var hosts by remember(request) { mutableStateOf(profile?.addressText() ?: "") }
+        // 地址：有序列表（第一个 = 连接用），由「快速识别」和「手动添加」往里面加
+        val addressEntries = remember(request) {
+            mutableStateListOf<AddrEntry>().apply {
+                profile?.let { saved ->
+                    saved.addresses.forEach { address ->
+                        add(AddrEntry(address, saved.macsForHost(address)))
+                    }
+                }
+            }
+        }
+        var quickText by remember(request) { mutableStateOf("") }
+        var quickHint by remember(request) { mutableStateOf("") }
+        var newHost by remember(request) { mutableStateOf("") }
+        var newMacs by remember(request) { mutableStateOf("") }
+        // 粘进来的原文（token 只在 URL 里，归一化后就丢了，所以留一份原文）
+        var pastedRaw by remember(request) { mutableStateOf(profile?.addressText() ?: "") }
         var token by remember(request) { mutableStateOf(profile?.token ?: "") }
         val jumps = remember(request) { JumpStore.loadJumps(this) }
         var jumpIndex by remember(request) {
@@ -572,6 +910,70 @@ class MainActivity : ComponentActivity() {
         var jumpOpen by remember { mutableStateOf(false) }
         var serialProbe by remember(request) {
             mutableStateOf(editing && ServerProfile.PROBE_SERIAL == profile?.probeMode)
+        }
+        // 局域网电源路由：编辑中的副本（增删都改这份），点「保存」才写回 profile
+        val routeList = remember(request) {
+            mutableStateListOf<ServerProfile.PowerRoute>().apply {
+                profile?.powerRoutes?.forEach { add(it.copy()) }
+            }
+        }
+        var routeMenuIndex by remember { mutableStateOf(-1) }
+        var macMenuIndex by remember { mutableStateOf(-1) }
+        // MAC 池：以「已添加的地址」为准（地址 / 网卡变了，可选项跟着变）
+        val macPool = addressEntries.flatMap { it.macs }.distinct()
+
+        /** 往地址列表里加一个；已存在就只并 MAC。返回是否新加了一个地址。 */
+        fun upsertAddress(address: String, macs: List<String>): Boolean {
+            val index = addressEntries.indexOfFirst { it.address == address }
+            if (index >= 0) {
+                val merged = (addressEntries[index].macs + macs).distinct()
+                addressEntries[index] = addressEntries[index].copy(macs = merged)
+                return false
+            }
+            addressEntries.add(AddrEntry(address, macs.distinct()))
+            return true
+        }
+
+        /** 快速识别框 → 地址列表（粘上来的整段文字里，备注自动忽略） */
+        fun recognizeQuick() {
+            if (quickText.isBlank()) {
+                quickHint = "先粘点东西进来，比如 192.168.0.120:12300 AA:BB:CC:DD:EE:FF"
+                return
+            }
+            val parsed = ServerProfile.parseAddressInput(quickText, true)
+            if (parsed.hosts.isEmpty()) {
+                quickHint = "没认出地址 —— 要有 IP 或主机名，比如 192.168.0.120"
+                return
+            }
+            var added = 0
+            parsed.hosts.forEach { host ->
+                if (upsertAddress(host, parsed.macs[host] ?: emptyList())) added++
+            }
+            val macCount = parsed.macs.values.sumOf { it.size }
+            quickHint = "认出 ${parsed.hosts.size} 个地址、$macCount 个 MAC" +
+                if (added < parsed.hosts.size) "（其余本来就有，只并了 MAC）" else ""
+            // 整条 URL 粘进来时顺手把 token 收了
+            val found = ServerProfile.tokenFromUrl(quickText)
+            if (found.isNotEmpty() && token.isBlank()) token = found
+            pastedRaw = pastedRaw + "\n" + quickText
+            quickText = ""
+        }
+
+        /** 手动添加：地址 + 可选的多个 MAC */
+        fun addManualAddress() {
+            val address = ServerProfile.normalizeHost(newHost)
+            if (address.isEmpty()) {
+                quickHint = "地址不对：填 IP 或主机名，端口可带可不带"
+                return
+            }
+            val macs = newMacs.split(Regex("[\\s,;，；]+"))
+                .map { ServerProfile.normalizeMac(it) }
+                .filter { it.isNotEmpty() }
+                .distinct()
+            val added = upsertAddress(address, macs)
+            quickHint = if (added) "已添加 $address" else "地址已存在，只追了 MAC：$address"
+            newHost = ""
+            newMacs = ""
         }
 
         AlertDialog(
@@ -606,17 +1008,111 @@ class MainActivity : ComponentActivity() {
                         placeholder = { Text("例如：有线网卡 / 5G WiFi（可留空，用地址兜底）", fontSize = 12.sp) },
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    FieldLabel("服务端地址（电脑端「远程控制」里显示的地址）")
+                    FieldLabel("快速识别（整段粘进来，自动拆出地址 / 端口 / MAC 加进下面）")
                     OutlinedTextField(
-                        value = hosts,
-                        onValueChange = { hosts = it },
-                        placeholder = { Text("192.168.0.120:12300 或整条带 token 的地址", fontSize = 12.sp) },
+                        value = quickText,
+                        onValueChange = { quickText = it },
+                        placeholder = {
+                            Text(
+                                "192.168.0.120:12300 AA:BB:CC:DD:EE:FF 台式机有线\n" +
+                                    "192.168.0.121 11-22-33-44-55-66（5G WiFi）",
+                                fontSize = 12.sp,
+                            )
+                        },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                        minLines = 1,
+                        minLines = 2,
                         maxLines = 4,
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    FieldLabel("同一台电脑有多块网卡就填多行，每行一个 —— 只占一个标签，哪个通就用哪个")
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(onClick = { recognizeQuick() }) {
+                            Text("识别并加入", fontSize = 12.sp)
+                        }
+                        Text(
+                            quickHint.ifEmpty { "换行 / 空格 / 逗号都能分开；认不出的备注自动忽略" },
+                            fontSize = 11.sp, color = palette.fgFaint,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+
+                    FieldLabel("已添加的地址（第一个用来连接，其余参与测试连接和唤醒）")
+                    if (addressEntries.isEmpty()) {
+                        Text(
+                            "还没加地址 —— 上面粘一段，或者下面手动填一个。",
+                            fontSize = 11.sp, color = palette.fgFaint,
+                        )
+                    }
+                    addressEntries.forEachIndexed { index, entry ->
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 6.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(palette.card)
+                                .padding(8.dp),
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    entry.address,
+                                    fontSize = 12.sp, color = palette.fg,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                if (index == 0) {
+                                    Text("连接用", fontSize = 10.sp, color = palette.accent)
+                                }
+                                TextButton(onClick = { addressEntries.removeAt(index) }) {
+                                    Text("✕", fontSize = 12.sp, color = palette.bad)
+                                }
+                            }
+                            if (entry.macs.isEmpty()) {
+                                Text(
+                                    "没配 MAC —— 唤醒发不出去",
+                                    fontSize = 10.sp, color = palette.fgFaint,
+                                )
+                            } else {
+                                entry.macs.forEach { mac ->
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            mac,
+                                            fontSize = 10.sp, color = palette.fgDim,
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                        TextButton(onClick = {
+                                            addressEntries[index] =
+                                                entry.copy(macs = entry.macs.filter { it != mac })
+                                        }) {
+                                            Text("✕", fontSize = 11.sp, color = palette.fgFaint)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    FieldLabel("手动添加（地址 + 多个 MAC；地址已存在时只追加 MAC）")
+                    OutlinedTextField(
+                        value = newHost,
+                        onValueChange = { newHost = it },
+                        label = { Text("地址（192.168.0.120 或 192.168.0.120:12300）", fontSize = 10.sp) },
+                        singleLine = true,
+                        textStyle = MaterialTheme.typography.bodySmall,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedTextField(
+                            value = newMacs,
+                            onValueChange = { newMacs = it },
+                            label = { Text("MAC（可多个，空格隔开）", fontSize = 10.sp) },
+                            placeholder = { Text("AA:BB:CC:DD:EE:FF", fontSize = 12.sp) },
+                            singleLine = true,
+                            textStyle = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        TextButton(onClick = { addManualAddress() }) {
+                            Text("添加", fontSize = 13.sp)
+                        }
+                    }
                     FieldLabel("访问令牌 token")
                     OutlinedTextField(
                         value = token,
@@ -656,6 +1152,231 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     }
+                    FieldLabel(
+                        "局域网电源路由（可选：每个动作发到哪个地址、哪个端口。" +
+                            "目标机装 sol 后按端口执行 —— 不装 sol 就只有唤醒能靠 WOL 生效）"
+                    )
+                    if (routeList.isEmpty()) {
+                        Text(
+                            "还没配：电源按钮仍走老路 —— 唤醒发标准 WOL，重启/关机/睡眠调电脑端接口。",
+                            fontSize = 11.sp, color = palette.fgFaint,
+                        )
+                    }
+                    routeList.forEachIndexed { index, route ->
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 6.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(palette.card)
+                                .padding(8.dp),
+                        ) {
+                            Text(
+                                "路由 ${index + 1} / ${routeList.size}",
+                                fontSize = 10.sp, color = palette.fgFaint,
+                                modifier = Modifier.padding(bottom = 2.dp),
+                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box {
+                                    OutlinedButton(
+                                        onClick = { routeMenuIndex = if (routeMenuIndex == index) -1 else index },
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                                    ) {
+                                        Text(ServerProfile.powerActionLabel(route.action), fontSize = 12.sp)
+                                    }
+                                    DropdownMenu(
+                                        expanded = routeMenuIndex == index,
+                                        onDismissRequest = { routeMenuIndex = -1 },
+                                    ) {
+                                        listOf(
+                                            ServerProfile.POWER_WAKE,
+                                            ServerProfile.POWER_REBOOT,
+                                            ServerProfile.POWER_SHUTDOWN,
+                                            ServerProfile.POWER_SLEEP,
+                                        ).forEach { action ->
+                                            DropdownMenuItem(
+                                                text = { Text(ServerProfile.powerActionLabel(action)) },
+                                                onClick = {
+                                                    val before = route.actionOrWake()
+                                                    val oldBurst = if (before == ServerProfile.POWER_WAKE) {
+                                                        ServerProfile.DEFAULT_WAKE_BURST
+                                                    } else {
+                                                        ServerProfile.DEFAULT_POWER_BURST
+                                                    }
+                                                    val oldRetry = if (before == ServerProfile.POWER_WAKE) {
+                                                        ServerProfile.DEFAULT_WAKE_RETRY
+                                                    } else {
+                                                        ServerProfile.DEFAULT_POWER_RETRY
+                                                    }
+                                                    // 没手动改过（还是旧动作的默认值）就跟着换成新动作的默认值；
+                                                    // 0 = 「按动作默认」，交给 ServerProfile 算
+                                                    val burst = if (route.burst == 0 || route.burst == oldBurst) 0 else route.burst
+                                                    val retry = if (route.retry == 0 || route.retry == oldRetry) 0 else route.retry
+                                                    routeList[index] = route
+                                                        .with(action, route.target, route.port, route.macs, route.enabled)
+                                                        .withCounts(burst, retry)
+                                                    routeMenuIndex = -1
+                                                },
+                                            )
+                                        }
+                                    }
+                                }
+                                Spacer(Modifier.width(8.dp))
+                                OutlinedTextField(
+                                    value = if (route.port <= 0) "" else route.port.toString(),
+                                    onValueChange = { value ->
+                                        val digits = value.filter { it.isDigit() }.take(5)
+                                        routeList[index] = route.with(
+                                            route.action, route.target, digits.toIntOrNull() ?: 0,
+                                            route.macs, route.enabled,
+                                        )
+                                    },
+                                    label = { Text("端口", fontSize = 10.sp) },
+                                    singleLine = true,
+                                    textStyle = MaterialTheme.typography.bodySmall,
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    modifier = Modifier.width(92.dp),
+                                )
+                                Spacer(Modifier.weight(1f))
+                                TextButton(onClick = {
+                                    routeList.removeAt(index)
+                                    routeMenuIndex = -1
+                                    macMenuIndex = -1
+                                }) {
+                                    Text("删除", fontSize = 12.sp, color = palette.bad)
+                                }
+                            }
+                            OutlinedTextField(
+                                value = route.target,
+                                onValueChange = { value ->
+                                    routeList[index] = route.with(
+                                        route.action, value, route.port, route.macs, route.enabled,
+                                    )
+                                },
+                                label = { Text("广播地址（留空 = 自动：全局 + 各地址的 /24）", fontSize = 10.sp) },
+                                placeholder = { Text("192.168.0.255", fontSize = 12.sp) },
+                                singleLine = true,
+                                textStyle = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 6.dp),
+                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    "MAC：" + if (route.macs.isEmpty()) {
+                                        "全部（${macPool.size} 块）"
+                                    } else {
+                                        "${route.macs.size} / ${macPool.size} 块"
+                                    },
+                                    fontSize = 11.sp, color = palette.fgFaint,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                TextButton(
+                                    onClick = { macMenuIndex = if (macMenuIndex == index) -1 else index },
+                                    enabled = macPool.isNotEmpty(),
+                                ) {
+                                    Text(if (macPool.isEmpty()) "没配 MAC" else "选择", fontSize = 12.sp)
+                                }
+                            }
+                            if (macMenuIndex == index && macPool.isNotEmpty()) {
+                                // 空列表 = 全部网卡（以后新加的 MAC 也自动包含）
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            routeList[index] = route.with(
+                                                route.action, route.target, route.port, emptyList(), route.enabled,
+                                            )
+                                        },
+                                ) {
+                                    Checkbox(checked = route.macs.isEmpty(), onCheckedChange = null)
+                                    Text("全部网卡", fontSize = 11.sp, color = palette.fgDim)
+                                }
+                                if (route.macs.isNotEmpty()) {
+                                    macPool.forEach { mac ->
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable {
+                                                    val next = if (route.macs.contains(mac)) {
+                                                        route.macs - mac
+                                                    } else {
+                                                        route.macs + mac
+                                                    }
+                                                    routeList[index] = route.with(
+                                                        route.action, route.target, route.port, next, route.enabled,
+                                                    )
+                                                },
+                                        ) {
+                                            Checkbox(checked = route.macs.contains(mac), onCheckedChange = null)
+                                            Text(mac, fontSize = 11.sp, color = palette.fgDim)
+                                        }
+                                    }
+                                }
+                            }
+                            // 发包数 / 重试：每个动作都能设（默认唤醒 10 / 其余 1）。
+                            // 注意 value 只认「用户自己填的数」，空着就用占位符显示默认值 ——
+                            // 千万不能把 effective 值当 value 回填，否则删一个字符就被弹回来，
+                            // 光标一直跳（看着就是输入框在闪）。
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                val waking = route.actionOrWake() == ServerProfile.POWER_WAKE
+                                OutlinedTextField(
+                                    value = if (route.burst > 0) route.burst.toString() else "",
+                                    onValueChange = { value ->
+                                        val number = value.filter { it.isDigit() }.take(2).toIntOrNull() ?: 0
+                                        routeList[index] = route.withCounts(number, route.retry)
+                                    },
+                                    label = { Text(if (waking) "每块发几个包" else "发几个包", fontSize = 10.sp) },
+                                    placeholder = { Text(route.defaultBurst().toString(), fontSize = 11.sp) },
+                                    singleLine = true,
+                                    textStyle = MaterialTheme.typography.bodySmall,
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    modifier = Modifier.width(120.dp),
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                OutlinedTextField(
+                                    value = if (route.retry > 0) route.retry.toString() else "",
+                                    onValueChange = { value ->
+                                        val number = value.filter { it.isDigit() }.take(2).toIntOrNull() ?: 0
+                                        routeList[index] = route.withCounts(route.burst, number)
+                                    },
+                                    label = { Text("重试次数", fontSize = 10.sp) },
+                                    placeholder = { Text(route.defaultRetry().toString(), fontSize = 11.sp) },
+                                    singleLine = true,
+                                    textStyle = MaterialTheme.typography.bodySmall,
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    modifier = Modifier.width(104.dp),
+                                )
+                            }
+                            // HTTP 兜底：所有动作都显示、默认勾上。唤醒也能兜 ——
+                            // 请求能送达就说明机器其实醒着，服务端会直接回执。
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Checkbox(
+                                    checked = route.httpFallback,
+                                    onCheckedChange = { on ->
+                                        routeList[index] = route.withHttpFallback(on)
+                                    },
+                                )
+                                Text(
+                                    "sol 没发出去就走 HTTP 兜底（调它自己的 AnyBoot 接口）",
+                                    fontSize = 11.sp, color = palette.fgDim,
+                                    modifier = Modifier.weight(1f, fill = false),
+                                )
+                            }
+                        }
+                    }
+                    TextButton(onClick = {
+                        // HTTP 兜底默认勾上
+                        routeList.add(
+                            ServerProfile.PowerRoute(ServerProfile.POWER_WAKE, "", 9)
+                                .withHttpFallback(true)
+                        )
+                    }) { Text("+ 添加一条路由", fontSize = 13.sp) }
                     FieldLabel("多网卡探测（有多个地址时怎么探）")
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         RadioButton(selected = !serialProbe, onClick = { serialProbe = false })
@@ -675,7 +1396,7 @@ class MainActivity : ComponentActivity() {
             },
             confirmButton = {
                 TextButton(onClick = {
-                    if (saveServer(request, group, name, hosts, token, serialProbe, jumpIndex, jumps)) {
+                    if (saveServer(request, group, name, addressEntries.toList(), token, pastedRaw, serialProbe, jumpIndex, jumps, routeList)) {
                         editRequest = null
                     }
                 }) { Text("保存") }
@@ -705,14 +1426,22 @@ class MainActivity : ComponentActivity() {
         request: EditRequest,
         group: String,
         name: String,
-        hosts: String,
+        addresses: List<AddrEntry>,
         token: String,
+        pastedRaw: String,
         serialProbe: Boolean,
         jumpIndex: Int,
         jumps: List<JumpServer>,
+        routes: List<ServerProfile.PowerRoute>,
     ): Boolean {
         val editing = request.profile
-        val parsed = ServerProfile.parseAddresses(hosts)
+        // 弹窗里的地址列表 → 解析结果（第一个是连接用的地址）
+        val parsed = ServerProfile.Parsed()
+        for (entry in addresses) {
+            if (entry.address.isEmpty()) continue
+            parsed.hosts.add(entry.address)
+            if (entry.macs.isNotEmpty()) parsed.macs[entry.address] = entry.macs.toList()
+        }
         if (parsed.isEmpty()) {
             toast("请填服务端地址")
             return false
@@ -720,7 +1449,7 @@ class MainActivity : ComponentActivity() {
         var tokenValue = token.trim()
         if (tokenValue.isEmpty()) {
             // 整条 URL 粘进来的情况
-            tokenValue = ServerProfile.tokenFromUrl(hosts)
+            tokenValue = ServerProfile.tokenFromUrl(pastedRaw)
         }
         val previousAddresses = editing?.let { ArrayList(it.addresses) } ?: ArrayList()
         val previousToken = editing?.let { ServerProfile.text(it.token) } ?: ""
@@ -729,8 +1458,8 @@ class MainActivity : ComponentActivity() {
         var notice = ""
         if (editing != null) {
             target = editing
-            // 编辑 = 以输入为准（顺序也照用户写的来），方便删掉过期的地址
-            target.replaceAddresses(parsed)
+            // 编辑 = 以输入为准（顺序也照用户写的来），方便删掉过期的地址；MAC 同步以输入为准
+            target.replaceParsed(parsed)
         } else {
             // 新增：分组名相同的记录就是同一台电脑，并进去，不新建标签
             val merged = findByGroup(group.trim())
@@ -742,9 +1471,7 @@ class MainActivity : ComponentActivity() {
                 servers.add(fresh)
                 fresh
             }
-            for (address in parsed) {
-                target.addAddress(address)
-            }
+            target.mergeParsed(parsed)
         }
         target.group = group.trim()
         target.name = name.trim().ifEmpty { target.host() }
@@ -752,6 +1479,11 @@ class MainActivity : ComponentActivity() {
         target.probeMode =
             if (serialProbe) ServerProfile.PROBE_SERIAL else ServerProfile.PROBE_PARALLEL
         target.jumpServerId = if (jumpIndex <= 0) "" else jumps[jumpIndex - 1].id
+        // 局域网电源路由：以弹窗里的这份为准（空 = 没配，走老路）
+        target.powerRoutes.clear()
+        for (route in routes) {
+            target.powerRoutes.add(route.copy())
+        }
         ServerStore.sort(servers)
         ServerStore.save(this, servers)
         editRequest = null

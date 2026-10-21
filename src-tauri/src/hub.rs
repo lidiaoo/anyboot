@@ -20,6 +20,134 @@ pub(crate) const HUB_SERVERS_FILE: &str = "hub-servers.json";
 /// 测试连接的 TCP 超时
 const TEST_TIMEOUT: Duration = Duration::from_secs(3);
 
+/// 四个电源动作（前后端 + 移动端唯一的一套字符串）
+pub(crate) const POWER_WAKE: &str = "wake";
+pub(crate) const POWER_REBOOT: &str = "reboot";
+pub(crate) const POWER_SHUTDOWN: &str = "shutdown";
+pub(crate) const POWER_SLEEP: &str = "sleep";
+
+/// 把各种写法（英文 / 中文 / 旧别名）归一成四个动作之一；不认识返回 None。
+///
+/// <p>为什么容错：这些值会落进 `hub-servers.json`，用户手工改过、或者从旧版
+/// 备份里恢复过来的都可能有别名。宁可认出来，也别把一条配好的路由悄悄丢掉。
+pub(crate) fn normalize_power_action(raw: &str) -> Option<&'static str> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "wake" | "wol" | "wakeup" | "唤醒" | "开机" => Some(POWER_WAKE),
+        "reboot" | "restart" | "重启" => Some(POWER_REBOOT),
+        "shutdown" | "poweroff" | "power-off" | "关机" => Some(POWER_SHUTDOWN),
+        "sleep" | "suspend" | "sleep-hybrid" | "睡眠" => Some(POWER_SLEEP),
+        _ => None,
+    }
+}
+
+/// 一条「局域网电源路由」：把**动作 → 发到哪 → 哪个端口 → 带哪些 MAC** 绑起来。
+///
+/// <p>为什么要用户自己配，而不是写死端口：目标机装的是 sol，它在局域网里
+/// 按 UDP 端口区分要干什么（9 唤醒、别的端口重启/关机/睡眠……每个人给自己的
+/// 机器分的端口都不一样）。这里配的就是「发到哪个广播地址、哪个端口、带哪块网卡的 MAC」。
+///
+/// <p>为空 = 没配，电源操作照旧：重启/关机/睡眠走 SSH（要求 sudo 免密），
+/// 唤醒走标准 WOL（9 + 7 端口，本机或跳板机广播）。
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct PowerRoute {
+    /// wake / reboot / shutdown / sleep（空 = wake）
+    #[serde(default)]
+    pub action: String,
+    /// 目标地址：广播地址（192.168.0.255 / 255.255.255.255）或单播 IP / 主机名。
+    /// 空 = 自动（全局广播 + 各访问地址所在 /24 的广播）
+    #[serde(default)]
+    pub target: String,
+    /// UDP 端口（0 = 9）。不同端口 = 不同动作，由目标机上的 sol 监听
+    #[serde(default)]
+    pub port: u16,
+    /// 用哪些网卡的 MAC（空 = 这台服务器配过的全部 MAC）
+    #[serde(default)]
+    pub macs: Vec<String>,
+    /// 关掉但不想删（留着自己记）
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// 这条路由每次发几个包（0 = 按动作默认：唤醒 10、其余 1）。
+    /// 每个动作都能单独设 —— 重启/关机/睡眠发多个包等于让 sol 执行多次，改之前想清楚。
+    #[serde(default)]
+    pub burst: u32,
+    /// 一轮没全发出去时的重试次数（0 = 按动作默认：唤醒 10、其余 1）。每个动作都能设。
+    #[serde(default)]
+    pub retry: u32,
+    /// sol 包没发出去时，改调这台电脑自带的 /api/power 接口兜底。唤醒也能勾：
+    /// HTTP 能送达就说明机器其实醒着（服务端回 WakeAck，不做任何动作）。
+    /// 所有动作默认勾上。
+    #[serde(default = "default_true")]
+    pub http_fallback: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+/// 唤醒包默认发几个（每条路由、每块网卡）
+pub(crate) const DEFAULT_WAKE_BURST: u32 = 10;
+
+/// 唤醒包默认重试几次（一轮有包没发出去才重试，间隔 200ms）
+pub(crate) const DEFAULT_WAKE_RETRY: u32 = 10;
+
+/// 重启 / 关机 / 睡眠默认只发 1 个包 —— 同一个包到两次，sol 就执行两次
+pub(crate) const DEFAULT_POWER_BURST: u32 = 1;
+
+/// 重启 / 关机 / 睡眠默认重试 1 次（只在真没发出去时才补发）
+pub(crate) const DEFAULT_POWER_RETRY: u32 = 1;
+
+impl PowerRoute {
+    /// 归一化后的动作（空 / 不认识一律按唤醒处理，别让一条路由失效）
+    pub fn action_or_wake(&self) -> &'static str {
+        normalize_power_action(&self.action).unwrap_or(POWER_WAKE)
+    }
+
+    /// 归一化后的端口
+    pub fn effective_port(&self) -> u16 {
+        if self.port == 0 {
+            9
+        } else {
+            self.port
+        }
+    }
+
+    /// 每次发几个包（0 = 按动作默认；上限 50 —— 再多人也接不住，纯属广播风暴）
+    pub fn effective_burst(&self) -> u32 {
+        if self.burst == 0 {
+            self.default_burst()
+        } else {
+            self.burst.clamp(1, 50)
+        }
+    }
+
+    /// 失败重试次数（0 = 按动作默认；上限 20）
+    pub fn effective_retry(&self) -> u32 {
+        if self.retry == 0 {
+            self.default_retry()
+        } else {
+            self.retry.clamp(1, 20)
+        }
+    }
+
+    /// 没填发包数时按动作取默认：唤醒 10（唤醒包丢了就是叫不醒），其余 1（重复会重复执行）
+    pub fn default_burst(&self) -> u32 {
+        if self.action_or_wake() == POWER_WAKE {
+            DEFAULT_WAKE_BURST
+        } else {
+            DEFAULT_POWER_BURST
+        }
+    }
+
+    /// 没填重试次数时按动作取默认：唤醒 10，其余 1
+    pub fn default_retry(&self) -> u32 {
+        if self.action_or_wake() == POWER_WAKE {
+            DEFAULT_WAKE_RETRY
+        } else {
+            DEFAULT_POWER_RETRY
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct HubServer {
     pub id: String,
@@ -28,6 +156,23 @@ pub struct HubServer {
     pub protocol: String,
     pub host: String,
     pub port: u16,
+    /// 全部访问地址（`host:port`，有序）。
+    ///
+    /// <p>`addresses[0]` 恒等于 `host:port` —— 老字段继续是「当前连接用的地址」，
+    /// 所有既有的 ssh / sftp / 隧道代码一个字都不用改；多出来的地址用于
+    /// 「测试连接时都探一遍」「唤醒时按地址匹配 MAC」。
+    ///
+    /// <p>为空时由 `host` + `port` 反推（老档案没有这个字段）。
+    #[serde(default)]
+    pub addresses: Vec<String>,
+    /// 每个地址对应的网卡 MAC（唤醒用）：地址 → MAC 列表（小写、冒号分隔）。
+    /// 只影响唤醒，不参与连接。
+    #[serde(default)]
+    pub macs: std::collections::BTreeMap<String, Vec<String>>,
+    /// 局域网电源路由（唤醒 / 重启 / 关机 / 睡眠 各发到哪个广播地址、哪个端口、
+    /// 带哪块网卡的 MAC）。空 = 没配，走原来的 SSH / 标准 WOL。
+    #[serde(default)]
+    pub power_routes: Vec<PowerRoute>,
     #[serde(default)]
     pub username: String,
     #[serde(default)]
@@ -89,8 +234,221 @@ impl HubServer {
         self.jump_id = self.jump_id.trim().to_string();
         self.term_path = self.term_path.trim().to_string();
         self.term_shell = self.term_shell.trim().to_string();
+        // 多地址：清理 + 用 addresses[0] 回写 host/port（老档案没有 addresses，从 host/port 反推）
+        self.normalize_addresses();
+        self.normalize_power_routes();
         self
     }
+
+    /// 地址 / MAC 归一化：地址去 scheme、补默认端口、去重保序；MAC 只留仍存在地址的。
+    /// 末尾把 `addresses[0]` 回写到 `host` / `port` —— 老字段永远是「首选地址」。
+    fn normalize_addresses(&mut self) {
+        let default_port = self.effective_port();
+        let mut cleaned: Vec<String> = Vec::new();
+        if self.addresses.is_empty() {
+            if !self.host.is_empty() {
+                if let Some(address) = normalize_address(&self.host, default_port) {
+                    cleaned.push(address);
+                }
+            }
+        } else {
+            for raw in &self.addresses {
+                if let Some(address) = normalize_address(raw, default_port) {
+                    if !cleaned.contains(&address) {
+                        cleaned.push(address);
+                    }
+                }
+            }
+        }
+        self.addresses = cleaned;
+        if let Some(first) = self.addresses.first().cloned() {
+            if let Some((host, port)) = split_address(&first) {
+                self.host = host;
+                self.port = port;
+            }
+        }
+
+        let mut macs = std::collections::BTreeMap::new();
+        for (raw_host, values) in std::mem::take(&mut self.macs) {
+            let Some(address) = normalize_address(&raw_host, default_port) else {
+                continue;
+            };
+            if !self.addresses.contains(&address) {
+                continue; // 地址被删了，MAC 跟着丢
+            }
+            let mut list: Vec<String> = Vec::new();
+            for value in values {
+                if let Some(mac) = normalize_mac(&value) {
+                    if !list.contains(&mac) {
+                        list.push(mac);
+                    }
+                }
+            }
+            if !list.is_empty() {
+                macs.insert(address, list);
+            }
+        }
+        self.macs = macs;
+    }
+
+    /// 这台服务器配过的所有 MAC（去重、按地址顺序）—— 唤醒时全发一遍
+    pub fn all_macs(&self) -> Vec<String> {
+        let mut result: Vec<String> = Vec::new();
+        for address in &self.addresses {
+            if let Some(values) = self.macs.get(address) {
+                for mac in values {
+                    if !result.contains(mac) {
+                        result.push(mac.clone());
+                    }
+                }
+            }
+        }
+        for values in self.macs.values() {
+            for mac in values {
+                if !result.contains(mac) {
+                    result.push(mac.clone());
+                }
+            }
+        }
+        result
+    }
+
+    /// 电源路由归一化：动作认成四个之一、端口 0 补 9、地址去掉 scheme/路径、
+    /// MAC 归一化去重。**不删「已不在地址列表里的 MAC」** —— 路由是用户自己
+    /// 手写的意图，删地址不等于想改唤醒目标。
+    fn normalize_power_routes(&mut self) {
+        let mut cleaned: Vec<PowerRoute> = Vec::new();
+        for raw in std::mem::take(&mut self.power_routes) {
+            let action = raw.action_or_wake().to_string();
+            let mut macs: Vec<String> = Vec::new();
+            for value in &raw.macs {
+                if let Some(mac) = normalize_mac(value) {
+                    if !macs.contains(&mac) {
+                        macs.push(mac);
+                    }
+                }
+            }
+            cleaned.push(PowerRoute {
+                action,
+                target: normalize_route_target(&raw.target),
+                port: raw.effective_port(),
+                macs,
+                enabled: raw.enabled,
+                burst: if raw.burst == 0 { 0 } else { raw.effective_burst() },
+                retry: if raw.retry == 0 { 0 } else { raw.effective_retry() },
+                http_fallback: raw.http_fallback,
+            });
+        }
+        self.power_routes = cleaned;
+    }
+
+    /// 某个动作配了哪些（启用中的）路由
+    pub fn routes_for(&self, action: &str) -> Vec<PowerRoute> {
+        let wanted = normalize_power_action(action).unwrap_or(POWER_WAKE);
+        self.power_routes
+            .iter()
+            .filter(|route| route.enabled && route.action_or_wake() == wanted)
+            .cloned()
+            .collect()
+    }
+
+    /// 这条路由实际要发的 MAC：路由里选了就用选的，没选 = 这台服务器配过的全部
+    pub fn route_macs(&self, route: &PowerRoute) -> Vec<String> {
+        if route.macs.is_empty() {
+            self.all_macs()
+        } else {
+            route.macs.clone()
+        }
+    }
+}
+
+/// 路由目标归一化：去 `udp://` 之类 scheme、去路径尾巴、去空白。
+/// 空串 = 自动（全局广播 + 各地址的 /24 广播），保持空串。
+pub(crate) fn normalize_route_target(raw: &str) -> String {
+    let mut value = raw.trim();
+    if let Some(index) = value.find("://") {
+        value = &value[index + 3..];
+    }
+    if let Some(index) = value.find('/') {
+        value = &value[..index];
+    }
+    value.trim().to_string()
+}
+
+/// 地址归一化：去 `scheme://`、路径、查询串，没写端口就补默认端口。
+/// 空串 / 全是空白返回 None。
+pub(crate) fn normalize_address(raw: &str, default_port: u16) -> Option<String> {
+    let mut value = raw.trim();
+    if value.is_empty() {
+        return None;
+    }
+    if let Some(index) = value.find("://") {
+        value = &value[index + 3..];
+    }
+    if let Some(index) = value.find('/') {
+        value = &value[..index];
+    }
+    if let Some(index) = value.find('?') {
+        value = &value[..index];
+    }
+    let value = value.trim();
+    if value.is_empty() {
+        return None;
+    }
+    let has_port = value
+        .rfind(':')
+        .is_some_and(|index| index + 1 < value.len() && value[index + 1..].chars().all(|c| c.is_ascii_digit()));
+    Some(if has_port {
+        value.to_string()
+    } else {
+        format!("{value}:{default_port}")
+    })
+}
+
+/// `host:port` 拆开（IPv6 字面量不支持，与既有实现一致）
+pub(crate) fn split_address(address: &str) -> Option<(String, u16)> {
+    let (host, port) = address.rsplit_once(':')?;
+    let port = port.parse::<u16>().ok()?;
+    if host.is_empty() {
+        return None;
+    }
+    Some((host.to_string(), port))
+}
+
+/// 是不是 MAC：支持 `aa:bb:cc:dd:ee:ff` / `aa-bb-...` / `aabb.ccdd.eeff` / 12 位连写。
+/// 先排除 IPv4 —— `192.168.100.100` 去掉点正好是 12 位十六进制。
+pub(crate) fn is_mac(raw: &str) -> bool {
+    let value = raw.trim();
+    if value.is_empty() {
+        return false;
+    }
+    let pieces: Vec<&str> = value.split('.').collect();
+    if pieces.len() == 4
+        && pieces
+            .iter()
+            .all(|piece| !piece.is_empty() && piece.chars().all(|c| c.is_ascii_digit()))
+    {
+        return false;
+    }
+    normalize_mac(value).is_some()
+}
+
+/// 归一化成小写冒号分隔；不是 MAC 返回 None
+pub(crate) fn normalize_mac(raw: &str) -> Option<String> {
+    let hex: String = raw
+        .trim()
+        .chars()
+        .filter(|c| *c != ':' && *c != '-' && *c != '.')
+        .collect();
+    if hex.len() != 12 || !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+    let lower = hex.to_ascii_lowercase();
+    let mut parts: Vec<String> = Vec::with_capacity(6);
+    for index in (0..12).step_by(2) {
+        parts.push(lower[index..index + 2].to_string());
+    }
+    Some(parts.join(":"))
 }
 
 // ==================== 存储 ====================
@@ -343,20 +701,41 @@ fn check_test_target(server: &HubServer) -> Result<(), String> {
 }
 
 fn test_direct_tcp(server: HubServer) -> Result<String, String> {
-    let port = server.effective_port();
-    let target = format!("{}:{}", server.host, port);
-    let addresses: std::net::SocketAddr = target
+    // 多地址：按顺序试，第一个通的就用它（与移动端「串行探测」同一语义）。
+    // 连接本身仍用 host/port（= addresses[0]），这里只是把「哪一个地址是活的」告诉用户。
+    let total = server.addresses.len();
+    let mut errors: Vec<String> = Vec::new();
+    for address in &server.addresses {
+        let Some((host, port)) = split_address(address) else {
+            continue;
+        };
+        match connect_tcp(&host, port) {
+            Ok(ip) => {
+                return Ok(if total > 1 {
+                    format!("已连通 {address}（{ip}）· 共 {total} 个地址里这个最快")
+                } else {
+                    format!("已连通 {host}:{port}（{ip}）")
+                });
+            }
+            Err(error) => errors.push(error),
+        }
+    }
+    if errors.is_empty() {
+        return Err("没有可用地址".to_string());
+    }
+    Err(errors.join("；"))
+}
+
+/// 单地址 TCP 握手探测（纯函数，方便复用与阅读）
+fn connect_tcp(host: &str, port: u16) -> Result<std::net::IpAddr, String> {
+    let target = format!("{host}:{port}");
+    let address = target
         .to_socket_addrs()
         .map_err(|error| format!("无法解析 {target}: {error}"))?
         .next()
         .ok_or_else(|| format!("无法解析 {target}"))?;
-    match TcpStream::connect_timeout(&addresses, TEST_TIMEOUT) {
-        Ok(_) => Ok(format!(
-            "已连通 {}:{}（{}）",
-            server.host,
-            port,
-            addresses.ip()
-        )),
+    match TcpStream::connect_timeout(&address, TEST_TIMEOUT) {
+        Ok(_) => Ok(address.ip()),
         Err(error) => Err(format!("连不上 {target}: {error}")),
     }
 }
@@ -417,6 +796,9 @@ mod tests {
             protocol: "ssh".to_string(),
             host: "10.0.0.2".to_string(),
             port: 0,
+            addresses: Vec::new(),
+            macs: std::collections::BTreeMap::new(),
+            power_routes: Vec::new(),
             username: "root".to_string(),
             notes: String::new(),
             key_id: String::new(),
@@ -430,8 +812,205 @@ mod tests {
     }
 
     #[test]
-    fn effective_port_defaults_by_protocol() {
-        assert_eq!(sample("a").effective_port(), 22);
+    fn mac_parsing_survives_ipv4_lookalikes() {
+        // 三种常见写法都要认
+        assert!(is_mac("AA:BB:CC:DD:EE:FF"));
+        assert!(is_mac("aa-bb-cc-dd-ee-ff"));
+        assert!(is_mac("aabb.ccdd.eeff"));
+        assert!(is_mac("aabbccddeeff"));
+        // 192.168.100.100 去掉分隔符正好 12 位十六进制 —— 必须仍算 IP
+        assert!(!is_mac("192.168.100.100"));
+        assert!(!is_mac("10.0.0.2"));
+        assert_eq!(
+            normalize_mac("AA:BB:CC:DD:EE:FF").as_deref(),
+            Some("aa:bb:cc:dd:ee:ff")
+        );
+        assert_eq!(
+            normalize_address("http://192.168.0.120:2222/x?token=t", 22).as_deref(),
+            Some("192.168.0.120:2222")
+        );
+        assert_eq!(
+            normalize_address("192.168.0.120", 22).as_deref(),
+            Some("192.168.0.120:22")
+        );
+    }
+
+    #[test]
+    fn power_routes_normalize_and_match_action() {
+        let mut macmap = std::collections::BTreeMap::new();
+        macmap.insert(
+            "192.168.0.120:12300".to_string(),
+            vec!["aa:bb:cc:dd:ee:ff".to_string()],
+        );
+        let server = HubServer {
+            addresses: vec!["192.168.0.120:12300".to_string()],
+            macs: macmap,
+            power_routes: vec![
+                PowerRoute {
+                    action: "唤醒".to_string(),
+                    target: " udp://192.168.0.255/ ".to_string(),
+                    port: 0,
+                    macs: vec!["AA-BB-CC-DD-EE-FF".to_string(), "aa:bb:cc:dd:ee:ff".to_string()],
+                    enabled: true,
+                    burst: 0,
+                    retry: 0,
+                    http_fallback: false,
+                },
+                PowerRoute {
+                    action: "restart".to_string(),
+                    target: String::new(),
+                    port: 9200,
+                    macs: Vec::new(),
+                    enabled: true,
+                    burst: 0,
+                    retry: 0,
+                    http_fallback: false,
+                },
+                PowerRoute {
+                    action: "关机".to_string(),
+                    target: String::new(),
+                    port: 9201,
+                    macs: Vec::new(),
+                    enabled: false,
+                    burst: 0,
+                    retry: 0,
+                    http_fallback: false,
+                },
+            ],
+            ..sample("routes")
+        }
+        .normalize();
+
+        assert_eq!(server.power_routes.len(), 3);
+        // 中文动作 / 别名认出来；scheme 和路径尾巴去掉；端口 0 → 9；MAC 归一化去重
+        assert_eq!(server.power_routes[0].action, POWER_WAKE);
+        assert_eq!(server.power_routes[0].target, "192.168.0.255");
+        assert_eq!(server.power_routes[0].port, 9);
+        assert_eq!(server.power_routes[0].macs, vec!["aa:bb:cc:dd:ee:ff".to_string()]);
+        assert_eq!(server.power_routes[1].action, POWER_REBOOT);
+        assert_eq!(server.power_routes[2].action, POWER_SHUTDOWN);
+
+        assert_eq!(server.routes_for("wake").len(), 1);
+        assert_eq!(server.routes_for("reboot").len(), 1);
+        // 关掉的那条不参与
+        assert!(server.routes_for("shutdown").is_empty());
+        // 没选 MAC → 用这台服务器的全部
+        assert_eq!(
+            server.route_macs(&server.power_routes[1]),
+            vec!["aa:bb:cc:dd:ee:ff".to_string()]
+        );
+    }
+
+    #[test]
+    fn power_route_burst_and_retry_default_to_ten() {
+        let route = PowerRoute {
+            action: POWER_WAKE.to_string(),
+            target: String::new(),
+            port: 0,
+            macs: Vec::new(),
+            enabled: true,
+            burst: 0,
+            retry: 0,
+            http_fallback: false,
+        };
+        assert_eq!(route.effective_burst(), 10);
+        assert_eq!(route.effective_retry(), 10);
+        assert_eq!(route.effective_port(), 9);
+
+        // 上限保护：狂暴值别把局域网刷穿
+        let wild = PowerRoute { burst: 999, retry: 999, ..route.clone() };
+        assert_eq!(wild.effective_burst(), 50);
+        assert_eq!(wild.effective_retry(), 20);
+
+        // 重启 / 关机 / 睡眠：没填就默认 1 包 / 1 重试（重复发包 = sol 重复执行），
+        // 但每个动作都能自己设 —— 不是只有唤醒才有这两个数字
+        for action in [POWER_REBOOT, POWER_SHUTDOWN, POWER_SLEEP] {
+            let mut other = route.clone();
+            other.action = action.to_string();
+            assert_eq!(other.effective_burst(), DEFAULT_POWER_BURST);
+            assert_eq!(other.effective_retry(), DEFAULT_POWER_RETRY);
+            other.burst = 3;
+            other.retry = 4;
+            assert_eq!(other.effective_burst(), 3);
+            assert_eq!(other.effective_retry(), 4);
+        }
+
+        // 0 保持「跟随动作默认」：归一化不能把它烤成固定数字
+        let normalized = HubServer {
+            power_routes: vec![PowerRoute {
+                action: POWER_REBOOT.to_string(),
+                target: String::new(),
+                port: 0,
+                macs: Vec::new(),
+                enabled: true,
+                burst: 0,
+                retry: 0,
+                http_fallback: false,
+            }],
+            ..sample("burst")
+        }
+        .normalize();
+        assert_eq!(normalized.power_routes[0].burst, 0);
+        assert_eq!(normalized.power_routes[0].retry, 0);
+        assert_eq!(normalized.power_routes[0].effective_burst(), 1);
+    }
+
+    #[test]
+    fn legacy_json_without_power_routes_still_loads() {
+        let json = r#"{"id":"a","name":"n","protocol":"ssh","host":"10.0.0.2","port":22}"#;
+        let server: HubServer = serde_json::from_str(json).expect("老档案要能读");
+        assert!(server.power_routes.is_empty());
+        assert!(server.routes_for("wake").is_empty());
+    }
+
+    #[test]
+    fn server_addresses_drive_host_port_and_macs() {
+        let server = HubServer {
+            addresses: vec![
+                "192.168.0.120:2222".to_string(),
+                "192.168.0.121".to_string(),
+            ],
+            macs: {
+                let mut map = std::collections::BTreeMap::new();
+                map.insert(
+                    "192.168.0.120:2222".to_string(),
+                    vec!["AA-BB-CC-DD-EE-FF".to_string(), "11:22:33:44:55:66".to_string()],
+                );
+                map.insert(
+                    "192.168.0.121:22".to_string(),
+                    vec!["de:ad:be:ef:00:01".to_string()],
+                );
+                map
+            },
+            ..sample("multi")
+        }
+        .normalize();
+
+        // 首地址回写成老字段（连接逻辑全用它）
+        assert_eq!(server.host, "192.168.0.120");
+        assert_eq!(server.port, 2222);
+        assert_eq!(server.addresses.len(), 2);
+        // 第二个地址补了默认端口
+        assert_eq!(server.addresses[1], "192.168.0.121:22");
+        // MAC 归一化 + 按地址分组；all_macs 去重合并
+        assert_eq!(
+            server.macs.get("192.168.0.120:2222").map(|v| v.len()),
+            Some(2)
+        );
+        assert_eq!(server.all_macs().len(), 3);
+    }
+
+    #[test]
+    fn legacy_server_without_addresses_still_works() {
+        // 老档案只有 host/port：normalize 后要能自己补出 addresses，别把连接搞坏
+        let server = sample("legacy").normalize();
+        assert_eq!(server.addresses, vec!["10.0.0.2:22".to_string()]);
+        assert_eq!(server.host, "10.0.0.2");
+        assert_eq!(server.port, 22);
+    }
+
+    #[test]
+    fn effective_port_defaults_by_protocol() {        assert_eq!(sample("a").effective_port(), 22);
         let telnet = HubServer {
             protocol: "telnet".to_string(),
             ..sample("b")

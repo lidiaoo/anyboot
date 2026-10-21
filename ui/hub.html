@@ -1,4 +1,6 @@
 <!DOCTYPE html>
+<!-- ui-version: 20261021-rs-routes（电源路由/地址识别已搬到「电脑」弹窗；排查旧版残留用） -->
+<script>try{window.ANYBOOT_UI_VERSION='20261021-rs-routes';}catch(e){}</script>
 <!-- AnyBoot 远程管理（server-hub）。
      独立窗口，主窗口零改动；托盘「远程管理…」是唯一入口。
      视觉按 docs/client-ui/pc-redesign-v2.html 一比一还原：常驻左边栏
@@ -321,6 +323,115 @@
   .spark { display: block; width: 100%; margin-top: 12px; }
   .spark-hint { margin: 12px 0 0; font-size: 12px; color: rgb(var(--fg-faint)); }
 
+  /* 电源（重启 / 关机 / 睡眠 / 唤醒） */
+  .power-row { display: flex; align-items: center; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  .power-row .spacer { flex: 1; }
+  .power-hint { margin: 10px 0 0; font-size: 12px; color: rgb(var(--fg-faint)); word-break: break-all; }
+
+  /* 局域网电源路由（编辑弹窗）：动作 · 广播地址 · 端口 · MAC */
+  .route-list { display: flex; flex-direction: column; gap: 8px; margin: 8px 0 0; }
+  .route-row {
+    border: 1px solid rgb(var(--line)); background: rgb(var(--card));
+    border-radius: 9px; padding: 8px 10px;
+    display: flex; flex-direction: column; gap: 7px;
+  }
+  .route-main { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .route-row select, .route-row input {
+    background: rgb(var(--elevate)); border: 1px solid rgb(var(--line));
+    border-radius: 7px; padding: 5px 8px; color: rgb(var(--fg));
+    font: inherit; font-size: 12px; outline: none;
+  }
+  .route-row select:focus, .route-row input:focus { border-color: rgb(var(--accent)); }
+  .route-row .route-act { flex: 0 0 auto; }
+  .route-row .route-target { flex: 1 1 150px; min-width: 110px; font-family: ui-monospace, Menlo, Consolas, monospace; }
+  .route-row .route-port { width: 72px; font-family: ui-monospace, Menlo, Consolas, monospace; }
+  .route-row .route-del {
+    flex: 0 0 auto; width: 24px; height: 24px; border-radius: 6px;
+    border: 1px solid rgb(var(--line)); background: transparent;
+    color: rgb(var(--fg-faint)); cursor: pointer; font-size: 13px; line-height: 1;
+  }
+  .route-row .route-del:hover { color: rgb(var(--bad)); border-color: rgb(var(--bad)); }
+  .route-macs { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .route-macs .route-macs-label { font-size: 11px; color: rgb(var(--fg-faint)); }
+  .mac-chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    border: 1px solid rgb(var(--line)); border-radius: 999px;
+    padding: 2px 8px 2px 6px; font-size: 11px;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    color: rgb(var(--fg-dim)); cursor: pointer; user-select: none;
+  }
+  .mac-chip input { margin: 0; accent-color: rgb(var(--accent)); }
+  .mac-chip:has(input:checked) { color: rgb(var(--fg)); border-color: rgb(var(--accent)); }
+  .route-empty { font-size: 12px; color: rgb(var(--fg-faint)); margin: 6px 0 0; }
+  .route-row .route-burst, .route-row .route-retry { width: 62px; font-family: ui-monospace, Menlo, Consolas, monospace; text-align: center; }
+  .route-row .route-num-label { font-size: 11px; color: rgb(var(--fg-faint)); white-space: nowrap; }
+  .route-row .route-num-label input { margin-left: 3px; }
+  .route-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .route-head .route-no {
+    flex: 0 0 auto; font-size: 11px; font-weight: 600; color: rgb(var(--fg-dim));
+    border: 1px solid rgb(var(--line)); border-radius: 999px; padding: 1px 8px;
+  }
+  .route-head .route-head-label { font-size: 11px; color: rgb(var(--fg-faint)); }
+  .route-head .route-head-spacer { flex: 1 1 auto; }
+  .route-row .route-port { width: 68px; }
+
+  /* 地址：识别框 + 已添加列表 + 手动添加 */
+  .addr-list { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 0; }
+  .addr-row {
+    border: 1px solid rgb(var(--line)); background: rgb(var(--card));
+    border-radius: 9px; padding: 7px 9px;
+    display: flex; flex-direction: column; gap: 5px;
+  }
+  .addr-main { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .addr-host {
+    font-size: 12.5px; color: rgb(var(--fg)); font-family: ui-monospace, Menlo, Consolas, monospace;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .addr-badge {
+    flex: 0 0 auto; font-size: 10px; line-height: 1; padding: 3px 6px; border-radius: 999px;
+    border: 1px solid rgb(var(--accent)); color: rgb(var(--accent));
+  }
+  .addr-main .addr-del {
+    flex: 0 0 auto; margin-left: auto; width: 24px; height: 24px; border-radius: 6px;
+    border: 1px solid rgb(var(--line)); background: transparent;
+    color: rgb(var(--fg-faint)); cursor: pointer; font-size: 13px; line-height: 1;
+  }
+  .addr-main .addr-del:hover { color: rgb(var(--bad)); border-color: rgb(var(--bad)); }
+  .addr-macs { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .mac-tag {
+    display: inline-flex; align-items: center; gap: 5px;
+    border: 1px solid rgb(var(--line)); background: rgb(var(--elevate)); border-radius: 999px;
+    padding: 2px 8px; font-size: 11px; color: rgb(var(--fg-dim)); cursor: pointer;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+  }
+  .mac-tag:hover { color: rgb(var(--bad)); border-color: rgb(var(--bad)); }
+  .mac-tag i { font-style: normal; opacity: .55; }
+  .addr-empty { font-size: 12px; color: rgb(var(--fg-faint)); margin: 6px 0 0; }
+  .addr-quick-actions { display: flex; align-items: center; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+  .addr-quick-hint { font-size: 11.5px; color: rgb(var(--fg-faint)); }
+  .addr-quick-hint.bad { color: rgb(var(--bad)); }
+  .addr-quick-hint.ok { color: rgb(var(--ok)); }
+  .addr-add { display: flex; align-items: center; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+  .addr-add input {
+    background: rgb(var(--elevate)); border: 1px solid rgb(var(--line));
+    border-radius: 7px; padding: 6px 9px; color: rgb(var(--fg));
+    font: inherit; font-size: 12px; outline: none;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+  }
+  .addr-add input:focus { border-color: rgb(var(--accent)); }
+  .addr-add #fAddrHost, .addr-add #rsAddrHost { flex: 1 1 190px; min-width: 140px; }
+  .addr-add #fAddrMacs, .addr-add #rsAddrMacs { flex: 1 1 180px; min-width: 130px; }
+
+  .help-dot {
+    width: 20px; height: 20px; border-radius: 50%;
+    border: 1px solid rgb(var(--line));
+    background: rgb(var(--elevate)); color: rgb(var(--fg-dim));
+    font: 600 11px/1 ui-monospace, Menlo, Consolas, monospace;
+    display: inline-flex; align-items: center; justify-content: center;
+    cursor: pointer; padding: 0;
+  }
+  .help-dot:hover { color: rgb(var(--fg)); border-color: rgb(var(--line-strong)); }
+
   /* 测试结果行 */
   .test-line { margin: 10px 0 0; font-size: 12px; min-height: 18px; user-select: text; }
   .test-line.ok { color: rgb(var(--ok)); }
@@ -589,6 +700,8 @@
   .dialog {
     width: 480px; max-width: 100%; max-height: calc(100vh - 48px);
     overflow-y: auto;
+    /* 滚动条永远占位：内容高度一变就出现/消失滚动条，会让整块左右抖 + 输入框跳（看着像闪） */
+    scrollbar-gutter: stable;
     background: rgb(var(--card)); border: 1px solid rgb(var(--line-strong));
     border-radius: 14px;
     box-shadow: 0 16px 48px -8px rgba(0, 0, 0, .55);
@@ -675,7 +788,33 @@
   .pc-menu button svg { width: 16px; height: 16px; flex: none; color: rgb(var(--fg-dim)); }
   .pc-menu button.on { color: rgb(var(--accent)); }
   .pc-menu button.on svg { color: rgb(var(--accent)); }
-  .pc-body { flex: 1; min-height: 0; padding: 12px 16px 16px; display: flex; }
+  .pc-body { flex: 1; min-height: 0; padding: 12px 16px 16px; display: flex; position: relative; }
+  /* 电脑页电源悬浮球（对齐手机 PowerFab：唤醒 / 睡眠 / 关机 / 重启） */
+  .pc-fab {
+    position: absolute; right: 14px; bottom: 14px; z-index: 40;
+    display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
+  }
+  .pc-fab [hidden] { display: none !important; }
+  .pc-fab-note {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 4px 8px; border-radius: 8px; font-size: 11px;
+    border: 1px solid rgb(var(--line)); background: rgb(var(--elevate)); color: rgb(var(--fg-faint));
+    cursor: pointer;
+  }
+  .pc-fab-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 7px 14px; border-radius: 999px; font-size: 13px; cursor: pointer;
+    border: 1px solid rgb(var(--line)); background: rgb(var(--card)); color: rgb(var(--fg));
+  }
+  .pc-fab-chip:hover { border-color: rgb(var(--accent)); color: rgb(var(--accent)); }
+  .pc-fab-chip:disabled { opacity: 0.5; cursor: default; }
+  .pc-fab-chip .hint { font-size: 10px; color: rgb(var(--fg-faint)); font-family: ui-monospace, Menlo, Consolas, monospace; }
+  .pc-fab-ball {
+    width: 46px; height: 46px; border-radius: 50%; border: none; cursor: pointer;
+    background: rgb(var(--accent)); color: #fff; font-size: 20px; line-height: 1;
+    box-shadow: 0 4px 14px rgb(0 0 0 / 0.25);
+  }
+  .pc-fab-ball:disabled { opacity: 0.6; cursor: default; }
   .pc-frame-host {
     position: relative; flex: 1; min-height: 0;
     background: rgb(var(--base));
@@ -999,6 +1138,15 @@
               </div>
             </div>
           </div>
+          <!-- 电源悬浮球：只对远端标签显示（本机不需要远程电源） -->
+          <div class="pc-fab" id="pcFabWrap" hidden data-page-node-id="pcFabWrap1">
+            <span class="pc-fab-note" id="pcFabNote">电源走局域网 · 需 sol</span>
+            <button type="button" class="pc-fab-chip" data-pact="wake" data-page-node-id="pcFabWake1">唤醒</button>
+            <button type="button" class="pc-fab-chip" data-pact="sleep" data-page-node-id="pcFabSleep1">睡眠</button>
+            <button type="button" class="pc-fab-chip" data-pact="shutdown" data-page-node-id="pcFabShutdown1">关机</button>
+            <button type="button" class="pc-fab-chip" data-pact="reboot" data-page-node-id="pcFabReboot1">重启</button>
+            <button type="button" class="pc-fab-ball" id="pcFab" aria-label="电源操作" aria-expanded="false" data-page-node-id="pcFab1">⏻</button>
+          </div>
         </div>
         <!-- ⋮ 下拉菜单：七项与手机主界面 ⋮（OverflowMenu）一字不差 -->
         <div class="pc-menu" id="pcMenu" hidden role="menu" aria-label="更多" data-page-node-id="pcMenu1">
@@ -1053,9 +1201,25 @@
                 </div>
               </div>
               <div class="field" data-page-node-id="rsFieldAddr1">
-                <label for="rsAddr">服务端地址（对方电脑「远程控制」里显示的地址）</label>
-                <textarea id="rsAddr" rows="2" class="mono" placeholder="192.168.0.120:12300 或整条带 token 的地址"></textarea>
-                <p class="field-hint">同一台电脑有多块网卡就填多行，每行一个 —— 只占一个标签，哪个通用哪个</p>
+                <label for="rsAddrQuick">快速识别（粘贴任意写法，自动拆出地址 / 端口 / MAC 加进下面）</label>
+                <textarea id="rsAddrQuick" rows="2" class="mono" spellcheck="false" placeholder="整段粘进来就行，例如：&#10;192.168.0.120:12300 AA:BB:CC:DD:EE:FF 台式机有线&#10;192.168.0.121 11-22-33-44-55-66（5G WiFi）"></textarea>
+                <div class="addr-quick-actions">
+                  <button type="button" class="btn small" id="rsAddrRecognize">识别并加入</button>
+                  <span class="addr-quick-hint" id="rsAddrHint">换行 / 空格 / 逗号 / 分号都能分开；认不出的文字（备注、括号）自动忽略</span>
+                </div>
+              </div>
+              <div class="field" data-page-node-id="rsFieldAddrList1">
+                <label>服务端地址（对方电脑「远程控制」里显示的地址；第一个用来连接）</label>
+                <div class="addr-list" id="rsAddrList"></div>
+                <div class="addr-add">
+                  <input id="rsAddrHost" type="text" spellcheck="false" placeholder="192.168.0.120 或 192.168.0.120:12300">
+                  <input id="rsAddrMacs" type="text" spellcheck="false" placeholder="MAC（可多个，空格隔开）">
+                  <button type="button" class="btn small" id="rsAddrAdd">添加</button>
+                </div>
+                <p class="field-hint" style="margin:8px 0 0">
+                  没写端口按 12300 补。地址已存在时只把 MAC 追加进去（可以拿它给已有地址补网卡）；
+                  点 MAC 标签可以单独删掉那块网卡。MAC 只用于局域网电源，不影响连接。
+                </p>
               </div>
               <div class="field" data-page-node-id="rsFieldToken1">
                 <label for="rsToken">访问令牌 token（已存的不显示；留空 = 保持不变）</label>
@@ -1072,6 +1236,16 @@
                   <button type="button" class="btn small seg-on" id="rsProbeParallel" style="flex:1">并发探测（推荐）</button>
                   <button type="button" class="btn small" id="rsProbeSerial" style="flex:1">串行探测</button>
                 </div>
+              </div>
+              <div class="field" data-page-node-id="rsFieldPower1">
+                <label>局域网电源路由（唤醒 / 重启 / 关机 / 睡眠：各发到哪个地址、哪个端口）</label>
+                <div class="route-list" id="rsPowerRoutes"></div>
+                <button type="button" class="btn small" id="rsPowerAdd" style="margin-top:8px">+ 添加一条路由</button>
+                <p class="field-hint" style="margin:8px 0 0">
+                  配了路由，电源按钮就往局域网发 UDP 包，由这台电脑上的 <b>sol</b> 按端口执行对应动作 ——
+                  机器睡着、连接断着也能用；没配则唤醒走标准 WOL。
+                  广播地址留空 = 自动（全局广播 + 各地址的 /24 广播）；MAC 全不勾 = 用上面地址里配过的全部网卡。
+                </p>
               </div>
               <p class="form-error" id="rsEditError"></p>
               <p class="form-error" id="rsTestOut" style="color:rgb(var(--ok))"></p>
@@ -1355,15 +1529,26 @@
             </div>
           </div>
         </div>
-        <div class="field-row" data-page-node-id="XXLgy7PD65su7Huq7VYGjH">
-          <div class="field" data-page-node-id="YDRNRCh8K3yOVSyaAOZDMA">
-            <label for="fHost" data-page-node-id="akOFhXsUNBDhAGfRw5JxYj">地址</label>
-            <input id="fHost" type="text" class="mono" placeholder="IP 或域名" data-page-node-id="gGLUNXA4nWSHreVsrh6wVH">
+        <div class="field">
+          <label for="fAddrQuick">快速识别（粘贴任意写法，自动拆出地址 / 端口 / MAC 加进下面）</label>
+          <textarea id="fAddrQuick" rows="2" class="mono" spellcheck="false" placeholder="整段粘进来就行，例如：&#10;192.168.0.120:12300 AA:BB:CC:DD:EE:FF 台式机有线&#10;192.168.0.121 11-22-33-44-55-66（5G WiFi）"></textarea>
+          <div class="addr-quick-actions">
+            <button type="button" class="btn small" id="fAddrRecognize">识别并加入</button>
+            <span class="addr-quick-hint" id="fAddrHint">换行 / 空格 / 逗号 / 分号都能分开；认不出的文字（备注、括号）自动忽略</span>
           </div>
-          <div class="field fixed" data-page-node-id="jHACtnI1R4ZhfCbW3nSPgN">
-            <label for="fPort" data-page-node-id="LAfjQdxhAtZyLxxAzk1xqn">端口</label>
-            <input id="fPort" type="text" class="mono" inputmode="numeric" placeholder="默认" data-page-node-id="hgyq53o6HIzLXsSLGVyWB4">
+        </div>
+        <div class="field">
+          <label>地址（第一个用来连接，其余参与「测试连接」和「唤醒」）</label>
+          <div class="addr-list" id="fAddrList"></div>
+          <div class="addr-add">
+            <input id="fAddrHost" type="text" spellcheck="false" placeholder="192.168.0.120 或 192.168.0.120:12300">
+            <input id="fAddrMacs" type="text" spellcheck="false" placeholder="MAC（可多个，空格隔开）">
+            <button type="button" class="btn small" id="fAddrAdd">添加</button>
           </div>
+          <p class="field-hint" style="margin:8px 0 0">
+            没写端口按协议默认（SSH 22 / Telnet 23）。地址已存在时只把 MAC 追加进去（可以拿它给已有地址补网卡）；
+            点 MAC 标签可以单独删掉那块网卡。MAC 只用于唤醒，不影响连接。
+          </p>
         </div>
         <div class="field" data-page-node-id="3LtY5X3ZUFSlVeHx9DGWf3">
           <label for="fUser" data-page-node-id="UgvgCdDa99t1bLKd5CHNlZ">用户名</label>
@@ -1771,7 +1956,626 @@
   }
 
   function hostLabel(s) {
-    return (s.username ? s.username + '@' : '') + s.host + ':' + (s.port || (s.protocol === 'telnet' ? 23 : 22));
+    const extra = (s.addresses && s.addresses.length > 1) ? ' +' + (s.addresses.length - 1) : '';
+    return (s.username ? s.username + '@' : '') + s.host + ':' + (s.port || (s.protocol === 'telnet' ? 23 : 22)) + extra;
+  }
+
+  // ============ 地址 / MAC 解析（与移动端、Rust 侧同一套规则） ============
+  function defaultPortFor(proto) {
+    return proto === 'telnet' ? 23 : 22;
+  }
+
+  /** MAC 的三种常见写法：aa:bb:cc:dd:ee:ff / aa-bb-... / aabb.ccdd.eeff / 裸 12 位 */
+  const MAC_PATTERN = /(?:[0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2}|[0-9a-fA-F]{4}\.[0-9a-fA-F]{4}\.[0-9a-fA-F]{4}/;
+
+  /** 是不是 MAC：先排除 IPv4（192.168.100.100 去点正好是 12 位十六进制） */
+  function isMacToken(value) {
+    const v = String(value || '').trim();
+    if (!v) return false;
+    if (/^(\d{1,3}\.){3}\d{1,3}$/.test(v)) return false;
+    if (MAC_PATTERN.test(v)) return true;
+    return /^[0-9a-f]{12}$/i.test(v);
+  }
+
+  /** 从一坨文字里抠出 MAC（「11-22-33-44-55-66（5G）」这种粘着备注的也认） */
+  function normalizeMac(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    if (/^(\d{1,3}\.){3}\d{1,3}$/.test(raw)) return '';
+    const hit = raw.match(MAC_PATTERN);
+    const hex = (hit ? hit[0] : raw).replace(/[:.\-]/g, '').toLowerCase();
+    if (!/^[0-9a-f]{12}$/.test(hex)) return '';
+    return hex.match(/.{2}/g).join(':');
+  }
+
+  /**
+   * 地址归一化。认不出来的（中文备注、括号里的字、IPv6）返回空串 ——
+   * 用户会整段粘聊天记录 / Excel，宁可丢掉几个字，也不能把「台式机有线」当主机名。
+   */
+  function normalizeAddress(raw, defaultPort, strict) {
+    let value = String(raw || '').trim();
+    if (!value) return '';
+    const scheme = value.indexOf('://');
+    if (scheme >= 0) value = value.slice(scheme + 3);
+    const at = value.lastIndexOf('@'); // ssh://user@host
+    if (at >= 0) value = value.slice(at + 1);
+    const slash = value.indexOf('/');
+    if (slash >= 0) value = value.slice(0, slash);
+    const question = value.indexOf('?');
+    if (question >= 0) value = value.slice(0, question);
+    value = value.trim().replace(/^[\[<("'「『]+/, '').replace(/[\])>"'」』。，,;；]+$/, '');
+    if (!value) return '';
+    // 两个以上冒号 = IPv6 或别的东西，分不清端口，跳过
+    if (value.indexOf(':') !== value.lastIndexOf(':')) return '';
+    let host = value;
+    let port = 0;
+    const colon = value.lastIndexOf(':');
+    if (colon > 0) {
+      const tail = value.slice(colon + 1);
+      if (!/^\d{1,5}$/.test(tail)) return '';
+      host = value.slice(0, colon);
+      port = parseInt(tail, 10);
+      if (!(port > 0 && port < 65536)) return '';
+    }
+    if (!/^[A-Za-z0-9._-]+$/.test(host)) return '';
+    if (/^\d+$/.test(host)) return ''; // 纯数字是端口 / 序号，不是地址
+    // 识别框（strict）：粘进来的备注里常有无点单词（NAS / 机柜 / 台式机），
+    // 没点又没写端口就当他不是地址，别把备注当主机名。
+    if (strict && !port && host.indexOf('.') < 0 && host.toLowerCase() !== 'localhost') return '';
+    return host + ':' + (port || defaultPort);
+  }
+
+  /**
+   * 解析「一整段地址 + MAC」（快捷识别框用）。
+   *
+   * <p>切分：换行 / 空白 / 逗号 / 分号 / 顿号 / 竖线 / 箭头。认出来的 MAC 挂给
+   * 最近的一个地址；地址前面先出现的 MAC 先攒着，等地址出现再挂过去；
+   * 单独一个数字当上一个地址的端口（`192.168.0.120 12300`）；剩下的文字当备注忽略。
+   */
+  function parseAddressInput(raw, defaultPort) {
+    const addresses = [];
+    const macs = {};
+    let current = '';
+    let currentIndex = -1;
+    let pending = [];
+    const attach = function (owner, mac) {
+      if (!owner || !mac) return;
+      macs[owner] = macs[owner] || [];
+      if (macs[owner].indexOf(mac) < 0) macs[owner].push(mac);
+    };
+    String(raw || '').split(/\r?\n/).forEach(function (line) {
+      String(line).split(/[\s,;，；、|]+|→|->|=>/).forEach(function (token) {
+        const value = token.trim();
+        if (!value) return;
+        if (isMacToken(value)) {
+          const mac = normalizeMac(value);
+          if (!mac) return;
+          if (current) attach(current, mac);
+          else pending.push(mac);
+          return;
+        }
+        // 单独的端口：192.168.0.120 12300
+        if (currentIndex >= 0 && /^\d{1,5}$/.test(value)) {
+          const port = parseInt(value, 10);
+          if (port > 0 && port < 65536) {
+            const old = addresses[currentIndex];
+            const next = old.slice(0, old.lastIndexOf(':')) + ':' + port;
+            if (addresses.indexOf(next) < 0) {
+              addresses[currentIndex] = next;
+              if (macs[old]) {
+                macs[next] = (macs[next] || []).concat(macs[old]);
+                delete macs[old];
+              }
+              current = next;
+            }
+            return;
+          }
+        }
+        const address = normalizeAddress(value, defaultPort, true);
+        if (!address) return;
+        currentIndex = addresses.indexOf(address);
+        if (currentIndex < 0) {
+          addresses.push(address);
+          currentIndex = addresses.length - 1;
+        }
+        current = address;
+        pending.forEach(function (mac) { attach(address, mac); });
+        pending = [];
+      });
+    });
+    return { addresses: addresses, macs: macs };
+  }
+
+  /** 服务器档案 → 编辑状态（有序，第一个 = 连接用） */
+  function addressesFromServer(server) {
+    if (!server) return [];
+    const list = (server.addresses && server.addresses.length)
+      ? server.addresses.slice()
+      : (server.host ? [server.host + ':' + (server.port || defaultPortFor(server.protocol))] : []);
+    return list.map(function (address) {
+      return { address: address, macs: ((server.macs && server.macs[address]) || []).slice() };
+    });
+  }
+
+  /** 这台服务器配过的所有 MAC（去重）—— 详情页展示与「有没有配 MAC」判断用 */
+  function serverMacs(server) {
+    const result = [];
+    const macs = server.macs || {};
+    const addresses = (server.addresses && server.addresses.length)
+      ? server.addresses
+      : (server.host ? [server.host + ':' + (server.port || defaultPortFor(server.protocol))] : []);
+    addresses.forEach(function (address) {
+      (macs[address] || []).forEach(function (mac) {
+        if (result.indexOf(mac) < 0) result.push(mac);
+      });
+    });
+    Object.keys(macs).forEach(function (address) {
+      (macs[address] || []).forEach(function (mac) {
+        if (result.indexOf(mac) < 0) result.push(mac);
+      });
+    });
+    return result;
+  }
+
+  // ============ 地址编辑（识别框 + 已添加列表 + 手动添加） ============
+  /** 弹窗里正在改的地址（有序，第一个 = 连接用）；保存时写回 addresses + macs */
+  // ============ 地址编辑（识别框 + 已添加列表 + 手动添加；服务器 / 电脑弹窗共用） ============
+  /**
+   * 一份地址编辑状态（哪个弹窗用就建一份）。cfg：
+   *   ids       —— {list, quick, recognize, hint, host, macs, add} 七个元素 id
+   *   defaultPort —— () => 没写端口时补的默认端口
+   *   emptyText / noMacText / hintDefault —— 文案
+   *   onPairingChange —— 地址 / MAC 变了（路由编辑器的 MAC 池要跟着刷新）
+   */
+  function makeAddressEditor(cfg) {
+    const st = { entries: [], html: null };
+    const el = function (id) { return document.getElementById(id); };
+
+    /** 加一个地址；已存在就只把 MAC 并进去。返回是否新加了一个地址。 */
+    function upsertAddress(address, macs) {
+      const values = macs || [];
+      const hit = st.entries.find(function (item) { return item.address === address; });
+      if (hit) {
+        values.forEach(function (mac) { if (hit.macs.indexOf(mac) < 0) hit.macs.push(mac); });
+        return false;
+      }
+      st.entries.push({ address: address, macs: values.slice() });
+      return true;
+    }
+
+    /** 上一次渲染出来的 HTML —— 内容一模一样就别再动 DOM（重设 innerHTML 会打断输入、丢光标） */
+    function render() {
+      const box = el(cfg.ids.list);
+      if (!box) return;
+      if (!st.entries.length) {
+        const empty = '<p class="addr-empty">' + cfg.emptyText + '</p>';
+        if (st.html !== empty) {
+          st.html = empty;
+          box.innerHTML = empty;
+        }
+        return;
+      }
+      const html = st.entries.map(function (item, index) {
+        const tags = item.macs.length
+          ? item.macs.map(function (mac) {
+              return '<button type="button" class="mac-tag" data-drop-address="' + index +
+                '" data-drop-mac="' + esc(mac) + '" title="点一下删掉这块网卡">' + esc(mac) + ' <i>✕</i></button>';
+            }).join('')
+          : '<span class="route-macs-label">' + cfg.noMacText + '</span>';
+        return '<div class="addr-row">' +
+          '<div class="addr-main">' +
+            '<span class="addr-host">' + esc(item.address) + '</span>' +
+            (index === 0 ? '<span class="addr-badge">连接用</span>' : '') +
+            '<button type="button" class="addr-del" data-drop-address="' + index +
+              '" aria-label="删掉这个地址" title="删掉这个地址">✕</button>' +
+          '</div>' +
+          '<div class="addr-macs"><span class="route-macs-label">MAC</span>' + tags + '</div>' +
+        '</div>';
+      }).join('');
+      if (html === st.html) return;
+      st.html = html;
+      box.innerHTML = html;
+    }
+
+    function bind() {
+      const list = el(cfg.ids.list);
+      const quick = el(cfg.ids.quick);
+      const hint = el(cfg.ids.hint);
+      const hostInput = el(cfg.ids.host);
+      const macInput = el(cfg.ids.macs);
+      if (!list || !quick || !hostInput || !macInput) return;
+
+      const say = function (text, kind) {
+        if (!hint) return;
+        hint.textContent = text;
+        hint.className = 'addr-quick-hint' + (kind ? ' ' + kind : '');
+      };
+
+      /** 识别框 → 地址列表。quiet = 粘上来自动识别，没认出东西就别骂人 */
+      const consumeQuick = function (quiet) {
+        const raw = quick.value;
+        if (!raw.trim()) {
+          if (!quiet) say('先粘点东西进来，比如 192.168.0.120:12300 AA:BB:CC:DD:EE:FF', 'bad');
+          return 0;
+        }
+        const parsed = parseAddressInput(raw, cfg.defaultPort());
+        let added = 0;
+        let macCount = 0;
+        parsed.addresses.forEach(function (address) {
+          if (upsertAddress(address, parsed.macs[address] || [])) added++;
+        });
+        parsed.addresses.forEach(function (address) { macCount += (parsed.macs[address] || []).length; });
+        if (!parsed.addresses.length) {
+          say('没认出地址 —— 要有 IP 或主机名，比如 192.168.0.120', 'bad');
+          return 0;
+        }
+        quick.value = '';
+        render();
+        cfg.onPairingChange();
+        say('认出 ' + parsed.addresses.length + ' 个地址、' + macCount + ' 个 MAC' +
+          (added < parsed.addresses.length ? '（其余本来就有，只并了 MAC）' : ''), 'ok');
+        return parsed.addresses.length;
+      };
+
+      el(cfg.ids.recognize).addEventListener('click', function () { consumeQuick(false); });
+      quick.addEventListener('paste', function () {
+        // 等浏览器把内容塞进去再识别：这就是「像识别快递地址一样」的手感
+        setTimeout(function () { consumeQuick(true); }, 0);
+      });
+      quick.addEventListener('keydown', function (event) {
+        if (isImeKey(event)) return;
+        if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+          event.preventDefault();
+          consumeQuick(false);
+        }
+      });
+
+      const manualAdd = function () {
+        const address = normalizeAddress(hostInput.value, cfg.defaultPort());
+        if (!address) {
+          say('地址不对：填 IP 或主机名，端口可带可不带', 'bad');
+          hostInput.focus();
+          return;
+        }
+        const values = [];
+        String(macInput.value || '').split(/[\s,;，；]+/).forEach(function (token) {
+          if (!token) return;
+          const mac = normalizeMac(token);
+          if (mac && values.indexOf(mac) < 0) values.push(mac);
+        });
+        const added = upsertAddress(address, values);
+        hostInput.value = '';
+        macInput.value = '';
+        render();
+        cfg.onPairingChange();
+        hostInput.focus();
+        say(added ? '已添加 ' + address : '地址已存在，只追了 MAC：' + address, 'ok');
+      };
+      el(cfg.ids.add).addEventListener('click', manualAdd);
+      hostInput.addEventListener('keydown', function (event) {
+        if (isImeKey(event)) return;
+        if (event.key === 'Enter') { event.preventDefault(); macInput.focus(); }
+      });
+      macInput.addEventListener('keydown', function (event) {
+        if (isImeKey(event)) return;
+        if (event.key === 'Enter') { event.preventDefault(); manualAdd(); }
+      });
+
+      list.addEventListener('click', function (event) {
+        const dropMac = event.target.closest('[data-drop-mac]');
+        if (dropMac) {
+          const item = st.entries[Number(dropMac.dataset.dropAddress)];
+          if (item) {
+            item.macs = item.macs.filter(function (mac) { return mac !== dropMac.dataset.dropMac; });
+            render();
+            cfg.onPairingChange();
+          }
+          return;
+        }
+        const dropAddress = event.target.closest('[data-drop-address]');
+        if (dropAddress) {
+          st.entries.splice(Number(dropAddress.dataset.dropAddress), 1);
+          render();
+          cfg.onPairingChange();
+        }
+      });
+    }
+
+    return {
+      setEntries: function (list) {
+        st.entries = (list || []).map(function (item) {
+          return { address: item.address, macs: (item.macs || []).slice() };
+        });
+        st.html = null;
+        render();
+      },
+      entries: function () { return st.entries; },
+      macPool: function () {
+        const pool = [];
+        st.entries.forEach(function (item) {
+          item.macs.forEach(function (mac) {
+            if (pool.indexOf(mac) < 0) pool.push(mac);
+          });
+        });
+        return pool;
+      },
+      bind: bind,
+      resetInputs: function () {
+        const quick = el(cfg.ids.quick);
+        const host = el(cfg.ids.host);
+        const mac = el(cfg.ids.macs);
+        const hint = el(cfg.ids.hint);
+        if (quick) quick.value = '';
+        if (host) host.value = '';
+        if (mac) mac.value = '';
+        if (hint) { hint.textContent = cfg.hintDefault; hint.className = 'addr-quick-hint'; }
+      }
+    };
+  }
+
+  /** 服务器（侧边栏第二个）编辑弹窗的地址编辑器 */
+  const serverAddrEditor = makeAddressEditor({
+    ids: { list: 'fAddrList', quick: 'fAddrQuick', recognize: 'fAddrRecognize', hint: 'fAddrHint', host: 'fAddrHost', macs: 'fAddrMacs', add: 'fAddrAdd' },
+    defaultPort: function () { return defaultPortFor(editingProto); },
+    emptyText: '还没加地址 —— 上面粘一段，或者下面手动填一个。',
+    noMacText: '没配 MAC —— 唤醒发不出去',
+    hintDefault: '换行 / 空格 / 逗号 / 分号都能分开；认不出的文字（备注、括号）自动忽略',
+    onPairingChange: function () {}
+  });
+
+  // ============ 局域网电源路由（唤醒 / 重启 / 关机 / 睡眠） ============
+  /** 四个动作（与后端 hub.rs、移动端 ServerProfile 同一套字符串） */
+  const POWER_ACTIONS = [
+    { value: 'wake', label: '唤醒' },
+    { value: 'reboot', label: '重启' },
+    { value: 'shutdown', label: '关机' },
+    { value: 'sleep', label: '睡眠' }
+  ];
+
+  /** 各种写法归一成四个动作之一 */
+  function powerActionOf(value) {
+    const text = String(value || '').trim().toLowerCase();
+    if (text === 'wake' || text === 'wol' || text === 'wakeup' || text === '唤醒' || text === '开机') return 'wake';
+    if (text === 'reboot' || text === 'restart' || text === '重启') return 'reboot';
+    if (text === 'shutdown' || text === 'poweroff' || text === '关机') return 'shutdown';
+    if (text === 'sleep' || text === 'suspend' || text === '睡眠') return 'sleep';
+    return 'wake';
+  }
+
+  function powerActionLabel(action) {
+    const wanted = powerActionOf(action);
+    const hit = POWER_ACTIONS.find(function (item) { return item.value === wanted; });
+    return hit ? hit.label : '唤醒';
+  }
+
+  /** 这条路由没填发包数时的默认值：唤醒 10（包丢了叫不醒），其余 1（重复会重复执行） */
+  function routeDefaultBurst(route) {
+    return powerActionOf(route && route.action) === 'wake' ? 10 : 1;
+  }
+
+  /** 这条路由没填重试次数时的默认值：唤醒 10，其余 1 */
+  function routeDefaultRetry(route) {
+    return powerActionOf(route && route.action) === 'wake' ? 10 : 1;
+  }
+
+  /**
+   * 局域网电源路由编辑器（一个弹窗一份）。cfg：
+   *   box / add —— 路由列表与「添加一条路由」按钮的元素 id
+   *   macPool   —— () => MAC 池（跟着所在弹窗的地址编辑器走）
+   *   noMacText / emptyText —— 文案
+   */
+  function makeRouteEditor(cfg) {
+    const st = { routes: [], html: null };
+
+    /** 同地址列表：内容一模一样就别再动 DOM；重建后按 data-route 恢复焦点和选区 */
+    function render() {
+      const box = document.getElementById(cfg.box);
+      if (!box) return;
+      const pool = cfg.macPool();
+      if (!st.routes.length) {
+        const empty = '<p class="route-empty">' + cfg.emptyText + '</p>';
+        if (st.html !== empty) {
+          st.html = empty;
+          box.innerHTML = empty;
+        }
+        return;
+      }
+      // 重建前记住焦点：输入数字时如果因为别的操作触发重绘，回来还在原来的框里，
+      // 不然光标一丢看着像「输入框在闪」
+      const active = document.activeElement;
+      let restore = null;
+      if (active && active.tagName === 'INPUT' && box.contains(active) && active.dataset.route != null) {
+        restore = {
+          cls: active.className,
+          route: active.dataset.route,
+          mac: active.dataset.mac || null,
+          start: active.selectionStart,
+          end: active.selectionEnd
+        };
+      }
+      const html = st.routes.map(function (route, index) {
+        // 空数组 = 「全部 MAC」（新加一块网卡也自动包含），所以全勾
+        const selected = (route.macs && route.macs.length) ? route.macs : pool;
+        const chips = pool.length
+          ? pool.map(function (mac) {
+              const checked = selected.indexOf(mac) >= 0;
+              return '<label class="mac-chip"><input type="checkbox" data-route="' + index +
+                '" data-mac="' + esc(mac) + '"' + (checked ? ' checked' : '') + '>' + esc(mac) + '</label>';
+            }).join('')
+          : '<span class="route-macs-label">' + cfg.noMacText + '</span>';
+        const waking = powerActionOf(route.action) === 'wake';
+        // 数字框只回填「用户自己填的数」，空着用 placeholder 显示该动作的默认值：
+        // 回填默认值会让用户删字符时被弹回去（光标一直跳）
+        const burstValue = route.burst > 0 ? route.burst : '';
+        const retryValue = route.retry > 0 ? route.retry : '';
+        return '<div class="route-row" data-index="' + index + '">' +
+          '<div class="route-head">' +
+            '<span class="route-no">路由 ' + (index + 1) + '</span>' +
+            '<select class="route-act" data-route="' + index + '">' +
+              POWER_ACTIONS.map(function (item) {
+                return '<option value="' + item.value + '"' +
+                  (powerActionOf(route.action) === item.value ? ' selected' : '') + '>' + item.label + '</option>';
+              }).join('') +
+            '</select>' +
+            '<span class="route-head-label">端口</span>' +
+            '<input class="route-port" data-route="' + index + '" type="number" min="1" max="65535"' +
+              ' placeholder="9" value="' + (route.port > 0 ? route.port : '') + '">' +
+            '<span class="route-head-spacer"></span>' +
+            '<button type="button" class="route-del" data-remove="' + index + '" aria-label="删掉这条" title="删掉这条">✕</button>' +
+          '</div>' +
+          '<div class="route-main">' +
+            '<span class="route-num-label">广播地址</span>' +
+            '<input class="route-target" data-route="' + index + '" type="text" spellcheck="false"' +
+              ' placeholder="留空 = 自动：全局广播 + 各地址的 /24" value="' + esc(route.target || '') + '">' +
+          '</div>' +
+          '<div class="route-main">' +
+            '<span class="route-num-label">' + (waking ? '每块网卡发' : '发') +
+              '<input class="route-burst" data-route="' + index + '" type="number" min="1" max="50"' +
+              ' placeholder="' + routeDefaultBurst(route) + '" value="' + burstValue + '"> 个包</span>' +
+            '<span class="route-num-label">没发出就重试<input class="route-retry" data-route="' + index +
+              '" type="number" min="1" max="20" placeholder="' + routeDefaultRetry(route) +
+              '" value="' + retryValue + '"> 次</span>' +
+            '<span class="route-macs-label">留空 = 默认 ' + routeDefaultBurst(route) + ' / ' +
+              routeDefaultRetry(route) + (waking ? '（唤醒包多、丢得多）' : '（执行类动作别调大，会重复执行）') + '</span>' +
+          '</div>' +
+          '<div class="route-main">' +
+            '<label class="route-fb" title="sol 包一个都没发出去时，改调这台电脑自带的 /api/power 接口。唤醒也能兜：请求能送达就说明机器其实醒着，服务端会直接回执">' +
+              '<input type="checkbox" class="route-httpfb" data-route="' + index + '"' +
+                (route.http_fallback !== false ? ' checked' : '') + '> sol 没发出去就走 HTTP 兜底（调它自己的 AnyBoot 接口）' +
+            '</label>' +
+          '</div>' +
+          '<div class="route-macs"><span class="route-macs-label">MAC</span>' + chips + '</div>' +
+        '</div>';
+      }).join('');
+      if (html === st.html) return;
+      st.html = html;
+      box.innerHTML = html;
+      if (restore) {
+        let again = null;
+        if (restore.mac) {
+          again = box.querySelector('input[data-route="' + restore.route + '"][data-mac="' +
+            restore.mac.replace(/"/g, '\\"') + '"]');
+        } else {
+          again = box.querySelector('input.' + restore.cls.split(' ')[0] +
+            '[data-route="' + restore.route + '"]');
+        }
+        if (again) {
+          again.focus();
+          try { again.setSelectionRange(restore.start, restore.end); } catch (error) { /* number 框不支持 */ }
+        }
+      }
+    }
+
+    /** 路由列表里的增删改（事件委托：内容是动态渲染的） */
+    function bind() {
+      const box = document.getElementById(cfg.box);
+      const add = document.getElementById(cfg.add);
+      if (!box || !add) return;
+      add.addEventListener('click', function () {
+        // 0 / 0 = 跟动作默认（唤醒 10/10，其余 1/1），别把默认值抄成「用户改过的值」；
+        // HTTP 兜底默认勾上（旧档案没存这个字段的也按勾选显示）
+        st.routes.push({ action: 'wake', target: '', port: 9, macs: [], enabled: true, burst: 0, retry: 0, http_fallback: true });
+        render();
+      });
+      box.addEventListener('input', function (event) {
+        const target = event.target;
+        const index = Number(target.dataset.route);
+        const route = st.routes[index];
+        if (!route) return;
+        if (target.classList.contains('route-target')) {
+          route.target = target.value;
+        } else if (target.classList.contains('route-port')) {
+          route.port = Math.max(0, parseInt(target.value, 10) || 0);
+        } else if (target.classList.contains('route-burst')) {
+          route.burst = Math.max(0, parseInt(target.value, 10) || 0);
+        } else if (target.classList.contains('route-retry')) {
+          route.retry = Math.max(0, parseInt(target.value, 10) || 0);
+        }
+      });
+      box.addEventListener('change', function (event) {
+        const target = event.target;
+        const index = Number(target.dataset.route);
+        const route = st.routes[index];
+        if (target.classList.contains('route-httpfb') && route) {
+          route.http_fallback = target.checked;
+          return;
+        }
+        if (target.classList.contains('route-act') && route) {
+          const before = { action: route.action };
+          route.action = powerActionOf(target.value);
+          // 没手动改过（还是旧动作的默认值）就跟着换成新动作的默认值
+          if (!route.burst || Number(route.burst) === routeDefaultBurst(before)) route.burst = 0;
+          if (!route.retry || Number(route.retry) === routeDefaultRetry(before)) route.retry = 0;
+          render();
+          return;
+        }
+        if (target.dataset.mac && route) {
+          const row = target.closest('.route-row');
+          const pool = cfg.macPool();
+          const checked = Array.prototype.slice
+            .call(row.querySelectorAll('input[type="checkbox"]'))
+            .filter(function (box) { return box.checked && box.dataset.mac; })
+            .map(function (box) { return box.dataset.mac; });
+          // 全勾 = 空数组（「全部」，以后新加的网卡也包含）
+          route.macs = checked.length === pool.length ? [] : checked;
+        }
+      });
+      // 删除按钮是 click 不是 change
+      box.addEventListener('click', function (event) {
+        const button = event.target.closest('[data-remove]');
+        if (!button) return;
+        st.routes.splice(Number(button.dataset.remove), 1);
+        render();
+      });
+    }
+
+    return {
+      /** 档案里的路由 → 编辑状态（深拷贝，点「保存」才写回去） */
+      setRoutes: function (list) {
+        st.routes = (list || []).map(function (route) {
+          return {
+            action: powerActionOf(route.action),
+            target: route.target || '',
+            port: route.port || 9,
+            macs: (route.macs || []).slice(),
+            enabled: route.enabled !== false,
+            burst: route.burst || 0,
+            retry: route.retry || 0,
+            http_fallback: route.http_fallback !== false
+          };
+        });
+        st.html = null;
+        render();
+      },
+      routes: function () { return st.routes; },
+      render: render,
+      bind: bind
+    };
+  }
+
+  /** 保存用整形：动作归一、端口兜底 9、burst/retry 空着就兜成该动作的默认值 */
+  function routesForSave(routes) {
+    return (routes || []).map(function (route) {
+      return {
+        action: powerActionOf(route.action),
+        target: String(route.target || '').trim(),
+        port: parseInt(route.port, 10) || 9,
+        macs: (route.macs || []).slice(),
+        enabled: route.enabled !== false,
+        burst: Math.min(50, Math.max(1, parseInt(route.burst, 10) || routeDefaultBurst(route))),
+        retry: Math.min(20, Math.max(1, parseInt(route.retry, 10) || routeDefaultRetry(route))),
+        http_fallback: !!route.http_fallback
+      };
+    });
+  }
+
+  /**
+   * 输入法正在合成（候选词还没上屏）时按的回车 / Esc 是给输入法用的，不是快捷键。
+   * 不挡住的话：地址框里打字按回车选词 → 触发「Enter 保存」→ 弹窗关了又开，
+   * 看着就是输入框一直在闪。keyCode 229 是老派写法，一起判断。
+   */
+  function isImeKey(event) {
+    return !!(event && (event.isComposing || event.keyCode === 229));
   }
 
   function msClass(ms) {
@@ -1799,7 +2603,10 @@
       if (filterProto && s.protocol !== filterProto) return false;
       if (!text) return true;
       return (s.name || "").toLowerCase().includes(text)
-          || (s.host || "").toLowerCase().includes(text);
+          || (s.host || "").toLowerCase().includes(text)
+          || (s.addresses || []).some(function (address) {
+               return address.toLowerCase().includes(text);
+             });
     });
   }
 
@@ -2003,6 +2810,31 @@
     const port = server.port || (server.protocol === 'telnet' ? 23 : 22);
     const p = probes[server.id];
     const isSsh = server.protocol === 'ssh';
+    // 局域网电源路由：配了的动作改成往「广播地址:端口」发 UDP（目标机上的 sol 按端口执行）。
+    // 走这条路的动作不看协议 —— Telnet 服务器也能重启/关机。
+    const powerRoutes = (server.power_routes || [])
+      .filter(function (route) { return route.enabled !== false; })
+      .map(function (route) {
+        return {
+          action: powerActionOf(route.action),
+          target: route.target || '',
+          port: route.port || 9,
+          macs: route.macs || []
+        };
+      });
+    const routesOf = function (action) {
+      return powerRoutes.filter(function (route) { return route.action === action; });
+    };
+    const routeHint = function (action) {
+      return routesOf(action).map(function (route) {
+        return (route.target || '自动广播') + ':' + route.port;
+      }).join(' / ');
+    };
+    /** 按钮的 disabled / title：有路由就能点（走 UDP）；没路由且不是 SSH 才禁用 */
+    const powerBtnAttr = function (action, reason) {
+      if (routesOf(action).length) return ' title="发送到 ' + esc(routeHint(action)) + '"';
+      return isSsh ? '' : ' disabled title="' + reason + '"';
+    };
     const statePill = !p
       ? '<span class="pill dim"><span class="pdot"></span>未测</span>'
       : p.state === 'ok'
@@ -2076,6 +2908,38 @@
         '<p class="test-line" id="detailTestLine">' +
           (p ? ((p.state === 'ok' ? '✓ ' : '✗ ') + esc(p.message || '')) : '') + '</p>' +
       '</div>' +
+      '<div class="d-section">' +
+        '<div class="sec-head"><h4>电源</h4>' +
+          '<span class="sec-sub">' +
+            (powerRoutes.length
+              ? '按局域网路由发 UDP —— 目标机装 sol，按端口执行对应动作'
+              : '重启 / 关机 / 睡眠需要目标机 sudo 免密；唤醒靠 MAC 魔术包') +
+          '</span></div>' +
+        '<div class="power-row">' +
+          '<button class="btn small" id="powerRebootBtn"' + powerBtnAttr('reboot', 'Telnet 不支持；可以给它配一条局域网路由') + '>重启</button>' +
+          '<button class="btn small" id="powerShutdownBtn"' + powerBtnAttr('shutdown', 'Telnet 不支持；可以给它配一条局域网路由') + '>关机</button>' +
+          '<button class="btn small" id="powerSleepBtn"' + powerBtnAttr('sleep', 'Telnet 不支持；可以给它配一条局域网路由') + '>睡眠</button>' +
+          '<button class="help-dot" id="powerSleepHelp" title="睡眠、唤醒与局域网路由说明" aria-label="睡眠与唤醒说明">?</button>' +
+          '<span class="spacer"></span>' +
+          '<button class="btn small" id="powerWakeBtn"' + powerBtnAttr('wake', 'Telnet 不支持，且没配唤醒路由') + '>唤醒</button>' +
+        '</div>' +
+        (powerRoutes.length
+          ? '<p class="power-hint">局域网路由：' + powerRoutes.map(function (route) {
+              return powerActionLabel(route.action) + ' → ' + (route.target || '自动广播') + ':' + route.port +
+                (route.macs.length ? '（' + route.macs.length + ' 个 MAC' : '（全部 MAC') +
+                '，' + (route.burst || routeDefaultBurst(route)) + ' 包 / 重试 ' +
+                (route.retry || routeDefaultRetry(route)) + ' 次）';
+            }).join(' · ') + '</p>'
+          : '') +
+        (server.addresses && server.addresses.length > 1
+          ? '<p class="power-hint">地址：' + server.addresses.map(esc).join(' · ') + '</p>'
+          : '') +
+        '<p class="power-hint">' +
+          (serverMacs(server).length
+            ? '已配 MAC：' + serverMacs(server).map(esc).join(' · ')
+            : '还没配 MAC —— 点右上角「编辑」，在「已添加的地址」里给对应地址补上网卡 MAC 就能用「唤醒」') +
+        '</p>' +
+      '</div>' +
       '<div class="d-section">' + sparkBlock + '</div>' +
       tunnelHtml;
 
@@ -2111,7 +2975,80 @@
     document.getElementById('testBtn').addEventListener('click', function () { runTest(server, document.getElementById('testBtn')); });
     document.getElementById('editBtn').addEventListener('click', function () { openEdit(server); });
     document.getElementById('delBtn').addEventListener('click', function () { openDelete(server); });
+    bindPowerActions(server);
     renderTunnelBlock(server);
+  }
+
+  // ============ 电源（重启 / 关机 / 睡眠 / 唤醒） ============
+  /** 睡眠旁的 ? —— 讲清楚「睡下之后怎么叫醒」 */
+  const SLEEP_HELP = [
+    '睡眠 = 内存不断电（挂起到内存）：几乎立刻能醒，但任何网络服务都停了。',
+    '所以点完「睡眠」这台服务器会显示离线、终端也连不上，这是预期的。',
+    '',
+    '叫醒它用「唤醒」：给网卡发一个魔术包（Wake-on-LAN）。它不看系统、不看服务，睡着/关机也能收到。',
+    '',
+    '唤醒包 / 电源包从哪发（按顺序看）：',
+    '· 这台服务器配了「局域网路由」→ 按路由里的广播地址和端口发（可以配多条，MAC 也能选）；',
+    '  每条路由都能设「发几个包」和「没发出就重试几次」：唤醒默认 10 / 10，',
+    '  重启 / 关机 / 睡眠默认 1 / 1 —— 这三个动作发几个包，sol 就执行几次，别乱调大。',
+    '· 没配路由但配了 SSH 跳板机 → 由跳板机在内网广播（在外网也能用）；',
+    '· 都没有 → 这台电脑自己往局域网广播（必须和目标机同一网段）。',
+    '',
+    '为什么「重启 / 关机 / 睡眠」也能走局域网：',
+    '这三个动作 WOL 做不到，是目标机上装的 sol 在监听 UDP 端口，收到包就执行对应动作。',
+    '所以“哪个端口 = 哪个动作”是你在「编辑 → 局域网电源路由」里自己绑的',
+    '（例如唤醒 9、重启 9200、关机 9201、睡眠 9202）。包体是标准魔术包 + 一行 ANYBOOT-POWER:<动作>。',
+    '没装 sol，包能发出去但没人执行 —— 这时就还是走 SSH（需要 sudo 免密）。',
+    '',
+    '点了没反应，按顺序检查：',
+    '1) 主板 BIOS 里开启了 Wake on LAN（只影响唤醒）；',
+    '2) 用的是有线网卡的 MAC（绝大多数无线网卡不支持关机唤醒）；',
+    '3) MAC 加在「编辑 → 地址」列表里对应的地址上（点 MAC 标签能删，下面能补）；',
+    '4) 路由里的广播地址对不对（和这台机器同网段，如 192.168.0.255），端口和 sol 侧监听的一致；',
+    '5) 主机没被拔电源、插排没断电（关机后网卡要靠待机供电收包）；',
+    '6) Windows 目标机：设备管理器 → 网卡 → 电源管理，勾「允许此设备唤醒计算机」，并关掉「快速启动」。'
+  ].join('\n');
+
+  /** 这个动作配了局域网路由吗（提示语用） */
+  function serverHasRoute(server, action) {
+    return (server.power_routes || []).some(function (route) {
+      return route.enabled !== false && powerActionOf(route.action) === action;
+    });
+  }
+
+  function bindPowerActions(server) {
+    const name = server.name || server.host;
+    const run = function (action, label, button) {
+      if (!invoke) { toast('电源操作需要应用环境', 'bad'); return; }
+      const question = action === 'sleep'
+        ? '确认让「' + name + '」睡眠？睡下后连接会断，只能用「唤醒」叫醒（需要配好 MAC 并开启网络唤醒）。'
+        : '确认' + label + '「' + name + '」？连接会断开。';
+      if (!window.confirm(question)) return;
+      if (button) button.disabled = true;
+      toast((serverHasRoute(server, action) ? '正在按路由发送' : '正在发送') + label + '…');
+      invoke('hub_server_power', { id: server.id, action: action })
+        .then(function (message) { toast(message); })
+        .catch(function (error) { toast(label + '失败：' + error, 'bad'); })
+        .finally(function () { if (button) button.disabled = false; });
+    };
+    const reboot = document.getElementById('powerRebootBtn');
+    const shutdown = document.getElementById('powerShutdownBtn');
+    const sleep = document.getElementById('powerSleepBtn');
+    const wake = document.getElementById('powerWakeBtn');
+    const help = document.getElementById('powerSleepHelp');
+    if (reboot) reboot.addEventListener('click', function () { run('reboot', '重启', reboot); });
+    if (shutdown) shutdown.addEventListener('click', function () { run('shutdown', '关机', shutdown); });
+    if (sleep) sleep.addEventListener('click', function () { run('sleep', '睡眠', sleep); });
+    if (help) help.addEventListener('click', function () { window.alert(SLEEP_HELP); });
+    if (wake) wake.addEventListener('click', function () {
+      if (!invoke) { toast('唤醒需要应用环境', 'bad'); return; }
+      wake.disabled = true;
+      toast(serverHasRoute(server, 'wake') ? '正在按路由发唤醒包…' : '正在发唤醒包…');
+      invoke('hub_wake_server', { id: server.id })
+        .then(function (message) { toast(message); })
+        .catch(function (error) { toast('唤醒失败：' + error, 'bad'); })
+        .finally(function () { wake.disabled = false; });
+    });
   }
 
   // ============ 隧道（M4） ============
@@ -2368,8 +3305,9 @@
     document.getElementById('editTitle').textContent = server ? '编辑服务器' : '添加服务器';
     document.getElementById('fName').value = server ? server.name : '';
     setEditProto(server ? server.protocol : 'ssh');
-    document.getElementById('fPort').value = server && server.port ? server.port : '';
-    document.getElementById('fHost').value = server ? server.host : '';
+    // 地址：档案 → 编辑状态（识别框清空，列表按顺序显示，第一个 = 连接用）
+    serverAddrEditor.setEntries(addressesFromServer(server));
+    serverAddrEditor.resetInputs();
     document.getElementById('fUser').value = server ? server.username : '';
     document.getElementById('fNotes').value = server ? server.notes : '';
     document.getElementById('fTermPath').value = server ? (server.term_path || '') : '';
@@ -2390,7 +3328,13 @@
 
   /** 弹窗表单 → 服务器对象（供保存 / 弹窗内测试连接共用） */
   function formServer() {
-    const portText = document.getElementById('fPort').value.trim();
+    // 地址来自「已添加的地址」列表：第一个 = 连接用（后端会把 addresses[0] 回写成 host/port）
+    const parsed = { addresses: [], macs: {} };
+    serverAddrEditor.entries().forEach(function (item) {
+      if (!item.address) return;
+      parsed.addresses.push(item.address);
+      if (item.macs.length) parsed.macs[item.address] = item.macs.slice();
+    });
     // password_new 三态：密码段填了 → 换新；密码段留空 → null=不动已存的；
     // 切到交互/密钥段 → 空串=清掉已存密码（后端消化成密文或清除）
     let passwordNew = null;
@@ -2400,12 +3344,16 @@
     } else {
       passwordNew = '';
     }
+    const primary = parsed.addresses[0] || '';
+    const colon = primary.lastIndexOf(':');
     return {
       id: editingId || '',
       name: document.getElementById('fName').value,
       protocol: editingProto,
-      host: document.getElementById('fHost').value,
-      port: portText ? (parseInt(portText, 10) || 0) : 0,
+      host: colon > 0 ? primary.slice(0, colon) : primary,
+      port: colon > 0 ? (parseInt(primary.slice(colon + 1), 10) || 0) : 0,
+      addresses: parsed.addresses,
+      macs: parsed.macs,
       username: document.getElementById('fUser').value,
       notes: document.getElementById('fNotes').value,
       key_id: editingAuth === 'key' ? (document.getElementById('fKey').value || '') : '',
@@ -2420,13 +3368,20 @@
   async function submitEdit() {
     const errorBox = document.getElementById('editError');
     errorBox.textContent = '';
+    let savedServer;
     try {
-      const savedServer = await saveServer(formServer());
-      closeEdit();
-      selectedId = savedServer.id;
-      await loadServers();
+      savedServer = await saveServer(formServer());
     } catch (error) {
       errorBox.textContent = String(error);
+      return;                       // 保存失败别关弹窗，不然用户以为「页面没了」
+    }
+    closeEdit();
+    selectedId = savedServer.id;
+    try {
+      await loadServers();
+    } catch (error) {
+      // 弹窗已经关了，错误得弹出来，否则主列表空着看着像整个页面消失
+      toast('已保存，但刷新列表失败：' + error, 'bad');
     }
   }
 
@@ -2487,6 +3442,7 @@
   document.getElementById('editCancel').addEventListener('click', closeEdit);
   document.getElementById('editX').addEventListener('click', closeEdit);
   document.getElementById('editSave').addEventListener('click', submitEdit);
+  serverAddrEditor.bind();
   document.getElementById('editTest').addEventListener('click', testFromDialog);
   document.getElementById('deleteCancel').addEventListener('click', closeDelete);
   document.getElementById('deleteX').addEventListener('click', closeDelete);
@@ -2512,17 +3468,24 @@
     if (e.target === this) closeDelete();
   });
   document.addEventListener('keydown', function (e) {
+    if (isImeKey(e)) return;
     if (e.key !== 'Escape') return;
     if (!document.getElementById('tunnelOverlay').hidden) closeTunnelDialog();
     else if (!document.getElementById('deleteOverlay').hidden) closeDelete();
     else if (!document.getElementById('editOverlay').hidden) closeEdit();
   });
   document.addEventListener('keydown', function (e) {
-    if (e.key === 'Enter' && !document.getElementById('editOverlay').hidden
-        && document.activeElement && document.activeElement.tagName !== 'TEXTAREA'
-        && document.activeElement.tagName !== 'BUTTON') {
-      submitEdit();
-    }
+    if (isImeKey(e)) return;          // 输入法选词的回车不算「保存」
+    if (e.key !== 'Enter' || document.getElementById('editOverlay').hidden) return;
+    const active = document.activeElement;
+    if (!active) return;
+    const tag = active.tagName;
+    if (tag === 'TEXTAREA' || tag === 'BUTTON') return;
+    // 数字框里回车只是想确认这个数（被当成「保存」会直接把弹窗关掉，看着像页面消失）；
+    // 下拉 / 勾选、以及地址编辑区里的回车各有各的活儿，都不当保存
+    if (active.type === 'number' || active.type === 'checkbox' || tag === 'SELECT') return;
+    if (active.closest && (active.closest('.addr-list') || active.closest('.addr-add'))) return;
+    submitEdit();
   });
 
   // ============ 终端 / 文件 / 密钥 / 会话 页（真实数据，不做假数据） ============
@@ -2811,6 +3774,7 @@
     const empty = document.getElementById('pcEmpty');
     const r = activeRemote === 'local' ? null : remotes.find(function (x) { return x.id === activeRemote; });
     if (activeRemote !== 'local' && !r) activeRemote = 'local';
+    pcFabRefresh();
     if (activeRemote === 'local' && localEndpoint && localEndpoint.enabled === false) {
       // 本机 HTTP 服务没开（或没设 token）：iframe 连不上，给可见说明
       empty.hidden = false;
@@ -2819,6 +3783,52 @@
     }
     empty.hidden = true;
     pcEnsureFrame(activeRemote).style.display = 'block';
+  }
+
+  // ---- 电脑页电源悬浮球（对齐手机 PowerFab：唤醒 / 睡眠 / 关机 / 重启） ----
+  // 每个动作先走「局域网电源路由」发 sol 包；没配路由自动调这台电脑自己的
+  // /api/power；配了但没发出去且勾了「HTTP 兜底」也改走它的接口（后端 remote_power）。
+  const pcFabWrap = document.getElementById('pcFabWrap');
+  const pcFab = document.getElementById('pcFab');
+  function pcFabRefresh() {
+    if (!pcFabWrap) return;
+    // 本机不需要远程电源（自己关自己去系统菜单按）
+    pcFabWrap.hidden = activeRemote === 'local';
+    pcFabSetExpanded(false);
+  }
+  function pcFabSetExpanded(open) {
+    pcFabWrap.querySelectorAll('.pc-fab-chip, .pc-fab-note').forEach(function (node) {
+      node.hidden = !open;
+    });
+    pcFab.setAttribute('aria-expanded', String(open));
+  }
+  if (pcFab) {
+    pcFab.addEventListener('click', function () {
+      pcFabSetExpanded(pcFab.getAttribute('aria-expanded') !== 'true');
+    });
+    pcFabWrap.addEventListener('click', function (event) {
+      const chip = event.target.closest('[data-pact]');
+      if (!chip || chip.disabled) return;
+      const action = chip.dataset.pact;
+      const server = remotes.find(function (x) { return x.id === activeRemote; });
+      if (!server) return;
+      if (!invoke) { toast('电源操作需要应用环境', 'bad'); return; }
+      if (action !== 'wake' &&
+          !window.confirm('确认' + powerActionLabel(action) + '「' + pcName(server) + '」？连接会断开。')) {
+        return;
+      }
+      pcFabSetExpanded(false);
+      pcFabWrap.querySelectorAll('.pc-fab-chip').forEach(function (node) { node.disabled = true; });
+      pcFab.disabled = true;
+      toast('正在' + powerActionLabel(action) + '…');
+      invoke('remote_power', { serverId: server.id, action: action })
+        .then(function (message) { toast(message); })
+        .catch(function (error) { toast(powerActionLabel(action) + '失败：' + error, 'bad'); })
+        .finally(function () {
+          pcFab.disabled = false;
+          pcFabWrap.querySelectorAll('.pc-fab-chip').forEach(function (node) { node.disabled = false; });
+        });
+    });
   }
 
   // 重载 = 重建 iframe（跨源页面的 contentWindow 不可碰，重建语义等价且稳妥）
@@ -2896,6 +3906,35 @@
   let rsDeleteArmed = false;
   const rsEditOverlay = document.getElementById('rsEditOverlay');
 
+  /** 电脑档案 → 地址编辑状态（macs 是「地址 → MAC 列表」对象） */
+  function addressesFromRemote(r) {
+    if (!r) return [];
+    return (r.addresses || []).map(function (address) {
+      return { address: address, macs: ((r.macs && r.macs[address]) || []).slice() };
+    });
+  }
+
+  /** 电脑弹窗的地址编辑器（识别框 + 列表 + 手动添加），MAC 池喂给路由编辑器 */
+  const rsAddrEditor = makeAddressEditor({
+    ids: { list: 'rsAddrList', quick: 'rsAddrQuick', recognize: 'rsAddrRecognize', hint: 'rsAddrHint', host: 'rsAddrHost', macs: 'rsAddrMacs', add: 'rsAddrAdd' },
+    defaultPort: function () { return 12300; },
+    emptyText: '还没加地址 —— 上面粘一段，或者下面手动填一个。',
+    noMacText: '没配 MAC —— 局域网电源发不出去',
+    hintDefault: '换行 / 空格 / 逗号 / 分号都能分开；认不出的文字（备注、括号）自动忽略',
+    onPairingChange: function () { rsRouteEditor.render(); }
+  });
+
+  /** 电脑弹窗的局域网电源路由编辑器 */
+  const rsRouteEditor = makeRouteEditor({
+    box: 'rsPowerRoutes',
+    add: 'rsPowerAdd',
+    macPool: function () { return rsAddrEditor.macPool(); },
+    noMacText: '这台电脑还没配 MAC —— 在上面地址那里加上，包才发得出去',
+    emptyText: '还没配路由 —— 配了就往局域网发 UDP，由这台电脑上的 sol 按端口执行对应动作；点下面「添加一条路由」。'
+  });
+  rsAddrEditor.bind();
+  rsRouteEditor.bind();
+
   function populateRsJump(selected) {
     const select = document.getElementById('rsJump');
     select.textContent = '';
@@ -2926,7 +3965,9 @@
     document.getElementById('rsEditTitle').textContent = r ? '编辑服务端' : '连接 AnyBoot 服务端';
     document.getElementById('rsGroup').value = r ? r.group : '';
     document.getElementById('rsName').value = r ? r.name : '';
-    document.getElementById('rsAddr').value = r ? r.addresses.join('\n') : '';
+    rsAddrEditor.setEntries(addressesFromRemote(r));
+    rsAddrEditor.resetInputs();
+    rsRouteEditor.setRoutes(r && Array.isArray(r.power_routes) ? r.power_routes : []);
     document.getElementById('rsToken').value = '';
     populateRsJump(r ? r.jump_id : '');
     rsProbe = r ? (r.probe_mode || 'parallel') : 'parallel';
@@ -2938,7 +3979,7 @@
     out.textContent = '';
     out.classList.remove('bad');
     rsEditOverlay.hidden = false;
-    document.getElementById('rsAddr').focus();
+    document.getElementById('rsAddrQuick').focus();
   }
   function closeRsEdit() { rsEditOverlay.hidden = true; }
   document.getElementById('rsEditClose').addEventListener('click', closeRsEdit);
@@ -2946,10 +3987,11 @@
   rsEditOverlay.addEventListener('click', function (e) { if (e.target === rsEditOverlay) closeRsEdit(); });
 
   document.getElementById('rsTestBtn').addEventListener('click', function () {
-    const addresses = document.getElementById('rsAddr').value.split('\n')
-      .map(function (s) { return s.trim(); }).filter(Boolean);
+    const addresses = rsAddrEditor.entries()
+      .map(function (item) { return item.address; })
+      .filter(Boolean);
     if (addresses.length === 0) {
-      document.getElementById('rsEditError').textContent = '先填至少一个服务端地址';
+      document.getElementById('rsEditError').textContent = '先添加至少一个服务端地址';
       return;
     }
     const out = document.getElementById('rsTestOut');
@@ -2996,22 +4038,30 @@
   });
 
   document.getElementById('rsSave').addEventListener('click', function () {
-    const addresses = document.getElementById('rsAddr').value.split('\n')
-      .map(function (s) { return s.trim(); }).filter(Boolean);
-    if (addresses.length === 0) {
-      document.getElementById('rsEditError').textContent = '至少要填一个服务端地址';
+    // 地址来自「已添加的地址」列表；MAC 按地址归组（地址删了 MAC 跟着丢，后端也会再兜一遍）
+    const parsed = { addresses: [], macs: {} };
+    rsAddrEditor.entries().forEach(function (item) {
+      if (!item.address) return;
+      parsed.addresses.push(item.address);
+      if (item.macs.length) parsed.macs[item.address] = item.macs.slice();
+    });
+    if (parsed.addresses.length === 0) {
+      document.getElementById('rsEditError').textContent = '至少要添加一个服务端地址';
       return;
     }
     const payload = {
       id: rsEditing || '',
       group: document.getElementById('rsGroup').value.trim(),
       name: document.getElementById('rsName').value.trim(),
-      addresses: addresses,
+      addresses: parsed.addresses,
+      macs: parsed.macs,
       token: document.getElementById('rsToken').value.trim(),
       machine_id: '',
       machine_name: '',
       probe_mode: rsProbe,
       jump_id: document.getElementById('rsJump').value || '',
+      // 局域网电源路由：动作归一、端口兜底 9、MAC 全不勾 = 空数组（= 全部网卡）
+      power_routes: routesForSave(rsRouteEditor.routes()),
       created_at: 0,
     };
     invoke('remote_save', { server: payload })
@@ -3121,6 +4171,7 @@
 
   // Esc 逐层关闭：菜单 → 弹层
   document.addEventListener('keydown', function (e) {
+    if (isImeKey(e)) return;
     if (e.key !== 'Escape') return;
     if (!pcMenu.hidden) { togglePcMenu(false); return; }
     if (!rsEditOverlay.hidden) { closeRsEdit(); return; }

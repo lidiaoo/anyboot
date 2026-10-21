@@ -298,6 +298,9 @@ pub(crate) enum RemoteCommand {
     /// GRUB 细粒度条目（第二条链路）：selector 是 grub.cfg 里解析出的原文，
     /// submenu 内为 `submenu_id>entry_id`。只写环境块、不重启。
     SwitchGrub(String),
+    /// /api/power?action=wake 的应答：这条 HTTP 能送达就说明机器本来就醒着，
+    /// 什么都不用做 —— 给「唤醒路由勾了 HTTP 兜底」一条说得通的回执。
+    WakeAck,
 }
 
 impl RemoteCommand {
@@ -313,6 +316,7 @@ impl RemoteCommand {
                 )
             }
             Self::SwitchGrub(selector) => format!("切换 GRUB 启动项为 {selector}"),
+            Self::WakeAck => "唤醒（本机在线，无需动作）".to_string(),
         }
     }
 }
