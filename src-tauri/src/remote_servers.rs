@@ -1184,6 +1184,10 @@ pub struct BootOption {
     pub label: String,
     /// 图标分类：mac / win / linux / auto（前端取色点用）
     pub class: String,
+    /// 组头行（`value` 恒空、不可选）：GRUB 下拉的「▸ 组名（N 项…）」，
+    /// 与托盘菜单的组头同一规则 —— 前端渲染成小标题而不是选项。
+    #[serde(default)]
+    pub header: bool,
 }
 
 /// 一台电脑上的一种引导管理器（rEFInd 或 GRUB）的现状 + 可选项。
@@ -1389,6 +1393,7 @@ fn refind_from_status(value: &serde_json::Value) -> BootGroup {
             value: system.clone(),
             label,
             class: refind_class(&system),
+            header: false,
         });
     }
     BootGroup {
@@ -1407,31 +1412,70 @@ fn refind_from_status(value: &serde_json::Value) -> BootGroup {
     }
 }
 
-/// 把 `/api/grub` 的 entries 收成 GRUB 的可选组。
-/// GRUB 条目文字随「列表格式」变 —— 与 `ui/grub-list-view.js`、托盘菜单同一套规则：
-/// * minimal / simple（极简 / 简易）：去前缀内核名（`vmlinuz-linux-cachyos` → `cachyos`）；
-/// * medium（中等）：完整内核名（`vmlinuz-6.8.0-45-generic`）；
-/// * raw / detailed（原始 / 复杂）：菜单标题原文。
-/// 取不到内核时一律退回标题原文（不猜）。
-fn grub_entry_label(format: &str, name: &str, kernels: &[String]) -> String {
-    let kernel = kernels
-        .first()
-        .map(|value| value.trim())
-        .unwrap_or("");
-    // 空内核名要回落到菜单标题 —— 不能只用 kernels.first() 判空（空串也算有值，
-    // 极简档会退出一行空白）。与 ui/grub-list-view.js 的 `(kernels[0]) || name` 对齐。
-    if kernel.is_empty() {
-        return name.to_string();
-    }
-    match format {
-        "minimal" | "simple" => {
-            let stripped = kernel.strip_prefix("vmlinuz-").unwrap_or(kernel);
-            let stripped = stripped.strip_prefix("linux-").unwrap_or(stripped);
-            stripped.to_string()
+/// 出一条 GRUB 可选项 —— 与托盘菜单的 `menu_model::grub_push_entry` **同一条拼装
+/// 规则**，只是产物从菜单节点换成 BootOption：
+/// * 文字随格式变（`grub_row_label`：极简/简易=去前缀内核名、中等=完整内核名、
+///   原始/复杂=标题原文）；内核为空时退回标题原文（不猜）；
+/// * 非原始格式按渲染结果折叠同名条目（首个出面、其余并成「· N 个变体」）；
+///   原始格式不折叠，变体数用解析期并进的 `entry.variants`；
+/// * 原始/复杂在行尾附内核名（或「转交引导」/class）；
+/// * 行文字 = 箭头（子项 ↳）+ 系统图标 +（组前缀）+ 格式化文字 + 附注。
+#[allow(clippy::too_many_arguments)]
+fn push_grub_option(
+    options: &mut Vec<BootOption>,
+    format: &str,
+    entry: &crate::grub::GrubEntry,
+    top: bool,
+    group_prefix: &str,
+    counts: &std::collections::HashMap<String, usize>,
+    emitted: &mut std::collections::HashSet<String>,
+) {
+    let label = crate::menu_model::grub_row_label(format, entry);
+    let mut parts: Vec<String> = Vec::new();
+    if format == "raw" {
+        // 原始格式不折叠；变体数在解析期并进了 entry.variants
+        let variants = entry.variants.max(1);
+        if variants > 1 {
+            parts.push(format!("{variants} 个变体"));
         }
-        "medium" => kernel.to_string(),
-        _ => name.to_string(),
+    } else {
+        if !emitted.insert(label.clone()) {
+            return;
+        }
+        let variants = counts.get(&label).copied().unwrap_or(1);
+        if variants > 1 {
+            parts.push(format!("{variants} 个变体"));
+        }
     }
+    if format == "raw" || format == "detailed" {
+        let tag = if !entry.kernels.is_empty() {
+            entry.kernels[0].clone()
+        } else if entry.chainloader {
+            "转交引导".to_string()
+        } else {
+            entry.class.clone().unwrap_or_default()
+        };
+        if !tag.is_empty() {
+            parts.push(tag);
+        }
+    }
+    let suffix = if parts.is_empty() {
+        String::new()
+    } else {
+        format!(" · {}", parts.join(" · "))
+    };
+    let icon = crate::menu_model::grub_os_icon(&format!("{group_prefix}{}", entry.name));
+    let arrow = if top { "" } else { "↳ " };
+    options.push(BootOption {
+        value: entry.selector.clone(),
+        label: format!("{arrow}{icon}{group_prefix}{label}{suffix}"),
+        class: grub_class(
+            &entry.name,
+            entry.class.as_deref().unwrap_or(""),
+            entry.chainloader,
+        ),
+        header: false,
+    });
 }
 
 /// GRUB 子菜单的 id → 组名。
@@ -1464,6 +1508,13 @@ fn grub_submenu_titles(value: &serde_json::Value) -> std::collections::HashMap<S
     titles
 }
 
+/// 把 `/api/grub` 的 entries 收成 GRUB 的可选组 —— **结构与拼装规则和托盘菜单
+/// （`menu_model::grub_menu_nodes`）逐条对齐**：
+/// * 当前选中项置顶（组内子项带「组名 › 」前缀），原位照常保留；
+/// * 每个 submenu 一行组头「▸ 图标 组名（N 项[ · ESP 位置]）」，位置按格式带不带
+///   （极简/原始不带）；组名翻自 `groups`（老服务端没有 groups 时退回内部 id）；
+/// * 子项「↳ 」缩进；顶层与各组各有一套折叠状态（非原始格式折叠同名变体）；
+/// * 条目文字随格式变（`push_grub_option`，与 `grub_row_label` 同一规则）。
 fn grub_from_json(value: &serde_json::Value, format: &str) -> BootGroup {
     let next = value
         .get("nextEntry")
@@ -1481,81 +1532,141 @@ fn grub_from_json(value: &serde_json::Value, format: &str) -> BootGroup {
         .get("installed")
         .and_then(|item| item.as_bool())
         .unwrap_or(false);
-    let mut options = Vec::new();
-    let submenu_titles = grub_submenu_titles(value);
-    for entry in value
-        .get("entries")
-        .and_then(|item| item.as_array())
-        .map(|list| list.as_slice())
-        .unwrap_or_default()
-    {
-        let selector = entry
-            .get("selector")
-            .and_then(|item| item.as_str())
-            .unwrap_or("")
-            .trim()
-            .to_string();
-        if selector.is_empty() {
-            continue;
+    let format = crate::settings_commands::normalize_grub_list_format(format);
+    let active = if next.is_empty() {
+        saved.clone()
+    } else {
+        next.clone()
+    };
+
+    // 条目直接反序列化成 GrubEntry —— 拼装助手（grub_row_label / grub_collapse）
+    // 只吃这个类型，反序列化回来就能与托盘菜单共用同一套代码。老服务端不发
+    // variants（甚至 kernels），serde(default) 兜住；坏条目跳过。
+    // 内核名里的空白项清掉 —— grub_kernel_of 只对「空 Vec」回落标题，
+    // 空串内核会渲染出一行空白。
+    let mut entries: Vec<crate::grub::GrubEntry> = Vec::new();
+    if let Some(list) = value.get("entries").and_then(|item| item.as_array()) {
+        for item in list {
+            let Ok(mut entry) = serde_json::from_value::<crate::grub::GrubEntry>(item.clone())
+            else {
+                continue;
+            };
+            if entry.selector.trim().is_empty() {
+                continue;
+            }
+            entry.kernels.retain(|kernel| !kernel.trim().is_empty());
+            entries.push(entry);
         }
-        let name = entry
-            .get("name")
-            .and_then(|item| item.as_str())
-            .unwrap_or("")
-            .trim()
-            .to_string();
-        let submenu_id = entry
-            .get("submenu")
-            .and_then(|item| item.as_str())
-            .unwrap_or("")
-            .trim()
-            .to_string();
-        let class = entry
-            .get("class")
-            .and_then(|item| item.as_str())
-            .unwrap_or("")
-            .to_string();
-        let chainloader = entry
-            .get("chainloader")
-            .and_then(|item| item.as_bool())
-            .unwrap_or(false);
-        let kernels: Vec<String> = entry
-            .get("kernels")
-            .and_then(|item| item.as_array())
-            .map(|list| {
-                list.iter()
-                    .filter_map(|item| item.as_str())
-                    .map(|item| item.to_string())
-                    .collect()
-            })
+    }
+
+    let group_titles = grub_submenu_titles(value);
+    let mut options: Vec<BootOption> = Vec::new();
+
+    // 置顶当前选中项（组内子项补「组名 › 」前缀 —— 与托盘/主窗置顶行同一规则）
+    if let Some(pinned) = entries.iter().find(|entry| entry.selector == active) {
+        let prefix = pinned
+            .submenu
+            .as_deref()
+            .and_then(|id| group_titles.get(id))
+            .map(|title| format!("{title} › "))
             .unwrap_or_default();
-        // 文字按用户设置的 GRUB 列表格式生成（极简看内核短名、中等看完整内核名…）
-        let core = grub_entry_label(format, &name, &kernels);
-        // 子菜单里的一律带组名前缀，用的是组名而不是内部 id（`gnulinux-advanced-<uuid>`）；
-        // 拿到组名就无条件拼（组名与标题措辞本就不同，判重会丢上下文），
-        // 拿不到组名才退回旧规则「标题已以 id 开头就不重复拼」。
-        let submenu_title = submenu_titles
-            .get(&submenu_id)
-            .map(|title| title.trim())
-            .filter(|title| !title.is_empty());
-        let label = if submenu_id.is_empty() {
-            core.clone()
-        } else if let Some(title) = submenu_title {
-            format!("{title} · {core}")
-        } else if core.starts_with(&submenu_id) {
-            core.clone()
+        push_grub_option(
+            &mut options,
+            format,
+            pinned,
+            true,
+            &prefix,
+            &std::collections::HashMap::new(),
+            &mut std::collections::HashSet::new(),
+        );
+    }
+
+    // 组内子项索引（与托盘同一份 children_of）；空串 submenu（老数据/手写 cfg）
+    // 按「没有父级」算 —— 真服务端顶层条目的 submenu 是 null。
+    let mut children_of: std::collections::HashMap<&str, Vec<&crate::grub::GrubEntry>> =
+        std::collections::HashMap::new();
+    for entry in &entries {
+        if let Some(submenu) = entry.submenu.as_deref().filter(|id| !id.is_empty()) {
+            children_of.entry(submenu).or_default().push(entry);
+        }
+    }
+
+    // 组头附加的 ESP 位置（简易/中等/复杂带，极简/原始不带 —— 与托盘同一规则）
+    let location = if format == "minimal" || format == "raw" {
+        String::new()
+    } else {
+        let mut parts: Vec<String> = Vec::new();
+        let dir = value
+            .get("efiDir")
+            .and_then(|item| item.as_str())
+            .unwrap_or("")
+            .trim();
+        if !dir.is_empty() {
+            parts.push(format!("位于{dir}"));
+        }
+        let uuid = value
+            .get("partuuid")
+            .and_then(|item| item.as_str())
+            .unwrap_or("")
+            .trim();
+        if !uuid.is_empty() {
+            parts.push(format!("UUID={uuid}"));
+        }
+        if parts.is_empty() {
+            String::new()
         } else {
-            format!("{submenu_id} · {core}")
-        };
-        options.push(BootOption {
-            value: selector.clone(),
-            label: if label.is_empty() {
-                selector.clone()
-            } else {
-                label
-            },
-            class: grub_class(&name, &class, chainloader),
-        });
+            format!(" · {}", parts.join(" "))
+        }
+    };
+
+    // 主体：顶层一套折叠状态，各组独立一套（与托盘一致）；原始格式不折叠
+    let mut emitted_groups = std::collections::HashSet::new();
+    let top_counts = crate::menu_model::grub_collapse(
+        format,
+        entries.iter().filter(|entry| entry.submenu.is_none()),
+    );
+    let mut top_emitted = std::collections::HashSet::new();
+    for entry in &entries {
+        match entry.submenu.as_deref().filter(|id| !id.is_empty()) {
+            None => {
+                push_grub_option(
+                    &mut options,
+                    format,
+                    entry,
+                    true,
+                    "",
+                    &top_counts,
+                    &mut top_emitted,
+                );
+            }
+            Some(submenu_id) => {
+                if !emitted_groups.insert(submenu_id) {
+                    continue;
+                }
+                let title = group_titles
+                    .get(submenu_id)
+                    .cloned()
+                    .unwrap_or_else(|| submenu_id.to_string());
+                let count = children_of.get(submenu_id).map(Vec::len).unwrap_or(0);
+                options.push(BootOption {
+                    value: String::new(),
+                    label: format!(
+                        "▸ {}{title}（{count} 项{location}）",
+                        crate::menu_model::grub_os_icon(&title)
+                    ),
+                    class: String::new(),
+                    header: true,
+                });
+                let counts = crate::menu_model::grub_collapse(
+                    format,
+                    children_of.get(submenu_id).into_iter().flatten().copied(),
+                );
+                let mut emitted = std::collections::HashSet::new();
+                for child in children_of.get(submenu_id).into_iter().flatten() {
+                    push_grub_option(&mut options, format, child, false, "", &counts, &mut emitted);
+                }
+            }
+        }
     }
     let note = if options.is_empty() {
         let raw = value
@@ -2073,9 +2184,13 @@ mod tests {
         assert_eq!(group.current, "0>1");
         assert_eq!(group.next, "");
         assert_eq!(group.saved, "0>1");
+        // 当前选中项置顶（第一条），原位照常保留 —— 与托盘同一行为
+        assert_eq!(group.options[0].value, "0>1");
+        assert_eq!(group.options[1].value, "0");
+        assert_eq!(group.options[2].value, "0>1");
+        assert_eq!(group.options[3].class, "win");
         // selector 原样保留（含 `>`，切换时要转义但不能被改写）
-        assert_eq!(group.options[1].value, "0>1");
-        assert_eq!(group.options[2].class, "win");
+        assert_eq!(group.options[0].value, "0>1");
     }
 
     #[test]
@@ -2084,13 +2199,16 @@ mod tests {
             "installed": true,
             "entries": [
                 {"selector": "1>0", "name": "Ubuntu, with Linux 6.8.0", "submenu": "Advanced options for Ubuntu", "class": "", "chainloader": false},
-                // name 已经以 submenu 开头时不重复拼
                 {"selector": "1>1", "name": "Advanced options for Ubuntu (recovery mode)", "submenu": "Advanced options for Ubuntu", "class": "", "chainloader": false}
             ]
         });
         let group = grub_from_json(&value, "raw");
-        assert_eq!(group.options[0].label, "Advanced options for Ubuntu · Ubuntu, with Linux 6.8.0");
-        assert_eq!(group.options[1].label, "Advanced options for Ubuntu (recovery mode)");
+        // 与托盘同一结构：一行组头（计数）+ 子项 ↳ 缩进
+        assert!(group.options[0].header);
+        assert!(group.options[0].label.contains("（2 项）"), "{}", group.options[0].label);
+        assert!(!group.options[1].header);
+        assert_eq!(group.options[1].label, "↳ 🐧 Ubuntu, with Linux 6.8.0");
+        assert_eq!(group.options[2].label, "↳ Advanced options for Ubuntu (recovery mode)");
     }
 
     /// 子菜单的 `submenu` 是内部 id（`gnulinux-advanced-<uuid>`），下拉里必须换成
@@ -2113,20 +2231,30 @@ mod tests {
         let group = grub_from_json(&value, "minimal");
         assert_eq!(
             group.options[0].label,
-            "Advanced options for CachyOS Linux · cachyos"
+            "▸ 🐧 Advanced options for CachyOS Linux（1 项）"
         );
+        assert_eq!(group.options[1].label, "↳ 🐧 cachyos");
         assert!(
-            !group.options[0].label.contains("gnulinux-advanced"),
+            !group.options.iter().any(|option| option.label.contains("gnulinux-advanced")),
             "下拉文字里不该出现内部 id"
         );
     }
 
     /// 内核名是空串时不能出一行空白（要退回菜单标题）。
     #[test]
-    fn grub_entry_label_falls_back_to_name_when_kernel_is_blank() {
-        let kernels = vec!["   ".to_string()];
-        assert_eq!(grub_entry_label("minimal", "CachyOS Linux", &kernels), "CachyOS Linux");
-        assert_eq!(grub_entry_label("medium", "CachyOS Linux", &[]), "CachyOS Linux");
+    fn grub_row_label_falls_back_to_name_when_kernel_is_blank() {
+        let entry = crate::grub::GrubEntry {
+            selector: "0".to_string(),
+            id: "0".to_string(),
+            name: "CachyOS Linux".to_string(),
+            submenu: None,
+            class: None,
+            chainloader: false,
+            kernels: vec!["   ".to_string()],
+            variants: 1,
+        };
+        assert_eq!(crate::menu_model::grub_row_label("minimal", &entry), "CachyOS Linux");
+        assert_eq!(crate::menu_model::grub_row_label("medium", &entry), "CachyOS Linux");
     }
 
     #[test]
@@ -2140,17 +2268,23 @@ mod tests {
                  "chainloader": false, "kernels": ["vmlinuz-6.8.0-45-generic"]}
             ]
         });
-        // 极简 / 简易：去掉 vmlinuz- 与 linux- 前缀
-        assert_eq!(grub_from_json(&value, "minimal").options[0].label, "cachyos");
+        // 极简 / 简易：去掉 vmlinuz- 与 linux- 前缀（行首是系统图标，按标题判）
+        assert_eq!(grub_from_json(&value, "minimal").options[0].label, "🐧 cachyos");
         assert_eq!(grub_from_json(&value, "simple").options[1].label, "6.8.0-45-generic");
         // 中等：完整内核名
         assert_eq!(
             grub_from_json(&value, "medium").options[1].label,
             "vmlinuz-6.8.0-45-generic"
         );
-        // 原始 / 复杂：菜单标题原文
-        assert_eq!(grub_from_json(&value, "raw").options[0].label, "CachyOS Linux");
-        assert_eq!(grub_from_json(&value, "detailed").options[0].label, "CachyOS Linux");
+        // 原始 / 复杂：标题原文 + 行尾附内核名
+        assert_eq!(
+            grub_from_json(&value, "raw").options[0].label,
+            "🐧 CachyOS Linux · vmlinuz-linux-cachyos"
+        );
+        assert_eq!(
+            grub_from_json(&value, "detailed").options[0].label,
+            "🐧 CachyOS Linux · vmlinuz-linux-cachyos"
+        );
         // 没有 kernels 时退回标题（不猜）
         let plain = serde_json::json!({
             "installed": true,
@@ -2160,8 +2294,65 @@ mod tests {
         });
         assert_eq!(
             grub_from_json(&plain, "minimal").options[0].label,
-            "Windows Boot Manager"
+            "🪟 Windows Boot Manager"
         );
+    }
+
+    /// 与托盘菜单同款的整体结构：置顶当前项（组名 › 前缀）+ 组头（计数与 ESP
+    /// 位置）+ 子项缩进 + 同名折叠。
+    #[test]
+    fn grub_from_json_matches_tray_composition() {
+        let value = serde_json::json!({
+            "installed": true,
+            "savedEntry": "g>1",
+            "efiDir": "H:\\",
+            "partuuid": "abcd-1234",
+            "groups": [{"id": "g", "name": "Advanced options for CachyOS"}],
+            "entries": [
+                {"selector": "0", "name": "CachyOS Linux", "class": "cachyos",
+                 "chainloader": false, "kernels": ["vmlinuz-linux-cachyos"]},
+                {"selector": "g>0", "name": "CachyOS Linux, with Linux linux-cachyos",
+                 "submenu": "g", "class": "cachyos", "chainloader": false,
+                 "kernels": ["vmlinuz-linux-cachyos"]},
+                {"selector": "g>1", "name": "CachyOS Linux, with Linux linux-cachyos (fallback)",
+                 "submenu": "g", "class": "cachyos", "chainloader": false,
+                 "kernels": ["vmlinuz-linux-cachyos-fallback"]}
+            ]
+        });
+        let group = grub_from_json(&value, "simple");
+        // 置顶行在最前，带「组名 › 」前缀
+        assert_eq!(group.options[0].value, "g>1");
+        assert!(
+            group.options[0].label.contains("Advanced options for CachyOS › cachyos-fallback"),
+            "{}",
+            group.options[0].label
+        );
+        // 顶层条目照常在原位出现（置顶行之外它还在）
+        assert_eq!(group.options[1].value, "0");
+        // 组头带计数与 ESP 位置（simple 档带，极简/原始不带）
+        assert!(group.options[2].header);
+        assert!(group.options[2].label.contains("（2 项"), "{}", group.options[2].label);
+        assert!(group.options[2].label.contains("位于H:\\ UUID=abcd-1234"));
+        // 子项缩进
+        assert!(group.options[3].label.starts_with("↳ "));
+        // 极简档组头不带位置
+        let minimal = grub_from_json(&value, "minimal");
+        assert!(minimal.options[2].label.contains("（2 项）"));
+        assert!(!minimal.options[2].label.contains("位于"));
+
+        // 同名条目折叠成一条并标变体数（非原始格式；原始格式不折叠）
+        let dup = serde_json::json!({
+            "installed": true,
+            "entries": [
+                {"selector": "m1", "name": "Memory test", "class": "memtest", "chainloader": false},
+                {"selector": "m2", "name": "Memory test", "class": "memtest", "chainloader": false}
+            ]
+        });
+        let folded = grub_from_json(&dup, "minimal");
+        assert_eq!(folded.options.len(), 1);
+        assert!(folded.options[0].label.contains("2 个变体"), "{}", folded.options[0].label);
+        let unfolded = grub_from_json(&dup, "raw");
+        assert_eq!(unfolded.options.len(), 2);
     }
 
     #[test]

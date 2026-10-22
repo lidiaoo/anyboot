@@ -396,12 +396,15 @@ pub(crate) fn grub_os_icon(text: &str) -> &'static str {
     }
 }
 
-/// 条目的内核名：优先 `linux` 行解析出的内核文件名，取不到退回标题原文。
+/// 条目的内核名：优先 `linux` 行解析出的内核文件名，取不到（或是一串空白）退回
+/// 标题原文 —— 空白内核按「没有」算，不然极简档会渲染出一行空白。
 pub(crate) fn grub_kernel_of(entry: &grub::GrubEntry) -> String {
     entry
         .kernels
-        .first()
-        .cloned()
+        .iter()
+        .map(|kernel| kernel.trim())
+        .find(|kernel| !kernel.is_empty())
+        .map(str::to_string)
         .unwrap_or_else(|| entry.name.clone())
 }
 

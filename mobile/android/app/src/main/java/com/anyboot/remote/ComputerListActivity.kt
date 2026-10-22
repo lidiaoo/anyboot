@@ -970,9 +970,10 @@ class ComputerListActivity : ComponentActivity() {
             }
             dot = ""
         } else {
-            val hit = group.options.firstOrNull { it.value == group.current }
-            valueLabel = if (hit != null) grubOptionLabel(group, hit) else group.current.ifEmpty { "未设置" }
-            dot = hit?.kind ?: "linux"
+            // 置顶行在最前（托盘同款），取它当按钮上的当前值
+            val hit = grubDisplayRows(group).firstOrNull { it.option?.value == group.current }
+            valueLabel = hit?.label ?: group.current.ifEmpty { "未设置" }
+            dot = hit?.option?.kind ?: "linux"
         }
 
         val shape = RoundedCornerShape(11.dp)
@@ -1313,7 +1314,18 @@ class ComputerListActivity : ComponentActivity() {
                             grubFormatChips(group)
                             Spacer(Modifier.height(6.dp))
                         }
-                        group.options.forEach { option ->
+                        grubDisplayRows(group).forEach { row ->
+                            // 组头行（「▸ 组名（N 项…）」）不可选，渲染成小标题 —— 托盘同构
+                            if (row.isHeader) {
+                                Text(
+                                    row.label,
+                                    fontSize = 11.sp,
+                                    color = palette.fgFaint,
+                                    modifier = Modifier.padding(top = 7.dp, bottom = 2.dp, start = 2.dp),
+                                )
+                                return@forEach
+                            }
+                            val option = row.option ?: return@forEach
                             val selected = option.value == group.current
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
@@ -1334,7 +1346,7 @@ class ComputerListActivity : ComponentActivity() {
                                 BootDot(option.kind)
                                 Spacer(Modifier.width(8.dp))
                                 Text(
-                                    grubOptionLabel(group, option),
+                                    row.label,
                                     fontSize = 14.sp,
                                     color = if (selected) palette.accent else palette.fg,
                                     maxLines = 2,
@@ -1608,14 +1620,14 @@ class ComputerListActivity : ComponentActivity() {
         )
     }
 
-    /** `/api/grub` 的 entries → GRUB 可选组（对齐 PC 端 grub_from_json） */
+    /** `/api/grub` 的 entries → GRUB 可选组的**原料**（拼装在 [grubDisplayRows]） */
     private fun parseGrub(json: JSONObject): BootGroup {
         val next = json.optString("nextEntry", "").trim()
         val saved = json.optString("savedEntry", "").trim()
         val installed = json.optBoolean("installed", false)
         // 服务端自己的格式偏好（老版本没这个字段 → 空，前端退 minimal）
         val serverFormat = optStr(json, "listFormat")
-        // submenu 的内部 id → 组名（老版本没有 groups，映射为空 → 退回旧规则）
+        // submenu 的内部 id → 组名（老版本没有 groups，映射为空 → 组头退回内部 id）
         val groupNames = HashMap<String, String>()
         json.optJSONArray("groups")?.let { groups ->
             for (index in 0 until groups.length()) {
@@ -1651,7 +1663,9 @@ class ComputerListActivity : ComponentActivity() {
                         grubName = name,
                         grubKernels = kernels,
                         grubSubmenuId = submenu,
-                        grubGroupName = groupNames[submenu] ?: "",
+                        grubVariants = maxOf(1, item.optInt("variants", 1)),
+                        grubChainloader = chainloader,
+                        grubClassRaw = klass.trim(),
                     )
                 )
             }
@@ -1670,6 +1684,9 @@ class ComputerListActivity : ComponentActivity() {
             saved = saved,
             note = note,
             serverFormat = serverFormat,
+            grubGroupNames = groupNames,
+            grubEfiDir = optStr(json, "efiDir").trim(),
+            grubPartuuid = optStr(json, "partuuid").trim(),
             options = options,
         )
     }
@@ -1685,35 +1702,121 @@ class ComputerListActivity : ComponentActivity() {
         return obj.optString(key, "")
     }
 
-    /** 条目核心文字：随格式变（与 PC 端 grub_entry_label 同一条规则） */
-    private fun grubCoreLabel(format: String, name: String, kernels: List<String>): String {
-        val kernel = kernels.firstOrNull()?.trim().orEmpty()
-        if (kernel.isEmpty()) return name
-        return when (format) {
-            "minimal", "simple" -> kernel.removePrefix("vmlinuz-").removePrefix("linux-")
-            "medium" -> kernel
-            else -> name
-        }
-    }
-
     /** 这次渲染该用哪一档：手机自选优先，没选过就跟随服务端，再退 minimal */
     private fun grubEffectiveFormat(group: BootGroup): String =
         grubFmt.ifEmpty { group.serverFormat.ifEmpty { "minimal" } }
 
-    /**
-     * 下拉/按钮里显示的文字：核心文字 +（组名前缀）。
-     * 有组名就无条件拼（组名与标题措辞本就不同，判重会丢上下文）；
-     * 拿不到组名（服务端太老没 groups）才退回「标题已以 id 开头就不重复拼」。
-     */
-    private fun grubOptionLabel(group: BootGroup, option: BootOption): String {
-        if (option.grubName.isEmpty() && option.grubSubmenuId.isEmpty()) return option.label
-        val core = grubCoreLabel(grubEffectiveFormat(group), option.grubName, option.grubKernels)
+    // ---- GRUB 拼装：与 PC 托盘菜单（menu_model::grub_menu_nodes）同一条规则 ----
+
+    /** 系统图标（与托盘 grub_os_icon 同一规则，不猜）：windows→🪟 mac→🍎 linux→🐧 */
+    private fun grubOsIcon(text: String): String {
+        val lowered = text.lowercase(Locale.US)
         return when {
-            option.grubSubmenuId.isEmpty() -> core
-            option.grubGroupName.isNotEmpty() -> "${option.grubGroupName} · $core"
-            core.startsWith(option.grubSubmenuId) -> core
-            else -> "${option.grubSubmenuId} · $core"
+            lowered.contains("windows") -> "🪟 "
+            lowered.contains("mac") || lowered.contains("apple") -> "🍎 "
+            lowered.contains("linux") -> "🐧 "
+            else -> ""
         }
+    }
+
+    private fun grubStripKernel(name: String): String =
+        name.removePrefix("vmlinuz-").removePrefix("linux-")
+
+    /** 内核名：优先 linux 行解析出的文件名，空白按「没有」算，退回标题原文 */
+    private fun grubKernelOf(option: BootOption): String =
+        option.grubKernels.firstOrNull { it.isNotBlank() } ?: option.grubName
+
+    /** 行文字随格式变（与托盘 grub_row_label 同一规则） */
+    private fun grubRowLabel(format: String, option: BootOption): String = when (format) {
+        "minimal", "simple" -> grubStripKernel(grubKernelOf(option))
+        "medium" -> grubKernelOf(option)
+        else -> option.grubName
+    }
+
+    /** 非原始格式按渲染结果数变体；原始格式不折叠（与托盘 grub_collapse 一致） */
+    private fun grubCollapse(format: String, options: List<BootOption>): Map<String, Int> {
+        if (format == "raw") return emptyMap()
+        val counts = HashMap<String, Int>()
+        options.forEach { counts.merge(grubRowLabel(format, it), 1, Int::plus) }
+        return counts
+    }
+
+    /**
+     * 拼出下拉里的展示行 —— 与 PC 托盘「GRUB 启动项」逐条对齐：
+     * * 当前选中项置顶（组内子项带「组名 › 」前缀），原位照常保留；
+     * * 每个 submenu 一行组头「▸ 图标 组名（N 项[ · ESP 位置]）」，位置按格式带不带；
+     * * 子项「↳ 」缩进；顶层与各组各有一套折叠状态（非原始格式折叠同名变体）；
+     * * 原始/复杂在行尾附内核名（或「转交引导」/class）。
+     */
+    private fun grubDisplayRows(group: BootGroup): List<GrubRow> {
+        val options = group.options
+        if (options.isEmpty()) return emptyList()
+        val format = grubEffectiveFormat(group)
+        val names = group.grubGroupNames
+        val rows = mutableListOf<GrubRow>()
+
+        fun push(option: BootOption, top: Boolean, prefix: String, counts: Map<String, Int>, emitted: MutableSet<String>) {
+            val label = grubRowLabel(format, option)
+            val parts = mutableListOf<String>()
+            if (format == "raw") {
+                // 原始格式不折叠；变体数用解析期并进的 grubVariants
+                if (option.grubVariants > 1) parts.add("${option.grubVariants} 个变体")
+            } else {
+                if (!emitted.add(label)) return
+                val variants = counts[label] ?: 1
+                if (variants > 1) parts.add("$variants 个变体")
+            }
+            if (format == "raw" || format == "detailed") {
+                val tag = when {
+                    option.grubKernels.any { it.isNotBlank() } ->
+                        option.grubKernels.first { it.isNotBlank() }
+                    option.grubChainloader -> "转交引导"
+                    else -> option.grubClassRaw
+                }
+                if (tag.isNotBlank()) parts.add(tag)
+            }
+            val suffix = if (parts.isEmpty()) "" else " · " + parts.joinToString(" · ")
+            val icon = grubOsIcon(prefix + option.grubName)
+            val arrow = if (top) "" else "↳ "
+            rows.add(GrubRow(option, "$arrow$icon$prefix$label$suffix", false))
+        }
+
+        // 置顶当前选中项（组内子项补「组名 › 」前缀）
+        options.firstOrNull { it.value == group.current }?.let { pinned ->
+            val prefix = names[pinned.grubSubmenuId]?.takeIf { it.isNotBlank() }?.let { "$it › " } ?: ""
+            push(pinned, top = true, prefix = prefix, counts = emptyMap(), emitted = mutableSetOf())
+        }
+
+        // 组头附加的 ESP 位置（简易/中等/复杂带，极简/原始不带）
+        val location = if (format == "minimal" || format == "raw") {
+            ""
+        } else {
+            val parts = mutableListOf<String>()
+            if (group.grubEfiDir.isNotBlank()) parts.add("位于${group.grubEfiDir}")
+            if (group.grubPartuuid.isNotBlank()) parts.add("UUID=${group.grubPartuuid}")
+            if (parts.isEmpty()) "" else " · " + parts.joinToString(" ")
+        }
+
+        val children = options.filter { it.grubSubmenuId.isNotEmpty() }
+        val topCounts = grubCollapse(format, options.filter { it.grubSubmenuId.isEmpty() })
+        val topEmitted = mutableSetOf<String>()
+        val emittedGroups = mutableSetOf<String>()
+        options.forEach { option ->
+            val submenuId = option.grubSubmenuId
+            if (submenuId.isEmpty()) {
+                push(option, top = true, prefix = "", counts = topCounts, emitted = topEmitted)
+                return@forEach
+            }
+            if (!emittedGroups.add(submenuId)) return@forEach
+            val title = names[submenuId]?.takeIf { it.isNotBlank() } ?: submenuId
+            val count = children.count { it.grubSubmenuId == submenuId }
+            rows.add(GrubRow(null, "▸ ${grubOsIcon(title)}$title（$count 项$location）", true))
+            val groupChildren = children.filter { it.grubSubmenuId == submenuId }
+            val counts = grubCollapse(format, groupChildren)
+            val emitted = mutableSetOf<String>()
+            groupChildren.forEach { push(it, top = false, prefix = "", counts, emitted) }
+        }
+        return rows
     }
 
     private fun refindClass(system: String): String = when (system) {
@@ -1971,20 +2074,24 @@ class ComputerListActivity : ComponentActivity() {
     )
 
     /**
-     * 一个可选的引导项。rEFInd 直接用 `label`；GRUB 的文字随格式变，
-     * 原始数据（标题/内核/组名）放在 grub* 字段里，渲染时用 [grubOptionLabel] 现算。
+     * 一个可选的引导项。rEFInd 直接用 `label`；GRUB 只存原料（标题/内核/组 id/
+     * 变体数），界面上的文字按托盘菜单同款规则在 [grubDisplayRows] 里现算，
+     * 切格式档即时生效。
      */
     private data class BootOption(
         val value: String,
         val label: String,
         val kind: String,
-        // —— GRUB 渲染原料（rEFInd 恒为空）——
+        // —— GRUB 渲染原料（rEFInd 恒为空/默认）——
         val grubName: String = "",
         val grubKernels: List<String> = emptyList(),
         /** 父级 submenu 的内部 id（顶层条目为空） */
         val grubSubmenuId: String = "",
-        /** 已翻好的组名（服务端没回 groups 时为空） */
-        val grubGroupName: String = "",
+        /** 解析期折叠进来的同名变体数（老服务端不发，恒为 1） */
+        val grubVariants: Int = 1,
+        val grubChainloader: Boolean = false,
+        /** `--class` 原文（原始/复杂档的行尾附注用） */
+        val grubClassRaw: String = "",
     )
 
     private data class BootGroup(
@@ -1997,8 +2104,16 @@ class ComputerListActivity : ComponentActivity() {
         val note: String,
         /** 服务端自己的格式偏好（/api/grub 的 listFormat，老版本为空） */
         val serverFormat: String = "",
+        /** submenu 内部 id → 组名（老服务端没有 groups 时为空映射） */
+        val grubGroupNames: Map<String, String> = emptyMap(),
+        /** ESP 位置（组头附注用，简易/中等/复杂档带） */
+        val grubEfiDir: String = "",
+        val grubPartuuid: String = "",
         val options: List<BootOption>,
     )
+
+    /** 一行展示项：[option] 为 null 时是组头（不可点），否则是可选项 + 拼好的文字 */
+    private data class GrubRow(val option: BootOption?, val label: String, val isHeader: Boolean)
 
     private data class BootInfo(
         val ok: Boolean,

@@ -4366,7 +4366,7 @@
       btn.title = '电脑离线，引导项不可修改（开机后才可切换）';
     } else {
       const current = String(group.current || '');
-      const hit = (group.options || []).filter(function (o) { return o.value === current; })[0];
+      const hit = (group.options || []).filter(function (o) { return !o.header && o.value === current; })[0];
       label = hit ? hit.label : (current || '未选择');
       kindClass = hit ? hit.class : '';
       usable = (group.options || []).length > 0;
@@ -4444,6 +4444,11 @@
     // 标题带上当前显示格式：一眼能看出后端按哪档生成条目文字（极简=内核短名…）
     const items = [{ head: group.title + ' · ' + grubFmtLabel() + ' · 下次启动' }];
     options.forEach(function (option) {
+      // 组头行（「▸ 组名（N 项…）」）不可选，渲染成小标题 —— 与托盘菜单同构
+      if (option.header) {
+        items.push({ head: option.label });
+        return;
+      }
       items.push({
         label: option.label,
         kind: option.class,

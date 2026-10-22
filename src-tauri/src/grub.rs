@@ -32,12 +32,18 @@ pub const ENV_BLOCK_SIZE: usize = 1024;
 pub const ENV_BLOCK_HEADER: &str = "# GRUB Environment Block\n";
 
 /// grub.cfg 里的一个可启动项。
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+///
+/// 同时支持反序列化：电脑列表（`grub_from_json`）会把 `/api/grub` 的 entries
+/// 直接反序列化回这个类型，好与托盘菜单共用同一套拼装助手（grub_row_label /
+/// grub_collapse）。老版本服务端不发 `variants`（甚至不发 `kernels`），
+/// `serde(default)` 兜住。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GrubEntry {
     /// 写进 grubenv 的值：顶层 = `id`，submenu 内 = `submenu_id>id`。
     pub selector: String,
     /// `--id` 一类标记取到的 id；取不到时等于 `name`（与原始脚本一致）。
+    #[serde(default)]
     pub id: String,
     /// 菜单标题原文。
     pub name: String,
@@ -46,17 +52,20 @@ pub struct GrubEntry {
     /// `--class` 的第一个值，前端用来区分 windows / memtest / os。
     pub class: Option<String>,
     /// 条目体里有 `chainloader`（Windows / OpenCore 这类转交引导）。
+    #[serde(default)]
     pub chainloader: bool,
     /// 条目体里 `linux` 行的内核文件名（去掉路径），用于展示。
+    #[serde(default)]
     pub kernels: Vec<String>,
     /// 折叠进来的**同名变体**数量。
     ///
     /// grub.cfg 里同一组内经常出现标题一模一样、只有 selector 不同的条目
     /// （os-prober 的 memtest86+ 就有 `memtest.bin` / `memtest.efi` 两条；
-    /// 31_efi_bootnext 生成的 `UEFI OS (EFI BootNext)` 也有 0009 / 000A 两条）。
+    /// `31_efi_bootnext` 生成的 `UEFI OS (EFI BootNext)` 也有 0009 / 000A 两条）。
     /// 界面上连着出现两行一样的文字，用户只会当成「重复了」——所以展示时合并成
     /// 一条，这里记下它背后有几个变体（>1 时前端标出来）。
     /// 展示层恒为 1 或更大；后端解析出来的原始条目此字段为 1。
+    #[serde(default)]
     pub variants: usize,
 }
 
