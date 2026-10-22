@@ -229,12 +229,21 @@ fun TrashIcon(tint: Color, size: Dp = 20.dp, modifier: Modifier = Modifier) = Dr
 // 电脑列表页（design/mobile-computer-list.html）用到的图标
 // ----------------------------------------------------------------------
 
-/** ‹ 返回：电脑列表页顶栏 / 各页返回按钮 */
+/** ‹ 返回：各次级页面顶栏 */
 @Composable
 fun ChevronLeftIcon(tint: Color, size: Dp = 20.dp, modifier: Modifier = Modifier) = DrawnIcon(size, tint, modifier) {
     val s = it
     drawLine(tint, Offset(14.5f * s, 5f * s), Offset(8f * s, 12f * s), 1.8f * s, StrokeCap.Round)
     drawLine(tint, Offset(8f * s, 12f * s), Offset(14.5f * s, 19f * s), 1.8f * s, StrokeCap.Round)
+}
+
+/** ☰ 菜单：各主页面左上角呼出抽屉侧边栏（Drawer.kt） */
+@Composable
+fun MenuIcon(tint: Color, size: Dp = 20.dp, modifier: Modifier = Modifier) = DrawnIcon(size, tint, modifier) {
+    val s = it
+    drawLine(tint, Offset(4f * s, 7f * s), Offset(20f * s, 7f * s), 1.8f * s, StrokeCap.Round)
+    drawLine(tint, Offset(4f * s, 12f * s), Offset(20f * s, 12f * s), 1.8f * s, StrokeCap.Round)
+    drawLine(tint, Offset(4f * s, 17f * s), Offset(20f * s, 17f * s), 1.8f * s, StrokeCap.Round)
 }
 
 /** ∨ 展开：引导项按钮右侧的 chevron */

@@ -149,8 +149,6 @@ class MainActivity : ComponentActivity() {
     private var deleteServerTarget by mutableStateOf<ServerProfile?>(null)
     private var serverListOpen by mutableStateOf(false)
     private var transportOpen by mutableStateOf(false)
-    /** 跳板机总数（抽屉「服务器」项的计数徽标；后台读一次就够） */
-    private var jumpCount by mutableIntStateOf(0)
 
     // ---- 电源悬浮球 ----
     /** 有电源请求在飞（球上转圈，防止连点） */
@@ -221,12 +219,6 @@ class MainActivity : ComponentActivity() {
         })
         heartbeat?.tunnelResolver = tunnelResolver
 
-        // 抽屉里的跳板机计数徽标（列表很小，后台读一次即可）
-        Thread {
-            val count = JumpStore.loadJumps(this).size
-            runOnUiThread { jumpCount = count }
-        }.start()
-
         setContent { Root() }
     }
 
@@ -272,7 +264,7 @@ class MainActivity : ComponentActivity() {
                             PowerFab()
                         }
                     }
-                    DrawerOverlay()
+                    if (drawerOpen) AppDrawerOverlay(DRAWER_COMPUTERS) { drawerOpen = false }
                 }
                 editRequest?.let { EditDialog(it) }
                 deleteServerTarget?.let { DeleteServerDialog(it) }
@@ -954,168 +946,6 @@ class MainActivity : ComponentActivity() {
                 TextButton(onClick = { sleepHelpOpen = false }) { Text("知道了") }
             },
         )
-    }
-
-    /**
-     * 抽屉侧边栏（对齐设计稿 drawer 屏）：显示器图标块 + AnyBoot 版本行、
-     * 导航（电脑 / 服务器[计数徽标] / 关于 / 主题）、底部心跳与 GitHub 说明。
-     * 宽 290dp；主题项是设计稿没有的既有功能，保留在导航末尾。
-     */
-    @Composable
-    private fun DrawerOverlay() {
-        val palette = LocalPalette.current
-        val context = LocalContext.current
-        if (!drawerOpen) return
-        // 抽屉宽度自适应：宽屏封顶 290dp（老观感不变），窄窗（分屏/折叠屏/小窗）最多占 85%
-        BoxWithConstraints(Modifier.fillMaxSize()) {
-            val drawerWidth = minOf(290.dp, maxWidth * 0.85f)
-            Box(Modifier.fillMaxSize()) {
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .background(Color(0x55000000))
-                        .clickable { drawerOpen = false }
-                )
-                Column(
-                    Modifier
-                        .fillMaxHeight()
-                        .width(drawerWidth)
-                        .background(palette.card)
-                        .align(Alignment.CenterStart),
-                ) {
-                // 头部：图标块 + 名称/版本
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .drawBehind { drawLine(palette.line, Offset(0f, size.height), Offset(size.width, size.height), 1.dp.toPx()) }
-                        .padding(horizontal = 20.dp, vertical = 28.dp)
-                        .padding(top = 0.dp),
-                ) {
-                    Box(
-                        Modifier
-                            .size(44.dp)
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(palette.accent.copy(alpha = 0.15f)),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        DesktopIcon(palette.accent, 24.dp)
-                    }
-                    Spacer(Modifier.width(12.dp))
-                    Column {
-                        Text("AnyBoot", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = palette.fg)
-                        Text(
-                            "v" + versionLabel() + " · remote",
-                            fontSize = 10.sp,
-                            color = palette.fgFaint,
-                            modifier = Modifier.padding(top = 1.dp),
-                        )
-                    }
-                }
-                // 导航
-                Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(12.dp)) {
-                    DrawerNavRow("🖥", "电脑", iconSlot = { tint, size -> DesktopIcon(tint, size) }) {
-                        drawerOpen = false
-                    }
-                    DrawerNavRow("🎛", "电脑列表", iconSlot = { tint, size ->
-                        ServerStackIcon(tint, size)
-                    }) {
-                        drawerOpen = false
-                        context.startActivity(Intent(context, ComputerListActivity::class.java))
-                    }
-                    DrawerNavRow("🖧", "服务器", badge = jumpCount,
-                        iconSlot = { tint, size -> ServerStackIcon(tint, size) }) {
-                        drawerOpen = false
-                        context.startActivity(Intent(context, ServersActivity::class.java))
-                    }
-                    DrawerNavRow("ⓘ", "关于", iconSlot = { tint, size ->
-                        Icon(Icons.Filled.Info, "关于", tint = tint,
-                            modifier = Modifier.size(size))
-                    }) {
-                        drawerOpen = false
-                        context.startActivity(Intent(context, AboutActivity::class.java))
-                    }
-                    DrawerNavRow("🌓", "主题：" + Ui.modeLabel(this@MainActivity)) {
-                        Ui.cycle(this@MainActivity)
-                        drawerOpen = false
-                        (context as? MainActivity)?.recreate()
-                    }
-                }
-                // 底部说明
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .drawBehind { drawLine(palette.line, Offset(0f, 0f), Offset(size.width, 0f), 1.dp.toPx()) }
-                        .padding(16.dp),
-                ) {
-                    Text(
-                        "心跳 10s · 并发探测\nGitHub · lidiaoo/anyboot",
-                        fontSize = 10.sp,
-                        lineHeight = 16.sp,
-                        color = palette.fgFaint,
-                    )
-                    Text(
-                        "外网连家里的电脑：先把家里能公网访问的机器加成 SSH 服务器，"
-                                + "再在电脑的「经由跳板机」里选它。",
-                        fontSize = 10.sp,
-                        lineHeight = 15.sp,
-                        color = palette.fgFaint,
-                        modifier = Modifier.padding(top = 8.dp),
-                    )
-                }
-            }
-        }
-        }
-    }
-
-    /**
-     * 抽屉导航行：图标 + 文字（服务器行右侧带跳板机计数徽标）。
-     * [iconSlot] 提供自绘线性图标；没提供就用 [icon] 文本（emoji 兜底）。
-     */
-    @Composable
-    private fun DrawerNavRow(
-        icon: String,
-        label: String,
-        badge: Int = -1,
-        iconSlot: (@Composable (Color, androidx.compose.ui.unit.Dp) -> Unit)? = null,
-        onClick: () -> Unit,
-    ) {
-        val palette = LocalPalette.current
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .clickable(onClick = onClick)
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-        ) {
-            if (iconSlot != null) {
-                iconSlot(palette.fgDim, 20.dp)
-            } else {
-                Text(icon, fontSize = 16.sp)
-            }
-            Spacer(Modifier.width(12.dp))
-            Text(label, fontSize = 14.sp, color = palette.fgDim, modifier = Modifier.weight(1f))
-            if (badge >= 0) {
-                Text(
-                    badge.toString(),
-                    fontSize = 10.sp,
-                    color = palette.fgDim,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(999.dp))
-                        .background(palette.elevate)
-                        .padding(horizontal = 8.dp, vertical = 2.dp),
-                )
-            }
-        }
-    }
-
-    private fun versionLabel(): String {
-        return try {
-            packageManager.getPackageInfo(packageName, 0).versionName ?: "1.1"
-        } catch (ignored: Exception) {
-            "1.1"
-        }
     }
 
     // ------------------------------------------------------------------

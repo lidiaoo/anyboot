@@ -117,6 +117,8 @@ class ComputerListActivity : ComponentActivity() {
     private val toasts = mutableStateListOf<CqToast>()
 
     private var refreshing by mutableStateOf(false)
+    /** 左上角 ☰ 呼出的抽屉侧边栏（与电脑页/服务器页共用，见 Drawer.kt） */
+    private var drawerOpen by mutableStateOf(false)
     private var query by mutableStateOf("")
     private var filter by mutableStateOf(FILTER_ALL)
     private var sheetRequest by mutableStateOf<SheetRequest?>(null)
@@ -193,6 +195,7 @@ class ComputerListActivity : ComponentActivity() {
                         }
                     }
                     ToastStack(Modifier.align(Alignment.BottomCenter))
+                    if (drawerOpen) AppDrawerOverlay(DRAWER_COMPUTER_LIST) { drawerOpen = false }
                 }
 
                 sheetRequest?.let { request -> PickSheet(request) }
@@ -216,8 +219,8 @@ class ComputerListActivity : ComponentActivity() {
                     .height(54.dp)
                     .padding(start = 6.dp, end = 8.dp),
             ) {
-                TopBarIcon("返回", { finish() }) {
-                    ChevronLeftIcon(tint = palette.fg, size = 20.dp)
+                TopBarIcon("侧边栏", { drawerOpen = true }) {
+                    MenuIcon(tint = palette.fg, size = 20.dp)
                 }
                 Spacer(Modifier.width(6.dp))
                 Column(Modifier.weight(1f)) {

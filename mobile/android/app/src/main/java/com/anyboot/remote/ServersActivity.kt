@@ -108,6 +108,8 @@ class ServersActivity : ComponentActivity() {
     private val jumps = mutableStateListOf<JumpServer>()
     private val keys = mutableStateListOf<SshKeyEntry>()
     private var currentPage by mutableIntStateOf(0)
+    /** 左上角 ☰ 呼出的抽屉侧边栏（与电脑页/电脑列表共用，见 Drawer.kt） */
+    private var drawerOpen by mutableStateOf(false)
     private val expanded = mutableStateListOf<Boolean>()
     private var search by mutableStateOf("")
     private var tick by mutableIntStateOf(0)   // 会话注册表变化时自增
@@ -198,6 +200,7 @@ class ServersActivity : ComponentActivity() {
                 ActivityResultContracts.OpenDocument()
             ) { uri -> if (uri != null) importKey(uri) }
 
+            Box(Modifier.fillMaxSize()) {
             Column(Modifier.fillMaxSize().background(palette.base)) {
                 // 顶部栏（设计稿：标题 + 计数/状态 pill + ⋮ + FAB；齿轮 = 终端设置）
                 TopBar(importLauncher)
@@ -218,6 +221,9 @@ class ServersActivity : ComponentActivity() {
                 if (currentPage == 2) TransferStatusBar()
 
                 BottomNav()
+            }
+
+            if (drawerOpen) AppDrawerOverlay(DRAWER_SERVERS) { drawerOpen = false }
             }
 
             if (editOpen) EditJumpDialog(editTarget)
@@ -262,7 +268,7 @@ class ServersActivity : ComponentActivity() {
                 .background(palette.base)
                 .padding(start = 4.dp, top = 10.dp, end = 20.dp, bottom = 8.dp),
         ) {
-            BarIcon("‹", "返回") { finish() }
+            BarIcon("☰", "侧边栏") { drawerOpen = true }
             Text(
                 when (currentPage) {
                     1 -> "密钥"; 2 -> "文件"; 3 -> "会话"; 4 -> "传输"; else -> "服务器"
