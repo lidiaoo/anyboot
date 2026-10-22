@@ -970,10 +970,15 @@ class ComputerListActivity : ComponentActivity() {
             }
             dot = ""
         } else {
-            // 置顶行在最前（托盘同款），取它当按钮上的当前值
-            val hit = grubDisplayRows(group).firstOrNull { it.option?.value == group.current }
+            // rEFInd 直接用 label（走 GRUB 拼装会被折叠成「· N 个变体」）；
+            // GRUB 用托盘同款拼装的置顶行当当前值
+            val hit = if (kind == KIND_REFIND) {
+                group.options.firstOrNull { it.value == group.current }
+            } else {
+                grubDisplayRows(group).firstOrNull { it.option?.value == group.current }?.option
+            }
             valueLabel = hit?.label ?: group.current.ifEmpty { "未设置" }
-            dot = hit?.option?.kind ?: "linux"
+            dot = hit?.kind ?: "linux"
         }
 
         val shape = RoundedCornerShape(11.dp)
@@ -1314,7 +1319,14 @@ class ComputerListActivity : ComponentActivity() {
                             grubFormatChips(group)
                             Spacer(Modifier.height(6.dp))
                         }
-                        grubDisplayRows(group).forEach { row ->
+                        // rEFInd 直接列条目（与 PC 端一致）——不能走 GRUB 拼装：rEFInd 只有
+                        // label 没有 grubName/kernels，塞进去会被折叠成一行「· N 个变体」
+                        val rows = if (request.kind == KIND_REFIND) {
+                            group.options.map { GrubRow(it, it.label, false) }
+                        } else {
+                            grubDisplayRows(group)
+                        }
+                        rows.forEach { row ->
                             // 组头行（「▸ 组名（N 项…）」）不可选，渲染成小标题 —— 托盘同构
                             if (row.isHeader) {
                                 Text(
