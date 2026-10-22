@@ -2267,7 +2267,8 @@
     if (name === 'home') pageShow();
     else if (name === 'computers') {
       cqRenderRows();
-      if (invoke && remotes.length && cqBoot.size === 0) cqRefreshBoot();
+      // 每次进来都重读一遍：GRUB 显示格式这类设置改了之后，缓存里的条目文字会过期
+      if (invoke && remotes.length) cqRefreshBoot();
     }
     else if (name === 'sessions') renderSessions();
     else if (name === 'transfers') renderTransfers();

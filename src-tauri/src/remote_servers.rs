@@ -1374,7 +1374,28 @@ fn refind_from_status(value: &serde_json::Value) -> BootGroup {
 }
 
 /// 把 `/api/grub` 的 entries 收成 GRUB 的可选组。
-fn grub_from_json(value: &serde_json::Value) -> BootGroup {
+/// GRUB 条目文字随「列表格式」变 —— 与 `ui/grub-list-view.js`、托盘菜单同一套规则：
+/// * minimal / simple（极简 / 简易）：去前缀内核名（`vmlinuz-linux-cachyos` → `cachyos`）；
+/// * medium（中等）：完整内核名（`vmlinuz-6.8.0-45-generic`）；
+/// * raw / detailed（原始 / 复杂）：菜单标题原文。
+/// 取不到内核时一律退回标题原文（不猜）。
+fn grub_entry_label(format: &str, name: &str, kernels: &[String]) -> String {
+    let kernel = kernels.first().map(|value| value.trim()).unwrap_or("");
+    if kernel.is_empty() {
+        return name.to_string();
+    }
+    match format {
+        "minimal" | "simple" => {
+            let stripped = kernel.strip_prefix("vmlinuz-").unwrap_or(kernel);
+            let stripped = stripped.strip_prefix("linux-").unwrap_or(stripped);
+            stripped.to_string()
+        }
+        "medium" => kernel.to_string(),
+        _ => name.to_string(),
+    }
+}
+
+fn grub_from_json(value: &serde_json::Value, format: &str) -> BootGroup {
     let next = value
         .get("nextEntry")
         .and_then(|item| item.as_str())
@@ -1428,10 +1449,22 @@ fn grub_from_json(value: &serde_json::Value) -> BootGroup {
             .get("chainloader")
             .and_then(|item| item.as_bool())
             .unwrap_or(false);
-        let label = if submenu.is_empty() || name.starts_with(&submenu) {
-            name.clone()
+        let kernels: Vec<String> = entry
+            .get("kernels")
+            .and_then(|item| item.as_array())
+            .map(|list| {
+                list.iter()
+                    .filter_map(|item| item.as_str())
+                    .map(|item| item.to_string())
+                    .collect()
+            })
+            .unwrap_or_default();
+        // 文字按用户设置的 GRUB 列表格式生成（极简看内核短名、中等看完整内核名…）
+        let core = grub_entry_label(format, &name, &kernels);
+        let label = if submenu.is_empty() || core.starts_with(&submenu) {
+            core.clone()
         } else {
-            format!("{submenu} · {name}")
+            format!("{submenu} · {core}")
         };
         options.push(BootOption {
             value: selector.clone(),
@@ -1545,7 +1578,11 @@ fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Result<RemoteB
         }
     }
     match remote_http_json(app, &server, "/api/grub") {
-        Ok(value) => info.grub = grub_from_json(&value),
+        // 条目文字按本机设置里的「GRUB 列表格式」生成（与 GRUB 列表页/托盘菜单一致）
+        Ok(value) => {
+            let format = crate::read_settings_file(app).grub_list_format;
+            info.grub = grub_from_json(&value, &format);
+        }
         Err(error) => {
             info.grub.note = error.clone();
             errors.push(format!("GRUB：{error}"));
@@ -1909,7 +1946,7 @@ mod tests {
                 {"selector": "2", "name": "Windows Boot Manager", "submenu": "", "class": "windows", "chainloader": true}
             ]
         });
-        let group = grub_from_json(&value);
+        let group = grub_from_json(&value, "raw");
         assert!(group.available);
         // nextEntry 为空 → 用 savedEntry 当「下次启动」
         assert_eq!(group.current, "0>1");
@@ -1930,21 +1967,58 @@ mod tests {
                 {"selector": "1>1", "name": "Advanced options for Ubuntu (recovery mode)", "submenu": "Advanced options for Ubuntu", "class": "", "chainloader": false}
             ]
         });
-        let group = grub_from_json(&value);
+        let group = grub_from_json(&value, "raw");
         assert_eq!(group.options[0].label, "Advanced options for Ubuntu · Ubuntu, with Linux 6.8.0");
         assert_eq!(group.options[1].label, "Advanced options for Ubuntu (recovery mode)");
     }
 
     #[test]
+    fn grub_labels_follow_the_configured_list_format() {
+        let value = serde_json::json!({
+            "installed": true,
+            "entries": [
+                {"selector": "0", "name": "CachyOS Linux", "submenu": "", "class": "cachyos",
+                 "chainloader": false, "kernels": ["vmlinuz-linux-cachyos"]},
+                {"selector": "1", "name": "Ubuntu", "submenu": "", "class": "ubuntu",
+                 "chainloader": false, "kernels": ["vmlinuz-6.8.0-45-generic"]}
+            ]
+        });
+        // 极简 / 简易：去掉 vmlinuz- 与 linux- 前缀
+        assert_eq!(grub_from_json(&value, "minimal").options[0].label, "cachyos");
+        assert_eq!(grub_from_json(&value, "simple").options[1].label, "6.8.0-45-generic");
+        // 中等：完整内核名
+        assert_eq!(
+            grub_from_json(&value, "medium").options[1].label,
+            "vmlinuz-6.8.0-45-generic"
+        );
+        // 原始 / 复杂：菜单标题原文
+        assert_eq!(grub_from_json(&value, "raw").options[0].label, "CachyOS Linux");
+        assert_eq!(grub_from_json(&value, "detailed").options[0].label, "CachyOS Linux");
+        // 没有 kernels 时退回标题（不猜）
+        let plain = serde_json::json!({
+            "installed": true,
+            "entries": [
+                {"selector": "0", "name": "Windows Boot Manager", "class": "windows", "chainloader": true}
+            ]
+        });
+        assert_eq!(
+            grub_from_json(&plain, "minimal").options[0].label,
+            "Windows Boot Manager"
+        );
+    }
+
+    #[test]
     fn grub_from_json_without_entries_reports_reason() {
-        let group = grub_from_json(&serde_json::json!({"installed": false, "error": "没找到 grub.cfg"}));
+        let group = grub_from_json(
+            &serde_json::json!({"installed": false, "error": "没找到 grub.cfg"}),
+            "raw",
+        );
         assert!(!group.available);
         assert_eq!(group.note, "没找到 grub.cfg");
     }
 
     #[test]
-    fn boot_option_value_is_url_escaped_on_switch() {
-        // GRUB selector 里的 `>` 与空格必须转义，否则服务端 query 解析会截断
+    fn boot_option_value_is_url_escaped_on_switch() {        // GRUB selector 里的 `>` 与空格必须转义，否则服务端 query 解析会截断
         assert_eq!(encode_query("0>1"), "0%3E1");
         assert_eq!(encode_query("Advanced options"), "Advanced%20options");
     }
