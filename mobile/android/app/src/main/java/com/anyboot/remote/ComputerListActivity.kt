@@ -43,6 +43,8 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -136,6 +138,14 @@ class ComputerListActivity : ComponentActivity() {
     /** 待确认删除的电脑（非空 = 弹确认框）；删除是不可逆的，必须二次确认 */
     private var deleteTarget by mutableStateOf<ServerProfile?>(null)
 
+    // ---- ⋮ 溢出菜单（与电脑页 ⋮ 同一套功能，读写同一份偏好） ----
+    private var moreServerListOpen by mutableStateOf(false)
+    private var moreTransportOpen by mutableStateOf(false)
+    private var moreFailReloadOpen by mutableStateOf(false)
+    private var moreConnectAll by mutableStateOf(false)
+    private var moreTransport by mutableStateOf("auto")
+    private var moreFailReloadSec by mutableStateOf(5)
+
     // ------------------------------------------------------------------
     // 生命周期
     // ------------------------------------------------------------------
@@ -144,6 +154,10 @@ class ComputerListActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         Ui.applySystemBars(this)
         grubFmt = getSharedPreferences(UI_PREFS, MODE_PRIVATE).getString("grubListFormat", "") ?: ""
+        // ⋮ 菜单的三个全局开关初始值（与电脑页读写同一份偏好）
+        moreConnectAll = ServerStore.connectAll(this)
+        moreTransport = ServerStore.transport(this)
+        moreFailReloadSec = getSharedPreferences(UI_PREFS, MODE_PRIVATE).getInt("failReloadSec", 5)
         reloadServers()
         setContent { Root() }
     }
@@ -208,6 +222,9 @@ class ComputerListActivity : ComponentActivity() {
                 sheetRequest?.let { request -> PickSheet(request) }
                 editTarget?.let { profile -> EditSheet(profile) }
                 deleteTarget?.let { profile -> DeleteConfirm(profile) }
+                if (moreServerListOpen) MoreServerListDialog()
+                if (moreTransportOpen) MoreTransportDialog()
+                if (moreFailReloadOpen) MoreFailReloadDialog()
                 ConfirmDialog(bus)
             }
         }
@@ -261,6 +278,7 @@ class ComputerListActivity : ComponentActivity() {
                 TopBarIcon("操作说明", { sheetRequest = SheetRequest("", KIND_HELP) }) {
                     HelpIcon(tint = palette.fgDim, size = 19.dp)
                 }
+                OverflowMenu()
                 Spacer(Modifier.width(2.dp))
             }
 
@@ -311,9 +329,244 @@ class ComputerListActivity : ComponentActivity() {
         }
     }
 
+    /** ⋮ 溢出菜单：与电脑页 ⋮（MainActivity）同一套功能，全局设置读写同一份偏好 */
     @Composable
-    private fun SearchBox() {
+    private fun OverflowMenu() {
         val palette = LocalPalette.current
+        var open by remember { mutableStateOf(false) }
+        Box {
+            TopBarIcon("更多", { open = true }) {
+                Text("⋮", fontSize = 19.sp, color = palette.fgDim)
+            }
+            DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+                DropdownMenuItem(text = { Text("添加服务端") }, onClick = {
+                    open = false
+                    editTarget = ServerProfile()
+                })
+                DropdownMenuItem(text = { Text("编辑当前服务端") }, onClick = {
+                    open = false
+                    val profile = ServerStore.find(servers.toList(), ServerStore.activeId(this@ComputerListActivity))
+                    if (profile == null) toast("电脑页还没有当前电脑 —— 卡片右侧 ⋮ 也能直接编辑")
+                    else editTarget = profile
+                })
+                DropdownMenuItem(text = { Text("服务端列表") }, onClick = {
+                    open = false; moreServerListOpen = true
+                })
+                // 列表页没有「当前页面」可重载：映射为重探电脑页当前那台的在线状态与引导项
+                DropdownMenuItem(text = { Text("重载当前页面") }, onClick = {
+                    open = false
+                    val profile = ServerStore.find(servers.toList(), ServerStore.activeId(this@ComputerListActivity))
+                    if (profile == null) toast("电脑页还没有当前电脑")
+                    else reloadBoot(profile)
+                })
+                DropdownMenuItem(text = { Text("全部重载") }, onClick = {
+                    open = false; refreshAll()
+                })
+                DropdownMenuItem(
+                    text = { Text(if (moreConnectAll) "✓ 启动时连接全部服务端" else "启动时连接全部服务端") },
+                    onClick = {
+                        open = false
+                        moreConnectAll = !moreConnectAll
+                        ServerStore.setConnectAll(this@ComputerListActivity, moreConnectAll)
+                        toast(
+                            if (moreConnectAll) "已开启：启动时把所有服务端一起连上"
+                            else "已关闭：只连当前标签"
+                        )
+                    },
+                )
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            if (moreFailReloadSec > 0) "连不上时自动重载（每 $moreFailReloadSec 秒）"
+                            else "连不上时自动重载（已关闭）"
+                        )
+                    },
+                    onClick = { open = false; moreFailReloadOpen = true },
+                )
+                DropdownMenuItem(text = { Text("传输方式（${transportLabel()}）") }, onClick = {
+                    open = false; moreTransportOpen = true
+                })
+            }
+        }
+    }
+
+    /** 菜单上那一条「传输方式（…）」给人看的说法（与 MainActivity 同一套值） */
+    private fun transportLabel(): String = when (moreTransport) {
+        "ws" -> "推送"
+        "http" -> "轮询"
+        else -> "自动"
+    }
+
+    // ---- ⋮ 菜单的三个弹窗（与 MainActivity 同一套设置，读写同一份偏好） ----
+
+    /** 服务端列表：电脑页那个切换弹窗的列表页版 —— 这里点一台直接进编辑 */
+    @Composable
+    private fun MoreServerListDialog() {
+        val palette = LocalPalette.current
+        AlertDialog(
+            onDismissRequest = { moreServerListOpen = false },
+            containerColor = palette.card,
+            title = { Text("服务端列表（点一台进行编辑）", fontSize = 15.sp, fontWeight = FontWeight.Bold) },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    if (servers.isEmpty()) {
+                        Text("还没有电脑 —— 点「添加服务端」建一条。", fontSize = 13.sp, color = palette.fgDim)
+                    }
+                    servers.forEach { profile ->
+                        Text(
+                            text = "· " + profile.label() + "　" + profile.addressSummary(),
+                            fontSize = 14.sp,
+                            color = palette.fg,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    moreServerListOpen = false
+                                    editTarget = profile
+                                }
+                                .padding(vertical = 10.dp),
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    moreServerListOpen = false
+                    editTarget = ServerProfile()
+                }) { Text("添加") }
+            },
+            dismissButton = {
+                TextButton(onClick = { moreServerListOpen = false }) { Text("关闭") }
+            },
+        )
+    }
+
+    /** 连不上时自动重载的间隔设置（同一偏好：anyboot_ui/failReloadSec，电脑页同步生效） */
+    @Composable
+    private fun MoreFailReloadDialog() {
+        val palette = LocalPalette.current
+        var custom by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { moreFailReloadOpen = false },
+            containerColor = palette.card,
+            title = { Text("连不上时自动重载") },
+            text = {
+                Column {
+                    Text(
+                        "连接失败时每隔一段时间自动重载当前页面（重新探测全部地址）。",
+                        fontSize = 13.sp, color = palette.fgDim,
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    listOf(5, 10, 30, 60, 0).forEach { sec ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            RadioButton(
+                                selected = moreFailReloadSec == sec,
+                                onClick = {
+                                    moreFailReloadSec = sec
+                                    saveMoreFailReloadSec()
+                                },
+                            )
+                            Text(
+                                if (sec == 0) "永不（关闭自动重载）" else "每 $sec 秒",
+                                fontSize = 13.sp, color = palette.fg,
+                            )
+                        }
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(
+                            selected = moreFailReloadSec !in listOf(5, 10, 30, 60, 0),
+                            onClick = { },
+                        )
+                        OutlinedTextField(
+                            value = custom.ifEmpty {
+                                if (moreFailReloadSec in listOf(5, 10, 30, 60, 0)) "" else moreFailReloadSec.toString()
+                            },
+                            onValueChange = { custom = it.filter(Char::isDigit) },
+                            label = { Text("自定义秒数", fontSize = 11.sp) },
+                            singleLine = true,
+                            textStyle = TextStyle(fontSize = 13.sp, color = palette.fg),
+                            modifier = Modifier.weight(1f),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        TextButton(onClick = {
+                            val parsed = custom.toIntOrNull()
+                            if (parsed == null || parsed < 0) {
+                                toast("间隔要是不小于 0 的整数秒")
+                                return@TextButton
+                            }
+                            moreFailReloadSec = parsed
+                            saveMoreFailReloadSec()
+                            moreFailReloadOpen = false
+                        }) { Text("应用") }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { moreFailReloadOpen = false }) { Text("完成") }
+            },
+        )
+    }
+
+    private fun saveMoreFailReloadSec() {
+        getSharedPreferences(UI_PREFS, MODE_PRIVATE).edit().putInt("failReloadSec", moreFailReloadSec).apply()
+        toast(
+            if (moreFailReloadSec > 0) "连不上时每 $moreFailReloadSec 秒自动重载"
+            else "已关闭自动重载"
+        )
+    }
+
+    /** 传输方式（全局）：改完电脑页重载后生效 */
+    @Composable
+    private fun MoreTransportDialog() {
+        val palette = LocalPalette.current
+        val values = listOf("auto", "ws", "http")
+        val labels = listOf(
+            "自动（推送优先，连不上退回轮询）",
+            "推送（WebSocket）",
+            "轮询（HTTP 每 2s）",
+        )
+        AlertDialog(
+            onDismissRequest = { moreTransportOpen = false },
+            containerColor = palette.card,
+            title = { Text("传输方式") },
+            text = {
+                Column {
+                    values.forEachIndexed { index, value ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    moreTransport = value
+                                    ServerStore.setTransport(this@ComputerListActivity, value)
+                                    moreTransportOpen = false
+                                    toast("已选择「${transportLabel()}」：电脑页重载后生效")
+                                }
+                                .padding(vertical = 6.dp),
+                        ) {
+                            RadioButton(selected = moreTransport == value, onClick = {
+                                moreTransport = value
+                                ServerStore.setTransport(this@ComputerListActivity, value)
+                                moreTransportOpen = false
+                                toast("已选择「${transportLabel()}」：电脑页重载后生效")
+                            })
+                            // 最长一条在 14sp 下已接近行宽，系统字体一放大会挤爆，提前上 weight
+                            Text(labels[index], fontSize = 14.sp, color = palette.fg, modifier = Modifier.weight(1f, fill = false))
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { moreTransportOpen = false }) { Text("取消") }
+            },
+        )
+    }
+
+    @Composable
+    private fun SearchBox() {        val palette = LocalPalette.current
         BasicTextField(
             value = query,
             onValueChange = { query = it },
@@ -888,6 +1141,8 @@ class ComputerListActivity : ComponentActivity() {
             return false
         }
         val list = servers.toMutableList()
+        // ⋮「添加服务端」走的是空白新档案：不在列表里就补进去（编辑已有档案时本来就在）
+        if (list.none { it.id == profile.id }) list.add(profile)
         ServerStore.sort(list)
         ServerStore.save(this, list)
         reloadServers()
