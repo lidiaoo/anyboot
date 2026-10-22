@@ -883,7 +883,7 @@
   .rs-list-row .dot { width: 8px; height: 8px; border-radius: 999px; flex: none; }
   .rs-list-row .info { flex: 1; min-width: 0; }
   .rs-list-row .info b { display: block; font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .rs-list-row .info i { font-style: normal; font-size: 11px; color: rgb(var(--fg-faint)); font-family: ui-monospace, Menlo, Consolas, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+  .rs-list-row .info i { font-style: normal; font-size: 11px; color: rgb(var(--fg-faint)); font-family: ui-monospace, Menlo, Consolas, monospace; white-space: normal; word-break: break-all; display: block; }
   .rs-list-row .acts { display: flex; gap: 4px; flex: none; }
 
   /* ============ 电脑页 · 列表视图（按 design/pc-computer-list.html 还原，类名统一 cq-） ============ */
@@ -1544,10 +1544,6 @@
           <button role="menuitem" data-act="list" data-page-node-id="pcMenuList1">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13"/><circle cx="4" cy="6" r="1" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="4" cy="18" r="1" fill="currentColor" stroke="none"/></svg>
             服务端列表
-          </button>
-          <button role="menuitem" data-act="reload" data-page-node-id="pcMenuReload1">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg>
-            重载当前页面
           </button>
           <button role="menuitem" data-act="reloadAll" data-page-node-id="pcMenuReloadAll1">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12a8 8 0 0 1 14-5.3"/><path d="M20 12a8 8 0 0 1-14 5.3"/><path d="M18 2v5h-5M6 22v-5h5"/></svg>
@@ -3993,6 +3989,17 @@
     if (!addr) return '';
     return addr.indexOf(':') >= 0 ? addr : addr + ':12300';
   }
+  /** 全部配置好的地址（没写端口的补默认端口），服务端列表条目要求全部亮出来 */
+  function pcAllAddrs(r) {
+    return (r.addresses || [])
+      .map(function (addr) {
+        const a = String(addr || '').trim();
+        if (!a) return '';
+        return a.indexOf(':') >= 0 ? a : a + ':12300';
+      })
+      .filter(Boolean)
+      .join(' · ');
+  }
   function pcUrl(r) {
     const token = encodeURIComponent(r.token || '');
     if (r.jump_id) {
@@ -5563,13 +5570,6 @@
       else openRsEdit(activeRemote);
     }
     else if (act === 'list') { togglePcMenu(false); openRsList(); }
-    else if (act === 'reload') {
-      togglePcMenu(false);
-      // 两个页面都能重载：电脑页 = 重载当前标签，列表页 = 重载内嵌查看的那台
-      if (currentPage === 'home') pageReloadActive(activeRemote);
-      else if (cqViewRid) pcReloadActive(cqViewRid);
-      else toast('先点某一行的「更多 → 打开页面」，再重载');
-    }
     else if (act === 'reloadAll') {
       togglePcMenu(false);
       pcReloadAll();
@@ -5790,10 +5790,11 @@
       editable: false,
     }));
     remotes.forEach(function (r) {
+      const allAddrs = pcAllAddrs(r);
       rows.appendChild(rsListRow({
         rid: r.id,
         title: pcName(r),
-        sub: (r.group ? r.group + ' · ' : '') + pcFirstAddr(r),
+        sub: (r.group ? r.group + ' · ' : '') + (allAddrs || '(未配地址)'),
         dotColor: 'rgb(var(--fg-faint))',
         editable: true,
       }));

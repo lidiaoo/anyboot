@@ -352,13 +352,6 @@ class ComputerListActivity : ComponentActivity() {
                 DropdownMenuItem(text = { Text("服务端列表") }, onClick = {
                     open = false; moreServerListOpen = true
                 })
-                // 列表页没有「当前页面」可重载：映射为重探电脑页当前那台的在线状态与引导项
-                DropdownMenuItem(text = { Text("重载当前页面") }, onClick = {
-                    open = false
-                    val profile = ServerStore.find(servers.toList(), ServerStore.activeId(this@ComputerListActivity))
-                    if (profile == null) toast("电脑页还没有当前电脑")
-                    else reloadBoot(profile)
-                })
                 DropdownMenuItem(text = { Text("全部重载") }, onClick = {
                     open = false; refreshAll()
                 })
@@ -413,10 +406,8 @@ class ComputerListActivity : ComponentActivity() {
                         Text("还没有电脑 —— 点「添加服务端」建一条。", fontSize = 13.sp, color = palette.fgDim)
                     }
                     servers.forEach { profile ->
-                        Text(
-                            text = "· " + profile.label() + "　" + profile.addressSummary(),
-                            fontSize = 14.sp,
-                            color = palette.fg,
+                        // 用户要求：每个条目把所有配置好的 IP 都亮出来，不再用「另有 N 个地址」摘要
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
@@ -424,7 +415,30 @@ class ComputerListActivity : ComponentActivity() {
                                     editTarget = profile
                                 }
                                 .padding(vertical = 10.dp),
-                        )
+                        ) {
+                            Text(
+                                text = "· " + profile.label(),
+                                fontSize = 14.sp,
+                                color = palette.fg,
+                            )
+                            val count = profile.addressCount()
+                            if (count == 0) {
+                                Text(
+                                    text = "　(未配地址)",
+                                    fontSize = 11.sp,
+                                    color = palette.fgDim,
+                                )
+                            } else {
+                                for (i in 0 until count) {
+                                    Text(
+                                        text = "　" + profile.hostAt(i),
+                                        fontSize = 11.sp,
+                                        color = palette.fgDim,
+                                        fontFamily = FontFamily.Monospace,
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             },
