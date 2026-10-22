@@ -1161,6 +1161,494 @@ fn remote_test_via_blocking(
     }
 }
 
+// ==================== 引导项（rEFInd / GRUB 远程读取与切换） ====================
+
+/// 一个可选的引导项。`value` 是回传给服务端的标识：
+/// rEFInd 用 `system`（linux/windows/macos），GRUB 用 `selector`（可能含空格/`>`）。
+#[derive(Clone, Debug, Serialize, Default, PartialEq)]
+pub struct BootOption {
+    pub value: String,
+    pub label: String,
+    /// 图标分类：mac / win / linux / auto（前端取色点用）
+    pub class: String,
+}
+
+/// 一台电脑上的一种引导管理器（rEFInd 或 GRUB）的现状 + 可选项。
+#[derive(Clone, Debug, Serialize, Default, PartialEq)]
+pub struct BootGroup {
+    /// refind / grub
+    pub kind: String,
+    /// 界面上显示的名字：rEFInd / GRUB
+    pub title: String,
+    /// 这台电脑上是否真的部署了它（false = 显示「未检测到」）
+    pub available: bool,
+    /// 下次启动会进哪个（rEFInd = active 的 system；GRUB = nextEntry，缺省回 savedEntry）
+    pub current: String,
+    /// 下次启动的值（GRUB 独有：与入口菜单里那个「已保存」区分开，用来判断待生效）
+    pub next: String,
+    /// 当前生效/上次生效的值
+    pub saved: String,
+    /// 不可用或读取失败时的说明（前端挂在 title 上）
+    pub note: String,
+    pub options: Vec<BootOption>,
+}
+
+/// 电脑页「引导项」列的数据：一次请求拿齐 rEFInd + GRUB。
+#[derive(Clone, Debug, Serialize, Default, PartialEq)]
+pub struct RemoteBootInfo {
+    pub ok: bool,
+    /// 这台电脑当前探得通吗（离线时两个引导项一律不可改）
+    pub online: bool,
+    /// 探活赢家地址（展示用）
+    pub addr: String,
+    pub error: String,
+    pub refind: BootGroup,
+    pub grub: BootGroup,
+}
+
+/// GRUB 条目名 → 图标分类（纯函数，便于单测）。
+fn grub_class(name: &str, class: &str, chainloader: bool) -> String {
+    let haystack = format!("{name} {class}").to_ascii_lowercase();
+    if haystack.contains("windows") || haystack.contains("win") {
+        return "win".to_string();
+    }
+    if haystack.contains("osx") || haystack.contains("mac") || haystack.contains("apple") {
+        return "mac".to_string();
+    }
+    if chainloader && haystack.contains("efi") {
+        return "auto".to_string();
+    }
+    "linux".to_string()
+}
+
+/// rEFInd 的 system → 图标分类
+fn refind_class(system: &str) -> String {
+    match system {
+        "windows" => "win".to_string(),
+        "macos" => "mac".to_string(),
+        _ => "linux".to_string(),
+    }
+}
+
+/// 这台电脑的 HTTP 端点（直连取首个非空地址；经跳板机复用本地转发）。
+fn server_endpoint(app: &AppHandle, server: &RemoteServer) -> Result<String, String> {
+    if server.jump_id.trim().is_empty() {
+        let address = server
+            .addresses
+            .iter()
+            .map(|raw| raw.trim())
+            .find(|raw| !raw.is_empty())
+            .ok_or_else(|| "这台电脑还没有可用地址".to_string())?;
+        return Ok(with_default_port(address));
+    }
+    let state = app.state::<RemoteJumpState>();
+    let endpoint = remote_endpoint_inner(app, state.inner(), &server.id)?;
+    Ok(format!("{}:{}", endpoint.host, endpoint.port))
+}
+
+/// 对这台电脑发一条 `GET {path}?token=…`，返回解析后的 JSON。
+///
+/// 与 `remote_http_power` 同一套手写 HTTP（不引 reqwest）：局域网场景只需要
+/// 一条短请求，多一个依赖不划算。**必须跑在 spawn_blocking 里** —— 会阻塞在 TCP 上。
+fn remote_http_json(
+    app: &AppHandle,
+    server: &RemoteServer,
+    path: &str,
+) -> Result<serde_json::Value, String> {
+    let target = server_endpoint(app, server)?;
+    let token = server.token.trim();
+    let mut query = String::new();
+    if !token.is_empty() {
+        query.push_str(if path.contains('?') { "&" } else { "?" });
+        query.push_str("token=");
+        query.push_str(&encode_query(token));
+    }
+    let mut stream = TcpStream::connect(&target)
+        .map_err(|error| format!("连接 {target} 失败: {error}"))
+        .and_then(|stream| {
+            stream
+                .set_read_timeout(Some(Duration::from_secs(8)))
+                .map_err(|error| format!("设置读超时失败: {error}"))?;
+            stream
+                .set_write_timeout(Some(Duration::from_secs(4)))
+                .map_err(|error| format!("设置写超时失败: {error}"))?;
+            Ok(stream)
+        })?;
+    let request =
+        format!("GET {path}{query} HTTP/1.1\r\nHost: {target}\r\nConnection: close\r\n\r\n");
+    stream
+        .write_all(request.as_bytes())
+        .map_err(|error| format!("发送请求失败: {error}"))?;
+    let mut raw = Vec::new();
+    stream
+        .read_to_end(&mut raw)
+        .map_err(|error| format!("读取响应失败: {error}"))?;
+    let text = String::from_utf8_lossy(&raw);
+    let status = text
+        .split_whitespace()
+        .nth(1)
+        .and_then(|code| code.parse::<u16>().ok())
+        .unwrap_or(0);
+    let body = match text.find("\r\n\r\n") {
+        Some(index) => text[index + 4..].to_string(),
+        None => String::new(),
+    };
+    if status == 401 {
+        return Err("这台电脑不认这个 token（401）—— 到「编辑」里核对访问令牌".to_string());
+    }
+    if status == 0 {
+        return Err("这台电脑的响应不是有效的 HTTP".to_string());
+    }
+    let value: serde_json::Value = serde_json::from_str(body.trim())
+        .map_err(|error| format!("这台电脑返回的不是合法 JSON（{status}）：{error}"))?;
+    if status >= 400 {
+        let message = value
+            .get("message")
+            .and_then(|item| item.as_str())
+            .unwrap_or("请求被拒绝");
+        return Err(message.to_string());
+    }
+    Ok(value)
+}
+
+/// 把 `/api/status` 的 variables 收成 rEFInd 的可选组。
+fn refind_from_status(value: &serde_json::Value) -> BootGroup {
+    let mut options = Vec::new();
+    let mut current = String::new();
+    for variable in value
+        .get("variables")
+        .and_then(|item| item.as_array())
+        .map(|list| list.as_slice())
+        .unwrap_or_default()
+    {
+        let exists = variable
+            .get("exists")
+            .and_then(|item| item.as_bool())
+            .unwrap_or(false);
+        if !exists {
+            continue;
+        }
+        let system = variable
+            .get("system")
+            .and_then(|item| item.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        if system.is_empty() {
+            continue;
+        }
+        let label = variable
+            .get("displayName")
+            .and_then(|item| item.as_str())
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .unwrap_or(&system)
+            .to_string();
+        let active = variable
+            .get("active")
+            .and_then(|item| item.as_bool())
+            .unwrap_or(false);
+        if active {
+            current = system.clone();
+        }
+        options.push(BootOption {
+            value: system.clone(),
+            label,
+            class: refind_class(&system),
+        });
+    }
+    BootGroup {
+        kind: "refind".to_string(),
+        title: "rEFInd".to_string(),
+        available: !options.is_empty(),
+        current: current.clone(),
+        next: current.clone(),
+        saved: current,
+        note: if options.is_empty() {
+            "这台电脑没部署 rEFInd（或还没设置过下次启动项）".to_string()
+        } else {
+            String::new()
+        },
+        options,
+    }
+}
+
+/// 把 `/api/grub` 的 entries 收成 GRUB 的可选组。
+fn grub_from_json(value: &serde_json::Value) -> BootGroup {
+    let next = value
+        .get("nextEntry")
+        .and_then(|item| item.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let saved = value
+        .get("savedEntry")
+        .and_then(|item| item.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let installed = value
+        .get("installed")
+        .and_then(|item| item.as_bool())
+        .unwrap_or(false);
+    let mut options = Vec::new();
+    for entry in value
+        .get("entries")
+        .and_then(|item| item.as_array())
+        .map(|list| list.as_slice())
+        .unwrap_or_default()
+    {
+        let selector = entry
+            .get("selector")
+            .and_then(|item| item.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        if selector.is_empty() {
+            continue;
+        }
+        let name = entry
+            .get("name")
+            .and_then(|item| item.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        let submenu = entry
+            .get("submenu")
+            .and_then(|item| item.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        let class = entry
+            .get("class")
+            .and_then(|item| item.as_str())
+            .unwrap_or("")
+            .to_string();
+        let chainloader = entry
+            .get("chainloader")
+            .and_then(|item| item.as_bool())
+            .unwrap_or(false);
+        let label = if submenu.is_empty() || name.starts_with(&submenu) {
+            name.clone()
+        } else {
+            format!("{submenu} · {name}")
+        };
+        options.push(BootOption {
+            value: selector.clone(),
+            label: if label.is_empty() {
+                selector.clone()
+            } else {
+                label
+            },
+            class: grub_class(&name, &class, chainloader),
+        });
+    }
+    let note = if options.is_empty() {
+        let raw = value
+            .get("error")
+            .and_then(|item| item.as_str())
+            .unwrap_or("")
+            .trim();
+        if raw.is_empty() {
+            "这台电脑没部署 GRUB（或还没同步 grub.cfg）".to_string()
+        } else {
+            raw.to_string()
+        }
+    } else {
+        String::new()
+    };
+    BootGroup {
+        kind: "grub".to_string(),
+        title: "GRUB".to_string(),
+        available: installed || !options.is_empty(),
+        current: if next.is_empty() {
+            saved.clone()
+        } else {
+            next.clone()
+        },
+        next,
+        saved,
+        note,
+        options,
+    }
+}
+
+/// 电脑页「引导项」列：读这台电脑的 rEFInd 与 GRUB 现状。
+///
+/// **必须 async + spawn_blocking**：探活 + 两次 HTTP 都要等网络。
+#[tauri::command]
+pub async fn remote_boot_info(
+    app: AppHandle,
+    server_id: String,
+) -> Result<RemoteBootInfo, String> {
+    tauri::async_runtime::spawn_blocking(move || remote_boot_info_blocking(&app, &server_id))
+        .await
+        .map_err(|error| format!("读取引导项任务失败：{error}"))?
+}
+
+fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Result<RemoteBootInfo, String> {
+    let server = load_store(app)?
+        .servers
+        .into_iter()
+        .find(|candidate| candidate.id == server_id)
+        .ok_or_else(|| format!("这台电脑不存在（可能已被删除）：{server_id}"))?;
+    let mut info = RemoteBootInfo {
+        refind: BootGroup {
+            kind: "refind".to_string(),
+            title: "rEFInd".to_string(),
+            ..Default::default()
+        },
+        grub: BootGroup {
+            kind: "grub".to_string(),
+            title: "GRUB".to_string(),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    // 先探活：离线时没必要再发两条注定超时的请求（等待体验差 3 倍）
+    let probe_addr = server
+        .addresses
+        .iter()
+        .map(|raw| raw.trim())
+        .find(|raw| !raw.is_empty())
+        .unwrap_or("")
+        .to_string();
+    let probe = if probe_addr.is_empty() {
+        Err("这台电脑还没有可用地址".to_string())
+    } else if server.jump_id.trim().is_empty() {
+        probe_health(&probe_addr, PROBE_TIMEOUT)
+    } else {
+        let state = app.state::<RemoteJumpState>();
+        let endpoint = remote_endpoint_inner(app, state.inner(), server_id)?;
+        probe_health(&format!("{}:{}", endpoint.host, endpoint.port), PROBE_TIMEOUT)
+    };
+    match probe {
+        Ok(_) => {
+            info.online = true;
+            info.addr = probe_addr;
+        }
+        Err(error) => {
+            info.online = false;
+            info.error = error;
+            info.refind.note = "电脑离线，无法读取引导项".to_string();
+            info.grub.note = "电脑离线，无法读取引导项".to_string();
+            return Ok(info);
+        }
+    }
+    // 两个接口各自失败互不影响：一边能读就先把那边显示出来
+    let mut errors: Vec<String> = Vec::new();
+    match remote_http_json(app, &server, "/api/status") {
+        Ok(value) => info.refind = refind_from_status(&value),
+        Err(error) => {
+            info.refind.note = error.clone();
+            errors.push(format!("rEFInd：{error}"));
+        }
+    }
+    match remote_http_json(app, &server, "/api/grub") {
+        Ok(value) => info.grub = grub_from_json(&value),
+        Err(error) => {
+            info.grub.note = error.clone();
+            errors.push(format!("GRUB：{error}"));
+        }
+    }
+    info.ok = errors.len() < 2;
+    if !errors.is_empty() {
+        info.error = errors.join("；");
+    }
+    Ok(info)
+}
+
+/// 切换引导项：rEFInd 走 `/api/switch?system=`，GRUB 走 `/api/grub-switch?entry=`。
+///
+/// **必须 async + spawn_blocking**：同上（等网络）。
+#[tauri::command]
+pub async fn remote_boot_switch(
+    app: AppHandle,
+    server_id: String,
+    kind: String,
+    value: String,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        remote_boot_switch_blocking(&app, &server_id, &kind, &value)
+    })
+    .await
+    .map_err(|error| format!("切换引导项任务失败：{error}"))?
+}
+
+fn remote_boot_switch_blocking(
+    app: &AppHandle,
+    server_id: &str,
+    kind: &str,
+    value: &str,
+) -> Result<String, String> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Err("没有选择引导项".to_string());
+    }
+    let server = load_store(app)?
+        .servers
+        .into_iter()
+        .find(|candidate| candidate.id == server_id)
+        .ok_or_else(|| format!("这台电脑不存在（可能已被删除）：{server_id}"))?;
+    let path = match kind.trim() {
+        // system 只有 linux/windows/macos 三个值，不需要转义
+        "refind" => {
+            if !crate::SOURCE_FILES
+                .iter()
+                .any(|(system, _, _)| *system == value)
+            {
+                return Err(format!("未知的系统：{value}"));
+            }
+            format!("/api/switch?system={value}")
+        }
+        // selector 里可能有空格、`>`、引号 —— 必须转义
+        "grub" => format!("/api/grub-switch?entry={}", encode_query(value)),
+        other => return Err(format!("未知的引导管理器：{other}")),
+    };
+    let reply = remote_http_json(app, &server, &path)?;
+    // 命令通道的回执：{ok, pending, channel, message}
+    if let Some(message) = reply
+        .get("message")
+        .and_then(|item| item.as_str())
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+    {
+        return Ok(message.to_string());
+    }
+    let ok = reply.get("ok").and_then(|item| item.as_bool()).unwrap_or(true);
+    if !ok {
+        return Err(reply
+            .get("error")
+            .and_then(|item| item.as_str())
+            .unwrap_or("这台电脑拒绝了这次切换")
+            .to_string());
+    }
+    Ok(format!("已提交切换：{value}"))
+}
+
+/// 用系统浏览器打开这台电脑的 AnyBoot 页面。
+///
+/// 为什么不让前端 `window.open`：hub 是 Tauri webview，`window.open` 只会开出
+/// 一个新的 webview（还带着 tauri:// 的源），行为随平台不一致；电源页那种
+/// 「用系统浏览器打开」的语义必须落到 `open_url_in_browser` 上。
+/// 只放行 http/https —— 别让任意 scheme 穿过命令边界。
+#[tauri::command]
+pub fn remote_open_page(url: String) -> Result<(), String> {
+    let url = url.trim();
+    if url.is_empty() {
+        return Err("地址是空的".to_string());
+    }
+    let lower = url.to_ascii_lowercase();
+    if !(lower.starts_with("http://") || lower.starts_with("https://")) {
+        return Err(format!("只支持 http/https 地址：{url}"));
+    }
+    // 空白/控制字符会把 URL 拼坏（也会让 ShellExecuteW 收到半截命令）
+    if url.chars().any(|item| item.is_whitespace() || item.is_control()) {
+        return Err("地址里不能有空白或控制字符".to_string());
+    }
+    crate::open_url_in_browser(url)
+}
+
 /// 关于页：打开项目 GitHub 页面（白名单限定本项目域名，不开放任意 URL）。
 #[tauri::command]
 pub fn hub_about_open(page: String) -> Result<(), String> {
@@ -1364,5 +1852,100 @@ mod tests {
         let result = remote_test_blocking(vec![" ".into()], "parallel".into());
         assert!(!result.ok);
         assert_eq!(result.error, "没有可探测的地址");
+    }
+
+    #[test]
+    fn grub_class_prefers_windows_then_mac() {
+        assert_eq!(grub_class("Windows Boot Manager", "windows", true), "win");
+        // Ubuntu 里带 win 字样的自定义条目（"Windows 11 (on /dev/nvme0n1p1)"）
+        assert_eq!(grub_class("Windows 11 (on /dev/nvme0n1p1)", "", false), "win");
+        assert_eq!(grub_class("macOS Sequoia", "osx", true), "mac");
+        assert_eq!(grub_class("Apple Recovery", "", false), "mac");
+        assert_eq!(grub_class("Ubuntu", "ubuntu", false), "linux");
+        assert_eq!(grub_class("UEFI Firmware Settings", "", true), "auto");
+    }
+
+    #[test]
+    fn refind_from_status_picks_active_and_skips_missing() {
+        let value = serde_json::json!({
+            "ok": true,
+            "variables": [
+                {"system": "linux", "displayName": "Ubuntu 24.04 LTS", "exists": true, "active": false},
+                {"system": "windows", "displayName": "", "exists": true, "active": true},
+                // exists=false 的变量不该出现在下拉里（那台系统没装）
+                {"system": "macos", "displayName": "macOS Sequoia", "exists": false, "active": false}
+            ]
+        });
+        let group = refind_from_status(&value);
+        assert!(group.available);
+        assert_eq!(group.kind, "refind");
+        assert_eq!(group.current, "windows");
+        assert_eq!(group.options.len(), 2);
+        // displayName 为空时退回 system，不能出空标签
+        assert_eq!(group.options[1].label, "windows");
+        assert_eq!(group.options[1].class, "win");
+        assert!(group.note.is_empty());
+    }
+
+    #[test]
+    fn refind_from_status_all_missing_is_unavailable() {
+        let group = refind_from_status(&serde_json::json!({"variables": [
+            {"system": "linux", "exists": false, "active": false}
+        ]}));
+        assert!(!group.available);
+        assert!(group.options.is_empty());
+        assert!(group.note.contains("没部署"));
+    }
+
+    #[test]
+    fn grub_from_json_escapes_nothing_but_keeps_selector_verbatim() {
+        let value = serde_json::json!({
+            "installed": true,
+            "savedEntry": "0>1",
+            "nextEntry": "",
+            "entries": [
+                {"selector": "0", "name": "Ubuntu", "submenu": "", "class": "ubuntu", "chainloader": false},
+                {"selector": "0>1", "name": "Advanced options for Ubuntu", "submenu": "", "class": "", "chainloader": false},
+                {"selector": "2", "name": "Windows Boot Manager", "submenu": "", "class": "windows", "chainloader": true}
+            ]
+        });
+        let group = grub_from_json(&value);
+        assert!(group.available);
+        // nextEntry 为空 → 用 savedEntry 当「下次启动」
+        assert_eq!(group.current, "0>1");
+        assert_eq!(group.next, "");
+        assert_eq!(group.saved, "0>1");
+        // selector 原样保留（含 `>`，切换时要转义但不能被改写）
+        assert_eq!(group.options[1].value, "0>1");
+        assert_eq!(group.options[2].class, "win");
+    }
+
+    #[test]
+    fn grub_from_json_submenu_prefixes_label_once() {
+        let value = serde_json::json!({
+            "installed": true,
+            "entries": [
+                {"selector": "1>0", "name": "Ubuntu, with Linux 6.8.0", "submenu": "Advanced options for Ubuntu", "class": "", "chainloader": false},
+                // name 已经以 submenu 开头时不重复拼
+                {"selector": "1>1", "name": "Advanced options for Ubuntu (recovery mode)", "submenu": "Advanced options for Ubuntu", "class": "", "chainloader": false}
+            ]
+        });
+        let group = grub_from_json(&value);
+        assert_eq!(group.options[0].label, "Advanced options for Ubuntu · Ubuntu, with Linux 6.8.0");
+        assert_eq!(group.options[1].label, "Advanced options for Ubuntu (recovery mode)");
+    }
+
+    #[test]
+    fn grub_from_json_without_entries_reports_reason() {
+        let group = grub_from_json(&serde_json::json!({"installed": false, "error": "没找到 grub.cfg"}));
+        assert!(!group.available);
+        assert_eq!(group.note, "没找到 grub.cfg");
+    }
+
+    #[test]
+    fn boot_option_value_is_url_escaped_on_switch() {
+        // GRUB selector 里的 `>` 与空格必须转义，否则服务端 query 解析会截断
+        assert_eq!(encode_query("0>1"), "0%3E1");
+        assert_eq!(encode_query("Advanced options"), "Advanced%20options");
     }
 }

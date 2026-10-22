@@ -224,3 +224,144 @@ fun TrashIcon(tint: Color, size: Dp = 20.dp, modifier: Modifier = Modifier) = Dr
     }
     drawPath(body, tint, style = Stroke(1.8f * s, cap = StrokeCap.Round))
 }
+
+// ----------------------------------------------------------------------
+// 电脑列表页（design/mobile-computer-list.html）用到的图标
+// ----------------------------------------------------------------------
+
+/** ‹ 返回：电脑列表页顶栏 / 各页返回按钮 */
+@Composable
+fun ChevronLeftIcon(tint: Color, size: Dp = 20.dp, modifier: Modifier = Modifier) = DrawnIcon(size, tint, modifier) {
+    val s = it
+    drawLine(tint, Offset(14.5f * s, 5f * s), Offset(8f * s, 12f * s), 1.8f * s, StrokeCap.Round)
+    drawLine(tint, Offset(8f * s, 12f * s), Offset(14.5f * s, 19f * s), 1.8f * s, StrokeCap.Round)
+}
+
+/** ∨ 展开：引导项按钮右侧的 chevron */
+@Composable
+fun ChevronDownIcon(tint: Color, size: Dp = 20.dp, modifier: Modifier = Modifier) = DrawnIcon(size, tint, modifier) {
+    val s = it
+    drawLine(tint, Offset(6f * s, 9.5f * s), Offset(12f * s, 15.5f * s), 1.8f * s, StrokeCap.Round)
+    drawLine(tint, Offset(12f * s, 15.5f * s), Offset(18f * s, 9.5f * s), 1.8f * s, StrokeCap.Round)
+}
+
+/** 放大镜：搜索框前置图标 */
+@Composable
+fun SearchIcon(tint: Color, size: Dp = 20.dp, modifier: Modifier = Modifier) = DrawnIcon(size, tint, modifier) {
+    val s = it
+    drawCircle(tint, radius = 6f * s, center = Offset(10.5f * s, 10.5f * s), style = pen(s))
+    drawLine(tint, Offset(15f * s, 15f * s), Offset(20f * s, 20f * s), 1.8f * s, StrokeCap.Round)
+}
+
+/** ⟳ 刷新（弧 + 箭头）：顶栏刷新键，转起来表示正在探测 */
+@Composable
+fun RefreshIcon(tint: Color, size: Dp = 20.dp, modifier: Modifier = Modifier) = DrawnIcon(size, tint, modifier) {
+    val s = it
+    drawArc(
+        tint, startAngle = -55f, sweepAngle = 305f, useCenter = false,
+        topLeft = Offset(3.5f * s, 3.5f * s), size = Size(17f * s, 17f * s), style = pen(s),
+    )
+    drawLine(tint, Offset(20.5f * s, 3.5f * s), Offset(20.5f * s, 8.6f * s), 1.8f * s, StrokeCap.Round)
+    drawLine(tint, Offset(20.5f * s, 8.6f * s), Offset(15.4f * s, 8.6f * s), 1.8f * s, StrokeCap.Round)
+}
+
+/** ? 帮助：顶栏帮助键（打开操作说明 sheet） */
+@Composable
+fun HelpIcon(tint: Color, size: Dp = 20.dp, modifier: Modifier = Modifier) = DrawnIcon(size, tint, modifier) {
+    val s = it
+    drawCircle(tint, radius = 9f * s, center = Offset(12f * s, 12f * s), style = pen(s))
+    drawArc(
+        tint, startAngle = 165f, sweepAngle = 215f, useCenter = false,
+        topLeft = Offset(8.6f * s, 6.6f * s), size = Size(6.8f * s, 6.6f * s), style = pen(s),
+    )
+    drawLine(tint, Offset(12f * s, 13.4f * s), Offset(12f * s, 15.2f * s), 1.8f * s, StrokeCap.Round)
+    drawCircle(tint, radius = 0.95f * s, center = Offset(12f * s, 18f * s))
+}
+
+/** ⋮ 更多：卡片右上角的操作菜单入口 */
+@Composable
+fun MoreIcon(tint: Color, size: Dp = 20.dp, modifier: Modifier = Modifier) = DrawnIcon(size, tint, modifier) {
+    val s = it
+    drawCircle(tint, radius = 1.15f * s, center = Offset(12f * s, 5.5f * s))
+    drawCircle(tint, radius = 1.15f * s, center = Offset(12f * s, 12f * s))
+    drawCircle(tint, radius = 1.15f * s, center = Offset(12f * s, 18.5f * s))
+}
+
+/** ⚡ 开机（唤醒）：电源四键之一 */
+@Composable
+fun PowerIcon(tint: Color, size: Dp = 20.dp, modifier: Modifier = Modifier) = DrawnIcon(size, tint, modifier) {
+    val s = it
+    val path = Path().apply {
+        moveTo(13f * s, 2f * s)
+        lineTo(4.5f * s, 13.5f * s)
+        lineTo(11f * s, 13.5f * s)
+        lineTo(10f * s, 22f * s)
+        lineTo(19.5f * s, 10f * s)
+        lineTo(13f * s, 10f * s)
+        close()
+    }
+    drawPath(path, tint, style = Stroke(1.8f * s, cap = StrokeCap.Round))
+}
+
+/** 月亮：睡眠 */
+@Composable
+fun MoonIcon(tint: Color, size: Dp = 20.dp, modifier: Modifier = Modifier) = DrawnIcon(size, tint, modifier) {
+    val s = it
+    val path = Path().apply {
+        moveTo(12.5f * s, 3f * s)
+        // 大圆弧：从 (12.5,3) 绕到 (12.6,21)，右侧被矢量切掉的那块
+        cubicTo(6.2f * s, 3.6f * s, 2.6f * s, 9.6f * s, 5.2f * s, 15.2f * s)
+        cubicTo(7.6f * s, 20.4f * s, 14.4f * s, 21.4f * s, 18.4f * s, 17.4f * s)
+        cubicTo(13.4f * s, 17.6f * s, 8.6f * s, 12.2f * s, 12.5f * s, 3f * s)
+        close()
+    }
+    drawPath(path, tint, style = Stroke(1.8f * s, cap = StrokeCap.Round))
+}
+
+/** ↻ 重启：弧 + 箭头（与刷新同形，语义不同，独立函数便于以后区分） */
+@Composable
+fun RestartIcon(tint: Color, size: Dp = 20.dp, modifier: Modifier = Modifier) = DrawnIcon(size, tint, modifier) {
+    val s = it
+    drawArc(
+        tint, startAngle = -20f, sweepAngle = 300f, useCenter = false,
+        topLeft = Offset(3.5f * s, 3.5f * s), size = Size(17f * s, 17f * s), style = pen(s),
+    )
+    drawLine(tint, Offset(20.5f * s, 2.6f * s), Offset(20.5f * s, 8.2f * s), 1.8f * s, StrokeCap.Round)
+    drawLine(tint, Offset(20.5f * s, 8.2f * s), Offset(15.4f * s, 8.2f * s), 1.8f * s, StrokeCap.Round)
+}
+
+/** ⏻ 关机：电源符号 */
+@Composable
+fun PowerOffIcon(tint: Color, size: Dp = 20.dp, modifier: Modifier = Modifier) = DrawnIcon(size, tint, modifier) {
+    val s = it
+    drawLine(tint, Offset(12f * s, 3f * s), Offset(12f * s, 12.2f * s), 1.8f * s, StrokeCap.Round)
+    drawArc(
+        tint, startAngle = -60f, sweepAngle = 300f, useCenter = false,
+        topLeft = Offset(3.5f * s, 4.2f * s), size = Size(17f * s, 17f * s), style = pen(s),
+    )
+}
+
+/** ✓ 勾：底部选择器里的「当前选中」标记 / toast 前缀 */
+@Composable
+fun CheckIcon(tint: Color, size: Dp = 20.dp, modifier: Modifier = Modifier) = DrawnIcon(size, tint, modifier) {
+    val s = it
+    drawLine(tint, Offset(4.5f * s, 12.6f * s), Offset(9.6f * s, 17.6f * s), 1.8f * s, StrokeCap.Round)
+    drawLine(tint, Offset(9.6f * s, 17.6f * s), Offset(19.5f * s, 6.2f * s), 1.8f * s, StrokeCap.Round)
+}
+
+/** ✕ 关闭：sheet 右上角 */
+@Composable
+fun CloseIcon(tint: Color, size: Dp = 20.dp, modifier: Modifier = Modifier) = DrawnIcon(size, tint, modifier) {
+    val s = it
+    drawLine(tint, Offset(6f * s, 6f * s), Offset(18f * s, 18f * s), 1.8f * s, StrokeCap.Round)
+    drawLine(tint, Offset(18f * s, 6f * s), Offset(6f * s, 18f * s), 1.8f * s, StrokeCap.Round)
+}
+
+/** ⓘ 提示：待生效提示条前缀（描边版，比 material 的实心圆更贴设计稿） */
+@Composable
+fun InfoIcon(tint: Color, size: Dp = 20.dp, modifier: Modifier = Modifier) = DrawnIcon(size, tint, modifier) {
+    val s = it
+    drawCircle(tint, radius = 9f * s, center = Offset(12f * s, 12f * s), style = pen(s))
+    drawLine(tint, Offset(12f * s, 11f * s), Offset(12f * s, 16.6f * s), 1.8f * s, StrokeCap.Round)
+    drawCircle(tint, radius = 0.95f * s, center = Offset(12f * s, 7.8f * s))
+}

@@ -2729,7 +2729,10 @@ pub fn run() {
             remote_servers::remote_power,
             remote_servers::remote_endpoint,
             remote_servers::remote_test_via,
+            remote_servers::remote_boot_info,
+            remote_servers::remote_boot_switch,
             remote_servers::local_http_endpoint,
+            remote_servers::remote_open_page,
             remote_servers::hub_about_open,
             hub::hub_list_servers,
             // hub 独立窗的页面心跳（白框判据，见 hub_health.rs）

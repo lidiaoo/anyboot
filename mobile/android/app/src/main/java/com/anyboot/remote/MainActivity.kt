@@ -983,6 +983,12 @@ class MainActivity : ComponentActivity() {
                     DrawerNavRow("🖥", "电脑", iconSlot = { tint, size -> DesktopIcon(tint, size) }) {
                         drawerOpen = false
                     }
+                    DrawerNavRow("🎛", "电脑列表", iconSlot = { tint, size ->
+                        ServerStackIcon(tint, size)
+                    }) {
+                        drawerOpen = false
+                        context.startActivity(Intent(context, ComputerListActivity::class.java))
+                    }
                     DrawerNavRow("🖧", "服务器", badge = jumpCount,
                         iconSlot = { tint, size -> ServerStackIcon(tint, size) }) {
                         drawerOpen = false
