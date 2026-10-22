@@ -53,10 +53,26 @@ final class ServerProfile {
     static final String POWER_SHUTDOWN = "shutdown";
     static final String POWER_SLEEP = "sleep";
 
-    /** 多网卡探测：并发（默认）—— 同探所有地址取延迟最低 */
-    static final String PROBE_PARALLEL = "parallel";
+    /** 多网卡探测：并发（首个）—— 每地址一个线程同探，任一响应立即胜出，其余作废 */
+    static final String PROBE_PARALLEL_FIRST = "parallel_first";
+    /** 多网卡探测：并发（全部）—— 等全部地址探完，逐行报成败与耗时，选最快的成功者 */
+    static final String PROBE_PARALLEL_ALL = "parallel_all";
     /** 多网卡探测：串行 —— 按地址顺序逐个探，第一个通的用之 */
     static final String PROBE_SERIAL = "serial";
+    /** 旧值兼容：parallel = 并发（首个） */
+    static final String PROBE_PARALLEL = PROBE_PARALLEL_FIRST;
+
+    /** 探测模式归一：serial / parallel_all 之外（含旧 parallel、空值）一律并发（首个） */
+    static String normalizeProbeMode(String raw) {
+        String value = text(raw);
+        if (value.equals(PROBE_SERIAL)) {
+            return PROBE_SERIAL;
+        }
+        if (value.equals(PROBE_PARALLEL_ALL)) {
+            return PROBE_PARALLEL_ALL;
+        }
+        return PROBE_PARALLEL_FIRST;
+    }
 
     String id;
     /** 分组名（用来区分不同的电脑）；空串表示「未分组」 */
@@ -706,7 +722,7 @@ final class ServerProfile {
         object.put("token", text(token));
         object.put("machineId", text(machineId));
         object.put("machineName", text(machineName));
-        object.put("probeMode", text(probeMode).isEmpty() ? PROBE_PARALLEL : probeMode);
+        object.put("probeMode", normalizeProbeMode(probeMode));
         object.put("jumpServerId", text(jumpServerId));
         return object;
     }
@@ -754,9 +770,8 @@ final class ServerProfile {
         profile.token = object.optString("token", "");
         profile.machineId = object.optString("machineId", "");
         profile.machineName = object.optString("machineName", "");
-        // 只认两个值，其余（含缺失 / 拼错）一律回落到并发
-        profile.probeMode = PROBE_SERIAL.equals(object.optString("probeMode", ""))
-                ? PROBE_SERIAL : PROBE_PARALLEL;
+        // 只认三个值，其余（含缺失 / 拼错 / 旧 parallel）一律回落到并发（首个）
+        profile.probeMode = normalizeProbeMode(object.optString("probeMode", ""));
         profile.jumpServerId = object.optString("jumpServerId", "");
         JSONArray routeArray = object.optJSONArray("powerRoutes");
         if (routeArray != null) {

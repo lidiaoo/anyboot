@@ -183,6 +183,17 @@ async function pollUiStateOnce() {
 
 /// 手动刷新（横幅的「刷新」/ 手机上下拉）：立刻抓一份快照，不等下一拍。
 ///
+/// 手机 App（WebView UA 带 AnyBootRemote）里，刷新 = 交给原生层整页重载
+/// （重新探测该电脑全部候选地址，换 IP 也能跟上 —— 只刷数据救不了换 IP）；
+/// 普通浏览器没有原生层，维持原地数据刷新。
+function reloadViaAppOrRefresh() {
+  if (/AnyBootRemote\//.test(navigator.userAgent)) {
+    location.href = "anyboot://reload";
+    return;
+  }
+  refreshNow();
+}
+
 /// 推送通道正常时这个按钮基本用不上，但它是**兜底**：推送连着、界面却看着不对
 /// （比如某一拍被丢帧、或用户在另一台设备上刚改完），下拉一下立刻对齐。
 async function refreshNow({ silent = false } = {}) {
@@ -2706,7 +2717,7 @@ function renderBrowserBanner() {
     refresh.type = "button";
     refresh.className = "banner-link";
     refresh.textContent = "刷新";
-    refresh.addEventListener("click", () => refreshNow());
+    refresh.addEventListener("click", () => reloadViaAppOrRefresh());
     // 传输方式：推送优先还是轮询
     browserBanner.append("　", refresh, "　", buildTransportSelect());
     // 给个退路：换 token / 断开重连
@@ -2842,7 +2853,7 @@ function installPullToRefresh() {
       const trigger = distance >= THRESHOLD;
       reset();
       if (trigger) {
-        refreshNow();
+        reloadViaAppOrRefresh();
       }
     },
     { passive: true },

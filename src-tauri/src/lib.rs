@@ -2725,6 +2725,7 @@ pub fn run() {
             remote_servers::remote_delete,
             remote_servers::remote_set_connect_all,
             remote_servers::remote_test,
+            remote_servers::remote_promote_address,
             remote_servers::remote_power,
             remote_servers::remote_endpoint,
             remote_servers::remote_test_via,

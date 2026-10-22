@@ -14,6 +14,8 @@ use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager};
 
@@ -74,8 +76,17 @@ pub struct RemoteStore {
     pub servers: Vec<RemoteServer>,
 }
 
-/// remote_test 的结果（按探测模式选中的那一条；全挂时 ok=false 带首个错误）
+/// 单个地址的探测结果（results 列表用：每个候选地址一条，成败与耗时都在）
 #[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct ProbeOutcome {
+    pub address: String,
+    pub ok: bool,
+    pub ms: u64,
+    pub error: String,
+}
+
+/// remote_test 的结果：addr/ms 是选中的赢家；results 是全部候选地址的逐行结果
+#[derive(Clone, Debug, Default, Serialize, PartialEq)]
 pub struct RemoteTestResult {
     pub ok: bool,
     pub addr: String,
@@ -83,6 +94,8 @@ pub struct RemoteTestResult {
     pub machine_id: String,
     pub machine_name: String,
     pub error: String,
+    #[serde(default)]
+    pub results: Vec<ProbeOutcome>,
 }
 
 impl RemoteServer {
@@ -96,7 +109,9 @@ impl RemoteServer {
         self.jump_id = self.jump_id.trim().to_string();
         self.probe_mode = match self.probe_mode.as_str() {
             "serial" => "serial".to_string(),
-            _ => "parallel".to_string(),
+            "parallel_all" => "parallel_all".to_string(),
+            // parallel_first 是默认；旧值 parallel 与空值都归到它（兼容老配置）
+            _ => "parallel_first".to_string(),
         };
         // 地址逐条归一：挖 URL 形态里的 token 与裸地址；trim、去空、去重（保序）
         let mut token_from_url: Option<String> = None;
@@ -712,6 +727,29 @@ pub async fn remote_delete(app: AppHandle, id: String) -> Result<(), String> {
         .map_err(|error| format!("删除服务端任务失败: {error}"))?
 }
 
+/// 把探测成功的地址提到候选列表最前并落盘（下次 iframe / 页面加载优先用它）。
+/// 地址本来就在首位时是空操作。
+#[tauri::command]
+pub fn remote_promote_address(
+    app: AppHandle,
+    server_id: String,
+    address: String,
+) -> Result<(), String> {
+    let mut store = load_store(&app)?;
+    let Some(server) = store.servers.iter_mut().find(|s| s.id == server_id) else {
+        return Err("服务端不存在（可能已被删除）".to_string());
+    };
+    let Some(index) = server.addresses.iter().position(|a| *a == address) else {
+        return Err(format!("地址 {address} 不在这台服务端的候选列表里"));
+    };
+    if index > 0 {
+        let picked = server.addresses.remove(index);
+        server.addresses.insert(0, picked);
+        save_store(&app, &store)?;
+    }
+    Ok(())
+}
+
 fn remote_delete_blocking(app: AppHandle, id: String) -> Result<(), String> {
     let state = app.state::<RemoteJumpState>();
     kill_forward(state.inner(), &id);
@@ -732,24 +770,35 @@ pub fn remote_set_connect_all(app: AppHandle, on: bool) -> Result<(), String> {
     save_store(&app, &store)
 }
 
-/// 探测一台电脑：并发模式 = 所有地址同时探取最快成功；串行 = 按顺序第一个成功。
-/// `GET /health` 免鉴权，token 参数仅保证签名对齐（后续健康检查可能带）。
-/// **必须 async + spawn_blocking**：内部要 join 并发探测线程 / 等 TCP 超时。
+/// 探测模式归一：serial（按顺序）/ parallel_all（并发等全部）/ parallel_first
+/// （并发取首个成功；旧值 parallel 与空值都算它）
+pub(crate) fn normalize_probe_mode(mode: &str) -> &'static str {
+    match mode.trim() {
+        "serial" => "serial",
+        "parallel_all" => "parallel_all",
+        _ => "parallel_first",
+    }
+}
+
+/// 探测一台电脑的所有候选地址。三种模式：
+/// - **并发（首个）**：每个地址一个线程，**任一响应立即胜出**（done 旗标），
+///   其余线程探完作废 —— 用户要的是「最快哪个能用」；
+/// - **并发（全部）**：等全部线程结束，取最快的成功者，逐行结果随 results 返回；
+/// - **串行**：按顺序逐个试，第一个成功就停。
+/// results 里每个候选地址一条（成败 + 耗时），前端逐行展示。
+/// `GET /health` 免鉴权。**必须 async + spawn_blocking**：要 join 并发线程 / 等 TCP 超时。
 #[tauri::command]
 pub async fn remote_test(addresses: Vec<String>, probe_mode: String) -> RemoteTestResult {
     tauri::async_runtime::spawn_blocking(move || remote_test_blocking(addresses, probe_mode))
         .await
         .unwrap_or_else(|error| RemoteTestResult {
-            ok: false,
-            addr: String::new(),
-            ms: 0,
-            machine_id: String::new(),
-            machine_name: String::new(),
             error: format!("探测任务失败: {error}"),
+            ..Default::default()
         })
 }
 
 fn remote_test_blocking(addresses: Vec<String>, probe_mode: String) -> RemoteTestResult {
+    let mode = normalize_probe_mode(&probe_mode);
     let candidates: Vec<String> = addresses
         .iter()
         .filter_map(|raw| {
@@ -763,92 +812,129 @@ fn remote_test_blocking(addresses: Vec<String>, probe_mode: String) -> RemoteTes
         .collect();
     if candidates.is_empty() {
         return RemoteTestResult {
-            ok: false,
-            addr: String::new(),
-            ms: 0,
-            machine_id: String::new(),
-            machine_name: String::new(),
             error: "没有可探测的地址".to_string(),
+            ..Default::default()
         };
     }
-    let serial = probe_mode == "serial";
+
+    let mut results: Vec<ProbeOutcome> = Vec::new();
     let mut best: Option<RemoteTestResult> = None;
-    let mut first_error = String::new();
-    if serial {
+    if mode == "serial" {
+        // 串行：按顺序逐个试，第一个成功就停（剩下的地址不探）
         for addr in &candidates {
             match probe_health(addr, PROBE_TIMEOUT) {
                 Ok((ms, machine_id, machine_name)) => {
+                    results.push(ProbeOutcome {
+                        address: addr.clone(),
+                        ok: true,
+                        ms,
+                        error: String::new(),
+                    });
                     best = Some(RemoteTestResult {
                         ok: true,
                         addr: addr.clone(),
                         ms,
                         machine_id,
                         machine_name,
-                        error: String::new(),
+                        ..Default::default()
                     });
                     break;
                 }
-                Err(error) => {
-                    if first_error.is_empty() {
-                        first_error = error;
-                    }
-                }
+                Err(error) => results.push(ProbeOutcome {
+                    address: addr.clone(),
+                    ok: false,
+                    ms: 0,
+                    error,
+                }),
             }
         }
     } else {
-        // 并发探全部地址，取最快成功（对齐手机「并发探测（推荐）」）
-        let handles: Vec<_> = candidates
-            .iter()
-            .map(|addr| {
-                let addr = addr.clone();
-                std::thread::spawn(move || (addr.clone(), probe_health(&addr, PROBE_TIMEOUT)))
-            })
-            .collect();
-        let mut results = Vec::new();
+        // 并发：每个地址一个线程。首个 = 谁先成功谁赢（done 旗标，后到的成功作废）；
+        // 全部 = 等所有线程结束，取最快的成功者。
+        let first_only = mode == "parallel_first";
+        let done = Arc::new(AtomicBool::new(false));
+        let winner: Arc<Mutex<Option<RemoteTestResult>>> = Arc::new(Mutex::new(None));
+        let outcomes: Arc<Mutex<Vec<ProbeOutcome>>> = Arc::new(Mutex::new(Vec::new()));
+        let mut handles = Vec::new();
+        for addr in &candidates {
+            let addr = addr.clone();
+            let (done, winner, outcomes) =
+                (Arc::clone(&done), Arc::clone(&winner), Arc::clone(&outcomes));
+            handles.push(std::thread::spawn(move || {
+                if first_only && done.load(Ordering::Relaxed) {
+                    return; // 已经有赢家：不再白探（在途的等它自己超时收尾）
+                }
+                let outcome = match probe_health(&addr, PROBE_TIMEOUT) {
+                    Ok((ms, machine_id, machine_name)) => {
+                        if first_only {
+                            if !done.swap(true, Ordering::SeqCst) {
+                                *winner.lock().unwrap() = Some(RemoteTestResult {
+                                    ok: true,
+                                    addr: addr.clone(),
+                                    ms,
+                                    machine_id,
+                                    machine_name,
+                                    ..Default::default()
+                                });
+                            }
+                        } else {
+                            let mut guard = winner.lock().unwrap();
+                            let better = match guard.as_ref() {
+                                Some(current) => ms < current.ms,
+                                None => true,
+                            };
+                            if better {
+                                *guard = Some(RemoteTestResult {
+                                    ok: true,
+                                    addr: addr.clone(),
+                                    ms,
+                                    machine_id,
+                                    machine_name,
+                                    ..Default::default()
+                                });
+                            }
+                        }
+                        ProbeOutcome {
+                            address: addr.clone(),
+                            ok: true,
+                            ms,
+                            error: String::new(),
+                        }
+                    }
+                    Err(error) => ProbeOutcome {
+                        address: addr.clone(),
+                        ok: false,
+                        ms: 0,
+                        error,
+                    },
+                };
+                outcomes.lock().unwrap().push(outcome);
+            }));
+        }
         for handle in handles {
-            if let Ok((addr, result)) = handle.join() {
-                results.push((addr, result));
-            }
+            let _ = handle.join();
         }
-        for (addr, result) in results {
-            match result {
-                Ok((ms, machine_id, machine_name)) => {
-                    let candidate = RemoteTestResult {
-                        ok: true,
-                        addr,
-                        ms,
-                        machine_id,
-                        machine_name,
-                        error: String::new(),
-                    };
-                    let better = match &best {
-                        Some(current) => candidate.ms < current.ms,
-                        None => true,
-                    };
-                    if better {
-                        best = Some(candidate);
-                    }
-                }
-                Err(error) => {
-                    if first_error.is_empty() {
-                        first_error = error;
-                    }
-                }
-            }
-        }
+        results = outcomes.lock().unwrap().clone();
+        // 按候选顺序排回，方便用户逐行对照地址表
+        results.sort_by_key(|o| {
+            candidates
+                .iter()
+                .position(|a| *a == o.address)
+                .unwrap_or(usize::MAX)
+        });
+        best = winner.lock().unwrap().clone();
     }
-    best.unwrap_or(RemoteTestResult {
-        ok: false,
-        addr: String::new(),
-        ms: 0,
-        machine_id: String::new(),
-        machine_name: String::new(),
-        error: if first_error.is_empty() {
-            "全部地址都连不上".to_string()
-        } else {
-            first_error
-        },
-    })
+    let mut final_result = best.unwrap_or(RemoteTestResult {
+        error: results
+            .iter()
+            .find(|o| !o.error.is_empty())
+            .map(|o| o.error.clone())
+            .unwrap_or_else(|| "全部地址都连不上".to_string()),
+        ..Default::default()
+    });
+    // 逐行结果无条件带回：前端并发（全部）模式要逐行展示每个地址的成败
+    final_result.results = results;
+    final_result
 }
 
 // ==================== 经跳板机连接远端 AnyBoot ====================
@@ -1024,12 +1110,8 @@ pub async fn remote_test_via(app: AppHandle, server_id: String) -> RemoteTestRes
     })
     .await
     .unwrap_or_else(|error| RemoteTestResult {
-        ok: false,
-        addr: String::new(),
-        ms: 0,
-        machine_id: String::new(),
-        machine_name: String::new(),
         error: format!("探测任务失败: {error}"),
+        ..Default::default()
     })
 }
 
@@ -1042,12 +1124,8 @@ fn remote_test_via_blocking(
         Ok(ep) => ep,
         Err(error) => {
             return RemoteTestResult {
-                ok: false,
-                addr: String::new(),
-                ms: 0,
-                machine_id: String::new(),
-                machine_name: String::new(),
                 error,
+                ..Default::default()
             }
         }
     };
@@ -1058,15 +1136,11 @@ fn remote_test_via_blocking(
             ms,
             machine_id,
             machine_name,
-            error: String::new(),
+            ..Default::default()
         },
         Err(error) => RemoteTestResult {
-            ok: false,
-            addr: String::new(),
-            ms: 0,
-            machine_id: String::new(),
-            machine_name: String::new(),
             error,
+            ..Default::default()
         },
     }
 }
@@ -1156,8 +1230,49 @@ mod tests {
         assert_eq!(normalized.addresses, vec!["192.168.0.120:12300", "192.168.0.121:12300"]);
         // URL 里的 token 被挖出补进 token（原 token 为空时）
         assert_eq!(normalized.token, "abc");
-        assert_eq!(normalized.probe_mode, "parallel");
+        // 旧值 / 未知 probe_mode 一律归一为并发（首个）
+        assert_eq!(normalized.probe_mode, "parallel_first");
         assert_eq!(normalized.jump_id, "j1");
+    }
+
+    /// 三种探测模式的语义：并发首个 = 最快胜出；并发全部 = 逐行全报；
+    /// 串行 = 按顺序第一个通的胜出。用一个真 /health 监听 + 一个死端口验证。
+    #[test]
+    fn probe_modes_pick_live_address_and_report_every_candidate() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("监听回环");
+        let port = listener.local_addr().expect("本地地址").port();
+        std::thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                let mut stream = stream;
+                let mut buffer = [0u8; 512];
+                let _ = std::io::Read::read(&mut stream, &mut buffer);
+                let body = "{\"ok\":true,\"machineId\":\"m1\",\"machineName\":\"测试机\"}";
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = std::io::Write::write_all(&mut stream, response.as_bytes());
+            }
+        });
+        let live = format!("127.0.0.1:{port}");
+        let dead = "127.0.0.1:1".to_string(); // 端口 1 上不会有服务
+
+        // 并发（全部）：逐行两条都在，赢家是活的那个
+        let all = remote_test_blocking(vec![dead.clone(), live.clone()], "parallel_all".into());
+        assert!(all.ok, "并发全部应探到活的地址");
+        assert_eq!(all.addr, live);
+        assert_eq!(all.results.len(), 2);
+        assert!(all.results.iter().any(|o| o.address == dead && !o.ok));
+        assert!(all.results.iter().any(|o| o.address == live && o.ok));
+
+        // 并发（首个）：赢家也是活的（死的那个直接失败出局）
+        let first = remote_test_blocking(vec![dead.clone(), live.clone()], "parallel_first".into());
+        assert!(first.ok && first.addr == live);
+
+        // 串行：先死后活，第一个成功的胜出
+        let serial = remote_test_blocking(vec![dead, live.clone()], "serial".into());
+        assert!(serial.ok && serial.addr == live);
     }
 
     #[test]

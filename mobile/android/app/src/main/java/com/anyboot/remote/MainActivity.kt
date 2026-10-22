@@ -17,10 +17,12 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -71,6 +73,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
@@ -83,7 +86,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.DialogProperties
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * 编辑弹窗里的一个地址条目：地址 + 这块（这几块）网卡的 MAC。
@@ -106,6 +115,8 @@ class MainActivity : ComponentActivity() {
         private const val STATUS_LOADING = 1
         private const val STATUS_OK = 2
         private const val STATUS_FAIL = 3
+        /** 界面偏好（自动重载间隔这类小开关）的 SharedPreferences 名 */
+        private const val UI_PREFS = "anyboot_ui"
     }
 
     /** 一台电脑的运行时状态（WebView 懒创建：没点过的标签不占内存） */
@@ -143,10 +154,13 @@ class MainActivity : ComponentActivity() {
     // ---- 电源悬浮球 ----
     /** 有电源请求在飞（球上转圈，防止连点） */
     private var powerBusy by mutableStateOf(false)
-    /** 待二次确认的动作（reboot / shutdown / sleep） */
-    private var powerConfirm by mutableStateOf<String?>(null)
     /** 睡眠旁的 ? 说明 */
     private var sleepHelpOpen by mutableStateOf(false)
+
+    // ---- 连不上时定时自动重载 ----
+    /** 间隔秒数；0 = 永不。默认 5 秒，设置入口在 ⋮ 溢出菜单 */
+    private var failReloadSec by mutableStateOf(5)
+    private var failReloadOpen by mutableStateOf(false)
 
     // ---- 非 UI 状态（WebView 指令式管理，同旧实现） ----
     private val tabs = LinkedHashMap<String, Tab>()
@@ -171,6 +185,7 @@ class MainActivity : ComponentActivity() {
         connectAll = ServerStore.connectAll(this)
         transport = ServerStore.transport(this)
         activeId = ServerStore.activeId(this)
+        failReloadSec = getSharedPreferences(UI_PREFS, MODE_PRIVATE).getInt("failReloadSec", 5)
         firstRunPending = servers.isEmpty()
 
         heartbeat = HeartbeatManager({ ArrayList(servers) }, object : HeartbeatManager.Listener {
@@ -220,6 +235,9 @@ class MainActivity : ComponentActivity() {
                                 )
                             }
                             errorInfo?.let { info -> ErrorPanel(info) }
+                            // 悬浮刷新：半透明常驻（50%），点一下 = 重载当前页面
+                            //（多地址先按探测模式比一遍，赢家直接上 —— 换 IP 也能跟上）
+                            RefreshFab()
                             PowerFab()
                         }
                     }
@@ -229,7 +247,7 @@ class MainActivity : ComponentActivity() {
                 deleteServerTarget?.let { DeleteServerDialog(it) }
                 if (serverListOpen) ServerListDialog()
                 if (transportOpen) TransportDialog()
-                powerConfirm?.let { action -> PowerConfirmDialog(action) }
+                if (failReloadOpen) FailReloadDialog()
                 if (sleepHelpOpen) SleepHelpDialog()
                 ConfirmDialog(bus)
         }
@@ -247,6 +265,17 @@ class MainActivity : ComponentActivity() {
             }
             activate(activeId)
             if (connectAll) connectAllServers()
+        }
+
+        // 连不上时定时自动重载：失败面板挂着就按间隔重试（0 = 永不）。
+        // reloadActive 会清掉 errorInfo，本 effect 随之重启 —— 失败重现就再计时。
+        LaunchedEffect(errorInfo, failReloadSec) {
+            if (errorInfo == null || failReloadSec <= 0) return@LaunchedEffect
+            delay(failReloadSec * 1000L)
+            if (errorInfo != null) {
+                toast("连接失败，自动重载中…")
+                reloadActive()
+            }
         }
 
         // WebView 自己能退就让它退（弹窗、页内路由），退不动再交给系统
@@ -376,6 +405,17 @@ class MainActivity : ComponentActivity() {
                         else "已关闭：只连当前标签")
                     },
                 )
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            if (failReloadSec > 0) "连不上时自动重载（每 $failReloadSec 秒）"
+                            else "连不上时自动重载（已关闭）"
+                        )
+                    },
+                    onClick = {
+                        open = false; failReloadOpen = true
+                    },
+                )
                 DropdownMenuItem(text = { Text("传输方式（${transportLabel()}）") }, onClick = {
                     open = false; transportOpen = true
                 })
@@ -404,6 +444,13 @@ class MainActivity : ComponentActivity() {
                 color = palette.fgDim,
                 modifier = Modifier.padding(vertical = 12.dp),
             )
+            Text(
+                text = if (failReloadSec > 0) "每 $failReloadSec 秒自动重试（⋮ 里可改）"
+                else "自动重试已关闭（⋮ 里可改）",
+                fontSize = 11.sp,
+                color = palette.fgFaint,
+            )
+            Spacer(Modifier.height(10.dp))
             Button(onClick = { reloadActive() }) { Text("重试") }
             Spacer(Modifier.height(8.dp))
             OutlinedButton(onClick = {
@@ -471,15 +518,15 @@ class MainActivity : ComponentActivity() {
                         powerHint(profile, ServerProfile.POWER_SLEEP, "挂起到内存"),
                     ) {
                         expanded = false
-                        powerConfirm = ServerProfile.POWER_SLEEP
+                        runPowerAction(profile, ServerProfile.POWER_SLEEP)
                     }
                     PowerChip("关机", powerHint(profile, ServerProfile.POWER_SHUTDOWN, "")) {
                         expanded = false
-                        powerConfirm = ServerProfile.POWER_SHUTDOWN
+                        runPowerAction(profile, ServerProfile.POWER_SHUTDOWN)
                     }
                     PowerChip("重启", powerHint(profile, ServerProfile.POWER_REBOOT, "")) {
                         expanded = false
-                        powerConfirm = ServerProfile.POWER_REBOOT
+                        runPowerAction(profile, ServerProfile.POWER_REBOOT)
                     }
                 }
                 Box(
@@ -709,35 +756,99 @@ class MainActivity : ComponentActivity() {
         }, "anyboot-power").start()
     }
 
-    /** 重启 / 关机 / 睡眠的二次确认（这三个都会让这台电脑失联） */
+    /** 悬浮刷新按钮：50% 透明度常驻左下角，点一下 = 重载当前页面（先探测全部地址） */
     @Composable
-    private fun PowerConfirmDialog(action: String) {
+    private fun BoxScope.RefreshFab() {
         val palette = LocalPalette.current
-        val label = PowerOps.label(action)
-        val detail = when (action) {
-            PowerOps.SLEEP ->
-                "电脑会挂起到内存、网页服务立刻停掉：这个标签会显示离线，页面也打不开 —— " + "这是正常的。要叫醒它请点悬浮球里的「唤醒」（需要配好 MAC 并开启网络唤醒）。"
-            PowerOps.SHUTDOWN ->
-                "电脑会立刻关机，网页服务随之中断。关机后只能用「唤醒」开机（需要配好 MAC 并开启网络唤醒），" + "或到机器旁边按电源键。"
-            else ->
-                "电脑会立刻重启，网页会话会断开；重启完成后心跳会自动恢复在线。"
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(start = 16.dp, bottom = 16.dp)
+                .size(44.dp)
+                .alpha(0.5f)
+                .clip(CircleShape)
+                .background(palette.elevate)
+                .border(1.dp, palette.line, CircleShape)
+                .clickable { reloadActive() },
+        ) {
+            Text("⟳", fontSize = 20.sp, color = palette.fg)
         }
+    }
+
+    /** 连不上时自动重载的间隔设置（⋮ 溢出菜单里打开） */
+    @Composable
+    private fun FailReloadDialog() {
+        val palette = LocalPalette.current
+        var custom by remember { mutableStateOf("") }
         AlertDialog(
-            onDismissRequest = { powerConfirm = null },
-            title = { Text("确认${label}这台电脑？") },
-            text = { Text(detail, fontSize = 14.sp, color = palette.fgDim) },
-            confirmButton = {
-                TextButton(onClick = {
-                    val profile = ServerStore.find(servers, activeId)
-                    powerConfirm = null
-                    if (profile != null) {
-                        runPowerAction(profile, action)
+            onDismissRequest = { failReloadOpen = false },
+            title = { Text("连不上时自动重载") },
+            text = {
+                Column {
+                    Text(
+                        "连接失败时每隔一段时间自动重载当前页面（重新探测全部地址）。",
+                        fontSize = 13.sp, color = palette.fgDim,
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    listOf(5, 10, 30, 60, 0).forEach { sec ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            RadioButton(
+                                selected = failReloadSec == sec,
+                                onClick = {
+                                    failReloadSec = sec
+                                    saveFailReloadSec()
+                                },
+                            )
+                            Text(
+                                if (sec == 0) "永不（关闭自动重载）" else "每 $sec 秒",
+                                fontSize = 13.sp, color = palette.fg,
+                            )
+                        }
                     }
-                }) { Text(label, color = palette.bad) }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(
+                            selected = failReloadSec !in listOf(5, 10, 30, 60, 0),
+                            onClick = { },
+                        )
+                        OutlinedTextField(
+                            value = custom.ifEmpty {
+                                if (failReloadSec in listOf(5, 10, 30, 60, 0)) "" else failReloadSec.toString()
+                            },
+                            onValueChange = { custom = it.filter(Char::isDigit) },
+                            label = { Text("自定义秒数", fontSize = 11.sp) },
+                            singleLine = true,
+                            textStyle = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        TextButton(onClick = {
+                            val parsed = custom.toIntOrNull()
+                            if (parsed == null || parsed < 0) {
+                                toast("间隔要是不小于 0 的整数秒")
+                                return@TextButton
+                            }
+                            failReloadSec = parsed
+                            saveFailReloadSec()
+                            failReloadOpen = false
+                        }) { Text("应用") }
+                    }
+                }
             },
-            dismissButton = {
-                TextButton(onClick = { powerConfirm = null }) { Text("取消") }
+            confirmButton = {
+                TextButton(onClick = { failReloadOpen = false }) { Text("完成") }
             },
+        )
+    }
+
+    private fun saveFailReloadSec() {
+        getSharedPreferences(UI_PREFS, MODE_PRIVATE).edit().putInt("failReloadSec", failReloadSec).apply()
+        toast(
+            if (failReloadSec > 0) "连不上时每 $failReloadSec 秒自动重载"
+            else "已关闭自动重载"
         )
     }
 
@@ -751,7 +862,15 @@ class MainActivity : ComponentActivity() {
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
                     Text(
-                        "睡眠 = 内存不断电（挂起到内存）：几乎立刻能醒，但任何网络服务都停了。" + "所以点完「睡眠」这个标签会变离线、页面打不开，这是预期的。",
+                        "电源按钮点了**立即执行**，不再弹确认框 —— 各动作的后果都在这里：",
+                        fontSize = 13.sp, color = palette.fg,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "· 睡眠 = 挂起到内存：几乎立刻能醒，但网络服务全停 —— 这个标签会显示离线、页面打不开，这是预期的。叫醒请点「唤醒」（需配好 MAC 并开启网络唤醒）；\n" +
+                            "· 关机：电脑立刻关机，网页服务随之中断 —— 之后只能用「唤醒」开机（需配好 MAC），或到机器旁按电源键；\n" +
+                            "· 重启：电脑立刻重启，网页会话断开 —— 重启完成后心跳会自动恢复在线；\n" +
+                            "· 唤醒：发魔术包让电脑开机，需配好 MAC 并在主板开启网络唤醒。",
                         fontSize = 13.sp, color = palette.fgDim,
                     )
                     Spacer(Modifier.height(10.dp))
@@ -985,8 +1104,11 @@ class MainActivity : ComponentActivity() {
             )
         }
         var jumpOpen by remember { mutableStateOf(false) }
-        var serialProbe by remember(request) {
-            mutableStateOf(editing && ServerProfile.PROBE_SERIAL == profile?.probeMode)
+        var probeMode by remember(request) {
+            mutableStateOf(
+                if (editing) ServerProfile.normalizeProbeMode(profile?.probeMode ?: "")
+                else ServerProfile.PROBE_PARALLEL_FIRST
+            )
         }
         // 局域网电源路由：编辑中的副本（增删都改这份），点「保存」才写回 profile
         val routeList = remember(request) {
@@ -1489,24 +1611,42 @@ class MainActivity : ComponentActivity() {
                     }) { Text("+ 添加一条路由", fontSize = 13.sp) }
                     FieldLabel("多网卡探测（有多个地址时怎么探）")
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(selected = !serialProbe, onClick = { serialProbe = false })
-                        // 只给较长的那条加 weight，且 fill = false：文字按自身宽度排版，
-                        // 放不下时最多被压到分配宽度内换行，绝不会把整行撑爆。
-                        // 两条都加 weight 会平分宽度，反而把长的那条挤成两行。
+                        RadioButton(
+                            selected = probeMode == ServerProfile.PROBE_PARALLEL_FIRST,
+                            onClick = { probeMode = ServerProfile.PROBE_PARALLEL_FIRST }
+                        )
                         Text(
-                            "并发探测（推荐）",
+                            "并发·首个",
                             fontSize = 13.sp, color = palette.fg,
                             modifier = Modifier.weight(1f, fill = false),
                         )
-                        Spacer(Modifier.width(12.dp))
-                        RadioButton(selected = serialProbe, onClick = { serialProbe = true })
-                        Text("串行探测", fontSize = 13.sp, color = palette.fg)
+                        Spacer(Modifier.width(10.dp))
+                        RadioButton(
+                            selected = probeMode == ServerProfile.PROBE_PARALLEL_ALL,
+                            onClick = { probeMode = ServerProfile.PROBE_PARALLEL_ALL }
+                        )
+                        Text(
+                            "并发·全部",
+                            fontSize = 13.sp, color = palette.fg,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        RadioButton(
+                            selected = probeMode == ServerProfile.PROBE_SERIAL,
+                            onClick = { probeMode = ServerProfile.PROBE_SERIAL }
+                        )
+                        Text("串行", fontSize = 13.sp, color = palette.fg)
                     }
+                    Text(
+                        "并发·首个：每地址一个线程，任一响应立即用它；并发·全部：等全部探完，逐行报成败；串行：按顺序试，第一个通就停",
+                        fontSize = 10.sp, color = palette.fgFaint,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
                 }
             },
             confirmButton = {
                 TextButton(onClick = {
-                    if (saveServer(request, group, name, addressEntries.toList(), token, pastedRaw, serialProbe, jumpIndex, jumps, routeList)) {
+                    if (saveServer(request, group, name, addressEntries.toList(), token, pastedRaw, probeMode, jumpIndex, jumps, routeList)) {
                         editRequest = null
                     }
                 }) { Text("保存") }
@@ -1539,7 +1679,7 @@ class MainActivity : ComponentActivity() {
         addresses: List<AddrEntry>,
         token: String,
         pastedRaw: String,
-        serialProbe: Boolean,
+        probeMode: String,
         jumpIndex: Int,
         jumps: List<JumpServer>,
         routes: List<ServerProfile.PowerRoute>,
@@ -1586,8 +1726,7 @@ class MainActivity : ComponentActivity() {
         target.group = group.trim()
         target.name = name.trim().ifEmpty { target.host() }
         target.token = tokenValue
-        target.probeMode =
-            if (serialProbe) ServerProfile.PROBE_SERIAL else ServerProfile.PROBE_PARALLEL
+        target.probeMode = ServerProfile.normalizeProbeMode(probeMode)
         target.jumpServerId = if (jumpIndex <= 0) "" else jumps[jumpIndex - 1].id
         // 局域网电源路由：以弹窗里的这份为准（空 = 没配，走老路）
         target.powerRoutes.clear()
@@ -1913,10 +2052,133 @@ class MainActivity : ComponentActivity() {
         startAttempt(ensureTab(profile))
     }
 
-    /** 重新开始一轮地址尝试：清掉「已试过」名单，从当前地址再来（还能继续往后换） */
+    /** 单个地址的探测结果 */
+    private class ProbeOutcome(val address: String, val ok: Boolean, val ms: Long)
+
+    /** 探测一轮的结果：逐地址结果表 + 选中的赢家（连接用它） */
+    private class ProbeResult(val outcomes: List<ProbeOutcome>, val winnerAddress: String?)
+
+    /**
+     * 按档案的探测模式探所有候选地址（后台线程调用）。三个模式：
+     * - **并发（首个）**：每地址一个线程，任一响应立即胜出（done 旗标），其余作废；
+     * - **并发（全部）**：等全部线程结束，赢家 = 最快的成功者，逐行结果全带回去；
+     * - **串行**：按顺序第一个通就停。
+     * 单地址 / 跳板机不探：交给 WebView 加载链路自己兜。
+     */
+    private fun probeAddresses(profile: ServerProfile): ProbeResult {
+        val addresses = profile.addresses
+        if (addresses.size < 2) {
+            return ProbeResult(emptyList(), null)
+        }
+        val mode = ServerProfile.normalizeProbeMode(profile.probeMode)
+        val timeoutMs = 3000
+        val outcomes = arrayOfNulls<ProbeOutcome>(addresses.size)
+        if (mode == ServerProfile.PROBE_SERIAL) {
+            // 串行：按顺序逐个探，第一个通的即止（保留用户排的地址优先级）
+            var winner: String? = null
+            for (i in addresses.indices) {
+                val rtt = HealthProbe.ping(addresses[i], timeoutMs)
+                outcomes[i] = ProbeOutcome(addresses[i], rtt >= 0, if (rtt >= 0) rtt else 0)
+                if (rtt >= 0) {
+                    winner = addresses[i]
+                    break
+                }
+            }
+            return ProbeResult(outcomes.filterNotNull(), winner)
+        }
+        val firstOnly = mode == ServerProfile.PROBE_PARALLEL_FIRST
+        val done = AtomicBoolean(false)
+        val winnerAddress = AtomicReference<String?>(null)
+        val winnerMs = AtomicLong(0)
+        val latch = CountDownLatch(addresses.size)
+        for (i in addresses.indices) {
+            val address = addresses[i]
+            Thread({
+                try {
+                    if (firstOnly && done.get()) {
+                        return@Thread // 已有赢家：不再白探（在途的等它自己超时收尾）
+                    }
+                    val rtt = HealthProbe.ping(address, timeoutMs)
+                    if (rtt >= 0 && (!firstOnly || done.compareAndSet(false, true))) {
+                        if (firstOnly) {
+                            winnerAddress.set(address)
+                            winnerMs.set(rtt)
+                        } else {
+                            // 并发（全部）：谁快谁当赢家
+                            synchronized(winnerAddress) {
+                                val current = winnerAddress.get()
+                                if (current == null || rtt < winnerMs.get()) {
+                                    winnerAddress.set(address)
+                                    winnerMs.set(rtt)
+                                }
+                            }
+                        }
+                    }
+                    outcomes[i] = ProbeOutcome(address, rtt >= 0, if (rtt >= 0) rtt else 0)
+                } finally {
+                    latch.countDown()
+                }
+            }, "anyboot-probe").start()
+        }
+        latch.await(10, TimeUnit.SECONDS)
+        return ProbeResult(outcomes.filterNotNull(), winnerAddress.get())
+    }
+
+    /** 重新开始一轮连接：多地址先按探测模式比一遍（赢家直接上），单地址 / 跳板机走老链路 */
     private fun startAttempt(tab: Tab) {
         tab.tried.clear()
         errorInfo = null
+        val profile = tab.profile
+        if (ServerProfile.text(profile.jumpServerId).isNotEmpty() || profile.addresses.size < 2) {
+            loadCurrentAddress(tab)
+            return
+        }
+        tab.status = STATUS_LOADING
+        chipTick++
+        if (profile.id == activeId) {
+            loading = true
+        }
+        Thread({
+            val result = probeAddresses(profile)
+            runOnUiThread {
+                val fresh = tabs[profile.id] ?: return@runOnUiThread
+                if (fresh.profile.id != profile.id) return@runOnUiThread // 标签已被编辑/删除
+                applyProbeResult(fresh, result)
+            }
+        }, "anyboot-probe").start()
+    }
+
+    /** 探测完成：提示结果行，赢家提到候选列表最前并直接加载；全挂就给失败页 */
+    private fun applyProbeResult(tab: Tab, result: ProbeResult) {
+        val profile = tab.profile
+        val mode = ServerProfile.normalizeProbeMode(profile.probeMode)
+        val winner = result.winnerAddress
+        if (winner == null) {
+            tab.mainFailed = true
+            tab.status = STATUS_FAIL
+            chipTick++
+            if (profile.id == activeId) {
+                showErrorFor(profile, "全部地址都连不上")
+            }
+            return
+        }
+        if (profile.id == activeId) {
+            if (mode == ServerProfile.PROBE_PARALLEL_ALL) {
+                toast(result.outcomes.joinToString("\n") { o ->
+                    o.address + if (o.ok) " 连接成功 ${o.ms} ms" else " 连接失败"
+                })
+            } else {
+                val ms = result.outcomes.firstOrNull { it.address == winner }?.ms ?: 0L
+                toast("ip $winner 连接成功 $ms ms")
+            }
+        }
+        val index = profile.addresses.indexOf(winner)
+        if (index > 0) {
+            // 赢家提到最前并落盘：下次连接 / 心跳都优先用它（DHCP 换 IP 自愈同款）
+            profile.promoteAddress(index)
+            ServerStore.save(this, servers)
+        }
+        tab.addressIndex = profile.addresses.indexOf(winner).coerceAtLeast(0)
         loadCurrentAddress(tab)
     }
 
@@ -2108,6 +2370,11 @@ class MainActivity : ComponentActivity() {
             override fun shouldOverrideUrlLoading(target: WebView, request: WebResourceRequest): Boolean {
                 val uri = request.url
                 val scheme = uri?.scheme
+                if ("anyboot".equals(scheme, true) && uri.host == "reload") {
+                    // 页面下拉刷新在 App 里 = 原生整页重载（先探测全部候选地址，换 IP 也跟得上）
+                    reloadActive()
+                    return true
+                }
                 if ("http".equals(scheme, true) || "https".equals(scheme, true)) {
                     // 站内跳转（含 SPA 路由）留在 WebView 里
                     return false
