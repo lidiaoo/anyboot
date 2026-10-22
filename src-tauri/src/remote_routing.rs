@@ -274,6 +274,17 @@ pub(crate) fn remote_grub_json(app: &AppHandle) -> serde_json::Value {
         "savedEntry": view.saved_entry,
         "nextEntry": view.next_entry,
         "error": view.error,
+        // submenu 的 id → 组名：entry.submenu 里是 `gnulinux-advanced-<uuid>` 这种
+        // 内部 id，客户端（电脑列表下拉 / GRUB 列表页）要翻成「Advanced options for …」
+        // 才不会给用户看一串 uuid。
+        "groups": view
+            .groups
+            .iter()
+            .map(|group| serde_json::json!({
+                "id": group.id,
+                "name": group.name,
+            }))
+            .collect::<Vec<_>>(),
         "entries": view
             .entries
             .iter()

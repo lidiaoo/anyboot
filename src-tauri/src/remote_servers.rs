@@ -1380,7 +1380,12 @@ fn refind_from_status(value: &serde_json::Value) -> BootGroup {
 /// * raw / detailed（原始 / 复杂）：菜单标题原文。
 /// 取不到内核时一律退回标题原文（不猜）。
 fn grub_entry_label(format: &str, name: &str, kernels: &[String]) -> String {
-    let kernel = kernels.first().map(|value| value.trim()).unwrap_or("");
+    let kernel = kernels
+        .first()
+        .map(|value| value.trim())
+        .unwrap_or("");
+    // 空内核名要回落到菜单标题 —— 不能只用 kernels.first() 判空（空串也算有值，
+    // 极简档会退出一行空白）。与 ui/grub-list-view.js 的 `(kernels[0]) || name` 对齐。
     if kernel.is_empty() {
         return name.to_string();
     }
@@ -1393,6 +1398,36 @@ fn grub_entry_label(format: &str, name: &str, kernels: &[String]) -> String {
         "medium" => kernel.to_string(),
         _ => name.to_string(),
     }
+}
+
+/// GRUB 子菜单的 id → 组名。
+///
+/// `/api/grub` 的 `submenu` 字段是 `gnulinux-advanced-9f1bae08-…` 这种内部 id，
+/// 真正的组名（「Advanced options for …」）在 `groups` 里。GRUB 列表页与托盘菜单
+/// 都会把 id 翻成组名 —— 电脑列表这里也必须翻，否则下拉里一排 uuid 前缀。
+fn grub_submenu_titles(value: &serde_json::Value) -> std::collections::HashMap<String, String> {
+    let mut titles = std::collections::HashMap::new();
+    for group in value
+        .get("groups")
+        .and_then(|item| item.as_array())
+        .map(|list| list.as_slice())
+        .unwrap_or_default()
+    {
+        let id = group
+            .get("id")
+            .and_then(|item| item.as_str())
+            .unwrap_or("")
+            .trim();
+        let name = group
+            .get("name")
+            .and_then(|item| item.as_str())
+            .unwrap_or("")
+            .trim();
+        if !id.is_empty() || !name.is_empty() {
+            titles.insert(id.to_string(), name.to_string());
+        }
+    }
+    titles
 }
 
 fn grub_from_json(value: &serde_json::Value, format: &str) -> BootGroup {
@@ -1413,6 +1448,7 @@ fn grub_from_json(value: &serde_json::Value, format: &str) -> BootGroup {
         .and_then(|item| item.as_bool())
         .unwrap_or(false);
     let mut options = Vec::new();
+    let submenu_titles = grub_submenu_titles(value);
     for entry in value
         .get("entries")
         .and_then(|item| item.as_array())
@@ -1434,7 +1470,7 @@ fn grub_from_json(value: &serde_json::Value, format: &str) -> BootGroup {
             .unwrap_or("")
             .trim()
             .to_string();
-        let submenu = entry
+        let submenu_id = entry
             .get("submenu")
             .and_then(|item| item.as_str())
             .unwrap_or("")
@@ -1461,10 +1497,21 @@ fn grub_from_json(value: &serde_json::Value, format: &str) -> BootGroup {
             .unwrap_or_default();
         // 文字按用户设置的 GRUB 列表格式生成（极简看内核短名、中等看完整内核名…）
         let core = grub_entry_label(format, &name, &kernels);
-        let label = if submenu.is_empty() || core.starts_with(&submenu) {
+        // 子菜单里的一律带组名前缀，用的是组名而不是内部 id（`gnulinux-advanced-<uuid>`）；
+        // 拿到组名就无条件拼（组名与标题措辞本就不同，判重会丢上下文），
+        // 拿不到组名才退回旧规则「标题已以 id 开头就不重复拼」。
+        let submenu_title = submenu_titles
+            .get(&submenu_id)
+            .map(|title| title.trim())
+            .filter(|title| !title.is_empty());
+        let label = if submenu_id.is_empty() {
+            core.clone()
+        } else if let Some(title) = submenu_title {
+            format!("{title} · {core}")
+        } else if core.starts_with(&submenu_id) {
             core.clone()
         } else {
-            format!("{submenu} · {core}")
+            format!("{submenu_id} · {core}")
         };
         options.push(BootOption {
             value: selector.clone(),
@@ -1582,6 +1629,20 @@ fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Result<RemoteB
         Ok(value) => {
             let format = crate::read_settings_file(app).grub_list_format;
             info.grub = grub_from_json(&value, &format);
+            // 排查用（受 debugTrace 开关控制）：这次按哪档生成、前三条长什么样
+            crate::trace(
+                app,
+                "boot",
+                &format!(
+                    "grub format={format} server={server_id} labels={:?}",
+                    info.grub
+                        .options
+                        .iter()
+                        .take(3)
+                        .map(|option| option.label.as_str())
+                        .collect::<Vec<_>>()
+                ),
+            );
         }
         Err(error) => {
             info.grub.note = error.clone();
@@ -1970,6 +2031,42 @@ mod tests {
         let group = grub_from_json(&value, "raw");
         assert_eq!(group.options[0].label, "Advanced options for Ubuntu · Ubuntu, with Linux 6.8.0");
         assert_eq!(group.options[1].label, "Advanced options for Ubuntu (recovery mode)");
+    }
+
+    /// 子菜单的 `submenu` 是内部 id（`gnulinux-advanced-<uuid>`），下拉里必须换成
+    /// `groups` 里的组名 —— GRUB 列表页与托盘菜单都这么翻，电脑列表以前漏了这步。
+    #[test]
+    fn grub_from_json_maps_submenu_id_to_group_name() {
+        let value = serde_json::json!({
+            "installed": true,
+            "groups": [
+                {"id": "gnulinux-advanced-9f1bae08-f61b-4e7a-9277-8e00b3970c81",
+                 "name": "Advanced options for CachyOS Linux"}
+            ],
+            "entries": [
+                {"selector": "gnulinux-advanced-9f1bae08-f61b-4e7a-9277-8e00b3970c81>0",
+                 "name": "CachyOS Linux, with Linux linux-cachyos",
+                 "submenu": "gnulinux-advanced-9f1bae08-f61b-4e7a-9277-8e00b3970c81",
+                 "class": "cachyos", "chainloader": false, "kernels": ["vmlinuz-linux-cachyos"]}
+            ]
+        });
+        let group = grub_from_json(&value, "minimal");
+        assert_eq!(
+            group.options[0].label,
+            "Advanced options for CachyOS Linux · cachyos"
+        );
+        assert!(
+            !group.options[0].label.contains("gnulinux-advanced"),
+            "下拉文字里不该出现内部 id"
+        );
+    }
+
+    /// 内核名是空串时不能出一行空白（要退回菜单标题）。
+    #[test]
+    fn grub_entry_label_falls_back_to_name_when_kernel_is_blank() {
+        let kernels = vec!["   ".to_string()];
+        assert_eq!(grub_entry_label("minimal", "CachyOS Linux", &kernels), "CachyOS Linux");
+        assert_eq!(grub_entry_label("medium", "CachyOS Linux", &[]), "CachyOS Linux");
     }
 
     #[test]

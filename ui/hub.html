@@ -2274,6 +2274,7 @@
     if (name === 'home') pageShow();
     else if (name === 'computers') {
       cqRenderRows();
+      loadGrubFmt();
       // 每次进来都重读一遍：GRUB 显示格式这类设置改了之后，缓存里的条目文字会过期
       if (invoke && remotes.length) cqRefreshBoot();
     }
@@ -4441,7 +4442,8 @@
     const options = (group.options || []).slice();
     if (!options.length) return;
     const current = String(group.current || '');
-    const items = [{ head: group.title + ' · 下次启动' }];
+    // 标题带上当前显示格式：一眼能看出后端按哪档生成条目文字（极简=内核短名…）
+    const items = [{ head: group.title + ' · ' + grubFmtLabel() + ' · 下次启动' }];
     options.forEach(function (option) {
       items.push({
         label: option.label,
@@ -5379,12 +5381,22 @@
     if (!invoke) return;
     invoke('get_settings')
       .then(function (view) {
+        // get_settings 返回的是 SettingsView（#[serde(flatten)] 把 Settings 的字段平铺在顶层），
+        // 所以格式在顶层 `grubListFormat` 上 —— 不是 `settings.grubListFormat`。
+        // 读错了就永远拿默认值，菜单里的 ✓ 和下拉标题会一直显示「默认/原始」。
         const next = (view && view.grubListFormat) || 'minimal';
         if (next === grubFmt) return;
         grubFmt = next;
         refreshGrubFmtMarks();
       })
       .catch(function () { /* 读不到就保持空，不显示 ✓ */ });
+  }
+  /** 格式的中文名（下拉标题里显示，方便确认当前生效的是哪一档） */
+  function grubFmtLabel() {
+    const names = {
+      minimal: '极简', simple: '简易', medium: '中等', raw: '原始', detailed: '复杂'
+    };
+    return names[grubFmt] || '默认';
   }
   pcMenuEl.addEventListener('click', function (e) {
     const btn = e.target.closest('[data-act], [data-reload], [data-openmode], [data-grubfmt]');
