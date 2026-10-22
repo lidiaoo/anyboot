@@ -611,10 +611,27 @@ class ComputerListActivity : ComponentActivity() {
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier.fillMaxWidth().padding(top = 11.dp),
             ) {
-                PowerButton(row, POWER_WAKE, "唤醒", Modifier.weight(1f))
-                PowerButton(row, POWER_SLEEP, "睡眠", Modifier.weight(1f))
-                PowerButton(row, POWER_REBOOT, "重启", Modifier.weight(1f))
-                PowerButton(row, POWER_SHUTDOWN, "关机", Modifier.weight(1f))
+                // 提示小字与悬浮电源球同一套（PowerHint.kt）：路由摘要 / MAC 魔术包 / 挂起到内存
+                PowerButton(
+                    row, POWER_WAKE, "唤醒",
+                    hint = powerHint(row.profile, POWER_WAKE, if (row.profile.hasMacs()) "MAC 魔术包" else "未配 MAC"),
+                    modifier = Modifier.weight(1f),
+                )
+                PowerButton(
+                    row, POWER_SLEEP, "睡眠",
+                    hint = powerHint(row.profile, POWER_SLEEP, "挂起到内存"),
+                    modifier = Modifier.weight(1f),
+                )
+                PowerButton(
+                    row, POWER_REBOOT, "重启",
+                    hint = powerHint(row.profile, POWER_REBOOT, ""),
+                    modifier = Modifier.weight(1f),
+                )
+                PowerButton(
+                    row, POWER_SHUTDOWN, "关机",
+                    hint = powerHint(row.profile, POWER_SHUTDOWN, ""),
+                    modifier = Modifier.weight(1f),
+                )
             }
         }
     }
@@ -1090,7 +1107,13 @@ class ComputerListActivity : ComponentActivity() {
     // ---- 电源按钮 ----------------------------------------------------
 
     @Composable
-    private fun PowerButton(row: CqRow, action: String, label: String, modifier: Modifier) {
+    private fun PowerButton(
+        row: CqRow,
+        action: String,
+        label: String,
+        hint: String = "",
+        modifier: Modifier = Modifier,
+    ) {
         val palette = LocalPalette.current
         val tone = LocalTone.current
         val working = busy[row.profile.id] == "power:$action"
@@ -1107,11 +1130,13 @@ class ComputerListActivity : ComponentActivity() {
         val shape = RoundedCornerShape(11.dp)
         val background = if (solid) tone.online else palette.card
         val contentColor = if (solid) Color.White else palette.fg
+        // 提示小字：实心按钮上跟内容色半透明，普通卡片用次级灰（与悬浮球一致）
+        val hintColor = if (solid) contentColor.copy(alpha = 0.75f) else palette.fgFaint
 
         Box(
             contentAlignment = Alignment.Center,
             modifier = modifier
-                .height(44.dp)
+                .height(54.dp)
                 .clip(shape)
                 .background(background)
                 .then(
@@ -1126,21 +1151,33 @@ class ComputerListActivity : ComponentActivity() {
                     color = accent,
                 )
             } else {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    when (action) {
-                        POWER_WAKE -> PowerIcon(tint = contentColor, size = 15.dp)
-                        POWER_SLEEP -> MoonIcon(tint = contentColor, size = 15.dp)
-                        POWER_REBOOT -> RestartIcon(tint = contentColor, size = 15.dp)
-                        else -> PowerOffIcon(tint = contentColor, size = 15.dp)
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        when (action) {
+                            POWER_WAKE -> PowerIcon(tint = contentColor, size = 15.dp)
+                            POWER_SLEEP -> MoonIcon(tint = contentColor, size = 15.dp)
+                            POWER_REBOOT -> RestartIcon(tint = contentColor, size = 15.dp)
+                            else -> PowerOffIcon(tint = contentColor, size = 15.dp)
+                        }
+                        Spacer(Modifier.width(5.dp))
+                        Text(
+                            label,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = contentColor,
+                            maxLines = 1,
+                        )
                     }
-                    Spacer(Modifier.width(5.dp))
-                    Text(
-                        label,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = contentColor,
-                        maxLines = 1,
-                    )
+                    if (hint.isNotEmpty()) {
+                        Text(
+                            hint,
+                            fontSize = 9.sp,
+                            color = hintColor,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(top = 1.dp),
+                        )
+                    }
                 }
             }
         }

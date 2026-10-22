@@ -590,17 +590,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** 悬浮球上的小字：配了路由显示「→ 地址:端口」，否则用老逻辑的说明 */
-    private fun powerHint(profile: ServerProfile, action: String, fallback: String): String {
-        val routes = profile.routesFor(action)
-        if (routes.isEmpty()) {
-            return fallback
-        }
-        val route = routes[0]
-        val target = ServerProfile.text(route.target).ifEmpty { "自动广播" }
-        val suffix = if (routes.size > 1) " 等 ${routes.size} 条" else ""
-        return "→ $target:${route.effectivePort()}$suffix"
-    }
+    // powerHint 已抽到 PowerHint.kt（电脑列表电源键共用同一套提示文案）
 
 
     /** 悬浮球展开后的一个操作条；`help` 非空时右侧多一个 ? 圆点 */
