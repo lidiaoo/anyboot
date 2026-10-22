@@ -305,7 +305,9 @@ function termTheme() {
   const css = getComputedStyle(document.documentElement);
   const rgb = (v) => `rgb(${css.getPropertyValue(v).trim().split(/\s+/).join(',')})`;
   return {
-    background: rgb('--term'), foreground: rgb('--fg'),
+    // 终端区背景两个主题都是深色（--term 恒为 4 7 15），
+    // 所以前景色固定用暗色主题的字色 —— 亮色主题下 --fg 是近黑的，会黑字配黑底
+    background: rgb('--term'), foreground: 'rgb(248 250 252)',
     cursor: rgb('--accent'), cursorAccent: rgb('--term'),
     selectionBackground: 'rgba(99,102,241,.25)',
   };
