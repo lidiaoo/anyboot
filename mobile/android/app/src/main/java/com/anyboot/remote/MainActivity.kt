@@ -23,6 +23,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -965,20 +966,23 @@ class MainActivity : ComponentActivity() {
         val palette = LocalPalette.current
         val context = LocalContext.current
         if (!drawerOpen) return
-        Box(Modifier.fillMaxSize()) {
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .background(Color(0x55000000))
-                    .clickable { drawerOpen = false }
-            )
-            Column(
-                Modifier
-                    .fillMaxHeight()
-                    .width(290.dp)
-                    .background(palette.card)
-                    .align(Alignment.CenterStart),
-            ) {
+        // 抽屉宽度自适应：宽屏封顶 290dp（老观感不变），窄窗（分屏/折叠屏/小窗）最多占 85%
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            val drawerWidth = minOf(290.dp, maxWidth * 0.85f)
+            Box(Modifier.fillMaxSize()) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(Color(0x55000000))
+                        .clickable { drawerOpen = false }
+                )
+                Column(
+                    Modifier
+                        .fillMaxHeight()
+                        .width(drawerWidth)
+                        .background(palette.card)
+                        .align(Alignment.CenterStart),
+                ) {
                 // 头部：图标块 + 名称/版本
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -1060,6 +1064,7 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             }
+        }
         }
     }
 

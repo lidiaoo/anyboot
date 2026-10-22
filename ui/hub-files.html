@@ -105,8 +105,17 @@
   .btn:disabled { opacity:.5; cursor:not-allowed; }
 
   /* ============ 文件表 ============ */
-  .table-wrap { flex:1; min-height:0; overflow:auto; }
-  table { width:100%; min-width:640px; border-collapse:collapse; text-align:left; font-size:13px; }
+  .table-wrap { flex:1; min-height:0; overflow:auto; container-type:inline-size; }
+  table { width:100%; min-width:560px; border-collapse:collapse; text-align:left; font-size:13px; }
+  /* 窄容器降级：先藏「修改时间」，再藏「权限」，名称列永远在 */
+  @container (max-width: 640px) {
+    table { min-width:460px; }
+    th:nth-child(4), td:nth-child(4) { display:none; }
+  }
+  @container (max-width: 540px) {
+    table { min-width:380px; }
+    th:nth-child(3), td:nth-child(3) { display:none; }
+  }
   thead { position:sticky; top:0; z-index:10; background:rgb(var(--card) / .95); backdrop-filter: blur(4px); }
   thead tr { border-bottom:1px solid rgb(var(--line)); }
   th {

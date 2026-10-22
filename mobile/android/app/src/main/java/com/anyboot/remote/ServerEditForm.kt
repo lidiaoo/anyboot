@@ -609,7 +609,8 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                         singleLine = true,
                         textStyle = MaterialTheme.typography.bodySmall,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.width(120.dp),
+                        // 用 weight 按老比例分宽度（120:104）：窄窗（分屏/小窗）自动收缩，不横向溢出
+                        modifier = Modifier.weight(120f),
                     )
                     Spacer(Modifier.width(8.dp))
                     OutlinedTextField(
@@ -623,7 +624,7 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                         singleLine = true,
                         textStyle = MaterialTheme.typography.bodySmall,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.width(104.dp),
+                        modifier = Modifier.weight(104f),
                     )
                 }
 

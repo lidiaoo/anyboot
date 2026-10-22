@@ -946,10 +946,12 @@
   }
   .cq-card {
     flex: 1; min-height: 0; overflow: auto; margin: 0 20px 20px;
+    /* 容器查询的基准：表格降级（藏列）跟随内容区实际宽度，而不是窗口宽度 */
+    container-type: inline-size;
     border: 1px solid rgb(var(--line)); border-radius: 14px; background: rgb(var(--card));
     box-shadow: 0 8px 24px -12px rgb(0 0 0 / .28), 0 1px 3px rgb(0 0 0 / .05);
   }
-  .cq-table { width: 100%; min-width: 860px; border-collapse: collapse; font-size: 13px; }
+  .cq-table { width: 100%; min-width: 760px; border-collapse: collapse; font-size: 13px; }
   .cq-table thead th {
     position: sticky; top: 0; z-index: 2;
     background: rgb(var(--elevate)); color: rgb(var(--fg-faint));
@@ -1020,7 +1022,7 @@
     color: rgb(var(--warn)); background: rgb(var(--warn) / .16);
   }
   .cq-note { margin: 3px 0 0; font-size: 10.5px; color: rgb(var(--fg-faint)); line-height: 1.5; }
-  .cq-pwr { display: flex; align-items: center; gap: 4px; }
+  .cq-pwr { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
   .cq-pwr-btn {
     width: 30px; height: 30px; border-radius: 8px; cursor: pointer; display: grid; place-items: center;
     border: 1px solid rgb(var(--line)); background: rgb(var(--elevate)); color: rgb(var(--fg-dim));
@@ -1028,6 +1030,21 @@
   .cq-pwr-btn svg { width: 14px; height: 14px; }
   .cq-pwr-btn:hover:not(:disabled) { border-color: rgb(var(--accent)); color: rgb(var(--accent)); }
   .cq-pwr-btn.is-busy { color: transparent; position: relative; }
+  /* ---- 表格窄容器降级：拉小窗口时先藏「状态」列，再藏设备 MAC，最后藏 rEFInd 列 ----
+     （GRUB / 电源 / 更多保到底；col 的内联宽度也要跟着清零，否则空列占位） */
+  @container (max-width: 820px) {
+    .cq-table { min-width: 640px; }
+    .cq-table th:nth-child(2), .cq-table td:nth-child(2) { display: none; }
+    .cq-table col:nth-child(2) { width: auto; }
+  }
+  @container (max-width: 660px) {
+    .cq-dev-mac { display: none; }
+  }
+  @container (max-width: 580px) {
+    .cq-table { min-width: 470px; }
+    .cq-table th:nth-child(3), .cq-table td:nth-child(3) { display: none; }
+    .cq-table col:nth-child(3) { width: auto; }
+  }
   .cq-pwr-btn.is-busy::after {
     content: ""; position: absolute; inset: 0; margin: auto; width: 12px; height: 12px;
     border: 2px solid rgb(var(--accent)); border-top-color: transparent; border-radius: 50%;
@@ -1140,8 +1157,17 @@
   .fb-btn.fb-plain { border:0; background:transparent; color:rgb(var(--fg-dim)); }
   .fb-btn.fb-plain:hover { color:rgb(var(--fg)); }
   .fb-btn.fb-dangerbtn { border:0; background:rgb(var(--bad)); color:#fff; font-weight:600; }
-  .fb-tablewrap { flex:1; min-height:0; overflow:auto; }
-  .fb-table { width:100%; min-width:640px; border-collapse:collapse; text-align:left; font-size:13px; }
+  .fb-tablewrap { flex:1; min-height:0; overflow:auto; container-type: inline-size; }
+  .fb-table { width:100%; min-width:560px; border-collapse:collapse; text-align:left; font-size:13px; }
+  /* 窄容器降级：先藏「修改时间」，再藏「权限」，名称列永远在 */
+  @container (max-width: 640px) {
+    .fb-table { min-width: 460px; }
+    .fb-table th:nth-child(4), .fb-table td:nth-child(4) { display: none; }
+  }
+  @container (max-width: 540px) {
+    .fb-table { min-width: 380px; }
+    .fb-table th:nth-child(3), .fb-table td:nth-child(3) { display: none; }
+  }
   .fb-table thead { position:sticky; top:0; z-index:10; background:rgb(var(--card) / .95); backdrop-filter:blur(4px); }
   .fb-table thead tr { border-bottom:1px solid rgb(var(--line)); }
   .fb-table th {
@@ -1839,7 +1865,7 @@
             </label>
             <div class="ts-row">
               <div><p class="ts-t">字体族</p><p class="ts-s">本机已装的等宽字体名（留空 = 内置等宽栈；字体缺失自动回落，不会坏）</p></div>
-              <input class="ts-num" type="text" id="tsFontFamily" placeholder="内置等宽" style="width:210px">
+              <input class="ts-num" type="text" id="tsFontFamily" placeholder="内置等宽" style="width:min(210px,100%)">
             </div>
             <div class="ts-row">
               <div><p class="ts-t">滚动回滚行数</p><p class="ts-s">缓冲区保留的历史输出（500–100000）</p></div>
@@ -1848,7 +1874,7 @@
             <div class="ts-row">
               <div><p class="ts-t">下载路径</p><p class="ts-s">文件下载到本机的目录（留空 = 系统下载目录；<span class="mono">~</span> = 用户主目录）</p></div>
               <div style="display:flex;gap:8px;align-items:center;flex:none">
-                <input class="ts-num" type="text" id="tsDownDir" placeholder="系统下载目录" style="width:210px">
+                <input class="ts-num" type="text" id="tsDownDir" placeholder="系统下载目录" style="width:min(210px,100%)">
                 <button class="btn" id="tsDownBrowse" type="button" style="height:32px;padding:0 12px">选择…</button>
               </div>
             </div>
@@ -4398,10 +4424,11 @@
     meta.appendChild(ipSpan);
     if (row.mac) {
       const sep = document.createElement('span');
-      sep.className = 'sep';
+      sep.className = 'sep cq-dev-mac';
       sep.textContent = '·';
       meta.appendChild(sep);
       const macSpan = document.createElement('span');
+      macSpan.className = 'cq-dev-mac';
       macSpan.textContent = row.mac;
       meta.appendChild(macSpan);
     }
