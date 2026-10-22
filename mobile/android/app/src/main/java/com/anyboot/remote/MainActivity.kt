@@ -444,6 +444,18 @@ class MainActivity : ComponentActivity() {
                 color = palette.fgDim,
                 modifier = Modifier.padding(vertical = 12.dp),
             )
+            // 连不上时最常见的三种原因都写出来：服务没跑 / 端口不一致 / 端口被占用
+            Text(
+                text = "顺手检查这几点：\n" +
+                    "· 目标电脑的 AnyBoot 是否在跑，设置里「HTTP 服务」是否显示正在监听；\n" +
+                    "· 这里填的地址端口，和目标机设置里的端口是否一致；\n" +
+                    "· 那个端口是否被别的程序占用 —— 被占用时目标机的服务根本起不来；\n" +
+                    "· 目标机防火墙是否放行了这个端口。",
+                fontSize = 12.sp,
+                color = palette.fgFaint,
+                lineHeight = 17.sp,
+                modifier = Modifier.padding(bottom = 12.dp),
+            )
             Text(
                 text = if (failReloadSec > 0) "每 $failReloadSec 秒自动重试（⋮ 里可改）"
                 else "自动重试已关闭（⋮ 里可改）",

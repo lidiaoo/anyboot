@@ -3858,6 +3858,10 @@
       if (on) chip.setAttribute('aria-current', 'true');
       else chip.removeAttribute('aria-current');
     });
+    // 「本机」chip 是静态 HTML，不会被上面的循环重建 —— 单独绑点击。
+    // 用 onclick 覆盖式赋值，renderPcChips 被反复调用也不会叠监听。
+    const localChip = box.querySelector('.pc-chip[data-rid="local"]');
+    if (localChip) localChip.onclick = function () { pcSelect('local'); };
   }
 
   function pcSelect(rid) {
@@ -3884,14 +3888,31 @@
   function pcShow() {
     pcFrames.forEach(function (frame) { frame.style.display = 'none'; });
     const empty = document.getElementById('pcEmpty');
+    // 每次进来先复位提示文案（下面的失败/未启用分支会改写它）
+    empty.querySelector('p').innerHTML = '<b>选择上方标签查看对应电脑的页面</b>';
     const r = activeRemote === 'local' ? null : remotes.find(function (x) { return x.id === activeRemote; });
     if (activeRemote !== 'local' && !r) activeRemote = 'local';
     pcFabRefresh();
-    if (activeRemote === 'local' && localEndpoint && localEndpoint.enabled === false) {
-      // 本机 HTTP 服务没开（或没设 token）：iframe 连不上，给可见说明
-      empty.hidden = false;
-      empty.querySelector('p').innerHTML = '<b>本机 HTTP 服务未启用</b>';
-      return;
+    if (activeRemote === 'local' && localEndpoint) {
+      const port = localEndpoint.port || '';
+      if (localEndpoint.enabled === false) {
+        // 本机 HTTP 服务没开：iframe 连不上，给可见说明
+        empty.hidden = false;
+        empty.querySelector('p').innerHTML =
+          '<b>本机 HTTP 服务未启用</b><br>去设置里打开「HTTP 服务」，或点托盘菜单里的开关。';
+        return;
+      }
+      if (localEndpoint.listening === false) {
+        // 开了但没绑上（最常见：端口落进 Windows 动态保留段 → WSAEACCES）
+        empty.hidden = false;
+        empty.querySelector('p').innerHTML =
+          '<b>本机 HTTP 服务没起来（端口 ' + port + ' 绑不上）</b><br>'
+          + (localEndpoint.error ? '错误：' + localEndpoint.error : '')
+          + '<br>常见原因：' + port + ' 落在 Windows 动态端口范围里、被 Hyper-V / WSL 保留。'
+          + '<br>处理：把端口改成非保留段（如 23400）后重启 AnyBoot；'
+          + '或用管理员执行 <code>netsh int ipv4 set dynamicport tcp start=49152 num=16384</code> 再重启一次。';
+        return;
+      }
     }
     empty.hidden = true;
     pcEnsureFrame(activeRemote).style.display = 'block';
@@ -3991,21 +4012,41 @@
     return value.indexOf(':') >= 0 ? value : value + ':12300';
   }
 
-  /** 探测失败：iframe 藏起来，给可见的失败说明 + 自动重载倒计时提示 */
+  /** 探测失败：iframe 藏起来，给可见的失败说明 + 端口排查指引 + 自动重载倒计时 */
   function pcFailOverlay(message) {
     const empty = document.getElementById('pcEmpty');
     pcFrames.forEach(function (frame) { frame.style.display = 'none'; });
     empty.hidden = false;
     empty.querySelector('p').innerHTML =
       '<b>连不上服务端</b><br>' + String(message || '全部地址都连不上')
-      + '<br>' + (pcAutoReloadSec > 0
-        ? '每 ' + pcAutoReloadSec + ' 秒自动重试（点标签上的 ⋮ 可改）'
-        : '自动重试已关闭（点标签上的 ⋮ 可改）');
+      + '<br><br>顺手检查这几点：'
+      + '<br>· 目标电脑的 AnyBoot 是否在跑，设置里的「HTTP 服务」是否显示<b>正在监听</b>；'
+      + '<br>· 这里填的地址端口，和目标机设置里的端口是否一致；'
+      + '<br>· 那个端口是否被别的程序占用 —— 被占用时目标机的 HTTP 服务根本起不来（它的设置页会标出占用者 PID）；'
+      + '<br>· 目标机防火墙是否放行了这个端口。'
+      + '<br><br>' + (pcAutoReloadSec > 0
+        ? '每 ' + pcAutoReloadSec + ' 秒自动重试（右上角 ⋮ 可改）'
+        : '自动重试已关闭（右上角 ⋮ 可改）');
   }
 
   async function pcReloadActive(rid) {
     rid = rid || activeRemote;
-    if (rid === 'local' || !invoke) { pcStopRetry(); pcReload(rid); return; }
+    // 本机服务状态会变（用户开/关服务、点「重试监听」）：每次重载都重新读一次
+    if (invoke) {
+      try { localEndpoint = await invoke('local_http_endpoint'); } catch (e) { /* 读不到就沿用旧值 */ }
+    }
+    if (rid === 'local') {
+      pcStopRetry();
+      if (localEndpoint && (localEndpoint.enabled === false || localEndpoint.listening === false)) {
+        // 本机服务没起来：不发 iframe，pcShow 会给出「端口绑不上」的具体说明
+        pcShow();
+        toast('本机 HTTP 服务没起来（端口 ' + (localEndpoint.port || '') + '），无法重载本机页面', 'bad');
+        return;
+      }
+      pcReload(rid);
+      return;
+    }
+    if (!invoke) { pcStopRetry(); pcReload(rid); return; }
     const r = remotes.find(function (x) { return x.id === rid; });
     if (!r || r.jump_id) {
       // 跳板机场景：地址由转发端点决定，探测候选地址没有意义，直接重建

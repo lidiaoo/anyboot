@@ -658,10 +658,26 @@ fn new_remote_id() -> String {
 #[tauri::command]
 pub fn local_http_endpoint(app: AppHandle) -> Result<serde_json::Value, String> {
     let settings = crate::read_settings_file(&app);
+    // listening / error：本机标签要能区分「服务没开」和「开了但端口绑不上」
+    // （Windows 上 12300 随时可能落进 Hyper-V/WSL 的动态保留段，此时 bind 直接 WSAEACCES）
+    let (listening, addr, error) = {
+        let runtime = crate::http_server::http_lock();
+        let listening = runtime.server.is_some();
+        let addr = runtime
+            .server
+            .as_ref()
+            .map(|server| server.addr.clone())
+            .unwrap_or_default();
+        let error = runtime.last_error.clone().unwrap_or_default();
+        (listening, addr, error)
+    };
     Ok(serde_json::json!({
         "port": settings.http_port,
         "token": settings.http_token,
         "enabled": settings.http_enabled,
+        "listening": listening,
+        "addr": addr,
+        "error": error,
     }))
 }
 
