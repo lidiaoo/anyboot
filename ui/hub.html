@@ -980,6 +980,12 @@
   .cq-table tbody tr { border-bottom: 1px solid rgb(var(--line) / .6); }
   .cq-table tbody tr:last-child { border-bottom: 0; }
   .cq-table tbody tr:hover { background: rgb(var(--elevate) / .55); }
+  /* 选中（=当前电脑）：accent 底色 + 左侧色条，比 hover 明显一档 */
+  .cq-table tbody tr.cq-selected { background: rgb(var(--accent) / .10); box-shadow: inset 3px 0 0 rgb(var(--accent)); }
+  .cq-chip-cur {
+    font-size: 10px; font-weight: 600; line-height: 1; padding: 2px 5px; border-radius: 5px; flex: none;
+    color: rgb(var(--accent)); background: rgb(var(--accent) / .14); border: 1px solid rgb(var(--accent) / .3);
+  }
   .cq-table td { padding: 10px 12px; vertical-align: middle; }
   .cq-table td.cq-t-right { text-align: right; }
   .cq-dev { display: flex; align-items: center; gap: 9px; min-width: 0; }
@@ -1544,6 +1550,10 @@
           <button role="menuitem" data-act="list" data-page-node-id="pcMenuList1">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13"/><circle cx="4" cy="6" r="1" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="4" cy="18" r="1" fill="currentColor" stroke="none"/></svg>
             服务端列表
+          </button>
+          <button role="menuitem" data-act="reloadCurrent" data-page-node-id="pcMenuReloadCur1">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg>
+            重载当前电脑
           </button>
           <button role="menuitem" data-act="reloadAll" data-page-node-id="pcMenuReloadAll1">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12a8 8 0 0 1 14-5.3"/><path d="M20 12a8 8 0 0 1-14 5.3"/><path d="M18 2v5h-5M6 22v-5h5"/></svg>
@@ -4461,7 +4471,8 @@
   function cqRowEl(row) {
     const tr = document.createElement('tr');
     tr.dataset.rid = row.rid;
-    if (activeRemote === row.rid) tr.style.background = 'rgb(var(--elevate) / .7)';
+    const isSelected = activeRemote === row.rid;
+    if (isSelected) tr.classList.add('cq-selected');
 
     // ① 电脑
     const tdDev = document.createElement('td');
@@ -4479,6 +4490,12 @@
     nm.className = 'nm';
     nm.textContent = row.name;
     nameLine.appendChild(nm);
+    if (isSelected) {
+      const cur = document.createElement('span');
+      cur.className = 'cq-chip-cur';
+      cur.textContent = '当前';
+      nameLine.appendChild(cur);
+    }
     if (row.group) {
       const chip = document.createElement('span');
       chip.className = 'cq-chip-grp';
@@ -5570,6 +5587,15 @@
       else openRsEdit(activeRemote);
     }
     else if (act === 'list') { togglePcMenu(false); openRsList(); }
+    else if (act === 'reloadCurrent') {
+      togglePcMenu(false);
+      // 重载 = 重新探测选中的那台（在线状态 + 两套引导项），行点击/⋮ 都会设 activeRemote
+      if (!activeRemote || activeRemote === 'local') { toast('先点一行电脑选中它，再重载'); return; }
+      const cur = remotes.find(function (x) { return x.id === activeRemote; });
+      if (!cur) { toast('当前选中的电脑已不存在'); return; }
+      toast('正在重载「' + pcName(cur) + '」…');
+      cqLoadBoot(activeRemote);
+    }
     else if (act === 'reloadAll') {
       togglePcMenu(false);
       pcReloadAll();

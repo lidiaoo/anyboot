@@ -146,6 +146,9 @@ class ComputerListActivity : ComponentActivity() {
     private var moreTransport by mutableStateOf("auto")
     private var moreFailReloadSec by mutableStateOf(5)
 
+    /** 列表里选中的电脑（点卡片选中 = 设为「当前电脑」；「重载当前电脑」作用于它） */
+    private var selectedId by mutableStateOf("")
+
     // ------------------------------------------------------------------
     // 生命周期
     // ------------------------------------------------------------------
@@ -158,6 +161,8 @@ class ComputerListActivity : ComponentActivity() {
         moreConnectAll = ServerStore.connectAll(this)
         moreTransport = ServerStore.transport(this)
         moreFailReloadSec = getSharedPreferences(UI_PREFS, MODE_PRIVATE).getInt("failReloadSec", 5)
+        // 默认选中电脑页的当前那台；之后点卡片即切换
+        selectedId = ServerStore.activeId(this)
         reloadServers()
         setContent { Root() }
     }
@@ -351,6 +356,14 @@ class ComputerListActivity : ComponentActivity() {
                 })
                 DropdownMenuItem(text = { Text("服务端列表") }, onClick = {
                     open = false; moreServerListOpen = true
+                })
+                // 重载选中的那台（点卡片选中）；什么都没选就引导去点卡片
+                DropdownMenuItem(text = { Text("重载当前电脑") }, onClick = {
+                    open = false
+                    val id = selectedId.ifEmpty { ServerStore.activeId(this@ComputerListActivity) }
+                    val profile = ServerStore.find(servers.toList(), id)
+                    if (profile == null) toast("先点一下卡片选中要重载的电脑")
+                    else reloadBoot(profile)
                 })
                 DropdownMenuItem(text = { Text("全部重载") }, onClick = {
                     open = false; refreshAll()
@@ -740,12 +753,14 @@ class ComputerListActivity : ComponentActivity() {
         val tone = LocalTone.current
         val shape = RoundedCornerShape(15.dp)
         val stripe = stateColor(row.state)
+        // 选中 = 当前电脑：accent 底色 + accent 边框，比普通卡片明显一档
+        val selected = row.profile.id == selectedId
 
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(shape)
-                .background(palette.card)
+                .background(if (selected) palette.accent.copy(alpha = 0.07f) else palette.card)
                 .drawBehind {
                     val inset = 14.dp.toPx()
                     val bottom = size.height - inset
@@ -758,10 +773,16 @@ class ComputerListActivity : ComponentActivity() {
                         )
                     }
                 }
-                .border(1.dp, palette.line, shape)
+                .border(
+                    if (selected) 1.5.dp else 1.dp,
+                    if (selected) palette.accent else palette.line,
+                    shape,
+                )
+                // 点卡片空白处 = 选中这台（卡片内的按钮各自消费点击，不会误触）
+                .clickable { selectComputer(row.profile.id) }
                 .padding(start = 13.dp, end = 13.dp, top = 12.dp, bottom = 13.dp),
         ) {
-            // 名称 + 分组 chip + ⋮
+            // 名称 + 当前徽标 + 分组 chip + ⋮
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.padding(start = 4.dp),
@@ -775,6 +796,21 @@ class ComputerListActivity : ComponentActivity() {
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false),
                 )
+                if (selected) {
+                    Spacer(Modifier.width(7.dp))
+                    Text(
+                        "当前",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = palette.accent,
+                        maxLines = 1,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(5.dp))
+                            .background(palette.accent.copy(alpha = 0.16f))
+                            .border(1.dp, palette.accent.copy(alpha = 0.3f), RoundedCornerShape(5.dp))
+                            .padding(horizontal = 5.dp, vertical = 1.dp),
+                    )
+                }
                 if (row.group.isNotEmpty()) {
                     Spacer(Modifier.width(7.dp))
                     val groupTint = Color(row.profile.groupColor())
@@ -1840,6 +1876,13 @@ class ComputerListActivity : ComponentActivity() {
             }
             runOnUiThread { refreshing = false }
         }, "anyboot-autoprobe").start()
+    }
+
+    /** 点卡片选中：同一时间只有一台「当前电脑」，与电脑页的 activeId 是同一份 */
+    private fun selectComputer(id: String) {
+        if (selectedId == id) return
+        selectedId = id
+        ServerStore.setActiveId(this, id)
     }
 
     private fun reloadBoot(profile: ServerProfile) {
