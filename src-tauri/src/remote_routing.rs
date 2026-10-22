@@ -268,6 +268,9 @@ pub(crate) fn remote_grub_json(app: &AppHandle) -> serde_json::Value {
         "envExists": view.env_exists,
         "installed": view.installed,
         "syncedAt": view.synced_at,
+        // 这台机器自己的「GRUB 列表格式」：电脑列表据此渲染条目文字
+        // （与它本机 GRUB 列表页看到的完全一致）
+        "listFormat": settings.grub_list_format,
         "savedEntry": view.saved_entry,
         "nextEntry": view.next_entry,
         "error": view.error,

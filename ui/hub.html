@@ -1529,6 +1529,13 @@
           <div class="menu-caption">列表里「打开页面」的方式</div>
           <button role="menuitem" data-openmode="inline">内嵌弹窗查看</button>
           <button role="menuitem" data-openmode="goto">跳到「电脑」页</button>
+          <div class="menu-divider" role="separator"></div>
+          <div class="menu-caption">GRUB 条目文字（全局显示格式）</div>
+          <button role="menuitem" data-grubfmt="minimal">极简（内核短名）</button>
+          <button role="menuitem" data-grubfmt="simple">简易（内核短名 · 带位置）</button>
+          <button role="menuitem" data-grubfmt="medium">中等（完整内核名）</button>
+          <button role="menuitem" data-grubfmt="raw">原始（菜单标题）</button>
+          <button role="menuitem" data-grubfmt="detailed">复杂（标题 + 内核）</button>
         </div>
 
         <!-- 内嵌页面查看（行内「更多」→ 打开页面）：与手机 WebView 加载同一个页面 -->
@@ -5304,6 +5311,8 @@
     if (open) {
       refreshAutoReloadMarks();
       refreshOpenModeMarks();
+      refreshGrubFmtMarks();
+      loadGrubFmt();
       // 贴着触发它的 ⋮ 挂下来（电脑页在标签栏，列表页在工具条，位置各不相同）
       const target = pcMenuAnchor || document.getElementById('pageMore');
       const rect = target
@@ -5358,9 +5367,43 @@
       btn.textContent = (btn.dataset.openmode === cqOpenMode ? '✓ ' : '') + base;
     });
   }
+  /** 当前 GRUB 显示格式（和「GRUB 列表页」用同一个设置，改完列表立刻跟着变） */
+  let grubFmt = '';
+  function refreshGrubFmtMarks() {
+    pcMenuEl.querySelectorAll('[data-grubfmt]').forEach(function (btn) {
+      const base = btn.dataset.label || (btn.dataset.label = btn.textContent);
+      btn.textContent = (btn.dataset.grubfmt === grubFmt ? '✓ ' : '') + base;
+    });
+  }
+  function loadGrubFmt() {
+    if (!invoke) return;
+    invoke('get_settings')
+      .then(function (view) {
+        const next = (view && view.grubListFormat) || 'minimal';
+        if (next === grubFmt) return;
+        grubFmt = next;
+        refreshGrubFmtMarks();
+      })
+      .catch(function () { /* 读不到就保持空，不显示 ✓ */ });
+  }
   pcMenuEl.addEventListener('click', function (e) {
-    const btn = e.target.closest('[data-act], [data-reload], [data-openmode]');
+    const btn = e.target.closest('[data-act], [data-reload], [data-openmode], [data-grubfmt]');
     if (!btn || btn.disabled) return;
+    if (btn.dataset.grubfmt !== undefined) {
+      const fmt = btn.dataset.grubfmt;
+      if (!invoke) { toast('需要应用环境', 'bad'); return; }
+      invoke('set_grub_list_format', { format: fmt })
+        .then(function () {
+          grubFmt = fmt;
+          refreshGrubFmtMarks();
+          cqBoot.clear();
+          togglePcMenu(false);
+          toast('GRUB 条目文字已切换，正在重新读取…');
+          if (currentPage === 'computers') cqRefreshBoot();
+        })
+        .catch(function (error) { toast('切换格式失败：' + error, 'bad'); });
+      return;
+    }
     if (btn.dataset.openmode !== undefined) {
       cqOpenMode = btn.dataset.openmode === 'goto' ? 'goto' : 'inline';
       try { localStorage.setItem('cqOpenMode', cqOpenMode); } catch (e) { }
