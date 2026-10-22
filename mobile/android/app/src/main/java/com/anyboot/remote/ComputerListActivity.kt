@@ -153,6 +153,13 @@ class ComputerListActivity : ComponentActivity() {
         // 从「服务器」页回来可能增删过电脑 —— 重新读一遍再整体探活
         reloadServers()
         refreshAll()
+        startAutoProbe()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        // 页面不在前台就停表，回前台 onResume 会先补探一轮再排下去
+        stopAutoProbe()
     }
 
     override fun onDestroy() {
@@ -1524,6 +1531,48 @@ class ComputerListActivity : ComponentActivity() {
         }, "anyboot-refresh").start()
     }
 
+    // ---- 定时自动探测（与电脑页心跳同一节奏：10 秒一轮） ------------------
+
+    /** 页面在前台才跑；onPause 停表，回前台 onResume 先补探一轮再排下去 */
+    private var autoProbeOn = false
+    private val autoProbeTick = object : Runnable {
+        override fun run() {
+            if (!autoProbeOn) return
+            refreshAllQuiet()
+            handler.postDelayed(this, AUTO_PROBE_INTERVAL_MS)
+        }
+    }
+
+    private fun startAutoProbe() {
+        if (autoProbeOn) return
+        autoProbeOn = true
+        handler.postDelayed(autoProbeTick, AUTO_PROBE_INTERVAL_MS)
+    }
+
+    private fun stopAutoProbe() {
+        autoProbeOn = false
+        handler.removeCallbacks(autoProbeTick)
+    }
+
+    /** 定时自动探测的静默版：不弹 toast、不清动作过渡态；手动刷新在跑就跳过本轮 */
+    private fun refreshAllQuiet() {
+        if (refreshing || servers.isEmpty()) return
+        val snapshot = servers.toList()
+        refreshing = true
+        Thread({
+            for (profile in snapshot) {
+                // 后台线程里任何未捕获异常都会直接崩进程 —— 每台电脑单独兜住
+                val info = try {
+                    fetchBootInfo(profile)
+                } catch (error: Throwable) {
+                    offlineInfo("", error.message ?: "探测失败")
+                }
+                runOnUiThread { boots[profile.id] = info }
+            }
+            runOnUiThread { refreshing = false }
+        }, "anyboot-autoprobe").start()
+    }
+
     private fun reloadBoot(profile: ServerProfile) {
         val id = profile.id
         if (busy[id] != null) return
@@ -2216,6 +2265,9 @@ class ComputerListActivity : ComponentActivity() {
         const val PROBE_TIMEOUT_MS = 3000
         const val CONNECT_TIMEOUT_MS = 4000
         const val READ_TIMEOUT_MS = 8000
+
+        /** 定时自动探测间隔：与电脑页心跳同一节奏（10 秒一轮） */
+        const val AUTO_PROBE_INTERVAL_MS = 10_000L
 
         val HELP_LINES = listOf(
             "唤醒：发标准魔术包（UDP 9）。睡眠 / 重启 / 关机按每台电脑「电源路由」里配的通道发送，" +

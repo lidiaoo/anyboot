@@ -4892,6 +4892,16 @@
       .catch(function (error) { toast('探测失败：' + error, 'bad'); })
       .finally(function () { cqRefreshing = false; cqSetRefreshBusy(false); });
   });
+  // 定时自动探测（与电脑页心跳同一节奏：10 秒一轮）：只在本页可见时跑，
+  // 手动刷新在跑就跳过本轮；静默执行不弹 toast（按钮会转一圈提示探测中）。
+  setInterval(function () {
+    if (currentPage !== 'computers' || document.hidden || cqRefreshing) return;
+    cqRefreshing = true;
+    cqSetRefreshBusy(true);
+    loadRemotes()
+      .catch(function () {})
+      .finally(function () { cqRefreshing = false; cqSetRefreshBusy(false); });
+  }, 10000);
   document.getElementById('cqViewClose').addEventListener('click', pcCloseView);
   document.getElementById('cqViewReload').addEventListener('click', function () { pcReloadActive(cqViewRid); });
   cqViewOverlay.addEventListener('click', function (e) { if (e.target === cqViewOverlay) pcCloseView(); });
