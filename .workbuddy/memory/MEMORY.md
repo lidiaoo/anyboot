@@ -127,3 +127,8 @@
 - 用户跑的是安装版 `C:/Users/jianghh/AppData/Local/AnyBoot/anyboot.exe`，前端的 `ui/*.html`
   是编译期嵌进 exe 并**压缩**的：改完必须重编 + 覆盖 exe 才生效，`grep` 二进制里搜不到标记字符串，
   别拿 grep 结果判断「有没有打进去」。
+
+## 2026-10-22 端口坑补充
+- 12300 落在 Windows 保留段（hns/WSL 开机占用）时 bind 报 WSAEACCES(10013)，服务静默起不来，本机 iframe 白屏。排查：netsh int ipv4 show excludedportrange protocol=tcp；恢复：netsh int ipv4 set dynamicport tcp start=49152 num=16384 后重启 winnat（管理员）。
+- hub.html 的「本机」chip 是静态 HTML，不在 renderPcChips 循环里，必须单独绑 click（这次「本机点不动」的根因）。
+
