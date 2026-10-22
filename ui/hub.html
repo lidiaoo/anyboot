@@ -323,11 +323,6 @@
   .spark { display: block; width: 100%; margin-top: 12px; }
   .spark-hint { margin: 12px 0 0; font-size: 12px; color: rgb(var(--fg-faint)); }
 
-  /* 电源（重启 / 关机 / 睡眠 / 唤醒） */
-  .power-row { display: flex; align-items: center; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
-  .power-row .spacer { flex: 1; }
-  .power-hint { margin: 10px 0 0; font-size: 12px; color: rgb(var(--fg-faint)); word-break: break-all; }
-
   /* 局域网电源路由（编辑弹窗）：动作 · 广播地址 · 端口 · MAC */
   .route-list { display: flex; flex-direction: column; gap: 8px; margin: 8px 0 0; }
   .route-row {
@@ -425,8 +420,8 @@
     font-family: ui-monospace, Menlo, Consolas, monospace;
   }
   .addr-add input:focus { border-color: rgb(var(--accent)); }
-  .addr-add #fAddrHost, .addr-add #rsAddrHost { flex: 1 1 190px; min-width: 140px; }
-  .addr-add #fAddrMacs, .addr-add #rsAddrMacs { flex: 1 1 180px; min-width: 130px; }
+  .addr-add #rsAddrHost { flex: 1 1 190px; min-width: 140px; }
+  .addr-add #rsAddrMacs { flex: 1 1 180px; min-width: 130px; }
 
   .help-dot {
     width: 20px; height: 20px; border-radius: 50%;
@@ -1917,26 +1912,15 @@
             </div>
           </div>
         </div>
-        <div class="field">
-          <label for="fAddrQuick">快速识别（粘贴任意写法，自动拆出地址 / 端口 / MAC 加进下面）</label>
-          <textarea id="fAddrQuick" rows="2" class="mono" spellcheck="false" placeholder="整段粘进来就行，例如：&#10;192.168.0.120:12300 AA:BB:CC:DD:EE:FF 台式机有线&#10;192.168.0.121 11-22-33-44-55-66（5G WiFi）"></textarea>
-          <div class="addr-quick-actions">
-            <button type="button" class="btn small" id="fAddrRecognize">识别并加入</button>
-            <span class="addr-quick-hint" id="fAddrHint">换行 / 空格 / 逗号 / 分号都能分开；认不出的文字（备注、括号）自动忽略</span>
+        <div class="field-row">
+          <div class="field">
+            <label for="fHost">地址</label>
+            <input id="fHost" type="text" class="mono" placeholder="IP 或域名">
           </div>
-        </div>
-        <div class="field">
-          <label>地址（第一个用来连接，其余参与「测试连接」和「唤醒」）</label>
-          <div class="addr-list" id="fAddrList"></div>
-          <div class="addr-add">
-            <input id="fAddrHost" type="text" spellcheck="false" placeholder="192.168.0.120 或 192.168.0.120:12300">
-            <input id="fAddrMacs" type="text" spellcheck="false" placeholder="MAC（可多个，空格隔开）">
-            <button type="button" class="btn small" id="fAddrAdd">添加</button>
+          <div class="field fixed">
+            <label for="fPort">端口</label>
+            <input id="fPort" type="text" class="mono" inputmode="numeric" placeholder="默认">
           </div>
-          <p class="field-hint" style="margin:8px 0 0">
-            没写端口按协议默认（SSH 22 / Telnet 23）。地址已存在时只把 MAC 追加进去（可以拿它给已有地址补网卡）；
-            点 MAC 标签可以单独删掉那块网卡。MAC 是局域网电源的必填项（包体就是魔术包），不影响连接。
-          </p>
         </div>
         <div class="field" data-page-node-id="3LtY5X3ZUFSlVeHx9DGWf3">
           <label for="fUser" data-page-node-id="UgvgCdDa99t1bLKd5CHNlZ">用户名</label>
@@ -2483,37 +2467,6 @@
     return { addresses: addresses, macs: macs };
   }
 
-  /** 服务器档案 → 编辑状态（有序，第一个 = 连接用） */
-  function addressesFromServer(server) {
-    if (!server) return [];
-    const list = (server.addresses && server.addresses.length)
-      ? server.addresses.slice()
-      : (server.host ? [server.host + ':' + (server.port || defaultPortFor(server.protocol))] : []);
-    return list.map(function (address) {
-      return { address: address, macs: ((server.macs && server.macs[address]) || []).slice() };
-    });
-  }
-
-  /** 这台服务器配过的所有 MAC（去重）—— 详情页展示与「有没有配 MAC」判断用 */
-  function serverMacs(server) {
-    const result = [];
-    const macs = server.macs || {};
-    const addresses = (server.addresses && server.addresses.length)
-      ? server.addresses
-      : (server.host ? [server.host + ':' + (server.port || defaultPortFor(server.protocol))] : []);
-    addresses.forEach(function (address) {
-      (macs[address] || []).forEach(function (mac) {
-        if (result.indexOf(mac) < 0) result.push(mac);
-      });
-    });
-    Object.keys(macs).forEach(function (address) {
-      (macs[address] || []).forEach(function (mac) {
-        if (result.indexOf(mac) < 0) result.push(mac);
-      });
-    });
-    return result;
-  }
-
   // ============ 地址编辑（识别框 + 已添加列表 + 手动添加） ============
   /** 弹窗里正在改的地址（有序，第一个 = 连接用）；保存时写回 addresses + macs */
   // ============ 地址编辑（识别框 + 已添加列表 + 手动添加；服务器 / 电脑弹窗共用） ============
@@ -2709,16 +2662,6 @@
       }
     };
   }
-
-  /** 服务器（侧边栏第二个）编辑弹窗的地址编辑器 */
-  const serverAddrEditor = makeAddressEditor({
-    ids: { list: 'fAddrList', quick: 'fAddrQuick', recognize: 'fAddrRecognize', hint: 'fAddrHint', host: 'fAddrHost', macs: 'fAddrMacs', add: 'fAddrAdd' },
-    defaultPort: function () { return defaultPortFor(editingProto); },
-    emptyText: '还没加地址 —— 上面粘一段，或者下面手动填一个。',
-    noMacText: '没配 MAC —— 局域网电源发不出去',
-    hintDefault: '换行 / 空格 / 逗号 / 分号都能分开；认不出的文字（备注、括号）自动忽略',
-    onPairingChange: function () {}
-  });
 
   // ============ 局域网电源路由（唤醒 / 重启 / 关机 / 睡眠） ============
   /** 四个动作（与后端 hub.rs、移动端 ServerProfile 同一套字符串） */
@@ -3240,31 +3183,6 @@
     const port = server.port || (server.protocol === 'telnet' ? 23 : 22);
     const p = probes[server.id];
     const isSsh = server.protocol === 'ssh';
-    // 局域网电源路由：配了的动作改成往「广播地址:端口」发 UDP（目标机上的 sol 按端口执行）。
-    // 走这条路的动作不看协议 —— Telnet 服务器也能重启/关机。
-    const powerRoutes = (server.power_routes || [])
-      .filter(function (route) { return route.enabled !== false; })
-      .map(function (route) {
-        return {
-          action: powerActionOf(route.action),
-          target: route.target || '',
-          port: route.port || 9,
-          macs: route.macs || []
-        };
-      });
-    const routesOf = function (action) {
-      return powerRoutes.filter(function (route) { return route.action === action; });
-    };
-    const routeHint = function (action) {
-      return routesOf(action).map(function (route) {
-        return (route.target || '自动广播') + ':' + route.port;
-      }).join(' / ');
-    };
-    /** 按钮的 disabled / title：有路由就能点（走 UDP）；没路由且不是 SSH 才禁用 */
-    const powerBtnAttr = function (action, reason) {
-      if (routesOf(action).length) return ' title="发送到 ' + esc(routeHint(action)) + '"';
-      return isSsh ? '' : ' disabled title="' + reason + '"';
-    };
     const statePill = !p
       ? '<span class="pill dim"><span class="pdot"></span>未测</span>'
       : p.state === 'ok'
@@ -3338,38 +3256,6 @@
         '<p class="test-line" id="detailTestLine">' +
           (p ? ((p.state === 'ok' ? '✓ ' : '✗ ') + esc(p.message || '')) : '') + '</p>' +
       '</div>' +
-      '<div class="d-section">' +
-        '<div class="sec-head"><h4>电源</h4>' +
-          '<span class="sec-sub">' +
-            (powerRoutes.length
-              ? '按局域网路由发 UDP —— 目标机装 sol，按端口执行对应动作'
-              : '重启 / 关机 / 睡眠需要目标机 sudo 免密；唤醒靠 MAC 魔术包') +
-          '</span></div>' +
-        '<div class="power-row">' +
-          '<button class="btn small" id="powerRebootBtn"' + powerBtnAttr('reboot', 'Telnet 不支持；可以给它配一条局域网路由') + '>重启</button>' +
-          '<button class="btn small" id="powerShutdownBtn"' + powerBtnAttr('shutdown', 'Telnet 不支持；可以给它配一条局域网路由') + '>关机</button>' +
-          '<button class="btn small" id="powerSleepBtn"' + powerBtnAttr('sleep', 'Telnet 不支持；可以给它配一条局域网路由') + '>睡眠</button>' +
-          '<button class="help-dot" id="powerSleepHelp" title="睡眠、唤醒与局域网路由说明" aria-label="睡眠与唤醒说明">?</button>' +
-          '<span class="spacer"></span>' +
-          '<button class="btn small" id="powerWakeBtn"' + powerBtnAttr('wake', 'Telnet 不支持，且没配唤醒路由') + '>唤醒</button>' +
-        '</div>' +
-        (powerRoutes.length
-          ? '<p class="power-hint">局域网路由：' + powerRoutes.map(function (route) {
-              return powerActionLabel(route.action) + ' → ' + (route.target || '自动广播') + ':' + route.port +
-                (route.macs.length ? '（' + route.macs.length + ' 个 MAC' : '（全部 MAC') +
-                '，' + (route.burst || routeDefaultBurst(route)) + ' 包 / 重试 ' +
-                (route.retry || routeDefaultRetry(route)) + ' 次）';
-            }).join(' · ') + '</p>'
-          : '') +
-        (server.addresses && server.addresses.length > 1
-          ? '<p class="power-hint">地址：' + server.addresses.map(esc).join(' · ') + '</p>'
-          : '') +
-        '<p class="power-hint">' +
-          (serverMacs(server).length
-            ? '已配 MAC：' + serverMacs(server).map(esc).join(' · ')
-            : '还没配 MAC —— 点右上角「编辑」，在「已添加的地址」里给对应地址补上网卡 MAC 就能用「唤醒」') +
-        '</p>' +
-      '</div>' +
       '<div class="d-section">' + sparkBlock + '</div>' +
       tunnelHtml;
 
@@ -3405,81 +3291,7 @@
     document.getElementById('testBtn').addEventListener('click', function () { runTest(server, document.getElementById('testBtn')); });
     document.getElementById('editBtn').addEventListener('click', function () { openEdit(server); });
     document.getElementById('delBtn').addEventListener('click', function () { openDelete(server); });
-    bindPowerActions(server);
     renderTunnelBlock(server);
-  }
-
-  // ============ 电源（重启 / 关机 / 睡眠 / 唤醒） ============
-  /** 睡眠旁的 ? —— 讲清楚「睡下之后怎么叫醒」 */
-  const SLEEP_HELP = [
-    '睡眠 = 内存不断电（挂起到内存）：几乎立刻能醒，但任何网络服务都停了。',
-    '所以点完「睡眠」这台服务器会显示离线、终端也连不上，这是预期的。',
-    '',
-    '叫醒它用「唤醒」：给网卡发一个魔术包（Wake-on-LAN）。它不看系统、不看服务，睡着/关机也能收到。',
-    '',
-    '唤醒包 / 电源包从哪发（按顺序看）：',
-    '· 这台服务器配了「局域网路由」→ 按路由里的广播地址和端口发（可以配多条，MAC 也能选）；',
-    '  每条路由都能设「发几个包」和「没发出就重试几次」：唤醒默认 10 / 10，',
-    '  重启 / 关机 / 睡眠默认 1 / 1 —— 这三个动作发几个包，sol 就执行几次，别乱调大。',
-    '· 没配路由但配了 SSH 跳板机 → 由跳板机在内网广播（在外网也能用）；',
-    '· 都没有 → 这台电脑自己往局域网广播（必须和目标机同一网段）。',
-    '',
-    '为什么「重启 / 关机 / 睡眠」也能走局域网：',
-    '这三个动作 WOL 做不到，是目标机上装的 sol 在监听 UDP 端口，收到包就执行对应动作。',
-    '所以“哪个端口 = 哪个动作”是你在「编辑 → 局域网电源路由」里自己绑的',
-    '（例如唤醒 9、重启 9200、关机 9201、睡眠 9202）。包体永远是标准的 102 字节魔术包，',
-    '不带任何自定义内容 —— 端口就是指令，MAC 是所有动作的必填项。',
-    '没装 sol，包能发出去但没人执行 —— 这时就还是走 SSH（需要 sudo 免密）。',
-    '',
-    '点了没反应，按顺序检查：',
-    '1) 主板 BIOS 里开启了 Wake on LAN（只影响唤醒）；',
-    '2) 用的是有线网卡的 MAC（绝大多数无线网卡不支持关机唤醒）；',
-    '3) MAC 加在「编辑 → 地址」列表里对应的地址上（点 MAC 标签能删，下面能补）；',
-    '4) 路由里的广播地址对不对（和这台机器同网段，如 192.168.0.255），端口和 sol 侧监听的一致；',
-    '5) 主机没被拔电源、插排没断电（关机后网卡要靠待机供电收包）；',
-    '6) Windows 目标机：设备管理器 → 网卡 → 电源管理，勾「允许此设备唤醒计算机」，并关掉「快速启动」。'
-  ].join('\n');
-
-  /** 这个动作配了局域网路由吗（提示语用） */
-  function serverHasRoute(server, action) {
-    return (server.power_routes || []).some(function (route) {
-      return route.enabled !== false && powerActionOf(route.action) === action;
-    });
-  }
-
-  function bindPowerActions(server) {
-    const name = server.name || server.host;
-    const run = function (action, label, button) {
-      if (!invoke) { toast('电源操作需要应用环境', 'bad'); return; }
-      const question = action === 'sleep'
-        ? '确认让「' + name + '」睡眠？睡下后连接会断，只能用「唤醒」叫醒（需要配好 MAC 并开启网络唤醒）。'
-        : '确认' + label + '「' + name + '」？连接会断开。';
-      if (!window.confirm(question)) return;
-      if (button) button.disabled = true;
-      toast((serverHasRoute(server, action) ? '正在按路由发送' : '正在发送') + label + '…');
-      invoke('hub_server_power', { id: server.id, action: action })
-        .then(function (message) { toast(message); })
-        .catch(function (error) { toast(label + '失败：' + error, 'bad'); })
-        .finally(function () { if (button) button.disabled = false; });
-    };
-    const reboot = document.getElementById('powerRebootBtn');
-    const shutdown = document.getElementById('powerShutdownBtn');
-    const sleep = document.getElementById('powerSleepBtn');
-    const wake = document.getElementById('powerWakeBtn');
-    const help = document.getElementById('powerSleepHelp');
-    if (reboot) reboot.addEventListener('click', function () { run('reboot', '重启', reboot); });
-    if (shutdown) shutdown.addEventListener('click', function () { run('shutdown', '关机', shutdown); });
-    if (sleep) sleep.addEventListener('click', function () { run('sleep', '睡眠', sleep); });
-    if (help) help.addEventListener('click', function () { window.alert(SLEEP_HELP); });
-    if (wake) wake.addEventListener('click', function () {
-      if (!invoke) { toast('唤醒需要应用环境', 'bad'); return; }
-      wake.disabled = true;
-      toast(serverHasRoute(server, 'wake') ? '正在按路由发唤醒包…' : '正在发唤醒包…');
-      invoke('hub_wake_server', { id: server.id })
-        .then(function (message) { toast(message); })
-        .catch(function (error) { toast('唤醒失败：' + error, 'bad'); })
-        .finally(function () { wake.disabled = false; });
-    });
   }
 
   // ============ 隧道（M4） ============
@@ -3736,9 +3548,8 @@
     document.getElementById('editTitle').textContent = server ? '编辑服务器' : '添加服务器';
     document.getElementById('fName').value = server ? server.name : '';
     setEditProto(server ? server.protocol : 'ssh');
-    // 地址：档案 → 编辑状态（识别框清空，列表按顺序显示，第一个 = 连接用）
-    serverAddrEditor.setEntries(addressesFromServer(server));
-    serverAddrEditor.resetInputs();
+    document.getElementById('fHost').value = server ? server.host : '';
+    document.getElementById('fPort').value = server && server.port ? server.port : '';
     document.getElementById('fUser').value = server ? server.username : '';
     document.getElementById('fNotes').value = server ? server.notes : '';
     document.getElementById('fTermPath').value = server ? (server.term_path || '') : '';
@@ -3759,13 +3570,6 @@
 
   /** 弹窗表单 → 服务器对象（供保存 / 弹窗内测试连接共用） */
   function formServer() {
-    // 地址来自「已添加的地址」列表：第一个 = 连接用（后端会把 addresses[0] 回写成 host/port）
-    const parsed = { addresses: [], macs: {} };
-    serverAddrEditor.entries().forEach(function (item) {
-      if (!item.address) return;
-      parsed.addresses.push(item.address);
-      if (item.macs.length) parsed.macs[item.address] = item.macs.slice();
-    });
     // password_new 三态：密码段填了 → 换新；密码段留空 → null=不动已存的；
     // 切到交互/密钥段 → 空串=清掉已存密码（后端消化成密文或清除）
     let passwordNew = null;
@@ -3775,16 +3579,12 @@
     } else {
       passwordNew = '';
     }
-    const primary = parsed.addresses[0] || '';
-    const colon = primary.lastIndexOf(':');
     return {
       id: editingId || '',
       name: document.getElementById('fName').value,
       protocol: editingProto,
-      host: colon > 0 ? primary.slice(0, colon) : primary,
-      port: colon > 0 ? (parseInt(primary.slice(colon + 1), 10) || 0) : 0,
-      addresses: parsed.addresses,
-      macs: parsed.macs,
+      host: document.getElementById('fHost').value,
+      port: parseInt(document.getElementById('fPort').value, 10) || 0,
       username: document.getElementById('fUser').value,
       notes: document.getElementById('fNotes').value,
       key_id: editingAuth === 'key' ? (document.getElementById('fKey').value || '') : '',
@@ -3873,7 +3673,6 @@
   document.getElementById('editCancel').addEventListener('click', closeEdit);
   document.getElementById('editX').addEventListener('click', closeEdit);
   document.getElementById('editSave').addEventListener('click', submitEdit);
-  serverAddrEditor.bind();
   document.getElementById('editTest').addEventListener('click', testFromDialog);
   document.getElementById('deleteCancel').addEventListener('click', closeDelete);
   document.getElementById('deleteX').addEventListener('click', closeDelete);

@@ -1,15 +1,13 @@
-//! 远程电源（重启 / 关机 / 睡眠）与网络唤醒（Wake-on-LAN）。
+//! 局域网电源发包链路（重启 / 关机 / 睡眠 / 唤醒 共用）。
 //!
-//! 两条路，按有没有配「局域网电源路由」自动选：
+//! 「远程管理 -> 电脑」的电源（`remote_servers::remote_power`）把启用的路由
+//! 编译成待发包列表（`plan_routes`），再发出去（`send_plan`）：
 //!
-//! 1. **配了路由**（`HubServer.power_routes`，在「编辑服务器」里逐条加）：
-//!    往「广播地址 + 端口」发 UDP 包。包体是**标准的 102 字节魔术包**
-//!    （6×0xFF + MAC×16），不带任何自定义尾巴 —— 端口就是指令：目标机上装的
-//!    **sol** 按端口区分收到的是唤醒 / 重启 / 关机 / 睡眠，同一台机器的四个动作
-//!    各自绑不同端口。这条路的优点是机器睡着、SSH 不通也能操作；
-//!    缺点是没有 sol 就没人收包。
-//! 2. **没配路由**（老行为，完全保留）：重启 / 关机 / 睡眠登录目标机跑 systemctl
-//!    （要求该账号 `sudo -n` 免密）；唤醒自己拼魔术包，配了跳板机就由跳板机广播。
+//! - 包体是**标准的 102 字节魔术包**（6×0xFF + MAC×16），不带任何自定义尾巴
+//!   —— 端口就是指令：目标机上装的 **sol** 按端口区分收到的是唤醒 / 重启 /
+//!   关机 / 睡眠，同一台机器的四个动作各自绑不同端口。机器睡着、SSH 不通也能操作；
+//!   缺点是没有 sol 就没人收包。
+//! - 发送通道：本机直发（同网段）或经 SSH 跳板机广播（外网也能用）。
 //!
 //! 所有外部命令都走 `crate::command`（Windows 上带 CREATE_NO_WINDOW，不闪黑框），
 //! 认证一律 `hub_tunnel::apply_auth`（密钥 / 存档密码 / 跳板代理 / ControlMaster 复用），
@@ -21,8 +19,7 @@ use serde_json::json;
 use tauri::AppHandle;
 
 use crate::hub::{
-    normalize_power_action, split_address, HubServer, PowerRoute, POWER_REBOOT, POWER_SHUTDOWN,
-    POWER_SLEEP, POWER_WAKE,
+    split_address, HubServer, PowerRoute, POWER_REBOOT, POWER_SHUTDOWN, POWER_SLEEP, POWER_WAKE,
 };
 
 /// 没有可用凭据时给用户的话（与 sftp 那句同一风格）
@@ -31,26 +28,6 @@ const NO_CRED: &str = "这台服务器没有可用的自动认证凭据：请在
 /// 跳板机 shell 握手标记（OK / NOTOOL）：只出现在命令输出里，**不进包体**。
 /// 包体永远是最标准的 102 字节魔术包，端口即指令，不多一个字节。
 const POWER_TAG: &str = "ANYBOOT-POWER";
-
-/// 读一台服务器（找不到就给一句能看懂的错）
-fn find_server(app: &AppHandle, id: &str) -> Result<HubServer, String> {
-    crate::hub::load_servers_pub(app)?
-        .into_iter()
-        .find(|server| server.id == id)
-        .ok_or_else(|| format!("服务器不存在（可能已被删除）：{id}"))
-}
-
-/// PC 端电源操作（异步包装，真正的活走 spawn_blocking —— 起 ssh 是阻塞的）
-#[tauri::command]
-pub async fn hub_server_power(app: AppHandle, id: String, action: String) -> Result<String, String> {
-    run_power_command(app, "hub_server_power", id, action).await
-}
-
-/// PC 端网络唤醒（同上）
-#[tauri::command]
-pub async fn hub_wake_server(app: AppHandle, id: String) -> Result<String, String> {
-    run_power_command(app, "hub_wake_server", id, POWER_WAKE.to_string()).await
-}
 
 // ==================== 埋点日志 ====================
 
@@ -71,58 +48,6 @@ pub(crate) fn power_log(app: &AppHandle, message: &str) {
         .append(true)
         .open(&path)
         .and_then(|mut file| std::io::Write::write_all(&mut file, line.as_bytes()));
-}
-
-/// 按钮接口的统一埋点包装：进命令记一条入口（哪个按钮 / 哪台机器 / 什么动作），
-/// 出来再记一条结果原文（成功信息或失败原因）。`entry` 就是前端 invoke 的命令名，
-/// 借此能对上「界面上哪个按钮」。
-async fn run_power_command(
-    app: AppHandle,
-    entry: &'static str,
-    id: String,
-    action: String,
-) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let name = crate::hub::load_servers_pub(&app)
-            .ok()
-            .and_then(|servers| {
-                servers
-                    .iter()
-                    .find(|server| server.id == id)
-                    .map(|server| server.name.clone())
-            })
-            .unwrap_or_else(|| "?".to_string());
-        power_log(
-            &app,
-            &format!("{entry} 入口：服务器「{name}」({id}) 动作 {action}"),
-        );
-        let result = dispatch(&app, &id, &action);
-        match &result {
-            Ok(message) => power_log(&app, &format!("{entry} 完成：{message}")),
-            Err(message) => power_log(&app, &format!("{entry} 失败：{message}")),
-        }
-        result
-    })
-    .await
-    .map_err(|error| format!("电源操作任务失败：{error}"))?
-}
-
-// ==================== 分发 ====================
-
-/// 一个动作的总入口：先看有没有配路由，配了按路由发；没配才走老路。
-fn dispatch(app: &AppHandle, id: &str, action: &str) -> Result<String, String> {
-    let server = find_server(app, id)?;
-    let action = normalize_power_action(action)
-        .ok_or_else(|| format!("未知的电源动作：{action}（可用 wake / reboot / shutdown / sleep）"))?;
-    let routes = server.routes_for(action);
-    if !routes.is_empty() {
-        return send_routes(app, &server, action, &routes);
-    }
-    if action == POWER_WAKE {
-        wake_legacy(app, &server)
-    } else {
-        power_ssh(app, &server, action)
-    }
 }
 
 pub(crate) fn action_label(action: &str) -> &'static str {
@@ -149,61 +74,6 @@ pub(crate) struct Delivery {
 
 /// 重试之间的间隔：WOL 收不到任何应答，只能「等一会儿再来一轮」
 const RETRY_INTERVAL: std::time::Duration = std::time::Duration::from_millis(200);
-
-fn send_routes(
-    app: &AppHandle,
-    server: &HubServer,
-    action: &str,
-    routes: &[PowerRoute],
-) -> Result<String, String> {
-    // 服务器通道没有它的 AnyBoot HTTP 凭据（token 在「电脑」档案里），
-    // 「仅 HTTP」在这里永远发不出去，直接说清楚别让人等
-    let mode = crate::hub::routes_mode(routes);
-    if mode == "http_only" {
-        return Err(
-            "「仅 HTTP」模式走的是这台机器自带的 AnyBoot 接口，但服务器档案里没有它的 HTTP 凭据 \
-             —— 要用 HTTP 模式请改在「远程管理 -> 电脑」里配"
-                .to_string(),
-        );
-    }
-    let all_macs = server.all_macs();
-    let jump = if server.jump_id.is_empty() {
-        None
-    } else {
-        Some(find_jump(app, &server.jump_id)?)
-    };
-    let plan = plan_routes(action, &server.addresses, &all_macs, routes)?;
-    let (_sent, where_from) = send_plan(app, jump.as_ref(), &plan)?;
-
-    let label = action_label(action);
-    let mut message = format!("已从{where_from}按路由发送{}：{}", label, plan.described.join(" · "));
-    if mode == "http_first" {
-        // HTTP 兜底只在「电脑」档案里有：服务器通道只能发广播包
-        message.insert_str(0, "（服务器档案没有 HTTP 凭据，「优先 HTTP」按广播包发送）");
-    }
-    if mode == "hybrid" {
-        message.insert_str(0, "（服务器档案没有 HTTP 凭据，混合模式只发了广播包）");
-    }
-    if action != POWER_WAKE {
-        message.push_str("。这个动作靠目标机上的 sol 监听该端口执行 —— 没装 sol 不会有反应");
-    }
-    if !plan.problems.is_empty() {
-        message.push_str(&format!(
-            "（另有 {} 条路由被跳过：{}）",
-            plan.problems.len(),
-            plan.problems.join("；")
-        ));
-    }
-    Ok(message)
-}
-
-/// 找一台跳板机（找不到就给一句能看懂的错）
-fn find_jump(app: &AppHandle, jump_id: &str) -> Result<HubServer, String> {
-    crate::hub::load_servers_pub(app)?
-        .into_iter()
-        .find(|candidate| candidate.id == jump_id)
-        .ok_or_else(|| "跳板机不存在（可能已被删除），请到服务器列表检查".to_string())
-}
 
 /// 一批待发的电源包 + 给用户看的描述。PC（hub 服务器 / 电脑档案）共用。
 pub(crate) struct RoutePlan {
@@ -335,10 +205,6 @@ pub(crate) fn auto_targets_from(addresses: &[String]) -> Vec<String> {
     }
     targets.push("255.255.255.255".to_string());
     targets
-}
-
-fn auto_targets(server: &HubServer) -> Vec<String> {
-    auto_targets_from(&server.addresses)
 }
 
 /// 本机直接发（PC 和目标机同网段时最省事）
@@ -492,240 +358,6 @@ fn hex_encode(bytes: &[u8]) -> String {
     out
 }
 
-// ==================== 老路：SSH 电源 ====================
-
-fn power_ssh(app: &AppHandle, server: &HubServer, action: &'static str) -> Result<String, String> {
-    let (label, remote) = match action {
-        POWER_REBOOT => ("重启", reboot_script()),
-        POWER_SHUTDOWN => ("关机", shutdown_script()),
-        POWER_SLEEP => ("睡眠", sleep_script()),
-        other => return Err(format!("未知的电源动作：{other}（可用 reboot / shutdown / sleep）")),
-    };
-    let output = run_remote(app, server, remote)?;
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let combined = format!("{stdout}\n{stderr}");
-
-    if combined.contains("ANYBOOT-NO-SUDO") {
-        return Err(format!(
-            "{label}需要目标机的 sudo 免密权限：请先在 {} 上给该账号配 NOPASSWD（或手动执行一次）",
-            server.host
-        ));
-    }
-    if combined.contains("ANYBOOT-OK") {
-        return Ok(format!(
-            "已提交{label}（{}）。{}",
-            server.host,
-            if action == POWER_SLEEP {
-                "机器睡下后连接会断，要叫醒它请点「唤醒」（需要配好 MAC 并开启网络唤醒）"
-            } else {
-                "连接会断开，稍等片刻再刷新/重连"
-            }
-        ));
-    }
-    if !output.status.success() {
-        return Err(format!(
-            "{label}失败（exit {}）：{}",
-            output.status.code().unwrap_or(-1),
-            tail(&combined, 240)
-        ));
-    }
-    Ok(format!("已提交{label}（{}）", server.host))
-}
-
-/// 三种动作的远端脚本。
-///
-/// 为什么要 `nohup ... &`：`systemctl reboot` / `poweroff` 会把当前 ssh 会话
-/// 一起干掉，ssh 侧看到一个非零退出码就会误报失败；后台执行 + 立即回 OK，
-/// 才是「命令确实发出去了」的准确表达。
-fn reboot_script() -> &'static str {
-    "if ! sudo -n true 2>/dev/null; then echo ANYBOOT-NO-SUDO; exit 3; fi\n\
-     nohup sh -c 'sleep 1; sudo -n systemctl reboot || sudo -n /sbin/shutdown -r now || sudo -n /sbin/reboot' >/dev/null 2>&1 &\n\
-     echo ANYBOOT-OK"
-}
-
-fn shutdown_script() -> &'static str {
-    "if ! sudo -n true 2>/dev/null; then echo ANYBOOT-NO-SUDO; exit 3; fi\n\
-     nohup sh -c 'sleep 1; sudo -n systemctl poweroff || sudo -n /sbin/shutdown -h now || sudo -n /sbin/halt' >/dev/null 2>&1 &\n\
-     echo ANYBOOT-OK"
-}
-
-fn sleep_script() -> &'static str {
-    "if ! sudo -n true 2>/dev/null; then echo ANYBOOT-NO-SUDO; exit 3; fi\n\
-     nohup sh -c 'sleep 1; sudo -n systemctl suspend || sudo -n /usr/sbin/pm-suspend || sudo -n /usr/sbin/pm-suspend-hybrid' >/dev/null 2>&1 &\n\
-     echo ANYBOOT-OK"
-}
-
-/// 在目标机上跑一条命令（走 apply_auth，密码/密钥/跳板全部自动）
-fn run_remote(app: &AppHandle, server: &HubServer, script: &str) -> Result<std::process::Output, String> {
-    if server.id.is_empty() {
-        return Err("该服务器还没保存档案，无法自动认证".to_string());
-    }
-    let target = if server.username.is_empty() {
-        server.host.clone()
-    } else {
-        format!("{}@{}", server.username, server.host)
-    };
-    let mut command = crate::command("ssh");
-    crate::hub_tunnel::apply_auth(app, server, &mut command, NO_CRED)?;
-    command
-        .args(["-p", &server.effective_port().to_string()])
-        .args(["-o", "ConnectTimeout=8"])
-        .arg(&target)
-        .arg(script)
-        .env("LC_ALL", "C.UTF-8");
-    command
-        .output()
-        .map_err(|error| format!("无法启动 ssh：{error}"))
-}
-
-// ==================== 老路：标准 WOL ====================
-
-fn wake_legacy(app: &AppHandle, server: &HubServer) -> Result<String, String> {
-    let macs = server.all_macs();
-    if macs.is_empty() {
-        return Err(format!(
-            "这台服务器还没配 MAC：请在「编辑」里把 MAC 跟在地址后面（如 {} AA:BB:CC:DD:EE:FF）",
-            server.host
-        ));
-    }
-    if !server.jump_id.is_empty() {
-        return wake_via_jump(app, server, &macs);
-    }
-    wake_local(server, &macs)
-}
-
-/// 本机直接往局域网广播（PC 和这台机器同网段时最省事）
-fn wake_local(server: &HubServer, macs: &[String]) -> Result<String, String> {
-    let socket = UdpSocket::bind("0.0.0.0:0")
-        .map_err(|error| format!("创建 UDP 套接字失败：{error}"))?;
-    socket
-        .set_broadcast(true)
-        .map_err(|error| format!("开启广播失败：{error}"))?;
-
-    let targets = auto_targets(server);
-    let mut sent = 0usize;
-    for mac in macs {
-        let packet = magic_packet(mac)?;
-        for target in &targets {
-            // 9 端口是标准 WOL：按默认数量多发几个（丢一两个也能醒）；
-            // 7 是老设备用的，发一个兜底就够 —— 别把局域网刷满。
-            for _ in 0..crate::hub::DEFAULT_WAKE_BURST {
-                if socket.send_to(&packet, (target.as_str(), 9u16)).is_ok() {
-                    sent += 1;
-                }
-            }
-            if socket.send_to(&packet, (target.as_str(), 7u16)).is_ok() {
-                sent += 1;
-            }
-        }
-    }
-    if sent == 0 {
-        return Err("魔术包一个都没发出去：本机可能在隔离网络 / 防火墙拦了 UDP 广播".to_string());
-    }
-    Ok(format!(
-        "已在本机往局域网广播唤醒包（{} 个 MAC，广播地址 {}）。\
-         等 10~30 秒再重连；如果 PC 和这台机器不在同一网段，请给它配一台跳板机",
-        macs.len(),
-        targets.join(" / ")
-    ))
-}
-
-/// 经跳板机广播：目标机已经关机/睡眠，SSH 进不去，所以命令发给**跳板机**
-fn wake_via_jump(app: &AppHandle, server: &HubServer, macs: &[String]) -> Result<String, String> {
-    let jump = crate::hub::load_servers_pub(app)?
-        .into_iter()
-        .find(|candidate| candidate.id == server.jump_id)
-        .ok_or_else(|| "跳板机不存在（可能已被删除），请到服务器列表检查".to_string())?;
-    if jump.protocol != "ssh" {
-        return Err("跳板机是 Telnet，发不了唤醒命令 —— 换一台 SSH 服务器".to_string());
-    }
-    let broadcast = server
-        .addresses
-        .first()
-        .and_then(|address| split_address(address))
-        .and_then(|(host, _)| subnet_broadcast(&host))
-        .unwrap_or_else(|| "255.255.255.255".to_string());
-
-    let command = wol_script(macs, &broadcast);
-    let target = if jump.username.is_empty() {
-        jump.host.clone()
-    } else {
-        format!("{}@{}", jump.username, jump.host)
-    };
-    let mut ssh = crate::command("ssh");
-    crate::hub_tunnel::apply_auth(app, &jump, &mut ssh, NO_CRED)?;
-    ssh.args(["-p", &jump.effective_port().to_string()])
-        .args(["-o", "ConnectTimeout=8"])
-        .arg(&target)
-        .arg(command)
-        .env("LC_ALL", "C.UTF-8");
-    let output = ssh
-        .output()
-        .map_err(|error| format!("无法启动 ssh：{error}"))?;
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-
-    if stdout.contains("ANYBOOT-WOL-NOTOOL") {
-        return Err(format!(
-            "跳板机 {} 上没有 python3 / wakeonlan / etherwake —— 装一个（apt install wakeonlan）或换台跳板机",
-            jump.host
-        ));
-    }
-    if !stdout.contains("ANYBOOT-WOL-OK") {
-        return Err(format!(
-            "跳板机没能发出唤醒包（exit {}）：{}",
-            output.status.code().unwrap_or(-1),
-            tail(&format!("{stdout}\n{stderr}"), 200)
-        ));
-    }
-    Ok(format!(
-        "已通过跳板机「{}」广播唤醒包（{} 个 MAC，广播地址 {broadcast}）。等 10~30 秒再重连",
-        if jump.name.is_empty() { &jump.host } else { &jump.name },
-        macs.len()
-    ))
-}
-
-/// 跳板机上跑的 WOL 命令：优先 python3 现拼包，退而用 wakeonlan / etherwake
-fn wol_script(macs: &[String], broadcast: &str) -> String {
-    let joined = macs.join(" ");
-    let python = format!(
-        "python3 -c \"import base64;exec(base64.b64decode('{}').decode('utf-8'))\" {} {}",
-        base64_encode(PY_WOL.trim().as_bytes()),
-        broadcast,
-        joined
-    );
-    format!(
-        "if command -v python3 >/dev/null 2>&1; then {python} && echo ANYBOOT-WOL-OK; \
-         elif command -v wakeonlan >/dev/null 2>&1; then for m in {joined}; do wakeonlan \"$m\"; done && echo ANYBOOT-WOL-OK; \
-         elif command -v etherwake >/dev/null 2>&1; then for m in {joined}; do etherwake \"$m\"; done && echo ANYBOOT-WOL-OK; \
-         else echo ANYBOOT-WOL-NOTOOL; fi"
-    )
-}
-
-/// 跳板机侧的 python 脚本（自己拼魔术包，不依赖装了什么）
-const PY_WOL: &str = r#"
-import socket, sys
-targets = [sys.argv[1], '255.255.255.255']
-macs = sys.argv[2:]
-s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-for m in macs:
-    h = m.replace(':', '').replace('-', '')
-    p = b'\xff' * 6 + bytes.fromhex(h) * 16
-    for t in targets:
-        for _ in range(10):
-            try:
-                s.sendto(p, (t, 9))
-            except Exception:
-                pass
-        try:
-            s.sendto(p, (t, 7))
-        except Exception:
-            pass
-s.close()
-"#;
-
 /// 极简 base64（不引依赖）：标准字母表 + 补 `=`
 fn base64_encode(bytes: &[u8]) -> String {
     const TABLE: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -796,33 +428,6 @@ fn tail(text: &str, limit: usize) -> String {
 mod tests {
     use super::*;
 
-    fn server() -> HubServer {
-        let mut macs = std::collections::BTreeMap::new();
-        macs.insert(
-            "192.168.0.120:12300".to_string(),
-            vec!["aa:bb:cc:dd:ee:ff".to_string()],
-        );
-        HubServer {
-            id: "srv-1".to_string(),
-            name: "测试".to_string(),
-            protocol: "ssh".to_string(),
-            host: "192.168.0.120".to_string(),
-            port: 12300,
-            addresses: vec!["192.168.0.120:12300".to_string()],
-            macs,
-            power_routes: Vec::new(),
-            username: "root".to_string(),
-            notes: String::new(),
-            key_id: String::new(),
-            password_enc: String::new(),
-            jump_id: String::new(),
-            term_path: String::new(),
-            term_shell: String::new(),
-            password_new: None,
-            created_at: 0,
-        }
-    }
-
     #[test]
     fn packet_is_pure_standard_magic_packet() {
         let packet = magic_packet("aa:bb:cc:dd:ee:ff").unwrap();
@@ -857,7 +462,7 @@ mod tests {
 
     #[test]
     fn auto_targets_include_global_and_subnet_broadcast() {
-        let targets = auto_targets(&server());
+        let targets = auto_targets_from(&["192.168.0.120:12300".to_string()]);
         assert!(targets.contains(&"255.255.255.255".to_string()));
         assert!(targets.contains(&"192.168.0.255".to_string()));
         // 子网广播在前：非唤醒动作只取第一个（路由器常不转发全局广播）

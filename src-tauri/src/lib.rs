@@ -2740,9 +2740,6 @@ pub fn run() {
             hub::hub_save_server,
             hub::hub_delete_server,
             hub::hub_test_server,
-            // 远程电源 / 网络唤醒（hub_power.rs：重启·关机·睡眠走 SSH，唤醒走 MAC 魔术包）
-            hub_power::hub_server_power,
-            hub_power::hub_wake_server,
             hub_open_keys_window,
             hub_open_term_window,
             hub_open_files_window,

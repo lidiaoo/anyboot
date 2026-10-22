@@ -675,8 +675,6 @@ mod tests {
         // 这两个分支在 spawn 之前就返回，不需要 AppHandle/State
         let server = HubServer {
             addresses: Vec::new(),
-            macs: Default::default(),
-            power_routes: Vec::new(),
             id: "t".into(),
             name: "telnet 机".into(),
             protocol: "telnet".into(),
@@ -697,8 +695,6 @@ mod tests {
 
         let empty = HubServer {
             addresses: Vec::new(),
-            macs: Default::default(),
-            power_routes: Vec::new(),
             id: "e".into(),
             name: "空主机".into(),
             protocol: "ssh".into(),
@@ -775,8 +771,6 @@ mod tests {
     fn host_label_formats_user_and_port() {
         let server = HubServer {
             addresses: Vec::new(),
-            macs: Default::default(),
-            power_routes: Vec::new(),
             id: "l".into(),
             name: "本机".into(),
             protocol: "ssh".into(),
@@ -806,8 +800,6 @@ mod tests {
     fn jump_proxy_command_shapes() {
         let mut jump = HubServer {
             addresses: Vec::new(),
-            macs: Default::default(),
-            power_routes: Vec::new(),
             id: "j".into(),
             name: "跳板".into(),
             protocol: "ssh".into(),
