@@ -35,6 +35,16 @@
         } catch (e) {
           /* localStorage 不可用：按默认暗色走 */
         }
+        // 被嵌入时（「电脑」页 iframe / 手机 WebView）：宿主在左下/右下叠了
+        // 刷新与电源悬浮球 —— 给 html 标记上，styles.css 会在底部留一条空档，
+        // 状态条与内容不再被悬浮球盖住。
+        try {
+          if (window.self !== window.top || /AnyBootRemote/i.test(navigator.userAgent)) {
+            document.documentElement.classList.add("embedded");
+          }
+        } catch (e) {
+          document.documentElement.classList.add("embedded");
+        }
       })();
     </script>
     <meta content="width=device-width, initial-scale=1.0" name="viewport" data-page-node-id="EqVHhk2BvU9iAnH7og8YL2" />

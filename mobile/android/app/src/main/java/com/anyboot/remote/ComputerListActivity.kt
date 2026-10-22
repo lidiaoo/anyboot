@@ -974,14 +974,18 @@ class ComputerListActivity : ComponentActivity() {
             dot = ""
         } else {
             // rEFInd 直接用 label（走 GRUB 拼装会被折叠成「· N 个变体」）；
-            // GRUB 用托盘同款拼装的置顶行当当前值
-            val hit = if (kind == KIND_REFIND) {
-                group.options.firstOrNull { it.value == group.current }
+            // GRUB 的当前值取托盘同款拼装出来的 **GrubRow.label** —— 不能取
+            // option.label：GRUB 的原料 label 恒为空串（展示文字在渲染期现算），
+            // 直接取会显示空白（正是「GRUB 选中项空白」的根因）
+            if (kind == KIND_REFIND) {
+                val hit = group.options.firstOrNull { it.value == group.current }
+                valueLabel = hit?.label ?: group.current.ifEmpty { "未设置" }
+                dot = hit?.kind ?: "linux"
             } else {
-                grubDisplayRows(group).firstOrNull { it.option?.value == group.current }?.option
+                val hit = grubDisplayRows(group).firstOrNull { it.option?.value == group.current }
+                valueLabel = hit?.label ?: group.current.ifEmpty { "未设置" }
+                dot = hit?.option?.kind ?: "linux"
             }
-            valueLabel = hit?.label ?: group.current.ifEmpty { "未设置" }
-            dot = hit?.kind ?: "linux"
         }
 
         val shape = RoundedCornerShape(11.dp)
@@ -1637,8 +1641,10 @@ class ComputerListActivity : ComponentActivity() {
 
     /** `/api/grub` 的 entries → GRUB 可选组的**原料**（拼装在 [grubDisplayRows]） */
     private fun parseGrub(json: JSONObject): BootGroup {
-        val next = json.optString("nextEntry", "").trim()
-        val saved = json.optString("savedEntry", "").trim()
+        // nextEntry/savedEntry 也可能是 JSON null（服务端老版本序列化习惯），
+        // 裸 optString 会拿到字符串 "null" —— 统一走 optStr 兜底
+        val next = optStr(json, "nextEntry").trim()
+        val saved = optStr(json, "savedEntry").trim()
         val installed = json.optBoolean("installed", false)
         // 服务端自己的格式偏好（老版本没这个字段 → 空，前端退 minimal）
         val serverFormat = optStr(json, "listFormat")

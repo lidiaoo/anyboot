@@ -824,13 +824,15 @@
   }
   .pc-fab-help:hover { color: rgb(var(--accent)); border-color: rgb(var(--accent)); }
   .pc-fab-chip {
-    display: inline-flex; align-items: center; gap: 6px;
-    padding: 7px 14px; border-radius: 999px; font-size: 13px; cursor: pointer;
+    display: inline-flex; flex-direction: column; align-items: flex-start; gap: 1px;
+    padding: 6px 14px; border-radius: 12px; font-size: 13px; cursor: pointer;
     border: 1px solid rgb(var(--line)); background: rgb(var(--card)); color: rgb(var(--fg));
+    text-align: left;
   }
-  .pc-fab-chip:hover { border-color: rgb(var(--accent)); color: rgb(var(--accent)); }
+  .pc-fab-chip:hover { border-color: rgb(var(--accent)); }
   .pc-fab-chip:disabled { opacity: 0.5; cursor: default; }
   .pc-fab-chip .hint { font-size: 10px; color: rgb(var(--fg-faint)); font-family: ui-monospace, Menlo, Consolas, monospace; }
+  .pc-fab-chip .hint:empty { display: none; }
   .pc-fab-ball {
     width: 46px; height: 46px; border-radius: 50%; border: none; cursor: pointer;
     background: rgb(var(--accent)); color: #fff; font-size: 20px; line-height: 1;
@@ -1420,14 +1422,14 @@
           <button type="button" class="pc-refresh-fab" id="pcRefreshFab" title="重载当前页面（重新探测全部地址，谁在线用谁）" aria-label="重载当前页面">
             <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg>
           </button>
-          <!-- 电源悬浮球：只对远端标签显示（本机不需要远程电源） -->
+          <!-- 电源悬浮球：只对远端标签显示（本机不需要远程电源）。文案与提示对齐手机端 PowerFab -->
           <div class="pc-fab" id="pcFabWrap" hidden data-page-node-id="pcFabWrap1">
-            <span class="pc-fab-note" id="pcFabNote">电源走局域网 · 需 sol</span>
+            <span class="pc-fab-note" id="pcFabNote" title="电源操作说明">电源走局域网 · 需 sol</span>
             <button type="button" class="pc-fab-help" id="pcFabHelp" title="电源操作说明" hidden>?</button>
-            <button type="button" class="pc-fab-chip" data-pact="wake" data-page-node-id="pcFabWake1">唤醒</button>
-            <button type="button" class="pc-fab-chip" data-pact="sleep" data-page-node-id="pcFabSleep1">睡眠</button>
-            <button type="button" class="pc-fab-chip" data-pact="shutdown" data-page-node-id="pcFabShutdown1">关机</button>
-            <button type="button" class="pc-fab-chip" data-pact="reboot" data-page-node-id="pcFabReboot1">重启</button>
+            <button type="button" class="pc-fab-chip" data-pact="wake" data-page-node-id="pcFabWake1">唤醒<span class="hint"></span></button>
+            <button type="button" class="pc-fab-chip" data-pact="sleep" data-page-node-id="pcFabSleep1">睡眠<span class="hint"></span></button>
+            <button type="button" class="pc-fab-chip" data-pact="shutdown" data-page-node-id="pcFabShutdown1">关机<span class="hint"></span></button>
+            <button type="button" class="pc-fab-chip" data-pact="reboot" data-page-node-id="pcFabReboot1">重启<span class="hint"></span></button>
             <button type="button" class="pc-fab-ball" id="pcFab" aria-label="电源操作" aria-expanded="false" data-page-node-id="pcFab1">⏻</button>
           </div>
         </div>
@@ -5109,6 +5111,37 @@
     }, pcAutoReloadSec * 1000);
   }
 
+  /** 全部重载 = 每台电脑都重新连接一遍：逐台探测全部候选地址（谁在线用谁）、
+   *  重建 iframe，最后统一刷新列表与引导项。与手机端「全部重载」同一语义。 */
+  async function pcReloadAll() {
+    toast('正在重新探测全部电脑…');
+    if (invoke) { try { localEndpoint = await invoke('local_http_endpoint'); } catch (e) { /* 沿用旧值 */ } }
+    await Promise.all(remotes.map(async function (r) {
+      if (r.jump_id) { pageReload(r.id); return; } // 跳板机走转发端点，没有直连探测
+      const mode = r.probe_mode || 'parallel_first';
+      try {
+        const res = await invoke('remote_test', { addresses: r.addresses, probeMode: mode });
+        if (res && res.ok) {
+          if (res.addr && res.addr !== pcNormAddr(pcFirstAddr(r))) {
+            const rest = (r.addresses || []).filter(function (a) { return pcNormAddr(a) !== res.addr; });
+            r.addresses = [res.addr].concat(rest);
+            invoke('remote_promote_address', { serverId: r.id, address: res.addr })
+              .catch(function () { /* 落盘失败只影响下次启动 */ });
+          }
+          pageProbe.set(r.id, { ok: true });
+        } else {
+          pageProbe.set(r.id, { ok: false });
+        }
+      } catch (error) {
+        pageProbe.set(r.id, { ok: false });
+      }
+      pageReload(r.id);
+    }));
+    pageReload('local');
+    await loadRemotes();
+    toast('全部电脑已重连重载');
+  }
+
   /** 重载前先探测全部候选地址（谁在线用谁），失败给失败页 */
   async function pageReloadActive(rid) {
     rid = rid || activeRemote;
@@ -5211,7 +5244,38 @@
     if (!pcFabWrap) return;
     // 本机不需要远程电源（自己关自己去系统菜单按）
     pcFabWrap.hidden = activeRemote === 'local';
+    pcFabHints();
     pcFabSetExpanded(false);
+  }
+  /** 悬浮球小字（对齐手机 powerHint）：配了路由 → 「→ 地址:端口（等 N 条）」；否则用动作的兜底说明 */
+  function pcPowerHint(server, action, fallback) {
+    const routes = ((server && server.power_routes) || []).filter(function (route) {
+      return route.enabled !== false && powerActionOf(route.action) === action;
+    });
+    if (!routes.length) return fallback;
+    const route = routes[0];
+    const suffix = routes.length > 1 ? ' 等 ' + routes.length + ' 条' : '';
+    return '→ ' + (route.target || '自动广播') + ':' + (route.port || 9) + suffix;
+  }
+  /** 每个动作芯片下的提示行：随当前标签的档案实时算（切标签后 pcFabRefresh 会重刷） */
+  function pcFabHints() {
+    if (!pcFabWrap) return;
+    const server = remotes.find(function (x) { return x.id === activeRemote; });
+    const hasMac = !!(server && server.macs && Object.keys(server.macs).length);
+    const hints = {
+      wake: pcPowerHint(server, 'wake', hasMac ? 'MAC 魔术包' : '未配 MAC'),
+      sleep: pcPowerHint(server, 'sleep', '挂起到内存'),
+      shutdown: pcPowerHint(server, 'shutdown', ''),
+      reboot: pcPowerHint(server, 'reboot', ''),
+    };
+    Object.keys(hints).forEach(function (act) {
+      const chip = pcFabWrap.querySelector('[data-pact="' + act + '"]');
+      if (!chip) return;
+      const span = chip.querySelector('.hint');
+      if (span) span.textContent = hints[act];
+      if (hints[act]) chip.title = hints[act];
+      else chip.removeAttribute('title');
+    });
   }
   function pcFabSetExpanded(open) {
     if (!pcFabWrap) return;
@@ -5220,19 +5284,41 @@
     });
     pcFab.setAttribute('aria-expanded', String(open));
   }
+  // 说明文字照抄手机端 SleepHelpDialog（电源 · 睡眠与唤醒）
   const PC_FAB_POWER_HELP = [
-    '电源操作说明（点了立即执行，不再弹确认框）：',
-    '· 唤醒：发魔术包让电脑开机 —— 需要配好 MAC 并在主板开启网络唤醒；',
-    '· 睡眠：电脑挂起到内存，网页服务立刻停掉 —— 这个标签会显示离线、页面打不开，这是正常的；要叫醒请点「唤醒」（需配好 MAC 并开启网络唤醒）；',
-    '· 关机：电脑立刻关机，网页服务随之中断 —— 关机后只能用「唤醒」开机（需配好 MAC），或到机器旁按电源键；',
-    '· 重启：电脑立刻重启，网页会话断开 —— 重启完成后会自动恢复在线。',
-    '没配电源路由时走这台电脑自己的 /api/power（需要能连上它）；配了路由则发局域网 sol 包。'
+    '电源 · 睡眠与唤醒',
+    '',
+    '电源按钮点了立即执行，不再弹确认框 —— 各动作的后果都在这里：',
+    '· 睡眠 = 挂起到内存：几乎立刻能醒，但网络服务全停 —— 这个标签会显示离线、页面打不开，这是预期的。叫醒请点「唤醒」（需配好 MAC 并开启网络唤醒）；',
+    '· 关机：电脑立刻关机，网页服务随之中断 —— 之后只能用「唤醒」开机（需配好 MAC），或到机器旁按电源键；',
+    '· 重启：电脑立刻重启，网页会话断开 —— 重启完成后心跳会自动恢复在线；',
+    '· 唤醒：发魔术包让电脑开机，需配好 MAC 并在主板开启网络唤醒。',
+    '',
+    '这些按钮怎么执行（局域网 / sol）',
+    '给这台电脑配了「局域网电源路由」的动作，会往路由里的广播地址:端口发一个 UDP 包，由目标机上装着的 sol 按端口执行 —— 这样机器睡着、网页服务没起来也能操作。没装 sol，包发得出去但没人执行。',
+    '没配路由的动作走老路：唤醒发标准 WOL（魔术包），重启/关机/睡眠调电脑端的网页接口。',
+    '',
+    '唤醒包从哪发：',
+    '· 配了「唤醒」路由 → 按路由里的地址和端口发（MAC 可只挑几块网卡）；',
+    '· 配了 SSH 跳板机 → 由跳板机在内网广播（在外网也能用）；',
+    '· 都没有 → 这台电脑自己往局域网广播（要和目标机同一网段）。',
+    '',
+    '点了没反应，按顺序检查：',
+    '① 主板 BIOS 里开启了 Wake on LAN / 网络唤醒（只影响唤醒）；',
+    '② 用的是有线网卡的 MAC —— 绝大多数无线网卡不支持关机唤醒；',
+    '③ MAC 填在「编辑电脑」里对应地址那一行（如 192.168.0.120:12300 AA:BB:CC:DD:EE:FF）；',
+    '④ 路由里的广播地址和端口对不对（要和 sol 侧监听的一致）；',
+    '⑤ 主机没被拔电源、插排没断电（关机后网卡要靠待机供电收包）。',
+    'Windows 还要在「设备管理器 → 网卡 → 电源管理」勾上「允许此设备唤醒计算机」，并关掉「快速启动」（快速启动是休眠，会跳过 WOL）。'
   ].join('\n');
   if (pcFab) {
+    const showFabHelp = function () { window.alert(PC_FAB_POWER_HELP); };
     document.getElementById('pcFabHelp').addEventListener('click', function (e) {
       e.stopPropagation();
-      window.alert(PC_FAB_POWER_HELP);
+      showFabHelp();
     });
+    // 说明条整行可点（与手机端「电源走局域网 · 需 sol ？」一致）
+    document.getElementById('pcFabNote').addEventListener('click', showFabHelp);
     pcFab.addEventListener('click', function () {
       pcFabSetExpanded(pcFab.getAttribute('aria-expanded') !== 'true');
     });
@@ -5476,8 +5562,7 @@
     }
     else if (act === 'reloadAll') {
       togglePcMenu(false);
-      toast('正在重新探测全部电脑…');
-      loadRemotes();
+      pcReloadAll();
     }
     else if (act === 'connectAll') {
       connectAll = !connectAll;
