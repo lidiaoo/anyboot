@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- ui-version: 20261021-rs-routes（电源路由/地址识别已搬到「电脑」弹窗；排查旧版残留用） -->
+<!-- ui-version: 20261022-cq-local（电脑列表：本机行可读引导项/可发电源；提示对齐电脑页） -->
 <script>try{window.ANYBOOT_UI_VERSION='20261021-rs-routes';}catch(e){}</script>
 <!-- AnyBoot 远程管理（server-hub）。
      独立窗口，主窗口零改动；托盘「远程管理…」是唯一入口。
@@ -1451,10 +1451,14 @@
           <div class="cq-help" id="cqHelp" hidden>
             <h4>操作说明</h4>
             <ul>
-              <li>电源指令以标准 <b>Wake-on-LAN 魔术包</b> 发送（开机 UDP 9 / 睡眠 10 / 关机 11 / 重启 12），<b>目标机离线也能开机</b>。</li>
-              <li>关机与重启 <b>立即执行，不会二次确认</b>。</li>
+              <li>电源操作<b>点了立即执行，不再弹确认框</b>（与「电脑」页电源悬浮球同一套说明）。</li>
+              <li>唤醒：发魔术包让电脑开机 —— 需要配好 MAC 并在主板开启网络唤醒。</li>
+              <li>睡眠：电脑挂起到内存，网页服务立刻停掉 —— 会显示离线，要叫醒请点「唤醒」（需配好 MAC 并开启网络唤醒）。</li>
+              <li>关机：电脑立刻关机，网页服务随之中断 —— 关机后只能用「唤醒」开机（需配好 MAC），或到机器旁按电源键。</li>
+              <li>重启：电脑立刻重启，网页会话断开 —— 重启完成后会自动恢复在线。</li>
+              <li>没配电源路由时走这台电脑自己的 /api/power（需要能连上它）；配了路由则发局域网 sol 包。</li>
               <li>rEFInd / GRUB 的选择写入该机引导配置，<b>下次重启时生效</b>，可点「撤销」恢复原值。</li>
-              <li>设备离线时引导项不可改；离线设备只有「开机」可用，其余置灰。</li>
+              <li>设备离线时引导项不可改；离线设备只有「唤醒」可用，其余置灰。</li>
               <li>显示「未检测到」= 该机没部署对应引导管理器。</li>
             </ul>
           </div>
@@ -1483,7 +1487,7 @@
               <p id="cqEmptyHint">换个关键词，或把筛选切回「全部」</p>
             </div>
           </div>
-          <div class="cq-foot">电源指令通过魔术包发送，无需目标机在线 · 引导项变更在下次重启时生效</div>
+          <div class="cq-foot">电源操作立即执行（不再确认）· 唤醒离线也能发（魔术包）· 引导项变更在下次重启时生效</div>
         </div>
       </section>
 
@@ -4144,7 +4148,7 @@
       ip: localEndpoint && localEndpoint.port ? '127.0.0.1:' + localEndpoint.port : '127.0.0.1',
       mac: '',
       online: !!(localEndpoint && localEndpoint.enabled !== false && localEndpoint.listening !== false),
-      boot: null,
+      boot: cqBoot.get('local') || null,
       local: true,
       server: null,
     }];
@@ -4277,7 +4281,7 @@
 
   // ---- 渲染 ----
   const CQ_POWER = [
-    { act: 'wake', label: '开机', icon: 'M13 2 4.5 13.5H11l-1 8.5 9-12h-6.5z', needOnline: false },
+    { act: 'wake', label: '唤醒', icon: 'M13 2 4.5 13.5H11l-1 8.5 9-12h-6.5z', needOnline: false },
     { act: 'sleep', label: '睡眠', icon: 'M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z', needOnline: true },
     { act: 'reboot', label: '重启', icon: 'M20.5 12a8.5 8.5 0 1 1-2.5-6M20.5 3.5v5h-5', needOnline: true },
     { act: 'shutdown', label: '关机', icon: 'M12 3v9M18.4 6.6a9 9 0 1 1-12.8 0', needOnline: true },
@@ -4345,12 +4349,7 @@
     let label = '未检测到';
     let kindClass = '';
     let usable = false;
-    if (row.local) {
-      label = '—';
-      box.classList.add('cq-boot--none');
-      btn.disabled = true;
-      btn.title = '本机引导项请在主窗口的「启动项」里设置';
-    } else if (!group) {
+    if (!group) {
       label = row.online === null ? '读取中…' : '未检测到';
       box.classList.add('cq-boot--none');
       btn.disabled = true;
@@ -4487,7 +4486,6 @@
   function cqPower(row, act) {
     const meta = CQ_POWER.filter(function (item) { return item.act === act; })[0];
     const label = meta ? meta.label : act;
-    if (row.local) { toast('本机电源请用系统菜单或托盘', 'bad'); return; }
     if (!invoke) { toast('电源操作需要应用环境', 'bad'); return; }
     const key = row.rid + ':power:' + act;
     if (cqBusy.has(key)) return;
@@ -4631,7 +4629,6 @@
       btn.setAttribute('aria-label', spec.label);
       btn.appendChild(cqSvg(spec.icon));
       if (cqBusy.has(row.rid + ':power:' + spec.act)) btn.classList.add('is-busy');
-      else if (row.local) btn.disabled = true;
       else if (spec.needOnline && row.online === false) btn.disabled = true;
       btn.addEventListener('click', function (e) { e.stopPropagation(); cqPower(row, spec.act); });
       pwr.appendChild(btn);
@@ -4711,11 +4708,14 @@
   }
 
   // ---- 读引导项（每台一次 remote_boot_info；并发，任一台失败不影响别人） ----
+  // 本机行（rid = 'local'）走同一个命令：后端对 'local' 特判，回环读本机服务端。
   function cqLoadBoot(rid) {
     if (!invoke) { return Promise.resolve(); }
-    const r = remotes.find(function (x) { return x.id === rid; });
-    if (!r) return Promise.resolve();
-    if (r.jump_id) pcResolveEp(r);
+    if (rid !== 'local') {
+      const r = remotes.find(function (x) { return x.id === rid; });
+      if (!r) return Promise.resolve();
+      if (r.jump_id) pcResolveEp(r);
+    }
     return invoke('remote_boot_info', { serverId: rid })
       .then(function (info) {
         cqBoot.set(rid, info);
@@ -4733,8 +4733,9 @@
 
   function cqRefreshBoot() {
     if (!invoke) return Promise.resolve([]);
-    if (!remotes.length) return Promise.resolve([]);
-    return Promise.all(remotes.map(function (r) { return cqLoadBoot(r.id); }));
+    // 本机行也在列（后端对 'local' 特判）；没有远端档案时至少读本机
+    const ids = ['local'].concat(remotes.map(function (r) { return r.id; }));
+    return Promise.all(ids.map(function (id) { return cqLoadBoot(id); }));
   }
 
   function cqSetRefreshBusy(busy) {
@@ -4760,9 +4761,9 @@
     updatePcMenuState();
     // 经跳板机的服务端：后台解析本地转发端点，到货后 iframe 才有 src
     remotes.forEach(function (r) { if (r.jump_id) pcResolveEp(r); });
-    // 已删除的档案要清掉缓存的引导项
+    // 已删除的档案要清掉缓存的引导项（本机行 'local' 永远保留）
     Array.from(cqBoot.keys()).forEach(function (rid) {
-      if (!remotes.some(function (x) { return x.id === rid; })) cqBoot.delete(rid);
+      if (rid !== 'local' && !remotes.some(function (x) { return x.id === rid; })) cqBoot.delete(rid);
     });
     cqRenderRows();
     // 电脑页的标签栏是从 remotes 渲染的，档案变了要同步重画
@@ -4936,7 +4937,7 @@
   function cqShowPage() {
     cqRenderRows();
     if (cqViewRid && !cqViewOverlay.hidden) pcViewShow();
-    if (invoke && remotes.length && cqBoot.size === 0) cqRefreshBoot();
+    if (invoke && cqBoot.size === 0) cqRefreshBoot();
   }
 
   /** 档案增删后的统一收尾：清掉两套 iframe 里对应的那一份，两个页面各自重渲染 */
