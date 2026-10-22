@@ -441,14 +441,16 @@ fn remote_power_blocking(app: &AppHandle, id: &str, action: &str) -> Result<Stri
     let action = crate::hub::normalize_power_action(action)
         .ok_or_else(|| format!("未知电源动作：{action}"))?;
     let label = crate::hub_power::action_label(action);
-    // 本机行：睡眠 / 重启 / 关机走本机服务端的 /api/power（与 CLI、手机同一通道）；
-    // 唤醒对本机没有意义 —— 它就是发号施令的这台，直接说明即可。
+    // 本机行：直连 IPC —— 电源动作直接走托盘/主窗口同一套进程内执行（spawn_power，
+    // 忙闸/埋点/结果推送全都在），不回环 HTTP。唤醒对发号施令的这台没有意义，直接说明。
     if id == "local" {
         return match action {
             crate::hub::POWER_WAKE => Ok("本机正在运行，无需唤醒".to_string()),
             other => {
-                let reply = local_http_json(app, &format!("/api/power?action={other}"))?;
-                command_reply_message(&reply, &format!("已提交本机{label}"))
+                let parsed = crate::power::PowerAction::parse(other)
+                    .ok_or_else(|| format!("未知电源动作：{other}"))?;
+                crate::power::spawn_power(app, parsed, true);
+                Ok(format!("{}（已提交）", parsed.label()))
             }
         };
     }
@@ -1322,70 +1324,6 @@ fn remote_http_json(
     Ok(value)
 }
 
-/// 对本机自己的 AnyBoot 服务端发一条 `GET {path}?token=…`（127.0.0.1 回环）。
-///
-/// 「电脑列表」的本机行不在 remote-servers.json 里、没有档案可查，但本机
-/// 服务端暴露的 /api/* 与远端完全同构（同一套路由），回环请求就能原样复用
-/// refind_from_status / grub_from_json 的解析逻辑。服务端没起（端口被保留等）
-/// 时连接失败，调用方把错误写进对应单元格的 note。
-fn local_http_json(app: &AppHandle, path: &str) -> Result<serde_json::Value, String> {
-    let settings = crate::read_settings_file(app);
-    let target = format!("127.0.0.1:{}", settings.http_port);
-    let mut query = String::new();
-    let token = settings.http_token.trim();
-    if !token.is_empty() {
-        query.push_str(if path.contains('?') { "&" } else { "?" });
-        query.push_str("token=");
-        query.push_str(&encode_query(token));
-    }
-    let mut stream = TcpStream::connect(&target)
-        .map_err(|error| format!("连接本机服务端 {target} 失败: {error}"))
-        .and_then(|stream| {
-            stream
-                .set_read_timeout(Some(Duration::from_secs(8)))
-                .map_err(|error| format!("设置读超时失败: {error}"))?;
-            stream
-                .set_write_timeout(Some(Duration::from_secs(4)))
-                .map_err(|error| format!("设置写超时失败: {error}"))?;
-            Ok(stream)
-        })?;
-    let request =
-        format!("GET {path}{query} HTTP/1.1\r\nHost: {target}\r\nConnection: close\r\n\r\n");
-    stream
-        .write_all(request.as_bytes())
-        .map_err(|error| format!("发送请求失败: {error}"))?;
-    let mut raw = Vec::new();
-    stream
-        .read_to_end(&mut raw)
-        .map_err(|error| format!("读取响应失败: {error}"))?;
-    let text = String::from_utf8_lossy(&raw);
-    let status = text
-        .split_whitespace()
-        .nth(1)
-        .and_then(|code| code.parse::<u16>().ok())
-        .unwrap_or(0);
-    let body = match text.find("\r\n\r\n") {
-        Some(index) => text[index + 4..].to_string(),
-        None => String::new(),
-    };
-    if status == 401 {
-        return Err("本机服务端不认这个 token（401）".to_string());
-    }
-    if status == 0 {
-        return Err("本机服务端的响应不是有效的 HTTP".to_string());
-    }
-    let value: serde_json::Value = serde_json::from_str(body.trim())
-        .map_err(|error| format!("本机服务端返回的不是合法 JSON（{status}）：{error}"))?;
-    if status >= 400 {
-        let message = value
-            .get("message")
-            .and_then(|item| item.as_str())
-            .unwrap_or("请求被拒绝");
-        return Err(message.to_string());
-    }
-    Ok(value)
-}
-
 /// 命令通道（/api/grub-switch、/api/power…）的回执解析：{ok, pending, channel, message}。
 fn command_reply_message(reply: &serde_json::Value, fallback: &str) -> Result<String, String> {
     if let Some(message) = reply
@@ -1663,47 +1601,22 @@ pub async fn remote_boot_info(
 }
 
 fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Result<RemoteBootInfo, String> {
-    // 本机行（电脑列表的「本机」固定行）：没有档案，直接回环读本机服务端的
-    // /api/status 与 /api/grub —— 与远端同构，解析逻辑原样复用。服务端没起
-    // （如 Windows 端口被保留段盖住）时两个请求都失败，错误落进对应单元格。
+    // 本机行（电脑列表的「本机」固定行）：它就在本进程里，直连 IPC ——
+    // 直接调用 /api/status、/api/grub 的进程内生成函数（remote_status_json /
+    // remote_grub_json），不走回环 HTTP：服务端没起（端口被保留段盖住）也照读不误，
+    // 解析逻辑（refind_from_status / grub_from_json）原样复用。
     if server_id == "local" {
+        let status = crate::remote_routing::remote_status_json(app);
+        let grub_json = crate::remote_routing::remote_grub_json(app);
+        let format = crate::read_settings_file(app).grub_list_format;
         let mut info = RemoteBootInfo {
-            refind: BootGroup {
-                kind: "refind".to_string(),
-                title: "rEFInd".to_string(),
-                ..Default::default()
-            },
-            grub: BootGroup {
-                kind: "grub".to_string(),
-                title: "GRUB".to_string(),
-                ..Default::default()
-            },
+            refind: refind_from_status(&status),
+            grub: grub_from_json(&grub_json, &format),
             ..Default::default()
         };
-        let mut errors: Vec<String> = Vec::new();
-        match local_http_json(app, "/api/status") {
-            Ok(value) => info.refind = refind_from_status(&value),
-            Err(error) => {
-                info.refind.note = error.clone();
-                errors.push(format!("rEFInd：{error}"));
-            }
-        }
-        match local_http_json(app, "/api/grub") {
-            Ok(value) => {
-                let format = crate::read_settings_file(app).grub_list_format;
-                info.grub = grub_from_json(&value, &format);
-            }
-            Err(error) => {
-                info.grub.note = error.clone();
-                errors.push(format!("GRUB：{error}"));
-            }
-        }
-        info.ok = errors.len() < 2;
-        info.online = info.ok;
+        info.ok = true;
+        info.online = true;
         info.addr = "127.0.0.1".to_string();
-        if !errors.is_empty() {
-            info.error = errors.join("；");
-        }
         return Ok(info);
     }
     let server = load_store(app)?
@@ -1822,7 +1735,32 @@ fn remote_boot_switch_blocking(
     if value.is_empty() {
         return Err("没有选择引导项".to_string());
     }
-    let path = match kind.trim() {
+    let kind = kind.trim();
+    // 本机行：直连 IPC —— 直接调远程命令的进程内执行入口（与 CLI/HTTP 走的
+    // 是同一个 execute_remote_command，落到 switch_and_update / switch_grub_and_update）
+    if server_id == "local" {
+        let command = match kind {
+            "refind" => {
+                if !crate::SOURCE_FILES
+                    .iter()
+                    .any(|(system, _, _)| *system == value)
+                {
+                    return Err(format!("未知的系统：{value}"));
+                }
+                crate::state::RemoteCommand::Switch(value.to_string())
+            }
+            "grub" => crate::state::RemoteCommand::SwitchGrub(value.to_string()),
+            other => return Err(format!("未知的引导管理器：{other}")),
+        };
+        let (ok, message) = crate::remote_routing::execute_remote_command(
+            app,
+            crate::state::Channel::Http,
+            "hub-电脑列表-本机行",
+            &command,
+        );
+        return if ok { Ok(message) } else { Err(message) };
+    }
+    let path = match kind {
         // system 只有 linux/windows/macos 三个值，不需要转义
         "refind" => {
             if !crate::SOURCE_FILES
@@ -1837,11 +1775,6 @@ fn remote_boot_switch_blocking(
         "grub" => format!("/api/grub-switch?entry={}", encode_query(value)),
         other => return Err(format!("未知的引导管理器：{other}")),
     };
-    // 本机行：回环请求本机服务端（/api/switch、/api/grub-switch 与远端同构）
-    if server_id == "local" {
-        let reply = local_http_json(app, &path)?;
-        return command_reply_message(&reply, &format!("已提交切换：{value}"));
-    }
     let server = load_store(app)?
         .servers
         .into_iter()
