@@ -1027,7 +1027,6 @@
   }
   .cq-pwr-btn svg { width: 14px; height: 14px; }
   .cq-pwr-btn:hover:not(:disabled) { border-color: rgb(var(--accent)); color: rgb(var(--accent)); }
-  .cq-pwr-btn:disabled { opacity: .35; cursor: not-allowed; }
   .cq-pwr-btn.is-busy { color: transparent; position: relative; }
   .cq-pwr-btn.is-busy::after {
     content: ""; position: absolute; inset: 0; margin: auto; width: 12px; height: 12px;
@@ -1453,7 +1452,7 @@
               <li>重启：电脑立刻重启，网页会话断开 —— 重启完成后会自动恢复在线。</li>
               <li>没配电源路由时走这台电脑自己的 /api/power（需要能连上它）；配了路由则发局域网 sol 包。</li>
               <li>rEFInd / GRUB 的选择写入该机引导配置，<b>下次重启时生效</b>，可点「撤销」恢复原值。</li>
-              <li>设备离线时引导项不可改；离线设备只有「唤醒」可用，其余置灰。</li>
+              <li>四个电源键任何时候都能按、不会置灰（与移动端一致）；设备离线时引导项不可改。</li>
               <li>显示「未检测到」= 该机没部署对应引导管理器。</li>
             </ul>
           </div>
@@ -4083,10 +4082,10 @@
 
   // ---- 渲染 ----
   const CQ_POWER = [
-    { act: 'wake', label: '唤醒', icon: 'M13 2 4.5 13.5H11l-1 8.5 9-12h-6.5z', needOnline: false },
-    { act: 'sleep', label: '睡眠', icon: 'M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z', needOnline: true },
-    { act: 'reboot', label: '重启', icon: 'M20.5 12a8.5 8.5 0 1 1-2.5-6M20.5 3.5v5h-5', needOnline: true },
-    { act: 'shutdown', label: '关机', icon: 'M12 3v9M18.4 6.6a9 9 0 1 1-12.8 0', needOnline: true },
+    { act: 'wake', label: '唤醒', icon: 'M13 2 4.5 13.5H11l-1 8.5 9-12h-6.5z' },
+    { act: 'sleep', label: '睡眠', icon: 'M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z' },
+    { act: 'reboot', label: '重启', icon: 'M20.5 12a8.5 8.5 0 1 1-2.5-6M20.5 3.5v5h-5' },
+    { act: 'shutdown', label: '关机', icon: 'M12 3v9M18.4 6.6a9 9 0 1 1-12.8 0' },
   ];
 
   function cqSvg(path) {
@@ -4432,11 +4431,11 @@
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'cq-pwr-btn';
-      btn.title = spec.label + '（' + (spec.needOnline ? '需目标机在线' : '魔术包，离线也可用') + '）';
+      btn.title = spec.label;
       btn.setAttribute('aria-label', spec.label);
       btn.appendChild(cqSvg(spec.icon));
+      // 用户定案：四个电源键任何时候都能按、不置灰 —— 不做任何在线/离线判定
       if (cqBusy.has(row.rid + ':power:' + spec.act)) btn.classList.add('is-busy');
-      else if (spec.needOnline && row.online === false) btn.disabled = true;
       btn.addEventListener('click', function (e) { e.stopPropagation(); cqPower(row, spec.act); });
       pwr.appendChild(btn);
     });
@@ -6782,7 +6781,8 @@
   }
 
   // ============ 启动 ============
-  showPage('servers');
+  // 默认进「电脑列表」（与移动端一致）；「电脑」页仍可从侧栏进
+  showPage('computers');
   loadServers();
   loadTunnels();
   loadRemotes();

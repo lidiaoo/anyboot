@@ -197,6 +197,13 @@ class MainActivity : ComponentActivity() {
         failReloadSec = getSharedPreferences(UI_PREFS, MODE_PRIVATE).getInt("failReloadSec", 5)
         firstRunPending = servers.isEmpty()
 
+        // 点桌面图标（冷启动）默认先进「电脑列表」，与 PC 端远程管理窗口默认开电脑列表一致。
+        // 不 finish：电脑页留在返回栈底，从电脑列表按返回仍能回到这里（老路径不变）。
+        // 只认 launcher 冷启动 —— 「电脑列表 → 打开页面」带 EXTRA_SERVER_ID 进来的不拦。
+        if (intent?.action == Intent.ACTION_MAIN && savedInstanceState == null) {
+            startActivity(Intent(this, ComputerListActivity::class.java))
+        }
+
         heartbeat = HeartbeatManager({ ArrayList(servers) }, object : HeartbeatManager.Listener {
             override fun onHeartbeatChanged() {
                 chipTick++
