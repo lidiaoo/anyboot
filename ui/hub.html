@@ -2276,17 +2276,20 @@
     });
     // 进入即刷新该页的真实数据
     if (name === 'home') pageShow();
-    else if (name === 'computers') {
-      cqRenderRows();
-      loadGrubFmt();
-      // 每次进来都重读一遍：GRUB 显示格式这类设置改了之后，缓存里的条目文字会过期
-      if (invoke && remotes.length) cqRefreshBoot();
+    else {
+      pageStopRetry(); // 离开电脑页：连不上的自动重试没必要再转
+      if (name === 'computers') {
+        cqRenderRows();
+        loadGrubFmt();
+        // 每次进来都重读一遍：GRUB 显示格式这类设置改了之后，缓存里的条目文字会过期
+        if (invoke && remotes.length) cqRefreshBoot();
+      }
+      else if (name === 'sessions') renderSessions();
+      else if (name === 'transfers') renderTransfers();
+      else if (name === 'keys') renderKeysPage();
+      else if (name === 'files') { syncActionPages(); fbSync(); }
+      else syncActionPages();
     }
-    else if (name === 'sessions') renderSessions();
-    else if (name === 'transfers') renderTransfers();
-    else if (name === 'keys') renderKeysPage();
-    else if (name === 'files') { syncActionPages(); fbSync(); }
-    else syncActionPages();
   }
   document.querySelectorAll('#hubSideNav .snav').forEach(function (b) {
     b.addEventListener('click', function () { showPage(b.dataset.page); });
@@ -5010,6 +5013,7 @@
   // 与「电脑列表」并存：列表看全部电脑的状态/引导项，这里点标签看某台电脑的整页。
   // 两边的 iframe 各用一套容器与 Map（同一个 iframe 不能同时挂在两个父节点上）。
   const pageFrames = new Map(); // rid -> iframe（电脑页内嵌）
+  const pageProbe = new Map(); // rid -> {ok:boolean}（最近一次连接探测结果，连不上面板的依据）
   function pageEmptyEl() { return document.getElementById('pageEmpty'); }
 
   function pageUrl(rid) {
@@ -5052,19 +5056,66 @@
         + '或用管理员执行 <code>netsh int ipv4 set dynamicport tcp start=49152 num=16384</code> 再重启一次。';
   }
 
-  /** 连不上目标机：失败说明 + 排查清单 */
-  function pageFailOverlay(message) {
+  /**
+   * 连不上目标机：失败面板对齐手机端 ErrorPanel ——
+   * 标题 + 具体原因 + 四条排查清单 + 自动重试说明 + 「重试 / 修改这个服务端」两个按钮。
+   */
+  function pageFailOverlay(message, rid) {
+    rid = rid || activeRemote;
     const empty = pageEmptyEl();
     if (!empty) return;
     pageFrames.forEach(function (frame) { frame.style.display = 'none'; });
     empty.hidden = false;
-    empty.querySelector('p').innerHTML =
-      '<b>连不上服务端</b><br>' + String(message || '全部地址都连不上')
+    const p = empty.querySelector('p');
+    if (!p) return;
+    p.innerHTML =
+      '<b>连不上服务端</b><br>' + esc(String(message || '全部地址都连不上'))
       + '<br><br>顺手检查这几点：'
       + '<br>· 目标电脑的 AnyBoot 是否在跑，设置里「HTTP 服务」是否显示<b>正在监听</b>；'
-      + '<br>· 标签地址的端口，和目标机设置里的端口是否一致；'
+      + '<br>· 这里填的地址端口，和目标机设置里的端口是否一致；'
       + '<br>· 那个端口是否被别的程序占用 —— 被占用时目标机的服务根本起不来；'
-      + '<br>· 目标机防火墙是否放行了这个端口。';
+      + '<br>· 目标机防火墙是否放行了这个端口。'
+      + '<br><br>' + (pcAutoReloadSec > 0
+        ? '每 ' + pcAutoReloadSec + ' 秒自动重试（工具条 ⋮ 可改）'
+        : '自动重试已关闭（工具条 ⋮ 可改）');
+    // 手机端同款按钮：重试 / 修改这个服务端
+    const row = document.createElement('span');
+    row.style.cssText = 'display:flex;gap:10px;justify-content:center;margin-top:14px';
+    const retry = document.createElement('button');
+    retry.type = 'button';
+    retry.className = 'btn small primary';
+    retry.textContent = '重试';
+    retry.addEventListener('click', function () { pageReloadActive(rid); });
+    const edit = document.createElement('button');
+    edit.type = 'button';
+    edit.className = 'btn small';
+    edit.textContent = '修改这个服务端';
+    edit.addEventListener('click', function () { openRsEdit(rid); });
+    row.appendChild(retry);
+    row.appendChild(edit);
+    p.appendChild(row);
+  }
+
+  /** 显示某个标签的 iframe（连接已确认可用时走这里） */
+  function pageShowFrame(rid) {
+    const empty = pageEmptyEl();
+    if (empty) empty.hidden = true;
+    const frame = pageEnsureFrame(rid);
+    if (!frame.getAttribute('src')) {
+      const url = pageUrl(rid);
+      if (url) frame.setAttribute('src', url);
+    }
+    frame.style.display = 'block';
+  }
+
+  /** 探测中：给个「正在连接」的过场，语义同手机端点标签后的等待 */
+  function pageConnecting(rid) {
+    const empty = pageEmptyEl();
+    if (!empty) return;
+    const r = remotes.find(function (x) { return x.id === rid; });
+    empty.hidden = false;
+    const p = empty.querySelector('p');
+    if (p) p.innerHTML = '<b>正在连接 ' + esc(pcName(r)) + ' …</b><br>探测全部候选地址，谁在线用谁';
   }
 
   function pageShow() {
@@ -5078,18 +5129,69 @@
     }
     renderPcChips();
     pcFabRefresh();
-    if (activeRemote === 'local' && localEndpoint
-        && (localEndpoint.enabled === false || localEndpoint.listening === false)) {
-      pageLocalDownHint();
+    if (activeRemote === 'local') {
+      pageStopRetry();
+      if (localEndpoint
+          && (localEndpoint.enabled === false || localEndpoint.listening === false)) {
+        pageLocalDownHint();
+        return;
+      }
+      pageShowFrame('local');
       return;
     }
-    empty.hidden = true;
-    const frame = pageEnsureFrame(activeRemote);
-    if (!frame.getAttribute('src')) {
-      const url = pageUrl(activeRemote);
-      if (url) frame.setAttribute('src', url);
+    // 远端标签：连接语义对齐手机端 —— 先探测，通则进页面，不通给失败面板
+    pageConnect(activeRemote);
+  }
+
+  /**
+   * 连一台远端电脑（手机端同款流程）：上次探测在线直接进页；离线直接给失败面板；
+   * 没探过先探测再决定。force = 无视缓存强制重探（自动重试 / 手动重试走这条路）。
+   */
+  async function pageConnect(rid, force) {
+    const r = remotes.find(function (x) { return x.id === rid; });
+    if (!r) return;
+    if (!invoke || r.jump_id) {
+      // 跳板机走本地转发端点，没有直连探测；无应用环境时维持旧行为直接进页
+      pageStopRetry();
+      pageShowFrame(rid);
+      return;
     }
-    frame.style.display = 'block';
+    if (!force) {
+      const last = pageProbe.get(rid);
+      if (last && last.ok) { pageStopRetry(); pageShowFrame(rid); return; }
+      if (last && !last.ok) {
+        pageFailOverlay('这台电脑当前离线 —— 可能已关机或在睡眠（点「重试」重新探测）', rid);
+        pageScheduleRetry(rid);
+        return;
+      }
+    }
+    pageConnecting(rid);
+    const mode = r.probe_mode || 'parallel_first';
+    try {
+      const res = await invoke('remote_test', { addresses: r.addresses, probeMode: mode });
+      if (activeRemote !== rid) return; // 探测期间换了标签，结果作废
+      if (res && res.ok) {
+        // 探到更优地址就置顶（与重载按钮同款逻辑）
+        if (res.addr && res.addr !== pcNormAddr(pcFirstAddr(r))) {
+          const rest = (r.addresses || []).filter(function (a) { return pcNormAddr(a) !== res.addr; });
+          r.addresses = [res.addr].concat(rest);
+          invoke('remote_promote_address', { serverId: r.id, address: res.addr })
+            .catch(function () { /* 落盘失败只影响下次启动 */ });
+        }
+        pageProbe.set(rid, { ok: true });
+        pageStopRetry();
+        pageShowFrame(rid);
+      } else {
+        pageProbe.set(rid, { ok: false });
+        pageFailOverlay((res && res.error) || '', rid);
+        pageScheduleRetry(rid);
+      }
+    } catch (error) {
+      if (activeRemote !== rid) return;
+      pageProbe.set(rid, { ok: false });
+      pageFailOverlay(String(error), rid);
+      pageScheduleRetry(rid);
+    }
   }
 
   function pageSelect(rid) {
@@ -5103,6 +5205,23 @@
     const old = pageFrames.get(rid);
     if (old) { old.remove(); pageFrames.delete(rid); }
     if (rid === activeRemote) pageShow();
+  }
+
+  // 连不上时的自动重试（对齐手机端「连不上时自动重载」）：只在失败面板挂着时转
+  let pageRetryTimer = null;
+  let pageRetryRid = null;
+  function pageStopRetry() {
+    if (pageRetryTimer) { clearInterval(pageRetryTimer); pageRetryTimer = null; }
+    pageRetryRid = null;
+  }
+  function pageScheduleRetry(rid) {
+    pageStopRetry();
+    if (!pcAutoReloadSec) return; // 0 = 永不
+    pageRetryRid = rid;
+    pageRetryTimer = setInterval(function () {
+      if (currentPage !== 'home' || activeRemote !== rid) { pageStopRetry(); return; }
+      pageConnect(rid, true);
+    }, pcAutoReloadSec * 1000);
   }
 
   /** 重载前先探测全部候选地址（谁在线用谁），失败给失败页 */
@@ -5141,12 +5260,17 @@
           invoke('remote_promote_address', { serverId: r.id, address: res.addr })
             .catch(function () { /* 落盘失败只影响下次启动 */ });
         }
+        pageProbe.set(rid, { ok: true });
         pageReload(rid);
       } else {
-        pageFailOverlay(res && res.error);
+        pageProbe.set(rid, { ok: false });
+        pageFailOverlay(res && res.error, rid);
+        pageScheduleRetry(rid);
       }
     } catch (error) {
-      pageFailOverlay(String(error));
+      pageProbe.set(rid, { ok: false });
+      pageFailOverlay(String(error), rid);
+      pageScheduleRetry(rid);
     }
   }
 
