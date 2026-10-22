@@ -287,6 +287,56 @@ fun MoreIcon(tint: Color, size: Dp = 20.dp, modifier: Modifier = Modifier) = Dra
     drawCircle(tint, radius = 1.15f * s, center = Offset(12f * s, 18.5f * s))
 }
 
+/** ⊕ 地球：行菜单「在浏览器打开」 */
+@Composable
+fun GlobeIcon(tint: Color, size: Dp = 20.dp, modifier: Modifier = Modifier) = DrawnIcon(size, tint, modifier) {
+    val s = it
+    drawCircle(tint, radius = 9f * s, center = Offset(12f * s, 12f * s), style = pen(s))
+    // 赤道
+    drawLine(tint, Offset(3f * s, 12f * s), Offset(21f * s, 12f * s), 1.8f * s, StrokeCap.Round)
+    // 经线（一个椭圆，两段弧拼）
+    drawArc(
+        tint, startAngle = 90f, sweepAngle = 180f, useCenter = false,
+        topLeft = Offset(7.4f * s, 3f * s), size = Size(9.2f * s, 18f * s), style = pen(s),
+    )
+    drawArc(
+        tint, startAngle = 270f, sweepAngle = 180f, useCenter = false,
+        topLeft = Offset(7.4f * s, 3f * s), size = Size(9.2f * s, 18f * s), style = pen(s),
+    )
+}
+
+/** ▭ 显示器：行菜单「打开页面」 */
+@Composable
+fun ScreenIcon(tint: Color, size: Dp = 20.dp, modifier: Modifier = Modifier) = DrawnIcon(size, tint, modifier) {
+    val s = it
+    val box = Path().apply {
+        moveTo(3f * s, 4.5f * s)
+        lineTo(21f * s, 4.5f * s)
+        lineTo(21f * s, 16.5f * s)
+        lineTo(3f * s, 16.5f * s)
+        close()
+    }
+    drawPath(box, tint, style = pen(s))
+    drawLine(tint, Offset(8.5f * s, 20.5f * s), Offset(15.5f * s, 20.5f * s), 1.8f * s, StrokeCap.Round)
+    drawLine(tint, Offset(12f * s, 16.5f * s), Offset(12f * s, 20.5f * s), 1.8f * s, StrokeCap.Round)
+}
+
+/** ✎ 铅笔：行菜单「编辑这台电脑」 */
+@Composable
+fun PencilIconSmall(tint: Color, size: Dp = 20.dp, modifier: Modifier = Modifier) = DrawnIcon(size, tint, modifier) {
+    val s = it
+    val body = Path().apply {
+        moveTo(4f * s, 20f * s)
+        lineTo(8f * s, 20f * s)
+        lineTo(19.5f * s, 8.5f * s)
+        lineTo(15.5f * s, 4.5f * s)
+        lineTo(4f * s, 16f * s)
+        close()
+    }
+    drawPath(body, tint, style = pen(s))
+    drawLine(tint, Offset(13.5f * s, 6.5f * s), Offset(17.5f * s, 10.5f * s), 1.8f * s, StrokeCap.Round)
+}
+
 /** ⚡ 开机（唤醒）：电源四键之一 */
 @Composable
 fun PowerIcon(tint: Color, size: Dp = 20.dp, modifier: Modifier = Modifier) = DrawnIcon(size, tint, modifier) {

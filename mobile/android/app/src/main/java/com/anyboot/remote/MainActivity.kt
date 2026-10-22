@@ -95,13 +95,6 @@ import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
 /**
- * 编辑弹窗里的一个地址条目：地址 + 这块（这几块）网卡的 MAC。
- *
- * <p>用不可变数据类 + 替换元素，Compose 的 mutableStateList 才会重组成列表。
- */
-private data class AddrEntry(val address: String, val macs: List<String> = emptyList())
-
-/**
  * AnyBoot 远程客户端外壳（多服务端版，Jetpack Compose / Material 3 重写）。
  *
  * 它本身不实现业务：每台电脑一个标签，每个标签就是一个 WebView，加载那台电脑上
@@ -117,6 +110,13 @@ class MainActivity : ComponentActivity() {
         private const val STATUS_FAIL = 3
         /** 界面偏好（自动重载间隔这类小开关）的 SharedPreferences 名 */
         private const val UI_PREFS = "anyboot_ui"
+
+        /**
+         * 启动时直接打开哪台电脑的页面（[ServerProfile.id]）。
+         *
+         * 电脑列表页的「打开页面」用它把用户送到对应标签；不传就沿用上次的 activeId。
+         */
+        const val EXTRA_SERVER_ID = "anyboot.server.id"
     }
 
     /** 一台电脑的运行时状态（WebView 懒创建：没点过的标签不占内存） */
@@ -185,6 +185,15 @@ class MainActivity : ComponentActivity() {
         connectAll = ServerStore.connectAll(this)
         transport = ServerStore.transport(this)
         activeId = ServerStore.activeId(this)
+        // 「电脑列表 → 打开页面」会带上这台电脑的 id：命中就切过去。
+        // 不带这个，点了只会打开上次那台（activeId 是上次的），看着像没生效。
+        val wanted = intent?.getStringExtra(EXTRA_SERVER_ID) ?: ""
+        if (wanted.isNotEmpty() && servers.any { it.id == wanted }) {
+            activeId = wanted
+            ServerStore.setActiveId(this, wanted)
+        }
+        // 同一个 Intent 只消费一次：否则从电脑列表回来点第二台还是被它拽回去
+        intent?.removeExtra(EXTRA_SERVER_ID)
         failReloadSec = getSharedPreferences(UI_PREFS, MODE_PRIVATE).getInt("failReloadSec", 5)
         firstRunPending = servers.isEmpty()
 
@@ -211,6 +220,20 @@ class MainActivity : ComponentActivity() {
         }.start()
 
         setContent { Root() }
+    }
+
+    /**
+     * `launchMode="singleTask"` → 从电脑列表页再点「打开页面」不会走 onCreate，
+     * 只把已有实例提到前台并回调这里。不处理的话第二次以后永远停在旧标签。
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        val wanted = intent.getStringExtra(EXTRA_SERVER_ID) ?: return
+        intent.removeExtra(EXTRA_SERVER_ID)
+        if (wanted.isEmpty()) return
+        if (servers.none { it.id == wanted }) return
+        runOnUiThread { activate(wanted) }
     }
 
     // ------------------------------------------------------------------
@@ -1090,109 +1113,9 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun EditDialog(request: EditRequest) {
         val palette = LocalPalette.current
-        val editing = request.profile != null
-        val profile = request.profile
-
-        var group by remember(request) { mutableStateOf(profile?.group ?: "") }
-        var name by remember(request) { mutableStateOf(profile?.name ?: "") }
-        // 地址：有序列表（第一个 = 连接用），由「快速识别」和「手动添加」往里面加
-        val addressEntries = remember(request) {
-            mutableStateListOf<AddrEntry>().apply {
-                profile?.let { saved ->
-                    saved.addresses.forEach { address ->
-                        add(AddrEntry(address, saved.macsForHost(address)))
-                    }
-                }
-            }
-        }
-        var quickText by remember(request) { mutableStateOf("") }
-        var quickHint by remember(request) { mutableStateOf("") }
-        var newHost by remember(request) { mutableStateOf("") }
-        var newMacs by remember(request) { mutableStateOf("") }
-        // 粘进来的原文（token 只在 URL 里，归一化后就丢了，所以留一份原文）
-        var pastedRaw by remember(request) { mutableStateOf(profile?.addressText() ?: "") }
-        var token by remember(request) { mutableStateOf(profile?.token ?: "") }
-        val jumps = remember(request) { JumpStore.loadJumps(this) }
-        var jumpIndex by remember(request) {
-            mutableStateOf(
-                if (editing) {
-                    val found = jumps.indexOfFirst { it.id == profile?.jumpServerId }
-                    if (found >= 0) found + 1 else 0
-                } else 0
-            )
-        }
-        var jumpOpen by remember { mutableStateOf(false) }
-        var probeMode by remember(request) {
-            mutableStateOf(
-                if (editing) ServerProfile.normalizeProbeMode(profile?.probeMode ?: "")
-                else ServerProfile.PROBE_PARALLEL_FIRST
-            )
-        }
-        // 局域网电源路由：编辑中的副本（增删都改这份），点「保存」才写回 profile
-        val routeList = remember(request) {
-            mutableStateListOf<ServerProfile.PowerRoute>().apply {
-                profile?.powerRoutes?.forEach { add(it.copy()) }
-            }
-        }
-        var routeMenuIndex by remember { mutableStateOf(-1) }
-        var macMenuIndex by remember { mutableStateOf(-1) }
-        var modeMenuIndex by remember { mutableStateOf(-1) }
-        // MAC 池：以「已添加的地址」为准（地址 / 网卡变了，可选项跟着变）
-        val macPool = addressEntries.flatMap { it.macs }.distinct()
-
-        /** 往地址列表里加一个；已存在就只并 MAC。返回是否新加了一个地址。 */
-        fun upsertAddress(address: String, macs: List<String>): Boolean {
-            val index = addressEntries.indexOfFirst { it.address == address }
-            if (index >= 0) {
-                val merged = (addressEntries[index].macs + macs).distinct()
-                addressEntries[index] = addressEntries[index].copy(macs = merged)
-                return false
-            }
-            addressEntries.add(AddrEntry(address, macs.distinct()))
-            return true
-        }
-
-        /** 快速识别框 → 地址列表（粘上来的整段文字里，备注自动忽略） */
-        fun recognizeQuick() {
-            if (quickText.isBlank()) {
-                quickHint = "先粘点东西进来，比如 192.168.0.120:12300 AA:BB:CC:DD:EE:FF"
-                return
-            }
-            val parsed = ServerProfile.parseAddressInput(quickText, true)
-            if (parsed.hosts.isEmpty()) {
-                quickHint = "没认出地址 —— 要有 IP 或主机名，比如 192.168.0.120"
-                return
-            }
-            var added = 0
-            parsed.hosts.forEach { host ->
-                if (upsertAddress(host, parsed.macs[host] ?: emptyList())) added++
-            }
-            val macCount = parsed.macs.values.sumOf { it.size }
-            quickHint = "认出 ${parsed.hosts.size} 个地址、$macCount 个 MAC" +
-                if (added < parsed.hosts.size) "（其余本来就有，只并了 MAC）" else ""
-            // 整条 URL 粘进来时顺手把 token 收了
-            val found = ServerProfile.tokenFromUrl(quickText)
-            if (found.isNotEmpty() && token.isBlank()) token = found
-            pastedRaw = pastedRaw + "\n" + quickText
-            quickText = ""
-        }
-
-        /** 手动添加：地址 + 可选的多个 MAC */
-        fun addManualAddress() {
-            val address = ServerProfile.normalizeHost(newHost)
-            if (address.isEmpty()) {
-                quickHint = "地址不对：填 IP 或主机名，端口可带可不带"
-                return
-            }
-            val macs = newMacs.split(Regex("[\\s,;，；]+"))
-                .map { ServerProfile.normalizeMac(it) }
-                .filter { it.isNotEmpty() }
-                .distinct()
-            val added = upsertAddress(address, macs)
-            quickHint = if (added) "已添加 $address" else "地址已存在，只追了 MAC：$address"
-            newHost = ""
-            newMacs = ""
-        }
+        // 表单体与「电脑列表 → 编辑这台电脑」共用同一份实现（ServerEditForm.kt），
+        // 这里只负责 AlertDialog 这层壳
+        val form = rememberServerEditFormState(request.profile)
 
         AlertDialog(
             onDismissRequest = { if (!request.firstRun) editRequest = null },
@@ -1202,477 +1125,24 @@ class MainActivity : ComponentActivity() {
             title = {
                 Text(
                     when {
-                        editing -> "编辑服务端"
+                        form.editing -> "编辑服务端"
                         request.firstRun -> "连接 AnyBoot 服务端"
                         else -> "添加服务端"
                     }
                 )
             },
-            text = {
-                Column(Modifier.verticalScroll(rememberScrollState())) {
-                    FieldLabel("分组（用来区分不同的电脑）")
-                    OutlinedTextField(
-                        value = group,
-                        onValueChange = { group = it },
-                        singleLine = true,
-                        placeholder = { Text("例如：书房台式机（同一台电脑的多个 IP 填同一个分组）", fontSize = 12.sp) },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    FieldLabel("服务端名（同一台电脑的不同网卡/地址，用名字区分）")
-                    OutlinedTextField(
-                        value = name,
-                        onValueChange = { name = it },
-                        singleLine = true,
-                        placeholder = { Text("例如：有线网卡 / 5G WiFi（可留空，用地址兜底）", fontSize = 12.sp) },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    FieldLabel("快速识别（整段粘进来，自动拆出地址 / 端口 / MAC 加进下面）")
-                    OutlinedTextField(
-                        value = quickText,
-                        onValueChange = { quickText = it },
-                        placeholder = {
-                            Text(
-                                "192.168.0.120:12300 AA:BB:CC:DD:EE:FF 台式机有线\n" +
-                                    "192.168.0.121 11-22-33-44-55-66（5G WiFi）",
-                                fontSize = 12.sp,
-                            )
-                        },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                        minLines = 2,
-                        maxLines = 4,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        TextButton(onClick = { recognizeQuick() }) {
-                            Text("识别并加入", fontSize = 12.sp)
-                        }
-                        Text(
-                            quickHint.ifEmpty { "换行 / 空格 / 逗号都能分开；认不出的备注自动忽略" },
-                            fontSize = 11.sp, color = palette.fgFaint,
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-
-                    FieldLabel("已添加的地址（第一个用来连接，其余参与测试连接和唤醒）")
-                    if (addressEntries.isEmpty()) {
-                        Text(
-                            "还没加地址 —— 上面粘一段，或者下面手动填一个。",
-                            fontSize = 11.sp, color = palette.fgFaint,
-                        )
-                    }
-                    addressEntries.forEachIndexed { index, entry ->
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 6.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(palette.card)
-                                .padding(8.dp),
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    entry.address,
-                                    fontSize = 12.sp, color = palette.fg,
-                                    modifier = Modifier.weight(1f),
-                                )
-                                if (index == 0) {
-                                    Text("连接用", fontSize = 10.sp, color = palette.accent)
-                                }
-                                TextButton(onClick = { addressEntries.removeAt(index) }) {
-                                    Text("✕", fontSize = 12.sp, color = palette.bad)
-                                }
-                            }
-                            if (entry.macs.isEmpty()) {
-                                Text(
-                                    "没配 MAC —— 局域网电源发不出去",
-                                    fontSize = 10.sp, color = palette.fgFaint,
-                                )
-                            } else {
-                                entry.macs.forEach { mac ->
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(
-                                            mac,
-                                            fontSize = 10.sp, color = palette.fgDim,
-                                            modifier = Modifier.weight(1f),
-                                        )
-                                        TextButton(onClick = {
-                                            addressEntries[index] =
-                                                entry.copy(macs = entry.macs.filter { it != mac })
-                                        }) {
-                                            Text("✕", fontSize = 11.sp, color = palette.fgFaint)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    FieldLabel("手动添加（地址 + 多个 MAC；地址已存在时只追加 MAC）")
-                    OutlinedTextField(
-                        value = newHost,
-                        onValueChange = { newHost = it },
-                        label = { Text("地址（192.168.0.120 或 192.168.0.120:12300）", fontSize = 10.sp) },
-                        singleLine = true,
-                        textStyle = MaterialTheme.typography.bodySmall,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        OutlinedTextField(
-                            value = newMacs,
-                            onValueChange = { newMacs = it },
-                            label = { Text("MAC（可多个，空格隔开）", fontSize = 10.sp) },
-                            placeholder = { Text("AA:BB:CC:DD:EE:FF", fontSize = 12.sp) },
-                            singleLine = true,
-                            textStyle = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        TextButton(onClick = { addManualAddress() }) {
-                            Text("添加", fontSize = 13.sp)
-                        }
-                    }
-                    FieldLabel("访问令牌 token")
-                    OutlinedTextField(
-                        value = token,
-                        onValueChange = { token = it },
-                        singleLine = true,
-                        placeholder = { Text("可留空，页面上也能填", fontSize = 12.sp) },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    FieldLabel("经由跳板机（外网连家里：先到「☰ → 服务器」添加 SSH 跳板机；"
-                            + "填的地址就变成「跳板机视角的内网地址」）")
-                    Box {
-                        OutlinedTextField(
-                            value = if (jumpIndex <= 0) "直连（默认）"
-                            else jumpLabel(jumps[jumpIndex - 1]),
-                            onValueChange = {},
-                            readOnly = true,
-                            singleLine = true,
-                            // ⚠️ 必须 disabled：readOnly 的 TextField 会把点击吃成「聚焦」（边框绿一下），
-                            // 挂在它身上的 clickable 一次都不触发 —— 下拉菜单永远打不开。
-                            // disabled 的 TextField 不处理指针，clickable 才收得到；配色见 disabledFieldColors。
-                            enabled = false,
-                            colors = disabledFieldColors(palette.fg, palette.lineStrong, palette.fgDim),
-                            trailingIcon = { Text(if (jumpOpen) "▴" else "▾") },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { jumpOpen = true },
-                        )
-                        DropdownMenu(expanded = jumpOpen, onDismissRequest = { jumpOpen = false }) {
-                            DropdownMenuItem(text = { Text("直连（默认）") }, onClick = {
-                                jumpIndex = 0; jumpOpen = false
-                            })
-                            jumps.forEachIndexed { index, jump ->
-                                DropdownMenuItem(
-                                    text = { Text(jumpLabel(jump)) },
-                                    onClick = { jumpIndex = index + 1; jumpOpen = false },
-                                )
-                            }
-                        }
-                    }
-                    FieldLabel(
-                        "局域网电源路由（可选：每个动作发到哪个地址、哪个端口。" +
-                            "目标机装 sol 后按端口执行 —— 不装 sol 就只有唤醒能靠 WOL 生效）"
-                    )
-                    if (routeList.isEmpty()) {
-                        Text(
-                            "还没配：电源按钮仍走老路 —— 唤醒发标准 WOL，重启/关机/睡眠调电脑端接口。",
-                            fontSize = 11.sp, color = palette.fgFaint,
-                        )
-                    }
-                    routeList.forEachIndexed { index, route ->
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 6.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(palette.card)
-                                .padding(8.dp),
-                        ) {
-                            Text(
-                                "路由 ${index + 1} / ${routeList.size}",
-                                fontSize = 10.sp, color = palette.fgFaint,
-                                modifier = Modifier.padding(bottom = 2.dp),
-                            )
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Box {
-                                    OutlinedButton(
-                                        onClick = { routeMenuIndex = if (routeMenuIndex == index) -1 else index },
-                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
-                                    ) {
-                                        Text(ServerProfile.powerActionLabel(route.action), fontSize = 12.sp)
-                                    }
-                                    DropdownMenu(
-                                        expanded = routeMenuIndex == index,
-                                        onDismissRequest = { routeMenuIndex = -1 },
-                                    ) {
-                                        listOf(
-                                            ServerProfile.POWER_WAKE,
-                                            ServerProfile.POWER_REBOOT,
-                                            ServerProfile.POWER_SHUTDOWN,
-                                            ServerProfile.POWER_SLEEP,
-                                        ).forEach { action ->
-                                            DropdownMenuItem(
-                                                text = { Text(ServerProfile.powerActionLabel(action)) },
-                                                onClick = {
-                                                    val before = route.actionOrWake()
-                                                    val oldBurst = if (before == ServerProfile.POWER_WAKE) {
-                                                        ServerProfile.DEFAULT_WAKE_BURST
-                                                    } else {
-                                                        ServerProfile.DEFAULT_POWER_BURST
-                                                    }
-                                                    val oldRetry = if (before == ServerProfile.POWER_WAKE) {
-                                                        ServerProfile.DEFAULT_WAKE_RETRY
-                                                    } else {
-                                                        ServerProfile.DEFAULT_POWER_RETRY
-                                                    }
-                                                    // 没手动改过（还是旧动作的默认值）就跟着换成新动作的默认值；
-                                                    // 0 = 「按动作默认」，交给 ServerProfile 算
-                                                    val burst = if (route.burst == 0 || route.burst == oldBurst) 0 else route.burst
-                                                    val retry = if (route.retry == 0 || route.retry == oldRetry) 0 else route.retry
-                                                    routeList[index] = route
-                                                        .with(action, route.target, route.port, route.macs, route.enabled)
-                                                        .withCounts(burst, retry)
-                                                    routeMenuIndex = -1
-                                                },
-                                            )
-                                        }
-                                    }
-                                }
-                                Spacer(Modifier.weight(1f))
-                                TextButton(onClick = {
-                                    routeList.removeAt(index)
-                                    routeMenuIndex = -1
-                                    modeMenuIndex = -1
-                                    macMenuIndex = -1
-                                }) {
-                                    Text("删除", fontSize = 12.sp, color = palette.bad)
-                                }
-                            }
-                            // 发送模式（共同设置区：动作后面、端口前面）。广播包 = 局域网
-                            // sol / WOL 魔术包；HTTP = 这台电脑自带的 AnyBoot 接口；
-                            // 混合 = 两者同时发。
-                            Box {
-                                OutlinedButton(
-                                    onClick = { modeMenuIndex = if (modeMenuIndex == index) -1 else index },
-                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
-                                ) {
-                                    Text(
-                                        "模式：" + ServerProfile.modeLabel(route.effectiveMode()),
-                                        fontSize = 12.sp,
-                                    )
-                                }
-                                DropdownMenu(
-                                    expanded = modeMenuIndex == index,
-                                    onDismissRequest = { modeMenuIndex = -1 },
-                                ) {
-                                    listOf("auto", "http_first", "http_only", "packet_only", "hybrid").forEach { value ->
-                                        DropdownMenuItem(
-                                            text = { Text(ServerProfile.modeLabel(value)) },
-                                            onClick = {
-                                                routeList[index] = route.withMode(value)
-                                                modeMenuIndex = -1
-                                            },
-                                        )
-                                    }
-                                }
-                            }
-                            // —— 广播包设置区：地址 / 端口 / MAC / 发包数 / 重试 ——
-                            Text(
-                                "广播包",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = palette.fgDim,
-                                modifier = Modifier.padding(top = 8.dp),
-                            )
-                            OutlinedTextField(
-                                value = if (route.port <= 0) "" else route.port.toString(),
-                                onValueChange = { value ->
-                                    val digits = value.filter { it.isDigit() }.take(5)
-                                    routeList[index] = route.with(
-                                        route.action, route.target, digits.toIntOrNull() ?: 0,
-                                        route.macs, route.enabled,
-                                    )
-                                },
-                                label = { Text("端口", fontSize = 10.sp) },
-                                singleLine = true,
-                                textStyle = MaterialTheme.typography.bodySmall,
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                modifier = Modifier.width(92.dp),
-                            )
-                            OutlinedTextField(
-                                value = route.target,
-                                onValueChange = { value ->
-                                    routeList[index] = route.with(
-                                        route.action, value, route.port, route.macs, route.enabled,
-                                    )
-                                },
-                                label = { Text("广播地址（留空 = 自动：全局 + 各地址的 /24）", fontSize = 10.sp) },
-                                placeholder = { Text("192.168.0.255", fontSize = 12.sp) },
-                                singleLine = true,
-                                textStyle = MaterialTheme.typography.bodySmall,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(top = 6.dp),
-                            )
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    "MAC：" + if (route.macs.isEmpty()) {
-                                        "全部（${macPool.size} 块）"
-                                    } else {
-                                        "${route.macs.size} / ${macPool.size} 块"
-                                    },
-                                    fontSize = 11.sp, color = palette.fgFaint,
-                                    modifier = Modifier.weight(1f),
-                                )
-                                TextButton(
-                                    onClick = { macMenuIndex = if (macMenuIndex == index) -1 else index },
-                                    enabled = macPool.isNotEmpty(),
-                                ) {
-                                    Text(if (macPool.isEmpty()) "没配 MAC" else "选择", fontSize = 12.sp)
-                                }
-                            }
-                            if (macMenuIndex == index && macPool.isNotEmpty()) {
-                                // 空列表 = 全部网卡（以后新加的 MAC 也自动包含）
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable {
-                                            routeList[index] = route.with(
-                                                route.action, route.target, route.port, emptyList(), route.enabled,
-                                            )
-                                        },
-                                ) {
-                                    Checkbox(checked = route.macs.isEmpty(), onCheckedChange = null)
-                                    Text("全部网卡", fontSize = 11.sp, color = palette.fgDim)
-                                }
-                                if (route.macs.isNotEmpty()) {
-                                    macPool.forEach { mac ->
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .clickable {
-                                                    val next = if (route.macs.contains(mac)) {
-                                                        route.macs - mac
-                                                    } else {
-                                                        route.macs + mac
-                                                    }
-                                                    routeList[index] = route.with(
-                                                        route.action, route.target, route.port, next, route.enabled,
-                                                    )
-                                                },
-                                        ) {
-                                            Checkbox(checked = route.macs.contains(mac), onCheckedChange = null)
-                                            Text(mac, fontSize = 11.sp, color = palette.fgDim)
-                                        }
-                                    }
-                                }
-                            }
-                            // 发包数 / 重试：每个动作都能设（默认唤醒 10 / 其余 1）。
-                            // 注意 value 只认「用户自己填的数」，空着就用占位符显示默认值 ——
-                            // 千万不能把 effective 值当 value 回填，否则删一个字符就被弹回来，
-                            // 光标一直跳（看着就是输入框在闪）。
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                val waking = route.actionOrWake() == ServerProfile.POWER_WAKE
-                                OutlinedTextField(
-                                    value = if (route.burst > 0) route.burst.toString() else "",
-                                    onValueChange = { value ->
-                                        val number = value.filter { it.isDigit() }.take(2).toIntOrNull() ?: 0
-                                        routeList[index] = route.withCounts(number, route.retry)
-                                    },
-                                    label = { Text(if (waking) "每块发几个包" else "发几个包", fontSize = 10.sp) },
-                                    placeholder = { Text(route.defaultBurst().toString(), fontSize = 11.sp) },
-                                    singleLine = true,
-                                    textStyle = MaterialTheme.typography.bodySmall,
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                    modifier = Modifier.width(120.dp),
-                                )
-                                Spacer(Modifier.width(8.dp))
-                                OutlinedTextField(
-                                    value = if (route.retry > 0) route.retry.toString() else "",
-                                    onValueChange = { value ->
-                                        val number = value.filter { it.isDigit() }.take(2).toIntOrNull() ?: 0
-                                        routeList[index] = route.withCounts(route.burst, number)
-                                    },
-                                    label = { Text("重试次数", fontSize = 10.sp) },
-                                    placeholder = { Text(route.defaultRetry().toString(), fontSize = 11.sp) },
-                                    singleLine = true,
-                                    textStyle = MaterialTheme.typography.bodySmall,
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                    modifier = Modifier.width(104.dp),
-                                )
-                            }
-                            // —— HTTP 设置区：无可配置项，仅说明（HTTP 走这台电脑
-                            // 自带的接口，token 与连接共用）；混合模式两条通道同时发。
-                            Text(
-                                "HTTP",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = palette.fgDim,
-                                modifier = Modifier.padding(top = 8.dp),
-                            )
-                            Text(
-                                "调这台电脑自带的 /api/power 接口（token 与连接共用，无需单独配置）。" +
-                                    "混合模式 = HTTP 与广播包同时发。",
-                                fontSize = 10.sp, color = palette.fgFaint,
-                            )
-                        }
-                    }
-                    TextButton(onClick = {
-                        // 发送模式默认「优先广播包」（= 旧的 HTTP 兜底勾选）
-                        routeList.add(
-                            ServerProfile.PowerRoute(ServerProfile.POWER_WAKE, "", 9)
-                                .withMode("auto")
-                        )
-                    }) { Text("+ 添加一条路由", fontSize = 13.sp) }
-                    FieldLabel("多网卡探测（有多个地址时怎么探）")
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(
-                            selected = probeMode == ServerProfile.PROBE_PARALLEL_FIRST,
-                            onClick = { probeMode = ServerProfile.PROBE_PARALLEL_FIRST }
-                        )
-                        Text(
-                            "并发·首个",
-                            fontSize = 13.sp, color = palette.fg,
-                            modifier = Modifier.weight(1f, fill = false),
-                        )
-                        Spacer(Modifier.width(10.dp))
-                        RadioButton(
-                            selected = probeMode == ServerProfile.PROBE_PARALLEL_ALL,
-                            onClick = { probeMode = ServerProfile.PROBE_PARALLEL_ALL }
-                        )
-                        Text(
-                            "并发·全部",
-                            fontSize = 13.sp, color = palette.fg,
-                            modifier = Modifier.weight(1f, fill = false),
-                        )
-                        Spacer(Modifier.width(10.dp))
-                        RadioButton(
-                            selected = probeMode == ServerProfile.PROBE_SERIAL,
-                            onClick = { probeMode = ServerProfile.PROBE_SERIAL }
-                        )
-                        Text("串行", fontSize = 13.sp, color = palette.fg)
-                    }
-                    Text(
-                        "并发·首个：每地址一个线程，任一响应立即用它；并发·全部：等全部探完，逐行报成败；串行：按顺序试，第一个通就停",
-                        fontSize = 10.sp, color = palette.fgFaint,
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
-                }
-            },
+            text = { ServerEditFormBody(form) },
             confirmButton = {
                 TextButton(onClick = {
-                    if (saveServer(request, group, name, addressEntries.toList(), token, pastedRaw, probeMode, jumpIndex, jumps, routeList)) {
+                    if (saveServer(request, form)) {
                         editRequest = null
                     }
                 }) { Text("保存") }
             },
             dismissButton = {
                 Row {
-                    if (editing) {
-                        TextButton(onClick = { profile?.let { confirmDelete(it) } }) {
+                    if (form.editing) {
+                        TextButton(onClick = { request.profile?.let { confirmDelete(it) } }) {
                             Text("删除", color = palette.bad)
                         }
                     }
@@ -1684,40 +1154,18 @@ class MainActivity : ComponentActivity() {
         )
     }
 
-    private fun jumpLabel(jump: JumpServer): String {
-        val label = if (JumpStore.text(jump.name).isEmpty()) jump.host else jump.name
-        return "经由：$label" + (if (jump.isSsh()) "" else "（仅 Telnet，不能做隧道）")
-    }
-
-    /** 保存表单；返回 false = 校验没过（对话框保持打开） */
-    private fun saveServer(
-        request: EditRequest,
-        group: String,
-        name: String,
-        addresses: List<AddrEntry>,
-        token: String,
-        pastedRaw: String,
-        probeMode: String,
-        jumpIndex: Int,
-        jumps: List<JumpServer>,
-        routes: List<ServerProfile.PowerRoute>,
-    ): Boolean {
+    /**
+     * 保存表单；返回 false = 校验没过（对话框保持打开）。
+     *
+     * 地址的写入语义分两种，别混：**编辑时以输入为准**（replace，方便删掉过期地址），
+     * **新增时按分组并入同一台电脑**（merge，同一台机的多块网卡合成一条）。
+     */
+    private fun saveServer(request: EditRequest, form: ServerEditFormState): Boolean {
         val editing = request.profile
-        // 弹窗里的地址列表 → 解析结果（第一个是连接用的地址）
-        val parsed = ServerProfile.Parsed()
-        for (entry in addresses) {
-            if (entry.address.isEmpty()) continue
-            parsed.hosts.add(entry.address)
-            if (entry.macs.isNotEmpty()) parsed.macs[entry.address] = entry.macs.toList()
-        }
+        val parsed = form.toParsed()
         if (parsed.isEmpty()) {
-            toast("请填服务端地址")
+            toast(SERVER_EDIT_EMPTY_ADDRESS_HINT)
             return false
-        }
-        var tokenValue = token.trim()
-        if (tokenValue.isEmpty()) {
-            // 整条 URL 粘进来的情况
-            tokenValue = ServerProfile.tokenFromUrl(pastedRaw)
         }
         val previousAddresses = editing?.let { ArrayList(it.addresses) } ?: ArrayList()
         val previousToken = editing?.let { ServerProfile.text(it.token) } ?: ""
@@ -1726,11 +1174,9 @@ class MainActivity : ComponentActivity() {
         var notice = ""
         if (editing != null) {
             target = editing
-            // 编辑 = 以输入为准（顺序也照用户写的来），方便删掉过期的地址；MAC 同步以输入为准
-            target.replaceParsed(parsed)
         } else {
             // 新增：分组名相同的记录就是同一台电脑，并进去，不新建标签
-            val merged = findByGroup(group.trim())
+            val merged = findByGroup(form.group.trim())
             target = if (merged != null) {
                 notice = "已并入同一台电脑：" + merged.label()
                 merged
@@ -1739,17 +1185,10 @@ class MainActivity : ComponentActivity() {
                 servers.add(fresh)
                 fresh
             }
-            target.mergeParsed(parsed)
         }
-        target.group = group.trim()
-        target.name = name.trim().ifEmpty { target.host() }
-        target.token = tokenValue
-        target.probeMode = ServerProfile.normalizeProbeMode(probeMode)
-        target.jumpServerId = if (jumpIndex <= 0) "" else jumps[jumpIndex - 1].id
-        // 局域网电源路由：以弹窗里的这份为准（空 = 没配，走老路）
-        target.powerRoutes.clear()
-        for (route in routes) {
-            target.powerRoutes.add(route.copy())
+        if (!applyServerEdit(form, target, replaceAddresses = editing != null)) {
+            toast(SERVER_EDIT_EMPTY_ADDRESS_HINT)
+            return false
         }
         ServerStore.sort(servers)
         ServerStore.save(this, servers)
