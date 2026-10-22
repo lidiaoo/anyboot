@@ -46,3 +46,7 @@ hs_err_pid*.log
 #   二进制只增不减，事后也分不清是哪次改动的。忽略，只留本地。
 #   要把证据跟改动绑一起，就写进 commit message，别塞进仓库。
 .workbuddy/artifacts/
+
+# dsh ���ؼ�⹤���� WorkBuddy ͼ�깤��Ŀ¼�����ز������⣩
+.dsh/
+.workbuddy/icon/
