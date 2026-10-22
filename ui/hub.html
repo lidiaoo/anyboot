@@ -4499,6 +4499,7 @@
     const items = [];
     items.push({ head: row.name });
     items.push({ label: '打开页面（内嵌查看）', act: 'view' });
+    items.push({ label: '在电脑页打开（选中标签）', act: 'goto' });
     items.push({ label: '在系统浏览器打开', act: 'browser' });
     items.push({ sep: true });
     items.push({ label: '重新探测这台电脑', act: 'refresh' });
@@ -4510,6 +4511,7 @@
     }
     cqOpenDd(anchor, items, function (picked) {
       if (picked.act === 'view') cqOpenPage(row.rid);
+      else if (picked.act === 'goto') cqGotoPage(row.rid);
       else if (picked.act === 'browser') {
         const url = row.local ? localUrl() : (function () {
           const r = remotes.find(function (x) { return x.id === row.rid; });
@@ -5281,11 +5283,16 @@
   } catch (e) { }
   function cqOpenPage(rid) {
     if (cqOpenMode === 'goto') {
-      showPage('home');
-      pageSelect(rid);
+      cqGotoPage(rid);
       return;
     }
     pcOpenView(rid);
+  }
+  /** 跳到「电脑」页并选中这台电脑的标签 */
+  function cqGotoPage(rid) {
+    activeRemote = rid;
+    showPage('home');
+    renderCqActive();
   }
 
   let pcMenuAnchor = null;
