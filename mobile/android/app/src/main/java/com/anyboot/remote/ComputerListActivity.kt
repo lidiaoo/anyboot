@@ -154,28 +154,33 @@ class ComputerListActivity : ComponentActivity() {
 
     @Composable
     private fun Root() {
-        val palette = LocalPalette.current
-        val tone = toneOf()
-        val rows = rowsOf()
+        // ⚠️ 取色必须在 AppTheme 里面：LocalPalette 的默认值是 paletteOf(Application())，
+        // 那个 Application 没有 base context，一旦读到就是 ServerStore.prefs 上的 NPE
+        // —— 少了这层包裹，进电脑列表页会直接闪退（与 TerminalSettingsActivity 同款约定）。
+        AppTheme {
+            val palette = LocalPalette.current
+            val tone = toneOf()
+            val rows = rowsOf()
 
-        CompositionLocalProvider(LocalTone provides tone) {
-            Box(Modifier.fillMaxSize().background(palette.base)) {
-                Column(Modifier.fillMaxSize()) {
-                    TopBar(rows)
-                    Box(Modifier.fillMaxWidth().weight(1f)) {
-                        val visible = rows.filter { matches(it) }
-                        if (visible.isEmpty()) {
-                            EmptyState(rows.isEmpty())
-                        } else {
-                            HostList(visible)
+            CompositionLocalProvider(LocalTone provides tone) {
+                Box(Modifier.fillMaxSize().background(palette.base)) {
+                    Column(Modifier.fillMaxSize()) {
+                        TopBar(rows)
+                        Box(Modifier.fillMaxWidth().weight(1f)) {
+                            val visible = rows.filter { matches(it) }
+                            if (visible.isEmpty()) {
+                                EmptyState(rows.isEmpty())
+                            } else {
+                                HostList(visible)
+                            }
                         }
                     }
+                    ToastStack(Modifier.align(Alignment.BottomCenter))
                 }
-                ToastStack(Modifier.align(Alignment.BottomCenter))
-            }
 
-            sheetRequest?.let { request -> PickSheet(request) }
-            ConfirmDialog(bus)
+                sheetRequest?.let { request -> PickSheet(request) }
+                ConfirmDialog(bus)
+            }
         }
     }
 
@@ -1072,7 +1077,13 @@ class ComputerListActivity : ComponentActivity() {
         toast("正在探测全部电脑…")
         Thread({
             for (profile in snapshot) {
-                val info = fetchBootInfo(profile)
+                // 后台线程里任何未捕获异常都会直接崩进程（用户看到的就是「闪退」），
+                // 所以每台电脑单独兜住：探挂了只标离线，不影响其它电脑和整页
+                val info = try {
+                    fetchBootInfo(profile)
+                } catch (error: Throwable) {
+                    offlineInfo("", error.message ?: "探测失败")
+                }
                 runOnUiThread { boots[profile.id] = info }
             }
             runOnUiThread {
@@ -1089,7 +1100,11 @@ class ComputerListActivity : ComponentActivity() {
         if (busy[id] != null) return
         busy[id] = "boot:load"
         Thread({
-            val info = fetchBootInfo(profile)
+            val info = try {
+                fetchBootInfo(profile)
+            } catch (error: Throwable) {
+                offlineInfo("", error.message ?: "读取失败")
+            }
             runOnUiThread {
                 boots[id] = info
                 busy.remove(id)
