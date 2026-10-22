@@ -497,6 +497,21 @@
     overflow: hidden;
   }
   .side.collapsed { width: 60px; }
+  .side.resizing { transition: none; }
+
+  /* 侧栏与内容区之间的拖拽分割条：平时透明，悬停/拖动亮出竖条 */
+  .side-split {
+    flex: none; width: 6px; margin: 0 -3px;
+    position: relative; z-index: 6;
+    cursor: col-resize; touch-action: none;
+  }
+  .side-split::before {
+    content: ''; position: absolute; top: 0; bottom: 0; left: 2px; width: 2px;
+    border-radius: 2px; background: transparent; transition: background .15s;
+  }
+  .side-split:hover::before, .side-split.active::before { background: rgb(var(--accent) / .55); }
+  .side.collapsed + .side-split { display: none; }
+  body.col-resizing { cursor: col-resize !important; user-select: none; }
   .side-head {
     display: flex; align-items: center; gap: 10px;
     padding: 14px 14px 12px;
@@ -1371,6 +1386,9 @@
         <span class="s-label">GitHub · lidiaoo/anyboot<br>MIT · 心跳 10s · 并发探测</span>
       </div>
     </aside>
+
+    <div class="side-split" id="sideSplit" role="separator" aria-orientation="vertical"
+         aria-label="拖动调整侧栏宽度" title="拖动调整侧栏宽度" data-page-node-id="sideSplit1"></div>
 
     <div class="content" data-page-node-id="contentWrap1">
 
@@ -2308,6 +2326,7 @@
   try { sideCollapsed = localStorage.getItem('ab-hub-side') === 'collapsed'; } catch (e) { }
   function applySide() {
     sideEl.classList.toggle('collapsed', sideCollapsed);
+    applySideWidth();
     const t = document.getElementById('sideToggle');
     t.title = sideCollapsed ? '展开侧栏' : '收起侧栏';
     t.setAttribute('aria-label', t.title);
@@ -2318,6 +2337,47 @@
     try { localStorage.setItem('ab-hub-side', sideCollapsed ? 'collapsed' : 'expanded'); } catch (e) { }
     applySide();
   });
+
+  // ============ 侧栏拖拽调宽（记忆上次宽度） ============
+  const SIDE_W_KEY = 'ab-hub-side-w';
+  const SIDE_W_MIN = 200, SIDE_W_MAX = 420;
+  const sideSplit = document.getElementById('sideSplit');
+  /** 收起时清掉内联宽度（否则覆盖 .collapsed 的 60px）；展开时恢复记忆宽度 */
+  function applySideWidth() {
+    if (sideCollapsed) { sideEl.style.width = ''; return; }
+    let w = 0;
+    try { w = parseInt(localStorage.getItem(SIDE_W_KEY) || '0', 10); } catch (e) { }
+    if (w >= SIDE_W_MIN && w <= SIDE_W_MAX) sideEl.style.width = w + 'px';
+  }
+  (function initSideSplit() {
+    applySideWidth();
+    if (!sideSplit) return;
+    let startX = 0, startW = 0;
+    sideSplit.addEventListener('pointerdown', function (e) {
+      if (sideCollapsed) return;
+      startX = e.clientX;
+      startW = sideEl.getBoundingClientRect().width;
+      sideEl.classList.add('resizing');       // 拖动时关掉宽度过渡，跟手
+      sideSplit.classList.add('active');
+      document.body.classList.add('col-resizing');
+      sideSplit.setPointerCapture(e.pointerId);
+      e.preventDefault();
+    });
+    sideSplit.addEventListener('pointermove', function (e) {
+      if (!sideSplit.classList.contains('active')) return;
+      const w = Math.min(SIDE_W_MAX, Math.max(SIDE_W_MIN, startW + (e.clientX - startX)));
+      sideEl.style.width = w + 'px';
+    });
+    const endDrag = function () {
+      if (!sideSplit.classList.contains('active')) return;
+      sideSplit.classList.remove('active');
+      sideEl.classList.remove('resizing');
+      document.body.classList.remove('col-resizing');
+      try { localStorage.setItem(SIDE_W_KEY, String(Math.round(sideEl.getBoundingClientRect().width))); } catch (e) { }
+    };
+    sideSplit.addEventListener('pointerup', endDrag);
+    sideSplit.addEventListener('pointercancel', endDrag);
+  })();
   applySide();
 
   // ============ 状态 ============
