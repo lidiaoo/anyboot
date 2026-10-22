@@ -608,7 +608,7 @@ class ComputerListActivity : ComponentActivity() {
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier.fillMaxWidth().padding(top = 11.dp),
             ) {
-                PowerButton(row, POWER_WAKE, "开机", Modifier.weight(1f))
+                PowerButton(row, POWER_WAKE, "唤醒", Modifier.weight(1f))
                 PowerButton(row, POWER_SLEEP, "睡眠", Modifier.weight(1f))
                 PowerButton(row, POWER_REBOOT, "重启", Modifier.weight(1f))
                 PowerButton(row, POWER_SHUTDOWN, "关机", Modifier.weight(1f))
@@ -1081,10 +1081,9 @@ class ComputerListActivity : ComponentActivity() {
         val palette = LocalPalette.current
         val tone = LocalTone.current
         val working = busy[row.profile.id] == "power:$action"
-        val anyBusy = busy[row.profile.id] != null
-        val enabled = !anyBusy && powerEnabled(row.state, action)
-        // 离线卡片上「开机」是唯一可用项 —— 给成实心强调色，一眼能看到
-        val solid = enabled && row.state != STATE_ONLINE && action == POWER_WAKE
+        // 用户定案：四个电源键**任何时候都能按**，不做变灰/禁用判定。
+        // 离线卡片上「唤醒」给成实心强调色（只是高亮提醒，不是可用性区分）。
+        val solid = row.state != STATE_ONLINE && action == POWER_WAKE
 
         val accent = when (action) {
             POWER_WAKE -> tone.online
@@ -1093,16 +1092,8 @@ class ComputerListActivity : ComponentActivity() {
             else -> palette.bad
         }
         val shape = RoundedCornerShape(11.dp)
-        val background = when {
-            solid -> tone.online
-            enabled -> palette.card
-            else -> tone.softDisabled
-        }
-        val contentColor = when {
-            solid -> Color.White
-            enabled -> palette.fg
-            else -> palette.fgFaint.copy(alpha = 0.42f)
-        }
+        val background = if (solid) tone.online else palette.card
+        val contentColor = if (solid) Color.White else palette.fg
 
         Box(
             contentAlignment = Alignment.Center,
@@ -1111,9 +1102,9 @@ class ComputerListActivity : ComponentActivity() {
                 .clip(shape)
                 .background(background)
                 .then(
-                    if (enabled && !solid) Modifier.border(1.dp, palette.line, shape) else Modifier
+                    if (!solid) Modifier.border(1.dp, palette.line, shape) else Modifier
                 )
-                .clickable(enabled = enabled) { performPower(row.profile, action) },
+                .clickable { performPower(row.profile, action) },
         ) {
             if (working) {
                 CircularProgressIndicator(
@@ -1434,30 +1425,6 @@ class ComputerListActivity : ComponentActivity() {
     /** 「待生效」的唯一判据：GRUB 的 nextEntry 与 savedEntry 都有值且不同（rEFInd 没有这两个值） */
     private fun grubPending(group: BootGroup): Boolean =
         group.available && group.next.isNotEmpty() && group.saved.isNotEmpty() && group.next != group.saved
-
-    /**
-     * 电源键可用性：与设计稿一致 —— 过渡态（唤醒中/关机中/重启中）全禁；
-     * 在线时「开机」无意义（已开着）；离线/已睡眠时只有「开机」可用。
-     */
-    /**
-     * 电源键可用性。
-     *
-     * 与旧实现的差别只在**未探测**这一档：以前是 `else -> false`，四个键全灰；
-     * 现在放开「开机」。理由是魔术包是 UDP 盲发、发出去没有副作用，而「还没探过」
-     * 不等于「不可达」—— 刚加进来的电脑，用户第一件事往往就是想开机，灰着不让点很别扭。
-     * 关机 / 重启 / 睡眠仍然禁止：它们要么要机器响应 HTTP，要么盲发下去可能打断正在用的机器。
-     *
-     * 其余档位与 PC 端 `ui/hub.html` 的 `needOnline && online === false` 语义一致：
-     *   · 在线 → 「开机」无意义（已开着），其余三个可用；
-     *   · 离线 / 已睡眠 → 只有「开机」可用；
-     *   · 过渡态（唤醒中 / 关机中 / 重启中）→ 全禁，等状态落定。
-     */
-    private fun powerEnabled(state: String, action: String): Boolean = when (state) {
-        STATE_ONLINE -> action != POWER_WAKE
-        STATE_OFFLINE, STATE_SLEEPING -> action == POWER_WAKE
-        STATE_UNKNOWN -> action == POWER_WAKE
-        else -> false
-    }
 
     // ------------------------------------------------------------------
     // 网络：探测 + 读引导项
@@ -1805,12 +1772,13 @@ class ComputerListActivity : ComponentActivity() {
 
     private fun performPower(profile: ServerProfile, action: String) {
         val id = profile.id
-        if (busy[id] != null) return
+        // 不做任何拦截：四个电源键任何时候都能按（用户定案），连按就是连发。
         busy[id] = "power:$action"
         Thread({
             val outcome = runCatching { powerMessage(profile, action) }
             runOnUiThread {
-                busy.remove(id)
+                // 只清自己这把钥匙：期间用户可能又点过别的操作（boot / 另一个电源动作）
+                if (busy[id] == "power:$action") busy.remove(id)
                 outcome.onSuccess { message ->
                     toast(message)
                     transients[id] = when (action) {
@@ -1820,7 +1788,7 @@ class ComputerListActivity : ComponentActivity() {
                         else -> STATE_REBOOTING
                     }
                     // 过渡态只在动作进行时存在：到点后必须让位给真实探测结果，
-                    // 否则「开机」之后这张卡会永远停在「在线」，探测结果再也盖不住。
+                    // 否则「唤醒」之后这张卡会永远停在「在线」，探测结果再也盖不住。
                     handler.postDelayed({
                         when (action) {
                             POWER_WAKE, POWER_REBOOT -> {
@@ -1829,7 +1797,7 @@ class ComputerListActivity : ComponentActivity() {
                             }
                             // 睡眠是持续状态（睡着的机器 ping 不通），留着它才能显示「已睡眠」
                             POWER_SLEEP -> transients[id] = STATE_SLEEPING
-                            // 关机后确实离线：清掉过渡态，直接标离线，按钮回到「只有开机可用」
+                            // 关机后确实离线：清掉过渡态，直接标离线
                             else -> {
                                 transients.remove(id)
                                 boots[id] = offlineInfo(boots[id]?.addr ?: "", "")
@@ -2077,11 +2045,11 @@ class ComputerListActivity : ComponentActivity() {
         const val READ_TIMEOUT_MS = 8000
 
         val HELP_LINES = listOf(
-            "开机：发标准魔术包（UDP 9）。睡眠 / 重启 / 关机按每台电脑「电源路由」里配的通道发送，" +
+            "唤醒：发标准魔术包（UDP 9）。睡眠 / 重启 / 关机按每台电脑「电源路由」里配的通道发送，" +
                 "可以是局域网广播包，也可以走它自己的 AnyBoot 接口",
-            "关机与重启立即执行，不会二次确认，请先保存工作",
+            "四个电源键任何时候都能按，不会因为在线/离线变灰；关机与重启立即执行，不会二次确认，请先保存工作",
             "引导项（rEFInd / GRUB）在下次重启时生效，可点「撤销」恢复成原来那项",
-            "电脑离线时读不到引导项，只有「开机」可用",
+            "电脑离线时读不到引导项",
             // 补上 PC 端 cqHelp 的第 5 条：没有它，用户会把「未检测到」当成读取失败
             "显示「未检测到」= 这台电脑没部署对应的引导管理器（rEFInd / GRUB），不是读取失败",
         )
