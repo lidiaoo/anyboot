@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -36,12 +37,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -118,6 +121,19 @@ class ComputerListActivity : ComponentActivity() {
     private var filter by mutableStateOf(FILTER_ALL)
     private var sheetRequest by mutableStateOf<SheetRequest?>(null)
 
+    /**
+     * 手机自己的 GRUB 列表格式（与 PC 端 ⋮ 菜单同一套五档）。
+     * 空 = 跟随服务端 /api/grub 响应里的 listFormat（服务端没给就退 minimal）。
+     * 用户在 GRUB 选择框里点过档位后就固定用手机自己的选择（存 anyboot_ui）。
+     */
+    private var grubFmt by mutableStateOf("")
+
+    /** 正在编辑的电脑（非空 = 底部弹出编辑 sheet）；与 MainActivity 共用同一套表单 */
+    private var editTarget by mutableStateOf<ServerProfile?>(null)
+
+    /** 待确认删除的电脑（非空 = 弹确认框）；删除是不可逆的，必须二次确认 */
+    private var deleteTarget by mutableStateOf<ServerProfile?>(null)
+
     // ------------------------------------------------------------------
     // 生命周期
     // ------------------------------------------------------------------
@@ -125,6 +141,7 @@ class ComputerListActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Ui.applySystemBars(this)
+        grubFmt = getSharedPreferences(UI_PREFS, MODE_PRIVATE).getString("grubListFormat", "") ?: ""
         reloadServers()
         setContent { Root() }
     }
@@ -179,6 +196,8 @@ class ComputerListActivity : ComponentActivity() {
                 }
 
                 sheetRequest?.let { request -> PickSheet(request) }
+                editTarget?.let { profile -> EditSheet(profile) }
+                deleteTarget?.let { profile -> DeleteConfirm(profile) }
                 ConfirmDialog(bus)
             }
         }
@@ -209,7 +228,12 @@ class ComputerListActivity : ComponentActivity() {
                         color = palette.fg,
                         maxLines = 1,
                     )
-                    Text("远程管理 - 电脑", fontSize = 11.sp, color = palette.fgFaint, maxLines = 1)
+                    Text(
+                        "远程管理 - 电脑 · 点卡片即可发电源指令或切引导项",
+                        fontSize = 11.sp,
+                        color = palette.fgFaint,
+                        maxLines = 1,
+                    )
                 }
                 if (refreshing) {
                     Box(Modifier.size(38.dp), contentAlignment = Alignment.Center) {
@@ -232,21 +256,25 @@ class ComputerListActivity : ComponentActivity() {
 
             Column(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, bottom = 10.dp)) {
                 SearchBox()
+                // 统计筛选条：一个块同时承担 PC 端「三个大数字统计卡」和「四段筛选」两个职责。
+                // 手机宽度放不下两套控件，合成一排是最省地方的做法。
+                // ⚠️ 数字必须基于全量 rows —— 不能受搜索框和当前筛选影响，
+                //    否则点进「离线」后「在线」会变成 0（PC 端 cqUpdateStats 也是这个语义）。
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(7.dp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 10.dp)
+                        .padding(top = 9.dp)
                         .horizontalScroll(rememberScrollState()),
                 ) {
                     val online = rows.count { it.state == STATE_ONLINE }
                     val pending = rows.count { grubPending(it.grub) }
-                    FilterChip("全部", rows.size, filter == FILTER_ALL) { filter = FILTER_ALL }
-                    FilterChip("在线", online, filter == FILTER_ONLINE) { filter = FILTER_ONLINE }
-                    FilterChip("离线", rows.size - online, filter == FILTER_OFFLINE) {
+                    StatChip("全部", rows.size, filter == FILTER_ALL, false) { filter = FILTER_ALL }
+                    StatChip("在线", online, filter == FILTER_ONLINE, false) { filter = FILTER_ONLINE }
+                    StatChip("离线", rows.size - online, filter == FILTER_OFFLINE, false) {
                         filter = FILTER_OFFLINE
                     }
-                    FilterChip("待生效", pending, filter == FILTER_PENDING) {
+                    StatChip("待生效", pending, filter == FILTER_PENDING, true) {
                         filter = FILTER_PENDING
                     }
                 }
@@ -323,34 +351,59 @@ class ComputerListActivity : ComponentActivity() {
         )
     }
 
+    /**
+     * 统计筛选块：数字在上、标签在下，块高 44dp。
+     *
+     * 为什么不用 PC 那种「三个大数字卡 + 四个筛选按钮」：手机宽度放不下两排，
+     * 合成一排让每个块同时承担「看数」和「筛选」两个职责。
+     * [tone] 为 true 的块（待生效）数字用琥珀色 —— 它代表「有待处理的改动」，
+     * 混在一堆中性数字里会被看漏。
+     */
     @Composable
-    private fun FilterChip(label: String, count: Int, selected: Boolean, onClick: () -> Unit) {
+    private fun StatChip(
+        label: String,
+        count: Int,
+        selected: Boolean,
+        tone: Boolean,
+        onClick: () -> Unit,
+    ) {
         val palette = LocalPalette.current
-        val shape = RoundedCornerShape(50)
+        val shape = RoundedCornerShape(12.dp)
+        val accent = if (tone) palette.warn else palette.accent
+        val background = if (selected) accent else palette.card
         Row(
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Start,
             modifier = Modifier
-                .height(30.dp)
+                .height(44.dp)
                 .clip(shape)
-                .background(if (selected) palette.accent else palette.card)
-                .border(1.dp, if (selected) palette.accent else palette.line, shape)
+                .background(background)
+                .border(1.dp, if (selected) accent else palette.line, shape)
                 .clickable(onClick = onClick)
-                .padding(horizontal = 12.dp),
+                .padding(horizontal = 13.dp),
         ) {
-            Text(
-                label,
-                fontSize = 12.5.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = if (selected) palette.onAccent else palette.fgDim,
-                maxLines = 1,
-            )
-            Spacer(Modifier.width(6.dp))
-            Text(
-                count.toString(),
-                fontSize = 11.sp,
-                fontFamily = FontFamily.Monospace,
-                color = if (selected) palette.onAccent.copy(alpha = 0.82f) else palette.fgFaint,
-            )
+            Column(horizontalAlignment = Alignment.Start) {
+                Text(
+                    count.toString(),
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    fontFamily = FontFamily.Monospace,
+                    color = when {
+                        selected -> palette.onAccent
+                        tone -> palette.warn
+                        else -> palette.fg
+                    },
+                    maxLines = 1,
+                )
+                Spacer(Modifier.height(1.dp))
+                Text(
+                    label,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (selected) palette.onAccent.copy(alpha = 0.78f) else palette.fgFaint,
+                    maxLines = 1,
+                )
+            }
         }
     }
 
@@ -585,6 +638,17 @@ class ComputerListActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * 行菜单：与 PC 端 `ui/hub.html` 的 `cqRowMenu` 一一对应。
+     *
+     * PC 那 7 项的「打开页面（内嵌查看）」和「在电脑页打开（选中标签）」在手机上是同一件事
+     * —— 手机没有 iframe 容器，MainActivity 本身就是标签容器 —— 所以合并成一条「打开页面」，
+     * 其余照搬：在浏览器打开 / 重新探测 / 编辑 / 复制地址 / 删除。
+     *
+     * ⚠️ 「编辑这台电脑」以前跳到 [ServersActivity]，那是 **SSH 跳板机管理**（终端 + SFTP），
+     *    跟电脑档案（IP / MAC / 电源路由）完全无关 —— 点进去的是一脸懵的服务器列表。
+     *    现在改成本页直接开编辑 sheet。
+     */
     @Composable
     private fun CardMenu(row: CqRow) {
         val palette = LocalPalette.current
@@ -600,28 +664,287 @@ class ComputerListActivity : ComponentActivity() {
                 MoreIcon(tint = palette.fgFaint, size = 17.dp)
             }
             DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-                DropdownMenuItem(
-                    text = { Text("重新读取引导项", fontSize = 13.sp) },
-                    onClick = { open = false; reloadBoot(row.profile) },
-                )
-                DropdownMenuItem(
-                    text = { Text("复制地址", fontSize = 13.sp) },
-                    onClick = {
-                        open = false
-                        copyText(ServerProfile.normalizeHost(row.profile.host()))
-                        toast("已复制 ${row.ip}")
-                    },
-                )
-                DropdownMenuItem(
-                    text = { Text("管理这台电脑", fontSize = 13.sp) },
-                    onClick = {
-                        open = false
-                        startActivity(
-                            Intent(this@ComputerListActivity, ServersActivity::class.java)
-                        )
-                    },
-                )
+                // —— 打开系列 ——
+                MenuRow("打开页面", { ScreenIcon(tint = palette.fgFaint, size = 16.dp) }) {
+                    open = false
+                    openComputerPage(row.profile.id)
+                }
+                MenuRow("在浏览器打开", { GlobeIcon(tint = palette.fgFaint, size = 16.dp) }) {
+                    open = false
+                    openInBrowser(row.profile)
+                }
+                MenuDivider()
+                // —— 维护系列 ——
+                MenuRow("重新探测这台电脑", { RefreshIcon(tint = palette.fgFaint, size = 16.dp) }) {
+                    open = false
+                    reloadBoot(row.profile)
+                }
+                MenuRow("编辑这台电脑", { PencilIconSmall(tint = palette.fgFaint, size = 16.dp) }) {
+                    open = false
+                    editTarget = row.profile
+                }
+                MenuRow("复制地址", { CopyIcon(tint = palette.fgFaint, size = 16.dp) }) {
+                    open = false
+                    copyText(ServerProfile.normalizeHost(row.profile.host()))
+                    toast("已复制 ${row.ip}")
+                }
+                MenuDivider()
+                MenuRow(
+                    "删除这台电脑",
+                    { TrashIcon(tint = palette.bad, size = 16.dp) },
+                    danger = true,
+                ) {
+                    open = false
+                    deleteTarget = row.profile
+                }
             }
+        }
+    }
+
+    /** 菜单行：图标 + 文字，[danger] 的整行染红（删除项） */
+    @Composable
+    private fun MenuRow(
+        label: String,
+        icon: @Composable () -> Unit,
+        danger: Boolean = false,
+        onClick: () -> Unit,
+    ) {
+        val palette = LocalPalette.current
+        DropdownMenuItem(
+            text = {
+                Text(
+                    label,
+                    fontSize = 13.sp,
+                    color = if (danger) palette.bad else palette.fg,
+                )
+            },
+            leadingIcon = icon,
+            onClick = onClick,
+        )
+    }
+
+    /** 菜单里的分隔线（PC 端 cqRowMenu 也有，用来分组） */
+    @Composable
+    private fun MenuDivider() {
+        val palette = LocalPalette.current
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 3.dp)
+                .height(1.dp)
+                .background(palette.line)
+        )
+    }
+
+    // ---- 编辑 / 删除 --------------------------------------------------
+
+    /**
+     * 编辑这台电脑：底部 sheet + 与 MainActivity 共用的表单体（[ServerEditFormBody]）。
+     *
+     * 这里不走 MainActivity 的 AlertDialog，因为它是另一棵树 —— 从本页跳过去还得回退，
+     * 而且用户会把「编辑完回来列表没刷新」当成 bug。原位弹、原位存最省心。
+     */
+    @OptIn(ExperimentalMaterial3Api::class)
+    @Composable
+    private fun EditSheet(profile: ServerProfile) {
+        val palette = LocalPalette.current
+        val form = rememberServerEditFormState(profile)
+
+        ModalBottomSheet(
+            onDismissRequest = { editTarget = null },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            containerColor = palette.card,
+            dragHandle = {
+                Box(
+                    Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 8.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Box(
+                        Modifier
+                            .width(36.dp)
+                            .height(4.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(palette.lineStrong),
+                    )
+                }
+            },
+        ) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding(),
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 18.dp, end = 8.dp, bottom = 10.dp),
+                ) {
+                    Text(
+                        "编辑这台电脑",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = palette.fg,
+                        maxLines = 1,
+                    )
+                    Spacer(Modifier.weight(1f))
+                    Box(
+                        Modifier
+                            .size(30.dp)
+                            .clip(CircleShape)
+                            .background(palette.elevate)
+                            .clickable { editTarget = null },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CloseIcon(tint = palette.fgDim, size = 14.dp)
+                    }
+                }
+                // 表单自己带滚动：内容很长（电源路由可以无限加），高度交给它
+                Box(Modifier.fillMaxWidth().heightIn(max = 520.dp).padding(horizontal = 18.dp)) {
+                    ServerEditFormBody(form)
+                }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 12.dp),
+                ) {
+                    // 删除放在左边、单独一格：它跟保存不是一类动作，混在右边容易被误点
+                    Box(
+                        Modifier
+                            .height(40.dp)
+                            .clip(RoundedCornerShape(11.dp))
+                            .background(palette.bad.copy(alpha = 0.1f))
+                            .border(1.dp, palette.bad.copy(alpha = 0.28f), RoundedCornerShape(11.dp))
+                            .clickable {
+                                val target = profile
+                                editTarget = null
+                                deleteTarget = target
+                            }
+                            .padding(horizontal = 14.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        TrashIcon(tint = palette.bad, size = 16.dp)
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .height(40.dp)
+                            .clip(RoundedCornerShape(11.dp))
+                            .background(palette.accent)
+                            .clickable {
+                                if (saveEdited(profile, form)) editTarget = null
+                            },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            "保存",
+                            fontSize = 13.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = palette.onAccent,
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    /** 保存编辑结果：写盘 → 关 sheet → 立刻重探（地址/MAC 可能变了） */
+    private fun saveEdited(profile: ServerProfile, form: ServerEditFormState): Boolean {
+        if (form.toParsed().isEmpty()) {
+            toast(SERVER_EDIT_EMPTY_ADDRESS_HINT)
+            return false
+        }
+        if (!applyServerEdit(form, profile, replaceAddresses = true)) {
+            toast(SERVER_EDIT_EMPTY_ADDRESS_HINT)
+            return false
+        }
+        val list = servers.toMutableList()
+        ServerStore.sort(list)
+        ServerStore.save(this, list)
+        reloadServers()
+        toast("已保存")
+        reloadBoot(profile)
+        return true
+    }
+
+    /** 删除确认：不可逆动作，二次确认（PC 端 cqDeleteRemote 也是 window.confirm） */
+    @Composable
+    private fun DeleteConfirm(profile: ServerProfile) {
+        val palette = LocalPalette.current
+        AlertDialog(
+            onDismissRequest = { deleteTarget = null },
+            containerColor = palette.card,
+            title = { Text("删除这台电脑", fontSize = 15.sp, fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    "确定删除「${profile.displayName().ifEmpty { profile.host() }}」？\n\n" +
+                        "只删掉手机上的这条档案，不会动目标电脑上的 AnyBoot。",
+                    fontSize = 13.sp,
+                    color = palette.fgDim,
+                    lineHeight = 20.sp,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    deleteTarget = null
+                    doDelete(profile)
+                }) {
+                    Text("删除", color = palette.bad)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteTarget = null }) { Text("取消") }
+            },
+        )
+    }
+
+    private fun doDelete(profile: ServerProfile) {
+        val list = servers.filter { it.id != profile.id }
+        ServerStore.save(this, list)
+        boots.remove(profile.id)
+        transients.remove(profile.id)
+        busy.remove(profile.id)
+        reloadServers()
+        toast("已删除")
+    }
+
+    // ---- 打开页面 / 浏览器 ---------------------------------------------
+
+    /** 打开这台电脑的 AnyBoot 页面（MainActivity 的标签容器） */
+    private fun openComputerPage(id: String) {
+        val intent = Intent(this, MainActivity::class.java)
+            .putExtra(MainActivity.EXTRA_SERVER_ID, id)
+            .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+        startActivity(intent)
+    }
+
+    /**
+     * 用系统浏览器打开。
+     *
+     * 注意手机端是明文 HTTP 局域网地址，因此这里的 URL 直接用档案里的地址 + token，
+     * 不做隧道处理 —— 走跳板机的电脑在浏览器里本来就连不上，明确提示比静默失败好。
+     */
+    private fun openInBrowser(profile: ServerProfile) {
+        val host = ServerProfile.normalizeHost(profile.host())
+        if (host.isEmpty()) {
+            toast("这台电脑还没有可用地址")
+            return
+        }
+        if (ServerProfile.text(profile.jumpServerId).isNotEmpty()) {
+            toast("这台电脑走跳板机，系统浏览器连不上 —— 请用「打开页面」")
+            return
+        }
+        val url = profile.urlFor(host, "")
+        if (url.isEmpty()) {
+            toast("地址还没就绪")
+            return
+        }
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)))
+        } catch (error: Exception) {
+            toast("没有能打开网页的应用")
         }
     }
 
@@ -648,7 +971,7 @@ class ComputerListActivity : ComponentActivity() {
             dot = ""
         } else {
             val hit = group.options.firstOrNull { it.value == group.current }
-            valueLabel = hit?.label ?: group.current.ifEmpty { "未设置" }
+            valueLabel = if (hit != null) grubOptionLabel(group, hit) else group.current.ifEmpty { "未设置" }
             dot = hit?.kind ?: "linux"
         }
 
@@ -848,6 +1171,59 @@ class ComputerListActivity : ComponentActivity() {
 
     // ---- 底部选择器 --------------------------------------------------
 
+    /**
+     * GRUB 条目文字的格式档位（与 PC 端 ⋮ 菜单同一套五档）。
+     * 「跟随电脑」= 用 /api/grub 响应里的 listFormat（服务端没给就退极简）；
+     * 点了具体档位就固定用手机自己的选择并记住（anyboot_ui/grubListFormat）。
+     */
+    @Composable
+    private fun grubFormatChips(group: BootGroup) {
+        val palette = LocalPalette.current
+        val effective = grubEffectiveFormat(group)
+        val choices = listOf(
+            "" to "跟随电脑",
+            "minimal" to "极简",
+            "simple" to "简易",
+            "medium" to "中等",
+            "raw" to "原始",
+            "detailed" to "复杂",
+        )
+        Column {
+            Text(
+                "条目文字格式（当前：${if (grubFmt.isEmpty()) "跟随电脑 · $effective" else effective}）",
+                fontSize = 11.sp,
+                color = palette.fgFaint,
+            )
+            Spacer(Modifier.height(6.dp))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+            ) {
+                choices.forEach { (value, name) ->
+                    val selected = grubFmt == value
+                    Text(
+                        name,
+                        fontSize = 11.5.sp,
+                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                        color = if (selected) Color.White else palette.fgDim,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(
+                                if (selected) palette.accent else palette.elevate
+                            )
+                            .clickable {
+                                grubFmt = value
+                                getSharedPreferences(UI_PREFS, MODE_PRIVATE)
+                                    .edit().putString("grubListFormat", value).apply()
+                            }
+                            .padding(horizontal = 9.dp, vertical = 5.dp),
+                    )
+                }
+            }
+            Spacer(Modifier.height(4.dp))
+        }
+    }
+
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     private fun PickSheet(request: SheetRequest) {
@@ -942,6 +1318,10 @@ class ComputerListActivity : ComponentActivity() {
                         Text("电源操作不会弹出确认框", fontSize = 11.sp, color = palette.fgFaint)
                     } else if (group != null && group.options.isNotEmpty() && profile != null) {
                         val rid = profile
+                        if (request.kind == KIND_GRUB) {
+                            grubFormatChips(group)
+                            Spacer(Modifier.height(6.dp))
+                        }
                         group.options.forEach { option ->
                             val selected = option.value == group.current
                             Row(
@@ -963,7 +1343,7 @@ class ComputerListActivity : ComponentActivity() {
                                 BootDot(option.kind)
                                 Spacer(Modifier.width(8.dp))
                                 Text(
-                                    option.label,
+                                    grubOptionLabel(group, option),
                                     fontSize = 14.sp,
                                     color = if (selected) palette.accent else palette.fg,
                                     maxLines = 2,
@@ -1059,9 +1439,23 @@ class ComputerListActivity : ComponentActivity() {
      * 电源键可用性：与设计稿一致 —— 过渡态（唤醒中/关机中/重启中）全禁；
      * 在线时「开机」无意义（已开着）；离线/已睡眠时只有「开机」可用。
      */
+    /**
+     * 电源键可用性。
+     *
+     * 与旧实现的差别只在**未探测**这一档：以前是 `else -> false`，四个键全灰；
+     * 现在放开「开机」。理由是魔术包是 UDP 盲发、发出去没有副作用，而「还没探过」
+     * 不等于「不可达」—— 刚加进来的电脑，用户第一件事往往就是想开机，灰着不让点很别扭。
+     * 关机 / 重启 / 睡眠仍然禁止：它们要么要机器响应 HTTP，要么盲发下去可能打断正在用的机器。
+     *
+     * 其余档位与 PC 端 `ui/hub.html` 的 `needOnline && online === false` 语义一致：
+     *   · 在线 → 「开机」无意义（已开着），其余三个可用；
+     *   · 离线 / 已睡眠 → 只有「开机」可用；
+     *   · 过渡态（唤醒中 / 关机中 / 重启中）→ 全禁，等状态落定。
+     */
     private fun powerEnabled(state: String, action: String): Boolean = when (state) {
         STATE_ONLINE -> action != POWER_WAKE
         STATE_OFFLINE, STATE_SLEEPING -> action == POWER_WAKE
+        STATE_UNKNOWN -> action == POWER_WAKE
         else -> false
     }
 
@@ -1128,14 +1522,20 @@ class ComputerListActivity : ComponentActivity() {
         } catch (error: Exception) {
             val message = error.message ?: "读取失败"
             errors.add(message)
-            BootGroup(KIND_REFIND, "rEFInd", false, "", "", "", message, emptyList())
+            BootGroup(
+                kind = KIND_REFIND, title = "rEFInd", available = false,
+                current = "", next = "", saved = "", note = message, options = emptyList(),
+            )
         }
         val grub = try {
             parseGrub(httpJson(endpoint, profile.token, "/api/grub"))
         } catch (error: Exception) {
             val message = error.message ?: "读取失败"
             errors.add(message)
-            BootGroup(KIND_GRUB, "GRUB", false, "", "", "", message, emptyList())
+            BootGroup(
+                kind = KIND_GRUB, title = "GRUB", available = false,
+                current = "", next = "", saved = "", note = message, options = emptyList(),
+            )
         }
         return BootInfo(
             ok = errors.size < 2,
@@ -1154,8 +1554,14 @@ class ComputerListActivity : ComponentActivity() {
             online = false,
             addr = endpoint,
             error = error,
-            refind = BootGroup(KIND_REFIND, "rEFInd", false, "", "", "", note, emptyList()),
-            grub = BootGroup(KIND_GRUB, "GRUB", false, "", "", "", note, emptyList()),
+            refind = BootGroup(
+                kind = KIND_REFIND, title = "rEFInd", available = false,
+                current = "", next = "", saved = "", note = note, options = emptyList(),
+            ),
+            grub = BootGroup(
+                kind = KIND_GRUB, title = "GRUB", available = false,
+                current = "", next = "", saved = "", note = note, options = emptyList(),
+            ),
         )
     }
 
@@ -1216,9 +1622,9 @@ class ComputerListActivity : ComponentActivity() {
             for (index in 0 until variables.length()) {
                 val item = variables.optJSONObject(index) ?: continue
                 if (!item.optBoolean("exists", false)) continue
-                val system = item.optString("system", "").trim()
+                val system = optStr(item, "system").trim()
                 if (system.isEmpty()) continue
-                val label = item.optString("displayName", "").trim().ifEmpty { system }
+                val label = optStr(item, "displayName").trim().ifEmpty { system }
                 if (item.optBoolean("active", false)) current = system
                 options.add(BootOption(system, label, refindClass(system)))
             }
@@ -1240,29 +1646,51 @@ class ComputerListActivity : ComponentActivity() {
         val next = json.optString("nextEntry", "").trim()
         val saved = json.optString("savedEntry", "").trim()
         val installed = json.optBoolean("installed", false)
+        // 服务端自己的格式偏好（老版本没这个字段 → 空，前端退 minimal）
+        val serverFormat = optStr(json, "listFormat")
+        // submenu 的内部 id → 组名（老版本没有 groups，映射为空 → 退回旧规则）
+        val groupNames = HashMap<String, String>()
+        json.optJSONArray("groups")?.let { groups ->
+            for (index in 0 until groups.length()) {
+                val item = groups.optJSONObject(index) ?: continue
+                val id = optStr(item, "id")
+                val name = optStr(item, "name")
+                if (id.isNotEmpty() && name.isNotEmpty()) groupNames[id] = name
+            }
+        }
         val options = mutableListOf<BootOption>()
         val entries = json.optJSONArray("entries")
         if (entries != null) {
             for (index in 0 until entries.length()) {
                 val item = entries.optJSONObject(index) ?: continue
-                val selector = item.optString("selector", "").trim()
+                val selector = optStr(item, "selector").trim()
                 if (selector.isEmpty()) continue
-                val name = item.optString("name", "").trim()
-                val submenu = item.optString("submenu", "").trim()
-                val klass = item.optString("class", "")
+                val name = optStr(item, "name").trim()
+                val submenu = optStr(item, "submenu").trim()
+                val klass = optStr(item, "class")
                 val chainloader = item.optBoolean("chainloader", false)
-                val label = if (submenu.isEmpty() || name.startsWith(submenu)) {
-                    name
-                } else {
-                    "$submenu · $name"
+                val kernels = mutableListOf<String>()
+                item.optJSONArray("kernels")?.let { list ->
+                    for (k in 0 until list.length()) {
+                        val kernel = list.optString(k, "").trim()
+                        if (kernel.isNotEmpty()) kernels.add(kernel)
+                    }
                 }
                 options.add(
-                    BootOption(selector, label.ifEmpty { selector }, grubClass(name, klass, chainloader))
+                    BootOption(
+                        value = selector,
+                        label = "",
+                        kind = grubClass(name, klass, chainloader),
+                        grubName = name,
+                        grubKernels = kernels,
+                        grubSubmenuId = submenu,
+                        grubGroupName = groupNames[submenu] ?: "",
+                    )
                 )
             }
         }
         val note = if (options.isEmpty()) {
-            json.optString("error", "").trim().ifEmpty { "这台电脑没部署 GRUB（或还没同步 grub.cfg）" }
+            optStr(json, "error").trim().ifEmpty { "这台电脑没部署 GRUB（或还没同步 grub.cfg）" }
         } else {
             ""
         }
@@ -1274,8 +1702,51 @@ class ComputerListActivity : ComponentActivity() {
             next = next,
             saved = saved,
             note = note,
+            serverFormat = serverFormat,
             options = options,
         )
+    }
+
+    /**
+     * Android org.json 的经典坑：JSON 值是 null 时 `optString(key, "")` 返回的是
+     * 字符串 "null" 而不是 fallback（NULL.toString() == "null"）。服务端把
+     * `submenu` / `class` / `error` 序列化成 null，直接 optString 会在界面上拼出
+     * 「null · Arch Linux」。这里统一兜住：NULL / 缺失都返回空串。
+     */
+    private fun optStr(obj: JSONObject, key: String): String {
+        if (!obj.has(key) || obj.isNull(key)) return ""
+        return obj.optString(key, "")
+    }
+
+    /** 条目核心文字：随格式变（与 PC 端 grub_entry_label 同一条规则） */
+    private fun grubCoreLabel(format: String, name: String, kernels: List<String>): String {
+        val kernel = kernels.firstOrNull()?.trim().orEmpty()
+        if (kernel.isEmpty()) return name
+        return when (format) {
+            "minimal", "simple" -> kernel.removePrefix("vmlinuz-").removePrefix("linux-")
+            "medium" -> kernel
+            else -> name
+        }
+    }
+
+    /** 这次渲染该用哪一档：手机自选优先，没选过就跟随服务端，再退 minimal */
+    private fun grubEffectiveFormat(group: BootGroup): String =
+        grubFmt.ifEmpty { group.serverFormat.ifEmpty { "minimal" } }
+
+    /**
+     * 下拉/按钮里显示的文字：核心文字 +（组名前缀）。
+     * 有组名就无条件拼（组名与标题措辞本就不同，判重会丢上下文）；
+     * 拿不到组名（服务端太老没 groups）才退回「标题已以 id 开头就不重复拼」。
+     */
+    private fun grubOptionLabel(group: BootGroup, option: BootOption): String {
+        if (option.grubName.isEmpty() && option.grubSubmenuId.isEmpty()) return option.label
+        val core = grubCoreLabel(grubEffectiveFormat(group), option.grubName, option.grubKernels)
+        return when {
+            option.grubSubmenuId.isEmpty() -> core
+            option.grubGroupName.isNotEmpty() -> "${option.grubGroupName} · $core"
+            core.startsWith(option.grubSubmenuId) -> core
+            else -> "${option.grubSubmenuId} · $core"
+        }
     }
 
     private fun refindClass(system: String): String = when (system) {
@@ -1531,7 +2002,22 @@ class ComputerListActivity : ComponentActivity() {
         val state: String,
     )
 
-    private data class BootOption(val value: String, val label: String, val kind: String)
+    /**
+     * 一个可选的引导项。rEFInd 直接用 `label`；GRUB 的文字随格式变，
+     * 原始数据（标题/内核/组名）放在 grub* 字段里，渲染时用 [grubOptionLabel] 现算。
+     */
+    private data class BootOption(
+        val value: String,
+        val label: String,
+        val kind: String,
+        // —— GRUB 渲染原料（rEFInd 恒为空）——
+        val grubName: String = "",
+        val grubKernels: List<String> = emptyList(),
+        /** 父级 submenu 的内部 id（顶层条目为空） */
+        val grubSubmenuId: String = "",
+        /** 已翻好的组名（服务端没回 groups 时为空） */
+        val grubGroupName: String = "",
+    )
 
     private data class BootGroup(
         val kind: String,
@@ -1541,6 +2027,8 @@ class ComputerListActivity : ComponentActivity() {
         val next: String,
         val saved: String,
         val note: String,
+        /** 服务端自己的格式偏好（/api/grub 的 listFormat，老版本为空） */
+        val serverFormat: String = "",
         val options: List<BootOption>,
     )
 
@@ -1560,6 +2048,8 @@ class ComputerListActivity : ComponentActivity() {
     }
 
     private companion object {
+        const val UI_PREFS = "anyboot_ui"
+
         const val FILTER_ALL = "all"
         const val FILTER_ONLINE = "online"
         const val FILTER_OFFLINE = "offline"
@@ -1592,6 +2082,8 @@ class ComputerListActivity : ComponentActivity() {
             "关机与重启立即执行，不会二次确认，请先保存工作",
             "引导项（rEFInd / GRUB）在下次重启时生效，可点「撤销」恢复成原来那项",
             "电脑离线时读不到引导项，只有「开机」可用",
+            // 补上 PC 端 cqHelp 的第 5 条：没有它，用户会把「未检测到」当成读取失败
+            "显示「未检测到」= 这台电脑没部署对应的引导管理器（rEFInd / GRUB），不是读取失败",
         )
     }
 }
