@@ -830,6 +830,22 @@ class ComputerListActivity : ComponentActivity() {
                             .padding(horizontal = 5.dp, vertical = 1.dp),
                     )
                 }
+                // 配了远程接入：一枚「远程」chip（出门时局域网全挂会自动走它）
+                if (row.profile.hasRemote()) {
+                    Spacer(Modifier.width(7.dp))
+                    Text(
+                        "远程",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = palette.accent,
+                        maxLines = 1,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(5.dp))
+                            .background(palette.accent.copy(alpha = 0.16f))
+                            .border(1.dp, palette.accent.copy(alpha = 0.3f), RoundedCornerShape(5.dp))
+                            .padding(horizontal = 5.dp, vertical = 1.dp),
+                    )
+                }
                 Spacer(Modifier.weight(1f))
                 CardMenu(row)
             }

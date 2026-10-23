@@ -13,7 +13,7 @@
 //!   `--version` 验证可执行并回读版本号（见 [`probe_manual_binary`])。
 
 use sha2::{Digest, Sha256};
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager};
@@ -1212,6 +1212,119 @@ pub(crate) fn gateway_pair_pending() -> Option<PendingPair> {
     pending
         .clone()
         .filter(|p| !pair_expired(p.expires_at))
+}
+
+/// 请求方 nonce：32 位十六进制。nonce 是 A 自己生成自己轮询用的，
+/// 只要不可枚举即可 —— 猜中也只能顶掉 B 的 pending 单槽（防滥用设计里已接受）。
+fn fresh_nonce() -> String {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0);
+    let pid = std::process::id() as u64;
+    format!("{:016x}{:016x}", nanos ^ pid.rotate_left(17), pid | nanos.swap_bytes())
+}
+
+/// 对 B 的局域网地址发一条免凭据 GET，回 (状态码, 响应体)。
+/// 手写 TCP（与 probe_health 同款；对端是局域网 HTTP，不用 TLS）。
+fn peer_get(target: &str, path: &str) -> Result<(u16, String), String> {
+    let addr = crate::remote_servers::with_default_port_pub(target);
+    let mut stream = std::net::TcpStream::connect(&addr)
+        .map_err(|error| format!("连接 {addr} 失败: {error}"))?;
+    stream
+        .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+        .map_err(|error| format!("设置读超时失败: {error}"))?;
+    stream
+        .set_write_timeout(Some(std::time::Duration::from_secs(4)))
+        .map_err(|error| format!("设置写超时失败: {error}"))?;
+    let request =
+        format!("GET {path} HTTP/1.1\r\nHost: {addr}\r\nConnection: close\r\n\r\n");
+    use std::io::Read as _;
+    stream
+        .write_all(request.as_bytes())
+        .map_err(|error| format!("发送请求失败: {error}"))?;
+    let mut raw = Vec::new();
+    stream
+        .read_to_end(&mut raw)
+        .map_err(|error| format!("读取响应失败: {error}"))?;
+    let text = String::from_utf8_lossy(&raw);
+    let status = text
+        .split_whitespace()
+        .nth(1)
+        .and_then(|code| code.parse::<u16>().ok())
+        .unwrap_or(0);
+    let body = match text.find("\r\n\r\n") {
+        Some(index) => text[index + 4..].to_string(),
+        None => String::new(),
+    };
+    Ok((status, body))
+}
+
+fn reply_message(status: u16, body: &str) -> Result<serde_json::Value, String> {
+    if status == 0 {
+        return Err("对方响应不是有效的 HTTP".to_string());
+    }
+    let value: serde_json::Value = serde_json::from_str(body.trim())
+        .map_err(|error| format!("对方返回的不是合法 JSON（{status}）：{error}"))?;
+    if status >= 400 {
+        let message = value
+            .get("message")
+            .and_then(|item| item.as_str())
+            .unwrap_or("请求被拒绝");
+        return Err(message.to_string());
+    }
+    Ok(value)
+}
+
+/// 「从对方获取」请求方：向 B 的局域网地址发配对请求并轮询结果，B 端确认后
+/// 返回 anyboot://pair 配对串。**必须 async + spawn_blocking**（轮询 + sleep）。
+#[tauri::command]
+pub(crate) async fn gateway_pair_fetch(app: tauri::AppHandle, peer: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || gateway_pair_fetch_blocking(&app, &peer))
+        .await
+        .map_err(|error| format!("配对任务失败: {error}"))?
+}
+
+fn gateway_pair_fetch_blocking(app: &tauri::AppHandle, peer: &str) -> Result<String, String> {
+    let peer = peer.trim();
+    if peer.is_empty() {
+        return Err("先填对方的局域网地址".to_string());
+    }
+    let nonce = fresh_nonce();
+    let name = crate::http_server::machine_name();
+    let query = format!(
+        "name={}&nonce={}",
+        crate::remote_servers::encode_query_pub(&name),
+        nonce
+    );
+    let (status, body) = peer_get(peer, &format!("/api/gateway-pair-request?{query}"))?;
+    reply_message(status, &body)?;
+    crate::trace(app, "tunnel", &format!("[gateway] 已向 {peer} 发起配对请求"));
+    // 轮询：2s 一次、最多 40 次（80s > B 端 120s TTL 的有效窗口足够）
+    for _ in 0..40 {
+        std::thread::sleep(std::time::Duration::from_millis(2000));
+        let (status, body) = match peer_get(peer, &format!("/api/gateway-pair-poll?nonce={nonce}")) {
+            Ok(result) => result,
+            Err(error) => return Err(format!("轮询对方确认结果失败：{error}")),
+        };
+        let value = reply_message(status, &body)?;
+        match value.get("status").and_then(|item| item.as_str()).unwrap_or("") {
+            "pending" => continue,
+            "approved" => {
+                let pair = value
+                    .get("pair")
+                    .and_then(|item| item.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                if pair.is_empty() {
+                    return Err("对方已确认，但没返回配对串".to_string());
+                }
+                return Ok(pair);
+            }
+            _ => return Err("对方未确认（可能已拒绝或超时）".to_string()),
+        }
+    }
+    Err("等待对方确认超时（80 秒）—— 让对方看一眼屏幕上的确认框".to_string())
 }
 
 /// B 端裁决：approve=签发令牌并把 pair 串放进结果表（A 的下一次 poll 取走）。

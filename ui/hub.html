@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <!-- ui-version: 20261022-cq-local（电脑列表：本机行可读引导项/可发电源；提示对齐电脑页） -->
-<script>try{window.ANYBOOT_UI_VERSION='20261021-rs-routes';}catch(e){}</script>
+<script>try{window.ANYBOOT_UI_VERSION='20261023-gateway';}catch(e){}</script>
+<script src="qrcode.min.js"></script>
 <!-- AnyBoot 远程管理（server-hub）。
      独立窗口，主窗口零改动；托盘「远程管理…」是唯一入口。
      视觉按 docs/client-ui/pc-redesign-v2.html 一比一还原：常驻左边栏
@@ -1329,6 +1330,69 @@
   .fb-kv { display:flex; justify-content:space-between; gap:14px; font-size:13px; }
   .fb-kv > span:first-child { flex:none; color:rgb(var(--fg-faint)); }
   .fb-kv > span:last-child { text-align:right; word-break:break-all; font-family:ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace; }
+  /* ============ 远程接入（gateway 页） ============ */
+  .s-badge {
+    margin-left:auto; font-size:10px; line-height:1; padding:3px 6px; border-radius:99px;
+    background:rgb(var(--warn) / .15); color:rgb(var(--warn)); font-weight:600; flex:none;
+  }
+  .side.collapsed .s-badge { display:none; }
+  .gw-card {
+    background:rgb(var(--card)); border:1px solid rgb(var(--line-strong)); border-radius:14px;
+    padding:16px 18px; margin:0 22px 14px;
+  }
+  .gw-card-head { display:flex; align-items:center; gap:12px; margin-bottom:12px; }
+  .gw-card-head h3 { margin:0; font-size:14px; font-weight:600; }
+  .gw-card-head .segmented { margin-left:auto; }
+  .gw-note {
+    margin:0 22px 14px; padding:10px 14px; border-radius:10px; font-size:12px; line-height:1.7;
+    background:rgb(var(--warn) / .1); border:1px solid rgb(var(--warn) / .35); color:rgb(var(--warn));
+  }
+  .gw-status { display:flex; align-items:center; gap:10px; flex-wrap:wrap; font-size:13px; }
+  .gw-url { color:rgb(var(--link)); text-decoration:none; word-break:break-all; }
+  .gw-url:hover { text-decoration:underline; }
+  .gw-meta { font-size:11px; color:rgb(var(--fg-faint)); }
+  .gw-err {
+    margin-top:10px; padding:8px 12px; border-radius:9px; font-size:12px; line-height:1.6;
+    background:rgba(239,68,68,.1); border:1px solid rgba(239,68,68,.35); color:#f87171;
+    word-break:break-all;
+  }
+  .gw-check { display:flex; align-items:center; gap:8px; font-size:12px; color:rgb(var(--fg-dim)); cursor:pointer; }
+  .gw-binary { display:flex; align-items:center; gap:10px; margin-top:12px; padding-top:12px; border-top:1px solid rgb(var(--line)); font-size:12px; color:rgb(var(--fg-dim)); }
+  .gw-progress { display:flex; align-items:center; gap:10px; margin-top:8px; }
+  .gw-progress-bar { flex:1; height:6px; border-radius:99px; background:rgb(var(--elevate)); overflow:hidden; }
+  .gw-progress-bar > div { height:100%; width:0%; border-radius:99px; background:rgb(var(--accent)); transition:width .3s; }
+  .gw-clients { display:flex; flex-direction:column; }
+  .gw-client {
+    display:flex; align-items:center; gap:10px; padding:9px 0; font-size:13px;
+    border-top:1px solid rgb(var(--line));
+  }
+  .gw-client:first-child { border-top:0; }
+  .gw-client .gw-client-name { font-weight:500; }
+  .gw-client .gw-client-meta { font-size:11px; color:rgb(var(--fg-faint)); }
+  .gw-client .gw-client-revoked { color:rgb(var(--warn)); font-size:11px; }
+  .gw-clients-empty { padding:14px 0 4px; font-size:12px; color:rgb(var(--fg-faint)); }
+  .gw-pair-modal { max-width:420px; }
+  .gw-pair-modal .token-reveal, .gw-pair-modal h2 { text-align:left; }
+  .gw-pair-warn { color:rgb(var(--warn)) !important; font-size:12px !important; }
+  .gw-qr { display:grid; place-items:center; padding:10px; background:#fff; border-radius:10px; margin:10px 0; }
+  .gw-qr canvas { display:block; }
+  .gw-pair-modal textarea {
+    width:100%; resize:none; border:1px solid rgb(var(--line)); border-radius:9px;
+    background:rgb(var(--elevate)); color:rgb(var(--fg)); padding:8px 10px; font-size:11px; outline:none;
+  }
+  .gw-log-modal { max-width:720px; width:720px; }
+  .gw-log {
+    height:340px; overflow:auto; margin:10px 0 0; padding:12px; border-radius:10px;
+    background:#0b0e17; color:#c9d1e8; font-family:ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace;
+    font-size:11px; line-height:1.65; white-space:pre-wrap; word-break:break-all;
+  }
+  .gw-log .gw-log-err { color:#f87171; }
+  /* 电脑列表行的远程标识 */
+  .cq-chip-remote {
+    font-size:10px; line-height:1; padding:3px 6px; border-radius:99px; flex:none;
+    background:rgb(var(--accent) / .14); color:rgb(var(--accent)); font-weight:600;
+  }
+  .cq-remote-expired, .cq-remote-expired .cq-dev-mac { color:rgb(var(--warn)) !important; }
 </style>
 </head>
 <body data-page-node-id="3arxyFzn5g5YuOo1U38bND">
@@ -1359,6 +1423,11 @@
         <button class="snav" data-page="servers" title="服务器">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="3" width="20" height="7" rx="2"/><rect x="2" y="14" width="20" height="7" rx="2"/><path d="M6 6.5h.01M6 17.5h.01"/></svg>
           <span class="s-label">服务器</span>
+        </button>
+        <button class="snav" data-page="gateway" title="远程接入">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12a7 7 0 0 1 14 0"/><path d="M3.5 15.5a3.5 3.5 0 0 1 3.4-4.4 5 5 0 0 1 9.6-1.2A4 4 0 0 1 19 18H7a3.5 3.5 0 0 1-3.5-2.5z"/><path d="M12 18v3"/></svg>
+          <span class="s-label">远程接入</span>
+          <span class="s-badge" id="gwSideBadge" hidden>未开启</span>
         </button>
         <button class="snav" data-page="term" title="终端">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M6 9l3 3-3 3"/></svg>
@@ -1664,6 +1733,19 @@
                 <select id="rsJump" style="width:100%;background:rgb(var(--elevate));border:1px solid rgb(var(--line));border-radius:9px;padding:8px 11px;color:rgb(var(--fg));font:inherit;font-size:13px;outline:none"></select>
                 <p class="field-hint">经跳板机中转的连接方式将在后续版本启用，当前先保存档案</p>
               </div>
+              <div class="field" data-page-node-id="rsFieldRemote1">
+                <label for="rsRemote">远程接入（出门时经公网隧道访问这台电脑；粘贴它生成的配对码）</label>
+                <textarea id="rsRemote" rows="2" class="mono" spellcheck="false" placeholder="anyboot://pair?gateway=…&tunnel=…&token=…&#10;或直接粘 https://xxx.trycloudflare.com/?ab_token=…"></textarea>
+                <div class="addr-quick-actions">
+                  <button type="button" class="btn small" id="rsRemoteGet">从对方获取</button>
+                  <button type="button" class="btn small" id="rsRemoteClear">清除</button>
+                  <span class="addr-quick-hint" id="rsRemoteHint"></span>
+                </div>
+                <p class="field-hint">
+                  局域网地址优先使用，全连不上才走远程（远程地址单槽位）。
+                  「从对方获取」：对方要在同一局域网且其本机服务在线，它屏幕上会弹确认框。
+                </p>
+              </div>
               <div class="field" data-page-node-id="rsFieldProbe1">
                 <label>多网卡探测（有多个地址时怎么探）</label>
                 <div style="display:flex;gap:4px" role="group" aria-label="多网卡探测">
@@ -1764,6 +1846,133 @@
     </main>
   </div>
       </section>
+
+      <!-- ---- 远程接入（本机 cloudflared 通道 + 配对管理；quick/named 两模式） ---- -->
+      <section class="page" id="page-gateway" hidden>
+        <div class="page-head" style="display:flex;align-items:center;gap:10px">
+          <div>
+            <h2>远程接入</h2>
+            <span class="sub">把本机的 AnyBoot 挂上公网隧道 —— 配对后的手机 / 其他电脑出门也能访问这台电脑</span>
+          </div>
+          <span style="flex:1"></span>
+          <button class="btn" id="gwLogBtn" hidden>日志</button>
+          <button class="btn primary" id="gwToggle">开启通道</button>
+        </div>
+
+        <div class="gw-note" id="gwWarnQuick">
+          快速隧道的地址在通道重启后会变化 —— 重启电脑 / 通道后，已配对的客户端要重新配对一次。
+          要固定地址请改用「命名隧道」（需 Cloudflare 账号 + 托管域名）。
+        </div>
+
+        <!-- 通道卡 -->
+        <div class="gw-card">
+          <div class="gw-card-head">
+            <h3>本机通道</h3>
+            <div class="segmented" id="gwModeTabs" role="tablist" aria-label="通道模式">
+              <button role="tab" data-mode="quick" aria-selected="true">快速隧道</button>
+              <button role="tab" data-mode="named" aria-selected="false">命名隧道</button>
+            </div>
+          </div>
+          <div class="gw-status">
+            <span class="pulse" id="gwPulse" hidden></span>
+            <span id="gwStateText">通道未开启</span>
+            <a id="gwUrl" class="mono gw-url" target="_blank" rel="noopener" hidden></a>
+            <button class="link-btn" id="gwCopyUrl" hidden>复制</button>
+            <span style="flex:1"></span>
+            <span class="mono gw-meta" id="gwMeta"></span>
+          </div>
+          <div id="gwErrRow" class="gw-err" hidden></div>
+
+          <!-- named 配置区（quick 模式隐藏） -->
+          <div id="gwNamedForm" hidden style="margin-top:12px">
+            <div class="field">
+              <label for="gwNamedToken">Tunnel Token</label>
+              <input id="gwNamedToken" type="password" class="mono" placeholder="Cloudflare Zero Trust 创建隧道后给出的 Token" autocomplete="off">
+            </div>
+            <div class="field">
+              <label for="gwNamedUrl">对外访问地址（可选）</label>
+              <input id="gwNamedUrl" type="text" class="mono" placeholder="https://anyboot.example.com" autocomplete="off">
+              <p class="field-hint">填了它，配对串里就用这个地址；留空则配对串里不带地址，客户端要自己填。</p>
+            </div>
+            <label class="gw-check"><input type="checkbox" id="gwAutostart"> 开机自动开启通道（仅命名隧道可配）</label>
+          </div>
+
+          <!-- 二进制状态 + 下载进度 -->
+          <div class="gw-binary">
+            <span id="gwBinaryText">正在检查 cloudflared…</span>
+            <span style="flex:1"></span>
+            <button class="btn" id="gwDownloadBtn" hidden>下载 cloudflared</button>
+            <button class="btn" id="gwManualBtn" hidden>指定本地路径</button>
+          </div>
+          <div class="gw-binary" id="gwManualRow" hidden>
+            <input id="gwManualPath" type="text" class="mono" placeholder="cloudflared.exe 的完整路径" spellcheck="false" style="flex:1;height:32px;border:1px solid rgb(var(--line));border-radius:8px;background:rgb(var(--elevate));color:rgb(var(--fg));padding:0 10px;font-size:12px;outline:none">
+            <button class="btn" id="gwManualCancel">取消</button>
+            <button class="btn primary" id="gwManualOk">确定</button>
+          </div>
+          <div class="gw-progress" id="gwProgressRow" hidden>
+            <div class="gw-progress-bar"><div id="gwProgressBar"></div></div>
+            <span class="mono" id="gwProgressText"></span>
+          </div>
+        </div>
+
+        <!-- 配对管理 -->
+        <div class="gw-card">
+          <div class="gw-card-head">
+            <h3>配对管理</h3>
+            <button class="btn primary" id="gwIssueBtn">生成配对码</button>
+          </div>
+          <p class="field-hint" style="margin-top:0">
+            配对码 = 这台电脑的隧道地址 + 一枚专属令牌，每个客户端一枚、可单独吊销。
+            通道没开启时也能生成（隧道地址留空，客户端拿到后自己填）。
+          </p>
+          <div id="gwClientList" class="gw-clients"></div>
+        </div>
+
+        <!-- 连别的电脑（入口指向编辑电脑弹窗） -->
+        <div class="gw-card">
+          <div class="gw-card-head"><h3>连别的电脑</h3></div>
+          <p class="field-hint" style="margin-top:0">
+            出门时访问列表里的其他电脑：到「电脑列表 → 编辑电脑」粘贴对方的配对码，
+            或点「从对方获取」在线拉取（对方需在同一局域网且本机服务在线，并会弹确认框）。
+            对方在它自己的「远程接入」页生成配对码。
+          </p>
+        </div>
+      </section>
+
+      <!-- 出码弹窗（共用弹层：必须放所有 .page 之外，否则被 hidden 吞掉） -->
+      <div class="token-modal-overlay" id="gwPairOverlay" hidden>
+        <div class="token-modal gw-pair-modal">
+          <h2>生成配对码</h2>
+          <p class="gw-pair-warn">等同密码：拿到它就能访问这台电脑，不要转发给别人。</p>
+          <div class="field" id="gwPairNameRow">
+            <label for="gwPairName">客户端名称（谁来配对）</label>
+            <input id="gwPairName" type="text" placeholder="例如：我的手机 / 客厅笔记本" maxlength="40">
+          </div>
+          <div style="display:flex;gap:8px;justify-content:flex-end" id="gwPairGoRow">
+            <button class="btn primary" id="gwPairGo">生成配对码</button>
+          </div>
+          <div id="gwPairResult" hidden>
+            <div id="gwPairQr" class="gw-qr"></div>
+            <textarea id="gwPairText" class="mono" readonly rows="3" spellcheck="false"></textarea>
+            <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+              <button class="btn" id="gwPairCopy">复制配对串</button>
+              <button class="btn primary" id="gwPairClose">完成</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 通道日志弹窗（恒深底，与 --term 惯例一致） -->
+      <div class="token-modal-overlay" id="gwLogOverlay" hidden>
+        <div class="token-modal gw-log-modal">
+          <h2>通道日志</h2>
+          <pre id="gwLogBody" class="gw-log"></pre>
+          <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+            <button class="btn" id="gwLogCopy">复制全部</button>
+            <button class="btn primary" id="gwLogClose">关闭</button>
+          </div>
+        </div>
+      </div>
 
       <!-- ---- 终端（独立窗 server-term 的入口页） ---- -->
       <section class="page" id="page-term" hidden data-page-node-id="pageTerm1">
@@ -2314,7 +2523,7 @@
   })();
 
   // ============ 侧栏导航 / 收起 ============
-  const PAGES = ['home', 'computers', 'servers', 'term', 'sessions', 'transfers', 'files', 'keys', 'termset', 'about'];
+  const PAGES = ['home', 'computers', 'servers', 'gateway', 'term', 'sessions', 'transfers', 'files', 'keys', 'termset', 'about'];
   let currentPage = 'servers';
   const sideEl = document.getElementById('hubSide');
 
@@ -2340,6 +2549,7 @@
         // 每次进来都重读一遍：GRUB 显示格式这类设置改了之后，缓存里的条目文字会过期
         if (invoke && remotes.length) cqRefreshBoot();
       }
+      else if (name === 'gateway') gwShowPage();
       else if (name === 'sessions') renderSessions();
       else if (name === 'transfers') renderTransfers();
       else if (name === 'keys') renderKeysPage();
@@ -4047,6 +4257,54 @@
       })
       .catch(function (e) { toast('「' + pcName(r) + '」经跳板机连接失败：' + e, 'bad'); });
   }
+
+  // ============ 远程地址切换（探测带 remoteAddr，赢家可能落远程） ============
+  // pcRemoteWin: rid -> https origin（探测赢家是远程地址时记录；局域网回来就删）
+  // pcRemoteExpired: rid -> true（双口径过期：远程行失败 且 局域网也全挂 才标）
+  const pcRemoteWin = new Map();
+  const pcRemoteExpired = new Map();
+
+  /** 统一探测入口：带远程地址（后端局域网优先、远程兜底），并处理赢家记账。
+   *  LAN 赢家 → 置顶 + 清远程记账；远程赢家 → 记 origin（iframe 换 ab_token URL）。 */
+  async function pcProbe(r, mode) {
+    const remoteAddr = (r.remote_addr || '').trim() || null;
+    const res = await invoke('remote_test', {
+      addresses: r.addresses,
+      probeMode: mode,
+      remoteAddr: remoteAddr,
+    });
+    if (res && res.ok) {
+      if (res.remote) {
+        pcRemoteWin.set(r.id, res.addr); // res.addr = https origin
+        pcRemoteExpired.delete(r.id);
+      } else {
+        pcRemoteWin.delete(r.id);
+        pcRemoteExpired.delete(r.id);
+        if (res.addr && res.addr !== pcNormAddr(pcFirstAddr(r))) {
+          const rest = (r.addresses || []).filter(function (a) { return pcNormAddr(a) !== res.addr; });
+          r.addresses = [res.addr].concat(rest);
+          invoke('remote_promote_address', { serverId: r.id, address: res.addr })
+            .catch(function () { /* 落盘失败只影响下次启动 */ });
+        }
+      }
+    } else {
+      const remoteRow = res && Array.isArray(res.results)
+        ? res.results.find(function (o) { return o.remote; }) : null;
+      if (remoteAddr && remoteRow && !remoteRow.ok && remoteRow.error.indexOf('未探测') < 0) {
+        pcRemoteExpired.set(r.id, true); // 远程探过且不通 + 局域网全挂 → 已过期
+      } else {
+        pcRemoteExpired.delete(r.id);
+      }
+    }
+    return res;
+  }
+
+  /** iframe / 连接 URL：远程赢家 → https origin + ab_token；否则局域网首选地址 */
+  function pcConnUrl(r) {
+    const win = pcRemoteWin.get(r.id);
+    if (win) return win + '/?ab_token=' + encodeURIComponent(r.remote_token || '');
+    return pcUrl(r);
+  }
   function localUrl() {
     if (!localEndpoint || !localEndpoint.port) return '';
     return 'http://127.0.0.1:' + localEndpoint.port + '/?token=' + encodeURIComponent(localEndpoint.token || '');
@@ -4472,7 +4730,7 @@
       else if (picked.act === 'browser') {
         const url = row.local ? localUrl() : (function () {
           const r = remotes.find(function (x) { return x.id === row.rid; });
-          return r ? pcUrl(r) : '';
+          return r ? pcConnUrl(r) : '';
         })();
         if (!url) { toast('这台电脑的地址还没就绪（经跳板机时稍等一下）', 'bad'); return; }
         // 走系统默认浏览器（后端 ShellExecuteW）；hub 自己的 window.open 只会开新 webview
@@ -4540,6 +4798,13 @@
       chip.textContent = row.group;
       nameLine.appendChild(chip);
     }
+    // 远程通道使用中（探测赢家落在远程地址时）
+    if (pcRemoteWin.has(row.rid)) {
+      const chip = document.createElement('span');
+      chip.className = 'cq-chip-remote';
+      chip.textContent = '远程';
+      nameLine.appendChild(chip);
+    }
     txt.appendChild(nameLine);
     const meta = document.createElement('div');
     meta.className = 'cq-dev-meta';
@@ -4581,6 +4846,18 @@
         });
         meta.appendChild(ln);
       });
+    }
+    // 远程接入地址一行（配置了就亮出来；过期态 = 远程不通且局域网也不通）
+    const remRow = remotes.find(function (x) { return x.id === row.rid; });
+    if (remRow && remRow.remote_addr) {
+      const expired = pcRemoteExpired.has(row.rid);
+      const ln = document.createElement('div');
+      ln.className = 'cq-dev-line' + (expired ? ' cq-remote-expired' : '');
+      const a = document.createElement('span');
+      a.textContent = '[远程] ' + remRow.remote_addr +
+        (pcRemoteWin.has(row.rid) ? ' · 使用中' : (expired ? ' · 已过期（重扫配对码）' : ''));
+      ln.appendChild(a);
+      meta.appendChild(ln);
     }
     txt.appendChild(meta);
     dev.appendChild(txt);
@@ -4792,7 +5069,7 @@
     frame.title = rid === 'local' ? '本机页面' : '服务端页面';
     const url = rid === 'local' ? localUrl() : (function () {
       const r = remotes.find(function (x) { return x.id === rid; });
-      return r ? pcUrl(r) : '';
+      return r ? pcConnUrl(r) : '';
     })();
     if (url) frame.setAttribute('src', url);
     if (rid !== 'local') {
@@ -4880,7 +5157,7 @@
     if (!frame.getAttribute('src')) {
       const url = cqViewRid === 'local' ? localUrl() : (function () {
         const r = remotes.find(function (x) { return x.id === cqViewRid; });
-        return r ? pcUrl(r) : '';
+        return r ? pcConnUrl(r) : '';
       })();
       if (url) frame.setAttribute('src', url);
     }
@@ -4926,18 +5203,12 @@
     if (!r || r.jump_id) { pcStopRetry(); pcReload(rid); return; }
     const mode = r.probe_mode || 'parallel_first';
     try {
-      const res = await invoke('remote_test', { addresses: r.addresses, probeMode: mode });
+      const res = await pcProbe(r, mode);
       if (res && res.ok) {
         pcStopRetry();
-        // 探到的赢家不是当前首选 → 提到候选列表最前（本页生效 + 后端落盘）
-        if (res.addr && res.addr !== pcNormAddr(pcFirstAddr(r))) {
-          const rest = (r.addresses || []).filter(function (a) { return pcNormAddr(a) !== res.addr; });
-          r.addresses = [res.addr].concat(rest);
-          invoke('remote_promote_address', { serverId: r.id, address: res.addr })
-            .catch(function () { /* 落盘失败只影响下次启动，本页已经用上 */ });
-        }
         pcReload(rid);
-        toast('已重载「' + pcName(r) + '」· ' + res.addr + ' 响应 ' + res.ms + ' ms');
+        toast('已重载「' + pcName(r) + '」· ' + res.addr + ' 响应 ' + res.ms + ' ms' +
+          (res.remote ? '（经远程通道）' : ''));
       } else {
         pcFailOverlay((res && res.error) || '全部地址都连不上');
         pcScheduleRetry(rid);
@@ -5041,11 +5312,10 @@
   function pageUrl(rid) {
     if (rid === 'local') return localUrl();
     const r = remotes.find(function (x) { return x.id === rid; });
-    return r ? pcUrl(r) : '';
+    return r ? pcConnUrl(r) : '';
   }
 
-  /**
-   * iframe 加载完补一枪探测：目标机连不上时 WebView 会在 iframe 里渲染自带错误页
+  /** iframe 加载完补一枪探测：目标机连不上时 WebView 会在 iframe 里渲染自带错误页
    * （「已重置连接」这类），跨源读不到内容、也没有 error 事件 —— 只能靠 load 后重探，
    * 不通就把 iframe 拆掉换成手机端同款失败面板（onFail 里各自收尾）。
    */
@@ -5054,7 +5324,7 @@
       const r = remotes.find(function (x) { return x.id === rid; });
       if (!r || r.jump_id || !invoke) return; // 本机/跳板机没有直连探测
       const mode = r.probe_mode || 'parallel_first';
-      invoke('remote_test', { addresses: r.addresses, probeMode: mode })
+      pcProbe(r, mode)
         .then(function (res) {
           if (res && res.ok) return;
           onFail();
@@ -5222,17 +5492,10 @@
     pageConnecting(rid);
     const mode = r.probe_mode || 'parallel_first';
     try {
-      const res = await invoke('remote_test', { addresses: r.addresses, probeMode: mode });
+      const res = await pcProbe(r, mode);
       if (activeRemote !== rid) return; // 探测期间换了标签，结果作废
       if (res && res.ok) {
-        // 探到更优地址就置顶（与重载按钮同款逻辑）
-        if (res.addr && res.addr !== pcNormAddr(pcFirstAddr(r))) {
-          const rest = (r.addresses || []).filter(function (a) { return pcNormAddr(a) !== res.addr; });
-          r.addresses = [res.addr].concat(rest);
-          invoke('remote_promote_address', { serverId: r.id, address: res.addr })
-            .catch(function () { /* 落盘失败只影响下次启动 */ });
-        }
-        pageProbe.set(rid, { ok: true });
+        pageProbe.set(rid, { ok: true, remote: !!res.remote });
         pageStopRetry();
         pageShowFrame(rid);
       } else {
@@ -5287,18 +5550,8 @@
       if (r.jump_id) { pageReload(r.id); return; } // 跳板机走转发端点，没有直连探测
       const mode = r.probe_mode || 'parallel_first';
       try {
-        const res = await invoke('remote_test', { addresses: r.addresses, probeMode: mode });
-        if (res && res.ok) {
-          if (res.addr && res.addr !== pcNormAddr(pcFirstAddr(r))) {
-            const rest = (r.addresses || []).filter(function (a) { return pcNormAddr(a) !== res.addr; });
-            r.addresses = [res.addr].concat(rest);
-            invoke('remote_promote_address', { serverId: r.id, address: res.addr })
-              .catch(function () { /* 落盘失败只影响下次启动 */ });
-          }
-          pageProbe.set(r.id, { ok: true });
-        } else {
-          pageProbe.set(r.id, { ok: false });
-        }
+        const res = await pcProbe(r, mode);
+        pageProbe.set(r.id, { ok: !!(res && res.ok), remote: !!(res && res.ok && res.remote) });
       } catch (error) {
         pageProbe.set(r.id, { ok: false });
       }
@@ -5330,22 +5583,17 @@
     if (!r || r.jump_id) { pageReload(rid); return; }
     const mode = r.probe_mode || 'parallel_first';
     try {
-      const res = await invoke('remote_test', { addresses: r.addresses, probeMode: mode });
+      const res = await pcProbe(r, mode);
       if (res && res.ok) {
-        const lines = ['ip ' + res.addr + ' 连接成功 ' + res.ms + ' ms'];
-        if (mode === 'parallel_all' && Array.isArray(res.results)) {
+        const lines = [(res.remote ? '[远程] ' : '') + res.addr + ' 连接成功 ' + res.ms + ' ms'];
+        if (Array.isArray(res.results) && res.results.length &&
+            (mode === 'parallel_all' || res.results.some(function (o) { return o.remote; }))) {
           res.results.forEach(function (o) {
-            lines.push(o.address + (o.ok ? ' 连接成功 ' + o.ms + ' ms' : ' 连接失败'));
+            lines.push((o.remote ? '[远程] ' : '') + o.address + (o.ok ? ' 连接成功 ' + o.ms + ' ms' : ' 连接失败'));
           });
         }
         toast(lines.join('\n'));
-        if (res.addr && res.addr !== pcNormAddr(pcFirstAddr(r))) {
-          const rest = (r.addresses || []).filter(function (a) { return pcNormAddr(a) !== res.addr; });
-          r.addresses = [res.addr].concat(rest);
-          invoke('remote_promote_address', { serverId: r.id, address: res.addr })
-            .catch(function () { /* 落盘失败只影响下次启动 */ });
-        }
-        pageProbe.set(rid, { ok: true });
+        pageProbe.set(rid, { ok: true, remote: !!res.remote });
         pageReload(rid);
       } else {
         pageProbe.set(rid, { ok: false });
@@ -5846,6 +6094,11 @@
     rsAddrEditor.resetInputs();
     rsRouteEditor.setRoutes(r && Array.isArray(r.power_routes) ? r.power_routes : []);
     document.getElementById('rsToken').value = '';
+    // 远程接入：地址回显；令牌按 token 同款惯例不回显（留空 = 保持已存）
+    document.getElementById('rsRemote').value = r && r.remote_addr ? r.remote_addr : '';
+    document.getElementById('rsRemoteHint').textContent = r && r.remote_addr
+      ? '已配置远程地址' + (r.remote_token ? ' · 令牌已存（重新粘配对码会更新）' : '')
+      : '';
     populateRsJump(r ? r.jump_id : '');
     rsProbe = r ? (r.probe_mode === 'serial' || r.probe_mode === 'parallel_all'
         ? r.probe_mode : 'parallel_first')
@@ -5879,7 +6132,11 @@
     // 选了跳板机 → 走后端转发后探测（真实链路）；未保存的新档案先落库才能建转发
     const viaJump = !!document.getElementById('rsJump').value;
     const call = !viaJump
-      ? invoke('remote_test', { addresses: addresses, probeMode: rsProbe })
+      ? invoke('remote_test', {
+          addresses: addresses,
+          probeMode: rsProbe,
+          remoteAddr: document.getElementById('rsRemote').value.trim() || null,
+        })
       : (rsEditing
           ? invoke('remote_test_via', { serverId: rsEditing })
           : Promise.reject(new Error('经跳板机测试需先保存档案：先点一次「保存」，再回来测试')));
@@ -5893,15 +6150,45 @@
           out.classList.add('bad');
           lines.push(result.error || '连不上');
         }
-        // 并发（全部）模式：逐行报每个地址的成败与耗时
-        if (rsProbe === 'parallel_all' && Array.isArray(result.results) && result.results.length) {
+        // 并发（全部）模式：逐行报每个地址的成败与耗时（含远程兜底行）
+        if (Array.isArray(result.results) && result.results.length &&
+            (rsProbe === 'parallel_all' || result.results.some(function (o) { return o.remote; }))) {
           result.results.forEach(function (o) {
-            lines.push(o.address + (o.ok ? ' 连接成功 ' + o.ms + ' ms' : ' 连接失败' + (o.error ? '（' + o.error + '）' : '')));
+            lines.push((o.remote ? '[远程] ' : '') + o.address +
+              (o.ok ? ' 连接成功 ' + o.ms + ' ms' : ' 连接失败' + (o.error ? '（' + o.error + '）' : '')));
           });
         }
         out.textContent = lines.join('\n');
       })
       .catch(function (error) { out.classList.add('bad'); out.textContent = String(error); });
+  });
+
+  // 「从对方获取」：向第一个已填地址发起无凭据配对请求，对方点「同意」后回填
+  document.getElementById('rsRemoteGet').addEventListener('click', function () {
+    const first = rsAddrEditor.entries()
+      .map(function (item) { return item.address; })
+      .filter(Boolean)[0];
+    if (!first) {
+      document.getElementById('rsEditError').textContent =
+        '先在上方添加对方的局域网地址，才能「从对方获取」';
+      return;
+    }
+    const hint = document.getElementById('rsRemoteHint');
+    hint.textContent = '正在向 ' + first + ' 发起配对请求 —— 请让对方在其屏幕上点「同意」（最多等 80 秒）…';
+    invoke('gateway_pair_fetch', { peer: first })
+      .then(function (pair) {
+        document.getElementById('rsRemote').value = pair;
+        hint.textContent = '已拿到配对码 —— 点「保存」生效';
+        toast('对方已确认配对');
+      })
+      .catch(function (e) {
+        hint.textContent = '';
+        document.getElementById('rsEditError').textContent = String(e);
+      });
+  });
+  document.getElementById('rsRemoteClear').addEventListener('click', function () {
+    document.getElementById('rsRemote').value = '';
+    document.getElementById('rsRemoteHint').textContent = '';
   });
 
   document.getElementById('rsDelete').addEventListener('click', function () {
@@ -5945,6 +6232,9 @@
       machine_name: '',
       probe_mode: rsProbe,
       jump_id: document.getElementById('rsJump').value || '',
+      // 远程接入：令牌不回显，编辑态恒传空（后端留空 = 保持已存；粘贴配对码时后端挖出）
+      remote_addr: document.getElementById('rsRemote').value.trim(),
+      remote_token: '',
       // 局域网电源路由：动作归一、端口兜底 9、MAC 全不勾 = 空数组（= 全部网卡）
       power_routes: routesForSave(rsRouteEditor.routes()),
       created_at: 0,
@@ -7169,6 +7459,349 @@
   }
   beat(true);                                  // 脚本跑到了 = 页面已经起来了
   setInterval(function () { beat(true); }, 3000);
+})();
+</script>
+<script>
+// ============ 远程接入（gateway 页）：通道开关 / 出码配对 / 客户端管理 / 日志 ============
+// 后端命令：gateway_config / gateway_save_config / gateway_binary_status|download|
+//   gateway_binary_set_manual / gateway_tunnel_start|stop|status|logs / gateway_pair_issue|list|revoke|delete
+// 事件：gateway-tunnel-state（TunnelSnapshot）/ gateway-binary-progress / gateway-binary-done
+function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
+(function () {
+  if (!invoke) return; // 浏览器直开时页面元素在但不功能化
+  const $ = function (id) { return document.getElementById(id); };
+
+  let cfg = null;          // gateway_config 缓存
+  let snap = null;         // 最新通道快照
+  let mode = 'quick';      // 当前选中的模式（segmented）
+  let logTimer = null;     // 日志弹窗轮询
+
+  function refreshClients() {
+    invoke('gateway_pair_list').then(renderClients).catch(function () { });
+  }
+  function gwRefresh() {
+    invoke('gateway_config').then(function (value) {
+      cfg = value;
+      snap = value.tunnel || snap;
+      mode = (value.mode === 'named') ? 'named' : 'quick';
+      applyConfig();
+      applySnapshot(snap);
+    }).catch(function () { });
+    refreshClients();
+  }
+  window.gwRefresh = gwRefresh;
+
+  // ---- 渲染 ----
+  function applyConfig() {
+    if (!cfg) return;
+    const binary = cfg.binary || { installed: false };
+    $('gwBinaryText').textContent = binary.installed
+      ? 'cloudflared ' + (binary.version || '') + ' 就绪'
+      : 'cloudflared 未就位 —— 下载（自动校验 SHA-256）或指定本地已有的可执行文件';
+    $('gwDownloadBtn').hidden = binary.installed;
+    $('gwManualBtn').hidden = binary.installed;
+    $('gwNamedUrl').value = cfg.named_url || '';
+    $('gwNamedToken').placeholder = cfg.named_token_set
+      ? '已保存（留空保持不变）' : 'Cloudflare Zero Trust 创建隧道后给出的 Token';
+    $('gwAutostart').checked = !!cfg.autostart;
+    selectMode(mode, false);
+  }
+  function selectMode(next, save) {
+    mode = next;
+    document.querySelectorAll('#gwModeTabs button').forEach(function (b) {
+      const on = b.dataset.mode === mode;
+      b.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    $('gwNamedForm').hidden = mode !== 'named';
+    $('gwWarnQuick').hidden = mode !== 'quick' || !!(snap && snap.state !== 'stopped' && snap.mode === 'named');
+    if (save) persistConfig();
+  }
+  function persistConfig() {
+    return invoke('gateway_save_config', {
+      mode: mode,
+      namedToken: $('gwNamedToken').value.trim(),
+      namedUrl: $('gwNamedUrl').value.trim(),
+      autostart: mode === 'named' && $('gwAutostart').checked,
+    }).then(function (value) { cfg = value; }).catch(function (e) {
+      toast('保存配置失败：' + e, 'bad');
+      throw e; // 让 await 方感知失败并中止后续动作
+    });
+  }
+  function applySnapshot(value) {
+    snap = value || snap;
+    if (!snap) return;
+    const state = snap.state || 'stopped';
+    const busy = state === 'starting' || state === 'running' || state === 'restarting';
+    $('gwPulse').hidden = !busy;
+    const texts = {
+      starting: '启动中…', running: '运行中', restarting: '重启中 · 第 ' + (snap.restarts + 1) + ' 次重试',
+      stopped: '通道未开启', failed: '已停止（上次异常退出）'
+    };
+    $('gwStateText').textContent = texts[state] || state;
+    const url = snap.url || '';
+    $('gwUrl').hidden = !url;
+    $('gwCopyUrl').hidden = !url;
+    if (url) { $('gwUrl').textContent = url; $('gwUrl').href = url; }
+    $('gwMeta').textContent = snap.restarts > 0 ? ('重启 ' + snap.restarts + ' 次') : '';
+    $('gwErrRow').hidden = !(snap.last_error && !busy);
+    if (snap.last_error && !busy) $('gwErrRow').textContent = snap.last_error;
+    $('gwToggle').textContent = busy ? '关闭通道' : '开启通道';
+    $('gwLogBtn').hidden = !busy;
+    const badge = $('gwSideBadge');
+    if (badge) badge.hidden = busy;
+    $('gwWarnQuick').hidden = mode !== 'quick' || snap.mode === 'named';
+  }
+
+  // ---- 通道开关 ----
+  $('gwToggle').addEventListener('click', async function () {
+    const state = snap ? snap.state : 'stopped';
+    if (state === 'starting' || state === 'running' || state === 'restarting') {
+      try {
+        await invoke('gateway_tunnel_stop');
+        toast('通道已关闭');
+      } catch (e) { toast('关闭失败：' + e, 'bad'); }
+      setTimeout(gwRefresh, 400);
+      return;
+    }
+    const namedToken = $('gwNamedToken').value.trim();
+    const namedUrl = $('gwNamedUrl').value.trim();
+    try { await persistConfig(); } catch (e) { return; }
+    if (!(cfg && cfg.binary && cfg.binary.installed)) {
+      if ($('gwDownloadBtn').hidden === false) {
+        toast('cloudflared 还没就位，开始下载（约 50MB）…');
+        startDownload();
+      }
+      return; // 下载完成事件里会提示再点一次开启
+    }
+    try {
+      const value = await invoke('gateway_tunnel_start', { mode: mode, namedToken: namedToken, namedUrl: namedUrl });
+      applySnapshot(value);
+      toast(mode === 'quick' ? '通道启动中，地址出来后自动刷新' : '通道启动中');
+    } catch (e) { toast('开启通道失败：' + e, 'bad'); }
+  });
+
+  // ---- 模式切换 / named 配置 ----
+  document.querySelectorAll('#gwModeTabs button').forEach(function (b) {
+    b.addEventListener('click', function () { selectMode(b.dataset.mode, true); });
+  });
+  $('gwAutostart').addEventListener('change', function () { persistConfig(); });
+  $('gwNamedUrl').addEventListener('change', function () { persistConfig(); });
+
+  // ---- 二进制下载 / 手动路径 ----
+  function startDownload() {
+    $('gwProgressRow').hidden = false;
+    $('gwProgressBar').style.width = '0%';
+    $('gwProgressText').textContent = '准备中…';
+    invoke('gateway_binary_download').catch(function (e) {
+      $('gwProgressRow').hidden = true;
+      toast('下载失败：' + e, 'bad');
+    });
+  }
+  $('gwDownloadBtn').addEventListener('click', startDownload);
+  $('gwManualBtn').addEventListener('click', function () {
+    $('gwManualRow').hidden = false;
+    $('gwManualPath').focus();
+  });
+  $('gwManualCancel').addEventListener('click', function () { $('gwManualRow').hidden = true; });
+  $('gwManualOk').addEventListener('click', async function () {
+    const path = $('gwManualPath').value.trim();
+    if (!path) return;
+    try {
+      await invoke('gateway_binary_set_manual', { path: path });
+      toast('cloudflared 已就位');
+      $('gwManualRow').hidden = true;
+      gwRefresh();
+    } catch (e) { toast('校验失败：' + e, 'bad'); }
+  });
+
+  // ---- 出码配对 ----
+  $('gwIssueBtn').addEventListener('click', function () {
+    $('gwPairNameRow').hidden = false;
+    $('gwPairGoRow').hidden = false;
+    $('gwPairResult').hidden = true;
+    $('gwPairName').value = '';
+    $('gwPairOverlay').hidden = false;
+    $('gwPairName').focus();
+  });
+  $('gwPairGo').addEventListener('click', async function () {
+    const name = $('gwPairName').value.trim();
+    if (!name) { toast('先填客户端名称', 'bad'); return; }
+    // 配对串里的隧道地址：命名隧道用保存的对外地址；快速隧道用当前运行地址（没开就不带）
+    const tunnel = mode === 'named'
+      ? ($('gwNamedUrl').value.trim() || (snap && snap.url) || '')
+      : ((snap && snap.url) || '');
+    try {
+      const issued = await invoke('gateway_pair_issue', { name: name, tunnel: tunnel });
+      $('gwPairNameRow').hidden = true;
+      $('gwPairGoRow').hidden = true;
+      $('gwPairResult').hidden = false;
+      $('gwPairText').value = issued.pair;
+      drawQr($('gwPairQr'), issued.pair);
+      refreshClients();
+    } catch (e) { toast('生成失败：' + e, 'bad'); }
+  });
+  $('gwPairCopy').addEventListener('click', function () {
+    navigator.clipboard.writeText($('gwPairText').value)
+      .then(function () { toast('已复制配对串'); })
+      .catch(function () { $('gwPairText').select(); });
+  });
+  $('gwPairClose').addEventListener('click', function () { $('gwPairOverlay').hidden = true; });
+
+  // 二维码渲染（qrcode-generator：白底黑点，静区 2 模块）
+  function drawQr(container, text) {
+    container.textContent = '';
+    try {
+      const qr = window.qrcode(0, 'M');
+      qr.addData(text);
+      qr.make();
+      const count = qr.getModuleCount();
+      const cell = 4, margin = 2;
+      const size = (count + margin * 2) * cell;
+      const canvas = document.createElement('canvas');
+      canvas.width = size; canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, size, size);
+      ctx.fillStyle = '#000000';
+      for (let r = 0; r < count; r++) {
+        for (let c = 0; c < count; c++) {
+          if (qr.isDark(r, c)) {
+            ctx.fillRect((c + margin) * cell, (r + margin) * cell, cell, cell);
+          }
+        }
+      }
+      container.appendChild(canvas);
+    } catch (e) {
+      container.textContent = '二维码生成失败（用下面的配对串复制粘贴一样）';
+    }
+  }
+
+  // ---- 已配对客户端列表 ----
+  function fmtTime(ms) {
+    if (!ms) return '从未使用';
+    const d = new Date(ms);
+    const pad = function (n) { return (n < 10 ? '0' : '') + n; };
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+  }
+  function renderClients(list) {
+    const box = $('gwClientList');
+    box.textContent = '';
+    if (!list || !list.length) {
+      const p = document.createElement('div');
+      p.className = 'gw-clients-empty';
+      p.textContent = '还没有配对的客户端 —— 点「生成配对码」给手机或另一台电脑发一枚令牌。';
+      box.appendChild(p);
+      return;
+    }
+    list.forEach(function (client) {
+      const row = document.createElement('div');
+      row.className = 'gw-client';
+      const main = document.createElement('div');
+      main.style.flex = '1';
+      main.style.minWidth = '0';
+      const name = document.createElement('div');
+      name.className = 'gw-client-name';
+      name.textContent = client.name;
+      const meta = document.createElement('div');
+      meta.className = 'gw-client-meta';
+      meta.textContent = client.revoked
+        ? '已吊销 · 配对于 ' + fmtTime(client.created_at)
+        : '最近访问 ' + fmtTime(client.last_seen) + ' · 配对于 ' + fmtTime(client.created_at);
+      main.appendChild(name);
+      main.appendChild(meta);
+      row.appendChild(main);
+      if (client.revoked) {
+        const tag = document.createElement('span');
+        tag.className = 'gw-client-revoked';
+        tag.textContent = '已吊销';
+        row.appendChild(tag);
+        const del = document.createElement('button');
+        del.className = 'link-btn';
+        del.textContent = '删除';
+        del.addEventListener('click', function () {
+          invoke('gateway_pair_delete', { id: client.id }).then(refreshClients)
+            .catch(function (e) { toast('删除失败：' + e, 'bad'); });
+        });
+        row.appendChild(del);
+      } else {
+        const rev = document.createElement('button');
+        rev.className = 'link-btn';
+        rev.textContent = '吊销';
+        // 不弹确认框（项目约定）：吊销即时生效，对方下次请求就 401；
+        // 影响范围只有它自己，误吊销重新配对一次即可。
+        rev.addEventListener('click', function () {
+          invoke('gateway_pair_revoke', { id: client.id }).then(function () {
+            toast('已吊销「' + client.name + '」，它下次请求会被拒绝');
+            refreshClients();
+          }).catch(function (e) { toast('吊销失败：' + e, 'bad'); });
+        });
+        row.appendChild(rev);
+      }
+      box.appendChild(row);
+    });
+  }
+
+  // ---- 日志弹窗 ----
+  function renderLogs(lines) {
+    const body = $('gwLogBody');
+    body.textContent = '';
+    (lines || []).forEach(function (line) {
+      const span = document.createElement('span');
+      if (/ERR|error|failed|panic/i.test(line)) span.className = 'gw-log-err';
+      span.textContent = line + '\n';
+      body.appendChild(span);
+    });
+    body.scrollTop = body.scrollHeight;
+  }
+  $('gwLogBtn').addEventListener('click', function () {
+    $('gwLogOverlay').hidden = false;
+    invoke('gateway_tunnel_logs').then(renderLogs).catch(function () { });
+    if (logTimer) clearInterval(logTimer);
+    logTimer = setInterval(function () {
+      if ($('gwLogOverlay').hidden) { clearInterval(logTimer); logTimer = null; return; }
+      invoke('gateway_tunnel_logs').then(renderLogs).catch(function () { });
+    }, 2000);
+  });
+  $('gwLogClose').addEventListener('click', function () {
+    $('gwLogOverlay').hidden = true;
+    if (logTimer) { clearInterval(logTimer); logTimer = null; }
+  });
+  $('gwLogCopy').addEventListener('click', function () {
+    navigator.clipboard.writeText($('gwLogBody').textContent)
+      .then(function () { toast('已复制全部日志'); })
+      .catch(function () { });
+  });
+
+  // ---- 事件 ----
+  if (window.__TAURI__ && window.__TAURI__.event && window.__TAURI__.event.listen) {
+    window.__TAURI__.event.listen('gateway-tunnel-state', function (event) {
+      applySnapshot(event.payload);
+    });
+    window.__TAURI__.event.listen('gateway-binary-progress', function (event) {
+      const p = event.payload || {};
+      $('gwProgressRow').hidden = false;
+      const percent = p.total > 0 ? Math.round((p.received / p.total) * 100) : (p.percent || 0);
+      $('gwProgressBar').style.width = percent + '%';
+      $('gwProgressText').textContent = p.stage === 'mirror-retry'
+        ? '直连超时，走镜像重试…'
+        : (p.total > 0
+          ? '下载 ' + percent + '%（' + Math.round(p.received / 1048576) + ' / ' + Math.round(p.total / 1048576) + ' MB）'
+          : '下载中…');
+    });
+    window.__TAURI__.event.listen('gateway-binary-done', function (event) {
+      const done = event.payload || {};
+      $('gwProgressRow').hidden = true;
+      if (done.ok) {
+        toast('cloudflared ' + (done.version || '') + ' 就绪，可以开启通道了');
+      } else {
+        toast('下载失败：' + (done.error || '未知错误') + '，可指定本地路径兜底', 'bad');
+      }
+      gwRefresh();
+    });
+  }
+
+  // 初始化：进页面就有准确的通道/徽标状态（不等用户点侧栏）
+  gwRefresh();
 })();
 </script>
 </body>

@@ -91,6 +91,42 @@ internal class ServerEditFormState(
     var pastedRaw by mutableStateOf(profile?.addressText() ?: "")
     var token by mutableStateOf(profile?.token ?: "")
 
+    /**
+     * 远程接入：粘贴框内容（配对串 / 隧道 URL）。编辑态不回显令牌 ——
+     * 有已存地址时只显示地址本身，重粘配对串才会更新令牌。
+     */
+    var remoteText by mutableStateOf(
+        if (profile?.hasRemote() == true) ServerProfile.normalizeRemoteOrigin(profile.remoteAddr) else ""
+    )
+    var remoteHint by mutableStateOf("")
+
+    /** 粘贴框内容变化后的即时识别提示 */
+    fun applyRemoteHint() {
+        val raw = remoteText.trim()
+        if (raw.isEmpty()) {
+            remoteHint = ""
+            return
+        }
+        remoteHint = if (ServerProfile.parsePair(raw) != null) {
+            "已识别：${ServerProfile.normalizeRemoteOrigin(if (raw.startsWith("anyboot://", ignoreCase = true)) ServerProfile.parsePair(raw)!![0] else raw)}"
+        } else {
+            "没认出配对码 —— 要 anyboot://pair?… 串或 https://… 隧道地址"
+        }
+    }
+
+    /**
+     * 保存用的远程解析结果：[origin, token] 或 null（框为空 = 取消远程接入）。
+     * token 挖不出来时给空串 —— 宿主侧「留空保持已存令牌」。
+     */
+    fun resolvedRemote(): Array<String>? {
+        val raw = remoteText.trim()
+        if (raw.isEmpty()) {
+            return null
+        }
+        val pair = ServerProfile.parsePair(raw) ?: return null
+        return arrayOf(pair[0], pair[1])
+    }
+
     val jumps: List<JumpServer> = JumpStore.loadJumps(context)
     var jumpIndex by mutableStateOf(
         if (profile != null) {
@@ -345,6 +381,27 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
             singleLine = true,
             placeholder = { Text("可留空，页面上也能填", fontSize = 12.sp) },
             modifier = Modifier.fillMaxWidth(),
+        )
+
+        FieldLabel("远程接入（出门时经公网隧道访问这台电脑；粘贴它生成的配对码）")
+        OutlinedTextField(
+            value = state.remoteText,
+            onValueChange = {
+                state.remoteText = it
+                state.applyRemoteHint()
+            },
+            placeholder = {
+                Text("anyboot://pair?… 或 https://xxx.trycloudflare.com", fontSize = 12.sp)
+            },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        if (state.remoteHint.isNotEmpty()) {
+            Text(state.remoteHint, fontSize = 11.sp, color = palette.fgFaint)
+        }
+        Text(
+            "局域网地址优先使用，全连不上才走远程；清空后保存 = 取消远程接入。" +
+                "配对码等同密码，别转发给别人。",
+            fontSize = 11.sp, color = palette.fgFaint,
         )
 
         FieldLabel(
@@ -721,6 +778,17 @@ internal fun applyServerEdit(
     target.token = state.resolvedToken()
     target.probeMode = ServerProfile.normalizeProbeMode(state.probeMode)
     target.jumpServerId = state.resolvedJumpId()
+    // 远程接入：框为空 = 取消（清地址与令牌）；认出来 = 写 origin；
+    // 令牌挖不到时保持已存的（编辑态不回显令牌，用户重粘配对串才会更新）
+    val remote = state.resolvedRemote()
+    if (remote == null) {
+        target.clearRemote()
+    } else {
+        target.remoteAddr = remote[0]
+        if (remote[1].isNotEmpty()) {
+            target.remoteToken = remote[1]
+        }
+    }
     // 局域网电源路由：以表单里的这份为准（空 = 没配，走老路）
     target.powerRoutes.clear()
     for (route in state.routeList) {

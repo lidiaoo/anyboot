@@ -132,6 +132,8 @@ class MainActivity : ComponentActivity() {
         var addressIndex = 0
         val tried = ArrayList<String>()
         var effectiveAddress = ""
+        /** 当前加载的是远程接入地址（局域网全挂后的兜底；本轮内失败不再重试） */
+        var usingRemote = false
     }
 
     data class ErrorInfo(val label: String, val addressSummary: String, val detail: String)
@@ -1224,6 +1226,7 @@ class MainActivity : ComponentActivity() {
     /** 用「当前地址下标」加载这条记录 —— 首次连接和换地址都走这里 */
     private fun loadCurrentAddress(tab: Tab) {
         val profile = tab.profile
+        tab.usingRemote = false // LAN 路径：清掉远程标记
         val address = profile.hostAt(tab.addressIndex)
         if (address.isEmpty()) return
         tab.tried.remove(address)     // 正在试的这个不算「试过了」
@@ -1288,6 +1291,10 @@ class MainActivity : ComponentActivity() {
      * @return 还有地址可试（已经发起加载）返回 true；全试完了返回 false
      */
     private fun advanceAddress(tab: Tab): Boolean {
+        // 远程通道这轮已经试过且也挂了：收工，等下次手动 / 自动重载再起新一轮
+        if (tab.usingRemote) {
+            return false
+        }
         val profile = tab.profile
         tab.tried.add(profile.hostAt(tab.addressIndex))
         for (i in 0 until profile.addressCount()) {
@@ -1303,7 +1310,34 @@ class MainActivity : ComponentActivity() {
             loadCurrentAddress(tab)
             return true
         }
-        return false
+        // 局域网候选全试完：配了远程接入就兜底走公网隧道
+        return connectRemote(tab)
+    }
+
+    /**
+     * 局域网候选全挂 → 远程接入兜底：加载 {@code https://origin/?ab_token=…}。
+     * 没配远程返回 false（调用方走失败页）；本轮内远程失败也不再重试
+     * （advanceAddress 的 usingRemote 闸）。
+     */
+    private fun connectRemote(tab: Tab): Boolean {
+        val profile = tab.profile
+        if (tab.usingRemote || !profile.hasRemote()) {
+            return false
+        }
+        tab.usingRemote = true
+        tab.tried.clear()
+        tab.mainFailed = false
+        tab.started = true
+        tab.status = STATUS_LOADING
+        chipTick++
+        if (profile.id == activeId) {
+            errorInfo = null
+            loading = true
+            toast("局域网不通，改走远程通道…")
+        }
+        tab.effectiveAddress = ""
+        tab.view?.loadUrl(profile.remoteUrl(transport))
+        return true
     }
 
     /**
@@ -1432,6 +1466,7 @@ class MainActivity : ComponentActivity() {
     /** 重新开始一轮连接：多地址先按探测模式比一遍（赢家直接上），单地址 / 跳板机走老链路 */
     private fun startAttempt(tab: Tab) {
         tab.tried.clear()
+        tab.usingRemote = false
         errorInfo = null
         val profile = tab.profile
         if (ServerProfile.text(profile.jumpServerId).isNotEmpty() || profile.addresses.size < 2) {
@@ -1459,6 +1494,8 @@ class MainActivity : ComponentActivity() {
         val mode = ServerProfile.normalizeProbeMode(profile.probeMode)
         val winner = result.winnerAddress
         if (winner == null) {
+            // 局域网候选全挂：配了远程接入就兜底走公网隧道
+            if (connectRemote(tab)) return
             tab.mainFailed = true
             tab.status = STATUS_FAIL
             chipTick++
@@ -1745,6 +1782,11 @@ class MainActivity : ComponentActivity() {
      */
     private fun isCurrentAddress(tab: Tab, url: String?): Boolean {
         if (url == null) return false
+        // 远程兜底：加载的是 https 隧道 origin，按前缀比对
+        if (tab.usingRemote) {
+            val origin = tab.profile.remoteOrigin()
+            return origin.isNotEmpty() && url.startsWith(origin)
+        }
         // 走跳板机：加载的是隧道地址（127.0.0.1:端口），直连才用候选地址
         val address = if (tab.effectiveAddress.isNotEmpty()) tab.effectiveAddress
         else tab.profile.hostAt(tab.addressIndex)

@@ -63,6 +63,14 @@ pub struct RemoteServer {
     /// 带哪块网卡的 MAC、发几个包、重试几次）。空 = 没配，走原来的老路。
     #[serde(default)]
     pub power_routes: Vec<PowerRoute>,
+    /// 远程接入地址（单槽位）：`https://xxx.trycloudflare.com` 这类公网隧道地址。
+    /// 局域网候选全都不通时才用它兜底（探测/HTTP/iframe 同一套语义）。
+    #[serde(default)]
+    pub remote_addr: String,
+    /// 远程接入令牌：对方电脑给我们这台签发的「网关客户端令牌」，与它的局域网
+    /// `token` 是两套（那边校验时按 ab_token 比对已配对客户端表）。
+    #[serde(default)]
+    pub remote_token: String,
     #[serde(default)]
     pub created_at: u64,
 }
@@ -83,6 +91,9 @@ pub struct ProbeOutcome {
     pub ok: bool,
     pub ms: u64,
     pub error: String,
+    /// true = 这一行是远程接入地址（https 隧道），不是局域网候选
+    #[serde(default)]
+    pub remote: bool,
 }
 
 /// remote_test 的结果：addr/ms 是选中的赢家；results 是全部候选地址的逐行结果
@@ -96,6 +107,9 @@ pub struct RemoteTestResult {
     pub error: String,
     #[serde(default)]
     pub results: Vec<ProbeOutcome>,
+    /// true = 赢家是远程接入地址（前端要用 https origin + ab_token 拼 URL）
+    #[serde(default)]
+    pub remote: bool,
 }
 
 impl RemoteServer {
@@ -180,6 +194,24 @@ impl RemoteServer {
             });
         }
         self.power_routes = routes;
+        // 远程接入：地址 trim；整条 URL 里挖 ab_token（用户粘贴配对串时经常连
+        // 令牌一起带进来）；令牌没单独填就用 URL 里那个
+        self.remote_addr = self.remote_addr.trim().to_string();
+        self.remote_token = self.remote_token.trim().to_string();
+        if !self.remote_addr.is_empty() {
+            let (origin, token_from_url) = split_remote_address(&self.remote_addr);
+            if origin.is_empty() {
+                self.remote_addr = String::new();
+                self.remote_token = String::new();
+            } else {
+                self.remote_addr = origin;
+                if self.remote_token.is_empty() {
+                    self.remote_token = token_from_url.unwrap_or_default();
+                }
+            }
+        } else {
+            self.remote_token = String::new();
+        }
         self
     }
 
@@ -234,12 +266,12 @@ fn split_address(raw: &str) -> (String, Option<String>) {
         None => (rest, ""),
     };
     let authority = authority.trim().to_string();
-    // 挖 token=（query 里第一个 token 参数；大小写不敏感，对齐 http.rs 的宽松风格）
+    // 挖 token= / ab_token=（query 里第一个命中；大小写不敏感，对齐 http.rs 的宽松风格）
     let mut token = None;
     for pair in query.split('&') {
         let mut parts = pair.splitn(2, '=');
         let key = parts.next().unwrap_or("").trim().to_ascii_lowercase();
-        if key == "token" {
+        if key == "token" || key == "ab_token" {
             let value = parts.next().unwrap_or("").trim().to_string();
             if !value.is_empty() {
                 token = Some(value);
@@ -248,6 +280,73 @@ fn split_address(raw: &str) -> (String, Option<String>) {
         }
     }
     (authority, token)
+}
+
+/// 远程接入地址归一：`https://xxx.trycloudflare.com/?ab_token=t` 这类整条 URL、
+/// 裸 `xxx.trycloudflare.com` 都吃。返回 (origin, token)：
+/// - origin = `scheme://authority`（无 scheme 默认 `https://`；隧道与 ts.net 都是 https；
+///   路径剥掉 —— 隧道地址没有路径语义）；
+/// - token 从 query 的 `ab_token=` / `token=` 挖出（没有为 None）。
+fn split_remote_address(raw: &str) -> (String, Option<String>) {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return (String::new(), None);
+    }
+    // 配对串形态：anyboot://pair?gateway=…&tunnel=https://…&token=… ——
+    // 拆出 tunnel 与 token（值是 encode_query 转义过的，先解码），tunnel 再走一遍归一
+    let lower = raw.to_ascii_lowercase();
+    if lower.starts_with("anyboot://pair?") {
+        let query = &raw[15..];
+        let mut tunnel = None;
+        let mut token = None;
+        for pair in query.split('&') {
+            let mut parts = pair.splitn(2, '=');
+            let key = parts.next().unwrap_or("").trim().to_ascii_lowercase();
+            let value = percent_decode(parts.next().unwrap_or("").trim());
+            match key.as_str() {
+                "tunnel" if !value.is_empty() => tunnel = Some(value),
+                "token" | "ab_token" if !value.is_empty() => token = Some(value),
+                _ => {}
+            }
+        }
+        return match tunnel {
+            Some(t) => {
+                let (origin, token_in_url) = split_remote_address(&t);
+                (origin, token.or(token_in_url))
+            }
+            None => (String::new(), token),
+        };
+    }
+    let lower = raw.to_ascii_lowercase();
+    let (scheme, rest) = if lower.starts_with("https://") {
+        ("https://", &raw[8..])
+    } else if lower.starts_with("http://") {
+        ("http://", &raw[7..])
+    } else {
+        ("https://", raw)
+    };
+    let end = rest.find(['/', '?']).unwrap_or(rest.len());
+    let authority = rest[..end].trim();
+    if authority.is_empty() {
+        return (String::new(), None);
+    }
+    let query = match rest.find('?') {
+        Some(index) => &rest[index + 1..],
+        None => "",
+    };
+    let mut token = None;
+    for pair in query.split('&') {
+        let mut parts = pair.splitn(2, '=');
+        let key = parts.next().unwrap_or("").trim().to_ascii_lowercase();
+        if key == "token" || key == "ab_token" {
+            let value = parts.next().unwrap_or("").trim().to_string();
+            if !value.is_empty() {
+                token = Some(value);
+            }
+            break;
+        }
+    }
+    (format!("{scheme}{authority}"), token)
 }
 
 /// 探活地址兜底默认端口：不带 `:` 的补 `:12300`（对齐手机 DEFAULT_PORT）。
@@ -309,9 +408,95 @@ fn probe_health(addr: &str, timeout: Duration) -> Result<(u64, String, String), 
     Ok((ms, machine_id, machine_name))
 }
 
+/// 远程地址（公网隧道 / ts.net）的探测与请求都走 ureq：它们是 https，
+/// 手写 TCP 客户端做不了 TLS（本地局域网场景才用 probe_health）。
+/// 超时放宽到 8s —— 公网 RTT 大，按局域网 3s 判会大量误报。
+const REMOTE_PROBE_TIMEOUT: Duration = Duration::from_secs(8);
+
+/// ureq GET：返回 (状态码, 响应体)。4xx/5xx 也带回状态码由调用方解读。
+fn ureq_get(url: &str, timeout: Duration) -> Result<(u16, String), String> {
+    let response = ureq::get(url)
+        .timeout(timeout)
+        .call()
+        .map_err(|error| match error {
+            ureq::Error::Status(code, response) => {
+                let body = response.into_string().unwrap_or_default();
+                format!("HTTP {code}: {}", body.trim().chars().take(200).collect::<String>())
+            }
+            other => format!("{other}"),
+        })?;
+    let status = response.status();
+    let body = response.into_string().map_err(|error| format!("读响应失败: {error}"))?;
+    Ok((status, body))
+}
+
+/// 对远程地址做 `GET {origin}/health`（免鉴权，与局域网探测同一协议）。
+/// 成功返回 (耗时毫秒, machineId, machineName)。
+fn probe_remote_health(origin: &str, timeout: Duration) -> Result<(u64, String, String), String> {
+    let url = format!("{origin}/health");
+    let started = Instant::now();
+    let (_status, body) = ureq_get(&url, timeout)?;
+    let (machine_id, machine_name) = parse_health(&body);
+    let ms = started.elapsed().as_millis() as u64;
+    Ok((ms, machine_id, machine_name))
+}
+
+/// 远程 HTTP 请求（带 ab_token 的完整 GET，走 ureq）：电源兜底 / 引导项读取
+/// 出门时的那一条路。`path_with_query` 形如 `/api/power?action=…&token=…`
+/// —— ab_token 由这里统一追加，调用方不用管。
+fn remote_https_get(origin: &str, ab_token: &str, path_with_query: &str) -> Result<(u16, String), String> {
+    let mut query = path_with_query.to_string();
+    let ab_token = ab_token.trim();
+    if !ab_token.is_empty() {
+        query.push_str(if query.contains('?') { "&" } else { "?" });
+        query.push_str("ab_token=");
+        query.push_str(&encode_query(ab_token));
+    }
+    ureq_get(&format!("{origin}{query}"), Duration::from_secs(12))
+}
+
 // ==================== 局域网电源（路由 sol + HTTP 兜底） ====================
 
 /// URL 查询串转义：保留字母数字和 -_.~，其余转 %XX（token 里出现 & %= 都不怕）
+pub(crate) fn encode_query_pub(value: &str) -> String {
+    encode_query(value)
+}
+
+/// encode_query 的逆：%XX 解回字节；坏转义原样保留。
+fn percent_decode(value: &str) -> String {
+    let bytes = value.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' && index + 2 < bytes.len() {
+            let hex = bytes.get(index + 1..index + 3);
+            match hex.and_then(|pair| {
+                std::str::from_utf8(pair)
+                    .ok()
+                    .and_then(|text| u8::from_str_radix(text, 16).ok())
+            }) {
+                Some(byte) => {
+                    out.push(byte);
+                    index += 3;
+                }
+                None => {
+                    out.push(bytes[index]);
+                    index += 1;
+                }
+            }
+        } else {
+            out.push(bytes[index]);
+            index += 1;
+        }
+    }
+    String::from_utf8_lossy(&out).to_string()
+}
+
+/// 探活地址兜底默认端口（跨模块复用：网关在线拉取要对 peer 地址补端口）。
+pub(crate) fn with_default_port_pub(addr: &str) -> String {
+    with_default_port(addr)
+}
+
 fn encode_query(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
     for byte in value.bytes() {
@@ -329,7 +514,56 @@ fn encode_query(value: &str) -> String {
 ///
 /// 前提是这台电脑还在线 —— 睡了 / 关了它的 HTTP 服务也没了。对「唤醒」这反而是
 /// 有效的探测：请求能送达就说明机器醒着（服务端回 WakeAck，不做任何动作）。
+/// 局域网地址全连不上时自动兜底远程接入地址（https 隧道 + ab_token）——
+/// 出门在外时电源指令照样能发。
 fn remote_http_power(server: &RemoteServer, action: &str) -> Result<String, String> {
+    match remote_http_power_lan(server, action) {
+        Ok(message) => Ok(message),
+        Err(lan_error) => {
+            let origin = server.remote_addr.trim();
+            if origin.is_empty() {
+                return Err(lan_error);
+            }
+            match remote_https_get(origin, &server.remote_token, &format!("/api/power?action={action}")) {
+                Ok((status, body)) => parse_power_reply(status, &body)
+                    .map(|message| format!("（经远程通道）{message}")),
+                Err(remote_error) => Err(format!("{lan_error}；远程通道也不通：{remote_error}")),
+            }
+        }
+    }
+}
+
+/// 电源接口回执解析（LAN / 远程共用）：401/4xx/非 JSON 的分支都收在这。
+fn parse_power_reply(status: u16, body: &str) -> Result<String, String> {
+    if status == 401 {
+        return Err("这台电脑不认这个 token（401）—— 到「编辑」里核对访问令牌".to_string());
+    }
+    if status >= 400 {
+        return Err(format!("这台电脑返回 {status}：{}", body.trim()));
+    }
+    if status == 0 {
+        return Err("这台电脑的响应不是有效的 HTTP".to_string());
+    }
+    // 优先 message，其次 error，都不是 JSON 就把原文带回去
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(body.trim()) {
+        for key in ["message", "error"] {
+            if let Some(text) = value.get(key).and_then(|item| item.as_str()) {
+                if !text.trim().is_empty() {
+                    return Ok(text.to_string());
+                }
+            }
+        }
+    }
+    let fallback = body.trim();
+    Ok(if fallback.is_empty() {
+        "已提交".to_string()
+    } else {
+        fallback.to_string()
+    })
+}
+
+/// 电源接口的局域网那一路（原 remote_http_power 主体，手写 TCP）。
+fn remote_http_power_lan(server: &RemoteServer, action: &str) -> Result<String, String> {
     let address = server
         .addresses
         .iter()
@@ -373,31 +607,7 @@ fn remote_http_power(server: &RemoteServer, action: &str) -> Result<String, Stri
         Some(index) => text[index + 4..].to_string(),
         None => String::new(),
     };
-    if status == 401 {
-        return Err("这台电脑不认这个 token（401）—— 到「编辑」里核对访问令牌".to_string());
-    }
-    if status >= 400 {
-        return Err(format!("这台电脑返回 {status}：{}", body.trim()));
-    }
-    if status == 0 {
-        return Err("这台电脑的响应不是有效的 HTTP".to_string());
-    }
-    // 优先 message，其次 error，都不是 JSON 就把原文带回去
-    if let Ok(value) = serde_json::from_str::<serde_json::Value>(body.trim()) {
-        for key in ["message", "error"] {
-            if let Some(text) = value.get(key).and_then(|item| item.as_str()) {
-                if !text.trim().is_empty() {
-                    return Ok(text.to_string());
-                }
-            }
-        }
-    }
-    let fallback = body.trim();
-    Ok(if fallback.is_empty() {
-        "已提交".to_string()
-    } else {
-        fallback.to_string()
-    })
+    parse_power_reply(status, &body)
 }
 
 /// 电脑档案的电源动作：按「局域网电源路由」发 sol 包；唤醒没配路由就按默认
@@ -730,6 +940,10 @@ pub fn remote_save(app: AppHandle, server: RemoteServer) -> Result<RemoteServer,
         if server.token.is_empty() {
             server.token = existing.token.clone();
         }
+        // 远程令牌同语义：编辑弹窗不回显令牌，留空 = 保持已存的网关客户端令牌
+        if server.remote_token.is_empty() {
+            server.remote_token = existing.remote_token.clone();
+        }
         // 地址没变才保留探测学到的机器标识（变了可能已是另一台电脑，作废）
         let same_machine_set = existing.addresses == server.addresses;
         let machine = (existing.machine_id.clone(), existing.machine_name.clone());
@@ -816,18 +1030,39 @@ pub(crate) fn normalize_probe_mode(mode: &str) -> &'static str {
 /// - **串行**：按顺序逐个试，第一个成功就停。
 /// results 里每个候选地址一条（成败 + 耗时），前端逐行展示。
 /// `GET /health` 免鉴权。**必须 async + spawn_blocking**：要 join 并发线程 / 等 TCP 超时。
+///
+/// `remote_addr`（可选，单槽位远程接入地址）：**局域网优先、远程兜底** ——
+/// 局域网有赢家就不探远程（results 里补一行「未探测」说明）；局域网全挂才探
+/// 远程（8s 超时），探通则赢家就是远程地址（结果带 `remote: true`，前端按
+/// https + ab_token 拼 iframe）。没有远程地址时行为与老版本完全一致。
 #[tauri::command]
-pub async fn remote_test(addresses: Vec<String>, probe_mode: String) -> RemoteTestResult {
-    tauri::async_runtime::spawn_blocking(move || remote_test_blocking(addresses, probe_mode))
-        .await
-        .unwrap_or_else(|error| RemoteTestResult {
-            error: format!("探测任务失败: {error}"),
-            ..Default::default()
-        })
+pub async fn remote_test(
+    addresses: Vec<String>,
+    probe_mode: String,
+    remote_addr: Option<String>,
+) -> RemoteTestResult {
+    tauri::async_runtime::spawn_blocking(move || {
+        remote_test_blocking(addresses, probe_mode, remote_addr)
+    })
+    .await
+    .unwrap_or_else(|error| RemoteTestResult {
+        error: format!("探测任务失败: {error}"),
+        ..Default::default()
+    })
 }
 
-fn remote_test_blocking(addresses: Vec<String>, probe_mode: String) -> RemoteTestResult {
+fn remote_test_blocking(
+    addresses: Vec<String>,
+    probe_mode: String,
+    remote_addr: Option<String>,
+) -> RemoteTestResult {
     let mode = normalize_probe_mode(&probe_mode);
+    let remote_origin = remote_addr
+        .as_deref()
+        .map(str::trim)
+        .filter(|raw| !raw.is_empty())
+        .map(|raw| split_remote_address(raw).0)
+        .filter(|origin| !origin.is_empty());
     let candidates: Vec<String> = addresses
         .iter()
         .filter_map(|raw| {
@@ -839,7 +1074,7 @@ fn remote_test_blocking(addresses: Vec<String>, probe_mode: String) -> RemoteTes
             }
         })
         .collect();
-    if candidates.is_empty() {
+    if candidates.is_empty() && remote_origin.is_none() {
         return RemoteTestResult {
             error: "没有可探测的地址".to_string(),
             ..Default::default()
@@ -858,6 +1093,7 @@ fn remote_test_blocking(addresses: Vec<String>, probe_mode: String) -> RemoteTes
                         ok: true,
                         ms,
                         error: String::new(),
+                        remote: false,
                     });
                     best = Some(RemoteTestResult {
                         ok: true,
@@ -874,6 +1110,7 @@ fn remote_test_blocking(addresses: Vec<String>, probe_mode: String) -> RemoteTes
                     ok: false,
                     ms: 0,
                     error,
+                    remote: false,
                 }),
             }
         }
@@ -928,6 +1165,7 @@ fn remote_test_blocking(addresses: Vec<String>, probe_mode: String) -> RemoteTes
                             ok: true,
                             ms,
                             error: String::new(),
+                            remote: false,
                         }
                     }
                     Err(error) => ProbeOutcome {
@@ -935,6 +1173,7 @@ fn remote_test_blocking(addresses: Vec<String>, probe_mode: String) -> RemoteTes
                         ok: false,
                         ms: 0,
                         error,
+                        remote: false,
                     },
                 };
                 outcomes.lock().unwrap().push(outcome);
@@ -961,6 +1200,46 @@ fn remote_test_blocking(addresses: Vec<String>, probe_mode: String) -> RemoteTes
             .unwrap_or_else(|| "全部地址都连不上".to_string()),
         ..Default::default()
     });
+    // 局域网有赢家：远程不探（省一次 8s 级公网等待），results 里补一行说明
+    if let Some(origin) = &remote_origin {
+        if final_result.ok {
+            results.push(ProbeOutcome {
+                address: origin.clone(),
+                ok: false,
+                ms: 0,
+                error: "局域网可用，远程地址未探测".to_string(),
+                remote: true,
+            });
+        } else {
+            match probe_remote_health(origin, REMOTE_PROBE_TIMEOUT) {
+                Ok((ms, machine_id, machine_name)) => {
+                    results.push(ProbeOutcome {
+                        address: origin.clone(),
+                        ok: true,
+                        ms,
+                        error: String::new(),
+                        remote: true,
+                    });
+                    final_result = RemoteTestResult {
+                        ok: true,
+                        addr: origin.clone(),
+                        ms,
+                        machine_id,
+                        machine_name,
+                        remote: true,
+                        ..Default::default()
+                    };
+                }
+                Err(error) => results.push(ProbeOutcome {
+                    address: origin.clone(),
+                    ok: false,
+                    ms: 0,
+                    error,
+                    remote: true,
+                }),
+            }
+        }
+    }
     // 逐行结果无条件带回：前端并发（全部）模式要逐行展示每个地址的成败
     final_result.results = results;
     final_result
@@ -1267,7 +1546,46 @@ fn server_endpoint(app: &AppHandle, server: &RemoteServer) -> Result<String, Str
 ///
 /// 与 `remote_http_power` 同一套手写 HTTP（不引 reqwest）：局域网场景只需要
 /// 一条短请求，多一个依赖不划算。**必须跑在 spawn_blocking 里** —— 会阻塞在 TCP 上。
+/// 局域网失败时兜底远程接入地址（https + ab_token）：出门时引导项读取/切换照常可用。
 fn remote_http_json(
+    app: &AppHandle,
+    server: &RemoteServer,
+    path: &str,
+) -> Result<serde_json::Value, String> {
+    match remote_http_json_lan(app, server, path) {
+        Ok(value) => Ok(value),
+        Err(lan_error) => {
+            let origin = server.remote_addr.trim();
+            if origin.is_empty() {
+                return Err(lan_error);
+            }
+            match remote_https_get(origin, &server.remote_token, path) {
+                Ok((status, body)) => parse_remote_json_reply(status, &body),
+                Err(remote_error) => Err(format!("{lan_error}；远程通道也不通：{remote_error}")),
+            }
+        }
+    }
+}
+
+/// 远程 JSON 回执解析（401 文案按「远程令牌」口径说，与局域网区分开）。
+fn parse_remote_json_reply(status: u16, body: &str) -> Result<serde_json::Value, String> {
+    let value: serde_json::Value = serde_json::from_str(body.trim())
+        .map_err(|error| format!("这台电脑返回的不是合法 JSON（{status}）：{error}"))?;
+    if status == 401 {
+        return Err("远程通道令牌无效（401）—— 请重新配对或到「编辑」里核对远程接入令牌".to_string());
+    }
+    if status >= 400 {
+        let message = value
+            .get("message")
+            .and_then(|item| item.as_str())
+            .unwrap_or("请求被拒绝");
+        return Err(message.to_string());
+    }
+    Ok(value)
+}
+
+/// remote_http_json 的局域网那一路（手写 TCP，原主体）。
+fn remote_http_json_lan(
     app: &AppHandle,
     server: &RemoteServer,
     path: &str,
@@ -1749,6 +2067,7 @@ fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Result<RemoteB
         ..Default::default()
     };
     // 先探活：离线时没必要再发两条注定超时的请求（等待体验差 3 倍）
+    // 局域网探不通时兜底远程接入地址（出门场景：引导项照常可读）。
     let probe_addr = server
         .addresses
         .iter()
@@ -1756,7 +2075,7 @@ fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Result<RemoteB
         .find(|raw| !raw.is_empty())
         .unwrap_or("")
         .to_string();
-    let probe = if probe_addr.is_empty() {
+    let lan_probe = if probe_addr.is_empty() {
         Err("这台电脑还没有可用地址".to_string())
     } else if server.jump_id.trim().is_empty() {
         probe_health(&probe_addr, PROBE_TIMEOUT)
@@ -1765,10 +2084,27 @@ fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Result<RemoteB
         let endpoint = remote_endpoint_inner(app, state.inner(), server_id)?;
         probe_health(&format!("{}:{}", endpoint.host, endpoint.port), PROBE_TIMEOUT)
     };
+    let (probe, winner_addr) = match lan_probe {
+        Ok(result) => (Ok(result), probe_addr),
+        Err(lan_error) => {
+            let origin = server.remote_addr.trim();
+            if origin.is_empty() {
+                (Err(lan_error), probe_addr)
+            } else {
+                match probe_remote_health(origin, REMOTE_PROBE_TIMEOUT) {
+                    Ok(result) => (Ok(result), origin.to_string()),
+                    Err(remote_error) => (
+                        Err(format!("{lan_error}；远程通道也不通：{remote_error}")),
+                        probe_addr,
+                    ),
+                }
+            }
+        }
+    };
     match probe {
         Ok(_) => {
             info.online = true;
-            info.addr = probe_addr;
+            info.addr = winner_addr;
         }
         Err(error) => {
             info.online = false;
@@ -1995,6 +2331,8 @@ mod tests {
             jump_id: " j1 ".into(),
             macs: Default::default(),
             power_routes: vec![],
+            remote_addr: "  https://test-tunnel.trycloudflare.com/?ab_token= gw-tok  ".into(),
+            remote_token: String::new(),
             created_at: 0,
         };
         let normalized = server.normalize();
@@ -2003,9 +2341,51 @@ mod tests {
         assert_eq!(normalized.addresses, vec!["192.168.0.120:12300", "192.168.0.121:12300"]);
         // URL 里的 token 被挖出补进 token（原 token 为空时）
         assert_eq!(normalized.token, "abc");
+        // 远程地址：剥路径/query 留 origin；URL 里的 ab_token 被挖出补进 remote_token
+        assert_eq!(normalized.remote_addr, "https://test-tunnel.trycloudflare.com");
+        assert_eq!(normalized.remote_token, "gw-tok");
         // 旧值 / 未知 probe_mode 一律归一为并发（首个）
         assert_eq!(normalized.probe_mode, "parallel_first");
         assert_eq!(normalized.jump_id, "j1");
+    }
+
+    #[test]
+    fn split_remote_address_forms() {
+        // 整条配对串：拆 tunnel + token
+        assert_eq!(
+            split_remote_address(
+                "anyboot://pair?gateway=%E4%B9%A6%E6%88%BF&tunnel=https%3A%2F%2Fabc.trycloudflare.com&token=gw1"
+            ),
+            ("https://abc.trycloudflare.com".into(), Some("gw1".into()))
+        );
+        // 配对串 tunnel 未编码的普通形态也认
+        assert_eq!(
+            split_remote_address("anyboot://pair?tunnel=https://abc.trycloudflare.com&token=gw2"),
+            ("https://abc.trycloudflare.com".into(), Some("gw2".into()))
+        );
+        // 整条 URL + ab_token
+        assert_eq!(
+            split_remote_address("https://abc-def.trycloudflare.com/?ab_token=t1"),
+            ("https://abc-def.trycloudflare.com".into(), Some("t1".into()))
+        );
+        // 带 token= 旧式也认
+        assert_eq!(
+            split_remote_address("https://host.ts.net?token=t2"),
+            ("https://host.ts.net".into(), Some("t2".into()))
+        );
+        // 裸 host 默认补 https
+        assert_eq!(
+            split_remote_address(" my-tunnel.example.com "),
+            ("https://my-tunnel.example.com".into(), None)
+        );
+        // http 保留原 scheme
+        assert_eq!(
+            split_remote_address("http://1.2.3.4:8080/x"),
+            ("http://1.2.3.4:8080".into(), None)
+        );
+        // 空 / 全是路径 → 空
+        assert_eq!(split_remote_address("  "), (String::new(), None));
+        assert_eq!(split_remote_address("https:///path"), (String::new(), None));
     }
 
     /// 三种探测模式的语义：并发首个 = 最快胜出；并发全部 = 逐行全报；
@@ -2032,7 +2412,7 @@ mod tests {
         let dead = "127.0.0.1:1".to_string(); // 端口 1 上不会有服务
 
         // 并发（全部）：逐行两条都在，赢家是活的那个
-        let all = remote_test_blocking(vec![dead.clone(), live.clone()], "parallel_all".into());
+        let all = remote_test_blocking(vec![dead.clone(), live.clone()], "parallel_all".into(), None);
         assert!(all.ok, "并发全部应探到活的地址");
         assert_eq!(all.addr, live);
         assert_eq!(all.results.len(), 2);
@@ -2040,12 +2420,57 @@ mod tests {
         assert!(all.results.iter().any(|o| o.address == live && o.ok));
 
         // 并发（首个）：赢家也是活的（死的那个直接失败出局）
-        let first = remote_test_blocking(vec![dead.clone(), live.clone()], "parallel_first".into());
+        let first = remote_test_blocking(vec![dead.clone(), live.clone()], "parallel_first".into(), None);
         assert!(first.ok && first.addr == live);
 
         // 串行：先死后活，第一个成功的胜出
-        let serial = remote_test_blocking(vec![dead, live.clone()], "serial".into());
+        let serial = remote_test_blocking(vec![dead, live.clone()], "serial".into(), None);
         assert!(serial.ok && serial.addr == live);
+    }
+
+    /// 远程兜底语义：局域网全挂 → 探远程（赢家带 remote 标记）；
+    /// 局域网有赢家 → 远程不探（results 里补一行「未探测」）。
+    #[test]
+    fn remote_test_lan_first_remote_fallback() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("监听回环");
+        let port = listener.local_addr().expect("本地地址").port();
+        std::thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                let mut stream = stream;
+                let mut buffer = [0u8; 512];
+                let _ = std::io::Read::read(&mut stream, &mut buffer);
+                let body = "{\"ok\":true,\"machineId\":\"m1\",\"machineName\":\"测试机\"}";
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = std::io::Write::write_all(&mut stream, response.as_bytes());
+            }
+        });
+        // 本地 http 监听充当「远程」（ureq 对 http origin 照常工作；线上远程是 https）
+        let origin = format!("http://127.0.0.1:{port}");
+        let live = format!("127.0.0.1:{port}");
+
+        // 局域网全挂 → 远程兜底，赢家 = 远程 origin 且 remote: true
+        let fallback = remote_test_blocking(
+            vec!["127.0.0.1:1".into()],
+            "parallel_first".into(),
+            Some(origin.clone()),
+        );
+        assert!(fallback.ok, "局域网全挂时应兜底远程");
+        assert!(fallback.remote, "赢家应带远程标记");
+        assert_eq!(fallback.addr, origin);
+        assert_eq!(fallback.machine_id, "m1");
+        assert!(fallback.results.iter().any(|o| o.remote && o.ok));
+
+        // 局域网有赢家 → 远程不探，results 里带一行「未探测」
+        let lan_up = remote_test_blocking(vec![live], "parallel_first".into(), Some(origin));
+        assert!(lan_up.ok && !lan_up.remote, "局域网赢家优先");
+        assert!(
+            lan_up.results.iter().any(|o| o.remote && !o.ok && o.error.contains("未探测")),
+            "远程未探测要有说明行"
+        );
     }
 
     #[test]
@@ -2062,6 +2487,8 @@ mod tests {
             jump_id: String::new(),
             macs: Default::default(),
             power_routes: vec![],
+            remote_addr: String::new(),
+            remote_token: String::new(),
             created_at: 0,
         };
         let normalized = server.normalize();
@@ -2091,6 +2518,8 @@ mod tests {
                 jump_id: String::new(),
                 macs: Default::default(),
                 power_routes: vec![],
+                remote_addr: String::new(),
+                remote_token: String::new(),
                 created_at: 42,
             }],
         };
@@ -2118,7 +2547,7 @@ mod tests {
 
     #[test]
     fn remote_test_reports_missing_addresses() {
-        let result = remote_test_blocking(vec![" ".into()], "parallel".into());
+        let result = remote_test_blocking(vec![" ".into()], "parallel".into(), None);
         assert!(!result.ok);
         assert_eq!(result.error, "没有可探测的地址");
     }

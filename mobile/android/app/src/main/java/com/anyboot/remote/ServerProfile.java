@@ -244,6 +244,16 @@ final class ServerProfile {
     /** 经由哪台跳板机（JumpServer.id）；空 = 直连，行为与现在完全一致。
      *  走跳板机时 addresses 语义变为「跳板机视角的内网地址」。 */
     String jumpServerId = "";
+    /**
+     * 远程接入地址（单槽位）：{@code https://xxx.trycloudflare.com} 这类公网隧道地址。
+     * 局域网候选全连不上时才用它兜底（探测 / WebView 同一套语义）。
+     */
+    String remoteAddr = "";
+    /**
+     * 远程接入令牌：对方电脑给我们这台签发的「网关客户端令牌」，与它的局域网
+     * {@link #token} 是两套 —— 对方校验时按 {@code ?ab_token=} 比对已配对客户端表。
+     */
+    String remoteToken = "";
 
     ServerProfile() {
         this.id = UUID.randomUUID().toString();
@@ -554,6 +564,142 @@ final class ServerProfile {
     }
 
     // ------------------------------------------------------------------
+    // 远程接入（公网隧道兜底）
+    // ------------------------------------------------------------------
+
+    /** 归一化后的远程地址（scheme://host，无 scheme 默认 https）；没配返回空串 */
+    String remoteOrigin() {
+        return normalizeRemoteOrigin(remoteAddr);
+    }
+
+    /**
+     * 用粘贴内容设置远程接入（整条 {@code anyboot://pair?…} 配对串或纯 URL 都行）。
+     * 解析失败返回 false 且不改动现有值。
+     */
+    boolean setRemoteFromPaste(String raw) {
+        String[] pair = parsePair(raw);
+        if (pair == null) {
+            return false;
+        }
+        remoteAddr = pair[0];
+        if (!pair[1].isEmpty()) {
+            remoteToken = pair[1];
+        }
+        return true;
+    }
+
+    /** 清掉远程接入（地址与令牌一起） */
+    void clearRemote() {
+        remoteAddr = "";
+        remoteToken = "";
+    }
+
+    boolean hasRemote() {
+        return !text(remoteAddr).isEmpty();
+    }
+
+    /** 远程接入的 WebView 地址：{@code origin/?ab_token=…}（token 百分号编码） */
+    String remoteUrl(String transport) {
+        String origin = remoteOrigin();
+        if (origin.isEmpty()) {
+            return "";
+        }
+        StringBuilder url = new StringBuilder(origin).append("/");
+        String secret = text(remoteToken);
+        if (!secret.isEmpty()) {
+            url.append("?ab_token=").append(Uri.encode(secret));
+        }
+        String mode = text(transport);
+        if (!mode.isEmpty() && !"auto".equals(mode)) {
+            url.append(secret.isEmpty() ? "?" : "&").append("transport=").append(mode);
+        }
+        return url.toString();
+    }
+
+    /**
+     * 远程地址归一：整条 URL / 裸 host 都吃，剥路径与 query，无 scheme 补 https。
+     * 与 PC 端 split_remote_address 同一套规则。
+     */
+    static String normalizeRemoteOrigin(String raw) {
+        String value = text(raw);
+        if (value.isEmpty()) {
+            return "";
+        }
+        String lower = value.toLowerCase(Locale.US);
+        String scheme;
+        if (lower.startsWith("https://")) {
+            scheme = "https://";
+            value = value.substring(8);
+        } else if (lower.startsWith("http://")) {
+            scheme = "http://";
+            value = value.substring(7);
+        } else {
+            scheme = "https://";
+        }
+        int end = value.length();
+        int slash = value.indexOf('/');
+        int question = value.indexOf('?');
+        if (slash >= 0) {
+            end = Math.min(end, slash);
+        }
+        if (question >= 0) {
+            end = Math.min(end, question);
+        }
+        String authority = value.substring(0, end).trim();
+        return authority.isEmpty() ? "" : scheme + authority;
+    }
+
+    /**
+     * 解析粘贴的配对内容：{@code anyboot://pair?gateway=…&tunnel=…&token=…} 或
+     * 直接一条 {@code https://…/?ab_token=…}。返回 [origin, token]，认不出返回 null。
+     * 与 PC 端 split_remote_address 同一套语义。
+     */
+    static String[] parsePair(String raw) {
+        String value = text(raw);
+        if (value.isEmpty()) {
+            return null;
+        }
+        String lower = value.toLowerCase(Locale.US);
+        if (lower.startsWith("anyboot://pair?")) {
+            try {
+                Uri uri = Uri.parse(value.trim());
+                String tunnel = text(uri.getQueryParameter("tunnel"));
+                if (tunnel.isEmpty()) {
+                    return null;
+                }
+                String origin = normalizeRemoteOrigin(tunnel);
+                if (origin.isEmpty()) {
+                    return null;
+                }
+                String token = text(uri.getQueryParameter("token"));
+                if (token.isEmpty()) {
+                    token = text(uri.getQueryParameter("ab_token"));
+                }
+                return new String[] { origin, token };
+            } catch (Exception ignored) {
+                return null;
+            }
+        }
+        // 直接粘 URL / 裸 host：挖 ab_token / token 参数
+        String origin = normalizeRemoteOrigin(value);
+        if (origin.isEmpty()) {
+            return null;
+        }
+        String token = "";
+        try {
+            Uri uri = Uri.parse(value.trim());
+            String candidate = uri.getQueryParameter("ab_token");
+            if (candidate == null || candidate.trim().isEmpty()) {
+                candidate = uri.getQueryParameter("token");
+            }
+            token = text(candidate);
+        } catch (Exception ignored) {
+            // 无 query 或不是合法 URL：就当裸 host
+        }
+        return new String[] { origin, token };
+    }
+
+    // ------------------------------------------------------------------
     // 访问地址
     // ------------------------------------------------------------------
 
@@ -660,6 +806,8 @@ final class ServerProfile {
         other.machineName = machineName;
         other.probeMode = probeMode;
         other.jumpServerId = jumpServerId;
+        other.remoteAddr = remoteAddr;
+        other.remoteToken = remoteToken;
         for (PowerRoute route : powerRoutes) {
             other.powerRoutes.add(route.copy());
         }
@@ -724,6 +872,8 @@ final class ServerProfile {
         object.put("machineName", text(machineName));
         object.put("probeMode", normalizeProbeMode(probeMode));
         object.put("jumpServerId", text(jumpServerId));
+        object.put("remoteAddr", normalizeRemoteOrigin(remoteAddr));
+        object.put("remoteToken", text(remoteToken));
         return object;
     }
 
@@ -773,6 +923,8 @@ final class ServerProfile {
         // 只认三个值，其余（含缺失 / 拼错 / 旧 parallel）一律回落到并发（首个）
         profile.probeMode = normalizeProbeMode(object.optString("probeMode", ""));
         profile.jumpServerId = object.optString("jumpServerId", "");
+        profile.remoteAddr = normalizeRemoteOrigin(object.optString("remoteAddr", ""));
+        profile.remoteToken = object.optString("remoteToken", "");
         JSONArray routeArray = object.optJSONArray("powerRoutes");
         if (routeArray != null) {
             for (int i = 0; i < routeArray.length(); i++) {

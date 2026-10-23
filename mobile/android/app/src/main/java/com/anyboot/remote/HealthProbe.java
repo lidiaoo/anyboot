@@ -107,6 +107,42 @@ final class HealthProbe {
         }
     }
 
+    /**
+     * 远程地址探测（公网隧道 / ts.net，https）：给完整 origin，
+     * {@link HttpURLConnection} 原生支持 TLS。超时放宽 —— 公网 RTT 大，
+     * 按局域网的 1.5s 判会大量误报。通了返回往返毫秒，不通 -1。
+     * **必须在后台线程调用。**
+     */
+    static long pingRemote(String origin, int timeoutMs) {
+        String target = ServerProfile.normalizeRemoteOrigin(origin);
+        if (target.isEmpty()) {
+            return -1;
+        }
+        HttpURLConnection connection = null;
+        long started = SystemClock.uptimeMillis();
+        try {
+            connection = (HttpURLConnection) new URL(target + "/health").openConnection();
+            connection.setRequestMethod("GET");
+            connection.setConnectTimeout(timeoutMs);
+            connection.setReadTimeout(timeoutMs);
+            connection.setInstanceFollowRedirects(false);
+            if (connection.getResponseCode() != 200) {
+                return -1;
+            }
+            InputStream input = connection.getInputStream();
+            byte[] chunk = new byte[1024];
+            // noinspection ResultOfMethodCallIgnored
+            input.read(chunk);
+            return SystemClock.uptimeMillis() - started;
+        } catch (Exception ignored) {
+            return -1;
+        } finally {
+            if (connection != null) {
+                connection.disconnect();
+            }
+        }
+    }
+
     /** 解析 `/health` 响应体（纯逻辑，便于单测）。字段缺失 / 不是 JSON 时给 null。 */
     static Result parse(String body) {
         try {

@@ -2809,6 +2809,7 @@ pub fn run() {
             hub_gateway::gateway_pair_delete,
             hub_gateway::gateway_pair_pending,
             hub_gateway::gateway_pair_decide,
+            hub_gateway::gateway_pair_fetch,
             hub_gateway::gateway_config,
             hub_gateway::gateway_save_config,
             get_ui_state,
