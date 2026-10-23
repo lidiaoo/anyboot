@@ -627,6 +627,12 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                         modifier = Modifier.weight(104f),
                     )
                 }
+                Text(
+                    "重试 = 没发出去就隔 0.2 秒再打一轮；走跳板机时每轮重试都会重新连接跳板机，直到次数用完。",
+                    fontSize = 9.5.sp,
+                    color = palette.fgFaint,
+                    modifier = Modifier.padding(top = 3.dp),
+                )
 
                 // —— HTTP 设置区：无可配置项，仅说明（HTTP 走这台电脑
                 // 自带的接口，token 与连接共用）；混合模式两条通道同时发。

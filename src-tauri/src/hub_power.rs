@@ -68,7 +68,7 @@ pub(crate) struct Delivery {
     pub packet: Vec<u8>,
     /// 这条要发几个包（唤醒可配，默认 10；其余动作固定 1）
     pub times: u32,
-    /// 一轮没全发出去时的重试次数（默认 10；其余动作固定 0）
+    /// 没发出去就再打一轮的次数（默认 10；其余动作固定 0）；走跳板机时每轮重试都会重新连接跳板机
     pub retry: u32,
 }
 
@@ -163,6 +163,10 @@ pub(crate) fn plan_routes(
 
 /// 把编译好的计划发出去。`jump` = Some 时经跳板机发，None 时本机直发。
 /// 返回 (发出条数, 从哪发的)；一个包都没发出去算失败。
+///
+/// 「重试次数」= 重试发包：本机直发是每条没全发出去就隔 0.2s 再打一轮；
+/// 走跳板机时**每一轮重试都会重新连接跳板机**（SSH 断了也一样重连），直到次数
+/// 用完 —— 重试次数就是重新连接跳板机的次数。
 pub(crate) fn send_plan(
     app: &AppHandle,
     jump: Option<&HubServer>,
@@ -178,7 +182,36 @@ pub(crate) fn send_plan(
     }
     let (sent, where_from) = match jump {
         None => (send_local(&plan.deliveries)?, "本机".to_string()),
-        Some(jump) => send_via_jump(app, jump, &plan.deliveries)?,
+        Some(jump) => {
+            // 重试次数取各路由里的最大值：没发出去就重连跳板机再打一轮。
+            // 每次尝试都新起一个 ssh 进程 = 重新连接跳板机。
+            let max_retry = plan.deliveries.iter().map(|d| d.retry).max().unwrap_or(0);
+            let mut last_error = String::new();
+            let mut done: Option<(usize, String)> = None;
+            for attempt in 0..=max_retry {
+                if attempt > 0 {
+                    power_log(app, &format!("第 {attempt}/{max_retry} 轮重试：重新连接跳板机再发一轮"));
+                    std::thread::sleep(RETRY_INTERVAL);
+                }
+                match send_via_jump(app, jump, &plan.deliveries) {
+                    Ok(result) => {
+                        done = Some(result);
+                        break;
+                    }
+                    Err(error) => {
+                        // 跳板机没装 python3 不会自愈，重试没有意义
+                        if error.contains("python3") {
+                            return Err(error);
+                        }
+                        last_error = error;
+                    }
+                }
+            }
+            match done {
+                Some(result) => result,
+                None => return Err(last_error),
+            }
+        }
     };
     if sent == 0 {
         return Err(format!(

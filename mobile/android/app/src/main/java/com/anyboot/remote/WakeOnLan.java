@@ -176,7 +176,7 @@ final class WakeOnLan {
 
         String jumpId = ServerProfile.text(profile.jumpServerId);
         String whereFrom;
-        int sent;
+        int sent = 0;
         if (jumpId.isEmpty()) {
             whereFrom = "本机";
             sent = sendLocal(deliveries);
@@ -188,7 +188,32 @@ final class WakeOnLan {
             if (!jump.isSsh()) {
                 throw new Exception("跳板机是 Telnet，发不了局域网电源包 —— 换一台 SSH 服务器");
             }
-            sent = sendViaJump(context, jump, deliveries, prompt);
+            // 「重试次数」= 重试发包；走跳板机时每一轮重试都会重新连接跳板机
+            // （ensureSession 发现断线就重连），直到次数用完 —— 重试次数就是跳板机重连次数。
+            int maxRetry = 0;
+            for (Delivery delivery : deliveries) {
+                maxRetry = Math.max(maxRetry, delivery.retry);
+            }
+            Exception lastError = null;
+            boolean done = false;
+            for (int attempt = 0; attempt <= maxRetry && !done; attempt++) {
+                try {
+                    sent = sendViaJump(context, jump, deliveries, prompt);
+                    done = true;
+                } catch (Exception error) {
+                    String message = ServerProfile.text(error.getMessage());
+                    if (message.contains("python3")) {
+                        throw error;   // 跳板机没装 python3 不会自愈，重试没有意义
+                    }
+                    lastError = error;
+                    if (attempt < maxRetry) {
+                        Thread.sleep(RETRY_INTERVAL_MS);
+                    }
+                }
+            }
+            if (!done) {
+                throw lastError != null ? lastError : new Exception("跳板机没能发出电源包");
+            }
             whereFrom = "跳板机「" + (ServerProfile.text(jump.name).isEmpty() ? jump.host : jump.name) + "」";
         }
         if (sent == 0) {

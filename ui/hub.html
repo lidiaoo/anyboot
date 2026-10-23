@@ -1048,14 +1048,19 @@
     color: rgb(var(--warn)); background: rgb(var(--warn) / .16);
   }
   .cq-note { margin: 3px 0 0; font-size: 10.5px; color: rgb(var(--fg-faint)); line-height: 1.5; }
-  .cq-pwr { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+  .cq-pwr { display: flex; align-items: stretch; gap: 4px; flex-wrap: wrap; }
   .cq-pwr-btn {
-    width: 30px; height: 30px; border-radius: 8px; cursor: pointer; display: grid; place-items: center;
+    flex: 1 1 78px; min-width: 78px; min-height: 42px; border-radius: 9px; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
     border: 1px solid rgb(var(--line)); background: rgb(var(--elevate)); color: rgb(var(--fg-dim));
+    padding: 3px 5px; overflow: hidden;
   }
-  .cq-pwr-btn svg { width: 14px; height: 14px; }
+  .cq-pwr-btn .lbl { display: flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+  .cq-pwr-btn .lbl svg { width: 12px; height: 12px; flex: none; }
+  .cq-pwr-btn .hint { font-size: 9px; line-height: 1.3; color: rgb(var(--fg-faint)); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .cq-pwr-btn:hover:not(:disabled) { border-color: rgb(var(--accent)); color: rgb(var(--accent)); }
   .cq-pwr-btn.is-busy { color: transparent; position: relative; }
+  .cq-pwr-btn.is-busy .hint { color: transparent; }
   /* ---- 表格窄容器降级：拉小窗口时先藏「状态」列，再藏 rEFInd 列 ----
      （不设 min-width，列靠降级 + 内容折行消化，绝不出横向滚动条；
        藏列时 col 的内联宽度也要跟着清零，否则空列占位） */
@@ -1510,8 +1515,8 @@
           <div class="cq-card">
             <table class="cq-table">
               <colgroup>
-                <col style="width:29%"><col style="width:11%"><col style="width:19%">
-                <col style="width:19%"><col style="width:17%"><col style="width:56px">
+                <col style="width:27%"><col style="width:10%"><col style="width:19%">
+                <col style="width:19%"><col style="width:21%"><col style="width:56px">
               </colgroup>
               <thead>
                 <tr>
@@ -1679,6 +1684,7 @@
                   配了路由，电源按钮就往局域网发 UDP 包，由这台电脑上的 <b>sol</b> 按端口执行对应动作 ——
                   机器睡着、连接断着也能用；没配则唤醒走标准 WOL。
                   广播地址留空 = 自动（全局广播 + 各地址的 /24 广播）；MAC 全不勾 = 用上面地址里配过的全部网卡。
+                  「重试次数」= 重试发包：没发出去就隔 0.2 秒再打一轮；走跳板机时每轮重试都会重新连接跳板机，直到次数用完。
                 </p>
               </div>
               <p class="form-error" id="rsEditError"></p>
@@ -4594,17 +4600,43 @@
     tdGrub.appendChild(cqBootCell(row, 'grub'));
     tr.appendChild(tdGrub);
 
-    // ⑤ 电源
+    // ⑤ 电源（按钮 = 图标+标签+提示小字，对齐移动端 PowerButton / powerHint）
     const tdPwr = document.createElement('td');
     const pwr = document.createElement('div');
     pwr.className = 'cq-pwr';
+    const pwrHints = (function () {
+      if (row.rid === 'local') {
+        return { wake: '本机无需唤醒', sleep: '挂起到内存', shutdown: '', reboot: '' };
+      }
+      const server = remotes.find(function (x) { return x.id === row.rid; });
+      const hasMac = !!(server && server.macs && Object.keys(server.macs).some(function (key) {
+        return (server.macs[key] || []).some(function (m) { return String(m || '').trim(); });
+      }));
+      return {
+        wake: pcPowerHint(server, 'wake', hasMac ? 'MAC 魔术包' : '未配 MAC'),
+        sleep: pcPowerHint(server, 'sleep', '挂起到内存'),
+        shutdown: pcPowerHint(server, 'shutdown', ''),
+        reboot: pcPowerHint(server, 'reboot', ''),
+      };
+    })();
     CQ_POWER.forEach(function (spec) {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'cq-pwr-btn';
-      btn.title = spec.label;
-      btn.setAttribute('aria-label', spec.label);
-      btn.appendChild(cqSvg(spec.icon));
+      const hint = pwrHints[spec.act] || '';
+      btn.title = hint ? spec.label + ' · ' + hint : spec.label;
+      btn.setAttribute('aria-label', btn.title);
+      const lbl = document.createElement('span');
+      lbl.className = 'lbl';
+      lbl.appendChild(cqSvg(spec.icon));
+      const txt = document.createElement('span');
+      txt.textContent = spec.label;
+      lbl.appendChild(txt);
+      btn.appendChild(lbl);
+      const hintEl = document.createElement('span');
+      hintEl.className = 'hint';
+      hintEl.textContent = hint;
+      btn.appendChild(hintEl);
       // 用户定案：四个电源键任何时候都能按、不置灰 —— 不做任何在线/离线判定
       if (cqBusy.has(row.rid + ':power:' + spec.act)) btn.classList.add('is-busy');
       btn.addEventListener('click', function (e) { e.stopPropagation(); cqPower(row, spec.act); });
@@ -5439,6 +5471,7 @@
     '这些按钮怎么执行（局域网 / sol）',
     '给这台电脑配了「局域网电源路由」的动作，会往路由里的广播地址:端口发一个 UDP 包，由目标机上装着的 sol 按端口执行 —— 这样机器睡着、网页服务没起来也能操作。没装 sol，包发得出去但没人执行。',
     '没配路由的动作走老路：唤醒发标准 WOL（魔术包），重启/关机/睡眠调电脑端的网页接口。',
+    '「重试次数」= 重试发包：没发出去就隔 0.2 秒再打一轮；走跳板机时每轮重试都会重新连接跳板机，直到次数用完。',
     '',
     '唤醒包从哪发：',
     '· 配了「唤醒」路由 → 按路由里的地址和端口发（MAC 可只挑几块网卡）；',
