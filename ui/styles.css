@@ -1971,10 +1971,3 @@ button.primary-sol:hover:not(:disabled) {
 #sol-dir-state {
   font-size: 11px;
 }
-
-/* 被嵌入时（「电脑」页 iframe / 手机 WebView）：宿主在左下/右下叠了刷新与电源
-   悬浮球 —— body 是 flex 列、height:100vh，这里给底部留一条空档（状态条随之上移），
-   悬浮球落在空档上，不再盖住底部提示区域。 */
-html.embedded body {
-  padding-bottom: 76px;
-}

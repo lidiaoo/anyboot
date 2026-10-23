@@ -512,7 +512,8 @@ class MainActivity : ComponentActivity() {
         var expanded by remember { mutableStateOf(false) }
 
         Box(
-            modifier = Modifier.fillMaxSize().padding(14.dp),
+            // 底部抬高 34dp：别盖住 WebView 页面的状态条/通知（用户定案 2026-10-23）
+            modifier = Modifier.fillMaxSize().padding(start = 14.dp, end = 14.dp, bottom = 48.dp),
             contentAlignment = Alignment.BottomEnd,
         ) {
             Column(
@@ -789,7 +790,7 @@ class MainActivity : ComponentActivity() {
             contentAlignment = Alignment.Center,
             modifier = Modifier
                 .align(Alignment.BottomStart)
-                .padding(start = 16.dp, bottom = 16.dp)
+                .padding(start = 16.dp, bottom = 48.dp)
                 .size(44.dp)
                 .alpha(0.5f)
                 .clip(CircleShape)
