@@ -4937,11 +4937,12 @@
       const hasMac = !!(server && server.macs && Object.keys(server.macs).some(function (key) {
         return (server.macs[key] || []).some(function (m) { return String(m || '').trim(); });
       }));
+      const remoteActive = pcRemoteWin.has(row.rid);
       return {
-        wake: pcPowerHint(server, 'wake', hasMac ? 'MAC 魔术包' : '未配 MAC'),
-        sleep: pcPowerHint(server, 'sleep', '挂起到内存'),
-        shutdown: pcPowerHint(server, 'shutdown', ''),
-        reboot: pcPowerHint(server, 'reboot', ''),
+        wake: pcPowerHint(server, 'wake', hasMac ? 'MAC 魔术包' : '未配 MAC', remoteActive),
+        sleep: pcPowerHint(server, 'sleep', '挂起到内存', remoteActive),
+        shutdown: pcPowerHint(server, 'shutdown', '', remoteActive),
+        reboot: pcPowerHint(server, 'reboot', '', remoteActive),
       };
     })();
     CQ_POWER.forEach(function (spec) {
@@ -5715,23 +5716,73 @@
     pcFabHints();
     pcFabSetExpanded(false);
   }
-  /** 悬浮球小字（对齐手机 powerHint）：配了路由 → 「→ 地址:端口（等 N 条）」；否则用动作的兜底说明 */
-  function pcPowerHint(server, action, fallback) {
+  /** 一个动作下全部路由聚合后的发送模式（对齐 Rust 端 hub.rs 的 routes_mode）：
+   *  任何一条 hybrid → hybrid；任何一条 http_first → http_first；全部 http_only → http_only；
+   *  否则有 auto → auto；全是 packet_only → packet_only。空 mode 按旧 http_fallback 推导。 */
+  function pcRoutesMode(routes) {
+    if (!routes || !routes.length) return 'auto';
+    let anyHybrid = false, anyHttpFirst = false, allHttpOnly = true, anyAuto = false;
+    routes.forEach(function (route) {
+      const mode = (route.mode || '').trim();
+      const eff = (mode === 'auto' || mode === 'http_first' || mode === 'http_only' ||
+        mode === 'packet_only' || mode === 'hybrid')
+        ? mode
+        : (route.http_fallback !== false ? 'auto' : 'packet_only');
+      if (eff === 'hybrid') anyHybrid = true;
+      else if (eff === 'http_first') anyHttpFirst = true;
+      else if (eff === 'http_only') { /* 保持 allHttpOnly */ }
+      else { allHttpOnly = false; if (eff === 'auto') anyAuto = true; }
+    });
+    if (anyHybrid) return 'hybrid';
+    if (anyHttpFirst) return 'http_first';
+    if (allHttpOnly) return 'http_only';
+    return anyAuto ? 'auto' : 'packet_only';
+  }
+
+  /**
+   * 电源按钮小字开头的传输方式标识：HTTP / 魔法包 / HTTP+魔法包（混合）/ HTTP→魔法包（HTTP 优先）/
+   * 魔法包→HTTP（auto）。远程隧道使用中时广播包腿发不出（隧道只转 HTTP）：纯广播包的搭配
+   * 退化为 HTTP，只剩广播包的（packet_only / 没配 MAC 的唤醒）标「发不出」。
+   */
+  function pcPowerBadge(server, action, routes, remoteActive) {
+    const packetOk = !remoteActive;
+    if (!routes.length) {
+      if (action === 'wake') {
+        const hasMac = !!(server && server.macs && Object.keys(server.macs).length);
+        return !hasMac ? '未配 MAC' : (packetOk ? '魔法包' : '发不出');
+      }
+      return 'HTTP';
+    }
+    switch (pcRoutesMode(routes)) {
+      case 'http_only': return 'HTTP';
+      case 'http_first': return packetOk ? 'HTTP→魔法包' : 'HTTP';
+      case 'hybrid': return packetOk ? 'HTTP+魔法包' : 'HTTP';
+      case 'auto': return packetOk ? '魔法包→HTTP' : 'HTTP';
+      default: return packetOk ? '魔法包' : '发不出';
+    }
+  }
+
+  /**
+   * 悬浮球/列表电源键小字（对齐手机 powerHint）：传输标识开头 + 路由摘要/动作说明。
+   * remoteActive = 这台电脑当前正走远程隧道（广播包腿发不出）。
+   */
+  function pcPowerHint(server, action, fallback, remoteActive) {
     const routes = ((server && server.power_routes) || []).filter(function (route) {
       return route.enabled !== false && powerActionOf(route.action) === action;
     });
+    const badge = pcPowerBadge(server, action, routes, remoteActive);
     if (routes.length) {
       const route = routes[0];
       const suffix = routes.length > 1 ? ' 等 ' + routes.length + ' 条' : '';
-      return '→ ' + (route.target || '自动广播') + ':' + (route.port || 9) + suffix;
+      return badge + ' · → ' + (route.target || '自动广播') + ':' + (route.port || 9) + suffix;
     }
-    // 唤醒走不了隧道（魔术包是局域网 UDP 广播）：配了远程接入时别给误导提示
-    if (action === 'wake' && server && (server.remote_addr || '').trim()) {
-      const hasMac = !!(server.macs && Object.keys(server.macs).length);
-      return hasMac ? 'MAC 魔术包（仅局域网有效；远程时发不出）'
-                    : '未配 MAC —— 远程时无法唤醒，需在局域网内';
+    if (action === 'wake') {
+      const hasMac = !!(server && server.macs && Object.keys(server.macs).length);
+      if (!hasMac) return '未配 MAC';
+      if (remoteActive) return '发不出 · 魔术包仅局域网有效';
+      return '魔法包';
     }
-    return fallback;
+    return fallback ? badge + ' · ' + fallback : badge;
   }
   /** 每个动作芯片下的提示行：随当前标签的档案实时算（切标签后 pcFabRefresh 会重刷） */
   function pcFabHints() {
@@ -5745,11 +5796,12 @@
     } else {
       const server = remotes.find(function (x) { return x.id === activeRemote; });
       const hasMac = !!(server && server.macs && Object.keys(server.macs).length);
+      const remoteActive = pcRemoteWin.has(activeRemote);
       hints = {
-        wake: pcPowerHint(server, 'wake', hasMac ? 'MAC 魔术包' : '未配 MAC'),
-        sleep: pcPowerHint(server, 'sleep', '挂起到内存'),
-        shutdown: pcPowerHint(server, 'shutdown', ''),
-        reboot: pcPowerHint(server, 'reboot', ''),
+        wake: pcPowerHint(server, 'wake', hasMac ? 'MAC 魔术包' : '未配 MAC', remoteActive),
+        sleep: pcPowerHint(server, 'sleep', '挂起到内存', remoteActive),
+        shutdown: pcPowerHint(server, 'shutdown', '', remoteActive),
+        reboot: pcPowerHint(server, 'reboot', '', remoteActive),
       };
       // 说明行 = 当前连接 + 电源走法：远程时 HTTP 自动走隧道、广播包发不出；
       // 跳板机时广播包经跳板机在内网发。模式细节看该电脑的电源路由配置。

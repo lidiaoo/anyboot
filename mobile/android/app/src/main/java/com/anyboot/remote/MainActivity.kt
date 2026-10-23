@@ -551,6 +551,8 @@ class MainActivity : ComponentActivity() {
         val palette = LocalPalette.current
         val profile = ServerStore.find(servers, activeId) ?: return
         var expanded by remember { mutableStateOf(false) }
+        chipTick // 读取以订阅状态变化（远程赢家变化时提示小字的传输标识跟着重算）
+        val tab = tabs[profile.id]
 
         Box(
             // 底部抬高 34dp：别盖住 WebView 页面的状态条/通知（用户定案 2026-10-23）
@@ -585,23 +587,27 @@ class MainActivity : ComponentActivity() {
                     }
                     PowerChip(
                         "唤醒",
-                        powerHint(profile, ServerProfile.POWER_WAKE, if (profile.hasMacs()) "MAC 魔术包" else "未配 MAC"),
+                        powerHint(
+                            profile, ServerProfile.POWER_WAKE,
+                            if (profile.hasMacs()) "MAC 魔术包" else "未配 MAC",
+                            tab?.usingRemote == true,
+                        ),
                     ) {
                         expanded = false
                         runPowerAction(profile, ServerProfile.POWER_WAKE)
                     }
                     PowerChip(
                         "睡眠",
-                        powerHint(profile, ServerProfile.POWER_SLEEP, "挂起到内存"),
+                        powerHint(profile, ServerProfile.POWER_SLEEP, "挂起到内存", tab?.usingRemote == true),
                     ) {
                         expanded = false
                         runPowerAction(profile, ServerProfile.POWER_SLEEP)
                     }
-                    PowerChip("关机", powerHint(profile, ServerProfile.POWER_SHUTDOWN, "")) {
+                    PowerChip("关机", powerHint(profile, ServerProfile.POWER_SHUTDOWN, "", tab?.usingRemote == true)) {
                         expanded = false
                         runPowerAction(profile, ServerProfile.POWER_SHUTDOWN)
                     }
-                    PowerChip("重启", powerHint(profile, ServerProfile.POWER_REBOOT, "")) {
+                    PowerChip("重启", powerHint(profile, ServerProfile.POWER_REBOOT, "", tab?.usingRemote == true)) {
                         expanded = false
                         runPowerAction(profile, ServerProfile.POWER_REBOOT)
                     }

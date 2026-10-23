@@ -978,25 +978,26 @@ class ComputerListActivity : ComponentActivity() {
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier.fillMaxWidth().padding(top = 11.dp),
             ) {
-                // 提示小字与悬浮电源球同一套（PowerHint.kt）：路由摘要 / MAC 魔术包 / 挂起到内存
+                // 提示小字与悬浮电源球同一套（PowerHint.kt）：传输标识（HTTP/魔法包）+ 路由摘要 / 未配 MAC；
+                // 该行正走远程隧道时广播包腿发不出，标识会相应变成 HTTP 或「发不出」
                 PowerButton(
                     row, POWER_WAKE, "唤醒",
-                    hint = powerHint(row.profile, POWER_WAKE, if (row.profile.hasMacs()) "MAC 魔术包" else "未配 MAC"),
+                    hint = powerHint(row.profile, POWER_WAKE, if (row.profile.hasMacs()) "MAC 魔术包" else "未配 MAC", row.connRemote),
                     modifier = Modifier.weight(1f),
                 )
                 PowerButton(
                     row, POWER_SLEEP, "睡眠",
-                    hint = powerHint(row.profile, POWER_SLEEP, "挂起到内存"),
+                    hint = powerHint(row.profile, POWER_SLEEP, "挂起到内存", row.connRemote),
                     modifier = Modifier.weight(1f),
                 )
                 PowerButton(
                     row, POWER_REBOOT, "重启",
-                    hint = powerHint(row.profile, POWER_REBOOT, ""),
+                    hint = powerHint(row.profile, POWER_REBOOT, "", row.connRemote),
                     modifier = Modifier.weight(1f),
                 )
                 PowerButton(
                     row, POWER_SHUTDOWN, "关机",
-                    hint = powerHint(row.profile, POWER_SHUTDOWN, ""),
+                    hint = powerHint(row.profile, POWER_SHUTDOWN, "", row.connRemote),
                     modifier = Modifier.weight(1f),
                 )
             }
