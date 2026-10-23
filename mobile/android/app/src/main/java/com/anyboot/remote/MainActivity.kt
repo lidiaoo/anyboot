@@ -112,6 +112,9 @@ class MainActivity : ComponentActivity() {
         /** 界面偏好（自动重载间隔这类小开关）的 SharedPreferences 名 */
         private const val UI_PREFS = "anyboot_ui"
 
+        /** 上次停留页（entryPage）：computers = 电脑列表，home = 电脑页 —— launcher 重新进入按它路由 */
+        private const val PREF_ENTRY = "entryPage"
+
         /**
          * 启动时直接打开哪台电脑的页面（[ServerProfile.id]）。
          *
@@ -199,7 +202,10 @@ class MainActivity : ComponentActivity() {
         // 点桌面图标（冷启动）默认先进「电脑列表」，与 PC 端远程管理窗口默认开电脑列表一致。
         // 不 finish：电脑页留在返回栈底，从电脑列表按返回仍能回到这里（老路径不变）。
         // 只认 launcher 冷启动 —— 「电脑列表 → 打开页面」带 EXTRA_SERVER_ID 进来的不拦。
-        if (intent?.action == Intent.ACTION_MAIN && savedInstanceState == null) {
+        // 上次明确停在电脑页（entryPage=home）的除外：冷启动也还原到电脑页。
+        if (intent?.action == Intent.ACTION_MAIN && savedInstanceState == null
+            && getSharedPreferences(UI_PREFS, MODE_PRIVATE).getString(PREF_ENTRY, "") != "home"
+        ) {
             startActivity(Intent(this, ComputerListActivity::class.java))
         }
 
@@ -229,6 +235,15 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        // 应用没退时再点桌面图标：launcher intent 会路由到 singleTask 的这里，把电脑页
+        // 提到前台、电脑列表被压掉 —— 看着就是「回到电脑页」。按「上次停留页」送回去。
+        if (intent.action == Intent.ACTION_MAIN
+            && intent.hasCategory(Intent.CATEGORY_LAUNCHER)
+            && getSharedPreferences(UI_PREFS, MODE_PRIVATE).getString(PREF_ENTRY, "") != "home"
+        ) {
+            startActivity(Intent(this, ComputerListActivity::class.java))
+            return
+        }
         val wanted = intent.getStringExtra(EXTRA_SERVER_ID) ?: return
         intent.removeExtra(EXTRA_SERVER_ID)
         if (wanted.isEmpty()) return
@@ -1747,6 +1762,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        // 记「上次停留页」= 电脑页。冷启动时这里先记 home，紧接着电脑列表的 onResume
+        // 会记回 computers —— 以最终停留页为准；从电脑列表按返回回到这里时只有这条生效。
+        getSharedPreferences(UI_PREFS, MODE_PRIVATE).edit().putString(PREF_ENTRY, "home").apply()
         for (tab in tabs.values) {
             tab.view?.onResume()
         }

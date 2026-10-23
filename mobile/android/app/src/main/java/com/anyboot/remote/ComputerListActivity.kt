@@ -169,6 +169,9 @@ class ComputerListActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        // 记「上次停留页」= 电脑列表：应用没退时再点桌面图标，singleTask 的 MainActivity
+        // 会被 launcher intent 提到前台 —— 靠这个记录把用户送回列表（见 MainActivity.onNewIntent）
+        getSharedPreferences(UI_PREFS, MODE_PRIVATE).edit().putString(PREF_ENTRY, "computers").apply()
         // 从「服务器」页回来可能增删过电脑 —— 重新读一遍再整体探活
         reloadServers()
         refreshAll()
@@ -2605,6 +2608,9 @@ class ComputerListActivity : ComponentActivity() {
 
     private companion object {
         const val UI_PREFS = "anyboot_ui"
+
+        /** 上次停留页（entryPage）：与 MainActivity 同一份偏好 —— computers = 电脑列表 */
+        const val PREF_ENTRY = "entryPage"
 
         const val FILTER_ALL = "all"
         const val FILTER_ONLINE = "online"
