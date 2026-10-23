@@ -1005,12 +1005,16 @@
     border: 1px solid rgb(var(--accent) / .25);
   }
   .cq-dev-meta {
-    display: flex; align-items: center; gap: 5px; margin-top: 2px;
+    display: flex; flex-direction: column; align-items: flex-start; gap: 2px; margin-top: 2px;
     font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; color: rgb(var(--fg-faint));
+  }
+  /* 每个配置好的地址一行：地址 · MAC · MAC…（MAC 在窄容器仍会被藏） */
+  .cq-dev-line {
+    display: flex; align-items: center; gap: 5px; max-width: 100%;
     white-space: nowrap; overflow: hidden;
   }
-  .cq-dev-meta .sep { opacity: .55; }
-  .cq-dev-meta span { overflow: hidden; text-overflow: ellipsis; }
+  .cq-dev-line span { overflow: hidden; text-overflow: ellipsis; }
+  .cq-dev-line .sep { opacity: .55; flex: none; }
   .cq-st { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; white-space: nowrap; }
   .cq-st i { width: 6px; height: 6px; border-radius: 50%; flex: none; background: currentColor; }
   .cq-st--on { color: rgb(var(--ok)); }
@@ -4045,6 +4049,21 @@
     return '';
   }
 
+  /** 全部配置好的地址 + 各自的 MAC（每地址一条），列表行要求全部亮出来 */
+  function pcAddrMacList(r) {
+    return (r.addresses || [])
+      .map(function (addr) {
+        const a = String(addr || '').trim();
+        if (!a) return null;
+        const full = a.indexOf(':') >= 0 ? a : a + ':12300';
+        const macs = ((r.macs && r.macs[a]) || [])
+          .map(function (m) { return String(m || '').trim(); })
+          .filter(Boolean);
+        return { addr: full, macs: macs };
+      })
+      .filter(Boolean);
+  }
+
   /** 列表行模型：本机固定一条 + 每个已保存的服务端一条 */
   function cqRows() {
     const rows = [{
@@ -4066,6 +4085,7 @@
         group: r.group || '',
         ip: pcFirstAddr(r) || '(未填地址)',
         mac: cqFirstMac(r),
+        addrs: pcAddrMacList(r),
         online: info ? !!info.online : null, // null = 还没探测过
         boot: info,
         local: false,
@@ -4085,7 +4105,11 @@
   }
 
   function cqSearchText(row) {
-    return [row.name, row.group, row.ip, row.mac, row.local ? '本机 local' : '']
+    const extra = (row.addrs || []).map(function (line) {
+      return line.addr + ' ' + line.macs.join(' ');
+    });
+    return [row.name, row.group, row.ip, row.mac]
+      .concat(extra, [row.local ? '本机 local' : ''])
       .join(' ').toLowerCase();
   }
 
@@ -4505,18 +4529,44 @@
     txt.appendChild(nameLine);
     const meta = document.createElement('div');
     meta.className = 'cq-dev-meta';
-    const ipSpan = document.createElement('span');
-    ipSpan.textContent = row.ip;
-    meta.appendChild(ipSpan);
-    if (row.mac) {
-      const sep = document.createElement('span');
-      sep.className = 'sep cq-dev-mac';
-      sep.textContent = '·';
-      meta.appendChild(sep);
-      const macSpan = document.createElement('span');
-      macSpan.className = 'cq-dev-mac';
-      macSpan.textContent = row.mac;
-      meta.appendChild(macSpan);
+    const addrLines = row.local ? null : (row.addrs || []);
+    if (!addrLines || addrLines.length === 0) {
+      const ln = document.createElement('div');
+      ln.className = 'cq-dev-line';
+      const ipSpan = document.createElement('span');
+      ipSpan.textContent = row.ip;
+      ln.appendChild(ipSpan);
+      if (row.mac) {
+        const sep = document.createElement('span');
+        sep.className = 'sep cq-dev-mac';
+        sep.textContent = '·';
+        ln.appendChild(sep);
+        const macSpan = document.createElement('span');
+        macSpan.className = 'cq-dev-mac';
+        macSpan.textContent = row.mac;
+        ln.appendChild(macSpan);
+      }
+      meta.appendChild(ln);
+    } else {
+      // 每个配置好的地址一行，后面跟它自己的 MAC（可多个）
+      addrLines.forEach(function (line) {
+        const ln = document.createElement('div');
+        ln.className = 'cq-dev-line';
+        const a = document.createElement('span');
+        a.textContent = line.addr;
+        ln.appendChild(a);
+        line.macs.forEach(function (m) {
+          const sep = document.createElement('span');
+          sep.className = 'sep cq-dev-mac';
+          sep.textContent = '·';
+          ln.appendChild(sep);
+          const ms = document.createElement('span');
+          ms.className = 'cq-dev-mac';
+          ms.textContent = m;
+          ln.appendChild(ms);
+        });
+        meta.appendChild(ln);
+      });
     }
     txt.appendChild(meta);
     dev.appendChild(txt);

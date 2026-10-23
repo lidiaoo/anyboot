@@ -831,34 +831,73 @@ class ComputerListActivity : ComponentActivity() {
                 CardMenu(row)
             }
 
-            // 状态 · IP · MAC
+            // 状态 + 全部配置的地址：第一行跟着状态，其余地址（和各自的 MAC）逐行补在下面
+            val addrCount = row.profile.addressCount()
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.padding(start = 4.dp, top = 5.dp),
             ) {
                 StatusLine(row.state)
-                Spacer(Modifier.width(6.dp))
-                Text("·", fontSize = 11.sp, color = palette.fgFaint)
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    row.ip,
-                    fontSize = 11.sp,
-                    fontFamily = FontFamily.Monospace,
-                    color = palette.fgFaint,
-                    maxLines = 1,
-                )
-                if (row.mac.isNotEmpty()) {
+                if (addrCount > 0) {
+                    val addr0 = displayAddrOf(row.profile.hostAt(0))
                     Spacer(Modifier.width(6.dp))
                     Text("·", fontSize = 11.sp, color = palette.fgFaint)
                     Spacer(Modifier.width(6.dp))
                     Text(
-                        row.mac,
+                        addr0,
                         fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace,
                         color = palette.fgFaint,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    row.profile.macsForHost(row.profile.hostAt(0)).forEach { mac ->
+                        Spacer(Modifier.width(6.dp))
+                        Text("·", fontSize = 11.sp, color = palette.fgFaint)
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            mac.uppercase(Locale.US),
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = palette.fgFaint,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                } else {
+                    Spacer(Modifier.width(6.dp))
+                    Text("·", fontSize = 11.sp, color = palette.fgFaint)
+                    Spacer(Modifier.width(6.dp))
+                    Text("(未配地址)", fontSize = 11.sp, color = palette.fgFaint)
+                }
+            }
+            for (i in 1 until addrCount) {
+                val addr = row.profile.hostAt(i)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(start = 4.dp, top = 3.dp),
+                ) {
+                    Text(
+                        displayAddrOf(addr),
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        color = palette.fgFaint,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    row.profile.macsForHost(addr).forEach { mac ->
+                        Spacer(Modifier.width(6.dp))
+                        Text("·", fontSize = 11.sp, color = palette.fgFaint)
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            mac.uppercase(Locale.US),
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = palette.fgFaint,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
             }
 
@@ -1756,7 +1795,15 @@ class ComputerListActivity : ComponentActivity() {
         if (!byState) return false
         val needle = query.trim().lowercase(Locale.US)
         if (needle.isEmpty()) return true
-        val haystack = (row.name + " " + row.group + " " + row.ip + " " + row.mac)
+        // 搜索要能命中每一个配置好的地址和 MAC，不只是第一个
+        val extras = StringBuilder()
+        val n = row.profile.addressCount()
+        for (i in 0 until n) {
+            val addr = row.profile.hostAt(i)
+            extras.append(' ').append(addr)
+            row.profile.macsForHost(addr).forEach { extras.append(' ').append(it) }
+        }
+        val haystack = (row.name + " " + row.group + " " + row.ip + " " + row.mac + extras)
             .lowercase(Locale.US)
         return haystack.contains(needle)
     }
@@ -1787,6 +1834,13 @@ class ComputerListActivity : ComponentActivity() {
     private fun displayAddress(profile: ServerProfile): String {
         val value = ServerProfile.normalizeHost(profile.host())
         if (value.isEmpty()) return "(未填地址)"
+        val suffix = ":" + ServerProfile.DEFAULT_PORT
+        return if (value.endsWith(suffix)) value.substring(0, value.length - suffix.length) else value
+    }
+
+    /** 单个地址的展示形式：归一化后去掉默认端口尾巴（和 displayAddress 同一套规则） */
+    private fun displayAddrOf(raw: String): String {
+        val value = ServerProfile.normalizeHost(raw)
         val suffix = ":" + ServerProfile.DEFAULT_PORT
         return if (value.endsWith(suffix)) value.substring(0, value.length - suffix.length) else value
     }
