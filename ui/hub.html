@@ -5667,10 +5667,18 @@
     const routes = ((server && server.power_routes) || []).filter(function (route) {
       return route.enabled !== false && powerActionOf(route.action) === action;
     });
-    if (!routes.length) return fallback;
-    const route = routes[0];
-    const suffix = routes.length > 1 ? ' 等 ' + routes.length + ' 条' : '';
-    return '→ ' + (route.target || '自动广播') + ':' + (route.port || 9) + suffix;
+    if (routes.length) {
+      const route = routes[0];
+      const suffix = routes.length > 1 ? ' 等 ' + routes.length + ' 条' : '';
+      return '→ ' + (route.target || '自动广播') + ':' + (route.port || 9) + suffix;
+    }
+    // 唤醒走不了隧道（魔术包是局域网 UDP 广播）：配了远程接入时别给误导提示
+    if (action === 'wake' && server && (server.remote_addr || '').trim()) {
+      const hasMac = !!(server.macs && Object.keys(server.macs).length);
+      return hasMac ? 'MAC 魔术包（仅局域网有效；远程时发不出）'
+                    : '未配 MAC —— 远程时无法唤醒，需在局域网内';
+    }
+    return fallback;
   }
   /** 每个动作芯片下的提示行：随当前标签的档案实时算（切标签后 pcFabRefresh 会重刷） */
   function pcFabHints() {
@@ -5724,7 +5732,8 @@
     '唤醒包从哪发：',
     '· 配了「唤醒」路由 → 按路由里的地址和端口发（MAC 可只挑几块网卡）；',
     '· 配了 SSH 跳板机 → 由跳板机在内网广播（在外网也能用）；',
-    '· 都没有 → 这台电脑自己往局域网广播（要和目标机同一网段）。',
+    '· 都没有 → 这台电脑自己往局域网广播（要和目标机同一网段）；',
+    '· 只有「远程接入」可用（出门经公网隧道） → 唤醒发不出去：魔术包是局域网 UDP 广播，走不了隧道。重启/关机/睡眠调电脑网页接口，隧道照常可用。',
     '',
     '点了没反应，按顺序检查：',
     '① 主板 BIOS 里开启了 Wake on LAN / 网络唤醒（只影响唤醒）；',
