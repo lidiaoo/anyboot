@@ -833,6 +833,11 @@
     box-shadow: 0 4px 14px rgb(0 0 0 / 0.25);
   }
   .pc-fab-ball:disabled { opacity: 0.6; cursor: default; }
+  /* 电源说明弹窗（对齐手机端 SleepHelpDialog） */
+  .fab-help-text {
+    margin: 0; font-size: 12.5px; line-height: 1.75; color: rgb(var(--fg));
+    white-space: pre-line; max-height: 56vh; overflow-y: auto;
+  }
   /* 悬浮刷新按钮：半透明常驻，点一下 = 重载当前页面（重新探测全部地址） */
   .pc-refresh-fab {
     position: absolute; left: 14px; bottom: 48px; z-index: 40;
@@ -962,7 +967,7 @@
     border: 1px solid rgb(var(--line)); border-radius: 14px; background: rgb(var(--card));
     box-shadow: 0 8px 24px -12px rgb(0 0 0 / .28), 0 1px 3px rgb(0 0 0 / .05);
   }
-  .cq-table { width: 100%; min-width: 760px; border-collapse: collapse; font-size: 13px; }
+  .cq-table { width: 100%; border-collapse: collapse; font-size: 13px; }
   .cq-table thead th {
     position: sticky; top: 0; z-index: 2;
     background: rgb(var(--elevate)); color: rgb(var(--fg-faint));
@@ -1002,12 +1007,12 @@
     display: flex; flex-direction: column; align-items: flex-start; gap: 2px; margin-top: 2px;
     font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; color: rgb(var(--fg-faint));
   }
-  /* 每个配置好的地址一行：地址 · MAC · MAC…（MAC 在窄容器仍会被藏） */
+  /* 每个配置好的地址一行：地址 · MAC · MAC…（窄容器自动折行，不出横向滚动条） */
   .cq-dev-line {
-    display: flex; align-items: center; gap: 5px; max-width: 100%;
-    white-space: nowrap; overflow: hidden;
+    display: flex; align-items: center; gap: 2px 10px; max-width: 100%;
+    flex-wrap: wrap;
   }
-  .cq-dev-line span { overflow: hidden; text-overflow: ellipsis; }
+  .cq-dev-line span { white-space: nowrap; }
   .cq-dev-line .sep { opacity: .55; flex: none; }
   .cq-st { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; white-space: nowrap; }
   .cq-st i { width: 6px; height: 6px; border-radius: 50%; flex: none; background: currentColor; }
@@ -1051,18 +1056,14 @@
   .cq-pwr-btn svg { width: 14px; height: 14px; }
   .cq-pwr-btn:hover:not(:disabled) { border-color: rgb(var(--accent)); color: rgb(var(--accent)); }
   .cq-pwr-btn.is-busy { color: transparent; position: relative; }
-  /* ---- 表格窄容器降级：拉小窗口时先藏「状态」列，再藏设备 MAC，最后藏 rEFInd 列 ----
-     （GRUB / 电源 / 更多保到底；col 的内联宽度也要跟着清零，否则空列占位） */
+  /* ---- 表格窄容器降级：拉小窗口时先藏「状态」列，再藏 rEFInd 列 ----
+     （不设 min-width，列靠降级 + 内容折行消化，绝不出横向滚动条；
+       藏列时 col 的内联宽度也要跟着清零，否则空列占位） */
   @container (max-width: 820px) {
-    .cq-table { min-width: 640px; }
     .cq-table th:nth-child(2), .cq-table td:nth-child(2) { display: none; }
     .cq-table col:nth-child(2) { width: auto; }
   }
-  @container (max-width: 660px) {
-    .cq-dev-mac { display: none; }
-  }
   @container (max-width: 580px) {
-    .cq-table { min-width: 470px; }
     .cq-table th:nth-child(3), .cq-table td:nth-child(3) { display: none; }
     .cq-table col:nth-child(3) { width: auto; }
   }
@@ -1425,7 +1426,7 @@
           <button type="button" class="pc-refresh-fab" id="pcRefreshFab" title="重载当前页面（重新探测全部地址，谁在线用谁）" aria-label="重载当前页面">
             <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg>
           </button>
-          <!-- 电源悬浮球：只对远端标签显示（本机不需要远程电源）。文案与提示对齐手机端 PowerFab -->
+          <!-- 电源悬浮球：所有标签都显示；远端走 remote_power，本机走 IPC 直调（power_action，同主窗口） -->
           <div class="pc-fab" id="pcFabWrap" hidden data-page-node-id="pcFabWrap1">
             <span class="pc-fab-note" id="pcFabNote" title="电源操作说明">电源走局域网 · 需 sol</span>
             <button type="button" class="pc-fab-help" id="pcFabHelp" title="电源操作说明" hidden>?</button>
@@ -2047,6 +2048,23 @@
         <span class="spacer" data-page-node-id="GCuQnL83trelJf40nnZFfO"></span>
         <button class="btn ghost" id="deleteCancel" data-page-node-id="aVJHT5CYj0RFek2MN3iUU0">取消</button>
         <button class="btn danger" id="deleteConfirm" data-page-node-id="GDphFiAlyi1AY90xHQUj6R">删除</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 电源操作说明（对齐手机端 SleepHelpDialog 的 ? 弹窗） ============ -->
+  <div class="overlay" id="fabHelpOverlay" hidden>
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="fabHelpTitle">
+      <div class="dialog-head">
+        <h3 id="fabHelpTitle">电源 · 睡眠与唤醒</h3>
+        <button class="icon-btn" id="fabHelpX" aria-label="关闭">✕</button>
+      </div>
+      <div class="dialog-body">
+        <p class="fab-help-text" id="fabHelpText"></p>
+      </div>
+      <div class="dialog-foot">
+        <span class="spacer"></span>
+        <button class="btn" id="fabHelpOk">知道了</button>
       </div>
     </div>
   </div>
@@ -5359,8 +5377,8 @@
   const pcFab = document.getElementById('pcFab');
   function pcFabRefresh() {
     if (!pcFabWrap) return;
-    // 本机不需要远程电源（自己关自己去系统菜单按）
-    pcFabWrap.hidden = activeRemote === 'local';
+    // 本机也显示：睡眠/关机/重启走 IPC 直调（power_action，与主窗口同一套）
+    pcFabWrap.hidden = false;
     pcFabHints();
     pcFabSetExpanded(false);
   }
@@ -5377,14 +5395,23 @@
   /** 每个动作芯片下的提示行：随当前标签的档案实时算（切标签后 pcFabRefresh 会重刷） */
   function pcFabHints() {
     if (!pcFabWrap) return;
-    const server = remotes.find(function (x) { return x.id === activeRemote; });
-    const hasMac = !!(server && server.macs && Object.keys(server.macs).length);
-    const hints = {
-      wake: pcPowerHint(server, 'wake', hasMac ? 'MAC 魔术包' : '未配 MAC'),
-      sleep: pcPowerHint(server, 'sleep', '挂起到内存'),
-      shutdown: pcPowerHint(server, 'shutdown', ''),
-      reboot: pcPowerHint(server, 'reboot', ''),
-    };
+    const note = document.getElementById('pcFabNote');
+    let hints;
+    if (activeRemote === 'local') {
+      // 本机：无路由概念，唤醒没有意义
+      hints = { wake: '本机无需唤醒', sleep: '挂起到内存', shutdown: '', reboot: '' };
+      if (note) note.textContent = '本机操作 · IPC 直调';
+    } else {
+      const server = remotes.find(function (x) { return x.id === activeRemote; });
+      const hasMac = !!(server && server.macs && Object.keys(server.macs).length);
+      hints = {
+        wake: pcPowerHint(server, 'wake', hasMac ? 'MAC 魔术包' : '未配 MAC'),
+        sleep: pcPowerHint(server, 'sleep', '挂起到内存'),
+        shutdown: pcPowerHint(server, 'shutdown', ''),
+        reboot: pcPowerHint(server, 'reboot', ''),
+      };
+      if (note) note.textContent = '电源走局域网 · 需 sol';
+    }
     Object.keys(hints).forEach(function (act) {
       const chip = pcFabWrap.querySelector('[data-pact="' + act + '"]');
       if (!chip) return;
@@ -5401,10 +5428,8 @@
     });
     pcFab.setAttribute('aria-expanded', String(open));
   }
-  // 说明文字照抄手机端 SleepHelpDialog（电源 · 睡眠与唤醒）
+  // 说明文字照抄手机端 SleepHelpDialog（电源 · 睡眠与唤醒）；弹窗标题在 HTML 里
   const PC_FAB_POWER_HELP = [
-    '电源 · 睡眠与唤醒',
-    '',
     '电源按钮点了立即执行，不再弹确认框 —— 各动作的后果都在这里：',
     '· 睡眠 = 挂起到内存：几乎立刻能醒，但网络服务全停 —— 这个标签会显示离线、页面打不开，这是预期的。叫醒请点「唤醒」（需配好 MAC 并开启网络唤醒）；',
     '· 关机：电脑立刻关机，网页服务随之中断 —— 之后只能用「唤醒」开机（需配好 MAC），或到机器旁按电源键；',
@@ -5429,7 +5454,13 @@
     'Windows 还要在「设备管理器 → 网卡 → 电源管理」勾上「允许此设备唤醒计算机」，并关掉「快速启动」（快速启动是休眠，会跳过 WOL）。'
   ].join('\n');
   if (pcFab) {
-    const showFabHelp = function () { window.alert(PC_FAB_POWER_HELP); };
+    const helpOverlay = document.getElementById('fabHelpOverlay');
+    document.getElementById('fabHelpText').textContent = PC_FAB_POWER_HELP;
+    const showFabHelp = function () { helpOverlay.hidden = false; };
+    const closeFabHelp = function () { helpOverlay.hidden = true; };
+    document.getElementById('fabHelpX').addEventListener('click', closeFabHelp);
+    document.getElementById('fabHelpOk').addEventListener('click', closeFabHelp);
+    helpOverlay.addEventListener('click', function (e) { if (e.target === helpOverlay) closeFabHelp(); });
     document.getElementById('pcFabHelp').addEventListener('click', function (e) {
       e.stopPropagation();
       showFabHelp();
@@ -5443,20 +5474,35 @@
       const chip = event.target.closest('[data-pact]');
       if (!chip || chip.disabled) return;
       const action = chip.dataset.pact;
-      const server = remotes.find(function (x) { return x.id === activeRemote; });
-      if (!server) return;
       if (!invoke) { toast('电源操作需要应用环境', 'bad'); return; }
       pcFabSetExpanded(false);
       pcFabWrap.querySelectorAll('.pc-fab-chip').forEach(function (node) { node.disabled = true; });
       pcFab.disabled = true;
+      const restore = function () {
+        pcFab.disabled = false;
+        pcFabWrap.querySelectorAll('.pc-fab-chip').forEach(function (node) { node.disabled = false; });
+      };
+      if (activeRemote === 'local') {
+        // 本机 = IPC 直调（与主窗口同一套 power_action），不回环 HTTP；唤醒没有意义
+        if (action === 'wake') {
+          toast('本机就在运行，无需唤醒');
+          restore();
+          return;
+        }
+        toast('正在' + powerActionLabel(action) + '本机…');
+        invoke('power_action', { action: action })
+          .then(function () { toast('已执行：本机' + powerActionLabel(action)); })
+          .catch(function (error) { toast('本机' + powerActionLabel(action) + '失败：' + error, 'bad'); })
+          .finally(restore);
+        return;
+      }
+      const server = remotes.find(function (x) { return x.id === activeRemote; });
+      if (!server) { restore(); return; }
       toast('正在' + powerActionLabel(action) + '…');
       invoke('remote_power', { serverId: server.id, action: action })
         .then(function (message) { toast(message); })
         .catch(function (error) { toast(powerActionLabel(action) + '失败：' + error, 'bad'); })
-        .finally(function () {
-          pcFab.disabled = false;
-          pcFabWrap.querySelectorAll('.pc-fab-chip').forEach(function (node) { node.disabled = false; });
-        });
+        .finally(restore);
     });
   }
   document.getElementById('pcRefreshFab').addEventListener('click', function () {
