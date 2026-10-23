@@ -4755,6 +4755,17 @@
       return r ? pcUrl(r) : '';
     })();
     if (url) frame.setAttribute('src', url);
+    if (rid !== 'local') {
+      frame.addEventListener('load', function () {
+        if (cqViewRid !== rid) return;
+        pcProbeAfterFrameLoad(rid, function () {
+          if (cqViewRid !== rid) return;
+          const f = pcFrames.get(rid);
+          if (f) { f.remove(); pcFrames.delete(rid); }
+          pcFailOverlay('这台电脑当前离线 —— 可能已关机或在睡眠');
+        })();
+      });
+    }
     document.getElementById('pcFrameHost').appendChild(frame);
     pcFrames.set(rid, frame);
     return frame;
@@ -4993,6 +5004,25 @@
     return r ? pcUrl(r) : '';
   }
 
+  /**
+   * iframe 加载完补一枪探测：目标机连不上时 WebView 会在 iframe 里渲染自带错误页
+   * （「已重置连接」这类），跨源读不到内容、也没有 error 事件 —— 只能靠 load 后重探，
+   * 不通就把 iframe 拆掉换成手机端同款失败面板（onFail 里各自收尾）。
+   */
+  function pcProbeAfterFrameLoad(rid, onFail) {
+    return function () {
+      const r = remotes.find(function (x) { return x.id === rid; });
+      if (!r || r.jump_id || !invoke) return; // 本机/跳板机没有直连探测
+      const mode = r.probe_mode || 'parallel_first';
+      invoke('remote_test', { addresses: r.addresses, probeMode: mode })
+        .then(function (res) {
+          if (res && res.ok) return;
+          onFail();
+        })
+        .catch(function () { /* 探测异常维持现状，别误伤正常页面 */ });
+    };
+  }
+
   function pageEnsureFrame(rid) {
     let frame = pageFrames.get(rid);
     if (frame) return frame;
@@ -5000,6 +5030,19 @@
     frame.title = rid === 'local' ? '本机页面' : '服务端页面';
     const url = pageUrl(rid);
     if (url) frame.setAttribute('src', url);
+    if (rid !== 'local') {
+      frame.addEventListener('load', function () {
+        if (currentPage !== 'home' || activeRemote !== rid) return;
+        pcProbeAfterFrameLoad(rid, function () {
+          if (currentPage !== 'home' || activeRemote !== rid) return;
+          const f = pageFrames.get(rid);
+          if (f) { f.remove(); pageFrames.delete(rid); }
+          pageProbe.set(rid, { ok: false });
+          pageFailOverlay('这台电脑当前离线 —— 可能已关机或在睡眠（点「重试」重新探测）', rid);
+          pageScheduleRetry(rid);
+        })();
+      });
+    }
     document.getElementById('pageFrameHost').appendChild(frame);
     pageFrames.set(rid, frame);
     return frame;
