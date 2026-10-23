@@ -121,6 +121,7 @@ mod hub_power;// pub(crate)：async 命令的 __cmd__ 宏可见性跟着模块�
 pub(crate) mod hub_sftp;
 mod hub_term;
 mod hub_tunnel;
+mod hub_gateway;
 mod hub_vault;
 mod http;
 mod remote_servers;
@@ -433,7 +434,11 @@ const WS_QUEUE: usize = 8;
 /// 握手前的一次性鉴权 + 首帧内容（当前完整快照）。失败时回一个普通 HTTP 错误。
 pub(crate) fn websocket_hello(app: &AppHandle, token: Option<&str>) -> Result<String, RemoteReply> {
     let settings = stored_settings(app);
-    if !token_matches(&settings.http_token, token.unwrap_or_default()) {
+    let provided = token.unwrap_or_default();
+    // 网关每客户端令牌与本机 http_token 等价（与 handle_remote_request 同一闸门）
+    if !token_matches(&settings.http_token, provided)
+        && !hub_gateway::gateway_token_valid(app, provided)
+    {
         return Err(RemoteReply::error(401, "invalid_token", "token 缺失或无效"));
     }
     Ok(ui_state_json(app))
@@ -540,10 +545,22 @@ pub(crate) fn handle_remote_request(app: &AppHandle, request: &RemoteRequest) ->
             return reply;
         }
     }
+    // 远程接入配对握手在鉴权之前：A 还没有 B 的令牌，这正是配对的目的
+    // （响应不含机密、nonce 单次消费、B 端人工确认，见 hub_gateway）。
+    if request.path == "/api/gateway-pair-request" {
+        return hub_gateway::pair_request_reply(app, request);
+    }
+    if request.path == "/api/gateway-pair-poll" {
+        return hub_gateway::pair_poll_reply(request);
+    }
     if request.path != "/health" {
         let settings = stored_settings(app);
         let provided = request.token.clone().unwrap_or_default();
-        if !token_matches(&settings.http_token, &provided) {
+        // 两类等价凭据：本机 http_token，或远程接入网关签发的每客户端令牌
+        // （配对签发、可逐个吊销，见 hub_gateway）。
+        if !token_matches(&settings.http_token, &provided)
+            && !hub_gateway::gateway_token_valid(app, &provided)
+        {
             record_request_log(
                 app,
                 remote_channel(request),
@@ -1048,7 +1065,7 @@ fn write_settings_file(app: &AppHandle, settings: &Settings) -> Result<(), Strin
     result.map_err(|error| format!("无法保存设置: {error}"))
 }
 
-fn stored_settings(app: &AppHandle) -> Settings {
+pub(crate) fn stored_settings(app: &AppHandle) -> Settings {
     let state = app.state::<Mutex<Settings>>();
     let settings = state.lock().expect("settings mutex poisoned").clone();
     settings
@@ -2261,6 +2278,8 @@ pub fn run() {
         .manage(hub_sftp::HubSftpState::default())
         // server-hub 的隧道进程表（应用退出时全收，见 hub_tunnel::kill_all）
         .manage(hub_tunnel::HubTunnelState::default())
+        // 远程接入网关：cloudflared 通道进程 + 日志环 + 快照（退出时 kill_all）
+        .manage(hub_gateway::GatewayTunnelState::default())
         // hub 独立窗的页面心跳：窗口对象还在 ≠ 页面还活着（白框判据，见 hub_health.rs）
         .manage(hub_health::HubPageHealth::default())
         .manage(remote_servers::RemoteJumpState::default());
@@ -2714,6 +2733,8 @@ pub fn run() {
             // HTTP 服务与待执行请求的调度线程（托盘已就绪，publish_ui 能刷菜单）
             apply_http_config(app.handle());
             spawn_notify_scheduler(app.handle());
+            // 远程接入网关：named 模式勾了自启就在这里拉起（quick 不自启，地址会变）
+            hub_gateway::autostart_tunnel(app.handle());
 
             let app_handle = app.handle().clone();
             std::thread::spawn(move || refresh_and_update(&app_handle));
@@ -2775,6 +2796,21 @@ pub fn run() {
             hub_tunnel::hub_delete_tunnel,
             hub_tunnel::hub_tunnel_start,
             hub_tunnel::hub_tunnel_stop,
+            hub_gateway::gateway_binary_status,
+            hub_gateway::gateway_binary_download,
+            hub_gateway::gateway_binary_set_manual,
+            hub_gateway::gateway_tunnel_start,
+            hub_gateway::gateway_tunnel_stop,
+            hub_gateway::gateway_tunnel_status,
+            hub_gateway::gateway_tunnel_logs,
+            hub_gateway::gateway_pair_issue,
+            hub_gateway::gateway_pair_list,
+            hub_gateway::gateway_pair_revoke,
+            hub_gateway::gateway_pair_delete,
+            hub_gateway::gateway_pair_pending,
+            hub_gateway::gateway_pair_decide,
+            hub_gateway::gateway_config,
+            hub_gateway::gateway_save_config,
             get_ui_state,
             current_status,
             refresh,
@@ -2897,6 +2933,7 @@ pub fn run() {
                 hub_term::kill_all(app);
                 hub_sftp::kill_all(app);
                 hub_tunnel::kill_all(app);
+                hub_gateway::kill_all(app);
                 // 电脑页「经跳板机」的本地转发子进程
                 if let Ok(mut state) = app.state::<remote_servers::RemoteJumpState>().forwards.lock() {
                     for (_, f) in state.iter_mut() {

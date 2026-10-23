@@ -677,6 +677,18 @@ pub(crate) struct Settings {
     /// 「已记忆 460x900」，用户拖过的尺寸在重启后被悄悄拽回去。
     pub(crate) window_width: u32,
     pub(crate) window_height: u32,
+    // ==================== 远程接入网关（hub_gateway，2026-10-23） ====================
+    /// 通道模式："quick" | "named" | ""（未配置）。tailscale 不占模式——它不跑
+    /// cloudflared，固定地址直接存进电脑档案的远程地址字段。
+    pub(crate) gateway_mode: String,
+    /// 命名隧道的 Tunnel Token（cloudflared tunnel run --token）。敏感度与
+    /// http_token 同级：签发端是 Cloudflare，泄露面=能连进隧道。
+    pub(crate) gateway_named_token: String,
+    /// 命名隧道/Tailscale 的固定公开地址（https://…），配对串与快照用它。
+    pub(crate) gateway_named_url: String,
+    /// 开机自启通道。quick 模式下无意义（地址会变）由前端隐藏该开关，
+    /// 后端只在 named 模式 honoring 它（启动时自动拉起通道）。
+    pub(crate) gateway_autostart: bool,
 }
 
 impl Default for Settings {
@@ -727,6 +739,10 @@ impl Default for Settings {
             window_size_locked: false,
             window_width: 0,
             window_height: 0,
+            gateway_mode: String::new(),
+            gateway_named_token: String::new(),
+            gateway_named_url: String::new(),
+            gateway_autostart: false,
         }
     }
 }

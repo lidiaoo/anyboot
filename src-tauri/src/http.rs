@@ -236,6 +236,9 @@ fn handle_one(app: &AppHandle, mut request: tiny_http::Request) {
     // （WebSocket 握手没法带自定义头，cookie 是那条路上的兜底）。
     let token_value = header_value(&headers, "X-Auth-Token")
         .or_else(|| find_pair(&query, "token"))
+        // 远程接入网关配对串用 ab_token 命名（设计稿⑦补8）：跨源 iframe 带
+        // 自定义 Header，给它一条独立 query 键，取值后与本机 token 同链处理。
+        .or_else(|| find_pair(&query, "ab_token"))
         .or_else(|| cookie_token(&headers))
         .or_else(|| find_pair(&body_pairs, "token"))
         .filter(|value| !value.trim().is_empty());
