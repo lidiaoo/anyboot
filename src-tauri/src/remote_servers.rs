@@ -333,10 +333,14 @@ fn split_remote_address(raw: &str) -> (String, Option<String>) {
         };
     }
     let lower = raw.to_ascii_lowercase();
+    // 裸 IP/主机名的兜底 scheme：100.64.0.0/10（Tailscale CGNAT 段）补 `http://` ——
+    // AnyBoot 本机服务是明文 HTTP，按旧逻辑一律补 https 会永远连不上（审计 P0）。
     let (scheme, rest) = if lower.starts_with("https://") {
         ("https://", &raw[8..])
     } else if lower.starts_with("http://") {
         ("http://", &raw[7..])
+    } else if is_tailscale_host(&raw) {
+        ("http://", raw.as_ref())
     } else {
         ("https://", raw)
     };
@@ -361,7 +365,36 @@ fn split_remote_address(raw: &str) -> (String, Option<String>) {
             break;
         }
     }
-    (format!("{scheme}{authority}"), token)
+    // Tailscale 裸地址没带端口：补默认端口（对齐 with_default_port 的局域网惯例）
+    let origin = if scheme == "http://" && is_tailscale_host(authority) && !authority.contains(':') {
+        format!("{scheme}{}", with_default_port(authority))
+    } else {
+        format!("{scheme}{authority}")
+    };
+    (origin, token)
+}
+
+/// 主机名是否落在 Tailscale CGNAT 段 100.64.0.0/10（100.64.0.0 ~ 100.127.255.255）。
+/// 只认点分 IPv4；带端口（`100.x:12300`）取冒号前段；IPv6 字面量（多个冒号）返回 false。
+/// 前端（hub.html pcConnLabel）与移动端各有一份同语义实现，改这里记得三处对齐。
+pub(crate) fn is_tailscale_host(host: &str) -> bool {
+    let host = host.trim();
+    if host.contains(':') {
+        // 唯一一个冒号当端口分隔，多个冒号是 IPv6
+        let parts: Vec<&str> = host.split(':').collect();
+        if parts.len() != 2 {
+            return false;
+        }
+        return is_tailscale_host(parts[0]);
+    }
+    let octets: Vec<&str> = host.split('.').collect();
+    if octets.len() < 2 {
+        return false;
+    }
+    match (octets[0].parse::<u8>(), octets[1].parse::<u8>()) {
+        (Ok(a), Ok(b)) => a == 100 && (64..=127).contains(&b),
+        _ => false,
+    }
 }
 
 /// 探活地址兜底默认端口：不带 `:` 的补 `:12300`（对齐手机 DEFAULT_PORT）。
@@ -2474,6 +2507,50 @@ mod tests {
         // 旧值 / 未知 probe_mode 一律归一为并发（首个）
         assert_eq!(normalized.probe_mode, "parallel_first");
         assert_eq!(normalized.jump_id, "j1");
+    }
+
+    #[test]
+    fn tailscale_bare_ip_gets_http_scheme() {
+        // 审计 P0：100.64/10 裸 IP 补 http://（本机服务是明文 HTTP，一律补 https 会连不上）
+        assert_eq!(
+            split_remote_address("100.119.234.95:12300"),
+            ("http://100.119.234.95:12300".into(), None)
+        );
+        // 没带端口补默认端口
+        assert_eq!(
+            split_remote_address("100.64.0.1"),
+            ("http://100.64.0.1:12300".into(), None)
+        );
+        // 段边界：100.63 不算、100.128 不算、100.127 算
+        assert_eq!(
+            split_remote_address("100.63.1.1:12300"),
+            ("https://100.63.1.1:12300".into(), None)
+        );
+        assert_eq!(
+            split_remote_address("100.128.1.1:12300"),
+            ("https://100.128.1.1:12300".into(), None)
+        );
+        assert_eq!(
+            split_remote_address("100.127.255.255:9"),
+            ("http://100.127.255.255:9".into(), None)
+        );
+        // 显式 http:// 的 100.x 原样保留（不重复补端口）
+        assert_eq!(
+            split_remote_address("http://100.1.2.3"),
+            ("http://100.1.2.3".into(), None)
+        );
+        // .ts.net 域名不算 CGNAT 裸 IP（有 scheme 或 https 默认）
+        assert_eq!(
+            split_remote_address("win-pc.tailabc.ts.net"),
+            ("https://win-pc.tailabc.ts.net".into(), None)
+        );
+        // is_tailscale_host 直接断言
+        assert!(is_tailscale_host("100.64.0.1"));
+        assert!(is_tailscale_host("100.119.234.95:12300"));
+        assert!(!is_tailscale_host("100.63.0.1"));
+        assert!(!is_tailscale_host("192.168.1.10"));
+        assert!(!is_tailscale_host("fd7a::1"));
+        assert!(!is_tailscale_host("host.ts.net"));
     }
 
     #[test]

@@ -1838,7 +1838,7 @@ class ComputerListActivity : ComponentActivity() {
             !info.online -> STATE_OFFLINE
             else -> STATE_ONLINE
         }
-        // 当前连接：探测赢家确实是这台电脑的隧道 origin → 远程隧道；
+        // 当前连接：探测赢家确实是这台电脑的远程地址 → 按地址形态细分（Tailscale 直连 / 远程隧道）；
         // 否则配了跳板机 → 跳板机·名字；都没配 → 直连
         val remoteOrigin = if (profile.hasRemote()) {
             ServerProfile.normalizeRemoteOrigin(profile.remoteAddr)
@@ -1849,6 +1849,7 @@ class ComputerListActivity : ComponentActivity() {
         val usingRemote = info != null && info.online &&
             remoteBare.isNotEmpty() && info.addr == remoteBare
         val conn = when {
+            usingRemote && ServerProfile.isTailscaleAddr(remoteOrigin) -> "Tailscale 直连"
             usingRemote -> "远程隧道"
             ServerProfile.text(profile.jumpServerId).isNotEmpty() -> {
                 val jump = JumpStore.findJump(JumpStore.loadJumps(this), profile.jumpServerId)
@@ -2658,7 +2659,7 @@ class ComputerListActivity : ComponentActivity() {
         val refind: BootGroup,
         val grub: BootGroup,
         val state: String,
-        /** 当前连接标注：直连 / 跳板机·xxx / 远程隧道（隧道只在探测赢家确实是它时） */
+        /** 当前连接标注：直连 / 跳板机·xxx / 远程隧道 / Tailscale 直连（远程只在探测赢家确实是它时） */
         val conn: String,
         /** 当前连接是否正在走远程隧道（chip 配色用） */
         val connRemote: Boolean,

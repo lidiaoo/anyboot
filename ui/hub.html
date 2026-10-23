@@ -36,6 +36,8 @@
     --warn: 245 158 11;
     --bad: 239 68 68;
     --accent: 99 102 241;    /* 靛蓝主色（曜蓝 Cobalt） */
+    --link: #7f82f4;         /* 链接色（对齐 styles.css 暗色；gw-url 等链接用） */
+    --link-hover: #9296f8;
     color-scheme: dark;
   }
   html.light {
@@ -52,6 +54,8 @@
     --warn: 180 83 9;
     --bad: 220 38 38;
     --accent: 79 70 229;
+    --link: #4338ca;         /* 链接色（对齐 styles.css 亮色） */
+    --link-hover: #3730a3;
     color-scheme: light;
   }
   * { box-sizing: border-box; }
@@ -1364,6 +1368,15 @@
   .gw-progress { display:flex; align-items:center; gap:10px; margin-top:8px; }
   .gw-progress-bar { flex:1; height:6px; border-radius:99px; background:rgb(var(--elevate)); overflow:hidden; }
   .gw-progress-bar > div { height:100%; width:0%; border-radius:99px; background:rgb(var(--accent)); transition:width .3s; }
+  /* Tailscale 卡：远程地址（mono 大字，端口弱化）与来源小 chip */
+  .ts-addr { font-size:14px; font-weight:600; color:rgb(var(--fg)); user-select:all; }
+  .ts-addr .ts-port { color:rgb(var(--fg-faint)); font-weight:500; }
+  .ts-chip {
+    display:inline-flex; align-items:center; font-size:11px; line-height:1; padding:3px 8px;
+    border-radius:99px; border:1px solid rgb(var(--line-strong)); color:rgb(var(--fg-dim)); flex:none;
+  }
+  .ts-chip.src-tunnel { color:rgb(var(--warn)); border-color:rgb(var(--warn)); }
+  .ts-chip.src-ts { color:rgb(var(--ok)); border-color:rgb(var(--ok)); }
   .gw-clients { display:flex; flex-direction:column; }
   .gw-client {
     display:flex; align-items:center; gap:10px; padding:9px 0; font-size:13px;
@@ -1770,8 +1783,12 @@
                 <p class="field-hint">经跳板机中转的连接方式将在后续版本启用，当前先保存档案</p>
               </div>
               <div class="field" data-page-node-id="rsFieldRemote1">
-                <label for="rsRemote">远程接入（出门时经公网隧道访问这台电脑；粘贴它生成的配对码）</label>
-                <textarea id="rsRemote" rows="2" class="mono" spellcheck="false" placeholder="anyboot://pair?gateway=…&tunnel=…&token=…&#10;或直接粘 https://xxx.trycloudflare.com/?ab_token=…"></textarea>
+                <label for="rsRemote">远程接入（出门时经公网隧道或 Tailscale 虚拟局域网访问这台电脑；粘贴它生成的配对码）</label>
+                <textarea id="rsRemote" rows="2" class="mono" spellcheck="false" placeholder="anyboot://pair?gateway=…&tunnel=…&token=…&#10;或直接粘 https://xxx.trycloudflare.com/?ab_token=… / http://100.x.y.z:12300"></textarea>
+                <p class="field-hint" style="margin:4px 0 0">
+                  支持 <b>https://xxx.trycloudflare.com</b>（隧道）或 <b>http://100.x.y.z:12300</b>（Tailscale，双端同一 tailnet）——
+                  Tailscale 裸 IP 也会自动按 <b>http://</b> 处理，其余裸地址按 https。
+                </p>
                 <div class="addr-quick-actions">
                   <button type="button" class="btn small" id="rsRemoteGet">从对方获取</button>
                   <button type="button" class="btn small" id="rsRemoteClear">清除</button>
@@ -1900,7 +1917,7 @@
         <div class="page-head" style="display:flex;align-items:center;gap:10px">
           <div>
             <h2>远程接入</h2>
-            <span class="sub">把本机的 AnyBoot 挂上公网隧道 —— 配对后的手机 / 其他电脑出门也能访问这台电脑</span>
+            <span class="sub">把本机的 AnyBoot 挂上公网隧道或虚拟局域网 —— 配对后的手机 / 其他电脑出门也能访问这台电脑</span>
           </div>
           <span style="flex:1"></span>
           <button class="btn" id="gwLogBtn" hidden>日志</button>
@@ -1909,7 +1926,7 @@
 
         <div class="gw-note" id="gwWarnQuick">
           快速隧道的地址在通道重启后会变化 —— 重启电脑 / 通道后，已配对的客户端要重新配对一次。
-          要固定地址请改用「命名隧道」（需 Cloudflare 账号 + 托管域名）。
+          要固定地址请改用「命名隧道」（需 Cloudflare 账号 + 托管域名），或用下方 Tailscale 直连（装好即用、地址长期固定、不出公网）。
         </div>
 
         <!-- 通道卡 -->
@@ -1974,6 +1991,66 @@
           </div>
         </div>
 
+        <!-- Tailscale 直连卡（虚拟局域网；与上方 Cloudflare 通道平级，二选一或并存均可） -->
+        <div class="gw-card" id="tsCard" style="min-height:150px">
+          <div class="gw-card-head">
+            <h3>Tailscale 直连</h3>
+            <button class="btn" id="tsRefreshBtn" hidden>重新检测</button>
+          </div>
+          <div class="gw-status" id="tsStateRow">
+            <span class="pulse" id="tsPulse" hidden></span>
+            <span id="tsStateText">正在检测 Tailscale…</span>
+            <span class="mono gw-meta" id="tsMeta"></span>
+          </div>
+          <!-- 运行中态：远程地址行（复制 / 出码） -->
+          <div id="tsAddrRow" hidden>
+            <div class="gw-status" style="margin-top:8px">
+              <span class="field-hint" style="margin:0">远程地址</span>
+              <span class="mono ts-addr" id="tsAddr"></span>
+              <span style="flex:1"></span>
+              <button class="link-btn" id="tsCopyAddr">复制</button>
+              <button class="btn" id="tsPairBtn">生成此地址的配对码</button>
+            </div>
+            <!-- 本机服务自检：防 12300 被保留段占用静默 bind 失败，用户远程失败误以为网有问题 -->
+            <div class="gw-status" style="margin-top:6px">
+              <span id="tsHealthDot" style="display:inline-flex;width:8px;height:8px;border-radius:50%;background:rgb(var(--fg-faint));flex:none"></span>
+              <span id="tsHealthText" style="font-size:12px;color:rgb(var(--fg-dim))">正在自检本机服务…</span>
+            </div>
+            <p class="field-hint" style="margin-top:8px">
+              手机加入同一 tailnet（登录同一 Tailscale 账号）后，把这个地址填到「编辑电脑 → 远程接入」或直接扫码。
+              目标机睡眠后此地址同样失联 —— 唤醒仍需局域网内常开的跳板机代发广播包。
+            </p>
+          </div>
+          <!-- 未安装态：下载安装包（带进度条） -->
+          <div id="tsDlRow" hidden>
+            <p class="field-hint" style="margin:8px 0 8px">
+              没检测到 Tailscale —— 它给两台设备组一个加密虚拟局域网（100.x 地址，不出公网、地址长期固定）。
+              下载完成后安装器会自动弹出，按提示装好并登录，再点「重新检测」。
+            </p>
+            <div style="display:flex;gap:8px;align-items:center">
+              <button class="btn primary" id="tsDownloadBtn">下载 Tailscale</button>
+              <a class="link-btn" href="#" id="tsManualLink" style="text-decoration:none">打开官网手动下载</a>
+            </div>
+            <div class="gw-progress" id="tsProgressRow" hidden style="margin-top:10px">
+              <div class="gw-progress-bar"><div id="tsProgressBar"></div></div>
+              <span class="mono" id="tsProgressText"></span>
+            </div>
+          </div>
+          <!-- 需登录态 -->
+          <div id="tsLoginRow" hidden>
+            <p class="field-hint" style="margin:8px 0 0">
+              Tailscale 已安装但还没登录 —— 打开系统托盘 / 菜单栏的 Tailscale 图标完成登录
+              （国内网络首次登录可能需要代理），登录后点「重新检测」。
+            </p>
+          </div>
+          <!-- 停止态 -->
+          <div id="tsStoppedRow" hidden>
+            <p class="field-hint" style="margin:8px 0 0">
+              Tailscale 处于停止状态 —— 在系统托盘 / 菜单栏把它连上后点「重新检测」。
+            </p>
+          </div>
+        </div>
+
         <!-- 配对管理 -->
         <div class="gw-card">
           <div class="gw-card-head">
@@ -2008,6 +2085,15 @@
           <div class="field" id="gwPairNameRow">
             <label for="gwPairName">客户端名称（谁来配对）</label>
             <input id="gwPairName" type="text" placeholder="例如：我的手机 / 客厅笔记本" maxlength="40">
+          </div>
+          <div class="field" id="gwPairAddrRow">
+            <label>配对串带哪个地址</label>
+            <div class="segmented" id="gwPairAddrTabs" role="tablist" aria-label="地址类型">
+              <button role="tab" data-addr="tunnel" aria-selected="true">隧道地址</button>
+              <button role="tab" data-addr="tailscale" aria-selected="false">Tailscale 地址</button>
+              <button role="tab" data-addr="none" aria-selected="false">不带地址</button>
+            </div>
+            <p class="field-hint" id="gwPairAddrHint" style="margin:6px 0 0">隧道地址 = 本机 Cloudflare 通道的当前地址；没开启通道则自动退化为「不带地址」。</p>
           </div>
           <div style="display:flex;gap:8px;justify-content:flex-end" id="gwPairGoRow">
             <button class="btn primary" id="gwPairGo">生成配对码</button>
@@ -4377,12 +4463,32 @@
   }
 
   /**
+   * 地址是否为 Tailscale（100.64.0.0/10 裸 IP 或 *.ts.net）。
+   * 与 Rust 端 is_tailscale_host、移动端 ServerProfile.isTailscaleAddr 同语义，改要三处对齐。
+   */
+  function isTailscaleAddr(addr) {
+    const text = String(addr || '').trim();
+    if (!text) return false;
+    if (/\.ts\.net(:\d+)?(\/|$)/i.test(text)) return true;
+    const match = text.match(/^https?:\/\/([^/:?]+)/i);
+    const host = match ? match[1] : (text.includes('://') ? '' : text.split(/[/:?]/)[0]);
+    const parts = String(host || '').split('.');
+    return parts.length >= 2 && parts[0] === '100'
+      && Number(parts[1]) >= 64 && Number(parts[1]) <= 127;
+  }
+
+  /**
    * 当前连接标注：远程隧道使用中（探测赢家是隧道）> 跳板机 > 直连。
    * 电脑标签、电脑列表行、悬浮球说明共用这一份真相。
+   * 远程赢家再按地址形态细分：100.x / *.ts.net → Tailscale 直连，其余 → 远程隧道。
    */
   function pcConnLabel(r, short) {
     if (!r) return '';
-    if (pcRemoteWin.has(r.id)) return short ? '隧道' : '远程隧道';
+    if (pcRemoteWin.has(r.id)) {
+      return isTailscaleAddr(r.remote_addr)
+        ? (short ? 'Tailscale' : 'Tailscale 直连')
+        : (short ? '隧道' : '远程隧道');
+    }
     const jumpId = (r.jump_id || '').trim();
     if (jumpId) {
       const jump = servers.find(function (s) { return s.id === jumpId; });
@@ -6274,6 +6380,11 @@
     document.getElementById('rsRemoteHint').textContent = r && r.remote_addr
       ? '已配置远程地址' + (r.remote_token ? ' · 令牌已存（重新粘配对码会更新）' : '')
       : '';
+    // Tailscale 地址形态提示（与配对串 hint 同口径）：裸 100.x 会被补 http://，其余裸域名补 https://
+    if (r && r.remote_addr && isTailscaleAddr(r.remote_addr)) {
+      document.getElementById('rsRemoteHint').textContent +=
+        ' · Tailscale 地址（双端需加入同一 tailnet）';
+    }
     populateRsJump(r ? r.jump_id : '');
     rsProbe = r ? (r.probe_mode === 'serial' || r.probe_mode === 'parallel_all'
         ? r.probe_mode : 'parallel_first')
@@ -7668,6 +7779,7 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
     }).catch(function () { });
     refreshClients();
     refreshOrphans();
+    tsRefresh();
   }
   window.gwRefresh = gwRefresh;
 
@@ -7859,22 +7971,191 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
     } catch (e) { toast('校验失败：' + e, 'bad'); }
   });
 
+  // ---- Tailscale 直连（虚拟局域网；与上方 Cloudflare 通道平级） ----
+  // 后端命令：gateway_tailscale_status / gateway_tailscale_download / gateway_tailscale_install / local_service_health
+  // 事件：tailscale-progress / tailscale-done（与 gateway-binary-* 同一套线程模型）
+  let tsStatus = null;      // 最新 Tailscale 状态
+  let tsPairPreset = null;  // Tailscale 卡「生成此地址的配对码」预选
+
+  function tsPort() {
+    return (typeof localEndpoint !== 'undefined' && localEndpoint && localEndpoint.port) || 12300;
+  }
+  function tsAddr() {
+    return tsStatus && tsStatus.installed && tsStatus.state === 'running' && tsStatus.ip
+      ? 'http://' + tsStatus.ip + ':' + tsPort() : '';
+  }
+  function tsHealth() {
+    const dot = $('tsHealthDot'), text = $('tsHealthText');
+    dot.style.background = 'rgb(var(--fg-faint))';
+    text.style.color = 'rgb(var(--fg-dim))';
+    text.textContent = '正在自检本机服务（127.0.0.1:' + tsPort() + '）…';
+    invoke('local_service_health').then(function () {
+      dot.style.background = 'rgb(var(--ok))';
+      text.style.color = 'rgb(var(--fg-dim))';
+      text.textContent = '本机服务自检通过（127.0.0.1:' + tsPort() + '）';
+    }).catch(function (error) {
+      dot.style.background = 'rgb(var(--warn))';
+      text.style.color = 'rgb(var(--warn))';
+      text.textContent = '自检失败：本机服务未监听 —— 先确认 AnyBoot 服务在运行 / 端口未被保留段占用';
+      text.title = String(error || '');
+    });
+  }
+  function tsRender() {
+    const st = tsStatus;
+    const has = !!(st && st.installed);
+    const running = has && st.state === 'running' && st.ip;
+    $('tsRefreshBtn').hidden = !has;
+    $('tsDlRow').hidden = has;
+    $('tsLoginRow').hidden = !(has && st.state === 'needs_login');
+    $('tsStoppedRow').hidden = !(has && st.state === 'stopped');
+    $('tsAddrRow').hidden = !running;
+    $('tsPulse').hidden = !running;
+    $('tsMeta').textContent = has && st.version ? 'CLI ' + st.version : '';
+    if (!has) {
+      $('tsStateText').textContent = '未检测到 Tailscale';
+    } else if (running) {
+      $('tsStateText').textContent = '运行中' + (st.dns_name ? ' · ' + st.dns_name : '');
+      // 地址行：ip 大字 + 端口弱化
+      const addrEl = $('tsAddr');
+      addrEl.textContent = '';
+      const host = document.createElement('span');
+      host.textContent = 'http://' + st.ip;
+      const port = document.createElement('span');
+      port.className = 'ts-port';
+      port.textContent = ':' + tsPort();
+      addrEl.appendChild(host);
+      addrEl.appendChild(port);
+      tsHealth();
+    } else if (st.state === 'needs_login') {
+      $('tsStateText').textContent = '已安装 · 待登录';
+    } else if (st.state === 'stopped') {
+      $('tsStateText').textContent = '已安装 · 已停止';
+    } else {
+      $('tsStateText').textContent = '已安装 · 状态未知';
+    }
+  }
+  function tsRefresh() {
+    invoke('gateway_tailscale_status').then(function (st) {
+      tsStatus = st;
+      tsRender();
+    }).catch(function () {
+      tsStatus = null;
+      tsRender();
+    });
+  }
+  $('tsRefreshBtn').addEventListener('click', tsRefresh);
+  $('tsCopyAddr').addEventListener('click', function () {
+    const addr = tsAddr();
+    if (!addr) return;
+    navigator.clipboard.writeText(addr)
+      .then(function () { toast('已复制 ' + addr); })
+      .catch(function () { });
+  });
+  $('tsPairBtn').addEventListener('click', function () {
+    // 与 gwIssueBtn 同一弹窗：预选「Tailscale 地址」，没有可用地址就退化普通打开
+    tsPairPreset = tsAddr() ? 'tailscale' : null;
+    $('gwIssueBtn').click();
+  });
+  $('tsDownloadBtn').addEventListener('click', function () {
+    $('tsDownloadBtn').disabled = true;
+    invoke('gateway_tailscale_download').catch(function (error) {
+      $('tsDownloadBtn').disabled = false;
+      toast('下载失败：' + error, 'bad');
+    });
+  });
+  $('tsManualLink').addEventListener('click', function (event) {
+    event.preventDefault();
+    // 走后端 ShellExecuteW 开系统浏览器（remote_open_page）；window.open 只会开新 webview
+    if (invoke) invoke('remote_open_page', { url: 'https://tailscale.com/download' })
+      .catch(function (error) { toast('打开浏览器失败：' + error, 'bad'); });
+  });
+  // 下载进度 / 完成事件（对齐 gateway-binary-* 的消费方式）
+  if (window.__TAURI__ && window.__TAURI__.event && window.__TAURI__.event.listen) {
+    window.__TAURI__.event.listen('tailscale-progress', function (event) {
+      const p = event.payload || {};
+      $('tsProgressRow').hidden = false;
+      const percent = p.total > 0 ? Math.round((p.received / p.total) * 100) : (p.percent || 0);
+      $('tsProgressBar').style.width = percent + '%';
+      $('tsProgressText').textContent = p.total > 0
+        ? '下载 ' + percent + '%（' + Math.round(p.received / 1048576) + ' / ' + Math.round(p.total / 1048576) + ' MB）'
+        : '下载中…';
+    });
+    window.__TAURI__.event.listen('tailscale-done', function (event) {
+      const done = event.payload || {};
+      $('tsProgressRow').hidden = true;
+      $('tsDownloadBtn').disabled = false;
+      if (!done.ok) {
+        toast('Tailscale 下载失败：' + (done.error || '未知错误') + '，可打开官网手动下载', 'bad');
+        return;
+      }
+      toast('下载完成，正在启动安装器（需要你在 UAC 弹窗确认）…');
+      invoke('gateway_tailscale_install', { path: done.path }).then(function () {
+        toast('安装器已启动 —— 装好并登录后回来点「重新检测」');
+      }).catch(function (error) {
+        toast('安装器启动失败：' + error + '，可手动运行 ' + done.path, 'bad');
+      });
+    });
+  }
+
   // ---- 出码配对 ----
+  // 地址类型三选：tunnel（默认）/ tailscale / none
+  let gwPairAddrType = 'tunnel';
+  const GW_ADDR_HINTS = {
+    tunnel: '隧道地址 = 本机 Cloudflare 通道的当前地址；没开启通道则自动退化为「不带地址」。',
+    tailscale: '',  // 运行时按 Tailscale 状态填（见 gwPairAddrHintUpdate）
+    none: '不带地址：客户端拿到配对串后，自己在「编辑电脑 → 远程接入」里填远程地址。',
+  };
+  function gwPairAddrHintUpdate() {
+    const hint = $('gwPairAddrHint');
+    if (gwPairAddrType === 'tailscale') {
+      hint.textContent = tsAddr()
+        ? 'Tailscale 运行中 —— 配对串带 ' + tsAddr() + '（客户端需加入同一 tailnet）。'
+        : 'Tailscale 未运行 —— 生成后将不带地址；先在上方卡片把它跑起来。';
+    } else {
+      hint.textContent = GW_ADDR_HINTS[gwPairAddrType];
+    }
+  }
+  Array.prototype.forEach.call($('gwPairAddrTabs').querySelectorAll('button'), function (button) {
+    button.addEventListener('click', function () {
+      gwPairAddrType = button.dataset.addr || 'tunnel';
+      Array.prototype.forEach.call($('gwPairAddrTabs').querySelectorAll('button'), function (other) {
+        other.setAttribute('aria-selected', other === button ? 'true' : 'false');
+      });
+      gwPairAddrHintUpdate();
+    });
+  });
   $('gwIssueBtn').addEventListener('click', function () {
     $('gwPairNameRow').hidden = false;
+    $('gwPairAddrRow').hidden = false;
     $('gwPairGoRow').hidden = false;
     $('gwPairResult').hidden = true;
     $('gwPairName').value = '';
+    // 预选：Tailscale 卡入口 → tailscale；否则隧道（有 tsAddr 且没开通道时跟手）
+    if (!tsPairPreset && !((snap && snap.url) || (mode === 'named' && $('gwNamedUrl').value.trim())) && tsAddr()) {
+      tsPairPreset = 'tailscale';
+    }
+    gwPairAddrType = tsPairPreset || 'tunnel';
+    tsPairPreset = null;
+    Array.prototype.forEach.call($('gwPairAddrTabs').querySelectorAll('button'), function (button) {
+      button.setAttribute('aria-selected', (button.dataset.addr || 'tunnel') === gwPairAddrType ? 'true' : 'false');
+    });
+    gwPairAddrHintUpdate();
     $('gwPairOverlay').hidden = false;
     $('gwPairName').focus();
   });
   $('gwPairGo').addEventListener('click', async function () {
     const name = $('gwPairName').value.trim();
     if (!name) { toast('先填客户端名称', 'bad'); return; }
-    // 配对串里的隧道地址：命名隧道用保存的对外地址；快速隧道用当前运行地址（没开就不带）
-    const tunnel = mode === 'named'
-      ? ($('gwNamedUrl').value.trim() || (snap && snap.url) || '')
-      : ((snap && snap.url) || '');
+    // 配对串里的地址：按「地址类型」三选分发
+    let tunnel = '';
+    if (gwPairAddrType === 'tunnel') {
+      // 命名隧道用保存的对外地址；快速隧道用当前运行地址（没开就不带）
+      tunnel = mode === 'named'
+        ? ($('gwNamedUrl').value.trim() || (snap && snap.url) || '')
+        : ((snap && snap.url) || '');
+    } else if (gwPairAddrType === 'tailscale') {
+      tunnel = tsAddr();
+    }
     try {
       const issued = await invoke('gateway_pair_issue', { name: name, tunnel: tunnel });
       $('gwPairNameRow').hidden = true;
@@ -7959,6 +8240,20 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
       main.appendChild(name);
       main.appendChild(meta);
       row.appendChild(main);
+      // 来源 chip：按出码时记录的地址形态分（隧道 / Tailscale / 无地址），对账一眼可辨
+      const src = document.createElement('span');
+      if (client.pair_addr && isTailscaleAddr(client.pair_addr)) {
+        src.className = 'ts-chip src-ts';
+        src.textContent = 'Tailscale';
+      } else if (client.pair_addr) {
+        src.className = 'ts-chip src-tunnel';
+        src.textContent = '隧道';
+      } else {
+        src.className = 'ts-chip';
+        src.textContent = '无地址';
+      }
+      src.title = client.pair_addr || '出码时没有可用地址';
+      row.appendChild(src);
       if (client.revoked) {
         const tag = document.createElement('span');
         tag.className = 'gw-client-revoked';

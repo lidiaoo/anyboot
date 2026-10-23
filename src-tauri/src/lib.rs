@@ -122,6 +122,7 @@ pub(crate) mod hub_sftp;
 mod hub_term;
 mod hub_tunnel;
 mod hub_gateway;
+pub(crate) mod hub_tailscale;
 mod hub_vault;
 mod http;
 mod remote_servers;
@@ -2799,6 +2800,10 @@ pub fn run() {
             hub_gateway::gateway_binary_status,
             hub_gateway::gateway_binary_download,
             hub_gateway::gateway_binary_set_manual,
+            hub_tailscale::gateway_tailscale_status,
+            hub_tailscale::gateway_tailscale_download,
+            hub_tailscale::gateway_tailscale_install,
+            hub_tailscale::local_service_health,
             hub_gateway::gateway_tunnel_start,
             hub_gateway::gateway_tunnel_stop,
             hub_gateway::gateway_tunnel_status,

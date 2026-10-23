@@ -110,10 +110,18 @@ internal class ServerEditFormState(
             remoteHint = ""
             return
         }
-        remoteHint = if (ServerProfile.parsePair(raw) != null) {
-            "已识别：${ServerProfile.normalizeRemoteOrigin(if (raw.startsWith("anyboot://", ignoreCase = true)) ServerProfile.parsePair(raw)!![0] else raw)}"
+        val parsed = ServerProfile.parsePair(raw)
+        remoteHint = if (parsed != null) {
+            val origin = parsed[0]
+            val tail = when {
+                ServerProfile.isTailscaleAddr(origin) ->
+                    "（Tailscale：手机需与电脑加入同一 tailnet，连不上时检查两边 Tailscale 是否在线）"
+                origin.startsWith("https://") -> ""
+                else -> ""
+            }
+            "已识别：$origin$tail"
         } else {
-            "没认出配对码 —— 要 anyboot://pair?… 串或 https://… 隧道地址"
+            "没认出配对码 —— 要 anyboot://pair?… 串、https://… 隧道地址或 http://100.x.y.z:12300 Tailscale 地址"
         }
     }
 
@@ -401,7 +409,7 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
             modifier = Modifier.fillMaxWidth(),
         )
 
-        FieldLabel("远程接入（出门时经公网隧道访问这台电脑；粘贴它生成的配对码）")
+        FieldLabel("远程接入（出门时经公网隧道或 Tailscale 虚拟局域网访问这台电脑；粘贴它生成的配对码）")
         OutlinedTextField(
             value = state.remoteText,
             onValueChange = {
@@ -409,7 +417,7 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                 state.applyRemoteHint()
             },
             placeholder = {
-                Text("anyboot://pair?… 或 https://xxx.trycloudflare.com", fontSize = 12.sp)
+                Text("anyboot://pair?… / https://xxx.trycloudflare.com / http://100.x.y.z:12300", fontSize = 12.sp)
             },
             modifier = Modifier.fillMaxWidth(),
         )
@@ -427,8 +435,9 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
             )
         }
         Text(
-            "局域网地址优先使用，全连不上才走远程；清空后保存 = 取消远程接入。" +
-                "配对码等同密码，别转发给别人。",
+            "支持 https://xxx.trycloudflare.com（隧道）或 http://100.x.y.z:12300（Tailscale，双端同一 tailnet）；" +
+                "Tailscale 裸 IP 自动按 http:// 处理，其余裸地址按 https。局域网地址优先使用，全连不上才走远程；" +
+                "清空后保存 = 取消远程接入。配对码等同密码，别转发给别人。",
             fontSize = 11.sp, color = palette.fgFaint,
         )
 

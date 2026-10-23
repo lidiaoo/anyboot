@@ -627,8 +627,9 @@ final class ServerProfile {
     }
 
     /**
-     * 远程地址归一：整条 URL / 裸 host 都吃，剥路径与 query，无 scheme 补 https。
-     * 与 PC 端 split_remote_address 同一套规则。
+     * 远程地址归一：整条 URL / 裸 host 都吃，剥路径与 query，无 scheme 补 https；
+     * 例外：Tailscale CGNAT 段（100.64.0.0/10）补 http://（本机服务是明文 HTTP，
+     * 一律补 https 会永远连不上 —— 与 PC 端 split_remote_address 同一条审计修复）。
      */
     static String normalizeRemoteOrigin(String raw) {
         String value = text(raw);
@@ -643,6 +644,9 @@ final class ServerProfile {
         } else if (lower.startsWith("http://")) {
             scheme = "http://";
             value = value.substring(7);
+        } else if (isTailscaleAddr(value)) {
+            // 无 scheme 的 Tailscale 裸地址：补 http://（本机服务是明文 HTTP）
+            scheme = "http://";
         } else {
             scheme = "https://";
         }
@@ -656,7 +660,59 @@ final class ServerProfile {
             end = Math.min(end, question);
         }
         String authority = value.substring(0, end).trim();
-        return authority.isEmpty() ? "" : scheme + authority;
+        if (authority.isEmpty()) {
+            return "";
+        }
+        // Tailscale 地址：补 http://；没带端口补默认端口（与 PC 端 with_default_port 对齐）
+        if (scheme.equals("http://") && isTailscaleAddr(authority) && !authority.contains(":")) {
+            authority = authority + ":12300";
+        }
+        return scheme + authority;
+    }
+
+    /**
+     * 是否 Tailscale 地址：100.64.0.0/10 裸 IP（可带端口）或 *.ts.net 域名。
+     * 与 PC 端 is_tailscale_host / hub.html isTailscaleAddr 同语义，改要三处对齐。
+     */
+    static boolean isTailscaleAddr(String addr) {
+        String value = text(addr).trim();
+        if (value.isEmpty()) {
+            return false;
+        }
+        // 剥 scheme 与路径，只留 host[:port]
+        String lower = value.toLowerCase(Locale.US);
+        if (lower.startsWith("https://")) {
+            value = value.substring(8);
+        } else if (lower.startsWith("http://")) {
+            value = value.substring(7);
+        }
+        int cut = value.length();
+        int slash = value.indexOf('/');
+        if (slash >= 0) {
+            cut = Math.min(cut, slash);
+        }
+        value = value.substring(0, cut).trim();
+        if (value.endsWith(".ts.net")) {
+            return true;
+        }
+        if (value.contains(":")) {
+            String[] parts = value.split(":");
+            if (parts.length != 2) {
+                return false; // 多个冒号是 IPv6 字面量
+            }
+            value = parts[0];
+        }
+        String[] octets = value.split("\\.");
+        if (octets.length < 2) {
+            return false;
+        }
+        try {
+            int a = Integer.parseInt(octets[0]);
+            int b = Integer.parseInt(octets[1]);
+            return a == 100 && b >= 64 && b <= 127;
+        } catch (NumberFormatException error) {
+            return false;
+        }
     }
 
     /**

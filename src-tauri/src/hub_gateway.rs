@@ -318,8 +318,8 @@ pub(crate) struct DownloadDone {
     pub version: String,
 }
 
-/// 单源流式下载到 tmp：返回 (received, total)。
-fn download_to_tmp(url: &str, tmp: &Path) -> Result<(u64, u64), String> {
+/// 单源流式下载到 tmp：返回 (received, total)。hub_tailscale 下载安装包也复用。
+pub(crate) fn download_to_tmp(url: &str, tmp: &Path) -> Result<(u64, u64), String> {
     let agent = ureq::AgentBuilder::new()
         .timeout_connect(std::time::Duration::from_secs(15))
         .timeout_read(std::time::Duration::from_secs(30))
