@@ -539,6 +539,8 @@ pub struct GatewayTunnelState {
     log: Mutex<std::collections::VecDeque<String>>,
     /// 展示快照（事件冗余一份，status 命令随时可查）。
     snapshot: Mutex<TunnelSnapshot>,
+    /// 沿用的残留通道（没有 Child 句柄，只记 pid；stop/kill_all 按 pid 收掉）。
+    adopted: Mutex<Option<AdoptedTunnel>>,
 }
 
 impl Default for GatewayTunnelState {
@@ -556,6 +558,7 @@ impl Default for GatewayTunnelState {
                 state: "stopped".into(),
                 last_error: String::new(),
             }),
+            adopted: Mutex::new(None),
         }
     }
 }
@@ -666,6 +669,178 @@ fn cleanup_orphan_cloudflared(app: &tauri::AppHandle) {
     }
 }
 
+// ==================== 残留通道（异常退出留下的孤儿 cloudflared） ====================
+// 语义：强杀/崩溃时 kill_all 钩子不执行 → cloudflared 成孤儿继续跑。
+// 不再一刀切杀掉，而是列出来让用户选「沿用（地址不变）/ 终止（重建新地址）」；
+// 勾了自启且残留通道有地址记录时，自动沿用 —— 快速隧道地址得以跨软件重启保持。
+
+/// 最近一次隧道进程的 pid→url 映射（沿用残留通道时对回地址）。
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+struct TunnelLast {
+    pid: u32,
+    #[serde(default)]
+    url: String,
+}
+
+fn tunnel_last_path(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(cache_dir(app)?.join("tunnel_last.json"))
+}
+
+fn save_tunnel_last(app: &AppHandle, pid: u32, url: &str) {
+    if let Ok(path) = tunnel_last_path(app) {
+        if let Ok(bytes) = serde_json::to_vec(&TunnelLast { pid, url: url.to_string() }) {
+            let _ = std::fs::write(path, bytes);
+        }
+    }
+}
+
+fn load_tunnel_last(app: &AppHandle) -> TunnelLast {
+    tunnel_last_path(app)
+        .ok()
+        .and_then(|p| std::fs::read(p).ok())
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default()
+}
+
+/// 列出 ExecutablePath 精确等于我们 cloudflared.exe 的进程（pid + 启动时间）。
+/// exclude 里的 pid 不返回（受管/已沿用的不算残留）。
+fn list_cloudflared_pids(app: &AppHandle, exclude: &[u32]) -> Vec<(u32, String)> {
+    let Ok(binary) = binary_path(app) else { return Vec::new() };
+    let Some(exe) = binary.to_str() else { return Vec::new() };
+    let script = format!(
+        "Get-CimInstance Win32_Process -Filter \"Name='cloudflared.exe'\" | \
+         Where-Object {{ $_.ExecutablePath -eq '{}' }} | \
+         ForEach-Object {{ \"{{0}}|{{1}}\" -f $_.ProcessId, $_.CreationDate.ToString('yyyy-MM-dd HH:mm:ss') }}",
+        exe.replace('\'', "''"),
+    );
+    let mut command = std::process::Command::new("powershell");
+    command.args(["-NoProfile", "-NonInteractive", "-Command", &script]);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    let Ok(output) = command.output() else { return Vec::new() };
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| {
+            let (pid, time) = line.trim().split_once('|')?;
+            let pid: u32 = pid.parse().ok()?;
+            (!exclude.contains(&pid)).then(|| (pid, time.to_string()))
+        })
+        .collect()
+}
+
+fn kill_cloudflared_pid(pid: u32) {
+    let script = format!("Stop-Process -Id {pid} -Force -ErrorAction SilentlyContinue");
+    let mut command = std::process::Command::new("powershell");
+    command.args(["-NoProfile", "-NonInteractive", "-Command", &script]);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    let _ = command.output();
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+pub(crate) struct OrphanTunnel {
+    pub pid: u32,
+    /// 进程启动时间（本地时区字符串，直接来自 CIM）。
+    pub started_at: String,
+    /// 沿用时可对回的隧道地址（空=没有记录，地址未知）。
+    pub url: String,
+}
+
+fn tunnel_orphans_inner(app: &AppHandle) -> Vec<OrphanTunnel> {
+    let state = app.state::<GatewayTunnelState>();
+    let mut exclude = Vec::new();
+    if let Some(p) = state.proc.lock().unwrap().as_ref() {
+        exclude.push(p.pid);
+    }
+    if let Some(a) = state.adopted.lock().unwrap().as_ref() {
+        exclude.push(a.pid);
+    }
+    let last = load_tunnel_last(app);
+    list_cloudflared_pids(app, &exclude)
+        .into_iter()
+        .map(|(pid, started_at)| OrphanTunnel {
+            pid,
+            started_at,
+            url: if last.pid == pid { last.url.clone() } else { String::new() },
+        })
+        .collect()
+}
+
+/// 残留通道列表（网关页「本机通道」卡里展示）。CIM 查询是起子进程 —— 必须 spawn_blocking。
+#[tauri::command]
+pub(crate) async fn gateway_tunnel_orphans(app: tauri::AppHandle) -> Vec<OrphanTunnel> {
+    tauri::async_runtime::spawn_blocking(move || tunnel_orphans_inner(&app))
+        .await
+        .unwrap_or_default()
+}
+
+/// 已沿用的残留通道（没有 Child 句柄，只记 pid；stop/kill_all 时按 pid 收掉）。
+struct AdoptedTunnel {
+    pid: u32,
+    url: String,
+}
+
+fn tunnel_adopt_inner(app: &AppHandle, pid: u32) -> Result<TunnelSnapshot, String> {
+    let state = app.state::<GatewayTunnelState>();
+    if state.proc.lock().unwrap().is_some() {
+        return Err("本应用的通道已在运行，无需沿用".to_string());
+    }
+    if !list_cloudflared_pids(app, &[]).iter().any(|(p, _)| *p == pid) {
+        return Err(format!("进程 {pid} 已经不在了（可能刚退出）"));
+    }
+    let last = load_tunnel_last(app);
+    let url = if last.pid == pid { last.url.clone() } else { String::new() };
+    *state.adopted.lock().unwrap() = Some(AdoptedTunnel { pid, url: url.clone() });
+    *state.snapshot.lock().unwrap() = TunnelSnapshot {
+        running: true,
+        mode: "quick".into(),
+        url: url.clone(),
+        started_at: now_millis(),
+        restarts: 0,
+        state: "running".into(),
+        last_error: String::new(),
+    };
+    state.emit_state(app);
+    gw_log(app, &format!("[gateway] 沿用残留通道 pid={pid} url={url}"));
+    state
+        .snapshot
+        .lock()
+        .map(|s| s.clone())
+        .map_err(|_| "状态锁中毒".to_string())
+}
+
+/// 沿用残留通道：不新建进程，把已在跑的孤儿记到本应用名下（地址从 pid 映射找回）。
+#[tauri::command]
+pub(crate) async fn gateway_tunnel_adopt(
+    app: tauri::AppHandle,
+    pid: u32,
+) -> Result<TunnelSnapshot, String> {
+    match tauri::async_runtime::spawn_blocking(move || tunnel_adopt_inner(&app, pid)).await {
+        Ok(result) => result,
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+/// 终止一个残留通道进程，返回最新残留列表（省一次来回）。
+#[tauri::command]
+pub(crate) async fn gateway_tunnel_kill_orphan(app: tauri::AppHandle, pid: u32) -> Vec<OrphanTunnel> {
+    tauri::async_runtime::spawn_blocking(move || {
+        if list_cloudflared_pids(&app, &[]).iter().any(|(p, _)| *p == pid) {
+            kill_cloudflared_pid(pid);
+            gw_log(&app, &format!("[gateway] 终止残留通道 pid={pid}"));
+        }
+        tunnel_orphans_inner(&app)
+    })
+    .await
+    .unwrap_or_default()
+}
+
 fn tunnel_start_blocking(
     app: &tauri::AppHandle,
     mode: String,
@@ -676,6 +851,8 @@ fn tunnel_start_blocking(
     if state.proc.lock().unwrap().is_some() {
         return Err("通道已在运行".to_string());
     }
+    // 点了「开启通道」= 明确要新的：沿用中的残留也按孤儿清掉
+    *state.adopted.lock().unwrap() = None;
     cleanup_orphan_cloudflared(app);
     let mode = match mode.as_str() {
         "quick" => TunnelMode::Quick,
@@ -755,6 +932,7 @@ fn tunnel_worker(app: tauri::AppHandle, mode: TunnelMode, named_token: String, n
         };
         let pid = child.id();
         gw_log(&app, &format!("[gateway] cloudflared pid={pid}"));
+        save_tunnel_last(&app, pid, "");
         *state.proc.lock().unwrap() = Some(TunnelProc {
             child: Mutex::new(child),
             pid,
@@ -779,7 +957,7 @@ fn tunnel_worker(app: tauri::AppHandle, mode: TunnelMode, named_token: String, n
             let reader_mode = mode.clone();
             let reader_url = named_url.clone();
             std::thread::spawn(move || {
-                pipe_log_lines(reader_app, stderr, reader_mode, reader_url);
+                pipe_log_lines(reader_app, stderr, reader_mode, reader_url, pid);
             });
         }
 
@@ -834,12 +1012,13 @@ fn tunnel_worker(app: tauri::AppHandle, mode: TunnelMode, named_token: String, n
     }
 }
 
-/// stderr 按行读 → 环形日志 + 事件。
+/// stderr 按行读 → 环形日志 + 事件。pid 用于把地址写进 tunnel_last.json（沿用残留时对账）。
 fn pipe_log_lines(
     app: tauri::AppHandle,
     mut stderr: std::process::ChildStderr,
     mode: TunnelMode,
     named_url: String,
+    pid: u32,
 ) {
     let state = app.state::<GatewayTunnelState>();
     let mut buffer = Vec::new();
@@ -863,6 +1042,7 @@ fn pipe_log_lines(
                                 s.state = "running".into();
                             });
                             state.emit_state(&app);
+                            save_tunnel_last(&app, pid, &url);
                             gw_log(&app, &format!("[gateway] 隧道地址 {url}"));
                         }
                     } else if text.contains("Registered tunnel connection") {
@@ -871,6 +1051,7 @@ fn pipe_log_lines(
                             s.state = "running".into();
                         });
                         state.emit_state(&app);
+                        save_tunnel_last(&app, pid, &named_url);
                     }
                 }
             }
@@ -878,25 +1059,34 @@ fn pipe_log_lines(
     }
 }
 
-/// 停止通道（用户关闭：不重启）。
+/// 停止通道（用户关闭：不重启）。杀残留要起 PowerShell 子进程 —— 必须 spawn_blocking。
 #[tauri::command]
-pub(crate) fn gateway_tunnel_stop(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, GatewayTunnelState>,
-) -> Result<TunnelSnapshot, String> {
+pub(crate) async fn gateway_tunnel_stop(app: tauri::AppHandle) -> Result<TunnelSnapshot, String> {
+    match tauri::async_runtime::spawn_blocking(move || gateway_tunnel_stop_blocking(&app)).await {
+        Ok(result) => result,
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+fn gateway_tunnel_stop_blocking(app: &AppHandle) -> Result<TunnelSnapshot, String> {
+    let state = app.state::<GatewayTunnelState>();
     state
         .desired
         .store(false, std::sync::atomic::Ordering::SeqCst);
     if let Some(proc_handle) = state.proc.lock().unwrap().as_ref() {
         let _ = proc_handle.child.lock().unwrap().kill();
     }
-    gw_log(&app, "[gateway] 用户请求停止通道");
+    // 沿用的残留进程没有 Child 句柄，按 pid 收掉
+    if let Some(a) = state.adopted.lock().unwrap().take() {
+        kill_cloudflared_pid(a.pid);
+    }
+    gw_log(app, "[gateway] 用户请求停止通道");
     // 进程退出由工作线程感知并落 stopped 快照；这里也直接兜底置态，避免 UI 干等。
     state.set_snapshot(|s| {
         s.running = false;
         s.state = "stopped".into();
     });
-    state.emit_state(&app);
+    state.emit_state(app);
     state
         .snapshot
         .lock()
@@ -942,6 +1132,10 @@ pub(crate) fn kill_all(app: &AppHandle) {
             .store(false, std::sync::atomic::Ordering::SeqCst);
         if let Some(proc_handle) = state.proc.lock().unwrap().as_ref() {
             let _ = proc_handle.child.lock().unwrap().kill();
+        }
+        // 沿用的残留进程一并收掉
+        if let Some(a) = state.adopted.lock().unwrap().take() {
+            kill_cloudflared_pid(a.pid);
         }
     }
 }
@@ -1497,9 +1691,8 @@ pub(crate) fn gateway_save_config(
 /// quick 也支持 —— 地址每次会变，但通道先就位，新地址在本页/出码里都是现成的；
 /// named 必须已存 Tunnel Token，quick 不需要。mode 为空（未配置过）不自启。
 pub(crate) fn autostart_tunnel(app: &tauri::AppHandle) {
-    // 无论自启与否都先清孤儿：强杀/崩溃留下的旧隧道会让客户端旧地址「阴魂不散」
-    cleanup_orphan_cloudflared(app);
     let settings = crate::stored_settings(app);
+    // 没勾自启：残留通道不动，网关页列出来让用户选「沿用 / 终止」
     if !settings.gateway_autostart || settings.gateway_mode.is_empty() {
         return;
     }
@@ -1511,6 +1704,14 @@ pub(crate) fn autostart_tunnel(app: &tauri::AppHandle) {
     let token = settings.gateway_named_token.clone();
     let url = settings.gateway_named_url.clone();
     std::thread::spawn(move || {
+        // 自启 + 崩溃残留：有地址记录的残留直接沿用（快速隧道地址跨软件重启保持）；
+        // 没记录的（拿不到地址）走 tunnel_start_blocking 清掉重开。
+        let orphans = tunnel_orphans_inner(&app);
+        if let Some(orphan) = orphans.iter().find(|o| !o.url.is_empty()) {
+            if tunnel_adopt_inner(&app, orphan.pid).is_ok() {
+                return;
+            }
+        }
         let _ = tunnel_start_blocking(&app, mode, token, url);
     });
 }

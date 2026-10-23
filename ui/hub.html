@@ -1931,6 +1931,15 @@
           </div>
           <div id="gwErrRow" class="gw-err" hidden></div>
 
+          <!-- 残留通道（应用异常退出留下的孤儿 cloudflared）：沿用或终止 -->
+          <div id="gwOrphanBox" hidden style="margin-top:12px">
+            <p class="field-hint" style="margin:0 0 6px">
+              检测到上次异常退出留下的残留通道 —— 「沿用」地址不变（客户端无需重新配对），
+              「终止」后点上方「开启通道」会创建新地址。
+            </p>
+            <div id="gwOrphanList" class="gw-clients"></div>
+          </div>
+
           <!-- named 配置区（quick 模式隐藏） -->
           <div id="gwNamedForm" hidden style="margin-top:12px">
             <div class="field">
@@ -7658,8 +7667,66 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
       applySnapshot(snap);
     }).catch(function () { });
     refreshClients();
+    refreshOrphans();
   }
   window.gwRefresh = gwRefresh;
+
+  // ---- 残留通道（异常退出留下的孤儿 cloudflared）：沿用 / 终止 ----
+  function refreshOrphans() {
+    invoke('gateway_tunnel_orphans').then(renderOrphans).catch(function () {
+      $('gwOrphanBox').hidden = true;
+    });
+  }
+  function renderOrphans(list) {
+    const box = $('gwOrphanBox');
+    const wrap = $('gwOrphanList');
+    wrap.textContent = '';
+    if (!list || !list.length) { box.hidden = true; return; }
+    box.hidden = false;
+    list.forEach(function (o) {
+      const row = document.createElement('div');
+      row.className = 'gw-client';
+      const main = document.createElement('div');
+      main.style.flex = '1';
+      main.style.minWidth = '0';
+      const name = document.createElement('div');
+      name.className = 'gw-client-name';
+      name.textContent = '残留通道 · pid ' + o.pid;
+      const meta = document.createElement('div');
+      meta.className = 'gw-client-meta';
+      meta.textContent = '启动于 ' + (o.started_at || '?') + ' · '
+        + (o.url ? o.url.replace(/^https?:\/\//, '') : '地址未知（旧版本开启，无法沿用地址）');
+      if (o.url) meta.title = o.url;
+      main.appendChild(name);
+      main.appendChild(meta);
+      row.appendChild(main);
+      const adopt = document.createElement('button');
+      adopt.className = 'link-btn';
+      adopt.textContent = '沿用';
+      adopt.hidden = !o.url;
+      adopt.addEventListener('click', async function () {
+        try {
+          const value = await invoke('gateway_tunnel_adopt', { pid: o.pid });
+          applySnapshot(value);
+          toast('已沿用残留通道' + (value.url ? '，地址不变' : ''));
+          refreshOrphans();
+        } catch (e) { toast('沿用失败：' + e, 'bad'); }
+      });
+      row.appendChild(adopt);
+      const kill = document.createElement('button');
+      kill.className = 'link-btn';
+      kill.textContent = '终止';
+      kill.addEventListener('click', async function () {
+        try {
+          const rest = await invoke('gateway_tunnel_kill_orphan', { pid: o.pid });
+          renderOrphans(rest);
+          toast('已终止残留通道');
+        } catch (e) { toast('终止失败：' + e, 'bad'); }
+      });
+      row.appendChild(kill);
+      wrap.appendChild(row);
+    });
+  }
 
   // ---- 渲染 ----
   function applyConfig() {
