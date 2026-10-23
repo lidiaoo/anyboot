@@ -407,6 +407,17 @@ class MainActivity : ComponentActivity() {
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            // 当前连接后缀：直连 / 跳板机 / 隧道（远程赢家实时变化，chipTick 驱动重绘）
+            Text(
+                text = when {
+                    tab?.usingRemote == true -> "隧道"
+                    ServerProfile.text(profile.jumpServerId).isNotEmpty() -> "跳板机"
+                    else -> "直连"
+                },
+                fontSize = 9.sp,
+                color = if (active) Color.White.copy(alpha = 0.75f) else palette.fgFaint,
+                maxLines = 1,
+            )
         }
     }
 

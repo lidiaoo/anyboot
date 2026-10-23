@@ -780,6 +780,9 @@
     font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 9px;
     background: rgba(255, 255, 255, .2); border-radius: 6px; padding: 1px 6px;
   }
+  /* 当前连接后缀（直连 / 跳板机 / 隧道）：弱化小字，激活 chip 上半透明白 */
+  .pc-chip .chip-conn { font-size: 9px; color: rgb(var(--fg-faint)); flex: none; }
+  .pc-chip.active .chip-conn { color: rgba(255, 255, 255, .75); }
   .pc-chip.add { background: transparent; border: 1px dashed rgb(var(--line)); color: rgb(var(--fg-dim)); }
   .pc-chip.add:hover { border-color: rgb(var(--accent) / .5); color: rgb(var(--accent)); }
   .pc-menu {
@@ -4273,7 +4276,10 @@
       probeMode: mode,
       remoteAddr: remoteAddr,
     });
+    // 连接方式是否翻转（直连 ↔ 隧道）：变了要刷新标注（电脑标签/列表行/悬浮球）
+    let connChanged = false;
     if (res && res.ok) {
+      connChanged = res.remote ? !pcRemoteWin.has(r.id) : pcRemoteWin.has(r.id);
       if (res.remote) {
         pcRemoteWin.set(r.id, res.addr); // res.addr = https origin
         pcRemoteExpired.delete(r.id);
@@ -4296,6 +4302,11 @@
         pcRemoteExpired.delete(r.id);
       }
     }
+    if (connChanged) {
+      renderPcChips();
+      pcFabRefresh();
+      if (typeof cqRenderRows === 'function') cqRenderRows();
+    }
     return res;
   }
 
@@ -4304,6 +4315,22 @@
     const win = pcRemoteWin.get(r.id);
     if (win) return win + '/?ab_token=' + encodeURIComponent(r.remote_token || '');
     return pcUrl(r);
+  }
+
+  /**
+   * 当前连接标注：远程隧道使用中（探测赢家是隧道）> 跳板机 > 直连。
+   * 电脑标签、电脑列表行、悬浮球说明共用这一份真相。
+   */
+  function pcConnLabel(r, short) {
+    if (!r) return '';
+    if (pcRemoteWin.has(r.id)) return short ? '隧道' : '远程隧道';
+    const jumpId = (r.jump_id || '').trim();
+    if (jumpId) {
+      const jump = servers.find(function (s) { return s.id === jumpId; });
+      const name = jump ? (jump.name || jump.host) : '已删除';
+      return short ? '跳板机' : '跳板机 · ' + name;
+    }
+    return '直连';
   }
   function localUrl() {
     if (!localEndpoint || !localEndpoint.port) return '';
@@ -4798,11 +4825,19 @@
       chip.textContent = row.group;
       nameLine.appendChild(chip);
     }
-    // 远程通道使用中（探测赢家落在远程地址时）
-    if (pcRemoteWin.has(row.rid)) {
+    // 当前连接标注：本机 / 直连 / 跳板机·xxx / 远程隧道（探测赢家落在隧道时）
+    if (row.local) {
       const chip = document.createElement('span');
-      chip.className = 'cq-chip-remote';
-      chip.textContent = '远程';
+      chip.className = 'cq-chip-grp';
+      chip.textContent = '本机';
+      nameLine.appendChild(chip);
+    } else {
+      const chip = document.createElement('span');
+      chip.className = pcRemoteWin.has(row.rid) ? 'cq-chip-remote' : 'cq-chip-grp';
+      chip.textContent = pcConnLabel(row.server, false);
+      chip.title = pcRemoteWin.has(row.rid)
+        ? '局域网全挂，正在经它的公网隧道访问'
+        : (chip.textContent === '直连' ? '局域网直连' : '广播包经跳板机在内网发');
       nameLine.appendChild(chip);
     }
     txt.appendChild(nameLine);
@@ -5620,11 +5655,16 @@
       chip.className = 'pc-chip' + (activeRemote === r.id ? ' active' : '');
       chip.dataset.rid = r.id;
       chip.setAttribute('role', 'tab');
-      chip.title = (r.group ? r.group + ' · ' : '') + pcFirstAddr(r);
+      chip.title = (r.group ? r.group + ' · ' : '') + pcConnLabel(r, false) + ' · ' + pcFirstAddr(r);
       const dot = document.createElement('span');
       dot.className = 'dot';
       chip.appendChild(dot);
       chip.appendChild(document.createTextNode(pcName(r)));
+      // 当前连接后缀：直连 / 跳板机 / 隧道（远程赢家实时变化，renderPcChips 重刷时更新）
+      const conn = document.createElement('span');
+      conn.className = 'chip-conn';
+      conn.textContent = pcConnLabel(r, true);
+      chip.appendChild(conn);
       chip.addEventListener('click', function () { pageSelect(r.id); });
       const more = document.createElement('span');
       more.className = 'chip-more';
@@ -5698,7 +5738,14 @@
         shutdown: pcPowerHint(server, 'shutdown', ''),
         reboot: pcPowerHint(server, 'reboot', ''),
       };
-      if (note) note.textContent = '电源走局域网 · 需 sol';
+      // 说明行 = 当前连接 + 电源走法：远程时 HTTP 自动走隧道、广播包发不出；
+      // 跳板机时广播包经跳板机在内网发。模式细节看该电脑的电源路由配置。
+      if (note) {
+        const conn = pcConnLabel(server, false);
+        note.textContent = pcRemoteWin.has(activeRemote)
+          ? conn + ' · HTTP 走隧道 · 广播包发不出'
+          : (conn === '直连' ? '电源走局域网 · 需 sol' : conn + ' · 广播包经跳板机在内网发');
+      }
     }
     Object.keys(hints).forEach(function (act) {
       const chip = pcFabWrap.querySelector('[data-pact="' + act + '"]');

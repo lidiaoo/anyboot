@@ -830,22 +830,21 @@ class ComputerListActivity : ComponentActivity() {
                             .padding(horizontal = 5.dp, vertical = 1.dp),
                     )
                 }
-                // 配了远程接入：一枚「远程」chip（出门时局域网全挂会自动走它）
-                if (row.profile.hasRemote()) {
-                    Spacer(Modifier.width(7.dp))
-                    Text(
-                        "远程",
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = palette.accent,
-                        maxLines = 1,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(5.dp))
-                            .background(palette.accent.copy(alpha = 0.16f))
-                            .border(1.dp, palette.accent.copy(alpha = 0.3f), RoundedCornerShape(5.dp))
-                            .padding(horizontal = 5.dp, vertical = 1.dp),
-                    )
-                }
+                // 当前连接标注：直连 / 跳板机·xxx / 远程隧道（隧道 = 探测赢家确实是它）
+                Spacer(Modifier.width(7.dp))
+                val connColor = if (row.connRemote) palette.accent else palette.fgFaint
+                Text(
+                    row.conn,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = connColor,
+                    maxLines = 1,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(5.dp))
+                        .background(connColor.copy(alpha = 0.12f))
+                        .border(1.dp, connColor.copy(alpha = 0.28f), RoundedCornerShape(5.dp))
+                        .padding(horizontal = 5.dp, vertical = 1.dp),
+                )
                 Spacer(Modifier.weight(1f))
                 CardMenu(row)
             }
@@ -1838,6 +1837,28 @@ class ComputerListActivity : ComponentActivity() {
             !info.online -> STATE_OFFLINE
             else -> STATE_ONLINE
         }
+        // 当前连接：探测赢家确实是这台电脑的隧道 origin → 远程隧道；
+        // 否则配了跳板机 → 跳板机·名字；都没配 → 直连
+        val remoteOrigin = if (profile.hasRemote()) {
+            ServerProfile.normalizeRemoteOrigin(profile.remoteAddr)
+        } else {
+            ""
+        }
+        val remoteBare = remoteOrigin.removePrefix("https://").removePrefix("http://")
+        val usingRemote = info != null && info.online &&
+            remoteBare.isNotEmpty() && info.addr == remoteBare
+        val conn = when {
+            usingRemote -> "远程隧道"
+            ServerProfile.text(profile.jumpServerId).isNotEmpty() -> {
+                val jump = JumpStore.findJump(JumpStore.loadJumps(this), profile.jumpServerId)
+                "跳板机 · " + (if (ServerProfile.text(jump?.name).isNotEmpty()) {
+                    jump!!.name
+                } else {
+                    jump?.host ?: "已删除"
+                })
+            }
+            else -> "直连"
+        }
         CqRow(
             profile = profile,
             name = profile.displayName().ifEmpty { "(未命名)" },
@@ -1847,6 +1868,8 @@ class ComputerListActivity : ComponentActivity() {
             refind = info?.refind ?: emptyGroup(KIND_REFIND),
             grub = info?.grub ?: emptyGroup(KIND_GRUB),
             state = state,
+            conn = conn,
+            connRemote = usingRemote,
         )
     }
 
@@ -2627,6 +2650,10 @@ class ComputerListActivity : ComponentActivity() {
         val refind: BootGroup,
         val grub: BootGroup,
         val state: String,
+        /** 当前连接标注：直连 / 跳板机·xxx / 远程隧道（隧道只在探测赢家确实是它时） */
+        val conn: String,
+        /** 当前连接是否正在走远程隧道（chip 配色用） */
+        val connRemote: Boolean,
     )
 
     /**
