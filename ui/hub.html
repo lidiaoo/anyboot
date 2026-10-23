@@ -552,13 +552,7 @@
   .snav.active { background: rgb(var(--accent) / .12); color: rgb(var(--accent)); font-weight: 600; }
   .snav svg { width: 18px; height: 18px; flex: none; }
   .snav .s-label { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .snav .s-badge {
-    margin-left: auto; flex: none;
-    font-family: ui-monospace, Menlo, Consolas, monospace;
-    font-size: 10px; border-radius: 999px; padding: 1px 7px;
-    background: rgb(var(--accent) / .15); color: rgb(var(--accent));
-  }
-  .side.collapsed .s-label, .side.collapsed .s-badge { display: none; }
+  .side.collapsed .s-label { display: none; }
   .side.collapsed .snav { justify-content: center; padding: 9px 0; }
   .side-foot {
     flex: none; border-top: 1px solid rgb(var(--line));
@@ -1359,7 +1353,6 @@
         <button class="snav" data-page="servers" title="服务器">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="3" width="20" height="7" rx="2"/><rect x="2" y="14" width="20" height="7" rx="2"/><path d="M6 6.5h.01M6 17.5h.01"/></svg>
           <span class="s-label">服务器</span>
-          <span class="s-badge" id="sideBadge" hidden>0</span>
         </button>
         <button class="snav" data-page="term" title="终端">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M6 9l3 3-3 3"/></svg>
@@ -3141,10 +3134,7 @@
     document.getElementById('cntSsh').textContent = ssh;
     document.getElementById('cntTel').textContent = tel;
     document.getElementById('footCount').textContent = servers.length + ' 台服务器';
-    // 侧栏徽标 + 电脑页统计（全部真实数据）
-    const badge = document.getElementById('sideBadge');
-    badge.textContent = servers.length;
-    badge.hidden = servers.length === 0;
+    // 电脑页统计（全部真实数据）
     renderHomeStats();
   }
 

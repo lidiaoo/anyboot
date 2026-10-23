@@ -24,11 +24,6 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -40,12 +35,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
 // ======================================================================
 // 通用抽屉侧边栏：电脑页 / 电脑列表 / 服务器 三个入口的左上角 ☰ 共用。
-// 原 MainActivity 私有实现上提：当前页高亮、跳板机徽标自读、主题循环通用化。
+// 原 MainActivity 私有实现上提：当前页高亮、主题循环通用化。
 // ======================================================================
 
 /** 抽屉导航的「当前页」标识（AppDrawerOverlay 的 current 参数） */
@@ -62,7 +55,7 @@ fun appVersionLabel(context: Context): String = try {
 
 /**
  * 抽屉侧边栏（对齐设计稿 drawer 屏）：显示器图标块 + AnyBoot 版本行、
- * 导航（电脑 / 电脑列表 / 服务器[计数徽标] / 关于 / 主题）、底部心跳与 GitHub 说明。
+ * 导航（电脑 / 电脑列表 / 服务器 / 关于 / 主题）、底部心跳与 GitHub 说明。
  * 宽 290dp（窄屏最多 85%）；[current] 对应的导航行高亮；主题项是设计稿没有的
  * 既有功能，保留在导航末尾。调用方负责用状态控制显隐与 [onDismiss]。
  */
@@ -70,11 +63,6 @@ fun appVersionLabel(context: Context): String = try {
 fun AppDrawerOverlay(current: String, onDismiss: () -> Unit) {
     val palette = LocalPalette.current
     val context = LocalContext.current
-    var jumpCount by remember { mutableIntStateOf(0) }
-    // 抽屉里的跳板机计数徽标（列表很小，后台读一次即可）
-    LaunchedEffect(Unit) {
-        jumpCount = withContext(Dispatchers.IO) { JumpStore.loadJumps(context).size }
-    }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         // 抽屉宽度自适应：宽屏封顶 290dp（老观感不变），窄窗（分屏/折叠屏/小窗）最多占 85%
         val drawerWidth = minOf(290.dp, maxWidth * 0.85f)
@@ -139,7 +127,7 @@ fun AppDrawerOverlay(current: String, onDismiss: () -> Unit) {
                             context.startActivity(Intent(context, ComputerListActivity::class.java))
                         }
                     }
-                    DrawerNavRow("🖧", "服务器", badge = jumpCount, selected = current == DRAWER_SERVERS,
+                    DrawerNavRow("🖧", "服务器", selected = current == DRAWER_SERVERS,
                         iconSlot = { tint, size -> ServerStackIcon(tint, size) }) {
                         onDismiss()
                         if (current != DRAWER_SERVERS) {
@@ -187,14 +175,13 @@ fun AppDrawerOverlay(current: String, onDismiss: () -> Unit) {
 }
 
 /**
- * 抽屉导航行：图标 + 文字（[badge] ≥ 0 时右侧显示计数徽标；[selected] 高亮当前页）。
+ * 抽屉导航行：图标 + 文字（[selected] 高亮当前页）。
  * [iconSlot] 提供自绘线性图标；没提供就用 [icon] 文本（emoji 兜底）。
  */
 @Composable
 fun DrawerNavRow(
     icon: String,
     label: String,
-    badge: Int = -1,
     selected: Boolean = false,
     iconSlot: (@Composable (Color, Dp) -> Unit)? = null,
     onClick: () -> Unit,
@@ -222,16 +209,5 @@ fun DrawerNavRow(
             color = if (selected) palette.accent else palette.fgDim,
             modifier = Modifier.weight(1f),
         )
-        if (badge >= 0) {
-            Text(
-                badge.toString(),
-                fontSize = 10.sp,
-                color = palette.fgDim,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(palette.elevate)
-                    .padding(horizontal = 8.dp, vertical = 2.dp),
-            )
-        }
     }
 }
