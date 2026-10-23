@@ -1974,6 +1974,8 @@
           <p class="field-hint" style="margin-top:0">
             配对码 = 这台电脑的隧道地址 + 一枚专属令牌，每个客户端一枚、可单独吊销。
             通道没开启时也能生成（隧道地址留空，客户端拿到后自己填）。
+            快速隧道每次重启软件都会换新地址 —— 旧记录里标的「配对地址」还能对账：
+            客户端「最近访问」时间比换址晚，说明它已用新地址在连；一直没动，就是还在用旧地址（或没在连）。
           </p>
           <div id="gwClientList" class="gw-clients"></div>
         </div>
@@ -7880,9 +7882,13 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
       name.textContent = client.name;
       const meta = document.createElement('div');
       meta.className = 'gw-client-meta';
-      meta.textContent = client.revoked
+      const bits = [];
+      if (client.pair_addr) bits.push('配对地址 ' + client.pair_addr.replace(/^https?:\/\//, ''));
+      bits.push(client.revoked
         ? '已吊销 · 配对于 ' + fmtTime(client.created_at)
-        : '最近访问 ' + fmtTime(client.last_seen) + ' · 配对于 ' + fmtTime(client.created_at);
+        : '最近访问 ' + fmtTime(client.last_seen) + ' · 配对于 ' + fmtTime(client.created_at));
+      meta.textContent = bits.join(' · ');
+      meta.title = client.pair_addr || '';
       main.appendChild(name);
       main.appendChild(meta);
       row.appendChild(main);

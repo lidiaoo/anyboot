@@ -633,6 +633,39 @@ pub(crate) async fn gateway_tunnel_start(
     .map_err(|error| format!("启动通道任务失败: {error}"))?
 }
 
+/// 清理孤儿 cloudflared：ExecutablePath 精确等于我们 gateway 目录下那个 exe 的都算。
+/// 正常退出有 kill_all 钩子；但 taskkill /F 强杀、崩溃时钩子不执行 → 旧隧道进程活着，
+/// 旧地址照样能连（快速隧道每次重启本该换地址，客户端会「莫名其妙还能连旧的」）。
+/// 在 spawn 自己的 cloudflared 之前调用；此时 state.proc 必为 None，同路径的全是孤儿。
+fn cleanup_orphan_cloudflared(app: &tauri::AppHandle) {
+    let Ok(binary) = binary_path(app) else { return };
+    let Some(exe) = binary.to_str() else { return };
+    // PowerShell 字符串单引号内翻倍转义；-eq 不区分大小写，正合适
+    let script = format!(
+        "Get-CimInstance Win32_Process -Filter \"Name='cloudflared.exe'\" | \
+         Where-Object {{ $_.ExecutablePath -eq '{}' }} | \
+         ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }}",
+        exe.replace('\'', "''"),
+    );
+    let mut command = std::process::Command::new("powershell");
+    command.args(["-NoProfile", "-NonInteractive", "-Command", &script]);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    match command.output() {
+        Ok(out) => {
+            let killed = String::from_utf8_lossy(&out.stdout);
+            let killed = killed.trim();
+            if !killed.is_empty() {
+                gw_log(app, &format!("[gateway] 清理孤儿 cloudflared: {killed}"));
+            }
+        }
+        Err(error) => gw_log(app, &format!("[gateway] 孤儿清理失败: {error}")),
+    }
+}
+
 fn tunnel_start_blocking(
     app: &tauri::AppHandle,
     mode: String,
@@ -643,6 +676,7 @@ fn tunnel_start_blocking(
     if state.proc.lock().unwrap().is_some() {
         return Err("通道已在运行".to_string());
     }
+    cleanup_orphan_cloudflared(app);
     let mode = match mode.as_str() {
         "quick" => TunnelMode::Quick,
         "named" => TunnelMode::Named,
@@ -946,6 +980,9 @@ pub(crate) struct GatewayClient {
     /// 最近一次鉴权成功时间（0=从未用过）。
     pub last_seen: u64,
     pub revoked: bool,
+    /// 出码时的隧道地址（快速隧道每次重启会变，留着对账：客户端现在连的是不是这个）。
+    #[serde(default)]
+    pub pair_addr: String,
 }
 
 fn clients_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -1023,17 +1060,6 @@ pub(crate) fn gateway_pair_issue(
         return Err("客户端名称不能为空".to_string());
     }
     let token = crate::http_server::generate_token();
-    let client = GatewayClient {
-        id: format!("gw-{}", &token[..8]),
-        name,
-        token_sha256: sha256_hex(&token),
-        created_at: now_millis(),
-        last_seen: 0,
-        revoked: false,
-    };
-    let mut clients = load_clients(&app);
-    clients.push(client.clone());
-    save_clients(&app, &clients)?;
     // 地址优先用调用方给的（前端可能刚生成还没跑），否则取当前运行中的。
     let tunnel = {
         let given = tunnel.trim().to_string();
@@ -1043,6 +1069,18 @@ pub(crate) fn gateway_pair_issue(
             given
         }
     };
+    let client = GatewayClient {
+        id: format!("gw-{}", &token[..8]),
+        name,
+        token_sha256: sha256_hex(&token),
+        created_at: now_millis(),
+        last_seen: 0,
+        revoked: false,
+        pair_addr: tunnel.clone(),
+    };
+    let mut clients = load_clients(&app);
+    clients.push(client.clone());
+    save_clients(&app, &clients)?;
     let pair = format!(
         "anyboot://pair?gateway={}&tunnel={}&token={}",
         percent_encode(&crate::http_server::machine_name()),
@@ -1459,6 +1497,8 @@ pub(crate) fn gateway_save_config(
 /// quick 也支持 —— 地址每次会变，但通道先就位，新地址在本页/出码里都是现成的；
 /// named 必须已存 Tunnel Token，quick 不需要。mode 为空（未配置过）不自启。
 pub(crate) fn autostart_tunnel(app: &tauri::AppHandle) {
+    // 无论自启与否都先清孤儿：强杀/崩溃留下的旧隧道会让客户端旧地址「阴魂不散」
+    cleanup_orphan_cloudflared(app);
     let settings = crate::stored_settings(app);
     if !settings.gateway_autostart || settings.gateway_mode.is_empty() {
         return;
