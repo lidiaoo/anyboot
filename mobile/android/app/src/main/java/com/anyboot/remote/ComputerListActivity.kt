@@ -1977,17 +1977,16 @@ class ComputerListActivity : ComponentActivity() {
 
     /** 后台线程：探活 + 读两套引导项（一边失败不影响另一边） */
     private fun fetchBootInfo(profile: ServerProfile): BootInfo {
-        val endpoint = try {
-            endpointOf(profile)
-        } catch (error: Exception) {
-            return offlineInfo("", error.message ?: "地址不可用")
+        val choice = chooseEndpoint(profile) ?: return offlineInfo("", "这台电脑还没有可用地址")
+        if (!choice.alive) {
+            return offlineInfo(choice.displayAddr(), "")
         }
-        if (endpoint.isEmpty()) return offlineInfo("", "这台电脑还没有可用地址")
-        if (HealthProbe.ping(endpoint, PROBE_TIMEOUT_MS) <= 0) return offlineInfo(endpoint, "")
+        val endpoint = choice.url
+        val token = choice.token
 
         val errors = mutableListOf<String>()
         val refind = try {
-            parseRefind(httpJson(endpoint, profile.token, "/api/status"))
+            parseRefind(httpJson(endpoint, token, "/api/status"))
         } catch (error: Exception) {
             val message = error.message ?: "读取失败"
             errors.add(message)
@@ -1997,7 +1996,7 @@ class ComputerListActivity : ComponentActivity() {
             )
         }
         val grub = try {
-            parseGrub(httpJson(endpoint, profile.token, "/api/grub"))
+            parseGrub(httpJson(endpoint, token, "/api/grub"))
         } catch (error: Exception) {
             val message = error.message ?: "读取失败"
             errors.add(message)
@@ -2009,7 +2008,7 @@ class ComputerListActivity : ComponentActivity() {
         return BootInfo(
             ok = errors.size < 2,
             online = true,
-            addr = endpoint,
+            addr = choice.displayAddr(),
             error = errors.joinToString("；"),
             refind = refind,
             grub = grub,
@@ -2044,18 +2043,59 @@ class ComputerListActivity : ComponentActivity() {
         return SshSessionManager.shared().tunnelAddress(this, jump, host, prompt())
     }
 
+    /** 选点结果：url 是完整 origin（http:// 或 https:// 开头），token 配套凭据 */
+    private class EndpointChoice(val url: String, val token: String, val alive: Boolean) {
+        /** 卡片/离线文案里显示用的地址（不带 scheme） */
+        fun displayAddr(): String =
+            url.removePrefix("https://").removePrefix("http://")
+    }
+
+    /**
+     * 选点：局域网（或跳板机隧道）优先 —— 探通就用；没通且配了远程接入时探
+     * 隧道兜底（出门场景）。全都没通时仍把局域网端点带回去（alive=false），
+     * 让离线文案与地址显示维持原样。
+     * 返回 null = 连一个能试的地址都没有。
+     */
+    private fun chooseEndpoint(profile: ServerProfile): EndpointChoice? {
+        val lan = try {
+            endpointOf(profile)
+        } catch (error: Exception) {
+            ""
+        }
+        val lanToken = ServerProfile.text(profile.token)
+        if (lan.isNotEmpty() && HealthProbe.ping(lan, PROBE_TIMEOUT_MS) > 0) {
+            return EndpointChoice("http://" + lan, lanToken, alive = true)
+        }
+        val remote = if (profile.hasRemote()) {
+            ServerProfile.normalizeRemoteOrigin(profile.remoteAddr)
+        } else {
+            ""
+        }
+        if (remote.isNotEmpty() && HealthProbe.pingRemote(remote, REMOTE_PROBE_TIMEOUT_MS) > 0) {
+            return EndpointChoice(remote, ServerProfile.text(profile.remoteToken), alive = true)
+        }
+        if (lan.isEmpty() && remote.isEmpty()) return null
+        return EndpointChoice(if (lan.isNotEmpty()) "http://" + lan else remote, lanToken, alive = false)
+    }
+
     private fun prompt(): SshSessionManager.Prompt = object : SshSessionManager.Prompt {
         override fun confirm(title: String, message: String): Boolean = bus.confirm(title, message)
     }
 
-    /** 对电脑发一条 `GET {path}?token=…`，返回解析后的 JSON（语义对齐 PC 端 remote_http_json） */
+    /** 对电脑发一条 `GET {path}?token=…`，返回解析后的 JSON（语义对齐 PC 端 remote_http_json）。
+     *  endpoint 接受裸 host:port（补 http://）或完整 origin（远程隧道是 https://…）。 */
     private fun httpJson(endpoint: String, token: String, path: String): JSONObject {
         val trimmed = ServerProfile.text(token)
         val query = if (trimmed.isEmpty()) "" else {
             (if (path.contains('?')) "&" else "?") + "token=" +
                 URLEncoder.encode(trimmed, "UTF-8")
         }
-        val connection = URL("http://" + endpoint + path + query)
+        val base = if (endpoint.startsWith("http://") || endpoint.startsWith("https://")) {
+            endpoint
+        } else {
+            "http://" + endpoint
+        }
+        val connection = URL(base + path + query)
             .openConnection() as HttpURLConnection
         connection.requestMethod = "GET"
         connection.connectTimeout = CONNECT_TIMEOUT_MS
@@ -2341,13 +2381,15 @@ class ComputerListActivity : ComponentActivity() {
         busy[id] = "boot:$kind"
         Thread({
             val outcome = runCatching {
-                val endpoint = endpointOf(profile)
+                val choice = chooseEndpoint(profile)
+                    ?: throw Exception("这台电脑还没有可用地址")
+                if (!choice.alive) throw Exception("电脑离线（局域网与远程都没通）")
                 val path = if (kind == KIND_REFIND) {
                     "/api/switch?system=" + URLEncoder.encode(value, "UTF-8")
                 } else {
                     "/api/grub-switch?entry=" + URLEncoder.encode(value, "UTF-8")
                 }
-                val json = httpJson(endpoint, profile.token, path)
+                val json = httpJson(choice.url, choice.token, path)
                 json.optString("message", "").ifEmpty {
                     if (json.optBoolean("ok", true)) "已设置下次启动项"
                     else json.optString("error", "请求被拒绝")
@@ -2419,15 +2461,22 @@ class ComputerListActivity : ComponentActivity() {
         val prompt = prompt()
 
         fun packets(): String {
-            val routed = WakeOnLan.sendRoutes(this, profile, action, prompt)
+            val routed = WakeOnLan.sendRoutes(this@ComputerListActivity, profile, action, prompt)
             return when {
                 routed != null -> routed
-                ServerProfile.POWER_WAKE == action -> WakeOnLan.wake(this, profile, prompt)
-                else -> PowerOps.send(powerAddress(profile), profile.token, action)
+                ServerProfile.POWER_WAKE == action -> WakeOnLan.wake(this@ComputerListActivity, profile, prompt)
+                // 广播包兜底的 HTTP：同样走选点（出门时广播包必然失败，HTTP 得能走隧道）
+                else -> {
+                    val (address, token) = powerTarget(profile)
+                    PowerOps.send(address, token, action)
+                }
             }
         }
 
-        fun http(): String = PowerOps.send(powerAddress(profile), profile.token, action)
+        fun http(): String {
+            val (address, token) = powerTarget(profile)
+            return PowerOps.send(address, token, action)
+        }
 
         if (routes.isEmpty()) return packets()
         return when (mode) {
@@ -2512,6 +2561,21 @@ class ComputerListActivity : ComponentActivity() {
         val jump = JumpStore.findJump(JumpStore.loadJumps(this), profile.jumpServerId)
             ?: throw Exception("跳板机不存在（可能已删除）")
         return SshSessionManager.shared().tunnelAddress(this, jump, host, prompt())
+    }
+
+    /**
+     * 电源 HTTP 的「地址 + 凭据」：局域网探通用局域网；没通且配了远程接入就探
+     * 隧道兜底（出门时重启/关机/睡眠靠这条，唤醒的魔术包走不了隧道、照旧在
+     * 广播包分支失败并给出原因）。全没通时退回局域网地址 —— 让失败文案与原
+     * 行为一致（连接失败，而不是编造一条远程失败）。
+     */
+    private fun powerTarget(profile: ServerProfile): Pair<String, String> {
+        val choice = chooseEndpoint(profile) ?: throw Exception("这台电脑还没有可用地址")
+        return if (choice.alive) {
+            Pair(choice.url, choice.token)
+        } else {
+            Pair("http://" + powerAddress(profile), ServerProfile.text(profile.token))
+        }
     }
 
     // ------------------------------------------------------------------
@@ -2651,6 +2715,8 @@ class ComputerListActivity : ComponentActivity() {
         const val POWER_SHUTDOWN = "shutdown"
 
         const val PROBE_TIMEOUT_MS = 3000
+        /** 远程隧道探活：公网 + TLS 握手比局域网慢得多，给宽容些 */
+        const val REMOTE_PROBE_TIMEOUT_MS = 8000
         const val CONNECT_TIMEOUT_MS = 4000
         const val READ_TIMEOUT_MS = 8000
 

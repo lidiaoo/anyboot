@@ -57,8 +57,14 @@ final class PowerOps {
         if (target.isEmpty()) {
             throw new Exception("这台电脑还没有可用地址");
         }
-        StringBuilder url = new StringBuilder("http://").append(target)
-                .append("/api/power?action=").append(URLEncoder.encode(action, "UTF-8"));
+        // address 接受裸 host:port（补 http://）或完整 origin（远程隧道是 https://…）
+        StringBuilder url = new StringBuilder();
+        if (target.startsWith("http://") || target.startsWith("https://")) {
+            url.append(target);
+        } else {
+            url.append("http://").append(target);
+        }
+        url.append("/api/power?action=").append(URLEncoder.encode(action, "UTF-8"));
         String secret = ServerProfile.text(token);
         if (!secret.isEmpty()) {
             url.append("&token=").append(URLEncoder.encode(secret, "UTF-8"));
