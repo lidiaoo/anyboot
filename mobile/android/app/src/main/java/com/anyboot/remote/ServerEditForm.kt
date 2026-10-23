@@ -1,6 +1,9 @@
 package com.anyboot.remote
 
 import android.content.Context
+import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -249,6 +252,18 @@ internal fun rememberServerEditFormState(profile: ServerProfile?): ServerEditFor
 @Composable
 internal fun ServerEditFormBody(state: ServerEditFormState) {
     val palette = LocalPalette.current
+    val context = androidx.compose.ui.platform.LocalContext.current
+    // 扫码读配对码：独立 Activity（CAMERA 运行时权限 + 相机生命周期都在那边），
+    // 成功回传配对串 → 填进远程框并即时识别；取消/失败不动粘贴框
+    val scanLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val text = result.data?.getStringExtra(ScanPairActivity.EXTRA_TEXT).orEmpty().trim()
+        if (text.isNotEmpty()) {
+            state.remoteText = text
+            state.applyRemoteHint()
+        }
+    }
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
         FieldLabel("分组（用来区分不同的电脑）")
         OutlinedTextField(
@@ -395,8 +410,18 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
             },
             modifier = Modifier.fillMaxWidth(),
         )
-        if (state.remoteHint.isNotEmpty()) {
-            Text(state.remoteHint, fontSize = 11.sp, color = palette.fgFaint)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = {
+                scanLauncher.launch(Intent(context, ScanPairActivity::class.java))
+            }) {
+                Text("📷 扫码读码", fontSize = 12.sp)
+            }
+            Text(
+                if (state.remoteHint.isNotEmpty()) state.remoteHint
+                else "扫电脑端弹出的配对二维码，或直接粘贴配对串",
+                fontSize = 11.sp, color = palette.fgFaint,
+                modifier = Modifier.weight(1f),
+            )
         }
         Text(
             "局域网地址优先使用，全连不上才走远程；清空后保存 = 取消远程接入。" +

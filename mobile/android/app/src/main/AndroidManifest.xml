@@ -4,6 +4,8 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- 局域网里要能看到电脑上的 AnyBoot，最好别让它以为必须走 WiFi（有线/热点/以太网都要能用） -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- 远程接入扫码配对（ScanPairActivity 运行时再申请，不扫也能粘贴） -->
+    <uses-permission android:name="android.permission.CAMERA" />
 
     <application
         android:allowBackup="true"
@@ -52,6 +54,13 @@
         <!-- 关于页（GitHub 仓库卡片 + Star 引导） -->
         <activity
             android:name=".AboutActivity"
+            android:exported="false" />
+
+        <!-- 扫码读配对码（远程接入；锁竖屏省掉一整套旋转处理） -->
+        <activity
+            android:name=".ScanPairActivity"
+            android:screenOrientation="portrait"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
             android:exported="false" />
     </application>
 </manifest>

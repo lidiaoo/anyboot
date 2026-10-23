@@ -70,4 +70,14 @@ dependencies {
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.activity:activity-compose:1.9.3")
+
+    // 远程接入扫码配对：CameraX 取景 + zxing core 解码。
+    // zxing core 是纯解码库（不带相机 UI / 权限代码），与 CameraX 组合是轻量标配；
+    // 不引 zxing-embedded（它绑 appcompat 与旧 view 体系，本项目界面已全 Compose）
+    val camerax = "1.3.4"
+    implementation("androidx.camera:camera-core:$camerax")
+    implementation("androidx.camera:camera-camera2:$camerax")
+    implementation("androidx.camera:camera-lifecycle:$camerax")
+    implementation("androidx.camera:camera-view:$camerax")
+    implementation("com.google.zxing:core:3.5.3")
 }

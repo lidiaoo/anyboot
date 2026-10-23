@@ -82,6 +82,14 @@ final class HeartbeatManager {
     /** 并发探测同时打出去的线程数 */
     private static final int PARALLEL_THREADS = 4;
 
+    /**
+     * 远程兜底探测的降频间隔：局域网全挂（出门是常态）时才探远程，
+     * 但最多每 60 秒打一次公网 —— 每 10 秒一轮心跳都往隧道发请求既费电又没意义。
+     */
+    static final long REMOTE_FALLBACK_INTERVAL_MS = 60000;
+    /** 远程探测超时：公网 RTT 大，按局域网 3 秒判会大量误报 */
+    static final int REMOTE_TIMEOUT_MS = 8000;
+
     private final ScheduledExecutorService scheduler =
             Executors.newSingleThreadScheduledExecutor(r -> {
                 Thread thread = new Thread(r, "anyboot-heartbeat");
@@ -96,6 +104,8 @@ final class HeartbeatManager {
             });
     private final AtomicBoolean ticking = new AtomicBoolean(false);
     private final Map<String, State> states = new HashMap<>();
+    /** 远程兜底探测的节流账本（profile.id → 上次探远程的时间戳；只关心新旧，别当精确时间） */
+    private final Map<String, Long> remoteProbes = new HashMap<>();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final ServersProvider serversProvider;
     private final Listener listener;
@@ -166,7 +176,8 @@ final class HeartbeatManager {
         try {
             List<Pending> results = new ArrayList<>();
             for (ServerProfile profile : serversProvider.get()) {
-                if (profile.addresses.isEmpty()) {
+                // 没配局域网地址也可能配了远程接入（出门场景）：空档案才跳过
+                if (profile.addresses.isEmpty() && ServerProfile.text(profile.remoteAddr).isEmpty()) {
                     continue;
                 }
                 results.add(probeProfile(profile));
@@ -179,7 +190,8 @@ final class HeartbeatManager {
 
     /** 探一台电脑，返回「通没通 + 延迟」（后台线程） */
     private Pending probeProfile(ServerProfile profile) {
-        // 经由跳板机的电脑：全部探测走 SSH 隧道（解析出的 127.0.0.1:端口）
+        // 经由跳板机的电脑：全部探测走 SSH 隧道（解析出的 127.0.0.1:端口）；
+        // 隧道本身就是「远程」路径，不再叠加公网隧道兜底
         TunnelResolver resolver = tunnelResolver;
         if (!ServerProfile.text(profile.jumpServerId).isEmpty()) {
             if (resolver == null) {
@@ -194,16 +206,45 @@ final class HeartbeatManager {
                 return new Pending(profile.id, -1);
             }
         }
+        long rtt = probeLan(profile);
+        // 局域网全挂（出门是常态）：配了远程接入就兜底探公网隧道，
+        // 否则人不在家时会一直误报离线。远程探测按 60 秒降频 —— 心跳
+        // 每 10 秒一轮，没节流的话隧道会被打成筛子。
+        if (rtt < 0 && !ServerProfile.text(profile.remoteAddr).isEmpty()) {
+            long now = System.currentTimeMillis();
+            boolean due;
+            synchronized (remoteProbes) {
+                Long last = remoteProbes.get(profile.id);
+                due = last == null || now - last >= REMOTE_FALLBACK_INTERVAL_MS;
+                if (due) {
+                    remoteProbes.put(profile.id, now);
+                }
+            }
+            if (due) {
+                long remoteRtt = HealthProbe.pingRemote(profile.remoteAddr, REMOTE_TIMEOUT_MS);
+                if (remoteRtt >= 0) {
+                    rtt = remoteRtt;
+                }
+            }
+        }
+        return new Pending(profile.id, rtt);
+    }
+
+    /** 按探测模式探一遍局域网候选地址，返回最快 RTT（全挂 -1） */
+    private long probeLan(ServerProfile profile) {
         List<String> addresses = new ArrayList<>(profile.addresses);
+        if (addresses.isEmpty()) {
+            return -1;
+        }
         if (ServerProfile.PROBE_SERIAL.equals(profile.probeMode)) {
             // 串行：按顺序逐个探，第一个通的即止（保留用户排的地址优先级）
             for (String address : addresses) {
                 long rtt = HealthProbe.ping(address, TIMEOUT_MS);
                 if (rtt >= 0) {
-                    return new Pending(profile.id, rtt);
+                    return rtt;
                 }
             }
-            return new Pending(profile.id, -1);
+            return -1;
         }
         // 并发：所有地址同时探，取 RTT 最低的当「这台电脑现在的延迟」
         CountDownLatch latch = new CountDownLatch(addresses.size());
@@ -226,7 +267,7 @@ final class HeartbeatManager {
         } catch (InterruptedException ignored) {
             Thread.currentThread().interrupt();
         }
-        return new Pending(profile.id, best.rtt);
+        return best.rtt;
     }
 
     /** 把一轮结果落账；有变化投递回主线程（后台线程） */
