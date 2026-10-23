@@ -1646,6 +1646,12 @@ class MainActivity : ComponentActivity() {
         if (ServerProfile.text(keep.name).isEmpty()) keep.name = drop.name
         if (ServerProfile.text(keep.token).isEmpty()) keep.token = drop.token
         if (ServerProfile.text(keep.jumpServerId).isEmpty()) keep.jumpServerId = drop.jumpServerId
+        // 远程接入也是同一台电脑的属性：留下来的没配而被并的配了，就整体搬过来
+        //（否则编辑后保存 → probeMachine 触发合并 → 配好的远程信息跟着 drop 一起消失）
+        if (!keep.hasRemote() && drop.hasRemote()) {
+            keep.remoteAddr = drop.remoteAddr
+            keep.remoteToken = drop.remoteToken
+        }
     }
 
     /** 把「其实是同一台电脑」的多条记录并成一条 —— 给老配置用 */
