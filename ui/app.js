@@ -16,7 +16,9 @@ const IS_BROWSER =
 const tauri = window.__TAURI__ ?? {};
 
 // 远程访问令牌：URL ?token= 优先（顺手存起来，方便扫码/点链接直达），
-// 其次 cookie（anyboot_token，一年有效），最后兼容迁移旧版 localStorage。
+// 远程接入配对链接用 ?ab_token= 同样认（PC 网关页/手机 App 生成的不带
+// 自定义头的跨源打开，靠它把网关客户端令牌递进来），其次 cookie
+// （anyboot_token，一年有效），最后兼容迁移旧版 localStorage。
 const REMOTE_TOKEN_COOKIE = "anyboot_token";
 const REMOTE_TOKEN_KEY = "anyboot.remote-token";
 
@@ -43,7 +45,8 @@ function writeCookie(name, value) {
 
 let remoteToken = "";
 try {
-  const fromUrl = new URLSearchParams(window.location.search).get("token");
+  const params = new URLSearchParams(window.location.search);
+  const fromUrl = params.get("token") || params.get("ab_token") || "";
   const stored =
     readCookie(REMOTE_TOKEN_COOKIE) ||
     localStorage.getItem(REMOTE_TOKEN_KEY) ||
