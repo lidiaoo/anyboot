@@ -54,6 +54,13 @@ final class HeartbeatManager {
 
         /** 某台电脑从「非在线」变「在线」（已在主线程）——错误面板自愈重连用 */
         void onWentOnline(String id);
+
+        /**
+         * 某台电脑的<b>局域网路径</b>恢复可达（上一轮还不通；已在主线程）——
+         * 还挂在远程隧道上的标签可以借此自动切回直连。
+         */
+        default void onLanRecovered(String id) {
+        }
     }
 
     /** 一台电脑的心跳状态（快照给 UI 读，字段只在这里改） */
@@ -106,6 +113,8 @@ final class HeartbeatManager {
     private final Map<String, State> states = new HashMap<>();
     /** 远程兜底探测的节流账本（profile.id → 上次探远程的时间戳；只关心新旧，别当精确时间） */
     private final Map<String, Long> remoteProbes = new HashMap<>();
+    /** 局域网路径上轮通没通（profile.id → Boolean）：恢复沿要给「远程切回局域网」用 */
+    private final Map<String, Boolean> lanFlags = new HashMap<>();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final ServersProvider serversProvider;
     private final Listener listener;
@@ -206,7 +215,8 @@ final class HeartbeatManager {
                 return new Pending(profile.id, -1);
             }
         }
-        long rtt = probeLan(profile);
+        long lanRtt = probeLan(profile);
+        long rtt = lanRtt;
         // 局域网全挂（出门是常态）：配了远程接入就兜底探公网隧道，
         // 否则人不在家时会一直误报离线。远程探测按 60 秒降频 —— 心跳
         // 每 10 秒一轮，没节流的话隧道会被打成筛子。
@@ -227,7 +237,7 @@ final class HeartbeatManager {
                 }
             }
         }
-        return new Pending(profile.id, rtt);
+        return new Pending(profile.id, rtt, lanRtt);
     }
 
     /** 按探测模式探一遍局域网候选地址，返回最快 RTT（全挂 -1） */
@@ -276,6 +286,7 @@ final class HeartbeatManager {
             return;
         }
         final List<String> wentOnline = new ArrayList<>();
+        final List<String> lanRecovered = new ArrayList<>();
         boolean anyResult = false;
         synchronized (states) {
             for (Pending pending : results) {
@@ -285,6 +296,13 @@ final class HeartbeatManager {
                     states.put(pending.id, state);
                 }
                 anyResult = true;
+                // 局域网路径恢复沿：上轮不通、这轮通了（与总在线无关 —— 远程兜着也算离线态）
+                boolean lanOkBefore = Boolean.TRUE.equals(lanFlags.get(pending.id));
+                boolean lanOkNow = pending.lanRtt >= 0;
+                lanFlags.put(pending.id, lanOkNow);
+                if (lanOkNow && !lanOkBefore) {
+                    lanRecovered.add(pending.id);
+                }
                 if (pending.rtt >= 0) {
                     state.failures = 0;
                     state.rttMs = pending.rtt;
@@ -310,17 +328,26 @@ final class HeartbeatManager {
             for (String id : wentOnline) {
                 listener.onWentOnline(id);
             }
+            for (String id : lanRecovered) {
+                listener.onLanRecovered(id);
+            }
         });
     }
 
-    /** 一台电脑的一轮探测结果：rtt >= 0 = 通（并发模式下已取最快地址的 RTT） */
+    /** 一台电脑的一轮探测结果：rtt = 总口径（远程兜底也算）；lanRtt = 局域网路径单独记 */
     private static final class Pending {
         final String id;
         final long rtt;
+        final long lanRtt;
 
         Pending(String id, long rtt) {
+            this(id, rtt, rtt);
+        }
+
+        Pending(String id, long rtt, long lanRtt) {
             this.id = id;
             this.rtt = rtt;
+            this.lanRtt = lanRtt;
         }
     }
 

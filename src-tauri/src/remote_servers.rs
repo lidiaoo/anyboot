@@ -71,6 +71,10 @@ pub struct RemoteServer {
     /// `token` 是两套（那边校验时按 ab_token 比对已配对客户端表）。
     #[serde(default)]
     pub remote_token: String,
+    /// 连接优先：`remote_first` = 远程优先（隧道通了就走隧道，局域网只做兜底）；
+    /// 空 / 其它 = 自动（局域网优先，远程兜底 —— 默认）。
+    #[serde(default)]
+    pub conn_mode: String,
     #[serde(default)]
     pub created_at: u64,
 }
@@ -113,6 +117,11 @@ pub struct RemoteTestResult {
 }
 
 impl RemoteServer {
+    /// 连接优先是否「远程优先」。空 / auto / 未知值都按自动（局域网优先）处理。
+    pub(crate) fn conn_remote_first(&self) -> bool {
+        self.conn_mode.trim() == "remote_first"
+    }
+
     pub(crate) fn normalize(mut self) -> Self {
         self.id = self.id.trim().to_string();
         self.group = self.group.trim().to_string();
@@ -126,6 +135,12 @@ impl RemoteServer {
             "parallel_all" => "parallel_all".to_string(),
             // parallel_first 是默认；旧值 parallel 与空值都归到它（兼容老配置）
             _ => "parallel_first".to_string(),
+        };
+        // 连接优先：只认 remote_first，其余一律归空（= 自动，局域网优先）
+        self.conn_mode = if self.conn_remote_first() {
+            "remote_first".to_string()
+        } else {
+            String::new()
         };
         // 地址逐条归一：挖 URL 形态里的 token 与裸地址；trim、去空、去重（保序）
         let mut token_from_url: Option<String> = None;
@@ -517,6 +532,16 @@ fn encode_query(value: &str) -> String {
 /// 局域网地址全连不上时自动兜底远程接入地址（https 隧道 + ab_token）——
 /// 出门在外时电源指令照样能发。
 fn remote_http_power(server: &RemoteServer, action: &str) -> Result<String, String> {
+    // 远程优先：先走隧道，通了直接用；没通退回局域网链路（下面的原逻辑）
+    let origin = server.remote_addr.trim();
+    if server.conn_remote_first() && !origin.is_empty() {
+        let path = format!("/api/power?action={action}");
+        if let Ok((status, body)) = remote_https_get(origin, &server.remote_token, &path) {
+            if let Ok(message) = parse_power_reply(status, &body) {
+                return Ok(format!("（经远程通道·优先）{message}"));
+            }
+        }
+    }
     match remote_http_power_lan(server, action) {
         Ok(message) => Ok(message),
         Err(lan_error) => {
@@ -1040,9 +1065,15 @@ pub async fn remote_test(
     addresses: Vec<String>,
     probe_mode: String,
     remote_addr: Option<String>,
+    conn_mode: Option<String>,
 ) -> RemoteTestResult {
+    let remote_first = conn_mode
+        .as_deref()
+        .map(str::trim)
+        .map(|mode| mode == "remote_first")
+        .unwrap_or(false);
     tauri::async_runtime::spawn_blocking(move || {
-        remote_test_blocking(addresses, probe_mode, remote_addr)
+        remote_test_blocking(addresses, probe_mode, remote_addr, remote_first)
     })
     .await
     .unwrap_or_else(|error| RemoteTestResult {
@@ -1055,6 +1086,7 @@ fn remote_test_blocking(
     addresses: Vec<String>,
     probe_mode: String,
     remote_addr: Option<String>,
+    remote_first: bool,
 ) -> RemoteTestResult {
     let mode = normalize_probe_mode(&probe_mode);
     let remote_origin = remote_addr
@@ -1079,6 +1111,48 @@ fn remote_test_blocking(
             error: "没有可探测的地址".to_string(),
             ..Default::default()
         };
+    }
+
+    // 远程优先：先探隧道，通了直接用它（局域网整轮不探，省 3 秒级等待）
+    let mut remote_first_error: Option<String> = None;
+    if remote_first {
+        if let Some(origin) = &remote_origin {
+            match probe_remote_health(origin, REMOTE_PROBE_TIMEOUT) {
+                Ok((ms, machine_id, machine_name)) => {
+                    let mut rows: Vec<ProbeOutcome> = candidates
+                        .iter()
+                        .map(|addr| ProbeOutcome {
+                            address: addr.clone(),
+                            ok: false,
+                            ms: 0,
+                            error: "远程优先，局域网未探测".to_string(),
+                            remote: false,
+                        })
+                        .collect();
+                    rows.push(ProbeOutcome {
+                        address: origin.clone(),
+                        ok: true,
+                        ms,
+                        error: String::new(),
+                        remote: true,
+                    });
+                    return RemoteTestResult {
+                        ok: true,
+                        addr: origin.clone(),
+                        ms,
+                        machine_id,
+                        machine_name,
+                        remote: true,
+                        results: rows,
+                        ..Default::default()
+                    };
+                }
+                Err(remote_error) => {
+                    // 远程优先但隧道没通：退回局域网链路（结果里会补一行远程失败）
+                    remote_first_error = Some(remote_error);
+                }
+            }
+        }
     }
 
     let mut results: Vec<ProbeOutcome> = Vec::new();
@@ -1203,11 +1277,31 @@ fn remote_test_blocking(
     // 局域网有赢家：远程不探（省一次 8s 级公网等待），results 里补一行说明
     if let Some(origin) = &remote_origin {
         if final_result.ok {
+            if let Some(error) = remote_first_error.take() {
+                // 远程优先没走通、局域网救场成功：如实补一行远程失败
+                results.push(ProbeOutcome {
+                    address: origin.clone(),
+                    ok: false,
+                    ms: 0,
+                    error,
+                    remote: true,
+                });
+            } else {
+                results.push(ProbeOutcome {
+                    address: origin.clone(),
+                    ok: false,
+                    ms: 0,
+                    error: "局域网可用，远程地址未探测".to_string(),
+                    remote: true,
+                });
+            }
+        } else if let Some(error) = remote_first_error.take() {
+            // 双失败：远程在上面已探过，不再重复打 8 秒级公网，把原因补进逐行结果
             results.push(ProbeOutcome {
                 address: origin.clone(),
                 ok: false,
                 ms: 0,
-                error: "局域网可用，远程地址未探测".to_string(),
+                error,
                 remote: true,
             });
         } else {
@@ -1552,6 +1646,15 @@ fn remote_http_json(
     server: &RemoteServer,
     path: &str,
 ) -> Result<serde_json::Value, String> {
+    // 远程优先：先走隧道，通了直接用；没通退回局域网链路（下面的原逻辑）
+    let origin = server.remote_addr.trim();
+    if server.conn_remote_first() && !origin.is_empty() {
+        if let Ok((status, body)) = remote_https_get(origin, &server.remote_token, path) {
+            if let Ok(value) = parse_remote_json_reply(status, &body) {
+                return Ok(value);
+            }
+        }
+    }
     match remote_http_json_lan(app, server, path) {
         Ok(value) => Ok(value),
         Err(lan_error) => {
@@ -2067,7 +2170,8 @@ fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Result<RemoteB
         ..Default::default()
     };
     // 先探活：离线时没必要再发两条注定超时的请求（等待体验差 3 倍）
-    // 局域网探不通时兜底远程接入地址（出门场景：引导项照常可读）。
+    // 自动模式：局域网探不通时兜底远程接入地址（出门场景：引导项照常可读）；
+    // 远程优先：先探隧道，通了直接用，局域网只做兜底。
     let probe_addr = server
         .addresses
         .iter()
@@ -2075,28 +2179,50 @@ fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Result<RemoteB
         .find(|raw| !raw.is_empty())
         .unwrap_or("")
         .to_string();
-    let lan_probe = if probe_addr.is_empty() {
-        Err("这台电脑还没有可用地址".to_string())
-    } else if server.jump_id.trim().is_empty() {
-        probe_health(&probe_addr, PROBE_TIMEOUT)
-    } else {
-        let state = app.state::<RemoteJumpState>();
-        let endpoint = remote_endpoint_inner(app, state.inner(), server_id)?;
-        probe_health(&format!("{}:{}", endpoint.host, endpoint.port), PROBE_TIMEOUT)
-    };
-    let (probe, winner_addr) = match lan_probe {
-        Ok(result) => (Ok(result), probe_addr),
-        Err(lan_error) => {
-            let origin = server.remote_addr.trim();
-            if origin.is_empty() {
-                (Err(lan_error), probe_addr)
-            } else {
-                match probe_remote_health(origin, REMOTE_PROBE_TIMEOUT) {
-                    Ok(result) => (Ok(result), origin.to_string()),
-                    Err(remote_error) => (
-                        Err(format!("{lan_error}；远程通道也不通：{remote_error}")),
+    let remote_origin = server.remote_addr.trim().to_string();
+    let remote_first =
+        server.conn_remote_first() && !remote_origin.is_empty() && server.jump_id.trim().is_empty();
+    let (probe, winner_addr) = if remote_first {
+        match probe_remote_health(&remote_origin, REMOTE_PROBE_TIMEOUT) {
+            Ok(result) => (Ok(result), remote_origin.clone()),
+            Err(remote_error) => {
+                let lan = if probe_addr.is_empty() {
+                    Err("这台电脑还没有可用地址".to_string())
+                } else {
+                    probe_health(&probe_addr, PROBE_TIMEOUT)
+                };
+                match lan {
+                    Ok(result) => (Ok(result), probe_addr),
+                    Err(lan_error) => (
+                        Err(format!("远程通道不通：{remote_error}；{lan_error}")),
                         probe_addr,
                     ),
+                }
+            }
+        }
+    } else {
+        let lan_probe = if probe_addr.is_empty() {
+            Err("这台电脑还没有可用地址".to_string())
+        } else if server.jump_id.trim().is_empty() {
+            probe_health(&probe_addr, PROBE_TIMEOUT)
+        } else {
+            let state = app.state::<RemoteJumpState>();
+            let endpoint = remote_endpoint_inner(app, state.inner(), server_id)?;
+            probe_health(&format!("{}:{}", endpoint.host, endpoint.port), PROBE_TIMEOUT)
+        };
+        match lan_probe {
+            Ok(result) => (Ok(result), probe_addr),
+            Err(lan_error) => {
+                if remote_origin.is_empty() {
+                    (Err(lan_error), probe_addr)
+                } else {
+                    match probe_remote_health(&remote_origin, REMOTE_PROBE_TIMEOUT) {
+                        Ok(result) => (Ok(result), remote_origin.clone()),
+                        Err(remote_error) => (
+                            Err(format!("{lan_error}；远程通道也不通：{remote_error}")),
+                            probe_addr,
+                        ),
+                    }
                 }
             }
         }
@@ -2333,6 +2459,7 @@ mod tests {
             power_routes: vec![],
             remote_addr: "  https://test-tunnel.trycloudflare.com/?ab_token= gw-tok  ".into(),
             remote_token: String::new(),
+            conn_mode: String::new(),
             created_at: 0,
         };
         let normalized = server.normalize();
@@ -2412,7 +2539,7 @@ mod tests {
         let dead = "127.0.0.1:1".to_string(); // 端口 1 上不会有服务
 
         // 并发（全部）：逐行两条都在，赢家是活的那个
-        let all = remote_test_blocking(vec![dead.clone(), live.clone()], "parallel_all".into(), None);
+        let all = remote_test_blocking(vec![dead.clone(), live.clone()], "parallel_all".into(), None, false);
         assert!(all.ok, "并发全部应探到活的地址");
         assert_eq!(all.addr, live);
         assert_eq!(all.results.len(), 2);
@@ -2420,11 +2547,11 @@ mod tests {
         assert!(all.results.iter().any(|o| o.address == live && o.ok));
 
         // 并发（首个）：赢家也是活的（死的那个直接失败出局）
-        let first = remote_test_blocking(vec![dead.clone(), live.clone()], "parallel_first".into(), None);
+        let first = remote_test_blocking(vec![dead.clone(), live.clone()], "parallel_first".into(), None, false);
         assert!(first.ok && first.addr == live);
 
         // 串行：先死后活，第一个成功的胜出
-        let serial = remote_test_blocking(vec![dead, live.clone()], "serial".into(), None);
+        let serial = remote_test_blocking(vec![dead, live.clone()], "serial".into(), None, false);
         assert!(serial.ok && serial.addr == live);
     }
 
@@ -2457,6 +2584,7 @@ mod tests {
             vec!["127.0.0.1:1".into()],
             "parallel_first".into(),
             Some(origin.clone()),
+            false,
         );
         assert!(fallback.ok, "局域网全挂时应兜底远程");
         assert!(fallback.remote, "赢家应带远程标记");
@@ -2465,11 +2593,63 @@ mod tests {
         assert!(fallback.results.iter().any(|o| o.remote && o.ok));
 
         // 局域网有赢家 → 远程不探，results 里带一行「未探测」
-        let lan_up = remote_test_blocking(vec![live], "parallel_first".into(), Some(origin));
+        let lan_up = remote_test_blocking(vec![live], "parallel_first".into(), Some(origin), false);
         assert!(lan_up.ok && !lan_up.remote, "局域网赢家优先");
         assert!(
             lan_up.results.iter().any(|o| o.remote && !o.ok && o.error.contains("未探测")),
             "远程未探测要有说明行"
+        );
+    }
+
+    /// 远程优先语义：远程通了 → 直接用隧道（局域网整轮不探，逐行补「未探测」说明）；
+    /// 远程挂了 → 退回局域网链路（赢家不带 remote 标记，逐行补远程失败行）。
+    #[test]
+    fn remote_test_remote_first_prefers_tunnel() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("监听回环");
+        let port = listener.local_addr().expect("本地地址").port();
+        std::thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                let mut stream = stream;
+                let mut buffer = [0u8; 512];
+                let _ = std::io::Read::read(&mut stream, &mut buffer);
+                let body = "{\"ok\":true,\"machineId\":\"m1\",\"machineName\":\"测试机\"}";
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = std::io::Write::write_all(&mut stream, response.as_bytes());
+            }
+        });
+        let origin = format!("http://127.0.0.1:{port}");
+        let live = format!("127.0.0.1:{port}");
+
+        // 远程优先 + 隧道通：赢家就是远程（哪怕局域网也有活地址也不探）
+        let first = remote_test_blocking(
+            vec![live.clone()],
+            "parallel_first".into(),
+            Some(origin.clone()),
+            true,
+        );
+        assert!(first.ok && first.remote, "远程优先应选隧道");
+        assert_eq!(first.addr, origin);
+        assert!(
+            first.results.iter().any(|o| !o.remote && !o.ok && o.error.contains("未探测")),
+            "局域网行要有「未探测」说明"
+        );
+
+        // 远程优先 + 隧道挂：退回局域网，赢家不带 remote 标记，逐行带远程失败行
+        let down = remote_test_blocking(
+            vec![live.clone()],
+            "parallel_first".into(),
+            Some("http://127.0.0.1:1".into()),
+            true,
+        );
+        assert!(down.ok && !down.remote, "隧道挂了应退回局域网");
+        assert_eq!(down.addr, live);
+        assert!(
+            down.results.iter().any(|o| o.remote && !o.ok),
+            "远程失败要有逐行说明"
         );
     }
 
@@ -2489,6 +2669,7 @@ mod tests {
             power_routes: vec![],
             remote_addr: String::new(),
             remote_token: String::new(),
+            conn_mode: String::new(),
             created_at: 0,
         };
         let normalized = server.normalize();
@@ -2520,6 +2701,7 @@ mod tests {
                 power_routes: vec![],
                 remote_addr: String::new(),
                 remote_token: String::new(),
+                conn_mode: String::new(),
                 created_at: 42,
             }],
         };
@@ -2547,7 +2729,7 @@ mod tests {
 
     #[test]
     fn remote_test_reports_missing_addresses() {
-        let result = remote_test_blocking(vec![" ".into()], "parallel".into(), None);
+        let result = remote_test_blocking(vec![" ".into()], "parallel".into(), None, false);
         assert!(!result.ok);
         assert_eq!(result.error, "没有可探测的地址");
     }

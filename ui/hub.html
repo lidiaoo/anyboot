@@ -1749,6 +1749,18 @@
                   「从对方获取」：对方要在同一局域网且其本机服务在线，它屏幕上会弹确认框。
                 </p>
               </div>
+              <div class="field" data-page-node-id="rsFieldConn1">
+                <label>连接优先（配了远程接入时怎么选路）</label>
+                <div style="display:flex;gap:4px" role="group" aria-label="连接优先">
+                  <button type="button" class="btn small seg-on" id="rsConnAuto" style="flex:1">自动（局域网优先）</button>
+                  <button type="button" class="btn small" id="rsConnRemote" style="flex:1">远程优先</button>
+                </div>
+                <p class="field-hint" style="margin:6px 0 0">
+                  自动：局域网探通就用，全连不上才走隧道；远程优先：隧道通了就直接走隧道
+                  （局域网只做兜底 —— 适合在家也想验证隧道、或局域网不可信的场景）。
+                  没配远程接入时此项无效。
+                </p>
+              </div>
               <div class="field" data-page-node-id="rsFieldProbe1">
                 <label>多网卡探测（有多个地址时怎么探）</label>
                 <div style="display:flex;gap:4px" role="group" aria-label="多网卡探测">
@@ -4275,6 +4287,7 @@
       addresses: r.addresses,
       probeMode: mode,
       remoteAddr: remoteAddr,
+      connMode: r.conn_mode || '',
     });
     // 连接方式是否翻转（直连 ↔ 隧道）：变了要刷新标注（电脑标签/列表行/悬浮球）
     let connChanged = false;
@@ -6082,6 +6095,7 @@
   // ---- 添加 / 编辑弹窗 ----
   let rsEditing = null; // null = 新建；否则 RemoteServer.id
   let rsProbe = 'parallel_first';
+  let rsConnMode = ''; // '' = 自动（局域网优先）；'remote_first' = 远程优先
   let rsDeleteArmed = false;
   const rsEditOverlay = document.getElementById('rsEditOverlay');
 
@@ -6139,6 +6153,13 @@
   document.getElementById('rsProbeAll').addEventListener('click', function () { rsProbe = 'parallel_all'; rsProbeButtons(); });
   document.getElementById('rsProbeSerial').addEventListener('click', function () { rsProbe = 'serial'; rsProbeButtons(); });
 
+  function rsConnButtons() {
+    document.getElementById('rsConnAuto').classList.toggle('primary', rsConnMode !== 'remote_first');
+    document.getElementById('rsConnRemote').classList.toggle('primary', rsConnMode === 'remote_first');
+  }
+  document.getElementById('rsConnAuto').addEventListener('click', function () { rsConnMode = ''; rsConnButtons(); });
+  document.getElementById('rsConnRemote').addEventListener('click', function () { rsConnMode = 'remote_first'; rsConnButtons(); });
+
   function openRsEdit(id) {
     rsEditing = id;
     rsDeleteArmed = false;
@@ -6160,6 +6181,8 @@
         ? r.probe_mode : 'parallel_first')
       : 'parallel_first';
     rsProbeButtons();
+    rsConnMode = r && r.conn_mode === 'remote_first' ? 'remote_first' : '';
+    rsConnButtons();
     document.getElementById('rsDelete').hidden = !r;
     document.getElementById('rsDelete').textContent = '删除';
     document.getElementById('rsEditError').textContent = '';
@@ -6192,6 +6215,7 @@
           addresses: addresses,
           probeMode: rsProbe,
           remoteAddr: document.getElementById('rsRemote').value.trim() || null,
+          connMode: rsConnMode,
         })
       : (rsEditing
           ? invoke('remote_test_via', { serverId: rsEditing })
@@ -6287,6 +6311,7 @@
       machine_id: '',
       machine_name: '',
       probe_mode: rsProbe,
+      conn_mode: rsConnMode,
       jump_id: document.getElementById('rsJump').value || '',
       // 远程接入：令牌不回显，编辑态恒传空（后端留空 = 保持已存；粘贴配对码时后端挖出）
       remote_addr: document.getElementById('rsRemote').value.trim(),

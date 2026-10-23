@@ -254,6 +254,11 @@ final class ServerProfile {
      * {@link #token} 是两套 —— 对方校验时按 {@code ?ab_token=} 比对已配对客户端表。
      */
     String remoteToken = "";
+    /**
+     * 连接优先：{@code remote_first} = 远程优先（隧道通了就走隧道，局域网只做兜底）；
+     * 空 / 其它 = 自动（局域网优先，远程兜底 —— 默认）。
+     */
+    String connMode = "";
 
     ServerProfile() {
         this.id = UUID.randomUUID().toString();
@@ -598,6 +603,11 @@ final class ServerProfile {
         return !text(remoteAddr).isEmpty();
     }
 
+    /** 连接优先是否「远程优先」（用户在编辑里选的；空 / auto = 局域网优先） */
+    boolean isRemoteFirst() {
+        return "remote_first".equals(text(connMode));
+    }
+
     /** 远程接入的 WebView 地址：{@code origin/?ab_token=…}（token 百分号编码） */
     String remoteUrl(String transport) {
         String origin = remoteOrigin();
@@ -808,6 +818,7 @@ final class ServerProfile {
         other.jumpServerId = jumpServerId;
         other.remoteAddr = remoteAddr;
         other.remoteToken = remoteToken;
+        other.connMode = connMode;
         for (PowerRoute route : powerRoutes) {
             other.powerRoutes.add(route.copy());
         }
@@ -874,6 +885,7 @@ final class ServerProfile {
         object.put("jumpServerId", text(jumpServerId));
         object.put("remoteAddr", normalizeRemoteOrigin(remoteAddr));
         object.put("remoteToken", text(remoteToken));
+        object.put("connMode", isRemoteFirst() ? "remote_first" : "");
         return object;
     }
 
@@ -925,6 +937,7 @@ final class ServerProfile {
         profile.jumpServerId = object.optString("jumpServerId", "");
         profile.remoteAddr = normalizeRemoteOrigin(object.optString("remoteAddr", ""));
         profile.remoteToken = object.optString("remoteToken", "");
+        profile.connMode = "remote_first".equals(object.optString("connMode", "")) ? "remote_first" : "";
         JSONArray routeArray = object.optJSONArray("powerRoutes");
         if (routeArray != null) {
             for (int i = 0; i < routeArray.length(); i++) {

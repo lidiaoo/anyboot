@@ -144,6 +144,9 @@ internal class ServerEditFormState(
         else ServerProfile.PROBE_PARALLEL_FIRST
     )
 
+    /** 连接优先："" = 自动（局域网优先）；"remote_first" = 远程优先（配了远程才生效） */
+    var connMode by mutableStateOf(if (profile?.isRemoteFirst() == true) "remote_first" else "")
+
     /** 局域网电源路由：编辑中的副本（增删都改这份），点「保存」才写回 profile */
     val routeList = mutableStateListOf<ServerProfile.PowerRoute>().apply {
         profile?.powerRoutes?.forEach { add(it.copy()) }
@@ -427,6 +430,31 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
             "局域网地址优先使用，全连不上才走远程；清空后保存 = 取消远程接入。" +
                 "配对码等同密码，别转发给别人。",
             fontSize = 11.sp, color = palette.fgFaint,
+        )
+
+        FieldLabel("连接优先（配了远程接入时怎么选路）")
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            RadioButton(
+                selected = state.connMode != "remote_first",
+                onClick = { state.connMode = "" }
+            )
+            Text(
+                "自动（局域网优先）",
+                fontSize = 13.sp, color = palette.fg,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            Spacer(Modifier.width(10.dp))
+            RadioButton(
+                selected = state.connMode == "remote_first",
+                onClick = { state.connMode = "remote_first" }
+            )
+            Text("远程优先", fontSize = 13.sp, color = palette.fg)
+        }
+        Text(
+            "远程优先：隧道通了就直接走隧道，局域网只做兜底 —— 适合在家验证隧道、" +
+                "或局域网不可信的场景；没配远程接入时此项无效",
+            fontSize = 10.sp, color = palette.fgFaint,
+            modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
         )
 
         FieldLabel(
@@ -802,6 +830,7 @@ internal fun applyServerEdit(
     target.name = state.name.trim().ifEmpty { target.host() }
     target.token = state.resolvedToken()
     target.probeMode = ServerProfile.normalizeProbeMode(state.probeMode)
+    target.connMode = if (state.connMode == "remote_first") "remote_first" else ""
     target.jumpServerId = state.resolvedJumpId()
     // 远程接入：框为空 = 取消（清地址与令牌）；认出来 = 写 origin；
     // 令牌挖不到时保持已存的（编辑态不回显令牌，用户重粘配对串才会更新）

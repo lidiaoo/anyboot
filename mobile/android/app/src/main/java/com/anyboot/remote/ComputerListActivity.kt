@@ -2080,6 +2080,18 @@ class ComputerListActivity : ComponentActivity() {
      * 返回 null = 连一个能试的地址都没有。
      */
     private fun chooseEndpoint(profile: ServerProfile): EndpointChoice? {
+        val remote = if (profile.hasRemote()) {
+            ServerProfile.normalizeRemoteOrigin(profile.remoteAddr)
+        } else {
+            ""
+        }
+        // 远程优先（编辑里选的）：先探隧道，通了直接走；隧道挂了再退局域网链路。
+        // 跳板机本身就是远程路径，不叠加隧道优先。
+        if (profile.isRemoteFirst() && profile.jumpServerId.isEmpty() && remote.isNotEmpty()
+            && HealthProbe.pingRemote(remote, REMOTE_PROBE_TIMEOUT_MS) > 0
+        ) {
+            return EndpointChoice(remote, ServerProfile.text(profile.remoteToken), alive = true)
+        }
         val lan = try {
             endpointOf(profile)
         } catch (error: Exception) {
@@ -2088,11 +2100,6 @@ class ComputerListActivity : ComponentActivity() {
         val lanToken = ServerProfile.text(profile.token)
         if (lan.isNotEmpty() && HealthProbe.ping(lan, PROBE_TIMEOUT_MS) > 0) {
             return EndpointChoice("http://" + lan, lanToken, alive = true)
-        }
-        val remote = if (profile.hasRemote()) {
-            ServerProfile.normalizeRemoteOrigin(profile.remoteAddr)
-        } else {
-            ""
         }
         if (remote.isNotEmpty() && HealthProbe.pingRemote(remote, REMOTE_PROBE_TIMEOUT_MS) > 0) {
             return EndpointChoice(remote, ServerProfile.text(profile.remoteToken), alive = true)

@@ -134,6 +134,8 @@ class MainActivity : ComponentActivity() {
         var effectiveAddress = ""
         /** 当前加载的是远程接入地址（局域网全挂后的兜底；本轮内失败不再重试） */
         var usingRemote = false
+        /** 本轮连接尝试里远程通道已经试过一次（防远程优先模式 LAN↔隧道乒乓） */
+        var triedRemote = false
     }
 
     data class ErrorInfo(val label: String, val addressSummary: String, val detail: String)
@@ -223,6 +225,17 @@ class MainActivity : ComponentActivity() {
                 if (tab.status == STATUS_FAIL) {
                     runOnUiThread { startAttempt(ensureTab(profile)) }
                 }
+            }
+
+            override fun onLanRecovered(id: String) {
+                // 局域网恢复：还挂在远程隧道上的标签自动切回直连 ——
+                // 重开一轮完整探测（赢家说了算），不会在局域网抖动时乒乓
+                // （探测有赢家才加载；失败路径有 triedRemote 闸）。
+                val tab = tabs[id] ?: return
+                if (!tab.usingRemote) return
+                val profile = ServerStore.find(servers, id) ?: return
+                if (profile.isRemoteFirst()) return // 远程优先是用户选的，不抢
+                runOnUiThread { startAttempt(ensureTab(profile)) }
             }
         })
         heartbeat?.tunnelResolver = tunnelResolver
@@ -1306,7 +1319,12 @@ class MainActivity : ComponentActivity() {
     private fun advanceAddress(tab: Tab): Boolean {
         // 远程通道这轮已经试过且也挂了：收工，等下次手动 / 自动重载再起新一轮
         if (tab.usingRemote) {
-            return false
+            if (!tab.profile.isRemoteFirst()) {
+                return false
+            }
+            // 远程优先但隧道挂了：退回局域网链路继续试（triedRemote 闸防再来一轮远程）
+            tab.usingRemote = false
+            tab.tried.clear()
         }
         val profile = tab.profile
         tab.tried.add(profile.hostAt(tab.addressIndex))
@@ -1334,9 +1352,11 @@ class MainActivity : ComponentActivity() {
      */
     private fun connectRemote(tab: Tab): Boolean {
         val profile = tab.profile
-        if (tab.usingRemote || !profile.hasRemote()) {
+        // triedRemote 闸：本轮（含远程优先退回局域网后再失败的情况）远程只试一次
+        if (tab.triedRemote || !profile.hasRemote()) {
             return false
         }
+        tab.triedRemote = true
         tab.usingRemote = true
         tab.tried.clear()
         tab.mainFailed = false
@@ -1480,8 +1500,14 @@ class MainActivity : ComponentActivity() {
     private fun startAttempt(tab: Tab) {
         tab.tried.clear()
         tab.usingRemote = false
+        tab.triedRemote = false
         errorInfo = null
         val profile = tab.profile
+        // 远程优先（编辑里选的）：直接走隧道，局域网只做兜底（隧道挂了 advanceAddress 会退回来）
+        if (profile.isRemoteFirst() && profile.hasRemote()) {
+            connectRemote(tab)
+            return
+        }
         if (ServerProfile.text(profile.jumpServerId).isNotEmpty() || profile.addresses.size < 2) {
             loadCurrentAddress(tab)
             return
@@ -1662,6 +1688,7 @@ class MainActivity : ComponentActivity() {
         if (!keep.hasRemote() && drop.hasRemote()) {
             keep.remoteAddr = drop.remoteAddr
             keep.remoteToken = drop.remoteToken
+            keep.connMode = drop.connMode // 连接优先跟着远程接入一起走
         }
     }
 
