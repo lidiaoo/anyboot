@@ -1374,6 +1374,39 @@
   .gw-client .gw-client-meta { font-size:11px; color:rgb(var(--fg-faint)); }
   .gw-client .gw-client-revoked { color:rgb(var(--warn)); font-size:11px; }
   .gw-clients-empty { padding:14px 0 4px; font-size:12px; color:rgb(var(--fg-faint)); }
+  /* token 弹窗（出码 / 通道日志共用）：hub.html 没有引入 styles.css，
+     .token-modal* 在本页原本完全没有样式 —— 弹层不固定、不居中、无遮罩，
+     按文档流排到网关页末尾（用户看到的「扫码界面偏移」）。这里对齐
+     styles.css 的同名规则，颜色换成 hub 自己的色板变量。 */
+  .token-modal-overlay {
+    position: fixed; inset: 0; z-index: 100;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(2, 6, 23, .6);
+    /* 内容比窗口高时（小窗口 + 二维码）可滚动：margin:auto 让弹窗
+       有空间时居中、没空间时贴边滚动，不会上沿被裁掉 */
+    overflow: auto;
+  }
+  html.light .token-modal-overlay { background: rgba(15, 23, 42, .35); }
+  .token-modal-overlay[hidden] { display: none; }
+  .token-modal {
+    width: min(380px, 92vw); max-width: 420px;
+    max-height: calc(100vh - 48px); overflow-y: auto;
+    margin: auto;
+    padding: 22px 24px;
+    border: 1px solid rgb(var(--line-strong));
+    border-radius: 12px;
+    background: rgb(var(--card));
+    box-shadow: 0 16px 48px -8px rgba(0, 0, 0, .55);
+  }
+  .token-modal h2 { margin: 0 0 10px; font-size: 17px; color: rgb(var(--fg)); }
+  .token-modal p { margin: 0 0 12px; font-size: 13px; line-height: 1.7; color: rgb(var(--fg-dim)); }
+  .token-modal input {
+    width: 100%; padding: 9px 12px;
+    border: 1px solid rgb(var(--line)); border-radius: 8px;
+    background: rgb(var(--elevate)); color: rgb(var(--fg));
+    font-size: 14px; outline: none;
+  }
+  .token-modal input:focus { border-color: rgb(var(--accent)); }
   .gw-pair-modal { max-width:420px; }
   .gw-pair-modal .token-reveal, .gw-pair-modal h2 { text-align:left; }
   .gw-pair-warn { color:rgb(var(--warn)) !important; font-size:12px !important; }
@@ -1383,7 +1416,7 @@
     width:100%; resize:none; border:1px solid rgb(var(--line)); border-radius:9px;
     background:rgb(var(--elevate)); color:rgb(var(--fg)); padding:8px 10px; font-size:11px; outline:none;
   }
-  .gw-log-modal { max-width:720px; width:720px; }
+  .gw-log-modal { max-width:min(720px, 92vw); width:720px; }
   .gw-log {
     height:340px; overflow:auto; margin:10px 0 0; padding:12px; border-radius:10px;
     background:#0b0e17; color:#c9d1e8; font-family:ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace;
@@ -1909,8 +1942,10 @@
               <input id="gwNamedUrl" type="text" class="mono" placeholder="https://anyboot.example.com" autocomplete="off">
               <p class="field-hint">填了它，配对串里就用这个地址；留空则配对串里不带地址，客户端要自己填。</p>
             </div>
-            <label class="gw-check"><input type="checkbox" id="gwAutostart"> 开机自动开启通道（仅命名隧道可配）</label>
           </div>
+
+          <!-- 自启：两种模式都可配（quick 地址会变，起来后到本页看新地址 / 手机重新扫码） -->
+          <label class="gw-check" style="margin-top:12px"><input type="checkbox" id="gwAutostart"> 启动软件时自动开启通道</label>
 
           <!-- 二进制状态 + 下载进度 -->
           <div class="gw-binary">
@@ -7659,7 +7694,7 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
       mode: mode,
       namedToken: $('gwNamedToken').value.trim(),
       namedUrl: $('gwNamedUrl').value.trim(),
-      autostart: mode === 'named' && $('gwAutostart').checked,
+      autostart: $('gwAutostart').checked,
     }).then(function () {
       return invoke('gateway_config');
     }).then(function (value) { cfg = value; }).catch(function (e) {

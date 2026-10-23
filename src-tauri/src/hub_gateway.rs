@@ -1455,14 +1455,15 @@ pub(crate) fn gateway_save_config(
     )
 }
 
-/// 启动时的通道自启：只在 named 模式（有固定地址、自启有意义）拉起；
-/// quick 不自启（地址会变，起来也是白起，设计稿⑦补9）。
+/// 启动时的通道自启：勾了「启动软件时自动开启通道」就在这里拉起。
+/// quick 也支持 —— 地址每次会变，但通道先就位，新地址在本页/出码里都是现成的；
+/// named 必须已存 Tunnel Token，quick 不需要。mode 为空（未配置过）不自启。
 pub(crate) fn autostart_tunnel(app: &tauri::AppHandle) {
     let settings = crate::stored_settings(app);
-    if !settings.gateway_autostart
-        || settings.gateway_mode != "named"
-        || settings.gateway_named_token.trim().is_empty()
-    {
+    if !settings.gateway_autostart || settings.gateway_mode.is_empty() {
+        return;
+    }
+    if settings.gateway_mode == "named" && settings.gateway_named_token.trim().is_empty() {
         return;
     }
     let app = app.clone();
