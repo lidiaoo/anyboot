@@ -7526,11 +7526,18 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
     if (save) persistConfig();
   }
   function persistConfig() {
+    // ⚠️ gateway_save_config 返回的是 SettingsView，**不能**拿它覆盖 cfg ——
+    // cfg 是 gateway_config 的聚合视图（带 binary/tunnel），覆盖成 SettingsView
+    // 后 cfg.binary 变 undefined，开启通道会误判「cloudflared 未就位」静默返回
+    // （真机踩过：点了没反应，trace 里只有 save_config 没有「启动通道」）。
+    // 所以保存成功后重拉一次聚合视图。
     return invoke('gateway_save_config', {
       mode: mode,
       namedToken: $('gwNamedToken').value.trim(),
       namedUrl: $('gwNamedUrl').value.trim(),
       autostart: mode === 'named' && $('gwAutostart').checked,
+    }).then(function () {
+      return invoke('gateway_config');
     }).then(function (value) { cfg = value; }).catch(function (e) {
       toast('保存配置失败：' + e, 'bad');
       throw e; // 让 await 方感知失败并中止后续动作
@@ -7575,11 +7582,12 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
     const namedToken = $('gwNamedToken').value.trim();
     const namedUrl = $('gwNamedUrl').value.trim();
     try { await persistConfig(); } catch (e) { return; }
-    if (!(cfg && cfg.binary && cfg.binary.installed)) {
-      if ($('gwDownloadBtn').hidden === false) {
-        toast('cloudflared 还没就位，开始下载（约 50MB）…');
-        startDownload();
-      }
+    // 就位判定直接问后端，别信缓存（cfg 可能是旧聚合视图或缺失 binary 字段）
+    const binary = await invoke('gateway_binary_status').catch(function () { return null; });
+    if (!(binary && binary.installed)) {
+      // 兜底 toast：这条路径以前可能静默 return（点了没反应），必须给说法
+      toast('cloudflared 还没就位，开始下载（约 50MB）…');
+      startDownload();
       return; // 下载完成事件里会提示再点一次开启
     }
     try {

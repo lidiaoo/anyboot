@@ -29,6 +29,26 @@ pub(crate) fn release_base_url() -> String {
     )
 }
 
+/// 网关链路埋点：**无条件**追加 trace.log（对齐 `hub_power::power_log`）——
+/// 「点了开启通道没反应」这类问题必须能查到按没按、走到哪、错在哪，
+/// 不能依赖 debug_trace 开关。写入失败全部吞掉，绝不影响通道本身。
+/// 注意：消息自带 `[gateway]` 前缀，这里只补 `[tunnel]` 类别与时间戳。
+pub(crate) fn gw_log(app: &AppHandle, message: &str) {
+    let line = format!("{}ms [tunnel] {message}\n", crate::unix_millis());
+    eprint!("trace {line}");
+    let Some(path) = crate::trace_file_path(app) else {
+        return;
+    };
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _ = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .and_then(|mut file| file.write_all(line.as_bytes()));
+}
+
 /// 配置目录下的 gateway 子目录（二进制缓存根）。
 pub(crate) fn cache_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let dir = crate::config_dir(app)?.join("gateway");
@@ -169,9 +189,8 @@ pub(crate) fn verify_and_install(
         std::fs::set_permissions(&final_path, std::fs::Permissions::from_mode(0o755))
             .map_err(|error| format!("chmod +x 失败: {error}"))?;
     }
-    crate::trace(
+    gw_log(
         app,
-        "tunnel",
         &format!("[gateway] cloudflared {CLOUDFLARED_VERSION} 安装完成: {}", final_path.display()),
     );
     Ok(final_path)
@@ -369,14 +388,13 @@ fn download_worker(app: tauri::AppHandle) {
                     percent: 0,
                 },
             );
-            crate::trace(&app, "tunnel", &format!("[gateway] 下载换源 {label}: {url}"));
+            gw_log(&app, &format!("[gateway] 下载换源 {label}: {url}"));
         }
         let _ = std::fs::remove_file(&tmp);
         match download_to_tmp(url, &tmp) {
             Ok((received, total)) => {
-                crate::trace(
+                gw_log(
                     &app,
-                    "tunnel",
                     &format!("[gateway] 下载完成 {label}: {received}/{total} bytes"),
                 );
                 match verify_and_install(&app, &tmp) {
@@ -390,7 +408,7 @@ fn download_worker(app: tauri::AppHandle) {
             Err(error) => {
                 let _ = std::fs::remove_file(&tmp);
                 last_error = format!("{label}: {error}");
-                crate::trace(&app, "tunnel", &format!("[gateway] 下载失败 {last_error}"));
+                gw_log(&app, &format!("[gateway] 下载失败 {last_error}"));
             }
         }
     }
@@ -463,9 +481,8 @@ pub(crate) fn gateway_binary_set_manual(
                 .map_err(|error| format!("chmod +x 失败: {error}"))?;
         }
     }
-    crate::trace(
+    gw_log(
         &app,
-        "tunnel",
         &format!("[gateway] 手动二进制就位: {} ({version})", final_path.display()),
     );
     let status = binary_status(&app);
@@ -652,7 +669,7 @@ fn tunnel_start_blocking(
         last_error: String::new(),
     };
     state.emit_state(app);
-    crate::trace(app, "tunnel", &format!("[gateway] 启动通道 mode={:?}", mode));
+    gw_log(app, &format!("[gateway] 启动通道 mode={:?}", mode));
     let worker_app = app.clone();
     std::thread::spawn(move || tunnel_worker(worker_app, mode, named_token, named_url));
     state.snapshot.lock().map(|s| s.clone()).map_err(|_| "状态锁中毒".to_string())
@@ -703,7 +720,7 @@ fn tunnel_worker(app: tauri::AppHandle, mode: TunnelMode, named_token: String, n
             }
         };
         let pid = child.id();
-        crate::trace(&app, "tunnel", &format!("[gateway] cloudflared pid={pid}"));
+        gw_log(&app, &format!("[gateway] cloudflared pid={pid}"));
         *state.proc.lock().unwrap() = Some(TunnelProc {
             child: Mutex::new(child),
             pid,
@@ -756,7 +773,7 @@ fn tunnel_worker(app: tauri::AppHandle, mode: TunnelMode, named_token: String, n
                 s.state = "stopped".into();
             });
             state.emit_state(&app);
-            crate::trace(&app, "tunnel", "[gateway] 通道已停止（用户关闭）");
+            gw_log(&app, "[gateway] 通道已停止（用户关闭）");
             break;
         }
         if restarts as usize >= BACKOFF_SECS.len() {
@@ -766,7 +783,7 @@ fn tunnel_worker(app: tauri::AppHandle, mode: TunnelMode, named_token: String, n
                 s.last_error = format!("重试 {restarts} 次后仍退出（exit={exit_info:?}）");
             });
             state.emit_state(&app);
-            crate::trace(&app, "tunnel", "[gateway] 退避重启次数用完，标记失败");
+            gw_log(&app, "[gateway] 退避重启次数用完，标记失败");
             break;
         }
         let wait = BACKOFF_SECS[restarts as usize];
@@ -812,7 +829,7 @@ fn pipe_log_lines(
                                 s.state = "running".into();
                             });
                             state.emit_state(&app);
-                            crate::trace(&app, "tunnel", &format!("[gateway] 隧道地址 {url}"));
+                            gw_log(&app, &format!("[gateway] 隧道地址 {url}"));
                         }
                     } else if text.contains("Registered tunnel connection") {
                         state.set_snapshot(|s| {
@@ -839,7 +856,7 @@ pub(crate) fn gateway_tunnel_stop(
     if let Some(proc_handle) = state.proc.lock().unwrap().as_ref() {
         let _ = proc_handle.child.lock().unwrap().kill();
     }
-    crate::trace(&app, "tunnel", "[gateway] 用户请求停止通道");
+    gw_log(&app, "[gateway] 用户请求停止通道");
     // 进程退出由工作线程感知并落 stopped 快照；这里也直接兜底置态，避免 UI 干等。
     state.set_snapshot(|s| {
         s.running = false;
@@ -1032,7 +1049,7 @@ pub(crate) fn gateway_pair_issue(
         percent_encode(&tunnel),
         token
     );
-    crate::trace(&app, "tunnel", &format!("[gateway] 签发配对 {} ({})", client.id, client.name));
+    gw_log(&app, &format!("[gateway] 签发配对 {} ({})", client.id, client.name));
     Ok(PairIssued {
         client,
         token,
@@ -1061,7 +1078,7 @@ pub(crate) fn gateway_pair_revoke(
         let label = format!("{} ({})", client.id, client.name);
         save_clients(&app, &clients)?;
         crate::websocket_disconnect_all();
-        crate::trace(&app, "tunnel", &format!("[gateway] 吊销 {label}"));
+        gw_log(&app, &format!("[gateway] 吊销 {label}"));
     }
     Ok(clients)
 }
@@ -1152,7 +1169,7 @@ pub(crate) fn pair_request_reply(app: &tauri::AppHandle, request: &crate::remote
     if let Some(results) = PAIR_RESULTS.lock().unwrap().as_mut() {
         results.retain(|_, (_, ts)| !pair_expired(*ts));
     }
-    crate::trace(app, "tunnel", &format!("[gateway] 收到配对请求 from {name}"));
+    gw_log(app, &format!("[gateway] 收到配对请求 from {name}"));
     let _ = app.emit(
         "gateway-pair-request",
         serde_json::json!({ "name": name }),
@@ -1299,7 +1316,7 @@ fn gateway_pair_fetch_blocking(app: &tauri::AppHandle, peer: &str) -> Result<Str
     );
     let (status, body) = peer_get(peer, &format!("/api/gateway-pair-request?{query}"))?;
     reply_message(status, &body)?;
-    crate::trace(app, "tunnel", &format!("[gateway] 已向 {peer} 发起配对请求"));
+    gw_log(app, &format!("[gateway] 已向 {peer} 发起配对请求"));
     // 轮询：2s 一次、最多 40 次（80s > B 端 120s TTL 的有效窗口足够）
     for _ in 0..40 {
         std::thread::sleep(std::time::Duration::from_millis(2000));
@@ -1341,7 +1358,7 @@ pub(crate) fn gateway_pair_decide(
         return Err("配对请求已过期".to_string());
     }
     if !approve {
-        crate::trace(&app, "tunnel", &format!("[gateway] 拒绝配对 {}", pending.name));
+        gw_log(&app, &format!("[gateway] 拒绝配对 {}", pending.name));
         return Ok(None);
     }
     let issued = gateway_pair_issue(app.clone(), pending.name.clone(), String::new())?;
@@ -1358,7 +1375,7 @@ pub(crate) fn gateway_pair_decide(
         );
         *PAIR_RESULTS.lock().unwrap() = Some(map);
     }
-    crate::trace(&app, "tunnel", &format!("[gateway] 同意配对 {}", pending.name));
+    gw_log(&app, &format!("[gateway] 同意配对 {}", pending.name));
     Ok(Some(issued))
 }
 
