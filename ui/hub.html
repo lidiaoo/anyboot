@@ -1395,6 +1395,11 @@
   .fb-kv > span:first-child { flex:none; color:rgb(var(--fg-faint)); }
   .fb-kv > span:last-child { text-align:right; word-break:break-all; font-family:ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace; }
   /* ============ 远程接入（gateway 页） ============ */
+  /* 页面自身就是滚动容器：小窗/矮窗下卡片超出视口要能上下滚（body overflow:hidden 兜底裁切） */
+  #page-gateway { overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+  #page-gateway::-webkit-scrollbar { width: 8px; }
+  #page-gateway::-webkit-scrollbar-thumb { background: rgb(var(--line-strong)); border-radius: 4px; }
+  #page-gateway::-webkit-scrollbar-track { background: transparent; }
   .s-badge {
     margin-left:auto; font-size:10px; line-height:1; padding:3px 6px; border-radius:99px;
     background:rgb(var(--warn) / .15); color:rgb(var(--warn)); font-weight:600; flex:none;
