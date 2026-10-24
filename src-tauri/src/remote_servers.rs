@@ -28,7 +28,33 @@ pub(crate) const DEFAULT_PORT: u16 = 12300;
 /// 单次探活的连接+响应超时
 const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+/// 连接优先级的五个通道 id（route_order / route_disabled 里只认这些）
+pub(crate) const ROUTE_IDS: [&str; 5] = ["lan", "jump", "tunnel", "ts", "funnel"];
+
+/// 默认优先级：直连 → 跳板 → 隧道 → Tailscale → Funnel（Funnel 出公网，习惯上最后）
+pub(crate) fn default_route_order() -> Vec<String> {
+    ROUTE_IDS.iter().map(|id| id.to_string()).collect()
+}
+
+/// 通道显示名（错误聚合 / 探测行用）
+pub(crate) fn route_label(kind: &str) -> &'static str {
+    match kind {
+        "lan" => "直连",
+        "jump" => "跳板机",
+        "tunnel" => "Cloudflare 隧道",
+        "ts" => "Tailscale",
+        "funnel" => "Tailscale Funnel",
+        _ => "未知通道",
+    }
+}
+
+/// Funnel 判型：https + 域名含 .ts.net（与 Tailscale 100.x 直连区分）
+fn is_funnel_origin(origin: &str) -> bool {
+    let lower = origin.trim().to_ascii_lowercase();
+    lower.starts_with("https://") && lower["https://".len()..].contains(".ts.net")
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct RemoteServer {
     pub id: String,
     /// 分组名（区分不同的电脑）；空 = 未分组
@@ -81,8 +107,17 @@ pub struct RemoteServer {
     pub remote_token: String,
     /// 连接优先：`remote_first` = 远程优先（隧道通了就走隧道，局域网只做兜底）；
     /// 空 / 其它 = 自动（局域网优先，远程兜底 —— 默认）。
+    /// **已废弃**：被 route_order（五通道显式排序）取代，字段保留只为旧档案兼容
+    /// （读取时迁移：remote_first → 远程通道在前、LAN 殿后），不再被消费逻辑读取。
     #[serde(default)]
     pub conn_mode: String,
+    /// 连接优先级（五通道并列，有序）：id ∈ lan / jump / tunnel / ts / funnel。
+    /// 空 / 缺项 = 老档案，按默认序（lan→jump→tunnel→ts→funnel）或 conn_mode 迁移补全。
+    #[serde(default)]
+    pub route_order: Vec<String>,
+    /// 禁用的通道 id（在 route_order 里有位次但不参与探测/请求）。
+    #[serde(default)]
+    pub route_disabled: Vec<String>,
     #[serde(default)]
     pub created_at: u64,
 }
@@ -106,6 +141,17 @@ pub struct ProbeOutcome {
     /// true = 这一行是远程接入地址（https 隧道），不是局域网候选
     #[serde(default)]
     pub remote: bool,
+    /// 通道类型（lan/jump/tunnel/ts/funnel）；老结果行缺省 = lan / 按 remote 区分
+    #[serde(default)]
+    pub kind: String,
+}
+
+/// remote_test 的显式候选（五通道优先级探测用）：kind ∈ lan/jump/tunnel/ts/funnel，
+/// origin = 局域网 host:port（lan/jump，jump 由前端先解析好转发端点）或远程 https origin
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct RouteTestCandidate {
+    pub kind: String,
+    pub origin: String,
 }
 
 /// remote_test 的结果：addr/ms 是选中的赢家；results 是全部候选地址的逐行结果
@@ -126,8 +172,108 @@ pub struct RemoteTestResult {
 
 impl RemoteServer {
     /// 连接优先是否「远程优先」。空 / auto / 未知值都按自动（局域网优先）处理。
+    /// 只剩迁移语义：route_order 为空的老档案读序时用它决定迁移方向。
     pub(crate) fn conn_remote_first(&self) -> bool {
         self.conn_mode.trim() == "remote_first"
+    }
+
+    /// 有序五通道 id（自愈）：清洗非法 id / 去重，缺的按默认序补到尾部；
+    /// 全空 = 老档案 —— conn_mode=remote_first 迁移为「远程在前、LAN 殿后」，否则默认序。
+    pub(crate) fn route_order_sorted(&self) -> Vec<String> {
+        let mut seen = std::collections::HashSet::new();
+        let mut order: Vec<String> = self
+            .route_order
+            .iter()
+            .map(|raw| raw.trim().to_string())
+            .filter(|id| ROUTE_IDS.contains(&id.as_str()) && seen.insert(id.clone()))
+            .collect();
+        if order.is_empty() && self.conn_remote_first() {
+            // 迁移：远程通道在前（保持 隧道→ts→funnel 的相对序），跳板/直连殿后
+            return ["tunnel", "ts", "funnel", "jump", "lan"]
+                .iter()
+                .map(|id| id.to_string())
+                .collect();
+        }
+        for id in ROUTE_IDS {
+            let id = id.to_string();
+            if !order.contains(&id) {
+                order.push(id);
+            }
+        }
+        order
+    }
+
+    /// 有序连接候选（已滤掉禁用与不可用项）：`(kind, origin)`。
+    /// - lan：首个非空局域网地址（补默认端口）；
+    /// - jump：经跳板机转发到同一局域网地址（没配跳板机 = 不可用，origin 留空由消费方解析端点）；
+    /// - tunnel / ts / funnel：远程 origin（funnel 从 ts 槽判型拆出：https + *.ts.net）。
+    pub(crate) fn route_candidates(&self) -> Vec<(String, String)> {
+        let mut out: Vec<(String, String)> = Vec::new();
+        let has_lan_addr = self.addresses.iter().any(|raw| !raw.trim().is_empty());
+        for kind in self.route_order_sorted() {
+            if self.route_disabled.iter().any(|raw| raw.trim() == kind) {
+                continue;
+            }
+            match kind.as_str() {
+                "lan" => {
+                    if let Some(addr) = self
+                        .addresses
+                        .iter()
+                        .map(|raw| raw.trim())
+                        .find(|raw| !raw.is_empty())
+                    {
+                        out.push(("lan".to_string(), with_default_port(addr)));
+                    }
+                }
+                "jump" => {
+                    if !self.jump_id.trim().is_empty() && has_lan_addr {
+                        out.push(("jump".to_string(), String::new()));
+                    }
+                }
+                "tunnel" => {
+                    if !self.remote_tunnel_addr.is_empty() {
+                        out.push(("tunnel".to_string(), self.remote_tunnel_addr.clone()));
+                    }
+                }
+                "ts" => {
+                    let origin = self.ts_direct_origin();
+                    if !origin.is_empty() {
+                        out.push(("ts".to_string(), origin));
+                    }
+                }
+                "funnel" => {
+                    let origin = self.funnel_origin();
+                    if !origin.is_empty() {
+                        out.push(("funnel".to_string(), origin));
+                    }
+                }
+                _ => {}
+            }
+        }
+        out
+    }
+
+    /// ts 槽里的 Funnel 地址（https + *.ts.net）；没有则空。
+    pub(crate) fn funnel_origin(&self) -> String {
+        let ts = self.remote_ts_addr.trim();
+        if is_funnel_origin(ts) {
+            return ts.to_string();
+        }
+        // 老档案兜底：双槽还没归一、只在 remote_addr 里存的场景
+        let legacy = self.remote_addr.trim();
+        if self.remote_ts_addr.is_empty() && is_funnel_origin(legacy) {
+            return legacy.to_string();
+        }
+        String::new()
+    }
+
+    /// ts 槽里的 Tailscale 直连地址（100.x http）；是 Funnel 就不算。
+    pub(crate) fn ts_direct_origin(&self) -> String {
+        let ts = self.remote_ts_addr.trim();
+        if !ts.is_empty() && !is_funnel_origin(ts) {
+            return ts.to_string();
+        }
+        String::new()
     }
 
     pub(crate) fn normalize(mut self) -> Self {
@@ -150,6 +296,27 @@ impl RemoteServer {
         } else {
             String::new()
         };
+        // 五通道优先级：清洗（只认五个 id、去重、缺项按默认序补尾）+ 禁用表清洗。
+        // 全空 = 老档案：conn_mode=remote_first 迁移为「远程在前、LAN 殿后」，否则默认序；
+        // route_order_sorted() 是读路径的自愈版，这里负责把迁移结果落到盘上。
+        if self.route_order.iter().all(|raw| raw.trim().is_empty()) {
+            self.route_order = if self.conn_remote_first() {
+                ["tunnel", "ts", "funnel", "jump", "lan"]
+                    .iter()
+                    .map(|id| id.to_string())
+                    .collect()
+            } else {
+                default_route_order()
+            };
+        } else {
+            self.route_order = self.route_order_sorted();
+        }
+        self.route_disabled = self
+            .route_disabled
+            .iter()
+            .map(|raw| raw.trim().to_string())
+            .filter(|id| ROUTE_IDS.contains(&id.as_str()))
+            .collect();
         // 地址逐条归一：挖 URL 形态里的 token 与裸地址；trim、去空、去重（保序）
         let mut token_from_url: Option<String> = None;
         let mut seen = std::collections::HashSet::new();
@@ -636,39 +803,105 @@ fn encode_query(value: &str) -> String {
 /// 局域网地址全连不上时自动兜底远程接入地址（https 隧道 + ab_token）——
 /// 出门在外时电源指令照样能发。
 fn remote_http_power(server: &RemoteServer, action: &str) -> Result<String, String> {
-    // 远程优先：按双槽候选（隧道 → Tailscale）逐个试，通了直接用；没通退回局域网链路
-    let origins = server.remote_origins();
     let path = format!("/api/power?action={action}");
-    if server.conn_remote_first() {
-        let mut last_error: Option<String> = None;
-        for origin in &origins {
-            match remote_https_get(origin, &server.remote_token, &path)
+    // 按用户优先级逐通道试（route_candidates 已滤禁用与不可用项）；
+    // 电源路径没有 AppHandle：jump 候选解析不了转发端点，这里跳过（引导项/JSON 路径支持）
+    let candidates = server.route_candidates();
+    let mut last_error = String::from("没有可用连接通道");
+    let mut tried = 0usize;
+    for (kind, origin) in &candidates {
+        if kind == "jump" {
+            continue;
+        }
+        tried += 1;
+        let result = if kind == "lan" {
+            lan_http_get(
+                origin,
+                &power_query_path(action, server.token.trim()),
+                15,
+            )
+            .and_then(|(status, body)| parse_power_reply(status, &body))
+        } else {
+            remote_https_get(origin, &server.remote_token, &path)
                 .and_then(|(status, body)| parse_power_reply(status, &body))
-            {
-                Ok(message) => return Ok(format!("（经远程通道·优先）{message}")),
-                Err(error) => last_error = Some(error),
+        };
+        match result {
+            Ok(message) => {
+                return Ok(if kind == "lan" {
+                    message
+                } else {
+                    format!("（经{}）{message}", route_label(kind))
+                });
             }
-        }
-        let _ = last_error; // 全失败时下面局域网兜底，错误拼在最终结果里
-    }
-    match remote_http_power_lan(server, action) {
-        Ok(message) => Ok(message),
-        Err(lan_error) => {
-            if origins.is_empty() {
-                return Err(lan_error);
-            }
-            let mut last_error = String::from("没配远程接入");
-            for origin in &origins {
-                match remote_https_get(origin, &server.remote_token, &path)
-                    .and_then(|(status, body)| parse_power_reply(status, &body))
-                {
-                    Ok(message) => return Ok(format!("（经远程通道）{message}")),
-                    Err(remote_error) => last_error = remote_error,
-                }
-            }
-            Err(format!("{lan_error}；远程通道也不通：{last_error}"))
+            Err(error) => last_error = error,
         }
     }
+    if tried == 0 {
+        return Err(
+            "没有可用连接通道（局域网地址为空，或优先级里所有通道都被禁用/不可用）".to_string(),
+        );
+    }
+    Err(last_error)
+}
+
+/// 电源接口的查询串（`?action=..&token=..`），LAN 直连用
+fn power_query_path(action: &str, token: &str) -> String {
+    let mut query = format!("action={action}");
+    if !token.is_empty() {
+        query.push_str("&token=");
+        query.push_str(&encode_query(token));
+    }
+    format!("/api/power?{query}")
+}
+
+/// 手写 TCP 的单次 GET（LAN 直连 / 跳板端点共用）：返回 (status, body)。
+/// 跳板链路电源动作服务端要等机器响应，读超时放宽（调用方传）。
+fn lan_http_get(target: &str, path_and_query: &str, read_timeout_secs: u64) -> Result<(u16, String), String> {
+    let mut stream = TcpStream::connect(target)
+        .map_err(|error| format!("连接 {target} 失败: {error}"))
+        .and_then(|stream| {
+            stream
+                .set_read_timeout(Some(Duration::from_secs(read_timeout_secs)))
+                .map_err(|error| format!("设置读超时失败: {error}"))?;
+            stream
+                .set_write_timeout(Some(Duration::from_secs(4)))
+                .map_err(|error| format!("设置写超时失败: {error}"))?;
+            Ok(stream)
+        })?;
+    let request = format!(
+        "GET {path_and_query} HTTP/1.1\r\nHost: {target}\r\nConnection: close\r\n\r\n"
+    );
+    stream
+        .write_all(request.as_bytes())
+        .map_err(|error| format!("发送请求失败: {error}"))?;
+    let mut raw = Vec::new();
+    stream
+        .read_to_end(&mut raw)
+        .map_err(|error| format!("读取响应失败: {error}"))?;
+    let text = String::from_utf8_lossy(&raw);
+    let status = text
+        .split_whitespace()
+        .nth(1)
+        .and_then(|code| code.parse::<u16>().ok())
+        .unwrap_or(0);
+    let body = match text.find("\r\n\r\n") {
+        Some(index) => text[index + 4..].to_string(),
+        None => String::new(),
+    };
+    Ok((status, body))
+}
+
+/// 电源接口的局域网那一路（手写 TCP；route_candidates 之外保留给单测与直调）。
+fn remote_http_power_lan(server: &RemoteServer, action: &str) -> Result<String, String> {
+    let address = server
+        .addresses
+        .iter()
+        .map(|raw| raw.trim())
+        .find(|raw| !raw.is_empty())
+        .ok_or_else(|| "这台电脑还没有可用地址".to_string())?;
+    let target = with_default_port(address);
+    lan_http_get(&target, &power_query_path(action, server.token.trim()), 15)
+        .and_then(|(status, body)| parse_power_reply(status, &body))
 }
 
 /// 电源接口回执解析（LAN / 远程共用）：401/4xx/非 JSON 的分支都收在这。
@@ -698,54 +931,6 @@ fn parse_power_reply(status: u16, body: &str) -> Result<String, String> {
     } else {
         fallback.to_string()
     })
-}
-
-/// 电源接口的局域网那一路（原 remote_http_power 主体，手写 TCP）。
-fn remote_http_power_lan(server: &RemoteServer, action: &str) -> Result<String, String> {
-    let address = server
-        .addresses
-        .iter()
-        .map(|raw| raw.trim())
-        .find(|raw| !raw.is_empty())
-        .ok_or_else(|| "这台电脑还没有可用地址".to_string())?;
-    let target = with_default_port(address);
-    let mut query = format!("action={action}");
-    let token = server.token.trim();
-    if !token.is_empty() {
-        query.push_str("&token=");
-        query.push_str(&encode_query(token));
-    }
-    let mut stream = TcpStream::connect(&target)
-        .map_err(|error| format!("连接 {target} 失败: {error}"))
-        .and_then(|stream| {
-            stream
-                .set_read_timeout(Some(Duration::from_secs(15)))
-                .map_err(|error| format!("设置读超时失败: {error}"))?;
-            stream
-                .set_write_timeout(Some(Duration::from_secs(4)))
-                .map_err(|error| format!("设置写超时失败: {error}"))?;
-            Ok(stream)
-        })?;
-    let request =
-        format!("GET /api/power?{query} HTTP/1.1\r\nHost: {target}\r\nConnection: close\r\n\r\n");
-    stream
-        .write_all(request.as_bytes())
-        .map_err(|error| format!("发送请求失败: {error}"))?;
-    let mut raw = Vec::new();
-    stream
-        .read_to_end(&mut raw)
-        .map_err(|error| format!("读取响应失败: {error}"))?;
-    let text = String::from_utf8_lossy(&raw);
-    let status = text
-        .split_whitespace()
-        .nth(1)
-        .and_then(|code| code.parse::<u16>().ok())
-        .unwrap_or(0);
-    let body = match text.find("\r\n\r\n") {
-        Some(index) => text[index + 4..].to_string(),
-        None => String::new(),
-    };
-    parse_power_reply(status, &body)
 }
 
 /// 电脑档案的电源动作：按「局域网电源路由」发 sol 包；唤醒没配路由就按默认
@@ -1179,7 +1364,21 @@ pub async fn remote_test(
     probe_mode: String,
     remote_addrs: Option<Vec<String>>,
     conn_mode: Option<String>,
+    candidates: Option<Vec<RouteTestCandidate>>,
 ) -> RemoteTestResult {
+    // 新路径：五通道优先级显式候选（PC 编辑弹窗按 route_order 传入）——
+    // 按序逐通道探，第一个通的当赢家；results 每通道一行（kind 已带）。
+    // probe_mode 只作用于连续的局域网族候选（lan：多网卡并发/串行由它决定）
+    if let Some(list) = candidates.filter(|items| !items.is_empty()) {
+        return tauri::async_runtime::spawn_blocking(move || {
+            remote_test_candidates_blocking(list, &normalize_probe_mode(&probe_mode))
+        })
+        .await
+        .unwrap_or_else(|error| RemoteTestResult {
+            error: format!("探测任务失败: {error}"),
+            ..Default::default()
+        });
+    }
     let remote_first = conn_mode
         .as_deref()
         .map(str::trim)
@@ -1193,6 +1392,112 @@ pub async fn remote_test(
         error: format!("探测任务失败: {error}"),
         ..Default::default()
     })
+}
+
+/// 五通道优先级探测：按传入顺序处理候选，第一个通的当赢家；
+/// results 每通道一行（失败的在前、赢家最后，通道名在 kind）。
+/// 连续的 lan 候选（多网卡）合并为一组交给 remote_test_blocking 按 probe_mode 探；
+/// 其余远程通道逐个串行。jump 候选不在此路径（编辑弹窗对跳板机走 remote_test_via）。
+fn remote_test_candidates_blocking(
+    candidates: Vec<RouteTestCandidate>,
+    probe_mode: &str,
+) -> RemoteTestResult {
+    let mut rows: Vec<ProbeOutcome> = Vec::new();
+    let mut last_error = String::from("没有可探测的通道");
+    let mut index = 0usize;
+    while index < candidates.len() {
+        let cand = &candidates[index];
+        let kind = cand.kind.trim().to_string();
+        if kind == "lan" {
+            // 收集连续的 lan 候选（多网卡）为一组，组内并发/串行语义交给老函数
+            let mut lan_addrs: Vec<String> = Vec::new();
+            while index < candidates.len() && candidates[index].kind.trim() == "lan" {
+                let (address, _) = split_address(&candidates[index].origin);
+                if !address.is_empty() {
+                    lan_addrs.push(address);
+                }
+                index += 1;
+            }
+            if lan_addrs.is_empty() {
+                continue;
+            }
+            let group = remote_test_blocking(lan_addrs, probe_mode.to_string(), None, false);
+            rows.extend(group.results.iter().cloned().map(|mut row| {
+                row.kind = "lan".to_string();
+                row
+            }));
+            if group.ok {
+                return RemoteTestResult {
+                    ok: true,
+                    addr: group.addr,
+                    ms: group.ms,
+                    machine_id: group.machine_id,
+                    machine_name: group.machine_name,
+                    remote: false,
+                    results: rows,
+                    ..Default::default()
+                };
+            }
+            last_error = group.error;
+            continue;
+        }
+        index += 1;
+        let remote = matches!(kind.as_str(), "tunnel" | "ts" | "funnel");
+        let result = if remote {
+            let (origin, _) = split_remote_address(&cand.origin);
+            if origin.is_empty() {
+                Err((cand.origin.clone(), "地址为空".to_string()))
+            } else {
+                probe_remote_health(&origin, REMOTE_PROBE_TIMEOUT)
+                    .map(|payload| (origin.clone(), payload))
+                    .map_err(|error| (origin.clone(), error))
+            }
+        } else {
+            // 非 lan 的局域网族（jump 等）：此路径不支持，标注说明
+            Err((
+                cand.origin.clone(),
+                "此通道请用「经跳板机测试」（先保存档案）".to_string(),
+            ))
+        };
+        match result {
+            Ok((origin, (ms, machine_id, machine_name))) => {
+                rows.push(ProbeOutcome {
+                    address: origin.clone(),
+                    ok: true,
+                    ms,
+                    error: String::new(),
+                    remote,
+                    kind: kind.clone(),
+                });
+                return RemoteTestResult {
+                    ok: true,
+                    addr: origin,
+                    ms,
+                    machine_id,
+                    machine_name,
+                    remote,
+                    results: rows,
+                    ..Default::default()
+                };
+            }
+            Err((origin, error)) => {
+                last_error = error.clone();
+                rows.push(ProbeOutcome {
+                    address: origin,
+                    ok: false,
+                    ms: 0,
+                    error,
+                    remote,
+                    kind,
+                });
+            }
+        }
+    }
+    RemoteTestResult {
+        error: format!("所有通道都不通：{last_error}"),
+        results: rows,
+        ..Default::default()
+    }
 }
 
 fn remote_test_blocking(
@@ -1245,6 +1550,7 @@ fn remote_test_blocking(
                             ms: 0,
                             error: "远程优先，局域网未探测".to_string(),
                             remote: false,
+                            kind: "lan".to_string(),
                         })
                         .collect();
                     // 排在赢家前面的远程候选都失败过：如实逐行补失败原因
@@ -1255,6 +1561,7 @@ fn remote_test_blocking(
                             ms: 0,
                             error: error.clone(),
                             remote: true,
+                            kind: String::new(),
                         });
                     }
                     rows.push(ProbeOutcome {
@@ -1263,6 +1570,7 @@ fn remote_test_blocking(
                         ms,
                         error: String::new(),
                         remote: true,
+                            kind: String::new(),
                     });
                     return RemoteTestResult {
                         ok: true,
@@ -1296,6 +1604,7 @@ fn remote_test_blocking(
                         ms,
                         error: String::new(),
                         remote: false,
+                            kind: "lan".to_string(),
                     });
                     best = Some(RemoteTestResult {
                         ok: true,
@@ -1313,6 +1622,7 @@ fn remote_test_blocking(
                     ms: 0,
                     error,
                     remote: false,
+                            kind: "lan".to_string(),
                 }),
             }
         }
@@ -1368,6 +1678,7 @@ fn remote_test_blocking(
                             ms,
                             error: String::new(),
                             remote: false,
+                            kind: "lan".to_string(),
                         }
                     }
                     Err(error) => ProbeOutcome {
@@ -1376,6 +1687,7 @@ fn remote_test_blocking(
                         ms: 0,
                         error,
                         remote: false,
+                            kind: "lan".to_string(),
                     },
                 };
                 outcomes.lock().unwrap().push(outcome);
@@ -1414,6 +1726,7 @@ fn remote_test_blocking(
                         ms: 0,
                         error: error.clone(),
                         remote: true,
+                            kind: String::new(),
                     });
                 }
             } else {
@@ -1424,6 +1737,7 @@ fn remote_test_blocking(
                         ms: 0,
                         error: "局域网可用，远程地址未探测".to_string(),
                         remote: true,
+                            kind: String::new(),
                     });
                 }
             }
@@ -1436,6 +1750,7 @@ fn remote_test_blocking(
                     ms: 0,
                     error: error.clone(),
                     remote: true,
+                            kind: String::new(),
                 });
             }
         } else {
@@ -1449,6 +1764,7 @@ fn remote_test_blocking(
                             ms,
                             error: String::new(),
                             remote: true,
+                            kind: String::new(),
                         });
                         final_result = RemoteTestResult {
                             ok: true,
@@ -1467,6 +1783,7 @@ fn remote_test_blocking(
                         ms: 0,
                         error,
                         remote: true,
+                            kind: String::new(),
                     }),
                 }
             }
@@ -1784,38 +2101,40 @@ fn remote_http_json(
     server: &RemoteServer,
     path: &str,
 ) -> Result<serde_json::Value, String> {
-    // 远程优先：按双槽候选（隧道 → Tailscale）逐个试，通了直接用；没通退回局域网链路
-    let origins = server.remote_origins();
-    if server.conn_remote_first() {
-        let mut last_error: Option<String> = None;
-        for origin in &origins {
-            match remote_https_get(origin, &server.remote_token, path)
-                .and_then(|(status, body)| parse_remote_json_reply(status, &body))
-            {
-                Ok(value) => return Ok(value),
-                Err(error) => last_error = Some(error),
-            }
-        }
-        let _ = last_error;
-    }
-    match remote_http_json_lan(app, server, path) {
-        Ok(value) => Ok(value),
-        Err(lan_error) => {
-            if origins.is_empty() {
-                return Err(lan_error);
-            }
-            let mut last_error = String::from("没配远程接入");
-            for origin in &origins {
-                match remote_https_get(origin, &server.remote_token, path)
-                    .and_then(|(status, body)| parse_remote_json_reply(status, &body))
-                {
-                    Ok(value) => return Ok(value),
-                    Err(remote_error) => last_error = remote_error,
+    // 按用户优先级逐通道试（route_candidates 已滤禁用与不可用项）；
+    // jump 候选在这里支持：AppHandle 在手，能解析 ssh -L 转发端点
+    let candidates = server.route_candidates();
+    let mut last_error = String::from("没有可用连接通道");
+    let mut tried = 0usize;
+    for (kind, origin) in &candidates {
+        tried += 1;
+        let result = match kind.as_str() {
+            "lan" => lan_json_get(origin, server.token.trim(), path),
+            "jump" => {
+                let state = app.state::<RemoteJumpState>();
+                match remote_endpoint_inner(app, state.inner(), &server.id) {
+                    Ok(endpoint) => lan_json_get(
+                        &format!("{}:{}", endpoint.host, endpoint.port),
+                        server.token.trim(),
+                        path,
+                    ),
+                    Err(error) => Err(error),
                 }
             }
-            Err(format!("{lan_error}；远程通道也不通：{last_error}"))
+            _ => remote_https_get(origin, &server.remote_token, path)
+                .and_then(|(status, body)| parse_remote_json_reply(status, &body)),
+        };
+        match result {
+            Ok(value) => return Ok(value),
+            Err(error) => last_error = error,
         }
     }
+    if tried == 0 {
+        return Err(
+            "没有可用连接通道（局域网地址为空，或优先级里所有通道都被禁用/不可用）".to_string(),
+        );
+    }
+    Err(last_error)
 }
 
 /// 远程 JSON 回执解析（401 文案按「远程令牌」口径说，与局域网区分开）。
@@ -1835,50 +2154,15 @@ fn parse_remote_json_reply(status: u16, body: &str) -> Result<serde_json::Value,
     Ok(value)
 }
 
-/// remote_http_json 的局域网那一路（手写 TCP，原主体）。
-fn remote_http_json_lan(
-    app: &AppHandle,
-    server: &RemoteServer,
-    path: &str,
-) -> Result<serde_json::Value, String> {
-    let target = server_endpoint(app, server)?;
-    let token = server.token.trim();
+/// LAN 直连（或跳板端点）的 JSON GET：`GET {path}?token=…`，手写 TCP。
+fn lan_json_get(target: &str, token: &str, path: &str) -> Result<serde_json::Value, String> {
     let mut query = String::new();
     if !token.is_empty() {
         query.push_str(if path.contains('?') { "&" } else { "?" });
         query.push_str("token=");
         query.push_str(&encode_query(token));
     }
-    let mut stream = TcpStream::connect(&target)
-        .map_err(|error| format!("连接 {target} 失败: {error}"))
-        .and_then(|stream| {
-            stream
-                .set_read_timeout(Some(Duration::from_secs(8)))
-                .map_err(|error| format!("设置读超时失败: {error}"))?;
-            stream
-                .set_write_timeout(Some(Duration::from_secs(4)))
-                .map_err(|error| format!("设置写超时失败: {error}"))?;
-            Ok(stream)
-        })?;
-    let request =
-        format!("GET {path}{query} HTTP/1.1\r\nHost: {target}\r\nConnection: close\r\n\r\n");
-    stream
-        .write_all(request.as_bytes())
-        .map_err(|error| format!("发送请求失败: {error}"))?;
-    let mut raw = Vec::new();
-    stream
-        .read_to_end(&mut raw)
-        .map_err(|error| format!("读取响应失败: {error}"))?;
-    let text = String::from_utf8_lossy(&raw);
-    let status = text
-        .split_whitespace()
-        .nth(1)
-        .and_then(|code| code.parse::<u16>().ok())
-        .unwrap_or(0);
-    let body = match text.find("\r\n\r\n") {
-        Some(index) => text[index + 4..].to_string(),
-        None => String::new(),
-    };
+    let (status, body) = lan_http_get(target, &format!("{path}{query}"), 8)?;
     if status == 401 {
         return Err("这台电脑不认这个 token（401）—— 到「编辑」里核对访问令牌".to_string());
     }
@@ -1895,6 +2179,16 @@ fn remote_http_json_lan(
         return Err(message.to_string());
     }
     Ok(value)
+}
+
+/// remote_http_json 的局域网那一路（LAN 直连 / 跳板二选一；route_candidates 之外保留给单测与直调）。
+fn remote_http_json_lan(
+    app: &AppHandle,
+    server: &RemoteServer,
+    path: &str,
+) -> Result<serde_json::Value, String> {
+    let target = server_endpoint(app, server)?;
+    lan_json_get(&target, server.token.trim(), path)
 }
 
 /// 命令通道（/api/grub-switch、/api/power…）的回执解析：{ok, pending, channel, message}。
@@ -2327,87 +2621,37 @@ fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Result<RemoteB
         .find(|raw| !raw.is_empty())
         .unwrap_or("")
         .to_string();
-    let remote_origins = server.remote_origins();
-    let remote_first = server.conn_remote_first()
-        && !remote_origins.is_empty()
-        && server.jump_id.trim().is_empty();
-    let (probe, winner_addr) = if remote_first {
-        // 远程优先：按双槽候选逐个探，谁先通用谁；全挂退局域网
-        let mut last_remote_error: Option<String> = None;
-        let mut remote_win: Option<(u64, String, String, String)> = None;
-        for origin in &remote_origins {
-            match probe_remote_health(origin, REMOTE_PROBE_TIMEOUT) {
-                Ok((ms, machine_id, machine_name)) => {
-                    remote_win = Some((ms, machine_id, machine_name, origin.clone()));
-                    break;
-                }
-                Err(remote_error) => last_remote_error = Some(remote_error),
-            }
-        }
-        match remote_win {
-            Some((ms, machine_id, machine_name, origin)) => (
-                Ok((ms, machine_id, machine_name)),
-                origin,
-            ),
-            None => {
-                let lan = if probe_addr.is_empty() {
-                    Err("这台电脑还没有可用地址".to_string())
-                } else {
-                    probe_health(&probe_addr, PROBE_TIMEOUT)
-                };
-                match lan {
-                    Ok(result) => (Ok(result), probe_addr),
-                    Err(lan_error) => (
-                        Err(format!(
-                            "远程通道不通：{}；{lan_error}",
-                            last_remote_error.unwrap_or_else(|| "没配远程接入".to_string())
-                        )),
-                        probe_addr,
+    // 探活按用户优先级逐通道试（route_candidates 已滤禁用与不可用项），
+    // 第一个通的当赢家；赢家地址原样给前端（远程 origin 由它自己拼 https）
+    let candidates = server.route_candidates();
+    let mut last_error = String::from("没有可用连接通道");
+    let mut winner: Option<(u64, String, String, String)> = None;
+    for (kind, origin) in &candidates {
+        let result = match kind.as_str() {
+            "lan" => probe_health(origin, PROBE_TIMEOUT),
+            "jump" => {
+                let state = app.state::<RemoteJumpState>();
+                match remote_endpoint_inner(app, state.inner(), server_id) {
+                    Ok(endpoint) => probe_health(
+                        &format!("{}:{}", endpoint.host, endpoint.port),
+                        PROBE_TIMEOUT,
                     ),
+                    Err(error) => Err(error),
                 }
             }
-        }
-    } else {
-        let lan_probe = if probe_addr.is_empty() {
-            Err("这台电脑还没有可用地址".to_string())
-        } else if server.jump_id.trim().is_empty() {
-            probe_health(&probe_addr, PROBE_TIMEOUT)
-        } else {
-            let state = app.state::<RemoteJumpState>();
-            let endpoint = remote_endpoint_inner(app, state.inner(), server_id)?;
-            probe_health(&format!("{}:{}", endpoint.host, endpoint.port), PROBE_TIMEOUT)
+            _ => probe_remote_health(origin, REMOTE_PROBE_TIMEOUT),
         };
-        match lan_probe {
-            Ok(result) => (Ok(result), probe_addr),
-            Err(lan_error) => {
-                if remote_origins.is_empty() {
-                    (Err(lan_error), probe_addr)
-                } else {
-                    // 局域网挂了：双槽逐个兜底，谁先通用谁
-                    let mut fallback: Option<(u64, String, String, String)> = None;
-                    let mut last_error = String::from("没配远程接入");
-                    for origin in &remote_origins {
-                        match probe_remote_health(origin, REMOTE_PROBE_TIMEOUT) {
-                            Ok((ms, machine_id, machine_name)) => {
-                                fallback = Some((ms, machine_id, machine_name, origin.clone()));
-                                break;
-                            }
-                            Err(remote_error) => last_error = remote_error,
-                        }
-                    }
-                    match fallback {
-                        Some((ms, machine_id, machine_name, origin)) => (
-                            Ok((ms, machine_id, machine_name)),
-                            origin,
-                        ),
-                        None => (
-                            Err(format!("{lan_error}；远程通道也不通：{last_error}")),
-                            probe_addr,
-                        ),
-                    }
-                }
+        match result {
+            Ok((ms, machine_id, machine_name)) => {
+                winner = Some((ms, machine_id, machine_name, origin.clone()));
+                break;
             }
+            Err(error) => last_error = error,
         }
+    }
+    let (probe, winner_addr) = match winner {
+        Some((ms, machine_id, machine_name, addr)) => (Ok((ms, machine_id, machine_name)), addr),
+        None => (Err(last_error), probe_addr),
     };
     match probe {
         Ok(_) => {
@@ -2644,6 +2888,8 @@ mod tests {
             remote_ts_addr: String::new(),
             remote_token: String::new(),
             conn_mode: String::new(),
+            route_order: Vec::new(),
+            route_disabled: Vec::new(),
             created_at: 0,
         };
         let normalized = server.normalize();
@@ -2749,6 +2995,8 @@ mod tests {
             remote_ts_addr: String::new(),
             remote_token: String::new(),
             conn_mode: String::new(),
+            route_order: Vec::new(),
+            route_disabled: Vec::new(),
             created_at: 0,
         }
     }
@@ -2993,6 +3241,8 @@ mod tests {
             remote_ts_addr: String::new(),
             remote_token: String::new(),
             conn_mode: String::new(),
+            route_order: Vec::new(),
+            route_disabled: Vec::new(),
             created_at: 0,
         };
         let normalized = server.normalize();
@@ -3027,6 +3277,8 @@ mod tests {
                 remote_ts_addr: String::new(),
                 remote_token: String::new(),
                 conn_mode: String::new(),
+            route_order: Vec::new(),
+            route_disabled: Vec::new(),
                 created_at: 42,
             }],
         };
@@ -3305,5 +3557,98 @@ mod tests {
     fn boot_option_value_is_url_escaped_on_switch() {        // GRUB selector 里的 `>` 与空格必须转义，否则服务端 query 解析会截断
         assert_eq!(encode_query("0>1"), "0%3E1");
         assert_eq!(encode_query("Advanced options"), "Advanced%20options");
+    }
+
+    // ---- 五通道优先级（route_order / route_disabled / route_candidates） ----
+
+    fn route_test_server() -> RemoteServer {
+        RemoteServer {
+            id: "r1".into(),
+            addresses: vec!["192.168.1.50".into()],
+            jump_id: "jump-1".into(),
+            remote_tunnel_addr: "https://abc.trycloudflare.com".into(),
+            remote_ts_addr: "http://100.64.0.1:12300".into(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn route_order_defaults_when_empty() {
+        let mut server = route_test_server();
+        server.route_order = Vec::new();
+        server.conn_mode = String::new();
+        assert_eq!(
+            server.route_order_sorted(),
+            vec!["lan", "jump", "tunnel", "ts", "funnel"]
+        );
+    }
+
+    #[test]
+    fn route_order_migrates_remote_first() {
+        let mut server = route_test_server();
+        server.route_order = Vec::new();
+        server.conn_mode = "remote_first".into();
+        assert_eq!(
+            server.route_order_sorted(),
+            vec!["tunnel", "ts", "funnel", "jump", "lan"]
+        );
+    }
+
+    #[test]
+    fn route_order_sanitizes_and_appends_missing() {
+        let mut server = route_test_server();
+        server.route_order = vec!["funnel".into(), "bogus".into(), "funnel".into(), "ts".into()];
+        let order = server.route_order_sorted();
+        assert_eq!(&order[..2], &["funnel", "ts"]);
+        // 剩余三个按默认相对序补到尾部
+        assert_eq!(&order[2..], &["lan", "jump", "tunnel"]);
+        assert_eq!(order.len(), 5);
+    }
+
+    #[test]
+    fn normalize_materializes_route_fields() {
+        let mut server = route_test_server();
+        server.route_order = Vec::new();
+        server.route_disabled = vec!["bogus".into(), " funnel ".into()];
+        let normalized = server.normalize();
+        assert_eq!(
+            normalized.route_order,
+            vec!["lan", "jump", "tunnel", "ts", "funnel"]
+        );
+        assert_eq!(normalized.route_disabled, vec!["funnel"]);
+    }
+
+    #[test]
+    fn funnel_and_ts_split_by_shape() {
+        let mut server = route_test_server();
+        // ts 槽是 100.x → ts 直连有、funnel 无
+        assert_eq!(server.ts_direct_origin(), "http://100.64.0.1:12300");
+        assert_eq!(server.funnel_origin(), "");
+        // ts 槽换成 ts.net https → 判型反转
+        server.remote_ts_addr = "https://box.tail1234.ts.net".into();
+        assert_eq!(server.ts_direct_origin(), "");
+        assert_eq!(server.funnel_origin(), "https://box.tail1234.ts.net");
+    }
+
+    #[test]
+    fn route_candidates_follow_order_and_disable() {
+        let mut server = route_test_server();
+        server.route_order = vec!["funnel".into(), "ts".into(), "tunnel".into(), "jump".into(), "lan".into()];
+        let candidates = server.route_candidates();
+        let kinds: Vec<&str> = candidates.iter().map(|(kind, _)| kind.as_str()).collect();
+        assert_eq!(kinds, vec!["ts", "tunnel", "jump", "lan"]); // funnel 槽当前是 100.x，不可用被跳过
+        // 禁用 jump 后只剩三条；jump 未配跳板机 = 不可用
+        server.route_disabled = vec!["jump".into()];
+        let candidates = server.route_candidates();
+        let kinds: Vec<&str> = candidates.iter().map(|(kind, _)| kind.as_str()).collect();
+        assert_eq!(kinds, vec!["ts", "tunnel", "lan"]);
+        server.jump_id = String::new();
+        server.route_disabled = Vec::new();
+        let candidates = server.route_candidates();
+        let kinds: Vec<&str> = candidates.iter().map(|(kind, _)| kind.as_str()).collect();
+        assert_eq!(kinds, vec!["ts", "tunnel", "lan"]);
+        // 全禁用 = 空候选
+        server.route_disabled = ROUTE_IDS.iter().map(|id| id.to_string()).collect();
+        assert!(server.route_candidates().is_empty());
     }
 }

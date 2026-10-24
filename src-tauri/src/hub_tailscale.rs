@@ -33,6 +33,10 @@ pub(crate) struct TailscaleStatus {
     pub version: String,
     /// 探测到的 CLI 路径（排障展示用；未找到为空）。
     pub cli_path: String,
+    /// tailscaled 系统服务状态：1=运行中 / 0=已停止 / -1=查不了（非 Windows 或 sc 失败）。
+    /// 两级开关的副开关数据源；state=unknown 且 installed 时多半也是服务没跑。
+    #[serde(default)]
+    pub service_running: i8,
 }
 
 impl Default for TailscaleStatus {
@@ -44,6 +48,7 @@ impl Default for TailscaleStatus {
             dns_name: String::new(),
             version: String::new(),
             cli_path: String::new(),
+            service_running: -1,
         }
     }
 }
@@ -136,10 +141,12 @@ fn pick_v4(ips: &[String]) -> String {
 }
 
 /// 核心探测：跑 `status --json`；JSON 解析失败退 `ip -4` 纯文本兜底。
+/// 顺手查一次系统服务状态（副开关数据源；Windows = sc query，其它平台 -1）。
 fn probe(cli: &std::path::Path) -> TailscaleStatus {
     let mut status = TailscaleStatus {
         installed: true,
         cli_path: cli.display().to_string(),
+        service_running: service_running_state(),
         ..Default::default()
     };
     if let Some(text) = run_cli(cli, &["status", "--json"]) {
@@ -177,6 +184,123 @@ pub(crate) fn probe_blocking() -> TailscaleStatus {
         Some(cli) => probe(&cli),
         None => TailscaleStatus::default(),
     }
+}
+
+// ==================== 主开关（up/down）+ 服务控制 ====================
+
+/// Windows 服务名（tailscaled 安装器注册的名字就是 "Tailscale"）。
+/// 只在 cfg!(windows) 分支里真的执行；非 Windows 编译进来但不会被调。
+const SERVICE_NAME: &str = "Tailscale";
+
+/// 查 tailscaled 系统服务状态：1=RUNNING / 0=STOPPED / -1=查不了。
+/// 非 Windows 直接 -1（macOS 是 App 常驻、Linux 各发行版差异大，副开关先只对 Windows 亮）。
+fn service_running_state() -> i8 {
+    service_running_state_impl()
+}
+
+#[cfg(windows)]
+fn service_running_state_impl() -> i8 {
+    let output = match std::process::Command::new("sc")
+        .args(["query", SERVICE_NAME])
+        .output()
+    {
+        Ok(output) => output,
+        Err(_) => return -1,
+    };
+    let text = String::from_utf8_lossy(&output.stdout);
+    if text.contains("RUNNING") {
+        1
+    } else if text.contains("STOPPED") {
+        0
+    } else {
+        -1
+    }
+}
+
+#[cfg(not(windows))]
+fn service_running_state_impl() -> i8 {
+    -1
+}
+
+/// 阻塞版主开关：`tailscale up / down`（登录级，不动系统服务）。
+/// NeedsLogin 时 `up` 会拉起浏览器登录流程（这正是想要的语义）。
+pub(crate) fn ts_toggle_blocking(up: bool) -> Result<TailscaleStatus, String> {
+    let cli = find_cli().ok_or_else(|| "没检测到 Tailscale，请先安装".to_string())?;
+    let (ok, stdout, stderr) = run_cli_full(&cli, if up { &["up"] } else { &["down"] });
+    if !ok {
+        let detail = stderr.trim().lines().next().unwrap_or("").trim();
+        let fallback = if up { "tailscale up 失败" } else { "tailscale down 失败" };
+        return Err(if detail.is_empty() && stdout.trim().is_empty() {
+            fallback.to_string()
+        } else if detail.is_empty() {
+            stdout.trim().lines().next().unwrap_or(fallback).trim().to_string()
+        } else {
+            detail.to_string()
+        });
+    }
+    Ok(probe(&cli))
+}
+
+/// 阻塞版服务控制：action = start / stop / restart。
+/// 返回控制后的服务状态（1/0/-1）。启停需要管理员权限，被拒时原样回显系统错误。
+pub(crate) fn ts_service_blocking(action: &str) -> Result<i8, String> {
+    if !cfg!(windows) {
+        return Err("当前平台暂不支持服务级启停（副开关仅 Windows 可用）".to_string());
+    }
+    let args: Vec<&str> = match action {
+        "start" => vec!["start", SERVICE_NAME],
+        "stop" => vec!["stop", SERVICE_NAME],
+        "restart" => vec!["stop", SERVICE_NAME],
+        _ => return Err(format!("未知的服务操作：{action}")),
+    };
+    let sc = std::process::Command::new("sc").args(&args).output();
+    let output = match sc {
+        Ok(output) => output,
+        Err(error) => return Err(format!("执行 sc 失败: {error}")),
+    };
+    if !output.status.success() {
+        let text = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let detail = text.trim().lines().next().unwrap_or("").trim();
+        // 非管理员跑 sc start/stop 会被拒（错误码 5），把话说明白
+        if detail.contains("拒绝访问") || detail.contains("Access is denied") || detail.contains("(5)") {
+            return Err("需要管理员权限：请右键 AnyBoot 以管理员身份运行后再操作服务级开关".to_string());
+        }
+        return Err(if detail.is_empty() {
+            "服务操作失败".to_string()
+        } else {
+            detail.to_string()
+        });
+    }
+    if action == "restart" {
+        // restart = stop 后再 start；stop 可能要几秒才落地，轮询最多 5 秒
+        let mut waited = 0u32;
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            waited += 300;
+            if service_running_state() == 0 || waited >= 5000 {
+                break;
+            }
+        }
+        let start = std::process::Command::new("sc")
+            .args(["start", SERVICE_NAME])
+            .output();
+        if let Ok(output) = start {
+            if !output.status.success() {
+                let text = String::from_utf8_lossy(&output.stdout).to_string();
+                let detail = text.trim().lines().next().unwrap_or("").trim();
+                return Err(if detail.is_empty() {
+                    "服务重新启动失败".to_string()
+                } else {
+                    detail.to_string()
+                });
+            }
+        }
+    }
+    Ok(service_running_state())
 }
 
 // ==================== 下载安装包 ====================
@@ -517,6 +641,36 @@ pub(crate) async fn gateway_tailscale_status() -> TailscaleStatus {
     tauri::async_runtime::spawn_blocking(probe_blocking)
         .await
         .unwrap_or_default()
+}
+
+static TS_TOGGLE_IN_FLIGHT: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// 主开关：tailscale up / down（登录级；NeedsLogin 时 up 拉起浏览器登录）。
+/// CLI 子进程阻塞 → async + spawn_blocking；AtomicBool 防连点重入。
+#[tauri::command]
+pub(crate) async fn gateway_tailscale_toggle(up: bool) -> Result<TailscaleStatus, String> {
+    if TS_TOGGLE_IN_FLIGHT.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return Err("上一次开关操作还在执行，稍等一下".to_string());
+    }
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let status = ts_toggle_blocking(up);
+        TS_TOGGLE_IN_FLIGHT.store(false, std::sync::atomic::Ordering::SeqCst);
+        status
+    })
+    .await;
+    TS_TOGGLE_IN_FLIGHT.store(false, std::sync::atomic::Ordering::SeqCst);
+    result.map_err(|error| format!("Tailscale 开关任务失败: {error}"))?
+}
+
+/// 副开关（服务级）：start / stop / restart tailscaled 系统服务。
+/// 返回控制后的服务状态（1=运行 / 0=停止 / -1=查不了）。
+/// 需要管理员权限，被拒时错误里已说明。CLI/子进程阻塞 → async + spawn_blocking。
+#[tauri::command]
+pub(crate) async fn gateway_tailscale_service(action: String) -> Result<i8, String> {
+    tauri::async_runtime::spawn_blocking(move || ts_service_blocking(&action))
+        .await
+        .map_err(|error| format!("服务控制任务失败: {error}"))?
 }
 
 /// 发起后台下载（立即返回；进度/结果走 tailscale-progress / tailscale-done 事件）。
