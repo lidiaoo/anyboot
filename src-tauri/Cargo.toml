@@ -66,6 +66,8 @@ winreg = "0.55"
 windows-sys = { version = "0.59", features = [
     "Win32_Foundation",
     "Win32_System_Threading",
+    # 系统信息卡：GlobalMemoryStatusEx（内存）+ GetTickCount64（运行时长）
+    "Win32_System_SystemInformation",
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ] }

@@ -129,6 +129,12 @@ class ComputerListActivity : ComponentActivity() {
     private var filter by mutableStateOf(FILTER_ALL)
     private var sheetRequest by mutableStateOf<SheetRequest?>(null)
 
+    // ---- 系统信息弹层（点系统徽标 / 行菜单「系统信息」打开） ----
+    private var sysInfoTarget by mutableStateOf<ServerProfile?>(null)
+    private var sysInfoRows by mutableStateOf<List<SysInfoRow>>(emptyList())
+    private var sysInfoLoading by mutableStateOf(false)
+    private var sysInfoError by mutableStateOf("")
+
     /**
      * 手机自己的 GRUB 列表格式（与 PC 端 ⋮ 菜单同一套五档）。
      * 空 = 跟随服务端 /api/grub 响应里的 listFormat（服务端没给就退 minimal）。
@@ -157,6 +163,33 @@ class ComputerListActivity : ComponentActivity() {
     private fun openAdd() {
         editTarget = null
         editOpen = true
+    }
+
+    /**
+     * 打开「系统信息」：后台按 局域网（走跳板机就先拉隧道）→ 远程通道 的顺序找一个
+     * 能读 `/api/system` 的端点，读到就逐行显示（系统版本 / 内核 / CPU / 内存 / 运行时长…）。
+     */
+    private fun openSysInfo(profile: ServerProfile) {
+        sysInfoTarget = profile
+        sysInfoRows = emptyList()
+        sysInfoError = ""
+        sysInfoLoading = true
+        val target = profile.copy()   // 后台用快照：用户中途编辑也不会改到一半
+        Thread({
+            var rows: List<SysInfoRow> = emptyList()
+            var error = ""
+            try {
+                rows = loadSysInfoRows(target) { endpointOf(target) }
+            } catch (failure: Exception) {
+                error = failure.message ?: "读取系统信息失败"
+            }
+            runOnUiThread {
+                if (sysInfoTarget == null) return@runOnUiThread
+                sysInfoRows = rows
+                sysInfoError = error
+                sysInfoLoading = false
+            }
+        }, "anyboot-sysinfo").start()
     }
 
     /** 关闭表单 */
@@ -268,6 +301,23 @@ class ComputerListActivity : ComponentActivity() {
                 if (moreServerListOpen) MoreServerListDialog()
                 if (moreTransportOpen) MoreTransportDialog()
                 if (moreFailReloadOpen) MoreFailReloadDialog()
+                sysInfoTarget?.let { target ->
+                    SystemInfoDialog(
+                        title = target.label(),
+                        rows = sysInfoRows,
+                        loading = sysInfoLoading,
+                        error = sysInfoError,
+                        onDismiss = {
+                            sysInfoTarget = null
+                            sysInfoRows = emptyList()
+                            sysInfoError = ""
+                            sysInfoLoading = false
+                        },
+                        onCopy = {
+                            copyRemoteSlot("系统信息", sysInfoText(target.label(), sysInfoRows))
+                        },
+                    )
+                }
                 ConfirmDialog(bus)
             }
         }
@@ -865,6 +915,12 @@ class ComputerListActivity : ComponentActivity() {
                             .padding(horizontal = 5.dp, vertical = 1.dp),
                     )
                 }
+                // 系统族徽标（Windows / macOS / Linux）：点它直接看系统详情。
+                // 系统族是探测时顺手记下的（对方 /health 的 os），老服务端没有就不画，不占位。
+                if (osShowName(row.profile.machineOs).isNotEmpty()) {
+                    Spacer(Modifier.width(7.dp))
+                    OsBadge(row.profile.machineOs) { openSysInfo(row.profile) }
+                }
                 // 当前连接标注：直连 / 跳板机·xxx / 远程隧道（隧道 = 探测赢家确实是它）
                 Spacer(Modifier.width(7.dp))
                 val connColor = if (row.connRemote) palette.accent else palette.fgFaint
@@ -1110,6 +1166,10 @@ class ComputerListActivity : ComponentActivity() {
                     open = false
                     copyText(ServerProfile.normalizeHost(row.profile.host()))
                     toast("已复制 ${row.ip}")
+                }
+                MenuRow("系统信息", { InfoIcon(tint = palette.fgFaint, size = 16.dp) }) {
+                    open = false
+                    openSysInfo(row.profile)
                 }
                 MenuDivider()
                 MenuRow(
@@ -1903,7 +1963,11 @@ class ComputerListActivity : ComponentActivity() {
             null
         }
         val usingRemote = hitSlot != null
-        val conn = when {
+        // **没在线的不能写「直连」**（以前这里就是这样：电脑关着机也写着「直连」）。
+        // 只有这一轮确实探通（或正在唤醒/关机这类过渡态之外的在线）才描述走的哪条通道。
+        val conn = if (state != STATE_ONLINE) {
+            "未连接"
+        } else when {
             hitSlot?.first == ServerProfile.ROUTE_TSNET -> "Tailscale Funnel（内建）"
             hitSlot?.first == ServerProfile.ROUTE_FUNNEL -> "Tailscale Funnel"
             hitSlot?.first == ServerProfile.ROUTE_TS -> "Tailscale 直连"
@@ -1980,7 +2044,10 @@ class ComputerListActivity : ComponentActivity() {
                 } catch (error: Throwable) {
                     offlineInfo("", error.message ?: "探测失败")
                 }
-                runOnUiThread { boots[profile.id] = info }
+                runOnUiThread {
+                    boots[profile.id] = info
+                    learnMachineOs(profile, info.machineOs)
+                }
             }
             runOnUiThread {
                 // 主动刷新 = 要真实状态，之前动作留下的过渡态一律作废
@@ -2027,7 +2094,10 @@ class ComputerListActivity : ComponentActivity() {
                 } catch (error: Throwable) {
                     offlineInfo("", error.message ?: "探测失败")
                 }
-                runOnUiThread { boots[profile.id] = info }
+                runOnUiThread {
+                    boots[profile.id] = info
+                    learnMachineOs(profile, info.machineOs)
+                }
             }
             runOnUiThread { refreshing = false }
         }, "anyboot-autoprobe").start()
@@ -2052,6 +2122,7 @@ class ComputerListActivity : ComponentActivity() {
             }
             runOnUiThread {
                 boots[id] = info
+                learnMachineOs(profile, info.machineOs)
                 busy.remove(id)
             }
         }, "anyboot-boot").start()
@@ -2094,7 +2165,19 @@ class ComputerListActivity : ComponentActivity() {
             error = errors.joinToString("；"),
             refind = refind,
             grub = grub,
+            machineOs = choice.os,
         )
+    }
+
+    /**
+     * 探测顺手学到的系统族记进档案（主线程调）：卡片上的 Windows / macOS / Linux
+     * 徽标下次开界面就能直接画，不用等这一轮探完。只在真变化时写盘。
+     */
+    private fun learnMachineOs(profile: ServerProfile, os: String) {
+        val normalized = ServerProfile.normalizeMachineOs(os)
+        if (normalized.isEmpty() || profile.machineOs == normalized) return
+        profile.machineOs = normalized
+        ServerRepository.persist(this@ComputerListActivity, servers)
     }
 
     private fun offlineInfo(endpoint: String, error: String): BootInfo {
@@ -2126,51 +2209,64 @@ class ComputerListActivity : ComponentActivity() {
     }
 
     /** 选点结果：url 是完整 origin（http:// 或 https:// 开头），token 配套凭据 */
-    private class EndpointChoice(val url: String, val token: String, val alive: Boolean) {
+    private class EndpointChoice(
+        val url: String,
+        val token: String,
+        val alive: Boolean,
+        /** 探测赢家顺手带回来的系统族（windows / macos / linux），未知空串 */
+        val os: String = "",
+    ) {
         /** 卡片/离线文案里显示用的地址（不带 scheme） */
         fun displayAddr(): String =
             url.removePrefix("https://").removePrefix("http://")
     }
 
     /**
-     * 选点：局域网（或跳板机隧道）优先 —— 探通就用；没通且配了远程接入时探
-     * 隧道兜底（出门场景）。全都没通时仍把局域网端点带回去（alive=false），
-     * 让离线文案与地址显示维持原样。
+     * 选点：**完全按「连接策略」探**（{@link ProbeEngine}）。
+     *
+     * <p>以前这里是手写的一套固定顺序：远程优先 → 局域网 → 逐个远程槽，超时写死
+     * 3 秒 / 8 秒，探测方式（并发/串行）根本没参与 —— 用户在编辑框里选的通道顺序、
+     * 并发方式、探测超时在这个页面上全都不算数，同一台电脑在「电脑页」和「电脑列表」
+     * 的在线状态能对不上。现在统一交给策略引擎：通道顺序、并发首个/全部/串行、
+     * 探测超时三样都听档案的，线程走探测专用池。
+     *
+     * <p>全都没通时仍把局域网端点带回去（alive=false），让离线文案与地址显示维持原样。
      * 返回 null = 连一个能试的地址都没有。
      */
     private fun chooseEndpoint(profile: ServerProfile): EndpointChoice? {
-        // 远程候选按用户在「连接策略」里排的通道优先级来：隧道 / Tailscale 直连 / 系统 Funnel /
-        // 内置 Funnel 谁在前先试谁（以前只认「生效地址」一个，其它三槽等于白配）。
-        val remotes = profile.routeCandidates()
-            .filter { it[0] != ServerProfile.ROUTE_LAN && it[0] != ServerProfile.ROUTE_JUMP }
-            .map { it[1] }
-            .filter { it.isNotEmpty() }
-        val primary = remotes.firstOrNull().orEmpty()
-        // 远程优先（编辑里选的）：先探远程，通了直接走；全挂了再退局域网链路。
-        // 跳板机本身就是远程路径，不叠加远程优先。
-        if (profile.routePriorityRemoteFirst() && profile.jumpServerId.isEmpty()) {
-            for (remote in remotes) {
-                if (HealthProbe.pingRemote(remote, REMOTE_PROBE_TIMEOUT_MS) > 0) {
-                    return EndpointChoice(remote, ServerProfile.text(profile.remoteToken), alive = true)
-                }
+        val lanToken = ServerProfile.text(profile.token)
+        // 跳板机通道要能解析出本地隧道端口，才让引擎去探它
+        val resolver = if (ServerProfile.text(profile.jumpServerId).isEmpty()) {
+            null
+        } else {
+            ProbeEngine.JumpResolver { endpointOf(profile) }
+        }
+        val result = ProbeEngine.probe(profile, resolver)
+        if (result.ok && result.origin.isNotEmpty()) {
+            val isLocal = result.kind == ServerProfile.ROUTE_LAN ||
+                result.kind == ServerProfile.ROUTE_JUMP
+            return if (isLocal) {
+                EndpointChoice("http://" + result.origin, lanToken, alive = true, os = result.os)
+            } else {
+                EndpointChoice(
+                    result.origin, ServerProfile.text(profile.remoteToken),
+                    alive = true, os = result.os,
+                )
             }
         }
+        // 全都不通：带一个「看起来该连」的地址回去，卡片照样显示它的 IP
         val lan = try {
             endpointOf(profile)
         } catch (error: Exception) {
             ""
         }
-        val lanToken = ServerProfile.text(profile.token)
-        if (lan.isNotEmpty() && HealthProbe.ping(lan, PROBE_TIMEOUT_MS) > 0) {
-            return EndpointChoice("http://" + lan, lanToken, alive = true)
-        }
-        for (remote in remotes) {
-            if (HealthProbe.pingRemote(remote, REMOTE_PROBE_TIMEOUT_MS) > 0) {
-                return EndpointChoice(remote, ServerProfile.text(profile.remoteToken), alive = true)
-            }
-        }
-        if (lan.isEmpty() && primary.isEmpty()) return null
-        return EndpointChoice(if (lan.isNotEmpty()) "http://" + lan else primary, lanToken, alive = false)
+        if (lan.isNotEmpty()) return EndpointChoice("http://" + lan, lanToken, alive = false)
+        val primary = profile.routeCandidates()
+            .firstOrNull { it[0] != ServerProfile.ROUTE_LAN && it[0] != ServerProfile.ROUTE_JUMP }
+            ?.get(1)
+            .orEmpty()
+        if (primary.isEmpty()) return null
+        return EndpointChoice(primary, ServerProfile.text(profile.remoteToken), alive = false)
     }
 
     private fun prompt(): SshSessionManager.Prompt = object : SshSessionManager.Prompt {
@@ -2777,6 +2873,8 @@ class ComputerListActivity : ComponentActivity() {
         val error: String,
         val refind: BootGroup,
         val grub: BootGroup,
+        /** 探测赢家顺手带回来的系统族（windows / macos / linux）；老服务端为空 */
+        val machineOs: String = "",
     )
 
     private data class SheetRequest(val rid: String, val kind: String)
@@ -2813,9 +2911,7 @@ class ComputerListActivity : ComponentActivity() {
         const val POWER_REBOOT = "reboot"
         const val POWER_SHUTDOWN = "shutdown"
 
-        const val PROBE_TIMEOUT_MS = 3000
-        /** 远程隧道探活：公网 + TLS 握手比局域网慢得多，给宽容些 */
-        const val REMOTE_PROBE_TIMEOUT_MS = 8000
+        // 探测超时不再写死在这里：走档案的「探测超时」字段（ProbeEngine 里夹到 0.2~30 秒）
         const val CONNECT_TIMEOUT_MS = 4000
         const val READ_TIMEOUT_MS = 8000
 

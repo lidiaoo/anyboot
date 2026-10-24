@@ -115,9 +115,17 @@ pub struct RemoteServer {
     /// `/health` 给的机器名；未知为空
     #[serde(default)]
     pub machine_name: String,
-    /// 多网卡探测：parallel（默认，并发取最快）/ serial（按顺序取第一个通）
+    /// `/health` 给的系统族（windows / macos / linux）；未知为空。
+    /// 客户端用它画系统徽标 —— 探活成功时顺手记下来，省一次额外请求。
+    #[serde(default)]
+    pub machine_os: String,
+    /// 多网卡探测：parallel_first（默认，并发取首个成功）/ parallel_all（并发等全部）/ serial（按顺序取第一个通）
     #[serde(default)]
     pub probe_mode: String,
+    /// 探测超时（毫秒，默认 2000）：局域网探测与远程通道探测共用。
+    /// 0 / 缺省 = 用默认值；实际使用前会夹到 [200, 30000]。
+    #[serde(default = "serde_default_probe_timeout_ms")]
+    pub probe_timeout_ms: u64,
     /// 经由哪台跳板机（hub SSH 服务器 id）；本轮仅存储校验，转发链路后续接入
     #[serde(default)]
     pub jump_id: String,
@@ -189,7 +197,7 @@ pub struct ProbeOutcome {
     /// true = 这一行是远程接入地址（https 隧道），不是局域网候选
     #[serde(default)]
     pub remote: bool,
-    /// 通道类型（lan/jump/tunnel/ts/funnel）；老结果行缺省 = lan / 按 remote 区分
+    /// 通道类型（lan/jump/tunnel/ts/funnel/tsnet）；老结果行缺省 = lan / 按 remote 区分
     #[serde(default)]
     pub kind: String,
 }
@@ -216,6 +224,12 @@ pub struct RemoteTestResult {
     /// true = 赢家是远程接入地址（前端要用 https origin + ab_token 拼 URL）
     #[serde(default)]
     pub remote: bool,
+    /// 赢家走的通道 id（lan/jump/tunnel/ts/funnel/tsnet）；前端据此显示「隧道 / 直连 …」
+    #[serde(default)]
+    pub kind: String,
+    /// 赢家报告的系统族（windows / macos / linux）；未知为空
+    #[serde(default)]
+    pub os: String,
 }
 
 impl RemoteServer {
@@ -307,6 +321,11 @@ impl RemoteServer {
         out
     }
 
+    /// 这台电脑的探测超时（用户可在「连接策略」里改，默认 2 秒）
+    pub(crate) fn probe_timeout(&self) -> Duration {
+        Duration::from_millis(clamp_probe_timeout_ms(self.probe_timeout_ms))
+    }
+
     /// 系统 Funnel 槽的地址（https + *.ts.net）；没有则空。
     ///
     /// 老档案兜底：以前 *.ts.net 挤在 `remote_ts_addr` 里，所以那边有 Funnel 也认；
@@ -348,6 +367,15 @@ impl RemoteServer {
         self.token = self.token.trim().to_string();
         self.machine_id = self.machine_id.trim().to_string();
         self.machine_name = self.machine_name.trim().to_string();
+        // 系统族只认三个徽标值；别的（比如老客户端传来的 "Windows"）归空，
+        // 前端据此不画徽标而不是画个空白框
+        self.machine_os = match self.machine_os.trim().to_lowercase().as_str() {
+            "windows" => "windows".to_string(),
+            "macos" | "darwin" | "osx" => "macos".to_string(),
+            "linux" => "linux".to_string(),
+            _ => String::new(),
+        };
+        self.probe_timeout_ms = clamp_probe_timeout_ms(self.probe_timeout_ms);
         self.jump_id = self.jump_id.trim().to_string();
         self.probe_mode = match self.probe_mode.as_str() {
             "serial" => "serial".to_string(),
@@ -729,6 +757,13 @@ fn with_default_port(addr: &str) -> String {
 
 /// 从 `/health` 响应体里取 machineId/machineName（解析失败按空串，探活不因它失败）
 fn parse_health(body: &str) -> (String, String) {
+    let (machine_id, machine_name, _) = parse_health_detail(body);
+    (machine_id, machine_name)
+}
+
+/// 同上，额外取 `os`（windows / macos / linux）—— 客户端画系统徽标用。
+/// 老版本服务端的 `/health` 没有这个字段，取不到就是空串（不显示徽标）。
+fn parse_health_detail(body: &str) -> (String, String, String) {
     let value: serde_json::Value = serde_json::from_str(body).unwrap_or(serde_json::Value::Null);
     let text = |key: &str| {
         value
@@ -738,11 +773,23 @@ fn parse_health(body: &str) -> (String, String) {
             .trim()
             .to_string()
     };
-    (text("machineId"), text("machineName"))
+    let os = match text("os").to_lowercase().as_str() {
+        "windows" => "windows".to_string(),
+        "macos" | "darwin" | "osx" => "macos".to_string(),
+        "linux" => "linux".to_string(),
+        _ => String::new(),
+    };
+    (text("machineId"), text("machineName"), os)
 }
 
 /// 对一台电脑的一个地址做 `GET /health` 探活：成功返回 (耗时毫秒, machineId, machineName)。
 fn probe_health(addr: &str, timeout: Duration) -> Result<(u64, String, String), String> {
+    let (ms, machine_id, machine_name, _) = probe_health_detail(addr, timeout)?;
+    Ok((ms, machine_id, machine_name))
+}
+
+/// 探活并带回系统族（新引擎用）：(耗时, machineId, machineName, os)
+fn probe_health_detail(addr: &str, timeout: Duration) -> Result<(u64, String, String, String), String> {
     let target = with_default_port(addr);
     let started = Instant::now();
     let mut stream = TcpStream::connect(&target)
@@ -769,9 +816,9 @@ fn probe_health(addr: &str, timeout: Duration) -> Result<(u64, String, String), 
         Some(index) => &text[index + 4..],
         None => "",
     };
-    let (machine_id, machine_name) = parse_health(body);
+    let (machine_id, machine_name, os) = parse_health_detail(body);
     let ms = started.elapsed().as_millis() as u64;
-    Ok((ms, machine_id, machine_name))
+    Ok((ms, machine_id, machine_name, os))
 }
 
 /// 远程地址（公网隧道 / ts.net）的探测与请求都走 ureq：它们是 https，
@@ -799,12 +846,21 @@ fn ureq_get(url: &str, timeout: Duration) -> Result<(u16, String), String> {
 /// 对远程地址做 `GET {origin}/health`（免鉴权，与局域网探测同一协议）。
 /// 成功返回 (耗时毫秒, machineId, machineName)。
 fn probe_remote_health(origin: &str, timeout: Duration) -> Result<(u64, String, String), String> {
+    let (ms, machine_id, machine_name, _) = probe_remote_health_detail(origin, timeout)?;
+    Ok((ms, machine_id, machine_name))
+}
+
+/// 远程探活并带回系统族（新引擎用）：(耗时, machineId, machineName, os)
+fn probe_remote_health_detail(
+    origin: &str,
+    timeout: Duration,
+) -> Result<(u64, String, String, String), String> {
     let url = format!("{origin}/health");
     let started = Instant::now();
     let (_status, body) = ureq_get(&url, timeout)?;
-    let (machine_id, machine_name) = parse_health(&body);
+    let (machine_id, machine_name, os) = parse_health_detail(&body);
     let ms = started.elapsed().as_millis() as u64;
-    Ok((ms, machine_id, machine_name))
+    Ok((ms, machine_id, machine_name, os))
 }
 
 /// 远程 HTTP 请求（带 ab_token 的完整 GET，走 ureq）：电源兜底 / 引导项读取
@@ -1396,8 +1452,89 @@ pub fn remote_promote_address(
     Ok(())
 }
 
-fn remote_delete_blocking(app: AppHandle, id: String) -> Result<(), String> {
-    let state = app.state::<RemoteJumpState>();
+/// 探活成功后把机器身份记到档案上（machineId / machineName / os）。
+///
+/// 为什么要落盘：客户端要画「这台是 Windows / macOS / Linux」的系统徽标，
+/// 每次开界面都等一轮探测才显示会闪一下。探到了就存下来，下次直接画。
+/// **只有真有变化才写盘** —— 心跳每 10 秒一轮，不能每次都碰磁盘。
+#[tauri::command]
+pub fn remote_note_machine(
+    app: AppHandle,
+    server_id: String,
+    machine_id: String,
+    machine_name: String,
+    os: String,
+) -> Result<(), String> {
+    let mut store = load_store(&app)?;
+    let Some(server) = store.servers.iter_mut().find(|s| s.id == server_id) else {
+        return Err("服务端不存在（可能已被删除）".to_string());
+    };
+    let probe = RemoteServer {
+        machine_id: machine_id.clone(),
+        machine_name: machine_name.clone(),
+        machine_os: os.clone(),
+        ..Default::default()
+    };
+    let os_normalized = probe.normalize().machine_os;
+    let changed = server.machine_id != machine_id.trim()
+        || server.machine_name != machine_name.trim()
+        || server.machine_os != os_normalized;
+    if !changed {
+        return Ok(());
+    }
+    server.machine_id = machine_id.trim().to_string();
+    server.machine_name = machine_name.trim().to_string();
+    server.machine_os = os_normalized;
+    save_store(&app, &store)
+}
+
+/// 一台电脑的系统信息（「系统信息」弹层的数据源）。
+///
+/// - `server_id` 为空 / `"local"` → 本机直调（不经 HTTP，服务没起也能看）；
+/// - 其它 → 按连接策略逐通道请求对方 `/api/system`（局域网 → 跳板 → 隧道…），
+///   拿到的是**那台机器**的系统（版本 / CPU / 内存 / 运行时长）。
+#[tauri::command]
+pub async fn remote_system_info(
+    app: AppHandle,
+    server_id: String,
+) -> Result<crate::sysinfo_lite::SystemInfo, String> {
+    let id = server_id.trim().to_string();
+    tauri::async_runtime::spawn_blocking(move || {
+        if id.is_empty() || id == "local" {
+            return Ok(local_system_info(&app));
+        }
+        let store = load_store(&app)?;
+        let server = store
+            .servers
+            .iter()
+            .find(|item| item.id == id)
+            .ok_or_else(|| "服务端不存在（可能已被删除）".to_string())?;
+        let value = remote_http_json(&app, server, "/api/system")?;
+        serde_json::from_value::<crate::sysinfo_lite::SystemInfo>(value)
+            .map_err(|error| format!("对方返回的系统信息格式不对：{error}"))
+    })
+    .await
+    .map_err(|error| format!("读取系统信息任务失败: {error}"))?
+}
+
+/// 本机系统信息（含真实监听端口；服务没起时端口记 0）
+pub(crate) fn local_system_info(app: &AppHandle) -> crate::sysinfo_lite::SystemInfo {
+    let settings = crate::stored_settings(app);
+    let listening = {
+        let runtime = crate::http_server::http_lock();
+        runtime.server.is_some()
+    };
+    let port = if listening { settings.http_port } else { 0 };
+    let mut ips: Vec<String> = Vec::new();
+    for ip in [crate::http_server::local_ipv4()] {
+        if !ip.is_empty() && !ips.contains(&ip) {
+            ips.push(ip);
+        }
+    }
+    crate::sysinfo_lite::collect(port, ips)
+}
+
+fn remote_delete_blocking(app: AppHandle, id: String) -> Result<(), String> {    let state = app.state::<RemoteJumpState>();
     kill_forward(state.inner(), &id);
     let mut store = load_store(&app)?;
     let before = store.servers.len();
@@ -1436,8 +1573,10 @@ pub(crate) fn normalize_probe_mode(mode: &str) -> &'static str {
 ///
 /// `remote_addrs`（可选，远程接入候选列表 = 隧道槽 + Tailscale 槽）：**局域网优先、
 /// 远程兜底** —— 局域网有赢家就不探远程（results 里每槽补一行「未探测」说明）；
-/// 局域网全挂才按顺序逐槽探（8s 超时），第一个通的远程槽就是赢家（结果带
-/// `remote: true`）。没有任何远程候选时行为与老版本完全一致。
+/// 局域网全挂才按顺序逐槽探，第一个通的远程槽就是赢家（结果带 `remote: true`）。
+/// 没有任何远程候选时行为与老版本完全一致。
+///
+/// `probe_timeout_ms`：探测超时（默认 2000，见 [`clamp_probe_timeout_ms`]）。
 #[tauri::command]
 pub async fn remote_test(
     addresses: Vec<String>,
@@ -1445,13 +1584,14 @@ pub async fn remote_test(
     remote_addrs: Option<Vec<String>>,
     conn_mode: Option<String>,
     candidates: Option<Vec<RouteTestCandidate>>,
+    probe_timeout_ms: Option<u64>,
 ) -> RemoteTestResult {
-    // 新路径：五通道优先级显式候选（PC 编辑弹窗按 route_order 传入）——
-    // 按序逐通道探，第一个通的当赢家；results 每通道一行（kind 已带）。
-    // probe_mode 只作用于连续的局域网族候选（lan：多网卡并发/串行由它决定）
+    let timeout = Duration::from_millis(clamp_probe_timeout_ms(probe_timeout_ms.unwrap_or(0)));
+    // 主路径：按连接策略给出的显式候选（六通道，顺序 = 用户排的优先级）。
+    // 并发/串行由 probe_mode 决定，**所有通道**都参与（不再只有局域网并发）。
     if let Some(list) = candidates.filter(|items| !items.is_empty()) {
         return tauri::async_runtime::spawn_blocking(move || {
-            remote_test_candidates_blocking(list, &normalize_probe_mode(&probe_mode))
+            probe_candidates_blocking(list, &normalize_probe_mode(&probe_mode), timeout)
         })
         .await
         .unwrap_or_else(|error| RemoteTestResult {
@@ -1465,7 +1605,7 @@ pub async fn remote_test(
         .map(|mode| mode == "remote_first")
         .unwrap_or(false);
     tauri::async_runtime::spawn_blocking(move || {
-        remote_test_blocking(addresses, probe_mode, remote_addrs, remote_first)
+        remote_test_blocking(addresses, probe_mode, remote_addrs, remote_first, timeout)
     })
     .await
     .unwrap_or_else(|error| RemoteTestResult {
@@ -1474,109 +1614,247 @@ pub async fn remote_test(
     })
 }
 
-/// 五通道优先级探测：按传入顺序处理候选，第一个通的当赢家；
-/// results 每通道一行（失败的在前、赢家最后，通道名在 kind）。
-/// 连续的 lan 候选（多网卡）合并为一组交给 remote_test_blocking 按 probe_mode 探；
-/// 其余远程通道逐个串行。jump 候选不在此路径（编辑弹窗对跳板机走 remote_test_via）。
-fn remote_test_candidates_blocking(
+/// 探测超时（毫秒）的合法区间与默认值。
+///
+/// 默认 2 秒：局域网 RTT 通常 <10ms，2 秒足够；公网隧道首次 TLS 握手可能要 1~2 秒，
+/// 觉得偏紧可以在「连接策略」里调大（上限 30 秒，防止手滑填 99999 把界面卡住）。
+pub(crate) const DEFAULT_PROBE_TIMEOUT_MS: u64 = 2000;
+const MIN_PROBE_TIMEOUT_MS: u64 = 200;
+const MAX_PROBE_TIMEOUT_MS: u64 = 30_000;
+
+/// 用户填的超时归一：0 / 缺省 → 默认 2 秒；越界夹到 [200ms, 30s]
+pub(crate) fn clamp_probe_timeout_ms(raw: u64) -> u64 {
+    if raw == 0 {
+        return DEFAULT_PROBE_TIMEOUT_MS;
+    }
+    raw.clamp(MIN_PROBE_TIMEOUT_MS, MAX_PROBE_TIMEOUT_MS)
+}
+
+fn serde_default_probe_timeout_ms() -> u64 {
+    DEFAULT_PROBE_TIMEOUT_MS
+}
+
+/// 一次探测的原始结果（新引擎内部用；比 ProbeOutcome 多带 machineId/名/系统）
+#[derive(Clone, Debug)]
+struct ProbeHit {
+    kind: String,
+    origin: String,
+    remote: bool,
+    outcome: Result<ProbePayload, String>,
+}
+
+/// 探活拿到的机器信息
+#[derive(Clone, Debug, Default)]
+struct ProbePayload {
+    ms: u64,
+    machine_id: String,
+    machine_name: String,
+    os: String,
+}
+
+/// 探一个候选（在探测线程池里跑）：lan 走手写 TCP，远程走 ureq（TLS）
+fn probe_one(kind: &str, origin: &str, timeout: Duration) -> Result<ProbePayload, String> {
+    let remote = matches!(kind, "tunnel" | "ts" | "funnel" | "tsnet");
+    if !remote && kind != "lan" {
+        // jump 需要 AppHandle 解析 SSH 转发端口，探测线程池里没有 —— 交给使用方
+        return Err("此通道请用「经跳板机测试」（先保存档案）".to_string());
+    }
+    let (ms, machine_id, machine_name, os) = if remote {
+        let (origin, _) = split_remote_address(origin);
+        if origin.is_empty() {
+            return Err("地址为空".to_string());
+        }
+        probe_remote_health_detail(&origin, timeout)?
+    } else {
+        probe_health_detail(origin, timeout)?
+    };
+    Ok(ProbePayload {
+        ms,
+        machine_id,
+        machine_name,
+        os,
+    })
+}
+
+/// **按连接策略探测**（电脑页 / 电脑列表 / 编辑弹窗「测试」共用）。
+///
+/// 候选来自 `route_candidates()`（或前端按同一份排序拼出来的列表），顺序即用户
+/// 在「连接策略」里排的优先级。三种模式与「多网卡探测」保持同一套语义：
+/// - `serial`：按顺序逐个探，第一个通的就是赢家（最省流量，最慢）；
+/// - `parallel_first`：**全部同时发出**，谁先成功谁赢（最快给出「能不能连」）；
+/// - `parallel_all`：全部同时发出，等全部返回，取最快成功者（顺带拿到每个通道的延迟）。
+///
+/// 所有探测都在 [`crate::probe_pool`] 里跑（专用固定线程池），不再占用 Tauri 的
+/// 全局阻塞池 —— 用户把超时调大 + 并发全部时，界面其它命令不会被拖住。
+fn probe_candidates_blocking(
     candidates: Vec<RouteTestCandidate>,
-    probe_mode: &str,
+    mode: &str,
+    timeout: Duration,
 ) -> RemoteTestResult {
-    let mut rows: Vec<ProbeOutcome> = Vec::new();
-    let mut last_error = String::from("没有可探测的通道");
-    let mut index = 0usize;
-    while index < candidates.len() {
-        let cand = &candidates[index];
-        let kind = cand.kind.trim().to_string();
-        if kind == "lan" {
-            // 收集连续的 lan 候选（多网卡）为一组，组内并发/串行语义交给老函数
-            let mut lan_addrs: Vec<String> = Vec::new();
-            while index < candidates.len() && candidates[index].kind.trim() == "lan" {
-                let (address, _) = split_address(&candidates[index].origin);
-                if !address.is_empty() {
-                    lan_addrs.push(address);
+    let list: Vec<RouteTestCandidate> = candidates
+        .into_iter()
+        .map(|cand| RouteTestCandidate {
+            kind: cand.kind.trim().to_lowercase(),
+            origin: cand.origin.trim().to_string(),
+        })
+        .filter(|cand| !cand.kind.is_empty() && !cand.origin.is_empty())
+        .collect();
+    if list.is_empty() {
+        return RemoteTestResult {
+            error: "没有可探测的通道（局域网地址为空，或所有通道都被禁用/不可用）".to_string(),
+            ..Default::default()
+        };
+    }
+
+    let mut hits: Vec<ProbeHit> = Vec::with_capacity(list.len());
+    let mode = normalize_probe_mode(mode);
+
+    if mode == "serial" {
+        for cand in &list {
+            let outcome = probe_one(&cand.kind, &cand.origin, timeout);
+            let ok = outcome.is_ok();
+            hits.push(ProbeHit {
+                kind: cand.kind.clone(),
+                origin: cand.origin.clone(),
+                remote: is_remote_kind(&cand.kind),
+                outcome,
+            });
+            if ok {
+                return finish_probe(hits);
+            }
+        }
+        return finish_probe(hits);
+    }
+
+    // 并发：一次性全提交到探测线程池
+    let (sender, receiver) = std::sync::mpsc::channel::<ProbeHit>();
+    let mut pending = list.len();
+    for cand in &list {
+        let sender = sender.clone();
+        let kind = cand.kind.clone();
+        let origin = cand.origin.clone();
+        let remote = is_remote_kind(&kind);
+        crate::probe_pool::pool().execute(Box::new(move || {
+            let outcome = probe_one(&kind, &origin, timeout);
+            // 接收端可能已经不要了（并发首个已经胜出）——发送失败静默丢弃
+            let _ = sender.send(ProbeHit {
+                kind,
+                origin,
+                remote,
+                outcome,
+            });
+        }));
+    }
+    drop(sender);
+
+    // 整体兜底时限：每个探活自己就有 IO 超时，这里再宽 500ms 防线程池排队
+    let deadline = Instant::now() + timeout + Duration::from_millis(500);
+    let mut collected: Vec<ProbeHit> = Vec::new();
+    while pending > 0 {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+        match receiver.recv_timeout(remaining) {
+            Ok(hit) => {
+                pending -= 1;
+                let ok = hit.outcome.is_ok();
+                collected.push(hit);
+                // 并发（首个）：第一个成功立刻收工，剩下的在途任务结果无人接收
+                if ok && mode == "parallel_first" {
+                    return finish_probe(collected);
                 }
-                index += 1;
             }
-            if lan_addrs.is_empty() {
-                continue;
-            }
-            let group = remote_test_blocking(lan_addrs, probe_mode.to_string(), None, false);
-            rows.extend(group.results.iter().cloned().map(|mut row| {
-                row.kind = "lan".to_string();
-                row
-            }));
-            if group.ok {
-                return RemoteTestResult {
-                    ok: true,
-                    addr: group.addr,
-                    ms: group.ms,
-                    machine_id: group.machine_id,
-                    machine_name: group.machine_name,
-                    remote: false,
-                    results: rows,
-                    ..Default::default()
-                };
-            }
-            last_error = group.error;
+            Err(_) => break, // 超时：把已拿到的收束掉
+        }
+    }
+    // 没回来的候选如实标「探测超时」，别让用户以为漏了通道
+    for cand in &list {
+        if collected
+            .iter()
+            .any(|hit| hit.kind == cand.kind && hit.origin == cand.origin)
+        {
             continue;
         }
-        index += 1;
-        let remote = matches!(kind.as_str(), "tunnel" | "ts" | "funnel");
-        let result = if remote {
-            let (origin, _) = split_remote_address(&cand.origin);
-            if origin.is_empty() {
-                Err((cand.origin.clone(), "地址为空".to_string()))
-            } else {
-                probe_remote_health(&origin, REMOTE_PROBE_TIMEOUT)
-                    .map(|payload| (origin.clone(), payload))
-                    .map_err(|error| (origin.clone(), error))
-            }
-        } else {
-            // 非 lan 的局域网族（jump 等）：此路径不支持，标注说明
-            Err((
-                cand.origin.clone(),
-                "此通道请用「经跳板机测试」（先保存档案）".to_string(),
-            ))
-        };
-        match result {
-            Ok((origin, (ms, machine_id, machine_name))) => {
-                rows.push(ProbeOutcome {
-                    address: origin.clone(),
-                    ok: true,
-                    ms,
-                    error: String::new(),
-                    remote,
-                    kind: kind.clone(),
-                });
-                return RemoteTestResult {
-                    ok: true,
-                    addr: origin,
-                    ms,
-                    machine_id,
-                    machine_name,
-                    remote,
-                    results: rows,
-                    ..Default::default()
-                };
-            }
-            Err((origin, error)) => {
-                last_error = error.clone();
-                rows.push(ProbeOutcome {
-                    address: origin,
-                    ok: false,
-                    ms: 0,
-                    error,
-                    remote,
-                    kind,
-                });
+        collected.push(ProbeHit {
+            kind: cand.kind.clone(),
+            origin: cand.origin.clone(),
+            remote: is_remote_kind(&cand.kind),
+            outcome: Err(format!("探测超时（>{}ms）", timeout.as_millis())),
+        });
+    }
+    finish_probe(collected)
+}
+
+fn is_remote_kind(kind: &str) -> bool {
+    matches!(kind, "tunnel" | "ts" | "funnel" | "tsnet")
+}
+
+/// 把原始命中结果收束成 `RemoteTestResult`：赢家 = 并发全部里最快的成功者；
+/// 逐行结果按**候选原顺序**排（用户对着优先级表看，别让顺序乱跳）。
+fn finish_probe(mut hits: Vec<ProbeHit>) -> RemoteTestResult {
+    // 赢家：先看有没有成功的，取延迟最低的（serial / parallel_first 只会有一个成功）
+    let mut winner: Option<(usize, ProbePayload)> = None;
+    for (index, hit) in hits.iter().enumerate() {
+        if let Ok(payload) = &hit.outcome {
+            let better = winner
+                .as_ref()
+                .map(|(_, current)| payload.ms < current.ms)
+                .unwrap_or(true);
+            if better {
+                winner = Some((index, payload.clone()));
             }
         }
     }
-    RemoteTestResult {
-        error: format!("所有通道都不通：{last_error}"),
-        results: rows,
-        ..Default::default()
+    let results: Vec<ProbeOutcome> = hits
+        .drain(..)
+        .map(|hit| match hit.outcome {
+            Ok(payload) => ProbeOutcome {
+                address: hit.origin,
+                ok: true,
+                ms: payload.ms,
+                error: String::new(),
+                remote: hit.remote,
+                kind: hit.kind,
+            },
+            Err(error) => ProbeOutcome {
+                address: hit.origin,
+                ok: false,
+                ms: 0,
+                error,
+                remote: hit.remote,
+                kind: hit.kind,
+            },
+        })
+        .collect();
+    match winner {
+        Some((index, payload)) => {
+            let row = &results[index];
+            RemoteTestResult {
+                ok: true,
+                addr: row.address.clone(),
+                ms: payload.ms,
+                machine_id: payload.machine_id,
+                machine_name: payload.machine_name,
+                os: payload.os,
+                remote: row.remote,
+                kind: row.kind.clone(),
+                results,
+                ..Default::default()
+            }
+        }
+        None => {
+            let last_error = results
+                .iter()
+                .map(|row| row.error.clone())
+                .find(|error| !error.is_empty())
+                .unwrap_or_else(|| "全部通道都连不上".to_string());
+            RemoteTestResult {
+                error: format!("所有通道都不通：{last_error}"),
+                results,
+                ..Default::default()
+            }
+        }
     }
 }
 
@@ -1585,6 +1863,7 @@ fn remote_test_blocking(
     probe_mode: String,
     remote_addrs: Option<Vec<String>>,
     remote_first: bool,
+    timeout: Duration,
 ) -> RemoteTestResult {
     let mode = normalize_probe_mode(&probe_mode);
     // 远程候选归一：每条 split_remote_address（兼容粘成配对串/带 ab_token 的 URL），
@@ -1620,7 +1899,7 @@ fn remote_test_blocking(
     let mut remote_first_errors: Vec<(String, String)> = Vec::new(); // (origin, error)
     if remote_first {
         for origin in &remote_origins {
-            match probe_remote_health(origin, REMOTE_PROBE_TIMEOUT) {
+            match probe_remote_health(origin, timeout) {
                 Ok((ms, machine_id, machine_name)) => {
                     let mut rows: Vec<ProbeOutcome> = candidates
                         .iter()
@@ -1676,7 +1955,7 @@ fn remote_test_blocking(
     if mode == "serial" {
         // 串行：按顺序逐个试，第一个成功就停（剩下的地址不探）
         for addr in &candidates {
-            match probe_health(addr, PROBE_TIMEOUT) {
+            match probe_health(addr, timeout) {
                 Ok((ms, machine_id, machine_name)) => {
                     results.push(ProbeOutcome {
                         address: addr.clone(),
@@ -1722,7 +2001,7 @@ fn remote_test_blocking(
                 if first_only && done.load(Ordering::Relaxed) {
                     return; // 已经有赢家：不再白探（在途的等它自己超时收尾）
                 }
-                let outcome = match probe_health(&addr, PROBE_TIMEOUT) {
+                let outcome = match probe_health(&addr, timeout) {
                     Ok((ms, machine_id, machine_name)) => {
                         if first_only {
                             if !done.swap(true, Ordering::SeqCst) {
@@ -1836,7 +2115,7 @@ fn remote_test_blocking(
         } else {
             // 局域网全挂：按双槽顺序逐个兜底，第一个通的远程槽就是赢家
             for origin in &remote_origins {
-                match probe_remote_health(origin, REMOTE_PROBE_TIMEOUT) {
+                match probe_remote_health(origin, timeout) {
                     Ok((ms, machine_id, machine_name)) => {
                         results.push(ProbeOutcome {
                             address: origin.clone(),
@@ -2066,6 +2345,7 @@ fn remote_test_via_blocking(
             }
         }
     };
+    // 经跳板机的转发端点在本机 127.0.0.1：局域网级 RTT，用固定 3 秒足够
     match probe_health(&format!("{}:{}", endpoint.host, endpoint.port), PROBE_TIMEOUT) {
         Ok((ms, machine_id, machine_name)) => RemoteTestResult {
             ok: true,
@@ -2701,32 +2981,75 @@ fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Result<RemoteB
         .find(|raw| !raw.is_empty())
         .unwrap_or("")
         .to_string();
-    // 探活按用户优先级逐通道试（route_candidates 已滤禁用与不可用项），
-    // 第一个通的当赢家；赢家地址原样给前端（远程 origin 由它自己拼 https）
+    // 探活按用户优先级逐通道试（route_candidates 已滤禁用与不可用项）；
+    // 赢家地址原样给前端（远程 origin 由它自己拼 https）。
+    //
+    // **探测方式也照「连接策略」走**：没有跳板机通道时交给统一探测引擎
+    // （并发首个 / 并发全部 / 串行 + 档案里的超时，跑在独立探测线程池里）；
+    // 有跳板机时保留原来的串行循环 —— 跳板机端点要 AppHandle 解析，引擎里没有。
     let candidates = server.route_candidates();
+    let has_jump = candidates.iter().any(|(kind, _)| kind == "jump");
     let mut last_error = String::from("没有可用连接通道");
     let mut winner: Option<(u64, String, String, String)> = None;
-    for (kind, origin) in &candidates {
-        let result = match kind.as_str() {
-            "lan" => probe_health(origin, PROBE_TIMEOUT),
-            "jump" => {
-                let state = app.state::<RemoteJumpState>();
-                match remote_endpoint_inner(app, state.inner(), server_id) {
-                    Ok(endpoint) => probe_health(
-                        &format!("{}:{}", endpoint.host, endpoint.port),
-                        PROBE_TIMEOUT,
-                    ),
-                    Err(error) => Err(error),
+    if has_jump {
+        for (kind, origin) in &candidates {
+            let result = match kind.as_str() {
+                "lan" => probe_health(origin, server.probe_timeout()),
+                "jump" => {
+                    let state = app.state::<RemoteJumpState>();
+                    match remote_endpoint_inner(app, state.inner(), server_id) {
+                        Ok(endpoint) => probe_health(
+                            &format!("{}:{}", endpoint.host, endpoint.port),
+                            server.probe_timeout(),
+                        ),
+                        Err(error) => Err(error),
+                    }
                 }
+                _ => probe_remote_health(origin, server.probe_timeout()),
+            };
+            match result {
+                Ok((ms, machine_id, machine_name)) => {
+                    winner = Some((ms, machine_id, machine_name, origin.clone()));
+                    break;
+                }
+                Err(error) => last_error = error,
             }
-            _ => probe_remote_health(origin, REMOTE_PROBE_TIMEOUT),
-        };
-        match result {
-            Ok((ms, machine_id, machine_name)) => {
-                winner = Some((ms, machine_id, machine_name, origin.clone()));
-                break;
+        }
+    } else {
+        // lan 在 route_candidates 里只占一条（它给请求路径用），探测要逐块网卡都试
+        let mut engine_candidates: Vec<RouteTestCandidate> = Vec::new();
+        for (kind, origin) in &candidates {
+            if kind == "lan" {
+                for raw in &server.addresses {
+                    let (address, _) = split_address(raw);
+                    if !address.is_empty() {
+                        engine_candidates.push(RouteTestCandidate {
+                            kind: "lan".to_string(),
+                            origin: address,
+                        });
+                    }
+                }
+            } else {
+                engine_candidates.push(RouteTestCandidate {
+                    kind: kind.clone(),
+                    origin: origin.clone(),
+                });
             }
-            Err(error) => last_error = error,
+        }
+        let outcome = probe_candidates_blocking(
+            engine_candidates,
+            &normalize_probe_mode(&server.probe_mode),
+            server.probe_timeout(),
+        );
+        if outcome.ok {
+            winner = Some((
+                outcome.ms,
+                outcome.machine_id.clone(),
+                outcome.machine_name.clone(),
+                outcome.addr.clone(),
+            ));
+        } else {
+            last_error = outcome.error;
         }
     }
     let (probe, winner_addr) = match winner {
@@ -2959,6 +3282,8 @@ mod tests {
             token: String::new(),
             machine_id: String::new(),
             machine_name: String::new(),
+            machine_os: String::new(),
+            probe_timeout_ms: 0,
             probe_mode: " other ".into(),
             jump_id: " j1 ".into(),
             macs: Default::default(),
@@ -3069,6 +3394,8 @@ mod tests {
             token: String::new(),
             machine_id: String::new(),
             machine_name: String::new(),
+            machine_os: String::new(),
+            probe_timeout_ms: 0,
             probe_mode: String::new(),
             jump_id: String::new(),
             macs: Default::default(),
@@ -3193,7 +3520,7 @@ mod tests {
         let dead = "127.0.0.1:1".to_string(); // 端口 1 上不会有服务
 
         // 并发（全部）：逐行两条都在，赢家是活的那个
-        let all = remote_test_blocking(vec![dead.clone(), live.clone()], "parallel_all".into(), None, false);
+        let all = remote_test_blocking(vec![dead.clone(), live.clone()], "parallel_all".into(), None, false, PROBE_TIMEOUT);
         assert!(all.ok, "并发全部应探到活的地址");
         assert_eq!(all.addr, live);
         assert_eq!(all.results.len(), 2);
@@ -3201,11 +3528,11 @@ mod tests {
         assert!(all.results.iter().any(|o| o.address == live && o.ok));
 
         // 并发（首个）：赢家也是活的（死的那个直接失败出局）
-        let first = remote_test_blocking(vec![dead.clone(), live.clone()], "parallel_first".into(), None, false);
+        let first = remote_test_blocking(vec![dead.clone(), live.clone()], "parallel_first".into(), None, false, PROBE_TIMEOUT);
         assert!(first.ok && first.addr == live);
 
         // 串行：先死后活，第一个成功的胜出
-        let serial = remote_test_blocking(vec![dead, live.clone()], "serial".into(), None, false);
+        let serial = remote_test_blocking(vec![dead, live.clone()], "serial".into(), None, false, PROBE_TIMEOUT);
         assert!(serial.ok && serial.addr == live);
     }
 
@@ -3238,8 +3565,7 @@ mod tests {
             vec!["127.0.0.1:1".into()],
             "parallel_first".into(),
             Some(vec![origin.clone()]),
-            false,
-        );
+            false, PROBE_TIMEOUT);
         assert!(fallback.ok, "局域网全挂时应兜底远程");
         assert!(fallback.remote, "赢家应带远程标记");
         assert_eq!(fallback.addr, origin);
@@ -3247,7 +3573,7 @@ mod tests {
         assert!(fallback.results.iter().any(|o| o.remote && o.ok));
 
         // 局域网有赢家 → 远程不探，results 里带一行「未探测」
-        let lan_up = remote_test_blocking(vec![live], "parallel_first".into(), Some(vec![origin]), false);
+        let lan_up = remote_test_blocking(vec![live], "parallel_first".into(), Some(vec![origin]), false, PROBE_TIMEOUT);
         assert!(lan_up.ok && !lan_up.remote, "局域网赢家优先");
         assert!(
             lan_up.results.iter().any(|o| o.remote && !o.ok && o.error.contains("未探测")),
@@ -3283,8 +3609,7 @@ mod tests {
             vec![live.clone()],
             "parallel_first".into(),
             Some(vec![origin.clone()]),
-            true,
-        );
+            true, PROBE_TIMEOUT);
         assert!(first.ok && first.remote, "远程优先应选隧道");
         assert_eq!(first.addr, origin);
         assert!(
@@ -3297,8 +3622,7 @@ mod tests {
             vec![live.clone()],
             "parallel_first".into(),
             Some(vec!["http://127.0.0.1:1".into()]),
-            true,
-        );
+            true, PROBE_TIMEOUT);
         assert!(down.ok && !down.remote, "隧道挂了应退回局域网");
         assert_eq!(down.addr, live);
         assert!(
@@ -3317,6 +3641,8 @@ mod tests {
             token: " explicit ".into(),
             machine_id: String::new(),
             machine_name: String::new(),
+            machine_os: String::new(),
+            probe_timeout_ms: 0,
             probe_mode: "serial".into(),
             jump_id: String::new(),
             macs: Default::default(),
@@ -3355,6 +3681,8 @@ mod tests {
                 token: "t".into(),
                 machine_id: String::new(),
                 machine_name: String::new(),
+                machine_os: String::new(),
+                probe_timeout_ms: 0,
                 probe_mode: "parallel".into(),
                 jump_id: String::new(),
                 macs: Default::default(),
@@ -3395,7 +3723,7 @@ mod tests {
 
     #[test]
     fn remote_test_reports_missing_addresses() {
-        let result = remote_test_blocking(vec![" ".into()], "parallel".into(), None, false);
+        let result = remote_test_blocking(vec![" ".into()], "parallel".into(), None, false, PROBE_TIMEOUT);
         assert!(!result.ok);
         assert_eq!(result.error, "没有可探测的地址");
     }
@@ -3649,6 +3977,101 @@ mod tests {
     }
 
     // ---- 五通道优先级（route_order / route_disabled / route_candidates） ----
+
+    /// 起一个只回 /health 的假服务端，返回监听端口
+    fn spawn_health_stub(os: &'static str) -> u16 {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("监听回环");
+        let port = listener.local_addr().expect("本地地址").port();
+        std::thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                let mut stream = stream;
+                let mut buffer = [0u8; 512];
+                let _ = std::io::Read::read(&mut stream, &mut buffer);
+                let body = format!(
+                    "{{\"ok\":true,\"machineId\":\"m1\",\"machineName\":\"测试机\",\"os\":\"{os}\"}}"
+                );
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = std::io::Write::write_all(&mut stream, response.as_bytes());
+            }
+        });
+        port
+    }
+
+    #[test]
+    fn probe_timeout_is_clamped() {
+        // 0 / 缺省 → 默认 2 秒；太小太大都夹回合法区间
+        assert_eq!(clamp_probe_timeout_ms(0), DEFAULT_PROBE_TIMEOUT_MS);
+        assert_eq!(clamp_probe_timeout_ms(1), MIN_PROBE_TIMEOUT_MS);
+        assert_eq!(clamp_probe_timeout_ms(2_000), 2_000);
+        assert_eq!(clamp_probe_timeout_ms(999_999), MAX_PROBE_TIMEOUT_MS);
+    }
+
+    #[test]
+    fn probe_candidates_serial_stops_at_first_success() {
+        let port = spawn_health_stub("windows");
+        let cands = vec![
+            RouteTestCandidate { kind: "lan".into(), origin: "127.0.0.1:1".into() },
+            RouteTestCandidate { kind: "lan".into(), origin: format!("127.0.0.1:{port}") },
+            RouteTestCandidate { kind: "lan".into(), origin: "127.0.0.1:2".into() },
+        ];
+        let result = probe_candidates_blocking(cands, "serial", PROBE_TIMEOUT);
+        assert!(result.ok, "串行应探到活着的那条：{}", result.error);
+        assert_eq!(result.addr, format!("127.0.0.1:{port}"));
+        assert_eq!(result.os, "windows", "赢家要带回系统族");
+        // 串行命中即停：第三个候选压根没探，逐行结果只有两条
+        assert_eq!(result.results.len(), 2);
+    }
+
+    #[test]
+    fn probe_candidates_parallel_all_reports_every_channel() {
+        let port = spawn_health_stub("linux");
+        let cands = vec![
+            RouteTestCandidate { kind: "lan".into(), origin: "127.0.0.1:1".into() },
+            RouteTestCandidate { kind: "tunnel".into(), origin: format!("http://127.0.0.1:{port}") },
+        ];
+        let result = probe_candidates_blocking(cands, "parallel_all", PROBE_TIMEOUT);
+        assert!(result.ok, "并发全部应探到远程通道：{}", result.error);
+        assert!(result.remote, "赢家是远程通道");
+        assert_eq!(result.kind, "tunnel");
+        assert_eq!(result.os, "linux");
+        assert_eq!(result.results.len(), 2, "并发全部要逐行给出每个通道");
+        assert!(result.results.iter().any(|row| !row.ok), "死通道也要有一行失败");
+    }
+
+    #[test]
+    fn probe_candidates_parallel_first_returns_a_winner() {
+        let port = spawn_health_stub("macos");
+        let cands = vec![
+            RouteTestCandidate { kind: "lan".into(), origin: "127.0.0.1:1".into() },
+            RouteTestCandidate { kind: "lan".into(), origin: format!("127.0.0.1:{port}") },
+        ];
+        let result = probe_candidates_blocking(cands, "parallel_first", PROBE_TIMEOUT);
+        assert!(result.ok);
+        assert_eq!(result.os, "macos");
+    }
+
+    #[test]
+    fn probe_candidates_all_dead_reports_every_failure() {
+        let cands = vec![
+            RouteTestCandidate { kind: "lan".into(), origin: "127.0.0.1:1".into() },
+            RouteTestCandidate { kind: "ts".into(), origin: "http://127.0.0.1:2".into() },
+        ];
+        let result = probe_candidates_blocking(cands, "parallel_all", Duration::from_millis(300));
+        assert!(!result.ok);
+        assert_eq!(result.results.len(), 2);
+        assert!(result.error.contains("所有通道都不通"), "错误文案：{}", result.error);
+    }
+
+    #[test]
+    fn probe_candidates_empty_is_an_error_not_a_panic() {
+        let result = probe_candidates_blocking(Vec::new(), "parallel_first", PROBE_TIMEOUT);
+        assert!(!result.ok);
+        assert!(result.error.contains("没有可探测的通道"));
+    }
 
     fn route_test_server() -> RemoteServer {
         RemoteServer {

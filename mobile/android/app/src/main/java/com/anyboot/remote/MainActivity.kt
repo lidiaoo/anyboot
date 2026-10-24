@@ -36,6 +36,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -89,11 +90,6 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicLong
-import java.util.concurrent.atomic.AtomicReference
 
 /**
  * AnyBoot 远程客户端外壳（多服务端版，Jetpack Compose / Material 3 重写）。
@@ -161,6 +157,12 @@ class MainActivity : ComponentActivity() {
     private var deleteServerTarget by mutableStateOf<ServerProfile?>(null)
     private var serverListOpen by mutableStateOf(false)
     private var transportOpen by mutableStateOf(false)
+
+    // ---- 系统信息弹层（点系统徽标 / 菜单打开） ----
+    private var sysInfoTarget by mutableStateOf<ServerProfile?>(null)
+    private var sysInfoRows by mutableStateOf<List<SysInfoRow>>(emptyList())
+    private var sysInfoLoading by mutableStateOf(false)
+    private var sysInfoError by mutableStateOf("")
 
     // ---- 电源悬浮球 ----
     /** 有电源请求在飞（球上转圈，防止连点） */
@@ -247,6 +249,33 @@ class MainActivity : ComponentActivity() {
                 if (profile.routePriorityRemoteFirst()) return // 远程优先是用户选的，不抢
                 runOnUiThread { startAttempt(ensureTab(profile)) }
             }
+
+            /**
+             * 心跳顺手探到了对方系统族：记进档案，下次开界面直接就能画系统徽标
+             * （不用等用户点进某台电脑才认出是 Windows 还是 Linux）。
+             */
+            override fun onMachineSeen(id: String, machineId: String, machineName: String, os: String) {
+                val profile = ServerStore.find(servers, id) ?: return
+                var changed = false
+                if (machineId.isNotEmpty() && profile.machineId != machineId) {
+                    profile.machineId = machineId
+                    changed = true
+                }
+                if (machineName.isNotEmpty() && profile.machineName != machineName) {
+                    profile.machineName = machineName
+                    changed = true
+                }
+                val normalized = ServerProfile.normalizeMachineOs(os)
+                if (normalized.isNotEmpty() && profile.machineOs != normalized) {
+                    profile.machineOs = normalized
+                    changed = true
+                }
+                if (changed) {
+                    // 「this」在匿名 Listener 里是监听器自己，必须显式指到 Activity
+                    ServerStore.save(this@MainActivity, servers)
+                    chipTick++
+                }
+            }
         })
         heartbeat?.tunnelResolver = tunnelResolver
 
@@ -312,6 +341,25 @@ class MainActivity : ComponentActivity() {
                 if (transportOpen) TransportDialog()
                 if (failReloadOpen) FailReloadDialog()
                 if (sleepHelpOpen) SleepHelpDialog()
+                sysInfoTarget?.let { target ->
+                    SystemInfoDialog(
+                        title = target.label(),
+                        rows = sysInfoRows,
+                        loading = sysInfoLoading,
+                        error = sysInfoError,
+                        onDismiss = {
+                            sysInfoTarget = null
+                            sysInfoRows = emptyList()
+                            sysInfoError = ""
+                            sysInfoLoading = false
+                        },
+                        onCopy = {
+                            this@MainActivity.copyRemoteSlot(
+                                "系统信息", sysInfoText(target.label(), sysInfoRows),
+                            )
+                        },
+                    )
+                }
                 ConfirmDialog(bus)
         }
 
@@ -429,18 +477,80 @@ class MainActivity : ComponentActivity() {
                 color = if (active) Color.White else palette.fg,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                // 名字给个上限：徽标与通道后缀必须永远看得见（长名字自己省略）
+                modifier = Modifier.widthIn(max = 132.dp),
             )
-            // 当前连接后缀：直连 / 跳板机 / 隧道（远程赢家实时变化，chipTick 驱动重绘）
+            // 系统族徽标（windows / macos / linux）：点它看系统详情
+            if (osShowName(profile.machineOs).isNotEmpty()) {
+                Spacer(Modifier.width(5.dp))
+                OsBadge(profile.machineOs, onDark = active) { openSystemInfo(profile) }
+            }
+            // 连接状态后缀：**没连上就说「未连接」**，不许默认写「直连」
+            //（心跳探通、或这个标签的页面确实加载成功，才算连上）
+            Spacer(Modifier.width(5.dp))
             Text(
-                text = when {
-                    tab?.usingRemote == true -> "隧道"
-                    ServerProfile.text(profile.jumpServerId).isNotEmpty() -> "跳板机"
-                    else -> "直连"
-                },
+                text = connLabelOf(profile, tab),
                 fontSize = 9.sp,
                 color = if (active) Color.White.copy(alpha = 0.75f) else palette.fgFaint,
                 maxLines = 1,
             )
+        }
+    }
+
+    /**
+     * 标签上的连接标注：**没连上就写「未连接」**。
+     *
+     * <p>以前这行是无脑写「直连」的 —— 电脑关着机、地址换了 IP、人已经出门，
+     * 标签上照样写着「直连」，用户完全没法判断现在到底通不通。现在只有
+     * 心跳探通、或者这个标签的页面确实加载成功（STATUS_OK）才描述通道，
+     * 否则一律「未连接」。
+     */
+    private fun connLabelOf(profile: ServerProfile, tab: Tab?): String {
+        val online = heartbeat?.stateOf(profile.id)?.isOnline == true
+        if (!online && tab?.status != STATUS_OK) return "未连接"
+        return when {
+            tab?.usingRemote == true -> "隧道"
+            ServerProfile.text(profile.jumpServerId).isNotEmpty() -> "跳板机"
+            else -> "直连"
+        }
+    }
+
+    /**
+     * 打开某台电脑的「系统信息」：后台按局域网（走跳板机就先拉隧道）→ 远程通道的顺序
+     * 找一个能读 `/api/system` 的端点，读到就逐行显示。
+     */
+    private fun openSystemInfo(profile: ServerProfile) {
+        sysInfoTarget = profile
+        sysInfoRows = emptyList()
+        sysInfoError = ""
+        sysInfoLoading = true
+        val target = profile.copy()   // 后台线程用快照，免得用户中途编辑改到一半
+        Thread({
+            var rows: List<SysInfoRow> = emptyList()
+            var error = ""
+            try {
+                rows = loadSysInfoRows(target) { endpointFor(target) }
+            } catch (failure: Exception) {
+                error = failure.message ?: "读取系统信息失败"
+            }
+            runOnUiThread {
+                if (sysInfoTarget == null) return@runOnUiThread
+                sysInfoRows = rows
+                sysInfoError = error
+                sysInfoLoading = false
+            }
+        }, "anyboot-sysinfo").start()
+    }
+
+    /** 这台电脑在本机可直接访问的端点（走跳板机时解析成本地隧道端口）——阻塞调用 */
+    private fun endpointFor(profile: ServerProfile): String {
+        val host = ServerProfile.normalizeHost(profile.host())
+        if (host.isEmpty()) throw Exception("这台电脑还没有可用地址")
+        if (ServerProfile.text(profile.jumpServerId).isEmpty()) return host
+        val jump = JumpStore.findJump(JumpStore.loadJumps(this), profile.jumpServerId)
+            ?: throw Exception("跳板机不存在（可能已删除）")
+        return SshSessionManager.shared().tunnelAddress(this, jump, host) { title, message ->
+            bus.confirm(title, message)
         }
     }
 
@@ -464,6 +574,12 @@ class MainActivity : ComponentActivity() {
                 })
                 DropdownMenuItem(text = { Text("电脑列表") }, onClick = {
                     open = false; serverListOpen = true
+                })
+                DropdownMenuItem(text = { Text("当前电脑的系统信息") }, onClick = {
+                    open = false
+                    val current = ServerStore.find(servers, activeId)
+                    if (current == null) toast("还没有当前电脑 —— 先点一个标签")
+                    else openSystemInfo(current)
                 })
                 DropdownMenuItem(text = { Text("重载当前页面") }, onClick = {
                     open = false; reloadActive()
@@ -1438,64 +1554,24 @@ class MainActivity : ComponentActivity() {
      * - **并发（全部）**：等全部线程结束，赢家 = 最快的成功者，逐行结果全带回去；
      * - **串行**：按顺序第一个通就停。
      * 单地址 / 跳板机不探：交给 WebView 加载链路自己兜。
+     *
+     * <p>这一层只探**局域网地址**（要的是「先加载哪个 IP」，赢家是 host:port）；
+     * 语义与超时都交给 {@link ProbeEngine}（= 连接策略里的探测方式 + 探测超时），
+     * 线程也是它那个探测专用池，不再自己起线程。
      */
     private fun probeAddresses(profile: ServerProfile): ProbeResult {
         val addresses = profile.addresses
         if (addresses.size < 2) {
             return ProbeResult(emptyList(), null)
         }
-        val mode = ServerProfile.normalizeProbeMode(profile.probeMode)
-        val timeoutMs = 3000
-        val outcomes = arrayOfNulls<ProbeOutcome>(addresses.size)
-        if (mode == ServerProfile.PROBE_SERIAL) {
-            // 串行：按顺序逐个探，第一个通的即止（保留用户排的地址优先级）
-            var winner: String? = null
-            for (i in addresses.indices) {
-                val rtt = HealthProbe.ping(addresses[i], timeoutMs)
-                outcomes[i] = ProbeOutcome(addresses[i], rtt >= 0, if (rtt >= 0) rtt else 0)
-                if (rtt >= 0) {
-                    winner = addresses[i]
-                    break
-                }
-            }
-            return ProbeResult(outcomes.filterNotNull(), winner)
+        val result = ProbeEngine.probe(profile, null, listOf(ServerProfile.ROUTE_LAN))
+        val outcomes = result.hits.mapNotNull { hit ->
+            // 只认局域网那一批（跳板机走 SSH 隧道，这里没有意义）
+            if (hit.kind != ServerProfile.ROUTE_LAN) null
+            else ProbeOutcome(hit.origin, hit.ok, if (hit.ok) hit.ms else 0L)
         }
-        val firstOnly = mode == ServerProfile.PROBE_PARALLEL_FIRST
-        val done = AtomicBoolean(false)
-        val winnerAddress = AtomicReference<String?>(null)
-        val winnerMs = AtomicLong(0)
-        val latch = CountDownLatch(addresses.size)
-        for (i in addresses.indices) {
-            val address = addresses[i]
-            Thread({
-                try {
-                    if (firstOnly && done.get()) {
-                        return@Thread // 已有赢家：不再白探（在途的等它自己超时收尾）
-                    }
-                    val rtt = HealthProbe.ping(address, timeoutMs)
-                    if (rtt >= 0 && (!firstOnly || done.compareAndSet(false, true))) {
-                        if (firstOnly) {
-                            winnerAddress.set(address)
-                            winnerMs.set(rtt)
-                        } else {
-                            // 并发（全部）：谁快谁当赢家
-                            synchronized(winnerAddress) {
-                                val current = winnerAddress.get()
-                                if (current == null || rtt < winnerMs.get()) {
-                                    winnerAddress.set(address)
-                                    winnerMs.set(rtt)
-                                }
-                            }
-                        }
-                    }
-                    outcomes[i] = ProbeOutcome(address, rtt >= 0, if (rtt >= 0) rtt else 0)
-                } finally {
-                    latch.countDown()
-                }
-            }, "anyboot-probe").start()
-        }
-        latch.await(10, TimeUnit.SECONDS)
-        return ProbeResult(outcomes.filterNotNull(), winnerAddress.get())
+        val winner = if (result.ok && result.kind == ServerProfile.ROUTE_LAN) result.origin else null
+        return ProbeResult(outcomes, winner?.takeIf { it.isNotEmpty() })
     }
 
     /** 重新开始一轮连接：多地址先按探测模式比一遍（赢家直接上），单地址 / 跳板机走老链路 */
@@ -1689,6 +1765,9 @@ class MainActivity : ComponentActivity() {
         if (!servers.contains(profile)) return
         if (result.machineId.isNotEmpty()) profile.machineId = result.machineId
         if (result.machineName.isNotEmpty()) profile.machineName = result.machineName
+        // 系统族（windows / macos / linux）：界面上的系统徽标靠它，老服务端没有就留空
+        val os = ServerProfile.normalizeMachineOs(result.os)
+        if (os.isNotEmpty()) profile.machineOs = os
         var sibling: ServerProfile? = null
         for (other in servers) {
             if (profile.sameMachine(other)) {

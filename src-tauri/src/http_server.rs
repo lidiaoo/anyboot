@@ -72,6 +72,8 @@ pub(crate) fn first_nonempty<T: IntoIterator<Item = String>>(values: T) -> Strin
 ///
 /// `ok`/`service` 是既有的探活字段；`machineId`/`machineName` 是给客户端认机器用的
 /// —— 同一台电脑多块网卡会有多个 IP，客户端靠 `machineId` 把它们归并成一份页面。
+/// `os`/`arch` 只放**编译期常量**（windows / macos / linux + x86_64 / aarch64），
+/// 零开销且足以让客户端画出系统徽标；更细的版本 / CPU / 内存走鉴权后的 `/api/system`。
 /// 这里**不含任何机密**，所以和探活一样免鉴权。
 pub(crate) fn health_json(machine_id: &str, machine_name: &str) -> serde_json::Value {
     serde_json::json!({
@@ -79,6 +81,8 @@ pub(crate) fn health_json(machine_id: &str, machine_name: &str) -> serde_json::V
         "service": "anyboot",
         "machineId": machine_id.trim(),
         "machineName": machine_name.trim(),
+        "os": crate::sysinfo_lite::os_family(),
+        "arch": crate::sysinfo_lite::arch(),
     })
 }
 

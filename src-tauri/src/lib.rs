@@ -126,6 +126,8 @@ pub(crate) mod hub_tailscale;
 mod hub_tsnet;
 mod hub_vault;
 mod http;
+mod probe_pool;
+mod sysinfo_lite;
 mod remote_servers;
 mod scan;
 mod switch_flow;
@@ -584,6 +586,13 @@ pub(crate) fn handle_remote_request(app: &AppHandle, request: &RemoteRequest) ->
             return RemoteReply::ok(200, health_json(&settings.machine_id, &machine_name()));
         }
         "/api/status" => return RemoteReply::ok(200, remote_status_json(app)),
+        // 系统信息（鉴权后）：客户端「系统信息」弹层的数据源。
+        // 只有 OS / 版本 / CPU / 内存这类排障信息，不含路径与令牌。
+        "/api/system" => {
+            let info = remote_servers::local_system_info(app);
+            let value = serde_json::to_value(info).unwrap_or_else(|_| serde_json::json!({}));
+            return RemoteReply::ok(200, value);
+        }
         "/api/requests" => return RemoteReply::ok(200, remote_requests_json()),
         "/api/grub" => return RemoteReply::ok(200, remote_grub_json(app)),
         // 网页控制台：完整快照（轮询用）+ 命令通道（真正改设置）
@@ -2791,6 +2800,8 @@ pub fn run() {
             remote_servers::remote_set_connect_all,
             remote_servers::remote_test,
             remote_servers::remote_promote_address,
+            remote_servers::remote_note_machine,
+            remote_servers::remote_system_info,
             remote_servers::remote_power,
             remote_servers::remote_endpoint,
             remote_servers::remote_test_via,

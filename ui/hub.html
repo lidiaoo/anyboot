@@ -1051,6 +1051,36 @@
     background: rgb(var(--accent) / .12); color: rgb(var(--accent));
     border: 1px solid rgb(var(--accent) / .25);
   }
+  /* 系统徽标（Windows / macOS / Linux）：列表行与电脑页标签共用，点开 = 系统信息 */
+  .os-badge {
+    font-size: 10px; font-weight: 700; letter-spacing: .2px; padding: 1px 6px;
+    border-radius: 5px; flex: none; cursor: pointer; font-family: inherit;
+    background: rgb(var(--elevate)); color: rgb(var(--fg-dim));
+    border: 1px solid rgb(var(--line)); line-height: 1.5;
+  }
+  .os-badge:hover { border-color: rgb(var(--accent) / .55); color: rgb(var(--fg)); }
+  .os-badge[data-os="windows"] { color: #2b88f0; border-color: rgb(43 136 240 / .45); background: rgb(43 136 240 / .10); }
+  .os-badge[data-os="macos"] { color: rgb(var(--fg)); border-color: rgb(var(--fg) / .35); background: rgb(var(--fg) / .08); }
+  .os-badge[data-os="linux"] { color: #e0a10a; border-color: rgb(224 161 10 / .45); background: rgb(224 161 10 / .10); }
+  /* 系统信息弹层 */
+  .sysinfo-head {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    padding-bottom: 8px; margin-bottom: 6px; border-bottom: 1px solid rgb(var(--line));
+  }
+  .sysinfo-head .who { font-size: 14px; font-weight: 700; color: rgb(var(--fg)); }
+  .sysinfo-head .where { font-size: 11px; color: rgb(var(--fg-faint)); font-family: ui-monospace, Menlo, Consolas, monospace; }
+  .sysinfo-rows { display: flex; flex-direction: column; gap: 0; }
+  .sysinfo-row {
+    display: flex; align-items: baseline; gap: 10px; padding: 5px 2px;
+    border-bottom: 1px dashed rgb(var(--line) / .55); font-size: 12px;
+  }
+  .sysinfo-row:last-child { border-bottom: none; }
+  .sysinfo-row .k { flex: none; width: 88px; color: rgb(var(--fg-faint)); font-size: 11px; }
+  .sysinfo-row .v {
+    flex: 1; min-width: 0; color: rgb(var(--fg)); word-break: break-all;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+  }
+  .sysinfo-row.bad .v { color: rgb(var(--bad)); }
   .cq-dev-meta {
     display: flex; flex-direction: column; align-items: flex-start; gap: 2px; margin-top: 2px;
     font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; color: rgb(var(--fg-faint));
@@ -1730,6 +1760,10 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
             编辑这个服务端
           </button>
+          <button role="menuitem" data-cact="sysinfo">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+            系统信息（系统 / CPU / 内存）
+          </button>
           <button role="menuitem" data-cact="reload">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg>
             重载此页（重新探测地址）
@@ -2021,15 +2055,26 @@
                   </p>
                 </div>
                 <div class="field">
-                  <label>多网卡探测（有多个地址时怎么探）</label>
-                  <div style="display:flex;gap:4px" role="group" aria-label="多网卡探测">
+                  <label>探测方式（对下面所有通道生效，不只是局域网）</label>
+                  <div style="display:flex;gap:4px" role="group" aria-label="探测方式">
                     <button type="button" class="btn small seg-on" id="rsProbeFirst" style="flex:1">并发（首个）</button>
                     <button type="button" class="btn small" id="rsProbeAll" style="flex:1">并发（全部）</button>
                     <button type="button" class="btn small" id="rsProbeSerial" style="flex:1">串行</button>
                   </div>
                   <p class="field-hint" style="margin:6px 0 0">
-                    并发（首个）：每个地址一个线程，任一响应立即用它，其余作废；
-                    并发（全部）：等全部探完，逐行报每个地址的成败与耗时；串行：按顺序试，第一个通就停。
+                    电脑页与电脑列表的探活都按这里来：并发（首个）把全部通道同时发出，谁先成功就用谁；
+                    并发（全部）等全部返回，逐行报每个通道的成败与耗时；串行按上面的优先级逐个试，第一个通就停。
+                    探测跑在**独立的探测线程池**上，调大超时或选并发全部也不会卡住界面。
+                  </p>
+                </div>
+                <div class="field">
+                  <label for="rsProbeTimeout">探测超时（秒）</label>
+                  <input id="rsProbeTimeout" class="mono" type="number" step="0.5" min="0.2" max="30"
+                         placeholder="2" style="width:140px"
+                         data-page-node-id="rsFieldTimeout1">
+                  <p class="field-hint" style="margin:6px 0 0">
+                    每个通道的探活最多等这么久，默认 2 秒（范围 0.2 ~ 30 秒）。
+                    公网隧道首次 TLS 握手偏慢，出门只走 Tailscale Funnel 时可以调到 5 ~ 8 秒。
                   </p>
                 </div>
                 <div class="field" data-page-node-id="rsFieldJump1">
@@ -2078,6 +2123,27 @@
             <div class="dialog-body" data-page-node-id="rsListBody1">
               <div id="rsListRows"></div>
               <p class="field-hint">点击条目切换标签；本机始终保留，不可编辑删除。</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- 系统信息弹层：本机 / 任意一台电脑（数据 = 对方 /api/system） -->
+        <div class="overlay" id="sysInfoOverlay" hidden data-page-node-id="sysInfoOverlay1">
+          <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="sysInfoTitle">
+            <div class="dialog-head">
+              <h3 id="sysInfoTitle">系统信息</h3>
+              <button class="icon-btn" id="sysInfoClose" aria-label="关闭">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+              </button>
+            </div>
+            <div class="dialog-body">
+              <div class="sysinfo-head" id="sysInfoHead"></div>
+              <div class="sysinfo-rows" id="sysInfoRows"></div>
+            </div>
+            <div class="dialog-foot">
+              <span class="spacer"></span>
+              <button class="btn" id="sysInfoCopy">复制</button>
+              <button class="btn primary" id="sysInfoOk">关闭</button>
             </div>
           </div>
         </div>
@@ -4827,7 +4893,10 @@
   let cqQuery = '';
   let cqRefreshing = false;
 
-  function pcName(r) { return r.name || r.group || r.addresses[0] || '(未命名)'; }
+  function pcName(r) {
+    r = r || {};
+    return r.name || r.group || ((r.addresses && r.addresses[0]) || '') || '(未命名)';
+  }
   function pcFirstAddr(r) {
     const addr = ((r.addresses && r.addresses[0]) || '').trim();
     if (!addr) return '';
@@ -4869,19 +4938,36 @@
   // pcRemoteExpired: rid -> true（双口径过期：远程行失败 且 局域网也全挂 才标）
   const pcRemoteWin = new Map();
   const pcRemoteExpired = new Map();
+  /**
+   * rid -> 最近一次探测的结论（true=通）。
+   * 「没连上就别说直连」：以前 pcConnLabel 的兜底是 '直连'，于是压根没探过、
+   * 或者探测已经失败的电脑也标着「直连」，用户以为是连着的。现在只有真探通
+   * 才显示「直连」，其余一律「未连接」。
+   */
+  const pcConnOk = new Map();
 
-  /** 档案的五通道探测候选（按 route_order；跳板不参与此探测，走转发端点路径） */
+  /**
+   * 档案的六通道探测候选（按 route_order；跳板不参与此探测，走转发端点路径）。
+   *
+   * 与后端 `RemoteServer::route_candidates` 必须逐条对齐：四槽各管一个通道
+   * （隧道 / Tailscale 直连 / 系统 Funnel / 内置 Funnel），老档案的单槽 remote_addr
+   * 按内容判型兜底。**漏一个槽 = 那条通道永远不参与探测**（以前只算 ts 槽，
+   * 系统 Funnel 与内置 Funnel 配了也白配）。
+   */
   function pcRouteCandidates(r) {
     const order = (Array.isArray(r.route_order) && r.route_order.length) ? r.route_order : ROUTE_IDS.slice();
     const disabled = {};
     (Array.isArray(r.route_disabled) ? r.route_disabled : []).forEach(function (id) { disabled[id] = true; });
+    const legacy = (r.remote_addr || '').trim();
     const tsSlot = (r.remote_ts_addr || '').trim();
-    const isFunnel = /^https:\/\//i.test(tsSlot) && /\.ts\.net/i.test(tsSlot);
-    // 老档案兜底：双槽全空时用单槽 remote_addr（判型）
-    let tunnel = (r.remote_tunnel_addr || '').trim();
-    if (!tunnel && !tsSlot && r.remote_addr && !isTailscaleAddr(r.remote_addr)) tunnel = r.remote_addr.trim();
-    const tsDirect = tsSlot && !isFunnel ? tsSlot : '';
-    const funnelOrigin = tsSlot && isFunnel ? tsSlot : '';
+    const tunnel = (r.remote_tunnel_addr || '').trim()
+      || (!tsSlot && legacy && !isTailscaleAddr(legacy) ? legacy : '');
+    // ts 槽只放 100.x；*.ts.net 挤在里面的老档案按「系统 Funnel」处理
+    const tsDirect = tsSlot && !/\.ts\.net/i.test(tsSlot) ? tsSlot : '';
+    const funnel = (r.remote_funnel_addr || '').trim()
+      || (tsSlot && /\.ts\.net/i.test(tsSlot) ? tsSlot : '')
+      || (!tsSlot && legacy && /\.ts\.net/i.test(legacy) ? legacy : '');
+    const tsnet = (r.remote_tsnet_addr || '').trim();
     const list = [];
     order.forEach(function (kind) {
       if (disabled[kind] || kind === 'jump') return;
@@ -4893,23 +4979,33 @@
         list.push({ kind: 'tunnel', origin: tunnel });
       } else if (kind === 'ts' && tsDirect) {
         list.push({ kind: 'ts', origin: tsDirect });
-      } else if (kind === 'funnel' && funnelOrigin) {
-        list.push({ kind: 'funnel', origin: funnelOrigin });
+      } else if (kind === 'funnel' && funnel) {
+        list.push({ kind: 'funnel', origin: funnel });
+      } else if (kind === 'tsnet' && tsnet) {
+        list.push({ kind: 'tsnet', origin: tsnet });
       }
     });
     return list;
   }
 
   /** 统一探测入口：按档案优先级逐通道探（route_candidates），并处理赢家记账。
-   *  LAN 赢家 → 置顶 + 清远程记账；远程赢家 → 记 origin（iframe 换 ab_token URL）。 */
+   *  LAN 赢家 → 置顶 + 清远程记账；远程赢家 → 记 origin（iframe 换 ab_token URL）。
+   *  超时与模式都取档案里的「连接策略」：**电脑页和电脑列表共用这一处**。 */
   async function pcProbe(r, mode) {
     const candidates = pcRouteCandidates(r);
+    // 探测超时（毫秒）跟档案走；老档案没这字段 → 后端默认 2 秒
+    const timeout = r.probe_timeout_ms || 2000;
     const res = candidates.length
-      ? await invoke('remote_test', { addresses: [], probeMode: mode, candidates: candidates })
-      : await invoke('remote_test', { addresses: r.addresses, probeMode: mode });
+      ? await invoke('remote_test', {
+          addresses: [], probeMode: mode, candidates: candidates, probeTimeoutMs: timeout,
+        })
+      : await invoke('remote_test', {
+          addresses: r.addresses, probeMode: mode, probeTimeoutMs: timeout,
+        });
     // 连接方式是否翻转（直连 ↔ 隧道）：变了要刷新标注（电脑标签/列表行/悬浮球）
     let connChanged = false;
     if (res && res.ok) {
+      pcConnOk.set(r.id, true);
       connChanged = res.remote ? !pcRemoteWin.has(r.id) : pcRemoteWin.has(r.id);
       if (res.remote) {
         pcRemoteWin.set(r.id, res.addr); // res.addr = https origin
@@ -4924,7 +5020,25 @@
             .catch(function () { /* 落盘失败只影响下次启动 */ });
         }
       }
+      // 探到了就记住「对方是谁、什么系统」：徽标与标题不用每次开界面都等一轮探测。
+      // 只在这台档案自己的机器身份有变化时才写盘（后端自己判断），所以放任调用无妨。
+      const changedMachine = (res.machine_name && res.machine_name !== r.machine_name)
+        || (res.os && res.os !== r.machine_os);
+      if (res.os) r.machine_os = res.os;
+      if (res.machine_name) r.machine_name = res.machine_name;
+      if (res.machine_id) r.machine_id = res.machine_id;
+      if (changedMachine) {
+        invoke('remote_note_machine', {
+          serverId: r.id,
+          machineId: res.machine_id || '',
+          machineName: res.machine_name || '',
+          os: res.os || '',
+        }).catch(function () { /* 记不上只影响徽标持久化，不影响连接 */ });
+        renderPcChips();
+        if (typeof cqRenderRows === 'function') cqRenderRows();
+      }
     } else {
+      pcConnOk.set(r.id, false);
       const remoteRow = res && Array.isArray(res.results)
         ? res.results.find(function (o) { return o.remote; }) : null;
       if (remoteRow && !remoteRow.ok && (remoteRow.error || '').indexOf('未探测') < 0) {
@@ -4964,14 +5078,18 @@
   }
 
   /**
-   * 当前连接标注：远程隧道使用中（探测赢家是隧道）> 跳板机 > 直连。
+   * 当前连接标注：远程隧道使用中（探测赢家是隧道）> 跳板机 > 直连 > 未连接。
    * 电脑标签、电脑列表行、悬浮球说明共用这一份真相。
-   * 远程赢家再按地址形态细分：100.x / *.ts.net → Tailscale 直连，其余 → 远程隧道。
+   * 远程赢家再按地址形态细分：100.x / *.ts.net → Tailscale，其余 → 远程隧道。
+   *
+   * **只有真探通过才叫「直连」**：没探过 / 探失败一律「未连接」——
+   * 以前这里兜底写死 '直连'，离线电脑也顶着「直连」，用户以为连着。
    */
   function pcConnLabel(r, short) {
     if (!r) return '';
     if (pcRemoteWin.has(r.id)) {
-      return isTailscaleAddr(r.remote_addr)
+      const remoteAddr = pcRemoteWin.get(r.id) || r.remote_addr;
+      return isTailscaleAddr(remoteAddr)
         ? (short ? 'Tailscale' : 'Tailscale 直连')
         : (short ? '隧道' : '远程隧道');
     }
@@ -4981,7 +5099,7 @@
       const name = jump ? (jump.name || jump.host) : '已删除';
       return short ? '跳板机' : '跳板机 · ' + name;
     }
-    return '直连';
+    return pcConnOk.get(r.id) === true ? '直连' : '未连接';
   }
   function localUrl() {
     if (!localEndpoint || !localEndpoint.port) return '';
@@ -5396,6 +5514,7 @@
     items.push({ label: '在系统浏览器打开', act: 'browser' });
     items.push({ sep: true });
     items.push({ label: '重新探测这台电脑', act: 'refresh' });
+    items.push({ label: '系统信息（系统 / CPU / 内存）', act: 'sysinfo' });
     if (!row.local) {
       items.push({ label: '编辑这台电脑', act: 'edit' });
       items.push({ label: '复制地址 ' + row.ip, act: 'copyip' });
@@ -5416,6 +5535,7 @@
         invoke('remote_open_page', { url: url })
           .catch(function (error) { toast('打开浏览器失败：' + error, 'bad'); });
       } else if (picked.act === 'refresh') { cqLoadBoot(row.rid); }
+      else if (picked.act === 'sysinfo') { openSysInfo(row.rid); }
       else if (picked.act === 'edit') { openRsEdit(row.rid); }
       else if (picked.act === 'copyip') {
         if (navigator.clipboard) navigator.clipboard.writeText(row.ip).then(function () { toast('已复制 ' + row.ip); })
@@ -5468,6 +5588,11 @@
     nm.className = 'nm';
     nm.textContent = row.name;
     nameLine.appendChild(nm);
+    // 系统徽标（Windows / macOS / Linux）：来自 /health 的 machineOs，点开 = 系统信息
+    if (!row.local && row.server) {
+      const osb = osBadgeEl(row.server.machine_os, function () { openSysInfo(row.rid); });
+      if (osb) nameLine.appendChild(osb);
+    }
     if (isSelected) {
       const cur = document.createElement('span');
       cur.className = 'cq-chip-cur';
@@ -5488,11 +5613,16 @@
       nameLine.appendChild(chip);
     } else {
       const chip = document.createElement('span');
+      const label = pcConnLabel(row.server, false);
       chip.className = pcRemoteWin.has(row.rid) ? 'cq-chip-remote' : 'cq-chip-grp';
-      chip.textContent = pcConnLabel(row.server, false);
+      chip.textContent = label;
       chip.title = pcRemoteWin.has(row.rid)
         ? '局域网全挂，正在经它的公网隧道访问'
-        : (chip.textContent === '直连' ? '局域网直连' : '广播包经跳板机在内网发');
+        : (label === '直连'
+            ? '局域网直连'
+            : (label === '未连接'
+                ? '当前没探通 —— 目标机可能离线，或所有通道都不通（点「重新探测」再试）'
+                : '广播包经跳板机在内网发'));
       nameLine.appendChild(chip);
     }
     txt.appendChild(nameLine);
@@ -5661,6 +5791,183 @@
     setText('cqNOffline', rows.length - online);
     setText('cqNPending', pending);
   }
+
+  // ============ 系统徽标 + 系统信息弹层 ============
+  // 徽标数据来自 /health（machineOs，探活时顺手落盘）；详细数据走 /api/system。
+  const OS_LABELS = { windows: 'Windows', macos: 'macOS', linux: 'Linux' };
+
+  /**
+   * 系统徽标。`onOpen` 给了就渲染成按钮（点开系统信息），没给就是纯标签。
+   * 未知系统返回 null —— 不画一个空白气泡骗人。
+   */
+  function osBadgeEl(os, onOpen) {
+    const key = String(os || '').trim().toLowerCase();
+    const label = OS_LABELS[key];
+    if (!label) return null;
+    const el = document.createElement(onOpen ? 'button' : 'span');
+    if (onOpen) el.type = 'button';
+    el.className = 'os-badge';
+    el.dataset.os = key;
+    el.textContent = label;
+    el.title = '系统：' + label + (onOpen ? '（点开看详细信息）' : '');
+    if (onOpen) {
+      el.addEventListener('click', function (event) {
+        event.stopPropagation();
+        onOpen();
+      });
+      el.addEventListener('mousedown', function (event) { event.stopPropagation(); });
+    }
+    return el;
+  }
+
+  const sysInfoOverlay = document.getElementById('sysInfoOverlay');
+  let sysInfoRid = null;
+  let sysInfoLines = [];
+
+  function sysInfoRow(key, value, bad) {
+    const row = document.createElement('div');
+    row.className = 'sysinfo-row' + (bad ? ' bad' : '');
+    const k = document.createElement('span');
+    k.className = 'k';
+    k.textContent = key;
+    const v = document.createElement('span');
+    v.className = 'v';
+    v.textContent = value;
+    row.appendChild(k);
+    row.appendChild(v);
+    return row;
+  }
+
+  /** 字节/兆字节给人看：>=1024MB 用 GB（保留一位小数） */
+  function fmtMem(mb) {
+    const value = Number(mb) || 0;
+    if (value <= 0) return '—';
+    return value >= 1024 ? (value / 1024).toFixed(1) + ' GB' : value + ' MB';
+  }
+
+  /** 秒数给人看：x 天 x 小时 / x 小时 x 分 / x 分 */
+  function fmtUptime(seconds) {
+    const total = Number(seconds) || 0;
+    if (total <= 0) return '—';
+    const days = Math.floor(total / 86400);
+    const hours = Math.floor((total % 86400) / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    if (days > 0) return days + ' 天 ' + hours + ' 小时';
+    if (hours > 0) return hours + ' 小时 ' + minutes + ' 分';
+    return minutes + ' 分';
+  }
+
+  function openSysInfo(rid) {
+    sysInfoRid = rid || 'local';
+    const server = sysInfoRid === 'local' ? null : remotes.find(function (x) { return x.id === sysInfoRid; });
+    const isLocal = sysInfoRid === 'local';
+    document.getElementById('sysInfoTitle').textContent = '系统信息 · ' + (isLocal ? '本机' : pcName(server || {}));
+    const head = document.getElementById('sysInfoHead');
+    const rows = document.getElementById('sysInfoRows');
+    head.textContent = '';
+    rows.textContent = '';
+    sysInfoLines = [];
+    const badge = server ? osBadgeEl(server.machine_os, null) : osBadgeEl('windows', null);
+    if (badge) head.appendChild(badge);
+    const who = document.createElement('span');
+    who.className = 'who';
+    who.textContent = (server && server.machine_name) || (isLocal ? '本机' : pcName(server || {}));
+    head.appendChild(who);
+    // 首屏先给读取中，慢的时候用户能看出是在等而不是空白
+    rows.appendChild(sysInfoRow('状态', '读取中…'));
+    sysInfoOverlay.hidden = false;
+    if (!invoke) {
+      rows.textContent = '';
+      rows.appendChild(sysInfoRow('状态', '需要在应用里打开（浏览器预览拿不到对方系统信息）', true));
+      return;
+    }
+    invoke('remote_system_info', { serverId: sysInfoRid })
+      .then(function (info) { renderSysInfo(info || {}, server, isLocal); })
+      .catch(function (error) {
+        rows.textContent = '';
+        rows.appendChild(sysInfoRow('读取失败', String(error || '未知错误'), true));
+        rows.appendChild(sysInfoRow('提示', '这台电脑可能离线；先点「重试」连上，或检查对方的 HTTP 服务是否在监听。'));
+      });
+  }
+
+  function renderSysInfo(info, server, isLocal) {
+    const rows = document.getElementById('sysInfoRows');
+    const head = document.getElementById('sysInfoHead');
+    rows.textContent = '';
+    const osKey = String(info.os || (server && server.machine_os) || '').toLowerCase();
+    // 顶部：系统徽标 + 主机名 + 地址
+    head.textContent = '';
+    const badge = osBadgeEl(osKey, null);
+    if (badge) head.appendChild(badge);
+    const who = document.createElement('span');
+    who.className = 'who';
+    who.textContent = info.hostname || (server && server.machine_name) || (isLocal ? '本机' : pcName(server || {}));
+    head.appendChild(who);
+    const where = document.createElement('span');
+    where.className = 'where';
+    const ips = Array.isArray(info.lanIps) ? info.lanIps.filter(Boolean) : [];
+    where.textContent = (ips.length ? ips.join(' · ') : '') +
+      (info.httpPort ? ' · HTTP ' + info.httpPort : ' · HTTP 未监听');
+    head.appendChild(where);
+
+    const lines = [];
+    const add = function (key, value, bad) {
+      const text = (value == null || value === '') ? '—' : String(value);
+      rows.appendChild(sysInfoRow(key, text, bad));
+      lines.push(key + '：' + text);
+    };
+    add('系统', (OS_LABELS[osKey] || info.os || '—') + (info.osName ? '（' + info.osName + '）' : ''));
+    add('系统版本', info.osVersion);
+    add('内核 / 构建', info.kernel);
+    add('架构', info.arch);
+    add('主机名', info.hostname);
+    add('CPU', info.cpuModel);
+    add('核心数', info.cpuCores ? info.cpuCores + ' 逻辑核心' : '');
+    add('内存', fmtMem(info.memTotalMb) + (info.memFreeMb ? '（可用 ' + fmtMem(info.memFreeMb) + '）' : ''));
+    add('运行时长', fmtUptime(info.uptimeSecs));
+    add('AnyBoot', info.appVersion ? 'v' + info.appVersion : '');
+    add('HTTP 端口', info.httpPort ? String(info.httpPort) : '未监听');
+    add('局域网地址', ips.join(' · '));
+    if (info.collectedAt) {
+      const when = new Date(info.collectedAt * 1000);
+      add('采集时间', when.toLocaleString());
+    }
+    // 徽标兜底：/api/system 有 os 但档案里还没存 → 顺手补上（下次开界面直接有徽标）
+    if (osKey && server && server.machine_os !== osKey) {
+      server.machine_os = osKey;
+      invoke('remote_note_machine', {
+        serverId: server.id,
+        machineId: info.machineId || server.machine_id || '',
+        machineName: info.hostname || server.machine_name || '',
+        os: osKey,
+      }).catch(function () { /* 记不上只影响下次徽标 */ });
+      renderPcChips();
+      if (typeof cqRenderRows === 'function') cqRenderRows();
+    }
+    sysInfoLines = lines;
+  }
+
+  function closeSysInfo() {
+    sysInfoOverlay.hidden = true;
+    sysInfoRid = null;
+  }
+  document.getElementById('sysInfoClose').addEventListener('click', closeSysInfo);
+  document.getElementById('sysInfoOk').addEventListener('click', closeSysInfo);
+  sysInfoOverlay.addEventListener('click', function (event) {
+    if (event.target === sysInfoOverlay) closeSysInfo();
+  });
+  document.getElementById('sysInfoCopy').addEventListener('click', function () {
+    if (!sysInfoLines.length) { toast('还没有内容可复制', 'bad'); return; }
+    const text = sysInfoLines.join('\n');
+    // 这里不走 gwWriteClipboard：它在网关那个脚本块里（块内私有），跨块调不到
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text)
+        .then(function () { toast('已复制系统信息'); })
+        .catch(function (error) { toast('复制失败：' + (error && error.message ? error.message : '剪贴板不可用'), 'bad'); });
+    } else {
+      toast('复制失败：当前环境不支持剪贴板', 'bad');
+    }
+  });
 
   function cqRenderRows() {
     const tbody = document.getElementById('cqTbody');
@@ -5938,6 +6245,7 @@
       pcRemoteExpired.delete(id);
       // 探活结果也作废：否则地址改对了却还拿着上一轮的「离线」结论，页面直接给失败面板
       pageProbe.delete(id);
+      pcConnOk.delete(id);
       delete probes[id];
       if (cqViewRid === id) pcCloseView();
     }
@@ -6327,7 +6635,10 @@
       dot.className = 'dot';
       chip.appendChild(dot);
       chip.appendChild(document.createTextNode(pcName(r)));
-      // 当前连接后缀：直连 / 跳板机 / 隧道（远程赢家实时变化，renderPcChips 重刷时更新）
+      // 系统徽标（电脑页标签上也带一个，点开 = 系统信息）
+      const osb = osBadgeEl(r.machine_os, function () { openSysInfo(r.id); });
+      if (osb) chip.appendChild(osb);
+      // 当前连接后缀：直连 / 跳板机 / 隧道 / 未连接（远程赢家实时变化，renderPcChips 重刷时更新）
       const conn = document.createElement('span');
       conn.className = 'chip-conn';
       conn.textContent = pcConnLabel(r, true);
@@ -6460,9 +6771,15 @@
       // 跳板机时广播包经跳板机在内网发。模式细节看该电脑的电源路由配置。
       if (note) {
         const conn = pcConnLabel(server, false);
-        note.textContent = pcRemoteWin.has(activeRemote)
-          ? conn + ' · HTTP 走隧道 · 广播包发不出'
-          : (conn === '直连' ? '电源走局域网 · 需 sol' : conn + ' · 广播包经跳板机在内网发');
+        const jumpId = String((server && server.jump_id) || '').trim();
+        if (pcRemoteWin.has(activeRemote)) {
+          note.textContent = conn + ' · HTTP 走隧道 · 广播包发不出';
+        } else if (jumpId) {
+          note.textContent = conn + ' · 广播包经跳板机在内网发';
+        } else {
+          // 没连上也别按「走局域网」说 —— 明确标出当前是未连接
+          note.textContent = '电源走局域网 · 需 sol' + (conn === '直连' ? '' : ' · 当前未连接');
+        }
       }
     }
     Object.keys(hints).forEach(function (act) {
@@ -6605,6 +6922,7 @@
     const cact = item.dataset.cact;
     closeChipMenu();
     if (cact === 'edit') openRsEdit(rid);
+    else if (cact === 'sysinfo') openSysInfo(rid);
     else if (cact === 'reload') pageReloadActive(rid);
   });
 
@@ -7001,6 +7319,18 @@
   }
   rsBindFold('rsFoldConnHead', 'rsFoldConn');
   rsBindFold('rsFoldPowerHead', 'rsFoldPower');
+  /**
+   * 编辑框里的探测超时（毫秒）。输入框单位是**秒**（用户读起来直观），
+   * 空 / 非法 / 越界一律夹到 [0.2, 30] 秒，缺省 2 秒 —— 与后端
+   * `clamp_probe_timeout_ms` 同一套边界，两边不会打架。
+   */
+  function rsProbeTimeoutMs() {
+    const input = document.getElementById('rsProbeTimeout');
+    const seconds = parseFloat(input ? input.value : '');
+    if (!isFinite(seconds) || seconds <= 0) return 2000;
+    return Math.round(Math.min(30, Math.max(0.2, seconds)) * 1000);
+  }
+
   /** 折叠区标题摘要：连接策略 = 优先级启用数 + 探测 + 跳板机；电源路由 = 条数 */
   function rsRenderFoldCounts() {
     const probeLabel = rsProbe === 'parallel_all' ? '并发全部' : (rsProbe === 'serial' ? '串行' : '并发首个');
@@ -7010,6 +7340,7 @@
     }).length;
     document.getElementById('rsFoldConnCount').textContent =
       '优先级 ' + enabled + '/' + ROUTE_IDS.length + ' · ' + probeLabel +
+      ' · ' + (rsProbeTimeoutMs() / 1000) + 's' +
       (jump ? ' · 跳板机' : '');
     const routes = rsRouteEditor.routes();
     document.getElementById('rsFoldPowerCount').textContent =
@@ -7247,6 +7578,9 @@
         ? r.probe_mode : 'parallel_first')
       : 'parallel_first';
     rsProbeButtons();
+    // 探测超时（秒）：落盘是毫秒；老档案没有该字段 → 空输入框由 placeholder 提示默认 2 秒
+    document.getElementById('rsProbeTimeout').value =
+      r && r.probe_timeout_ms ? String(r.probe_timeout_ms / 1000) : '';
     // 优先级：读新字段；老档案（没有 route_order）按 conn_mode 迁移语义给初始序
     if (r && Array.isArray(r.route_order) && r.route_order.length) {
       const seen = {};
@@ -7324,7 +7658,9 @@
       : invoke('remote_test', {
           addresses: [],
           probeMode: rsProbe,
-          // 五通道候选：按优先级顺序传（跳板不在此路径；lan 候选逐地址，后端组内按 probeMode 并发）
+          // 探测超时跟着「连接策略」里填的走（界面上是秒，后端收毫秒）
+          probeTimeoutMs: rsProbeTimeoutMs(),
+          // 六通道候选：按优先级顺序传（跳板不在此路径；lan 候选逐地址，后端按 probeMode 并发/串行）
           candidates: rsRouteCandidatesForTest(),
         });
     call
@@ -7430,9 +7766,12 @@
       machine_name: '',
       probe_mode: rsProbe,
       // 连接优先级（五通道）；旧 conn_mode 已废弃恒空，后端按 route_order 消费
+      // 连接优先级（六通道）；旧 conn_mode 已废弃恒空，后端按 route_order 消费
       conn_mode: '',
       route_order: rsRouteOrder.slice(),
       route_disabled: rsRouteOrder.filter(function (kind) { return rsRouteDisabled[kind]; }),
+      // 探测超时（毫秒）：0 = 后端按默认 2 秒；界面上填的是秒
+      probe_timeout_ms: rsProbeTimeoutMs(),
       jump_id: document.getElementById('rsJump').value || '',
       // 远程接入四槽：各自独立（配对令牌只在分拣出新值时更新，空 = 保持已存）
       remote_addr: '',

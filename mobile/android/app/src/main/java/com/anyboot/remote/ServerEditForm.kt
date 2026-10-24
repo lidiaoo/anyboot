@@ -47,6 +47,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import java.util.Locale
 
 /**
  * 电脑档案的编辑表单（**一套实现，两处宿主**）。
@@ -284,6 +285,29 @@ internal class ServerEditFormState(
         if (profile != null) ServerProfile.normalizeProbeMode(profile.probeMode ?: "")
         else ServerProfile.PROBE_PARALLEL_FIRST
     )
+
+    /**
+     * 探测超时（界面单位是**秒**，落盘是毫秒）：对局域网地址与所有远程通通生效。
+     *
+     * <p>为什么要有：公网隧道（尤其 Funnel / tsnet 走中继时）握手一次可能要好几秒，
+     * 2 秒的默认值会把「其实通、只是慢」的通道判死；反过来局域网地址又不该等这么久。
+     * 留空 = 用默认 2 秒（与 PC 端 probe_timeout_ms 同一套边界：0.2 ~ 30 秒）。
+     */
+    var probeTimeoutText by mutableStateOf(
+        if (profile != null && profile.probeTimeoutMs > 0) {
+            val seconds = profile.probeTimeoutMs / 1000.0
+            if (seconds == seconds.toLong().toDouble()) seconds.toLong().toString()
+            else String.format(Locale.US, "%.1f", seconds)
+        } else {
+            ""
+        }
+    )
+
+    /** 界面上的秒 → 落盘毫秒（空 / 非法 → 默认 2 秒，越界由 clamp 夹） */
+    fun probeTimeoutMs(): Int {
+        val value = probeTimeoutText.trim().toDoubleOrNull() ?: return ServerProfile.DEFAULT_PROBE_TIMEOUT_MS
+        return ServerProfile.clampProbeTimeoutMs((value * 1000).toInt())
+    }
 
     /** 连接优先级（五通道并列，有序）：lan/jump/tunnel/ts/funnel；旧 connMode 已废弃只做迁移 */
     val routeOrder = mutableStateListOf<String>().apply {
@@ -704,7 +728,9 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
         FoldHeader(
             title = "连接策略",
             summary = "优先级 " + state.routeOrder.count { state.routeAvailable(it) && it !in state.routeDisabled } + "/" + ROUTE_IDS_ALL.size +
-                " · " + probeLabel(state.probeMode) + (if (state.jumpIndex > 0) " · 跳板机" else ""),
+                " · " + probeLabel(state.probeMode) +
+                " · " + String.format(Locale.US, "%.1f", state.probeTimeoutMs() / 1000.0) + "s" +
+                (if (state.jumpIndex > 0) " · 跳板机" else ""),
             open = state.connFoldOpen,
             onToggle = { state.connFoldOpen = !state.connFoldOpen },
         )
@@ -803,7 +829,7 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
         }
 
         FieldLabel(
-            "多网卡探测（有多个地址时怎么探）"
+            "探测方式（对下面所有通道生效，不只是局域网）"
         )
         Row(verticalAlignment = Alignment.CenterVertically) {
             RadioButton(
@@ -837,6 +863,39 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
             fontSize = 10.sp, color = palette.fgFaint,
             modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
         )
+
+        FieldLabel("探测超时（秒，默认 2）")
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(
+                value = state.probeTimeoutText,
+                onValueChange = { value ->
+                    // 只收数字与一个小数点（0.2 ~ 30 秒；留空 = 默认 2 秒）
+                    var dot = false
+                    val filtered = buildString {
+                        for (ch in value) {
+                            if (ch.isDigit()) append(ch)
+                            else if ((ch == '.' || ch == '。') && !dot) {
+                                append('.')
+                                dot = true
+                            }
+                        }
+                    }
+                    state.probeTimeoutText = filtered.take(5)
+                },
+                label = { Text("秒", fontSize = 10.sp) },
+                placeholder = { Text("2", fontSize = 12.sp) },
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodySmall,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                modifier = Modifier.width(110.dp),
+            )
+            Spacer(Modifier.width(10.dp))
+            Text(
+                "局域网与所有远程通道共用这一个超时：公网隧道握手慢就把这里调大（上限 30 秒）",
+                fontSize = 10.sp, color = palette.fgFaint,
+                modifier = Modifier.weight(1f),
+            )
+        }
         } // end if (state.connFoldOpen)
 
         FoldHeader(
@@ -1153,6 +1212,8 @@ internal fun applyServerEdit(
     target.name = state.name.trim().ifEmpty { target.host() }
     target.token = state.resolvedToken()
     target.probeMode = ServerProfile.normalizeProbeMode(state.probeMode)
+    // 探测超时（界面秒 → 落盘毫秒，空/非法回落默认 2 秒）
+    target.probeTimeoutMs = state.probeTimeoutMs()
     // 五通道优先级；旧 connMode 已废弃恒空（后端/两端按 routeOrder 消费）
     target.connMode = ""
     target.routeOrder.clear()

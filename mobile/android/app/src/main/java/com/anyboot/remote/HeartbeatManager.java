@@ -1,6 +1,5 @@
 package com.anyboot.remote;
 
-import android.app.Activity;
 import android.os.Handler;
 import android.os.Looper;
 
@@ -8,8 +7,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -22,15 +19,21 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *
  * <p>规则（与 docs/client-todo.md F1 一致，iOS 端 Heartbeat.swift 同构）：
  * <ul>
- *   <li>一台电脑有多个候选地址时按 {@link ServerProfile#probeMode} 探：
- *       <b>并发（默认）</b>同探所有地址取延迟最低；<b>串行</b>按顺序探，第一个通的即止；</li>
+ *   <li>探测<b>完全按档案的连接策略</b>（{@link ProbeEngine}）：通道优先级
+ *       {@code route_order}（局域网 / 跳板 / 隧道 / Tailscale / Funnel / 内置 tsnet）、
+ *       探测方式（并发首个 / 并发全部 / 串行）、探测超时 {@code probeTimeoutMs}
+ *       全部听用户的 —— 与「电脑列表」的在线判断、与真正连接走的通道是同一套语义；</li>
+ *   <li>省电两段式：通道优先级是「本地优先」时，先只探局域网 / 跳板机，
+ *       通了就到此为止（不惊动公网）；本地全挂才兜底探远程，且最多
+ *       {@link #REMOTE_FALLBACK_INTERVAL_MS} 打一次公网；</li>
  *   <li>上线<b>立即亮</b>；连续 {@link #OFFLINE_AFTER_FAILS} 轮全失败才判<b>离线</b>
  *       （防 WiFi 抖动误报）；</li>
  *   <li>只在 App 前台跑：onResume {@link #start()}（立即先探一轮），onPause {@link #stop()}；</li>
- *   <li>一轮没跑完不叠加下一轮（{@link #ticking} 闸 —— 串行多地址可能超过 10 秒）。</li>
+ *   <li>一轮没跑完不叠加下一轮（{@link #ticking} 闸 —— 串行多通道可能超过 10 秒）。</li>
  * </ul>
  *
- * <p>探测全部跑在后台线程；状态只在这里记账，变化时投递回主线程回调监听者。
+ * <p>探测全部跑在后台线程（{@link ProbeEngine} 的专用池，不和隧道 / JSON 抢线程）；
+ * 状态只在这里记账，变化时投递回主线程回调监听者。
  */
 final class HeartbeatManager {
 
@@ -61,6 +64,15 @@ final class HeartbeatManager {
          */
         default void onLanRecovered(String id) {
         }
+
+        /**
+         * 探到了这台电脑的机器标识 / 系统族，且与上次不同（已在主线程）——
+         * 宿主记下来（下次开界面就能直接画系统徽标，不用等一轮探测）。
+         *
+         * @param os windows / macos / linux；对方是老版本服务端时为空串
+         */
+        default void onMachineSeen(String id, String machineId, String machineName, String os) {
+        }
     }
 
     /** 一台电脑的心跳状态（快照给 UI 读，字段只在这里改） */
@@ -82,30 +94,18 @@ final class HeartbeatManager {
     }
 
     static final long INTERVAL_MS = 10000;
-    /** 单地址探测超时：比保存时的顺带探测宽容，弱网别误报离线 */
-    static final int TIMEOUT_MS = 3000;
     /** 连续这么多轮全失败才判离线 */
     static final int OFFLINE_AFTER_FAILS = 2;
-    /** 并发探测同时打出去的线程数 */
-    private static final int PARALLEL_THREADS = 4;
 
     /**
      * 远程兜底探测的降频间隔：局域网全挂（出门是常态）时才探远程，
      * 但最多每 60 秒打一次公网 —— 每 10 秒一轮心跳都往隧道发请求既费电又没意义。
      */
     static final long REMOTE_FALLBACK_INTERVAL_MS = 60000;
-    /** 远程探测超时：公网 RTT 大，按局域网 3 秒判会大量误报 */
-    static final int REMOTE_TIMEOUT_MS = 8000;
 
     private final ScheduledExecutorService scheduler =
             Executors.newSingleThreadScheduledExecutor(r -> {
                 Thread thread = new Thread(r, "anyboot-heartbeat");
-                thread.setDaemon(true);
-                return thread;
-            });
-    private final ExecutorService probePool =
-            Executors.newFixedThreadPool(PARALLEL_THREADS, r -> {
-                Thread thread = new Thread(r, "anyboot-heartbeat-ping");
                 thread.setDaemon(true);
                 return thread;
             });
@@ -115,6 +115,8 @@ final class HeartbeatManager {
     private final Map<String, Long> remoteProbes = new HashMap<>();
     /** 局域网路径上轮通没通（profile.id → Boolean）：恢复沿要给「远程切回局域网」用 */
     private final Map<String, Boolean> lanFlags = new HashMap<>();
+    /** 上轮上报过的机器指纹（profile.id → "机器标识\u0000机器名\u0000系统族"）：变了才回调 */
+    private final Map<String, String> machineFlags = new HashMap<>();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final ServersProvider serversProvider;
     private final Listener listener;
@@ -178,7 +180,7 @@ final class HeartbeatManager {
     }
 
     private void tick() {
-        // 上一轮还没跑完（串行多地址可能超过 10 秒）就不叠加
+        // 上一轮还没跑完（串行多通道可能超过 10 秒）就不叠加
         if (!ticking.compareAndSet(false, true)) {
             return;
         }
@@ -186,7 +188,7 @@ final class HeartbeatManager {
             List<Pending> results = new ArrayList<>();
             for (ServerProfile profile : serversProvider.get()) {
                 // 没配局域网地址也可能配了远程接入（出门场景）：空档案才跳过
-                if (profile.addresses.isEmpty() && ServerProfile.text(profile.remoteAddr).isEmpty()) {
+                if (profile.addresses.isEmpty() && !profile.hasRemote()) {
                     continue;
                 }
                 results.add(probeProfile(profile));
@@ -197,87 +199,43 @@ final class HeartbeatManager {
         }
     }
 
-    /** 探一台电脑，返回「通没通 + 延迟」（后台线程） */
+    /**
+     * 探一台电脑，返回「通没通 + 延迟 + 系统族」（后台线程）。
+     *
+     * <p>完全交给 {@link ProbeEngine}：通道优先级、并发/串行、超时都按档案策略走。
+     * 唯一的额外规则是「远程降频」—— 本地优先时先去探本地，本地全挂才看公网，
+     * 且 60 秒内只打一次（心跳 10 秒一轮，不节流会把隧道打成筛子）。
+     */
     private Pending probeProfile(ServerProfile profile) {
-        // 经由跳板机的电脑：全部探测走 SSH 隧道（解析出的 127.0.0.1:端口）；
-        // 隧道本身就是「远程」路径，不再叠加公网隧道兜底
         TunnelResolver resolver = tunnelResolver;
-        if (!ServerProfile.text(profile.jumpServerId).isEmpty()) {
-            if (resolver == null) {
-                return new Pending(profile.id, -1);   // 解析器没接好：标「没探到」
+        ProbeEngine.JumpResolver jump = resolver == null
+                ? null
+                : () -> resolver.resolve(profile);
+        boolean remoteFirst = profile.routePriorityRemoteFirst();
+        if (!remoteFirst) {
+            ProbeEngine.Result local = ProbeEngine.probe(profile, jump, ProbeEngine.LOCAL_KINDS);
+            if (local.ok || !profile.hasRemote()) {
+                return new Pending(profile.id, local);
             }
-            try {
-                String local = resolver.resolve(profile);
-                long rtt = local == null || local.isEmpty()
-                        ? -1 : HealthProbe.ping(local, TIMEOUT_MS);
-                return new Pending(profile.id, rtt);
-            } catch (Exception ignored) {
-                return new Pending(profile.id, -1);
-            }
-        }
-        long lanRtt = probeLan(profile);
-        long rtt = lanRtt;
-        // 局域网全挂（出门是常态）：配了远程接入就兜底探公网隧道，
-        // 否则人不在家时会一直误报离线。远程探测按 60 秒降频 —— 心跳
-        // 每 10 秒一轮，没节流的话隧道会被打成筛子。
-        if (rtt < 0 && !ServerProfile.text(profile.remoteAddr).isEmpty()) {
-            long now = System.currentTimeMillis();
-            boolean due;
-            synchronized (remoteProbes) {
-                Long last = remoteProbes.get(profile.id);
-                due = last == null || now - last >= REMOTE_FALLBACK_INTERVAL_MS;
-                if (due) {
-                    remoteProbes.put(profile.id, now);
-                }
-            }
-            if (due) {
-                long remoteRtt = HealthProbe.pingRemote(profile.remoteAddr, REMOTE_TIMEOUT_MS);
-                if (remoteRtt >= 0) {
-                    rtt = remoteRtt;
-                }
+            if (!remoteDue(profile.id)) {
+                // 还没到点：这轮按「本地不通」记（与旧行为一致），下轮或 60 秒后再看公网
+                return new Pending(profile.id, local);
             }
         }
-        return new Pending(profile.id, rtt, lanRtt);
+        return new Pending(profile.id, ProbeEngine.probe(profile, jump));
     }
 
-    /** 按探测模式探一遍局域网候选地址，返回最快 RTT（全挂 -1） */
-    private long probeLan(ServerProfile profile) {
-        List<String> addresses = new ArrayList<>(profile.addresses);
-        if (addresses.isEmpty()) {
-            return -1;
-        }
-        if (ServerProfile.PROBE_SERIAL.equals(profile.probeMode)) {
-            // 串行：按顺序逐个探，第一个通的即止（保留用户排的地址优先级）
-            for (String address : addresses) {
-                long rtt = HealthProbe.ping(address, TIMEOUT_MS);
-                if (rtt >= 0) {
-                    return rtt;
-                }
+    /** 远程兜底探测的节流闸：到点了就记账并返回 true */
+    private boolean remoteDue(String id) {
+        long now = System.currentTimeMillis();
+        synchronized (remoteProbes) {
+            Long last = remoteProbes.get(id);
+            if (last != null && now - last < REMOTE_FALLBACK_INTERVAL_MS) {
+                return false;
             }
-            return -1;
+            remoteProbes.put(id, now);
+            return true;
         }
-        // 并发：所有地址同时探，取 RTT 最低的当「这台电脑现在的延迟」
-        CountDownLatch latch = new CountDownLatch(addresses.size());
-        final Best best = new Best();
-        for (String address : addresses) {
-            probePool.execute(() -> {
-                try {
-                    long rtt = HealthProbe.ping(address, TIMEOUT_MS);
-                    if (rtt >= 0) {
-                        best.offer(rtt);
-                    }
-                } finally {
-                    latch.countDown();
-                }
-            });
-        }
-        try {
-            // 兜底等一眼：正常情况下每个 ping 自己 3 秒就超时了
-            latch.await(30, TimeUnit.SECONDS);
-        } catch (InterruptedException ignored) {
-            Thread.currentThread().interrupt();
-        }
-        return best.rtt;
     }
 
     /** 把一轮结果落账；有变化投递回主线程（后台线程） */
@@ -287,6 +245,7 @@ final class HeartbeatManager {
         }
         final List<String> wentOnline = new ArrayList<>();
         final List<String> lanRecovered = new ArrayList<>();
+        final List<Pending> machines = new ArrayList<>();
         boolean anyResult = false;
         synchronized (states) {
             for (Pending pending : results) {
@@ -318,6 +277,9 @@ final class HeartbeatManager {
                         state.online = false;
                     }
                 }
+                if (pending.hasMachine() && machineChanged(pending)) {
+                    machines.add(pending);
+                }
             }
         }
         if (!anyResult) {
@@ -331,34 +293,66 @@ final class HeartbeatManager {
             for (String id : lanRecovered) {
                 listener.onLanRecovered(id);
             }
+            for (Pending pending : machines) {
+                listener.onMachineSeen(pending.id, pending.machineId, pending.machineName, pending.os);
+            }
         });
     }
 
-    /** 一台电脑的一轮探测结果：rtt = 总口径（远程兜底也算）；lanRtt = 局域网路径单独记 */
+    /** 机器指纹变了没有（变了才回调宿主，别每 10 秒都写一次盘） */
+    private boolean machineChanged(Pending pending) {
+        String fingerprint = pending.machineId + "\u0000" + pending.machineName + "\u0000" + pending.os;
+        String last;
+        synchronized (machineFlags) {
+            last = machineFlags.get(pending.id);
+            if (fingerprint.equals(last)) {
+                return false;
+            }
+            machineFlags.put(pending.id, fingerprint);
+        }
+        return true;
+    }
+
+    /**
+     * 一台电脑的一轮探测结果：rtt = 总口径（远程兜底也算）；
+     * lanRtt = 局域网路径单独记（恢复沿用）；机器标识 / 系统族来自赢家通道的 /health。
+     */
     private static final class Pending {
         final String id;
         final long rtt;
         final long lanRtt;
+        final String machineId;
+        final String machineName;
+        final String os;
 
-        Pending(String id, long rtt) {
-            this(id, rtt, rtt);
-        }
-
-        Pending(String id, long rtt, long lanRtt) {
+        Pending(String id, ProbeEngine.Result result) {
             this.id = id;
-            this.rtt = rtt;
-            this.lanRtt = lanRtt;
+            this.rtt = result != null && result.ok ? result.ms : -1;
+            this.lanRtt = lanRttOf(result);
+            this.machineId = result == null ? "" : ServerProfile.text(result.machineId);
+            this.machineName = result == null ? "" : ServerProfile.text(result.machineName);
+            this.os = result == null ? "" : ServerProfile.normalizeMachineOs(result.os);
         }
-    }
 
-    /** 并发探测里挑最低 RTT 的小账本 */
-    private static final class Best {
-        private long rtt = -1;
+        boolean hasMachine() {
+            return !machineId.isEmpty() || !machineName.isEmpty() || !os.isEmpty();
+        }
 
-        synchronized void offer(long candidate) {
-            if (rtt < 0 || candidate < rtt) {
-                rtt = candidate;
+        /** 局域网路径的最好成绩（没探 / 全挂 → -1） */
+        private static long lanRttOf(ProbeEngine.Result result) {
+            if (result == null || result.hits == null) {
+                return -1;
             }
+            long best = -1;
+            for (ProbeEngine.Hit hit : result.hits) {
+                if (!hit.ok || !ServerProfile.ROUTE_LAN.equals(hit.kind)) {
+                    continue;
+                }
+                if (best < 0 || hit.ms < best) {
+                    best = hit.ms;
+                }
+            }
+            return best;
         }
     }
 }

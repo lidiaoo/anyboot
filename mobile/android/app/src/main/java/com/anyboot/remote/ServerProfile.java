@@ -64,6 +64,35 @@ final class ServerProfile {
     /** 旧值兼容：parallel = 并发（首个） */
     static final String PROBE_PARALLEL = PROBE_PARALLEL_FIRST;
 
+    /** 探测超时默认值（毫秒）：局域网 RTT 通常 <10ms，2 秒足够；公网可在连接策略里调大 */
+    static final int DEFAULT_PROBE_TIMEOUT_MS = 2000;
+    /** 探测超时合法区间：太小会把正常的公网握手判死，太大等于卡界面 */
+    static final int MIN_PROBE_TIMEOUT_MS = 200;
+    static final int MAX_PROBE_TIMEOUT_MS = 30000;
+
+    /** 探测超时归一：0/负数 → 默认 2 秒；越界夹到 [200ms, 30s]（与 PC 端 clamp_probe_timeout_ms 一致） */
+    static int clampProbeTimeoutMs(int raw) {
+        if (raw <= 0) {
+            return DEFAULT_PROBE_TIMEOUT_MS;
+        }
+        return Math.max(MIN_PROBE_TIMEOUT_MS, Math.min(MAX_PROBE_TIMEOUT_MS, raw));
+    }
+
+    /** 系统族归一：只认三个徽标值（windows / macos / linux），其余归空（不画徽标） */
+    static String normalizeMachineOs(String raw) {
+        String value = text(raw).toLowerCase(Locale.US);
+        if (value.equals("windows")) {
+            return "windows";
+        }
+        if (value.equals("macos") || value.equals("darwin") || value.equals("osx")) {
+            return "macos";
+        }
+        if (value.equals("linux")) {
+            return "linux";
+        }
+        return "";
+    }
+
     /** 探测模式归一：serial / parallel_all 之外（含旧 parallel、空值）一律并发（首个） */
     static String normalizeProbeMode(String raw) {
         String value = text(raw);
@@ -241,8 +270,15 @@ final class ServerProfile {
     String machineId = "";
     /** 电脑端 `/health` 给的机器名（「这是哪台电脑」）；未知为空 */
     String machineName = "";
+    /** 电脑端 `/health` 给的系统族：windows / macos / linux；未知为空（客户端据此画系统徽标） */
+    String machineOs = "";
     /** 多网卡探测模式：{@link #PROBE_PARALLEL}（默认）/ {@link #PROBE_SERIAL} */
     String probeMode = PROBE_PARALLEL;
+    /**
+     * 探测超时（毫秒，默认 2000）：局域网地址与所有远程通道共用。
+     * 0 = 未设置（用默认值）；实际使用前过 {@link #clampProbeTimeoutMs(int)}。
+     */
+    int probeTimeoutMs = DEFAULT_PROBE_TIMEOUT_MS;
     /** 经由哪台跳板机（JumpServer.id）；空 = 直连，行为与现在完全一致。
      *  走跳板机时 addresses 语义变为「跳板机视角的内网地址」。 */
     String jumpServerId = "";
@@ -1137,7 +1173,9 @@ final class ServerProfile {
         other.token = token;
         other.machineId = machineId;
         other.machineName = machineName;
+        other.machineOs = machineOs;
         other.probeMode = probeMode;
+        other.probeTimeoutMs = probeTimeoutMs;
         other.jumpServerId = jumpServerId;
         other.remoteAddr = remoteAddr;
         other.remoteTunnelAddr = remoteTunnelAddr;
@@ -1210,7 +1248,9 @@ final class ServerProfile {
         object.put("token", text(token));
         object.put("machineId", text(machineId));
         object.put("machineName", text(machineName));
+        object.put("machineOs", normalizeMachineOs(machineOs));
         object.put("probeMode", normalizeProbeMode(probeMode));
+        object.put("probeTimeoutMs", clampProbeTimeoutMs(probeTimeoutMs));
         object.put("jumpServerId", text(jumpServerId));
         object.put("remoteAddr", normalizeRemoteOrigin(remoteAddr));
         object.put("remoteTunnelAddr", normalizeRemoteOrigin(remoteTunnelAddr));
@@ -1276,8 +1316,11 @@ final class ServerProfile {
         profile.token = object.optString("token", "");
         profile.machineId = object.optString("machineId", "");
         profile.machineName = object.optString("machineName", "");
+        profile.machineOs = normalizeMachineOs(object.optString("machineOs", ""));
         // 只认三个值，其余（含缺失 / 拼错 / 旧 parallel）一律回落到并发（首个）
         profile.probeMode = normalizeProbeMode(object.optString("probeMode", ""));
+        // 老档案没有 probeTimeoutMs → 默认 2 秒；越界在 clamp 里夹
+        profile.probeTimeoutMs = clampProbeTimeoutMs(object.optInt("probeTimeoutMs", DEFAULT_PROBE_TIMEOUT_MS));
         profile.jumpServerId = object.optString("jumpServerId", "");
         profile.remoteAddr = normalizeRemoteOrigin(object.optString("remoteAddr", ""));
         profile.remoteTunnelAddr = normalizeRemoteOrigin(object.optString("remoteTunnelAddr", ""));

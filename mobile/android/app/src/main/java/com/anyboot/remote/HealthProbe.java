@@ -24,14 +24,24 @@ final class HealthProbe {
     /** 单次探测超时：这是保存地址后顺带做的事，不能拖住用户 */
     private static final int TIMEOUT_MS = 1500;
 
-    /** `/health` 里认出「这是哪台电脑」的两个字段 */
+    /** `/health` 里认出「这是哪台电脑」的字段（os 是新加的，老服务端没有 → 空串） */
     static final class Result {
         final String machineId;
         final String machineName;
+        /** windows / macos / linux；未知空串（客户端据此画系统徽标） */
+        final String os;
+        /** 往返毫秒（只有 {@link #probe} 会填，{@link #fetch} 恒 0） */
+        final long ms;
 
         Result(String machineId, String machineName) {
+            this(machineId, machineName, "", 0);
+        }
+
+        Result(String machineId, String machineName, String os, long ms) {
             this.machineId = machineId;
             this.machineName = machineName;
+            this.os = os;
+            this.ms = ms;
         }
     }
 
@@ -145,13 +155,55 @@ final class HealthProbe {
 
     /** 解析 `/health` 响应体（纯逻辑，便于单测）。字段缺失 / 不是 JSON 时给 null。 */
     static Result parse(String body) {
+        return parse(body, 0);
+    }
+
+    /** 同上，带回往返耗时 */
+    static Result parse(String body, long ms) {
         try {
             JSONObject object = new JSONObject(ServerProfile.text(body));
             return new Result(
                     ServerProfile.text(object.optString("machineId", "")),
-                    ServerProfile.text(object.optString("machineName", "")));
+                    ServerProfile.text(object.optString("machineName", "")),
+                    ServerProfile.normalizeMachineOs(object.optString("os", "")),
+                    ms);
         } catch (Exception ignored) {
             return null;
+        }
+    }
+
+    /**
+     * 统一探测（连接策略引擎用）：`remote=true` 走 https origin，否则走局域网 host:port。
+     * 通 → 带回 machineId / machineName / os / 耗时；不通 → null。
+     * **必须在后台线程调用。**
+     */
+    static Result probe(String target, boolean remote, int timeoutMs) {
+        String normalized = remote
+                ? ServerProfile.normalizeRemoteOrigin(target)
+                : ServerProfile.text(target);
+        if (normalized.isEmpty()) {
+            return null;
+        }
+        HttpURLConnection connection = null;
+        long started = SystemClock.uptimeMillis();
+        try {
+            String url = remote ? normalized + "/health" : "http://" + normalized + "/health";
+            connection = (HttpURLConnection) new URL(url).openConnection();
+            connection.setRequestMethod("GET");
+            connection.setConnectTimeout(timeoutMs);
+            connection.setReadTimeout(timeoutMs);
+            connection.setInstanceFollowRedirects(false);
+            if (connection.getResponseCode() != 200) {
+                return null;
+            }
+            long ms = SystemClock.uptimeMillis() - started;
+            return parse(read(connection.getInputStream()), ms);
+        } catch (Exception ignored) {
+            return null;
+        } finally {
+            if (connection != null) {
+                connection.disconnect();
+            }
         }
     }
 
