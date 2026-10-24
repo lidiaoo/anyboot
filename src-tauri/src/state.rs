@@ -689,6 +689,12 @@ pub(crate) struct Settings {
     /// 开机自启通道。quick 模式下无意义（地址会变）由前端隐藏该开关，
     /// 后端只在 named 模式 honoring 它（启动时自动拉起通道）。
     pub(crate) gateway_autostart: bool,
+    /// 启动软件时自动连接系统 Tailscale（= 自动点一次「连接」，tailscale up）。
+    /// 与 gateway_autostart 并列：三张通道卡各管自己的自启。
+    pub(crate) tailscale_autostart: bool,
+    /// 启动软件时自动开启内置 Tailscale 引擎（拉 tsnet sidecar）。
+    /// 凭据持久化在 tsnet 状态目录，勾上后每次开机基本直接 ready。
+    pub(crate) tsnet_autostart: bool,
     /// 内置 Tailscale 引擎（tsnet sidecar）的 AuthKey（管理员控制台签发的
     /// 设备授权密钥）。敏感度对齐 gateway_named_token / http_token：泄露面 =
     /// 能把任意设备加进该 tailnet。走 stdin 管道传给 sidecar，不进进程命令行。
@@ -747,6 +753,8 @@ impl Default for Settings {
             gateway_named_token: String::new(),
             gateway_named_url: String::new(),
             gateway_autostart: false,
+            tailscale_autostart: false,
+            tsnet_autostart: false,
             tsnet_authkey: String::new(),
         }
     }

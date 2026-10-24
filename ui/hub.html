@@ -1494,7 +1494,14 @@
     background:rgba(239,68,68,.1); border:1px solid rgba(239,68,68,.35); color:#f87171;
     word-break:break-all;
   }
-  .gw-check { display:flex; align-items:center; gap:8px; font-size:12px; color:rgb(var(--fg-dim)); cursor:pointer; }
+  /* 远程接入三张卡统一的自启行（Cloudflare 通道 / Tailscale 直连 / 内置引擎）：
+     发丝线上分隔 + 行内复选框 + 右侧一句后果说明，位置固定在卡片底部，
+     不给每张卡各写一套样式 —— 之前只有 Cloudflare 有，另两张缺且规格不一致。 */
+  .gw-auto { display:flex; align-items:center; gap:8px; margin-top:12px; padding-top:12px;
+    border-top:1px solid rgb(var(--line)); font-size:12px; cursor:pointer; user-select:none; flex-wrap:wrap; }
+  .gw-auto input { width:14px; height:14px; flex:none; margin:0; accent-color:rgb(var(--accent)); cursor:pointer; }
+  .gw-auto .gw-auto-t { color:rgb(var(--fg)); font-weight:500; }
+  .gw-auto .gw-auto-h { color:rgb(var(--fg-faint)); font-size:11px; margin-left:auto; }
   .gw-binary { display:flex; align-items:center; gap:10px; margin-top:12px; padding-top:12px; border-top:1px solid rgb(var(--line)); font-size:12px; color:rgb(var(--fg-dim)); }
   .gw-progress { display:flex; align-items:center; gap:10px; margin-top:8px; }
   .gw-progress-bar { flex:1; height:6px; border-radius:99px; background:rgb(var(--elevate)); overflow:hidden; }
@@ -2191,7 +2198,11 @@
           </div>
 
           <!-- 自启：两种模式都可配（quick 地址会变，起来后到本页看新地址 / 手机重新扫码） -->
-          <label class="gw-check" style="margin-top:12px"><input type="checkbox" id="gwAutostart"> 启动软件时自动开启通道</label>
+          <label class="gw-auto">
+            <input type="checkbox" id="gwAutostart">
+            <span class="gw-auto-t">启动软件时自动开启通道</span>
+            <span class="gw-auto-h">cloudflared 随 AnyBoot 一起拉起</span>
+          </label>
 
           <!-- 二进制状态 + 下载进度 -->
           <div class="gw-binary">
@@ -2342,6 +2353,12 @@
               </div>
             </div>
           </div>
+          <!-- 自启：等价于每次启动软件自动点一下「连接」（tailscale up，登录级） -->
+          <label class="gw-auto">
+            <input type="checkbox" id="tsAutostart">
+            <span class="gw-auto-t">启动软件时自动连接 Tailscale</span>
+            <span class="gw-auto-h">等价于自动点「连接」</span>
+          </label>
         </div>
 
         </div><!-- /ts pane -->
@@ -2425,6 +2442,12 @@
             <button class="link-btn" id="tsnLogoutBtn">清除登录凭据</button>
             <span class="field-hint" style="margin:0">停引擎并删除本机登录凭据，下次开启需重新授权；Tailscale 管理台里的设备记录需自行移除。</span>
           </div>
+          <!-- 自启：每次启动软件自动拉起内置引擎（凭据已持久化，通常直接 ready） -->
+          <label class="gw-auto">
+            <input type="checkbox" id="tsnAutostart">
+            <span class="gw-auto-t">启动软件时自动开启内置引擎</span>
+            <span class="gw-auto-h">凭据已记住，通常直接就绪</span>
+          </label>
           <!-- 运行日志：sidecar stdout 事件流的环形缓冲（最近 200 条，含启动里程碑与 tsnet 日志转发） -->
           <div class="tsn-logbox" id="tsnLogBox">
             <div class="tsn-log-head">
@@ -8811,6 +8834,35 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
     b.addEventListener('click', function () { selectMode(b.dataset.mode, true); });
   });
   $('gwAutostart').addEventListener('change', function () { persistConfig(); });
+
+  // ---- 三张卡统一的自启开关 ----
+  // Cloudflare 走 persistConfig（它连带保存模式/token），另两张各存一个布尔，
+  // 走同一条 gateway_set_autostart(channel, enabled)，免得三个复选框三套实现。
+  function gwSetAutostart(channel, enabled, el, label) {
+    return invoke('gateway_set_autostart', { channel: channel, enabled: enabled })
+      .then(function () {
+        toast(label + (enabled ? '：启动软件时会自动开启' : '：不再自动开启'));
+      })
+      .catch(function (error) {
+        if (el) el.checked = !enabled; // 存不进去就别骗用户已勾上
+        toast('保存自启设置失败：' + error, 'bad');
+      });
+  }
+  $('tsAutostart').addEventListener('change', function () {
+    gwSetAutostart('tailscale', this.checked, this, 'Tailscale 直连');
+  });
+  $('tsnAutostart').addEventListener('change', function () {
+    gwSetAutostart('tsnet', this.checked, this, '内置引擎');
+  });
+  function gwLoadAutostart() {
+    // get_settings 是 SettingsView（flatten 后的 Settings，字段在顶层，camelCase）
+    invoke('get_settings').then(function (view) {
+      if (!view) return;
+      $('tsAutostart').checked = !!view.tailscaleAutostart;
+      $('tsnAutostart').checked = !!view.tsnetAutostart;
+    }).catch(function () { /* 读不到就维持未勾选，不阻断页面 */ });
+  }
+  gwLoadAutostart();
   $('gwNamedUrl').addEventListener('change', function () { persistConfig(); });
 
   // ---- 二进制下载 / 手动路径 ----

@@ -558,6 +558,18 @@ pub(crate) fn tsnet_status() -> TsnetStatus {
     }
 }
 
+/// 启动时的内置引擎自启：勾了「启动软件时自动开启」就跑一次 enable。
+/// 凭据在状态目录里，多数情况几秒就 ready；没凭据则停在 needs_auth 等用户登录，
+/// 与手点「引擎」开关同一套流程（失败原因进日志环形缓冲，不弹窗打扰）。
+pub(crate) fn autostart_engine(app: AppHandle) {
+    if !crate::stored_settings(&app).tsnet_autostart {
+        return;
+    }
+    tauri::async_runtime::spawn(async move {
+        let _ = tsnet_enable(app).await;
+    });
+}
+
 /// 开启内置引擎（幂等：已在跑直接回当前态）。
 /// 子进程 spawn + 45s 等待 → async + spawn_blocking（blocking_guard 约定）。
 #[tauri::command]

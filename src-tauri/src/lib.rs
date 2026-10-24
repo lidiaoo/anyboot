@@ -2776,6 +2776,9 @@ pub fn run() {
             spawn_notify_scheduler(app.handle());
             // 远程接入网关：named 模式勾了自启就在这里拉起（quick 不自启，地址会变）
             hub_gateway::autostart_tunnel(app.handle());
+            // 另两张通道卡的自启（各看自己的开关）：系统 Tailscale / 内置引擎
+            hub_tailscale::autostart_connect(app.handle());
+            hub_tsnet::autostart_engine(app.handle().clone());
 
             let app_handle = app.handle().clone();
             std::thread::spawn(move || refresh_and_update(&app_handle));
@@ -2870,6 +2873,7 @@ pub fn run() {
             hub_gateway::gateway_pair_decide,
             hub_gateway::gateway_pair_fetch,
             hub_gateway::gateway_config,
+            hub_gateway::gateway_set_autostart,
             hub_gateway::gateway_save_config,
             get_ui_state,
             current_status,

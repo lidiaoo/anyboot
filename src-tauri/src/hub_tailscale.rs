@@ -634,6 +634,27 @@ pub(crate) fn funnel_disable_blocking() -> TailscaleFunnelStatus {
 
 // ==================== Tauri 命令 ====================
 
+/// 启动时的 Tailscale 自启：勾了「启动软件时自动连接」就 up 一次。
+/// 已连接 / 没装都不动（up 幂等，但没必要白跑一次 CLI）；登录态缺失时
+/// up 会把 NeedsLogin 拉起来，和用户手点「连接」完全等价。
+pub(crate) fn autostart_connect(app: &tauri::AppHandle) {
+    if !crate::stored_settings(app).tailscale_autostart {
+        return;
+    }
+    std::thread::spawn(|| {
+        let before = probe_blocking();
+        if !before.installed || before.state == "running" {
+            return;
+        }
+        // 服务没跑（Windows tailscaled）先拉起来：up 是对着服务说话的，
+        // 服务停着怎么 up 都没用。没管理员权限这里会失败，静默跳过即可。
+        if before.service_running == 0 {
+            let _ = ts_service_blocking("start");
+        }
+        let _ = ts_toggle_blocking(true);
+    });
+}
+
 /// 查询本机 Tailscale 状态（找不到 CLI → installed:false）。
 /// CLI 子进程有几十 ms 阻塞，走 async + spawn_blocking（blocking_guard 约定）。
 #[tauri::command]

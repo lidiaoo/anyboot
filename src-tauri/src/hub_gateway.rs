@@ -1687,6 +1687,36 @@ pub(crate) fn gateway_save_config(
     )
 }
 
+/// 三张通道卡统一的「启动软件时自动开启」开关。
+/// channel 取 `tunnel`（Cloudflare 通道）/ `tailscale`（系统 Tailscale 直连）/
+/// `tsnet`（内置 Tailscale 引擎）。Cloudflare 那张卡平时走 gateway_save_config
+/// （它连带保存模式与 token），但这个入口同样有效 —— 三个复选框一套后端语义。
+#[tauri::command]
+pub(crate) fn gateway_set_autostart(
+    app: tauri::AppHandle,
+    channel: String,
+    enabled: bool,
+) -> Result<crate::state::SettingsView, String> {
+    let key = channel.trim().to_string();
+    let label = match key.as_str() {
+        "tunnel" => "Cloudflare 通道",
+        "tailscale" => "Tailscale 直连",
+        "tsnet" => "内置 Tailscale 引擎",
+        other => return Err(format!("未知通道: {other}")),
+    };
+    crate::settings_commands::update_settings_and_publish(
+        &app,
+        "gateway_set_autostart",
+        &format!("远程接入：{label} 启动自启={enabled}"),
+        |settings| match key.as_str() {
+            "tunnel" => settings.gateway_autostart = enabled,
+            "tailscale" => settings.tailscale_autostart = enabled,
+            _ => settings.tsnet_autostart = enabled,
+        },
+        |_| {},
+    )
+}
+
 /// 启动时的通道自启：勾了「启动软件时自动开启通道」就在这里拉起。
 /// quick 也支持 —— 地址每次会变，但通道先就位，新地址在本页/出码里都是现成的；
 /// named 必须已存 Tunnel Token，quick 不需要。mode 为空（未配置过）不自启。
