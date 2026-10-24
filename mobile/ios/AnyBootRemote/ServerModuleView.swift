@@ -265,8 +265,9 @@ struct ServerModuleView: View {
                     }
                     if expanded.contains(jump.id) {
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("端口 \(jump.port) · 用户 \(jump.username.trimmedAnyBoot.isEmpty
-                                    ? "（未填，连接时用 root）" : jump.username)"
+                            let userLabel = jump.username.trimmedAnyBoot.isEmpty
+                                ? "（未填，连接时用 root）" : jump.username.trimmedAnyBoot
+                            Text("端口 \(jump.port) · 用户 \(userLabel)"
                                  + " · 认证 \(jump.authType == JumpServer.authKey ? "密钥" : "密码")")
                                 .font(.caption).foregroundStyle(.secondary)
                             if !jump.note.trimmedAnyBoot.isEmpty {
