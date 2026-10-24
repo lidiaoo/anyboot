@@ -1512,6 +1512,7 @@
     margin:0; padding:8px 10px; border-radius:8px; border:1px solid rgb(var(--fg-faint)); background:rgb(var(--card) / .5);
     font-size:11px; line-height:1.55; max-height:170px; overflow-y:auto;
     white-space:pre-wrap; word-break:break-all; color:rgb(var(--fg-dim));
+    user-select:text; cursor:text; /* 全局 user-select:none 下显式放开，支持鼠标自由划选 */
   }
   .ts-chip {
     display:inline-flex; align-items:center; font-size:11px; line-height:1; padding:3px 8px;

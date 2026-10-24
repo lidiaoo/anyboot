@@ -238,12 +238,14 @@ fn stdout_worker(stdout: std::process::ChildStdout) {
                     guard.status.message =
                         ev.detail.chars().take(80).collect();
                 }
+                capture_login_url(&mut guard, trimmed);
                 drop(guard);
                 let _ = done;
             }
             Err(_) => {
                 // 非 JSON 行：原样进日志（sidecar 理论上只发 JSON，兜底别丢线索）
                 push_log(&mut guard, trimmed);
+                capture_login_url(&mut guard, trimmed);
             }
         }
     }
@@ -273,6 +275,39 @@ fn stdout_worker(stdout: std::process::ChildStdout) {
         if guard.status.state == "starting" {
             guard.status.state = "error".into();
         }
+    }
+}
+
+/// 从任意 stdout 行里摘登录链接（双保险：不依赖 sidecar 的 login_needed 事件
+/// ——tsnet 的 printAuthURLLoop 每 5 秒把链接打进日志流，日志行一定能到本进程，
+/// 直接从行文本自捕，事件丢了也不怕）。ready/error 之后的行不再改状态。
+/// 锁内调用。
+fn capture_login_url(guard: &mut TsnetShared, line: &str) {
+    if matches!(guard.status.state.as_str(), "ready" | "error" | "off") {
+        return;
+    }
+    let Some(url) = extract_login_url(line) else { return };
+    if guard.status.login_url == url {
+        return;
+    }
+    guard.status.login_url = url;
+    if guard.status.state == "starting" {
+        guard.status.state = "needs_auth".into();
+    }
+}
+
+/// 摘取行内的 login.tailscale.com 链接（无 regex 依赖：定位前缀后取合法字符）。
+fn extract_login_url(line: &str) -> Option<String> {
+    const MARK: &str = "https://login.tailscale.com/";
+    let start = line.find(MARK)? + MARK.len();
+    let tail: String = line[start..]
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric() || matches!(c, '?' | '&' | '=' | '.' | '/' | '-' | '_' | '%'))
+        .collect();
+    if tail.is_empty() {
+        None
+    } else {
+        Some(format!("{MARK}{tail}"))
     }
 }
 
@@ -638,6 +673,21 @@ mod tests {
         assert_eq!(st.login_url, "https://login.tailscale.com/a/1dbb9bb401");
         // 日志文案 = 登录链接本身（needs_auth 态展示用）
         assert_eq!(ev.log_text().as_deref(), Some("https://login.tailscale.com/a/1dbb9bb401"));
+    }
+
+    #[test]
+    fn extract_login_url_from_plain_log_line() {
+        // 真实 tsnet 日志行（printAuthURLLoop 每 5s 打一遍）——双保险自捕用
+        let line = "To start this tsnet server, restart with TS_AUTHKEY set, or go to: https://login.tailscale.com/a/f38e86d0112a0";
+        assert_eq!(
+            extract_login_url(line).as_deref(),
+            Some("https://login.tailscale.com/a/f38e86d0112a0")
+        );
+        assert_eq!(extract_login_url("no url here"), None);
+        assert_eq!(
+            extract_login_url("https://login.tailscale.com/"),
+            None // 前缀后面没内容不算
+        );
     }
 
     #[test]

@@ -66,12 +66,12 @@ var startAt = time.Now()
 var outMu sync.Mutex
 
 func emit(e event) {
+	if e.Event != "hello" {
+		e.T = time.Since(startAt).Seconds() // 必须在 Marshal 之前打（曾放后面，t 恒为 0）
+	}
 	b, err := json.Marshal(e)
 	if err != nil {
 		return
-	}
-	if e.Event != "hello" {
-		e.T = time.Since(startAt).Seconds()
 	}
 	outMu.Lock()
 	fmt.Fprintln(os.Stdout, string(b))
@@ -134,10 +134,15 @@ func main() {
 
 	stdinBuf := bufio.NewReader(os.Stdin)
 
-	// 日志捕获：登录 URL 捞出发 login_needed（一次）；其余日志逐行转发成
-	// log 事件（父进程环形缓冲，UI「运行日志」框消费，排障「启动中卡住」用）。
+	// 日志捕获：登录 URL 首次出现转成 login_needed 事件后，这类提示行整行
+	// 不再进日志（tsnet 的 printAuthURLLoop 每 5 秒重打一遍，会把 200 条
+	// 环形缓冲刷爆）；其余日志做相邻重复抑制（同一内容连打只记首条，第
+	// 5/20/50... 次提示一句）。
 	var loginMu sync.Mutex
 	loginSeen := false
+	var lastMu sync.Mutex
+	lastMsg := ""
+	lastDup := 0
 	logf := func(format string, args ...any) {
 		msg := fmt.Sprintf(format, args...)
 		if u := loginURLPattern.FindString(msg); u != "" {
@@ -148,7 +153,21 @@ func main() {
 			if first {
 				emit(event{Event: "state", State: "login_needed", LoginURL: u})
 			}
+			return
 		}
+		lastMu.Lock()
+		if msg == lastMsg {
+			lastDup++
+			n := lastDup
+			lastMu.Unlock()
+			if n == 5 || n == 20 || (n > 20 && n%50 == 0) {
+				emitLog(msg + fmt.Sprintf("（同内容已重复 %d 次，后续静默）", n))
+			}
+			return
+		}
+		lastMsg = msg
+		lastDup = 0
+		lastMu.Unlock()
 		emitLog(msg)
 	}
 
