@@ -5433,6 +5433,10 @@
       .then(function () {
         const frame = pcFrames.get(rid);
         if (frame) { frame.remove(); pcFrames.delete(rid); }
+        // 电脑页那套 iframe / 探活缓存也一起清，别给已删档案留内存
+        const pageFrame = pageFrames.get(rid);
+        if (pageFrame) { pageFrame.remove(); pageFrames.delete(rid); }
+        pageProbe.delete(rid);
         cqBoot.delete(rid);
         if (activeRemote === rid) activeRemote = 'local';
         return loadRemotes();
