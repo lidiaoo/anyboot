@@ -2424,6 +2424,13 @@
               Tailscale 处于停止状态 —— 在系统托盘 / 菜单栏把它连上后点「重新检测」。
             </p>
           </div>
+          <!-- macOS App 版 GUI 未启动态：CLI 连不上 GUI，报错文本不能当地址用 -->
+          <div id="tsGuiRow" hidden>
+            <p class="field-hint" style="margin:8px 0 6px">
+              Tailscale 已安装但 GUI 没有运行 —— 点下面打开 Tailscale.app（菜单栏出现图标即就绪），稍等几秒后自动重新检测。
+            </p>
+            <button class="btn" id="tsLaunchGuiBtn">打开 Tailscale.app</button>
+          </div>
           <!-- Funnel 公网通道区块：与直连区共用安装/登录生命周期；未安装时整块隐藏。
                状态机 unavailable/off/starting/needs_authorize/ready/error 由后端
                gateway_tailscale_funnel_status 驱动（tailscaled 服务内监听，无子进程残留）。 -->
@@ -9519,6 +9526,7 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
     $('tsDlRow').hidden = has;
     $('tsLoginRow').hidden = !(has && st.state === 'needs_login');
     $('tsStoppedRow').hidden = !(has && st.state === 'stopped');
+    $('tsGuiRow').hidden = !(has && st.state === 'needs_gui');
     $('tsAddrRow').hidden = !running;
     $('tsPulse').hidden = !running;
     $('tsMeta').textContent = has && st.version ? 'CLI ' + st.version : '';
@@ -9527,7 +9535,7 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
     const mainSw = $('tsMainSw');
     const svcDead = has && st.state === 'unknown' && st.service_running === 0;
     mainSw.checked = running;
-    mainSw.disabled = tsBusy || svcDead;
+    mainSw.disabled = tsBusy || svcDead || st.state === 'needs_gui';
     $('tsMainSwWrap').classList.toggle('loading', tsBusy);
     const svcKnown = has && typeof st.service_running === 'number' && st.service_running >= 0;
     $('tsSvcSwGroup').hidden = !svcKnown;
@@ -9553,6 +9561,8 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
       $('tsStateText').textContent = '已安装 · 待登录';
     } else if (st.state === 'stopped') {
       $('tsStateText').textContent = '已安装 · 已停止';
+    } else if (st.state === 'needs_gui') {
+      $('tsStateText').textContent = '已安装 · Tailscale.app 未启动';
     } else {
       $('tsStateText').textContent = st.service_running === 0 ? '已安装 · tailscaled 服务未运行' : '已安装 · 状态未知';
     }
@@ -9569,6 +9579,17 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
     tsfRefresh();
   }
   $('tsRefreshBtn').addEventListener('click', tsRefresh);
+  // macOS App 版 GUI 未启动：打开 Tailscale.app 后等几秒（GUI 起来 + CLI 能连上）再自动重探
+  let tsGuiLaunchTimer = null;
+  $('tsLaunchGuiBtn').addEventListener('click', function () {
+    invoke('gateway_tailscale_launch_gui').then(function () {
+      toast('正在打开 Tailscale.app，稍后自动重新检测…');
+      if (tsGuiLaunchTimer) clearTimeout(tsGuiLaunchTimer);
+      tsGuiLaunchTimer = setTimeout(tsRefresh, 4000);
+    }).catch(function (error) {
+      toast(String(error || '打开失败'), 'bad');
+    });
+  });
   // 主开关：tailscale up/down；NeedsLogin 时 up 会拉起浏览器登录（toast 提前说一句）
   $('tsMainSw').addEventListener('change', function () {
     const on = this.checked;

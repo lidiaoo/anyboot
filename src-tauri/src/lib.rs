@@ -2859,6 +2859,7 @@ pub fn run() {
             hub_tailscale::gateway_tailscale_service,
             hub_tailscale::gateway_tailscale_download,
             hub_tailscale::gateway_tailscale_install,
+            hub_tailscale::gateway_tailscale_launch_gui,
             hub_tailscale::gateway_tailscale_funnel_status,
             hub_tailscale::gateway_tailscale_funnel_enable,
             hub_tailscale::gateway_tailscale_funnel_disable,

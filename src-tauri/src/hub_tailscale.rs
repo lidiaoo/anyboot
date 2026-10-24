@@ -87,20 +87,105 @@ fn find_cli() -> Option<std::path::PathBuf> {
     cli_candidates().into_iter().find(|p| p.is_file())
 }
 
-fn run_cli(cli: &std::path::Path, args: &[&str]) -> Option<String> {
+/// CLI 单次调用超时。macOS App 版 CLI 在异常场景会挂死（实测残留过两条
+/// status --json 僵进程），无超时会拖死探测线程、状态卡永远转圈。
+const CLI_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// 构造 CLI 子进程命令（统一入口）。
+///
+/// macOS App 版 CLI 用 `SHLVL`（只有 shell 会设）判断「是不是 shell 在调我」：
+/// Rust 直接 spawn 的子进程没有它 → CLI 误判为 GUI 启动场景 → 试图拉起
+/// Tailscale.app → 失败时 exit 0 + stdout 全是「Tailscale GUI failed to start
+/// (Tailscale.CLIError error 3.)」报错文本（GUI 起没起都一样，实机踩过：
+/// 错误文本被当成 ip 拼进直连地址）。补 SHLVL 强制走 CLI 分支，GUI 不在跑也正常；
+/// standalone/brew 版 CLI 不读它，设了无副作用。
+fn cli_command(cli: &std::path::Path) -> std::process::Command {
     let mut command = std::process::Command::new(cli);
-    command.args(args);
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     }
-    let output = command.output().ok()?;
-    if !output.status.success() {
+    #[cfg(target_os = "macos")]
+    command.env("SHLVL", "1");
+    command
+}
+
+/// CLI 调用统一实现：超时 + stdout/stderr 并发读（等退出再读会在输出超管道
+/// 缓冲时死锁），返回 (exit 是否成功, stdout, stderr)；spawn 失败 / 超时被杀 → None。
+fn run_cli_raw(cli: &std::path::Path, args: &[&str]) -> Option<(bool, String, String)> {
+    let mut command = cli_command(cli);
+    command.args(args);
+    command.stdin(std::process::Stdio::null());
+    let mut child = command
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .ok()?;
+    let mut stdout = child.stdout.take()?;
+    let mut stderr = child.stderr.take()?;
+    let out_reader = std::thread::spawn(move || {
+        use std::io::Read;
+        let mut buf = Vec::new();
+        let _ = stdout.read_to_end(&mut buf);
+        String::from_utf8_lossy(&buf).to_string()
+    });
+    let err_reader = std::thread::spawn(move || {
+        use std::io::Read;
+        let mut buf = Vec::new();
+        let _ = stderr.read_to_end(&mut buf);
+        String::from_utf8_lossy(&buf).to_string()
+    });
+    let deadline = std::time::Instant::now() + CLI_TIMEOUT;
+    let exit = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Some(status),
+            Ok(None) if std::time::Instant::now() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                break None;
+            }
+            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(25)),
+            Err(_) => break None,
+        }
+    };
+    let status = exit?;
+    Some((status.success(), out_reader.join().ok()?, err_reader.join().ok()?))
+}
+
+/// 跑一次 CLI 取 stdout（exit 非 0 → None）。
+fn run_cli(cli: &std::path::Path, args: &[&str]) -> Option<String> {
+    let (ok, stdout, _) = run_cli_raw(cli, args)?;
+    if !ok {
         return None;
     }
-    let text = String::from_utf8_lossy(&output.stdout).to_string();
-    Some(text)
+    Some(stdout)
+}
+
+/// 严格的 IPv4 形状校验（4 段 0-255 纯数字）。macOS App 版 CLI 在 GUI 未启动时
+/// exit 0 且把「Tailscale GUI failed to start…」报错文本打到 stdout —— 不能当 ip 采信，
+/// 否则错误文本会一路拼进 `http://<ip>:<port>` 直连地址（实机踩过）。
+fn plausible_ipv4(text: &str) -> bool {
+    let octets: Vec<&str> = text.trim().split('.').collect();
+    octets.len() == 4
+        && octets.into_iter().all(|o| {
+            !o.is_empty()
+                && o.len() <= 3
+                && o.bytes().all(|b| b.is_ascii_digit())
+                && o.parse::<u16>().map(|n| n <= 255).unwrap_or(false)
+        })
+}
+
+/// macOS App 版 CLI「GUI 没起来」的报错特征（exit 0、错误文本在 stdout）。
+/// 主修是 cli_command 补 SHLVL 强制 CLI 模式，正常不会再走到这里；
+/// 留作 CLI 行为再变时的兜底状态（前端给「打开 Tailscale.app」自救按钮）。
+fn is_gui_failed_output(text: &str) -> bool {
+    text.contains("Tailscale GUI failed to start") || text.contains("Tailscale.CLIError")
+}
+
+/// 取多行文本的首行（trim 后）。`ip -4` 正常单行输出；报错文本也只看首行。
+fn first_line(text: &str) -> String {
+    text.trim().lines().next().unwrap_or("").trim().to_string()
 }
 
 // status --json 只取需要的字段；字段名大小写按实测（BackendState / Self.TailscaleIPs 混 camel）。
@@ -154,24 +239,35 @@ fn probe(cli: &std::path::Path) -> TailscaleStatus {
             status.state = normalize_state(&parsed.backend_state);
             status.version = parsed.version;
             if let Some(peer) = parsed.self_peer {
-                status.ip = pick_v4(&peer.ips);
+                let ip = pick_v4(&peer.ips);
+                if plausible_ipv4(&ip) {
+                    status.ip = ip;
+                }
                 status.dns_name = peer.dns_name.trim_end_matches('.').to_string();
             }
             if status.state == "running" && status.ip.is_empty() {
                 // Running 但没拿到 v4（少见）：退 ip -4 补一把
                 if let Some(ip) = run_cli(cli, &["ip", "-4"]) {
-                    status.ip = ip.trim().lines().next().unwrap_or("").trim().to_string();
+                    let ip = first_line(&ip);
+                    if plausible_ipv4(&ip) {
+                        status.ip = ip;
+                    }
                 }
             }
             return status;
         }
         // JSON 解析失败：老版本字段变动兜底，只拿 ip（state 判不了就 unknown）
-        if let Some(ip) = run_cli(cli, &["ip", "-4"]) {
-            let ip = ip.trim().lines().next().unwrap_or("").trim().to_string();
-            if !ip.is_empty() {
+        if let Some(text) = run_cli(cli, &["ip", "-4"]) {
+            let ip = first_line(&text);
+            if plausible_ipv4(&ip) {
                 status.state = "running".into();
                 status.ip = ip;
                 return status;
+            }
+            // macOS App 版 CLI 的 GUI 未启动报错（exit 0 + stdout 全是错误文本）：
+            // 可操作状态，前端给「打开 Tailscale.app」一键自救
+            if is_gui_failed_output(&text) {
+                status.state = "needs_gui".into();
             }
         }
     }
@@ -506,23 +602,9 @@ fn funnel_unavailable(message: &str) -> TailscaleFunnelStatus {
     status
 }
 
-/// 带完整输出的 CLI 调用（enable 的错误分类要看 stderr）。
+/// 带完整输出的 CLI 调用（enable 的错误分类要看 stderr）。同样带超时。
 fn run_cli_full(cli: &std::path::Path, args: &[&str]) -> (bool, String, String) {
-    let mut command = std::process::Command::new(cli);
-    command.args(args);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-    }
-    match command.output() {
-        Ok(output) => (
-            output.status.success(),
-            String::from_utf8_lossy(&output.stdout).to_string(),
-            String::from_utf8_lossy(&output.stderr).to_string(),
-        ),
-        Err(_) => (false, String::new(), "failed to spawn tailscale".into()),
-    }
+    run_cli_raw(cli, args).unwrap_or((false, String::new(), "failed to spawn tailscale".into()))
 }
 
 /// `funnel status --json` 没配置时是 `{}`；配置过返回非空对象。
@@ -738,6 +820,24 @@ pub(crate) async fn gateway_tailscale_install(path: String) -> Result<(), String
     .map_err(|error| format!("安装任务失败: {error}"))?
 }
 
+/// 打开 Tailscale GUI（macOS 专属：App 版 CLI 连不上 GUI 时的一键自救）。
+/// 起子进程会阻塞 → async + spawn_blocking（blocking_guard 约定）。
+#[tauri::command]
+pub(crate) async fn gateway_tailscale_launch_gui() -> Result<(), String> {
+    if !cfg!(target_os = "macos") {
+        return Err("该操作仅 macOS 需要（其它平台没有 GUI 常驻这一层）".to_string());
+    }
+    tauri::async_runtime::spawn_blocking(|| {
+        std::process::Command::new("open")
+            .args(["-a", "Tailscale"])
+            .spawn()
+            .map(|_| ())
+            .map_err(|error| format!("打开 Tailscale.app 失败: {error}"))
+    })
+    .await
+    .map_err(|error| format!("任务失败: {error}"))?
+}
+
 /// Funnel 通道状态（区块 B 轮询；CLI 子进程阻塞 → async + spawn_blocking）。
 #[tauri::command]
 pub(crate) async fn gateway_tailscale_funnel_status() -> TailscaleFunnelStatus {
@@ -842,6 +942,46 @@ mod tests {
         ];
         assert_eq!(pick_v4(&ips), "100.119.234.95");
         assert_eq!(pick_v4(&["fd7a::1".to_string()]), "");
+    }
+
+    #[test]
+    fn plausible_ipv4_rejects_non_ip_text() {
+        // 实机踩过的注入：CLI 报错文本被当 ip 拼进直连地址
+        assert!(!plausible_ipv4(
+            "The Tailscale GUI failed to start: The operation couldn't be completed."
+        ));
+        assert!(!plausible_ipv4(""));
+        assert!(!plausible_ipv4("100.119.234")); // 3 段
+        assert!(!plausible_ipv4("100.119.234.95.1")); // 5 段
+        assert!(!plausible_ipv4("a.b.c.d"));
+        assert!(!plausible_ipv4("999.1.1.1")); // 超 255
+        assert!(!plausible_ipv4("100.119.234.-1")); // 负号
+        assert!(!plausible_ipv4("100.119.2349.95")); // 段超 3 位
+    }
+
+    #[test]
+    fn plausible_ipv4_accepts_real_shapes() {
+        assert!(plausible_ipv4("100.119.234.95"));
+        assert!(plausible_ipv4(" 100.64.0.1\n")); // 带空白也行（外层已 trim 过一遍，双保险）
+        assert!(plausible_ipv4("0.0.0.0"));
+        assert!(plausible_ipv4("255.255.255.255"));
+    }
+
+    #[test]
+    fn gui_failed_output_detected() {
+        assert!(is_gui_failed_output(
+            "The Tailscale GUI failed to start: The operation couldn't be completed. (Tailscale.CLIError error 3.)\n"
+        ));
+        assert!(is_gui_failed_output("xxx (Tailscale.CLIError error 3.)"));
+        assert!(!is_gui_failed_output("100.119.234.95"));
+        assert!(!is_gui_failed_output(""));
+    }
+
+    #[test]
+    fn first_line_takes_first_nonempty_trimmed() {
+        assert_eq!(first_line("100.1.2.3\nother\n"), "100.1.2.3");
+        assert_eq!(first_line("  10.0.0.1  "), "10.0.0.1");
+        assert_eq!(first_line(""), "");
     }
 
     #[test]
