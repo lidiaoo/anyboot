@@ -1238,24 +1238,23 @@ class ComputerListActivity : ComponentActivity() {
         }
     }
 
-    /** 保存编辑结果：写盘 → 关 sheet → 立刻重探（地址/MAC 可能变了） */
+    /**
+     * 保存编辑结果：走共享实现 [saveServerProfile]（与「电脑」页同一份逻辑、同一个存储）
+     * → 关 sheet → 立刻重探（地址/MAC 可能变了）。
+     */
     private fun saveEdited(profile: ServerProfile, form: ServerEditFormState): Boolean {
         if (form.toParsed().isEmpty()) {
             toast(SERVER_EDIT_EMPTY_ADDRESS_HINT)
             return false
         }
-        if (!applyServerEdit(form, profile, replaceAddresses = true)) {
+        val result = saveServerProfile(this, servers, profile, form)
+        if (result == null) {
             toast(SERVER_EDIT_EMPTY_ADDRESS_HINT)
             return false
         }
-        val list = servers.toMutableList()
-        // ⋮「添加服务端」走的是空白新档案：不在列表里就补进去（编辑已有档案时本来就在）
-        if (list.none { it.id == profile.id }) list.add(profile)
-        ServerStore.sort(list)
-        ServerStore.save(this, list)
         reloadServers()
-        toast("已保存")
-        reloadBoot(profile)
+        toast(if (result.mergedExisting) "已并入同一台电脑：" + result.target.label() else "已保存")
+        reloadBoot(result.target)
         return true
     }
 
@@ -2090,7 +2089,7 @@ class ComputerListActivity : ComponentActivity() {
         }
         // 远程优先（编辑里选的）：先探隧道，通了直接走；隧道挂了再退局域网链路。
         // 跳板机本身就是远程路径，不叠加隧道优先。
-        if (profile.isRemoteFirst() && profile.jumpServerId.isEmpty() && remote.isNotEmpty()
+        if (profile.routePriorityRemoteFirst() && profile.jumpServerId.isEmpty() && remote.isNotEmpty()
             && HealthProbe.pingRemote(remote, REMOTE_PROBE_TIMEOUT_MS) > 0
         ) {
             return EndpointChoice(remote, ServerProfile.text(profile.remoteToken), alive = true)

@@ -28,6 +28,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -71,6 +72,16 @@ import androidx.compose.ui.unit.sp
 internal data class AddrEntry(val address: String, val macs: List<String> = emptyList())
 
 /** 表单的全部可编辑状态；宿主保存时读这里的当前值 */
+/** 五通道 id（连接优先级用；与 ServerProfile 的 ROUTE_* 常量一致） */
+private val ROUTE_IDS_ALL = listOf("lan", "jump", "tunnel", "ts", "funnel")
+private val ROUTE_LABELS_ZH = mapOf(
+    "lan" to "直连",
+    "jump" to "跳板机",
+    "tunnel" to "Cloudflare 隧道",
+    "ts" to "Tailscale",
+    "funnel" to "Tailscale Funnel",
+)
+
 internal class ServerEditFormState(
     val profile: ServerProfile?,
     context: Context,
@@ -135,6 +146,35 @@ internal class ServerEditFormState(
 
     /** 任一槽有值 = 配了远程接入 */
     fun hasRemoteSlots(): Boolean = tunnelText.isNotBlank() || tsText.isNotBlank()
+
+    /** 通道当前是否可用（与 PC rsRouteAvailable / 后端 routeCandidates 同语义） */
+    fun routeAvailable(kind: String): Boolean = when (kind) {
+        "lan" -> addressEntries.any { it.address.isNotBlank() }
+        "jump" -> addressEntries.any { it.address.isNotBlank() } && jumpIndex > 0
+        "tunnel" -> tunnelText.isNotBlank()
+        "ts" -> tsText.isNotBlank() && !tsText.startsWith("https://", ignoreCase = true)
+        "funnel" -> tsText.startsWith("https://", true) && tsText.contains(".ts.net", true)
+        else -> false
+    }
+
+    /** 通道副标：地址 / 没配置的原因 */
+    fun routeSub(kind: String): String = when (kind) {
+        "lan" -> addressEntries.firstOrNull { it.address.isNotBlank() }?.address ?: "未填局域网地址"
+        "jump" -> if (jumpIndex > 0) "经 " + jumpLabel(jumps[jumpIndex - 1]) else "未选跳板机档案"
+        "tunnel" -> tunnelText.ifBlank { "未配置隧道地址" }
+        "ts" -> if (!tsText.startsWith("https://", true) && tsText.isNotBlank()) tsText else "未配置 100.x 直连地址"
+        "funnel" -> if (tsText.startsWith("https://", true)) tsText else "未配置（在 Tailscale 槽填 *.ts.net 地址）"
+        else -> ""
+    }
+
+    /** 上移 / 下移（移动端不做拖动手势，按钮兜底） */
+    fun routeMove(kind: String, delta: Int) {
+        val from = routeOrder.indexOf(kind)
+        val to = from + delta
+        if (from < 0 || to < 0 || to >= routeOrder.size) return
+        routeOrder.removeAt(from)
+        routeOrder.add(to, kind)
+    }
 
     /**
      * 保存用的远程解析结果：[tunnelOrigin, tsOrigin, token] 或 null（双槽全空 = 取消远程接入）。
@@ -218,8 +258,30 @@ internal class ServerEditFormState(
         else ServerProfile.PROBE_PARALLEL_FIRST
     )
 
-    /** 连接优先："" = 自动（局域网优先）；"remote_first" = 远程优先（配了远程才生效） */
-    var connMode by mutableStateOf(if (profile?.isRemoteFirst() == true) "remote_first" else "")
+    /** 连接优先级（五通道并列，有序）：lan/jump/tunnel/ts/funnel；旧 connMode 已废弃只做迁移 */
+    val routeOrder = mutableStateListOf<String>().apply {
+        if (profile != null) {
+            // 清洗非法 id / 去重 + 缺项按默认序补尾（与 ServerProfile.routeOrderSorted 同语义）
+            val seen = LinkedHashSet<String>()
+            profile.routeOrder.forEach { id ->
+                if (id in ROUTE_IDS_ALL) seen.add(id)
+            }
+            ServerProfile.defaultRouteOrder().forEach { id -> if (id !in seen) seen.add(id) }
+            addAll(seen)
+        } else {
+            addAll(ServerProfile.defaultRouteOrder())
+        }
+        // 老档案迁移：没存过 routeOrder 且 connMode=remote_first → 远程在前、LAN 殿后
+        if (profile != null && profile.routeOrder.isEmpty() && profile.routePriorityRemoteFirst()) {
+            clear()
+            addAll(listOf("tunnel", "ts", "funnel", "jump", "lan"))
+        }
+    }
+    val routeDisabled = mutableStateListOf<String>().apply {
+        if (profile != null) {
+            profile.routeDisabled.forEach { id -> if (id in ROUTE_IDS_ALL && id !in this) add(id) }
+        }
+    }
 
     /** 局域网电源路由：编辑中的副本（增删都改这份），点「保存」才写回 profile */
     val routeList = mutableStateListOf<ServerProfile.PowerRoute>().apply {
@@ -577,33 +639,67 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
 
         FoldHeader(
             title = "连接策略",
-            summary = (if (state.connMode == "remote_first") "远程优先" else "自动") + " · " +
-                probeLabel(state.probeMode) + (if (state.jumpIndex > 0) " · 跳板机" else ""),
+            summary = "优先级 " + state.routeOrder.count { state.routeAvailable(it) && it !in state.routeDisabled } + "/" + ROUTE_IDS_ALL.size +
+                " · " + probeLabel(state.probeMode) + (if (state.jumpIndex > 0) " · 跳板机" else ""),
             open = state.connFoldOpen,
             onToggle = { state.connFoldOpen = !state.connFoldOpen },
         )
         if (state.connFoldOpen) {
-        FieldLabel("连接优先（配了远程接入时怎么选路）")
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            RadioButton(
-                selected = state.connMode != "remote_first",
-                onClick = { state.connMode = "" }
-            )
-            Text(
-                "自动（局域网优先）",
-                fontSize = 13.sp, color = palette.fg,
-                modifier = Modifier.weight(1f, fill = false),
-            )
-            Spacer(Modifier.width(10.dp))
-            RadioButton(
-                selected = state.connMode == "remote_first",
-                onClick = { state.connMode = "remote_first" }
-            )
-            Text("远程优先", fontSize = 13.sp, color = palette.fg)
+        FieldLabel("连接优先级（↑↓ 调顺序；行尾开关启用 / 停用）")
+        state.routeOrder.forEachIndexed { index, kind ->
+            val available = state.routeAvailable(kind)
+            val enabled = available && kind !in state.routeDisabled
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 2.dp),
+            ) {
+                Text(
+                    "☰",
+                    fontSize = 13.sp,
+                    color = palette.fgFaint,
+                    modifier = Modifier.padding(end = 8.dp),
+                )
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        ROUTE_LABELS_ZH[kind] ?: kind,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = if (available) palette.fg else palette.fgFaint,
+                    )
+                    Text(
+                        state.routeSub(kind) + if (available) "" else "（不可用）",
+                        fontSize = 10.sp,
+                        color = palette.fgFaint,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                TextButton(
+                    onClick = { state.routeMove(kind, -1) },
+                    enabled = index > 0,
+                    contentPadding = PaddingValues(horizontal = 6.dp),
+                ) { Text("↑", fontSize = 13.sp) }
+                TextButton(
+                    onClick = { state.routeMove(kind, 1) },
+                    enabled = index < state.routeOrder.size - 1,
+                    contentPadding = PaddingValues(horizontal = 6.dp),
+                ) { Text("↓", fontSize = 13.sp) }
+                Switch(
+                    checked = enabled,
+                    onCheckedChange = { on ->
+                        if (on) state.routeDisabled.remove(kind) else if (kind !in state.routeDisabled) {
+                            state.routeDisabled.add(kind)
+                        }
+                    },
+                    enabled = available,
+                )
+            }
         }
         Text(
-            "远程优先：隧道通了就直接走隧道，局域网只做兜底 —— 适合在家验证隧道、" +
-                "或局域网不可信的场景；没配远程接入时此项无效",
+            "探活与接口请求按此顺序逐通道试，第一个通的就走谁；跳板机需先在下方选好档案。" +
+                "电源唤醒不走此排序 —— 魔术包只能在局域网内广播。",
             fontSize = 10.sp, color = palette.fgFaint,
             modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
         )
@@ -993,7 +1089,12 @@ internal fun applyServerEdit(
     target.name = state.name.trim().ifEmpty { target.host() }
     target.token = state.resolvedToken()
     target.probeMode = ServerProfile.normalizeProbeMode(state.probeMode)
-    target.connMode = if (state.connMode == "remote_first") "remote_first" else ""
+    // 五通道优先级；旧 connMode 已废弃恒空（后端/两端按 routeOrder 消费）
+    target.connMode = ""
+    target.routeOrder.clear()
+    target.routeOrder.addAll(state.routeOrder)
+    target.routeDisabled.clear()
+    target.routeDisabled.addAll(state.routeDisabled)
     target.jumpServerId = state.resolvedJumpId()
     // 远程接入双槽：双槽全空 = 取消（清地址与令牌）；任一有值 = 按槽写 origin；
     // 令牌挖不到时保持已存的（重粘配对串才会更新）；写回后同步生效地址镜像
@@ -1015,6 +1116,51 @@ internal fun applyServerEdit(
     }
     return true
 }
+
+/**
+ * 电脑档案保存的**唯一实现**（MainActivity / ComputerListActivity 两个入口共用：
+ * 一个弹窗、一份逻辑、一个存储 [ServerStore]）。
+ *
+ * 地址写入语义：编辑 = 以表单为准整体替换；新增 = 按分组并入同一台电脑
+ * （同一台机多块网卡合成一条，不新建标签）。落盘前统一排序。
+ *
+ * 返回 null = 校验没过（地址为空），调用方保持弹窗打开；
+ * 否则带 [mergedExisting]（新增时并进了已有档案，宿主可提示「已并入」）。
+ * 保存后的页面动作（重连 / 重探 / 刷新列表）由各宿主自己做 —— 那是页面状态，不属于存储。
+ */
+internal fun saveServerProfile(
+    context: Context,
+    servers: MutableList<ServerProfile>,
+    editing: ServerProfile?,
+    form: ServerEditFormState,
+): ServerSaveResult? {
+    val parsed = form.toParsed()
+    if (parsed.isEmpty()) return null
+    var mergedExisting = false
+    val target: ServerProfile
+    if (editing != null) {
+        target = editing
+    } else {
+        val group = form.group.trim()
+        val merged = if (group.isEmpty()) null else servers.firstOrNull {
+            group.equals(ServerProfile.text(it.group), ignoreCase = true)
+        }
+        if (merged != null) {
+            target = merged
+            mergedExisting = true
+        } else {
+            val fresh = ServerProfile()
+            servers.add(fresh)
+            target = fresh
+        }
+    }
+    if (!applyServerEdit(form, target, replaceAddresses = editing != null)) return null
+    ServerStore.sort(servers)
+    ServerStore.save(context, servers)
+    return ServerSaveResult(target, mergedExisting)
+}
+
+internal class ServerSaveResult(val target: ServerProfile, val mergedExisting: Boolean)
 
 /** 表单底部提示用的一行说明（两个宿主共用同一句） */
 

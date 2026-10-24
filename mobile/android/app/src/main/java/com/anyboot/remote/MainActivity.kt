@@ -234,7 +234,7 @@ class MainActivity : ComponentActivity() {
                 val tab = tabs[id] ?: return
                 if (!tab.usingRemote) return
                 val profile = ServerStore.find(servers, id) ?: return
-                if (profile.isRemoteFirst()) return // 远程优先是用户选的，不抢
+                if (profile.routePriorityRemoteFirst()) return // 远程优先是用户选的，不抢
                 runOnUiThread { startAttempt(ensureTab(profile)) }
             }
         })
@@ -1039,43 +1039,26 @@ class MainActivity : ComponentActivity() {
     /**
      * 保存表单；返回 false = 校验没过（对话框保持打开）。
      *
-     * 地址的写入语义分两种，别混：**编辑时以输入为准**（replace，方便删掉过期地址），
-     * **新增时按分组并入同一台电脑**（merge，同一台机的多块网卡合成一条）。
+     * 存储与并组逻辑走共享实现 [saveServerProfile]（与「电脑列表 → 编辑」同一份）；
+     * 这里只做本页私有的后续动作：连上去、置为当前标签、探机合并同机档案。
      */
     private fun saveServer(request: EditRequest, form: ServerEditFormState): Boolean {
-        val editing = request.profile
-        val parsed = form.toParsed()
-        if (parsed.isEmpty()) {
+        if (form.toParsed().isEmpty()) {
             toast(SERVER_EDIT_EMPTY_ADDRESS_HINT)
             return false
         }
-        val previousAddresses = editing?.let { ArrayList(it.addresses) } ?: ArrayList()
-        val previousToken = editing?.let { ServerProfile.text(it.token) } ?: ""
-
-        val target: ServerProfile
-        var notice = ""
-        if (editing != null) {
-            target = editing
-        } else {
-            // 新增：分组名相同的记录就是同一台电脑，并进去，不新建标签
-            val merged = findByGroup(form.group.trim())
-            target = if (merged != null) {
-                notice = "已并入同一台电脑：" + merged.label()
-                merged
-            } else {
-                val fresh = ServerProfile()
-                servers.add(fresh)
-                fresh
-            }
-        }
-        if (!applyServerEdit(form, target, replaceAddresses = editing != null)) {
+        val previousAddresses = request.profile?.let { ArrayList(it.addresses) } ?: ArrayList()
+        val previousToken = request.profile?.let { ServerProfile.text(it.token) } ?: ""
+        val result = saveServerProfile(this, servers, request.profile, form)
+        if (result == null) {
             toast(SERVER_EDIT_EMPTY_ADDRESS_HINT)
             return false
         }
-        ServerStore.sort(servers)
-        ServerStore.save(this, servers)
+        val target = result.target
         editRequest = null
-        if (notice.isNotEmpty()) toast(notice)
+        if (result.mergedExisting) {
+            toast("已并入同一台电脑：" + target.label())
+        }
         val changed = previousAddresses != target.addresses
                 || previousToken != ServerProfile.text(target.token)
         connect(target, changed)
@@ -1325,7 +1308,7 @@ class MainActivity : ComponentActivity() {
     private fun advanceAddress(tab: Tab): Boolean {
         // 远程通道这轮已经试过且也挂了：收工，等下次手动 / 自动重载再起新一轮
         if (tab.usingRemote) {
-            if (!tab.profile.isRemoteFirst()) {
+            if (!tab.profile.routePriorityRemoteFirst()) {
                 return false
             }
             // 远程优先但隧道挂了：退回局域网链路继续试（triedRemote 闸防再来一轮远程）
@@ -1510,7 +1493,7 @@ class MainActivity : ComponentActivity() {
         errorInfo = null
         val profile = tab.profile
         // 远程优先（编辑里选的）：直接走隧道，局域网只做兜底（隧道挂了 advanceAddress 会退回来）
-        if (profile.isRemoteFirst() && profile.hasRemote()) {
+        if (profile.routePriorityRemoteFirst() && profile.hasRemote()) {
             connectRemote(tab)
             return
         }
@@ -1616,14 +1599,12 @@ class MainActivity : ComponentActivity() {
 
     /** 找找有没有这个分组的记录（分组 = 一台电脑） */
     private fun findByGroup(group: String): ServerProfile? {
+        // 并组逻辑已统一进 saveServerProfile（ServerEditForm.kt）；本页不再单独找组
         val target = ServerProfile.text(group)
         if (target.isEmpty()) return null
-        for (profile in servers) {
-            if (target.equals(ServerProfile.text(profile.group), ignoreCase = true)) {
-                return profile
-            }
+        return servers.firstOrNull {
+            target.equals(ServerProfile.text(it.group), ignoreCase = true)
         }
-        return null
     }
 
     /** 后台探一次电脑端的 `/health`，拿到机器标识（多块网卡自动归并的关键） */

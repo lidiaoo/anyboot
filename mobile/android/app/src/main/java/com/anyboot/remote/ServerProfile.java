@@ -8,7 +8,9 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -262,8 +264,141 @@ final class ServerProfile {
     /**
      * 连接优先：{@code remote_first} = 远程优先（隧道通了就走隧道，局域网只做兜底）；
      * 空 / 其它 = 自动（局域网优先，远程兜底 —— 默认）。
+     * <p><b>已废弃</b>：被 {@link #routeOrder}（五通道显式排序）取代，字段保留只为旧档案
+     * 兼容（读取时迁移：remote_first → 远程通道在前、LAN 殿后），不再被消费逻辑读取。
      */
     String connMode = "";
+
+    /** 连接优先级五通道 id */
+    static final String ROUTE_LAN = "lan";
+    static final String ROUTE_JUMP = "jump";
+    static final String ROUTE_TUNNEL = "tunnel";
+    static final String ROUTE_TS = "ts";
+    static final String ROUTE_FUNNEL = "funnel";
+
+    /** 连接优先级（五通道并列，有序）；空 = 老档案，按 connMode 迁移或默认序 */
+    final List<String> routeOrder = new ArrayList<>();
+    /** 禁用的通道 id（在 routeOrder 里有位次但不参与连接） */
+    final List<String> routeDisabled = new ArrayList<>();
+
+    /** 默认优先级：直连 → 跳板 → 隧道 → Tailscale → Funnel（Funnel 出公网，习惯上最后） */
+    static List<String> defaultRouteOrder() {
+        return new ArrayList<>(Arrays.asList(
+                ROUTE_LAN, ROUTE_JUMP, ROUTE_TUNNEL, ROUTE_TS, ROUTE_FUNNEL));
+    }
+
+    /** Funnel 判型：https + 域名含 .ts.net（与 Tailscale 100.x 直连区分；与 PC is_funnel_origin 同语义） */
+    static boolean isFunnelOrigin(String origin) {
+        String lower = text(origin).toLowerCase();
+        return lower.startsWith("https://") && lower.substring(8).contains(".ts.net");
+    }
+
+    /** ts 槽里的 Tailscale 直连地址（100.x http）；是 Funnel 就不算 */
+    String tsDirectOrigin() {
+        String ts = normalizeRemoteOrigin(remoteTsAddr);
+        return !ts.isEmpty() && !isFunnelOrigin(ts) ? ts : "";
+    }
+
+    /** ts 槽里的 Funnel 地址（https + *.ts.net）；没有则空 */
+    String funnelOrigin() {
+        String ts = normalizeRemoteOrigin(remoteTsAddr);
+        if (!ts.isEmpty() && isFunnelOrigin(ts)) {
+            return ts;
+        }
+        String legacy = normalizeRemoteOrigin(remoteAddr);
+        return text(remoteTsAddr).isEmpty() && isFunnelOrigin(legacy) ? legacy : "";
+    }
+
+    /** 有序五通道（自愈）：清洗非法 id / 去重，缺的按默认序补尾；全空按 connMode 迁移 */
+    List<String> routeOrderSorted() {
+        LinkedHashSet<String> seen = new LinkedHashSet<>();
+        for (String raw : routeOrder) {
+            String id = text(raw);
+            if ((id.equals(ROUTE_LAN) || id.equals(ROUTE_JUMP) || id.equals(ROUTE_TUNNEL)
+                    || id.equals(ROUTE_TS) || id.equals(ROUTE_FUNNEL))) {
+                seen.add(id);
+            }
+        }
+        if (seen.isEmpty() && isRemoteFirst()) {
+            // 迁移：远程通道在前（保持 隧道→ts→funnel 的相对序），跳板/直连殿后
+            return new ArrayList<>(Arrays.asList(
+                    ROUTE_TUNNEL, ROUTE_TS, ROUTE_FUNNEL, ROUTE_JUMP, ROUTE_LAN));
+        }
+        List<String> order = new ArrayList<>(seen);
+        for (String id : defaultRouteOrder()) {
+            if (!order.contains(id)) {
+                order.add(id);
+            }
+        }
+        return order;
+    }
+
+    /**
+     * 按优先级产出启用且可用的连接候选：{@code [0]=kind, [1]=origin}。
+     * lan / jump 的 origin 留空（消费方用自己的局域网端点与探测）；
+     * jump 需先配好跳板机档案，否则视为不可用。
+     */
+    List<String[]> routeCandidates() {
+        List<String[]> out = new ArrayList<>();
+        boolean hasLan = false;
+        for (String address : addresses) {
+            if (!text(address).isEmpty()) {
+                hasLan = true;
+                break;
+            }
+        }
+        for (String kind : routeOrderSorted()) {
+            if (routeDisabled.contains(kind)) {
+                continue;
+            }
+            switch (kind) {
+                case ROUTE_LAN:
+                    if (hasLan) {
+                        out.add(new String[]{kind, ""});
+                    }
+                    break;
+                case ROUTE_JUMP:
+                    if (hasLan && !text(jumpServerId).isEmpty()) {
+                        out.add(new String[]{kind, ""});
+                    }
+                    break;
+                case ROUTE_TUNNEL: {
+                    String origin = normalizeRemoteOrigin(remoteTunnelAddr);
+                    if (!origin.isEmpty()) {
+                        out.add(new String[]{kind, origin});
+                    }
+                    break;
+                }
+                case ROUTE_TS: {
+                    String origin = tsDirectOrigin();
+                    if (!origin.isEmpty()) {
+                        out.add(new String[]{kind, origin});
+                    }
+                    break;
+                }
+                case ROUTE_FUNNEL: {
+                    String origin = funnelOrigin();
+                    if (!origin.isEmpty()) {
+                        out.add(new String[]{kind, origin});
+                    }
+                    break;
+                }
+                default:
+                    break;
+            }
+        }
+        return out;
+    }
+
+    /** 优先级排序下「远程通道在前」：第一个启用的候选就是远程通道（connMode 的替代语义） */
+    boolean routePriorityRemoteFirst() {
+        List<String[]> candidates = routeCandidates();
+        if (candidates.isEmpty()) {
+            return false;
+        }
+        String kind = candidates.get(0)[0];
+        return !kind.equals(ROUTE_LAN) && !kind.equals(ROUTE_JUMP);
+    }
 
     ServerProfile() {
         this.id = UUID.randomUUID().toString();
@@ -578,15 +713,14 @@ final class ServerProfile {
     // ------------------------------------------------------------------
 
     /** 归一化后的远程地址（scheme://host，无 scheme 默认 https）；没配返回空串。
-     *  双槽优先（隧道在前），都没配再兜底旧单槽 remoteAddr。 */
+     *  按优先级取第一个启用且可用的远程通道候选（隧道/Tailscale/Funnel 按用户排序），
+     *  都没有再兜底旧单槽 remoteAddr。 */
     String remoteOrigin() {
-        String tunnel = normalizeRemoteOrigin(remoteTunnelAddr);
-        if (!tunnel.isEmpty()) {
-            return tunnel;
-        }
-        String ts = normalizeRemoteOrigin(remoteTsAddr);
-        if (!ts.isEmpty()) {
-            return ts;
+        for (String[] candidate : routeCandidates()) {
+            String kind = candidate[0];
+            if (!kind.equals(ROUTE_LAN) && !kind.equals(ROUTE_JUMP)) {
+                return candidate[1];
+            }
         }
         return normalizeRemoteOrigin(remoteAddr);
     }
@@ -899,6 +1033,8 @@ final class ServerProfile {
         other.remoteTsAddr = remoteTsAddr;
         other.remoteToken = remoteToken;
         other.connMode = connMode;
+        other.routeOrder.addAll(routeOrder);
+        other.routeDisabled.addAll(routeDisabled);
         for (PowerRoute route : powerRoutes) {
             other.powerRoutes.add(route.copy());
         }
@@ -968,6 +1104,17 @@ final class ServerProfile {
         object.put("remoteTsAddr", normalizeRemoteOrigin(remoteTsAddr));
         object.put("remoteToken", text(remoteToken));
         object.put("connMode", isRemoteFirst() ? "remote_first" : "");
+        // 五通道优先级：落盘用自愈后的有序列表（老档案在此顺手物化迁移结果）
+        JSONArray routeOrderArray = new JSONArray();
+        for (String kind : routeOrderSorted()) {
+            routeOrderArray.put(kind);
+        }
+        object.put("routeOrder", routeOrderArray);
+        JSONArray routeDisabledArray = new JSONArray();
+        for (String kind : routeDisabled) {
+            routeDisabledArray.put(kind);
+        }
+        object.put("routeDisabled", routeDisabledArray);
         return object;
     }
 
@@ -1031,6 +1178,29 @@ final class ServerProfile {
         }
         profile.remoteToken = object.optString("remoteToken", "");
         profile.connMode = "remote_first".equals(object.optString("connMode", "")) ? "remote_first" : "";
+        // 五通道优先级：清洗非法 id / 去重；全空按 connMode 迁移（routeOrderSorted 的自愈语义）
+        JSONArray routeOrderArray = object.optJSONArray("routeOrder");
+        if (routeOrderArray != null) {
+            for (int i = 0; i < routeOrderArray.length(); i++) {
+                String kind = routeOrderArray.optString(i, "").trim();
+                if ((kind.equals(ROUTE_LAN) || kind.equals(ROUTE_JUMP) || kind.equals(ROUTE_TUNNEL)
+                        || kind.equals(ROUTE_TS) || kind.equals(ROUTE_FUNNEL))
+                        && !profile.routeOrder.contains(kind)) {
+                    profile.routeOrder.add(kind);
+                }
+            }
+        }
+        JSONArray routeDisabledArray = object.optJSONArray("routeDisabled");
+        if (routeDisabledArray != null) {
+            for (int i = 0; i < routeDisabledArray.length(); i++) {
+                String kind = routeDisabledArray.optString(i, "").trim();
+                if ((kind.equals(ROUTE_LAN) || kind.equals(ROUTE_JUMP) || kind.equals(ROUTE_TUNNEL)
+                        || kind.equals(ROUTE_TS) || kind.equals(ROUTE_FUNNEL))
+                        && !profile.routeDisabled.contains(kind)) {
+                    profile.routeDisabled.add(kind);
+                }
+            }
+        }
         JSONArray routeArray = object.optJSONArray("powerRoutes");
         if (routeArray != null) {
             for (int i = 0; i < routeArray.length(); i++) {
