@@ -1505,6 +1505,14 @@
   /* Funnel 区块：分隔线 + 公网徽标（沿用卡的留白节奏与边框变量） */
   .tsf-sep { border-top:1px solid rgb(var(--fg-faint)); margin-top:14px; padding-top:12px; }
   .tsf-badge { font-size:11px; padding:2px 8px; border-radius:999px; border:1px solid rgb(var(--fg-faint)); color:rgb(var(--fg-dim)); white-space:nowrap; }
+  /* tsnet 运行日志框 */
+  .tsn-logbox { margin-top:12px; border-top:1px solid rgb(var(--fg-faint)); padding-top:8px; }
+  .tsn-log-head { display:flex; gap:10px; align-items:center; margin-bottom:4px; }
+  .tsn-log {
+    margin:0; padding:8px 10px; border-radius:8px; border:1px solid rgb(var(--fg-faint)); background:rgb(var(--card) / .5);
+    font-size:11px; line-height:1.55; max-height:170px; overflow-y:auto;
+    white-space:pre-wrap; word-break:break-all; color:rgb(var(--fg-dim));
+  }
   .ts-chip {
     display:inline-flex; align-items:center; font-size:11px; line-height:1; padding:3px 8px;
     border-radius:99px; border:1px solid rgb(var(--line-strong)); color:rgb(var(--fg-dim)); flex:none;
@@ -2399,6 +2407,16 @@
           <div id="tsnErrRow" hidden>
             <p class="field-hint" id="tsnErrText" style="margin:8px 0 0"></p>
             <button class="link-btn" id="tsnRetryBtn" style="margin-top:4px">重试</button>
+          </div>
+          <!-- 运行日志：sidecar stdout 事件流的环形缓冲（最近 200 条，含启动里程碑与 tsnet 日志转发） -->
+          <div class="tsn-logbox" id="tsnLogBox">
+            <div class="tsn-log-head">
+              <span class="field-hint" style="margin:0">运行日志（最近 200 条，内存缓存，重启即清）</span>
+              <span style="flex:1"></span>
+              <button class="link-btn" id="tsnLogCopy">复制</button>
+              <button class="link-btn" id="tsnLogClear">清空显示</button>
+            </div>
+            <pre class="mono tsn-log" id="tsnLog">（暂无日志）</pre>
           </div>
         </div>
 
@@ -9120,6 +9138,28 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
       tsnRender();
     }).catch(function () { });
   }
+  // ---- 运行日志框（tsn 标签可见时随 5s 轮询拉取；拉取时贴底跟随） ----
+  let tsnLogText = '';
+  let tsnLogPinned = true; // 用户滚离底部时暂停自动跟随
+  function tsnTabVisible() {
+    const tab = document.querySelector('#gwTabs [data-gwtab="tsn"]');
+    return !!tab && tab.getAttribute('aria-selected') === 'true';
+  }
+  function tsnLogsRefresh() {
+    if (!tsnTabVisible()) return;
+    invoke('tsnet_logs').then(function (lines) {
+      const text = (lines && lines.length) ? lines.join('\n') : '（暂无日志）';
+      if (text === tsnLogText) return;
+      tsnLogText = text;
+      const el = $('tsnLog');
+      const stick = tsnLogPinned;
+      el.textContent = text;
+      if (stick) el.scrollTop = el.scrollHeight;
+    }).catch(function () { });
+  }
+  $('tsnLog').addEventListener('scroll', function () {
+    tsnLogPinned = this.scrollTop + this.clientHeight >= this.scrollHeight - 24;
+  });
   function tsnRender() {
     const s = tsnStatus || { state: 'off' };
     const state = tsnBusy ? 'starting' : (s.state || 'off');
@@ -9219,7 +9259,20 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
     tsPairPreset = tsnUrl() ? 'tsnet' : null;
     $('gwIssueBtn').click();
   });
+  $('tsnLogCopy').addEventListener('click', function () {
+    if (!tsnLogText || tsnLogText === '（暂无日志）') return;
+    navigator.clipboard.writeText(tsnLogText)
+      .then(function () { toast('日志已复制'); })
+      .catch(function () { });
+  });
+  $('tsnLogClear').addEventListener('click', function () {
+    tsnLogText = '（暂无日志）';
+    $('tsnLog').textContent = tsnLogText;
+    // 只清显示；后端环形缓冲仍在积累，下次拉取会恢复（想彻底清就关开一次引擎）
+  });
   setInterval(tsnRefresh, 5000); // 引擎会从 login_needed 自己转 ready，轻量轮询跟进
+  setInterval(tsnLogsRefresh, 2500); // 日志跟得紧一点（贴底跟随 + 复制排障）
+  tsnLogsRefresh();
 
   // ---- 出码配对 ----
   // 地址类型四选：tunnel（默认）/ tailscale / funnel / none

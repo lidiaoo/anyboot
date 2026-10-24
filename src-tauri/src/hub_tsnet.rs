@@ -15,9 +15,11 @@
 //! 五态机（与 UI 对齐）：off / starting / needs_auth / ready / error。
 //! needs_auth 是合法的驻留态：用户在浏览器完成登录后 sidecar 自己会转 ready。
 
+use std::collections::VecDeque;
 use std::io::Write;
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::{Mutex, OnceLock};
+use std::time::Instant;
 use tauri::{AppHandle, Manager};
 
 /// 内置 Tailscale 引擎状态（gateway 第 4 标签页的数据源）。
@@ -62,6 +64,37 @@ struct TsnetShared {
     status: TsnetStatus,
     child: Option<Child>,
     stdin: Option<ChildStdin>,
+    /// 运行日志环形缓冲（时间戳 = sidecar 事件自带 t 字段 / Rust 侧相对秒数）。
+    logs: VecDeque<String>,
+    /// 本次引擎进程的启动时刻（Rust 侧自打日志的前缀基准）。
+    started_at: Option<Instant>,
+}
+
+/// 日志缓冲上限（超出丢最老的；UI 全量展示，排障足够）。
+const LOG_CAP: usize = 200;
+
+/// 锁内追加一条日志（截超长行，FIFO 淘汰）。
+fn push_log(guard: &mut TsnetShared, line: &str) {
+    let line = line.trim_end();
+    if line.is_empty() {
+        return;
+    }
+    let mut owned = line.to_string();
+    if owned.chars().count() > 500 {
+        owned = owned.chars().take(500).collect();
+    }
+    if guard.logs.len() >= LOG_CAP {
+        guard.logs.pop_front();
+    }
+    guard.logs.push_back(owned);
+}
+
+/// 相对时间戳前缀（Rust 侧自打日志用；sidecar 的 t 字段事件直接透传不做二次前缀）。
+fn elapsed_prefix(started_at: Option<Instant>) -> String {
+    match started_at {
+        Some(t) => format!("[+{:.1}s] ", t.elapsed().as_secs_f32()),
+        None => String::new(),
+    }
 }
 
 static TSNET: OnceLock<Mutex<TsnetShared>> = OnceLock::new();
@@ -103,13 +136,35 @@ struct SidecarEvent {
     login_url: String,
     #[serde(default)]
     detail: String,
+    /// sidecar 相对进程启动的秒数（日志前缀；hello 事件不带）。
+    #[serde(default)]
+    t: f64,
 }
 
 impl SidecarEvent {
+    /// 日志行内容：state/log/bye 事件取 detail（空则退回原始行——如 login_needed
+    /// 的 detail 在 loginUrl 里）；hello 等无 detail 事件保留原始 JSON 行。
+    fn detail_or_raw(&self, raw: &str) -> String {
+        match self.event.as_str() {
+            "log" => self.detail.clone(),
+            "state" => {
+                if self.detail.is_empty() && !self.login_url.is_empty() {
+                    self.login_url.clone()
+                } else if self.detail.is_empty() {
+                    raw.to_string()
+                } else {
+                    self.detail.clone()
+                }
+            }
+            _ => raw.to_string(),
+        }
+    }
+
     /// 应用到共享状态。返回是否是终态（ready/needs_auth/error —— enable 的
     /// 45s 等待遇到终态就返回；starting 只是流转中间值）。
     fn apply(&self, status: &mut TsnetStatus) -> bool {
         match self.event.as_str() {
+            "log" => false, // 日志行由调用方写环形缓冲，不影响状态机
             "state" => {
                 status.state = self.state.clone();
                 if !self.funnel_url.is_empty() {
@@ -130,8 +185,9 @@ impl SidecarEvent {
     }
 }
 
-/// stdout 读线程主体：逐行解析事件 → 更新共享状态；循环结束（EOF）说明
-/// sidecar 退出了 —— starting 中途死亡 = 意外退出（报 error），其余保持末态。
+/// stdout 读线程主体：逐行解析事件 → 更新共享状态；每一行（事件或裸文本）都
+/// 进日志环形缓冲；循环结束（EOF）说明 sidecar 退出了 —— starting 中途死亡 =
+/// 意外退出（报 error），其余保持末态。
 fn stdout_worker(stdout: std::process::ChildStdout) {
     use std::io::BufRead;
     let reader = std::io::BufReader::new(stdout);
@@ -141,20 +197,45 @@ fn stdout_worker(stdout: std::process::ChildStdout) {
         if trimmed.is_empty() {
             continue;
         }
-        let Ok(ev) = serde_json::from_str::<SidecarEvent>(trimmed) else {
-            continue; // 非事件行（理论没有）静默忽略
-        };
         let mut guard = match shared().lock() {
             Ok(guard) => guard,
             Err(_) => return,
         };
-        ev.apply(&mut guard.status);
+        match serde_json::from_str::<SidecarEvent>(trimmed) {
+            Ok(ev) => {
+                // 事件行带 sidecar 的相对秒数 t，直接作前缀；Rust 侧不重复计时
+                let stamp = if ev.event == "hello" {
+                    String::new()
+                } else {
+                    format!("[+{:.1}s] ", ev.t)
+                };
+                push_log(&mut guard, &format!("{stamp}{}", ev.detail_or_raw(trimmed)));
+                let was_starting = guard.status.state == "starting";
+                let done = ev.apply(&mut guard.status);
+                // starting 中途把最新日志透出（UI「启动中」文案跟着日志走）
+                if was_starting
+                    && guard.status.state == "starting"
+                    && ev.event == "log"
+                    && !ev.detail.is_empty()
+                {
+                    guard.status.message =
+                        ev.detail.chars().take(80).collect();
+                }
+                drop(guard);
+                let _ = done;
+            }
+            Err(_) => {
+                // 非 JSON 行：原样进日志（sidecar 理论上只发 JSON，兜底别丢线索）
+                push_log(&mut guard, trimmed);
+            }
+        }
     }
     // 进程退出收尾：child 交还 None（句柄不再有意义），中途死亡标 error。
     if let Ok(mut guard) = shared().lock() {
         let was_starting = guard.status.state == "starting";
         if let Some(mut child) = guard.child.take() {
             let code = child.try_wait().ok().and_then(|s| s.map(|s| s.code())).flatten();
+            let prefix = elapsed_prefix(guard.started_at);
             if was_starting {
                 guard.status.state = "error".into();
                 guard.status.message = match code {
@@ -162,6 +243,13 @@ fn stdout_worker(stdout: std::process::ChildStdout) {
                     None => "内置引擎意外退出".into(),
                 };
             }
+            push_log(
+                &mut guard,
+                &format!(
+                    "{prefix}sidecar 进程退出（exit {}）",
+                    code.map(|c| c.to_string()).unwrap_or_else(|| "?".into())
+                ),
+            );
         }
         guard.stdin = None;
         guard.status.sidecar_running = false;
@@ -257,6 +345,18 @@ pub(crate) fn enable_blocking(app: &AppHandle) -> Result<TsnetStatus, String> {
     guard.status = TsnetStatus::new("starting");
     guard.status.sidecar_running = true;
     guard.status.message = format!("引擎启动中（pid {pid}）");
+    // 新一轮启动：日志缓冲重置（旧日志随旧进程作废）
+    guard.logs.clear();
+    guard.started_at = Some(Instant::now());
+    push_log(&mut guard, &format!("引擎进程已启动（pid {pid}）"));
+    push_log(&mut guard, &format!("sidecar: {}", sidecar.display()));
+    push_log(&mut guard, &format!("状态目录: {}", state_dir.display()));
+    push_log(&mut guard, &format!("反代目标: http://127.0.0.1:{port}"));
+    if !authkey.is_empty() {
+        push_log(&mut guard, "AuthKey 已从配置行传入（内容不落日志）");
+    } else {
+        push_log(&mut guard, "未配置 AuthKey：等 sidecar 发登录链接");
+    }
 
     // 配置行走 stdin（authkey 不进命令行）；写失败不致命——sidecar 会走
     // 无 AuthKey 流程（状态目录有凭据时直接连上，没有则发登录链接）。
@@ -373,6 +473,15 @@ pub(crate) async fn tsnet_disable() -> Result<TsnetStatus, String> {
         .map_err(|error| format!("内置引擎任务失败: {error}"))
 }
 
+/// 拉取运行日志（环形缓冲快照，UI「运行日志」框消费；纯内存读）。
+#[tauri::command]
+pub(crate) fn tsnet_logs() -> Vec<String> {
+    match shared().lock() {
+        Ok(guard) => guard.logs.iter().cloned().collect(),
+        Err(_) => Vec::new(),
+    }
+}
+
 /// 保存 AuthKey（管理控制台 → Settings → Keys 签发的设备授权密钥）。
 /// 留空 = 清除。敏感度对齐 gateway_named_token，只落本机 settings.json。
 #[tauri::command]
@@ -401,6 +510,7 @@ mod tests {
             funnel_url: "https://anyboot.tail-scale.ts.net".into(),
             login_url: String::new(),
             detail: String::new(),
+            t: 0.0,
         }
         .apply(&mut st);
         assert!(done);
@@ -417,6 +527,7 @@ mod tests {
             funnel_url: String::new(),
             login_url: "https://login.tailscale.com/a/abc123".into(),
             detail: String::new(),
+            t: 0.0,
         }
         .apply(&mut st);
         assert!(done); // enable 的等待到此返回，但 sidecar 继续驻留等登录
@@ -433,6 +544,7 @@ mod tests {
             funnel_url: String::new(),
             login_url: String::new(),
             detail: String::new(),
+            t: 0.0,
         }
         .apply(&mut st);
         assert!(!done);
@@ -448,6 +560,7 @@ mod tests {
             funnel_url: String::new(),
             login_url: String::new(),
             detail: "开启 Funnel 失败: denied".into(),
+            t: 0.0,
         }
         .apply(&mut st);
         assert!(done);
@@ -480,5 +593,28 @@ mod tests {
         assert_eq!(st.state, "off");
         assert!(!st.sidecar_running);
         assert!(st.url.is_empty());
+    }
+
+    #[test]
+    fn log_event_does_not_change_state_and_stamps_prefix() {
+        let mut st = status();
+        let raw = r#"{"event":"log","t":3.2,"detail":"tsnet 上线成功（ipn.Running）"}"#;
+        let ev: SidecarEvent = serde_json::from_str(raw).unwrap();
+        assert!((ev.t - 3.2).abs() < 1e-9);
+        let done = ev.apply(&mut st);
+        assert!(!done);
+        assert_eq!(st.state, "starting"); // 状态机不动
+        assert_eq!(ev.detail_or_raw(raw), "tsnet 上线成功（ipn.Running）");
+    }
+
+    #[test]
+    fn push_log_caps_ring_buffer() {
+        let mut guard = TsnetShared::default();
+        for i in 0..(LOG_CAP + 20) {
+            push_log(&mut guard, &format!("line-{i}"));
+        }
+        assert_eq!(guard.logs.len(), LOG_CAP);
+        assert_eq!(guard.logs.front().unwrap(), &format!("line-{}", LOG_CAP + 19 - LOG_CAP + 1));
+        assert_eq!(guard.logs.back().unwrap(), &format!("line-{}", LOG_CAP + 19));
     }
 }

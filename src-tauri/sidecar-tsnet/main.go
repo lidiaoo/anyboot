@@ -44,18 +44,24 @@ const sidecarID = "anyboot-tsnet/1.0.0"
 var loginURLPattern = regexp.MustCompile(`https://login\.tailscale\.com/[A-Za-z0-9?&=_./%-]+`)
 
 // event：stdout 事件（一次一行 JSON）。
-//   hello  ：进程起来就发（proto/sidecar 自报家门）
-//   state  ：状态机流转（state = starting / login_needed / ready / error）
-//   bye    ：正常收尾（父进程看到即知是优雅退出）
+//
+//	hello  ：进程起来就发（proto/sidecar 自报家门）
+//	state  ：状态机流转（state = starting / login_needed / ready / error）
+//	log    ：运行日志（tsnet 日志流转发 + 关键里程碑；UI 日志框消费）
+//	bye    ：正常收尾（父进程看到即知是优雅退出）
 type event struct {
-	Event    string `json:"event"`
-	Proto    int    `json:"proto,omitempty"`
-	Sidecar  string `json:"sidecar,omitempty"`
-	State    string `json:"state,omitempty"`
-	URL      string `json:"url,omitempty"`
-	LoginURL string `json:"loginUrl,omitempty"`
-	Detail   string `json:"detail,omitempty"`
+	Event    string  `json:"event"`
+	Proto    int     `json:"proto,omitempty"`
+	Sidecar  string  `json:"sidecar,omitempty"`
+	State    string  `json:"state,omitempty"`
+	URL      string  `json:"url,omitempty"`
+	LoginURL string  `json:"loginUrl,omitempty"`
+	Detail   string  `json:"detail,omitempty"`
+	T        float64 `json:"t,omitempty"` // 进程启动后的秒数（UI 日志前缀用）
 }
+
+// startAt：进程启动时刻，emit 统一打相对时间戳（避免父/子两端各搞一套时钟）。
+var startAt = time.Now()
 
 var outMu sync.Mutex
 
@@ -64,6 +70,9 @@ func emit(e event) {
 	if err != nil {
 		return
 	}
+	if e.Event != "hello" {
+		e.T = time.Since(startAt).Seconds()
+	}
 	outMu.Lock()
 	fmt.Fprintln(os.Stdout, string(b))
 	outMu.Unlock()
@@ -71,6 +80,17 @@ func emit(e event) {
 
 func emitState(state, detail string) {
 	emit(event{Event: "state", State: state, Detail: detail})
+}
+
+func emitLog(detail string) {
+	detail = strings.TrimSpace(detail)
+	if detail == "" {
+		return
+	}
+	if len(detail) > 500 {
+		detail = detail[:500]
+	}
+	emit(event{Event: "log", Detail: detail})
 }
 
 // stdinConfig：首行可选配置（父进程 spawn 后立即写入）。
@@ -114,19 +134,22 @@ func main() {
 
 	stdinBuf := bufio.NewReader(os.Stdin)
 
-	// 日志捕获：登录 URL 只发一次事件，其余日志静音。
+	// 日志捕获：登录 URL 捞出发 login_needed（一次）；其余日志逐行转发成
+	// log 事件（父进程环形缓冲，UI「运行日志」框消费，排障「启动中卡住」用）。
 	var loginMu sync.Mutex
 	loginSeen := false
 	logf := func(format string, args ...any) {
 		msg := fmt.Sprintf(format, args...)
 		if u := loginURLPattern.FindString(msg); u != "" {
 			loginMu.Lock()
-			defer loginMu.Unlock()
-			if !loginSeen {
-				loginSeen = true
+			first := !loginSeen
+			loginSeen = true
+			loginMu.Unlock()
+			if first {
 				emit(event{Event: "state", State: "login_needed", LoginURL: u})
 			}
 		}
+		emitLog(msg)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -134,6 +157,12 @@ func main() {
 
 	// tsnet 引擎：状态目录 + 节点名 + 可选 AuthKey（来自 stdin 配置行）。
 	cfg := readStdinConfig(stdinBuf)
+	if cfg.AuthKey != "" {
+		emitLog("收到配置行：AuthKey 已提供（内容不落日志）")
+	} else {
+		emitLog("收到配置行：无 AuthKey，走浏览器登录流程（或复用状态目录已有凭据）")
+	}
+	emitLog("状态目录: " + *stateDir)
 	srv := &tsnet.Server{
 		Dir:      *stateDir,
 		Hostname: *hostname,
@@ -156,6 +185,7 @@ func main() {
 			emit(event{Event: "state", State: "error", Detail: "tsnet 上线失败: " + err.Error()})
 			os.Exit(1)
 		}
+		emitLog("tsnet 上线成功（ipn.Running）")
 		var domain string
 		deadline := time.Now().Add(*readyTimeout)
 		for {
@@ -175,6 +205,7 @@ func main() {
 			}
 		}
 		funnelURL := "https://" + domain
+		emitLog("Funnel 域名: " + domain)
 
 		// FunnelOnly：只开公网 Funnel 入口（:443），不在 tailnet 内部开监听
 		// （本机服务走回环 upstream，P1 不需要 100.x 直连）。
@@ -189,6 +220,7 @@ func main() {
 			emit(event{Event: "state", State: "error", Detail: "upstream 地址不合法: " + err.Error()})
 			os.Exit(1)
 		}
+		emitLog("Funnel :443 监听已建立，反代 → " + *upstream)
 		proxy := httputil.NewSingleHostReverseProxy(target)
 		httpSrv := &http.Server{
 			Handler:     proxy,
