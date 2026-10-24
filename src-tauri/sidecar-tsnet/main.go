@@ -269,7 +269,83 @@ func queryFunnelSetupURL(ctx context.Context, srv *tsnet.Server) string {
 	return officialSetupURL(info.URL)
 }
 
-// ==================== 公网自检 ====================
+// ==================== 公网 DNS / 证书 / 自检 ====================
+
+// publicResolver 用公共 DNS 解析 .ts.net。
+// 本机解析器（尤其国内家用路由器）对 ts.net 常常直接回 REFUSED，系统解析必然失败；
+// 但公网 DNS 是正常的。自检必须绕开本地解析器，否则会把「本机解析不了」误判成
+// 「Tailscale 没发布记录」。
+func publicResolver() *net.Resolver {
+	return &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
+			dialer := net.Dialer{Timeout: 5 * time.Second}
+			var lastErr error
+			for _, server := range []string{"223.5.5.5:53", "8.8.8.8:53", "1.1.1.1:53"} {
+				conn, err := dialer.DialContext(ctx, network, server)
+				if err == nil {
+					return conn, nil
+				}
+				lastErr = err
+			}
+			return nil, lastErr
+		},
+	}
+}
+
+func lookupPublic(ctx context.Context, host string) ([]string, error) {
+	return publicResolver().LookupHost(ctx, host)
+}
+
+// ensureCert 主动向控制面申请一次证书。
+//
+// 这一步不只是为了证书本身：Funnel 的公网 DNS 记录（<节点>.<tailnet>.ts.net →
+// 入口 IP）是控制面在 SetDNS 阶段建的；而 tsnet 的证书是 TLS 握手时懒加载的。
+// 没有 DNS 就没有握手 → 没有握手就永远不申请证书 → 记录永远不发布，死锁。
+// 实测（2026-10-24）：节点在线、IngressEnabled=true、CertDomains 齐全、serve 配置
+// 已写 AllowFunnel，公网 DNS 却一直 NXDOMAIN；手动跑一次 CertPair 后几秒内 A
+// 记录就出现了。所以 ready 之前必须显式申请一次。
+func ensureCert(ctx context.Context, srv *tsnet.Server, domain string) bool {
+	lc, err := srv.LocalClient()
+	if err != nil {
+		emitLog("申请 HTTPS 证书失败：拿不到本地客户端: " + err.Error())
+		return false
+	}
+	certCtx, cancel := context.WithTimeout(ctx, 40*time.Second)
+	defer cancel()
+	host := strings.TrimSuffix(strings.TrimPrefix(domain, "https://"), ".")
+	certPEM, keyPEM, err := lc.CertPair(certCtx, host)
+	if err != nil {
+		emitLog("申请 HTTPS 证书失败（公网 DNS 可能不会发布，其他设备会打不开）：" + err.Error())
+		return false
+	}
+	emitLog(fmt.Sprintf("HTTPS 证书就绪（%s，cert %dB / key %dB）", host, len(certPEM), len(keyPEM)))
+	return true
+}
+
+// waitPublicDNS 轮询公网 DNS，确认记录真的发布了再报 ready。
+// 不阻断：超时也继续（自检会把结果写进日志）。
+func waitPublicDNS(ctx context.Context, domain string, limit time.Duration) bool {
+	host := strings.TrimPrefix(domain, "https://")
+	deadline := time.Now().Add(limit)
+	for {
+		ips, err := lookupPublic(ctx, host)
+		if err == nil && len(ips) > 0 {
+			emitLog("公网 DNS 已发布: " + host + " → " + strings.Join(ips, ", "))
+			return true
+		}
+		if time.Now().After(deadline) {
+			emitLog("公网 DNS 仍未发布: " + host +
+				"（Tailscale 控制面还没建记录：再等一会/重试一次引擎；持续如此就是服务端问题，可到 Tailscale 支持反馈）")
+			return false
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(2 * time.Second):
+		}
+	}
+}
 
 // probeFunnel：ready 之后做一次公网自检（GET <origin>/health），结果只写日志框、
 // 不改状态机。理由：国内网络对 Tailscale 入站不一定通，自检失败是很有价值的排障
@@ -283,28 +359,103 @@ func probeFunnel(ctx context.Context, origin string, timeout time.Duration) {
 		return
 	case <-time.After(3 * time.Second):
 	}
-	req, err := http.NewRequestWithContext(probeCtx, http.MethodGet, origin+"/health", nil)
+	parsed, err := url.Parse(origin)
+	if err != nil || parsed.Hostname() == "" {
+		return
+	}
+	host := parsed.Hostname()
+	ips, err := lookupPublic(probeCtx, host)
+	if err != nil || len(ips) == 0 {
+		emitLog("公网自检：公网 DNS 解析不到 " + host +
+			"（Tailscale 侧记录未发布 —— 别的设备也会打不开）")
+		return
+	}
+	// 解析结果自己用：直连入口 IP，绕开本机解析器（本地 DNS 常拒绝 ts.net）
+	dialer := &net.Dialer{Timeout: 10 * time.Second}
+	var lastErr error
+	for _, ip := range ips {
+		transport := &http.Transport{
+			Proxy: nil, // 自检必须走本机出口，不能被系统代理环境变量截走
+			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				_, port, splitErr := net.SplitHostPort(addr)
+				if splitErr != nil {
+					port = "443"
+				}
+				return dialer.DialContext(ctx, network, net.JoinHostPort(ip, port))
+			},
+		}
+		client := &http.Client{Timeout: timeout, Transport: transport}
+		req, reqErr := http.NewRequestWithContext(probeCtx, http.MethodGet, origin+"/health", nil)
+		if reqErr != nil {
+			return
+		}
+		resp, doErr := client.Do(req)
+		if doErr != nil {
+			lastErr = doErr
+			transport.CloseIdleConnections()
+			continue
+		}
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+		resp.Body.Close()
+		transport.CloseIdleConnections()
+		if resp.StatusCode >= 200 && resp.StatusCode < 400 {
+			emitLog(fmt.Sprintf("公网自检通过：%s/health → %d（经入口 %s）", origin, resp.StatusCode, ip))
+			return
+		}
+		emitLog(fmt.Sprintf("公网自检异常：%s/health → %d（隧道通了，但反代目标没响应？）", origin, resp.StatusCode))
+		return
+	}
+	emitLog("公网自检：入站握手失败（" + lastErr.Error() + "）—— 本机可能挂着全局代理/TUN 或网络限制 .ts.net 入口，" +
+		"用手机蜂窝网络（关 Wi-Fi）试这个地址才算数")
+}
+
+// dumpDiagnostics 把 LocalAPI 的原始视图打到 stdout，供人工排障
+// （--diagnose 专用：输出不是事件协议，父进程别用它启动）。
+func dumpDiagnostics(ctx context.Context, srv *tsnet.Server) {
+	lc, err := srv.LocalClient()
 	if err != nil {
+		fmt.Println("[[diagnose]] LocalClient 失败:", err)
 		return
 	}
-	// Proxy 显式置空：自检必须走本机出口，不能被系统代理环境变量截走
-	client := &http.Client{
-		Timeout:   timeout,
-		Transport: &http.Transport{Proxy: nil},
+	if st, err := lc.StatusWithoutPeers(ctx); err == nil {
+		if raw, err := json.Marshal(st); err == nil {
+			fmt.Println("[[diagnose]] status=" + string(raw))
+		}
+	} else {
+		fmt.Println("[[diagnose]] status 失败:", err)
 	}
-	resp, err := client.Do(req)
-	if err != nil {
-		emitLog("公网自检失败：" + err.Error() +
-			"（本机 DNS/网络拦了 .ts.net，或 Funnel 入站尚未生效 —— 其他设备可能同样打不开）")
-		return
+	if full, err := lc.Status(ctx); err == nil {
+		if raw, err := json.Marshal(full.Peer); err == nil {
+			fmt.Println("[[diagnose]] peers=" + string(raw))
+		}
+	} else {
+		fmt.Println("[[diagnose]] peers 失败:", err)
 	}
-	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
-	if resp.StatusCode >= 200 && resp.StatusCode < 400 {
-		emitLog(fmt.Sprintf("公网自检通过：%s/health → %d", origin, resp.StatusCode))
-		return
+	if sc, err := lc.GetServeConfig(ctx); err == nil {
+		if raw, err := json.Marshal(sc); err == nil {
+			fmt.Println("[[diagnose]] serveConfig=" + string(raw))
+		}
+	} else {
+		fmt.Println("[[diagnose]] serveConfig 失败:", err)
 	}
-	emitLog(fmt.Sprintf("公网自检异常：%s/health → %d（隧道通了，但反代目标没响应？）", origin, resp.StatusCode))
+	domains := srv.CertDomains()
+	fmt.Printf("[[diagnose]] certDomains=%v\n", domains)
+	// 主动申请证书：控制面的公网 DNS 记录就是在 SetDNS 阶段建的，
+	// Funnel 的 NXDOMAIN 病历几乎都能在这里看到真实错误码。
+	for _, domain := range domains {
+		host := strings.TrimSuffix(domain, ".")
+		certPEM, keyPEM, err := lc.CertPair(ctx, host)
+		if err != nil {
+			fmt.Printf("[[diagnose]] CertPair(%s) 失败: %v\n", domain, err)
+			continue
+		}
+		fmt.Printf("[[diagnose]] CertPair(%s) 成功 cert=%dB key=%dB\n", domain, len(certPEM), len(keyPEM))
+		if ips, err := lookupPublic(ctx, host); err == nil {
+			fmt.Printf("[[diagnose]] 公网 DNS %s → %v\n", host, ips)
+		} else {
+			fmt.Printf("[[diagnose]] 公网 DNS %s 查询失败: %v\n", host, err)
+		}
+	}
 }
 
 func main() {
@@ -312,6 +463,7 @@ func main() {
 	hostname := flag.String("hostname", "anyboot", "tailnet 里的节点名（DNS 名的前缀）")
 	upstream := flag.String("upstream", "http://127.0.0.1:12300", "反代目标（本机 AnyBoot HTTP 服务）")
 	readyTimeout := flag.Duration("ready-timeout", 90*time.Second, "上线后等 Funnel 域名就绪的最长时间")
+	diagnose := flag.Bool("diagnose", false, "打印 LocalAPI 诊断信息后退出（人工排障用）")
 	flag.Parse()
 
 	emit(event{Event: "hello", Proto: protoVersion, Sidecar: sidecarID})
@@ -490,7 +642,17 @@ func main() {
 			}
 		}()
 
+		// 先申请证书再报 ready：这一步会触发控制面发布公网 DNS 记录（见 ensureCert
+		// 注释里的死锁说明）。证书没拿到也继续，交给自检把真实情况写进日志。
+		emitLog("正在申请 HTTPS 证书（首次会触发公网 DNS 记录发布）")
+		ensureCert(ctx, srv, domain)
+		waitPublicDNS(ctx, domain, 20*time.Second)
+
 		emit(event{Event: "state", State: "ready", URL: domain})
+		if *diagnose {
+			dumpDiagnostics(ctx, srv)
+			os.Exit(0)
+		}
 		// 自检超时取 --ready-timeout 与环境无关的上限（别让用户等太久）
 		probeTimeout := *readyTimeout
 		if probeTimeout > 20*time.Second {
