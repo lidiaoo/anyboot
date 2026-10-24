@@ -1420,6 +1420,33 @@
   @keyframes sw-pulse { 50% { opacity: .35; } }
   .gw-sw-group { display: inline-flex; align-items: center; gap: 6px; flex: none; }
   .gw-sw-cap { font-size: 11px; color: rgb(var(--fg-faint)); }
+  /* ---- 远程接入页标签条：Cloudflare / Tailscale / 配对管理 各一页 ---- */
+  .gw-tabs {
+    display: flex; align-items: center; gap: 4px; margin: 0 22px 12px; padding: 3px;
+    background: rgb(var(--card)); border: 1px solid rgb(var(--line-strong)); border-radius: 11px;
+    overflow-x: auto; scrollbar-width: none; max-width: calc(100% - 44px);
+  }
+  .gw-tabs::-webkit-scrollbar { display: none; }
+  .gw-tab {
+    appearance: none; border: 0; background: transparent; color: rgb(var(--fg-dim));
+    font: inherit; font-size: 12.5px; font-weight: 500; padding: 7px 14px; border-radius: 8px;
+    cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; gap: 7px; flex: none;
+  }
+  .gw-tab:hover { color: rgb(var(--fg)); }
+  .gw-tab[aria-selected="true"] {
+    background: rgb(var(--elevate)); color: rgb(var(--fg)); font-weight: 600;
+    box-shadow: inset 0 0 0 1px rgb(var(--line-strong));
+  }
+  .gw-tab-dot {
+    position: relative; width: 7px; height: 7px; border-radius: 50%; flex: none;
+    background: rgb(var(--fg-faint)); transition: background .2s;
+  }
+  .gw-tab-dot[data-st="on"] { background: rgb(var(--ok)); }
+  .gw-tab-dot[data-st="on"]::after {
+    content: ""; position: absolute; inset: 0; border-radius: 50%;
+    background: rgb(var(--ok) / .5); animation: ab-ping 1.6s cubic-bezier(0,0,.2,1) infinite;
+  }
+  .gw-tab-dot[data-st="err"] { background: #ef4444; }
   /* ---- 连接优先级拖动列表（编辑弹窗 · 连接策略 fold） ---- */
   .route-prio { display: flex; flex-direction: column; gap: 6px; }
   .rp-row {
@@ -1549,6 +1576,20 @@
     background:rgb(var(--accent) / .14); color:rgb(var(--accent)); font-weight:600;
   }
   .cq-remote-expired, .cq-remote-expired .cq-dev-mac { color:rgb(var(--warn)) !important; }
+
+  /* ---- 远程接入分页标签 + Tailscale 卡窄窗自适应（放末尾覆盖基础规则） ---- */
+  @media (max-width: 720px) {
+    .gw-tabs { margin: 0 12px 10px; max-width: calc(100% - 24px); }
+    .gw-tab { padding: 6px 10px; font-size: 12px; }
+    .gw-card, .gw-note { margin-left: 12px; margin-right: 12px; }
+    .gw-card { padding: 12px 14px; }
+    .gw-card-head { gap: 8px; }
+    .gw-card-head .segmented { margin-left: 0; }
+    .gw-status { gap: 8px; }
+    /* 地址行窄窗换排：提示与按钮留在首行，地址独占下一行可断行 */
+    .gw-status .ts-addr { flex: 1 1 100%; order: 3; }
+    .tsf-sep { margin-top: 10px; padding-top: 10px; }
+  }
 </style>
 </head>
 <body data-page-node-id="3arxyFzn5g5YuOo1U38bND">
@@ -2069,17 +2110,20 @@
             <h2>远程接入</h2>
             <span class="sub">把本机的 AnyBoot 挂上公网隧道或虚拟局域网 —— 配对后的手机 / 其他电脑出门也能访问这台电脑</span>
           </div>
-          <span style="flex:1"></span>
-          <button class="btn" id="gwLogBtn" hidden>日志</button>
-          <span class="gw-sw-group" title="开启 / 关闭 Cloudflare 通道">
-            <span class="gw-sw-cap">通道</span>
-            <label class="switch" id="gwToggleWrap">
-              <input type="checkbox" id="gwToggleSw">
-              <span class="trk" aria-hidden="true"></span>
-            </label>
-          </span>
         </div>
 
+        <!-- 分卡片页标签条：每个通道一张卡一页，状态点跟随各通道实时状态 -->
+        <div class="gw-tabs" id="gwTabs" role="tablist" aria-label="远程接入分页">
+          <button class="gw-tab" role="tab" data-gwtab="cf" aria-selected="true">
+            <span class="gw-tab-dot" id="gwTabDotCf" data-st="off"></span>Cloudflare 通道
+          </button>
+          <button class="gw-tab" role="tab" data-gwtab="ts" aria-selected="false">
+            <span class="gw-tab-dot" id="gwTabDotTs" data-st="off"></span>Tailscale
+          </button>
+          <button class="gw-tab" role="tab" data-gwtab="pair" aria-selected="false">配对管理</button>
+        </div>
+
+        <div class="gw-tabpane" data-gwpane="cf">
         <div class="gw-note" id="gwWarnQuick">
           快速隧道的地址在通道重启后会变化 —— 重启电脑 / 通道后，已配对的客户端要重新配对一次。
           要固定地址请改用「命名隧道」（需 Cloudflare 账号 + 托管域名），或用下方 Tailscale 直连（装好即用、地址长期固定、不出公网）。
@@ -2093,6 +2137,14 @@
               <button role="tab" data-mode="quick" aria-selected="true">快速隧道</button>
               <button role="tab" data-mode="named" aria-selected="false">命名隧道</button>
             </div>
+            <button class="btn" id="gwLogBtn" hidden>日志</button>
+            <span class="gw-sw-group" title="开启 / 关闭 Cloudflare 通道">
+              <span class="gw-sw-cap">通道</span>
+              <label class="switch" id="gwToggleWrap">
+                <input type="checkbox" id="gwToggleSw">
+                <span class="trk" aria-hidden="true"></span>
+              </label>
+            </span>
           </div>
           <div class="gw-status">
             <span class="pulse" id="gwPulse" hidden></span>
@@ -2147,8 +2199,11 @@
           </div>
         </div>
 
-        <!-- Tailscale 直连卡（虚拟局域网；与上方 Cloudflare 通道平级，二选一或并存均可） -->
-        <div class="gw-card" id="tsCard" style="min-height:150px">
+        </div><!-- /cf pane -->
+
+        <div class="gw-tabpane" data-gwpane="ts" hidden>
+        <!-- Tailscale 直连卡（虚拟局域网；与 Cloudflare 通道平级，二选一或并存均可） -->
+        <div class="gw-card" id="tsCard">
           <div class="gw-card-head">
             <h3>Tailscale 直连</h3>
             <span style="flex:1"></span>
@@ -2277,6 +2332,9 @@
           </div>
         </div>
 
+        </div><!-- /ts pane -->
+
+        <div class="gw-tabpane" data-gwpane="pair" hidden>
         <!-- 配对管理 -->
         <div class="gw-card">
           <div class="gw-card-head">
@@ -2301,6 +2359,7 @@
             对方在它自己的「远程接入」页生成配对码。
           </p>
         </div>
+        </div><!-- /pair pane -->
       </section>
 
       <!-- 出码弹窗（共用弹层：必须放所有 .page 之外，否则被 hidden 吞掉） -->
@@ -2956,6 +3015,10 @@
   // 248px（最多 420px）的侧栏会把内容挤到没法看。视口 < 880px 时自动按收起态显示：
   // 不写 localStorage、不碰用户的按钮选择，回到宽视口还原记忆状态。
   let sideAutoNarrow = null;
+  // ⚠️ 常量必须声明在 sideViewportApply 首调之前：宽视口分支 applySide() → applySideWidth()
+  // 会读 SIDE_W_MIN，声明放在下面（拖拽段）会 TDZ 报错并中断整个 script 块（页面全白）
+  const SIDE_W_KEY = 'ab-hub-side-w';
+  const SIDE_W_MIN = 200, SIDE_W_MAX = 420;
   function sideViewportApply() {
     const vw = window.innerWidth;
     const narrow = vw < 880;
@@ -2981,9 +3044,7 @@
   });
   sideViewportApply();
 
-  // ============ 侧栏拖拽调宽（记忆上次宽度） ============
-  const SIDE_W_KEY = 'ab-hub-side-w';
-  const SIDE_W_MIN = 200, SIDE_W_MAX = 420;
+  // ============ 侧栏拖拽调宽（记忆上次宽度；常量声明已上移至窄视口段，防 TDZ） ============
   const sideSplit = document.getElementById('sideSplit');
   /** 收起时清掉内联宽度（否则覆盖 .collapsed 的 60px）；展开时恢复记忆宽度 */
   function applySideWidth() {
@@ -8533,11 +8594,38 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
       throw e; // 让 await 方感知失败并中止后续动作
     });
   }
+  // ---- 分卡片页标签（cf / ts / pair）：切 pane + aria-selected + localStorage 记忆 ----
+  function gwTabShow(name, save) {
+    if (name !== 'cf' && name !== 'ts' && name !== 'pair') name = 'cf';
+    document.querySelectorAll('#page-gateway [data-gwpane]').forEach(function (p) {
+      p.hidden = p.dataset.gwpane !== name;
+    });
+    document.querySelectorAll('#gwTabs [data-gwtab]').forEach(function (b) {
+      b.setAttribute('aria-selected', b.dataset.gwtab === name ? 'true' : 'false');
+    });
+    if (save) { try { localStorage.setItem('ab-hub-gwtab', name); } catch (e) { } }
+  }
+  document.querySelectorAll('#gwTabs [data-gwtab]').forEach(function (b) {
+    b.addEventListener('click', function () { gwTabShow(b.dataset.gwtab, true); });
+  });
+  (function () {
+    let saved = 'cf';
+    try { saved = localStorage.getItem('ab-hub-gwtab') || 'cf'; } catch (e) { }
+    gwTabShow(saved, false);
+  })();
+
+  /** 标签条状态点：st ∈ on（绿脉冲）/ err（红）/ off（灰） */
+  function gwTabDot(id, st) {
+    const el = document.getElementById(id);
+    if (el) el.dataset.st = st;
+  }
+
   function applySnapshot(value) {
     snap = value || snap;
     if (!snap) return;
     const state = snap.state || 'stopped';
     const busy = state === 'starting' || state === 'running' || state === 'restarting';
+    gwTabDot('gwTabDotCf', state === 'failed' ? 'err' : (busy ? 'on' : 'off'));
     $('gwPulse').hidden = !busy;
     const texts = {
       starting: '启动中…', running: '运行中', restarting: '重启中 · 第 ' + (snap.restarts + 1) + ' 次重试',
@@ -8682,6 +8770,7 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
     const st = tsStatus;
     const has = !!(st && st.installed);
     const running = has && st.state === 'running' && st.ip;
+    gwTabDot('gwTabDotTs', running ? 'on' : 'off');
     $('tsRefreshBtn').hidden = !has;
     $('tsDlRow').hidden = has;
     $('tsLoginRow').hidden = !(has && st.state === 'needs_login');
