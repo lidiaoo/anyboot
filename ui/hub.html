@@ -8670,9 +8670,9 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
       throw e; // 让 await 方感知失败并中止后续动作
     });
   }
-  // ---- 分卡片页标签（cf / ts / pair）：切 pane + aria-selected + localStorage 记忆 ----
+  // ---- 分卡片页标签（cf / ts / tsn / pair）：切 pane + aria-selected + localStorage 记忆 ----
   function gwTabShow(name, save) {
-    if (name !== 'cf' && name !== 'ts' && name !== 'pair') name = 'cf';
+    if (name !== 'cf' && name !== 'ts' && name !== 'tsn' && name !== 'pair') name = 'cf';
     document.querySelectorAll('#page-gateway [data-gwpane]').forEach(function (p) {
       p.hidden = p.dataset.gwpane !== name;
     });
