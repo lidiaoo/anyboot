@@ -1148,14 +1148,20 @@ pub fn open_files_window(app: &AppHandle, server: HubServer) -> Result<(), Strin
             Err(_) => {}
         };
     }
+    // 缩放分辨率：init/min 按显示器夹（见 lib.rs fit_monitor_size 注释）
+    let ((iw, ih), (mw, mh)) = crate::fit_monitor_size(
+        app.primary_monitor().ok().flatten(),
+        (980.0, 660.0),
+        (760.0, 480.0),
+    );
     crate::apply_browser_args(tauri::WebviewWindowBuilder::new(
         app,
         LABEL,
         tauri::WebviewUrl::App("hub-files.html".into()),
     ))
     .title("AnyBoot 文件")
-    .inner_size(980.0, 660.0)
-    .min_inner_size(760.0, 480.0)
+    .inner_size(iw, ih)
+    .min_inner_size(mw, mh)
     .resizable(true)
     .center()
     .build()

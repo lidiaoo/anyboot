@@ -640,14 +640,20 @@ fn open_hub_window(app: &AppHandle) -> Result<(), String> {
         let _ = window.set_focus();
         return Ok(());
     }
+    // 缩放分辨率铁律：init/min 都要按显示器夹（150% 缩放下 720 逻辑高 > 屏幕可用高度）
+    let ((iw, ih), (mw, mh)) = fit_monitor_size(
+        app.primary_monitor().ok().flatten(),
+        (1080.0, 720.0),
+        (860.0, 560.0),
+    );
     apply_browser_args(tauri::WebviewWindowBuilder::new(
         app,
         HUB_WINDOW_LABEL,
         tauri::WebviewUrl::App("hub.html".into()),
     ))
     .title("AnyBoot 远程管理")
-    .inner_size(1080.0, 720.0)
-    .min_inner_size(860.0, 560.0)
+    .inner_size(iw, ih)
+    .min_inner_size(mw, mh)
     .resizable(true)
     .center()
     .build()
@@ -666,14 +672,19 @@ pub(crate) fn open_keys_window(app: &AppHandle) -> Result<(), String> {
         let _ = window.set_focus();
         return Ok(());
     }
+    let ((iw, ih), (mw, mh)) = fit_monitor_size(
+        app.primary_monitor().ok().flatten(),
+        (720.0, 560.0),
+        (560.0, 420.0),
+    );
     apply_browser_args(tauri::WebviewWindowBuilder::new(
         app,
         HUB_KEYS_WINDOW_LABEL,
         tauri::WebviewUrl::App("hub-keys.html".into()),
     ))
     .title("AnyBoot 密钥管理")
-    .inner_size(720.0, 560.0)
-    .min_inner_size(560.0, 420.0)
+    .inner_size(iw, ih)
+    .min_inner_size(mw, mh)
     .resizable(true)
     .center()
     .build()
@@ -803,6 +814,34 @@ pub(crate) fn startup_debug(app: &AppHandle, message: &str) {
         .append(true)
         .open(&path)
         .and_then(|mut file| file.write_all(line.as_bytes()));
+}
+
+/// 按显示器实际可用区域夹窗口的逻辑尺寸，返回 (init, min)。
+///
+/// **为什么必须有这一步**：Windows 显示缩放（125% / 150% / 175%）下，逻辑视口
+/// = 物理分辨率 ÷ 缩放倍数。写死的 `inner_size(1080, 720)` 是逻辑像素，150% 的
+/// 1080p 屏可用高度只有约 693 逻辑 px —— 窗口一开就比屏幕高，底部出屏（被任务
+/// 栏挡住），用户看到的就是「远程接入页样式没自适应、看不全」。`min_inner_size`
+/// 同样要夹：min 比屏幕还大时窗口永远缩不进屏，连手动自救都不行。
+///
+/// Monitor::size() 是物理像素，除以 scale_factor 换回逻辑再夹；留 8% 余量给
+/// 任务栏 / 窗口边框 / DPI 取整误差，并给绝对下限防止极小屏把窗夹成 0。
+pub(crate) fn fit_monitor_size(
+    monitor: Option<tauri::Monitor>,
+    init: (f64, f64),
+    min: (f64, f64),
+) -> ((f64, f64), (f64, f64)) {
+    let Some(m) = monitor else { return (init, min); };
+    let scale = m.scale_factor();
+    if !(scale.is_finite()) || scale <= 0.0 {
+        return (init, min);
+    }
+    let avail_w = m.size().width as f64 / scale;
+    let avail_h = m.size().height as f64 / scale;
+    let cap_w = (avail_w * 0.92).max(380.0);
+    let cap_h = (avail_h * 0.92).max(320.0);
+    let clamp = |(w, h): (f64, f64)| (w.min(cap_w).max(320.0), h.min(cap_h).max(260.0));
+    (clamp(init), clamp(min))
 }
 
 /// 建窗统一入口包装：给 `WebviewWindowBuilder::new(...)` 的返回值套这一层。

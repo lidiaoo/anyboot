@@ -2951,6 +2951,36 @@
     applySide();
   });
 
+  // ============ 窄视口自动收起侧栏（缩放分辨率 / 小屏兜底） ============
+  // Windows 显示缩放 150%/175% 下逻辑视口 = 物理分辨率 ÷ 倍数，比想象的小一截，
+  // 248px（最多 420px）的侧栏会把内容挤到没法看。视口 < 880px 时自动按收起态显示：
+  // 不写 localStorage、不碰用户的按钮选择，回到宽视口还原记忆状态。
+  let sideAutoNarrow = null;
+  function sideViewportApply() {
+    const vw = window.innerWidth;
+    const narrow = vw < 880;
+    if (narrow !== sideAutoNarrow) {
+      sideAutoNarrow = narrow;
+      if (narrow) {
+        sideEl.classList.add('collapsed');
+        sideEl.style.width = '';
+      } else {
+        applySide();
+      }
+    }
+    // 宽视口但侧栏被拖得过宽（>40% 视口）：清内联宽度回落默认，内容至少留 60%
+    if (!narrow && !sideEl.classList.contains('collapsed')) {
+      const w = parseInt(sideEl.style.width, 10) || 0;
+      if (w > vw * 0.4) sideEl.style.width = '';
+    }
+  }
+  let sideVpTimer = 0;
+  window.addEventListener('resize', function () {
+    clearTimeout(sideVpTimer);
+    sideVpTimer = setTimeout(sideViewportApply, 120);
+  });
+  sideViewportApply();
+
   // ============ 侧栏拖拽调宽（记忆上次宽度） ============
   const SIDE_W_KEY = 'ab-hub-side-w';
   const SIDE_W_MIN = 200, SIDE_W_MAX = 420;
