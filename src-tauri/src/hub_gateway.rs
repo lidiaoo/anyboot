@@ -100,17 +100,18 @@ pub(crate) fn asset_url(key: (&str, &str)) -> String {
 }
 
 // ==================== 内置 SHA-256 表 ====================
-// 来源：cloudflared 2026.8.3 官方 release 产物（多方独立记录交叉一致的公开值；
-// Chocolatey/开源 binary_manager 同版本值相同）。**bump 版本必须整表刷新。**
+// 全部五条为 2026.8.3 官方 release 产物实测值（2026-10-25 逐条下载 shasum -a 256 核对）。
+// **bump 版本必须整表刷新**——首版造表时 darwin 两条误填了解压后内核二进制的哈希
+// （tgz 整包 ≠ 内核），导致 macOS 下载三源全被「哈希校验失败」拒装（Windows 能过掩盖了它）。
 
-/// (system, arch) -> 资产 SHA-256（darwin 校验的是 .tgz 整包）。
+/// (system, arch) -> 资产 SHA-256（darwin 校验的是 .tgz 整包，非解压产物）。
 pub(crate) fn expected_sha256(key: (&str, &str)) -> Option<&'static str> {
     match key {
         ("windows", "amd64") => Some("83e726ed18ea78c5ad5213c4c3a3a27051393950d2bc8ed4de69bec12d14eaae"),
         ("linux", "amd64") => Some("f29324fe934d1e100617484c78deef803c4dc2cd351d645bbde42e96b4fccc5e"),
         ("linux", "arm64") => Some("4bcfd35521a7cbc545ebfd5d57334a71ee180e2a64874981f374c81472118391"),
-        ("darwin", "amd64") => Some("936aa4ed783b0e191fac48e7140c34605b25d8d5c0495c3599c90e350ae6e4c4"),
-        ("darwin", "arm64") => Some("50a04624531e7a98ddb65f1223905e32f84e7488ed3ee8dadcd3260aa8932603"),
+        ("darwin", "amd64") => Some("61e1316266a00fd70ce40da011d612badc805367fb65293dd1925f938f704c99"),
+        ("darwin", "arm64") => Some("40c9144d86df8937c5b43293a1f7d2d2107029aa74725023dd46b1b27154352f"),
         _ => None,
     }
 }
@@ -646,36 +647,49 @@ pub(crate) async fn gateway_tunnel_start(
     .map_err(|error| format!("启动通道任务失败: {error}"))?
 }
 
-/// 清理孤儿 cloudflared：ExecutablePath 精确等于我们 gateway 目录下那个 exe 的都算。
-/// 正常退出有 kill_all 钩子；但 taskkill /F 强杀、崩溃时钩子不执行 → 旧隧道进程活着，
+/// 清理孤儿 cloudflared：可执行路径精确等于我们 gateway 目录下那个的都算。
+/// 正常退出有 kill_all 钩子；但强杀、崩溃时钩子不执行 → 旧隧道进程活着，
 /// 旧地址照样能连（快速隧道每次重启本该换地址，客户端会「莫名其妙还能连旧的」）。
 /// 在 spawn 自己的 cloudflared 之前调用；此时 state.proc 必为 None，同路径的全是孤儿。
 fn cleanup_orphan_cloudflared(app: &tauri::AppHandle) {
-    let Ok(binary) = binary_path(app) else { return };
-    let Some(exe) = binary.to_str() else { return };
-    // PowerShell 字符串单引号内翻倍转义；-eq 不区分大小写，正合适
-    let script = format!(
-        "Get-CimInstance Win32_Process -Filter \"Name='cloudflared.exe'\" | \
-         Where-Object {{ $_.ExecutablePath -eq '{}' }} | \
-         ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }}",
-        exe.replace('\'', "''"),
-    );
-    let mut command = std::process::Command::new("powershell");
-    command.args(["-NoProfile", "-NonInteractive", "-Command", &script]);
     #[cfg(windows)]
     {
+        let Ok(binary) = binary_path(app) else { return };
+        let Some(exe) = binary.to_str() else { return };
+        // PowerShell 字符串单引号内翻倍转义；-eq 不区分大小写，正合适
+        let script = format!(
+            "Get-CimInstance Win32_Process -Filter \"Name='cloudflared.exe'\" | \
+             Where-Object {{ $_.ExecutablePath -eq '{}' }} | \
+             ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }}",
+            exe.replace('\'', "''"),
+        );
+        let mut command = std::process::Command::new("powershell");
+        command.args(["-NoProfile", "-NonInteractive", "-Command", &script]);
         use std::os::windows::process::CommandExt;
         command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-    }
-    match command.output() {
-        Ok(out) => {
-            let killed = String::from_utf8_lossy(&out.stdout);
-            let killed = killed.trim();
-            if !killed.is_empty() {
-                gw_log(app, &format!("[gateway] 清理孤儿 cloudflared: {killed}"));
+        match command.output() {
+            Ok(out) => {
+                let killed = String::from_utf8_lossy(&out.stdout);
+                let killed = killed.trim();
+                if !killed.is_empty() {
+                    gw_log(app, &format!("[gateway] 清理孤儿 cloudflared: {killed}"));
+                }
             }
+            Err(error) => gw_log(app, &format!("[gateway] 孤儿清理失败: {error}")),
         }
-        Err(error) => gw_log(app, &format!("[gateway] 孤儿清理失败: {error}")),
+    }
+    #[cfg(not(windows))]
+    {
+        // macOS/Linux 没有 PowerShell（首版硬编码导致 trace 刷「孤儿清理失败」）：
+        // 直接复用 ps 实现的进程列表逐个 kill
+        let orphans = list_cloudflared_pids(app, &[]);
+        let pids: Vec<String> = orphans.iter().map(|(pid, _)| pid.to_string()).collect();
+        for (pid, _) in orphans {
+            kill_cloudflared_pid(pid);
+        }
+        if !pids.is_empty() {
+            gw_log(app, &format!("[gateway] 清理孤儿 cloudflared: {}", pids.join(",")));
+        }
     }
 }
 
@@ -712,8 +726,9 @@ fn load_tunnel_last(app: &AppHandle) -> TunnelLast {
         .unwrap_or_default()
 }
 
-/// 列出 ExecutablePath 精确等于我们 cloudflared.exe 的进程（pid + 启动时间）。
+/// 列出可执行路径精确等于我们 cloudflared 的进程（pid + 启动时间）。
 /// exclude 里的 pid 不返回（受管/已沿用的不算残留）。
+#[cfg(windows)]
 fn list_cloudflared_pids(app: &AppHandle, exclude: &[u32]) -> Vec<(u32, String)> {
     let Ok(binary) = binary_path(app) else { return Vec::new() };
     let Some(exe) = binary.to_str() else { return Vec::new() };
@@ -725,11 +740,8 @@ fn list_cloudflared_pids(app: &AppHandle, exclude: &[u32]) -> Vec<(u32, String)>
     );
     let mut command = std::process::Command::new("powershell");
     command.args(["-NoProfile", "-NonInteractive", "-Command", &script]);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-    }
+    use std::os::windows::process::CommandExt;
+    command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     let Ok(output) = command.output() else { return Vec::new() };
     String::from_utf8_lossy(&output.stdout)
         .lines()
@@ -741,16 +753,55 @@ fn list_cloudflared_pids(app: &AppHandle, exclude: &[u32]) -> Vec<(u32, String)>
         .collect()
 }
 
+/// unix 版：`ps -axo pid=,lstart=,command=` 后在 Rust 侧精确匹配命令行。
+/// 不用 pgrep -f（路径进正则要转义、语义还是子串），逐行 splitn 最可靠：
+/// pid 1 段 + lstart 固定 5 段（周 月 日 时:分:秒 年）+ 命令行剩余全部。
+#[cfg(not(windows))]
+fn list_cloudflared_pids(app: &AppHandle, exclude: &[u32]) -> Vec<(u32, String)> {
+    let Ok(binary) = binary_path(app) else { return Vec::new() };
+    let Some(exe) = binary.to_str() else { return Vec::new() };
+    let Ok(output) = std::process::Command::new("ps")
+        .args(["-axo", "pid=,lstart=,command="])
+        .output()
+    else {
+        return Vec::new();
+    };
+    let with_arg_prefix = format!("{exe} ");
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| {
+            let fields: Vec<&str> = line.trim().splitn(7, ' ').collect();
+            if fields.len() != 7 {
+                return None;
+            }
+            let pid: u32 = fields[0].parse().ok()?;
+            // argv[0] 必须精确是我们 spawn 的路径（我们 spawn 不经 shell，无包裹）
+            let command = fields[6];
+            if command != exe && !command.starts_with(&with_arg_prefix) {
+                return None;
+            }
+            let started_at = fields[1..6].join(" ");
+            (!exclude.contains(&pid)).then(|| (pid, started_at))
+        })
+        .collect()
+}
+
+/// 强杀指定 cloudflared 进程（对齐 Windows taskkill /F 语义）。
+#[cfg(windows)]
 fn kill_cloudflared_pid(pid: u32) {
     let script = format!("Stop-Process -Id {pid} -Force -ErrorAction SilentlyContinue");
     let mut command = std::process::Command::new("powershell");
     command.args(["-NoProfile", "-NonInteractive", "-Command", &script]);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-    }
+    use std::os::windows::process::CommandExt;
+    command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     let _ = command.output();
+}
+
+#[cfg(not(windows))]
+fn kill_cloudflared_pid(pid: u32) {
+    let _ = std::process::Command::new("kill")
+        .args(["-9", &pid.to_string()])
+        .output();
 }
 
 #[derive(Clone, Debug, serde::Serialize)]
