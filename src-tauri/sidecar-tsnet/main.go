@@ -26,6 +26,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -46,6 +47,10 @@ const sidecarID = "anyboot-tsnet/1.0.0"
 
 // 链接长度上限：父进程会把链接直接交给系统浏览器打开，超长一律不认。
 const maxLinkBytes = 2048
+
+// certWaitSeconds：等 netmap 里出现 CertDomains 的宽限（有就是立刻有，没有就是
+// tailnet 没开 HTTPS 证书，别让用户干等）。
+const certWaitSeconds = 10
 
 // 官方登录页 URL（UserLogf 里唯一要捞的东西；其余日志不参与链接提取）。
 var loginURLPattern = regexp.MustCompile(`https://login\.tailscale\.com/[A-Za-z0-9?&=_./%-]+`)
@@ -264,6 +269,44 @@ func queryFunnelSetupURL(ctx context.Context, srv *tsnet.Server) string {
 	return officialSetupURL(info.URL)
 }
 
+// ==================== 公网自检 ====================
+
+// probeFunnel：ready 之后做一次公网自检（GET <origin>/health），结果只写日志框、
+// 不改状态机。理由：国内网络对 Tailscale 入站不一定通，自检失败是很有价值的排障
+// 线索（比让用户拿手机试更快），但不能反过来把「本机访问不了」当成服务不可用。
+func probeFunnel(ctx context.Context, origin string, timeout time.Duration) {
+	probeCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	// 刚发 ready，给 ingress / 证书一点时间生效
+	select {
+	case <-probeCtx.Done():
+		return
+	case <-time.After(3 * time.Second):
+	}
+	req, err := http.NewRequestWithContext(probeCtx, http.MethodGet, origin+"/health", nil)
+	if err != nil {
+		return
+	}
+	// Proxy 显式置空：自检必须走本机出口，不能被系统代理环境变量截走
+	client := &http.Client{
+		Timeout:   timeout,
+		Transport: &http.Transport{Proxy: nil},
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		emitLog("公网自检失败：" + err.Error() +
+			"（本机 DNS/网络拦了 .ts.net，或 Funnel 入站尚未生效 —— 其他设备可能同样打不开）")
+		return
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+	if resp.StatusCode >= 200 && resp.StatusCode < 400 {
+		emitLog(fmt.Sprintf("公网自检通过：%s/health → %d", origin, resp.StatusCode))
+		return
+	}
+	emitLog(fmt.Sprintf("公网自检异常：%s/health → %d（隧道通了，但反代目标没响应？）", origin, resp.StatusCode))
+}
+
 func main() {
 	stateDir := flag.String("state", "", "tsnet 状态目录（登录凭据持久化在这里）")
 	hostname := flag.String("hostname", "anyboot", "tailnet 里的节点名（DNS 名的前缀）")
@@ -364,32 +407,45 @@ func main() {
 		}
 		emitLog("tsnet 上线成功（ipn.Running）")
 
-		// 域名：优先用 Up 返回的 DNS 名（官方语义，最快）；没拿到再等
-		// CertDomains 出结果（首次配证书可能慢几秒）。
+		// 域名与「能不能对外提供 https」是两件事，必须分开判：
+		// Self.DNSName 只是 MagicDNS 名，永远有值；而 Funnel 要对外服务，
+		// 还需要 tailnet 开启 HTTPS 证书 —— netmap 的 DNS.CertDomains 里有名字
+		// 才代表证书可签发、.ts.net 的 A 记录已发布。没开时域名在公网 DNS 里
+		// 直接 NXDOMAIN，任何设备（包括本机）都打不开，但 ListenFunnel 不会报错
+		//（证书是 TLS 握手时懒加载的）。这就是「UI 说已开启、浏览器却打不开」的真因。
 		domain := publicOrigin(<-upStatus)
-		if domain != "" {
-			emitLog("Funnel 域名: " + strings.TrimPrefix(domain, "https://"))
-		}
-		deadline := time.Now().Add(*readyTimeout)
-		for domain == "" {
-			if domains := srv.CertDomains(); len(domains) > 0 {
-				if origin := publicOrigin(domains[0]); origin != "" {
-					domain = origin
-					emitLog("Funnel 域名: " + strings.TrimPrefix(domain, "https://"))
+		certDeadline := time.Now().Add(certWaitSeconds * time.Second)
+		certDomain := ""
+		for {
+			for _, candidate := range srv.CertDomains() {
+				if origin := publicOrigin(candidate); origin != "" {
+					certDomain = origin
 					break
 				}
 			}
-			if time.Now().After(deadline) {
-				emitError("tailscale_dns_missing", "",
-					"上线成功但拿不到 tailnet DNS 名（.ts.net）—— 检查管理台是否给该设备分配了域名")
-				os.Exit(1)
+			if certDomain != "" || time.Now().After(certDeadline) {
+				break
 			}
 			select {
 			case <-ctx.Done():
 				return
-			case <-time.After(1 * time.Second):
+			case <-time.After(500 * time.Millisecond):
 			}
 		}
+		if certDomain == "" {
+			setupURL := "https://tailscale.com/s/https"
+			if interactive := queryFunnelSetupURL(ctx, srv); interactive != "" {
+				setupURL = interactive
+			}
+			emitError("funnel_https_required", setupURL,
+				"这个 tailnet 还没开启 HTTPS 证书：.ts.net 域名不会发布，任何设备（含本机）都打不开。"+
+					"点「去开启 HTTPS 证书」按官方引导在管理台 DNS 页面开启 HTTPS Certificates，再回来重试")
+			os.Exit(1)
+		}
+		if domain == "" {
+			domain = certDomain
+		}
+		emitLog("Funnel 域名: " + strings.TrimPrefix(domain, "https://"))
 
 		// FunnelOnly：只开公网 Funnel 入口（:443），不在 tailnet 内部开监听
 		// （本机服务走回环 upstream，P1 不需要 100.x 直连）。
@@ -435,6 +491,12 @@ func main() {
 		}()
 
 		emit(event{Event: "state", State: "ready", URL: domain})
+		// 自检超时取 --ready-timeout 与环境无关的上限（别让用户等太久）
+		probeTimeout := *readyTimeout
+		if probeTimeout > 20*time.Second {
+			probeTimeout = 20 * time.Second
+		}
+		go probeFunnel(ctx, domain, probeTimeout)
 	}()
 
 	// 命令循环：quit（或任何 EOF）→ 优雅收尾。父进程死 = stdin EOF = 自杀。

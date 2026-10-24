@@ -9210,6 +9210,7 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
       $('tsnErrText').textContent = s.message || '未知错误';
       // sidecar 只有在 Funnel 权限/HTTPS 证书没开时才带 setupUrl
       $('tsnSetupBtn').hidden = !s.setupUrl;
+      $('tsnSetupBtn').textContent = s.errorCode === 'funnel_https_required' ? '去开启 HTTPS 证书' : '去开通 Funnel';
     } else {
       text.textContent = s.message || '';
     }

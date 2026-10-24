@@ -40,6 +40,9 @@ pub(crate) struct TsnetStatus {
     /// 官方 Funnel 开通/修复页（error 时可能非空：权限没开 / 证书没开）。
     /// 序列化成 setupUrl，前端「去开通 Funnel」按钮消费。
     pub setup_url: String,
+    /// 错误码（error 时非空：funnel_permission_required / funnel_https_required ...）
+    /// 序列化成 errorCode，前端据此改按钮文案（开 Funnel 还是开 HTTPS 证书）。
+    pub error_code: String,
     /// 面向用户的简短说明 / 错误详情
     pub message: String,
     /// sidecar 子进程是否还活着（排障展示：error 但进程还在 ≠ 假死）
@@ -53,6 +56,7 @@ impl TsnetStatus {
             url: String::new(),
             login_url: String::new(),
             setup_url: String::new(),
+            error_code: String::new(),
             message: String::new(),
             sidecar_running: false,
         }
@@ -225,6 +229,9 @@ impl SidecarEvent {
                 }
                 if !self.setup_url.is_empty() {
                     status.setup_url = self.setup_url.clone();
+                }
+                if !self.code.is_empty() {
+                    status.error_code = self.code.clone();
                 }
                 status.message = if self.detail.is_empty() && self.state == "error" && !self.code.is_empty()
                 {
@@ -725,6 +732,7 @@ mod tests {
         assert!(event.apply(&mut st));
         assert_eq!(st.state, "error");
         assert_eq!(st.setup_url, "https://tailscale.com/s/no-funnel");
+        assert_eq!(st.error_code, "funnel_permission_required");
         assert!(st.message.contains("Funnel"));
         assert_eq!(event.log_text().as_deref(), Some(event.detail.as_str()));
     }
@@ -756,9 +764,11 @@ mod tests {
         let mut st = status();
         st.login_url = "https://login.tailscale.com/a/1".into();
         st.setup_url = "https://tailscale.com/s/https".into();
+        st.error_code = "funnel_https_required".into();
         let json = serde_json::to_string(&st).unwrap();
         assert!(json.contains("\"loginUrl\":"));
         assert!(json.contains("\"setupUrl\":"));
+        assert!(json.contains("\"errorCode\":"));
         assert!(!json.contains("login_url"));
     }
 
