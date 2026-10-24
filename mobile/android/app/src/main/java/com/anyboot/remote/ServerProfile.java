@@ -78,6 +78,26 @@ final class ServerProfile {
         return Math.max(MIN_PROBE_TIMEOUT_MS, Math.min(MAX_PROBE_TIMEOUT_MS, raw));
     }
 
+    /**
+     * 每通道超时表的清洗：非法通道 id 丢掉；0 视作「没单独设」直接删（回落默认）；
+     * 越界值夹到 [200ms, 30s]（与 PC 端 normalize_route_timeouts 同语义）。
+     */
+    static Map<String, Integer> normalizeRouteTimeouts(Map<String, Integer> raw) {
+        Map<String, Integer> out = new LinkedHashMap<>();
+        if (raw == null) {
+            return out;
+        }
+        for (Map.Entry<String, Integer> entry : raw.entrySet()) {
+            String key = text(entry.getKey()).toLowerCase(Locale.US);
+            Integer value = entry.getValue();
+            if (value == null || value <= 0 || !isRouteKind(key)) {
+                continue;
+            }
+            out.put(key, clampProbeTimeoutMs(value));
+        }
+        return out;
+    }
+
     /** 系统族归一：只认三个徽标值（windows / macos / linux），其余归空（不画徽标） */
     static String normalizeMachineOs(String raw) {
         String value = text(raw).toLowerCase(Locale.US);
@@ -275,10 +295,17 @@ final class ServerProfile {
     /** 多网卡探测模式：{@link #PROBE_PARALLEL}（默认）/ {@link #PROBE_SERIAL} */
     String probeMode = PROBE_PARALLEL;
     /**
-     * 探测超时（毫秒，默认 2000）：局域网地址与所有远程通道共用。
+     * **默认**探测超时（毫秒，默认 2000）：某个通道没单独设时用它。
      * 0 = 未设置（用默认值）；实际使用前过 {@link #clampProbeTimeoutMs(int)}。
      */
     int probeTimeoutMs = DEFAULT_PROBE_TIMEOUT_MS;
+    /**
+     * **每个通道自己的探测超时**（通道 id → 毫秒）。缺 key（或 0）= 该通道用上面那个默认值。
+     *
+     * <p>为什么要分开：局域网 RTT 通常 &lt;10ms，2 秒都算宽；而 Funnel / 内置 tsnet
+     * 走中继时首次 TLS 握手可能好几秒 —— 一个全局值必然一边偏松一边偏紧。
+     */
+    Map<String, Integer> routeTimeoutsMs = new LinkedHashMap<>();
     /** 经由哪台跳板机（JumpServer.id）；空 = 直连，行为与现在完全一致。
      *  走跳板机时 addresses 语义变为「跳板机视角的内网地址」。 */
     String jumpServerId = "";
@@ -335,6 +362,25 @@ final class ServerProfile {
     static boolean isRouteKind(String id) {
         return ROUTE_LAN.equals(id) || ROUTE_JUMP.equals(id) || ROUTE_TUNNEL.equals(id)
                 || ROUTE_TS.equals(id) || ROUTE_FUNNEL.equals(id) || ROUTE_TSNET.equals(id);
+    }
+
+    /** 默认探测超时（毫秒，通道没单独设时用它） */
+    int defaultProbeTimeoutMs() {
+        return clampProbeTimeoutMs(probeTimeoutMs);
+    }
+
+    /**
+     * 某个通道自己的探测超时（毫秒）：单独设过就用它，否则回落默认值。
+     *
+     * <p>与 PC 端 `RemoteServer::probe_timeout_for` 同语义 —— 局域网给 1~2 秒、
+     * 走公网中继的 Funnel / 内置 tsnet 单独给 5~8 秒，各算各的。
+     */
+    int probeTimeoutFor(String kind) {
+        Integer own = routeTimeoutsMs == null ? null : routeTimeoutsMs.get(text(kind).toLowerCase(Locale.US));
+        if (own != null && own > 0) {
+            return clampProbeTimeoutMs(own);
+        }
+        return defaultProbeTimeoutMs();
     }
 
     /** Funnel 判型：https + 域名含 .ts.net（与 Tailscale 100.x 直连区分；与 PC is_funnel_origin 同语义） */
@@ -1176,6 +1222,8 @@ final class ServerProfile {
         other.machineOs = machineOs;
         other.probeMode = probeMode;
         other.probeTimeoutMs = probeTimeoutMs;
+        other.routeTimeoutsMs = new LinkedHashMap<>(routeTimeoutsMs == null
+                ? new LinkedHashMap<>() : routeTimeoutsMs);
         other.jumpServerId = jumpServerId;
         other.remoteAddr = remoteAddr;
         other.remoteTunnelAddr = remoteTunnelAddr;
@@ -1251,6 +1299,12 @@ final class ServerProfile {
         object.put("machineOs", normalizeMachineOs(machineOs));
         object.put("probeMode", normalizeProbeMode(probeMode));
         object.put("probeTimeoutMs", clampProbeTimeoutMs(probeTimeoutMs));
+        // 每通道自己的超时：只写单独设过的（空 map 也让字段在，读的时候好判断）
+        JSONObject timeouts = new JSONObject();
+        for (Map.Entry<String, Integer> entry : normalizeRouteTimeouts(routeTimeoutsMs).entrySet()) {
+            timeouts.put(entry.getKey(), entry.getValue());
+        }
+        object.put("routeTimeoutsMs", timeouts);
         object.put("jumpServerId", text(jumpServerId));
         object.put("remoteAddr", normalizeRemoteOrigin(remoteAddr));
         object.put("remoteTunnelAddr", normalizeRemoteOrigin(remoteTunnelAddr));
@@ -1321,6 +1375,17 @@ final class ServerProfile {
         profile.probeMode = normalizeProbeMode(object.optString("probeMode", ""));
         // 老档案没有 probeTimeoutMs → 默认 2 秒；越界在 clamp 里夹
         profile.probeTimeoutMs = clampProbeTimeoutMs(object.optInt("probeTimeoutMs", DEFAULT_PROBE_TIMEOUT_MS));
+        // 每通道自己的超时：老档案没有这个字段 → 空表（全部继承上面的默认值）
+        Map<String, Integer> perChannel = new LinkedHashMap<>();
+        JSONObject timeouts = object.optJSONObject("routeTimeoutsMs");
+        if (timeouts != null) {
+            java.util.Iterator<String> keys = timeouts.keys();
+            while (keys.hasNext()) {
+                String key = keys.next();
+                perChannel.put(key, timeouts.optInt(key, 0));
+            }
+        }
+        profile.routeTimeoutsMs = normalizeRouteTimeouts(perChannel);
         profile.jumpServerId = object.optString("jumpServerId", "");
         profile.remoteAddr = normalizeRemoteOrigin(object.optString("remoteAddr", ""));
         profile.remoteTunnelAddr = normalizeRemoteOrigin(object.optString("remoteTunnelAddr", ""));

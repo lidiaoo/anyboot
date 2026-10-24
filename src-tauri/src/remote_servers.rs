@@ -122,10 +122,16 @@ pub struct RemoteServer {
     /// 多网卡探测：parallel_first（默认，并发取首个成功）/ parallel_all（并发等全部）/ serial（按顺序取第一个通）
     #[serde(default)]
     pub probe_mode: String,
-    /// 探测超时（毫秒，默认 2000）：局域网探测与远程通道探测共用。
+    /// 探测超时（毫秒，默认 2000）：**通道自己没单独设时的默认值**。
     /// 0 / 缺省 = 用默认值；实际使用前会夹到 [200, 30000]。
     #[serde(default = "serde_default_probe_timeout_ms")]
     pub probe_timeout_ms: u64,
+    /// **每个通道自己的探测超时**（毫秒，key = 通道 id：lan / jump / tunnel / ts / funnel / tsnet）。
+    /// 缺 key（或值为 0）= 该通道用 `probe_timeout_ms` 这个默认值。
+    /// 为什么按通道分开：局域网 RTT <10ms，2 秒都嫌多；而 Funnel / tsnet 走中继时
+    /// 首次 TLS 握手可能要好几秒 —— 一个全局值必然一边偏松一边偏紧。
+    #[serde(default)]
+    pub route_timeouts_ms: std::collections::BTreeMap<String, u64>,
     /// 经由哪台跳板机（hub SSH 服务器 id）；本轮仅存储校验，转发链路后续接入
     #[serde(default)]
     pub jump_id: String,
@@ -321,9 +327,20 @@ impl RemoteServer {
         out
     }
 
-    /// 这台电脑的探测超时（用户可在「连接策略」里改，默认 2 秒）
+    /// 这台电脑的**默认**探测超时（通道没单独设时用它；默认 2 秒）
     pub(crate) fn probe_timeout(&self) -> Duration {
         Duration::from_millis(clamp_probe_timeout_ms(self.probe_timeout_ms))
+    }
+
+    /// 某个通道自己的探测超时：单独设过就用它，否则回落默认值。
+    ///
+    /// 「每个通道单独设」是有意义的：局域网 2 秒都算宽，而 Funnel / 内置 tsnet
+    /// 走中继时首次 TLS 握手可能好几秒，一个全局值必然一边偏松一边偏紧。
+    pub(crate) fn probe_timeout_for(&self, kind: &str) -> Duration {
+        match self.route_timeouts_ms.get(kind.trim()) {
+            Some(raw) if *raw > 0 => Duration::from_millis(clamp_probe_timeout_ms(*raw)),
+            _ => self.probe_timeout(),
+        }
     }
 
     /// 系统 Funnel 槽的地址（https + *.ts.net）；没有则空。
@@ -410,6 +427,8 @@ impl RemoteServer {
             .map(|raw| raw.trim().to_string())
             .filter(|id| ROUTE_IDS.contains(&id.as_str()))
             .collect();
+        // 每通道探测超时：只留合法通道 id，值 0 等于「没单独设」（删掉，回落默认值），越界夹紧
+        self.route_timeouts_ms = normalize_route_timeouts(&self.route_timeouts_ms);
         // 地址逐条归一：挖 URL 形态里的 token 与裸地址；trim、去空、去重（保序）
         let mut token_from_url: Option<String> = None;
         let mut seen = std::collections::HashSet::new();
@@ -1576,7 +1595,11 @@ pub(crate) fn normalize_probe_mode(mode: &str) -> &'static str {
 /// 局域网全挂才按顺序逐槽探，第一个通的远程槽就是赢家（结果带 `remote: true`）。
 /// 没有任何远程候选时行为与老版本完全一致。
 ///
-/// `probe_timeout_ms`：探测超时（默认 2000，见 [`clamp_probe_timeout_ms`]）。
+/// `probe_timeout_ms`：**默认**探测超时（通道没单独设时用它，默认 2000，
+/// 见 [`clamp_probe_timeout_ms`]）。
+///
+/// `route_timeouts_ms`：每个通道自己的超时（key = 通道 id）。编辑弹窗里点了「测试」
+/// 但还没保存时，前端把界面上那张表原样传过来，测出来的结果才和保存后一致。
 #[tauri::command]
 pub async fn remote_test(
     addresses: Vec<String>,
@@ -1585,13 +1608,21 @@ pub async fn remote_test(
     conn_mode: Option<String>,
     candidates: Option<Vec<RouteTestCandidate>>,
     probe_timeout_ms: Option<u64>,
+    route_timeouts_ms: Option<std::collections::BTreeMap<String, u64>>,
 ) -> RemoteTestResult {
-    let timeout = Duration::from_millis(clamp_probe_timeout_ms(probe_timeout_ms.unwrap_or(0)));
+    let default_ms = clamp_probe_timeout_ms(probe_timeout_ms.unwrap_or(0));
+    let timeout = Duration::from_millis(default_ms);
+    let timeouts = normalize_route_timeouts(&route_timeouts_ms.unwrap_or_default());
     // 主路径：按连接策略给出的显式候选（六通道，顺序 = 用户排的优先级）。
     // 并发/串行由 probe_mode 决定，**所有通道**都参与（不再只有局域网并发）。
     if let Some(list) = candidates.filter(|items| !items.is_empty()) {
         return tauri::async_runtime::spawn_blocking(move || {
-            probe_candidates_blocking(list, &normalize_probe_mode(&probe_mode), timeout)
+            probe_candidates_blocking(
+                list,
+                &normalize_probe_mode(&probe_mode),
+                &timeouts,
+                default_ms,
+            )
         })
         .await
         .unwrap_or_else(|error| RemoteTestResult {
@@ -1628,6 +1659,22 @@ pub(crate) fn clamp_probe_timeout_ms(raw: u64) -> u64 {
         return DEFAULT_PROBE_TIMEOUT_MS;
     }
     raw.clamp(MIN_PROBE_TIMEOUT_MS, MAX_PROBE_TIMEOUT_MS)
+}
+
+/// 每通道超时表的清洗：非法通道 id 丢掉；值 0 视作「没单独设」直接删（回落默认）；
+/// 越界值夹到 [200ms, 30s]（宁可替用户改，也别让一个手滑的 999999 卡住界面）。
+pub(crate) fn normalize_route_timeouts(
+    raw: &std::collections::BTreeMap<String, u64>,
+) -> std::collections::BTreeMap<String, u64> {
+    let mut out = std::collections::BTreeMap::new();
+    for (id, value) in raw {
+        let key = id.trim().to_lowercase();
+        if !ROUTE_IDS.contains(&key.as_str()) || *value == 0 {
+            continue;
+        }
+        out.insert(key, clamp_probe_timeout_ms(*value));
+    }
+    out
 }
 
 fn serde_default_probe_timeout_ms() -> u64 {
@@ -1689,7 +1736,8 @@ fn probe_one(kind: &str, origin: &str, timeout: Duration) -> Result<ProbePayload
 fn probe_candidates_blocking(
     candidates: Vec<RouteTestCandidate>,
     mode: &str,
-    timeout: Duration,
+    timeouts: &std::collections::BTreeMap<String, u64>,
+    default_timeout_ms: u64,
 ) -> RemoteTestResult {
     let list: Vec<RouteTestCandidate> = candidates
         .into_iter()
@@ -1706,12 +1754,29 @@ fn probe_candidates_blocking(
         };
     }
 
+    // 每个通道用自己的超时（没单独设就用默认值）—— 局域网快、Funnel/tsnet 慢，分开才合理
+    let timeout_of = |kind: &str| {
+        let raw = timeouts
+            .get(kind)
+            .copied()
+            .filter(|value| *value > 0)
+            .unwrap_or(default_timeout_ms);
+        Duration::from_millis(clamp_probe_timeout_ms(raw))
+    };
+    // 并发整体兜底时限 = 最慢那个通道的超时 + 500ms（每个探活自己已有 IO 超时，
+    // 这里只防线程池排队），否则会按第一个通道的短超时把慢通道提前拍死
+    let slowest = list
+        .iter()
+        .map(|cand| timeout_of(&cand.kind))
+        .max()
+        .unwrap_or_else(|| Duration::from_millis(clamp_probe_timeout_ms(default_timeout_ms)));
+
     let mut hits: Vec<ProbeHit> = Vec::with_capacity(list.len());
     let mode = normalize_probe_mode(mode);
 
     if mode == "serial" {
         for cand in &list {
-            let outcome = probe_one(&cand.kind, &cand.origin, timeout);
+            let outcome = probe_one(&cand.kind, &cand.origin, timeout_of(&cand.kind));
             let ok = outcome.is_ok();
             hits.push(ProbeHit {
                 kind: cand.kind.clone(),
@@ -1734,6 +1799,7 @@ fn probe_candidates_blocking(
         let kind = cand.kind.clone();
         let origin = cand.origin.clone();
         let remote = is_remote_kind(&kind);
+        let timeout = timeout_of(&kind);
         crate::probe_pool::pool().execute(Box::new(move || {
             let outcome = probe_one(&kind, &origin, timeout);
             // 接收端可能已经不要了（并发首个已经胜出）——发送失败静默丢弃
@@ -1747,8 +1813,7 @@ fn probe_candidates_blocking(
     }
     drop(sender);
 
-    // 整体兜底时限：每个探活自己就有 IO 超时，这里再宽 500ms 防线程池排队
-    let deadline = Instant::now() + timeout + Duration::from_millis(500);
+    let deadline = Instant::now() + slowest + Duration::from_millis(500);
     let mut collected: Vec<ProbeHit> = Vec::new();
     while pending > 0 {
         let remaining = deadline.saturating_duration_since(Instant::now());
@@ -1768,7 +1833,7 @@ fn probe_candidates_blocking(
             Err(_) => break, // 超时：把已拿到的收束掉
         }
     }
-    // 没回来的候选如实标「探测超时」，别让用户以为漏了通道
+    // 没回来的候选如实标「探测超时」（带上它自己的超时值），别让用户以为漏了通道
     for cand in &list {
         if collected
             .iter()
@@ -1780,7 +1845,10 @@ fn probe_candidates_blocking(
             kind: cand.kind.clone(),
             origin: cand.origin.clone(),
             remote: is_remote_kind(&cand.kind),
-            outcome: Err(format!("探测超时（>{}ms）", timeout.as_millis())),
+            outcome: Err(format!(
+                "探测超时（>{}ms）",
+                timeout_of(&cand.kind).as_millis()
+            )),
         });
     }
     finish_probe(collected)
@@ -2345,8 +2413,19 @@ fn remote_test_via_blocking(
             }
         }
     };
-    // 经跳板机的转发端点在本机 127.0.0.1：局域网级 RTT，用固定 3 秒足够
-    match probe_health(&format!("{}:{}", endpoint.host, endpoint.port), PROBE_TIMEOUT) {
+    // 经跳板机的转发端点在本机 127.0.0.1：局域网级 RTT；超时仍尊重档案里
+    // 「跳板机」通道自己设的值（没设就是默认 2 秒），别再写死 3 秒
+    let timeout = load_store(app)
+        .ok()
+        .and_then(|store| {
+            store
+                .servers
+                .iter()
+                .find(|item| item.id == server_id)
+                .map(|server| server.probe_timeout_for("jump"))
+        })
+        .unwrap_or(PROBE_TIMEOUT);
+    match probe_health(&format!("{}:{}", endpoint.host, endpoint.port), timeout) {
         Ok((ms, machine_id, machine_name)) => RemoteTestResult {
             ok: true,
             addr: format!("127.0.0.1:{}（经跳板机）", endpoint.port),
@@ -2993,19 +3072,20 @@ fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Result<RemoteB
     let mut winner: Option<(u64, String, String, String)> = None;
     if has_jump {
         for (kind, origin) in &candidates {
+            let per_kind = server.probe_timeout_for(kind);
             let result = match kind.as_str() {
-                "lan" => probe_health(origin, server.probe_timeout()),
+                "lan" => probe_health(origin, per_kind),
                 "jump" => {
                     let state = app.state::<RemoteJumpState>();
                     match remote_endpoint_inner(app, state.inner(), server_id) {
                         Ok(endpoint) => probe_health(
                             &format!("{}:{}", endpoint.host, endpoint.port),
-                            server.probe_timeout(),
+                            per_kind,
                         ),
                         Err(error) => Err(error),
                     }
                 }
-                _ => probe_remote_health(origin, server.probe_timeout()),
+                _ => probe_remote_health(origin, per_kind),
             };
             match result {
                 Ok((ms, machine_id, machine_name)) => {
@@ -3039,7 +3119,8 @@ fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Result<RemoteB
         let outcome = probe_candidates_blocking(
             engine_candidates,
             &normalize_probe_mode(&server.probe_mode),
-            server.probe_timeout(),
+            &server.route_timeouts_ms,
+            server.probe_timeout_ms,
         );
         if outcome.ok {
             winner = Some((
@@ -3226,6 +3307,11 @@ pub fn hub_about_open(page: String) -> Result<(), String> {
 mod tests {
     use super::*;
 
+    /// 测试用：一个通道都没单独设超时（所有通道都回落默认值）
+    fn no_route_timeouts() -> std::collections::BTreeMap<String, u64> {
+        std::collections::BTreeMap::new()
+    }
+
     #[test]
     fn split_address_forms() {
         // 裸 host:port 原样
@@ -3284,6 +3370,7 @@ mod tests {
             machine_name: String::new(),
             machine_os: String::new(),
             probe_timeout_ms: 0,
+            route_timeouts_ms: Default::default(),
             probe_mode: " other ".into(),
             jump_id: " j1 ".into(),
             macs: Default::default(),
@@ -3396,6 +3483,7 @@ mod tests {
             machine_name: String::new(),
             machine_os: String::new(),
             probe_timeout_ms: 0,
+            route_timeouts_ms: Default::default(),
             probe_mode: String::new(),
             jump_id: String::new(),
             macs: Default::default(),
@@ -3643,6 +3731,7 @@ mod tests {
             machine_name: String::new(),
             machine_os: String::new(),
             probe_timeout_ms: 0,
+            route_timeouts_ms: Default::default(),
             probe_mode: "serial".into(),
             jump_id: String::new(),
             macs: Default::default(),
@@ -3683,6 +3772,7 @@ mod tests {
                 machine_name: String::new(),
                 machine_os: String::new(),
                 probe_timeout_ms: 0,
+                route_timeouts_ms: Default::default(),
                 probe_mode: "parallel".into(),
                 jump_id: String::new(),
                 macs: Default::default(),
@@ -4018,7 +4108,7 @@ mod tests {
             RouteTestCandidate { kind: "lan".into(), origin: format!("127.0.0.1:{port}") },
             RouteTestCandidate { kind: "lan".into(), origin: "127.0.0.1:2".into() },
         ];
-        let result = probe_candidates_blocking(cands, "serial", PROBE_TIMEOUT);
+        let result = probe_candidates_blocking(cands, "serial", &no_route_timeouts(), DEFAULT_PROBE_TIMEOUT_MS);
         assert!(result.ok, "串行应探到活着的那条：{}", result.error);
         assert_eq!(result.addr, format!("127.0.0.1:{port}"));
         assert_eq!(result.os, "windows", "赢家要带回系统族");
@@ -4033,7 +4123,7 @@ mod tests {
             RouteTestCandidate { kind: "lan".into(), origin: "127.0.0.1:1".into() },
             RouteTestCandidate { kind: "tunnel".into(), origin: format!("http://127.0.0.1:{port}") },
         ];
-        let result = probe_candidates_blocking(cands, "parallel_all", PROBE_TIMEOUT);
+        let result = probe_candidates_blocking(cands, "parallel_all", &no_route_timeouts(), DEFAULT_PROBE_TIMEOUT_MS);
         assert!(result.ok, "并发全部应探到远程通道：{}", result.error);
         assert!(result.remote, "赢家是远程通道");
         assert_eq!(result.kind, "tunnel");
@@ -4049,7 +4139,7 @@ mod tests {
             RouteTestCandidate { kind: "lan".into(), origin: "127.0.0.1:1".into() },
             RouteTestCandidate { kind: "lan".into(), origin: format!("127.0.0.1:{port}") },
         ];
-        let result = probe_candidates_blocking(cands, "parallel_first", PROBE_TIMEOUT);
+        let result = probe_candidates_blocking(cands, "parallel_first", &no_route_timeouts(), DEFAULT_PROBE_TIMEOUT_MS);
         assert!(result.ok);
         assert_eq!(result.os, "macos");
     }
@@ -4060,7 +4150,7 @@ mod tests {
             RouteTestCandidate { kind: "lan".into(), origin: "127.0.0.1:1".into() },
             RouteTestCandidate { kind: "ts".into(), origin: "http://127.0.0.1:2".into() },
         ];
-        let result = probe_candidates_blocking(cands, "parallel_all", Duration::from_millis(300));
+        let result = probe_candidates_blocking(cands, "parallel_all", &no_route_timeouts(), 300);
         assert!(!result.ok);
         assert_eq!(result.results.len(), 2);
         assert!(result.error.contains("所有通道都不通"), "错误文案：{}", result.error);
@@ -4068,9 +4158,90 @@ mod tests {
 
     #[test]
     fn probe_candidates_empty_is_an_error_not_a_panic() {
-        let result = probe_candidates_blocking(Vec::new(), "parallel_first", PROBE_TIMEOUT);
+        let result = probe_candidates_blocking(Vec::new(), "parallel_first", &no_route_timeouts(), DEFAULT_PROBE_TIMEOUT_MS);
         assert!(!result.ok);
         assert!(result.error.contains("没有可探测的通道"));
+    }
+
+    #[test]
+    fn route_timeouts_are_cleaned_per_channel() {
+        // 非法通道 id 丢掉；值 0 = 「没单独设」→ 删掉（回落默认）；越界值夹紧
+        let mut raw = std::collections::BTreeMap::new();
+        raw.insert(" LAN ".to_string(), 5_000);
+        raw.insert("funnel".to_string(), 0);
+        raw.insert("tsnet".to_string(), 999_999);
+        raw.insert("bogus".to_string(), 3_000);
+        let cleaned = normalize_route_timeouts(&raw);
+        assert_eq!(cleaned.get("lan"), Some(&5_000), "通道 id 要 trim + 小写");
+        assert!(!cleaned.contains_key("funnel"), "0 = 没单独设，不该留下");
+        assert_eq!(cleaned.get("tsnet"), Some(&MAX_PROBE_TIMEOUT_MS));
+        assert!(!cleaned.contains_key("bogus"), "非法通道 id 要丢掉");
+    }
+
+    #[test]
+    fn probe_timeout_for_falls_back_to_the_default() {
+        let mut server = route_test_server();
+        server.probe_timeout_ms = 2_500;
+        server.route_timeouts_ms.insert("funnel".into(), 8_000);
+        assert_eq!(
+            server.probe_timeout_for("funnel"),
+            Duration::from_millis(8_000),
+            "单独设过的通道用自己的值"
+        );
+        assert_eq!(
+            server.probe_timeout_for("lan"),
+            Duration::from_millis(2_500),
+            "没单独设的通道回落默认值"
+        );
+        // 0 等于没设（normalize 里会被删掉，这里防手写数据绕过 normalize）
+        server.route_timeouts_ms.insert("ts".into(), 0);
+        assert_eq!(server.probe_timeout_for("ts"), Duration::from_millis(2_500));
+    }
+
+    /// 起一个**慢**服务端：先睡 delay 再回 /health（用来验证「各通道用自己的超时」）
+    fn spawn_slow_health_stub(delay: Duration, os: &'static str) -> u16 {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("监听回环");
+        let port = listener.local_addr().expect("本地地址").port();
+        std::thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                let mut stream = stream;
+                std::thread::sleep(delay);
+                let mut buffer = [0u8; 512];
+                let _ = std::io::Read::read(&mut stream, &mut buffer);
+                let body = format!(
+                    "{{\"ok\":true,\"machineId\":\"m1\",\"machineName\":\"慢机\",\"os\":\"{os}\"}}"
+                );
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = std::io::Write::write_all(&mut stream, response.as_bytes());
+            }
+        });
+        port
+    }
+
+    #[test]
+    fn probe_uses_each_channels_own_timeout() {
+        // 服务端固定慢 700ms：同一台机器上，短超时的通道该失败、长超时的通道该成功。
+        // 若引擎还在用「一个全局超时」，两行结果必然一样 —— 这个测试就是钉住这点。
+        let port = spawn_slow_health_stub(Duration::from_millis(700), "linux");
+        let mut timeouts = std::collections::BTreeMap::new();
+        timeouts.insert("lan".to_string(), 200);
+        timeouts.insert("ts".to_string(), 3_000);
+        let cands = vec![
+            RouteTestCandidate { kind: "lan".into(), origin: format!("127.0.0.1:{port}") },
+            RouteTestCandidate { kind: "ts".into(), origin: format!("http://127.0.0.1:{port}") },
+        ];
+        let result = probe_candidates_blocking(cands, "parallel_all", &timeouts, 2_000);
+        assert!(result.ok, "3 秒超时的通道要能等到 700ms 的响应：{}", result.error);
+        assert_eq!(result.kind, "ts", "赢家应该是给足超时的那条");
+        assert_eq!(result.results.len(), 2);
+        let short = result.results.iter().find(|row| row.kind == "lan").expect("短超时那行");
+        assert!(!short.ok, "200ms 等不到 700ms 的响应，必须失败");
+        let long = result.results.iter().find(|row| row.kind == "ts").expect("长超时那行");
+        assert!(long.ok, "3s 应该成功，逐行结果各按自己的超时判定");
     }
 
     fn route_test_server() -> RemoteServer {

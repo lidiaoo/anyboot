@@ -6,6 +6,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -36,13 +37,16 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -307,6 +311,39 @@ internal class ServerEditFormState(
     fun probeTimeoutMs(): Int {
         val value = probeTimeoutText.trim().toDoubleOrNull() ?: return ServerProfile.DEFAULT_PROBE_TIMEOUT_MS
         return ServerProfile.clampProbeTimeoutMs((value * 1000).toInt())
+    }
+
+    /**
+     * **每个通道自己的探测超时**（通道 id → 秒文本）。空 = 用上面的默认值。
+     * 为什么要分开：局域网 RTT <10ms，2 秒都算宽；Funnel / 内置 tsnet 走中继时
+     * 首次 TLS 握手可能好几秒 —— 一个全局值必然一边偏松一边偏紧。
+     */
+    val routeTimeoutTexts = mutableStateMapOf<String, String>().apply {
+        profile?.routeTimeoutsMs?.forEach { (kind, ms) ->
+            if (ms != null && ms > 0) {
+                val seconds = ms / 1000.0
+                put(
+                    kind,
+                    if (seconds == seconds.toLong().toDouble()) seconds.toLong().toString()
+                    else String.format(Locale.US, "%.1f", seconds),
+                )
+            }
+        }
+    }
+
+    /** 某个通道该等多久（毫秒）：单独设过用它，否则回落默认值 */
+    fun routeTimeoutMs(kind: String): Int {
+        val seconds = routeTimeoutTexts[kind]?.trim()?.toDoubleOrNull() ?: return probeTimeoutMs()
+        return ServerProfile.clampProbeTimeoutMs((seconds * 1000).toInt())
+    }
+
+    /** 落盘用的整张表（只收**单独设过**的通道） */
+    fun routeTimeoutsMs(): Map<String, Int> {
+        val out = LinkedHashMap<String, Int>()
+        ROUTE_IDS_ALL.forEach { kind ->
+            if (!routeTimeoutTexts[kind].isNullOrBlank()) out[kind] = routeTimeoutMs(kind)
+        }
+        return out
     }
 
     /** 连接优先级（五通道并列，有序）：lan/jump/tunnel/ts/funnel；旧 connMode 已废弃只做迁移 */
@@ -729,13 +766,14 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
             title = "连接策略",
             summary = "优先级 " + state.routeOrder.count { state.routeAvailable(it) && it !in state.routeDisabled } + "/" + ROUTE_IDS_ALL.size +
                 " · " + probeLabel(state.probeMode) +
-                " · " + String.format(Locale.US, "%.1f", state.probeTimeoutMs() / 1000.0) + "s" +
+                " · 默认 " + String.format(Locale.US, "%.1f", state.probeTimeoutMs() / 1000.0) + "s" +
+                (state.routeTimeoutsMs().size.let { if (it > 0) "（$it 个通道单独设）" else "" }) +
                 (if (state.jumpIndex > 0) " · 跳板机" else ""),
             open = state.connFoldOpen,
             onToggle = { state.connFoldOpen = !state.connFoldOpen },
         )
         if (state.connFoldOpen) {
-        FieldLabel("连接优先级（↑↓ 调顺序；行尾开关启用 / 停用）")
+        FieldLabel("连接优先级（↑↓ 调顺序；行尾开关启用 / 停用；名称下的小框 = 这个通道自己的探测超时/秒，留空用下面的默认值）")
         state.routeOrder.forEachIndexed { index, kind ->
             val available = state.routeAvailable(kind)
             val enabled = available && kind !in state.routeDisabled
@@ -758,13 +796,34 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                         fontWeight = FontWeight.Medium,
                         color = if (available) palette.fg else palette.fgFaint,
                     )
-                    Text(
-                        state.routeSub(kind) + if (available) "" else "（不可用）",
-                        fontSize = 10.sp,
-                        color = palette.fgFaint,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            state.routeSub(kind) + if (available) "" else "（不可用）",
+                            fontSize = 10.sp,
+                            color = palette.fgFaint,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        SmallNumberField(
+                            value = state.routeTimeoutTexts[kind] ?: "",
+                            enabled = available,
+                            placeholder = "默认",
+                            onValueChange = { raw ->
+                                val cleaned = raw.filter { it.isDigit() || it == '.' }.take(5)
+                                if (cleaned.isBlank()) state.routeTimeoutTexts.remove(kind)
+                                else state.routeTimeoutTexts[kind] = cleaned
+                            },
+                            modifier = Modifier.width(56.dp),
+                        )
+                        Text(
+                            "s",
+                            fontSize = 10.sp,
+                            color = palette.fgFaint,
+                            modifier = Modifier.padding(start = 2.dp),
+                        )
+                    }
                 }
                 TextButton(
                     onClick = { state.routeMove(kind, -1) },
@@ -788,8 +847,9 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
             }
         }
         Text(
-            "探活与接口请求按此顺序逐通道试，第一个通的就走谁；跳板机需先在下方选好档案。" +
-                "电源唤醒不走此排序 —— 魔术包只能在局域网内广播。",
+            "探活与接口请求按此顺序逐通道试，第一个通的就走谁；每个通道可以单独设探测超时" +
+                "（局域网 1~2 秒够，走公网中继的 Funnel / 内置 Funnel 首次握手慢，可以单独给 5~8 秒）。" +
+                "跳板机需先在下方选好档案；电源唤醒不走此排序 —— 魔术包只能在局域网内广播。",
             fontSize = 10.sp, color = palette.fgFaint,
             modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
         )
@@ -829,7 +889,7 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
         }
 
         FieldLabel(
-            "探测方式（对下面所有通道生效，不只是局域网）"
+            "探测方式（连接优先级整体的策略，对上面每一个通道都生效）"
         )
         Row(verticalAlignment = Alignment.CenterVertically) {
             RadioButton(
@@ -864,7 +924,7 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
             modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
         )
 
-        FieldLabel("探测超时（秒，默认 2）")
+        FieldLabel("默认探测超时（秒）—— 通道那格留空时用它")
         Row(verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(
                 value = state.probeTimeoutText,
@@ -891,7 +951,7 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
             )
             Spacer(Modifier.width(10.dp))
             Text(
-                "局域网与所有远程通道共用这一个超时：公网隧道握手慢就把这里调大（上限 30 秒）",
+                "通道那格填了就以它自己为准；没填的通道才用这个默认值（上限 30 秒）",
                 fontSize = 10.sp, color = palette.fgFaint,
                 modifier = Modifier.weight(1f),
             )
@@ -1212,8 +1272,10 @@ internal fun applyServerEdit(
     target.name = state.name.trim().ifEmpty { target.host() }
     target.token = state.resolvedToken()
     target.probeMode = ServerProfile.normalizeProbeMode(state.probeMode)
-    // 探测超时（界面秒 → 落盘毫秒，空/非法回落默认 2 秒）
+    // 默认探测超时（界面秒 → 落盘毫秒，空/非法回落默认 2 秒）
     target.probeTimeoutMs = state.probeTimeoutMs()
+    // 每通道自己的超时（只写单独设过的；空表 = 全部继承默认值）
+    target.routeTimeoutsMs = LinkedHashMap(state.routeTimeoutsMs())
     // 五通道优先级；旧 connMode 已废弃恒空（后端/两端按 routeOrder 消费）
     target.connMode = ""
     target.routeOrder.clear()
@@ -1379,3 +1441,49 @@ private fun RemoteSlotRow(
     }
 }
 internal const val SERVER_EDIT_EMPTY_ADDRESS_HINT = "请填电脑地址"
+
+/**
+ * 紧凑的小数字输入框（26dp 高、等宽居中）：连接优先级每行的「探测超时/秒」用。
+ *
+ * <p>为什么不用 OutlinedTextField：M3 那个最小高度 56dp，六个通道就是 300+ dp，
+ * 把整个连接策略折叠区撑爆；这里只要能输入几个数字，自绘更合适。
+ */
+@Composable
+private fun SmallNumberField(
+    value: String,
+    enabled: Boolean,
+    placeholder: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val palette = LocalPalette.current
+    Box(
+        modifier = modifier
+            .height(26.dp)
+            .clip(RoundedCornerShape(7.dp))
+            .background(palette.card)
+            .border(1.dp, if (enabled) palette.line else palette.line.copy(alpha = 0.5f), RoundedCornerShape(7.dp))
+            .padding(horizontal = 4.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            enabled = enabled,
+            singleLine = true,
+            textStyle = TextStyle(
+                fontSize = 11.sp,
+                color = if (enabled) palette.fg else palette.fgFaint,
+                textAlign = TextAlign.Center,
+                fontFamily = FontFamily.Monospace,
+            ),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+            decorationBox = { inner ->
+                if (value.isEmpty()) {
+                    Text(placeholder, fontSize = 9.sp, color = palette.fgFaint, maxLines = 1)
+                }
+                inner()
+            },
+        )
+    }
+}

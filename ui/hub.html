@@ -1492,6 +1492,15 @@
   .rp-grip { cursor: grab; color: rgb(var(--fg-faint)); font-size: 14px; flex: none; user-select: none; padding: 0 2px; }
   .rp-name { font-weight: 600; font-size: 12.5px; flex: none; }
   .rp-sub { flex: 1; min-width: 0; font-size: 11px; color: rgb(var(--fg-faint)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* 每通道探测超时（秒）：窄输入框，留空显示「默认」 */
+  .rp-timeout {
+    flex: none; width: 62px; padding: 4px 6px; text-align: center;
+    border: 1px solid rgb(var(--line)); border-radius: 7px;
+    background: rgb(var(--card)); color: rgb(var(--fg)); font-size: 11px; outline: none;
+  }
+  .rp-timeout:focus { border-color: rgb(var(--accent)); }
+  .rp-timeout::placeholder { color: rgb(var(--fg-faint)); }
+  .rp-off .rp-timeout, .rp-na .rp-timeout { opacity: .5; }
   .rp-btn {
     border: 0; background: transparent; color: rgb(var(--fg-faint)); cursor: pointer;
     width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; flex: none;
@@ -2046,35 +2055,37 @@
               </div>
               <div class="fold-body" id="rsFoldConn" hidden data-page-node-id="rsFieldConn1">
                 <div class="field">
-                  <label>连接优先级（拖动排序；行尾开关 = 启用 / 停用）</label>
+                  <label>连接优先级（拖动排序；每行中间那格 = <b>这个通道自己的探测超时</b>/秒，留空用下面的默认值）</label>
                   <div class="route-prio" id="rsRouteList"></div>
                   <p class="field-hint" style="margin:6px 0 0">
                     按住 ☰ 上下拖动调整顺序（或点 ↑↓）；探活与接口请求按此顺序逐通道试，第一个通的就走谁。
-                    跳板机 = 局域网地址经 SSH 转发的走法，选好下方跳板机档案才可用；
+                    <b>每个通道可以单独设探测超时</b>：局域网一般 1~2 秒够，走公网中继的 Funnel / 内置 Funnel
+                    首次握手慢，可以单独给 5~8 秒，互不牵连。留空的那一格就用下面的默认值。
+                    行尾开关 = 启用 / 停用；跳板机 = 局域网地址经 SSH 转发的走法，选好下方跳板机档案才可用；
                     电源唤醒不走此排序 —— 魔术包只能在局域网内广播。
                   </p>
                 </div>
                 <div class="field">
-                  <label>探测方式（对下面所有通道生效，不只是局域网）</label>
+                  <label>探测方式（<b>连接优先级整体</b>的策略，对上面每一个通道都生效）</label>
                   <div style="display:flex;gap:4px" role="group" aria-label="探测方式">
                     <button type="button" class="btn small seg-on" id="rsProbeFirst" style="flex:1">并发（首个）</button>
                     <button type="button" class="btn small" id="rsProbeAll" style="flex:1">并发（全部）</button>
                     <button type="button" class="btn small" id="rsProbeSerial" style="flex:1">串行</button>
                   </div>
                   <p class="field-hint" style="margin:6px 0 0">
-                    电脑页与电脑列表的探活都按这里来：并发（首个）把全部通道同时发出，谁先成功就用谁；
+                    电脑页与电脑列表的探活都按这里来：并发（首个）把<b>全部通道</b>同时发出，谁先成功就用谁；
                     并发（全部）等全部返回，逐行报每个通道的成败与耗时；串行按上面的优先级逐个试，第一个通就停。
                     探测跑在**独立的探测线程池**上，调大超时或选并发全部也不会卡住界面。
                   </p>
                 </div>
                 <div class="field">
-                  <label for="rsProbeTimeout">探测超时（秒）</label>
+                  <label for="rsProbeTimeout">默认探测超时（秒）—— 通道那格留空时用它</label>
                   <input id="rsProbeTimeout" class="mono" type="number" step="0.5" min="0.2" max="30"
                          placeholder="2" style="width:140px"
                          data-page-node-id="rsFieldTimeout1">
                   <p class="field-hint" style="margin:6px 0 0">
-                    每个通道的探活最多等这么久，默认 2 秒（范围 0.2 ~ 30 秒）。
-                    公网隧道首次 TLS 握手偏慢，出门只走 Tailscale Funnel 时可以调到 5 ~ 8 秒。
+                    默认 2 秒（范围 0.2 ~ 30 秒）。想让某个通道等更久 / 更短，就在上面那一行各自填 ——
+                    填了的那一格以它自己为准，没填的才用这个默认值。
                   </p>
                 </div>
                 <div class="field" data-page-node-id="rsFieldJump1">
@@ -4993,14 +5004,18 @@
    *  超时与模式都取档案里的「连接策略」：**电脑页和电脑列表共用这一处**。 */
   async function pcProbe(r, mode) {
     const candidates = pcRouteCandidates(r);
-    // 探测超时（毫秒）跟档案走；老档案没这字段 → 后端默认 2 秒
+    // 默认探测超时（毫秒）跟档案走；老档案没这字段 → 后端默认 2 秒
     const timeout = r.probe_timeout_ms || 2000;
+    // 每个通道自己的超时也要带上，否则「单独给 Funnel 8 秒」在电脑页 / 列表都不作数
+    const routeTimeouts = r.route_timeouts_ms || {};
     const res = candidates.length
       ? await invoke('remote_test', {
-          addresses: [], probeMode: mode, candidates: candidates, probeTimeoutMs: timeout,
+          addresses: [], probeMode: mode, candidates: candidates,
+          probeTimeoutMs: timeout, routeTimeoutsMs: routeTimeouts,
         })
       : await invoke('remote_test', {
-          addresses: r.addresses, probeMode: mode, probeTimeoutMs: timeout,
+          addresses: r.addresses, probeMode: mode,
+          probeTimeoutMs: timeout, routeTimeoutsMs: routeTimeouts,
         });
     // 连接方式是否翻转（直连 ↔ 隧道）：变了要刷新标注（电脑标签/列表行/悬浮球）
     let connChanged = false;
@@ -7139,6 +7154,10 @@
   };
   let rsRouteOrder = ROUTE_IDS.slice();  // 有序通道 id
   let rsRouteDisabled = {};              // kind -> true = 停用
+  // 每个通道自己的探测超时（kind → 秒文本）。空 = 用「默认探测超时」。
+  // 为什么要分开：局域网 RTT <10ms、2 秒都算宽；Funnel / 内置 tsnet 走中继时
+  // 首次 TLS 握手可能好几秒 —— 一个全局值必然一边偏松一边偏紧。
+  let rsRouteTimeouts = {};
   let rsRouteDrag = null;                // 拖动中的 kind
   let rsDeleteArmed = false;
   // ---- 远程接入四槽 + 令牌回显（与手机端 ServerProfile 四槽一一对应） ----
@@ -7320,7 +7339,7 @@
   rsBindFold('rsFoldConnHead', 'rsFoldConn');
   rsBindFold('rsFoldPowerHead', 'rsFoldPower');
   /**
-   * 编辑框里的探测超时（毫秒）。输入框单位是**秒**（用户读起来直观），
+   * **默认**探测超时（毫秒）：通道没单独设时用它。输入框单位是**秒**（用户读起来直观），
    * 空 / 非法 / 越界一律夹到 [0.2, 30] 秒，缺省 2 秒 —— 与后端
    * `clamp_probe_timeout_ms` 同一套边界，两边不会打架。
    */
@@ -7331,8 +7350,34 @@
     return Math.round(Math.min(30, Math.max(0.2, seconds)) * 1000);
   }
 
-  /** 折叠区标题摘要：连接策略 = 优先级启用数 + 探测 + 跳板机；电源路由 = 条数 */
-  function rsRenderFoldCounts() {
+  /** 某个通道自己的探测超时（毫秒）：单独设过就用它，否则回落默认值 */
+  function rsRouteTimeoutMs(kind) {
+    const seconds = parseFloat(rsRouteTimeouts[kind]);
+    if (!isFinite(seconds) || seconds <= 0) return rsProbeTimeoutMs();
+    return Math.round(Math.min(30, Math.max(0.2, seconds)) * 1000);
+  }
+
+  /** 落盘 / 传给后端用的整张表（只收**单独设过**的通道，空的不写，省得档案里一堆默认值） */
+  function rsRouteTimeoutsMs() {
+    const out = {};
+    ROUTE_IDS.forEach(function (kind) {
+      if (rsRouteTimeouts[kind]) out[kind] = rsRouteTimeoutMs(kind);
+    });
+    return out;
+  }
+
+  /** 单独设过超时的通道数（折叠摘要用） */
+  function rsRouteTimeoutCount() {
+    return ROUTE_IDS.filter(function (kind) { return !!rsRouteTimeouts[kind]; }).length;
+  }
+
+  /**
+   * 折叠区标题摘要：连接策略 = 优先级启用数 + 探测 + 默认超时 + 跳板机；电源路由 = 条数
+   *
+   * @param skipRoutes true = 只刷摘要、不重建优先级列表。超时输入框的 change 必须传 true ——
+   *   否则每改一个数字就把整排输入框拆了重建，正在点的下一个格子会「点不动」。
+   */
+  function rsRenderFoldCounts(skipRoutes) {
     const probeLabel = rsProbe === 'parallel_all' ? '并发全部' : (rsProbe === 'serial' ? '串行' : '并发首个');
     const jump = document.getElementById('rsJump').value;
     const enabled = rsRouteOrder.filter(function (kind) {
@@ -7340,12 +7385,13 @@
     }).length;
     document.getElementById('rsFoldConnCount').textContent =
       '优先级 ' + enabled + '/' + ROUTE_IDS.length + ' · ' + probeLabel +
-      ' · ' + (rsProbeTimeoutMs() / 1000) + 's' +
+      ' · 默认 ' + (rsProbeTimeoutMs() / 1000) + 's' +
+      (rsRouteTimeoutCount() ? '（' + rsRouteTimeoutCount() + ' 个通道单独设）' : '') +
       (jump ? ' · 跳板机' : '');
     const routes = rsRouteEditor.routes();
     document.getElementById('rsFoldPowerCount').textContent =
       routes.length ? routes.length + ' 条' : '未配置';
-    rsRenderRoutes();
+    if (!skipRoutes) rsRenderRoutes();
   }
   const rsEditOverlay = document.getElementById('rsEditOverlay');
 
@@ -7466,6 +7512,32 @@
       const sub = document.createElement('span');
       sub.className = 'rp-sub';
       sub.textContent = rsRouteSub(kind) + (available ? '' : '（不可用）');
+      // 这个通道自己的探测超时（秒）：留空 = 用上面的默认值
+      const timeout = document.createElement('input');
+      timeout.type = 'number';
+      timeout.className = 'rp-timeout mono';
+      timeout.step = '0.5';
+      timeout.min = '0.2';
+      timeout.max = '30';
+      timeout.placeholder = '默认';
+      timeout.value = rsRouteTimeouts[kind] || '';
+      timeout.title = '这个通道的探测超时（秒）；留空 = 用上面的默认值';
+      timeout.setAttribute('aria-label', (ROUTE_LABELS[kind] || kind) + ' 通道的探测超时（秒）');
+      // 行本身是 draggable 的：在输入框上按下鼠标要临时关掉拖动，否则一选文字就被拖走
+      timeout.addEventListener('mousedown', function () { row.draggable = false; });
+      timeout.addEventListener('blur', function () { row.draggable = true; });
+      timeout.addEventListener('click', function (event) { event.stopPropagation(); });
+      timeout.addEventListener('change', function () {
+        const raw = (timeout.value || '').trim();
+        if (!raw || !(parseFloat(raw) > 0)) {
+          delete rsRouteTimeouts[kind];
+          timeout.value = '';
+        } else {
+          rsRouteTimeouts[kind] = raw;
+        }
+        // 只刷摘要，不重建整排输入框（否则紧接着点下一个格子会点空）
+        rsRenderFoldCounts(true);
+      });
       const up = document.createElement('button');
       up.type = 'button'; up.className = 'rp-btn'; up.textContent = '↑'; up.title = '上移';
       up.disabled = index === 0;
@@ -7474,7 +7546,8 @@
       dn.type = 'button'; dn.className = 'rp-btn'; dn.textContent = '↓'; dn.title = '下移';
       dn.disabled = index === rsRouteOrder.length - 1;
       dn.addEventListener('click', function () { rsRouteMove(kind, 1); });
-      row.appendChild(grip); row.appendChild(name); row.appendChild(sub); row.appendChild(up); row.appendChild(dn);
+      row.appendChild(grip); row.appendChild(name); row.appendChild(sub);
+      row.appendChild(timeout); row.appendChild(up); row.appendChild(dn);
       // 启停开关
       const label = document.createElement('label');
       label.className = 'switch';
@@ -7578,9 +7651,17 @@
         ? r.probe_mode : 'parallel_first')
       : 'parallel_first';
     rsProbeButtons();
-    // 探测超时（秒）：落盘是毫秒；老档案没有该字段 → 空输入框由 placeholder 提示默认 2 秒
+    // 默认探测超时（秒）：落盘是毫秒；老档案没有该字段 → 空输入框由 placeholder 提示默认 2 秒
     document.getElementById('rsProbeTimeout').value =
       r && r.probe_timeout_ms ? String(r.probe_timeout_ms / 1000) : '';
+    // 每通道自己的超时：老档案只有上面那个默认值，这里自然是空的（= 全部继承默认）
+    rsRouteTimeouts = {};
+    if (r && r.route_timeouts_ms) {
+      ROUTE_IDS.forEach(function (kind) {
+        const raw = r.route_timeouts_ms[kind];
+        if (raw > 0) rsRouteTimeouts[kind] = String(raw / 1000);
+      });
+    }
     // 优先级：读新字段；老档案（没有 route_order）按 conn_mode 迁移语义给初始序
     if (r && Array.isArray(r.route_order) && r.route_order.length) {
       const seen = {};
@@ -7658,8 +7739,10 @@
       : invoke('remote_test', {
           addresses: [],
           probeMode: rsProbe,
-          // 探测超时跟着「连接策略」里填的走（界面上是秒，后端收毫秒）
+          // 默认探测超时（通道没单独设时用它；界面上是秒，后端收毫秒）
           probeTimeoutMs: rsProbeTimeoutMs(),
+          // 每个通道自己的超时：编辑框里那张表原样带过去，测出来才和保存后一致
+          routeTimeoutsMs: rsRouteTimeoutsMs(),
           // 六通道候选：按优先级顺序传（跳板不在此路径；lan 候选逐地址，后端按 probeMode 并发/串行）
           candidates: rsRouteCandidatesForTest(),
         });
@@ -7770,8 +7853,10 @@
       conn_mode: '',
       route_order: rsRouteOrder.slice(),
       route_disabled: rsRouteOrder.filter(function (kind) { return rsRouteDisabled[kind]; }),
-      // 探测超时（毫秒）：0 = 后端按默认 2 秒；界面上填的是秒
+      // 默认探测超时（毫秒）：通道没单独设时用它；界面上填的是秒
       probe_timeout_ms: rsProbeTimeoutMs(),
+      // 每个通道自己的探测超时（毫秒，key = 通道 id；空的通道不写 = 继承上面的默认值）
+      route_timeouts_ms: rsRouteTimeoutsMs(),
       jump_id: document.getElementById('rsJump').value || '',
       // 远程接入四槽：各自独立（配对令牌只在分拣出新值时更新，空 = 保持已存）
       remote_addr: '',

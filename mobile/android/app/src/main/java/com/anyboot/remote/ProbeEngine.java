@@ -131,12 +131,16 @@ final class ProbeEngine {
             result.error = onlyKinds == null ? "没有可用连接通道（地址为空，或通道都被停用）" : "";
             return result;
         }
-        int timeout = ServerProfile.clampProbeTimeoutMs(profile.probeTimeoutMs);
+        // 每个通道用自己的超时（通道没单独设 → 档案里的默认值）：局域网快、Funnel/tsnet 慢
+        java.util.Map<String, Integer> timeouts = new java.util.HashMap<>();
+        for (String[] candidate : candidates) {
+            timeouts.put(candidate[0], profile.probeTimeoutFor(candidate[0]));
+        }
         String mode = ServerProfile.normalizeProbeMode(profile.probeMode);
         if (ServerProfile.PROBE_SERIAL.equals(mode)) {
-            return serial(candidates, timeout, jump);
+            return serial(candidates, timeouts, jump);
         }
-        return parallel(candidates, timeout, jump, ServerProfile.PROBE_PARALLEL_ALL.equals(mode));
+        return parallel(candidates, timeouts, jump, ServerProfile.PROBE_PARALLEL_ALL.equals(mode));
     }
 
     /**
@@ -165,10 +169,11 @@ final class ProbeEngine {
     }
 
     /** 串行：按优先级逐个试，第一个通的就是赢家（省流量，最慢） */
-    private static Result serial(List<String[]> candidates, int timeout, JumpResolver jump) {
+    private static Result serial(List<String[]> candidates,
+                                 java.util.Map<String, Integer> timeouts, JumpResolver jump) {
         List<Hit> hits = new ArrayList<>();
         for (String[] candidate : candidates) {
-            Hit hit = probeOne(candidate[0], candidate[1], timeout, jump);
+            Hit hit = probeOne(candidate[0], candidate[1], timeoutOf(timeouts, candidate[0]), jump);
             hits.add(hit);
             if (hit.ok) {
                 return finish(hits, hit);
@@ -177,11 +182,20 @@ final class ProbeEngine {
         return finish(hits, null);
     }
 
+    /** 这个通道该等多久（毫秒）；表里没有就按默认 2 秒兜底（正常情况下表里一定有） */
+    private static int timeoutOf(java.util.Map<String, Integer> timeouts, String kind) {
+        Integer value = timeouts.get(kind);
+        return value == null || value <= 0
+                ? ServerProfile.DEFAULT_PROBE_TIMEOUT_MS
+                : ServerProfile.clampProbeTimeoutMs(value);
+    }
+
     /**
      * 并发：**全部候选同时发出**。`all=true` 等全部返回取最快成功者；
      * `all=false`（并发首个）第一个成功立刻返回，其余在途任务结果丢弃。
      */
-    private static Result parallel(List<String[]> candidates, int timeout,
+    private static Result parallel(List<String[]> candidates,
+                                   java.util.Map<String, Integer> timeouts,
                                    JumpResolver jump, boolean all) {
         final int expected = candidates.size();
         // 逐行结果按**候选顺序**摆回数组（哪个线程先回来都不影响展示顺序）
@@ -189,10 +203,13 @@ final class ProbeEngine {
         // 谁先回来谁先进队列 —— 必须按「完成先后」取，不能按提交顺序 get，
         // 否则「并发·首个」会先干等第一个死通道超时，后面的快通道赢了也白等。
         final BlockingQueue<Hit> arrived = new LinkedBlockingQueue<>();
+        int slowest = 0;
         List<Future<?>> futures = new ArrayList<>();
         for (int index = 0; index < expected; index++) {
             final String kind = candidates.get(index)[0];
             final String origin = candidates.get(index)[1];
+            final int timeout = timeoutOf(timeouts, kind);
+            slowest = Math.max(slowest, timeout);
             final int slot = index;
             futures.add(Holder.EXECUTOR.submit(new Runnable() {
                 @Override
@@ -204,7 +221,8 @@ final class ProbeEngine {
             }));
         }
         Hit winner = null;
-        long deadline = System.currentTimeMillis() + timeout + 500L;
+        // 兜底时限按**最慢那个通道**的超时算，否则会被第一个通道的短超时把慢通道提前拍死
+        long deadline = System.currentTimeMillis() + slowest + 500L;
         for (int count = 0; count < expected; count++) {
             long remaining = deadline - System.currentTimeMillis();
             Hit hit;
@@ -235,7 +253,8 @@ final class ProbeEngine {
             Hit hit = ordered[index];
             hits.add(hit != null ? hit : new Hit(
                     candidates.get(index)[0], candidates.get(index)[1], false, 0,
-                    "探测超时（>" + timeout + "ms）", "", "", ""));
+                    "探测超时（>" + timeoutOf(timeouts, candidates.get(index)[0]) + "ms）",
+                    "", "", ""));
         }
         return finish(hits, winner);
     }
