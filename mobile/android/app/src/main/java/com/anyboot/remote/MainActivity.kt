@@ -1693,6 +1693,8 @@ class MainActivity : ComponentActivity() {
         //（否则编辑后保存 → probeMachine 触发合并 → 配好的远程信息跟着 drop 一起消失）
         if (!keep.hasRemote() && drop.hasRemote()) {
             keep.remoteAddr = drop.remoteAddr
+            keep.remoteTunnelAddr = drop.remoteTunnelAddr
+            keep.remoteTsAddr = drop.remoteTsAddr
             keep.remoteToken = drop.remoteToken
             keep.connMode = drop.connMode // 连接优先跟着远程接入一起走
         }

@@ -246,9 +246,14 @@ final class ServerProfile {
     String jumpServerId = "";
     /**
      * 远程接入地址（单槽位）：{@code https://xxx.trycloudflare.com} 这类公网隧道地址。
-     * 局域网候选全连不上时才用它兜底（探测 / WebView 同一套语义）。
+     * **双槽化后的「生效地址」镜像**（= 隧道槽优先，否则 Tailscale 槽；旧消费点零改动）；
+     * 真正的配置源是下面两个槽。
      */
     String remoteAddr = "";
+    /** 远程接入 · Cloudflare 隧道槽：trycloudflare.com 等公网 https 地址（双槽之一）。 */
+    String remoteTunnelAddr = "";
+    /** 远程接入 · Tailscale 槽：100.64/10 直连（http://…:12300）或 *.ts.net Funnel（https://）。 */
+    String remoteTsAddr = "";
     /**
      * 远程接入令牌：对方电脑给我们这台签发的「网关客户端令牌」，与它的局域网
      * {@link #token} 是两套 —— 对方校验时按 {@code ?ab_token=} 比对已配对客户端表。
@@ -572,8 +577,17 @@ final class ServerProfile {
     // 远程接入（公网隧道兜底）
     // ------------------------------------------------------------------
 
-    /** 归一化后的远程地址（scheme://host，无 scheme 默认 https）；没配返回空串 */
+    /** 归一化后的远程地址（scheme://host，无 scheme 默认 https）；没配返回空串。
+     *  双槽优先（隧道在前），都没配再兜底旧单槽 remoteAddr。 */
     String remoteOrigin() {
+        String tunnel = normalizeRemoteOrigin(remoteTunnelAddr);
+        if (!tunnel.isEmpty()) {
+            return tunnel;
+        }
+        String ts = normalizeRemoteOrigin(remoteTsAddr);
+        if (!ts.isEmpty()) {
+            return ts;
+        }
         return normalizeRemoteOrigin(remoteAddr);
     }
 
@@ -593,14 +607,22 @@ final class ServerProfile {
         return true;
     }
 
-    /** 清掉远程接入（地址与令牌一起） */
+    /** 清掉远程接入（双槽 + 生效地址与令牌一起） */
     void clearRemote() {
         remoteAddr = "";
+        remoteTunnelAddr = "";
+        remoteTsAddr = "";
         remoteToken = "";
     }
 
     boolean hasRemote() {
-        return !text(remoteAddr).isEmpty();
+        return !text(remoteAddr).isEmpty() || !text(remoteTunnelAddr).isEmpty()
+                || !text(remoteTsAddr).isEmpty();
+    }
+
+    /** 双槽写回后同步「生效地址」镜像：隧道槽优先，否则 Tailscale 槽（旧消费点零改动） */
+    void syncRemoteEffective() {
+        remoteAddr = text(remoteTunnelAddr).isEmpty() ? text(remoteTsAddr) : text(remoteTunnelAddr);
     }
 
     /** 连接优先是否「远程优先」（用户在编辑里选的；空 / auto = 局域网优先） */
@@ -873,6 +895,8 @@ final class ServerProfile {
         other.probeMode = probeMode;
         other.jumpServerId = jumpServerId;
         other.remoteAddr = remoteAddr;
+        other.remoteTunnelAddr = remoteTunnelAddr;
+        other.remoteTsAddr = remoteTsAddr;
         other.remoteToken = remoteToken;
         other.connMode = connMode;
         for (PowerRoute route : powerRoutes) {
@@ -940,6 +964,8 @@ final class ServerProfile {
         object.put("probeMode", normalizeProbeMode(probeMode));
         object.put("jumpServerId", text(jumpServerId));
         object.put("remoteAddr", normalizeRemoteOrigin(remoteAddr));
+        object.put("remoteTunnelAddr", normalizeRemoteOrigin(remoteTunnelAddr));
+        object.put("remoteTsAddr", normalizeRemoteOrigin(remoteTsAddr));
         object.put("remoteToken", text(remoteToken));
         object.put("connMode", isRemoteFirst() ? "remote_first" : "");
         return object;
@@ -992,6 +1018,17 @@ final class ServerProfile {
         profile.probeMode = normalizeProbeMode(object.optString("probeMode", ""));
         profile.jumpServerId = object.optString("jumpServerId", "");
         profile.remoteAddr = normalizeRemoteOrigin(object.optString("remoteAddr", ""));
+        profile.remoteTunnelAddr = normalizeRemoteOrigin(object.optString("remoteTunnelAddr", ""));
+        profile.remoteTsAddr = normalizeRemoteOrigin(object.optString("remoteTsAddr", ""));
+        // 旧档案迁移：双槽全空且旧单槽非空 → 按判型分流进对应槽（与 PC normalize 同语义）
+        if (profile.remoteTunnelAddr.isEmpty() && profile.remoteTsAddr.isEmpty()
+                && !profile.remoteAddr.isEmpty()) {
+            if (isTailscaleAddr(profile.remoteAddr)) {
+                profile.remoteTsAddr = profile.remoteAddr;
+            } else {
+                profile.remoteTunnelAddr = profile.remoteAddr;
+            }
+        }
         profile.remoteToken = object.optString("remoteToken", "");
         profile.connMode = "remote_first".equals(object.optString("connMode", "")) ? "remote_first" : "";
         JSONArray routeArray = object.optJSONArray("powerRoutes");

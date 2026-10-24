@@ -5,6 +5,7 @@ import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -38,7 +39,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -93,17 +97,84 @@ internal class ServerEditFormState(
     /** 粘进来的原文（token 只在 URL 里，归一化后就丢了，所以留一份原文） */
     var pastedRaw by mutableStateOf(profile?.addressText() ?: "")
     var token by mutableStateOf(profile?.token ?: "")
+    // 已存令牌回显（打码 + 小眼睛）；token 输入框只承接「替换」的新值
+    var tokenShown by mutableStateOf(false)
+    val savedToken: String get() = profile?.token ?: ""
+
+    // ---- 远程接入双槽（computer-edit-redesign v1.0） ----
+    /** 隧道槽：trycloudflare.com 等公网 https 地址（归一 origin） */
+    var tunnelText by mutableStateOf("")
+    /** Tailscale 槽：100.64/10 直连 / *.ts.net Funnel（归一 origin） */
+    var tsText by mutableStateOf("")
+    /** 分拣挖出的新远程令牌（空 = 保持已存） */
+    var remoteTokenNew by mutableStateOf("")
+    var remoteTokenShown by mutableStateOf(false)
+    val savedRemoteToken: String get() = profile?.remoteToken ?: ""
+    /** 折叠区：连接策略 / 局域网电源路由（默认收起 —— 配一次就不动） */
+    var connFoldOpen by mutableStateOf(false)
+    var powerFoldOpen by mutableStateOf(false)
+
+    init {
+        // 旧档案迁移：双槽全空且旧单槽有值 → 按判型分流（与 PC normalize 同语义）
+        val savedTunnel = profile?.remoteTunnelAddr?.trim().orEmpty()
+        val savedTs = profile?.remoteTsAddr?.trim().orEmpty()
+        if (savedTunnel.isEmpty() && savedTs.isEmpty()) {
+            val legacy = profile?.remoteAddr?.trim().orEmpty()
+            if (legacy.isNotEmpty()) {
+                if (ServerProfile.isTailscaleAddr(legacy)) {
+                    tsText = ServerProfile.normalizeRemoteOrigin(legacy)
+                } else {
+                    tunnelText = ServerProfile.normalizeRemoteOrigin(legacy)
+                }
+            }
+        } else {
+            tunnelText = ServerProfile.normalizeRemoteOrigin(savedTunnel)
+            tsText = ServerProfile.normalizeRemoteOrigin(savedTs)
+        }
+    }
+
+    /** 任一槽有值 = 配了远程接入 */
+    fun hasRemoteSlots(): Boolean = tunnelText.isNotBlank() || tsText.isNotBlank()
 
     /**
-     * 远程接入：粘贴框内容（配对串 / 隧道 URL）。编辑态不回显令牌 ——
-     * 有已存地址时只显示地址本身，重粘配对串才会更新令牌。
+     * 保存用的远程解析结果：[tunnelOrigin, tsOrigin, token] 或 null（双槽全空 = 取消远程接入）。
+     * token 为空串时宿主侧「留空保持已存令牌」。
      */
-    var remoteText by mutableStateOf(
-        if (profile?.hasRemote() == true) ServerProfile.normalizeRemoteOrigin(profile.remoteAddr) else ""
-    )
+    fun resolvedRemote(): Array<String>? {
+        val tunnel = tunnelText.trim()
+        val ts = tsText.trim()
+        if (tunnel.isEmpty() && ts.isEmpty()) {
+            return null
+        }
+        return arrayOf(tunnel, ts, remoteTokenNew.trim())
+    }
+
+    /** 智能粘贴框：扫码 / 手填入口（分拣后内容落双槽，这里只是输入缓冲） */
+    var remoteText by mutableStateOf("")
     var remoteHint by mutableStateOf("")
 
-    /** 粘贴框内容变化后的即时识别提示 */
+    /** 清空双槽 + 粘贴框 + 新令牌（「清除」按钮） */
+    fun clearRemoteSlots() {
+        tunnelText = ""
+        tsText = ""
+        remoteTokenNew = ""
+        remoteText = ""
+        remoteHint = ""
+    }
+
+    /** 令牌打码：前 4 后 4 可见，其余 •；太短的整串打码 */
+    fun maskToken(value: String): String {
+        val text = value.trim()
+        if (text.isEmpty()) return ""
+        if (text.length <= 12) return "•".repeat(text.length.coerceAtLeast(6))
+        return text.take(4) + "••••••••••" + text.takeLast(4)
+    }
+
+    /**
+     * 远程接入：粘贴框内容变化后的分拣。配对串先拆 origin + token，
+     * origin 按判型落槽（trycloudflare → 隧道 / 100.64/10、.ts.net → Tailscale），
+     * token 带入新令牌（保存时写回）。hint 文案同步更新。
+     */
     fun applyRemoteHint() {
         val raw = remoteText.trim()
         if (raw.isEmpty()) {
@@ -111,35 +182,26 @@ internal class ServerEditFormState(
             return
         }
         val parsed = ServerProfile.parsePair(raw)
-        remoteHint = if (parsed != null) {
-            val origin = parsed[0]
-            val tail = when {
-                ServerProfile.isTailscaleAddr(origin) ->
-                    if (origin.contains(".ts.net")) {
-                        "（Tailscale Funnel：手机无需装 Tailscale，浏览器直开；国内网络可能不稳）"
-                    } else {
-                        "（Tailscale：手机需与电脑加入同一 tailnet，连不上时检查两边 Tailscale 是否在线）"
-                    }
-                origin.startsWith("https://") -> ""
-                else -> ""
+        if (parsed == null) {
+            remoteHint = "没认出配对码 —— 要 anyboot://pair?… 串、https://… 隧道地址或 http://100.x.y.z:12300 Tailscale 地址"
+            return
+        }
+        val origin = parsed[0]
+        val newToken = parsed[1]
+        if (newToken.isNotEmpty()) {
+            remoteTokenNew = newToken
+        }
+        remoteHint = if (ServerProfile.isTailscaleAddr(origin)) {
+            tsText = origin
+            "已分拣到 Tailscale 槽：$origin" + if (origin.contains(".ts.net")) {
+                "（Funnel：手机无需装 Tailscale，浏览器直开；国内网络可能不稳）"
+            } else {
+                "（直连：手机需与电脑加入同一 tailnet，连不上时检查两边 Tailscale 是否在线）"
             }
-            "已识别：$origin$tail"
         } else {
-            "没认出配对码 —— 要 anyboot://pair?… 串、https://… 隧道地址或 http://100.x.y.z:12300 Tailscale 地址"
+            tunnelText = origin
+            "已分拣到隧道槽：$origin"
         }
-    }
-
-    /**
-     * 保存用的远程解析结果：[origin, token] 或 null（框为空 = 取消远程接入）。
-     * token 挖不出来时给空串 —— 宿主侧「留空保持已存令牌」。
-     */
-    fun resolvedRemote(): Array<String>? {
-        val raw = remoteText.trim()
-        if (raw.isEmpty()) {
-            return null
-        }
-        val pair = ServerProfile.parsePair(raw) ?: return null
-        return arrayOf(pair[0], pair[1])
     }
 
     val jumps: List<JumpServer> = JumpStore.loadJumps(context)
@@ -404,16 +466,38 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
             }
         }
 
-        FieldLabel("访问令牌 token")
+        FieldLabel("访问令牌 token（服务端设了才要填）")
+        if (state.savedToken.isNotEmpty()) {
+            // 已存令牌回显：默认打码，小眼睛切换明文（重开表单回到打码）
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(palette.card)
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+            ) {
+                Text(
+                    if (state.tokenShown) state.savedToken else state.maskToken(state.savedToken),
+                    fontSize = 12.sp,
+                    fontFamily = FontFamily.Monospace,
+                    color = if (state.tokenShown) palette.fg else palette.fgDim,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = { state.tokenShown = !state.tokenShown }) {
+                    Text(if (state.tokenShown) "隐藏" else "显示", fontSize = 11.sp)
+                }
+            }
+        }
         OutlinedTextField(
             value = state.token,
             onValueChange = { state.token = it },
             singleLine = true,
-            placeholder = { Text("可留空，页面上也能填", fontSize = 12.sp) },
+            placeholder = { Text("留空保持不变；要替换就填新令牌", fontSize = 12.sp) },
             modifier = Modifier.fillMaxWidth(),
         )
 
-        FieldLabel("远程接入（出门时经公网隧道或 Tailscale 虚拟局域网访问这台电脑；粘贴它生成的配对码）")
+        FieldLabel("远程接入（粘贴配对码 / 隧道 / Tailscale 地址，自动分拣到下面的槽）")
         OutlinedTextField(
             value = state.remoteText,
             onValueChange = {
@@ -421,7 +505,7 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                 state.applyRemoteHint()
             },
             placeholder = {
-                Text("anyboot://pair?… / https://xxx.trycloudflare.com / http://100.x.y.z:12300", fontSize = 12.sp)
+                Text("anyboot://pair?… / https://xxx.trycloudflare.com / http://100.x.y.z:12300 / https://xxx.ts.net", fontSize = 12.sp)
             },
             modifier = Modifier.fillMaxWidth(),
         )
@@ -431,20 +515,74 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
             }) {
                 Text("📷 扫码读码", fontSize = 12.sp)
             }
+            TextButton(onClick = { state.clearRemoteSlots() }) {
+                Text("清除", fontSize = 12.sp, color = palette.fgDim)
+            }
             Text(
                 if (state.remoteHint.isNotEmpty()) state.remoteHint
-                else "扫电脑端弹出的配对二维码，或直接粘贴配对串",
+                else "扫码或粘贴后自动分拣；两槽独立保存，谁通用谁",
                 fontSize = 11.sp, color = palette.fgFaint,
                 modifier = Modifier.weight(1f),
             )
         }
+        RemoteSlotRow(
+            label = "Cloudflare 隧道",
+            labelColor = palette.accent,
+            value = state.tunnelText,
+            onClear = { state.tunnelText = "" },
+            palette = palette,
+        )
+        RemoteSlotRow(
+            label = if (state.tsText.contains(".ts.net")) "Tailscale · Funnel" else "Tailscale · 直连",
+            labelColor = palette.ok,
+            value = state.tsText,
+            onClear = { state.tsText = "" },
+            palette = palette,
+        )
+        if (state.savedRemoteToken.isNotEmpty() || state.remoteTokenNew.isNotEmpty()) {
+            // 配对令牌回显：新分拣的优先展示（还没保存）；默认打码 + 小眼睛
+            val shown = state.remoteTokenNew.ifEmpty { state.savedRemoteToken }
+            val revealed = state.remoteTokenShown && state.remoteTokenNew.isNotEmpty()
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(palette.card)
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+            ) {
+                Text(
+                    "配对令牌",
+                    fontSize = 10.sp, color = palette.fgDim,
+                    modifier = Modifier.padding(end = 8.dp),
+                )
+                Text(
+                    if (revealed) shown else state.maskToken(shown),
+                    fontSize = 12.sp,
+                    fontFamily = FontFamily.Monospace,
+                    color = if (revealed) palette.fg else palette.fgDim,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = { state.remoteTokenShown = !state.remoteTokenShown }) {
+                    Text(if (revealed) "隐藏" else "显示", fontSize = 11.sp)
+                }
+            }
+        }
         Text(
-            "支持 https://xxx.trycloudflare.com（隧道）或 http://100.x.y.z:12300（Tailscale，双端同一 tailnet）；" +
-                "Tailscale 裸 IP 自动按 http:// 处理，其余裸地址按 https。局域网地址优先使用，全连不上才走远程；" +
-                "清空后保存 = 取消远程接入。配对码等同密码，别转发给别人。",
+            "清空两槽保存 = 取消远程接入；配对码等同密码，别转发给别人。",
             fontSize = 11.sp, color = palette.fgFaint,
+            modifier = Modifier.padding(top = 4.dp),
         )
 
+        FoldHeader(
+            title = "连接策略",
+            summary = (if (state.connMode == "remote_first") "远程优先" else "自动") + " · " +
+                probeLabel(state.probeMode) + (if (state.jumpIndex > 0) " · 跳板机" else ""),
+            open = state.connFoldOpen,
+            onToggle = { state.connFoldOpen = !state.connFoldOpen },
+        )
+        if (state.connFoldOpen) {
         FieldLabel("连接优先（配了远程接入时怎么选路）")
         Row(verticalAlignment = Alignment.CenterVertically) {
             RadioButton(
@@ -504,6 +642,50 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
             }
         }
 
+        FieldLabel(
+            "多网卡探测（有多个地址时怎么探）"
+        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            RadioButton(
+                selected = state.probeMode == ServerProfile.PROBE_PARALLEL_FIRST,
+                onClick = { state.probeMode = ServerProfile.PROBE_PARALLEL_FIRST }
+            )
+            Text(
+                "并发·首个",
+                fontSize = 13.sp, color = palette.fg,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            Spacer(Modifier.width(10.dp))
+            RadioButton(
+                selected = state.probeMode == ServerProfile.PROBE_PARALLEL_ALL,
+                onClick = { state.probeMode = ServerProfile.PROBE_PARALLEL_ALL }
+            )
+            Text(
+                "并发·全部",
+                fontSize = 13.sp, color = palette.fg,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            Spacer(Modifier.width(10.dp))
+            RadioButton(
+                selected = state.probeMode == ServerProfile.PROBE_SERIAL,
+                onClick = { state.probeMode = ServerProfile.PROBE_SERIAL }
+            )
+            Text("串行", fontSize = 13.sp, color = palette.fg)
+        }
+        Text(
+            "并发·首个：每地址一个线程，任一响应立即用它；并发·全部：等全部探完，逐行报成败；串行：按顺序试，第一个通就停",
+            fontSize = 10.sp, color = palette.fgFaint,
+            modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
+        )
+        } // end if (state.connFoldOpen)
+
+        FoldHeader(
+            title = "局域网电源路由",
+            summary = if (state.routeList.isEmpty()) "未配置" else "${state.routeList.size} 条",
+            open = state.powerFoldOpen,
+            onToggle = { state.powerFoldOpen = !state.powerFoldOpen },
+        )
+        if (state.powerFoldOpen) {
         FieldLabel(
             "局域网电源路由（可选：每个动作发到哪个地址、哪个端口。" +
                 "目标机装 sol 后按端口执行 —— 不装 sol 就只有唤醒能靠 WOL 生效）"
@@ -780,40 +962,8 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                     .withMode("auto")
             )
         }) { Text("+ 添加一条路由", fontSize = 13.sp) }
+        } // end if (state.powerFoldOpen)
 
-        FieldLabel("多网卡探测（有多个地址时怎么探）")
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            RadioButton(
-                selected = state.probeMode == ServerProfile.PROBE_PARALLEL_FIRST,
-                onClick = { state.probeMode = ServerProfile.PROBE_PARALLEL_FIRST }
-            )
-            Text(
-                "并发·首个",
-                fontSize = 13.sp, color = palette.fg,
-                modifier = Modifier.weight(1f, fill = false),
-            )
-            Spacer(Modifier.width(10.dp))
-            RadioButton(
-                selected = state.probeMode == ServerProfile.PROBE_PARALLEL_ALL,
-                onClick = { state.probeMode = ServerProfile.PROBE_PARALLEL_ALL }
-            )
-            Text(
-                "并发·全部",
-                fontSize = 13.sp, color = palette.fg,
-                modifier = Modifier.weight(1f, fill = false),
-            )
-            Spacer(Modifier.width(10.dp))
-            RadioButton(
-                selected = state.probeMode == ServerProfile.PROBE_SERIAL,
-                onClick = { state.probeMode = ServerProfile.PROBE_SERIAL }
-            )
-            Text("串行", fontSize = 13.sp, color = palette.fg)
-        }
-        Text(
-            "并发·首个：每地址一个线程，任一响应立即用它；并发·全部：等全部探完，逐行报成败；串行：按顺序试，第一个通就停",
-            fontSize = 10.sp, color = palette.fgFaint,
-            modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
-        )
         Spacer(Modifier.height(4.dp))
     }
 }
@@ -845,16 +995,18 @@ internal fun applyServerEdit(
     target.probeMode = ServerProfile.normalizeProbeMode(state.probeMode)
     target.connMode = if (state.connMode == "remote_first") "remote_first" else ""
     target.jumpServerId = state.resolvedJumpId()
-    // 远程接入：框为空 = 取消（清地址与令牌）；认出来 = 写 origin；
-    // 令牌挖不到时保持已存的（编辑态不回显令牌，用户重粘配对串才会更新）
+    // 远程接入双槽：双槽全空 = 取消（清地址与令牌）；任一有值 = 按槽写 origin；
+    // 令牌挖不到时保持已存的（重粘配对串才会更新）；写回后同步生效地址镜像
     val remote = state.resolvedRemote()
     if (remote == null) {
         target.clearRemote()
     } else {
-        target.remoteAddr = remote[0]
-        if (remote[1].isNotEmpty()) {
-            target.remoteToken = remote[1]
+        target.remoteTunnelAddr = remote[0]
+        target.remoteTsAddr = remote[1]
+        if (remote[2].isNotEmpty()) {
+            target.remoteToken = remote[2]
         }
+        target.syncRemoteEffective()
     }
     // 局域网电源路由：以表单里的这份为准（空 = 没配，走老路）
     target.powerRoutes.clear()
@@ -865,4 +1017,81 @@ internal fun applyServerEdit(
 }
 
 /** 表单底部提示用的一行说明（两个宿主共用同一句） */
+
+/** 探测模式的短标签（折叠头摘要用） */
+private fun probeLabel(mode: String): String = when (mode) {
+    ServerProfile.PROBE_PARALLEL_ALL -> "并发全部"
+    ServerProfile.PROBE_SERIAL -> "串行"
+    else -> "并发首个"
+}
+
+/** 折叠区头：标题 + 右侧状态摘要，点击展开/收起（高级项默认收起） */
+@Composable
+private fun FoldHeader(title: String, summary: String, open: Boolean, onToggle: () -> Unit) {
+    val palette = LocalPalette.current
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onToggle)
+            .padding(vertical = 6.dp, horizontal = 2.dp),
+    ) {
+        Text(if (open) "▾" else "▸", fontSize = 10.sp, color = palette.fgFaint)
+        Text(
+            title,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = palette.fgDim,
+            modifier = Modifier.padding(start = 6.dp),
+        )
+        Spacer(Modifier.weight(1f))
+        Text(summary, fontSize = 10.5.sp, color = palette.fgFaint)
+    }
+}
+
+/** 远程接入双槽行：类型标签 + 归一 origin（mono 单行截断）+ 清除；空槽虚位显示「空」 */
+@Composable
+private fun RemoteSlotRow(
+    label: String,
+    labelColor: Color,
+    value: String,
+    onClear: () -> Unit,
+    palette: Palette,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 5.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(palette.card)
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+    ) {
+        Text(
+            label,
+            fontSize = 10.sp,
+            color = labelColor,
+            modifier = Modifier
+                .border(1.dp, labelColor.copy(alpha = 0.55f), RoundedCornerShape(999.dp))
+                .padding(horizontal = 6.dp, vertical = 1.dp),
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            value.ifEmpty { "空" },
+            fontSize = 11.sp,
+            fontFamily = FontFamily.Monospace,
+            color = if (value.isEmpty()) palette.fgFaint else palette.fg,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        if (value.isNotEmpty()) {
+            TextButton(onClick = onClear) {
+                Text("✕", fontSize = 12.sp, color = palette.fgFaint)
+            }
+        }
+    }
+}
 internal const val SERVER_EDIT_EMPTY_ADDRESS_HINT = "请填电脑地址"

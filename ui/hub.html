@@ -428,6 +428,44 @@
   .addr-add #rsAddrHost { flex: 1 1 190px; min-width: 140px; }
   .addr-add #rsAddrMacs { flex: 1 1 180px; min-width: 130px; }
 
+  /* ---- 编辑服务端：远程双槽 / 令牌回显 / 折叠区（computer-edit-redesign v1.0） ---- */
+  .slot {
+    display: flex; align-items: center; gap: 8px;
+    border: 1px solid rgb(var(--line)); border-radius: 10px;
+    background: rgb(var(--elevate)); padding: 7px 10px; margin-top: 6px;
+  }
+  .slot .mono { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .slot .mono.ph { color: rgb(var(--fg-faint)); }
+  .slot-chip { font-size: 11px; padding: 2px 8px; border-radius: 999px; flex: none; white-space: nowrap; border: 1px solid rgb(var(--line-strong)); color: rgb(var(--fg-dim)); }
+  .slot-chip.tunnel { border-color: rgb(var(--accent) / .55); color: rgb(var(--accent)); }
+  .slot-chip.ts { border-color: rgb(var(--ok) / .55); color: rgb(var(--ok)); }
+  .slot-x { color: rgb(var(--fg-faint)); cursor: pointer; flex: none; font-size: 12px; padding: 0 2px; }
+  .slot-x:hover { color: rgb(var(--bad)); }
+  .token-row {
+    display: flex; align-items: center; gap: 8px;
+    border: 1px solid rgb(var(--line)); border-radius: 10px;
+    background: rgb(var(--elevate)); padding: 6px 10px; margin-top: 6px;
+  }
+  .token-row .mono { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; flex: 1; letter-spacing: .4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .token-row .mono.masked { color: rgb(var(--fg-dim)); }
+  .token-eye {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 26px; height: 26px; border-radius: 7px; flex: none; cursor: pointer;
+    border: 1px solid rgb(var(--line)); background: rgb(var(--card)); color: rgb(var(--fg-dim));
+  }
+  .token-eye:hover { color: rgb(var(--fg)); }
+  .token-eye svg { width: 14px; height: 14px; }
+  .fold-head {
+    display: flex; align-items: center; gap: 7px; cursor: pointer; user-select: none;
+    border-top: 1px solid rgb(var(--line)); margin-top: 12px; padding-top: 10px;
+    font-size: 12.5px; font-weight: 600; color: rgb(var(--fg-dim));
+  }
+  .fold-head:hover { color: rgb(var(--fg)); }
+  .fold-head .chev { font-size: 10px; transition: transform .15s; }
+  .fold-head.open .chev { transform: rotate(90deg); }
+  .fold-count { font-size: 11px; color: rgb(var(--fg-faint)); font-weight: 400; margin-left: auto; }
+  .fold-body[hidden] { display: none; }
+
   .help-dot {
     width: 20px; height: 20px; border-radius: 50%;
     border: 1px solid rgb(var(--line));
@@ -1745,16 +1783,18 @@
               </button>
             </div>
             <div class="dialog-body" data-page-node-id="rsEditBody1">
+              <!-- A 基本 -->
               <div class="field-row">
                 <div class="field" data-page-node-id="rsFieldGroup1">
-                  <label for="rsGroup">分组（用来区分不同的电脑）</label>
+                  <label for="rsGroup">分组</label>
                   <input id="rsGroup" placeholder="例如：书房台式机（可留空）">
                 </div>
                 <div class="field" data-page-node-id="rsFieldName1">
-                  <label for="rsName">服务端名（可选）</label>
+                  <label for="rsName">电脑名称</label>
                   <input id="rsName" placeholder="例如：有线网卡 / 5G WiFi">
                 </div>
               </div>
+              <!-- B 局域网地址 -->
               <div class="field" data-page-node-id="rsFieldAddr1">
                 <label for="rsAddrQuick">快速识别（粘贴任意写法，自动拆出地址 / 端口 / MAC 加进下面）</label>
                 <textarea id="rsAddrQuick" rows="2" class="mono" spellcheck="false" placeholder="整段粘进来就行，例如：&#10;192.168.0.120:12300 AA:BB:CC:DD:EE:FF 台式机有线&#10;192.168.0.121 11-22-33-44-55-66（5G WiFi）"></textarea>
@@ -1764,7 +1804,7 @@
                 </div>
               </div>
               <div class="field" data-page-node-id="rsFieldAddrList1">
-                <label>服务端地址（对方电脑「远程控制」里显示的地址；第一个用来连接）</label>
+                <label>局域网地址（第一个用来连接；MAC 只用于局域网电源）</label>
                 <div class="addr-list" id="rsAddrList"></div>
                 <div class="addr-add">
                   <input id="rsAddrHost" type="text" spellcheck="false" placeholder="192.168.0.120 或 192.168.0.120:12300">
@@ -1772,62 +1812,100 @@
                   <button type="button" class="btn small" id="rsAddrAdd">添加</button>
                 </div>
                 <p class="field-hint" style="margin:8px 0 0">
-                  没写端口按 12300 补。地址已存在时只把 MAC 追加进去（可以拿它给已有地址补网卡）；
-                  点 MAC 标签可以单独删掉那块网卡。MAC 只用于局域网电源，不影响连接。
+                  没写端口按 12300 补。地址已存在时只把 MAC 追加进去；点 MAC 标签可以单独删掉那块网卡。
                 </p>
               </div>
-              <div class="field" data-page-node-id="rsFieldToken1">
-                <label for="rsToken">访问令牌 token（已存的不显示；留空 = 保持不变）</label>
-                <input id="rsToken" class="mono" placeholder="可留空，页面上也能填">
-              </div>
-              <div class="field" data-page-node-id="rsFieldJump1">
-                <label for="rsJump">经由跳板机（外网连家里：复用远程管理里已保存的 SSH 服务器）</label>
-                <select id="rsJump" style="width:100%;background:rgb(var(--elevate));border:1px solid rgb(var(--line));border-radius:9px;padding:8px 11px;color:rgb(var(--fg));font:inherit;font-size:13px;outline:none"></select>
-                <p class="field-hint">经跳板机中转的连接方式将在后续版本启用，当前先保存档案</p>
-              </div>
+              <!-- C 远程接入：智能粘贴 + 双槽 + 令牌回显 -->
               <div class="field" data-page-node-id="rsFieldRemote1">
-                <label for="rsRemote">远程接入（出门时经公网隧道或 Tailscale 虚拟局域网访问这台电脑；粘贴它生成的配对码）</label>
-                <textarea id="rsRemote" rows="2" class="mono" spellcheck="false" placeholder="anyboot://pair?gateway=…&tunnel=…&token=…&#10;或直接粘 https://xxx.trycloudflare.com/?ab_token=… / http://100.x.y.z:12300"></textarea>
-                <p class="field-hint" style="margin:4px 0 0">
-                  支持 <b>https://xxx.trycloudflare.com</b>（隧道）或 <b>http://100.x.y.z:12300</b>（Tailscale，双端同一 tailnet）——
-                  Tailscale 裸 IP 也会自动按 <b>http://</b> 处理，其余裸地址按 https。
-                </p>
+                <label for="rsRemote">远程接入（粘贴配对码 / 隧道 / Tailscale 地址，自动分拣到下面的槽）</label>
+                <textarea id="rsRemote" rows="2" class="mono" spellcheck="false" placeholder="anyboot://pair?gateway=…&amp;tunnel=…&amp;token=…&#10;https://xxx.trycloudflare.com / http://100.x.y.z:12300 / https://xxx.ts.net"></textarea>
                 <div class="addr-quick-actions">
+                  <button type="button" class="btn small" id="rsRemoteSplit">识别并分拣</button>
                   <button type="button" class="btn small" id="rsRemoteGet">从对方获取</button>
                   <button type="button" class="btn small" id="rsRemoteClear">清除</button>
                   <span class="addr-quick-hint" id="rsRemoteHint"></span>
                 </div>
+                <div class="slot" id="rsSlotTunnel">
+                  <span class="slot-chip tunnel">Cloudflare 隧道</span>
+                  <span class="mono ph" id="rsSlotTunnelAddr">空</span>
+                  <span class="slot-x" id="rsSlotTunnelX" title="清除此槽" hidden>✕</span>
+                </div>
+                <div class="slot" id="rsSlotTs">
+                  <span class="slot-chip ts" id="rsSlotTsChip">Tailscale · 直连</span>
+                  <span class="mono ph" id="rsSlotTsAddr">空</span>
+                  <span class="slot-x" id="rsSlotTsX" title="清除此槽" hidden>✕</span>
+                </div>
+                <p class="field-hint" style="margin:6px 0 0">
+                  两槽各自独立保存，都配了时探测谁通用谁（隧道在前）。局域网地址优先使用，全连不上才走远程。
+                </p>
+                <div class="token-row" id="rsRemoteTokenRow" hidden>
+                  <span class="slot-chip">配对令牌</span>
+                  <span class="mono masked" id="rsRemoteTokenText"></span>
+                  <button type="button" class="token-eye" id="rsRemoteTokenEye" aria-label="显示令牌" title="显示 / 隐藏令牌">
+                    <svg class="eye-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+                    <svg class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display:none"><path d="M9.9 4.24A10.9 10.9 0 0 1 12 4c6.5 0 10 7 10 7a17.6 17.6 0 0 1-2.29 2.95M6.61 6.61A13.5 13.5 0 0 0 2 12s3.5 7 10 7a10.7 10.7 0 0 0 5.39-1.39"/><path d="M2 2l20 20"/><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/></svg>
+                  </button>
+                  <span class="addr-quick-hint" style="flex:none">粘贴新配对码自动更新</span>
+                </div>
                 <p class="field-hint">
-                  局域网地址优先使用，全连不上才走远程（远程地址单槽位）。
                   「从对方获取」：对方要在同一局域网且其本机服务在线，它屏幕上会弹确认框。
                 </p>
               </div>
-              <div class="field" data-page-node-id="rsFieldConn1">
-                <label>连接优先（配了远程接入时怎么选路）</label>
-                <div style="display:flex;gap:4px" role="group" aria-label="连接优先">
-                  <button type="button" class="btn small seg-on" id="rsConnAuto" style="flex:1">自动（局域网优先）</button>
-                  <button type="button" class="btn small" id="rsConnRemote" style="flex:1">远程优先</button>
+              <!-- 访问令牌（局域网 API 令牌，与远程配对令牌是两套） -->
+              <div class="field" data-page-node-id="rsFieldToken1">
+                <label for="rsToken">访问令牌 token（服务端设了才要填）</label>
+                <div class="token-row" id="rsTokenRow" hidden>
+                  <span class="slot-chip">已存令牌</span>
+                  <span class="mono masked" id="rsTokenSavedText"></span>
+                  <button type="button" class="token-eye" id="rsTokenEye" aria-label="显示令牌" title="显示 / 隐藏令牌">
+                    <svg class="eye-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+                    <svg class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display:none"><path d="M9.9 4.24A10.9 10.9 0 0 1 12 4c6.5 0 10 7 10 7a17.6 17.6 0 0 1-2.29 2.95M6.61 6.61A13.5 13.5 0 0 0 2 12s3.5 7 10 7a10.7 10.7 0 0 0 5.39-1.39"/><path d="M2 2l20 20"/><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/></svg>
+                  </button>
                 </div>
-                <p class="field-hint" style="margin:6px 0 0">
-                  自动：局域网探通就用，全连不上才走隧道；远程优先：隧道通了就直接走隧道
-                  （局域网只做兜底 —— 适合在家也想验证隧道、或局域网不可信的场景）。
-                  没配远程接入时此项无效。
-                </p>
+                <input id="rsToken" class="mono" placeholder="留空保持不变；要替换就填新令牌" style="margin-top:6px">
               </div>
-              <div class="field" data-page-node-id="rsFieldProbe1">
-                <label>多网卡探测（有多个地址时怎么探）</label>
-                <div style="display:flex;gap:4px" role="group" aria-label="多网卡探测">
-                  <button type="button" class="btn small seg-on" id="rsProbeFirst" style="flex:1">并发（首个）</button>
-                  <button type="button" class="btn small" id="rsProbeAll" style="flex:1">并发（全部）</button>
-                  <button type="button" class="btn small" id="rsProbeSerial" style="flex:1">串行</button>
+              <!-- D 连接策略（折叠） -->
+              <div class="fold-head" id="rsFoldConnHead">
+                <span class="chev">▶</span>连接策略
+                <span class="fold-count" id="rsFoldConnCount"></span>
+              </div>
+              <div class="fold-body" id="rsFoldConn" hidden data-page-node-id="rsFieldConn1">
+                <div class="field">
+                  <label>连接优先（配了远程接入时怎么选路）</label>
+                  <div style="display:flex;gap:4px" role="group" aria-label="连接优先">
+                    <button type="button" class="btn small seg-on" id="rsConnAuto" style="flex:1">自动（局域网优先）</button>
+                    <button type="button" class="btn small" id="rsConnRemote" style="flex:1">远程优先</button>
+                  </div>
+                  <p class="field-hint" style="margin:6px 0 0">
+                    自动：局域网探通就用，全连不上才走远程；远程优先：远程通了就直接走
+                    （局域网只做兜底 —— 适合在家也想验证隧道、或局域网不可信的场景）。
+                    没配远程接入时此项无效。
+                  </p>
                 </div>
-                <p class="field-hint" style="margin:6px 0 0">
-                  并发（首个）：每个地址一个线程，任一响应立即用它，其余作废；
-                  并发（全部）：等全部探完，逐行报每个地址的成败与耗时；串行：按顺序试，第一个通就停。
-                </p>
+                <div class="field">
+                  <label>多网卡探测（有多个地址时怎么探）</label>
+                  <div style="display:flex;gap:4px" role="group" aria-label="多网卡探测">
+                    <button type="button" class="btn small seg-on" id="rsProbeFirst" style="flex:1">并发（首个）</button>
+                    <button type="button" class="btn small" id="rsProbeAll" style="flex:1">并发（全部）</button>
+                    <button type="button" class="btn small" id="rsProbeSerial" style="flex:1">串行</button>
+                  </div>
+                  <p class="field-hint" style="margin:6px 0 0">
+                    并发（首个）：每个地址一个线程，任一响应立即用它，其余作废；
+                    并发（全部）：等全部探完，逐行报每个地址的成败与耗时；串行：按顺序试，第一个通就停。
+                  </p>
+                </div>
+                <div class="field" data-page-node-id="rsFieldJump1">
+                  <label for="rsJump">经由跳板机（实验）</label>
+                  <select id="rsJump" style="width:100%;background:rgb(var(--elevate));border:1px solid rgb(var(--line));border-radius:9px;padding:8px 11px;color:rgb(var(--fg));font:inherit;font-size:13px;outline:none"></select>
+                  <p class="field-hint">经跳板机中转的连接方式将在后续版本启用，当前先保存档案</p>
+                </div>
               </div>
-              <div class="field" data-page-node-id="rsFieldPower1">
-                <label>局域网电源路由（唤醒 / 重启 / 关机 / 睡眠：各发到哪个地址、哪个端口）</label>
+              <!-- E 局域网电源路由（折叠） -->
+              <div class="fold-head" id="rsFoldPowerHead">
+                <span class="chev">▶</span>局域网电源路由
+                <span class="fold-count" id="rsFoldPowerCount"></span>
+              </div>
+              <div class="fold-body" id="rsFoldPower" hidden data-page-node-id="rsFieldPower1">
                 <div class="route-list" id="rsPowerRoutes"></div>
                 <button type="button" class="btn small" id="rsPowerAdd" style="margin-top:8px">+ 添加一条路由</button>
                 <p class="field-hint" style="margin:8px 0 0">
@@ -4469,11 +4547,15 @@
   /** 统一探测入口：带远程地址（后端局域网优先、远程兜底），并处理赢家记账。
    *  LAN 赢家 → 置顶 + 清远程记账；远程赢家 → 记 origin（iframe 换 ab_token URL）。 */
   async function pcProbe(r, mode) {
-    const remoteAddr = (r.remote_addr || '').trim() || null;
+    // 远程候选 = 双槽（隧道 + Tailscale）；旧档案没双槽字段时退回单槽 remote_addr
+    const remoteAddrs = [r.remote_tunnel_addr, r.remote_ts_addr]
+      .map(function (value) { return (value || '').trim(); })
+      .filter(Boolean);
+    if (!remoteAddrs.length && r.remote_addr) remoteAddrs.push(r.remote_addr.trim());
     const res = await invoke('remote_test', {
       addresses: r.addresses,
       probeMode: mode,
-      remoteAddr: remoteAddr,
+      remoteAddrs: remoteAddrs.length ? remoteAddrs : null,
       connMode: r.conn_mode || '',
     });
     // 连接方式是否翻转（直连 ↔ 隧道）：变了要刷新标注（电脑标签/列表行/悬浮球）
@@ -6060,7 +6142,11 @@
     '③ MAC 填在「编辑电脑」里对应地址那一行（如 192.168.0.120:12300 AA:BB:CC:DD:EE:FF）；',
     '④ 路由里的广播地址和端口对不对（要和 sol 侧监听的一致）；',
     '⑤ 主机没被拔电源、插排没断电（关机后网卡要靠待机供电收包）。',
-    'Windows 还要在「设备管理器 → 网卡 → 电源管理」勾上「允许此设备唤醒计算机」，并关掉「快速启动」（快速启动是休眠，会跳过 WOL）。'
+    'Windows 还要在「设备管理器 → 网卡 → 电源管理」勾上「允许此设备唤醒计算机」，并关掉「快速启动」（快速启动是休眠，会跳过 WOL）。',
+    '',
+    'Funnel 公网通道（网关页 · Tailscale 卡）：',
+    '· Funnel 把本机服务经 Tailscale 官方中继发布成公网地址（https://机器名.ts.net）—— 手机不装 Tailscale 也能访问；流量走官方中继，国内网络可能不稳、有带宽限制；',
+    '· 点「关闭通道」立即执行、不弹确认框：公网入口马上失效，用 Funnel 地址配对的客户端会全部失联（100.x 直连不受影响）；要恢复在 Tailscale 卡再点「开启」即可。'
   ].join('\n');
   if (pcFab) {
     const helpOverlay = document.getElementById('fabHelpOverlay');
@@ -6356,6 +6442,152 @@
   let rsProbe = 'parallel_first';
   let rsConnMode = ''; // '' = 自动（局域网优先）；'remote_first' = 远程优先
   let rsDeleteArmed = false;
+  // ---- 远程接入双槽 + 令牌回显（computer-edit-redesign v1.0） ----
+  let rsTunnelVal = '';        // 隧道槽（归一 origin）
+  let rsTsVal = '';            // Tailscale 槽（直连 http://100.x… / Funnel https://…ts.net）
+  let rsRemoteTokenNew = '';   // 分拣挖出的新远程令牌（空 = 保持已存）
+  let rsRemoteTokenSaved = ''; // 编辑态已存远程令牌（回显用，不参与保存）
+  let rsTokenSaved = '';       // 已存 LAN 访问令牌（回显用）
+  let rsRemoteTokenShown = false;
+  let rsTokenShown = false;
+
+  /** 令牌打码：前 4 后 4 可见，其余 U+2022；太短的整串打码 */
+  function rsMaskToken(token) {
+    const text = String(token || '');
+    if (text.length <= 12) return '•'.repeat(Math.max(text.length, 6));
+    return text.slice(0, 4) + '••••••••••' + text.slice(-4);
+  }
+  function rsRenderSlots() {
+    const tunnelText = document.getElementById('rsSlotTunnelAddr');
+    const tsText = document.getElementById('rsSlotTsAddr');
+    tunnelText.textContent = rsTunnelVal || '空';
+    tunnelText.classList.toggle('ph', !rsTunnelVal);
+    tsText.textContent = rsTsVal || '空';
+    tsText.classList.toggle('ph', !rsTsVal);
+    document.getElementById('rsSlotTunnelX').hidden = !rsTunnelVal;
+    document.getElementById('rsSlotTsX').hidden = !rsTsVal;
+    document.getElementById('rsSlotTsChip').textContent =
+      rsTsVal && /\.ts\.net/i.test(rsTsVal) ? 'Tailscale · Funnel' : 'Tailscale · 直连';
+  }
+  function rsRenderTokenRows() {
+    // 远程令牌行：新分拣的优先展示（还没保存），否则回显已存
+    const newToken = rsRemoteTokenNew || rsRemoteTokenSaved;
+    document.getElementById('rsRemoteTokenRow').hidden = !newToken;
+    const remoteText = document.getElementById('rsRemoteTokenText');
+    remoteText.textContent = rsRemoteTokenShown ? newToken : rsMaskToken(newToken);
+    remoteText.classList.toggle('masked', !rsRemoteTokenShown);
+    // LAN 令牌行：只在有已存值时出现（替换走下面的输入框）
+    document.getElementById('rsTokenRow').hidden = !rsTokenSaved;
+    const savedText = document.getElementById('rsTokenSavedText');
+    savedText.textContent = rsTokenShown ? rsTokenSaved : rsMaskToken(rsTokenSaved);
+    savedText.classList.toggle('masked', !rsTokenShown);
+  }
+  function rsBindEye(buttonId, shownGetter, shownSetter) {
+    document.getElementById(buttonId).addEventListener('click', function () {
+      shownSetter(!shownGetter());
+      this.querySelector('.eye-on').style.display = shownGetter() ? 'none' : '';
+      this.querySelector('.eye-off').style.display = shownGetter() ? '' : 'none';
+      this.setAttribute('aria-label', shownGetter() ? '隐藏令牌' : '显示令牌');
+      rsRenderTokenRows();
+    });
+  }
+  rsBindEye('rsRemoteTokenEye',
+    function () { return rsRemoteTokenShown; },
+    function (v) { rsRemoteTokenShown = v; });
+  rsBindEye('rsTokenEye',
+    function () { return rsTokenShown; },
+    function (v) { rsTokenShown = v; });
+
+  /** 远程地址归一（与后端 split_remote_address 同语义）：100.64/10 裸 IP 补 http://:12300，其余裸地址补 https:// */
+  function rsNormalizeRemoteOrigin(raw) {
+    let text = String(raw || '').trim();
+    if (!text) return '';
+    let scheme;
+    const schemeMatch = text.match(/^https?:\/\//i);
+    if (schemeMatch) {
+      scheme = schemeMatch[0].toLowerCase();
+      text = text.slice(scheme.length);
+    } else {
+      scheme = isTailscaleAddr(text) ? 'http://' : 'https://';
+    }
+    text = text.split(/[/?]/)[0];
+    if (!text) return '';
+    if (scheme === 'http://' && isTailscaleAddr(text) && !text.includes(':')) text += ':12300';
+    return scheme + text;
+  }
+  /** 智能分拣：配对串先拆 origin+token，再按判型落槽（trycloudflare→隧道 / 100.64/10、.ts.net→Tailscale） */
+  function rsRemoteSplit() {
+    const raw = document.getElementById('rsRemote').value.trim();
+    const hint = document.getElementById('rsRemoteHint');
+    if (!raw) {
+      hint.textContent = '先粘点东西进来 —— 配对串、隧道或 Tailscale 地址都行';
+      return;
+    }
+    let origin = '';
+    let token = '';
+    if (/^anyboot:\/\/pair\?/i.test(raw)) {
+      raw.slice(15).split('&').forEach(function (pair) {
+        const eq = pair.indexOf('=');
+        if (eq < 0) return;
+        const key = pair.slice(0, eq).trim().toLowerCase();
+        let value = pair.slice(eq + 1).trim();
+        try { value = decodeURIComponent(value); } catch (_) { /* 保留原样 */ }
+        if (key === 'tunnel' && value) origin = value;
+        if ((key === 'token' || key === 'ab_token') && value) token = value;
+      });
+      if (!origin) {
+        hint.textContent = '配对串里没带地址 —— 生成时选了「不带地址」，让对方重新出码';
+        return;
+      }
+    } else {
+      const tokenMatch = /[?&](?:ab_)?token=([^\s&]+)/.exec(raw);
+      if (tokenMatch) token = tokenMatch[1];
+      origin = raw.split(/[?#]/)[0];
+    }
+    origin = rsNormalizeRemoteOrigin(origin);
+    if (!origin) {
+      hint.textContent = '没认出地址 —— 要有 IP 或主机名';
+      return;
+    }
+    if (isTailscaleAddr(origin)) {
+      rsTsVal = origin;
+      hint.textContent = '已分拣到 Tailscale 槽：' + origin +
+        (/\.ts\.net/i.test(origin)
+          ? '（Funnel 公网地址，手机无需装 Tailscale；国内网络可能不稳）'
+          : '（直连地址，双端需加入同一 tailnet）');
+    } else {
+      rsTunnelVal = origin;
+      hint.textContent = '已分拣到隧道槽：' + origin;
+    }
+    if (token) rsRemoteTokenNew = token;
+    rsRenderSlots();
+    rsRenderTokenRows();
+  }
+  document.getElementById('rsRemoteSplit').addEventListener('click', rsRemoteSplit);
+  document.getElementById('rsSlotTunnelX').addEventListener('click', function () { rsTunnelVal = ''; rsRenderSlots(); });
+  document.getElementById('rsSlotTsX').addEventListener('click', function () { rsTsVal = ''; rsRenderSlots(); });
+  // 折叠区：点击头部展开/收起
+  function rsBindFold(headId, bodyId) {
+    document.getElementById(headId).addEventListener('click', function () {
+      const body = document.getElementById(bodyId);
+      body.hidden = !body.hidden;
+      this.classList.toggle('open', !body.hidden);
+    });
+  }
+  rsBindFold('rsFoldConnHead', 'rsFoldConn');
+  rsBindFold('rsFoldPowerHead', 'rsFoldPower');
+  document.getElementById('rsJump').addEventListener('change', function () { rsRenderFoldCounts(); });
+  /** 折叠区标题摘要：连接策略 = 选路 + 探测 + 跳板机；电源路由 = 条数 */
+  function rsRenderFoldCounts() {
+    const probeLabel = rsProbe === 'parallel_all' ? '并发全部' : (rsProbe === 'serial' ? '串行' : '并发首个');
+    const jump = document.getElementById('rsJump').value;
+    document.getElementById('rsFoldConnCount').textContent =
+      (rsConnMode === 'remote_first' ? '远程优先' : '自动') + ' · ' + probeLabel +
+      (jump ? ' · 跳板机' : '');
+    const routes = rsRouteEditor.routes();
+    document.getElementById('rsFoldPowerCount').textContent =
+      routes.length ? routes.length + ' 条' : '未配置';
+  }
   const rsEditOverlay = document.getElementById('rsEditOverlay');
 
   /** 电脑档案 → 地址编辑状态（macs 是「地址 → MAC 列表」对象） */
@@ -6407,6 +6639,7 @@
     document.getElementById('rsProbeFirst').classList.toggle('primary', rsProbe === 'parallel_first');
     document.getElementById('rsProbeAll').classList.toggle('primary', rsProbe === 'parallel_all');
     document.getElementById('rsProbeSerial').classList.toggle('primary', rsProbe === 'serial');
+    if (typeof rsRenderFoldCounts === 'function') rsRenderFoldCounts();
   }
   document.getElementById('rsProbeFirst').addEventListener('click', function () { rsProbe = 'parallel_first'; rsProbeButtons(); });
   document.getElementById('rsProbeAll').addEventListener('click', function () { rsProbe = 'parallel_all'; rsProbeButtons(); });
@@ -6415,6 +6648,7 @@
   function rsConnButtons() {
     document.getElementById('rsConnAuto').classList.toggle('primary', rsConnMode !== 'remote_first');
     document.getElementById('rsConnRemote').classList.toggle('primary', rsConnMode === 'remote_first');
+    if (typeof rsRenderFoldCounts === 'function') rsRenderFoldCounts();
   }
   document.getElementById('rsConnAuto').addEventListener('click', function () { rsConnMode = ''; rsConnButtons(); });
   document.getElementById('rsConnRemote').addEventListener('click', function () { rsConnMode = 'remote_first'; rsConnButtons(); });
@@ -6429,17 +6663,28 @@
     rsAddrEditor.setEntries(addressesFromRemote(r));
     rsAddrEditor.resetInputs();
     rsRouteEditor.setRoutes(r && Array.isArray(r.power_routes) ? r.power_routes : []);
-    document.getElementById('rsToken').value = '';
-    // 远程接入：地址回显；令牌按 token 同款惯例不回显（留空 = 保持已存）
-    document.getElementById('rsRemote').value = r && r.remote_addr ? r.remote_addr : '';
-    document.getElementById('rsRemoteHint').textContent = r && r.remote_addr
-      ? '已配置远程地址' + (r.remote_token ? ' · 令牌已存（重新粘配对码会更新）' : '')
-      : '';
-    // Tailscale 地址形态提示（与配对串 hint 同口径）：裸 100.x 会被补 http://，其余裸域名补 https://
-    if (r && r.remote_addr && isTailscaleAddr(r.remote_addr)) {
-      document.getElementById('rsRemoteHint').textContent +=
-        ' · Tailscale 地址（双端需加入同一 tailnet）';
+    // 双槽远程接入：优先读新字段；旧档案没双槽时按判型从 remote_addr 分流（与后端 normalize 同语义）
+    rsTunnelVal = r && r.remote_tunnel_addr ? r.remote_tunnel_addr : '';
+    rsTsVal = r && r.remote_ts_addr ? r.remote_ts_addr : '';
+    if (!rsTunnelVal && !rsTsVal && r && r.remote_addr) {
+      if (isTailscaleAddr(r.remote_addr)) rsTsVal = r.remote_addr;
+      else rsTunnelVal = r.remote_addr;
     }
+    rsRemoteTokenNew = '';
+    rsRemoteTokenSaved = r && r.remote_token ? r.remote_token : '';
+    rsTokenSaved = r && r.token ? r.token : '';
+    rsRemoteTokenShown = false;
+    rsTokenShown = false;
+    document.getElementById('rsToken').value = '';
+    document.getElementById('rsRemote').value = '';
+    document.getElementById('rsRemoteHint').textContent = '';
+    rsRenderSlots();
+    rsRenderTokenRows();
+    // 折叠区默认收起
+    document.getElementById('rsFoldConn').hidden = true;
+    document.getElementById('rsFoldConnHead').classList.remove('open');
+    document.getElementById('rsFoldPower').hidden = true;
+    document.getElementById('rsFoldPowerHead').classList.remove('open');
     populateRsJump(r ? r.jump_id : '');
     rsProbe = r ? (r.probe_mode === 'serial' || r.probe_mode === 'parallel_all'
         ? r.probe_mode : 'parallel_first')
@@ -6447,6 +6692,7 @@
     rsProbeButtons();
     rsConnMode = r && r.conn_mode === 'remote_first' ? 'remote_first' : '';
     rsConnButtons();
+    rsRenderFoldCounts();
     document.getElementById('rsDelete').hidden = !r;
     document.getElementById('rsDelete').textContent = '删除';
     document.getElementById('rsEditError').textContent = '';
@@ -6472,13 +6718,16 @@
     const out = document.getElementById('rsTestOut');
     out.classList.remove('bad');
     out.textContent = '探测中…';
+    // 粘贴框里还有没分拣的内容：先自动分拣（点了测试就别让用户再点一次分拣）
+    if (document.getElementById('rsRemote').value.trim()) rsRemoteSplit();
     // 选了跳板机 → 走后端转发后探测（真实链路）；未保存的新档案先落库才能建转发
     const viaJump = !!document.getElementById('rsJump').value;
+    const remoteAddrs = [rsTunnelVal, rsTsVal].filter(Boolean);
     const call = !viaJump
       ? invoke('remote_test', {
           addresses: addresses,
           probeMode: rsProbe,
-          remoteAddr: document.getElementById('rsRemote').value.trim() || null,
+          remoteAddrs: remoteAddrs.length ? remoteAddrs : null,
           connMode: rsConnMode,
         })
       : (rsEditing
@@ -6522,7 +6771,8 @@
     invoke('gateway_pair_fetch', { peer: first })
       .then(function (pair) {
         document.getElementById('rsRemote').value = pair;
-        hint.textContent = '已拿到配对码 —— 点「保存」生效';
+        rsRemoteSplit(); // 拿到配对码直接分拣落槽（令牌一并带入）
+        hint.textContent = '已拿到配对码并分拣落槽 —— 点「保存」生效';
         toast('对方已确认配对');
       })
       .catch(function (e) {
@@ -6532,7 +6782,12 @@
   });
   document.getElementById('rsRemoteClear').addEventListener('click', function () {
     document.getElementById('rsRemote').value = '';
-    document.getElementById('rsRemoteHint').textContent = '';
+    rsTunnelVal = '';
+    rsTsVal = '';
+    rsRemoteTokenNew = '';
+    rsRenderSlots();
+    rsRenderTokenRows();
+    document.getElementById('rsRemoteHint').textContent = '远程接入已清空 —— 保存后两槽都不再使用';
   });
 
   document.getElementById('rsDelete').addEventListener('click', function () {
@@ -6577,9 +6832,11 @@
       probe_mode: rsProbe,
       conn_mode: rsConnMode,
       jump_id: document.getElementById('rsJump').value || '',
-      // 远程接入：令牌不回显，编辑态恒传空（后端留空 = 保持已存；粘贴配对码时后端挖出）
-      remote_addr: document.getElementById('rsRemote').value.trim(),
-      remote_token: '',
+      // 远程接入双槽：隧道 / Tailscale 各自独立；配对令牌只在分拣出新值时更新（空 = 保持已存）
+      remote_addr: '',
+      remote_tunnel_addr: rsTunnelVal,
+      remote_ts_addr: rsTsVal,
+      remote_token: rsRemoteTokenNew,
       // 局域网电源路由：动作归一、端口兜底 9、MAC 全不勾 = 空数组（= 全部网卡）
       power_routes: routesForSave(rsRouteEditor.routes()),
       created_at: 0,
