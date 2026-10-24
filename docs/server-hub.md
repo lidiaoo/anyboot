@@ -68,6 +68,7 @@ Get-Command ssh | Select-Object Source
 | 端口转发 / SOCKS5 | ✅ | ✅ | ✅ | |
 | 跳板机（ProxyCommand） | ✅ | ✅ | ✅ | 密码由继承的 askpass 按 host 认领 |
 | **连接复用（ControlMaster）** | ✅ | ✅ | ❌ | Win32-OpenSSH 不支持 |
+| **内置 Tailscale 引擎（tsnet）** | ✅ | ✅ | ✅ | 免装客户端的 Funnel 公网通道，见下节 |
 
 ### Windows 没有 ControlMaster，意味着什么
 
@@ -87,6 +88,31 @@ Unix 上终端先建立一条 ControlMaster，sftp / 隧道 / 远端命令都靠
 > 文件列表永远空。`apply_auth` 在「只有密码、没有密钥」时会补上这个开关。
 
 副作用：Windows 上每次操作都会在服务器 `auth.log` 里留一条认证记录；Unix 上靠复用则会少很多。
+
+### 内置 Tailscale 引擎（tsnet sidecar）—— 三端布局与排错（2026-10-25 起覆盖 mac/linux）
+
+Go sidecar 把本机 HTTP 服务经 tsnet 的 Funnel 发布成 `https://<节点>.<tailnet>.ts.net`。
+源码 `src-tauri/sidecar-tsnet/`，构建 `scripts/build-sidecar.sh`（全 5 个目标；坑都写在脚本头注释）。
+
+**产物文件名**（`hub_tsnet.rs::sidecar_filename` 按平台+架构选）：
+
+| 平台 | 文件 | 打包配置 |
+| --- | --- | --- |
+| Windows | `anyboot-tsnet.exe` | `tauri.windows.conf.json` |
+| Linux | `anyboot-tsnet-linux-{amd64,arm64}` | `tauri.linux.conf.json` |
+| macOS | `anyboot-tsnet-darwin-{amd64,arm64}` | `tauri.macos.conf.json` |
+
+**查找链**（第一个命中即用）：`resource_dir()/binaries/`（Windows=exe 目录、mac=`.app/Contents/Resources`、
+Linux=`/usr/lib/<identifier>`）→ exe 目录 `binaries/` → exe 同目录 → 数据目录 `tsnet/`（手动放置位）。
+spawn 前 unix 会兜底补 `0o755`（打包链路丢执行位时救场）。
+
+**排错**：
+- 「内置 Tailscale 引擎缺失（<路径>）」：括号里就是实际找的第一个候选路径，对照上表看包里有没有带对应文件；
+  手动救急 = 把产物拷到数据目录 `tsnet/` 下并按当前平台命名。
+- 运行日志框（环形缓冲 200 条）第一行会打 sidecar 实际路径与状态目录；登录链接以
+  `login.tailscale.com` 域白名单校验后才发给前端打开浏览器。
+- 引擎状态目录在数据目录 `tsnet/state/`（登录凭据持久化处）；「清除登录凭据」= 停进程 + 删该目录。
+- mac/linux 端 2026-10-25 才有产物，端到端（真实 tailnet 登录 → Funnel ready）尚未在真机验过。
 
 ### 子进程不能弹控制台窗口
 
