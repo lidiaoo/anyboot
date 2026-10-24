@@ -2066,16 +2066,29 @@
                   </p>
                 </div>
                 <div class="field">
-                  <label>探测方式（<b>连接优先级整体</b>的策略，对上面每一个通道都生效）</label>
-                  <div style="display:flex;gap:4px" role="group" aria-label="探测方式">
+                  <label><b>连接优先级的探测方式</b>（六个通道之间怎么试，对上面每一个通道都生效）</label>
+                  <div style="display:flex;gap:4px" role="group" aria-label="连接优先级的探测方式">
+                    <button type="button" class="btn small seg-on" id="rsRouteProbeFirst" style="flex:1">并发（首个）</button>
+                    <button type="button" class="btn small" id="rsRouteProbeAll" style="flex:1">并发（全部）</button>
+                    <button type="button" class="btn small" id="rsRouteProbeSerial" style="flex:1">串行</button>
+                  </div>
+                  <p class="field-hint" style="margin:6px 0 0">
+                    电脑页与电脑列表的探活都按这里来：并发（首个）把<b>全部通道</b>同时发出，谁先成功就用谁；
+                    并发（全部）等全部返回，逐行报每个通道的成败与耗时；串行按上面的优先级逐个通道试，第一个通就停。
+                    与下面那个「多网卡探测」是两个粒度：这个管<b>通道之间</b>，那个管<b>同一通道里的多个地址</b>。
+                    探测跑在**独立的探测线程池**上，调大超时或选并发全部也不会卡住界面。
+                  </p>
+                </div>
+                <div class="field">
+                  <label><b>多网卡探测</b>（同一通道里的多个地址之间怎么探）</label>
+                  <div style="display:flex;gap:4px" role="group" aria-label="多网卡探测">
                     <button type="button" class="btn small seg-on" id="rsProbeFirst" style="flex:1">并发（首个）</button>
                     <button type="button" class="btn small" id="rsProbeAll" style="flex:1">并发（全部）</button>
                     <button type="button" class="btn small" id="rsProbeSerial" style="flex:1">串行</button>
                   </div>
                   <p class="field-hint" style="margin:6px 0 0">
-                    电脑页与电脑列表的探活都按这里来：并发（首个）把<b>全部通道</b>同时发出，谁先成功就用谁；
-                    并发（全部）等全部返回，逐行报每个通道的成败与耗时；串行按上面的优先级逐个试，第一个通就停。
-                    探测跑在**独立的探测线程池**上，调大超时或选并发全部也不会卡住界面。
+                    一台电脑配了多个局域网地址（多块网卡 / DHCP 换过 IP）时生效：并发（首个）谁先通用谁，
+                    并发（全部）等全部返回，串行按地址顺序试、第一个通就停。
                   </p>
                 </div>
                 <div class="field">
@@ -4999,22 +5012,29 @@
     return list;
   }
 
-  /** 统一探测入口：按档案优先级逐通道探（route_candidates），并处理赢家记账。
+  /**
+   * 统一探测入口：按档案优先级逐通道探（route_candidates），并处理赢家记账。
    *  LAN 赢家 → 置顶 + 清远程记账；远程赢家 → 记 origin（iframe 换 ab_token URL）。
-   *  超时与模式都取档案里的「连接策略」：**电脑页和电脑列表共用这一处**。 */
+   *  **两个粒度都取档案里的连接策略**：外层通道之间听 route_probe_mode，
+   *  内层同通道多地址听 probe_mode；超时按通道取。"电脑页和电脑列表共用这一处"。
+   */
   async function pcProbe(r, mode) {
     const candidates = pcRouteCandidates(r);
     // 默认探测超时（毫秒）跟档案走；老档案没这字段 → 后端默认 2 秒
     const timeout = r.probe_timeout_ms || 2000;
     // 每个通道自己的超时也要带上，否则「单独给 Funnel 8 秒」在电脑页 / 列表都不作数
     const routeTimeouts = r.route_timeouts_ms || {};
+    // 外层：连接优先级的探测方式（六个通道之间）
+    const routeMode = r.route_probe_mode || 'parallel_first';
+    // 内层：多网卡探测（同一通道内的多个地址）
+    const addressMode = mode || r.probe_mode || 'parallel_first';
     const res = candidates.length
       ? await invoke('remote_test', {
-          addresses: [], probeMode: mode, candidates: candidates,
-          probeTimeoutMs: timeout, routeTimeoutsMs: routeTimeouts,
+          addresses: [], probeMode: addressMode, routeProbeMode: routeMode,
+          candidates: candidates, probeTimeoutMs: timeout, routeTimeoutsMs: routeTimeouts,
         })
       : await invoke('remote_test', {
-          addresses: r.addresses, probeMode: mode,
+          addresses: r.addresses, probeMode: addressMode, routeProbeMode: routeMode,
           probeTimeoutMs: timeout, routeTimeoutsMs: routeTimeouts,
         });
     // 连接方式是否翻转（直连 ↔ 隧道）：变了要刷新标注（电脑标签/列表行/悬浮球）
@@ -7143,7 +7163,11 @@
 
   // ---- 添加 / 编辑弹窗 ----
   let rsEditing = null; // null = 新建；否则 RemoteServer.id
+  // 两个不同粒度的探测方式：
+  //   rsProbe      = 多网卡探测（**同一通道里多个地址**之间，存 probe_mode）
+  //   rsRouteProbe = 连接优先级的探测方式（**六个通道之间**，存 route_probe_mode）
   let rsProbe = 'parallel_first';
+  let rsRouteProbe = 'parallel_first';
   // ---- 连接优先级（五通道并列；旧 conn_mode 已废弃，只做迁移） ----
   // ⚠️ 与手机端 ServerProfile.defaultRouteOrder / 后端 ROUTE_IDS 必须逐字一致：
   // 两端是同一套电脑档案的不同样式，通道表对不上就会出现「电脑上排好的顺序到了手机上不认」。
@@ -7378,13 +7402,16 @@
    *   否则每改一个数字就把整排输入框拆了重建，正在点的下一个格子会「点不动」。
    */
   function rsRenderFoldCounts(skipRoutes) {
-    const probeLabel = rsProbe === 'parallel_all' ? '并发全部' : (rsProbe === 'serial' ? '串行' : '并发首个');
+    const short = function (mode) {
+      return mode === 'parallel_all' ? '并发全部' : (mode === 'serial' ? '串行' : '并发首个');
+    };
     const jump = document.getElementById('rsJump').value;
     const enabled = rsRouteOrder.filter(function (kind) {
       return !rsRouteDisabled[kind] && rsRouteAvailable(kind);
     }).length;
     document.getElementById('rsFoldConnCount').textContent =
-      '优先级 ' + enabled + '/' + ROUTE_IDS.length + ' · ' + probeLabel +
+      '优先级 ' + enabled + '/' + ROUTE_IDS.length +
+      ' · 通道间 ' + short(rsRouteProbe) + ' · 多网卡 ' + short(rsProbe) +
       ' · 默认 ' + (rsProbeTimeoutMs() / 1000) + 's' +
       (rsRouteTimeoutCount() ? '（' + rsRouteTimeoutCount() + ' 个通道单独设）' : '') +
       (jump ? ' · 跳板机' : '');
@@ -7441,11 +7468,18 @@
   }
 
   function rsProbeButtons() {
+    // 两个粒度各三个按钮：rsRouteProbe = 通道之间，rsProbe = 同一通道内的多个地址
+    document.getElementById('rsRouteProbeFirst').classList.toggle('primary', rsRouteProbe === 'parallel_first');
+    document.getElementById('rsRouteProbeAll').classList.toggle('primary', rsRouteProbe === 'parallel_all');
+    document.getElementById('rsRouteProbeSerial').classList.toggle('primary', rsRouteProbe === 'serial');
     document.getElementById('rsProbeFirst').classList.toggle('primary', rsProbe === 'parallel_first');
     document.getElementById('rsProbeAll').classList.toggle('primary', rsProbe === 'parallel_all');
     document.getElementById('rsProbeSerial').classList.toggle('primary', rsProbe === 'serial');
-    if (typeof rsRenderFoldCounts === 'function') rsRenderFoldCounts();
+    if (typeof rsRenderFoldCounts === 'function') rsRenderFoldCounts(true);
   }
+  document.getElementById('rsRouteProbeFirst').addEventListener('click', function () { rsRouteProbe = 'parallel_first'; rsProbeButtons(); });
+  document.getElementById('rsRouteProbeAll').addEventListener('click', function () { rsRouteProbe = 'parallel_all'; rsProbeButtons(); });
+  document.getElementById('rsRouteProbeSerial').addEventListener('click', function () { rsRouteProbe = 'serial'; rsProbeButtons(); });
   document.getElementById('rsProbeFirst').addEventListener('click', function () { rsProbe = 'parallel_first'; rsProbeButtons(); });
   document.getElementById('rsProbeAll').addEventListener('click', function () { rsProbe = 'parallel_all'; rsProbeButtons(); });
   document.getElementById('rsProbeSerial').addEventListener('click', function () { rsProbe = 'serial'; rsProbeButtons(); });
@@ -7647,9 +7681,11 @@
     document.getElementById('rsFoldPower').hidden = true;
     document.getElementById('rsFoldPowerHead').classList.remove('open');
     populateRsJump(r ? r.jump_id : '');
-    rsProbe = r ? (r.probe_mode === 'serial' || r.probe_mode === 'parallel_all'
-        ? r.probe_mode : 'parallel_first')
-      : 'parallel_first';
+    // 两个粒度的探测方式分开回显：probe_mode = 多网卡（通道内），route_probe_mode = 通道之间
+    rsProbe = r && (r.probe_mode === 'serial' || r.probe_mode === 'parallel_all')
+      ? r.probe_mode : 'parallel_first';
+    rsRouteProbe = r && (r.route_probe_mode === 'serial' || r.route_probe_mode === 'parallel_all')
+      ? r.route_probe_mode : 'parallel_first';
     rsProbeButtons();
     // 默认探测超时（秒）：落盘是毫秒；老档案没有该字段 → 空输入框由 placeholder 提示默认 2 秒
     document.getElementById('rsProbeTimeout').value =
@@ -7738,7 +7774,10 @@
           : Promise.reject(new Error('经跳板机测试需先保存档案：先点一次「保存」，再回来测试')))
       : invoke('remote_test', {
           addresses: [],
+          // 内层：多网卡探测（同一通道内多个地址）
           probeMode: rsProbe,
+          // 外层：连接优先级的探测方式（六个通道之间）
+          routeProbeMode: rsRouteProbe,
           // 默认探测超时（通道没单独设时用它；界面上是秒，后端收毫秒）
           probeTimeoutMs: rsProbeTimeoutMs(),
           // 每个通道自己的超时：编辑框里那张表原样带过去，测出来才和保存后一致
@@ -7848,6 +7887,8 @@
       machine_id: '',
       machine_name: '',
       probe_mode: rsProbe,
+      // 连接优先级的探测方式（六个通道之间）；与上面那个多网卡探测是两个粒度
+      route_probe_mode: rsRouteProbe,
       // 连接优先级（五通道）；旧 conn_mode 已废弃恒空，后端按 route_order 消费
       // 连接优先级（六通道）；旧 conn_mode 已废弃恒空，后端按 route_order 消费
       conn_mode: '',

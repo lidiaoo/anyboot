@@ -119,9 +119,18 @@ pub struct RemoteServer {
     /// 客户端用它画系统徽标 —— 探活成功时顺手记下来，省一次额外请求。
     #[serde(default)]
     pub machine_os: String,
-    /// 多网卡探测：parallel_first（默认，并发取首个成功）/ parallel_all（并发等全部）/ serial（按顺序取第一个通）
+    /// **多网卡探测**（同一通道内的多个地址之间怎么探）：
+    /// parallel_first（默认，并发取首个成功）/ parallel_all（并发等全部）/ serial（按顺序取第一个通）。
+    /// 注意它与 [`Self::route_probe_mode`] 是两个不同粒度：这个只管「一台电脑的多块网卡/多个 IP」，
+    /// 那个管「六个连接通道之间」。
     #[serde(default)]
     pub probe_mode: String,
+    /// **连接优先级的探测方式**（六个通道之间怎么探，作用于所有通道元素）：
+    /// parallel_first（默认，全部通道同时发出、谁先成功用谁）/ parallel_all（等全部返回，逐行报）/
+    /// serial（按优先级逐个通道试，第一个通就停）。
+    /// 与 [`Self::probe_mode`] 组合成两层策略：外层决定通道之间，内层决定同一通道内多个地址。
+    #[serde(default = "serde_default_route_probe_mode")]
+    pub route_probe_mode: String,
     /// 探测超时（毫秒，默认 2000）：**通道自己没单独设时的默认值**。
     /// 0 / 缺省 = 用默认值；实际使用前会夹到 [200, 30000]。
     #[serde(default = "serde_default_probe_timeout_ms")]
@@ -400,6 +409,8 @@ impl RemoteServer {
             // parallel_first 是默认；旧值 parallel 与空值都归到它（兼容老配置）
             _ => "parallel_first".to_string(),
         };
+        // 连接优先级的探测方式（通道之间）：与上面那个内层策略同一套取值
+        self.route_probe_mode = normalize_probe_mode(&self.route_probe_mode).to_string();
         // 连接优先：只认 remote_first，其余一律归空（= 自动，局域网优先）
         self.conn_mode = if self.conn_remote_first() {
             "remote_first".to_string()
@@ -1600,10 +1611,14 @@ pub(crate) fn normalize_probe_mode(mode: &str) -> &'static str {
 ///
 /// `route_timeouts_ms`：每个通道自己的超时（key = 通道 id）。编辑弹窗里点了「测试」
 /// 但还没保存时，前端把界面上那张表原样传过来，测出来的结果才和保存后一致。
+///
+/// `probe_mode` = **多网卡探测**（同一通道内多个地址之间）；`route_probe_mode` =
+/// **连接优先级的探测方式**（六个通道之间）。两个粒度各一个参数，别混。
 #[tauri::command]
 pub async fn remote_test(
     addresses: Vec<String>,
     probe_mode: String,
+    route_probe_mode: Option<String>,
     remote_addrs: Option<Vec<String>>,
     conn_mode: Option<String>,
     candidates: Option<Vec<RouteTestCandidate>>,
@@ -1614,15 +1629,12 @@ pub async fn remote_test(
     let timeout = Duration::from_millis(default_ms);
     let timeouts = normalize_route_timeouts(&route_timeouts_ms.unwrap_or_default());
     // 主路径：按连接策略给出的显式候选（六通道，顺序 = 用户排的优先级）。
-    // 并发/串行由 probe_mode 决定，**所有通道**都参与（不再只有局域网并发）。
+    // 外层（通道之间）听 route_probe_mode，内层（同通道多地址）听 probe_mode —— 全部通道都参与。
     if let Some(list) = candidates.filter(|items| !items.is_empty()) {
+        let outer = normalize_probe_mode(route_probe_mode.as_deref().unwrap_or(""));
+        let inner = normalize_probe_mode(&probe_mode);
         return tauri::async_runtime::spawn_blocking(move || {
-            probe_candidates_blocking(
-                list,
-                &normalize_probe_mode(&probe_mode),
-                &timeouts,
-                default_ms,
-            )
+            probe_candidates_blocking(list, outer, inner, &timeouts, default_ms)
         })
         .await
         .unwrap_or_else(|error| RemoteTestResult {
@@ -1681,6 +1693,10 @@ fn serde_default_probe_timeout_ms() -> u64 {
     DEFAULT_PROBE_TIMEOUT_MS
 }
 
+fn serde_default_route_probe_mode() -> String {
+    "parallel_first".to_string()
+}
+
 /// 一次探测的原始结果（新引擎内部用；比 ProbeOutcome 多带 machineId/名/系统）
 #[derive(Clone, Debug)]
 struct ProbeHit {
@@ -1723,19 +1739,23 @@ fn probe_one(kind: &str, origin: &str, timeout: Duration) -> Result<ProbePayload
     })
 }
 
-/// **按连接策略探测**（电脑页 / 电脑列表 / 编辑弹窗「测试」共用）。
+/// **按连接策略探测**（电脑页 / 电脑列表 / 编辑弹窗「测试」共用）。**两层策略**：
 ///
-/// 候选来自 `route_candidates()`（或前端按同一份排序拼出来的列表），顺序即用户
-/// 在「连接策略」里排的优先级。三种模式与「多网卡探测」保持同一套语义：
-/// - `serial`：按顺序逐个探，第一个通的就是赢家（最省流量，最慢）；
-/// - `parallel_first`：**全部同时发出**，谁先成功谁赢（最快给出「能不能连」）；
-/// - `parallel_all`：全部同时发出，等全部返回，取最快成功者（顺带拿到每个通道的延迟）。
+/// - 外层 `route_mode`：**连接优先级整体的探测方式**，管「六个通道之间」怎么试 ——
+///   `parallel_first`（全部通道同时发出，谁先成功用谁）/ `parallel_all`（等全部返回，
+///   逐行报每个通道）/ `serial`（按优先级逐个通道试，第一个通就停）；
+/// - 内层 `address_mode`：**多网卡探测**，管「同一个通道里的多个地址」（实际只有局域网
+///   会配多个）—— 同样是上面三种取值。
+///
+/// 两层是独立开关（用户在编辑框里分别选），组合起来的意思很清楚：
+/// 「通道之间并发、每个通道内部的多个网卡按顺序试」这种搭配是合法且常用的。
 ///
 /// 所有探测都在 [`crate::probe_pool`] 里跑（专用固定线程池），不再占用 Tauri 的
 /// 全局阻塞池 —— 用户把超时调大 + 并发全部时，界面其它命令不会被拖住。
 fn probe_candidates_blocking(
     candidates: Vec<RouteTestCandidate>,
-    mode: &str,
+    route_mode: &str,
+    address_mode: &str,
     timeouts: &std::collections::BTreeMap<String, u64>,
     default_timeout_ms: u64,
 ) -> RemoteTestResult {
@@ -1763,57 +1783,76 @@ fn probe_candidates_blocking(
             .unwrap_or(default_timeout_ms);
         Duration::from_millis(clamp_probe_timeout_ms(raw))
     };
-    // 并发整体兜底时限 = 最慢那个通道的超时 + 500ms（每个探活自己已有 IO 超时，
-    // 这里只防线程池排队），否则会按第一个通道的短超时把慢通道提前拍死
-    let slowest = list
-        .iter()
-        .map(|cand| timeout_of(&cand.kind))
-        .max()
-        .unwrap_or_else(|| Duration::from_millis(clamp_probe_timeout_ms(default_timeout_ms)));
+    let groups = group_candidates(&list);
+    let route_mode = normalize_probe_mode(route_mode);
+    let address_mode = normalize_probe_mode(address_mode);
+    // 兜底时限：按**最坏路径**估（内层按串行算，外层串行就累加、并发就取最大），
+    // 每个探活自己已有 IO 超时，这里只防线程池排队，宽一点不会误杀
+    let group_worst = |group: &ProbeGroup| {
+        let per = timeout_of(&group.kind);
+        if address_mode == "serial" {
+            per * (group.origins.len() as u32)
+        } else {
+            per
+        }
+    };
+    let worst = if route_mode == "serial" {
+        groups.iter().map(group_worst).sum::<Duration>()
+    } else {
+        groups
+            .iter()
+            .map(group_worst)
+            .max()
+            .unwrap_or_else(|| Duration::from_millis(clamp_probe_timeout_ms(default_timeout_ms)))
+    };
 
-    let mut hits: Vec<ProbeHit> = Vec::with_capacity(list.len());
-    let mode = normalize_probe_mode(mode);
-
-    if mode == "serial" {
-        for cand in &list {
-            let outcome = probe_one(&cand.kind, &cand.origin, timeout_of(&cand.kind));
-            let ok = outcome.is_ok();
-            hits.push(ProbeHit {
-                kind: cand.kind.clone(),
-                origin: cand.origin.clone(),
-                remote: is_remote_kind(&cand.kind),
-                outcome,
-            });
+    if route_mode == "serial" {
+        // 外层串行：一个通道一个通道地试，某个通道命中就不再往下走
+        let mut hits: Vec<ProbeHit> = Vec::new();
+        for group in &groups {
+            let group_hits = probe_group_blocking(group, address_mode, timeout_of(&group.kind));
+            let ok = group_hits.iter().any(|hit| hit.outcome.is_ok());
+            hits.extend(group_hits);
             if ok {
-                return finish_probe(hits);
+                break;
+            }
+        }
+        // 没轮到的通道如实标「没探」，别让用户以为漏了（逐行结果要和优先级表对得上）
+        for group in &groups {
+            for origin in &group.origins {
+                if hits.iter().any(|hit| hit.kind == group.kind && hit.origin == *origin) {
+                    continue;
+                }
+                hits.push(ProbeHit {
+                    kind: group.kind.clone(),
+                    origin: origin.clone(),
+                    remote: is_remote_kind(&group.kind),
+                    outcome: Err("前面已有通道命中，按串行策略未探测".to_string()),
+                });
             }
         }
         return finish_probe(hits);
     }
 
-    // 并发：一次性全提交到探测线程池
-    let (sender, receiver) = std::sync::mpsc::channel::<ProbeHit>();
-    let mut pending = list.len();
-    for cand in &list {
+    // 外层并发：一个通道一个任务，组内再按内层策略处理它的多个地址
+    let (sender, receiver) = std::sync::mpsc::channel::<Vec<ProbeHit>>();
+    let mut pending = groups.len();
+    for group in &groups {
         let sender = sender.clone();
-        let kind = cand.kind.clone();
-        let origin = cand.origin.clone();
-        let remote = is_remote_kind(&kind);
+        let kind = group.kind.clone();
+        let origins = group.origins.clone();
         let timeout = timeout_of(&kind);
+        let inner = address_mode.to_string();
         crate::probe_pool::pool().execute(Box::new(move || {
-            let outcome = probe_one(&kind, &origin, timeout);
+            let group = ProbeGroup { kind, origins };
+            let hits = probe_group_blocking(&group, &inner, timeout);
             // 接收端可能已经不要了（并发首个已经胜出）——发送失败静默丢弃
-            let _ = sender.send(ProbeHit {
-                kind,
-                origin,
-                remote,
-                outcome,
-            });
+            let _ = sender.send(hits);
         }));
     }
     drop(sender);
 
-    let deadline = Instant::now() + slowest + Duration::from_millis(500);
+    let deadline = Instant::now() + worst + Duration::from_millis(500);
     let mut collected: Vec<ProbeHit> = Vec::new();
     while pending > 0 {
         let remaining = deadline.saturating_duration_since(Instant::now());
@@ -1821,37 +1860,146 @@ fn probe_candidates_blocking(
             break;
         }
         match receiver.recv_timeout(remaining) {
-            Ok(hit) => {
+            Ok(group_hits) => {
                 pending -= 1;
-                let ok = hit.outcome.is_ok();
-                collected.push(hit);
-                // 并发（首个）：第一个成功立刻收工，剩下的在途任务结果无人接收
-                if ok && mode == "parallel_first" {
-                    return finish_probe(collected);
+                let ok = group_hits.iter().any(|hit| hit.outcome.is_ok());
+                collected.extend(group_hits);
+                // 并发（首个）：第一个成功的通道立刻收工，剩下的在途任务结果无人接收
+                if ok && route_mode == "parallel_first" {
+                    break;
                 }
             }
             Err(_) => break, // 超时：把已拿到的收束掉
         }
     }
-    // 没回来的候选如实标「探测超时」（带上它自己的超时值），别让用户以为漏了通道
-    for cand in &list {
-        if collected
-            .iter()
-            .any(|hit| hit.kind == cand.kind && hit.origin == cand.origin)
-        {
-            continue;
+    // 没回来的通道 / 地址如实标出来（带上它自己的超时值），别让用户以为漏了通道
+    for group in &groups {
+        let per = timeout_of(&group.kind);
+        for origin in &group.origins {
+            if collected
+                .iter()
+                .any(|hit| hit.kind == group.kind && hit.origin == *origin)
+            {
+                continue;
+            }
+            collected.push(ProbeHit {
+                kind: group.kind.clone(),
+                origin: origin.clone(),
+                remote: is_remote_kind(&group.kind),
+                outcome: Err(format!("探测超时（>{}ms）", per.as_millis())),
+            });
         }
-        collected.push(ProbeHit {
-            kind: cand.kind.clone(),
-            origin: cand.origin.clone(),
-            remote: is_remote_kind(&cand.kind),
-            outcome: Err(format!(
-                "探测超时（>{}ms）",
-                timeout_of(&cand.kind).as_millis()
-            )),
-        });
     }
     finish_probe(collected)
+}
+
+/// 一个通道的候选分组：同一个 kind 的多个 origin 归一组（实际只有局域网会有多个）
+struct ProbeGroup {
+    kind: String,
+    origins: Vec<String>,
+}
+
+/// 按 kind 分组，**保持候选出现顺序**（组顺序 = 用户在优先级表里排的顺序）
+fn group_candidates(list: &[RouteTestCandidate]) -> Vec<ProbeGroup> {
+    let mut groups: Vec<ProbeGroup> = Vec::new();
+    for cand in list {
+        match groups.iter_mut().find(|group| group.kind == cand.kind) {
+            Some(group) => {
+                if !group.origins.contains(&cand.origin) {
+                    group.origins.push(cand.origin.clone());
+                }
+            }
+            None => groups.push(ProbeGroup {
+                kind: cand.kind.clone(),
+                origins: vec![cand.origin.clone()],
+            }),
+        }
+    }
+    groups
+}
+
+/// 探一个通道（组内多个地址按**多网卡探测**方式处理），返回按 origins 顺序排列的命中列表。
+///
+/// 未探测的地址也会补一行（「同通道已命中/未探测」），这样逐行结果永远和优先级表对得上。
+fn probe_group_blocking(group: &ProbeGroup, address_mode: &str, timeout: Duration) -> Vec<ProbeHit> {
+    let remote = is_remote_kind(&group.kind);
+    let single = |origin: &str, outcome: Result<ProbePayload, String>| ProbeHit {
+        kind: group.kind.clone(),
+        origin: origin.to_string(),
+        remote,
+        outcome,
+    };
+    if group.origins.len() == 1 {
+        return vec![single(
+            &group.origins[0],
+            probe_one(&group.kind, &group.origins[0], timeout),
+        )];
+    }
+    let mode = normalize_probe_mode(address_mode);
+    let mut hits: Vec<ProbeHit> = Vec::with_capacity(group.origins.len());
+    if mode == "serial" {
+        // 内层串行：按用户排的地址顺序逐个试，第一个通就停
+        for origin in &group.origins {
+            let outcome = probe_one(&group.kind, origin, timeout);
+            let ok = outcome.is_ok();
+            hits.push(single(origin, outcome));
+            if ok {
+                break;
+            }
+        }
+    } else {
+        // 内层并发：全部同时发出；parallel_first 谁先成功用谁，parallel_all 等全部
+        let (sender, receiver) = std::sync::mpsc::channel::<(usize, ProbeHit)>();
+        let mut pending = group.origins.len();
+        for (index, origin) in group.origins.iter().enumerate() {
+            let sender = sender.clone();
+            let kind = group.kind.clone();
+            let origin = origin.clone();
+            crate::probe_pool::pool().execute(Box::new(move || {
+                let outcome = probe_one(&kind, &origin, timeout);
+                let _ = sender.send((
+                    index,
+                    ProbeHit {
+                        kind,
+                        origin,
+                        remote,
+                        outcome,
+                    },
+                ));
+            }));
+        }
+        drop(sender);
+        let mut slots: Vec<Option<ProbeHit>> = vec![None; group.origins.len()];
+        let deadline = Instant::now() + timeout + Duration::from_millis(500);
+        while pending > 0 {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            match receiver.recv_timeout(remaining) {
+                Ok((index, hit)) => {
+                    pending -= 1;
+                    let ok = hit.outcome.is_ok();
+                    slots[index] = Some(hit);
+                    if ok && mode == "parallel_first" {
+                        break;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+        for (index, slot) in slots.into_iter().enumerate() {
+            hits.push(slot.unwrap_or_else(|| {
+                single(&group.origins[index], Err("同通道已命中，未再等待".to_string()))
+            }));
+        }
+        return hits;
+    }
+    // 串行命中后剩下的地址补一行说明
+    for origin in group.origins.iter().skip(hits.len()) {
+        hits.push(single(origin, Err("同通道前面已命中，未探测".to_string())));
+    }
+    hits
 }
 
 fn is_remote_kind(kind: &str) -> bool {
@@ -3118,6 +3266,7 @@ fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Result<RemoteB
         }
         let outcome = probe_candidates_blocking(
             engine_candidates,
+            &normalize_probe_mode(&server.route_probe_mode),
             &normalize_probe_mode(&server.probe_mode),
             &server.route_timeouts_ms,
             server.probe_timeout_ms,
@@ -3372,6 +3521,7 @@ mod tests {
             probe_timeout_ms: 0,
             route_timeouts_ms: Default::default(),
             probe_mode: " other ".into(),
+            route_probe_mode: "parallel_first".into(),
             jump_id: " j1 ".into(),
             macs: Default::default(),
             power_routes: vec![],
@@ -3485,6 +3635,7 @@ mod tests {
             probe_timeout_ms: 0,
             route_timeouts_ms: Default::default(),
             probe_mode: String::new(),
+            route_probe_mode: "parallel_first".into(),
             jump_id: String::new(),
             macs: Default::default(),
             power_routes: vec![],
@@ -3733,6 +3884,7 @@ mod tests {
             probe_timeout_ms: 0,
             route_timeouts_ms: Default::default(),
             probe_mode: "serial".into(),
+            route_probe_mode: "parallel_first".into(),
             jump_id: String::new(),
             macs: Default::default(),
             power_routes: vec![],
@@ -3774,6 +3926,7 @@ mod tests {
                 probe_timeout_ms: 0,
                 route_timeouts_ms: Default::default(),
                 probe_mode: "parallel".into(),
+                route_probe_mode: "parallel_first".into(),
                 jump_id: String::new(),
                 macs: Default::default(),
                 power_routes: vec![],
@@ -4103,17 +4256,45 @@ mod tests {
     #[test]
     fn probe_candidates_serial_stops_at_first_success() {
         let port = spawn_health_stub("windows");
+        // 三个都是 lan（= 同一通道的多块网卡）→ 走**内层**串行：命中即停
         let cands = vec![
             RouteTestCandidate { kind: "lan".into(), origin: "127.0.0.1:1".into() },
             RouteTestCandidate { kind: "lan".into(), origin: format!("127.0.0.1:{port}") },
             RouteTestCandidate { kind: "lan".into(), origin: "127.0.0.1:2".into() },
         ];
-        let result = probe_candidates_blocking(cands, "serial", &no_route_timeouts(), DEFAULT_PROBE_TIMEOUT_MS);
+        let result = probe_candidates_blocking(cands, "parallel_first", "serial", &no_route_timeouts(), DEFAULT_PROBE_TIMEOUT_MS);
         assert!(result.ok, "串行应探到活着的那条：{}", result.error);
         assert_eq!(result.addr, format!("127.0.0.1:{port}"));
         assert_eq!(result.os, "windows", "赢家要带回系统族");
-        // 串行命中即停：第三个候选压根没探，逐行结果只有两条
-        assert_eq!(result.results.len(), 2);
+        // 逐行结果仍和地址表对得上：第三条没探，标「未探测」而不是凭空消失
+        assert_eq!(result.results.len(), 3);
+        let skipped = result.results.iter().find(|row| row.address == "127.0.0.1:2").expect("第三条");
+        assert!(!skipped.ok);
+        assert!(skipped.error.contains("未探测"), "未探的地址要说明原因：{}", skipped.error);
+    }
+
+    #[test]
+    fn route_serial_probes_channels_in_priority_order() {
+        // 外层（通道之间）串行：局域网死 → 隧道活 → 后面的通道压根不探
+        let lan_port = spawn_health_stub("windows");
+        let tunnel_port = spawn_health_stub("linux");
+        let cands = vec![
+            RouteTestCandidate { kind: "lan".into(), origin: "127.0.0.1:1".into() },
+            RouteTestCandidate { kind: "tunnel".into(), origin: format!("http://127.0.0.1:{tunnel_port}") },
+            RouteTestCandidate { kind: "ts".into(), origin: format!("http://127.0.0.1:{lan_port}") },
+        ];
+        let result = probe_candidates_blocking(cands, "serial", "parallel_first", &no_route_timeouts(), DEFAULT_PROBE_TIMEOUT_MS);
+        assert!(result.ok, "外层串行应停在隧道通道：{}", result.error);
+        assert_eq!(result.kind, "tunnel");
+        // 三个通道各一行，但第三个（ts）连探都没探
+        assert_eq!(result.results.len(), 3);
+        let untouched = result.results.iter().find(|row| row.kind == "ts").expect("ts 那行");
+        assert!(!untouched.ok);
+        assert!(
+            untouched.error.contains("串行策略未探测"),
+            "串行命中后剩下的通道要说明没探：{}",
+            untouched.error
+        );
     }
 
     #[test]
@@ -4123,7 +4304,7 @@ mod tests {
             RouteTestCandidate { kind: "lan".into(), origin: "127.0.0.1:1".into() },
             RouteTestCandidate { kind: "tunnel".into(), origin: format!("http://127.0.0.1:{port}") },
         ];
-        let result = probe_candidates_blocking(cands, "parallel_all", &no_route_timeouts(), DEFAULT_PROBE_TIMEOUT_MS);
+        let result = probe_candidates_blocking(cands, "parallel_all", "parallel_first", &no_route_timeouts(), DEFAULT_PROBE_TIMEOUT_MS);
         assert!(result.ok, "并发全部应探到远程通道：{}", result.error);
         assert!(result.remote, "赢家是远程通道");
         assert_eq!(result.kind, "tunnel");
@@ -4139,7 +4320,7 @@ mod tests {
             RouteTestCandidate { kind: "lan".into(), origin: "127.0.0.1:1".into() },
             RouteTestCandidate { kind: "lan".into(), origin: format!("127.0.0.1:{port}") },
         ];
-        let result = probe_candidates_blocking(cands, "parallel_first", &no_route_timeouts(), DEFAULT_PROBE_TIMEOUT_MS);
+        let result = probe_candidates_blocking(cands, "parallel_first", "parallel_first", &no_route_timeouts(), DEFAULT_PROBE_TIMEOUT_MS);
         assert!(result.ok);
         assert_eq!(result.os, "macos");
     }
@@ -4150,7 +4331,7 @@ mod tests {
             RouteTestCandidate { kind: "lan".into(), origin: "127.0.0.1:1".into() },
             RouteTestCandidate { kind: "ts".into(), origin: "http://127.0.0.1:2".into() },
         ];
-        let result = probe_candidates_blocking(cands, "parallel_all", &no_route_timeouts(), 300);
+        let result = probe_candidates_blocking(cands, "parallel_all", "parallel_first", &no_route_timeouts(), 300);
         assert!(!result.ok);
         assert_eq!(result.results.len(), 2);
         assert!(result.error.contains("所有通道都不通"), "错误文案：{}", result.error);
@@ -4158,7 +4339,7 @@ mod tests {
 
     #[test]
     fn probe_candidates_empty_is_an_error_not_a_panic() {
-        let result = probe_candidates_blocking(Vec::new(), "parallel_first", &no_route_timeouts(), DEFAULT_PROBE_TIMEOUT_MS);
+        let result = probe_candidates_blocking(Vec::new(), "parallel_first", "parallel_first", &no_route_timeouts(), DEFAULT_PROBE_TIMEOUT_MS);
         assert!(!result.ok);
         assert!(result.error.contains("没有可探测的通道"));
     }
@@ -4234,7 +4415,7 @@ mod tests {
             RouteTestCandidate { kind: "lan".into(), origin: format!("127.0.0.1:{port}") },
             RouteTestCandidate { kind: "ts".into(), origin: format!("http://127.0.0.1:{port}") },
         ];
-        let result = probe_candidates_blocking(cands, "parallel_all", &timeouts, 2_000);
+        let result = probe_candidates_blocking(cands, "parallel_all", "parallel_first", &timeouts, 2_000);
         assert!(result.ok, "3 秒超时的通道要能等到 700ms 的响应：{}", result.error);
         assert_eq!(result.kind, "ts", "赢家应该是给足超时的那条");
         assert_eq!(result.results.len(), 2);

@@ -292,8 +292,19 @@ final class ServerProfile {
     String machineName = "";
     /** 电脑端 `/health` 给的系统族：windows / macos / linux；未知为空（客户端据此画系统徽标） */
     String machineOs = "";
-    /** 多网卡探测模式：{@link #PROBE_PARALLEL}（默认）/ {@link #PROBE_SERIAL} */
+    /**
+     * **多网卡探测**（同一通道内的多个地址之间怎么探）：
+     * {@link #PROBE_PARALLEL_FIRST}（默认）/ {@link #PROBE_PARALLEL_ALL} / {@link #PROBE_SERIAL}。
+     * <p>注意与 {@link #routeProbeMode} 是两个粒度：这个只管「一台电脑的多块网卡 / 多个 IP」。
+     */
     String probeMode = PROBE_PARALLEL;
+    /**
+     * **连接优先级的探测方式**（六个通道之间怎么探，作用于所有通道元素）：
+     * parallel_first（默认，全部通道同时发出、谁先成功用谁）/ parallel_all（等全部返回，逐行报）/
+     * serial（按优先级逐个通道试，第一个通就停）。
+     * <p>与 {@link #probeMode} 组合成两层：外层决定通道之间，内层决定同一通道内多个地址。
+     */
+    String routeProbeMode = PROBE_PARALLEL_FIRST;
     /**
      * **默认**探测超时（毫秒，默认 2000）：某个通道没单独设时用它。
      * 0 = 未设置（用默认值）；实际使用前过 {@link #clampProbeTimeoutMs(int)}。
@@ -1221,6 +1232,7 @@ final class ServerProfile {
         other.machineName = machineName;
         other.machineOs = machineOs;
         other.probeMode = probeMode;
+        other.routeProbeMode = routeProbeMode;
         other.probeTimeoutMs = probeTimeoutMs;
         other.routeTimeoutsMs = new LinkedHashMap<>(routeTimeoutsMs == null
                 ? new LinkedHashMap<>() : routeTimeoutsMs);
@@ -1298,6 +1310,7 @@ final class ServerProfile {
         object.put("machineName", text(machineName));
         object.put("machineOs", normalizeMachineOs(machineOs));
         object.put("probeMode", normalizeProbeMode(probeMode));
+        object.put("routeProbeMode", normalizeProbeMode(routeProbeMode));
         object.put("probeTimeoutMs", clampProbeTimeoutMs(probeTimeoutMs));
         // 每通道自己的超时：只写单独设过的（空 map 也让字段在，读的时候好判断）
         JSONObject timeouts = new JSONObject();
@@ -1373,6 +1386,7 @@ final class ServerProfile {
         profile.machineOs = normalizeMachineOs(object.optString("machineOs", ""));
         // 只认三个值，其余（含缺失 / 拼错 / 旧 parallel）一律回落到并发（首个）
         profile.probeMode = normalizeProbeMode(object.optString("probeMode", ""));
+        profile.routeProbeMode = normalizeProbeMode(object.optString("routeProbeMode", ""));
         // 老档案没有 probeTimeoutMs → 默认 2 秒；越界在 clamp 里夹
         profile.probeTimeoutMs = clampProbeTimeoutMs(object.optInt("probeTimeoutMs", DEFAULT_PROBE_TIMEOUT_MS));
         // 每通道自己的超时：老档案没有这个字段 → 空表（全部继承上面的默认值）

@@ -291,6 +291,15 @@ internal class ServerEditFormState(
     )
 
     /**
+     * **连接优先级的探测方式**（六个通道之间怎么试，作用于所有通道元素）：与
+     * [probeMode]（多网卡探测，只管同一通道里的多个地址）是两个不同粒度的独立开关。
+     */
+    var routeProbeMode by mutableStateOf(
+        if (profile != null) ServerProfile.normalizeProbeMode(profile.routeProbeMode)
+        else ServerProfile.PROBE_PARALLEL_FIRST
+    )
+
+    /**
      * 探测超时（界面单位是**秒**，落盘是毫秒）：对局域网地址与所有远程通通生效。
      *
      * <p>为什么要有：公网隧道（尤其 Funnel / tsnet 走中继时）握手一次可能要好几秒，
@@ -765,7 +774,8 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
         FoldHeader(
             title = "连接策略",
             summary = "优先级 " + state.routeOrder.count { state.routeAvailable(it) && it !in state.routeDisabled } + "/" + ROUTE_IDS_ALL.size +
-                " · " + probeLabel(state.probeMode) +
+                " · 通道间 " + probeLabel(state.routeProbeMode) +
+                " · 多网卡 " + probeLabel(state.probeMode) +
                 " · 默认 " + String.format(Locale.US, "%.1f", state.probeTimeoutMs() / 1000.0) + "s" +
                 (state.routeTimeoutsMs().size.let { if (it > 0) "（$it 个通道单独设）" else "" }) +
                 (if (state.jumpIndex > 0) " · 跳板机" else ""),
@@ -850,6 +860,50 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
             "探活与接口请求按此顺序逐通道试，第一个通的就走谁；每个通道可以单独设探测超时" +
                 "（局域网 1~2 秒够，走公网中继的 Funnel / 内置 Funnel 首次握手慢，可以单独给 5~8 秒）。" +
                 "跳板机需先在下方选好档案；电源唤醒不走此排序 —— 魔术包只能在局域网内广播。",
+            fontSize = 10.sp, color = palette.fgFaint,
+            modifier = Modifier.padding(top = 4.dp, bottom = 2.dp),
+        )
+
+        // ---- 两个粒度的探测方式：先通道之间，再同一通道内的多个地址 ----
+        FieldLabel("连接优先级的探测方式（六个通道之间怎么试，对上面每一个通道都生效）")
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            ProbeModeChoice(
+                "并发·首个", state.routeProbeMode == ServerProfile.PROBE_PARALLEL_FIRST,
+                Modifier.weight(1f),
+            ) { state.routeProbeMode = ServerProfile.PROBE_PARALLEL_FIRST }
+            ProbeModeChoice(
+                "并发·全部", state.routeProbeMode == ServerProfile.PROBE_PARALLEL_ALL,
+                Modifier.weight(1f),
+            ) { state.routeProbeMode = ServerProfile.PROBE_PARALLEL_ALL }
+            ProbeModeChoice(
+                "串行", state.routeProbeMode == ServerProfile.PROBE_SERIAL,
+                Modifier.weight(1f),
+            ) { state.routeProbeMode = ServerProfile.PROBE_SERIAL }
+        }
+        Text(
+            "并发·首个：全部通道同时发出，谁先成功用谁；并发·全部：等全部返回，逐行报每个通道的成败与耗时；" +
+                "串行：按上面的优先级逐个通道试，第一个通就停。",
+            fontSize = 10.sp, color = palette.fgFaint,
+            modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
+        )
+
+        FieldLabel("多网卡探测（同一通道里的多个地址之间怎么探）")
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            ProbeModeChoice(
+                "并发·首个", state.probeMode == ServerProfile.PROBE_PARALLEL_FIRST,
+                Modifier.weight(1f),
+            ) { state.probeMode = ServerProfile.PROBE_PARALLEL_FIRST }
+            ProbeModeChoice(
+                "并发·全部", state.probeMode == ServerProfile.PROBE_PARALLEL_ALL,
+                Modifier.weight(1f),
+            ) { state.probeMode = ServerProfile.PROBE_PARALLEL_ALL }
+            ProbeModeChoice(
+                "串行", state.probeMode == ServerProfile.PROBE_SERIAL,
+                Modifier.weight(1f),
+            ) { state.probeMode = ServerProfile.PROBE_SERIAL }
+        }
+        Text(
+            "一台电脑配了多个局域网地址（多块网卡 / DHCP 换过 IP）时生效：并发谁先通用谁，串行按地址顺序试。",
             fontSize = 10.sp, color = palette.fgFaint,
             modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
         )
@@ -1272,6 +1326,8 @@ internal fun applyServerEdit(
     target.name = state.name.trim().ifEmpty { target.host() }
     target.token = state.resolvedToken()
     target.probeMode = ServerProfile.normalizeProbeMode(state.probeMode)
+    // 连接优先级的探测方式（六个通道之间）—— 与上面的多网卡探测是两个粒度
+    target.routeProbeMode = ServerProfile.normalizeProbeMode(state.routeProbeMode)
     // 默认探测超时（界面秒 → 落盘毫秒，空/非法回落默认 2 秒）
     target.probeTimeoutMs = state.probeTimeoutMs()
     // 每通道自己的超时（只写单独设过的；空表 = 全部继承默认值）
@@ -1440,6 +1496,32 @@ private fun RemoteSlotRow(
         }
     }
 }
+/**
+ * 单选的「探测方式」小件（连接优先级 / 多网卡各一组，所以抽出来）。
+ * 每个选项占三等分之一宽，窄屏靠 Ellipsis 兜底，不会把文字压成 0 宽。
+ */
+@Composable
+private fun ProbeModeChoice(
+    label: String,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier.clickable(onClick = onClick),
+    ) {
+        RadioButton(selected = selected, onClick = onClick)
+        Text(
+            label,
+            fontSize = 11.5.sp,
+            color = LocalPalette.current.fg,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
 internal const val SERVER_EDIT_EMPTY_ADDRESS_HINT = "请填电脑地址"
 
 /**
