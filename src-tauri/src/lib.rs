@@ -2850,6 +2850,7 @@ pub fn run() {
             hub_tailscale::gateway_tailscale_funnel_disable,
             hub_tsnet::tsnet_status,
             hub_tsnet::tsnet_logs,
+            hub_tsnet::tsnet_logout,
             hub_tsnet::tsnet_enable,
             hub_tsnet::tsnet_disable,
             hub_tsnet::tsnet_set_authkey,

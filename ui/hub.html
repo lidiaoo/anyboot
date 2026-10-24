@@ -2416,6 +2416,11 @@
             <p class="field-hint" id="tsnErrText" style="margin:8px 0 0"></p>
             <button class="link-btn" id="tsnRetryBtn" style="margin-top:4px">重试</button>
           </div>
+          <!-- 清除登录凭据：停引擎 + 删 tsnet 状态目录，下次开启等于全新节点 -->
+          <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
+            <button class="link-btn" id="tsnLogoutBtn">清除登录凭据</button>
+            <span class="field-hint" style="margin:0">停引擎并删除本机登录凭据，下次开启需重新授权；Tailscale 管理台里的设备记录需自行移除。</span>
+          </div>
           <!-- 运行日志：sidecar stdout 事件流的环形缓冲（最近 200 条，含启动里程碑与 tsnet 日志转发） -->
           <div class="tsn-logbox" id="tsnLogBox">
             <div class="tsn-log-head">
@@ -9304,6 +9309,33 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
     try { await invoke('tsnet_disable'); } catch (e) { /* 关不掉也继续开 */ }
     tsnBusy = false;
     tsnEnableFlow(); // 新一轮 Up 会发全新的登录链接
+  });
+  // 清除登录凭据：3 秒内再点一次才执行（不用弹窗的轻量确认）
+  let tsnLogoutArmed = 0;
+  $('tsnLogoutBtn').addEventListener('click', async function () {
+    if (tsnBusy) return;
+    const now = Date.now();
+    if (now - tsnLogoutArmed > 3000) {
+      tsnLogoutArmed = now;
+      const self = this;
+      self.textContent = '再点一次确认清除';
+      setTimeout(function () { self.textContent = '清除登录凭据'; }, 3000);
+      return;
+    }
+    tsnLogoutArmed = 0;
+    this.textContent = '清除登录凭据';
+    tsnBusy = true;
+    tsnRender();
+    try {
+      const s = await invoke('tsnet_logout');
+      tsnStatus = s;
+      toast('登录凭据已清除 —— 下次开启需重新授权');
+    } catch (e) {
+      toast('清除失败：' + e, 'bad');
+    }
+    tsnBusy = false;
+    tsnRender();
+    tsnLogsRefresh();
   });
   $('tsnLogClear').addEventListener('click', function () {
     tsnLogText = '（暂无日志）';

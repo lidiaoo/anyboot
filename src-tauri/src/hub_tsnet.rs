@@ -534,6 +534,46 @@ pub(crate) fn tsnet_logs() -> Vec<String> {
     }
 }
 
+/// 阻塞版清除登录凭据（spawn_blocking 里跑）：停 sidecar → 删整个 tsnet
+/// 状态目录（tailscaled.state 里的节点凭据就在其中）→ 重建空目录 → 状态归 off。
+/// 下次开启引擎等于全新节点，要走浏览器登录或新 AuthKey。
+pub(crate) fn logout_blocking(app: &AppHandle) -> Result<TsnetStatus, String> {
+    let state_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("定位数据目录失败: {error}"))?
+        .join("tsnet")
+        .join("state");
+
+    {
+        let mut guard = shared().lock().map_err(|_| "内置引擎状态锁损坏".to_string())?;
+        let _ = kill_locked(&mut guard);
+        guard.logs.clear();
+        guard.started_at = None;
+    }
+
+    if state_dir.exists() {
+        std::fs::remove_dir_all(&state_dir)
+            .map_err(|error| format!("删除凭据目录失败（文件被占用？稍后重试）: {error}"))?;
+    }
+    std::fs::create_dir_all(&state_dir).map_err(|error| format!("重建状态目录失败: {error}"))?;
+
+    let mut guard = shared().lock().map_err(|_| "内置引擎状态锁损坏".to_string())?;
+    guard.status = TsnetStatus::new("off");
+    guard.status.message = "登录凭据已清除，下次开启需重新授权".into();
+    push_log(&mut guard, "登录凭据已清除（状态目录已删并重建）");
+    Ok(guard.status.clone())
+}
+
+/// 清除远程登录认证信息（管理控制台里对应设备的授权；tailnet 后台的设备
+/// 记录不受影响，需自行在管理台移除）。
+#[tauri::command]
+pub(crate) async fn tsnet_logout(app: AppHandle) -> Result<TsnetStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || logout_blocking(&app))
+        .await
+        .map_err(|error| format!("内置引擎任务失败: {error}"))?
+}
+
 /// 保存 AuthKey（管理控制台 → Settings → Keys 签发的设备授权密钥）。
 /// 留空 = 清除。敏感度对齐 gateway_named_token，只落本机 settings.json。
 #[tauri::command]
