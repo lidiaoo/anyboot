@@ -689,6 +689,10 @@ pub(crate) struct Settings {
     /// 开机自启通道。quick 模式下无意义（地址会变）由前端隐藏该开关，
     /// 后端只在 named 模式 honoring 它（启动时自动拉起通道）。
     pub(crate) gateway_autostart: bool,
+    /// 内置 Tailscale 引擎（tsnet sidecar）的 AuthKey（管理员控制台签发的
+    /// 设备授权密钥）。敏感度对齐 gateway_named_token / http_token：泄露面 =
+    /// 能把任意设备加进该 tailnet。走 stdin 管道传给 sidecar，不进进程命令行。
+    pub(crate) tsnet_authkey: String,
 }
 
 impl Default for Settings {
@@ -743,6 +747,7 @@ impl Default for Settings {
             gateway_named_token: String::new(),
             gateway_named_url: String::new(),
             gateway_autostart: false,
+            tsnet_authkey: String::new(),
         }
     }
 }

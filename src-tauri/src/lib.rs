@@ -123,6 +123,7 @@ mod hub_term;
 mod hub_tunnel;
 mod hub_gateway;
 pub(crate) mod hub_tailscale;
+mod hub_tsnet;
 mod hub_vault;
 mod http;
 mod remote_servers;
@@ -2847,6 +2848,10 @@ pub fn run() {
             hub_tailscale::gateway_tailscale_funnel_status,
             hub_tailscale::gateway_tailscale_funnel_enable,
             hub_tailscale::gateway_tailscale_funnel_disable,
+            hub_tsnet::tsnet_status,
+            hub_tsnet::tsnet_enable,
+            hub_tsnet::tsnet_disable,
+            hub_tsnet::tsnet_set_authkey,
             hub_tailscale::local_service_health,
             hub_gateway::gateway_tunnel_start,
             hub_gateway::gateway_tunnel_stop,
@@ -2987,6 +2992,9 @@ pub fn run() {
                 hub_sftp::kill_all(app);
                 hub_tunnel::kill_all(app);
                 hub_gateway::kill_all(app);
+                // 内置 Tailscale 引擎（tsnet sidecar）子进程一并收掉：
+                // 正常退出走 stdin quit；兜底 kill（stdin 已随锁销毁时）
+                hub_tsnet::kill_all();
                 // 电脑页「经跳板机」的本地转发子进程
                 if let Ok(mut state) = app.state::<remote_servers::RemoteJumpState>().forwards.lock() {
                     for (_, f) in state.iter_mut() {

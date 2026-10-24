@@ -2120,6 +2120,9 @@
           <button class="gw-tab" role="tab" data-gwtab="ts" aria-selected="false">
             <span class="gw-tab-dot" id="gwTabDotTs" data-st="off"></span>Tailscale
           </button>
+          <button class="gw-tab" role="tab" data-gwtab="tsn" aria-selected="false">
+            <span class="gw-tab-dot" id="gwTabDotTsn" data-st="off"></span>Tailscale (内置)
+          </button>
           <button class="gw-tab" role="tab" data-gwtab="pair" aria-selected="false">配对管理</button>
         </div>
 
@@ -2334,6 +2337,73 @@
 
         </div><!-- /ts pane -->
 
+        <div class="gw-tabpane" data-gwpane="tsn" hidden>
+        <!-- Tailscale (内置)：免装 Tailscale 客户端，Go sidecar(tsnet) 起 Funnel 并反代本机服务 -->
+        <div class="gw-card" id="tsnCard">
+          <div class="gw-card-head">
+            <h3>Tailscale (内置)</h3>
+            <span class="tsf-badge" id="tsnBadge" hidden>免安装 · 经 Tailscale 中继</span>
+            <span style="flex:1"></span>
+            <span class="gw-sw-group" title="开启 / 关闭内置 Tailscale 引擎">
+              <span class="gw-sw-cap">引擎</span>
+              <label class="switch" id="tsnSwWrap">
+                <input type="checkbox" id="tsnSw">
+                <span class="trk" aria-hidden="true"></span>
+              </label>
+            </span>
+          </div>
+          <div class="gw-status">
+            <span class="pulse" id="tsnPulse" hidden></span>
+            <span id="tsnStateText">内置引擎未开启</span>
+          </div>
+          <!-- off 态：说明 + AuthKey 配置 -->
+          <div id="tsnOffRow">
+            <p class="field-hint" style="margin:8px 0 0">
+              本机<b>无需安装 Tailscale</b>——内置引擎把本机服务发布成公网地址
+              （https://anyboot.….ts.net），手机不装 Tailscale 也能访问，地址固定；
+              国内网络首次连接协调服务器可能不稳，流量经 Tailscale 中继有带宽限制。
+            </p>
+            <div class="field" style="margin-top:10px">
+              <label for="tsnKey">AuthKey（可选，推荐填）</label>
+              <div style="display:flex;gap:8px;align-items:center">
+                <input id="tsnKey" type="password" class="mono" style="flex:1" placeholder="留空则走浏览器登录" autocomplete="off">
+                <button class="btn" id="tsnKeySave">保存</button>
+              </div>
+              <p class="field-hint">在 Tailscale 管理控制台 → Settings → Keys 里签发一次性的设备授权密钥；填了它开启引擎时免浏览器登录。</p>
+            </div>
+          </div>
+          <!-- needs_auth 态：官方登录引导（浏览器登录一次，凭据持久化，之后免登录） -->
+          <div id="tsnAuthRow" hidden>
+            <p class="field-hint" style="margin:8px 0 0">
+              需要登录 Tailscale 账号 —— 点下面按钮在浏览器完成授权（一次即可，凭据会记住）。
+              登录完成后引擎自动继续，不用再点开关。
+            </p>
+            <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
+              <button class="btn primary" id="tsnLoginBtn">打开登录页</button>
+            </div>
+          </div>
+          <!-- ready 态：公网地址行 -->
+          <div id="tsnAddrRow" hidden>
+            <div class="gw-status" style="margin-top:8px">
+              <span class="field-hint" style="margin:0">公网地址</span>
+              <span class="mono ts-addr" id="tsnAddr"></span>
+              <span style="flex:1"></span>
+              <button class="link-btn" id="tsnCopy">复制</button>
+              <button class="btn" id="tsnPairBtn">生成此地址的配对码</button>
+            </div>
+            <p class="field-hint" style="margin-top:8px;color:rgb(var(--warn))">
+              ⚠️ 此地址公网可达，安全依赖配对令牌，请勿外传配对码。目标机睡眠后同样失联。
+            </p>
+          </div>
+          <!-- error 态 -->
+          <div id="tsnErrRow" hidden>
+            <p class="field-hint" id="tsnErrText" style="margin:8px 0 0"></p>
+            <button class="link-btn" id="tsnRetryBtn" style="margin-top:4px">重试</button>
+          </div>
+        </div>
+
+        </div><!-- /tsn pane -->
+
         <div class="gw-tabpane" data-gwpane="pair" hidden>
         <!-- 配对管理 -->
         <div class="gw-card">
@@ -2377,6 +2447,7 @@
               <button role="tab" data-addr="tunnel" aria-selected="true">隧道地址</button>
               <button role="tab" data-addr="tailscale" aria-selected="false">Tailscale 地址</button>
               <button role="tab" data-addr="funnel" aria-selected="false">Funnel 地址</button>
+              <button role="tab" data-addr="tsnet" aria-selected="false">内置 TS 地址</button>
               <button role="tab" data-addr="none" aria-selected="false">不带地址</button>
             </div>
             <p class="field-hint" id="gwPairAddrHint" style="margin:6px 0 0">隧道地址 = 本机 Cloudflare 通道的当前地址；没开启通道则自动退化为「不带地址」。</p>
@@ -6357,7 +6428,11 @@
     '',
     'Funnel 公网通道（网关页 · Tailscale 卡）：',
     '· Funnel 把本机服务经 Tailscale 官方中继发布成公网地址（https://机器名.ts.net）—— 手机不装 Tailscale 也能访问；流量走官方中继，国内网络可能不稳、有带宽限制；',
-    '· 点「关闭通道」立即执行、不弹确认框：公网入口马上失效，用 Funnel 地址配对的客户端会全部失联（100.x 直连不受影响）；要恢复在 Tailscale 卡再点「开启」即可。'
+    '· 点「关闭通道」立即执行、不弹确认框：公网入口马上失效，用 Funnel 地址配对的客户端会全部失联（100.x 直连不受影响）；要恢复在 Tailscale 卡再点「开启」即可。',
+    '',
+    '内置 Tailscale（网关页 · Tailscale (内置) 标签）：',
+    '· 免装 Tailscale 客户端：内置引擎（tsnet）把本机服务发布成公网地址 https://anyboot.….ts.net —— 效果与 Funnel 相同，流量走官方中继，国内网络可能不稳、有带宽限制；',
+    '· 首次开启要登录（AuthKey 或浏览器授权，一次即可，凭据记住）；目标机睡眠后地址同样失联；关引擎或退出软件都会立即断开公网入口。'
   ].join('\n');
   if (pcFab) {
     const helpOverlay = document.getElementById('fabHelpOverlay');
@@ -8491,6 +8566,7 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
     refreshClients();
     refreshOrphans();
     tsRefresh();
+    tsnRefresh();
   }
   window.gwRefresh = gwRefresh;
 
@@ -9029,6 +9105,122 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
   });
   $('tsfAuthBtn').addEventListener('click', tsfOpenAuth);
 
+  // ---- Tailscale (内置)（Go sidecar/tsnet；免装客户端的 Funnel 公网通道） ----
+  // 后端命令：tsnet_status / tsnet_enable / tsnet_disable / tsnet_set_authkey
+  // 五态机 off/starting/needs_auth/ready/error；needs_auth 驻留等浏览器登录，
+  // 登录完成后引擎自己转 ready（轮询自然跟进）。
+  let tsnStatus = null;
+  let tsnBusy = false;
+  function tsnUrl() {
+    return tsnStatus && tsnStatus.state === 'ready' && tsnStatus.url ? tsnStatus.url : '';
+  }
+  function tsnRefresh() {
+    invoke('tsnet_status').then(function (s) {
+      tsnStatus = s;
+      tsnRender();
+    }).catch(function () { });
+  }
+  function tsnRender() {
+    const s = tsnStatus || { state: 'off' };
+    const state = tsnBusy ? 'starting' : (s.state || 'off');
+    const ready = state === 'ready';
+    gwTabDot('gwTabDotTsn', state === 'error' ? 'err' : (ready ? 'on' : 'off'));
+    const sw = $('tsnSw');
+    sw.checked = ready || state === 'needs_auth' || state === 'starting';
+    sw.disabled = tsnBusy;
+    $('tsnSwWrap').classList.toggle('loading', tsnBusy);
+    $('tsnPulse').hidden = state !== 'starting';
+    $('tsnBadge').hidden = !ready;
+    $('tsnOffRow').hidden = state !== 'off';
+    $('tsnAuthRow').hidden = state !== 'needs_auth';
+    $('tsnAddrRow').hidden = !ready;
+    $('tsnErrRow').hidden = state !== 'error';
+    $('tsnAddr').textContent = tsnUrl();
+    const text = $('tsnStateText');
+    if (state === 'off') {
+      text.textContent = '内置引擎未开启';
+    } else if (state === 'starting') {
+      text.textContent = s.message || '引擎启动中…';
+    } else if (state === 'needs_auth') {
+      text.textContent = '待登录 —— 在浏览器完成 Tailscale 授权';
+    } else if (state === 'ready') {
+      text.textContent = '已开启';
+    } else if (state === 'error') {
+      text.textContent = '开启失败';
+      $('tsnErrText').textContent = s.message || '未知错误';
+    } else {
+      text.textContent = s.message || '';
+    }
+  }
+  async function tsnEnableFlow() {
+    if (tsnBusy) return;
+    tsnBusy = true;
+    tsnRender();
+    try {
+      const s = await invoke('tsnet_enable');
+      tsnStatus = s;
+      if (s.state === 'ready' && s.url) toast('内置 Tailscale 已开启：' + s.url);
+      else if (s.state === 'needs_auth') toast('需要登录 Tailscale —— 点「打开登录页」完成授权');
+    } catch (e) {
+      toast('内置引擎开启失败：' + e, 'bad');
+      tsnRefresh();
+    }
+    tsnBusy = false;
+    tsnRender();
+  }
+  $('tsnSw').addEventListener('change', function () {
+    const on = this.checked;
+    const self = this;
+    if (tsnBusy) { self.checked = !on; return; }
+    if (on) {
+      tsnEnableFlow();
+    } else {
+      tsnBusy = true;
+      tsnRender();
+      invoke('tsnet_disable').then(function (s) {
+        tsnStatus = s;
+        tsnBusy = false;
+        tsnRender();
+        toast('内置 Tailscale 已关闭');
+      }).catch(function (e) {
+        tsnBusy = false;
+        self.checked = true;
+        toast('关闭失败：' + e, 'bad');
+        tsnRefresh();
+      });
+    }
+  });
+  $('tsnRetryBtn').addEventListener('click', function () {
+    if (tsnBusy) return;
+    tsnStatus = { state: 'off' };
+    tsnEnableFlow();
+  });
+  $('tsnKeySave').addEventListener('click', async function () {
+    try {
+      await invoke('tsnet_set_authkey', { key: $('tsnKey').value.trim() });
+      $('tsnKey').value = '';
+      toast('AuthKey 已保存 —— 开启引擎时自动使用');
+    } catch (e) { toast('保存失败：' + e, 'bad'); }
+  });
+  $('tsnLoginBtn').addEventListener('click', function () {
+    const url = tsnStatus && tsnStatus.login_url ? tsnStatus.login_url : '';
+    // 后端来自 sidecar 日志捕获；前端只放行官方登录域（双保险）
+    if (!/^https:\/\/login\.tailscale\.com\//.test(url)) { toast('登录地址无效', 'bad'); return; }
+    invoke('remote_open_page', { url: url }).catch(function (e) { toast('打开浏览器失败：' + e, 'bad'); });
+  });
+  $('tsnCopy').addEventListener('click', function () {
+    const addr = tsnUrl();
+    if (!addr) return;
+    navigator.clipboard.writeText(addr)
+      .then(function () { toast('已复制 ' + addr); })
+      .catch(function () { });
+  });
+  $('tsnPairBtn').addEventListener('click', function () {
+    tsPairPreset = tsnUrl() ? 'tsnet' : null;
+    $('gwIssueBtn').click();
+  });
+  setInterval(tsnRefresh, 5000); // 引擎会从 login_needed 自己转 ready，轻量轮询跟进
+
   // ---- 出码配对 ----
   // 地址类型四选：tunnel（默认）/ tailscale / funnel / none
   let gwPairAddrType = 'tunnel';
@@ -9036,6 +9228,7 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
     tunnel: '隧道地址 = 本机 Cloudflare 通道的当前地址；没开启通道则自动退化为「不带地址」。',
     tailscale: '',  // 运行时按 Tailscale 状态填（见 gwPairAddrHintUpdate）
     funnel: '',     // 运行时按 Funnel 状态填
+    tsnet: '',      // 运行时按内置 Tailscale 状态填
     none: '不带地址：客户端拿到配对串后，自己在「编辑电脑 → 远程接入」里填远程地址。',
   };
   function gwPairAddrHintUpdate() {
@@ -9048,6 +9241,10 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
       hint.textContent = tsfUrl()
         ? 'Funnel 运行中 —— 配对串带 ' + tsfUrl() + '（客户端无需装 Tailscale，浏览器直开）。'
         : 'Funnel 未开启 —— 生成后将不带地址；先在上方开启 Funnel 通道。';
+    } else if (gwPairAddrType === 'tsnet') {
+      hint.textContent = tsnUrl()
+        ? '内置 Tailscale 运行中 —— 配对串带 ' + tsnUrl() + '（客户端无需装 Tailscale，浏览器直开）。'
+        : '内置 Tailscale 未开启 —— 生成后将不带地址；先在「Tailscale (内置)」页开启引擎。';
     } else {
       hint.textContent = GW_ADDR_HINTS[gwPairAddrType];
     }
@@ -9079,6 +9276,7 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
       tunnel: tunnelAvailable,
       tailscale: !!tsAddr(),
       funnel: !!tsfUrl(),
+      tsnet: !!tsnUrl(),
       none: true,
     };
     let pairFallback = 'none';
@@ -9110,6 +9308,8 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
       tunnel = tsAddr();
     } else if (gwPairAddrType === 'funnel') {
       tunnel = tsfUrl();
+    } else if (gwPairAddrType === 'tsnet') {
+      tunnel = tsnUrl();
     }
     try {
       const issued = await invoke('gateway_pair_issue', { name: name, tunnel: tunnel });
