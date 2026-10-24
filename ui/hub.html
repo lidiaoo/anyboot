@@ -108,7 +108,7 @@
   .search-wrap input::placeholder { color: rgb(var(--fg-faint)); }
 
   .segmented {
-    display: flex; border: 1px solid rgb(var(--line));
+    display: flex; flex-wrap: wrap; border: 1px solid rgb(var(--line));
     background: rgb(var(--elevate)); border-radius: 9px; padding: 2px;
   }
   .segmented button {
@@ -1173,6 +1173,23 @@
     transition: opacity .2s;
   }
   #toast.bad { border-color: rgb(var(--bad) / .5); color: rgb(var(--bad)); }
+
+  /* 窄窗自适应（远程接入页 + 编辑服务端弹窗 + 出码弹窗，今天动的全部页面）：
+     放样式区末尾保证覆盖基础规则；组件级 wrap/ellipsis 已在各自规则里 */
+  @media (max-width: 640px) {
+    .field-row { display: grid; grid-template-columns: 1fr; gap: 8px; }
+    .field-row .field.fixed { flex: initial; }
+    .slot, .token-row { flex-wrap: wrap; }
+    .slot .mono, .token-row .mono { flex: 1 1 100%; order: 3; }
+    .gw-card { padding: 12px 14px; margin: 0 12px 12px; }
+    .gw-card-head { gap: 8px; }
+    .dialog-body { padding: 14px 14px 8px; }
+    .page-head { flex-wrap: wrap; }
+    /* 电脑列表页：筛选 tab / 统计卡防文字竖排；表格窄窗靠容器横滚（既有 overflow-x） */
+    .cq-seg button, .cq-stat { white-space: nowrap; }
+    .cq-seg { flex-wrap: wrap; }
+    .cq-head, .cq-toolbar { padding-left: 12px; padding-right: 12px; }
+  }
 </style>
 <style>
   /* ============ 内嵌文件页（fb-*）：与独立窗同构，token 用主窗这套（--line-strong / --fg-dim） ============ */
@@ -1387,7 +1404,7 @@
     background:rgb(var(--card)); border:1px solid rgb(var(--line-strong)); border-radius:14px;
     padding:16px 18px; margin:0 22px 14px;
   }
-  .gw-card-head { display:flex; align-items:center; gap:12px; margin-bottom:12px; }
+  .gw-card-head { display:flex; align-items:center; gap:12px; margin-bottom:12px; flex-wrap:wrap; }
   .gw-card-head h3 { margin:0; font-size:14px; font-weight:600; }
   .gw-card-head .segmented { margin-left:auto; }
   .gw-note {
@@ -1409,7 +1426,7 @@
   .gw-progress-bar { flex:1; height:6px; border-radius:99px; background:rgb(var(--elevate)); overflow:hidden; }
   .gw-progress-bar > div { height:100%; width:0%; border-radius:99px; background:rgb(var(--accent)); transition:width .3s; }
   /* Tailscale 卡：远程地址（mono 大字，端口弱化）与来源小 chip */
-  .ts-addr { font-size:14px; font-weight:600; color:rgb(var(--fg)); user-select:all; }
+  .ts-addr { font-size:14px; font-weight:600; color:rgb(var(--fg)); user-select:all; overflow-wrap:anywhere; min-width:0; }
   .ts-addr .ts-port { color:rgb(var(--fg-faint)); font-weight:500; }
   /* Funnel 区块：分隔线 + 公网徽标（沿用卡的留白节奏与边框变量） */
   .tsf-sep { border-top:1px solid rgb(var(--fg-faint)); margin-top:14px; padding-top:12px; }
@@ -8470,6 +8487,7 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
     $('tsfAuthRow').hidden = state !== 'needs_authorize';
     $('tsfErrRow').hidden = state !== 'error';
     $('tsfBadge').hidden = !ready;
+    $('tsfAddr').textContent = tsfUrl();
     const text = $('tsfStateText');
     if (state === 'unavailable') {
       text.textContent = f.message || 'Tailscale 未就绪，装好并登录后可开启';
