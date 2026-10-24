@@ -198,11 +198,27 @@ fn service_running_state() -> i8 {
     service_running_state_impl()
 }
 
+/// `sc` 服务控制命令。**必须带 CREATE_NO_WINDOW**：服务状态查询每次渲染远程接入页
+/// 都会跑（Tailscale 卡的状态点），不带的话 Windows 上每查一次就闪一个黑框；
+/// start/stop/restart 同理。
+#[cfg(windows)]
+fn sc_command(args: &[&str]) -> std::process::Command {
+    use std::os::windows::process::CommandExt;
+    let mut command = std::process::Command::new("sc");
+    command.args(args).creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    command
+}
+
+#[cfg(not(windows))]
+fn sc_command(args: &[&str]) -> std::process::Command {
+    let mut command = std::process::Command::new("sc");
+    command.args(args);
+    command
+}
+
 #[cfg(windows)]
 fn service_running_state_impl() -> i8 {
-    let output = match std::process::Command::new("sc")
-        .args(["query", SERVICE_NAME])
-        .output()
+    let output = match sc_command(&["query", SERVICE_NAME]).output()
     {
         Ok(output) => output,
         Err(_) => return -1,
@@ -253,7 +269,7 @@ pub(crate) fn ts_service_blocking(action: &str) -> Result<i8, String> {
         "restart" => vec!["stop", SERVICE_NAME],
         _ => return Err(format!("未知的服务操作：{action}")),
     };
-    let sc = std::process::Command::new("sc").args(&args).output();
+    let sc = sc_command(&args).output();
     let output = match sc {
         Ok(output) => output,
         Err(error) => return Err(format!("执行 sc 失败: {error}")),
@@ -285,9 +301,7 @@ pub(crate) fn ts_service_blocking(action: &str) -> Result<i8, String> {
                 break;
             }
         }
-        let start = std::process::Command::new("sc")
-            .args(["start", SERVICE_NAME])
-            .output();
+        let start = sc_command(&["start", SERVICE_NAME]).output();
         if let Ok(output) = start {
             if !output.status.success() {
                 let text = String::from_utf8_lossy(&output.stdout).to_string();

@@ -1455,6 +1455,8 @@
     display: flex; align-items: center; gap: 4px; margin: 0 22px 12px; padding: 3px;
     background: rgb(var(--card)); border: 1px solid rgb(var(--line-strong)); border-radius: 11px;
     overflow-x: auto; scrollbar-width: none; max-width: calc(100% - 44px);
+    /* 吸顶：配对条目 / 日志多起来页面变长时，页签不被顶出视野（也不会被压缩） */
+    position: sticky; top: 8px; z-index: 6;
   }
   .gw-tabs::-webkit-scrollbar { display: none; }
   .gw-tab {
@@ -1566,7 +1568,13 @@
   }
   .ts-chip.src-tunnel { color:rgb(var(--warn)); border-color:rgb(var(--warn)); }
   .ts-chip.src-ts { color:rgb(var(--ok)); border-color:rgb(var(--ok)); }
-  .gw-clients { display:flex; flex-direction:column; }
+  /* 配对管理的客户端列表：条目多了在卡片内部滚动（页签与卡片标题不随内容被顶走） */
+  .gw-clients {
+    display:flex; flex-direction:column;
+    max-height:340px; overflow-y:auto; overscroll-behavior:contain; scrollbar-width:thin;
+  }
+  .gw-clients::-webkit-scrollbar { width:8px; }
+  .gw-clients::-webkit-scrollbar-thumb { background:rgb(var(--line-strong)); border-radius:4px; }
   .gw-client {
     display:flex; align-items:center; gap:10px; padding:9px 0; font-size:13px;
     border-top:1px solid rgb(var(--line));
@@ -1609,7 +1617,15 @@
     font-size: 14px; outline: none;
   }
   .token-modal input:focus { border-color: rgb(var(--accent)); }
-  .gw-pair-modal { max-width:420px; }
+  .gw-pair-modal { max-width:420px; position:relative; }
+  /* 出码弹窗右上角常驻 ✕：没生成也能随时走（之前生成后才出现「完成」） */
+  .gw-pair-x {
+    position:absolute; top:12px; right:14px; width:26px; height:26px;
+    display:grid; place-items:center; border:0; border-radius:8px;
+    background:transparent; color:rgb(var(--fg-faint)); font-size:14px; line-height:1;
+    cursor:pointer; flex:none;
+  }
+  .gw-pair-x:hover { background:rgb(var(--elevate)); color:rgb(var(--fg)); }
   .gw-pair-modal .token-reveal, .gw-pair-modal h2 { text-align:left; }
   .gw-pair-warn { color:rgb(var(--warn)) !important; font-size:12px !important; }
   .gw-qr { display:grid; place-items:center; padding:10px; background:#fff; border-radius:10px; margin:10px 0; }
@@ -2595,6 +2611,9 @@
       <!-- 出码弹窗（共用弹层：必须放所有 .page 之外，否则被 hidden 吞掉） -->
       <div class="token-modal-overlay" id="gwPairOverlay" hidden>
         <div class="token-modal gw-pair-modal">
+          <!-- 右上角常驻 ✕：用户不想生成时必须能走（之前只有生成后才出现「完成」，
+               打开就等于被按住只能生成 —— 点 ✕ 或点弹窗外空白都能关闭） -->
+          <button class="gw-pair-x" id="gwPairX" title="关闭（不生成）" aria-label="关闭（不生成）">✕</button>
           <h2>生成配对码</h2>
           <p class="gw-pair-warn">等同密码：拿到它就能访问这台电脑，不要转发给别人。</p>
           <div class="field" id="gwPairNameRow">
@@ -10092,7 +10111,21 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
   $('gwPairCopy').addEventListener('click', function () {
     gwWriteClipboard($('gwPairText').value, '配对串已复制 —— 粘到手机「添加电脑」即可');
   });
-  $('gwPairClose').addEventListener('click', function () { $('gwPairOverlay').hidden = true; });
+  /** 关闭出码弹窗：无论生成没生成，关掉就回到「还没生成」的初始态（下次打开是干净的） */
+  function closePairModal() {
+    $('gwPairOverlay').hidden = true;
+    $('gwPairResult').hidden = true;
+    $('gwPairQr').textContent = '';
+    $('gwPairText').value = '';
+    $('gwPairNameRow').hidden = false;
+    $('gwPairGoRow').hidden = false;
+  }
+  $('gwPairX').addEventListener('click', closePairModal);
+  $('gwPairClose').addEventListener('click', closePairModal);
+  // 点弹窗外空白也算关闭（与系统信息弹层同款交互），别把用户困在弹窗里
+  $('gwPairOverlay').addEventListener('click', function (event) {
+    if (event.target === $('gwPairOverlay')) closePairModal();
+  });
 
   // 二维码渲染（qrcode-generator：白底黑点，静区 2 模块）
   function drawQr(container, text) {
@@ -10162,10 +10195,12 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
       main.appendChild(meta);
       row.appendChild(main);
       // 来源 chip：优先用出码时记录的通道类型（三套 Tailscale 的域名长得一样，
-      // 只看地址会把「系统 Funnel」和「内置 Funnel」混成一个）；老记录没类型才按地址判
+      // 只看地址会把「系统 Funnel」和「内置 Funnel」混成一个）；老记录没类型才按地址判。
+      // 文案点明「来源是哪个远程」：Cloudflare 通道 / Tailscale 直连 / 系统 Funnel / 内置 Funnel。
       const src = document.createElement('span');
       const kindLabel = {
-        tunnel: '隧道', ts: 'Tailscale 直连', funnel: 'Tailscale Funnel', tsnet: '内置 Funnel',
+        tunnel: 'Cloudflare 通道', ts: 'Tailscale 直连',
+        funnel: 'Funnel（系统 Tailscale）', tsnet: 'Funnel（内置引擎）',
       }[client.pair_kind || ''];
       if (kindLabel) {
         src.className = 'ts-chip ' + (client.pair_kind === 'tunnel' ? 'src-tunnel' : 'src-ts');
@@ -10175,12 +10210,12 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
         src.textContent = 'Tailscale';
       } else if (client.pair_addr) {
         src.className = 'ts-chip src-tunnel';
-        src.textContent = '隧道';
+        src.textContent = 'Cloudflare 通道';
       } else {
         src.className = 'ts-chip';
-        src.textContent = '无地址';
+        src.textContent = '不带地址';
       }
-      src.title = client.pair_addr || '出码时没有可用地址';
+      src.title = (src.textContent + (client.pair_addr ? ' · ' + client.pair_addr : ' · 出码时没有可用地址'));
       row.appendChild(src);
       if (client.revoked) {
         const tag = document.createElement('span');

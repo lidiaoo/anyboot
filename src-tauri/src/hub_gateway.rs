@@ -247,9 +247,19 @@ pub(crate) fn binary_status(app: &tauri::AppHandle) -> BinaryStatus {
 }
 
 /// 跑 `--version` 回读版本串（手动指定路径的验证也用它）。
+///
+/// **必须带 CREATE_NO_WINDOW**：这条在每次渲染通道卡（切进远程接入页）、点开启通道、
+/// 快速/命名隧道切换时都会跑 —— 之前没带，Windows 上每跑一次就闪一个黑框，
+/// 用户观感就是「随便点什么都会闪个黑窗口」。
 pub(crate) fn probe_version(path: &Path) -> Result<String, String> {
-    let output = std::process::Command::new(path)
-        .arg("--version")
+    let mut command = std::process::Command::new(path);
+    command.arg("--version");
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    let output = command
         .output()
         .map_err(|error| format!("无法启动 {}: {error}", path.display()))?;
     let text = format!(
