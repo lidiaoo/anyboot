@@ -202,21 +202,70 @@ struct TsDownloadDone {
     path: String,
 }
 
-/// 各平台 stable 安装包直链。Linux 没有通用安装包 → None（提示走包管理器）。
-fn installer_url() -> Option<(String, &'static str)> {
+/// 平台是否有通用安装包（Linux 没有 → false，提示走包管理器）。
+fn platform_has_installer() -> bool {
+    cfg!(any(target_os = "windows", target_os = "macos"))
+}
+
+/// 官方 stable 元数据（https://pkgs.tailscale.com/stable/?mode=json）里挑当前平台安装包文件名。
+/// Windows 取 Exes 里的标准 setup exe（支持 /quiet 静默参数；跳过 -full 变体，MSI 直启带不了参）。
+/// macOS 取 MacZips 的通用 .pkg。
+fn pick_manifest_filename(manifest: &serde_json::Value) -> Option<String> {
     if cfg!(target_os = "windows") {
-        Some((
-            "https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.exe".into(),
-            "tailscale-setup.exe",
-        ))
+        manifest["Exes"]
+            .as_array()?
+            .iter()
+            .filter_map(|item| item.as_str())
+            .find(|name| {
+                name.starts_with("tailscale-setup-")
+                    && !name.contains("full")
+                    && name.ends_with(".exe")
+            })
+            .map(str::to_string)
     } else if cfg!(target_os = "macos") {
-        Some((
-            "https://pkgs.tailscale.com/stable/Tailscale-latest-macos.pkg".into(),
-            "Tailscale.pkg",
-        ))
+        manifest["MacZips"]["universal-package"]
+            .as_str()
+            .map(str::to_string)
     } else {
         None
     }
+}
+
+/// 拉取 stable 元数据（失败返回 None，调用方落回 latest 别名兜底）。
+fn fetch_stable_manifest() -> Option<serde_json::Value> {
+    let body = ureq::get("https://pkgs.tailscale.com/stable/?mode=json")
+        .timeout(std::time::Duration::from_secs(15))
+        .call()
+        .ok()?
+        .into_string()
+        .ok()?;
+    serde_json::from_str(&body).ok()
+}
+
+/// 下载直链候选（按序尝试）：官方 latest 别名已被撤下（实测 404），首选
+/// ?mode=json 解析出的版本化直链；latest 别名留作兜底（官方若恢复别名可直连）。
+fn download_candidates() -> Vec<(String, &'static str)> {
+    const BASE: &str = "https://pkgs.tailscale.com/stable";
+    let mut candidates: Vec<(String, &'static str)> = Vec::new();
+    if cfg!(target_os = "windows") {
+        if let Some(name) =
+            fetch_stable_manifest().and_then(|manifest| pick_manifest_filename(&manifest))
+        {
+            candidates.push((format!("{BASE}/{name}"), "tailscale-setup.exe"));
+        }
+        candidates.push((
+            format!("{BASE}/tailscale-setup-latest-amd64.exe"),
+            "tailscale-setup.exe",
+        ));
+    } else if cfg!(target_os = "macos") {
+        if let Some(name) =
+            fetch_stable_manifest().and_then(|manifest| pick_manifest_filename(&manifest))
+        {
+            candidates.push((format!("{BASE}/{name}"), "Tailscale.pkg"));
+        }
+        candidates.push((format!("{BASE}/Tailscale-latest-macos.pkg"), "Tailscale.pkg"));
+    }
+    candidates
 }
 
 fn ts_cache_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
@@ -239,37 +288,41 @@ fn finish_ts_download(app: &AppHandle, result: Result<std::path::PathBuf, String
 }
 
 fn ts_download_worker(app: AppHandle) {
-    let (url, filename) = match installer_url() {
-        Some(pair) => pair,
-        None => {
-            finish_ts_download(
-                &app,
-                Err("当前平台没有通用安装包，请在终端用系统包管理器安装 Tailscale（如 apt/brew）".into()),
-            );
-            return;
-        }
-    };
-    let tmp = match ts_cache_dir(&app) {
-        Ok(dir) => dir.join(filename),
+    let candidates = download_candidates();
+    if candidates.is_empty() {
+        finish_ts_download(
+            &app,
+            Err("当前平台没有通用安装包，请在终端用系统包管理器安装 Tailscale（如 apt/brew）".into()),
+        );
+        return;
+    }
+    let dir = match ts_cache_dir(&app) {
+        Ok(dir) => dir,
         Err(error) => {
             finish_ts_download(&app, Err(error));
             return;
         }
     };
-    let _ = std::fs::remove_file(&tmp);
-    match crate::hub_gateway::download_to_tmp(&url, &tmp) {
-        Ok((received, total)) => {
-            let _ = app.emit(
-                EVENT_TS_PROGRESS,
-                TsDownloadProgress { received, total, percent: 100 },
-            );
-            finish_ts_download(&app, Ok(tmp));
-        }
-        Err(error) => {
-            let _ = std::fs::remove_file(&tmp);
-            finish_ts_download(&app, Err(error));
+    let mut last_error = String::new();
+    for (url, filename) in candidates {
+        let tmp = dir.join(filename);
+        let _ = std::fs::remove_file(&tmp);
+        match crate::hub_gateway::download_to_tmp(&url, &tmp) {
+            Ok((received, total)) => {
+                let _ = app.emit(
+                    EVENT_TS_PROGRESS,
+                    TsDownloadProgress { received, total, percent: 100 },
+                );
+                finish_ts_download(&app, Ok(tmp));
+                return;
+            }
+            Err(error) => {
+                let _ = std::fs::remove_file(&tmp);
+                last_error = error;
+            }
         }
     }
+    finish_ts_download(&app, Err(last_error));
 }
 
 // ==================== Tauri 命令 ====================
@@ -287,7 +340,7 @@ pub(crate) async fn gateway_tailscale_status() -> TailscaleStatus {
 /// 下载完自动弹出平台安装器（Windows 静默参数由安装器自带 UAC；macOS 打开 .pkg）。
 #[tauri::command]
 pub(crate) fn gateway_tailscale_download(app: AppHandle) -> Result<(), String> {
-    if installer_url().is_none() {
+    if !platform_has_installer() {
         return Err("当前平台没有通用安装包，请用系统包管理器安装 Tailscale".to_string());
     }
     if TS_DL_IN_FLIGHT.swap(true, std::sync::atomic::Ordering::SeqCst) {
@@ -400,5 +453,47 @@ mod tests {
         let peer = parsed.self_peer.unwrap();
         assert_eq!(peer.dns_name.trim_end_matches('.'), "win-pc.tailXXXX.ts.net");
         assert_eq!(pick_v4(&peer.ips), "100.119.234.95");
+    }
+
+    /// 按 pkgs.tailscale.com/stable/?mode=json 实测结构造的样例（1.104.2）。
+    fn manifest_fixture() -> serde_json::Value {
+        serde_json::json!({
+            "Exes": [
+                "tailscale-setup-1.104.2.exe",
+                "tailscale-setup-full-1.104.2.exe"
+            ],
+            "MSIs": {
+                "amd64": "tailscale-setup-1.104.2-amd64.msi",
+                "arm64": "tailscale-setup-1.104.2-arm64.msi",
+                "x86": "tailscale-setup-1.104.2-x86.msi"
+            },
+            "MacZips": {
+                "universal": "Tailscale-1.104.2-macos.zip",
+                "universal-package": "Tailscale-1.104.2-macos.pkg"
+            },
+            "Version": "1.104.2"
+        })
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn manifest_picks_plain_setup_exe_on_windows() {
+        let name = pick_manifest_filename(&manifest_fixture()).unwrap();
+        assert_eq!(name, "tailscale-setup-1.104.2.exe");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn manifest_picks_universal_pkg_on_macos() {
+        let name = pick_manifest_filename(&manifest_fixture()).unwrap();
+        assert_eq!(name, "Tailscale-1.104.2-macos.pkg");
+    }
+
+    #[test]
+    fn manifest_missing_fields_falls_back_to_none() {
+        assert_eq!(pick_manifest_filename(&serde_json::json!({})), None);
+        // 只有 -full 变体时也视为不可用（full 安装器不走 /quiet 语义）
+        let only_full = serde_json::json!({ "Exes": ["tailscale-setup-full-1.104.2.exe"] });
+        assert_eq!(pick_manifest_filename(&only_full), None);
     }
 }
