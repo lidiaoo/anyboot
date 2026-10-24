@@ -124,7 +124,7 @@ fn child_alive(guard: &mut TsnetShared) -> bool {
 // ==================== stdout 事件解析 ====================
 
 /// sidecar stdout 事件（与 sidecar-tsnet/main.go 的 event 结构对齐）。
-#[derive(serde::Deserialize)]
+#[derive(Debug, serde::Deserialize)]
 struct SidecarEvent {
     #[serde(default)]
     event: String,
@@ -142,31 +142,46 @@ struct SidecarEvent {
 }
 
 impl SidecarEvent {
-    /// 日志行内容：state/log/bye 事件取 detail（空则退回原始行——如 login_needed
-    /// 的 detail 在 loginUrl 里）；hello 等无 detail 事件保留原始 JSON 行。
-    fn detail_or_raw(&self, raw: &str) -> String {
+    /// 日志行内容（None = 不进日志，如 hello/starting 这类噪音事件——
+    /// Rust 侧已自打对应文案）。state 事件翻成人话；ready 带上地址。
+    fn log_text(&self) -> Option<String> {
         match self.event.as_str() {
-            "log" => self.detail.clone(),
-            "state" => {
-                if self.detail.is_empty() && !self.login_url.is_empty() {
-                    self.login_url.clone()
-                } else if self.detail.is_empty() {
-                    raw.to_string()
+            "log" => Some(self.detail.clone()),
+            "bye" => Some("sidecar 正常退出".into()),
+            "hello" => None,
+            "state" => match self.state.as_str() {
+                "starting" => None,
+                "login_needed" => Some(self.login_url.clone()),
+                "ready" => Some(if self.funnel_url.is_empty() {
+                    "状态: ready".into()
+                } else {
+                    format!("状态: ready，Funnel 地址 {}", self.funnel_url)
+                }),
+                _ => Some(if self.detail.is_empty() {
+                    format!("状态: {}", self.state)
                 } else {
                     self.detail.clone()
-                }
-            }
-            _ => raw.to_string(),
+                }),
+            },
+            _ => Some(format!("未知事件: {self:?}")),
         }
     }
 
     /// 应用到共享状态。返回是否是终态（ready/needs_auth/error —— enable 的
     /// 45s 等待遇到终态就返回；starting 只是流转中间值）。
+    /// sidecar 的状态名是 login_needed，本模块/UI 的规范名是 needs_auth ——
+    /// 在这里归一（曾因两套名字对不上，登录链接事件被当中间态吞掉，UI
+    /// 永远停在「启动中」出不来登录按钮）。
     fn apply(&self, status: &mut TsnetStatus) -> bool {
         match self.event.as_str() {
             "log" => false, // 日志行由调用方写环形缓冲，不影响状态机
             "state" => {
-                status.state = self.state.clone();
+                let normalized = if self.state == "login_needed" {
+                    "needs_auth".to_string()
+                } else {
+                    self.state.clone()
+                };
+                status.state = normalized;
                 if !self.funnel_url.is_empty() {
                     status.url = self.funnel_url.clone();
                 }
@@ -174,7 +189,7 @@ impl SidecarEvent {
                     status.login_url = self.login_url.clone();
                 }
                 status.message = self.detail.clone();
-                matches!(self.state.as_str(), "ready" | "needs_auth" | "error")
+                matches!(self.state.as_str(), "login_needed" | "ready" | "needs_auth" | "error")
             }
             "bye" => {
                 // 优雅退出：保持 off 语义交给退出处理（读线程循环结束后统一收）
@@ -204,12 +219,14 @@ fn stdout_worker(stdout: std::process::ChildStdout) {
         match serde_json::from_str::<SidecarEvent>(trimmed) {
             Ok(ev) => {
                 // 事件行带 sidecar 的相对秒数 t，直接作前缀；Rust 侧不重复计时
-                let stamp = if ev.event == "hello" {
-                    String::new()
-                } else {
-                    format!("[+{:.1}s] ", ev.t)
-                };
-                push_log(&mut guard, &format!("{stamp}{}", ev.detail_or_raw(trimmed)));
+                if let Some(text) = ev.log_text() {
+                    let stamp = if ev.event == "hello" {
+                        String::new()
+                    } else {
+                        format!("[+{:.1}s] ", ev.t)
+                    };
+                    push_log(&mut guard, &format!("{stamp}{text}"));
+                }
                 let was_starting = guard.status.state == "starting";
                 let done = ev.apply(&mut guard.status);
                 // starting 中途把最新日志透出（UI「启动中」文案跟着日志走）
@@ -604,7 +621,23 @@ mod tests {
         let done = ev.apply(&mut st);
         assert!(!done);
         assert_eq!(st.state, "starting"); // 状态机不动
-        assert_eq!(ev.detail_or_raw(raw), "tsnet 上线成功（ipn.Running）");
+        assert_eq!(ev.log_text().as_deref(), Some("tsnet 上线成功（ipn.Running）"));
+    }
+
+    #[test]
+    fn login_needed_from_real_sidecar_normalizes_to_needs_auth() {
+        // 回归：sidecar 实际发的状态名是 login_needed，归一成 needs_auth 并视作
+        // 终态（否则 45s 等待超时把引擎 quit 掉，UI 永远不出登录按钮）。
+        let mut st = status();
+        let ev: SidecarEvent = serde_json::from_str(
+            r#"{"event":"state","state":"login_needed","t":0.3,"loginUrl":"https://login.tailscale.com/a/1dbb9bb401"}"#,
+        )
+        .unwrap();
+        assert!(ev.apply(&mut st));
+        assert_eq!(st.state, "needs_auth");
+        assert_eq!(st.login_url, "https://login.tailscale.com/a/1dbb9bb401");
+        // 日志文案 = 登录链接本身（needs_auth 态展示用）
+        assert_eq!(ev.log_text().as_deref(), Some("https://login.tailscale.com/a/1dbb9bb401"));
     }
 
     #[test]
