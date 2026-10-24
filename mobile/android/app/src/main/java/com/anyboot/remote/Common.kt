@@ -1,5 +1,7 @@
 package com.anyboot.remote
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.background
@@ -102,6 +104,34 @@ object TransferEvents {
 
 fun Context.toast(message: String, long: Boolean = false) {
     Toast.makeText(this, message, if (long) Toast.LENGTH_LONG else Toast.LENGTH_SHORT).show()
+}
+
+/**
+ * 复制远程接入的某一项（地址 / 配对令牌），并且**一定给出结果提示**。
+ *
+ * 为什么不再让调用方自己写剪贴板：之前几处复制是「静默成功」，用户按完按钮屏幕上
+ * 什么都没变，压根不知道有没有复制上（PC 端远程接入页也是同一个毛病）。这里统一
+ * 收口：成功说「已复制<标签>」，失败说失败原因，空值直接告诉用户没东西可复制。
+ *
+ * @param label 提示里用的中文名（如「Cloudflare 隧道地址」）
+ * @param value 要写入剪贴板的文本；会自动 trim，空白视为空
+ */
+fun Context.copyRemoteSlot(label: String, value: String) {
+    val text = value.trim()
+    if (text.isEmpty()) {
+        toast("没有可复制的$label", long = true)
+        return
+    }
+    try {
+        val manager = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        // Android 13+ 系统自带「已复制」浮层，但各家 ROM 行为不一致（有的静默），
+        // 我们照旧吐自己的 toast —— 有总比没有好，用户要的是确定感。
+        manager.setPrimaryClip(ClipData.newPlainText("anyboot-$label", text))
+        toast("已复制$label")
+    } catch (e: Exception) {
+        // 剪贴板在某些定制 ROM / 无窗口场景会抛异常，别让它把页面带崩
+        toast("复制$label 失败：${e.message ?: e.javaClass.simpleName}", long = true)
+    }
 }
 
 /**

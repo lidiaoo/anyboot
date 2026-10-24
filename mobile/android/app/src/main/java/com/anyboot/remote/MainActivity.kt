@@ -1676,6 +1676,8 @@ class MainActivity : ComponentActivity() {
             keep.remoteAddr = drop.remoteAddr
             keep.remoteTunnelAddr = drop.remoteTunnelAddr
             keep.remoteTsAddr = drop.remoteTsAddr
+            keep.remoteFunnelAddr = drop.remoteFunnelAddr
+            keep.remoteTsnetAddr = drop.remoteTsnetAddr
             keep.remoteToken = drop.remoteToken
             keep.connMode = drop.connMode // 连接优先跟着远程接入一起走
         }

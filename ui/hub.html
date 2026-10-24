@@ -9026,12 +9026,39 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
       toast('服务开关失败：' + e, 'bad');
     });
   });
+  /**
+   * 远程接入页统一的剪贴板写入：**成功 / 失败都给 toast**。
+   * 之前几处复制是「点了没反应」——成功静默、失败也静默、没地址直接 return，
+   * 用户根本不知道点上了没有。这里收口成一条路：空值提示、clipboard 被拒退
+   * execCommand、两条路都不成就明确报失败。
+   */
+  async function gwWriteClipboard(text, okMsg) {
+    const value = (text || '').trim();
+    if (!value) { toast('没有可复制的内容 —— 先把通道开起来', 'bad'); return false; }
+    let ok = false;
+    try { await navigator.clipboard.writeText(value); ok = true; } catch (e) { /* 走兜底 */ }
+    if (!ok) {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = value; ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select();
+        ok = document.execCommand('copy');
+        ta.remove();
+      } catch (e) { ok = false; }
+    }
+    if (ok) toast(okMsg || ('已复制 ' + value));
+    else toast('复制失败 —— 浏览器拒绝了剪贴板权限，请手动选中复制', 'bad');
+    return ok;
+  }
+
+  $('gwCopyUrl').addEventListener('click', function () {
+    // 这个按钮以前根本没绑事件（点了完全没反应），现在补上并给反馈
+    const url = (snap && snap.url) || $('gwUrl').textContent || '';
+    gwWriteClipboard(url, '隧道地址已复制：' + url);
+  });
   $('tsCopyAddr').addEventListener('click', function () {
     const addr = tsAddr();
-    if (!addr) return;
-    navigator.clipboard.writeText(addr)
-      .then(function () { toast('已复制 ' + addr); })
-      .catch(function () { });
+    gwWriteClipboard(addr, 'Tailscale 直连地址已复制：' + addr);
   });
   $('tsPairBtn').addEventListener('click', function () {
     // 与 gwIssueBtn 同一弹窗：预选「Tailscale 地址」，没有可用地址就退化普通打开
@@ -9181,10 +9208,7 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
   $('tsfRetryBtn2').addEventListener('click', tsfEnableFlow);
   $('tsfCopy').addEventListener('click', function () {
     const addr = tsfUrl();
-    if (!addr) return;
-    navigator.clipboard.writeText(addr)
-      .then(function () { toast('已复制 ' + addr); })
-      .catch(function () { });
+    gwWriteClipboard(addr, 'Tailscale Funnel 地址已复制：' + addr);
   });
   $('tsfPairBtn').addEventListener('click', function () {
     tsPairPreset = tsfUrl() ? 'funnel' : null;
@@ -9317,21 +9341,9 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
       toast('AuthKey 已保存 —— 开启引擎时自动使用');
     } catch (e) { toast('保存失败：' + e, 'bad'); }
   });
-  /** tsn 剪贴板：clipboard API 拒绝时退回 execCommand，两条路都给 toast 反馈 */
-  async function tsnWriteClipboard(text, okMsg) {
-    let ok = false;
-    try { await navigator.clipboard.writeText(text); ok = true; } catch (e) { /* 走兜底 */ }
-    if (!ok) {
-      try {
-        const ta = document.createElement('textarea');
-        ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
-        document.body.appendChild(ta); ta.select();
-        ok = document.execCommand('copy');
-        ta.remove();
-      } catch (e) { ok = false; }
-    }
-    if (ok) toast(okMsg);
-    else toast('复制失败 —— 请手动选中链接复制', 'bad');
+  /** tsn 剪贴板：统一走 gwWriteClipboard（成功 / 失败都有 toast） */
+  function tsnWriteClipboard(text, okMsg) {
+    return gwWriteClipboard(text, okMsg);
   }
   $('tsnLoginBtn').addEventListener('click', function () {
     const url = tsnStatus && tsnStatus.loginUrl ? tsnStatus.loginUrl : '';
@@ -9366,8 +9378,7 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
   });
   $('tsnCopy').addEventListener('click', function () {
     const addr = tsnUrl();
-    if (!addr) return;
-    tsnWriteClipboard(addr, '已复制 ' + addr);
+    gwWriteClipboard(addr, '内置 Funnel 地址已复制：' + addr);
   });
   $('tsnPairBtn').addEventListener('click', function () {
     tsPairPreset = tsnUrl() ? 'tsnet' : null;
@@ -9511,8 +9522,11 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
     } else if (gwPairAddrType === 'tsnet') {
       tunnel = tsnUrl();
     }
+    // 通道类型一并送后端：配对串里带 type=，手机端按它落槽，三套 *.ts.net 不再互相顶替
+    const kind = gwPairAddrType === 'tailscale' ? 'ts'
+      : (gwPairAddrType === 'none' ? '' : gwPairAddrType);
     try {
-      const issued = await invoke('gateway_pair_issue', { name: name, tunnel: tunnel });
+      const issued = await invoke('gateway_pair_issue', { name: name, tunnel: tunnel, kind: kind });
       $('gwPairNameRow').hidden = true;
       $('gwPairGoRow').hidden = true;
       $('gwPairResult').hidden = false;
@@ -9522,9 +9536,7 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
     } catch (e) { toast('生成失败：' + e, 'bad'); }
   });
   $('gwPairCopy').addEventListener('click', function () {
-    navigator.clipboard.writeText($('gwPairText').value)
-      .then(function () { toast('已复制配对串'); })
-      .catch(function () { $('gwPairText').select(); });
+    gwWriteClipboard($('gwPairText').value, '配对串已复制 —— 粘到手机「添加电脑」即可');
   });
   $('gwPairClose').addEventListener('click', function () { $('gwPairOverlay').hidden = true; });
 
@@ -9595,9 +9607,16 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
       main.appendChild(name);
       main.appendChild(meta);
       row.appendChild(main);
-      // 来源 chip：按出码时记录的地址形态分（隧道 / Tailscale / 无地址），对账一眼可辨
+      // 来源 chip：优先用出码时记录的通道类型（三套 Tailscale 的域名长得一样，
+      // 只看地址会把「系统 Funnel」和「内置 Funnel」混成一个）；老记录没类型才按地址判
       const src = document.createElement('span');
-      if (client.pair_addr && isTailscaleAddr(client.pair_addr)) {
+      const kindLabel = {
+        tunnel: '隧道', ts: 'Tailscale 直连', funnel: 'Tailscale Funnel', tsnet: '内置 Funnel',
+      }[client.pair_kind || ''];
+      if (kindLabel) {
+        src.className = 'ts-chip ' + (client.pair_kind === 'tunnel' ? 'src-tunnel' : 'src-ts');
+        src.textContent = kindLabel;
+      } else if (client.pair_addr && isTailscaleAddr(client.pair_addr)) {
         src.className = 'ts-chip src-ts';
         src.textContent = 'Tailscale';
       } else if (client.pair_addr) {
@@ -9666,9 +9685,7 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
     if (logTimer) { clearInterval(logTimer); logTimer = null; }
   });
   $('gwLogCopy').addEventListener('click', function () {
-    navigator.clipboard.writeText($('gwLogBody').textContent)
-      .then(function () { toast('已复制全部日志'); })
-      .catch(function () { });
+    gwWriteClipboard($('gwLogBody').textContent, '全部日志已复制');
   });
 
   // ---- 事件 ----

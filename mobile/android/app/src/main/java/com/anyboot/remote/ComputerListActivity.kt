@@ -1837,20 +1837,28 @@ class ComputerListActivity : ComponentActivity() {
             !info.online -> STATE_OFFLINE
             else -> STATE_ONLINE
         }
-        // 当前连接：探测赢家确实是这台电脑的远程地址 → 按地址形态细分（Tailscale 直连 / 远程隧道）；
-        // 否则配了跳板机 → 跳板机·名字；都没配 → 直连
-        val remoteOrigin = if (profile.hasRemote()) {
-            ServerProfile.normalizeRemoteOrigin(profile.remoteAddr)
+        // 当前连接：探测赢家确实落在某个远程槽上 → 按**那一槽**标通道（隧道 / 直连 / 系统 Funnel /
+        // 内置 Funnel）。以前只有「生效地址」一个镜像，三套 Tailscale 分不出来，列表上全标 Funnel。
+        val remoteSlots = listOf(
+            ServerProfile.ROUTE_TUNNEL to ServerProfile.normalizeRemoteOrigin(profile.remoteTunnelAddr),
+            ServerProfile.ROUTE_TS to profile.tsDirectOrigin(),
+            ServerProfile.ROUTE_FUNNEL to profile.funnelOrigin(),
+            ServerProfile.ROUTE_TSNET to profile.tsnetOrigin(),
+        )
+        val hitSlot = if (info != null && info.online) {
+            remoteSlots.firstOrNull { (_, origin) ->
+                origin.isNotEmpty() &&
+                    origin.removePrefix("https://").removePrefix("http://") == info.addr
+            }
         } else {
-            ""
+            null
         }
-        val remoteBare = remoteOrigin.removePrefix("https://").removePrefix("http://")
-        val usingRemote = info != null && info.online &&
-            remoteBare.isNotEmpty() && info.addr == remoteBare
+        val usingRemote = hitSlot != null
         val conn = when {
-            usingRemote && remoteOrigin.contains(".ts.net") -> "Tailscale Funnel"
-            usingRemote && ServerProfile.isTailscaleAddr(remoteOrigin) -> "Tailscale 直连"
-            usingRemote -> "远程隧道"
+            hitSlot?.first == ServerProfile.ROUTE_TSNET -> "Tailscale Funnel（内建）"
+            hitSlot?.first == ServerProfile.ROUTE_FUNNEL -> "Tailscale Funnel"
+            hitSlot?.first == ServerProfile.ROUTE_TS -> "Tailscale 直连"
+            hitSlot != null -> "远程隧道"
             ServerProfile.text(profile.jumpServerId).isNotEmpty() -> {
                 val jump = JumpStore.findJump(JumpStore.loadJumps(this), profile.jumpServerId)
                 "跳板机 · " + (if (ServerProfile.text(jump?.name).isNotEmpty()) {
@@ -2082,17 +2090,21 @@ class ComputerListActivity : ComponentActivity() {
      * 返回 null = 连一个能试的地址都没有。
      */
     private fun chooseEndpoint(profile: ServerProfile): EndpointChoice? {
-        val remote = if (profile.hasRemote()) {
-            ServerProfile.normalizeRemoteOrigin(profile.remoteAddr)
-        } else {
-            ""
-        }
-        // 远程优先（编辑里选的）：先探隧道，通了直接走；隧道挂了再退局域网链路。
-        // 跳板机本身就是远程路径，不叠加隧道优先。
-        if (profile.routePriorityRemoteFirst() && profile.jumpServerId.isEmpty() && remote.isNotEmpty()
-            && HealthProbe.pingRemote(remote, REMOTE_PROBE_TIMEOUT_MS) > 0
-        ) {
-            return EndpointChoice(remote, ServerProfile.text(profile.remoteToken), alive = true)
+        // 远程候选按用户在「连接策略」里排的通道优先级来：隧道 / Tailscale 直连 / 系统 Funnel /
+        // 内置 Funnel 谁在前先试谁（以前只认「生效地址」一个，其它三槽等于白配）。
+        val remotes = profile.routeCandidates()
+            .filter { it[0] != ServerProfile.ROUTE_LAN && it[0] != ServerProfile.ROUTE_JUMP }
+            .map { it[1] }
+            .filter { it.isNotEmpty() }
+        val primary = remotes.firstOrNull().orEmpty()
+        // 远程优先（编辑里选的）：先探远程，通了直接走；全挂了再退局域网链路。
+        // 跳板机本身就是远程路径，不叠加远程优先。
+        if (profile.routePriorityRemoteFirst() && profile.jumpServerId.isEmpty()) {
+            for (remote in remotes) {
+                if (HealthProbe.pingRemote(remote, REMOTE_PROBE_TIMEOUT_MS) > 0) {
+                    return EndpointChoice(remote, ServerProfile.text(profile.remoteToken), alive = true)
+                }
+            }
         }
         val lan = try {
             endpointOf(profile)
@@ -2103,11 +2115,13 @@ class ComputerListActivity : ComponentActivity() {
         if (lan.isNotEmpty() && HealthProbe.ping(lan, PROBE_TIMEOUT_MS) > 0) {
             return EndpointChoice("http://" + lan, lanToken, alive = true)
         }
-        if (remote.isNotEmpty() && HealthProbe.pingRemote(remote, REMOTE_PROBE_TIMEOUT_MS) > 0) {
-            return EndpointChoice(remote, ServerProfile.text(profile.remoteToken), alive = true)
+        for (remote in remotes) {
+            if (HealthProbe.pingRemote(remote, REMOTE_PROBE_TIMEOUT_MS) > 0) {
+                return EndpointChoice(remote, ServerProfile.text(profile.remoteToken), alive = true)
+            }
         }
-        if (lan.isEmpty() && remote.isEmpty()) return null
-        return EndpointChoice(if (lan.isNotEmpty()) "http://" + lan else remote, lanToken, alive = false)
+        if (lan.isEmpty() && primary.isEmpty()) return null
+        return EndpointChoice(if (lan.isNotEmpty()) "http://" + lan else primary, lanToken, alive = false)
     }
 
     private fun prompt(): SshSessionManager.Prompt = object : SshSessionManager.Prompt {

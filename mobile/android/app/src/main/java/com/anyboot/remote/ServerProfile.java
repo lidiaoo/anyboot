@@ -254,8 +254,15 @@ final class ServerProfile {
     String remoteAddr = "";
     /** 远程接入 · Cloudflare 隧道槽：trycloudflare.com 等公网 https 地址（双槽之一）。 */
     String remoteTunnelAddr = "";
-    /** 远程接入 · Tailscale 槽：100.64/10 直连（http://…:12300）或 *.ts.net Funnel（https://）。 */
+    /** 远程接入 · Tailscale 直连槽：只放 100.64/10（http://…:12300），不再兼收 *.ts.net。 */
     String remoteTsAddr = "";
+    /**
+     * 远程接入 · Tailscale Funnel 槽：系统装的那套 Tailscale 发出来的 *.ts.net 地址。
+     * 和直连槽分开存 —— 以前两者挤一个槽，配了 Funnel 会把 100.x 直连地址顶掉。
+     */
+    String remoteFunnelAddr = "";
+    /** 远程接入 · 内置 Tailscale（tsnet）槽：AnyBoot 自带引擎发的 *.ts.net 地址。 */
+    String remoteTsnetAddr = "";
     /**
      * 远程接入令牌：对方电脑给我们这台签发的「网关客户端令牌」，与它的局域网
      * {@link #token} 是两套 —— 对方校验时按 {@code ?ab_token=} 比对已配对客户端表。
@@ -275,16 +282,23 @@ final class ServerProfile {
     static final String ROUTE_TUNNEL = "tunnel";
     static final String ROUTE_TS = "ts";
     static final String ROUTE_FUNNEL = "funnel";
+    static final String ROUTE_TSNET = "tsnet";
 
-    /** 连接优先级（五通道并列，有序）；空 = 老档案，按 connMode 迁移或默认序 */
+    /** 连接优先级（六通道并列，有序）；空 = 老档案，按 connMode 迁移或默认序 */
     final List<String> routeOrder = new ArrayList<>();
     /** 禁用的通道 id（在 routeOrder 里有位次但不参与连接） */
     final List<String> routeDisabled = new ArrayList<>();
 
-    /** 默认优先级：直连 → 跳板 → 隧道 → Tailscale → Funnel（Funnel 出公网，习惯上最后） */
+    /** 默认优先级：直连 → 跳板 → 隧道 → Tailscale 直连 → Funnel → 内置 tsnet（越往后越绕） */
     static List<String> defaultRouteOrder() {
         return new ArrayList<>(Arrays.asList(
-                ROUTE_LAN, ROUTE_JUMP, ROUTE_TUNNEL, ROUTE_TS, ROUTE_FUNNEL));
+                ROUTE_LAN, ROUTE_JUMP, ROUTE_TUNNEL, ROUTE_TS, ROUTE_FUNNEL, ROUTE_TSNET));
+    }
+
+    /** 合法通道 id（读写档案时的白名单；加通道只改这一处 + defaultRouteOrder） */
+    static boolean isRouteKind(String id) {
+        return ROUTE_LAN.equals(id) || ROUTE_JUMP.equals(id) || ROUTE_TUNNEL.equals(id)
+                || ROUTE_TS.equals(id) || ROUTE_FUNNEL.equals(id) || ROUTE_TSNET.equals(id);
     }
 
     /** Funnel 判型：https + 域名含 .ts.net（与 Tailscale 100.x 直连区分；与 PC is_funnel_origin 同语义） */
@@ -299,30 +313,34 @@ final class ServerProfile {
         return !ts.isEmpty() && !isFunnelOrigin(ts) ? ts : "";
     }
 
-    /** ts 槽里的 Funnel 地址（https + *.ts.net）；没有则空 */
+    /** Funnel 槽的地址（https + *.ts.net）；没有则空（老档案里挤在 ts 槽的也认） */
     String funnelOrigin() {
-        String ts = normalizeRemoteOrigin(remoteTsAddr);
-        if (!ts.isEmpty() && isFunnelOrigin(ts)) {
-            return ts;
+        String funnel = normalizeRemoteOrigin(remoteFunnelAddr);
+        if (!funnel.isEmpty()) {
+            return funnel;
         }
-        String legacy = normalizeRemoteOrigin(remoteAddr);
-        return text(remoteTsAddr).isEmpty() && isFunnelOrigin(legacy) ? legacy : "";
+        String ts = normalizeRemoteOrigin(remoteTsAddr);
+        return isFunnelOrigin(ts) ? ts : "";
     }
 
-    /** 有序五通道（自愈）：清洗非法 id / 去重，缺的按默认序补尾；全空按 connMode 迁移 */
+    /** 内置 tsnet 槽的地址（https + *.ts.net）；没有则空 */
+    String tsnetOrigin() {
+        return normalizeRemoteOrigin(remoteTsnetAddr);
+    }
+
+    /** 有序六通道（自愈）：清洗非法 id / 去重，缺的按默认序补尾；全空按 connMode 迁移 */
     List<String> routeOrderSorted() {
         LinkedHashSet<String> seen = new LinkedHashSet<>();
         for (String raw : routeOrder) {
             String id = text(raw);
-            if ((id.equals(ROUTE_LAN) || id.equals(ROUTE_JUMP) || id.equals(ROUTE_TUNNEL)
-                    || id.equals(ROUTE_TS) || id.equals(ROUTE_FUNNEL))) {
+            if (isRouteKind(id)) {
                 seen.add(id);
             }
         }
         if (seen.isEmpty() && isRemoteFirst()) {
             // 迁移：远程通道在前（保持 隧道→ts→funnel 的相对序），跳板/直连殿后
             return new ArrayList<>(Arrays.asList(
-                    ROUTE_TUNNEL, ROUTE_TS, ROUTE_FUNNEL, ROUTE_JUMP, ROUTE_LAN));
+                    ROUTE_TUNNEL, ROUTE_TS, ROUTE_FUNNEL, ROUTE_TSNET, ROUTE_JUMP, ROUTE_LAN));
         }
         List<String> order = new ArrayList<>(seen);
         for (String id : defaultRouteOrder()) {
@@ -378,6 +396,13 @@ final class ServerProfile {
                 }
                 case ROUTE_FUNNEL: {
                     String origin = funnelOrigin();
+                    if (!origin.isEmpty()) {
+                        out.add(new String[]{kind, origin});
+                    }
+                    break;
+                }
+                case ROUTE_TSNET: {
+                    String origin = tsnetOrigin();
                     if (!origin.isEmpty()) {
                         out.add(new String[]{kind, origin});
                     }
@@ -734,29 +759,110 @@ final class ServerProfile {
         if (pair == null) {
             return false;
         }
-        remoteAddr = pair[0];
+        placeOrigin(pair[0], pair.length > 2 ? pair[2] : "");
         if (!pair[1].isEmpty()) {
             remoteToken = pair[1];
         }
         return true;
     }
 
-    /** 清掉远程接入（双槽 + 生效地址与令牌一起） */
+    /** 通道 id 归一：容忍 PC 端多种写法，未知一律空串（= 按内容判型） */
+    static String normalizeRouteKind(String raw) {
+        String value = text(raw).toLowerCase(Locale.US);
+        switch (value) {
+            case "tunnel":
+            case "cloudflare":
+            case "cf":
+                return ROUTE_TUNNEL;
+            case "ts":
+            case "tailscale":
+                return ROUTE_TS;
+            case "funnel":
+                return ROUTE_FUNNEL;
+            case "tsnet":
+            case "builtin":
+            case "builtin_ts":
+                return ROUTE_TSNET;
+            default:
+                return "";
+        }
+    }
+
+    /**
+     * 把一条 origin 按类型写进对应槽（type 空 / 认不出 → 按内容判型），返回落槽 id。
+     * 三套 Tailscale 地址各占一槽，配一个不会把另一个顶掉。
+     */
+    String placeOrigin(String origin, String type) {
+        String value = normalizeRemoteOrigin(origin);
+        if (value.isEmpty()) {
+            return "";
+        }
+        String kind = normalizeRouteKind(type);
+        if (kind.isEmpty()) {
+            kind = defaultKindFor(value);
+        }
+        switch (kind) {
+            case ROUTE_TS:
+                remoteTsAddr = value;
+                break;
+            case ROUTE_FUNNEL:
+                remoteFunnelAddr = value;
+                break;
+            case ROUTE_TSNET:
+                remoteTsnetAddr = value;
+                break;
+            default:
+                remoteTunnelAddr = value;
+                kind = ROUTE_TUNNEL;
+                break;
+        }
+        syncRemoteEffective();
+        return kind;
+    }
+
+    /**
+     * 没有显式类型时的兜底判型：*.ts.net → Funnel（老配对串分不出「系统 Funnel」还是
+     * 「内置 tsnet」，默认按更常见的系统 Funnel 落）、100.x → 直连、其余 → 隧道。
+     */
+    static String defaultKindFor(String origin) {
+        String value = normalizeRemoteOrigin(origin);
+        if (isFunnelOrigin(value)) {
+            return ROUTE_FUNNEL;
+        }
+        if (isTailscaleAddr(value)) {
+            return ROUTE_TS;
+        }
+        return ROUTE_TUNNEL;
+    }
+
+    /** 清掉远程接入（四槽 + 生效地址与令牌一起） */
     void clearRemote() {
         remoteAddr = "";
         remoteTunnelAddr = "";
         remoteTsAddr = "";
+        remoteFunnelAddr = "";
+        remoteTsnetAddr = "";
         remoteToken = "";
     }
 
     boolean hasRemote() {
         return !text(remoteAddr).isEmpty() || !text(remoteTunnelAddr).isEmpty()
-                || !text(remoteTsAddr).isEmpty();
+                || !text(remoteTsAddr).isEmpty() || !text(remoteFunnelAddr).isEmpty()
+                || !text(remoteTsnetAddr).isEmpty();
     }
 
-    /** 双槽写回后同步「生效地址」镜像：隧道槽优先，否则 Tailscale 槽（旧消费点零改动） */
+    /**
+     * 四槽写回后同步「生效地址」镜像（旧消费点零改动）：
+     * 隧道 → Funnel → 内置 tsnet → 直连，取第一个非空的。
+     */
     void syncRemoteEffective() {
-        remoteAddr = text(remoteTunnelAddr).isEmpty() ? text(remoteTsAddr) : text(remoteTunnelAddr);
+        for (String slot : new String[]{remoteTunnelAddr, remoteFunnelAddr, remoteTsnetAddr, remoteTsAddr}) {
+            if (!text(slot).isEmpty()) {
+                remoteAddr = slot;
+                return;
+            }
+        }
+        remoteAddr = "";
     }
 
     /** 连接优先是否「远程优先」（用户在编辑里选的；空 / auto = 局域网优先） */
@@ -872,9 +978,12 @@ final class ServerProfile {
     }
 
     /**
-     * 解析粘贴的配对内容：{@code anyboot://pair?gateway=…&tunnel=…&token=…} 或
-     * 直接一条 {@code https://…/?ab_token=…}。返回 [origin, token]，认不出返回 null。
-     * 与 PC 端 split_remote_address 同一套语义。
+     * 解析粘贴的配对内容：{@code anyboot://pair?gateway=…&tunnel=…&token=…&type=…} 或
+     * 直接一条 {@code https://…/?ab_token=…}。返回 [origin, token, type]，认不出返回 null。
+     *
+     * <p>{@code type} 是 2026-10 新增的显式地址类型（tunnel / ts / funnel / tsnet）：
+     * 三个 Tailscale 地址长得几乎一样（都是 *.ts.net），只靠内容判型必然互相顶替，
+     * 所以由签发端（PC）在配对串里标好。老配对串没有 type → 回落内容判型。
      */
     static String[] parsePair(String raw) {
         String value = text(raw);
@@ -897,7 +1006,7 @@ final class ServerProfile {
                 if (token.isEmpty()) {
                     token = text(uri.getQueryParameter("ab_token"));
                 }
-                return new String[] { origin, token };
+                return new String[] { origin, token, normalizeRouteKind(uri.getQueryParameter("type")) };
             } catch (Exception ignored) {
                 return null;
             }
@@ -908,6 +1017,7 @@ final class ServerProfile {
             return null;
         }
         String token = "";
+        String kind = "";
         try {
             Uri uri = Uri.parse(value.trim());
             String candidate = uri.getQueryParameter("ab_token");
@@ -915,10 +1025,11 @@ final class ServerProfile {
                 candidate = uri.getQueryParameter("token");
             }
             token = text(candidate);
+            kind = normalizeRouteKind(uri.getQueryParameter("type"));
         } catch (Exception ignored) {
             // 无 query 或不是合法 URL：就当裸 host
         }
-        return new String[] { origin, token };
+        return new String[] { origin, token, kind };
     }
 
     // ------------------------------------------------------------------
@@ -1031,6 +1142,8 @@ final class ServerProfile {
         other.remoteAddr = remoteAddr;
         other.remoteTunnelAddr = remoteTunnelAddr;
         other.remoteTsAddr = remoteTsAddr;
+        other.remoteFunnelAddr = remoteFunnelAddr;
+        other.remoteTsnetAddr = remoteTsnetAddr;
         other.remoteToken = remoteToken;
         other.connMode = connMode;
         other.routeOrder.addAll(routeOrder);
@@ -1102,6 +1215,8 @@ final class ServerProfile {
         object.put("remoteAddr", normalizeRemoteOrigin(remoteAddr));
         object.put("remoteTunnelAddr", normalizeRemoteOrigin(remoteTunnelAddr));
         object.put("remoteTsAddr", normalizeRemoteOrigin(remoteTsAddr));
+        object.put("remoteFunnelAddr", normalizeRemoteOrigin(remoteFunnelAddr));
+        object.put("remoteTsnetAddr", normalizeRemoteOrigin(remoteTsnetAddr));
         object.put("remoteToken", text(remoteToken));
         object.put("connMode", isRemoteFirst() ? "remote_first" : "");
         // 五通道优先级：落盘用自愈后的有序列表（老档案在此顺手物化迁移结果）
@@ -1167,25 +1282,27 @@ final class ServerProfile {
         profile.remoteAddr = normalizeRemoteOrigin(object.optString("remoteAddr", ""));
         profile.remoteTunnelAddr = normalizeRemoteOrigin(object.optString("remoteTunnelAddr", ""));
         profile.remoteTsAddr = normalizeRemoteOrigin(object.optString("remoteTsAddr", ""));
-        // 旧档案迁移：双槽全空且旧单槽非空 → 按判型分流进对应槽（与 PC normalize 同语义）
+        profile.remoteFunnelAddr = normalizeRemoteOrigin(object.optString("remoteFunnelAddr", ""));
+        profile.remoteTsnetAddr = normalizeRemoteOrigin(object.optString("remoteTsnetAddr", ""));
+        // 老档案迁移①：ts 槽里的 *.ts.net 其实是 Funnel（当年两兄弟挤一槽）→ 挪进 Funnel 槽
+        if (profile.remoteFunnelAddr.isEmpty() && isFunnelOrigin(profile.remoteTsAddr)) {
+            profile.remoteFunnelAddr = profile.remoteTsAddr;
+            profile.remoteTsAddr = "";
+        }
+        // 老档案迁移②：四槽全空且旧单槽非空 → 按判型分流进对应槽（与 PC normalize 同语义）
         if (profile.remoteTunnelAddr.isEmpty() && profile.remoteTsAddr.isEmpty()
+                && profile.remoteFunnelAddr.isEmpty() && profile.remoteTsnetAddr.isEmpty()
                 && !profile.remoteAddr.isEmpty()) {
-            if (isTailscaleAddr(profile.remoteAddr)) {
-                profile.remoteTsAddr = profile.remoteAddr;
-            } else {
-                profile.remoteTunnelAddr = profile.remoteAddr;
-            }
+            profile.placeOrigin(profile.remoteAddr, "");
         }
         profile.remoteToken = object.optString("remoteToken", "");
         profile.connMode = "remote_first".equals(object.optString("connMode", "")) ? "remote_first" : "";
-        // 五通道优先级：清洗非法 id / 去重；全空按 connMode 迁移（routeOrderSorted 的自愈语义）
+        // 六通道优先级：清洗非法 id / 去重；全空按 connMode 迁移（routeOrderSorted 的自愈语义）
         JSONArray routeOrderArray = object.optJSONArray("routeOrder");
         if (routeOrderArray != null) {
             for (int i = 0; i < routeOrderArray.length(); i++) {
                 String kind = routeOrderArray.optString(i, "").trim();
-                if ((kind.equals(ROUTE_LAN) || kind.equals(ROUTE_JUMP) || kind.equals(ROUTE_TUNNEL)
-                        || kind.equals(ROUTE_TS) || kind.equals(ROUTE_FUNNEL))
-                        && !profile.routeOrder.contains(kind)) {
+                if (isRouteKind(kind) && !profile.routeOrder.contains(kind)) {
                     profile.routeOrder.add(kind);
                 }
             }
@@ -1194,9 +1311,7 @@ final class ServerProfile {
         if (routeDisabledArray != null) {
             for (int i = 0; i < routeDisabledArray.length(); i++) {
                 String kind = routeDisabledArray.optString(i, "").trim();
-                if ((kind.equals(ROUTE_LAN) || kind.equals(ROUTE_JUMP) || kind.equals(ROUTE_TUNNEL)
-                        || kind.equals(ROUTE_TS) || kind.equals(ROUTE_FUNNEL))
-                        && !profile.routeDisabled.contains(kind)) {
+                if (isRouteKind(kind) && !profile.routeDisabled.contains(kind)) {
                     profile.routeDisabled.add(kind);
                 }
             }

@@ -73,13 +73,14 @@ internal data class AddrEntry(val address: String, val macs: List<String> = empt
 
 /** 表单的全部可编辑状态；宿主保存时读这里的当前值 */
 /** 五通道 id（连接优先级用；与 ServerProfile 的 ROUTE_* 常量一致） */
-private val ROUTE_IDS_ALL = listOf("lan", "jump", "tunnel", "ts", "funnel")
+private val ROUTE_IDS_ALL = listOf("lan", "jump", "tunnel", "ts", "funnel", "tsnet")
 private val ROUTE_LABELS_ZH = mapOf(
     "lan" to "直连",
     "jump" to "跳板机",
     "tunnel" to "Cloudflare 隧道",
-    "ts" to "Tailscale",
+    "ts" to "Tailscale 直连",
     "funnel" to "Tailscale Funnel",
+    "tsnet" to "Tailscale Funnel（内建）",
 )
 
 internal class ServerEditFormState(
@@ -115,37 +116,44 @@ internal class ServerEditFormState(
     // ---- 远程接入双槽（computer-edit-redesign v1.0） ----
     /** 隧道槽：trycloudflare.com 等公网 https 地址（归一 origin） */
     var tunnelText by mutableStateOf("")
-    /** Tailscale 槽：100.64/10 直连 / *.ts.net Funnel（归一 origin） */
+    /** Tailscale 直连槽：100.64/10（归一 origin） */
     var tsText by mutableStateOf("")
+    /** Tailscale Funnel 槽：系统 Tailscale 发的 *.ts.net（与直连分开，互不顶替） */
+    var funnelText by mutableStateOf("")
+    /** 内置 tsnet 槽：AnyBoot 自带引擎发的 *.ts.net */
+    var tsnetText by mutableStateOf("")
     /** 分拣挖出的新远程令牌（空 = 保持已存） */
     var remoteTokenNew by mutableStateOf("")
     var remoteTokenShown by mutableStateOf(false)
+    /** 用户点了「清除 / 解除配对」：屏幕上连带把已存令牌藏掉（保存后一起清） */
+    var remoteCleared by mutableStateOf(false)
     val savedRemoteToken: String get() = profile?.remoteToken ?: ""
     /** 折叠区：连接策略 / 局域网电源路由（默认收起 —— 配一次就不动） */
     var connFoldOpen by mutableStateOf(false)
     var powerFoldOpen by mutableStateOf(false)
 
     init {
-        // 旧档案迁移：双槽全空且旧单槽有值 → 按判型分流（与 PC normalize 同语义）
-        val savedTunnel = profile?.remoteTunnelAddr?.trim().orEmpty()
-        val savedTs = profile?.remoteTsAddr?.trim().orEmpty()
-        if (savedTunnel.isEmpty() && savedTs.isEmpty()) {
-            val legacy = profile?.remoteAddr?.trim().orEmpty()
+        // 四槽各自载入（archive 里 ts 槽存过 *.ts.net 的，ServerProfile 加载时已挪进 Funnel 槽）
+        tunnelText = ServerProfile.normalizeRemoteOrigin(profile?.remoteTunnelAddr?.trim().orEmpty())
+        tsText = ServerProfile.normalizeRemoteOrigin(profile?.remoteTsAddr?.trim().orEmpty())
+        funnelText = ServerProfile.normalizeRemoteOrigin(profile?.remoteFunnelAddr?.trim().orEmpty())
+        tsnetText = ServerProfile.normalizeRemoteOrigin(profile?.remoteTsnetAddr?.trim().orEmpty())
+        // 更老的单槽档案：四槽全空且 remoteAddr 有值 → 按判型分流（与 PC normalize 同语义）
+        if (tunnelText.isEmpty() && tsText.isEmpty() && funnelText.isEmpty() && tsnetText.isEmpty()) {
+            val legacy = ServerProfile.normalizeRemoteOrigin(profile?.remoteAddr?.trim().orEmpty())
             if (legacy.isNotEmpty()) {
-                if (ServerProfile.isTailscaleAddr(legacy)) {
-                    tsText = ServerProfile.normalizeRemoteOrigin(legacy)
-                } else {
-                    tunnelText = ServerProfile.normalizeRemoteOrigin(legacy)
+                when (ServerProfile.defaultKindFor(legacy)) {
+                    "ts" -> tsText = legacy
+                    "funnel" -> funnelText = legacy
+                    else -> tunnelText = legacy
                 }
             }
-        } else {
-            tunnelText = ServerProfile.normalizeRemoteOrigin(savedTunnel)
-            tsText = ServerProfile.normalizeRemoteOrigin(savedTs)
         }
     }
 
     /** 任一槽有值 = 配了远程接入 */
-    fun hasRemoteSlots(): Boolean = tunnelText.isNotBlank() || tsText.isNotBlank()
+    fun hasRemoteSlots(): Boolean = tunnelText.isNotBlank() || tsText.isNotBlank() ||
+        funnelText.isNotBlank() || tsnetText.isNotBlank()
 
     /** 通道当前是否可用（与 PC rsRouteAvailable / 后端 routeCandidates 同语义） */
     fun routeAvailable(kind: String): Boolean = when (kind) {
@@ -153,7 +161,8 @@ internal class ServerEditFormState(
         "jump" -> addressEntries.any { it.address.isNotBlank() } && jumpIndex > 0
         "tunnel" -> tunnelText.isNotBlank()
         "ts" -> tsText.isNotBlank() && !tsText.startsWith("https://", ignoreCase = true)
-        "funnel" -> tsText.startsWith("https://", true) && tsText.contains(".ts.net", true)
+        "funnel" -> funnelText.isNotBlank()
+        "tsnet" -> tsnetText.isNotBlank()
         else -> false
     }
 
@@ -163,7 +172,8 @@ internal class ServerEditFormState(
         "jump" -> if (jumpIndex > 0) "经 " + jumpLabel(jumps[jumpIndex - 1]) else "未选跳板机档案"
         "tunnel" -> tunnelText.ifBlank { "未配置隧道地址" }
         "ts" -> if (!tsText.startsWith("https://", true) && tsText.isNotBlank()) tsText else "未配置 100.x 直连地址"
-        "funnel" -> if (tsText.startsWith("https://", true)) tsText else "未配置（在 Tailscale 槽填 *.ts.net 地址）"
+        "funnel" -> funnelText.ifBlank { "未配置（系统 Tailscale 的 *.ts.net 地址）" }
+        "tsnet" -> tsnetText.ifBlank { "未配置（内置引擎的 *.ts.net 地址）" }
         else -> ""
     }
 
@@ -177,29 +187,36 @@ internal class ServerEditFormState(
     }
 
     /**
-     * 保存用的远程解析结果：[tunnelOrigin, tsOrigin, token] 或 null（双槽全空 = 取消远程接入）。
-     * token 为空串时宿主侧「留空保持已存令牌」。
+     * 保存用的远程解析结果：`[隧道, 直连, 系统 Funnel, 内置 Funnel, 新令牌]`；
+     * 四槽全空返回 null（= 解除配对，宿主侧 clearRemote 连令牌一起清）。
+     * 令牌为空串时宿主侧「留空保持已存令牌」。
      */
     fun resolvedRemote(): Array<String>? {
         val tunnel = tunnelText.trim()
         val ts = tsText.trim()
-        if (tunnel.isEmpty() && ts.isEmpty()) {
+        val funnel = funnelText.trim()
+        val tsnet = tsnetText.trim()
+        if (tunnel.isEmpty() && ts.isEmpty() && funnel.isEmpty() && tsnet.isEmpty()) {
             return null
         }
-        return arrayOf(tunnel, ts, remoteTokenNew.trim())
+        return arrayOf(tunnel, ts, funnel, tsnet, remoteTokenNew.trim())
     }
 
     /** 智能粘贴框：扫码 / 手填入口（分拣后内容落双槽，这里只是输入缓冲） */
     var remoteText by mutableStateOf("")
     var remoteHint by mutableStateOf("")
 
-    /** 清空双槽 + 粘贴框 + 新令牌（「清除」按钮） */
+    /** 清空四槽 + 粘贴框 + 新令牌（「解除配对」按钮）：已存令牌也跟着藏起来，保存即解绑 */
     fun clearRemoteSlots() {
         tunnelText = ""
         tsText = ""
+        funnelText = ""
+        tsnetText = ""
         remoteTokenNew = ""
+        remoteCleared = true
+        remoteTokenShown = false
         remoteText = ""
-        remoteHint = ""
+        remoteHint = "已清空 —— 点「保存」即解除配对（地址与配对令牌一起删掉）"
     }
 
     /** 令牌打码：前 4 后 4 可见，其余 •；太短的整串打码 */
@@ -228,19 +245,29 @@ internal class ServerEditFormState(
         }
         val origin = parsed[0]
         val newToken = parsed[1]
+        remoteCleared = false
         if (newToken.isNotEmpty()) {
             remoteTokenNew = newToken
         }
-        remoteHint = if (ServerProfile.isTailscaleAddr(origin)) {
-            tsText = origin
-            "已分拣到 Tailscale 槽：$origin" + if (origin.contains(".ts.net")) {
-                "（Funnel：手机无需装 Tailscale，浏览器直开；国内网络可能不稳）"
-            } else {
-                "（直连：手机需与电脑加入同一 tailnet，连不上时检查两边 Tailscale 是否在线）"
+        // 类型优先（PC 出码时已经标好），老配对串没带 type 才按内容猜
+        val declared = if (parsed.size > 2) parsed[2] else ""
+        when (declared.ifEmpty { ServerProfile.defaultKindFor(origin) }) {
+            "ts" -> {
+                tsText = origin
+                remoteHint = "已分拣到 Tailscale 直连槽：$origin（手机需与电脑在同一 tailnet）"
             }
-        } else {
-            tunnelText = origin
-            "已分拣到隧道槽：$origin"
+            "funnel" -> {
+                funnelText = origin
+                remoteHint = "已分拣到 Tailscale Funnel 槽：$origin（手机无需装 Tailscale，浏览器直开）"
+            }
+            "tsnet" -> {
+                tsnetText = origin
+                remoteHint = "已分拣到内置 Funnel 槽：$origin（AnyBoot 自带引擎，手机同样免装 Tailscale）"
+            }
+            else -> {
+                tunnelText = origin
+                remoteHint = "已分拣到 Cloudflare 隧道槽：$origin"
+            }
         }
     }
 
@@ -578,11 +605,14 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                 Text("📷 扫码读码", fontSize = 12.sp)
             }
             TextButton(onClick = { state.clearRemoteSlots() }) {
-                Text("清除", fontSize = 12.sp, color = palette.fgDim)
+                Text(
+                    if (state.hasRemoteSlots() || state.savedRemoteToken.isNotEmpty()) "解除配对" else "清除",
+                    fontSize = 12.sp, color = palette.fgDim,
+                )
             }
             Text(
                 if (state.remoteHint.isNotEmpty()) state.remoteHint
-                else "扫码或粘贴后自动分拣；两槽独立保存，谁通用谁",
+                else "扫码或粘贴后自动分拣；四槽各自独立，配一个不会顶掉另一个",
                 fontSize = 11.sp, color = palette.fgFaint,
                 modifier = Modifier.weight(1f),
             )
@@ -592,19 +622,44 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
             labelColor = palette.accent,
             value = state.tunnelText,
             onClear = { state.tunnelText = "" },
+            onCopy = { context.copyRemoteSlot("Cloudflare 隧道地址", state.tunnelText) },
             palette = palette,
         )
         RemoteSlotRow(
-            label = if (state.tsText.contains(".ts.net")) "Tailscale · Funnel" else "Tailscale · 直连",
+            label = "Tailscale 直连",
             labelColor = palette.ok,
             value = state.tsText,
             onClear = { state.tsText = "" },
+            onCopy = { context.copyRemoteSlot("Tailscale 直连地址", state.tsText) },
             palette = palette,
         )
-        if (state.savedRemoteToken.isNotEmpty() || state.remoteTokenNew.isNotEmpty()) {
+        RemoteSlotRow(
+            label = "Tailscale Funnel",
+            labelColor = palette.ok,
+            value = state.funnelText,
+            onClear = { state.funnelText = "" },
+            onCopy = { context.copyRemoteSlot("Tailscale Funnel 地址", state.funnelText) },
+            palette = palette,
+        )
+        RemoteSlotRow(
+            label = "内置 Funnel",
+            labelColor = palette.warn,
+            value = state.tsnetText,
+            onClear = { state.tsnetText = "" },
+            onCopy = { context.copyRemoteSlot("内置 Funnel 地址", state.tsnetText) },
+            palette = palette,
+        )
+        // 已存令牌 + 新分拣的令牌都可能要展示；四槽清空（或点过「解除配对」）就一起藏 ——
+        // 屏幕上看到的必须等于「保存后会留下什么」，别让用户看到一条马上要被删掉的令牌
+        val tokenForShow = state.remoteTokenNew.ifEmpty {
+            if (state.remoteCleared || !state.hasRemoteSlots()) "" else state.savedRemoteToken
+        }
+        if (tokenForShow.isNotEmpty()) {
             // 配对令牌回显：新分拣的优先展示（还没保存）；默认打码 + 小眼睛
-            val shown = state.remoteTokenNew.ifEmpty { state.savedRemoteToken }
-            val revealed = state.remoteTokenShown && state.remoteTokenNew.isNotEmpty()
+            val shown = tokenForShow
+            // 已配对档案的令牌也要能「显示」—— 之前这里要求 remoteTokenNew 非空，
+            // 于是老档案点「显示」毫无反应（用户当成按钮坏了）
+            val revealed = state.remoteTokenShown
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
@@ -624,15 +679,24 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                     fontSize = 12.sp,
                     fontFamily = FontFamily.Monospace,
                     color = if (revealed) palette.fg else palette.fgDim,
+                    // 「查看完整」：明文态允许换行，长令牌不会被一行省略号吃掉
+                    maxLines = if (revealed) 4 else 1,
+                    overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
+                TextButton(onClick = {
+                    context.copyRemoteSlot("配对令牌", shown)
+                }) {
+                    Text("复制", fontSize = 11.sp)
+                }
                 TextButton(onClick = { state.remoteTokenShown = !state.remoteTokenShown }) {
                     Text(if (revealed) "隐藏" else "显示", fontSize = 11.sp)
                 }
             }
         }
         Text(
-            "清空两槽保存 = 取消远程接入；配对码等同密码，别转发给别人。",
+            "清空四槽保存 = 解除配对（配对令牌一并删掉）；点地址可展开看完整串。" +
+                "配对码等同密码，别转发给别人。",
             fontSize = 11.sp, color = palette.fgFaint,
             modifier = Modifier.padding(top = 4.dp),
         )
@@ -1104,8 +1168,10 @@ internal fun applyServerEdit(
     } else {
         target.remoteTunnelAddr = remote[0]
         target.remoteTsAddr = remote[1]
-        if (remote[2].isNotEmpty()) {
-            target.remoteToken = remote[2]
+        target.remoteFunnelAddr = remote[2]
+        target.remoteTsnetAddr = remote[3]
+        if (remote[4].isNotEmpty()) {
+            target.remoteToken = remote[4]
         }
         target.syncRemoteEffective()
     }
@@ -1204,8 +1270,11 @@ private fun RemoteSlotRow(
     labelColor: Color,
     value: String,
     onClear: () -> Unit,
+    onCopy: () -> Unit,
     palette: Palette,
 ) {
+    // 「查看完整」：长地址一行显示不下，点一下展开成多行（再点收起）
+    var expanded by remember(value) { mutableStateOf(false) }
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -1229,11 +1298,16 @@ private fun RemoteSlotRow(
             fontSize = 11.sp,
             fontFamily = FontFamily.Monospace,
             color = if (value.isEmpty()) palette.fgFaint else palette.fg,
-            maxLines = 1,
+            maxLines = if (expanded) 5 else 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
+            modifier = Modifier
+                .weight(1f)
+                .clickable(enabled = value.isNotEmpty()) { expanded = !expanded },
         )
         if (value.isNotEmpty()) {
+            TextButton(onClick = onCopy) {
+                Text("复制", fontSize = 11.sp, color = palette.fgDim)
+            }
             TextButton(onClick = onClear) {
                 Text("✕", fontSize = 12.sp, color = palette.fgFaint)
             }

@@ -1177,6 +1177,11 @@ pub(crate) struct GatewayClient {
     /// 出码时的隧道地址（快速隧道每次重启会变，留着对账：客户端现在连的是不是这个）。
     #[serde(default)]
     pub pair_addr: String,
+    /// 出码时的通道类型：`tunnel` / `ts` / `funnel` / `tsnet`（空 = 老记录，按地址判型）。
+    /// 三套 Tailscale 的地址长得一样，只看域名分不出「系统 Funnel」还是「内置 Funnel」，
+    /// 列表上的来源 chip 就靠这个字段，别再混合成一个「Tailscale」。
+    #[serde(default)]
+    pub pair_kind: String,
 }
 
 fn clients_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -1243,11 +1248,17 @@ fn current_tunnel_url(app: &tauri::AppHandle) -> String {
 }
 
 /// 签发配对：新客户端令牌 + anyboot://pair 配对串。
+///
+/// `kind` 是这条地址属于哪个通道（`tunnel` / `ts` / `funnel` / `tsnet`），会写进配对串的
+/// `type=` 参数。**必须带**：手机端四套远程槽（Cloudflare / Tailscale 直连 / 系统 Funnel /
+/// 内置 tsnet）以前只能靠地址长相猜类型，三套 *.ts.net 长得一模一样 → 配一个顶掉另一个，
+/// 用户的配对码「凭空消失」。现在由签发端声明，手机端照单落槽。
 #[tauri::command]
 pub(crate) fn gateway_pair_issue(
     app: tauri::AppHandle,
     name: String,
     tunnel: String,
+    kind: Option<String>,
 ) -> Result<PairIssued, String> {
     let name = name.trim().to_string();
     if name.is_empty() {
@@ -1263,6 +1274,16 @@ pub(crate) fn gateway_pair_issue(
             given
         }
     };
+    // 通道类型归一：只认四个合法值，别的一律空（手机端会按地址判型兜底）
+    let kind = match kind.as_deref().map(|value| value.trim().to_ascii_lowercase()) {
+        Some(value) if value == "tunnel" || value == "ts" || value == "funnel" || value == "tsnet" => {
+            value
+        }
+        Some(value) if value == "tailscale" => "ts".to_string(),
+        Some(value) if value == "builtin" || value == "builtin_ts" => "tsnet".to_string(),
+        Some(value) if value == "cloudflare" || value == "cf" => "tunnel".to_string(),
+        _ => String::new(),
+    };
     let client = GatewayClient {
         id: format!("gw-{}", &token[..8]),
         name,
@@ -1271,15 +1292,17 @@ pub(crate) fn gateway_pair_issue(
         last_seen: 0,
         revoked: false,
         pair_addr: tunnel.clone(),
+        pair_kind: kind.clone(),
     };
     let mut clients = load_clients(&app);
     clients.push(client.clone());
     save_clients(&app, &clients)?;
     let pair = format!(
-        "anyboot://pair?gateway={}&tunnel={}&token={}",
+        "anyboot://pair?gateway={}&tunnel={}&token={}&type={}",
         percent_encode(&crate::http_server::machine_name()),
         percent_encode(&tunnel),
-        token
+        token,
+        percent_encode(&kind)
     );
     gw_log(&app, &format!("[gateway] 签发配对 {} ({})", client.id, client.name));
     Ok(PairIssued {
@@ -1593,7 +1616,13 @@ pub(crate) fn gateway_pair_decide(
         gw_log(&app, &format!("[gateway] 拒绝配对 {}", pending.name));
         return Ok(None);
     }
-    let issued = gateway_pair_issue(app.clone(), pending.name.clone(), String::new())?;
+    // 局域网互授配对：地址走当前隧道（没有就留空，由对方补扫），类型取 tunnel
+    let issued = gateway_pair_issue(
+        app.clone(),
+        pending.name.clone(),
+        String::new(),
+        Some("tunnel".to_string()),
+    )?;
     if let Some(map) = PAIR_RESULTS.lock().unwrap().as_mut() {
         map.insert(
             pending.nonce,
