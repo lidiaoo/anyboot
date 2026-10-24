@@ -325,6 +325,189 @@ fn ts_download_worker(app: AppHandle) {
     finish_ts_download(&app, Err(last_error));
 }
 
+// ==================== Funnel 公网通道 ====================
+// 借鉴 dsh-mobile 的「Funnel 通道 + 状态机 + 授权引导」设计，实现走官方 CLI：
+// `tailscale funnel --bg <port>` 的 TLS 与监听都在 tailscaled 系统服务内，
+// 不产生子进程、强杀 anyboot 也不留残留（对齐残留通道管理的「沿用」语义：
+// 启动时 funnel status 非空即视为已开启）。
+
+static TS_FUNNEL_IN_FLIGHT: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Funnel 通道状态（tsCard 区块 B 的数据源）。
+#[derive(Clone, Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TailscaleFunnelStatus {
+    /// unavailable / off / starting / needs_authorize / ready / error
+    pub state: String,
+    /// 公网地址 https://机器名.tail名.ts.net（ready 时非空）
+    pub url: String,
+    /// 错误码（needs_authorize 也带：no_funnel / https_required / needs_login）
+    pub error_code: String,
+    /// 官方授权页（needs_authorize 时非空；只可能是官方白名单 URL）
+    pub setup_url: String,
+    /// 面向用户的简短说明
+    pub message: String,
+}
+
+impl TailscaleFunnelStatus {
+    fn new(state: &str) -> Self {
+        Self {
+            state: state.into(),
+            url: String::new(),
+            error_code: String::new(),
+            setup_url: String::new(),
+            message: String::new(),
+        }
+    }
+}
+
+fn funnel_unavailable(message: &str) -> TailscaleFunnelStatus {
+    let mut status = TailscaleFunnelStatus::new("unavailable");
+    status.message = message.into();
+    status
+}
+
+/// 带完整输出的 CLI 调用（enable 的错误分类要看 stderr）。
+fn run_cli_full(cli: &std::path::Path, args: &[&str]) -> (bool, String, String) {
+    let mut command = std::process::Command::new(cli);
+    command.args(args);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    match command.output() {
+        Ok(output) => (
+            output.status.success(),
+            String::from_utf8_lossy(&output.stdout).to_string(),
+            String::from_utf8_lossy(&output.stderr).to_string(),
+        ),
+        Err(_) => (false, String::new(), "failed to spawn tailscale".into()),
+    }
+}
+
+/// `funnel status --json` 没配置时是 `{}`；配置过返回非空对象。
+/// 不依赖具体字段结构（版本间有差异），只判断是否非空。
+fn funnel_configured(cli: &std::path::Path) -> bool {
+    let (ok, text, _) = run_cli_full(cli, &["funnel", "status", "--json"]);
+    if !ok {
+        return false;
+    }
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    match serde_json::from_str::<serde_json::Value>(trimmed) {
+        Ok(value) => value.as_object().map(|map| !map.is_empty()).unwrap_or(false),
+        // 解析不动但确实输出了内容：当已配置（保守取 ready，UI 可见即可对账）
+        Err(_) => true,
+    }
+}
+
+/// 官方授权页白名单（错误消息里捞到的 URL 必须严格匹配才回给前端）。
+const FUNNEL_SETUP_URLS: [&str; 2] = [
+    "https://tailscale.com/s/no-funnel",
+    "https://tailscale.com/s/https",
+];
+
+/// 从 CLI 报错里分类：没开 Funnel 权限 / 没开 HTTPS 证书 → 官方授权引导。
+fn classify_funnel_error(stderr: &str, stdout: &str) -> (String, String, String) {
+    let haystack = format!("{stderr}\n{stdout}");
+    for url in FUNNEL_SETUP_URLS {
+        if haystack.contains(url) {
+            let code = if url.ends_with("no-funnel") { "no_funnel" } else { "https_required" };
+            return ("needs_authorize".into(), code.into(), url.into());
+        }
+    }
+    ("error".into(), "funnel_start_failed".into(), String::new())
+}
+
+/// Funnel 未就绪的前置检查（探不到 CLI / 没登录 / 已停止）。
+fn funnel_precheck() -> Result<std::path::PathBuf, TailscaleFunnelStatus> {
+    let Some(cli) = find_cli() else {
+        return Err(funnel_unavailable("未检测到 Tailscale"));
+    };
+    let base = probe_blocking();
+    match base.state.as_str() {
+        "needs_login" => Err(funnel_unavailable("Tailscale 未登录 —— 先在上方完成登录")),
+        "stopped" => Err(funnel_unavailable("Tailscale 已停止 —— 先在上方把它连上")),
+        "running" => Ok(cli),
+        _ => Err(funnel_unavailable("Tailscale 状态未知")),
+    }
+}
+
+/// 阻塞版 funnel 状态探测（spawn_blocking 里跑；CLI 子进程几十 ms）。
+pub(crate) fn funnel_probe_blocking() -> TailscaleFunnelStatus {
+    let cli = match funnel_precheck() {
+        Ok(cli) => cli,
+        Err(status) => return status,
+    };
+    let base = probe_blocking();
+    if funnel_configured(&cli) {
+        let mut status = TailscaleFunnelStatus::new("ready");
+        if !base.dns_name.is_empty() {
+            status.url = format!("https://{}", base.dns_name);
+        } else {
+            status.message = "Funnel 已开启但未取得 DNS 名".into();
+        }
+        return status;
+    }
+    TailscaleFunnelStatus::new("off")
+}
+
+/// 阻塞版开启 funnel：`tailscale funnel --bg <http_port>`（默认 https 模式上 443）。
+/// 报错含官方引导 URL → needs_authorize；否则 error。
+pub(crate) fn funnel_enable_blocking(app: &AppHandle) -> TailscaleFunnelStatus {
+    let cli = match funnel_precheck() {
+        Ok(cli) => cli,
+        Err(status) => return status,
+    };
+    if funnel_configured(&cli) {
+        return funnel_probe_blocking();
+    }
+    let port = crate::stored_settings(app).http_port;
+    let (ok, stdout, stderr) = run_cli_full(&cli, &["funnel", "--bg", &port.to_string()]);
+    if !ok {
+        let (state, code, setup_url) = classify_funnel_error(&stderr, &stdout);
+        let mut status = TailscaleFunnelStatus::new(&state);
+        status.error_code = code;
+        status.setup_url = setup_url;
+        let detail = stderr.trim().lines().next().unwrap_or("").trim();
+        status.message = if detail.is_empty() {
+            "Funnel 开启失败".into()
+        } else {
+            format!("Funnel 开启失败：{detail}")
+        };
+        return status;
+    }
+    // CLI 成功后再确认一次配置真的落上了
+    if funnel_configured(&cli) {
+        funnel_probe_blocking()
+    } else {
+        let mut status = TailscaleFunnelStatus::new("error");
+        status.error_code = "funnel_start_failed".into();
+        status.message = "Funnel 命令成功但配置未生效，请重试".into();
+        status
+    }
+}
+
+/// 阻塞版关闭 funnel：`tailscale funnel reset`（只清 funnel，不动 serve/VPN）。
+pub(crate) fn funnel_disable_blocking() -> TailscaleFunnelStatus {
+    let cli = match funnel_precheck() {
+        Ok(cli) => cli,
+        Err(status) => return status,
+    };
+    let _ = run_cli_full(&cli, &["funnel", "reset"]);
+    if funnel_configured(&cli) {
+        let mut status = TailscaleFunnelStatus::new("error");
+        status.error_code = "funnel_stop_failed".into();
+        status.message = "Funnel 关闭失败，请重试".into();
+        return status;
+    }
+    TailscaleFunnelStatus::new("off")
+}
+
 // ==================== Tauri 命令 ====================
 
 /// 查询本机 Tailscale 状态（找不到 CLI → installed:false）。
@@ -364,6 +547,41 @@ pub(crate) async fn gateway_tailscale_install(path: String) -> Result<(), String
     })
     .await
     .map_err(|error| format!("安装任务失败: {error}"))?
+}
+
+/// Funnel 通道状态（区块 B 轮询；CLI 子进程阻塞 → async + spawn_blocking）。
+#[tauri::command]
+pub(crate) async fn gateway_tailscale_funnel_status() -> TailscaleFunnelStatus {
+    tauri::async_runtime::spawn_blocking(funnel_probe_blocking)
+        .await
+        .unwrap_or_else(|_| TailscaleFunnelStatus::new("error"))
+}
+
+/// 开启 Funnel（幂等：已开启直接回 ready；失败时 needs_authorize 带 setupUrl 引导）。
+/// CLI 子进程阻塞 → async + spawn_blocking；AtomicBool 防连点重入。
+#[tauri::command]
+pub(crate) async fn gateway_tailscale_funnel_enable(
+    app: AppHandle,
+) -> Result<TailscaleFunnelStatus, String> {
+    if TS_FUNNEL_IN_FLIGHT.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return Ok(TailscaleFunnelStatus::new("starting"));
+    }
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let status = funnel_enable_blocking(&app);
+        TS_FUNNEL_IN_FLIGHT.store(false, std::sync::atomic::Ordering::SeqCst);
+        status
+    })
+    .await;
+    TS_FUNNEL_IN_FLIGHT.store(false, std::sync::atomic::Ordering::SeqCst);
+    result.map_err(|error| format!("Funnel 任务失败: {error}"))
+}
+
+/// 关闭 Funnel（幂等；`funnel reset` 只清 funnel 不动 serve/VPN）。
+#[tauri::command]
+pub(crate) async fn gateway_tailscale_funnel_disable() -> Result<TailscaleFunnelStatus, String> {
+    tauri::async_runtime::spawn_blocking(funnel_disable_blocking)
+        .await
+        .map_err(|error| format!("Funnel 任务失败: {error}"))
 }
 
 #[cfg(windows)]

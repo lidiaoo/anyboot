@@ -1371,6 +1371,9 @@
   /* Tailscale 卡：远程地址（mono 大字，端口弱化）与来源小 chip */
   .ts-addr { font-size:14px; font-weight:600; color:rgb(var(--fg)); user-select:all; }
   .ts-addr .ts-port { color:rgb(var(--fg-faint)); font-weight:500; }
+  /* Funnel 区块：分隔线 + 公网徽标（沿用卡的留白节奏与边框变量） */
+  .tsf-sep { border-top:1px solid rgb(var(--fg-faint)); margin-top:14px; padding-top:12px; }
+  .tsf-badge { font-size:11px; padding:2px 8px; border-radius:999px; border:1px solid rgb(var(--fg-faint)); color:rgb(var(--fg-dim)); white-space:nowrap; }
   .ts-chip {
     display:inline-flex; align-items:center; font-size:11px; line-height:1; padding:3px 8px;
     border-radius:99px; border:1px solid rgb(var(--line-strong)); color:rgb(var(--fg-dim)); flex:none;
@@ -2005,7 +2008,7 @@
           <!-- 运行中态：远程地址行（复制 / 出码） -->
           <div id="tsAddrRow" hidden>
             <div class="gw-status" style="margin-top:8px">
-              <span class="field-hint" style="margin:0">远程地址</span>
+              <span class="field-hint" style="margin:0">局域网直连地址</span>
               <span class="mono ts-addr" id="tsAddr"></span>
               <span style="flex:1"></span>
               <button class="link-btn" id="tsCopyAddr">复制</button>
@@ -2049,6 +2052,57 @@
               Tailscale 处于停止状态 —— 在系统托盘 / 菜单栏把它连上后点「重新检测」。
             </p>
           </div>
+          <!-- Funnel 公网通道区块：与直连区共用安装/登录生命周期；未安装时整块隐藏。
+               状态机 unavailable/off/starting/needs_authorize/ready/error 由后端
+               gateway_tailscale_funnel_status 驱动（tailscaled 服务内监听，无子进程残留）。 -->
+          <div id="tsfBlock" hidden>
+            <div class="tsf-sep">
+              <div class="gw-card-head" style="margin:0">
+                <h3 style="font-size:13px">Funnel 公网通道</h3>
+                <span class="tsf-badge" id="tsfBadge" hidden>公网 · 经 Tailscale 中继</span>
+                <span style="flex:1"></span>
+                <button class="btn primary" id="tsfEnableBtn" hidden>开启 Funnel 通道</button>
+                <button class="btn" id="tsfDisableBtn" hidden>关闭通道</button>
+              </div>
+              <div class="gw-status" id="tsfStateRow" style="margin-top:8px">
+                <span class="pulse" id="tsfPulse" hidden></span>
+                <span id="tsfStateText"></span>
+              </div>
+              <!-- off 态说明 -->
+              <p class="field-hint" id="tsfOffRow" hidden style="margin:8px 0 0">
+                把本机服务经 Tailscale 官方中继发布成公网地址（https://机器名.ts.net）——
+                手机<b>不装 Tailscale</b> 也能访问，地址固定；国内网络可能不稳，流量有带宽限制。
+              </p>
+              <!-- ready 态：公网地址行 -->
+              <div id="tsfAddrRow" hidden>
+                <div class="gw-status" style="margin-top:8px">
+                  <span class="field-hint" style="margin:0">公网地址</span>
+                  <span class="mono ts-addr" id="tsfAddr"></span>
+                  <span style="flex:1"></span>
+                  <button class="link-btn" id="tsfCopy">复制</button>
+                  <button class="btn" id="tsfPairBtn">生成此地址的配对码</button>
+                </div>
+                <p class="field-hint" style="margin-top:8px;color:rgb(var(--warn))">
+                  ⚠️ 此地址公网可达，安全依赖配对令牌，请勿外传配对码。目标机睡眠后同样失联。
+                </p>
+              </div>
+              <!-- needs_authorize 态：官方授权引导（Owner/Admin 一次授权长期有效） -->
+              <div id="tsfAuthRow" hidden>
+                <p class="field-hint" style="margin:8px 0 0">
+                  需要在 Tailscale 官方页允许 Funnel 并启用 HTTPS 证书（需 Owner / Admin 账号），一次授权长期有效。
+                </p>
+                <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
+                  <button class="btn primary" id="tsfAuthBtn">去官方授权页</button>
+                  <button class="link-btn" id="tsfRetryBtn">授权完成，重试</button>
+                </div>
+              </div>
+              <!-- error 态 -->
+              <div id="tsfErrRow" hidden>
+                <p class="field-hint" id="tsfErrText" style="margin:8px 0 0"></p>
+                <button class="link-btn" id="tsfRetryBtn2" style="margin-top:4px">重试</button>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- 配对管理 -->
@@ -2091,6 +2145,7 @@
             <div class="segmented" id="gwPairAddrTabs" role="tablist" aria-label="地址类型">
               <button role="tab" data-addr="tunnel" aria-selected="true">隧道地址</button>
               <button role="tab" data-addr="tailscale" aria-selected="false">Tailscale 地址</button>
+              <button role="tab" data-addr="funnel" aria-selected="false">Funnel 地址</button>
               <button role="tab" data-addr="none" aria-selected="false">不带地址</button>
             </div>
             <p class="field-hint" id="gwPairAddrHint" style="margin:6px 0 0">隧道地址 = 本机 Cloudflare 通道的当前地址；没开启通道则自动退化为「不带地址」。</p>
@@ -7976,6 +8031,12 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
   // 事件：tailscale-progress / tailscale-done（与 gateway-binary-* 同一套线程模型）
   let tsStatus = null;      // 最新 Tailscale 状态
   let tsPairPreset = null;  // Tailscale 卡「生成此地址的配对码」预选
+  let tsFunnel = null;      // Funnel 通道状态（区块 B）
+  let tsfBusy = false;      // enable/disable 进行中（本地 starting 态）
+
+  function tsfUrl() {
+    return tsFunnel && tsFunnel.state === 'ready' && tsFunnel.url ? tsFunnel.url : '';
+  }
 
   function tsPort() {
     return (typeof localEndpoint !== 'undefined' && localEndpoint && localEndpoint.port) || 12300;
@@ -8033,6 +8094,7 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
     } else {
       $('tsStateText').textContent = '已安装 · 状态未知';
     }
+    tsfRender();
   }
   function tsRefresh() {
     invoke('gateway_tailscale_status').then(function (st) {
@@ -8042,6 +8104,7 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
       tsStatus = null;
       tsRender();
     });
+    tsfRefresh();
   }
   $('tsRefreshBtn').addEventListener('click', tsRefresh);
   $('tsCopyAddr').addEventListener('click', function () {
@@ -8097,12 +8160,107 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
     });
   }
 
+  // ---- Funnel 公网通道（区块 B；状态机由后端 funnel status 驱动） ----
+  // 注意：tsRender() 末尾会调 tsfRender()，区块只在 Tailscale 已安装时可见。
+  function tsfRefresh() {
+    invoke('gateway_tailscale_funnel_status').then(function (f) {
+      tsFunnel = f;
+      tsfRender();
+    }).catch(function () {
+      // 旧后端没有此命令：保持区块现状（hidden），不打扰
+    });
+  }
+  function tsfRender() {
+    const has = !!(tsStatus && tsStatus.installed);
+    const f = tsFunnel || { state: 'off' };
+    $('tsfBlock').hidden = !has;
+    if (!has) return;
+    const state = tsfBusy ? 'starting' : (f.state || 'off');
+    const ready = state === 'ready';
+    $('tsfEnableBtn').hidden = !(state === 'off' || state === 'error');
+    $('tsfEnableBtn').disabled = tsfBusy;
+    $('tsfDisableBtn').hidden = !ready;
+    $('tsfDisableBtn').disabled = tsfBusy;
+    $('tsfPulse').hidden = state !== 'starting';
+    $('tsfOffRow').hidden = state !== 'off';
+    $('tsfAddrRow').hidden = !ready;
+    $('tsfAuthRow').hidden = state !== 'needs_authorize';
+    $('tsfErrRow').hidden = state !== 'error';
+    $('tsfBadge').hidden = !ready;
+    const text = $('tsfStateText');
+    if (state === 'unavailable') {
+      text.textContent = f.message || 'Tailscale 未就绪，装好并登录后可开启';
+    } else if (state === 'starting') {
+      text.textContent = '正在开启 Funnel…';
+    } else if (state === 'needs_authorize') {
+      text.textContent = f.message || '需要官方授权';
+    } else if (state === 'ready') {
+      text.textContent = '已开启' + (tsfUrl() ? '' : '（' + (f.message || '未取得地址') + '）');
+    } else if (state === 'error') {
+      text.textContent = '开启失败';
+      $('tsfErrText').textContent = f.message || '未知错误';
+    } else {
+      text.textContent = '';
+    }
+  }
+  function tsfEnableFlow() {
+    if (tsfBusy) return;
+    tsfBusy = true;
+    tsfRender();
+    invoke('gateway_tailscale_funnel_enable').then(function (f) {
+      tsFunnel = f;
+      tsfBusy = false;
+      tsfRender();
+      if (f.state === 'ready' && f.url) toast('Funnel 已开启：' + f.url);
+    }).catch(function (e) {
+      tsfBusy = false;
+      toast('Funnel 开启失败：' + e, 'bad');
+      tsfRefresh();
+    });
+  }
+  $('tsfEnableBtn').addEventListener('click', tsfEnableFlow);
+  $('tsfRetryBtn').addEventListener('click', tsfEnableFlow);
+  $('tsfRetryBtn2').addEventListener('click', tsfEnableFlow);
+  $('tsfDisableBtn').addEventListener('click', function () {
+    if (tsfBusy) return;
+    tsfBusy = true;
+    tsfRender();
+    invoke('gateway_tailscale_funnel_disable').then(function (f) {
+      tsFunnel = f;
+      tsfBusy = false;
+      tsfRender();
+      if (f.state === 'off') toast('Funnel 已关闭');
+    }).catch(function (e) {
+      tsfBusy = false;
+      toast('Funnel 关闭失败：' + e, 'bad');
+      tsfRefresh();
+    });
+  });
+  $('tsfCopy').addEventListener('click', function () {
+    const addr = tsfUrl();
+    if (!addr) return;
+    navigator.clipboard.writeText(addr)
+      .then(function () { toast('已复制 ' + addr); })
+      .catch(function () { });
+  });
+  $('tsfPairBtn').addEventListener('click', function () {
+    tsPairPreset = tsfUrl() ? 'funnel' : null;
+    $('gwIssueBtn').click();
+  });
+  $('tsfAuthBtn').addEventListener('click', function () {
+    const url = tsFunnel && tsFunnel.setup_url ? tsFunnel.setup_url : '';
+    // 前端再校验一次官方白名单（后端已白名单，双保险）
+    if (!/^https:\/\/tailscale\.com\/s\//.test(url)) { toast('授权地址无效', 'bad'); return; }
+    invoke('remote_open_page', { url: url }).catch(function (e) { toast('打开浏览器失败：' + e, 'bad'); });
+  });
+
   // ---- 出码配对 ----
-  // 地址类型三选：tunnel（默认）/ tailscale / none
+  // 地址类型四选：tunnel（默认）/ tailscale / funnel / none
   let gwPairAddrType = 'tunnel';
   const GW_ADDR_HINTS = {
     tunnel: '隧道地址 = 本机 Cloudflare 通道的当前地址；没开启通道则自动退化为「不带地址」。',
     tailscale: '',  // 运行时按 Tailscale 状态填（见 gwPairAddrHintUpdate）
+    funnel: '',     // 运行时按 Funnel 状态填
     none: '不带地址：客户端拿到配对串后，自己在「编辑电脑 → 远程接入」里填远程地址。',
   };
   function gwPairAddrHintUpdate() {
@@ -8111,6 +8269,10 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
       hint.textContent = tsAddr()
         ? 'Tailscale 运行中 —— 配对串带 ' + tsAddr() + '（客户端需加入同一 tailnet）。'
         : 'Tailscale 未运行 —— 生成后将不带地址；先在上方卡片把它跑起来。';
+    } else if (gwPairAddrType === 'funnel') {
+      hint.textContent = tsfUrl()
+        ? 'Funnel 运行中 —— 配对串带 ' + tsfUrl() + '（客户端无需装 Tailscale，浏览器直开）。'
+        : 'Funnel 未开启 —— 生成后将不带地址；先在上方开启 Funnel 通道。';
     } else {
       hint.textContent = GW_ADDR_HINTS[gwPairAddrType];
     }
@@ -8155,6 +8317,8 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
         : ((snap && snap.url) || '');
     } else if (gwPairAddrType === 'tailscale') {
       tunnel = tsAddr();
+    } else if (gwPairAddrType === 'funnel') {
+      tunnel = tsfUrl();
     }
     try {
       const issued = await invoke('gateway_pair_issue', { name: name, tunnel: tunnel });

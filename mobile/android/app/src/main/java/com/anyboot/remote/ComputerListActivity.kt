@@ -1849,6 +1849,7 @@ class ComputerListActivity : ComponentActivity() {
         val usingRemote = info != null && info.online &&
             remoteBare.isNotEmpty() && info.addr == remoteBare
         val conn = when {
+            usingRemote && remoteOrigin.contains(".ts.net") -> "Tailscale Funnel"
             usingRemote && ServerProfile.isTailscaleAddr(remoteOrigin) -> "Tailscale 直连"
             usingRemote -> "远程隧道"
             ServerProfile.text(profile.jumpServerId).isNotEmpty() -> {
@@ -2659,7 +2660,7 @@ class ComputerListActivity : ComponentActivity() {
         val refind: BootGroup,
         val grub: BootGroup,
         val state: String,
-        /** 当前连接标注：直连 / 跳板机·xxx / 远程隧道 / Tailscale 直连（远程只在探测赢家确实是它时） */
+        /** 当前连接标注：直连 / 跳板机·xxx / 远程隧道 / Tailscale 直连 / Tailscale Funnel（远程只在探测赢家确实是它时） */
         val conn: String,
         /** 当前连接是否正在走远程隧道（chip 配色用） */
         val connRemote: Boolean,

@@ -115,7 +115,11 @@ internal class ServerEditFormState(
             val origin = parsed[0]
             val tail = when {
                 ServerProfile.isTailscaleAddr(origin) ->
-                    "（Tailscale：手机需与电脑加入同一 tailnet，连不上时检查两边 Tailscale 是否在线）"
+                    if (origin.contains(".ts.net")) {
+                        "（Tailscale Funnel：手机无需装 Tailscale，浏览器直开；国内网络可能不稳）"
+                    } else {
+                        "（Tailscale：手机需与电脑加入同一 tailnet，连不上时检查两边 Tailscale 是否在线）"
+                    }
                 origin.startsWith("https://") -> ""
                 else -> ""
             }
