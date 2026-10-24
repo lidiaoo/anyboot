@@ -198,6 +198,37 @@ func main() {
 		upDone <- err
 	}()
 
+	// 登录链接主通道（设计思路参考 tsnet 生态的通用做法：AuthURL 由 control
+	// 下发、可从本地状态 API 直接查得；实现为本项目 clean-room 手写）：
+	// 每 2s 轮询一次本地 Status()，AuthURL 非空即发 login_needed（仅一次）。
+	// logf 的日志流捕获保留作双保险，loginSeen 两路共用去重。
+	go func() {
+		lc, err := srv.LocalClient()
+		if err != nil {
+			emitLog("本地状态 API 不可用，登录链接走日志捕获：" + err.Error())
+			return
+		}
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(2 * time.Second):
+			}
+			st, err := lc.Status(ctx)
+			if err != nil || st.AuthURL == "" {
+				continue
+			}
+			loginMu.Lock()
+			first := !loginSeen
+			loginSeen = true
+			loginMu.Unlock()
+			if first {
+				emit(event{Event: "state", State: "login_needed", LoginURL: st.AuthURL})
+			}
+			return
+		}
+	}()
+
 	// 就绪链路：Up 成功 → 等 Funnel 域名 → 起 Funnel 监听 → 反代 → ready。
 	go func() {
 		if err := <-upDone; err != nil {
