@@ -105,7 +105,11 @@ class ComputerListActivity : ComponentActivity() {
     private val bus = ConfirmBus()
     private val handler = Handler(Looper.getMainLooper())
 
-    private val servers = mutableStateListOf<ServerProfile>()
+    /**
+     * 电脑列表：与「电脑」页（[MainActivity]）**共用同一个列表实例**（[ServerRepository]）。
+     * 以前两页各载入一份、各整表落盘 → 一边改了另一边看不到，还会互相覆盖。
+     */
+    private val servers: MutableList<ServerProfile> get() = ServerRepository.servers
 
     /** id → 引导项读取结果（缺席 = 还没探过，卡片显示「检测中」） */
     private val boots = mutableStateMapOf<String, BootInfo>()
@@ -132,8 +136,34 @@ class ComputerListActivity : ComponentActivity() {
      */
     private var grubFmt by mutableStateOf("")
 
-    /** 正在编辑的电脑（非空 = 底部弹出编辑 sheet）；与 MainActivity 共用同一套表单 */
+    /**
+     * 正在编辑的电脑；**[editOpen]=true 且本值为 null = 添加**。
+     *
+     * ⚠️ 以前「添加」是 `editTarget = ServerProfile()` —— 拿一个**不在列表里的空档案**
+     * 当成编辑对象传进表单，保存时写在那份孤儿对象上、落盘的列表里根本没有它，
+     * 于是「添加电脑」看着点了、提示也弹「已保存」，列表里就是不出现。
+     * 现在用 null 表达「新增」，走 [saveServerProfile] 的新增分支。
+     */
     private var editTarget by mutableStateOf<ServerProfile?>(null)
+    private var editOpen by mutableStateOf(false)
+
+    /** 打开编辑（已有档案） */
+    private fun openEdit(profile: ServerProfile) {
+        editTarget = profile
+        editOpen = true
+    }
+
+    /** 打开添加（同一套表单，只是没有初始档案） */
+    private fun openAdd() {
+        editTarget = null
+        editOpen = true
+    }
+
+    /** 关闭表单 */
+    private fun closeEdit() {
+        editOpen = false
+        editTarget = null
+    }
 
     /** 待确认删除的电脑（非空 = 弹确认框）；删除是不可逆的，必须二次确认 */
     private var deleteTarget by mutableStateOf<ServerProfile?>(null)
@@ -189,11 +219,16 @@ class ComputerListActivity : ComponentActivity() {
         super.onDestroy()
     }
 
+    /**
+     * 与磁盘对齐（进页/回前台/删改后调用）。
+     *
+     * 列表本身是共享的（[ServerRepository.servers]），所以「电脑」页那边改了这里
+     * 会自动重组；这里重读一次是为了兜住「别处直接写了盘」的情况，代价只有一次
+     * 小 JSON 解析。**别在这里 `servers.clear()` 后换成私有副本** —— 那就又回到
+     * 两份数据互不认账的老路上去了。
+     */
     private fun reloadServers() {
-        val list = ServerStore.load(this)
-        ServerStore.sort(list)
-        servers.clear()
-        servers.addAll(list)
+        ServerRepository.reload(this)
     }
 
     // ------------------------------------------------------------------
@@ -228,7 +263,7 @@ class ComputerListActivity : ComponentActivity() {
                 }
 
                 sheetRequest?.let { request -> PickSheet(request) }
-                editTarget?.let { profile -> EditSheet(profile) }
+                if (editOpen) EditSheet(editTarget)
                 deleteTarget?.let { profile -> DeleteConfirm(profile) }
                 if (moreServerListOpen) MoreServerListDialog()
                 if (moreTransportOpen) MoreTransportDialog()
@@ -347,17 +382,17 @@ class ComputerListActivity : ComponentActivity() {
                 Text("⋮", fontSize = 19.sp, color = palette.fgDim)
             }
             DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-                DropdownMenuItem(text = { Text("添加服务端") }, onClick = {
+                DropdownMenuItem(text = { Text("添加电脑") }, onClick = {
                     open = false
-                    editTarget = ServerProfile()
+                    openAdd()
                 })
-                DropdownMenuItem(text = { Text("编辑当前服务端") }, onClick = {
+                DropdownMenuItem(text = { Text("编辑当前电脑") }, onClick = {
                     open = false
                     val profile = ServerStore.find(servers.toList(), ServerStore.activeId(this@ComputerListActivity))
                     if (profile == null) toast("电脑页还没有当前电脑 —— 卡片右侧 ⋮ 也能直接编辑")
-                    else editTarget = profile
+                    else openEdit(profile)
                 })
-                DropdownMenuItem(text = { Text("服务端列表") }, onClick = {
+                DropdownMenuItem(text = { Text("电脑列表") }, onClick = {
                     open = false; moreServerListOpen = true
                 })
                 // 重载选中的那台（点卡片选中）；什么都没选就引导去点卡片
@@ -461,7 +496,7 @@ class ComputerListActivity : ComponentActivity() {
             confirmButton = {
                 TextButton(onClick = {
                     moreServerListOpen = false
-                    editTarget = ServerProfile()
+                    openAdd()
                 }) { Text("添加") }
             },
             dismissButton = {
@@ -1069,7 +1104,7 @@ class ComputerListActivity : ComponentActivity() {
                 }
                 MenuRow("编辑这台电脑", { PencilIconSmall(tint = palette.fgFaint, size = 16.dp) }) {
                     open = false
-                    editTarget = row.profile
+                    openEdit(row.profile)
                 }
                 MenuRow("复制地址", { CopyIcon(tint = palette.fgFaint, size = 16.dp) }) {
                     open = false
@@ -1127,19 +1162,24 @@ class ComputerListActivity : ComponentActivity() {
     // ---- 编辑 / 删除 --------------------------------------------------
 
     /**
-     * 编辑这台电脑：底部 sheet + 与 MainActivity 共用的表单体（[ServerEditFormBody]）。
+     * 编辑 / 添加电脑：底部 sheet + 与 MainActivity 共用的表单体（[ServerEditFormBody]）。
+     *
+     * `profile == null` 就是「添加」—— **同一套表单、同一套字段、同一个保存入口**
+     * （[saveServerProfile]），只是没有初始值。以前添加走的是「传一个空档案当编辑对象」，
+     * 落盘时那个对象根本不在列表里，保存等于打水漂。
      *
      * 这里不走 MainActivity 的 AlertDialog，因为它是另一棵树 —— 从本页跳过去还得回退，
      * 而且用户会把「编辑完回来列表没刷新」当成 bug。原位弹、原位存最省心。
      */
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
-    private fun EditSheet(profile: ServerProfile) {
+    private fun EditSheet(profile: ServerProfile?) {
         val palette = LocalPalette.current
         val form = rememberServerEditFormState(profile)
+        val adding = profile == null
 
         ModalBottomSheet(
-            onDismissRequest = { editTarget = null },
+            onDismissRequest = { closeEdit() },
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
             containerColor = palette.card,
             dragHandle = {
@@ -1169,7 +1209,7 @@ class ComputerListActivity : ComponentActivity() {
                         .padding(start = 18.dp, end = 8.dp, bottom = 10.dp),
                 ) {
                     Text(
-                        "编辑这台电脑",
+                        if (adding) "添加电脑" else "编辑这台电脑",
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
                         color = palette.fg,
@@ -1181,7 +1221,7 @@ class ComputerListActivity : ComponentActivity() {
                             .size(30.dp)
                             .clip(CircleShape)
                             .background(palette.elevate)
-                            .clickable { editTarget = null },
+                            .clickable { closeEdit() },
                         contentAlignment = Alignment.Center,
                     ) {
                         CloseIcon(tint = palette.fgDim, size = 14.dp)
@@ -1197,24 +1237,27 @@ class ComputerListActivity : ComponentActivity() {
                         .fillMaxWidth()
                         .padding(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 12.dp),
                 ) {
-                    // 删除放在左边、单独一格：它跟保存不是一类动作，混在右边容易被误点
-                    Box(
-                        Modifier
-                            .height(40.dp)
-                            .clip(RoundedCornerShape(11.dp))
-                            .background(palette.bad.copy(alpha = 0.1f))
-                            .border(1.dp, palette.bad.copy(alpha = 0.28f), RoundedCornerShape(11.dp))
-                            .clickable {
-                                val target = profile
-                                editTarget = null
-                                deleteTarget = target
-                            }
-                            .padding(horizontal = 14.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        TrashIcon(tint = palette.bad, size = 16.dp)
+                    // 删除放在左边、单独一格：它跟保存不是一类动作，混在右边容易被误点。
+                    // 添加模式没有可删的对象，整格不出现（留着灰按钮更容易误以为能删）。
+                    if (!adding) {
+                        Box(
+                            Modifier
+                                .height(40.dp)
+                                .clip(RoundedCornerShape(11.dp))
+                                .background(palette.bad.copy(alpha = 0.1f))
+                                .border(1.dp, palette.bad.copy(alpha = 0.28f), RoundedCornerShape(11.dp))
+                                .clickable {
+                                    val target = profile ?: return@clickable
+                                    closeEdit()
+                                    deleteTarget = target
+                                }
+                                .padding(horizontal = 14.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            TrashIcon(tint = palette.bad, size = 16.dp)
+                        }
+                        Spacer(Modifier.width(8.dp))
                     }
-                    Spacer(Modifier.width(8.dp))
                     Box(
                         Modifier
                             .weight(1f)
@@ -1222,7 +1265,7 @@ class ComputerListActivity : ComponentActivity() {
                             .clip(RoundedCornerShape(11.dp))
                             .background(palette.accent)
                             .clickable {
-                                if (saveEdited(profile, form)) editTarget = null
+                                if (saveEdited(profile, form)) closeEdit()
                             },
                         contentAlignment = Alignment.Center,
                     ) {
@@ -1242,18 +1285,25 @@ class ComputerListActivity : ComponentActivity() {
      * 保存编辑结果：走共享实现 [saveServerProfile]（与「电脑」页同一份逻辑、同一个存储）
      * → 关 sheet → 立刻重探（地址/MAC 可能变了）。
      */
-    private fun saveEdited(profile: ServerProfile, form: ServerEditFormState): Boolean {
+    private fun saveEdited(profile: ServerProfile?, form: ServerEditFormState): Boolean {
         if (form.toParsed().isEmpty()) {
             toast(SERVER_EDIT_EMPTY_ADDRESS_HINT)
             return false
         }
+        // profile = null → 新增分支（同一份 saveServerProfile，字段一个不少）
         val result = saveServerProfile(this, servers, profile, form)
         if (result == null) {
             toast(SERVER_EDIT_EMPTY_ADDRESS_HINT)
             return false
         }
-        reloadServers()
-        toast(if (result.mergedExisting) "已并入同一台电脑：" + result.target.label() else "已保存")
+        toast(
+            when {
+                profile == null -> "已添加：" + result.target.label()
+                result.mergedExisting -> "已并入同一台电脑：" + result.target.label()
+                else -> "已保存"
+            }
+        )
+        // 新档案落盘后立刻探一轮，卡片上的在线状态/机器名不用等下次刷新
         reloadBoot(result.target)
         return true
     }
@@ -1290,12 +1340,11 @@ class ComputerListActivity : ComponentActivity() {
     }
 
     private fun doDelete(profile: ServerProfile) {
-        val list = servers.filter { it.id != profile.id }
-        ServerStore.save(this, list)
+        // 走仓库：共享列表和磁盘一起删 —— 「电脑」页那边的标签会跟着消失
+        ServerRepository.remove(this, profile.id)
         boots.remove(profile.id)
         transients.remove(profile.id)
         busy.remove(profile.id)
-        reloadServers()
         toast("已删除")
     }
 

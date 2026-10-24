@@ -144,7 +144,12 @@ class MainActivity : ComponentActivity() {
     private val bus = ConfirmBus()
 
     // ---- 可观察 UI 状态 ----
-    private val servers = mutableStateListOf<ServerProfile>()
+    /**
+     * 电脑列表：**全进程唯一的共享列表**（[ServerRepository]）。
+     * 不在这里私有 new 一份 —— 电脑列表页改完返回本页要能立刻看到新值，
+     * 两边各持一份内存副本必然出现「一边改了另一边还是旧的」，且互相整表覆盖。
+     */
+    private val servers: MutableList<ServerProfile> get() = ServerRepository.servers
     private var chipTick by mutableIntStateOf(0)   // tabs 状态有变时自增，驱动标签条重绘
     private var activeId by mutableStateOf("")
     private var connectAll by mutableStateOf(false)
@@ -186,11 +191,16 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         Ui.applySystemBars(this)
 
-        val loaded = ServerStore.load(this)
-        servers.clear(); servers.addAll(loaded)
+        // 共享列表：本页与「电脑列表」页是同一份数据，谁先到谁载入，后来者直接用
+        ServerRepository.ensureLoaded(this)
         connectAll = ServerStore.connectAll(this)
         transport = ServerStore.transport(this)
         activeId = ServerStore.activeId(this)
+        // 上次选中的那台可能已被删掉（在电脑列表里删的）：退到第一台，别留个空标签
+        if (servers.none { it.id == activeId }) {
+            activeId = servers.firstOrNull()?.id ?: ""
+            ServerStore.setActiveId(this, activeId)
+        }
         // 「电脑列表 → 打开页面」会带上这台电脑的 id：命中就切过去。
         // 不带这个，点了只会打开上次那台（activeId 是上次的），看着像没生效。
         val wanted = intent?.getStringExtra(EXTRA_SERVER_ID) ?: ""
@@ -371,7 +381,7 @@ class MainActivity : ComponentActivity() {
             ) {
                 items(servers) { profile -> ServerChip(profile) }
             }
-            BarIcon("＋", "添加服务端") { editRequest = EditRequest(null, false) }
+            BarIcon("＋", "添加电脑") { editRequest = EditRequest(null, false) }
             OverflowMenu()
         }
     }
@@ -442,14 +452,17 @@ class MainActivity : ComponentActivity() {
         Box {
             BarIcon("⋮", "更多") { open = true }
             DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-                DropdownMenuItem(text = { Text("添加服务端") }, onClick = {
+                DropdownMenuItem(text = { Text("添加电脑") }, onClick = {
                     open = false; editRequest = EditRequest(null, false)
                 })
-                DropdownMenuItem(text = { Text("编辑当前服务端") }, onClick = {
+                DropdownMenuItem(text = { Text("编辑当前电脑") }, onClick = {
                     open = false
-                    editRequest = EditRequest(ServerStore.find(servers, activeId), false)
+                    // 没选中任何一台时不能落进「新增」分支（那会弹出一个空的添加框）
+                    val current = ServerStore.find(servers, activeId)
+                    if (current == null) toast("还没有当前电脑 —— 点标签或卡片右侧 ⋮ 编辑某一台")
+                    else editRequest = EditRequest(current, false)
                 })
-                DropdownMenuItem(text = { Text("服务端列表") }, onClick = {
+                DropdownMenuItem(text = { Text("电脑列表") }, onClick = {
                     open = false; serverListOpen = true
                 })
                 DropdownMenuItem(text = { Text("重载当前页面") }, onClick = {
@@ -1184,9 +1197,9 @@ class MainActivity : ComponentActivity() {
                 TextButton(onClick = {
                     editRequest = null
                     deleteServerTarget = null
-                    servers.remove(profile)
                     dropTab(profile)
-                    ServerStore.save(this, servers)
+                    // 删也走仓库（与电脑列表同一个出口：同一份列表 + 同一套排序落盘）
+                    ServerRepository.remove(this, profile.id)
                     if (servers.isEmpty()) {
                         activeId = ""
                         ServerStore.setActiveId(this, "")
@@ -1572,6 +1585,60 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * 把标签容器与共享列表对齐（回到本页时调用）。
+     *
+     * 两个页面共用 [ServerRepository.servers]，但 [Tab] 里握着的是**保存那一刻的
+     * ServerProfile 对象**：在「电脑列表」里编辑完，列表里已经换成新对象（reload 会
+     * 重建），标签还指着旧对象 —— 标题、地址、连接全按旧的走，用户看到的就是
+     * 「编辑了但电脑页没变」。所以这里做三件事：
+     *   ① 档案被删 → 关掉对应标签（不留幽灵标签）；
+     *   ② 档案被改 → 标签指向新对象，连接信息真变了才重连，只改名字就只重画标题；
+     *   ③ activeId 失效 → 退到第一台。
+     */
+    private fun syncTabsWithStore() {
+        // ① 已删除
+        tabs.values.toList().forEach { tab ->
+            if (servers.none { it.id == tab.profile.id }) {
+                dropTab(tab.profile)
+                if (activeId == tab.profile.id) {
+                    activeId = servers.firstOrNull()?.id ?: ""
+                    ServerStore.setActiveId(this, activeId)
+                }
+            }
+        }
+        // ② 已修改
+        for (tab in tabs.values.toList()) {
+            val fresh = servers.firstOrNull { it.id == tab.profile.id } ?: continue
+            if (fresh === tab.profile) continue
+            val old = tab.profile
+            val connChanged = fresh.addresses != old.addresses ||
+                fresh.token != old.token ||
+                // remoteAddr 是四槽的生效镜像：它变了说明真正要连的地址变了
+                fresh.remoteAddr != old.remoteAddr ||
+                fresh.remoteToken != old.remoteToken ||
+                fresh.routeOrder != old.routeOrder ||
+                fresh.routeDisabled != old.routeDisabled
+            tab.profile = fresh
+            if (connChanged && fresh.id == activeId && tab.status != STATUS_LOADING) {
+                // 地址/凭据/通道都变了：按新档案重连（等价于点一下刷新）
+                tab.tried.clear()
+                tab.addressIndex = 0
+                tab.usingRemote = false
+                tab.triedRemote = false
+                tab.mainFailed = false
+                tab.started = false
+                startAttempt(tab)
+            }
+        }
+        // ③ 选中项兜底
+        if (activeId.isNotEmpty() && servers.none { it.id == activeId }) {
+            activeId = servers.firstOrNull()?.id ?: ""
+            ServerStore.setActiveId(this, activeId)
+        }
+        chipTick++
+    }
+
     private fun showErrorFor(profile: ServerProfile, description: String) {
         loading = false
         for (tab in tabs.values) {
@@ -1844,6 +1911,8 @@ class MainActivity : ComponentActivity() {
         // 记「上次停留页」= 电脑页。冷启动时这里先记 home，紧接着电脑列表的 onResume
         // 会记回 computers —— 以最终停留页为准；从电脑列表按返回回到这里时只有这条生效。
         getSharedPreferences(UI_PREFS, MODE_PRIVATE).edit().putString(PREF_ENTRY, "home").apply()
+        // 从「电脑列表」回来时，编辑/添加/删除的结果要立刻反映到本页的标签
+        syncTabsWithStore()
         for (tab in tabs.values) {
             tab.view?.onResume()
         }

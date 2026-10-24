@@ -1954,12 +1954,24 @@
                   <span class="slot-x" id="rsSlotTunnelX" title="清除此槽" hidden>✕</span>
                 </div>
                 <div class="slot" id="rsSlotTs">
-                  <span class="slot-chip ts" id="rsSlotTsChip">Tailscale · 直连</span>
+                  <span class="slot-chip ts">Tailscale 直连</span>
                   <span class="mono ph" id="rsSlotTsAddr">空</span>
                   <span class="slot-x" id="rsSlotTsX" title="清除此槽" hidden>✕</span>
                 </div>
+                <div class="slot" id="rsSlotFunnel">
+                  <span class="slot-chip ts">Tailscale Funnel</span>
+                  <span class="mono ph" id="rsSlotFunnelAddr">空</span>
+                  <span class="slot-x" id="rsSlotFunnelX" title="清除此槽" hidden>✕</span>
+                </div>
+                <div class="slot" id="rsSlotTsnet">
+                  <span class="slot-chip ts">Tailscale Funnel（内建）</span>
+                  <span class="mono ph" id="rsSlotTsnetAddr">空</span>
+                  <span class="slot-x" id="rsSlotTsnetX" title="清除此槽" hidden>✕</span>
+                </div>
                 <p class="field-hint" style="margin:6px 0 0">
-                  两槽各自独立保存，都配了时探测谁通用谁（隧道在前）。局域网地址优先使用，全连不上才走远程。
+                  四槽各自独立保存，配一个不会顶掉另一个：Cloudflare 隧道 / Tailscale 直连（100.x）/
+                  系统 Funnel（电脑自己装了 Tailscale）/ 内置 Funnel（AnyBoot 自带引擎）。后两者都是
+                  *.ts.net，但来源不同，别混着配。局域网地址优先使用，全连不上才走远程。
                 </p>
                 <div class="token-row" id="rsRemoteTokenRow" hidden>
                   <span class="slot-chip">配对令牌</span>
@@ -5906,16 +5918,27 @@
     if (invoke && cqBoot.size === 0) cqRefreshBoot();
   }
 
-  /** 档案增删后的统一收尾：清掉两套 iframe 里对应的那一份，两个页面各自重渲染 */
-  function syncAfterRemotesChange(removedId) {
-    if (removedId) {
-      const viewFrame = pcFrames.get(removedId);
-      if (viewFrame) { viewFrame.remove(); pcFrames.delete(removedId); }
-      const pageFrame = pageFrames.get(removedId);
-      if (pageFrame) { pageFrame.remove(); pageFrames.delete(removedId); }
-      if (cqViewRid === removedId) pcCloseView();
+  /**
+   * 档案增删改后的统一收尾：清掉两套 iframe 里对应的那一份，两个页面各自重渲染。
+   *
+   * `id` 传被删/被改的那条档案。**编辑也要调**：地址改了但缓存里的 iframe 还挂着老
+   * src，切过去就是「编辑没生效」的假象（PC 端三个入口共用同一个编辑框，收尾也必须共用）。
+   */
+  function syncAfterRemotesChange(id) {
+    if (id) {
+      const viewFrame = pcFrames.get(id);
+      if (viewFrame) { viewFrame.remove(); pcFrames.delete(id); }
+      const pageFrame = pageFrames.get(id);
+      if (pageFrame) { pageFrame.remove(); pageFrames.delete(id); }
+      pcRemoteWin.delete(id);
+      pcRemoteExpired.delete(id);
+      // 探活结果也作废：否则地址改对了却还拿着上一轮的「离线」结论，页面直接给失败面板
+      pageProbe.delete(id);
+      delete probes[id];
+      if (cqViewRid === id) pcCloseView();
     }
     cqRenderRows();
+    if (!rsListOverlay.hidden) openRsList();
     if (currentPage === 'home') pageShow();
   }
 
@@ -6785,15 +6808,22 @@
   let rsEditing = null; // null = 新建；否则 RemoteServer.id
   let rsProbe = 'parallel_first';
   // ---- 连接优先级（五通道并列；旧 conn_mode 已废弃，只做迁移） ----
-  const ROUTE_IDS = ['lan', 'jump', 'tunnel', 'ts', 'funnel'];
-  const ROUTE_LABELS = { lan: '直连', jump: '跳板机', tunnel: 'Cloudflare 隧道', ts: 'Tailscale', funnel: 'Tailscale Funnel' };
+  // ⚠️ 与手机端 ServerProfile.defaultRouteOrder / 后端 ROUTE_IDS 必须逐字一致：
+  // 两端是同一套电脑档案的不同样式，通道表对不上就会出现「电脑上排好的顺序到了手机上不认」。
+  const ROUTE_IDS = ['lan', 'jump', 'tunnel', 'ts', 'funnel', 'tsnet'];
+  const ROUTE_LABELS = {
+    lan: '直连', jump: '跳板机', tunnel: 'Cloudflare 隧道',
+    ts: 'Tailscale 直连', funnel: 'Tailscale Funnel', tsnet: 'Tailscale Funnel（内建）',
+  };
   let rsRouteOrder = ROUTE_IDS.slice();  // 有序通道 id
   let rsRouteDisabled = {};              // kind -> true = 停用
   let rsRouteDrag = null;                // 拖动中的 kind
   let rsDeleteArmed = false;
-  // ---- 远程接入双槽 + 令牌回显（computer-edit-redesign v1.0） ----
+  // ---- 远程接入四槽 + 令牌回显（与手机端 ServerProfile 四槽一一对应） ----
   let rsTunnelVal = '';        // 隧道槽（归一 origin）
-  let rsTsVal = '';            // Tailscale 槽（直连 http://100.x… / Funnel https://…ts.net）
+  let rsTsVal = '';            // Tailscale 直连槽（只放 100.x）
+  let rsFunnelVal = '';        // 系统 Tailscale 的 Funnel 槽（*.ts.net）
+  let rsTsnetVal = '';         // AnyBoot 内置 tsnet 引擎的 Funnel 槽（*.ts.net）
   let rsRemoteTokenNew = '';   // 分拣挖出的新远程令牌（空 = 保持已存）
   let rsRemoteTokenSaved = ''; // 编辑态已存远程令牌（回显用，不参与保存）
   let rsTokenSaved = '';       // 已存 LAN 访问令牌（回显用）
@@ -6807,18 +6837,19 @@
     return text.slice(0, 4) + '••••••••••' + text.slice(-4);
   }
   function rsRenderSlots() {
-    const tunnelText = document.getElementById('rsSlotTunnelAddr');
-    const tsText = document.getElementById('rsSlotTsAddr');
-    tunnelText.textContent = rsTunnelVal || '空';
-    tunnelText.classList.toggle('ph', !rsTunnelVal);
-    tsText.textContent = rsTsVal || '空';
-    tsText.classList.toggle('ph', !rsTsVal);
-    document.getElementById('rsSlotTunnelX').hidden = !rsTunnelVal;
-    document.getElementById('rsSlotTsX').hidden = !rsTsVal;
+    [['rsSlotTunnelAddr', 'rsSlotTunnelX', rsTunnelVal],
+      ['rsSlotTsAddr', 'rsSlotTsX', rsTsVal],
+      ['rsSlotFunnelAddr', 'rsSlotFunnelX', rsFunnelVal],
+      ['rsSlotTsnetAddr', 'rsSlotTsnetX', rsTsnetVal]].forEach(function (item) {
+      const valueEl = document.getElementById(item[0]);
+      if (!valueEl) return;
+      valueEl.textContent = item[2] || '空';
+      valueEl.classList.toggle('ph', !item[2]);
+      const x = document.getElementById(item[1]);
+      if (x) x.hidden = !item[2];
+    });
     // 槽位变了，优先级列表的可用性/副标跟着变
     rsRenderRoutes();
-    document.getElementById('rsSlotTsChip').textContent =
-      rsTsVal && /\.ts\.net/i.test(rsTsVal) ? 'Tailscale · Funnel' : 'Tailscale · 直连';
   }
   function rsRenderTokenRows() {
     // 远程令牌行：新分拣的优先展示（还没保存），否则回显已存
@@ -6884,7 +6915,29 @@
     if (scheme === 'http://' && isTailscaleAddr(text) && !text.includes(':')) text += ':12300';
     return scheme + text;
   }
-  /** 智能分拣：配对串先拆 origin+token，再按判型落槽（trycloudflare→隧道 / 100.64/10、.ts.net→Tailscale） */
+  /**
+   * 把一条 origin 放进对应的槽，返回落槽的中文名。
+   * **类型优先**（配对串里 `type=` 由出码端声明，与手机端 placeOrigin 完全同语义），
+   * 没有 type 才按内容判型：*.ts.net → 系统 Funnel（内置/系统分不出来，按更常见的系统），
+   * 100.x → 直连，其余 → 隧道。
+   */
+  function rsPlaceOrigin(origin, type) {
+    let kind = String(type || '').trim().toLowerCase();
+    if (kind === 'tailscale') kind = 'ts';
+    if (kind === 'builtin' || kind === 'builtin_ts') kind = 'tsnet';
+    if (kind === 'cloudflare' || kind === 'cf') kind = 'tunnel';
+    if (['tunnel', 'ts', 'funnel', 'tsnet'].indexOf(kind) < 0) {
+      if (/\.ts\.net/i.test(origin)) kind = 'funnel';
+      else if (isTailscaleAddr(origin)) kind = 'ts';
+      else kind = 'tunnel';
+    }
+    if (kind === 'ts') { rsTsVal = origin; return 'Tailscale 直连槽'; }
+    if (kind === 'funnel') { rsFunnelVal = origin; return 'Tailscale Funnel 槽'; }
+    if (kind === 'tsnet') { rsTsnetVal = origin; return '内置 Funnel 槽'; }
+    rsTunnelVal = origin; return 'Cloudflare 隧道槽';
+  }
+
+  /** 智能分拣：配对串先拆 origin+token+type，再按类型落槽 */
   function rsRemoteSplit() {
     const raw = document.getElementById('rsRemote').value.trim();
     const hint = document.getElementById('rsRemoteHint');
@@ -6894,6 +6947,7 @@
     }
     let origin = '';
     let token = '';
+    let type = '';   // 配对串里的 type=（tunnel/ts/funnel/tsnet），决定落哪个槽
     if (/^anyboot:\/\/pair\?/i.test(raw)) {
       raw.slice(15).split('&').forEach(function (pair) {
         const eq = pair.indexOf('=');
@@ -6902,6 +6956,7 @@
         let value = pair.slice(eq + 1).trim();
         try { value = decodeURIComponent(value); } catch (_) { /* 保留原样 */ }
         if (key === 'tunnel' && value) origin = value;
+        if (key === 'type' && value) type = value;
         if ((key === 'token' || key === 'ab_token') && value) token = value;
       });
       if (!origin) {
@@ -6918,16 +6973,11 @@
       hint.textContent = '没认出地址 —— 要有 IP 或主机名';
       return;
     }
-    if (isTailscaleAddr(origin)) {
-      rsTsVal = origin;
-      hint.textContent = '已分拣到 Tailscale 槽：' + origin +
-        (/\.ts\.net/i.test(origin)
-          ? '（Funnel 公网地址，手机无需装 Tailscale；国内网络可能不稳）'
-          : '（直连地址，双端需加入同一 tailnet）');
-    } else {
-      rsTunnelVal = origin;
-      hint.textContent = '已分拣到隧道槽：' + origin;
-    }
+    const slotName = rsPlaceOrigin(origin, type);
+    hint.textContent = '已分拣到' + slotName + '：' + origin +
+      (/\.ts\.net/i.test(origin) && !type
+        ? '（老配对串没带类型，先按系统 Funnel 落；其实是内置 Funnel 就点 ✕ 再改用「内置」那张卡出码）'
+        : '');
     if (token) rsRemoteTokenNew = token;
     rsRenderSlots();
     rsRenderTokenRows();
@@ -6935,6 +6985,8 @@
   document.getElementById('rsRemoteSplit').addEventListener('click', rsRemoteSplit);
   document.getElementById('rsSlotTunnelX').addEventListener('click', function () { rsTunnelVal = ''; rsRenderSlots(); });
   document.getElementById('rsSlotTsX').addEventListener('click', function () { rsTsVal = ''; rsRenderSlots(); });
+  document.getElementById('rsSlotFunnelX').addEventListener('click', function () { rsFunnelVal = ''; rsRenderSlots(); });
+  document.getElementById('rsSlotTsnetX').addEventListener('click', function () { rsTsnetVal = ''; rsRenderSlots(); });
   // 折叠区：点击头部展开/收起
   function rsBindFold(headId, bodyId) {
     document.getElementById(headId).addEventListener('click', function () {
@@ -7028,7 +7080,8 @@
       case 'jump': return addresses.length > 0 && !!document.getElementById('rsJump').value;
       case 'tunnel': return !!rsTunnelVal;
       case 'ts': return !!rsTsVal && !/^https:\/\//i.test(rsTsVal);
-      case 'funnel': return !!rsTsVal && /^https:\/\//i.test(rsTsVal) && /\.ts\.net/i.test(rsTsVal);
+      case 'funnel': return !!rsFunnelVal;
+      case 'tsnet': return !!rsTsnetVal;
     }
     return false;
   }
@@ -7046,9 +7099,8 @@
       case 'jump': return jumpName ? '经 ' + jumpName : '未选跳板机档案';
       case 'tunnel': return rsTunnelVal || '未配置隧道地址';
       case 'ts': return rsTsVal && !/^https:\/\//i.test(rsTsVal) ? rsTsVal : '未配置 100.x 直连地址';
-      case 'funnel': return rsTsVal && /^https:\/\//i.test(rsTsVal)
-        ? rsTsVal
-        : '未配置（在 Tailscale 槽填 *.ts.net 地址）';
+      case 'funnel': return rsFunnelVal || '未配置（系统 Tailscale 的 *.ts.net 地址）';
+      case 'tsnet': return rsTsnetVal || '未配置（内置引擎的 *.ts.net 地址）';
     }
     return '';
   }
@@ -7156,12 +7208,20 @@
     rsAddrEditor.setEntries(addressesFromRemote(r));
     rsAddrEditor.resetInputs();
     rsRouteEditor.setRoutes(r && Array.isArray(r.power_routes) ? r.power_routes : []);
-    // 双槽远程接入：优先读新字段；旧档案没双槽时按判型从 remote_addr 分流（与后端 normalize 同语义）
-    rsTunnelVal = r && r.remote_tunnel_addr ? r.remote_tunnel_addr : '';
-    rsTsVal = r && r.remote_ts_addr ? r.remote_ts_addr : '';
-    if (!rsTunnelVal && !rsTsVal && r && r.remote_addr) {
-      if (isTailscaleAddr(r.remote_addr)) rsTsVal = r.remote_addr;
-      else rsTunnelVal = r.remote_addr;
+    // 四槽远程接入：直接读四个字段（与手机端 ServerProfile 同构）；
+    // 老档案没四槽时按判型从 remote_addr 分流（与后端 normalize 同语义）
+    rsTunnelVal = (r && r.remote_tunnel_addr) || '';
+    rsTsVal = (r && r.remote_ts_addr) || '';
+    rsFunnelVal = (r && r.remote_funnel_addr) || '';
+    rsTsnetVal = (r && r.remote_tsnet_addr) || '';
+    // 老档案兜底①：*.ts.net 以前挤在 Tailscale 槽里 → 挪进系统 Funnel 槽
+    if (!rsFunnelVal && rsTsVal && /\.ts\.net/i.test(rsTsVal)) {
+      rsFunnelVal = rsTsVal;
+      rsTsVal = '';
+    }
+    // 老档案兜底②：只有单槽 remote_addr
+    if (!rsTunnelVal && !rsTsVal && !rsFunnelVal && !rsTsnetVal && r && r.remote_addr) {
+      rsPlaceOrigin(rsNormalizeRemoteOrigin(r.remote_addr), '');
     }
     rsRemoteTokenNew = '';
     rsRemoteTokenSaved = r && r.remote_token ? r.remote_token : '';
@@ -7192,7 +7252,7 @@
       ROUTE_IDS.forEach(function (id) { if (rsRouteOrder.indexOf(id) < 0) rsRouteOrder.push(id); });
     } else {
       rsRouteOrder = r && r.conn_mode === 'remote_first'
-        ? ['tunnel', 'ts', 'funnel', 'jump', 'lan']
+        ? ['tunnel', 'ts', 'funnel', 'tsnet', 'jump', 'lan']
         : ROUTE_IDS.slice();
     }
     rsRouteDisabled = {};
@@ -7227,8 +7287,12 @@
         addresses.forEach(function (address) { list.push({ kind: 'lan', origin: address }); });
       } else if (kind === 'tunnel') {
         list.push({ kind: 'tunnel', origin: rsTunnelVal });
-      } else if (kind === 'ts' || kind === 'funnel') {
+      } else if (kind === 'ts') {
         if (rsTsVal) list.push({ kind: kind, origin: rsTsVal });
+      } else if (kind === 'funnel') {
+        if (rsFunnelVal) list.push({ kind: kind, origin: rsFunnelVal });
+      } else if (kind === 'tsnet') {
+        if (rsTsnetVal) list.push({ kind: kind, origin: rsTsnetVal });
       }
     });
     return list;
@@ -7313,6 +7377,8 @@
     document.getElementById('rsRemote').value = '';
     rsTunnelVal = '';
     rsTsVal = '';
+    rsFunnelVal = '';
+    rsTsnetVal = '';
     rsRemoteTokenNew = '';
     rsRenderSlots();
     rsRenderTokenRows();
@@ -7364,21 +7430,40 @@
       route_order: rsRouteOrder.slice(),
       route_disabled: rsRouteOrder.filter(function (kind) { return rsRouteDisabled[kind]; }),
       jump_id: document.getElementById('rsJump').value || '',
-      // 远程接入双槽：隧道 / Tailscale 各自独立；配对令牌只在分拣出新值时更新（空 = 保持已存）
+      // 远程接入四槽：各自独立（配对令牌只在分拣出新值时更新，空 = 保持已存）
       remote_addr: '',
       remote_tunnel_addr: rsTunnelVal,
       remote_ts_addr: rsTsVal,
+      remote_funnel_addr: rsFunnelVal,
+      remote_tsnet_addr: rsTsnetVal,
       remote_token: rsRemoteTokenNew,
       // 局域网电源路由：动作归一、端口兜底 9、MAC 全不勾 = 空数组（= 全部网卡）
       power_routes: routesForSave(rsRouteEditor.routes()),
       created_at: 0,
     };
+    // 保存前先记一份「连接信息指纹」：编辑完要判断地址/令牌/远程接入是否真的变了，
+    // 变了才清掉这台电脑的 iframe 缓存（不清的话切过去还是连老地址 —— 就是「不回显」）
+    const prev = rsEditing ? remotes.find(function (x) { return x.id === rsEditing; }) : null;
+    const connFp = function (r) {
+      // 四槽必须全进指纹：漏一个就会出现「只改了 Funnel 槽 → 判定没变 → iframe 还是老地址」
+      return [r.addresses.join('|'), r.token || '', r.jump_id || '',
+        r.remote_tunnel_addr || '', r.remote_ts_addr || '',
+        r.remote_funnel_addr || '', r.remote_tsnet_addr || '',
+        r.remote_addr || '', r.remote_token || ''].join('\u00a7');
+    };
+    const prevFp = prev ? connFp(prev) : '';
     invoke('remote_save', { server: payload })
       .then(function (saved) {
         const isNew = !rsEditing;
         closeRsEdit();
         if (isNew) activeRemote = saved.id;
+        // 连接信息变了 = 这台电脑的页面/探活全部作废，必须按新档案重建
+        const connChanged = isNew || connFp(saved) !== prevFp;
+        if (connChanged) cqBoot.delete(saved.id);
         return loadRemotes().then(function () {
+          // 编辑后统一收尾：清两套 iframe 缓存 + 电脑列表/电脑页一起重画
+          // （以前只 pcSelect 高亮一下，另一个视图的缓存压根没动）
+          if (connChanged) syncAfterRemotesChange(saved.id);
           pcSelect(activeRemote);
           toast(isNew ? '已保存并连接' : '已保存');
         });

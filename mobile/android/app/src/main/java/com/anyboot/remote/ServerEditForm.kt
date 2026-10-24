@@ -1205,7 +1205,11 @@ internal fun saveServerProfile(
     var mergedExisting = false
     val target: ServerProfile
     if (editing != null) {
-        target = editing
+        // 编辑：按 **id** 从当前共享列表里取对象，别直接用传进来的引用。
+        // 列表被重新载入过（另一个页面保存 / 删除后 reload）时，传进来的可能是
+        // 已经不在列表里的旧对象 —— 改它等于改了个孤儿，落盘时被无视，用户看到
+        // 的就是「保存了但没生效」。
+        target = servers.firstOrNull { it.id == editing.id } ?: editing
     } else {
         val group = form.group.trim()
         val merged = if (group.isEmpty()) null else servers.firstOrNull {
@@ -1221,8 +1225,7 @@ internal fun saveServerProfile(
         }
     }
     if (!applyServerEdit(form, target, replaceAddresses = editing != null)) return null
-    ServerStore.sort(servers)
-    ServerStore.save(context, servers)
+    ServerRepository.persist(context, servers)
     return ServerSaveResult(target, mergedExisting)
 }
 

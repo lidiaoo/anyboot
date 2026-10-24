@@ -28,10 +28,12 @@ pub(crate) const DEFAULT_PORT: u16 = 12300;
 /// 单次探活的连接+响应超时
 const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 
-/// 连接优先级的五个通道 id（route_order / route_disabled 里只认这些）
-pub(crate) const ROUTE_IDS: [&str; 5] = ["lan", "jump", "tunnel", "ts", "funnel"];
+/// 连接优先级的六个通道 id（route_order / route_disabled 里只认这些）。
+/// **与手机端 ServerProfile.ROUTE_IDS / hub.html ROUTE_IDS 必须一致**：两端是同一套档案
+/// 的不同样式，通道表不一样就会出现「电脑端能选、手机端看不见」这种对不上的情况。
+pub(crate) const ROUTE_IDS: [&str; 6] = ["lan", "jump", "tunnel", "ts", "funnel", "tsnet"];
 
-/// 默认优先级：直连 → 跳板 → 隧道 → Tailscale → Funnel（Funnel 出公网，习惯上最后）
+/// 默认优先级：直连 → 跳板 → 隧道 → Tailscale 直连 → 系统 Funnel → 内置 tsnet
 pub(crate) fn default_route_order() -> Vec<String> {
     ROUTE_IDS.iter().map(|id| id.to_string()).collect()
 }
@@ -42,8 +44,9 @@ pub(crate) fn route_label(kind: &str) -> &'static str {
         "lan" => "直连",
         "jump" => "跳板机",
         "tunnel" => "Cloudflare 隧道",
-        "ts" => "Tailscale",
+        "ts" => "Tailscale 直连",
         "funnel" => "Tailscale Funnel",
+        "tsnet" => "Tailscale Funnel（内建）",
         _ => "未知通道",
     }
 }
@@ -52,6 +55,43 @@ pub(crate) fn route_label(kind: &str) -> &'static str {
 fn is_funnel_origin(origin: &str) -> bool {
     let lower = origin.trim().to_ascii_lowercase();
     lower.starts_with("https://") && lower["https://".len()..].contains(".ts.net")
+}
+
+/// 把一个远程 origin 放进对应的槽（判型优先，槽位只作为「两个 Funnel 槽谁优先」的提示）。
+///
+/// `slot`：0=隧道 1=Tailscale 直连 2=系统 Funnel 3=内置 Funnel（4=旧单槽，按判型随便放）。
+/// 为什么不能直接「哪个槽读出来就放回哪个槽」：用户会把整条配对串粘进任意框，
+/// 而且老档案里 `*.ts.net` 曾经躺在直连槽里 —— 判型归位才不会再出现「配一个顶掉另一个」。
+fn place_remote_origin(
+    origin: String,
+    slot: u8,
+    tunnel: &mut String,
+    ts_addr: &mut String,
+    funnel: &mut String,
+    tsnet: &mut String,
+) {
+    if origin.is_empty() {
+        return;
+    }
+    if is_funnel_origin(&origin) {
+        if slot == 3 && tsnet.is_empty() {
+            *tsnet = origin;
+        } else if funnel.is_empty() {
+            *funnel = origin;
+        } else if tsnet.is_empty() {
+            *tsnet = origin;
+        }
+        return;
+    }
+    if is_tailscale_origin(&origin) {
+        if ts_addr.is_empty() {
+            *ts_addr = origin;
+        }
+        return;
+    }
+    if tunnel.is_empty() {
+        *tunnel = origin;
+    }
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -98,9 +138,17 @@ pub struct RemoteServer {
     /// 远程接入 · Cloudflare 隧道槽：trycloudflare.com 等公网 https 地址（双槽之一）。
     #[serde(default)]
     pub remote_tunnel_addr: String,
-    /// 远程接入 · Tailscale 槽：100.64/10 直连（http://…:12300）或 *.ts.net Funnel（https://）。
+    /// 远程接入 · Tailscale 直连槽：只放 100.64/10（http://…:12300）。
+    /// 以前它兼收 *.ts.net，结果「系统 Funnel」和「100.x 直连」抢一个槽，配一个顶掉另一个。
     #[serde(default)]
     pub remote_ts_addr: String,
+    /// 远程接入 · 系统 Funnel 槽：电脑上装的 Tailscale 发出来的 *.ts.net 地址。
+    #[serde(default)]
+    pub remote_funnel_addr: String,
+    /// 远程接入 · 内置 Funnel 槽：AnyBoot 自带 tsnet 引擎发出来的 *.ts.net 地址。
+    /// 和系统 Funnel 分开存 —— 两者域名长得一样，混在一个槽里必然互相顶替。
+    #[serde(default)]
+    pub remote_tsnet_addr: String,
     /// 远程接入令牌：对方电脑给我们这台签发的「网关客户端令牌」，与它的局域网
     /// `token` 是两套（那边校验时按 ab_token 比对已配对客户端表）。
     #[serde(default)]
@@ -188,8 +236,8 @@ impl RemoteServer {
             .filter(|id| ROUTE_IDS.contains(&id.as_str()) && seen.insert(id.clone()))
             .collect();
         if order.is_empty() && self.conn_remote_first() {
-            // 迁移：远程通道在前（保持 隧道→ts→funnel 的相对序），跳板/直连殿后
-            return ["tunnel", "ts", "funnel", "jump", "lan"]
+            // 迁移：远程通道在前（保持 隧道→ts→funnel→内置 的相对序），跳板/直连殿后
+            return ["tunnel", "ts", "funnel", "tsnet", "jump", "lan"]
                 .iter()
                 .map(|id| id.to_string())
                 .collect();
@@ -247,24 +295,41 @@ impl RemoteServer {
                         out.push(("funnel".to_string(), origin));
                     }
                 }
+                "tsnet" => {
+                    let origin = self.tsnet_origin();
+                    if !origin.is_empty() {
+                        out.push(("tsnet".to_string(), origin));
+                    }
+                }
                 _ => {}
             }
         }
         out
     }
 
-    /// ts 槽里的 Funnel 地址（https + *.ts.net）；没有则空。
+    /// 系统 Funnel 槽的地址（https + *.ts.net）；没有则空。
+    ///
+    /// 老档案兜底：以前 *.ts.net 挤在 `remote_ts_addr` 里，所以那边有 Funnel 也认；
+    /// 再老的只有单槽 `remote_addr`，同样补一次判型。
     pub(crate) fn funnel_origin(&self) -> String {
+        let funnel = self.remote_funnel_addr.trim();
+        if !funnel.is_empty() {
+            return funnel.to_string();
+        }
         let ts = self.remote_ts_addr.trim();
         if is_funnel_origin(ts) {
             return ts.to_string();
         }
-        // 老档案兜底：双槽还没归一、只在 remote_addr 里存的场景
         let legacy = self.remote_addr.trim();
         if self.remote_ts_addr.is_empty() && is_funnel_origin(legacy) {
             return legacy.to_string();
         }
         String::new()
+    }
+
+    /// 内置 tsnet 槽的地址（https + *.ts.net）；没有则空。
+    pub(crate) fn tsnet_origin(&self) -> String {
+        self.remote_tsnet_addr.trim().to_string()
     }
 
     /// ts 槽里的 Tailscale 直连地址（100.x http）；是 Funnel 就不算。
@@ -384,66 +449,81 @@ impl RemoteServer {
             });
         }
         self.power_routes = routes;
-        // 远程接入双槽归一：每槽 trim + split_remote_address 挖 origin / token；
-        // origin 判型自动归位（粘错槽也没事）；旧单槽 remote_addr 在双槽全空时迁移分流；
-        // remote_addr 保留为「生效地址」（隧道槽优先），旧消费点零改动。
+        // 远程接入四槽归一：每槽 trim + split_remote_address 挖 origin / token；
+        // **判型归位**（粘错槽也没事）：*.ts.net → 系统 Funnel / 内置 Funnel，100.x → 直连，
+        // 其余 → 隧道；旧单槽 remote_addr 在四槽全空时按判型迁移分流。
+        // remote_addr 保留为「生效地址」镜像（隧道 → Funnel → 内置 → 直连），旧消费点零改动。
         self.remote_token = self.remote_token.trim().to_string();
         let mut tunnel = String::new();
         let mut ts_addr = String::new();
+        let mut funnel = String::new();
+        let mut tsnet = String::new();
         let mut token_from_url: Option<String> = None;
-        // 旧单槽迁移：双槽都空且 remote_addr 非空 → 拆分后按判型落槽
-        let mut raws: Vec<(bool, String)> = vec![
-            (false, std::mem::take(&mut self.remote_tunnel_addr)),
-            (true, std::mem::take(&mut self.remote_ts_addr)),
+        let slots = [
+            (std::mem::take(&mut self.remote_tunnel_addr), 0u8),
+            (std::mem::take(&mut self.remote_ts_addr), 1),
+            (std::mem::take(&mut self.remote_funnel_addr), 2),
+            (std::mem::take(&mut self.remote_tsnet_addr), 3),
         ];
-        if raws.iter().all(|(_, raw)| raw.trim().is_empty())
-            && !self.remote_addr.trim().is_empty()
-        {
-            raws.push((false, self.remote_addr.trim().to_string()));
-        }
-        for (_, raw) in raws {
+        let slots_empty = slots.iter().all(|(raw, _)| raw.trim().is_empty());
+        let legacy = if slots_empty {
+            self.remote_addr.trim().to_string()
+        } else {
+            String::new()
+        };
+        for (raw, slot) in slots {
             let (origin, token) = split_remote_address(&raw);
-            if origin.is_empty() {
-                continue;
-            }
             if token.is_some() && token_from_url.is_none() {
-                token_from_url = token.clone();
+                token_from_url = token;
             }
-            if is_tailscale_origin(&origin) {
-                if ts_addr.is_empty() {
-                    ts_addr = origin;
-                }
-            } else if tunnel.is_empty() {
-                tunnel = origin;
+            place_remote_origin(origin, slot, &mut tunnel, &mut ts_addr, &mut funnel, &mut tsnet);
+        }
+        if !legacy.is_empty() {
+            let (origin, token) = split_remote_address(&legacy);
+            if token.is_some() && token_from_url.is_none() {
+                token_from_url = token;
             }
+            place_remote_origin(origin, 0, &mut tunnel, &mut ts_addr, &mut funnel, &mut tsnet);
         }
         self.remote_tunnel_addr = tunnel;
         self.remote_ts_addr = ts_addr;
+        self.remote_funnel_addr = funnel;
+        self.remote_tsnet_addr = tsnet;
         if let Some(token) = token_from_url {
             if self.remote_token.is_empty() {
                 self.remote_token = token;
             }
         }
-        self.remote_addr = if !self.remote_tunnel_addr.is_empty() {
-            self.remote_tunnel_addr.clone()
-        } else {
-            self.remote_ts_addr.clone()
-        };
+        // 生效地址镜像：隧道 → 系统 Funnel → 内置 Funnel → 直连（第一个非空的）
+        self.remote_addr = [
+            self.remote_tunnel_addr.clone(),
+            self.remote_funnel_addr.clone(),
+            self.remote_tsnet_addr.clone(),
+            self.remote_ts_addr.clone(),
+        ]
+        .into_iter()
+        .find(|value| !value.is_empty())
+        .unwrap_or_default();
         if self.remote_addr.is_empty() {
             self.remote_token = String::new();
         }
         self
     }
 
-    /// 远程接入候选（双槽）：隧道在前、Tailscale 在后；双槽全空时兜底旧单槽
-    /// `remote_addr`（老配置还没走过 normalize 就被读的场景）。
+    /// 远程接入候选（四槽）：隧道 → 系统 Funnel → 内置 Funnel → 直连；
+    /// 四槽全空时兜底旧单槽 `remote_addr`（老配置还没走过 normalize 就被读的场景）。
     pub(crate) fn remote_origins(&self) -> Vec<String> {
         let mut list = Vec::new();
-        if !self.remote_tunnel_addr.is_empty() {
-            list.push(self.remote_tunnel_addr.clone());
-        }
-        if !self.remote_ts_addr.is_empty() {
-            list.push(self.remote_ts_addr.clone());
+        for slot in [
+            &self.remote_tunnel_addr,
+            &self.remote_funnel_addr,
+            &self.remote_tsnet_addr,
+            &self.remote_ts_addr,
+        ] {
+            let value = slot.trim();
+            if !value.is_empty() && !list.iter().any(|item| item == value) {
+                list.push(value.to_string());
+            }
         }
         if list.is_empty() {
             let legacy = self.remote_addr.trim().to_string();
@@ -2886,6 +2966,8 @@ mod tests {
             remote_addr: "  https://test-tunnel.trycloudflare.com/?ab_token= gw-tok  ".into(),
             remote_tunnel_addr: String::new(),
             remote_ts_addr: String::new(),
+            remote_funnel_addr: String::new(),
+            remote_tsnet_addr: String::new(),
             remote_token: String::new(),
             conn_mode: String::new(),
             route_order: Vec::new(),
@@ -2955,14 +3037,15 @@ mod tests {
     }
 
     #[test]
-    fn ts_net_host_routes_to_ts_slot() {
-        // *.ts.net（Funnel）判 Tailscale 槽，scheme 保持 https、剥路径
+    fn ts_net_host_routes_to_funnel_slot() {
+        // *.ts.net（Funnel）粘进 ts 槽也要归位到 Funnel 槽，scheme 保持 https、剥路径
         assert!(is_tailscale_origin("https://win-pc.tailabc.ts.net"));
         assert!(!is_tailscale_origin("https://met-jul.trycloudflare.com"));
         let mut server = minimal_server();
         server.remote_ts_addr = "https://win-pc.tailabc.ts.net/".into();
         let n = server.normalize();
-        assert_eq!(n.remote_ts_addr, "https://win-pc.tailabc.ts.net");
+        assert_eq!(n.remote_ts_addr, "");
+        assert_eq!(n.remote_funnel_addr, "https://win-pc.tailabc.ts.net");
         assert_eq!(n.remote_addr, "https://win-pc.tailabc.ts.net");
     }
 
@@ -2993,6 +3076,8 @@ mod tests {
             remote_addr: String::new(),
             remote_tunnel_addr: String::new(),
             remote_ts_addr: String::new(),
+            remote_funnel_addr: String::new(),
+            remote_tsnet_addr: String::new(),
             remote_token: String::new(),
             conn_mode: String::new(),
             route_order: Vec::new(),
@@ -3239,6 +3324,8 @@ mod tests {
             remote_addr: String::new(),
             remote_tunnel_addr: String::new(),
             remote_ts_addr: String::new(),
+            remote_funnel_addr: String::new(),
+            remote_tsnet_addr: String::new(),
             remote_token: String::new(),
             conn_mode: String::new(),
             route_order: Vec::new(),
@@ -3275,6 +3362,8 @@ mod tests {
                 remote_addr: String::new(),
                 remote_tunnel_addr: String::new(),
                 remote_ts_addr: String::new(),
+                remote_funnel_addr: String::new(),
+                remote_tsnet_addr: String::new(),
                 remote_token: String::new(),
                 conn_mode: String::new(),
             route_order: Vec::new(),
@@ -3579,7 +3668,7 @@ mod tests {
         server.conn_mode = String::new();
         assert_eq!(
             server.route_order_sorted(),
-            vec!["lan", "jump", "tunnel", "ts", "funnel"]
+            vec!["lan", "jump", "tunnel", "ts", "funnel", "tsnet"]
         );
     }
 
@@ -3590,7 +3679,7 @@ mod tests {
         server.conn_mode = "remote_first".into();
         assert_eq!(
             server.route_order_sorted(),
-            vec!["tunnel", "ts", "funnel", "jump", "lan"]
+            vec!["tunnel", "ts", "funnel", "tsnet", "jump", "lan"]
         );
     }
 
@@ -3600,9 +3689,9 @@ mod tests {
         server.route_order = vec!["funnel".into(), "bogus".into(), "funnel".into(), "ts".into()];
         let order = server.route_order_sorted();
         assert_eq!(&order[..2], &["funnel", "ts"]);
-        // 剩余三个按默认相对序补到尾部
-        assert_eq!(&order[2..], &["lan", "jump", "tunnel"]);
-        assert_eq!(order.len(), 5);
+        // 其余四个按默认相对序补到尾部
+        assert_eq!(&order[2..], &["lan", "jump", "tunnel", "tsnet"]);
+        assert_eq!(order.len(), 6);
     }
 
     #[test]
@@ -3613,7 +3702,7 @@ mod tests {
         let normalized = server.normalize();
         assert_eq!(
             normalized.route_order,
-            vec!["lan", "jump", "tunnel", "ts", "funnel"]
+            vec!["lan", "jump", "tunnel", "ts", "funnel", "tsnet"]
         );
         assert_eq!(normalized.route_disabled, vec!["funnel"]);
     }
