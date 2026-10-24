@@ -2414,7 +2414,11 @@
           <!-- error 态 -->
           <div id="tsnErrRow" hidden>
             <p class="field-hint" id="tsnErrText" style="margin:8px 0 0"></p>
-            <button class="link-btn" id="tsnRetryBtn" style="margin-top:4px">重试</button>
+            <div style="display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap">
+              <button class="link-btn" id="tsnRetryBtn">重试</button>
+              <!-- Funnel 权限/证书没开时由 sidecar 给官方开通页（setupUrl），否则隐藏 -->
+              <button class="link-btn" id="tsnSetupBtn" hidden>去开通 Funnel</button>
+            </div>
           </div>
           <!-- 清除登录凭据：停引擎 + 删 tsnet 状态目录，下次开启等于全新节点 -->
           <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
@@ -9087,7 +9091,7 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
   }
   // 点开关直接弹官方授权页（授权完成回「授权完成，重试」或再点一次开关）
   function tsfOpenAuth() {
-    const url = tsFunnel && tsFunnel.setup_url ? tsFunnel.setup_url : '';
+    const url = tsFunnel && tsFunnel.setupUrl ? tsFunnel.setupUrl : '';
     // 前端再校验一次官方白名单（后端已白名单，双保险）
     if (!/^https:\/\/tailscale\.com\/s\//.test(url)) { toast('授权地址无效', 'bad'); return; }
     invoke('remote_open_page', { url: url }).catch(function (e) { toast('打开浏览器失败：' + e, 'bad'); });
@@ -9189,7 +9193,9 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
     $('tsnAddrRow').hidden = !ready;
     $('tsnErrRow').hidden = state !== 'error';
     $('tsnAddr').textContent = tsnUrl();
-    $('tsnLoginUrl').textContent = (state === 'needs_auth' && s.login_url) ? s.login_url : '';
+    // 后端 TsnetStatus 走 serde camelCase —— 读 loginUrl（曾写成 login_url，
+    // 拿到 undefined，页面上一片空白，看起来像「没抓到登录链接」）
+    $('tsnLoginUrl').textContent = (state === 'needs_auth' && s.loginUrl) ? s.loginUrl : '';
     const text = $('tsnStateText');
     if (state === 'off') {
       text.textContent = '内置引擎未开启';
@@ -9202,6 +9208,8 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
     } else if (state === 'error') {
       text.textContent = '开启失败';
       $('tsnErrText').textContent = s.message || '未知错误';
+      // sidecar 只有在 Funnel 权限/HTTPS 证书没开时才带 setupUrl
+      $('tsnSetupBtn').hidden = !s.setupUrl;
     } else {
       text.textContent = s.message || '';
     }
@@ -9273,7 +9281,7 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
     else toast('复制失败 —— 请手动选中链接复制', 'bad');
   }
   $('tsnLoginBtn').addEventListener('click', function () {
-    const url = tsnStatus && tsnStatus.login_url ? tsnStatus.login_url : '';
+    const url = tsnStatus && tsnStatus.loginUrl ? tsnStatus.loginUrl : '';
     // 后端来自 sidecar 日志捕获；前端只放行官方登录域（双保险）
     if (!/^https:\/\/login\.tailscale\.com\//.test(url)) { toast('登录地址无效', 'bad'); return; }
     toast('正在打开浏览器完成授权…');
@@ -9285,9 +9293,23 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
       });
   });
   $('tsnLoginCopy').addEventListener('click', function () {
-    const url = tsnStatus && tsnStatus.login_url ? tsnStatus.login_url : '';
+    const url = tsnStatus && tsnStatus.loginUrl ? tsnStatus.loginUrl : '';
     if (!url) { toast('还没有登录链接 —— 等引擎捕获后再点', 'bad'); return; }
     tsnWriteClipboard(url, '登录链接已复制（约 10 分钟内有效，过期重新开关一次引擎）');
+  });
+  // 「去开通 Funnel」：sidecar 分类出来的官方开通页（白名单域，前端再校验一次）
+  $('tsnSetupBtn').addEventListener('click', function () {
+    const url = tsnStatus && tsnStatus.setupUrl ? tsnStatus.setupUrl : '';
+    if (!/^https:\/\/(login\.tailscale\.com|tailscale\.com\/s)\//.test(url)) {
+      toast('开通地址无效', 'bad');
+      return;
+    }
+    invoke('remote_open_page', { url: url })
+      .then(function () { toast('已在系统浏览器打开官方开通页'); })
+      .catch(function (e) {
+        toast('打开失败，改用内置窗口：' + e, 'bad');
+        try { window.open(url, '_blank'); } catch (e2) { }
+      });
   });
   $('tsnCopy').addEventListener('click', function () {
     const addr = tsnUrl();
