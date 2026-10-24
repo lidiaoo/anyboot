@@ -1,0 +1,9 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "resources": [
+      "binaries/anyboot-tsnet-linux-amd64",
+      "binaries/anyboot-tsnet-linux-arm64"
+    ]
+  }
+}

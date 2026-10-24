@@ -2,8 +2,9 @@
 //! Funnel 公网通道（gateway 页「Tailscale (内置)」标签的数据源）。
 //!
 //! 架构（2026-10-24 定稿，见 design/tsnet-p1-todo.md）：
-//!   - Go sidecar `anyboot-tsnet.exe`（源码 src-tauri/sidecar-tsnet/，clean-room
-//!     手写，只依赖 tailscale.com/tsnet 公开 API）：tsnet 起 Funnel（FunnelOnly）
+//!   - Go sidecar `anyboot-tsnet`（源码 src-tauri/sidecar-tsnet/，clean-room
+//!     手写，只依赖 tailscale.com/tsnet 公开 API；构建见 scripts/build-sidecar.sh，
+//!     unix 产物名 anyboot-tsnet-{linux|darwin}-{amd64|arm64}，Windows = .exe）：tsnet 起 Funnel（FunnelOnly）
 //!     并把流量反代到本机 http 服务。stdout 逐行 JSON 事件（hello/state/bye），
 //!     stdin 首行收可选 authkey 配置、之后收 quit 命令；父进程死 = stdin EOF = 自杀。
 //!   - 本模块只管子进程生命周期与状态聚合：spawn（CREATE_NO_WINDOW）/ stdout
@@ -363,18 +364,38 @@ fn extract_login_url(line: &str) -> Option<String> {
 
 // ==================== sidecar 路径 ====================
 
-/// sidecar 可执行文件三候选（按序找第一个存在的）：
-/// 1. exe 目录下 binaries/（tauri bundle.resources 的安装布局，Windows 资源
-///    目录 = exe 目录，保留相对子路径）
-/// 2. exe 同目录（开发 cargo run 时手动拷 / 旧版手工部署）
-/// 3. app_data/tsnet/（用户手动放置位）
+/// unix 平台的 sidecar 文件名（带 OS+arch 后缀：mac/linux 包里同时放两种架构，
+/// 且 macOS 与 Linux 的同名架构不能混——文件名里必须带 OS）。Windows 沿用历史单文件。
+fn sidecar_filename() -> String {
+    if cfg!(windows) {
+        "anyboot-tsnet.exe".to_string()
+    } else {
+        let os = if cfg!(target_os = "macos") { "darwin" } else { "linux" };
+        let arch = match std::env::consts::ARCH {
+            "x86_64" => "amd64",
+            "aarch64" => "arm64",
+            other => other,
+        };
+        format!("anyboot-tsnet-{os}-{arch}")
+    }
+}
+
+/// sidecar 可执行文件四候选（按序找第一个存在的）：
+/// 1. 资源目录 binaries/（tauri bundle.resources 的标准落位：Windows = exe 目录、
+///    macOS = .app/Contents/Resources、Linux = /usr/lib/<identifier>，相对子路径保留）
+/// 2. exe 目录下 binaries/（NSIS 便携布局 / 开发环境手动拷）
+/// 3. exe 同目录（开发 cargo run 时手动拷 / 旧版手工部署）
+/// 4. app_data/tsnet/（用户手动放置位）
 fn sidecar_candidates(app: &AppHandle) -> Vec<std::path::PathBuf> {
-    let name = if cfg!(windows) { "anyboot-tsnet.exe" } else { "anyboot-tsnet" };
+    let name = sidecar_filename();
     let mut out = Vec::new();
+    if let Ok(dir) = app.path().resource_dir() {
+        out.push(dir.join("binaries").join(&name));
+    }
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
-            out.push(dir.join("binaries").join(name));
-            out.push(dir.join(name));
+            out.push(dir.join("binaries").join(&name));
+            out.push(dir.join(&name));
         }
     }
     if let Ok(dir) = app.path().app_data_dir() {
@@ -382,6 +403,19 @@ fn sidecar_candidates(app: &AppHandle) -> Vec<std::path::PathBuf> {
     }
     out
 }
+
+/// 打包/解压链路可能丢掉执行位（macOS zip、deb 复制等），spawn 前兜底补 0o755。
+#[cfg(unix)]
+fn ensure_executable(path: &std::path::Path) {
+    use std::os::unix::fs::PermissionsExt;
+    if let Ok(meta) = std::fs::metadata(path) {
+        if meta.permissions().mode() & 0o111 != 0o111 {
+            let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755));
+        }
+    }
+}
+#[cfg(not(unix))]
+fn ensure_executable(_path: &std::path::Path) {}
 
 fn find_sidecar(app: &AppHandle) -> Option<std::path::PathBuf> {
     sidecar_candidates(app).into_iter().find(|p| p.is_file())
@@ -398,9 +432,10 @@ pub(crate) fn enable_blocking(app: &AppHandle) -> Result<TsnetStatus, String> {
             sidecar_candidates(app)
                 .first()
                 .map(|p| p.display().to_string())
-                .unwrap_or_else(|| "anyboot-tsnet.exe".into())
+                .unwrap_or_else(|| sidecar_filename())
         ));
     };
+    ensure_executable(&sidecar);
 
     let mut guard = shared().lock().map_err(|_| "内置引擎状态锁损坏".to_string())?;
     if child_alive(&mut guard) {
