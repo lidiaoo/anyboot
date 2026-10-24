@@ -1426,10 +1426,23 @@
   .fb-kv > span:last-child { text-align:right; word-break:break-all; font-family:ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace; }
   /* ============ 远程接入（gateway 页） ============ */
   /* 页面自身就是滚动容器：小窗/矮窗下卡片超出视口要能上下滚（body overflow:hidden 兜底裁切） */
-  #page-gateway { overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
-  #page-gateway::-webkit-scrollbar { width: 8px; }
-  #page-gateway::-webkit-scrollbar-thumb { background: rgb(var(--line-strong)); border-radius: 4px; }
-  #page-gateway::-webkit-scrollbar-track { background: transparent; }
+  /* 远程接入页：**自适应 flex 布局** —— 页头 + 页签占固定高度，
+     剩余空间全给内容区（pane 自己滚动）。之前整页 overflow 滚动，
+     配对条目/日志一多就把页签和标题挤没；现在条目再多页签也不动。 */
+  #page-gateway {
+    display: flex; flex-direction: column; min-height: 0;
+    overflow: hidden;                 /* 滚动只在 pane 内，页签恒定 */
+    overscroll-behavior: contain;
+  }
+  .gw-tabpane {
+    flex: 1 1 0; min-height: 0;       /* min-height:0 是关键：允许 flex 子项收缩到内容以下 */
+    overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin;
+    padding-bottom: 4px;              /* 末尾卡片 margin 14px 已够，这里只补一点滚动余量 */
+  }
+  .gw-tabpane::-webkit-scrollbar { width: 8px; }
+  .gw-tabpane::-webkit-scrollbar-thumb { background: rgb(var(--line-strong)); border-radius: 4px; }
+  .gw-tabpane::-webkit-scrollbar-track { background: transparent; }
+  .gw-tabpane[hidden] { display: none; }
   /* ---- Switch 开关组件（通道开关三处共用；loading 态旋钮脉冲、disabled 灰） ---- */
   .switch { position: relative; display: inline-block; width: 44px; height: 24px; flex: none; vertical-align: middle; }
   .switch input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; z-index: 1; }
@@ -1455,8 +1468,7 @@
     display: flex; align-items: center; gap: 4px; margin: 0 22px 12px; padding: 3px;
     background: rgb(var(--card)); border: 1px solid rgb(var(--line-strong)); border-radius: 11px;
     overflow-x: auto; scrollbar-width: none; max-width: calc(100% - 44px);
-    /* 吸顶：配对条目 / 日志多起来页面变长时，页签不被顶出视野（也不会被压缩） */
-    position: sticky; top: 8px; z-index: 6;
+    flex: none;   /* 页签行恒定：内容区滚自己的，永远不挤压页签 */
   }
   .gw-tabs::-webkit-scrollbar { display: none; }
   .gw-tab {
@@ -1568,13 +1580,9 @@
   }
   .ts-chip.src-tunnel { color:rgb(var(--warn)); border-color:rgb(var(--warn)); }
   .ts-chip.src-ts { color:rgb(var(--ok)); border-color:rgb(var(--ok)); }
-  /* 配对管理的客户端列表：条目多了在卡片内部滚动（页签与卡片标题不随内容被顶走） */
-  .gw-clients {
-    display:flex; flex-direction:column;
-    max-height:340px; overflow-y:auto; overscroll-behavior:contain; scrollbar-width:thin;
-  }
-  .gw-clients::-webkit-scrollbar { width:8px; }
-  .gw-clients::-webkit-scrollbar-thumb { background:rgb(var(--line-strong)); border-radius:4px; }
+  /* 配对管理的客户端列表：条目再多也随 pane 一起滚（页签恒定，不挤压），
+     不再设局部 max-height —— 滚动空间全屏给内容区 */
+  .gw-clients { display:flex; flex-direction:column; }
   .gw-client {
     display:flex; align-items:center; gap:10px; padding:9px 0; font-size:13px;
     border-top:1px solid rgb(var(--line));
