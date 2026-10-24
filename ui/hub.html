@@ -118,6 +118,8 @@
   }
   .segmented button:hover { color: rgb(var(--fg)); }
   .segmented button[aria-selected="true"] { background: rgb(var(--accent) / .15); color: rgb(var(--accent)); }
+  .segmented button:disabled { opacity: .38; cursor: not-allowed; text-decoration: line-through; text-decoration-thickness: 1px; }
+  .segmented button:disabled:hover { color: rgb(var(--fg-dim)); }
 
   .toolbar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
   .summary { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: rgb(var(--fg-dim)); }
@@ -1841,6 +1843,9 @@
                 <div class="token-row" id="rsRemoteTokenRow" hidden>
                   <span class="slot-chip">配对令牌</span>
                   <span class="mono masked" id="rsRemoteTokenText"></span>
+                  <button type="button" class="token-eye" id="rsRemoteTokenCopy" aria-label="复制令牌" title="复制令牌" hidden>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                  </button>
                   <button type="button" class="token-eye" id="rsRemoteTokenEye" aria-label="显示令牌" title="显示 / 隐藏令牌">
                     <svg class="eye-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
                     <svg class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display:none"><path d="M9.9 4.24A10.9 10.9 0 0 1 12 4c6.5 0 10 7 10 7a17.6 17.6 0 0 1-2.29 2.95M6.61 6.61A13.5 13.5 0 0 0 2 12s3.5 7 10 7a10.7 10.7 0 0 0 5.39-1.39"/><path d="M2 2l20 20"/><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/></svg>
@@ -1857,6 +1862,9 @@
                 <div class="token-row" id="rsTokenRow" hidden>
                   <span class="slot-chip">已存令牌</span>
                   <span class="mono masked" id="rsTokenSavedText"></span>
+                  <button type="button" class="token-eye" id="rsTokenCopy" aria-label="复制令牌" title="复制令牌" hidden>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                  </button>
                   <button type="button" class="token-eye" id="rsTokenEye" aria-label="显示令牌" title="显示 / 隐藏令牌">
                     <svg class="eye-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
                     <svg class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display:none"><path d="M9.9 4.24A10.9 10.9 0 0 1 12 4c6.5 0 10 7 10 7a17.6 17.6 0 0 1-2.29 2.95M6.61 6.61A13.5 13.5 0 0 0 2 12s3.5 7 10 7a10.7 10.7 0 0 0 5.39-1.39"/><path d="M2 2l20 20"/><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/></svg>
@@ -6481,6 +6489,9 @@
     const savedText = document.getElementById('rsTokenSavedText');
     savedText.textContent = rsTokenShown ? rsTokenSaved : rsMaskToken(rsTokenSaved);
     savedText.classList.toggle('masked', !rsTokenShown);
+    // 复制按钮仅明文态出现（设计稿⑤legend3：打码态不可复制，明文态给复制）
+    document.getElementById('rsRemoteTokenCopy').hidden = !rsRemoteTokenShown;
+    document.getElementById('rsTokenCopy').hidden = !rsTokenShown;
   }
   function rsBindEye(buttonId, shownGetter, shownSetter) {
     document.getElementById(buttonId).addEventListener('click', function () {
@@ -6497,6 +6508,21 @@
   rsBindEye('rsTokenEye',
     function () { return rsTokenShown; },
     function (v) { rsTokenShown = v; });
+
+  // 明文态复制（rsRenderTokenRows 控制 hidden；复制目标 = 回显的当前值）
+  document.getElementById('rsRemoteTokenCopy').addEventListener('click', function () {
+    const text = (rsRemoteTokenNew || rsRemoteTokenSaved).trim();
+    if (!text) return;
+    navigator.clipboard.writeText(text)
+      .then(function () { toast('已复制令牌'); })
+      .catch(function () { toast('复制失败', 'bad'); });
+  });
+  document.getElementById('rsTokenCopy').addEventListener('click', function () {
+    if (!rsTokenSaved) return;
+    navigator.clipboard.writeText(rsTokenSaved)
+      .then(function () { toast('已复制令牌'); })
+      .catch(function () { toast('复制失败', 'bad'); });
+  });
 
   /** 远程地址归一（与后端 split_remote_address 同语义）：100.64/10 裸 IP 补 http://:12300，其余裸地址补 https:// */
   function rsNormalizeRemoteOrigin(raw) {
@@ -8555,6 +8581,22 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
     }
     gwPairAddrType = tsPairPreset || 'tunnel';
     tsPairPreset = null;
+    // 可用性收窄（tailscale 稿④交互规则2）：来源没开就置灰对应 tab，全不可用只剩「不带地址」
+    const tunnelAvailable = !!((snap && snap.url) || (mode === 'named' && $('gwNamedUrl').value.trim()));
+    const pairAvailability = {
+      tunnel: tunnelAvailable,
+      tailscale: !!tsAddr(),
+      funnel: !!tsfUrl(),
+      none: true,
+    };
+    let pairFallback = 'none';
+    Array.prototype.forEach.call($('gwPairAddrTabs').querySelectorAll('button'), function (button) {
+      const key = button.dataset.addr || 'tunnel';
+      const ok = pairAvailability[key] !== false;
+      button.disabled = !ok;
+      if (ok && key !== 'none' && pairFallback === 'none') pairFallback = key;
+    });
+    if (!pairAvailability[gwPairAddrType]) gwPairAddrType = pairFallback;
     Array.prototype.forEach.call($('gwPairAddrTabs').querySelectorAll('button'), function (button) {
       button.setAttribute('aria-selected', (button.dataset.addr || 'tunnel') === gwPairAddrType ? 'true' : 'false');
     });
