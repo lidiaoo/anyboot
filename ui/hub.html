@@ -2605,10 +2605,10 @@
               </div>
             </div>
           </div>
-          <!-- 清除登录凭据：tailscale logout（断开 + 清本机凭据，下次连接需重新授权） -->
-          <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
+          <!-- 清除登录凭据：tailscale logout（断开 + 清本机凭据与保存的 AuthKey） -->
+          <div id="tsLogoutRow" style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
             <button class="link-btn" id="tsLogoutBtn">清除登录凭据</button>
-            <span class="field-hint" style="margin:0">执行 tailscale logout：断开并清除本机登录凭据，下次连接需重新授权；Tailscale 管理台里的设备记录需自行移除。</span>
+            <span class="field-hint" style="margin:0">执行 tailscale logout：断开并清除本机登录凭据<b>与保存的 AuthKey</b>，下次连接需重新授权；Tailscale 管理台里的设备记录需自行移除。</span>
           </div>
           <!-- 自启：等价于每次启动软件自动点一下「连接」（tailscale up，登录级） -->
           <label class="gw-auto">
@@ -9356,7 +9356,9 @@
 <script>
 // ============ 远程接入（gateway 页）：通道开关 / 出码配对 / 客户端管理 / 日志 ============
 // 后端命令：gateway_config / gateway_save_config / gateway_binary_status|download|
-//   gateway_binary_set_manual / gateway_tunnel_start|stop|status|logs / gateway_pair_issue|list|revoke|delete
+//   gateway_binary_set_manual|uninstall / gateway_clear_credentials（清命名隧道凭据）/
+//   gateway_tunnel_start|stop|status|logs / gateway_pair_issue|list|revoke|delete
+// 卸载命令统一带 keepData（false=连凭据一起清，弹窗里可改成 true 保留）
 // 事件：gateway-tunnel-state（TunnelSnapshot）/ gateway-binary-progress / gateway-binary-done
 function gwShowPage() {
   if (window.gwRefresh) window.gwRefresh();
@@ -10006,6 +10008,8 @@ function gwShowPage() {
     $('tsBadge').hidden = !running;
     // AuthKey 配置行：装了但没连上时给入口（与内置引擎 off 态同款）
     $('tsKeyRow').hidden = !(has && !running);
+    // 没装就没凭据可清：这一行跟着隐藏，免得点了只回一句「请先安装」
+    $('tsLogoutRow').hidden = !has;
     if (has) {
       const keySet = !!st.authkey_set;
       $('tsKey').placeholder = keySet
@@ -10270,8 +10274,11 @@ function gwShowPage() {
       invoke('gateway_tailscale_logout').then(function (st) {
         self.disabled = false;
         tsStatus = st;
+        // 凭据清了 AuthKey 也一起清：输入框里残留的旧值一并抹掉，
+        // 否则用户看到框里还留着密钥，会以为没清干净
+        $('tsKey').value = '';
         tsRender();
-        toast('已清除本机登录凭据 —— 下次连接需重新授权');
+        toast('已清除本机登录凭据与 AuthKey —— 下次连接需重新授权');
       }).catch(function (e) {
         self.disabled = false;
         toast('清除凭据失败：' + e, 'bad');
@@ -10600,7 +10607,8 @@ function gwShowPage() {
     try {
       const s = await invoke('tsnet_logout');
       tsnStatus = s;
-      toast('登录凭据已清除 —— 下次开启需重新授权');
+      $('tsnKey').value = ''; // AuthKey 也一起清了，输入框别留旧值
+      toast('登录凭据与 AuthKey 已清除 —— 下次开启需重新授权');
     } catch (e) {
       toast('清除失败：' + e, 'bad');
     }

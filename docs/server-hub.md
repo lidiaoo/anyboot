@@ -242,8 +242,10 @@ AuthKey 都还在，下次重装会**继承一份用户以为已经没了的登�
     勾保留则只停引擎、清引擎副本，状态目录留着（重开即 ready）。
 - **「清除登录凭据」按钮**（Cloudflare 卡新增，`gateway_clear_credentials`）：停通道 +
   抹 Token/对外地址，不动程序本体 —— 与 Tailscale/内置引擎的同类按钮同语义。
-- **Tailscale 的 logout 顺带清 AuthKey**：只注销不删密钥的话，下次连接拿密钥文件
-  一跑就自动重登，用户会以为「清了但没用」。
+- **三处 logout 都连带清各自的 AuthKey**（`tailscale_authkey` / `tsnet_authkey`）：
+  只注销不删密钥的话，下次连接/开启拿密钥文件一跑就自动重登，用户会以为「清了但没用」。
+  前端同步把输入框里残留的旧值抹掉；Tailscale 未安装时「清除登录凭据」整行隐藏
+  （没凭据可清，点了只会回一句「请先安装」）。
 - 顺手补的**真进度条**：`download_to_tmp_observed(url, tmp, on_progress)` 逐块回调
   （~120ms 节流、末块必发），cloudflared 与 Tailscale 安装包两条下载都接上；
   此前 cloudflared 只在换源时发一次、Tailscale 只在完成时发一次 100%，进度条形同摆设。

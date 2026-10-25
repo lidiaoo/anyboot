@@ -753,11 +753,32 @@ pub(crate) fn logout_blocking(app: &AppHandle) -> Result<TsnetStatus, String> {
 
 /// 清除远程登录认证信息（管理控制台里对应设备的授权；tailnet 后台的设备
 /// 记录不受影响，需自行在管理台移除）。
+/// **顺带清 AuthKey**：只删状态目录而留着密钥的话，下次开启引擎又会拿它自动
+/// 注册一个新节点，用户点完「清除登录凭据」却看见自己又上线了 —— 与 Tailscale
+/// 直连的 logout 同一口径。
 #[tauri::command]
 pub(crate) async fn tsnet_logout(app: AppHandle) -> Result<TsnetStatus, String> {
-    tauri::async_runtime::spawn_blocking(move || logout_blocking(&app))
-        .await
-        .map_err(|error| format!("内置引擎任务失败: {error}"))?
+    let settings_app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut status = logout_blocking(&app)?;
+        let had_key = !crate::stored_settings(&settings_app).tsnet_authkey.trim().is_empty();
+        if had_key {
+            let _ = crate::settings_commands::update_settings_and_publish(
+                &settings_app,
+                "tsnet_logout",
+                "内置引擎：清除 AuthKey",
+                |settings| settings.tsnet_authkey.clear(),
+                |_| {},
+            );
+            if let Ok(mut guard) = shared().lock() {
+                push_log(&mut guard, "已一并清除保存的 AuthKey（否则下次开启会自动重登）");
+            }
+            status.message = "登录凭据与 AuthKey 已清除，下次开启需重新授权".into();
+        }
+        Ok(status)
+    })
+    .await
+    .map_err(|error| format!("内置引擎任务失败: {error}"))?
 }
 
 /// 保存 AuthKey（管理控制台 → Settings → Keys 签发的设备授权密钥）。
