@@ -68,6 +68,7 @@ Get-Command ssh | Select-Object Source
 | 端口转发 / SOCKS5 | ✅ | ✅ | ✅ | |
 | 跳板机（ProxyCommand） | ✅ | ✅ | ✅ | 密码由继承的 askpass 按 host 认领 |
 | **连接复用（ControlMaster）** | ✅ | ✅ | ❌ | Win32-OpenSSH 不支持 |
+| **系统 Tailscale 直连**（up/down + 服务开关 + Funnel） | ✅ | ✅ | ✅ | 见下「系统 Tailscale 接入」小节 |
 | **内置 Tailscale 引擎（tsnet）** | ✅ | ✅ | ✅ | 免装客户端的 Funnel 公网通道，见下节 |
 
 ### Windows 没有 ControlMaster，意味着什么
@@ -88,6 +89,27 @@ Unix 上终端先建立一条 ControlMaster，sftp / 隧道 / 远端命令都靠
 > 文件列表永远空。`apply_auth` 在「只有密码、没有密钥」时会补上这个开关。
 
 副作用：Windows 上每次操作都会在服务器 `auth.log` 里留一条认证记录；Unix 上靠复用则会少很多。
+
+### 系统 Tailscale 接入（`hub_tailscale.rs`，远程接入页「Tailscale 直连」卡）
+
+统一走本机 tailscale CLI：状态 `status --json`（退 `ip -4` 兜底）、主开关 `up/down`、
+Funnel `funnel --bg <http_port>` / `funnel reset`（配置在 tailscaled 服务内，无子进程残留）。
+CLI 探测链见模块头注释（三端各自的候选路径 + PATH 兜底）。
+
+- **服务级副开关**：Windows=`sc query/start/stop Tailscale`（需管理员，CREATE_NO_WINDOW）；
+  Linux=`systemctl is-active`（只读查询免 root）+ `systemctl start/stop/restart`（桌面会话弹
+  polkit 授权框；无桌面会报「Interactive authentication」的人话翻译）；macOS 无此开关
+  （Tailscale.app 常驻代管）。前端按 `service_running >= 0` 自动点亮，无需平台判断。
+- **macOS App 版 CLI 两个专属坑**（都在 `cli_command`/`probe` 处理）：`SHLVL=1` 强制 CLI
+  分支（否则误走 GUI 启动分支，exit 0 + stdout 全是报错文本）；IPv4 严格形状校验防报错
+  文本被当 IP 拼进直连地址。
+- **Linux 两个高频故障的人话翻译**（2026-10-25 补）：
+  - `failed to connect to local tailscaled` → tailscaled 服务没跑，提示副开关或
+    `sudo systemctl enable --now tailscaled`；
+  - Funnel 报 `Access denied: serve config denied` → **不是 tailnet 策略**，是 tailscaled
+    本地权限闸门：serve/funnel 变更只允许 root/operator，普通用户连接拿不到 funnel 能力位。
+    一次性解法 `sudo tailscale set --operator=<用户名>`；tailnet 策略的 `nodeAttrs` funnel
+    授权是另一道独立的门（较新 tailnet 默认已放行），两道都过 Funnel 才通。
 
 ### 内置 Tailscale 引擎（tsnet sidecar）—— 三端布局与排错（2026-10-25 起覆盖 mac/linux）
 

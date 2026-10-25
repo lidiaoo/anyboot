@@ -33,8 +33,10 @@ pub(crate) struct TailscaleStatus {
     pub version: String,
     /// 探测到的 CLI 路径（排障展示用；未找到为空）。
     pub cli_path: String,
-    /// tailscaled 系统服务状态：1=运行中 / 0=已停止 / -1=查不了（非 Windows 或 sc 失败）。
+    /// tailscaled 系统服务状态：1=运行中 / 0=已停止 / -1=查不了。
     /// 两级开关的副开关数据源；state=unknown 且 installed 时多半也是服务没跑。
+    /// Windows 走 sc query；Linux 走 systemctl is-active tailscaled（is-active 是
+    /// 只读查询，非 root 可用）；macOS 恒 -1（App 常驻，没有独立服务这一层）。
     #[serde(default)]
     pub service_running: i8,
 }
@@ -289,7 +291,8 @@ pub(crate) fn probe_blocking() -> TailscaleStatus {
 const SERVICE_NAME: &str = "Tailscale";
 
 /// 查 tailscaled 系统服务状态：1=RUNNING / 0=STOPPED / -1=查不了。
-/// 非 Windows 直接 -1（macOS 是 App 常驻、Linux 各发行版差异大，副开关先只对 Windows 亮）。
+/// Windows= sc query；Linux= systemctl is-active（只读查询非 root 可用）；
+/// macOS 恒 -1（App 常驻、Linux 之外的差异不值得多维护一层）。
 fn service_running_state() -> i8 {
     service_running_state_impl()
 }
@@ -329,7 +332,23 @@ fn service_running_state_impl() -> i8 {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
+fn service_running_state_impl() -> i8 {
+    let Ok(output) = std::process::Command::new("systemctl")
+        .args(["is-active", "tailscaled"])
+        .output()
+    else {
+        return -1;
+    };
+    match String::from_utf8_lossy(&output.stdout).trim() {
+        "active" => 1,
+        "inactive" | "failed" => 0,
+        // "activating"/"unknown" 或非 systemd 系统（is-active 会打印报错并 exit 非 0）
+        _ => -1,
+    }
+}
+
+#[cfg(not(any(windows, target_os = "linux")))]
 fn service_running_state_impl() -> i8 {
     -1
 }
@@ -342,23 +361,34 @@ pub(crate) fn ts_toggle_blocking(up: bool) -> Result<TailscaleStatus, String> {
     if !ok {
         let detail = stderr.trim().lines().next().unwrap_or("").trim();
         let fallback = if up { "tailscale up 失败" } else { "tailscale down 失败" };
-        return Err(if detail.is_empty() && stdout.trim().is_empty() {
+        let mut detail = if detail.is_empty() && stdout.trim().is_empty() {
             fallback.to_string()
         } else if detail.is_empty() {
             stdout.trim().lines().next().unwrap_or(fallback).trim().to_string()
         } else {
             detail.to_string()
-        });
+        };
+        // tailscaled 服务没跑是 Linux 上最常见的坑（尤其容器/最小安装没 enable）：
+        // CLI 原始报错对用户没有可操作性，翻译成下一步动作
+        if detail.contains("failed to connect to local tailscaled") {
+            detail = "tailscaled 服务未运行 —— 先点上方副开关启动它，或终端执行 \
+                      sudo systemctl enable --now tailscaled"
+                .to_string();
+        }
+        return Err(detail);
     }
     Ok(probe(&cli))
 }
 
 /// 阻塞版服务控制：action = start / stop / restart。
-/// 返回控制后的服务状态（1/0/-1）。启停需要管理员权限，被拒时原样回显系统错误。
+/// 返回控制后的服务状态（1/0/-1）。启停需要特权（Windows 管理员 / Linux polkit
+/// 授权），被拒时原样回显系统错误。
 pub(crate) fn ts_service_blocking(action: &str) -> Result<i8, String> {
-    if !cfg!(windows) {
-        return Err("当前平台暂不支持服务级启停（副开关仅 Windows 可用）".to_string());
-    }
+    service_action_blocking(action)
+}
+
+#[cfg(windows)]
+fn service_action_blocking(action: &str) -> Result<i8, String> {
     let args: Vec<&str> = match action {
         "start" => vec!["start", SERVICE_NAME],
         "stop" => vec!["stop", SERVICE_NAME],
@@ -411,6 +441,52 @@ pub(crate) fn ts_service_blocking(action: &str) -> Result<i8, String> {
         }
     }
     Ok(service_running_state())
+}
+
+/// Linux 服务级启停走 systemctl（桌面会话里 polkit 会弹授权框，确认即可；
+/// 无桌面/被拒时把错误翻译成人话）。is-active 回读确认。
+#[cfg(target_os = "linux")]
+fn service_action_blocking(action: &str) -> Result<i8, String> {
+    let args: Vec<&str> = match action {
+        "start" => vec!["start", "tailscaled"],
+        "stop" => vec!["stop", "tailscaled"],
+        "restart" => vec!["restart", "tailscaled"],
+        _ => return Err(format!("未知的服务操作：{action}")),
+    };
+    let output = std::process::Command::new("systemctl")
+        .args(&args)
+        .output()
+        .map_err(|error| format!("执行 systemctl 失败: {error}"))?;
+    if !output.status.success() {
+        let text = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let detail = text.trim().lines().next().unwrap_or("").trim();
+        if detail.contains("Interactive authentication") || detail.contains("认证") {
+            return Err(
+                "需要系统授权：请在桌面弹出的授权框确认，或终端执行 sudo systemctl \
+                 start tailscaled"
+                    .to_string(),
+            );
+        }
+        if detail.contains("not been booted with systemd") {
+            return Err("此系统未使用 systemd，无法在应用内管理 tailscaled 服务".to_string());
+        }
+        return Err(if detail.is_empty() {
+            "服务操作失败".to_string()
+        } else {
+            detail.to_string()
+        });
+    }
+    Ok(service_running_state())
+}
+
+/// macOS：Tailscale.app 常驻代管 tailscaled，没有独立服务层可启停。
+#[cfg(target_os = "macos")]
+fn service_action_blocking(_action: &str) -> Result<i8, String> {
+    Err("macOS 由 Tailscale.app 常驻管理服务，无需（也无法）在应用内启停".to_string())
 }
 
 // ==================== 下载安装包 ====================
@@ -643,6 +719,33 @@ fn classify_funnel_error(stderr: &str, stdout: &str) -> (String, String, String)
     ("error".into(), "funnel_start_failed".into(), String::new())
 }
 
+/// 当前桌面用户名（operator 提示用；Linux 取 USER，Windows 兜底 USERNAME）。
+fn current_username() -> String {
+    std::env::var("USER")
+        .or_else(|_| std::env::var("USERNAME"))
+        .unwrap_or_default()
+}
+
+/// tailscaled 的本地权限闸门：serve/funnel 配置变更只允许 root / operator。
+/// 非特权连接报的文案是「Access denied: serve config denied」——看着像 tailnet
+/// 策略拒绝，其实是本机权限不够，tailnet 策略的 nodeAttrs 是另一道独立的门。
+/// 实机踩过：同一策略下 sudo 一跑就过。operator 设一次终身有效。
+fn serve_denied_hint() -> String {
+    let user = current_username();
+    if cfg!(windows) {
+        "Funnel 需要本机特权：请以管理员身份运行 AnyBoot 后重试".to_string()
+    } else if user.is_empty() {
+        "Funnel 需要本机特权：终端执行一次 sudo tailscale set --operator=$(whoami) \
+         后重试（之后 AnyBoot 免 sudo 管理 Funnel）"
+            .to_string()
+    } else {
+        format!(
+            "Funnel 需要本机特权：终端执行一次 sudo tailscale set --operator={user} \
+             后重试（之后 AnyBoot 免 sudo 管理 Funnel）"
+        )
+    }
+}
+
 /// Funnel 未就绪的前置检查（探不到 CLI / 没登录 / 已停止）。
 fn funnel_precheck() -> Result<std::path::PathBuf, TailscaleFunnelStatus> {
     let Some(cli) = find_cli() else {
@@ -694,7 +797,10 @@ pub(crate) fn funnel_enable_blocking(app: &AppHandle) -> TailscaleFunnelStatus {
         status.error_code = code;
         status.setup_url = setup_url;
         let detail = stderr.trim().lines().next().unwrap_or("").trim();
-        status.message = if detail.is_empty() {
+        status.message = if format!("{stderr}\n{stdout}").contains("serve config denied") {
+            // 本地权限闸门（root/operator），不是 tailnet 策略——给出 operator 一键命令
+            serve_denied_hint()
+        } else if detail.is_empty() {
             "Funnel 开启失败".into()
         } else {
             format!("Funnel 开启失败：{detail}")
