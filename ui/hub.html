@@ -2287,8 +2287,10 @@
             <span class="pulse" id="gwPulse" hidden></span>
             <span id="gwStateText">通道未开启</span>
             <a id="gwUrl" class="mono gw-url" target="_blank" rel="noopener" hidden></a>
-            <button class="link-btn" id="gwCopyUrl" hidden>复制</button>
+            <!-- 地址左、动作右：复制与「生成此地址的配对码」统一右对齐（与 Tailscale 卡同款） -->
             <span style="flex:1"></span>
+            <button class="link-btn" id="gwCopyUrl" hidden>复制</button>
+            <button class="btn" id="gwPairBtn" hidden>生成此地址的配对码</button>
             <span class="mono gw-meta" id="gwMeta"></span>
           </div>
           <div id="gwErrRow" class="gw-err" hidden></div>
@@ -9387,6 +9389,18 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
     if (el) el.dataset.st = st;
   }
 
+  /**
+   * Cloudflare 卡「生成此地址的配对码」按钮显隐。
+   * 有运行中地址（快速隧道 / 命名隧道跑起来后的 snap.url）或命名隧道里填的对外地址时可用 ——
+   * 后者即使通道没开也能出码，配对串里带的就是这个手填地址（与 gwIssueBtn 的分发口径一致）。
+   */
+  function gwAddrPairVisibility() {
+    const url = (snap && snap.url) || '';
+    const named = mode === 'named' ? $('gwNamedUrl').value.trim() : '';
+    const btn = $('gwPairBtn');
+    if (btn) btn.hidden = !(url || named);
+  }
+
   function applySnapshot(value) {
     snap = value || snap;
     if (!snap) return;
@@ -9402,6 +9416,7 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
     const url = snap.url || '';
     $('gwUrl').hidden = !url;
     $('gwCopyUrl').hidden = !url;
+    gwAddrPairVisibility();
     if (url) { $('gwUrl').textContent = url; $('gwUrl').href = url; }
     $('gwMeta').textContent = snap.restarts > 0 ? ('重启 ' + snap.restarts + ' 次') : '';
     $('gwErrRow').hidden = !(snap.last_error && !busy);
@@ -9494,7 +9509,7 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
     }).catch(function () { /* 读不到就维持未勾选，不阻断页面 */ });
   }
   gwLoadAutostart();
-  $('gwNamedUrl').addEventListener('change', function () { persistConfig(); });
+  $('gwNamedUrl').addEventListener('change', function () { persistConfig(); gwAddrPairVisibility(); });
 
   // ---- 二进制下载 / 手动路径 ----
   function startDownload() {
@@ -9545,7 +9560,7 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
   // 后端命令：gateway_tailscale_status / gateway_tailscale_download / gateway_tailscale_install / local_service_health
   // 事件：tailscale-progress / tailscale-done（与 gateway-binary-* 同一套线程模型）
   let tsStatus = null;      // 最新 Tailscale 状态
-  let tsPairPreset = null;  // Tailscale 卡「生成此地址的配对码」预选
+  let tsPairPreset = null;  // 各卡「生成此地址的配对码」预选地址类型（tunnel/tailscale/funnel/tsnet）
   let tsFunnel = null;      // Funnel 通道状态（区块 B）
   let tsfBusy = false;      // enable/disable 进行中（本地 starting 态）
   let tsBusy = false;       // 主开关 up/down 进行中
@@ -9745,6 +9760,12 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
     // 这个按钮以前根本没绑事件（点了完全没反应），现在补上并给反馈
     const url = (snap && snap.url) || $('gwUrl').textContent || '';
     gwWriteClipboard(url, '隧道地址已复制：' + url);
+  });
+  $('gwPairBtn').addEventListener('click', function () {
+    // 与 Tailscale 卡同一条路径：预选「Cloudflare 隧道地址」后打开出码弹窗。
+    // 命名隧道用填的对外地址，快速隧道用当前运行地址（都在 gwPairGo 里按 gwPairAddrType 取）。
+    tsPairPreset = 'tunnel';
+    $('gwIssueBtn').click();
   });
   $('tsCopyAddr').addEventListener('click', function () {
     const addr = tsAddr();
