@@ -1118,6 +1118,35 @@ fn manual_uninstall_hint() -> String {
     }
 }
 
+/// Linux 安装指纹：`/usr/local/bin` 双二进制 + ExecStart 指向它的自家 unit +
+/// 系统无发行版 unit。三者同时成立 = 只有 AnyBoot 的 tarball 安装脚本会造出
+/// 这个形态（发行版包装的 tailscaled 不在 /usr/local/bin，unit 也在 /usr/lib）。
+/// 与卸载脚本里的判定条件保持一致。
+#[cfg(all(unix, not(target_os = "macos")))]
+fn linux_install_fingerprint_matches() -> bool {
+    linux_install_fingerprint_at(
+        std::path::Path::new("/usr/local/bin/tailscale"),
+        std::path::Path::new("/usr/local/bin/tailscaled"),
+        std::path::Path::new("/etc/systemd/system/tailscaled.service"),
+        std::path::Path::new("/usr/lib/systemd/system/tailscaled.service"),
+    )
+}
+
+fn linux_install_fingerprint_at(
+    bin_cli: &std::path::Path,
+    bin_daemon: &std::path::Path,
+    unit: &std::path::Path,
+    distro_unit: &std::path::Path,
+) -> bool {
+    let bins = bin_cli.is_file() && bin_daemon.is_file();
+    let own_unit = unit.is_file()
+        && std::fs::read_to_string(unit)
+            .map(|text| text.contains("/usr/local/bin/tailscaled"))
+            .unwrap_or(false);
+    let no_distro_unit = !distro_unit.exists();
+    bins && own_unit && no_distro_unit
+}
+
 static TS_UNINSTALL_IN_FLIGHT: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
@@ -1144,6 +1173,17 @@ pub(crate) async fn gateway_tailscale_uninstall(app: AppHandle) -> Result<String
 fn ts_uninstall_blocking(app: &AppHandle) -> Result<String, String> {
     let marker = ts_install_marker(app)?;
     if !marker.exists() {
+        // 安装记录是后期加的：早期 AnyBoot 安装没有留下 marker。Linux 上用安装
+        // 指纹兜底——指纹成立即确凿是 AnyBoot 装的，补写记录后照常卸载；不匹配
+        // 才按「用户自装」拒绝。Win/mac 没有等价指纹，维持记录一票否决。
+        #[cfg(all(unix, not(target_os = "macos")))]
+        if linux_install_fingerprint_matches() {
+            ts_log("[卸载] 无安装记录，但安装指纹匹配（早期 AnyBoot 安装）→ 补写记录后继续");
+            write_install_marker(app)?;
+        } else {
+            return Err(manual_uninstall_hint());
+        }
+        #[cfg(any(target_os = "windows", target_os = "macos"))]
         return Err(manual_uninstall_hint());
     }
     if !probe_blocking().installed {
@@ -1634,6 +1674,62 @@ mod tests {
     fn platform_has_installer_on_all_supported() {
         // 三端都应有应用内安装渠道
         assert!(platform_has_installer());
+    }
+
+    #[test]
+    fn linux_install_fingerprint_distinguishes_anyboot_from_distro() {
+        // 造一个 AnyBoot 形态：双二进制 + ExecStart 指 /usr/local/bin 的 unit + 无发行版 unit
+        let root = std::env::temp_dir().join(format!("anyboot-ts-fp-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("bin")).unwrap();
+        std::fs::create_dir_all(root.join("etc")).unwrap();
+        std::fs::write(root.join("bin/tailscale"), b"cli").unwrap();
+        std::fs::write(root.join("bin/tailscaled"), b"daemon").unwrap();
+        std::fs::write(
+            root.join("etc/tailscaled.service"),
+            "ExecStart=/usr/local/bin/tailscaled --state=...\n",
+        )
+        .unwrap();
+        let matches = linux_install_fingerprint_at(
+            &root.join("bin/tailscale"),
+            &root.join("bin/tailscaled"),
+            &root.join("etc/tailscaled.service"),
+            &root.join("etc/nope.service"),
+        );
+        assert!(matches);
+        // 发行版形态一：unit 指向 /usr/sbin（Debian 系）→ 指纹不成立
+        std::fs::write(
+            root.join("etc/tailscaled.service"),
+            "ExecStart=/usr/sbin/tailscaled --state=...\n",
+        )
+        .unwrap();
+        assert!(!linux_install_fingerprint_at(
+            &root.join("bin/tailscale"),
+            &root.join("bin/tailscaled"),
+            &root.join("etc/tailscaled.service"),
+            &root.join("etc/nope.service"),
+        ));
+        // 发行版形态二：unit 内容虽指 /usr/local/bin，但 /usr/lib 还有发行版 unit → 不成立
+        std::fs::write(
+            root.join("etc/tailscaled.service"),
+            "ExecStart=/usr/local/bin/tailscaled --state=...\n",
+        )
+        .unwrap();
+        std::fs::write(root.join("etc/nope.service"), b"distro unit").unwrap();
+        assert!(!linux_install_fingerprint_at(
+            &root.join("bin/tailscale"),
+            &root.join("bin/tailscaled"),
+            &root.join("etc/tailscaled.service"),
+            &root.join("etc/nope.service"),
+        ));
+        // 缺二进制 → 不成立
+        assert!(!linux_install_fingerprint_at(
+            &root.join("bin/missing"),
+            &root.join("bin/tailscaled"),
+            &root.join("etc/tailscaled.service"),
+            &root.join("etc/nope.service"),
+        ));
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[cfg(target_os = "windows")]
