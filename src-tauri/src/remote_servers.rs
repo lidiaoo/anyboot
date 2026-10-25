@@ -57,49 +57,252 @@ fn is_funnel_origin(origin: &str) -> bool {
     lower.starts_with("https://") && lower["https://".len()..].contains(".ts.net")
 }
 
-/// 把一个远程 origin 放进对应的槽（判型优先，槽位只作为「两个 Funnel 槽谁优先」的提示）。
+/// 三个配对区块（`RemotePair.kind` 的取值）。区块是探测策略与超时的分组单位，
+/// 与 `route_order` 里的通道 id（lan/jump/tunnel/ts/funnel/tsnet）是**两套 id**：
+/// 区块是存储层，通道 id 是「谁在跑」的上报层，两者靠 [`block_of_route`] /
+/// [`route_kind_of`] 互转。别把两套混成一个 —— `ts` 区块同时含 direct 与 funnel
+/// 两种 lane，它们必须是同一个区块、却是不同的通道 id。
+pub(crate) const BLOCK_IDS: [&str; 3] = ["cloudflare", "ts", "tsnet"];
+
+/// 通道 id → 区块 id（lan / jump 不属于任何配对区块，返回 None）
+pub(crate) fn block_of_route(kind: &str) -> Option<&'static str> {
+    match kind.trim() {
+        "tunnel" => Some("cloudflare"),
+        "ts" | "funnel" => Some("ts"),
+        "tsnet" => Some("tsnet"),
+        _ => None,
+    }
+}
+
+/// `RemotePair.kind` 的显示名（区块标题用）
+pub(crate) fn block_label(kind: &str) -> &'static str {
+    match kind.trim() {
+        "cloudflare" => "Cloudflare",
+        "ts" => "Tailscale",
+        "tsnet" => "Tailscale（内建）",
+        _ => "未知区块",
+    }
+}
+
+/// 一条远程接入配对：一个系统的一套通道。独立保存、独立探测、独立删除。
 ///
-/// `slot`：0=隧道 1=Tailscale 直连 2=系统 Funnel 3=内置 Funnel（4=旧单槽，按判型随便放）。
-/// 为什么不能直接「哪个槽读出来就放回哪个槽」：用户会把整条配对串粘进任意框，
-/// 而且老档案里 `*.ts.net` 曾经躺在直连槽里 —— 判型归位才不会再出现「配一个顶掉另一个」。
-fn place_remote_origin(
-    origin: String,
-    slot: u8,
-    tunnel: &mut String,
-    ts_addr: &mut String,
-    funnel: &mut String,
-    tsnet: &mut String,
-) {
-    if origin.is_empty() {
-        return;
-    }
-    if is_funnel_origin(&origin) {
-        if slot == 3 && tsnet.is_empty() {
-            *tsnet = origin;
-        } else if funnel.is_empty() {
-            *funnel = origin;
-        } else if tsnet.is_empty() {
-            *tsnet = origin;
+/// 取代原来的四个单值槽（`remote_tunnel_addr` / `remote_ts_addr` /
+/// `remote_funnel_addr` / `remote_tsnet_addr`）+ 单值 `remote_token`：
+/// 槽是有穷枚举，而「同一台机器的几个系统各配一条」是变量，加槽加到几个都会塌。
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct RemotePair {
+    /// 本地唯一 id（配对/手填时生成，永不复用）。探测结果按它回填
+    #[serde(default)]
+    pub id: String,
+    /// 所属区块：cloudflare / ts / tsnet
+    #[serde(default)]
+    pub kind: String,
+    /// 仅 kind=ts 有意义：direct（100.64/10 明文 http）/ funnel（*.ts.net https）。
+    /// 保存时由地址形态推导，不靠用户填
+    #[serde(default)]
+    pub lane: String,
+    /// 生效 origin：`https://xxx.trycloudflare.com` 或 `http://100.x.x.x:12300`
+    #[serde(default)]
+    pub addr: String,
+    /// 该条目的网关客户端令牌（对方签发；空 = 该通道不需要）
+    #[serde(default)]
+    pub token: String,
+    /// 本条目的探测超时（毫秒）。0 = 继承 `block_timeouts_ms[kind]`，再继承全局
+    /// `probe_timeout_ms` —— 三层继承见文档 §5.3
+    #[serde(default)]
+    pub probe_timeout_ms: u64,
+    /// 是否参与探测（单条粒度）。取代原来的 `route_disabled`（区块内禁用）
+    #[serde(default = "serde_default_true")]
+    pub enabled: bool,
+    /// 对方系统自报的 machine_id —— 幂等键的一半（另一半是 kind）
+    #[serde(default)]
+    pub mid: String,
+    /// 对方自报的系统族（windows / macos / linux）
+    #[serde(default)]
+    pub os: String,
+    /// 对方自报的主机名（列表标题用）
+    #[serde(default)]
+    pub host: String,
+    /// named tunnel 的 id：识别「同一个隧道被多套系统共用」
+    #[serde(default)]
+    pub tunnel_id: String,
+    /// 用户备注（纯显示）
+    #[serde(default)]
+    pub note: String,
+    #[serde(default)]
+    pub created_at: u64,
+}
+
+impl Default for RemotePair {
+    /// 手写而不是 derive：`enabled` 的默认值必须是 **true**（derive 会给 bool 的 false，
+    /// 于是任何 `..Default::default()` 造出来的新配对都是「禁用」的，加了一条却不探测）。
+    /// 这与 serde 的 `#[serde(default = "serde_default_true")]` 保持一致。
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            kind: String::new(),
+            lane: String::new(),
+            addr: String::new(),
+            token: String::new(),
+            probe_timeout_ms: 0,
+            enabled: true,
+            mid: String::new(),
+            os: String::new(),
+            host: String::new(),
+            tunnel_id: String::new(),
+            note: String::new(),
+            created_at: 0,
         }
-        return;
     }
-    if is_tailscale_origin(&origin) {
-        if ts_addr.is_empty() {
-            *ts_addr = origin;
+}
+
+impl RemotePair {
+    /// 上报/展示用的通道 id（`route_order` / `ProbeOutcome.kind` / [`route_label`] 那一套）。
+    /// 空 = 这条配对不可用（kind 非法）。
+    pub(crate) fn route_kind(&self) -> &'static str {
+        match self.kind.trim() {
+            "cloudflare" => "tunnel",
+            "tsnet" => "tsnet",
+            // ts 区块按 lane 分：直连与 Funnel 的展示/超时语义不同，通道 id 也不同
+            "ts" => {
+                if self.effective_lane() == "funnel" {
+                    "funnel"
+                } else {
+                    "ts"
+                }
+            }
+            _ => "",
         }
-        return;
     }
-    if tunnel.is_empty() {
-        *tunnel = origin;
+
+    /// 这条配对的 lane（写空了的按地址形态补：100.64/10 → direct，*.ts.net → funnel）
+    pub(crate) fn effective_lane(&self) -> &'static str {
+        match self.lane.trim() {
+            "direct" => "direct",
+            "funnel" => "funnel",
+            _ => {
+                if is_funnel_origin(&self.addr) {
+                    "funnel"
+                } else {
+                    "direct"
+                }
+            }
+        }
     }
+
+    /// 归一：trim / id 补发 / 地址判型（顺手挖 ab_token）/ lane 推导 / 超时夹紧。
+    /// `fallback_kind` = 地址形态推不出区块时的归属（用户从哪个区块点的「添加」）。
+    fn normalize(mut self, fallback_kind: &str) -> Option<Self> {
+        // 地址栏里粘的是整条配对码？就地升级：区块类型与来源（mid / os / host /
+        // tunnel_id）全从码里取，用户不用再手填。**只覆盖写空的字段** —— 用户手填
+        // 过的值优先。老串（没有 v=2）解析失败 → 不删数据，按普通地址继续走下面的
+        // `split_remote_address`；「拒收 + 提示重新生成」由「识别并加入」的 UI 负责，
+        // 存储层不静默丢用户的条目。
+        if let Ok(parsed) = parse_pair_string(&self.addr) {
+            if !parsed.tunnel.is_empty() {
+                self.addr = parsed.tunnel;
+                if self.kind.trim().is_empty() {
+                    self.kind = parsed.kind;
+                }
+                if self.mid.trim().is_empty() {
+                    self.mid = parsed.mid;
+                }
+                if self.os.trim().is_empty() {
+                    self.os = parsed.os;
+                }
+                if self.host.trim().is_empty() {
+                    self.host = parsed.host;
+                }
+                if self.token.trim().is_empty() {
+                    self.token = parsed.token;
+                }
+                if self.tunnel_id.trim().is_empty() {
+                    self.tunnel_id = parsed.tunnel_id;
+                }
+            }
+        }
+        self.kind = self.kind.trim().to_lowercase();
+        if !BLOCK_IDS.contains(&self.kind.as_str()) {
+            self.kind = fallback_kind.trim().to_lowercase();
+        }
+        if !BLOCK_IDS.contains(&self.kind.as_str()) {
+            return None;
+        }
+        let (origin, token_in_url) = split_remote_address(&self.addr);
+        if origin.is_empty() {
+            return None;
+        }
+        self.addr = origin;
+        self.token = self.token.trim().to_string();
+        if self.token.is_empty() {
+            if let Some(token) = token_in_url {
+                self.token = token;
+            }
+        }
+        // lane 只在 ts 区块有意义；其余清空（cloudflare 的地址形态与 lane 无关）
+        self.lane = if self.kind == "ts" {
+            self.effective_lane().to_string()
+        } else {
+            String::new()
+        };
+        if self.probe_timeout_ms > 0 {
+            self.probe_timeout_ms = clamp_probe_timeout_ms(self.probe_timeout_ms);
+        }
+        self.mid = self.mid.trim().to_string();
+        self.os = match self.os.trim().to_lowercase().as_str() {
+            "windows" => "windows".to_string(),
+            "macos" | "darwin" | "osx" => "macos".to_string(),
+            "linux" => "linux".to_string(),
+            _ => String::new(),
+        };
+        self.host = self.host.trim().to_string();
+        self.tunnel_id = self.tunnel_id.trim().to_string();
+        self.note = self.note.trim().to_string();
+        if self.id.trim().is_empty() {
+            self.id = new_pair_id();
+        } else {
+            self.id = self.id.trim().to_string();
+        }
+        Some(self)
+    }
+}
+
+/// 幂等键：有 `mid` 时按 `(mid, kind)`（同一系统同一区块重新配对 = 更新那一行）；
+/// `mid` 为空（手填地址）时按 `(addr, kind)`。
+///
+/// **不能只用 `mid`**：同一个系统可以同时挂 cloudflare + ts + tsnet 三条，
+/// 只按 mid 去重会让它们互顶，等于回到原点。
+/// **也不能让空 mid 全撞在一起**：那样手填的第二条就会被吞掉。
+fn pair_key(pair: &RemotePair) -> String {
+    if pair.mid.is_empty() {
+        format!("addr|{}|{}", pair.kind, pair.addr)
+    } else {
+        format!("mid|{}|{}", pair.kind, pair.mid)
+    }
+}
+
+fn serde_default_true() -> bool {
+    true
+}
+
+/// 每档案的配对数软上限：再多列表就没法看了，也说明用错了（一条档案 = 一台电脑）
+pub(crate) const MAX_PAIRS: usize = 32;
+
+/// 配对 id 序号：一次保存可能同时补发多条 id，纳秒时间戳不足以区分，加个进程内计数
+static PAIR_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn new_pair_id() -> String {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let seq = PAIR_SEQ.fetch_add(1, Ordering::Relaxed);
+    format!("pair-{nanos:016x}-{seq:04x}")
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct RemoteServer {
     pub id: String,
-    /// 分组名（区分不同的电脑）；空 = 未分组
-    #[serde(default)]
-    pub group: String,
     /// 服务端名；空 = 用地址兜底
     #[serde(default)]
     pub name: String,
@@ -152,41 +355,38 @@ pub struct RemoteServer {
     /// 带哪块网卡的 MAC、发几个包、重试几次）。空 = 没配，走原来的老路。
     #[serde(default)]
     pub power_routes: Vec<PowerRoute>,
-    /// 远程接入地址（单槽位）：`https://xxx.trycloudflare.com` 这类公网隧道地址。
-    /// 局域网候选全都不通时才用它兜底（探测/HTTP/iframe 同一套语义）。
-    /// **双槽化后的「生效地址」**：normalize 后恒 = 隧道槽优先、否则 Tailscale 槽
-    /// （旧消费点零改动）；真正的配置源是下面两个槽。
+    /// **远程接入配对列表**（`pairs` 内的相对顺序 = 同区块内的探测顺序）。
+    ///
+    /// 取代四个单值槽与单值令牌：一个系统一套通道 = 一条 `RemotePair`。
+    /// 幂等键 `(mid, kind)`；「顶替」只剩一个合法场景 —— 同一系统同一区块重新配对。
     #[serde(default)]
-    pub remote_addr: String,
-    /// 远程接入 · Cloudflare 隧道槽：trycloudflare.com 等公网 https 地址（双槽之一）。
+    pub pairs: Vec<RemotePair>,
+    /// **每个区块内部的探测策略**：parallel_first（缺项 = 它）/ parallel_all / serial。
+    /// key ∈ cloudflare / ts / tsnet。与 [`Self::probe_mode`]（区块内多地址）、
+    /// [`Self::route_probe_mode`]（区块之间）构成三级策略。
     #[serde(default)]
-    pub remote_tunnel_addr: String,
-    /// 远程接入 · Tailscale 直连槽：只放 100.64/10（http://…:12300）。
-    /// 以前它兼收 *.ts.net，结果「系统 Funnel」和「100.x 直连」抢一个槽，配一个顶掉另一个。
+    pub block_probe_mode: std::collections::BTreeMap<String, String>,
+    /// **每个区块的默认探测超时**（毫秒），被 `pairs[].probe_timeout_ms` 覆盖。
+    /// key = 区块 id（cloudflare / ts / tsnet）—— 与 [`Self::route_timeouts_ms`]
+    /// 的通道 id key **分属两个 key 空间**，同一个表里混两种粒度必然取值歧义。
     #[serde(default)]
-    pub remote_ts_addr: String,
-    /// 远程接入 · 系统 Funnel 槽：电脑上装的 Tailscale 发出来的 *.ts.net 地址。
-    #[serde(default)]
-    pub remote_funnel_addr: String,
-    /// 远程接入 · 内置 Funnel 槽：AnyBoot 自带 tsnet 引擎发出来的 *.ts.net 地址。
-    /// 和系统 Funnel 分开存 —— 两者域名长得一样，混在一个槽里必然互相顶替。
-    #[serde(default)]
-    pub remote_tsnet_addr: String,
-    /// 远程接入令牌：对方电脑给我们这台签发的「网关客户端令牌」，与它的局域网
-    /// `token` 是两套（那边校验时按 ab_token 比对已配对客户端表）。
-    #[serde(default)]
-    pub remote_token: String,
+    pub block_timeouts_ms: std::collections::BTreeMap<String, u64>,
     /// 连接优先：`remote_first` = 远程优先（隧道通了就走隧道，局域网只做兜底）；
     /// 空 / 其它 = 自动（局域网优先，远程兜底 —— 默认）。
     /// **已废弃**：被 route_order（五通道显式排序）取代，字段保留只为旧档案兼容
     /// （读取时迁移：remote_first → 远程通道在前、LAN 殿后），不再被消费逻辑读取。
     #[serde(default)]
     pub conn_mode: String,
-    /// 连接优先级（五通道并列，有序）：id ∈ lan / jump / tunnel / ts / funnel。
+    /// 连接优先级（有序）：id ∈ lan / jump / tunnel / ts / funnel / tsnet。
     /// 空 / 缺项 = 老档案，按默认序（lan→jump→tunnel→ts→funnel）或 conn_mode 迁移补全。
+    /// **结构不动**：`lan` / `jump` 仍靠它排序（LAN 选路消费它），配对区块的顺序
+    /// 从它的配对通道项推导（见 [`Self::pair_block_order`]）。
     #[serde(default)]
     pub route_order: Vec<String>,
-    /// 禁用的通道 id（在 route_order 里有位次但不参与探测/请求）。
+    /// 禁用的**非配对通道** id（lan / jump）—— 配对区块的禁用走 `RemotePair.enabled`。
+    ///
+    /// 与设计稿的差异：删除整个 `route_disabled` 会让「禁用局域网直连 / 禁用跳板机」
+    /// 无处表达（这两条没有配对条目可挂），所以保留字段、语义收窄到 lan / jump。
     #[serde(default)]
     pub route_disabled: Vec<String>,
     #[serde(default)]
@@ -215,14 +415,43 @@ pub struct ProbeOutcome {
     /// 通道类型（lan/jump/tunnel/ts/funnel/tsnet）；老结果行缺省 = lan / 按 remote 区分
     #[serde(default)]
     pub kind: String,
+    /// 这条结果对应的配对 id（[`RemotePair::id`]）；lan / jump 行为空。
+    /// 前端按它回填「哪一行的状态」，不再靠地址字符串匹配
+    #[serde(default)]
+    pub pair_id: String,
 }
 
 /// remote_test 的显式候选（五通道优先级探测用）：kind ∈ lan/jump/tunnel/ts/funnel，
 /// origin = 局域网 host:port（lan/jump，jump 由前端先解析好转发端点）或远程 https origin
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 pub struct RouteTestCandidate {
     pub kind: String,
     pub origin: String,
+    /// 这条候选自己的探测超时（毫秒）。0 / 缺省 = 用通道表（`route_timeouts_ms`）或全局默认。
+    /// 配对的超时已经按「条目 → 区块 → 全局」算好塞在这里，引擎照办即可
+    #[serde(default)]
+    pub timeout_ms: u64,
+    /// 配对 id（结果行按它回填）；lan / jump 为空
+    #[serde(default)]
+    pub pair_id: String,
+}
+
+/// 一个连接候选（[`RemoteServer::route_candidates`] 展开的结果）。
+///
+/// 带 `token` 是因为多配对之后「令牌」不再挂在档案上：同一档案里不同配对各带各的
+/// 网关客户端令牌（对方系统签发），消费方必须用赢家那一条的令牌。
+/// 带 `timeout_ms` 同理：超时三层继承（条目 → 区块 → 全局）在展开时就算好，
+/// 消费方不用重复实现继承逻辑、也不会漏掉区块那一层。
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct RouteCandidate {
+    /// 通道 id（lan / jump / tunnel / ts / funnel / tsnet）
+    pub kind: String,
+    /// 局域网 `host:port`，或远程 origin；jump 为空（由消费方解析转发端点）
+    pub origin: String,
+    /// 这条候选要用的令牌（lan/jump = 档案 token；配对 = 该配对 token）
+    pub token: String,
+    /// 这条候选的探测超时（毫秒，已按三层继承算好并夹到 [200, 30000]）
+    pub timeout_ms: u64,
 }
 
 /// remote_test 的结果：addr/ms 是选中的赢家；results 是全部候选地址的逐行结果
@@ -280,14 +509,103 @@ impl RemoteServer {
         order
     }
 
-    /// 有序连接候选（已滤掉禁用与不可用项）：`(kind, origin)`。
+    /// 区块顺序：从 `route_order` 的配对通道项推导（去重保序），缺的按默认序补齐。
+    ///
+    /// **不新增 `block_order` 字段**：`route_order` 已经表达了「用户想把哪种接入排前面」，
+    /// 再加一个真相源必然出现「两个表说的不一样」。`ts` 与 `funnel` 在这里映射到同一个
+    /// `ts` 区块 —— 取先出现者定位即可，两个通道 id 本来就指向同一个区块。
+    pub(crate) fn pair_block_order(&self) -> Vec<String> {
+        let mut order: Vec<String> = Vec::new();
+        for kind in self.route_order_sorted() {
+            if let Some(block) = block_of_route(&kind) {
+                if !order.iter().any(|item| item == block) {
+                    order.push(block.to_string());
+                }
+            }
+        }
+        for block in BLOCK_IDS {
+            if !order.iter().any(|item| item == block) {
+                order.push(block.to_string());
+            }
+        }
+        order
+    }
+
+    /// 某区块内的配对（按 `pairs` 里的相对顺序；`enabled_only` 过滤禁用条目）
+    pub(crate) fn pairs_of_block(&self, block: &str, enabled_only: bool) -> Vec<&RemotePair> {
+        self.pairs
+            .iter()
+            .filter(|pair| pair.kind == block && (!enabled_only || pair.enabled))
+            .collect()
+    }
+
+    /// **生效配对**：按区块顺序 + 区块内顺序，第一条 `enabled` 的条目。
+    /// 取代原来的 `remote_addr` 存储字段 —— 它不再是配置，而是算出来的结果。
+    pub(crate) fn effective_pair(&self) -> Option<&RemotePair> {
+        for block in self.pair_block_order() {
+            if let Some(pair) = self.pairs_of_block(&block, true).into_iter().next() {
+                return Some(pair);
+            }
+        }
+        None
+    }
+
+    /// 生效的远程 origin（空 = 没有任何可用配对）。探测 / HTTP / iframe / 终端统一读它
+    pub(crate) fn effective_remote_addr(&self) -> String {
+        self.effective_pair()
+            .map(|pair| pair.addr.clone())
+            .unwrap_or_default()
+    }
+
+    /// 生效配对的令牌（空 = 不需要 / 没有配对）
+    pub(crate) fn effective_remote_token(&self) -> String {
+        self.effective_pair()
+            .map(|pair| pair.token.clone())
+            .unwrap_or_default()
+    }
+
+    /// 这条配对实际生效的探测超时：条目 → 区块 → 全局（默认 2s）三层继承。
+    pub(crate) fn probe_timeout_for_pair(&self, pair: &RemotePair) -> Duration {
+        if pair.probe_timeout_ms > 0 {
+            return Duration::from_millis(clamp_probe_timeout_ms(pair.probe_timeout_ms));
+        }
+        if let Some(raw) = self.block_timeouts_ms.get(pair.kind.trim()) {
+            if *raw > 0 {
+                return Duration::from_millis(clamp_probe_timeout_ms(*raw));
+            }
+        }
+        self.probe_timeout()
+    }
+
+    /// 有序连接候选（已滤掉禁用与不可用项）。
     /// - lan：首个非空局域网地址（补默认端口）；
     /// - jump：经跳板机转发到同一局域网地址（没配跳板机 = 不可用，origin 留空由消费方解析端点）；
-    /// - tunnel / ts / funnel：远程 origin（funnel 从 ts 槽判型拆出：https + *.ts.net）。
-    pub(crate) fn route_candidates(&self) -> Vec<(String, String)> {
-        let mut out: Vec<(String, String)> = Vec::new();
+    /// - 配对区块：按区块顺序 + 区块内顺序展开**每一条** enabled 配对（不再一区块一条）。
+    pub(crate) fn route_candidates(&self) -> Vec<RouteCandidate> {
+        let mut out: Vec<RouteCandidate> = Vec::new();
         let has_lan_addr = self.addresses.iter().any(|raw| !raw.trim().is_empty());
+        let mut done_blocks: Vec<String> = Vec::new();
         for kind in self.route_order_sorted() {
+            if let Some(block) = block_of_route(&kind) {
+                // 区块只展开一次（ts 与 funnel 都映射到 ts，第二次跳过）
+                if done_blocks.iter().any(|item| item == block) {
+                    continue;
+                }
+                done_blocks.push(block.to_string());
+                for pair in self.pairs_of_block(block, true) {
+                    let route_kind = pair.route_kind();
+                    if route_kind.is_empty() {
+                        continue;
+                    }
+                    out.push(RouteCandidate {
+                        kind: route_kind.to_string(),
+                        origin: pair.addr.clone(),
+                        token: pair.token.clone(),
+                        timeout_ms: self.probe_timeout_for_pair(pair).as_millis() as u64,
+                    });
+                }
+                continue;
+            }
             if self.route_disabled.iter().any(|raw| raw.trim() == kind) {
                 continue;
             }
@@ -299,35 +617,23 @@ impl RemoteServer {
                         .map(|raw| raw.trim())
                         .find(|raw| !raw.is_empty())
                     {
-                        out.push(("lan".to_string(), with_default_port(addr)));
+                        // 局域网用档案自己的 token（与配对令牌是两套）
+                        out.push(RouteCandidate {
+                            kind: "lan".to_string(),
+                            origin: with_default_port(addr),
+                            token: self.token.clone(),
+                            timeout_ms: self.probe_timeout_for("lan").as_millis() as u64,
+                        });
                     }
                 }
                 "jump" => {
                     if !self.jump_id.trim().is_empty() && has_lan_addr {
-                        out.push(("jump".to_string(), String::new()));
-                    }
-                }
-                "tunnel" => {
-                    if !self.remote_tunnel_addr.is_empty() {
-                        out.push(("tunnel".to_string(), self.remote_tunnel_addr.clone()));
-                    }
-                }
-                "ts" => {
-                    let origin = self.ts_direct_origin();
-                    if !origin.is_empty() {
-                        out.push(("ts".to_string(), origin));
-                    }
-                }
-                "funnel" => {
-                    let origin = self.funnel_origin();
-                    if !origin.is_empty() {
-                        out.push(("funnel".to_string(), origin));
-                    }
-                }
-                "tsnet" => {
-                    let origin = self.tsnet_origin();
-                    if !origin.is_empty() {
-                        out.push(("tsnet".to_string(), origin));
+                        out.push(RouteCandidate {
+                            kind: "jump".to_string(),
+                            origin: String::new(),
+                            token: self.token.clone(),
+                            timeout_ms: self.probe_timeout_for("jump").as_millis() as u64,
+                        });
                     }
                 }
                 _ => {}
@@ -336,7 +642,7 @@ impl RemoteServer {
         out
     }
 
-    /// 这台电脑的**默认**探测超时（通道没单独设时用它；默认 2 秒）
+    /// 这台电脑的**默认**探测超时（配对与通道都没单独设时用它；默认 2 秒）
     pub(crate) fn probe_timeout(&self) -> Duration {
         Duration::from_millis(clamp_probe_timeout_ms(self.probe_timeout_ms))
     }
@@ -345,6 +651,8 @@ impl RemoteServer {
     ///
     /// 「每个通道单独设」是有意义的：局域网 2 秒都算宽，而 Funnel / 内置 tsnet
     /// 走中继时首次 TLS 握手可能好几秒，一个全局值必然一边偏松一边偏紧。
+    /// **配对区块**走 `block_timeouts_ms`（见 [`Self::probe_timeout_for_pair`]），
+    /// 这张表只剩 `lan` / `jump` 在用。
     pub(crate) fn probe_timeout_for(&self, kind: &str) -> Duration {
         match self.route_timeouts_ms.get(kind.trim()) {
             Some(raw) if *raw > 0 => Duration::from_millis(clamp_probe_timeout_ms(*raw)),
@@ -352,43 +660,8 @@ impl RemoteServer {
         }
     }
 
-    /// 系统 Funnel 槽的地址（https + *.ts.net）；没有则空。
-    ///
-    /// 老档案兜底：以前 *.ts.net 挤在 `remote_ts_addr` 里，所以那边有 Funnel 也认；
-    /// 再老的只有单槽 `remote_addr`，同样补一次判型。
-    pub(crate) fn funnel_origin(&self) -> String {
-        let funnel = self.remote_funnel_addr.trim();
-        if !funnel.is_empty() {
-            return funnel.to_string();
-        }
-        let ts = self.remote_ts_addr.trim();
-        if is_funnel_origin(ts) {
-            return ts.to_string();
-        }
-        let legacy = self.remote_addr.trim();
-        if self.remote_ts_addr.is_empty() && is_funnel_origin(legacy) {
-            return legacy.to_string();
-        }
-        String::new()
-    }
-
-    /// 内置 tsnet 槽的地址（https + *.ts.net）；没有则空。
-    pub(crate) fn tsnet_origin(&self) -> String {
-        self.remote_tsnet_addr.trim().to_string()
-    }
-
-    /// ts 槽里的 Tailscale 直连地址（100.x http）；是 Funnel 就不算。
-    pub(crate) fn ts_direct_origin(&self) -> String {
-        let ts = self.remote_ts_addr.trim();
-        if !ts.is_empty() && !is_funnel_origin(ts) {
-            return ts.to_string();
-        }
-        String::new()
-    }
-
     pub(crate) fn normalize(mut self) -> Self {
         self.id = self.id.trim().to_string();
-        self.group = self.group.trim().to_string();
         self.name = self.name.trim().to_string();
         self.token = self.token.trim().to_string();
         self.machine_id = self.machine_id.trim().to_string();
@@ -432,11 +705,12 @@ impl RemoteServer {
         } else {
             self.route_order = self.route_order_sorted();
         }
+        // 禁用表只服务非配对通道（lan / jump）：配对区块的禁用是 `RemotePair.enabled`
         self.route_disabled = self
             .route_disabled
             .iter()
-            .map(|raw| raw.trim().to_string())
-            .filter(|id| ROUTE_IDS.contains(&id.as_str()))
+            .map(|raw| raw.trim().to_lowercase())
+            .filter(|id| id == "lan" || id == "jump")
             .collect();
         // 每通道探测超时：只留合法通道 id，值 0 等于「没单独设」（删掉，回落默认值），越界夹紧
         self.route_timeouts_ms = normalize_route_timeouts(&self.route_timeouts_ms);
@@ -507,86 +781,44 @@ impl RemoteServer {
             });
         }
         self.power_routes = routes;
-        // 远程接入四槽归一：每槽 trim + split_remote_address 挖 origin / token；
-        // **判型归位**（粘错槽也没事）：*.ts.net → 系统 Funnel / 内置 Funnel，100.x → 直连，
-        // 其余 → 隧道；旧单槽 remote_addr 在四槽全空时按判型迁移分流。
-        // remote_addr 保留为「生效地址」镜像（隧道 → Funnel → 内置 → 直连），旧消费点零改动。
-        self.remote_token = self.remote_token.trim().to_string();
-        let mut tunnel = String::new();
-        let mut ts_addr = String::new();
-        let mut funnel = String::new();
-        let mut tsnet = String::new();
-        let mut token_from_url: Option<String> = None;
-        let slots = [
-            (std::mem::take(&mut self.remote_tunnel_addr), 0u8),
-            (std::mem::take(&mut self.remote_ts_addr), 1),
-            (std::mem::take(&mut self.remote_funnel_addr), 2),
-            (std::mem::take(&mut self.remote_tsnet_addr), 3),
-        ];
-        let slots_empty = slots.iter().all(|(raw, _)| raw.trim().is_empty());
-        let legacy = if slots_empty {
-            self.remote_addr.trim().to_string()
-        } else {
-            String::new()
-        };
-        for (raw, slot) in slots {
-            let (origin, token) = split_remote_address(&raw);
-            if token.is_some() && token_from_url.is_none() {
-                token_from_url = token;
+        // 远程接入配对归一：每条 trim / 判型 / 挖 token / 补 id，再按幂等键去重、截到软上限
+        self.pairs = normalize_pairs(std::mem::take(&mut self.pairs));
+        // 区块策略：只留三个合法区块，值归一到三种取值；= 默认值（parallel_first）就不存，
+        // 缺项即默认，存了反而多一份「看起来配过其实没配」的噪音
+        let mut block_modes = std::collections::BTreeMap::new();
+        for (key, value) in std::mem::take(&mut self.block_probe_mode) {
+            let key = key.trim().to_lowercase();
+            if !BLOCK_IDS.contains(&key.as_str()) {
+                continue;
             }
-            place_remote_origin(origin, slot, &mut tunnel, &mut ts_addr, &mut funnel, &mut tsnet);
-        }
-        if !legacy.is_empty() {
-            let (origin, token) = split_remote_address(&legacy);
-            if token.is_some() && token_from_url.is_none() {
-                token_from_url = token;
-            }
-            place_remote_origin(origin, 0, &mut tunnel, &mut ts_addr, &mut funnel, &mut tsnet);
-        }
-        self.remote_tunnel_addr = tunnel;
-        self.remote_ts_addr = ts_addr;
-        self.remote_funnel_addr = funnel;
-        self.remote_tsnet_addr = tsnet;
-        if let Some(token) = token_from_url {
-            if self.remote_token.is_empty() {
-                self.remote_token = token;
+            let mode = normalize_probe_mode(&value);
+            if mode != "parallel_first" {
+                block_modes.insert(key, mode.to_string());
             }
         }
-        // 生效地址镜像：隧道 → 系统 Funnel → 内置 Funnel → 直连（第一个非空的）
-        self.remote_addr = [
-            self.remote_tunnel_addr.clone(),
-            self.remote_funnel_addr.clone(),
-            self.remote_tsnet_addr.clone(),
-            self.remote_ts_addr.clone(),
-        ]
-        .into_iter()
-        .find(|value| !value.is_empty())
-        .unwrap_or_default();
-        if self.remote_addr.is_empty() {
-            self.remote_token = String::new();
+        self.block_probe_mode = block_modes;
+        // 区块默认超时：只留合法区块 id，值 0 = 没设（删掉回落全局），越界夹紧
+        let mut block_timeouts = std::collections::BTreeMap::new();
+        for (key, value) in std::mem::take(&mut self.block_timeouts_ms) {
+            let key = key.trim().to_lowercase();
+            if !BLOCK_IDS.contains(&key.as_str()) || value == 0 {
+                continue;
+            }
+            block_timeouts.insert(key, clamp_probe_timeout_ms(value));
         }
+        self.block_timeouts_ms = block_timeouts;
         self
     }
 
-    /// 远程接入候选（四槽）：隧道 → 系统 Funnel → 内置 Funnel → 直连；
-    /// 四槽全空时兜底旧单槽 `remote_addr`（老配置还没走过 normalize 就被读的场景）。
+    /// 全部远程 origin（按区块顺序 + 区块内顺序，含 disabled）。
+    /// 给「展示所有配过的地址」用；连接与探测请用 [`Self::route_candidates`]。
     pub(crate) fn remote_origins(&self) -> Vec<String> {
         let mut list = Vec::new();
-        for slot in [
-            &self.remote_tunnel_addr,
-            &self.remote_funnel_addr,
-            &self.remote_tsnet_addr,
-            &self.remote_ts_addr,
-        ] {
-            let value = slot.trim();
-            if !value.is_empty() && !list.iter().any(|item| item == value) {
-                list.push(value.to_string());
-            }
-        }
-        if list.is_empty() {
-            let legacy = self.remote_addr.trim().to_string();
-            if !legacy.is_empty() {
-                list.push(legacy);
+        for block in self.pair_block_order() {
+            for pair in self.pairs_of_block(&block, false) {
+                if !pair.addr.is_empty() && !list.iter().any(|item| item == &pair.addr) {
+                    list.push(pair.addr.clone());
+                }
             }
         }
         list
@@ -657,6 +889,91 @@ fn split_address(raw: &str) -> (String, Option<String>) {
         }
     }
     (authority, token)
+}
+
+/// 配对串（v2）解析结果。
+///
+/// `kind` 是**区块** id（`cloudflare` / `ts` / `tsnet`），不是通道 id —— 与
+/// `RemotePair.kind` 同一套取值，见 `docs/remote-pairs.md` §4.5。
+/// `lane` 不占串参数：由地址形态推导（100.64/10 → direct，`*.ts.net` → funnel）。
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct ParsedPair {
+    pub mid: String,
+    pub os: String,
+    pub host: String,
+    pub kind: String,
+    pub tunnel: String,
+    pub token: String,
+    pub tunnel_id: String,
+}
+
+/// 解析配对串 `anyboot://pair?v=2&mid=…&os=…&host=…&type=…&tunnel=…&token=…&tunnel_id=…`
+///
+/// **只认 `v=2`**：老串没有 `mid` / `type`，硬解出来的条目既无法去重也判不出区块，
+/// 结果是「配一个顶掉另一个」。所以 `v != 2` 一律拒收并让用户回电脑上重新生成
+/// （`docs/remote-pairs.md` §4.5「不解析老串」）。
+///
+/// `type` 非法（含整个缺失）同样拒收：猜类型是历史 bug 的源头 —— 三套 `*.ts.net`
+/// 长得一模一样，靠地址猜必然把「内建 tsnet」和「系统 Funnel」混成一个。
+pub(crate) fn parse_pair_string(raw: &str) -> Result<ParsedPair, String> {
+    let raw = raw.trim();
+    if !raw.to_ascii_lowercase().starts_with("anyboot://pair?") {
+        return Err("不是配对码（要 anyboot://pair?v=2&… 开头）".to_string());
+    }
+    let query = &raw["anyboot://pair?".len()..];
+    let (mut version, mut mid, mut os, mut host) = (String::new(), String::new(), String::new(), String::new());
+    let (mut kind, mut tunnel, mut token, mut tunnel_id) =
+        (String::new(), String::new(), String::new(), String::new());
+    for item in query.split('&') {
+        let mut parts = item.splitn(2, '=');
+        let key = parts.next().unwrap_or("").trim().to_ascii_lowercase();
+        let value = percent_decode(parts.next().unwrap_or("").trim());
+        match key.as_str() {
+            "v" | "ver" | "version" => version = value,
+            "mid" => mid = value,
+            "os" => os = value,
+            // `gateway` 是 v1 遗留的显示名，v2 里与 `host` 同值；`host` 优先。
+            "host" => host = value,
+            "gateway" if host.is_empty() => host = value,
+            "type" => kind = value,
+            "tunnel" => tunnel = value,
+            "token" | "ab_token" => token = value,
+            "tunnel_id" => tunnel_id = value,
+            _ => {}
+        }
+    }
+    if version != "2" {
+        return Err(if version.is_empty() {
+            "这是旧版配对码（缺 v=2），请在电脑上重新生成一个".to_string()
+        } else {
+            format!("配对码版本不支持（v={version}），请在电脑上重新生成一个")
+        });
+    }
+    let kind = match kind.trim().to_ascii_lowercase().as_str() {
+        "cloudflare" => "cloudflare".to_string(),
+        "ts" => "ts".to_string(),
+        "tsnet" => "tsnet".to_string(),
+        other => {
+            return Err(format!(
+                "配对码里的 type 非法（{}），要 cloudflare / ts / tsnet",
+                if other.is_empty() { "缺失" } else { other }
+            ))
+        }
+    };
+    Ok(ParsedPair {
+        mid: mid.trim().to_string(),
+        os: match os.trim().to_lowercase().as_str() {
+            "windows" => "windows".to_string(),
+            "macos" | "darwin" | "osx" => "macos".to_string(),
+            "linux" => "linux".to_string(),
+            _ => String::new(),
+        },
+        host: host.trim().to_string(),
+        kind,
+        tunnel: tunnel.trim().to_string(),
+        token: token.trim().to_string(),
+        tunnel_id: tunnel_id.trim().to_string(),
+    })
 }
 
 /// 远程接入地址归一：`https://xxx.trycloudflare.com/?ab_token=t` 这类整条 URL、
@@ -975,28 +1292,29 @@ fn remote_http_power(server: &RemoteServer, action: &str) -> Result<String, Stri
     let candidates = server.route_candidates();
     let mut last_error = String::from("没有可用连接通道");
     let mut tried = 0usize;
-    for (kind, origin) in &candidates {
-        if kind == "jump" {
+    for cand in &candidates {
+        if cand.kind == "jump" {
             continue;
         }
         tried += 1;
-        let result = if kind == "lan" {
+        let result = if cand.kind == "lan" {
             lan_http_get(
-                origin,
+                &cand.origin,
                 &power_query_path(action, server.token.trim()),
                 15,
             )
             .and_then(|(status, body)| parse_power_reply(status, &body))
         } else {
-            remote_https_get(origin, &server.remote_token, &path)
+            // 令牌用**这条候选自己的**：不同配对各带各的网关客户端令牌
+            remote_https_get(&cand.origin, &cand.token, &path)
                 .and_then(|(status, body)| parse_power_reply(status, &body))
         };
         match result {
             Ok(message) => {
-                return Ok(if kind == "lan" {
+                return Ok(if cand.kind == "lan" {
                     message
                 } else {
-                    format!("（经{}）{message}", route_label(kind))
+                    format!("（经{}）{message}", route_label(&cand.kind))
                 });
             }
             Err(error) => last_error = error,
@@ -1394,14 +1712,42 @@ pub fn local_http_endpoint(app: AppHandle) -> Result<serde_json::Value, String> 
 }
 
 /// 电脑页初始化数据：全部档案 + 全局开关。token 明文回传（iframe 拼 URL 要用，对齐手机）。
+///
+/// 返回 `serde_json::Value` 而不是 `RemoteStore`：要给前端补两个**算出来的**字段
+/// （`effective_addr` / `effective_token`）—— 它们是「区块顺序 + 区块内顺序的第一条
+/// enabled 配对」，不是配置，不能落盘。前端拿到就能直接用，不必自己实现一遍排序规则
+/// （三处实现必然走样，这是老四槽时代的教训）。
 #[tauri::command]
-pub fn remote_list(app: AppHandle) -> Result<RemoteStore, String> {
-    load_store(&app)
+pub fn remote_list(app: AppHandle) -> Result<serde_json::Value, String> {
+    let store = load_store(&app)?;
+    let servers: Vec<serde_json::Value> = store
+        .servers
+        .iter()
+        .cloned()
+        // 读路径也归一一次：手改过 JSON / 老档案塞进非法条目时，前端不该看到脏数据
+        .map(|server| server_json(server.normalize()))
+        .collect();
+    Ok(serde_json::json!({
+        "connect_all": store.connect_all,
+        "servers": servers,
+    }))
+}
+
+/// 档案 → JSON，并补上两个计算字段（见 [`remote_list`] 的说明）
+fn server_json(server: RemoteServer) -> serde_json::Value {
+    let (addr, token) = (server.effective_remote_addr(), server.effective_remote_token());
+    let mut value = serde_json::to_value(&server).unwrap_or(serde_json::Value::Null);
+    if let Some(object) = value.as_object_mut() {
+        object.insert("effective_addr".to_string(), serde_json::json!(addr));
+        object.insert("effective_token".to_string(), serde_json::json!(token));
+    }
+    value
 }
 
 /// 新建 / 编辑。id 空 = 新建；否则按 id 更新（created_at 保留）。
+/// 返回值带计算字段（与 [`remote_list`] 同一形态），前端保存后可直接替换本地那一行。
 #[tauri::command]
-pub fn remote_save(app: AppHandle, server: RemoteServer) -> Result<RemoteServer, String> {
+pub fn remote_save(app: AppHandle, server: RemoteServer) -> Result<serde_json::Value, String> {
     let mut server = server.normalize();
     if server.addresses.is_empty() {
         return Err("至少要填一个服务端地址".to_string());
@@ -1429,9 +1775,21 @@ pub fn remote_save(app: AppHandle, server: RemoteServer) -> Result<RemoteServer,
         if server.token.is_empty() {
             server.token = existing.token.clone();
         }
-        // 远程令牌同语义：编辑弹窗不回显令牌，留空 = 保持已存的网关客户端令牌
-        if server.remote_token.is_empty() {
-            server.remote_token = existing.remote_token.clone();
+        // 远程配对令牌同语义：编辑弹窗不回显令牌，某条配对留空 = 保持同 id 已存的令牌。
+        // 按 id 对而不是按 (mid,kind)：用户可能刚把手填地址的 mid 补上，
+        // 这时幂等键变了但确实是同一行，按 id 才对得上
+        let saved: Vec<(String, String)> = existing
+            .pairs
+            .iter()
+            .map(|pair| (pair.id.clone(), pair.token.clone()))
+            .collect();
+        for pair in server.pairs.iter_mut() {
+            if !pair.token.is_empty() {
+                continue;
+            }
+            if let Some((_, token)) = saved.iter().find(|(id, _)| *id == pair.id) {
+                pair.token = token.clone();
+            }
         }
         // 地址没变才保留探测学到的机器标识（变了可能已是另一台电脑，作废）
         let same_machine_set = existing.addresses == server.addresses;
@@ -1447,7 +1805,7 @@ pub fn remote_save(app: AppHandle, server: RemoteServer) -> Result<RemoteServer,
         return Err("服务端不存在（可能已被删除）".to_string());
     }
     save_store(&app, &store)?;
-    Ok(server)
+    Ok(server_json(server))
 }
 
 /// 删除服务端（顺带收掉它的隧道子进程）。
@@ -1693,6 +2051,53 @@ fn serde_default_probe_timeout_ms() -> u64 {
     DEFAULT_PROBE_TIMEOUT_MS
 }
 
+/// 配对列表归一：逐条 trim / 判型 / 挖 token / 补 id → 按幂等键去重（**后来的覆盖前面的**，
+/// 也就是「同一系统同一区块重新配对 = 更新那一行」）→ 截到软上限。
+///
+/// 去重时保留**先出现的位置**而不是把更新项挪到末尾：用户排好的区块内顺序不该因为
+/// 重扫一次码就被打乱。
+fn normalize_pairs(raw: Vec<RemotePair>) -> Vec<RemotePair> {
+    let mut out: Vec<RemotePair> = Vec::new();
+    let mut index_of: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for pair in raw {
+        // kind 非法/为空时按地址形态兜底判型：100.x 与 *.ts.net 都归 ts 区块，
+        // 其余（trycloudflare / 自建域名）归 cloudflare。不猜 tsnet —— 内置引擎的域名
+        // 与系统 Funnel 同形，猜错了会把系统那条塞进内置区块，只能由配对串显式指定
+        let fallback = if is_tailscale_origin(&pair.addr) {
+            "ts"
+        } else {
+            "cloudflare"
+        };
+        let Some(pair) = pair.normalize(fallback) else {
+            continue;
+        };
+        let key = pair_key(&pair);
+        match index_of.get(&key) {
+            Some(&index) => {
+                // 更新：保留原 id（探测结果还能对上）与原位置
+                let kept_id = out[index].id.clone();
+                out[index] = RemotePair {
+                    id: kept_id,
+                    created_at: if out[index].created_at != 0 {
+                        out[index].created_at
+                    } else {
+                        pair.created_at
+                    },
+                    ..pair
+                };
+            }
+            None => {
+                index_of.insert(key, out.len());
+                out.push(pair);
+            }
+        }
+        if out.len() >= MAX_PAIRS {
+            break;
+        }
+    }
+    out
+}
+
 fn serde_default_route_probe_mode() -> String {
     "parallel_first".to_string()
 }
@@ -1702,6 +2107,8 @@ fn serde_default_route_probe_mode() -> String {
 struct ProbeHit {
     kind: String,
     origin: String,
+    /// 配对 id（前端按它回填到具体那一行）；lan / jump 为空
+    pair_id: String,
     remote: bool,
     outcome: Result<ProbePayload, String>,
 }
@@ -1764,6 +2171,9 @@ fn probe_candidates_blocking(
         .map(|cand| RouteTestCandidate {
             kind: cand.kind.trim().to_lowercase(),
             origin: cand.origin.trim().to_string(),
+            // 条目自带超时跟着走（配对算好的三层继承结果），没带就落通道表/全局默认
+            timeout_ms: cand.timeout_ms,
+            pair_id: cand.pair_id.trim().to_string(),
         })
         .filter(|cand| !cand.kind.is_empty() && !cand.origin.is_empty())
         .collect();
@@ -1774,26 +2184,35 @@ fn probe_candidates_blocking(
         };
     }
 
-    // 每个通道用自己的超时（没单独设就用默认值）—— 局域网快、Funnel/tsnet 慢，分开才合理
-    let timeout_of = |kind: &str| {
-        let raw = timeouts
-            .get(kind)
-            .copied()
-            .filter(|value| *value > 0)
-            .unwrap_or(default_timeout_ms);
-        Duration::from_millis(clamp_probe_timeout_ms(raw))
-    };
+    // 每条候选的实际超时在这里一次算清：**条目自带 → 通道表 → 全局默认**（三层继承）。
+    // 配对已经把「条目 → 区块 → 全局」算好塞进 timeout_ms，局域网候选则由通道表决定。
+    let list: Vec<RouteTestCandidate> = list
+        .into_iter()
+        .map(|mut cand| {
+            if cand.timeout_ms == 0 {
+                cand.timeout_ms = timeouts
+                    .get(&cand.kind)
+                    .copied()
+                    .filter(|value| *value > 0)
+                    .unwrap_or(default_timeout_ms);
+            }
+            cand.timeout_ms = clamp_probe_timeout_ms(cand.timeout_ms);
+            cand
+        })
+        .collect();
     let groups = group_candidates(&list);
     let route_mode = normalize_probe_mode(route_mode);
     let address_mode = normalize_probe_mode(address_mode);
     // 兜底时限：按**最坏路径**估（内层按串行算，外层串行就累加、并发就取最大），
     // 每个探活自己已有 IO 超时，这里只防线程池排队，宽一点不会误杀
     let group_worst = |group: &ProbeGroup| {
-        let per = timeout_of(&group.kind);
+        let secs: Vec<Duration> = group.items.iter()
+            .map(|item| Duration::from_millis(item.timeout_ms))
+            .collect();
         if address_mode == "serial" {
-            per * (group.origins.len() as u32)
+            secs.iter().copied().sum()
         } else {
-            per
+            secs.iter().copied().max().unwrap_or_default()
         }
     };
     let worst = if route_mode == "serial" {
@@ -1810,7 +2229,7 @@ fn probe_candidates_blocking(
         // 外层串行：一个通道一个通道地试，某个通道命中就不再往下走
         let mut hits: Vec<ProbeHit> = Vec::new();
         for group in &groups {
-            let group_hits = probe_group_blocking(group, address_mode, timeout_of(&group.kind));
+            let group_hits = probe_group_blocking(group, address_mode);
             let ok = group_hits.iter().any(|hit| hit.outcome.is_ok());
             hits.extend(group_hits);
             if ok {
@@ -1819,13 +2238,14 @@ fn probe_candidates_blocking(
         }
         // 没轮到的通道如实标「没探」，别让用户以为漏了（逐行结果要和优先级表对得上）
         for group in &groups {
-            for origin in &group.origins {
-                if hits.iter().any(|hit| hit.kind == group.kind && hit.origin == *origin) {
+            for item in &group.items {
+                if hits.iter().any(|hit| hit.kind == group.kind && hit.origin == item.origin) {
                     continue;
                 }
                 hits.push(ProbeHit {
                     kind: group.kind.clone(),
-                    origin: origin.clone(),
+                    origin: item.origin.clone(),
+                    pair_id: item.pair_id.clone(),
                     remote: is_remote_kind(&group.kind),
                     outcome: Err("前面已有通道命中，按串行策略未探测".to_string()),
                 });
@@ -1840,19 +2260,21 @@ fn probe_candidates_blocking(
     for group in &groups {
         let sender = sender.clone();
         let kind = group.kind.clone();
-        let origins = group.origins.clone();
-        let timeout = timeout_of(&kind);
+        let items = group.items.clone();
         let inner = address_mode.to_string();
         crate::probe_pool::pool().execute(Box::new(move || {
-            let group = ProbeGroup { kind, origins };
-            let hits = probe_group_blocking(&group, &inner, timeout);
+            let group = ProbeGroup { kind, items };
+            let hits = probe_group_blocking(&group, &inner);
             // 接收端可能已经不要了（并发首个已经胜出）——发送失败静默丢弃
             let _ = sender.send(hits);
         }));
     }
     drop(sender);
 
-    let deadline = Instant::now() + worst + Duration::from_millis(500);
+    // 整轮硬顶 30 秒：超时下放到条目后最坏耗时是「乘」出来的（区块间串行 × 区块内串行），
+    // 3 区块 × 4 条 × 3s = 36 秒，界面会像卡死 —— 到点就把剩下的标「已跳过」
+    let deadline = Instant::now()
+        + (worst + Duration::from_millis(500)).min(Duration::from_millis(MAX_PROBE_TIMEOUT_MS));
     let mut collected: Vec<ProbeHit> = Vec::new();
     while pending > 0 {
         let remaining = deadline.saturating_duration_since(Instant::now());
@@ -1874,130 +2296,145 @@ fn probe_candidates_blocking(
     }
     // 没回来的通道 / 地址如实标出来（带上它自己的超时值），别让用户以为漏了通道
     for group in &groups {
-        let per = timeout_of(&group.kind);
-        for origin in &group.origins {
+        for item in &group.items {
             if collected
                 .iter()
-                .any(|hit| hit.kind == group.kind && hit.origin == *origin)
+                .any(|hit| hit.kind == group.kind && hit.origin == item.origin)
             {
                 continue;
             }
             collected.push(ProbeHit {
                 kind: group.kind.clone(),
-                origin: origin.clone(),
+                origin: item.origin.clone(),
+                pair_id: item.pair_id.clone(),
                 remote: is_remote_kind(&group.kind),
-                outcome: Err(format!("探测超时（>{}ms）", per.as_millis())),
+                outcome: Err(format!("探测超时（>{}ms）", item.timeout_ms)),
             });
         }
     }
     finish_probe(collected)
 }
 
-/// 一个通道的候选分组：同一个 kind 的多个 origin 归一组（实际只有局域网会有多个）
+/// 一个通道的候选项分组：同一个 kind 的多条归一组（配对多条目之后，远程通道也会有多条）
 struct ProbeGroup {
     kind: String,
-    origins: Vec<String>,
+    items: Vec<RouteTestCandidate>,
 }
 
-/// 按 kind 分组，**保持候选出现顺序**（组顺序 = 用户在优先级表里排的顺序）
+/// 按 kind 分组，**保持候选出现顺序**（组顺序 = 用户在优先级表里排的顺序；
+/// 组内顺序 = 配对在区块里的顺序）。同 kind 同 origin 只留第一条。
 fn group_candidates(list: &[RouteTestCandidate]) -> Vec<ProbeGroup> {
     let mut groups: Vec<ProbeGroup> = Vec::new();
     for cand in list {
         match groups.iter_mut().find(|group| group.kind == cand.kind) {
             Some(group) => {
-                if !group.origins.contains(&cand.origin) {
-                    group.origins.push(cand.origin.clone());
+                if !group.items.iter().any(|item| item.origin == cand.origin) {
+                    group.items.push(cand.clone());
                 }
             }
             None => groups.push(ProbeGroup {
                 kind: cand.kind.clone(),
-                origins: vec![cand.origin.clone()],
+                items: vec![cand.clone()],
             }),
         }
     }
     groups
 }
 
-/// 探一个通道（组内多个地址按**多网卡探测**方式处理），返回按 origins 顺序排列的命中列表。
+/// 探一个通道（组内多条按**多网卡探测**方式处理），返回按 items 顺序排列的命中列表。
 ///
-/// 未探测的地址也会补一行（「同通道已命中/未探测」），这样逐行结果永远和优先级表对得上。
-fn probe_group_blocking(group: &ProbeGroup, address_mode: &str, timeout: Duration) -> Vec<ProbeHit> {
+/// **每条用自己的超时**：同一个区块里 `100.x` 直连几十毫秒就回、`*.ts.net` 走中继
+/// 可能要好几秒，共用一个超时必然一边误判失败一边白等。
+/// 未探测的条目也会补一行（「同通道已命中/未探测」），这样逐行结果永远和配对列表对得上。
+fn probe_group_blocking(group: &ProbeGroup, address_mode: &str) -> Vec<ProbeHit> {
     let remote = is_remote_kind(&group.kind);
-    let single = |origin: &str, outcome: Result<ProbePayload, String>| ProbeHit {
+    let single = |item: &RouteTestCandidate, outcome: Result<ProbePayload, String>| ProbeHit {
         kind: group.kind.clone(),
-        origin: origin.to_string(),
+        origin: item.origin.clone(),
+        pair_id: item.pair_id.clone(),
         remote,
         outcome,
     };
-    if group.origins.len() == 1 {
-        return vec![single(
-            &group.origins[0],
-            probe_one(&group.kind, &group.origins[0], timeout),
-        )];
+    let timeout_of = |item: &RouteTestCandidate| Duration::from_millis(item.timeout_ms);
+    if group.items.len() == 1 {
+        let item = &group.items[0];
+        return vec![single(item, probe_one(&group.kind, &item.origin, timeout_of(item)))];
     }
     let mode = normalize_probe_mode(address_mode);
-    let mut hits: Vec<ProbeHit> = Vec::with_capacity(group.origins.len());
+    let mut hits: Vec<ProbeHit> = Vec::with_capacity(group.items.len());
     if mode == "serial" {
-        // 内层串行：按用户排的地址顺序逐个试，第一个通就停
-        for origin in &group.origins {
-            let outcome = probe_one(&group.kind, origin, timeout);
+        // 内层串行：按用户排的顺序逐个试，第一个通就停
+        for item in &group.items {
+            let outcome = probe_one(&group.kind, &item.origin, timeout_of(item));
             let ok = outcome.is_ok();
-            hits.push(single(origin, outcome));
+            hits.push(single(item, outcome));
             if ok {
                 break;
             }
         }
-    } else {
-        // 内层并发：全部同时发出；parallel_first 谁先成功用谁，parallel_all 等全部
-        let (sender, receiver) = std::sync::mpsc::channel::<(usize, ProbeHit)>();
-        let mut pending = group.origins.len();
-        for (index, origin) in group.origins.iter().enumerate() {
-            let sender = sender.clone();
-            let kind = group.kind.clone();
-            let origin = origin.clone();
-            crate::probe_pool::pool().execute(Box::new(move || {
-                let outcome = probe_one(&kind, &origin, timeout);
-                let _ = sender.send((
-                    index,
-                    ProbeHit {
-                        kind,
-                        origin,
-                        remote,
-                        outcome,
-                    },
-                ));
-            }));
-        }
-        drop(sender);
-        let mut slots: Vec<Option<ProbeHit>> = vec![None; group.origins.len()];
-        let deadline = Instant::now() + timeout + Duration::from_millis(500);
-        while pending > 0 {
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                break;
-            }
-            match receiver.recv_timeout(remaining) {
-                Ok((index, hit)) => {
-                    pending -= 1;
-                    let ok = hit.outcome.is_ok();
-                    slots[index] = Some(hit);
-                    if ok && mode == "parallel_first" {
-                        break;
-                    }
-                }
-                Err(_) => break,
-            }
-        }
-        for (index, slot) in slots.into_iter().enumerate() {
-            hits.push(slot.unwrap_or_else(|| {
-                single(&group.origins[index], Err("同通道已命中，未再等待".to_string()))
-            }));
+        // 命中后剩下的条目补一行说明
+        for item in group.items.iter().skip(hits.len()) {
+            hits.push(single(item, Err("同通道前面已命中，未探测".to_string())));
         }
         return hits;
     }
-    // 串行命中后剩下的地址补一行说明
-    for origin in group.origins.iter().skip(hits.len()) {
-        hits.push(single(origin, Err("同通道前面已命中，未探测".to_string())));
+    // 内层并发：全部同时发出；parallel_first 谁先成功用谁，parallel_all 等全部
+    let (sender, receiver) = std::sync::mpsc::channel::<(usize, ProbeHit)>();
+    let mut pending = group.items.len();
+    for (index, item) in group.items.iter().enumerate() {
+        let sender = sender.clone();
+        let kind = group.kind.clone();
+        let origin = item.origin.clone();
+        let pair_id = item.pair_id.clone();
+        let timeout = timeout_of(item);
+        crate::probe_pool::pool().execute(Box::new(move || {
+            let outcome = probe_one(&kind, &origin, timeout);
+            let _ = sender.send((
+                index,
+                ProbeHit {
+                    kind,
+                    origin,
+                    pair_id,
+                    remote,
+                    outcome,
+                },
+            ));
+        }));
+    }
+    drop(sender);
+    let mut slots: Vec<Option<ProbeHit>> = (0..group.items.len()).map(|_| None).collect();
+    // 兜底时限按组内**最长**那条算（各自的 IO 超时已在 probe_one 里生效）
+    let longest = group
+        .items
+        .iter()
+        .map(|item| item.timeout_ms)
+        .max()
+        .unwrap_or(0);
+    // 组内兜底同样夹 30 秒（条目的 IO 超时已各自生效，这里只防线程池排队）
+    let deadline = Instant::now()
+        + (Duration::from_millis(longest) + Duration::from_millis(500))
+            .min(Duration::from_millis(MAX_PROBE_TIMEOUT_MS));
+    while pending > 0 {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+        match receiver.recv_timeout(remaining) {
+            Ok((index, hit)) => {
+                pending -= 1;
+                let ok = hit.outcome.is_ok();
+                slots[index] = Some(hit);
+                if ok && mode == "parallel_first" {
+                    break;
+                }
+            }
+            Err(_) => break,
+        }
+    }
+    for (index, slot) in slots.into_iter().enumerate() {
+        hits.push(slot.unwrap_or_else(|| {
+            single(&group.items[index], Err("同通道已命中，未再等待".to_string()))
+        }));
     }
     hits
 }
@@ -2032,6 +2469,7 @@ fn finish_probe(mut hits: Vec<ProbeHit>) -> RemoteTestResult {
                 error: String::new(),
                 remote: hit.remote,
                 kind: hit.kind,
+                pair_id: hit.pair_id,
             },
             Err(error) => ProbeOutcome {
                 address: hit.origin,
@@ -2040,6 +2478,7 @@ fn finish_probe(mut hits: Vec<ProbeHit>) -> RemoteTestResult {
                 error,
                 remote: hit.remote,
                 kind: hit.kind,
+                pair_id: hit.pair_id,
             },
         })
         .collect();
@@ -2126,6 +2565,7 @@ fn remote_test_blocking(
                             error: "远程优先，局域网未探测".to_string(),
                             remote: false,
                             kind: "lan".to_string(),
+                            pair_id: String::new(),
                         })
                         .collect();
                     // 排在赢家前面的远程候选都失败过：如实逐行补失败原因
@@ -2137,6 +2577,7 @@ fn remote_test_blocking(
                             error: error.clone(),
                             remote: true,
                             kind: String::new(),
+                            pair_id: String::new(),
                         });
                     }
                     rows.push(ProbeOutcome {
@@ -2146,6 +2587,7 @@ fn remote_test_blocking(
                         error: String::new(),
                         remote: true,
                             kind: String::new(),
+                            pair_id: String::new(),
                     });
                     return RemoteTestResult {
                         ok: true,
@@ -2180,6 +2622,7 @@ fn remote_test_blocking(
                         error: String::new(),
                         remote: false,
                             kind: "lan".to_string(),
+                            pair_id: String::new(),
                     });
                     best = Some(RemoteTestResult {
                         ok: true,
@@ -2198,6 +2641,7 @@ fn remote_test_blocking(
                     error,
                     remote: false,
                             kind: "lan".to_string(),
+                            pair_id: String::new(),
                 }),
             }
         }
@@ -2254,6 +2698,7 @@ fn remote_test_blocking(
                             error: String::new(),
                             remote: false,
                             kind: "lan".to_string(),
+                            pair_id: String::new(),
                         }
                     }
                     Err(error) => ProbeOutcome {
@@ -2263,6 +2708,7 @@ fn remote_test_blocking(
                         error,
                         remote: false,
                             kind: "lan".to_string(),
+                            pair_id: String::new(),
                     },
                 };
                 outcomes.lock().unwrap().push(outcome);
@@ -2302,6 +2748,7 @@ fn remote_test_blocking(
                         error: error.clone(),
                         remote: true,
                             kind: String::new(),
+                            pair_id: String::new(),
                     });
                 }
             } else {
@@ -2313,6 +2760,7 @@ fn remote_test_blocking(
                         error: "局域网可用，远程地址未探测".to_string(),
                         remote: true,
                             kind: String::new(),
+                            pair_id: String::new(),
                     });
                 }
             }
@@ -2326,6 +2774,7 @@ fn remote_test_blocking(
                     error: error.clone(),
                     remote: true,
                             kind: String::new(),
+                            pair_id: String::new(),
                 });
             }
         } else {
@@ -2340,6 +2789,7 @@ fn remote_test_blocking(
                             error: String::new(),
                             remote: true,
                             kind: String::new(),
+                            pair_id: String::new(),
                         });
                         final_result = RemoteTestResult {
                             ok: true,
@@ -2359,6 +2809,7 @@ fn remote_test_blocking(
                         error,
                         remote: true,
                             kind: String::new(),
+                            pair_id: String::new(),
                     }),
                 }
             }
@@ -2693,10 +3144,10 @@ fn remote_http_json(
     let candidates = server.route_candidates();
     let mut last_error = String::from("没有可用连接通道");
     let mut tried = 0usize;
-    for (kind, origin) in &candidates {
+    for cand in &candidates {
         tried += 1;
-        let result = match kind.as_str() {
-            "lan" => lan_json_get(origin, server.token.trim(), path),
+        let result = match cand.kind.as_str() {
+            "lan" => lan_json_get(&cand.origin, server.token.trim(), path),
             "jump" => {
                 let state = app.state::<RemoteJumpState>();
                 match remote_endpoint_inner(app, state.inner(), &server.id) {
@@ -2708,7 +3159,7 @@ fn remote_http_json(
                     Err(error) => Err(error),
                 }
             }
-            _ => remote_https_get(origin, &server.remote_token, path)
+            _ => remote_https_get(&cand.origin, &cand.token, path)
                 .and_then(|(status, body)| parse_remote_json_reply(status, &body)),
         };
         match result {
@@ -3215,14 +3666,15 @@ fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Result<RemoteB
     // （并发首个 / 并发全部 / 串行 + 档案里的超时，跑在独立探测线程池里）；
     // 有跳板机时保留原来的串行循环 —— 跳板机端点要 AppHandle 解析，引擎里没有。
     let candidates = server.route_candidates();
-    let has_jump = candidates.iter().any(|(kind, _)| kind == "jump");
+    let has_jump = candidates.iter().any(|cand| cand.kind == "jump");
     let mut last_error = String::from("没有可用连接通道");
     let mut winner: Option<(u64, String, String, String)> = None;
     if has_jump {
-        for (kind, origin) in &candidates {
-            let per_kind = server.probe_timeout_for(kind);
-            let result = match kind.as_str() {
-                "lan" => probe_health(origin, per_kind),
+        for cand in &candidates {
+            // 超时按候选自己算（配对走条目→区块→全局三层继承，lan/jump 走通道表）
+            let per_kind = Duration::from_millis(cand.timeout_ms);
+            let result = match cand.kind.as_str() {
+                "lan" => probe_health(&cand.origin, per_kind),
                 "jump" => {
                     let state = app.state::<RemoteJumpState>();
                     match remote_endpoint_inner(app, state.inner(), server_id) {
@@ -3233,11 +3685,11 @@ fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Result<RemoteB
                         Err(error) => Err(error),
                     }
                 }
-                _ => probe_remote_health(origin, per_kind),
+                _ => probe_remote_health(&cand.origin, per_kind),
             };
             match result {
                 Ok((ms, machine_id, machine_name)) => {
-                    winner = Some((ms, machine_id, machine_name, origin.clone()));
+                    winner = Some((ms, machine_id, machine_name, cand.origin.clone()));
                     break;
                 }
                 Err(error) => last_error = error,
@@ -3246,21 +3698,25 @@ fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Result<RemoteB
     } else {
         // lan 在 route_candidates 里只占一条（它给请求路径用），探测要逐块网卡都试
         let mut engine_candidates: Vec<RouteTestCandidate> = Vec::new();
-        for (kind, origin) in &candidates {
-            if kind == "lan" {
+        for cand in &candidates {
+            if cand.kind == "lan" {
                 for raw in &server.addresses {
                     let (address, _) = split_address(raw);
                     if !address.is_empty() {
                         engine_candidates.push(RouteTestCandidate {
                             kind: "lan".to_string(),
                             origin: address,
+                            timeout_ms: server.probe_timeout_for("lan").as_millis() as u64,
+                            ..Default::default()
                         });
                     }
                 }
             } else {
                 engine_candidates.push(RouteTestCandidate {
-                    kind: kind.clone(),
-                    origin: origin.clone(),
+                    kind: cand.kind.clone(),
+                    origin: cand.origin.clone(),
+                    timeout_ms: cand.timeout_ms,
+                    pair_id: String::new(),
                 });
             }
         }
@@ -3506,7 +3962,6 @@ mod tests {
     fn normalize_trims_and_merges_token_from_url() {
         let server = RemoteServer {
             id: String::new(),
-            group: " 书房 ".into(),
             name: " 台式机 ".into(),
             addresses: vec![
                 " 192.168.0.120:12300 ".into(),
@@ -3525,107 +3980,338 @@ mod tests {
             jump_id: " j1 ".into(),
             macs: Default::default(),
             power_routes: vec![],
-            remote_addr: "  https://test-tunnel.trycloudflare.com/?ab_token= gw-tok  ".into(),
-            remote_tunnel_addr: String::new(),
-            remote_ts_addr: String::new(),
-            remote_funnel_addr: String::new(),
-            remote_tsnet_addr: String::new(),
-            remote_token: String::new(),
+            pairs: vec![RemotePair {
+                kind: "cloudflare".into(),
+                addr: "  https://test-tunnel.trycloudflare.com/?ab_token= gw-tok  ".into(),
+                ..Default::default()
+            }],
+            block_probe_mode: Default::default(),
+            block_timeouts_ms: Default::default(),
             conn_mode: String::new(),
             route_order: Vec::new(),
             route_disabled: Vec::new(),
             created_at: 0,
+            ..Default::default()
         };
         let normalized = server.normalize();
-        assert_eq!(normalized.group, "书房");
         assert_eq!(normalized.name, "台式机");
         assert_eq!(normalized.addresses, vec!["192.168.0.120:12300", "192.168.0.121:12300"]);
         // URL 里的 token 被挖出补进 token（原 token 为空时）
         assert_eq!(normalized.token, "abc");
-        // 远程地址：剥路径/query 留 origin；URL 里的 ab_token 被挖出补进 remote_token
-        assert_eq!(normalized.remote_addr, "https://test-tunnel.trycloudflare.com");
-        assert_eq!(normalized.remote_token, "gw-tok");
+        // 配对：剥路径/query 留 origin；URL 里的 ab_token 挖进这一条自己的 token
+        assert_eq!(normalized.pairs.len(), 1);
+        assert_eq!(normalized.pairs[0].addr, "https://test-tunnel.trycloudflare.com");
+        assert_eq!(normalized.pairs[0].token, "gw-tok");
+        assert!(!normalized.pairs[0].id.is_empty(), "空 id 要补发");
+        assert_eq!(normalized.effective_remote_addr(), "https://test-tunnel.trycloudflare.com");
+        assert_eq!(normalized.effective_remote_token(), "gw-tok");
         // 旧值 / 未知 probe_mode 一律归一为并发（首个）
         assert_eq!(normalized.probe_mode, "parallel_first");
         assert_eq!(normalized.jump_id, "j1");
     }
 
-    #[test]
-    fn legacy_remote_addr_migrates_to_tunnel_slot() {
-        // 旧单槽（隧道地址）+ 双槽全空 → 迁移进隧道槽；remote_addr 保留为生效地址
-        let mut server = minimal_server();
-        server.remote_addr = "https://test-tunnel.trycloudflare.com/?ab_token= gw-tok".into();
-        let n = server.normalize();
-        assert_eq!(n.remote_tunnel_addr, "https://test-tunnel.trycloudflare.com");
-        assert_eq!(n.remote_ts_addr, "");
-        assert_eq!(n.remote_addr, "https://test-tunnel.trycloudflare.com");
-        assert_eq!(n.remote_token, "gw-tok");
+    // ---- 配对条目（RemotePair） ----
+
+    fn pair(kind: &str, addr: &str, mid: &str) -> RemotePair {
+        RemotePair {
+            kind: kind.into(),
+            addr: addr.into(),
+            mid: mid.into(),
+            enabled: true,
+            ..Default::default()
+        }
     }
 
     #[test]
-    fn legacy_remote_addr_migrates_to_ts_slot() {
-        // 旧单槽是 100.64/10 → 分流进 Tailscale 槽
-        let mut server = minimal_server();
-        server.remote_addr = "100.119.234.95:12300".into();
-        let n = server.normalize();
-        assert_eq!(n.remote_ts_addr, "http://100.119.234.95:12300");
-        assert_eq!(n.remote_tunnel_addr, "");
-        // 生效地址 = Tailscale 槽（隧道空）
-        assert_eq!(n.remote_addr, "http://100.119.234.95:12300");
+    fn pair_lane_derived_from_addr() {
+        let n = RemoteServer {
+            pairs: vec![
+                pair("ts", "100.119.234.95:12300", "m1"),
+                pair("ts", "https://box.tail1234.ts.net", "m2"),
+                pair("cloudflare", "https://a.trycloudflare.com", "m3"),
+            ],
+            ..Default::default()
+        }
+        .normalize();
+        // 100.64/10 补 http:// 并推导 direct；*.ts.net 推导 funnel；cloudflare 没有 lane
+        assert_eq!(n.pairs[0].addr, "http://100.119.234.95:12300");
+        assert_eq!(n.pairs[0].lane, "direct");
+        assert_eq!(n.pairs[0].route_kind(), "ts");
+        assert_eq!(n.pairs[1].lane, "funnel");
+        assert_eq!(n.pairs[1].route_kind(), "funnel");
+        assert_eq!(n.pairs[2].lane, "");
+        assert_eq!(n.pairs[2].route_kind(), "tunnel");
     }
 
     #[test]
-    fn dual_slots_kept_and_effective_prefers_tunnel() {
-        // 双槽全量：各自归一保留；生效地址 = 隧道槽优先
-        let mut server = minimal_server();
-        server.remote_tunnel_addr = "https://met-jul.trycloudflare.com".into();
-        server.remote_ts_addr = "100.119.234.95".into();
-        let n = server.normalize();
-        assert_eq!(n.remote_tunnel_addr, "https://met-jul.trycloudflare.com");
-        assert_eq!(n.remote_ts_addr, "http://100.119.234.95:12300");
-        assert_eq!(n.remote_addr, "https://met-jul.trycloudflare.com");
-        assert_eq!(n.remote_origins().len(), 2);
+    fn pair_kind_falls_back_by_addr_shape() {
+        // kind 非法/为空：100.x / *.ts.net 归 ts，其余归 cloudflare（不猜 tsnet）
+        let n = RemoteServer {
+            pairs: vec![
+                pair("", "https://win-pc.tailabc.ts.net", "m1"),
+                pair("bogus", "https://a.trycloudflare.com", "m2"),
+                RemotePair { kind: String::new(), addr: String::new(), ..Default::default() },
+            ],
+            ..Default::default()
+        }
+        .normalize();
+        // 空地址那条被丢掉
+        assert_eq!(n.pairs.len(), 2);
+        assert_eq!(n.pairs[0].kind, "ts");
+        assert_eq!(n.pairs[1].kind, "cloudflare");
     }
 
     #[test]
-    fn pasted_slot_values_are_rerouted_by_kind() {
-        // 粘错槽自动归位：隧道槽里粘了 100.x → 落 Tailscale 槽；反向同理
-        let mut server = minimal_server();
-        server.remote_tunnel_addr = "100.119.234.95:12300".into();
-        server.remote_ts_addr = "https://met-jul.trycloudflare.com".into();
-        let n = server.normalize();
-        assert_eq!(n.remote_tunnel_addr, "https://met-jul.trycloudflare.com");
-        assert_eq!(n.remote_ts_addr, "http://100.119.234.95:12300");
+    fn pairs_dedup_by_mid_and_kind_keeps_position_and_id() {
+        // 同一系统同一区块重新配对 = 更新那一行（保留位置与原 id）；
+        // 同一系统不同区块 = 两条都留（只按 mid 去重会让它们互顶，等于回到原点）
+        let n = RemoteServer {
+            pairs: vec![
+                pair("cloudflare", "https://old.trycloudflare.com", "m1"),
+                pair("ts", "100.64.0.1:12300", "m1"),
+                pair("cloudflare", "https://new.trycloudflare.com", "m1"),
+            ],
+            ..Default::default()
+        }
+        .normalize();
+        assert_eq!(n.pairs.len(), 2, "cloudflare 被更新、ts 保留");
+        assert_eq!(n.pairs[0].addr, "https://new.trycloudflare.com", "更新项留在原位");
+        assert_eq!(n.pairs[0].kind, "cloudflare");
+        assert_eq!(n.pairs[1].kind, "ts");
     }
 
     #[test]
-    fn ts_net_host_routes_to_funnel_slot() {
-        // *.ts.net（Funnel）粘进 ts 槽也要归位到 Funnel 槽，scheme 保持 https、剥路径
-        assert!(is_tailscale_origin("https://win-pc.tailabc.ts.net"));
-        assert!(!is_tailscale_origin("https://met-jul.trycloudflare.com"));
-        let mut server = minimal_server();
-        server.remote_ts_addr = "https://win-pc.tailabc.ts.net/".into();
-        let n = server.normalize();
-        assert_eq!(n.remote_ts_addr, "");
-        assert_eq!(n.remote_funnel_addr, "https://win-pc.tailabc.ts.net");
-        assert_eq!(n.remote_addr, "https://win-pc.tailabc.ts.net");
+    fn pairs_without_mid_dedup_by_addr() {
+        // 手填地址没有 mid：不能按 (空 mid, kind) 去重，否则同区块第二条会被吞掉
+        let n = RemoteServer {
+            pairs: vec![
+                pair("cloudflare", "https://a.trycloudflare.com", ""),
+                pair("cloudflare", "https://b.trycloudflare.com", ""),
+                pair("cloudflare", "https://a.trycloudflare.com", ""),
+            ],
+            ..Default::default()
+        }
+        .normalize();
+        assert_eq!(n.pairs.len(), 2);
+        assert_eq!(n.pairs[0].addr, "https://a.trycloudflare.com");
+        assert_eq!(n.pairs[1].addr, "https://b.trycloudflare.com");
     }
 
     #[test]
-    fn empty_remote_clears_token() {
-        // 双槽与旧单槽全空 → remote_token 一并清掉（没有远程就没有远程令牌）
-        let mut server = minimal_server();
-        server.remote_token = "orphan".into();
-        let n = server.normalize();
-        assert_eq!(n.remote_addr, "");
-        assert_eq!(n.remote_token, "");
+    fn pairs_capped_at_soft_limit() {
+        let pairs: Vec<RemotePair> = (0..MAX_PAIRS + 5)
+            .map(|index| pair("cloudflare", &format!("https://t{index}.trycloudflare.com"), ""))
+            .collect();
+        let n = RemoteServer { pairs, ..Default::default() }.normalize();
+        assert_eq!(n.pairs.len(), MAX_PAIRS);
+    }
+
+    // ---- 配对串 v2 解析（S3：%v=2 收，其余拒收） ----
+
+    #[test]
+    fn parse_pair_string_reads_every_v2_field() {
+        let parsed = parse_pair_string(
+            "anyboot://pair?v=2&mid=m-1&os=windows&host=%E4%B9%A6%E6%88%BF&gateway=%E4%B9%A6%E6%88%BF&type=ts&tunnel=https%3A%2F%2Fwin.tail.ts.net&token=gw1&tunnel_id=tid-1",
+        )
+        .expect("合法 v2 串");
+        assert_eq!(parsed.mid, "m-1");
+        assert_eq!(parsed.os, "windows");
+        assert_eq!(parsed.host, "书房");
+        assert_eq!(parsed.kind, "ts");
+        assert_eq!(parsed.tunnel, "https://win.tail.ts.net");
+        assert_eq!(parsed.token, "gw1");
+        assert_eq!(parsed.tunnel_id, "tid-1");
+        // os 只留三个徽标值（其它一律空 → 前端不画徽标）
+        assert_eq!(parse_pair_string("anyboot://pair?v=2&type=ts&os=Windows%2011").unwrap().os, "");
+    }
+
+    #[test]
+    fn parse_pair_string_rejects_missing_or_wrong_version() {
+        // 老串：没有 v → 提示重新生成（不是「格式错误」这种没用的说法）
+        let err = parse_pair_string("anyboot://pair?gateway=pc&tunnel=https://a.trycloudflare.com").unwrap_err();
+        assert!(err.contains("旧版配对码"), "{err}");
+        // v=1 / v=3 同样拒收
+        for raw in ["anyboot://pair?v=1&type=cloudflare", "anyboot://pair?v=3&type=cloudflare"] {
+            let err = parse_pair_string(raw).unwrap_err();
+            assert!(err.contains("版本不支持"), "{raw} → {err}");
+        }
+        // 不是配对码
+        assert!(parse_pair_string("https://a.trycloudflare.com").is_err());
+        assert!(parse_pair_string("").is_err());
+    }
+
+    #[test]
+    fn parse_pair_string_rejects_illegal_type() {
+        // 通道 id 不是区块 id：过去把 `tunnel` 直接塞进 type，客户端就得靠猜
+        for bad in ["tunnel", "funnel", "builtin", "tailscale"] {
+            let raw = format!("anyboot://pair?v=2&type={bad}&tunnel=https://a.trycloudflare.com");
+            let err = parse_pair_string(&raw).unwrap_err();
+            assert!(err.contains("type 非法"), "{bad} → {err}");
+        }
+        // 整个缺失也算非法（不许按地址猜类型）
+        let err = parse_pair_string("anyboot://pair?v=2&tunnel=https://a.trycloudflare.com").unwrap_err();
+        assert!(err.contains("type 非法") && err.contains("缺失"), "{err}");
+        // 三个合法区块都收
+        for good in ["cloudflare", "ts", "tsnet"] {
+            let raw = format!("anyboot://pair?v=2&type={good}&tunnel=https://a.trycloudflare.com");
+            assert_eq!(parse_pair_string(&raw).unwrap().kind, good);
+        }
+    }
+
+    #[test]
+    fn pair_code_in_addr_is_upgraded_then_deduped_by_mid_and_kind() {
+        // 整条配对码粘进「地址」栏：归一后就地补全 type/mid/os/host/token/tunnel_id
+        let upgraded = RemoteServer {
+            pairs: vec![RemotePair {
+                kind: String::new(),
+                addr: "anyboot://pair?v=2&mid=m9&os=linux&host=garuda&type=ts&tunnel=http%3A%2F%2F100.64.0.7%3A12300&token=gw9&tunnel_id=".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }
+        .normalize();
+        assert_eq!(upgraded.pairs.len(), 1);
+        let one = &upgraded.pairs[0];
+        assert_eq!(one.kind, "ts");
+        assert_eq!(one.mid, "m9");
+        assert_eq!(one.os, "linux");
+        assert_eq!(one.host, "garuda");
+        assert_eq!(one.addr, "http://100.64.0.7:12300");
+        assert_eq!(one.token, "gw9");
+        assert_eq!(one.lane, "direct");
+
+        // 同一台机器同一区块再扫一次 → 更新那一行（位置与 id 不变），不新增
+        let mut server = upgraded;
+        let original_id = server.pairs[0].id.clone();
+        let original_at = server.pairs[0].created_at;
+        server.pairs.push(RemotePair {
+            addr: "anyboot://pair?v=2&mid=m9&os=linux&host=garuda&type=ts&tunnel=http%3A%2F%2F100.64.0.9%3A12300&token=gw10".into(),
+            ..Default::default()
+        });
+        let server = server.normalize();
+        assert_eq!(server.pairs.len(), 1, "同 (mid,kind) 只留一条");
+        assert_eq!(server.pairs[0].id, original_id, "id 不变（探测结果才对得上）");
+        assert_eq!(server.pairs[0].created_at, original_at, "首次配对时间不变");
+        assert_eq!(server.pairs[0].addr, "http://100.64.0.9:12300", "地址被后一条更新");
+
+        // 同一台机器换个区块 → 两条都留（只按 mid 去重会让它们互顶）
+        let mut server = server;
+        server.pairs.push(RemotePair {
+            addr: "anyboot://pair?v=2&mid=m9&os=linux&type=tsnet&tunnel=https%3A%2F%2Fgaruda.tail9.ts.net&token=gw11".into(),
+            ..Default::default()
+        });
+        let server = server.normalize();
+        assert_eq!(server.pairs.len(), 2);
+        assert_eq!(server.pairs[0].kind, "ts");
+        assert_eq!(server.pairs[1].kind, "tsnet");
+        assert_eq!(server.effective_remote_addr(), "http://100.64.0.9:12300");
+    }
+
+    #[test]
+    fn old_pair_code_in_addr_is_kept_as_plain_address() {
+        // 老串（无 v=2）不解析成条目，但也**不静默删除**用户数据：
+        // 退回「当普通地址用」，连不上由探测结果说话；「拒收 + 重新生成」的提示归 UI。
+        let n = RemoteServer {
+            pairs: vec![RemotePair {
+                kind: String::new(),
+                addr: "anyboot://pair?gateway=pc&tunnel=https%3A%2F%2Fold.trycloudflare.com&token=gw-old".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }
+        .normalize();
+        assert_eq!(n.pairs.len(), 1, "不能把用户的条目吃掉");
+        assert_eq!(n.pairs[0].addr, "https://old.trycloudflare.com");
+        assert_eq!(n.pairs[0].token, "gw-old");
+        assert_eq!(n.pairs[0].mid, "", "老串没有 mid，不许瞎猜");
+        // kind 落回「用户点添加的那个区块」的兜底值
+        assert_eq!(n.pairs[0].kind, "cloudflare");
+    }
+
+    #[test]
+    fn effective_addr_follows_block_order_then_pair_order() {
+        // 默认区块序 cloudflare → ts → tsnet：取第一条 cloudflare
+        let mut n = RemoteServer {
+            pairs: vec![
+                pair("tsnet", "https://tsnet.tail.ts.net", "m3"),
+                pair("cloudflare", "https://a.trycloudflare.com", "m1"),
+                pair("cloudflare", "https://b.trycloudflare.com", "m2"),
+            ],
+            ..Default::default()
+        }
+        .normalize();
+        assert_eq!(n.effective_remote_addr(), "https://a.trycloudflare.com");
+        // 把远程优先级改成 tsnet 领头：区块顺序随之变化，生效地址跟着变
+        n.route_order = vec!["tsnet".into(), "tunnel".into(), "ts".into(), "lan".into(), "jump".into(), "funnel".into()];
+        assert_eq!(n.pair_block_order(), vec!["tsnet", "cloudflare", "ts"]);
+        assert_eq!(n.effective_remote_addr(), "https://tsnet.tail.ts.net");
+    }
+
+    #[test]
+    fn effective_addr_skips_disabled_pair() {
+        let n = RemoteServer {
+            pairs: vec![
+                RemotePair { enabled: false, ..pair("cloudflare", "https://a.trycloudflare.com", "m1") },
+                pair("cloudflare", "https://b.trycloudflare.com", "m2"),
+            ],
+            ..Default::default()
+        }
+        .normalize();
+        assert_eq!(n.effective_remote_addr(), "https://b.trycloudflare.com");
+        // 全禁用 = 没有生效地址
+        let mut all_off = n.clone();
+        for item in all_off.pairs.iter_mut() {
+            item.enabled = false;
+        }
+        assert_eq!(all_off.effective_remote_addr(), "");
+    }
+
+    #[test]
+    fn block_settings_are_sanitized() {
+        let mut modes = std::collections::BTreeMap::new();
+        modes.insert("ts".to_string(), "serial".to_string());
+        modes.insert("cloudflare".to_string(), "parallel_first".to_string()); // 默认值不存
+        modes.insert("bogus".to_string(), "serial".to_string()); // 非法区块丢掉
+        let mut timeouts = std::collections::BTreeMap::new();
+        timeouts.insert("ts".to_string(), 5_000u64);
+        timeouts.insert("tsnet".to_string(), 0u64); // 0 = 没设，删掉
+        timeouts.insert("bogus".to_string(), 3_000); // 非法区块丢掉
+        let n = RemoteServer {
+            block_probe_mode: modes,
+            block_timeouts_ms: timeouts,
+            ..Default::default()
+        }
+        .normalize();
+        assert_eq!(n.block_probe_mode.get("ts").map(String::as_str), Some("serial"));
+        assert!(!n.block_probe_mode.contains_key("cloudflare"));
+        assert!(!n.block_probe_mode.contains_key("bogus"));
+        assert_eq!(n.block_timeouts_ms.get("ts").copied(), Some(5_000));
+        assert!(!n.block_timeouts_ms.contains_key("tsnet"));
+        assert!(!n.block_timeouts_ms.contains_key("bogus"));
+    }
+
+    #[test]
+    fn probe_timeout_inherits_pair_then_block_then_global() {
+        // 三层继承：条目 > 区块 > 全局（默认 2000）
+        let mut timeouts = std::collections::BTreeMap::new();
+        timeouts.insert("ts".to_string(), 5_000u64);
+        let server = RemoteServer {
+            probe_timeout_ms: 0, // → 默认 2000
+            block_timeouts_ms: timeouts,
+            ..Default::default()
+        };
+        let own = RemotePair { probe_timeout_ms: 1_200, ..pair("ts", "100.64.0.1:12300", "m1") };
+        assert_eq!(server.probe_timeout_for_pair(&own).as_millis(), 1_200);
+        let inherit_block = pair("ts", "100.64.0.1:12300", "m1");
+        assert_eq!(server.probe_timeout_for_pair(&inherit_block).as_millis(), 5_000);
+        let inherit_global = pair("cloudflare", "https://a.trycloudflare.com", "m1");
+        assert_eq!(server.probe_timeout_for_pair(&inherit_global).as_millis(), 2_000);
     }
 
     /// 双槽测试共用的最小档案（addresses 非空，过 normalize 前置校验不需要但保持真实形态）
     fn minimal_server() -> RemoteServer {
         RemoteServer {
             id: String::new(),
-            group: String::new(),
             name: String::new(),
             addresses: vec!["192.168.0.120:12300".into()],
             token: String::new(),
@@ -3639,16 +4325,13 @@ mod tests {
             jump_id: String::new(),
             macs: Default::default(),
             power_routes: vec![],
-            remote_addr: String::new(),
-            remote_tunnel_addr: String::new(),
-            remote_ts_addr: String::new(),
-            remote_funnel_addr: String::new(),
-            remote_tsnet_addr: String::new(),
-            remote_token: String::new(),
             conn_mode: String::new(),
             route_order: Vec::new(),
             route_disabled: Vec::new(),
             created_at: 0,
+            pairs: Vec::new(),
+            block_probe_mode: Default::default(),
+            block_timeouts_ms: Default::default(),
         }
     }
 
@@ -3874,7 +4557,6 @@ mod tests {
     fn normalize_keeps_explicit_token_over_url() {
         let server = RemoteServer {
             id: String::new(),
-            group: String::new(),
             name: String::new(),
             addresses: vec!["http://192.168.0.120:12300/?token=urltoken".into()],
             token: " explicit ".into(),
@@ -3888,16 +4570,13 @@ mod tests {
             jump_id: String::new(),
             macs: Default::default(),
             power_routes: vec![],
-            remote_addr: String::new(),
-            remote_tunnel_addr: String::new(),
-            remote_ts_addr: String::new(),
-            remote_funnel_addr: String::new(),
-            remote_tsnet_addr: String::new(),
-            remote_token: String::new(),
             conn_mode: String::new(),
             route_order: Vec::new(),
             route_disabled: Vec::new(),
             created_at: 0,
+            pairs: Vec::new(),
+            block_probe_mode: Default::default(),
+            block_timeouts_ms: Default::default(),
         };
         let normalized = server.normalize();
         assert_eq!(normalized.token, "explicit");
@@ -3916,7 +4595,6 @@ mod tests {
             connect_all: true,
             servers: vec![RemoteServer {
                 id: "rmt-1".into(),
-                group: "g".into(),
                 name: "n".into(),
                 addresses: vec!["127.0.0.1:12300".into()],
                 token: "t".into(),
@@ -3930,16 +4608,13 @@ mod tests {
                 jump_id: String::new(),
                 macs: Default::default(),
                 power_routes: vec![],
-                remote_addr: String::new(),
-                remote_tunnel_addr: String::new(),
-                remote_ts_addr: String::new(),
-                remote_funnel_addr: String::new(),
-                remote_tsnet_addr: String::new(),
-                remote_token: String::new(),
                 conn_mode: String::new(),
             route_order: Vec::new(),
             route_disabled: Vec::new(),
                 created_at: 42,
+                pairs: Vec::new(),
+                block_probe_mode: Default::default(),
+                block_timeouts_ms: Default::default(),
             }],
         };
         save_store_to(&path, &store).expect("落盘");
@@ -4258,9 +4933,9 @@ mod tests {
         let port = spawn_health_stub("windows");
         // 三个都是 lan（= 同一通道的多块网卡）→ 走**内层**串行：命中即停
         let cands = vec![
-            RouteTestCandidate { kind: "lan".into(), origin: "127.0.0.1:1".into() },
-            RouteTestCandidate { kind: "lan".into(), origin: format!("127.0.0.1:{port}") },
-            RouteTestCandidate { kind: "lan".into(), origin: "127.0.0.1:2".into() },
+            RouteTestCandidate { kind: "lan".into(), origin: "127.0.0.1:1".into(), ..Default::default() },
+            RouteTestCandidate { kind: "lan".into(), origin: format!("127.0.0.1:{port}"), ..Default::default() },
+            RouteTestCandidate { kind: "lan".into(), origin: "127.0.0.1:2".into(), ..Default::default() },
         ];
         let result = probe_candidates_blocking(cands, "parallel_first", "serial", &no_route_timeouts(), DEFAULT_PROBE_TIMEOUT_MS);
         assert!(result.ok, "串行应探到活着的那条：{}", result.error);
@@ -4279,9 +4954,9 @@ mod tests {
         let lan_port = spawn_health_stub("windows");
         let tunnel_port = spawn_health_stub("linux");
         let cands = vec![
-            RouteTestCandidate { kind: "lan".into(), origin: "127.0.0.1:1".into() },
-            RouteTestCandidate { kind: "tunnel".into(), origin: format!("http://127.0.0.1:{tunnel_port}") },
-            RouteTestCandidate { kind: "ts".into(), origin: format!("http://127.0.0.1:{lan_port}") },
+            RouteTestCandidate { kind: "lan".into(), origin: "127.0.0.1:1".into(), ..Default::default() },
+            RouteTestCandidate { kind: "tunnel".into(), origin: format!("http://127.0.0.1:{tunnel_port}"), ..Default::default() },
+            RouteTestCandidate { kind: "ts".into(), origin: format!("http://127.0.0.1:{lan_port}"), ..Default::default() },
         ];
         let result = probe_candidates_blocking(cands, "serial", "parallel_first", &no_route_timeouts(), DEFAULT_PROBE_TIMEOUT_MS);
         assert!(result.ok, "外层串行应停在隧道通道：{}", result.error);
@@ -4301,8 +4976,8 @@ mod tests {
     fn probe_candidates_parallel_all_reports_every_channel() {
         let port = spawn_health_stub("linux");
         let cands = vec![
-            RouteTestCandidate { kind: "lan".into(), origin: "127.0.0.1:1".into() },
-            RouteTestCandidate { kind: "tunnel".into(), origin: format!("http://127.0.0.1:{port}") },
+            RouteTestCandidate { kind: "lan".into(), origin: "127.0.0.1:1".into(), ..Default::default() },
+            RouteTestCandidate { kind: "tunnel".into(), origin: format!("http://127.0.0.1:{port}"), ..Default::default() },
         ];
         let result = probe_candidates_blocking(cands, "parallel_all", "parallel_first", &no_route_timeouts(), DEFAULT_PROBE_TIMEOUT_MS);
         assert!(result.ok, "并发全部应探到远程通道：{}", result.error);
@@ -4317,8 +4992,8 @@ mod tests {
     fn probe_candidates_parallel_first_returns_a_winner() {
         let port = spawn_health_stub("macos");
         let cands = vec![
-            RouteTestCandidate { kind: "lan".into(), origin: "127.0.0.1:1".into() },
-            RouteTestCandidate { kind: "lan".into(), origin: format!("127.0.0.1:{port}") },
+            RouteTestCandidate { kind: "lan".into(), origin: "127.0.0.1:1".into(), ..Default::default() },
+            RouteTestCandidate { kind: "lan".into(), origin: format!("127.0.0.1:{port}"), ..Default::default() },
         ];
         let result = probe_candidates_blocking(cands, "parallel_first", "parallel_first", &no_route_timeouts(), DEFAULT_PROBE_TIMEOUT_MS);
         assert!(result.ok);
@@ -4328,8 +5003,8 @@ mod tests {
     #[test]
     fn probe_candidates_all_dead_reports_every_failure() {
         let cands = vec![
-            RouteTestCandidate { kind: "lan".into(), origin: "127.0.0.1:1".into() },
-            RouteTestCandidate { kind: "ts".into(), origin: "http://127.0.0.1:2".into() },
+            RouteTestCandidate { kind: "lan".into(), origin: "127.0.0.1:1".into(), ..Default::default() },
+            RouteTestCandidate { kind: "ts".into(), origin: "http://127.0.0.1:2".into(), ..Default::default() },
         ];
         let result = probe_candidates_blocking(cands, "parallel_all", "parallel_first", &no_route_timeouts(), 300);
         assert!(!result.ok);
@@ -4412,8 +5087,8 @@ mod tests {
         timeouts.insert("lan".to_string(), 200);
         timeouts.insert("ts".to_string(), 3_000);
         let cands = vec![
-            RouteTestCandidate { kind: "lan".into(), origin: format!("127.0.0.1:{port}") },
-            RouteTestCandidate { kind: "ts".into(), origin: format!("http://127.0.0.1:{port}") },
+            RouteTestCandidate { kind: "lan".into(), origin: format!("127.0.0.1:{port}"), ..Default::default() },
+            RouteTestCandidate { kind: "ts".into(), origin: format!("http://127.0.0.1:{port}"), ..Default::default() },
         ];
         let result = probe_candidates_blocking(cands, "parallel_all", "parallel_first", &timeouts, 2_000);
         assert!(result.ok, "3 秒超时的通道要能等到 700ms 的响应：{}", result.error);
@@ -4425,13 +5100,83 @@ mod tests {
         assert!(long.ok, "3s 应该成功，逐行结果各按自己的超时判定");
     }
 
+    #[test]
+    fn probe_uses_each_candidate_own_timeout_and_reports_pair_id() {
+        // 同一个通道（tunnel）里的两条：短超时那条失败、长超时那条成功。
+        // 若引擎对整个通道只用一个超时，两行结果必然一样 —— 这个测试钉住「条目级超时」。
+        let short_port = spawn_slow_health_stub(Duration::from_millis(700), "windows");
+        let long_port = spawn_slow_health_stub(Duration::from_millis(700), "windows");
+        let cands = vec![
+            RouteTestCandidate {
+                kind: "tunnel".into(),
+                origin: format!("http://127.0.0.1:{short_port}"),
+                timeout_ms: 200,
+                pair_id: "pair-short".into(),
+            },
+            RouteTestCandidate {
+                kind: "tunnel".into(),
+                origin: format!("http://127.0.0.1:{long_port}"),
+                timeout_ms: 3_000,
+                pair_id: "pair-long".into(),
+            },
+        ];
+        let result = probe_candidates_blocking(
+            cands,
+            "parallel_all",
+            "parallel_first",
+            &std::collections::BTreeMap::new(),
+            2_000,
+        );
+        assert!(result.ok, "长超时那条要能等到 700ms 的响应：{}", result.error);
+        assert_eq!(result.results.len(), 2);
+        let short = result.results.iter().find(|row| row.pair_id == "pair-short").expect("短超时那行");
+        assert!(!short.ok, "200ms 等不到 700ms 的响应，必须失败");
+        let long = result.results.iter().find(|row| row.pair_id == "pair-long").expect("长超时那行");
+        assert!(long.ok, "3s 应该成功");
+        assert_eq!(result.kind, "tunnel");
+        // 赢家 = 成功那条的地址
+        assert_eq!(result.addr, long.address);
+    }
+
+    #[test]
+    fn probe_block_serial_respects_pair_order() {
+        // 块内串行：第一条就通 → 后面的标「未探测」（逐行仍要齐全）
+        let port = spawn_slow_health_stub(Duration::from_millis(0), "macos");
+        let dead = "http://127.0.0.1:1";
+        let cands = vec![
+            RouteTestCandidate {
+                kind: "tunnel".into(),
+                origin: format!("http://127.0.0.1:{port}"),
+                timeout_ms: 2_000,
+                pair_id: "p1".into(),
+            },
+            RouteTestCandidate {
+                kind: "tunnel".into(),
+                origin: dead.into(),
+                timeout_ms: 500,
+                pair_id: "p2".into(),
+            },
+        ];
+        let result = probe_candidates_blocking(
+            cands,
+            "parallel_all",
+            "serial",
+            &std::collections::BTreeMap::new(),
+            2_000,
+        );
+        assert!(result.ok);
+        assert_eq!(result.results.len(), 2);
+        assert!(result.results[0].ok);
+        assert_eq!(result.results[0].pair_id, "p1");
+        assert!(!result.results[1].ok, "第一条已命中，第二条不该被探");
+        assert!(result.results[1].error.contains("未探测"));
+    }
+
     fn route_test_server() -> RemoteServer {
         RemoteServer {
             id: "r1".into(),
             addresses: vec!["192.168.1.50".into()],
             jump_id: "jump-1".into(),
-            remote_tunnel_addr: "https://abc.trycloudflare.com".into(),
-            remote_ts_addr: "http://100.64.0.1:12300".into(),
             ..Default::default()
         }
     }
@@ -4473,46 +5218,90 @@ mod tests {
     fn normalize_materializes_route_fields() {
         let mut server = route_test_server();
         server.route_order = Vec::new();
-        server.route_disabled = vec!["bogus".into(), " funnel ".into()];
+        // route_disabled 现在只认非配对通道（lan / jump）：区块禁用走 pair.enabled
+        server.route_disabled = vec!["bogus".into(), " LAN ".into(), "tunnel".into()];
         let normalized = server.normalize();
         assert_eq!(
             normalized.route_order,
             vec!["lan", "jump", "tunnel", "ts", "funnel", "tsnet"]
         );
-        assert_eq!(normalized.route_disabled, vec!["funnel"]);
+        assert_eq!(normalized.route_disabled, vec!["lan"]);
     }
 
     #[test]
-    fn funnel_and_ts_split_by_shape() {
+    fn route_candidates_expand_every_pair_in_order() {
+        // 一区块多条：全部展开，顺序 = 区块顺序 + 区块内顺序（不再一区块一条）
         let mut server = route_test_server();
-        // ts 槽是 100.x → ts 直连有、funnel 无
-        assert_eq!(server.ts_direct_origin(), "http://100.64.0.1:12300");
-        assert_eq!(server.funnel_origin(), "");
-        // ts 槽换成 ts.net https → 判型反转
-        server.remote_ts_addr = "https://box.tail1234.ts.net".into();
-        assert_eq!(server.ts_direct_origin(), "");
-        assert_eq!(server.funnel_origin(), "https://box.tail1234.ts.net");
+        server.pairs = vec![
+            pair("cloudflare", "https://a.trycloudflare.com", "m1"),
+            pair("cloudflare", "https://b.trycloudflare.com", "m2"),
+            pair("ts", "https://box.tail1234.ts.net", "m3"),
+            pair("ts", "100.64.0.1:12300", "m4"),
+        ];
+        server.jump_id = String::new(); // 先把跳板机摘掉，候选里不留空 origin 的干扰项
+        let server = server.normalize(); // 真实路径：落盘前会归一（补 scheme / 补 id）
+        let candidates = server.route_candidates();
+        let kinds: Vec<&str> = candidates.iter().map(|cand| cand.kind.as_str()).collect();
+        let origins: Vec<&str> = candidates.iter().map(|cand| cand.origin.as_str()).collect();
+        // 默认 route_order 是 lan 领头，配对区块按 tunnel → ts 跟在后面
+        assert_eq!(kinds, vec!["lan", "tunnel", "tunnel", "funnel", "ts"]);
+        assert_eq!(
+            origins,
+            vec![
+                "192.168.1.50:12300",
+                "https://a.trycloudflare.com",
+                "https://b.trycloudflare.com",
+                "https://box.tail1234.ts.net",
+                "http://100.64.0.1:12300",
+            ]
+        );
+        // 每条候选带自己的令牌与超时
+        let mut timed = server.clone();
+        timed.block_timeouts_ms.insert("cloudflare".to_string(), 4_000);
+        let candidates = timed.route_candidates();
+        assert_eq!(candidates[1].timeout_ms, 4_000, "cloudflare 区块的默认超时");
+        assert_eq!(candidates[3].timeout_ms, DEFAULT_PROBE_TIMEOUT_MS);
     }
 
     #[test]
-    fn route_candidates_follow_order_and_disable() {
+    fn route_candidates_skip_disabled_pair_and_channel() {
         let mut server = route_test_server();
-        server.route_order = vec!["funnel".into(), "ts".into(), "tunnel".into(), "jump".into(), "lan".into()];
-        let candidates = server.route_candidates();
-        let kinds: Vec<&str> = candidates.iter().map(|(kind, _)| kind.as_str()).collect();
-        assert_eq!(kinds, vec!["ts", "tunnel", "jump", "lan"]); // funnel 槽当前是 100.x，不可用被跳过
-        // 禁用 jump 后只剩三条；jump 未配跳板机 = 不可用
-        server.route_disabled = vec!["jump".into()];
-        let candidates = server.route_candidates();
-        let kinds: Vec<&str> = candidates.iter().map(|(kind, _)| kind.as_str()).collect();
-        assert_eq!(kinds, vec!["ts", "tunnel", "lan"]);
         server.jump_id = String::new();
-        server.route_disabled = Vec::new();
-        let candidates = server.route_candidates();
-        let kinds: Vec<&str> = candidates.iter().map(|(kind, _)| kind.as_str()).collect();
-        assert_eq!(kinds, vec!["ts", "tunnel", "lan"]);
-        // 全禁用 = 空候选
-        server.route_disabled = ROUTE_IDS.iter().map(|id| id.to_string()).collect();
-        assert!(server.route_candidates().is_empty());
+        server.pairs = vec![
+            pair("cloudflare", "https://a.trycloudflare.com", "m1"),
+            RemotePair { enabled: false, ..pair("cloudflare", "https://b.trycloudflare.com", "m2") },
+        ];
+        let kinds: Vec<String> = server
+            .route_candidates()
+            .iter()
+            .map(|cand| cand.kind.clone())
+            .collect();
+        assert_eq!(kinds, vec!["lan", "tunnel"], "禁用的配对不参与");
+        // 禁用局域网通道后只剩配对
+        server.route_disabled = vec!["lan".into()];
+        let kinds: Vec<String> = server
+            .route_candidates()
+            .iter()
+            .map(|cand| cand.kind.clone())
+            .collect();
+        assert_eq!(kinds, vec!["tunnel"]);
+    }
+
+    #[test]
+    fn route_candidates_block_order_follows_route_order() {
+        // tsnet 排在最前 → 它的配对先被试（区块顺序从 route_order 推导）
+        let mut server = route_test_server();
+        server.jump_id = String::new();
+        server.route_order = vec!["tsnet".into(), "tunnel".into(), "lan".into(), "jump".into(), "ts".into(), "funnel".into()];
+        server.pairs = vec![
+            pair("cloudflare", "https://a.trycloudflare.com", "m1"),
+            pair("tsnet", "https://tsnet.tail.ts.net", "m2"),
+        ];
+        let kinds: Vec<String> = server
+            .route_candidates()
+            .iter()
+            .map(|cand| cand.kind.clone())
+            .collect();
+        assert_eq!(kinds, vec!["tsnet", "tunnel", "lan"]);
     }
 }

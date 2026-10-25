@@ -1493,6 +1493,119 @@ fn current_tunnel_url(app: &tauri::AppHandle) -> String {
     String::new()
 }
 
+/// 配对串 v2（客户端只认 `v=2`，老串一律拒收）。
+///
+/// 为什么必须带来源：客户端的幂等键是 `(mid, kind)`，还要在列表里显示「来自哪台机器、
+/// 哪个系统」。老串只有一个 `gateway=主机名`，同名机器分不开、重复扫码也去不了重。
+///
+/// 参数含义见 `docs/remote-pairs.md` §4.5：
+/// - `mid` = 本机 AnyBoot 配置的身份（`settings.json` 里的 machine_id）
+/// - `os` = windows / macos / linux（列表徽标与来源显示）
+/// - `host` = 主机名（纯显示）
+/// - `type` = cloudflare / ts / tsnet（**区块**，不是通道 id）
+/// - `tunnel_id` = named tunnel 的 id（识别同一隧道被多套系统共用）；拿不到就空
+pub(crate) fn build_pair_string(
+    mid: &str,
+    os: &str,
+    host: &str,
+    kind: &str,
+    tunnel: &str,
+    token: &str,
+    tunnel_id: &str,
+) -> String {
+    // `type` 必须是**区块** id（cloudflare / ts / tsnet），不是通道 id。
+    // 调用方传的是通道（tunnel / funnel / ts / tsnet）——`funnel` 与 `ts` 同属 ts 区块，
+    // 直接写进去客户端会当成非法值拒收。映射不上（空 / 未知）就留空，由客户端按地址判型。
+    let block = crate::remote_servers::block_of_route(kind).unwrap_or("");
+    format!(
+        "anyboot://pair?v=2&mid={}&os={}&host={}&gateway={}&type={}&tunnel={}&token={}&tunnel_id={}",
+        percent_encode(mid.trim()),
+        percent_encode(os.trim()),
+        percent_encode(host.trim()),
+        percent_encode(host.trim()),
+        percent_encode(block),
+        percent_encode(tunnel.trim()),
+        token.trim(),
+        percent_encode(tunnel_id.trim())
+    )
+}
+
+/// named tunnel 的 id（配对串 `tunnel_id=` 用）。
+///
+/// cloudflared 的 tunnel token 是 `base64(JSON{a,t,s})`，`t` 就是 tunnel id；
+/// quick 模式每次域名都不同、没有稳定 id，返回空。解不出来也返回空 —— 这个字段只用于
+/// 「同一隧道被多套系统共用」的提示，缺了不影响连接。
+fn current_tunnel_id(app: &tauri::AppHandle) -> String {
+    // 读盘而不是读内存态：named token 是用户存下来的固定凭据，出码时磁盘才是真相源
+    // （与 `remote_list` 等命令一致，都走 `stored_settings`）。
+    let settings = crate::stored_settings(app);
+    if settings.gateway_mode != "named" {
+        return String::new();
+    }
+    decode_tunnel_id(&settings.gateway_named_token)
+}
+
+/// 最小 base64 解码（标准/URL-safe、带不带填充都试）。
+///
+/// cloudflared 的 tunnel token 形态不保证恒定：官方 `tunnel token` 输出标准 base64，
+/// 但用户从别的面板/脚本来回拷可能变成 URL-safe 或去掉 `=` 填充。三种都试一遍，
+/// 全失败就返回 None —— 这个字段只用于「同一隧道被多套系统共用」的提示。
+fn decode_base64(raw: &str) -> Option<Vec<u8>> {
+    use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD, URL_SAFE, URL_SAFE_NO_PAD};
+    use base64::Engine as _;
+    let text = raw.trim_end_matches('=');
+    // 四种引擎都是同一个具体类型（GeneralPurpose），直接数组循环 —— `Engine`
+    // 带泛型方法，不能做 trait object。
+    for engine in [STANDARD, STANDARD_NO_PAD, URL_SAFE, URL_SAFE_NO_PAD] {
+        if let Ok(bytes) = engine.decode(text) {
+            return Some(bytes);
+        }
+    }
+    None
+}
+
+/// 从 cloudflared tunnel token 里挖出 tunnel id（`{"a":…,"t":"<id>","s":…}`）。
+/// 只做最小的 base64 + 字符串扫描，不引 JSON 解析依赖（token 里只有三个字符串字段，
+/// 且这里允许失败：拿不到就不显示「共用隧道」提示）。
+fn decode_tunnel_id(token: &str) -> String {
+    let raw = token.trim();
+    if raw.is_empty() {
+        return String::new();
+    }
+    let Some(payload) = decode_base64(raw) else {
+        return String::new();
+    };
+    let Ok(text) = String::from_utf8(payload) else {
+        return String::new();
+    };
+    let bytes = text.as_bytes();
+    let mut index = 0usize;
+    // 逐个找 `"t"` 再校验「后面是冒号 + 引号」——值里恰好出现 "t" 时不会误取。
+    while let Some(offset) = text[index..].find("\"t\"") {
+        let mut cursor = index + offset + 3;
+        while bytes.get(cursor).is_some_and(|b| b.is_ascii_whitespace()) {
+            cursor += 1;
+        }
+        if bytes.get(cursor) == Some(&b':') {
+            cursor += 1;
+            while bytes.get(cursor).is_some_and(|b| b.is_ascii_whitespace()) {
+                cursor += 1;
+            }
+            if bytes.get(cursor) == Some(&b'"') {
+                let start = cursor + 1;
+                if let Some(end) = text[start..].find('"') {
+                    return text[start..start + end].trim().to_string();
+                }
+            }
+        }
+        index += offset + 3;
+        if index >= text.len() {
+            break;
+        }
+    }
+    String::new()
+}
+
 /// 签发配对：新客户端令牌 + anyboot://pair 配对串。
 ///
 /// `kind` 是这条地址属于哪个通道（`tunnel` / `ts` / `funnel` / `tsnet`），会写进配对串的
@@ -1520,7 +1633,7 @@ pub(crate) fn gateway_pair_issue(
             given
         }
     };
-    // 通道类型归一：只认四个合法值，别的一律空（手机端会按地址判型兜底）
+    // 通道类型归一：只认四个合法值，别的一律空
     let kind = match kind.as_deref().map(|value| value.trim().to_ascii_lowercase()) {
         Some(value) if value == "tunnel" || value == "ts" || value == "funnel" || value == "tsnet" => {
             value
@@ -1529,6 +1642,18 @@ pub(crate) fn gateway_pair_issue(
         Some(value) if value == "builtin" || value == "builtin_ts" => "tsnet".to_string(),
         Some(value) if value == "cloudflare" || value == "cf" => "tunnel".to_string(),
         _ => String::new(),
+    };
+    // 判不出类型就按地址形态定：100.64/10 与 `*.ts.net` 都属 ts 区块，其余算 Cloudflare。
+    // **不猜 tsnet** —— 内建 tsnet 与系统 Funnel 的域名同形，猜错就会把两条路混成一条。
+    // 配对码的 `type=` 必须落在这三个区块里，否则客户端按「非法值」拒收（§4.5）。
+    let kind = if kind.is_empty() {
+        if crate::remote_servers::is_tailscale_origin(&tunnel) {
+            "ts".to_string()
+        } else {
+            "tunnel".to_string()
+        }
+    } else {
+        kind
     };
     let client = GatewayClient {
         id: format!("gw-{}", &token[..8]),
@@ -1543,12 +1668,15 @@ pub(crate) fn gateway_pair_issue(
     let mut clients = load_clients(&app);
     clients.push(client.clone());
     save_clients(&app, &clients)?;
-    let pair = format!(
-        "anyboot://pair?gateway={}&tunnel={}&token={}&type={}",
-        percent_encode(&crate::http_server::machine_name()),
-        percent_encode(&tunnel),
-        token,
-        percent_encode(&kind)
+    let settings = crate::stored_settings(&app);
+    let pair = build_pair_string(
+        &settings.machine_id,
+        crate::sysinfo_lite::os_family(),
+        &crate::http_server::machine_name(),
+        &kind,
+        &tunnel,
+        &token,
+        &current_tunnel_id(&app),
     );
     gw_log(&app, &format!("[gateway] 签发配对 {} ({})", client.id, client.name));
     Ok(PairIssued {
@@ -2099,6 +2227,115 @@ mod tests {
         assert_eq!(
             parse_quick_url("url=https://a-b-c.trycloudflare.com, connIndex=0").as_deref(),
             Some("https://a-b-c.trycloudflare.com")
+        );
+    }
+
+    // ---------- 配对串 v2（S3） ----------
+
+    /// 真实 cloudflared tunnel token 的形状：base64(JSON{a,t,s})。
+    const REAL_TUNNEL_TOKEN: &str = "eyJhIjoiMDEyMzQ1Njc4OWFiY2RlZiIsInQiOiI3ZjNjOWY0YS0xYjJjLTRkNWUtOGY5MC1hYmNkZWYwMTIzNDUiLCJzIjoiYzJWamNtVjBMWE5sWTNKbGRBPT0ifQ==";
+
+    #[test]
+    fn build_pair_string_emits_v2_with_every_field() {
+        let pair = build_pair_string(
+            "mid-abc",
+            "windows",
+            "书房 PC",
+            "tunnel",
+            "https://odd-months-win.trycloudflare.com",
+            "gw1234567890abcdef",
+            "7f3c9f4a-1b2c-4d5e-8f90-abcdef012345",
+        );
+        assert!(pair.starts_with("anyboot://pair?v=2&"), "必须是 v2：{pair}");
+        // 名称里的空格/中文必须转义，否则下游按 `&`/`=` 切分会切错
+        assert!(pair.contains("&host=%E4%B9%A6%E6%88%BF%20PC"), "{pair}");
+        assert!(pair.contains("&mid=mid-abc"), "{pair}");
+        assert!(pair.contains("&os=windows"), "{pair}");
+        assert!(pair.contains("&token=gw1234567890abcdef"), "{pair}");
+        assert!(pair.contains("&tunnel_id=7f3c9f4a-"), "{pair}");
+        // 令牌不做百分号编码：它是 32 位十六进制，编了反而要多解一层
+        assert!(!pair.contains("token=gw1234567890abcdef%"), "{pair}");
+    }
+
+    #[test]
+    fn build_pair_string_maps_channel_to_block_type() {
+        // `type=` 必须是**区块** id，`funnel` 与 `ts` 同属 ts 区块
+        let ty = |kind: &str| {
+            let pair = build_pair_string("m", "linux", "h", kind, "https://a.ts.net", "t", "");
+            pair.split("&type=")
+                .nth(1)
+                .and_then(|rest| rest.split('&').next())
+                .unwrap_or("")
+                .to_string()
+        };
+        assert_eq!(ty("tunnel"), "cloudflare");
+        assert_eq!(ty("ts"), "ts");
+        assert_eq!(ty("funnel"), "ts");
+        assert_eq!(ty("tsnet"), "tsnet");
+        // 传入未知通道（不该发生，但不许画出 `type=` 空串让客户端拒收）
+        assert_eq!(ty("nonsense"), "");
+    }
+
+    #[test]
+    fn pair_string_round_trips_through_parser() {
+        let pair = build_pair_string(
+            "mid-abc",
+            "macos",
+            "书房 PC",
+            "funnel",
+            "https://win-pc.tailabc.ts.net",
+            "gwdeadbeef",
+            "",
+        );
+        let parsed = crate::remote_servers::parse_pair_string(&pair).expect("自家签的串必须能解");
+        assert_eq!(parsed.mid, "mid-abc");
+        assert_eq!(parsed.os, "macos");
+        assert_eq!(parsed.host, "书房 PC");
+        assert_eq!(parsed.kind, "ts", "funnel 落在 ts 区块");
+        assert_eq!(parsed.tunnel, "https://win-pc.tailabc.ts.net");
+        assert_eq!(parsed.token, "gwdeadbeef");
+        assert_eq!(parsed.tunnel_id, "");
+    }
+
+    #[test]
+    fn decode_tunnel_id_reads_named_tunnel_token() {
+        assert_eq!(
+            decode_tunnel_id(REAL_TUNNEL_TOKEN),
+            "7f3c9f4a-1b2c-4d5e-8f90-abcdef012345"
+        );
+        // 去掉填充也要能解（用户从脚本/配置文件里拷回来常丢 `=`）
+        let unpadded = REAL_TUNNEL_TOKEN.trim_end_matches('=');
+        assert_eq!(
+            decode_tunnel_id(unpadded),
+            "7f3c9f4a-1b2c-4d5e-8f90-abcdef012345"
+        );
+        // quick 模式没有 token / 垃圾输入 → 空（这个字段只用于「共用隧道」提示，缺了不影响连接）
+        assert_eq!(decode_tunnel_id(""), "");
+        assert_eq!(decode_tunnel_id("   "), "");
+        assert_eq!(decode_tunnel_id("not-base64!!!"), "");
+        // 合法 base64 但不是 cloudflared token
+        assert_eq!(decode_tunnel_id("aGVsbG8gd29ybGQ="), "");
+    }
+
+    #[test]
+    fn decode_base64_accepts_url_safe_alphabet() {
+        // `-` `_` 是 URL-safe 字母表里的 62/63；标准表里它们是 `+` `/`
+        assert_eq!(decode_base64("-_-_"), Some(vec![0xfb, 0xff, 0xbf]));
+        assert_eq!(decode_base64("+/+/"), Some(vec![0xfb, 0xff, 0xbf]));
+        assert_eq!(decode_base64("不是 base64"), None);
+    }
+
+    #[test]
+    fn decode_tunnel_id_ignores_stray_t_in_values() {
+        // 值里恰好出现 "t" 时不能误取：必须先看到 `"t"` 再看到冒号
+        let payload = r#"{"a":"t","t":"11111111-2222-3333-4444-555555555555"}"#;
+        let encoded = {
+            use base64::Engine as _;
+            base64::engine::general_purpose::STANDARD.encode(payload.as_bytes())
+        };
+        assert_eq!(
+            decode_tunnel_id(&encoded),
+            "11111111-2222-3333-4444-555555555555"
         );
     }
 }
