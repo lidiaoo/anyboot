@@ -580,10 +580,14 @@ fn platform_has_installer() -> bool {
 }
 
 /// Rust arch 名 → 官方 Tarballs 的架构段名（manifest["Tarballs"] 的 key）。
+/// 覆盖官方全部主流段：amd64/arm64/386/arm/riscv64（mips 系与 geode 太边缘不认）。
 fn linux_tarball_arch() -> Option<&'static str> {
     match std::env::consts::ARCH {
         "x86_64" => Some("amd64"),
         "aarch64" => Some("arm64"),
+        "x86" => Some("386"),
+        "arm" => Some("arm"),
+        "riscv64" => Some("riscv64"),
         _ => None,
     }
 }
@@ -677,6 +681,13 @@ fn finish_ts_download(app: &AppHandle, result: Result<std::path::PathBuf, String
 }
 
 fn ts_download_worker(app: AppHandle) {
+    // Linux 前置检测不过就直接失败（fail-fast，不浪费 30MB 下载）
+    #[cfg(all(unix, not(target_os = "macos")))]
+    if let Err(message) = linux_install_preflight() {
+        ts_log(&format!("[下载] 前置检测未通过：{message}"));
+        finish_ts_download(&app, Err(message));
+        return;
+    }
     ts_log("[下载] 开始获取版本清单（pkgs.tailscale.com/stable）…");
     let candidates = download_candidates();
     if candidates.is_empty() {
@@ -1403,6 +1414,40 @@ fn launch_installer(path: &std::path::Path) -> Result<(), String> {
         .map_err(|error| format!("启动安装器失败: {error}"))
 }
 
+/// Linux 安装前置检测（下载前 fail-fast，别等 30MB 下完、脚本跑一半才报错）：
+/// ① systemd 在跑；② pkexec 可用；③ 未被发行版包装机（混装会导致 CLI/daemon
+/// 版本漂移，且卸载边界分不清）。返回 Err 时 message 已是给用户的人话指引。
+#[cfg(all(unix, not(target_os = "macos")))]
+fn linux_install_preflight() -> Result<(), String> {
+    use std::path::Path;
+    if !Path::new("/run/systemd/system").is_dir() {
+        return Err("此系统未使用 systemd，无法在应用内安装 Tailscale——请用发行版包管理器安装（如 apk add tailscale、xbps-install tailscale）".into());
+    }
+    let pkexec_ok = std::process::Command::new("pkexec")
+        .arg("--version")
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false);
+    if !pkexec_ok {
+        return Err("未检测到 pkexec（polkit）——请先安装 polkit，或手动安装 Tailscale".into());
+    }
+    if linux_distro_package_present() {
+        return Err("检测到发行版包安装的 Tailscale（/usr/lib 的 unit 或 /usr/bin 的二进制）——请用系统包管理器统一管理，AnyBoot 不与其混装".into());
+    }
+    Ok(())
+}
+
+/// 发行版包装机信号：/usr/lib 的 tailscaled unit，或 /usr/bin 下的 tailscale
+/// 二进制（发行版包的落点；AnyBoot 自己只装 /usr/local/bin，两者不重叠）。
+#[cfg(all(unix, not(target_os = "macos")))]
+fn linux_distro_package_present() -> bool {
+    use std::path::Path;
+    Path::new("/usr/lib/systemd/system/tailscaled.service").is_file()
+        || Path::new("/usr/bin/tailscale").exists()
+        || Path::new("/usr/bin/tailscaled").exists()
+        || Path::new("/usr/sbin/tailscaled").exists()
+}
+
 /// Linux 安装：官方静态 tarball（tailscale + tailscaled 双二进制）。
 /// pkexec 提权执行安装脚本：解压 → `/usr/local/bin` → 注册 systemd 服务
 /// （仅当系统还没有 tailscaled unit，发行版包装过的配置不覆盖）→ enable --now。
@@ -1504,7 +1549,15 @@ fn launch_installer(tarball: &std::path::Path) -> Result<(), String> {
         Ok(())
     } else {
         ts_log("[安装] 完成：但 tailscaled 服务未运行（journalctl -u tailscaled 可查）");
-        Err("安装完成但 tailscaled 服务未运行：请执行 journalctl -u tailscaled 查看日志".to_string())
+        // 常见根因先提示：容器/LXC 里常没有 /dev/net/tun
+        let tun_hint = if !std::path::Path::new("/dev/net/tun").exists() {
+            "；本机缺 /dev/net/tun（容器环境常见），需加载 tun 模块或改用用户态网络（TS_USERSPACE=1）"
+        } else {
+            ""
+        };
+        Err(format!(
+            "安装完成但 tailscaled 服务未运行：请执行 journalctl -u tailscaled 查看日志{tun_hint}"
+        ))
     }
 }
 
@@ -1658,6 +1711,9 @@ mod tests {
         let expected = match std::env::consts::ARCH {
             "x86_64" => "amd64",
             "aarch64" => "arm64",
+            "x86" => "386",
+            "arm" => "arm",
+            "riscv64" => "riscv64",
             _ => return,
         };
         assert_eq!(linux_tarball_arch(), Some(expected));
