@@ -34,6 +34,7 @@
 
 ## 远端管理（server-hub）
 - 服务器多地址模型：连接只用 host/port；探活按序试全部地址。电源在 `hub_power.rs`；sol 路由语义改了要同步 `hub.html`、`ServerProfile.java`、`MainActivity.kt` 三处。http_fallback 默认 true；wake 走默认 WOL 广播不走 HTTP。
+- **远程接入两个维度都要「多」**（`docs/multi-os-identity.md`）：档案内每种通道（cloudflare/ts/funnel/tsnet）可挂多条 `RemotePair`，**不许再用固定 String 槽**（历史上已为此拆过两次槽）；一台电脑多系统 = **多条档案**，配对时按对方自报 `machine_id` 建档案。**顶替只允许 `(mid,kind)` 幂等更新，跨系统永不覆盖**；`group` 纯展示不参与唯一性。去重键必须 `(mid,kind)` 不是 `mid`（一个系统可同时有多条不同类型）。LAN/jump 不进 pair（机器级）。
 - **唯一 SSH 入口 `hub_tunnel::apply_auth`**。askpass=本程序自身（全环境变量）；askpass 分支在 `main.rs` 排 `cli_requested` 之前。Windows 无 ControlMaster；`sftp -b` 自开 BatchMode → 有密码没密钥时补 `-o BatchMode=no`。
 - **同步 tauri command = UI 线程**：阻塞操作走 async fn + `spawn_blocking`（守卫单测 `blocking_guard.rs`）；IPC 回调里建 webview 必须 async（否则白屏卡死）。子进程一律 `crate::command()`（防闪黑框）。
 - 传输状态真相源=`XferTask.state` 五态，变更一律 `app.emit` 广播；退出必须 `detach_running`；中断报 paused。

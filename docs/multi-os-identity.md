@@ -1,272 +1,318 @@
-# 一台电脑多系统：身份分层与远程接入隔离
+# 多配对与多系统：远程接入的隔离模型
 
 > 状态：设计稿（未实现）
 > 涉及：`remote_servers.rs` / `http_server.rs` / `hub_gateway.rs` / `hub_tsnet.rs` / `ui/hub.html` / `mobile/{android,ios}`
-> 背景：一台物理机（固定 IP + MAC）装多个系统，每个系统各有一套 AnyBoot。当前远程接入是「顶替制」。
+> 背景：一台物理机（固定 IP + MAC）装多个系统，每个系统各有一套 AnyBoot；每个系统上又可能同时开
+> cloudflare / tailscale 直连 / funnel / tsnet 多条通道。当前架构在这两个维度上都只允许一条，新配的顶掉旧的。
 
-## 一、问题：顶替发生在四层
+## 一、问题：「顶替」是两个维度叠加的结果
 
-模型缺一层。现在 `RemoteServer` 同时扮演两个角色：「一台电脑」和「一个系统」，而物理事实是
-**一台电脑 → N 个系统实例**。四个位置各自顶替，互相叠加：
+### 1.1 数据结构上就没有「多」的位置
 
-### 1. 连接层：LAN 地址是机器级，不区分系统
+`RemoteServer`（`remote_servers.rs:155-178`）与移动端 `ServerProfile` 的远程通道是
+**按类型固定命名的 String 槽位**：
 
-`192.168.1.10:12300` 指向「当前正在运行的那个系统」，不是「某条档案」。
-三条代表不同系统的档案共用这个地址 → 探活全部成功 → 三个都显示在线 → 点哪行都连到碰巧在跑的那个。
+```
+remote_tunnel_addr   ← cloudflare
+remote_ts_addr       ← tailscale 直连（100.64/10）
+remote_funnel_addr   ← 系统 tailscale funnel（*.ts.net）
+remote_tsnet_addr    ← 内置 tsnet（*.ts.net）
+remote_token         ← 单值令牌
+```
 
-更关键的是**探活结果没被校验**：`/health` 已经返回 `machineId`/`machineOs`，但
-`ui/hub.html:5347` 只回写 `machine_name`/`machine_os`，从不比对 `machine_id` 是否等于本档案的。
-于是「这条档案是不是当前系统」这个事实被丢掉了。
+一个类型一个槽，同类型第二条配对**无处可放**，只能覆盖。
 
-### 2. 配对层：配对码不带身份
+这个坑项目已经撞过两次，历史解法都是「再加一个槽」：
 
-`hub_gateway.rs:1546`：
+- `remote_ts_addr` 注释：以前兼收 `*.ts.net`，结果 Funnel 和 100.x 直连抢一个槽，**配一个顶掉另一个** → 拆槽
+- `remote_tsnet_addr` 注释：和系统 Funnel 分开存，两者域名长得一样，**混在一个槽里必然互相顶替** → 再拆槽
+
+拆槽能解决「两种通道类型撞车」，解决不了「同一类型有多条」。槽位是有穷枚举，而系统数量、通道数量都是变量
+—— 再加到八个槽，遇到「两个 Windows 各配一条 cloudflare」照样塌。
+
+### 1.2 配对码不带身份，只能落进「当前正在编辑的那条档案」
+
+`hub_gateway.rs:1546` 签发：
 
 ```
 anyboot://pair?gateway=<主机名>&tunnel=<url>&token=<token>&type=<kind>
 ```
 
 移动端 `ServerProfile.parsePair`（1081-1126 行）只取 `tunnel`/`token`/`type`，
-**`gateway` 被完全忽略，也没有 machineId**。三个系统各签一张码，扫进来说到底只是「一个地址」，
-只能落到用户此刻正在编辑的那条档案的同一个槽 → 后配的顶掉先配的。
+**`gateway` 被忽略，也没有 machineId**。所以三台机器的配对码进来，客户端无从判断「这是哪个系统」，
+只能落进用户此刻正在编辑的那条档案的同一个槽 → **后配的顶掉先配的**。
 
-### 3. tailnet 层：节点自己没区分
+这才是「顶替制」的根源：不是策略问题，是**配对串里缺一个归档依据**。
 
-- `hub_tsnet.rs:475` 内置引擎 `--hostname anyboot` 是**写死**的 → 三系统在 tailnet 里同名，
-  Tailscale 自动变 `anyboot` / `anyboot-1` / `anyboot-2`，看不出是哪个系统。
-- Cloudflare named 模式更直接：同一个 Tunnel Token 在三个系统上跑 = **一个 tunnel 三个 connector**，
-  Cloudflare 把请求随机分给其中一个 —— 想连 Windows，结果进了 macOS。
+### 1.3 探活拿到了身份，但丢掉了
 
-### 4. 展示层：两端不一致
+`/health` 早已返回 `machineId` / `machineOs` / `machineName`，但 `ui/hub.html:5347`
+只回写 `machine_name` / `machine_os`，**从不比对 `machine_id` 是否等于本档案的**。
+于是「对面这个系统是不是这条档案那个」这个事实被丢弃，探活成功就一律显示在线。
 
-- PC 端「电脑」页 `cqRenderRows`（`ui/hub.html:6309`）是平铺列表，没有分组概念。
-- 移动端 `ServerProfile` 反而已有 `group` + `groupColor` + `groupSortKey` + `groupDisplayName`。
-- 移动端比 PC 端领先一代，字段语义也不完全对齐。
+### 1.4 LAN 地址是机器级的，天然无法定位系统
+
+`192.168.1.10:12300` 指向「当前正在运行的那个系统」，不是「某条档案」。
+同一台机器的三条档案共用这个地址 → 探活全部成功 → 三个都显示在线。
+这是物理事实，不是 bug（见 §2 非目标）。
+
+### 1.5 展示层两端不一致
+
+- PC 端「电脑」页 `cqRenderRows`（`ui/hub.html:6309`）平铺，无分组概念。
+- 移动端 `ServerProfile` 已有 `group` / `groupColor` / `groupSortKey` / `groupDisplayName`。
+- 移动端领先一代，字段语义未对齐。
 
 ## 二、目标与非目标
 
 **目标**
 
-1. 一台物理机的多个系统在数据模型里显式分层，档案不再互相覆盖。
-2. 配对码携带身份，客户端按身份归档，不再「落进当前正在编辑的那条」。
+1. **通道维度**：一个档案内每种接入类型可挂多条配对，全部保留、全部独立探测。
+2. **系统维度**：同一台电脑的多个系统各成一条档案，配对时按对方自报的 `machine_id` 归档，互不覆盖。
 3. 连接时能判断「对面是不是本条档案那个系统」，判断结果对用户可见。
-4. PC / 移动端同一套字段契约、同一套分组呈现。
+4. PC / 移动端同一套字段契约、同一套列表与分组呈现。
+5. **「顶替」只剩一个合法场景**：同一个系统、同一种通道重新配对 → 更新那一行（幂等，不是策略）。
 
 **非目标（明确不做）**
 
 - **不解决 LAN 通道的系统定位**。同一时刻只有一个系统在跑，`IP:12300` 永远指向它。
   这是物理事实，不靠软件绕。LAN 通道只做「校验 + 提示」，不做「路由到指定系统」。
+- **不做 MAC 推导 / 机器指纹**。不猜「这两条档案是不是同一台机器」，把判定权交给
+  `machine_id`（系统自报）与用户手填的分组。
 - 不做跨系统的配置同步（各系统各存各的，不共享 tailnet/cloudflare 凭据）。
-- 不引入新的中心服务/账号体系。
+- 不引入新的中心服务 / 账号体系。
 
-## 三、身份模型
+## 三、模型：两个维度的「多」
 
-两级，key 与显示名分离（key 稳定，显示名可改）：
+```
+一台电脑（group 手填，纯展示）
+├── 系统 A · machine_id=midA · host=DESKTOP-8F3A · os=windows
+│   ├── pair#1  cloudflare   https://a-1.trycloudflare.com
+│   ├── pair#2  ts           http://100.118.110.36:12300
+│   └── pair#3  tsnet        https://desktop-8f3a.xxx.ts.net
+├── 系统 B · machine_id=midB · host=arch-pc · os=linux
+│   ├── pair#4  cloudflare   https://b-1.trycloudflare.com
+│   └── pair#5  tsnet        https://arch-pc.xxx.ts.net
+└── 系统 C · machine_id=midC · host=MacBook-Pro · os=macos
+    └── pair#6  funnel       https://macbook-pro.xxx.ts.net
+```
 
-| 级别 | key | 来源 | 稳定性 | 用途 |
-|---|---|---|---|---|
-| 机器 | `machine_key` = `mac:aa:bb:cc:dd:ee:ff` | 物理网卡 MAC 推导 | 装机级，跨系统一致 | 分组、电源/唤醒、rEFInd/GRUB |
-| 系统实例 | `machine_id`（现有字段） | 首次运行随机生成，存 `settings.json` | 每系统唯一，重装即变 | 连接、配对归档、四通道归属 |
+三层各司其职：
 
-关系：**一个 `machine_key` 下挂多个 `machine_id`**。档案仍然是 `machine_id` 粒度，机器只是分组容器。
+| 层 | 载体 | 唯一性 | 是否参与连接判定 |
+|---|---|---|---|
+| 电脑 | `group` 字符串（用户手填，可空） | **不唯一、不约束**，只是折叠标签 | 否 |
+| 系统档案 | `RemoteServer.machine_id` | 每个系统实例唯一 | 是（探活比对） |
+| 配对条目 | `RemotePair.id` + `(mid, kind)` | 条目 id 唯一 | 是（这就是连接目标） |
 
-`group` 字段保留，语义从「用户手填的分组名」**降级为机器显示名**
-（默认由 `machine_key` 推导，用户可改名）。分组键一律用 `machine_key`，绝不用 `group` 字符串
-——字符串会被用户改乱，key 不会。
+**关键规则**：`group` 不参与任何唯一性判断，不触发顶替。两个系统都叫「windows」只是两个同标签的行，
+都能留着。顶替只按 `(machine_id, kind)` 发生。
 
-## 四、`machine_key` 的推导规则（三端一致）
+### 3.1 为什么不用「配对后选分组，组内顶替」
 
-这是整套方案唯一有技术风险的部分，规则必须确定、可复现、失败可观测。
+这个方案（用户提出的备选 B）在「一台机器装 Win10 + Win11 + macOS 12/13/15 + Arch + Fedora」的场景下会丢数据：
 
-### 4.1 只认物理网卡
-
-| 平台 | 取法 | 天然排除虚拟网卡 |
+| 配对来源 | 落到哪个组 | 结果 |
 |---|---|---|
-| Linux | `/sys/class/net/*/address`，要求 `/sys/class/net/<if>/device` 存在 | veth / docker0 / br- / virbr / tailscale0 都没有 `device` 目录 |
-| Windows | `Get-NetAdapter -Physical`（PowerShell，必须 `CREATE_NO_WINDOW`） | `-Physical` 直接过滤 Hyper-V / WSL / VPN 虚拟适配器 |
-| macOS | `networksetup -listallhardwareports` | 输出的是硬件端口（Wi-Fi / Ethernet / Thunderbolt Bridge），虚拟接口不在其中 |
+| Win10 + Win11 | 都选 `windows` | 只剩 Win11 |
+| macOS 12 + 13 + 15 | 都选 `macos` | 只剩 15 |
+| Arch + Fedora | 都选 `linux` | 只剩 Fedora |
 
-三端都必须额外排除：回环、隧道类（`utun`/`tun`/`tap`/`tailscale*`/`wg*`）、
-MAC 全零（`00:00:00:00:00:00`）、**本地管理位为 1 的 MAC**。
+按 OS 类型分组，粒度恰好等于顶替的力度 —— 六个系统最终只剩三个。
+要救它只能把分组细到「每台机器的每个系统」，那组名就得手填六个（`DESKTOP-8F3A`
+/ `DESKTOP-A11C` / `arch-pc` / `fedora-pc` …），比 `machine_id` 累得多，而 `machine_id`
+是配对时对方自带的，零输入成本。
 
-最后一条有实测依据（本机 macOS 2026-10-26）：`ifconfig` 全扫会看到
+结论：**分组保留，但降级为纯展示折叠；归档依据用 `machine_id`。**
 
-```
-en0     ether 58:11:22:bc:78:66     ← 真实有线
-en1     ether f0:d4:15:57:9c:c5     ← 真实无线
-awdl0   ether 5e:d3:b7:bf:7d:67     ← AirDrop 派生接口，首字节 0x5e 的 bit1 = 1（本地管理位）
-utun0-4 （无 ether）
-gif0 / stf0 （无 ether）
-```
+## 四、数据契约
 
-`awdl0` 这类派生地址每个系统各不相同、且会重生成，一旦被当成机器 key 就永远归不了组。
-判据：首字节 `& 0x02 != 0` → 本地管理位 → 排除（同时天然排除掉随机化的 Wi-Fi 地址）。
-
-注意**不能拿 `ifconfig` 全扫本地 MAC 集合**：`networksetup -listallhardwareports` 只列真实硬件端口
-（实测只给 `Ethernet / en0` 与 `Wi-Fi / en1`），是 macOS 上更省事的入口。
-
-### 4.2 选「主 MAC」的确定性顺序
-
-1. **有默认路由的物理网卡**（三端都能取：Linux `ip route get 1.1.1.1`；Windows `Get-NetRoute -DestinationPrefix 0.0.0.0/0`；macOS `route -n get default`）
-2. 否则：所有物理**有线**网卡按接口名升序取第一个
-3. 否则：物理**无线**网卡，且必须读 **burned-in MAC**，不能读当前地址（见 4.3）
-4. 都没有 → `machine_key` 为空串
-
-第 4 步是**明确失败**，不是兜底：空 key 表示「这台机器无法自动归组」，
-UI 直接让用户手动指定机器分组，不猜。
-
-### 4.3 无线网卡必须读出厂地址
-
-三端默认的「当前 MAC」可能是随机化地址：
-
-- macOS「私有 Wi-Fi 地址」（Sequoia 起默认开）
-- Windows 11「随机硬件地址」
-- Linux NetworkManager `wifi.cloned-mac-address=random`
-
-随机地址按 SSID 变化，拿它当机器 key 会导致同一台笔记本在不同网络下变成不同的机器。
-读出厂地址的方式：
-
-- macOS：`ioreg -l | grep IOMACAddress` —— 实测能读到全部出厂地址（本机三个：
-  `f0d415579cc5` Wi-Fi、`5ed3b7bf7d67` awdl0、`581122bc7866` Ethernet），
-  但**输出不含接口名**。做法：把 ioreg 的地址集合当「出厂地址白名单」，
-  `networksetup` 给的 Wi-Fi 值若不在白名单里 → 说明是随机化地址，
-  此时取 ioreg 里剩下的那个非本地管理位地址。
-- Linux：`iw dev <if> info` 的 `addr`（需 `iw`）或 `ethtool -P <if>` 的 `Permanent address`
-- Windows：`Get-NetAdapter -Physical` 的 `PermanentAddress` 字段
-
-读不到时**不要退回当前 MAC**，直接跳过这块网卡（宁可交给用户手动分组，也不要给出会漂移的 key）。
-
-### 4.4 已知限制（必须写进 UI 提示）
-
-- 笔记本只用 Wi-Fi 且系统把出厂地址也隐藏（少数机型）→ 推导不出，落手动分组。
-- 三系统看不到同一块网卡（比如某系统禁用了有线网卡）→ key 不同，用户手动归组。
-- 换主板 / 换网卡 → key 变化，等于新机器。这与「换机器」语义一致，无需特殊处理。
-
-### 4.5 同一台机器的判定
-
-**只比 `machine_key` 是否相等**，不做「MAC 集合求交集」这类模糊匹配。
-单一真相：两个档案同组 ⟺ `machine_key` 相同且非空。空 key 的档案永不自动归组。
-
-## 五、数据契约
-
-### 5.1 PC 端 `RemoteServer`（`remote_servers.rs`）
-
-新增：
+### 4.1 PC 端：新增 `RemotePair`（`remote_servers.rs`）
 
 ```rust
-/// 机器标识 `mac:aa:bb:cc:dd:ee:ff`（由 /health 回填；空 = 无法推导，不参与自动分组）
-#[serde(default)]
-pub machine_key: String,
-/// 该机器的全部物理 MAC（小写冒号分隔，升序）。电源/唤醒可复用，
-/// 也是排查「为什么归不到一台」的证据。
-#[serde(default)]
-pub machine_macs: Vec<String>,
-```
-
-保留不变：`machine_id`（系统实例 id）、`machine_os`、`machine_name`。
-`group` 改为机器显示名，不再是分组键。
-
-### 5.2 移动端 `ServerProfile`
-
-新增 `machineKey`（`String`）、`machineMacs`（`List<String>`），JSON key 与 PC 端一致
-（`machine_key` / `machine_macs`）。`group` 语义同步调整。
-`sameMachine()` 改为：`machineKey` 非空且相等 → 同机器；否则退回 `group` 相等（兼容老档案）。
-
-### 5.3 `/health` 响应（`http_server.rs:78`）
-
-```json
-{
-  "ok": true,
-  "service": "anyboot",
-  "machineId": "<系统实例 id>",
-  "machineName": "<主机名>",
-  "machineOs": "windows|macos|linux",
-  "machineKey": "mac:aa:bb:cc:dd:ee:ff",
-  "machineMacs": ["aa:bb:cc:dd:ee:ff", "..."]
+/// 一条远程接入配对：一个系统的一套通道。独立保存、独立探测、独立删除。
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+pub struct RemotePair {
+    /// 本地唯一 id（配对/手填时生成，永不复用）。探测结果与 route_order 都引用它
+    pub id: String,
+    /// 通道类型：cloudflare / ts / funnel / tsnet（LAN 与 jump 不进这里，见 §4.4）
+    pub kind: String,
+    /// 生效 origin：https://xxx.trycloudflare.com 或 http://100.x.x.x:12300
+    pub addr: String,
+    /// 该条目的网关客户端令牌（对方签发；空 = 该通道不需要）
+    pub token: String,
+    /// 对方系统自报的 machine_id —— 幂等键的一半；老档案迁移进来时为空
+    #[serde(default)]
+    pub mid: String,
+    /// 对方自报的系统族（windows / macos / linux）
+    #[serde(default)]
+    pub os: String,
+    /// 对方自报的主机名（列表显示用）
+    #[serde(default)]
+    pub host: String,
+    /// named tunnel 的 id：识别「同一个隧道被多个系统共用」
+    #[serde(default)]
+    pub tunnel_id: String,
+    /// 用户备注（可改，纯显示）
+    #[serde(default)]
+    pub note: String,
+    #[serde(default)]
+    pub created_at: u64,
 }
 ```
 
-老客户端读新字段：忽略，无影响。新客户端读老服务端：`machineKey` 缺省为空 → 不自动分组。
+`RemoteServer` 新增：
 
-### 5.4 配对串 v2
+```rust
+/// 远程接入配对列表（有序 = 探测优先级）。空 = 老档案，读取时从旧槽位迁移
+#[serde(default)]
+pub pairs: Vec<RemotePair>,
+```
+
+保留不变（只读兼容）：`remote_addr`（由 pairs 计算出的「生效地址」镜像）、
+`remote_tunnel_addr` / `remote_ts_addr` / `remote_funnel_addr` / `remote_tsnet_addr` / `remote_token`
+（迁移后不再写入，仅用于读老档案）。
+
+**软上限**：每档案 32 条（防误操作刷屏；超了 UI 拒绝新增并提示）。
+
+### 4.2 移动端 `ServerProfile`
+
+新增等价的 JSON 数组字段 `pairs`，元素字段名与 PC 端完全一致（`id` / `kind` / `addr` /
+`token` / `mid` / `os` / `host` / `tunnel_id` / `note`）。
+
+迁移时 `Task.resume()` 的逐字段拷贝**必须同步带上 `pairs`**（历史坑：`Task` 加字段不同步会导致状态丢失）。
+
+### 4.3 `/health` 不新增字段
+
+`machineId` / `machineOs` / `machineName` 已有，够用。**不引入 `machineKey` / `machineMacs`**
+（上一版设计的 MAC 推导方案已废弃）。
+
+### 4.4 什么不进 `RemotePair`
+
+| 项 | 为什么 |
+|---|---|
+| LAN（`addresses`） | 机器级地址，不属于任何系统；同一时刻只有正在运行的系统响应 |
+| 跳板机（`jump_id`） | 档案级的转发路径，不是「某系统的一条接入」 |
+| `group` | 放在档案级（这台电脑归哪堆），不是配对的属性 |
+
+### 4.5 配对串 v2
 
 ```
-anyboot://pair?v=2&mid=<machineId>&os=<os>&host=<hostname>&tunnel=<url>&token=<token>&type=<kind>&tunnel_id=<id>
+anyboot://pair?v=2&mid=<machineId>&os=<os>&host=<hostname>&type=<kind>&tunnel=<url>&token=<token>&tunnel_id=<id>
 ```
 
 - `v=2` 显式版本；老客户端只认已知参数，**天然兼容**。
-- `mid` 是归档依据：客户端扫到后
-  - 已有档案 `machine_id == mid` → 只更新它的对应槽（`type` 决定哪个槽）
-  - 没有 → 新建一条档案：`name = host`、`machine_os = os`、`machine_id = mid`，
-    机器分组按 `machineKey`（拿到 `/health` 后再回填）
-- `tunnel_id` 用于识别「同一个 named tunnel 被多个系统共用」：档案上显示来源，
-  两个档案 `tunnel_id` 相同 → UI 提示「同一个隧道被两套系统抢占，请求会随机落到其中一个」。
+- 新增 `mid` / `os` / `host` / `tunnel_id`；`gateway` 保留（显示用，不再当归档依据）。
+- `type` 取值限定 `cloudflare|ts|funnel|tsnet`，非法值拒收并提示。
 
-## 六、连接与探活语义
+### 4.6 归档规则（客户端收到配对串后）
 
-`/health` 返回的 `machineId` 与本档案比对，三种结果：
+```
+1. 按 mid 在本机全部档案里找 machine_id == mid 的那条
+2. 找不到 → 新建档案：name = host, machine_os = os, machine_id = mid
+   ↳ 此时问用户「归到哪个分组」：列已有 group + 「新建分组」+「暂不分组」
+3. 在目标档案内按 (mid, kind) 找 pair
+   ↳ 找到 → 更新 addr / token / tunnel_id（这就是唯一合法的「顶替」）
+   ↳ 没找到 → 追加新 pair
+4. mid 为空（老服务端签的码）→ 退回旧行为：落到当前编辑的档案，
+   UI 提示「这张码不含系统标识，可能落到别的系统上，建议重新生成」
+```
+
+注意第 3 步的键是 `(mid, kind)` 而不是 `mid`：**同一个系统可以同时有 cloudflare + tsnet + funnel
+三条配对**，只用 `mid` 去重会让它们互相顶替，等于回到原点。
+
+## 五、探测语义
+
+### 5.1 全量探测
+
+`route_order` 从「通道类型枚举」演进为「pair id 有序列表」：
+
+```rust
+/// 探测/连接优先级（pair id 有序）。空 = 按 pairs 数组顺序
+pub route_order: Vec<String>,
+/// 禁用的 pair id（在位次里但跳过探测）
+pub route_disabled: Vec<String>,
+```
+
+- 每次探活遍历 `pairs` 全集（跳过 `route_disabled`），**每个 pair 独立上报**。
+- `ProbeOutcome` 增加 `pair_id: String`（空 = 老结果行，按 `kind` 兼容）。
+- 探测策略沿用现有三层：`route_probe_mode`（pair 之间）/ `probe_mode`（同一 pair 多地址之间）/
+  `route_timeouts_ms`（按 kind 设超时，key 仍是 kind，因为超时特性跟通道类型走而不是跟条目走）。
+
+### 5.2 系统校验
+
+LAN 探活成功后，用 `/health` 的 `machineId` 与本档案比对：
 
 | 情况 | 判定 | UI | 行为 |
 |---|---|---|---|
 | `machineId` 相等 | 命中本系统 | 正常 | 正常连接 |
-| `machineId` 不等 | 是**同机器的另一个系统**在跑 | 该行标「当前运行的是 <os>」并灰化 | 禁止该行走 LAN 直连；远程通道照常试（远程地址本来就按系统分） |
+| `machineId` 不等 | 同机器的**另一个系统**在跑 | 该行标「当前运行的是 <os>」并灰化 | 禁止 LAN 直连；远程 pair 照常试（远程地址本来就按系统分） |
 | `machineId` 空（老服务端） | 无法判定 | 不标注 | 维持现状 |
 
-注意：这里**不是**「探测失败」。探测是成功的，只是对面不是本条档案那个系统。
-所以不能复用 `ok:false`，要单列一个标记（建议 `foreign_system: bool` + `foreign_os: String`），
-否则用户会以为网络有问题。
+**这不是探测失败**：探测成功，只是对面不是本条档案那个系统。所以不能复用 `ok:false`，
+要单列 `foreign_system: bool` + `foreign_os: String`，否则用户会以为网络坏了。
 
-## 七、列表呈现（PC / 移动端一致）
+## 六、列表呈现（PC / 移动端一致）
 
-按 `machine_key` 分组折叠，组内按 `machine_os` 排序：
+平铺为主，分组可选折叠：
 
 ```
-▾ 书房台式机  mac:…3f:2a            [在线 2/3]
-    ● Windows 11 · DESKTOP-8K2      lan ✓  tunnel ✓  ts ✓  funnel –
-    ○ Ubuntu 24.04 · anyboot-linux  lan –  tunnel ✓  ts ✓  funnel –
-    ○ macOS 15 · mac-pro            lan –  tunnel –  ts –  funnel –
+▾ 书房台式机                        [在线 2/3]
+    ● Windows 11 · DESKTOP-8F3A
+        cloudflare  a-1.trycloudflare.com     ✓ 42ms
+        ts          100.118.110.36:12300      ✓ 8ms
+        tsnet       desktop-8f3a.xxx.ts.net   – 未连接
+    ○ Arch Linux · arch-pc  （当前运行的是 Windows 11）
+        cloudflare  b-1.trycloudflare.com     – 离线
+    ○ macOS 15 · MacBook-Pro
+        funnel      macbook-pro.xxx.ts.net    – 离线
 ```
 
-- 机器行：显示名（可改）+ key 短码 + 在线系统计数。电源/唤醒/rEFInd/GRUB 挂这里
-  （它们本来就是机器级的：一台机器只有一个 rEFInd）。
-- 系统行：os 徽标 + 主机名 + 四通道状态；「当前在跑」的系统加亮点，其余显示「离线」。
-- 未识别 key 的档案进「未分组」组，保持平铺（旧行为）。
-- 移动端已有 `groupColor`/`groupSortKey`/`groupDisplayName`，改为以 `machine_key` 为分组键即可复用；
-  PC 端按同一套排序/配色规则实现。
+- 电脑行（`group`）：显示名可改，含在线计数。**电源 / 唤醒 / rEFInd / GRUB 挂这里**
+  （本来就是机器级：一台机器只有一个 rEFInd）。
+- 系统行：os 徽标 + 主机名；「当前在跑」加亮点，其余标离线原因。
+- 配对行：kind 徽标 + 地址 + 独立探测状态 + 备注；行内可改备注 / 删除 / 调整优先级。
+- 未分组档案进「未分组」平铺（旧行为）。
+- 移动端已有 `groupColor` / `groupSortKey` / `groupDisplayName`，改为按 `group` 折叠即可复用；
+  PC 端按同一套排序 / 配色实现。
 
-## 八、通道侧命名
+## 七、通道侧命名（辅助隔离）
 
 | 通道 | 改动 |
 |---|---|
 | 内置 tsnet | `--hostname` 从写死 `anyboot` 改为 `anyboot-<os>`（`anyboot-win` / `anyboot-linux` / `anyboot-mac`），设置项 `tsnet_hostname` 可覆盖 |
 | 系统 Tailscale | 不动（hostname 由系统自己决定）；远程接入页显示当前节点名，便于对账 |
-| Cloudflare named | 无法自动隔离：**一台机器多系统必须各建一个 tunnel**（同 token 必然互抢 connector）。UI 显示 tunnel id，配对串带 `tunnel_id`，重复时提示 |
-| Cloudflare quick | 天然隔离（每次随机域名），但地址会变，保持现状 |
+| Cloudflare named | 无法自动隔离：**一系统一 tunnel**（同 token 必然互抢 connector）。UI 显示 `tunnel_id`，两条 pair 同 `tunnel_id` 时提示「同一个隧道被多套系统抢占，请求会随机落到其中一个」 |
+| Cloudflare quick | 天然隔离（每次随机域名），地址会变，保持现状 |
 
-## 九、兼容与迁移
+## 八、兼容与迁移
 
-- **老档案**（无 `machine_key`）：首次探活成功时用 `/health` 的 `machineKey` 回填；回填后自动归组。
-- **老配对串**（无 `mid`）：落槽逻辑完全不变（当前行为）。UI 上加一句提示
-  「这条配对码不含系统标识，可能落到别的系统上，建议重新生成」。
-- **老服务端**（`/health` 无 `machineKey`）：档案不进自动分组，不报错。
-- 字段全部 `#[serde(default)]`，读写老档案不丢数据。
+- **老档案（四个旧槽位）**：读取时迁移成 `pairs`。规则：非空的槽位各生成一条
+  `RemotePair { id: "legacy-<kind>", kind, addr, token: remote_token, mid: "" }`，
+  顺序按老 `route_order`，老 `route_order`/`route_disabled` 里的 kind 字符串映射到对应 pair id。
+- **老 `remote_addr`**：迁移后置空，由 `pairs` 计算（隧道类优先，其余按 route_order）。
+  消费点改为读计算值，不再直接读字段。
+- **老配对串（无 `mid`）**：落槽行为完全不变，UI 提示建议重新生成。
+- **老服务端（`/health` 无字段）**：`machine_id` 留空 → 不做系统校验，不报错。
+- 所有新字段 `#[serde(default)]`，读写老档案不丢数据；**旧字段只读不写**，确认无回滚需求后再删。
 
-## 十、实施阶段与验收
+## 九、实施阶段与验收
 
 | 阶段 | 内容 | 验收 |
 |---|---|---|
-| S1 | 三端 `machine_key` 推导 + `/health` 新字段 + 档案字段与归一化 | 单测：虚拟网卡排除、无线读出厂地址、主 MAC 顺序、空 key 语义；本机实测三种网络形态（有线/无线/仅虚拟） |
-| S2 | 配对串 v2（签发 + PC/移动端解析 + 按 mid 归档） | 单测：v2 全参数、缺 `mid` 的老串、`type` 非法；两端解析结果一致 |
-| S3 | 探活 `machineId` 校验 + `foreign_system` 标记 | 单测 + 模拟：同 IP 两条不同 `machine_id` 的档案，只有匹配的那条可连 LAN |
-| S4 | PC 端分组折叠 UI + 移动端改分组键 | 真机：一台机器的两条档案（不同 `machine_id`）归到一个组下；移动端同样归组 |
-| S5 | tsnet hostname 带系统后缀 + tunnel id 展示与重复提示 | 真机：tailnet 里看到 `anyboot-mac`；两个档案同 `tunnel_id` 时提示出现 |
+| S1 | `RemotePair` 结构 + 老槽位迁移 + 归一化/裁剪（软上限） | 单测：四槽迁移顺序、空槽不生成、老 `route_order` 映射、32 条上限 |
+| S2 | 探测改遍历 `pairs` + `ProbeOutcome.pair_id` + 按 kind 取超时 | 单测：3 条同 kind 各自出结果；禁用某条只跳过它；老结果行兼容 |
+| S3 | 配对串 v2（签发 + PC/移动端解析 + §4.6 归档规则） | 单测：v2 全参数、同 (mid,kind) 更新、同 mid 不同 kind 新增、缺 mid 老路 |
+| S4 | 探活 `machineId` 校验 + `foreign_system` 标记 | 单测 + 真机：同 IP 两条不同 mid 的档案，只有匹配的能走 LAN |
+| S5 | PC 端列表（分组折叠 + 配对行）与移动端对齐 | 真机：一档案挂 3 条配对全部显示并各自探测；两台机器归两组 |
+| S6 | tsnet hostname 带 os + `tunnel_id` 展示与重复提示 | 真机：tailnet 里看到 `anyboot-mac`；同 tunnel 两条时提示出现 |
 
-S1/S2 可以并行；S3 依赖 S2；S4 依赖 S1；S5 独立。
+S1/S2 可并行；S3 依赖 S1（要建档案就要有 pairs）；S4 依赖 S2；S5 依赖 S1+S2；S6 独立。
 
-## 十一、待确认
+## 十、待确认
 
-1. **机器显示名默认格式**：建议 `<主机名> (<MAC 后 6 位>)`，还是 `<厂商型号>`（要额外读硬件信息，跨平台成本高）。
-2. **`machine_macs` 是否与现有 `macs`（地址→MAC 映射，电源包用）合并**：建议保持两份，
-   一份是「机器身份证据」，一份是「某地址该发 WOL 到哪个 MAC」，语义不同，混用会误发。
-3. **Wi-Fi 出厂地址读不到时**：建议跳过该网卡（宁可手动分组），而不是退回可能漂移的当前 MAC
-   —— 但这条会让部分纯无线笔记本永远落「未分组」，需要确认可接受。
+1. **配对条目的默认显示名**：`<host> · <kind>`（如 `DESKTOP-8F3A · cloudflare`）够不够，
+   还是要 `note` 必填。
+2. **分组是否要预置空组**：建议**不预置**。预置 `windows/macos/linux` 会诱导用户按 OS 分组，
+   而按 OS 分组正是 §3.1 里会丢系统的那个粒度。分组只在配对新建档案时问一次，用户填什么就是什么。
+3. **异地/多网卡场景下 `group` 与 `jump_id` 的关系**：目前分组只管显示，跳板机只管转发，
+   两者互不引用 —— 确认这个解耦是否可以。
