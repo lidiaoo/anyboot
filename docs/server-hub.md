@@ -101,9 +101,15 @@ CLI 探测链见模块头注释（三端各自的候选路径 + PATH 兜底）�
   polkit 授权框；无桌面会报「Interactive authentication」的人话翻译）；macOS 无此开关
   （Tailscale.app 常驻代管）。前端按 `service_running >= 0` 自动点亮，无需平台判断。
 - **应用内一键安装（三端）**：Windows=setup exe `/quiet`（UAC）；macOS=.pkg `open`；
-  Linux=官方静态 tarball（manifest `Tarballs` 字段，10 架构）→ pkexec 提权解压双二进制到
+  Linux=官方静态 tarball（manifest `Tarballs` 字段；映射 amd64/arm64/386/arm/riscv64，
+  mips 系不认）→ pkexec 提权解压双二进制到
   `/usr/local/bin` → 注册 systemd unit（**仅当系统无 tailscaled unit**，不覆盖发行版包配置）
   → `enable --now` → 轮询 is-active 确认。解压暂存放 tarball 同目录（app_data），不落 /tmp。
+  **Linux 下载前前置检测（fail-fast，2026-10-25）**：systemd 在跑（`/run/systemd/system`）、
+  pkexec 可用、未装发行版包（`/usr/lib` 有 tailscaled unit 或 `/usr/bin`/`/usr/sbin` 有二进制
+  即拒绝——混装会导致 CLI/daemon 版本漂移且卸载边界分不清）。不通过直接报人话指引，
+  不白下 30MB。安装后服务未运行且缺 `/dev/net/tun` 时，报错附容器场景提示
+  （tun 模块 / `TS_USERSPACE=1`）。
 - **macOS App 版 CLI 两个专属坑**（都在 `cli_command`/`probe` 处理）：`SHLVL=1` 强制 CLI
   分支（否则误走 GUI 启动分支，exit 0 + stdout 全是报错文本）；IPv4 严格形状校验防报错
   文本被当 IP 拼进直连地址。
@@ -169,7 +175,10 @@ Tailscale 直连同位同款；其内嵌日志框已移除，入口只剩「日�
     （UAC），macOS=退出 App 后 osascript 提权删 `/Applications/Tailscale.app`，
     Linux=pkexec 停服务 + 删 `/usr/local/bin` 二进制 + 只删 AnyBoot 写的 unit
     （指纹 = ExecStart 指向 /usr/local/bin 且系统无发行版 unit）。无标记 → 拒绝并
-    按平台给手动卸载指引。
+    按平台给手动卸载指引。**Linux 无标记时用安装指纹兜底（2026-10-25）**：marker
+    功能晚于早期安装，`/usr/local/bin` 双二进制 + ExecStart 指向它的自家 unit +
+    无 `/usr/lib` 发行版 unit 三者同时成立 = 确凿 AnyBoot 装的 → 补写标记后照常
+    卸载；不匹配才拒绝。Win/mac 无等价指纹，维持一票否决。
   - 内置引擎：引擎本体随 AnyBoot 安装包自带（恒属「AnyBoot 装的」）→ 卸载 = 停引擎
     + 删状态目录（登录凭据）+ 清数据目录里手动放置的 sidecar 副本；重开开关即恢复。
 
