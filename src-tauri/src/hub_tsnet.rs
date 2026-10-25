@@ -631,6 +631,14 @@ pub(crate) fn tsnet_logs() -> Vec<String> {
     }
 }
 
+/// 清空运行日志（UI「清空」按钮：源头清掉 + 屏幕清屏，下次拉取不再恢复）。
+#[tauri::command]
+pub(crate) fn tsnet_logs_clear() {
+    if let Ok(mut guard) = shared().lock() {
+        guard.logs.clear();
+    }
+}
+
 /// 阻塞版清除登录凭据（spawn_blocking 里跑）：停 sidecar → 删整个 tsnet
 /// 状态目录（tailscaled.state 里的节点凭据就在其中）→ 重建空目录 → 状态归 off。
 /// 下次开启引擎等于全新节点，要走浏览器登录或新 AuthKey。

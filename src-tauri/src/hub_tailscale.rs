@@ -369,6 +369,7 @@ fn service_running_state_impl() -> i8 {
 /// prefs 变更是本地权限闸门管的操作 → 走提权入口（Linux 被拒时 pkexec 弹框）。
 pub(crate) fn ts_toggle_blocking(up: bool) -> Result<TailscaleStatus, String> {
     let cli = find_cli().ok_or_else(|| "没检测到 Tailscale，请先安装".to_string())?;
+    ts_log(if up { "[开关] tailscale up…" } else { "[开关] tailscale down…" });
     let (ok, stdout, stderr) = run_cli_privileged(&cli, if up { &["up"] } else { &["down"] });
     if !ok {
         let detail = stderr.trim().lines().next().unwrap_or("").trim();
@@ -392,8 +393,10 @@ pub(crate) fn ts_toggle_blocking(up: bool) -> Result<TailscaleStatus, String> {
             detail.push('；');
             detail.push_str(&local_privilege_hint());
         }
+        ts_log(&format!("[开关] 失败：{detail}"));
         return Err(detail);
     }
+    ts_log("[开关] 完成");
     Ok(probe(&cli))
 }
 
@@ -529,6 +532,47 @@ struct TsDownloadDone {
     path: String,
 }
 
+// ==================== 运行日志环 ====================
+// 对齐 gateway 通道日志的形态：内存环形缓冲，「日志」弹窗轮询消费。
+// 记录下载 / 安装 / 开关 / Funnel 的里程碑与关键输出（含提权重试过程），
+// 排障时不用再让用户复现操作来抓 toast——弹窗里全程可回看。
+
+const TS_LOG_CAP: usize = 400;
+
+static TS_LOG: std::sync::OnceLock<std::sync::Mutex<std::collections::VecDeque<String>>> =
+    std::sync::OnceLock::new();
+
+fn ts_log_ring() -> &'static std::sync::Mutex<std::collections::VecDeque<String>> {
+    TS_LOG.get_or_init(|| std::sync::Mutex::new(std::collections::VecDeque::new()))
+}
+
+/// 追加一行日志（满了丢最老的；锁坏了静默丢弃——日志绝不能反过来卡主流程）。
+fn ts_log(line: &str) {
+    if let Ok(mut log) = ts_log_ring().lock() {
+        if log.len() >= TS_LOG_CAP {
+            log.pop_front();
+        }
+        log.push_back(line.to_string());
+    }
+}
+
+/// 拉取日志快照（UI「日志」弹窗消费；纯内存读）。
+#[tauri::command]
+pub(crate) fn gateway_tailscale_logs() -> Vec<String> {
+    ts_log_ring()
+        .lock()
+        .map(|log| log.iter().cloned().collect())
+        .unwrap_or_default()
+}
+
+/// 清空日志（UI「清空」按钮：源头清掉，屏幕同步清屏，下次拉取不再恢复）。
+#[tauri::command]
+pub(crate) fn gateway_tailscale_logs_clear() {
+    if let Ok(mut log) = ts_log_ring().lock() {
+        log.clear();
+    }
+}
+
 /// 平台是否有应用内安装渠道（Linux = 官方静态 tarball + systemd 注册，
 /// 见 `launch_installer` 的 unix 分支）。
 fn platform_has_installer() -> bool {
@@ -633,6 +677,7 @@ fn finish_ts_download(app: &AppHandle, result: Result<std::path::PathBuf, String
 }
 
 fn ts_download_worker(app: AppHandle) {
+    ts_log("[下载] 开始获取版本清单（pkgs.tailscale.com/stable）…");
     let candidates = download_candidates();
     if candidates.is_empty() {
         let message = if platform_has_installer() {
@@ -641,12 +686,14 @@ fn ts_download_worker(app: AppHandle) {
         } else {
             "当前平台没有通用安装包，请在终端用系统包管理器安装 Tailscale（如 apt/brew）".into()
         };
+        ts_log("[下载] 失败：拿不到可用直链（清单拉取失败或平台不支持）");
         finish_ts_download(&app, Err(message));
         return;
     }
     let dir = match ts_cache_dir(&app) {
         Ok(dir) => dir,
         Err(error) => {
+            ts_log(&format!("[下载] 失败：{error}"));
             finish_ts_download(&app, Err(error));
             return;
         }
@@ -654,9 +701,15 @@ fn ts_download_worker(app: AppHandle) {
     let mut last_error = String::new();
     for (url, filename) in candidates {
         let tmp = dir.join(filename);
+        ts_log(&format!("[下载] {url}"));
         let _ = std::fs::remove_file(&tmp);
         match crate::hub_gateway::download_to_tmp(&url, &tmp) {
             Ok((received, total)) => {
+                ts_log(&format!(
+                    "[下载] 完成：{} MB → {}",
+                    received / 1048576,
+                    tmp.display()
+                ));
                 let _ = app.emit(
                     EVENT_TS_PROGRESS,
                     TsDownloadProgress { received, total, percent: 100 },
@@ -665,6 +718,7 @@ fn ts_download_worker(app: AppHandle) {
                 return;
             }
             Err(error) => {
+                ts_log(&format!("[下载] 失败：{error}，换下一个候选…"));
                 let _ = std::fs::remove_file(&tmp);
                 last_error = error;
             }
@@ -800,15 +854,21 @@ fn local_privilege_hint() -> String {
 fn elevated_retry(cli: &std::path::Path, args: &[&str]) -> Option<(bool, String, String)> {
     let user = current_username();
     if !user.is_empty() {
+        ts_log(&format!(
+            "[提权] 本地权限被拒 → pkexec 设置 operator={user}（授权一次终身免提权）…"
+        ));
         let mut operator = std::process::Command::new("pkexec");
         operator.arg(cli).arg("set").arg(format!("--operator={user}"));
         if run_command_with_timeout_for(operator, ELEVATED_TIMEOUT)
             .map(|(ok, _, _)| ok)
             .unwrap_or(false)
         {
+            ts_log("[提权] operator 已设置，重试原命令…");
             if let Some(result) = run_cli_raw(cli, args) {
                 return Some(result);
             }
+        } else {
+            ts_log("[提权] operator 设置未成功（取消 / 无 polkit agent），回退直接提权跑原命令");
         }
     }
     let mut direct = std::process::Command::new("pkexec");
@@ -880,6 +940,7 @@ pub(crate) fn funnel_enable_blocking(app: &AppHandle) -> TailscaleFunnelStatus {
     }
     let port = crate::stored_settings(app).http_port;
     let port_arg = port.to_string();
+    ts_log(&format!("[Funnel] tailscale funnel --bg {port}…"));
     let (ok, stdout, stderr) = run_cli_privileged(&cli, &["funnel", "--bg", &port_arg]);
     if !ok {
         let (state, code, setup_url) = classify_funnel_error(&stderr, &stdout);
@@ -895,12 +956,15 @@ pub(crate) fn funnel_enable_blocking(app: &AppHandle) -> TailscaleFunnelStatus {
         } else {
             format!("Funnel 开启失败：{detail}")
         };
+        ts_log(&format!("[Funnel] 开启失败：{}", status.message));
         return status;
     }
     // CLI 成功后再确认一次配置真的落上了
     if funnel_configured(&cli) {
+        ts_log("[Funnel] 已开启");
         funnel_probe_blocking()
     } else {
+        ts_log("[Funnel] 命令成功但配置未生效");
         let mut status = TailscaleFunnelStatus::new("error");
         status.error_code = "funnel_start_failed".into();
         status.message = "Funnel 命令成功但配置未生效，请重试".into();
@@ -914,13 +978,16 @@ pub(crate) fn funnel_disable_blocking() -> TailscaleFunnelStatus {
         Ok(cli) => cli,
         Err(status) => return status,
     };
+    ts_log("[Funnel] tailscale funnel reset…");
     let _ = run_cli_privileged(&cli, &["funnel", "reset"]);
     if funnel_configured(&cli) {
+        ts_log("[Funnel] 关闭失败：配置仍在");
         let mut status = TailscaleFunnelStatus::new("error");
         status.error_code = "funnel_stop_failed".into();
         status.message = "Funnel 关闭失败，请重试".into();
         return status;
     }
+    ts_log("[Funnel] 已关闭");
     TailscaleFunnelStatus::new("off")
 }
 
@@ -1072,6 +1139,7 @@ pub(crate) async fn gateway_tailscale_funnel_disable() -> Result<TailscaleFunnel
 
 #[cfg(windows)]
 fn launch_installer(path: &std::path::Path) -> Result<(), String> {
+    ts_log(&format!("[安装] 启动静默安装器（UAC 确认）：{}", path.display()));
     // 静默安装：tailscale-setup.exe 支持 /quiet /norestart；仍会触发 UAC 提权确认。
     let mut command = std::process::Command::new(path);
     command.args(["/quiet", "/norestart"]);
@@ -1085,6 +1153,7 @@ fn launch_installer(path: &std::path::Path) -> Result<(), String> {
 
 #[cfg(target_os = "macos")]
 fn launch_installer(path: &std::path::Path) -> Result<(), String> {
+    ts_log(&format!("[安装] 打开 .pkg 安装器：{}", path.display()));
     std::process::Command::new("open")
         .arg(path)
         .spawn()
@@ -1150,16 +1219,28 @@ fn launch_installer(tarball: &std::path::Path) -> Result<(), String> {
 
     std::fs::write(&script_path, script)
         .map_err(|error| format!("写安装脚本失败: {error}"))?;
+    ts_log(&format!("[安装] 安装脚本已生成：{}", script_path.display()));
+    ts_log("[安装] pkexec 提权执行（解压 → /usr/local/bin → 注册并启动服务）…");
 
     let mut command = std::process::Command::new("pkexec");
     command.arg("bash").arg(&script_path);
     let (ok, stdout, stderr) = run_command_with_timeout_for(command, ELEVATED_TIMEOUT)
-        .ok_or_else(|| "无法启动 pkexec（未安装 polkit？）——可手动解压安装后重试".to_string())?;
+        .ok_or_else(|| {
+            ts_log("[安装] 失败：无法启动 pkexec（未安装 polkit？）");
+            "无法启动 pkexec（未安装 polkit？）——可手动解压安装后重试".to_string()
+        })?;
     // 暂存目录归了 root，用户侧删不掉就算了（下次安装会被 root 侧重建覆盖）
     let _ = std::fs::remove_dir_all(&stage);
+    for line in format!("{stdout}\n{stderr}").trim().lines() {
+        let line = line.trim();
+        if !line.is_empty() {
+            ts_log(&format!("[安装] {line}"));
+        }
+    }
     if !ok {
         let text = format!("{stdout}{stderr}");
         let detail = text.trim().lines().next().unwrap_or("").trim();
+        ts_log("[安装] 失败（pkexec 非零退出）");
         return Err(if detail.is_empty() {
             "安装失败".to_string()
         } else {
@@ -1167,6 +1248,7 @@ fn launch_installer(tarball: &std::path::Path) -> Result<(), String> {
         });
     }
     // enable --now 返回后服务可能还在 activating，轮询确认（最多 10s）
+    ts_log("[安装] 脚本执行完成，等待 tailscaled 服务进入运行态…");
     let mut running = false;
     for _ in 0..20 {
         if service_running_state() == 1 {
@@ -1176,8 +1258,10 @@ fn launch_installer(tarball: &std::path::Path) -> Result<(), String> {
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
     if running {
+        ts_log("[安装] 完成：tailscaled 已运行");
         Ok(())
     } else {
+        ts_log("[安装] 完成：但 tailscaled 服务未运行（journalctl -u tailscaled 可查）");
         Err("安装完成但 tailscaled 服务未运行：请执行 journalctl -u tailscaled 查看日志".to_string())
     }
 }

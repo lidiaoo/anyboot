@@ -2282,7 +2282,7 @@
               <button role="tab" data-mode="quick" aria-selected="true">快速隧道</button>
               <button role="tab" data-mode="named" aria-selected="false">命名隧道</button>
             </div>
-            <button class="btn" id="gwLogBtn" hidden>日志</button>
+            <button class="btn" id="gwLogBtn">日志</button>
             <span class="gw-sw-group" title="开启 / 关闭 Cloudflare 通道">
               <span class="gw-sw-cap">通道</span>
               <label class="switch" id="gwToggleWrap">
@@ -2370,6 +2370,7 @@
                 <span class="trk" aria-hidden="true"></span>
               </label>
             </span>
+            <button class="btn" id="tsLogBtn">日志</button>
             <button class="btn" id="tsRefreshBtn" hidden>重新检测</button>
           </div>
           <div class="gw-status" id="tsStateRow">
@@ -2587,7 +2588,8 @@
               <span class="field-hint" style="margin:0">运行日志（最近 200 条，内存缓存，重启即清）</span>
               <span style="flex:1"></span>
               <button class="link-btn" id="tsnLogCopy">复制</button>
-              <button class="link-btn" id="tsnLogClear">清空显示</button>
+              <button class="link-btn" id="tsnLogOpen">日志</button>
+              <button class="link-btn" id="tsnLogClear">清空</button>
             </div>
             <pre class="mono tsn-log" id="tsnLog">（暂无日志）</pre>
           </div>
@@ -2667,7 +2669,34 @@
           <pre id="gwLogBody" class="gw-log"></pre>
           <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
             <button class="btn" id="gwLogCopy">复制全部</button>
+            <button class="btn" id="gwLogClear">清空</button>
             <button class="btn primary" id="gwLogClose">关闭</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tailscale 直连日志弹窗（下载 / 安装 / 开关 / Funnel 里程碑；与通道日志同款） -->
+      <div class="token-modal-overlay" id="tsLogOverlay" hidden>
+        <div class="token-modal gw-log-modal">
+          <h2>Tailscale 日志</h2>
+          <pre id="tsLogBody" class="gw-log"></pre>
+          <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+            <button class="btn" id="tsLogCopy">复制全部</button>
+            <button class="btn" id="tsLogClear">清空</button>
+            <button class="btn primary" id="tsLogClose">关闭</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 内置引擎日志弹窗（sidecar 运行日志放大版；与通道日志同款） -->
+      <div class="token-modal-overlay" id="tsnLogOverlay" hidden>
+        <div class="token-modal gw-log-modal">
+          <h2>内置引擎日志</h2>
+          <pre id="tsnLogBody" class="gw-log"></pre>
+          <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+            <button class="btn" id="tsnLogModalCopy">复制全部</button>
+            <button class="btn" id="tsnLogModalClear">清空</button>
+            <button class="btn primary" id="tsnLogModalClose">关闭</button>
           </div>
         </div>
       </div>
@@ -9366,7 +9395,7 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
     sw.checked = busy;
     sw.disabled = gwSwBusy;
     $('gwToggleWrap').classList.toggle('loading', gwSwBusy);
-    $('gwLogBtn').hidden = !busy;
+    // 日志按钮常驻：没开通道也能回看历史日志（下载 / 启动失败的原因都在里面）
     const badge = $('gwSideBadge');
     if (badge) badge.hidden = busy;
     $('gwWarnQuick').hidden = mode !== 'quick' || snap.mode === 'named';
@@ -9708,6 +9737,43 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
     });
   }
 
+  // ---- Tailscale 日志弹窗（与 Cloudflare 通道日志同款：轮询 + 复制 + 清空） ----
+  // 记录下载 / 安装（含 pkexec 脚本输出）/ 开关 / Funnel 的全程里程碑。
+  let tsLogTimer = null;
+  function tsRenderLogs(lines) {
+    const body = $('tsLogBody');
+    body.textContent = '';
+    (lines && lines.length ? lines : ['（暂无日志）']).forEach(function (line) {
+      const span = document.createElement('span');
+      if (/ERR|error|failed|panic|失败/i.test(line)) span.className = 'gw-log-err';
+      span.textContent = line + '\n';
+      body.appendChild(span);
+    });
+    body.scrollTop = body.scrollHeight;
+  }
+  $('tsLogBtn').addEventListener('click', function () {
+    $('tsLogOverlay').hidden = false;
+    invoke('gateway_tailscale_logs').then(tsRenderLogs).catch(function () { });
+    if (tsLogTimer) clearInterval(tsLogTimer);
+    tsLogTimer = setInterval(function () {
+      if ($('tsLogOverlay').hidden) { clearInterval(tsLogTimer); tsLogTimer = null; return; }
+      invoke('gateway_tailscale_logs').then(tsRenderLogs).catch(function () { });
+    }, 2000);
+  });
+  $('tsLogClose').addEventListener('click', function () {
+    $('tsLogOverlay').hidden = true;
+    if (tsLogTimer) { clearInterval(tsLogTimer); tsLogTimer = null; }
+  });
+  $('tsLogCopy').addEventListener('click', function () {
+    gwWriteClipboard($('tsLogBody').textContent, '全部日志已复制');
+  });
+  // 清空 = 后端日志环源头清掉 + 弹窗清屏（和通道日志的清空同语义）
+  $('tsLogClear').addEventListener('click', function () {
+    invoke('gateway_tailscale_logs_clear').catch(function () { });
+    tsRenderLogs([]);
+    toast('日志已清空');
+  });
+
   // ---- Funnel 公网通道（区块 B；状态机由后端 funnel status 驱动） ----
   // 注意：tsRender() 末尾会调 tsfRender()，区块只在 Tailscale 已安装时可见。
   function tsfRefresh() {
@@ -10025,10 +10091,49 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
     tsnRender();
     tsnLogsRefresh();
   });
+  // 清空 = 后端日志环源头清掉 + 屏幕清屏（旧版只清显示，2.5s 轮询又把旧日志带回来）
   $('tsnLogClear').addEventListener('click', function () {
+    invoke('tsnet_logs_clear').catch(function () { });
     tsnLogText = '（暂无日志）';
     $('tsnLog').textContent = tsnLogText;
-    // 只清显示；后端环形缓冲仍在积累，下次拉取会恢复（想彻底清就关开一次引擎）
+  });
+
+  // ---- 内置引擎日志弹窗（与通道日志同款：放大查看 + 复制 + 清空） ----
+  let tsnLogModalTimer = null;
+  function tsnModalRender(lines) {
+    const body = $('tsnLogBody');
+    body.textContent = '';
+    (lines && lines.length ? lines : ['（暂无日志）']).forEach(function (line) {
+      const span = document.createElement('span');
+      if (/ERR|error|failed|panic|失败/i.test(line)) span.className = 'gw-log-err';
+      span.textContent = line + '\n';
+      body.appendChild(span);
+    });
+    body.scrollTop = body.scrollHeight;
+  }
+  $('tsnLogOpen').addEventListener('click', function () {
+    $('tsnLogOverlay').hidden = false;
+    invoke('tsnet_logs').then(tsnModalRender).catch(function () { });
+    if (tsnLogModalTimer) clearInterval(tsnLogModalTimer);
+    tsnLogModalTimer = setInterval(function () {
+      if ($('tsnLogOverlay').hidden) { clearInterval(tsnLogModalTimer); tsnLogModalTimer = null; return; }
+      invoke('tsnet_logs').then(tsnModalRender).catch(function () { });
+    }, 2000);
+  });
+  $('tsnLogModalClose').addEventListener('click', function () {
+    $('tsnLogOverlay').hidden = true;
+    if (tsnLogModalTimer) { clearInterval(tsnLogModalTimer); tsnLogModalTimer = null; }
+  });
+  $('tsnLogModalCopy').addEventListener('click', function () {
+    tsnWriteClipboard($('tsnLogBody').textContent, '全部日志已复制');
+  });
+  // 弹窗里的清空和内嵌框的清空同一语义：源头清掉 + 两处屏幕都清
+  $('tsnLogModalClear').addEventListener('click', function () {
+    invoke('tsnet_logs_clear').catch(function () { });
+    tsnLogText = '（暂无日志）';
+    $('tsnLog').textContent = tsnLogText;
+    tsnModalRender([]);
+    toast('日志已清空');
   });
   setInterval(tsnRefresh, 5000); // 引擎会从 login_needed 自己转 ready，轻量轮询跟进
   setInterval(tsnLogsRefresh, 2500); // 日志跟得紧一点（贴底跟随 + 复制排障）
@@ -10304,6 +10409,12 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
   });
   $('gwLogCopy').addEventListener('click', function () {
     gwWriteClipboard($('gwLogBody').textContent, '全部日志已复制');
+  });
+  // 清空 = 后端日志环源头清掉 + 弹窗清屏（下次拉取不会把旧日志带回来）
+  $('gwLogClear').addEventListener('click', function () {
+    invoke('gateway_tunnel_logs_clear').catch(function () { });
+    $('gwLogBody').textContent = '';
+    toast('日志已清空');
   });
 
   // ---- 事件 ----

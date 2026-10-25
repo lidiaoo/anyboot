@@ -1185,6 +1185,14 @@ pub(crate) fn gateway_tunnel_logs(state: tauri::State<'_, GatewayTunnelState>) -
         .unwrap_or_default()
 }
 
+/// 清空通道日志（UI「清空」按钮：源头清掉 + 屏幕清屏，下次拉取不再恢复）。
+#[tauri::command]
+pub(crate) fn gateway_tunnel_logs_clear(state: tauri::State<'_, GatewayTunnelState>) {
+    if let Ok(mut log) = state.log.lock() {
+        log.clear();
+    }
+}
+
 /// 应用退出时收掉通道进程（对齐 hub_tunnel::kill_all，在 lib.rs 退出钩子注册）。
 pub(crate) fn kill_all(app: &AppHandle) {
     if let Some(state) = app.try_state::<GatewayTunnelState>() {
