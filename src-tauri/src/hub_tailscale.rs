@@ -765,18 +765,32 @@ fn ts_log(line: &str) {
     if let Ok(mut log) = ts_log_ring().lock() {
         if log.len() >= TS_LOG_CAP {
             log.pop_front();
+            // 记一下「被上限挤掉」的行数：日志窗口据此明说，别让用户以为被过滤了
+            TS_LOG_DROPPED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         }
         log.push_back(line.to_string());
     }
 }
 
+/// 环形缓冲挤掉的历史行数（不是过滤：单纯内存上限）。清空日志时归零。
+static TS_LOG_DROPPED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
 /// 拉取日志快照（UI「日志」弹窗消费；纯内存读）。
+/// 有过丢弃时在首行明示 —— 「日志是否完整」必须能被用户自行判断。
 #[tauri::command]
 pub(crate) fn gateway_tailscale_logs() -> Vec<String> {
-    ts_log_ring()
+    let mut lines: Vec<String> = ts_log_ring()
         .lock()
         .map(|log| log.iter().cloned().collect())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    let dropped = TS_LOG_DROPPED.load(std::sync::atomic::Ordering::Relaxed);
+    if dropped > 0 {
+        lines.insert(
+            0,
+            format!("[日志] 已丢弃最早 {dropped} 行（内存上限 {TS_LOG_CAP} 行，只保留最近输出）"),
+        );
+    }
+    lines
 }
 
 /// 清空日志（UI「清空」按钮：源头清掉，屏幕同步清屏，下次拉取不再恢复）。
@@ -784,6 +798,7 @@ pub(crate) fn gateway_tailscale_logs() -> Vec<String> {
 pub(crate) fn gateway_tailscale_logs_clear() {
     if let Ok(mut log) = ts_log_ring().lock() {
         log.clear();
+        TS_LOG_DROPPED.store(0, std::sync::atomic::Ordering::Relaxed);
     }
 }
 
@@ -2339,5 +2354,25 @@ mod tests {
         // 不能把正文里以 EOF 结尾的正常句子误杀（只有整行恰好等于 EOF 才删）
         assert_eq!(drop_bare_eof("waiting for EOF"), "waiting for EOF");
         assert_eq!(drop_bare_eof("EOF"), "");
+    }
+
+    #[test]
+    fn log_ring_reports_dropped_lines_instead_of_hiding_them() {
+        // 用户会追问「是不是没打印全部日志」——环形缓冲到顶时必须自己说出来
+        gateway_tailscale_logs_clear();
+        for index in 0..(TS_LOG_CAP + 5) {
+            ts_log(&format!("line-{index}"));
+        }
+        let lines = gateway_tailscale_logs();
+        assert_eq!(lines.len(), TS_LOG_CAP + 1, "上限行 + 首行丢弃提示");
+        assert!(
+            lines[0].contains("已丢弃最早 5 行"),
+            "首行应说明丢弃数量: {}",
+            lines[0]
+        );
+        assert_eq!(lines[1], "line-5", "留下的是最近 TS_LOG_CAP 行");
+        gateway_tailscale_logs_clear();
+        let after = gateway_tailscale_logs();
+        assert!(after.is_empty(), "清空后连提示一起清掉");
     }
 }

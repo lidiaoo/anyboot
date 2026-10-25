@@ -708,6 +708,8 @@ pub struct GatewayTunnelState {
     desired: std::sync::atomic::AtomicBool,
     /// 日志环形缓冲（最新在尾）。
     log: Mutex<std::collections::VecDeque<String>>,
+    /// 被上限挤掉的历史行数（日志窗口首行明示，避免「是不是少了日志」的怀疑）。
+    log_dropped: std::sync::atomic::AtomicUsize,
     /// 展示快照（事件冗余一份，status 命令随时可查）。
     snapshot: Mutex<TunnelSnapshot>,
     /// 沿用的残留通道（没有 Child 句柄，只记 pid；stop/kill_all 按 pid 收掉）。
@@ -720,6 +722,7 @@ impl Default for GatewayTunnelState {
             proc: Mutex::new(None),
             desired: std::sync::atomic::AtomicBool::new(false),
             log: Mutex::new(std::collections::VecDeque::new()),
+            log_dropped: std::sync::atomic::AtomicUsize::new(0),
             snapshot: Mutex::new(TunnelSnapshot {
                 running: false,
                 mode: "quick".into(),
@@ -752,6 +755,8 @@ impl GatewayTunnelState {
         if let Ok(mut log) = self.log.lock() {
             if log.len() >= LOG_CAP {
                 log.pop_front();
+                self.log_dropped
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             }
             log.push_back(line.to_string());
         }
@@ -1338,11 +1343,20 @@ pub(crate) fn gateway_tunnel_status(
 /// 日志（最新在尾，最多 500 行）。
 #[tauri::command]
 pub(crate) fn gateway_tunnel_logs(state: tauri::State<'_, GatewayTunnelState>) -> Vec<String> {
-    state
+    let mut lines: Vec<String> = state
         .log
         .lock()
         .map(|log| log.iter().cloned().collect())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    // 超出上限时明说丢了多少行 —— 否则用户会怀疑日志被过滤/没打全
+    let dropped = state.log_dropped.load(std::sync::atomic::Ordering::Relaxed);
+    if dropped > 0 {
+        lines.insert(
+            0,
+            format!("[日志] 已丢弃最早 {dropped} 行（内存上限 {LOG_CAP} 行，只保留最近输出）"),
+        );
+    }
+    lines
 }
 
 /// 清空通道日志（UI「清空」按钮：源头清掉 + 屏幕清屏，下次拉取不再恢复）。
@@ -1350,6 +1364,9 @@ pub(crate) fn gateway_tunnel_logs(state: tauri::State<'_, GatewayTunnelState>) -
 pub(crate) fn gateway_tunnel_logs_clear(state: tauri::State<'_, GatewayTunnelState>) {
     if let Ok(mut log) = state.log.lock() {
         log.clear();
+        state
+            .log_dropped
+            .store(0, std::sync::atomic::Ordering::Relaxed);
     }
 }
 

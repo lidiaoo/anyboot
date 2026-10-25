@@ -80,6 +80,8 @@ struct TsnetShared {
     stdin: Option<ChildStdin>,
     /// 运行日志环形缓冲（时间戳 = sidecar 事件自带 t 字段 / Rust 侧相对秒数）。
     logs: VecDeque<String>,
+    /// 被上限挤掉的历史行数（日志窗口首行明示，避免「日志是不是被吞了」的怀疑）。
+    logs_dropped: usize,
     /// 本次引擎进程的启动时刻（Rust 侧自打日志的前缀基准）。
     started_at: Option<Instant>,
 }
@@ -99,6 +101,7 @@ fn push_log(guard: &mut TsnetShared, line: &str) {
     }
     if guard.logs.len() >= LOG_CAP {
         guard.logs.pop_front();
+        guard.logs_dropped += 1;
     }
     guard.logs.push_back(owned);
 }
@@ -636,7 +639,19 @@ pub(crate) async fn tsnet_disable() -> Result<TsnetStatus, String> {
 #[tauri::command]
 pub(crate) fn tsnet_logs() -> Vec<String> {
     match shared().lock() {
-        Ok(guard) => guard.logs.iter().cloned().collect(),
+        Ok(guard) => {
+            let mut lines: Vec<String> = guard.logs.iter().cloned().collect();
+            if guard.logs_dropped > 0 {
+                lines.insert(
+                    0,
+                    format!(
+                        "[日志] 已丢弃最早 {} 行（内存上限 {LOG_CAP} 行，只保留最近输出）",
+                        guard.logs_dropped
+                    ),
+                );
+            }
+            lines
+        }
         Err(_) => Vec::new(),
     }
 }
@@ -646,6 +661,7 @@ pub(crate) fn tsnet_logs() -> Vec<String> {
 pub(crate) fn tsnet_logs_clear() {
     if let Ok(mut guard) = shared().lock() {
         guard.logs.clear();
+        guard.logs_dropped = 0;
     }
 }
 
@@ -1011,5 +1027,7 @@ mod tests {
         assert_eq!(guard.logs.len(), LOG_CAP);
         assert_eq!(guard.logs.front().unwrap(), "line-20");
         assert_eq!(guard.logs.back().unwrap(), &format!("line-{}", LOG_CAP + 19));
+        // 丢弃行数要记账：日志窗口首行据此明示「少了多少」，不是悄悄吞掉
+        assert_eq!(guard.logs_dropped, 20);
     }
 }
