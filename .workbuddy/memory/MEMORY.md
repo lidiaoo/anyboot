@@ -61,7 +61,7 @@
 - 五目标产物：`anyboot-tsnet.exe` + `anyboot-tsnet-{linux,darwin}-{amd64,arm64}`，构建一律跑 `scripts/build-sidecar.sh`（坑都写在脚本头注释：/tmp 是 10MB tmpfs 必须 TMPDIR 指大盘、goproxy.cn、CGO_ENABLED=0）。
 - 本机 Go 工具链：`~/.workbuddy/binaries/go/go/bin/go`（1.27.3；`/usr/bin/go` 是 gccgo 编不了 tailscale）。
 - Rust 查找链：resource_dir/binaries → exe 目录 → app_data/tsnet；unix 文件名带 OS+arch 后缀，mac/linux 改名要同步 `sidecar_filename()` + `tauri.{macos,linux}.conf.json`。
-- **本机 cargo check 在仓库目录跑不了**（指纹扫描读 .git exclude 报 EACCES，环境怪癖）→ rsync `src-tauri` + 同级 `ui/` 到仓库外跑（如 /home/disk1/anyboot-check/）；CARGO_HOME 指 `~/.workbuddy/binaries/cargo-home`。细则见 2026-10-25.md。
+- **本机 cargo check 在仓库目录跑不了**（指纹扫描读 .git exclude 报 EACCES，环境怪癖）→ rsync `src-tauri` + 同级 `ui/` 到仓库外跑（如 /home/disk1/anyboot-check/）；env 组合：`RUSTUP_HOME=/home/disk1/rustup-home CARGO_HOME=/home/disk1/cargo-home PATH=/home/disk1/cargo-home/bin:$PATH CARGO_BUILD_JOBS=2 TMPDIR=/home/disk1/tmp`。注意 bin/ 和 toolchains 分属两个 home（CARGO_HOME 只有 registry，RUSTUP_HOME 才有 toolchains），写混会报「rustup could not choose a version of cargo」。细则见 2026-10-25.md。
 
 ## 2026-10-22 端口坑
 - 12300 落 Windows 保留段 bind 报 10013：`netsh int ipv4 show excludedportrange protocol=tcp`；恢复 `netsh int ipv4 set dynamicport tcp start=49152 num=16384` 重启 winnat。
