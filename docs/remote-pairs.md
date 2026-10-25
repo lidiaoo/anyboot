@@ -4,6 +4,7 @@
 > 涉及：`remote_servers.rs` / `http_server.rs` / `hub_gateway.rs` / `ui/hub.html` / `mobile/{android,ios}`
 > 范围：**只做配对**。`cloudflare` / `ts` / `tsnet` 三个区块各自可挂多条配对，全部保留、全部独立探测。
 > LAN 直连（`addresses` / `probe_mode`）与跳板机（`jump_id`）不在范围内，结构与探测代码保持原样。
+> **不做向后兼容**：旧的单值槽位直接删除，不迁移、不读取、不双写。
 
 ## 一、现状
 
@@ -41,7 +42,7 @@ anyboot://pair?gateway=<主机名>&tunnel=<url>&token=<token>&type=<kind>
 ```
 
 移动端 `ServerProfile.parsePair` 只取 `tunnel` / `token` / `type`，`gateway` 被忽略，
-**串里没有对方系统标识**。所以两张来自不同系统的配对码，客户端无法判断它们是否同一来源，
+**串里没有对方系统标识**。所以两张来自不同系统的配对码，客户端无法判断是否同一来源，
 重复扫同一张码也无从去重。这是「顶替」之外的另一半问题：缺一个幂等依据。
 
 ## 二、目标与非目标
@@ -56,14 +57,34 @@ anyboot://pair?gateway=<主机名>&tunnel=<url>&token=<token>&type=<kind>
 
 **非目标**
 
-- **不做分组**。没有「电脑」这一层，档案靠备注与 `host · os` 区分，列表纯平铺。
+- **不做向后兼容**。见 §2.1。
+- **不做分组**。没有「电脑」这一层，档案靠备注与 `host · os` 区分，PC / 移动端统一平铺。
   「配对后选分组、组内顶替」的方案在「一台机装 Win10 + Win11 + macOS 12/13/15 + Arch + Fedora」
-  下会把六个系统削成三个 —— 分组粒度恰好等于顶替力度。移动端 `group*` 字段保留但不读不写。
+  下会把六个系统削成三个 —— 分组粒度恰好等于顶替力度。
+  移动端现有的 `group` 字段与分组折叠 UI（`ServerProfile.java` 的 `groupColor` / 分组排序前缀 /
+  带组名的 `displayName`）**一并删除**。
 - **不做 MAC 推导 / 机器指纹**，不猜「这两条档案是不是同一台机器」。
 - **不做自动建档**。配对落到用户当前打开的档案，由用户决定放哪里（§4.6）。
-- **不碰 LAN 与跳板机**：`addresses` / `probe_mode` / `jump_id` / `route_timeouts_ms` 的
-  LAN+jump key 全部保持原样，本次不改其结构与探测。
+- **不碰 LAN 与跳板机**：`addresses` / `probe_mode` / `jump_id` 保持原样；
+  `route_order` / `route_timeouts_ms` 同时被 LAN 选路消费，本次不改其结构（§5.1）。
 - 不做跨系统配置同步，不引入中心服务或账号体系。
+
+### 2.1 破坏性变更（一次性，已确认接受）
+
+| 变更 | 后果 |
+|---|---|
+| 删除 `remote_tunnel_addr` / `remote_ts_addr` / `remote_funnel_addr` / `remote_tsnet_addr` / `remote_token` / `remote_addr` | 老档案里的这些内容**直接丢弃**。serde 默认忽略未知字段，读档不报错，只是 `pairs` 为空 |
+| 删除 `route_disabled` | 被 `pair.enabled` 取代，老值丢弃 |
+| 删除移动端 `group` 及分组折叠 UI | 列表改平铺，老分组名丢弃（档案本就靠备注与 `host · os` 区分） |
+| 配对串升级到 `v=2` | **老串（无 `v=2`）拒收**，提示「这是旧版配对码，请在新版重新生成」 |
+| 探测结果增加 `pair_id` | 老结果行不再按 `kind` 匹配，升级后首次探测整轮重算 |
+
+**用户可见影响：升级后每台电脑的远程接入都是未配置状态，需要重新扫一次码（或手填地址）。**
+LAN 直连不受影响，仍在原处可用。
+
+不做迁移的理由：四个老槽位能表达的只是「每类一条」，把它搬进 `pairs` 会得到四条 `mid` 为空、
+来源未知的条目 —— 既不能参与幂等去重，也不能显示来源，还得为它们保留一套「无 mid」的特判路径。
+一次性重配比长期背着这套特判干净得多。
 
 ## 三、模型
 
@@ -81,14 +102,14 @@ anyboot://pair?gateway=<主机名>&tunnel=<url>&token=<token>&type=<kind>
 | 区块 | `kind` ∈ `cloudflare` / `ts` / `tsnet` | 固定三个，是探测策略与超时的一级分组 |
 | 配对条目 | `RemotePair.id` | 探测与连接的最小单元 |
 
-**`ts` 区块合并了原来的「直连」与「系统 Funnel」两个槽**，用 `lane` 区分：
+**`ts` 区块合并了原来的「直连」与「系统 Funnel」**，用 `lane` 区分：
 
 | lane | 地址形态 | 典型超时 |
 |---|---|---|
 | `direct` | `http://100.x.x.x:12300` | 1.5s |
 | `funnel` | `https://<node>.<tailnet>.ts.net` | 5s |
 
-合并的依据是它们本来就同属「电脑上装的那个 Tailscale」，原先拆槽只是为了避免互顶；
+合并的依据是两者本来就同属「电脑上装的那个 Tailscale」，原先拆槽只是为了避免互顶；
 多条目之后互顶消失，拆槽的理由也不存在了。合并后同区块内两种形态各设超时，
 这正是条目级超时存在的意义。
 
@@ -119,10 +140,10 @@ pub struct RemotePair {
     /// 本条目的探测超时（毫秒）。0 = 继承 block_timeouts_ms[kind]，再继承全局 probe_timeout_ms
     #[serde(default)]
     pub probe_timeout_ms: u64,
-    /// 是否参与探测（单条粒度，取代 route_disabled 的通道粒度）
+    /// 是否参与探测（单条粒度）
     #[serde(default = "serde_default_true")]
     pub enabled: bool,
-    /// 对方系统自报的 machine_id —— 幂等键的一半；老档案迁移时为空
+    /// 对方系统自报的 machine_id —— 幂等键的一半
     #[serde(default)]
     pub mid: String,
     /// 对方自报的系统族（windows / macos / linux）
@@ -142,10 +163,12 @@ pub struct RemotePair {
 }
 ```
 
-### 4.2 `RemoteServer` 新增字段
+### 4.2 `RemoteServer` 字段变更
+
+**新增**
 
 ```rust
-/// 远程接入配对列表（数组顺序 = 区块内探测顺序）。空 = 老档案，读取时从旧槽位迁移
+/// 远程接入配对列表（数组顺序 = 区块内探测顺序）
 #[serde(default)]
 pub pairs: Vec<RemotePair>,
 /// 每个区块内部的探测策略：parallel_first / parallel_all / serial。缺项 = parallel_first
@@ -156,28 +179,35 @@ pub block_probe_mode: std::collections::BTreeMap<String, String>,
 pub block_timeouts_ms: std::collections::BTreeMap<String, u64>,
 ```
 
-**刻意不动的老字段**（LAN / jump 仍在消费，动了就会连带改它们的探测路径）：
+**删除**（连同所有消费点一起改）
 
-| 字段 | 现状用途 | 本次处置 |
-|---|---|---|
-| `probe_mode` | 多网卡 / 多 IP 之间 | 不动。**不能**并入 `block_probe_mode`：LAN 地址是自动收集、随 DHCP 漂移、按 MAC 归一；配对是手填、稳定、按条目禁用。合成一个字段会让「DHCP 换了 IP 该替换还是新增」失去判断依据 |
-| `route_probe_mode` | 通道之间 | 保留。语义自然收窄为「三个配对区块之间」（LAN/jump 项仍按它的规则参与 LAN 选路） |
-| `route_order` | 通道先后 | **结构不动**，见 §5.1 |
-| `route_timeouts_ms` | 通道级超时 | 结构不动；配对侧改读 `block_timeouts_ms`（§5.3） |
-| `route_disabled` | 通道级禁用 | 结构不动；配对侧改读 `pair.enabled` |
+| 字段 | 替代 |
+|---|---|
+| `remote_tunnel_addr` / `remote_ts_addr` / `remote_funnel_addr` / `remote_tsnet_addr` | `pairs` 内对应 `kind` / `lane` 的条目 |
+| `remote_token` | `RemotePair.token`（每条自带） |
+| `remote_addr` | 计算函数 `effective_remote_addr()`：按区块顺序 + 区块内顺序，取第一条 `enabled` 的 `addr`。**它不再是存储字段**，探测 / HTTP / iframe / 终端等消费点统一改读它 |
+| `route_disabled` | `RemotePair.enabled` |
 
-保留只读兼容：`remote_addr`（由 pairs 计算出的生效地址镜像）与四个旧槽位
-（`remote_tunnel_addr` / `remote_ts_addr` / `remote_funnel_addr` / `remote_tsnet_addr`）
-+ `remote_token`，迁移后不再写入。
+**保留不动**（同时被 LAN / jump 消费，重构会越界）
+
+| 字段 | 处置 |
+|---|---|
+| `probe_mode` | 原样。**不能**并入 `block_probe_mode`：LAN 地址是自动收集、随 DHCP 漂移、按 MAC 归一；配对是手填、稳定、按条目禁用。合成一个字段会让「DHCP 换了 IP 该替换还是新增」失去判断依据 |
+| `route_probe_mode` | 原样，语义自然收窄为「三个配对区块之间」 |
+| `route_order` | **结构不动**（仍含 `lan` / `jump` / 四个配对 kind），区块顺序从它的配对项推导，见 §5.1 |
+| `route_timeouts_ms` | 结构不动，配对侧改读 `block_timeouts_ms`；剩下的 key 只服务 `lan` / `jump`（§5.3） |
+| `addresses` / `token` / `machine_id` / `machine_name` / `machine_os` / `jump_id` / `macs` / `power_routes` | 不动 |
 
 **软上限**：每档案 32 条，超出时 UI 拒绝新增并提示。
 
 ### 4.3 移动端 `ServerProfile`
 
-新增等价 JSON 字段 `pairs`（元素字段名与 PC 端逐字一致）与 `block_probe_mode` / `block_timeouts_ms`。
-`group*` 字段保留、不读不写。
+`pairs` / `block_probe_mode` / `block_timeouts_ms` 字段名与语义与 PC 端逐字一致；
+老的 `remoteTunnel` / `remoteTs` / `remoteFunnel` / `remoteTsnet` / `remoteToken` 一并删除，
+`group` 字段与其分组折叠 UI（`groupColor` / 排序前缀 / 带组名的 `displayName`）一并删除，
+列表改平铺。
 
-迁移时 `Task.resume()` 的逐字段拷贝**必须同步带上 `pairs`** —— 历史坑：`Task` 加字段不同步会导致状态丢失。
+`Task.resume()` 的逐字段拷贝**必须同步带上 `pairs`** —— 历史坑：`Task` 加字段不同步会导致状态丢失。
 
 ### 4.4 什么不进 `pairs`
 
@@ -185,7 +215,7 @@ pub block_timeouts_ms: std::collections::BTreeMap<String, u64>,
 |---|---|
 | LAN（`addresses`） | 机器级地址，不属于任何系统；同一时刻只有正在运行的系统响应 |
 | 跳板机（`jump_id`） | 档案级的转发路径，不是「某系统的一条接入」 |
-| `group` | 不做分组；字段仅为移动端旧档案兼容保留 |
+| `group` | 不做分组；字段与分组 UI 一并删除，不进档案也不进配对 |
 
 ### 4.5 配对串 v2
 
@@ -193,11 +223,10 @@ pub block_timeouts_ms: std::collections::BTreeMap<String, u64>,
 anyboot://pair?v=2&mid=<machineId>&os=<os>&host=<hostname>&type=<kind>&tunnel=<url>&token=<token>&tunnel_id=<id>
 ```
 
-- `v=2` 显式版本；老客户端只认已知参数，天然兼容。
-- 新增 `mid` / `os` / `host` / `tunnel_id`；`gateway` 保留（显示用，不是归档依据）。
-- `type` 取值限定 `cloudflare | ts | tsnet`，非法值拒收并提示。
+- `v` 必须等于 `2`，否则拒收并提示重新生成。**不解析老串**。
+- `type` 取值限定 `cloudflare | ts | tsnet`，非法值拒收。
 - `lane` 由地址形态推导（`100.x` → direct，`*.ts.net` → funnel），不占串参数。
-- 老串的 `type=funnel` 兼容读入为 `type=ts` 且 `lane=funnel`。
+- `gateway` 保留（显示用，不是归档依据）。
 
 ### 4.6 归档规则（客户端收到配对串后）
 
@@ -209,7 +238,6 @@ anyboot://pair?v=2&mid=<machineId>&os=<os>&host=<hostname>&type=<kind>&tunnel=<u
 3. mid 与档案的 machine_id 不一致
    → 只提示「这张码来自 <host>（<os>），与档案记录不同」，由用户确认后添加；
      不拦截、不自动改档案的 machine_id
-4. mid 为空（老服务端签的码）→ 直接按 kind 追加，提示建议重新生成
 ```
 
 ### 4.7 `mid` 的语义
@@ -237,7 +265,7 @@ anyboot://pair?v=2&mid=<machineId>&os=<os>&host=<hostname>&type=<kind>&tunnel=<u
 ### 5.1 遍历与排序
 
 - 每次探活遍历 `pairs` 全集（跳过 `enabled = false`），**每条独立上报**。
-- `ProbeOutcome` 增加 `pair_id: String`（空 = 老结果行，按 `kind` 兼容）。
+- `ProbeOutcome` 增加 `pair_id: String`，与 `RemotePair.id` 一一对应。
 - **区块顺序从 `route_order` 推导，不新增排序字段**：过滤出配对 kind
   （`tunnel / funnel / ts / tsnet`）→ 映射为区块 id（`tunnel→cloudflare`、`funnel|ts→ts`、`tsnet→tsnet`）
   → 去重保序；缺失的区块按默认序（cloudflare → ts → tsnet）追加在后。
@@ -245,7 +273,7 @@ anyboot://pair?v=2&mid=<machineId>&os=<os>&host=<hostname>&type=<kind>&tunnel=<u
 
   `route_order` 本身**不改结构**：`lan` / `jump` 仍在其中并被 LAN 选路消费，收窄它就会把 LAN 的排序一起改掉。
   代价是合并后 `ts` 与 `funnel` 在 `route_order` 里各占一个位置 —— 取先出现者定位 `ts` 区块即可，
-  两个槽本来就指向同一个区块。
+  两个 kind 本来就指向同一个区块。
 
 ### 5.2 两层策略
 
@@ -274,8 +302,8 @@ pairs[].probe_timeout_ms   （条目，0 = 未设）
 ```
 
 同一区块内不同形态的超时需求差别很大（`100.x` 直连 1.5s、`*.ts.net` 走公网可能 5s），所以下放到条目。
-`block_timeouts_ms` 用区块 id 作 key，与 `route_timeouts_ms`（通道 id）**分属两个 key 空间**，
-避免 `ts` / `funnel` 两个老 key 映射到一个区块时的取值歧义；迁移时把老 key 的值搬过来（§七）。
+`block_timeouts_ms` 用区块 id 作 key，与 `route_timeouts_ms`（通道 id，剩 `lan` / `jump`）
+**分属两个 key 空间**，避免同一个表里混两种粒度的 key。
 
 ### 5.4 最坏耗时与硬顶
 
@@ -320,42 +348,19 @@ pairs[].probe_timeout_ms   （条目，0 = 未设）
 - 平铺、不分组；档案标题兜底顺序：备注 → `host` → 首个地址。
 - 电源 / 唤醒 / rEFInd / GRUB 是机器级，挂在档案标题行，不进任何区块。
 
-## 七、兼容与迁移
-
-- **老槽位 → pairs**（读取时迁移）：非空槽位各生成一条
-  `RemotePair { id: "legacy-<kind>", mid: "" }`，`token` 取 `remote_token`：
-
-  | 老字段 | 新 kind | lane |
-  |---|---|---|
-  | `remote_tunnel_addr` | `cloudflare` | — |
-  | `remote_ts_addr` | `ts` | `direct` |
-  | `remote_funnel_addr` | `ts` | `funnel` |
-  | `remote_tsnet_addr` | `tsnet` | — |
-
-- **老 `route_disabled`**：命中的通道 → 对应 legacy pair 的 `enabled = false`。
-- **老 `route_timeouts_ms`**：`tunnel → block_timeouts_ms["cloudflare"]`、
-  `tsnet → block_timeouts_ms["tsnet"]`；`ts` 与 `funnel` 都有值时取**较小者**写入 `["ts"]`
-  （保守：合并后同一区块里既有直连又有公网中继，防止慢通道拖住整轮）。
-  LAN / jump 的 key 原地不动，继续被 LAN 选路消费。
-- **`remote_addr`**：迁移后置空，由 `pairs` 计算（区块顺序 + 区块内顺序，取第一条 `enabled` 的），
-  消费点改读计算值。
-- **老配对串（无 `mid`）**：行为不变，UI 提示建议重新生成。
-- **老服务端（`/health` 无字段）**：配对照常可用，`mid` 为空 → 不参与幂等去重与来源显示。
-- 所有新字段 `#[serde(default)]`，读写老档案不丢数据；旧字段只读不写，确认无回滚需求后再删。
-
-## 八、实施阶段与验收
+## 七、实施阶段与验收
 
 | 阶段 | 内容 | 验收 |
 |---|---|---|
-| S1 | `RemotePair` + `RemoteServer` 新字段 + 旧槽位迁移 + 软上限 | 单测：四槽迁移与 kind/lane 映射、空槽不生成、`route_disabled`→`enabled`、超时搬移、32 条上限 |
-| S2 | 探测遍历 `pairs` + `ProbeOutcome.pair_id` + 两层策略 + 条目级超时 + 硬顶 | 单测：3 条同 kind 各自出结果且各用各的超时；`enabled=false` 只跳过它；块内三种策略各一例；30s 硬顶触发后剩目标「已跳过」 |
-| S3 | 配对串 v2（签发 + PC/移动端解析 + §4.6 归档） | 单测：v2 全参数；同 (mid,kind) 更新；同 mid 不同 kind 新增；`type=funnel` 老串兼容；无 mid 老路 |
-| S4 | PC 端三区块 UI（多条行 + 块内策略 + 条目超时 + 最坏耗时）与移动端字段对齐 | 真机：一档案挂 3 条同区块配对，全部显示、各自探测、各自超时 |
+| S1 | `RemotePair` + 新字段 + **删除六个旧字段与 `route_disabled`** + `effective_remote_addr()` + 全部消费点改读 + 软上限 | `cargo check` 无残留引用（grep 六个旧字段名 = 0 命中）；单测：`effective_remote_addr` 按区块/块内顺序取第一条 enabled、32 条上限 |
+| S2 | 探测遍历 `pairs` + `ProbeOutcome.pair_id` + 两层策略 + 条目级超时 + 30s 硬顶 | 单测：3 条同 kind 各自出结果且各用各的超时；`enabled=false` 只跳过它；块内三种策略各一例；硬顶触发后剩目标「已跳过」 |
+| S3 | 配对串 v2（签发 + PC/移动端解析 + §4.6 归档 + 拒收老串） | 单测：v2 全参数；`v != 2` 拒收；`type` 非法拒收；同 (mid,kind) 更新；同 mid 不同 kind 新增 |
+| S4 | PC 端三区块 UI（多条行 + 块内策略 + 条目超时 + 最坏耗时）；移动端字段对齐 + **删 `group` 与分组折叠 UI、列表改平铺** | 真机：一档案挂 3 条同区块配对，全部显示、各自探测、各自超时；两端列表形态一致、无分组标题 |
 | S5 | 来源显示与 `tunnel_id` 重复提示 | 真机：行尾能看出对方 `host · os`；两条同 `tunnel_id` 时提示「同一隧道被多套系统共用，请求会随机落到其中一个」 |
 
-S1/S2 可并行；S3 依赖 S1；S4 依赖 S2；S5 依赖 S1。
+S1 必须先做完（删字段是全仓编译级改动）；S2/S3 依赖 S1；S4 依赖 S2；S5 依赖 S1。
 
-## 九、待确认
+## 八、待确认
 
 1. **配对行默认显示名**：`<host> · <kind>`（如 `DESKTOP-8F3A · cloudflare`）够不够，还是 `note` 必填。
 2. **条目超时默认值**：按 `lane` 给不同默认（ts 直连 1.5s、ts funnel 5s、cloudflare / tsnet 3s），
