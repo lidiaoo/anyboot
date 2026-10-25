@@ -2867,6 +2867,8 @@ pub fn run() {
             hub_tailscale::gateway_tailscale_uninstall,
             hub_tailscale::gateway_tailscale_logs,
             hub_tailscale::gateway_tailscale_logs_clear,
+            hub_tailscale::gateway_tailscale_set_authkey,
+            hub_tailscale::gateway_tailscale_logout,
             hub_tsnet::tsnet_status,
             hub_tsnet::tsnet_logs,
             hub_tsnet::tsnet_logs_clear,

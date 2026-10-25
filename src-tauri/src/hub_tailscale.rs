@@ -39,6 +39,9 @@ pub(crate) struct TailscaleStatus {
     /// 只读查询，非 root 可用）；macOS 恒 -1（App 常驻，没有独立服务这一层）。
     #[serde(default)]
     pub service_running: i8,
+    /// 是否已保存 AuthKey（仅告知前端「已配置」，密钥本身不回传）。
+    #[serde(default)]
+    pub authkey_set: bool,
 }
 
 impl Default for TailscaleStatus {
@@ -51,6 +54,7 @@ impl Default for TailscaleStatus {
             version: String::new(),
             cli_path: String::new(),
             service_running: -1,
+            authkey_set: false,
         }
     }
 }
@@ -461,10 +465,19 @@ pub(crate) fn ts_toggle_blocking(app: &AppHandle, up: bool) -> Result<TailscaleS
     let cli = find_cli().ok_or_else(|| "没检测到 Tailscale，请先安装".to_string())?;
     ts_log(if up { "[开关] tailscale up…" } else { "[开关] tailscale down…" });
     let mut args: Vec<String> = vec![if up { "up" } else { "down" }.to_string()];
+    // AuthKey（可选）：走 0600 密钥文件 + `--auth-key=file:` 形式，密钥不进 argv
+    // （ps 可见）。填了就等于免浏览器登录，与内置引擎的 AuthKey 同语义。
+    if up {
+        if let Some(reference) = ts_authkey_reference(app) {
+            args.push(format!("--auth-key={reference}"));
+            ts_log("[开关] 使用已保存的 AuthKey 连接（免浏览器登录）");
+        }
+    }
     let refs: Vec<&str> = args.iter().map(String::as_str).collect();
     // 实时行回调：up 等浏览器授权最长 120s，结束时才带回输出 = UI 全程静默、
-    // 登录链接出不来（实机踩过）。CLI 每行即时上屏；登录链接再单独提取成
-    // 里程碑行 + 事件（hub.html 引导行显示可点击链接；同一 URL 只报一次）。
+    // 登录链接出不来（实机踩过）。CLI 每行即时上屏，但登录相关行（"To
+    // authenticate, visit:" 和链接本体）不进日志——链接由前端登录卡片独占
+    // 展示（与内置引擎一致），日志里刷链接反而干扰。同一 URL 只 emit 一次。
     let last_url = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
     let sink: LineSink = {
         let last_url = last_url.clone();
@@ -474,8 +487,12 @@ pub(crate) fn ts_toggle_blocking(app: &AppHandle, up: bool) -> Result<TailscaleS
             if trimmed.is_empty() {
                 return;
             }
-            ts_log(&format!("[CLI] {trimmed}"));
-            if trimmed.starts_with("https://login.tailscale.com/") {
+            let is_login_url = trimmed.starts_with("https://login.tailscale.com/");
+            let is_login_hint = trimmed.contains("To authenticate");
+            if !is_login_url && !is_login_hint {
+                ts_log(&format!("[CLI] {trimmed}"));
+            }
+            if is_login_url {
                 let is_new = {
                     let mut last = last_url
                         .lock()
@@ -488,7 +505,6 @@ pub(crate) fn ts_toggle_blocking(app: &AppHandle, up: bool) -> Result<TailscaleS
                     }
                 };
                 if is_new {
-                    ts_log(&format!("[开关] 登录链接（点击或复制到浏览器打开）：{trimmed}"));
                     let _ = app.emit(
                         EVENT_TS_LOGIN_URL,
                         serde_json::json!({ "url": trimmed }),
@@ -1260,10 +1276,13 @@ pub(crate) fn autostart_connect(app: &tauri::AppHandle) {
 /// 查询本机 Tailscale 状态（找不到 CLI → installed:false）。
 /// CLI 子进程有几十 ms 阻塞，走 async + spawn_blocking（blocking_guard 约定）。
 #[tauri::command]
-pub(crate) async fn gateway_tailscale_status() -> TailscaleStatus {
-    tauri::async_runtime::spawn_blocking(probe_blocking)
+pub(crate) async fn gateway_tailscale_status(app: AppHandle) -> TailscaleStatus {
+    let key_set = !crate::stored_settings(&app).tailscale_authkey.trim().is_empty();
+    let mut status = tauri::async_runtime::spawn_blocking(probe_blocking)
         .await
-        .unwrap_or_default()
+        .unwrap_or_default();
+    status.authkey_set = key_set;
+    status
 }
 
 static TS_TOGGLE_IN_FLIGHT: std::sync::atomic::AtomicBool =
@@ -1340,6 +1359,96 @@ fn ts_install_marker(app: &AppHandle) -> Result<std::path::PathBuf, String> {
         .app_data_dir()
         .map_err(|error| format!("定位数据目录失败: {error}"))?
         .join("tailscale.anyboot-install"))
+}
+
+/// AuthKey 密钥文件（数据目录，0600）。AuthKey 是敏感凭据，不走命令行参数。
+fn ts_authkey_file(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    Ok(app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("定位数据目录失败: {error}"))?
+        .join("tailscale-authkey"))
+}
+
+/// 把设置里存的 AuthKey 落成 0600 文件，返回 CLI 的 `file:<路径>` 引用；
+/// 没配置返回 None（走浏览器登录）。密钥不进 argv，ps 看不到。
+fn ts_authkey_reference(app: &AppHandle) -> Option<String> {
+    let key = crate::stored_settings(app).tailscale_authkey.trim().to_string();
+    if key.is_empty() {
+        return None;
+    }
+    let path = ts_authkey_file(app).ok()?;
+    if std::fs::write(&path, &key).is_err() {
+        ts_log("[开关] AuthKey 写入密钥文件失败，回退浏览器登录");
+        return None;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+    }
+    Some(format!("file:{}", path.display()))
+}
+
+/// 保存 / 清除系统 Tailscale 的 AuthKey（空串 = 清除）。
+/// 与内置引擎的 AuthKey 同语义：填了连接时免浏览器登录。
+#[tauri::command]
+pub(crate) fn gateway_tailscale_set_authkey(
+    app: AppHandle,
+    key: String,
+) -> Result<(), String> {
+    let key = key.trim().to_string();
+    let clearing = key.is_empty();
+    crate::settings_commands::update_settings_and_publish(
+        &app,
+        "tailscale_set_authkey",
+        if clearing {
+            "Tailscale 直连：清除 AuthKey"
+        } else {
+            "Tailscale 直连：保存 AuthKey"
+        },
+        move |settings| settings.tailscale_authkey = key.clone(),
+        |_| {},
+    )?;
+    // 同步密钥文件：有则写 0600，清空则删掉，避免残留旧密钥
+    if let Ok(path) = ts_authkey_file(&app) {
+        if clearing {
+            let _ = std::fs::remove_file(&path);
+        } else if let Some(reference) = ts_authkey_reference(&app) {
+            ts_log(&format!("[凭据] AuthKey 已保存（{}）", reference));
+        }
+    }
+    Ok(())
+}
+
+/// 清除登录凭据：`tailscale logout`（断开并清本机凭据，下次连接需重新授权）。
+/// 与内置引擎的「清除登录凭据」同语义；管理台里的设备记录需用户自行移除。
+#[tauri::command]
+pub(crate) async fn gateway_tailscale_logout(
+    app: AppHandle,
+) -> Result<TailscaleStatus, String> {
+    let key_set = !crate::stored_settings(&app).tailscale_authkey.trim().is_empty();
+    tauri::async_runtime::spawn_blocking(move || {
+        let cli = find_cli().ok_or_else(|| "没检测到 Tailscale，请先安装".to_string())?;
+        ts_log("[凭据] tailscale logout…");
+        let (ok, stdout, stderr) =
+            run_cli_privileged(&cli, &["logout"], std::time::Duration::from_secs(30));
+        if !ok {
+            let detail = format!("{stdout}\n{stderr}");
+            let detail = detail.trim();
+            return Err(if detail.is_empty() {
+                "清除登录凭据失败（用户取消授权？）".to_string()
+            } else {
+                format!("清除登录凭据失败：{detail}")
+            });
+        }
+        ts_log("[凭据] 已清除本机登录凭据 —— 下次连接需重新授权");
+        let mut status = probe(&cli);
+        status.authkey_set = key_set;
+        Ok(status)
+    })
+    .await
+    .map_err(|error| format!("清除凭据任务失败: {error}"))?
 }
 
 fn write_install_marker(app: &AppHandle) -> Result<(), String> {

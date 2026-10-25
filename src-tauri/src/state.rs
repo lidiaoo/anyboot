@@ -699,6 +699,11 @@ pub(crate) struct Settings {
     /// 设备授权密钥）。敏感度对齐 gateway_named_token / http_token：泄露面 =
     /// 能把任意设备加进该 tailnet。走 stdin 管道传给 sidecar，不进进程命令行。
     pub(crate) tsnet_authkey: String,
+    /// 系统 Tailscale 客户端的 AuthKey（等价 `tailscale up --auth-key`）。
+    /// 与 tsnet_authkey 并列但服务对象不同：这里喂给系统 CLI。落盘后由后端
+    /// 写成 0600 密钥文件、以 `--auth-key=file:<路径>` 传给 CLI —— 不进 argv，
+    /// 免被 ps 看见。空 = 走浏览器登录。
+    pub(crate) tailscale_authkey: String,
 }
 
 impl Default for Settings {
@@ -756,6 +761,7 @@ impl Default for Settings {
             tailscale_autostart: false,
             tsnet_autostart: false,
             tsnet_authkey: String::new(),
+            tailscale_authkey: String::new(),
         }
     }
 }

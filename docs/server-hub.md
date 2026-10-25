@@ -102,6 +102,17 @@ CLI 探测链见模块头注释（三端各自的候选路径 + PATH 兜底）�
   解析官方报错里 4 空格缩进的旗标清单自动补齐重试（保留既有设置，不用 --reset）。
   执行器区分「超时」与「spawn 失败」（`CliOutcome`），提权重试沿用调用方超时档。
 
+- **与内置引擎同款的登录体验（2026-10-25）**：CLI 输出按行流式回传，等授权期间不再静默；
+  登录相关行（`To authenticate` 与链接本体）**不进日志**，链接改由登录卡片独占展示
+  （`tailscale-login-url` 事件 → 打开登录页 / 复制 / 重新生成三按钮 + 10 分钟有效期提示），
+  卡片文案与内置引擎保持一字不差。直连卡的行序（未安装 → AuthKey → 登录 → 地址 →
+  清除凭据 → 自启）也按内置卡对齐。
+- **AuthKey（直连）**：保存到设置 `tailscaleAuthkey`，连接时由后端写成 0600 密钥文件、
+  以 `--auth-key=file:<路径>` 传给 CLI（密钥不进 argv，ps 看不到）；空串 = 清除（同时删文件）。
+  前端只拿 `authkey_set` 布尔，不回传密钥。
+- **清除登录凭据**：`tailscale logout`（走提权入口，30s 档），断开并清本机凭据；管理台设备
+  记录需用户自行移除（文案已说明）。
+
 - **服务级副开关**：Windows=`sc query/start/stop Tailscale`（需管理员，CREATE_NO_WINDOW）；
   Linux=`systemctl is-active`（只读查询免 root）+ `systemctl start/stop/restart`（桌面会话弹
   polkit 授权框；无桌面会报「Interactive authentication」的人话翻译）；macOS 无此开关
