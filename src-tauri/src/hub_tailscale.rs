@@ -365,22 +365,27 @@ enum MacosExtensionState {
 /// 只认含 "tailscale" 的行 —— 别的厂商扩展（LuLu 等）有同款状态标记，
 /// 拿整份输出做 `contains` 会把它误判成本机 Tailscale 的状态。
 ///
-/// 优先级：待重启卸载 > 已启用 > 待用户允许 > 无记录。**已启用高于待允许**是
-/// 为了不误伤「同时存在一条已启用记录 + 一条待允许残留」的机器：那种机器的
-/// CLI 其实能用，不能被错误地短路成「待允许」。
+/// 优先级：**已启用 > 待重启卸载 > 待用户允许 > 无记录**。
+///
+/// 「已启用」必须排第一：升级 Tailscale 后旧扩展会留一条
+/// `terminated waiting to uninstall on reboot`，而新扩展早已 `activated enabled`
+/// 正常接管网络（macOS 只是把旧记录的清理推迟到重启）。这种机器 CLI 完全可用，
+/// 若按「待重启卸载」短路，就会让用户白白重启一次 —— 判「能不能用」一律交给
+/// CLI 自己回答（调用方只在**没有**已启用记录时才短路成 needs_reboot）。
+///
+/// 「已启用高于待允许」同理：同时存在已启用记录 + 待允许残留时，CLI 其实能用。
 fn parse_extension_state(text: &str) -> MacosExtensionState {
     let mut waiting_approval = false;
     let mut active = false;
+    let mut pending_uninstall = false;
     for line in text
         .lines()
         .filter(|line| line.to_ascii_lowercase().contains("tailscale"))
     {
         let lower = line.to_ascii_lowercase();
-        // 待重启卸载优先级最高：它决定「只能重启」这个唯一解法
         if lower.contains("waiting to uninstall") {
-            return MacosExtensionState::PendingUninstall;
-        }
-        if lower.contains("waiting for user") {
+            pending_uninstall = true;
+        } else if lower.contains("waiting for user") {
             waiting_approval = true;
         } else if lower.contains("activated enabled") {
             active = true;
@@ -388,6 +393,8 @@ fn parse_extension_state(text: &str) -> MacosExtensionState {
     }
     if active {
         MacosExtensionState::Active
+    } else if pending_uninstall {
+        MacosExtensionState::PendingUninstall
     } else if waiting_approval {
         MacosExtensionState::WaitingApproval
     } else {
@@ -1922,6 +1929,15 @@ pub(crate) async fn gateway_tailscale_install(app: AppHandle, path: String) -> R
         if !path.is_file() {
             return Err("安装包不存在，请重新下载".to_string());
         }
+        // macOS：旧扩展卡在「等重启卸载」时，pkg 装完新扩展照样激活不了（macOS 拒绝
+        // 会话内拆掉还绑在网络栈上的旧扩展）。拦在安装前 —— 否则用户看到的是
+        // 「装完了但用不了」，只会反复重装。重启是唯一解法，越早说越好。
+        if macos_extension_state() == MacosExtensionState::PendingUninstall {
+            ts_log("[安装] 拦下：旧网络扩展在等重启卸载");
+            return Err("系统里有一个旧的 Tailscale 网络扩展还在「等待重启卸载」，\
+                        现在装上去也激活不了。先重启 Mac，再回来安装"
+                .to_string());
+        }
         launch_installer(&path)?;
         // 安装记录：卸载功能据此判定「是通过 AnyBoot 装的」才允许应用内卸载
         write_install_marker(&app)
@@ -2298,6 +2314,12 @@ fn is_tailscale_shim(path: &std::path::Path) -> bool {
 fn ts_uninstall_macos() -> Result<String, String> {
     const APP: &str = "/Applications/Tailscale.app";
     const SHIM: &str = "/usr/local/bin/tailscale";
+    // Tailscale 官方（standalone/macsys）的网络扩展标识，实测取自 systemextensionsctl list。
+    // 卸载必须连扩展一起摘掉：`rm -rf` 删 App 会绕过 Finder 的「同时移除系统扩展」流程，
+    // 扩展记录留在系统里 —— 下次重装就会撞上 `terminated waiting to uninstall on reboot`，
+    // 变成「不重启就用不了」（实机踩过）。这是那个坑的制造源。
+    const EXT_TEAM: &str = "W5364U7YZB";
+    const EXT_BUNDLE: &str = "io.tailscale.ipn.macsys.network-extension";
     if !std::path::Path::new(APP).exists() {
         return Err("找不到 /Applications/Tailscale.app——请手动确认安装位置后自行卸载".to_string());
     }
@@ -2312,13 +2334,18 @@ fn ts_uninstall_macos() -> Result<String, String> {
     } else if shim_path.exists() {
         ts_log("[卸载] /usr/local/bin/tailscale 不是 pkg wrapper（brew/standalone？），保留不动");
     }
-    let mut shell = format!("rm -rf '{APP}'");
+    // 顺序要紧：先摘扩展再删 App。App 还在时 IPNExtension 常驻、扩展处于「使用中」，
+    // macOS 会拒绝会话内移除 —— 但先删 App 更糟（记录彻底成孤儿）。所以按
+    // 「卸扩展 → 删 App」走，失败静默（下面复查会把它暴露出来）。
+    let mut shell = format!(
+        "systemextensionsctl uninstall {EXT_TEAM} {EXT_BUNDLE} >/dev/null 2>&1; rm -rf '{APP}'"
+    );
     if drop_shim {
         shell.push_str(&format!("; rm -f '{SHIM}'"));
     }
     // pkg 收据一并注销（不注销的话下次重装 pkg 会认为已装过；失败也不阻断卸载）
     shell.push_str("; pkgutil --forget com.tailscale.ipn.macsys >/dev/null 2>&1; exit 0");
-    ts_log("[卸载] 提权删除 Tailscale.app（授权框确认后执行）…");
+    ts_log("[卸载] 提权卸载网络扩展 + 删除 Tailscale.app（授权框确认后执行）…");
     let script = format!("do shell script {shell:?} with administrator privileges");
     let (ok, _, stderr) = run_command_with_timeout_for(
         {
@@ -2337,10 +2364,24 @@ fn ts_uninstall_macos() -> Result<String, String> {
             format!("卸载失败：{detail}")
         });
     }
-    Ok(if drop_shim {
-        "Tailscale 已卸载（App + /usr/local/bin 的 wrapper 已删）".to_string()
-    } else {
-        "Tailscale 已卸载".to_string()
+    // 复查：扩展记录摘掉了吗？还在就是「使用中无法会话内移除」，必须说清楚 ——
+    // 否则用户重装后撞上 needs_reboot 会以为是新问题。
+    let leftover = matches!(
+        macos_extension_state(),
+        MacosExtensionState::Active | MacosExtensionState::PendingUninstall
+    );
+    if leftover {
+        ts_log("[卸载] 网络扩展记录仍在（使用中无法会话内移除）");
+    }
+    Ok(match (drop_shim, leftover) {
+        (true, false) => "Tailscale 已卸载（App + wrapper + 系统扩展都已清理）".to_string(),
+        (true, true) => "Tailscale 已卸载（App + wrapper 已删）。系统扩展记录还在系统里，\
+             重装后若提示「需要重启」，重启一次即可"
+            .to_string(),
+        (false, false) => "Tailscale 已卸载（系统扩展已清理）".to_string(),
+        (false, true) => "Tailscale 已卸载。系统扩展记录还在系统里，\
+             重装后若提示「需要重启」，重启一次即可"
+            .to_string(),
     })
 }
 
@@ -2799,9 +2840,10 @@ enabled\tactive\tteamID\tbundleID (version)\tname\t[state]\n\
         );
     }
 
-    /// 卸装后没重启就重装：旧实例停在「等待重启卸载」，优先级高于其它标记。
+    /// 卸装后没重启就重装：旧实例停在「等待重启卸载」，且**没有任何已启用记录**
+    /// —— 这是真正只能重启的情形（新扩展压根没激活，CLI 必然起不来）。
     #[test]
-    fn parse_extension_state_pending_uninstall_wins() {
+    fn parse_extension_state_pending_uninstall_without_active() {
         let text = "enabled\tactive\tteamID\tbundleID (version)\tname\t[state]\n\
 \t\tW5364U7YZB\tio.tailscale.ipn.macsys.network-extension (1.104.2/101.104.2)\tTailscale\t[terminated waiting to uninstall on reboot]\n\
 \t*\tW5364U7YZB\tio.tailscale.ipn.macsys.network-extension (1.104.2/101.104.2)\tTailscale\t[activated waiting for user]\n";
@@ -2809,6 +2851,17 @@ enabled\tactive\tteamID\tbundleID (version)\tname\t[state]\n\
             parse_extension_state(text),
             MacosExtensionState::PendingUninstall
         );
+    }
+
+    /// 升级后的常态：旧记录等重启卸载，但新扩展已经 activated enabled 正常接管。
+    /// 这种机器 CLI 能用，**不能**判成「需要重启」—— 否则用户白重启一次（实测踩过：
+    /// macOS 只是把旧记录的清理推迟到下次开机，网络早已交给新扩展）。
+    #[test]
+    fn parse_extension_state_active_wins_over_pending_uninstall() {
+        let text = "enabled\tactive\tteamID\tbundleID (version)\tname\t[state]\n\
+\t\tW5364U7YZB\tio.tailscale.ipn.macsys.network-extension (1.104.2/101.104.2)\tTailscale\t[terminated waiting to uninstall on reboot]\n\
+\t*\t*\tW5364U7YZB\tio.tailscale.ipn.macsys.network-extension (1.105.0/101.105.0)\tTailscale\t[activated enabled]\n";
+        assert_eq!(parse_extension_state(text), MacosExtensionState::Active);
     }
 
     /// 别的厂商扩展（LuLu）用同款标记：不能被当成 Tailscale 的状态。
