@@ -2576,6 +2576,17 @@
             </p>
             <button class="btn" id="tsLaunchGuiBtn">打开 Tailscale.app</button>
           </div>
+          <!-- macOS 网络扩展待重启态：卸装后没重启就重装 → 旧扩展停在
+               「waiting to uninstall on reboot」，新扩展激活不了，CLI 直接起不来。
+               唯一解法是重启，重装没用 —— 必须说清楚，否则用户会反复重装。 -->
+          <div id="tsRebootRow" hidden>
+            <p class="field-hint" style="margin:8px 0 6px;color:rgb(var(--warn))">
+              Tailscale 已经装好，但系统里那个旧的网络扩展还在「等待重启卸载」——
+              新扩展因此无法激活，连接会一直失败。<b>重启 Mac</b> 后它会自动换成新扩展，
+              回来点「重新检测」即可。（重装没用，别反复卸装）
+            </p>
+            <button class="btn" id="tsRebootRecheck">已重启，重新检测</button>
+          </div>
           <!-- Funnel 公网通道区块：与直连区共用安装/登录生命周期；未安装时整块隐藏。
                状态机 unavailable/off/starting/needs_authorize/ready/error 由后端
                gateway_tailscale_funnel_status 驱动（tailscaled 服务内监听，无子进程残留）。 -->
@@ -10058,6 +10069,7 @@ function gwShowPage() {
     $('tsLoginRow').hidden = !(has && (st.state === 'needs_login' || tsLoginLink));
     $('tsStoppedRow').hidden = !(has && st.state === 'stopped');
     $('tsGuiRow').hidden = !(has && st.state === 'needs_gui');
+    $('tsRebootRow').hidden = !(has && st.state === 'needs_reboot');
     $('tsAddrRow').hidden = !running;
     $('tsBadge').hidden = !running;
     // AuthKey 配置行：装了但没连上时给入口（与内置引擎 off 态同款）
@@ -10080,7 +10092,7 @@ function gwShowPage() {
     const mainSw = $('tsMainSw');
     const svcDead = has && st.state === 'unknown' && st.service_running === 0;
     mainSw.checked = running || (tsBusy && tsUpIntent);
-    mainSw.disabled = tsBusy || svcDead || st.state === 'needs_gui';
+    mainSw.disabled = tsBusy || svcDead || st.state === 'needs_gui' || st.state === 'needs_reboot';
     $('tsMainSwWrap').classList.toggle('loading', tsBusy);
     const svcKnown = has && typeof st.service_running === 'number' && st.service_running >= 0;
     $('tsSvcSwGroup').hidden = !svcKnown;
@@ -10117,6 +10129,8 @@ function gwShowPage() {
       $('tsStateText').textContent = '已安装 · 已停止';
     } else if (st.state === 'needs_gui') {
       $('tsStateText').textContent = '已安装 · Tailscale.app 未启动';
+    } else if (st.state === 'needs_reboot') {
+      $('tsStateText').textContent = '已安装 · 需要重启 Mac 才能启用';
     } else {
       $('tsStateText').textContent = st.service_running === 0 ? '已安装 · tailscaled 服务未运行' : '已安装 · 状态未知';
     }
@@ -10133,6 +10147,8 @@ function gwShowPage() {
     tsfRefresh();
   }
   $('tsRefreshBtn').addEventListener('click', tsRefresh);
+  // 重启完回来点一下：直接复用重新检测（后端会重跑扩展状态判断）
+  $('tsRebootRecheck').addEventListener('click', tsRefresh);
   // 卸载 Tailscale：仅当有 AnyBoot 安装记录才可用（按钮只在 installed 时亮）；
   // 自己装的会被后端拒绝并给出手动卸载指引。
   // 默认连登录凭据一起清（卸载前 logout + 清 AuthKey），弹窗里可勾「保留本机数据」。

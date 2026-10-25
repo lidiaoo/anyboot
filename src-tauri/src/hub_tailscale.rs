@@ -116,11 +116,18 @@ fn cli_candidates() -> Vec<std::path::PathBuf> {
 /// **CLI 真能跑 = 已安装**。
 ///
 /// 成本：多起一次子进程（Go 程序 ~30ms），只在探测时发生，可接受。
+///
+/// 注意 macOS App 版有一条「exit 0 + stdout 是报错文本」的行为（GUI/CLI 启动
+/// 失败都会这样），所以「有输出」还不够，必须把报错文本排除掉 —— 否则卸载后
+/// 重装、网络扩展待重启这些状态会被判成「已安装且正常」。
 fn cli_works(cli: &std::path::Path) -> bool {
-    matches!(
-        run_cli_raw(cli, &["version"]),
-        Some((true, stdout, _)) if !stdout.trim().is_empty()
-    )
+    match run_cli_raw(cli, &["version"]) {
+        Some((true, stdout, _)) => {
+            let text = stdout.trim();
+            !text.is_empty() && !is_gui_failed_output(text)
+        }
+        _ => false,
+    }
 }
 
 /// 找可用 CLI：按候选顺序取第一个「文件存在 + 真能跑」的。
@@ -146,12 +153,14 @@ const TOGGLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 
 /// 构造 CLI 子进程命令（统一入口）。
 ///
-/// macOS App 版 CLI 用 `SHLVL`（只有 shell 会设）判断「是不是 shell 在调我」：
-/// Rust 直接 spawn 的子进程没有它 → CLI 误判为 GUI 启动场景 → 试图拉起
-/// Tailscale.app → 失败时 exit 0 + stdout 全是「Tailscale GUI failed to start
-/// (Tailscale.CLIError error 3.)」报错文本（GUI 起没起都一样，实机踩过：
-/// 错误文本被当成 ip 拼进直连地址）。补 SHLVL 强制走 CLI 分支，GUI 不在跑也正常；
-/// standalone/brew 版 CLI 不读它，设了无副作用。
+/// macOS App 版 CLI 用 `SHLVL` / `TERM` / `TERM_PROGRAM` / `PS1` 等环境变量判断
+/// 「是不是 shell 在调我」：Rust 直接 spawn 的子进程没有它们 → CLI 误判为 GUI
+/// 启动场景 → 试图拉起 Tailscale.app → 失败时 exit 0 + stdout 全是「Tailscale
+/// GUI failed to start (Tailscale.CLIError error 3.)」报错文本（GUI 起没起都一样，
+/// 实机踩过：错误文本被当成 ip 拼进直连地址）。两个变量都补：
+/// - `TAILSCALE_BE_CLI=1` 是官方文档给的强制开关（最正规）；
+/// - `SHLVL=1` 是实测有效的原始触发变量（靠它揪出的根因，留着兜底）。
+/// standalone/brew 版 CLI 不读它们，设了无副作用。
 fn cli_command(cli: &std::path::Path) -> std::process::Command {
     let mut command = std::process::Command::new(cli);
     #[cfg(windows)]
@@ -160,7 +169,10 @@ fn cli_command(cli: &std::path::Path) -> std::process::Command {
         command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     }
     #[cfg(target_os = "macos")]
-    command.env("SHLVL", "1");
+    {
+        command.env("SHLVL", "1");
+        command.env("TAILSCALE_BE_CLI", "1");
+    }
     command
 }
 
@@ -299,16 +311,59 @@ fn plausible_ipv4(text: &str) -> bool {
         })
 }
 
-/// macOS App 版 CLI「GUI 没起来」的报错特征（exit 0、错误文本在 stdout）。
-/// 主修是 cli_command 补 SHLVL 强制 CLI 模式，正常不会再走到这里；
-/// 留作 CLI 行为再变时的兜底状态（前端给「打开 Tailscale.app」自救按钮）。
+/// macOS App 版 CLI 起不来时的报错特征（**exit 0、错误文本在 stdout**）。
+/// 两种措辞都见过：GUI 启动失败（error 3）、CLI 启动失败（error 1，网络扩展
+/// 待重启/未激活时）。它们必须被识别出来，否则会被当成「命令成功 + 有输出」。
 fn is_gui_failed_output(text: &str) -> bool {
-    text.contains("Tailscale GUI failed to start") || text.contains("Tailscale.CLIError")
+    text.contains("Tailscale GUI failed to start")
+        || text.contains("Tailscale CLI failed to start")
+        || text.contains("Tailscale.CLIError")
 }
 
 /// 取多行文本的首行（trim 后）。`ip -4` 正常单行输出；报错文本也只看首行。
 fn first_line(text: &str) -> String {
     text.trim().lines().next().unwrap_or("").trim().to_string()
+}
+
+/// macOS 网络扩展是否停在「待重启卸载」（`terminated waiting to uninstall on
+/// reboot`）。
+///
+/// 场景：卸载 Tailscale.app 后**没重启就重新安装** —— 系统仍按旧计划准备卸载
+/// 那个扩展实例，新装的 App 的扩展因此激活不了；此时 CLI 只会吐
+/// `The Tailscale CLI failed to start … (Tailscale.CLIError error 1.)`（exit 0），
+/// 点连接必然失败。**唯一解法是重启 Mac**（`systemextensionsctl reset` 需要
+/// 关闭 SIP，应用侧做不了），所以必须给用户一个明确状态，否则他会反复重装。
+///
+/// 只认含 "tailscale" 的那一行，别的厂商扩展（LuLu 等）有同样标记也不能误判。
+#[cfg(target_os = "macos")]
+fn macos_extension_pending_uninstall() -> bool {
+    let Ok(output) = std::process::Command::new("systemextensionsctl")
+        .arg("list")
+        .output()
+    else {
+        return false;
+    };
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter(|line| line.to_ascii_lowercase().contains("tailscale"))
+        .any(|line| line.to_ascii_lowercase().contains("waiting to uninstall"))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn macos_extension_pending_uninstall() -> bool {
+    false
+}
+
+/// 找不到可用 CLI 时的提示。macOS 上「装了 App 但网络扩展待重启」很常见，
+/// 这时说「请先安装」会让人反复重装 —— 直接给唯一有效的下一步。
+fn missing_cli_message() -> String {
+    if macos_extension_pending_uninstall() {
+        "Tailscale 已经装好了，但系统里那个旧的网络扩展还在等重启卸载 —— \
+         重启 Mac 后会自动换成新扩展，回来再点连接即可"
+            .to_string()
+    } else {
+        "没检测到 Tailscale，请先安装".to_string()
+    }
 }
 
 // status --json 只取需要的字段；字段名大小写按实测（BackendState / Self.TailscaleIPs 混 camel）。
@@ -395,10 +450,16 @@ fn probe(cli: &std::path::Path) -> TailscaleStatus {
                 status.ip = ip;
                 return status;
             }
-            // macOS App 版 CLI 的 GUI 未启动报错（exit 0 + stdout 全是错误文本）：
-            // 可操作状态，前端给「打开 Tailscale.app」一键自救
+            // macOS App 版 CLI 起不来时 exit 0 + stdout 全是错误文本：
+            // - 网络扩展待重启 → needs_reboot（唯一解法是重启，重装没用）
+            // - 只是 GUI 没常驻 → needs_gui（前端给「打开 Tailscale.app」一键自救）
             if is_gui_failed_output(&text) {
-                status.state = "needs_gui".into();
+                status.installed = true; // App 确实装着，只是没就绪
+                status.state = if macos_extension_pending_uninstall() {
+                    "needs_reboot".into()
+                } else {
+                    "needs_gui".into()
+                };
             }
         }
         return status;
@@ -407,6 +468,13 @@ fn probe(cli: &std::path::Path) -> TailscaleStatus {
     // 还是 tailscaled 没跑 / 连不上？只有这条异常路径才多花一次 version。
     status.installed = cli_works(cli);
     if !status.installed {
+        // macOS：App 装着但网络扩展待重启时，CLI 也可能干脆非 0 退出 —— 别因此
+        // 判成「未安装」，否则前端只显示下载按钮，用户会以为装失败了
+        if macos_extension_pending_uninstall() {
+            status.installed = true;
+            status.state = "needs_reboot".into();
+            return status;
+        }
         status.cli_path.clear(); // 不是可用 CLI：别把残留路径当「已安装证据」给前端
     }
     status
@@ -523,7 +591,7 @@ fn parse_up_required_flags(stderr: &str) -> Vec<String> {
 /// TOGGLE_TIMEOUT 长超时等授权，不能用 5s 通用档（实测误报 spawn 失败）。
 /// prefs 变更是本地权限闸门管的操作 → 走提权入口（Linux 被拒时 pkexec 弹框）。
 pub(crate) fn ts_toggle_blocking(app: &AppHandle, up: bool) -> Result<TailscaleStatus, String> {
-    let cli = find_cli().ok_or_else(|| "没检测到 Tailscale，请先安装".to_string())?;
+    let cli = find_cli().ok_or_else(missing_cli_message)?;
     ts_log(if up { "[开关] tailscale up…" } else { "[开关] tailscale down…" });
     let mut args: Vec<String> = vec![if up { "up" } else { "down" }.to_string()];
     // AuthKey（可选）：走 0600 密钥文件 + `--auth-key=file:` 形式，密钥不进 argv
@@ -632,19 +700,38 @@ pub(crate) fn ts_toggle_blocking(app: &AppHandle, up: bool) -> Result<TailscaleS
                  打开链接完成授权后再点一次开关即可"
             );
         }
-        // tailscaled 服务没跑是 Linux 上最常见的坑（尤其容器/最小安装没 enable）：
-        // CLI 原始报错对用户没有可操作性，翻译成下一步动作
-        if detail.contains("failed to connect to local tailscaled") {
-            detail = "tailscaled 服务未运行 —— 先点上方副开关启动它，或终端执行 \
-                      sudo systemctl enable --now tailscaled"
-                .to_string();
+        // 连不上本地 tailscaled：Linux 是服务没跑（容器/最小安装没 enable），
+        // macOS 是 GUI 没常驻（App 版 tailscaled 跟菜单栏进程一起活）——
+        // CLI 原始报错对用户没有可操作性，各平台翻译成下一步动作
+        if detail.contains("failed to connect to local tailscaled")
+            || detail.contains("failed to connect to local tailscale service")
+        {
+            detail = if cfg!(target_os = "macos") {
+                "Tailscale 服务没在跑 —— App 版的后台服务随菜单栏进程一起启动：\
+                 先打开 Tailscale.app（菜单栏出现图标）再点开关。日志弹窗里点「打开 \
+                 Tailscale.app」也行"
+                    .to_string()
+            } else {
+                "tailscaled 服务未运行 —— 先点上方副开关启动它，或终端执行 \
+                  sudo systemctl enable --now tailscaled"
+                    .to_string()
+            };
         }
         // 提权没走通（无 pkexec / 用户取消授权框）：把手动兜底命令一并给用户。
         // 取消场景 pkexec 报 "Not authorized" 不含 "access denied"，
         // 匹配不上闸门文案 → 靠 elevated_retry 打的「提权未完成」标记补位
-        if is_local_access_denied(&stdout, &stderr) || stderr.contains("提权未完成") {
+        if is_privilege_denied(&stdout, &stderr) || stderr.contains("提权未完成") {
             detail.push('；');
             detail.push_str(&local_privilege_hint());
+        }
+        // macOS 特有：App 版 CLI 以 root 运行时可能取不到 GUI 侧的用户凭据
+        // （macsys 已知限制，社区报过 CLIError/BadResponse）。这时无论怎么提权都
+        // 连不上，唯一可靠路径是菜单栏图标 —— 直接说清楚，别让用户反复试开关。
+        if cfg!(target_os = "macos") && detail.contains("credentials are not available") {
+            detail.push_str(
+                "；macOS 上以 root 运行时 App 版 CLI 取不到 GUI 的登录凭据 —— \
+                 请用菜单栏的 Tailscale 图标点 Connect（登录一次后本卡会自动刷新）",
+            );
         }
         // 待授权 ≠ 失败：日志用「待授权」前缀，前端据此不用红色报错弹条
         ts_log(&format!(
@@ -817,11 +904,24 @@ const TS_LOG_CAP: usize = 400;
 static TS_LOG: std::sync::OnceLock<std::sync::Mutex<std::collections::VecDeque<String>>> =
     std::sync::OnceLock::new();
 
+/// 日志落盘路径（首次拿到 AppHandle 时绑定一次）。
+///
+/// 内存环随进程退出就没了 —— 而「上次为什么失败」恰恰是重启后最想看的。
+/// 与 gateway 共用同一个 trace.log（行首类别 `[tailscale]` 区分），
+/// 落盘失败一律吞掉：日志绝不能反过来影响开关本身。
+static TS_LOG_FILE: std::sync::OnceLock<Option<std::path::PathBuf>> = std::sync::OnceLock::new();
+
+/// 绑定落盘路径（由带 AppHandle 的入口调用；重复调用无副作用）。
+fn bind_ts_log_file(app: &AppHandle) {
+    TS_LOG_FILE.get_or_init(|| crate::trace_file_path(app));
+}
+
 fn ts_log_ring() -> &'static std::sync::Mutex<std::collections::VecDeque<String>> {
     TS_LOG.get_or_init(|| std::sync::Mutex::new(std::collections::VecDeque::new()))
 }
 
 /// 追加一行日志（满了丢最老的；锁坏了静默丢弃——日志绝不能反过来卡主流程）。
+/// 内存环给 UI 弹窗轮询；同时 append 到 trace.log，重启后仍可回看。
 fn ts_log(line: &str) {
     if let Ok(mut log) = ts_log_ring().lock() {
         if log.len() >= TS_LOG_CAP {
@@ -830,6 +930,19 @@ fn ts_log(line: &str) {
             TS_LOG_DROPPED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         }
         log.push_back(line.to_string());
+    } // 先放锁：落盘是 IO，不能占着环形缓冲的锁
+    if let Some(path) = TS_LOG_FILE.get().and_then(|p| p.as_ref()) {
+        use std::io::Write;
+        let stamped = format!("{}ms [tailscale] {line}\n", crate::unix_millis());
+        eprint!("trace {stamped}");
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .and_then(|mut file| file.write_all(stamped.as_bytes()));
     }
 }
 
@@ -838,8 +951,7 @@ static TS_LOG_DROPPED: std::sync::atomic::AtomicUsize = std::sync::atomic::Atomi
 
 /// 拉取日志快照（UI「日志」弹窗消费；纯内存读）。
 /// 有过丢弃时在首行明示 —— 「日志是否完整」必须能被用户自行判断。
-#[tauri::command]
-pub(crate) fn gateway_tailscale_logs() -> Vec<String> {
+fn ts_log_snapshot() -> Vec<String> {
     let mut lines: Vec<String> = ts_log_ring()
         .lock()
         .map(|log| log.iter().cloned().collect())
@@ -852,6 +964,15 @@ pub(crate) fn gateway_tailscale_logs() -> Vec<String> {
         );
     }
     lines
+}
+
+/// 日志命令（前端轮询消费）。
+#[tauri::command]
+pub(crate) fn gateway_tailscale_logs(app: AppHandle) -> Vec<String> {
+    // AppHandle 由 Tauri 自动注入（前端调用参数不变）：拿它绑定落盘路径，
+    // 保证「先点日志、还没探测过」时后续日志也能落盘
+    bind_ts_log_file(&app);
+    ts_log_snapshot()
 }
 
 /// 清空日志（UI「清空」按钮：源头清掉，屏幕同步清屏，下次拉取不再恢复）。
@@ -1165,14 +1286,22 @@ fn current_username() -> String {
         .unwrap_or_default()
 }
 
-/// tailscaled 的本地权限闸门：prefs / serve 配置变更只允许 root / operator，
-/// 非特权连接报「Access denied: prefs write access denied」/「serve config
-/// denied」——文案看着像 tailnet 策略拒绝，其实是本机权限不够（tailnet 策略的
-/// nodeAttrs 是另一道独立的门）。实机踩过：同一策略下 sudo 一跑就过。
-fn is_local_access_denied(stdout: &str, stderr: &str) -> bool {
-    format!("{stdout}\n{stderr}")
-        .to_ascii_lowercase()
-        .contains("access denied")
+/// 本地权限闸门：prefs / serve 配置变更只允许 root 或 operator，非特权连接会被拒。
+/// 文案看着像 tailnet 策略拒绝，其实是本机权限不够（tailnet 策略的 nodeAttrs 是
+/// 另一道独立的门）。实机踩过：同一策略下 sudo 一跑就过。
+///
+/// 各平台/版本的措辞不同，统一收敛（大小写不敏感）：
+/// - Linux / Windows：`Access denied: prefs write access denied`、`checkprefs access denied`
+/// - macOS App 版：同样报 `Access denied: …`，另有版本报 `… requires root`
+/// - funnel 的 serve 配置：`serve config denied`（不含 access 前缀）
+fn is_privilege_denied(stdout: &str, stderr: &str) -> bool {
+    let text = format!("{stdout}\n{stderr}").to_ascii_lowercase();
+    text.contains("access denied")
+        || text.contains("requires root")
+        || text.contains("must be run as root")
+        || text.contains("requires administrator")
+        || text.contains("config denied")
+        || text.contains("operation not permitted")
 }
 
 /// 提权没走通时的手动兜底提示（含精确命令，用户名自动探测）。
@@ -1180,6 +1309,13 @@ fn local_privilege_hint() -> String {
     let user = current_username();
     if cfg!(windows) {
         "本操作需要本机特权：请以管理员身份运行 AnyBoot 后重试".to_string()
+    } else if cfg!(target_os = "macos") {
+        // macsys（App 版）不认 `set --operator`（实测该建议在 macbook 上无效），
+        // 能落地的只有两条：系统授权框 / 菜单栏图标。授权框是主路径，
+        // 取消或超时就再点一次开关。
+        "本操作需要本机权限：点开关时 AnyBoot 会弹「管理员授权」框，输密码即可；\
+         取消过就再点一次。也可以直接用菜单栏的 Tailscale 图标连接 / 断开"
+            .to_string()
     } else if user.is_empty() {
         "本操作需要本机特权：终端执行一次 sudo tailscale set --operator=$(whoami) \
          即可（授权后 AnyBoot 免提权管理 Tailscale/Funnel）"
@@ -1190,6 +1326,168 @@ fn local_privilege_hint() -> String {
              即可（授权后 AnyBoot 免提权管理 Tailscale/Funnel）"
         )
     }
+}
+
+/// 单引号 shell 转义（内嵌 `'` 写成 `'\''`）。
+#[cfg(target_os = "macos")]
+fn shq(value: &str) -> String {
+    format!("'{}'", value.replace('\'', r#"'\''"#))
+}
+
+/// 边跑边 tail 一个文件：只提交**完整行**（末尾没换行的半行留到下一轮，
+/// CLI 边写边刷时半行很常见，提前提交会重复上屏）。
+#[cfg(target_os = "macos")]
+fn tail_new_lines(
+    path: &std::path::Path,
+    seen: &mut usize,
+    acc: &mut String,
+    on_line: &Option<LineSink>,
+) {
+    let Ok(bytes) = std::fs::read(path) else { return };
+    let text = String::from_utf8_lossy(&bytes).to_string();
+    let mut lines: Vec<&str> = text.lines().collect();
+    if !text.ends_with('\n') {
+        lines.pop();
+    }
+    if lines.len() <= *seen {
+        return;
+    }
+    for line in &lines[*seen..] {
+        if let Some(sink) = on_line {
+            sink(line);
+        }
+        acc.push_str(line);
+        acc.push('\n');
+    }
+    *seen = lines.len();
+}
+
+/// macOS 提权重试：App 版 CLI 的**写操作**（up / down / set / funnel）只有 root
+/// 能做（status / ip 这类只读命令普通用户就能跑）—— 官方 CLI 文档明写。
+/// 桌面 App 没有 sudo tty，能弹系统授权框的通道只有 `osascript … with
+/// administrator privileges`（卸载路径同款）。要绕过的三个坑：
+///
+/// 1. **引号地狱**：整条命令写进临时 .sh，osascript 只执行 `/bin/sh <脚本>`；
+/// 2. **输出拿不到**：`do shell script` 只回 stdout，失败还抛 AppleScript 错误。
+///    所以脚本自己把 stdout / stderr / exit code 落三个临时文件，主进程边跑边
+///    tail → 登录链接照样实时上屏（up 要等浏览器授权，不能憋到进程结束）；
+/// 3. **root 的环境比我们的还干净**：脚本里必须补 `SHLVL=1` + `TAILSCALE_BE_CLI=1`，
+///    否则 App 版 CLI 会误判成 GUI 启动 → exit 0 + stdout 全是报错文本
+///    （和探测路径踩过的是同一个坑，见 cli_command）。
+///
+/// 授权框被取消 / 超时 → 按 Linux 分支的约定打「提权未完成」标记，
+/// 让调用方追加手动兜底提示。
+#[cfg(target_os = "macos")]
+fn elevated_retry(
+    cli: &std::path::Path,
+    args: &[&str],
+    _timeout: std::time::Duration,
+    on_line: Option<LineSink>,
+) -> Option<(bool, String, String)> {
+    ts_log("[提权] macOS App 版 CLI 的写操作需要 root → 弹系统管理员授权框…");
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let dir = std::env::temp_dir().join(format!("anyboot-ts-{}-{stamp}", std::process::id()));
+    std::fs::create_dir_all(&dir).ok()?;
+    let script_path = dir.join("run.sh");
+    let out_path = dir.join("out.log");
+    let err_path = dir.join("err.log");
+    let code_path = dir.join("code");
+    let mut body = String::from("SHLVL=1\nTAILSCALE_BE_CLI=1\nexport SHLVL TAILSCALE_BE_CLI\n");
+    body.push_str(&shq(&cli.display().to_string()));
+    for arg in args {
+        body.push(' ');
+        body.push_str(&shq(arg));
+    }
+    body.push_str(&format!(
+        " >{} 2>{}\nprintf '%s' $? > {}\n",
+        shq(&out_path.display().to_string()),
+        shq(&err_path.display().to_string()),
+        shq(&code_path.display().to_string()),
+    ));
+    if std::fs::write(&script_path, body).is_err() {
+        let _ = std::fs::remove_dir_all(&dir);
+        return None;
+    }
+    let secs = ELEVATED_TIMEOUT.as_secs();
+    let escaped = script_path
+        .display()
+        .to_string()
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"");
+    let apple = format!(
+        "with timeout of {secs} seconds\n\
+         do shell script \"/bin/sh {escaped}\" with administrator privileges \
+         with prompt \"AnyBoot 需要管理员权限来开关 Tailscale\"\n\
+         end timeout"
+    );
+    let mut command = std::process::Command::new("osascript");
+    command.args(["-e", &apple]);
+    command.stdin(std::process::Stdio::null());
+    let mut child = command
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .ok()?;
+    let out_pipe = child.stdout.take()?;
+    let err_pipe = child.stderr.take()?;
+    let os_out = read_pipe(out_pipe, &None);
+    let os_err = read_pipe(err_pipe, &None);
+    // 外层比 AppleScript 自己的超时多留缓冲：先让 AppleScript 收尾（它会带回
+    // 「User canceled」这类有用文本），别抢先杀 osascript
+    let grace = std::time::Duration::from_secs(20);
+    let deadline = std::time::Instant::now() + ELEVATED_TIMEOUT + grace;
+    let mut seen_out = 0usize;
+    let mut seen_err = 0usize;
+    let mut out_text = String::new();
+    let mut err_text = String::new();
+    let mut os_ok = false;
+    let mut timed_out = false;
+    loop {
+        tail_new_lines(&out_path, &mut seen_out, &mut out_text, &on_line);
+        tail_new_lines(&err_path, &mut seen_err, &mut err_text, &on_line);
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                os_ok = status.success();
+                break;
+            }
+            Ok(None) if std::time::Instant::now() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                timed_out = true;
+                err_text.push_str(&format!(
+                    "\n[等待超时 {} 秒]",
+                    (ELEVATED_TIMEOUT + grace).as_secs()
+                ));
+                break;
+            }
+            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(100)),
+            Err(_) => break,
+        }
+    }
+    // 进程退出后再收一遍尾巴（最后几行可能刚写进文件）
+    tail_new_lines(&out_path, &mut seen_out, &mut out_text, &on_line);
+    tail_new_lines(&err_path, &mut seen_err, &mut err_text, &on_line);
+    let code = std::fs::read_to_string(&code_path)
+        .ok()
+        .and_then(|t| t.trim().parse::<i32>().ok());
+    let os_err_text = os_err.join().unwrap_or_default();
+    let _ = os_out.join();
+    if !os_ok && !timed_out {
+        let detail = os_err_text.trim();
+        if !detail.is_empty() {
+            if !err_text.is_empty() && !err_text.ends_with('\n') {
+                err_text.push('\n');
+            }
+            err_text.push_str(detail);
+        }
+        err_text.push_str("\n[提权未完成：管理员授权被取消]");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+    // 成功的唯一判据是脚本记下的 exit code —— osascript 自己成功只代表授权框过了
+    Some((code == Some(0), out_text, err_text))
 }
 
 /// Linux 提权重试：本地权限闸门拒绝时用 pkexec（polkit 弹桌面授权框）。
@@ -1278,9 +1576,9 @@ fn run_cli_privileged_sink(
     if result.0 {
         return result;
     }
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     {
-        if is_local_access_denied(&result.1, &result.2) {
+        if is_privilege_denied(&result.1, &result.2) {
             if let Some(retried) = elevated_retry(cli, args, timeout, on_line) {
                 return retried;
             }
@@ -1409,15 +1707,39 @@ pub(crate) fn autostart_connect(app: &tauri::AppHandle) {
     });
 }
 
+/// 上次报给前端的状态（只在**变化时**落一条日志 —— UI 每 3 秒轮询，全记会刷屏）。
+static TS_LAST_STATE: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+
+fn log_state_change(status: &TailscaleStatus) {
+    let mut last = TS_LAST_STATE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let key = format!("{}|{}", status.installed, status.state);
+    if *last == key {
+        return;
+    }
+    *last = key;
+    ts_log(&format!(
+        "[状态] installed={} state={} ip={} version={} platform={}",
+        status.installed,
+        status.state,
+        if status.ip.is_empty() { "-" } else { &status.ip },
+        if status.version.is_empty() { "-" } else { &status.version },
+        status.platform,
+    ));
+}
+
 /// 查询本机 Tailscale 状态（找不到 CLI → installed:false）。
 /// CLI 子进程有几十 ms 阻塞，走 async + spawn_blocking（blocking_guard 约定）。
 #[tauri::command]
 pub(crate) async fn gateway_tailscale_status(app: AppHandle) -> TailscaleStatus {
+    bind_ts_log_file(&app);
     let key_set = !crate::stored_settings(&app).tailscale_authkey.trim().is_empty();
     let mut status = tauri::async_runtime::spawn_blocking(probe_blocking)
         .await
         .unwrap_or_default();
     status.authkey_set = key_set;
+    log_state_change(&status);
     status
 }
 
@@ -2021,7 +2343,14 @@ fn launch_installer(path: &std::path::Path) -> Result<(), String> {
     std::process::Command::new("open")
         .arg(path)
         .spawn()
-        .map(|_| ())
+        .map(|_| {
+            // 系统安装器是独立进程：装成功与否 AnyBoot 拿不到退出码，只能靠
+            // 「重新检测」。日志里把下一步和最常见的坑写清楚（日志是排障唯一凭证）
+            ts_log(
+                "[安装] 系统安装器接管（需要管理员密码）—— 装完回到这里点「重新检测」。\
+                 注意：之前卸载过 Tailscale 的机器要重启一次，旧的网络扩展才会真正换掉",
+            );
+        })
         .map_err(|error| format!("启动安装器失败: {error}"))
 }
 
@@ -2272,9 +2601,11 @@ mod tests {
         make_exec(&good);
         assert!(cli_works(&good));
         // 实机场景：pkg 的 shim 指向已删除的 App → exit 127（旧的 is_file 判据会误判已安装）
+        // 路径必须是**确定不存在**的：早先写的是真机 App 路径，用户装上 Tailscale 后
+        // 这条断言就反过来失败了（测试不能依赖机器的安装状态）。
         let broken = tmp_file(
             "broken",
-            "#!/bin/sh\n/Applications/Tailscale.app/Contents/MacOS/Tailscale \"$@\"\n",
+            "#!/bin/sh\n/nonexistent-anyboot-test/Tailscale \"$@\"\n",
         );
         make_exec(&broken);
         assert!(!cli_works(&broken));
@@ -2285,6 +2616,21 @@ mod tests {
         for path in [good, broken, failing] {
             let _ = std::fs::remove_file(path);
         }
+    }
+
+    /// macOS App 版的「exit 0 + 报错文本」不能算 CLI 可用：卸载后重装、网络扩展
+    /// 待重启时 CLI 就是这样（error 1/3），判成可用 → 前端永远不出重装/重启提示。
+    #[cfg(unix)]
+    #[test]
+    fn cli_failed_text_is_not_a_working_cli() {
+        use std::os::unix::fs::PermissionsExt;
+        let liar = tmp_file(
+            "liar",
+            "#!/bin/sh\necho 'The Tailscale CLI failed to start: (Tailscale.CLIError error 1.)'\nexit 0\n",
+        );
+        std::fs::set_permissions(&liar, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(!cli_works(&liar));
+        let _ = std::fs::remove_file(liar);
     }
 
     #[test]
@@ -2347,19 +2693,107 @@ mod tests {
     #[test]
     fn local_access_denied_detected() {
         // 实机踩过的两条本地权限闸门报错（区别于 tailnet 策略/连接类报错）
-        assert!(is_local_access_denied(
+        assert!(is_privilege_denied(
             "",
             "Access denied: prefs write access denied"
         ));
-        assert!(is_local_access_denied(
+        assert!(is_privilege_denied(
             "sending serve config: Access denied: serve config denied\n",
             ""
         ));
-        assert!(!is_local_access_denied(
+        // macOS App 版的另一种措辞（官方 CLI 文档：up/down/set 需要 root）
+        assert!(is_privilege_denied(
+            "",
+            "Error: changing settings via 'tailscale up' requires root"
+        ));
+        assert!(is_privilege_denied("", "must be run as root"));
+        // serve 配置被拒但没带 access 前缀（funnel 路径实机报错）
+        assert!(is_privilege_denied("", "sending serve config: config denied"));
+        assert!(!is_privilege_denied(
             "",
             "failed to connect to local tailscaled"
         ));
-        assert!(!is_local_access_denied("", ""));
+        assert!(!is_privilege_denied("", ""));
+    }
+
+    /// 提权脚本要过的三道门：引号转义、环境补齐、exit code 落盘。
+    /// 用真 shell 跑一遍（不碰 tailscale，拿 /bin/sh -c 语义验证拼接结果）。
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn elevated_script_quotes_and_records_exit_code() {
+        let dir = std::env::temp_dir().join(format!(
+            "anyboot-ts-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let out_path = dir.join("out.log");
+        let code_path = dir.join("code");
+        // 模拟 CLI：把带空格/单引号/双引号的参数原样写出来，再以 3 退出
+        let fake = dir.join("fake cli's.sh");
+        std::fs::write(
+            &fake,
+            "#!/bin/sh\nfor a in \"$@\"; do printf '[%s]\\n' \"$a\"; done\nprintf 'SHLVL=%s BE_CLI=%s\\n' \"$SHLVL\" \"$TAILSCALE_BE_CLI\"\nexit 3\n",
+        )
+        .unwrap();
+        let body = format!(
+            "SHLVL=1\nTAILSCALE_BE_CLI=1\nexport SHLVL TAILSCALE_BE_CLI\n{} {} {} >{} 2>{}\nprintf '%s' $? > {}\n",
+            shq("/bin/sh"),
+            shq(&fake.display().to_string()),
+            shq("a b'c\"d"),
+            shq(&out_path.display().to_string()),
+            shq(&dir.join("err.log").display().to_string()),
+            shq(&code_path.display().to_string()),
+        );
+        let script = dir.join("run.sh");
+        std::fs::write(&script, body).unwrap();
+        let status = std::process::Command::new("/bin/sh")
+            .arg(&script)
+            .status()
+            .unwrap();
+        assert!(status.success(), "壳脚本自身应 exit 0（exit code 另存）");
+        let out = std::fs::read_to_string(&out_path).unwrap();
+        assert!(out.contains("[a b'c\"d]"), "参数必须原样传进 CLI: {out}");
+        // SHLVL 会被 /bin/sh 自增（脚本里设 1，sh 起来变 2）——CLI 只判断「有没有」，
+        // 所以这里断言值非空即可；真正必须精确的是 TAILSCALE_BE_CLI。
+        assert!(
+            out.contains("BE_CLI=1") && !out.contains("SHLVL= BE_CLI"),
+            "环境必须补齐（SHLVL 非空 + TAILSCALE_BE_CLI=1）: {out}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&code_path).unwrap().trim(),
+            "3",
+            "CLI 的 exit code 必须落盘（osascript 只认这个）"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 半行不能提前上屏（CLI 边写边刷，半个 JSON 上屏会让日志看起来是坏的）。
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn tail_new_lines_waits_for_complete_line() {
+        let dir = std::env::temp_dir().join(format!(
+            "anyboot-ts-tail-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let log = dir.join("out.log");
+        std::fs::write(&log, "one\ntw").unwrap();
+        let mut seen = 0usize;
+        let mut acc = String::new();
+        tail_new_lines(&log, &mut seen, &mut acc, &None);
+        assert_eq!(acc, "one\n", "半行 tw 应留到下一轮");
+        std::fs::write(&log, "one\ntwo\nthree\n").unwrap();
+        tail_new_lines(&log, &mut seen, &mut acc, &None);
+        assert_eq!(acc, "one\ntwo\nthree\n", "补齐后只追加新增整行");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -2556,7 +2990,7 @@ mod tests {
         for index in 0..(TS_LOG_CAP + 5) {
             ts_log(&format!("line-{index}"));
         }
-        let lines = gateway_tailscale_logs();
+        let lines = ts_log_snapshot();
         assert_eq!(lines.len(), TS_LOG_CAP + 1, "上限行 + 首行丢弃提示");
         assert!(
             lines[0].contains("已丢弃最早 5 行"),
@@ -2565,7 +2999,7 @@ mod tests {
         );
         assert_eq!(lines[1], "line-5", "留下的是最近 TS_LOG_CAP 行");
         gateway_tailscale_logs_clear();
-        let after = gateway_tailscale_logs();
+        let after = ts_log_snapshot();
         assert!(after.is_empty(), "清空后连提示一起清掉");
     }
 }
