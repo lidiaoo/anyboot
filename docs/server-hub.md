@@ -130,6 +130,10 @@ CLI 探测链见模块头注释（三端各自的候选路径 + PATH 兜底）�
     一次性设 operator（授权一次终身免提权）；pkexec 不可用/用户取消时回退提示手动执行
     `sudo tailscale set --operator=<用户名>`。tailnet 策略的 `nodeAttrs` funnel
     授权是另一道独立的门（较新 tailnet 默认已放行），两道都过 Funnel 才通。
+    兜底细则（2026-10-25 补强）：授权框被取消时 pkexec 报 `Not authorized`（不含
+    `access denied`），elevated_retry 打「提权未完成」标记让调用方追加手动命令；
+    `up` 输出含登录链接时失败信息整段保留（不再只取第一行把 URL 掐掉），并提示
+    「浏览器完成授权后再点一次开关」；operator 设好后重试期间有日志，不再像卡死。
 
 ### 内置 Tailscale 引擎（tsnet sidecar）—— 三端布局与排错（2026-10-25 起覆盖 mac/linux）
 

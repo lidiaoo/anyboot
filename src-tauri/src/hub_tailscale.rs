@@ -454,9 +454,15 @@ pub(crate) fn ts_toggle_blocking(up: bool) -> Result<TailscaleStatus, String> {
         } else {
             detail.to_string()
         };
-        // 等浏览器授权超时：标注在 stderr 末尾，前面通常还有 CLI 打出的登录链接，
-        // 整段给用户（链接可直接点）
-        if stderr.contains("[等待超时") {
+        // up 已把浏览器登录链接打出来了 → 这是「等授权」不是普通失败：
+        // 整段保留（链接可点），别只取第一行把 URL 掐掉（实机踩过：只剩
+        // "To authenticate, visit:"，用户以为提权挂了）
+        let combined = format!("{stderr}\n{stdout}");
+        if combined.contains("To authenticate, visit") {
+            detail = format!("{} —— 在浏览器完成授权后再点一次开关即可", combined.trim());
+        } else if stderr.contains("[等待超时") {
+            // 等浏览器授权超时：标注在 stderr 末尾，前面通常还有 CLI 打出的登录链接，
+            // 整段给用户（链接可直接点）
             detail = format!(
                 "{} —— 若在等浏览器登录授权，完成授权后再点一次开关",
                 stderr.trim()
@@ -469,8 +475,10 @@ pub(crate) fn ts_toggle_blocking(up: bool) -> Result<TailscaleStatus, String> {
                       sudo systemctl enable --now tailscaled"
                 .to_string();
         }
-        // 提权没走通（无 pkexec / 用户取消授权框）：把手动兜底命令一并给用户
-        if is_local_access_denied(&stdout, &stderr) {
+        // 提权没走通（无 pkexec / 用户取消授权框）：把手动兜底命令一并给用户。
+        // 取消场景 pkexec 报 "Not authorized" 不含 "access denied"，
+        // 匹配不上闸门文案 → 靠 elevated_retry 打的「提权未完成」标记补位
+        if is_local_access_denied(&stdout, &stderr) || stderr.contains("提权未完成") {
             detail.push('；');
             detail.push_str(&local_privilege_hint());
         }
@@ -984,6 +992,7 @@ fn elevated_retry(
             .unwrap_or(false)
         {
             ts_log("[提权] operator 已设置，重试原命令…");
+            ts_log("[提权] 若拉起浏览器登录，完成授权后会自动继续，不用再点开关");
             // 重试沿用调用方的超时档（up 等浏览器授权要长超时，不能用 5s 档——
             // 超时会落进下面的 pkexec 直跑分支，再弹一次授权框，平白添乱）
             let retried = run_cli_full_timeout(cli, args, timeout);
@@ -994,7 +1003,20 @@ fn elevated_retry(
     }
     let mut direct = std::process::Command::new("pkexec");
     direct.arg(cli).args(args);
-    run_command_with_timeout_for(direct, ELEVATED_TIMEOUT)
+    let (ok, stdout, mut stderr) = run_command_with_timeout_for(direct, ELEVATED_TIMEOUT)?;
+    if !ok {
+        // 用户取消授权框 / 桌面没有 polkit agent 时，pkexec 自己报
+        // "Not authorized"（或干脆无输出）——不含 "access denied"，
+        // 调用方的闸门文案匹配不上 → 打标记，让调用方追加手动兜底命令
+        let text = format!("{stdout}\n{stderr}").to_ascii_lowercase();
+        if text.contains("not authorized")
+            || text.contains("authentication agent")
+            || text.trim().is_empty()
+        {
+            stderr.push_str("\n[提权未完成：授权框被取消或桌面无 polkit agent]");
+        }
+    }
+    Some((ok, stdout, stderr))
 }
 
 /// 变更类 CLI 调用（up/down/funnel）统一入口：先按当前用户跑，被本地权限
@@ -1444,8 +1466,11 @@ echo uninstall-done
     }
     if !ok {
         let detail = stderr.trim().lines().next().unwrap_or("").trim();
-        return Err(if detail.is_empty() {
-            "卸载失败（用户取消授权？）——可改用系统包管理器卸载".to_string()
+        let lowered = format!("{stdout}\n{stderr}").to_ascii_lowercase();
+        return Err(if detail.is_empty() || lowered.contains("not authorized") {
+            "卸载失败：授权框被取消或未通过 —— 重新操作并在弹出的授权框里确认，\
+             或改用系统包管理器卸载"
+                .to_string()
         } else {
             format!("卸载失败：{detail}")
         });
@@ -1657,8 +1682,8 @@ fn launch_installer(tarball: &std::path::Path) -> Result<(), String> {
         let text = format!("{stdout}{stderr}");
         let detail = text.trim().lines().next().unwrap_or("").trim();
         ts_log("[安装] 失败（pkexec 非零退出）");
-        return Err(if detail.is_empty() {
-            "安装失败".to_string()
+        return Err(if detail.is_empty() || text.to_ascii_lowercase().contains("not authorized") {
+            "安装失败：授权框被取消或未通过 —— 重新操作并在弹出的授权框里确认".to_string()
         } else {
             format!("安装失败：{detail}")
         });
