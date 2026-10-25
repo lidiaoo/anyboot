@@ -49,6 +49,14 @@
 - `src-tauri/target` 被标低完整性，别在原地修，换 CARGO_TARGET_DIR=`J:/tmp/anyboot-target`（C 盘<3G，别用 E/F 盘）。产物 exe+dll 一起复制到 `C://Users//jianghh//AppData//Local//AnyBoot`（先备份）。
 - 前端编译期嵌入 exe，改完必须重编覆盖。
 
+## Linux 构建工具链（本机 2026-10-25 起）
+- **系统 /usr/bin/rustc 已坏**（部分升级：rustc 要 libLLVM.so.23.1，系统只有 21/22）→ tauri CLI `rustc -vV` 无 host 行 panic（rust.rs unwrap）。修法：`sudo pacman -Syu`；或前置自装工具链 `export PATH=/home/disk1/cargo-home/bin:$PATH RUSTUP_HOME=/home/disk1/rustup-home CARGO_HOME=/home/disk1/cargo-home`（rustc 1.99.1，独立于系统 rust）。
+- 新工具链跑 release 主 crate 偶发 SIGABRT → `CARGO_BUILD_JOBS=2` 降并行。
+
+## Linux 构建工具链（本机 2026-10-25 起）
+- **系统 /usr/bin/rustc 已坏**（部分升级：rustc 要 libLLVM.so.23.1，系统只有 21/22）→ tauri CLI `rustc -vV` 无 host 行 panic（rust.rs unwrap）。修法：`sudo pacman -Syu`；或前置自装工具链 `export PATH=/home/disk1/cargo-home/bin:$PATH RUSTUP_HOME=/home/disk1/rustup-home CARGO_HOME=/home/disk1/cargo-home`（rustc 1.99.1，独立于系统 rust）。
+- 新工具链跑 release 主 crate 偶发 SIGABRT → `CARGO_BUILD_JOBS=2` 降并行。
+
 ## 内置 Tailscale 引擎（tsnet sidecar）
 - 五目标产物：`anyboot-tsnet.exe` + `anyboot-tsnet-{linux,darwin}-{amd64,arm64}`，构建一律跑 `scripts/build-sidecar.sh`（坑都写在脚本头注释：/tmp 是 10MB tmpfs 必须 TMPDIR 指大盘、goproxy.cn、CGO_ENABLED=0）。
 - 本机 Go 工具链：`~/.workbuddy/binaries/go/go/bin/go`（1.27.3；`/usr/bin/go` 是 gccgo 编不了 tailscale）。
