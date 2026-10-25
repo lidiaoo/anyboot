@@ -475,9 +475,10 @@ pub(crate) fn ts_toggle_blocking(app: &AppHandle, up: bool) -> Result<TailscaleS
     }
     let refs: Vec<&str> = args.iter().map(String::as_str).collect();
     // 实时行回调：up 等浏览器授权最长 120s，结束时才带回输出 = UI 全程静默、
-    // 登录链接出不来（实机踩过）。CLI 每行即时上屏，但登录相关行（"To
-    // authenticate, visit:" 和链接本体）不进日志——链接由前端登录卡片独占
-    // 展示（与内置引擎一致），日志里刷链接反而干扰。同一 URL 只 emit 一次。
+    // 登录链接出不来（实机踩过）。**CLI 输出一律原样上屏，不做任何过滤**——
+    // 日志是排障唯一凭证，少一行就会让人怀疑「是不是没打印」。链接本体照样进
+    // 日志（含 "To authenticate, visit:" 那行），同时另外 emit 给前端登录卡片
+    // （三按钮体验），两者互不替代。同一 URL 只 emit 一次。
     let last_url = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
     let sink: LineSink = {
         let last_url = last_url.clone();
@@ -487,11 +488,8 @@ pub(crate) fn ts_toggle_blocking(app: &AppHandle, up: bool) -> Result<TailscaleS
             if trimmed.is_empty() {
                 return;
             }
+            ts_log(&format!("[CLI] {trimmed}"));
             let is_login_url = trimmed.starts_with("https://login.tailscale.com/");
-            let is_login_hint = trimmed.contains("To authenticate");
-            if !is_login_url && !is_login_hint {
-                ts_log(&format!("[CLI] {trimmed}"));
-            }
             if is_login_url {
                 let is_new = {
                     let mut last = last_url
@@ -505,6 +503,10 @@ pub(crate) fn ts_toggle_blocking(app: &AppHandle, up: bool) -> Result<TailscaleS
                     }
                 };
                 if is_new {
+                    ts_log(
+                        "[登录] 已捕获授权链接 → 上方登录卡片可直接打开 / 复制；\
+                         浏览器里完成授权后会自动继续，无需重开开关（最长等 120 秒）",
+                    );
                     let _ = app.emit(
                         EVENT_TS_LOGIN_URL,
                         serde_json::json!({ "url": trimmed }),
@@ -541,18 +543,32 @@ pub(crate) fn ts_toggle_blocking(app: &AppHandle, up: bool) -> Result<TailscaleS
         } else {
             detail.to_string()
         };
-        // up 已把浏览器登录链接打出来了 → 这是「等授权」不是普通失败：
-        // 整段保留（链接可点），别只取第一行把 URL 掐掉（实机踩过：只剩
-        // "To authenticate, visit:"，用户以为提权挂了）
-        let combined = format!("{stderr}\n{stdout}");
-        if combined.contains("To authenticate, visit") {
-            detail = format!("{} —— 在浏览器完成授权后再点一次开关即可", combined.trim());
-        } else if stderr.contains("[等待超时") {
-            // 等浏览器授权超时：标注在 stderr 末尾，前面通常还有 CLI 打出的登录链接，
-            // 整段给用户（链接可直接点）
+        // 全量输出（去掉裸 EOF 噪音）：日志与错误详情都给完整文本，别只取第一行
+        // 把链接掐掉（实机踩过：只剩 "To authenticate, visit:"，用户以为提权挂了）
+        let mut combined = drop_bare_eof(&format!("{stderr}\n{stdout}"));
+        if combined.is_empty() {
+            combined = fallback.to_string(); // 输出只有裸 EOF 时别给用户一个空错误
+        }
+        let mut awaiting_auth = false;
+        if stderr.contains("[等待超时") {
+            // 等浏览器授权超时：CLI 已经打出链接（现在也实时进了日志），
+            // 标注清楚「是等超时，不是提权挂了」
+            awaiting_auth = up;
+            detail = if up {
+                format!(
+                    "{combined} —— 等待浏览器授权超时；链接约 10 分钟内有效，\
+                     完成授权后再点一次开关即可（也可点上方登录卡片的「重新生成链接」）"
+                )
+            } else {
+                format!("{combined} —— {fallback}：CLI 长时间无响应（超时）")
+            };
+        } else if up && combined.contains("To authenticate, visit") {
+            // 链接已生成但进程在等待期间结束（tailscaled 被停/被卸载/用户中断）：
+            // 这属于「待授权」而不是普通失败，别让用户去查提权
+            awaiting_auth = true;
             detail = format!(
-                "{} —— 若在等浏览器登录授权，完成授权后再点一次开关",
-                stderr.trim()
+                "{combined} —— 已生成登录链接，但等待授权被中断；\
+                 打开链接完成授权后再点一次开关即可"
             );
         }
         // tailscaled 服务没跑是 Linux 上最常见的坑（尤其容器/最小安装没 enable）：
@@ -569,11 +585,31 @@ pub(crate) fn ts_toggle_blocking(app: &AppHandle, up: bool) -> Result<TailscaleS
             detail.push('；');
             detail.push_str(&local_privilege_hint());
         }
-        ts_log(&format!("[开关] 失败：{detail}"));
-        return Err(detail);
+        // 待授权 ≠ 失败：日志用「待授权」前缀，前端据此不用红色报错弹条
+        ts_log(&format!(
+            "[开关] {}：{detail}",
+            if awaiting_auth { "待授权" } else { "失败" }
+        ));
+        return Err(if awaiting_auth {
+            format!("待授权（需在浏览器完成登录）：{detail}")
+        } else {
+            detail
+        });
     }
     ts_log("[开关] 完成");
     Ok(probe(&cli))
+}
+
+/// 等授权期间 tailscaled 被停 / 被卸载时，CLI 会甩一行裸 `EOF`（Go 的 io.EOF
+/// 原样上屏）。它既不是用户读得懂的话，也不是真正的失败原因 —— 展示文本里抹掉，
+/// 只保留能定位问题的真实输出。
+fn drop_bare_eof(text: &str) -> String {
+    text.lines()
+        .filter(|line| line.trim() != "EOF")
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_string()
 }
 
 /// 阻塞版服务控制：action = start / stop / restart。
@@ -1108,7 +1144,7 @@ fn elevated_retry(
             // 重试沿用调用方的超时档（up 等浏览器授权要长超时，不能用 5s 档——
             // 超时会落进下面的 pkexec 直跑分支，再弹一次授权框，平白添乱）；
             // 流式回调继续带上——登录链接要实时上屏
-            let retried = run_cli_full_timeout_sink(cli, args, timeout, on_line);
+            let retried = run_cli_full_timeout_sink(cli, args, timeout, on_line.clone());
             return Some(retried);
         } else {
             ts_log("[提权] operator 设置未成功（取消 / 无 polkit agent），回退直接提权跑原命令");
@@ -1116,7 +1152,19 @@ fn elevated_retry(
     }
     let mut direct = std::process::Command::new("pkexec");
     direct.arg(cli).args(args);
-    let (ok, stdout, mut stderr) = run_command_with_timeout_for(direct, ELEVATED_TIMEOUT)?;
+    // 这条分支同样可能拉起浏览器登录（operator 设不上时）：输出必须实时上屏，
+    // 否则登录链接只能等进程结束才出现，日志看着像「什么都没打印」
+    let (ok, stdout, mut stderr) = match run_command_outcome_impl(direct, ELEVATED_TIMEOUT, on_line) {
+        Ok(CliOutcome::Done(ok, out, err)) => (ok, out, err),
+        Ok(CliOutcome::TimedOut(out, mut err)) => {
+            if !err.trim().is_empty() {
+                err.push('\n');
+            }
+            err.push_str(&format!("[等待超时 {} 秒]", ELEVATED_TIMEOUT.as_secs()));
+            (false, out, err)
+        }
+        Err(_) => return None,
+    };
     if !ok {
         // 用户取消授权框 / 桌面没有 polkit agent 时，pkexec 自己报
         // "Not authorized"（或干脆无输出）——不含 "access denied"，
@@ -2047,8 +2095,7 @@ mod tests {
     }
 
     #[test]
-    fn pick_v4_skips_ipv6() {
-        let ips = vec![
+    fn pick_v4_skips_ipv6() {        let ips = vec![
             "fd7a:115c:a1e0::b7a1:9b7b:eb36:3737".to_string(),
             "100.119.234.95".to_string(),
         ];
@@ -2278,5 +2325,19 @@ mod tests {
         // 只有 -full 变体时也视为不可用（full 安装器不走 /quiet 语义）
         let only_full = serde_json::json!({ "Exes": ["tailscale-setup-full-1.104.2.exe"] });
         assert_eq!(pick_manifest_filename(&only_full), None);
+    }
+
+    #[test]
+    fn drop_bare_eof_keeps_real_output() {
+        // 实机日志：等授权期间 tailscaled 被停 / 被卸载，CLI 把 Go 的 io.EOF
+        // 原样甩到 stderr。抹掉它，但链接与说明必须逐字保留。
+        let raw = "To authenticate, visit:\n\n\thttps://login.tailscale.com/a/424b9a00149e9\n\nEOF";
+        let cleaned = drop_bare_eof(raw);
+        assert!(!cleaned.lines().any(|line| line.trim() == "EOF"));
+        assert!(cleaned.contains("To authenticate, visit:"));
+        assert!(cleaned.contains("https://login.tailscale.com/a/424b9a00149e9"));
+        // 不能把正文里以 EOF 结尾的正常句子误杀（只有整行恰好等于 EOF 才删）
+        assert_eq!(drop_bare_eof("waiting for EOF"), "waiting for EOF");
+        assert_eq!(drop_bare_eof("EOF"), "");
     }
 }

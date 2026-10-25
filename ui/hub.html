@@ -9966,6 +9966,11 @@ function gwShowPage() {
   let tsfBusy = false;      // enable/disable 进行中（本地 starting 态）
   let tsBusy = false;       // 主开关 up/down 进行中
   let tsSvcBusy = false;    // 服务开关 start/stop 进行中
+  // 等授权期间的状态：主开关 up 会阻塞最长 120 秒（浏览器里点授权），
+  // 3 秒自动刷新会不停重跑 tsRender —— 必须记住「用户想连、且已经拿到链接」，
+  // 否则开关会被弹回关、登录卡片刚亮就被藏掉（实机踩过：看着像没打印链接）
+  let tsUpIntent = false;   // 用户拨上去等授权中
+  let tsLoginLink = '';     // 最近一次捕获的登录链接（卡片展示 + 打开/复制）
 
   function tsfUrl() {
     return tsFunnel && tsFunnel.state === 'ready' && tsFunnel.url ? tsFunnel.url : '';
@@ -9999,9 +10004,17 @@ function gwShowPage() {
     const has = !!(st && st.installed);
     const running = has && st.state === 'running' && st.ip;
     gwTabDot('gwTabDotTs', running ? 'on' : 'off');
+    // 连上之后链接就作废了；卸载后同理（凭据都清了，留着旧链接只会误导）
+    if (running || !has) {
+      tsLoginLink = '';
+      $('tsLoginUrl').textContent = '';
+    }
     $('tsDlRow').hidden = has;
     $('tsUninstallBtn').hidden = !has;
-    $('tsLoginRow').hidden = !(has && st.state === 'needs_login');
+    // 登录卡片：needs_login 恒显示；拿到链接后也一直显示（tsLoginLink 非空即留住）
+    // —— up 阻塞期间状态还没转成 needs_login，只按状态判会把刚亮的卡片藏掉。
+    // 还没拿到链接时不显示：已授权的机器拨开关会秒连，别闪一下登录卡片。
+    $('tsLoginRow').hidden = !(has && (st.state === 'needs_login' || tsLoginLink));
     $('tsStoppedRow').hidden = !(has && st.state === 'stopped');
     $('tsGuiRow').hidden = !(has && st.state === 'needs_gui');
     $('tsAddrRow').hidden = !running;
@@ -10025,7 +10038,7 @@ function gwShowPage() {
     $('tsMainSwGroup').hidden = !has;
     const mainSw = $('tsMainSw');
     const svcDead = has && st.state === 'unknown' && st.service_running === 0;
-    mainSw.checked = running;
+    mainSw.checked = running || (tsBusy && tsUpIntent);
     mainSw.disabled = tsBusy || svcDead || st.state === 'needs_gui';
     $('tsMainSwWrap').classList.toggle('loading', tsBusy);
     const svcKnown = has && typeof st.service_running === 'number' && st.service_running >= 0;
@@ -10093,19 +10106,28 @@ function gwShowPage() {
     const self = this;
     if (tsBusy) { self.checked = !on; return; }
     tsBusy = true;
-    $('tsLoginUrl').textContent = ''; // 上一轮的登录链接清掉，等新事件
+    tsUpIntent = on;                  // 等授权期间开关保持「开」，别被刷新弹回去
+    tsLoginLink = '';                 // 上一轮的登录链接清掉，等新事件
+    $('tsLoginUrl').textContent = '';
     tsRender();
     if (on && tsStatus && tsStatus.state === 'needs_login') toast('正在拉起浏览器登录 Tailscale…');
     invoke('gateway_tailscale_toggle', { up: on }).then(function (st) {
       tsBusy = false;
+      tsUpIntent = false;
       tsStatus = st;
       tsRender();
       toast(on ? 'Tailscale 已连接' : 'Tailscale 已断开');
     }).catch(function (e) {
       tsBusy = false;
+      tsUpIntent = false;
       self.checked = !on;
       tsRender();
-      toast('Tailscale 开关失败：' + e, 'bad');
+      // 「待授权」不是失败：后端已把链接打进日志并推给卡片，别用红色报错糊用户一脸
+      if (/^待授权/.test(String(e))) {
+        toast(String(e).replace(/^待授权（需在浏览器完成登录）：/, '需在浏览器登录 Tailscale：'));
+      } else {
+        toast('Tailscale 开关失败：' + e, 'bad');
+      }
     });
   });
   // 副开关：启停 tailscaled 系统服务（Windows；非管理员会被拒，错误里已说明）
@@ -10225,9 +10247,10 @@ function gwShowPage() {
     });
     // 直连开关等授权时后端从 CLI 输出里提取到的登录链接：与内置引擎登录卡片完全
     // 同款 ——「打开登录页 / 复制 / 重新生成」三按钮 + 链接本体 + 有效期提示。
-    // 链接只在这里展示，不进日志（后端已过滤）。事件到达即强制亮卡片：
-    // 此时开关可能还在等授权、状态未变 needs_login，靠 tsRender 会把行藏掉。
-    let tsLoginLink = '';
+    // 日志里同样有原始链接（后端不过滤任何 CLI 行），这里只是把可点的入口给出来。
+    // 事件到达即强制亮卡片：此时开关还在等授权（tsBusy），状态没转 needs_login，
+    // 只靠 tsRender 的状态判断会把行藏掉。tsLoginLink 也让后续 3 秒自动刷新
+    // 重跑 tsRender 时继续显示。
     window.__TAURI__.event.listen('tailscale-login-url', function (event) {
       const url = String((event.payload || {}).url || '');
       if (!url) return;
@@ -10277,6 +10300,9 @@ function gwShowPage() {
         // 凭据清了 AuthKey 也一起清：输入框里残留的旧值一并抹掉，
         // 否则用户看到框里还留着密钥，会以为没清干净
         $('tsKey').value = '';
+        // 旧登录链接同时作废（凭据都清了，链接再点也没意义）
+        tsLoginLink = '';
+        $('tsLoginUrl').textContent = '';
         tsRender();
         toast('已清除本机登录凭据与 AuthKey —— 下次连接需重新授权');
       }).catch(function (e) {
