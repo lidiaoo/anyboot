@@ -1565,15 +1565,6 @@
   /* Funnel 区块：分隔线 + 公网徽标（沿用卡的留白节奏与边框变量） */
   .tsf-sep { border-top:1px solid rgb(var(--fg-faint)); margin-top:14px; padding-top:12px; }
   .tsf-badge { font-size:11px; padding:2px 8px; border-radius:999px; border:1px solid rgb(var(--fg-faint)); color:rgb(var(--fg-dim)); white-space:nowrap; }
-  /* tsnet 运行日志框 */
-  .tsn-logbox { margin-top:12px; border-top:1px solid rgb(var(--fg-faint)); padding-top:8px; }
-  .tsn-log-head { display:flex; gap:10px; align-items:center; margin-bottom:4px; }
-  .tsn-log {
-    margin:0; padding:8px 10px; border-radius:8px; border:1px solid rgb(var(--fg-faint)); background:rgb(var(--card) / .5);
-    font-size:11px; line-height:1.55; max-height:170px; overflow-y:auto;
-    white-space:pre-wrap; word-break:break-all; color:rgb(var(--fg-dim));
-    user-select:text; cursor:text; /* 全局 user-select:none 下显式放开，支持鼠标自由划选 */
-  }
   .ts-chip {
     display:inline-flex; align-items:center; font-size:11px; line-height:1; padding:3px 8px;
     border-radius:99px; border:1px solid rgb(var(--line-strong)); color:rgb(var(--fg-dim)); flex:none;
@@ -2282,7 +2273,9 @@
               <button role="tab" data-mode="quick" aria-selected="true">快速隧道</button>
               <button role="tab" data-mode="named" aria-selected="false">命名隧道</button>
             </div>
+            <button class="btn" id="gwUninstallBtn" hidden>卸载</button>
             <button class="btn" id="gwLogBtn">日志</button>
+            <button class="btn" id="gwRefreshBtn">重新检测</button>
             <span class="gw-sw-group" title="开启 / 关闭 Cloudflare 通道">
               <span class="gw-sw-cap">通道</span>
               <label class="switch" id="gwToggleWrap">
@@ -2370,8 +2363,9 @@
                 <span class="trk" aria-hidden="true"></span>
               </label>
             </span>
+            <button class="btn" id="tsUninstallBtn" hidden>卸载</button>
             <button class="btn" id="tsLogBtn">日志</button>
-            <button class="btn" id="tsRefreshBtn" hidden>重新检测</button>
+            <button class="btn" id="tsRefreshBtn">重新检测</button>
           </div>
           <div class="gw-status" id="tsStateRow">
             <span class="pulse" id="tsPulse" hidden></span>
@@ -2511,6 +2505,9 @@
                 <span class="trk" aria-hidden="true"></span>
               </label>
             </span>
+            <button class="btn" id="tsnUninstallBtn">卸载</button>
+            <button class="btn" id="tsnLogBtn">日志</button>
+            <button class="btn" id="tsnRefreshBtn">重新检测</button>
           </div>
           <div class="gw-status">
             <span class="pulse" id="tsnPulse" hidden></span>
@@ -2582,17 +2579,7 @@
             <span class="gw-auto-t">启动软件时自动开启内置引擎</span>
             <span class="gw-auto-h">凭据已记住，通常直接就绪</span>
           </label>
-          <!-- 运行日志：sidecar stdout 事件流的环形缓冲（最近 200 条，含启动里程碑与 tsnet 日志转发） -->
-          <div class="tsn-logbox" id="tsnLogBox">
-            <div class="tsn-log-head">
-              <span class="field-hint" style="margin:0">运行日志（最近 200 条，内存缓存，重启即清）</span>
-              <span style="flex:1"></span>
-              <button class="link-btn" id="tsnLogCopy">复制</button>
-              <button class="link-btn" id="tsnLogOpen">日志</button>
-              <button class="link-btn" id="tsnLogClear">清空</button>
-            </div>
-            <pre class="mono tsn-log" id="tsnLog">（暂无日志）</pre>
-          </div>
+          <!-- 运行日志改为卡片头部「日志」按钮 → 弹窗（与 Cloudflare 通道同款），内嵌框已移除 -->
         </div>
 
         </div><!-- /tsn pane -->
@@ -9311,6 +9298,7 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
       : 'cloudflared 未就位 —— 下载（自动校验 SHA-256）或指定本地已有的可执行文件';
     $('gwDownloadBtn').hidden = binary.installed;
     $('gwManualBtn').hidden = binary.installed;
+    $('gwUninstallBtn').hidden = !binary.installed;
     $('gwNamedUrl').value = cfg.named_url || '';
     $('gwNamedToken').placeholder = cfg.named_token_set
       ? '已保存（留空保持不变）' : 'Cloudflare Zero Trust 创建隧道后给出的 Token';
@@ -9493,6 +9481,24 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
     });
   }
   $('gwDownloadBtn').addEventListener('click', startDownload);
+  $('gwRefreshBtn').addEventListener('click', function () {
+    gwRefresh();
+    toast('正在重新检测…');
+  });
+  // 卸载 cloudflared：二进制恒在 AnyBoot 缓存位（下载/手动路径都复制进来），
+  // 所以缓存位有货 = AnyBoot 装的，可卸；只删缓存副本，不碰用户手动路径的原始文件
+  $('gwUninstallBtn').addEventListener('click', async function () {
+    if (!confirm('卸载 cloudflared 吗？\n\n运行中的通道会先停止，二进制缓存会被删除。\n手动指定路径的原始文件不受影响。')) return;
+    this.disabled = true;
+    try {
+      await invoke('gateway_binary_uninstall');
+      toast('cloudflared 已卸载');
+    } catch (e) {
+      toast('卸载失败：' + e, 'bad');
+    }
+    this.disabled = false;
+    gwRefresh();
+  });
   $('gwManualBtn').addEventListener('click', function () {
     $('gwManualRow').hidden = false;
     $('gwManualPath').focus();
@@ -9551,8 +9557,8 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
     const has = !!(st && st.installed);
     const running = has && st.state === 'running' && st.ip;
     gwTabDot('gwTabDotTs', running ? 'on' : 'off');
-    $('tsRefreshBtn').hidden = !has;
     $('tsDlRow').hidden = has;
+    $('tsUninstallBtn').hidden = !has;
     $('tsLoginRow').hidden = !(has && st.state === 'needs_login');
     $('tsStoppedRow').hidden = !(has && st.state === 'stopped');
     $('tsGuiRow').hidden = !(has && st.state === 'needs_gui');
@@ -9608,6 +9614,20 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
     tsfRefresh();
   }
   $('tsRefreshBtn').addEventListener('click', tsRefresh);
+  // 卸载 Tailscale：仅当有 AnyBoot 安装记录才可用（按钮只在 installed 时亮）；
+  // 自己装的会被后端拒绝并给出手动卸载指引
+  $('tsUninstallBtn').addEventListener('click', async function () {
+    if (!confirm('卸载 Tailscale 吗？\n\nWindows：静默运行 MSI 卸载（UAC 确认）；\nmacOS：退出并删除 Tailscale.app（授权框确认）；\nLinux：停服务并删除 AnyBoot 装的二进制（授权框确认）。')) return;
+    this.disabled = true;
+    try {
+      const message = await invoke('gateway_tailscale_uninstall');
+      toast(message || 'Tailscale 已卸载');
+    } catch (e) {
+      toast(String(e), 'bad');
+    }
+    this.disabled = false;
+    tsRefresh();
+  });
   // macOS App 版 GUI 未启动：打开 Tailscale.app 后等几秒（GUI 起来 + CLI 能连上）再自动重探
   let tsGuiLaunchTimer = null;
   $('tsLaunchGuiBtn').addEventListener('click', function () {
@@ -9899,28 +9919,7 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
       tsnRender();
     }).catch(function () { });
   }
-  // ---- 运行日志框（tsn 标签可见时随 5s 轮询拉取；拉取时贴底跟随） ----
-  let tsnLogText = '';
-  let tsnLogPinned = true; // 用户滚离底部时暂停自动跟随
-  function tsnTabVisible() {
-    const tab = document.querySelector('#gwTabs [data-gwtab="tsn"]');
-    return !!tab && tab.getAttribute('aria-selected') === 'true';
-  }
-  function tsnLogsRefresh() {
-    if (!tsnTabVisible()) return;
-    invoke('tsnet_logs').then(function (lines) {
-      const text = (lines && lines.length) ? lines.join('\n') : '（暂无日志）';
-      if (text === tsnLogText) return;
-      tsnLogText = text;
-      const el = $('tsnLog');
-      const stick = tsnLogPinned;
-      el.textContent = text;
-      if (stick) el.scrollTop = el.scrollHeight;
-    }).catch(function () { });
-  }
-  $('tsnLog').addEventListener('scroll', function () {
-    tsnLogPinned = this.scrollTop + this.clientHeight >= this.scrollHeight - 24;
-  });
+  // 运行日志改为卡片头部「日志」按钮 → 弹窗（与 Cloudflare 通道同款），内嵌框已移除
   function tsnRender() {
     const s = tsnStatus || { state: 'off' };
     const state = tsnBusy ? 'starting' : (s.state || 'off');
@@ -10052,10 +10051,6 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
     tsPairPreset = tsnUrl() ? 'tsnet' : null;
     $('gwIssueBtn').click();
   });
-  $('tsnLogCopy').addEventListener('click', function () {
-    if (!tsnLogText || tsnLogText === '（暂无日志）') { toast('暂无日志可复制', 'bad'); return; }
-    tsnWriteClipboard(tsnLogText, '日志已复制');
-  });
   $('tsnLoginRegen').addEventListener('click', async function () {
     if (tsnBusy) return;
     tsnBusy = true;
@@ -10089,14 +10084,8 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
     }
     tsnBusy = false;
     tsnRender();
-    tsnLogsRefresh();
   });
-  // 清空 = 后端日志环源头清掉 + 屏幕清屏（旧版只清显示，2.5s 轮询又把旧日志带回来）
-  $('tsnLogClear').addEventListener('click', function () {
-    invoke('tsnet_logs_clear').catch(function () { });
-    tsnLogText = '（暂无日志）';
-    $('tsnLog').textContent = tsnLogText;
-  });
+  // 清空（弹窗内）= 后端日志环源头清掉 + 弹窗清屏
 
   // ---- 内置引擎日志弹窗（与通道日志同款：放大查看 + 复制 + 清空） ----
   let tsnLogModalTimer = null;
@@ -10111,7 +10100,7 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
     });
     body.scrollTop = body.scrollHeight;
   }
-  $('tsnLogOpen').addEventListener('click', function () {
+  $('tsnLogBtn').addEventListener('click', function () {
     $('tsnLogOverlay').hidden = false;
     invoke('tsnet_logs').then(tsnModalRender).catch(function () { });
     if (tsnLogModalTimer) clearInterval(tsnLogModalTimer);
@@ -10127,17 +10116,32 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
   $('tsnLogModalCopy').addEventListener('click', function () {
     tsnWriteClipboard($('tsnLogBody').textContent, '全部日志已复制');
   });
-  // 弹窗里的清空和内嵌框的清空同一语义：源头清掉 + 两处屏幕都清
+  // 清空 = 后端日志环源头清掉 + 弹窗清屏（下次拉取不会把旧日志带回来）
   $('tsnLogModalClear').addEventListener('click', function () {
     invoke('tsnet_logs_clear').catch(function () { });
-    tsnLogText = '（暂无日志）';
-    $('tsnLog').textContent = tsnLogText;
     tsnModalRender([]);
     toast('日志已清空');
   });
+  $('tsnRefreshBtn').addEventListener('click', function () {
+    tsnRefresh();
+    toast('正在重新检测…');
+  });
+  // 卸载内置引擎：引擎本体随 AnyBoot 自带（恒属「通过 AnyBoot 安装」），
+  // 卸载 = 停引擎 + 删状态目录（登录凭据）+ 清手动放置的 sidecar 副本
+  $('tsnUninstallBtn').addEventListener('click', async function () {
+    if (!confirm('卸载内置 Tailscale 引擎吗？\n\n引擎会停止，状态目录与登录凭据会被删除，\n下次使用需重新授权。引擎本体随 AnyBoot 自带，重新开启开关即可恢复。')) return;
+    this.disabled = true;
+    try {
+      const s = await invoke('tsnet_uninstall');
+      tsnStatus = s;
+      toast('内置引擎已卸载');
+    } catch (e) {
+      toast('卸载失败：' + e, 'bad');
+    }
+    this.disabled = false;
+    tsnRefresh();
+  });
   setInterval(tsnRefresh, 5000); // 引擎会从 login_needed 自己转 ready，轻量轮询跟进
-  setInterval(tsnLogsRefresh, 2500); // 日志跟得紧一点（贴底跟随 + 复制排障）
-  tsnLogsRefresh();
 
   // ---- 出码配对 ----
   // 地址类型四选：tunnel（默认）/ tailscale / funnel / none

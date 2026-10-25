@@ -639,6 +639,43 @@ pub(crate) fn tsnet_logs_clear() {
     }
 }
 
+/// 卸载内置引擎。引擎本体随 AnyBoot 安装包自带（恒属「通过 AnyBoot 安装」），
+/// 卸载 = 停引擎 + 删状态目录（登录凭据）+ 删数据目录里手动放置的 sidecar 副本；
+/// 资源目录里的引擎是 AnyBoot 本体的一部分不动——重新点「引擎」开关即恢复可用。
+/// 子进程与删目录阻塞 → async + spawn_blocking（blocking_guard 约定）。
+#[tauri::command]
+pub(crate) async fn tsnet_uninstall(app: AppHandle) -> Result<TsnetStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || tsnet_uninstall_blocking(&app))
+        .await
+        .map_err(|error| format!("卸载任务失败: {error}"))?
+}
+
+pub(crate) fn tsnet_uninstall_blocking(app: &AppHandle) -> Result<TsnetStatus, String> {
+    // 停引擎 + 删整个状态目录（logout_blocking 的既有语义）
+    let mut status = logout_blocking(app)?;
+    // 手动放置位的 sidecar 副本一并清掉（resource_dir 里的属于 AnyBoot 本体，不动）
+    if let Ok(dir) = app.path().app_data_dir() {
+        let ts_dir = dir.join("tsnet");
+        if let Ok(entries) = std::fs::read_dir(&ts_dir) {
+            for entry in entries.flatten() {
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                if name.starts_with("anyboot-tsnet") && entry.path().is_file() {
+                    let outcome = match std::fs::remove_file(entry.path()) {
+                        Ok(()) => format!("[卸载] 已删手动放置的引擎副本: {name}"),
+                        Err(error) => format!("[卸载] 引擎副本 {name} 删除失败: {error}"),
+                    };
+                    if let Ok(mut guard) = shared().lock() {
+                        push_log(&mut guard, &outcome);
+                    }
+                }
+            }
+        }
+    }
+    status.message = "内置引擎已卸载：状态与登录凭据已删除。引擎本体随 AnyBoot 自带，重新开启开关即可恢复".into();
+    Ok(status)
+}
+
 /// 阻塞版清除登录凭据（spawn_blocking 里跑）：停 sidecar → 删整个 tsnet
 /// 状态目录（tailscaled.state 里的节点凭据就在其中）→ 重建空目录 → 状态归 off。
 /// 下次开启引擎等于全新节点，要走浏览器登录或新 AuthKey。

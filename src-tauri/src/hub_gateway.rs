@@ -500,6 +500,46 @@ pub(crate) fn gateway_binary_set_manual(
     Ok(status)
 }
 
+/// 卸载 cloudflared：二进制恒在 AnyBoot 自家缓存位（下载 / 手动路径都复制进来，
+/// 单一事实来源）——缓存位有货即「通过 AnyBoot 安装」，直接删缓存即可，
+/// 不会碰用户手动指定路径的原始文件。通道在跑先停（Windows 上运行中的 exe 删不掉）。
+#[tauri::command]
+pub(crate) async fn gateway_binary_uninstall(
+    app: tauri::AppHandle,
+) -> Result<BinaryStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || binary_uninstall_blocking(&app))
+        .await
+        .map_err(|error| format!("卸载任务失败: {error}"))?
+}
+
+fn binary_uninstall_blocking(app: &tauri::AppHandle) -> Result<BinaryStatus, String> {
+    let status = binary_status(app);
+    if !status.installed {
+        return Err("cloudflared 未安装，无需卸载".to_string());
+    }
+    let path = binary_path(app)?;
+    // 通道在跑先停：进程占着二进制，Windows 上删不掉
+    let _ = gateway_tunnel_stop_blocking(app);
+    let mut removed = Vec::new();
+    for candidate in [path.clone(), path.with_extension("old")] {
+        match std::fs::remove_file(&candidate) {
+            Ok(()) => removed.push(candidate.display().to_string()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(format!(
+                    "删除 {} 失败（文件被占用？先关掉通道再试）: {error}",
+                    candidate.display()
+                ));
+            }
+        }
+    }
+    gw_log(
+        app,
+        &format!("[gateway] 已卸载: {}", removed.join("、")),
+    );
+    Ok(binary_status(app))
+}
+
 // ==================== 通道生命周期 ====================
 // 模式语义（设计稿 v4.2 / 任务 #30 MVP 边界）：
 // - quick：全自动——spawn `cloudflared tunnel --url http://127.0.0.1:<port>`

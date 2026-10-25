@@ -1072,16 +1072,218 @@ pub(crate) fn gateway_tailscale_download(app: AppHandle) -> Result<(), String> {
 /// 打开下载好的安装器（下载完成事件里前端自动调；用户 UAC 确认后安装）。
 /// 起子进程会阻塞 → async + spawn_blocking（blocking_guard 约定）。
 #[tauri::command]
-pub(crate) async fn gateway_tailscale_install(path: String) -> Result<(), String> {
+pub(crate) async fn gateway_tailscale_install(app: AppHandle, path: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         let path = std::path::PathBuf::from(&path);
         if !path.is_file() {
             return Err("安装包不存在，请重新下载".to_string());
         }
-        launch_installer(&path)
+        launch_installer(&path)?;
+        // 安装记录：卸载功能据此判定「是通过 AnyBoot 装的」才允许应用内卸载
+        write_install_marker(&app)
     })
     .await
     .map_err(|error| format!("安装任务失败: {error}"))?
+}
+
+/// 安装记录文件（数据目录下）。AnyBoot 的安装流程跑完才写；没有它就说明
+/// Tailscale 是用户自己装的，应用内卸载会拒绝并给手动卸载指引。
+fn ts_install_marker(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    Ok(app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("定位数据目录失败: {error}"))?
+        .join("tailscale.anyboot-install"))
+}
+
+fn write_install_marker(app: &AppHandle) -> Result<(), String> {
+    let marker = ts_install_marker(app)?;
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    std::fs::write(&marker, format!("installed-by=anyboot\nat={stamp}\n"))
+        .map_err(|error| format!("写安装记录失败: {error}"))
+}
+
+/// 「不是 AnyBoot 装的」拒绝文案：按平台给手动卸载指引。
+fn manual_uninstall_hint() -> String {
+    let why = "Tailscale 不是通过 AnyBoot 安装的（没有安装记录）——AnyBoot 不动它，请自行卸载：";
+    if cfg!(target_os = "windows") {
+        format!("{why}设置 → 应用 → 已安装的应用 里卸载 Tailscale")
+    } else if cfg!(target_os = "macos") {
+        format!("{why}把 /Applications/Tailscale.app 拖进废纸篓")
+    } else {
+        format!("{why}用系统包管理器卸载（如 sudo pacman -R tailscale、sudo apt remove tailscale）")
+    }
+}
+
+static TS_UNINSTALL_IN_FLIGHT: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// 卸载 Tailscale（仅限 AnyBoot 安装记录存在的情况）。
+/// Windows=MSI 注册表卸载串静默跑（UAC 由 msiexec 弹）；macOS=退出 App 后
+/// 提权删 .app；Linux=pkexec 脚本（停服务 → 删 /usr/local/bin 二进制 →
+/// 只删 AnyBoot 写的 unit——指纹是 ExecStart 指向 /usr/local/bin 且系统没有
+/// 发行版 unit，动不了发行版包的东西）。
+#[tauri::command]
+pub(crate) async fn gateway_tailscale_uninstall(app: AppHandle) -> Result<String, String> {
+    if TS_UNINSTALL_IN_FLIGHT.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return Err("卸载操作还在执行，稍等一下".to_string());
+    }
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let result = ts_uninstall_blocking(&app);
+        TS_UNINSTALL_IN_FLIGHT.store(false, std::sync::atomic::Ordering::SeqCst);
+        result
+    })
+    .await;
+    TS_UNINSTALL_IN_FLIGHT.store(false, std::sync::atomic::Ordering::SeqCst);
+    result.map_err(|error| format!("卸载任务失败: {error}"))?
+}
+
+fn ts_uninstall_blocking(app: &AppHandle) -> Result<String, String> {
+    let marker = ts_install_marker(app)?;
+    if !marker.exists() {
+        return Err(manual_uninstall_hint());
+    }
+    if !probe_blocking().installed {
+        // 装过但已经不在了（用户自己删过 / 安装没成功）：清掉残留记录
+        let _ = std::fs::remove_file(&marker);
+        return Err("Tailscale 未安装，无需卸载（残留的安装记录已清掉）".to_string());
+    }
+    ts_log("[卸载] 开始卸载 AnyBoot 安装的 Tailscale…");
+    #[cfg(target_os = "windows")]
+    let message = ts_uninstall_windows()?;
+    #[cfg(target_os = "macos")]
+    let message = ts_uninstall_macos()?;
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let message = ts_uninstall_linux()?;
+    let _ = std::fs::remove_file(&marker);
+    ts_log("[卸载] 完成");
+    Ok(message)
+}
+
+/// Windows：注册表 Uninstall 里找 Tailscale 的 MSI 卸载串（`MsiExec.exe /X{GUID}`），
+/// 解出 GUID 后 `msiexec /x {GUID} /quiet /norestart` 静默卸载（UAC 由 msiexec 弹）。
+#[cfg(target_os = "windows")]
+fn ts_uninstall_windows() -> Result<String, String> {
+    let (ok, stdout, _) = run_command_with_timeout_for(
+        {
+            let mut c = std::process::Command::new("reg");
+            c.args([
+                "query",
+                r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Tailscale",
+                "/v",
+                "UninstallString",
+            ]);
+            use std::os::windows::process::CommandExt;
+            c.creation_flags(0x0800_0000); // CREATE_NO_WINDOW（GUI 进程不闪黑框）
+            c
+        },
+        CLI_TIMEOUT,
+    )
+    .ok_or_else(|| "查询卸载信息失败——请在 设置 → 应用 里手动卸载 Tailscale".to_string())?;
+    if !ok {
+        return Err("注册表里找不到 Tailscale 的卸载信息——请在 设置 → 应用 里手动卸载".to_string());
+    }
+    let text = stdout.trim();
+    let guid = text
+        .split('{')
+        .nth(1)
+        .and_then(|rest| rest.split('}').next())
+        .map(|inner| format!("{{{inner}}}"))
+        .ok_or_else(|| "卸载信息格式异常——请在 设置 → 应用 里手动卸载 Tailscale".to_string())?;
+    ts_log(&format!("[卸载] msiexec /x {guid} /quiet（UAC 确认后执行）…"));
+    let mut command = std::process::Command::new("msiexec");
+    command.args(["/x", &guid, "/quiet", "/norestart"]);
+    use std::os::windows::process::CommandExt;
+    command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW（UAC 弹窗不受影响）
+    let (ok, _, stderr) = run_command_with_timeout_for(command, ELEVATED_TIMEOUT)
+        .ok_or_else(|| "msiexec 执行超时或被取消——卸载可能未完成，请到 设置 → 应用 确认".to_string())?;
+    if !ok {
+        let detail = stderr.trim().lines().next().unwrap_or("").trim();
+        return Err(if detail.is_empty() {
+            "卸载失败（用户取消或权限被拒？）——可到 设置 → 应用 里手动卸载".to_string()
+        } else {
+            format!("卸载失败：{detail}")
+        });
+    }
+    Ok("Tailscale 已卸载".to_string())
+}
+
+/// macOS：退出 Tailscale.app 后提权删除应用本体（pkg 安装位 /Applications/Tailscale.app）。
+#[cfg(target_os = "macos")]
+fn ts_uninstall_macos() -> Result<String, String> {
+    const APP: &str = "/Applications/Tailscale.app";
+    if !std::path::Path::new(APP).exists() {
+        return Err("找不到 /Applications/Tailscale.app——请手动确认安装位置后自行卸载".to_string());
+    }
+    // 退出 App（没在跑也没关系）
+    let _ = std::process::Command::new("osascript")
+        .args(["-e", r#"quit app "Tailscale""#])
+        .output();
+    ts_log("[卸载] 提权删除 /Applications/Tailscale.app（授权框确认后执行）…");
+    let script = format!(r#"do shell script "rm -rf '{APP}'" with administrator privileges"#);
+    let (ok, _, stderr) = run_command_with_timeout_for(
+        {
+            let mut c = std::process::Command::new("osascript");
+            c.args(["-e", &script]);
+            c
+        },
+        ELEVATED_TIMEOUT,
+    )
+    .ok_or_else(|| "卸载超时或被取消——请手动把 Tailscale.app 拖进废纸篓".to_string())?;
+    if !ok {
+        let detail = stderr.trim().lines().next().unwrap_or("").trim();
+        return Err(if detail.is_empty() {
+            "卸载失败（用户取消授权？）——可手动把 Tailscale.app 拖进废纸篓".to_string()
+        } else {
+            format!("卸载失败：{detail}")
+        });
+    }
+    Ok("Tailscale 已卸载".to_string())
+}
+
+/// Linux：pkexec 脚本停服务 → 删 /usr/local/bin 二进制 → 只删 AnyBoot 写的 unit
+/// （指纹 = ExecStart 指向 /usr/local/bin/tailscaled 且系统没有发行版 unit）。
+#[cfg(all(unix, not(target_os = "macos")))]
+fn ts_uninstall_linux() -> Result<String, String> {
+    let script = "\
+set +e
+systemctl disable --now tailscaled >/dev/null 2>&1
+rm -f /usr/local/bin/tailscale /usr/local/bin/tailscaled
+if [ -f /etc/systemd/system/tailscaled.service ] && \
+   grep -q '/usr/local/bin/tailscaled' /etc/systemd/system/tailscaled.service && \
+   [ ! -f /usr/lib/systemd/system/tailscaled.service ]; then
+  rm -f /etc/systemd/system/tailscaled.service
+  systemctl daemon-reload
+fi
+echo uninstall-done
+";
+    let dir = std::env::temp_dir().join("anyboot-ts-uninstall.sh");
+    std::fs::write(&dir, script).map_err(|error| format!("写卸载脚本失败: {error}"))?;
+    ts_log("[卸载] pkexec 提权执行（停服务 → 删二进制 → 清理 AnyBoot 的 unit）…");
+    let mut command = std::process::Command::new("pkexec");
+    command.arg("bash").arg(&dir);
+    let result = run_command_with_timeout_for(command, ELEVATED_TIMEOUT);
+    let _ = std::fs::remove_file(&dir);
+    let (ok, stdout, stderr) = result
+        .ok_or_else(|| "无法启动 pkexec（未安装 polkit？）——请用系统包管理器手动卸载".to_string())?;
+    for line in format!("{stdout}\n{stderr}").trim().lines() {
+        let line = line.trim();
+        if !line.is_empty() && line != "uninstall-done" {
+            ts_log(&format!("[卸载] {line}"));
+        }
+    }
+    if !ok {
+        let detail = stderr.trim().lines().next().unwrap_or("").trim();
+        return Err(if detail.is_empty() {
+            "卸载失败（用户取消授权？）——可改用系统包管理器卸载".to_string()
+        } else {
+            format!("卸载失败：{detail}")
+        });
+    }
+    Ok("Tailscale 已卸载（服务已停、/usr/local/bin 二进制已删；发行版包装的部分不受影响）".to_string())
 }
 
 /// 打开 Tailscale GUI（macOS 专属：App 版 CLI 连不上 GUI 时的一键自救）。

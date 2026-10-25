@@ -156,6 +156,23 @@ spawn 前 unix 会兜底补 `0o755`（打包链路丢执行位时救场）。
   `gateway_tailscale_logs_clear` / `tsnet_logs_clear`）+ 清屏。只清屏幕会被下一轮
   轮询用旧日志恢复（内置引擎清空显示曾踩过），所以必须动源头。
 
+### 卸载与重新检测（2026-10-25）
+
+三张卡头部布局统一：开关组 + 「卸载」+「日志」+「重新检测」（内置引擎的按钮与
+Tailscale 直连同位同款；其内嵌日志框已移除，入口只剩「日志」弹窗）。
+
+- **卸载边界 = 「是通过 AnyBoot 装的吗」**：
+  - cloudflared：二进制恒在 AnyBoot 缓存位（下载 / 手动路径都复制进来，单一事实
+    来源）→ 缓存位有货即可卸，只删缓存副本、不碰手动路径的原始文件；卸载前先停通道。
+  - Tailscale 直连：安装流程跑完写数据目录标记 `tailscale.anyboot-install`；有标记
+    才允许卸载——Windows=注册表 UninstallString 解 GUID 后 `msiexec /x /quiet`
+    （UAC），macOS=退出 App 后 osascript 提权删 `/Applications/Tailscale.app`，
+    Linux=pkexec 停服务 + 删 `/usr/local/bin` 二进制 + 只删 AnyBoot 写的 unit
+    （指纹 = ExecStart 指向 /usr/local/bin 且系统无发行版 unit）。无标记 → 拒绝并
+    按平台给手动卸载指引。
+  - 内置引擎：引擎本体随 AnyBoot 安装包自带（恒属「AnyBoot 装的」）→ 卸载 = 停引擎
+    + 删状态目录（登录凭据）+ 清数据目录里手动放置的 sidecar 副本；重开开关即恢复。
+
 ### 子进程不能弹控制台窗口
 
 GUI 程序（`windows_subsystem = "windows"`）起 `ssh` / `sftp` / `ssh-keygen` 时，Windows 会为子进程
