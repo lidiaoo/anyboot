@@ -2405,11 +2405,22 @@
               <span class="mono" id="tsProgressText"></span>
             </div>
           </div>
-          <!-- 需登录态 -->
+          <!-- 需登录态：参照内置引擎登录卡片（打开 / 复制 / 重新生成 + 有效期提示） -->
           <div id="tsLoginRow" hidden>
             <p class="field-hint" style="margin:8px 0 0">
-              Tailscale 已安装但还没登录 —— 点上方「连接」开关会拉起浏览器完成登录
-              （国内网络首次登录可能需要代理），或打开系统托盘 / 菜单栏的 Tailscale 图标操作。
+              Tailscale 已安装但还没登录 —— 点上方「连接」开关在浏览器完成授权（一次即可，凭据会记住）。
+              授权完成后自动继续，不用再点开关。
+            </p>
+            <div style="margin:8px 0 0;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+              <button class="btn primary" id="tsLoginOpen" disabled>打开登录页</button>
+              <button class="link-btn" id="tsLoginCopy" style="text-decoration:none">复制登录链接</button>
+              <button class="link-btn" id="tsLoginRegen" style="text-decoration:none">重新生成链接</button>
+            </div>
+            <p class="field-hint" id="tsLoginUrlRow" hidden style="margin:8px 0 0">
+              <a class="link-btn" href="#" id="tsLoginUrl"
+                style="text-decoration:none;word-break:break-all"></a><br>
+              ⏱️ 登录链接约 10 分钟内有效；过期或点了没反应，点「重新生成链接」或把开关关开一次。
+              链接也可以复制到手机 / 其它设备的浏览器打开，授权完这边自动继续。
             </p>
           </div>
           <!-- 停止态 -->
@@ -9644,6 +9655,8 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
     const self = this;
     if (tsBusy) { self.checked = !on; return; }
     tsBusy = true;
+    $('tsLoginUrlRow').hidden = true; // 上一轮的登录链接清掉，等新事件
+    $('tsLoginOpen').disabled = true;
     tsRender();
     if (on && tsStatus && tsStatus.state === 'needs_login') toast('正在拉起浏览器登录 Tailscale…');
     invoke('gateway_tailscale_toggle', { up: on }).then(function (st) {
@@ -9753,6 +9766,44 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
       }).catch(function (error) {
         toast('安装器启动失败：' + error + '，可手动运行 ' + done.path, 'bad');
       });
+    });
+    // 直连开关等授权时后端从 CLI 输出里提取到的登录链接：与内置引擎同款体验 ——
+    // 「打开登录页 / 复制 / 重新生成」三按钮 + 链接本体（也同步在「日志」里可复制）
+    let tsLoginLink = '';
+    window.__TAURI__.event.listen('tailscale-login-url', function (event) {
+      const url = String((event.payload || {}).url || '');
+      if (!url) return;
+      tsLoginLink = url;
+      $('tsLoginOpen').disabled = false;
+      const link = $('tsLoginUrl');
+      link.textContent = url;
+      link.onclick = function (e) {
+        e.preventDefault();
+        $('tsLoginOpen').click();
+      };
+      $('tsLoginUrlRow').hidden = false;
+      toast('已拉起登录 —— 浏览器没自动打开就点「打开登录页」');
+    });
+    // 打开登录页：官方域白名单（双保险），系统浏览器失败退回内置窗口
+    $('tsLoginOpen').addEventListener('click', function () {
+      if (!/^https:\/\/login\.tailscale\.com\//.test(tsLoginLink)) { toast('还没有有效登录链接 —— 先点连接或重新生成', 'bad'); return; }
+      toast('正在打开浏览器完成授权…');
+      invoke('remote_open_page', { url: tsLoginLink })
+        .then(function () { toast('已在系统浏览器打开登录页'); })
+        .catch(function (e) {
+          toast('系统浏览器打开失败，改用内置窗口：' + e, 'bad');
+          try { window.open(tsLoginLink, '_blank'); } catch (e2) { }
+        });
+    });
+    $('tsLoginCopy').addEventListener('click', function () {
+      if (!tsLoginLink) { toast('还没有登录链接 —— 先点连接或重新生成', 'bad'); return; }
+      gwWriteClipboard(tsLoginLink, '登录链接已复制（约 10 分钟内有效，过期点「重新生成链接」）');
+    });
+    // 重新生成：重跑一次 up（正在等授权时 up 会发新链接），完全复用主开关路径
+    $('tsLoginRegen').addEventListener('click', function () {
+      if (tsBusy) { toast('上一次开关操作还在执行，稍等一下', 'bad'); return; }
+      $('tsMainSw').checked = true;
+      $('tsMainSw').dispatchEvent(new Event('change'));
     });
   }
 

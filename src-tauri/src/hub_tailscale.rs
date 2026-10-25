@@ -137,35 +137,64 @@ enum CliOutcome {
     TimedOut(String, String),
 }
 
+/// 流式输出的行回调（Arc 跨两个读线程共享；ts_log 自带锁，线程安全）。
+type LineSink = std::sync::Arc<dyn Fn(&str) + Send + Sync>;
+
+/// 起一个读线程：逐行 lossy 读（lines() 遇非法 UTF-8 会中断，丢后续输出；
+/// 原实现 read_to_end + from_utf8_lossy 的容错语义要保持），每行过一遍
+/// 回调后累积进字符串，join 时整段带回。
+fn read_pipe(
+    pipe: impl std::io::Read + Send + 'static,
+    on_line: &Option<LineSink>,
+) -> std::thread::JoinHandle<String> {
+    let on_line = on_line.clone();
+    std::thread::spawn(move || {
+        use std::io::{BufReader, BufRead};
+        let mut text = String::new();
+        let mut reader = BufReader::new(pipe);
+        let mut raw = Vec::new();
+        loop {
+            raw.clear();
+            match reader.read_until(b'\n', &mut raw) {
+                Ok(0) => break,
+                Ok(_) => {
+                    let line = String::from_utf8_lossy(&raw);
+                    let line = line.trim_end_matches(['\n', '\r']);
+                    if let Some(sink) = &on_line {
+                        sink(line);
+                    }
+                    text.push_str(line);
+                    text.push('\n');
+                }
+                Err(_) => break,
+            }
+        }
+        text
+    })
+}
+
 /// spawn → 并发读 → 超时兜底杀进程的通用执行器（提权路径复用，超时可调）。
+/// `on_line` 传 Some 时每捕获一行实时回调（开关路径用：up 等浏览器授权
+/// 长达两分钟，结束时才一次性带回会让 UI 全程静默、登录链接也出不来）。
 /// spawn 失败 = Err；区分超时与 spawn 失败的教训见 run_cli_full_timeout。
-fn run_command_outcome(
+fn run_command_outcome_impl(
     mut command: std::process::Command,
     timeout: std::time::Duration,
+    on_line: Option<LineSink>,
 ) -> Result<CliOutcome, std::io::Error> {
     command.stdin(std::process::Stdio::null());
     let mut child = command
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()?;
-    let mut stdout = child.stdout.take().ok_or_else(|| {
+    let stdout = child.stdout.take().ok_or_else(|| {
         std::io::Error::other("tailscale CLI stdout 管道缺失")
     })?;
-    let mut stderr = child.stderr.take().ok_or_else(|| {
+    let stderr = child.stderr.take().ok_or_else(|| {
         std::io::Error::other("tailscale CLI stderr 管道缺失")
     })?;
-    let out_reader = std::thread::spawn(move || {
-        use std::io::Read;
-        let mut buf = Vec::new();
-        let _ = stdout.read_to_end(&mut buf);
-        String::from_utf8_lossy(&buf).to_string()
-    });
-    let err_reader = std::thread::spawn(move || {
-        use std::io::Read;
-        let mut buf = Vec::new();
-        let _ = stderr.read_to_end(&mut buf);
-        String::from_utf8_lossy(&buf).to_string()
-    });
+    let out_reader = read_pipe(stdout, &on_line);
+    let err_reader = read_pipe(stderr, &on_line);
     let deadline = std::time::Instant::now() + timeout;
     loop {
         match child.try_wait() {
@@ -185,6 +214,13 @@ fn run_command_outcome(
             Err(e) => return Err(e),
         }
     }
+}
+
+fn run_command_outcome(
+    command: std::process::Command,
+    timeout: std::time::Duration,
+) -> Result<CliOutcome, std::io::Error> {
+    run_command_outcome_impl(command, timeout, None)
 }
 
 fn run_command_with_timeout_for(
@@ -421,13 +457,48 @@ fn parse_up_required_flags(stderr: &str) -> Vec<String> {
 /// NeedsLogin 时 `up` 会拉起浏览器登录流程（这正是想要的语义）——用
 /// TOGGLE_TIMEOUT 长超时等授权，不能用 5s 通用档（实测误报 spawn 失败）。
 /// prefs 变更是本地权限闸门管的操作 → 走提权入口（Linux 被拒时 pkexec 弹框）。
-pub(crate) fn ts_toggle_blocking(up: bool) -> Result<TailscaleStatus, String> {
+pub(crate) fn ts_toggle_blocking(app: &AppHandle, up: bool) -> Result<TailscaleStatus, String> {
     let cli = find_cli().ok_or_else(|| "没检测到 Tailscale，请先安装".to_string())?;
     ts_log(if up { "[开关] tailscale up…" } else { "[开关] tailscale down…" });
     let mut args: Vec<String> = vec![if up { "up" } else { "down" }.to_string()];
     let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+    // 实时行回调：up 等浏览器授权最长 120s，结束时才带回输出 = UI 全程静默、
+    // 登录链接出不来（实机踩过）。CLI 每行即时上屏；登录链接再单独提取成
+    // 里程碑行 + 事件（hub.html 引导行显示可点击链接；同一 URL 只报一次）。
+    let last_url = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+    let sink: LineSink = {
+        let last_url = last_url.clone();
+        let app = app.clone();
+        std::sync::Arc::new(move |line: &str| {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                return;
+            }
+            ts_log(&format!("[CLI] {trimmed}"));
+            if trimmed.starts_with("https://login.tailscale.com/") {
+                let is_new = {
+                    let mut last = last_url
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    if *last != trimmed {
+                        *last = trimmed.to_string();
+                        true
+                    } else {
+                        false
+                    }
+                };
+                if is_new {
+                    ts_log(&format!("[开关] 登录链接（点击或复制到浏览器打开）：{trimmed}"));
+                    let _ = app.emit(
+                        EVENT_TS_LOGIN_URL,
+                        serde_json::json!({ "url": trimmed }),
+                    );
+                }
+            }
+        })
+    };
     let (mut ok, mut stdout, mut stderr) =
-        run_cli_privileged(&cli, &refs, TOGGLE_TIMEOUT);
+        run_cli_privileged_sink(&cli, &refs, TOGGLE_TIMEOUT, Some(sink.clone()));
     // 既有偏好的旗标清单没带全 → 按报错提示自动补齐再试一次
     if up && !ok && is_up_flags_mismatch(&stderr) {
         let flags = parse_up_required_flags(&stderr);
@@ -438,7 +509,7 @@ pub(crate) fn ts_toggle_blocking(up: bool) -> Result<TailscaleStatus, String> {
             ));
             args.extend(flags);
             let refs: Vec<&str> = args.iter().map(String::as_str).collect();
-            let retried = run_cli_privileged(&cli, &refs, TOGGLE_TIMEOUT);
+            let retried = run_cli_privileged_sink(&cli, &refs, TOGGLE_TIMEOUT, Some(sink.clone()));
             ok = retried.0;
             stdout = retried.1;
             stderr = retried.2;
@@ -602,6 +673,8 @@ fn service_action_blocking(_action: &str) -> Result<i8, String> {
 
 const EVENT_TS_PROGRESS: &str = "tailscale-progress";
 const EVENT_TS_DONE: &str = "tailscale-done";
+/// 直连开关等待授权时提取到的登录链接（hub.html 引导行显示可点击 URL）。
+const EVENT_TS_LOGIN_URL: &str = "tailscale-login-url";
 
 static TS_DL_IN_FLIGHT: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
@@ -884,9 +957,19 @@ fn run_cli_full_timeout(
     args: &[&str],
     timeout: std::time::Duration,
 ) -> (bool, String, String) {
+    run_cli_full_timeout_sink(cli, args, timeout, None)
+}
+
+/// 同上，带实时行回调（开关路径用，见 run_command_outcome_impl）。
+fn run_cli_full_timeout_sink(
+    cli: &std::path::Path,
+    args: &[&str],
+    timeout: std::time::Duration,
+    on_line: Option<LineSink>,
+) -> (bool, String, String) {
     let mut command = cli_command(cli);
     command.args(args);
-    match run_command_outcome(command, timeout) {
+    match run_command_outcome_impl(command, timeout, on_line) {
         Ok(CliOutcome::Done(ok, stdout, stderr)) => (ok, stdout, stderr),
         Ok(CliOutcome::TimedOut(out, mut err)) => {
             if !err.trim().is_empty() {
@@ -979,6 +1062,7 @@ fn elevated_retry(
     cli: &std::path::Path,
     args: &[&str],
     timeout: std::time::Duration,
+    on_line: Option<LineSink>,
 ) -> Option<(bool, String, String)> {
     let user = current_username();
     if !user.is_empty() {
@@ -994,8 +1078,9 @@ fn elevated_retry(
             ts_log("[提权] operator 已设置，重试原命令…");
             ts_log("[提权] 若拉起浏览器登录，完成授权后会自动继续，不用再点开关");
             // 重试沿用调用方的超时档（up 等浏览器授权要长超时，不能用 5s 档——
-            // 超时会落进下面的 pkexec 直跑分支，再弹一次授权框，平白添乱）
-            let retried = run_cli_full_timeout(cli, args, timeout);
+            // 超时会落进下面的 pkexec 直跑分支，再弹一次授权框，平白添乱）；
+            // 流式回调继续带上——登录链接要实时上屏
+            let retried = run_cli_full_timeout_sink(cli, args, timeout, on_line);
             return Some(retried);
         } else {
             ts_log("[提权] operator 设置未成功（取消 / 无 polkit agent），回退直接提权跑原命令");
@@ -1027,14 +1112,24 @@ fn run_cli_privileged(
     args: &[&str],
     timeout: std::time::Duration,
 ) -> (bool, String, String) {
-    let result = run_cli_full_timeout(cli, args, timeout);
+    run_cli_privileged_sink(cli, args, timeout, None)
+}
+
+/// 同上，带实时行回调（开关路径：登录链接等输出要即时上屏）。
+fn run_cli_privileged_sink(
+    cli: &std::path::Path,
+    args: &[&str],
+    timeout: std::time::Duration,
+    on_line: Option<LineSink>,
+) -> (bool, String, String) {
+    let result = run_cli_full_timeout_sink(cli, args, timeout, on_line.clone());
     if result.0 {
         return result;
     }
     #[cfg(target_os = "linux")]
     {
         if is_local_access_denied(&result.1, &result.2) {
-            if let Some(retried) = elevated_retry(cli, args, timeout) {
+            if let Some(retried) = elevated_retry(cli, args, timeout, on_line) {
                 return retried;
             }
         }
@@ -1147,7 +1242,8 @@ pub(crate) fn autostart_connect(app: &tauri::AppHandle) {
     if !crate::stored_settings(app).tailscale_autostart {
         return;
     }
-    std::thread::spawn(|| {
+    let app = app.clone();
+    std::thread::spawn(move || {
         let before = probe_blocking();
         if !before.installed || before.state == "running" {
             return;
@@ -1157,7 +1253,7 @@ pub(crate) fn autostart_connect(app: &tauri::AppHandle) {
         if before.service_running == 0 {
             let _ = ts_service_blocking("start");
         }
-        let _ = ts_toggle_blocking(true);
+        let _ = ts_toggle_blocking(&app, true);
     });
 }
 
@@ -1176,12 +1272,15 @@ static TS_TOGGLE_IN_FLIGHT: std::sync::atomic::AtomicBool =
 /// 主开关：tailscale up / down（登录级；NeedsLogin 时 up 拉起浏览器登录）。
 /// CLI 子进程阻塞 → async + spawn_blocking；AtomicBool 防连点重入。
 #[tauri::command]
-pub(crate) async fn gateway_tailscale_toggle(up: bool) -> Result<TailscaleStatus, String> {
+pub(crate) async fn gateway_tailscale_toggle(
+    app: tauri::AppHandle,
+    up: bool,
+) -> Result<TailscaleStatus, String> {
     if TS_TOGGLE_IN_FLIGHT.swap(true, std::sync::atomic::Ordering::SeqCst) {
         return Err("上一次开关操作还在执行，稍等一下".to_string());
     }
     let result = tauri::async_runtime::spawn_blocking(move || {
-        let status = ts_toggle_blocking(up);
+        let status = ts_toggle_blocking(&app, up);
         TS_TOGGLE_IN_FLIGHT.store(false, std::sync::atomic::Ordering::SeqCst);
         status
     })
