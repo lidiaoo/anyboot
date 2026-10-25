@@ -53,34 +53,32 @@ anyboot://pair?gateway=<主机名>&tunnel=<url>&token=<token>&type=<kind>
 ### 1.4 LAN 地址是机器级的，天然无法定位系统
 
 `192.168.1.10:12300` 指向「当前正在运行的那个系统」，不是「某条档案」。
-同一台机器的三条档案共用这个地址 → 探活全部成功 → 三个都显示在线。
-这是物理事实，不是 bug（见 §2 非目标）。
+同一台机器的多条档案共用这个地址 → 探活全部成功 → 全部显示在线。
+这是物理事实，**不属于本次范围**（见 §2 非目标）—— 本次只解决配对的多条目。
 
 ### 1.5 展示层两端不一致
 
-- PC 端「电脑」页 `cqRenderRows`（`ui/hub.html:6309`）平铺，无分组概念。
-- 移动端 `ServerProfile` 已有 `group` / `groupColor` / `groupSortKey` / `groupDisplayName`。
-- 移动端领先一代，字段语义未对齐。
+- PC 端「电脑」页 `cqRenderRows`（`ui/hub.html:6309`）平铺；移动端 `ServerProfile` 还留着
+  `group` / `groupColor` / `groupSortKey` / `groupDisplayName` 一套分组字段。
+- 本次统一为**两侧都平铺、都不分组**，移动端的分组字段保留但不读不写。
 
 ## 二、目标与非目标
 
 **目标**
 
-1. **通道维度**：一个档案内每种接入类型可挂多条配对，全部保留、全部独立探测。
-2. **系统维度**：同一台电脑的多个系统各成一条档案，配对时按对方自报的 `machine_id` 归档，互不覆盖。
-3. 连接时能判断「对面是不是本条档案上次记录的系统」，结果只做提示、不阻止连接。
+1. **配对维度**：一个档案内每个区块（cloudflare / ts / tsnet）可挂多条配对，全部保留、全部独立探测、各带自己的超时。
+2. **系统维度**：同一台电脑的多个系统 = 多条档案或多条配对，互不覆盖；落到哪条档案由用户决定，不自动建档。
+3. 每条配对能显示「来自哪台机器、哪个系统」（配对串带的 `mid` / `os` / `host`），只做显示与幂等去重。
 4. PC / 移动端同一套字段契约、同一套平铺列表（不做分组）。
-5. **「顶替」只剩一个合法场景**：同一个系统、同一种通道重新配对 → 更新那一行（幂等，不是策略）。
+5. **「顶替」只剩一个合法场景**：同一个系统、同一种区块重新配对 → 更新那一行（幂等，不是策略）。
 
 **非目标（明确不做）**
 
+- **本次只做配对（三个区块的多条目）**。LAN 直连地址（`addresses` / `probe_mode`）与
+  跳板机（`jump_id`）的结构、探测、地址漂移处理都不在范围内，代码保持原样。
 - **不做分组**。没有「电脑」这一层，档案靠备注与 `host · os` 区分。用户自己管理配对码
   落到哪条档案。理由见 §3.1：按 OS 分组 + 组内顶替的粒度等于顶替力度，会直接丢系统。
-- **不解决 LAN 通道的系统定位**。同一时刻只有一个系统在跑，`IP:12300` 永远指向它。
-  这是物理事实，不靠软件绕。LAN 通道只做「标注当前是哪个系统」，不做「路由到指定系统」。
-- **不做 MAC 推导 / 机器指纹**。不猜「这两条档案是不是同一台机器」，把判定权交给
-  `machine_id`（系统自报）与用户备注。MAC 只用于 **LAN 内同一块网卡的 IP 归一**（§5.3），
-  不参与档案判定。
+- **不做 MAC 推导 / 机器指纹**。不猜「这两条档案是不是同一台机器」，也不参与本次任何判定。
 - **不按「系统安装」区分共享 home 的多个发行版**。`mid` 的粒度是「一套 AnyBoot 配置」，
   共享 home 即同一个接入身份（§4.7）；要区分必须用 `ANYBOOT_CONFIG_DIR` 把配置分开（§4.9），
   只分 `mid` 不分 tsnet 状态会制造假的多身份（§4.8）。
@@ -96,10 +94,10 @@ anyboot://pair?gateway=<主机名>&tunnel=<url>&token=<token>&type=<kind>
 │   ├── 区块 ts           pair#2  http://100.118.110.36:12300   (lane=direct)
 │   │                     pair#3  https://desktop-8f3a.xxx.ts.net (lane=funnel)
 │   └── 区块 tsnet        pair#4  https://desktop-8f3a.xxx.ts.net
-└── LAN 候选 addresses[]  ← 不属于任何配对区块（多网卡、按 MAC 归一）
+└── LAN 候选 addresses[]  ← 不在本次范围（不并入配对区块）
 ```
 
-三层各司其职：
+结构三层各司其职：
 
 | 层 | 载体 | 唯一性 | 是否参与连接判定 |
 |---|---|---|---|
@@ -153,7 +151,7 @@ pub struct RemotePair {
     /// 该条目的网关客户端令牌（对方签发；空 = 该通道不需要）
     pub token: String,
     /// 本条目的探测超时（毫秒）。0 = 继承 `block_timeouts_ms[kind]`，再继承全局默认。
-    /// 只有远程配对区块有逐条超时；lan 的地址是自动收集的，不逐条设（见 §5.1）
+    /// 同区块内不同形态差别很大：100.x 直连 1.5s、*.ts.net 走公网 5s
     #[serde(default)]
     pub probe_timeout_ms: u64,
     /// 是否参与探测（等价于老 `route_disabled` 的单条粒度）
@@ -182,17 +180,21 @@ pub struct RemotePair {
 `RemoteServer` 新增：
 
 ```rust
-/// 远程接入配对列表（有序 = 探测优先级）。空 = 老档案，读取时从旧槽位迁移
+/// 远程接入配对列表（有序 = 区块内探测优先级）。空 = 老档案，读取时从旧槽位迁移
 #[serde(default)]
 pub pairs: Vec<RemotePair>,
 /// 每个区块内部的探测策略（cloudflare / ts / tsnet）：parallel_first / parallel_all / serial。
-/// 缺项 = parallel_first。**lan 不在这里**，它有自己的 `probe_mode`（见 §5.1）
+/// 缺项 = parallel_first
 #[serde(default)]
 pub block_probe_mode: std::collections::BTreeMap<String, String>,
+/// 每个区块的默认探测超时（毫秒），被 pairs[].probe_timeout_ms 覆盖。缺项 = 全局默认
+#[serde(default)]
+pub block_timeouts_ms: std::collections::BTreeMap<String, u64>,
 ```
 
-`probe_mode` **保留不动**（LAN 多网卡 / 多 IP），`route_probe_mode` 保留（区块之间），
-`route_timeouts_ms` 降级为「区块默认超时」，被 `pairs[].probe_timeout_ms` 覆盖。
+老字段处置：`route_probe_mode` 保留（区块之间）；`route_timeouts_ms` 读入时映射成
+`block_timeouts_ms`（老 key 里 `tunnel→cloudflare`、`funnel/ts→ts`，其余丢弃）；
+`probe_mode` / `addresses` / `jump_id` 本次不动（LAN 与跳板机不在范围内，见 §2）。
 
 保留不变（只读兼容）：`remote_addr`（由 pairs 计算出的「生效地址」镜像）、
 `remote_tunnel_addr` / `remote_ts_addr` / `remote_funnel_addr` / `remote_tsnet_addr` / `remote_token`
@@ -240,9 +242,9 @@ macOS 读 `sw_vers -productName` + `-productVersion`。
 
 | 项 | 为什么 |
 |---|---|
-| LAN（`addresses`） | 机器级地址，不属于任何系统；同一时刻只有正在运行的系统响应。它有自己的多网卡探测策略 `probe_mode`（§5.3） |
-| 跳板机（`jump_id`） | 档案级的转发路径，不是「某系统的一条接入」 |
-| `group` | 已废弃不做分组；字段保留仅为移动端旧档案兼容，不读不写 |
+| LAN（`addresses`） | 不在本次范围：机器级地址，不属于任何配对，结构与探测都不改 |
+| 跳板机（`jump_id`） | 不在本次范围：档案级的转发路径，不是「某系统的一条接入」 |
+| `group` | 不做分组；字段保留仅为移动端旧档案兼容，不读不写 |
 
 ### 4.5 配对串 v2
 
@@ -324,67 +326,52 @@ anyboot://pair?v=2&mid=<machineId>&os=<os>&host=<hostname>&type=<kind>&tunnel=<u
 
 ### 5.1 全量探测
 
-`route_order` 从「通道类型枚举」演进为「pair id 有序列表」：
+`route_order` 从「六通道枚举」收窄为「三个配对区块的顺序」；区块内的条目顺序 = `pairs`
+数组里同 kind 的相对顺序（串行策略按它走）：
 
 ```rust
-/// 探测/连接优先级（pair id 有序）。空 = 按 pairs 数组顺序
+/// 区块顺序（cloudflare / ts / tsnet 的先后）。空 = 默认序
 pub route_order: Vec<String>,
-/// 禁用的 pair id（在位次里但跳过探测）
-pub route_disabled: Vec<String>,
 ```
 
-- 每次探活遍历 `pairs` 全集（跳过 `route_disabled`），**每个 pair 独立上报**。
+- 每次探活遍历 `pairs` 全集（跳过 `enabled=false`），**每条独立上报**。
 - `ProbeOutcome` 增加 `pair_id: String`（空 = 老结果行，按 `kind` 兼容）。
-- 探测策略三层，**粒度不同，`probe_mode` 不能并入区块策略**：
+- 探测策略两层，作用域都是配对区块：
 
   | 层 | 字段 | 作用域 | 默认 |
   |---|---|---|---|
-  | 区块之间 | `route_probe_mode`（已有） | 三个配对区块 + lan + jump 的先后 | `parallel_first` |
-  | 远程区块内部 | `block_probe_mode[kind]`（新增） | 同一区块内多条配对之间 | `parallel_first` |
-  | LAN 内部 | `probe_mode`（**保留原名原义**） | 多网卡 / 多 IP 之间 | `parallel_first` + 短超时 |
+  | 区块之间 | `route_probe_mode`（已有） | cloudflare → ts → tsnet 的先后 | `parallel_first` |
+  | 区块内部 | `block_probe_mode[kind]`（新增） | 同一区块内多条配对之间 | `parallel_first` |
 
-  LAN 的多个地址是**网卡**（自动收集、随 DHCP 漂移、失效要自动淘汰），远程的多条是**配对码**
-  （手填、稳定、失效由用户手动禁用）。两者生命周期与消费方都不同，合成一个字段会让
-  「DHCP 换了 IP 该替换还是该新增」失去判断依据（见 5.3）。
+  三种取值语义：
 
-- 超时下放到条目，但**只对远程配对区块**：`pairs[].probe_timeout_ms` 覆盖
-  `route_timeouts_ms[kind]`，后者再覆盖全局 `probe_timeout_ms`。
-  `lan` / `jump` 保持区块级 —— 它们的地址不是用户逐条维护的条目，逐条设超时没有意义。
+  | 值 | 行为 | 适用 |
+  |---|---|---|
+  | `parallel_first` | 同层全部并发，第一个成功即收工，其余标「未探测」 | 日常选路要快 |
+  | `parallel_all` | 同层全部并发，等全部返回、逐条报状态 | 体检、看每条是否还活着 |
+  | `serial` | 按序逐个试，第一个成功即停 | 想严格尊重优先级，避免同时打多个通道 |
 
-### 5.2 系统校验
+  **注意层级语义**：`route_probe_mode = parallel_first` 时 `route_order` 只决定并发发起的
+  先后与平手判定，不保证「先排的赢」；要严格按优先级必须 `serial`。UI 上要让用户看到
+  这个后果，否则会以为顺序填了不生效。
 
-LAN 探活成功后，用 `/health` 的 `machineId` 与本档案比对：
+- **超时按条目**：`pairs[].probe_timeout_ms` 覆盖 `block_timeouts_ms[kind]`（区块默认），
+  再覆盖全局 `probe_timeout_ms`。同一区块内不同形态的超时需求差别很大
+  （`100.x` 直连 1.5s、`*.ts.net` 走公网 5s），所以下放到条目。
 
-| 情况 | 判定 | UI | 行为 |
-|---|---|---|---|
-| `machineId` 相等 | 命中本档案记录的系统 | 正常 | 正常连接 |
-| `machineId` 不等 | 同机器的**另一个系统**在跑 | 标「当前运行的是 <os>」，**这是信息不是错误** | **不禁止**：LAN 本来就指向当前运行的系统，一条档案装多系统时更是常态 |
-| `machineId` 空（老服务端） | 无法判定 | 不标注 | 维持现状 |
+- **`parallel_first` 与「每条都探测」不能同时满足于一次探测**：命中即收工，后面的条目
+  只会标「未探测」。所以两个动作用不同策略：后台轮询走档案策略（快），用户点「测试」
+  固定走 `parallel_all`（逐条报）。否则配了 3 条只会看到第 1 条的状态。
 
-**这不是探测失败，也不是配置错误**：探测成功，只是对面报的系统和上次不同。不能复用
-`ok:false`，也不该灰化/禁用 —— 否则一条档案里装了三个系统的配对时，每次探测都会误报
-「当前运行的不是这条记录」。只做标注（`foreign_system: bool` + `foreign_os: String`）。
+### 5.2 `mid` 的用途：幂等键，不是归档依据
 
-### 5.3 LAN 多网卡：DHCP 漂移与 SOL 会话
+`RemotePair.mid` 只做两件事：
 
-一台电脑多块网卡、各自 DHCP，是本模型里唯一「地址会自己变」的部分。三条硬规则：
+1. 同 `(mid, kind)` 重新配对 → 更新那一行（幂等，见 §4.6）
+2. 列表上显示「这条配对来自哪台机器 / 哪个系统」（配 `os` / `host`）
 
-**1. 地址按网卡归一，不按 IP 累加。**
-`macs` 已是「地址 → MAC」。探测成功的新地址查 ARP 表取其 MAC：若与某旧地址的 MAC 相同
-（且 `/health` 的 `machineId` 一致），判定为「同一块网卡换了 IP」→ **替换旧地址，不追加**。
-否则每次租约到期，`addresses` 里都会多留一条死地址。
-
-**2. LAN 默认并行 + 短超时，不允许默认串行。**
-DHCP 换 IP 后旧地址在 ARP 阶段就失败（通常 <100ms），这正是 `parallel_first` 能立刻落到
-新地址的原因。若默认串行，旧地址会先吃满整个超时才轮到新地址 —— 这是「DHCP 影响操作」
-最直接的机制。lan 的超时建议 500ms（`route_timeouts_ms["lan"]`）。
-
-**3. 会话粘地址：探测不重选已建立的操作。**
-探测是选路，SOL / 终端是会话。会话建立时锁定当时那个地址，**直到该地址失败才重选**。
-否则 DHCP 换租约 → 探测赢家变化 → 正在跑的 SOL 操作中途换地址（WOL 广播网段也随之变）。
-
-**同一类问题的另一处**：SOL 服务自身的 HTTP 监听（`sol-http-listen`）若绑成具体网卡 IP，
-DHCP 换租约后绑定即失效。默认应为 `127.0.0.1:8080` / `0.0.0.0`，改成具体 IP 时要提示该风险。
+**不做**：不按 `mid` 自动找档案或建档案，不比对探活返回的 `machineId` 去禁用某条通道。
+一条档案里本来就允许并存多个系统的配对，任何「当前运行的不是这条记录」式的判定都会误报。
 
 ## 六、列表呈现（PC / 移动端一致）
 
@@ -392,12 +379,11 @@ DHCP 换租约后绑定即失效。默认应为 `127.0.0.1:8080` / `0.0.0.0`，�
 保留仅为说明「多系统 = 多条档案」的结构关系，**不实施**：
 
 ```
-● DESKTOP-8F3A · Windows 11                      [在线 3/4]
+● DESKTOP-8F3A · Windows 11                      [在线 2/3]
     cloudflare   a-1.trycloudflare.com            ✓ 42ms
     ts · 直连     100.118.110.36:12300            ✓ 8ms
     ts · funnel  desktop-8f3a.xxx.ts.net          – 离线
     tsnet        desktop-8f3a.xxx.ts.net          – 未连接
-    LAN          192.168.1.10:12300               ✓ 3ms
 ● arch-pc · Arch Linux                           [离线]
     cloudflare   b-1.trycloudflare.com            – 离线
 ● MacBook-Pro · macOS 15                         [在线 1/1]
@@ -405,10 +391,10 @@ DHCP 换租约后绑定即失效。默认应为 `127.0.0.1:8080` / `0.0.0.0`，�
 ```
 
 - 一条档案一个平铺块，标题 = `host · os`（缺 host 用备注或地址兜底）。
-- 区块顺序按 `route_order`，块内按 `pairs` 数组顺序；三条同 kind 的都展开显示，各带自己的超时与状态。
+- 区块顺序按 `route_order`，块内按 `pairs` 数组顺序；同 kind 的三条都展开显示，各带自己的超时与状态。
 - 配对行：`kind · lane` + 地址 + 独立状态 + 自己那格探测超时；行内可改备注 / 禁用 / 删除 / 排序。
 - **电源 / 唤醒 / rEFInd / GRUB** 是机器级，放在档案标题行（一台机器只有一个 rEFInd）。
-- LAN 行单列在最后，不属任何配对区块；它的多个 IP 由 `probe_mode` 管（§5.3）。
+- LAN 与跳板机不在本次范围，列表维持现状，不并入配对区块。
 
 ## 七、通道侧命名（辅助隔离）
 
@@ -429,29 +415,26 @@ DHCP 换租约后绑定即失效。默认应为 `127.0.0.1:8080` / `0.0.0.0`，�
 - **老 `remote_addr`**：迁移后置空，由 `pairs` 计算（隧道类优先，其余按 route_order）。
   消费点改为读计算值，不再直接读字段。
 - **老配对串（无 `mid`）**：落槽行为完全不变，UI 提示建议重新生成。
-- **老服务端（`/health` 无字段）**：`machine_id` 留空 → 不做系统校验，不报错。
+- **老服务端（`/health` 无字段）**：配对照常可用，只是 `mid` 为空 → 不参与幂等去重与来源显示。
 - 所有新字段 `#[serde(default)]`，读写老档案不丢数据；**旧字段只读不写**，确认无回滚需求后再删。
 
 ## 九、实施阶段与验收
 
 | 阶段 | 内容 | 验收 |
 |---|---|---|
-| S1 | `RemotePair` 结构 + 老槽位迁移 + 归一化/裁剪（软上限） | 单测：四槽迁移顺序、空槽不生成、老 `route_order` 映射、32 条上限 |
-| S2 | 探测改遍历 `pairs` + `ProbeOutcome.pair_id` + 条目级超时 + `block_probe_mode` | 单测：3 条同 kind 各自出结果且各有各的超时；禁用某条只跳过它；区块内三种策略各一例；老结果行兼容 |
-| S3 | 配对串 v2（签发 + PC/移动端解析 + §4.6 归档规则） | 单测：v2 全参数、同 (mid,kind) 更新、同 mid 不同 kind 新增、缺 mid 老路 |
-| S4 | 探活 `machineId` 校验 + `foreign_system` 标记 | 单测 + 真机：同 IP 两条不同 mid 的档案，只有匹配的能走 LAN |
-| S5 | PC 端列表（平铺 + 区块内多条配对行）与移动端对齐 | 真机：一档案挂 3 条配对全部显示并各自探测、各自超时 |
-| S6 | `systemLabel`（三端取值 + `/health` + 列表显示）+ tsnet `--hostname` 取配置 + `tunnel_id` 展示与重复提示 + 端口占用文案 | 真机：共享 home 的 Arch/Fedora 显示「当前运行：Fedora 41」且域名不变；tailnet 里看到 `anyboot-linux`；同 tunnel 两条时提示出现 |
+| S1 | `RemotePair` 结构 + 老槽位迁移 + 归一化/裁剪（软上限） | 单测：四槽迁移与 kind 映射、空槽不生成、32 条上限 |
+| S2 | 探测改遍历 `pairs` + `ProbeOutcome.pair_id` + 条目级超时 + `block_probe_mode` | 单测：3 条同 kind 各自出结果且各有各的超时；`enabled=false` 只跳过它；区块内三种策略各一例 |
+| S3 | 配对串 v2（签发 + PC/移动端解析 + §4.6 归档规则） | 单测：v2 全参数、同 (mid,kind) 更新、同 mid 不同 kind 新增、缺 mid 走老路 |
+| S4 | PC 端三区块 UI（每条配对一行 + 区块策略下拉 + 条目超时）与移动端字段对齐 | 真机：一档案挂 3 条同区块配对，全部显示、各自探测、各自超时 |
+| S5 | `systemLabel` 取 + 配对行显示「来自 <host> · <os>」+ `tunnel_id` 重复提示 | 真机：同 tunnel 两条时提示出现；配对行能看出对方是哪台机器哪个系统 |
 
-S1/S2 可并行；S3 依赖 S1（要建档案就要有 pairs）；S4 依赖 S2；S5 依赖 S1+S2；S6 独立。
+S1/S2 可并行；S3 依赖 S1；S4 依赖 S2；S5 依赖 S1。
 
 ## 十、待确认
 
 1. **配对条目的默认显示名**：`<host> · <kind>`（如 `DESKTOP-8F3A · cloudflare`）够不够，
    还是要 `note` 必填。
-2. **LAN 的默认超时定为 500ms 还是 1000ms**（§5.3）：多网卡 DHCP 场景下旧地址在 ARP 阶段就失败，
-   500ms 够快；但无线网卡加入网络可能要 1s 以上，可能误判离线。
-3. **`block_probe_mode` 的 UI 位置**：按区块卡片头右侧放一个下拉（三选一），
+2. **`block_probe_mode` 的 UI 位置**：按区块卡片头右侧放一个下拉（三选一），
    还是收进「连接策略」折叠区统一排。前者更贴合「每区块一个策略」的语义。
-4. **`systemLabel` 显示在哪**：建议挂在档案名后缀（`arch-pc · Fedora 41`），
-   与「当前运行」标记分两处，避免同一个位置又要表示身份又要表示实时状态。
+3. **条目超时的默认值**：按区块给不同默认（cloudflare / tsnet 3s、ts 直连 1.5s、ts funnel 5s），
+   还是一律继承全局 2s 由用户改。
