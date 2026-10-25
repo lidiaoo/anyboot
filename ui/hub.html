@@ -1689,6 +1689,18 @@
     background:rgb(var(--elevate)); color:rgb(var(--fg)); padding:8px 10px; font-size:11px; outline:none;
   }
   .gw-log-modal { max-width:min(720px, 92vw); width:720px; }
+  /* 卸载确认弹窗：三卡共用，勾选框整行可点（避免只点中小方块） */
+  .gw-uni-modal { max-width:440px; }
+  .gw-uni-keep {
+    display:flex; align-items:flex-start; gap:8px; margin-top:12px; padding:10px 12px;
+    border:1px solid rgb(var(--line)); border-radius:10px; background:rgb(var(--elevate));
+    font-size:12.5px; line-height:1.55; cursor:pointer; user-select:none;
+  }
+  .gw-uni-keep input {
+    width:14px; height:14px; flex:none; margin:2px 0 0;
+    accent-color:rgb(var(--accent)); cursor:pointer;
+  }
+  .gw-uni-keep .field-hint { color:rgb(var(--fg-faint)); }
   .gw-log {
     height:340px; overflow:auto; margin:10px 0 0; padding:12px; border-radius:10px;
     background:#0b0e17; color:#c9d1e8; font-family:ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace;
@@ -2420,6 +2432,12 @@
             <div class="gw-progress-bar"><div id="gwProgressBar"></div></div>
             <span class="mono" id="gwProgressText"></span>
           </div>
+          <!-- 清除登录凭据：命名隧道的 Tunnel Token 就是 cloudflared 这一侧的登录态
+               （对应 Tailscale 的 logout）。只抹凭据与对外地址，不动程序本体 -->
+          <div id="gwLogoutRow" style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap" hidden>
+            <button class="link-btn" id="gwLogoutBtn">清除登录凭据</button>
+            <span class="field-hint" style="margin:0">停止通道并删除保存的命名隧道 Token 与对外地址，模式回落「快速隧道」；cloudflared 程序保留。</span>
+          </div>
         </div>
 
         </div><!-- /cf pane -->
@@ -2454,17 +2472,20 @@
             <span id="tsStateText">正在检测 Tailscale…</span>
             <span class="mono gw-meta" id="tsMeta"></span>
           </div>
-          <!-- 未安装态：下载安装包（带进度条） -->
+          <!-- 未安装态：下载安装包（布局与 Cloudflare 卡二进制行同款：
+               状态文字在左、动作按钮右对齐、进度条紧贴其下） -->
           <div id="tsDlRow" hidden>
-            <p class="field-hint" style="margin:8px 0 8px">
+            <p class="field-hint" style="margin:8px 0 0">
               没检测到 Tailscale —— 它给两台设备组一个加密虚拟局域网（100.x 地址，不出公网、地址长期固定）。
               下载完成后安装器会自动弹出，按提示装好并登录，再点「重新检测」。
             </p>
-            <div style="display:flex;gap:8px;align-items:center">
-              <button class="btn primary" id="tsDownloadBtn">下载 Tailscale</button>
-              <a class="link-btn" href="#" id="tsManualLink" style="text-decoration:none">打开官网手动下载</a>
+            <div class="gw-binary">
+              <span id="tsDlText">安装包未下载</span>
+              <span style="flex:1"></span>
+              <button class="btn" id="tsDownloadBtn">下载 Tailscale</button>
+              <button class="btn" id="tsManualLink">打开官网手动下载</button>
             </div>
-            <div class="gw-progress" id="tsProgressRow" hidden style="margin-top:10px">
+            <div class="gw-progress" id="tsProgressRow" hidden>
               <div class="gw-progress-bar"><div id="tsProgressBar"></div></div>
               <span class="mono" id="tsProgressText"></span>
             </div>
@@ -2755,6 +2776,29 @@
               <button class="btn" id="gwPairCopy">复制配对串</button>
               <button class="btn primary" id="gwPairClose">完成</button>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 卸载确认弹窗（三张卡共用）：「保留本机数据」默认不勾 = 连同凭据一起清；
+           勾上则只删程序/引擎，登录凭据与配置留着（重装后免登录）。 -->
+      <div class="token-modal-overlay" id="gwUniOverlay" hidden>
+        <div class="token-modal gw-uni-modal" role="dialog" aria-modal="true" aria-labelledby="gwUniTitle">
+          <h2 id="gwUniTitle">卸载</h2>
+          <p class="gw-pair-warn" id="gwUniWhat"></p>
+          <label class="gw-uni-keep">
+            <input type="checkbox" id="gwUniKeep">
+            <span>
+              <b>保留本机数据</b>（登录凭据 / 配置 / 状态目录）
+              <span class="field-hint" id="gwUniKeepHint" style="display:block;margin-top:3px"></span>
+            </span>
+          </label>
+          <p class="field-hint" id="gwUniWarn" style="margin:10px 0 0">
+            不勾选（默认）= 连同本机登录凭据一起清掉，下次安装或重开需要重新授权。
+          </p>
+          <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+            <button class="btn" id="gwUniCancel">取消</button>
+            <button class="btn primary" id="gwUniOk">确认卸载</button>
           </div>
         </div>
       </div>
@@ -9521,6 +9565,8 @@ function gwShowPage() {
     if (document.activeElement !== namedUrlEl) namedUrlEl.value = cfg.named_url || '';
     $('gwNamedToken').placeholder = cfg.named_token_set
       ? '已保存（留空保持不变）' : 'Cloudflare Zero Trust 创建隧道后给出的 Token';
+    // 没有保存过命名隧道 Token 时「清除登录凭据」无意义，直接藏掉
+    $('gwLogoutRow').hidden = !cfg.named_token_set;
     $('gwAutostart').checked = !!cfg.autostart;
     selectMode(mode, false);
   }
@@ -9789,16 +9835,106 @@ function gwShowPage() {
     gwRefresh();
     toast('正在重新检测…');
   });
-  // 卸载 cloudflared：二进制恒在 AnyBoot 缓存位（下载/手动路径都复制进来），
-  // 所以缓存位有货 = AnyBoot 装的，可卸；只删缓存副本，不碰用户手动路径的原始文件
-  $('gwUninstallBtn').addEventListener('click', async function () {
-    if (!confirm('卸载 cloudflared 吗？\n\n运行中的通道会先停止，二进制缓存会被删除。\n手动指定路径的原始文件不受影响。')) return;
+  // ============ 卸载确认（三张卡共用一个弹窗）============
+  // 为什么要有这一层：卸载是不可逆动作，而且「凭据要不要一起清」必须让用户在动手前
+  // 选一次。勾选框默认**不勾** = 连凭据一起清（程序都删了还留着 token/authkey，
+  // 下次重装会继承一份用户以为已经没了的登录态 —— 老版本就是这么留坑的）。
+  const GW_UNI_CHANNELS = {
+    cf: {
+      title: '卸载 cloudflared',
+      what: '将停止正在运行的通道，并删除 AnyBoot 缓存里的 cloudflared 二进制。手动指定路径的原始文件不受影响。',
+      keepHint: '保留命名隧道 Token、对外地址与自启开关，重装后填同一份 Token 即可继续用。',
+      run: function (keepData) {
+        return invoke('gateway_binary_uninstall', { keepData: keepData });
+      },
+      after: function () { gwRefresh(); }
+    },
+    ts: {
+      title: '卸载 Tailscale',
+      what: '卸载前会先 tailscale logout 注销本机登录凭据，再按平台卸载程序本体（Windows=MSI 静默卸载，macOS=删 Tailscale.app，Linux=停服务并删 AnyBoot 装的二进制）。',
+      keepHint: '不注销、不清 AuthKey，重装后仍是同一台已授权设备（管理台里的节点记录也保留）。',
+      run: function (keepData) {
+        return invoke('gateway_tailscale_uninstall', { keepData: keepData });
+      },
+      after: function () { tsRefresh(); }
+    },
+    tsn: {
+      title: '卸载内置 Tailscale 引擎',
+      what: '引擎会停止，数据目录里手动放置的引擎副本会被删除；引擎本体随 AnyBoot 自带，随时可恢复。',
+      keepHint: '保留 tsnet 状态目录（节点凭据）与 AuthKey，重新开启引擎不用再授权。',
+      run: function (keepData) {
+        return invoke('tsnet_uninstall', { keepData: keepData });
+      },
+      after: function () { tsnRefresh(); }
+    }
+  };
+  let gwUniChannel = '';
+  function gwUniOpen(channel) {
+    const meta = GW_UNI_CHANNELS[channel];
+    if (!meta) return;
+    gwUniChannel = channel;
+    $('gwUniTitle').textContent = meta.title;
+    $('gwUniWhat').textContent = meta.what;
+    $('gwUniKeepHint').textContent = meta.keepHint;
+    $('gwUniKeep').checked = false; // 每次打开都回到默认：不保留
+    $('gwUniOk').disabled = false;
+    $('gwUniOverlay').hidden = false;
+  }
+  function gwUniClose() {
+    $('gwUniOverlay').hidden = true;
+    gwUniChannel = '';
+  }
+  $('gwUniCancel').addEventListener('click', gwUniClose);
+  $('gwUniOverlay').addEventListener('click', function (e) {
+    if (e.target === $('gwUniOverlay')) gwUniClose(); // 点弹窗外空白 = 取消
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && !$('gwUniOverlay').hidden) gwUniClose();
+  });
+  $('gwUniOk').addEventListener('click', async function () {
+    const meta = GW_UNI_CHANNELS[gwUniChannel];
+    if (!meta) return;
+    const keepData = $('gwUniKeep').checked;
+    const channel = gwUniChannel;
     this.disabled = true;
+    this.textContent = '卸载中…';
     try {
-      await invoke('gateway_binary_uninstall');
-      toast('cloudflared 已卸载');
+      const result = await meta.run(keepData);
+      if (channel === 'ts') toast(String(result || 'Tailscale 已卸载'));
+      else if (channel === 'tsn' && result) { tsnStatus = result; toast(result.message || '内置引擎已卸载'); }
+      else if (channel === 'cf') toast(keepData ? 'cloudflared 已卸载（本机数据已保留）' : 'cloudflared 已卸载，登录凭据已清除');
+      else toast('已卸载');
     } catch (e) {
       toast('卸载失败：' + e, 'bad');
+    }
+    this.disabled = false;
+    this.textContent = '确认卸载';
+    gwUniClose();
+    meta.after();
+  });
+
+  // 卸载 cloudflared：二进制恒在 AnyBoot 缓存位（下载/手动路径都复制进来），
+  // 所以缓存位有货 = AnyBoot 装的，可卸；只删缓存副本，不碰用户手动路径的原始文件
+  $('gwUninstallBtn').addEventListener('click', function () {
+    gwUniOpen('cf');
+  });
+  // 清除登录凭据（Cloudflare 侧，等价 Tailscale 的 logout）：停通道 + 抹掉命名隧道
+  // Token 与对外地址，模式回落快速隧道；cloudflared 程序保留，填新 Token 即可继续用
+  $('gwLogoutBtn').addEventListener('click', async function () {
+    if (!confirm('清除保存的命名隧道凭据吗？\n\n通道会先停止，保存的 Tunnel Token 与对外地址会被删除，\n模式回落「快速隧道」。cloudflared 程序保留。')) return;
+    this.disabled = true;
+    try {
+      const value = await invoke('gateway_clear_credentials');
+      if (value) {
+        cfg = value;
+        snap = value.tunnel || snap;
+        mode = (value.mode === 'named') ? 'named' : 'quick';
+        applyConfig();
+        applySnapshot(snap);
+      }
+      toast('登录凭据已清除');
+    } catch (e) {
+      toast('清除失败：' + e, 'bad');
     }
     this.disabled = false;
     gwRefresh();
@@ -9931,18 +10067,10 @@ function gwShowPage() {
   }
   $('tsRefreshBtn').addEventListener('click', tsRefresh);
   // 卸载 Tailscale：仅当有 AnyBoot 安装记录才可用（按钮只在 installed 时亮）；
-  // 自己装的会被后端拒绝并给出手动卸载指引
-  $('tsUninstallBtn').addEventListener('click', async function () {
-    if (!confirm('卸载 Tailscale 吗？\n\nWindows：静默运行 MSI 卸载（UAC 确认）；\nmacOS：退出并删除 Tailscale.app（授权框确认）；\nLinux：停服务并删除 AnyBoot 装的二进制（授权框确认）。')) return;
-    this.disabled = true;
-    try {
-      const message = await invoke('gateway_tailscale_uninstall');
-      toast(message || 'Tailscale 已卸载');
-    } catch (e) {
-      toast(String(e), 'bad');
-    }
-    this.disabled = false;
-    tsRefresh();
+  // 自己装的会被后端拒绝并给出手动卸载指引。
+  // 默认连登录凭据一起清（卸载前 logout + 清 AuthKey），弹窗里可勾「保留本机数据」。
+  $('tsUninstallBtn').addEventListener('click', function () {
+    gwUniOpen('ts');
   });
   // macOS App 版 GUI 未启动：打开 Tailscale.app 后等几秒（GUI 起来 + CLI 能连上）再自动重探
   let tsGuiLaunchTimer = null;
@@ -10041,8 +10169,16 @@ function gwShowPage() {
   });
   $('tsDownloadBtn').addEventListener('click', function () {
     $('tsDownloadBtn').disabled = true;
+    $('tsDlText').textContent = '正在下载安装包…';
+    // 与 Cloudflare 卡一致：点下去就把进度条摆出来（0% + 准备中），
+    // 否则网络慢时前几秒界面毫无反应，看着像没点上
+    $('tsProgressRow').hidden = false;
+    $('tsProgressBar').style.width = '0%';
+    $('tsProgressText').textContent = '准备中…';
     invoke('gateway_tailscale_download').catch(function (error) {
       $('tsDownloadBtn').disabled = false;
+      $('tsDlText').textContent = '安装包未下载';
+      $('tsProgressRow').hidden = true;
       toast('下载失败：' + error, 'bad');
     });
   });
@@ -10068,9 +10204,14 @@ function gwShowPage() {
       $('tsProgressRow').hidden = true;
       $('tsDownloadBtn').disabled = false;
       if (!done.ok) {
+        $('tsDlText').textContent = '安装包未下载';
         toast('Tailscale 下载失败：' + (done.error || '未知错误') + '，可打开官网手动下载', 'bad');
         return;
       }
+      // 与 Cloudflare 卡二进制行同款：状态位显示落地的安装包文件名
+      const name = String(done.path || '').split(/[\\/]/).pop() || '安装包';
+      $('tsDlText').textContent = '安装包已就绪：' + name;
+      $('tsDlText').title = done.path || ''; // 悬停看完整路径（含下载目录）
       toast('下载完成，正在安装（需要在系统授权框确认）…');
       invoke('gateway_tailscale_install', { path: done.path }).then(function () {
         toast('安装器已启动 —— 装好并登录后回来点「重新检测」');
@@ -10508,19 +10649,10 @@ function gwShowPage() {
     toast('正在重新检测…');
   });
   // 卸载内置引擎：引擎本体随 AnyBoot 自带（恒属「通过 AnyBoot 安装」），
-  // 卸载 = 停引擎 + 删状态目录（登录凭据）+ 清手动放置的 sidecar 副本
-  $('tsnUninstallBtn').addEventListener('click', async function () {
-    if (!confirm('卸载内置 Tailscale 引擎吗？\n\n引擎会停止，状态目录与登录凭据会被删除，\n下次使用需重新授权。引擎本体随 AnyBoot 自带，重新开启开关即可恢复。')) return;
-    this.disabled = true;
-    try {
-      const s = await invoke('tsnet_uninstall');
-      tsnStatus = s;
-      toast('内置引擎已卸载');
-    } catch (e) {
-      toast('卸载失败：' + e, 'bad');
-    }
-    this.disabled = false;
-    tsnRefresh();
+  // 卸载 = 停引擎 + 删状态目录（登录凭据）+ 清手动放置的 sidecar 副本；
+  // 弹窗里勾「保留本机数据」则只停引擎、状态目录与 AuthKey 留着
+  $('tsnUninstallBtn').addEventListener('click', function () {
+    gwUniOpen('tsn');
   });
   // 引擎会从 login_needed 自己转 ready，轻量轮询跟进；
   // 页面右上角点了「暂停」就一起停 —— 否则暂停了这张卡还在自己跳，看着像没生效。

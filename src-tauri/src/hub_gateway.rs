@@ -329,8 +329,14 @@ pub(crate) struct DownloadDone {
     pub version: String,
 }
 
-/// 单源流式下载到 tmp：返回 (received, total)。hub_tailscale 下载安装包也复用。
-pub(crate) fn download_to_tmp(url: &str, tmp: &Path) -> Result<(u64, u64), String> {
+/// 带进度回调的流式下载（cloudflared 与 Tailscale 安装包共用）。
+/// 回调按 ~120ms 节流 —— 每 256KB 都 emit 一次会把 webview 淹掉；但末块一定发，
+/// 保证进度条能走到 100%（否则停在 98% 看着像卡死）。
+pub(crate) fn download_to_tmp_observed(
+    url: &str,
+    tmp: &Path,
+    mut on_progress: impl FnMut(u64, u64),
+) -> Result<(u64, u64), String> {
     let agent = ureq::AgentBuilder::new()
         .timeout_connect(std::time::Duration::from_secs(15))
         .timeout_read(std::time::Duration::from_secs(30))
@@ -348,6 +354,7 @@ pub(crate) fn download_to_tmp(url: &str, tmp: &Path) -> Result<(u64, u64), Strin
         .map_err(|error| format!("创建临时文件失败: {error}"))?;
     let mut buffer = [0u8; 256 * 1024];
     let mut received: u64 = 0;
+    let mut last_emit = std::time::Instant::now();
     loop {
         let read = reader
             .read(&mut buffer)
@@ -358,7 +365,12 @@ pub(crate) fn download_to_tmp(url: &str, tmp: &Path) -> Result<(u64, u64), Strin
         std::io::Write::write_all(&mut file, &buffer[..read])
             .map_err(|error| format!("写临时文件失败: {error}"))?;
         received += read as u64;
+        if last_emit.elapsed() >= std::time::Duration::from_millis(120) {
+            last_emit = std::time::Instant::now();
+            on_progress(received, total);
+        }
     }
+    on_progress(received, total);
     if total != 0 && received != total {
         return Err(format!("下载不完整（{received}/{total}）"));
     }
@@ -402,7 +414,26 @@ fn download_worker(app: tauri::AppHandle) {
             gw_log(&app, &format!("[gateway] 下载换源 {label}: {url}"));
         }
         let _ = std::fs::remove_file(&tmp);
-        match download_to_tmp(url, &tmp) {
+        // 逐块进度（download_to_tmp_observed 内部已按 120ms 节流）
+        let progress_app = app.clone();
+        let progress_label = label.to_string();
+        match download_to_tmp_observed(url, &tmp, move |received, total| {
+            let percent = if total > 0 {
+                ((received as f64 / total as f64) * 100.0).round() as u32
+            } else {
+                0
+            };
+            let _ = progress_app.emit(
+                EVENT_DL_PROGRESS,
+                DownloadProgress {
+                    stage: "downloading".into(),
+                    source: progress_label.clone(),
+                    received,
+                    total,
+                    percent,
+                },
+            );
+        }) {
             Ok((received, total)) => {
                 gw_log(
                     &app,
@@ -503,16 +534,25 @@ pub(crate) fn gateway_binary_set_manual(
 /// 卸载 cloudflared：二进制恒在 AnyBoot 自家缓存位（下载 / 手动路径都复制进来，
 /// 单一事实来源）——缓存位有货即「通过 AnyBoot 安装」，直接删缓存即可，
 /// 不会碰用户手动指定路径的原始文件。通道在跑先停（Windows 上运行中的 exe 删不掉）。
+///
+/// `keep_data`：卸载后是否保留本机数据（命名隧道 Token / 对外地址 / 自启开关）。
+/// 默认 **false = 一起清掉** —— 程序都删了，认证信息留着只会让下次重装继承一份
+/// 用户以为已经没了的凭据（老版本就是这么留坑的）。
 #[tauri::command]
 pub(crate) async fn gateway_binary_uninstall(
     app: tauri::AppHandle,
+    keep_data: Option<bool>,
 ) -> Result<BinaryStatus, String> {
-    tauri::async_runtime::spawn_blocking(move || binary_uninstall_blocking(&app))
+    let keep_data = keep_data.unwrap_or(false);
+    tauri::async_runtime::spawn_blocking(move || binary_uninstall_blocking(&app, keep_data))
         .await
         .map_err(|error| format!("卸载任务失败: {error}"))?
 }
 
-fn binary_uninstall_blocking(app: &tauri::AppHandle) -> Result<BinaryStatus, String> {
+fn binary_uninstall_blocking(
+    app: &tauri::AppHandle,
+    keep_data: bool,
+) -> Result<BinaryStatus, String> {
     let status = binary_status(app);
     if !status.installed {
         return Err("cloudflared 未安装，无需卸载".to_string());
@@ -537,7 +577,87 @@ fn binary_uninstall_blocking(app: &tauri::AppHandle) -> Result<BinaryStatus, Str
         app,
         &format!("[gateway] 已卸载: {}", removed.join("、")),
     );
+    if keep_data {
+        gw_log(app, "[gateway] 按「保留本机数据」卸载：命名隧道 Token / 对外地址 / 配置均未改动");
+    } else {
+        match clear_named_credentials(
+            app,
+            "gateway_binary_uninstall",
+            "卸载 cloudflared：清理命名隧道凭据",
+        ) {
+            Ok(cleared) => {
+                if cleared {
+                    // 没二进制了，自启留着只会每次开机报一次失败
+                    let _ = crate::settings_commands::update_settings_and_publish(
+                        app,
+                        "gateway_binary_uninstall",
+                        "卸载 cloudflared：关闭自启",
+                        |settings| settings.gateway_autostart = false,
+                        |_| {},
+                    );
+                }
+            }
+            Err(error) => {
+                return Err(format!("cloudflared 已删除，但清理登录凭据失败：{error}"));
+            }
+        }
+    }
     Ok(binary_status(app))
+}
+
+/// 清掉命名隧道的凭据与对外地址（Token 就是 cloudflared 这一侧的登录凭据；
+/// 地址跟着一起清，避免留下「有域名没 token」的半截配置把模式卡在 named）。
+/// 返回是否真的清掉了东西（没有凭据时返回 Ok(false)，不写盘也不报错）。
+pub(crate) fn clear_named_credentials(
+    app: &tauri::AppHandle,
+    action: &str,
+    message: &str,
+) -> Result<bool, String> {
+    let settings = crate::stored_settings(app);
+    let has = !settings.gateway_named_token.trim().is_empty()
+        || !settings.gateway_named_url.trim().is_empty()
+        || settings.gateway_mode == "named";
+    if !has {
+        return Ok(false);
+    }
+    crate::settings_commands::update_settings_and_publish(
+        app,
+        action,
+        message,
+        |settings| {
+            settings.gateway_named_token.clear();
+            settings.gateway_named_url.clear();
+            settings.gateway_mode = "quick".to_string();
+        },
+        |_| {},
+    )?;
+    gw_log(
+        app,
+        "[gateway] 登录凭据已清除：命名隧道 Token / 对外地址已抹掉，模式回落「快速隧道」",
+    );
+    Ok(true)
+}
+
+/// 「清除登录凭据」（Cloudflare 侧，对应 Tailscale 的 logout）：停通道 + 抹掉
+/// 命名隧道 Token 与对外地址。不动程序本体 —— 下次填新 Token 即可继续用。
+#[tauri::command]
+pub(crate) async fn gateway_clear_credentials(
+    app: tauri::AppHandle,
+) -> Result<GatewayConfig, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let _ = gateway_tunnel_stop_blocking(&app);
+        let cleared = clear_named_credentials(
+            &app,
+            "gateway_clear_credentials",
+            "Cloudflare 通道：清除登录凭据",
+        )?;
+        if !cleared {
+            return Err("没有保存过命名隧道的 Token，无需清除".to_string());
+        }
+        Ok(gateway_config(app))
+    })
+    .await
+    .map_err(|error| format!("清除凭据任务失败: {error}"))?
 }
 
 // ==================== 通道生命周期 ====================

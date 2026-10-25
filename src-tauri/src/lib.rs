@@ -2855,6 +2855,7 @@ pub fn run() {
             hub_gateway::gateway_binary_download,
             hub_gateway::gateway_binary_set_manual,
             hub_gateway::gateway_binary_uninstall,
+            hub_gateway::gateway_clear_credentials,
             hub_tailscale::gateway_tailscale_status,
             hub_tailscale::gateway_tailscale_toggle,
             hub_tailscale::gateway_tailscale_service,

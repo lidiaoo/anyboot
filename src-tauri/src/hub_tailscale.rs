@@ -892,7 +892,19 @@ fn ts_download_worker(app: AppHandle) {
         let tmp = dir.join(filename);
         ts_log(&format!("[下载] {url}"));
         let _ = std::fs::remove_file(&tmp);
-        match crate::hub_gateway::download_to_tmp(&url, &tmp) {
+        // 逐块进度（与 cloudflared 下载同一套：回调内部 120ms 节流、末块必发）
+        let progress_app = app.clone();
+        match crate::hub_gateway::download_to_tmp_observed(&url, &tmp, move |received, total| {
+            let percent = if total > 0 {
+                ((received as f64 / total as f64) * 100.0).round() as u32
+            } else {
+                0
+            };
+            let _ = progress_app.emit(
+                EVENT_TS_PROGRESS,
+                TsDownloadProgress { received, total, percent },
+            );
+        }) {
             Ok((received, total)) => {
                 ts_log(&format!(
                     "[下载] 完成：{} MB → {}",
@@ -1423,11 +1435,14 @@ pub(crate) fn gateway_tailscale_set_authkey(
 
 /// 清除登录凭据：`tailscale logout`（断开并清本机凭据，下次连接需重新授权）。
 /// 与内置引擎的「清除登录凭据」同语义；管理台里的设备记录需用户自行移除。
+/// **同时清掉 AnyBoot 存的 AuthKey** —— 否则下次连接用密钥文件一跑就自动重登，
+/// 用户会以为「清了但没用」。
 #[tauri::command]
 pub(crate) async fn gateway_tailscale_logout(
     app: AppHandle,
 ) -> Result<TailscaleStatus, String> {
     let key_set = !crate::stored_settings(&app).tailscale_authkey.trim().is_empty();
+    let settings_app = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let cli = find_cli().ok_or_else(|| "没检测到 Tailscale，请先安装".to_string())?;
         ts_log("[凭据] tailscale logout…");
@@ -1443,8 +1458,13 @@ pub(crate) async fn gateway_tailscale_logout(
             });
         }
         ts_log("[凭据] 已清除本机登录凭据 —— 下次连接需重新授权");
+        // AuthKey 也是凭据：留着它下次连接会拿着密钥直接重登，等于没注销
+        if key_set {
+            clear_tailscale_authkey(&settings_app, "gateway_tailscale_logout", "Tailscale 直连：清除 AuthKey");
+            ts_log("[凭据] 已一并清除保存的 AuthKey");
+        }
         let mut status = probe(&cli);
-        status.authkey_set = key_set;
+        status.authkey_set = false;
         Ok(status)
     })
     .await
@@ -1510,13 +1530,21 @@ static TS_UNINSTALL_IN_FLIGHT: std::sync::atomic::AtomicBool =
 /// 提权删 .app；Linux=pkexec 脚本（停服务 → 删 /usr/local/bin 二进制 →
 /// 只删 AnyBoot 写的 unit——指纹是 ExecStart 指向 /usr/local/bin 且系统没有
 /// 发行版 unit，动不了发行版包的东西）。
+///
+/// `keep_data`：卸载后是否保留本机数据。默认 **false = 一起清掉**：
+/// 卸载**前**先 `tailscale logout`（本机节点凭据在 tailscaled 的状态目录里，
+/// 卸载后再想注销就没 CLI 了），卸载成功后清掉 AnyBoot 存的 AuthKey 与自启开关。
 #[tauri::command]
-pub(crate) async fn gateway_tailscale_uninstall(app: AppHandle) -> Result<String, String> {
+pub(crate) async fn gateway_tailscale_uninstall(
+    app: AppHandle,
+    keep_data: Option<bool>,
+) -> Result<String, String> {
     if TS_UNINSTALL_IN_FLIGHT.swap(true, std::sync::atomic::Ordering::SeqCst) {
         return Err("卸载操作还在执行，稍等一下".to_string());
     }
+    let keep_data = keep_data.unwrap_or(false);
     let result = tauri::async_runtime::spawn_blocking(move || {
-        let result = ts_uninstall_blocking(&app);
+        let result = ts_uninstall_blocking(&app, keep_data);
         TS_UNINSTALL_IN_FLIGHT.store(false, std::sync::atomic::Ordering::SeqCst);
         result
     })
@@ -1525,7 +1553,43 @@ pub(crate) async fn gateway_tailscale_uninstall(app: AppHandle) -> Result<String
     result.map_err(|error| format!("卸载任务失败: {error}"))?
 }
 
-fn ts_uninstall_blocking(app: &AppHandle) -> Result<String, String> {
+/// 卸载前注销本机登录凭据（best effort：失败只进日志，不阻断卸载 ——
+/// 卸载本身会把状态目录/安装目录一起带走，注销只是让 tailnet 里的节点尽快下线）。
+fn logout_before_uninstall() {
+    let cli = match find_cli() {
+        Some(cli) => cli,
+        None => {
+            ts_log("[卸载] 没找到 tailscale CLI，跳过注销（凭据随安装目录一并消失）");
+            return;
+        }
+    };
+    ts_log("[卸载] 卸载前先注销本机登录凭据（tailscale logout）…");
+    let (ok, stdout, stderr) =
+        run_cli_privileged(&cli, &["logout"], std::time::Duration::from_secs(30));
+    if ok {
+        ts_log("[卸载] 已注销：本机登录凭据已清除，管理台里的设备记录需自行移除");
+    } else {
+        let detail = format!("{stdout}\n{stderr}");
+        let detail = detail.trim().lines().last().unwrap_or("").trim().to_string();
+        ts_log(&format!("[卸载] 注销未完成（继续卸载）：{detail}"));
+    }
+}
+
+/// 清掉 AnyBoot 存的 Tailscale AuthKey（设置项 + 落盘的 0600 密钥文件）。
+fn clear_tailscale_authkey(app: &AppHandle, action: &str, message: &str) {
+    let _ = crate::settings_commands::update_settings_and_publish(
+        app,
+        action,
+        message,
+        |settings| settings.tailscale_authkey.clear(),
+        |_| {},
+    );
+    if let Ok(path) = ts_authkey_file(app) {
+        let _ = std::fs::remove_file(&path);
+    }
+}
+
+fn ts_uninstall_blocking(app: &AppHandle, keep_data: bool) -> Result<String, String> {
     let marker = ts_install_marker(app)?;
     if !marker.exists() {
         // 安装记录是后期加的：早期 AnyBoot 安装没有留下 marker。Linux 上用安装
@@ -1547,6 +1611,11 @@ fn ts_uninstall_blocking(app: &AppHandle) -> Result<String, String> {
         return Err("Tailscale 未安装，无需卸载（残留的安装记录已清掉）".to_string());
     }
     ts_log("[卸载] 开始卸载 AnyBoot 安装的 Tailscale…");
+    if keep_data {
+        ts_log("[卸载] 按「保留本机数据」卸载：不注销登录、不清 AuthKey（重装后仍是同一节点）");
+    } else {
+        logout_before_uninstall();
+    }
     #[cfg(target_os = "windows")]
     let message = ts_uninstall_windows()?;
     #[cfg(target_os = "macos")]
@@ -1554,8 +1623,28 @@ fn ts_uninstall_blocking(app: &AppHandle) -> Result<String, String> {
     #[cfg(all(unix, not(target_os = "macos")))]
     let message = ts_uninstall_linux()?;
     let _ = std::fs::remove_file(&marker);
+    if !keep_data {
+        clear_tailscale_authkey(
+            app,
+            "gateway_tailscale_uninstall",
+            "卸载 Tailscale：清理本机凭据",
+        );
+        // 没客户端了，自启留着只会每次开机空跑一次
+        let _ = crate::settings_commands::update_settings_and_publish(
+            app,
+            "gateway_tailscale_uninstall",
+            "卸载 Tailscale：关闭自启",
+            |settings| settings.tailscale_autostart = false,
+            |_| {},
+        );
+        ts_log("[卸载] AnyBoot 侧 AuthKey / 自启开关已清除");
+    }
     ts_log("[卸载] 完成");
-    Ok(message)
+    Ok(if keep_data {
+        format!("{message}（按「保留本机数据」卸载：登录凭据与 AuthKey 保留）")
+    } else {
+        format!("{message}（已注销并清除本机登录凭据与 AuthKey）")
+    })
 }
 
 /// Windows：注册表 Uninstall 里找 Tailscale 的 MSI 卸载串（`MsiExec.exe /X{GUID}`），

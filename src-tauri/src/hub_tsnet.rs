@@ -653,16 +653,30 @@ pub(crate) fn tsnet_logs_clear() {
 /// 卸载 = 停引擎 + 删状态目录（登录凭据）+ 删数据目录里手动放置的 sidecar 副本；
 /// 资源目录里的引擎是 AnyBoot 本体的一部分不动——重新点「引擎」开关即恢复可用。
 /// 子进程与删目录阻塞 → async + spawn_blocking（blocking_guard 约定）。
+///
+/// `keep_data`：是否保留本机数据（状态目录里的节点凭据 + AuthKey + 自启开关）。
+/// 默认 **false = 一起清掉**；勾上则只停引擎、清引擎副本，登录态留着（重开即 ready）。
 #[tauri::command]
-pub(crate) async fn tsnet_uninstall(app: AppHandle) -> Result<TsnetStatus, String> {
-    tauri::async_runtime::spawn_blocking(move || tsnet_uninstall_blocking(&app))
+pub(crate) async fn tsnet_uninstall(
+    app: AppHandle,
+    keep_data: Option<bool>,
+) -> Result<TsnetStatus, String> {
+    let keep_data = keep_data.unwrap_or(false);
+    tauri::async_runtime::spawn_blocking(move || tsnet_uninstall_blocking(&app, keep_data))
         .await
         .map_err(|error| format!("卸载任务失败: {error}"))?
 }
 
-pub(crate) fn tsnet_uninstall_blocking(app: &AppHandle) -> Result<TsnetStatus, String> {
-    // 停引擎 + 删整个状态目录（logout_blocking 的既有语义）
-    let mut status = logout_blocking(app)?;
+pub(crate) fn tsnet_uninstall_blocking(
+    app: &AppHandle,
+    keep_data: bool,
+) -> Result<TsnetStatus, String> {
+    // 停引擎；不保留数据时连状态目录（登录凭据）一起删（logout_blocking 的既有语义）
+    let mut status = if keep_data {
+        disable_blocking()
+    } else {
+        logout_blocking(app)?
+    };
     // 手动放置位的 sidecar 副本一并清掉（resource_dir 里的属于 AnyBoot 本体，不动）
     if let Ok(dir) = app.path().app_data_dir() {
         let ts_dir = dir.join("tsnet");
@@ -682,6 +696,26 @@ pub(crate) fn tsnet_uninstall_blocking(app: &AppHandle) -> Result<TsnetStatus, S
             }
         }
     }
+    if keep_data {
+        if let Ok(mut guard) = shared().lock() {
+            push_log(&mut guard, "[卸载] 按「保留本机数据」卸载：状态目录与登录凭据保留");
+        }
+        status.message =
+            "内置引擎已卸载（按「保留本机数据」：状态目录与登录凭据保留，重开即恢复）。引擎本体随 AnyBoot 自带"
+                .into();
+        return Ok(status);
+    }
+    // AuthKey 也是凭据；自启开关留着会在下次启动空跑一次
+    let _ = crate::settings_commands::update_settings_and_publish(
+        app,
+        "tsnet_uninstall",
+        "内置引擎：清理 AuthKey 与自启",
+        |settings| {
+            settings.tsnet_authkey.clear();
+            settings.tsnet_autostart = false;
+        },
+        |_| {},
+    );
     status.message = "内置引擎已卸载：状态与登录凭据已删除。引擎本体随 AnyBoot 自带，重新开启开关即可恢复".into();
     Ok(status)
 }
