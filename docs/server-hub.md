@@ -223,6 +223,33 @@ Tailscale 直连同位同款；其内嵌日志框已移除，入口只剩「日�
   - 内置引擎：引擎本体随 AnyBoot 安装包自带（恒属「AnyBoot 装的」）→ 卸载 = 停引擎
     + 删状态目录（登录凭据）+ 清数据目录里手动放置的 sidecar 副本；重开开关即恢复。
 
+### 卸载前的凭据处置（2026-10-25）
+
+老版本卸载只删程序，认证信息留在原地：cloudflared 的 Tunnel Token、Tailscale 的
+AuthKey 都还在，下次重装会**继承一份用户以为已经没了的登录态**。现在统一成
+「默认连凭据一起清，想留必须手动勾」：
+
+- **三张卡共用一个卸载弹窗**（`#gwUniOverlay`），里面一枚「保留本机数据
+  （登录凭据 / 配置 / 状态目录）」勾选框，**默认不勾** = 清理。后端命令因此都多了一个
+  `keepData: bool` 参数（缺省 false，老前端不传也走清理）。
+- 各通道清什么：
+  - cloudflared：删二进制 + 清 `gateway_named_token` / `gateway_named_url`、模式回落
+    `quick`、关自启。勾保留则只删二进制。
+  - Tailscale 直连：**卸载前**先 `tailscale logout`（凭据在 tailscaled 状态目录里，
+    卸载后就再没有 CLI 可用了），卸载成功后清 `tailscale_authkey`（含 0600 密钥文件）
+    与自启开关。logout 失败只记日志、不阻断卸载（best effort）。
+  - 内置引擎：停引擎 + 删 `tsnet/state`（节点凭据）+ 清 `tsnet_authkey` 与自启；
+    勾保留则只停引擎、清引擎副本，状态目录留着（重开即 ready）。
+- **「清除登录凭据」按钮**（Cloudflare 卡新增，`gateway_clear_credentials`）：停通道 +
+  抹 Token/对外地址，不动程序本体 —— 与 Tailscale/内置引擎的同类按钮同语义。
+- **Tailscale 的 logout 顺带清 AuthKey**：只注销不删密钥的话，下次连接拿密钥文件
+  一跑就自动重登，用户会以为「清了但没用」。
+- 顺手补的**真进度条**：`download_to_tmp_observed(url, tmp, on_progress)` 逐块回调
+  （~120ms 节流、末块必发），cloudflared 与 Tailscale 安装包两条下载都接上；
+  此前 cloudflared 只在换源时发一次、Tailscale 只在完成时发一次 100%，进度条形同摆设。
+  Tailscale 未安装态的下载区也改成与 cloudflared 二进制行同一套布局
+  （状态文字 + 右对齐按钮 + 紧跟其下的进度条）。
+
 ### 子进程不能弹控制台窗口
 
 GUI 程序（`windows_subsystem = "windows"`）起 `ssh` / `sftp` / `ssh-keygen` 时，Windows 会为子进程
