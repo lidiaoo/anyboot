@@ -160,6 +160,16 @@ func officialSetupURL(raw string) string {
 	return parsed.String()
 }
 
+// ==================== 日志过滤 ====================
+
+// isNetNoise：底层网络重试噪音。这类日志每条内容都不同（DERP 主机名/IP
+// 轮流出现），相邻重复抑制抓不住，必须按内容丢弃。bootstrapDNS 是 logtail
+// 上报失败后用内置 DERP IP 引导解析的内部重试（解析 log.tailscale.io 等），
+// 对用户没有任何操作价值且在部分网络环境会长期刷屏；排障用 --diagnose。
+func isNetNoise(msg string) bool {
+	return strings.Contains(msg, "trying bootstrapDNS")
+}
+
 // ==================== 登录链接捕获 ====================
 
 // loginTracker：从日志行里抠登录链接。同一链接只发一次 login 事件；链接变化
@@ -477,7 +487,7 @@ func main() {
 	// 是链接的权威来源。非链接行原样转发（AuthLoop 之类，量很小）。
 	userLogf := func(format string, args ...any) {
 		msg := fmt.Sprintf(format, args...)
-		if login.observe(msg) {
+		if isNetNoise(msg) || login.observe(msg) {
 			return
 		}
 		emitLog(msg)
@@ -491,7 +501,7 @@ func main() {
 	lastDup := 0
 	logf := func(format string, args ...any) {
 		msg := fmt.Sprintf(format, args...)
-		if login.observe(msg) {
+		if isNetNoise(msg) || login.observe(msg) {
 			return
 		}
 		lastMu.Lock()
@@ -558,6 +568,10 @@ func main() {
 			os.Exit(1)
 		}
 		emitLog("tsnet 上线成功（ipn.Running）")
+		// 用户体感管理：登录/凭据生效 ≠ 立刻可用，中间还有一段环境初始化，
+		// 不打招呼的话用户会以为卡死、反复开关引擎反而更慢。
+		emitLog("正在初始化环境资源（加载节点配置、申请 HTTPS 证书、发布公网 DNS）——" +
+			"通常需要几分钟，请每隔几分钟回来看一眼，就绪后这里会打印公网地址")
 
 		// 域名与「能不能对外提供 https」是两件事，必须分开判：
 		// Self.DNSName 只是 MagicDNS 名，永远有值；而 Funnel 要对外服务，

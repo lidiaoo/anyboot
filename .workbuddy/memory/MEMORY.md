@@ -58,3 +58,10 @@
 ## 2026-10-22 端口坑
 - 12300 落 Windows 保留段 bind 报 10013：`netsh int ipv4 show excludedportrange protocol=tcp`；恢复 `netsh int ipv4 set dynamicport tcp start=49152 num=16384` 重启 winnat。
 - hub.html「本机」chip 是静态 HTML，click 要单独绑。
+
+## 沙箱环境（2026-10-25 大坑）
+- **safe-delete 垫片把 rm 转投 .Trash-1000 回收站且不释放空间**（当日 19G 全进 /home/disk1/.Trash-1000，du 视图显示已删、df 满盘）→ 清缓存一律 `/bin/rm` 全路径直删；回收站只清自己当天删的条目（查 info/*.trashinfo 原路径确认）。
+- **沙箱 FS 视图会瞬时分叉/劣化**：cargo 工具链整棵消失、systemctl 报 not booted、写入丢失/段落重复。cargo 消失后用 rustup 重装到大盘：`RUSTUP_HOME=/home/disk1/rustup-home CARGO_HOME=/home/disk1/cargo-home`，rustup-init 从 `https://mirrors.ustc.edu.cn/rust-static/rustup/dist/x86_64-unknown-linux-gnu/rustup-init` 下（tuna 404），rustc 1.99.1，cargo 全路径 `/home/disk1/cargo-home/bin/cargo`。
+- /home/disk1 总 48G：models 占 23G；构建缓存乱删会满盘（报 No space left）。
+- HOME=/root 读不到 global git config → commit 需 `-c user.name=jianghuihua -c user.email=2503338074@qq.com`；一次写入可能双提交，提交后 `git log --oneline -3` 核对。
+- Go 缓存目录：GOCACHE=/home/disk1/gocache GOPATH=/home/disk1/gopath（会满盘，可整删重生成）。

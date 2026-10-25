@@ -96,6 +96,11 @@ const CLI_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 /// 提权路径超时：pkexec 会等 polkit 授权框里的人工确认，远超普通 CLI 耗时。
 const ELEVATED_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 
+/// up/down 主开关专用超时：needs_login 时 `tailscale up` 会阻塞等浏览器
+/// 授权完成，通用 5s 必然误杀（实测被误报成 "failed to spawn tailscale"）。
+/// 给足 120s 完成授权；超时时部分输出（含登录链接）会被带回用于提示。
+const TOGGLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+
 /// 构造 CLI 子进程命令（统一入口）。
 ///
 /// macOS App 版 CLI 用 `SHLVL`（只有 shell 会设）判断「是不是 shell 在调我」：
@@ -124,19 +129,31 @@ fn run_cli_raw(cli: &std::path::Path, args: &[&str]) -> Option<(bool, String, St
     run_command_with_timeout_for(command, CLI_TIMEOUT)
 }
 
+/// 子进程执行结果：Done = 正常退出（含非零码）；TimedOut = 超时被杀，但
+/// 已捕获的部分输出一并带回（`tailscale up` 等浏览器授权时会把登录链接
+/// 打到 stderr，超时杀掉前这些内容对用户有用——不能像以前那样直接丢弃）。
+enum CliOutcome {
+    Done(bool, String, String),
+    TimedOut(String, String),
+}
+
 /// spawn → 并发读 → 超时兜底杀进程的通用执行器（提权路径复用，超时可调）。
-fn run_command_with_timeout_for(
+/// spawn 失败 = Err；区分超时与 spawn 失败的教训见 run_cli_full_timeout。
+fn run_command_outcome(
     mut command: std::process::Command,
     timeout: std::time::Duration,
-) -> Option<(bool, String, String)> {
+) -> Result<CliOutcome, std::io::Error> {
     command.stdin(std::process::Stdio::null());
     let mut child = command
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
-        .spawn()
-        .ok()?;
-    let mut stdout = child.stdout.take()?;
-    let mut stderr = child.stderr.take()?;
+        .spawn()?;
+    let mut stdout = child.stdout.take().ok_or_else(|| {
+        std::io::Error::other("tailscale CLI stdout 管道缺失")
+    })?;
+    let mut stderr = child.stderr.take().ok_or_else(|| {
+        std::io::Error::other("tailscale CLI stderr 管道缺失")
+    })?;
     let out_reader = std::thread::spawn(move || {
         use std::io::Read;
         let mut buf = Vec::new();
@@ -150,20 +167,34 @@ fn run_command_with_timeout_for(
         String::from_utf8_lossy(&buf).to_string()
     });
     let deadline = std::time::Instant::now() + timeout;
-    let exit = loop {
+    loop {
         match child.try_wait() {
-            Ok(Some(status)) => break Some(status),
+            Ok(Some(status)) => {
+                let out = out_reader.join().unwrap_or_default();
+                let err = err_reader.join().unwrap_or_default();
+                return Ok(CliOutcome::Done(status.success(), out, err));
+            }
             Ok(None) if std::time::Instant::now() >= deadline => {
                 let _ = child.kill();
                 let _ = child.wait();
-                break None;
+                let out = out_reader.join().unwrap_or_default();
+                let err = err_reader.join().unwrap_or_default();
+                return Ok(CliOutcome::TimedOut(out, err));
             }
             Ok(None) => std::thread::sleep(std::time::Duration::from_millis(25)),
-            Err(_) => break None,
+            Err(e) => return Err(e),
         }
-    };
-    let status = exit?;
-    Some((status.success(), out_reader.join().ok()?, err_reader.join().ok()?))
+    }
+}
+
+fn run_command_with_timeout_for(
+    command: std::process::Command,
+    timeout: std::time::Duration,
+) -> Option<(bool, String, String)> {
+    match run_command_outcome(command, timeout) {
+        Ok(CliOutcome::Done(ok, stdout, stderr)) => Some((ok, stdout, stderr)),
+        _ => None, // 兼容旧语义：超时与 spawn 失败都收敛成 None
+    }
 }
 
 /// 跑一次 CLI 取 stdout（exit 非 0 → None）。
@@ -364,13 +395,55 @@ fn service_running_state_impl() -> i8 {
     -1
 }
 
+/// `tailscale up` 报「changing settings via 'tailscale up' requires mentioning
+/// all」= 机器上已有非默认偏好（比如之前手动跑过带旗标的 up），此时必须把
+/// 全部非默认旗标带上才能改设置。报错里会列出所需旗标（固定模板：4 空格
+/// 缩进的 `--flag` 行）—— 解析出来自动补上重试，保留用户既有设置。
+fn is_up_flags_mismatch(stderr: &str) -> bool {
+    stderr.contains("changing settings via 'tailscale up' requires mentioning all")
+}
+
+fn parse_up_required_flags(stderr: &str) -> Vec<String> {
+    let mut flags = Vec::new();
+    for line in stderr.lines() {
+        // 只认 4 空格缩进的旗标行（官方错误模板固定格式），避免误抓正文里的 --word
+        if let Some(rest) = line.strip_prefix("    --") {
+            let tok = format!("--{}", rest.split_whitespace().next().unwrap_or(""));
+            if tok.len() > 2 && !flags.contains(&tok) {
+                flags.push(tok);
+            }
+        }
+    }
+    flags
+}
+
 /// 阻塞版主开关：`tailscale up / down`（登录级，不动系统服务）。
-/// NeedsLogin 时 `up` 会拉起浏览器登录流程（这正是想要的语义）。
+/// NeedsLogin 时 `up` 会拉起浏览器登录流程（这正是想要的语义）——用
+/// TOGGLE_TIMEOUT 长超时等授权，不能用 5s 通用档（实测误报 spawn 失败）。
 /// prefs 变更是本地权限闸门管的操作 → 走提权入口（Linux 被拒时 pkexec 弹框）。
 pub(crate) fn ts_toggle_blocking(up: bool) -> Result<TailscaleStatus, String> {
     let cli = find_cli().ok_or_else(|| "没检测到 Tailscale，请先安装".to_string())?;
     ts_log(if up { "[开关] tailscale up…" } else { "[开关] tailscale down…" });
-    let (ok, stdout, stderr) = run_cli_privileged(&cli, if up { &["up"] } else { &["down"] });
+    let mut args: Vec<String> = vec![if up { "up" } else { "down" }.to_string()];
+    let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+    let (mut ok, mut stdout, mut stderr) =
+        run_cli_privileged(&cli, &refs, TOGGLE_TIMEOUT);
+    // 既有偏好的旗标清单没带全 → 按报错提示自动补齐再试一次
+    if up && !ok && is_up_flags_mismatch(&stderr) {
+        let flags = parse_up_required_flags(&stderr);
+        if !flags.is_empty() {
+            ts_log(&format!(
+                "[开关] 检测到既有偏好设置，按提示自动补旗标重试：{}",
+                flags.join(" ")
+            ));
+            args.extend(flags);
+            let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+            let retried = run_cli_privileged(&cli, &refs, TOGGLE_TIMEOUT);
+            ok = retried.0;
+            stdout = retried.1;
+            stderr = retried.2;
+        }
+    }
     if !ok {
         let detail = stderr.trim().lines().next().unwrap_or("").trim();
         let fallback = if up { "tailscale up 失败" } else { "tailscale down 失败" };
@@ -381,6 +454,14 @@ pub(crate) fn ts_toggle_blocking(up: bool) -> Result<TailscaleStatus, String> {
         } else {
             detail.to_string()
         };
+        // 等浏览器授权超时：标注在 stderr 末尾，前面通常还有 CLI 打出的登录链接，
+        // 整段给用户（链接可直接点）
+        if stderr.contains("[等待超时") {
+            detail = format!(
+                "{} —— 若在等浏览器登录授权，完成授权后再点一次开关",
+                stderr.trim()
+            );
+        }
         // tailscaled 服务没跑是 Linux 上最常见的坑（尤其容器/最小安装没 enable）：
         // CLI 原始报错对用户没有可操作性，翻译成下一步动作
         if detail.contains("failed to connect to local tailscaled") {
@@ -783,7 +864,31 @@ fn funnel_unavailable(message: &str) -> TailscaleFunnelStatus {
 
 /// 带完整输出的 CLI 调用（enable 的错误分类要看 stderr）。同样带超时。
 fn run_cli_full(cli: &std::path::Path, args: &[&str]) -> (bool, String, String) {
-    run_cli_raw(cli, args).unwrap_or((false, String::new(), "failed to spawn tailscale".into()))
+    run_cli_full_timeout(cli, args, CLI_TIMEOUT)
+}
+
+/// 超时可调的完整执行：把「超时」与「起不来」分开翻成人话 —— 超时时把
+/// 已捕获的部分输出原样带回（`up` 等浏览器授权时会把登录链接打到 stderr），
+/// 并追加超时标注。（教训：needs_login 的 `up` 阻塞等授权被 5s 通用超时
+/// 杀掉后，None 被误报成 "failed to spawn tailscale"，用户无从下手。）
+fn run_cli_full_timeout(
+    cli: &std::path::Path,
+    args: &[&str],
+    timeout: std::time::Duration,
+) -> (bool, String, String) {
+    let mut command = cli_command(cli);
+    command.args(args);
+    match run_command_outcome(command, timeout) {
+        Ok(CliOutcome::Done(ok, stdout, stderr)) => (ok, stdout, stderr),
+        Ok(CliOutcome::TimedOut(out, mut err)) => {
+            if !err.trim().is_empty() {
+                err.push('\n');
+            }
+            err.push_str(&format!("[等待超时 {} 秒]", timeout.as_secs()));
+            (false, out, err)
+        }
+        Err(e) => (false, String::new(), format!("无法启动 tailscale CLI（{e}）")),
+    }
 }
 
 /// `funnel status --json` 没配置时是 `{}`；配置过返回非空对象。
@@ -862,7 +967,11 @@ fn local_privilege_hint() -> String {
 /// pkexec 直接跑原命令。pkexec 不存在等 spawn 失败 → None，调用方维持
 /// 原报错并展示手动兜底提示。超时放宽：授权框等人确认可能远超 5s。
 #[cfg(target_os = "linux")]
-fn elevated_retry(cli: &std::path::Path, args: &[&str]) -> Option<(bool, String, String)> {
+fn elevated_retry(
+    cli: &std::path::Path,
+    args: &[&str],
+    timeout: std::time::Duration,
+) -> Option<(bool, String, String)> {
     let user = current_username();
     if !user.is_empty() {
         ts_log(&format!(
@@ -875,9 +984,10 @@ fn elevated_retry(cli: &std::path::Path, args: &[&str]) -> Option<(bool, String,
             .unwrap_or(false)
         {
             ts_log("[提权] operator 已设置，重试原命令…");
-            if let Some(result) = run_cli_raw(cli, args) {
-                return Some(result);
-            }
+            // 重试沿用调用方的超时档（up 等浏览器授权要长超时，不能用 5s 档——
+            // 超时会落进下面的 pkexec 直跑分支，再弹一次授权框，平白添乱）
+            let retried = run_cli_full_timeout(cli, args, timeout);
+            return Some(retried);
         } else {
             ts_log("[提权] operator 设置未成功（取消 / 无 polkit agent），回退直接提权跑原命令");
         }
@@ -890,15 +1000,19 @@ fn elevated_retry(cli: &std::path::Path, args: &[&str]) -> Option<(bool, String,
 /// 变更类 CLI 调用（up/down/funnel）统一入口：先按当前用户跑，被本地权限
 /// 闸门拒绝时 Linux 上自动提权重试。成功路径零额外开销；失败回执多一次
 /// 快速往返（CLI 几十 ms）才决定要不要弹授权框。
-fn run_cli_privileged(cli: &std::path::Path, args: &[&str]) -> (bool, String, String) {
-    let result = run_cli_full(cli, args);
+fn run_cli_privileged(
+    cli: &std::path::Path,
+    args: &[&str],
+    timeout: std::time::Duration,
+) -> (bool, String, String) {
+    let result = run_cli_full_timeout(cli, args, timeout);
     if result.0 {
         return result;
     }
     #[cfg(target_os = "linux")]
     {
         if is_local_access_denied(&result.1, &result.2) {
-            if let Some(retried) = elevated_retry(cli, args) {
+            if let Some(retried) = elevated_retry(cli, args, timeout) {
                 return retried;
             }
         }
@@ -952,7 +1066,7 @@ pub(crate) fn funnel_enable_blocking(app: &AppHandle) -> TailscaleFunnelStatus {
     let port = crate::stored_settings(app).http_port;
     let port_arg = port.to_string();
     ts_log(&format!("[Funnel] tailscale funnel --bg {port}…"));
-    let (ok, stdout, stderr) = run_cli_privileged(&cli, &["funnel", "--bg", &port_arg]);
+    let (ok, stdout, stderr) = run_cli_privileged(&cli, &["funnel", "--bg", &port_arg], CLI_TIMEOUT);
     if !ok {
         let (state, code, setup_url) = classify_funnel_error(&stderr, &stdout);
         let mut status = TailscaleFunnelStatus::new(&state);
@@ -990,7 +1104,7 @@ pub(crate) fn funnel_disable_blocking() -> TailscaleFunnelStatus {
         Err(status) => return status,
     };
     ts_log("[Funnel] tailscale funnel reset…");
-    let _ = run_cli_privileged(&cli, &["funnel", "reset"]);
+    let _ = run_cli_privileged(&cli, &["funnel", "reset"], CLI_TIMEOUT);
     if funnel_configured(&cli) {
         ts_log("[Funnel] 关闭失败：配置仍在");
         let mut status = TailscaleFunnelStatus::new("error");
@@ -1745,6 +1859,25 @@ mod tests {
     fn platform_has_installer_on_all_supported() {
         // 三端都应有应用内安装渠道
         assert!(platform_has_installer());
+    }
+
+    #[test]
+    fn parse_up_required_flags_from_official_error() {
+        // 官方报错模板（2026-10-25 实机捕获）：建议旗标固定为 4 空格缩进行
+        let stderr = "Error: changing settings via 'tailscale up' requires mentioning all\n\
+                      non-default flags. To avoid breaking your installation, you'll need to\n\
+                      pass the following non-default flags:\n\n    --accept-dns=false\n";
+        assert!(is_up_flags_mismatch(stderr));
+        assert_eq!(parse_up_required_flags(stderr), vec!["--accept-dns=false"]);
+        // 多旗标去重 + 不误抓正文里的 --word
+        let multi = "pass the following non-default flags:\n\n    --accept-dns=false\n    --hostname=box\n    --hostname=box\n\nsome --inline-mention text\n";
+        assert_eq!(
+            parse_up_required_flags(multi),
+            vec!["--accept-dns=false", "--hostname=box"]
+        );
+        // 别的错误不触发
+        assert!(!is_up_flags_mismatch("Error: access denied"));
+        assert!(parse_up_required_flags("no flags here").is_empty());
     }
 
     #[test]

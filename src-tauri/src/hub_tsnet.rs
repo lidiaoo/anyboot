@@ -166,7 +166,14 @@ impl SidecarEvent {
     /// Rust 侧已自打对应文案）。state 事件翻成人话；ready 带上地址。
     fn log_text(&self) -> Option<String> {
         match self.event.as_str() {
-            "log" => Some(self.detail.clone()),
+            "log" => {
+                // 双保险：sidecar 新版已在源头过滤底层网络噪音（bootstrapDNS
+                // 刷屏），这里再拦一次，兜住旧 sidecar 二进制还在跑的场景
+                if self.detail.contains("trying bootstrapDNS") {
+                    return None;
+                }
+                Some(self.detail.clone())
+            }
             "bye" => Some("sidecar 正常退出".into()),
             "hello" => None,
             // 独立 login 事件（链接首次出现 / 轮换时各一条）：UI 上已有链接原文，
@@ -174,7 +181,10 @@ impl SidecarEvent {
             "login" => Some(if self.login_url.is_empty() {
                 "拿到登录链接但内容为空".into()
             } else {
-                format!("登录链接就绪（浏览器打开完成授权）: {}", self.login_url)
+                format!(
+                    "登录链接就绪（浏览器打开完成授权）: {} —— 授权后引擎要初始化环境资源（数分钟），就绪后会打印公网地址",
+                    self.login_url
+                )
             }),
             "state" => match self.state.as_str() {
                 "starting" => None,
@@ -882,6 +892,29 @@ mod tests {
         assert!(!event.apply(&mut st));
         assert_eq!(st.state, "starting"); // 状态机不动
         assert_eq!(event.log_text().as_deref(), Some("tsnet 上线成功（ipn.Running）"));
+    }
+
+    #[test]
+    fn log_event_filters_bootstrap_dns_noise() {
+        // 底层网络重试噪音（每条内容都不同，重复抑制抓不住）：Rust 侧双保险
+        // 过滤（sidecar 新版已源头丢弃，这里兜旧二进制还在跑的场景）
+        let noise = ev(
+            r#"{"event":"log","t":41.0,"detail":"trying bootstrapDNS(\"derp8c.tailscale.com\", \"206.189.16.32\") for \"log.tailscale.io\""}"#,
+        );
+        assert_eq!(noise.log_text(), None);
+        // 正常日志不受影响
+        let keep = ev(r#"{"event":"log","t":42.0,"detail":"Funnel :443 监听已建立"}"#);
+        assert!(keep.log_text().is_some());
+    }
+
+    #[test]
+    fn login_event_log_text_carries_init_hint() {
+        // 登录里程碑要带「初始化需几分钟」的预期管理（用户曾误以为卡死）
+        let event = ev(r#"{"event":"login","loginUrl":"https://login.tailscale.com/a/xyz","t":2.5}"#);
+        let text = event.log_text().expect("login 应产出日志文本");
+        assert!(text.contains("登录链接就绪"));
+        assert!(text.contains("初始化环境资源"));
+        assert!(text.contains("公网地址"));
     }
 
     #[test]

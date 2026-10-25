@@ -2533,6 +2533,8 @@
             <p class="field-hint" style="margin:8px 0 0">
               需要登录 Tailscale 账号 —— 点下面按钮在浏览器完成授权（一次即可，凭据会记住）。
               登录完成后引擎自动继续，不用再点开关。
+              登录后引擎要<b>初始化环境资源</b>（节点配置、HTTPS 证书、公网 DNS 等），通常需要几分钟——
+              请<b>每隔几分钟回来看一眼</b>状态或日志，就绪后这里会显示、日志里会打印<b>公网地址</b>。
             </p>
             <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
               <button class="btn primary" id="tsnLoginBtn">打开登录页</button>

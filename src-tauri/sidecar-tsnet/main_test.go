@@ -105,3 +105,18 @@ func TestLoginTrackerDedupesButFollowsRotation(t *testing.T) {
 		t.Fatal("无链接行不该被识别为登录提示")
 	}
 }
+
+func TestIsNetNoise(t *testing.T) {
+	// logtail 上报失败的 DERP 引导解析重试：每条内容都不同，会绕过相邻重复
+	// 抑制刷爆日志环 —— 必须按内容丢弃（2026-10-25 用户实测刷屏）
+	noise := `trying bootstrapDNS("derp8c.tailscale.com", "206.189.16.32") for "log.tailscale.io"`
+	if !isNetNoise(noise) {
+		t.Fatalf("bootstrapDNS 行应被判定为噪音: %q", noise)
+	}
+	if isNetNoise("Funnel :443 监听已建立，反代 → http://127.0.0.1:12300") {
+		t.Fatal("正常日志不该被误杀")
+	}
+	if isNetNoise("") {
+		t.Fatal("空行不该被误杀")
+	}
+}
