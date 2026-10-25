@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- ui-version: 20261022-cq-local（电脑列表：本机行可读引导项/可发电源；提示对齐电脑页） -->
+<!-- ui-version: 20261025-cq-flex（电脑列表：表格改 flex 行；容器查询自适应：窄容器折行、表头收起） -->
 <script>try{window.ANYBOOT_UI_VERSION='20261023-gateway';}catch(e){}</script>
 <script src="qrcode.min.js"></script>
 <!-- AnyBoot 远程管理（server-hub）。
@@ -1065,31 +1065,49 @@
   }
   .cq-card {
     flex: 1; min-height: 0; overflow: auto; margin: 0 20px 20px;
-    /* 容器查询的基准：表格降级（藏列）跟随内容区实际宽度，而不是窗口宽度 */
+    /* 容器查询的基准：列宽折叠/换行跟随内容区实际宽度，而不是窗口宽度 */
     container-type: inline-size;
     border: 1px solid rgb(var(--line)); border-radius: 14px; background: rgb(var(--card));
     box-shadow: 0 8px 24px -12px rgb(0 0 0 / .28), 0 1px 3px rgb(0 0 0 / .05);
   }
-  .cq-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  .cq-table thead th {
-    position: sticky; top: 0; z-index: 2;
-    background: rgb(var(--elevate)); color: rgb(var(--fg-faint));
-    font-size: 11px; font-weight: 600; text-align: left; white-space: nowrap;
-    padding: 9px 12px; border-bottom: 1px solid rgb(var(--line));
+  /* ---- 列表主体：纯 flex 行（没有 table，列宽全靠 flex 基准 + 换行消化） ---- */
+  .cq-grid { display: flex; flex-direction: column; min-width: 0; }
+  .cq-rows { display: flex; flex-direction: column; min-width: 0; }
+  .cq-thead,
+  .cq-row {
+    display: flex; align-items: center; gap: 12px;
+    padding-left: 12px; padding-right: 12px; min-width: 0;
   }
-  .cq-table thead th.cq-t-right { text-align: right; }
+  .cq-thead {
+    position: sticky; top: 0; z-index: 2;
+    padding-top: 9px; padding-bottom: 9px;
+    background: rgb(var(--elevate)); color: rgb(var(--fg-faint));
+    font-size: 11px; font-weight: 600; white-space: nowrap;
+    border-bottom: 1px solid rgb(var(--line));
+  }
   .cq-th-sub { font-weight: 400; font-size: 10px; opacity: .8; margin-left: 4px; }
-  .cq-table tbody tr { border-bottom: 1px solid rgb(var(--line) / .6); }
-  .cq-table tbody tr:last-child { border-bottom: 0; }
-  .cq-table tbody tr:hover { background: rgb(var(--elevate) / .55); }
+  .cq-row {
+    padding-top: 10px; padding-bottom: 10px;
+    border-bottom: 1px solid rgb(var(--line) / .6);
+    cursor: pointer;
+  }
+  .cq-row:last-child { border-bottom: 0; }
+  .cq-row:hover { background: rgb(var(--elevate) / .55); }
   /* 选中（=当前电脑）：accent 底色 + 左侧色条，比 hover 明显一档 */
-  .cq-table tbody tr.cq-selected { background: rgb(var(--accent) / .10); box-shadow: inset 3px 0 0 rgb(var(--accent)); }
+  .cq-row.cq-selected { background: rgb(var(--accent) / .10); box-shadow: inset 3px 0 0 rgb(var(--accent)); }
+  /* 列：等比例 grow，电脑列基准最大；min-width:0 保证长名称能省略号 */
+  .cq-col { min-width: 0; }
+  .cq-col-dev { flex: 1 1 280px; }
+  .cq-col-st { flex: 0 0 132px; overflow: hidden; }
+  .cq-col-st .cq-st { max-width: 100%; }
+  .cq-col-st .cq-st small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cq-col-boot { flex: 1 1 190px; min-width: 120px; }
+  .cq-col-pwr { flex: 1 1 300px; min-width: 170px; }
+  .cq-col-more { flex: none; width: 26px; display: flex; justify-content: flex-end; }
   .cq-chip-cur {
     font-size: 10px; font-weight: 600; line-height: 1; padding: 2px 5px; border-radius: 5px; flex: none;
     color: rgb(var(--accent)); background: rgb(var(--accent) / .14); border: 1px solid rgb(var(--accent) / .3);
   }
-  .cq-table td { padding: 10px 12px; vertical-align: middle; }
-  .cq-table td.cq-t-right { text-align: right; }
   .cq-dev { display: flex; align-items: center; gap: 9px; min-width: 0; }
   .cq-dev-ico {
     width: 30px; height: 30px; flex: none; border-radius: 9px; display: grid; place-items: center;
@@ -1194,16 +1212,25 @@
   .cq-pwr-btn:hover:not(:disabled) { border-color: rgb(var(--accent)); color: rgb(var(--accent)); }
   .cq-pwr-btn.is-busy { color: transparent; position: relative; }
   .cq-pwr-btn.is-busy .hint { color: transparent; }
-  /* ---- 表格窄容器降级：拉小窗口时先藏「状态」列，再藏 rEFInd 列 ----
-     （不设 min-width，列靠降级 + 内容折行消化，绝不出横向滚动条；
-       藏列时 col 的内联宽度也要跟着清零，否则空列占位） */
-  @container (max-width: 820px) {
-    .cq-table th:nth-child(2), .cq-table td:nth-child(2) { display: none; }
-    .cq-table col:nth-child(2) { width: auto; }
-  }
-  @container (max-width: 580px) {
-    .cq-table th:nth-child(3), .cq-table td:nth-child(3) { display: none; }
-    .cq-table col:nth-child(3) { width: auto; }
+  /* ---- 窄容器自适应（容器查询跟着 .cq-card 实际宽度走，不跟窗口）----
+     ≥1000px：单行六列，列宽跟表头对齐；
+     <1000px：折行，电脑+状态+更多 占第一行，两个引导项与电源排后面，
+              宽度再小就由 flex-wrap 自己继续往下掉，绝不出横向滚动条；
+     折行后列不再对齐表头 → 表头隐藏，引导项靠 data-label 自带列名。 */
+  @container (max-width: 1000px) {
+    .cq-thead { display: none; }
+    .cq-row { flex-wrap: wrap; align-items: flex-start; row-gap: 10px; }
+    .cq-col-dev { order: 1; flex: 1 1 280px; align-self: center; }
+    .cq-col-st { order: 2; flex: 0 0 auto; align-self: center; }
+    .cq-col-more { order: 3; margin-left: auto; align-self: center; }
+    .cq-col-boot { order: 4; flex: 1 1 160px; min-width: 120px; }
+    .cq-col-pwr { order: 5; flex: 1 1 300px; min-width: 170px; }
+    /* 本机那条状态后面跟的地址在窄容器里省掉（上面标识行本来就有 IP） */
+    .cq-col-st small { display: none; }
+    .cq-col-boot::before {
+      content: attr(data-label); display: block; margin-bottom: 4px;
+      font-size: 10px; font-weight: 600; letter-spacing: .02em; color: rgb(var(--fg-faint));
+    }
   }
   .cq-pwr-btn.is-busy::after {
     content: ""; position: absolute; inset: 0; margin: auto; width: 12px; height: 12px;
@@ -1270,10 +1297,15 @@
     .gw-card-head { gap: 8px; }
     .dialog-body { padding: 14px 14px 8px; }
     .page-head { flex-wrap: wrap; }
-    /* 电脑列表页：筛选 tab / 统计卡防文字竖排；表格窄窗靠容器横滚（既有 overflow-x） */
+    /* 电脑列表页：筛选 tab / 统计卡防文字竖排；卡片外边距跟着页头收窄（列折行由容器查询管） */
     .cq-seg button, .cq-stat { white-space: nowrap; }
     .cq-seg { flex-wrap: wrap; }
     .cq-head, .cq-toolbar { padding-left: 12px; padding-right: 12px; }
+    .cq-search { flex: 1 1 100%; }
+    .cq-card { margin: 0 12px 12px; }
+    .cq-help { margin: 0 12px 12px; }
+    .cq-foot { padding: 0 12px 12px; }
+    .cq-thead, .cq-row { padding-left: 10px; padding-right: 10px; gap: 8px; }
   }
 </style>
 <style>
@@ -1917,25 +1949,19 @@
               <li>显示「未检测到」= 该机没部署对应引导管理器。</li>
             </ul>
           </div>
-          <!-- 电脑列表 -->
+          <!-- 电脑列表：flex 行（不再用 <table>）——宽容器单行六列，窄容器折成两行/竖排卡片 -->
           <div class="cq-card">
-            <table class="cq-table">
-              <colgroup>
-                <col style="width:27%"><col style="width:10%"><col style="width:19%">
-                <col style="width:19%"><col style="width:21%"><col style="width:56px">
-              </colgroup>
-              <thead>
-                <tr>
-                  <th scope="col">电脑</th>
-                  <th scope="col">状态</th>
-                  <th scope="col">rEFInd<span class="cq-th-sub">启动项</span></th>
-                  <th scope="col">GRUB<span class="cq-th-sub">启动项</span></th>
-                  <th scope="col">电源</th>
-                  <th scope="col" class="cq-t-right"><span class="cq-sr-only">更多</span></th>
-                </tr>
-              </thead>
-              <tbody id="cqTbody"></tbody>
-            </table>
+            <div class="cq-grid" role="table" aria-label="电脑列表">
+              <div class="cq-thead" role="row">
+                <div class="cq-col cq-col-dev" role="columnheader">电脑</div>
+                <div class="cq-col cq-col-st" role="columnheader">状态</div>
+                <div class="cq-col cq-col-boot" role="columnheader">rEFInd<span class="cq-th-sub">启动项</span></div>
+                <div class="cq-col cq-col-boot" role="columnheader">GRUB<span class="cq-th-sub">启动项</span></div>
+                <div class="cq-col cq-col-pwr" role="columnheader">电源</div>
+                <div class="cq-col cq-col-more" role="columnheader"><span class="cq-sr-only">更多</span></div>
+              </div>
+              <div class="cq-rows" id="cqTbody" role="rowgroup"></div>
+            </div>
             <div class="cq-empty" id="cqEmpty" hidden>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
               <div>没有匹配的电脑</div>
@@ -5804,15 +5830,19 @@
       .catch(function (error) { toast('删除失败：' + error, 'bad'); });
   }
 
-  /** 一行：电脑 / 状态 / rEFInd / GRUB / 电源 / 更多 */
+  /** 一行（flex）：电脑 / 状态 / rEFInd / GRUB / 电源 / 更多 —— 与表头同一套 cq-col-* 列类 */
   function cqRowEl(row) {
-    const tr = document.createElement('tr');
+    const tr = document.createElement('div');
+    tr.className = 'cq-row';
+    tr.setAttribute('role', 'row');
     tr.dataset.rid = row.rid;
     const isSelected = activeRemote === row.rid;
     if (isSelected) tr.classList.add('cq-selected');
 
     // ① 电脑
-    const tdDev = document.createElement('td');
+    const tdDev = document.createElement('div');
+    tdDev.className = 'cq-col cq-col-dev';
+    tdDev.setAttribute('role', 'cell');
     const dev = document.createElement('div');
     dev.className = 'cq-dev';
     const ico = document.createElement('div');
@@ -5924,20 +5954,30 @@
     tr.appendChild(tdDev);
 
     // ② 状态
-    const tdSt = document.createElement('td');
+    const tdSt = document.createElement('div');
+    tdSt.className = 'cq-col cq-col-st';
+    tdSt.setAttribute('role', 'cell');
     tdSt.appendChild(cqStateCell(row));
     tr.appendChild(tdSt);
 
-    // ③④ 引导项
-    const tdRefind = document.createElement('td');
+    // ③④ 引导项（窄容器折行时靠 data-label 自带列名）
+    const tdRefind = document.createElement('div');
+    tdRefind.className = 'cq-col cq-col-boot';
+    tdRefind.setAttribute('role', 'cell');
+    tdRefind.dataset.label = 'rEFInd 启动项';
     tdRefind.appendChild(cqBootCell(row, 'refind'));
     tr.appendChild(tdRefind);
-    const tdGrub = document.createElement('td');
+    const tdGrub = document.createElement('div');
+    tdGrub.className = 'cq-col cq-col-boot';
+    tdGrub.setAttribute('role', 'cell');
+    tdGrub.dataset.label = 'GRUB 启动项';
     tdGrub.appendChild(cqBootCell(row, 'grub'));
     tr.appendChild(tdGrub);
 
     // ⑤ 电源（按钮 = 图标+标签+提示小字，对齐移动端 PowerButton / powerHint）
-    const tdPwr = document.createElement('td');
+    const tdPwr = document.createElement('div');
+    tdPwr.className = 'cq-col cq-col-pwr';
+    tdPwr.setAttribute('role', 'cell');
     const pwr = document.createElement('div');
     pwr.className = 'cq-pwr';
     const pwrHints = (function () {
@@ -5983,8 +6023,9 @@
     tr.appendChild(tdPwr);
 
     // ⑥ 更多
-    const tdMore = document.createElement('td');
-    tdMore.className = 'cq-t-right';
+    const tdMore = document.createElement('div');
+    tdMore.className = 'cq-col cq-col-more';
+    tdMore.setAttribute('role', 'cell');
     const more = document.createElement('button');
     more.type = 'button';
     more.className = 'cq-more';
@@ -5997,7 +6038,7 @@
       activeRemote = row.rid;
       cqRenderRows();
       // 重建后 old `more` 已脱离文档（getBoundingClientRect 全 0），必须重新取新行里的锚点
-      const fresh = document.querySelector('#cqTbody tr[data-rid="' + row.rid + '"] .cq-more');
+      const fresh = document.querySelector('#cqTbody .cq-row[data-rid="' + row.rid + '"] .cq-more');
       cqRowMenu(row, fresh || more);
     });
     tdMore.appendChild(more);
