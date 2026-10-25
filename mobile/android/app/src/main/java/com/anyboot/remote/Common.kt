@@ -471,13 +471,13 @@ internal fun loadSysInfoRows(profile: ServerProfile, lanEndpoint: () -> String):
             lastError = error.message ?: ""
         }
     }
+    // 远程兜底：逐条配对试，各用各的令牌（一台机器上 cloudflare 与 tsnet 是两个令牌）
     for (candidate in profile.routeCandidates()) {
-        val kind = candidate[0]
-        if (kind == ServerProfile.ROUTE_LAN || kind == ServerProfile.ROUTE_JUMP) continue
-        val origin = candidate[1]
+        if (!candidate.isRemote) continue
+        val origin = candidate.origin
         if (origin.isEmpty()) continue
         try {
-            return fetchSysInfoRows(origin, profile.remoteToken)
+            return fetchSysInfoRows(origin, candidate.token)
         } catch (error: Exception) {
             lastError = error.message ?: ""
         }

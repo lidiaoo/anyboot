@@ -146,19 +146,6 @@ final class ServerStore {
         return null;
     }
 
-    /** 已有的分组名（给「分组」输入框做候选） */
-    static List<String> knownGroups(List<ServerProfile> list) {
-        List<String> groups = new ArrayList<>();
-        for (ServerProfile profile : list) {
-            String group = profile.group == null ? "" : profile.group.trim();
-            if (!group.isEmpty() && !groups.contains(group)) {
-                groups.add(group);
-            }
-        }
-        Collections.sort(groups, String::compareToIgnoreCase);
-        return groups;
-    }
-
     private static String value(String raw) {
         return raw == null ? "" : raw;
     }

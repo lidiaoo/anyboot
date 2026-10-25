@@ -1972,6 +1972,10 @@ pub(crate) fn normalize_probe_mode(mode: &str) -> &'static str {
 ///
 /// `probe_mode` = **多网卡探测**（同一通道内多个地址之间）；`route_probe_mode` =
 /// **连接优先级的探测方式**（六个通道之间）。两个粒度各一个参数，别混。
+///
+/// `block_probe_modes`：**区块内部**策略（key = 区块 id）。配对通道（tunnel / ts /
+/// funnel / tsnet）的组内策略优先听它，没配才落 `probe_mode` —— 用户在前端把
+/// 「ts 区块串行」调了，后端必须照做，否则那条设置等于不存在。
 #[tauri::command]
 pub async fn remote_test(
     addresses: Vec<String>,
@@ -1982,17 +1986,19 @@ pub async fn remote_test(
     candidates: Option<Vec<RouteTestCandidate>>,
     probe_timeout_ms: Option<u64>,
     route_timeouts_ms: Option<std::collections::BTreeMap<String, u64>>,
+    block_probe_modes: Option<std::collections::BTreeMap<String, String>>,
 ) -> RemoteTestResult {
     let default_ms = clamp_probe_timeout_ms(probe_timeout_ms.unwrap_or(0));
     let timeout = Duration::from_millis(default_ms);
     let timeouts = normalize_route_timeouts(&route_timeouts_ms.unwrap_or_default());
+    let block_modes = normalize_block_probe_modes(&block_probe_modes.unwrap_or_default());
     // 主路径：按连接策略给出的显式候选（六通道，顺序 = 用户排的优先级）。
     // 外层（通道之间）听 route_probe_mode，内层（同通道多地址）听 probe_mode —— 全部通道都参与。
     if let Some(list) = candidates.filter(|items| !items.is_empty()) {
         let outer = normalize_probe_mode(route_probe_mode.as_deref().unwrap_or(""));
         let inner = normalize_probe_mode(&probe_mode);
         return tauri::async_runtime::spawn_blocking(move || {
-            probe_candidates_blocking(list, outer, inner, &timeouts, default_ms)
+            probe_candidates_blocking(list, outer, inner, &timeouts, default_ms, &block_modes)
         })
         .await
         .unwrap_or_else(|error| RemoteTestResult {
@@ -2049,6 +2055,31 @@ pub(crate) fn normalize_route_timeouts(
 
 fn serde_default_probe_timeout_ms() -> u64 {
     DEFAULT_PROBE_TIMEOUT_MS
+}
+
+/// 区块内部策略表的清洗：key 只留三个区块 id（通道 id 传进来也没用，直接丢），
+/// 值归一到三种合法取值（非法值当没设，回落外层/多网卡策略）。
+///
+/// 与 `route_timeouts_ms`（通道 id）/ `block_timeouts_ms`（区块 id）分属三个 key 空间，
+/// 别混在一张表里 —— 同一个字符串在两套空间里含义不同。
+fn normalize_block_probe_modes(
+    raw: &std::collections::BTreeMap<String, String>,
+) -> std::collections::BTreeMap<String, String> {
+    let mut out = std::collections::BTreeMap::new();
+    for (id, value) in raw {
+        let key = id.trim().to_lowercase();
+        if !BLOCK_IDS.contains(&key.as_str()) {
+            continue;
+        }
+        // 只有三个合法取值才算「设了」；空串 / 拼错的值一律当没设（回落多网卡策略），
+        // 别把拼错的值悄悄变成 parallel_first 存进去
+        let text = value.trim();
+        if text != "parallel_first" && text != "parallel_all" && text != "serial" {
+            continue;
+        }
+        out.insert(key, text.to_string());
+    }
+    out
 }
 
 /// 配对列表归一：逐条 trim / 判型 / 挖 token / 补 id → 按幂等键去重（**后来的覆盖前面的**，
@@ -2146,16 +2177,18 @@ fn probe_one(kind: &str, origin: &str, timeout: Duration) -> Result<ProbePayload
     })
 }
 
-/// **按连接策略探测**（电脑页 / 电脑列表 / 编辑弹窗「测试」共用）。**两层策略**：
+/// **按连接策略探测**（电脑页 / 电脑列表 / 编辑弹窗「测试」共用）。**三级策略**：
 ///
 /// - 外层 `route_mode`：**连接优先级整体的探测方式**，管「六个通道之间」怎么试 ——
 ///   `parallel_first`（全部通道同时发出，谁先成功用谁）/ `parallel_all`（等全部返回，
 ///   逐行报每个通道）/ `serial`（按优先级逐个通道试，第一个通就停）；
-/// - 内层 `address_mode`：**多网卡探测**，管「同一个通道里的多个地址」（实际只有局域网
+/// - 区块内层 `block_modes`：**区块内部策略**（key = cloudflare / ts / tsnet），管「同一
+///   区块里的多条配对之间」怎么试；没配就落 `address_mode`；
+/// - `address_mode`：**多网卡探测**，管「同一个通道里的多个地址」（实际只有局域网
 ///   会配多个）—— 同样是上面三种取值。
 ///
-/// 两层是独立开关（用户在编辑框里分别选），组合起来的意思很清楚：
-/// 「通道之间并发、每个通道内部的多个网卡按顺序试」这种搭配是合法且常用的。
+/// 三层是独立开关（用户在编辑框里分别选），组合起来的意思很清楚：
+/// 「通道之间并发、每个区块内部按顺序试」这种搭配是合法且常用的。
 ///
 /// 所有探测都在 [`crate::probe_pool`] 里跑（专用固定线程池），不再占用 Tauri 的
 /// 全局阻塞池 —— 用户把超时调大 + 并发全部时，界面其它命令不会被拖住。
@@ -2165,6 +2198,7 @@ fn probe_candidates_blocking(
     address_mode: &str,
     timeouts: &std::collections::BTreeMap<String, u64>,
     default_timeout_ms: u64,
+    block_modes: &std::collections::BTreeMap<String, String>,
 ) -> RemoteTestResult {
     let list: Vec<RouteTestCandidate> = candidates
         .into_iter()
@@ -2200,16 +2234,15 @@ fn probe_candidates_blocking(
             cand
         })
         .collect();
-    let groups = group_candidates(&list);
+    let groups = group_candidates(&list, block_modes, address_mode);
     let route_mode = normalize_probe_mode(route_mode);
-    let address_mode = normalize_probe_mode(address_mode);
-    // 兜底时限：按**最坏路径**估（内层按串行算，外层串行就累加、并发就取最大），
+    // 兜底时限：按**最坏路径**估（内层按各区块自己的策略算，外层串行就累加、并发就取最大），
     // 每个探活自己已有 IO 超时，这里只防线程池排队，宽一点不会误杀
     let group_worst = |group: &ProbeGroup| {
         let secs: Vec<Duration> = group.items.iter()
             .map(|item| Duration::from_millis(item.timeout_ms))
             .collect();
-        if address_mode == "serial" {
+        if group.inner_mode == "serial" {
             secs.iter().copied().sum()
         } else {
             secs.iter().copied().max().unwrap_or_default()
@@ -2229,7 +2262,7 @@ fn probe_candidates_blocking(
         // 外层串行：一个通道一个通道地试，某个通道命中就不再往下走
         let mut hits: Vec<ProbeHit> = Vec::new();
         for group in &groups {
-            let group_hits = probe_group_blocking(group, address_mode);
+            let group_hits = probe_group_blocking(group);
             let ok = group_hits.iter().any(|hit| hit.outcome.is_ok());
             hits.extend(group_hits);
             if ok {
@@ -2261,10 +2294,10 @@ fn probe_candidates_blocking(
         let sender = sender.clone();
         let kind = group.kind.clone();
         let items = group.items.clone();
-        let inner = address_mode.to_string();
+        let inner = group.inner_mode.clone();
         crate::probe_pool::pool().execute(Box::new(move || {
-            let group = ProbeGroup { kind, items };
-            let hits = probe_group_blocking(&group, &inner);
+            let group = ProbeGroup { kind, inner_mode: inner, items };
+            let hits = probe_group_blocking(&group);
             // 接收端可能已经不要了（并发首个已经胜出）——发送失败静默丢弃
             let _ = sender.send(hits);
         }));
@@ -2318,12 +2351,23 @@ fn probe_candidates_blocking(
 /// 一个通道的候选项分组：同一个 kind 的多条归一组（配对多条目之后，远程通道也会有多条）
 struct ProbeGroup {
     kind: String,
+    /// 组内策略：配对通道听 `block_probe_mode[区块]`，没配（或 lan/jump）落多网卡策略。
+    /// 在这一层定好，后面每个探测任务只认自己的那一份 —— 免得一个全局变量管所有区块。
+    inner_mode: String,
     items: Vec<RouteTestCandidate>,
 }
 
 /// 按 kind 分组，**保持候选出现顺序**（组顺序 = 用户在优先级表里排的顺序；
 /// 组内顺序 = 配对在区块里的顺序）。同 kind 同 origin 只留第一条。
-fn group_candidates(list: &[RouteTestCandidate]) -> Vec<ProbeGroup> {
+///
+/// 组内策略在这里定：`block_probe_mode` 是**区块**粒度的设置，而分组是**通道**粒度的，
+/// 所以要按 `block_of_route(kind)` 回查 —— ts 区块配的「串行」对 ts 与 funnel 两个
+/// 通道组都生效（它们本来就是同一区块）。
+fn group_candidates(
+    list: &[RouteTestCandidate],
+    block_modes: &std::collections::BTreeMap<String, String>,
+    address_mode: &str,
+) -> Vec<ProbeGroup> {
     let mut groups: Vec<ProbeGroup> = Vec::new();
     for cand in list {
         match groups.iter_mut().find(|group| group.kind == cand.kind) {
@@ -2332,21 +2376,27 @@ fn group_candidates(list: &[RouteTestCandidate]) -> Vec<ProbeGroup> {
                     group.items.push(cand.clone());
                 }
             }
-            None => groups.push(ProbeGroup {
-                kind: cand.kind.clone(),
-                items: vec![cand.clone()],
-            }),
+            None => {
+                let inner = block_of_route(&cand.kind)
+                    .and_then(|block| block_modes.get(block).cloned())
+                    .unwrap_or_else(|| address_mode.to_string());
+                groups.push(ProbeGroup {
+                    kind: cand.kind.clone(),
+                    inner_mode: normalize_probe_mode(&inner).to_string(),
+                    items: vec![cand.clone()],
+                });
+            }
         }
     }
     groups
 }
 
-/// 探一个通道（组内多条按**多网卡探测**方式处理），返回按 items 顺序排列的命中列表。
+/// 探一个通道（组内多条按**这条通道所在区块的策略**处理），返回按 items 顺序排列的命中列表。
 ///
 /// **每条用自己的超时**：同一个区块里 `100.x` 直连几十毫秒就回、`*.ts.net` 走中继
 /// 可能要好几秒，共用一个超时必然一边误判失败一边白等。
 /// 未探测的条目也会补一行（「同通道已命中/未探测」），这样逐行结果永远和配对列表对得上。
-fn probe_group_blocking(group: &ProbeGroup, address_mode: &str) -> Vec<ProbeHit> {
+fn probe_group_blocking(group: &ProbeGroup) -> Vec<ProbeHit> {
     let remote = is_remote_kind(&group.kind);
     let single = |item: &RouteTestCandidate, outcome: Result<ProbePayload, String>| ProbeHit {
         kind: group.kind.clone(),
@@ -2360,7 +2410,9 @@ fn probe_group_blocking(group: &ProbeGroup, address_mode: &str) -> Vec<ProbeHit>
         let item = &group.items[0];
         return vec![single(item, probe_one(&group.kind, &item.origin, timeout_of(item)))];
     }
-    let mode = normalize_probe_mode(address_mode);
+    // 组内策略在分组时就定好了（见 `group_candidates`）：配对通道听区块设置，
+    // lan / jump 听多网卡设置
+    let mode = group.inner_mode.as_str();
     let mut hits: Vec<ProbeHit> = Vec::with_capacity(group.items.len());
     if mode == "serial" {
         // 内层串行：按用户排的顺序逐个试，第一个通就停
@@ -3726,6 +3778,7 @@ fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Result<RemoteB
             &normalize_probe_mode(&server.probe_mode),
             &server.route_timeouts_ms,
             server.probe_timeout_ms,
+            &server.block_probe_mode,
         );
         if outcome.ok {
             winner = Some((
@@ -3914,6 +3967,11 @@ mod tests {
 
     /// 测试用：一个通道都没单独设超时（所有通道都回落默认值）
     fn no_route_timeouts() -> std::collections::BTreeMap<String, u64> {
+        std::collections::BTreeMap::new()
+    }
+
+    /// 测试用：三个区块都没单独设策略（全部落多网卡策略）
+    fn no_block_modes() -> std::collections::BTreeMap<String, String> {
         std::collections::BTreeMap::new()
     }
 
@@ -4937,7 +4995,7 @@ mod tests {
             RouteTestCandidate { kind: "lan".into(), origin: format!("127.0.0.1:{port}"), ..Default::default() },
             RouteTestCandidate { kind: "lan".into(), origin: "127.0.0.1:2".into(), ..Default::default() },
         ];
-        let result = probe_candidates_blocking(cands, "parallel_first", "serial", &no_route_timeouts(), DEFAULT_PROBE_TIMEOUT_MS);
+        let result = probe_candidates_blocking(cands, "parallel_first", "serial", &no_route_timeouts(), DEFAULT_PROBE_TIMEOUT_MS, &no_block_modes());
         assert!(result.ok, "串行应探到活着的那条：{}", result.error);
         assert_eq!(result.addr, format!("127.0.0.1:{port}"));
         assert_eq!(result.os, "windows", "赢家要带回系统族");
@@ -4958,7 +5016,7 @@ mod tests {
             RouteTestCandidate { kind: "tunnel".into(), origin: format!("http://127.0.0.1:{tunnel_port}"), ..Default::default() },
             RouteTestCandidate { kind: "ts".into(), origin: format!("http://127.0.0.1:{lan_port}"), ..Default::default() },
         ];
-        let result = probe_candidates_blocking(cands, "serial", "parallel_first", &no_route_timeouts(), DEFAULT_PROBE_TIMEOUT_MS);
+        let result = probe_candidates_blocking(cands, "serial", "parallel_first", &no_route_timeouts(), DEFAULT_PROBE_TIMEOUT_MS, &no_block_modes());
         assert!(result.ok, "外层串行应停在隧道通道：{}", result.error);
         assert_eq!(result.kind, "tunnel");
         // 三个通道各一行，但第三个（ts）连探都没探
@@ -4979,7 +5037,7 @@ mod tests {
             RouteTestCandidate { kind: "lan".into(), origin: "127.0.0.1:1".into(), ..Default::default() },
             RouteTestCandidate { kind: "tunnel".into(), origin: format!("http://127.0.0.1:{port}"), ..Default::default() },
         ];
-        let result = probe_candidates_blocking(cands, "parallel_all", "parallel_first", &no_route_timeouts(), DEFAULT_PROBE_TIMEOUT_MS);
+        let result = probe_candidates_blocking(cands, "parallel_all", "parallel_first", &no_route_timeouts(), DEFAULT_PROBE_TIMEOUT_MS, &no_block_modes());
         assert!(result.ok, "并发全部应探到远程通道：{}", result.error);
         assert!(result.remote, "赢家是远程通道");
         assert_eq!(result.kind, "tunnel");
@@ -4995,7 +5053,7 @@ mod tests {
             RouteTestCandidate { kind: "lan".into(), origin: "127.0.0.1:1".into(), ..Default::default() },
             RouteTestCandidate { kind: "lan".into(), origin: format!("127.0.0.1:{port}"), ..Default::default() },
         ];
-        let result = probe_candidates_blocking(cands, "parallel_first", "parallel_first", &no_route_timeouts(), DEFAULT_PROBE_TIMEOUT_MS);
+        let result = probe_candidates_blocking(cands, "parallel_first", "parallel_first", &no_route_timeouts(), DEFAULT_PROBE_TIMEOUT_MS, &no_block_modes());
         assert!(result.ok);
         assert_eq!(result.os, "macos");
     }
@@ -5006,7 +5064,7 @@ mod tests {
             RouteTestCandidate { kind: "lan".into(), origin: "127.0.0.1:1".into(), ..Default::default() },
             RouteTestCandidate { kind: "ts".into(), origin: "http://127.0.0.1:2".into(), ..Default::default() },
         ];
-        let result = probe_candidates_blocking(cands, "parallel_all", "parallel_first", &no_route_timeouts(), 300);
+        let result = probe_candidates_blocking(cands, "parallel_all", "parallel_first", &no_route_timeouts(), 300, &no_block_modes());
         assert!(!result.ok);
         assert_eq!(result.results.len(), 2);
         assert!(result.error.contains("所有通道都不通"), "错误文案：{}", result.error);
@@ -5014,7 +5072,7 @@ mod tests {
 
     #[test]
     fn probe_candidates_empty_is_an_error_not_a_panic() {
-        let result = probe_candidates_blocking(Vec::new(), "parallel_first", "parallel_first", &no_route_timeouts(), DEFAULT_PROBE_TIMEOUT_MS);
+        let result = probe_candidates_blocking(Vec::new(), "parallel_first", "parallel_first", &no_route_timeouts(), DEFAULT_PROBE_TIMEOUT_MS, &no_block_modes());
         assert!(!result.ok);
         assert!(result.error.contains("没有可探测的通道"));
     }
@@ -5090,7 +5148,7 @@ mod tests {
             RouteTestCandidate { kind: "lan".into(), origin: format!("127.0.0.1:{port}"), ..Default::default() },
             RouteTestCandidate { kind: "ts".into(), origin: format!("http://127.0.0.1:{port}"), ..Default::default() },
         ];
-        let result = probe_candidates_blocking(cands, "parallel_all", "parallel_first", &timeouts, 2_000);
+        let result = probe_candidates_blocking(cands, "parallel_all", "parallel_first", &timeouts, 2_000, &no_block_modes());
         assert!(result.ok, "3 秒超时的通道要能等到 700ms 的响应：{}", result.error);
         assert_eq!(result.kind, "ts", "赢家应该是给足超时的那条");
         assert_eq!(result.results.len(), 2);
@@ -5126,6 +5184,7 @@ mod tests {
             "parallel_first",
             &std::collections::BTreeMap::new(),
             2_000,
+            &no_block_modes(),
         );
         assert!(result.ok, "长超时那条要能等到 700ms 的响应：{}", result.error);
         assert_eq!(result.results.len(), 2);
@@ -5140,7 +5199,9 @@ mod tests {
 
     #[test]
     fn probe_block_serial_respects_pair_order() {
-        // 块内串行：第一条就通 → 后面的标「未探测」（逐行仍要齐全）
+        // 块内串行：第一条就通 → 后面的标「未探测」（逐行仍要齐全）。
+        // 策略来自 **block_probe_mode[cloudflare]**，不是多网卡设置 —— 多网卡这里显式给
+        // parallel_first，串行必须照样生效，否则等于「区块策略没接线」。
         let port = spawn_slow_health_stub(Duration::from_millis(0), "macos");
         let dead = "http://127.0.0.1:1";
         let cands = vec![
@@ -5157,12 +5218,15 @@ mod tests {
                 pair_id: "p2".into(),
             },
         ];
+        let mut blocks = std::collections::BTreeMap::new();
+        blocks.insert("cloudflare".to_string(), "serial".to_string());
         let result = probe_candidates_blocking(
             cands,
             "parallel_all",
-            "serial",
+            "parallel_first",
             &std::collections::BTreeMap::new(),
             2_000,
+            &blocks,
         );
         assert!(result.ok);
         assert_eq!(result.results.len(), 2);
@@ -5170,6 +5234,40 @@ mod tests {
         assert_eq!(result.results[0].pair_id, "p1");
         assert!(!result.results[1].ok, "第一条已命中，第二条不该被探");
         assert!(result.results[1].error.contains("未探测"));
+    }
+
+    #[test]
+    fn block_probe_mode_applies_by_block_not_by_channel() {
+        // 区块粒度的设置落到通道组上：ts 配串行 → ts 与 funnel 两组都串行；
+        // cloudflare 没配 → 落多网卡设置（parallel_all）；lan 永远听多网卡设置。
+        let mut blocks = std::collections::BTreeMap::new();
+        blocks.insert("ts".to_string(), "serial".to_string());
+        let list = vec![
+            RouteTestCandidate { kind: "tunnel".into(), origin: "https://a.example.com".into(), timeout_ms: 1_000, pair_id: "p1".into() },
+            RouteTestCandidate { kind: "ts".into(), origin: "http://100.64.0.2:12300".into(), timeout_ms: 1_000, pair_id: "p2".into() },
+            RouteTestCandidate { kind: "funnel".into(), origin: "https://b.ts.net".into(), timeout_ms: 1_000, pair_id: "p3".into() },
+            RouteTestCandidate { kind: "lan".into(), origin: "192.168.1.9:12300".into(), timeout_ms: 1_000, pair_id: String::new() },
+        ];
+        let groups = group_candidates(&list, &blocks, "parallel_all");
+        assert_eq!(groups.len(), 4, "四个通道各一组");
+        assert_eq!(groups[0].inner_mode, "parallel_all", "cloudflare 没配 → 多网卡设置");
+        assert_eq!(groups[1].inner_mode, "serial", "ts 区块配了串行");
+        assert_eq!(groups[2].inner_mode, "serial", "funnel 与 ts 同区块，同一份设置");
+        assert_eq!(groups[3].inner_mode, "parallel_all", "lan 不属于任何区块");
+    }
+
+    #[test]
+    fn block_probe_modes_drop_illegal_keys_and_values() {
+        // 通道 id 当区块 key 传进来、拼错的值、空值 —— 全部丢弃（回落多网卡设置），
+        // 不能把拼错的写成 parallel_first 悄悄存下来
+        let mut raw = std::collections::BTreeMap::new();
+        raw.insert("tunnel".to_string(), "serial".to_string());
+        raw.insert("TS".to_string(), " parallel_all ".to_string());
+        raw.insert("tsnet".to_string(), "paralel_all".to_string());
+        raw.insert("cloudflare".to_string(), "".to_string());
+        let modes = normalize_block_probe_modes(&raw);
+        assert_eq!(modes.len(), 1);
+        assert_eq!(modes.get("ts").map(String::as_str), Some("parallel_all"));
     }
 
     fn route_test_server() -> RemoteServer {

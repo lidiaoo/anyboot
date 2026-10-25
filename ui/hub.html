@@ -1609,6 +1609,59 @@
   }
   .rp-btn:hover { background: rgb(var(--card)); color: rgb(var(--fg)); }
   .rp-btn:disabled { opacity: .3; cursor: not-allowed; }
+  /* ---- 远程接入 · 三区块配对列表（编辑弹窗 · 远程接入） ---- */
+  .pair-blocks { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+  .pb-block {
+    border: 1px solid rgb(var(--line)); border-radius: 10px;
+    background: rgb(var(--card)); padding: 8px 10px 10px;
+  }
+  .pb-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .pb-title { font-weight: 600; font-size: 12.5px; }
+  .pb-count { font-size: 11px; color: rgb(var(--fg-faint)); }
+  .pb-add {
+    margin-left: auto; border: 1px dashed rgb(var(--line)); background: transparent;
+    color: rgb(var(--fg-faint)); border-radius: 7px; padding: 3px 8px;
+    font-size: 11px; cursor: pointer; flex: none;
+  }
+  .pb-add:hover { color: rgb(var(--fg)); border-color: rgb(var(--accent)); }
+  .pb-empty { font-size: 11px; color: rgb(var(--fg-faint)); padding: 2px 0 0; }
+  .pb-row {
+    display: flex; align-items: center; gap: 6px; padding: 5px 0;
+    border-top: 1px dashed rgb(var(--line));
+  }
+  .pb-row:first-of-type { border-top: 0; }
+  .pb-row.pb-off { opacity: .55; }
+  .pb-addr {
+    flex: 1; min-width: 90px; padding: 4px 7px; font-size: 11.5px;
+    border: 1px solid rgb(var(--line)); border-radius: 7px;
+    background: rgb(var(--elevate)); color: rgb(var(--fg)); outline: none;
+  }
+  .pb-addr:focus, .pb-note:focus { border-color: rgb(var(--accent)); }
+  .pb-note {
+    flex: none; width: 84px; padding: 4px 7px; font-size: 11px;
+    border: 1px solid rgb(var(--line)); border-radius: 7px;
+    background: rgb(var(--elevate)); color: rgb(var(--fg)); outline: none;
+  }
+  .pb-lane {
+    flex: none; font-size: 10px; padding: 2px 5px; border-radius: 99px;
+    background: rgb(var(--accent) / .14); color: rgb(var(--accent));
+  }
+  .pb-src { flex: none; font-size: 10.5px; color: rgb(var(--fg-faint)); max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pb-src.pb-warn { color: rgb(var(--warn)); }
+  .block-policy { display: flex; flex-direction: column; gap: 6px; }
+  .bp-row {
+    display: flex; align-items: center; gap: 8px;
+    border: 1px solid rgb(var(--line)); border-radius: 10px;
+    background: rgb(var(--elevate)); padding: 6px 10px;
+  }
+  .bp-name { font-weight: 600; font-size: 12px; flex: none; width: 96px; }
+  .bp-seg { display: flex; gap: 4px; flex: 1; }
+  .bp-timeout {
+    flex: none; width: 66px; padding: 4px 6px; text-align: center;
+    border: 1px solid rgb(var(--line)); border-radius: 7px;
+    background: rgb(var(--card)); color: rgb(var(--fg)); font-size: 11px; outline: none;
+  }
+  .bp-timeout:focus { border-color: rgb(var(--accent)); }
   .s-badge {
     margin-left:auto; font-size:10px; line-height:1; padding:3px 6px; border-radius:99px;
     background:rgb(var(--warn) / .15); color:rgb(var(--warn)); font-weight:600; flex:none;
@@ -1745,6 +1798,9 @@
     background:rgb(var(--accent) / .14); color:rgb(var(--accent)); font-weight:600;
   }
   .cq-remote-expired, .cq-remote-expired .cq-dev-mac { color:rgb(var(--warn)) !important; }
+  /* 配对行尾的来源（host · os）与「隧道共用」警示，同移动端 PairRow 语汇 */
+  .cq-dev-src { color:rgb(var(--fg-faint)); }
+  .cq-dev-share { color:rgb(var(--warn)) !important; }
 
   /* ---- 远程接入分页标签 + Tailscale 卡窄窗自适应（放末尾覆盖基础规则） ---- */
   @media (max-width: 720px) {
@@ -2058,13 +2114,9 @@
             <div class="dialog-body" data-page-node-id="rsEditBody1">
               <!-- A 基本 -->
               <div class="field-row">
-                <div class="field" data-page-node-id="rsFieldGroup1">
-                  <label for="rsGroup">分组</label>
-                  <input id="rsGroup" placeholder="例如：书房台式机（可留空）">
-                </div>
                 <div class="field" data-page-node-id="rsFieldName1">
                   <label for="rsName">电脑名称</label>
-                  <input id="rsName" placeholder="例如：有线网卡 / 5G WiFi">
+                  <input id="rsName" placeholder="例如：书房台式机（留空用主机名兜底）">
                 </div>
               </div>
               <!-- B 局域网地址 -->
@@ -2088,53 +2140,22 @@
                   没写端口按 12300 补。地址已存在时只把 MAC 追加进去；点 MAC 标签可以单独删掉那块网卡。
                 </p>
               </div>
-              <!-- C 远程接入：智能粘贴 + 双槽 + 令牌回显 -->
+              <!-- C 远程接入：三区块 · 每条配对一行 -->
               <div class="field" data-page-node-id="rsFieldRemote1">
-                <label for="rsRemote">远程接入（粘贴配对码 / 隧道 / Tailscale 地址，自动分拣到下面的槽）</label>
-                <textarea id="rsRemote" rows="2" class="mono" spellcheck="false" placeholder="anyboot://pair?gateway=…&amp;tunnel=…&amp;token=…&#10;https://xxx.trycloudflare.com / http://100.x.y.z:12300 / https://xxx.ts.net"></textarea>
+                <label for="rsRemote">远程接入（粘贴配对码 / 地址，按类型自动归入下面的区块）</label>
+                <textarea id="rsRemote" rows="2" class="mono" spellcheck="false" placeholder="anyboot://pair?v=2&amp;mid=…&amp;type=cloudflare&amp;tunnel=…&amp;token=…&#10;https://xxx.trycloudflare.com / http://100.x.y.z:12300 / https://xxx.ts.net"></textarea>
                 <div class="addr-quick-actions">
-                  <button type="button" class="btn small" id="rsRemoteSplit">识别并分拣</button>
+                  <button type="button" class="btn small" id="rsRemoteSplit">识别并加入</button>
                   <button type="button" class="btn small" id="rsRemoteGet">从对方获取</button>
-                  <button type="button" class="btn small" id="rsRemoteClear">清除</button>
+                  <button type="button" class="btn small" id="rsRemoteClear">全部清空</button>
                   <span class="addr-quick-hint" id="rsRemoteHint"></span>
                 </div>
-                <div class="slot" id="rsSlotTunnel">
-                  <span class="slot-chip tunnel">Cloudflare 隧道</span>
-                  <span class="mono ph" id="rsSlotTunnelAddr">空</span>
-                  <span class="slot-x" id="rsSlotTunnelX" title="清除此槽" hidden>✕</span>
-                </div>
-                <div class="slot" id="rsSlotTs">
-                  <span class="slot-chip ts">Tailscale 直连</span>
-                  <span class="mono ph" id="rsSlotTsAddr">空</span>
-                  <span class="slot-x" id="rsSlotTsX" title="清除此槽" hidden>✕</span>
-                </div>
-                <div class="slot" id="rsSlotFunnel">
-                  <span class="slot-chip ts">Tailscale Funnel</span>
-                  <span class="mono ph" id="rsSlotFunnelAddr">空</span>
-                  <span class="slot-x" id="rsSlotFunnelX" title="清除此槽" hidden>✕</span>
-                </div>
-                <div class="slot" id="rsSlotTsnet">
-                  <span class="slot-chip ts">Tailscale Funnel（内建）</span>
-                  <span class="mono ph" id="rsSlotTsnetAddr">空</span>
-                  <span class="slot-x" id="rsSlotTsnetX" title="清除此槽" hidden>✕</span>
-                </div>
+                <div class="pair-blocks" id="rsPairsBox"></div>
                 <p class="field-hint" style="margin:6px 0 0">
-                  四槽各自独立保存，配一个不会顶掉另一个：Cloudflare 隧道 / Tailscale 直连（100.x）/
-                  系统 Funnel（电脑自己装了 Tailscale）/ 内置 Funnel（AnyBoot 自带引擎）。后两者都是
-                  *.ts.net，但来源不同，别混着配。局域网地址优先使用，全连不上才走远程。
+                  三个区块各自可挂多条，全部保留、各自探测、各自超时 —— 一台电脑装了几个系统就配几条。
+                  同一系统同一区块再配一次 = <b>更新那一行</b>（按 mid + 区块判定），不会多出一条。
+                  局域网地址优先使用，全连不上才走这里。
                 </p>
-                <div class="token-row" id="rsRemoteTokenRow" hidden>
-                  <span class="slot-chip">配对令牌</span>
-                  <span class="mono masked" id="rsRemoteTokenText"></span>
-                  <button type="button" class="token-eye" id="rsRemoteTokenCopy" aria-label="复制令牌" title="复制令牌" hidden>
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                  </button>
-                  <button type="button" class="token-eye" id="rsRemoteTokenEye" aria-label="显示令牌" title="显示 / 隐藏令牌">
-                    <svg class="eye-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
-                    <svg class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display:none"><path d="M9.9 4.24A10.9 10.9 0 0 1 12 4c6.5 0 10 7 10 7a17.6 17.6 0 0 1-2.29 2.95M6.61 6.61A13.5 13.5 0 0 0 2 12s3.5 7 10 7a10.7 10.7 0 0 0 5.39-1.39"/><path d="M2 2l20 20"/><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/></svg>
-                  </button>
-                  <span class="addr-quick-hint" style="flex:none">粘贴新配对码自动更新</span>
-                </div>
                 <p class="field-hint">
                   「从对方获取」：对方要在同一局域网且其本机服务在线，它屏幕上会弹确认框。
                 </p>
@@ -2184,6 +2205,16 @@
                     并发（全部）等全部返回，逐行报每个通道的成败与耗时；串行按上面的优先级逐个通道试，第一个通就停。
                     与下面那个「多网卡探测」是两个粒度：这个管<b>通道之间</b>，那个管<b>同一通道里的多个地址</b>。
                     探测跑在**独立的探测线程池**上，调大超时或选并发全部也不会卡住界面。
+                  </p>
+                </div>
+                <div class="field" id="rsBlockPolicy">
+                  <label><b>区块内部策略</b>（同一个区块里多条配对之间怎么探）+ <b>区块默认超时</b></label>
+                  <div class="block-policy" id="rsBlockPolicyBox"></div>
+                  <p class="field-hint" style="margin:6px 0 0">
+                    每个区块单独选：并发（首个）命中即收工、其余标「未探测」（快）；并发（全部）逐条报状态（体检用）；
+                    串行按行序逐个试、第一个通就停（严格尊重优先级）。
+                    <b>并发（首个）下顺序只影响发起先后</b>，先排的不一定赢 —— 要严格按顺序必须选串行。
+                    区块默认超时 = 该区块内没单独设超时的行用它，再留空则用下面的全局默认值。
                   </p>
                 </div>
                 <div class="field">
@@ -5206,7 +5237,7 @@
 
   function pcName(r) {
     r = r || {};
-    return r.name || r.group || ((r.addresses && r.addresses[0]) || '') || '(未命名)';
+    return r.name || r.machine_name || ((r.addresses && r.addresses[0]) || '') || '(未命名)';
   }
   function pcFirstAddr(r) {
     const addr = ((r.addresses && r.addresses[0]) || '').trim();
@@ -5257,43 +5288,52 @@
    */
   const pcConnOk = new Map();
 
+  /** 档案全部配对里可用的（enabled 且有地址），保持数组顺序 = 区块内顺序 */
+  function pcPairs(r) {
+    return (Array.isArray(r && r.pairs) ? r.pairs : []).filter(function (p) {
+      return p && p.enabled !== false && p.addr;
+    });
+  }
   /**
-   * 档案的六通道探测候选（按 route_order；跳板不参与此探测，走转发端点路径）。
+   * 档案的探测候选（按 route_order 的区块顺序 + 区块内顺序展开每一条配对；
+   * 跳板不参与此探测，走转发端点路径）。
    *
-   * 与后端 `RemoteServer::route_candidates` 必须逐条对齐：四槽各管一个通道
-   * （隧道 / Tailscale 直连 / 系统 Funnel / 内置 Funnel），老档案的单槽 remote_addr
-   * 按内容判型兜底。**漏一个槽 = 那条通道永远不参与探测**（以前只算 ts 槽，
-   * 系统 Funnel 与内置 Funnel 配了也白配）。
+   * 与后端 `RemoteServer::route_candidates` 必须逐条对齐：
+   * - 区块顺序从 route_order 推导（tunnel → cloudflare、ts|funnel → ts、tsnet → tsnet）
+   * - 通道 id 仍用 tunnel / ts / funnel / tsnet（前端展示与历史结果行都认这套）
+   * - 漏一条配对 = 那条永远不参与探测
    */
   function pcRouteCandidates(r) {
     const order = (Array.isArray(r.route_order) && r.route_order.length) ? r.route_order : ROUTE_IDS.slice();
     const disabled = {};
     (Array.isArray(r.route_disabled) ? r.route_disabled : []).forEach(function (id) { disabled[id] = true; });
-    const legacy = (r.remote_addr || '').trim();
-    const tsSlot = (r.remote_ts_addr || '').trim();
-    const tunnel = (r.remote_tunnel_addr || '').trim()
-      || (!tsSlot && legacy && !isTailscaleAddr(legacy) ? legacy : '');
-    // ts 槽只放 100.x；*.ts.net 挤在里面的老档案按「系统 Funnel」处理
-    const tsDirect = tsSlot && !/\.ts\.net/i.test(tsSlot) ? tsSlot : '';
-    const funnel = (r.remote_funnel_addr || '').trim()
-      || (tsSlot && /\.ts\.net/i.test(tsSlot) ? tsSlot : '')
-      || (!tsSlot && legacy && /\.ts\.net/i.test(legacy) ? legacy : '');
-    const tsnet = (r.remote_tsnet_addr || '').trim();
+    const pairs = pcPairs(r);
+    const BLOCK_OF = { tunnel: 'cloudflare', ts: 'ts', funnel: 'ts', tsnet: 'tsnet' };
+    const blockTimeouts = (r && r.block_timeouts_ms) || {};
     const list = [];
+    const doneBlocks = {};
     order.forEach(function (kind) {
-      if (disabled[kind] || kind === 'jump') return;
+      if (kind === 'jump') return;
+      const block = BLOCK_OF[kind];
+      if (block) {
+        if (doneBlocks[block]) return; // ts 与 funnel 同区块，只展开一次
+        doneBlocks[block] = true;
+        pairs.filter(function (p) { return p.kind === block; }).forEach(function (p) {
+          const lane = p.lane || (String(p.addr).toLowerCase().indexOf('.ts.net') >= 0 ? 'funnel' : 'direct');
+          const routeKind = block === 'cloudflare' ? 'tunnel'
+            : (block === 'tsnet' ? 'tsnet' : (lane === 'funnel' ? 'funnel' : 'ts'));
+          // 三层继承：条目超时 → 区块默认超时 → 全局（0 = 交给后端落全局默认）
+          const own = p.probe_timeout_ms || Number(blockTimeouts[block] || 0) || 0;
+          list.push({ kind: routeKind, origin: p.addr, pair_id: p.id || '', token: p.token || '',
+            timeout_ms: own, block: block });
+        });
+        return;
+      }
+      if (disabled[kind]) return;
       if (kind === 'lan') {
         (r.addresses || []).forEach(function (a) {
           if ((a || '').trim()) list.push({ kind: 'lan', origin: a.trim() });
         });
-      } else if (kind === 'tunnel' && tunnel) {
-        list.push({ kind: 'tunnel', origin: tunnel });
-      } else if (kind === 'ts' && tsDirect) {
-        list.push({ kind: 'ts', origin: tsDirect });
-      } else if (kind === 'funnel' && funnel) {
-        list.push({ kind: 'funnel', origin: funnel });
-      } else if (kind === 'tsnet' && tsnet) {
-        list.push({ kind: 'tsnet', origin: tsnet });
       }
     });
     return list;
@@ -5302,27 +5342,31 @@
   /**
    * 统一探测入口：按档案优先级逐通道探（route_candidates），并处理赢家记账。
    *  LAN 赢家 → 置顶 + 清远程记账；远程赢家 → 记 origin（iframe 换 ab_token URL）。
-   *  **两个粒度都取档案里的连接策略**：外层通道之间听 route_probe_mode，
-   *  内层同通道多地址听 probe_mode；超时按通道取。"电脑页和电脑列表共用这一处"。
+   *  **三个粒度都取档案里的连接策略**：外层区块之间听 route_probe_mode，
+   *  区块内多条配对听 block_probe_mode，同一通道多地址听 probe_mode。
+   *  "电脑页和电脑列表共用这一处"。
    */
   async function pcProbe(r, mode) {
     const candidates = pcRouteCandidates(r);
     // 默认探测超时（毫秒）跟档案走；老档案没这字段 → 后端默认 2 秒
     const timeout = r.probe_timeout_ms || 2000;
-    // 每个通道自己的超时也要带上，否则「单独给 Funnel 8 秒」在电脑页 / 列表都不作数
+    // 每个通道自己的超时也要带上，否则「单独给跳板机 8 秒」在电脑页 / 列表都不作数
     const routeTimeouts = r.route_timeouts_ms || {};
     // 外层：连接优先级的探测方式（六个通道之间）
     const routeMode = r.route_probe_mode || 'parallel_first';
+    // 区块内部：同一区块内多条配对之间的探测方式（后端按 block_of_route 落到通道组上）
+    const blockModes = r.block_probe_mode || {};
     // 内层：多网卡探测（同一通道内的多个地址）
     const addressMode = mode || r.probe_mode || 'parallel_first';
     const res = candidates.length
       ? await invoke('remote_test', {
           addresses: [], probeMode: addressMode, routeProbeMode: routeMode,
           candidates: candidates, probeTimeoutMs: timeout, routeTimeoutsMs: routeTimeouts,
+          blockProbeModes: blockModes,
         })
       : await invoke('remote_test', {
           addresses: r.addresses, probeMode: addressMode, routeProbeMode: routeMode,
-          probeTimeoutMs: timeout, routeTimeoutsMs: routeTimeouts,
+          probeTimeoutMs: timeout, routeTimeoutsMs: routeTimeouts, blockProbeModes: blockModes,
         });
     // 连接方式是否翻转（直连 ↔ 隧道）：变了要刷新标注（电脑标签/列表行/悬浮球）
     let connChanged = false;
@@ -5377,10 +5421,48 @@
     return res;
   }
 
+  /** 某个远程地址对应的配对令牌（找不到配对就用档案的生效令牌兜底） */
+  function pcTokenForAddr(r, addr) {
+    const hit = (Array.isArray(r && r.pairs) ? r.pairs : []).filter(function (p) { return p.addr === addr; })[0];
+    return (hit && hit.token) || (r && r.effective_token) || '';
+  }
+  /**
+   * 配对行尾的来源：`host · os`，两样都没就退回 mid 短号。
+   * 与移动端 `RemotePair.sourceLabel()` 同语义（改要两处对齐）。
+   */
+  function pcPairSource(pair) {
+    const host = String((pair && pair.host) || '').trim();
+    const os = String((pair && pair.os) || '').trim();
+    const mid = String((pair && pair.mid) || '').trim();
+    const bits = [];
+    if (host) bits.push(host);
+    if (os) bits.push(os);
+    if (!bits.length && mid) bits.push(mid.slice(0, 8));
+    return bits.join(' · ');
+  }
+  /**
+   * 同一个 named tunnel 被多条启用配对共用 → 返回那个 tunnel_id（否则空串）。
+   * Cloudflare 对同名隧道的多个连接是随机转发的，用户看到的是「一会儿连上这台、
+   * 一会儿连上那台」。档案层面修不了，只能提示，别让人以为是 AnyBoot 的 bug。
+   */
+  function pcSharedTunnelId(r) {
+    const seen = {};
+    pcPairs(r).forEach(function (pair) {
+      const id = String((pair && pair.tunnel_id) || '').trim();
+      if (!id) return;
+      seen[id] = (seen[id] || 0) + 1;
+    });
+    const keys = Object.keys(seen);
+    for (let i = 0; i < keys.length; i += 1) {
+      if (seen[keys[i]] > 1) return keys[i];
+    }
+    return '';
+  }
   /** iframe / 连接 URL：远程赢家 → https origin + ab_token；否则局域网首选地址 */
   function pcConnUrl(r) {
     const win = pcRemoteWin.get(r.id);
-    if (win) return win + '/?ab_token=' + encodeURIComponent(r.remote_token || '');
+    // 令牌用**赢家那条配对**自己的：不同配对各带各的网关客户端令牌
+    if (win) return win + '/?ab_token=' + encodeURIComponent(pcTokenForAddr(r, win));
     return pcUrl(r);
   }
 
@@ -5410,7 +5492,7 @@
   function pcConnLabel(r, short) {
     if (!r) return '';
     if (pcRemoteWin.has(r.id)) {
-      const remoteAddr = pcRemoteWin.get(r.id) || r.remote_addr;
+      const remoteAddr = pcRemoteWin.get(r.id) || r.effective_addr;
       return isTailscaleAddr(remoteAddr)
         ? (short ? 'Tailscale' : 'Tailscale 直连')
         : (short ? '隧道' : '远程隧道');
@@ -5459,7 +5541,6 @@
     const rows = [{
       rid: 'local',
       name: '本机',
-      group: '默认 · 本地',
       ip: localEndpoint && localEndpoint.port ? '127.0.0.1:' + localEndpoint.port : '127.0.0.1',
       mac: '',
       online: !!(localEndpoint && localEndpoint.enabled !== false && localEndpoint.listening !== false),
@@ -5472,7 +5553,6 @@
       rows.push({
         rid: r.id,
         name: pcName(r),
-        group: r.group || '',
         ip: pcFirstAddr(r) || '(未填地址)',
         mac: cqFirstMac(r),
         addrs: pcAddrMacList(r),
@@ -5498,7 +5578,7 @@
     const extra = (row.addrs || []).map(function (line) {
       return line.addr + ' ' + line.macs.join(' ');
     });
-    return [row.name, row.group, row.ip, row.mac]
+    return [row.name, row.ip, row.mac]
       .concat(extra, [row.local ? '本机 local' : ''])
       .join(' ').toLowerCase();
   }
@@ -5624,7 +5704,7 @@
 
   function cqDeviceIcon(row) {
     if (row.local) return 'M2.5 4h19v13h-19z M8 21h8 M12 17v4';
-    const kind = row.group || '';
+    const kind = (row.server && row.server.machine_os) || '';
     if (/nas|备份|群晖|synology/i.test(kind + ' ' + row.name)) {
       return 'M3 4h18v7H3z M3 14h18v7H3z M7 7.5h.01 M7 17.5h.01';
     }
@@ -5925,12 +6005,6 @@
       cur.textContent = '当前';
       nameLine.appendChild(cur);
     }
-    if (row.group) {
-      const chip = document.createElement('span');
-      chip.className = 'cq-chip-grp';
-      chip.textContent = row.group;
-      nameLine.appendChild(chip);
-    }
     // 当前连接标注：本机 / 直连 / 跳板机·xxx / 远程隧道（探测赢家落在隧道时）
     if (row.local) {
       const chip = document.createElement('span');
@@ -5995,16 +6069,45 @@
     }
     // 远程接入地址一行（配置了就亮出来；过期态 = 远程不通且局域网也不通）
     const remRow = remotes.find(function (x) { return x.id === row.rid; });
-    if (remRow && remRow.remote_addr) {
+    // 每条配对一行（一区块多条都要亮出来，否则用户以为只有第一条在跑）
+    // 行尾跟来源 host · os；同一 tunnel_id 被多条共用时再标「隧道共用」（S5）
+    const sharedTunnel = pcSharedTunnelId(remRow || {});
+    pcPairs(remRow || {}).forEach(function (pair) {
       const expired = pcRemoteExpired.has(row.rid);
+      const using = pcRemoteWin.get(row.rid) === pair.addr;
+      const shared = !!sharedTunnel && String(pair.tunnel_id || '') === sharedTunnel;
       const ln = document.createElement('div');
-      ln.className = 'cq-dev-line' + (expired ? ' cq-remote-expired' : '');
+      ln.className = 'cq-dev-line' + (expired && !using ? ' cq-remote-expired' : '');
       const a = document.createElement('span');
-      a.textContent = '[远程] ' + remRow.remote_addr +
-        (pcRemoteWin.has(row.rid) ? ' · 使用中' : (expired ? ' · 已过期（重扫配对码）' : ''));
+      a.textContent = '[远程] ' + pair.addr +
+        (using ? ' · 使用中' : (expired ? ' · 已过期（重扫配对码）' : ''));
       ln.appendChild(a);
+      const source = pcPairSource(pair);
+      if (source) {
+        const sep = document.createElement('span');
+        sep.className = 'sep';
+        sep.textContent = '·';
+        ln.appendChild(sep);
+        const src = document.createElement('span');
+        src.className = 'cq-dev-src';
+        src.textContent = source;
+        src.title = (pair.mid ? 'mid ' + pair.mid : '')
+          + (pair.tunnel_id ? '\n隧道 ' + pair.tunnel_id : '');
+        ln.appendChild(src);
+      }
+      if (shared) {
+        const sep = document.createElement('span');
+        sep.className = 'sep';
+        sep.textContent = '·';
+        ln.appendChild(sep);
+        const warn = document.createElement('span');
+        warn.className = 'cq-dev-share';
+        warn.textContent = '隧道共用';
+        warn.title = '同一隧道被多套系统共用，请求会随机落到其中一个';
+        ln.appendChild(warn);
+      }
       meta.appendChild(ln);
-    }
+    });
     txt.appendChild(meta);
     dev.appendChild(txt);
     tdDev.appendChild(dev);
@@ -6967,7 +7070,7 @@
       chip.className = 'pc-chip' + (activeRemote === r.id ? ' active' : '');
       chip.dataset.rid = r.id;
       chip.setAttribute('role', 'tab');
-      chip.title = (r.group ? r.group + ' · ' : '') + pcConnLabel(r, false) + ' · ' + pcFirstAddr(r);
+      chip.title = pcConnLabel(r, false) + ' · ' + pcFirstAddr(r);
       const dot = document.createElement('span');
       dot.className = 'dot';
       chip.appendChild(dot);
@@ -7486,15 +7589,21 @@
   let rsRouteTimeouts = {};
   let rsRouteDrag = null;                // 拖动中的 kind
   let rsDeleteArmed = false;
-  // ---- 远程接入四槽 + 令牌回显（与手机端 ServerProfile 四槽一一对应） ----
-  let rsTunnelVal = '';        // 隧道槽（归一 origin）
-  let rsTsVal = '';            // Tailscale 直连槽（只放 100.x）
-  let rsFunnelVal = '';        // 系统 Tailscale 的 Funnel 槽（*.ts.net）
-  let rsTsnetVal = '';         // AnyBoot 内置 tsnet 引擎的 Funnel 槽（*.ts.net）
-  let rsRemoteTokenNew = '';   // 分拣挖出的新远程令牌（空 = 保持已存）
-  let rsRemoteTokenSaved = ''; // 编辑态已存远程令牌（回显用，不参与保存）
+  // ---- 远程接入配对列表（编辑中的状态；保存时整体回传） ----
+  let rsPairs = [];            // {id,kind,lane,addr,token,probe_timeout_ms,enabled,mid,os,host,tunnel_id,note}
+  let rsBlockProbe = {};       // 区块 id -> parallel_all / serial（默认 parallel_first 不存）
+  let rsBlockTimeouts = {};    // 区块 id -> 秒文本（空 = 继承全局默认超时）
+  const PAIR_BLOCKS = [
+    { id: 'cloudflare', label: 'Cloudflare' },
+    { id: 'ts', label: 'Tailscale' },
+    { id: 'tsnet', label: 'Tailscale（内建）' },
+  ];
+  const PAIR_MODES = [
+    { id: 'parallel_first', short: '并发首个', long: '并发（首个）' },
+    { id: 'parallel_all', short: '并发全部', long: '并发（全部）' },
+    { id: 'serial', short: '串行', long: '串行' },
+  ];
   let rsTokenSaved = '';       // 已存 LAN 访问令牌（回显用）
-  let rsRemoteTokenShown = false;
   let rsTokenShown = false;
 
   /** 令牌打码：前 4 后 4 可见，其余 U+2022；太短的整串打码 */
@@ -7503,35 +7612,371 @@
     if (text.length <= 12) return '•'.repeat(Math.max(text.length, 6));
     return text.slice(0, 4) + '••••••••••' + text.slice(-4);
   }
-  function rsRenderSlots() {
-    [['rsSlotTunnelAddr', 'rsSlotTunnelX', rsTunnelVal],
-      ['rsSlotTsAddr', 'rsSlotTsX', rsTsVal],
-      ['rsSlotFunnelAddr', 'rsSlotFunnelX', rsFunnelVal],
-      ['rsSlotTsnetAddr', 'rsSlotTsnetX', rsTsnetVal]].forEach(function (item) {
-      const valueEl = document.getElementById(item[0]);
-      if (!valueEl) return;
-      valueEl.textContent = item[2] || '空';
-      valueEl.classList.toggle('ph', !item[2]);
-      const x = document.getElementById(item[1]);
-      if (x) x.hidden = !item[2];
+
+  /** 配对串 / 手填类型 → 区块 id（兼容 tunnel / funnel / builtin 这些老写法） */
+  function rsPairKindFromType(type, origin) {
+    let kind = String(type || '').trim().toLowerCase();
+    if (kind === 'tailscale') kind = 'ts';
+    if (kind === 'builtin' || kind === 'builtin_ts' || kind === 'tsnet') kind = 'tsnet';
+    if (kind === 'cloudflare' || kind === 'cf' || kind === 'tunnel') kind = 'cloudflare';
+    if (kind === 'funnel' || kind === 'ts') kind = 'ts';
+    if (PAIR_BLOCKS.some(function (b) { return b.id === kind; })) return kind;
+    // 没声明类型：*.ts.net 与 100.x 都归 ts，其余归 cloudflare。
+    // 不猜 tsnet —— 内置引擎的域名与系统 Funnel 同形，猜错会把系统那条塞进内置区块
+    if (!origin) return 'cloudflare';
+    const text = String(origin).toLowerCase();
+    if (text.indexOf('.ts.net') >= 0 || isTailscaleAddr(origin)) return 'ts';
+    return 'cloudflare';
+  }
+  /** lane 只对 ts 区块有意义：100.x → direct，*.ts.net → funnel */
+  function rsPairLane(kind, origin) {
+    if (kind !== 'ts') return '';
+    return String(origin || '').toLowerCase().indexOf('.ts.net') >= 0 ? 'funnel' : 'direct';
+  }
+  /** 幂等查找：有 mid 按 (mid, kind)，没有 mid 按地址（与后端 pair_key 同一规则） */
+  function rsPairIndex(kind, mid, addr) {
+    for (let i = 0; i < rsPairs.length; i += 1) {
+      const p = rsPairs[i];
+      if (p.kind !== kind) continue;
+      if (mid && p.mid) { if (p.mid === mid) return i; }
+      else if (p.addr && p.addr === addr) return i;
+    }
+    return -1;
+  }
+  /**
+   * 加入一条配对。同 (mid, kind) 或同地址 = 更新那一行 —— 这是**唯一合法**的「顶替」。
+   * 返回提示文案（空 = 新增成功）。
+   */
+  function rsAddPair(entry) {
+    const addr = rsNormalizeRemoteOrigin(entry.addr);
+    if (!addr) return '没认出地址';
+    const kind = rsPairKindFromType(entry.kind || entry.type, addr);
+    const mid = String(entry.mid || '').trim();
+    const pair = {
+      id: entry.id || '',
+      kind: kind,
+      lane: rsPairLane(kind, addr),
+      addr: addr,
+      token: String(entry.token || '').trim(),
+      probe_timeout_ms: entry.probe_timeout_ms || 0,
+      enabled: entry.enabled !== false,
+      mid: mid,
+      os: String(entry.os || '').toLowerCase(),
+      host: String(entry.host || '').trim(),
+      tunnel_id: String(entry.tunnel_id || '').trim(),
+      note: String(entry.note || '').trim(),
+      created_at: entry.created_at || 0,
+    };
+    const index = rsPairIndex(kind, mid, addr);
+    if (index >= 0) {
+      const old = rsPairs[index];
+      pair.id = old.id;
+      pair.created_at = old.created_at;
+      // 令牌留空 = 保持已存（编辑弹窗不回显令牌）
+      if (!pair.token) pair.token = old.token || '';
+      rsPairs[index] = pair;
+      return '已更新「' + rsBlockLabel(kind) + '」里的同一行';
+    }
+    if (rsPairs.length >= 32) return '已达 32 条上限，先删几条再加';
+    rsPairs.push(pair);
+    return '';
+  }
+  function rsBlockLabel(kind) {
+    const hit = PAIR_BLOCKS.filter(function (b) { return b.id === kind; })[0];
+    return hit ? hit.label : kind;
+  }
+  /**
+   * 同一个 named tunnel 被多条启用配对共用 → 返回该 tunnel_id（否则空串）。
+   *
+   * Cloudflare 对同一个隧道配了多个后端时会**随机转发**，用户看到的是「一会儿连上这台、
+   * 一会儿连上那台」。档案层面改不了对端的隧道配置，只能提示，别让人以为是 AnyBoot 的 bug。
+   */
+  function rsSharedTunnelId() {
+    const seen = {};
+    for (let i = 0; i < rsPairs.length; i += 1) {
+      const pair = rsPairs[i];
+      if (!pair || pair.enabled === false) continue;
+      const id = String(pair.tunnel_id || '').trim();
+      if (!id) continue;
+      seen[id] = (seen[id] || 0) + 1;
+    }
+    const keys = Object.keys(seen);
+    for (let i = 0; i < keys.length; i += 1) {
+      if (seen[keys[i]] > 1) return keys[i];
+    }
+    return '';
+  }
+  /** 写完 rsPairs 必须重建列表：行是 DOM，改状态不会自己更新 */
+  function rsRenderPairs() {
+    const box = document.getElementById('rsPairsBox');
+    if (!box) return;
+    box.textContent = '';
+    const sharedTunnel = rsSharedTunnelId();
+    PAIR_BLOCKS.forEach(function (block) {
+      const card = document.createElement('div');
+      card.className = 'pb-block';
+      const rows = rsPairs.filter(function (p) { return p.kind === block.id; });
+      const filled = rows.filter(function (p) { return !!p.addr; });
+      const head = document.createElement('div');
+      head.className = 'pb-head';
+      const title = document.createElement('span');
+      title.className = 'pb-title';
+      title.textContent = block.label;
+      const count = document.createElement('span');
+      count.className = 'pb-count';
+      count.textContent = filled.length ? filled.length + ' 条' : '未配置';
+      const add = document.createElement('button');
+      add.type = 'button';
+      add.className = 'pb-add';
+      add.textContent = '+ 添加';
+      add.addEventListener('click', function () {
+        if (rsPairs.length >= 32) { toast('已达 32 条上限', 'bad'); return; }
+        // 空白行：地址留空，填完才算数（保存时空地址会被丢掉）
+        rsPairs.push({ id: '', kind: block.id, lane: '', addr: '', token: '', probe_timeout_ms: 0, enabled: true, mid: '', os: '', host: '', tunnel_id: '', note: '', created_at: 0 });
+        rsRenderPairs();
+        const inputs = box.querySelectorAll('.pb-addr');
+        if (inputs.length) inputs[inputs.length - 1].focus();
+      });
+      head.appendChild(title);
+      head.appendChild(count);
+      head.appendChild(add);
+      card.appendChild(head);
+      if (!rows.length) {
+        const empty = document.createElement('div');
+        empty.className = 'pb-empty';
+        empty.textContent = '这个区块还没有配对 —— 在上面粘配对码，或点「+ 添加」手填地址';
+        card.appendChild(empty);
+      }
+      rows.forEach(function (pair) {
+        card.appendChild(rsPairRow(pair, block, sharedTunnel));
+      });
+      box.appendChild(card);
     });
-    // 槽位变了，优先级列表的可用性/副标跟着变
-    rsRenderRoutes();
+    rsRenderBlockPolicy();
+  }
+  /** 一条配对行：地址 · lane · 备注 · 超时 · 启用 · 上移下移 · 删除 · 来源 */
+  function rsPairRow(pair, block, sharedTunnel) {
+    const index = rsPairs.indexOf(pair);
+    const row = document.createElement('div');
+    row.className = 'pb-row' + (pair.enabled === false ? ' pb-off' : '');
+    const addr = document.createElement('input');
+    addr.className = 'pb-addr mono';
+    addr.spellcheck = false;
+    addr.placeholder = block.id === 'ts' ? 'http://100.x.y.z:12300 或 https://xxx.ts.net' : 'https://xxx.trycloudflare.com';
+    addr.value = pair.addr || '';
+    addr.addEventListener('change', function () {
+      const origin = rsNormalizeRemoteOrigin(addr.value);
+      rsPairs[index].addr = origin;
+      rsPairs[index].lane = rsPairLane(block.id, origin);
+      rsRenderPairs();
+    });
+    const lane = document.createElement('span');
+    lane.className = 'pb-lane';
+    if (pair.kind === 'ts') {
+      lane.textContent = (pair.lane || rsPairLane('ts', pair.addr)) === 'funnel' ? 'funnel' : '直连';
+    } else {
+      lane.hidden = true;
+    }
+    const note = document.createElement('input');
+    note.className = 'pb-note';
+    note.placeholder = '备注';
+    note.value = pair.note || '';
+    note.addEventListener('change', function () { rsPairs[index].note = note.value.trim(); });
+    const token = document.createElement('input');
+    token.className = 'pb-note mono';
+    token.type = 'password';
+    token.spellcheck = false;
+    token.placeholder = '令牌';
+    // 编辑态不回显已存令牌：留空 = 保持（与后端 remote_save 同语义）
+    token.value = '';
+    token.title = pair.token ? '已存令牌（留空保持不变）' : '配对时对方签发的令牌';
+    token.addEventListener('change', function () { if (token.value.trim()) rsPairs[index].token = token.value.trim(); });
+    const timeout = document.createElement('input');
+    timeout.className = 'rp-timeout mono';
+    timeout.type = 'number';
+    timeout.step = '0.5';
+    timeout.min = '0.2';
+    timeout.max = '30';
+    timeout.placeholder = '默认';
+    timeout.value = pair.probe_timeout_ms ? String(pair.probe_timeout_ms / 1000) : '';
+    timeout.title = '这一条的探测超时（秒）；留空 = 用区块默认值，再留空 = 全局默认值';
+    timeout.addEventListener('change', function () {
+      const seconds = parseFloat(timeout.value);
+      rsPairs[index].probe_timeout_ms = isFinite(seconds) && seconds > 0
+        ? Math.round(Math.min(30, Math.max(0.2, seconds)) * 1000) : 0;
+      timeout.value = rsPairs[index].probe_timeout_ms ? String(rsPairs[index].probe_timeout_ms / 1000) : '';
+      rsRenderFoldCounts();
+    });
+    const up = document.createElement('button');
+    up.type = 'button'; up.className = 'rp-btn'; up.textContent = '↑'; up.title = '上移';
+    up.addEventListener('click', function () { rsPairMove(index, -1); });
+    const down = document.createElement('button');
+    down.type = 'button'; down.className = 'rp-btn'; down.textContent = '↓'; down.title = '下移';
+    down.addEventListener('click', function () { rsPairMove(index, 1); });
+    const del = document.createElement('button');
+    del.type = 'button'; del.className = 'rp-btn'; del.textContent = '✕'; del.title = '删除这条配对';
+    del.addEventListener('click', function () {
+      rsPairs.splice(index, 1);
+      rsRenderPairs();
+      rsRenderFoldCounts();
+    });
+    const enable = document.createElement('label');
+    enable.className = 'switch';
+    const box = document.createElement('input');
+    box.type = 'checkbox';
+    box.checked = pair.enabled !== false;
+    box.title = '停用后这条配对不参与探测与连接';
+    box.addEventListener('change', function () {
+      rsPairs[index].enabled = box.checked;
+      row.classList.toggle('pb-off', !box.checked);
+      rsRenderFoldCounts();
+    });
+    const trk = document.createElement('span');
+    trk.className = 'trk';
+    trk.setAttribute('aria-hidden', 'true');
+    enable.appendChild(box);
+    enable.appendChild(trk);
+    // 来源：host · os（mid 缺失时显示 mid 短号或「手填」）
+    const source = document.createElement('span');
+    source.className = 'pb-src';
+    const bits = [];
+    if (pair.host) bits.push(pair.host);
+    if (pair.os) bits.push(pair.os);
+    if (!bits.length) bits.push(pair.mid ? 'mid ' + pair.mid.slice(0, 6) : '手填');
+    source.textContent = bits.join(' · ');
+    const shared = !!sharedTunnel && String(pair.tunnel_id || '') === sharedTunnel;
+    if (shared) {
+      // S5：同一隧道被多条配对共用 —— 行上明示，免得用户把它当成「连接忽好忽坏」
+      source.textContent += ' · 隧道共用';
+      source.classList.add('pb-warn');
+    }
+    source.title = (pair.mid ? 'mid ' + pair.mid : '没有来源信息（手填或老配对码）')
+      + (pair.tunnel_id ? '\n隧道 ' + pair.tunnel_id : '')
+      + (shared ? '\n同一隧道被多套系统共用，请求会随机落到其中一个' : '')
+      + (pair.note ? '\n备注 ' + pair.note : '');
+    row.appendChild(addr);
+    row.appendChild(lane);
+    row.appendChild(note);
+    row.appendChild(token);
+    row.appendChild(timeout);
+    row.appendChild(source);
+    row.appendChild(up);
+    row.appendChild(down);
+    row.appendChild(del);
+    row.appendChild(enable);
+    return row;
+  }
+  /** 同区块内移动：只在区块内部换位（跨区块换位置没有意义，区块是固定的三层） */
+  function rsPairMove(index, delta) {
+    const pair = rsPairs[index];
+    if (!pair) return;
+    const siblings = rsPairs
+      .map(function (p, i) { return { p: p, i: i }; })
+      .filter(function (item) { return item.p.kind === pair.kind; })
+      .map(function (item) { return item.i; });
+    const at = siblings.indexOf(index);
+    const target = at + delta;
+    if (target < 0 || target >= siblings.length) return;
+    const otherIndex = siblings[target];
+    const tmp = rsPairs[otherIndex];
+    rsPairs[otherIndex] = rsPairs[index];
+    rsPairs[index] = tmp;
+    rsRenderPairs();
+  }
+  /** 区块策略 + 区块默认超时（收在「连接策略」折叠区里，区块头不再放下拉） */
+  function rsRenderBlockPolicy() {
+    const box = document.getElementById('rsBlockPolicyBox');
+    if (!box) return;
+    box.textContent = '';
+    PAIR_BLOCKS.forEach(function (block) {
+      const row = document.createElement('div');
+      row.className = 'bp-row';
+      const name = document.createElement('span');
+      name.className = 'bp-name';
+      name.textContent = block.label;
+      const seg = document.createElement('span');
+      seg.className = 'bp-seg';
+      const current = rsBlockProbe[block.id] || 'parallel_first';
+      PAIR_MODES.forEach(function (mode) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'btn small' + (current === mode.id ? ' primary' : '');
+        button.style.flex = '1';
+        button.textContent = mode.long;
+        button.addEventListener('click', function () {
+          if (mode.id === 'parallel_first') delete rsBlockProbe[block.id];
+          else rsBlockProbe[block.id] = mode.id;
+          rsRenderBlockPolicy();
+          rsRenderFoldCounts(true);
+        });
+        seg.appendChild(button);
+      });
+      const timeout = document.createElement('input');
+      timeout.className = 'bp-timeout mono';
+      timeout.type = 'number';
+      timeout.step = '0.5';
+      timeout.min = '0.2';
+      timeout.max = '30';
+      timeout.placeholder = '默认';
+      timeout.value = rsBlockTimeouts[block.id] || '';
+      timeout.title = '这个区块的默认探测超时（秒）；留空 = 全局默认值';
+      timeout.addEventListener('change', function () {
+        const seconds = parseFloat(timeout.value);
+        if (!isFinite(seconds) || seconds <= 0) delete rsBlockTimeouts[block.id];
+        else rsBlockTimeouts[block.id] = String(Math.min(30, Math.max(0.2, seconds)));
+        rsRenderFoldCounts(true);
+      });
+      row.appendChild(name);
+      row.appendChild(seg);
+      row.appendChild(timeout);
+      box.appendChild(row);
+    });
+  }
+  function rsBlockProbeForSave() {
+    const out = {};
+    PAIR_BLOCKS.forEach(function (b) { if (rsBlockProbe[b.id]) out[b.id] = rsBlockProbe[b.id]; });
+    return out;
+  }
+  function rsBlockTimeoutsForSave() {
+    const out = {};
+    PAIR_BLOCKS.forEach(function (b) {
+      const seconds = parseFloat(rsBlockTimeouts[b.id]);
+      if (isFinite(seconds) && seconds > 0) out[b.id] = Math.round(Math.min(30, Math.max(0.2, seconds)) * 1000);
+    });
+    return out;
+  }
+  /** 最坏耗时（秒）：区块间串行则累加、否则取最大；区块内串行则乘条数 */
+  function rsWorstSeconds() {
+    const globalSec = rsProbeTimeoutMs() / 1000;
+    const blockSec = function (id) {
+      const own = parseFloat(rsBlockTimeouts[id]);
+      return isFinite(own) && own > 0 ? Math.min(30, Math.max(0.2, own)) : globalSec;
+    };
+    const rowSec = function (p) {
+      const own = (p.probe_timeout_ms || 0) / 1000;
+      return own > 0 ? Math.min(30, Math.max(0.2, own)) : blockSec(p.kind);
+    };
+    let total = 0;
+    let worst = 0;
+    PAIR_BLOCKS.forEach(function (b) {
+      const rows = rsPairs.filter(function (p) {
+        return p.kind === b.id && p.enabled !== false && !!p.addr;
+      });
+      if (!rows.length) return;
+      const secs = rows.map(rowSec);
+      const sum = secs.reduce(function (acc, v) { return acc + v; }, 0);
+      const mode = rsBlockProbe[b.id] || 'parallel_first';
+      total += sum;
+      worst = Math.max(worst, mode === 'serial' ? sum : Math.max.apply(null, secs));
+    });
+    return rsRouteProbe === 'serial' ? total : worst;
   }
   function rsRenderTokenRows() {
-    // 远程令牌行：新分拣的优先展示（还没保存），否则回显已存
-    const newToken = rsRemoteTokenNew || rsRemoteTokenSaved;
-    document.getElementById('rsRemoteTokenRow').hidden = !newToken;
-    const remoteText = document.getElementById('rsRemoteTokenText');
-    remoteText.textContent = rsRemoteTokenShown ? newToken : rsMaskToken(newToken);
-    remoteText.classList.toggle('masked', !rsRemoteTokenShown);
     // LAN 令牌行：只在有已存值时出现（替换走下面的输入框）
     document.getElementById('rsTokenRow').hidden = !rsTokenSaved;
     const savedText = document.getElementById('rsTokenSavedText');
     savedText.textContent = rsTokenShown ? rsTokenSaved : rsMaskToken(rsTokenSaved);
     savedText.classList.toggle('masked', !rsTokenShown);
-    // 复制按钮仅明文态出现（设计稿⑤legend3：打码态不可复制，明文态给复制）
-    document.getElementById('rsRemoteTokenCopy').hidden = !rsRemoteTokenShown;
     document.getElementById('rsTokenCopy').hidden = !rsTokenShown;
   }
   function rsBindEye(buttonId, shownGetter, shownSetter) {
@@ -7543,21 +7988,9 @@
       rsRenderTokenRows();
     });
   }
-  rsBindEye('rsRemoteTokenEye',
-    function () { return rsRemoteTokenShown; },
-    function (v) { rsRemoteTokenShown = v; });
   rsBindEye('rsTokenEye',
     function () { return rsTokenShown; },
     function (v) { rsTokenShown = v; });
-
-  // 明文态复制（rsRenderTokenRows 控制 hidden；复制目标 = 回显的当前值）
-  document.getElementById('rsRemoteTokenCopy').addEventListener('click', function () {
-    const text = (rsRemoteTokenNew || rsRemoteTokenSaved).trim();
-    if (!text) return;
-    navigator.clipboard.writeText(text)
-      .then(function () { toast('已复制令牌'); })
-      .catch(function () { toast('复制失败', 'bad'); });
-  });
   document.getElementById('rsTokenCopy').addEventListener('click', function () {
     if (!rsTokenSaved) return;
     navigator.clipboard.writeText(rsTokenSaved)
@@ -7582,78 +8015,63 @@
     if (scheme === 'http://' && isTailscaleAddr(text) && !text.includes(':')) text += ':12300';
     return scheme + text;
   }
-  /**
-   * 把一条 origin 放进对应的槽，返回落槽的中文名。
-   * **类型优先**（配对串里 `type=` 由出码端声明，与手机端 placeOrigin 完全同语义），
-   * 没有 type 才按内容判型：*.ts.net → 系统 Funnel（内置/系统分不出来，按更常见的系统），
-   * 100.x → 直连，其余 → 隧道。
-   */
-  function rsPlaceOrigin(origin, type) {
-    let kind = String(type || '').trim().toLowerCase();
-    if (kind === 'tailscale') kind = 'ts';
-    if (kind === 'builtin' || kind === 'builtin_ts') kind = 'tsnet';
-    if (kind === 'cloudflare' || kind === 'cf') kind = 'tunnel';
-    if (['tunnel', 'ts', 'funnel', 'tsnet'].indexOf(kind) < 0) {
-      if (/\.ts\.net/i.test(origin)) kind = 'funnel';
-      else if (isTailscaleAddr(origin)) kind = 'ts';
-      else kind = 'tunnel';
-    }
-    if (kind === 'ts') { rsTsVal = origin; return 'Tailscale 直连槽'; }
-    if (kind === 'funnel') { rsFunnelVal = origin; return 'Tailscale Funnel 槽'; }
-    if (kind === 'tsnet') { rsTsnetVal = origin; return '内置 Funnel 槽'; }
-    rsTunnelVal = origin; return 'Cloudflare 隧道槽';
-  }
 
-  /** 智能分拣：配对串先拆 origin+token+type，再按类型落槽 */
-  function rsRemoteSplit() {
+  /**
+   * 解析粘贴内容并加入配对列表。
+   * - 配对串：只认 v=2（老串无法保证来源与类型，拒收并提示重新出码）
+   * - 裸地址 / 带 token 的 URL：按地址形态判区块
+   */
+  function rsAddPairFromText() {
     const raw = document.getElementById('rsRemote').value.trim();
     const hint = document.getElementById('rsRemoteHint');
     if (!raw) {
-      hint.textContent = '先粘点东西进来 —— 配对串、隧道或 Tailscale 地址都行';
-      return;
+      hint.textContent = '先粘点东西进来 —— 配对码、隧道地址、Tailscale 地址都行';
+      return '';
     }
-    let origin = '';
-    let token = '';
-    let type = '';   // 配对串里的 type=（tunnel/ts/funnel/tsnet），决定落哪个槽
+    let entry = { addr: '', token: '', type: '', mid: '', os: '', host: '', tunnel_id: '' };
     if (/^anyboot:\/\/pair\?/i.test(raw)) {
+      let version = '';
       raw.slice(15).split('&').forEach(function (pair) {
         const eq = pair.indexOf('=');
         if (eq < 0) return;
         const key = pair.slice(0, eq).trim().toLowerCase();
         let value = pair.slice(eq + 1).trim();
         try { value = decodeURIComponent(value); } catch (_) { /* 保留原样 */ }
-        if (key === 'tunnel' && value) origin = value;
-        if (key === 'type' && value) type = value;
-        if ((key === 'token' || key === 'ab_token') && value) token = value;
+        if (key === 'v') version = value;
+        if (key === 'mid') entry.mid = value;
+        if (key === 'os') entry.os = value;
+        if (key === 'host' || key === 'gateway') entry.host = value;
+        if (key === 'type') entry.type = value;
+        if (key === 'tunnel') entry.addr = value;
+        if (key === 'tunnel_id') entry.tunnel_id = value;
+        if ((key === 'token' || key === 'ab_token') && value) entry.token = value;
       });
-      if (!origin) {
+      if (version !== '2') {
+        hint.textContent = '这是旧版配对码（缺 v=2）—— 请对方在新版里重新生成，老码分不清来源与类型';
+        return '';
+      }
+      if (!entry.addr) {
         hint.textContent = '配对串里没带地址 —— 生成时选了「不带地址」，让对方重新出码';
-        return;
+        return '';
       }
     } else {
       const tokenMatch = /[?&](?:ab_)?token=([^\s&]+)/.exec(raw);
-      if (tokenMatch) token = tokenMatch[1];
-      origin = raw.split(/[?#]/)[0];
+      if (tokenMatch) entry.token = tokenMatch[1];
+      entry.addr = raw.split(/[?#]/)[0];
     }
-    origin = rsNormalizeRemoteOrigin(origin);
-    if (!origin) {
-      hint.textContent = '没认出地址 —— 要有 IP 或主机名';
-      return;
+    const message = rsAddPair(entry);
+    if (!entry.addr || message === '没认出地址') {
+      hint.textContent = message || '没认出地址 —— 要有 IP 或主机名';
+      return '';
     }
-    const slotName = rsPlaceOrigin(origin, type);
-    hint.textContent = '已分拣到' + slotName + '：' + origin +
-      (/\.ts\.net/i.test(origin) && !type
-        ? '（老配对串没带类型，先按系统 Funnel 落；其实是内置 Funnel 就点 ✕ 再改用「内置」那张卡出码）'
-        : '');
-    if (token) rsRemoteTokenNew = token;
-    rsRenderSlots();
-    rsRenderTokenRows();
+    rsRenderPairs();
+    rsRenderFoldCounts();
+    document.getElementById('rsRemote').value = '';
+    const kind = rsPairKindFromType(entry.type, rsNormalizeRemoteOrigin(entry.addr));
+    hint.textContent = (message || '已加入「' + rsBlockLabel(kind) + '」') + '：' + rsNormalizeRemoteOrigin(entry.addr);
+    return kind;
   }
-  document.getElementById('rsRemoteSplit').addEventListener('click', rsRemoteSplit);
-  document.getElementById('rsSlotTunnelX').addEventListener('click', function () { rsTunnelVal = ''; rsRenderSlots(); });
-  document.getElementById('rsSlotTsX').addEventListener('click', function () { rsTsVal = ''; rsRenderSlots(); });
-  document.getElementById('rsSlotFunnelX').addEventListener('click', function () { rsFunnelVal = ''; rsRenderSlots(); });
-  document.getElementById('rsSlotTsnetX').addEventListener('click', function () { rsTsnetVal = ''; rsRenderSlots(); });
+  document.getElementById('rsRemoteSplit').addEventListener('click', rsAddPairFromText);
   // 折叠区：点击头部展开/收起
   function rsBindFold(headId, bodyId) {
     document.getElementById(headId).addEventListener('click', function () {
@@ -7711,11 +8129,17 @@
     const enabled = rsRouteOrder.filter(function (kind) {
       return !rsRouteDisabled[kind] && rsRouteAvailable(kind);
     }).length;
+    // 收起时也要能读到关键值：区块之间策略 + 条目默认超时 + 最坏耗时
+    const blockModes = PAIR_BLOCKS
+      .filter(function (b) { return !!rsBlockProbe[b.id]; })
+      .map(function (b) { return b.label + ' ' + short(rsBlockProbe[b.id]); });
+    const pairCount = rsPairs.filter(function (p) { return !!p.addr; }).length;
+    const worst = rsWorstSeconds();
     document.getElementById('rsFoldConnCount').textContent =
-      '优先级 ' + enabled + '/' + ROUTE_IDS.length +
-      ' · 通道间 ' + short(rsRouteProbe) + ' · 多网卡 ' + short(rsProbe) +
-      ' · 默认 ' + (rsProbeTimeoutMs() / 1000) + 's' +
-      (rsRouteTimeoutCount() ? '（' + rsRouteTimeoutCount() + ' 个通道单独设）' : '') +
+      '区块之间 ' + short(rsRouteProbe) +
+      ' · 条目默认 ' + (rsProbeTimeoutMs() / 1000) + 's' +
+      (pairCount ? ' · ' + pairCount + ' 条配对' + (worst ? ' 最坏 ' + worst.toFixed(1) + 's' : '') : '') +
+      (blockModes.length ? ' · ' + blockModes.join(' / ') : '') +
       (jump ? ' · 跳板机' : '');
     const routes = rsRouteEditor.routes();
     document.getElementById('rsFoldPowerCount').textContent =
@@ -7787,6 +8211,16 @@
   document.getElementById('rsProbeSerial').addEventListener('click', function () { rsProbe = 'serial'; rsProbeButtons(); });
 
   // ---- 连接优先级拖动列表 ----
+  /** 区块里可用的配对（enabled 且有地址） */
+  function rsPairsLive(kind) {
+    return rsPairs.filter(function (p) { return p.kind === kind && p.enabled !== false && !!p.addr; });
+  }
+  /** ts 区块按 lane 拆：直连与 funnel 在优先级表里仍是两行 */
+  function rsPairsLiveLane(lane) {
+    return rsPairsLive('ts').filter(function (p) {
+      return (p.lane || rsPairLane('ts', p.addr)) === lane;
+    });
+  }
   /** 通道当前是否可用（有地址/配置才能启用；后端 route_candidates 同语义） */
   function rsRouteAvailable(kind) {
     const addresses = rsAddrEditor.entries()
@@ -7795,12 +8229,17 @@
     switch (kind) {
       case 'lan': return addresses.length > 0;
       case 'jump': return addresses.length > 0 && !!document.getElementById('rsJump').value;
-      case 'tunnel': return !!rsTunnelVal;
-      case 'ts': return !!rsTsVal && !/^https:\/\//i.test(rsTsVal);
-      case 'funnel': return !!rsFunnelVal;
-      case 'tsnet': return !!rsTsnetVal;
+      case 'tunnel': return rsPairsLive('cloudflare').length > 0;
+      case 'ts': return rsPairsLiveLane('direct').length > 0;
+      case 'funnel': return rsPairsLiveLane('funnel').length > 0;
+      case 'tsnet': return rsPairsLive('tsnet').length > 0;
     }
     return false;
+  }
+  /** 一条候选的副标：一条给地址，多条给「首条 +N」 */
+  function rsPairsSub(list, emptyText) {
+    if (!list.length) return emptyText;
+    return list.length === 1 ? list[0].addr : list[0].addr + ' +' + (list.length - 1);
   }
   /** 通道副标：地址 / 没配置的原因 */
   function rsRouteSub(kind) {
@@ -7814,10 +8253,10 @@
     switch (kind) {
       case 'lan': return addresses[0] || '未填局域网地址';
       case 'jump': return jumpName ? '经 ' + jumpName : '未选跳板机档案';
-      case 'tunnel': return rsTunnelVal || '未配置隧道地址';
-      case 'ts': return rsTsVal && !/^https:\/\//i.test(rsTsVal) ? rsTsVal : '未配置 100.x 直连地址';
-      case 'funnel': return rsFunnelVal || '未配置（系统 Tailscale 的 *.ts.net 地址）';
-      case 'tsnet': return rsTsnetVal || '未配置（内置引擎的 *.ts.net 地址）';
+      case 'tunnel': return rsPairsSub(rsPairsLive('cloudflare'), '未配置隧道地址');
+      case 'ts': return rsPairsSub(rsPairsLiveLane('direct'), '未配置 100.x 直连地址');
+      case 'funnel': return rsPairsSub(rsPairsLiveLane('funnel'), '未配置（系统 Tailscale 的 *.ts.net）');
+      case 'tsnet': return rsPairsSub(rsPairsLive('tsnet'), '未配置（内置引擎的 *.ts.net）');
     }
     return '';
   }
@@ -7947,35 +8386,35 @@
     rsDeleteArmed = false;
     const r = id ? remotes.find(function (x) { return x.id === id; }) : null;
     document.getElementById('rsEditTitle').textContent = r ? '编辑服务端' : '连接 AnyBoot 服务端';
-    document.getElementById('rsGroup').value = r ? r.group : '';
     document.getElementById('rsName').value = r ? r.name : '';
     rsAddrEditor.setEntries(addressesFromRemote(r));
     rsAddrEditor.resetInputs();
     rsRouteEditor.setRoutes(r && Array.isArray(r.power_routes) ? r.power_routes : []);
-    // 四槽远程接入：直接读四个字段（与手机端 ServerProfile 同构）；
-    // 老档案没四槽时按判型从 remote_addr 分流（与后端 normalize 同语义）
-    rsTunnelVal = (r && r.remote_tunnel_addr) || '';
-    rsTsVal = (r && r.remote_ts_addr) || '';
-    rsFunnelVal = (r && r.remote_funnel_addr) || '';
-    rsTsnetVal = (r && r.remote_tsnet_addr) || '';
-    // 老档案兜底①：*.ts.net 以前挤在 Tailscale 槽里 → 挪进系统 Funnel 槽
-    if (!rsFunnelVal && rsTsVal && /\.ts\.net/i.test(rsTsVal)) {
-      rsFunnelVal = rsTsVal;
-      rsTsVal = '';
+    // 配对列表：深拷贝一份编辑态（保存时整体回传，改到一半取消不影响原档案）
+    const blankPair = { id: '', kind: 'cloudflare', lane: '', addr: '', token: '', probe_timeout_ms: 0, enabled: true, mid: '', os: '', host: '', tunnel_id: '', note: '', created_at: 0 };
+    rsPairs = (r && Array.isArray(r.pairs) ? r.pairs : []).map(function (p) {
+      return Object.assign({}, blankPair, p);
+    });
+    rsBlockProbe = {};
+    rsBlockTimeouts = {};
+    if (r && r.block_probe_mode) {
+      PAIR_BLOCKS.forEach(function (b) {
+        const mode = r.block_probe_mode[b.id];
+        if (mode === 'parallel_all' || mode === 'serial') rsBlockProbe[b.id] = mode;
+      });
     }
-    // 老档案兜底②：只有单槽 remote_addr
-    if (!rsTunnelVal && !rsTsVal && !rsFunnelVal && !rsTsnetVal && r && r.remote_addr) {
-      rsPlaceOrigin(rsNormalizeRemoteOrigin(r.remote_addr), '');
+    if (r && r.block_timeouts_ms) {
+      PAIR_BLOCKS.forEach(function (b) {
+        const ms = r.block_timeouts_ms[b.id];
+        if (ms > 0) rsBlockTimeouts[b.id] = String(ms / 1000);
+      });
     }
-    rsRemoteTokenNew = '';
-    rsRemoteTokenSaved = r && r.remote_token ? r.remote_token : '';
     rsTokenSaved = r && r.token ? r.token : '';
-    rsRemoteTokenShown = false;
     rsTokenShown = false;
     document.getElementById('rsToken').value = '';
     document.getElementById('rsRemote').value = '';
     document.getElementById('rsRemoteHint').textContent = '';
-    rsRenderSlots();
+    rsRenderPairs();
     rsRenderTokenRows();
     // 折叠区默认收起
     document.getElementById('rsFoldConn').hidden = true;
@@ -8032,24 +8471,42 @@
   document.getElementById('rsCancel').addEventListener('click', closeRsEdit);
   rsEditOverlay.addEventListener('click', function (e) { if (e.target === rsEditOverlay) closeRsEdit(); });
 
-  /** 测试候选：按优先级把启用且可用的通道排成 candidates（lan 每地址一条；跳板除外） */
+  /**
+   * 测试候选：按优先级展开**每一条**配对与每个局域网地址（跳板除外）。
+   *
+   * 「测试」固定走全部探测（后端 remote_test 收到 candidates 就按显式列表探，
+   * 每条都出自己的结果）—— 否则配了 3 条 cloudflare 永远只看到第 1 条的状态。
+   */
   function rsRouteCandidatesForTest() {
     const addresses = rsAddrEditor.entries()
       .map(function (item) { return item.address; })
       .filter(Boolean);
     const list = [];
+    const doneBlocks = {};
+    const BLOCK_OF = { tunnel: 'cloudflare', ts: 'ts', funnel: 'ts', tsnet: 'tsnet' };
     rsRouteOrder.forEach(function (kind) {
-      if (rsRouteDisabled[kind] || !rsRouteAvailable(kind) || kind === 'jump') return;
+      if (kind === 'jump') return;
+      const block = BLOCK_OF[kind];
+      if (block) {
+        if (doneBlocks[block]) return;
+        doneBlocks[block] = true;
+        const blockSec = parseFloat(rsBlockTimeouts[block]);
+        const blockMs = isFinite(blockSec) && blockSec > 0
+          ? Math.round(Math.min(30, Math.max(0.2, blockSec)) * 1000) : 0;
+        rsPairsLive(block).forEach(function (p) {
+          const lane = p.lane || rsPairLane('ts', p.addr);
+          const routeKind = block === 'cloudflare' ? 'tunnel'
+            : (block === 'tsnet' ? 'tsnet' : (lane === 'funnel' ? 'funnel' : 'ts'));
+          // 三层继承：条目 → 区块 → 全局（0 = 后端落全局默认）。
+          // 不带令牌：探活打的是免鉴权的 /health，令牌只影响能不能进界面
+          list.push({ kind: routeKind, origin: p.addr,
+            pair_id: p.id || '', timeout_ms: p.probe_timeout_ms || blockMs || 0, block: block });
+        });
+        return;
+      }
+      if (rsRouteDisabled[kind]) return;
       if (kind === 'lan') {
         addresses.forEach(function (address) { list.push({ kind: 'lan', origin: address }); });
-      } else if (kind === 'tunnel') {
-        list.push({ kind: 'tunnel', origin: rsTunnelVal });
-      } else if (kind === 'ts') {
-        if (rsTsVal) list.push({ kind: kind, origin: rsTsVal });
-      } else if (kind === 'funnel') {
-        if (rsFunnelVal) list.push({ kind: kind, origin: rsFunnelVal });
-      } else if (kind === 'tsnet') {
-        if (rsTsnetVal) list.push({ kind: kind, origin: rsTsnetVal });
       }
     });
     return list;
@@ -8067,7 +8524,7 @@
     out.classList.remove('bad');
     out.textContent = '探测中…';
     // 粘贴框里还有没分拣的内容：先自动分拣（点了测试就别让用户再点一次分拣）
-    if (document.getElementById('rsRemote').value.trim()) rsRemoteSplit();
+    if (document.getElementById('rsRemote').value.trim()) rsAddPairFromText();
     // 选了跳板机且跳板通道启用 → 走后端转发后探测（真实链路）；未保存的新档案先落库才能建转发
     const viaJump = !!document.getElementById('rsJump').value && !rsRouteDisabled.jump;
     const call = viaJump
@@ -8076,10 +8533,12 @@
           : Promise.reject(new Error('经跳板机测试需先保存档案：先点一次「保存」，再回来测试')))
       : invoke('remote_test', {
           addresses: [],
-          // 内层：多网卡探测（同一通道内多个地址）
-          probeMode: rsProbe,
-          // 外层：连接优先级的探测方式（六个通道之间）
-          routeProbeMode: rsRouteProbe,
+          // 「测试」固定走全部探测（§5.5）：parallel_first 下命中即收工，后面的条目只会是
+          // 「未探测」—— 用户配了 3 条，永远只看到第 1 条的状态，会以为后面两条坏了。
+          // 两个粒度都强制 parallel_all，界面上选的是「平时轮询」的策略，不影响测试。
+          probeMode: 'parallel_all',
+          routeProbeMode: 'parallel_all',
+          blockProbeModes: { cloudflare: 'parallel_all', ts: 'parallel_all', tsnet: 'parallel_all' },
           // 默认探测超时（通道没单独设时用它；界面上是秒，后端收毫秒）
           probeTimeoutMs: rsProbeTimeoutMs(),
           // 每个通道自己的超时：编辑框里那张表原样带过去，测出来才和保存后一致
@@ -8128,8 +8587,10 @@
     invoke('gateway_pair_fetch', { peer: first })
       .then(function (pair) {
         document.getElementById('rsRemote').value = pair;
-        rsRemoteSplit(); // 拿到配对码直接分拣落槽（令牌一并带入）
-        hint.textContent = '已拿到配对码并分拣落槽 —— 点「保存」生效';
+        const kind = rsAddPairFromText(); // 拿到配对码直接解析进区块（令牌一并带入）
+        hint.textContent = kind
+          ? '已拿到配对码并加入「' + rsBlockLabel(kind) + '」—— 点「保存」生效'
+          : document.getElementById('rsRemoteHint').textContent;
         toast('对方已确认配对');
       })
       .catch(function (e) {
@@ -8139,14 +8600,12 @@
   });
   document.getElementById('rsRemoteClear').addEventListener('click', function () {
     document.getElementById('rsRemote').value = '';
-    rsTunnelVal = '';
-    rsTsVal = '';
-    rsFunnelVal = '';
-    rsTsnetVal = '';
-    rsRemoteTokenNew = '';
-    rsRenderSlots();
-    rsRenderTokenRows();
-    document.getElementById('rsRemoteHint').textContent = '远程接入已清空 —— 保存后两槽都不再使用';
+    rsPairs = [];
+    rsBlockProbe = {};
+    rsBlockTimeouts = {};
+    rsRenderPairs();
+    rsRenderFoldCounts();
+    document.getElementById('rsRemoteHint').textContent = '远程接入已清空 —— 保存后三个区块都不再使用';
   });
 
   document.getElementById('rsDelete').addEventListener('click', function () {
@@ -8179,9 +8638,26 @@
       document.getElementById('rsEditError').textContent = '至少要添加一个服务端地址';
       return;
     }
+    // 空白行（点了「+ 添加」还没填地址）不落盘：后端也会丢，但前端先滤掉更干净
+    const pairsForSave = rsPairs.filter(function (p) { return !!p.addr; }).map(function (p) {
+      return {
+        id: p.id || '',
+        kind: p.kind,
+        lane: p.lane || '',
+        addr: p.addr,
+        token: p.token || '',
+        probe_timeout_ms: p.probe_timeout_ms || 0,
+        enabled: p.enabled !== false,
+        mid: p.mid || '',
+        os: p.os || '',
+        host: p.host || '',
+        tunnel_id: p.tunnel_id || '',
+        note: p.note || '',
+        created_at: p.created_at || 0,
+      };
+    });
     const payload = {
       id: rsEditing || '',
-      group: document.getElementById('rsGroup').value.trim(),
       name: document.getElementById('rsName').value.trim(),
       addresses: parsed.addresses,
       macs: parsed.macs,
@@ -8201,13 +8677,10 @@
       // 每个通道自己的探测超时（毫秒，key = 通道 id；空的通道不写 = 继承上面的默认值）
       route_timeouts_ms: rsRouteTimeoutsMs(),
       jump_id: document.getElementById('rsJump').value || '',
-      // 远程接入四槽：各自独立（配对令牌只在分拣出新值时更新，空 = 保持已存）
-      remote_addr: '',
-      remote_tunnel_addr: rsTunnelVal,
-      remote_ts_addr: rsTsVal,
-      remote_funnel_addr: rsFunnelVal,
-      remote_tsnet_addr: rsTsnetVal,
-      remote_token: rsRemoteTokenNew,
+      // 远程接入：三个区块的配对列表（每条自带地址/令牌/超时/来源）+ 区块策略
+      pairs: pairsForSave,
+      block_probe_mode: rsBlockProbeForSave(),
+      block_timeouts_ms: rsBlockTimeoutsForSave(),
       // 局域网电源路由：动作归一、端口兜底 9、MAC 全不勾 = 空数组（= 全部网卡）
       power_routes: routesForSave(rsRouteEditor.routes()),
       created_at: 0,
@@ -8216,11 +8689,11 @@
     // 变了才清掉这台电脑的 iframe 缓存（不清的话切过去还是连老地址 —— 就是「不回显」）
     const prev = rsEditing ? remotes.find(function (x) { return x.id === rsEditing; }) : null;
     const connFp = function (r) {
-      // 四槽必须全进指纹：漏一个就会出现「只改了 Funnel 槽 → 判定没变 → iframe 还是老地址」
-      return [r.addresses.join('|'), r.token || '', r.jump_id || '',
-        r.remote_tunnel_addr || '', r.remote_ts_addr || '',
-        r.remote_funnel_addr || '', r.remote_tsnet_addr || '',
-        r.remote_addr || '', r.remote_token || ''].join('\u00a7');
+      // 配对必须全进指纹：漏一条就会出现「只改了某条配对 → 判定没变 → iframe 还是老地址」
+      const pairs = (Array.isArray(r.pairs) ? r.pairs : []).map(function (p) {
+        return [p.kind, p.addr, p.token || '', p.enabled === false ? '0' : '1'].join(',');
+      }).join(';');
+      return [r.addresses.join('|'), r.token || '', r.jump_id || '', pairs].join('\u00a7');
     };
     const prevFp = prev ? connFp(prev) : '';
     invoke('remote_save', { server: payload })
@@ -8262,7 +8735,7 @@
       rows.appendChild(rsListRow({
         rid: r.id,
         title: pcName(r),
-        sub: (r.group ? r.group + ' · ' : '') + (allAddrs || '(未配地址)'),
+        sub: (allAddrs || '(未配地址)'),
         dotColor: 'rgb(var(--fg-faint))',
         editable: true,
       }));

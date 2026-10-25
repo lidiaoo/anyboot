@@ -39,6 +39,8 @@ final class ProbeEngine {
     static final class Hit {
         final String kind;
         final String origin;
+        /** 这条结果属于哪条配对（局域网 / 跳板机为空）—— 前端按它回填「哪一行的状态」 */
+        final String pairId;
         final boolean ok;
         final long ms;
         final String error;
@@ -46,10 +48,11 @@ final class ProbeEngine {
         final String machineName;
         final String os;
 
-        Hit(String kind, String origin, boolean ok, long ms, String error,
+        Hit(String kind, String origin, String pairId, boolean ok, long ms, String error,
             String machineId, String machineName, String os) {
             this.kind = kind;
             this.origin = origin;
+            this.pairId = pairId == null ? "" : pairId;
             this.ok = ok;
             this.ms = ms;
             this.error = error;
@@ -64,6 +67,8 @@ final class ProbeEngine {
         boolean ok;
         String kind = "";
         String origin = "";
+        /** 赢家是哪条配对（局域网 / 跳板机为空）—— 调用方按它取那条自己的令牌 */
+        String pairId = "";
         long ms;
         String machineId = "";
         String machineName = "";
@@ -90,13 +95,38 @@ final class ProbeEngine {
     static final List<String> LOCAL_KINDS = Collections.unmodifiableList(
             java.util.Arrays.asList(ServerProfile.ROUTE_LAN, ServerProfile.ROUTE_JUMP));
 
-    /** 一个通道的候选组：同一个 kind 的多个 origin 归一组（只有局域网会有多个） */
+    /**
+     * 一个通道里的一个候选。超时与配对 id 在展开时就按条目算好（三层继承的实现只有一处），
+     * 探测时不用再回头查表 —— 同一个通道里的三条配对可以有三种超时。
+     */
+    private static final class Item {
+        final String origin;
+        final int timeoutMs;
+        final String pairId;
+
+        Item(String origin, int timeoutMs, String pairId) {
+            this.origin = origin;
+            this.timeoutMs = timeoutMs;
+            this.pairId = pairId == null ? "" : pairId;
+        }
+    }
+
+    /**
+     * 一个通道的候选组。
+     *
+     * <p>{@code innerMode} 是该组内部的探测策略：局域网 / 跳板机用档案的多网卡策略
+     * （{@link ServerProfile#probeMode}），配对通道用**区块内**策略
+     * （{@link ServerProfile#blockProbeModeFor}）—— 同一区块里的多条配对之间怎么试，
+     * 与「一块网卡多个 IP 之间怎么试」是两件事。
+     */
     private static final class Group {
         final String kind;
-        final List<String> origins = new ArrayList<>();
+        final String innerMode;
+        final List<Item> items = new ArrayList<>();
 
-        Group(String kind) {
+        Group(String kind, String innerMode) {
             this.kind = kind;
+            this.innerMode = innerMode;
         }
     }
 
@@ -143,23 +173,17 @@ final class ProbeEngine {
             result.error = "没有档案";
             return result;
         }
-        List<String[]> candidates = expand(profile, onlyKinds);
+        List<ServerProfile.RouteCandidate> candidates = expand(profile, onlyKinds);
         if (candidates.isEmpty()) {
             // 全通道路径要报错给用户看；限定通道的阶段性探测「没有候选」是正常情况
             result.error = onlyKinds == null ? "没有可用连接通道（地址为空，或通道都被停用）" : "";
             return result;
         }
-        // 每个通道用自己的超时（通道没单独设 → 档案里的默认值）：局域网快、Funnel/tsnet 慢
-        Map<String, Integer> timeouts = new HashMap<>();
-        for (String[] candidate : candidates) {
-            timeouts.put(candidate[0], profile.probeTimeoutFor(candidate[0]));
-        }
-        List<Group> groups = group(candidates);
+        List<Group> groups = group(profile, candidates);
         String routeMode = ServerProfile.normalizeProbeMode(profile.routeProbeMode);
-        String addressMode = ServerProfile.normalizeProbeMode(profile.probeMode);
         return ServerProfile.PROBE_SERIAL.equals(routeMode)
-                ? probeChannelsSerial(groups, addressMode, timeouts, jump)
-                : probeChannelsParallel(groups, addressMode, timeouts, jump,
+                ? probeChannelsSerial(groups, jump)
+                : probeChannelsParallel(groups, jump,
                         ServerProfile.PROBE_PARALLEL_ALL.equals(routeMode));
     }
 
@@ -167,18 +191,19 @@ final class ProbeEngine {
      * routeCandidates 里 lan 只占一条（请求路径用），探测要**每个局域网地址各一条**，
      * 否则多网卡的机器永远只探第一块网卡。
      */
-    private static List<String[]> expand(ServerProfile profile, List<String> onlyKinds) {
-        List<String[]> out = new ArrayList<>();
-        for (String[] candidate : profile.routeCandidates()) {
-            String kind = candidate[0];
+    private static List<ServerProfile.RouteCandidate> expand(ServerProfile profile, List<String> onlyKinds) {
+        List<ServerProfile.RouteCandidate> out = new ArrayList<>();
+        for (ServerProfile.RouteCandidate candidate : profile.routeCandidates()) {
+            String kind = candidate.kind;
             if (onlyKinds != null && !onlyKinds.contains(kind)) {
                 continue;
             }
             if (ServerProfile.ROUTE_LAN.equals(kind)) {
+                int timeout = profile.probeTimeoutFor(kind);
                 for (String address : profile.addresses) {
                     String trimmed = ServerProfile.text(address);
                     if (!trimmed.isEmpty()) {
-                        out.add(new String[]{kind, trimmed});
+                        out.add(new ServerProfile.RouteCandidate(kind, trimmed, "", timeout, ""));
                     }
                 }
             } else {
@@ -189,41 +214,60 @@ final class ProbeEngine {
     }
 
     /** 按 kind 分组，**保持候选出现顺序**（组顺序 = 用户在优先级表里排的顺序） */
-    private static List<Group> group(List<String[]> candidates) {
+    private static List<Group> group(ServerProfile profile, List<ServerProfile.RouteCandidate> candidates) {
         List<Group> groups = new ArrayList<>();
-        for (String[] candidate : candidates) {
+        for (ServerProfile.RouteCandidate candidate : candidates) {
             Group hit = null;
             for (Group group : groups) {
-                if (group.kind.equals(candidate[0])) {
+                if (group.kind.equals(candidate.kind)) {
                     hit = group;
                     break;
                 }
             }
             if (hit == null) {
-                hit = new Group(candidate[0]);
+                String block = RemotePair.blockOfRoute(candidate.kind);
+                String inner = block.isEmpty()
+                        ? profile.probeMode
+                        : profile.blockProbeModeFor(block);
+                hit = new Group(candidate.kind, ServerProfile.normalizeProbeMode(inner));
                 groups.add(hit);
             }
-            if (!hit.origins.contains(candidate[1])) {
-                hit.origins.add(candidate[1]);
+            // 同一个 origin 只探一次；不同配对即使地址相同也各占一行（令牌不同 = 另一条路）
+            boolean seen = false;
+            for (Item item : hit.items) {
+                if (item.origin.equals(candidate.origin) && item.pairId.equals(candidate.pairId)) {
+                    seen = true;
+                    break;
+                }
+            }
+            if (!seen) {
+                hit.items.add(new Item(candidate.origin, candidate.timeoutMs, candidate.pairId));
             }
         }
         return groups;
     }
 
-    /** 这个通道该等多久（毫秒） */
-    private static int timeoutOf(Map<String, Integer> timeouts, String kind) {
-        Integer value = timeouts.get(kind);
-        return value == null || value <= 0
-                ? ServerProfile.DEFAULT_PROBE_TIMEOUT_MS
-                : ServerProfile.clampProbeTimeoutMs(value);
+    /** 这组最坏等多久（内层串行时＝逐个累加，否则取最长的一条） */
+    private static int worstOf(Group group) {
+        if (ServerProfile.PROBE_SERIAL.equals(group.innerMode)) {
+            int sum = 0;
+            for (Item item : group.items) {
+                sum += item.timeoutMs;
+            }
+            return sum;
+        }
+        int max = 0;
+        for (Item item : group.items) {
+            max = Math.max(max, item.timeoutMs);
+        }
+        return max;
     }
 
     /** 外层串行：一个通道一个通道地试，某个通道命中就不再往下走 */
-    private static Result probeChannelsSerial(List<Group> groups, String addressMode,
-                                              Map<String, Integer> timeouts, JumpResolver jump) {
+    private static Result probeChannelsSerial(List<Group> groups, JumpResolver jump) {
         List<Hit> hits = new ArrayList<>();
         for (Group group : groups) {
-            List<Hit> groupHits = probeGroup(group, addressMode, timeouts, jump);
+            List<Hit> groupHits = probeGroup(group, jump);
             boolean ok = anyOk(groupHits);
             hits.addAll(groupHits);
             if (ok) {
@@ -236,11 +280,10 @@ final class ProbeEngine {
     }
 
     /**
-     * 外层并发：一个通道一个任务，组内再按内层（多网卡）策略处理它的多个地址。
+     * 外层并发：一个通道一个任务，组内再按内层策略处理它的多个候选。
      * `all=true` 等全部通道返回取最快成功者；`all=false` 第一个成功的通道立刻返回。
      */
-    private static Result probeChannelsParallel(List<Group> groups, String addressMode,
-                                                Map<String, Integer> timeouts,
+    private static Result probeChannelsParallel(List<Group> groups,
                                                 JumpResolver jump, boolean all) {
         final int expected = groups.size();
         final List<List<Hit>> ordered = new ArrayList<>(Collections.nCopies(expected, null));
@@ -250,18 +293,12 @@ final class ProbeEngine {
         for (int index = 0; index < expected; index++) {
             final Group group = groups.get(index);
             final int slot = index;
-            final String inner = addressMode;
-            final Map<String, Integer> map = timeouts;
             final JumpResolver resolver = jump;
-            int per = timeoutOf(timeouts, group.kind);
-            // 内层串行时这个通道最坏要等「地址数 × 超时」
-            int worst = ServerProfile.PROBE_SERIAL.equals(inner)
-                    ? per * Math.max(1, group.origins.size()) : per;
-            slowest = Math.max(slowest, worst);
+            slowest = Math.max(slowest, worstOf(group));
             Holder.EXECUTOR.execute(new Runnable() {
                 @Override
                 public void run() {
-                    List<Hit> groupHits = probeGroup(group, inner, map, resolver);
+                    List<Hit> groupHits = probeGroup(group, resolver);
                     // 按槽位摆回去（展示顺序 = 优先级顺序），再报告「通道完成」
                     synchronized (ordered) {
                         ordered.set(slot, groupHits);
@@ -270,7 +307,10 @@ final class ProbeEngine {
                 }
             });
         }
-        long deadline = System.currentTimeMillis() + slowest + 500L;
+        // 30 秒硬顶：超时下放到条目后最坏耗时是乘出来的（3 区块 × 4 条 × 3s = 36s），
+        // 不封顶的话「探测」按钮能转一分钟
+        long budget = Math.min(slowest + 500L, ServerProfile.MAX_PROBE_TIMEOUT_MS);
+        long deadline = System.currentTimeMillis() + budget;
         for (int count = 0; count < expected; count++) {
             long remaining = deadline - System.currentTimeMillis();
             int[] signal;
@@ -301,69 +341,68 @@ final class ProbeEngine {
                 hits.addAll(groupHits);
             }
         }
-        // 没回来的通道 / 地址如实标出来（带上它自己的超时值）
+        // 没回来的通道 / 候选如实标出来（带上它自己的超时值）
         for (Group group : groups) {
-            int per = timeoutOf(timeouts, group.kind);
-            for (String origin : group.origins) {
-                if (contains(hits, group.kind, origin)) {
+            for (Item item : group.items) {
+                if (contains(hits, group.kind, item.origin, item.pairId)) {
                     continue;
                 }
-                hits.add(new Hit(group.kind, origin, false, 0,
-                        "探测超时（>" + per + "ms）", "", "", ""));
+                hits.add(new Hit(group.kind, item.origin, item.pairId, false, 0,
+                        "探测超时（>" + item.timeoutMs + "ms）", "", "", ""));
             }
         }
         return finish(hits);
     }
 
     /**
-     * 探一个通道：组内多个地址按**多网卡探测**方式处理，返回按 origins 顺序排列的命中。
-     * 未探测的地址也补一行，这样逐行结果永远和优先级表对得上。
+     * 探一个通道：组内多个候选按**该组的内部策略**处理，返回按 items 顺序排列的命中。
+     * 未探测的候选也补一行，这样逐行结果永远和优先级表对得上。
      */
-    private static List<Hit> probeGroup(Group group, String addressMode,
-                                        Map<String, Integer> timeouts, JumpResolver jump) {
-        int timeout = timeoutOf(timeouts, group.kind);
+    private static List<Hit> probeGroup(Group group, JumpResolver jump) {
         List<Hit> hits = new ArrayList<>();
-        if (group.origins.size() == 1) {
-            hits.add(probeOne(group.kind, group.origins.get(0), timeout, jump));
+        if (group.items.size() == 1) {
+            Item item = group.items.get(0);
+            hits.add(probeOne(group.kind, item.origin, item.timeoutMs, item.pairId, jump));
             return hits;
         }
-        if (ServerProfile.PROBE_SERIAL.equals(addressMode)) {
-            // 内层串行：按用户排的地址顺序逐个试，第一个通就停
-            for (String origin : group.origins) {
-                Hit hit = probeOne(group.kind, origin, timeout, jump);
+        if (ServerProfile.PROBE_SERIAL.equals(group.innerMode)) {
+            // 内层串行：按用户排的顺序逐个试，第一个通就停
+            for (Item item : group.items) {
+                Hit hit = probeOne(group.kind, item.origin, item.timeoutMs, item.pairId, jump);
                 hits.add(hit);
                 if (hit.ok) {
                     break;
                 }
             }
-            for (int index = hits.size(); index < group.origins.size(); index++) {
-                hits.add(new Hit(group.kind, group.origins.get(index), false, 0,
+            for (int index = hits.size(); index < group.items.size(); index++) {
+                Item item = group.items.get(index);
+                hits.add(new Hit(group.kind, item.origin, item.pairId, false, 0,
                         "同通道前面已命中，未探测", "", "", ""));
             }
             return hits;
         }
         // 内层并发：全部同时发出，按完成先后取（首个成功即收工 / 等全部）
-        final int expected = group.origins.size();
+        final int expected = group.items.size();
         final Hit[] ordered = new Hit[expected];
         final BlockingQueue<Hit> arrived = new LinkedBlockingQueue<>();
-        final boolean all = ServerProfile.PROBE_PARALLEL_ALL.equals(addressMode);
+        final boolean all = ServerProfile.PROBE_PARALLEL_ALL.equals(group.innerMode);
         List<Future<?>> futures = new ArrayList<>();
         for (int index = 0; index < expected; index++) {
-            final String origin = group.origins.get(index);
+            final Item item = group.items.get(index);
             final String kind = group.kind;
-            final int per = timeout;
             final int slot = index;
             final JumpResolver resolver = jump;
             futures.add(Holder.EXECUTOR.submit(new Runnable() {
                 @Override
                 public void run() {
-                    Hit hit = probeOne(kind, origin, per, resolver);
+                    Hit hit = probeOne(kind, item.origin, item.timeoutMs, item.pairId, resolver);
                     ordered[slot] = hit;
                     arrived.offer(hit);
                 }
             }));
         }
-        long deadline = System.currentTimeMillis() + timeout + 500L;
+        long budget = Math.min(worstOf(group) + 500L, ServerProfile.MAX_PROBE_TIMEOUT_MS);
+        long deadline = System.currentTimeMillis() + budget;
         for (int count = 0; count < expected; count++) {
             long remaining = deadline - System.currentTimeMillis();
             Hit hit;
@@ -387,36 +426,37 @@ final class ProbeEngine {
         }
         for (int index = 0; index < expected; index++) {
             Hit hit = ordered[index];
-            hits.add(hit != null ? hit : new Hit(group.kind, group.origins.get(index), false, 0,
+            Item item = group.items.get(index);
+            hits.add(hit != null ? hit : new Hit(group.kind, item.origin, item.pairId, false, 0,
                     "同通道已命中，未再等待", "", "", ""));
         }
         return hits;
     }
 
     /** 探一个候选：局域网 → http://host:port/health；远程 → https origin + /health */
-    private static Hit probeOne(String kind, String origin, int timeout, JumpResolver jump) {
+    private static Hit probeOne(String kind, String origin, int timeout, String pairId, JumpResolver jump) {
         boolean remote = isRemote(kind);
         String target = origin;
         if (ServerProfile.ROUTE_JUMP.equals(kind)) {
             if (jump == null) {
-                return new Hit(kind, "", false, 0, "没配跳板机解析器", "", "", "");
+                return new Hit(kind, "", pairId, false, 0, "没配跳板机解析器", "", "", "");
             }
             try {
                 target = jump.resolve();
             } catch (Exception exception) {
-                return new Hit(kind, "", false, 0, "跳板机不可用：" + exception.getMessage(), "", "", "");
+                return new Hit(kind, "", pairId, false, 0, "跳板机不可用：" + exception.getMessage(), "", "", "");
             }
             if (target == null || target.trim().isEmpty()) {
-                return new Hit(kind, "", false, 0, "跳板机隧道没建起来", "", "", "");
+                return new Hit(kind, "", pairId, false, 0, "跳板机隧道没建起来", "", "", "");
             }
             remote = false;
         }
         HealthProbe.Result probe = HealthProbe.probe(target, remote, timeout);
         if (probe == null) {
-            return new Hit(kind, target, false, 0,
+            return new Hit(kind, target, pairId, false, 0,
                     "连不上（超时或对方没起 HTTP 服务）", "", "", "");
         }
-        return new Hit(kind, target, true, probe.ms,
+        return new Hit(kind, target, pairId, true, probe.ms,
                 "", probe.machineId, probe.machineName, probe.os);
     }
 
@@ -443,9 +483,10 @@ final class ProbeEngine {
         return null;
     }
 
-    private static boolean contains(List<Hit> hits, String kind, String origin) {
+    private static boolean contains(List<Hit> hits, String kind, String origin, String pairId) {
+        String id = pairId == null ? "" : pairId;
         for (Hit hit : hits) {
-            if (hit.kind.equals(kind) && hit.origin.equals(origin)) {
+            if (hit.kind.equals(kind) && hit.origin.equals(origin) && hit.pairId.equals(id)) {
                 return true;
             }
         }
@@ -455,11 +496,11 @@ final class ProbeEngine {
     /** 把没探到的候选补成「跳过」行，逐行结果才和优先级表一致 */
     private static void fillMissing(List<Hit> hits, List<Group> groups, String reason) {
         for (Group group : groups) {
-            for (String origin : group.origins) {
-                if (contains(hits, group.kind, origin)) {
+            for (Item item : group.items) {
+                if (contains(hits, group.kind, item.origin, item.pairId)) {
                     continue;
                 }
-                hits.add(new Hit(group.kind, origin, false, 0, reason, "", "", ""));
+                hits.add(new Hit(group.kind, item.origin, item.pairId, false, 0, reason, "", "", ""));
             }
         }
     }
@@ -489,6 +530,7 @@ final class ProbeEngine {
         result.ok = true;
         result.kind = winner.kind == null ? "" : winner.kind;
         result.origin = winner.origin == null ? "" : winner.origin;
+        result.pairId = winner.pairId == null ? "" : winner.pairId;
         result.ms = winner.ms;
         result.machineId = winner.machineId == null ? "" : winner.machineId;
         result.machineName = winner.machineName == null ? "" : winner.machineName;

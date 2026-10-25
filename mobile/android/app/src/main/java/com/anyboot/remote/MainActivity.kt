@@ -450,8 +450,7 @@ class MainActivity : ComponentActivity() {
             tab != null && tab.status == STATUS_FAIL -> palette.bad
             else -> palette.fgFaint
         }
-        val border =
-            if (ServerProfile.text(profile.group).isNotEmpty()) profile.groupColor() else palette.line
+        val border = palette.line
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
@@ -1688,13 +1687,8 @@ class MainActivity : ComponentActivity() {
             val fresh = servers.firstOrNull { it.id == tab.profile.id } ?: continue
             if (fresh === tab.profile) continue
             val old = tab.profile
-            val connChanged = fresh.addresses != old.addresses ||
-                fresh.token != old.token ||
-                // remoteAddr 是四槽的生效镜像：它变了说明真正要连的地址变了
-                fresh.remoteAddr != old.remoteAddr ||
-                fresh.remoteToken != old.remoteToken ||
-                fresh.routeOrder != old.routeOrder ||
-                fresh.routeDisabled != old.routeDisabled
+            // 生效地址来自「第一条启用配对」，所以配对的增删改、顺序与区块策略变化都要重连
+            val connChanged = !ServerProfile.sameConnState(fresh, old)
             tab.profile = fresh
             if (connChanged && fresh.id == activeId && tab.status != STATUS_LOADING) {
                 // 地址/凭据/通道都变了：按新档案重连（等价于点一下刷新）
@@ -1739,16 +1733,6 @@ class MainActivity : ComponentActivity() {
     // ------------------------------------------------------------------
     // 「同一台电脑」的识别与合并
     // ------------------------------------------------------------------
-
-    /** 找找有没有这个分组的记录（分组 = 一台电脑） */
-    private fun findByGroup(group: String): ServerProfile? {
-        // 并组逻辑已统一进 saveServerProfile（ServerEditForm.kt）；本页不再单独找组
-        val target = ServerProfile.text(group)
-        if (target.isEmpty()) return null
-        return servers.firstOrNull {
-            target.equals(ServerProfile.text(it.group), ignoreCase = true)
-        }
-    }
 
     /** 后台探一次电脑端的 `/health`，拿到机器标识（多块网卡自动归并的关键） */
     private fun probeMachine(profile: ServerProfile) {
@@ -1812,19 +1796,18 @@ class MainActivity : ComponentActivity() {
         keep.mergeAddresses(drop)
         if (ServerProfile.text(keep.machineId).isEmpty()) keep.machineId = drop.machineId
         if (ServerProfile.text(keep.machineName).isEmpty()) keep.machineName = drop.machineName
-        if (ServerProfile.text(keep.group).isEmpty()) keep.group = drop.group
         if (ServerProfile.text(keep.name).isEmpty()) keep.name = drop.name
         if (ServerProfile.text(keep.token).isEmpty()) keep.token = drop.token
         if (ServerProfile.text(keep.jumpServerId).isEmpty()) keep.jumpServerId = drop.jumpServerId
         // 远程接入也是同一台电脑的属性：留下来的没配而被并的配了，就整体搬过来
         //（否则编辑后保存 → probeMachine 触发合并 → 配好的远程信息跟着 drop 一起消失）
         if (!keep.hasRemote() && drop.hasRemote()) {
-            keep.remoteAddr = drop.remoteAddr
-            keep.remoteTunnelAddr = drop.remoteTunnelAddr
-            keep.remoteTsAddr = drop.remoteTsAddr
-            keep.remoteFunnelAddr = drop.remoteFunnelAddr
-            keep.remoteTsnetAddr = drop.remoteTsnetAddr
-            keep.remoteToken = drop.remoteToken
+            keep.pairs.clear()
+            for (pair in drop.pairs) keep.pairs.add(pair.copy())
+            keep.blockProbeMode.clear()
+            keep.blockProbeMode.putAll(drop.blockProbeMode)
+            keep.blockTimeoutsMs.clear()
+            keep.blockTimeoutsMs.putAll(drop.blockTimeoutsMs)
             keep.connMode = drop.connMode // 连接优先跟着远程接入一起走
         }
     }

@@ -79,6 +79,7 @@ import androidx.compose.ui.unit.sp
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
+import java.util.HashMap
 import java.util.Locale
 import org.json.JSONObject
 
@@ -899,22 +900,6 @@ class ComputerListActivity : ComponentActivity() {
                             .padding(horizontal = 5.dp, vertical = 1.dp),
                     )
                 }
-                if (row.group.isNotEmpty()) {
-                    Spacer(Modifier.width(7.dp))
-                    val groupTint = Color(row.profile.groupColor())
-                    Text(
-                        row.group,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = groupTint,
-                        maxLines = 1,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(5.dp))
-                            .background(groupTint.copy(alpha = 0.16f))
-                            .border(1.dp, groupTint.copy(alpha = 0.3f), RoundedCornerShape(5.dp))
-                            .padding(horizontal = 5.dp, vertical = 1.dp),
-                    )
-                }
                 // 系统族徽标（Windows / macOS / Linux）：点它直接看系统详情。
                 // 系统族是探测时顺手记下的（对方 /health 的 os），老服务端没有就不画，不占位。
                 if (osShowName(row.profile.machineOs).isNotEmpty()) {
@@ -1006,6 +991,76 @@ class ComputerListActivity : ComponentActivity() {
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
+                    }
+                }
+            }
+
+            // 远程配对（三个区块逐条列出）：地址 + 通道 + 来源 + 这一轮的探测结果。
+            // 平铺不分组 —— 一条配对一行，和 PC 端「电脑」页的三区块列表同形。
+            if (row.pairs.isNotEmpty()) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(3.dp),
+                    modifier = Modifier.padding(top = 7.dp),
+                ) {
+                    for (pair in row.pairs) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(start = 4.dp),
+                        ) {
+                            Text(
+                                pair.state,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = when {
+                                    !pair.enabled -> palette.fgFaint
+                                    pair.state == "使用中" -> palette.accent
+                                    pair.ok -> palette.ok
+                                    pair.state == "不通" -> palette.bad
+                                    else -> palette.fgFaint
+                                },
+                                modifier = Modifier.width(52.dp),
+                                maxLines = 1,
+                            )
+                            Text(
+                                pair.addr,
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace,
+                                color = if (pair.enabled) palette.fg else palette.fgFaint,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false),
+                            )
+                            if (pair.lane.isNotEmpty()) {
+                                Spacer(Modifier.width(5.dp))
+                                Text(
+                                    pair.lane,
+                                    fontSize = 10.sp,
+                                    color = palette.fgFaint,
+                                    maxLines = 1,
+                                )
+                            }
+                            if (pair.source.isNotEmpty()) {
+                                Spacer(Modifier.width(5.dp))
+                                Text(
+                                    pair.source,
+                                    fontSize = 10.sp,
+                                    color = palette.fgFaint,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                    }
+                    if (row.tunnelNote.isNotEmpty()) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            InfoIcon(tint = palette.warn, size = 11.dp)
+                            Spacer(Modifier.width(5.dp))
+                            Text(
+                                row.tunnelNote,
+                                fontSize = 10.sp,
+                                color = palette.warn,
+                            )
+                        }
                     }
                 }
             }
@@ -1930,9 +1985,34 @@ class ComputerListActivity : ComponentActivity() {
             extras.append(' ').append(addr)
             row.profile.macsForHost(addr).forEach { extras.append(' ').append(it) }
         }
-        val haystack = (row.name + " " + row.group + " " + row.ip + " " + row.mac + extras)
+        val haystack = (row.name + " " + row.pairs.joinToString(" ") {
+            it.addr + " " + it.block + " " + it.source
+        } + " " + row.ip + " " + row.mac + extras)
             .lowercase(Locale.US)
         return haystack.contains(needle)
+    }
+
+    /**
+     * 「同一隧道被多套系统共用」提示（`docs/remote-pairs.md` §6 S5）。
+     *
+     * <p>同一个 named tunnel 指向多个后端时，Cloudflare 会随机转发 —— 用户看到的是
+     * 「一会儿连上这台、一会儿连上那台」。这在档案层面没法修（改的是对端的隧道配置），
+     * 只能提示出来，别让人以为是 AnyBoot 的 bug。
+     */
+    private fun tunnelShareNote(profile: ServerProfile): String {
+        val seen = HashMap<String, Int>()
+        for (pair in profile.flatPairs()) {
+            val id = ServerProfile.text(pair.tunnelId)
+            if (id.isEmpty()) continue
+            seen[id] = (seen[id] ?: 0) + 1
+        }
+        for ((id, count) in seen) {
+            if (count > 1) {
+                val short = if (id.length > 8) id.substring(0, 8) else id
+                return "隧道 $short 被 $count 条配对共用 —— 同一隧道被多套系统共用，请求会随机落到其中一个"
+            }
+        }
+        return ""
     }
 
     // ------------------------------------------------------------------
@@ -1946,32 +2026,27 @@ class ComputerListActivity : ComponentActivity() {
             !info.online -> STATE_OFFLINE
             else -> STATE_ONLINE
         }
-        // 当前连接：探测赢家确实落在某个远程槽上 → 按**那一槽**标通道（隧道 / 直连 / 系统 Funnel /
-        // 内置 Funnel）。以前只有「生效地址」一个镜像，三套 Tailscale 分不出来，列表上全标 Funnel。
-        val remoteSlots = listOf(
-            ServerProfile.ROUTE_TUNNEL to ServerProfile.normalizeRemoteOrigin(profile.remoteTunnelAddr),
-            ServerProfile.ROUTE_TS to profile.tsDirectOrigin(),
-            ServerProfile.ROUTE_FUNNEL to profile.funnelOrigin(),
-            ServerProfile.ROUTE_TSNET to profile.tsnetOrigin(),
-        )
-        val hitSlot = if (info != null && info.online) {
-            remoteSlots.firstOrNull { (_, origin) ->
+        // 当前连接：探测赢家确实落在某条配对上 → 按**那一条**标通道（隧道 / 直连 /
+        // 系统 Funnel / 内建 Funnel）。一条配对一个候选，所以这里能精确到「哪一行」。
+        val hitPair = if (info != null && info.online) {
+            profile.flatPairs().firstOrNull { pair ->
+                val origin = ServerProfile.normalizeRemoteOrigin(pair.addr)
                 origin.isNotEmpty() &&
                     origin.removePrefix("https://").removePrefix("http://") == info.addr
             }
         } else {
             null
         }
-        val usingRemote = hitSlot != null
+        val usingRemote = hitPair != null
         // **没在线的不能写「直连」**（以前这里就是这样：电脑关着机也写着「直连」）。
         // 只有这一轮确实探通（或正在唤醒/关机这类过渡态之外的在线）才描述走的哪条通道。
         val conn = if (state != STATE_ONLINE) {
             "未连接"
         } else when {
-            hitSlot?.first == ServerProfile.ROUTE_TSNET -> "Tailscale Funnel（内建）"
-            hitSlot?.first == ServerProfile.ROUTE_FUNNEL -> "Tailscale Funnel"
-            hitSlot?.first == ServerProfile.ROUTE_TS -> "Tailscale 直连"
-            hitSlot != null -> "远程隧道"
+            hitPair?.routeKind() == ServerProfile.ROUTE_TSNET -> "Tailscale Funnel（内建）"
+            hitPair?.routeKind() == ServerProfile.ROUTE_FUNNEL -> "Tailscale Funnel"
+            hitPair?.routeKind() == ServerProfile.ROUTE_TS -> "Tailscale 直连"
+            hitPair != null -> "远程隧道"
             ServerProfile.text(profile.jumpServerId).isNotEmpty() -> {
                 val jump = JumpStore.findJump(JumpStore.loadJumps(this), profile.jumpServerId)
                 "跳板机 · " + (if (ServerProfile.text(jump?.name).isNotEmpty()) {
@@ -1982,10 +2057,39 @@ class ComputerListActivity : ComponentActivity() {
             }
             else -> "直连"
         }
+        val hits = info?.hits.orEmpty()
+        val rows = ArrayList<PairRow>()
+        for (block in profile.pairBlockOrder()) {
+            for (pair in profile.pairsOfBlock(block, false)) {
+                val hit = hits.firstOrNull { it.pairId.isNotEmpty() && it.pairId == pair.id }
+                val inUse = pair.id == hitPair?.id
+                val stateText = when {
+                    !pair.enabled -> "已停用"
+                    inUse -> "使用中"
+                    hit == null -> "未探测"
+                    hit.ok -> "通 " + hit.ms + "ms"
+                    else -> "不通"
+                }
+                rows.add(
+                    PairRow(
+                        id = pair.id,
+                        block = RemotePair.blockLabel(pair.kind),
+                        addr = ServerProfile.normalizeRemoteOrigin(pair.addr)
+                            .removePrefix("https://").removePrefix("http://"),
+                        lane = if (pair.routeKind() == ServerProfile.ROUTE_FUNNEL) "Funnel" else "",
+                        source = pair.sourceLabel(),
+                        state = stateText,
+                        ok = hit?.ok == true,
+                        enabled = pair.enabled,
+                    ),
+                )
+            }
+        }
         CqRow(
             profile = profile,
             name = profile.displayName().ifEmpty { "(未命名)" },
-            group = ServerProfile.text(profile.group),
+            pairs = rows,
+            tunnelNote = tunnelShareNote(profile),
             ip = displayAddress(profile),
             mac = profile.allMacs().firstOrNull()?.uppercase(Locale.US) ?: "",
             refind = info?.refind ?: emptyGroup(KIND_REFIND),
@@ -2166,6 +2270,7 @@ class ComputerListActivity : ComponentActivity() {
             refind = refind,
             grub = grub,
             machineOs = choice.os,
+            hits = choice.hits,
         )
     }
 
@@ -2215,6 +2320,8 @@ class ComputerListActivity : ComponentActivity() {
         val alive: Boolean,
         /** 探测赢家顺手带回来的系统族（windows / macos / linux），未知空串 */
         val os: String = "",
+        /** 这一轮每条配对的探测结果（卡片上逐行显示状态用） */
+        val hits: List<ProbeEngine.Hit> = emptyList(),
     ) {
         /** 卡片/离线文案里显示用的地址（不带 scheme） */
         fun displayAddr(): String =
@@ -2246,11 +2353,15 @@ class ComputerListActivity : ComponentActivity() {
             val isLocal = result.kind == ServerProfile.ROUTE_LAN ||
                 result.kind == ServerProfile.ROUTE_JUMP
             return if (isLocal) {
-                EndpointChoice("http://" + result.origin, lanToken, alive = true, os = result.os)
-            } else {
                 EndpointChoice(
-                    result.origin, ServerProfile.text(profile.remoteToken),
-                    alive = true, os = result.os,
+                    "http://" + result.origin, lanToken, alive = true,
+                    os = result.os, hits = result.hits,
+                )
+            } else {
+                // 令牌取**赢家那条配对**自己的：同机 cloudflare 与 tsnet 是两个令牌
+                EndpointChoice(
+                    result.origin, tokenForPair(profile, result.pairId),
+                    alive = true, os = result.os, hits = result.hits,
                 )
             }
         }
@@ -2260,13 +2371,23 @@ class ComputerListActivity : ComponentActivity() {
         } catch (error: Exception) {
             ""
         }
-        if (lan.isNotEmpty()) return EndpointChoice("http://" + lan, lanToken, alive = false)
-        val primary = profile.routeCandidates()
-            .firstOrNull { it[0] != ServerProfile.ROUTE_LAN && it[0] != ServerProfile.ROUTE_JUMP }
-            ?.get(1)
-            .orEmpty()
-        if (primary.isEmpty()) return null
-        return EndpointChoice(primary, ServerProfile.text(profile.remoteToken), alive = false)
+        if (lan.isNotEmpty()) {
+            return EndpointChoice("http://" + lan, lanToken, alive = false, hits = result.hits)
+        }
+        val primary = profile.routeCandidates().firstOrNull { it.isRemote }
+        if (primary == null || primary.origin.isEmpty()) return null
+        return EndpointChoice(primary.origin, primary.token, alive = false, hits = result.hits)
+    }
+
+    /** 按配对 id 取令牌；找不到（老调用没带 id）就退回生效配对那条 */
+    private fun tokenForPair(profile: ServerProfile, pairId: String): String {
+        val id = ServerProfile.text(pairId)
+        if (id.isNotEmpty()) {
+            for (pair in profile.pairs) {
+                if (pair.id == id) return ServerProfile.text(pair.token)
+            }
+        }
+        return profile.effectiveRemoteToken()
     }
 
     private fun prompt(): SshSessionManager.Prompt = object : SshSessionManager.Prompt {
@@ -2812,7 +2933,10 @@ class ComputerListActivity : ComponentActivity() {
     private data class CqRow(
         val profile: ServerProfile,
         val name: String,
-        val group: String,
+        /** 这个档案挂的配对（按区块顺序 + 区块内顺序；停用的也列出来，只是标「已停用」） */
+        val pairs: List<PairRow>,
+        /** 两条以上配对共用同一个 tunnel_id 时的提示（空 = 没有重复） */
+        val tunnelNote: String,
         val ip: String,
         val mac: String,
         val refind: BootGroup,
@@ -2822,6 +2946,22 @@ class ComputerListActivity : ComponentActivity() {
         val conn: String,
         /** 当前连接是否正在走远程隧道（chip 配色用） */
         val connRemote: Boolean,
+    )
+
+    /** 电脑卡片上的一行配对：地址 + 通道 + 来源（host · os）+ 这一轮的探测结果 */
+    private data class PairRow(
+        val id: String,
+        /** 区块名（Cloudflare / Tailscale / Tailscale（内建）） */
+        val block: String,
+        val addr: String,
+        /** ts 区块才有：直连 / Funnel */
+        val lane: String,
+        /** 来源：host · os（拿不到时退回 mid 短号） */
+        val source: String,
+        /** 这一轮的状态文案：使用中 / 通 12ms / 不通 / 未探测 / 已停用 */
+        val state: String,
+        val ok: Boolean,
+        val enabled: Boolean,
     )
 
     /**
@@ -2875,6 +3015,8 @@ class ComputerListActivity : ComponentActivity() {
         val grub: BootGroup,
         /** 探测赢家顺手带回来的系统族（windows / macos / linux）；老服务端为空 */
         val machineOs: String = "",
+        /** 这一轮逐条配对的探测结果（按 pair_id 回填卡片上的行） */
+        val hits: List<ProbeEngine.Hit> = emptyList(),
     )
 
     private data class SheetRequest(val rid: String, val kind: String)

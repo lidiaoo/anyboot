@@ -62,7 +62,4 @@ internal object ServerRepository {
     }
 
     fun find(id: String): ServerProfile? = servers.firstOrNull { it.id == id }
-
-    /** 已有分组名（表单「分组」下拉的候选） */
-    fun knownGroups(): List<String> = ServerStore.knownGroups(servers)
 }

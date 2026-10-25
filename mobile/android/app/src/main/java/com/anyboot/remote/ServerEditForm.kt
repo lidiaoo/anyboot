@@ -42,6 +42,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -76,6 +77,62 @@ import java.util.Locale
  */
 internal data class AddrEntry(val address: String, val macs: List<String> = emptyList())
 
+/**
+ * 编辑中的一条配对（不可变；改行 = 整体替换元素）。
+ *
+ * 与 [RemotePair] 的差别只在「界面友好」：超时存秒文本（空 = 继承区块默认），
+ * `lane` 不单独存（由地址形态推导），来源字段（mid / os / host / tunnelId）只读展示。
+ */
+internal data class PairEdit(
+    val id: String,
+    /** 区块 id：cloudflare / ts / tsnet */
+    val kind: String,
+    val addr: String = "",
+    val token: String = "",
+    val mid: String = "",
+    val os: String = "",
+    val host: String = "",
+    val tunnelId: String = "",
+    val note: String = "",
+    /** 条目自己的探测超时（秒文本，空 = 继承区块 → 全局） */
+    val timeoutText: String = "",
+    val enabled: Boolean = true,
+    val createdAt: Long = 0L,
+) {
+    /** 来源列：host · os；都空时退回 mid 短号 */
+    val sourceLabel: String
+        get() {
+            val parts = ArrayList<String>()
+            if (host.isNotBlank()) parts.add(host.trim())
+            if (os.isNotBlank()) parts.add(os.trim())
+            if (parts.isEmpty() && mid.isNotBlank()) {
+                parts.add(mid.trim().let { if (it.length > 8) it.substring(0, 8) else it })
+            }
+            return parts.joinToString(" · ")
+        }
+
+    companion object {
+        fun from(pair: RemotePair): PairEdit = PairEdit(
+            id = pair.id.orEmpty(),
+            kind = pair.kind.orEmpty(),
+            addr = ServerProfile.normalizeRemoteOrigin(pair.addr),
+            token = pair.token.orEmpty(),
+            mid = pair.mid.orEmpty(),
+            os = pair.os.orEmpty(),
+            host = pair.host.orEmpty(),
+            tunnelId = pair.tunnelId.orEmpty(),
+            note = pair.note.orEmpty(),
+            timeoutText = if (pair.probeTimeoutMs > 0) {
+                val seconds = pair.probeTimeoutMs / 1000.0
+                if (seconds == seconds.toLong().toDouble()) seconds.toLong().toString()
+                else String.format(Locale.US, "%.1f", seconds)
+            } else "",
+            enabled = pair.enabled,
+            createdAt = pair.createdAt,
+        )
+    }
+}
+
 /** 表单的全部可编辑状态；宿主保存时读这里的当前值 */
 /** 五通道 id（连接优先级用；与 ServerProfile 的 ROUTE_* 常量一致） */
 private val ROUTE_IDS_ALL = listOf("lan", "jump", "tunnel", "ts", "funnel", "tsnet")
@@ -94,7 +151,6 @@ internal class ServerEditFormState(
 ) {
     val editing: Boolean = profile != null
 
-    var group by mutableStateOf(profile?.group ?: "")
     var name by mutableStateOf(profile?.name ?: "")
 
     /** 地址：有序列表（第一个 = 连接用），由「快速识别」和「手动添加」往里面加 */
@@ -118,69 +174,169 @@ internal class ServerEditFormState(
     var tokenShown by mutableStateOf(false)
     val savedToken: String get() = profile?.token ?: ""
 
-    // ---- 远程接入双槽（computer-edit-redesign v1.0） ----
-    /** 隧道槽：trycloudflare.com 等公网 https 地址（归一 origin） */
-    var tunnelText by mutableStateOf("")
-    /** Tailscale 直连槽：100.64/10（归一 origin） */
-    var tsText by mutableStateOf("")
-    /** Tailscale Funnel 槽：系统 Tailscale 发的 *.ts.net（与直连分开，互不顶替） */
-    var funnelText by mutableStateOf("")
-    /** 内置 tsnet 槽：AnyBoot 自带引擎发的 *.ts.net */
-    var tsnetText by mutableStateOf("")
-    /** 分拣挖出的新远程令牌（空 = 保持已存） */
-    var remoteTokenNew by mutableStateOf("")
-    var remoteTokenShown by mutableStateOf(false)
-    /** 用户点了「清除 / 解除配对」：屏幕上连带把已存令牌藏掉（保存后一起清） */
-    var remoteCleared by mutableStateOf(false)
-    val savedRemoteToken: String get() = profile?.remoteToken ?: ""
+    // ---- 远程配对（三个区块，每个区块可挂多条；docs/remote-pairs.md §4.1） ----
+    /**
+     * 编辑中的配对行。用不可变 data class + 整体替换元素，Compose 才会重组。
+     * 深拷贝自档案（取消编辑时原档案不受影响）。
+     */
+    val pairItems = mutableStateListOf<PairEdit>().apply {
+        profile?.pairs?.forEach { add(PairEdit.from(it)) }
+    }
+    /** 粘贴 / 扫码的输入缓冲 */
+    var remoteText by mutableStateOf("")
+    var remoteHint by mutableStateOf("")
+    /** 区块内部探测策略（区块 id → 模式）；缺 key = 并发首个 */
+    val blockModes = mutableStateMapOf<String, String>().apply {
+        profile?.blockProbeMode?.forEach { (block, mode) ->
+            put(block, ServerProfile.normalizeProbeMode(mode))
+        }
+    }
+    /** 区块默认探测超时（区块 id → 秒文本）；空 = 继承全局默认 */
+    val blockTimeoutTexts = mutableStateMapOf<String, String>().apply {
+        profile?.blockTimeoutsMs?.forEach { (block, ms) ->
+            if (ms != null && ms > 0) put(block, secondsText(ms))
+        }
+    }
     /** 折叠区：连接策略 / 局域网电源路由（默认收起 —— 配一次就不动） */
     var connFoldOpen by mutableStateOf(false)
     var powerFoldOpen by mutableStateOf(false)
 
-    init {
-        // 四槽各自载入（archive 里 ts 槽存过 *.ts.net 的，ServerProfile 加载时已挪进 Funnel 槽）
-        tunnelText = ServerProfile.normalizeRemoteOrigin(profile?.remoteTunnelAddr?.trim().orEmpty())
-        tsText = ServerProfile.normalizeRemoteOrigin(profile?.remoteTsAddr?.trim().orEmpty())
-        funnelText = ServerProfile.normalizeRemoteOrigin(profile?.remoteFunnelAddr?.trim().orEmpty())
-        tsnetText = ServerProfile.normalizeRemoteOrigin(profile?.remoteTsnetAddr?.trim().orEmpty())
-        // 更老的单槽档案：四槽全空且 remoteAddr 有值 → 按判型分流（与 PC normalize 同语义）
-        if (tunnelText.isEmpty() && tsText.isEmpty() && funnelText.isEmpty() && tsnetText.isEmpty()) {
-            val legacy = ServerProfile.normalizeRemoteOrigin(profile?.remoteAddr?.trim().orEmpty())
-            if (legacy.isNotEmpty()) {
-                when (ServerProfile.defaultKindFor(legacy)) {
-                    "ts" -> tsText = legacy
-                    "funnel" -> funnelText = legacy
-                    else -> tunnelText = legacy
-                }
-            }
+    /** 毫秒 → 界面秒文本（整秒不带小数点，省得「2.0」看着别扭） */
+    private fun secondsText(ms: Int): String {
+        val seconds = ms / 1000.0
+        return if (seconds == seconds.toLong().toDouble()) seconds.toLong().toString()
+        else String.format(Locale.US, "%.1f", seconds)
+    }
+
+    /** 有没有配对（保存时据此决定是否 clearRemote） */
+    fun hasPairs(): Boolean = pairItems.any { it.addr.isNotBlank() }
+
+    /** 某个区块里的配对（保持列表顺序） */
+    fun pairsOf(block: String): List<PairEdit> = pairItems.filter { it.kind == block }
+
+    fun indexOfPair(id: String): Int = pairItems.indexOfFirst { it.id == id }
+
+    /** 改一行（地址 / 令牌 / 备注 / 超时 / 启用） */
+    fun updatePair(id: String, transform: (PairEdit) -> PairEdit) {
+        val index = indexOfPair(id)
+        if (index >= 0) pairItems[index] = transform(pairItems[index])
+    }
+
+    /** 在区块末尾加一行空条目（地址留空 = 保存时丢弃） */
+    fun addPair(kind: String) {
+        if (pairItems.size >= ServerProfile.MAX_PAIRS) {
+            remoteHint = "最多 ${ServerProfile.MAX_PAIRS} 条配对 —— 先删掉几条再加"
+            return
+        }
+        pairItems.add(
+            PairEdit(
+                id = "new-" + System.nanoTime(),
+                kind = kind,
+                createdAt = System.currentTimeMillis(),
+            ),
+        )
+    }
+
+    fun removePair(id: String) {
+        val index = indexOfPair(id)
+        if (index >= 0) pairItems.removeAt(index)
+    }
+
+    /** 区块内上移 / 下移（跨区块不让动：区块顺序由「连接优先级」决定） */
+    fun movePair(id: String, delta: Int) {
+        val index = indexOfPair(id)
+        if (index < 0) return
+        val kind = pairItems[index].kind
+        val sameBlock = pairItems.withIndex().filter { it.value.kind == kind }.map { it.index }
+        val at = sameBlock.indexOf(index)
+        val target = at + delta
+        if (at < 0 || target < 0 || target >= sameBlock.size) return
+        val moveTo = sameBlock[target]
+        val item = pairItems.removeAt(index)
+        pairItems.add(moveTo, item)
+    }
+
+    /** 清空所有配对（「解除配对」按钮）：保存即解绑 */
+    fun clearPairs() {
+        pairItems.clear()
+        remoteText = ""
+        remoteHint = "已清空 —— 点「保存」即解除配对（地址与配对令牌一起删掉）"
+    }
+
+    /** 通道 id（tunnel / ts / funnel / tsnet）：由区块 + lane/地址推导，与后端 route_kind 同语义 */
+    fun remoteKindOf(edit: PairEdit): String {
+        return when (edit.kind) {
+            RemotePair.KIND_CLOUDFLARE -> ServerProfile.ROUTE_TUNNEL
+            RemotePair.KIND_TSNET -> ServerProfile.ROUTE_TSNET
+            RemotePair.KIND_TS ->
+                if (ServerProfile.isFunnelOrigin(edit.addr)) ServerProfile.ROUTE_FUNNEL
+                else ServerProfile.ROUTE_TS
+            else -> ""
         }
     }
 
-    /** 任一槽有值 = 配了远程接入 */
-    fun hasRemoteSlots(): Boolean = tunnelText.isNotBlank() || tsText.isNotBlank() ||
-        funnelText.isNotBlank() || tsnetText.isNotBlank()
+    /** 区块默认超时：界面秒 → 毫秒；空 / 非法 = 0（继承全局） */
+    fun blockTimeoutMsFor(block: String): Int {
+        val raw = blockTimeoutTexts[block]?.trim().orEmpty()
+        if (raw.isEmpty()) return 0
+        val value = raw.toDoubleOrNull() ?: return 0
+        return ServerProfile.clampProbeTimeoutMs((value * 1000).toInt())
+    }
+
+    /** 保存用：编辑中的行 → RemotePair 列表（地址为空的行丢掉） */
+    fun pairsForSave(): List<RemotePair> {
+        val out = ArrayList<RemotePair>()
+        for (edit in pairItems) {
+            val addr = ServerProfile.normalizeRemoteOrigin(edit.addr)
+            if (addr.isEmpty()) continue
+            val pair = RemotePair()
+            pair.id = if (edit.id.startsWith("new-")) RemotePair.newId() else edit.id
+            pair.kind = edit.kind
+            pair.addr = addr
+            pair.lane = if (edit.kind == RemotePair.KIND_TS) {
+                if (ServerProfile.isFunnelOrigin(addr)) RemotePair.LANE_FUNNEL else RemotePair.LANE_DIRECT
+            } else ""
+            pair.token = edit.token.trim()
+            pair.probeTimeoutMs = if (edit.timeoutText.trim().isEmpty()) 0 else {
+                ServerProfile.clampProbeTimeoutMs(
+                    ((edit.timeoutText.trim().toDoubleOrNull() ?: 0.0) * 1000).toInt(),
+                )
+            }
+            pair.enabled = edit.enabled
+            pair.mid = edit.mid
+            pair.os = edit.os
+            pair.host = edit.host
+            pair.tunnelId = edit.tunnelId
+            pair.note = edit.note.trim()
+            pair.createdAt = edit.createdAt
+            out.add(pair)
+        }
+        return out
+    }
+
+    /** 任一配对已配 = 有远程接入 */
+    fun hasRemoteSlots(): Boolean = hasPairs()
 
     /** 通道当前是否可用（与 PC rsRouteAvailable / 后端 routeCandidates 同语义） */
     fun routeAvailable(kind: String): Boolean = when (kind) {
         "lan" -> addressEntries.any { it.address.isNotBlank() }
         "jump" -> addressEntries.any { it.address.isNotBlank() } && jumpIndex > 0
-        "tunnel" -> tunnelText.isNotBlank()
-        "ts" -> tsText.isNotBlank() && !tsText.startsWith("https://", ignoreCase = true)
-        "funnel" -> funnelText.isNotBlank()
-        "tsnet" -> tsnetText.isNotBlank()
-        else -> false
+        else -> pairItems.any { it.enabled && it.addr.isNotBlank() && remoteKindOf(it) == kind }
     }
 
     /** 通道副标：地址 / 没配置的原因 */
     fun routeSub(kind: String): String = when (kind) {
         "lan" -> addressEntries.firstOrNull { it.address.isNotBlank() }?.address ?: "未填局域网地址"
         "jump" -> if (jumpIndex > 0) "经 " + jumpLabel(jumps[jumpIndex - 1]) else "未选跳板机档案"
-        "tunnel" -> tunnelText.ifBlank { "未配置隧道地址" }
-        "ts" -> if (!tsText.startsWith("https://", true) && tsText.isNotBlank()) tsText else "未配置 100.x 直连地址"
-        "funnel" -> funnelText.ifBlank { "未配置（系统 Tailscale 的 *.ts.net 地址）" }
-        "tsnet" -> tsnetText.ifBlank { "未配置（内置引擎的 *.ts.net 地址）" }
+        "tunnel" -> firstAddrOf(ServerProfile.ROUTE_TUNNEL, "未配置隧道地址")
+        "ts" -> firstAddrOf(ServerProfile.ROUTE_TS, "未配置 100.x 直连地址")
+        "funnel" -> firstAddrOf(ServerProfile.ROUTE_FUNNEL, "未配置（系统 Tailscale 的 *.ts.net 地址）")
+        "tsnet" -> firstAddrOf(ServerProfile.ROUTE_TSNET, "未配置（内置引擎的 *.ts.net 地址）")
         else -> ""
     }
+
+    private fun firstAddrOf(kind: String, empty: String): String =
+        pairItems.firstOrNull { it.addr.isNotBlank() && remoteKindOf(it) == kind }?.addr ?: empty
 
     /** 上移 / 下移（移动端不做拖动手势，按钮兜底） */
     fun routeMove(kind: String, delta: Int) {
@@ -189,39 +345,6 @@ internal class ServerEditFormState(
         if (from < 0 || to < 0 || to >= routeOrder.size) return
         routeOrder.removeAt(from)
         routeOrder.add(to, kind)
-    }
-
-    /**
-     * 保存用的远程解析结果：`[隧道, 直连, 系统 Funnel, 内置 Funnel, 新令牌]`；
-     * 四槽全空返回 null（= 解除配对，宿主侧 clearRemote 连令牌一起清）。
-     * 令牌为空串时宿主侧「留空保持已存令牌」。
-     */
-    fun resolvedRemote(): Array<String>? {
-        val tunnel = tunnelText.trim()
-        val ts = tsText.trim()
-        val funnel = funnelText.trim()
-        val tsnet = tsnetText.trim()
-        if (tunnel.isEmpty() && ts.isEmpty() && funnel.isEmpty() && tsnet.isEmpty()) {
-            return null
-        }
-        return arrayOf(tunnel, ts, funnel, tsnet, remoteTokenNew.trim())
-    }
-
-    /** 智能粘贴框：扫码 / 手填入口（分拣后内容落双槽，这里只是输入缓冲） */
-    var remoteText by mutableStateOf("")
-    var remoteHint by mutableStateOf("")
-
-    /** 清空四槽 + 粘贴框 + 新令牌（「解除配对」按钮）：已存令牌也跟着藏起来，保存即解绑 */
-    fun clearRemoteSlots() {
-        tunnelText = ""
-        tsText = ""
-        funnelText = ""
-        tsnetText = ""
-        remoteTokenNew = ""
-        remoteCleared = true
-        remoteTokenShown = false
-        remoteText = ""
-        remoteHint = "已清空 —— 点「保存」即解除配对（地址与配对令牌一起删掉）"
     }
 
     /** 令牌打码：前 4 后 4 可见，其余 •；太短的整串打码 */
@@ -233,9 +356,13 @@ internal class ServerEditFormState(
     }
 
     /**
-     * 远程接入：粘贴框内容变化后的分拣。配对串先拆 origin + token，
-     * origin 按判型落槽（trycloudflare → 隧道 / 100.64/10、.ts.net → Tailscale），
-     * token 带入新令牌（保存时写回）。hint 文案同步更新。
+     * 粘贴框 / 扫码之后的分拣：解析 → 追加或更新一条配对。
+     *
+     * <p>归档规则（{@code docs/remote-pairs.md} §4.6）：同 {@code (mid, kind)} 更新那一条
+     * （保留位置与原 id），否则追加到该区块末尾。
+     *
+     * <p>老配对码（无 {@code v=2}）会被拒收并给出明确提示 —— 老串没有 mid/type，
+     * 硬解出来只会「配一个顶掉另一个」。
      */
     fun applyRemoteHint() {
         val raw = remoteText.trim()
@@ -244,36 +371,54 @@ internal class ServerEditFormState(
             return
         }
         val parsed = ServerProfile.parsePair(raw)
-        if (parsed == null) {
-            remoteHint = "没认出配对码 —— 要 anyboot://pair?… 串、https://… 隧道地址或 http://100.x.y.z:12300 Tailscale 地址"
+        if (!parsed.ok()) {
+            remoteHint = parsed.error.ifEmpty { "没认出配对码" }
             return
         }
-        val origin = parsed[0]
-        val newToken = parsed[1]
-        remoteCleared = false
-        if (newToken.isNotEmpty()) {
-            remoteTokenNew = newToken
+        val addr = ServerProfile.normalizeRemoteOrigin(parsed.tunnel)
+        val mid = parsed.mid.trim()
+        // 先按 (mid, kind) 找，没 mid 时按 (addr, kind) 找 —— 与 PC 端同一套幂等键
+        var index = -1
+        pairItems.forEachIndexed { i, item ->
+            if (index >= 0 || item.kind != parsed.kind) return@forEachIndexed
+            val sameMid = mid.isNotEmpty() && item.mid == mid
+            val sameAddr = mid.isEmpty() &&
+                ServerProfile.normalizeRemoteOrigin(item.addr) == addr
+            if (sameMid || sameAddr) index = i
         }
-        // 类型优先（PC 出码时已经标好），老配对串没带 type 才按内容猜
-        val declared = if (parsed.size > 2) parsed[2] else ""
-        when (declared.ifEmpty { ServerProfile.defaultKindFor(origin) }) {
-            "ts" -> {
-                tsText = origin
-                remoteHint = "已分拣到 Tailscale 直连槽：$origin（手机需与电脑在同一 tailnet）"
+        if (index >= 0) {
+            val old = pairItems[index]
+            pairItems[index] = old.copy(
+                addr = addr,
+                token = parsed.token.ifEmpty { old.token },
+                mid = mid.ifEmpty { old.mid },
+                os = parsed.os.ifEmpty { old.os },
+                host = parsed.host.ifEmpty { old.host },
+                tunnelId = parsed.tunnelId.ifEmpty { old.tunnelId },
+                enabled = true,
+            )
+            remoteHint = "已更新「" + RemotePair.blockLabel(parsed.kind) + "」里的同一条配对：" + addr
+        } else {
+            if (pairItems.size >= ServerProfile.MAX_PAIRS) {
+                remoteHint = "最多 ${ServerProfile.MAX_PAIRS} 条配对 —— 先删掉几条再加"
+                return
             }
-            "funnel" -> {
-                funnelText = origin
-                remoteHint = "已分拣到 Tailscale Funnel 槽：$origin（手机无需装 Tailscale，浏览器直开）"
-            }
-            "tsnet" -> {
-                tsnetText = origin
-                remoteHint = "已分拣到内置 Funnel 槽：$origin（AnyBoot 自带引擎，手机同样免装 Tailscale）"
-            }
-            else -> {
-                tunnelText = origin
-                remoteHint = "已分拣到 Cloudflare 隧道槽：$origin"
-            }
+            pairItems.add(
+                PairEdit(
+                    id = "new-" + System.nanoTime(),
+                    kind = parsed.kind,
+                    addr = addr,
+                    token = parsed.token,
+                    mid = mid,
+                    os = parsed.os,
+                    host = parsed.host,
+                    tunnelId = parsed.tunnelId,
+                    createdAt = System.currentTimeMillis(),
+                ),
+            )
+            remoteHint = "已加入「" + RemotePair.blockLabel(parsed.kind) + "」：" + addr
         }
+        remoteText = ""
     }
 
     val jumps: List<JumpServer> = JumpStore.loadJumps(context)
@@ -346,10 +491,16 @@ internal class ServerEditFormState(
         return ServerProfile.clampProbeTimeoutMs((seconds * 1000).toInt())
     }
 
-    /** 落盘用的整张表（只收**单独设过**的通道） */
+    /**
+     * 落盘用的整张表（只收**单独设过**的通道）。
+     *
+     * <p>配对通道（tunnel / ts / funnel / tsnet）不在这里设 —— 它们读区块默认值
+     * （`block_timeouts_ms`）与条目自己的值，两套 key 空间不能混
+     * （{@code docs/remote-pairs.md} §5.3）。
+     */
     fun routeTimeoutsMs(): Map<String, Int> {
         val out = LinkedHashMap<String, Int>()
-        ROUTE_IDS_ALL.forEach { kind ->
+        for (kind in listOf(ServerProfile.ROUTE_LAN, ServerProfile.ROUTE_JUMP)) {
             if (!routeTimeoutTexts[kind].isNullOrBlank()) out[kind] = routeTimeoutMs(kind)
         }
         return out
@@ -501,14 +652,6 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
         }
     }
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
-        FieldLabel("分组（用来区分不同的电脑）")
-        OutlinedTextField(
-            value = state.group,
-            onValueChange = { state.group = it },
-            singleLine = true,
-            placeholder = { Text("例如：书房台式机（同一台电脑的多个 IP 填同一个分组）", fontSize = 12.sp) },
-            modifier = Modifier.fillMaxWidth(),
-        )
         FieldLabel("电脑名称（同一台电脑的不同网卡/地址，用名字区分）")
         OutlinedTextField(
             value = state.name,
@@ -656,7 +799,7 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
             modifier = Modifier.fillMaxWidth(),
         )
 
-        FieldLabel("远程接入（粘贴配对码 / 隧道 / Tailscale 地址，自动分拣到下面的槽）")
+        FieldLabel("远程配对（三个区块，每个区块可以挂多条；同类型配一条不会顶掉另一条）")
         OutlinedTextField(
             value = state.remoteText,
             onValueChange = {
@@ -664,7 +807,7 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                 state.applyRemoteHint()
             },
             placeholder = {
-                Text("anyboot://pair?… / https://xxx.trycloudflare.com / http://100.x.y.z:12300 / https://xxx.ts.net", fontSize = 12.sp)
+                Text("anyboot://pair?v=2&… （配对码）；也可直接粘 https://xxx.trycloudflare.com / http://100.x.y.z:12300", fontSize = 12.sp)
             },
             modifier = Modifier.fillMaxWidth(),
         )
@@ -674,101 +817,67 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
             }) {
                 Text("📷 扫码读码", fontSize = 12.sp)
             }
-            TextButton(onClick = { state.clearRemoteSlots() }) {
+            TextButton(onClick = { state.clearPairs() }) {
                 Text(
-                    if (state.hasRemoteSlots() || state.savedRemoteToken.isNotEmpty()) "解除配对" else "清除",
+                    if (state.hasPairs()) "全部清空" else "清空",
                     fontSize = 12.sp, color = palette.fgDim,
                 )
             }
             Text(
                 if (state.remoteHint.isNotEmpty()) state.remoteHint
-                else "扫码或粘贴后自动分拣；四槽各自独立，配一个不会顶掉另一个",
+                else "扫码或粘贴后自动加入对应区块；同一条会更新而不是重复",
                 fontSize = 11.sp, color = palette.fgFaint,
                 modifier = Modifier.weight(1f),
             )
         }
-        RemoteSlotRow(
-            label = "Cloudflare 隧道",
-            labelColor = palette.accent,
-            value = state.tunnelText,
-            onClear = { state.tunnelText = "" },
-            onCopy = { context.copyRemoteSlot("Cloudflare 隧道地址", state.tunnelText) },
-            palette = palette,
-        )
-        RemoteSlotRow(
-            label = "Tailscale 直连",
-            labelColor = palette.ok,
-            value = state.tsText,
-            onClear = { state.tsText = "" },
-            onCopy = { context.copyRemoteSlot("Tailscale 直连地址", state.tsText) },
-            palette = palette,
-        )
-        RemoteSlotRow(
-            label = "Tailscale Funnel",
-            labelColor = palette.ok,
-            value = state.funnelText,
-            onClear = { state.funnelText = "" },
-            onCopy = { context.copyRemoteSlot("Tailscale Funnel 地址", state.funnelText) },
-            palette = palette,
-        )
-        RemoteSlotRow(
-            label = "内置 Funnel",
-            labelColor = palette.warn,
-            value = state.tsnetText,
-            onClear = { state.tsnetText = "" },
-            onCopy = { context.copyRemoteSlot("内置 Funnel 地址", state.tsnetText) },
-            palette = palette,
-        )
-        // 已存令牌 + 新分拣的令牌都可能要展示；四槽清空（或点过「解除配对」）就一起藏 ——
-        // 屏幕上看到的必须等于「保存后会留下什么」，别让用户看到一条马上要被删掉的令牌
-        val tokenForShow = state.remoteTokenNew.ifEmpty {
-            if (state.remoteCleared || !state.hasRemoteSlots()) "" else state.savedRemoteToken
-        }
-        if (tokenForShow.isNotEmpty()) {
-            // 配对令牌回显：新分拣的优先展示（还没保存）；默认打码 + 小眼睛
-            val shown = tokenForShow
-            // 已配对档案的令牌也要能「显示」—— 之前这里要求 remoteTokenNew 非空，
-            // 于是老档案点「显示」毫无反应（用户当成按钮坏了）
-            val revealed = state.remoteTokenShown
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
+        // 三个区块逐块列出：区块标题 + 条数 + 「添加」，行里是地址 / lane / 来源 / 令牌 / 超时
+        for (block in RemotePair.BLOCK_IDS) {
+            val items = state.pairsOf(block)
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 4.dp)
-                    .clip(RoundedCornerShape(10.dp))
+                    .padding(top = 8.dp)
+                    .clip(RoundedCornerShape(11.dp))
                     .background(palette.card)
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                    .padding(horizontal = 9.dp, vertical = 7.dp),
             ) {
-                Text(
-                    "配对令牌",
-                    fontSize = 10.sp, color = palette.fgDim,
-                    modifier = Modifier.padding(end = 8.dp),
-                )
-                Text(
-                    if (revealed) shown else state.maskToken(shown),
-                    fontSize = 12.sp,
-                    fontFamily = FontFamily.Monospace,
-                    color = if (revealed) palette.fg else palette.fgDim,
-                    // 「查看完整」：明文态允许换行，长令牌不会被一行省略号吃掉
-                    maxLines = if (revealed) 4 else 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                TextButton(onClick = {
-                    context.copyRemoteSlot("配对令牌", shown)
-                }) {
-                    Text("复制", fontSize = 11.sp)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        RemotePair.blockLabel(block),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = palette.fg,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        if (items.isEmpty()) "未配" else items.size.toString() + " 条",
+                        fontSize = 10.sp, color = palette.fgFaint,
+                    )
+                    TextButton(onClick = { state.addPair(block) }) {
+                        Text("＋ 添加", fontSize = 11.sp)
+                    }
                 }
-                TextButton(onClick = { state.remoteTokenShown = !state.remoteTokenShown }) {
-                    Text(if (revealed) "隐藏" else "显示", fontSize = 11.sp)
+                if (items.isEmpty()) {
+                    Text(
+                        "这个区块还没有配对 —— 上面粘一条配对码，或点「＋ 添加」手填",
+                        fontSize = 10.sp, color = palette.fgFaint,
+                    )
+                }
+                items.forEach { item ->
+                    PairEditRow(
+                        state = state,
+                        item = item,
+                        palette = palette,
+                        onCopy = { value -> context.copyRemoteSlot("配对地址", value) },
+                    )
                 }
             }
         }
         Text(
-            "清空四槽保存 = 解除配对（配对令牌一并删掉）；点地址可展开看完整串。" +
+            "保存后每个区块里的配对各自独立探测、各自计时；清空全部保存 = 解除配对。" +
                 "配对码等同密码，别转发给别人。",
             fontSize = 11.sp, color = palette.fgFaint,
-            modifier = Modifier.padding(top = 4.dp),
+            modifier = Modifier.padding(top = 6.dp),
         )
 
         FoldHeader(
@@ -816,23 +925,33 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                             modifier = Modifier.weight(1f),
                         )
                         Spacer(Modifier.width(6.dp))
-                        SmallNumberField(
-                            value = state.routeTimeoutTexts[kind] ?: "",
-                            enabled = available,
-                            placeholder = "默认",
-                            onValueChange = { raw ->
-                                val cleaned = raw.filter { it.isDigit() || it == '.' }.take(5)
-                                if (cleaned.isBlank()) state.routeTimeoutTexts.remove(kind)
-                                else state.routeTimeoutTexts[kind] = cleaned
-                            },
-                            modifier = Modifier.width(56.dp),
-                        )
-                        Text(
-                            "s",
-                            fontSize = 10.sp,
-                            color = palette.fgFaint,
-                            modifier = Modifier.padding(start = 2.dp),
-                        )
+                        if (kind == ServerProfile.ROUTE_LAN || kind == ServerProfile.ROUTE_JUMP) {
+                            SmallNumberField(
+                                value = state.routeTimeoutTexts[kind] ?: "",
+                                enabled = available,
+                                placeholder = "默认",
+                                onValueChange = { raw ->
+                                    val cleaned = raw.filter { it.isDigit() || it == '.' }.take(5)
+                                    if (cleaned.isBlank()) state.routeTimeoutTexts.remove(kind)
+                                    else state.routeTimeoutTexts[kind] = cleaned
+                                },
+                                modifier = Modifier.width(56.dp),
+                            )
+                            Text(
+                                "s",
+                                fontSize = 10.sp,
+                                color = palette.fgFaint,
+                                modifier = Modifier.padding(start = 2.dp),
+                            )
+                        } else {
+                            // 配对通道的超时在下面「区块默认超时」与每条配对上设
+                            Text(
+                                "超时见区块设置",
+                                fontSize = 10.sp,
+                                color = palette.fgFaint,
+                                modifier = Modifier.padding(start = 2.dp),
+                            )
+                        }
                     }
                 }
                 TextButton(
@@ -904,6 +1023,54 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
         }
         Text(
             "一台电脑配了多个局域网地址（多块网卡 / DHCP 换过 IP）时生效：并发谁先通用谁，串行按地址顺序试。",
+            fontSize = 10.sp, color = palette.fgFaint,
+            modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
+        )
+
+        // ---- 区块内部策略 + 区块默认超时（配对专用，与上面两个粒度并列的第三层） ----
+        FieldLabel("区块内部策略（同一个区块里的多条配对之间怎么探）与区块默认超时")
+        for (block in RemotePair.BLOCK_IDS) {
+            val count = state.pairsOf(block).count { it.addr.isNotBlank() }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 2.dp),
+            ) {
+                Text(
+                    RemotePair.blockLabel(block),
+                    fontSize = 12.sp,
+                    color = if (count > 0) palette.fg else palette.fgFaint,
+                    modifier = Modifier.width(104.dp),
+                )
+                val mode = state.blockModes[block] ?: ServerProfile.PROBE_PARALLEL_FIRST
+                // 三个小按钮：并发首个 / 并发全部 / 串行（窄屏塞不下 RadioButton 的文字）
+                ProbeModeChoice("首个", mode == ServerProfile.PROBE_PARALLEL_FIRST, Modifier.weight(1f)) {
+                    state.blockModes[block] = ServerProfile.PROBE_PARALLEL_FIRST
+                }
+                ProbeModeChoice("全部", mode == ServerProfile.PROBE_PARALLEL_ALL, Modifier.weight(1f)) {
+                    state.blockModes[block] = ServerProfile.PROBE_PARALLEL_ALL
+                }
+                ProbeModeChoice("串行", mode == ServerProfile.PROBE_SERIAL, Modifier.weight(1f)) {
+                    state.blockModes[block] = ServerProfile.PROBE_SERIAL
+                }
+                SmallNumberField(
+                    value = state.blockTimeoutTexts[block] ?: "",
+                    enabled = count > 0,
+                    placeholder = "默认",
+                    onValueChange = { raw ->
+                        val cleaned = raw.filter { it.isDigit() || it == '.' }.take(5)
+                        if (cleaned.isBlank()) state.blockTimeoutTexts.remove(block)
+                        else state.blockTimeoutTexts[block] = cleaned
+                    },
+                    modifier = Modifier.width(52.dp),
+                )
+                Text("s", fontSize = 10.sp, color = palette.fgFaint)
+            }
+        }
+        Text(
+            "并发·首个：同区块全部同时发出，先成功的不一定是最前面那条；串行：严格按区块内的行序试。" +
+                "每条配对还能在它自己那行再设一个超时（条目 → 区块 → 全局默认）。",
             fontSize = 10.sp, color = palette.fgFaint,
             modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
         )
@@ -1322,7 +1489,6 @@ internal fun applyServerEdit(
     } else {
         target.mergeParsed(parsed)
     }
-    target.group = state.group.trim()
     target.name = state.name.trim().ifEmpty { target.host() }
     target.token = state.resolvedToken()
     target.probeMode = ServerProfile.normalizeProbeMode(state.probeMode)
@@ -1339,20 +1505,27 @@ internal fun applyServerEdit(
     target.routeDisabled.clear()
     target.routeDisabled.addAll(state.routeDisabled)
     target.jumpServerId = state.resolvedJumpId()
-    // 远程接入双槽：双槽全空 = 取消（清地址与令牌）；任一有值 = 按槽写 origin；
-    // 令牌挖不到时保持已存的（重粘配对串才会更新）；写回后同步生效地址镜像
-    val remote = state.resolvedRemote()
-    if (remote == null) {
-        target.clearRemote()
-    } else {
-        target.remoteTunnelAddr = remote[0]
-        target.remoteTsAddr = remote[1]
-        target.remoteFunnelAddr = remote[2]
-        target.remoteTsnetAddr = remote[3]
-        if (remote[4].isNotEmpty()) {
-            target.remoteToken = remote[4]
+    // 远程配对：以表单里的这份为准（空 = 解除配对，地址与令牌一起清）。
+    // 令牌保活在这里不需要单独做 —— 表单回填时就是原令牌，用户没改就原样写回去。
+    val pairs = state.pairsForSave()
+    target.pairs.clear()
+    target.pairs.addAll(pairs)
+    target.blockProbeMode.clear()
+    for (block in RemotePair.BLOCK_IDS) {
+        val mode = ServerProfile.normalizeProbeMode(
+            state.blockModes[block] ?: ServerProfile.PROBE_PARALLEL_FIRST,
+        )
+        // 默认值不落盘（等号默认写出去只会让配置文件越读越乱）
+        if (mode != ServerProfile.PROBE_PARALLEL_FIRST) {
+            target.blockProbeMode[block] = mode
         }
-        target.syncRemoteEffective()
+    }
+    target.blockTimeoutsMs.clear()
+    for (block in RemotePair.BLOCK_IDS) {
+        val ms = state.blockTimeoutMsFor(block)
+        if (ms > 0) {
+            target.blockTimeoutsMs[block] = ms
+        }
     }
     // 局域网电源路由：以表单里的这份为准（空 = 没配，走老路）
     target.powerRoutes.clear()
@@ -1390,18 +1563,11 @@ internal fun saveServerProfile(
         // 的就是「保存了但没生效」。
         target = servers.firstOrNull { it.id == editing.id } ?: editing
     } else {
-        val group = form.group.trim()
-        val merged = if (group.isEmpty()) null else servers.firstOrNull {
-            group.equals(ServerProfile.text(it.group), ignoreCase = true)
-        }
-        if (merged != null) {
-            target = merged
-            mergedExisting = true
-        } else {
-            val fresh = ServerProfile()
-            servers.add(fresh)
-            target = fresh
-        }
+        // 新增：没有分组了，所以**不再自动并入**已有档案 —— 用户想合并就在「地址」里
+        // 把同一台机器的多个地址都填上；跨档案合并交给「是不是同一台电脑」的机器标识。
+        val fresh = ServerProfile()
+        servers.add(fresh)
+        target = fresh
     }
     if (!applyServerEdit(form, target, replaceAddresses = editing != null)) return null
     ServerRepository.persist(context, servers)
@@ -1445,57 +1611,146 @@ private fun FoldHeader(title: String, summary: String, open: Boolean, onToggle: 
     }
 }
 
-/** 远程接入双槽行：类型标签 + 归一 origin（mono 单行截断）+ 清除；空槽虚位显示「空」 */
+/**
+ * 一行配对：启用开关 · 地址（可编辑，mono）· lane · 来源 · 条目超时 · 令牌 · ↑↓ ✕。
+ *
+ * 和 PC 端 `rsPairRow` 同一套信息：地址、lane 徽标、来源（host · os）、条目自己的超时。
+ * 令牌打码显示，点「显示」看明文（配对码等同密码）。
+ */
 @Composable
-private fun RemoteSlotRow(
-    label: String,
-    labelColor: Color,
-    value: String,
-    onClear: () -> Unit,
-    onCopy: () -> Unit,
+private fun PairEditRow(
+    state: ServerEditFormState,
+    item: PairEdit,
     palette: Palette,
+    onCopy: (String) -> Unit,
 ) {
-    // 「查看完整」：长地址一行显示不下，点一下展开成多行（再点收起）
-    var expanded by remember(value) { mutableStateOf(false) }
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
+    var addrText by remember(item.id, item.addr) { mutableStateOf(item.addr) }
+    var tokenText by remember(item.id, item.token) { mutableStateOf(item.token) }
+    var tokenShown by remember(item.id) { mutableStateOf(false) }
+    var expanded by remember(item.id) { mutableStateOf(false) }
+    val lane = if (item.kind == RemotePair.KIND_TS) {
+        if (ServerProfile.isFunnelOrigin(item.addr)) "Funnel" else "直连"
+    } else {
+        ""
+    }
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 5.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .background(palette.card)
-            .padding(horizontal = 8.dp, vertical = 4.dp),
+            .padding(top = 6.dp)
+            .clip(RoundedCornerShape(9.dp))
+            .background(palette.elevate)
+            .padding(horizontal = 7.dp, vertical = 5.dp),
     ) {
-        Text(
-            label,
-            fontSize = 10.sp,
-            color = labelColor,
-            modifier = Modifier
-                .border(1.dp, labelColor.copy(alpha = 0.55f), RoundedCornerShape(999.dp))
-                .padding(horizontal = 6.dp, vertical = 1.dp),
-        )
-        Spacer(Modifier.width(8.dp))
-        Text(
-            value.ifEmpty { "空" },
-            fontSize = 11.sp,
-            fontFamily = FontFamily.Monospace,
-            color = if (value.isEmpty()) palette.fgFaint else palette.fg,
-            maxLines = if (expanded) 5 else 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier
-                .weight(1f)
-                .clickable(enabled = value.isNotEmpty()) { expanded = !expanded },
-        )
-        if (value.isNotEmpty()) {
-            TextButton(onClick = onCopy) {
-                Text("复制", fontSize = 11.sp, color = palette.fgDim)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Switch(
+                checked = item.enabled,
+                onCheckedChange = { on -> state.updatePair(item.id) { it.copy(enabled = on) } },
+                modifier = Modifier.scale(0.7f),
+            )
+            OutlinedTextField(
+                value = addrText,
+                onValueChange = {
+                    addrText = it
+                    state.updatePair(item.id) { pair -> pair.copy(addr = it) }
+                },
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodySmall,
+                placeholder = { Text("地址（https://… 或 100.x:12300）", fontSize = 11.sp) },
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = { state.movePair(item.id, -1) }) {
+                Text("↑", fontSize = 13.sp, color = palette.fgDim)
             }
-            TextButton(onClick = onClear) {
-                Text("✕", fontSize = 12.sp, color = palette.fgFaint)
+            TextButton(onClick = { state.movePair(item.id, 1) }) {
+                Text("↓", fontSize = 13.sp, color = palette.fgDim)
             }
+            TextButton(onClick = { state.removePair(item.id) }) {
+                Text("✕", fontSize = 13.sp, color = palette.bad)
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (lane.isNotEmpty()) {
+                Text(
+                    lane,
+                    fontSize = 10.sp,
+                    color = if (lane == "Funnel") palette.ok else palette.accent,
+                    modifier = Modifier
+                        .border(
+                            1.dp,
+                            (if (lane == "Funnel") palette.ok else palette.accent).copy(alpha = 0.5f),
+                            RoundedCornerShape(999.dp),
+                        )
+                        .padding(horizontal = 5.dp, vertical = 1.dp),
+                )
+                Spacer(Modifier.width(6.dp))
+            }
+            Text(
+                item.sourceLabel.ifEmpty { "手填" },
+                fontSize = 10.sp, color = palette.fgFaint,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Text("超时", fontSize = 10.sp, color = palette.fgFaint)
+            Spacer(Modifier.width(4.dp))
+            SmallNumberField(
+                value = item.timeoutText,
+                enabled = item.enabled,
+                placeholder = "默认",
+                onValueChange = { raw ->
+                    val cleaned = raw.filter { it.isDigit() || it == '.' }.take(5)
+                    state.updatePair(item.id) { pair -> pair.copy(timeoutText = cleaned) }
+                },
+                modifier = Modifier.width(56.dp),
+            )
+            Text("s", fontSize = 10.sp, color = palette.fgFaint)
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("令牌", fontSize = 10.sp, color = palette.fgFaint)
+            Spacer(Modifier.width(6.dp))
+            if (tokenShown) {
+                OutlinedTextField(
+                    value = tokenText,
+                    onValueChange = {
+                        tokenText = it
+                        state.updatePair(item.id) { pair -> pair.copy(token = it) }
+                    },
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.weight(1f),
+                )
+            } else {
+                Text(
+                    if (item.token.isEmpty()) "（未配）" else state.maskToken(item.token),
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.Monospace,
+                    color = palette.fgDim,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { expanded = !expanded },
+                )
+            }
+            TextButton(onClick = { tokenShown = !tokenShown }) {
+                Text(if (tokenShown) "打码" else "改/看", fontSize = 11.sp)
+            }
+            TextButton(onClick = { onCopy(item.addr) }) {
+                Text("复制地址", fontSize = 11.sp, color = palette.fgDim)
+            }
+        }
+        if (expanded && item.token.isNotEmpty() && !tokenShown) {
+            Text(
+                item.token,
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace,
+                color = palette.fg,
+                modifier = Modifier.padding(top = 2.dp),
+            )
         }
     }
 }
+
 /**
  * 单选的「探测方式」小件（连接优先级 / 多网卡各一组，所以抽出来）。
  * 每个选项占三等分之一宽，窄屏靠 Ellipsis 兜底，不会把文字压成 0 宽。

@@ -1,6 +1,6 @@
 # 远程接入配对模型（多条目）
 
-> 状态：设计稿（未实现）
+> 状态：**已实现（S1–S5，见 §7）**
 > 涉及：`remote_servers.rs` / `http_server.rs` / `hub_gateway.rs` / `ui/hub.html` / `mobile/{android,ios}`
 > 范围：**只做配对**。`cloudflare` / `ts` / `tsnet` 三个区块各自可挂多条配对，全部保留、全部独立探测。
 > LAN 直连（`addresses` / `probe_mode`）与跳板机（`jump_id`）不在范围内，结构与探测代码保持原样。
