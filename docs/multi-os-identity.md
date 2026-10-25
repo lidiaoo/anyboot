@@ -78,6 +78,9 @@ anyboot://pair?gateway=<主机名>&tunnel=<url>&token=<token>&type=<kind>
   这是物理事实，不靠软件绕。LAN 通道只做「校验 + 提示」，不做「路由到指定系统」。
 - **不做 MAC 推导 / 机器指纹**。不猜「这两条档案是不是同一台机器」，把判定权交给
   `machine_id`（系统自报）与用户手填的分组。
+- **不按「系统安装」区分共享 home 的多个发行版**。`mid` 的粒度是「一套 AnyBoot 配置」，
+  共享 home 即同一个接入身份（§4.7）；要区分必须用 `ANYBOOT_CONFIG_DIR` 把配置分开（§4.9），
+  只分 `mid` 不分 tsnet 状态会制造假的多身份（§4.8）。
 - 不做跨系统的配置同步（各系统各存各的，不共享 tailnet/cloudflare 凭据）。
 - 不引入新的中心服务 / 账号体系。
 
@@ -91,7 +94,7 @@ anyboot://pair?gateway=<主机名>&tunnel=<url>&token=<token>&type=<kind>
 │   └── pair#3  tsnet        https://desktop-8f3a.xxx.ts.net
 ├── 系统 B · machine_id=midB · host=arch-pc · os=linux
 │   ├── pair#4  cloudflare   https://b-1.trycloudflare.com
-│   └── pair#5  tsnet        https://arch-pc.xxx.ts.net
+│   └── pair#5  tsnet        https://anyboot-linux.xxx.ts.net
 └── 系统 C · machine_id=midC · host=MacBook-Pro · os=macos
     └── pair#6  funnel       https://macbook-pro.xxx.ts.net
 ```
@@ -101,7 +104,7 @@ anyboot://pair?gateway=<主机名>&tunnel=<url>&token=<token>&type=<kind>
 | 层 | 载体 | 唯一性 | 是否参与连接判定 |
 |---|---|---|---|
 | 电脑 | `group` 字符串（用户手填，可空） | **不唯一、不约束**，只是折叠标签 | 否 |
-| 系统档案 | `RemoteServer.machine_id` | 每个系统实例唯一 | 是（探活比对） |
+| 系统档案 | `RemoteServer.machine_id` | 每套 AnyBoot 配置唯一（共享 home 的多发行版共用一个，见 §4.7） | 是（探活比对） |
 | 配对条目 | `RemotePair.id` + `(mid, kind)` | 条目 id 唯一 | 是（这就是连接目标） |
 
 **关键规则**：`group` 不参与任何唯一性判断，不触发顶替。两个系统都叫「windows」只是两个同标签的行，
@@ -181,10 +184,32 @@ pub pairs: Vec<RemotePair>,
 
 迁移时 `Task.resume()` 的逐字段拷贝**必须同步带上 `pairs`**（历史坑：`Task` 加字段不同步会导致状态丢失）。
 
-### 4.3 `/health` 不新增字段
+### 4.3 `/health`：只加一个显示用字段
 
-`machineId` / `machineOs` / `machineName` 已有，够用。**不引入 `machineKey` / `machineMacs`**
-（上一版设计的 MAC 推导方案已废弃）。
+已有 `machineId` / `machineOs` / `machineName`，够做归档与校验。
+新增 `systemLabel`（**纯显示，不参与任何判定**）：
+
+```json
+{
+  "ok": true,
+  "service": "anyboot",
+  "machineId": "<一套配置的 id>",
+  "machineName": "<主机名>",
+  "machineOs": "windows|macos|linux",
+  "systemLabel": "Fedora Linux 41 | Ubuntu 24.04 | Windows 11 24H2 | macOS 15.2"
+}
+```
+
+取值：Linux 读 `/etc/os-release` 的 `PRETTY_NAME`；Windows 读
+`HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion` 的 `ProductName` + `DisplayVersion`；
+macOS 读 `sw_vers -productName` + `-productVersion`。
+
+**为什么必须有**：共享 home 的多发行版共用一个 `mid`，`machineOs` 都是 `linux`，
+没有 `systemLabel` 用户就看不出当前连的是 Arch 还是 Fedora。这是共享 home 方案的必备配套，
+不是可选装饰。
+
+**不引入 `machineKey` / `machineMacs`**（上一版设计的 MAC 推导方案已废弃）。
+老客户端读新字段会忽略，无影响。
 
 ### 4.4 什么不进 `RemotePair`
 
@@ -219,6 +244,52 @@ anyboot://pair?v=2&mid=<machineId>&os=<os>&host=<hostname>&type=<kind>&tunnel=<u
 
 注意第 3 步的键是 `(mid, kind)` 而不是 `mid`：**同一个系统可以同时有 cloudflare + tsnet + funnel
 三条配对**，只用 `mid` 去重会让它们互相顶替，等于回到原点。
+
+### 4.7 身份语义：一套配置 = 一个身份
+
+`machine_id` 存在 `settings.json` 里（`lib.rs:1351`），所以它的语义天然是
+「**一套 AnyBoot 配置的身份**」，不是「一次操作系统安装的身份」。这个定义必须显式写下来，
+因为它决定了共享 home 场景下的行为：
+
+| 部署形态 | `settings.json` | `mid` | tsnet 节点 | 结果 |
+|---|---|---|---|---|
+| Win + Linux + macOS（各自 home） | 三份 | 三个 | 三个 | 三条档案、三个域名、可同时在线 |
+| 双 Windows（各自系统盘） | 两份 | 两个 | 两个 | 两条档案 |
+| **多发行版共享 home** | **一份** | **一个** | **一个** | **一条档案、一个域名**，永远连当前在跑的系统 |
+| 两台机器 | 两份 | 两个 | 两个 | 两条档案 |
+
+共享 home 合并成一个身份与 LAN 地址同构：同一时刻只有一个系统在运行，所以
+「一个地址永远指向当前系统」是可接受的，而且是优点 —— 用户只需记一个域名，
+不用管这次启动的是 Arch 还是 Fedora。
+
+**代价**：共用 `mid` 后 `machineOs` 都是 `linux`，看不出当前是哪个发行版。
+所以 `/health` 必须带 `systemLabel`（见 §4.3），列表上显示「当前运行：Fedora 41」。
+
+### 4.8 铁律：`mid` 与 tsnet 状态必须同源
+
+`machine_id` 来自 `app_config_dir()`（`lib.rs:1351`），tsnet 状态来自
+`app_data_dir()/tsnet/state`（`hub_tsnet.rs:461`）。二者都随配置目录走，所以**天然同源**。
+绝不能只把其中一个改成「系统级 id」：
+
+```
+用 /etc/machine-id 当 mid  →  Arch 与 Fedora 得到两个 mid
+但 tsnet state 仍共享     →  两个 mid 指向同一个 tailnet 节点
+结果：手机端两条档案、同一个域名、都显示在线，点哪条走过的都是同一条路
+```
+
+这比顶替更糟 —— 它制造了一个**假的多身份**。`mid` 与节点身份必须一起分或一起合。
+
+### 4.9 真要在共享 home 下区分发行版
+
+必须两样一起分开：给每个发行版设不同的 `ANYBOOT_CONFIG_DIR`（`lib.rs:1337` 已有的逃生门），
+于是各自有独立的 `settings.json` + tsnet 状态 + `mid` + 端口。代价是配置不再共享，
+每个发行版要各自配一遍远程接入。
+
+### 4.10 同时运行的冲突（虚拟机 / 容器）
+
+共享 home 的两个系统同时跑会撞两处：`http_port`（12300）与 tsnet 节点（同节点两连接互踢）。
+启动时 bind 失败必须给明确文案「另有一套 AnyBoot 在运行，或是共享 home 的另一个系统」，
+而不是笼统的「端口占用」—— 否则用户会去查防火墙。
 
 ## 五、探测语义
 
@@ -279,7 +350,7 @@ LAN 探活成功后，用 `/health` 的 `machineId` 与本档案比对：
 
 | 通道 | 改动 |
 |---|---|
-| 内置 tsnet | `--hostname` 从写死 `anyboot` 改为 `anyboot-<os>`（`anyboot-win` / `anyboot-linux` / `anyboot-mac`），设置项 `tsnet_hostname` 可覆盖 |
+| 内置 tsnet | `--hostname`（`hub_tsnet.rs:475`，现写死 `anyboot`）改为取**配置项** `tsnet_hostname`，默认 `anyboot-<os>`（`anyboot-win` / `anyboot-linux` / `anyboot-mac`）。**绝不能取系统 hostname**：共享 home 的 Arch(`arch-pc`) 与 Fedora(`fedora`) 会注册成两个节点、两个域名，正好破坏「一个固定域名」。取配置则共享 home 域名固定、独立 home 三系统自动区分 |
 | 系统 Tailscale | 不动（hostname 由系统自己决定）；远程接入页显示当前节点名，便于对账 |
 | Cloudflare named | 无法自动隔离：**一系统一 tunnel**（同 token 必然互抢 connector）。UI 显示 `tunnel_id`，两条 pair 同 `tunnel_id` 时提示「同一个隧道被多套系统抢占，请求会随机落到其中一个」 |
 | Cloudflare quick | 天然隔离（每次随机域名），地址会变，保持现状 |
@@ -304,7 +375,7 @@ LAN 探活成功后，用 `/health` 的 `machineId` 与本档案比对：
 | S3 | 配对串 v2（签发 + PC/移动端解析 + §4.6 归档规则） | 单测：v2 全参数、同 (mid,kind) 更新、同 mid 不同 kind 新增、缺 mid 老路 |
 | S4 | 探活 `machineId` 校验 + `foreign_system` 标记 | 单测 + 真机：同 IP 两条不同 mid 的档案，只有匹配的能走 LAN |
 | S5 | PC 端列表（分组折叠 + 配对行）与移动端对齐 | 真机：一档案挂 3 条配对全部显示并各自探测；两台机器归两组 |
-| S6 | tsnet hostname 带 os + `tunnel_id` 展示与重复提示 | 真机：tailnet 里看到 `anyboot-mac`；同 tunnel 两条时提示出现 |
+| S6 | `systemLabel`（三端取值 + `/health` + 列表显示）+ tsnet `--hostname` 取配置 + `tunnel_id` 展示与重复提示 + 端口占用文案 | 真机：共享 home 的 Arch/Fedora 显示「当前运行：Fedora 41」且域名不变；tailnet 里看到 `anyboot-linux`；同 tunnel 两条时提示出现 |
 
 S1/S2 可并行；S3 依赖 S1（要建档案就要有 pairs）；S4 依赖 S2；S5 依赖 S1+S2；S6 独立。
 
@@ -316,3 +387,5 @@ S1/S2 可并行；S3 依赖 S1（要建档案就要有 pairs）；S4 依赖 S2�
    而按 OS 分组正是 §3.1 里会丢系统的那个粒度。分组只在配对新建档案时问一次，用户填什么就是什么。
 3. **异地/多网卡场景下 `group` 与 `jump_id` 的关系**：目前分组只管显示，跳板机只管转发，
    两者互不引用 —— 确认这个解耦是否可以。
+4. **`systemLabel` 显示在哪**：建议挂在档案名后缀（`arch-pc · Fedora 41`），
+   与「当前运行」标记分两处，避免同一个位置又要表示身份又要表示实时状态。
