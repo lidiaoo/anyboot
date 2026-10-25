@@ -615,6 +615,61 @@
   }
   .page-head h2 { margin: 0; font-size: 17px; font-weight: 600; }
   .page-head .sub { font-size: 12px; color: rgb(var(--fg-faint)); }
+
+  /* ============ 远程接入页右上角：自动刷新 ============ */
+  /* 一个控件解决三件事：点暂停/继续、下拉选常用间隔、直接在框里敲秒数（1–3600）。 */
+  .gw-ar {
+    margin-left: auto; display: flex; align-items: center; gap: 6px;
+    border: 1px solid rgb(var(--line)); background: rgb(var(--elevate));
+    border-radius: 9px; padding: 2px 3px 2px 10px;
+  }
+  .gw-ar-label { font-size: 12px; color: rgb(var(--fg-faint)); white-space: nowrap; }
+  .gw-ar-combo { position: relative; display: flex; align-items: center; }
+  .gw-ar-combo input {
+    width: 42px; height: 26px; border: 0; background: transparent; outline: none;
+    color: rgb(var(--fg)); font: inherit; font-size: 12.5px; font-weight: 500;
+    text-align: right; padding: 0;
+    appearance: textfield; -moz-appearance: textfield;
+  }
+  /* 数字框自带的上下箭头在窄框里挤成一团，去掉（回车/失焦生效） */
+  .gw-ar-combo input::-webkit-outer-spin-button,
+  .gw-ar-combo input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .gw-ar-combo input:focus { color: rgb(var(--accent)); }
+  .gw-ar-unit { font-size: 12px; color: rgb(var(--fg-dim)); margin: 0 1px 0 2px; }
+  .gw-ar-caret {
+    width: 20px; height: 24px; padding: 0; border: 0; border-radius: 6px;
+    background: transparent; color: rgb(var(--fg-faint)); cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .gw-ar-caret:hover { color: rgb(var(--fg)); background: rgb(var(--line) / .6); }
+  .gw-ar-caret svg { width: 13px; height: 13px; transition: transform .15s; }
+  .gw-ar-caret[aria-expanded="true"] svg { transform: rotate(180deg); }
+  .gw-ar-menu {
+    position: absolute; right: -4px; top: calc(100% + 6px); z-index: 90;
+    min-width: 104px; padding: 4px; display: flex; flex-direction: column; gap: 1px;
+    background: rgb(var(--card)); border: 1px solid rgb(var(--line));
+    border-radius: 10px; box-shadow: 0 12px 30px rgba(0, 0, 0, .3);
+  }
+  .gw-ar-menu button {
+    border: 0; background: transparent; color: rgb(var(--fg-dim));
+    font: inherit; font-size: 12.5px; text-align: left;
+    padding: 6px 10px; border-radius: 7px; cursor: pointer;
+  }
+  .gw-ar-menu button:hover { background: rgb(var(--line) / .6); color: rgb(var(--fg)); }
+  .gw-ar-menu button[aria-selected="true"] { color: rgb(var(--accent)); background: rgb(var(--accent) / .12); }
+  .gw-ar-toggle {
+    display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 10px;
+    border: 0; border-radius: 7px; background: transparent;
+    color: rgb(var(--fg-dim)); font: inherit; font-size: 12px; cursor: pointer;
+  }
+  .gw-ar-toggle:hover { background: rgb(var(--line) / .6); color: rgb(var(--fg)); }
+  .gw-ar-toggle svg { width: 13px; height: 13px; flex: none; }
+  /* 暂停态：整组灰掉 + 脉动点熄灭，一眼能看出「现在不刷新」 */
+  .gw-ar.paused { border-color: rgb(var(--warn) / .45); background: rgb(var(--warn) / .08); }
+  .gw-ar.paused .gw-ar-label,
+  .gw-ar.paused .gw-ar-combo input,
+  .gw-ar.paused .gw-ar-unit { color: rgb(var(--fg-faint)); }
+  .gw-ar.paused .gw-ar-toggle { color: rgb(var(--warn)); }
   .stat-cards {
     display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
     padding: 14px 20px 0;
@@ -2237,10 +2292,35 @@
 
       <!-- ---- 远程接入（本机 cloudflared 通道 + 配对管理；quick/named 两模式） ---- -->
       <section class="page" id="page-gateway" hidden>
-        <div class="page-head" style="display:flex;align-items:center;gap:10px">
+        <div class="page-head" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
           <div>
             <h2>远程接入</h2>
             <span class="sub">把本机的 AnyBoot 挂上公网隧道或虚拟局域网 —— 配对后的手机 / 其他电脑出门也能访问这台电脑</span>
+          </div>
+          <!-- 右上角自动刷新（三合一）：默认 3 秒；点暂停/继续；下拉选常用间隔；也可直接在框里敲秒数 -->
+          <div class="gw-ar" id="gwAuto" title="自动刷新这一页的状态（单位：秒）">
+            <span class="gw-ar-label">自动刷新</span>
+            <div class="gw-ar-combo">
+              <input id="gwAutoSec" type="number" min="1" max="3600" step="1" value="3"
+                     inputmode="numeric" aria-label="自动刷新间隔，单位秒">
+              <span class="gw-ar-unit">秒</span>
+              <button class="gw-ar-caret" id="gwAutoCaret" type="button"
+                      aria-label="选择常用刷新间隔" aria-haspopup="listbox" aria-expanded="false">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+              </button>
+              <div class="gw-ar-menu" id="gwAutoMenu" role="listbox" aria-label="常用刷新间隔" hidden></div>
+            </div>
+            <button class="gw-ar-toggle" id="gwAutoToggle" type="button" aria-pressed="false">
+              <svg id="gwAutoIconPause" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <rect x="7" y="5" width="3.4" height="14" rx="1.2"/><rect x="13.6" y="5" width="3.4" height="14" rx="1.2"/>
+              </svg>
+              <!-- 图标切换走 style.display（hidden 属性对 SVG 元素不生效，只会挂个 JS 属性） -->
+              <svg id="gwAutoIconPlay" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" style="display:none">
+                <path d="M8 5.6v12.8a1 1 0 0 0 1.52.85l9.6-6.4a1 1 0 0 0 0-1.7l-9.6-6.4A1 1 0 0 0 8 5.6z"/>
+              </svg>
+              <span id="gwAutoToggleText">暂停</span>
+            </button>
           </div>
         </div>
 
@@ -9234,7 +9314,10 @@
 // 后端命令：gateway_config / gateway_save_config / gateway_binary_status|download|
 //   gateway_binary_set_manual / gateway_tunnel_start|stop|status|logs / gateway_pair_issue|list|revoke|delete
 // 事件：gateway-tunnel-state（TunnelSnapshot）/ gateway-binary-progress / gateway-binary-done
-function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
+function gwShowPage() {
+  if (window.gwRefresh) window.gwRefresh();
+  if (window.gwAutoWake) window.gwAutoWake(); // 回到这页：自动刷新的节奏重新起算
+}
 (function () {
   if (!invoke) return; // 浏览器直开时页面元素在但不功能化
   const $ = function (id) { return document.getElementById(id); };
@@ -9244,11 +9327,114 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
   let mode = 'quick';      // 当前选中的模式（segmented）
   let logTimer = null;     // 日志弹窗轮询
 
+  // ============ 自动刷新（页面右上角）：默认 3 秒 ============
+  // 三合一控件：暂停/继续、下拉选常用间隔、直接在框里敲秒数（1–3600，回车或失焦生效）。
+  // 只刷「远程接入」这一页；离开这页或窗口隐藏时不计刷新（回来立刻补一次），
+  // 上一次没回来就跳过本轮，避免后端慢时请求堆积。
+  const GW_AR_KEY = 'ab-hub-gwauto';
+  const GW_AR_PRESETS = [1, 2, 3, 5, 10, 30, 60];
+  const GW_AR_MIN = 1;
+  const GW_AR_MAX = 3600;
+  let gwAutoSec = 3;
+  let gwAutoPaused = false;
+  let gwAutoTimer = null;
+  let gwAutoBusy = false;
+  let gwAutoLastAt = 0;
+  (function gwAutoLoad() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(GW_AR_KEY) || '{}') || {};
+      const sec = parseInt(saved.sec, 10);
+      if (Number.isFinite(sec)) gwAutoSec = Math.min(GW_AR_MAX, Math.max(GW_AR_MIN, sec));
+      gwAutoPaused = saved.paused === true;
+    } catch (e) { /* localStorage 不可用就吃默认 3 秒 */ }
+  })();
+  function gwAutoSave() {
+    try { localStorage.setItem(GW_AR_KEY, JSON.stringify({ sec: gwAutoSec, paused: gwAutoPaused })); } catch (e) { }
+  }
+  function gwAutoPageOn() {
+    const page = $('page-gateway');
+    return !!page && !page.hidden && !document.hidden;
+  }
+  function gwAutoRender() {
+    const box = $('gwAuto');
+    if (!box) return;
+    box.classList.toggle('paused', gwAutoPaused);
+    const input = $('gwAutoSec');
+    // 正在输入时不要用缓存值覆盖用户的按键
+    if (input && document.activeElement !== input) input.value = String(gwAutoSec);
+    const menu = $('gwAutoMenu');
+    if (menu) {
+      Array.prototype.forEach.call(menu.querySelectorAll('button'), function (b) {
+        b.setAttribute('aria-selected', parseInt(b.dataset.sec, 10) === gwAutoSec ? 'true' : 'false');
+      });
+    }
+    // 图标切换用 style.display：hidden 属性对 SVG 元素不生效
+    $('gwAutoIconPause').style.display = gwAutoPaused ? 'none' : '';
+    $('gwAutoIconPlay').style.display = gwAutoPaused ? '' : 'none';
+    $('gwAutoToggleText').textContent = gwAutoPaused ? '继续' : '暂停';
+    const toggle = $('gwAutoToggle');
+    toggle.setAttribute('aria-pressed', gwAutoPaused ? 'true' : 'false');
+    toggle.title = gwAutoPaused
+      ? '已暂停（点一下恢复自动刷新）'
+      : '点一下暂停自动刷新（当前每 ' + gwAutoSec + ' 秒）';
+  }
+  function gwAutoClear() {
+    if (gwAutoTimer) { clearTimeout(gwAutoTimer); gwAutoTimer = null; }
+  }
+  function gwAutoArm() {
+    gwAutoClear();
+    if (gwAutoPaused) return;
+    gwAutoTimer = setTimeout(gwAutoCycle, gwAutoSec * 1000);
+  }
+  function gwAutoCycle() {
+    gwAutoTimer = null;
+    if (gwAutoPaused) return;
+    if (!gwAutoPageOn() || gwAutoBusy) { gwAutoArm(); return; }
+    gwAutoBusy = true;
+    let chain = null;
+    try { chain = gwRefresh(); } catch (e) { chain = null; } // 同步抛错也别把 busy 锁死
+    Promise.resolve(chain).catch(function () { }).then(function () {
+      gwAutoBusy = false;
+      gwAutoRender();
+      gwAutoArm();
+    });
+  }
+  /** 进入这一页 / 窗口重新可见：重新计时，必要时立刻补一次（进页面本来就刷过了就不重复） */
+  function gwAutoWake() {
+    if (gwAutoPaused) return;
+    gwAutoClear();
+    if (Date.now() - gwAutoLastAt < 400) { gwAutoArm(); return; }
+    gwAutoCycle();
+  }
+  /** 改间隔：数字一律夹紧到 1–3600（0/负数按 1 秒算）；空或非数字返回 false 由调用方还原 */
+  function gwAutoApplySec(raw, resume) {
+    const text = String(raw == null ? '' : raw).trim();
+    if (!text) return false;
+    const value = Math.round(Number(text));
+    if (!Number.isFinite(value)) return false;
+    gwAutoSec = Math.min(GW_AR_MAX, Math.max(GW_AR_MIN, value));
+    if (resume) gwAutoPaused = false;
+    gwAutoSave();
+    gwAutoRender();
+    gwAutoArm();
+    return true;
+  }
+  function gwAutoMenuOpen(open) {
+    const menu = $('gwAutoMenu');
+    if (!menu) return;
+    const on = (open != null) ? open : menu.hidden;
+    menu.hidden = !on;
+    $('gwAutoCaret').setAttribute('aria-expanded', on ? 'true' : 'false');
+  }
+  window.gwAutoWake = gwAutoWake;
+  window.gwAutoIsPaused = function () { return gwAutoPaused; };
+
   function refreshClients() {
     invoke('gateway_pair_list').then(renderClients).catch(function () { });
   }
   function gwRefresh() {
-    invoke('gateway_config').then(function (value) {
+    gwAutoLastAt = Date.now();
+    const chain = invoke('gateway_config').then(function (value) {
       cfg = value;
       snap = value.tunnel || snap;
       mode = (value.mode === 'named') ? 'named' : 'quick';
@@ -9259,6 +9445,7 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
     refreshOrphans();
     tsRefresh();
     tsnRefresh();
+    return chain; // 自动刷新用它判断「这一轮回来了没」
   }
   window.gwRefresh = gwRefresh;
 
@@ -9329,7 +9516,9 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
     $('gwDownloadBtn').hidden = binary.installed;
     $('gwManualBtn').hidden = binary.installed;
     $('gwUninstallBtn').hidden = !binary.installed;
-    $('gwNamedUrl').value = cfg.named_url || '';
+    // 自动刷新会周期性重跑这里：正在输入时别把用户敲了一半的地址/token 冲掉
+    const namedUrlEl = $('gwNamedUrl');
+    if (document.activeElement !== namedUrlEl) namedUrlEl.value = cfg.named_url || '';
     $('gwNamedToken').placeholder = cfg.named_token_set
       ? '已保存（留空保持不变）' : 'Cloudflare Zero Trust 创建隧道后给出的 Token';
     $('gwAutostart').checked = !!cfg.autostart;
@@ -9381,6 +9570,80 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
     let saved = 'cf';
     try { saved = localStorage.getItem('ab-hub-gwtab') || 'cf'; } catch (e) { }
     gwTabShow(saved, false);
+  })();
+
+  // ---- 自动刷新控件接线：下拉常用间隔 / 框里改秒数 / 暂停继续 ----
+  (function gwAutoBind() {
+    const menu = $('gwAutoMenu');
+    if (menu) {
+      GW_AR_PRESETS.forEach(function (sec) {
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.setAttribute('role', 'option');
+        item.dataset.sec = String(sec);
+        item.textContent = sec + ' 秒';
+        item.addEventListener('click', function () {
+          gwAutoApplySec(sec, true);
+          gwAutoMenuOpen(false);
+        });
+        menu.appendChild(item);
+      });
+    }
+    const caret = $('gwAutoCaret');
+    if (caret) {
+      caret.addEventListener('click', function (e) {
+        e.stopPropagation();
+        gwAutoMenuOpen();
+      });
+    }
+    // 点空白 / Esc 收下拉：避免菜单挂在页面上挡按钮
+    document.addEventListener('click', function (e) {
+      const box = $('gwAuto');
+      const m = $('gwAutoMenu');
+      if (!m || m.hidden || !box) return;
+      if (box.contains(e.target)) return;
+      gwAutoMenuOpen(false);
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') gwAutoMenuOpen(false);
+    });
+
+    const input = $('gwAutoSec');
+    if (input) {
+      input.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          if (!gwAutoApplySec(input.value, true)) gwAutoRender(); // 填不出正数就还原
+          input.blur();
+        } else if (e.key === 'Escape') {
+          input.value = String(gwAutoSec);
+          input.blur();
+        }
+      });
+      // 失焦 / 上下箭头点完都走这里（回车后 blur 再触发一次也幂等）
+      input.addEventListener('change', function () {
+        if (!gwAutoApplySec(input.value, true)) gwAutoRender();
+      });
+    }
+
+    const toggle = $('gwAutoToggle');
+    if (toggle) {
+      toggle.addEventListener('click', function () {
+        gwAutoPaused = !gwAutoPaused;
+        gwAutoSave();
+        gwAutoRender();
+        if (gwAutoPaused) gwAutoClear();
+        else gwAutoCycle(); // 继续：立刻补一次再按新节奏走
+      });
+    }
+
+    // 窗口重新可见（最小化 / 切回来）→ 补一次
+    document.addEventListener('visibilitychange', function () {
+      if (!document.hidden) gwAutoWake();
+    });
+
+    gwAutoRender();
+    gwAutoArm();
   })();
 
   /** 标签条状态点：st ∈ on（绿脉冲）/ err（红）/ off（灰） */
@@ -10259,7 +10522,12 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
     this.disabled = false;
     tsnRefresh();
   });
-  setInterval(tsnRefresh, 5000); // 引擎会从 login_needed 自己转 ready，轻量轮询跟进
+  // 引擎会从 login_needed 自己转 ready，轻量轮询跟进；
+  // 页面右上角点了「暂停」就一起停 —— 否则暂停了这张卡还在自己跳，看着像没生效。
+  setInterval(function () {
+    if (window.gwAutoIsPaused && window.gwAutoIsPaused()) return;
+    tsnRefresh();
+  }, 5000);
 
   // ---- 出码配对 ----
   // 地址类型四选：tunnel（默认）/ tailscale / funnel / none
