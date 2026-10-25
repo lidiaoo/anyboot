@@ -109,7 +109,9 @@ CLI 探测链见模块头注释（三端各自的候选路径 + PATH 兜底）�
   pkexec 可用、未装发行版包（`/usr/lib` 有 tailscaled unit 或 `/usr/bin`/`/usr/sbin` 有二进制
   即拒绝——混装会导致 CLI/daemon 版本漂移且卸载边界分不清）。不通过直接报人话指引，
   不白下 30MB。安装后服务未运行且缺 `/dev/net/tun` 时，报错附容器场景提示
-  （tun 模块 / `TS_USERSPACE=1`）。
+  （tun 模块 / `TS_USERSPACE=1`）。**安装/卸载脚本连带清理 unit 的 `.d` drop-in 目录**
+  （2026-10-25 本机踩坑：旧 override 残留在重装后盖掉新 ExecStart → 203/EXEC；
+  发行版 unit 的 drop-in 一律不碰）。
 - **macOS App 版 CLI 两个专属坑**（都在 `cli_command`/`probe` 处理）：`SHLVL=1` 强制 CLI
   分支（否则误走 GUI 启动分支，exit 0 + stdout 全是报错文本）；IPv4 严格形状校验防报错
   文本被当 IP 拼进直连地址。
