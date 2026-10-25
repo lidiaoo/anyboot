@@ -44,6 +44,9 @@
 - **macOS App 版 Tailscale CLI 必须 `env("SHLVL","1")`**（`hub_tailscale.rs::cli_command`）：CLI 拿 SHLVL 判断是否 shell 调用，缺了就误走 GUI 启动分支 → exit 0 + stdout 全是报错文本（GUI 起没起都一样）。CLI 还会挂死 → 子进程必须带超时（`run_cli_raw` 5s）。细则见 2026-10-25.md。
 - **macOS 上「已安装」判据必须是 CLI 真能跑**（`cli_works` = version exit 0 且有输出），不能只看文件存在：pkg 会在 `/usr/local/bin/tailscale` 留 68 字节 shim，删 App 后 shim 仍在、执行 exit 127 → 只看 `is_file()` 会永久误判已安装、前端下载行永不出现。卸载同理要删 shim（先校验体积+内容，别碰 brew 真二进制，commit b96fb07）。
 - **mac 上验证不了 webview DOM**：CDP 是 `cfg(windows)` 实现（`ANYBOOT_CDP_PORT` 无效），`ps`/`screencapture` 被宿主沙箱禁 → 用 Rust `#[ignore]` 诊断测试 + jsdom 代替。
+- **macOS Tailscale 写操作必须提权**：官方 CLI 文档——App 版的 up/down/set/funnel 只有 root 能做，status/ip 只读命令普通用户可用。mac 没有 pkexec，唯一通道是 `osascript … with administrator privileges`（`hub_tailscale.rs::elevated_retry` mac 分支）：命令写临时 .sh 避开引号地狱 + 脚本把 stdout/stderr/exit code 落文件 + 主进程边跑边 tail（登录链接要实时上屏）+ 脚本内补 `SHLVL`/`TAILSCALE_BE_CLI`（root 环境更干净，不补又误走 GUI 分支）。macsys **不认** `set --operator`（别照抄 Linux 兜底文案）。
+- **macOS 卸装后没重启就重装 = 扩展卡死**：`systemextensionsctl list` 出现两条 tailscale（旧 `terminated waiting to uninstall on reboot` + 新 `activated waiting for user`）→ CLI 一律 `The Tailscale CLI failed to start … (CLIError error 1)` 且 **exit 0**，唯一解法是重启 Mac（`systemextensionsctl reset` 要关 SIP）。所以 `cli_works` 必须排除 GUI/CLI failed 报错文本，probe 要给 `needs_reboot` 状态而不是「未安装」（否则用户反复重装）。
+- **Tailscale 日志落盘**：`ts_log` 除 400 行内存环外 append 到 `trace.log`（行首 `[tailscale]`，重启后可回查）；只在**状态变化**时记 `[状态]`（UI 3 秒轮询，全记会刷屏）。
 - **cloudflared 哈希表必须逐条实测**（首版 darwin 两条误填内核哈希 → mac 三源全拒装）。孤儿清理/残留通道三函数已按平台拆分：Windows=PowerShell/CIM，unix=`ps -axo pid=,lstart=,command=` 精确匹配 + kill -9，**新增平台分支两边都维护**。
 - mac 上跨平台 cargo check：rustup 的 cargo 在 `~/.cargo/bin`（/opt/local/bin 是 MacPorts 的），用 `--manifest-path`（cd 前缀会被环境剥掉）；Windows-msvc 目标会被 ring 构建脚本阻塞（无 MSVC），Windows 分支只能在 Windows 机全量 check。
 
