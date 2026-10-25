@@ -2587,6 +2587,16 @@
             </p>
             <button class="btn" id="tsRebootRecheck">已重启，重新检测</button>
           </div>
+          <!-- macOS 网络扩展「待用户允许」态：装好了但没在系统设置里批准 →
+               CLI 一律起不来，点 App 也没用。必须给直达按钮，否则用户在设置里瞎翻。 -->
+          <div id="tsApprovalRow" hidden>
+            <p class="field-hint" style="margin:8px 0 6px;color:rgb(var(--warn))">
+              Tailscale 已安装，但系统里的<b>网络扩展还没被允许</b> —— 批准之前它连不上网络，点连接一定失败。
+              点下面打开「系统设置 → 通用 → 登录项与扩展 → 网络扩展」，把 <b>Tailscale</b> 打开
+              （可能需要指纹 / 密码），回来点「重新检测」即可。
+            </p>
+            <button class="btn" id="tsApprovalBtn">打开网络扩展设置</button>
+          </div>
           <!-- Funnel 公网通道区块：与直连区共用安装/登录生命周期；未安装时整块隐藏。
                状态机 unavailable/off/starting/needs_authorize/ready/error 由后端
                gateway_tailscale_funnel_status 驱动（tailscaled 服务内监听，无子进程残留）。 -->
@@ -3391,6 +3401,42 @@
   // ============ 环境 ============
   const HAS_TAURI = typeof window.__TAURI__ !== "undefined";
   const invoke = HAS_TAURI ? window.__TAURI__.core.invoke : null;
+
+  // ============ 前端异常上报 ============
+  // webview 里没有可用控制台（macOS 上尤其没法 attach 调试器）：脚本一崩，用户只
+  // 看到某块卡住不动，trace.log 里却一片干净 —— 排障只能靠猜。这里把未捕获异常
+  // 与未处理的 Promise 拒绝都写进 trace.log（行首 [js]）。同一处错误 5 秒内只报
+  // 一次，避免 3 秒轮询里的持续性错误把日志刷爆。
+  window.__hubReportError = (function () {
+    const core = (window.__TAURI__ && window.__TAURI__.core) ? window.__TAURI__.core : null;
+    const seen = Object.create(null);
+    return function (source, message, stack) {
+      if (!core || !core.invoke) return;
+      const text = String(message == null ? '' : message);
+      const key = source + '|' + text;
+      const now = Date.now();
+      if (seen[key] && now - seen[key] < 5000) return;
+      seen[key] = now;
+      try {
+        core.invoke('hub_report_error', {
+          source: String(source || ''),
+          message: text,
+          stack: String(stack || '')
+        });
+      } catch (e) { /* 上报本身绝不能影响页面 */ }
+    };
+  })();
+  window.addEventListener('error', function (event) {
+    window.__hubReportError('window.error', event.message, event.error && event.error.stack);
+  });
+  window.addEventListener('unhandledrejection', function (event) {
+    const reason = event.reason;
+    window.__hubReportError(
+      'unhandledrejection',
+      (reason && (reason.message || reason)) || '',
+      reason && reason.stack
+    );
+  });
 
   // ============ 主题 ============
   // 与主界面同一个真相源（settings.theme）：初始值问后端，切换调 set_theme，
@@ -10051,7 +10097,20 @@ function gwShowPage() {
       text.title = String(error || '');
     });
   }
+  // webview 里没有可用控制台（macOS 上尤其没法 attach 调试器）：渲染中任何一处
+  // 抛错，用户只会看到卡片永远停在「正在检测 Tailscale…」，日志里一片干净。
+  // 所以整体包一层 —— 抛错就把原因直接写屏并上报 trace，宁可显示一句
+  // 「状态显示失败：xxx」，也绝不静默卡住。
   function tsRender() {
+    try {
+      tsRenderInner();
+    } catch (e) {
+      const text = '状态显示失败：' + ((e && e.message) ? e.message : e);
+      try { $('tsStateText').textContent = text; } catch (ignored) { }
+      if (window.__hubReportError) window.__hubReportError('tsRender', text, e && e.stack);
+    }
+  }
+  function tsRenderInner() {
     const st = tsStatus;
     const has = !!(st && st.installed);
     const running = has && st.state === 'running' && st.ip;
@@ -10070,6 +10129,7 @@ function gwShowPage() {
     $('tsStoppedRow').hidden = !(has && st.state === 'stopped');
     $('tsGuiRow').hidden = !(has && st.state === 'needs_gui');
     $('tsRebootRow').hidden = !(has && st.state === 'needs_reboot');
+    $('tsApprovalRow').hidden = !(has && st.state === 'needs_approval');
     $('tsAddrRow').hidden = !running;
     $('tsBadge').hidden = !running;
     // AuthKey 配置行：装了但没连上时给入口（与内置引擎 off 态同款）
@@ -10092,7 +10152,8 @@ function gwShowPage() {
     const mainSw = $('tsMainSw');
     const svcDead = has && st.state === 'unknown' && st.service_running === 0;
     mainSw.checked = running || (tsBusy && tsUpIntent);
-    mainSw.disabled = tsBusy || svcDead || st.state === 'needs_gui' || st.state === 'needs_reboot';
+    mainSw.disabled = tsBusy || svcDead || st.state === 'needs_gui'
+      || st.state === 'needs_reboot' || st.state === 'needs_approval';
     $('tsMainSwWrap').classList.toggle('loading', tsBusy);
     const svcKnown = has && typeof st.service_running === 'number' && st.service_running >= 0;
     $('tsSvcSwGroup').hidden = !svcKnown;
@@ -10131,6 +10192,8 @@ function gwShowPage() {
       $('tsStateText').textContent = '已安装 · Tailscale.app 未启动';
     } else if (st.state === 'needs_reboot') {
       $('tsStateText').textContent = '已安装 · 需要重启 Mac 才能启用';
+    } else if (st.state === 'needs_approval') {
+      $('tsStateText').textContent = '已安装 · 网络扩展待允许';
     } else {
       $('tsStateText').textContent = st.service_running === 0 ? '已安装 · tailscaled 服务未运行' : '已安装 · 状态未知';
     }
@@ -10162,6 +10225,15 @@ function gwShowPage() {
       toast('正在打开 Tailscale.app，稍后自动重新检测…');
       if (tsGuiLaunchTimer) clearTimeout(tsGuiLaunchTimer);
       tsGuiLaunchTimer = setTimeout(tsRefresh, 4000);
+    }).catch(function (error) {
+      toast(String(error || '打开失败'), 'bad');
+    });
+  });
+  // macOS 网络扩展「待允许」：直达系统设置对应面板。
+  // 这一步提权也代劳不了（系统安全模型要求用户自己点），只能给路径。
+  $('tsApprovalBtn').addEventListener('click', function () {
+    invoke('gateway_tailscale_open_extension_settings').then(function () {
+      toast('已打开系统设置 —— 打开 Tailscale 开关后回来点「重新检测」');
     }).catch(function (error) {
       toast(String(error || '打开失败'), 'bad');
     });

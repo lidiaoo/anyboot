@@ -432,6 +432,29 @@ pub(crate) fn trace(app: &AppHandle, category: &str, message: &str) {
         .and_then(|mut file| file.write_all(line.as_bytes()));
 }
 
+/// 前端异常上报。
+///
+/// webview 里没有可用的控制台（macOS 上也没法 attach devtools），脚本一崩用户
+/// 只看到「卡住」，日志里一片干净 —— 排障全靠猜。这条命令只写 trace，别的
+/// 什么都不做；去重由前端负责，超长一律截断，防止一条畸形消息刷爆日志。
+#[tauri::command]
+fn hub_report_error(app: AppHandle, source: String, message: String, stack: String) {
+    let clip = |text: &str, max: usize| -> String {
+        let flattened = text.replace(['\r', '\n'], " ");
+        let trimmed = flattened.trim();
+        if trimmed.chars().count() <= max {
+            trimmed.to_string()
+        } else {
+            trimmed.chars().take(max).collect::<String>() + "…"
+        }
+    };
+    let mut line = format!("{}: {}", clip(&source, 40), clip(&message, 300));
+    if !stack.trim().is_empty() {
+        line.push_str(&format!(" | {}", clip(&stack, 400)));
+    }
+    trace(&app, "js", &line);
+}
+
 // ==================== WebSocket 推送（网页端 / 手机端的 /api/ws） ====================
 //
 // 传输与握手在 http 模块，这里只管「谁订阅了」和「推什么」。推的内容与
@@ -3123,6 +3146,8 @@ pub fn run() {
             hub::hub_list_servers,
             // hub 独立窗的页面心跳（白框判据，见 hub_health.rs）
             hub_health::hub_page_ping,
+            // 前端异常上报（webview 无控制台，只写 trace.log）
+            hub_report_error,
             hub::hub_save_server,
             hub::hub_delete_server,
             hub::hub_test_server,
@@ -3172,6 +3197,7 @@ pub fn run() {
             hub_tailscale::gateway_tailscale_download,
             hub_tailscale::gateway_tailscale_install,
             hub_tailscale::gateway_tailscale_launch_gui,
+            hub_tailscale::gateway_tailscale_open_extension_settings,
             hub_tailscale::gateway_tailscale_funnel_status,
             hub_tailscale::gateway_tailscale_funnel_enable,
             hub_tailscale::gateway_tailscale_funnel_disable,

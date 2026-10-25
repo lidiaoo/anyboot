@@ -335,34 +335,115 @@ fn first_line(text: &str) -> String {
 /// 关闭 SIP，应用侧做不了），所以必须给用户一个明确状态，否则他会反复重装。
 ///
 /// 只认含 "tailscale" 的那一行，别的厂商扩展（LuLu 等）有同样标记也不能误判。
-#[cfg(target_os = "macos")]
-fn macos_extension_pending_uninstall() -> bool {
-    let Ok(output) = std::process::Command::new("systemextensionsctl")
-        .arg("list")
-        .output()
-    else {
-        return false;
-    };
-    String::from_utf8_lossy(&output.stdout)
+/// 查系统扩展状态的超时。systemextensionsctl 正常 <100ms，卡住时必须放弃 ——
+/// 它跑在每次状态探测的主路径上，僵住就等于 UI 永远「正在检测」。
+const EXT_QUERY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// macOS 系统扩展（网络扩展）在 `systemextensionsctl list` 里的关键状态。
+///
+/// 三端只有 mac 有这一层，而它恰好是最容易把人卡在「点了没反应」的地方：
+/// - `activated waiting for user`：装好了但**用户还没在系统设置里允许** ——
+///   批准前 CLI 一律起不来（root 也代劳不了，属于系统安全模型的一部分）；
+/// - `terminated waiting to uninstall on reboot`：卸装后没重启就重装，旧实例占位。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)] // 非 macOS 构建里只有 Absent 会被用到
+enum MacosExtensionState {
+    /// 没有 tailscale 记录（没装 / 已彻底移除 / 非 macOS）。
+    Absent,
+    /// 已激活且已启用：正常可用。
+    Active,
+    /// 已激活但等用户允许（系统设置 → 通用 → 登录项与扩展 → 网络扩展）。
+    WaitingApproval,
+    /// 旧实例停在「等待重启卸载」。
+    PendingUninstall,
+    /// 查不出来（命令跑失败）。
+    Unknown,
+}
+
+/// 解析 `systemextensionsctl list` 文本。
+///
+/// 只认含 "tailscale" 的行 —— 别的厂商扩展（LuLu 等）有同款状态标记，
+/// 拿整份输出做 `contains` 会把它误判成本机 Tailscale 的状态。
+///
+/// 优先级：待重启卸载 > 已启用 > 待用户允许 > 无记录。**已启用高于待允许**是
+/// 为了不误伤「同时存在一条已启用记录 + 一条待允许残留」的机器：那种机器的
+/// CLI 其实能用，不能被错误地短路成「待允许」。
+fn parse_extension_state(text: &str) -> MacosExtensionState {
+    let mut waiting_approval = false;
+    let mut active = false;
+    for line in text
         .lines()
         .filter(|line| line.to_ascii_lowercase().contains("tailscale"))
-        .any(|line| line.to_ascii_lowercase().contains("waiting to uninstall"))
+    {
+        let lower = line.to_ascii_lowercase();
+        // 待重启卸载优先级最高：它决定「只能重启」这个唯一解法
+        if lower.contains("waiting to uninstall") {
+            return MacosExtensionState::PendingUninstall;
+        }
+        if lower.contains("waiting for user") {
+            waiting_approval = true;
+        } else if lower.contains("activated enabled") {
+            active = true;
+        }
+    }
+    if active {
+        MacosExtensionState::Active
+    } else if waiting_approval {
+        MacosExtensionState::WaitingApproval
+    } else {
+        MacosExtensionState::Absent
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_extension_state() -> MacosExtensionState {
+    // **必须带超时**：systemextensionsctl 在扩展数据库被锁 / 系统扩展服务卡住时
+    // 会僵在那里不退出，而它跑在探测的主路径上 —— 一旦挂住，UI 就永远停在
+    // 「正在检测 Tailscale…」（前端 invoke 永不 resolve，没有任何报错）。
+    // 查询失败按 Unknown 处理（不误判成「待重启」或「待允许」）。
+    let mut command = std::process::Command::new("systemextensionsctl");
+    command.arg("list");
+    let Some((ok, stdout, _stderr)) = run_command_with_timeout_for(command, EXT_QUERY_TIMEOUT) else {
+        return MacosExtensionState::Unknown;
+    };
+    if !ok {
+        return MacosExtensionState::Unknown;
+    }
+    parse_extension_state(&stdout)
 }
 
 #[cfg(not(target_os = "macos"))]
-fn macos_extension_pending_uninstall() -> bool {
-    false
+fn macos_extension_state() -> MacosExtensionState {
+    MacosExtensionState::Absent
 }
 
-/// 找不到可用 CLI 时的提示。macOS 上「装了 App 但网络扩展待重启」很常见，
+/// CLI 起不来时到底卡在哪一步：待重启卸载 / 等用户允许扩展 / 只是 GUI 没开。
+///
+/// 三种情况给三种不同的下一步。**别一律叫「打开 Tailscale.app」** —— 扩展没被
+/// 允许时点 App 也连不上，用户会以为点坏了，反复重装（实机踩过）。
+fn macos_unready_state() -> &'static str {
+    match macos_extension_state() {
+        MacosExtensionState::PendingUninstall => "needs_reboot",
+        MacosExtensionState::WaitingApproval => "needs_approval",
+        _ => "needs_gui",
+    }
+}
+
+/// 找不到可用 CLI 时的提示。macOS 上「装了 App 但扩展没就绪」很常见，
 /// 这时说「请先安装」会让人反复重装 —— 直接给唯一有效的下一步。
 fn missing_cli_message() -> String {
-    if macos_extension_pending_uninstall() {
-        "Tailscale 已经装好了，但系统里那个旧的网络扩展还在等重启卸载 —— \
-         重启 Mac 后会自动换成新扩展，回来再点连接即可"
-            .to_string()
-    } else {
-        "没检测到 Tailscale，请先安装".to_string()
+    match macos_extension_state() {
+        MacosExtensionState::PendingUninstall => {
+            "Tailscale 已经装好了，但系统里那个旧的网络扩展还在等重启卸载 —— \
+             重启 Mac 后会自动换成新扩展，回来再点连接即可"
+                .to_string()
+        }
+        MacosExtensionState::WaitingApproval => {
+            "Tailscale 已经装好了，但系统里的网络扩展还没被允许 —— \
+             去「系统设置 → 通用 → 登录项与扩展 → 网络扩展」把 Tailscale 打开，再点连接"
+                .to_string()
+        }
+        _ => "没检测到 Tailscale，请先安装".to_string(),
     }
 }
 
@@ -418,6 +499,24 @@ fn probe(cli: &std::path::Path) -> TailscaleStatus {
         service_running: service_running_state(),
         ..Default::default()
     };
+    // macOS：网络扩展没就绪（待重启 / 待用户允许）时 CLI **必然**起不来，而且
+    // 它不会立刻失败 —— 会先去连 GUI 的 XPC，等十几秒才吐
+    // 「The Tailscale CLI failed to start…」。那十几秒正是用户看到的
+    // 「一直显示正在检测 Tailscale…」（实机踩过：20 秒以上，每次刷新都重来）。
+    // 所以先用一次 <100ms 的 systemextensionsctl 判定，能短路的立刻短路。
+    match macos_extension_state() {
+        MacosExtensionState::PendingUninstall => {
+            status.installed = true;
+            status.state = "needs_reboot".into();
+            return status;
+        }
+        MacosExtensionState::WaitingApproval => {
+            status.installed = true;
+            status.state = "needs_approval".into();
+            return status;
+        }
+        _ => {}
+    }
     if let Some(text) = run_cli(cli, &["status", "--json"]) {
         // 拿到输出 = CLI 真的跑起来了（哪怕后端状态是 NeedsLogin / Stopped）
         status.installed = true;
@@ -450,16 +549,13 @@ fn probe(cli: &std::path::Path) -> TailscaleStatus {
                 status.ip = ip;
                 return status;
             }
-            // macOS App 版 CLI 起不来时 exit 0 + stdout 全是错误文本：
+            // macOS App 版 CLI 起不来时 exit 0 + stdout 全是错误文本，三种后续：
             // - 网络扩展待重启 → needs_reboot（唯一解法是重启，重装没用）
+            // - 扩展待用户在系统设置里允许 → needs_approval（点 App 也没用，必须去允许）
             // - 只是 GUI 没常驻 → needs_gui（前端给「打开 Tailscale.app」一键自救）
             if is_gui_failed_output(&text) {
                 status.installed = true; // App 确实装着，只是没就绪
-                status.state = if macos_extension_pending_uninstall() {
-                    "needs_reboot".into()
-                } else {
-                    "needs_gui".into()
-                };
+                status.state = macos_unready_state().to_string();
             }
         }
         return status;
@@ -468,12 +564,21 @@ fn probe(cli: &std::path::Path) -> TailscaleStatus {
     // 还是 tailscaled 没跑 / 连不上？只有这条异常路径才多花一次 version。
     status.installed = cli_works(cli);
     if !status.installed {
-        // macOS：App 装着但网络扩展待重启时，CLI 也可能干脆非 0 退出 —— 别因此
-        // 判成「未安装」，否则前端只显示下载按钮，用户会以为装失败了
-        if macos_extension_pending_uninstall() {
-            status.installed = true;
-            status.state = "needs_reboot".into();
-            return status;
+        // macOS：App 装着但扩展还没就绪（待重启 / 待用户允许）时，CLI 也可能
+        // 干脆非 0 退出 —— 别因此判成「未安装」，否则前端只显示下载按钮，
+        // 用户会以为装失败了，然后反复重装。
+        match macos_extension_state() {
+            MacosExtensionState::PendingUninstall => {
+                status.installed = true;
+                status.state = "needs_reboot".into();
+                return status;
+            }
+            MacosExtensionState::WaitingApproval => {
+                status.installed = true;
+                status.state = "needs_approval".into();
+                return status;
+            }
+            _ => {}
         }
         status.cli_path.clear(); // 不是可用 CLI：别把残留路径当「已安装证据」给前端
     }
@@ -1729,17 +1834,33 @@ fn log_state_change(status: &TailscaleStatus) {
     ));
 }
 
+/// 探测调用计数（只喂低噪声心跳日志：每 60 次记一条，用来确认前端还在轮询）。
+static TS_PROBE_CALLS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 /// 查询本机 Tailscale 状态（找不到 CLI → installed:false）。
 /// CLI 子进程有几十 ms 阻塞，走 async + spawn_blocking（blocking_guard 约定）。
 #[tauri::command]
 pub(crate) async fn gateway_tailscale_status(app: AppHandle) -> TailscaleStatus {
     bind_ts_log_file(&app);
+    let started = std::time::Instant::now();
     let key_set = !crate::stored_settings(&app).tailscale_authkey.trim().is_empty();
     let mut status = tauri::async_runtime::spawn_blocking(probe_blocking)
         .await
         .unwrap_or_default();
     status.authkey_set = key_set;
     log_state_change(&status);
+    // 状态不变时 log_state_change 一声不吭 —— 而「前端没调用 / 调用卡住 /
+    // 返回了但前端没渲染」三种情况在 UI 上长得一模一样（都停在「正在检测」），
+    // 所以补两类低噪声记录：慢探测逐条记（它多半就是卡住的原因），
+    // 其余每 60 次（3 秒轮询约 3 分钟）一条心跳，证明轮询链路还活着。
+    let elapsed = started.elapsed().as_millis();
+    let calls = TS_PROBE_CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+    if elapsed >= 1000 || calls % 60 == 1 {
+        ts_log(&format!(
+            "[探测] 第 {calls} 次 用时={elapsed}ms state={} installed={}",
+            status.state, status.installed
+        ));
+    }
     status
 }
 
@@ -2288,6 +2409,28 @@ pub(crate) async fn gateway_tailscale_launch_gui() -> Result<(), String> {
     .map_err(|error| format!("任务失败: {error}"))?
 }
 
+/// 打开 macOS「系统设置 → 通用 → 登录项与扩展 → 网络扩展」。
+///
+/// 扩展停在 `[activated waiting for user]` 时，只有用户自己在这里点允许才能
+/// 连上 —— 提权也代劳不了（系统安全模型的一部分），所以必须给一个直达按钮，
+/// 否则用户只会在「设置」里瞎翻。
+#[tauri::command]
+pub(crate) async fn gateway_tailscale_open_extension_settings() -> Result<(), String> {
+    if !cfg!(target_os = "macos") {
+        return Err("该操作仅 macOS 需要（其它平台没有系统扩展授权这一层）".to_string());
+    }
+    tauri::async_runtime::spawn_blocking(|| {
+        // 深链直达网络扩展面板；新版 macOS 认这个 extensionPointIdentifier
+        std::process::Command::new("open")
+            .arg("x-apple.systempreferences:com.apple.ExtensionsPreferences?extensionPointIdentifier=com.apple.system_extension.network_extension")
+            .spawn()
+            .map(|_| ())
+            .map_err(|error| format!("打开系统设置失败: {error}"))
+    })
+    .await
+    .map_err(|error| format!("任务失败: {error}"))?
+}
+
 /// Funnel 通道状态（区块 B 轮询；CLI 子进程阻塞 → async + spawn_blocking）。
 #[tauri::command]
 pub(crate) async fn gateway_tailscale_funnel_status() -> TailscaleFunnelStatus {
@@ -2638,6 +2781,48 @@ mod tests {
         assert!(matches!(platform_tag(), "windows" | "macos" | "linux"));
         // 前端拿 platform 微调未安装态文案：default() 也必须带上
         assert_eq!(TailscaleStatus::default().platform, platform_tag());
+    }
+
+    /// 实机文本（2026-10-25 的 mac）：装好了，但扩展停在 [activated waiting for user]
+    /// —— 用户在系统设置里没允许，CLI 一律起不来。不识别这个状态就会误报
+    /// 「Tailscale.app 未启动」，让用户去点 App（点了也没用）。
+    #[test]
+    fn parse_extension_state_detects_waiting_approval() {
+        let text = "5 extension(s)\n\
+--- com.apple.system_extension.network_extension\n\
+enabled\tactive\tteamID\tbundleID (version)\tname\t[state]\n\
+*\t*\tVBG97UB4TA\tcom.objective-see.lulu.extension (4.5.1/4.5.1)\tLuLu\t[activated enabled]\n\
+\t*\tW5364U7YZB\tio.tailscale.ipn.macsys.network-extension (1.104.2/101.104.2)\tTailscale Network Extension\t[activated waiting for user]\n";
+        assert_eq!(
+            parse_extension_state(text),
+            MacosExtensionState::WaitingApproval
+        );
+    }
+
+    /// 卸装后没重启就重装：旧实例停在「等待重启卸载」，优先级高于其它标记。
+    #[test]
+    fn parse_extension_state_pending_uninstall_wins() {
+        let text = "enabled\tactive\tteamID\tbundleID (version)\tname\t[state]\n\
+\t\tW5364U7YZB\tio.tailscale.ipn.macsys.network-extension (1.104.2/101.104.2)\tTailscale\t[terminated waiting to uninstall on reboot]\n\
+\t*\tW5364U7YZB\tio.tailscale.ipn.macsys.network-extension (1.104.2/101.104.2)\tTailscale\t[activated waiting for user]\n";
+        assert_eq!(
+            parse_extension_state(text),
+            MacosExtensionState::PendingUninstall
+        );
+    }
+
+    /// 别的厂商扩展（LuLu）用同款标记：不能被当成 Tailscale 的状态。
+    #[test]
+    fn parse_extension_state_ignores_other_vendors() {
+        let text = "*\t*\tVBG97UB4TA\tcom.objective-see.lulu.extension (4.5.1/4.5.1)\tLuLu\t[activated enabled]\n";
+        assert_eq!(parse_extension_state(text), MacosExtensionState::Absent);
+        assert_eq!(parse_extension_state(""), MacosExtensionState::Absent);
+    }
+
+    #[test]
+    fn parse_extension_state_active_when_enabled() {
+        let text = "\t*\tW5364U7YZB\tio.tailscale.ipn.macsys.network-extension (1.104.2/101.104.2)\tTailscale Network Extension\t[activated enabled]\n";
+        assert_eq!(parse_extension_state(text), MacosExtensionState::Active);
     }
 
     /// 本机诊断（默认忽略，依赖真机安装状态）——验证「卸载后不再误判已安装」。
