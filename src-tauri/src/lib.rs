@@ -1155,11 +1155,6 @@ fn process_parent_pid(pid: u32) -> Option<u32> {
     String::from_utf8_lossy(&output.stdout).trim().parse::<u32>().ok()
 }
 
-#[cfg(target_os = "windows")]
-fn process_parent_pid(_pid: u32) -> Option<u32> {
-    None
-}
-
 /// 补收「上一个实例的子进程」。
 ///
 /// 为什么先礼之后还要干这件事：Tauri 没装 SIGTERM 处理器，unix 上 SIGTERM 是
