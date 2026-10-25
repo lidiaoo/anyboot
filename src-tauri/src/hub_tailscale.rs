@@ -42,6 +42,11 @@ pub(crate) struct TailscaleStatus {
     /// 是否已保存 AuthKey（仅告知前端「已配置」，密钥本身不回传）。
     #[serde(default)]
     pub authkey_set: bool,
+    /// 平台标识（windows / macos / linux）。前端按它微调未安装态文案：
+    /// macOS 走 .pkg 系统安装器（要管理员授权），Windows 走 setup.exe（UAC），
+    /// Linux 走 tarball + systemd（polkit）。逻辑三端一致，只有这句提示不同。
+    #[serde(default)]
+    pub platform: String,
 }
 
 impl Default for TailscaleStatus {
@@ -55,7 +60,19 @@ impl Default for TailscaleStatus {
             cli_path: String::new(),
             service_running: -1,
             authkey_set: false,
+            platform: platform_tag().into(),
         }
+    }
+}
+
+/// 当前平台标识（三端统一给前端做文案微调用；不参与任何判据）。
+fn platform_tag() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "windows"
+    } else if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "linux"
     }
 }
 
@@ -89,8 +106,30 @@ fn cli_candidates() -> Vec<std::path::PathBuf> {
     out
 }
 
+/// 候选是否「真能跑」：`version` exit 0 且有输出才算。
+///
+/// 为什么不能只看 `is_file()`：macOS 的 pkg 会在 `/usr/local/bin/tailscale` 放一个
+/// 68 字节的 shell shim（内容只有 `exec /Applications/Tailscale.app/… "$@"`）。
+/// 把 App 删掉后 shim 仍在、执行必失败（exit 127）—— 只判文件存在会把「卸载完的机器」
+/// 误判成「已安装」，前端 `tsDlRow` 因此永远不显示，三端行为不一致（Windows 走
+/// msiexec、Linux 删二进制都清得干净，从没暴露这条判据的脆弱）。三端统一成：
+/// **CLI 真能跑 = 已安装**。
+///
+/// 成本：多起一次子进程（Go 程序 ~30ms），只在探测时发生，可接受。
+fn cli_works(cli: &std::path::Path) -> bool {
+    matches!(
+        run_cli_raw(cli, &["version"]),
+        Some((true, stdout, _)) if !stdout.trim().is_empty()
+    )
+}
+
+/// 找可用 CLI：按候选顺序取第一个「文件存在 + 真能跑」的。
+/// 坏的候选（App 已卸载的 macOS shim）会被跳过，继续试下一个（如 brew 版）。
 fn find_cli() -> Option<std::path::PathBuf> {
-    cli_candidates().into_iter().find(|p| p.is_file())
+    cli_candidates()
+        .into_iter()
+        .filter(|p| p.is_file())
+        .find(|p| cli_works(p))
 }
 
 /// CLI 单次调用超时。macOS App 版 CLI 在异常场景会挂死（实测残留过两条
@@ -311,14 +350,22 @@ fn pick_v4(ips: &[String]) -> String {
 
 /// 核心探测：跑 `status --json`；JSON 解析失败退 `ip -4` 纯文本兜底。
 /// 顺手查一次系统服务状态（副开关数据源；Windows = sc query，其它平台 -1）。
+///
+/// `installed` 由**实测**决定，不再默认 true：`status --json` 拿到输出就说明
+/// CLI 真能跑；一条都跑不通时才补一次 `version` 区分「CLI 坏了」和「服务没跑」。
+/// 这修的是 macOS 的坑：pkg 会在 /usr/local/bin 留一个指向 App 的 shim，
+/// 卸载 App 后 shim 仍在（`is_file()` 为真、执行 exit 127）—— 老代码因此永远
+/// 认为「已安装」，前端下载/安装行永不出现（用户在 mac 上卸载后没有重装流程）。
 fn probe(cli: &std::path::Path) -> TailscaleStatus {
     let mut status = TailscaleStatus {
-        installed: true,
+        installed: false,
         cli_path: cli.display().to_string(),
         service_running: service_running_state(),
         ..Default::default()
     };
     if let Some(text) = run_cli(cli, &["status", "--json"]) {
+        // 拿到输出 = CLI 真的跑起来了（哪怕后端状态是 NeedsLogin / Stopped）
+        status.installed = true;
         if let Ok(parsed) = serde_json::from_str::<StatusJson>(&text) {
             status.state = normalize_state(&parsed.backend_state);
             status.version = parsed.version;
@@ -354,16 +401,30 @@ fn probe(cli: &std::path::Path) -> TailscaleStatus {
                 status.state = "needs_gui".into();
             }
         }
+        return status;
+    }
+    // `status --json` 跑不通：CLI 本身坏了（macOS 卸载后残留的 shim → 127）
+    // 还是 tailscaled 没跑 / 连不上？只有这条异常路径才多花一次 version。
+    status.installed = cli_works(cli);
+    if !status.installed {
+        status.cli_path.clear(); // 不是可用 CLI：别把残留路径当「已安装证据」给前端
     }
     status
 }
 
 /// 阻塞版探测（spawn_blocking 里跑；CLI 子进程约几十 ms）。
+///
+/// 按候选顺序逐个试：正常情况只花**一次**子进程（`probe` 里的 status --json
+/// 本身就是判据）；只有坏候选（卸载后残留的 shim）才会多花一次 version 然后
+/// 跳到下一个候选（比如 brew 版）。三端同一套逻辑。
 pub(crate) fn probe_blocking() -> TailscaleStatus {
-    match find_cli() {
-        Some(cli) => probe(&cli),
-        None => TailscaleStatus::default(),
+    for path in cli_candidates().into_iter().filter(|p| p.is_file()) {
+        let status = probe(&path);
+        if status.installed {
+            return status;
+        }
     }
+    TailscaleStatus::default()
 }
 
 // ==================== 主开关（up/down）+ 服务控制 ====================
@@ -1550,7 +1611,10 @@ fn manual_uninstall_hint() -> String {
     if cfg!(target_os = "windows") {
         format!("{why}设置 → 应用 → 已安装的应用 里卸载 Tailscale")
     } else if cfg!(target_os = "macos") {
-        format!("{why}把 /Applications/Tailscale.app 拖进废纸篓")
+        format!(
+            "{why}把 /Applications/Tailscale.app 拖进废纸篓；\
+             如果 /usr/local/bin/tailscale 还在（pkg 留下的 wrapper），一并删掉"
+        )
     } else {
         format!("{why}用系统包管理器卸载（如 sudo pacman -R tailscale、sudo apt remove tailscale）")
     }
@@ -1703,6 +1767,11 @@ fn ts_uninstall_blocking(app: &AppHandle, keep_data: bool) -> Result<String, Str
         ts_log("[卸载] AnyBoot 侧 AuthKey / 自启开关已清除");
     }
     ts_log("[卸载] 完成");
+    // macOS 的网络扩展由系统管理，删 App 后它先进「等待重启卸载」状态
+    // （systemextensionsctl 显示 terminated waiting to uninstall on reboot），
+    // 用户在系统设置里还会看到它 —— 说清楚，免得以为没卸干净
+    #[cfg(target_os = "macos")]
+    ts_log("[卸载] 网络扩展由系统管理，重启后彻底移除（系统设置里暂时显示「等待重启」是正常的）");
     Ok(if keep_data {
         format!("{message}（按「保留本机数据」卸载：登录凭据与 AuthKey 保留）")
     } else {
@@ -1758,10 +1827,34 @@ fn ts_uninstall_windows() -> Result<String, String> {
     Ok("Tailscale 已卸载".to_string())
 }
 
-/// macOS：退出 Tailscale.app 后提权删除应用本体（pkg 安装位 /Applications/Tailscale.app）。
+/// `/usr/local/bin/tailscale` 是不是 **pkg 放的 wrapper**（内容 exec 到
+/// `/Applications/Tailscale.app` 里那个 CLI）。卸载时只删这种，绝不碰
+/// standalone / brew 版的真二进制（几十 MB 的 Mach-O，不是几十字节的脚本）。
+fn is_tailscale_shim(path: &std::path::Path) -> bool {
+    if !path.is_file() {
+        return false;
+    }
+    // 先按体积挡一道：pkg 的 shim 68 字节；真二进制几十 MB
+    match std::fs::metadata(path) {
+        Ok(meta) if meta.len() <= 4096 => {}
+        _ => return false,
+    }
+    std::fs::read_to_string(path)
+        .map(|text| text.contains("/Applications/Tailscale.app/"))
+        .unwrap_or(false)
+}
+
+/// macOS：退出 Tailscale.app 后提权删除应用本体（pkg 安装位 /Applications/Tailscale.app）
+/// **以及 pkg 顺手放进 /usr/local/bin 的 shim**。
+///
+/// 只删 App 会留下 shim —— 它指向已不存在的本体，执行必失败。老的探测判据
+/// 「文件存在即已安装」在这种情况下会一直认为装着，下载/安装行永不出现
+/// （用户实测现象：卸载后没有 Windows/Linux 那样的重装流程）。补齐后
+/// 三端卸载语义一致：卸载完 = 探测不到可用的 Tailscale。
 #[cfg(target_os = "macos")]
 fn ts_uninstall_macos() -> Result<String, String> {
     const APP: &str = "/Applications/Tailscale.app";
+    const SHIM: &str = "/usr/local/bin/tailscale";
     if !std::path::Path::new(APP).exists() {
         return Err("找不到 /Applications/Tailscale.app——请手动确认安装位置后自行卸载".to_string());
     }
@@ -1769,8 +1862,21 @@ fn ts_uninstall_macos() -> Result<String, String> {
     let _ = std::process::Command::new("osascript")
         .args(["-e", r#"quit app "Tailscale""#])
         .output();
-    ts_log("[卸载] 提权删除 /Applications/Tailscale.app（授权框确认后执行）…");
-    let script = format!(r#"do shell script "rm -rf '{APP}'" with administrator privileges"#);
+    let shim_path = std::path::Path::new(SHIM);
+    let drop_shim = is_tailscale_shim(shim_path);
+    if drop_shim {
+        ts_log("[卸载] /usr/local/bin/tailscale 是 pkg 的 wrapper，一并删除");
+    } else if shim_path.exists() {
+        ts_log("[卸载] /usr/local/bin/tailscale 不是 pkg wrapper（brew/standalone？），保留不动");
+    }
+    let mut shell = format!("rm -rf '{APP}'");
+    if drop_shim {
+        shell.push_str(&format!("; rm -f '{SHIM}'"));
+    }
+    // pkg 收据一并注销（不注销的话下次重装 pkg 会认为已装过；失败也不阻断卸载）
+    shell.push_str("; pkgutil --forget com.tailscale.ipn.macsys >/dev/null 2>&1; exit 0");
+    ts_log("[卸载] 提权删除 Tailscale.app（授权框确认后执行）…");
+    let script = format!("do shell script {shell:?} with administrator privileges");
     let (ok, _, stderr) = run_command_with_timeout_for(
         {
             let mut c = std::process::Command::new("osascript");
@@ -1788,7 +1894,11 @@ fn ts_uninstall_macos() -> Result<String, String> {
             format!("卸载失败：{detail}")
         });
     }
-    Ok("Tailscale 已卸载".to_string())
+    Ok(if drop_shim {
+        "Tailscale 已卸载（App + /usr/local/bin 的 wrapper 已删）".to_string()
+    } else {
+        "Tailscale 已卸载".to_string()
+    })
 }
 
 /// Linux：pkexec 脚本停服务 → 删 /usr/local/bin 二进制 → 只删 AnyBoot 写的 unit
@@ -2110,12 +2220,95 @@ mod tests {
     }
 
     #[test]
-    fn pick_v4_skips_ipv6() {        let ips = vec![
+    fn pick_v4_skips_ipv6() {
+        let ips = vec![
             "fd7a:115c:a1e0::b7a1:9b7b:eb36:3737".to_string(),
             "100.119.234.95".to_string(),
         ];
         assert_eq!(pick_v4(&ips), "100.119.234.95");
         assert_eq!(pick_v4(&["fd7a::1".to_string()]), "");
+    }
+
+    /// 测试用临时文件（名字带 pid，跑完自己删）。
+    fn tmp_file(name: &str, content: &str) -> std::path::PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "anyboot-ts-test-{}-{name}",
+            std::process::id()
+        ));
+        std::fs::write(&path, content).unwrap();
+        path
+    }
+
+    #[test]
+    fn tailscale_shim_detected_by_content_and_size() {
+        // pkg 放的 wrapper（实机 68 字节原样内容）
+        let shim = tmp_file(
+            "shim",
+            "#!/bin/sh\n/Applications/Tailscale.app/Contents/MacOS/Tailscale \"$@\"\n",
+        );
+        assert!(is_tailscale_shim(&shim));
+        // 不含 Tailscale.app 路径的脚本 → 不是我们的 shim（brew 之类）
+        let other = tmp_file("other", "#!/bin/sh\nexec /opt/homebrew/bin/tailscale \"$@\"\n");
+        assert!(!is_tailscale_shim(&other));
+        // 大文件（standalone 真二进制）→ 体积先挡掉
+        let big = tmp_file("big", &"x".repeat(8192));
+        assert!(!is_tailscale_shim(&big));
+        assert!(!is_tailscale_shim(std::path::Path::new("/nonexistent/anyboot")));
+        for path in [shim, other, big] {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+
+    /// 卸载后「已安装」判据必须挂掉：这正是用户报的「卸载了但没重装流程」的根因。
+    #[cfg(unix)]
+    #[test]
+    fn cli_works_requires_real_executable() {
+        use std::os::unix::fs::PermissionsExt;
+        let make_exec = |path: &std::path::Path| {
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        };
+        // 正常 CLI：exit 0 + 有版本输出
+        let good = tmp_file("good", "#!/bin/sh\necho 1.99.0\n");
+        make_exec(&good);
+        assert!(cli_works(&good));
+        // 实机场景：pkg 的 shim 指向已删除的 App → exit 127（旧的 is_file 判据会误判已安装）
+        let broken = tmp_file(
+            "broken",
+            "#!/bin/sh\n/Applications/Tailscale.app/Contents/MacOS/Tailscale \"$@\"\n",
+        );
+        make_exec(&broken);
+        assert!(!cli_works(&broken));
+        // 有输出但 exit 非 0 → 同样是坏的
+        let failing = tmp_file("failing", "#!/bin/sh\necho oops\nexit 1\n");
+        make_exec(&failing);
+        assert!(!cli_works(&failing));
+        for path in [good, broken, failing] {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+
+    #[test]
+    fn platform_tag_is_known_value() {
+        assert!(matches!(platform_tag(), "windows" | "macos" | "linux"));
+        // 前端拿 platform 微调未安装态文案：default() 也必须带上
+        assert_eq!(TailscaleStatus::default().platform, platform_tag());
+    }
+
+    /// 本机诊断（默认忽略，依赖真机安装状态）——验证「卸载后不再误判已安装」。
+    /// 手动跑：`cargo test --lib probe_this_machine -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn probe_this_machine() {
+        let status = probe_blocking();
+        println!(
+            "installed={} state={} ip={} version={} cli={} platform={}",
+            status.installed,
+            status.state,
+            status.ip,
+            status.version,
+            status.cli_path,
+            status.platform
+        );
     }
 
     #[test]

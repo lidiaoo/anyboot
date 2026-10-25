@@ -2501,7 +2501,7 @@
           <!-- 未安装态：下载安装包（布局与 Cloudflare 卡二进制行同款：
                状态文字在左、动作按钮右对齐、进度条紧贴其下） -->
           <div id="tsDlRow" hidden>
-            <p class="field-hint" style="margin:8px 0 0">
+            <p class="field-hint" id="tsDlHint" style="margin:8px 0 0">
               没检测到 Tailscale —— 它给两台设备组一个加密虚拟局域网（100.x 地址，不出公网、地址长期固定）。
               下载完成后安装器会自动弹出，按提示装好并登录，再点「重新检测」。
             </p>
@@ -10089,6 +10089,15 @@ function gwShowPage() {
     $('tsSvcSwWrap').classList.toggle('loading', tsSvcBusy);
     if (!has) {
       $('tsStateText').textContent = '未检测到 Tailscale';
+      // 三端流程一致（下载 → 安装器 → 登录 → 重新检测），只有安装包形态不同：
+      // mac 是 .pkg（系统安装器 + 管理员授权）、win 是 setup.exe（UAC）、
+      // linux 是 tarball（polkit）。文案按后端给的 platform 微调，别让用户以为
+      // mac 上也该弹 UAC 那种框。
+      $('tsDlHint').textContent = (st && st.platform === 'macos')
+        ? '没检测到 Tailscale —— 它给两台设备组一个加密虚拟局域网（100.x 地址，不出公网、地址长期固定）。'
+          + '下载官方安装包后会自动弹出系统安装器（需要管理员授权），装好并登录，再点「重新检测」。'
+        : '没检测到 Tailscale —— 它给两台设备组一个加密虚拟局域网（100.x 地址，不出公网、地址长期固定）。'
+          + '下载完成后安装器会自动弹出，按提示装好并登录，再点「重新检测」。';
     } else if (running) {
       $('tsStateText').textContent = '运行中' + (st.dns_name ? ' · ' + st.dns_name : '');
       // 地址行：ip 大字 + 端口弱化
