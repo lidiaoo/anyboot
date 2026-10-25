@@ -107,8 +107,10 @@ CLI 探测链见模块头注释（三端各自的候选路径 + PATH 兜底）�
   - `failed to connect to local tailscaled` → tailscaled 服务没跑，提示副开关或
     `sudo systemctl enable --now tailscaled`；
   - Funnel 报 `Access denied: serve config denied` → **不是 tailnet 策略**，是 tailscaled
-    本地权限闸门：serve/funnel 变更只允许 root/operator，普通用户连接拿不到 funnel 能力位。
-    一次性解法 `sudo tailscale set --operator=<用户名>`；tailnet 策略的 `nodeAttrs` funnel
+    本地权限闸门：prefs/serve 变更只允许 root/operator。变更类调用（up/down/funnel）走
+    `run_cli_privileged`：被拒时 Linux 自动 pkexec 提权（polkit 弹桌面授权框），首选
+    一次性设 operator（授权一次终身免提权）；pkexec 不可用/用户取消时回退提示手动执行
+    `sudo tailscale set --operator=<用户名>`。tailnet 策略的 `nodeAttrs` funnel
     授权是另一道独立的门（较新 tailnet 默认已放行），两道都过 Funnel 才通。
 
 ### 内置 Tailscale 引擎（tsnet sidecar）—— 三端布局与排错（2026-10-25 起覆盖 mac/linux）

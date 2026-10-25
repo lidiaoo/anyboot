@@ -93,6 +93,9 @@ fn find_cli() -> Option<std::path::PathBuf> {
 /// status --json 僵进程），无超时会拖死探测线程、状态卡永远转圈。
 const CLI_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
+/// 提权路径超时：pkexec 会等 polkit 授权框里的人工确认，远超普通 CLI 耗时。
+const ELEVATED_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+
 /// 构造 CLI 子进程命令（统一入口）。
 ///
 /// macOS App 版 CLI 用 `SHLVL`（只有 shell 会设）判断「是不是 shell 在调我」：
@@ -118,6 +121,14 @@ fn cli_command(cli: &std::path::Path) -> std::process::Command {
 fn run_cli_raw(cli: &std::path::Path, args: &[&str]) -> Option<(bool, String, String)> {
     let mut command = cli_command(cli);
     command.args(args);
+    run_command_with_timeout_for(command, CLI_TIMEOUT)
+}
+
+/// spawn → 并发读 → 超时兜底杀进程的通用执行器（提权路径复用，超时可调）。
+fn run_command_with_timeout_for(
+    mut command: std::process::Command,
+    timeout: std::time::Duration,
+) -> Option<(bool, String, String)> {
     command.stdin(std::process::Stdio::null());
     let mut child = command
         .stdout(std::process::Stdio::piped())
@@ -138,7 +149,7 @@ fn run_cli_raw(cli: &std::path::Path, args: &[&str]) -> Option<(bool, String, St
         let _ = stderr.read_to_end(&mut buf);
         String::from_utf8_lossy(&buf).to_string()
     });
-    let deadline = std::time::Instant::now() + CLI_TIMEOUT;
+    let deadline = std::time::Instant::now() + timeout;
     let exit = loop {
         match child.try_wait() {
             Ok(Some(status)) => break Some(status),
@@ -355,9 +366,10 @@ fn service_running_state_impl() -> i8 {
 
 /// 阻塞版主开关：`tailscale up / down`（登录级，不动系统服务）。
 /// NeedsLogin 时 `up` 会拉起浏览器登录流程（这正是想要的语义）。
+/// prefs 变更是本地权限闸门管的操作 → 走提权入口（Linux 被拒时 pkexec 弹框）。
 pub(crate) fn ts_toggle_blocking(up: bool) -> Result<TailscaleStatus, String> {
     let cli = find_cli().ok_or_else(|| "没检测到 Tailscale，请先安装".to_string())?;
-    let (ok, stdout, stderr) = run_cli_full(&cli, if up { &["up"] } else { &["down"] });
+    let (ok, stdout, stderr) = run_cli_privileged(&cli, if up { &["up"] } else { &["down"] });
     if !ok {
         let detail = stderr.trim().lines().next().unwrap_or("").trim();
         let fallback = if up { "tailscale up 失败" } else { "tailscale down 失败" };
@@ -374,6 +386,11 @@ pub(crate) fn ts_toggle_blocking(up: bool) -> Result<TailscaleStatus, String> {
             detail = "tailscaled 服务未运行 —— 先点上方副开关启动它，或终端执行 \
                       sudo systemctl enable --now tailscaled"
                 .to_string();
+        }
+        // 提权没走通（无 pkexec / 用户取消授权框）：把手动兜底命令一并给用户
+        if is_local_access_denied(&stdout, &stderr) {
+            detail.push('；');
+            detail.push_str(&local_privilege_hint());
         }
         return Err(detail);
     }
@@ -726,24 +743,75 @@ fn current_username() -> String {
         .unwrap_or_default()
 }
 
-/// tailscaled 的本地权限闸门：serve/funnel 配置变更只允许 root / operator。
-/// 非特权连接报的文案是「Access denied: serve config denied」——看着像 tailnet
-/// 策略拒绝，其实是本机权限不够，tailnet 策略的 nodeAttrs 是另一道独立的门。
-/// 实机踩过：同一策略下 sudo 一跑就过。operator 设一次终身有效。
-fn serve_denied_hint() -> String {
+/// tailscaled 的本地权限闸门：prefs / serve 配置变更只允许 root / operator，
+/// 非特权连接报「Access denied: prefs write access denied」/「serve config
+/// denied」——文案看着像 tailnet 策略拒绝，其实是本机权限不够（tailnet 策略的
+/// nodeAttrs 是另一道独立的门）。实机踩过：同一策略下 sudo 一跑就过。
+fn is_local_access_denied(stdout: &str, stderr: &str) -> bool {
+    format!("{stdout}\n{stderr}")
+        .to_ascii_lowercase()
+        .contains("access denied")
+}
+
+/// 提权没走通时的手动兜底提示（含精确命令，用户名自动探测）。
+fn local_privilege_hint() -> String {
     let user = current_username();
     if cfg!(windows) {
-        "Funnel 需要本机特权：请以管理员身份运行 AnyBoot 后重试".to_string()
+        "本操作需要本机特权：请以管理员身份运行 AnyBoot 后重试".to_string()
     } else if user.is_empty() {
-        "Funnel 需要本机特权：终端执行一次 sudo tailscale set --operator=$(whoami) \
-         后重试（之后 AnyBoot 免 sudo 管理 Funnel）"
+        "本操作需要本机特权：终端执行一次 sudo tailscale set --operator=$(whoami) \
+         即可（授权后 AnyBoot 免提权管理 Tailscale/Funnel）"
             .to_string()
     } else {
         format!(
-            "Funnel 需要本机特权：终端执行一次 sudo tailscale set --operator={user} \
-             后重试（之后 AnyBoot 免 sudo 管理 Funnel）"
+            "本操作需要本机特权：终端执行一次 sudo tailscale set --operator={user} \
+             即可（授权后 AnyBoot 免提权管理 Tailscale/Funnel）"
         )
     }
+}
+
+/// Linux 提权重试：本地权限闸门拒绝时用 pkexec（polkit 弹桌面授权框）。
+/// 首选一次性把当前用户设为 operator——授权一次终身有效，之后所有变更类
+/// CLI 调用都免提权；operator 设不上（无 polkit agent / 用户取消）则用
+/// pkexec 直接跑原命令。pkexec 不存在等 spawn 失败 → None，调用方维持
+/// 原报错并展示手动兜底提示。超时放宽：授权框等人确认可能远超 5s。
+#[cfg(target_os = "linux")]
+fn elevated_retry(cli: &std::path::Path, args: &[&str]) -> Option<(bool, String, String)> {
+    let user = current_username();
+    if !user.is_empty() {
+        let mut operator = std::process::Command::new("pkexec");
+        operator.arg(cli).arg("set").arg(format!("--operator={user}"));
+        if run_command_with_timeout_for(operator, ELEVATED_TIMEOUT)
+            .map(|(ok, _, _)| ok)
+            .unwrap_or(false)
+        {
+            if let Some(result) = run_cli_raw(cli, args) {
+                return Some(result);
+            }
+        }
+    }
+    let mut direct = std::process::Command::new("pkexec");
+    direct.arg(cli).args(args);
+    run_command_with_timeout_for(direct, ELEVATED_TIMEOUT)
+}
+
+/// 变更类 CLI 调用（up/down/funnel）统一入口：先按当前用户跑，被本地权限
+/// 闸门拒绝时 Linux 上自动提权重试。成功路径零额外开销；失败回执多一次
+/// 快速往返（CLI 几十 ms）才决定要不要弹授权框。
+fn run_cli_privileged(cli: &std::path::Path, args: &[&str]) -> (bool, String, String) {
+    let result = run_cli_full(cli, args);
+    if result.0 {
+        return result;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        if is_local_access_denied(&result.1, &result.2) {
+            if let Some(retried) = elevated_retry(cli, args) {
+                return retried;
+            }
+        }
+    }
+    result
 }
 
 /// Funnel 未就绪的前置检查（探不到 CLI / 没登录 / 已停止）。
@@ -790,7 +858,8 @@ pub(crate) fn funnel_enable_blocking(app: &AppHandle) -> TailscaleFunnelStatus {
         return funnel_probe_blocking();
     }
     let port = crate::stored_settings(app).http_port;
-    let (ok, stdout, stderr) = run_cli_full(&cli, &["funnel", "--bg", &port.to_string()]);
+    let port_arg = port.to_string();
+    let (ok, stdout, stderr) = run_cli_privileged(&cli, &["funnel", "--bg", &port_arg]);
     if !ok {
         let (state, code, setup_url) = classify_funnel_error(&stderr, &stdout);
         let mut status = TailscaleFunnelStatus::new(&state);
@@ -798,8 +867,8 @@ pub(crate) fn funnel_enable_blocking(app: &AppHandle) -> TailscaleFunnelStatus {
         status.setup_url = setup_url;
         let detail = stderr.trim().lines().next().unwrap_or("").trim();
         status.message = if format!("{stderr}\n{stdout}").contains("serve config denied") {
-            // 本地权限闸门（root/operator），不是 tailnet 策略——给出 operator 一键命令
-            serve_denied_hint()
+            // 本地权限闸门（root/operator）且提权没走通——给手动兜底命令
+            local_privilege_hint()
         } else if detail.is_empty() {
             "Funnel 开启失败".into()
         } else {
@@ -824,7 +893,7 @@ pub(crate) fn funnel_disable_blocking() -> TailscaleFunnelStatus {
         Ok(cli) => cli,
         Err(status) => return status,
     };
-    let _ = run_cli_full(&cli, &["funnel", "reset"]);
+    let _ = run_cli_privileged(&cli, &["funnel", "reset"]);
     if funnel_configured(&cli) {
         let mut status = TailscaleFunnelStatus::new("error");
         status.error_code = "funnel_stop_failed".into();
@@ -1081,6 +1150,24 @@ mod tests {
         assert!(is_gui_failed_output("xxx (Tailscale.CLIError error 3.)"));
         assert!(!is_gui_failed_output("100.119.234.95"));
         assert!(!is_gui_failed_output(""));
+    }
+
+    #[test]
+    fn local_access_denied_detected() {
+        // 实机踩过的两条本地权限闸门报错（区别于 tailnet 策略/连接类报错）
+        assert!(is_local_access_denied(
+            "",
+            "Access denied: prefs write access denied"
+        ));
+        assert!(is_local_access_denied(
+            "sending serve config: Access denied: serve config denied\n",
+            ""
+        ));
+        assert!(!is_local_access_denied(
+            "",
+            "failed to connect to local tailscaled"
+        ));
+        assert!(!is_local_access_denied("", ""));
     }
 
     #[test]
