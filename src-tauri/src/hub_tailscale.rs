@@ -1296,7 +1296,8 @@ fn ts_uninstall_macos() -> Result<String, String> {
 }
 
 /// Linux：pkexec 脚本停服务 → 删 /usr/local/bin 二进制 → 只删 AnyBoot 写的 unit
-/// （指纹 = ExecStart 指向 /usr/local/bin/tailscaled 且系统没有发行版 unit）。
+/// 及其 `.d` drop-in 目录（指纹 = ExecStart 指向 /usr/local/bin/tailscaled 且系统
+/// 没有发行版 unit，动不了发行版包的东西）。drop-in 不清会在重装时盖掉新 ExecStart。
 #[cfg(all(unix, not(target_os = "macos")))]
 fn ts_uninstall_linux() -> Result<String, String> {
     let script = "\
@@ -1307,6 +1308,7 @@ if [ -f /etc/systemd/system/tailscaled.service ] && \
    grep -q '/usr/local/bin/tailscaled' /etc/systemd/system/tailscaled.service && \
    [ ! -f /usr/lib/systemd/system/tailscaled.service ]; then
   rm -f /etc/systemd/system/tailscaled.service
+  rm -rf /etc/systemd/system/tailscaled.service.d
   systemctl daemon-reload
 fi
 echo uninstall-done
@@ -1477,6 +1479,9 @@ fn launch_installer(tarball: &std::path::Path) -> Result<(), String> {
     );
     // 系统尚无 tailscaled unit 才注册（覆盖发行版包的配置太霸道）
     let _ = writeln!(script, "if ! systemctl cat tailscaled >/dev/null 2>&1; then");
+    // 无主 unit 但可能残留历史 drop-in（如旧修复脚本的 override）——不清会在
+    // daemon-reload 后盖掉刚写的 ExecStart（指向已删除的旧路径 → 203/EXEC）
+    let _ = writeln!(script, "  rm -rf /etc/systemd/system/tailscaled.service.d");
     let _ = writeln!(script, "cat > /etc/systemd/system/tailscaled.service <<'UNIT'");
     let _ = writeln!(script, "[Unit]");
     let _ = writeln!(script, "Description=Tailscale node agent");
@@ -1501,6 +1506,16 @@ fn launch_installer(tarball: &std::path::Path) -> Result<(), String> {
     let _ = writeln!(script, "WantedBy=multi-user.target");
     let _ = writeln!(script, "UNIT");
     let _ = writeln!(script, "systemctl daemon-reload");
+    let _ = writeln!(script, "else");
+    // unit 已在且是 AnyBoot 形态 → 同样清历史 drop-in（发行版 unit 的不动）
+    let _ = writeln!(
+        script,
+        "  if grep -q '/usr/local/bin/tailscaled' /etc/systemd/system/tailscaled.service; then"
+    );
+    let _ = writeln!(script, "    rm -rf /etc/systemd/system/tailscaled.service.d");
+    let _ = writeln!(script, "    echo '已清理历史 drop-in override'");
+    let _ = writeln!(script, "    systemctl daemon-reload");
+    let _ = writeln!(script, "  fi");
     let _ = writeln!(script, "fi");
     let _ = writeln!(script, "systemctl enable --now tailscaled");
 
