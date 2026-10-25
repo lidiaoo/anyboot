@@ -9699,7 +9699,7 @@ function gwShowPage() { if (window.gwRefresh) window.gwRefresh(); }
         toast('Tailscale 下载失败：' + (done.error || '未知错误') + '，可打开官网手动下载', 'bad');
         return;
       }
-      toast('下载完成，正在启动安装器（需要你在 UAC 弹窗确认）…');
+      toast('下载完成，正在安装（需要在系统授权框确认）…');
       invoke('gateway_tailscale_install', { path: done.path }).then(function () {
         toast('安装器已启动 —— 装好并登录后回来点「重新检测」');
       }).catch(function (error) {

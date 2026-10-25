@@ -100,6 +100,10 @@ CLI 探测链见模块头注释（三端各自的候选路径 + PATH 兜底）�
   Linux=`systemctl is-active`（只读查询免 root）+ `systemctl start/stop/restart`（桌面会话弹
   polkit 授权框；无桌面会报「Interactive authentication」的人话翻译）；macOS 无此开关
   （Tailscale.app 常驻代管）。前端按 `service_running >= 0` 自动点亮，无需平台判断。
+- **应用内一键安装（三端）**：Windows=setup exe `/quiet`（UAC）；macOS=.pkg `open`；
+  Linux=官方静态 tarball（manifest `Tarballs` 字段，10 架构）→ pkexec 提权解压双二进制到
+  `/usr/local/bin` → 注册 systemd unit（**仅当系统无 tailscaled unit**，不覆盖发行版包配置）
+  → `enable --now` → 轮询 is-active 确认。解压暂存放 tarball 同目录（app_data），不落 /tmp。
 - **macOS App 版 CLI 两个专属坑**（都在 `cli_command`/`probe` 处理）：`SHLVL=1` 强制 CLI
   分支（否则误走 GUI 启动分支，exit 0 + stdout 全是报错文本）；IPv4 严格形状校验防报错
   文本被当 IP 拼进直连地址。

@@ -529,14 +529,24 @@ struct TsDownloadDone {
     path: String,
 }
 
-/// 平台是否有通用安装包（Linux 没有 → false，提示走包管理器）。
+/// 平台是否有应用内安装渠道（Linux = 官方静态 tarball + systemd 注册，
+/// 见 `launch_installer` 的 unix 分支）。
 fn platform_has_installer() -> bool {
-    cfg!(any(target_os = "windows", target_os = "macos"))
+    cfg!(any(target_os = "windows", target_os = "macos", target_os = "linux"))
+}
+
+/// Rust arch 名 → 官方 Tarballs 的架构段名（manifest["Tarballs"] 的 key）。
+fn linux_tarball_arch() -> Option<&'static str> {
+    match std::env::consts::ARCH {
+        "x86_64" => Some("amd64"),
+        "aarch64" => Some("arm64"),
+        _ => None,
+    }
 }
 
 /// 官方 stable 元数据（https://pkgs.tailscale.com/stable/?mode=json）里挑当前平台安装包文件名。
 /// Windows 取 Exes 里的标准 setup exe（支持 /quiet 静默参数；跳过 -full 变体，MSI 直启带不了参）。
-/// macOS 取 MacZips 的通用 .pkg。
+/// macOS 取 MacZips 的通用 .pkg。Linux 取 Tarballs 的静态 tgz（tailscale + tailscaled）。
 fn pick_manifest_filename(manifest: &serde_json::Value) -> Option<String> {
     if cfg!(target_os = "windows") {
         manifest["Exes"]
@@ -554,7 +564,9 @@ fn pick_manifest_filename(manifest: &serde_json::Value) -> Option<String> {
             .as_str()
             .map(str::to_string)
     } else {
-        None
+        manifest["Tarballs"][linux_tarball_arch()?]
+            .as_str()
+            .map(str::to_string)
     }
 }
 
@@ -591,6 +603,12 @@ fn download_candidates() -> Vec<(String, &'static str)> {
             candidates.push((format!("{BASE}/{name}"), "Tailscale.pkg"));
         }
         candidates.push((format!("{BASE}/Tailscale-latest-macos.pkg"), "Tailscale.pkg"));
+    } else if let Some(name) = fetch_stable_manifest().and_then(|manifest| {
+        pick_manifest_filename(&manifest)
+    }) {
+        // Linux：静态 tarball 只有版本化直链，没有 latest 别名可兜底——
+        // 清单拉不到就空列表，调用方提示检查网络
+        candidates.push((format!("{BASE}/{name}"), "tailscale-linux.tgz"));
     }
     candidates
 }
@@ -617,10 +635,13 @@ fn finish_ts_download(app: &AppHandle, result: Result<std::path::PathBuf, String
 fn ts_download_worker(app: AppHandle) {
     let candidates = download_candidates();
     if candidates.is_empty() {
-        finish_ts_download(
-            &app,
-            Err("当前平台没有通用安装包，请在终端用系统包管理器安装 Tailscale（如 apt/brew）".into()),
-        );
+        let message = if platform_has_installer() {
+            // 三端都有安装渠道还拿空列表 = 版本清单拉取失败
+            "获取 Tailscale 版本清单失败（pkgs.tailscale.com 不可达？），请检查网络后重试".into()
+        } else {
+            "当前平台没有通用安装包，请在终端用系统包管理器安装 Tailscale（如 apt/brew）".into()
+        };
+        finish_ts_download(&app, Err(message));
         return;
     }
     let dir = match ts_cache_dir(&app) {
@@ -966,11 +987,12 @@ pub(crate) async fn gateway_tailscale_service(action: String) -> Result<i8, Stri
 }
 
 /// 发起后台下载（立即返回；进度/结果走 tailscale-progress / tailscale-done 事件）。
-/// 下载完自动弹出平台安装器（Windows 静默参数由安装器自带 UAC；macOS 打开 .pkg）。
+/// 下载完自动走安装流程（Windows 静默 exe 自带 UAC；macOS 打开 .pkg；
+/// Linux pkexec 提权解压静态二进制并注册 systemd 服务）。
 #[tauri::command]
 pub(crate) fn gateway_tailscale_download(app: AppHandle) -> Result<(), String> {
     if !platform_has_installer() {
-        return Err("当前平台没有通用安装包，请用系统包管理器安装 Tailscale".to_string());
+        return Err("当前平台不支持应用内安装，请用系统包管理器安装 Tailscale".to_string());
     }
     if TS_DL_IN_FLIGHT.swap(true, std::sync::atomic::Ordering::SeqCst) {
         return Err("下载已在进行中".to_string());
@@ -1070,9 +1092,94 @@ fn launch_installer(path: &std::path::Path) -> Result<(), String> {
         .map_err(|error| format!("启动安装器失败: {error}"))
 }
 
+/// Linux 安装：官方静态 tarball（tailscale + tailscaled 双二进制）。
+/// pkexec 提权执行安装脚本：解压 → `/usr/local/bin` → 注册 systemd 服务
+/// （仅当系统还没有 tailscaled unit，发行版包装过的配置不覆盖）→ enable --now。
+/// 脚本和解压暂存目录都放 tarball 同目录（app_data，大盘）——本机类环境 /tmp
+/// 可能是 10MB tmpfs，放不下 30MB 的 tailscaled。
 #[cfg(all(unix, not(target_os = "macos")))]
-fn launch_installer(_path: &std::path::Path) -> Result<(), String> {
-    Err("当前平台没有通用安装包，请用系统包管理器安装 Tailscale".to_string())
+fn launch_installer(tarball: &std::path::Path) -> Result<(), String> {
+    use std::fmt::Write as _;
+
+    let dir = tarball
+        .parent()
+        .ok_or_else(|| "安装包路径异常：没有父目录".to_string())?;
+    let stage = dir.join("ts-install-stage");
+    let script_path = dir.join("ts-install.sh");
+    let tarball_s = tarball.display().to_string();
+    let stage_s = stage.display().to_string();
+
+    let mut script = String::new();
+    let _ = writeln!(script, "set -e");
+    let _ = writeln!(script, "rm -rf '{stage_s}'");
+    let _ = writeln!(script, "mkdir -p '{stage_s}'");
+    let _ = writeln!(script, "tar -xzf '{tarball_s}' -C '{stage_s}'");
+    // glob 段必须在引号外才能展开："{stage}"/tailscale_*/tailscale
+    let _ = writeln!(
+        script,
+        "install -m 0755 \"{stage_s}\"/tailscale_*/tailscale \"{stage_s}\"/tailscale_*/tailscaled /usr/local/bin/"
+    );
+    // 系统尚无 tailscaled unit 才注册（覆盖发行版包的配置太霸道）
+    let _ = writeln!(script, "if ! systemctl cat tailscaled >/dev/null 2>&1; then");
+    let _ = writeln!(script, "cat > /etc/systemd/system/tailscaled.service <<'UNIT'");
+    let _ = writeln!(script, "[Unit]");
+    let _ = writeln!(script, "Description=Tailscale node agent");
+    let _ = writeln!(script, "Documentation=https://tailscale.com/docs/");
+    let _ = writeln!(script, "Wants=network-pre.target");
+    let _ = writeln!(script, "After=network-pre.target NetworkManager.service systemd-resolved.service");
+    let _ = writeln!(script, "");
+    let _ = writeln!(script, "[Service]");
+    let _ = writeln!(
+        script,
+        "ExecStart=/usr/local/bin/tailscaled --state=/var/lib/tailscale/tailscaled.state --socket=/run/tailscale/tailscaled.sock"
+    );
+    let _ = writeln!(script, "ExecStopPost=/usr/local/bin/tailscaled --cleanup");
+    let _ = writeln!(script, "Restart=on-failure");
+    let _ = writeln!(script, "Type=notify");
+    let _ = writeln!(script, "RuntimeDirectory=tailscale");
+    let _ = writeln!(script, "RuntimeDirectoryMode=0755");
+    let _ = writeln!(script, "StateDirectory=tailscale");
+    let _ = writeln!(script, "StateDirectoryMode=0700");
+    let _ = writeln!(script, "");
+    let _ = writeln!(script, "[Install]");
+    let _ = writeln!(script, "WantedBy=multi-user.target");
+    let _ = writeln!(script, "UNIT");
+    let _ = writeln!(script, "systemctl daemon-reload");
+    let _ = writeln!(script, "fi");
+    let _ = writeln!(script, "systemctl enable --now tailscaled");
+
+    std::fs::write(&script_path, script)
+        .map_err(|error| format!("写安装脚本失败: {error}"))?;
+
+    let mut command = std::process::Command::new("pkexec");
+    command.arg("bash").arg(&script_path);
+    let (ok, stdout, stderr) = run_command_with_timeout_for(command, ELEVATED_TIMEOUT)
+        .ok_or_else(|| "无法启动 pkexec（未安装 polkit？）——可手动解压安装后重试".to_string())?;
+    // 暂存目录归了 root，用户侧删不掉就算了（下次安装会被 root 侧重建覆盖）
+    let _ = std::fs::remove_dir_all(&stage);
+    if !ok {
+        let text = format!("{stdout}{stderr}");
+        let detail = text.trim().lines().next().unwrap_or("").trim();
+        return Err(if detail.is_empty() {
+            "安装失败".to_string()
+        } else {
+            format!("安装失败：{detail}")
+        });
+    }
+    // enable --now 返回后服务可能还在 activating，轮询确认（最多 10s）
+    let mut running = false;
+    for _ in 0..20 {
+        if service_running_state() == 1 {
+            running = true;
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+    if running {
+        Ok(())
+    } else {
+        Err("安装完成但 tailscaled 服务未运行：请执行 journalctl -u tailscaled 查看日志".to_string())
+    }
 }
 
 /// 本机服务自检：TCP 握手 127.0.0.1:http_port。
@@ -1211,8 +1318,36 @@ mod tests {
                 "universal": "Tailscale-1.104.2-macos.zip",
                 "universal-package": "Tailscale-1.104.2-macos.pkg"
             },
+            "Tarballs": {
+                "amd64": "tailscale_1.104.2_amd64.tgz",
+                "arm64": "tailscale_1.104.2_arm64.tgz"
+            },
             "Version": "1.104.2"
         })
+    }
+
+    #[test]
+    fn linux_tarball_arch_maps_rust_arch() {
+        // 纯映射函数，任何 target 都可跑；Rust arch 名与官方 tarball 段名对应
+        let expected = match std::env::consts::ARCH {
+            "x86_64" => "amd64",
+            "aarch64" => "arm64",
+            _ => return,
+        };
+        assert_eq!(linux_tarball_arch(), Some(expected));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn manifest_picks_tarball_on_linux() {
+        let name = pick_manifest_filename(&manifest_fixture()).unwrap();
+        assert_eq!(name, "tailscale_1.104.2_amd64.tgz");
+    }
+
+    #[test]
+    fn platform_has_installer_on_all_supported() {
+        // 三端都应有应用内安装渠道
+        assert!(platform_has_installer());
     }
 
     #[cfg(target_os = "windows")]
