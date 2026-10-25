@@ -40,6 +40,7 @@
 - 下载目录空值=系统下载目录；`expand_home` 读 HOME **和** USERPROFILE。
 - 验证脚本别用带中文注释的 bat；启动用纯 ASCII 启动器。
 - 平台能力/排错/验收边界在 `docs/server-hub.md`。
+- **系统 Tailscale（hub_tailscale.rs）**：Linux 服务状态=systemctl is-active、启停=systemctl（polkit）；Funnel「serve config denied」=tailscaled 本地权限闸门（root/operator）而非 tailnet 策略，解法 `sudo tailscale set --operator=<user>`；mac App CLI 坑（SHLVL/GUI 报错文本）都有防御。细则 docs/server-hub.md。
 - **macOS App 版 Tailscale CLI 必须 `env("SHLVL","1")`**（`hub_tailscale.rs::cli_command`）：CLI 拿 SHLVL 判断是否 shell 调用，缺了就误走 GUI 启动分支 → exit 0 + stdout 全是报错文本（GUI 起没起都一样）。CLI 还会挂死 → 子进程必须带超时（`run_cli_raw` 5s）。细则见 2026-10-25.md。
 - **cloudflared 哈希表必须逐条实测**（首版 darwin 两条误填内核哈希 → mac 三源全拒装）。孤儿清理/残留通道三函数已按平台拆分：Windows=PowerShell/CIM，unix=`ps -axo pid=,lstart=,command=` 精确匹配 + kill -9，**新增平台分支两边都维护**。
 - mac 上跨平台 cargo check：rustup 的 cargo 在 `~/.cargo/bin`（/opt/local/bin 是 MacPorts 的），用 `--manifest-path`（cd 前缀会被环境剥掉）；Windows-msvc 目标会被 ring 构建脚本阻塞（无 MSVC），Windows 分支只能在 Windows 机全量 check。
