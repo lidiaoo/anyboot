@@ -96,6 +96,12 @@ Unix 上终端先建立一条 ControlMaster，sftp / 隧道 / 远端命令都靠
 Funnel `funnel --bg <http_port>` / `funnel reset`（配置在 tailscaled 服务内，无子进程残留）。
 CLI 探测链见模块头注释（三端各自的候选路径 + PATH 兜底）。
 
+- **主开关（up/down）超时与既有偏好（2026-10-25）**：`up` 在未登录时会阻塞等浏览器授权，
+  用 120s 长超时（通用 5s 档会误杀并误报「failed to spawn」）；超时把 CLI 已打出的部分
+  输出（含登录链接）带回展示。机器已有非默认偏好时 `up` 报「requires mentioning all」——
+  解析官方报错里 4 空格缩进的旗标清单自动补齐重试（保留既有设置，不用 --reset）。
+  执行器区分「超时」与「spawn 失败」（`CliOutcome`），提权重试沿用调用方超时档。
+
 - **服务级副开关**：Windows=`sc query/start/stop Tailscale`（需管理员，CREATE_NO_WINDOW）；
   Linux=`systemctl is-active`（只读查询免 root）+ `systemctl start/stop/restart`（桌面会话弹
   polkit 授权框；无桌面会报「Interactive authentication」的人话翻译）；macOS 无此开关
@@ -163,6 +169,10 @@ spawn 前 unix 会兜底补 `0o755`（打包链路丢执行位时救场）。
 - **「清空」语义三处一致**：清后端日志环（`gateway_tunnel_logs_clear` /
   `gateway_tailscale_logs_clear` / `tsnet_logs_clear`）+ 清屏。只清屏幕会被下一轮
   轮询用旧日志恢复（内置引擎清空显示曾踩过），所以必须动源头。
+- **内置引擎噪音过滤（2026-10-25）**：`trying bootstrapDNS(...)`（logtail 上报端点
+  不可达时用 DERP IP 引导解析的重试日志，每条内容都不同、国内网络常刷屏）在
+  sidecar 的 `logf`/`userLogf` 源头丢弃，Rust 侧 log 事件再兜一道；引擎上线成功与
+  拿到登录链接时会打「初始化环境资源需几分钟、就绪后打印公网地址」的预期管理提示。
 
 ### 卸载与重新检测（2026-10-25）
 
