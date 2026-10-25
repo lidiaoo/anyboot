@@ -202,6 +202,15 @@ pub use cli::{
 const SETTINGS_FILE: &str = "settings.json";
 /// 单实例锁文件（放配置目录里，因此 `ANYBOOT_CONFIG_DIR` 也生效 —— 沙箱/多套配置互不干扰）
 const INSTANCE_LOCK_FILE: &str = "anyboot.lock";
+/// 上一个实例的 pid（**单独一个文件，不能写进锁文件里**：Windows 的 LockFileEx
+/// 是整段独占字节锁，别的进程连读都读不到，写进去等于没写）
+const INSTANCE_PID_FILE: &str = "anyboot.pid";
+/// 接管旧实例的节奏：先礼 —— 等 3 秒让它自己走（走 RunEvent::Exit 才会收子进程）；
+/// 再不退才兵 —— 强杀，连带把它的子孙进程一起收掉。
+const INSTANCE_GRACE_POLLS: u32 = 30;
+const INSTANCE_KILL_POLLS: u32 = 20;
+/// 每次试锁的间隔
+const INSTANCE_POLL_INTERVAL: Duration = Duration::from_millis(100);
 /// 内置 HTTP 服务的默认监听地址与端口（plan §4.1：默认开启、0.0.0.0:12300）
 const DEFAULT_HTTP_BIND: &str = "0.0.0.0";
 const DEFAULT_HTTP_PORT: u16 = 12300;
@@ -950,13 +959,313 @@ fn try_lock_instance_file(path: &Path) -> Result<fs::File, InstanceLockError> {
     }
 }
 
-/// 试着成为「唯一实例」。`Ok(())` = 本进程拿到了锁。
+// ============ 单实例：抢锁 + 接管上一个实例 ============
+//
+// 别处的进程辅助（sol_panel / hub_gateway）只做「找/杀」，这里要更小心一件事：
+// **误杀**。所以按「锁 → pid 文件 → 确认是同程序的进程」三段走，任何一段对不上
+// 就退回老行为（提示「已经启动」然后退出），绝不按名字乱杀。
+
+/// 上个实例的 pid 文件路径（与锁文件同目录）
+fn instance_pid_path(directory: &Path) -> PathBuf {
+    directory.join(INSTANCE_PID_FILE)
+}
+
+/// 拿到锁之后登记自己的 pid（供下一个进程接管时定位）。
+/// best-effort：写不进去只是「下次接管不成」，不该影响启动。
+fn write_instance_pid(path: &Path) {
+    let _ = fs::write(path, format!("{}\n", std::process::id()));
+}
+
+/// 读上个实例留下的 pid。空文件/乱码/0 一律当「没有」。
+fn read_instance_pid(path: &Path) -> Option<u32> {
+    let text = fs::read_to_string(path).ok()?;
+    match text.trim().parse::<u32>() {
+        Ok(0) | Err(_) => None,
+        Ok(pid) => Some(pid),
+    }
+}
+
+/// 某个 pid 的**可执行文件名**（只取 basename：AppImage 每次挂载路径都不同，
+/// 比全路径会永远对不上）。拿不到（进程已退 / 没权限）返回 None。
+#[cfg(target_os = "linux")]
+fn process_image_name(pid: u32) -> Option<String> {
+    let target = fs::read_link(format!("/proc/{pid}/exe")).ok()?;
+    Some(target.file_name()?.to_string_lossy().into_owned())
+}
+
+#[cfg(target_os = "macos")]
+fn process_image_name(pid: u32) -> Option<String> {
+    // ucomm = 被执行的名字（不带路径、不带参数），与 Linux 的 /proc/pid/exe 对齐
+    let output = command("ps")
+        .args(["-p", &pid.to_string(), "-o", "ucomm="])
+        .output()
+        .ok()?;
+    let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if name.is_empty() {
+        None
+    } else {
+        Some(name)
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn process_image_name(pid: u32) -> Option<String> {
+    // tasklist 的 IMAGENAME（"anyboot.exe"）；未命中时输出一行本地化提示语，
+    // 解析自然落空 —— 与 sol_panel::sol_process_pids 同一套写法。
+    let output = command("tasklist")
+        .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
+        .output()
+        .ok()?;
+    let line = String::from_utf8_lossy(&output.stdout);
+    let first = line.lines().next()?.trim();
+    let name = first.split("\",\"").next()?.trim_matches('"').trim();
+    if name.is_empty() || name.parse::<u32>().is_ok() {
+        None
+    } else {
+        Some(name.to_string())
+    }
+}
+
+/// pid 是不是「本程序」的另一个进程（防误杀的核心闸门：PID 会被系统回收，
+/// 光凭 pid 文件里的数字去 kill，撞上别的程序就是事故）。
+fn is_same_app_process(pid: u32) -> bool {
+    let Some(ours) = std::env::current_exe()
+        .ok()
+        .and_then(|path| path.file_name().map(|name| name.to_string_lossy().into_owned()))
+    else {
+        return false;
+    };
+    match process_image_name(pid) {
+        Some(name) => name.eq_ignore_ascii_case(&ours),
+        None => false,
+    }
+}
+
+/// 某个进程的全部子孙 pid。接管时就要先抓一份快照：真到强杀那一步，
+/// 光杀父进程会把 ssh / cloudflared / tsnet 过继给 init 变成孤儿 ——
+/// 用户看到的是「程序关了，隧道还在跑」。
+#[cfg(target_os = "linux")]
+fn descendant_pids(pid: u32) -> Vec<u32> {
+    // 永远别把「自己」列进去：重启路径万一没放锁，旧实例就是我们的父进程
+    let me = std::process::id();
+    let mut found: Vec<u32> = Vec::new();
+    let mut queue = vec![pid];
+    while let Some(parent) = queue.pop() {
+        // 子进程可能由任意线程 fork 出来，所以要把每个 task 的 children 都读一遍
+        let Ok(entries) = fs::read_dir(format!("/proc/{parent}/task")) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let Ok(text) = fs::read_to_string(entry.path().join("children")) else {
+                continue;
+            };
+            for token in text.split_whitespace() {
+                let Ok(child) = token.parse::<u32>() else { continue };
+                if child != pid && child != me && !found.contains(&child) {
+                    found.push(child);
+                    queue.push(child);
+                }
+            }
+        }
+    }
+    found
+}
+
+#[cfg(target_os = "macos")]
+fn descendant_pids(pid: u32) -> Vec<u32> {
+    // 永远别把「自己」列进去：重启路径万一没放锁，旧实例就是我们的父进程
+    let me = std::process::id();
+    let mut found: Vec<u32> = Vec::new();
+    let mut queue = vec![pid];
+    while let Some(parent) = queue.pop() {
+        let Ok(output) = command("pgrep").args(["-P", &parent.to_string()]).output() else {
+            continue;
+        };
+        for token in String::from_utf8_lossy(&output.stdout).split_whitespace() {
+            let Ok(child) = token.parse::<u32>() else { continue };
+            if child != pid && child != me && !found.contains(&child) {
+                found.push(child);
+                queue.push(child);
+            }
+        }
+    }
+    found
+}
+
+#[cfg(target_os = "windows")]
+fn descendant_pids(_pid: u32) -> Vec<u32> {
+    // Windows 侧交给 `taskkill /T`（杀进程树），这里不需要自己列举
+    Vec::new()
+}
+
+/// 给进程发信号 / 结束它。`force = false` 是「先礼」：unix 只发 SIGTERM，
+/// 让它自己走退出流程；Windows 没有可用的优雅退出（关窗默认是「隐藏到托盘」），
+/// 直接 `taskkill /T /F` —— 少了 `/T` 会把 WebView2 子进程留成孤儿。
+#[cfg(target_os = "linux")]
+fn signal_process(pid: u32, force: bool) {
+    let signal = if force { libc::SIGKILL } else { libc::SIGTERM };
+    // SAFETY: kill(2) 只读两个整数参数，失败返回 -1，不会破坏内存
+    unsafe {
+        libc::kill(pid as libc::pid_t, signal);
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn signal_process(pid: u32, force: bool) {
+    let _ = command("kill")
+        .args([if force { "-KILL" } else { "-TERM" }, &pid.to_string()])
+        .output();
+}
+
+#[cfg(target_os = "windows")]
+fn signal_process(pid: u32, _force: bool) {
+    let _ = command("taskkill")
+        .args(["/PID", &pid.to_string(), "/T", "/F"])
+        .output();
+}
+
+/// 等锁：每 `INSTANCE_POLL_INTERVAL` 试一次，最多 `attempts` 次。
+fn wait_for_instance_lock(path: &Path, attempts: u32) -> Option<fs::File> {
+    for _ in 0..attempts {
+        std::thread::sleep(INSTANCE_POLL_INTERVAL);
+        if let Ok(file) = try_lock_instance_file(path) {
+            return Some(file);
+        }
+    }
+    None
+}
+
+/// 某个进程的父 pid（用来判断「它是不是已经成了孤儿」）。拿不到返回 None。
+#[cfg(target_os = "linux")]
+fn process_parent_pid(pid: u32) -> Option<u32> {
+    let stat = fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    // 格式：`pid (comm) state ppid ...`，comm 里可能带空格和括号 → 从最后一个 ')' 往后切
+    let tail = stat.rsplit_once(')')?.1;
+    let mut fields = tail.split_whitespace();
+    fields.next()?; // state
+    fields.next()?.parse::<u32>().ok()
+}
+
+#[cfg(target_os = "macos")]
+fn process_parent_pid(pid: u32) -> Option<u32> {
+    let output = command("ps")
+        .args(["-o", "ppid=", "-p", &pid.to_string()])
+        .output()
+        .ok()?;
+    String::from_utf8_lossy(&output.stdout).trim().parse::<u32>().ok()
+}
+
+#[cfg(target_os = "windows")]
+fn process_parent_pid(_pid: u32) -> Option<u32> {
+    None
+}
+
+/// 补收「上一个实例的子进程」。
+///
+/// 为什么先礼之后还要干这件事：Tauri 没装 SIGTERM 处理器，unix 上 SIGTERM 是
+/// **直接死**（走不到 `RunEvent::Exit`），于是旧实例名下的 ssh / cloudflared /
+/// tsnet 会被过继给 init —— 新实例起来后它们还在跑，用户看到的是「程序关了，
+/// 隧道/终端还在」。这里把接管前抓到的那批 pid 补一刀。
+///
+/// **只杀已经变成孤儿的**（ppid 不再是旧实例）：万一旧实例其实还活着（接管失败
+/// 的路径不会走到这），或者 pid 在这几百毫秒里被别人回收了，ppid 对不上就跳过 ——
+/// 宁可漏杀一个残留子进程，不能杀错别人的进程。
+#[cfg(not(target_os = "windows"))]
+fn reap_orphaned_children(children: &[u32]) -> usize {
+    let me = std::process::id();
+    let mut reaped = 0;
+    for pid in children {
+        if *pid == me {
+            continue;
+        }
+        let orphaned = matches!(process_parent_pid(*pid), Some(0) | Some(1));
+        if orphaned {
+            signal_process(*pid, true);
+            reaped += 1;
+        }
+    }
+    reaped
+}
+
+#[cfg(target_os = "windows")]
+fn reap_orphaned_children(_children: &[u32]) -> usize {
+    // `taskkill /T /F` 已经把整棵树带走，没有需要补收的
+    0
+}
+
+/// 抢锁失败时接管旧实例：杀掉 → 等它放手 → 由本进程继续启动。
+///
+/// 三道闸门缺一不可：① 锁被占（不然根本不会走到这）② pid 文件里有个 believable
+/// 的 pid ③ 那个 pid 确实是本程序。③ 挡的是「pid 被系统回收给了别的程序」——
+/// 拿 pid 文件里的旧数字直接 kill 是这类功能最常见的事故来源。
+///
+/// `log` 传的是「怎么记一行」，不直接吃 AppHandle —— 这样单测能拿个空日志
+/// 真跑一遍接管流程（起一个同程序的假实例占着锁，再把它接过手）。
+fn takeover_previous_instance(
+    log: &dyn Fn(&str),
+    lock_path: &Path,
+    pid_path: &Path,
+) -> Result<fs::File, InstanceLockError> {
+    let Some(pid) = read_instance_pid(pid_path) else {
+        log("锁被占用，但没有 pid 记录（旧版本/写入失败）→ 不接管，提示「已经启动」");
+        return Err(InstanceLockError::AlreadyRunning);
+    };
+    if pid == std::process::id() || !is_same_app_process(pid) {
+        log(&format!("锁被 pid={pid} 占用，但它不是本程序的进程 → 不接管"));
+        return Err(InstanceLockError::AlreadyRunning);
+    }
+
+    log(&format!("检测到上一个实例 pid={pid} → 先结束它再启动"));
+    let children = descendant_pids(pid);
+    signal_process(pid, false);
+    if let Some(file) = wait_for_instance_lock(lock_path, INSTANCE_GRACE_POLLS) {
+        // 它可能是被 SIGTERM 直接带走的（走不到 RunEvent::Exit），子进程要补收
+        let reaped = reap_orphaned_children(&children);
+        log(&format!(
+            "上一个实例已退出 → 拿到单实例锁（补收 {reaped} 个残留子进程），继续启动"
+        ));
+        return Ok(file);
+    }
+
+    log(&format!(
+        "上一个实例 3 秒内没退出 → 强制结束（连带 {} 个子进程）",
+        children.len()
+    ));
+    signal_process(pid, true);
+    for child in &children {
+        signal_process(*child, true);
+    }
+    match wait_for_instance_lock(lock_path, INSTANCE_KILL_POLLS) {
+        Some(file) => {
+            log("强制结束之后拿到锁 → 继续启动");
+            Ok(file)
+        }
+        None => {
+            log("强制结束之后锁仍被占 → 放弃接管，提示「已经启动」");
+            Err(InstanceLockError::AlreadyRunning)
+        }
+    }
+}
+
+/// 试着成为「唯一实例」。`Ok(())` = 本进程拿到了锁（必要时已经接管掉上一个实例）。
 fn acquire_instance_lock(app: &AppHandle) -> Result<(), InstanceLockError> {
     let directory = config_dir(app).map_err(InstanceLockError::Io)?;
     fs::create_dir_all(&directory).map_err(|error| {
         InstanceLockError::Io(format!("无法创建配置目录 {}: {error}", directory.display()))
     })?;
-    let file = try_lock_instance_file(&directory.join(INSTANCE_LOCK_FILE))?;
+    let lock_path = directory.join(INSTANCE_LOCK_FILE);
+    let pid_path = instance_pid_path(&directory);
+    let file = match try_lock_instance_file(&lock_path) {
+        Ok(file) => file,
+        Err(InstanceLockError::AlreadyRunning) => takeover_previous_instance(
+            &|message| startup_debug(app, message),
+            &lock_path,
+            &pid_path,
+        )?,
+        Err(error) => return Err(error),
+    };
+    // 锁一到手就登记 pid：下一个进程靠它认出「谁在跑」，晚一步就可能读到上一轮的旧值
+    write_instance_pid(&pid_path);
     let _ = INSTANCE_LOCK.set(file);
     Ok(())
 }
@@ -2483,13 +2792,19 @@ pub fn run() {
         })
         .setup(|app| {
             // —— 单实例守卫（放在最前面）——
-            // 拿不到锁 = 已经有实例在跑：说一句就退出。**后面一行都不做** ——
-            // 建托盘会多出第二颗图标、起监听会跟第一例抢端口、显示主窗口会凭空
-            // 多出一扇窗，那些都是「另一个实例」在用户眼里的样子。
+            // 抢不到锁时**先接管**：认出上一个实例的 pid、确认是本程序，然后结束它
+            // （详见 takeover_previous_instance），接管成功就照常往下启动。
+            // 只有「接管不了」才会走到已经启动提示：认不出 pid、pid 已经不是本程序、
+            // 或者强杀之后锁还没放手。**后面一行都不做** —— 建托盘会多出第二颗图标、
+            // 起监听会跟第一例抢端口、显示主窗口会凭空多出一扇窗，那些都是
+            // 「另一个实例」在用户眼里的样子。
             match acquire_instance_lock(app.handle()) {
                 Ok(()) => {}
                 Err(InstanceLockError::AlreadyRunning) => {
-                    startup_debug(app.handle(), "检测到已有实例在运行 → 提示「已经启动」后退出");
+                    startup_debug(
+                        app.handle(),
+                        "上一个实例接管不了（认不出/杀不掉）→ 提示「已经启动」后退出",
+                    );
                     // 提示完就退（macOS 上这个函数阻塞到用户关掉提示才返回，
                     // 另外两端是异步弹窗、回调里退）。
                     announce_already_running(app.handle());
@@ -3243,6 +3558,7 @@ mod tests {
         let _ = fs::remove_file(&path);
         let _ = fs::remove_dir(&dir);
     }
+
 }
 
 // ——— Linux 托盘：自己实现 StatusNotifierItem ———
@@ -6197,6 +6513,162 @@ mod core_tests {
             usable_window_size_basis(None, Some((460, 900))),
             Some((460, 900))
         );
+    }
+
+    #[test]
+    fn instance_pid_file_roundtrip_and_garbage() {
+        // 接管靠这个文件认出「谁在跑」，所以它对乱码必须**零容忍**：
+        // 读不出合法 pid 就返回 None（宁可不接管，也不能拿垃圾数字去 kill）。
+        let dir = std::env::temp_dir().join(format!("anyboot-pid-{}", std::process::id()));
+        fs::create_dir_all(&dir).expect("建临时目录");
+        let path = instance_pid_path(&dir);
+
+        write_instance_pid(&path);
+        assert_eq!(
+            read_instance_pid(&path),
+            Some(std::process::id()),
+            "pid 必须能原样读回"
+        );
+
+        fs::write(&path, "not-a-pid\n").expect("写乱码");
+        assert_eq!(read_instance_pid(&path), None, "乱码当「没有」");
+        fs::write(&path, "0\n").expect("写 0");
+        assert_eq!(read_instance_pid(&path), None, "0 不是合法 pid");
+        fs::write(&path, " 4242 \n").expect("写带空白的 pid");
+        assert_eq!(read_instance_pid(&path), Some(4242), "两侧空白要吃掉");
+        fs::write(&path, "").expect("写空文件");
+        assert_eq!(read_instance_pid(&path), None, "空文件当「没有」");
+
+        let _ = fs::remove_file(&path);
+        let _ = fs::remove_dir(&dir);
+    }
+
+    #[test]
+    fn wait_for_instance_lock_polls_until_the_holder_lets_go() {
+        // 接管的等待循环：旧实例还活着时不能提前返回句柄（否则两个实例同时跑）
+        let dir = std::env::temp_dir().join(format!("anyboot-wait-{}", std::process::id()));
+        fs::create_dir_all(&dir).expect("建临时目录");
+        let path = dir.join(INSTANCE_LOCK_FILE);
+        let _ = fs::remove_file(&path);
+
+        let holder = try_lock_instance_file(&path).expect("先占住锁");
+        assert!(
+            wait_for_instance_lock(&path, 2).is_none(),
+            "锁还被占着就不能返回 handle"
+        );
+        holder.unlock().expect("放锁");
+        assert!(
+            wait_for_instance_lock(&path, 5).is_some(),
+            "旧实例放手之后必须能等到锁"
+        );
+
+        let _ = fs::remove_file(&path);
+        let _ = fs::remove_dir(&dir);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn descendant_pids_covers_children_so_force_kill_leaves_no_orphans() {
+        // 强杀旧实例时不连带收子进程，ssh / cloudflared / tsnet 会变成孤儿
+        let mut child = Command::new("sh")
+            .args(["-c", "sleep 30"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("起子进程");
+        let children = descendant_pids(std::process::id());
+        assert!(
+            children.contains(&child.id()),
+            "子进程必须在清单里: {children:?}"
+        );
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+
+    /// 假实例：抢住锁、写好 pid，然后等着被杀。**只由下面的接管用例 spawn**，
+    /// 单独跑会白等 30 秒，所以标 ignore。
+    #[ignore = "由 takeover_previous_instance_kills_it_and_takes_the_lock 按需 spawn"]
+    #[test]
+    fn instance_holder_helper() {
+        let Ok(dir) = std::env::var("ANYBOOT_HOLD_LOCK_DIR") else {
+            return;
+        };
+        let dir = PathBuf::from(dir);
+        let file = try_lock_instance_file(&dir.join(INSTANCE_LOCK_FILE)).expect("helper 拿锁");
+        write_instance_pid(&instance_pid_path(&dir));
+        std::thread::sleep(Duration::from_secs(30));
+        drop(file);
+    }
+
+    /// 接管全链路：起一个**同程序的**假实例占住锁 → 认出它 → 结束它 → 本进程拿到锁。
+    /// 这是「打开软件自动杀掉上一个进程」这条需求的唯一真验证（GUI 起不来也能跑）。
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn takeover_previous_instance_kills_it_and_takes_the_lock() {
+        let dir = std::env::temp_dir().join(format!("anyboot-takeover-{}", std::process::id()));
+        fs::create_dir_all(&dir).expect("建临时目录");
+        let lock_path = dir.join(INSTANCE_LOCK_FILE);
+        let pid_path = instance_pid_path(&dir);
+        let _ = fs::remove_file(&lock_path);
+        let _ = fs::remove_file(&pid_path);
+
+        let exe = std::env::current_exe().expect("测试二进制路径");
+        let mut holder = Command::new(&exe)
+            .args([
+                "core_tests::instance_holder_helper",
+                "--exact",
+                "--ignored",
+                "--nocapture",
+            ])
+            .env("ANYBOOT_HOLD_LOCK_DIR", &dir)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("起假实例");
+
+        // 等假实例真把锁和 pid 落下去（起进程是异步的）
+        let mut ready = false;
+        for _ in 0..50 {
+            if read_instance_pid(&pid_path) == Some(holder.id()) {
+                ready = true;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        assert!(ready, "假实例没能在 5 秒内占住锁");
+
+        let logs: Mutex<Vec<String>> = Mutex::new(Vec::new());
+        let log = |message: &str| logs.lock().unwrap().push(message.to_string());
+        let file = takeover_previous_instance(&log, &lock_path, &pid_path)
+            .expect("应该能把上一个实例接管掉");
+
+        // 拿到的锁必须真独占（同进程再开 fd 也会被挡）
+        assert!(
+            matches!(
+                try_lock_instance_file(&lock_path),
+                Err(InstanceLockError::AlreadyRunning)
+            ),
+            "接管之后锁必须被本进程独占: {:?}",
+            logs.lock().unwrap()
+        );
+
+        // 旧实例必须真的被结束了
+        let mut exited = false;
+        for _ in 0..30 {
+            if matches!(holder.try_wait(), Ok(Some(_))) {
+                exited = true;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        assert!(exited, "旧实例没被结束: {:?}", logs.lock().unwrap());
+        let _ = holder.kill();
+        let _ = holder.wait();
+
+        drop(file);
+        let _ = fs::remove_file(&lock_path);
+        let _ = fs::remove_file(&pid_path);
+        let _ = fs::remove_dir(&dir);
     }
 }
 
