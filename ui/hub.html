@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- ui-version: 20261025-cq-flex（电脑列表：表格改 flex 行；容器查询自适应：窄容器折行、表头收起） -->
+<!-- ui-version: 20261026-rsedit-flex（电脑添加/编辑弹窗：flex 外壳 + 容器查询自适应；配对行拆两行；修 .field input 宽度压死组件宽度） -->
 <script>try{window.ANYBOOT_UI_VERSION='20261023-gateway';}catch(e){}</script>
 <script src="qrcode.min.js"></script>
 <!-- AnyBoot 远程管理（server-hub）。
@@ -828,12 +828,36 @@
   }
   .dialog-foot .spacer { flex: 1; }
 
+  /* ---- 编辑电脑弹窗（添加 / 编辑共用）：表格化的固定宽 → flex 外壳 + 容器查询 ----
+     头尾不滚动、只有内容区滚动（原来 overflow 挂在整个 .dialog 上，往下翻时标题和按钮会一起滚走）；
+     宽度用 min() 跟窗口走，内层再按**弹窗自身宽度**（container-type）决定折行，不看视口。 */
+  .dialog.rs-edit {
+    width: min(600px, 100%);
+    max-height: calc(100vh - 48px);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .dialog.rs-edit .dialog-head,
+  .dialog.rs-edit .dialog-foot { flex: none; }
+  .dialog.rs-edit .dialog-foot { flex-wrap: wrap; }
+  .dialog.rs-edit .dialog-body {
+    flex: 1 1 auto; min-height: 0;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+    container-type: inline-size;
+    container-name: rsedit;
+  }
+  .dialog.rs-edit .field:last-of-type { margin-bottom: 4px; }
+
   .field { margin-bottom: 12px; }
   .field > label, .field > .flabel {
     display: block; font-size: 12px; font-weight: 500;
     color: rgb(var(--fg-dim)); margin-bottom: 5px;
   }
-  .field input, .field textarea {
+  /* 基础外观用 :where() 把特异性压到 (0,1,0)：否则 `.field input`（0,1,1）会把
+     内层组件自己的宽度规则全部盖掉 —— 通道超时框写 62px 会变成整行宽（100%），
+     上下移按钮被挤出可视区。降权后 `.rp-timeout` / `.pb-note` / `.route-row select` 才生效。 */
+  .field :where(input, textarea) {
     width: 100%;
     background: rgb(var(--elevate));
     border: 1px solid rgb(var(--line));
@@ -844,11 +868,29 @@
     outline: none;
     transition: border-color .15s;
   }
-  .field input:focus, .field textarea:focus { border-color: rgb(var(--accent) / .6); }
+  .field :where(input, textarea):focus { border-color: rgb(var(--accent) / .6); }
   .field input.mono, .field textarea.mono {
     font-family: ui-monospace, Menlo, Consolas, monospace;
   }
-  .field-row { display: flex; gap: 10px; }
+  /* 下拉框跟输入框同一套外观（原来每个 select 各写一坨内联样式）。**只作用于 .field 直接子级**：
+     电源路由行里的 .route-act / .route-mode 是 flex:none 的窄下拉，被这条的 width:100% 命中会被撑满整行。 */
+  .field > :where(select) {
+    width: 100%; max-width: 100%;
+    background: rgb(var(--elevate));
+    border: 1px solid rgb(var(--line));
+    border-radius: 9px;
+    padding: 8px 11px;
+    color: rgb(var(--fg));
+    font: inherit; font-size: 13px;
+    outline: none;
+  }
+  .field > :where(select):focus { border-color: rgb(var(--accent) / .6); }
+  /* 窄数字框：跟着容器走，不写死 px 后溢出 */
+  .field .num-narrow { width: 140px; max-width: 100%; }
+  /* 三选一按钮组（并发首个 / 并发全部 / 串行）：等宽铺满、窄容器自动保持等分 */
+  .seg-row { display: flex; gap: 4px; width: 100%; min-width: 0; }
+  .seg-row > .btn { flex: 1 1 0; min-width: 0; padding-left: 6px; padding-right: 6px; }
+  .field-row { display: flex; gap: 10px; flex-wrap: wrap; }
   .field-row .field { flex: 1; }
   .field-row .field.fixed { flex: 0 0 96px; }
   .form-error { color: rgb(var(--bad)); font-size: 12px; min-height: 16px; margin: 4px 0 0; }
@@ -1581,7 +1623,7 @@
   /* ---- 连接优先级拖动列表（编辑弹窗 · 连接策略 fold） ---- */
   .route-prio { display: flex; flex-direction: column; gap: 6px; }
   .rp-row {
-    display: flex; align-items: center; gap: 8px;
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
     border: 1px solid rgb(var(--line)); border-radius: 10px;
     background: rgb(var(--elevate)); padding: 7px 10px;
   }
@@ -1625,20 +1667,25 @@
   }
   .pb-add:hover { color: rgb(var(--fg)); border-color: rgb(var(--accent)); }
   .pb-empty { font-size: 11px; color: rgb(var(--fg-faint)); padding: 2px 0 0; }
+  /* 一条配对 = 两行 flex：第一行「地址 + 车道 + 上移/下移/删除 + 启用」，第二行「备注 + 令牌 + 超时 + 来源」。
+     原来十个元素挤一行（固定宽合计 560+ px），在 432px 的弹窗里必然把地址框压扁、右侧按钮溢出。 */
   .pb-row {
-    display: flex; align-items: center; gap: 6px; padding: 5px 0;
+    display: flex; flex-direction: column; gap: 6px; padding: 7px 0;
     border-top: 1px dashed rgb(var(--line));
   }
   .pb-row:first-of-type { border-top: 0; }
   .pb-row.pb-off { opacity: .55; }
+  .pb-main, .pb-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
+  /* 操作件打包：地址再窄也先把这组整体保留在一行，不会把 ✕ 漏到下一行 */
+  .pb-act { display: flex; align-items: center; gap: 6px; flex: none; margin-left: auto; }
   .pb-addr {
-    flex: 1; min-width: 90px; padding: 4px 7px; font-size: 11.5px;
+    flex: 1 1 200px; min-width: 0; padding: 4px 7px; font-size: 11.5px;
     border: 1px solid rgb(var(--line)); border-radius: 7px;
     background: rgb(var(--elevate)); color: rgb(var(--fg)); outline: none;
   }
   .pb-addr:focus, .pb-note:focus { border-color: rgb(var(--accent)); }
   .pb-note {
-    flex: none; width: 84px; padding: 4px 7px; font-size: 11px;
+    flex: 0 1 108px; min-width: 0; padding: 4px 7px; font-size: 11px;
     border: 1px solid rgb(var(--line)); border-radius: 7px;
     background: rgb(var(--elevate)); color: rgb(var(--fg)); outline: none;
   }
@@ -1646,22 +1693,38 @@
     flex: none; font-size: 10px; padding: 2px 5px; border-radius: 99px;
     background: rgb(var(--accent) / .14); color: rgb(var(--accent));
   }
-  .pb-src { flex: none; font-size: 10.5px; color: rgb(var(--fg-faint)); max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pb-src { flex: 0 1 auto; margin-left: auto; font-size: 10.5px; color: rgb(var(--fg-faint)); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .pb-src.pb-warn { color: rgb(var(--warn)); }
   .block-policy { display: flex; flex-direction: column; gap: 6px; }
   .bp-row {
-    display: flex; align-items: center; gap: 8px;
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
     border: 1px solid rgb(var(--line)); border-radius: 10px;
     background: rgb(var(--elevate)); padding: 6px 10px;
   }
   .bp-name { font-weight: 600; font-size: 12px; flex: none; width: 96px; }
-  .bp-seg { display: flex; gap: 4px; flex: 1; }
+  .bp-seg { display: flex; gap: 4px; flex: 1 1 180px; min-width: 0; }
+  .bp-seg > .btn { min-width: 0; padding-left: 6px; padding-right: 6px; }
   .bp-timeout {
     flex: none; width: 66px; padding: 4px 6px; text-align: center;
     border: 1px solid rgb(var(--line)); border-radius: 7px;
     background: rgb(var(--card)); color: rgb(var(--fg)); font-size: 11px; outline: none;
   }
   .bp-timeout:focus { border-color: rgb(var(--accent)); }
+  /* ---- 编辑弹窗的容器查询：按**弹窗自身宽度**折行（窄主窗里弹窗只有 300~400px，
+     视口媒体查询到不了这么细）。容器 = .dialog-body，见 .dialog.rs-edit 那条规则。 ---- */
+  @container rsedit (max-width: 460px) {
+    .dialog.rs-edit .pb-meta > .pb-note { flex: 1 1 100%; }
+    .dialog.rs-edit .pb-src { margin-left: 0; }
+    .dialog.rs-edit .bp-name { width: auto; }
+    .dialog.rs-edit .bp-timeout { order: 2; }
+    .dialog.rs-edit .bp-seg { flex-basis: 100%; order: 3; }
+    /* 通道说明整行落到最下面，控制件留在第一行（否则「说明」会把超时框和上下按钮挤散） */
+    .dialog.rs-edit .rp-timeout, .dialog.rs-edit .rp-btn { order: 3; }
+    .dialog.rs-edit .rp-sub { flex: 1 1 100%; order: 4; margin-left: 22px; }
+    .dialog.rs-edit .addr-add #rsAddrHost,
+    .dialog.rs-edit .addr-add #rsAddrMacs { flex: 1 1 100%; }
+    .dialog.rs-edit .seg-row > .btn { font-size: 11.5px; }
+  }
   .s-badge {
     margin-left:auto; font-size:10px; line-height:1; padding:3px 6px; border-radius:99px;
     background:rgb(var(--warn) / .15); color:rgb(var(--warn)); font-weight:600; flex:none;
@@ -2104,7 +2167,7 @@
         </div>
         <!-- 添加 / 编辑 AnyBoot 服务端弹窗（字段对齐手机编辑弹层） -->
         <div class="overlay" id="rsEditOverlay" hidden data-page-node-id="rsEditOverlay1">
-          <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="rsEditTitle" data-page-node-id="rsEditDialog1">
+          <div class="dialog rs-edit" role="dialog" aria-modal="true" aria-labelledby="rsEditTitle" data-page-node-id="rsEditDialog1">
             <div class="dialog-head" data-page-node-id="rsEditHead1">
               <h3 id="rsEditTitle">连接 AnyBoot 服务端</h3>
               <button class="icon-btn" id="rsEditClose" aria-label="关闭" data-page-node-id="rsEditClose1">
@@ -2195,16 +2258,16 @@
                 </div>
                 <div class="field">
                   <label><b>连接优先级的探测方式</b>（六个通道之间怎么试，对上面每一个通道都生效）</label>
-                  <div style="display:flex;gap:4px" role="group" aria-label="连接优先级的探测方式">
-                    <button type="button" class="btn small seg-on" id="rsRouteProbeFirst" style="flex:1">并发（首个）</button>
-                    <button type="button" class="btn small" id="rsRouteProbeAll" style="flex:1">并发（全部）</button>
-                    <button type="button" class="btn small" id="rsRouteProbeSerial" style="flex:1">串行</button>
+                  <div class="seg-row" role="group" aria-label="连接优先级的探测方式">
+                    <button type="button" class="btn small seg-on" id="rsRouteProbeFirst">并发（首个）</button>
+                    <button type="button" class="btn small" id="rsRouteProbeAll">并发（全部）</button>
+                    <button type="button" class="btn small" id="rsRouteProbeSerial">串行</button>
                   </div>
                   <p class="field-hint" style="margin:6px 0 0">
                     电脑页与电脑列表的探活都按这里来：并发（首个）把<b>全部通道</b>同时发出，谁先成功就用谁；
                     并发（全部）等全部返回，逐行报每个通道的成败与耗时；串行按上面的优先级逐个通道试，第一个通就停。
                     与下面那个「多网卡探测」是两个粒度：这个管<b>通道之间</b>，那个管<b>同一通道里的多个地址</b>。
-                    探测跑在**独立的探测线程池**上，调大超时或选并发全部也不会卡住界面。
+                    探测跑在<b>独立的探测线程池</b>上，调大超时或选并发全部也不会卡住界面。
                   </p>
                 </div>
                 <div class="field" id="rsBlockPolicy">
@@ -2219,10 +2282,10 @@
                 </div>
                 <div class="field">
                   <label><b>多网卡探测</b>（同一通道里的多个地址之间怎么探）</label>
-                  <div style="display:flex;gap:4px" role="group" aria-label="多网卡探测">
-                    <button type="button" class="btn small seg-on" id="rsProbeFirst" style="flex:1">并发（首个）</button>
-                    <button type="button" class="btn small" id="rsProbeAll" style="flex:1">并发（全部）</button>
-                    <button type="button" class="btn small" id="rsProbeSerial" style="flex:1">串行</button>
+                  <div class="seg-row" role="group" aria-label="多网卡探测">
+                    <button type="button" class="btn small seg-on" id="rsProbeFirst">并发（首个）</button>
+                    <button type="button" class="btn small" id="rsProbeAll">并发（全部）</button>
+                    <button type="button" class="btn small" id="rsProbeSerial">串行</button>
                   </div>
                   <p class="field-hint" style="margin:6px 0 0">
                     一台电脑配了多个局域网地址（多块网卡 / DHCP 换过 IP）时生效：并发（首个）谁先通用谁，
@@ -2231,8 +2294,8 @@
                 </div>
                 <div class="field">
                   <label for="rsProbeTimeout">默认探测超时（秒）—— 通道那格留空时用它</label>
-                  <input id="rsProbeTimeout" class="mono" type="number" step="0.5" min="0.2" max="30"
-                         placeholder="2" style="width:140px"
+                  <input id="rsProbeTimeout" class="mono num-narrow" type="number" step="0.5" min="0.2" max="30"
+                         placeholder="2"
                          data-page-node-id="rsFieldTimeout1">
                   <p class="field-hint" style="margin:6px 0 0">
                     默认 2 秒（范围 0.2 ~ 30 秒）。想让某个通道等更久 / 更短，就在上面那一行各自填 ——
@@ -2241,7 +2304,7 @@
                 </div>
                 <div class="field" data-page-node-id="rsFieldJump1">
                   <label for="rsJump">经由跳板机（实验）</label>
-                  <select id="rsJump" style="width:100%;background:rgb(var(--elevate));border:1px solid rgb(var(--line));border-radius:9px;padding:8px 11px;color:rgb(var(--fg));font:inherit;font-size:13px;outline:none"></select>
+                  <select id="rsJump"></select>
                   <p class="field-hint">经跳板机中转的连接方式将在后续版本启用，当前先保存档案</p>
                 </div>
               </div>
@@ -7854,16 +7917,27 @@
       + (pair.tunnel_id ? '\n隧道 ' + pair.tunnel_id : '')
       + (shared ? '\n同一隧道被多套系统共用，请求会随机落到其中一个' : '')
       + (pair.note ? '\n备注 ' + pair.note : '');
-    row.appendChild(addr);
-    row.appendChild(lane);
-    row.appendChild(note);
-    row.appendChild(token);
-    row.appendChild(timeout);
-    row.appendChild(source);
-    row.appendChild(up);
-    row.appendChild(down);
-    row.appendChild(del);
-    row.appendChild(enable);
+    // 拆成两行 flex：上面「地址 + 车道 + 上移/下移/删除 + 启用」，下面「备注 + 令牌 + 超时 + 来源」。
+    // 十个元素挤一行时固定宽合计超过弹窗宽度，地址框会被压扁、右侧按钮溢出（本轮修的就是这个）。
+    const main = document.createElement('div');
+    main.className = 'pb-main';
+    main.appendChild(addr);
+    main.appendChild(lane);
+    const act = document.createElement('div');
+    act.className = 'pb-act';
+    act.appendChild(up);
+    act.appendChild(down);
+    act.appendChild(del);
+    act.appendChild(enable);
+    main.appendChild(act);
+    const meta = document.createElement('div');
+    meta.className = 'pb-meta';
+    meta.appendChild(note);
+    meta.appendChild(token);
+    meta.appendChild(timeout);
+    meta.appendChild(source);
+    row.appendChild(main);
+    row.appendChild(meta);
     return row;
   }
   /** 同区块内移动：只在区块内部换位（跨区块换位置没有意义，区块是固定的三层） */
