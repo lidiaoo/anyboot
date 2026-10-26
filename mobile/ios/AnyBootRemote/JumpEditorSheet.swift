@@ -90,7 +90,7 @@ struct TerminalSheet: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                TerminalSessionHost(selectedId: session.server.id)
+                TerminalSessionHost(initialId: session.server.id)
             }
             .background(dark
                 ? Color(red: 0.12, green: 0.12, blue: 0.12)

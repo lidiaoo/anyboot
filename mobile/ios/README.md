@@ -43,10 +43,26 @@ HTTP 服务（默认 `12300`）托管的同一份前端页面。业务逻辑一�
 | Telnet | 实验性：NWConnection 直连 + IAC 过滤（`TelnetSession.swift`），只有终端，无隧道无文件 |
 
 **依赖**：Xcode 工程需要加 SwiftPM 包 **Citadel**（`https://github.com/orlandos-nl/Citadel`，
-SSH/Telnet 会话栈；macOS 14+ / iOS 15+）。SSH 相关代码按 2026-10 的 Citadel main 分支
-API 校对（`SSHClient.connect` / `createDirectTCPIPChannel` / `openSFTP` / `withPTY` /
-`SSHHostKeyValidator.custom`）—— 升级时若有小幅漂移先看 `SshSessionManager.swift` 的注释。
-本机（Windows / Linux）无法编译验证 iOS，**首次 Xcode 构建如报 API 漂移按注释校准**。
+SSH/Telnet 会话栈；**iOS 17+**——当前 main 分支的 withPTY/TTYOutput 已不兼容 iOS 15/16）。
+SSH 相关代码按 2026-10 的 Citadel main 分支 API 校对（`SSHClient.connect` / `createDirectTCPIPChannel` /
+`openSFTP` / `withPTY` / `SSHHostKeyValidator.custom`）—— 升级时若有小幅漂移先看
+`SshSessionManager.swift` 的注释。2026-10-26 已在 macOS 26.7 x86_64（黑苹果）+ Xcode 26.6
+上全量编译通过；首次对接时的 API 漂移已修完，见 git 历史。
+
+## 工程生成（XcodeGen）
+
+仓库带 `project.yml`（**这是源**，`*.xcodeproj` 不入库）：
+
+```sh
+cd mobile/ios
+~/bin/xcodegen          # 或任何 xcodegen ≥2.46，生成 AnyBootRemote.xcodeproj
+xcodebuild -project AnyBootRemote.xcodeproj -scheme AnyBootRemote \
+  -destination 'generic/platform=iOS Simulator' build   # 首次构建验证
+```
+
+要点（都写在 `project.yml` 注释里）：`Resources/terminal` 必须 folder reference；
+Citadel 钉 main 分支；源码直接 import 的 NIOSSH/NIOCore/Crypto 要显式声明成
+target 依赖（XcodeGen 不会自动把传递依赖挂到 target）。
 
 ## 文件
 

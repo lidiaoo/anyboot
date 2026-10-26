@@ -20,6 +20,8 @@ mobile/android/captures/
 *.keystore
 
 # --- iOS / Xcode 构建产物（源码与 README 入库，产物不入库） ---
+# .xcodeproj 由 project.yml 经 xcodegen 生成（见 mobile/ios/project.yml），不入库
+mobile/ios/*.xcodeproj/
 mobile/ios/build/
 mobile/ios/DerivedData/
 mobile/ios/*.xcodeproj/xcuserdata/
@@ -47,6 +49,6 @@ hs_err_pid*.log
 #   要把证据跟改动绑一起，就写进 commit message，别塞进仓库。
 .workbuddy/artifacts/
 
-# dsh ���ؼ�⹤���� WorkBuddy ͼ�깤��Ŀ¼�����ز������⣩
+# dsh ���ؼ�⹤���� WorkBuddy ͼ�깤��Ŀ¼�����ز������⣩
 .dsh/
 .workbuddy/icon/

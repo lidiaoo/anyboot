@@ -100,7 +100,7 @@ final class SshSessionManager {
                pem.contains("ssh-ed25519") || key.algorithm == "ssh-ed25519" {
                 let privateKey = try Curve25519.Signing.PrivateKey(sshEd25519: pem,
                                                                    decryptionKey: passphrase.isEmpty
-                                                                   ? nil : Array(passphrase.utf8))
+                                                                   ? nil : Data(passphrase.utf8))
                 authenticationMethod = .ed25519(username: jump.username.isEmpty
                         ? "root" : jump.username, privateKey: privateKey)
             } else {
@@ -147,14 +147,12 @@ final class SshSessionManager {
                 validationCompletePromise.fail(SshError.message("会话管理器已释放"))
                 return
             }
-            // 指纹：OpenSSH 口径 = SHA256(key blob)。
-            let fingerprint: String
-            if let bytes = try? hostKey.writePublicKey() {
-                fingerprint = KeyVault.sha256Fingerprint(Data(bytes.getBytes(at: 0,
-                        length: bytes.readableBytes) ?? []))
-            } else {
-                fingerprint = ""
-            }
+            // 指纹：OpenSSH 口径 = SHA256(wire-format key blob，带算法名头)。
+            // 当前 NIOSSH API：`write(to:)` 把带头的公钥 blob 写进 ByteBuffer。
+            var keyBuffer = ByteBufferAllocator().buffer(capacity: 1024)
+            hostKey.write(to: &keyBuffer)
+            let keyBytes = keyBuffer.readBytes(length: keyBuffer.readableBytes) ?? []
+            let fingerprint = KeyVault.sha256Fingerprint(Data(keyBytes))
             let stored = UserDefaults.standard.string(forKey: "tofu_\(hostPort)") ?? ""
             let task = Task {
                 if stored.isEmpty {
@@ -194,13 +192,13 @@ final class SshSessionManager {
         let params = NWParameters.tcp
         params.allowLocalEndpointReuse = true
         guard let address = try? SocketAddress(ipAddress: "127.0.0.1", port: 0),
-              let listener = try? NWListener(using: params, on: .init(rawValue: 0)) else {
+              let listener = try? NWListener(using: params, on: NWEndpoint.Port(rawValue: 0)!) else {
             throw SshError.message("本地端口监听失败")
         }
         let portBox = PortBox()
         listener.stateUpdateHandler = { state in
             if case .ready = state, let port = listener.port?.rawValue {
-                portBox.set(port)
+                portBox.set(Int(port))
             }
         }
         listener.newConnectionHandler = { [weak self] inbound in
@@ -312,7 +310,9 @@ final class SshSessionManager {
             terminalPixelHeight: 0,
             terminalModes: .init([:])
         )
-        let channel = try await client.withPTY(request) { ttyOutput, ttyStdinWriter in
+        // 当前 Citadel main：withPTY 返回 Void；输出序列元素是 ExecCommandOutput
+        //（.stdout / .stderr 各带 ByteBuffer），stdin 是 TTYStdinWriter.write(ByteBuffer)。
+        try await client.withPTY(request) { ttyOutput, ttyStdinWriter in
             // 启动路径 / 默认 shell（与 PC 端 hub_term.rs 同一套语义）：往登录
             // shell 的 stdin 写一行命令，像手敲一样执行。目录打不通时把报错
             // 留在终端里，`;` 继续往下走，绝不因填错路径断会话。
@@ -327,12 +327,15 @@ final class SshSessionManager {
                 buffer.writeBytes(data)
                 try await ttyStdinWriter.write(buffer)
             }
-            // 读远端输出直到通道关闭
+            // 读远端输出直到通道关闭（stdout / stderr 都喂给终端）
             do {
-                for try await buffer in ttyOutput {
-                    var copy = buffer
-                    if let bytes = copy.readBytes(length: copy.readableBytes) {
-                        onOutput(Data(bytes))
+                for try await output in ttyOutput {
+                    switch output {
+                    case .stdout(let buffer), .stderr(let buffer):
+                        var copy = buffer
+                        if let bytes = copy.readBytes(length: copy.readableBytes) {
+                            onOutput(Data(bytes))
+                        }
                     }
                 }
             } catch {
@@ -341,7 +344,7 @@ final class SshSessionManager {
             done.close()
             onClosed("连接已关闭")
         }
-        return ShellHandle(stdinBox: stdinBox, channel: channel, done: done)
+        return ShellHandle(stdinBox: stdinBox, channel: nil, done: done)
     }
 
     /// 组终端启动行（PC 端 term_remote_command 的 nio-ssh 版）：
@@ -471,6 +474,7 @@ final class PortBox: @unchecked Sendable {
 /// NWConnection ↔ SSH direct-tcpip 通道的双向桥（ChannelHandler）
 final class TunnelBridge: ChannelDuplexHandler, @unchecked Sendable {
     typealias InboundIn = ByteBuffer
+    typealias InboundOut = ByteBuffer   // 不写这个协议默认 Never，fireChannelRead 会报型不匹配
     typealias OutboundIn = ByteBuffer
     typealias OutboundOut = ByteBuffer
 

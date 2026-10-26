@@ -19,12 +19,15 @@ final class TelnetSession {
     var onClosed: ((String) -> Void)?
 
     func start(jump: JumpServer) throws {
-        guard let endpoint = NWEndpoint.Host(jump.hostname) else {
+        // NWEndpoint.Host 的构造器不返回 Optional，任意串都会被当域名收下；
+        // 这里只挡「空地址」，格式合法性交给连接失败路径（stateUpdateHandler）
+        let value = jump.hostname.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else {
             throw NSError(domain: "TelnetSession", code: 1,
                           userInfo: [NSLocalizedDescriptionKey: "地址不合法"])
         }
         let connection = NWConnection(
-            host: endpoint,
+            host: NWEndpoint.Host(value),
             port: NWEndpoint.Port(rawValue: UInt16(jump.port)) ?? 23,
             using: .tcp)
         self.connection = connection
@@ -44,7 +47,7 @@ final class TelnetSession {
 
     private func receiveLoop(_ connection: NWConnection) {
         connection.receive(minimumIncompleteLength: 1, maximumLength: 16 * 1024) { [weak self] data, _, isComplete, error in
-            guard let self, !self.isClosed else { return }
+            guard let self, self.isAlive else { return }
             if let data, !data.isEmpty {
                 self.filterIac(data)
             }

@@ -1,0 +1,81 @@
+# AnyBootRemote · XcodeGen 工程定义
+#
+# 生成：在本目录跑 `xcodegen`，得到 AnyBootRemote.xcodeproj。
+# 生成后的工程用 Xcode 打开即可构建；改了源码/本文件后重跑一次 xcodegen 刷新。
+#
+# 依赖：Citadel（SSH/Telnet 栈）。源码按 2026-10 的 main 分支 API 校对
+# （见 README 与 SshSessionManager.swift 注释），所以这里钉的是 main 分支；
+# 若日后要钉版本，改成 `majorVersion: x.y` 即可。
+name: AnyBootRemote
+options:
+  bundleIdPrefix: com.anyboot
+  createIntermediateGroups: true
+  deploymentTarget:
+    iOS: "17.0"   # Citadel main 要求 iOS 17+（README 的 15+ 已过时）
+
+packages:
+  Citadel:
+    url: https://github.com/orlandos-nl/Citadel
+    branch: main
+  # 源码直接 import 了 Citadel 的传递依赖，必须显式声明成 target 依赖才可见；
+  # 版本下限对齐 Citadel main 实际解析结果（Wellz26 fork 的 nio-ssh 0.3.7）
+  NIOSSH:
+    url: https://github.com/Wellz26/swift-nio-ssh.git
+    from: "0.3.7"
+  swift-nio:
+    url: https://github.com/apple/swift-nio.git
+    from: "2.104.0"
+  swift-crypto:
+    url: https://github.com/apple/swift-crypto.git
+    from: "3.15.1"
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    TARGETED_DEVICE_FAMILY: "1,2"
+    GENERATE_INFOPLIST_FILE: false
+    PRODUCT_NAME: "$(TARGET_NAME)"
+
+targets:
+  AnyBootRemote:
+    type: application
+    platform: iOS
+    productName: AnyBootRemote
+    sources:
+      # 全部 Swift 源码；terminal 资源单独抽出来做 folder reference
+      - path: AnyBootRemote
+        excludes:
+          - "Resources/terminal"
+          - "Resources/terminal/**"
+      # folder reference（type: folder）：整个目录原样进 bundle，
+      # TerminalView.swift 按 Bundle resourceURL 下的 terminal/ 子目录加载
+      - path: AnyBootRemote/Resources/terminal
+        type: folder
+        buildPhase: resources
+    # Info.plist 由 xcodegen 生成（属性在下面 properties）。
+    # ⚠️ 四项不能少，少了运行就坏：
+    # - ATS 明文放行：服务端是局域网 http://192.168.x.x:12300，不放行直接拒连
+    # - 本地网络用途描述：iOS 14+ 访问局域网设备必须声明，否则静默失败
+    # - CFBundleDisplayName / UILaunchScreen / 方向：UI 基本盘
+    info:
+      path: Info.plist
+      properties:
+        CFBundleDisplayName: AnyBoot 远程
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+          NSAllowsLocalNetworking: true
+        NSLocalNetworkUsageDescription: 需要访问局域网内的电脑端 AnyBoot 服务，用于读取和修改启动项设置。
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+    dependencies:
+      - package: Citadel
+        product: Citadel
+      - package: NIOSSH
+        product: NIOSSH
+      - package: swift-nio
+        product: NIOCore
+      - package: swift-crypto
+        product: Crypto

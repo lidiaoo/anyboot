@@ -36,7 +36,7 @@ struct JumpServer: Identifiable, Hashable, Codable {
     static let authPassword = "password"
     static let authKey = "key"
 
-    var isSsh: Bool { protocolRaw != telnet }
+    var isSsh: Bool { protocolRaw != Self.telnet }
 
     var hostname: String {
         guard let index = host.lastIndex(of: ":"), index < host.index(before: host.endIndex)
@@ -51,7 +51,7 @@ struct JumpServer: Identifiable, Hashable, Codable {
     }
 
     var defaultPort: Int {
-        protocolRaw == telnet ? 23 : 22
+        protocolRaw == Self.telnet ? 23 : 22
     }
 
     /// 列表行第二行：user@host:port
@@ -60,7 +60,7 @@ struct JumpServer: Identifiable, Hashable, Codable {
         return (user.isEmpty ? "" : "\(user)@") + host
     }
 
-    var protocolLabel: String { protocolRaw == telnet ? "Telnet" : "SSH" }
+    var protocolLabel: String { protocolRaw == Self.telnet ? "Telnet" : "SSH" }
 
     var displayName: String {
         let value = name.trimmedAnyBoot

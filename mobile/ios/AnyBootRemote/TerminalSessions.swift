@@ -11,6 +11,10 @@ final class TerminalSessionRef: ObservableObject, Identifiable {
     let server: JumpServer
     let startedAt = Date()
 
+    init(server: JumpServer) {
+        self.server = server
+    }
+
     private var shell: ShellHandle?
     private var telnet: TelnetSession?
     private var backlog = Data()
@@ -29,7 +33,7 @@ final class TerminalSessionRef: ObservableObject, Identifiable {
     func startSsh() async throws {
         let manager = SshSessionManager.shared
         let handle = try await manager.openShell(
-            server: server,
+            jump: server,
             columns: 80, rows: 24,
             onOutput: { [weak self] data in self?.deliver(data) },
             onClosed: { [weak self] reason in self?.close(reason) })

@@ -30,6 +30,7 @@
 - 新增托盘菜单项：`grub_menu_nodes`（主窗/自绘窗/Linux dbusmenu/Win-mac classic 四处共用）与 `build_tray_menu` 两边都要加。
 
 ## 远端管理（server-hub）
+- **产品定则：连接策略机制只属于「电脑列表」**——优先级/停用/探测赢家都由它算，「电脑」页（PC hub 与移动端）只是另一展示主题、样式不同、逻辑分支不许另写。`route_disabled` 认全部六通道 id（别再只认 lan/jump）；电脑页标注只认探测赢家 kind（`pcWinnerKind` / HeartbeatManager `State.kind`）。
 - **配对多条目模型已实现**（`docs/remote-pairs.md`，S1–S5 完成）：三区块 `cloudflare|ts|tsnet` 各挂多条 `RemotePair`，**不许再退回固定 String 槽**；顶替只允许 `(mid,kind)` 幂等更新、跨系统永不覆盖；`ts` 区块用 `lane=direct|funnel` 合一直连与 Funnel；两层策略 `route_probe_mode`（区块间）+ `block_probe_mode[kind]`（区块内），三层超时 `pairs[].probe_timeout_ms → block_timeouts_ms[kind] → probe_timeout_ms`，「测试」固定 `parallel_all`；不做向后兼容 / 分组 / MAC 推导 / 自动建档。
 - 探测引擎的「区块策略」在 Rust 端由 `ProbeGroup.inner_mode`（建组时按 `block_of_route` 回查）承载，**不是一个全局 address_mode**；清洗策略表不能直接用 `normalize_probe_mode`（它把非法值悄悄变 `parallel_first`）。PC 端三处接线缺一即设置无效：`pcRouteCandidates`（三层超时）、`pcProbe`（传 `blockProbeModes`）、编辑弹窗「测试」（强制 `parallel_all`）。
 - `machine_id` = 「一套 AnyBoot 配置」的身份（存 `settings.json`，非系统安装 id）。**铁律：mid 与 tsnet 状态必须同源**，只分 mid 不分 state = 两个身份抢一个节点；Linux 共享 home 是同一身份，靠 `/health` 的 `systemLabel`（`PRETTY_NAME`）区分发行版；tsnet `--hostname` 取配置不取系统 hostname。

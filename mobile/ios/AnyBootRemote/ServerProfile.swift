@@ -17,7 +17,7 @@ extension String {
 ///
 /// 「是不是同一台电脑」优先用电脑端 `GET /health` 给的 `machineId` 判断
 /// （见 `sameMachine(_:)`）；拿不到标识时退回「分组名相同」这个用户可见的约定。
-struct ServerProfile: Identifiable, Hashable {
+struct ServerProfile: Identifiable, Hashable, Codable {
 
     var id: String = UUID().uuidString
     /// 分组名（区分不同的电脑）；空串 = 未分组

@@ -132,12 +132,17 @@ struct FilesPage: View {
                 defer { Task { try? await sftp.close() } }
                 var list: [Entry] = []
                 let raw = try await sftp.listDirectory(atPath: target)
-                for item in raw {
-                    let name = item.fileName
-                    guard name != ".", name != ".." else { continue }
-                    let attrs = item.attributes
-                    list.append(Entry(name: name, isDir: attrs?.isDirectory ?? false,
-                                      size: Int(attrs?.size ?? 0)))
+                for nameMessage in raw {
+                    for item in nameMessage.components {
+                        let name = item.filename
+                        guard name != ".", name != ".." else { continue }
+                        let attrs = item.attributes
+                        // 当前 Citadel 的 SFTPFileAttributes 没有 isDirectory，
+                        // 目录判定走 permissions 的 S_IFDIR 位（0o40000）
+                        let isDir = attrs.permissions.map { $0 & 0o40000 != 0 } ?? false
+                        list.append(Entry(name: name, isDir: isDir,
+                                          size: Int(attrs.size ?? 0)))
+                    }
                 }
                 list.sort { ($0.isDir == $1.isDir ? $0.name < $1.name : $0.isDir) }
                 await MainActor.run {

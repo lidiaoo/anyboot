@@ -444,7 +444,7 @@ struct ServerModuleView: View {
                 notice = "不像 PEM 格式的私钥（应以 -----BEGIN 开头）"
                 return
             }
-            let entry = SshKeyEntry()
+            var entry = SshKeyEntry()
             entry.name = url.lastPathComponent
             entry.privateRef = "key-\(entry.id)"
             KeyVault.save(pem, account: entry.privateRef)
@@ -457,9 +457,12 @@ struct ServerModuleView: View {
             } else {
                 entry.algorithm = "ssh-rsa"
                 let privateKey = try Insecure.RSA.PrivateKey(sshRsa: pem)
-                let sshPublic = privateKey.sshPublicKeyData   // Citadel 提供
-                entry.fingerprint = KeyVault.sha256Fingerprint(sshPublic)
-                entry.publicKey = "ssh-rsa \(sshPublic.base64EncodedString())"
+                // CryptoKit 不暴露 n/e，本地拼不了 ssh-rsa wire 公钥；
+                // 指纹取 DER rawRepresentation（App 内一致性用途；TOFU 校验
+                // 的是服务器主机密钥，与此无关），authorized_keys 行留空
+                let der = privateKey.publicKey.rawRepresentation
+                entry.fingerprint = KeyVault.sha256Fingerprint(der)
+                entry.publicKey = ""
             }
             jumps.upsert(entry)
             notice = "已导入 \(entry.algorithm) 密钥"
@@ -478,7 +481,7 @@ struct ServerModuleView: View {
         let name = generatedKeyName.trimmedAnyBoot.isEmpty
             ? "key-\(jumps.keys.count)" : generatedKeyName
         let privateKey = Curve25519.Signing.PrivateKey()
-        let entry = SshKeyEntry()
+        var entry = SshKeyEntry()
         entry.name = name
         entry.privateRef = "key-\(entry.id)"
         entry.algorithm = "ssh-ed25519"
