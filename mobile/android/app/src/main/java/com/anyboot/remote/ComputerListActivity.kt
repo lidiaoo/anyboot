@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -873,6 +874,9 @@ class ComputerListActivity : ComponentActivity() {
                 .padding(start = 13.dp, end = 13.dp, top = 12.dp, bottom = 13.dp),
         ) {
             // 名称 + 当前徽标 + 分组 chip + ⋮
+            // 名称必须 weight(1f) 一占到底（fill 默认 true）：这里曾经的组合是
+            // 「名称 weight(fill=false) + 行尾 Spacer(weight 1f)」，两者平分剩余空间，
+            // 再加上 conn chip 最长 150dp（「Tailscale Funnel（内建）」），名称被挤成「…」。
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.padding(start = 4.dp),
@@ -884,7 +888,7 @@ class ComputerListActivity : ComponentActivity() {
                     color = palette.fg,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false),
+                    modifier = Modifier.weight(1f),
                 )
                 if (selected) {
                     Spacer(Modifier.width(7.dp))
@@ -907,7 +911,8 @@ class ComputerListActivity : ComponentActivity() {
                     Spacer(Modifier.width(7.dp))
                     OsBadge(row.profile.machineOs) { openSysInfo(row.profile) }
                 }
-                // 当前连接标注：直连 / 跳板机·xxx / 远程隧道（隧道 = 探测赢家确实是它）
+                // 当前连接标注：直连 / 跳板机·xxx / 远程隧道（隧道 = 探测赢家确实是它）。
+                // 354dp 的行放不下完整文案：限宽 + 省略，长文案（跳板机名）截断保名称。
                 Spacer(Modifier.width(7.dp))
                 val connColor = if (row.connRemote) palette.accent else palette.fgFaint
                 Text(
@@ -916,13 +921,14 @@ class ComputerListActivity : ComponentActivity() {
                     fontWeight = FontWeight.SemiBold,
                     color = connColor,
                     maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     modifier = Modifier
+                        .widthIn(max = 110.dp)
                         .clip(RoundedCornerShape(5.dp))
                         .background(connColor.copy(alpha = 0.12f))
                         .border(1.dp, connColor.copy(alpha = 0.28f), RoundedCornerShape(5.dp))
                         .padding(horizontal = 5.dp, vertical = 1.dp),
                 )
-                Spacer(Modifier.weight(1f))
                 CardMenu(row)
             }
 
@@ -2061,14 +2067,15 @@ class ComputerListActivity : ComponentActivity() {
             null
         }
         val usingRemote = hitPair != null
-        // **没在线的不能写「直连」**（以前这里就是这样：电脑关着机也写着「直连」）。
-        // 只有这一轮确实探通（或正在唤醒/关机这类过渡态之外的在线）才描述走的哪条通道。
+        // **没在线的不能写「直连」**：只有这一轮确实探通才描述走的哪条通道。
+        // 卡片第一行的连接 chip 空间只有 ~110dp（名称要活），文案必须短：
+        // 完整通道描述在配对行与编辑表单里都有，这里是摘要。
         val conn = if (state != STATE_ONLINE) {
             "未连接"
         } else when {
-            hitPair?.routeKind() == ServerProfile.ROUTE_TSNET -> "Tailscale Funnel（内建）"
-            hitPair?.routeKind() == ServerProfile.ROUTE_FUNNEL -> "Tailscale Funnel"
-            hitPair?.routeKind() == ServerProfile.ROUTE_TS -> "Tailscale 直连"
+            hitPair?.routeKind() == ServerProfile.ROUTE_TSNET -> "内置 Funnel"
+            hitPair?.routeKind() == ServerProfile.ROUTE_FUNNEL -> "TS Funnel"
+            hitPair?.routeKind() == ServerProfile.ROUTE_TS -> "TS 直连"
             hitPair != null -> "远程隧道"
             ServerProfile.text(profile.jumpServerId).isNotEmpty() -> {
                 val jump = JumpStore.findJump(JumpStore.loadJumps(this), profile.jumpServerId)
