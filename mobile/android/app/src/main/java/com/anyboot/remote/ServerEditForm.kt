@@ -927,22 +927,15 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                         )
                         Spacer(Modifier.width(6.dp))
                         if (kind == ServerProfile.ROUTE_LAN || kind == ServerProfile.ROUTE_JUMP) {
-                            SmallNumberField(
+                            InlineTimeoutField(
+                                label = "超时",
                                 value = state.routeTimeoutTexts[kind] ?: "",
                                 enabled = available,
-                                placeholder = "默认",
                                 onValueChange = { raw ->
                                     val cleaned = raw.filter { it.isDigit() || it == '.' }.take(5)
                                     if (cleaned.isBlank()) state.routeTimeoutTexts.remove(kind)
                                     else state.routeTimeoutTexts[kind] = cleaned
                                 },
-                                modifier = Modifier.width(56.dp),
-                            )
-                            Text(
-                                "s",
-                                fontSize = 10.sp,
-                                color = palette.fgFaint,
-                                modifier = Modifier.padding(start = 2.dp),
                             )
                         } else {
                             // 配对通道的超时在下面「区块默认超时」与每条配对上设
@@ -1031,44 +1024,51 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
         )
 
         // ---- 区块内部策略 + 区块默认超时（配对专用，与上面两个粒度并列的第三层） ----
+        // 一行塞不下六个元素（354dp 视口下超时框被挤得只剩壳）：拆两行，
+        // 第一行「区块名 …… 默认超时[__]秒」，第二行三个策略按钮均分占满 —— 与 PC 端同构。
         FieldLabel("区块内部策略（同一个区块里的多条配对之间怎么探）与区块默认超时")
         for (block in RemotePair.BLOCK_IDS) {
             val count = state.pairsOf(block).count { it.addr.isNotBlank() }
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 2.dp),
             ) {
-                Text(
-                    RemotePair.blockLabel(block),
-                    fontSize = 12.sp,
-                    color = if (count > 0) palette.fg else palette.fgFaint,
-                    modifier = Modifier.width(104.dp),
-                )
-                val mode = state.blockModes[block] ?: ServerProfile.PROBE_PARALLEL_FIRST
-                // 三个小按钮：并发首个 / 并发全部 / 串行（窄屏塞不下 RadioButton 的文字）
-                ProbeModeChoice("首个", mode == ServerProfile.PROBE_PARALLEL_FIRST, Modifier.weight(1f)) {
-                    state.blockModes[block] = ServerProfile.PROBE_PARALLEL_FIRST
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        RemotePair.blockLabel(block),
+                        fontSize = 12.sp,
+                        color = if (count > 0) palette.fg else palette.fgFaint,
+                        modifier = Modifier.weight(1f),
+                    )
+                    InlineTimeoutField(
+                        label = "默认超时",
+                        value = state.blockTimeoutTexts[block] ?: "",
+                        enabled = count > 0,
+                        onValueChange = { raw ->
+                            val cleaned = raw.filter { it.isDigit() || it == '.' }.take(5)
+                            if (cleaned.isBlank()) state.blockTimeoutTexts.remove(block)
+                            else state.blockTimeoutTexts[block] = cleaned
+                        },
+                    )
                 }
-                ProbeModeChoice("全部", mode == ServerProfile.PROBE_PARALLEL_ALL, Modifier.weight(1f)) {
-                    state.blockModes[block] = ServerProfile.PROBE_PARALLEL_ALL
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 2.dp),
+                ) {
+                    val mode = state.blockModes[block] ?: ServerProfile.PROBE_PARALLEL_FIRST
+                    ProbeModeChoice("并发·首个", mode == ServerProfile.PROBE_PARALLEL_FIRST, Modifier.weight(1f)) {
+                        state.blockModes[block] = ServerProfile.PROBE_PARALLEL_FIRST
+                    }
+                    ProbeModeChoice("全部", mode == ServerProfile.PROBE_PARALLEL_ALL, Modifier.weight(1f)) {
+                        state.blockModes[block] = ServerProfile.PROBE_PARALLEL_ALL
+                    }
+                    ProbeModeChoice("串行", mode == ServerProfile.PROBE_SERIAL, Modifier.weight(1f)) {
+                        state.blockModes[block] = ServerProfile.PROBE_SERIAL
+                    }
                 }
-                ProbeModeChoice("串行", mode == ServerProfile.PROBE_SERIAL, Modifier.weight(1f)) {
-                    state.blockModes[block] = ServerProfile.PROBE_SERIAL
-                }
-                SmallNumberField(
-                    value = state.blockTimeoutTexts[block] ?: "",
-                    enabled = count > 0,
-                    placeholder = "默认",
-                    onValueChange = { raw ->
-                        val cleaned = raw.filter { it.isDigit() || it == '.' }.take(5)
-                        if (cleaned.isBlank()) state.blockTimeoutTexts.remove(block)
-                        else state.blockTimeoutTexts[block] = cleaned
-                    },
-                    modifier = Modifier.width(52.dp),
-                )
-                Text("s", fontSize = 10.sp, color = palette.fgFaint)
             }
         }
         Text(
@@ -1700,19 +1700,15 @@ private fun PairEditRow(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
-            Text("超时", fontSize = 10.sp, color = palette.fgFaint)
-            Spacer(Modifier.width(4.dp))
-            SmallNumberField(
+            InlineTimeoutField(
+                label = "超时",
                 value = item.timeoutText,
                 enabled = item.enabled,
-                placeholder = "默认",
                 onValueChange = { raw ->
                     val cleaned = raw.filter { it.isDigit() || it == '.' }.take(5)
                     state.updatePair(item.id) { pair -> pair.copy(timeoutText = cleaned) }
                 },
-                modifier = Modifier.width(56.dp),
             )
-            Text("s", fontSize = 10.sp, color = palette.fgFaint)
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("令牌", fontSize = 10.sp, color = palette.fgFaint)
@@ -1820,7 +1816,34 @@ private fun TinyTextButton(
 }
 
 /**
- * 紧凑的小数字输入框（26dp 高、等宽居中）：连接优先级每行的「探测超时/秒」用。
+ * 「超时 [__] 秒」控件组：裸数字框 + 占位「默认」时用户看不出它是什么（与 PC 端同病同修），
+ * 三处复用：通道优先级行 / 区块默认超时 / 每条配对。label 由调用处给（「超时」/「默认超时」）。
+ */
+@Composable
+private fun InlineTimeoutField(
+    label: String,
+    value: String,
+    enabled: Boolean,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val palette = LocalPalette.current
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = modifier) {
+        Text(label, fontSize = 10.sp, color = palette.fgFaint)
+        Spacer(Modifier.width(4.dp))
+        SmallNumberField(
+            value = value,
+            enabled = enabled,
+            placeholder = "默认",
+            onValueChange = onValueChange,
+            modifier = Modifier.width(56.dp),
+        )
+        Spacer(Modifier.width(2.dp))
+        Text("秒", fontSize = 10.sp, color = palette.fgFaint)
+    }
+}
+/**
+ * 紧凑的小数字输入框（26dp 高、等宽居中）：探测超时用。
  *
  * <p>为什么不用 OutlinedTextField：M3 那个最小高度 56dp，六个通道就是 300+ dp，
  * 把整个连接策略折叠区撑爆；这里只要能输入几个数字，自绘更合适。
