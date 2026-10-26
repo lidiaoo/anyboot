@@ -23,8 +23,21 @@
 - **删掉最后一台服务端 → App 被锁在「连接 AnyBoot 服务端」**：MainActivity 的 `firstRun` 分支**不给「取消」按钮、`onDismissRequest` 也被 `if (!request.firstRun)` 拦住**，退无可退，只能保存一台才出得来。想绕过它去别的页（如传输页）也不行 —— `ServersActivity` 不导出（见上）。此时要清数据只能 `adb shell run-as com.anyboot.remote rm -f files/transfers.json`（debug 包 run-as 可用，比 `pm clear` 精确，不碰跳板机配置）。
 - **清测试残留**：`run-as` 删 `files/transfers.json`（任务记录）+ `rm -f /storage/emulated/0/Android/data/com.anyboot.remote/files/Download/*`（下载产物）。靶机侧 `~/.cache/ab-droid/sftp-root/` 那几个 8/16/18 MiB 的测试文件加起来 45 MB，记得也删（靶机下次起会自己重铺）。
 
+## 真机（2026-10-26 起，优先用它）
+- 设备 `96b199d` = realme RMX3708 / Android 16 / **1240x2772 / 560dpi**。坐标换算
+  **物理 px = 截图 px × 1**（`input tap` 就用截图坐标，别乘 density）。
+- **CSS 视口 = 1240 / 3.5 = 354px**，比 AVD（1080@420 → 411px）窄一档 —— 411 下不折行的
+  三个页签、横幅、卡片按钮，354 下全都会崩。**排版问题必须在真机看，模拟器会漏。**
+- AVD `Medium_Phone_API_35` 在这台 AMD Hackintosh 上**没有硬件加速**
+  （`kern.hv_support: 0`，Hypervisor.framework 不支持 AMD）→ 必须 `-accel off` 软件模拟，
+  开机 ~10 分钟；开机途中 `adb install` 会撞
+  `PackageManagerInternal.freeStorage` 空指针，等 `sys.boot_completed=1` 再装。
+- **主内容区是 WebView 加载电脑端 `ui/index.html`**（不是 hub.html）：手机上那些页签/横幅/
+  状态条都属于 PC 前端，改完必须 `npm run build:mac-intel` + 替换 `/Applications` 才生效；
+  原生那几屏（电脑列表 / 编辑表单 / 抽屉）才是 Compose。
+
 ## 结构
-- 服务器模块：标题栏（齿轮=终端设置 / ＋=添加）+ 五页底导 **服务器 / 会话 / 密钥 / 传输 / 文件**（0 起下标，默认页 0）。
+- 服务器模块（`ServersActivity`，SSH 跳板机专用）标题栏 + 五页底导 **服务器 / 会话 / 密钥 / 传输 / 文件**；`MainActivity` 是「一台电脑一个 WebView 标签」的容器，没有底导。
 - **地址解析规则三处必须一致**（`ServerProfile` Java / `ui/hub.html` / Rust `hub::is_mac`）：一行 = 一个 IP + 可选多个 MAC，先判 IPv4 再判 MAC；改一处就得三处一起改。
 
 ## 传输中心 `TransferManager.java`
