@@ -949,6 +949,8 @@ class ComputerListActivity : ComponentActivity() {
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    // 这块网卡的探测情况（同一套逐行结果，换样式展示）：通 = 延迟，不通 = 标出
+                    LanHitBadge(row, row.profile.hostAt(0))
                     row.profile.macsForHost(row.profile.hostAt(0)).forEach { mac ->
                         Spacer(Modifier.width(6.dp))
                         Text("·", fontSize = 11.sp, color = palette.fgFaint)
@@ -983,6 +985,7 @@ class ComputerListActivity : ComponentActivity() {
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    LanHitBadge(row, addr)
                     row.profile.macsForHost(addr).forEach { mac ->
                         Spacer(Modifier.width(6.dp))
                         Text("·", fontSize = 11.sp, color = palette.fgFaint)
@@ -1025,6 +1028,18 @@ class ComputerListActivity : ComponentActivity() {
                                 modifier = Modifier.width(52.dp),
                                 maxLines = 1,
                             )
+                            // 通道徽章：与连接优先级表同名的通道（隧道 / TS 直连 /
+                            // TS Funnel / 内置 Funnel）—— 一眼分清这条配对归属谁
+                            if (pair.channel.isNotEmpty()) {
+                                Text(
+                                    pair.channel,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = palette.fgDim,
+                                    maxLines = 1,
+                                )
+                                Spacer(Modifier.width(5.dp))
+                            }
                             Text(
                                 pair.addr,
                                 fontSize = 11.sp,
@@ -1051,6 +1066,34 @@ class ComputerListActivity : ComponentActivity() {
                                     color = palette.fgFaint,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            // 行尾操作：复制 / 浏览器打开（URL 带这条配对自己的令牌）
+                            if (pair.url.isNotEmpty() && pair.enabled) {
+                                Spacer(Modifier.width(5.dp))
+                                Text(
+                                    "复制",
+                                    fontSize = 10.sp,
+                                    color = palette.fgFaint,
+                                    modifier = Modifier.clickable {
+                                        copyText(pair.url)
+                                        toast("已复制" + pair.channel + "地址")
+                                    },
+                                )
+                                Spacer(Modifier.width(5.dp))
+                                Text(
+                                    "打开",
+                                    fontSize = 10.sp,
+                                    color = palette.fgFaint,
+                                    modifier = Modifier.clickable {
+                                        try {
+                                            startActivity(
+                                                Intent(Intent.ACTION_VIEW, android.net.Uri.parse(pair.url))
+                                            )
+                                        } catch (error: Exception) {
+                                            toast("没有能打开网页的应用")
+                                        }
+                                    },
                                 )
                             }
                         }
@@ -1174,6 +1217,29 @@ class ComputerListActivity : ComponentActivity() {
             Spacer(Modifier.width(4.dp))
             Text(label, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = color, maxLines = 1)
         }
+    }
+
+    /**
+     * 局域网地址行尾的探测情况小字：这块网卡在这轮心跳里的结果（通 = 延迟，不通 = 标出）。
+     * 探测机制属于电脑列表（连接优先级 / 停用通道都按列表策略算），这里只是换个样式展示。
+     */
+    @Composable
+    private fun LanHitBadge(row: CqRow, addr: String) {
+        val palette = LocalPalette.current
+        val host = ServerProfile.normalizeHost(addr)
+        if (host.isEmpty()) return
+        val hit = row.hits.firstOrNull {
+            it.kind == ServerProfile.ROUTE_LAN &&
+                ServerProfile.normalizeHost(it.origin) == host
+        } ?: return
+        Spacer(Modifier.width(6.dp))
+        Text(
+            if (hit.ok) "通 " + hit.ms + "ms" else "不通",
+            fontSize = 10.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = if (hit.ok) palette.ok else palette.bad,
+            maxLines = 1,
+        )
     }
 
     /**
@@ -2097,12 +2163,20 @@ class ComputerListActivity : ComponentActivity() {
                     hit.ok -> "通 " + hit.ms + "ms"
                     else -> "不通"
                 }
+                // 浏览器地址带这条配对自己的令牌（不同配对各带各的网关客户端令牌）
+                val origin = ServerProfile.normalizeRemoteOrigin(pair.addr)
+                val secret = ServerProfile.text(pair.token)
+                val openUrl = if (origin.isEmpty()) ""
+                else if (secret.isEmpty()) origin
+                else origin + "/?ab_token=" + android.net.Uri.encode(secret)
                 rows.add(
                     PairRow(
                         id = pair.id,
                         block = RemotePair.blockLabel(pair.kind),
-                        addr = ServerProfile.normalizeRemoteOrigin(pair.addr)
+                        channel = ServerProfile.routeLabel(pair.routeKind()),
+                        addr = origin
                             .removePrefix("https://").removePrefix("http://"),
+                        url = openUrl,
                         lane = if (pair.routeKind() == ServerProfile.ROUTE_FUNNEL) "Funnel" else "",
                         source = pair.sourceLabel(),
                         state = stateText,
@@ -2119,6 +2193,7 @@ class ComputerListActivity : ComponentActivity() {
             tunnelNote = tunnelShareNote(profile),
             ip = displayAddress(profile),
             mac = profile.allMacs().firstOrNull()?.uppercase(Locale.US) ?: "",
+            hits = hits,
             refind = info?.refind ?: emptyGroup(KIND_REFIND),
             grub = info?.grub ?: emptyGroup(KIND_GRUB),
             state = state,
@@ -2966,6 +3041,8 @@ class ComputerListActivity : ComponentActivity() {
         val tunnelNote: String,
         val ip: String,
         val mac: String,
+        /** 这一轮心跳的逐行探测结果（地址行与配对行的状态都从这里读） */
+        val hits: List<ProbeEngine.Hit>,
         val refind: BootGroup,
         val grub: BootGroup,
         val state: String,
@@ -2980,7 +3057,11 @@ class ComputerListActivity : ComponentActivity() {
         val id: String,
         /** 区块名（Cloudflare / Tailscale / Tailscale（内建）） */
         val block: String,
+        /** 通道名（与连接优先级表同名：隧道 / TS 直连 / TS Funnel / 内置 Funnel） */
+        val channel: String,
         val addr: String,
+        /** 浏览器打开 / 复制用的完整地址（带这条配对自己的 ab_token；空 = 没法开） */
+        val url: String,
         /** ts 区块才有：直连 / Funnel */
         val lane: String,
         /** 来源：host · os（拿不到时退回 mid 短号） */

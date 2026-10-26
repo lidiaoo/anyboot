@@ -1,6 +1,6 @@
 <!DOCTYPE html>
-<!-- ui-version: 20261026-cq-remote-acts（电脑列表远程接入行：通道徽章 + 复制/浏览器打开） -->
-<script>try{window.ANYBOOT_UI_VERSION='20261026-cq-remote-acts';}catch(e){}</script>
+<!-- ui-version: 20261026-route-conn（连接路径按探测赢家/优先级选通道：直连不再被跳板机独占；列表行全通道+逐行探测情况） -->
+<script>try{window.ANYBOOT_UI_VERSION='20261026-route-conn';}catch(e){}</script>
 <script src="qrcode.min.js"></script>
 <!-- AnyBoot 远程管理（server-hub）。
      独立窗口，主窗口零改动；托盘「远程管理…」是唯一入口。
@@ -1905,6 +1905,10 @@
     background:transparent; color:rgb(var(--fg-faint)); border:1px solid rgb(var(--line));
   }
   .cq-remote-act:hover { color:rgb(var(--fg)); border-color:rgb(var(--accent) / .55); }
+  /* 通道行尾的探测情况小字（延迟 / 失败原因） */
+  .cq-probe-ms { font-size:10px; color:rgb(var(--fg-faint)); flex:none; }
+  .cq-probe-ms.ok { color:rgb(var(--ok)) !important; }
+  .cq-probe-ms.bad { color:rgb(var(--warn)) !important; }
 
   /* ---- 远程接入分页标签 + Tailscale 卡窄窗自适应（放末尾覆盖基础规则） ---- */
   @media (max-width: 720px) {
@@ -5361,9 +5365,45 @@
       .filter(Boolean)
       .join(' · ');
   }
-  function pcUrl(r) {
+  /**
+   * 没探过赢家时的初始路径：优先级表里「直连」与「跳板机」谁在前走谁
+   * （停用 / 没配的通道不算数）—— 与电脑列表的连接优先级同一套机制。
+   */
+  function pcDefaultLocalKind(r) {
+    const order = (Array.isArray(r.route_order) && r.route_order.length) ? r.route_order : ROUTE_IDS.slice();
+    const disabled = {};
+    (Array.isArray(r.route_disabled) ? r.route_disabled : []).forEach(function (id) { disabled[id] = true; });
+    const lanOk = !disabled.lan && (r.addresses || []).some(function (a) { return String(a || '').trim(); });
+    const jumpOk = !disabled.jump && (r.jump_id || '').trim();
+    if (lanOk && jumpOk) {
+      return order.indexOf('lan') <= order.indexOf('jump') ? 'lan' : 'jump';
+    }
+    if (lanOk) return 'lan';
+    if (jumpOk) return 'jump';
+    return (r.jump_id || '').trim() ? 'jump' : 'lan';
+  }
+  /** 这台电脑现在要不要解析跳板机转发端点：赢家是 jump，或没探过且默认路径是 jump */
+  function pcNeedJump(r) {
+    if (!r) return false;
+    const winner = pcWinnerKind.get(r.id) || '';
+    if (winner === 'jump') return true;
+    if (winner) return false; // lan 或远程赢家都用不上转发端点
+    return pcDefaultLocalKind(r) === 'jump';
+  }
+  /**
+   * iframe / 连接 URL。通道选择**听电脑列表的机制**（探测赢家 / 优先级表）：
+   * 赢家是远程 → https origin + ab_token；赢家是直连 → 局域网地址（哪怕配了
+   * 跳板机也不再独占连接——直连通了就该走直连，它更快）；赢家是跳板机 →
+   * 转发端点。没探过按优先级表「直连 vs 跳板机」谁在前。
+   */
+  function pcConnUrl(r) {
+    const win = pcRemoteWin.get(r.id);
+    // 令牌用**赢家那条配对**自己的：不同配对各带各的网关客户端令牌
+    if (win) return win + '/?ab_token=' + encodeURIComponent(pcTokenForAddr(r, win));
+    const winner = pcWinnerKind.get(r.id) || '';
+    const kind = (winner === 'lan' || winner === 'jump') ? winner : pcDefaultLocalKind(r);
     const token = encodeURIComponent(r.token || '');
-    if (r.jump_id) {
+    if (kind === 'jump') {
       const ep = pcEps.get(r.id);
       // 跳板端点还没解析好：返回空串，pcResolveEp 到货后重建 iframe
       return ep ? 'http://' + ep.host + ':' + ep.port + '/?token=' + token : '';
@@ -5392,6 +5432,12 @@
    * 电脑页标签、列表行、悬浮球只是同一个探测结论的不同样式 —— 都读这里。
    */
   const pcWinnerKind = new Map();
+  /**
+   * rid -> Map( 行键 -> {ok, ms, error} )：最近一次探测的**逐行**结果。
+   * 行键 = kind + '\u0000' + (pair_id || address)。电脑列表把全部通道（直连地址 /
+   * 跳板机 / 每条配对）各亮一行，每行的探测情况从这里读——还是同一套机制的不同样式。
+   */
+  const pcRowProbe = new Map();
   /**
    * rid -> 最近一次探测的结论（true=通）。
    * 「没连上就别说直连」：以前 pcConnLabel 的兜底是 '直连'，于是压根没探过、
@@ -5530,6 +5576,15 @@
         pcRemoteExpired.delete(r.id);
       }
     }
+    // 逐行结果落账（成败都记，串行未探到的行带 skip 理由）：电脑列表每条
+    // 通道行的探测情况从这里读 —— 还是同一套探测，只是换个样式展示
+    const rowMap = new Map();
+    (res && Array.isArray(res.results) ? res.results : []).forEach(function (o) {
+      if (!o) return;
+      rowMap.set(String(o.kind || 'lan') + '\u0000' + (o.pair_id || o.address || ''),
+        { ok: !!o.ok, ms: o.ms || 0, error: o.error || '' });
+    });
+    pcRowProbe.set(r.id, rowMap);
     if (connChanged) {
       renderPcChips();
       pcFabRefresh();
@@ -5575,14 +5630,6 @@
     }
     return '';
   }
-  /** iframe / 连接 URL：远程赢家 → https origin + ab_token；否则局域网首选地址 */
-  function pcConnUrl(r) {
-    const win = pcRemoteWin.get(r.id);
-    // 令牌用**赢家那条配对**自己的：不同配对各带各的网关客户端令牌
-    if (win) return win + '/?ab_token=' + encodeURIComponent(pcTokenForAddr(r, win));
-    return pcUrl(r);
-  }
-
   /**
    * 地址是否为 Tailscale（100.64.0.0/10 裸 IP 或 *.ts.net）。
    * 与 Rust 端 is_tailscale_host、移动端 ServerProfile.isTailscaleAddr 同语义，改要三处对齐。
@@ -6089,8 +6136,61 @@
   }
 
   /** 一行（flex）：电脑 / 状态 / rEFInd / GRUB / 电源 / 更多 —— 与表头同一套 cq-col-* 列类 */
-  function cqRowEl(row) {
-    const tr = document.createElement('div');
+  /**
+   * 通道行的探测状态（电脑列表行用）：kind + 配对 id / 地址去 pcRowProbe 查。
+   * 返回 null = 没探过（行上就不标状态）。
+   */
+  function cqProbeState(rid, kind, pairId, address) {
+    const rows = pcRowProbe.get(rid);
+    if (!rows) return null;
+    const key = String(kind || 'lan') + '\u0000' + (pairId || address || '');
+    return rows.get(key) || null;
+  }
+  /** 通道行尾的探测情况小字：通 = 延迟（绿），不通 = 短原因（暗），没探过 = 不标 */
+  function cqProbeBadge(rid, kind, pairId, address) {
+    const st = cqProbeState(rid, kind, pairId, address);
+    const span = document.createElement('span');
+    if (!st) return span;
+    span.className = 'cq-probe-ms' + (st.ok ? ' ok' : ' bad');
+    span.textContent = st.ok ? (st.ms + ' ms') : (st.error || '不通');
+    span.title = st.ok ? '最近一次探测通过' : '最近一次探测失败：' + (st.error || '不通');
+    return span;
+  }
+  /** 直连地址行尾的「复制 / 浏览器打开」：URL 带档案令牌，局域网内落地即可用 */
+  function cqLanActs(row, addr) {
+    const r = remotes.find(function (x) { return x.id === row.rid; }) || {};
+    const url = 'http://' + addr + '/?token=' + encodeURIComponent(r.token || '');
+    const acts = [];
+    const copy = document.createElement('button');
+    copy.type = 'button';
+    copy.className = 'cq-remote-act';
+    copy.textContent = '复制';
+    copy.title = '复制这个局域网地址（含访问令牌）';
+    copy.addEventListener('click', function (e) {
+      e.stopPropagation();
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url)
+          .then(function () { toast('已复制直连地址'); })
+          .catch(function () { toast('复制失败：剪贴板不可用', 'bad'); });
+      } else toast(url);
+    });
+    const openBtn = document.createElement('button');
+    openBtn.type = 'button';
+    openBtn.className = 'cq-remote-act';
+    openBtn.textContent = '浏览器打开';
+    openBtn.title = '用系统默认浏览器打开这个局域网地址';
+    openBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      if (!invoke) { toast('打开浏览器需要应用环境', 'bad'); return; }
+      invoke('remote_open_page', { url: url })
+        .then(function () { toast('已在系统浏览器打开直连地址'); })
+        .catch(function (error) { toast('打开浏览器失败：' + error, 'bad'); });
+    });
+    acts.push(copy, openBtn);
+    return acts;
+  }
+
+  function cqRowEl(row) {    const tr = document.createElement('div');
     tr.className = 'cq-row';
     tr.setAttribute('role', 'row');
     tr.dataset.rid = row.rid;
@@ -6168,13 +6268,20 @@
       }
       meta.appendChild(ln);
     } else {
-      // 每个配置好的地址一行，后面跟它自己的 MAC（可多个）
+      // 每个配置好的地址一行：行首「直连」徽章 + 该地址的探测情况，行尾复制/浏览器打开
       addrLines.forEach(function (line) {
         const ln = document.createElement('div');
         ln.className = 'cq-dev-line';
+        const lanKind = document.createElement('span');
+        lanKind.className = 'cq-remote-kind';
+        lanKind.dataset.k = 'lan';
+        lanKind.textContent = '直连';
+        ln.appendChild(lanKind);
         const a = document.createElement('span');
         a.textContent = line.addr;
         ln.appendChild(a);
+        // 探测情况：该地址在这轮逐行结果里的成败与延迟（同一套探测，换个样式展示）
+        ln.appendChild(cqProbeBadge(row.rid, 'lan', '', pcNormAddr(line.addr)));
         line.macs.forEach(function (m) {
           const sep = document.createElement('span');
           sep.className = 'sep cq-dev-mac';
@@ -6185,8 +6292,45 @@
           ms.textContent = m;
           ln.appendChild(ms);
         });
+        if (!row.local) {
+          const sep = document.createElement('span');
+          sep.className = 'sep';
+          sep.textContent = '·';
+          ln.appendChild(sep);
+          cqLanActs(row, line.addr).forEach(function (btn) { ln.appendChild(btn); });
+        }
         meta.appendChild(ln);
       });
+      // 跳板机通道行：配了且启用就亮出来（转发端点只在本机有效，不给浏览器按钮）
+      const jumpId = (remRow && remRow.jump_id || '').trim();
+      const jumpDisabled = remRow && Array.isArray(remRow.route_disabled)
+        ? remRow.route_disabled.indexOf('jump') >= 0 : false;
+      if (jumpId && !jumpDisabled) {
+        const jump = servers.find(function (s) { return s.id === jumpId; });
+        const ln = document.createElement('div');
+        ln.className = 'cq-dev-line';
+        const jumpKind = document.createElement('span');
+        jumpKind.className = 'cq-remote-kind';
+        jumpKind.dataset.k = 'jump';
+        jumpKind.textContent = '跳板机';
+        ln.appendChild(jumpKind);
+        const a = document.createElement('span');
+        a.textContent = jump ? (jump.name || jump.host || '跳板机') : '已删除的跳板机';
+        a.title = '经由这台跳板机的 SSH 转发连接（广播包也走它发）；是否使用由连接优先级决定';
+        ln.appendChild(a);
+        const ep = pcEps.get(row.rid);
+        if (ep) {
+          const sep = document.createElement('span');
+          sep.className = 'sep';
+          sep.textContent = '·';
+          ln.appendChild(sep);
+          const epSpan = document.createElement('span');
+          epSpan.className = 'cq-dev-src';
+          epSpan.textContent = '转发端点 127.0.0.1:' + ep.port;
+          ln.appendChild(epSpan);
+        }
+        meta.appendChild(ln);
+      }
     }
     // 远程接入地址一行（配置了就亮出来；过期态 = 远程不通且局域网也不通）
     const remRow = remotes.find(function (x) { return x.id === row.rid; });
@@ -6214,6 +6358,8 @@
       a.textContent = pair.addr +
         (using ? ' · 使用中' : (expired ? ' · 已过期（重扫配对码）' : ''));
       ln.appendChild(a);
+      // 这条配对的探测情况（同一套逐行结果）：通 = 延迟，不通 = 原因
+      ln.appendChild(cqProbeBadge(row.rid, routeKind, pair.id || '', pair.addr));
       const source = pcPairSource(pair);
       if (source) {
         const sep = document.createElement('span');
@@ -6606,7 +6752,7 @@
     if (rid !== 'local') {
       const r = remotes.find(function (x) { return x.id === rid; });
       if (!r) return Promise.resolve();
-      if (r.jump_id) pcResolveEp(r);
+      if (r.jump_id && pcNeedJump(r)) pcResolveEp(r);
     }
     return invoke('remote_boot_info', { serverId: rid })
       .then(function (info) {
@@ -6651,8 +6797,10 @@
       remotes = [];
     }
     updatePcMenuState();
-    // 经跳板机的服务端：后台解析本地转发端点，到货后 iframe 才有 src
-    remotes.forEach(function (r) { if (r.jump_id) pcResolveEp(r); });
+    // 经跳板机的服务端：后台解析本地转发端点，到货后 iframe 才有 src。
+    // 只在「赢家是跳板机 / 没探过且优先级表跳板机在前」时才解析——直连优先后
+    // 赢家是 lan 的档案不再白白开隧道
+    remotes.forEach(function (r) { if (r.jump_id && pcNeedJump(r)) pcResolveEp(r); });
     // 已删除的档案要清掉缓存的引导项（本机行 'local' 永远保留）
     Array.from(cqBoot.keys()).forEach(function (rid) {
       if (rid !== 'local' && !remotes.some(function (x) { return x.id === rid; })) cqBoot.delete(rid);
@@ -6852,6 +7000,7 @@
       pcRemoteWin.delete(id);
       pcRemoteExpired.delete(id);
       pcWinnerKind.delete(id);
+      pcRowProbe.delete(id);
       // 探活结果也作废：否则地址改对了却还拿着上一轮的「离线」结论，页面直接给失败面板
       pageProbe.delete(id);
       pcConnOk.delete(id);

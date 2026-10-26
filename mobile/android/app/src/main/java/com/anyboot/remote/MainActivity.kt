@@ -129,6 +129,8 @@ class MainActivity : ComponentActivity() {
         var usingRemote = false
         /** 本轮连接尝试里远程通道已经试过一次（防远程优先模式 LAN↔隧道乒乓） */
         var triedRemote = false
+        /** 本轮连接尝试里跳板机已经兜底过一次（局域网全挂 → 跳板机 → 远程，各只试一轮） */
+        var triedJump = false
     }
 
     data class ErrorInfo(val label: String, val addressSummary: String, val detail: String)
@@ -1366,15 +1368,43 @@ class MainActivity : ComponentActivity() {
         }
         tab.addressIndex = 0      // 重新连：从首选地址开始
         tab.tried.clear()
+        tab.triedRemote = false   // 新一轮连接尝试：兜底闸全部重置
+        tab.triedJump = false
         loadCurrentAddress(tab)
+    }
+
+    /**
+     * 没探出赢家时的初始路径：优先级表里「直连」与「跳板机」谁在前走谁
+     * （停用 / 没配的通道不算数）—— 与电脑列表的连接优先级同一套机制。
+     */
+    private fun defaultLocalKind(profile: ServerProfile): String {
+        for (candidate in profile.routeCandidates()) {
+            if (candidate.kind == ServerProfile.ROUTE_LAN || candidate.kind == ServerProfile.ROUTE_JUMP) {
+                return candidate.kind
+            }
+        }
+        return if (ServerProfile.text(profile.jumpServerId).isNotEmpty()) {
+            ServerProfile.ROUTE_JUMP
+        } else {
+            ServerProfile.ROUTE_LAN
+        }
     }
 
     /** 用「当前地址下标」加载这条记录 —— 首次连接和换地址都走这里 */
     private fun loadCurrentAddress(tab: Tab) {
         val profile = tab.profile
-        tab.usingRemote = false // LAN 路径：清掉远程标记
         val address = profile.hostAt(tab.addressIndex)
         if (address.isEmpty()) return
+        // 通道选择**听电脑列表的机制**：心跳赢家优先，没探过按优先级表
+        // 「直连 vs 跳板机」谁在前。配了跳板机不再独占连接 —— 探测说直连通
+        // 就走直连（它更快），跳板机降级为局域网全挂后的兜底
+        val winner = heartbeat?.stateOf(profile.id)?.kind ?: ""
+        val useJump = when (winner) {
+            ServerProfile.ROUTE_LAN -> false
+            ServerProfile.ROUTE_JUMP -> true
+            else -> defaultLocalKind(profile) == ServerProfile.ROUTE_JUMP
+        }
+        tab.usingRemote = false // 局域网 / 跳板机路径都清掉远程标记
         tab.tried.remove(address)     // 正在试的这个不算「试过了」
         tab.mainFailed = false
         tab.started = true
@@ -1385,7 +1415,7 @@ class MainActivity : ComponentActivity() {
             loading = true
         }
         // 经由跳板机：先把「内网地址」解析成本地隧道端口（后台），再从 localhost 加载
-        if (ServerProfile.text(profile.jumpServerId).isNotEmpty()) {
+        if (useJump && ServerProfile.text(profile.jumpServerId).isNotEmpty()) {
             connectThroughTunnel(tab, address)
             return
         }
@@ -1461,8 +1491,35 @@ class MainActivity : ComponentActivity() {
             loadCurrentAddress(tab)
             return true
         }
-        // 局域网候选全试完：配了远程接入就兜底走公网隧道
+        // 局域网候选全试完：先走跳板机兜底（启用才参与），再兜底远程通道
+        if (connectJump(tab)) return true
         return connectRemote(tab)
+    }
+
+    /**
+     * 局域网候选全挂 → 跳板机兜底：开 SSH 转发从 {@code 127.0.0.1:端口} 加载。
+     * 跳板机通道在优先级表里**启用**才参与（停用就不算数，与列表同一套策略）；
+     * 本轮内只兜底一次（triedJump 闸），失败后 advanceAddress 继续走向远程通道。
+     */
+    private fun connectJump(tab: Tab): Boolean {
+        val profile = tab.profile
+        if (tab.triedJump) return false
+        if (ServerProfile.text(profile.jumpServerId).isEmpty()) return false
+        if (profile.routeDisabled.contains(ServerProfile.ROUTE_JUMP)) return false
+        if (profile.addresses.isEmpty()) return false
+        tab.triedJump = true
+        tab.tried.clear()
+        tab.mainFailed = false
+        tab.started = true
+        tab.status = STATUS_LOADING
+        chipTick++
+        if (profile.id == activeId) {
+            errorInfo = null
+            loading = true
+            toast("局域网不通，改走跳板机…")
+        }
+        connectThroughTunnel(tab, profile.hostAt(0))
+        return true
     }
 
     /**
@@ -1595,6 +1652,7 @@ class MainActivity : ComponentActivity() {
         tab.tried.clear()
         tab.usingRemote = false
         tab.triedRemote = false
+        tab.triedJump = false
         errorInfo = null
         val profile = tab.profile
         // 远程优先（编辑里选的）：直接走远程通道，局域网只做兜底（挂了 advanceAddress 会退回来）；
