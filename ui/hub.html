@@ -1,6 +1,6 @@
 <!DOCTYPE html>
-<!-- ui-version: 20261026-cq-jump-row（电脑列表跳板机行：停用置灰亮出、使用中带耗时；配对行使用中带耗时） -->
-<script>try{window.ANYBOOT_UI_VERSION='20261026-cq-jump-row';}catch(e){}</script>
+<!-- ui-version: 20261026-probe-skip（探测默认并发全部；抢跑/没轮到的通道标「未测出」不标不通） -->
+<script>try{window.ANYBOOT_UI_VERSION='20261026-probe-skip';}catch(e){}</script>
 <script src="qrcode.min.js"></script>
 <!-- AnyBoot 远程管理（server-hub）。
      独立窗口，主窗口零改动；托盘「远程管理…」是唯一入口。
@@ -5542,7 +5542,7 @@
     // 每个通道自己的超时也要带上，否则「单独给跳板机 8 秒」在电脑页 / 列表都不作数
     const routeTimeouts = r.route_timeouts_ms || {};
     // 外层：连接优先级的探测方式（六个通道之间）
-    const routeMode = r.route_probe_mode || 'parallel_first';
+    const routeMode = r.route_probe_mode || 'parallel_all';
     // 区块内部：同一区块内多条配对之间的探测方式（后端按 block_of_route 落到通道组上）
     const blockModes = r.block_probe_mode || {};
     // 内层：多网卡探测（同一通道内的多个地址）
@@ -6188,14 +6188,19 @@
     const key = String(kind || 'lan') + '\u0000' + (pairId || address || '');
     return rows.get(key) || null;
   }
-  /** 通道行尾的探测情况小字：通 = 延迟（绿），不通 = 短原因（暗），没探过 = 不标 */
+  /** 通道行尾的探测情况小字：通 = 延迟（绿），不通 = 短原因（暗红），未测出 = 中性灰 */
   function cqProbeBadge(rid, kind, pairId, address) {
     const st = cqProbeState(rid, kind, pairId, address);
     const span = document.createElement('span');
     if (!st) return span;
-    span.className = 'cq-probe-ms' + (st.ok ? ' ok' : ' bad');
-    span.textContent = st.ok ? (st.ms + ' ms') : (st.error || '不通');
-    span.title = st.ok ? '最近一次探测通过' : '最近一次探测失败：' + (st.error || '不通');
+    // 「未测出」不是不通：赢家抢跑 / 串行没轮到 / 赢家已出不再等待 —— 别标红冤枉它
+    const skipped = !st.ok && /未测出|未探测/.test(st.error || '');
+    span.className = 'cq-probe-ms' + (st.ok ? ' ok' : (skipped ? '' : ' bad'));
+    span.textContent = st.ok ? (st.ms + ' ms')
+      : (skipped ? '未测出' : (st.error || '不通'));
+    span.title = st.ok ? '最近一次探测通过'
+      : (skipped ? '这条通道没轮到探测：' + (st.error || '其他通道先命中')
+        : '最近一次探测失败：' + (st.error || '不通'));
     return span;
   }
   /** 直连地址行尾的「复制 / 浏览器打开」：URL 带档案令牌，局域网内落地即可用 */
@@ -7961,7 +7966,7 @@
   //   rsProbe      = 多网卡探测（**同一通道里多个地址**之间，存 probe_mode）
   //   rsRouteProbe = 连接优先级的探测方式（**六个通道之间**，存 route_probe_mode）
   let rsProbe = 'parallel_first';
-  let rsRouteProbe = 'parallel_first';
+  let rsRouteProbe = 'parallel_all';   // 连接优先级默认并发全部（与 Rust/Java 默认一致）
   // ---- 连接优先级（五通道并列；旧 conn_mode 已废弃，只做迁移） ----
   // ⚠️ 与手机端 ServerProfile.defaultRouteOrder / 后端 ROUTE_IDS 必须逐字一致：
   // 两端是同一套电脑档案的不同样式，通道表对不上就会出现「电脑上排好的顺序到了手机上不认」。
@@ -8849,8 +8854,9 @@
     // 两个粒度的探测方式分开回显：probe_mode = 多网卡（通道内），route_probe_mode = 通道之间
     rsProbe = r && (r.probe_mode === 'serial' || r.probe_mode === 'parallel_all')
       ? r.probe_mode : 'parallel_first';
-    rsRouteProbe = r && (r.route_probe_mode === 'serial' || r.route_probe_mode === 'parallel_all')
-      ? r.route_probe_mode : 'parallel_first';
+    rsRouteProbe = r && (r.route_probe_mode === 'serial' || r.route_probe_mode === 'parallel_all'
+      || r.route_probe_mode === 'parallel_first')
+      ? r.route_probe_mode : 'parallel_all';
     rsProbeButtons();
     // 默认探测超时（秒）：落盘是毫秒；老档案没有该字段 → 空输入框由 placeholder 提示默认 2 秒
     document.getElementById('rsProbeTimeout').value =

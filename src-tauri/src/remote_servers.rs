@@ -339,7 +339,7 @@ pub struct RemoteServer {
     #[serde(default)]
     pub probe_mode: String,
     /// **连接优先级的探测方式**（六个通道之间怎么探，作用于所有通道元素）：
-    /// parallel_first（默认，全部通道同时发出、谁先成功用谁）/ parallel_all（等全部返回，逐行报）/
+    /// parallel_all（默认，等全部返回，逐行报）/ parallel_first（全部通道同时发出、谁先成功用谁）/
     /// serial（按优先级逐个通道试，第一个通就停）。
     /// 与 [`Self::probe_mode`] 组合成两层策略：外层决定通道之间，内层决定同一通道内多个地址。
     #[serde(default = "serde_default_route_probe_mode")]
@@ -698,8 +698,13 @@ impl RemoteServer {
             // parallel_first 是默认；旧值 parallel 与空值都归到它（兼容老配置）
             _ => "parallel_first".to_string(),
         };
-        // 连接优先级的探测方式（通道之间）：与上面那个内层策略同一套取值
-        self.route_probe_mode = normalize_probe_mode(&self.route_probe_mode).to_string();
+        // 连接优先级的探测方式（通道之间）：同一套取值，默认「并发全部」
+        //（显式存过 parallel_first 的档案原样保留 —— 那是用户的明确选择）
+        self.route_probe_mode = match self.route_probe_mode.trim().to_lowercase().as_str() {
+            "serial" => "serial".to_string(),
+            "parallel_all" | "parallel_first" => self.route_probe_mode.trim().to_lowercase(),
+            _ => "parallel_all".to_string(),
+        };
         // 连接优先：只认 remote_first，其余一律归空（= 自动，局域网优先）
         self.conn_mode = if self.conn_remote_first() {
             "remote_first".to_string()
@@ -2149,7 +2154,9 @@ fn normalize_pairs(raw: Vec<RemotePair>) -> Vec<RemotePair> {
 }
 
 fn serde_default_route_probe_mode() -> String {
-    "parallel_first".to_string()
+    // 连接优先级的探测方式默认「并发全部」：并发首个会掐掉在途通道，
+    // 逐行结果里一堆「未测出」不好看，也浪费了多通道并发的信息量
+    "parallel_all".to_string()
 }
 
 /// 一次探测的原始结果（新引擎内部用；比 ProbeOutcome 多带 machineId/名/系统）
@@ -2328,6 +2335,9 @@ fn probe_candidates_blocking(
     let deadline = Instant::now()
         + (worst + Duration::from_millis(500)).min(Duration::from_millis(MAX_PROBE_TIMEOUT_MS));
     let mut collected: Vec<ProbeHit> = Vec::new();
+    // 严格区分两种「没回来」：赢家已出、在途通道被并发首个掐掉 = 未测出（不冤枉它不通）；
+    // 真跑到超时还没回 = 探测超时
+    let mut won_early = false;
     while pending > 0 {
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
@@ -2340,6 +2350,7 @@ fn probe_candidates_blocking(
                 collected.extend(group_hits);
                 // 并发（首个）：第一个成功的通道立刻收工，剩下的在途任务结果无人接收
                 if ok && route_mode == "parallel_first" {
+                    won_early = true;
                     break;
                 }
             }
@@ -2360,7 +2371,11 @@ fn probe_candidates_blocking(
                 origin: item.origin.clone(),
                 pair_id: item.pair_id.clone(),
                 remote: is_remote_kind(&group.kind),
-                outcome: Err(format!("探测超时（>{}ms）", item.timeout_ms)),
+                outcome: Err(if won_early {
+                    "已有通道命中，未测出".to_string()
+                } else {
+                    format!("探测超时（>{}ms）", item.timeout_ms)
+                }),
             });
         }
     }
@@ -2474,6 +2489,8 @@ fn probe_group_blocking(group: &ProbeGroup) -> Vec<ProbeHit> {
     }
     drop(sender);
     let mut slots: Vec<Option<ProbeHit>> = (0..group.items.len()).map(|_| None).collect();
+    // 严格区分：赢家已出、在途被掐 = 未测出；等满时限没回 = 探测超时
+    let mut won_early = false;
     // 兜底时限按组内**最长**那条算（各自的 IO 超时已在 probe_one 里生效）
     let longest = group
         .items
@@ -2496,6 +2513,7 @@ fn probe_group_blocking(group: &ProbeGroup) -> Vec<ProbeHit> {
                 let ok = hit.outcome.is_ok();
                 slots[index] = Some(hit);
                 if ok && mode == "parallel_first" {
+                    won_early = true;
                     break;
                 }
             }
@@ -2504,7 +2522,15 @@ fn probe_group_blocking(group: &ProbeGroup) -> Vec<ProbeHit> {
     }
     for (index, slot) in slots.into_iter().enumerate() {
         hits.push(slot.unwrap_or_else(|| {
-            single(&group.items[index], Err("同通道已命中，未再等待".to_string()))
+            // 首个已命中就收工的 = 未测出（不是不通）；真等满时限没回的 = 超时
+            single(
+                &group.items[index],
+                Err(if won_early {
+                    "同通道已命中，未测出".to_string()
+                } else {
+                    format!("探测超时（>{}ms）", group.items[index].timeout_ms)
+                }),
+            )
         }));
     }
     hits
@@ -2796,6 +2822,21 @@ fn remote_test_blocking(
                 .position(|a| *a == o.address)
                 .unwrap_or(usize::MAX)
         });
+        // 被赢家抢跑的地址（first_only 下 done 旗标直接 return 的）补一行「未测出」，
+        // 别让行凭空消失 —— 用户对着地址表数行数会对不上
+        for addr in &candidates {
+            if !results.iter().any(|o| &o.address == addr) {
+                results.push(ProbeOutcome {
+                    address: addr.clone(),
+                    ok: false,
+                    ms: 0,
+                    error: "已有地址命中，未测出".to_string(),
+                    remote: false,
+                    kind: "lan".to_string(),
+                    pair_id: String::new(),
+                });
+            }
+        }
         best = winner.lock().unwrap().clone();
     }
     let mut final_result = best.unwrap_or(RemoteTestResult {
@@ -4085,6 +4126,26 @@ mod tests {
         // 旧值 / 未知 probe_mode 一律归一为并发（首个）
         assert_eq!(normalized.probe_mode, "parallel_first");
         assert_eq!(normalized.jump_id, "j1");
+    }
+
+    #[test]
+    fn route_probe_mode_default_is_parallel_all_and_keeps_explicit_first() {
+        // 连接优先级的探测方式默认并发全部（2026-10-26 起）；显式选过并发首个的档案保留
+        let mut server = route_test_server();
+        server.route_probe_mode = " bogus ".into();
+        assert_eq!(server.normalize().route_probe_mode, "parallel_all");
+
+        let mut server = route_test_server();
+        server.route_probe_mode = String::new();
+        assert_eq!(server.normalize().route_probe_mode, "parallel_all");
+
+        let mut server = route_test_server();
+        server.route_probe_mode = " parallel_first ".into();
+        assert_eq!(server.normalize().route_probe_mode, "parallel_first");
+
+        let mut server = route_test_server();
+        server.route_probe_mode = " SERIAL ".into();
+        assert_eq!(server.normalize().route_probe_mode, "serial");
     }
 
     // ---- 配对条目（RemotePair） ----

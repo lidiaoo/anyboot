@@ -2181,9 +2181,7 @@ class ComputerListActivity : ComponentActivity() {
                         !jumpEnabled -> "已停用"
                         jumpInUse && jumpHit != null && jumpHit.ok -> "使用中 " + jumpHit.ms + "ms"
                         jumpInUse -> "使用中"
-                        jumpHit == null -> "未探测"
-                        jumpHit.ok -> "通 " + jumpHit.ms + "ms"
-                        else -> "不通"
+                        else -> probeStateText(jumpHit)
                     },
                     ok = jumpHit?.ok == true,
                     enabled = jumpEnabled,
@@ -2199,9 +2197,7 @@ class ComputerListActivity : ComponentActivity() {
                     !pair.enabled -> "已停用"
                     inUse && hit != null && hit.ok -> "使用中 " + hit.ms + "ms"
                     inUse -> "使用中"
-                    hit == null -> "未探测"
-                    hit.ok -> "通 " + hit.ms + "ms"
-                    else -> "不通"
+                    else -> probeStateText(hit)
                 }
                 // 浏览器地址带这条配对自己的令牌（不同配对各带各的网关客户端令牌）
                 val origin = ServerProfile.normalizeRemoteOrigin(pair.addr)
@@ -3171,6 +3167,14 @@ class ComputerListActivity : ComponentActivity() {
         /** 探测赢家的通道（lan / jump / tunnel / ts / funnel / tsnet）—— 连接标注只认它 */
         val winnerKind: String = "",
     )
+
+    /** 一条探测结果的状态文案：通 = 延迟；被赢家抢跑 / 串行没轮到 = 未测出（不是不通） */
+    private fun probeStateText(hit: ProbeEngine.Hit?): String = when {
+        hit == null -> "未探测"
+        hit.ok -> "通 " + hit.ms + "ms"
+        hit.error.contains("未测出") || hit.error.contains("未探测") -> "未测出"
+        else -> "不通"
+    }
 
     private data class SheetRequest(val rid: String, val kind: String)
 

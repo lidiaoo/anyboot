@@ -311,6 +311,9 @@ final class ProbeEngine {
         // 不封顶的话「探测」按钮能转一分钟
         long budget = Math.min(slowest + 500L, ServerProfile.MAX_PROBE_TIMEOUT_MS);
         long deadline = System.currentTimeMillis() + budget;
+        // 严格区分两种「没回来」：赢家已出、在途通道被并发首个掐掉 = 未测出（不是不通）；
+        // 真跑到超时还没回 = 探测超时
+        boolean wonEarly = false;
         for (int count = 0; count < expected; count++) {
             long remaining = deadline - System.currentTimeMillis();
             int[] signal;
@@ -331,6 +334,7 @@ final class ProbeEngine {
             }
             // 并发首个：第一个成功的通道立刻收工，其余在途结果不再等
             if (!all && firstOk(groupHits) != null) {
+                wonEarly = true;
                 break;
             }
         }
@@ -348,7 +352,9 @@ final class ProbeEngine {
                     continue;
                 }
                 hits.add(new Hit(group.kind, item.origin, item.pairId, false, 0,
-                        "探测超时（>" + item.timeoutMs + "ms）", "", "", ""));
+                        wonEarly ? "已有通道命中，未测出"
+                                : "探测超时（>" + item.timeoutMs + "ms）",
+                        "", "", ""));
             }
         }
         return finish(hits);
@@ -403,6 +409,8 @@ final class ProbeEngine {
         }
         long budget = Math.min(worstOf(group) + 500L, ServerProfile.MAX_PROBE_TIMEOUT_MS);
         long deadline = System.currentTimeMillis() + budget;
+        // 严格区分：赢家已出、在途被掐 = 未测出；等满时限没回 = 探测超时
+        boolean wonEarly = false;
         for (int count = 0; count < expected; count++) {
             long remaining = deadline - System.currentTimeMillis();
             Hit hit;
@@ -418,6 +426,7 @@ final class ProbeEngine {
                 break;
             }
             if (hit.ok && !all) {
+                wonEarly = true;
                 for (Future<?> future : futures) {
                     future.cancel(true);
                 }
@@ -428,7 +437,9 @@ final class ProbeEngine {
             Hit hit = ordered[index];
             Item item = group.items.get(index);
             hits.add(hit != null ? hit : new Hit(group.kind, item.origin, item.pairId, false, 0,
-                    "同通道已命中，未再等待", "", "", ""));
+                    wonEarly ? "同通道已命中，未测出"
+                            : "探测超时（>" + item.timeoutMs + "ms）",
+                    "", "", ""));
         }
         return hits;
     }

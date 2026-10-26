@@ -444,8 +444,8 @@ internal class ServerEditFormState(
      * [probeMode]（多网卡探测，只管同一通道里的多个地址）是两个不同粒度的独立开关。
      */
     var routeProbeMode by mutableStateOf(
-        if (profile != null) ServerProfile.normalizeProbeMode(profile.routeProbeMode)
-        else ServerProfile.PROBE_PARALLEL_FIRST
+        if (profile != null) ServerProfile.normalizeRouteProbeMode(profile.routeProbeMode ?: "")
+        else ServerProfile.PROBE_PARALLEL_ALL
     )
 
     /**
@@ -1499,7 +1499,7 @@ internal fun applyServerEdit(
     target.token = state.resolvedToken()
     target.probeMode = ServerProfile.normalizeProbeMode(state.probeMode)
     // 连接优先级的探测方式（六个通道之间）—— 与上面的多网卡探测是两个粒度
-    target.routeProbeMode = ServerProfile.normalizeProbeMode(state.routeProbeMode)
+    target.routeProbeMode = ServerProfile.normalizeRouteProbeMode(state.routeProbeMode)
     // 默认探测超时（界面秒 → 落盘毫秒，空/非法回落默认 2 秒）
     target.probeTimeoutMs = state.probeTimeoutMs()
     // 每通道自己的超时（只写单独设过的；空表 = 全部继承默认值）

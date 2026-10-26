@@ -283,16 +283,16 @@ anyboot://pair?v=2&mid=<machineId>&os=<os>&host=<hostname>&type=<kind>&tunnel=<u
 
 | 层 | 字段 | 作用域 | 默认 |
 |---|---|---|---|
-| 区块之间 | `route_probe_mode`（已有） | cloudflare → ts → tsnet 的先后 | `parallel_first` |
+| 区块之间 | `route_probe_mode`（已有） | cloudflare → ts → tsnet 的先后 | `parallel_all` |
 | 区块内部 | `block_probe_mode[kind]`（新增） | 同一区块内多条配对之间 | `parallel_first` |
 
 两种策略取值相同：
 
 | 值 | 行为 | 适用 |
 |---|---|---|
-| `parallel_first` | 同层全部并发，第一个成功即收工，其余标「未探测」 | 日常选路要快 |
+| `parallel_first` | 同层全部并发，第一个成功即收工，其余标「未测出」（不是不通 —— 只是没轮到它出结果） | 日常选路要快 |
 | `parallel_all` | 同层全部并发，等全部返回、逐条报状态 | 体检、确认每条是否还活着 |
-| `serial` | 按序逐个试，第一个成功即停 | 严格尊重优先级，避免同时打多个通道 |
+| `serial` | 按序逐个试，第一个成功即停，没轮到的标「未测出」 | 严格尊重优先级，避免同时打多个通道 |
 
 **`parallel_first` 下顺序不保证生效**：全部并发发出，`route_order` 只影响发起先后与平手判定，
 先排的不一定赢。要严格按优先级必须 `serial`。UI 必须把这个后果写出来，否则用户会以为顺序填了没生效。
