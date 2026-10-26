@@ -82,6 +82,8 @@ final class HeartbeatManager {
         long rttMs;
         long lastSeen;
         int failures;
+        /** 当前赢家通道 id（直连 / 跳板机 / 隧道 / ts / funnel / tsnet）；不通 = 空 */
+        public String kind = "";
 
         public boolean isOnline() {
             return online;
@@ -163,6 +165,7 @@ final class HeartbeatManager {
             snapshot.rttMs = state.rttMs;
             snapshot.lastSeen = state.lastSeen;
             snapshot.failures = state.failures;
+            snapshot.kind = state.kind;
             return snapshot;
         }
     }
@@ -188,7 +191,7 @@ final class HeartbeatManager {
             List<Pending> results = new ArrayList<>();
             for (ServerProfile profile : serversProvider.get()) {
                 // 没配局域网地址也可能配了远程接入（出门场景）：空档案才跳过
-                if (profile.addresses.isEmpty() && !profile.hasRemote()) {
+                if (profile.addresses.isEmpty() && !profile.hasEnabledRemote()) {
                     continue;
                 }
                 results.add(probeProfile(profile));
@@ -214,7 +217,7 @@ final class HeartbeatManager {
         boolean remoteFirst = profile.routePriorityRemoteFirst();
         if (!remoteFirst) {
             ProbeEngine.Result local = ProbeEngine.probe(profile, jump, ProbeEngine.LOCAL_KINDS);
-            if (local.ok || !profile.hasRemote()) {
+            if (local.ok || !profile.hasEnabledRemote()) {
                 return new Pending(profile.id, local);
             }
             if (!remoteDue(profile.id)) {
@@ -266,6 +269,7 @@ final class HeartbeatManager {
                     state.failures = 0;
                     state.rttMs = pending.rtt;
                     state.lastSeen = System.currentTimeMillis();
+                    state.kind = pending.kind;
                     if (!state.online) {
                         state.online = true;
                         wentOnline.add(pending.id);
@@ -321,6 +325,8 @@ final class HeartbeatManager {
         final String id;
         final long rtt;
         final long lanRtt;
+        /** 赢家通道 id（直连 / 跳板机 / 隧道 / ts / funnel / tsnet）——来自列表策略的探测结论 */
+        final String kind;
         final String machineId;
         final String machineName;
         final String os;
@@ -329,6 +335,7 @@ final class HeartbeatManager {
             this.id = id;
             this.rtt = result != null && result.ok ? result.ms : -1;
             this.lanRtt = lanRttOf(result);
+            this.kind = result == null || result.kind == null ? "" : result.kind;
             this.machineId = result == null ? "" : ServerProfile.text(result.machineId);
             this.machineName = result == null ? "" : ServerProfile.text(result.machineName);
             this.os = result == null ? "" : ServerProfile.normalizeMachineOs(result.os);

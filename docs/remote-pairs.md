@@ -190,7 +190,7 @@ pub block_timeouts_ms: std::collections::BTreeMap<String, u64>,
 | `remote_tunnel_addr` / `remote_ts_addr` / `remote_funnel_addr` / `remote_tsnet_addr` | `pairs` 内对应 `kind` / `lane` 的条目 |
 | `remote_token` | `RemotePair.token`（每条自带） |
 | `remote_addr` | 计算函数 `effective_remote_addr()`：按区块顺序 + 区块内顺序，取第一条 `enabled` 的 `addr`。**它不再是存储字段**，探测 / HTTP / iframe / 终端等消费点统一改读它 |
-| `route_disabled` | `RemotePair.enabled` |
+| `route_disabled` | 配对条目禁用走 `RemotePair.enabled`；`route_disabled` 本身**保留**，认全部六个通道 id —— 前端优先级表每行（含 tunnel / ts / funnel / tsnet）都有启停开关，区块内按 `route_kind` 粒度过滤（ts 直连与 funnel 是两行独立通道，分开停） |
 
 **保留不动**（同时被 LAN / jump 消费，重构会越界）
 

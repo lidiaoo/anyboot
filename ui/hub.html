@@ -1,6 +1,6 @@
 <!DOCTYPE html>
-<!-- ui-version: 20261026-pair-reissue（配对管理加「重新出码」：同档案换新令牌，已吊销可复活；出码弹窗复用为双模式） -->
-<script>try{window.ANYBOOT_UI_VERSION='20261023-gateway';}catch(e){}</script>
+<!-- ui-version: 20261026-conn-label（连接标注统一消费探测赢家通道：route_disabled 认全部六通道，电脑页/列表同一套机制） -->
+<script>try{window.ANYBOOT_UI_VERSION='20261026-conn-label';}catch(e){}</script>
 <script src="qrcode.min.js"></script>
 <!-- AnyBoot 远程管理（server-hub）。
      独立窗口，主窗口零改动；托盘「远程管理…」是唯一入口。
@@ -5370,6 +5370,12 @@
   const pcRemoteWin = new Map();
   const pcRemoteExpired = new Map();
   /**
+   * rid -> 最近一次探测赢家的通道 id（lan/jump/tunnel/ts/funnel/tsnet）。
+   * 标注机制的真相源在电脑列表（连接优先级 / 停用通道 / 探测方式都按列表策略算），
+   * 电脑页标签、列表行、悬浮球只是同一个探测结论的不同样式 —— 都读这里。
+   */
+  const pcWinnerKind = new Map();
+  /**
    * rid -> 最近一次探测的结论（true=通）。
    * 「没连上就别说直连」：以前 pcConnLabel 的兜底是 '直连'，于是压根没探过、
    * 或者探测已经失败的电脑也标着「直连」，用户以为是连着的。现在只有真探通
@@ -5411,6 +5417,9 @@
           const lane = p.lane || (String(p.addr).toLowerCase().indexOf('.ts.net') >= 0 ? 'funnel' : 'direct');
           const routeKind = block === 'cloudflare' ? 'tunnel'
             : (block === 'tsnet' ? 'tsnet' : (lane === 'funnel' ? 'funnel' : 'ts'));
+          // 通道停用按 kind 粒度：ts 区块里「直连」与「Funnel」是优先级表里两行独立
+          // 的通道，停用哪一个只排掉哪一条 lane（与后端 route_candidates 同口径）
+          if (disabled[routeKind]) return;
           // 三层继承：条目超时 → 区块默认超时 → 全局（0 = 交给后端落全局默认）
           const own = p.probe_timeout_ms || Number(blockTimeouts[block] || 0) || 0;
           list.push({ kind: routeKind, origin: p.addr, pair_id: p.id || '', token: p.token || '',
@@ -5461,6 +5470,7 @@
     let connChanged = false;
     if (res && res.ok) {
       pcConnOk.set(r.id, true);
+      pcWinnerKind.set(r.id, String(res.kind || '').trim());
       connChanged = res.remote ? !pcRemoteWin.has(r.id) : pcRemoteWin.has(r.id);
       if (res.remote) {
         pcRemoteWin.set(r.id, res.addr); // res.addr = https origin
@@ -5494,6 +5504,7 @@
       }
     } else {
       pcConnOk.set(r.id, false);
+      pcWinnerKind.delete(r.id);
       const remoteRow = res && Array.isArray(res.results)
         ? res.results.find(function (o) { return o.remote; }) : null;
       if (remoteRow && !remoteRow.ok && (remoteRow.error || '').indexOf('未探测') < 0) {
@@ -5571,28 +5582,32 @@
   }
 
   /**
-   * 当前连接标注：远程隧道使用中（探测赢家是隧道）> 跳板机 > 直连 > 未连接。
-   * 电脑标签、电脑列表行、悬浮球说明共用这一份真相。
-   * 远程赢家再按地址形态细分：100.x / *.ts.net → Tailscale，其余 → 远程隧道。
+   * 当前连接标注：**只认探测赢家的通道**（pcWinnerKind，探测按电脑列表的
+   * 连接优先级 / 停用通道 / 探测方式跑）。电脑标签、电脑列表行、悬浮球共用这一份。
    *
-   * **只有真探通过才叫「直连」**：没探过 / 探失败一律「未连接」——
-   * 以前这里兜底写死 '直连'，离线电脑也顶着「直连」，用户以为连着。
+   * 以前这里自己写一套「远程使用中 > 跳板机 > 直连」的分支，跟列表的策略
+   * 对不上 —— 用户把直连关了，标签还写「直连」。现在通道结论一律来自
+   * 同一次策略探测：赢家是 lan 才叫「直连」，ts/funnel/tsnet/tunnel 各写各的，
+   * 没探过 / 探失败一律「未连接」。
    */
   function pcConnLabel(r, short) {
     if (!r) return '';
-    if (pcRemoteWin.has(r.id)) {
-      const remoteAddr = pcRemoteWin.get(r.id) || r.effective_addr;
-      return isTailscaleAddr(remoteAddr)
-        ? (short ? 'Tailscale' : 'Tailscale 直连')
-        : (short ? '隧道' : '远程隧道');
+    const jump = servers.find(function (s) { return s.id === (r.jump_id || '').trim(); });
+    const jumpLabel = short ? '跳板机'
+      : ('跳板机 · ' + (jump ? (jump.name || jump.host) : '已删除'));
+    const kind = pcWinnerKind.get(r.id) || '';
+    if (kind === 'lan') {
+      return pcConnOk.get(r.id) === true ? '直连' : '未连接';
     }
-    const jumpId = (r.jump_id || '').trim();
-    if (jumpId) {
-      const jump = servers.find(function (s) { return s.id === jumpId; });
-      const name = jump ? (jump.name || jump.host) : '已删除';
-      return short ? '跳板机' : '跳板机 · ' + name;
+    if (kind === 'jump') return jumpLabel;
+    if (ROUTE_LABELS[kind]) {
+      if (short && kind === 'ts') return 'Tailscale';
+      if (short && kind === 'tsnet') return '内建 Funnel';
+      return ROUTE_LABELS[kind];
     }
-    return pcConnOk.get(r.id) === true ? '直连' : '未连接';
+    // 没探出赢家：跳板机档案走转发端点、没有直连探测，标跳板机；其余未连接
+    if ((r.jump_id || '').trim()) return jumpLabel;
+    return '未连接';
   }
   function localUrl() {
     if (!localEndpoint || !localEndpoint.port) return '';
@@ -6772,6 +6787,7 @@
       if (pageFrame) { pageFrame.remove(); pageFrames.delete(id); }
       pcRemoteWin.delete(id);
       pcRemoteExpired.delete(id);
+      pcWinnerKind.delete(id);
       // 探活结果也作废：否则地址改对了却还拿着上一轮的「离线」结论，页面直接给失败面板
       pageProbe.delete(id);
       pcConnOk.delete(id);
@@ -7167,7 +7183,7 @@
       // 系统徽标（电脑页标签上也带一个，点开 = 系统信息）
       const osb = osBadgeEl(r.machine_os, function () { openSysInfo(r.id); });
       if (osb) chip.appendChild(osb);
-      // 当前连接后缀：直连 / 跳板机 / 隧道 / 未连接（远程赢家实时变化，renderPcChips 重刷时更新）
+      // 当前连接后缀：探测赢家的通道标注（直连/跳板机/隧道/TS…），pcConnLabel 统一给出
       const conn = document.createElement('span');
       conn.className = 'chip-conn';
       conn.textContent = pcConnLabel(r, true);

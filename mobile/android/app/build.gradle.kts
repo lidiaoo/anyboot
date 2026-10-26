@@ -14,6 +14,8 @@ android {
         targetSdk = 34
         versionCode = 3
         versionName = "1.2"
+        // instrumented test（connectedDebugAndroidTest）跑在真机/模拟器上
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
@@ -80,4 +82,9 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:$camerax")
     implementation("androidx.camera:camera-view:$camerax")
     implementation("com.google.zxing:core:3.5.3")
+
+    // instrumented test：幂等键 / 配对分拣的真机回归（PairUpsertTest / ApplyRemoteHintTest）
+    androidTestImplementation("junit:junit:4.13.2")
+    androidTestImplementation("androidx.test:runner:1.5.2")
+    androidTestImplementation("androidx.test.ext:junit:1.1.5")
 }

@@ -584,6 +584,13 @@ final class ServerProfile {
                 continue;
             }
             for (RemotePair pair : pairsOfBlock(block, true)) {
+                // 通道停用按 kind 粒度：ts 区块里「直连」与「Funnel」是优先级表里
+                // 两行独立的通道（ts / funnel），停用哪一个只排掉哪一条 lane
+                //（与 Rust route_candidates、PC 端 pcRouteCandidates 同口径）
+                String pairKind = pair.routeKind();
+                if (!pairKind.isEmpty() && routeDisabled.contains(pairKind)) {
+                    continue;
+                }
                 out.add(new RouteCandidate(
                         pair.routeKind(),
                         normalizeRemoteOrigin(pair.addr),
@@ -951,9 +958,7 @@ final class ServerProfile {
         String mid = text(parsed.mid);
         // 幂等键的 lane 槽（与 RemotePair.key() 同口径）：ts 区块按地址形态分
         // direct / funnel —— 同一台电脑这两条并存，少比 lane 会让扫 funnel 码顶掉 direct 码
-        String incomingLane = RemotePair.KIND_TS.equals(kind)
-                ? (isFunnelOrigin(addr) ? RemotePair.LANE_FUNNEL : RemotePair.LANE_DIRECT)
-                : "";
+        String incomingLane = RemotePair.laneFor(kind, addr);
         RemotePair hit = null;
         for (RemotePair pair : pairs) {
             if (pair == null || !kind.equals(text(pair.kind).toLowerCase(Locale.US))) {
@@ -996,7 +1001,7 @@ final class ServerProfile {
         if (!text(parsed.tunnelId).isEmpty()) {
             hit.tunnelId = text(parsed.tunnelId);
         }
-        hit.lane = RemotePair.KIND_TS.equals(kind) ? hit.effectiveLane() : "";
+        hit.lane = RemotePair.laneFor(kind, addr);
         hit.enabled = true;
         return hit;
     }
@@ -1043,6 +1048,41 @@ final class ServerProfile {
     /** 有没有配远程接入（任何一条启用的配对都算） */
     boolean hasRemote() {
         return !flatPairs().isEmpty();
+    }
+
+    /**
+     * 有**启用中**的远程候选：连接优先级里排上、且没被 routeDisabled 停用的远程通道。
+     *
+     * <p>连接链路（远程优先判定 / 远程兜底）必须用它 —— {@link #hasRemote()} 只回答
+     * 「配没配过配对」，用户把远程区块全关了之后还照它走隧道，连接策略就成了摆设。
+     */
+    boolean hasEnabledRemote() {
+        for (RouteCandidate candidate : routeCandidates()) {
+            if (candidate.isRemote()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 通道 id → 中文短标签（电脑页标签条 / 心跳标注用；与连接优先级表同名） */
+    static String routeLabel(String kind) {
+        switch (text(kind)) {
+            case ROUTE_LAN:
+                return "直连";
+            case ROUTE_JUMP:
+                return "跳板机";
+            case ROUTE_TUNNEL:
+                return "隧道";
+            case ROUTE_TS:
+                return "TS 直连";
+            case ROUTE_FUNNEL:
+                return "TS Funnel";
+            case ROUTE_TSNET:
+                return "内置 Funnel";
+            default:
+                return "";
+        }
     }
 
     /** 连接优先是否「远程优先」（用户在编辑里选的；空 / auto = 局域网优先） */

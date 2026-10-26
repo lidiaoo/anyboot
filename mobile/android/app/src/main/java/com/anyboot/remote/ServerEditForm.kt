@@ -294,9 +294,7 @@ internal class ServerEditFormState(
             pair.id = if (edit.id.startsWith("new-")) RemotePair.newId() else edit.id
             pair.kind = edit.kind
             pair.addr = addr
-            pair.lane = if (edit.kind == RemotePair.KIND_TS) {
-                if (ServerProfile.isFunnelOrigin(addr)) RemotePair.LANE_FUNNEL else RemotePair.LANE_DIRECT
-            } else ""
+            pair.lane = RemotePair.laneFor(edit.kind, addr)
             pair.token = edit.token.trim()
             pair.probeTimeoutMs = if (edit.timeoutText.trim().isEmpty()) 0 else {
                 ServerProfile.clampProbeTimeoutMs(
@@ -359,8 +357,9 @@ internal class ServerEditFormState(
     /**
      * 粘贴框 / 扫码之后的分拣：解析 → 追加或更新一条配对。
      *
-     * <p>归档规则（{@code docs/remote-pairs.md} §4.6）：同 {@code (mid, kind)} 更新那一条
-     * （保留位置与原 id），否则追加到该区块末尾。
+     * <p>归档规则（{@code docs/remote-pairs.md} §4.6）：同 {@code (mid, kind, lane)} 更新那一条
+     * （保留位置与原 id），否则追加到该区块末尾。lane 只对 ts 区块有区分度——同一台电脑
+     * 「100.x 直连」与「*.ts.net Funnel」是**并存**的两条，少比 lane 会让后扫的码顶掉先扫的。
      *
      * <p>老配对码（无 {@code v=2}）会被拒收并给出明确提示 —— 老串没有 mid/type，
      * 硬解出来只会「配一个顶掉另一个」。
@@ -378,14 +377,18 @@ internal class ServerEditFormState(
         }
         val addr = ServerProfile.normalizeRemoteOrigin(parsed.tunnel)
         val mid = parsed.mid.trim()
-        // 先按 (mid, kind) 找，没 mid 时按 (addr, kind) 找 —— 与 PC 端同一套幂等键
+        // 幂等键的 lane 槽（RemotePair.laneFor 是唯一口径，与 upsertPair / 保存回写一致）：
+        // ts 区块按地址形态分 direct / funnel，同一台电脑这两条是**并存**的两条
+        val incomingLane = RemotePair.laneFor(parsed.kind, addr)
+        // 先按 (mid, kind, lane) 找，没 mid 时按 (addr, kind) 找 —— 与 Rust pair_key 同一套
         var index = -1
         pairItems.forEachIndexed { i, item ->
             if (index >= 0 || item.kind != parsed.kind) return@forEachIndexed
-            val sameMid = mid.isNotEmpty() && item.mid == mid
-            val sameAddr = mid.isEmpty() &&
-                ServerProfile.normalizeRemoteOrigin(item.addr) == addr
-            if (sameMid || sameAddr) index = i
+            if (mid.isNotEmpty()) {
+                if (item.mid == mid && RemotePair.laneFor(parsed.kind, item.addr) == incomingLane) index = i
+            } else if (ServerProfile.normalizeRemoteOrigin(item.addr) == addr) {
+                index = i
+            }
         }
         if (index >= 0) {
             val old = pairItems[index]

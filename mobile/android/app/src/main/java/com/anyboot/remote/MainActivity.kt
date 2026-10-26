@@ -495,16 +495,20 @@ class MainActivity : ComponentActivity() {
     /**
      * 标签上的连接标注：**没连上就写「未连接」**。
      *
-     * <p>以前这行是无脑写「直连」的 —— 电脑关着机、地址换了 IP、人已经出门，
-     * 标签上照样写着「直连」，用户完全没法判断现在到底通不通。现在只有
-     * 心跳探通、或者这个标签的页面确实加载成功（STATUS_OK）才描述通道，
-     * 否则一律「未连接」。
+     * <p>机制只属于电脑列表：通道标注听**心跳赢家通道**（心跳走
+     * {@link ProbeEngine}，连接优先级 / 停用通道 / 探测方式全部按列表策略算），
+     * 与电脑列表页显示的是同一套结论，这里只是换个样式。心跳还没轮到时
+     * 才按本标签的实际连接路径兜底（走远程时无法细分到具体通道，写「远程」）。
      */
     private fun connLabelOf(profile: ServerProfile, tab: Tab?): String {
-        val online = heartbeat?.stateOf(profile.id)?.isOnline == true
+        val state = heartbeat?.stateOf(profile.id)
+        val online = state?.isOnline == true
         if (!online && tab?.status != STATUS_OK) return "未连接"
+        if (online && !state!!.kind.isEmpty()) {
+            return ServerProfile.routeLabel(state.kind)
+        }
         return when {
-            tab?.usingRemote == true -> "隧道"
+            tab?.usingRemote == true -> "远程"
             ServerProfile.text(profile.jumpServerId).isNotEmpty() -> "跳板机"
             else -> "直连"
         }
@@ -1465,11 +1469,25 @@ class MainActivity : ComponentActivity() {
      * 局域网候选全挂 → 远程接入兜底：加载 {@code https://origin/?ab_token=…}。
      * 没配远程返回 false（调用方走失败页）；本轮内远程失败也不再重试
      * （advanceAddress 的 usingRemote 闸）。
+     *
+     * <p>走哪条远程通道**听电脑列表的策略**：从 {@code routeCandidates()}
+     * （优先级排序 + routeDisabled + 配对启用，与列表探测同一真相源）取第一个远程候选，
+     * 不再单独挑「第一条配对」—— 否则用户把某区块停用了连接却还走它。
      */
     private fun connectRemote(tab: Tab): Boolean {
         val profile = tab.profile
         // triedRemote 闸：本轮（含远程优先退回局域网后再失败的情况）远程只试一次
-        if (tab.triedRemote || !profile.hasRemote()) {
+        if (tab.triedRemote) {
+            return false
+        }
+        var winner: ServerProfile.RouteCandidate? = null
+        for (candidate in profile.routeCandidates()) {
+            if (candidate.isRemote()) {
+                winner = candidate
+                break
+            }
+        }
+        if (winner == null) {
             return false
         }
         tab.triedRemote = true
@@ -1482,10 +1500,10 @@ class MainActivity : ComponentActivity() {
         if (profile.id == activeId) {
             errorInfo = null
             loading = true
-            toast("局域网不通，改走远程通道…")
+            toast("局域网不通，改走" + ServerProfile.routeLabel(winner.kind) + "…")
         }
         tab.effectiveAddress = ""
-        tab.view?.loadUrl(profile.remoteUrl(transport))
+        tab.view?.loadUrl(profile.remoteUrlFor(winner.origin, transport))
         return true
     }
 
@@ -1579,8 +1597,9 @@ class MainActivity : ComponentActivity() {
         tab.triedRemote = false
         errorInfo = null
         val profile = tab.profile
-        // 远程优先（编辑里选的）：直接走隧道，局域网只做兜底（隧道挂了 advanceAddress 会退回来）
-        if (profile.routePriorityRemoteFirst() && profile.hasRemote()) {
+        // 远程优先（编辑里选的）：直接走远程通道，局域网只做兜底（挂了 advanceAddress 会退回来）；
+        // 通道是否可用听电脑列表的策略 —— 全停用时这里必须当没配远程
+        if (profile.routePriorityRemoteFirst() && profile.hasEnabledRemote()) {
             connectRemote(tab)
             return
         }

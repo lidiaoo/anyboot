@@ -31,6 +31,19 @@ final class RemotePair {
     static final String LANE_DIRECT = "direct";
     static final String LANE_FUNNEL = "funnel";
 
+    /**
+     * 幂等键的 lane 槽（唯一计算口径）：ts 区块按地址形态分 direct / funnel，其余区块恒空。
+     *
+     * <p>upsertPair 的命中比较、编辑表单的粘贴分拣、保存回写三处都用它 —— lane 是地址的
+     * 派生值，不单独存储判断，避免四处口径漂移（漂移一次就是一次「互顶」）。
+     */
+    static String laneFor(String kind, String addr) {
+        if (!KIND_TS.equals(text(kind).toLowerCase(Locale.US))) {
+            return "";
+        }
+        return ServerProfile.isFunnelOrigin(addr) ? LANE_FUNNEL : LANE_DIRECT;
+    }
+
     String id = "";
     /** 区块 id：cloudflare / ts / tsnet */
     String kind = "";

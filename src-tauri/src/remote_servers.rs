@@ -608,6 +608,11 @@ impl RemoteServer {
                     if route_kind.is_empty() {
                         continue;
                     }
+                    // 通道停用按 kind 粒度：ts 区块里「直连」与「Funnel」是优先级表里
+                    // 两行独立的通道（ts / funnel），停用哪一个只排掉哪一条 lane
+                    if self.route_disabled.iter().any(|raw| raw.trim() == route_kind) {
+                        continue;
+                    }
                     out.push(RouteCandidate {
                         kind: route_kind.to_string(),
                         origin: pair.addr.clone(),
@@ -716,12 +721,15 @@ impl RemoteServer {
         } else {
             self.route_order = self.route_order_sorted();
         }
-        // 禁用表只服务非配对通道（lan / jump）：配对区块的禁用是 `RemotePair.enabled`
+        // 禁用表认全部六个通道 id：前端优先级表每行（含 tunnel / ts / funnel / tsnet）
+        // 都有启停开关，Java 端也是全量存取 —— 这里必须原样保留，只清洗非法 id。
+        // 以前只认 lan / jump、把区块通道的停用静默丢掉，用户在电脑列表关了
+        // 「Tailscale 直连」保存后开关又自己弹回来，探测连接照样走它。
         self.route_disabled = self
             .route_disabled
             .iter()
             .map(|raw| raw.trim().to_lowercase())
-            .filter(|id| id == "lan" || id == "jump")
+            .filter(|id| ROUTE_IDS.contains(&id.as_str()))
             .collect();
         // 每通道探测超时：只留合法通道 id，值 0 等于「没单独设」（删掉，回落默认值），越界夹紧
         self.route_timeouts_ms = normalize_route_timeouts(&self.route_timeouts_ms);
@@ -5347,14 +5355,15 @@ mod tests {
     fn normalize_materializes_route_fields() {
         let mut server = route_test_server();
         server.route_order = Vec::new();
-        // route_disabled 现在只认非配对通道（lan / jump）：区块禁用走 pair.enabled
-        server.route_disabled = vec!["bogus".into(), " LAN ".into(), "tunnel".into()];
+        // route_disabled 认全部六个通道 id（前端优先级表每行都有启停开关，
+        // Java 端也是全量存取）：只清洗非法 id，区块通道的停用不许静默丢弃
+        server.route_disabled = vec!["bogus".into(), " LAN ".into(), "ts".into()];
         let normalized = server.normalize();
         assert_eq!(
             normalized.route_order,
             vec!["lan", "jump", "tunnel", "ts", "funnel", "tsnet"]
         );
-        assert_eq!(normalized.route_disabled, vec!["lan"]);
+        assert_eq!(normalized.route_disabled, vec!["lan", "ts"]);
     }
 
     #[test]
@@ -5414,6 +5423,42 @@ mod tests {
             .map(|cand| cand.kind.clone())
             .collect();
         assert_eq!(kinds, vec!["tunnel"]);
+    }
+
+    #[test]
+    fn route_candidates_skip_disabled_lane_in_ts_block() {
+        // ts 区块里「直连」与「Funnel」是优先级表里两行独立通道：
+        // 停用 ts（直连 lane）只排掉 direct 配对，funnel 配对照常参与
+        let mut server = route_test_server();
+        server.jump_id = String::new();
+        server.route_disabled = vec!["ts".into()];
+        server.pairs = vec![
+            pair("ts", "100.64.0.1:12300", "m1"),            // lane = direct
+            pair("ts", "https://box.tail1234.ts.net", "m2"), // lane = funnel
+        ];
+        let kinds: Vec<String> = server
+            .route_candidates()
+            .iter()
+            .map(|cand| cand.kind.clone())
+            .collect();
+        assert_eq!(kinds, vec!["lan", "funnel"], "停用 ts 只排 direct lane");
+        // 换成停用 funnel：direct 保留
+        server.route_disabled = vec!["funnel".into()];
+        let kinds: Vec<String> = server
+            .route_candidates()
+            .iter()
+            .map(|cand| cand.kind.clone())
+            .collect();
+        assert_eq!(kinds, vec!["lan", "ts"]);
+        // 停用整条 cloudflare 通道：tunnel 配对全部出局
+        server.route_disabled = vec!["tunnel".into()];
+        server.pairs = vec![pair("cloudflare", "https://a.trycloudflare.com", "m3")];
+        let kinds: Vec<String> = server
+            .route_candidates()
+            .iter()
+            .map(|cand| cand.kind.clone())
+            .collect();
+        assert_eq!(kinds, vec!["lan"]);
     }
 
     #[test]
