@@ -511,7 +511,9 @@ class MainActivity : ComponentActivity() {
         }
         return when {
             tab?.usingRemote == true -> "远程"
-            ServerProfile.text(profile.jumpServerId).isNotEmpty() -> "跳板机"
+            // 兜底也尊重连接策略：跳板机被停用就不许出现在标注里
+            ServerProfile.text(profile.jumpServerId).isNotEmpty()
+                && !profile.routeDisabled.contains(ServerProfile.ROUTE_JUMP) -> "跳板机"
             else -> "直连"
         }
     }
