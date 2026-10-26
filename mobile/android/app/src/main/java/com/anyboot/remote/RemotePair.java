@@ -134,15 +134,20 @@ final class RemotePair {
     }
 
     /**
-     * 幂等键：有 mid 用 {@code mid|kind|mid}，没有 mid 用 {@code addr|kind|addr}。
+     * 幂等键：有 mid 用 {@code mid|kind|lane|mid}，没有 mid 用 {@code addr|kind|addr}。
      *
-     * <p>不能只用 mid —— 同一套系统可以同时有 cloudflare + ts + tsnet；也不能让空 mid
-     * 全撞在一起（用户手填的第二条会被吞）。
+     * <p>不能只用 mid —— 同一套系统可以同时有 cloudflare + ts + tsnet；也不能只用
+     * {@code (mid, kind)} —— ts 区块合并了「直连」与「系统 Funnel」，同一台电脑这两条
+     * 是<b>并存</b>的配对（lane 区分），少比 lane 会让扫 funnel 码顶掉 direct 码，
+     * 互顶从区块间挪进了区块内。lane 只对 ts 区块有区分度（其余恒空）；
+     * {@link #effectiveLane()} 让 lane 写空的老数据与新数据同键。
+     * 空 mid 时按地址去重：地址形态本身就区分 direct / funnel。
      */
     String key() {
         String machine = text(mid);
         if (!machine.isEmpty()) {
-            return "mid|" + text(kind) + "|" + machine;
+            String laneSlot = KIND_TS.equals(text(kind).toLowerCase(Locale.US)) ? effectiveLane() : "";
+            return "mid|" + text(kind) + "|" + laneSlot + "|" + machine;
         }
         return "addr|" + text(kind) + "|" + text(addr);
     }

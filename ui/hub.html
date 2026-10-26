@@ -7722,18 +7722,24 @@
     if (kind !== 'ts') return '';
     return String(origin || '').toLowerCase().indexOf('.ts.net') >= 0 ? 'funnel' : 'direct';
   }
-  /** 幂等查找：有 mid 按 (mid, kind)，没有 mid 按地址（与后端 pair_key 同一规则） */
+  /** 幂等查找：有 mid 按 (mid, kind, lane)，没有 mid 按地址（与后端 pair_key 同一规则）。
+   *  lane 必须参与：ts 区块里同一台电脑的「直连」与「系统 Funnel」是两条并存的配对，
+   *  少比 lane 会让扫 funnel 码顶掉 direct 码（互顶从区块间挪进区块内）。 */
   function rsPairIndex(kind, mid, addr) {
+    const incomingLane = rsPairLane(kind, addr);
     for (let i = 0; i < rsPairs.length; i += 1) {
       const p = rsPairs[i];
       if (p.kind !== kind) continue;
-      if (mid && p.mid) { if (p.mid === mid) return i; }
-      else if (p.addr && p.addr === addr) return i;
+      if (mid && p.mid) {
+        // 老数据 lane 可能写空：按地址形态现算（与后端 effective_lane 同口径）
+        const pairLane = p.lane || rsPairLane(kind, p.addr);
+        if (p.mid === mid && pairLane === incomingLane) return i;
+      } else if (p.addr && p.addr === addr) return i;
     }
     return -1;
   }
   /**
-   * 加入一条配对。同 (mid, kind) 或同地址 = 更新那一行 —— 这是**唯一合法**的「顶替」。
+   * 加入一条配对。同 (mid, kind, lane) 或同地址 = 更新那一行 —— 这是**唯一合法**的「顶替」。
    * 返回提示文案（空 = 新增成功）。
    */
   function rsAddPair(entry) {

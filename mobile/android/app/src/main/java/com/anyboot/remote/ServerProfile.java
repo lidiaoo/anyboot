@@ -924,7 +924,7 @@ final class ServerProfile {
      * 用粘贴内容加入一条配对（整条 {@code anyboot://pair?v=2&…} 配对串或纯 URL 都行）。
      *
      * <p>返回落库的配对；解析失败返回 {@code null} 且不改动现有配对。
-     * 归档规则见 {@code docs/remote-pairs.md} §4.6：同 {@code (mid, kind)} 更新那一条
+     * 归档规则见 {@code docs/remote-pairs.md} §4.6：同 {@code (mid, kind, lane)} 更新那一条
      * （保留位置与原 id），否则追加到区块末尾。
      */
     RemotePair addPairFromPaste(String raw) {
@@ -936,7 +936,7 @@ final class ServerProfile {
     }
 
     /**
-     * 把解析结果写进 {@link #pairs}：先按 {@code (mid, kind)} 找，没有就按 {@code (addr, kind)}，
+     * 把解析结果写进 {@link #pairs}：先按 {@code (mid, kind, lane)} 找，没有就按 {@code (addr, kind)}，
      * 都没有则追加。更新时**保留原 id 与首次配对时间**（探测结果才对得上、用户排好的顺序不被打乱）。
      */
     RemotePair upsertPair(ParsedPair parsed) {
@@ -949,13 +949,19 @@ final class ServerProfile {
         }
         String kind = parsed.kind.isEmpty() ? defaultBlockFor(addr) : parsed.kind;
         String mid = text(parsed.mid);
+        // 幂等键的 lane 槽（与 RemotePair.key() 同口径）：ts 区块按地址形态分
+        // direct / funnel —— 同一台电脑这两条并存，少比 lane 会让扫 funnel 码顶掉 direct 码
+        String incomingLane = RemotePair.KIND_TS.equals(kind)
+                ? (isFunnelOrigin(addr) ? RemotePair.LANE_FUNNEL : RemotePair.LANE_DIRECT)
+                : "";
         RemotePair hit = null;
         for (RemotePair pair : pairs) {
             if (pair == null || !kind.equals(text(pair.kind).toLowerCase(Locale.US))) {
                 continue;
             }
             if (!mid.isEmpty()) {
-                if (mid.equals(text(pair.mid))) {
+                String pairLane = RemotePair.KIND_TS.equals(kind) ? pair.effectiveLane() : "";
+                if (mid.equals(text(pair.mid)) && pairLane.equals(incomingLane)) {
                     hit = pair;
                     break;
                 }

@@ -114,7 +114,7 @@ pub struct RemotePair {
     /// 是否参与探测（单条粒度）。取代原来的 `route_disabled`（区块内禁用）
     #[serde(default = "serde_default_true")]
     pub enabled: bool,
-    /// 对方系统自报的 machine_id —— 幂等键的一半（另一半是 kind）
+    /// 对方系统自报的 machine_id —— 幂等键的一半（另一半是 kind + lane）
     #[serde(default)]
     pub mid: String,
     /// 对方自报的系统族（windows / macos / linux）
@@ -267,17 +267,27 @@ impl RemotePair {
     }
 }
 
-/// 幂等键：有 `mid` 时按 `(mid, kind)`（同一系统同一区块重新配对 = 更新那一行）；
-/// `mid` 为空（手填地址）时按 `(addr, kind)`。
+/// 幂等键：有 `mid` 时按 `(mid, kind, lane)`；`mid` 为空（手填地址）时按 `(addr, kind)`。
 ///
 /// **不能只用 `mid`**：同一个系统可以同时挂 cloudflare + ts + tsnet 三条，
 /// 只按 mid 去重会让它们互顶，等于回到原点。
+/// **kind 也不能只有区块**：ts 区块合并了「直连」与「系统 Funnel」，同一台电脑的
+/// 这两条是**并存**的配对（lane 区分，见文档 §三模型图），只按 `(mid, kind)` 去重
+/// 会让扫 funnel 码顶掉 direct 码 —— 这正是合并区块想消灭的互顶，从区块间挪进了区块内。
 /// **也不能让空 mid 全撞在一起**：那样手填的第二条就会被吞掉。
+/// lane 只对 ts 区块有区分度（其余区块恒空，键只是多了一节空串）；用
+/// `effective_lane()` 让 lane 写空的历史数据与新数据的键保持一致。
 fn pair_key(pair: &RemotePair) -> String {
     if pair.mid.is_empty() {
+        // 手填路径：地址本身已区分 direct / funnel（形态不同），不必再带 lane
         format!("addr|{}|{}", pair.kind, pair.addr)
     } else {
-        format!("mid|{}|{}", pair.kind, pair.mid)
+        let lane = if pair.kind.trim() == "ts" {
+            pair.effective_lane()
+        } else {
+            ""
+        };
+        format!("mid|{}|{}|{}", pair.kind, lane, pair.mid)
     }
 }
 
@@ -358,7 +368,8 @@ pub struct RemoteServer {
     /// **远程接入配对列表**（`pairs` 内的相对顺序 = 同区块内的探测顺序）。
     ///
     /// 取代四个单值槽与单值令牌：一个系统一套通道 = 一条 `RemotePair`。
-    /// 幂等键 `(mid, kind)`；「顶替」只剩一个合法场景 —— 同一系统同一区块重新配对。
+    /// 幂等键 `(mid, kind, lane)`；「顶替」只剩一个合法场景 —— 同一系统同一区块
+    /// 同一 lane 重新配对（ts 区块直连与 Funnel 是两条，互不顶替）。
     #[serde(default)]
     pub pairs: Vec<RemotePair>,
     /// **每个区块内部的探测策略**：parallel_first（缺项 = 它）/ parallel_all / serial。
@@ -4136,6 +4147,26 @@ mod tests {
         assert_eq!(n.pairs[0].addr, "https://new.trycloudflare.com", "更新项留在原位");
         assert_eq!(n.pairs[0].kind, "cloudflare");
         assert_eq!(n.pairs[1].kind, "ts");
+    }
+
+    #[test]
+    fn pairs_same_mid_ts_direct_and_funnel_coexist() {
+        // ts 区块合并了直连与系统 Funnel，lane 是幂等键的一部分：
+        // 同一台电脑（同 mid）的 direct 与 funnel **并存**，互不顶替 ——
+        // 只按 (mid, kind) 去重会让扫 funnel 码顶掉 direct 码（互顶从区块间挪进了区块内）。
+        let n = RemoteServer {
+            pairs: vec![
+                pair("ts", "100.64.0.1:12300", "m1"),
+                pair("ts", "https://box.tailabc.ts.net", "m1"),
+                pair("ts", "100.64.0.9:12300", "m1"),
+            ],
+            ..Default::default()
+        }
+        .normalize();
+        assert_eq!(n.pairs.len(), 2, "direct 与 funnel 并存；第三条与第一条同 lane，顶替它");
+        assert_eq!(n.pairs[0].lane, "direct");
+        assert_eq!(n.pairs[0].addr, "http://100.64.0.9:12300", "同 lane 重扫更新原行（保留位置）");
+        assert_eq!(n.pairs[1].lane, "funnel");
     }
 
     #[test]

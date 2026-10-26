@@ -113,9 +113,13 @@ LAN 直连不受影响，仍在原处可用。
 多条目之后互顶消失，拆槽的理由也不存在了。合并后同区块内两种形态的响应差异很大，
 这正是条目级超时存在的意义（默认值统一，见 §5.3）。
 
-**顶替的唯一合法场景**：同一 `(mid, kind)` 重新配对 → 更新那一行的 `addr` / `token` / `tunnel_id`。
-注意键是 `(mid, kind)` 而不是 `mid`：同一个系统可以同时有 cloudflare + ts + tsnet 三条，
-只按 `mid` 去重会让它们互顶，等于回到原点。
+**顶替的唯一合法场景**：同一 `(mid, kind, lane)` 重新配对 → 更新那一行的 `addr` / `token` / `tunnel_id`。
+注意两处「不能省」：
+- 键里要有 `kind` 而不是只按 `mid`：同一个系统可以同时有 cloudflare + ts + tsnet 三条，
+  只按 `mid` 去重会让它们互顶，等于回到原点。
+- 键里还要有 `lane`：ts 区块合并了「直连」与「系统 Funnel」，**同一台电脑这两条并存**
+  （§三模型图 pair#2 / pair#3），只按 `(mid, kind)` 去重会让扫 funnel 码顶掉 direct 码 ——
+  互顶从区块间挪进区块内，等于白合并。
 
 ## 四、数据契约
 
@@ -143,7 +147,7 @@ pub struct RemotePair {
     /// 是否参与探测（单条粒度）
     #[serde(default = "serde_default_true")]
     pub enabled: bool,
-    /// 对方系统自报的 machine_id —— 幂等键的一半
+    /// 对方系统自报的 machine_id —— 幂等键的一半（另一半是 kind + lane）
     #[serde(default)]
     pub mid: String,
     /// 对方自报的系统族（windows / macos / linux）
@@ -232,7 +236,7 @@ anyboot://pair?v=2&mid=<machineId>&os=<os>&host=<hostname>&type=<kind>&tunnel=<u
 
 ```
 1. 目标档案 = 用户当前打开/选中的那条（没有则先引导新建）
-2. 在该档案内按 (mid, kind) 找 pair
+2. 在该档案内按 (mid, kind, lane) 找 pair（lane 只对 ts 区块有区分度）
    ↳ 找到 → 更新 addr / token / tunnel_id（唯一合法的「顶替」）
    ↳ 没找到 → 追加到对应区块末尾
 3. mid 与档案的 machine_id 不一致
