@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -954,16 +955,18 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                         }
                     }
                 }
-                TextButton(
-                    onClick = { state.routeMove(kind, -1) },
+                TinyTextButton(
+                    text = "↑",
+                    tint = palette.fgDim,
                     enabled = index > 0,
-                    contentPadding = PaddingValues(horizontal = 6.dp),
-                ) { Text("↑", fontSize = 13.sp) }
-                TextButton(
-                    onClick = { state.routeMove(kind, 1) },
+                    onClick = { state.routeMove(kind, -1) },
+                )
+                TinyTextButton(
+                    text = "↓",
+                    tint = palette.fgDim,
                     enabled = index < state.routeOrder.size - 1,
-                    contentPadding = PaddingValues(horizontal = 6.dp),
-                ) { Text("↓", fontSize = 13.sp) }
+                    onClick = { state.routeMove(kind, 1) },
+                )
                 Switch(
                     checked = enabled,
                     onCheckedChange = { on ->
@@ -1658,15 +1661,21 @@ private fun PairEditRow(
                 placeholder = { Text("地址（https://… 或 100.x:12300）", fontSize = 11.sp) },
                 modifier = Modifier.weight(1f),
             )
-            TextButton(onClick = { state.movePair(item.id, -1) }) {
-                Text("↑", fontSize = 13.sp, color = palette.fgDim)
-            }
-            TextButton(onClick = { state.movePair(item.id, 1) }) {
-                Text("↓", fontSize = 13.sp, color = palette.fgDim)
-            }
-            TextButton(onClick = { state.removePair(item.id) }) {
-                Text("✕", fontSize = 13.sp, color = palette.bad)
-            }
+            TinyTextButton(
+                text = "↑",
+                tint = palette.fgDim,
+                onClick = { state.movePair(item.id, -1) },
+            )
+            TinyTextButton(
+                text = "↓",
+                tint = palette.fgDim,
+                onClick = { state.movePair(item.id, 1) },
+            )
+            TinyTextButton(
+                text = "✕",
+                tint = palette.bad,
+                onClick = { state.removePair(item.id) },
+            )
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (lane.isNotEmpty()) {
@@ -1778,6 +1787,37 @@ private fun ProbeModeChoice(
 }
 
 internal const val SERVER_EDIT_EMPTY_ADDRESS_HINT = "请填电脑地址"
+
+/**
+ * 紧凑的小图标按钮（30dp 方框、纯符号、无底色）。
+ *
+ * <p>为什么不用 `TextButton`：M3 的 TextButton 有 58dp 的最小宽度，一行里放三个
+ * （配对行的 ↑ ↓ ✕）就吃掉 174dp —— 354dp 宽的手机上地址输入框只剩 78dp，
+ * 实测只能显示「https」四个字母，地址根本没法看也没法改。这里自绘 30dp，
+ * 三个才 90dp，地址框就能拿回 84dp。顺带干掉了按压态的紫色胶囊残留。
+ */
+@Composable
+private fun TinyTextButton(
+    text: String,
+    tint: Color,
+    enabled: Boolean = true,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = modifier
+            .size(30.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text,
+            fontSize = 14.sp,
+            color = if (enabled) tint else tint.copy(alpha = 0.35f),
+        )
+    }
+}
 
 /**
  * 紧凑的小数字输入框（26dp 高、等宽居中）：连接优先级每行的「探测超时/秒」用。

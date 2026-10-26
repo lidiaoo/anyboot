@@ -13,6 +13,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -1342,10 +1343,26 @@ class ComputerListActivity : ComponentActivity() {
                         CloseIcon(tint = palette.fgDim, size = 14.dp)
                     }
                 }
-                // 表单自己带滚动：内容很长（电源路由可以无限加），高度交给它
-                Box(Modifier.fillMaxWidth().heightIn(max = 520.dp).padding(horizontal = 18.dp)) {
+                // 表单自己带滚动：内容很长（电源路由可以无限加），高度交给它。
+                // 上限按屏幕高度算，别钉 520dp —— 一加长表单在 6.7 寸屏上只用了
+                // 三分之二，底部按钮还看着像悬在内容上（真机截图反馈）。
+                val formMaxHeight = (LocalConfiguration.current.screenHeightDp * 0.62f).dp
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = formMaxHeight)
+                        .padding(horizontal = 18.dp),
+                ) {
                     ServerEditFormBody(form)
                 }
+                // 底部动作栏与滚动内容之间画一条线：不然内容滚到一半被裁，
+                // 看着像被按钮压住了
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(1.dp)
+                        .background(palette.line),
+                )
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
@@ -1702,13 +1719,19 @@ class ComputerListActivity : ComponentActivity() {
                         )
                     }
                     if (hint.isNotEmpty()) {
+                        // 两行：四个按钮并排时每个只有 1/4 卡片宽（≈76dp），
+                        // 「发不出 · → 自动广播:9」这种 13 个字的提示单行必然被截成
+                        // 「发不出 · → 自…」，用户最想看的「广播到哪、第几包」全丢了
                         Text(
                             hint,
-                            fontSize = 9.sp,
+                            fontSize = 8.5.sp,
+                            lineHeight = 10.sp,
                             color = hintColor,
-                            maxLines = 1,
+                            maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(top = 1.dp),
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier
+                                .padding(top = 1.dp, start = 2.dp, end = 2.dp),
                         )
                     }
                 }

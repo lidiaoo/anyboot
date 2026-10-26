@@ -755,11 +755,14 @@ class MainActivity : ComponentActivity() {
                             strokeWidth = 2.dp,
                         )
                     } else {
-                        Text(
-                            text = if (expanded) "×" else "⏻",
-                            fontSize = 20.sp,
-                            color = Color.White,
-                        )
+                        // 别再用 "⏻"（U+23FB）：Android 默认字体没有这个字形，
+                        // 真机上就是个空白紫圆（截图反馈「按钮是空的」）。
+                        // 项目里本来就有自绘的电源/叉图标，直接用。
+                        if (expanded) {
+                            CloseIcon(tint = Color.White, size = 18.dp)
+                        } else {
+                            PowerIcon(tint = Color.White, size = 22.dp)
+                        }
                     }
                 }
             }

@@ -1790,6 +1790,91 @@ body.dock-right #hotzone {
   }
 }
 
+/* ---------- 手机竖屏（WebView 视口约 354px）----------
+ * 上面那条 720 断点只管分栏和设置行；再窄到 354（1240px / 3.5 密度）时还有
+ * 四处会崩，都是实测真机截图发现的：
+ *   ① 三个页签被 padding 撑爆 → 每个字都折成两行（「系统引 / 导」）；
+ *   ② 远程横幅里文字、刷新、传输方式下拉、更换 token 缠成一坨（全角空格
+ *      分隔的 inline 流在窄屏就是灾难）；
+ *   ③ 底部状态条遇到超长变量名（osprober-gnulinux-advanced-…）撑成三行，
+ *      占掉大半个屏幕；
+ *   ④ 系统卡片的按钮（「下次启动 Windows」）被 auto 列挤到折行。
+ * 只补这四条，PC 尺寸下的观感一点不动。 */
+@media (max-width: 480px) {
+  /* ① 页签：三个平分一行，宁可变窄也不折行 */
+  .tabs {
+    gap: 0;
+  }
+  .tab {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 9px 2px;
+    font-size: 13px;
+    line-height: 1.35;
+    text-align: center;
+    white-space: nowrap;
+  }
+  .tab::after {
+    left: 10px;
+    right: 10px;
+  }
+
+  /* ② 远程横幅：说明文字独占一行，控件另起一行、放不下再换行 */
+  .browser-banner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 6px 8px;
+    padding: 8px 10px;
+    font-size: 12px;
+    line-height: 1.45;
+  }
+  .browser-banner .banner-text {
+    flex: 1 1 100%;
+    text-align: center;
+  }
+  .browser-banner .banner-link {
+    flex: none;
+  }
+  .browser-banner select {
+    /* 不 grow：grow 会把「刷新」顶到最左边、下拉框吃掉中间，整行看着散 */
+    flex: 0 1 150px;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  /* ③ 状态条：最多两行，超出省略号（完整值去对应栏目里看） */
+  .status-bar {
+    align-items: flex-start;
+    padding: 8px 10px;
+  }
+  .status-bar-text {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    word-break: break-all;
+  }
+
+  /* ④ 系统卡片：勾 + 名称一行，按钮整行铺开 */
+  .system-card {
+    grid-template-columns: 22px minmax(0, 1fr);
+    row-gap: 8px;
+    padding: 12px;
+  }
+  .system-card > button {
+    grid-column: 1 / -1;
+    justify-self: stretch;
+    white-space: nowrap;
+  }
+
+  /* 「下次启动」的级联全链常在二十字以上，收一档字号少折一行 */
+  .next-boot strong {
+    font-size: 15px;
+  }
+}
+
 /* ---------- SOL 远程唤醒标签页 ----------
  * 第三个栏目（#/sol）：sol 接收器的状态 / 监听端口 / 安装卸载 / 配置编辑。
  * 全部沿用面板既有 token（--panel / --border / --ok / --warn），不引入新色板。 */

@@ -2713,8 +2713,12 @@ function renderBrowserBanner() {
     return;
   }
   if (remoteToken) {
-    browserBanner.textContent =
-      "远程控制已连接：这里的设置改动实时作用于本机 AnyBoot";
+    // 说明文字单独包一层：窄屏（手机 WebView）下横幅是 flex 换行布局，
+    // 纯 textContent + 全角空格会把文字和按钮搅成一坨（354px 下折成三行还错位）
+    const text = document.createElement("span");
+    text.className = "banner-text";
+    text.textContent = "远程控制已连接：这里的设置改动实时作用于本机 AnyBoot";
+    browserBanner.replaceChildren(text);
     // 手动刷新：推送正常时用不上，但它是兜底（某一拍丢帧 / 另一台设备刚改过）
     const refresh = document.createElement("button");
     refresh.type = "button";
@@ -2722,24 +2726,27 @@ function renderBrowserBanner() {
     refresh.textContent = "刷新";
     refresh.addEventListener("click", () => reloadViaAppOrRefresh());
     // 传输方式：推送优先还是轮询
-    browserBanner.append("　", refresh, "　", buildTransportSelect());
+    browserBanner.append(refresh, buildTransportSelect());
     // 给个退路：换 token / 断开重连
     const change = document.createElement("button");
     change.type = "button";
     change.className = "banner-link";
     change.textContent = "更换 token";
     change.addEventListener("click", () => showTokenModal());
-    browserBanner.append("　", change);
+    browserBanner.append(change);
     return;
   }
-  browserBanner.textContent = "远程控制未连接：请输入访问令牌";
+  const text = document.createElement("span");
+  text.className = "banner-text";
+  text.textContent = "远程控制未连接：请输入访问令牌";
+  browserBanner.replaceChildren(text);
   // 输入框可能被用户「暂不连接」关掉了，横幅里常驻一个入口
   const enter = document.createElement("button");
   enter.type = "button";
   enter.className = "banner-link";
   enter.textContent = "输入 token";
   enter.addEventListener("click", () => showTokenModal());
-  browserBanner.append("　", enter);
+  browserBanner.append(enter);
 }
 
 // ---------- 下拉刷新（手机 / 触屏） ----------
