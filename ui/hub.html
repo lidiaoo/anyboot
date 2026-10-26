@@ -1,6 +1,6 @@
 <!DOCTYPE html>
-<!-- ui-version: 20261026-route-conn（连接路径按探测赢家/优先级选通道：直连不再被跳板机独占；列表行全通道+逐行探测情况） -->
-<script>try{window.ANYBOOT_UI_VERSION='20261026-route-conn';}catch(e){}</script>
+<!-- ui-version: 20261026-jump-strategy（跳板机归一为策略通道：停用即不开隧道/不探测/不连接；转发端点作为探测候选参与优先级） -->
+<script>try{window.ANYBOOT_UI_VERSION='20261026-jump-strategy';}catch(e){}</script>
 <script src="qrcode.min.js"></script>
 <!-- AnyBoot 远程管理（server-hub）。
      独立窗口，主窗口零改动；托盘「远程管理…」是唯一入口。
@@ -5380,15 +5380,21 @@
     }
     if (lanOk) return 'lan';
     if (jumpOk) return 'jump';
-    return (r.jump_id || '').trim() ? 'jump' : 'lan';
+    // 直连与跳板机都不可用（没配或被连接策略停用）：没有本地路径，
+    // 连接只能靠远程通道 —— 绝不能绕过开关偷偷走跳板机
+    return '';
   }
-  /** 这台电脑现在要不要解析跳板机转发端点：赢家是 jump，或没探过且默认路径是 jump */
+  /**
+   * 这台电脑现在要不要就绪跳板机转发端点：**跳板机通道启用**且
+   * （探测赢家是它 / 还没探出赢家 —— 探测要把端点作为候选之一跑）。
+   * 被连接策略停用的跳板机永远不解析端点：不开隧道、不参与探测、不参与连接。
+   */
   function pcNeedJump(r) {
-    if (!r) return false;
+    if (!r || !invoke) return false;
+    if (!(r.jump_id || '').trim()) return false;
+    if ((Array.isArray(r.route_disabled) ? r.route_disabled : []).indexOf('jump') >= 0) return false;
     const winner = pcWinnerKind.get(r.id) || '';
-    if (winner === 'jump') return true;
-    if (winner) return false; // lan 或远程赢家都用不上转发端点
-    return pcDefaultLocalKind(r) === 'jump';
+    return !winner || winner === 'jump';
   }
   /**
    * iframe / 连接 URL。通道选择**听电脑列表的机制**（探测赢家 / 优先级表）：
@@ -5403,6 +5409,7 @@
     const winner = pcWinnerKind.get(r.id) || '';
     const kind = (winner === 'lan' || winner === 'jump') ? winner : pcDefaultLocalKind(r);
     const token = encodeURIComponent(r.token || '');
+    if (!kind) return ''; // 直连与跳板机都被策略停用：没有本地路径（远程赢家在上面已返回）
     if (kind === 'jump') {
       const ep = pcEps.get(r.id);
       // 跳板端点还没解析好：返回空串，pcResolveEp 到货后重建 iframe
@@ -5419,6 +5426,14 @@
         if (pcFrames.has(r.id)) pcReload(r.id);
       })
       .catch(function (e) { toast('「' + pcName(r) + '」经跳板机连接失败：' + e, 'bad'); });
+  }
+  /** 探测前的 Promise 版端点解析：只在通道启用时开隧道；失败返回 null（不弹 toast） */
+  function pcEnsureJumpEp(r) {
+    if (!invoke || pcEps.has(r.id)) return Promise.resolve(pcEps.get(r.id) || null);
+    if (!pcNeedJump(r)) return Promise.resolve(null);
+    return invoke('remote_endpoint', { serverId: r.id })
+      .then(function (ep) { pcEps.set(r.id, ep); return ep; })
+      .catch(function () { return null; });
   }
 
   // ============ 远程地址切换（探测带 remoteAddr，赢家可能落远程） ============
@@ -5471,7 +5486,17 @@
     const list = [];
     const doneBlocks = {};
     order.forEach(function (kind) {
-      if (kind === 'jump') return;
+      if (kind === 'jump') {
+        // 跳板机也是一条通道：连接策略启用 + 转发端点已就绪才进候选
+        // （端点由 pcProbe 前置解析；被停用的跳板机永远不开隧道、不参与探测）
+        if (disabled.jump || !(r.jump_id || '').trim()) return;
+        const ep = pcEps.get(r.id);
+        if (ep) {
+          list.push({ kind: 'jump', origin: '127.0.0.1:' + ep.port,
+            timeout_ms: Number((r.route_timeouts_ms || {}).jump || 0) || 0 });
+        }
+        return;
+      }
       const block = BLOCK_OF[kind];
       if (block) {
         if (doneBlocks[block]) return; // ts 与 funnel 同区块，只展开一次
@@ -5508,6 +5533,9 @@
    *  "电脑页和电脑列表共用这一处"。
    */
   async function pcProbe(r, mode) {
+    // 跳板机通道启用时先把转发端点就绪（它也是候选之一；失败 = 这条通道探不了）
+    const jumpEp = await pcEnsureJumpEp(r);
+    const jumpWanted = pcNeedJump(r);
     const candidates = pcRouteCandidates(r);
     // 默认探测超时（毫秒）跟档案走；老档案没这字段 → 后端默认 2 秒
     const timeout = r.probe_timeout_ms || 2000;
@@ -5519,6 +5547,8 @@
     const blockModes = r.block_probe_mode || {};
     // 内层：多网卡探测（同一通道内的多个地址）
     const addressMode = mode || r.probe_mode || 'parallel_first';
+    const prevKind = pcWinnerKind.get(r.id) || '';
+    const prevRemoteWin = pcRemoteWin.has(r.id);
     const res = candidates.length
       ? await invoke('remote_test', {
           addresses: [], probeMode: addressMode, routeProbeMode: routeMode,
@@ -5529,19 +5559,23 @@
           addresses: r.addresses, probeMode: addressMode, routeProbeMode: routeMode,
           probeTimeoutMs: timeout, routeTimeoutsMs: routeTimeouts, blockProbeModes: blockModes,
         });
-    // 连接方式是否翻转（直连 ↔ 隧道）：变了要刷新标注（电脑标签/列表行/悬浮球）
+    // 连接方式是否翻转（通道换了就要刷新标注：电脑标签/列表行/悬浮球）
     let connChanged = false;
     if (res && res.ok) {
       pcConnOk.set(r.id, true);
       pcWinnerKind.set(r.id, String(res.kind || '').trim());
-      connChanged = res.remote ? !pcRemoteWin.has(r.id) : pcRemoteWin.has(r.id);
+      connChanged = prevKind !== String(res.kind || '').trim()
+        || (res.remote ? !prevRemoteWin : prevRemoteWin);
       if (res.remote) {
         pcRemoteWin.set(r.id, res.addr); // res.addr = https origin
         pcRemoteExpired.delete(r.id);
       } else {
         pcRemoteWin.delete(r.id);
         pcRemoteExpired.delete(r.id);
-        if (res.addr && res.addr !== pcNormAddr(pcFirstAddr(r))) {
+        // 跳板机赢家的 res.addr 是本机转发端点（127.0.0.1:port），绝不能
+        // 拿去顶替局域网地址列表 —— 那会把直连地址全挤掉
+        if (String(res.kind || '').trim() !== 'jump'
+            && res.addr && res.addr !== pcNormAddr(pcFirstAddr(r))) {
           const rest = (r.addresses || []).filter(function (a) { return pcNormAddr(a) !== res.addr; });
           r.addresses = [res.addr].concat(rest);
           invoke('remote_promote_address', { serverId: r.id, address: res.addr })
@@ -5584,6 +5618,15 @@
       rowMap.set(String(o.kind || 'lan') + '\u0000' + (o.pair_id || o.address || ''),
         { ok: !!o.ok, ms: o.ms || 0, error: o.error || '' });
     });
+    // kind 别名键（kind + '\0'）：跳板机行没有稳定地址键，按 kind 查第一条结果
+    rowMap.forEach(function (v, k) {
+      const alias = k.split('\u0000')[0] + '\u0000';
+      if (!rowMap.has(alias)) rowMap.set(alias, v);
+    });
+    // 跳板机通道启用但端点没就绪（SSH 连不上）：如实记一条失败，别让行上假装没探过
+    if (jumpWanted && !jumpEp && !rowMap.has('jump\u0000')) {
+      rowMap.set('jump\u0000', { ok: false, ms: 0, error: '跳板机连不上' });
+    }
     pcRowProbe.set(r.id, rowMap);
     if (connChanged) {
       renderPcChips();
@@ -5669,8 +5712,7 @@
       if (short && kind === 'tsnet') return '内建 Funnel';
       return ROUTE_LABELS[kind];
     }
-    // 没探出赢家：跳板机档案走转发端点、没有直连探测，标跳板机；其余未连接
-    if ((r.jump_id || '').trim()) return jumpLabel;
+    // 没探出赢家：一律「未连接」（跳板机档案现在同样会被探测 —— 端点就是候选之一）
     return '未连接';
   }
   function localUrl() {
@@ -6249,6 +6291,9 @@
     txt.appendChild(nameLine);
     const meta = document.createElement('div');
     meta.className = 'cq-dev-meta';
+    const remRow = remotes.find(function (x) { return x.id === row.rid; });
+    const routeDisabledList = remRow && Array.isArray(remRow.route_disabled)
+      ? remRow.route_disabled : [];
     const addrLines = row.local ? null : (row.addrs || []);
     if (!addrLines || addrLines.length === 0) {
       const ln = document.createElement('div');
@@ -6277,6 +6322,15 @@
         lanKind.dataset.k = 'lan';
         lanKind.textContent = '直连';
         ln.appendChild(lanKind);
+        // 连接策略停用了直连：徽章置灰 + 明说，别让人以为这行还能连
+        if (routeDisabledList.indexOf('lan') >= 0) {
+          lanKind.style.opacity = '0.45';
+          lanKind.title = '连接策略里已停用「直连」通道';
+          const off = document.createElement('span');
+          off.className = 'cq-dev-src';
+          off.textContent = '已停用';
+          ln.appendChild(off);
+        }
         const a = document.createElement('span');
         a.textContent = line.addr;
         ln.appendChild(a);
@@ -6318,6 +6372,8 @@
         a.textContent = jump ? (jump.name || jump.host || '跳板机') : '已删除的跳板机';
         a.title = '经由这台跳板机的 SSH 转发连接（广播包也走它发）；是否使用由连接优先级决定';
         ln.appendChild(a);
+        // 这条通道的探测情况（转发端点也是候选之一，结果在 pcRowProbe）
+        ln.appendChild(cqProbeBadge(row.rid, 'jump', '', ''));
         const ep = pcEps.get(row.rid);
         if (ep) {
           const sep = document.createElement('span');
@@ -6333,7 +6389,6 @@
       }
     }
     // 远程接入地址一行（配置了就亮出来；过期态 = 远程不通且局域网也不通）
-    const remRow = remotes.find(function (x) { return x.id === row.rid; });
     // 每条配对一行（一区块多条都要亮出来，否则用户以为只有第一条在跑）
     // 行尾跟来源 host · os；同一 tunnel_id 被多条共用时再标「隧道共用」（S5）
     const sharedTunnel = pcSharedTunnelId(remRow || {});
@@ -6954,7 +7009,7 @@
       return;
     }
     const r = remotes.find(function (x) { return x.id === rid; });
-    if (!r || r.jump_id) { pcStopRetry(); pcReload(rid); return; }
+    if (!r) { pcStopRetry(); pcReload(rid); return; }
     const mode = r.probe_mode || 'parallel_first';
     try {
       const res = await pcProbe(r, mode);
@@ -7001,6 +7056,7 @@
       pcRemoteExpired.delete(id);
       pcWinnerKind.delete(id);
       pcRowProbe.delete(id);
+      pcEps.delete(id); // 转发端点随档案作废（跳板机换了/停了，旧端口不能再用）
       // 探活结果也作废：否则地址改对了却还拿着上一轮的「离线」结论，页面直接给失败面板
       pageProbe.delete(id);
       pcConnOk.delete(id);
@@ -7090,7 +7146,7 @@
   function pcProbeAfterFrameLoad(rid, onFail) {
     return function () {
       const r = remotes.find(function (x) { return x.id === rid; });
-      if (!r || r.jump_id || !invoke) return; // 本机/跳板机没有直连探测
+      if (!r || !invoke) return; // 本机/无应用环境不补探；跳板机档案同样走策略探测
       const mode = r.probe_mode || 'parallel_first';
       pcProbe(r, mode)
         .then(function (res) {
@@ -7242,8 +7298,9 @@
   async function pageConnect(rid, force) {
     const r = remotes.find(function (x) { return x.id === rid; });
     if (!r) return;
-    if (!invoke || r.jump_id) {
-      // 跳板机走本地转发端点，没有直连探测；无应用环境时维持旧行为直接进页
+    if (!invoke) {
+      // 无应用环境时维持旧行为直接进页；跳板机档案现在同样走策略探测
+      //（转发端点也是候选之一，由连接策略决定用不用它）
       pageStopRetry();
       pageShowFrame(rid);
       return;
@@ -7315,7 +7372,6 @@
     toast('正在重新探测全部电脑…');
     if (invoke) { try { localEndpoint = await invoke('local_http_endpoint'); } catch (e) { /* 沿用旧值 */ } }
     await Promise.all(remotes.map(async function (r) {
-      if (r.jump_id) { pageReload(r.id); return; } // 跳板机走转发端点，没有直连探测
       const mode = r.probe_mode || 'parallel_first';
       try {
         const res = await pcProbe(r, mode);
@@ -7348,7 +7404,7 @@
       return;
     }
     const r = remotes.find(function (x) { return x.id === rid; });
-    if (!r || r.jump_id) { pageReload(rid); return; }
+    if (!r) { pageReload(rid); return; }
     const mode = r.probe_mode || 'parallel_first';
     try {
       const res = await pcProbe(r, mode);

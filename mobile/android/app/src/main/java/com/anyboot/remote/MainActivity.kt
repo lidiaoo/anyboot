@@ -1383,7 +1383,12 @@ class MainActivity : ComponentActivity() {
                 return candidate.kind
             }
         }
-        return if (ServerProfile.text(profile.jumpServerId).isNotEmpty()) {
+        // 兜底也要尊重连接策略：跳板机被停用就不许再被选中
+        //（直连停用 + 跳板机停用 → 返回 lan 会让连接失败，随后兜底链里
+        // connectJump / connectRemote 同样被各自的停用闸拦住，不会偷偷绕路）
+        val jumpUsable = ServerProfile.text(profile.jumpServerId).isNotEmpty()
+            && !profile.routeDisabled.contains(ServerProfile.ROUTE_JUMP)
+        return if (jumpUsable) {
             ServerProfile.ROUTE_JUMP
         } else {
             ServerProfile.ROUTE_LAN
