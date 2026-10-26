@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- ui-version: 20261026-timeout-field（超时框改成「超时 [__] 秒」控件组；58px 去 spinner、字号 11.5；修窄弹窗里开关被 order 挤到最左） -->
+<!-- ui-version: 20261026-pair-reissue（配对管理加「重新出码」：同档案换新令牌，已吊销可复活；出码弹窗复用为双模式） -->
 <script>try{window.ANYBOOT_UI_VERSION='20261023-gateway';}catch(e){}</script>
 <script src="qrcode.min.js"></script>
 <!-- AnyBoot 远程管理（server-hub）。
@@ -2892,6 +2892,8 @@
             通道没开启时也能生成（隧道地址留空，客户端拿到后自己填）。
             快速隧道每次重启软件都会换新地址 —— 旧记录里标的「配对地址」还能对账：
             客户端「最近访问」时间比换址晚，说明它已用新地址在连；一直没动，就是还在用旧地址（或没在连）。
+            配对串只在生成时显示一次（服务端只存哈希，事后查不到）——
+            扫码失败或对方删了配对，在下面列表点「重新出码」换枚新令牌重扫即可，不用重新添加。
           </p>
           <div id="gwClientList" class="gw-clients"></div>
         </div>
@@ -2914,7 +2916,7 @@
           <!-- 右上角常驻 ✕：用户不想生成时必须能走（之前只有生成后才出现「完成」，
                打开就等于被按住只能生成 —— 点 ✕ 或点弹窗外空白都能关闭） -->
           <button class="gw-pair-x" id="gwPairX" title="关闭（不生成）" aria-label="关闭（不生成）">✕</button>
-          <h2>生成配对码</h2>
+          <h2 id="gwPairTitle">生成配对码</h2>
           <p class="gw-pair-warn">等同密码：拿到它就能访问这台电脑，不要转发给别人。</p>
           <div class="field" id="gwPairNameRow">
             <label for="gwPairName">客户端名称（谁来配对）</label>
@@ -11425,6 +11427,8 @@ function gwShowPage() {
   // ---- 出码配对 ----
   // 地址类型四选：tunnel（默认）/ tailscale / funnel / none
   let gwPairAddrType = 'tunnel';
+  /** 重新出码目标（GatewayClient）：null = 普通签发流程，非空 = 给这个客户端换新令牌 */
+  let gwPairReissue = null;
   const GW_ADDR_HINTS = {
     tunnel: '隧道地址 = 本机 Cloudflare 通道的当前地址；没开启通道则自动退化为「不带地址」。',
     tailscale: '',  // 运行时按 Tailscale 状态填（见 gwPairAddrHintUpdate）
@@ -11459,19 +11463,9 @@ function gwShowPage() {
       gwPairAddrHintUpdate();
     });
   });
-  $('gwIssueBtn').addEventListener('click', function () {
-    $('gwPairNameRow').hidden = false;
-    $('gwPairAddrRow').hidden = false;
-    $('gwPairGoRow').hidden = false;
-    $('gwPairResult').hidden = true;
-    $('gwPairName').value = '';
-    // 预选：Tailscale 卡入口 → tailscale；否则隧道（有 tsAddr 且没开通道时跟手）
-    if (!tsPairPreset && !((snap && snap.url) || (mode === 'named' && $('gwNamedUrl').value.trim())) && tsAddr()) {
-      tsPairPreset = 'tailscale';
-    }
-    gwPairAddrType = tsPairPreset || 'tunnel';
-    tsPairPreset = null;
-    // 可用性收窄（tailscale 稿④交互规则2）：来源没开就置灰对应 tab，全不可用只剩「不带地址」
+  /** 出码弹窗地址类型的可用性收窄（稿④交互规则2）：来源没开就置灰对应 tab，
+   *  全不可用只剩「不带地址」。gwPairAddrType 已由调用方预选，被置灰时回落。 */
+  function gwPairAvailabilityApply() {
     const tunnelAvailable = !!((snap && snap.url) || (mode === 'named' && $('gwNamedUrl').value.trim()));
     const pairAvailability = {
       tunnel: tunnelAvailable,
@@ -11492,12 +11486,43 @@ function gwShowPage() {
       button.setAttribute('aria-selected', (button.dataset.addr || 'tunnel') === gwPairAddrType ? 'true' : 'false');
     });
     gwPairAddrHintUpdate();
+  }
+  $('gwIssueBtn').addEventListener('click', function () {
+    gwPairReissue = null;
+    $('gwPairTitle').textContent = '生成配对码';
+    $('gwPairNameRow').hidden = false;
+    $('gwPairAddrRow').hidden = false;
+    $('gwPairGoRow').hidden = false;
+    $('gwPairResult').hidden = true;
+    $('gwPairName').value = '';
+    $('gwPairGo').textContent = '生成配对码';
+    // 预选：Tailscale 卡入口 → tailscale；否则隧道（有 tsAddr 且没开通道时跟手）
+    if (!tsPairPreset && !((snap && snap.url) || (mode === 'named' && $('gwNamedUrl').value.trim())) && tsAddr()) {
+      tsPairPreset = 'tailscale';
+    }
+    gwPairAddrType = tsPairPreset || 'tunnel';
+    tsPairPreset = null;
+    gwPairAvailabilityApply();
     $('gwPairOverlay').hidden = false;
     $('gwPairName').focus();
   });
+  /** 客户端列表「重新出码」：同一份档案换枚新令牌（旧的即刻作废）。
+   *  名字不重填；地址类型预选出码时记录的通道，可以改（改了手机端会落到新槽位）。 */
+  function openPairReissue(client) {
+    gwPairReissue = client;
+    $('gwPairTitle').textContent = '重新出码 · ' + client.name;
+    $('gwPairNameRow').hidden = true;
+    $('gwPairAddrRow').hidden = false;
+    $('gwPairGoRow').hidden = false;
+    $('gwPairResult').hidden = true;
+    $('gwPairGo').textContent = '重新出码';
+    const kindToTab = { tunnel: 'tunnel', ts: 'tailscale', funnel: 'funnel', tsnet: 'tsnet' };
+    gwPairAddrType = kindToTab[client.pair_kind] || 'tunnel';
+    tsPairPreset = null;
+    gwPairAvailabilityApply();
+    $('gwPairOverlay').hidden = false;
+  }
   $('gwPairGo').addEventListener('click', async function () {
-    const name = $('gwPairName').value.trim();
-    if (!name) { toast('先填客户端名称', 'bad'); return; }
     // 配对串里的地址：按「地址类型」三选分发
     let tunnel = '';
     if (gwPairAddrType === 'tunnel') {
@@ -11516,14 +11541,30 @@ function gwShowPage() {
     const kind = gwPairAddrType === 'tailscale' ? 'ts'
       : (gwPairAddrType === 'none' ? '' : gwPairAddrType);
     try {
-      const issued = await invoke('gateway_pair_issue', { name: name, tunnel: tunnel, kind: kind });
+      let issued;
+      if (gwPairReissue) {
+        issued = await invoke('gateway_pair_reissue', { id: gwPairReissue.id, tunnel: tunnel, kind: kind });
+      } else {
+        const name = $('gwPairName').value.trim();
+        if (!name) { toast('先填客户端名称', 'bad'); return; }
+        issued = await invoke('gateway_pair_issue', { name: name, tunnel: tunnel, kind: kind });
+      }
       $('gwPairNameRow').hidden = true;
       $('gwPairGoRow').hidden = true;
       $('gwPairResult').hidden = false;
       $('gwPairText').value = issued.pair;
       drawQr($('gwPairQr'), issued.pair);
+      // 重新出码换了通道类型 = 手机端会落进另一个槽位，旧条目要手动删（提醒一句）
+      if (gwPairReissue) {
+        const oldKind = gwPairReissue.pair_kind || '';
+        if (oldKind && kind && oldKind !== kind) {
+          toast('换了通道类型：手机端会新落一条配对，旧的那条记得在手机上删掉');
+        } else {
+          toast('已换新码 —— 手机重新扫码即可，原来那条配对会被顶替更新');
+        }
+      }
       refreshClients();
-    } catch (e) { toast('生成失败：' + e, 'bad'); }
+    } catch (e) { toast((gwPairReissue ? '重新出码失败：' : '生成失败：') + e, 'bad'); }
   });
   $('gwPairCopy').addEventListener('click', function () {
     gwWriteClipboard($('gwPairText').value, '配对串已复制 —— 粘到手机「添加电脑」即可');
@@ -11536,6 +11577,9 @@ function gwShowPage() {
     $('gwPairText').value = '';
     $('gwPairNameRow').hidden = false;
     $('gwPairGoRow').hidden = false;
+    $('gwPairGo').textContent = '生成配对码';
+    $('gwPairTitle').textContent = '生成配对码';
+    gwPairReissue = null;
   }
   $('gwPairX').addEventListener('click', closePairModal);
   $('gwPairClose').addEventListener('click', closePairModal);
@@ -11634,6 +11678,13 @@ function gwShowPage() {
       }
       src.title = (src.textContent + (client.pair_addr ? ' · ' + client.pair_addr : ' · 出码时没有可用地址'));
       row.appendChild(src);
+      // 重新出码：不存明文令牌所以没法「再看一次」，换枚新令牌重扫即可
+      // （手机端按 (mid,kind) 幂等顶替，不用重新添加）；已吊销的重新出码 = 复活。
+      const re = document.createElement('button');
+      re.className = 'link-btn';
+      re.textContent = '重新出码';
+      re.addEventListener('click', function () { openPairReissue(client); });
+      row.appendChild(re);
       if (client.revoked) {
         const tag = document.createElement('span');
         tag.className = 'gw-client-revoked';

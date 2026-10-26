@@ -3224,6 +3224,7 @@ pub fn run() {
             hub_gateway::gateway_tunnel_adopt,
             hub_gateway::gateway_tunnel_kill_orphan,
             hub_gateway::gateway_pair_issue,
+            hub_gateway::gateway_pair_reissue,
             hub_gateway::gateway_pair_list,
             hub_gateway::gateway_pair_revoke,
             hub_gateway::gateway_pair_delete,

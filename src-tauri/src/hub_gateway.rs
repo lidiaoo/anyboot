@@ -1606,6 +1606,46 @@ fn decode_tunnel_id(token: &str) -> String {
     String::new()
 }
 
+/// 通道类型归一：只认四个合法值 + 老别名，判不出按地址形态兜底（issue / reissue 共用）。
+///
+/// **不猜 tsnet** —— 内建 tsnet 与系统 Funnel 的域名同形，猜错就会把两条路混成一条。
+/// 配对码的 `type=` 必须落在这三个区块里，否则客户端按「非法值」拒收（§4.5）。
+fn normalize_pair_kind(kind: Option<&str>, tunnel: &str) -> String {
+    let kind = match kind.map(|value| value.trim().to_ascii_lowercase()) {
+        Some(value) if value == "tunnel" || value == "ts" || value == "funnel" || value == "tsnet" => {
+            value
+        }
+        Some(value) if value == "tailscale" => "ts".to_string(),
+        Some(value) if value == "builtin" || value == "builtin_ts" => "tsnet".to_string(),
+        Some(value) if value == "cloudflare" || value == "cf" => "tunnel".to_string(),
+        _ => String::new(),
+    };
+    // 判不出类型就按地址形态定：100.64/10 与 `*.ts.net` 都属 ts 区块，其余算 Cloudflare。
+    if kind.is_empty() {
+        if crate::remote_servers::is_tailscale_origin(tunnel) {
+            "ts".to_string()
+        } else {
+            "tunnel".to_string()
+        }
+    } else {
+        kind
+    }
+}
+
+/// 配对串组装（issue / reissue 共用）：mid/os/host 取本机，地址与类型用调用方给的。
+fn pair_string_for(app: &tauri::AppHandle, tunnel: &str, kind: &str, token: &str) -> String {
+    let settings = crate::stored_settings(app);
+    build_pair_string(
+        &settings.machine_id,
+        crate::sysinfo_lite::os_family(),
+        &crate::http_server::machine_name(),
+        kind,
+        tunnel,
+        token,
+        &current_tunnel_id(app),
+    )
+}
+
 /// 签发配对：新客户端令牌 + anyboot://pair 配对串。
 ///
 /// `kind` 是这条地址属于哪个通道（`tunnel` / `ts` / `funnel` / `tsnet`），会写进配对串的
@@ -1633,28 +1673,7 @@ pub(crate) fn gateway_pair_issue(
             given
         }
     };
-    // 通道类型归一：只认四个合法值，别的一律空
-    let kind = match kind.as_deref().map(|value| value.trim().to_ascii_lowercase()) {
-        Some(value) if value == "tunnel" || value == "ts" || value == "funnel" || value == "tsnet" => {
-            value
-        }
-        Some(value) if value == "tailscale" => "ts".to_string(),
-        Some(value) if value == "builtin" || value == "builtin_ts" => "tsnet".to_string(),
-        Some(value) if value == "cloudflare" || value == "cf" => "tunnel".to_string(),
-        _ => String::new(),
-    };
-    // 判不出类型就按地址形态定：100.64/10 与 `*.ts.net` 都属 ts 区块，其余算 Cloudflare。
-    // **不猜 tsnet** —— 内建 tsnet 与系统 Funnel 的域名同形，猜错就会把两条路混成一条。
-    // 配对码的 `type=` 必须落在这三个区块里，否则客户端按「非法值」拒收（§4.5）。
-    let kind = if kind.is_empty() {
-        if crate::remote_servers::is_tailscale_origin(&tunnel) {
-            "ts".to_string()
-        } else {
-            "tunnel".to_string()
-        }
-    } else {
-        kind
-    };
+    let kind = normalize_pair_kind(kind.as_deref(), &tunnel);
     let client = GatewayClient {
         id: format!("gw-{}", &token[..8]),
         name,
@@ -1668,17 +1687,55 @@ pub(crate) fn gateway_pair_issue(
     let mut clients = load_clients(&app);
     clients.push(client.clone());
     save_clients(&app, &clients)?;
-    let settings = crate::stored_settings(&app);
-    let pair = build_pair_string(
-        &settings.machine_id,
-        crate::sysinfo_lite::os_family(),
-        &crate::http_server::machine_name(),
-        &kind,
-        &tunnel,
-        &token,
-        &current_tunnel_id(&app),
-    );
+    let pair = pair_string_for(&app, &tunnel, &kind, &token);
     gw_log(&app, &format!("[gateway] 签发配对 {} ({})", client.id, client.name));
+    Ok(PairIssued {
+        client,
+        token,
+        pair,
+    })
+}
+
+/// 重新出码：给**已存在**的客户端换一枚新令牌，旧的即刻作废。
+///
+/// 为什么不能「查看原配对串」：落盘只存 SHA-256，明文令牌只在签发瞬间出现在配对串里，
+/// 事后谁也拿不回来 —— 这是故意的（配置文件被拖走也泄露不了令牌）。所以扫码失败 /
+/// 客户端删了配对，走这里换新码：客户端档案（id/名称/最近访问）原样保留，手机端按
+/// `(mid, kind)` 幂等顶替，重扫一次就回到原来那条配对，不用重新添加。已吊销的客户端
+/// 重新出码 = 直接复活（新令牌、revoked=false）。
+#[tauri::command]
+pub(crate) fn gateway_pair_reissue(
+    app: tauri::AppHandle,
+    id: String,
+    tunnel: String,
+    kind: Option<String>,
+) -> Result<PairIssued, String> {
+    let token = crate::http_server::generate_token();
+    // 地址取法与签发一致：调用方给了用调用方的，否则当前运行中的隧道
+    let tunnel = {
+        let given = tunnel.trim().to_string();
+        if given.is_empty() {
+            current_tunnel_url(&app)
+        } else {
+            given
+        }
+    };
+    let kind = normalize_pair_kind(kind.as_deref(), &tunnel);
+    let mut clients = load_clients(&app);
+    let Some(client) = clients.iter_mut().find(|c| c.id == id) else {
+        return Err(format!("客户端不存在: {id}"));
+    };
+    client.token_sha256 = sha256_hex(&token);
+    client.created_at = now_millis();
+    client.revoked = false;
+    client.pair_addr = tunnel.clone();
+    client.pair_kind = kind.clone();
+    let client = client.clone();
+    save_clients(&app, &clients)?;
+    // 旧令牌随哈希替换即刻失效：已建立的 WebSocket 一并踢线（与吊销同款处理）
+    crate::websocket_disconnect_all();
+    let pair = pair_string_for(&app, &tunnel, &kind, &token);
+    gw_log(&app, &format!("[gateway] 重新出码 {} ({})", client.id, client.name));
     Ok(PairIssued {
         client,
         token,
