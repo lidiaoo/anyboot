@@ -1,85 +1,51 @@
 # AnyBoot 项目长期备忘
 
-索引 + 铁律。细则查当日日志 `2026-10-*.md`；桌面/打包 → `MEMORY-detail-desktop.md`；托盘 → `MEMORY-detail-tray.md`；窗口 → `MEMORY-detail-windowing.md`；移动端 → `MEMORY-detail-mobile.md`；SOL 面板 → `MEMORY-detail-sol.md`。
+**这里只放铁律和索引，细则一律进 detail 文件 / 当日日志**（本文件超 15KB 会被注入截断，别再往回堆长段）：
+桌面打包与 Linux 验证 → `MEMORY-detail-desktop.md`；托盘 → `MEMORY-detail-tray.md`；窗口行为 → `MEMORY-detail-windowing.md`；移动端 → `MEMORY-detail-mobile.md`；SOL 面板 → `MEMORY-detail-sol.md`；Tailscale/cloudflared/tsnet → `MEMORY-detail-tailscale.md`。
 
 ## git
-- **commit 我做、push 用户做**。只提交本轮相关文件；`hub*.rs`、`ui/hub.html`、`docs/client-ui/`、`debx/` 属 PC 端 server-hub 线，别混进移动端提交。
-- `.workbuddy/`：`memory/`+`probes/` 入库；`artifacts/` 已 gitignore。
-- **Rust 改动提交前必须 `cargo check`**（E0425 教训）。子模块不继承父模块作用域，crate 根私有 item 用 `use crate::XXX;` 引入。
-- 改 server-hub 线要跑 Windows 目标 `cargo check`（Linux 通过不代表 Win 通过）。
+- **commit 我做、push 用户做**；只提交本轮相关文件。`hub*.rs`、`ui/hub.html`、`docs/client-ui/`、`debx/` 属 PC 端 server-hub 线，别混进移动端提交。
+- `.workbuddy/`：`memory/` + `probes/` 入库；`artifacts/` 已 gitignore（旧二进制备份放这里）。
+- **Rust 改动提交前必须 `cargo check`**。子模块不继承父模块作用域，crate 根私有 item 要 `use crate::XXX;` 引入。
+- 改 server-hub 线要跑 Windows 目标 check（Linux 过 ≠ Win 过）。
+- 沙箱里 HOME 读不到 global git config → `git -c user.name=jianghuihua -c user.email=2503338074@qq.com`，提交后 `git log --oneline -3` 核对（偶发一次写入双提交）。
 
-## 桌面端（细则见 detail-desktop / 2026-10-18.md）
-- Windows 提权不闪窗：`ShellExecuteExW` + `SEE_MASK_NO_CONSOLE`（`sol_panel.rs::run_elevated_hidden`）；改完必须实测。
-- 验证 PC UI 四铁律：① 计划任务跑 .bat 启动（沙箱杀 WebView2）；② 抓屏用 `GetDC(NULL)+BitBlt`（PrintWindow 恒黑）；③ webview 不吃注入点击，走 `ANYBOOT_TEST_OPEN_HUB/OPEN_TERM=1` 钩子；④ 本机无 `strings`，用 Python 提串。
-- CDP：`ANYBOOT_CDP_PORT=9223` + 全部 webview 过 `apply_browser_args`（参数不一致=0x8007139F）；杀旧实例等 5s。
-- 前端改动必须强制 codegen（删 out + touch build.rs）；二进制搜中文拿 codegen 资产字节精确匹配（brotli 压缩）。
+## 交付铁律
+- 交付 = 测试 + release 构建 + 实机验证；构建前先退出运行中的 anyboot，产物 md5 必核。
+- 前端编译期嵌入二进制：改完必须强制 codegen 重编，并用 brotli 解 `tauri-codegen-assets/*` 搜新函数名确认真的进去了（别靠 `strings` 搜中文）。
+- 忙闸必须有放闸路径（`POWER_RELEASE_MS=15s`）；`restart_app` 顺序 stop_http_server → release_instance_lock → app.restart()。
+- 替换已安装应用：先杀主进程（mac 上 `osascript quit` 常被拒，直接 `kill -TERM`）→ 清残留子进程（tsnet/cloudflared 可能成孤儿）→ 备份旧 .app → 暂存新 .app + `codesign -v` → `mv` 交换 → md5 与构建产物比对 → 启动并查 `/health`。
+
+## 验证 PC UI（Windows，四条铁律）
+① 用计划任务跑 .bat 启动（沙箱会杀 WebView2）；② 抓屏用 `GetDC(NULL)+BitBlt`（`PrintWindow` 恒黑）；③ webview 不吃注入点击，走 `ANYBOOT_TEST_OPEN_HUB` / `ANYBOOT_TEST_OPEN_TERM=1` 钩子；④ 本机无 `strings`，用 Python 提串。
+- CDP：`ANYBOOT_CDP_PORT=9223` + **所有 webview 都得过 `apply_browser_args`**（参数不一致 = 0x8007139F）；杀旧实例等 5s。
+- `ui/*.html` 里元素 id **严禁与 `window.xxx` 同名**（named access 会覆盖 → 判空失效，hub-term 黑屏教训）。
 - 验证闭环技能：`~/.workbuddy/skills/anyboot-pc-ui-verify/SKILL.md`。
-- ui/*.html 里 id 严禁与 `window.xxx` 同名（named access 覆盖 → 判空失效，hub-term 黑屏教训）。
-- 交付 = 测试 + release 构建 + 实机验证；构建前退出运行中的 anyboot；md5 必核。
-
-## 托盘
-- 菜单两套：`grub_menu_nodes`（主窗/自绘窗/Linux dbusmenu）与 `build_tray_menu`（Win/mac classic）——**新增菜单项两边都加**。
-- `trayMenuStyle` 启动定接线、切换需重启。自绘窗 unified 贴图标正下方居中。`grub_menu_nodes` 一份喂四处。
+- **mac 上验证不了 webview DOM**（CDP 是 `cfg(windows)` 实现，`ANYBOOT_CDP_PORT` 无效；`ps`/`screencapture` 被沙箱禁）→ 用 Rust `#[ignore]` 诊断测试 + jsdom 代替，或把界面验收留给 Windows/真机。
 
 ## 产品定则
-- 默认值常量钉着（改值同步单测）：亮色/90%/`remoteAllowGuiAuth=true`/默认高度=整屏 2/3。
-- 下次启动大字=级联全链；Rust 文案与前端 `nextBootText`/`rowLabel` 一字不差。
-- 忙闸必须有放闸路径（`POWER_RELEASE_MS=15s`）；`restart_app` 顺序 stop_http_server → release_instance_lock → app.restart()。
-
-## 移动端（细则见 detail-mobile）
-- 输入法：全局 `keydown` 快捷键先判 `isImeKey(e)`；Compose 数字框用原始字段+placeholder，别回填默认值。
-- `ServersActivity` exported=false → monkey 走抽屉；别对应用 `pm clear`。
-- `Task` 加字段必须同步改 `resume()` 逐字段拷贝。别拿 APK 体积当变更判据 → 解 dex 搜符号。
-- 地址=一行 IP+可选多 MAC，解析规则三处一致（Java/hub.html/`hub::is_mac`）：先 IPv4 再 MAC。
+- 默认值钉死常量并配单测：亮色 / 90% / `remoteAllowGuiAuth=true` / 默认高度 = 整屏 2/3。
+- 下次启动大字 = 级联全链；Rust 文案与前端 `nextBootText` / `rowLabel` 一字不差。
+- 新增托盘菜单项：`grub_menu_nodes`（主窗/自绘窗/Linux dbusmenu/Win-mac classic 四处共用）与 `build_tray_menu` 两边都要加。
 
 ## 远端管理（server-hub）
-- 服务器多地址模型：连接只用 host/port；探活按序试全部地址。电源在 `hub_power.rs`；sol 路由语义改了要同步 `hub.html`、`ServerProfile.java`、`MainActivity.kt` 三处。http_fallback 默认 true；wake 走默认 WOL 广播不走 HTTP。
-- **远程接入配对模型**（`docs/remote-pairs.md`，设计稿未实现）：三个区块 `cloudflare` / `ts` / `tsnet`，每区块可挂多条 `RemotePair`，**不许再用固定 String 槽**（历史上已为此拆过两次槽：`remote_ts_addr`、`remote_tsnet_addr`）。`ts` 区块合并原「直连 + 系统 funnel」，用 `lane=direct|funnel` 区分。**顶替只允许 `(mid,kind)` 幂等更新，跨系统永不覆盖**；去重键必须 `(mid,kind)` 不是 `mid`（一个系统可同时有 cloudflare+ts+tsnet 三条）。**不做向后兼容**（旧六字段直接删、不迁移不双写，升级后需重新配对）、**不做分组**（按 OS 分组+组内顶替会把六个系统削成三个；移动端 group 与折叠 UI 一并删）、**不做 MAC 推导**、**不自动建档**（配对落当前打开的档案，mid 不一致只提示）。探测两层策略 `route_probe_mode`（区块间）/ `block_probe_mode[kind]`（区块内），三值 `parallel_first|parallel_all|serial`；超时三层 `pairs[].probe_timeout_ms → block_timeouts_ms[kind] → probe_timeout_ms`；「测试」按钮固定 `parallel_all`（`parallel_first` 命中即收工，看不见后面的条目）。**`route_order` / `route_timeouts_ms` / `probe_mode` / `route_disabled` 结构不动**（LAN/jump 仍在消费，收窄会连带改 LAN 选路），区块顺序从 `route_order` 的配对项推导。LAN 直连与跳板机**不在本次范围**。
-- **`machine_id` 语义 =「一套 AnyBoot 配置」的身份**（存在 `settings.json`，不是系统安装 id）：独立 home 的各系统互相区分；**Linux 共享 home 的多发行版 = 同一身份、同一 tsnet 节点、同一固定域名**（同时只有一个在跑，与 LAN 地址同构）。**铁律：mid 与 tsnet 状态必须同源**，只分 mid 不分 state 会造成「两个身份抢一个节点 = 假的多身份」，比顶替更糟；要真区分只能 `ANYBOOT_CONFIG_DIR` 分开配置。共用 mid 时靠 `/health` 的 `systemLabel`（`PRETTY_NAME`）区分 Arch/Fedora。**tsnet `--hostname` 取配置不取系统 hostname**（否则共享 home 域名跟着发行版漂移）。
-- **唯一 SSH 入口 `hub_tunnel::apply_auth`**。askpass=本程序自身（全环境变量）；askpass 分支在 `main.rs` 排 `cli_requested` 之前。Windows 无 ControlMaster；`sftp -b` 自开 BatchMode → 有密码没密钥时补 `-o BatchMode=no`。
-- **同步 tauri command = UI 线程**：阻塞操作走 async fn + `spawn_blocking`（守卫单测 `blocking_guard.rs`）；IPC 回调里建 webview 必须 async（否则白屏卡死）。子进程一律 `crate::command()`（防闪黑框）。
-- 传输状态真相源=`XferTask.state` 五态，变更一律 `app.emit` 广播；退出必须 `detach_running`；中断报 paused。
-- 下载目录空值=系统下载目录；`expand_home` 读 HOME **和** USERPROFILE。
-- 验证脚本别用带中文注释的 bat；启动用纯 ASCII 启动器。
-- 平台能力/排错/验收边界在 `docs/server-hub.md`。
-- **系统 Tailscale（hub_tailscale.rs）**：Linux 服务状态=systemctl is-active、启停=systemctl（polkit）；Funnel「serve config denied」=tailscaled 本地权限闸门（root/operator）而非 tailnet 策略，解法 `sudo tailscale set --operator=<user>`；mac App CLI 坑（SHLVL/GUI 报错文本）都有防御。细则 docs/server-hub.md。
-- **macOS App 版 Tailscale CLI 必须 `env("SHLVL","1")`**（`hub_tailscale.rs::cli_command`）：CLI 拿 SHLVL 判断是否 shell 调用，缺了就误走 GUI 启动分支 → exit 0 + stdout 全是报错文本（GUI 起没起都一样）。CLI 还会挂死 → 子进程必须带超时（`run_cli_raw` 5s）。细则见 2026-10-25.md。
-- **macOS 上「已安装」判据必须是 CLI 真能跑**（`cli_works` = version exit 0 且有输出），不能只看文件存在：pkg 会在 `/usr/local/bin/tailscale` 留 68 字节 shim，删 App 后 shim 仍在、执行 exit 127 → 只看 `is_file()` 会永久误判已安装、前端下载行永不出现。卸载同理要删 shim（先校验体积+内容，别碰 brew 真二进制，commit b96fb07）。
-- **mac 上验证不了 webview DOM**：CDP 是 `cfg(windows)` 实现（`ANYBOOT_CDP_PORT` 无效），`ps`/`screencapture` 被宿主沙箱禁 → 用 Rust `#[ignore]` 诊断测试 + jsdom 代替。
-- **macOS Tailscale 写操作必须提权**：官方 CLI 文档——App 版的 up/down/set/funnel 只有 root 能做，status/ip 只读命令普通用户可用。mac 没有 pkexec，唯一通道是 `osascript … with administrator privileges`（`hub_tailscale.rs::elevated_retry` mac 分支）：命令写临时 .sh 避开引号地狱 + 脚本把 stdout/stderr/exit code 落文件 + 主进程边跑边 tail（登录链接要实时上屏）+ 脚本内补 `SHLVL`/`TAILSCALE_BE_CLI`（root 环境更干净，不补又误走 GUI 分支）。macsys **不认** `set --operator`（别照抄 Linux 兜底文案）。
-- **macOS 卸装后没重启就重装 = 扩展卡死**：`systemextensionsctl list` 出现两条 tailscale（旧 `terminated waiting to uninstall on reboot` + 新 `activated waiting for user`）→ CLI 一律 `The Tailscale CLI failed to start … (CLIError error 1)` 且 **exit 0**，唯一解法是重启 Mac（`systemextensionsctl reset` 要关 SIP）。所以 `cli_works` 必须排除 GUI/CLI failed 报错文本，probe 要给 `needs_reboot` 状态而不是「未安装」（否则用户反复重装）。
-- **macOS 装扩展≠必须重启**（别再一律说要重启）：首次安装批准（Touch ID/密码）后官方明说立刻开始连接，**不用重启**；只有 `terminated waiting to uninstall on reboot` 才必须重启（macOS 故意把扩展删除推迟到重启，会话内拆不掉）。判据优先级 **已启用 > 待重启卸载 > 待用户允许**（`parse_extension_state`）—— 升级后「旧记录等重启卸载 + 新扩展 activated enabled」网络其实正常，按待重启短路会让用户白重启；能不能用交给 CLI 回答，只在「有待卸载记录且无任何已启用记录」时才短路 `needs_reboot`。
-- **macOS 卸载必须显式摘扩展**：`rm -rf /Applications/Tailscale.app` 绕过 Finder 的「同时移除系统扩展」流程 → 记录成孤儿 → 重装必撞待重启卸载。顺序「先 `systemextensionsctl uninstall <teamID> <bundleID>`（Tailscale=W5364U7YZB / io.tailscale.ipn.macsys.network-extension）再删 App」，失败静默但**卸载后复查**扩展状态并把残留写进返回文案；`gateway_tailscale_install` 装之前查一次，PendingUninstall 直接拦「先重启再装」。
-- **mac 上「一直正在检测」= 探测链没超时或前端静默抛错**：扩展未就绪时 CLI 不立刻失败，先连 GUI 的 XPC 等十几秒才吐 `CLIError`（probe 一次候选要跑 2 次 CLI × 5s），`systemextensionsctl` 裸 `output()` 无超时会僵死 → invoke 永不 resolve，UI 就永远「正在检测」。已修：探测前先用一次 <100ms 的 `systemextensionsctl` 判定，`[activated waiting for user]` → 新态 `needs_approval`、`waiting to uninstall` → `needs_reboot`，两者**短路不跑 CLI**（0.28s→0.06s）；`systemextensionsctl` 走 `EXT_QUERY_TIMEOUT=3s`；前端补 `hub_report_error`（window.error + unhandledrejection → trace.log `[js]`，webview 没控制台只能靠它取证）+ `tsRender` 整体 try/catch（抛错就写屏）+ `[探测] 第 N 次 用时=Xms` 心跳日志。
-- **Tailscale 日志落盘**：`ts_log` 除 400 行内存环外 append 到 `trace.log`（行首 `[tailscale]`，重启后可回查）；只在**状态变化**时记 `[状态]`（UI 3 秒轮询，全记会刷屏）。
-- **cloudflared 哈希表必须逐条实测**（首版 darwin 两条误填内核哈希 → mac 三源全拒装）。孤儿清理/残留通道三函数已按平台拆分：Windows=PowerShell/CIM，unix=`ps -axo pid=,lstart=,command=` 精确匹配 + kill -9，**新增平台分支两边都维护**。
-- mac 上跨平台 cargo check：rustup 的 cargo 在 `~/.cargo/bin`（/opt/local/bin 是 MacPorts 的），用 `--manifest-path`（cd 前缀会被环境剥掉）；Windows-msvc 目标会被 ring 构建脚本阻塞（无 MSVC），Windows 分支只能在 Windows 机全量 check。
+- **配对多条目模型已实现**（`docs/remote-pairs.md`，S1–S5 完成）：三区块 `cloudflare|ts|tsnet` 各挂多条 `RemotePair`，**不许再退回固定 String 槽**；顶替只允许 `(mid,kind)` 幂等更新、跨系统永不覆盖；`ts` 区块用 `lane=direct|funnel` 合一直连与 Funnel；两层策略 `route_probe_mode`（区块间）+ `block_probe_mode[kind]`（区块内），三层超时 `pairs[].probe_timeout_ms → block_timeouts_ms[kind] → probe_timeout_ms`，「测试」固定 `parallel_all`；不做向后兼容 / 分组 / MAC 推导 / 自动建档。
+- 探测引擎的「区块策略」在 Rust 端由 `ProbeGroup.inner_mode`（建组时按 `block_of_route` 回查）承载，**不是一个全局 address_mode**；清洗策略表不能直接用 `normalize_probe_mode`（它把非法值悄悄变 `parallel_first`）。PC 端三处接线缺一即设置无效：`pcRouteCandidates`（三层超时）、`pcProbe`（传 `blockProbeModes`）、编辑弹窗「测试」（强制 `parallel_all`）。
+- `machine_id` = 「一套 AnyBoot 配置」的身份（存 `settings.json`，非系统安装 id）。**铁律：mid 与 tsnet 状态必须同源**，只分 mid 不分 state = 两个身份抢一个节点；Linux 共享 home 是同一身份，靠 `/health` 的 `systemLabel`（`PRETTY_NAME`）区分发行版；tsnet `--hostname` 取配置不取系统 hostname。
+- **唯一 SSH 入口 `hub_tunnel::apply_auth`**（askpass = 本程序自身，分支排在 `main.rs` 的 `cli_requested` 之前）。Windows 无 ControlMaster；`sftp -b` 自开 BatchMode → 有密码没密钥时补 `-o BatchMode=no`。
+- **同步 tauri command 跑在 UI 线程**：阻塞操作走 async + `spawn_blocking`（守卫单测 `blocking_guard.rs`）；IPC 回调里建 webview 必须 async（否则白屏卡死）。子进程一律 `crate::command()`（防闪黑框）。
+- 传输真相源 = `XferTask.state` 五态，变更一律 `app.emit` 广播；退出必须 `detach_running`，中断报 paused。
+- 服务器多地址：连接只用 host/port，探活按序试全部地址；下载目录空值 = 系统下载目录（`expand_home` 读 HOME **和** USERPROFILE）；sol 路由语义改了要同步 `hub.html`、`ServerProfile.java`、`MainActivity.kt` 三处。
 
-## 构建（Windows 本机）
-- `src-tauri/target` 被标低完整性，别在原地修，换 CARGO_TARGET_DIR=`J:/tmp/anyboot-target`（C 盘<3G，别用 E/F 盘）。产物 exe+dll 一起复制到 `C://Users//jianghh//AppData//Local//AnyBoot`（先备份）。
-- 前端编译期嵌入 exe，改完必须重编覆盖。
+## 构建
+- **Windows**：`src-tauri/target` 被标低完整性，别在原地修 → `CARGO_TARGET_DIR=J:/tmp/anyboot-target`（C 盘 <3G，别用 E/F）；产物 exe+dll 一起复制到 `%LOCALAPPDATA%\AnyBoot`（先备份）。12300 落保留段 bind 报 10013 → `netsh int ipv4 set dynamicport tcp start=49152 num=16384` 后重启 winnat。
+- **mac**（本机是 Hackintosh x86_64、无 arm64）：`npm run build:mac-intel`；tauri 的 `bundle_dmg.sh` 在本机会失败（要 GUI 自动化摆窗口）→ 卸残留挂载 + 删 `rw.*.dmg` + `hdiutil create -ov -format UDZO` 补包。Windows 版在这里编不出来（无 MSVC）。配方见 `2026-10-26.md`。
+- **Linux**：系统 `/usr/bin/rustc` 已坏（要 libLLVM.so.23.1）→ 用自装工具链 `/home/disk1/{cargo,rustup}-home`，release 偶发 SIGABRT 用 `CARGO_BUILD_JOBS=2`；**仓库目录跑不了 check**（指纹扫描读 .git exclude 报 EACCES）→ rsync `src-tauri` + 同级 `ui/` 到仓库外跑。细则见 `2026-10-25.md`。
+- **Android**：无 gradlew、无全局 gradle → 直接用 `~/.gradle/wrapper/dists/gradle-8.14.3-bin/*/gradle-8.14.3/bin/gradle`；必须给 JDK17（`/usr/local/software/jdk/jdk-17`）+ `ANDROID_HOME`，并**在命令行覆盖 `-Duser.home`**（`gradle.properties` 里写着 Linux 的 `/home/jianghh`，不覆盖连 debug keystore 都生不出）。产物核验：类不止在 classes.dex（本工程 4 个 dex，`RemotePair` 在 classes3.dex）→ 逐 dex 搜符号，别拿体积当判据。
+- 内置 tsnet sidecar 一律跑 `scripts/build-sidecar.sh`，详见 `MEMORY-detail-tailscale.md`。
 
-## Linux 构建工具链（本机 2026-10-25 起）
-- **系统 /usr/bin/rustc 已坏**（部分升级：rustc 要 libLLVM.so.23.1，系统只有 21/22）→ tauri CLI `rustc -vV` 无 host 行 panic（rust.rs unwrap）。修法：`sudo pacman -Syu`；或前置自装工具链 `export PATH=/home/disk1/cargo-home/bin:$PATH RUSTUP_HOME=/home/disk1/rustup-home CARGO_HOME=/home/disk1/cargo-home`（rustc 1.99.1，独立于系统 rust）。
-- 新工具链跑 release 主 crate 偶发 SIGABRT → `CARGO_BUILD_JOBS=2` 降并行。
-
-## Linux 构建工具链（本机 2026-10-25 起）
-- **系统 /usr/bin/rustc 已坏**（部分升级：rustc 要 libLLVM.so.23.1，系统只有 21/22）→ tauri CLI `rustc -vV` 无 host 行 panic（rust.rs unwrap）。修法：`sudo pacman -Syu`；或前置自装工具链 `export PATH=/home/disk1/cargo-home/bin:$PATH RUSTUP_HOME=/home/disk1/rustup-home CARGO_HOME=/home/disk1/cargo-home`（rustc 1.99.1，独立于系统 rust）。
-- 新工具链跑 release 主 crate 偶发 SIGABRT → `CARGO_BUILD_JOBS=2` 降并行。
-
-## 内置 Tailscale 引擎（tsnet sidecar）
-- 五目标产物：`anyboot-tsnet.exe` + `anyboot-tsnet-{linux,darwin}-{amd64,arm64}`，构建一律跑 `scripts/build-sidecar.sh`（坑都写在脚本头注释：/tmp 是 10MB tmpfs 必须 TMPDIR 指大盘、goproxy.cn、CGO_ENABLED=0）。
-- 本机 Go 工具链：`~/.workbuddy/binaries/go/go/bin/go`（1.27.3；`/usr/bin/go` 是 gccgo 编不了 tailscale）。
-- Rust 查找链：resource_dir/binaries → exe 目录 → app_data/tsnet；unix 文件名带 OS+arch 后缀，mac/linux 改名要同步 `sidecar_filename()` + `tauri.{macos,linux}.conf.json`。
-- **本机 cargo check 在仓库目录跑不了**（指纹扫描读 .git exclude 报 EACCES，环境怪癖）→ rsync `src-tauri` + 同级 `ui/` 到仓库外跑（如 /home/disk1/anyboot-check/）；env 组合：`RUSTUP_HOME=/home/disk1/rustup-home CARGO_HOME=/home/disk1/cargo-home PATH=/home/disk1/cargo-home/bin:$PATH CARGO_BUILD_JOBS=2 TMPDIR=/home/disk1/tmp`。注意 bin/ 和 toolchains 分属两个 home（CARGO_HOME 只有 registry，RUSTUP_HOME 才有 toolchains），写混会报「rustup could not choose a version of cargo」。细则见 2026-10-25.md。
-
-## 2026-10-22 端口坑
-- 12300 落 Windows 保留段 bind 报 10013：`netsh int ipv4 show excludedportrange protocol=tcp`；恢复 `netsh int ipv4 set dynamicport tcp start=49152 num=16384` 重启 winnat。
-- hub.html「本机」chip 是静态 HTML，click 要单独绑。
-
-## 沙箱环境（2026-10-25 大坑）
-- **safe-delete 垫片把 rm 转投 .Trash-1000 回收站且不释放空间**（当日 19G 全进 /home/disk1/.Trash-1000，du 视图显示已删、df 满盘）→ 清缓存一律 `/bin/rm` 全路径直删；回收站只清自己当天删的条目（查 info/*.trashinfo 原路径确认）。
-- **沙箱 FS 视图会瞬时分叉/劣化**：cargo 工具链整棵消失、systemctl 报 not booted、写入丢失/段落重复。cargo 消失后用 rustup 重装到大盘：`RUSTUP_HOME=/home/disk1/rustup-home CARGO_HOME=/home/disk1/cargo-home`，rustup-init 从 `https://mirrors.ustc.edu.cn/rust-static/rustup/dist/x86_64-unknown-linux-gnu/rustup-init` 下（tuna 404），rustc 1.99.1，cargo 全路径 `/home/disk1/cargo-home/bin/cargo`。
-- /home/disk1 总 48G：models 占 23G；构建缓存乱删会满盘（报 No space left）。
-- HOME=/root 读不到 global git config → commit 需 `-c user.name=jianghuihua -c user.email=2503338074@qq.com`；一次写入可能双提交，提交后 `git log --oneline -3` 核对。
-- Go 缓存目录：GOCACHE=/home/disk1/gocache GOPATH=/home/disk1/gopath（会满盘，可整删重生成）。
+## 沙箱 / 环境坑
+- **safe-delete 垫片把 `rm` 转投回收站且不释放空间**（曾 19G 塞满盘）→ 清缓存用 `/bin/rm` 全路径直删；回收站只清自己当天条目（查 `info/*.trashinfo` 原路径）。
+- **沙箱 FS 视图会瞬时劣化**：cargo 工具链整棵消失、`systemctl` 报 not booted、写入丢失或段落重复 → 写完随手核对，工具链没了按 `2026-10-25.md` 用 USTC 镜像重装。
+- 沙箱里对该仓库用 shell `grep` 有时静默返回空/失败 → 改用 Grep 工具。
+- 验证脚本别用带中文注释的 `.bat`；启动用纯 ASCII 启动器。禁用 `pkill -f <路径>`（会连通自己的 shell 一起杀），按 `/proc/PID/exe` 比对。

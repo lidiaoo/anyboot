@@ -25,6 +25,7 @@
 
 ## 结构
 - 服务器模块：标题栏（齿轮=终端设置 / ＋=添加）+ 五页底导 **服务器 / 会话 / 密钥 / 传输 / 文件**（0 起下标，默认页 0）。
+- **地址解析规则三处必须一致**（`ServerProfile` Java / `ui/hub.html` / Rust `hub::is_mac`）：一行 = 一个 IP + 可选多个 MAC，先判 IPv4 再判 MAC；改一处就得三处一起改。
 
 ## 传输中心 `TransferManager.java`
 - 静态任务表 + 单槽 Observer（`Common.kt` 的 `TransferEvents` 转主线程），跑在共享会话的独立 sftp 通道上。
@@ -49,6 +50,7 @@
 - **Ed25519 本机生成不了、当前不能修**：jsch 0.2.20 无 EdDSA 落盘 API，缺 BC 类加载即炸；但加 BC 或升 jsch ≥0.2.27 **会改变主机密钥协商**，而 TOFU 是**按服务器记一条指纹** → 老装机全部 `reject HostKey`。故 `generateKey` 前置拦截给可读提示；要真支持须先改 TOFU。
 
 ## Compose 坑
+- **输入法**：全局 `keydown` 快捷键必须先判 `isImeKey(e)`，否则中文输入法回车/空格选词会被当快捷键吃掉；Compose 数字输入框用「原始 String 字段 + placeholder」保存，**别把默认值回填进字段**（会变成删不掉的 `0`）。
 - 窄屏行内长文本 Row 溢出时末尾 Text 压成 0 宽逐字换行（行高 48dp → 300dp+）→ **只给较长的那条**加 `Modifier.weight(1f, fill = false)`。
 - 含输入框的 AlertDialog 必须 `imePadding()` + `DialogProperties(decorFitsSystemWindows=false)`（dump 不含 IME，坐标须截图交叉验证）。
 - **新 Activity 取色必须包在 `AppTheme{}` 里**：`LocalPalette` 是 `staticCompositionLocalOf`，默认值 `paletteOf(Application())` 没有 base context，在外面读 `LocalPalette.current` 直接 NPE。
