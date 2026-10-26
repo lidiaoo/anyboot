@@ -1,6 +1,6 @@
 <!DOCTYPE html>
-<!-- ui-version: 20261026-conn-label（连接标注统一消费探测赢家通道：route_disabled 认全部六通道，电脑页/列表同一套机制） -->
-<script>try{window.ANYBOOT_UI_VERSION='20261026-conn-label';}catch(e){}</script>
+<!-- ui-version: 20261026-cq-remote-acts（电脑列表远程接入行：通道徽章 + 复制/浏览器打开） -->
+<script>try{window.ANYBOOT_UI_VERSION='20261026-cq-remote-acts';}catch(e){}</script>
 <script src="qrcode.min.js"></script>
 <!-- AnyBoot 远程管理（server-hub）。
      独立窗口，主窗口零改动；托盘「远程管理…」是唯一入口。
@@ -1888,6 +1888,23 @@
   /* 配对行尾的来源（host · os）与「隧道共用」警示，同移动端 PairRow 语汇 */
   .cq-dev-src { color:rgb(var(--fg-faint)); }
   .cq-dev-share { color:rgb(var(--warn)) !important; }
+  /* 远程接入行的通道徽章（Cloudflare / Tailscale 直连 / Tailscale Funnel / 内置 Funnel） */
+  .cq-remote-kind {
+    font-size:10px; font-weight:600; line-height:1.5; padding:1px 6px;
+    border-radius:5px; flex:none;
+    background:rgb(var(--elevate)); color:rgb(var(--fg-dim)); border:1px solid rgb(var(--line));
+  }
+  .cq-remote-kind[data-k="tunnel"] { color:#e0a10a; border-color:rgb(224 161 10 / .45); background:rgb(224 161 10 / .10); }
+  .cq-remote-kind[data-k="ts"]     { color:#2b88f0; border-color:rgb(43 136 240 / .45); background:rgb(43 136 240 / .10); }
+  .cq-remote-kind[data-k="funnel"] { color:#a78bfa; border-color:rgb(167 139 250 / .45); background:rgb(167 139 250 / .12); }
+  .cq-remote-kind[data-k="tsnet"]  { color:#34c3a4; border-color:rgb(52 195 164 / .45); background:rgb(52 195 164 / .10); }
+  /* 远程接入行的行内操作（复制 / 浏览器打开） */
+  .cq-remote-act {
+    font-size:10px; font-family:inherit; line-height:1.5; padding:1px 7px;
+    border-radius:5px; flex:none; cursor:pointer;
+    background:transparent; color:rgb(var(--fg-faint)); border:1px solid rgb(var(--line));
+  }
+  .cq-remote-act:hover { color:rgb(var(--fg)); border-color:rgb(var(--accent) / .55); }
 
   /* ---- 远程接入分页标签 + Tailscale 卡窄窗自适应（放末尾覆盖基础规则） ---- */
   @media (max-width: 720px) {
@@ -6180,10 +6197,21 @@
       const expired = pcRemoteExpired.has(row.rid);
       const using = pcRemoteWin.get(row.rid) === pair.addr;
       const shared = !!sharedTunnel && String(pair.tunnel_id || '') === sharedTunnel;
+      // 通道徽章：区块 + lane（老数据 lane 空按地址形态现算）映射到优先级表的通道名，
+      // 一眼看出这条远程连接是 Cloudflare 还是 Tailscale（直连 / Funnel / 内置）
+      const lane = pair.lane || rsPairLane(pair.kind, pair.addr);
+      const routeKind = pair.kind === 'cloudflare' ? 'tunnel'
+        : (pair.kind === 'tsnet' ? 'tsnet' : (lane === 'funnel' ? 'funnel' : 'ts'));
+      const kindLabel = ROUTE_LABELS[routeKind] || pair.kind;
       const ln = document.createElement('div');
       ln.className = 'cq-dev-line' + (expired && !using ? ' cq-remote-expired' : '');
+      const kind = document.createElement('span');
+      kind.className = 'cq-remote-kind';
+      kind.dataset.k = routeKind;
+      kind.textContent = kindLabel;
+      ln.appendChild(kind);
       const a = document.createElement('span');
-      a.textContent = '[远程] ' + pair.addr +
+      a.textContent = pair.addr +
         (using ? ' · 使用中' : (expired ? ' · 已过期（重扫配对码）' : ''));
       ln.appendChild(a);
       const source = pcPairSource(pair);
@@ -6209,6 +6237,42 @@
         warn.textContent = '隧道共用';
         warn.title = '同一隧道被多套系统共用，请求会随机落到其中一个';
         ln.appendChild(warn);
+      }
+      // 行内操作：复制 / 浏览器打开（URL 带这条配对自己的令牌，落地即可用）
+      const url = String(pair.addr || '') + (pair.token
+        ? '/?ab_token=' + encodeURIComponent(pair.token) : '');
+      if (url) {
+        const sep = document.createElement('span');
+        sep.className = 'sep';
+        sep.textContent = '·';
+        ln.appendChild(sep);
+        const copy = document.createElement('button');
+        copy.type = 'button';
+        copy.className = 'cq-remote-act';
+        copy.textContent = '复制';
+        copy.title = '复制这条通道的浏览器地址（含访问令牌，别外传）';
+        copy.addEventListener('click', function (e) {
+          e.stopPropagation();
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(url)
+              .then(function () { toast('已复制' + kindLabel + '地址'); })
+              .catch(function () { toast('复制失败：剪贴板不可用', 'bad'); });
+          } else toast(url);
+        });
+        ln.appendChild(copy);
+        const openBtn = document.createElement('button');
+        openBtn.type = 'button';
+        openBtn.className = 'cq-remote-act';
+        openBtn.textContent = '浏览器打开';
+        openBtn.title = '用系统默认浏览器打开这条通道（window.open 只会开新 webview）';
+        openBtn.addEventListener('click', function (e) {
+          e.stopPropagation();
+          if (!invoke) { toast('打开浏览器需要应用环境', 'bad'); return; }
+          invoke('remote_open_page', { url: url })
+            .then(function () { toast('已在系统浏览器打开' + kindLabel + '通道'); })
+            .catch(function (error) { toast('打开浏览器失败：' + error, 'bad'); });
+        });
+        ln.appendChild(openBtn);
       }
       meta.appendChild(ln);
     });
