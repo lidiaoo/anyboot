@@ -1020,12 +1020,12 @@ class ComputerListActivity : ComponentActivity() {
                                 fontWeight = FontWeight.SemiBold,
                                 color = when {
                                     !pair.enabled -> palette.fgFaint
-                                    pair.state == "使用中" -> palette.accent
+                                    pair.state.startsWith("使用中") -> palette.accent
                                     pair.ok -> palette.ok
                                     pair.state == "不通" -> palette.bad
                                     else -> palette.fgFaint
                                 },
-                                modifier = Modifier.width(52.dp),
+                                modifier = Modifier.width(72.dp),
                                 maxLines = 1,
                             )
                             // 通道徽章：与连接优先级表同名的通道（隧道 / TS 直连 /
@@ -2130,34 +2130,74 @@ class ComputerListActivity : ComponentActivity() {
             null
         }
         val usingRemote = hitPair != null
+        val jumpId = ServerProfile.text(profile.jumpServerId)
         // **没在线的不能写「直连」**：只有这一轮确实探通才描述走的哪条通道。
+        // 标注只认探测赢家的通道（winnerKind 由 ProbeEngine 产出，机制在电脑列表）；
+        // 「配了跳板机就标跳板机」的兜底已删 —— 直连在线时照样标直连。
         // 卡片第一行的连接 chip 空间只有 ~110dp（名称要活），文案必须短：
         // 完整通道描述在配对行与编辑表单里都有，这里是摘要。
         val conn = if (state != STATE_ONLINE) {
             "未连接"
         } else when {
-            hitPair?.routeKind() == ServerProfile.ROUTE_TSNET -> "内置 Funnel"
-            hitPair?.routeKind() == ServerProfile.ROUTE_FUNNEL -> "TS Funnel"
-            hitPair?.routeKind() == ServerProfile.ROUTE_TS -> "TS 直连"
-            hitPair != null -> "远程隧道"
-            ServerProfile.text(profile.jumpServerId).isNotEmpty() -> {
-                val jump = JumpStore.findJump(JumpStore.loadJumps(this), profile.jumpServerId)
+            info?.winnerKind == ServerProfile.ROUTE_LAN -> "直连"
+            info?.winnerKind == ServerProfile.ROUTE_JUMP -> {
+                val jump = JumpStore.findJump(JumpStore.loadJumps(this), jumpId)
                 "跳板机 · " + (if (ServerProfile.text(jump?.name).isNotEmpty()) {
                     jump!!.name
                 } else {
                     jump?.host ?: "已删除"
                 })
             }
+            hitPair?.routeKind() == ServerProfile.ROUTE_TSNET -> "内置 Funnel"
+            hitPair?.routeKind() == ServerProfile.ROUTE_FUNNEL -> "TS Funnel"
+            hitPair?.routeKind() == ServerProfile.ROUTE_TS -> "TS 直连"
+            hitPair != null -> "远程隧道"
             else -> "直连"
         }
         val hits = info?.hits.orEmpty()
         val rows = ArrayList<PairRow>()
+        // 跳板机通道行：配了就亮出来（停用置灰「已停用」），与 PC 端列表同形。
+        // 探测结果按 kind 匹配 —— jump 的命中 pairId 为空，不能走下面的 pairId 匹配。
+        if (jumpId.isNotEmpty()) {
+            val jump = JumpStore.findJump(JumpStore.loadJumps(this), jumpId)
+            val jumpHit = hits.firstOrNull { it.kind == ServerProfile.ROUTE_JUMP }
+            val jumpEnabled = !profile.routeDisabled.contains(ServerProfile.ROUTE_JUMP)
+            val jumpInUse = state == STATE_ONLINE && info?.winnerKind == ServerProfile.ROUTE_JUMP
+            rows.add(
+                PairRow(
+                    id = "jump",
+                    block = "跳板机",
+                    channel = "跳板机",
+                    addr = if (ServerProfile.text(jump?.name).isNotEmpty()) {
+                        jump!!.name
+                    } else {
+                        jump?.host ?: "已删除的跳板机"
+                    },
+                    // 转发端点（127.0.0.1:port）只在本机会话里有效，浏览器开不了
+                    url = "",
+                    lane = "",
+                    source = "",
+                    state = when {
+                        !jumpEnabled -> "已停用"
+                        jumpInUse && jumpHit != null && jumpHit.ok -> "使用中 " + jumpHit.ms + "ms"
+                        jumpInUse -> "使用中"
+                        jumpHit == null -> "未探测"
+                        jumpHit.ok -> "通 " + jumpHit.ms + "ms"
+                        else -> "不通"
+                    },
+                    ok = jumpHit?.ok == true,
+                    enabled = jumpEnabled,
+                ),
+            )
+        }
         for (block in profile.pairBlockOrder()) {
             for (pair in profile.pairsOfBlock(block, false)) {
                 val hit = hits.firstOrNull { it.pairId.isNotEmpty() && it.pairId == pair.id }
                 val inUse = pair.id == hitPair?.id
+                // 「使用中」也要带耗时：选了谁 + 探测快不慢一起说，别只剩一句「使用中」
                 val stateText = when {
                     !pair.enabled -> "已停用"
+                    inUse && hit != null && hit.ok -> "使用中 " + hit.ms + "ms"
                     inUse -> "使用中"
                     hit == null -> "未探测"
                     hit.ok -> "通 " + hit.ms + "ms"
@@ -2373,6 +2413,7 @@ class ComputerListActivity : ComponentActivity() {
             grub = grub,
             machineOs = choice.os,
             hits = choice.hits,
+            winnerKind = choice.kind,
         )
     }
 
@@ -2424,6 +2465,8 @@ class ComputerListActivity : ComponentActivity() {
         val os: String = "",
         /** 这一轮每条配对的探测结果（卡片上逐行显示状态用） */
         val hits: List<ProbeEngine.Hit> = emptyList(),
+        /** 探测赢家的通道（lan / jump / tunnel / ts / funnel / tsnet）—— 标注只认它 */
+        val kind: String = "",
     ) {
         /** 卡片/离线文案里显示用的地址（不带 scheme） */
         fun displayAddr(): String =
@@ -2457,13 +2500,13 @@ class ComputerListActivity : ComponentActivity() {
             return if (isLocal) {
                 EndpointChoice(
                     "http://" + result.origin, lanToken, alive = true,
-                    os = result.os, hits = result.hits,
+                    os = result.os, hits = result.hits, kind = result.kind,
                 )
             } else {
                 // 令牌取**赢家那条配对**自己的：同机 cloudflare 与 tsnet 是两个令牌
                 EndpointChoice(
                     result.origin, tokenForPair(profile, result.pairId),
-                    alive = true, os = result.os, hits = result.hits,
+                    alive = true, os = result.os, hits = result.hits, kind = result.kind,
                 )
             }
         }
@@ -2474,11 +2517,11 @@ class ComputerListActivity : ComponentActivity() {
             ""
         }
         if (lan.isNotEmpty()) {
-            return EndpointChoice("http://" + lan, lanToken, alive = false, hits = result.hits)
+            return EndpointChoice("http://" + lan, lanToken, alive = false, hits = result.hits, kind = result.kind)
         }
         val primary = profile.routeCandidates().firstOrNull { it.isRemote }
         if (primary == null || primary.origin.isEmpty()) return null
-        return EndpointChoice(primary.origin, primary.token, alive = false, hits = result.hits)
+        return EndpointChoice(primary.origin, primary.token, alive = false, hits = result.hits, kind = result.kind)
     }
 
     /** 按配对 id 取令牌；找不到（老调用没带 id）就退回生效配对那条 */
@@ -3125,6 +3168,8 @@ class ComputerListActivity : ComponentActivity() {
         val machineOs: String = "",
         /** 这一轮逐条配对的探测结果（按 pair_id 回填卡片上的行） */
         val hits: List<ProbeEngine.Hit> = emptyList(),
+        /** 探测赢家的通道（lan / jump / tunnel / ts / funnel / tsnet）—— 连接标注只认它 */
+        val winnerKind: String = "",
     )
 
     private data class SheetRequest(val rid: String, val kind: String)
