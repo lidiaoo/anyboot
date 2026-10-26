@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- ui-version: 20261026-rsedit-flex（电脑添加/编辑弹窗：flex 外壳 + 容器查询自适应；配对行拆两行；修 .field input 宽度压死组件宽度） -->
+<!-- ui-version: 20261026-timeout-field（超时框改成「超时 [__] 秒」控件组；58px 去 spinner、字号 11.5；修窄弹窗里开关被 order 挤到最左） -->
 <script>try{window.ANYBOOT_UI_VERSION='20261023-gateway';}catch(e){}</script>
 <script src="qrcode.min.js"></script>
 <!-- AnyBoot 远程管理（server-hub）。
@@ -1635,15 +1635,27 @@
   .rp-grip { cursor: grab; color: rgb(var(--fg-faint)); font-size: 14px; flex: none; user-select: none; padding: 0 2px; }
   .rp-name { font-weight: 600; font-size: 12.5px; flex: none; }
   .rp-sub { flex: 1; min-width: 0; font-size: 11px; color: rgb(var(--fg-faint)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  /* 每通道探测超时（秒）：窄输入框，留空显示「默认」 */
+  /* 每通道探测超时（秒）：窄输入框，留空显示「默认」——外面必须套 .to-field（见下） */
   .rp-timeout {
-    flex: none; width: 62px; padding: 4px 6px; text-align: center;
+    flex: none; width: 58px; padding: 4px 5px; text-align: center;
     border: 1px solid rgb(var(--line)); border-radius: 7px;
-    background: rgb(var(--card)); color: rgb(var(--fg)); font-size: 11px; outline: none;
+    background: rgb(var(--card)); color: rgb(var(--fg)); font-size: 11.5px; outline: none;
+    appearance: textfield; -moz-appearance: textfield;
   }
   .rp-timeout:focus { border-color: rgb(var(--accent)); }
   .rp-timeout::placeholder { color: rgb(var(--fg-faint)); }
   .rp-off .rp-timeout, .rp-na .rp-timeout { opacity: .5; }
+  /* 数字框自带的上下箭头在 58px 里要吃掉 14px，直接不显示（本来也是键盘直输） */
+  .rp-timeout::-webkit-outer-spin-button, .rp-timeout::-webkit-inner-spin-button,
+  .bp-timeout::-webkit-outer-spin-button, .bp-timeout::-webkit-inner-spin-button {
+    -webkit-appearance: none; margin: 0;
+  }
+  /* 超时控件组： 「超时 [___] 秒」 —— 三处复用（每条配对 / 区块默认 / 通道优先级）。
+     原来只摆一个裸输入框、靠 placeholder 的「默认」提示，窄弹窗里它紧贴来源文字，
+     既看不出是超时、58px 里那两个字也挤得看不清。 */
+  .to-field { display: inline-flex; align-items: center; gap: 4px; flex: none; white-space: nowrap; }
+  .to-field > .to-label { font-size: 11px; color: rgb(var(--fg-faint)); }
+  .to-field > .to-unit { font-size: 10.5px; color: rgb(var(--fg-faint)); }
   .rp-btn {
     border: 0; background: transparent; color: rgb(var(--fg-faint)); cursor: pointer;
     width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; flex: none;
@@ -1705,22 +1717,34 @@
   .bp-seg { display: flex; gap: 4px; flex: 1 1 180px; min-width: 0; }
   .bp-seg > .btn { min-width: 0; padding-left: 6px; padding-right: 6px; }
   .bp-timeout {
-    flex: none; width: 66px; padding: 4px 6px; text-align: center;
+    flex: none; width: 58px; padding: 4px 5px; text-align: center;
     border: 1px solid rgb(var(--line)); border-radius: 7px;
-    background: rgb(var(--card)); color: rgb(var(--fg)); font-size: 11px; outline: none;
+    background: rgb(var(--card)); color: rgb(var(--fg)); font-size: 11.5px; outline: none;
+    appearance: textfield; -moz-appearance: textfield;
   }
   .bp-timeout:focus { border-color: rgb(var(--accent)); }
   /* ---- 编辑弹窗的容器查询：按**弹窗自身宽度**折行（窄主窗里弹窗只有 300~400px，
      视口媒体查询到不了这么细）。容器 = .dialog-body，见 .dialog.rs-edit 那条规则。 ---- */
   @container rsedit (max-width: 460px) {
     .dialog.rs-edit .pb-meta > .pb-note { flex: 1 1 100%; }
-    .dialog.rs-edit .pb-src { margin-left: 0; }
+    /* 来源不再抢超时组的左边距：超时组靠左、来源靠右，两者之间留白分开 */
+    .dialog.rs-edit .pb-src { flex: 0 1 auto; margin-left: auto; }
     .dialog.rs-edit .bp-name { width: auto; }
-    .dialog.rs-edit .bp-timeout { order: 2; }
+    /* 区块行：第一行「区块名 … 超时 [__] 秒」，第二行三个策略按钮占满 */
+    .dialog.rs-edit .bp-row > .to-field { order: 2; margin-left: auto; }
     .dialog.rs-edit .bp-seg { flex-basis: 100%; order: 3; }
-    /* 通道说明整行落到最下面，控制件留在第一行（否则「说明」会把超时框和上下按钮挤散） */
-    .dialog.rs-edit .rp-timeout, .dialog.rs-edit .rp-btn { order: 3; }
-    .dialog.rs-edit .rp-sub { flex: 1 1 100%; order: 4; margin-left: 22px; }
+    /* 通道优先级行：说明整行落到最下面，超时组 + 上下按钮 + 启用开关留在第一行。
+       order 必须给 to-field / rp-btn / switch **同一档**（1）—— 只给前两个设 3 会让
+       默认 order:0 的开关插到名字后面去（第一行变成「名字 开关 超时 ↑ ↓」）。
+       配对行的 ↑↓✕ 在 .pb-act 内，所以这里必须限定 .rp-row > 内，否则它的开关也会被挤到最左。 */
+    .dialog.rs-edit .rp-row > .to-field,
+    .dialog.rs-edit .rp-row > .rp-btn,
+    .dialog.rs-edit .rp-row > .switch { order: 1; }
+    .dialog.rs-edit .rp-sub { flex: 1 1 100%; order: 2; margin-left: 22px; }
+    .dialog.rs-edit .addr-add #rsAddrHost,
+    .dialog.rs-edit .addr-add #rsAddrMacs { flex: 1 1 100%; }
+    .dialog.rs-edit .seg-row > .btn { font-size: 11.5px; }
+  }
     .dialog.rs-edit .addr-add #rsAddrHost,
     .dialog.rs-edit .addr-add #rsAddrMacs { flex: 1 1 100%; }
     .dialog.rs-edit .seg-row > .btn { font-size: 11.5px; }
@@ -7817,6 +7841,22 @@
     });
     rsRenderBlockPolicy();
   }
+  /** 把裸超时输入框套成「超时 [__] 秒」控件组（三处复用：每条配对 / 区块默认 / 通道优先级）。
+      裸框加 placeholder「默认」时用户看不出它是什么，窄弹窗里还会被来源文字挤成邻居。 */
+  function rsTimeoutField(input, labelText) {
+    const wrap = document.createElement('label');
+    wrap.className = 'to-field';
+    const label = document.createElement('span');
+    label.className = 'to-label';
+    label.textContent = labelText || '超时';
+    const unit = document.createElement('span');
+    unit.className = 'to-unit';
+    unit.textContent = '秒';
+    wrap.appendChild(label);
+    wrap.appendChild(input);
+    wrap.appendChild(unit);
+    return wrap;
+  }
   /** 一条配对行：地址 · lane · 备注 · 超时 · 启用 · 上移下移 · 删除 · 来源 */
   function rsPairRow(pair, block, sharedTunnel) {
     const index = rsPairs.indexOf(pair);
@@ -7934,7 +7974,7 @@
     meta.className = 'pb-meta';
     meta.appendChild(note);
     meta.appendChild(token);
-    meta.appendChild(timeout);
+    meta.appendChild(rsTimeoutField(timeout));
     meta.appendChild(source);
     row.appendChild(main);
     row.appendChild(meta);
@@ -8002,7 +8042,7 @@
       });
       row.appendChild(name);
       row.appendChild(seg);
-      row.appendChild(timeout);
+      row.appendChild(rsTimeoutField(timeout, '默认超时'));
       box.appendChild(row);
     });
   }
@@ -8372,8 +8412,10 @@
       timeout.value = rsRouteTimeouts[kind] || '';
       timeout.title = '这个通道的探测超时（秒）；留空 = 用上面的默认值';
       timeout.setAttribute('aria-label', (ROUTE_LABELS[kind] || kind) + ' 通道的探测超时（秒）');
-      // 行本身是 draggable 的：在输入框上按下鼠标要临时关掉拖动，否则一选文字就被拖走
-      timeout.addEventListener('mousedown', function () { row.draggable = false; });
+      // 行本身是 draggable 的：在控件组（含「超时」标签）上按下鼠标要临时关掉拖动，
+      // 否则一选文字整行就被拖走
+      const timeoutField = rsTimeoutField(timeout);
+      timeoutField.addEventListener('mousedown', function () { row.draggable = false; });
       timeout.addEventListener('blur', function () { row.draggable = true; });
       timeout.addEventListener('click', function (event) { event.stopPropagation(); });
       timeout.addEventListener('change', function () {
@@ -8396,7 +8438,7 @@
       dn.disabled = index === rsRouteOrder.length - 1;
       dn.addEventListener('click', function () { rsRouteMove(kind, 1); });
       row.appendChild(grip); row.appendChild(name); row.appendChild(sub);
-      row.appendChild(timeout); row.appendChild(up); row.appendChild(dn);
+      row.appendChild(timeoutField); row.appendChild(up); row.appendChild(dn);
       // 启停开关
       const label = document.createElement('label');
       label.className = 'switch';
