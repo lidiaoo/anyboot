@@ -3753,7 +3753,10 @@
     sideSplit.addEventListener('pointerup', endDrag);
     sideSplit.addEventListener('pointercancel', endDrag);
   })();
-  applySide();
+  // 注意：这里**不能**再调 applySide() —— sideViewportApply() 首调已覆盖两种视口
+  // （窄：add collapsed；宽：applySide 应用记忆态）。此处再 toggle 一次会把窄视口
+  // 刚加上的 collapsed 摘掉（sideCollapsed 只记按钮选择，不记视口态），
+  // 「窗口天生就窄」（Windows 150%/175% 缩放、小屏）首屏侧栏就 248px 糊死内容区。
 
   // ============ 状态 ============
   let servers = [];
