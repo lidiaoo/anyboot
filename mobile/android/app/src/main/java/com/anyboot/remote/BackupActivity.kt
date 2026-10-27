@@ -90,13 +90,14 @@ private fun BackupPageRoot() {
     val palette = LocalPalette.current
     val context = LocalContext.current
     var overlay by remember { mutableStateOf("") }   // "" / "webdav" / "preview" / "report"
+    var drawerOpen by remember { mutableStateOf(false) }   // 左上角 ☰ 呼出抽屉（与电脑/电脑列表页共用）
     var reportJson by remember { mutableStateOf<BackupManager.Report?>(null) }
     var pendingEnvelope by remember { mutableStateOf<org.json.JSONObject?>(null) }
     var pendingRaw by remember { mutableStateOf<ByteArray?>(null) }
 
     Box(Modifier.fillMaxSize().background(palette.base)) {
         Column(Modifier.fillMaxSize()) {
-            TopBar("备份与恢复")
+            TopBar("备份与恢复", onMenu = { drawerOpen = true })
             Column(
                 Modifier
                     .fillMaxSize()
@@ -122,6 +123,9 @@ private fun BackupPageRoot() {
                 }
             }
         }
+
+        // 抽屉侧边栏（电脑/电脑列表/服务器同款，见 Drawer.kt）
+        if (drawerOpen) AppDrawerOverlay(DRAWER_BACKUP) { drawerOpen = false }
 
         when (overlay) {
             "webdav" -> WebDavOverlay(onClose = { overlay = "" })
@@ -173,15 +177,17 @@ private var showPasswordDialog by mutableStateOf(false)
 // ==================================================================
 
 @Composable
-private fun TopBar(title: String) {
+private fun TopBar(title: String, onMenu: (() -> Unit)? = null) {
     val palette = LocalPalette.current
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 16.dp, end = 12.dp)
+            .padding(start = if (onMenu != null) 4.dp else 16.dp, end = 12.dp)
             .height(48.dp),
     ) {
+        // 左上角 ☰：呼出抽屉侧边栏（电脑/电脑列表页同款）
+        if (onMenu != null) BarIcon("☰", "侧边栏", tint = palette.fg, onClick = onMenu)
         Text(
             title,
             fontSize = 16.sp,

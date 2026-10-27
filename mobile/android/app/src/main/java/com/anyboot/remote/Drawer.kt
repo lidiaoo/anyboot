@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.sp
 const val DRAWER_COMPUTERS = "computers" // 电脑页（MainActivity）
 const val DRAWER_COMPUTER_LIST = "computer-list" // 电脑列表（ComputerListActivity）
 const val DRAWER_SERVERS = "servers" // 服务器（ServersActivity）
+const val DRAWER_BACKUP = "backup" // 备份与恢复（BackupActivity）
 
 /** 应用版本号（抽屉头部「v*x* · remote」用） */
 fun appVersionLabel(context: Context): String = try {
@@ -134,9 +135,10 @@ fun AppDrawerOverlay(current: String, onDismiss: () -> Unit) {
                             context.startActivity(Intent(context, ServersActivity::class.java))
                         }
                     }
-                    DrawerNavRow("⇅", "备份与恢复", iconSlot = { tint, size ->
-                        SwapVerticalIcon(tint, size)
-                    }) {
+                    DrawerNavRow("⇅", "备份与恢复", selected = current == DRAWER_BACKUP,
+                        iconSlot = { tint, size ->
+                            SwapVerticalIcon(tint, size)
+                        }) {
                         onDismiss()
                         context.startActivity(Intent(context, BackupActivity::class.java))
                     }
