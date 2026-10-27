@@ -71,8 +71,12 @@ class BackupActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         super.onCreate(savedInstanceState)
+        // 必须包 AppTheme：LocalPalette 在树根 provide，缺了会落到默认值
+        // paletteOf(Application())，裸 Application 无 baseContext → 取色 NPE 闪退
         setContent {
-            BackupPageRoot()
+            AppTheme {
+                BackupPageRoot()
+            }
         }
     }
 }
