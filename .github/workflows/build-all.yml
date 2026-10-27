@@ -1,0 +1,117 @@
+# build-all.yml —— 全平台一键编译打包（GitHub Actions）。
+#
+# 触发：Actions 页手动跑（workflow_dispatch），或推 v* tag。
+# 单机做不了交叉编译（Windows/Linux 安装包、签名 IPA），全部交给这里的矩阵：
+#   desktop-windows : NSIS + MSI
+#   desktop-linux   : deb + rpm + AppImage
+#   desktop-macos   : dmg（universal，Intel+Apple Silicon 合包）
+#   android         : debug APK
+#   ios             : 模拟器构建（编译验证；真机 IPA 需证书，本 job 不签）
+# 每个 job 的产物在 run 页 Artifacts 区下载。
+name: build-all
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  desktop-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: "1.27" }
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - name: 构建 sidecar（Windows）
+        run: bash scripts/build-sidecar.sh
+      - name: tauri build（NSIS + MSI）
+        run: npm run build:win
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-windows
+          path: |
+            src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/msi/*.msi
+
+  desktop-linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: "1.27" }
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - name: 系统依赖（Tauri v2 Linux）
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+      - name: 构建 sidecar（Linux amd64/arm64）
+        run: bash scripts/build-sidecar.sh
+      - name: tauri build（deb + rpm + AppImage）
+        run: npm run build:linux
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-linux
+          path: |
+            src-tauri/target/release/bundle/deb/*.deb
+            src-tauri/target/release/bundle/rpm/*.rpm
+            src-tauri/target/release/bundle/appimage/*.AppImage
+
+  desktop-macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: "1.27" }
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin,aarch64-apple-darwin
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - name: 构建 sidecar（macOS 双架构）
+        run: bash scripts/build-sidecar.sh
+      - name: tauri build（universal dmg）
+        run: npm run build:mac-universal
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-macos
+          path: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 21 }
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: "8.11.1" }
+      - name: assembleDebug
+        run: gradle assembleDebug
+        working-directory: mobile/android
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: mobile/android/app/build/outputs/apk/debug/app-debug.apk
+
+  ios:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: 安装 xcodegen
+        run: brew install xcodegen
+      - name: 生成工程并构建（模拟器，不签名）
+        run: |
+          cd mobile/ios
+          xcodegen generate
+          xcodebuild build -project AnyBootRemote.xcodeproj -scheme AnyBootRemote \
+            -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' -quiet
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-build-log
+          path: mobile/ios/build
+        if: failure()
