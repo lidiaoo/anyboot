@@ -6,7 +6,7 @@
 // 条目行（.boot-entry）。检测到的通道渲染完整卡片；没检测到的收进底部折叠条。
 //
 // 切换值域与后端 `switch_system` 同一套：
-//   sdboot:<entryId> / opencore / clover-oneshot（UI 暴露的三个动作）
+//   sdboot:<entryId> / opencore / opencore-register[:short|:full] / clover-oneshot
 "use strict";
 
 const BOOT_CHANNEL_ICONS = {
@@ -143,7 +143,9 @@ function makeBootChannelCard(channel, { busy, onSwitch }) {
     if (elevated) {
       button.classList.add("needs-elev");
     }
-    button.textContent = elevated ? "下次启动 ⤴" : "下次启动";
+    // 「修复并注册」不是一次性启动动作，按钮文案要跟语义分开
+    const isRepair = String(entry.id).endsWith("-register");
+    button.textContent = isRepair ? "立即修复" : elevated ? "下次启动 ⤴" : "下次启动";
     button.disabled = busy;
     button.addEventListener("click", () => onSwitch(entry, channel));
     row.append(button);
@@ -156,11 +158,12 @@ function makeBootChannelCard(channel, { busy, onSwitch }) {
 }
 
 /// 通道切换的 spec 组装（与后端 parse_switch_spec 的值域一致）。
-/// sdboot 条目 → `sdboot:<id>`；opencore 动作 → `opencore`；
+/// sdboot 条目 → `sdboot:<id>`；opencore 的条目 id 本身就是值域
+/// （`opencore` 进菜单 / `opencore-register` 修复自注册配置）；
 /// clover 动作 → `clover-oneshot`（文件路线 clover-default:<volume> 走远程 API）。
 function bootChannelSpec(entry, channel) {
   if (channel.id === "sdboot") return `sdboot:${entry.id}`;
-  if (channel.id === "opencore") return "opencore";
+  if (channel.id === "opencore") return entry.id;
   if (channel.id === "clover") return "clover-oneshot";
   return entry.id;
 }

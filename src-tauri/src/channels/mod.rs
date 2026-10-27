@@ -7,7 +7,8 @@
 //! * Clover：`config.plist` 的 DefaultVolume（文件）/ BootNext（实验性）。
 //!
 //! 切换值域（`switch_system` 与远程命令共用）：`sdboot:<id>` /
-//! `sdboot-oneshot:<id>` / `opencore` / `clover-default:<volume>` / `clover-oneshot`。
+//! `sdboot-oneshot:<id>` / `opencore` / `opencore-register[:short|:full]` /
+//! `clover-default:<volume>` / `clover-oneshot`。
 
 use super::*;
 
@@ -212,6 +213,8 @@ pub(crate) enum SwitchSpec {
     Sdboot(String),
     SdbootOneShot(String),
     OpenCore,
+    /// 修复 OC 的自注册配置：`short`（默认，不抢默认位）/ `full`
+    OpenCoreRegister(String),
     CloverDefault(String),
     CloverOneShot,
 }
@@ -229,6 +232,17 @@ pub(crate) fn parse_switch_spec(spec: &str) -> Option<SwitchSpec> {
             Some(SwitchSpec::SdbootOneShot(id.trim().to_string()))
         }
         ("opencore", None | Some("")) => Some(SwitchSpec::OpenCore),
+        // 缺省 = short：不抢 BootOrder 默认位，比 Full 温和
+        ("opencore-register", None | Some("")) => {
+            Some(SwitchSpec::OpenCoreRegister("short".to_string()))
+        }
+        ("opencore-register", Some(mode))
+            if matches!(mode.trim().to_ascii_lowercase().as_str(), "short" | "full") =>
+        {
+            Some(SwitchSpec::OpenCoreRegister(
+                mode.trim().to_ascii_lowercase(),
+            ))
+        }
         ("clover-default", Some(volume)) if !volume.trim().is_empty() => {
             Some(SwitchSpec::CloverDefault(volume.trim().to_string()))
         }
@@ -247,8 +261,19 @@ impl SwitchSpec {
             Self::Sdboot(id) => format!("systemd-boot 下次启动：{id}"),
             Self::SdbootOneShot(id) => format!("systemd-boot 一次性启动：{id}"),
             Self::OpenCore => "下次启动进入 OpenCore 菜单".to_string(),
+            Self::OpenCoreRegister(mode) => {
+                format!("修复 OpenCore 自注册配置（LauncherOption={mode}）")
+            }
             Self::CloverDefault(volume) => format!("Clover 默认卷设为 {volume}"),
             Self::CloverOneShot => "下次启动进入 Clover（一次性）".to_string(),
+        }
+    }
+
+    /// 动作名（写操作记录用）：「修复」与「切换」不是一回事。
+    pub(crate) fn action_label(&self) -> &'static str {
+        match self {
+            Self::OpenCoreRegister(_) => "修复引导器配置",
+            _ => "切换引导通道",
         }
     }
 }
@@ -272,6 +297,10 @@ pub(crate) fn switch(app: &AppHandle, spec: &str) -> Result<String, String> {
             let number = opencore::set_boot_next(&esp_root, opencore::OC_MARKER, "opencore")?;
             format!("{}（Boot{}，用后自动失效）", parsed.describe(), nvram::boot_var_name(number))
         }
+        // 「修复」不是切换：直接把修复结果的完整说明当消息
+        SwitchSpec::OpenCoreRegister(mode) => {
+            opencore::fix_launcher_option(&esp_root, mode)?
+        }
         SwitchSpec::CloverDefault(volume) => {
             clover::set_default_volume(&esp_root, volume, None)?;
             parsed.describe()
@@ -286,20 +315,23 @@ pub(crate) fn switch(app: &AppHandle, spec: &str) -> Result<String, String> {
 
 /// 切换引导通道的统一入口（镜像 switch_grub_and_update：busy + record + publish）。
 pub(crate) fn switch_channel_and_update(app: &AppHandle, spec: &str) -> AppStatus {
-    trace(app, "channel", &format!("切换 spec={spec}"));
+    trace(app, "channel", &format!("执行通道动作 spec={spec}"));
+    let label = parse_switch_spec(spec)
+        .map(|parsed| parsed.action_label())
+        .unwrap_or("切换引导通道");
     set_busy(app, |busy| busy.switching = true);
     let outcome = switch(app, spec);
     set_busy(app, |busy| busy.switching = false);
     match outcome {
         Ok(message) => {
             refresh_channels(app);
-            record_action(app, "切换引导通道", true, &message);
+            record_action(app, label, true, &message);
             publish_ui(app);
             state_snapshot(app)
         }
         Err(error) => {
-            record_action(app, "切换引导通道", false, &error);
-            update_failure_status(app, "切换引导通道失败", error)
+            record_action(app, label, false, &error);
+            update_failure_status(app, &format!("{label}失败"), error)
         }
     }
 }
@@ -337,6 +369,21 @@ mod tests {
             Some(SwitchSpec::SdbootOneShot("cachyos.conf".into()))
         );
         assert_eq!(parse_switch_spec("opencore"), Some(SwitchSpec::OpenCore));
+        // 修复动作：缺省 short（温和，不抢默认位）
+        assert_eq!(
+            parse_switch_spec("opencore-register"),
+            Some(SwitchSpec::OpenCoreRegister("short".into()))
+        );
+        assert_eq!(
+            parse_switch_spec("opencore-register:full"),
+            Some(SwitchSpec::OpenCoreRegister("full".into()))
+        );
+        assert_eq!(
+            parse_switch_spec("opencore-register:SHORT"),
+            Some(SwitchSpec::OpenCoreRegister("short".into())),
+            "模式名大小写不敏感"
+        );
+        assert_eq!(parse_switch_spec("opencore-register:disabled"), None);
         assert_eq!(
             parse_switch_spec("clover-default:Macintosh HD"),
             Some(SwitchSpec::CloverDefault("Macintosh HD".into()))
@@ -353,6 +400,13 @@ mod tests {
         assert_eq!(parse_switch_spec("opencore:extra"), None);
         assert_eq!(parse_switch_spec("windows"), None);
         assert!(SwitchSpec::is_channel_spec("sdboot:arch.conf"));
+        assert!(SwitchSpec::is_channel_spec("opencore-register"));
         assert!(!SwitchSpec::is_channel_spec("macos"));
+        // 修复类动作写操作记录时用「修复」而不是「切换」
+        assert_eq!(
+            SwitchSpec::OpenCoreRegister("short".into()).action_label(),
+            "修复引导器配置"
+        );
+        assert_eq!(SwitchSpec::OpenCore.action_label(), "切换引导通道");
     }
 }
