@@ -124,6 +124,23 @@ jobs:
           xcodegen generate
           xcodebuild build -project AnyBootRemote.xcodeproj -scheme AnyBootRemote \
             -destination 'generic/platform=iOS Simulator' -quiet
+      - name: 打未签名 IPA（真机自签用）
+        # 通用 iOS 设备构建 + 关签名，得到的 .app 打包成未签名 IPA。
+        # 没有 CI 证书，无法出能直接安装的包；用 Sideloadly/AltStore
+        # （免费 Apple ID，7 天有效）或付费证书对 IPA 重签后即可装真机。
+        run: |
+          cd mobile/ios
+          xcodebuild build -project AnyBootRemote.xcodeproj -scheme AnyBootRemote \
+            -destination 'generic/platform=iOS' -configuration Release \
+            -derivedDataPath build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO -quiet
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/AnyBootRemote.app Payload/
+          zip -qry AnyBoot-unsigned.ipa Payload
+          ls -lh AnyBoot-unsigned.ipa
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa-unsigned
+          path: mobile/ios/AnyBoot-unsigned.ipa
       - uses: actions/upload-artifact@v4
         with:
           name: ios-build-log
