@@ -52,3 +52,9 @@ hs_err_pid*.log
 # dsh ���ؼ�⹤���� WorkBuddy ͼ�깤��Ŀ¼�����ز������⣩
 .dsh/
 .workbuddy/icon/
+
+# CI 产物下载目录（gh run download 的安装包，220M，release 已有同名附件）
+dist-ci/
+
+# UI 集成预览副本（docs/ui-preview 是 ui/ 源码的临时快照，改完即弃）
+docs/ui-preview/
