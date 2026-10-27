@@ -2207,3 +2207,153 @@ button.needs-elev {
 /* 摘要条新增「上次启动」位 */
 .next-boot-last { margin-left: auto; }
 .next-boot-last b { color: var(--ok-color, #34d399); font-weight: 600; }
+
+/* ═══════════════════════════════════════════════════════════════════
+ * 三引导器通道 · flex 自适应（对齐 720/480 双断点体系，作用域仅新组件）
+ * 规则同 GRUB 通道行的老三样：min-width:0 + ellipsis/anywhere + 放手折行
+ * ═══════════════════════════════════════════════════════════════════ */
+
+/* ── 任意宽度都要成立的基础项 ── */
+
+/* 标题行：chip（margin-left:auto）在窄窗挤不下时换到下一行，
+ * 不许把标题压扁（.grub-title-row 基类 flex:none 是给 GRUB 头用的，
+ * 通道卡在 main 单列里没有右侧小字竞争，放开折行更稳） */
+.boot-channel .grub-title-row {
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+
+/* 摘要行 / 健康检查条：config.plist 键名（Misc→Security→AllowSetDefault）
+ * 很长，anywhere 断行是硬要求；code 片段内联可断 */
+.channel-pane-status,
+.channel-health {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.channel-health code {
+  overflow-wrap: anywhere;
+}
+
+/* 条目行元信息：小字路径省略号已有；名字也兜一层 anywhere（超长 id） */
+.boot-entry-meta { min-width: 0; }
+.boot-entry-meta b { overflow-wrap: anywhere; }
+
+/* 徽章 / 按钮不许被压扁换行文字：保持整体换行（窄档里放开 wrap） */
+.boot-badge,
+.boot-entry button {
+  flex: none;
+}
+
+/* 摘要条「上次启动」：.next-boot 是 grid，值可能很长
+ *（Boot0001（AnyBoot 上次写入的 BootNext）），可断行不撑破 */
+.next-boot-last {
+  min-width: 0;
+}
+.next-boot-last b {
+  overflow-wrap: anywhere;
+}
+
+/* 折叠条：名字列表可收缩，窄窗整行折两段 */
+.boot-channel-collapsed {
+  min-width: 0;
+}
+.boot-channel-collapsed-names {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* ── ≤720px：与现有分栏折叠同档，通道卡进入「单列窄卡」形态 ── */
+@media (max-width: 720px) {
+  /* 条目行：徽章/按钮放不下时整体折到第二行，元信息吃满首行 */
+  .boot-entry {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+  .boot-entry-meta {
+    flex: 1 1 0;
+  }
+  /* 徽章与按钮在第二行右对齐聚拢 */
+  .boot-badge:first-of-type,
+  .boot-entry button {
+    margin-left: auto;
+  }
+  .boot-badge + .boot-badge {
+    margin-left: 0;
+  }
+
+  /* 圆标与 chip 略收紧，给标题让宽度 */
+  .boot-channel .zone-tag {
+    padding: 2px 7px;
+    font-size: 9px;
+  }
+  .channel-chip {
+    font-size: 10px;
+    padding: 2px 7px;
+  }
+
+  /* 关键：detail 小字放开 nowrap（原来 ellipsis 的 nowrap 会把整行
+   * 无断行宽度计入 min-content，320px 下把整卡撑到 346px）。
+   * 窄卡里改为自然折行 + anywhere，桌面宽档仍保持单行省略号。 */
+  .boot-entry-meta small {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .boot-entry,
+  .boot-list,
+  .boot-channel,
+  #boot-channels-mount {
+    min-width: 0;
+  }
+}
+
+/* ── ≤480px：手机档，标题行与折叠条整体重排 ── */
+@media (max-width: 480px) {
+  /* 标题行：圆标+标题一行、chip 独占一行（wrap 自动达成，这里只管间距） */
+  .boot-channel .grub-title-row {
+    gap: 6px;
+  }
+  .boot-channel .grub-title-row h2 {
+    font-size: 15px;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  /* chip 允许换行文字（「已检测 · 需要提权」在 320px 也放得下） */
+  .channel-chip {
+    flex: 0 1 auto;
+    min-width: 0;
+    white-space: normal;
+    text-align: right;
+  }
+
+  /* 条目行：图标缩小一号，徽章/按钮第二行铺开。
+   * meta 保底 120px：容器放不下时把徽章/按钮挤到第二行，
+   * 文字不被按钮（原来 flex:1 会抢宽）压成一字一行的竖排。 */
+  .boot-entry {
+    gap: 8px;
+    padding: 9px 10px;
+  }
+  .boot-entry-meta {
+    min-width: 120px;
+  }
+  .boot-entry-ico {
+    width: 28px;
+    height: 28px;
+    font-size: 14px;
+    border-radius: 7px;
+  }
+  .boot-entry button {
+    flex: 0 0 auto;
+  }
+
+  /* 折叠条：说明与按钮分两行 */
+  .boot-channel-collapsed {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+
+  /* 摘要条「上次启动」独占一行左对齐（margin-left:auto 让位） */
+  .next-boot-last {
+    margin-left: 0;
+  }
+}
