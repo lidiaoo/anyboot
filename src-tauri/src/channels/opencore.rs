@@ -283,6 +283,13 @@ fn upsert(
 /// `mode=full` → 插到 BootOrder 最前（抢默认启动）；缺省 / `short` → 追加到末尾
 /// （固件启动菜单里能看到它，但默认启动项仍由 AnyBoot 决定）。
 pub(crate) fn register_boot_entry(esp_root: &Path, mode: &str) -> Result<String, String> {
+    if !nvram::can_write_boot_vars() {
+        return Err(
+            "本系统不允许用户态写 NVRAM 的 Boot* 变量（macOS 的 EFI 运行时白名单，管理员权限也一样），\
+             没法由 AnyBoot 直接建启动项"
+                .to_string(),
+        );
+    }
     if let Some(number) = find_boot_number(OC_MARKER) {
         return Ok(format!(
             "固件启动列表里已经有 OpenCore（Boot{}），不需要重复写入",
@@ -368,6 +375,15 @@ pub(crate) fn register(esp_root: &Path, mode: &str) -> Result<String, String> {
 /// 写 BootNext 指向 `marker`（OC/Clover 共用）对应的启动项。找到 → 写；没找到 →
 /// 报错提示（创建 Boot#### 的 DevicePath 构造在后续版本补，先不赌固件兼容性）。
 pub(crate) fn set_boot_next(esp_root: &Path, marker: &str, channel: &str) -> Result<u16, String> {
+    // 先判平台能力：macOS 上写 Boot* 会被系统白名单直接拒绝（root 也一样），
+    // 与其写完报 `not permitted`，不如在这里说清原因和替代方案。
+    if !nvram::can_write_boot_vars() {
+        return Err(format!(
+            "本系统不允许用户态写 NVRAM 的 Boot* 变量（macOS 的 EFI 运行时白名单，管理员权限也一样），\
+             没法用 BootNext 让下次启动进入 {channel}。请在引导器菜单里对目标系统按 Ctrl+Enter 设成默认，\
+             或在 Linux / Windows 侧用同样的切换"
+        ));
+    }
     let Some(number) = find_boot_number(marker) else {
         return Err(format!(
             "固件启动列表里没有引导项（Boot#### 路径不含 {marker}）。\
@@ -438,25 +454,55 @@ pub(crate) fn view(esp_root: &Path) -> ChannelView {
     }
     let config = config_text.unwrap_or_default();
     let mut health = health_checks(&config);
-    // OC 引导项是否已在固件里注册（BootOrder 里能搜到）——搜不到时 BootNext 无从写起
-    let registered = find_boot_number(OC_MARKER).is_some();
     let launcher = launcher_option(&config);
     let can_self_register = self_registers(launcher.as_deref());
+    // 本平台能不能写 Boot*（macOS 恒不能：Apple 的 NVRAM 白名单，root 也被拒）
+    let can_write = nvram::can_write_boot_vars();
+    // OS 侧看得见真实启动列表吗（OpenCore 的 RequestBootVarRouting 会把 Boot* 藏起来）
+    let hidden = nvram::boot_vars_hidden();
+    let found = find_boot_number(OC_MARKER);
+    // 判定"固件里有没有 OC 项"：
+    //   * 看得见列表 → 以 BootOrder 为准；
+    //   * 看不见（BootCurrent 都没有）→ **不能**断定没有。实机就是这样：BIOS 启动
+    //     菜单里明明有 OpenCore 项、也确实能从它启动，而 macOS 侧只剩 macOS 那一条。
+    //     此时以「OC 被配置成自注册」为依据，并把「不可见」这件事如实写出来。
+    let registered = found.is_some() || (hidden && can_self_register);
+    if hidden || !can_write {
+        // 合成一条说明：这两件事对用户是同一个问题——「为什么在这台机器上只能看不能改」。
+        let mut reasons: Vec<String> = Vec::new();
+        if hidden {
+            reasons.push(
+                "启动列表在本系统不可见（读不到 BootCurrent，Boot* 被引导器托管了）".to_string(),
+            );
+        }
+        if !can_write {
+            reasons.push(
+                "本系统不允许用户态写 Boot* 变量（macOS 的 EFI 运行时白名单，管理员权限也一样）"
+                    .to_string(),
+            );
+        }
+        health.push(HealthIssue {
+            severity: "info".to_string(),
+            text: format!(
+                "{}。所以这里只做展示与 OC 配置自检：OpenCore 在固件里的注册状态以 BIOS / 引导器菜单为准{}；\
+                 想固定默认启动项，在 OC 菜单里对目标系统按 Ctrl+Enter",
+                reasons.join("；"),
+                if can_self_register {
+                    "（LauncherOption 已开，OC 会自己注册）"
+                } else {
+                    "（LauncherOption 没开，OC 不会自己注册）"
+                }
+            ),
+        });
+    }
     if !registered {
         let launcher_text = launcher.as_deref().unwrap_or("未设置");
         health.push(HealthIssue {
             severity: "warn".to_string(),
-            text: if can_self_register {
-                format!(
-                    "LauncherOption={launcher_text}（本应自注册），但固件里仍然没有 OpenCore 项——\
-                     OC 在自注册之前就先跳去 macOS 了。用下方「写入固件启动项」直接补一条"
-                )
-            } else {
-                format!(
-                    "固件启动列表里没有 OpenCore 项，且 LauncherOption={launcher_text}（OC 不自注册）——\
-                     用下方「写入固件启动项」直接补一条"
-                )
-            },
+            text: format!(
+                "固件启动列表里没有 OpenCore 项，且 LauncherOption={launcher_text}（OC 不自注册）——\
+                 进 OC 菜单把 Misc→Boot→LauncherOption 改成 Short/Full，重启一次后它自己会写进去"
+            ),
         });
     }
     // 版本探测（有就展示，没有不勉强）
@@ -472,29 +518,31 @@ pub(crate) fn view(esp_root: &Path) -> ChannelView {
     let last_boot = channel_state_key(esp_root, "opencore", "bootNext")
         .map(|number| format!("Boot{number}（AnyBoot 上次写入的 BootNext）"));
     let last_boot_at = channel_state_key(esp_root, "opencore", "updatedAt");
-    // OC 的子系统条目由 OC picker 自己管，AnyBoot 固定一条「进菜单」动作；
-    // 固件里没有 OC 项时补一条「写入固件启动项」——不管 LauncherOption 是什么，
-    // 自己写都是最快、最可控的一条路（自注册在 Bootstrap 兜底的机器上实测不生效）。
+    // OC 的子系统条目由 OC picker 自己管，AnyBoot 固定一条「进菜单」动作。
+    // 两个动作都要写 Boot* 变量，所以只有能写的平台才给按钮——
+    // macOS 上给了也只会让人点了收到 `not permitted`。
     let mut entries = Vec::new();
-    if !registered {
+    if can_write {
+        if !registered {
+            entries.push(ChannelEntry {
+                id: "opencore-register".to_string(),
+                title: "写入固件启动项".to_string(),
+                detail: "由 AnyBoot 构造 EFI 启动项写进 NVRAM（HardDrive 节点取本 ESP 的分区号/\
+                         起始 LBA/GPT GUID），写完立刻生效；写前备份 BootOrder 与全部 Boot####"
+                    .to_string(),
+                icon: "menu".to_string(),
+                requires_elevation: true,
+            });
+        }
         entries.push(ChannelEntry {
-            id: "opencore-register".to_string(),
-            title: "写入固件启动项".to_string(),
-            detail: "由 AnyBoot 直接构造 EFI 启动项写进 NVRAM（与 macOS bless 同一条路径），\
-                     写完立刻生效、不用重启；写入前会先备份 BootOrder 与全部 Boot####"
+            id: "opencore".to_string(),
+            title: "进入 OpenCore 菜单".to_string(),
+            detail: "下次启动经 NVRAM BootNext → OpenCore.efi（一次性，用后自动失效）"
                 .to_string(),
-            icon: "menu".to_string(),
+            icon: "macos".to_string(),
             requires_elevation: true,
         });
     }
-    entries.push(ChannelEntry {
-        id: "opencore".to_string(),
-        title: "进入 OpenCore 菜单".to_string(),
-        detail: "下次启动经 NVRAM BootNext → OpenCore.efi（一次性，用后自动失效）"
-            .to_string(),
-        icon: "macos".to_string(),
-        requires_elevation: true,
-    });
     ChannelView {
         id: "opencore",
         label: "OpenCore",
@@ -623,6 +671,33 @@ mod tests {
         assert!(!self_registers(Some("Disabled")));
         assert!(!self_registers(Some("System")));
         assert!(!self_registers(None));
+    }
+
+    /// 真机自检（`cargo test --lib -- --ignored real_esp_view --nocapture`）。
+    /// 钉住 macOS 上这张卡片的形态：列表不可见 + 写不了 Boot* 时，应当是「绿 chip +
+    /// 一条 info 说明 + 零个按钮」，而不是把残缺的 BootOrder 当成「固件里没有 OC 项」。
+    #[test]
+    #[ignore]
+    fn real_esp_view() {
+        let root = Path::new("/Volumes/MacOS-efi");
+        if !root.is_dir() {
+            eprintln!("没有 {}，跳过", root.display());
+            return;
+        }
+        let view = super::view(root);
+        println!("chip={}", view.chip);
+        println!(
+            "entries={:?}",
+            view.entries.iter().map(|entry| entry.id.as_str()).collect::<Vec<_>>()
+        );
+        for issue in &view.health {
+            println!("[{}] {}", issue.severity, issue.text);
+        }
+        println!(
+            "can_write={} hidden={}",
+            nvram::can_write_boot_vars(),
+            nvram::boot_vars_hidden()
+        );
     }
 
     #[test]

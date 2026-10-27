@@ -234,6 +234,11 @@ mod imp {
         Path::new("/sys/firmware/efi/efivars").is_dir()
     }
 
+    /// efivarfs 可写（提权后）→ 能直接写 Boot*。
+    pub(crate) fn can_write_boot_vars() -> bool {
+        true
+    }
+
     /// 批量写：Linux 上每条都能独立走「直写 / pkexec」，逐条来即可。
     pub(crate) fn write_vars(entries: &[(&str, &str, &[u8])]) -> Result<(), NvramError> {
         for (name, guid, value) in entries {
@@ -337,6 +342,12 @@ mod imp {
     pub(crate) fn available() -> bool {
         Path::new("/usr/sbin/nvram").exists()
     }
+
+    /// macOS **写不了** Boot*：Apple 的 EFI 运行时按白名单过滤 NVRAM 写入（实测
+    /// root 也返回 `(iokit/common) not permitted`）。设置下次启动只能走 `bless`。
+    pub(crate) fn can_write_boot_vars() -> bool {
+        false
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -419,6 +430,11 @@ mod imp {
         true
     }
 
+    /// 管理员进程下 `SetFirmwareEnvironmentVariableW` 能写 Boot*。
+    pub(crate) fn can_write_boot_vars() -> bool {
+        true
+    }
+
     /// 批量写：Windows 用同一个进程权限，逐条写即可。
     pub(crate) fn write_vars(entries: &[(&str, &str, &[u8])]) -> Result<(), NvramError> {
         for (name, guid, value) in entries {
@@ -458,6 +474,29 @@ pub(crate) fn boot_var_number(name: &str) -> Option<u16> {
         return None;
     }
     u16::from_str_radix(rest, 16).ok()
+}
+
+/// OS 侧能不能写 `Boot*` 变量（`BootNext` / `Boot####` / `BootOrder`）。
+///
+/// macOS 恒 false：Apple 的 EFI 运行时对 NVRAM 有变量白名单，`Boot####` 不在其中，
+/// **root 也一样**（实测 `nvram 8be4df61…:Boot0081=%01%00…` → `(iokit/common) not
+/// permitted`）。macOS 上设置下次启动的唯一正规渠道是 `bless`。Linux（efivarfs +
+/// 提权）与 Windows（`SetFirmwareEnvironmentVariableW`）都能直接写。
+pub(crate) fn can_write_boot_vars() -> bool {
+    imp::can_write_boot_vars()
+}
+
+/// `Boot*` 变量在 OS 侧是不是"看不见真相"。
+///
+/// 判据用 `BootCurrent`：真实 UEFI 一定有它（本次是从哪个 `Boot####` 启动的），
+/// 读不到只有两种可能——引导器（OpenCore 的 `UEFI→Quirks→RequestBootVarRouting`）
+/// 把 `Boot*` 改写到自己命名空间，或系统白名单不让看。
+///
+/// 两种情况下**都不能拿 `BootOrder` 去判断"固件里有没有某个引导项"**：
+/// 那张表可能只残留 macOS 那一项，而固件里其实早已注册好 OpenCore（BIOS 启动菜单
+/// 里看得见、也确实能从中启动）。早期版本就是在这里判错的。
+pub(crate) fn boot_vars_hidden() -> bool {
+    read_var("BootCurrent", GUID_GLOBAL).is_err()
 }
 
 /// 读 BootOrder（不存在返回空序列 —— 固件没设过 BootOrder 也是合法状态）。

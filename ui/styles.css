@@ -2130,6 +2130,12 @@ button.primary-sol:hover:not(:disabled) {
   background: color-mix(in srgb, var(--ok-color, #34d399) 7%, transparent);
 }
 .channel-health.good strong { color: var(--ok-color, #34d399); }
+/* info：只是说明（这台机器上为什么只能看不能改），不是待办事项 */
+.channel-health.info {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+}
+.channel-health.info strong { color: var(--fg-dim, rgba(255, 255, 255, 0.72)); }
 
 /* 条目行：图标 + 名称/路径 + 徽章 + 动作按钮 */
 .boot-list { display: flex; flex-direction: column; gap: 8px; }

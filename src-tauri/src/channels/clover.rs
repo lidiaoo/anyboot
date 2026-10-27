@@ -110,6 +110,14 @@ pub(crate) fn view(esp_root: &Path) -> ChannelView {
             plist_lite::PlistScalar::String(text) => text,
             other => other.to_xml(),
         });
+    if !nvram::can_write_boot_vars() {
+        health.push(HealthIssue {
+            severity: "info".to_string(),
+            text: "本系统不允许用户态写 Boot* 变量（macOS 的 NVRAM 白名单），一次性进入 Clover \
+                   这里给不了按钮；Clover 的默认卷仍可用 clover-default:<卷名> 从 CLI / 远程改"
+                .to_string(),
+        });
+    }
     let last_boot = opencore::channel_state_key(esp_root, "clover", "defaultVolume");
     let last_boot_at = opencore::channel_state_key(esp_root, "clover", "updatedAt");
     let mut detail = String::from(if has_emulated {
@@ -126,18 +134,27 @@ pub(crate) fn view(esp_root: &Path) -> ChannelView {
         label: "Clover",
         detected: true,
         permission: "file",
-        chip: if health.is_empty() { "ok" } else { "warn" },
+        chip: if health.iter().any(|issue| issue.severity == "warn") {
+            "warn"
+        } else {
+            "ok"
+        },
         detail: Some(detail),
         health,
         // 文件路线（clover-default:<volume>）走远程 API / CLI，UI 上先只放
-        // 一次性动作 —— 卷名要打字输入，塞个按钮反而误导
-        entries: vec![ChannelEntry {
-            id: "clover-oneshot".to_string(),
-            title: "一次性进入 Clover（实验性）".to_string(),
-            detail: "NVRAM BootNext；Clover 对 BootNext 的支持随版本有差异".to_string(),
-            icon: "menu".to_string(),
-            requires_elevation: true,
-        }],
+        // 一次性动作 —— 卷名要打字输入，塞个按钮反而误导。
+        // 一次性动作要写 BootNext，macOS 上写不了（Apple 的 NVRAM 白名单）→ 不给按钮。
+        entries: if nvram::can_write_boot_vars() {
+            vec![ChannelEntry {
+                id: "clover-oneshot".to_string(),
+                title: "一次性进入 Clover（实验性）".to_string(),
+                detail: "NVRAM BootNext；Clover 对 BootNext 的支持随版本有差异".to_string(),
+                icon: "menu".to_string(),
+                requires_elevation: true,
+            }]
+        } else {
+            Vec::new()
+        },
         current_default,
         last_boot,
         last_boot_at,

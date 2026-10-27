@@ -67,12 +67,19 @@ function makeBootChannelCard(channel, { busy, onSwitch }) {
   // ── 健康检查条（warn 黄 / 全绿 ✓）──
   const issues = channel.health || [];
   if (issues.length) {
+    // severity 只有 warn 才算"要处理"；info 是"这台机器上为什么只能看不能改"的说明，
+    // 用中性样式，不然卡片一看全是黄的、其实没坏。
+    const ordered = [
+      ...issues.filter((issue) => issue.severity === "warn"),
+      ...issues.filter((issue) => issue.severity !== "warn"),
+    ];
+    const warnCount = ordered.filter((issue) => issue.severity === "warn").length;
     const health = document.createElement("div");
-    health.className = "channel-health bad";
+    health.className = warnCount ? "channel-health bad" : "channel-health info";
     const head = document.createElement("strong");
-    head.textContent = `⚠ 健康检查：${issues.length} 项建议处理`;
+    head.textContent = warnCount ? `⚠ 健康检查：${warnCount} 项建议处理` : "ℹ 说明";
     health.append(head);
-    for (const issue of issues) {
+    for (const issue of ordered) {
       const line = document.createElement("span");
       line.textContent = `· ${issue.text}`;
       health.append(line);
