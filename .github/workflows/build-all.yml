@@ -110,6 +110,12 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+      - name: 切到 Xcode 26
+        # swiftui-introspect 27.x 要求 Swift 6.2 工具链，镜像默认的 Xcode 16 解析不了
+        run: |
+          ls -d /Applications/Xcode*.app
+          sudo xcode-select -s "$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)"
+          xcodebuild -version && swift --version
       - name: 安装 xcodegen
         run: brew install xcodegen
       - name: 生成工程并构建（模拟器，不签名）
