@@ -59,6 +59,8 @@ final class JumpServer {
     /** 最近一次连通的往返毫秒；-1 = 未知 / 不通（展示用） */
     long lastRttMs = -1;
     long lastSeen = 0;
+    /** 云同步 LWW 的依据（毫秒时间戳）；用户编辑保存时刷新，探测不刷 */
+    long updatedAt = 0;
 
     JumpServer() {
         this.id = UUID.randomUUID().toString();
@@ -159,6 +161,7 @@ final class JumpServer {
         object.put("termShell", JumpStore.text(termShell));
         object.put("lastRttMs", lastRttMs);
         object.put("lastSeen", lastSeen);
+        object.put("updatedAt", updatedAt);
         return object;
     }
 
@@ -184,6 +187,7 @@ final class JumpServer {
         server.termShell = object.optString("termShell", "");
         server.lastRttMs = object.optLong("lastRttMs", -1);
         server.lastSeen = object.optLong("lastSeen", 0);
+        server.updatedAt = object.optLong("updatedAt", 0);
         return server;
     }
 
@@ -204,6 +208,7 @@ final class JumpServer {
         other.termShell = termShell;
         other.lastRttMs = lastRttMs;
         other.lastSeen = lastSeen;
+        other.updatedAt = updatedAt;
         return other;
     }
 }

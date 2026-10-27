@@ -17,6 +17,23 @@ packages:
   Citadel:
     url: https://github.com/orlandos-nl/Citadel
     branch: main
+  # ---- UI 层开源框架（已核实：许可 / 部署目标 / product 名）----
+  # Flow：HFlow/VFlow 真 flex-wrap，弹性和 justified 模型，Layout 协议（iOS 16+，MIT）
+  Flow:
+    url: https://github.com/tevelee/SwiftUI-Flow
+    from: "3.5.1"
+  # PopupView：弹层/浮层统一（iOS 17+，MIT）
+  PopupView:
+    url: https://github.com/exyte/PopupView
+    from: "5.0.8"
+  # AlertToast：HUD / toast（iOS 13+，MIT）
+  AlertToast:
+    url: https://github.com/elai950/AlertToast
+    from: "1.3.9"
+  # SwiftUIIntrospect：拿底层 UIKit 视图去掉系统默认样式（iOS 13+，MIT）
+  SwiftUIIntrospect:
+    url: https://github.com/siteline/swiftui-introspect
+    from: "27.1.0"
   # 源码直接 import 了 Citadel 的传递依赖，必须显式声明成 target 依赖才可见；
   # 版本下限对齐 Citadel main 实际解析结果（Wellz26 fork 的 nio-ssh 0.3.7）
   NIOSSH:
@@ -35,6 +52,22 @@ settings:
     TARGETED_DEVICE_FAMILY: "1,2"
     GENERATE_INFOPLIST_FILE: false
     PRODUCT_NAME: "$(TARGET_NAME)"
+    # ---- 真机安装用的签名档位 ----
+    # Team ID 在 Xcode ▸ Settings ⌘, ▸ Accounts ▸ 左侧选中 Apple ID，
+    # 右侧 Teams 表里团队名下面那串 10 位大写字母数字。
+    # 免费 Apple ID 也有（个人团队），只是证书 7 天过期；付费账号 1 年。
+    # 注意：别再带 CODE_SIGNING_ALLOWED=NO —— 未签名包没有 entitlement，
+    # 钥匙串全部返回 -34018，表现为「密码存不住、每次都要手输」。
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: "T5657S257B"   # huihua jiang (Personal Team)
+  configs:
+    # xcodegen 不会自动注入 DEBUG，不写这条 `#if DEBUG` 就是死代码
+    # （DemoSeed / 传输调试种子都靠它，缺了整个调试种子链路静默失效）
+    Debug:
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
+      GCC_PREPROCESSOR_DEFINITIONS: "$(inherited) DEBUG=1"
+    Release:
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS: ""
 
 targets:
   AnyBootRemote:
@@ -65,11 +98,22 @@ targets:
           NSAllowsArbitraryLoads: true
           NSAllowsLocalNetworking: true
         NSLocalNetworkUsageDescription: 需要访问局域网内的电脑端 AnyBoot 服务，用于读取和修改启动项设置。
+        NSCameraUsageDescription: 扫描电脑端的配对二维码需要相机权限（配对串只在生成时显示一次）。
+        CFBundleURLTypes:
+          - CFBundleURLName: com.anyboot.remote
+            CFBundleURLSchemes:
+              - anyboot
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
+    # Bundle ID：免费 Apple ID 签名前必须改成全局唯一的（例如
+    # com.<你的名字>.anybootremote）。被占用时 Xcode 报
+    # "The app identifier … has already been taken"。改完重跑 xcodegen。
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.anyboot.AnyBootRemote
     dependencies:
       - package: Citadel
         product: Citadel
@@ -79,3 +123,12 @@ targets:
         product: NIOCore
       - package: swift-crypto
         product: Crypto
+      - package: Flow
+        product: Flow
+      - package: PopupView
+        product: PopupView
+      - package: AlertToast
+        product: AlertToast
+      - package: SwiftUIIntrospect
+        product: SwiftUIIntrospect
+

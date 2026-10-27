@@ -24,6 +24,7 @@
   var bridge = null;
   var fontSize = 14;
   var fontFamily = 'Menlo, monospace';
+  var ctrlArmed = false;   // 原生按键栏的 Ctrl 武装位：下一个可打印字符转成控制码
   var pending = [];   // 页面没就绪时的下行缓冲，termInit 后冲给终端
 
   var THEMES = {
@@ -88,6 +89,16 @@
     }
   }
 
+  // Ctrl 武装位变化回报给原生（按键栏高亮跟着灭掉）
+  function notifyCtrlState() {
+    var state = ctrlArmed ? '1' : '0';
+    if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.iosTerminal) {
+      window.webkit.messageHandlers.iosTerminal.postMessage({ ctrl: state });
+    } else if (window.AndroidTerminal && typeof window.AndroidTerminal.onCtrlState === 'function') {
+      window.AndroidTerminal.onCtrlState(state);
+    }
+  }
+
   var lastCols = -1, lastRows = -1;
 
   // force=true 时无条件上报（会话绑定后必须重报一次：新会话的 PTY 是打开通道时定的 80x24，
@@ -128,6 +139,15 @@
   // 原生侧在会话绑定时调：把当前真实行列数重新报给 PTY
   window.termSync = function () { syncSize(); reportResize(true); };
 
+  // 原生侧在“自动弹键盘”开启时调：把焦点交给 xterm 的隐藏输入框
+  window.termFocus = function () {
+    if (!term) return;
+    try { term.focus(); } catch (e) { /* 拿不到焦点就算了，用户点一下照样能打字 */ }
+  };
+
+  // 原生按键栏的 Ctrl 武装：下一个可打印字符按 Ctrl+字母 解释（C-a = 0x01 … C-_ = 0x1F）
+  window.termArmCtrl = function (on) { ctrlArmed = !!on; };
+
   window.addEventListener('resize', syncSize);
   if (window.visualViewport) {
     window.visualViewport.addEventListener('resize', syncSize);
@@ -156,6 +176,15 @@
     // 不再卡 window.__ready：term 已建即转发，会话还没通时原生侧安全丢弃
     // （挂门槛会让任何 __ready 异常态静默吞掉输入，与 Android 侧对齐）
     term.onData(function (data) {
+      if (ctrlArmed) {
+        // 只对单个可打印字符生效；粘贴/组合输入原样放行，并把武装位撤掉
+        if (data.length === 1) {
+          var code = data.toUpperCase().charCodeAt(0);
+          if (code >= 64 && code <= 95) data = String.fromCharCode(code - 64);
+        }
+        ctrlArmed = false;
+        notifyCtrlState();
+      }
       sendUpstream(new TextEncoder().encode(data));
     });
     // 布局晚到的兜底：首帧常常还没量到真实高度

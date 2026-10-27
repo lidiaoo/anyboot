@@ -134,6 +134,12 @@ fun AppDrawerOverlay(current: String, onDismiss: () -> Unit) {
                             context.startActivity(Intent(context, ServersActivity::class.java))
                         }
                     }
+                    DrawerNavRow("⇅", "备份与恢复", iconSlot = { tint, size ->
+                        SwapVerticalIcon(tint, size)
+                    }) {
+                        onDismiss()
+                        context.startActivity(Intent(context, BackupActivity::class.java))
+                    }
                     DrawerNavRow("ⓘ", "关于", iconSlot = { tint, size ->
                         Icon(Icons.Filled.Info, "关于", tint = tint,
                             modifier = Modifier.size(size))

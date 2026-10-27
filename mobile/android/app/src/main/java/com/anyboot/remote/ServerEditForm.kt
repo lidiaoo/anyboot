@@ -1576,6 +1576,7 @@ internal fun saveServerProfile(
         target = fresh
     }
     if (!applyServerEdit(form, target, replaceAddresses = editing != null)) return null
+    target.updatedAt = System.currentTimeMillis()
     ServerRepository.persist(context, servers)
     return ServerSaveResult(target, mergedExisting)
 }

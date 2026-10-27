@@ -115,6 +115,55 @@ fn parse_fingerprint(listing: &str) -> (String, String) {
     (fp, bits)
 }
 
+/// 私钥是否设了口令（`ssh-keygen -y -P "" -f <私钥>` 能导公钥 = 无口令）。
+/// 备份（backup.rs collect_keys）用它做「只出不进」的跳过判定。
+pub(crate) fn key_has_passphrase(private: &Path) -> bool {
+    run_ssh_keygen(&["-y", "-P", "", "-f", &quote_for_shell(private)]).is_err()
+}
+
+/// 备份用密钥三元组：(algorithm, fingerprint, publicKey)。
+/// 不经 AppHandle（backup.rs 收集时只有路径）；任何一步失败都给空串兜底，
+/// 不阻塞整包导出。
+pub(crate) fn describe_key(private: &Path) -> (String, String, String) {
+    let pub_path = private.with_extension("pub");
+    let mut pub_line = std::fs::read_to_string(&pub_path).unwrap_or_default();
+    if pub_line.trim().is_empty() {
+        // 没有现成公钥：无口令私钥可以现场导一份
+        if let Ok(exported) = run_ssh_keygen(&["-y", "-P", "", "-f", &quote_for_shell(private)]) {
+            pub_line = exported;
+        }
+    }
+    let algorithm = {
+        let kind = kind_of(&pub_line);
+        if kind == "未知" {
+            // 公钥不可得时退回 PEM 头判断
+            let head = std::fs::read_to_string(private).unwrap_or_default();
+            if head.contains("BEGIN OPENSSH PRIVATE KEY") {
+                "OpenSSH".to_string()
+            } else if head.contains("BEGIN RSA PRIVATE KEY") {
+                "RSA".to_string()
+            } else if head.contains("BEGIN EC PRIVATE KEY") {
+                "ECDSA".to_string()
+            } else {
+                String::new()
+            }
+        } else {
+            kind
+        }
+    };
+    // 指纹：先试公钥文件，再试无口令私钥本体（ssh-keygen -lf 直接吃私钥）
+    let fingerprint = run_ssh_keygen(&["-lf", &quote_for_shell(&pub_path)])
+        .or_else(|_| run_ssh_keygen(&["-lf", &quote_for_shell(private)]))
+        .ok()
+        .and_then(|listing| {
+            let (fp, _) = parse_fingerprint(&listing);
+            if fp.is_empty() { None } else { Some(fp) }
+        })
+        .unwrap_or_default();
+    let public_key = pub_line.lines().next().unwrap_or("").trim().to_string();
+    (algorithm, fingerprint, public_key)
+}
+
 fn meta_of(app: &AppHandle, private: &Path) -> Option<HubKeyMeta> {
     if !private.is_file() {
         return None;

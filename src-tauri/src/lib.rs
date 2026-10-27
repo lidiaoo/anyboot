@@ -125,6 +125,8 @@ mod hub_gateway;
 pub(crate) mod hub_tailscale;
 mod hub_tsnet;
 mod hub_vault;
+// backup 的命令全是 async：__cmd__ 宏可见性跟着模块走（同 hub_sftp 的理由）
+pub(crate) mod backup;
 mod http;
 mod probe_pool;
 mod sysinfo_lite;
@@ -227,6 +229,7 @@ pub(crate) const HUB_WINDOW_LABEL: &str = "server-hub";
 pub(crate) const HUB_TERM_WINDOW_LABEL: &str = "server-term";
 pub(crate) const HUB_FILES_WINDOW_LABEL: &str = "server-files";
 pub(crate) const HUB_KEYS_WINDOW_LABEL: &str = "server-keys";
+pub(crate) const HUB_BACKUP_WINDOW_LABEL: &str = "server-backup";
 /// 托盘右键菜单的锚点窗口标签（Windows 专用、classic 方式用，见 `popup_tray_menu`）
 #[cfg(target_os = "windows")]
 const MENU_ANCHOR_WINDOW_LABEL: &str = "menu-anchor";
@@ -756,6 +759,43 @@ async fn hub_open_window(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 async fn hub_open_keys_window(app: AppHandle) -> Result<(), String> {
     open_keys_window(&app)
+}
+
+/// 打开/唤起备份与恢复窗（server-backup）：无上下文参数，已存在就聚焦。
+pub(crate) fn open_backup_window(app: &AppHandle) -> Result<(), String> {
+    if let Some(window) = hub_health::reuse_or_clear(app, HUB_BACKUP_WINDOW_LABEL) {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+        return Ok(());
+    }
+    let ((iw, ih), (mw, mh)) = fit_monitor_size(
+        app.primary_monitor().ok().flatten(),
+        (760.0, 640.0),
+        (600.0, 480.0),
+    );
+    apply_browser_args(tauri::WebviewWindowBuilder::new(
+        app,
+        HUB_BACKUP_WINDOW_LABEL,
+        tauri::WebviewUrl::App("hub-backup.html".into()),
+    ))
+    .title("AnyBoot 备份与恢复")
+    .inner_size(iw, ih)
+    .min_inner_size(mw, mh)
+    .resizable(true)
+    .center()
+    .build()
+    .map_err(|error| format!("无法创建备份窗口: {error}"))?;
+    hub_health::note_created(app, HUB_BACKUP_WINDOW_LABEL);
+    hub_health::watch_first_frame(app, HUB_BACKUP_WINDOW_LABEL);
+    trace(app, "hub", "备份与恢复窗口已创建");
+    Ok(())
+}
+
+/// 前端按钮入口：hub 工具栏「备份」（async 理由同 `hub_open_keys_window`）
+#[tauri::command]
+async fn hub_open_backup_window(app: AppHandle) -> Result<(), String> {
+    open_backup_window(&app)
 }
 
 /// 前端按钮入口：hub 详情「打开终端」（按 server_id 查档案 → 开/聚焦终端窗）
@@ -3155,6 +3195,18 @@ pub fn run() {
             hub_open_term_window,
             hub_open_files_window,
             hub_open_window,
+            hub_open_backup_window,
+            backup::backup_export,
+            backup::backup_preview,
+            backup::backup_import,
+            backup::backup_sync_get_state,
+            backup::backup_sync_save_config,
+            backup::backup_sync_set_enabled,
+            backup::backup_webdav_test,
+            backup::backup_webdav_mkdir,
+            backup::backup_sync_now,
+            backup::backup_pick_import_file,
+            backup::backup_pick_export_path,
             hub_term::hub_term_open,
             hub_term::hub_term_write,
             hub_term::hub_term_resize,

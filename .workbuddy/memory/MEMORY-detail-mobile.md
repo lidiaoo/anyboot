@@ -86,3 +86,12 @@
 - **Compose 坑**：拆出去的子 Composable 里 `Modifier.weight()` Unresolved（RowScope 扩展）→ 加 `modifier` 参数在调用点传；`ManagedActivityResultLauncher` 的结果泛型要写 `Uri?`；ModalBottomSheet 要 `@OptIn(ExperimentalMaterial3Api::class)`；material icons 不能全限定 `Icons.Filled.Info`（Icons.Filled 是对象扩展），必须 import。
 - 设计稿图标 material-icons-core 没有（显示器/机架/终端/钥匙/文件夹/文档/闪电/时钟/代码括号）→ `Icons.kt` Canvas 手绘（24dp 网格×grid() 缩放，线宽 1.8 圆头）。
 - 本沙箱无 /dev/kvm（kvm 模块在但 mknod 被拒），模拟器死掉后起不回来；软模拟（-no-accel）API 37 卡死不出日志。AI 侧实机验证依赖用户环境已有模拟器。
+
+## iOS UI 铁律（用户 2026-10-26 明确要求，别再回退）
+
+- **不许用系统默认样式**（裸 `List`/`Form`/`ContentUnavailableView` 那套）。一律走 `mobile/ios/AnyBootRemote/DesignSystem/`：`ABColor` / `ABMetric` / `ABFont` / `ABBadge` / `ABButton` / `ABCard`(`.abCard()`) / `ABSectionCard` / `ABFlow` / `ABGrid` / `ABFormRow` / `.abPage()` / `.abField()` / `.abToast()`。页面里**不允许出现字面颜色和魔法数字**。
+- **布局必须自适应 + flex**：① 不写死宽高，用 `maxWidth: .infinity` / `minWidth` / `minHeight`；② 一排东西可能挤不下就用 `ABFlow`（HFlow 真 flex-wrap），不要压成 0 宽、也不要横向 ScrollView 顶替；③ 卡片列表用 `ABGrid(minItemWidth:)`，iPad 自动多列；④ 表单行用 `ABFormRow`（`ViewThatFits`），窄屏自动上下堆。
+- **颜色全部 dynamic**（`Color(light:dark:)`），明暗两套都要能看；六通道颜色只从 `ABColor.lane(kind)` 取，别处不许自写 kind→色 的分支。
+- 开源框架已在 `project.yml` 钉版本：Flow 3.5.1 / PopupView 5.0.8 / AlertToast 1.3.9 / SwiftUIIntrospect 27.1.0（product 名与包同名）。
+- **`DEBUG` 宏必须在 `project.yml` 的 `settings.configs.Debug` 里显式声明**（xcodegen 不自动注入），否则 `#if DEBUG` 全成死代码 —— 这个坑静默得很，曾让整个调试种子链路白做。
+

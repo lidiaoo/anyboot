@@ -43,6 +43,8 @@ getrandom = "0.3"
 portable-pty = "0.8"
 # server-hub 密码认证：AES-256-GCM 加密落盘（hub_vault.rs），配合 SSH_ASKPASS 免输
 aes-gcm = "0.10"
+# 备份信封加密（backup.rs）：PBKDF2-HMAC-SHA256 用 HMAC（sha2 已在依赖树里）
+hmac = "0.12"
 tauri-plugin-positioner = { version = "2.4.0", features = ["tray-icon"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]

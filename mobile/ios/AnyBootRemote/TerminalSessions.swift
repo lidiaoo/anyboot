@@ -18,6 +18,8 @@ final class TerminalSessionRef: ObservableObject, Identifiable {
     private var shell: ShellHandle?
     private var telnet: TelnetSession?
     private var backlog = Data()
+    /// 会话还没起来时先攒着，起来后自动补发（文件页「在此目录开终端」要用）
+    private var pendingInput = Data()
     private static let backlogCap = 256 * 1024
     private var attached = false
     private(set) var closed = false
@@ -27,6 +29,13 @@ final class TerminalSessionRef: ObservableObject, Identifiable {
     /// 实时下行（终端页订阅）
     var onOutput: ((Data) -> Void)?
     var onClosed: ((String) -> Void)?
+
+    /// 会话是否已经建立（PTY / socket 就绪）
+    var isReady: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return shell != nil || telnet != nil
+    }
 
     // MARK: - 建立
 
@@ -38,6 +47,7 @@ final class TerminalSessionRef: ObservableObject, Identifiable {
             onOutput: { [weak self] data in self?.deliver(data) },
             onClosed: { [weak self] reason in self?.close(reason) })
         shell = handle
+        flushPending()
     }
 
     func startTelnet() throws {
@@ -46,6 +56,36 @@ final class TerminalSessionRef: ObservableObject, Identifiable {
         session.onClosed = { [weak self] reason in self?.close(reason) }
         try session.start(jump: server)
         telnet = session
+        flushPending()
+    }
+
+    /// 会话就绪后把「还没连上时攒下的输入」一次补发（例如自动 `cd` 到某个目录）
+    private func flushPending() {
+        lock.lock()
+        let pending = pendingInput
+        pendingInput = Data()
+        let shell = self.shell
+        let telnet = self.telnet
+        lock.unlock()
+        guard !pending.isEmpty else { return }
+        if let shell {
+            shell.write(pending)
+        } else if let telnet {
+            telnet.write(pending)
+        }
+    }
+
+    /// 还没连上时写：先攒着，连上后自动补发；已连上等同 `write`
+    func writeWhenReady(_ data: Data) {
+        lock.lock()
+        let ready = shell != nil || telnet != nil
+        if !ready {
+            pendingInput.append(data)
+            lock.unlock()
+            return
+        }
+        lock.unlock()
+        write(data)
     }
 
     // MARK: - 数据

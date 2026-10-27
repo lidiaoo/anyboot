@@ -1978,6 +1978,10 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="15" r="4"/><path d="M10.8 12.2 20 3M17 6l2.5 2.5"/></svg>
           <span class="s-label">密钥</span>
         </button>
+        <button class="snav" data-page="backup" title="备份与恢复">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 8v13H3V8M1 3h22v5H1zM10 12h4"/></svg>
+          <span class="s-label">备份</span>
+        </button>
         <button class="snav" data-page="termset" title="终端设置">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg>
           <span class="s-label">终端设置</span>
@@ -3650,7 +3654,15 @@
     }
   }
   document.querySelectorAll('#hubSideNav .snav').forEach(function (b) {
-    b.addEventListener('click', function () { showPage(b.dataset.page); });
+    b.addEventListener('click', function () {
+      // 备份与恢复是独立窗（server-backup）：不切页签，直接唤起
+      if (b.dataset.page === 'backup') {
+        if (!invoke) { toast('备份与恢复需要应用环境', 'bad'); return; }
+        invoke('hub_open_backup_window').catch(function (error) { toast('打开备份窗口失败：' + error, 'bad'); });
+        return;
+      }
+      showPage(b.dataset.page);
+    });
   });
 
   let sideCollapsed = false;

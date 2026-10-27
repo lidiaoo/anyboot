@@ -122,6 +122,8 @@ final class ServerStore: ObservableObject {
     }
 
     func upsert(_ profile: ServerProfile) {
+        var profile = profile
+        profile.updatedAt = Date()
         if let index = servers.firstIndex(where: { $0.id == profile.id }) {
             servers[index] = profile
         } else {
@@ -129,23 +131,40 @@ final class ServerStore: ObservableObject {
         }
         sort(&servers)
         save()
+        Task { @MainActor in SyncEngine.shared.notifyChanged() }
     }
 
     func remove(_ id: String) {
+        if servers.contains(where: { $0.id == id }) {
+            Task { @MainActor in SyncStore.shared.recordDeletion(cat: "servers", id: id) }
+        }
         servers.removeAll { $0.id == id }
         if activeId == id {
             activeId = servers.first?.id ?? ""
             persistActive()
         }
         save()
+        Task { @MainActor in SyncEngine.shared.notifyChanged() }
     }
 
     /// 只更新这一条（**不重排**）：给「记住哪个地址是通的」这类运行期小改动用，
     /// 免得标签顺序突然变一下。
     func updateInPlace(_ profile: ServerProfile) {
         guard let index = servers.firstIndex(where: { $0.id == profile.id }) else { return }
-        servers[index] = profile
+        var updated = profile
+        updated.updatedAt = Date()
+        servers[index] = updated
         save()
+    }
+
+    /// 整表替换（覆盖导入 / 同步合并后的全量落地）
+    func replaceAll(_ list: [ServerProfile], activeId newActiveId: String) {
+        var list = list
+        sort(&list)
+        servers = list
+        activeId = list.contains(where: { $0.id == newActiveId }) ? newActiveId : (list.first?.id ?? "")
+        save()
+        persistActive()
     }
 
     /// 把「其实是同一台电脑」的多条记录并成一条 —— 给老配置用：以前每个 IP 一条

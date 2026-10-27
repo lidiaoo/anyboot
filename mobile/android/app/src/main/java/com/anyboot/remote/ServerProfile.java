@@ -361,6 +361,9 @@ final class ServerProfile {
      */
     String connMode = "";
 
+    /** 云同步 LWW 的依据（毫秒时间戳）；编辑保存时刷新，探测不刷 */
+    long updatedAt = 0;
+
     /** 连接优先级五通道 id */
     static final String ROUTE_LAN = "lan";
     static final String ROUTE_JUMP = "jump";
@@ -1624,6 +1627,7 @@ final class ServerProfile {
             routeDisabledArray.put(kind);
         }
         object.put("routeDisabled", routeDisabledArray);
+        object.put("updatedAt", updatedAt);
         return object;
     }
 
@@ -1752,6 +1756,7 @@ final class ServerProfile {
             }
         }
         profile.connMode = "remote_first".equals(object.optString("connMode", "")) ? "remote_first" : "";
+        profile.updatedAt = object.optLong("updatedAt", 0);
         // 六通道优先级：清洗非法 id / 去重；全空按 connMode 迁移（routeOrderSorted 的自愈语义）
         JSONArray routeOrderArray = object.optJSONArray("routeOrder");
         if (routeOrderArray != null) {

@@ -70,6 +70,20 @@ fun ServerStackIcon(tint: Color, size: Dp = 20.dp, modifier: Modifier = Modifier
     drawCircle(tint, radius = 0.9f * s, center = Offset(6f * s, 17.5f * s))
 }
 
+/** 上下双箭头（备份与恢复：导出↑ / 导入↓） */
+@Composable
+fun SwapVerticalIcon(tint: Color, size: Dp = 20.dp, modifier: Modifier = Modifier) = DrawnIcon(size, tint, modifier) {
+    val s = it
+    // ↑（导出）
+    drawLine(tint, Offset(9f * s, 15f * s), Offset(9f * s, 4f * s), 1.8f * s, StrokeCap.Round)
+    drawLine(tint, Offset(5.5f * s, 7.5f * s), Offset(9f * s, 4f * s), 1.8f * s, StrokeCap.Round)
+    drawLine(tint, Offset(12.5f * s, 7.5f * s), Offset(9f * s, 4f * s), 1.8f * s, StrokeCap.Round)
+    // ↓（导入）
+    drawLine(tint, Offset(15f * s, 9f * s), Offset(15f * s, 20f * s), 1.8f * s, StrokeCap.Round)
+    drawLine(tint, Offset(11.5f * s, 16.5f * s), Offset(15f * s, 20f * s), 1.8f * s, StrokeCap.Round)
+    drawLine(tint, Offset(18.5f * s, 16.5f * s), Offset(15f * s, 20f * s), 1.8f * s, StrokeCap.Round)
+}
+
 /** 终端提示符（方框 + ›）：底部导航「终端」/ 卡片终端按钮 / 终端页顶栏 */
 @Composable
 fun TermIcon(tint: Color, size: Dp = 20.dp, modifier: Modifier = Modifier) = DrawnIcon(size, tint, modifier) {

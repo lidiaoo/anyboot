@@ -56,6 +56,12 @@
             android:name=".AboutActivity"
             android:exported="false" />
 
+        <!-- 备份与恢复（导出/导入 + WebDAV 多端同步） -->
+        <activity
+            android:name=".BackupActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
+            android:exported="false" />
+
         <!-- 扫码读配对码（远程接入；锁竖屏省掉一整套旋转处理） -->
         <activity
             android:name=".ScanPairActivity"

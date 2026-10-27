@@ -1,0 +1,1437 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AnyBoot 备份与恢复 · 全流程 UI 样式图</title>
+<style>
+  :root{
+    --accent:#6366F1; --accent-dim:#4F52E0;
+    --bg:#F4F5F8; --card:#FFFFFF; --elevate:#F0F1F5;
+    --fg:#1A1D26; --fg-dim:#5A6072; --fg-faint:#9AA0B0;
+    --line:#E4E6EC;
+    --ok:#2E9E5B; --ok-bg:#E8F6EE; --warn-bg:#FFF6E0; --warn:#B97E0A;
+    --danger:#E5484D; --danger-bg:#FDECEC;
+    --r:12px;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-font-smoothing:antialiased}
+  body{font-family:-apple-system,"PingFang SC","Segoe UI","Microsoft YaHei",sans-serif;
+       background:#E9EBF0;color:var(--fg);padding:36px 24px 80px}
+  .mono{font-family:ui-monospace,Menlo,Consolas,monospace}
+
+  h1{font-size:22px;font-weight:700;margin-bottom:4px}
+  .sub{font-size:13px;color:#5A6072;margin-bottom:28px}
+  h2.flow-title{font-size:16px;font-weight:700;margin:44px 0 6px;padding-top:26px;border-top:2px dashed #D5D8E0}
+  h2.flow-title:first-of-type{border-top:none;margin-top:0;padding-top:0}
+  .board-row{display:flex;flex-wrap:wrap;gap:36px;align-items:flex-start;margin-bottom:44px}
+  .board{display:flex;flex-direction:column;gap:10px}
+  .board-label{font-size:12px;font-weight:600;color:#5A6072;letter-spacing:.04em;max-width:390px}
+  .board-label b{color:var(--fg)}
+  .board-label .tag{display:inline-block;font-size:10.5px;background:#DDE0F9;color:#4F52E0;border-radius:4px;padding:1px 6px;margin-left:4px;vertical-align:1px}
+
+  /* ---------- 流程图 ---------- */
+  .flowmap{background:#fff;border:1px solid #E4E6EC;border-radius:12px;padding:18px 22px;margin-bottom:8px;
+           font-size:12.5px;color:#3A3F4E;line-height:2.1;overflow-x:auto}
+  .flowmap .fnode{display:inline-block;border:1.5px solid #C9CDE0;border-radius:8px;padding:2px 10px;margin:0 2px;background:#FAFBFD;white-space:nowrap}
+  .flowmap .fnode.hot{border-color:var(--accent);background:#EEF0FE;color:#3F42B8;font-weight:600}
+  .flowmap .fnode.red{border-color:var(--danger);color:var(--danger);background:#FFF5F5}
+  .flowmap .arr{color:#9AA0B0;margin:0 6px}
+  .flowmap .lbl{color:#9AA0B0;margin-right:10px;font-weight:600}
+
+  /* ---------- 手机壳 ---------- */
+  .phone{width:390px;border-radius:44px;background:#0B0C10;padding:10px;
+         box-shadow:0 24px 60px rgba(20,24,40,.28)}
+  .phone-screen{border-radius:36px;overflow:hidden;height:760px;display:flex;flex-direction:column;position:relative}
+  .theme-light .phone-screen{background:#F4F5F8;color:#1A1D26}
+  .theme-dark  .phone-screen{background:#0E1016;color:#EDEFF4}
+  /* 深色主题 token 覆盖：dim/faint 提亮、语义色换深色可读档（对比度 ≥4.5:1） */
+  .theme-dark{
+    --fg-dim:#ABB1C2; --fg-faint:#8C93A6;
+    --ok:#4FC97D; --warn:#EAB34C; --danger:#FF6B70;
+  }
+  .theme-dark .info{background:#1D212B;color:#C3C8D6}
+  .theme-dark .info.warn{background:#382C10;color:#F0BE5E}
+  .theme-dark .info.danger{background:#3B1B1D;color:#FF858A}
+  .theme-dark .badge-warn{color:#F0BE5E;border-color:#8A6B24}
+  .notch{height:34px;display:flex;align-items:center;justify-content:center;flex:none}
+  .notch::after{content:"";width:110px;height:26px;border-radius:14px;background:#0B0C10}
+  .navbar{display:flex;align-items:center;gap:8px;padding:8px 12px 10px;flex:none}
+  .nav-back{width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+            background:var(--elevate);font-size:17px}
+  .theme-dark .nav-back{background:#1B1E27}
+  .nav-title{font-size:16px;font-weight:700}
+  .nav-save{margin-left:auto;font-size:14px;font-weight:600;color:var(--accent)}
+  .nav-save.off{color:var(--fg-faint);font-weight:400}
+  .scroll{flex:1;overflow:hidden;padding:0 16px;position:relative}
+  .sec-title{font-size:12px;font-weight:600;color:var(--fg-faint);letter-spacing:.06em;margin:18px 2px 8px}
+  .card{background:var(--card);border-radius:var(--r);padding:6px 16px;
+        box-shadow:0 1px 3px rgba(16,20,34,.06)}
+  .theme-dark .card{background:#171A22;box-shadow:0 1px 3px rgba(0,0,0,.4)}
+  .row{display:flex;align-items:center;gap:10px;padding:13px 0;border-bottom:1px solid var(--line);min-height:48px}
+  .theme-dark .row{border-bottom-color:#22262F}
+  .row:last-child{border-bottom:none}
+  .row .grow{flex:1;min-width:0}
+  .row-title{font-size:14.5px;font-weight:500}
+  .row-title.off{color:var(--fg-faint)}
+  .row-sub{font-size:11.5px;color:var(--fg-faint);margin-top:2px;line-height:1.45}
+  .row-sub.err{color:var(--danger)}
+  .row-sub.okc{color:var(--ok)}
+  .count{color:var(--fg-faint);font-weight:400}
+  .cb{width:21px;height:21px;border-radius:6px;border:1.8px solid var(--fg-faint);flex:none;
+      display:flex;align-items:center;justify-content:center;font-size:13px;color:#fff}
+  .cb.on{background:var(--accent);border-color:var(--accent)}
+  .badge-warn{font-size:10.5px;font-weight:700;color:var(--warn);border:1px solid currentColor;
+              border-radius:5px;padding:1px 5px}
+  .switch{width:48px;height:29px;border-radius:15px;background:#D6D9E0;position:relative;flex:none}
+  .switch::after{content:"";position:absolute;top:2.5px;left:2.5px;width:24px;height:24px;border-radius:50%;background:#fff;
+                 box-shadow:0 1px 3px rgba(0,0,0,.25)}
+  .switch.on{background:var(--accent)}
+  .switch.on::after{left:auto;right:2.5px}
+  .info{display:flex;gap:8px;align-items:flex-start;background:var(--elevate);border-radius:9px;
+        padding:9px 11px;font-size:12px;color:var(--fg-dim);margin:10px 0 4px;line-height:1.5}
+  .theme-dark .info{background:#1D212B}
+  .info.warn{background:var(--warn-bg);color:var(--warn)}
+  .info.danger{background:var(--danger-bg);color:var(--danger)}
+  .btn{display:flex;align-items:center;justify-content:center;height:48px;border-radius:12px;
+       font-size:15px;font-weight:600;margin:12px 0}
+  .btn.primary{background:var(--accent);color:#fff}
+  .btn.primary.off{opacity:.45}
+  .btn.secondary{background:transparent;color:var(--accent);border:1.5px solid var(--accent)}
+  .btn.danger{background:var(--danger);color:#fff}
+  .btn.ghost-mini{height:34px;font-size:13px;margin:8px 0 4px;border:1.5px solid var(--line);color:var(--fg-dim);border-radius:9px}
+  .btnrow{display:flex;gap:10px;margin-top:14px}
+  .btnrow .btn{margin:0}
+  .chev{color:var(--fg-faint);font-size:15px}
+  .eye{color:var(--fg-faint);font-size:15px}
+  .pw{display:flex;align-items:center;gap:8px;background:var(--elevate);border-radius:10px;
+      height:44px;padding:0 12px;font-size:13.5px;color:var(--fg-faint);margin:8px 0}
+  .theme-dark .pw{background:#1D212B}
+  .pw.err{box-shadow:inset 0 0 0 1.5px var(--danger)}
+  .pw-label{font-size:12px;font-weight:600;color:var(--fg-dim);margin:10px 2px 0}
+  .theme-dark .pw-label{color:#8B91A5}
+  .strength{display:flex;gap:4px;margin:-4px 0 6px}
+  .strength i{height:4px;border-radius:2px;flex:1;background:var(--line)}
+  .strength i.f1{background:var(--danger)}
+  .strength i.f2{background:var(--warn)}
+  .strength i.f3{background:var(--ok)}
+  .sync-status{font-size:11.5px;color:var(--fg-faint);text-align:right;line-height:1.4}
+  .sync-status .ok{color:var(--ok);font-weight:600}
+  .sync-status .bad{color:var(--danger);font-weight:600}
+  .dot-ok{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--ok);margin-right:5px;vertical-align:1px}
+
+  /* 手机弹层：底部 sheet / 居中对话框 */
+  .poverlay{position:absolute;inset:0;background:rgba(10,12,20,.45);display:flex;flex-direction:column;justify-content:flex-end;z-index:5}
+  .psheet{background:var(--card);border-radius:22px 22px 0 0;padding:14px 18px 26px}
+  .theme-dark .psheet{background:#1B1E28}
+  .grab{width:36px;height:4px;border-radius:2px;background:#C9CDD8;margin:0 auto 12px}
+  .theme-dark .grab{background:#3A3F4E}
+  .psheet h4{font-size:15.5px;font-weight:700;margin-bottom:6px}
+  .psheet .desc{font-size:12.5px;color:var(--fg-dim);line-height:1.55;margin-bottom:10px}
+  .pdialog-wrap{position:absolute;inset:0;background:rgba(10,12,20,.45);display:flex;align-items:center;justify-content:center;z-index:5;padding:0 34px}
+  .pdialog{background:var(--card);border-radius:16px;width:100%;padding:20px 18px 16px}
+  .theme-dark .pdialog{background:#1B1E28}
+  .pdialog h4{font-size:15.5px;font-weight:700;margin-bottom:8px}
+  .pdialog .desc{font-size:13px;color:var(--fg-dim);line-height:1.55;margin-bottom:12px}
+  .pdialog .btnrow .btn{height:42px;font-size:14.5px}
+
+  /* 结果页 */
+  .result{display:flex;flex-direction:column;align-items:center;padding-top:64px;text-align:center}
+  .r-icon{width:84px;height:84px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:40px;margin-bottom:16px}
+  .r-icon.ok{background:var(--ok-bg)}
+  .r-icon.warn{background:var(--warn-bg)}
+  .r-icon.bad{background:var(--danger-bg)}
+  .r-title{font-size:20px;font-weight:700;margin-bottom:8px}
+  .r-sum{font-size:13px;color:var(--fg-dim);line-height:1.7}
+  .r-sum b{color:var(--fg)}
+  .failcard{width:100%;text-align:left;border:1.5px solid var(--danger);border-radius:12px;background:var(--card);
+            padding:4px 14px;margin-top:18px}
+  .theme-dark .failcard{background:#1B1E28}
+  .failcard .fh{font-size:12.5px;font-weight:700;color:var(--danger);padding:9px 0 5px;border-bottom:1px solid var(--danger-bg)}
+  .failcard .fr{display:flex;gap:8px;font-size:12.5px;padding:9px 0;border-bottom:1px solid var(--line);color:var(--fg-dim);line-height:1.5}
+  .failcard .fr:last-child{border-bottom:none}
+  .failcard .fr .x{color:var(--danger);font-weight:700;flex:none}
+  .r-note{font-size:11.5px;color:var(--fg-faint);margin-top:12px}
+
+  /* 手机 toast */
+  .ptoast{position:absolute;left:50%;transform:translateX(-50%);bottom:34px;background:rgba(23,26,34,.92);color:#fff;
+          font-size:12.5px;border-radius:20px;padding:9px 16px;z-index:9;white-space:nowrap;box-shadow:0 6px 18px rgba(0,0,0,.3)}
+
+  /* 导入执行中 */
+  .topbar-prog{height:3px;background:var(--elevate);position:relative;overflow:hidden;flex:none}
+  .topbar-prog i{position:absolute;left:0;top:0;bottom:0;width:38%;background:var(--accent);border-radius:0 2px 2px 0}
+  .spin{width:16px;height:16px;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;
+        animation:sp 1s linear infinite;flex:none}
+  .spin.dim{border-color:rgba(99,102,241,.25);border-top-color:var(--accent)}
+  @keyframes sp{to{transform:rotate(360deg)}}
+
+  /* ---------- 桌面窗 ---------- */
+  .desk{width:920px;border-radius:12px;overflow:hidden;box-shadow:0 24px 60px rgba(20,24,40,.24);
+        background:#F7F8FA;color:#1A1D26;border:1px solid #DFE2E8}
+  .desk-titlebar{height:40px;background:#ECEEF2;border-bottom:1px solid #DFE2E8;display:flex;
+                 align-items:center;padding:0 14px;gap:6px}
+  .dot{width:12px;height:12px;border-radius:50%}
+  .dt-name{margin:0 auto;font-size:12.5px;color:#5A6072;font-weight:600}
+  .desk-body{padding:22px 28px 28px}
+  .crumb{font-size:12.5px;color:#9AA0B0;margin-bottom:16px}
+  .crumb b{color:#1A1D26;font-weight:600}
+  .d-sec{font-size:13px;font-weight:700;color:#5A6072;letter-spacing:.05em;margin:20px 0 10px}
+  .d-sec:first-of-type{margin-top:0}
+  .d-card{background:#fff;border:1px solid #E4E6EC;border-radius:10px;padding:16px 18px}
+  .d-row{display:flex;align-items:center;gap:12px;min-height:38px}
+  .d-label{width:96px;font-size:13px;color:#5A6072;flex:none}
+  .d-input{height:32px;border:1px solid #D7DAE1;border-radius:7px;background:#fff;padding:0 10px;
+           font-size:13px;color:#9AA0B0;flex:1;display:flex;align-items:center;gap:6px}
+  .d-input.focus{border-color:var(--accent);box-shadow:0 0 0 2px rgba(99,102,241,.18);color:#3A3F4E}
+  .d-input.err{border-color:var(--danger);box-shadow:0 0 0 2px rgba(229,72,77,.14)}
+  .d-input.w170{flex:none;width:170px}
+  .d-input.w220{flex:none;width:220px}
+  .d-btn{height:32px;padding:0 16px;border-radius:7px;font-size:13px;font-weight:600;
+         display:inline-flex;align-items:center;gap:6px;cursor:default;border:none}
+  .d-btn.primary{background:var(--accent);color:#fff}
+  .d-btn.primary.off{opacity:.45}
+  .d-btn.secondary{background:#fff;border:1px solid #D7DAE1;color:#3A3F4E}
+  .d-btn.danger{background:var(--danger);color:#fff}
+  .d-btn.lg{height:36px;padding:0 20px}
+  .d-check{display:inline-flex;align-items:center;gap:6px;font-size:13px;margin-right:16px;color:#3A3F4E}
+  .d-cb{width:15px;height:15px;border-radius:4px;border:1.5px solid #B9BECA;display:inline-flex;
+        align-items:center;justify-content:center;font-size:10px;color:#fff;flex:none}
+  .d-cb.on{background:var(--accent);border-color:var(--accent)}
+  .d-note{font-size:12px;color:#8A90A0;margin-top:8px;line-height:1.6}
+  .d-warn{display:inline-flex;gap:7px;background:var(--warn-bg);color:var(--warn);
+          border-radius:7px;padding:7px 11px;font-size:12.5px;margin-top:10px;line-height:1.5}
+  .d-err{display:inline-flex;gap:7px;background:var(--danger-bg);color:var(--danger);
+         border-radius:7px;padding:7px 11px;font-size:12.5px;margin-top:10px}
+  .d-status{font-size:12.5px;color:#8A90A0;margin-left:auto;display:flex;align-items:center;gap:10px}
+  .d-status b{color:var(--ok);font-weight:600}
+  .d-status .bad{color:var(--danger);font-weight:600}
+  .d-switch{width:40px;height:22px;border-radius:11px;background:#D6D9E0;position:relative;flex:none}
+  .d-switch::after{content:"";position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25)}
+  .d-switch.on{background:var(--accent)}
+  .d-switch.on::after{left:auto;right:2px}
+
+  /* 桌面模态 */
+  .modal-wrap{width:920px;border-radius:12px;position:relative;overflow:hidden;
+              box-shadow:0 24px 60px rgba(20,24,40,.24);border:1px solid #DFE2E8}
+  .modal-dim{background:#F7F8FA;filter:brightness(.92);height:340px}
+  .modal{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(16,19,30,.42)}
+  .modal-card{background:#fff;border-radius:12px;box-shadow:0 20px 50px rgba(10,14,30,.35);overflow:hidden}
+  .modal-card.w560{width:560px}.modal-card.w460{width:460px}.modal-card.w400{width:400px}
+  .m-head{padding:16px 20px 12px;font-size:15px;font-weight:700;border-bottom:1px solid #EEF0F4;
+          display:flex;justify-content:space-between;align-items:center}
+  .m-head.redbar{box-shadow:inset 0 -3px 0 var(--danger)}
+  .m-close{color:#9AA0B0;font-size:15px}
+  .m-close.off{opacity:.3}
+  .m-body{padding:14px 20px}
+  .m-src{font-size:12px;color:#8A90A0;background:#F4F5F8;border-radius:7px;padding:7px 10px;margin-bottom:12px;line-height:1.6}
+  table.m-tb{width:100%;border-collapse:collapse;font-size:13px}
+  .m-tb th{font-size:11.5px;color:#9AA0B0;font-weight:600;text-align:left;padding:4px 6px;border-bottom:1px solid #EEF0F4}
+  .m-tb td{padding:9px 6px;border-bottom:1px solid #F2F3F7;vertical-align:top}
+  .m-tb .dim{color:#8A90A0}
+  .m-tb .warn-c{color:var(--warn)}
+  .m-tb .err-c{color:var(--danger)}
+  .m-label{font-size:12px;font-weight:600;color:#5A6072;margin:12px 2px 6px}
+  .d-pw{display:flex;align-items:center;gap:8px;height:36px;border:1px solid #D7DAE1;border-radius:7px;
+        padding:0 10px;font-size:13.5px;color:#9AA0B0;margin-bottom:4px}
+  .d-pw.focus{border-color:var(--accent);box-shadow:0 0 0 2px rgba(99,102,241,.18)}
+  .d-pw.err{border-color:var(--danger);box-shadow:0 0 0 2px rgba(229,72,77,.14)}
+  .m-foot{padding:12px 20px 16px;display:flex;justify-content:flex-end;gap:10px;border-top:1px solid #EEF0F4}
+  .m-foot .hint{margin-right:auto;font-size:12px;color:#8A90A0;align-self:center}
+
+  /* 桌面 toast（右下角） */
+  .dtoasts{position:absolute;right:16px;bottom:16px;display:flex;flex-direction:column;gap:8px;z-index:9}
+  .dtoast{background:#23262F;color:#fff;border-radius:9px;padding:10px 14px;font-size:12.5px;
+          display:flex;align-items:center;gap:9px;box-shadow:0 8px 24px rgba(10,14,30,.35);min-width:300px}
+  .dtoast .tic{width:18px;height:18px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;font-size:11px}
+  .dtoast .tic.ok{background:var(--ok)}
+  .dtoast .tic.bad{background:var(--danger)}
+  .dtoast .act{margin-left:8px;color:#9BA3FF;font-weight:600;white-space:nowrap}
+  .dtoast .x{margin-left:auto;color:#8A90A0;padding-left:8px}
+
+  /* 桌面结果模态居中列表 */
+  .res-hero{display:flex;flex-direction:column;align-items:center;padding:6px 0 14px;text-align:center}
+  .res-hero .ic{width:64px;height:64px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:30px;margin-bottom:10px}
+  .res-hero h5{font-size:16px;font-weight:700}
+  .res-hero p{font-size:12.5px;color:#8A90A0;margin-top:5px;line-height:1.6}
+  .fail-list{border:1px solid #F3C8CA;background:#FFF9F9;border-radius:8px;max-height:130px;overflow:hidden;font-size:12.5px}
+  .fail-list .fr{display:flex;gap:8px;padding:8px 12px;border-bottom:1px solid #F6DEDF;color:#5A6072;line-height:1.5}
+  .fail-list .fr:last-child{border-bottom:none}
+  .fail-list .fr .x{color:var(--danger);font-weight:700}
+  .prog-line{height:4px;border-radius:2px;background:#EEF0F4;overflow:hidden;margin:14px 0 4px}
+  .prog-line i{display:block;height:100%;width:64%;background:var(--accent);border-radius:0 2px 2px 0}
+  .kbd{font-size:10.5px;border:1px solid #C9CDE0;border-bottom-width:2px;border-radius:4px;padding:0 5px;color:#5A6072;background:#FAFBFD;margin:0 2px}
+</style>
+</head>
+<body>
+
+<h1>AnyBoot · 备份与恢复 全流程 UI 样式图</h1>
+<div class="sub">依据 docs/backup-ui-design.md · 覆盖页面地图全部节点：手机 S1–S6 + 桌面 D1–D7 · 每条流程含执行中/失败/确认弹窗 · accent #6366F1 · 双主题</div>
+
+<div class="flowmap">
+  <div><span class="lbl">导入流程</span>
+    <span class="fnode">S1/D1 主页</span><span class="arr">→</span>
+    <span class="fnode">文件选择</span><span class="arr">→</span>
+    <span class="fnode red">口令页（加密文件）</span><span class="arr">→</span>
+    <span class="fnode hot">S3/D5 摘要预览</span><span class="arr">→</span>
+    <span class="fnode red">S6b/D7 覆盖确认（策略=覆盖时）</span><span class="arr">→</span>
+    <span class="fnode">执行中（进度）</span><span class="arr">→</span>
+    <span class="fnode hot">S4/D6 结果报告</span>
+  </div>
+  <div><span class="lbl">导出流程</span>
+    <span class="fnode">S1/D1 分类勾选</span><span class="arr">→</span>
+    <span class="fnode red">勾 SSH 密钥 → 口令区（未设口令按钮置灰）</span><span class="arr">→</span>
+    <span class="fnode">执行中（按钮 loading）</span><span class="arr">→</span>
+    <span class="fnode">系统分享面板（手机）/ 保存对话框 + toast（桌面）</span>
+  </div>
+  <div><span class="lbl">同步流程</span>
+    <span class="fnode">S1/D1 开关</span><span class="arr">→</span>
+    <span class="fnode hot">S2/D2 WebDAV 配置</span><span class="arr">→</span>
+    <span class="fnode red">测试连接三态（成功 / 404→创建 / 401）</span><span class="arr">→</span>
+    <span class="fnode">立即同步（进行中/失败态）</span><span class="arr">→</span>
+    <span class="fnode red">S6a 关闭同步确认</span>
+  </div>
+</div>
+
+<!-- ==================================================================== -->
+<h2 class="flow-title">① 手机端 · 备份主页与导出口令流</h2>
+<div class="board-row">
+
+  <!-- S1 浅色 -->
+  <div class="board">
+    <div class="board-label">S1 · 备份主页 — <b>浅色 · 默认态</b><span class="tag">入口：抽屉 › 备份与恢复</span></div>
+    <div class="phone"><div class="phone-screen theme-light">
+      <div class="notch"></div>
+      <div class="navbar"><div class="nav-back">‹</div><div class="nav-title">备份与恢复</div></div>
+      <div class="scroll">
+        <div class="sec-title">导出</div>
+        <div class="card">
+          <div class="row"><div class="cb on">✓</div><div class="grow"><div class="row-title">电脑列表 <span class="count">（3 台）</span></div><div class="row-sub">地址 · 配对 · 电源路由</div></div></div>
+          <div class="row"><div class="cb on">✓</div><div class="grow"><div class="row-title">SSH 服务器 <span class="count">（2 台）</span></div><div class="row-sub">跳板机 · 认证配置</div></div></div>
+          <div class="row"><div class="cb"></div><div class="grow"><div class="row-title">SSH 密钥 <span class="count">（1 把）</span>　<span class="badge-warn">高敏</span></div><div class="row-sub">私钥与登录密码，需口令加密</div></div></div>
+          <div class="row"><div class="cb on">✓</div><div class="grow"><div class="row-title">偏好设置</div></div></div>
+          <div class="row"><div class="cb"></div><div class="grow"><div class="row-title">连接记录 <span class="count">（37 条）</span></div></div></div>
+          <div class="info">ⓘ 2 台电脑关联的跳板机未包含在本次导出</div>
+          <div class="btn primary">导出到文件</div>
+        </div>
+
+        <div class="sec-title">多端同步</div>
+        <div class="card">
+          <div class="row"><div class="grow"><div class="row-title">启用多端同步</div><div class="row-sub">通过 WebDAV 保持所选数据一致</div></div><div class="switch on"></div></div>
+          <div class="row"><div class="grow"><div class="row-title">WebDAV 与同步内容</div><div class="row-sub"><span class="dot-ok"></span>dav.jianguoyun.com</div></div><span class="chev">›</span></div>
+          <div class="row"><div class="grow"><div class="row-title">立即同步</div></div><div class="sync-status"><span class="ok">上次 12:02 · 成功</span></div></div>
+        </div>
+
+        <div class="sec-title">导入</div>
+        <div class="card">
+          <div class="btn secondary" style="margin-top:10px">从文件导入</div>
+          <div class="row-sub" style="text-align:center;padding-bottom:12px">支持 .anyboot 备份文件 · 五平台互通</div>
+        </div>
+        <div style="height:20px"></div>
+      </div>
+      <div class="ptoast">已导出 4 类数据（电脑 3 · 服务器 2 · 偏好 8 项）</div>
+    </div></div>
+  </div>
+
+  <!-- S1 浅色 · 勾选密钥展开口令区 -->
+  <div class="board">
+    <div class="board-label">S1b · 勾选「SSH 密钥」后 — <b>浅色</b><span class="tag">L1/L2：口令区展开 200ms · 未设口令主按钮置灰</span></div>
+    <div class="phone"><div class="phone-screen theme-light">
+      <div class="notch"></div>
+      <div class="navbar"><div class="nav-back">‹</div><div class="nav-title">备份与恢复</div></div>
+      <div class="scroll">
+        <div class="sec-title">导出</div>
+        <div class="card">
+          <div class="row"><div class="cb on">✓</div><div class="grow"><div class="row-title">电脑列表 <span class="count">（3 台）</span></div></div></div>
+          <div class="row"><div class="cb on">✓</div><div class="grow"><div class="row-title">SSH 服务器 <span class="count">（2 台）</span></div></div></div>
+          <div class="row" style="box-shadow:inset 2px 0 0 var(--accent)"><div class="cb on">✓</div><div class="grow"><div class="row-title">SSH 密钥 <span class="count">（1 把）</span>　<span class="badge-warn">高敏</span></div><div class="row-sub">已勾选 · 口令区自动展开</div></div></div>
+          <div class="pw-label">备份口令</div>
+          <div class="pw">••••••••••<span class="grow"></span><span class="eye">👁</span></div>
+          <div class="strength"><i class="f3"></i><i class="f3"></i><i class="f3"></i></div>
+          <div class="pw-label">确认口令</div>
+          <div class="pw">•••••••••<span class="grow"></span><span class="eye">👁</span></div>
+          <div class="row-sub err" style="margin:-2px 2px 6px">两次输入不一致</div>
+          <div class="info warn">⚠ 此分类包含私钥与登录密码，必须设置口令加密（PBKDF2 · 310000 轮 + AES-256-GCM）</div>
+          <div class="btn primary off">导出到文件</div>
+        </div>
+
+        <div class="sec-title">多端同步</div>
+        <div class="card">
+          <div class="row"><div class="grow"><div class="row-title">启用多端同步</div></div><div class="switch on"></div></div>
+          <div class="row"><div class="grow"><div class="row-title">立即同步</div></div><div class="sync-status"><span class="ok">上次 12:02 · 成功</span></div></div>
+        </div>
+        <div style="height:20px"></div>
+      </div>
+    </div></div>
+  </div>
+
+  <!-- S1 执行中 + 分享面板 -->
+  <div class="board">
+    <div class="board-label">S1c · 点击「导出到文件」执行中 — <b>浅色</b><span class="tag">L3：按钮 loading 禁点 → 完成弹系统分享</span></div>
+    <div class="phone"><div class="phone-screen theme-light">
+      <div class="notch"></div>
+      <div class="navbar"><div class="nav-back">‹</div><div class="nav-title">备份与恢复</div></div>
+      <div class="scroll">
+        <div class="sec-title">导出</div>
+        <div class="card">
+          <div class="row"><div class="cb on">✓</div><div class="grow"><div class="row-title">电脑列表 <span class="count">（3 台）</span></div></div></div>
+          <div class="row"><div class="cb on">✓</div><div class="grow"><div class="row-title">SSH 服务器 <span class="count">（2 台）</span></div></div></div>
+          <div class="row"><div class="cb on">✓</div><div class="grow"><div class="row-title">SSH 密钥 <span class="count">（1 把）</span>　<span class="badge-warn">高敏</span></div></div></div>
+          <div class="pw">••••••••••<span class="grow"></span><span class="eye">👁</span></div>
+          <div class="pw">••••••••••<span class="grow"></span><span class="eye">👁</span></div>
+          <div class="btn primary" style="opacity:.85"><span class="spin"></span><span style="margin-left:9px">正在组包…</span></div>
+        </div>
+        <div class="info">ⓘ 密钥 1 把读取成功；若钥匙串读取失败将跳过并在 toast 说明</div>
+      </div>
+      <!-- 系统分享面板（iOS share sheet 模拟） -->
+      <div class="poverlay">
+        <div class="psheet">
+          <div class="grab"></div>
+          <div style="display:flex;align-items:center;gap:10px;padding:4px 2px 12px">
+            <div style="width:44px;height:44px;border-radius:10px;background:#EEF0FE;display:flex;align-items:center;justify-content:center;font-size:20px">📦</div>
+            <div class="grow"><div style="font-size:13.5px;font-weight:600">anyboot-backup-20261027-1240.anyboot</div><div class="row-sub">18.4 KB · 已加密（AES-256-GCM）</div></div>
+          </div>
+          <div style="display:flex;gap:22px;justify-content:center;padding:8px 0 16px">
+            <div style="text-align:center;font-size:11px;color:var(--fg-dim)"><div style="width:54px;height:54px;border-radius:50%;background:var(--elevate);display:flex;align-items:center;justify-content:center;font-size:22px;margin:0 auto 5px"> 💾</div>存储到文件</div>
+            <div style="text-align:center;font-size:11px;color:var(--fg-dim)"><div style="width:54px;height:54px;border-radius:50%;background:var(--elevate);display:flex;align-items:center;justify-content:center;font-size:22px;margin:0 auto 5px">✉️</div>隔空投送</div>
+            <div style="text-align:center;font-size:11px;color:var(--fg-dim)"><div style="width:54px;height:54px;border-radius:50%;background:var(--elevate);display:flex;align-items:center;justify-content:center;font-size:22px;margin:0 auto 5px">💬</div>微信</div>
+          </div>
+          <div class="btn ghost-mini" style="justify-content:center">取消</div>
+        </div>
+      </div>
+    </div></div>
+  </div>
+</div>
+
+<!-- ==================================================================== -->
+<h2 class="flow-title">② 手机端 · WebDAV 配置与同步流（S2 + 测试连接三态 + 关闭确认）</h2>
+<div class="board-row">
+
+  <!-- S2 配置页 -->
+  <div class="board">
+    <div class="board-label">S2 · WebDAV 与同步内容 — <b>浅色 · 表单态</b><span class="tag">L8 保存 / L10 加密开关</span></div>
+    <div class="phone"><div class="phone-screen theme-light">
+      <div class="notch"></div>
+      <div class="navbar"><div class="nav-back">‹</div><div class="nav-title">WebDAV 与同步内容</div><div class="nav-save">保存</div></div>
+      <div class="scroll">
+        <div class="card" style="margin-top:6px">
+          <div class="pw-label">服务器地址</div>
+          <div class="pw" style="color:var(--fg)">https://dav.jianguoyun.com/dav/</div>
+          <div class="pw-label">用户名</div>
+          <div class="pw" style="color:var(--fg)">me@example.com</div>
+          <div class="pw-label">应用密码 <span style="font-weight:400;color:var(--fg-faint)">（坚果云等需生成应用密码）</span></div>
+          <div class="pw">••••••••••••<span class="grow"></span><span class="eye">👁</span></div>
+          <div class="pw-label">远端同步目录</div>
+          <div class="pw" style="color:var(--fg)">/AnyBoot/sync</div>
+          <div class="row" style="margin-top:4px"><div class="grow"><div class="row-title">同步周期</div></div><div style="font-size:13.5px;color:var(--accent)">手动 ▾</div></div>
+          <div class="row"><div class="grow"><div class="row-title">记录变化时就同步</div><div class="row-sub">建议只在自有 WebDAV 服务器时开启，防止快速占用服务商限额</div></div><div class="switch on"></div></div>
+        </div>
+
+        <div class="sec-title">同步的数据类型</div>
+        <div class="card">
+          <div class="row" style="min-height:44px"><div class="cb on">✓</div><div class="grow"><div class="row-title">电脑列表 <span class="count">（3）</span></div></div></div>
+          <div class="row" style="min-height:44px"><div class="cb on">✓</div><div class="grow"><div class="row-title">SSH 服务器 <span class="count">（2）</span></div></div></div>
+          <div class="row" style="min-height:44px"><div class="cb"></div><div class="grow"><div class="row-title">SSH 密钥 <span class="count">（1）</span>　<span class="badge-warn">高敏</span></div><div class="row-sub" style="color:var(--warn)">包含私钥与登录密码，请勿同步到不可信 WebDAV</div></div></div>
+          <div class="row" style="min-height:44px"><div class="cb on">✓</div><div class="grow"><div class="row-title">偏好设置</div></div></div>
+          <div class="row" style="min-height:44px"><div class="cb"></div><div class="grow"><div class="row-title">连接记录 <span class="count">（37）</span></div></div></div>
+          <div class="row"><div class="grow"><div class="row-title">同步文件加密</div><div class="row-sub">开启后同步文件以口令加密后上传，所有设备需同一口令</div></div><div class="switch"></div></div>
+        </div>
+        <div class="btn secondary" style="margin-top:14px">测试连接</div>
+        <div style="height:16px"></div>
+      </div>
+    </div></div>
+  </div>
+
+  <!-- S2 测试连接 · 404 -->
+  <div class="board">
+    <div class="board-label">S2b · 测试连接 404 → 自动创建目录确认 — <b>浅色</b><span class="tag">L9 / S6c</span></div>
+    <div class="phone"><div class="phone-screen theme-light">
+      <div class="notch"></div>
+      <div class="navbar"><div class="nav-back">‹</div><div class="nav-title">WebDAV 与同步内容</div><div class="nav-save">保存</div></div>
+      <div class="scroll">
+        <div class="card" style="margin-top:6px">
+          <div class="pw-label">服务器地址</div>
+          <div class="pw" style="color:var(--fg)">https://dav.jianguoyun.com/dav/</div>
+          <div class="pw-label">远端同步目录</div>
+          <div class="pw" style="color:var(--fg)">/AnyBoot/sync</div>
+          <div class="btn secondary" style="margin-top:12px"><span class="spin dim"></span><span style="margin-left:9px;color:var(--accent)">正在测试连接…</span></div>
+        </div>
+      </div>
+      <div class="pdialog-wrap">
+        <div class="pdialog">
+          <h4>目录不存在</h4>
+          <div class="desc">远端目录 <b class="mono">/AnyBoot/sync</b> 在 WebDAV 服务器上不存在，是否自动创建？</div>
+          <div class="btnrow">
+            <div class="btn secondary">取消</div>
+            <div class="btn primary">创建</div>
+          </div>
+        </div>
+      </div>
+    </div></div>
+  </div>
+
+  <!-- S2 测试失败 401 + 保存成功 toast -->
+  <div class="board">
+    <div class="board-label">S2c · 测试失败（401）行内错误 — <b>浅色</b><span class="tag">错误映射：401 → 用户名或密码错误</span></div>
+    <div class="phone"><div class="phone-screen theme-light">
+      <div class="notch"></div>
+      <div class="navbar"><div class="nav-back">‹</div><div class="nav-title">WebDAV 与同步内容</div><div class="nav-save">保存</div></div>
+      <div class="scroll">
+        <div class="card" style="margin-top:6px">
+          <div class="pw-label">服务器地址</div>
+          <div class="pw" style="color:var(--fg)">https://dav.jianguoyun.com/dav/</div>
+          <div class="pw-label">用户名</div>
+          <div class="pw err" style="color:var(--fg)">me@example.com</div>
+          <div class="pw-label">应用密码</div>
+          <div class="pw err">••••••<span class="grow"></span><span class="eye">👁</span></div>
+          <div class="row-sub err" style="margin:2px 2px 10px">✗ 连接失败：401 用户名或密码错误</div>
+          <div class="btn secondary">重新测试</div>
+        </div>
+        <div class="info" style="margin-top:12px">ⓘ 测试连接不会保存任何配置；保存后才能使用「立即同步」</div>
+      </div>
+      <div class="ptoast">已保存</div>
+    </div></div>
+  </div>
+
+  <!-- S6a 关闭同步确认 -->
+  <div class="board">
+    <div class="board-label">S6a · 关闭「启用多端同步」确认 — <b>浅色</b><span class="tag">L4：确认钮红色 · 取消则开关回弹</span></div>
+    <div class="phone"><div class="phone-screen theme-light">
+      <div class="notch"></div>
+      <div class="navbar"><div class="nav-back">‹</div><div class="nav-title">备份与恢复</div></div>
+      <div class="scroll">
+        <div class="sec-title">多端同步</div>
+        <div class="card">
+          <div class="row"><div class="grow"><div class="row-title">启用多端同步</div><div class="row-sub">关闭中…</div></div><div class="switch"></div></div>
+          <div class="row"><div class="grow"><div class="row-title">立即同步</div></div><div class="sync-status">已停用</div></div>
+        </div>
+      </div>
+      <div class="pdialog-wrap">
+        <div class="pdialog">
+          <h4>关闭多端同步？</h4>
+          <div class="desc">关闭后本设备将停止自动同步，也不再拉取其他设备的改动。<br>已上传到 WebDAV 的云文件会保留。</div>
+          <div class="btnrow">
+            <div class="btn secondary">取消</div>
+            <div class="btn danger">关闭同步</div>
+          </div>
+        </div>
+      </div>
+    </div></div>
+  </div>
+</div>
+
+<!-- ==================================================================== -->
+<h2 class="flow-title">③ 手机端 · 导入全流程（口令页 → 预览 → 覆盖确认 → 执行中 → 结果）</h2>
+<div class="board-row">
+
+  <!-- 口令页 -->
+  <div class="board">
+    <div class="board-label">S5 · 备份口令页 — <b>浅色 · sheet 不可点外关</b><span class="tag">L15：GCM 失败抖动+行内错 · 连错 3 次追加提示</span></div>
+    <div class="phone"><div class="phone-screen theme-light">
+      <div class="notch"></div>
+      <div class="navbar" style="filter:blur(1px);opacity:.5"><div class="nav-back">‹</div><div class="nav-title">备份与恢复</div></div>
+      <div class="poverlay">
+        <div class="psheet">
+          <div class="grab"></div>
+          <h4>输入备份口令</h4>
+          <div class="desc">该备份文件已加密（来自 iOS · 2026-10-27 11:30）</div>
+          <div class="pw err">••••••<span class="grow"></span><span class="eye">👁</span></div>
+          <div class="row-sub err">✗ 口令错误或文件已损坏（已尝试 2/3 次）</div>
+          <div class="btn primary" style="margin-top:12px">确认</div>
+          <div class="btn ghost-mini" style="justify-content:center">取消导入</div>
+        </div>
+      </div>
+    </div></div>
+  </div>
+
+  <!-- S3 预览（明细展开） -->
+  <div class="board">
+    <div class="board-label">S3 · 导入摘要预览 — <b>浅色 · 冲突明细展开态</b><span class="tag">L12：点 › 展开看 id 冲突对象</span></div>
+    <div class="phone"><div class="phone-screen theme-light">
+      <div class="notch"></div>
+      <div class="navbar"><div class="nav-back">✕</div><div class="nav-title">导入预览</div></div>
+      <div class="scroll">
+        <div class="card" style="margin-top:6px">
+          <div class="row" style="min-height:40px"><div class="row-sub">来自 <b style="color:var(--fg-dim)">macOS 桌面</b> · 2026-10-26 21:04 · AnyBoot 1.2.0 · 加密已验证</div></div>
+          <div class="row" style="box-shadow:inset 2px 0 0 var(--accent)"><div class="cb on">✓</div><div class="grow"><div class="row-title">电脑列表</div><div class="row-sub">备份 3 条 · 本机 2 条</div></div><span class="chev" style="transform:rotate(90deg)">›</span></div>
+          <div class="info" style="margin:0 0 8px;line-height:1.7">新增 2 · 覆盖 1<br><b>覆盖：黑苹果（127.0.0.1:12300）</b><br>跳过 0<br><span style="color:var(--fg-faint)">…等共 3 条</span></div>
+          <div class="row"><div class="cb on">✓</div><div class="grow"><div class="row-title">SSH 服务器</div><div class="row-sub">备份 2 条 · 本机 1 条</div></div><span class="chev">›</span></div>
+          <div class="row"><div class="cb on">✓</div><div class="grow"><div class="row-title">SSH 密钥</div><div class="row-sub">备份 1 把 · 本机 0 把 · <span style="color:var(--warn)">需口令解密</span></div></div></div>
+          <div class="row"><div class="cb on">✓</div><div class="grow"><div class="row-title">偏好设置</div><div class="row-sub">将覆盖本机当前设置</div></div></div>
+          <div class="row"><div class="cb"></div><div class="grow"><div class="row-title">连接记录</div><div class="row-sub">备份 37 条 · 本机 12 条</div></div></div>
+        </div>
+
+        <div class="sec-title">合并策略</div>
+        <div class="card">
+          <div class="row" style="min-height:42px"><span class="radio on"></span><div class="row-title">跳过本机已有</div><div class="row-sub" style="margin-left:auto">上次选择</div></div>
+          <div class="row" style="min-height:42px"><span class="radio off"></span><div class="row-title">备份覆盖本机</div></div>
+        </div>
+        <div class="info warn" style="margin-top:10px">⚠ 1 台电脑关联的跳板机不在本备份中，导入后需补配</div>
+
+        <div class="btnrow">
+          <div class="btn secondary" style="flex:1">取消</div>
+          <div class="btn primary" style="flex:1.6">导入所选 (4 类)</div>
+        </div>
+      </div>
+    </div></div>
+  </div>
+
+  <!-- S6b 覆盖确认 -->
+  <div class="board">
+    <div class="board-label">S6b · 覆盖导入二次确认 — <b>浅色</b><span class="tag">S6b/L13：仅「备份覆盖本机」策略触发 · 确认钮红</span></div>
+    <div class="phone"><div class="phone-screen theme-light">
+      <div class="notch"></div>
+      <div class="navbar"><div class="nav-back">✕</div><div class="nav-title">导入预览</div></div>
+      <div class="scroll" style="filter:blur(1px);opacity:.55">
+        <div class="card" style="margin-top:6px">
+          <div class="row"><div class="cb on">✓</div><div class="grow"><div class="row-title">电脑列表</div><div class="row-sub">备份 3 条 · 本机 2 条</div></div></div>
+          <div class="row"><div class="cb on">✓</div><div class="grow"><div class="row-title">SSH 服务器</div><div class="row-sub">备份 2 条 · 本机 1 条</div></div></div>
+        </div>
+      </div>
+      <div class="pdialog-wrap">
+        <div class="pdialog">
+          <h4 style="color:var(--danger)">覆盖导入</h4>
+          <div class="desc">策略为「备份覆盖本机」，本机所选分类的现有数据将被<b>替换</b>：<br>· 电脑列表 <b>2 台</b>将被覆盖<br>· SSH 服务器 <b>1 台</b>将被覆盖<br>· 偏好设置将被替换</div>
+          <div class="info danger" style="margin:0 0 12px">此操作不可撤销，建议先导出一份当前数据</div>
+          <div class="btnrow">
+            <div class="btn secondary">取消</div>
+            <div class="btn danger">覆盖导入</div>
+          </div>
+        </div>
+      </div>
+    </div></div>
+  </div>
+</div>
+
+<div class="board-row">
+  <!-- S3 执行中 -->
+  <div class="board">
+    <div class="board-label">S3b · 导入执行中 — <b>浅色</b><span class="tag">L14：顶部细进度条 + 按钮 loading + 逐类推进</span></div>
+    <div class="phone"><div class="phone-screen theme-light">
+      <div class="notch"></div>
+      <div class="topbar-prog"><i></i></div>
+      <div class="navbar"><div class="nav-back" style="opacity:.35">✕</div><div class="nav-title">导入预览</div></div>
+      <div class="scroll">
+        <div class="card" style="margin-top:6px">
+          <div class="row" style="min-height:40px"><div class="row-sub">正在导入…（进行中不可取消、不可关闭页面）</div></div>
+          <div class="row"><span style="color:var(--ok);font-size:15px">✓</span><div class="grow"><div class="row-title">电脑列表</div><div class="row-sub okc">完成 · 新增 2 · 覆盖 1</div></div></div>
+          <div class="row" style="box-shadow:inset 2px 0 0 var(--accent)"><span class="spin dim"></span><div class="grow"><div class="row-title">SSH 服务器</div><div class="row-sub">正在导入…</div></div></div>
+          <div class="row"><div class="grow"><div class="row-title" style="color:var(--fg-faint)">SSH 密钥</div></div></div>
+          <div class="row"><div class="grow"><div class="row-title" style="color:var(--fg-faint)">偏好设置</div></div></div>
+        </div>
+        <div class="btnrow">
+          <div class="btn secondary" style="flex:1;opacity:.5">取消</div>
+          <div class="btn primary" style="flex:1.6;opacity:.85"><span class="spin"></span><span style="margin-left:9px">正在导入 SSH 服务器…</span></div>
+        </div>
+      </div>
+    </div></div>
+  </div>
+
+  <!-- S4 全部成功 -->
+  <div class="board">
+    <div class="board-label">S4 · 导入结果报告 — <b>浅色 · 全部成功</b><span class="tag">L16：✅ 态 · 完成后回 S1 刷新计数</span></div>
+    <div class="phone"><div class="phone-screen theme-light">
+      <div class="notch"></div>
+      <div class="navbar"><div class="nav-back" style="visibility:hidden">‹</div><div class="nav-title">导入结果</div></div>
+      <div class="scroll">
+        <div class="result">
+          <div class="r-icon ok">✓</div>
+          <div class="r-title">导入完成</div>
+          <div class="r-sum">
+            新增电脑 <b>2</b> · 覆盖电脑 <b>1</b><br>
+            新增服务器 <b>2</b> · 新增密钥 <b>1</b><br>
+            偏好设置已更新 · 失败 <b style="color:var(--ok)">0</b>
+          </div>
+          <div class="info" style="width:100%;margin-top:16px;text-align:left">ⓘ 单条失败不影响其余数据：失败项已跳过并单独列出</div>
+          <div class="btn primary" style="width:100%;margin-top:18px">完成</div>
+        </div>
+      </div>
+    </div></div>
+  </div>
+
+  <!-- S4 部分失败 -->
+  <div class="board">
+    <div class="board-label">S4b · 导入结果报告 — <b>浅色 · 部分失败 ⚠</b><span class="tag">L16：⚠ 态 + 失败清单逐条列原因</span></div>
+    <div class="phone"><div class="phone-screen theme-light">
+      <div class="notch"></div>
+      <div class="navbar"><div class="nav-back" style="visibility:hidden">‹</div><div class="nav-title">导入结果</div></div>
+      <div class="scroll">
+        <div class="result">
+          <div class="r-icon warn">!</div>
+          <div class="r-title">导入完成（有失败项）</div>
+          <div class="r-sum">新增电脑 2 · 覆盖电脑 1 · 新增服务器 1<br>失败 <b style="color:var(--danger)">2</b></div>
+          <div class="failcard">
+            <div class="fh">失败清单（2）</div>
+            <div class="fr"><span class="x">✗</span><span>第 3 台电脑「测试机-C」：地址字段不合法（<span class="mono">300.1.1.1:99999</span>）</span></div>
+            <div class="fr"><span class="x">✗</span><span>SSH 密钥「home-nas」：私钥格式无法解析（PEM 损坏）</span></div>
+          </div>
+          <div class="r-note">失败项已跳过，其余数据已导入成功</div>
+          <div class="btn primary" style="width:100%;margin-top:14px">完成</div>
+        </div>
+      </div>
+    </div></div>
+  </div>
+
+  <!-- S1 深色 -->
+  <div class="board">
+    <div class="board-label">S1d · 备份主页 — <b>深色 · 同步失败态</b><span class="tag">双主题门禁：深色全量出 · 失败保留上次成功时间 + 可重试</span></div>
+    <div class="phone"><div class="phone-screen theme-dark">
+      <div class="notch"></div>
+      <div class="navbar"><div class="nav-back">‹</div><div class="nav-title">备份与恢复</div></div>
+      <div class="scroll">
+        <div class="sec-title">导出</div>
+        <div class="card">
+          <div class="row"><div class="cb on">✓</div><div class="grow"><div class="row-title">电脑列表 <span class="count">（3 台）</span></div><div class="row-sub">地址 · 配对 · 电源路由</div></div></div>
+          <div class="row"><div class="cb on">✓</div><div class="grow"><div class="row-title">SSH 服务器 <span class="count">（2 台）</span></div><div class="row-sub">跳板机 · 认证配置</div></div></div>
+          <div class="row"><div class="cb"></div><div class="grow"><div class="row-title">SSH 密钥 <span class="count">（1 把）</span>　<span class="badge-warn">高敏</span></div><div class="row-sub">私钥与登录密码，需口令加密</div></div></div>
+          <div class="row"><div class="cb on">✓</div><div class="grow"><div class="row-title">偏好设置</div></div></div>
+          <div class="row"><div class="cb"></div><div class="grow"><div class="row-title">连接记录 <span class="count">（37 条）</span></div></div></div>
+          <div class="info">ⓘ 2 台电脑关联的跳板机未包含在本次导出</div>
+          <div class="btn primary">导出到文件</div>
+        </div>
+
+        <div class="sec-title">多端同步</div>
+        <div class="card">
+          <div class="row"><div class="grow"><div class="row-title">启用多端同步</div><div class="row-sub">通过 WebDAV 保持所选数据一致</div></div><div class="switch on"></div></div>
+          <div class="row" style="box-shadow:inset 2px 0 0 var(--danger)">
+            <div class="grow">
+              <div class="row-title">立即同步</div>
+              <div class="row-sub" style="color:var(--danger);font-weight:600">✗ 同步失败：网络超时</div>
+              <div class="row-sub">上次成功 10-26 21:04 · 将自动重试</div>
+            </div>
+            <div style="font-size:12.5px;font-weight:600;color:var(--accent);flex:none">重试</div>
+          </div>
+          <div class="row"><div class="grow"><div class="row-title">WebDAV 与同步内容</div><div class="row-sub"><span class="dot-ok"></span>dav.jianguoyun.com</div></div><span class="chev">›</span></div>
+        </div>
+
+        <div class="sec-title">导入</div>
+        <div class="card">
+          <div class="btn secondary" style="margin-top:10px">从文件导入</div>
+          <div class="row-sub" style="text-align:center;padding-bottom:12px">支持 .anyboot 备份文件 · 五平台互通</div>
+        </div>
+        <div style="height:20px"></div>
+      </div>
+      <div class="ptoast" style="background:rgba(60,24,26,.96)">✗ 同步失败：网络超时</div>
+    </div></div>
+  </div>
+</div>
+
+<!-- ==================================================================== -->
+<h2 class="flow-title">④ 桌面端 · 设置分区与同步（D1 / D2 展开 / 同步进行中 toast）</h2>
+<div class="board-row">
+
+  <!-- D1 -->
+  <div class="board">
+    <div class="board-label">D1 · 备份与恢复设置分区 — <b>桌面 · 含导出口令行</b><span class="tag">勾密钥 →「设置备份口令」必勾且高亮</span></div>
+    <div class="desk">
+      <div class="desk-titlebar">
+        <span class="dot" style="background:#FF5F57"></span><span class="dot" style="background:#FEBC2E"></span><span class="dot" style="background:#28C840"></span>
+        <span class="dt-name">AnyBoot — 设置</span>
+      </div>
+      <div class="desk-body">
+        <div class="crumb">设置 / <b>备份与恢复</b></div>
+
+        <div class="d-sec">多端同步</div>
+        <div class="d-card">
+          <div class="d-row">
+            <span class="d-switch on"></span><b style="font-size:13px">启用多端同步</b>
+            <span class="d-note" style="margin:0">通过 WebDAV 在多台设备间保持所选数据一致</span>
+          </div>
+          <div style="border-top:1px solid #EEF0F4;margin:12px 0"></div>
+          <div class="d-row">
+            <span class="d-label">服务器地址</span><div class="d-input">https://dav.jianguoyun.com/dav/</div>
+            <span class="d-label" style="width:64px">应用密码</span><div class="d-input w170">•••••••••• 👁</div>
+          </div>
+          <div class="d-row" style="margin-top:8px">
+            <span class="d-label">远端目录</span><div class="d-input w170">/AnyBoot/sync</div>
+            <span class="d-label" style="width:52px">周期</span><div class="d-input w170">每 30 分钟 ▾</div>
+            <span class="d-check"><span class="d-cb on">✓</span>记录变化时就同步</span>
+            <span class="d-check"><span class="d-cb on">✓</span>同步文件加密</span>
+          </div>
+          <div class="d-row" style="margin-top:8px">
+            <span class="d-label">数据类型</span>
+            <span class="d-check"><span class="d-cb on">✓</span>电脑列表</span>
+            <span class="d-check"><span class="d-cb on">✓</span>SSH 服务器</span>
+            <span class="d-check"><span class="d-cb"></span>SSH 密钥 <span class="badge-warn">高敏</span></span>
+            <span class="d-check"><span class="d-cb on">✓</span>偏好设置</span>
+            <span class="d-check"><span class="d-cb"></span>连接记录</span>
+          </div>
+          <div class="d-note">包含私钥与登录密码，请勿同步到不可信 WebDAV　·　建议只在自有服务器时开启「变化时就同步」</div>
+          <div class="d-row" style="margin-top:12px;justify-content:flex-end">
+            <span class="d-note" style="margin:0;margin-right:auto;color:var(--ok)">✓ 测试成功 · 2026-10-27 12:31</span>
+            <button class="d-btn secondary">测试连接</button>
+            <button class="d-btn primary" style="margin-left:10px">保存</button>
+          </div>
+        </div>
+
+        <div class="d-sec">导出</div>
+        <div class="d-card">
+          <div class="d-row">
+            <span class="d-check"><span class="d-cb on">✓</span>电脑列表 (3)</span>
+            <span class="d-check"><span class="d-cb on">✓</span>SSH 服务器 (2)</span>
+            <span class="d-check"><span class="d-cb on">✓</span>SSH 密钥 (1) <span class="badge-warn" style="margin-left:2px">高敏</span></span>
+            <span class="d-check"><span class="d-cb on">✓</span>偏好设置</span>
+            <span class="d-check"><span class="d-cb"></span>连接记录 (37)</span>
+          </div>
+          <div class="d-row" style="margin-top:8px;padding-left:2px">
+            <span class="d-check" style="color:var(--fg);font-weight:600"><span class="d-cb on" style="border-color:var(--warn);background:var(--warn)">✓</span>设置备份口令</span>
+            <div class="d-input w220 focus" style="color:#3A3F4E">•••••••••• <span style="margin-left:auto">👁</span></div>
+          </div>
+          <div class="d-warn">⚠ 已勾选 SSH 密钥：必须设置口令加密，否则「导出」不可用</div>
+          <div class="d-row" style="margin-top:12px;justify-content:flex-end">
+            <button class="d-btn primary"> 导出到文件…</button>
+          </div>
+        </div>
+
+        <div class="d-sec">导入</div>
+        <div class="d-card">
+          <div class="d-row">
+            <span class="d-note" style="margin:0">支持 .anyboot 备份文件，跨平台互通（Linux / Windows / macOS / Android / iOS）</span>
+            <button class="d-btn secondary" style="margin-left:auto">从文件导入…</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- D1 同步进行中 -->
+  <div class="board">
+    <div class="board-label">D1b · 立即同步进行中 — <b>桌面</b><span class="tag">D-L4：按钮 spinner+禁用 · 互斥（导入/导出提示稍后）</span></div>
+    <div class="desk">
+      <div class="desk-titlebar">
+        <span class="dot" style="background:#FF5F57"></span><span class="dot" style="background:#FEBC2E"></span><span class="dot" style="background:#28C840"></span>
+        <span class="dt-name">AnyBoot — 设置</span>
+      </div>
+      <div class="desk-body">
+        <div class="crumb">设置 / <b>备份与恢复</b></div>
+        <div class="d-sec">多端同步</div>
+        <div class="d-card">
+          <div class="d-row">
+            <span class="d-switch on"></span><b style="font-size:13px">启用多端同步</b>
+            <span class="d-status"><span class="spin dim"></span>正在同步：拉取远端 → 合并 → 推送　<button class="d-btn secondary" style="opacity:.45">⟳ 同步中…</button></span>
+          </div>
+          <div class="prog-line"><i style="width:42%"></i></div>
+          <div class="d-note">同步期间导入与导出暂不可用：<span style="color:var(--warn)">正在同步，请稍后</span></div>
+        </div>
+      </div>
+      <div class="dtoasts">
+        <div class="dtoast"><span class="tic ok">✓</span>同步完成 · 推送 2 项改动 · 拉取 1 项覆盖<span class="x">✕</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- D1 同步失败 + 变化时同步警示 -->
+  <div class="board">
+    <div class="board-label">D1c · 同步失败态 — <b>桌面</b><span class="tag">错误映射 · 重试按钮 · 退避说明</span></div>
+    <div class="desk">
+      <div class="desk-titlebar">
+        <span class="dot" style="background:#FF5F57"></span><span class="dot" style="background:#FEBC2E"></span><span class="dot" style="background:#28C840"></span>
+        <span class="dt-name">AnyBoot — 设置</span>
+      </div>
+      <div class="desk-body">
+        <div class="crumb">设置 / <b>备份与恢复</b></div>
+        <div class="d-sec">多端同步</div>
+        <div class="d-card">
+          <div class="d-row">
+            <span class="d-switch on"></span><b style="font-size:13px">启用多端同步</b>
+            <span class="d-status">上次尝试 12:36 · <span class="bad">✗ 失败</span>　<button class="d-btn secondary">⟳ 重试</button></span>
+          </div>
+          <div class="d-err">✗ 同步失败：WebDAV 空间不足（配额已用 98%）。请清理远端目录或更换服务器</div>
+          <div class="d-note">自动重试将于 2 分钟后进行（指数退避）；「记录变化时就同步」已暂停</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================================================================== -->
+<h2 class="flow-title">⑤ 桌面端 · 导入流程模态（口令 → 预览 → 覆盖确认 → 结果）+ 导出 toast</h2>
+<div class="board-row">
+
+  <!-- D4 口令 -->
+  <div class="board">
+    <div class="board-label">D4 · 备份口令弹窗 — <b>桌面</b><span class="tag">首字段 autofocus · GCM 失败行内错 · 连错 3 次追加</span></div>
+    <div class="modal-wrap">
+      <div class="modal-dim"></div>
+      <div class="modal">
+        <div class="modal-card w400">
+          <div class="m-head">输入备份口令 <span class="m-close">✕</span></div>
+          <div class="m-body">
+            <div class="m-src">anyboot-backup-20261027.anyboot · 来自 <b>Android</b> · 已加密</div>
+            <div class="m-label">备份口令</div>
+            <div class="d-pw err">•••••• <span style="margin-left:auto">👁</span></div>
+            <div style="font-size:12px;color:var(--danger);margin:2px 2px 8px">✗ 口令错误或文件已损坏（已尝试 3/3 次，请确认文件来源）</div>
+          </div>
+          <div class="m-foot">
+            <span class="hint"><span class="kbd">Esc</span> 取消</span>
+            <button class="d-btn secondary">取消</button>
+            <button class="d-btn primary">确认</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- D5 预览 -->
+  <div class="board">
+    <div class="board-label">D5 · 导入预览模态 — <b>桌面</b><span class="tag">Enter=导入所选 · 导入中模态不可关</span></div>
+    <div class="modal-wrap">
+      <div class="modal-dim"></div>
+      <div class="modal">
+        <div class="modal-card w560">
+          <div class="m-head">导入预览 <span class="m-close">✕</span></div>
+          <div class="m-body">
+            <div class="m-src">来自 <b>iOS</b> · 2026-10-27 11:30 · AnyBoot 1.2.0　|　加密：是（口令已验证）</div>
+            <table class="m-tb">
+              <tr><th style="width:26px"></th><th>分类</th><th>备份</th><th>本机</th><th>差异</th></tr>
+              <tr><td><span class="d-cb on">✓</span></td><td>电脑列表</td><td class="dim">3 条</td><td class="dim">2 条</td><td class="warn-c">新增 2 · 覆盖 1：黑苹果(127.0.0.1:12300)</td></tr>
+              <tr><td><span class="d-cb on">✓</span></td><td>SSH 服务器</td><td class="dim">2 条</td><td class="dim">1 条</td><td class="dim">新增 2</td></tr>
+              <tr><td><span class="d-cb on">✓</span></td><td>SSH 密钥</td><td class="dim">1 把</td><td class="dim">0 把</td><td class="dim">新增 1（口令已验证可解）</td></tr>
+              <tr><td><span class="d-cb on">✓</span></td><td>偏好设置</td><td class="dim">8 项</td><td class="dim">—</td><td class="dim">覆盖本机设置</td></tr>
+              <tr><td><span class="d-cb"></span></td><td>连接记录</td><td class="dim">37 条</td><td class="dim">桌面无此数据域</td><td class="dim">跳过</td></tr>
+            </table>
+            <div class="radio-row">
+              <span><span class="radio on"></span>跳过本机已有</span>
+              <span><span class="radio off"></span>备份覆盖本机</span>
+            </div>
+            <div class="d-warn">⚠ 1 台电脑关联的跳板机不在本备份中，导入后需补配</div>
+          </div>
+          <div class="m-foot">
+            <button class="d-btn secondary">取消</button>
+            <button class="d-btn primary">导入所选 (4 类)</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- D7 覆盖确认 -->
+  <div class="board">
+    <div class="board-label">D7 · 覆盖导入二次确认 — <b>桌面 · 红色警示头</b><span class="tag">策略=覆盖时从 D5 二跳 · 确认钮 danger</span></div>
+    <div class="modal-wrap">
+      <div class="modal-dim"></div>
+      <div class="modal">
+        <div class="modal-card w460">
+          <div class="m-head redbar" style="color:var(--danger)">覆盖导入 <span class="m-close">✕</span></div>
+          <div class="m-body">
+            <div class="desc" style="font-size:13px;color:#3A3F4E;line-height:1.7">
+              策略为「备份覆盖本机」，本机所选分类的现有数据将被<b>替换</b>：<br>
+              · 电脑列表 <b>2 台</b>将被覆盖<br>
+              · SSH 服务器 <b>1 台</b>将被覆盖<br>
+              · 偏好设置将被替换
+            </div>
+            <div class="d-err" style="margin-top:12px">此操作不可撤销，建议先导出一份当前数据</div>
+          </div>
+          <div class="m-foot">
+            <span class="hint"><span class="kbd">Esc</span> 取消</span>
+            <button class="d-btn secondary">取消</button>
+            <button class="d-btn danger">覆盖导入</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="board-row">
+
+  <!-- D6 结果（部分失败） -->
+  <div class="board">
+    <div class="board-label">D6 · 导入结果模态 — <b>桌面 · ⚠ 部分失败</b><span class="tag">Enter=完成 · 失败清单滚动区</span></div>
+    <div class="modal-wrap">
+      <div class="modal-dim"></div>
+      <div class="modal">
+        <div class="modal-card w460">
+          <div class="m-head">导入结果 <span class="m-close">✕</span></div>
+          <div class="m-body">
+            <div class="res-hero">
+              <div class="ic" style="background:var(--warn-bg)">!</div>
+              <h5>导入完成（有失败项）</h5>
+              <p>新增电脑 2 · 覆盖电脑 1 · 新增服务器 1 · 失败 <b style="color:var(--danger)">2</b><br>失败项已跳过，其余数据已导入成功</p>
+            </div>
+            <div class="fail-list">
+              <div class="fr"><span class="x">✗</span><span>第 3 台电脑「测试机-C」：地址字段不合法（300.1.1.1:99999）</span></div>
+              <div class="fr"><span class="x">✗</span><span>SSH 密钥「home-nas」：私钥格式无法解析（PEM 损坏）</span></div>
+            </div>
+          </div>
+          <div class="m-foot">
+            <button class="d-btn primary">完成</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 导出保存对话框 + toast -->
+  <div class="board">
+    <div class="board-label">D-L1 · 导出完成 — <b>桌面 · 保存对话框 + 右下 toast</b><span class="tag">默认文件名 anyboot-backup-YYYYMMDD-HHmmss.anyboot</span></div>
+    <div class="modal-wrap">
+      <div class="modal-dim"></div>
+      <div class="modal">
+        <div class="modal-card w460">
+          <div class="m-head">导出备份 <span class="m-close">✕</span></div>
+          <div class="m-body">
+            <div class="m-label">保存位置</div>
+            <div class="d-input" style="color:#3A3F4E;margin-bottom:10px">~/Documents <span style="margin-left:auto;color:#9AA0B0">浏览…</span></div>
+            <div class="m-label">文件名</div>
+            <div class="d-input focus" style="color:#3A3F4E">anyboot-backup-20261027-124012<span style="color:#9AA0B0">.anyboot</span></div>
+            <div class="d-note">包含：电脑列表 3 · SSH 服务器 2 · SSH 密钥 1 · 偏好设置 · <b style="color:var(--warn)">已加密（AES-256-GCM）</b></div>
+          </div>
+          <div class="m-foot">
+            <button class="d-btn secondary">取消</button>
+            <button class="d-btn primary">保存</button>
+          </div>
+        </div>
+      </div>
+      <div class="dtoasts">
+        <div class="dtoast"><span class="tic ok">✓</span>已导出 4 类数据（18.4 KB）<span class="act">打开所在文件夹</span><span class="x">✕</span></div>
+        <div class="dtoast"><span class="tic bad">✗</span>密钥「home-nas」读取失败已跳过<span class="x">✕</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+  /* ---------- 交互原型 ---------- */
+  .pscreen{display:none;flex:1;flex-direction:column;min-height:0}
+  .pscreen.active{display:flex}
+  .press{cursor:pointer;-webkit-tap-highlight-color:transparent;transition:background .12s;border-radius:6px}
+  .press:active{background:var(--elevate)}
+  .theme-dark .press:active{background:#22262F}
+  .cb,.radio,.switch,.d-cb,.chev{transition:all .16s}
+  .btn{cursor:pointer;transition:transform .08s,opacity .2s,filter .12s}
+  .btn:active{filter:brightness(.9)}
+  .btn.off{opacity:.45;pointer-events:none}
+  input.fld{width:100%;background:transparent;border:none;outline:none;font:inherit;color:inherit;font-size:13.5px}
+  input.fld::placeholder{color:var(--fg-faint)}
+  .shake{animation:shake .3s}
+  @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-4px)}50%{transform:translateX(4px)}75%{transform:translateX(-3px)}}
+  .ptoast{opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;transform:translateX(-50%) translateY(8px)}
+  .ptoast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  .ovl{display:none}
+  .ovl.show{display:flex}
+  .psheet,.pdialog{animation:up .22s ease-out}
+  @keyframes up{from{transform:translateY(22px);opacity:.6}to{transform:none;opacity:1}}
+  .chip{font-size:11px;border:1px solid #C9CDE0;border-radius:6px;padding:3px 9px;background:#fff;color:#3A3F4E;cursor:pointer}
+  .chip:active{background:#EEF0F4}
+  .chev.open{transform:rotate(90deg)}
+  .det{display:none}
+  .det.open{display:block;animation:up .18s ease-out}
+  table.fb{width:100%;border-collapse:collapse;font-size:12.5px;background:#fff;border:1px solid #E4E6EC;border-radius:10px;overflow:hidden}
+  table.fb th{font-size:11.5px;color:#9AA0B0;font-weight:600;text-align:left;padding:9px 10px;border-bottom:1.5px solid #E4E6EC;background:#FAFBFD}
+  table.fb td{padding:9px 10px;border-bottom:1px solid #F2F3F7;vertical-align:top;line-height:1.65;color:#3A3F4E}
+  table.fb tr.grp td{background:#EEF0FE;color:#3F42B8;font-weight:700;font-size:12px;letter-spacing:.04em}
+  table.fb td.op{font-weight:600;color:#1A1D26;width:150px}
+  table.fb td.nowrap{white-space:nowrap}
+  .fb-copy{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11.5px;background:#F6F7FA;border-radius:4px;padding:1px 5px;color:#3F42B8;white-space:nowrap}
+  .fb-bad{color:var(--danger)}
+  .fb-ok{color:var(--ok)}
+  .fb-note{color:#9AA0B0;font-size:11.5px}
+</style>
+
+<!-- ==================================================================== -->
+<h2 class="flow-title">⑥ 交互式原型（真的可以点）— 直接体验每一次点击的提示</h2>
+<div class="sub">下面的手机是<b>活的</b>：勾选/开关/按钮都可交互。<b>演示口令：anyboot</b>（其他口令会看到失败抖动）；预览页把策略切到「备份覆盖本机」再点导入，会看到红色二次确认；右侧演示片可预览「部分失败结果」。逐字文案与下方明细表一致。</div>
+<div class="board-row">
+  <div class="board">
+    <div class="board-label">交互原型 — <b>完整流程可走通</b><span class="tag">导出 → 分享 ｜ 导入 → 口令 → 预览 → 确认 → 执行 → 报告 ｜ 同步开关/立即同步 ｜ 测试连接三态</span></div>
+    <div class="phone"><div class="phone-screen theme-light" style="position:relative">
+      <div class="notch"></div>
+
+      <!-- ===== 屏1：主页 ===== -->
+      <div class="pscreen active" id="ps-home">
+        <div class="navbar"><div class="nav-back">‹</div><div class="nav-title">备份与恢复</div></div>
+        <div class="scroll">
+          <div class="sec-title">导出</div>
+          <div class="card">
+            <div class="row press" onclick="toggleCat('cmp',this.querySelector('.cb'))"><div class="cb on" id="cb-cmp">✓</div><div class="grow"><div class="row-title">电脑列表 <span class="count" id="cntCmp">（3 台）</span></div><div class="row-sub">地址 · 配对 · 电源路由</div></div></div>
+            <div class="row press" onclick="toggleCat('srv',this.querySelector('.cb'))"><div class="cb on" id="cb-srv">✓</div><div class="grow"><div class="row-title">SSH 服务器 <span class="count" id="cntSrv">（2 台）</span></div><div class="row-sub">跳板机 · 认证配置</div></div></div>
+            <div class="row press" onclick="toggleCat('keys',this.querySelector('.cb'))"><div class="cb" id="cb-keys">✓</div><div class="grow"><div class="row-title">SSH 密钥 <span class="count" id="cntKey">（1 把）</span>　<span class="badge-warn">高敏</span></div><div class="row-sub">私钥与登录密码，需口令加密</div></div></div>
+            <div class="row press" onclick="toggleCat('pref',this.querySelector('.cb'))"><div class="cb on" id="cb-pref">✓</div><div class="grow"><div class="row-title">偏好设置</div></div></div>
+            <div class="row press" onclick="toggleCat('hist',this.querySelector('.cb'))"><div class="cb" id="cb-hist">✓</div><div class="grow"><div class="row-title">连接记录 <span class="count">（37 条）</span></div></div></div>
+            <div id="pwArea" style="display:none">
+              <div class="pw-label">备份口令</div>
+              <div class="pw"><input class="fld" id="pw1" type="password" placeholder="至少 6 位" oninput="refreshExport()"><span class="eye">👁</span></div>
+              <div class="pw-label">确认口令</div>
+              <div class="pw"><input class="fld" id="pw2" type="password" placeholder="再次输入" oninput="refreshExport()"><span class="eye">👁</span></div>
+              <div class="row-sub err" id="pwErrLine" style="display:none;margin:2px 2px 6px">两次输入不一致</div>
+              <div class="strength"><i id="st1"></i><i id="st2"></i><i id="st3"></i></div>
+            </div>
+            <div class="info" id="expInfo">ⓘ 2 台电脑关联的跳板机未包含在本次导出</div>
+            <div class="btn primary" id="btnExport" onclick="doExport(this)">导出到文件</div>
+          </div>
+
+          <div class="sec-title">多端同步</div>
+          <div class="card">
+            <div class="row press"><div class="grow"><div class="row-title">启用多端同步</div><div class="row-sub">通过 WebDAV 保持所选数据一致</div></div><div class="switch on" id="swSync" onclick="toggleSync(this)"></div></div>
+            <div class="row press" onclick="go('ps-s2')"><div class="grow"><div class="row-title">WebDAV 与同步内容</div><div class="row-sub"><span class="dot-ok"></span>dav.jianguoyun.com</div></div><span class="chev">›</span></div>
+            <div class="row press" id="rowSyncNow" onclick="syncNow()"><div class="grow"><div class="row-title">立即同步</div></div><div class="sync-status" id="syncStat"><span class="ok">上次 12:02 · 成功</span></div></div>
+          </div>
+
+          <div class="sec-title">导入</div>
+          <div class="card">
+            <div class="btn secondary press" style="margin-top:10px" onclick="openPwSheet()">从文件导入</div>
+            <div class="row-sub" style="text-align:center;padding-bottom:12px">支持 .anyboot 备份文件 · 演示口令 anyboot</div>
+          </div>
+          <div style="height:20px"></div>
+        </div>
+      </div>
+
+      <!-- ===== 屏2：WebDAV 配置 ===== -->
+      <div class="pscreen" id="ps-s2">
+        <div class="navbar"><div class="nav-back" onclick="go('ps-home')">‹</div><div class="nav-title">WebDAV 与同步内容</div><div class="nav-save" id="navSaveBtn" onclick="saveS2()">保存</div></div>
+        <div class="scroll">
+          <div class="card" style="margin-top:6px">
+            <div class="pw-label">服务器地址</div>
+            <div class="pw" style="color:var(--fg)">https://dav.jianguoyun.com/dav/</div>
+            <div class="pw-label">用户名</div>
+            <div class="pw" style="color:var(--fg)">me@example.com</div>
+            <div class="pw-label">应用密码</div>
+            <div class="pw" id="pwS2">••••••••••••<span class="grow"></span><span class="eye" onclick="toggleEyeS2()">👁</span></div>
+            <div class="row-sub err" id="testErr401" style="display:none;margin:2px 2px 8px">✗ 连接失败：401 用户名或密码错误</div>
+            <div class="row-sub okc" id="testOk" style="display:none;margin:2px 2px 8px">✓ 连接成功 · 12:43</div>
+            <div class="pw-label">远端同步目录</div>
+            <div class="pw" style="color:var(--fg)">/AnyBoot/sync</div>
+            <div class="row press"><div class="grow"><div class="row-title">同步周期</div></div><div style="font-size:13.5px;color:var(--accent)">手动 ▾</div></div>
+            <div class="row"><div class="grow"><div class="row-title">记录变化时就同步</div><div class="row-sub">建议只在自有服务器时开启，防止占用限额</div></div><div class="switch on"></div></div>
+          </div>
+          <div class="btn secondary press" style="margin-top:14px" id="btnTest" onclick="testConn('ok')">测试连接</div>
+          <div class="info" style="margin-top:4px">ⓘ 演示片：<span class="chip" onclick="testConn('404')">模拟 404</span> <span class="chip" onclick="testConn('401')">模拟 401</span>　测试不保存任何配置</div>
+          <div style="height:16px"></div>
+        </div>
+      </div>
+
+      <!-- ===== 屏3：导入口令 ===== -->
+      <div class="pscreen" id="ps-pw">
+        <div class="navbar" style="opacity:.4"><div class="nav-back">‹</div><div class="nav-title">备份与恢复</div></div>
+        <div class="poverlay" style="position:relative;flex:1;display:flex">
+          <div class="psheet" style="width:100%">
+            <div class="grab"></div>
+            <h4>输入备份口令</h4>
+            <div class="desc">该备份文件已加密（来自 iOS · 2026-10-27 11:30）· 不可点外关闭</div>
+            <div class="pw" id="pwBox5"><input class="fld" id="pwIn" type="password" placeholder="演示口令：anyboot" oninput="pwClear()"><span class="eye">👁</span></div>
+            <div class="row-sub err" id="pwErr" style="display:none">✗ 口令错误或文件已损坏（已尝试 1/3 次）</div>
+            <div class="btn primary" onclick="tryPw()" id="btnPwOk">确认</div>
+            <div class="btn ghost-mini press" style="justify-content:center" onclick="go('ps-home')">取消导入</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== 屏4：导入预览 ===== -->
+      <div class="pscreen" id="ps-preview">
+        <div class="navbar"><div class="nav-back" onclick="go('ps-home')">✕</div><div class="nav-title">导入预览</div></div>
+        <div class="scroll">
+          <div class="card" style="margin-top:6px">
+            <div class="row" style="min-height:40px"><div class="row-sub">来自 <b style="color:var(--fg-dim)">iOS</b> · 2026-10-27 11:30 · AnyBoot 1.2.0 · 加密已验证</div></div>
+            <div class="row press" onclick="toggleDetail()"><div class="cb on" id="cbP-cmp">✓</div><div class="grow"><div class="row-title">电脑列表</div><div class="row-sub">备份 3 条 · 本机 2 条</div></div><span class="chev" id="chevDet">›</span></div>
+            <div class="info det" id="detCmp" style="margin:0 0 8px;line-height:1.7">新增 2 · 覆盖 1<br><b>覆盖：黑苹果（127.0.0.1:12300）</b><br>跳过 0　<span style="color:var(--fg-faint)">…等共 3 条</span></div>
+            <div class="row press" onclick="chipToggle('cbP-srv')"><div class="cb on" id="cbP-srv">✓</div><div class="grow"><div class="row-title">SSH 服务器</div><div class="row-sub">备份 2 条 · 本机 1 条</div></div></div>
+            <div class="row press" onclick="chipToggle('cbP-key')"><div class="cb on" id="cbP-key">✓</div><div class="grow"><div class="row-title">SSH 密钥</div><div class="row-sub">备份 1 把 · 本机 0 把 · <span style="color:var(--warn)">口令已验证可解</span></div></div></div>
+            <div class="row press" onclick="chipToggle('cbP-pref')"><div class="cb on" id="cbP-pref">✓</div><div class="grow"><div class="row-title">偏好设置</div><div class="row-sub">将覆盖本机当前设置</div></div></div>
+            <div class="row press" onclick="chipToggle('cbP-hist')"><div class="cb" id="cbP-hist">✓</div><div class="grow"><div class="row-title">连接记录</div><div class="row-sub">备份 37 条 · 本机 12 条</div></div></div>
+          </div>
+          <div class="sec-title">合并策略</div>
+          <div class="card" id="scrprevstr">
+            <div class="row press" style="min-height:42px" onclick="setStrategy('skip')"><span class="radio on" id="r-skip"></span><div class="row-title">跳过本机已有</div><div class="row-sub" style="margin-left:auto">上次选择</div></div>
+            <div class="row press" style="min-height:42px" onclick="setStrategy('cover')"><span class="radio off" id="r-cover"></span><div class="row-title">备份覆盖本机</div></div>
+          </div>
+          <div class="info warn" style="margin-top:10px">⚠ 1 台电脑关联的跳板机不在本备份中，导入后需补配</div>
+          <div class="info danger" id="coverHint" style="display:none">本机所选分类现有数据将被替换</div>
+          <div class="btnrow">
+            <div class="btn secondary press" style="flex:1" onclick="go('ps-home')">取消</div>
+            <div class="btn primary press" style="flex:1.6" id="btnImport" onclick="doImport()">导入所选 (4 类)</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== 屏5：执行中 ===== -->
+      <div class="pscreen" id="ps-exec">
+        <div class="topbar-prog"><i id="execBar" style="width:6%;transition:width .5s"></i></div>
+        <div class="navbar"><div class="nav-back" style="opacity:.35" onclick="toast('正在导入，请勿离开',1600)">✕</div><div class="nav-title">导入预览</div></div>
+        <div class="scroll">
+          <div class="card" style="margin-top:6px">
+            <div class="row" style="min-height:40px"><div class="row-sub">正在导入…（进行中不可取消、不可关闭页面）</div></div>
+            <div class="row"><span id="ic1" style="width:16px;text-align:center"></span><div class="grow"><div class="row-title">电脑列表</div><div class="row-sub" id="sb1"></div></div></div>
+            <div class="row"><span id="ic2" style="width:16px;text-align:center"></span><div class="grow"><div class="row-title">SSH 服务器</div><div class="row-sub" id="sb2"></div></div></div>
+            <div class="row"><span id="ic3" style="width:16px;text-align:center"></span><div class="grow"><div class="row-title">SSH 密钥</div><div class="row-sub" id="sb3"></div></div></div>
+            <div class="row"><span id="ic4" style="width:16px;text-align:center"></span><div class="grow"><div class="row-title">偏好设置</div><div class="row-sub" id="sb4"></div></div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== 屏6：结果 ===== -->
+      <div class="pscreen" id="ps-result">
+        <div class="navbar"><div class="nav-back" style="visibility:hidden">‹</div><div class="nav-title">导入结果</div></div>
+        <div class="scroll">
+          <div class="result">
+            <div class="r-icon ok" id="rIcon">✓</div>
+            <div class="r-title" id="rTitle">导入完成</div>
+            <div class="r-sum" id="rSum">新增电脑 2 · 覆盖电脑 1<br>新增服务器 2 · 新增密钥 1<br>偏好设置已更新 · 失败 0</div>
+            <div class="failcard" id="rFail" style="display:none">
+              <div class="fh">失败清单（2）</div>
+              <div class="fr"><span class="x">✗</span><span>第 3 台电脑「测试机-C」：地址字段不合法（300.1.1.1:99999）</span></div>
+              <div class="fr"><span class="x">✗</span><span>SSH 密钥「home-nas」：私钥格式无法解析（PEM 损坏）</span></div>
+            </div>
+            <div class="r-note" id="rNote">单条失败不影响其余数据：失败项已跳过并单独列出</div>
+            <div class="btn primary press" style="width:100%;margin-top:18px" onclick="finishImport()">完成</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== 弹层 ===== -->
+      <div class="poverlay ovl" id="ovShare" onclick="if(event.target===this)hide('ovShare')">
+        <div class="psheet">
+          <div class="grab"></div>
+          <div style="display:flex;align-items:center;gap:10px;padding:4px 2px 12px">
+            <div style="width:44px;height:44px;border-radius:10px;background:#EEF0FE;display:flex;align-items:center;justify-content:center;font-size:20px">📦</div>
+            <div class="grow"><div style="font-size:13.5px;font-weight:600">anyboot-backup-20261027-1240.anyboot</div><div class="row-sub">18.4 KB · 已加密（AES-256-GCM）</div></div>
+          </div>
+          <div class="btn ghost-mini press" style="justify-content:center" onclick="hide('ovShare')">取消</div>
+        </div>
+      </div>
+
+      <div class="pdialog-wrap ovl" id="ovCloseSync" onclick="if(event.target===this)hide('ovCloseSync')">
+        <div class="pdialog">
+          <h4>关闭多端同步？</h4>
+          <div class="desc">关闭后本设备将停止自动同步，也不再拉取其他设备的改动。<br>已上传到 WebDAV 的云文件会保留。</div>
+          <div class="btnrow">
+            <div class="btn secondary press" onclick="hide('ovCloseSync')">取消</div>
+            <div class="btn danger press" onclick="closeSyncYes()">关闭同步</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="pdialog-wrap ovl" id="ovCover" onclick="if(event.target===this)hide('ovCover')">
+        <div class="pdialog">
+          <h4 style="color:var(--danger)">覆盖导入</h4>
+          <div class="desc">策略为「备份覆盖本机」，本机所选分类的现有数据将被<b>替换</b>：<br>· 电脑列表 <b>2 台</b>将被覆盖<br>· SSH 服务器 <b>1 台</b>将被覆盖<br>· 偏好设置将被替换</div>
+          <div class="info danger" style="margin:0 0 12px">此操作不可撤销，建议先导出一份当前数据</div>
+          <div class="btnrow">
+            <div class="btn secondary press" onclick="hide('ovCover')">取消</div>
+            <div class="btn danger press" onclick="startExec()">覆盖导入</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="pdialog-wrap ovl" id="ovMkdir" onclick="if(event.target===this)hide('ovMkdir')">
+        <div class="pdialog">
+          <h4>目录不存在</h4>
+          <div class="desc">远端目录 <b class="mono">/AnyBoot/sync</b> 在 WebDAV 服务器上不存在，是否自动创建？</div>
+          <div class="btnrow">
+            <div class="btn secondary press" onclick="hide('ovMkdir')">取消</div>
+            <div class="btn primary press" onclick="mkdirYes()">创建</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="ptoast" id="toast"></div>
+    </div></div>
+  </div>
+
+  <!-- 演示控制 -->
+  <div class="board" style="max-width:420px">
+    <div class="board-label">演示控制 & 预期脚本 — <b>按这个顺序点一遍就是验收路径</b></div>
+    <div class="flowmap" style="line-height:2.3">
+      <b>① 导出</b>：勾「SSH 密钥」→ 口令区弹出，按钮灰 → 口令输 <span class="fb-copy">123456</span> + <span class="fb-copy">12345</span> → 红字「两次输入不一致」→ 改一致 → 按钮亮 → 点「导出到文件」→ loading「正在组包…」→ 分享面板 + toast<br>
+      <b>② 同步</b>：关「启用多端同步」→ 红色确认弹窗 →「关闭同步」→ toast；开关回弹=取消<br>
+      <b>③ 测试连接</b>：主页 → WebDAV 行 →「测试连接」成功态；点「模拟 404」→ 创建目录弹窗；「模拟 401」→ 红框+行内错误<br>
+      <b>④ 导入</b>：从文件导入 → 输错口令（如 <span class="fb-copy">111111</span>）→ 抖动+「已尝试 1/3 次」→ 输 <span class="fb-copy">anyboot</span> → 预览 → 点「›」展开冲突明细 → 策略切「覆盖」→ 红警示 + 红色二次确认 → 执行中逐类打勾 → 结果页 → 完成后主页计数刷新为 <b>5 台 / 4 台 / 1 把</b><br>
+      <b>⑤ 部分失败</b>：先点下面「预演部分失败」再走导入 → 结果页 ⚠ + 失败清单
+      <div style="margin-top:10px">
+        <span class="chip" onclick="previewFail()">预演部分失败结果</span>
+        <span class="chip" onclick="location.reload()">重置原型</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================================================================== -->
+<h2 class="flow-title">⑦ 点击反馈明细总表 — 每个可点元素的逐字提示（实现按此表验收）</h2>
+<div class="board-row" style="display:block">
+<table class="fb">
+  <tr><th style="width:150px">点击操作</th><th style="width:200px">即时反馈（≤100ms）</th><th style="width:190px">过程反馈</th><th style="width:230px">成功反馈（逐字）</th><th>失败 / 边界反馈（逐字）</th></tr>
+
+  <tr class="grp"><td colspan="5">S1 主页 · 导出区</td></tr>
+  <tr><td class="op">点分类行（任意）</td><td>整行背景 <span class="fb-copy">elevate</span> 80ms；复选框 160ms 缩放打勾动画；触觉 light（iOS .light / Android KEYBOARD_TAP）</td><td>—</td><td>计数即时重算；引用完整性 info 条文案即时重算</td><td>空分类可勾（显示 <span class="fb-copy">（0）</span> 照常可导）；<b>勾「SSH 密钥」</b>→口令区 200ms 展开 + info 变黄 + 主按钮 45% 置灰禁点；取消勾选全部还原</td></tr>
+  <tr><td class="op">口令输入框（输入中）</td><td>聚焦描边 accent；掩码显示</td><td>—</td><td>两次一致且 ≥6 位 → 主按钮恢复可点（无 toast，安静恢复）</td><td>两次不一致 → 确认框红描边 + 行内 <span class="fb-copy">两次输入不一致</span>（即时出现/即时消失）；<6 位 → 按钮保持灰</td></tr>
+  <tr><td class="op">👁 眼睛</td><td>明文/掩码切换 + 图标填充态切换；触觉 selection</td><td>—</td><td>—</td><td>—（无 toast）</td></tr>
+  <tr><td class="op">导出到文件</td><td>按压 brightness .9 + 触觉 medium</td><td>按钮变 <span class="fb-copy">正在组包…</span> + spinner，全页禁点（约 1s）</td><td>iOS：分享面板 300ms spring 上滑 + 触觉 success；随后 toast <span class="fb-ok">已导出 4 类数据（电脑 3 · 服务器 2 · 密钥 1 · 偏好 8 项）</span></td><td>钥匙串读密失败 → toast 追加 <span class="fb-bad">密钥“home-nas”读取失败已跳过</span>；磁盘满 → toast <span class="fb-bad">导出失败：存储空间不足</span>；密钥勾选未设口令 → 按钮点不动（事前阻断，无报错）</td></tr>
+  <tr><td class="op">分享面板 · 取消 / 点外</td><td>面板 200ms 下滑消失</td><td>—</td><td>—</td><td>—（文件已生成，无提示）</td></tr>
+
+  <tr class="grp"><td colspan="5">S1 主页 · 多端同步区</td></tr>
+  <tr><td class="op">启用多端同步开关（关）</td><td>拨动动画 150ms + 触觉 light；<b>弹窗期间开关保持 on，确认后才真的关</b></td><td>—</td><td>确认 → 开关 off + toast <span class="fb-ok">已关闭多端同步，云文件已保留</span></td><td>取消 / 点外 → 开关回弹 150ms，无任何提示；未配置 WebDAV 就开开关 → 直接跳 S2 + toast <span class="fb-copy">请先配置 WebDAV 服务器和同步内容</span></td></tr>
+  <tr><td class="op">WebDAV 与同步内容行</td><td>整行按压背景；push 转场右滑入 300ms</td><td>—</td><td>—</td><td>—</td></tr>
+  <tr><td class="op">立即同步行</td><td>已配置：行内 spinner + <span class="fb-copy">同步中…</span>，重复点击无效（不弹窗）；<b>未配置：整行 40% 透明</b></td><td>状态行 spinner，可离开页面后台继续</td><td>状态行刷新 <span class="fb-ok">上次 12:43 · 成功</span> + toast <span class="fb-ok">同步完成 · 推送 2 项 · 拉取 1 项</span></td><td>未配置时点击 → 每次都 toast <span class="fb-copy">请先配置 WebDAV 服务器和同步内容</span>；失败 → <span class="fb-bad">✗ 同步失败：网络超时</span> + 保留上次成功时间</td></tr>
+
+  <tr class="grp"><td colspan="5">S1 主页 · 导入入口</td></tr>
+  <tr><td class="op">从文件导入</td><td>描边按钮按压背景 elevate</td><td>系统文件选择器（.anyboot/.json，可切「所有文件」）</td><td>选中加密文件 → 口令页 sheet 上滑；明文文件 → 直接进预览</td><td>>10MB → toast <span class="fb-bad">文件超过 10MB，已拒绝</span>；非法内容 → toast <span class="fb-bad">不是有效的 AnyBoot 备份文件</span>；版本过高 → 进结果页 <span class="fb-bad">备份来自更新版本，请先升级 App</span></td></tr>
+
+  <tr class="grp"><td colspan="5">S5 备份口令页（sheet，不可点外关闭）</td></tr>
+  <tr><td class="op">确认</td><td>按压反馈；≥6 位才可点</td><td>按钮 spinner 400ms（校验 GCM）</td><td>sheet 200ms 下滑 → 进预览页 + toast <span class="fb-ok">解密成功</span></td><td>GCM 失败 → 输入框 <b>shake 300ms</b> + 红描边 + <span class="fb-bad">✗ 口令错误或文件已损坏（已尝试 N/3 次）</span> + 触觉 error；连错 3 次 → 追加 <span class="fb-bad">请确认文件来源</span>；<6 位 → <span class="fb-copy">口令至少 6 位</span>（不发请求）</td></tr>
+  <tr><td class="op">取消导入</td><td>ghost 按压</td><td>—</td><td>下滑关闭回主页，无状态变化、无 toast</td><td>—</td></tr>
+
+  <tr class="grp"><td colspan="5">S3 导入预览</td></tr>
+  <tr><td class="op">点分类行</td><td>同 S1 分类行（触觉 light）</td><td>—</td><td>计数即时重算，主按钮文字即时更新 <span class="fb-copy">导入所选 (N 类)</span></td><td>全不勾 → 主按钮置灰禁点</td></tr>
+  <tr><td class="op">› 展开明细</td><td>chev 旋转 90° 150ms + 明细区 180ms 展开</td><td>—</td><td>展示「新增 X · 覆盖 Y：名称(地址) · 跳过 Z」</td><td>>20 条折叠为 <span class="fb-copy">…等共 N 条</span></td></tr>
+  <tr><td class="op">合并策略 radio</td><td>圆点 160ms 动画 + 触觉 selection</td><td>—</td><td>选择写入并记住（下次默认）</td><td>切「备份覆盖本机」→ 下方即时追加红条 <span class="fb-bad">本机所选分类现有数据将被替换</span>；切回即消失</td></tr>
+  <tr><td class="op">导入所选 (N 类)</td><td>按压反馈</td><td>跳 S6b（覆盖策略）或直接执行：顶部 3pt 进度条 + 当前类 spinner <span class="fb-copy">正在导入 电脑列表…</span>，完成类 ✓ + 副行 <span class="fb-ok">完成 · 新增 X · 覆盖 Y</span></td><td>全部完成 → 结果页</td><td>执行中按返回/✕ → toast <span class="fb-copy">正在导入，请勿离开</span>（页面锁定）；单条失败不中断</td></tr>
+  <tr><td class="op">取消 / ✕</td><td>按压反馈</td><td>—</td><td>回主页，无状态变化</td><td>—</td></tr>
+
+  <tr class="grp"><td colspan="5">S6 二次确认弹窗（居中，点外 = 取消）</td></tr>
+  <tr><td class="op">覆盖导入确认 · 覆盖导入（红）</td><td>红钮按压加深 8% + 触觉 heavy</td><td>弹窗关 → 进入执行页</td><td>—</td><td>取消 / 点外 → 回预览页，策略保持不变</td></tr>
+  <tr><td class="op">关闭同步 · 关闭同步（红）</td><td>同上</td><td>—</td><td>开关 off + <span class="fb-copy">已关闭多端同步，云文件已保留</span></td><td>取消 → 开关回弹</td></tr>
+  <tr><td class="op">创建目录 · 创建</td><td>按压反馈</td><td>按钮 spinner <span class="fb-copy">创建中…</span></td><td>行内 <span class="fb-ok">✓ 目录已创建并连接成功</span> + toast <span class="fb-ok">/AnyBoot/sync 已创建</span></td><td>创建失败 → 行内 <span class="fb-bad">✗ 创建失败：{原因}</span>，弹窗保持打开</td></tr>
+
+  <tr class="grp"><td colspan="5">S2 WebDAV 配置</td></tr>
+  <tr><td class="op">保存（导航栏文字钮）</td><td>地址缺 scheme → 钮 40% 置灰禁点；有效才可点</td><td>点击瞬间 ✓ 反馈（无 loading）</td><td>pop 回主页 + toast <span class="fb-ok">已保存</span></td><td>口令区展开但不完整 → 仍可保存（未启加密时口令忽略，无提示）</td></tr>
+  <tr><td class="op">测试连接</td><td>按钮变 <span class="fb-copy">正在测试连接…</span> + spinner，禁点</td><td>约 1s（真实为 PROPFIND）</td><td>按钮下方绿行 <span class="fb-ok">✓ 连接成功 · HH:mm</span> + 触觉 success</td><td>404 → 弹创建目录弹窗；401 → 地址外两框红描边 + <span class="fb-bad">✗ 连接失败：401 用户名或密码错误</span>，按钮变 <span class="fb-copy">重新测试</span>；超时 → <span class="fb-bad">✗ 服务器无响应，请稍后重试</span>；测试不写任何配置</td></tr>
+  <tr><td class="op">同步文件加密开关</td><td>拨动 150ms + 触觉 light</td><td>—</td><td>开 → 口令两框展开</td><td>勾「SSH 密钥」且未开加密 → 黄条 <span class="fb-copy">建议开启加密，私钥将以明文存放于 WebDAV 服务器</span>；关闭 → 口令直接清空（无二次确认，明示即可）</td></tr>
+
+  <tr class="grp"><td colspan="5">S4 结果报告</td></tr>
+  <tr><td class="op">完成</td><td>按压反馈</td><td>—</td><td>pop 回主页 + 分类计数刷新（<span class="fb-copy">电脑列表（5 台）</span> 等）</td><td>全失败 → 标题 <span class="fb-bad">导入失败</span>、按钮变「返回」，主页数据不变</td></tr>
+
+  <tr class="grp"><td colspan="5">桌面端（差异项，其余同手机文案）</td></tr>
+  <tr><td class="op"> 导出到文件…</td><td>按压；主按钮</td><td>系统保存对话框（默认名 <span class="fb-copy">anyboot-backup-YYYYMMDD-HHmmss.anyboot</span>）→ 窗口内 3pt 进度条</td><td>右下 toast 5s <span class="fb-ok">已导出 4 类数据（18.4 KB）</span> + 动作钮 <span class="fb-copy">打开所在文件夹</span>（hover 下划线）</td><td>密钥读取失败 → 独立红 toast <span class="fb-bad">密钥“home-nas”读取失败已跳过</span>；toast 可 ✕、hover 暂停自动消失</td></tr>
+  <tr><td class="op">D4 口令 · 确认</td><td>首字段 autofocus + 全选；<span class="kbd">Enter</span>=确认 / <span class="kbd">Esc</span>=取消</td><td>按钮 spinner 400ms</td><td>弹窗关 → D5 预览</td><td>失败 → 红描边 + <span class="fb-bad">✗ 口令错误或文件已损坏（已尝试 N/3 次）</span>，输入框重新 focus 全选便于重输</td></tr>
+  <tr><td class="op">D5 导入所选</td><td><span class="kbd">Enter</span> 触发</td><td><b>模态锁定</b>：✕ 40% 禁用、Esc 无效、点遮罩无效，按钮 spinner「正在导入」</td><td>关闭 → D6 结果模态</td><td>—</td></tr>
+  <tr><td class="op">立即同步（桌面）</td><td>未配置 → 按钮禁用 + tooltip <span class="fb-copy">请先配置 WebDAV 服务器和同步内容</span></td><td>按钮 spinner + <span class="fb-copy">⟳ 同步中…</span>，分区显示「拉取 → 合并 → 推送」阶段</td><td>右下 toast <span class="fb-ok">同步完成 · 推送 2 项改动 · 拉取 1 项覆盖</span>；上次同步行刷新</td><td>失败 → 状态行 <span class="fb-bad">✗ 失败</span> + 红条原因（如配额满）+ 按钮「⟳ 重试」+ 说明「自动重试将于 2 分钟后进行（指数退避）」</td></tr>
+  <tr><td class="op">覆盖导入（D7 红）</td><td>红色警示头 + danger 钮；<span class="kbd">Esc</span>=取消</td><td>—</td><td>关 → 执行</td><td>取消 → 回 D5，策略不变</td></tr>
+</table>
+
+<div class="sub" style="margin-top:14px">
+  规格：docs/backup-ui-design.md ｜ 功能与数据契约：docs/backup-design.md ｜ 触控 ≥44pt（手机）· 桌面可点 ≥28px · 每屏仅一个主按钮 · 危险操作二次确认且确认钮红色 · 双主题对比度 ≥4.5:1 · 所有 loading ≥300ms · 错误永不用裸 alert · 触觉：iOS UIImpactFeedbackGenerator / Android HapticFeedbackConstants
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+function show(id){$(id).classList.add('show')}
+function hide(id){$(id).classList.remove('show')}
+function go(id){document.querySelectorAll('.pscreen').forEach(s=>s.classList.remove('active'));$(id).classList.add('active')}
+let toastTimer;
+function toast(t,ms){const el=$('toast');el.textContent=t;el.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),ms||2400)}
+
+/* ---- 导出 ---- */
+const cat={cmp:true,srv:true,keys:false,pref:true,hist:false};
+function toggleCat(k,cb){cat[k]=!cat[k];cb.classList.toggle('on',cat[k]);
+  if(k==='keys'){$('pwArea').style.display=cat.keys?'block':'none';if(cat.keys)$('pw1').focus();}
+  refreshExport()}
+function strength(v){let n=0;if(v.length>=6)n++;if(v.length>=10)n++;if(/[A-Za-z]/.test(v)&&/\d/.test(v))n++;
+  const cls=['','f1','f2','f3'][n];
+  ['st1','st2','st3'].forEach((id,i)=>{$(id).className=i<n?cls:''})}
+function refreshExport(){
+  const p1=$('pw1').value,p2=$('pw2').value;
+  const ready=!cat.keys||(p1.length>=6&&p1===p2);
+  $('btnExport').classList.toggle('off',!ready);
+  const inf=$('expInfo');
+  if(cat.keys){inf.className='info warn';inf.textContent='⚠ 此分类包含私钥与登录密码，必须设置口令加密'}
+  else{inf.className='info';inf.textContent='ⓘ 2 台电脑关联的跳板机未包含在本次导出'}
+  $('pwErrLine').style.display=(p2&&p1!==p2)?'block':'none';
+  strength(p1);
+}
+function doExport(btn){
+  btn.innerHTML='<span class="spin"></span><span style="margin-left:9px">正在组包…</span>';
+  btn.classList.add('off');
+  setTimeout(()=>{btn.innerHTML='导出到文件';btn.classList.remove('off');show('ovShare');
+    toast('已导出 4 类数据（电脑 3 · 服务器 2 · 密钥 1 · 偏好 8 项）')},1400);
+}
+
+/* ---- 同步 ---- */
+function toggleSync(sw){
+  if(sw.classList.contains('on')){show('ovCloseSync')}
+  else{sw.classList.add('on');$('rowSyncNow').style.opacity=1;toast('已开启多端同步')}
+}
+function closeSyncYes(){hide('ovCloseSync');$('swSync').classList.remove('on');$('rowSyncNow').style.opacity=.45;toast('已关闭多端同步，云文件已保留')}
+let syncing=false;
+function syncNow(){
+  if(syncing)return;syncing=true;
+  $('syncStat').innerHTML='<span class="spin dim"></span> 同步中…';
+  setTimeout(()=>{syncing=false;
+    $('syncStat').innerHTML='<span class="ok">上次 12:43 · 成功</span>';
+    toast('同步完成 · 推送 2 项 · 拉取 1 项')},1600);
+}
+
+/* ---- S2 测试连接 ---- */
+let eyeOn=false;
+function toggleEyeS2(){eyeOn=!eyeOn;$('pwS2').firstChild.textContent=eyeOn?'AppPassword-1234':'••••••••••••'}
+function testConn(mode){
+  $('testOk').style.display='none';$('testErr401').style.display='none';
+  const btn=$('btnTest');btn.innerHTML='<span class="spin dim"></span><span style="margin-left:9px;color:var(--accent)">正在测试连接…</span>';
+  setTimeout(()=>{btn.textContent='测试连接';
+    if(mode==='401'){$('testErr401').style.display='block';btn.textContent='重新测试';}
+    else if(mode==='404'){show('ovMkdir');}
+    else{$('testOk').style.display='block';toast('连接成功');}
+  },1000);
+}
+function mkdirYes(){hide('ovMkdir');$('testOk').textContent='✓ 目录已创建并连接成功';$('testOk').style.display='block';toast('/AnyBoot/sync 已创建')}
+function saveS2(){go('ps-home');toast('已保存')}
+
+/* ---- 导入口令 ---- */
+let pwTries=0;
+function openPwSheet(){pwTries=0;$('pwIn').value='';$('pwErr').style.display='none';go('ps-pw')}
+function pwClear(){$('pwErr').style.display='none'}
+function tryPw(){
+  const v=$('pwIn').value;
+  if(v.length<6){pwFail('口令至少 6 位');return}
+  if(v!=='anyboot'){pwTries++;pwFail('口令错误或文件已损坏（已尝试 '+pwTries+'/3 次）'+(pwTries>=3?'，请确认文件来源':''));return}
+  go('ps-preview');toast('解密成功');
+}
+function pwFail(msg){const el=$('pwBox5');$('pwErr').textContent='✗ '+msg;$('pwErr').style.display='block';
+  el.classList.remove('shake');void el.offsetWidth;el.classList.add('shake')}
+
+/* ---- 预览 ---- */
+function toggleDetail(){$('detCmp').classList.toggle('open');$('chevDet').classList.toggle('open')}
+function chipToggle(id){$(id).classList.toggle('on');refreshImportBtn()}
+function refreshImportBtn(){
+  const any=['cbP-cmp','cbP-srv','cbP-key','cbP-pref','cbP-hist'].some(i=>$(i).classList.contains('on'));
+  $('btnImport').classList.toggle('off',!any);
+}
+let strategy='skip',demoFail=false;
+function setStrategy(s){
+  strategy=s;
+  $('r-skip').className='radio '+(s==='skip'?'on':'off');
+  $('r-cover').className='radio '+(s==='cover'?'on':'off');
+  $('coverHint').style.display=s==='cover'?'block':'none';
+}
+function doImport(){strategy==='cover'?show('ovCover'):startExec()}
+
+/* ---- 执行 ---- */
+const steps=[['ic1','sb1','电脑列表','完成 · 新增 2 · 覆盖 1'],['ic2','sb2','SSH 服务器','完成 · 新增 2'],
+             ['ic3','sb3','SSH 密钥','完成 · 新增 1'],['ic4','sb4','偏好设置','完成 · 已更新']];
+function startExec(){
+  hide('ovCover');go('ps-exec');
+  steps.forEach(s=>{$(s[0]).textContent='';$(s[1]).textContent='';$(s[1]).className='row-sub'});
+  let i=0;
+  function next(){
+    if(i>0){const p=steps[i-1];$(p[0]).innerHTML='<span style="color:var(--ok)">✓</span>';
+      $(p[1]).className='row-sub okc';$(p[1]).textContent=demoFail&&i===3?'失败 1 项（详见结果页）':p[3];}
+    if(i>=steps.length){setTimeout(showResult,400);return}
+    const c=steps[i];$(c[0]).innerHTML='<span class="spin dim" style="display:inline-block"></span>';
+    $(c[1]).className='row-sub';$(c[1]).textContent='正在导入…';
+    $('execBar').style.width=Math.round(((i+1)/steps.length)*100)+'%';
+    i++;setTimeout(next,850);
+  }
+  next();
+}
+function showResult(){
+  go('ps-result');
+  if(demoFail){
+    $('rIcon').className='r-icon warn';$('rIcon').textContent='!';
+    $('rTitle').textContent='导入完成（有失败项）';
+    $('rSum').innerHTML='新增电脑 2 · 覆盖电脑 1<br>新增服务器 1 · 失败 <b style="color:var(--danger)">2</b>';
+    $('rFail').style.display='block';
+    $('rNote').textContent='失败项已跳过，其余数据已导入成功';
+  }else{
+    $('rIcon').className='r-icon ok';$('rIcon').textContent='✓';
+    $('rTitle').textContent='导入完成';
+    $('rSum').innerHTML='新增电脑 2 · 覆盖电脑 1<br>新增服务器 2 · 新增密钥 1<br>偏好设置已更新 · 失败 0';
+    $('rFail').style.display='none';
+  }
+}
+function finishImport(){
+  $('cntCmp').textContent='（5 台）';$('cntSrv').textContent=demoFail?'（3 台）':'（4 台）';
+  $('cntKey').textContent=demoFail?'（0 把）':'（1 把）';
+  go('ps-home');toast('导入结果已生效，列表已刷新');
+}
+function previewFail(){demoFail=true;toast('已切换：本次导入将演示「部分失败」结果')}
+</script>
+
+</body>
+</html>

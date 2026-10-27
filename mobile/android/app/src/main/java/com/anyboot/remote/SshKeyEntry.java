@@ -25,6 +25,8 @@ final class SshKeyEntry {
     /** 公钥（OpenSSH 一行格式，可空；展示 / 上传服务器用） */
     String publicKey = "";
     long createdAt;
+    /** 云同步 LWW 的依据（毫秒时间戳）；编辑保存时刷新 */
+    long updatedAt = 0;
 
     SshKeyEntry() {
         this.id = UUID.randomUUID().toString();
@@ -40,6 +42,7 @@ final class SshKeyEntry {
         object.put("privateEnc", JumpStore.text(privateEnc));
         object.put("publicKey", JumpStore.text(publicKey));
         object.put("createdAt", createdAt);
+        object.put("updatedAt", updatedAt);
         return object;
     }
 
@@ -55,6 +58,7 @@ final class SshKeyEntry {
         entry.privateEnc = object.optString("privateEnc", "");
         entry.publicKey = object.optString("publicKey", "");
         entry.createdAt = object.optLong("createdAt", 0);
+        entry.updatedAt = object.optLong("updatedAt", 0);
         return entry;
     }
 }

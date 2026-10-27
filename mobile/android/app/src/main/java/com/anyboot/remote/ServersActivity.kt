@@ -1414,6 +1414,7 @@ class ServersActivity : ComponentActivity() {
         if (existing == null) {
             jumps.add(target)
         }
+        target.updatedAt = System.currentTimeMillis()
         JumpStore.saveJumps(this, jumps)
         if (existing != null) {
             // 改完（尤其是改了密码/用户名）立刻能重连，别被退避挡住

@@ -319,7 +319,7 @@ final class JumpStore {
                 .apply();
     }
 
-    private static String hash(String raw) {
+    static String hash(String raw) {
         return String.valueOf((raw == null ? "" : raw).hashCode());
     }
 }
