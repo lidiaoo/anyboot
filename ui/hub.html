@@ -1909,6 +1909,11 @@
   .cq-probe-ms { font-size:10px; color:rgb(var(--fg-faint)); flex:none; }
   .cq-probe-ms.ok { color:rgb(var(--ok)) !important; }
   .cq-probe-ms.bad { color:rgb(var(--warn)) !important; }
+  /* 失败原因可能是一整条 URL+系统错误串（百余字符）：单行截断出省略号，
+     完整原文在悬停提示里（cqProbeBadge 已写入 title）——别把行/卡片撑出横向越界 */
+  .cq-probe-ms.bad { max-width: min(36ch, 100%); min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  /* 超长通道地址（trycloudflare 域名 50+ 字符）同理：截断 + title 全文 */
+  .cq-dev-line .cq-dev-addr { max-width: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 
   /* ---- 远程接入分页标签 + Tailscale 卡窄窗自适应（放末尾覆盖基础规则） ---- */
   @media (max-width: 720px) {
@@ -6352,6 +6357,8 @@
           ln.appendChild(off);
         }
         const a = document.createElement('span');
+        a.className = 'cq-dev-addr';
+        a.title = line.addr;
         a.textContent = line.addr;
         ln.appendChild(a);
         // 探测情况：该地址在这轮逐行结果里的成败与延迟（同一套探测，换个样式展示）
@@ -6442,6 +6449,8 @@
       kind.textContent = kindLabel;
       ln.appendChild(kind);
       const a = document.createElement('span');
+      a.className = 'cq-dev-addr';
+      a.title = pair.addr;
       // 「使用中」也要带耗时：选了谁 + 探测多快一起说（与移动端列表同口径）
       const usingSt = using ? cqProbeState(row.rid, routeKind, pair.id || '', pair.addr) : null;
       a.textContent = pair.addr +
