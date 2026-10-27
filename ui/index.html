@@ -97,6 +97,7 @@
         <section aria-label="下次启动" class="next-boot" id="next-boot" data-page-node-id="Yqo4Jg3zpnxoHdIFHeKkrB">
           <small data-page-node-id="exBlOMxEq761I1Tej3EyQY">下次启动</small>
           <strong id="next-boot-name" data-page-node-id="AMVyFOoOKANoXH2D2Yvimg">未知</strong>
+          <small class="next-boot-last" id="next-boot-last" hidden>上次启动 <b></b></small>
         </section>
 
         <!-- 电源三键已上移到头部（应用名右侧、右对齐），原独立段落取消 -->
@@ -283,6 +284,18 @@
             </div>
           </details>
         </section>
+
+        <!-- ══════════ 三引导器通道（systemd-boot / OpenCore / Clover） ══════════ -->
+        <hr aria-hidden="true" class="boot-divider" />
+        <!-- 卡片由 boot-list-view.js 按快照的 channels 数组动态渲染 -->
+        <div id="boot-channels-mount"></div>
+
+        <!-- 未检测到的引导器：折叠条，不占版面（boot-list-view.js 维护内容与显隐） -->
+        <div class="boot-channel-collapsed" id="boot-channel-collapsed" hidden>
+          <span>其他引导器</span>
+          <span class="boot-channel-collapsed-names" id="boot-channel-collapsed-names"></span>
+        </div>
+        <!-- ══════════ /三引导器通道 ══════════ -->
         </div><!-- /tab-boot -->
 
         <!-- 栏目二：基本设置 —— 应用设置 + 远程控制 -->
@@ -815,6 +828,7 @@
     </div>
     <!-- GRUB 树形列表的渲染逻辑（右栏用） -->
     <script src="./grub-list-view.js"></script>
+    <script src="./boot-list-view.js"></script>
     <script src="./app.js"></script>
   </body>
 </html>

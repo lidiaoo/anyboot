@@ -207,6 +207,29 @@ pub(crate) fn route_remote_command(request: &RemoteRequest) -> Result<RemoteComm
             };
             Ok(RemoteCommand::SwitchGrub(entry))
         }
+        "/api/boot-channel-switch" => {
+            // channel: sdboot/sdboot-oneshot/opencore/clover-default/clover-oneshot；
+            // target: 条目 id 或卷名（opencore 等无参通道可省）。可用
+            // GET /api/boot-channels 查视图。
+            let channel = request
+                .param("channel")
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| {
+                    RemoteReply::error(
+                        400,
+                        "missing_channel",
+                        "缺少 channel 参数（sdboot/sdboot-oneshot/opencore/clover-default/clover-oneshot）",
+                    )
+                })?;
+            let target = request
+                .param("target")
+                .or_else(|| request.param("entry"))
+                .or_else(|| request.param("volume"))
+                .map(|value| value.trim().to_string())
+                .unwrap_or_default();
+            Ok(RemoteCommand::SwitchChannel { channel, target })
+        }
         _ => Err(RemoteReply::error(404, "not_found", "未知路径")),
     }
 }
@@ -968,6 +991,20 @@ pub(crate) fn execute_remote_command(
             match status.error {
                 Some(error) => (false, error),
                 None => (true, format!("下次启动（GRUB）：{selector}")),
+            }
+        }
+        RemoteCommand::SwitchChannel { channel, target } => {
+            // 组成与 switch_system 同一套值域：sdboot:<id> / sdboot-oneshot:<id> /
+            // opencore / clover-default:<volume> / clover-oneshot
+            let spec = if target.is_empty() {
+                channel.clone()
+            } else {
+                format!("{channel}:{target}")
+            };
+            let status = channels::switch_channel_and_update(app, &spec);
+            match status.error {
+                Some(error) => (false, error),
+                None => (true, format!("下次启动（通道）：{}", spec)),
             }
         }
     }

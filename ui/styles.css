@@ -2056,3 +2056,154 @@ button.primary-sol:hover:not(:disabled) {
 #sol-dir-state {
   font-size: 11px;
 }
+ * 三引导器通道（systemd-boot / OpenCore / Clover）· 增量样式
+ * 复用 .refind 的卡片背板与 .zone-tag 圆标，新增的只有：
+ *   通道色圆标 / 状态 chip / 健康检查条 / 条目行 / 徽章 / 提权标记 / 折叠条
+ * ═══════════════════════════════════════════════════════════════════ */
+
+/* 通道色（light/dark 都走同一组，可读性已核对） */
+.boot-channel.sdboot   { --channel: #38bdf8; }
+.boot-channel.opencore { --channel: #a78bfa; }
+.boot-channel.clover   { --channel: #fb923c; }
+
+/* 圆标换色：只动边框与文字，形状/字号/内边距全沿用 .zone-tag */
+.zone-sdboot   { border-color: var(--channel) !important; color: var(--channel) !important; }
+.zone-opencore { border-color: var(--channel) !important; color: var(--channel) !important; }
+.zone-clover   { border-color: var(--channel) !important; color: var(--channel) !important; }
+
+/* 卡片头右侧状态 chip（三态：ok / warn / off） */
+.channel-chip {
+  margin-left: auto;
+  font-size: 11px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  color: var(--fg-dim);
+  white-space: nowrap;
+}
+.channel-chip.ok {
+  border-color: color-mix(in srgb, var(--ok-color, #34d399) 55%, transparent);
+  color: var(--ok-color, #34d399);
+}
+.channel-chip.warn {
+  border-color: color-mix(in srgb, var(--warn-color, #fbbf24) 55%, transparent);
+  color: var(--warn-color, #fbbf24);
+}
+
+/* 状态小字（对齐 .grub-pane-status 的位置与字号） */
+.channel-pane-status {
+  color: var(--fg-faint);
+  font-size: 12px;
+  margin: -6px 0 10px;
+}
+.channel-pane-status b { color: var(--fg-dim); }
+
+/* 健康检查条（warn=黄 / good=绿），圆角与条目行一致 */
+.channel-health {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: var(--fg-dim);
+}
+.channel-health strong { font-size: 12px; }
+.channel-health code {
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 11px;
+}
+.channel-health.bad {
+  border: 1px solid color-mix(in srgb, var(--warn-color, #fbbf24) 40%, transparent);
+  background: color-mix(in srgb, var(--warn-color, #fbbf24) 8%, transparent);
+}
+.channel-health.bad strong,
+.channel-health.bad code { color: var(--warn-color, #fbbf24); }
+.channel-health.good {
+  border: 1px solid color-mix(in srgb, var(--ok-color, #34d399) 40%, transparent);
+  background: color-mix(in srgb, var(--ok-color, #34d399) 7%, transparent);
+}
+.channel-health.good strong { color: var(--ok-color, #34d399); }
+
+/* 条目行：图标 + 名称/路径 + 徽章 + 动作按钮 */
+.boot-list { display: flex; flex-direction: column; gap: 8px; }
+.boot-entry {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--panel-strong, rgba(255, 255, 255, 0.05));
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.boot-entry:hover { border-color: var(--line-strong); }
+.boot-entry.current {
+  border-color: color-mix(in srgb, var(--ok-color, #34d399) 45%, transparent);
+}
+.boot-entry-ico {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  font-size: 17px;
+  background: rgba(255, 255, 255, 0.06);
+}
+.boot-entry-meta { flex: 1; min-width: 0; }
+.boot-entry-meta b {
+  display: block;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.boot-entry-meta small {
+  display: block;
+  color: var(--fg-faint);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 徽章：绿=当前默认（该通道自己的默认项），蓝=上次启动（记忆回读） */
+.boot-badge {
+  flex: none;
+  font-size: 10px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--ok-color, #34d399) 55%, transparent);
+  color: var(--ok-color, #34d399);
+}
+.boot-badge.last {
+  border-color: var(--channel, var(--line-strong));
+  color: var(--channel, var(--fg-dim));
+}
+
+/* 提权按钮：视觉区分，点击弹授权说明 */
+button.needs-elev {
+  border: 1px solid color-mix(in srgb, var(--warn-color, #fbbf24) 45%, transparent);
+}
+
+/* 未检测到的引导器折叠条 */
+.boot-channel-collapsed {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 12px;
+  padding: 10px 14px;
+  color: var(--fg-faint);
+  font-size: 12px;
+  margin-top: 16px;
+}
+.boot-channel-collapsed-names { color: var(--fg-dim); }
+.boot-channel-collapsed button { margin-left: auto; }
+
+/* 摘要条新增「上次启动」位 */
+.next-boot-last { margin-left: auto; }
+.next-boot-last b { color: var(--ok-color, #34d399); font-weight: 600; }

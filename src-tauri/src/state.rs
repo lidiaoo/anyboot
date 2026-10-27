@@ -38,6 +38,9 @@ pub(crate) struct AppState {
     pub(crate) error: Option<String>,
     /// GRUB 细粒度切换（与上面 rEFInd 那套并列）
     pub(crate) grub: GrubRuntime,
+    /// 三引导器通道（systemd-boot / OpenCore / Clover）：与 GRUB 完全并列的
+    /// 又一套切换链路。视图在 channels::refresh 里重算。
+    pub(crate) channels: channels::ChannelsRuntime,
     /// 安装 / 卸载 09_anyboot 的执行过程日志（最近一次）
     pub(crate) script_log: ScriptLogView,
     /// 贴边自动隐藏的运行态：是否已停靠、贴在哪条边、贴住时的坐标。
@@ -298,6 +301,10 @@ pub(crate) enum RemoteCommand {
     /// GRUB 细粒度条目（第二条链路）：selector 是 grub.cfg 里解析出的原文，
     /// submenu 内为 `submenu_id>entry_id`。只写环境块、不重启。
     SwitchGrub(String),
+    /// 三引导器通道（第三条链路）：channel 是 sdboot/sdboot-oneshot/opencore/
+    /// clover-default/clover-oneshot，target 是条目 id 或卷名（opencore 等无参
+    /// 通道留空）。只写通道自己的状态（loader.conf / config.plist / NVRAM），不重启。
+    SwitchChannel { channel: String, target: String },
     /// /api/power?action=wake 的应答：这条 HTTP 能送达就说明机器本来就醒着，
     /// 什么都不用做 —— 给「唤醒路由勾了 HTTP 兜底」一条说得通的回执。
     WakeAck,
@@ -316,6 +323,17 @@ impl RemoteCommand {
                 )
             }
             Self::SwitchGrub(selector) => format!("切换 GRUB 启动项为 {selector}"),
+            Self::SwitchChannel { channel, target } => {
+                let label = match channel.as_str() {
+                    "sdboot" => format!("切换 systemd-boot 启动项为 {target}"),
+                    "sdboot-oneshot" => format!("systemd-boot 一次性启动 {target}"),
+                    "opencore" => "下次启动进入 OpenCore 菜单".to_string(),
+                    "clover-default" => format!("Clover 默认卷设为 {target}"),
+                    "clover-oneshot" => "下次启动进入 Clover（一次性）".to_string(),
+                    other => format!("切换引导通道 {other} → {target}"),
+                };
+                label
+            }
             Self::WakeAck => "唤醒（本机在线，无需动作）".to_string(),
         }
     }
@@ -526,6 +544,8 @@ pub(crate) struct UiState {
     pub(crate) notify: Option<NotifyView>,
     /// GRUB 细粒度切换（与 status 里 rEFInd 那三个系统项并列的第二块）
     pub(crate) grub: GrubView,
+    /// 三引导器通道视图（与 grub 并列的第三块；channels::refresh 产出）
+    pub(crate) channels: Vec<channels::ChannelView>,
     /// 当前生效的 09_anyboot 正文（供界面「查看 / 修改」用）
     pub(crate) grub_script: String,
     /// 主窗口当前是否处于「贴边隐藏」态（前端据此在窗口边界画一条白条）

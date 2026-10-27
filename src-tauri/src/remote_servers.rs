@@ -3951,6 +3951,11 @@ fn remote_boot_switch_blocking(
                 crate::state::RemoteCommand::Switch(value.to_string())
             }
             "grub" => crate::state::RemoteCommand::SwitchGrub(value.to_string()),
+            // 通道值域：value 直接就是 spec（sdboot:<id> / opencore / clover-default:<volume>…）
+            "channel" => crate::state::RemoteCommand::SwitchChannel {
+                channel: value.split(':').next().unwrap_or("").to_string(),
+                target: value.split_once(':').map(|(_, rest)| rest.to_string()).unwrap_or_default(),
+            },
             other => return Err(format!("未知的引导管理器：{other}")),
         };
         let (ok, message) = crate::remote_routing::execute_remote_command(
@@ -3974,6 +3979,18 @@ fn remote_boot_switch_blocking(
         }
         // selector 里可能有空格、`>`、引号 —— 必须转义
         "grub" => format!("/api/grub-switch?entry={}", encode_query(value)),
+        // 通道值域整串走 channel + target 两个参数（value = channel[:target]）
+        "channel" => {
+            let (channel, target) = value
+                .split_once(':')
+                .map(|(head, rest)| (head, rest))
+                .unwrap_or((value, ""));
+            format!(
+                "/api/boot-channel-switch?channel={}&target={}",
+                encode_query(channel),
+                encode_query(target)
+            )
+        }
         other => return Err(format!("未知的引导管理器：{other}")),
     };
     let server = load_store(app)?

@@ -103,6 +103,9 @@ pub(crate) fn refresh_and_update(app: &AppHandle) -> AppStatus {
     // 统一方案）—— 没挂就整条跳过：不自动挂载、不 pkexec、不写盘。手动链路
     // （识别/挂载/同步按钮）不受此限。
     refresh_grub(app);
+    // 三引导器通道（systemd-boot / OC / Clover）跟着刷：只做文件/变量读取，
+    // ESP 尽量复用 GRUB 链路解析好的那份
+    channels::refresh_channels(app);
     // 扫描结束：清 busy 并发布快照（托盘菜单与主窗口一起更新、菜单指纹相同就跳过重建）
     set_busy(app, |busy| busy.scanning = false);
     status
@@ -145,6 +148,17 @@ pub(crate) fn switch_system_locally(app: &AppHandle, system: &str) -> AppStatus 
 }
 
 pub(crate) fn switch_and_update_inner(app: &AppHandle, system: &str, started: Instant) -> AppStatus {
+    // 三引导器通道的值域（sdboot:<id> / opencore / …）分流到 channels 链路；
+    // 原有 linux/windows/macos（rEFInd 模板复制）零变化
+    if channels::SwitchSpec::is_channel_spec(system) {
+        let status = channels::switch_channel_and_update(app, system);
+        trace(
+            app,
+            "switch",
+            &format!("通道切换完成 system={system} 耗时={}ms", started.elapsed().as_millis()),
+        );
+        return status;
+    }
     let selected = SOURCE_FILES
         .iter()
         .find(|(candidate, _, _)| *candidate == system)

@@ -175,6 +175,11 @@ pub(crate) use esp::*;
 pub(crate) use grub_esp::*;
 pub(crate) use grub_install::*;
 
+/// 三引导器通道（systemd-boot / OpenCore / Clover）：async 命令宏可见性同 backup
+/// 的约定，走 pub(crate) mod + pub(crate) use。
+pub(crate) mod channels;
+pub(crate) use channels::*;
+
 mod login_item;
 mod power;
 mod mount;
@@ -630,6 +635,12 @@ pub(crate) fn handle_remote_request(app: &AppHandle, request: &RemoteRequest) ->
         }
         "/api/requests" => return RemoteReply::ok(200, remote_requests_json()),
         "/api/grub" => return RemoteReply::ok(200, remote_grub_json(app)),
+        // 三引导器通道视图（鉴权后）：网页端 / 手机端消费同一份
+        "/api/boot-channels" => {
+            let value = serde_json::to_value(boot_channels(app.clone()))
+                .unwrap_or_else(|_| serde_json::json!([]));
+            return RemoteReply::ok(200, value);
+        }
         // 网页控制台：完整快照（轮询用）+ 命令通道（真正改设置）
         "/api/ui-state" => {
             let value = serde_json::to_value(get_ui_state(app.clone()))
@@ -3207,6 +3218,8 @@ pub fn run() {
             backup::backup_sync_now,
             backup::backup_pick_import_file,
             backup::backup_pick_export_path,
+            channels::boot_channels,
+            channels::switch_boot_channel,
             hub_term::hub_term_open,
             hub_term::hub_term_write,
             hub_term::hub_term_resize,

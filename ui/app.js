@@ -1477,6 +1477,9 @@ function render(state) {
     busy,
     state.settings && state.settings.grubListView,
   );
+  // 三引导器通道（systemd-boot / OC / Clover）：快照 channels 驱动，同构卡片
+  renderBootChannels(state.channels, { busy, onSwitch: switchChannel });
+  renderNextBootLast(state.channels);
   renderSettings(state.settings);
   renderRemote(state.http, state.settings);
   renderPending(state.notify);
@@ -3057,6 +3060,22 @@ async function switchGrub(selector) {
   } catch (error) {
     grubStatusElement.textContent = String(error);
     grubStatusElement.classList.add("fail");
+  }
+}
+
+/// 切换三引导器通道的条目（systemd-boot / OpenCore / Clover）。
+/// 与 switchGrub 同款：不走 call()，结果由后端 record_action + publish_ui
+/// 带回窗口底部提示条；失败原因这里直接兜底显示。
+async function switchChannel(entry, channel) {
+  if (!entry || !channel) {
+    return;
+  }
+  const spec = bootChannelSpec(entry, channel);
+  try {
+    await invoke("switch_boot_channel", { target: spec });
+    // 后端写完会 publish 新快照（卡片 chip / 徽章跟着变）
+  } catch (error) {
+    showStatusBar(String(error), { error: true });
   }
 }
 

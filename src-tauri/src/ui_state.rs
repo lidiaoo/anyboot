@@ -34,6 +34,14 @@ pub(crate) fn ui_state(app: &AppHandle) -> UiState {
     };
     // GRUB 那块：先算好（下面 `settings` 会被整体移进快照，不能再借）
     let grub = grub_snapshot(app, &settings.settings);
+    // 三引导器通道视图：channels::refresh 已经算好存在 AppState 里，这里只取
+    let channels = {
+        let state = app.state::<Mutex<AppState>>();
+        state
+            .lock()
+            .map(|state| state.channels.views.clone())
+            .unwrap_or_default()
+    };
     // 09_anyboot 模板里嵌的是 fs-uuid（GRUB 的 search --fs-uuid 只认它）。
     // fs-uuid 不再存设置 —— 用最近一次扫描探到的（Linux 上 findmnt/引导扇区
     // 都报得出来）；探不到就留占位符，安装时（grub_install_script）会现场解析。
@@ -57,6 +65,7 @@ pub(crate) fn ui_state(app: &AppHandle) -> UiState {
         notify: notify_view(app),
         grub,
         grub_script,
+        channels,
         docked: {
             let state = app.state::<Mutex<AppState>>();
             state
