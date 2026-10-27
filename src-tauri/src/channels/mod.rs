@@ -12,6 +12,7 @@
 
 use super::*;
 
+pub(crate) mod boot_entry;
 pub(crate) mod clover;
 pub(crate) mod nvram;
 pub(crate) mod opencore;
@@ -261,18 +262,19 @@ impl SwitchSpec {
             Self::Sdboot(id) => format!("systemd-boot 下次启动：{id}"),
             Self::SdbootOneShot(id) => format!("systemd-boot 一次性启动：{id}"),
             Self::OpenCore => "下次启动进入 OpenCore 菜单".to_string(),
-            Self::OpenCoreRegister(mode) => {
-                format!("修复 OpenCore 自注册配置（LauncherOption={mode}）")
-            }
+            Self::OpenCoreRegister(mode) => format!(
+                "把 OpenCore 写进固件启动项（BootOrder {}）",
+                if mode == "full" { "首位" } else { "末尾" }
+            ),
             Self::CloverDefault(volume) => format!("Clover 默认卷设为 {volume}"),
             Self::CloverOneShot => "下次启动进入 Clover（一次性）".to_string(),
         }
     }
 
-    /// 动作名（写操作记录用）：「修复」与「切换」不是一回事。
+    /// 动作名（写操作记录用）：「注册」与「切换」不是一回事。
     pub(crate) fn action_label(&self) -> &'static str {
         match self {
-            Self::OpenCoreRegister(_) => "修复引导器配置",
+            Self::OpenCoreRegister(_) => "写入固件启动项",
             _ => "切换引导通道",
         }
     }
@@ -297,10 +299,8 @@ pub(crate) fn switch(app: &AppHandle, spec: &str) -> Result<String, String> {
             let number = opencore::set_boot_next(&esp_root, opencore::OC_MARKER, "opencore")?;
             format!("{}（Boot{}，用后自动失效）", parsed.describe(), nvram::boot_var_name(number))
         }
-        // 「修复」不是切换：直接把修复结果的完整说明当消息
-        SwitchSpec::OpenCoreRegister(mode) => {
-            opencore::fix_launcher_option(&esp_root, mode)?
-        }
+        // 「注册」不是切换：直接把注册结果的完整说明当消息
+        SwitchSpec::OpenCoreRegister(mode) => opencore::register(&esp_root, mode)?,
         SwitchSpec::CloverDefault(volume) => {
             clover::set_default_volume(&esp_root, volume, None)?;
             parsed.describe()
@@ -402,11 +402,18 @@ mod tests {
         assert!(SwitchSpec::is_channel_spec("sdboot:arch.conf"));
         assert!(SwitchSpec::is_channel_spec("opencore-register"));
         assert!(!SwitchSpec::is_channel_spec("macos"));
-        // 修复类动作写操作记录时用「修复」而不是「切换」
+        // 注册类动作写操作记录时用「写入固件启动项」而不是「切换」
         assert_eq!(
             SwitchSpec::OpenCoreRegister("short".into()).action_label(),
-            "修复引导器配置"
+            "写入固件启动项"
         );
         assert_eq!(SwitchSpec::OpenCore.action_label(), "切换引导通道");
+        // describe 要说清插到 BootOrder 哪儿（用户能预期默认启动项会不会变）
+        assert!(SwitchSpec::OpenCoreRegister("full".into())
+            .describe()
+            .contains("首位"));
+        assert!(SwitchSpec::OpenCoreRegister("short".into())
+            .describe()
+            .contains("末尾"));
     }
 }

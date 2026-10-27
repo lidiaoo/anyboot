@@ -272,13 +272,106 @@ fn upsert(
     }
 }
 
+/// 「直接写固件启动项」：AnyBoot 自己构造 `EFI_LOAD_OPTION` 写 `Boot####` + `BootOrder`。
+///
+/// 为什么需要这条路：`LauncherOption` 只在 **OC 自己正在运行**的那一瞬间生效，实测在
+/// 靠 `\EFI\BOOT\BOOTX64.EFI`（Bootstrap）兜底的机器上，即使配成 `Full` 也什么都没写进
+/// 固件 —— `BootOrder` 里始终只有 macOS 那一项。直接写不依赖 OC 的版本、不依赖
+/// `RequestBootVarRouting` 的代理，改完立刻生效（与 macOS `bless` 建 `Boot0080` 是同一条
+/// NVRAM 写入路径，所以可行性已经被实机证明）。
+///
+/// `mode=full` → 插到 BootOrder 最前（抢默认启动）；缺省 / `short` → 追加到末尾
+/// （固件启动菜单里能看到它，但默认启动项仍由 AnyBoot 决定）。
+pub(crate) fn register_boot_entry(esp_root: &Path, mode: &str) -> Result<String, String> {
+    if let Some(number) = find_boot_number(OC_MARKER) {
+        return Ok(format!(
+            "固件启动列表里已经有 OpenCore（Boot{}），不需要重复写入",
+            nvram::boot_var_name(number)
+        ));
+    }
+    if !grub_rel(esp_root, OC_EFI).is_file() {
+        return Err(format!("{OC_EFI} 不存在，这块 ESP 上没有 OpenCore"));
+    }
+    let partition = boot_entry::partition_info(esp_root)?;
+    let order = nvram::read_boot_order();
+    let number = boot_entry::next_free_number(&order, |number| {
+        nvram::read_boot_option(number).is_some()
+    })
+    .ok_or_else(|| "固件里找不到空闲的 Boot#### 编号".to_string())?;
+    let value = boot_entry::build_load_option("OpenCore", &partition, "\\EFI\\OC\\OpenCore.efi");
+    let grab_default = mode.trim().to_ascii_lowercase() == "full";
+    let new_order = boot_entry::boot_order_with(&order, number, grab_default);
+
+    // 动 NVRAM 之前先整份备份（BootOrder + 全部 Boot####，留最近 10 份）
+    backup_nvram(esp_root)?;
+    let boot_name = nvram::boot_var_name(number);
+    let order_value = boot_entry::encode_boot_order(&new_order);
+    nvram::write_vars(&[
+        (boot_name.as_str(), nvram::GUID_GLOBAL, value.as_slice()),
+        ("BootOrder", nvram::GUID_GLOBAL, order_value.as_slice()),
+    ])
+    .map_err(|error| error.message())?;
+
+    // 回读校验：固件可能静默丢弃写入（某些主板的 NVRAM 满了、或策略禁止改 Boot*）
+    let written = nvram::read_boot_option(number)
+        .ok_or_else(|| format!("写完之后读不回 {boot_name}，固件拒绝了这次写入"))?;
+    if !nvram::load_option_matches(&written, OC_MARKER) {
+        return Err(format!(
+            "{boot_name} 回读内容不含 OpenCore 路径，写入没有落到固件"
+        ));
+    }
+    if !nvram::read_boot_order().contains(&number) {
+        return Err(format!(
+            "{boot_name} 写进去了，但 BootOrder 里没有它（固件拒绝改启动顺序）"
+        ));
+    }
+
+    let _ = update_channel_state(
+        esp_root,
+        "opencore",
+        &[
+            ("registeredBoot", serde_json::Value::String(boot_name.clone())),
+            (
+                "registeredAt",
+                serde_json::Value::String(anyboot_now_iso()),
+            ),
+        ],
+    );
+
+    Ok(format!(
+        "已把 OpenCore 写进固件启动列表（{boot_name}{}），现在「下次启动进入 OpenCore」可以用了",
+        if grab_default {
+            "，并设为首选启动项"
+        } else {
+            ""
+        }
+    ))
+}
+
+/// 「修复并注册」的统一入口。
+///
+/// 顺序是「先动手、再改配置」：能直接写进固件就立刻生效（卡片当场变绿）；
+/// 写不进去（固件拒绝 / 拿不到分区信息）才退回让 OC 自己注册 —— 那条路要重启一次
+/// 才可能生效，且实测不一定成，只能兜底。
+pub(crate) fn register(esp_root: &Path, mode: &str) -> Result<String, String> {
+    match register_boot_entry(esp_root, mode) {
+        Ok(message) => Ok(message),
+        Err(error) => {
+            let fallback = fix_launcher_option(esp_root, mode)?;
+            Ok(format!(
+                "直接写固件启动项没成功（{error}）。已改为让 OpenCore 自己注册：{fallback}"
+            ))
+        }
+    }
+}
+
 /// 写 BootNext 指向 `marker`（OC/Clover 共用）对应的启动项。找到 → 写；没找到 →
 /// 报错提示（创建 Boot#### 的 DevicePath 构造在后续版本补，先不赌固件兼容性）。
 pub(crate) fn set_boot_next(esp_root: &Path, marker: &str, channel: &str) -> Result<u16, String> {
     let Some(number) = find_boot_number(marker) else {
         return Err(format!(
             "固件启动列表里没有引导项（Boot#### 路径不含 {marker}）。\
-             请先用「修复并注册」让 OC 自己写进固件，或按提示用 bless 手动注册"
+             请先点「写入固件启动项」把它写进固件，再切通道"
         ));
     };
     backup_nvram(esp_root)?;
@@ -355,11 +448,13 @@ pub(crate) fn view(esp_root: &Path) -> ChannelView {
             severity: "warn".to_string(),
             text: if can_self_register {
                 format!(
-                    "LauncherOption={launcher_text}（OC 会自注册），但固件里还没有该项——重启一次进入 OpenCore 后才会写入"
+                    "LauncherOption={launcher_text}（本应自注册），但固件里仍然没有 OpenCore 项——\
+                     OC 在自注册之前就先跳去 macOS 了。用下方「写入固件启动项」直接补一条"
                 )
             } else {
                 format!(
-                    "固件启动列表里没有 OpenCore 项，且 LauncherOption={launcher_text}（OC 不自注册）——用下方「修复并注册」一键改掉"
+                    "固件启动列表里没有 OpenCore 项，且 LauncherOption={launcher_text}（OC 不自注册）——\
+                     用下方「写入固件启动项」直接补一条"
                 )
             },
         });
@@ -378,17 +473,18 @@ pub(crate) fn view(esp_root: &Path) -> ChannelView {
         .map(|number| format!("Boot{number}（AnyBoot 上次写入的 BootNext）"));
     let last_boot_at = channel_state_key(esp_root, "opencore", "updatedAt");
     // OC 的子系统条目由 OC picker 自己管，AnyBoot 固定一条「进菜单」动作；
-    // 固件里没有 OC 项、且 OC 又被配成不自注册时，补一条「修复并注册」。
+    // 固件里没有 OC 项时补一条「写入固件启动项」——不管 LauncherOption 是什么，
+    // 自己写都是最快、最可控的一条路（自注册在 Bootstrap 兜底的机器上实测不生效）。
     let mut entries = Vec::new();
-    if !registered && !can_self_register {
+    if !registered {
         entries.push(ChannelEntry {
             id: "opencore-register".to_string(),
-            title: "修复并注册 OpenCore 启动项".to_string(),
-            detail: "把 Misc→Boot→LauncherOption 改成 Short（OC 自注册、不抢默认顺序），\
-                     并补齐 RequestBootVarRouting 等硬前提；重启一次进入 OC 后生效"
+            title: "写入固件启动项".to_string(),
+            detail: "由 AnyBoot 直接构造 EFI 启动项写进 NVRAM（与 macOS bless 同一条路径），\
+                     写完立刻生效、不用重启；写入前会先备份 BootOrder 与全部 Boot####"
                 .to_string(),
             icon: "menu".to_string(),
-            requires_elevation: false,
+            requires_elevation: true,
         });
     }
     entries.push(ChannelEntry {

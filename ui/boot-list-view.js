@@ -143,9 +143,16 @@ function makeBootChannelCard(channel, { busy, onSwitch }) {
     if (elevated) {
       button.classList.add("needs-elev");
     }
-    // 「修复并注册」不是一次性启动动作，按钮文案要跟语义分开
+    // 「写入固件启动项」不是一次性启动动作，按钮文案要跟语义分开
+    // （它要写 NVRAM，属于提权动作 —— 带 ⤴ 才和「下次启动」区分得开）
     const isRepair = String(entry.id).endsWith("-register");
-    button.textContent = isRepair ? "立即修复" : elevated ? "下次启动 ⤴" : "下次启动";
+    button.textContent = isRepair
+      ? elevated
+        ? "写入固件 ⤴"
+        : "写入固件"
+      : elevated
+        ? "下次启动 ⤴"
+        : "下次启动";
     button.disabled = busy;
     button.addEventListener("click", () => onSwitch(entry, channel));
     row.append(button);

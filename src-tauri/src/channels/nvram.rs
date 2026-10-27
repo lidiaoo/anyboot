@@ -142,6 +142,27 @@ pub(crate) fn decode_nvram_escaped(text: &str) -> Vec<u8> {
     bytes
 }
 
+/// 一批变量写入 → macOS 的「管理员授权」AppleScript。
+///
+/// 写启动项要动 `Boot####` + `BootOrder` 两条变量；逐条走授权框会连弹两次密码，
+/// 所以拼成一条 `nvram A=B && nvram C=D` 交给**一次** `do shell script`。
+/// 值都是 `%XX` 转义串（只有十六进制字符和 `%`），不会带出 shell 元字符。
+pub(crate) fn elevated_nvram_script(entries: &[(&str, &str, &[u8])]) -> String {
+    let commands: Vec<String> = entries
+        .iter()
+        .map(|(name, guid, value)| {
+            format!(
+                "/usr/sbin/nvram {guid}:{name}={}",
+                encode_nvram_escaped(value)
+            )
+        })
+        .collect();
+    format!(
+        "do shell script \"{}\" with administrator privileges",
+        commands.join(" && ")
+    )
+}
+
 /// 值本体 → macOS `nvram` 写入用的 `%XX` 转义串（含首字符的 `%`）。
 pub(crate) fn encode_nvram_escaped(value: &[u8]) -> String {
     let mut out = String::with_capacity(value.len() * 3);
@@ -212,6 +233,14 @@ mod imp {
     pub(crate) fn available() -> bool {
         Path::new("/sys/firmware/efi/efivars").is_dir()
     }
+
+    /// 批量写：Linux 上每条都能独立走「直写 / pkexec」，逐条来即可。
+    pub(crate) fn write_vars(entries: &[(&str, &str, &[u8])]) -> Result<(), NvramError> {
+        for (name, guid, value) in entries {
+            write_var(name, guid, value)?;
+        }
+        Ok(())
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -247,26 +276,62 @@ mod imp {
         Ok(decode_nvram_escaped(value))
     }
 
-    pub(crate) fn write_var(name: &str, guid: &str, value: &[u8]) -> Result<(), NvramError> {
-        if let Some(error) = gui_auth_forbidden() {
-            return Err(NvramError::NeedElevation(error));
-        }
+    /// 直写一条（不提权）：root 下、或该变量本身可写时成功。
+    fn direct_write(name: &str, guid: &str, value: &[u8]) -> Result<(), NvramError> {
         let key = format!("{guid}:{name}");
         let encoded = format!("={}", encode_nvram_escaped(value));
-        let output = run_nvram(&[key.as_str(), encoded.as_str()])?;
+        // 写路径要拿 stderr 判「是权限问题还是固件拒绝」，所以不能走 run_nvram（它吞 stderr）
+        let output = command("/usr/sbin/nvram")
+            .args([key.as_str(), encoded.as_str()])
+            .output()
+            .map_err(|error| NvramError::Failed(format!("无法执行 nvram: {error}")))?;
         if output.status.success() {
             return Ok(());
         }
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let stderr = stderr.trim();
-        Err(NvramError::NeedElevation(format!(
-            "nvram 写入失败：{}",
-            if stderr.is_empty() {
-                "退出码非 0（macOS 的 nvram 写入需要 root，授权被取消？）".to_string()
-            } else {
-                stderr.to_string()
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        Err(NvramError::NeedElevation(if stderr.is_empty() {
+            format!("写 {name} 需要管理员授权（nvram 退出码非 0）")
+        } else {
+            format!("写 {name} 需要管理员授权：{stderr}")
+        }))
+    }
+
+    pub(crate) fn write_var(name: &str, guid: &str, value: &[u8]) -> Result<(), NvramError> {
+        write_vars(&[(name, guid, value)])
+    }
+
+    /// 批量写。macOS 上非 root 写 NVRAM 必然失败，所以：
+    /// ① 能直写就直写（root 下、或该变量本来就允许写 —— 不弹框）；
+    /// ② 否则用**一次**管理员授权框把整批写完（`Boot####` + `BootOrder` 只弹一次密码）。
+    pub(crate) fn write_vars(entries: &[(&str, &str, &[u8])]) -> Result<(), NvramError> {
+        let mut first_error = None;
+        for (name, guid, value) in entries {
+            if let Err(error) = direct_write(name, guid, value) {
+                first_error = Some(error);
+                break;
             }
-        )))
+        }
+        let Some(first_error) = first_error else {
+            return Ok(());
+        };
+        if let Some(error) = gui_auth_forbidden() {
+            return Err(NvramError::NeedElevation(error));
+        }
+        let script = elevated_nvram_script(entries);
+        let output = match command("osascript").args(["-e", script.as_str()]).output() {
+            Ok(output) => output,
+            // 系统里没有 osascript（极罕见）：如实报第一条的真实原因，别掩盖
+            Err(_) => return Err(first_error),
+        };
+        if output.status.success() {
+            return Ok(());
+        }
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        Err(NvramError::NeedElevation(if stderr.is_empty() {
+            "管理员授权被取消，NVRAM 没有改动".to_string()
+        } else {
+            format!("管理员授权失败：{stderr}")
+        }))
     }
 
     pub(crate) fn available() -> bool {
@@ -353,6 +418,14 @@ mod imp {
         // Windows 上的 EFI 变量接口常在；真的没有会在 read 时报错
         true
     }
+
+    /// 批量写：Windows 用同一个进程权限，逐条写即可。
+    pub(crate) fn write_vars(entries: &[(&str, &str, &[u8])]) -> Result<(), NvramError> {
+        for (name, guid, value) in entries {
+            write_var(name, guid, value)?;
+        }
+        Ok(())
+    }
 }
 
 // ─────────────────────────── 平台无关入口 ───────────────────────────
@@ -363,6 +436,11 @@ pub(crate) fn read_var(name: &str, guid: &str) -> Result<Vec<u8>, NvramError> {
 
 pub(crate) fn write_var(name: &str, guid: &str, value: &[u8]) -> Result<(), NvramError> {
     imp::write_var(name, guid, value)
+}
+
+/// 一次写多条变量（启动项 = `Boot####` + `BootOrder`，两条必须一起改才有意义）。
+pub(crate) fn write_vars(entries: &[(&str, &str, &[u8])]) -> Result<(), NvramError> {
+    imp::write_vars(entries)
 }
 
 /// 本机固件变量接口可用吗（不是 UEFI 启动 / 没有工具时 false）。
@@ -473,5 +551,22 @@ mod tests {
             efivar_filename("LoaderEntryOneShot", GUID_SYSTEMD),
             "LoaderEntryOneShot-4a67b082-0a4c-41cf-b6c7-440b29bb8c4f"
         );
+    }
+
+    #[test]
+    fn elevation_script_batches_all_writes_in_one_prompt() {
+        // Boot#### + BootOrder 必须塞进同一条 AppleScript：两条命令一次授权框
+        let entry_value = [1u8, 0, 0, 0];
+        let order_value = [0x80u8, 0, 0x81, 0];
+        let script = elevated_nvram_script(&[
+            ("Boot0081", GUID_GLOBAL, &entry_value),
+            ("BootOrder", GUID_GLOBAL, &order_value),
+        ]);
+        assert!(script.starts_with("do shell script \""));
+        assert!(script.ends_with("\" with administrator privileges"));
+        assert!(script.contains(&format!("{GUID_GLOBAL}:Boot0081=%01%00%00%00")));
+        assert!(script.contains(&format!("{GUID_GLOBAL}:BootOrder=%80%00%81%00")));
+        assert_eq!(script.matches("nvram").count(), 2);
+        assert_eq!(script.matches(" with administrator privileges").count(), 1);
     }
 }
