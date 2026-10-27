@@ -3187,6 +3187,948 @@
         </div>
       </section>
 
+
+      <!-- ---- 备份与恢复（内嵌页：导出 / 导入 / WebDAV 同步；样式全部 bk- 前缀 + #page-backup 作用域，与主样式隔离） ---- -->
+      <section class="page" id="page-backup" hidden>
+        <style>
+
+  /* ---- 主题 token：与密钥管理窗同一套色板 ---- */
+  @media (prefers-reduced-motion: reduce) { *,*::before,*::after { transition:none!important; animation:none!important; } }
+
+
+  .bk-bk-scroll { flex:1; overflow:auto; display:flex; flex-direction:column; gap:16px; padding:16px 20px 24px; }
+  @media (min-width: 900px) { .bk-scroll { padding:20px 32px 28px; } }
+
+  .bk-panel {
+    display:flex; flex-direction:column; gap:12px;
+    border:1px solid rgb(var(--line)); border-radius:14px; background:rgb(var(--card));
+    padding:16px 18px; max-width:860px; width:100%; margin:0 auto;
+  }
+  .bk-panel-head { display:flex; align-items:center; gap:10px; }
+  .bk-panel-head .bk-picon {
+    display:grid; place-items:center; width:32px; height:32px; border-radius:10px; flex:none;
+    background:rgb(var(--accent) / .12); color:rgb(var(--accent));
+  }
+  .bk-panel-head h2 { margin:0; font-size:14px; font-weight:600; }
+  .bk-panel-head .bk-sub { margin-left:auto; font-size:11px; color:rgb(var(--fg-faint)); }
+
+  .bk-cats { display:flex; flex-direction:column; gap:0; border:1px solid rgb(var(--line)); border-radius:10px; overflow:hidden; }
+  .bk-cat-row {
+    display:flex; align-items:center; gap:10px; padding:0 12px; min-height:44px; cursor:pointer;
+    border-bottom:1px solid rgb(var(--line)); transition: background .12s;
+  }
+  .bk-cat-row:last-child { border-bottom:0; }
+  .bk-cat-row:hover { background:rgb(var(--elevate)); }
+  .bk-cat-row input[type=checkbox] { width:16px; height:16px; accent-color: rgb(var(--accent)); flex:none; }
+  .bk-cat-row .bk-cname { font-size:13px; font-weight:500; }
+  .bk-cat-row .bk-cdesc { margin-left:auto; font-size:11px; color:rgb(var(--fg-faint)); text-align:right; }
+
+  .bk-info {
+    display:flex; gap:8px; align-items:flex-start; border:1px solid rgb(var(--line));
+    border-radius:9px; background:rgb(var(--elevate)); padding:9px 12px; font-size:12px; color:rgb(var(--fg-dim));
+  }
+  .bk-info.bk-warn { border-color: rgb(var(--warn) / .45); background: rgb(var(--warn) / .08); color: rgb(var(--warn)); }
+  .bk-info svg { flex:none; margin-top:1px; }
+
+  .bk-pw-zone { display:flex; flex-direction:column; gap:8px; }
+  .bk-pw-grid { display:flex; gap:10px; flex-wrap:wrap; }
+  .bk-pw-grid .bk-field { flex:1 1 220px; display:flex; flex-direction:column; gap:5px; }
+  .bk-field label { font-size:12px; font-weight:500; color:rgb(var(--fg-dim)); }
+  .bk-field input {
+    height:36px; width:100%; border:1px solid rgb(var(--line)); border-radius:9px;
+    background:rgb(var(--elevate)); padding:0 12px; color:rgb(var(--fg)); font-size:13px; outline:none;
+  }
+  .bk-field input:focus { border-color:rgb(var(--accent) / .6); }
+  .bk-field input.bk-bad { border-color:rgb(var(--bad)); }
+  .bk-field .bk-err { font-size:11px; color:rgb(var(--bad)); min-height:15px; }
+  .bk-strength { height:4px; border-radius:2px; background:rgb(var(--line)); overflow:hidden; }
+  .bk-strength i { display:block; height:100%; width:0; background:rgb(var(--bad)); transition: width .2s, background .2s; }
+
+  .bk-btn {
+    display:inline-flex; align-items:center; justify-content:center; gap:6px; height:36px; padding:0 15px;
+    border:1px solid rgb(var(--line)); border-radius:9px; background:rgb(var(--elevate));
+    font-size:13px; font-weight:500; cursor:pointer; transition: border-color .15s, background .15s, opacity .15s;
+  }
+  .bk-btn:hover { border-color:rgb(var(--line-strong)); }
+  .bk-btn.bk-primary { border:0; background:rgb(var(--accent)); color:#fff; font-weight:600; }
+  .bk-btn.bk-primary:hover { background:rgb(var(--accent) / .85); }
+  .bk-btn.bk-primary:disabled { background:rgb(var(--accent) / .35); cursor:not-allowed; }
+  .bk-btn.bk-danger { border:0; background:rgb(var(--bad)); color:#fff; font-weight:600; }
+  .bk-btn.bk-plain { border:0; background:transparent; color:rgb(var(--fg-dim)); }
+  .bk-btn.bk-plain:hover { color:rgb(var(--fg)); }
+  .bk-btn.bk-small { height:30px; padding:0 10px; font-size:12px; color:rgb(var(--fg-dim)); }
+  .bk-btn[disabled] { opacity:.45; cursor:not-allowed; }
+  .bk-btn .bk-spin {
+    width:14px; height:14px; border:2px solid rgb(255 255 255 / .35); border-top-color:#fff;
+    border-radius:50%; animation: bk-spin .7s linear infinite; flex:none;
+  }
+  .bk-btn:not(.bk-primary) .bk-spin { border-color: rgb(var(--line-strong)); border-top-color: rgb(var(--fg-dim)); }
+  @keyframes bk-spin { to { transform: rotate(360deg); } }
+  .bk-row-actions { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  .bk-row-actions .bk-note { font-size:11px; color:rgb(var(--fg-faint)); }
+
+  .bk-divider { border:0; border-top:1px solid rgb(var(--line)); margin:2px 0; }
+
+  /* ---- 同步区 ---- */
+  .bk-sync-head { display:flex; align-items:center; gap:10px; }
+  .bk-switch { position:relative; width:40px; height:22px; flex:none; cursor:pointer; }
+  .bk-switch input { position:absolute; opacity:0; inset:0; margin:0; cursor:pointer; }
+  .bk-switch i {
+    position:absolute; inset:0; border-radius:9999px; background:rgb(var(--line-strong)); transition: background .15s;
+  }
+  .bk-switch i::after {
+    content:""; position:absolute; top:2px; left:2px; width:18px; height:18px; border-radius:50%;
+    background:#fff; transition: transform .15s; box-shadow:0 1px 3px rgba(0,0,0,.35);
+  }
+  .bk-switch input:checked + i { background:rgb(var(--accent)); }
+  .bk-switch input:checked + i::after { transform: translateX(18px); }
+  .bk-form-grid { display:flex; flex-direction:column; gap:10px; }
+  .bk-form-row { display:flex; gap:10px; flex-wrap:wrap; }
+  .bk-form-row .bk-field { flex:1 1 200px; }
+  .bk-seg { display:flex; border:1px solid rgb(var(--line)); border-radius:9px; background:rgb(var(--elevate)); padding:2px; }
+  .bk-seg button { flex:1; border:0; background:transparent; border-radius:7px; padding:7px 8px; font-size:12px; font-weight:500; color:rgb(var(--fg-dim)); cursor:pointer; }
+  .bk-seg button[aria-selected="true"] { background:rgb(var(--accent) / .15); color:rgb(var(--accent)); }
+  .bk-checkline { display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer; user-select:none; }
+  .bk-checkline input { width:15px; height:15px; accent-color: rgb(var(--accent)); }
+  .bk-sync-status { font-size:12px; color:rgb(var(--fg-faint)); }
+  .bk-sync-status .bk-ok { color:rgb(var(--ok)); }
+  .bk-sync-status .bk-bad { color:rgb(var(--bad)); }
+
+  .bk-bk-foot {
+    flex:none; border-top:1px solid rgb(var(--line)); background:rgb(var(--card) / .6);
+    padding:10px 20px; font-size:11px; line-height:1.7; color:rgb(var(--fg-faint));
+    display:flex; gap:14px; align-items:center; flex-wrap:wrap;
+  }
+  .bk-bk-foot b { font-weight:500; color:rgb(var(--fg-dim)); }
+
+  /* ---- 模态 ---- */
+  .bk-modal { position:fixed; inset:0; z-index:40; display:grid; place-items:center; background:rgba(0,0,0,.6); padding:24px; }
+  .bk-modal-card { width:100%; max-width:420px; background:rgb(var(--card)); border:1px solid rgb(var(--line-strong)); border-radius:14px; box-shadow:0 16px 48px -8px rgba(0,0,0,.65); display:flex; flex-direction:column; max-height:90vh; }
+  .bk-modal-card.bk-wide { max-width:720px; }
+  .bk-modal-head { display:flex; align-items:center; justify-content:space-between; padding:14px 22px; border-bottom:1px solid rgb(var(--line)); flex:none; }
+  .bk-modal-head h3 { margin:0; font-size:15px; font-weight:600; }
+  .bk-modal-head button { border:0; background:transparent; cursor:pointer; color:rgb(var(--fg-dim)); display:grid; place-items:center; width:30px; height:30px; border-radius:8px; }
+  .bk-modal-head button:hover { background:rgb(var(--elevate)); color:rgb(var(--fg)); }
+  .bk-modal-body { padding:18px 22px; display:flex; flex-direction:column; gap:14px; overflow:auto; }
+  .bk-modal-foot { display:flex; justify-content:flex-end; gap:8px; border-top:1px solid rgb(var(--line)); padding:14px 22px; flex:none; }
+  .bk-modal-note { border:1px solid rgb(var(--line)); border-radius:9px; background:rgb(var(--elevate)); padding:10px 14px; font-size:11px; color:rgb(var(--fg-faint)); margin:0; }
+  .bk-del-hero { display:flex; align-items:center; gap:12px; padding:20px 22px 0; }
+  .bk-del-hero .bk-icon { display:grid; place-items:center; width:40px; height:40px; border-radius:12px; background:rgb(var(--bad) / .1); color:rgb(var(--bad)); flex:none; }
+  .bk-del-hero .bk-icon.bk-warned { background:rgb(var(--warn) / .1); color:rgb(var(--warn)); }
+  .bk-del-hero h3 { margin:0; font-size:15px; font-weight:600; }
+  .bk-del-body { padding:12px 22px 0; font-size:13px; line-height:1.7; color:rgb(var(--fg-dim)); }
+  .bk-del-body b { color:rgb(var(--fg)); font-weight:600; }
+  .bk-bk-shake { animation: bk-shake .3s; }
+  @keyframes bk-shake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-6px)} 75%{transform:translateX(6px)} }
+
+  /* ---- D5 预览表 ---- */
+  .bk-src-line { display:flex; gap:8px; align-items:center; font-size:12px; color:rgb(var(--fg-dim)); flex-wrap:wrap; }
+  .bk-src-line .bk-plat { border:1px solid rgb(var(--line)); border-radius:5px; padding:1px 7px; font-size:10px; background:rgb(var(--elevate)); }
+  table.bk-prev { width:100%; border-collapse:collapse; font-size:12px; }
+  table.bk-prev th, table.bk-prev td { border:1px solid rgb(var(--line)); padding:7px 10px; text-align:left; }
+  table.bk-prev th { background:rgb(var(--elevate)); font-weight:500; color:rgb(var(--fg-dim)); font-size:11px; }
+  table.bk-prev td.bk-num { font-family:ui-monospace,Menlo,Consolas,monospace; text-align:right; }
+  .bk-chip { display:inline-block; border-radius:5px; padding:1px 6px; font-size:10px; }
+  .bk-chip.bk-conflict { background:rgb(var(--warn) / .12); color:rgb(var(--warn)); }
+  .bk-strategy { display:flex; flex-direction:column; gap:6px; }
+  .bk-radio-line { display:flex; align-items:flex-start; gap:8px; font-size:13px; cursor:pointer; }
+  .bk-radio-line input { margin-top:2px; accent-color: rgb(var(--accent)); }
+  .bk-radio-line .bk-rdesc { display:block; font-size:11px; color:rgb(var(--fg-faint)); }
+
+  /* ---- D6 结果 ---- */
+  .bk-res-row { display:flex; align-items:flex-start; gap:10px; padding:9px 0; border-bottom:1px solid rgb(var(--line)); font-size:13px; }
+  .bk-res-row:last-child { border-bottom:0; }
+  .bk-res-row .bk-mark { flex:none; width:20px; text-align:center; font-weight:700; }
+  .bk-res-row .bk-mark.bk-ok { color:rgb(var(--ok)); }
+  .bk-res-row .bk-mark.bk-warn { color:rgb(var(--warn)); }
+  .bk-res-row .bk-mark.bk-bad { color:rgb(var(--bad)); }
+  .bk-res-row .bk-detail { font-size:11px; color:rgb(var(--fg-faint)); }
+
+  #bkToast {
+    position:fixed; bottom:24px; right:24px; z-index:50;
+    background:rgb(var(--elevate)); border:1px solid rgb(var(--line-strong)); border-radius:9px;
+    padding:10px 16px; font-size:13px; box-shadow:0 16px 40px -8px rgba(0,0,0,.65); transition:opacity .2s;
+    max-width:min(70vw, 480px); word-break:break-all;
+    display:flex; gap:10px; align-items:center;
+  }
+
+        </style>
+  <div class="bk-bk-scroll bk-bk-scroll-thin">
+
+  <!-- ===== D1a 导出 ===== -->
+  <section class="bk-panel" id="exportPanel">
+    <div class="bk-panel-head">
+      <span class="bk-picon" aria-hidden="true">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3M7 8l5-5 5 5M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg>
+      </span>
+      <h2>导出备份</h2>
+      <span class="bk-sub">导出为 .json 备份文件，可在手机 / 电脑间互导</span>
+    </div>
+    <div class="bk-cats" id="exportCats"></div>
+    <div class="bk-info" id="exportKeyHint" hidden>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>
+      <span>导出包含 <b>SSH 私钥明文</b>，请设置口令加密，并妥善保管备份文件。</span>
+    </div>
+    <div class="bk-pw-zone" id="exportPwZone" hidden>
+      <div class="bk-pw-grid">
+        <div class="bk-field">
+          <label for="expPw1">备份口令</label>
+          <input id="expPw1" type="password" placeholder="至少 4 位" autocomplete="new-password">
+          <div class="bk-strength"><i id="expStrength"></i></div>
+        </div>
+        <div class="bk-field">
+          <label for="expPw2">再输一次</label>
+          <input id="expPw2" type="password" placeholder="两次需一致" autocomplete="new-password">
+          <div class="bk-err" id="expPwErr"></div>
+        </div>
+      </div>
+    </div>
+    <div class="bk-row-actions">
+      <button class="bk-btn bk-primary" id="exportBtn">导出备份文件</button>
+      <span class="bk-note" id="exportNote">不加密也能导出，但密钥明文会直接写进文件</span>
+    </div>
+  </section>
+
+  <!-- ===== D1b 导入 ===== -->
+  <section class="bk-panel" id="importPanel">
+    <div class="bk-panel-head">
+      <span class="bk-picon" aria-hidden="true">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M8 7l4-4 4 4M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg>
+      </span>
+      <h2>导入备份</h2>
+      <span class="bk-sub">从 .json 备份文件恢复（手机导出的备份同样可用）</span>
+    </div>
+    <div class="bk-row-actions">
+      <button class="bk-btn bk-primary" id="importBtn">选择备份文件…</button>
+      <span class="bk-note">导入前会先预览差异，再让你确认</span>
+    </div>
+  </section>
+
+  <hr class="bk-divider" style="max-width:860px; width:100%; margin:0 auto;">
+
+  <!-- ===== D1c WebDAV 同步 ===== -->
+  <section class="bk-panel" id="syncPanel">
+    <div class="bk-sync-head">
+      <span class="bk-picon" aria-hidden="true">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7h-9l-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z"/></svg>
+      </span>
+      <h2>WebDAV 云同步</h2>
+      <label class="bk-switch" style="margin-left:auto" title="开启 / 关闭同步">
+        <input type="checkbox" id="syncEnabled">
+        <i></i>
+      </label>
+    </div>
+
+    <div class="bk-form-grid" id="syncForm">
+      <div class="bk-form-row">
+        <div class="bk-field" style="flex:2 1 280px">
+          <label for="syncUrl">服务器地址</label>
+          <input id="syncUrl" placeholder="https://dav.jianguoyun.com/dav/" autocomplete="off">
+        </div>
+        <div class="bk-field">
+          <label for="syncDir">目录</label>
+          <input id="syncDir" placeholder="AnyBoot" autocomplete="off">
+        </div>
+      </div>
+      <div class="bk-form-row">
+        <div class="bk-field">
+          <label for="syncUser">账号</label>
+          <input id="syncUser" placeholder="WebDAV 账号" autocomplete="off">
+        </div>
+        <div class="bk-field">
+          <label for="syncPass">密码 / 应用密码</label>
+          <input id="syncPass" type="password" placeholder="已保存，留空则不修改" autocomplete="new-password">
+        </div>
+      </div>
+      <div class="bk-form-row">
+        <div class="bk-field">
+          <label>自动同步频率</label>
+          <div class="bk-seg" id="syncPeriod">
+            <button type="button" data-v="15">15 分钟</button>
+            <button type="button" data-v="30">30 分钟</button>
+            <button type="button" data-v="60">60 分钟</button>
+            <button type="button" data-v="0">手动</button>
+          </div>
+        </div>
+      </div>
+      <label class="bk-checkline">
+        <input type="checkbox" id="syncOnChange">
+        有变化时自动同步（改动后约 30 秒内推送）
+      </label>
+      <div class="bk-cats" id="syncCats"></div>
+      <div class="bk-pw-zone" id="syncEncryptZone">
+        <label class="bk-checkline">
+          <input type="checkbox" id="syncEncrypt">
+          云端备份加密（推荐 —— 同步文件含密钥明文）
+        </label>
+        <div class="bk-field" id="syncEncryptPwField" hidden style="max-width:320px">
+          <label for="syncEncryptPw">同步口令</label>
+          <input id="syncEncryptPw" type="password" placeholder="已保存，留空则不修改" autocomplete="new-password">
+          <span class="bk-err" id="syncEncryptErr"></span>
+        </div>
+      </div>
+      <div class="bk-row-actions">
+        <button class="bk-btn" id="syncTestBtn">测试连接</button>
+        <button class="bk-btn" id="syncSaveBtn">保存配置</button>
+        <button class="bk-btn bk-primary" id="syncNowBtn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7M21 3v6h-6"/></svg>
+          立即同步
+        </button>
+      </div>
+      <div class="bk-sync-status" id="syncStatus"></div>
+      <div class="bk-info" id="syncLockInfo" hidden>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>
+        <span>导入 / 导出进行中，同步暂时锁定。</span>
+      </div>
+    </div>
+  </section>
+
+  </div>
+  <div class="bk-bk-foot">
+  <span><b>互导口径</b>：手机端口令加密的备份在电脑导入时需输入同一口令；电脑导出的私钥一律不带口令写入。</span>
+  <span><b>带口令的私钥</b>只导出元数据不导出材料（桌面只出不进）。</span>
+</div>
+
+<div class="bk-modal" id="pwModal" hidden role="dialog" aria-modal="true" aria-labelledby="pwTitle">
+  <div class="bk-modal-card">
+    <div class="bk-modal-head">
+      <h3 id="pwTitle">此备份已加密</h3>
+      <button id="pwClose" aria-label="关闭">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <form class="bk-modal-body" id="pwForm">
+      <div class="bk-field">
+        <label for="importPw">备份口令</label>
+        <input id="importPw" type="password" autocomplete="off">
+        <div class="bk-err" id="importPwErr"></div>
+      </div>
+      <p class="bk-modal-note">口令错误 3 次后提示：口令由导出方设置，本机无法找回。</p>
+      <div class="bk-modal-foot" style="border:0; padding:4px 0 0">
+        <button type="button" class="bk-btn bk-plain" id="pwCancel">取消</button>
+        <button type="submit" class="bk-btn bk-primary">解锁预览</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- D5 导入预览 -->
+<div class="bk-modal" id="previewModal" hidden role="dialog" aria-modal="true" aria-labelledby="prevTitle">
+  <div class="bk-modal-card bk-wide">
+    <div class="bk-modal-head">
+      <h3 id="prevTitle">导入预览</h3>
+      <button id="prevClose" aria-label="关闭">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div class="bk-modal-body">
+      <div class="bk-src-line" id="prevSrc"></div>
+      <table class="bk-prev">
+        <thead><tr><th>分类</th><th style="text-align:right">备份内</th><th style="text-align:right">本机现有</th><th>同 ID 冲突</th></tr></thead>
+        <tbody id="prevRows"></tbody>
+      </table>
+      <div class="bk-info bk-warn" id="prevWarn" hidden>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 9v4M12 17h.01M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+        <span id="prevWarnText"></span>
+      </div>
+      <div>
+        <label style="display:block; font-size:12px; font-weight:500; color:rgb(var(--fg-dim)); margin-bottom:6px">要导入的分类</label>
+        <div class="bk-cats" id="importCats"></div>
+      </div>
+      <div>
+        <label style="display:block; font-size:12px; font-weight:500; color:rgb(var(--fg-dim)); margin-bottom:6px">同 ID 条目处理</label>
+        <div class="bk-strategy" id="strategyBox">
+          <label class="bk-radio-line">
+            <input type="radio" name="strategy" value="skipExisting" checked>
+            <span>跳过已存在的条目<span class="bk-rdesc">只添加本机没有的；现有配置一律不动（安全）</span></span>
+          </label>
+          <label class="bk-radio-line">
+            <input type="radio" name="strategy" value="overwrite">
+            <span>用备份覆盖同 ID 条目<span class="bk-rdesc">同 ID 的本机档案会被备份内容整条替换；本机独有的条目保留</span></span>
+          </label>
+        </div>
+      </div>
+    </div>
+    <div class="bk-modal-foot">
+      <button class="bk-btn bk-plain" id="prevCancel">取消</button>
+      <button class="bk-btn bk-primary" id="prevGo">开始导入</button>
+    </div>
+  </div>
+</div>
+
+<!-- D7 覆盖确认 -->
+<div class="bk-modal" id="confirmModal" hidden role="dialog" aria-modal="true" aria-labelledby="cfmTitle">
+  <div class="bk-modal-card">
+    <div class="bk-del-hero">
+      <span class="bk-icon" aria-hidden="true">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+      </span>
+      <h3 id="cfmTitle">确认覆盖导入？</h3>
+    </div>
+    <p class="bk-del-body" id="cfmBody"></p>
+    <div class="bk-modal-foot">
+      <button class="bk-btn bk-plain" id="cfmCancel">取消</button>
+      <button class="bk-btn bk-danger" id="cfmOk">覆盖导入</button>
+    </div>
+  </div>
+</div>
+
+<!-- D6 导入结果 -->
+<div class="bk-modal" id="resultModal" hidden role="dialog" aria-modal="true" aria-labelledby="resTitle">
+  <div class="bk-modal-card">
+    <div class="bk-modal-head">
+      <h3 id="resTitle">导入完成</h3>
+      <button id="resClose" aria-label="关闭">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div class="bk-modal-body" id="resBody"></div>
+    <div class="bk-modal-foot">
+      <button class="bk-btn bk-primary" id="resOk">完成</button>
+    </div>
+  </div>
+</div>
+
+
+  <div id="bkToast" hidden></div>
+        <script>
+(function () {
+const HAS_TAURI = typeof window.__TAURI__ !== "undefined";
+const invoke = HAS_TAURI ? window.__TAURI__.core.invoke : null;
+const $ = (id) => document.getElementById(id);
+
+let toastTimer;
+function toast(msg, ms) {
+  const t = $('bkToast');
+  t.textContent = msg; t.hidden = false; t.style.opacity = 1;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.style.opacity = 0; setTimeout(() => t.hidden = true, 200); }, ms || 2600);
+}
+
+
+/* ---- 分类元数据（与 backup.rs CATEGORIES 同序） ---- */
+const CATS = [
+  { key: 'servers',  name: '电脑列表',   desc: '电脑档案与连接配置' },
+  { key: 'jumps',    name: 'SSH 服务器', desc: '跳板机 / 服务器档案（含密码明文）' },
+  { key: 'keys',     name: 'SSH 密钥',   desc: '私钥与公钥（导出含私钥明文）' },
+  { key: 'terminal', name: '偏好设置',   desc: '终端与传输偏好（跨端共同子集）' },
+  { key: 'history',  name: '连接记录',   desc: '会话历史与信任指纹' },
+];
+const CAT_LABEL = Object.fromEntries(CATS.map(c => [c.key, c.name]));
+
+function makeCatRows(container, checkedSet) {
+  container.textContent = '';
+  for (const c of CATS) {
+    const label = document.createElement('label');
+    label.className = 'bk-cat-row';
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.value = c.key;
+    input.checked = checkedSet.has(c.key);
+    input.addEventListener('change', () => checkedSet[input.checked ? 'add' : 'delete'](c.key));
+    const name = document.createElement('span'); name.className = 'bk-cname'; name.textContent = c.name;
+    const desc = document.createElement('span'); desc.className = 'bk-cdesc'; desc.textContent = c.desc;
+    label.append(input, name, desc);
+    container.appendChild(label);
+  }
+}
+
+/* ==================== 导出 ==================== */
+const exportChecked = new Set(['servers', 'jumps', 'keys', 'terminal', 'history']);
+makeCatRows($('exportCats'), exportChecked);
+
+let busy = false; // 互斥：导出 / 导入 / 立即同步同时只跑一个
+function setBusy(v) {
+  busy = v;
+  $('exportBtn').disabled = v || (exportChecked.has('keys') && !exportPasswordValid());
+  $('importBtn').disabled = v;
+  $('syncNowBtn').disabled = v || !syncConfiguredNow();
+  $('syncLockInfo').hidden = !v;
+}
+
+const pw1 = $('expPw1'), pw2 = $('expPw2');
+function exportPasswordValid() {
+  const a = pw1.value, b = pw2.value;
+  return a.length >= 4 && a === b;
+}
+function refreshExportUi() {
+  const hasKeys = exportChecked.has('keys');
+  $('exportPwZone').hidden = !(hasKeys || pw1.value || pw2.value);
+  $('exportKeyHint').hidden = !hasKeys;
+  const a = pw1.value, b = pw2.value;
+  let err = '';
+  if (a && a.length < 4) err = '口令至少 4 位';
+  else if (b && a !== b) err = '两次输入不一致';
+  $('expPwErr').textContent = err;
+  pw2.classList.toggle('bad', !!(b && a !== b));
+  // 强度条：按长度 + 字符多样性粗分三档
+  const meter = $('expStrength');
+  if (!a) { meter.style.width = '0'; }
+  else {
+    const score = Math.min(3, (a.length >= 8) + (/[0-9]/.test(a) && /[a-zA-Z]/.test(a)) + (/[^0-9a-zA-Z]/.test(a)));
+    meter.style.width = (score / 3 * 100) + '%';
+    meter.style.background = score <= 1 ? 'rgb(var(--bad))' : score === 2 ? 'rgb(var(--warn))' : 'rgb(var(--ok))';
+  }
+  $('exportBtn').disabled = busy || (hasKeys && !exportPasswordValid());
+  $('exportNote').textContent = hasKeys
+    ? (exportPasswordValid() ? '将加密导出（含密钥明文）' : '勾选了 SSH 密钥 —— 必须设置口令（≥4 位，两次一致）')
+    : (a ? '将加密导出' : '不加密导出');
+}
+pw1.addEventListener('input', refreshExportUi);
+pw2.addEventListener('input', refreshExportUi);
+// makeCatRows 的 change 回调里补挂刷新
+$('exportCats').addEventListener('change', refreshExportUi);
+refreshExportUi();
+
+$('exportBtn').addEventListener('click', async () => {
+  if (!invoke || busy) return;
+  const categories = [...exportChecked];
+  if (!categories.length) { toast('至少选择一个分类'); return; }
+  const usePw = !$('exportPwZone').hidden && pw1.value;
+  if ((exportChecked.has('keys') || usePw) && !exportPasswordValid()) {
+    toast('请先把口令设置好（≥4 位，两次一致）'); return;
+  }
+  try {
+    const path = await invoke('backup_pick_export_path');
+    if (!path) return; // 用户取消
+    setBusy(true);
+    $('exportBtn').innerHTML = '<span class="bk-spin"></span>正在组包…';
+    try {
+      const msg = await invoke('backup_export', {
+        path, categories,
+        password: usePw ? pw1.value : null,
+      });
+      toast(msg + ' — ' + path, 6000);
+    } finally {
+      $('exportBtn').textContent = '导出备份文件';
+      setBusy(false);
+    }
+  } catch (e) {
+    toast('导出失败：' + e);
+    $('exportBtn').textContent = '导出备份文件';
+    setBusy(false);
+  }
+});
+
+/* ==================== 导入（D3-D7） ==================== */
+let pendingFile = null;       // { path, password }
+let previewSummary = null;
+const importChecked = new Set();
+let lastStrategy = localStorage.getItem('ab-import-strategy') || 'skipExisting';
+
+function openPwModal() {
+  $('importPw').value = '';
+  $('importPwErr').textContent = '';
+  $('pwModal').hidden = false;
+  setTimeout(() => $('importPw').focus(), 30);
+}
+function closePwModal() { $('pwModal').hidden = true; }
+$('pwClose').addEventListener('click', closePwModal);
+$('pwCancel').addEventListener('click', closePwModal);
+$('pwModal').addEventListener('click', (e) => { if (e.target.id === 'pwModal') closePwModal(); });
+
+let pwAttempts = 0;
+$('pwForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (!invoke || !pendingFile) return;
+  const password = $('importPw').value;
+  try {
+    previewSummary = await invoke('backup_preview', { path: pendingFile.path, password });
+    pendingFile.password = password;
+    closePwModal();
+    openPreview();
+  } catch (err) {
+    pwAttempts += 1;
+    const msg = String(err);
+    $('importPwErr').textContent = msg === '口令错误或文件已损坏'
+      ? '口令不对（已试 ' + pwAttempts + ' 次）' : msg;
+    $('importPw').classList.add('bk-bad');
+    const card = $('pwModal').querySelector('.modal-card');
+    card.classList.remove('bk-shake'); void card.offsetWidth; card.classList.add('bk-shake');
+    if (pwAttempts >= 3) {
+      $('importPwErr').textContent = '口令不对。口令由导出方设置，本机无法找回 —— 向发你备份的人要正确口令。';
+    }
+  }
+});
+
+$('importBtn').addEventListener('click', async () => {
+  if (!invoke || busy) return;
+  try {
+    const path = await invoke('backup_pick_import_file');
+    if (!path) return;
+    pendingFile = { path, password: null };
+    pwAttempts = 0;
+    setBusy(true);
+    try {
+      previewSummary = await invoke('backup_preview', { path, password: null });
+      openPreview();
+    } catch (err) {
+      const msg = String(err);
+      if (msg === '__NEED_PASSWORD__') {
+        openPwModal();
+      } else {
+        toast(msg); pendingFile = null;
+      }
+    } finally {
+      setBusy(false);
+    }
+  } catch (e) {
+    toast('选择文件失败：' + e);
+  }
+});
+
+function openPreview() {
+  const s = previewSummary;
+  $('prevSrc').innerHTML = '';
+  const plat = document.createElement('span'); plat.className = 'bk-plat';
+  plat.textContent = s.platform === 'desktop' ? '电脑端导出' : s.platform === 'ios' ? 'iPhone 导出'
+    : s.platform === 'android' ? 'Android 导出' : ('来源：' + (s.platform || '未知'));
+  const when = document.createElement('span');
+  when.textContent = '导出于 ' + (String(s.exportedAt || '').replace('T', ' ').replace('Z', '') || '未知时间');
+  $('prevSrc').append(plat, when);
+
+  const tbody = $('prevRows');
+  tbody.textContent = '';
+  importChecked.clear();
+  const avail = Object.keys(s.rows || {});
+  for (const key of avail) {
+    const row = s.rows[key];
+    const tr = document.createElement('tr');
+    const tdName = document.createElement('td'); tdName.textContent = CAT_LABEL[key] || key;
+    const tdBk = document.createElement('td'); tdBk.className = 'bk-num'; tdBk.textContent = row.backup;
+    const tdLo = document.createElement('td'); tdLo.className = 'bk-num'; tdLo.textContent = row.local;
+    const tdCf = document.createElement('td');
+    if (row.conflicts && row.conflicts.length) {
+      tdCf.innerHTML = '<span class="bk-chip bk-conflict"></span> ';
+      tdCf.querySelector('.bk-chip').textContent = row.conflicts.length + ' 个同 ID';
+      tdCf.title = row.conflicts.join('、');
+    } else { tdCf.textContent = '—'; tdCf.style.color = 'rgb(var(--fg-faint))'; }
+    tr.append(tdName, tdBk, tdLo, tdCf);
+    tbody.appendChild(tr);
+    importChecked.add(key);
+  }
+  // 警示：引用缺失 / 桌面无历史域
+  const warns = [];
+  if (s.missingJumpRefs > 0) warns.push('有 ' + s.missingJumpRefs + ' 台电脑引用的跳板机不在备份里 —— 一并勾选「SSH 服务器」可补齐。');
+  $('prevWarn').hidden = warns.length === 0;
+  $('prevWarnText').textContent = warns.join(' ');
+
+  makeCatRows($('importCats'), importChecked);
+  document.querySelectorAll('input[name=strategy]').forEach((r) => { r.checked = r.value === lastStrategy; });
+  $('previewModal').hidden = false;
+}
+$('importCats').addEventListener('change', () => {
+  // importChecked 已在 makeCatRows 内维护
+});
+$('prevClose').addEventListener('click', closePreview);
+$('prevCancel').addEventListener('click', closePreview);
+function closePreview() { $('previewModal').hidden = true; pendingFile = null; }
+
+function chosenStrategy() {
+  const r = document.querySelector('input[name=strategy]:checked');
+  return r ? r.value : 'skipExisting';
+}
+
+$('prevGo').addEventListener('click', async () => {
+  if (!invoke || !pendingFile) return;
+  const categories = [...importChecked];
+  if (!categories.length) { toast('至少选择一个分类'); return; }
+  const strategy = chosenStrategy();
+  if (strategy === 'overwrite') {
+    const targets = categories.filter((c) => (previewSummary.rows[c] || {}).conflicts?.length > 0);
+    $('cfmBody').innerHTML = '';
+    const span = document.createElement('span');
+    if (targets.length) {
+      span.innerHTML = '以下分类存在同 ID 条目，将被备份内容<b>整条替换</b>：\n';
+      const names = document.createElement('b');
+      names.textContent = targets.map((c) => CAT_LABEL[c]).join('、');
+      span.append(names);
+      const extra = document.createElement('div');
+      extra.style.cssText = 'margin-top:6px; color:rgb(var(--bad)); font-weight:600;';
+      extra.textContent = '被替换的本机数据无法恢复（除非你先另存一份备份）。';
+      span.appendChild(extra);
+    } else {
+      span.textContent = '备份里没有与本机同 ID 的条目，覆盖策略实际不会替换任何现有数据。';
+    }
+    $('cfmBody').appendChild(span);
+    $('confirmModal').hidden = false;
+    return; // 确认后走 doImport
+  }
+  doImport(strategy);
+});
+$('cfmCancel').addEventListener('click', () => { $('confirmModal').hidden = true; });
+$('cfmOk').addEventListener('click', () => {
+  $('confirmModal').hidden = true;
+  doImport('overwrite');
+});
+
+async function doImport(strategy) {
+  if (!invoke || !pendingFile) return;
+  const categories = [...importChecked];
+  lastStrategy = strategy;
+  localStorage.setItem('ab-import-strategy', strategy);
+  setBusy(true); // 锁同步
+  $('prevGo').disabled = true;
+  $('prevGo').innerHTML = '<span class="bk-spin"></span>正在导入…';
+  try {
+    const report = await invoke('backup_import', {
+      path: pendingFile.path, password: pendingFile.password,
+      categories, strategy,
+    });
+    closePreview();
+    showResult(report);
+  } catch (e) {
+    toast('导入失败：' + e);
+  } finally {
+    $('prevGo').textContent = '开始导入';
+    $('prevGo').disabled = false;
+    setBusy(false);
+  }
+}
+
+/* ---- D6 结果 ---- */
+function showResult(report) {
+  const body = $('resBody');
+  body.textContent = '';
+  let allOk = true;
+  for (const [cat, row] of Object.entries(report || {})) {
+    const failed = (row.failed || []);
+    const ok = failed.length === 0;
+    if (!ok) allOk = false;
+    const line = document.createElement('div');
+    line.className = 'bk-res-row';
+    const mark = document.createElement('span');
+    mark.className = 'bk-mark ' + (ok ? 'bk-ok' : 'bk-warn');
+    mark.textContent = ok ? '✓' : '⚠';
+    const main = document.createElement('div');
+    const title = document.createElement('div');
+    title.textContent = (CAT_LABEL[cat] || cat) + '：'
+      + '新增 ' + (row.added || 0)
+      + '，更新 ' + (row.updated || 0)
+      + ((row.skipped || 0) ? '，跳过 ' + row.skipped : '');
+    const detail = document.createElement('div');
+    detail.className = 'bk-detail';
+    detail.textContent = failed.join('；');
+    main.append(title, detail);
+    line.append(mark, main);
+    body.appendChild(line);
+  }
+  if (!Object.keys(report || {}).length) {
+    body.textContent = '备份中没有可导入的数据。';
+  }
+  $('resTitle').textContent = allOk ? '导入完成' : '导入完成（部分条目有问题）';
+  $('resultModal').hidden = false;
+}
+$('resClose').addEventListener('click', () => { $('resultModal').hidden = true; });
+$('resOk').addEventListener('click', () => { $('resultModal').hidden = true; });
+
+/* ==================== WebDAV 同步 ==================== */
+let syncState = null;
+let syncPeriodValue = 30;
+
+function syncConfiguredNow() {
+  const url = $('syncUrl').value.trim();
+  return url.startsWith('http://') || url.startsWith('https://');
+}
+
+function renderSyncState(s) {
+  syncState = s;
+  $('syncEnabled').checked = !!s.enabled;
+  $('syncUrl').value = s.server_url || '';
+  $('syncUser').value = s.username || '';
+  $('syncDir').value = s.directory || 'AnyBoot';
+  syncPeriodValue = s.period_minutes || 0;
+  document.querySelectorAll('#syncPeriod button').forEach((b) =>
+    b.setAttribute('aria-selected', String(Number(b.dataset.v) === syncPeriodValue)));
+  $('syncOnChange').checked = !!s.sync_on_change;
+  const syncChecked = new Set(s.categories && s.categories.length ? s.categories : ['servers', 'jumps', 'keys', 'terminal']);
+  makeCatRows($('syncCats'), syncChecked);
+  // 勾选集要能写回：换一个可见性更高的方案
+  syncCheckedRef = syncChecked;
+  $('syncEncrypt').checked = !!s.encrypt;
+  $('syncEncryptPwField').hidden = !s.encrypt;
+  $('syncEncryptPw').placeholder = s.has_encrypt_password ? '已保存，留空则不修改' : '设置同步口令';
+  $('syncPass').placeholder = s.has_password ? '已保存，留空则不修改' : 'WebDAV 密码 / 应用密码';
+  renderSyncStatus(s);
+}
+let syncCheckedRef = new Set();
+
+function renderSyncStatus(s) {
+  const el = $('syncStatus');
+  el.innerHTML = '';
+  if (s.last_error) {
+    const bad = document.createElement('span'); bad.className = 'bk-bad';
+    bad.textContent = '上次同步失败：' + s.last_error;
+    el.appendChild(bad);
+  } else if (s.last_sync_ms) {
+    const ok = document.createElement('span'); ok.className = 'bk-ok';
+    ok.textContent = '上次同步：' + new Date(s.last_sync_ms).toLocaleString();
+    el.appendChild(ok);
+  } else {
+    el.textContent = '还没有同步过';
+  }
+}
+
+document.querySelectorAll('#syncPeriod button').forEach((b) => {
+  b.addEventListener('click', () => {
+    syncPeriodValue = Number(b.dataset.v);
+    document.querySelectorAll('#syncPeriod button').forEach((x) =>
+      x.setAttribute('aria-selected', String(x === b)));
+  });
+});
+$('syncEncrypt').addEventListener('change', () => {
+  $('syncEncryptPwField').hidden = !$('syncEncrypt').checked;
+  $('syncEncryptErr').textContent = '';
+});
+
+$('syncEnabled').addEventListener('change', async () => {
+  if (!invoke) return;
+  const on = $('syncEnabled').checked;
+  if (on && !syncConfiguredNow()) {
+    $('syncEnabled').checked = false;
+    toast('请先填写服务器地址并保存配置');
+    return;
+  }
+  if (on) await collectAndSaveConfig(true); // 开同步 = 顺手把表单存了
+  try { await invoke('backup_sync_set_enabled', { enabled: on }); }
+  catch (e) { toast(String(e)); }
+  toast(on ? '云同步已开启' : '云同步已关闭');
+});
+
+async function collectAndSaveConfig(silent) {
+  if (!invoke) return;
+  const categories = [...syncCheckedRef];
+  if (!categories.length && !silent) { toast('至少选择一个同步分类'); throw new Error('no-categories'); }
+  const cfg = {
+    serverUrl: $('syncUrl').value.trim(),
+    username: $('syncUser').value.trim(),
+    directory: $('syncDir').value.trim(),
+    periodMinutes: syncPeriodValue,
+    syncOnChange: $('syncOnChange').checked,
+    categories,
+    encrypt: $('syncEncrypt').checked,
+    enabled: $('syncEnabled').checked,
+  };
+  const pass = $('syncPass').value;
+  if (pass) cfg.password = pass;
+  const epw = $('syncEncryptPw').value;
+  if (epw) cfg.encryptPassword = epw;
+  if (cfg.encrypt && !epw && !(syncState && syncState.has_encrypt_password)) {
+    $('syncEncryptErr').textContent = '开启加密需设置同步口令';
+    throw new Error('need-encrypt-password');
+  }
+  await invoke('backup_sync_save_config', { config: cfg });
+  // 保存后刷新（清掉本地已输密码框）
+  $('syncPass').value = ''; $('syncEncryptPw').value = '';
+  syncState = await invoke('backup_sync_get_state');
+  renderSyncStatus(syncState);
+  if (!silent) toast('配置已保存');
+}
+
+$('syncSaveBtn').addEventListener('click', async () => {
+  if (!invoke) return;
+  try { await collectAndSaveConfig(false); }
+  catch (e) { if (String(e) !== 'need-encrypt-password' && String(e) !== 'no-categories') toast('保存失败：' + e); }
+});
+
+$('syncTestBtn').addEventListener('click', async () => {
+  if (!invoke) return;
+  const btn = $('syncTestBtn');
+  btn.disabled = true; btn.innerHTML = '<span class="bk-spin"></span>测试中…';
+  try {
+    // 先把表单里没保存的值一并带上：直接存一次再测，语义最不容易错
+    await collectAndSaveConfig(true);
+    const result = await invoke('backup_webdav_test', { config: {} });
+    if (result === 'ok') toast('连接成功 ✓');
+    else if (result === 'notFound') openMkdirConfirm();
+  } catch (e) {
+    toast('测试失败：' + e);
+  } finally {
+    btn.disabled = false; btn.textContent = '测试连接';
+  }
+});
+
+function openMkdirConfirm() {
+  $('cfmTitle').textContent = '远端目录不存在';
+  const icon = $('confirmModal').querySelector('.bk-icon');
+  icon.classList.add('bk-warned');
+  $('cfmBody').innerHTML = '';
+  const span = document.createElement('span');
+  span.innerHTML = '服务器上还没有 <b></b> 目录，要现在创建吗？';
+  span.querySelector('b').textContent = $('syncDir').value.trim() || 'AnyBoot';
+  $('cfmBody').appendChild(span);
+  $('cfmOk').textContent = '创建目录';
+  pendingMkdir = true;
+  $('confirmModal').hidden = false;
+}
+let pendingMkdir = false;
+
+$('cfmOk').addEventListener('click', async () => {
+  $('confirmModal').hidden = true;
+  if (!pendingMkdir) return; // 正常覆盖导入路径
+  pendingMkdir = false;
+  $('cfmOk').textContent = '覆盖导入';
+  $('confirmModal').querySelector('.bk-icon').classList.remove('bk-warned');
+  $('cfmTitle').textContent = '确认覆盖导入？';
+  try {
+    await invoke('backup_webdav_mkdir', { config: {} });
+    toast('目录已创建 ✓');
+  } catch (e) {
+    toast('创建目录失败：' + e);
+  }
+});
+
+$('syncNowBtn').addEventListener('click', async () => {
+  if (!invoke || busy) return;
+  if (!syncConfiguredNow()) { toast('请先填写服务器地址并保存配置'); return; }
+  setBusy(true);
+  const btn = $('syncNowBtn');
+  const old = btn.innerHTML;
+  btn.innerHTML = '<span class="bk-spin"></span>同步中…';
+  try {
+    const msg = await invoke('backup_sync_now');
+    toast(msg);
+    syncState = await invoke('backup_sync_get_state');
+    renderSyncStatus(syncState);
+  } catch (e) {
+    toast('同步失败：' + e, 5000);
+    try {
+      syncState = await invoke('backup_sync_get_state');
+      renderSyncStatus(syncState);
+    } catch (_) {}
+  } finally {
+    btn.innerHTML = old;
+    setBusy(false);
+  }
+});
+
+/* ---- 键盘 ---- */
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    closePwModal(); closePreview();
+    $('confirmModal').hidden = true;
+    $('resultModal').hidden = true;
+  }
+});
+
+/* ---- 启动 / 进页刷新（showPage('backup') 钩子） ---- */
+window.__bkOnShow = async function () {
+  if (!invoke) return;
+  try { renderSyncState(await invoke('backup_sync_get_state')); }
+  catch (e) { $('syncStatus').textContent = '同步配置读取失败：' + e; }
+};
+(function boot() {
+  refreshExportUi();
+  if (!invoke) {
+    $('syncStatus').textContent = '非 Tauri 环境（预览）';
+    return;
+  }
+  window.__bkOnShow();
+})();
+})();
+        </script>
+      </section>
+
       <!-- ---- 关于（设计稿 about 屏：居中卡片 + 检查更新/GitHub） ---- -->
       <section class="page" id="page-about" hidden data-page-node-id="pageAbout1">
         <div class="about-wrap">
@@ -3624,7 +4566,7 @@
   })();
 
   // ============ 侧栏导航 / 收起 ============
-  const PAGES = ['home', 'computers', 'servers', 'gateway', 'term', 'sessions', 'transfers', 'files', 'keys', 'termset', 'about'];
+  const PAGES = ['home', 'computers', 'servers', 'gateway', 'term', 'sessions', 'transfers', 'files', 'keys', 'backup', 'termset', 'about'];
   let currentPage = 'servers';
   const sideEl = document.getElementById('hubSide');
 
@@ -3654,20 +4596,13 @@
       else if (name === 'sessions') renderSessions();
       else if (name === 'transfers') renderTransfers();
       else if (name === 'keys') renderKeysPage();
+      else if (name === 'backup') { if (window.__bkOnShow) window.__bkOnShow(); }
       else if (name === 'files') { syncActionPages(); fbSync(); }
       else syncActionPages();
     }
   }
   document.querySelectorAll('#hubSideNav .snav').forEach(function (b) {
-    b.addEventListener('click', function () {
-      // 备份与恢复是独立窗（server-backup）：不切页签，直接唤起
-      if (b.dataset.page === 'backup') {
-        if (!invoke) { toast('备份与恢复需要应用环境', 'bad'); return; }
-        invoke('hub_open_backup_window').catch(function (error) { toast('打开备份窗口失败：' + error, 'bad'); });
-        return;
-      }
-      showPage(b.dataset.page);
-    });
+    b.addEventListener('click', function () { showPage(b.dataset.page); });
   });
 
   let sideCollapsed = false;
