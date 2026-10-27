@@ -65,6 +65,11 @@ dependencies {
     // 同理：jsch 也不要升到 0.2.27+/2.x —— 0.2.27 才有 writeOpenSSHv1PrivateKey()（EdDSA 落盘的唯一途径），
     // 但那同样会改变主机密钥协商，触发上面一模一样的老装机全连不上。
 
+    // WebDAV 同步：PROPFIND / MKCOL 是自定义 HTTP 方法，安卓内置 HttpURLConnection
+    // （捆绑的老版 OkHttp）对方法名有白名单，setRequestMethod("PROPFIND") 直接
+    // ProtocolException。真 OkHttp 允许任意 method，是 WebDAV 客户端的标准选择。
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
     // Jetpack Compose（BOM 统一版本；material-icons-core 由 material3 传递引入）
     val composeBom = platform("androidx.compose:compose-bom:2024.10.01")
     implementation(composeBom)

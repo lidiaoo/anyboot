@@ -11,14 +11,18 @@ import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
+
+import okhttp3.MediaType;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.RequestBody;
+import okhttp3.Response;
 
 /**
  * WebDAV 云同步（docs/backup-design.md §9）。
@@ -145,7 +149,7 @@ final class SyncManager {
     }
 
     // ==================================================================
-    // WebDAV 三动词（HttpURLConnection；必须在子线程调用）
+    // WebDAV 三动词（OkHttp；必须在子线程调用）
     // ==================================================================
 
     private static byte[] readStream(InputStream stream) {
@@ -286,44 +290,47 @@ final class SyncManager {
         }, "anyboot-dav-mkcol").start();
     }
 
+    /** 共享连接池/线程池的客户端；超时与原 HttpURLConnection 版一致 */
+    private static final OkHttpClient DAV_CLIENT = new OkHttpClient.Builder()
+            .connectTimeout(20, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .build();
+
     private static DavResult requestWithAuth(String url, String method, byte[] body,
                                              String ifMatch, String credentials) {
-        HttpURLConnection connection = null;
         try {
-            connection = (HttpURLConnection) new URL(url).openConnection();
-            connection.setConnectTimeout(20_000);
-            connection.setReadTimeout(30_000);
-            connection.setRequestMethod(method);
-            connection.setRequestProperty("Authorization", "Basic "
-                    + Base64.encodeToString(credentials.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP));
+            Request.Builder builder = new Request.Builder()
+                    .url(url)
+                    .header("Authorization", "Basic "
+                            + Base64.encodeToString(
+                            credentials.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP));
             if ("PROPFIND".equals(method)) {
-                connection.setRequestProperty("Depth", "0");
+                builder.header("Depth", "0");
             }
             if (ifMatch != null && !ifMatch.isEmpty()) {
-                connection.setRequestProperty("If-Match", "\"" + ifMatch + "\"");
+                builder.header("If-Match", "\"" + ifMatch + "\"");
             }
             if (body != null && body.length > 0) {
-                connection.setDoOutput(true);
-                connection.setRequestProperty("Content-Type", "application/json");
-                try (OutputStream out = connection.getOutputStream()) {
-                    out.write(body);
+                // 自定义方法（PROPFIND/MKCOL）必须走 method()；内置 HttpURLConnection
+                // 的白名单会直接 ProtocolException，这正是换 OkHttp 的原因
+                builder.method(method, RequestBody.create(body,
+                        MediaType.parse("application/json")));
+            } else {
+                builder.method(method, null);
+            }
+            try (Response response = DAV_CLIENT.newCall(builder.build()).execute()) {
+                InputStream in = response.body() != null
+                        ? response.body().byteStream() : null;
+                byte[] responseBytes = in != null ? readStream(in) : new byte[0];
+                String etag = response.header("ETag");
+                if (etag != null) {
+                    etag = etag.replace("\"", "");
                 }
+                return new DavResult(response.code(), responseBytes, etag);
             }
-            int code = connection.getResponseCode();
-            byte[] response = readStream(code >= 400 ? connection.getErrorStream()
-                    : connection.getInputStream());
-            String etag = connection.getHeaderField("ETag");
-            if (etag != null) {
-                etag = etag.replace("\"", "");
-            }
-            return new DavResult(code, response, etag);
         } catch (Exception error) {
             return new DavResult(-1, error.getMessage() == null
                     ? new byte[0] : error.getMessage().getBytes(StandardCharsets.UTF_8), null);
-        } finally {
-            if (connection != null) {
-                connection.disconnect();
-            }
         }
     }
 
