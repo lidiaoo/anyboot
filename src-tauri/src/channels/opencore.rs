@@ -167,6 +167,20 @@ pub(crate) fn fix_launcher_option(esp_root: &Path, mode: &str) -> Result<String,
     }
     let previous = launcher_option(&original);
 
+    // 幂等：目标值与硬前提都已就位时，不备份、不写盘。
+    // 否则连点两次「立即修复」就会在 ESP 上堆两份一模一样的 config 备份，
+    // 看得出来用户会以为"每次点都在改东西"。
+    let routing_ok =
+        plist_lite::read_scalar(&original, &["UEFI", "Quirks", "RequestBootVarRouting"])
+            == Some(Scalar::Bool(true));
+    let flash_ok =
+        plist_lite::read_scalar(&original, &["NVRAM", "WriteFlash"]) != Some(Scalar::Bool(false));
+    if previous.as_deref() == Some(target) && routing_ok && flash_ok {
+        return Ok(format!(
+            "LauncherOption 已经是 {target}，硬前提也都在位——无需改动（没有写盘、也没有新增备份）"
+        ));
+    }
+
     // 先整份备份（与 NVRAM 备份同策略：留最近 10 份）
     let backup_dir = grub_rel(esp_root, "EFI/anyboot/backup");
     fs::create_dir_all(&backup_dir).map_err(|error| format!("建备份目录失败: {error}"))?;
@@ -250,9 +264,16 @@ pub(crate) fn fix_launcher_option(esp_root: &Path, mode: &str) -> Result<String,
         message.push('；');
         message.push_str(note);
     }
-    message.push_str(
-        "。重启一次进入 OpenCore 后它才会写进固件，到那时 AnyBoot 的「下次启动」即可使用",
-    );
+    message.push_str("。重启一次进入 OpenCore 后它才会把启动项写进固件");
+    if cfg!(target_os = "macos") {
+        // macOS 侧既读不到也写不了固件启动列表（Apple 的变量白名单，root 与 bless 都一样），
+        // 承诺「下次启动可用」是空头支票，不如直接给可行的做法。
+        message.push_str(
+            "。macOS 侧看不到、也改不了固件启动列表——想设默认项，请在 OC 菜单里对目标系统按 Ctrl+Enter",
+        );
+    } else {
+        message.push_str("，之后「下次启动」就能直接指向 OpenCore");
+    }
     Ok(message)
 }
 
@@ -746,11 +767,21 @@ mod tests {
         assert!(message.contains("Full"), "{message}");
         let after = fs::read_to_string(root.join("EFI/OC/config.plist")).unwrap();
         assert_eq!(launcher_option(&after).as_deref(), Some("Full"));
-        // 再跑一次：已经是目标值，仍应成功且不重复插键
-        fix_launcher_option(&root, "full").expect("幂等重跑应成功");
+        // 再跑一次：已经是目标值 → 成功、但不写盘、不新增备份、不重复插键
+        let again_message = fix_launcher_option(&root, "full").expect("幂等重跑应成功");
+        assert!(
+            again_message.contains("无需改动"),
+            "幂等重跑该明说没动东西：{again_message}"
+        );
         let again = fs::read_to_string(root.join("EFI/OC/config.plist")).unwrap();
+        assert_eq!(again, after, "幂等重跑不应改动文件内容");
         assert_eq!(again.matches("<key>LauncherOption</key>").count(), 1);
         assert_eq!(again.matches("<key>RequestBootVarRouting</key>").count(), 1);
+        let backups = fs::read_dir(root.join("EFI/anyboot/backup"))
+            .unwrap()
+            .flatten()
+            .count();
+        assert_eq!(backups, 1, "幂等重跑不该堆备份（连点两次只该有一份）");
         let _ = fs::remove_dir_all(&root);
     }
 
