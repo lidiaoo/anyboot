@@ -1,0 +1,3142 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AnyBoot · 多引导器菜单 10 种排版方案</title>
+<style>
+/* ═══════════════════════════════════════════════════════════════════
+   0. 设计令牌 —— 与 src-tauri/ui/styles.css 同源（暗色为默认）
+   这里多一层 --panel-2/3/4 与 --mono，仅供设计稿使用；落地时映射回
+   现有的 --panel / --border / --text-dim / --text-faint。
+   ═══════════════════════════════════════════════════════════════════ */
+:root{
+  --font:"Segoe UI","PingFang SC","Microsoft YaHei","Noto Sans CJK SC",system-ui,sans-serif;
+  --mono:ui-monospace,"Cascadia Code","JetBrains Mono",Consolas,"SF Mono",monospace;
+  --bg:#020617;
+  --panel:#0b1020;
+  --panel-2:#111830;
+  --panel-3:#18213a;
+  --panel-4:#1f2a45;
+  --line:#232b42;
+  --line-2:#334155;
+  --line-3:#4a5a75;
+  --text:#f8fafc;
+  --dim:#a6b3c6;
+  --faint:#7f8da3;
+  --fainter:#5c6a80;
+  --accent:#6366f1;
+  --accent-2:#818cf8;
+  --accent-soft:rgba(99,102,241,.15);
+  --ok:#22c55e;
+  --ok-text:#4ade80;
+  --warn:#f59e0b;
+  --warn-text:#fbbf24;
+  --danger:#ef4444;
+  --danger-text:#fca5a5;
+  --info:#38bdf8;
+  --info-text:#7dd3fc;
+  --shadow:0 18px 50px rgba(0,0,0,.5);
+  --r:10px;
+  color-scheme:dark;
+}
+[data-theme="light"]{
+  --bg:#eef1f7;
+  --panel:#ffffff;
+  --panel-2:#f5f7fb;
+  --panel-3:#e9eef6;
+  --panel-4:#dde5f0;
+  --line:#dde3ec;
+  --line-2:#c3cddb;
+  --line-3:#9dabbd;
+  --text:#0f172a;
+  --dim:#41506a;
+  --faint:#5b6a80;
+  --fainter:#7a8899;
+  --accent:#4f46e5;
+  --accent-2:#4338ca;
+  --accent-soft:rgba(79,70,229,.10);
+  --ok:#15803d;
+  --ok-text:#15803d;
+  --warn:#b45309;
+  --warn-text:#b45309;
+  --danger:#b91c1c;
+  --danger-text:#b91c1c;
+  --info:#0369a1;
+  --info-text:#0369a1;
+  --shadow:0 18px 40px rgba(15,23,42,.14);
+  color-scheme:light;
+}
+
+*{box-sizing:border-box}
+[hidden]{display:none !important}
+html,body{height:100%}
+body{
+  margin:0; background:var(--bg); color:var(--text);
+  font:13px/1.5 var(--font);
+  -webkit-font-smoothing:antialiased;
+}
+button{font-family:inherit;color:inherit}
+h1,h2,h3,h4,p,ul,ol,pre{margin:0}
+a{color:var(--accent-2)}
+::selection{background:var(--accent-soft)}
+
+/* 滚动条：窄、低对比，不抢视觉 */
+*::-webkit-scrollbar{width:8px;height:8px}
+*::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:8px;border:2px solid transparent;background-clip:content-box}
+*::-webkit-scrollbar-thumb:hover{background:var(--line-3);background-clip:content-box}
+*::-webkit-scrollbar-track{background:transparent}
+
+/* ═══════════════════════════════════════════════════════════════════
+   1. 展台外壳（不是产品界面，是设计稿的相框）
+   ═══════════════════════════════════════════════════════════════════ */
+.shell{display:flex;height:100vh;overflow:hidden}
+.rail{
+  width:214px;flex:none;display:flex;flex-direction:column;
+  background:var(--panel);border-right:1px solid var(--line);
+}
+.rail-head{display:flex;gap:10px;align-items:center;padding:14px 14px 10px}
+.rail-logo{
+  width:30px;height:30px;border-radius:9px;flex:none;
+  display:grid;place-items:center;font:700 12px var(--mono);letter-spacing:.04em;
+  color:#fff;background:linear-gradient(145deg,#6366f1,#4338ca);
+  box-shadow:0 4px 14px rgba(99,102,241,.4);
+}
+.rail-head b{display:block;font-size:12.5px}
+.rail-head small{display:block;font-size:10.5px;color:var(--faint);margin-top:1px}
+.rail-tabs{display:flex;gap:4px;padding:0 12px 10px}
+.rail-tab{
+  flex:1;height:26px;border:1px solid transparent;border-radius:7px;background:transparent;
+  color:var(--faint);font-size:11.5px;cursor:pointer;
+}
+.rail-tab:hover{color:var(--text);background:var(--panel-2)}
+.rail-tab.is-on{background:var(--panel-3);color:var(--text);border-color:var(--line)}
+.rail-list{flex:1;min-height:0;overflow-y:auto;padding:0 8px 8px;display:flex;flex-direction:column;gap:2px}
+.rail-item{
+  display:flex;gap:9px;align-items:flex-start;width:100%;text-align:left;
+  padding:7px 8px;border:1px solid transparent;border-radius:8px;
+  background:transparent;cursor:pointer;
+}
+.rail-item:hover{background:var(--panel-2)}
+.rail-item.is-on{background:var(--panel-3);border-color:var(--line-2)}
+.rail-idx{
+  width:19px;height:19px;flex:none;border-radius:6px;display:grid;place-items:center;
+  font:600 10px var(--mono);color:var(--dim);background:var(--panel-3);border:1px solid var(--line);
+}
+.rail-item.is-on .rail-idx{background:var(--accent);border-color:var(--accent);color:#fff}
+.rail-item .rt-wrap{flex:1;min-width:0;display:block}
+.rail-item .rt{display:block;font-size:12px;font-weight:600;line-height:1.3}
+.rail-item .rs{display:block;font-size:10.5px;color:var(--faint);line-height:1.35;margin-top:1px}
+.rail-foot{flex:none;padding:10px 12px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:8px}
+.rail-foot .row2{display:flex;gap:6px}
+.rail-foot .row2 .btn{flex:1;justify-content:center}
+#widthBtns{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+#widthBtns .btn{width:100%;justify-content:center}
+.rail-foot .lbl{font-size:10px;color:var(--fainter);letter-spacing:.06em;text-transform:uppercase}
+
+.stage-col{flex:1;min-width:0;display:flex;flex-direction:column}
+.stage-head{
+  flex:none;display:flex;align-items:center;gap:12px;padding:12px 18px;
+  border-bottom:1px solid var(--line);background:var(--panel);
+}
+.stage-head .tt{flex:1;min-width:0}
+.stage-head h1{font-size:14px;font-weight:650;display:flex;align-items:center;gap:8px}
+.stage-head p{font-size:11.5px;color:var(--faint);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kicker{font:600 10px var(--mono);letter-spacing:.08em;color:var(--accent-2);text-transform:uppercase}
+.stage{
+  flex:1;min-height:0;overflow:auto;padding:22px;
+  display:flex;justify-content:center;align-items:flex-start;
+  background:
+    radial-gradient(900px 400px at 50% 0%, var(--accent-soft), transparent 70%),
+    var(--bg);
+}
+
+/* 模拟应用窗口 */
+.win{
+  width:var(--w,1180px);max-width:100%;flex:none;
+  display:flex;flex-direction:column;
+  background:var(--bg);border:1px solid var(--line-2);border-radius:13px;
+  box-shadow:var(--shadow);overflow:hidden;
+}
+.win-bar{
+  flex:none;height:36px;display:flex;align-items:center;gap:9px;padding:0 12px;
+  background:var(--panel);border-bottom:1px solid var(--line);
+}
+.win-dots{display:flex;gap:5px}
+.win-dots i{width:9px;height:9px;border-radius:50%;background:var(--line-3)}
+.win-title{font-size:11.5px;color:var(--dim);font-weight:500}
+.win-tag{margin-left:auto;font:10px var(--mono);color:var(--fainter);border:1px solid var(--line);padding:1px 6px;border-radius:5px}
+.win-body{
+  container-type:inline-size;container-name:view;
+  height:min(720px,calc(100vh - 180px));min-height:440px;
+  overflow:auto;padding:16px;
+  background:var(--bg);
+}
+.win-body.no-pad{padding:0}
+
+/* ═══════════════════════════════════════════════════════════════════
+   2. 说明面板
+   ═══════════════════════════════════════════════════════════════════ */
+.notes{
+  width:368px;flex:none;overflow-y:auto;background:var(--panel);
+  border-left:1px solid var(--line);padding:16px 16px 40px;
+}
+.notes.is-off{display:none}
+/* 窄一点的屏幕上，说明面板改成覆盖式抽屉，把整幅宽度让给展台 */
+@media (max-width:1520px){
+  .notes{
+    position:fixed;top:0;right:0;bottom:0;width:372px;z-index:80;
+    box-shadow:-24px 0 60px rgba(0,0,0,.45);
+  }
+}
+.notes h2{font-size:15px;font-weight:650;letter-spacing:-.01em}
+.notes .sub{font-size:11.5px;color:var(--faint);margin-top:3px;line-height:1.55}
+.nsec{margin-top:16px;padding-top:14px;border-top:1px solid var(--line)}
+.nsec:first-of-type{border-top:0}
+.nsec h4{
+  font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--fainter);
+  display:flex;align-items:center;gap:6px;margin-bottom:7px;
+}
+.nsec h4::after{content:"";flex:1;height:1px;background:var(--line)}
+.nsec p{font-size:12px;color:var(--dim);line-height:1.6}
+.nsec p + p{margin-top:6px}
+.tree{
+  font:10.5px/1.65 var(--mono);color:var(--dim);background:var(--panel-2);
+  border:1px solid var(--line);border-radius:8px;padding:9px 10px;overflow-x:auto;white-space:pre;
+}
+.tree em{color:var(--accent-2);font-style:normal}
+.tree b{color:var(--text);font-weight:600}
+.nlist{list-style:none;padding:0;display:flex;flex-direction:column;gap:6px}
+.nlist li{font-size:11.5px;color:var(--dim);line-height:1.55;padding-left:14px;position:relative}
+.nlist li::before{content:"";position:absolute;left:4px;top:7px;width:4px;height:4px;border-radius:50%;background:var(--line-3)}
+.nlist li b{color:var(--text);font-weight:600}
+.nlist li code,code.inl{
+  font:10.5px var(--mono);background:var(--panel-3);color:var(--dim);
+  padding:1px 4px;border-radius:4px;border:1px solid var(--line);
+}
+.nlist li em{color:var(--warn-text);font-style:normal}
+.kv{display:flex;flex-direction:column;gap:5px}
+.kv .k{font-size:11px;color:var(--faint)}
+.pill-row{display:flex;flex-wrap:wrap;gap:5px}
+.pro-con{display:flex;flex-direction:column;gap:6px;font-size:11.5px;line-height:1.5}
+.pro-con .p{color:var(--ok-text)}
+.pro-con .c{color:var(--warn-text)}
+.pro-con b{color:var(--text)}
+
+/* 对比表（总览用） */
+.cmp{width:100%;border-collapse:collapse;font-size:11px;margin-top:2px}
+.cmp th,.cmp td{text-align:left;padding:5px 6px;border-bottom:1px solid var(--line);vertical-align:top}
+.cmp th{color:var(--fainter);font-weight:600;font-size:10px;letter-spacing:.04em}
+.cmp td{color:var(--dim)}
+.cmp td:first-child{color:var(--text);font-weight:600;white-space:nowrap}
+.cmp tr:hover td{background:var(--panel-2)}
+
+/* ═══════════════════════════════════════════════════════════════════
+   3. 通用组件（10 个方案共用的一套原子）
+   ═══════════════════════════════════════════════════════════════════ */
+.ldr{
+  --c:#6366f1;
+  width:30px;height:30px;flex:none;border-radius:8px;display:grid;place-items:center;
+  font:700 10.5px var(--mono);letter-spacing:.02em;color:var(--c);
+  background:color-mix(in srgb,var(--c) 15%,transparent);
+  border:1px solid color-mix(in srgb,var(--c) 40%,transparent);
+}
+.ldr.sm{width:22px;height:22px;border-radius:6px;font-size:8.5px}
+.ldr.md{width:26px;height:26px;border-radius:7px;font-size:9.5px}
+.ldr.lg{width:36px;height:36px;border-radius:10px;font-size:12px}
+
+.dot{width:6px;height:6px;border-radius:50%;flex:none;background:var(--faint)}
+.dot.ok{background:var(--ok)}
+.dot.warn{background:var(--warn)}
+.dot.off{background:var(--line-3)}
+.dot.err{background:var(--danger)}
+.dot.live{box-shadow:0 0 0 3px color-mix(in srgb,var(--ok) 22%,transparent)}
+
+.chip{
+  display:inline-flex;align-items:center;gap:5px;height:20px;padding:0 7px;
+  border-radius:6px;border:1px solid var(--line-2);background:var(--panel-2);
+  color:var(--dim);font-size:10.5px;white-space:nowrap;flex:none;
+}
+.chip.ok{color:var(--ok-text);border-color:color-mix(in srgb,var(--ok) 34%,transparent);background:color-mix(in srgb,var(--ok) 10%,transparent)}
+.chip.warn{color:var(--warn-text);border-color:color-mix(in srgb,var(--warn) 34%,transparent);background:color-mix(in srgb,var(--warn) 10%,transparent)}
+.chip.off{color:var(--faint)}
+.chip.elev{color:#c7b9ff;border-color:rgba(167,139,250,.36);background:rgba(167,139,250,.12)}
+[data-theme="light"] .chip.elev{color:#5b21b6}
+
+.badge{
+  display:inline-flex;align-items:center;gap:4px;height:17px;padding:0 5px;border-radius:5px;
+  font-size:10px;background:var(--panel-3);color:var(--dim);border:1px solid transparent;white-space:nowrap;flex:none;
+}
+.badge.def{color:var(--ok-text);background:color-mix(in srgb,var(--ok) 12%,transparent)}
+.badge.last{color:var(--info-text);background:color-mix(in srgb,var(--info) 12%,transparent)}
+.badge.pin{color:var(--accent-2);background:var(--accent-soft)}
+
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:6px;
+  height:28px;padding:0 10px;border-radius:7px;border:1px solid var(--line-2);
+  background:var(--panel-2);color:var(--text);font-size:12px;font-weight:500;
+  cursor:pointer;white-space:nowrap;flex:none;
+  transition:background .13s,border-color .13s,color .13s,box-shadow .13s;
+}
+.btn:hover{background:var(--panel-3);border-color:var(--line-3)}
+.btn:focus-visible{outline:2px solid var(--accent-2);outline-offset:1px}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.primary:hover{background:var(--accent-2);border-color:var(--accent-2)}
+.btn.ghost{background:transparent;border-color:transparent;color:var(--dim)}
+.btn.ghost:hover{background:var(--panel-2);color:var(--text)}
+.btn.danger{color:var(--danger-text);border-color:color-mix(in srgb,var(--danger) 40%,transparent);background:color-mix(in srgb,var(--danger) 9%,transparent)}
+.btn.sm{height:24px;padding:0 8px;font-size:11px;border-radius:6px;gap:4px}
+.btn.xs{height:20px;padding:0 6px;font-size:10.5px;border-radius:5px;gap:3px}
+.btn.icon{width:26px;padding:0}
+.btn.icon.sm{width:22px}
+.btn[disabled],.btn.is-disabled{opacity:.45;cursor:not-allowed;pointer-events:none}
+.btn .elev{font-size:10px;opacity:.9}
+
+.seg{display:inline-flex;padding:2px;gap:2px;background:var(--panel-2);border:1px solid var(--line);border-radius:8px;flex:none}
+.seg button{
+  height:22px;padding:0 8px;border:1px solid transparent;border-radius:6px;
+  background:transparent;color:var(--faint);font-size:11px;cursor:pointer;
+}
+.seg button:hover{color:var(--text)}
+.seg button.is-on{background:var(--panel-4);color:var(--text);border-color:var(--line-2)}
+
+.search{
+  display:flex;align-items:center;gap:7px;height:30px;padding:0 9px;
+  background:var(--panel-2);border:1px solid var(--line-2);border-radius:8px;color:var(--faint);
+  min-width:0;flex:1;
+}
+.search input{
+  flex:1;min-width:0;border:0;outline:0;background:transparent;color:var(--text);
+  font:12px var(--font);
+}
+.search input::placeholder{color:var(--fainter)}
+.kbd{
+  display:inline-grid;place-items:center;min-width:17px;height:17px;padding:0 4px;
+  font:10px var(--mono);color:var(--dim);background:var(--panel-3);
+  border:1px solid var(--line-2);border-bottom-width:2px;border-radius:4px;flex:none;
+}
+
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.card-head{flex:none;display:flex;align-items:center;gap:9px;padding:11px 12px}
+.card-title{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.card-title b{font-size:13px;font-weight:650;letter-spacing:-.01em}
+.card-title small{font-size:10.5px;color:var(--faint);font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+.entries{display:flex;flex-direction:column;gap:1px;padding:0 6px 8px}
+.row{
+  display:flex;align-items:center;gap:9px;padding:6px 7px;border-radius:8px;
+  border:1px solid transparent;min-width:0;
+}
+.row:hover{background:var(--panel-2)}
+.row.is-def{background:color-mix(in srgb,var(--ok) 7%,transparent);border-color:color-mix(in srgb,var(--ok) 20%,transparent)}
+.row-ico{
+  width:22px;height:22px;flex:none;border-radius:6px;display:grid;place-items:center;
+  font:600 8.5px var(--mono);letter-spacing:.02em;
+  background:var(--panel-3);color:var(--dim);
+}
+.row-ico.mac{color:#c4b5fd;background:rgba(167,139,250,.14)}
+.row-ico.win{color:#93c5fd;background:rgba(96,165,250,.14)}
+.row-ico.lin{color:#fcd34d;background:rgba(245,158,11,.14)}
+.row-ico.tool{color:#94a3b8;background:rgba(148,163,184,.12)}
+.row-ico.fw{color:#7dd3fc;background:rgba(56,189,248,.12)}
+[data-theme="light"] .row-ico.mac{color:#6d28d9;background:rgba(109,40,217,.10)}
+[data-theme="light"] .row-ico.win{color:#1d4ed8;background:rgba(29,78,216,.10)}
+[data-theme="light"] .row-ico.lin{color:#92400e;background:rgba(180,83,9,.10)}
+.row-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.row-main b{font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row-main small{
+  font:10.5px var(--mono);color:var(--faint);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.row-acts{display:flex;align-items:center;gap:5px;flex:none;opacity:.5;transition:opacity .12s}
+.row:hover .row-acts,.row:focus-within .row-acts{opacity:1}
+@media (hover:none){.row-acts{opacity:1}}
+
+.sep{height:1px;background:var(--line);margin:0}
+
+.acc{
+  display:flex;align-items:center;gap:8px;width:100%;padding:8px 12px;
+  border:0;border-top:1px solid var(--line);background:transparent;color:var(--dim);
+  font-size:11.5px;cursor:pointer;text-align:left;
+}
+.acc:hover{background:var(--panel-2);color:var(--text)}
+.acc .grow{flex:1;min-width:0;display:flex;align-items:baseline;gap:7px;overflow:hidden}
+.acc .grow > span{white-space:nowrap;flex:none}
+.acc small{color:var(--fainter);font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.acc .car{transition:transform .15s}
+.acc[aria-expanded="true"] .car{transform:rotate(180deg)}
+
+.panel-in{
+  padding:2px 12px 12px;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+  gap:8px;border-top:1px solid transparent;
+}
+.set{
+  display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:8px;
+  background:var(--panel-2);border:1px solid var(--line);min-width:0;
+}
+.set .set-t{flex:1;min-width:0}
+.set .set-t b{display:block;font-size:11.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.set .set-t small{display:block;font:10px var(--mono);color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+
+.switch{width:30px;height:17px;border-radius:9px;background:var(--panel-4);border:1px solid var(--line-2);position:relative;flex:none}
+.switch::after{content:"";position:absolute;top:2px;left:2px;width:11px;height:11px;border-radius:50%;background:var(--faint);transition:.15s}
+.switch.on{background:color-mix(in srgb,var(--accent) 60%,transparent);border-color:var(--accent)}
+.switch.on::after{left:15px;background:#fff}
+
+.toolbar{display:flex;align-items:center;gap:7px;flex:none;min-width:0}
+.toolbar .grow{flex:1;min-width:0}
+.mut{color:var(--faint)}
+.hint{font-size:10.5px;color:var(--fainter)}
+
+.ico-cell{display:grid;place-items:center;color:var(--dim)}
+svg.i{display:block;width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+svg.i.sm{width:12px;height:12px}
+svg.i.lg{width:16px;height:16px}
+
+/* 空态 */
+.empty{
+  display:flex;flex-direction:column;align-items:center;gap:6px;padding:26px 12px;
+  color:var(--faint);font-size:12px;text-align:center;
+}
+.empty b{color:var(--text);font-size:13px}
+
+/* ═══════════════════════════════════════════════════════════════════
+   4. 方案 A —— 卡片流 + 顶部通道索引
+   ═══════════════════════════════════════════════════════════════════ */
+.la{display:flex;flex-direction:column;height:100%;min-height:0}
+.la-index{
+  flex:none;position:sticky;top:-16px;z-index:3;margin:-16px -16px 12px;padding:9px 16px;
+  display:flex;align-items:center;gap:6px;overflow-x:auto;
+  background:color-mix(in srgb,var(--bg) 88%,transparent);
+  backdrop-filter:blur(10px);border-bottom:1px solid var(--line);
+}
+.la-chip{
+  display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 8px;border-radius:6px;
+  border:1px solid transparent;background:transparent;color:var(--dim);font-size:11px;cursor:pointer;flex:none;
+}
+.la-chip:hover{background:var(--panel-2);color:var(--text)}
+.la-chip.is-on{background:var(--panel-2);border-color:var(--line-2);color:var(--text)}
+.la-chip em{font:10px var(--mono);color:var(--fainter);font-style:normal}
+.la-star{color:var(--accent-2)}
+.la-list{flex:1;min-height:0;display:flex;flex-direction:column;gap:10px}
+.la-card{flex:none}
+.la-card .card-head{border-bottom:1px solid transparent}
+.la-card .card-head:hover{border-bottom-color:var(--line)}
+.la-card.is-pinned{border-color:color-mix(in srgb,var(--accent) 34%,var(--line))}
+.la-card.is-pinned .card-head{background:linear-gradient(90deg,var(--accent-soft),transparent 60%)}
+.la-foot{
+  flex:none;display:flex;align-items:center;gap:8px;padding:8px 10px;border-top:1px solid var(--line);
+  font-size:11px;color:var(--faint);background:var(--panel-2);
+}
+.la-more{
+  flex:none;display:flex;align-items:center;gap:8px;padding:9px 12px;border-radius:10px;
+  border:1px dashed var(--line-2);color:var(--faint);font-size:11.5px;background:transparent;cursor:pointer;text-align:left;
+}
+.la-more:hover{border-color:var(--line-3);color:var(--dim)}
+.la-more b{color:var(--dim);font-weight:600}
+
+/* ═══════════════════════════════════════════════════════════════════
+   5. 方案 B —— 左栏通道 + 右栏详情（主从）
+   ═══════════════════════════════════════════════════════════════════ */
+.lb{display:flex;height:100%;min-height:0;margin:-16px;background:var(--panel)}
+.lb-nav{
+  width:236px;flex:none;display:flex;flex-direction:column;min-height:0;
+  border-right:1px solid var(--line);background:var(--panel-2);
+}
+.lb-nav-head{
+  flex:none;display:flex;align-items:center;gap:6px;padding:12px 10px 8px;
+  font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--fainter);
+}
+.lb-nav-head .grow{flex:1}
+.lb-list{flex:1;min-height:0;overflow-y:auto;padding:0 6px 8px;display:flex;flex-direction:column;gap:1px}
+.lb-item{
+  display:flex;align-items:center;gap:8px;padding:7px 7px;border-radius:8px;border:1px solid transparent;
+  background:transparent;cursor:pointer;text-align:left;width:100%;color:inherit;min-width:0;
+}
+.lb-item:hover{background:var(--panel-3)}
+.lb-item.is-on{background:var(--panel);border-color:var(--line-2);box-shadow:0 1px 0 rgba(0,0,0,.15)}
+.lb-item .nm{flex:1;min-width:0;display:flex;flex-direction:column}
+.lb-item .nm b{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lb-item .nm small{font-size:10px;color:var(--fainter);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lb-grip{color:var(--fainter);opacity:0;cursor:grab;flex:none}
+.lb-item:hover .lb-grip{opacity:1}
+.lb-item.is-on .lb-grip{opacity:.7}
+.lb-nav-foot{flex:none;padding:8px 8px;border-top:1px solid var(--line);display:flex;gap:6px}
+.lb-main{flex:1;min-width:0;display:flex;flex-direction:column;min-height:0;background:var(--bg)}
+.lb-main-head{
+  flex:none;display:flex;align-items:center;gap:10px;padding:14px 16px 10px;
+  border-bottom:1px solid var(--line);background:var(--bg);
+}
+.lb-main-head .tt{flex:1;min-width:0}
+.lb-main-head h2{font-size:15px;font-weight:650;display:flex;align-items:center;gap:7px}
+.lb-main-head p{font:11px var(--mono);color:var(--faint);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lb-scroll{flex:1;min-height:0;overflow-y:auto;padding:12px 16px 16px}
+.lb-note{
+  display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:9px;margin-bottom:12px;
+  background:var(--panel);border:1px solid var(--line);font-size:11.5px;color:var(--dim);
+}
+.lb-note b{color:var(--text);font-weight:600}
+.lb-block{background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-bottom:10px}
+.lb-block-head{
+  display:flex;align-items:center;gap:8px;padding:9px 11px;border-bottom:1px solid var(--line);
+  font-size:11.5px;color:var(--dim);width:100%;border-left:0;border-right:0;border-top:0;
+  background:transparent;text-align:left;cursor:pointer;font-family:inherit;
+}
+.lb-block-head:hover{background:var(--panel-2)}
+.lb-block-head b{color:var(--text);font-size:12px;font-weight:600}
+.lb-block-body{padding:6px}
+.lb-set{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:7px;padding:8px}
+
+/* ═══════════════════════════════════════════════════════════════════
+   6. 方案 C —— 顶部固定标签页
+   ═══════════════════════════════════════════════════════════════════ */
+.lc{display:flex;flex-direction:column;height:100%;min-height:0;margin:-16px}
+.lc-tabs{
+  flex:none;display:flex;align-items:stretch;gap:2px;padding:7px 10px 0;
+  border-bottom:1px solid var(--line);background:var(--panel);overflow-x:auto;scrollbar-width:none;
+}
+.lc-tabs::-webkit-scrollbar{display:none}
+.lc-tab{
+  display:flex;align-items:center;gap:6px;height:31px;padding:0 10px;flex:none;
+  border:1px solid transparent;border-bottom:0;border-radius:8px 8px 0 0;
+  background:transparent;color:var(--faint);font-size:11.5px;cursor:pointer;position:relative;
+}
+.lc-tab:hover{background:var(--panel-2);color:var(--text)}
+.lc-tab.is-on{
+  background:var(--bg);border-color:var(--line);color:var(--text);
+  margin-bottom:-1px;padding-bottom:1px;
+}
+.lc-tab.is-on::after{content:"";position:absolute;left:8px;right:8px;top:0;height:2px;background:var(--accent);border-radius:0 0 2px 2px}
+.lc-tab .pin{color:var(--accent-2)}
+.lc-tab em{font:9.5px var(--mono);color:var(--fainter);font-style:normal}
+.lc-tabadd{width:26px;height:26px;align-self:center;flex:none}
+.lc-toolbar{
+  flex:none;display:flex;align-items:center;gap:7px;padding:9px 13px;
+  border-bottom:1px solid var(--line);background:var(--bg);
+}
+.lc-body{flex:1;min-height:0;overflow-y:auto;padding:12px 13px}
+.lc-settings{flex:none;border-top:1px solid var(--line);background:var(--panel-2)}
+.lc-meta{font-size:11px;color:var(--faint);display:flex;align-items:center;gap:6px}
+
+/* ═══════════════════════════════════════════════════════════════════
+   7. 方案 D —— 双列自适应网格
+   ═══════════════════════════════════════════════════════════════════ */
+.ld{display:flex;flex-direction:column;height:100%;min-height:0}
+.ld-bar{flex:none;display:flex;align-items:center;gap:7px;margin-bottom:11px}
+.ld-grid{flex:1;min-height:0;overflow-y:auto;display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:10px;align-content:start}
+.ld-card{display:flex;flex-direction:column;min-width:0}
+.ld-card.span{grid-column:1/-1;flex-direction:row;align-items:stretch}
+.ld-card.span .ld-left{width:250px;flex:none;border-right:1px solid var(--line);display:flex;flex-direction:column}
+.ld-card.span .ld-right{flex:1;min-width:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1px;align-content:start;padding:6px}
+.ld-mini{display:flex;align-items:center;gap:7px;padding:6px 7px;border-radius:7px;min-width:0}
+.ld-mini:hover{background:var(--panel-2)}
+.ld-mini .t{flex:1;min-width:0;font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ld-card-head{display:flex;align-items:center;gap:8px;padding:10px 11px;border-bottom:1px solid var(--line)}
+.ld-stat{display:flex;align-items:center;gap:10px;padding:7px 11px;font-size:10.5px;color:var(--faint);border-top:1px solid var(--line);margin-top:auto}
+.ld-stat b{color:var(--dim);font-weight:600}
+
+/* ═══════════════════════════════════════════════════════════════════
+   8. 方案 E —— 启动链路时间线
+   ═══════════════════════════════════════════════════════════════════ */
+.le{display:flex;gap:18px;height:100%;min-height:0}
+.le-flow{flex:1;min-width:0;overflow-y:auto;padding-left:2px}
+.le-step{display:flex;gap:12px;min-width:0}
+.le-rail{width:26px;flex:none;display:flex;flex-direction:column;align-items:center}
+.le-num{
+  width:22px;height:22px;border-radius:7px;display:grid;place-items:center;flex:none;
+  font:600 10px var(--mono);color:var(--dim);background:var(--panel-3);border:1px solid var(--line-2);
+}
+.le-step.hot .le-num{background:var(--accent);border-color:var(--accent);color:#fff}
+.le-line{flex:1;width:2px;background:var(--line);margin:4px 0;border-radius:2px}
+.le-step.hot .le-line{background:linear-gradient(var(--accent),var(--line))}
+.le-card{flex:1;min-width:0;margin-bottom:10px;background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.le-step.hot .le-card{border-color:color-mix(in srgb,var(--accent) 45%,var(--line));box-shadow:0 0 0 1px var(--accent-soft)}
+.le-card-head{display:flex;align-items:center;gap:8px;padding:9px 11px}
+.le-card-body{border-top:1px solid var(--line);padding:5px}
+.le-side{
+  width:246px;flex:none;display:flex;flex-direction:column;gap:9px;overflow-y:auto;
+}
+.le-pred{background:linear-gradient(160deg,color-mix(in srgb,var(--accent) 20%,var(--panel)),var(--panel));border:1px solid color-mix(in srgb,var(--accent) 40%,var(--line));border-radius:11px;padding:12px}
+.le-pred .k{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent-2)}
+.le-pred .v{font-size:15px;font-weight:650;margin-top:5px}
+.le-pred .s{font:10.5px var(--mono);color:var(--faint);margin-top:2px}
+.le-pred .acts{display:flex;gap:6px;margin-top:10px}
+.le-fact{display:flex;gap:8px;font-size:11px;color:var(--dim);padding:6px 0;border-bottom:1px dashed var(--line)}
+.le-fact:last-child{border-bottom:0}
+.le-fact b{color:var(--text);font-weight:600;flex:none;width:58px}
+.le-fact span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ═══════════════════════════════════════════════════════════════════
+   9. 方案 F —— 矩阵对照表
+   ═══════════════════════════════════════════════════════════════════ */
+.lf{display:flex;flex-direction:column;height:100%;min-height:0}
+.lf-bar{flex:none;display:flex;align-items:center;gap:7px;margin-bottom:10px}
+.lf-scroll{flex:1;min-height:0;overflow:auto;border:1px solid var(--line);border-radius:10px;background:var(--panel)}
+.lf table{border-collapse:separate;border-spacing:0;width:100%;font-size:11.5px;min-width:640px}
+.lf th,.lf td{padding:0;border-bottom:1px solid var(--line);border-right:1px solid var(--line)}
+.lf thead th{
+  position:sticky;top:0;z-index:2;background:var(--panel-2);font-weight:600;font-size:10.5px;
+  color:var(--dim);padding:7px 9px;text-align:left;white-space:nowrap;
+}
+.lf thead th .ldr{display:inline-grid;vertical-align:-6px;margin-right:5px}
+.lf tbody th{
+  position:sticky;left:0;z-index:1;background:var(--panel);text-align:left;font-weight:600;
+  padding:7px 10px;white-space:nowrap;min-width:150px;
+}
+.lf tbody th small{display:block;font:10px var(--mono);color:var(--fainter);font-weight:400;margin-top:1px}
+.lf td{width:112px;text-align:center;color:var(--fainter);padding:5px 6px}
+.lf tr:hover td,.lf tr:hover th{background:var(--panel-2)}
+.lf td.on{color:var(--ok-text)}
+.lf td.on:hover .cellbtn{display:inline-flex}
+.lf .cellbtn{
+  display:none;align-items:center;gap:4px;height:21px;padding:0 6px;border-radius:5px;
+  border:1px solid var(--line-2);background:var(--panel-3);color:var(--text);font-size:10.5px;cursor:pointer;
+}
+.lf td.on:hover .cellbtn{display:inline-flex}
+.lf .cellmark{display:inline-flex;align-items:center;gap:4px;font-size:10.5px}
+.lf td.on:hover .cellmark{display:none}
+.lf-legend{flex:none;display:flex;align-items:center;gap:12px;padding-top:9px;font-size:10.5px;color:var(--faint)}
+.lf-legend span{display:flex;align-items:center;gap:5px}
+
+/* ═══════════════════════════════════════════════════════════════════
+   10. 方案 G —— 命令面板
+   ═══════════════════════════════════════════════════════════════════ */
+.lg{display:flex;gap:0;height:100%;min-height:0;margin:-16px;background:var(--panel)}
+.lg-main{flex:1;min-width:0;display:flex;flex-direction:column;min-height:0}
+.lg-top{
+  flex:none;padding:14px 14px 10px;border-bottom:1px solid var(--line);
+  display:flex;flex-direction:column;gap:9px;background:var(--panel);
+}
+.lg-search{
+  display:flex;align-items:center;gap:9px;height:40px;padding:0 12px;
+  background:var(--panel-2);border:1px solid var(--line-2);border-radius:10px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.03);
+}
+.lg-search input{flex:1;min-width:0;border:0;outline:0;background:transparent;color:var(--text);font:13.5px var(--font)}
+.lg-search input::placeholder{color:var(--fainter)}
+.lg-filters{display:flex;gap:5px;overflow-x:auto;scrollbar-width:none}
+.lg-filters::-webkit-scrollbar{display:none}
+.lg-fchip{
+  display:inline-flex;align-items:center;gap:5px;height:23px;padding:0 8px;border-radius:6px;
+  border:1px solid var(--line);background:transparent;color:var(--faint);font-size:10.5px;cursor:pointer;flex:none;
+}
+.lg-fchip:hover{color:var(--text);border-color:var(--line-2)}
+.lg-fchip.is-on{background:var(--accent-soft);border-color:color-mix(in srgb,var(--accent) 45%,transparent);color:var(--accent-2)}
+.lg-results{flex:1;min-height:0;overflow-y:auto;padding:6px}
+.lg-group{
+  display:flex;align-items:center;gap:6px;padding:7px 8px 4px;
+  font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--fainter);
+}
+.lg-item{
+  display:flex;align-items:center;gap:9px;width:100%;padding:7px 9px;border-radius:8px;
+  border:1px solid transparent;background:transparent;cursor:pointer;text-align:left;color:inherit;min-width:0;
+}
+.lg-item:hover,.lg-item.is-active{background:var(--panel-2);border-color:var(--line)}
+.lg-item.is-active{box-shadow:inset 2px 0 0 var(--accent)}
+.lg-item .t{flex:1;min-width:0;display:flex;flex-direction:column}
+.lg-item .t b{font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lg-item .t small{font:10.5px var(--mono);color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lg-foot{
+  flex:none;display:flex;align-items:center;gap:12px;padding:8px 12px;border-top:1px solid var(--line);
+  font-size:10.5px;color:var(--faint);background:var(--panel-2);flex-wrap:wrap;
+}
+.lg-foot span{display:flex;align-items:center;gap:5px}
+.lg-side{
+  width:258px;flex:none;border-left:1px solid var(--line);background:var(--panel-2);
+  padding:13px;overflow-y:auto;display:flex;flex-direction:column;gap:10px;
+}
+.lg-side h4{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--fainter)}
+
+/* ═══════════════════════════════════════════════════════════════════
+   11. 方案 H —— 手风琴紧凑列表
+   ═══════════════════════════════════════════════════════════════════ */
+.lh{display:flex;flex-direction:column;height:100%;min-height:0}
+.lh-bar{flex:none;display:flex;align-items:center;gap:8px;padding-bottom:9px;border-bottom:1px solid var(--line);margin-bottom:6px;font-size:11px;color:var(--faint)}
+.lh-list{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:2px}
+.lh-item{border:1px solid transparent;border-radius:9px;overflow:hidden}
+.lh-item.is-open{background:var(--panel);border-color:var(--line)}
+.lh-head{
+  display:flex;align-items:center;gap:9px;width:100%;padding:8px 9px;border-radius:9px;
+  border:0;background:transparent;cursor:pointer;text-align:left;color:inherit;min-width:0;
+}
+.lh-head:hover{background:var(--panel-2)}
+.lh-item.is-open .lh-head{border-radius:9px 9px 0 0;border-bottom:1px solid var(--line);background:var(--panel-2)}
+.lh-head .nm{font-size:12.5px;font-weight:600;flex:none}
+.lh-head .meta{flex:1;min-width:0;font-size:10.5px;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lh-body{padding:4px 6px 6px}
+.lh-body .row{padding:5px 6px}
+.lh-foot{display:flex;align-items:center;gap:8px;padding:6px 9px 2px;border-top:1px dashed var(--line);margin-top:2px}
+
+/* ═══════════════════════════════════════════════════════════════════
+   12. 方案 I —— Bento 磁贴 + 底部抽屉
+   ═══════════════════════════════════════════════════════════════════ */
+.li{display:flex;flex-direction:column;height:100%;min-height:0}
+.li-grid{flex:1;min-height:0;overflow-y:auto;display:grid;grid-template-columns:repeat(4,1fr);gap:9px;align-content:start}
+.li-hero{
+  grid-column:span 2;grid-row:span 2;display:flex;flex-direction:column;justify-content:space-between;
+  padding:15px;border-radius:13px;position:relative;overflow:hidden;
+  background:
+    radial-gradient(320px 160px at 88% 8%, color-mix(in srgb,var(--accent) 55%,transparent), transparent 70%),
+    linear-gradient(155deg,var(--panel-3),var(--panel));
+  border:1px solid color-mix(in srgb,var(--accent) 40%,var(--line));
+}
+.li-hero .k{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent-2)}
+.li-hero .v{font-size:20px;font-weight:650;letter-spacing:-.02em;margin-top:6px}
+.li-hero .s{font:11px var(--mono);color:var(--dim);margin-top:3px}
+.li-hero .acts{display:flex;gap:7px;margin-top:14px}
+.li-tile{
+  display:flex;flex-direction:column;gap:8px;padding:12px;border-radius:11px;
+  background:var(--panel);border:1px solid var(--line);min-width:0;
+}
+.li-tile:hover{border-color:var(--line-2)}
+.li-tile .top{display:flex;align-items:center;gap:8px}
+.li-tile .top .nm{flex:1;min-width:0;font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.li-tile .big{font:600 19px var(--mono);letter-spacing:-.02em}
+.li-tile .big small{font:10px var(--font);color:var(--faint);margin-left:4px}
+.li-tile .s{font:10px var(--mono);color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.li-tile .foot{margin-top:auto;display:flex;align-items:center;gap:6px;font-size:10.5px;color:var(--faint)}
+@container view (min-width: 900px){ .li-grid > .li-tile:last-child{grid-column:span 2} }
+.li-sheetbar{
+  flex:none;display:flex;align-items:center;gap:9px;margin-top:10px;padding:9px 11px;
+  border:1px solid var(--line);border-radius:10px;background:var(--panel-2);font-size:11.5px;color:var(--dim);
+}
+.li-sheetbar .grow{flex:1;min-width:0}
+
+/* ═══════════════════════════════════════════════════════════════════
+   13. 方案 J —— 三栏工作台
+   ═══════════════════════════════════════════════════════════════════ */
+.lj{display:flex;height:100%;min-height:0;margin:-16px;background:var(--bg)}
+.lj-c1{width:190px;flex:none;border-right:1px solid var(--line);background:var(--panel-2);display:flex;flex-direction:column;min-height:0}
+.lj-c1 .hd{flex:none;padding:11px 10px 6px;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--fainter)}
+.lj-nav{flex:1;min-height:0;overflow-y:auto;padding:0 6px 8px;display:flex;flex-direction:column;gap:1px}
+.lj-navi{display:flex;align-items:center;gap:8px;padding:7px;border-radius:7px;border:1px solid transparent;background:transparent;cursor:pointer;text-align:left;color:inherit;width:100%;min-width:0}
+.lj-navi:hover{background:var(--panel-3)}
+.lj-navi.is-on{background:var(--panel);border-color:var(--line-2)}
+.lj-navi .nm{flex:1;min-width:0;font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lj-c2{flex:1;min-width:0;display:flex;flex-direction:column;min-height:0}
+.lj-c2 .hd{flex:none;display:flex;align-items:center;gap:8px;padding:11px 12px;border-bottom:1px solid var(--line)}
+.lj-c2 .bd{flex:1;min-height:0;overflow-y:auto;padding:8px}
+.lj-c3{
+  width:268px;flex:none;border-left:1px solid var(--line);background:var(--panel-2);
+  display:flex;flex-direction:column;min-height:0;transition:width .16s ease;
+}
+.lj-c3.folded{width:42px}
+.lj-c3 .hd{flex:none;display:flex;align-items:center;gap:7px;padding:11px 10px;border-bottom:1px solid var(--line);font-size:11px;color:var(--dim)}
+.lj-c3 .bd{flex:1;min-height:0;overflow-y:auto;padding:9px;display:flex;flex-direction:column;gap:8px}
+.lj-c3.folded .bd,.lj-c3.folded .hd span,.lj-c3.folded .hd b{display:none}
+.lj-c3.folded .hd{justify-content:center;padding:11px 0}
+.lj-setgroup{display:flex;flex-direction:column;gap:5px}
+.lj-setgroup .gt{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--fainter);padding:2px 2px}
+
+/* ═══════════════════════════════════════════════════════════════════
+   14. 容器查询：所有方案共用同一套断点（模拟窗口变窄时的行为）
+   ═══════════════════════════════════════════════════════════════════ */
+@container view (max-width: 900px){
+  .lb-nav{width:200px}
+  .le-side{width:210px}
+  .lg-side{width:220px}
+  .lj-c1{width:160px}
+  .lj-c3{width:230px}
+  .li-grid{grid-template-columns:repeat(2,1fr)}
+  .li-hero{grid-column:span 2;grid-row:span 1}
+}
+@container view (max-width: 760px){
+  .notes-wide{display:none}
+  .lb{flex-direction:column}
+  .lb-nav{width:auto;flex:none;border-right:0;border-bottom:1px solid var(--line)}
+  .lb-list{flex-direction:row;overflow-x:auto;overflow-y:hidden;padding:0 8px 8px;gap:5px}
+  .lb-item{width:auto;flex:none;padding:6px 8px;border:1px solid var(--line);background:var(--panel)}
+  .lb-item .nm small{display:none}
+  .lb-grip{display:none}
+  .lb-nav-head,.lb-nav-foot{display:none}
+  .le{flex-direction:column}
+  .le-side{width:auto;flex-direction:row;overflow-x:auto;overflow-y:visible}
+  .le-pred{min-width:210px}
+  .lg{flex-direction:column}
+  .lg-side{display:none}
+  .lj-c1{width:60px}
+  .lj-c1 .hd{display:none}
+  .lj-navi .nm,.lj-navi .ldr{display:none}
+  .lj-navi{justify-content:center}
+  .lj-c3{position:absolute;right:0;top:0;bottom:0;width:250px;box-shadow:-10px 0 30px rgba(0,0,0,.4)}
+  .lj{position:relative;overflow:hidden}
+  .la-index{top:-16px}
+  .ld-card.span{flex-direction:column}
+  .ld-card.span .ld-left{width:auto;border-right:0;border-bottom:1px solid var(--line)}
+  .li-grid{grid-template-columns:1fr 1fr}
+  .li-hero{grid-column:span 2}
+  .win-body{padding:12px}
+  .la-index{margin:-12px -12px 10px;padding:8px 12px;top:-12px}
+  .lc,.lb,.lj,.lg{margin:-12px}
+  .lc-body,.lb-scroll{padding:10px}
+}
+@container view (max-width: 520px){
+  .li-grid{grid-template-columns:1fr}
+  .li-hero{grid-column:span 1}
+  .lj-c1{display:none}
+  .lc-toolbar .hide-sm{display:none}
+  .lb-main-head{padding:11px 12px}
+  .ld-grid{grid-template-columns:1fr}
+  .la-index .la-chip span.nm{display:none}
+  .lf table{min-width:520px}
+  .le-pred .v{font-size:14px}
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   15. 组件规格页 / 逻辑图页 / 总览页
+   ═══════════════════════════════════════════════════════════════════ */
+.spec-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:12px}
+.spec.wide{grid-column:1/-1}
+.spec{border:1px solid var(--line);border-radius:11px;background:var(--panel);overflow:hidden}
+.spec h3{font-size:12px;font-weight:650;padding:9px 11px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:7px}
+.spec h3 small{font:10px var(--mono);color:var(--fainter);font-weight:400;margin-left:auto}
+.spec-body{padding:11px;display:flex;flex-direction:column;gap:9px}
+.spec-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.spec-note{font-size:10.5px;color:var(--faint);line-height:1.5}
+.spec-note code{font:10px var(--mono);color:var(--dim);background:var(--panel-2);padding:1px 4px;border-radius:4px}
+
+.ov{display:flex;flex-direction:column;gap:14px}
+.ov-hero{border:1px solid var(--line);border-radius:12px;padding:16px;background:linear-gradient(150deg,var(--accent-soft),transparent 55%),var(--panel)}
+.ov-hero h2{font-size:17px;letter-spacing:-.01em}
+.ov-hero p{font-size:12px;color:var(--dim);margin-top:6px;line-height:1.65;max-width:70ch}
+.ov-kpis{display:flex;gap:10px;margin-top:12px;flex-wrap:wrap}
+.ov-kpi{border:1px solid var(--line);border-radius:9px;padding:8px 11px;background:var(--panel-2);min-width:110px}
+.ov-kpi b{display:block;font:600 16px var(--mono);letter-spacing:-.02em}
+.ov-kpi small{display:block;font-size:10px;color:var(--faint);margin-top:1px}
+.ov h3{font-size:12.5px;font-weight:650;margin-bottom:7px}
+
+/* 遮罩层：逻辑图 / 大图 */
+.ovl{
+  position:fixed;inset:0;z-index:100;display:none;align-items:center;justify-content:center;
+  background:rgba(2,6,23,.72);backdrop-filter:blur(6px);padding:24px;
+}
+.ovl.is-on{display:flex}
+.ovl-box{
+  width:min(1080px,96vw);height:90vh;display:flex;flex-direction:column;
+  background:var(--panel);border:1px solid var(--line-2);border-radius:14px;box-shadow:var(--shadow);overflow:hidden;
+}
+.ovl-head{flex:none;display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line)}
+.ovl-head b{font-size:13px}
+.ovl-head .mut{font-size:11px}
+.ovl-body{flex:1;min-height:0;overflow:auto;padding:18px}
+.ovl-body .diag{margin-bottom:22px}
+.ovl-body .diag h4{font-size:12px;color:var(--dim);margin-bottom:8px;display:flex;align-items:center;gap:7px}
+.ovl-body .diag h4 em{font-style:normal;color:var(--fainter);font-size:10.5px;font-weight:400}
+.diag svg{width:100%;height:auto;display:block;border:1px solid var(--line);border-radius:10px;background:var(--panel-2)}
+.diag svg text{font-family:var(--font);font-size:10.5px;fill:var(--dim)}
+.diag svg text.t{font-size:12px;font-weight:600;fill:var(--text)}
+.diag svg text.m{font-family:var(--mono);font-size:9.5px;fill:var(--faint)}
+.diag svg text.b{font-weight:600;fill:var(--text)}
+
+/* 总览对比表的大版本 */
+table.big{width:100%;border-collapse:collapse;font-size:11.5px}
+table.big th,table.big td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+table.big th{color:var(--fainter);font-size:10px;letter-spacing:.04em;text-transform:uppercase;font-weight:600;position:sticky;top:0;background:var(--panel)}
+table.big td:first-child{font-weight:600;color:var(--text);white-space:nowrap}
+table.big td{color:var(--dim)}
+table.big tr:hover td{background:var(--panel-2)}
+/* 页头（方案 D/H/I 共用） */
+.pg-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.pg-left{flex:1;min-width:0;display:flex;align-items:baseline;gap:8px}
+.pg-left h2{font-size:15px;font-weight:650;letter-spacing:-.01em}
+.pg-left small{font-size:10.5px;color:var(--faint);white-space:nowrap}
+.next-pill{
+  display:flex;align-items:center;gap:7px;padding:6px 9px;border-radius:9px;min-width:0;
+  background:var(--panel);border:1px solid var(--line);
+}
+.next-pill > svg{color:var(--info);flex:none}
+.next-pill .np-k{font-size:10.5px;color:var(--faint);flex:none}
+.next-pill b{font-size:12px;font-weight:600;white-space:nowrap}
+.next-pill small{font:10px var(--mono);color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pg-acts{display:flex;align-items:center;gap:6px;flex:none}
+.grow{flex:1;min-width:0}
+
+/* 弹窗 / 抽屉 / Toast（组件规格页的静态样张） */
+.dlg{width:100%;max-width:392px;background:var(--panel);border:1px solid var(--line-2);border-radius:12px;box-shadow:0 24px 64px rgba(0,0,0,.55);overflow:hidden}
+.dlg-head{padding:14px 15px 0;display:flex;align-items:center;gap:8px}
+.dlg-head b{font-size:13.5px;font-weight:650}
+.dlg-body{padding:8px 15px 13px;font-size:11.5px;color:var(--dim);line-height:1.62}
+.dlg-acts{display:flex;justify-content:flex-end;gap:7px;padding:10px 15px;background:var(--panel-2);border-top:1px solid var(--line)}
+.dlg-list{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:5px;font-size:11px;color:var(--faint)}
+.dlg-list li{display:flex;gap:6px;align-items:flex-start}
+.toast{display:flex;align-items:center;gap:8px;padding:9px 11px;border-radius:9px;background:var(--panel-3);border:1px solid var(--line-2);font-size:11.5px;box-shadow:0 10px 26px rgba(0,0,0,.3)}
+.toast .grow{flex:1;min-width:0}
+.mock-scrim{position:relative;border-radius:11px;overflow:hidden;border:1px solid var(--line);background:radial-gradient(600px 200px at 50% 0%,rgba(99,102,241,.14),transparent),var(--panel-2);padding:18px;display:flex;justify-content:center}
+.stars{color:var(--accent-2);font-size:10px;letter-spacing:1px;white-space:nowrap}
+</style>
+</head>
+<body>
+<div class="shell">
+  <!-- ── 左：方案目录 ── -->
+  <aside class="rail">
+    <div class="rail-head">
+      <div class="rail-logo">AB</div>
+      <div>
+        <b>引导菜单排版</b>
+        <small>10 方案 · 设计稿 v1</small>
+      </div>
+    </div>
+    <div class="rail-tabs">
+      <button class="rail-tab is-on" data-rail="layouts">排版</button>
+      <button class="rail-tab" data-rail="specs">组件</button>
+      <button class="rail-tab" data-rail="flow">逻辑图</button>
+    </div>
+    <nav class="rail-list" id="railList"></nav>
+    <div class="rail-foot">
+      <span class="lbl">窗口宽度模拟</span>
+      <div class="row2" id="widthBtns">
+        <button class="btn xs ghost" data-w="1180">宽 1180</button>
+        <button class="btn xs ghost" data-w="900">中 900</button>
+        <button class="btn xs ghost" data-w="620">窄 620</button>
+        <button class="btn xs ghost" data-w="430">手机 430</button>
+      </div>
+      <div class="row2">
+        <button class="btn xs ghost" id="themeBtn">切换亮/暗</button>
+        <button class="btn xs ghost" id="openFlow">操作逻辑图</button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ── 中：展台 ── -->
+  <main class="stage-col">
+    <div class="stage-head">
+      <div class="tt">
+        <h1><span class="kicker" id="stageKicker">OVERVIEW</span><span id="stageTitle">总览与取舍</span></h1>
+        <p id="stageSub">同一份快照，十种信息架构。</p>
+      </div>
+      <div class="toolbar">
+        <button class="btn sm ghost" id="toggleNotes">隐藏说明</button>
+      </div>
+    </div>
+    <div class="stage" id="stage">
+      <div class="win">
+        <div class="win-bar">
+          <div class="win-dots"><i></i><i></i><i></i></div>
+          <span class="win-title">AnyBoot — 引导</span>
+          <span class="win-tag" id="winTag">1180 × 600</span>
+        </div>
+        <div class="win-body" id="view"></div>
+      </div>
+    </div>
+  </main>
+
+  <!-- ── 右：设计说明 ── -->
+  <aside class="notes" id="notes"></aside>
+</div>
+
+<!-- 逻辑图遮罩 -->
+<div class="ovl" id="ovl">
+  <div class="ovl-box">
+    <div class="ovl-head">
+      <b>操作逻辑图</b>
+      <span class="mut">数据流 / 一次写入的完整往返 / 编排与折叠 / 危险动作确认</span>
+      <span style="margin-left:auto"></span>
+      <button class="btn sm" id="ovlClose">关闭</button>
+    </div>
+    <div class="ovl-body" id="ovlBody"></div>
+  </div>
+</div>
+
+<script>
+(function () {
+"use strict";
+
+/* ═══════════════════════════════════════════════════════════════════
+   1. 图标（内联 SVG，统一 16 网格 / 1.6 描边）
+   不用 emoji：跨平台字形不一致，且无法跟随主题着色。
+   ═══════════════════════════════════════════════════════════════════ */
+const NS = "http://www.w3.org/2000/svg";
+const ICONS = {
+  search: '<circle cx="7.2" cy="7.2" r="4.6"/><path d="M10.6 10.6 14 14"/>',
+  gear: '<circle cx="8" cy="8" r="2.4"/><path d="M8 1.6v1.8M8 12.6v1.8M1.6 8h1.8M12.6 8h1.8M3.5 3.5l1.3 1.3M11.2 11.2l1.3 1.3M12.5 3.5l-1.3 1.3M4.8 11.2l-1.3 1.3"/>',
+  pin: '<path d="M6.2 2.2h3.6l-.7 3.4 2.4 2.6H4.5l2.4-2.6-.7-3.4Z"/><path d="M8 8.2v5.2"/>',
+  grip: '<circle cx="6" cy="4" r="1"/><circle cx="10" cy="4" r="1"/><circle cx="6" cy="8" r="1"/><circle cx="10" cy="8" r="1"/><circle cx="6" cy="12" r="1"/><circle cx="10" cy="12" r="1"/>',
+  chevron: '<path d="M4 6.2 8 10l4-3.8"/>',
+  more: '<circle cx="3.5" cy="8" r="1.1"/><circle cx="8" cy="8" r="1.1"/><circle cx="12.5" cy="8" r="1.1"/>',
+  check: '<path d="M3.2 8.4 6.4 11.6 12.8 4.8"/>',
+  warn: '<path d="M8 2.6 14 13H2L8 2.6Z"/><path d="M8 6.4v3.2M8 11.4v.1"/>',
+  refresh: '<path d="M13.4 8a5.4 5.4 0 1 1-1.6-3.8"/><path d="M13.6 2.4v2.8h-2.8"/>',
+  elev: '<circle cx="5.6" cy="5.6" r="2.4"/><path d="M7.4 7.4 13 13"/><path d="M11 13h2v-2"/>',
+  plus: '<path d="M8 3.2v9.6M3.2 8h9.6"/>',
+  arrow: '<path d="M3.5 8h9M9 4.5 12.5 8 9 11.5"/>',
+  x: '<path d="M4 4l8 8M12 4l-8 8"/>',
+  power: '<path d="M8 2.4v5.2"/><path d="M12 4.6a5.6 5.6 0 1 1-8 0"/>',
+  sliders: '<path d="M3 5h10M3 11h10"/><circle cx="6" cy="5" r="1.6"/><circle cx="10" cy="11" r="1.6"/>',
+  folder: '<path d="M2.4 4.6h4l1.2 1.6h6v6.4H11.2Z"/>',
+  shield: '<path d="M8 2.2 13 4v4.2c0 3-2.1 4.8-5 5.8-2.9-1-5-2.8-5-5.8V4l5-1.8Z"/>',
+  clock: '<circle cx="8" cy="8" r="5.6"/><path d="M8 5v3.2l2.2 1.4"/>',
+  info: '<circle cx="8" cy="8" r="5.6"/><path d="M8 7.2v4M8 4.9v.1"/>',
+  sort: '<path d="M5 3v10M5 3 2.8 5.2M5 3l2.2 2.2M11 13V3M11 13l2.2-2.2M11 13 8.8 10.8"/>',
+  eye: '<path d="M1.8 8S4.2 3.8 8 3.8 14.2 8 14.2 8 11.8 12.2 8 12.2 1.8 8 1.8 8Z"/><circle cx="8" cy="8" r="1.8"/>',
+  doc: '<path d="M3.6 2.4h5.6l3.2 3.2v8H3.6Z"/><path d="M9.2 2.4v3.2h3.2"/>',
+  bolt: '<path d="M9 2 3.8 9.2h3.4L7 14l5.2-7.2H8.8L9 2Z"/>'
+};
+function icon(name, cls) {
+  const s = document.createElementNS(NS, "svg");
+  s.setAttribute("viewBox", "0 0 16 16");
+  s.setAttribute("class", "i " + (cls || ""));
+  s.innerHTML = ICONS[name] || "";
+  return s;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   2. 模拟数据 —— 一台真实的双系统机器（5 个引导器 / 16 个条目）
+   字段与后端 ChannelView 对齐：detected / permission / chip / health /
+   entries[] / currentDefault / lastBoot / menuPreview
+   ═══════════════════════════════════════════════════════════════════ */
+const OS_TAG = { mac: "MAC", win: "WIN", lin: "LNX", tool: "TLS", fw: "FW" };
+const LOADERS = [
+  {
+    id: "oc", name: "OpenCore", mono: "OC", color: "#6366f1", ver: "1.0.5",
+    perm: "nvram", state: "warn", pinned: true, esp: "H:\\EFI\\OC",
+    health: "Misc → Boot → ShowPicker=false：开机不弹菜单，直接进默认项",
+    entries: [
+      { t: "macOS Sonoma", os: "mac", p: "\\System\\Library\\CoreServices\\boot.efi", src: "APFS Preboot", def: true, spec: "opencore-default" },
+      { t: "Windows 11", os: "win", p: "\\EFI\\Microsoft\\Boot\\bootmgfw.efi", src: "固件 BootOrder", last: true, spec: "opencore-default" },
+      { t: "Ubuntu 24.04", os: "lin", p: "\\EFI\\ubuntu\\shimx64.efi", src: "固件 BootOrder", spec: "opencore-default" },
+      { t: "OpenShell.efi", os: "tool", p: "\\EFI\\Tools\\OpenShell.efi", src: "协议驱动", aux: true, spec: "opencore-default" }
+    ]
+  },
+  {
+    id: "refind", name: "rEFInd", mono: "rE", color: "#14b8a6", ver: "0.14.2",
+    perm: "file", state: "ok", pinned: false, esp: "H:\\EFI\\refind",
+    health: "refind.conf 的 scanfor 开着 external,manual：会自动收集其他 EFI 引导器",
+    entries: [
+      { t: "Arch Linux", os: "lin", p: "vmlinuz-linux · initramfs-linux.img", src: "refind_linux.conf", def: true, spec: "refind-default" },
+      { t: "Windows Boot Manager", os: "win", p: "\\EFI\\Microsoft\\Boot\\bootmgfw.efi", src: "自动扫描", spec: "refind-default" },
+      { t: "macOS Sonoma", os: "mac", p: "\\System\\Library\\CoreServices\\boot.efi", src: "自动扫描", spec: "refind-default" },
+      { t: "memtest86+", os: "tool", p: "\\EFI\\tools\\memtest.efi", src: "manual 菜单项", aux: true, spec: "refind-default" }
+    ]
+  },
+  {
+    id: "grub", name: "GRUB", mono: "GR", color: "#f59e0b", ver: "2.12",
+    perm: "file", state: "ok", pinned: false, esp: "H:\\EFI\\ubuntu",
+    health: "os-prober 已开启，收集到 1 个其他系统；grubenv 与 ESP 内副本一致",
+    entries: [
+      { t: "Ubuntu 24.04", os: "lin", p: "/boot/vmlinuz-6.8.0-45-generic", src: "grub.cfg", def: true, spec: "grub-default" },
+      { t: "Windows Boot Manager", os: "win", p: "\\EFI\\Microsoft\\Boot\\bootmgfw.efi", src: "os-prober", spec: "grub-default" },
+      { t: "UEFI 固件设置", os: "fw", p: "fwsetup", src: "grub.cfg", aux: true, spec: "grub-default" }
+    ]
+  },
+  {
+    id: "sdboot", name: "systemd-boot", mono: "sd", color: "#38bdf8", ver: "255",
+    perm: "file", state: "ok", pinned: false, esp: "H:\\EFI\\systemd",
+    health: "loader.conf 的 default 指向 arch.conf；支持一次性启动（oneshot）",
+    entries: [
+      { t: "Arch Linux", os: "lin", p: "\\loader\\entries\\arch.conf", src: "loader.conf", def: true, spec: "sdboot-default" },
+      { t: "CachyOS", os: "lin", p: "\\loader\\entries\\cachyos.conf", src: "loader.conf", spec: "sdboot-default" },
+      { t: "UEFI Shell", os: "tool", p: "\\shellx64.efi", src: "auto-entries", aux: true, spec: "sdboot-default" }
+    ]
+  },
+  {
+    id: "clover", name: "Clover", mono: "CL", color: "#a78bfa", ver: "5159",
+    perm: "file", state: "ok", pinned: false, esp: "H:\\EFI\\CLOVER",
+    health: "config.plist 的 DefaultVolume = Macintosh HD；NVRAM 未接管",
+    entries: [
+      { t: "macOS Ventura", os: "mac", p: "\\System\\Library\\CoreServices\\boot.efi", src: "DefaultVolume", def: true, spec: "clover-default" },
+      { t: "Windows 10", os: "win", p: "\\EFI\\Microsoft\\Boot\\bootmgfw.efi", src: "扫描结果", spec: "clover-default" }
+    ]
+  }
+];
+const NEXT_BOOT = { title: "Ubuntu 24.04", via: "systemd-boot · 一次性", loader: "sdboot" };
+const LAST_BOOT = { title: "Windows 11", via: "OpenCore" };
+const TOTAL = LOADERS.reduce((s, l) => s + l.entries.length, 0);
+
+/* ═══════════════════════════════════════════════════════════════════
+   3. DOM 小工具
+   ═══════════════════════════════════════════════════════════════════ */
+function n(tag, cls, txt) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (txt != null) e.textContent = txt;
+  return e;
+}
+function ldr(l, size) {
+  const e = n("span", "ldr" + (size ? " " + size : ""), l.mono);
+  e.style.setProperty("--c", l.color);
+  return e;
+}
+function chip(kind, txt, ic) {
+  const e = n("span", "chip" + (kind ? " " + kind : ""));
+  if (ic) e.append(icon(ic, "sm"));
+  e.append(document.createTextNode(txt));
+  return e;
+}
+function badge(kind, txt) {
+  return n("span", "badge" + (kind ? " " + kind : ""), txt);
+}
+function dot(state) { return n("i", "dot " + (state || "ok")); }
+function btn(txt, cls, ic) {
+  const b = n("button", cls || "btn sm");
+  b.type = "button";
+  if (ic) b.append(icon(ic, "sm"));
+  if (txt) b.append(document.createTextNode(txt));
+  return b;
+}
+function icoBtn(name, title, cls) {
+  const b = btn("", cls || "btn icon ghost sm", name);
+  b.title = title || "";
+  b.setAttribute("aria-label", title || name);
+  return b;
+}
+function stateChip(l) {
+  if (l.state === "warn") return chip("warn", "已检测 · 需提权", "elev");
+  if (l.state === "off") return chip("off", "未检测到");
+  return chip("ok", "已检测 · 免提权");
+}
+function loaderMeta(l) { return `${l.ver} · ${l.esp} · ${l.entries.length} 个条目`; }
+
+/** 条目行：10 个方案共用的最小单元 */
+function entryRow(e, l, opt) {
+  opt = opt || {};
+  const row = n("div", "row" + (e.def && !opt.noDefStyle ? " is-def" : ""));
+  row.append(n("span", "row-ico " + e.os, OS_TAG[e.os] || "?"));
+  const main = n("span", "row-main");
+  main.append(n("b", null, e.t));
+  const sub = opt.src === false ? e.p : (e.src ? e.src + " · " + e.p : e.p);
+  main.append(n("small", null, sub));
+  row.append(main);
+  if (e.def) row.append(badge("def", "当前默认"));
+  if (e.last) row.append(badge("last", "上次启动"));
+  if (e.aux) row.append(badge(null, "辅助"));
+  const acts = n("span", "row-acts");
+  if (opt.acts !== "min") {
+    if (e.def) acts.append(btn("已在默认位", "btn xs ghost is-disabled"));
+    else acts.append(btn("设为默认", e.spec && e.spec.indexOf("oneshot") >= 0 ? "btn xs ghost" : "btn xs", "elev"));
+    acts.append(btn("下次启动", "btn xs"));
+  } else {
+    acts.append(btn("下次启动", "btn xs"));
+  }
+  if (opt.more !== false) acts.append(icoBtn("more", "更多操作（路径 / 来源 / 复制）"));
+  row.append(acts);
+  return row;
+}
+
+/** 页头：标题 + 下次启动摘要 + 全局动作 */
+function bootHeader(opt) {
+  opt = opt || {};
+  const head = n("div", "pg-head");
+  const left = n("div", "pg-left");
+  const h = n("h2", null, "引导");
+  const s = n("small", null, `5 个引导器 · ${TOTAL} 个条目`);
+  left.append(h, s);
+  head.append(left);
+
+  const nx = n("div", "next-pill");
+  nx.append(icon("clock", "sm"));
+  nx.append(n("span", "np-k", "下次启动"));
+  nx.append(n("b", null, NEXT_BOOT.title));
+  nx.append(n("small", null, NEXT_BOOT.via));
+  const cancel = btn("取消", "btn xs ghost");
+  cancel.title = "清掉 BootNext / 删掉 oneshot 条目，恢复默认启动";
+  nx.append(cancel);
+  head.append(nx);
+
+  const acts = n("div", "pg-acts");
+  if (opt.scan !== false) acts.append(btn("重新扫描", "btn sm ghost", "refresh"));
+  acts.append(btn(opt.composeLabel || "编排", "btn sm", "sliders"));
+  head.append(acts);
+  return head;
+}
+
+/* 设置区（引导器级）——「收起」的标准形态：一条 acc + 展开面板 */
+const SETTINGS = {
+  oc: [
+    ["ESP 路径", "H:\\EFI\\OC", "改"],
+    ["权限", "写 NVRAM 需提权", "提升"],
+    ["免密模式", "未开启 · 每次弹一次授权", "开启"],
+    ["隐藏辅助条目", "ShowAuxiliary = false", "开关"]
+  ],
+  refind: [
+    ["ESP 路径", "H:\\EFI\\refind", "改"],
+    ["扫描范围", "external, manual, internal", "改"],
+    ["默认项", "Arch Linux", "改"],
+    ["主题", "refind 内置 · 未自定义", "改"]
+  ],
+  grub: [
+    ["ESP 目录", "H:\\EFI\\ubuntu", "选择"],
+    ["分区 UUID", "F69D7BF9-E8A9-3135", "识别"],
+    ["os-prober", "已开启", "开关"],
+    ["内置脚本", "09_anyboot · 34 行", "编辑"],
+    ["同步 grub.cfg", "与系统侧一致", "同步"]
+  ],
+  sdboot: [
+    ["ESP 路径", "H:\\EFI\\systemd", "改"],
+    ["默认项", "arch.conf", "改"],
+    ["一次性启动", "支持 · 写 BootNext", "说明"],
+    ["自动条目", "auto-entries = true", "开关"]
+  ],
+  clover: [
+    ["ESP 路径", "H:\\EFI\\CLOVER", "改"],
+    ["DefaultVolume", "Macintosh HD", "改"],
+    ["NVRAM 接管", "未接管", "说明"],
+    ["主题", "Clover 内置", "改"]
+  ]
+};
+function settingsPanel(l, cols) {
+  const box = n("div", "panel-in");
+  if (cols) box.style.gridTemplateColumns = `repeat(auto-fit,minmax(${cols}px,1fr))`;
+  for (const s of SETTINGS[l.id]) {
+    const row = n("div", "set");
+    const t = n("div", "set-t");
+    t.append(n("b", null, s[0]), n("small", null, s[1]));
+    row.append(t);
+    const b = btn(s[2], "btn xs ghost");
+    if (s[2] === "开关") { row.append(n("span", "switch on")); }
+    else row.append(b);
+    box.append(row);
+  }
+  return box;
+}
+/** 可折叠设置条（aria-expanded + 面板），返回 {bar, panel} */
+function settingsAccordion(l, label) {
+  const bar = n("button", "acc");
+  bar.type = "button";
+  bar.setAttribute("aria-expanded", "false");
+  const g = n("span", "grow");
+  g.append(n("span", null, label || "引导器设置"));
+  g.append(n("small", null, "ESP 路径、权限、默认项、脚本"));
+  bar.append(icon("gear", "sm"), g, icon("chevron", "sm car"));
+  const panel = settingsPanel(l);
+  panel.hidden = true;
+  bar.addEventListener("click", () => {
+    const open = bar.getAttribute("aria-expanded") === "true";
+    bar.setAttribute("aria-expanded", String(!open));
+    panel.hidden = open;
+  });
+  return { bar, panel };
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   4. 方案 A —— 卡片流 + 顶部通道索引
+   ═══════════════════════════════════════════════════════════════════ */
+function cardA(l) {
+  const card = n("section", "card la-card" + (l.pinned ? " is-pinned" : ""));
+  const head = n("div", "card-head");
+  head.append(ldr(l));
+  const title = n("div", "card-title");
+  title.append(n("b", null, l.name), n("small", null, loaderMeta(l)));
+  head.append(title);
+  head.append(stateChip(l));
+  const acts = n("div", "row-acts");
+  acts.style.opacity = "1";
+  const pin = icoBtn("pin", l.pinned ? "已固定在顶部（点击取消）" : "固定在顶部");
+  if (l.pinned) pin.querySelector("svg").style.color = "var(--accent-2)";
+  acts.append(pin, icoBtn("more", "更多：隐藏通道 / 重新识别 / 复制路径"));
+  head.append(acts);
+  card.append(head);
+
+  const entries = n("div", "entries");
+  l.entries.forEach((e) => entries.append(entryRow(e, l)));
+  card.append(entries);
+
+  const acc = settingsAccordion(l);
+  card.append(acc.bar, acc.panel);
+
+  const foot = n("div", "la-foot");
+  foot.append(icon("info", "sm"), n("span", null, l.health));
+  card.append(foot);
+  return card;
+}
+function viewA() {
+  const wrap = n("div", "la");
+  const idx = n("div", "la-index");
+  idx.append(chip("off", "已固定", "pin"));
+  for (const l of LOADERS) {
+    const c = n("button", "la-chip" + (l.id === "oc" ? " is-on" : ""));
+    c.type = "button";
+    if (l.pinned) c.append(icon("pin", "sm"));
+    c.append(dot(l.state), n("span", "nm", l.name), n("em", null, String(l.entries.length)));
+    idx.append(c);
+  }
+  const spacer = n("span");
+  spacer.style.flex = "1";
+  idx.append(spacer, icoBtn("sort", "拖拽排序 / 编排显示"));
+  wrap.append(idx);
+
+  const list = n("div", "la-list");
+  const sorted = LOADERS.slice().sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
+  sorted.forEach((l) => list.append(cardA(l)));
+  const more = n("button", "la-more");
+  more.type = "button";
+  more.append(icon("eye", "sm"), n("span", null, "还有 1 个通道已收起："), n("b", null, "Clover"), n("span", null, "（点击展开）"));
+  list.append(more);
+  wrap.append(list);
+  return wrap;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   5. 方案 B —— 左栏通道 + 右栏详情（主从）
+   ═══════════════════════════════════════════════════════════════════ */
+function viewB() {
+  const wrap = n("div", "lb");
+  const nav = n("aside", "lb-nav");
+  const navHead = n("div", "lb-nav-head");
+  navHead.append(n("span", "grow", "引导器 5"), icoBtn("plus", "添加 / 重新识别通道"));
+  nav.append(navHead);
+
+  const list = n("div", "lb-list");
+  let active = 0;
+  const mainName = n("h2");
+  const mainMeta = n("p");
+  const scroll = n("div", "lb-scroll");
+
+  function paint(idx) {
+    active = idx;
+    const l = LOADERS[idx];
+    [...list.children].forEach((c, i) => c.classList.toggle("is-on", i === idx));
+    mainName.replaceChildren(ldr(l, "md"), document.createTextNode(l.name), stateChip(l));
+    mainMeta.textContent = loaderMeta(l);
+    scroll.replaceChildren();
+
+    const note = n("div", "lb-note");
+    note.append(icon("clock", "sm"), n("span", null, "下次启动 "), n("b", null, NEXT_BOOT.title),
+      n("span", null, " · " + NEXT_BOOT.via));
+    const undo = btn("取消一次性启动", "btn xs ghost");
+    undo.style.marginLeft = "auto";
+    note.append(undo);
+    scroll.append(note);
+
+    const block = n("div", "lb-block");
+    const bh = n("div", "lb-block-head");
+    bh.append(n("b", null, "启动项"), n("span", null, String(l.entries.length)),
+      n("span", "grow"), btn("全部设为可选", "btn xs ghost"));
+    bh.lastChild.style.marginLeft = "auto";
+    block.append(bh);
+    const body = n("div", "lb-block-body");
+    l.entries.forEach((e) => body.append(entryRow(e, l)));
+    block.append(body);
+    scroll.append(block);
+
+    const setBlock = n("div", "lb-block");
+    const sh = n("button", "lb-block-head");
+    sh.type = "button";
+    sh.setAttribute("aria-expanded", "false");
+    sh.append(n("b", null, "引导器设置"), n("span", null, "ESP、权限、默认项、脚本"), n("span", "grow"), icon("chevron", "sm car"));
+    const sb = n("div", "lb-block-body");
+    sb.style.padding = "0";
+    sb.hidden = true;
+    sb.append(settingsPanel(l));
+    sh.addEventListener("click", () => {
+      const open = sh.getAttribute("aria-expanded") === "true";
+      sh.setAttribute("aria-expanded", String(!open));
+      sb.hidden = open;
+    });
+    setBlock.append(sh, sb);
+    scroll.append(setBlock);
+  }
+
+  LOADERS.forEach((l, i) => {
+    const item = n("button", "lb-item");
+    item.type = "button";
+    item.append(icon("grip", "sm lb-grip"), ldr(l, "sm"));
+    const nm = n("span", "nm");
+    nm.append(n("b", null, l.name), n("small", null, `${l.entries.length} 个条目 · ${l.perm === "nvram" ? "需提权" : "免提权"}`));
+    item.append(nm, dot(l.state));
+    item.addEventListener("click", () => paint(i));
+    list.append(item);
+  });
+  nav.append(list);
+  const foot = n("div", "lb-nav-foot");
+  foot.append(btn("编排与排序", "btn sm ghost", "sliders"), btn("", "btn sm ghost", "plus"));
+  nav.append(foot);
+
+  const main = n("section", "lb-main");
+  const head = n("div", "lb-main-head");
+  const tt = n("div", "tt");
+  tt.append(mainName, mainMeta);
+  head.append(tt, btn("下次启动", "btn sm", "power"), btn("", "btn sm ghost", "more"));
+  main.append(head, scroll);
+  wrap.append(nav, main);
+  paint(0);
+  return wrap;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   6. 方案 C —— 顶部固定标签页（可固定 / 可排序 / 溢出收纳）
+   ═══════════════════════════════════════════════════════════════════ */
+function viewC() {
+  const wrap = n("div", "lc");
+  const tabs = n("div", "lc-tabs");
+  const bodyWrap = n("div", "lc-body");
+  const toolbar = n("div", "lc-toolbar");
+  let active = 0;
+
+  const tabEls = LOADERS.map((l, i) => {
+    const t = n("button", "lc-tab" + (i === 0 ? " is-on" : ""));
+    t.type = "button";
+    if (l.pinned) t.append(icon("pin", "sm pin"));
+    t.append(dot(l.state), n("span", null, l.name), n("em", null, String(l.entries.length)));
+    t.addEventListener("click", () => paint(i));
+    tabs.append(t);
+    return t;
+  });
+  const add = icoBtn("sliders", "编排：固定 / 排序 / 溢出顺序", "btn icon ghost sm lc-tabadd");
+  const moreT = icoBtn("more", "溢出标签（窗口变窄时把非固定的收进这里）", "btn icon ghost sm lc-tabadd");
+  tabs.append(add, moreT);
+
+  const meta = n("div", "lc-meta");
+  const density = n("div", "seg");
+  ["舒适", "紧凑"].forEach((x, i) => {
+    const b = n("button", i === 0 ? "is-on" : "", x);
+    b.type = "button";
+    density.append(b);
+  });
+  const spacer = n("span");
+  spacer.className = "grow";
+  toolbar.append(meta, spacer, n("span", "mut hide-sm", "密度"), density,
+    icoBtn("search", "搜索条目"), icoBtn("gear", "引导器设置"));
+
+  function paint(i) {
+    active = i;
+    tabEls.forEach((t, k) => t.classList.toggle("is-on", k === i));
+    const l = LOADERS[i];
+    meta.replaceChildren(icon("clock", "sm"), n("span", null, "当前默认 "), n("b", null, l.entries[0].t), n("span", "mut", "· " + l.esp));
+    bodyWrap.replaceChildren();
+    const list = n("div", "entries");
+    l.entries.forEach((e) => list.append(entryRow(e, l)));
+    bodyWrap.append(list);
+    const health = n("div", "la-foot");
+    health.style.borderTop = "1px solid var(--line)";
+    health.style.marginTop = "8px";
+    health.style.background = "transparent";
+    health.append(icon("info", "sm"), n("span", null, l.health));
+    bodyWrap.append(health);
+  }
+
+  const settingsBar = n("div", "lc-settings");
+  const acc = { bar: n("button", "acc"), panel: n("div", "panel-in") };
+  acc.panel.hidden = true;
+  acc.bar.type = "button";
+  acc.bar.setAttribute("aria-expanded", "false");
+  const g = n("span", "grow");
+  g.append(n("span", null, "引导器设置"), n("small", null, "  ESP 路径 / 权限 / 默认项 / 脚本 / 免密"));
+  acc.bar.append(icon("gear", "sm"), g, icon("chevron", "sm car"));
+  acc.bar.addEventListener("click", () => {
+    const open = acc.bar.getAttribute("aria-expanded") === "true";
+    acc.bar.setAttribute("aria-expanded", String(!open));
+    acc.panel.hidden = open;
+    acc.panel.replaceChildren();
+    if (!open) {
+      const p = settingsPanel(LOADERS[active], 210);
+      p.style.borderTop = "1px solid var(--line)";
+      acc.panel.append(...p.childNodes);
+    }
+  });
+  settingsBar.append(acc.bar, acc.panel);
+  wrap.append(tabs, toolbar, bodyWrap, settingsBar);
+  paint(0);
+  return wrap;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   7. 方案 D —— 双列自适应网格（固定项占满整行）
+   ═══════════════════════════════════════════════════════════════════ */
+function viewD() {
+  const wrap = n("div", "ld");
+  wrap.append(bootHeader({ composeLabel: "编排" }));
+  const bar = n("div", "ld-bar");
+  const seg = n("div", "seg");
+  ["按引导器", "按系统"].forEach((x, i) => {
+    const b = n("button", i === 0 ? "is-on" : "", x);
+    b.type = "button";
+    seg.append(b);
+  });
+  const search = n("div", "search");
+  search.append(icon("search", "sm"));
+  const input = n("input");
+  input.placeholder = "筛选引导器或条目…";
+  search.append(input);
+  bar.append(seg, search, chip("off", "16 条目"), icoBtn("sort", "拖拽排序"));
+  wrap.append(bar);
+
+  const grid = n("div", "ld-grid");
+  const pinned = LOADERS.filter((l) => l.pinned);
+  const rest = LOADERS.filter((l) => !l.pinned);
+
+  pinned.forEach((l) => {
+    const card = n("section", "card ld-card span");
+    const left = n("div", "ld-left");
+    const head = n("div", "card-head");
+    head.append(ldr(l), n("div", "card-title"));
+    head.querySelector(".card-title").append(n("b", null, l.name), n("small", null, loaderMeta(l)));
+    left.append(head);
+    const stat = n("div", "ld-stat");
+    stat.append(dot(l.state), n("span", null, "已固定 · 默认 " + l.entries[0].t));
+    const acts = n("div", "row-acts");
+    acts.style.opacity = "1";
+    acts.style.marginLeft = "auto";
+    acts.append(icoBtn("pin", "取消固定"), icoBtn("more", "更多"));
+    stat.append(acts);
+    left.append(stat);
+    const right = n("div", "ld-right");
+    l.entries.forEach((e) => {
+      const m = n("div", "ld-mini");
+      m.append(n("span", "row-ico " + e.os, OS_TAG[e.os]), n("span", "t", e.t));
+      if (e.def) m.append(badge("def", "默认"));
+      else m.append(icoBtn("arrow", "下次启动"));
+      right.append(m);
+    });
+    card.append(left, right);
+    grid.append(card);
+  });
+
+  rest.forEach((l) => {
+    const card = n("section", "card ld-card");
+    const head = n("div", "ld-card-head");
+    head.append(ldr(l, "md"));
+    const tt = n("div", "card-title");
+    tt.append(n("b", null, l.name), n("small", null, `${l.ver} · ${l.entries.length} 个条目`));
+    head.append(tt, dot(l.state), icoBtn("gear", "引导器设置"));
+    card.append(head);
+    const list = n("div", "entries");
+    list.style.padding = "4px 6px 6px";
+    l.entries.slice(0, 3).forEach((e) => list.append(entryRow(e, l, { acts: "min" })));
+    card.append(list);
+    const stat = n("div", "ld-stat");
+    stat.append(n("span", null, "默认 "), n("b", null, l.entries[0].t));
+    stat.append(n("span", null, "·"), n("span", null, l.perm === "nvram" ? "需提权" : "免提权"));
+    const open = btn("打开", "btn xs ghost", "arrow");
+    open.style.marginLeft = "auto";
+    stat.append(open);
+    card.append(stat);
+    grid.append(card);
+  });
+  wrap.append(grid);
+  return wrap;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   8. 方案 E —— 启动链路时间线（固件 → 引导器 → 条目）
+   ═══════════════════════════════════════════════════════════════════ */
+function viewE() {
+  const wrap = n("div", "le");
+  const flow = n("div", "le-flow");
+
+  const steps = [
+    {
+      num: "1", title: "固件启动顺序", hot: true,
+      meta: "BootOrder · 6 条",
+      lines: [["第 1 位", "OpenCore（EFI/OC/OpenCore.efi）"], ["第 2 位", "Windows Boot Manager"], ["第 3 位", "ubuntu"]],
+      act: "改固件顺序 ⤴"
+    },
+    {
+      num: "2", title: "引导器接管", hot: true,
+      meta: "OpenCore 1.0.5 · ShowPicker=false",
+      lines: [["行为", "跳过菜单，直接进默认项"], ["默认项", "macOS Sonoma"], ["一次性", "BootNext = systemd-boot"]],
+      act: "查看 OC 预演菜单"
+    },
+    {
+      num: "3", title: "实际进入", hot: true,
+      meta: "systemd-boot → Ubuntu 24.04",
+      lines: [["命中", "loader.conf: default = ubuntu"], ["用后", "BootNext 自动失效"], ["预计", "3.2 秒"]],
+      act: "取消一次性启动"
+    }
+  ];
+  steps.forEach((s, i) => {
+    const step = n("div", "le-step" + (s.hot ? " hot" : ""));
+    const rail = n("div", "le-rail");
+    rail.append(n("span", "le-num", s.num));
+    if (i < steps.length - 1) rail.append(n("span", "le-line"));
+    step.append(rail);
+
+    const card = n("div", "le-card");
+    const head = n("div", "le-card-head");
+    const tt = n("div", "card-title");
+    tt.append(n("b", null, s.title), n("small", null, s.meta));
+    head.append(tt, btn(s.act, "btn xs ghost"));
+    card.append(head);
+    const body = n("div", "le-card-body");
+    s.lines.forEach((ln) => {
+      const f = n("div", "le-fact");
+      f.append(n("b", null, ln[0]), n("span", null, ln[1]));
+      body.append(f);
+    });
+    card.append(body);
+    step.append(card);
+    flow.append(step);
+  });
+
+  const alt = n("div", "le-card");
+  const ah = n("div", "le-card-head");
+  ah.append(n("div", "card-title"));
+  ah.firstChild.append(n("b", null, "其他候选路径"), n("small", null, "从第 2 步分叉 · 5 个引导器"));
+  ah.append(btn("按引导器展开", "btn xs ghost"));
+  alt.append(ah);
+  const ab = n("div", "le-card-body");
+  LOADERS.filter((l) => l.id !== "sdboot").forEach((l) => {
+    const f = n("div", "le-fact");
+    f.append(n("b", null, l.name), n("span", null, `默认 ${l.entries[0].t} · ${l.entries.length} 项`));
+    ab.append(f);
+  });
+  alt.append(ab);
+  flow.append(alt);
+
+  const side = n("div", "le-side");
+  const pred = n("div", "le-pred");
+  pred.append(n("div", "k", "本次启动预测"));
+  pred.append(n("div", "v", NEXT_BOOT.title));
+  pred.append(n("div", "s", "OpenCore → systemd-boot · 一次性"));
+  const acts = n("div", "acts");
+  acts.append(btn("取消", "btn xs"), btn("改默认项", "btn xs ghost"));
+  pred.append(acts);
+  side.append(pred);
+
+  const box = n("div", "lb-block");
+  const bh = n("div", "lb-block-head");
+  bh.append(n("b", null, "事实核对"), n("span", "grow"), chip("off", "只读", "eye"));
+  bh.lastChild.style.marginLeft = "auto";
+  box.append(bh);
+  const bb = n("div", "lb-block-body");
+  bb.style.padding = "6px 10px";
+  [["固件", "UEFI · 无 CSM"], ["ESP", "H: 260 MB FAT32"], ["权限", "读 OK · 写需提权"]].forEach((x) => {
+    const f = n("div", "le-fact");
+    f.append(n("b", null, x[0]), n("span", null, x[1]));
+    bb.append(f);
+  });
+  box.append(bb);
+  side.append(box);
+  side.append(btn("重新核对链路", "btn sm ghost", "refresh"));
+
+  wrap.append(flow, side);
+  return wrap;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   9. 方案 F —— 矩阵对照表（行=启动目标，列=引导器）
+   ═══════════════════════════════════════════════════════════════════ */
+const MATRIX = [
+  { t: "macOS Sonoma", os: "mac", cells: { oc: "def", refind: "on" } },
+  { t: "macOS Ventura", os: "mac", cells: { clover: "def" } },
+  { t: "Windows 11", os: "win", cells: { oc: "on", refind: "on", grub: "on" } },
+  { t: "Windows 10", os: "win", cells: { clover: "def" } },
+  { t: "Ubuntu 24.04", os: "lin", cells: { oc: "on", grub: "def" } },
+  { t: "Arch Linux", os: "lin", cells: { refind: "def", sdboot: "def" } },
+  { t: "CachyOS", os: "lin", cells: { sdboot: "on" } },
+  { t: "OpenShell.efi", os: "tool", cells: { oc: "on" } },
+  { t: "memtest86+", os: "tool", cells: { refind: "on" } },
+  { t: "UEFI Shell", os: "tool", cells: { sdboot: "on" } },
+  { t: "UEFI 固件设置", os: "fw", cells: { grub: "on" } }
+];
+function viewF() {
+  const wrap = n("div", "lf");
+  const bar = n("div", "lf-bar");
+  const seg = n("div", "seg");
+  ["按系统归并", "按引导器展开"].forEach((x, i) => {
+    const b = n("button", i === 0 ? "is-on" : "", x);
+    b.type = "button";
+    seg.append(b);
+  });
+  const search = n("div", "search");
+  search.append(icon("search", "sm"));
+  const input = n("input");
+  input.placeholder = "筛选目标或卷标…";
+  search.append(input);
+  bar.append(seg, search, chip("off", "11 个目标 × 5 个引导器"), icoBtn("sort", "调整列顺序"));
+  wrap.append(bar);
+
+  const scroll = n("div", "lf-scroll");
+  const table = n("table");
+  const thead = n("thead");
+  const htr = n("tr");
+  const th0 = n("th", null, "启动目标");
+  htr.append(th0);
+  LOADERS.forEach((l) => {
+    const th = n("th");
+    th.append(ldr(l, "sm"), document.createTextNode(l.name));
+    htr.append(th);
+  });
+  thead.append(htr);
+  table.append(thead);
+
+  const tbody = n("tbody");
+  MATRIX.forEach((row) => {
+    const tr = n("tr");
+    const th = n("th");
+    th.append(document.createTextNode(row.t));
+    th.append(n("small", null, (OS_TAG[row.os] || "?") + " · " + (row.cells && Object.keys(row.cells).length) + " 个引导器可见"));
+    tr.append(th);
+    LOADERS.forEach((l) => {
+      const td = n("td");
+      const st = row.cells[l.id];
+      if (st) {
+        td.classList.add("on");
+        const mark = n("span", "cellmark");
+        mark.append(icon("check", "sm"), document.createTextNode(st === "def" ? "默认" : "可用"));
+        const b = n("button", "cellbtn");
+        b.type = "button";
+        b.append(icon("arrow", "sm"), document.createTextNode("下次启动"));
+        td.append(mark, b);
+      } else {
+        td.append(n("span", null, "—"));
+      }
+      tr.append(td);
+    });
+    tbody.append(tr);
+  });
+  table.append(tbody);
+  scroll.append(table);
+  wrap.append(scroll);
+
+  const legend = n("div", "lf-legend");
+  legend.append(chip("ok", "默认", "check"), chip("off", "可用"), n("span", null, "— 该引导器看不到这个目标"));
+  legend.append(n("span", "grow"));
+  legend.append(btn("只看可用目标", "btn xs ghost", "eye"));
+  wrap.append(legend);
+  return wrap;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   10. 方案 G —— 命令面板（搜索优先 / 键盘流）
+   ═══════════════════════════════════════════════════════════════════ */
+function viewG() {
+  const wrap = n("div", "lg");
+  const main = n("div", "lg-main");
+  const top = n("div", "lg-top");
+
+  const searchBox = n("div", "lg-search");
+  searchBox.append(icon("search", "lg"));
+  const input = n("input");
+  input.placeholder = "搜索系统、引导器或动作…";
+  input.value = "";
+  searchBox.append(input, n("span", "kbd", "⌘K"));
+  top.append(searchBox);
+
+  const filters = n("div", "lg-filters");
+  const fdefs = [{ id: "all", label: "全部 16" }, { id: "pin", label: "已固定 1" }]
+    .concat(LOADERS.map((l) => ({ id: l.id, label: l.name + " " + l.entries.length })));
+  let filter = "all";
+  const fchips = fdefs.map((f) => {
+    const c = n("button", "lg-fchip" + (f.id === "all" ? " is-on" : ""));
+    c.type = "button";
+    c.textContent = f.label;
+    c.addEventListener("click", () => { filter = f.id; paint(); });
+    filters.append(c);
+    return c;
+  });
+  top.append(filters);
+  main.append(top);
+
+  const results = n("div", "lg-results");
+  const side = n("aside", "lg-side");
+  let selected = 0;
+
+  function items() {
+    const q = input.value.trim().toLowerCase();
+    let out = [];
+    LOADERS.forEach((l) => {
+      if (filter === "pin" && !l.pinned) return;
+      if (filter !== "all" && filter !== "pin" && l.id !== filter) return;
+      l.entries.forEach((e) => {
+        if (q && (e.t + " " + l.name + " " + e.p).toLowerCase().indexOf(q) < 0) return;
+        out.push({ l: l, e: e });
+      });
+    });
+    return out;
+  }
+
+  function paintSide(it) {
+    side.replaceChildren();
+    if (!it) {
+      side.append(n("div", "empty"), n("b", null, "没有匹配项"));
+      return;
+    }
+    const h = n("h4", null, "选中项");
+    side.append(h);
+    const card = n("div", "lb-block");
+    const bh = n("div", "lb-block-head");
+    bh.append(ldr(it.l, "sm"), n("b", null, it.e.t));
+    card.append(bh);
+    const bd = n("div", "lb-block-body");
+    bd.style.padding = "6px 10px";
+    [["引导器", it.l.name], ["来源", it.e.src], ["路径", it.e.p], ["状态", it.e.def ? "当前默认" : "可用"]].forEach((x) => {
+      const f = n("div", "le-fact");
+      f.append(n("b", null, x[0]), n("span", null, x[1]));
+      bd.append(f);
+    });
+    card.append(bd);
+    side.append(card);
+    const acts = n("div", "spec-row");
+    acts.append(btn("下次启动", "btn sm primary", "power"), btn("设为默认 ⤴", "btn sm", "elev"));
+    side.append(acts);
+    side.append(n("div", "spec-note", "回车 = 下次启动；⌘/Ctrl + 回车 = 设为默认（需要提权时会先弹说明）。"));
+    side.append(n("h4", null, "同引导器"));
+    it.l.entries.filter((e) => e !== it.e).forEach((e) => {
+      const b = n("button", "lg-item");
+      b.type = "button";
+      b.append(n("span", "row-ico " + e.os, OS_TAG[e.os]), n("span", "t"));
+      b.lastChild.append(n("b", null, e.t));
+      if (e.def) b.append(badge("def", "默认"));
+      side.append(b);
+    });
+  }
+
+  function paint() {
+    fchips.forEach((c, i) => c.classList.toggle("is-on", fdefs[i].id === filter));
+    const list = items();
+    results.replaceChildren();
+    let lastLoader = null;
+    list.forEach((it, i) => {
+      if (it.l !== lastLoader) {
+        const g = n("div", "lg-group");
+        g.append(ldr(it.l, "sm"), document.createTextNode(it.l.name + " · " + it.l.entries.length + " 项"));
+        results.append(g);
+        lastLoader = it.l;
+      }
+      const b = n("button", "lg-item" + (i === selected ? " is-active" : ""));
+      b.type = "button";
+      b.append(n("span", "row-ico " + it.e.os, OS_TAG[it.e.os]));
+      const t = n("span", "t");
+      t.append(n("b", null, it.e.t), n("small", null, it.e.p));
+      b.append(t);
+      if (it.e.def) b.append(badge("def", "默认"));
+      if (it.e.last) b.append(badge("last", "上次"));
+      b.append(n("span", "kbd", "↵"));
+      b.addEventListener("click", () => { selected = i; paint(); });
+      results.append(b);
+    });
+    if (!list.length) {
+      const e = n("div", "empty");
+      e.append(n("b", null, "没有匹配项"), n("span", null, "试试「windows」「arch」或清掉筛选"));
+      results.append(e);
+      side.replaceChildren();
+      const se = n("div", "empty");
+      se.append(n("b", null, "未选中"), n("span", null, "左侧没有可预览的条目"));
+      side.append(se);
+      return;
+    }
+    paintSide(list[selected] || null);
+  }
+  input.addEventListener("input", () => { selected = 0; paint(); });
+  main.append(results);
+
+  const foot = n("div", "lg-foot");
+  [["↑ ↓", "移动"], ["↵", "下次启动"], ["⌘↵", "设为默认"], ["⌘,", "设置"], ["esc", "清空筛选"]].forEach((x) => {
+    const s = n("span");
+    s.append(n("span", "kbd", x[0]), document.createTextNode(x[1]));
+    foot.append(s);
+  });
+  main.append(foot);
+  wrap.append(main, side);
+  paint();
+  return wrap;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   11. 方案 H —— 手风琴紧凑列表
+   ═══════════════════════════════════════════════════════════════════ */
+function viewH() {
+  const wrap = n("div", "lh");
+  const bar = n("div", "lh-bar");
+  bar.append(icon("sliders", "sm"), n("b", null, "5 个引导器"), n("span", null, "· 16 个条目 · 4 个已固定"),
+    n("span", "grow"), btn("全部展开", "btn xs ghost"), btn("编排", "btn xs ghost", "sort"));
+  wrap.append(bar);
+
+  const list = n("div", "lh-list");
+  const open = new Set(["oc", "grub"]);
+  LOADERS.forEach((l) => {
+    const item = n("div", "lh-item" + (open.has(l.id) ? " is-open" : ""));
+    const head = n("button", "lh-head");
+    head.type = "button";
+    head.append(dot(l.state), ldr(l, "sm"), n("span", "nm", l.name));
+    const metaText = `默认 ${l.entries[0].t} · ${l.entries.length} 个条目 · ${l.perm === "nvram" ? "需提权" : "免提权"}`;
+    head.append(n("span", "meta", metaText), stateChip(l), icon("chevron", "sm car"));
+    item.append(head);
+
+    const body = n("div", "lh-body");
+    body.hidden = !open.has(l.id);
+    l.entries.forEach((e) => body.append(entryRow(e, l, { acts: "min", src: false })));
+    const foot = n("div", "lh-foot");
+    foot.append(btn("引导器设置", "btn xs ghost", "gear"), btn("收起这个通道", "btn xs ghost", "eye"),
+      n("span", "grow"), n("span", "hint", l.health));
+    body.append(foot);
+    item.append(body);
+
+    head.addEventListener("click", () => {
+      const isOpen = item.classList.toggle("is-open");
+      body.hidden = !isOpen;
+    });
+    list.append(item);
+  });
+
+  // 未检测到的通道：不消失，给一行「为什么 + 怎么修」
+  const missing = n("div", "lh-item");
+  missing.style.borderColor = "var(--line)";
+  missing.style.borderStyle = "dashed";
+  const mh = n("div", "lh-head");
+  mh.append(dot("off"), n("span", "ldr sm", "rE"), n("span", "nm", "rEFInd · Legacy"));
+  mh.querySelector(".ldr").style.setProperty("--c", "#64748b");
+  mh.append(n("span", "meta", "磁盘 1 分区 2 上的这套 rEFInd 没有盘符，读不到里面的文件"), chip("off", "未检测到"), icon("chevron", "sm car"));
+  const macts = n("span", "row-acts");
+  macts.style.opacity = "1";
+  macts.append(btn("分配盘符 ⤴", "btn xs ghost"), icoBtn("more", "更多"));
+  mh.append(macts);
+  missing.append(mh);
+  list.append(missing);
+  wrap.append(list);
+  return wrap;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   12. 方案 I —— Bento 磁贴 + 底部抽屉
+   ═══════════════════════════════════════════════════════════════════ */
+function viewI() {
+  const wrap = n("div", "li");
+  const grid = n("div", "li-grid");
+
+  const hero = n("div", "li-hero");
+  const htop = n("div");
+  htop.append(n("div", "k", "下次启动 · 一次性"));
+  htop.append(n("div", "v", NEXT_BOOT.title));
+  htop.append(n("div", "s", "OpenCore → systemd-boot → linux"));
+  const acts = n("div", "acts");
+  acts.append(btn("取消一次性启动", "btn sm"), btn("换成默认", "btn sm ghost"));
+  htop.append(acts);
+  hero.append(htop);
+  const hfoot = n("div", "li-tile");
+  hfoot.style.background = "transparent";
+  hfoot.style.border = "0";
+  hfoot.style.padding = "8px 0 0";
+  hfoot.append(n("div", "s", "BootNext 用后自动失效；不改固件顺序"));
+  hero.append(hfoot);
+  grid.append(hero);
+
+  LOADERS.forEach((l) => {
+    const tile = n("div", "li-tile");
+    const top = n("div", "top");
+    top.append(ldr(l, "sm"), n("span", "nm", l.name), dot(l.state));
+    tile.append(top);
+    const big = n("div", "big", String(l.entries.length));
+    big.append(n("small", null, "项"));
+    tile.append(big);
+    tile.append(n("div", "s", "默认 · " + l.entries[0].t));
+    const foot = n("div", "foot");
+    foot.append(chip(l.perm === "nvram" ? "elev" : "off", l.perm === "nvram" ? "需提权" : "免提权"));
+    foot.append(n("span", "grow"));
+    foot.append(icoBtn("arrow", "打开 " + l.name));
+    tile.append(foot);
+    grid.append(tile);
+  });
+  wrap.append(grid);
+
+  const bar = n("div", "li-sheetbar");
+  bar.append(icon("sliders", "sm"), n("span", "grow", "设置与编排：固定 / 排序 / 收起通道 / ESP 路径 / 免密模式"));
+  bar.append(chip("off", "8 项待配置"));
+  bar.append(btn("打开抽屉", "btn sm", "chevron"));
+  wrap.append(bar);
+  return wrap;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   13. 方案 J —— 三栏工作台（设置常驻）
+   ═══════════════════════════════════════════════════════════════════ */
+function viewJ() {
+  const wrap = n("div", "lj");
+  const c1 = n("aside", "lj-c1");
+  c1.append(n("div", "hd", "通道"));
+  const nav = n("div", "lj-nav");
+  let active = 0;
+  const c2 = n("section", "lj-c2");
+  const head = n("div", "hd");
+  const bd = n("div", "bd");
+  c2.append(head, bd);
+  const c3 = n("aside", "lj-c3");
+  const c3hd = n("div", "hd");
+  c3hd.append(icon("gear", "sm"), n("b", null, "引导器设置"), n("span", "grow"));
+  const fold = icoBtn("chevron", "收起设置栏（只留图标条）");
+  c3hd.append(fold);
+  const c3bd = n("div", "bd");
+  c3.append(c3hd, c3bd);
+
+  function paint(idx) {
+    active = idx;
+    const l = LOADERS[idx];
+    [...nav.children].forEach((c, i) => c.classList.toggle("is-on", i === idx));
+    head.replaceChildren(ldr(l, "sm"), n("b", null, l.name), stateChip(l), n("span", "grow"));
+    head.lastChild.style.marginLeft = "auto";
+    head.append(btn("下次启动", "btn xs", "power"), icoBtn("more", "更多"));
+
+    bd.replaceChildren();
+    const list = n("div", "entries");
+    list.style.padding = "0";
+    l.entries.forEach((e) => list.append(entryRow(e, l)));
+    bd.append(list);
+    const note = n("div", "la-foot");
+    note.style.marginTop = "10px";
+    note.style.borderRadius = "8px";
+    note.style.border = "1px solid var(--line)";
+    note.append(icon("info", "sm"), n("span", null, l.health));
+    bd.append(note);
+
+    c3bd.replaceChildren();
+    const groups = [
+      ["位置与识别", [["ESP 路径", l.esp, "改"], ["版本", l.ver, "详情"], ["条目数", l.entries.length + " 项", "刷新"]]],
+      ["行为", [["默认项", l.entries[0].t, "改"], ["下一启动", l.id === "sdboot" ? "支持一次性" : "需写 BootNext", "说明"], ["权限", l.perm === "nvram" ? "需提权" : "免提权", "提升"]]],
+      ["高级", [["内置脚本", l.id === "grub" ? "09_anyboot" : "不适用", "编辑"], ["免密模式", l.id === "oc" ? "未开启" : "不适用", "开启"]]]
+    ];
+    groups.forEach((g) => {
+      const box = n("div", "lj-setgroup");
+      box.append(n("div", "gt", g[0]));
+      g[1].forEach((s) => {
+        const row = n("div", "set");
+        const t = n("div", "set-t");
+        t.append(n("b", null, s[0]), n("small", null, String(s[1])));
+        row.append(t);
+        if (s[2] === "开启") row.append(n("span", "switch"));
+        else row.append(btn(s[2], "btn xs ghost"));
+        box.append(row);
+      });
+      c3bd.append(box);
+    });
+    const danger = n("div", "lj-setgroup");
+    danger.append(n("div", "gt", "危险区"));
+    const d = btn("从固件启动项移除 ⤴", "btn sm danger");
+    danger.append(d);
+    c3bd.append(danger);
+  }
+
+  LOADERS.forEach((l, i) => {
+    const b = n("button", "lj-navi" + (i === 0 ? " is-on" : ""));
+    b.type = "button";
+    b.append(ldr(l, "sm"), n("span", "nm", l.name), dot(l.state));
+    b.addEventListener("click", () => paint(i));
+    nav.append(b);
+  });
+  c1.append(nav);
+  fold.addEventListener("click", () => c3.classList.toggle("folded"));
+  wrap.append(c1, c2, c3);
+  paint(0);
+  return wrap;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   14. 方案清单 + 设计说明文案
+   ═══════════════════════════════════════════════════════════════════ */
+const LAYOUTS = [
+  {
+    id: "A", key: "A", name: "卡片流 + 通道索引", tag: "演进成本最低",
+    sub: "沿用现在的卡片观感，只在顶部加一条可固定的通道索引，解决「越滚越长、找不到人」。",
+    fn: viewA,
+    notes: {
+      idea: "把 5 张卡当成一条可排序的纵队；顶部索引条是「目录」，滚动时吸附，点一下就跳到对应卡片。固定（★）的通道永远排在最前，索引条上带图钉。",
+      tree: "win-body\n└─ .la  column\n   ├─ .la-index   flex:none · sticky top\n   └─ .la-list    flex:1 · min-height:0 · overflow:auto\n      ├─ .card    column（固定项排前）\n      │  ├─ .card-head   row · gap 9\n      │  ├─ .entries     column · gap 1\n      │  └─ .acc/.panel-in  收起 ↔ 展开\n      └─ .la-more  虚线「已收起 N 个」",
+      flex: [
+        "整列只有两个 flex 子项：索引条 flex:none，列表 flex:1 + min-height:0 + overflow:auto —— 滚动发生在列表里，索引条不动。",
+        "卡片内部三段：头 flex:none / 条目自然高度 / 设置条 flex:none；卡片本身不设固定高度，内容多少就多高。",
+        "索引条用 flex + overflow-x:auto，通道再多也只是一条横向滚动，不会换行把内容往下顶。"
+      ],
+      bps: [
+        "≥1000px：索引条显示图标 + 名称 + 条目数；卡片单列铺满。",
+        "760–999px：索引条自动截断名称，只留图标 + 数字（CSS 隐藏 .nm）。",
+        "<760px：卡片内边距收 12px，设置面板从 3 列降为 2 列（auto-fit minmax）。"
+      ],
+      compose: "★ 固定在卡片右上；⋯ 菜单里「上移 / 下移 / 收起 / 重新识别」。固定项始终排前，收起项落到最底部虚线行。",
+      settings: "设置收在卡片底部一条 acc（「高级设置 N 项」），点开在卡内展开，不跳页、不弹窗。",
+      buttons: [
+        ["★ 固定", "卡片右上 · 28px 图标", "切换 固定/普通；固定项排到最前并写入 localStorage"],
+        ["⋯ 更多", "卡片右上", "菜单：上移 / 下移 / 收起通道 / 重新识别 / 复制 ESP 路径"],
+        ["设为默认 ⤴", "条目行尾（hover 显现）", "持久默认；已在默认位时换成不可点的「已在默认位」"],
+        ["下次启动", "条目行尾", "一次性 BootNext / oneshot；成功后页头摘要条同步"],
+        ["高级设置", "卡片底部整条", "展开 ESP / 权限 / 免密 / 隐藏辅助条目"],
+        ["收起通道", "⋯ 菜单", "落到「已收起 N 个」虚线行，可从那里点回来"]
+      ],
+      dialogs: [
+        ["重新识别", "无弹窗；按钮转圈 1.2s，成功后卡片原地刷新"],
+        ["收起通道", "无弹窗（可撤销：底部虚线行还在）"],
+        ["设为默认（需提权）", "首次弹「需要管理员授权」说明卡，勾「以后不再问」后走免密助手"]
+      ],
+      pros: ["和现有实现同构，改动只在渲染层", "滚动位置稳定，卡片高度自适应", "索引条给了一个天然的「编排」入口"],
+      cons: ["5 个以上时仍要滚动；设置与条目混在一列", "索引条和卡片头信息重复，占一条垂直空间"],
+      vote: "过渡方案：先把索引 + 固定 + 收起补上，不动结构。"
+    }
+  },
+  {
+    id: "B", key: "B", name: "左栏通道 · 右栏详情", tag: "主推（≥5 个引导器）",
+    sub: "引导器是「对象」，条目是「内容」。对象进侧栏，内容进主区 —— 引导器再多也只是侧栏变长。",
+    fn: viewB,
+    notes: {
+      idea: "主从结构：左栏是通道清单（状态点 + 名称 + 条目数 + 拖拽把手），右栏只显示当前选中的那一个。右栏顶部常驻「下次启动」提示，底部是收起的设置区。",
+      tree: "win-body\n└─ .lb  row · height:100%\n   ├─ .lb-nav    flex:none · 236px · column\n   │  ├─ .lb-nav-head  flex:none\n   │  ├─ .lb-list      flex:1 · min-height:0 · overflow-y:auto\n   │  └─ .lb-nav-foot  flex:none（编排 / 添加）\n   └─ .lb-main   flex:1 · min-width:0 · column\n      ├─ .lb-main-head  flex:none\n      └─ .lb-scroll     flex:1 · min-height:0 · overflow-y:auto",
+      flex: [
+        "两栏都是 flex 子项：左栏 flex:none 固定 236px，右栏 flex:1 + min-width:0 —— 这是「主区不被长路径撑破」的关键。",
+        "左栏列表自己滚，右栏内容自己滚，互不影响；窗口高度变化时两栏各自收缩，不出现双层滚动条。",
+        "窄屏用 @container 把 .lb 改成 column，左栏变横向 chip 条（flex-direction:row + overflow-x:auto）。"
+      ],
+      bps: [
+        "≥1000px：236px 侧栏 + 自适应主区，条目行显示完整路径。",
+        "760–999px：侧栏瘦到 200px，副标题（条目数/权限）隐藏，只留名称与状态点。",
+        "<760px：上下结构，侧栏变成一条可横滑的通道 chip 条，主区占满宽度。"
+      ],
+      compose: "侧栏项自带 ⠿ 拖拽把手，拖即是排序；右键/⋯ 给「固定到顶部 / 隐藏」。排序结果写入 localStorage，快照刷新不重置。",
+      settings: "右侧主区的「引导器设置」区块，默认收起为一行标题（chip 显示「默认收起」）。设置与条目分层，不打断浏览。",
+      buttons: [
+        ["通道项", "左栏整行", "切换主区；当前项左侧 2px 主色描边"],
+        ["⠿ 把手", "左栏项首（hover 显现）", "按住拖拽排序；光标 grab/grabbing"],
+        ["＋", "左栏标题与底部", "重新识别 / 添加通道；无新通道时置灰并提示原因"],
+        ["下次启动", "右栏标题右侧 · 主按钮", "对当前默认项做一次性启动；下方摘要条同步"],
+        ["设为默认 ⤴", "条目行尾", "持久默认；写前弹提权说明"],
+        ["引导器设置", "右栏区块标题（整行可点）", "展开 ESP / 权限 / 默认项 / 脚本"]
+      ],
+      dialogs: [
+        ["提权说明", "点「设为默认 ⤴」且当前进程无权限时", "说明为什么、写哪两个变量、只读还是要写，[暂不] [授权 ⤴]"],
+        ["重新识别", "无弹窗，行内进度"],
+        ["隐藏通道", "无弹窗；侧栏底部出现「已隐藏 1」可撤回"]
+      ],
+      pros: ["引导器数量增长时最稳定，不产生长页面", "对象/内容分层，设置有了固定住处", "拖拽排序的语义最自然"],
+      cons: ["同一时刻只能看一个引导器，横向对比弱", "左右双滚动区域，需要保证金标/焦点不越界"],
+      vote: "推荐作为默认视图：5 个以上引导器的机器收益最大。"
+    }
+  },
+  {
+    id: "C", key: "C", name: "顶部固定标签页", tag: "最像「浏览器」",
+    sub: "把每个引导器当成一个标签：可固定、可拖动、溢出收进 ⋯。内容是单栏，结构简单。",
+    fn: viewC,
+    notes: {
+      idea: "标签条替代侧栏，横向占一条；固定的标签钉在最左，其余可拖动排序；窗口变窄时非固定标签收进右侧 ⋯ 菜单。标签下方一条工具栏（当前默认 / 密度 / 搜索 / 设置），再下面是内容与底部设置条。",
+      tree: "win-body\n└─ .lc  column · height:100%\n   ├─ .lc-tabs     flex:none · row · overflow-x:auto\n   ├─ .lc-toolbar  flex:none\n   ├─ .lc-body     flex:1 · min-height:0 · overflow-y:auto\n   └─ .lc-settings flex:none · 折叠条 + 面板",
+      flex: [
+        "三段纵向 flex：标签 flex:none、内容 flex:1、设置条 flex:none。只有中间那段滚。",
+        "标签条是横向 flex + overflow-x:auto，标签 flex:none 不压缩；这样标签文字不会被挤成两行。",
+        "选中标签用 margin-bottom:-1px 与内容区拼边，制造「连在一起」的观感，不需要额外高度。"
+      ],
+      bps: [
+        "≥1000px：全部 5 个标签平铺，末尾显示 ＋ 与 ⋯。",
+        "760–999px：标签显示图标 + 短名，条目数字徽标保留。",
+        "<760px：非固定标签折叠进 ⋯；工具栏隐藏密度切换（.hide-sm）。"
+      ],
+      compose: "拖动标签即排序；双击/右键「固定」，固定标签置左且不参与溢出收纳；⋯ 里可直接跳转被收起的通道。",
+      settings: "内容区下方固定一条「引导器设置」折叠条，展开后面板铺在内容底部（不覆盖内容，不弹窗）。",
+      buttons: [
+        ["标签", "顶部", "切换内容；中键/右键给固定与排序"],
+        ["＋", "标签条尾部", "重新识别通道，新增标签"],
+        ["⋯", "标签条尾部", "溢出标签列表 + 编排入口"],
+        ["密度 舒适/紧凑", "工具栏 seg", "切换行高 28/24px、隐藏副标题"],
+        ["搜索", "工具栏图标", "就地过滤当前标签条目"],
+        ["设为默认 / 下次启动", "条目行尾", "同方案 A，语义不变"]
+      ],
+      dialogs: [
+        ["溢出 ⋯", "popover（非模态），窗口外点击关闭"],
+        ["提权说明", "同 A/B，模态"],
+        ["设置面板", "内联展开，不是弹层"]
+      ],
+      pros: ["一屏内切换最快，键盘 Tab 流顺", "结构与浏览器一致，学习成本低", "单栏内容区宽度充足，适合长路径"],
+      cons: ["标签多到 8 个以上时会挤（必须靠溢出收纳）", "横向标签 + 纵向内容，视觉上有两个方向"],
+      vote: "适合「一次只盯一个引导器」的日常使用。"
+    }
+  },
+  {
+    id: "D", key: "D", name: "双列卡片网格", tag: "总览效率最高",
+    sub: "auto-fit 网格：宽屏两列、窄屏一列；固定的引导器占满整行，其余是紧凑卡。",
+    fn: viewD,
+    notes: {
+      idea: "一屏内看到所有引导器的状态与默认项，不滚动。固定项横跨整行、条目横排成 mini 列表；其余卡片只列前 3 条 + 「打开」。顶部一条筛选与「按引导器 / 按系统」切换。",
+      tree: ".ld  column\n├─ .pg-head      flex:none（标题 + 下次启动 + 动作）\n├─ .ld-bar       flex:none（seg + search）\n└─ .ld-grid      flex:1 · overflow-y:auto\n   └─ grid: repeat(auto-fit, minmax(320px,1fr))\n      ├─ .ld-card.span   grid-column:1/-1 · 内部 row\n      └─ .ld-card        默认 1 列，宽屏 2 列",
+      flex: [
+        "网格用 auto-fit + minmax，列数由容器宽度决定，不需要写多个断点。",
+        "固定项用 grid-column:1/-1 横跨整行，内部再分「左信息 / 右条目」两栏（row + flex）。",
+        "卡片内部纵向 flex，统计条 margin-top:auto 贴底 —— 同行卡片高度不齐时按钮仍对齐。"
+      ],
+      bps: [
+        "≥1000px：两列；固定卡横跨两列，条目在右侧 2–3 列网格里。",
+        "760–999px：两列变一列半；固定卡内部改成上下（左栏在上）。",
+        "<760px：单列；卡片去掉「打开」按钮，整卡可点。"
+      ],
+      compose: "顶部「编排」进抽屉；卡片右上 ◎ 固定，固定后立刻横跨整行。网格顺序 = 数组顺序，抽屉里拖。",
+      settings: "每卡右上 ⚙ 就地展开 mini 设置（2 列），不离开网格；完整设置进抽屉。",
+      buttons: [
+        ["按引导器 / 按系统", "顶部 seg", "重排：按系统时同一 OS 的条目聚在一张卡"],
+        ["筛选框", "顶部", "输入即过滤卡片与条目"],
+        ["◎ 固定", "固定卡统计条右侧", "取消固定 → 回落到普通卡"],
+        ["打开", "卡片底部右侧", "进入该引导器的完整详情（相当于方案 B 的右栏）"],
+        ["下次启动", "mini 行尾图标", "一次性启动，行变成「已排队」"],
+        ["编排", "页头", "抽屉：拖拽排序 / 显隐 / 密度"]
+      ],
+      dialogs: [
+        ["编排抽屉", "底部 sheet，可拖拽排序，[恢复默认]"],
+        ["提权说明", "模态，与 A 共用"],
+        ["详情", "点「打开」切换成方案 B 的右栏形态（同一路由，不新开窗）"]
+      ],
+      pros: ["总览一屏看全，状态点一眼扫完", "auto-fit 天然自适应，几乎不用断点", "固定项横跨整行的层级感很强"],
+      cons: ["条目多时卡片被截断，必须进详情", "两列宽度下长路径会被省略号吃掉"],
+      vote: "适合「巡检」：开机看一眼谁可用、谁要提权。"
+    }
+  },
+  {
+    id: "E", key: "E", name: "启动链路时间线", tag: "解释「为什么进了这个系统」",
+    sub: "固件 → 引导器 → 条目，三段链路按真实顺序排；高亮本次实际路径，旁边给预测与事实核对。",
+    fn: viewE,
+    notes: {
+      idea: "不打散成卡片，而是按开机真实发生的顺序讲一遍：固件 BootOrder 第 1 位是谁、它接管后干了什么、最后落到哪个条目。其它引导器作为「第 2 步的分叉」列出。",
+      tree: ".le  row · height:100%\n├─ .le-flow  flex:1 · min-width:0 · overflow-y:auto\n│  └─ .le-step  row\n│     ├─ .le-rail  flex:none · 26px（序号 + 竖线）\n│     └─ .le-card  flex:1 · min-width:0\n└─ .le-side  flex:none · 246px（预测 + 事实核对）",
+      flex: [
+        "左侧链路 flex:1，右侧预测卡 flex:none 246px；窄屏改成 column，预测卡横到上方。",
+        "每一步是 row：序号列固定 26px，卡片 flex:1 + min-width:0，竖线用 flex:1 的 2px 渐变把三步连起来。",
+        "时间线不加绝对定位，连接线靠 flex 拉伸，所以卡片高度变化时线自动跟着长。"
+      ],
+      bps: [
+        "≥1000px：左右分栏，右侧预测常驻可见。",
+        "760–999px：右栏 210px，事实核对折叠。",
+        "<760px：上下结构，预测卡横滑（min-width:210px）。"
+      ],
+      compose: "链路本身不排序（顺序由固件决定）；「其它候选路径」区可展开成 5 个引导器，点任意一个把链路重算成「以它为主」。",
+      settings: "设置放在每一跳的卡片里（「改固件顺序 ⤴」「查看 OC 预演菜单」），没有全局设置区 —— 因为它解释的是链路，不是通道。",
+      buttons: [
+        ["改固件顺序 ⤴", "第 1 步卡片", "写 BootOrder；危险动作，弹确认"],
+        ["查看 OC 预演菜单", "第 2 步卡片", "跳到 OC 卡片（或方案 B 的 OC 详情）"],
+        ["取消一次性启动", "第 3 步 / 预测卡", "删 BootNext，链路即时重算"],
+        ["按引导器展开", "其它候选路径", "把分叉展开成列表"],
+        ["重新核对链路", "右栏底部", "重跑一次只读扫描"]
+      ],
+      dialogs: [
+        ["确认写 BootOrder", "危险动作：说明会改变默认系统、列出目标与位置，[取消] [写入 ⤴]"],
+        ["预演菜单", "抽屉/弹窗：OC 会看到的条目 + 隐藏项"],
+        ["事实核对", "popover：固件模式、ESP 大小、权限来源"]
+      ],
+      pros: ["唯一能回答「为什么进错系统」的视图", "把 BootNext 一次性语义讲清楚了", "写操作放在对应那一跳，因果明确"],
+      cons: ["不是管理界面：改默认项要跳走", "引导器多时「分叉」区会长，不适合当主视图"],
+      vote: "作为排障视图（入口放页头「诊断」），不做默认。"
+    }
+  },
+  {
+    id: "F", key: "F", name: "矩阵对照表", tag: "多引导共存排查",
+    sub: "行是启动目标，列是引导器，格子表示「这个引导器能不能看到它、是不是默认」。",
+    fn: viewF,
+    notes: {
+      idea: "把「目标」和「引导器」拉成二维：任何一行看过去就知道这个系统被几个引导器收录、各自是不是默认。特别适合「我明明装了 Ubuntu，为什么 OC 里没有」这类问题。",
+      tree: ".lf  column · height:100%\n├─ .lf-bar    flex:none\n├─ .lf-scroll flex:1 · min-height:0 · overflow:auto\n│  └─ table（thead sticky / 首列 sticky left）\n└─ .lf-legend flex:none",
+      flex: [
+        "表格不参与 flex 分配，外层 .lf-scroll 负责双向滚动（overflow:auto），表头 sticky top、首列 sticky left。",
+        "列宽固定 112px，首列 min-width 150px；总宽超出时横向滚动，不压缩内容。",
+        "下方图例 flex:none，永远可见，避免滚到底才知道 ✓ 是什么意思。"
+      ],
+      bps: [
+        "≥1000px：5 列全展开，格子显示「默认 / 可用」。",
+        "760–999px：列宽降到 96px，只显示 ✓ 与「默认」文字。",
+        "<760px：表格 min-width 520px 横向滚动，首列冻结。"
+      ],
+      compose: "列顺序 = 引导器顺序，表头拖动排序；行按「系统 / 工具 / 固件」分组，可折叠。",
+      settings: "没有逐通道设置；表头 ⚙ 打开该引导器的设置气泡（ESP/权限/默认项），避免离开表格。",
+      buttons: [
+        ["表头 ⚙", "列头", "气泡：ESP 路径、权限、默认项、重新识别"],
+        ["格子 hover", "可用格", "✓ 变「下次启动」按钮（整格可点）"],
+        ["行首", "启动目标", "点击展开：这个目标在各引导器下的完整路径"],
+        ["按系统归并 / 按引导器展开", "顶部 seg", "切换行列轴"],
+        ["只看可用目标", "图例右侧", "过滤掉整行都是 — 的条目"]
+      ],
+      dialogs: [
+        ["列头 ⚙ 气泡", "popover，非模态"],
+        ["行详情", "展开行（inline），不弹窗"],
+        ["提权说明", "点「设为默认」且无权限时，模态"]
+      ],
+      pros: ["横向对比能力最强，缺口一眼看出", "密度高，11 个目标 × 5 列仍在一屏", "天然支持「只读诊断」场景"],
+      cons: ["窄屏必须横向滚动，手机上很难用", "条目名归一化（Windows 11 vs Windows Boot Manager）要定规则"],
+      vote: "作为第二视图（分段切换），排障时切过去看。"
+    }
+  },
+  {
+    id: "G", key: "G", name: "命令面板（搜索优先）", tag: "键盘流最快",
+    sub: "一个大搜索框 + 扁平结果 + 标签筛选，⌘K 唤起；适合已经知道要进哪个系统的人。",
+    fn: viewG,
+    notes: {
+      idea: "不按引导器组织界面，而是按「我要进哪个系统」组织结果：跨 5 个引导器扁平列出，前面小组标题标出来源。右侧预览面板给路径、来源与动作。",
+      tree: ".lg  row · height:100%\n├─ .lg-main  flex:1 · column\n│  ├─ .lg-top     flex:none（搜索框 + 筛选 chips）\n│  ├─ .lg-results flex:1 · overflow-y:auto\n│  └─ .lg-foot    flex:none（快捷键提示）\n└─ .lg-side  flex:none · 258px（预览 + 动作）",
+      flex: [
+        "输入区不滚动，结果区 flex:1 自己滚，快捷键提示条永远贴底。",
+        "结果项是 row：图标 / 文本块（flex:1 min-width:0）/ 徽章 / ↵。文本块里路径 ellipsis。",
+        "右侧预览在窄屏直接 display:none（信息让位给列表），点条目改成底部 sheet。"
+      ],
+      bps: [
+        "≥1000px：列表 + 预览双栏。",
+        "760–999px：预览栏 220px，动作按钮换行。",
+        "<760px：单栏，预览隐藏；选中项的动作在列表下方浮条出现。"
+      ],
+      compose: "通道顺序体现在分组顺序；固定通道的分组排前并加 ★。排序/隐藏进 ⌘, 设置页（不占主界面）。",
+      settings: "⌘, 或右上齿轮 → 设置抽屉（ESP、权限、编排、密度）。主界面只留搜索与结果。",
+      buttons: [
+        ["搜索框", "顶部 40px", "输入即过滤（系统名 / 引导器 / 路径）；Esc 清空"],
+        ["筛选 chip", "搜索框下方", "全部 / 已固定 / 单引导器；单选"],
+        ["结果项", "列表", "单击选中并在右侧预览；双击 = 下次启动"],
+        ["↵ / ⌘↵", "键盘", "下次启动 / 设为默认"],
+        ["下次启动", "预览区主按钮", "一次性启动，结果项出现「已排队」"],
+        ["设为默认 ⤴", "预览区次按钮", "持久默认，需提权"],
+        ["⌘,", "全局", "打开设置抽屉"]
+      ],
+      dialogs: [
+        ["设置抽屉", "右侧滑出（可键盘 Esc 关闭），含编排与偏好"],
+        ["提权说明", "模态；由动作触发"],
+        ["无结果", "内联空态，给「清掉筛选」按钮"]
+      ],
+      pros: ["目标明确时最快：输入 3 个字母 + 回车", "完全不占版面，通道多少都无所谓", "键盘可达，适合熟练用户"],
+      cons: ["不搜索就看不到全貌，新用户会懵", "没有「对象感」，引导器之间的关系看不出来"],
+      vote: "作为全局快切（⌘K），与任一种主视图并存。"
+    }
+  },
+  {
+    id: "H", key: "H", name: "手风琴紧凑列表", tag: "窄窗 / 密度之王",
+    sub: "每个引导器一行，展开才看条目。默认只展开 1–2 个，16 个条目也能在一屏里收住。",
+    fn: viewH,
+    notes: {
+      idea: "把卡片压成行：状态点 + 徽标 + 名称 + 一行摘要 + 状态 chip + 展开箭头。展开后条目是紧凑行（无副标题）。未检测到的通道不消失，变成虚线行 + 原因 + 修复按钮。",
+      tree: ".lh  column · height:100%\n├─ .lh-bar  flex:none\n└─ .lh-list flex:1 · overflow-y:auto\n   └─ .lh-item  column\n      ├─ .lh-head  row（整行可点，aria-expanded）\n      └─ .lh-body  column（hidden 切换）\n         ├─ .row × n\n         └─ .lh-foot（设置 / 收起 / 健康说明）",
+      flex: [
+        "行头是单行 flex，摘要文本 flex:1 + ellipsis，箭头 flex:none —— 长健康说明不会把行撑成两行。",
+        "展开体是普通文档流，不用 max-height 动画（避免内容变高后被裁）；需要动画时用 grid-template-rows 0fr→1fr。",
+        "整列只有一个滚动容器，行高一致（28px 紧凑 / 32px 舒适），扫读效率最高。"
+      ],
+      bps: [
+        "≥1000px：一行显示全部信息（版本、ESP、条目数、权限）。",
+        "760–999px：隐去版本号，保留默认项与条目数。",
+        "<760px：只留状态点 + 名称 + 条目数 + 箭头，其余进展开体。"
+      ],
+      compose: "行首 ⠿ 拖动排序；⋯ 菜单「固定 / 上移 / 下移 / 收起」。固定的行加浅色底并置顶。",
+      settings: "行尾 ⋯ → 弹层菜单；展开体底部还有「引导器设置」直入口。两级入口，常用动作不用展开。",
+      buttons: [
+        ["行头", "整行", "展开/收起（键盘 Enter/Space，方向键切换行）"],
+        ["⋯", "行尾", "固定 / 上移 / 下移 / 收起 / 重新识别"],
+        ["引导器设置", "展开体底部", "打开设置弹层（ESP / 权限 / 默认项）"],
+        ["收起这个通道", "展开体底部", "移入「已收起」，底部出现撤销提示"],
+        ["分配盘符 ⤴", "未检测到行", "修复动作；做完原地变实心行"],
+        ["全部展开 / 收起", "顶栏", "批量控制，状态记在 localStorage"]
+      ],
+      dialogs: [
+        ["⋯ 菜单", "popover，键盘可导航"],
+        ["引导器设置", "居中弹窗 520px，两列；危险动作单独分区"],
+        ["收起", "toast + 撤销，不打断"]
+      ],
+      pros: ["同样内容占用的垂直空间最小", "未检测到的通道有位置讲原因，不是凭空消失", "键盘友好（上下 + Enter）"],
+      cons: ["展开态一次只能看一个，跨通道对比差", "行内信息被压缩，新用户需要点开才知道有什么"],
+      vote: "推荐作为窄窗/手机远端的主视图（B 的降级形态）。"
+    }
+  },
+  {
+    id: "I", key: "I", name: "Bento 磁贴 + 底部抽屉", tag: "视觉最重",
+    sub: "把「下次启动」做成 hero 大块，其余引导器是数据磁贴；所有配置进底部抽屉。",
+    fn: viewI,
+    notes: {
+      idea: "首页只回答两个问题：现在会进什么、每个引导器有几个可用项。配置全部沉到底部抽屉，主界面保持干净。",
+      tree: ".li  column · height:100%\n├─ .li-grid  flex:1 · overflow-y:auto\n│  └─ grid 4 列\n│     ├─ .li-hero  span 2×2（下次启动）\n│     └─ .li-tile  1×1 × 4–6\n└─ .li-sheetbar flex:none（设置入口）",
+      flex: [
+        "网格固定 4 列、hero 占 2×2：宽屏像一个 bento 盒；窄屏断点降到 2 列、hero 占 2×1。",
+        "磁贴是 column，数字块与底部状态用 margin-top:auto 分离，保证同排磁贴的底部对齐。",
+        "底部抽屉入口 flex:none，主区滚动时它不动 —— 配置入口永远在拇指/鼠标同一位置。"
+      ],
+      bps: [
+        "≥1000px：4 列，hero 2×2。",
+        "760–999px：2 列，hero 占满 2 列 × 1 行。",
+        "<760px：1 列，hero 在最上，磁贴纵向排列。"
+      ],
+      compose: "磁贴顺序即数组顺序，拖拽重排；固定的引导器磁贴加主色描边。编排在底部抽屉第一屏。",
+      settings: "全部收进底部抽屉（半高），分三页：编排 / 引导器 / 应用。主界面只有「打开抽屉」。",
+      buttons: [
+        ["取消一次性启动", "hero 主按钮", "删 BootNext，hero 回到「默认启动」"],
+        ["换成默认", "hero 次按钮", "把当前 hero 目标设为持久默认（提权）"],
+        ["磁贴", "整块可点", "进入该引导器（展开成列表，或跳方案 B 详情）"],
+        ["⋯ 磁贴右上", "hover", "固定 / 收起 / 设置"],
+        ["打开抽屉", "底部条", "底部 sheet：编排 / 引导器设置 / 应用偏好"],
+        ["抽屉内拖拽", "编排页", "排序 + 显隐 + 密度"]
+      ],
+      dialogs: [
+        ["底部抽屉", "三页签，可拖到全高；Esc / 下拉关闭"],
+        ["提权说明", "模态，位于抽屉之上（z 更高一层）"],
+        ["确认危险动作", "模态；按钮 danger 色 + 二次确认文字"]
+      ],
+      pros: ["首屏信息层级最清楚（现在 / 其它）", "配置不打扰浏览", "视觉完成度高，适合作为产品形象"],
+      cons: ["信息密度低，一屏只能放 5–6 个磁贴", "配置藏得深，重度用户要点两次"],
+      vote: "适合「轻管理」用户；不建议作为唯一视图。"
+    }
+  },
+  {
+    id: "J", key: "J", name: "三栏工作台", tag: "重度配置",
+    sub: "左通道、中条目、右设置常驻（可折叠成 42px）。改配置不用来回跳。",
+    fn: viewJ,
+    notes: {
+      idea: "把设置从「收起的抽屉」提升为「常驻的第三栏」：选中一个引导器，左中右同时呈现实体、内容、属性 —— 类似 IDE 的资源管理器 / 编辑器 / 属性面板。",
+      tree: ".lj  row · height:100%\n├─ .lj-c1  flex:none · 190px（通道）\n├─ .lj-c2  flex:1 · min-width:0（条目）\n└─ .lj-c3  flex:none · 268px ⇄ 42px（设置）",
+      flex: [
+        "三栏都是 flex 子项，中栏 flex:1 + min-width:0 吃掉剩余宽度；左右栏 flex:none 定宽。",
+        "右栏折叠只改宽度（268 → 42），内容用 display:none 隐藏，过渡 width .16s —— 不重排中栏内容。",
+        "窄屏右栏改 position:absolute 覆盖在中栏之上（带阴影），避免把条目挤成 200px。"
+      ],
+      bps: [
+        "≥1100px：三栏全开。",
+        "900–1099px：左栏 160px，右栏 230px。",
+        "<760px：左栏缩成 60px 图标条（文字隐藏），右栏变成覆盖式中栏的抽屉。"
+      ],
+      compose: "左栏拖拽排序；固定项置顶并加图钉；隐藏项落到左栏底部「已隐藏」区，一眼可见可恢复。",
+      settings: "右栏常驻，分「位置与识别 / 行为 / 高级 / 危险区」四组；折叠按钮把右栏收成图标条，中栏变宽。",
+      buttons: [
+        ["通道项", "左栏", "切换中栏与右栏内容"],
+        ["折叠设置栏", "右栏标题", "268px ⇄ 42px；状态记忆"],
+        ["改 / 详情 / 刷新", "右栏每组行尾", "就地编辑（inline input）或打开详情"],
+        ["下次启动 / ⋯", "中栏标题行", "对当前默认项一次性启动 / 更多"],
+        ["从固件启动项移除 ⤴", "右栏危险区", "danger 按钮 → 二次确认 → 写 BootOrder"],
+        ["编排", "左栏底部", "拖拽排序 + 显隐 + 密度"]
+      ],
+      dialogs: [
+        ["二次确认", "危险动作（移除启动项 / 改 BootOrder 首位）：列出后果，[取消] [继续 ⤴]"],
+        ["行内编辑", "不弹窗，输入框 + ✓/✗"],
+        ["提权说明", "模态，覆盖三栏"]
+      ],
+      pros: ["改配置最快，不需要开合弹层", "三栏各司其职，信息不互相挤压", "可折叠，兼顾小屏"],
+      cons: ["1100px 以下三栏会挤，必须靠折叠", "实现复杂度最高（三条独立滚动 + 焦点管理）"],
+      vote: "面向「调参党」：装系统、排障时的专业视图。"
+    }
+  }
+];
+
+/* ═══════════════════════════════════════════════════════════════════
+   15. 操作逻辑图
+   ═══════════════════════════════════════════════════════════════════ */
+function box(x, y, w, h, title, sub, opt) {
+  opt = opt || {};
+  const stroke = opt.stroke || "var(--line-2)";
+  const fill = opt.fill || "var(--panel)";
+  let out = `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="9" fill="${fill}" stroke="${stroke}"/>`;
+  out += `<text class="t" x="${x + 12}" y="${y + 21}">${title}</text>`;
+  (sub || []).forEach((s, i) => {
+    out += `<text class="m" x="${x + 12}" y="${y + 38 + i * 14}">${s}</text>`;
+  });
+  return out;
+}
+function arrow(x1, y1, x2, y2, id, label) {
+  let out = `<path d="M${x1} ${y1} L${x2} ${y2}" stroke="var(--line-3)" stroke-width="1.4" fill="none" marker-end="url(#ar-${id})"/>`;
+  if (label) {
+    out += `<text class="m" x="${(x1 + x2) / 2}" y="${y1 - 6}" text-anchor="middle">${label}</text>`;
+  }
+  return out;
+}
+function svgWrap(id, w, h, inner) {
+  return `<svg viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg" role="img">
+    <defs><marker id="ar-${id}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 10 5 0 10z" fill="var(--line-3)"/></marker></defs>${inner}</svg>`;
+}
+
+const DIAGRAMS = [
+  {
+    title: "① 数据流分层：一份快照，十种排版",
+    note: "后端只产出 channels[]，编排（固定/排序/收起）是前端独立一层，十种视图共用同一套原子组件。换排版不动后端。",
+    svg: svgWrap("d1", 900, 262, [
+      box(16, 44, 150, 64, "ESP / 固件", ["BootOrder · loader.conf", "OC 私有 OCBt*"], { stroke: "var(--info)" }),
+      arrow(166, 76, 194, 76, "d1"),
+      box(196, 44, 164, 64, "channels::refresh", ["Rust · 5 通道探测", "entries / health / chip"], { stroke: "var(--accent)" }),
+      arrow(360, 76, 388, 76, "d1"),
+      box(390, 44, 152, 64, "state_snapshot", ["serde camelCase", "channels[] 只读"]),
+      arrow(542, 76, 570, 76, "d1"),
+      box(572, 44, 158, 64, "编排层（前端）", ["pin / order / hide", "localStorage 持久化"], { stroke: "var(--ok)" }),
+      arrow(730, 76, 758, 76, "d1"),
+      box(760, 44, 124, 64, "视图（10 种）", ["同一套原子", "flex 自适应"]),
+      `<rect x="16" y="140" width="868" height="92" rx="10" fill="var(--panel-2)" stroke="var(--line)" stroke-dasharray="5 4"/>`,
+      `<text class="t" x="32" y="164">写入回路（所有方案共用）</text>`,
+      `<text class="m" x="32" y="186">动作 spec（opencore-default / sdboot-oneshot / clover-default …）→ switch_boot_channel → 权限判定 → 提权子进程 → 写盘 / NVRAM</text>`,
+      `<text class="m" x="32" y="204">→ refresh_channels 重算 → 新快照 → 视图只重绘受影响的行（徽章、默认项、下次启动摘要）</text>`,
+      `<text class="m" x="32" y="222" fill="var(--warn-text)">铁律：写操作必须走 spec 值域，前端不拼字符串；回显只认新快照，不做本地乐观更新。</text>`
+    ].join(""))
+  },
+  {
+    title: "② 一次「设为默认」的完整往返（含提权分支）",
+    note: "顺序不能反：先 set_default 再 dump_boot_vars。反过来会把写入前的旧顺序表带回来，界面要刷两次才更新（已踩过）。",
+    svg: svgWrap("d2", 900, 430, [
+      // 泳道
+      `<text class="t" x="24" y="24">用户</text><text class="t" x="204" y="24">前端</text><text class="t" x="384" y="24">后端</text><text class="t" x="564" y="24">提权子进程</text><text class="t" x="744" y="24">固件 / NVRAM</text>`,
+      `<g stroke="var(--line)" stroke-dasharray="3 4">
+        <path d="M60 34V416"/><path d="M240 34V416"/><path d="M420 34V416"/><path d="M600 34V416"/><path d="M780 34V416"/></g>`,
+      arrow(60, 62, 240, 62, "d2"), `<text class="m" x="66" y="56">点击「设为默认 ⤴」</text>`,
+      arrow(240, 94, 420, 94, "d2"), `<text class="m" x="246" y="88">switch_boot_channel(target)</text>`,
+      `<rect x="426" y="108" width="188" height="30" rx="6" fill="var(--panel-3)" stroke="var(--line-2)"/>`,
+      `<text class="m" x="436" y="127">boot_vars_view == NeedElevation ?</text>`,
+      arrow(420, 158, 600, 158, "d2"), `<text class="m" x="432" y="152">ShellExecute runas（一次 UAC）</text>`,
+      arrow(600, 190, 780, 190, "d2"), `<text class="m" x="606" y="184">set_default() 写 OCBtOrder / OCBt0080</text>`,
+      arrow(600, 222, 780, 222, "d2"), `<text class="m" x="606" y="216">dump_boot_vars() 回读（必须在其后）</text>`,
+      arrow(600, 254, 420, 254, "d2"), `<text class="m" x="424" y="248">BootVarsSnapshot（缓存 30 分钟）</text>`,
+      `<rect x="426" y="268" width="188" height="30" rx="6" fill="var(--panel-3)" stroke="var(--line-2)"/>`,
+      `<text class="m" x="436" y="287">重算 oc_menu → default 槽位</text>`,
+      arrow(420, 318, 240, 318, "d2"), `<text class="m" x="252" y="312">state_snapshot（新快照）</text>`,
+      arrow(240, 350, 60, 350, "d2"), `<text class="m" x="66" y="344">✓ 徽章移到新行 + toast</text>`,
+      `<path d="M600 222 C660 236 660 244 600 250" stroke="var(--warn)" fill="none" stroke-width="1.2" stroke-dasharray="4 3"/>`,
+      `<text class="m" x="640" y="272" fill="var(--warn-text)">反例：先 dump 再写 → 带回旧表</text>`
+    ].join(""))
+  },
+  {
+    title: "③ 编排状态机：固定 / 收起 / 未检测",
+    note: "排序与显隐是纯前端状态，不进快照；未检测到的通道自动沉底且不参与排序（否则每次扫描顺序会跳）。",
+    svg: svgWrap("d3", 900, 286, [
+      `<text class="m" x="30" y="26">状态</text>`,
+      `<text class="m" x="240" y="26">触发动作</text>`,
+      `<text class="m" x="510" y="26">结果</text>`,
+      `<text class="m" x="700" y="26">约束</text>`,
+      `<path d="M24 34H876" stroke="var(--line)" />`,
+
+      `<rect x="24" y="48" width="160" height="28" rx="7" fill="var(--panel-3)" stroke="var(--line-2)"/>`,
+      `<text class="b" x="38" y="67" fill="var(--ok-text)">已检测 · 显示</text>`,
+      `<text x="240" y="67">★ 固定 / 收起 / 拖拽排序</text>`,
+      `<text x="510" y="67">已固定 / 已收起 / 顺序变化</text>`,
+      `<text class="m" x="700" y="67">顺序写入 pcBootCompose.order</text>`,
+
+      `<rect x="24" y="100" width="160" height="28" rx="7" fill="var(--accent-soft)" stroke="var(--accent)"/>`,
+      `<text class="b" x="38" y="119" fill="var(--accent-2)">已固定</text>`,
+      `<text x="240" y="119">取消固定（★ 再点一次）</text>`,
+      `<text x="510" y="119">回到显示区，按原顺序排</text>`,
+      `<text class="m" x="700" y="119">固定项不参与拖拽排序</text>`,
+
+      `<rect x="24" y="152" width="160" height="28" rx="7" fill="var(--panel-2)" stroke="var(--line-2)"/>`,
+      `<text class="b" x="38" y="171" fill="var(--dim)">已收起</text>`,
+      `<text x="240" y="171">在「已收起 N 个」里点恢复</text>`,
+      `<text x="510" y="171">回到显示区（位置不变）</text>`,
+      `<text class="m" x="700" y="171">收起 ≠ 删除，随时可逆</text>`,
+
+      `<rect x="24" y="204" width="160" height="28" rx="7" fill="var(--panel-2)" stroke="var(--line-2)" stroke-dasharray="4 3"/>`,
+      `<text class="b" x="38" y="223" fill="var(--faint)">未检测到</text>`,
+      `<text x="240" y="223">分配盘符 ⤴ / 重新识别</text>`,
+      `<text x="510" y="223">变实心行并进入显示区</text>`,
+      `<text class="m" x="700" y="223">自动沉底，不参与排序</text>`,
+
+      `<text class="m" x="24" y="262" fill="var(--faint)">persist: localStorage pcBootCompose = { pinned:[], order:[], hidden:[], density }；快照变化只做「差集合并」，绝不覆盖用户顺序。</text>`,
+      `<text class="m" x="24" y="278" fill="var(--warn-text)">恢复默认 = 清掉这个键 + 重排为后端返回顺序；这是唯一的「撤销编排」入口。</text>`
+    ].join(""))
+  },
+  {
+    title: "④ 弹层层级与焦点（现有实现的坑）",
+    note: "共用弹层必须挂在所有 .page 之外：page[hidden] 会 display:none 把弹层一起吞掉。z-index 从低到高固定五档。",
+    svg: svgWrap("d4", 900, 330, [
+      `<rect x="20" y="30" width="330" height="70" rx="9" fill="var(--panel)" stroke="var(--line-2)"/>`,
+      `<text class="t" x="34" y="55">页面 shell（.page）</text><text class="m" x="34" y="75">z:0 · 滚动容器</text>`,
+      `<text class="m" x="360" y="55">页面级滚动，卡片与折叠区都在这层</text>`,
+      `<text class="m" x="360" y="73" fill="var(--warn-text)">✗ 弹层不要写在这里面</text>`,
+
+      `<rect x="40" y="118" width="310" height="62" rx="9" fill="var(--panel-2)" stroke="var(--line-2)"/>`,
+      `<text class="t" x="54" y="142">右侧抽屉 / 底部 sheet</text><text class="m" x="54" y="161">z:40 · 有遮罩（z:30）</text>`,
+      `<text class="m" x="360" y="143">编排、引导器设置（宽屏用抽屉）</text>`,
+      `<text class="m" x="360" y="161">焦点陷阱 + Esc 关闭 + 关闭后焦点回到触发按钮</text>`,
+
+      `<rect x="62" y="198" width="288" height="56" rx="9" fill="var(--panel-3)" stroke="var(--line-3)"/>`,
+      `<text class="t" x="76" y="221">确认 / 提权弹窗</text><text class="m" x="76" y="240">z:60 · 遮罩 z:50</text>`,
+      `<text class="m" x="360" y="222">危险动作：默认焦点在「取消」，Esc = 取消</text>`,
+      `<text class="m" x="360" y="240">提权弹窗：说明 + [暂不] [授权 ⤴]</text>`,
+
+      `<rect x="84" y="270" width="150" height="32" rx="8" fill="var(--panel-4)" stroke="var(--line-3)"/>`,
+      `<text class="m" x="96" y="290">toast · z:90</text>`,
+      `<text class="m" x="360" y="290">toast 不抢焦点、不阻断；带「查看记录」与「撤销」</text>`
+    ].join(""))
+  }
+];
+
+/* ═══════════════════════════════════════════════════════════════════
+   16. 总览
+   ═══════════════════════════════════════════════════════════════════ */
+const CMP_ROWS = [
+  ["A", "卡片流 + 索引", "★★☆", "固定 + 拖拽", "卡底折叠条", "靠索引跳，页面变长", "低"],
+  ["B", "左栏 · 右详情", "★★★", "拖拽即排序", "右栏区块", "侧栏滚动，结构稳", "中"],
+  ["C", "顶部标签页", "★★☆", "固定 + 拖动", "内容底折叠条", "非固定收进 ⋯", "中"],
+  ["D", "双列网格", "★★★", "抽屉", "卡内 ⚙", "多一列，扫读更快", "低"],
+  ["E", "启动链路", "★☆☆", "不排序（按事实）", "每跳卡片内", "分叉区变长", "高"],
+  ["F", "矩阵对照", "★★★", "列排序", "列头气泡", "行变多，仍一屏", "中高"],
+  ["G", "命令面板", "★★☆", "设置页统一管", "⌘, 抽屉", "完全不受影响", "中"],
+  ["H", "手风琴", "★★★", "拖拽 + ⋯ 菜单", "行尾 ⋯", "折叠后收敛住", "低"],
+  ["I", "Bento 磁贴", "★★☆", "底部抽屉", "底部抽屉", "磁贴变多，要滚", "中"],
+  ["J", "三栏工作台", "★★★", "左栏拖拽", "常驻右栏", "稳定（≥1100px）", "高"]
+];
+function overviewView() {
+  const wrap = n("div", "ov");
+  const hero = n("div", "ov-hero");
+  hero.append(n("h2", null, "一台机器上 5 个引导器，怎么放才不塌"));
+  hero.append(n("p", null,
+    "现在是一个 tab 里竖着堆卡片：GRUB 配置块 + systemd-boot + OpenCore（含预演菜单）+ Clover。每加一条通道，页面就长一屏，设置和条目混在一起，用户找不到「我上次改的那个 ESP 路径」。下面十种排版都在解决同一组问题：对象多了怎么分组、条目多了怎么收、设置放哪里不打扰浏览。"));
+  const kpis = n("div", "ov-kpis");
+  [["5", "引导器"], [String(TOTAL), "条目"], ["3", "设置层级"], ["10", "排版方案"]].forEach((k) => {
+    const b = n("div", "ov-kpi");
+    b.append(n("b", null, k[0]), n("small", null, k[1]));
+    kpis.append(b);
+  });
+  hero.append(kpis);
+  wrap.append(hero);
+
+  const conv = n("div", "spec");
+  const convH = n("h3", null, "十条通用约定");
+  convH.append(n("small", null, "10 个方案都必须遵守"));
+  conv.append(convH);
+  const cb = n("div", "spec-body");
+  const ul = n("ul", "nlist");
+  [
+    "<b>身份用字母徽标，不用 emoji</b>：OC / rE / GR / sd / CL 各配一个固定色，跨平台字形一致、可跟主题着色。系统类型用 MAC / WIN / LNX / TLS / FW 小方块。",
+    "<b>状态四态，颜色+文案双通道</b>：已检测（ok）/ 已检测·需提权（warn）/ 未检测到（off，必须给原因）/ 检测失败（err）。不允许只靠颜色区分。",
+    "<b>动作严格三档</b>：<code>下次启动</code>（一次性，BootNext/oneshot）/ <code>设为默认</code>（持久，写配置或 NVRAM）/ <code>写入固件</code>（只在缺失时出现，危险）。语义不能混用文案。",
+    "<b>设置三级收起</b>：全局设置页（扫描、外观）⇒ 引导器设置（ESP/权限/默认项/脚本）⇒ 条目详情（路径/来源）。默认只暴露第一级的入口与第二级的标题。",
+    "<b>编排是独立一层</b>：固定 / 排序 / 收起存 localStorage，和快照解耦；快照刷新只做差集合并，绝不覆盖用户顺序。",
+    "<b>flex 硬约束</b>：每个可滚动区 <code>flex:1; min-height:0; overflow:auto</code>；文本容器 <code>min-width:0</code> + ellipsis；sticky 只给工具条/表头，不给卡片。"
+  ].forEach((t) => {
+    const li = n("li");
+    li.innerHTML = t;
+    ul.append(li);
+  });
+  cb.append(ul);
+  conv.append(cb);
+  wrap.append(conv);
+
+  const cmp = n("div", "spec");
+  const cmpH = n("h3", null, "十种方案横向对比");
+  cmpH.append(n("small", null, "密度 / 编排 / 设置入口 / 规模上限 / 改动量"));
+  cmp.append(cmpH);
+  const cb2 = n("div", "spec-body");
+  cb2.style.padding = "0";
+  const table = n("table", "big");
+  const thead = n("thead");
+  const htr = n("tr");
+  ["方案", "名称", "首屏密度", "编排能力", "设置入口", "10 个引导器时", "改动"].forEach((h) => htr.append(n("th", null, h)));
+  thead.append(htr);
+  table.append(thead);
+  const tb = n("tbody");
+  CMP_ROWS.forEach((r) => {
+    const tr = n("tr");
+    r.forEach((c, i) => {
+      const td = n("td");
+      if (i === 2) { td.append(n("span", "stars", c)); }
+      else td.textContent = c;
+      tr.append(td);
+    });
+    tb.append(tr);
+  });
+  table.append(tb);
+  cb2.append(table);
+  cmp.append(cb2);
+  wrap.append(cmp);
+
+  const rec = n("div", "spec");
+  const recH = n("h3", null, "推荐组合");
+  recH.append(n("small", null, "不做单选题"));
+  rec.append(recH);
+  const rb = n("div", "spec-body");
+  const ul2 = n("ul", "nlist");
+  [
+    "<b>主视图 B（左栏 + 右详情）</b>：5 个引导器是分水岭，超过就必须有稳定的对象清单。",
+    "<b>窄窗自动降级 H（手风琴）</b>：同一份数据，&lt;760px 时把侧栏换成行头 —— 不是另写一套页面。",
+    "<b>⌘K 常驻 G（命令面板）</b>：熟练用户直接跳到目标，不经过任何列表。",
+    "<b>诊断分段 F（矩阵）</b>：放在页头「诊断」分段里，专治「为什么这个系统不出现」。",
+    "<b>A 作为过渡</b>：不换结构也能先上「索引 + 固定 + 收起」，一两个迭代后再搬 B。"
+  ].forEach((t) => { const li = n("li"); li.innerHTML = t; ul2.append(li); });
+  rb.append(ul2);
+  const warn = n("p", null, "取舍原则：能「收起来」的就不「换页面」；能不弹窗的就「就地展开」；任何持久化状态都要能被一次「恢复默认」清干净。");
+  warn.style.marginTop = "10px";
+  warn.style.color = "var(--warn-text)";
+  rb.append(warn);
+  rec.append(rb);
+  wrap.append(rec);
+  return wrap;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   17. 组件规格页
+   ═══════════════════════════════════════════════════════════════════ */
+function specCard(title, meta, build, wide) {
+  const card = n("div", "spec" + (wide ? " wide" : ""));
+  const h = n("h3", null, title);
+  if (meta) h.append(n("small", null, meta));
+  card.append(h);
+  const body = n("div", "spec-body");
+  build(body);
+  card.append(body);
+  return card;
+}
+function specsView() {
+  const wrap = n("div", "ov");
+  const hero = n("div", "ov-hero");
+  hero.append(n("h2", null, "组件规格：每个按钮、每个弹层"));
+  hero.append(n("p", null, "十种排版共用这一套原子。尺寸基于 13px 正文、8px 栅格；所有按钮高度是 28 / 24 / 20 三档，图标 14px 线性描边 1.6。危险动作永远单独配色 + 二次确认，且默认焦点在「取消」。"));
+  wrap.append(hero);
+
+  const grid = n("div", "spec-grid");
+
+  // 按钮
+  grid.append(specCard("按钮", "28 / 24 / 20", (b) => {
+    const r1 = n("div", "spec-row");
+    r1.append(btn("下次启动", "btn sm primary", "power"), btn("设为默认 ⤴", "btn sm", "elev"), btn("重新扫描", "btn sm ghost", "refresh"), icoBtn("more", "更多"));
+    b.append(r1);
+    const r2 = n("div", "spec-row");
+    r2.append(btn("取消", "btn sm"), btn("已在默认位", "btn sm ghost is-disabled"), btn("从固件移除 ⤴", "btn sm danger"), btn("写入固件 ⤴", "btn sm", "elev"));
+    b.append(r2);
+    const r3 = n("div", "spec-row");
+    r3.append(btn("小号 24", "btn sm"), btn("超小 20 · 行内", "btn xs"), btn("图标 26", "btn icon", "gear"));
+    b.append(r3);
+    b.append(n("p", "spec-note", "主按钮每屏最多 1 个（下次启动）；「设为默认」是次按钮但带 ⤴ 提权标记；「写入固件 / 从固件移除」用 danger，且必须进确认弹窗。禁用态用 opacity .45 + pointer-events:none，不改变尺寸。"));
+  }));
+
+  // 状态
+  grid.append(specCard("状态与徽章", "色 + 文案双通道", (b) => {
+    const r1 = n("div", "spec-row");
+    r1.append(chip("ok", "已检测 · 免提权", "check"), chip("warn", "已检测 · 需提权", "elev"), chip("off", "未检测到"), chip("", "只读", "eye"));
+    b.append(r1);
+    const r2 = n("div", "spec-row");
+    r2.append(badge("def", "当前默认"), badge("last", "上次启动"), badge(null, "辅助"), badge("pin", "已固定"));
+    b.append(r2);
+    const r3 = n("div", "spec-row");
+    ["ok", "warn", "off", "err"].forEach((s) => {
+      const sp = n("span", "spec-row");
+      sp.append(dot(s), n("span", "mut", s));
+      r3.append(sp);
+    });
+    b.append(r3);
+    b.append(n("p", "spec-note", "状态点只做辅助；任何状态必须在文本里说清楚（「未检测到」还要跟一句为什么）。徽章不承担交互，不可点。"));
+  }));
+
+  // 条目行
+  grid.append(specCard("条目行", "4 种形态", (b) => {
+    const box = n("div", "card");
+    box.style.background = "var(--panel-2)";
+    const list = n("div", "entries");
+    list.append(entryRow(LOADERS[0].entries[0], LOADERS[0]));
+    list.append(entryRow(LOADERS[0].entries[1], LOADERS[0]));
+    list.append(entryRow(LOADERS[0].entries[3], LOADERS[0]));
+    box.append(list);
+    b.append(box);
+    b.append(n("p", "spec-note", "行尾动作默认 50% 透明，hover/focus 才全显 —— 避免一屏 16 个按钮打架；触屏（hover:none）直接常显。默认项整行浅绿底 + 左描边，不给「设为默认」按钮，换成不可点的说明。"));
+  }, true));
+
+  // 折叠
+  grid.append(specCard("设置折叠条", "三级收起里的第二级", (b) => {
+    const acc = settingsAccordion(LOADERS[0], "引导器设置");
+    const box = n("div", "card");
+    box.append(acc.bar, acc.panel);
+    b.append(box);
+    b.append(n("p", "spec-note", "收起时只占一行（≈36px），文案固定为「引导器设置 + 摘要」；展开不弹窗、不遮挡内容。同一时刻允许展开多个（用户可能对照两个引导器）。"));
+  }));
+
+  // 弹窗
+  grid.append(specCard("确认弹窗（危险动作）", "z 60 / 遮罩 50", (b) => {
+    const scrim = n("div", "mock-scrim");
+    const dlg = n("div", "dlg");
+    const h = n("div", "dlg-head");
+    h.append(icon("warn", "lg"), n("b", null, "把 OpenCore 写进固件启动项？"));
+    const body = n("div", "dlg-body");
+    body.append(document.createTextNode("这会修改 UEFI 的 "));
+    body.append(n("code", "inl", "BootOrder"));
+    body.append(document.createTextNode("，重启后固件会先启动 OpenCore。"));
+    const ul = n("ul", "dlg-list");
+    ["OpenCore 会接管启动流程，直到你从菜单里选别的系统", "写前会整份备份 NVRAM，可一键还原", "不改 macOS 的白名单变量"].forEach((t) => {
+      const li = n("li");
+      li.append(icon("check", "sm"), document.createTextNode(t));
+      ul.append(li);
+    });
+    body.append(ul);
+    const acts = n("div", "dlg-acts");
+    acts.append(btn("取消", "btn sm"), btn("写入固件项 ⤴", "btn sm primary", "elev"));
+    dlg.append(h, body, acts);
+    scrim.append(dlg);
+    b.append(scrim);
+    b.append(n("p", "spec-note", "标题是问句、只问一件事；正文列 3 条后果；按钮用动词+对象（「写入固件项」而不是「确定」）。默认焦点在取消，Esc 取消，点遮罩不关闭。"));
+  }));
+
+  // 提权
+  grid.append(specCard("提权说明", "首次 / 可勾不再问", (b) => {
+    const scrim = n("div", "mock-scrim");
+    const dlg = n("div", "dlg");
+    const h = n("div", "dlg-head");
+    h.append(icon("shield", "lg"), n("b", null, "需要一次管理员授权"));
+    const body = n("div", "dlg-body");
+    body.append(document.createTextNode("OpenCore 的默认项存在固件变量里，普通权限读不到也写不了。授权后由 AnyBoot 的提权子进程完成："));
+    const ul = n("ul", "dlg-list");
+    ["只写 OCBtOrder / OCBt0080（不碰 Boot*）", "写前整份备份，失败自动还原", "结果缓存 30 分钟，不反复询问"].forEach((t) => {
+      const li = n("li");
+      li.append(icon("check", "sm"), document.createTextNode(t));
+      ul.append(li);
+    });
+    body.append(ul);
+    const row = n("label", "spec-row");
+    row.style.marginTop = "10px";
+    row.append(n("span", "switch on"), n("span", "spec-note", "记住选择（本机 30 分钟）"));
+    body.append(row);
+    const acts = n("div", "dlg-acts");
+    acts.append(btn("暂不", "btn sm"), btn("授权 ⤴", "btn sm primary", "elev"));
+    dlg.append(h, body, acts);
+    scrim.append(dlg);
+    b.append(scrim);
+    b.append(n("p", "spec-note", "必须在动作前解释「为什么」和「写什么」，而不是失败后再弹。文案里不允许出现「以管理员身份运行」这类要求用户自己操作的指令。"));
+  }));
+
+  // toast
+  grid.append(specCard("Toast", "z 90 / 4s 自动消失", (b) => {
+    const t1 = n("div", "toast");
+    t1.append(icon("check", "sm"), n("span", "grow", "已把 Ubuntu 24.04 设为下次启动（Boot0007，一次性）"), btn("查看记录", "btn xs ghost"));
+    const t2 = n("div", "toast");
+    t2.append(icon("warn", "sm"), n("span", "grow", "写入被拒绝：固件变量受保护"), btn("重试 ⤴", "btn xs ghost"));
+    t2.style.borderColor = "color-mix(in srgb,var(--danger) 40%,var(--line-2))";
+    b.append(t1, t2);
+    b.append(n("p", "spec-note", "成功 toast 带值域与 Boot#### 编号（可核对）；失败 toast 必须给下一步动作，不能只报错。不抢焦点，可被 Esc 提前关掉。"));
+  }));
+
+  // 编排抽屉
+  grid.append(specCard("编排抽屉", "底部 sheet / 可拖拽", (b) => {
+    const box = n("div", "card");
+    box.style.background = "var(--panel-2)";
+    const head = n("div", "lb-block-head");
+    head.append(icon("sliders", "sm"), n("b", null, "编排与显示"), n("span", "grow"), chip("off", "5 个通道"));
+    head.lastChild.style.marginLeft = "auto";
+    box.append(head);
+    const list = n("div", "");
+    list.style.padding = "6px";
+    LOADERS.forEach((l, i) => {
+      const row = n("div", "lb-item");
+      row.append(icon("grip", "sm lb-grip"), ldr(l, "sm"));
+      const nm = n("span", "nm");
+      nm.append(n("b", null, l.name), n("small", null, i === 0 ? "固定在顶部 · 第 1 位" : "第 " + (i + 1) + " 位"));
+      row.append(nm);
+      if (i === 0) row.append(badge("pin", "已固定"));
+      row.append(n("span", "switch" + (i < 4 ? " on" : "")));
+      list.append(row);
+    });
+    box.append(list);
+    const foot = n("div", "dlg-acts");
+    foot.append(btn("恢复默认", "btn sm ghost", "refresh"), n("span", "grow"), btn("取消", "btn sm"), btn("完成", "btn sm primary"));
+    box.append(foot);
+    b.append(box);
+    b.append(n("p", "spec-note", "抽屉只做三件事：排序、固定、显隐。密度与分组另开一页，避免一个面板塞十行开关。拖拽必须有键盘替代（按住 Alt + ↑↓）。"));
+  }, true));
+
+  // 令牌
+  grid.append(specCard("排版令牌", "13px / 8px 栅格", (b) => {
+    const rows = [
+      ["页面标题", "15px / 650", "var(--text)"],
+      ["卡片标题", "13px / 650", "var(--text)"],
+      ["条目名", "12.5px / 600", "var(--text)"],
+      ["正文", "12px / 400", "var(--dim)"],
+      ["路径（等宽）", "10.5px mono", "var(--faint)"],
+      ["微标签", "10px / 600 大写", "var(--fainter)"]
+    ];
+    rows.forEach((r) => {
+      const row = n("div", "spec-row");
+      const t = n("span", null, r[0]);
+      t.style.font = r[1];
+      t.style.color = r[2];
+      t.style.flex = "1";
+      row.append(t, n("span", "hint", r[1]));
+      b.append(row);
+    });
+    b.append(n("p", "spec-note", "间距只用 2/4/6/8/10/12/16；卡片圆角 12、按钮 7、徽标 5。行高 1.5，条目行垂直内边距 6px（紧凑 4px）。"));
+  }));
+
+  wrap.append(grid);
+  return wrap;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   18. 逻辑图页
+   ═══════════════════════════════════════════════════════════════════ */
+function diagramsView() {
+  const wrap = n("div", "ov");
+  const hero = n("div", "ov-hero");
+  hero.append(n("h2", null, "操作逻辑图"));
+  hero.append(n("p", null, "四张图回答四个问题：数据从哪来、一次写入怎么往返、编排状态怎么变、弹层谁盖谁。十种排版共用这四套逻辑，差异只在入口位置。"));
+  wrap.append(hero);
+  DIAGRAMS.forEach((d) => {
+    const boxEl = n("div", "diag");
+    const h = n("h4");
+    h.append(document.createTextNode(d.title), n("em", null, d.note));
+    const holder = n("div");
+    holder.innerHTML = d.svg;
+    boxEl.append(h, holder.firstChild);
+    wrap.append(boxEl);
+  });
+  return wrap;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   19. 说明面板
+   ═══════════════════════════════════════════════════════════════════ */
+function notesHead(kicker, title, sub) {
+  const frag = document.createDocumentFragment();
+  const k = n("div", "kicker", kicker);
+  const h = n("h2", null, title);
+  const p = n("div", "sub", sub);
+  frag.append(k, h, p);
+  return frag;
+}
+function notesSection(title, build) {
+  const sec = n("div", "nsec");
+  sec.append(n("h4", null, title));
+  build(sec);
+  return sec;
+}
+function notesFor(L) {
+  notesEl.replaceChildren(notesHead("方案 " + L.key + " · " + L.tag, L.name, L.sub));
+  const nt = L.notes;
+
+  notesEl.append(notesSection("设计要点", (s) => s.append(n("p", null, nt.idea))));
+  notesEl.append(notesSection("flex 结构", (s) => {
+    const pre = n("pre", "tree", nt.tree);
+    s.append(pre);
+  }));
+  notesEl.append(notesSection("自适应与断点", (s) => {
+    const ul = n("ul", "nlist");
+    nt.flex.forEach((t) => ul.append(n("li", null, t)));
+    s.append(ul);
+    const ul2 = n("ul", "nlist");
+    ul2.style.marginTop = "8px";
+    nt.bps.forEach((b) => {
+      const li = n("li");
+      li.append(n("b", null, b[0] + " · "), document.createTextNode(b[1]));
+      ul2.append(li);
+    });
+    s.append(ul2);
+  }));
+  notesEl.append(notesSection("编排与设置", (s) => {
+    const kv = n("div", "kv");
+    const p1 = n("p");
+    p1.innerHTML = "<b>编排：</b>" + nt.compose;
+    const p2 = n("p");
+    p2.style.marginTop = "6px";
+    p2.innerHTML = "<b>设置：</b>" + nt.settings;
+    kv.append(p1, p2);
+    s.append(kv);
+  }));
+  notesEl.append(notesSection("按钮清单", (s) => {
+    const ul = n("ul", "nlist");
+    nt.buttons.forEach((b) => {
+      const li = n("li");
+      li.append(n("b", null, b[0]));
+      li.append(document.createTextNode(" — " + b[1]));
+      const em = document.createElement("em");
+      em.textContent = " → " + b[2];
+      li.append(em);
+      ul.append(li);
+    });
+    s.append(ul);
+  }));
+  notesEl.append(notesSection("弹窗 / 浮层", (s) => {
+    const ul = n("ul", "nlist");
+    nt.dialogs.forEach((d) => {
+      const li = n("li");
+      li.append(n("b", null, d[0]));
+      li.append(document.createTextNode(" — " + d[1] + " · " + d[2]));
+      ul.append(li);
+    });
+    s.append(ul);
+  }));
+  notesEl.append(notesSection("取舍", (s) => {
+    const box = n("div", "pro-con");
+    nt.pros.forEach((t) => {
+      const d = n("div", "p");
+      d.append(document.createTextNode("＋ "), n("b", null, t));
+      box.append(d);
+    });
+    nt.cons.forEach((t) => {
+      const d = n("div", "c");
+      d.append(document.createTextNode("－ "), n("b", null, t));
+      box.append(d);
+    });
+    s.append(box);
+    const vote = n("p", null, nt.vote);
+    vote.style.marginTop = "9px";
+    vote.style.color = "var(--dim)";
+    vote.style.padding = "7px 9px";
+    vote.style.background = "var(--accent-soft)";
+    vote.style.borderRadius = "8px";
+    s.append(vote);
+  }));
+}
+function notesOverview() {
+  notesEl.replaceChildren(notesHead("OVERVIEW", "先定约束，再选排版",
+    "十个方案不是十种皮肤：它们对「对象 / 内容 / 设置」的摆放方式完全不同。"));
+  notesEl.append(notesSection("问题的真实形态", (s) => {
+    s.append(n("p", null, "引导器会继续增加（rEFInd、GRUB、systemd-boot、Clover 之后还有 Windows Boot Manager、UEFI Shell 这类「半个引导器」）。页面长度增长不是主要问题，主要问题是三件事混在一列里：通道状态、条目动作、配置项。"));
+  }));
+  notesEl.append(notesSection("三条硬约束", (s) => {
+    const ul = n("ul", "nlist");
+    [
+      "<b>可组合</b>：固定、排序、收起必须是三个正交操作，任何视图都要能表达这三个状态。",
+      "<b>设置能收</b>：默认只看到「引导器设置」这一行标题；展开是就地，不是跳页。",
+      "<b>flex 自适应</b>：只用一个容器查询断点表；滚动永远只发生在内容区。"
+    ].forEach((t) => { const li = n("li"); li.innerHTML = t; ul.append(li); });
+    s.append(ul);
+  }));
+  notesEl.append(notesSection("怎么读这十页", (s) => {
+    s.append(n("p", null, "每页右侧给：flex 结构树、三档断点行为、编排与设置的具体位置、按钮逐条定义（含出现条件与结果）、弹层清单、以及取舍结论。中间展台可以切 1180 / 900 / 620 / 430 四档宽度看自适应。"));
+  }));
+  notesEl.append(notesSection("建议的落地顺序", (s) => {
+    const ul = n("ul", "nlist");
+    [
+      "先在现有卡片上加「索引条 + 固定 + 收起」（方案 A），不动数据层。",
+      "再把「引导器设置」从卡片里抽成统一折叠条（三级收起的第二级）。",
+      "最后按方案 B 重排为左栏 + 右详情，手风琴 H 作为窄窗降级。"
+    ].forEach((t) => { const li = n("li"); li.innerHTML = t; ul.append(li); });
+    s.append(ul);
+  }));
+}
+function notesSpecs() {
+  notesEl.replaceChildren(notesHead("SPECS", "组件先行",
+    "排版可以换，原子不能各写一套。"));
+  notesEl.append(notesSection("为什么要先定原子", (s) => {
+    s.append(n("p", null, "十种排版的差异应该只在「怎么摆」，不应该在「按钮长什么样」。先把按钮三档高度、状态四态、条目行四种形态、折叠条、确认弹窗、提权说明、toast、编排抽屉定死，后面换布局就是拼积木。"));
+  }));
+  notesEl.append(notesSection("交互硬规则", (s) => {
+    const ul = n("ul", "nlist");
+    [
+      "危险动作默认焦点在「取消」；Esc 取消，点遮罩不关闭。",
+      "「下次启动」是主按钮，「设为默认」是次按钮但带 ⤴；两者文案永不混用。",
+      "行内动作 hover 才全亮（触屏常亮），避免视觉噪音。",
+      "失败必须给下一步动作，不允许只报错。",
+      "写操作结果里带 Boot#### 或文件路径，用户能自己核对。"
+    ].forEach((t) => { const li = n("li"); li.textContent = t; ul.append(li); });
+    s.append(ul);
+  }));
+}
+function notesFlow() {
+  notesEl.replaceChildren(notesHead("FLOW", "四张图", "数据流 / 写入往返 / 编排状态机 / 弹层层级。"));
+  notesEl.append(notesSection("用它们做验收", (s) => {
+    const ul = n("ul", "nlist");
+    [
+      "任何视图都不能绕过写回回路直接改 UI（无乐观更新）。",
+      "提权子进程必须先写后 dump，否则回显要两次。",
+      "未检测到的通道自动沉底且不参与排序。",
+      "共用弹层挂在 .page 之外，z 只有五档。"
+    ].forEach((t) => { const li = n("li"); li.textContent = t; ul.append(li); });
+    s.append(ul);
+  }));
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   20. 启动与事件
+   ═══════════════════════════════════════════════════════════════════ */
+const railList = document.getElementById("railList");
+const view = document.getElementById("view");
+const notesEl = document.getElementById("notes");
+const stage = document.getElementById("stage");
+const win = document.querySelector(".win");
+const winTag = document.getElementById("winTag");
+const stageKicker = document.getElementById("stageKicker");
+const stageTitle = document.getElementById("stageTitle");
+const stageSub = document.getElementById("stageSub");
+
+const state = { tab: "layouts", idx: -1, width: 1180, notes: window.innerWidth >= 1520 };
+
+function renderRail() {
+  railList.replaceChildren();
+  const ov = n("button", "rail-item" + (state.tab === "layouts" && state.idx < 0 ? " is-on" : ""));
+  ov.type = "button";
+  const ovt = n("span", "rt-wrap");
+  ovt.append(n("span", "rt", "总览"), n("span", "rs", "约束 · 对比 · 推荐组合"));
+  ov.append(n("span", "rail-idx", "◎"), ovt);
+  ov.addEventListener("click", () => { state.tab = "layouts"; state.idx = -1; render(); });
+  railList.append(ov);
+
+  LAYOUTS.forEach((L, i) => {
+    const b = n("button", "rail-item" + (state.tab === "layouts" && state.idx === i ? " is-on" : ""));
+    b.type = "button";
+    b.append(n("span", "rail-idx", L.key));
+    const t = n("span", "rt", L.name);
+    const s = n("span", "rs", L.tag);
+    const wrap = n("span", "rt-wrap");
+    wrap.append(t, s);
+    b.append(wrap);
+    b.addEventListener("click", () => { state.tab = "layouts"; state.idx = i; render(); });
+    railList.append(b);
+  });
+}
+
+function render() {
+  document.querySelectorAll(".rail-tab").forEach((t) => {
+    t.classList.toggle("is-on", t.dataset.rail === state.tab);
+  });
+  win.style.setProperty("--w", state.width + "px");
+  winTag.textContent = "宽 " + state.width;
+
+  if (state.tab === "specs") {
+    stageKicker.textContent = "SPECS";
+    stageTitle.textContent = "组件规格";
+    stageSub.textContent = "按钮 / 状态 / 条目行 / 折叠条 / 弹窗 / toast / 编排抽屉";
+    view.replaceChildren(specsView());
+    notesSpecs();
+  } else if (state.tab === "flow") {
+    stageKicker.textContent = "FLOW";
+    stageTitle.textContent = "操作逻辑图";
+    stageSub.textContent = "数据流 · 写入往返 · 编排状态机 · 弹层层级";
+    view.replaceChildren(diagramsView());
+    notesFlow();
+  } else if (state.idx < 0) {
+    stageKicker.textContent = "OVERVIEW";
+    stageTitle.textContent = "总览与取舍";
+    stageSub.textContent = "同一份快照，十种信息架构。";
+    view.replaceChildren(overviewView());
+    notesOverview();
+  } else {
+    const L = LAYOUTS[state.idx];
+    stageKicker.textContent = "LAYOUT " + L.key;
+    stageTitle.textContent = L.name;
+    stageSub.textContent = L.sub;
+    view.replaceChildren(L.fn());
+    notesFor(L);
+  }
+  const docPage = state.tab === "specs" || state.tab === "flow";
+  view.style.height = docPage ? "auto" : "";
+  view.style.maxHeight = docPage ? "none" : "";
+  notesEl.classList.toggle("is-off", !state.notes);
+  document.getElementById("toggleNotes").textContent = state.notes ? "隐藏说明" : "显示说明";
+  view.scrollTop = 0;
+  stage.scrollTop = 0;
+}
+
+document.querySelectorAll(".rail-tab").forEach((t) => {
+  t.addEventListener("click", () => { state.tab = t.dataset.rail; render(); });
+});
+document.querySelectorAll("#widthBtns .btn").forEach((b) => {
+  b.addEventListener("click", () => {
+    state.width = Number(b.dataset.w);
+    document.querySelectorAll("#widthBtns .btn").forEach((x) => x.classList.toggle("primary", x === b));
+    render();
+  });
+});
+document.getElementById("themeBtn").addEventListener("click", () => {
+  const root = document.documentElement;
+  root.setAttribute("data-theme", root.getAttribute("data-theme") === "light" ? "dark" : "light");
+});
+document.getElementById("toggleNotes").addEventListener("click", (e) => {
+  state.notes = !state.notes;
+  e.currentTarget.textContent = state.notes ? "隐藏说明" : "显示说明";
+  render();
+});
+
+const ovl = document.getElementById("ovl");
+function openFlow() {
+  const body = document.getElementById("ovlBody");
+  if (!body.childElementCount) {
+    DIAGRAMS.forEach((d) => {
+      const boxEl = n("div", "diag");
+      const h = n("h4");
+      h.append(document.createTextNode(d.title), n("em", null, d.note));
+      const holder = n("div");
+      holder.innerHTML = d.svg;
+      boxEl.append(h, holder.firstChild);
+      body.append(boxEl);
+    });
+  }
+  ovl.classList.add("is-on");
+}
+document.getElementById("openFlow").addEventListener("click", openFlow);
+document.getElementById("ovlClose").addEventListener("click", () => ovl.classList.remove("is-on"));
+ovl.addEventListener("click", (e) => { if (e.target === ovl) ovl.classList.remove("is-on"); });
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") ovl.classList.remove("is-on");
+});
+
+/* 支持用 #B / #specs / #flow 直接打开某一页（截图与分享用） */
+(function fromHash() {
+  const q = new URLSearchParams(location.search || "");
+  const w = Number(q.get("w"));
+  if ([1180, 900, 620, 430].indexOf(w) >= 0) state.width = w;
+  const h = (location.hash || "").replace("#", "").toLowerCase();
+  if (!h) return;
+  if (h === "specs") state.tab = "specs";
+  else if (h === "flow") state.tab = "flow";
+  else {
+    const i = LAYOUTS.findIndex((x) => x.key.toLowerCase() === h);
+    if (i >= 0) { state.tab = "layouts"; state.idx = i; }
+  }
+})();
+
+renderRail();
+render();
+document.querySelectorAll("#widthBtns .btn").forEach((b) => {
+  b.classList.toggle("primary", Number(b.dataset.w) === state.width);
+});
+
+})();
+</script>
+</body>
+</html>
