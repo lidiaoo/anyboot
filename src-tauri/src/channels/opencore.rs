@@ -617,28 +617,23 @@ pub(crate) fn view(esp_root: &Path) -> ChannelView {
     let last_boot = channel_state_key(esp_root, "opencore", "bootNext")
         .map(|number| format!("Boot{number}（AnyBoot 上次写入的 BootNext）"));
     let last_boot_at = channel_state_key(esp_root, "opencore", "updatedAt");
-    // OC 的子系统条目由 OC picker 自己管，AnyBoot 固定一条「进菜单」动作。
-    // 两个动作都要写 Boot* 变量，所以只有能写的平台才给按钮——
-    // macOS 上给了也只会让人点了收到 `not permitted`。
+    // OC 的子系统条目由 OC picker 自己管。这里只保留「写入固件启动项」这一条
+    // 修前置条件的动作。
+    //
+    // 「进入 OpenCore 菜单」（写 BootNext 指 OpenCore.efi 的一次性动作）不再出条目：
+    // 用户 2026-10-28 要求去掉这一行 —— 卡片里的菜单列表已经把每个条目摊开，
+    // 再挂一条「下次启动 ⤴」既重复又和下面的「设为默认」抢同一个视觉位。
+    // **能力没删**：`parse_switch_spec("opencore")` 与 CLI / 远程 API 仍然可用，
+    // 只是本地页面不再给这个按钮。
     let mut entries = Vec::new();
-    if can_write {
-        if !registered {
-            entries.push(ChannelEntry {
-                id: "opencore-register".to_string(),
-                title: "写入固件启动项".to_string(),
-                detail: "由 AnyBoot 构造 EFI 启动项写进 NVRAM（HardDrive 节点取本 ESP 的分区号/\
-                         起始 LBA/GPT GUID），写完立刻生效；写前备份 BootOrder 与全部 Boot####"
-                    .to_string(),
-                icon: "menu".to_string(),
-                requires_elevation: true,
-            });
-        }
+    if can_write && !registered {
         entries.push(ChannelEntry {
-            id: "opencore".to_string(),
-            title: "进入 OpenCore 菜单".to_string(),
-            detail: "下次启动经 NVRAM BootNext → OpenCore.efi（一次性，用后自动失效）"
+            id: "opencore-register".to_string(),
+            title: "写入固件启动项".to_string(),
+            detail: "由 AnyBoot 构造 EFI 启动项写进 NVRAM（HardDrive 节点取本 ESP 的分区号/\
+                     起始 LBA/GPT GUID），写完立刻生效；写前备份 BootOrder 与全部 Boot####"
                 .to_string(),
-            icon: "macos".to_string(),
+            icon: "menu".to_string(),
             requires_elevation: true,
         });
     }
