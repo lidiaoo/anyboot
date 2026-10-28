@@ -488,17 +488,46 @@ pub(crate) fn can_write_boot_vars() -> bool {
     imp::can_write_boot_vars()
 }
 
-/// `Boot*` 变量在 OS 侧是不是"看不见真相"。
+/// `BootCurrent` 读不到时的三种处境。**修法完全不同**，所以不能合成一个 bool：
 ///
-/// 判据用 `BootCurrent`：真实 UEFI 一定有它（本次是从哪个 `Boot####` 启动的），
-/// 读不到只有两种可能——引导器（OpenCore 的 `UEFI→Quirks→RequestBootVarRouting`）
-/// 把 `Boot*` 改写到自己命名空间，或系统白名单不让看。
+/// * `Visible` —— 读得到，`BootOrder` 就是固件真相。
+/// * `Hidden` —— 变量不存在：引导器（OC 的 `UEFI→Quirks→RequestBootVarRouting`）
+///   把 `Boot*` 改写到自己命名空间，或固件不暴露。再提权也没用。
+/// * `NeedElevation` —— 变量在，但本进程没权限读：Windows 非管理员进程读 EFI 变量
+///   需要 `SeSystemEnvironmentPrivilege`（`GetFirmwareEnvironmentVariableW` 直接
+///   `ACCESS_DENIED`）。这时说「被引导器托管」是**误判**，用户按提示去查 OC 配置
+///   只会白费功夫——真因是「用管理员身份重开一次」。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BootVarsView {
+    Visible,
+    Hidden,
+    NeedElevation,
+}
+
+impl BootVarsView {
+    /// 拿不到真相（无论因为托管还是权限）→ 不能拿 `BootOrder` 反推「固件里有没有某项」。
+    pub(crate) fn is_blind(self) -> bool {
+        !matches!(self, Self::Visible)
+    }
+}
+
+/// 判据用 `BootCurrent`：真实 UEFI 一定有它（本次是从哪个 `Boot####` 启动的）。
 ///
-/// 两种情况下**都不能拿 `BootOrder` 去判断"固件里有没有某个引导项"**：
-/// 那张表可能只残留 macOS 那一项，而固件里其实早已注册好 OpenCore（BIOS 启动菜单
-/// 里看得见、也确实能从中启动）。早期版本就是在这里判错的。
+/// 看不见时**不能拿 `BootOrder` 去判断"固件里有没有某个引导项"**：那张表可能只残留
+/// 当前系统那一项，而固件里其实早已注册好 OpenCore（BIOS 启动菜单里看得见、也确实
+/// 能从中启动）。早期版本就是在这里判错的。
+pub(crate) fn boot_vars_view() -> BootVarsView {
+    match read_var("BootCurrent", GUID_GLOBAL) {
+        Ok(_) => BootVarsView::Visible,
+        Err(NvramError::NeedElevation(_)) => BootVarsView::NeedElevation,
+        Err(_) => BootVarsView::Hidden,
+    }
+}
+
+/// 「看不见真相」（托管或权限不足都算）。只回答「能不能信 BootOrder」，
+/// 要区分原因用 [`boot_vars_view`]。
 pub(crate) fn boot_vars_hidden() -> bool {
-    read_var("BootCurrent", GUID_GLOBAL).is_err()
+    boot_vars_view().is_blind()
 }
 
 /// 读 BootOrder（不存在返回空序列 —— 固件没设过 BootOrder 也是合法状态）。

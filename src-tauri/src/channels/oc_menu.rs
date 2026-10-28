@@ -26,10 +26,15 @@
 use super::*;
 
 /// 预定义路径表（顺序有意义：OC 每卷只取**第一个命中**的）。
-pub(crate) const PREDEFINED: [(&str, &str); 3] = [
+///
+/// 兜底的 `BOOT*.EFI` 要按架构各列一条：x64 机器上是 `BOOTX64.EFI`，ARM64 上是
+/// `BOOTAA64.EFI`（OC 自己的 `BOOTAA64.EFI`、Windows on ARM 的引导器都在这个位置）。
+/// 排在同一档、x64 在前：某卷上两个都在时行为与以前完全一致。
+pub(crate) const PREDEFINED: [(&str, &str); 4] = [
     ("System/Library/CoreServices/boot.efi", "macos"),
     ("EFI/Microsoft/Boot/bootmgfw.efi", "windows"),
     ("EFI/BOOT/BOOTX64.EFI", "generic"),
+    ("EFI/BOOT/BOOTAA64.EFI", "generic"),
 ];
 
 /// 一条预演出来的菜单项。
@@ -389,12 +394,12 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
             }
             let path = normalized(relative);
             let note = match kind {
-                // 这一条最容易被误会：它就是 OC 自己，选中会再进一次 OC 菜单
-                "generic" if same_path(&volume.root, esp_root) => Some(
-                    "这就是 OpenCore 自己的 Bootstrap 入口（EFI/BOOT/BOOTX64.EFI）：\
+                // 这一条最容易被误会：它就是 OC 自己，选中会再进一次 OC 菜单。
+                // 路径用命中的那一条（x64 是 BOOTX64.EFI，ARM64 是 BOOTAA64.EFI），别写死。
+                "generic" if same_path(&volume.root, esp_root) => Some(format!(
+                    "这就是 OpenCore 自己的 Bootstrap 入口（{relative}）：\
                      选中它只会再进一次 OC 菜单，不是启动别的系统"
-                        .to_string(),
-                ),
+                )),
                 "generic" => Some(
                     "预定义路径里的兜底项（IsGeneric）：OC 不认它是哪个系统，点进去由它自己接管"
                         .to_string(),
@@ -610,12 +615,20 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
             ),
         });
     }
-    if nvram::boot_vars_hidden() {
-        issues.push(HealthIssue {
+    match nvram::boot_vars_view() {
+        nvram::BootVarsView::Visible => {}
+        // 权限不足 ≠ 被托管：给的修法不一样，文案必须分开
+        nvram::BootVarsView::NeedElevation => issues.push(HealthIssue {
+            severity: "info".to_string(),
+            text: "当前进程没权限读 EFI 变量（`BootCurrent` 读不到）：固件启动列表在这里不完整，\
+                   「默认项」标记仅供参考；以管理员身份 / root 重跑即可看到完整列表"
+                .to_string(),
+        }),
+        nvram::BootVarsView::Hidden => issues.push(HealthIssue {
             severity: "info".to_string(),
             text: "本系统读不到 `BootCurrent`：固件的启动列表在这里不完整，「默认项」标记仅供参考"
                 .to_string(),
-        });
+        }),
     }
     if hide_auxiliary && !hidden.is_empty() {
         issues.push(HealthIssue {
@@ -872,11 +885,16 @@ mod tests {
 
     #[test]
     fn predefined_order_matches_opencore() {
-        // 顺序有意义：OC 每卷只取第一个命中的，boot.efi 优先于 BOOTX64.EFI
+        // 顺序有意义：OC 每卷只取第一个命中的，boot.efi 优先于 BOOT*.EFI
         assert_eq!(PREDEFINED[0].1, "macos");
         assert_eq!(PREDEFINED[1].1, "windows");
         assert_eq!(PREDEFINED[2].1, "generic");
-        assert_eq!(PREDEFINED.len(), 3, "预定义路径表只有 3 条");
+        // 兜底项按架构各一条：x64 在前（某卷上两个都在时命中顺序与以前一致），
+        // ARM64 的 BOOTAA64.EFI 也要能认出来，否则 Apple Silicon / WoA 上整条兜底丢失。
+        assert_eq!(PREDEFINED[2].0, "EFI/BOOT/BOOTX64.EFI");
+        assert_eq!(PREDEFINED[3].0, "EFI/BOOT/BOOTAA64.EFI");
+        assert_eq!(PREDEFINED[3].1, "generic");
+        assert_eq!(PREDEFINED.len(), 4, "预定义路径表：3 类系统 + 2 种架构的兜底");
     }
 
     /// 真机探针：`cargo test --lib -- --ignored real_esp_preview --nocapture`

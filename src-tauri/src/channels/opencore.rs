@@ -290,10 +290,13 @@ pub(crate) fn fix_launcher_option(esp_root: &Path, mode: &str) -> Result<String,
     }
     message.push_str("。重启一次进入 OpenCore 后它才会把启动项写进固件");
     if cfg!(target_os = "macos") {
-        // macOS 侧既读不到也写不了固件启动列表（Apple 的变量白名单，root 与 bless 都一样），
-        // 承诺「下次启动可用」是空头支票，不如直接给可行的做法。
+        // macOS 侧看不到、也写不了固件启动列表（Apple 的变量白名单，root 与 bless 都一样）。
+        // 但「默认项」这条路没堵死：`RequestBootVarRouting=true` 时 OC 读私有命名空间，
+        // 那组变量 root 可写——就是卡片里预演列表的「设为默认」。**不要**再说「只能进
+        // OC 菜单按 Ctrl+Enter」，那是加上那个按钮之前的事实。
         message.push_str(
-            "。macOS 侧看不到、也改不了固件启动列表——想设默认项，请在 OC 菜单里对目标系统按 Ctrl+Enter",
+            "。macOS 侧看不到、也写不了固件全局启动列表；\
+             默认启动项仍可在下方预演列表里直接设（走 OC 私有命名空间 `OCBt*`）",
         );
     } else {
         message.push_str("，之后「下次启动」就能直接指向 OpenCore");
@@ -507,8 +510,10 @@ pub(crate) fn view(esp_root: &Path) -> ChannelView {
     // 「设默认项」能不能做：写不了 Boot* 时，OC 的私有命名空间（OCBt*）仍是可写的，
     // 那条路就是预演行里的「设为默认」按钮（= OC 菜单的 Ctrl+Enter）。
     let can_set_default = oc_default::Namespace::from_config(&config).writable();
-    // OS 侧看得见真实启动列表吗（OpenCore 的 RequestBootVarRouting 会把 Boot* 藏起来）
-    let hidden = nvram::boot_vars_hidden();
+    // OS 侧看得见真实启动列表吗（OpenCore 的 RequestBootVarRouting 会把 Boot* 藏起来；
+    // Windows 非管理员则是「没权限读」，与「被托管」是两件事，文案不能混）
+    let boot_vars = nvram::boot_vars_view();
+    let hidden = boot_vars.is_blind();
     let found = find_boot_number(OC_MARKER);
     // 判定"固件里有没有 OC 项"：
     //   * 看得见列表 → 以 BootOrder 为准；
@@ -521,9 +526,21 @@ pub(crate) fn view(esp_root: &Path) -> ChannelView {
         // 但要拆成多条短句：原来拼成一整段，卡片里就是一坨灰字，重点全埋掉了。
         let mut reasons: Vec<String> = Vec::new();
         if hidden {
-            reasons.push(
-                "启动列表在本系统不可见（读不到 `BootCurrent`，`Boot*` 被引导器托管了）".to_string(),
-            );
+            reasons.push(match boot_vars {
+                // 权限问题：提权就能看见，别说成「被引导器托管」，否则用户去翻 OC 配置白费功夫
+                nvram::BootVarsView::NeedElevation => format!(
+                    "启动列表在本系统读不到：当前进程没有读 EFI 变量的权限（{}）",
+                    if cfg!(target_os = "windows") {
+                        "Windows 上读 NVRAM 需要 `SeSystemEnvironmentPrivilege`，请以管理员身份运行"
+                    } else {
+                        "需要 root / 提权"
+                    }
+                ),
+                _ => {
+                    "启动列表在本系统不可见（读不到 `BootCurrent`，`Boot*` 被引导器托管了）"
+                        .to_string()
+                }
+            });
         }
         if !can_write {
             reasons.push(
@@ -549,12 +566,26 @@ pub(crate) fn view(esp_root: &Path) -> ChannelView {
         // 「默认启动项」是这里唯一还能改的东西：OC 把启动项托管到私有命名空间
         // （OCBt*），那组变量不归 macOS 的 Boot* 白名单管（实测 root 可写、可回读）。
         // 只有在 RequestBootVarRouting 关着、写不了私有命名空间时，才退回 Ctrl+Enter。
+        //
+        // 三个平台写的东西不一样，文案要说准，否则用户按名字去核 NVRAM 会找不到：
+        // macOS → 私有 OCBt*；Linux / Windows → 固件全局 BootOrder / Boot####。
         health.push(HealthIssue {
             severity: "info".to_string(),
             text: if can_set_default {
-                "默认启动项仍然可以在这里直接设（等价于 OC 菜单里的 `Ctrl+Enter`）：\
-                 点下方预演行末尾的「设为默认」"
-                    .to_string()
+                format!(
+                    "默认启动项仍然可以在这里直接设（等价于 OC 菜单里的 `Ctrl+Enter`）：\
+                     点下方预演行末尾的「设为默认」，改的是 {}{}",
+                    if cfg!(target_os = "macos") {
+                        "OC 私有命名空间的 `OCBtOrder` / `OCBt####`"
+                    } else {
+                        "固件全局的 `BootOrder` / `Boot####`"
+                    },
+                    if boot_vars == nvram::BootVarsView::NeedElevation {
+                        "（该操作需要提权，会弹一次授权）"
+                    } else {
+                        ""
+                    }
+                )
             } else {
                 "想固定默认启动项，只能在 OC 菜单里对目标按 `Ctrl+Enter`；\
                  把 `UEFI→Quirks→RequestBootVarRouting` 改成 true 后，OC 会改用私有命名空间\
