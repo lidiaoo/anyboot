@@ -426,11 +426,7 @@ pub(crate) fn privileged_set_default_main(target: &str, esp: Option<&str>, out_p
     // 通常处于 disabled 态，不显式启用的话读写 OCBt*/Boot* 报 5/1314 —— 和
     // 「没提权」同症状，会被误诊成「OC 没写过槽」（真机踩过：OCBt0080 明明在）。
     let _ = super::nvram::enable_system_environment_privilege();
-    // 顺手把启动变量全量 dump 一遍带给父进程：它没有管理员权限，读不到
-    // `OCBtOrder` 就标不出「默认项」——写成功却没有任何回显（真机踩到）。
-    // 失败路径也带：读到的东西能帮用户分清「槽真的不存在」和「权限读不到」。
-    let vars = super::nvram::dump_boot_vars();
-    let payload = match (|| -> Result<String, String> {
+    let message = (|| -> Result<String, String> {
         let esp_root = esp
             .map(PathBuf::from)
             .filter(|root| super::has_channel_signature(root))
@@ -441,7 +437,16 @@ pub(crate) fn privileged_set_default_main(target: &str, esp: Option<&str>, out_p
             })
             .ok_or_else(|| "没有找到可用的 ESP（三条通道都需要它）".to_string())?;
         set_default(&esp_root, target)
-    })() {
+    })();
+    // 顺手把启动变量全量 dump 一遍带给父进程：它没有管理员权限，读不到
+    // `OCBtOrder` 就标不出「默认项」——写成功却没有任何回显（真机踩到）。
+    //
+    // **必须在 set_default 之后 dump**：早先写在这一步之前，带回去的是**写之前**的
+    // 顺序表，父进程存进快照、刷新后仍按旧表标默认项 —— 表现正是「点一次没反应，
+    // 非要再点一次才回显」（第二次带回的「旧表」刚好等于第一次写完的状态）。
+    // 失败路径同样要带：读到的东西能帮用户分清「槽真的不存在」和「权限读不到」。
+    let vars = super::nvram::dump_boot_vars();
+    let payload = match message {
         Ok(message) => serde_json::json!({ "ok": true, "message": message, "vars": vars }),
         Err(error) => serde_json::json!({ "ok": false, "error": error, "vars": vars }),
     };
