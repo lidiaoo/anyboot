@@ -182,7 +182,10 @@ function ocMenuOpenByDefault() {
 }
 
 /// 整块「预演 OC 菜单」（details，默认展开，用户手动收起后记住）
-function renderOcMenuPreview(preview, { busy, onSwitch, channel, onPrebootElevate } = {}) {
+function renderOcMenuPreview(
+  preview,
+  { busy, onSwitch, channel, onPrebootElevate, onOrderElevate } = {},
+) {
   if (!preview) return null;
   const box = document.createElement("details");
   box.className = "oc-menu";
@@ -273,12 +276,14 @@ function renderOcMenuPreview(preview, { busy, onSwitch, channel, onPrebootElevat
     box.append(issueBox);
   }
 
-  // Preboot 直读因权限失败且没有缓存 → 给一个「提权重扫」按钮。
-  // 弹一次 UAC（或 pkexec），后端用本程序自身跑一次只读扫描、缓存在进程里，
-  // 完成后整页重载即可看到 macOS 条目 —— 不需要用户用管理员身份重启 App。
+  // 两个「提权」按钮共用一行 —— 它们是同一件事的两个触发点：主进程没有管理员
+  // 权限，弹一次授权让本程序自身去读，读完缓存在进程里供预演重建。
+  //  · Preboot 直读失败 → macOS 条目缺失；
+  //  · 启动顺序表读不到 → 「默认项」标记点不亮：用户点完「设为默认」提示成功，
+  //    界面上却毫无变化（真机踩到，因为 OCBtOrder 同样是受固件保护的变量）。
+  const elevateRow = document.createElement("div");
+  elevateRow.className = "oc-menu-elevate";
   if (preview.prebootElevatable && onPrebootElevate) {
-    const row = document.createElement("div");
-    row.className = "oc-menu-elevate";
     const button = document.createElement("button");
     button.type = "button";
     button.className = "channel-helper-action needs-elev";
@@ -288,9 +293,21 @@ function renderOcMenuPreview(preview, { busy, onSwitch, channel, onPrebootElevat
       "（不写盘、不装任何东西；结果缓存 30 分钟，之后不再询问）";
     button.disabled = Boolean(busy);
     button.addEventListener("click", () => onPrebootElevate(false));
-    row.append(button);
-    box.append(row);
+    elevateRow.append(button);
   }
+  if (preview.orderElevatable && onOrderElevate) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "channel-helper-action needs-elev";
+    button.textContent = "提权读取启动顺序 ⤴";
+    button.title =
+      "弹一次管理员授权，读一遍 OCBtOrder / OCBt####：当前进程没权限读固件变量，" +
+      "没有这份数据就标不出哪个条目是默认项（只读、不写盘；结果缓存 30 分钟）";
+    button.disabled = Boolean(busy);
+    button.addEventListener("click", () => onOrderElevate());
+    elevateRow.append(button);
+  }
+  if (elevateRow.childElementCount) box.append(elevateRow);
 
   if (preview.summary) {
     const summaryLine = document.createElement("small");
@@ -355,7 +372,7 @@ function renderHelperLine(helper, { busy, onHelper } = {}) {
 /// 组一张通道卡片的 DOM（结构与 .grub/.refind 卡同构）
 function makeBootChannelCard(
   channel,
-  { busy, onSwitch, helper, onHelper, onPrebootElevate },
+  { busy, onSwitch, helper, onHelper, onPrebootElevate, onOrderElevate },
 ) {
   const section = document.createElement("section");
   section.className = `refind boot-channel ${channel.id}`;
@@ -430,6 +447,7 @@ function makeBootChannelCard(
       onSwitch,
       channel,
       onPrebootElevate,
+      onOrderElevate,
     });
     if (preview) section.append(preview);
   }
@@ -536,7 +554,10 @@ function bootChannelSpec(entry, channel) {
   return entry.id;
 }
 
-function renderBootChannels(channels, { busy, onSwitch, helper, onHelper, onPrebootElevate }) {
+function renderBootChannels(
+  channels,
+  { busy, onSwitch, helper, onHelper, onPrebootElevate, onOrderElevate },
+) {
   const mount = document.getElementById("boot-channels-mount");
   const collapsed = document.getElementById("boot-channel-collapsed");
   const collapsedNames = document.getElementById("boot-channel-collapsed-names");
@@ -562,6 +583,7 @@ function renderBootChannels(channels, { busy, onSwitch, helper, onHelper, onPreb
         helper,
         onHelper,
         onPrebootElevate,
+        onOrderElevate,
       }),
     );
   }

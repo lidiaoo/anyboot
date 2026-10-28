@@ -37,6 +37,23 @@ pub(crate) const PREDEFINED: [(&str, &str); 4] = [
     ("EFI/BOOT/BOOTAA64.EFI", "generic"),
 ];
 
+/// 启动项的 `kind`：按路径尾段对 [`PREDEFINED`]（OC 自己只认这几条）。
+///
+/// 为什么不能只看「卷扫到了什么」：Preboot 里的 `boot.efi` 在 Windows/Linux 上
+/// 根本看不到文件（没有 APFS 驱动），但**对不上卷 ≠ 不是 macOS** —— 把它标成
+/// 「未知」会让人以为那条是坏的（真机踩到：`OCBt0080` 明明就是 MAC）。
+fn kind_of_path(path: &str) -> &'static str {
+    let lower = path.to_ascii_lowercase().replace('/', "\\");
+    PREDEFINED
+        .iter()
+        .find(|(relative, _)| {
+            let tail = format!("\\{}", relative.to_ascii_lowercase().replace('/', "\\"));
+            lower.ends_with(&tail)
+        })
+        .map(|(_, kind)| *kind)
+        .unwrap_or("unknown")
+}
+
 /// 一条预演出来的菜单项。
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -80,6 +97,9 @@ pub(crate) struct MenuPreview {
     /// Preboot 直读因权限失败、缓存里也没有数据 —— 前端据此渲染「提权重扫」按钮。
     /// macOS 恒为 false（原生路径没有权限这一说）。
     pub(crate) preboot_elevatable: bool,
+    /// 读不到启动顺序表（`OCBtOrder` / `BootOrder` 都是空）—— 前端据此渲染
+    /// 「提权读取启动顺序」按钮。没有它，用户点了「设为默认」看不到任何回显。
+    pub(crate) order_elevatable: bool,
 }
 
 /// 启动顺序表里的一项（`OCBtOrder` / `BootOrder` 的某个编号 + 它指向哪里）。
@@ -509,6 +529,20 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
     // `DefaultEntryChoice.c:611-617`），固件全局 `BootOrder` 只是旁证。
     let namespace = oc_default::Namespace::from_config(&config);
     let mut order = namespace.read_order();
+    // 没管理员权限时读固件变量直接报 1314，OC 私有的 `OCBtOrder` 只是另一个 GUID
+    // 下的**同样受保护**的变量 —— 一样读不到，整表为空、默认项永远标不出来。
+    // 用户点了「设为默认」提示成功、页面却毫无变化，就是这个（真机踩到）。
+    // 提权子进程读过的快照顶 30 分钟：设默认、点「提权读取启动顺序」都会写它。
+    let snapshot = if order.is_empty() {
+        nvram::cached_boot_vars(namespace.custom)
+    } else {
+        None
+    };
+    let mut order_from_cache = false;
+    if let Some(snapshot) = &snapshot {
+        order = snapshot.order.clone();
+        order_from_cache = !order.is_empty();
+    }
     let mut namespace_fallback = false;
     if order.is_empty() && namespace.custom {
         let global = nvram::read_boot_order();
@@ -520,14 +554,26 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
     // 默认项到底读的是哪张表：OC 私有命名空间，还是固件全局。行标签、诊断文案
     // 都按它说 —— 读的是哪一组变量，界面上就不能写成另一组。
     let reading_private = namespace.custom && !namespace_fallback;
+    let cached_options: Vec<(u16, Vec<u8>)> = snapshot
+        .as_ref()
+        .map(|item| item.options.clone())
+        .unwrap_or_default();
     let boot_option = |number: u16| -> Option<Vec<u8>> {
-        namespace.read_option(number).or_else(|| {
-            if namespace_fallback {
-                nvram::read_boot_option(number)
-            } else {
-                None
-            }
-        })
+        namespace
+            .read_option(number)
+            .or_else(|| {
+                cached_options
+                    .iter()
+                    .find(|(slot, _)| *slot == number)
+                    .map(|(_, value)| value.clone())
+            })
+            .or_else(|| {
+                if namespace_fallback {
+                    nvram::read_boot_option(number)
+                } else {
+                    None
+                }
+            })
     };
     let order_items: Vec<OrderItem> = order
         .iter()
@@ -694,7 +740,7 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
     // 配对不能只比路径：`\EFI\BOOT\BOOTX64.EFI` 在多块 ESP 上都存在是常态，
     // 只比路径会把 ARCH-EFI 的启动项算到 MacOS-efi 头上（本机实测就是这样）。
     // `match_index` 会再用设备路径里的分区 GUID 校正。
-    let mut order_notes: Vec<String> = Vec::new();
+    let mut order_notes: Vec<(String, &'static str)> = Vec::new();
     // 编号 → entries 下标。**按启动顺序**记下来：⑤ 判默认项只能按这个顺序走。
     let mut placed: Vec<(u16, usize)> = Vec::new();
     let mut guid_cache: Vec<(String, Option<String>)> = Vec::new();
@@ -732,6 +778,7 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
         });
         // 同一容器里别的 macOS（Preboot 有、但本系统没挂载它的根卷）也会走到这里，
         // 那种情况下不算「死项」，只是这边看不到文件。
+        let kind = kind_of_path(wanted);
         entries.push(MenuEntry {
             title: if description.trim().is_empty() {
                 // 变量名跟着命名空间走：OC 私有是 `OCBt0082`，固件全局是 `Boot0082`
@@ -739,7 +786,7 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
             } else {
                 description.clone()
             },
-            kind: "unknown".to_string(),
+            kind: kind.to_string(),
             source: "bootorder".to_string(),
             volume: "—".to_string(),
             path: wanted.clone(),
@@ -747,6 +794,10 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
             default: false,
             note: Some(if exists_anywhere {
                 "启动项里有这一项，但不在上面扫到的卷/路径里".to_string()
+            } else if kind == "macos" {
+                "这是 macOS 的 APFS 启动项：本系统没有 APFS 驱动，看不到文件属正常 —— \
+                 OC 自己能认（「设为默认」照样可用）"
+                    .to_string()
             } else {
                 "启动项里有这一项，但对应的文件在本系统看不到（卷没挂载，或已被删除）"
                     .to_string()
@@ -756,7 +807,7 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
         });
         placed.push((number, entries.len() - 1));
         if !exists_anywhere {
-            order_notes.push(namespace.boot_name(number));
+            order_notes.push((namespace.boot_name(number), kind));
         }
     }
 
@@ -804,6 +855,32 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
     }
 
     // ⑦ 诊断
+    if order_from_cache {
+        let minutes = snapshot
+            .as_ref()
+            .map(|item| item.taken_at.elapsed().as_secs() / 60)
+            .unwrap_or(0);
+        issues.push(HealthIssue {
+            severity: "info".to_string(),
+            text: format!(
+                "启动顺序来自 {minutes} 分钟前的一次提权读取（当前进程没权限直接读 `{}`）。\
+                 OC 或别的系统改过默认项后这里会滞后，要最新状态就点「提权读取启动顺序 ⤴」\
+                 再授权一次",
+                namespace.order_name()
+            ),
+        });
+    }
+    if order.is_empty() {
+        issues.push(HealthIssue {
+            severity: "warn".to_string(),
+            text: format!(
+                "读不到固件启动变量（`{}` 是空的）：当前进程没有管理员权限，`Boot*` 和 OC 私有的 \
+                 `OCBt*` 都读不了，所以下面标不出哪个条目是默认项 —— 但「设为默认」写入走的是\
+                 提权子进程，不受影响。点「提权读取启动顺序 ⤴」授权一次就能补齐回显",
+                namespace.order_name()
+            ),
+        });
+    }
     if namespace_fallback {
         issues.push(HealthIssue {
             severity: "info".to_string(),
@@ -838,10 +915,18 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
         nvram::BootVarsView::NeedElevation => issues.push(HealthIssue {
             severity: "info".to_string(),
             text: if reading_private {
-                // 默认项读的是 `OCBt*`（另一个 GUID 下的普通变量），读不到 `Boot*`
-                // 不影响它 —— 再说一句「标记仅供参考」就成了白吓人
-                "当前进程没权限读固件 `Boot*` 变量（`BootCurrent` 读不到）：这只影响「OC 有没有在固件里注册」这类判断；\
-                 上面的默认项读的是 OC 私有 `OCBtOrder`，不受影响"
+                // 别写成「读 OCBtOrder 不受影响」：OCBt* 只是另一个 GUID 下的
+                // 同样受固件保护的变量，没权限一样读不到（真机踩过，用户按着
+                // 这句提示排了半天，实际默认项标记全丢）。
+                // 吃了提权缓存时也别再说「会缺」—— 已经补上了。
+                if order_from_cache {
+                    "当前进程没有管理员权限，固件变量都读不到（`BootCurrent` 与 OC 私有的 \
+                     `OCBtOrder` 一样）：下面的启动顺序来自提权读取的缓存，「OC 有没有在固件里\
+                     注册」这类判断仍然缺"
+                } else {
+                    "当前进程没有管理员权限，固件变量都读不到（`BootCurrent` 与 OC 私有的 \
+                     `OCBtOrder` 一样）：启动顺序表与「默认项」标记会缺，写入不受影响"
+                }
                     .to_string()
             } else {
                 "当前进程没权限读 EFI 变量（`BootCurrent` 读不到）：固件启动列表在这里不完整，\
@@ -852,8 +937,8 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
         nvram::BootVarsView::Hidden => issues.push(HealthIssue {
             severity: "info".to_string(),
             text: if reading_private {
-                "本系统读不到固件 `Boot*` 变量（`BootCurrent` 读不到）：这只影响「OC 有没有在固件里注册」这类判断；\
-                 上面的默认项读的是 OC 私有 `OCBtOrder`，不受影响"
+                "本系统读不到固件 `Boot*` 变量（`BootCurrent` 读不到）：OC 私有的 `OCBtOrder` \
+                 同属固件变量空间，通常也读不到 —— 默认项标记可能因此缺失"
                     .to_string()
             } else {
                 "本系统读不到 `BootCurrent`：固件的启动列表在这里不完整，「默认项」标记仅供参考"
@@ -870,13 +955,41 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
             ),
         });
     }
-    if !order_notes.is_empty() {
+    // 「找不到文件」必须分两种说，混成一句「死项」就是误诊：
+    //  · macOS 的 APFS 启动项：Windows/Linux 没有 APFS 驱动，看不见文件是常态，
+    //    OC 自己认得（`OCBt0080` 就是 MAC），在这里也能设默认；
+    //  · 其余：路径指向的文件真没了（卷没挂载或已被删），进菜单也点不动。
+    let (apfs_notes, dead_notes): (Vec<&(String, &str)>, Vec<&(String, &str)>) = order_notes
+        .iter()
+        .partition(|(_, kind)| *kind == "macos");
+    if !dead_notes.is_empty() {
         issues.push(HealthIssue {
             severity: "warn".to_string(),
             text: format!(
-                "`BootOrder` 里有 {} 项找不到对应文件（{}）——它们进了菜单也是点不动的死项",
-                order_notes.len(),
-                order_notes.join("、")
+                "`{}` 里有 {} 项找不到对应文件（{}）——它们进了菜单也是点不动的死项",
+                namespace.order_name(),
+                dead_notes.len(),
+                dead_notes
+                    .iter()
+                    .map(|(name, _)| name.clone())
+                    .collect::<Vec<_>>()
+                    .join("、")
+            ),
+        });
+    }
+    if !apfs_notes.is_empty() {
+        issues.push(HealthIssue {
+            severity: "info".to_string(),
+            text: format!(
+                "`{}` 里 {} 项是 macOS 的 APFS 启动项（{}）：本系统没有 APFS 驱动，看不到文件属正常，\
+                 OC 自己能认，在这里也能把它设为默认",
+                namespace.order_name(),
+                apfs_notes.len(),
+                apfs_notes
+                    .iter()
+                    .map(|(name, _)| name.clone())
+                    .collect::<Vec<_>>()
+                    .join("、")
             ),
         });
     }
@@ -973,6 +1086,9 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
         order_source,
         default_slot,
         preboot_elevatable,
+        // 整表读不到（没权限）或吃的是缓存 → 都给按钮：前者是「补齐」，
+        // 后者是「刷新」（OC 或别的系统改过默认项后缓存会滞后）。
+        order_elevatable: order.is_empty() || order_from_cache,
     }
 }
 

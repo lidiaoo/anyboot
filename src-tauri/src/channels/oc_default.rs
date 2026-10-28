@@ -359,7 +359,7 @@ pub(crate) fn set_default(esp_root: &Path, target: &str) -> Result<String, Strin
 
 // ─────────────────────────── 按需提权（Windows） ───────────────────────────
 
-/// 提权子进程的回传文件：`{ ok, message | error }`。
+/// 提权子进程的回传文件：`{ ok, message | error, vars }`。
 #[derive(serde::Deserialize)]
 struct SetDefaultReply {
     ok: bool,
@@ -367,6 +367,11 @@ struct SetDefaultReply {
     message: Option<String>,
     #[serde(default)]
     error: Option<String>,
+    /// 子进程顺手 dump 的启动变量。父进程没有管理员权限，读不到 `OCBtOrder`
+    /// 就标不出默认项 —— 有了这份数据，「设为默认」成功后页面才能立刻回显
+    /// （否则用户看到的是「提示成功、界面毫无变化」）。
+    #[serde(default)]
+    vars: Vec<nvram::DumpVar>,
 }
 
 /// 「设为默认」的提权版：弹一次 UAC，让本程序自己（提权子进程）跑同一套
@@ -397,6 +402,11 @@ pub(crate) fn set_default_elevated(esp_root: &Path, target: &str) -> Result<Stri
         .map_err(|error| format!("提权子进程退出了但结果文件读不到：{error}"))?;
     let reply: SetDefaultReply = serde_json::from_str(&text)
         .map_err(|error| format!("提权设默认的结果不是合法 JSON：{error}"))?;
+    // 无论成功失败都先用子进程带回的变量更新快照：失败时它读到的东西同样能
+    // 解释「为什么失败」（比如槽确实不存在 vs 权限读不到）。
+    if !reply.vars.is_empty() {
+        nvram::store_snapshots_from_vars(reply.vars);
+    }
     if reply.ok {
         Ok(reply
             .message
@@ -415,6 +425,10 @@ pub(crate) fn privileged_set_default_main(target: &str, esp: Option<&str>, out_p
     // 通常处于 disabled 态，不显式启用的话读写 OCBt*/Boot* 报 5/1314 —— 和
     // 「没提权」同症状，会被误诊成「OC 没写过槽」（真机踩过：OCBt0080 明明在）。
     let _ = super::nvram::enable_system_environment_privilege();
+    // 顺手把启动变量全量 dump 一遍带给父进程：它没有管理员权限，读不到
+    // `OCBtOrder` 就标不出「默认项」——写成功却没有任何回显（真机踩到）。
+    // 失败路径也带：读到的东西能帮用户分清「槽真的不存在」和「权限读不到」。
+    let vars = super::nvram::dump_boot_vars();
     let payload = match (|| -> Result<String, String> {
         let esp_root = esp
             .map(PathBuf::from)
@@ -427,8 +441,8 @@ pub(crate) fn privileged_set_default_main(target: &str, esp: Option<&str>, out_p
             .ok_or_else(|| "没有找到可用的 ESP（三条通道都需要它）".to_string())?;
         set_default(&esp_root, target)
     })() {
-        Ok(message) => serde_json::json!({ "ok": true, "message": message }),
-        Err(error) => serde_json::json!({ "ok": false, "error": error }),
+        Ok(message) => serde_json::json!({ "ok": true, "message": message, "vars": vars }),
+        Err(error) => serde_json::json!({ "ok": false, "error": error, "vars": vars }),
     };
     write_reply(out_path, &payload)
 }
