@@ -611,6 +611,44 @@ pub(crate) fn websocket_disconnect_all() {
     }
 }
 
+/// 当前连着的推送客户端数（远程保活刷新据此决定要不要自己跑扫描）。
+pub(crate) fn websocket_client_count() -> usize {
+    WS_CLIENTS.lock().map(|clients| clients.len()).unwrap_or(0)
+}
+
+/// 远程保活刷新的节拍：有推送客户端在线时每 20 秒自主刷新一轮。
+const REMOTE_KEEPFRESH_SECS: u64 = 20;
+
+/// 远程保活刷新守护线程。
+///
+/// 服务端的引导数据（rEFInd 变量 / GRUB / 三通道视图）传统上只靠**主窗口页面的
+/// JS** 驱动刷新 —— 页面轮询 get_ui_state、页面调 refresh。一旦主窗被贴边隐藏 /
+/// 最小化 / macOS 冻结了 WebView 的 JS（实测见呼出路径的注释），这条驱动就停了，
+/// 手机端读到的就是最后一次页面驱动的状态；手机页面自己高频补 refresh 又会撞上
+/// busy 被秒拒（trace 里成串的 `ui-command -> failed 0ms` 就是它），两头都动不了。
+///
+/// 这条守护线程把「刷新」从主窗 JS 手里接回来：只要有推送客户端在线（手机页面
+/// / 网页控制台连着 /api/ws），就周期性自己跑一轮完整扫描并 publish（publish 会
+/// 广播 WS 快照 + 刷新托盘）。没人连就完全静默，零开销。
+fn spawn_remote_keepfresh(app: AppHandle) {
+    std::thread::spawn(move || loop {
+        std::thread::sleep(std::time::Duration::from_secs(REMOTE_KEEPFRESH_SECS));
+        if websocket_client_count() == 0 {
+            continue;
+        }
+        // busy 就让位：页面/远程触发的扫描或切换正在跑，这一拍不用抢
+        if busy_snapshot(&app).any() {
+            continue;
+        }
+        let app_handle = app.clone();
+        // 扫描要几秒，绝不占守护线程本身 —— 否则节拍会漂移成串发
+        std::thread::spawn(move || {
+            refresh_and_update(&app_handle);
+            trace(&app_handle, "keepfresh", "远程保活刷新完成");
+        });
+    });
+}
+
 /// 推送通道**连上时**记一条请求日志 —— 「基本设置 → 远程控制」的最近请求里
 /// 一眼能看出推送到底有没有连上（排查手机端为什么在轮询时最有用）。
 ///
@@ -3291,6 +3329,8 @@ pub fn run() {
 
             let app_handle = app.handle().clone();
             std::thread::spawn(move || refresh_and_update(&app_handle));
+            // 远程保活刷新：手机/网页连着推送通道时，数据更新不再依赖主窗页面的 JS
+            spawn_remote_keepfresh(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

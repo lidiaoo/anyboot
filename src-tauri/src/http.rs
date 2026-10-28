@@ -558,6 +558,17 @@ fn serve_websocket(
         super::record_websocket_event(app, source, false);
         return;
     }
+    // 客户端刚连上就补一轮刷新（后台跑，不拖住这条连接）：首帧的快照可能是
+    // 主窗页面冻结期间留下的旧状态，等保活节拍最长要 20 秒；手机刚打开
+    // 「电脑页」就该看到当下的事实，而不是 20 秒前的。
+    {
+        let app = app.clone();
+        std::thread::spawn(move || {
+            if !super::busy_snapshot(&app).any() {
+                super::refresh_and_update(&app);
+            }
+        });
+    }
 
     loop {
         match receiver.recv_timeout(WS_POLL) {
