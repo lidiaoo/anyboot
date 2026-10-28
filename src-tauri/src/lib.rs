@@ -471,15 +471,28 @@ fn hub_report_error(app: AppHandle, source: String, message: String, stack: Stri
 /// `--apfs-scan-privileged` 子命令入口（main.rs ⓪.5 分支调）。
 /// 提权子进程在这里跑一次 Preboot 扫描、把结果写进 `--out` 指的 JSON 文件就退 ——
 /// 绝不碰 GUI / 单实例锁 / 端口。见 `channels/apfs_reader.rs` 的模块注释。
+#[cfg(not(target_os = "macos"))]
 pub fn apfs_privileged_scan_main(out_path: &str) -> i32 {
     channels::apfs_reader::privileged_scan_main(out_path)
+}
+
+/// macOS 没有这条路径：`/System/Volumes/Preboot` 直接可读，不需要提权子进程。
+/// 留一个诚实的占位（而不是 cfg 掉调用点）：`main.rs` 的分支是无条件的，
+/// 少一个函数整个 mac 构建就编不过 —— f613178 就是这么把 mac 端弄坏的。
+#[cfg(target_os = "macos")]
+pub fn apfs_privileged_scan_main(_out_path: &str) -> i32 {
+    eprintln!("macOS 直接读 /System/Volumes/Preboot，不存在 --apfs-scan-privileged 子命令");
+    2
 }
 
 /// `--oc-set-default` 子命令入口（main.rs ⓪.6 分支调）：提权子进程里跑整套
 /// OC「设为默认」逻辑，结果写进 `--out` 指的 JSON 文件就退。见
 /// `channels/oc_default.rs` 的提权一节。
-pub fn oc_set_default_main(target: &str, out_path: &str) -> i32 {
-    channels::oc_default::privileged_set_default_main(target, out_path)
+///
+/// `esp` = 父进程选中的 ESP 根（`--esp`）。父进程已经定位过一遍，子进程不该
+/// 再自己挑一块 —— 多块 ESP 时挑到别的那块，读到的 OC 配置可能是另一套命名空间。
+pub fn oc_set_default_main(target: &str, esp: Option<&str>, out_path: &str) -> i32 {
+    channels::oc_default::privileged_set_default_main(target, esp, out_path)
 }
 
 /// `--nvram-dump-privileged` 子命令入口（main.rs ⓪.7 分支调）：提权子进程里
@@ -493,6 +506,7 @@ pub fn nvram_dump_main(out_path: &str) -> i32 {
 ///
 /// **必须 async**：Windows 的 ShellExecuteExW 会同步等 UAC 对话框（用户可能想
 /// 一会儿再点），同步命令会卡死整个界面 —— blocking_guard 的守卫不是摆设。
+#[cfg(not(target_os = "macos"))]
 #[tauri::command]
 async fn apfs_scan_elevated(
     app: AppHandle,
@@ -510,6 +524,17 @@ async fn apfs_scan_elevated(
     // 结果文件里明明有 MAC，页面死活不出现）。
     channels::refresh_channels(&app);
     outcome
+}
+
+/// macOS 版占位：命令表两端必须同名，否则 `generate_handler!` 得按平台分叉。
+/// 前端在 macOS 上不会显示「提权重扫」按钮（`prebootElevatable` 只在非 mac 为真）。
+#[cfg(target_os = "macos")]
+#[tauri::command]
+async fn apfs_scan_elevated(force: bool) -> Result<serde_json::Value, String> {
+    // 参数名与真实现保持一致：Tauri 按名字匹配 invoke 的实参，改名会让调用方
+    // 收到「缺少参数」而不是这句话
+    let _ = force;
+    Err("macOS 直接读 /System/Volumes/Preboot，不需要提权扫描".to_string())
 }
 
 // ==================== WebSocket 推送（网页端 / 手机端的 /api/ws） ====================
@@ -1747,11 +1772,20 @@ fn hibernation_from_powercfg_output(raw: &str) -> HibernationState {
         return HibernationState::Disabled;
     }
     let lowered = raw.to_ascii_lowercase();
-    if lowered.contains("hibernate") {
-        if lowered.contains("not available") || lowered.contains("not enabled") {
-            return HibernationState::Disabled;
-        }
-        return HibernationState::Enabled;
+    // 英文 `powercfg /a` 报的是状态名 **Hibernation** / **Hibernate**，关掉时那句是
+    // "Hibernation has not been enabled."。早期只匹配 "hibernate"，而
+    // "hibernation" 并不含 "hibernate"（差一个字母），于是英文系统上永远落到
+    // Unknown —— 用词根 "hibernat" 才三种写法全覆盖。
+    if lowered.contains("hibernat") {
+        let off = lowered.contains("not available")
+            || lowered.contains("not enabled")
+            || lowered.contains("not been enabled")
+            || lowered.contains("disabled");
+        return if off {
+            HibernationState::Disabled
+        } else {
+            HibernationState::Enabled
+        };
     }
     if raw.contains("休眠") {
         // 只提到「休眠」但没说「尚未启用」：保守按「会休眠」提示
@@ -4920,6 +4954,24 @@ mod core_tests {
             hibernation_from_powercfg_output(
                 "The following sleep states are available: Standby, Hibernate"
             ),
+            HibernationState::Enabled
+        );
+        // 英文**真机原文**（上面那两条是手写简写，掩盖了真正的坑）：
+        // 关掉休眠时 `powercfg /a` 报的是名词 "Hibernation" + "has not been enabled"，
+        // 既不含 "hibernate" 也不含 "not enabled" —— 只按这两个词判会一直落到 Unknown。
+        let en_disabled = "The following sleep states are not available on this system:\n\
+                           \x20   Standby (S1)\n\
+                           \x20   Hibernation\n\
+                           \x20       Hibernation has not been enabled.\n";
+        assert_eq!(
+            hibernation_from_powercfg_output(en_disabled),
+            HibernationState::Disabled
+        );
+        let en_enabled = "The following sleep states are available on this system:\n\
+                          \x20   Standby (S3)\n\
+                          \x20   Hibernate\n";
+        assert_eq!(
+            hibernation_from_powercfg_output(en_enabled),
             HibernationState::Enabled
         );
         // 中文只提「休眠」但没说「尚未启用」：保守按「会休眠」提示

@@ -108,12 +108,17 @@ pub(crate) fn sound_player_candidates(path: &Path) -> Vec<(String, Vec<String>)>
     let file = path.display().to_string();
     if cfg!(target_os = "windows") {
         // SoundPlayer 只认 WAV PCM —— 内置音就是这种格式；自定义非 WAV 时这里会失败并回落。
+        // 路径塞进 PowerShell 单引号串里：单引号本身要翻倍，否则 `C:\Users\O'Brien\…`
+        // 这种路径会让整条脚本语法错（表现是「提示音偶尔不响」）。
         vec![(
             "powershell".to_string(),
             vec![
                 "-NoProfile".to_string(),
                 "-Command".to_string(),
-                format!("(New-Object Media.SoundPlayer '{file}').PlaySync();"),
+                format!(
+                    "(New-Object Media.SoundPlayer '{}').PlaySync();",
+                    file.replace('\'', "''")
+                ),
             ],
         )]
     } else if cfg!(target_os = "macos") {

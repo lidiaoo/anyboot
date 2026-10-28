@@ -375,13 +375,19 @@ struct SetDefaultReply {
 ///
 /// **必须在 async 命令的工作线程上调**：ShellExecuteExW 同步等 UAC 对话框。
 #[cfg(target_os = "windows")]
-pub(crate) fn set_default_elevated(target: &str) -> Result<String, String> {
+pub(crate) fn set_default_elevated(esp_root: &Path, target: &str) -> Result<String, String> {
     let out_path = super::elevate::result_file_path("oc-set-default");
     super::elevate::run_elevated(
         &[
             "--oc-set-default".to_string(),
             "--target".to_string(),
             target.to_string(),
+            // ESP 根必须跟着传：子进程若自己再扫一遍，挑的是「第一条带引导器签名的
+            // ESP」，多块 ESP 的机器上未必是父进程选中的那块。挑错一块的后果不是
+            // 报错，而是读错 OC 的 config（`RequestBootVarRouting` 决定命名空间是
+            // Boot* 还是 OCBt*），写进另一套变量 —— 又是一次「写成功了但没生效」。
+            "--esp".to_string(),
+            esp_root.to_string_lossy().to_string(),
             "--out".to_string(),
             out_path.to_string_lossy().to_string(),
         ],
@@ -403,17 +409,21 @@ pub(crate) fn set_default_elevated(target: &str) -> Result<String, String> {
 }
 
 /// `--oc-set-default` 子命令体：提权子进程里跑 [`set_default`]，结果原子写进
-/// `--out` 文件。ESP 自行定位（子进程没有 AppHandle，走不了 resolve_esp_root
-/// 的用户目录偏好，直接扫候选根）。
-pub(crate) fn privileged_set_default_main(target: &str, out_path: &str) -> i32 {
+/// `--out` 文件。`esp` 是父进程选中的那块（优先用），拿不到才自己扫候选根。
+pub(crate) fn privileged_set_default_main(target: &str, esp: Option<&str>, out_path: &str) -> i32 {
     // 提权 ≠ 特权已启用：Windows 上 SeSystemEnvironmentPrivilege 在管理员令牌里
     // 通常处于 disabled 态，不显式启用的话读写 OCBt*/Boot* 报 5/1314 —— 和
     // 「没提权」同症状，会被误诊成「OC 没写过槽」（真机踩过：OCBt0080 明明在）。
     let _ = super::nvram::enable_system_environment_privilege();
     let payload = match (|| -> Result<String, String> {
-        let esp_root = super::candidate_roots()
-            .into_iter()
-            .find(|root| super::has_channel_signature(root))
+        let esp_root = esp
+            .map(PathBuf::from)
+            .filter(|root| super::has_channel_signature(root))
+            .or_else(|| {
+                super::candidate_roots()
+                    .into_iter()
+                    .find(|root| super::has_channel_signature(root))
+            })
             .ok_or_else(|| "没有找到可用的 ESP（三条通道都需要它）".to_string())?;
         set_default(&esp_root, target)
     })() {

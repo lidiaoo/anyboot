@@ -552,7 +552,19 @@ pub(crate) fn windows_partition_guids() -> Vec<(char, String)> {
     };
     rows.into_iter()
         .filter_map(|row| {
-            let letter = row.get("DriveLetter")?.as_str()?.chars().next()?;
+            // DriveLetter 是 `[char]`：ConvertTo-Json 通常出 "S"，个别 PowerShell
+            // 版本会写成码点 83 —— `win_esp::parse_json` 已经为这个形状做过容错，
+            // 这里是同一套处理（否则那条分区只是「查不到 partuuid」，不会报错，
+            // 也很难发现）。
+            let letter = match row.get("DriveLetter")? {
+                serde_json::Value::String(text) => text.trim().chars().next()?,
+                serde_json::Value::Number(number) => number
+                    .as_u64()
+                    .and_then(|code| u8::try_from(code).ok())
+                    .map(char::from)?,
+                _ => return None,
+            }
+            .to_ascii_uppercase();
             let guid = row.get("Guid")?.as_str()?;
             Some((letter, guid.trim_matches(['{', '}']).to_string()))
         })

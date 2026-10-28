@@ -9,7 +9,7 @@
 //!
 //! 与 blocking_guard 的关系：**调用方必须在 async 命令的工作线程上**——
 //! Windows 的 ShellExecuteExW 会同步等 UAC 对话框，用户可能想几分钟再点。
-#![cfg(any(target_os = "windows", target_os = "linux"))]
+#![cfg(any(target_os = "windows", target_os = "linux", test))]
 
 /// 回传文件放 %TEMP%：主进程与提权子进程是同一个用户（令牌只提权不改身份），
 /// %TEMP% 同目录同权限；用完留在原地由系统清理。
@@ -28,6 +28,58 @@ pub(crate) fn run_elevated(args: &[String], out_path: &std::path::Path) -> Resul
     spawn_and_wait(args, &out_text)
 }
 
+/// 把参数拼成 `lpParameters` 里的那一条命令行（Windows 规则）。
+#[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
+fn build_params(args: &[String]) -> String {
+    args.iter()
+        .map(|arg| quote_arg(arg))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Windows 命令行的单个参数（`CommandLineToArgvW` 的规则）。
+///
+/// **光给每个参数套引号是不够的**：参数以反斜杠结尾时（`S:\`、`\EFI\`），
+/// 结尾那个引号会被前一个反斜杠转义掉（`\"` 在 argv 里是字面引号），于是它
+/// 与后面的参数黏成一段，子进程拿到的每个值都错位 —— 而且通常不会报错，
+/// 只会「设默认项失败」或「路径不存在」。规则：
+/// * 反斜杠只有「紧贴引号」或「贴末尾」时才需要翻倍；
+/// * 引号本身写成 `\"`。
+///
+/// 现有调用方传的路径都不以反斜杠结尾，但 `S:\` 这种写法迟早会进来（卷根就是
+/// 标准形态），所以这里按规则做对，而不是靠「恰好没踩到」。
+#[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
+fn quote_arg(arg: &str) -> String {
+    let mut out = String::with_capacity(arg.len() + 2);
+    out.push('"');
+    let mut backslashes = 0usize;
+    for ch in arg.chars() {
+        match ch {
+            '\\' => backslashes += 1,
+            '"' => {
+                for _ in 0..backslashes * 2 + 1 {
+                    out.push('\\');
+                }
+                out.push('"');
+                backslashes = 0;
+            }
+            other => {
+                for _ in 0..backslashes {
+                    out.push('\\');
+                }
+                out.push(other);
+                backslashes = 0;
+            }
+        }
+    }
+    // 结尾的反斜杠必须翻倍，否则会把我们补上的收尾引号转义掉
+    for _ in 0..backslashes * 2 {
+        out.push('\\');
+    }
+    out.push('"');
+    out
+}
+
 #[cfg(target_os = "windows")]
 fn spawn_and_wait(args: &[String], _out_path: &str) -> Result<(), String> {
     use std::os::windows::ffi::OsStrExt;
@@ -41,12 +93,7 @@ fn spawn_and_wait(args: &[String], _out_path: &str) -> Result<(), String> {
     use windows_sys::Win32::UI::WindowsAndMessaging::SW_HIDE;
 
     let exe = std::env::current_exe().map_err(|error| format!("拿不到自身路径：{error}"))?;
-    // 每个参数都套引号：目标串里可能有空格（卷标）、反斜杠（路径），引号最省心
-    let params = args
-        .iter()
-        .map(|arg| format!("\"{arg}\""))
-        .collect::<Vec<_>>()
-        .join(" ");
+    let params = build_params(args);
     let to_wide = |text: &str| -> Vec<u16> {
         std::ffi::OsStr::new(text)
             .encode_wide()
@@ -96,5 +143,50 @@ fn spawn_and_wait(args: &[String], _out_path: &str) -> Result<(), String> {
         Ok(())
     } else {
         Err("授权被取消或子命令失败（pkexec 非零退出）".to_string())
+    }
+}
+
+/// 只在 `cfg(test)` 下需要存在：让整个模块能在开发机（macOS）上编译，
+/// 好让 [`quote_arg`] 这种纯字符串逻辑跑单测。真机没有这条路。
+#[cfg(not(any(target_os = "windows", target_os = "linux")))]
+fn spawn_and_wait(_args: &[String], _out_path: &str) -> Result<(), String> {
+    Err("这个平台没有提权通道".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Windows 命令行的引号规则。错在这里的样子是「子进程收到的参数整体串位」，
+    /// 只会表现为真机上「写入失败 / 路径不存在」，肉眼 review 看不出来。
+    #[test]
+    fn argv_quoting_survives_trailing_backslash() {
+        assert_eq!(quote_arg("--out"), r#""--out""#);
+        assert_eq!(quote_arg(r#"C:\Temp\a b.json"#), r#""C:\Temp\a b.json""#);
+        // 结尾反斜杠：不翻倍就会把收尾引号吃掉（卷根 `S:\` 正是这个形状）
+        assert_eq!(quote_arg(r#"S:\"#), r#""S:\\""#);
+        assert_eq!(quote_arg(r#"\EFI\OC\"#), r#""\EFI\OC\\""#);
+        // 中间的反斜杠不翻倍
+        assert_eq!(quote_arg(r#"\\?\C:\x"#), r#""\\?\C:\x""#);
+        // 引号本身要转义，且它前面的反斜杠要翻倍
+        assert_eq!(quote_arg(r#"a"b"#), r#""a\"b""#);
+        assert_eq!(quote_arg(r#"a\"b"#), r#""a\\\"b""#);
+        // 空参数也要成立（否则会与下一个参数黏在一起）
+        assert_eq!(quote_arg(""), r#""""#);
+    }
+
+    #[test]
+    fn params_keep_one_token_per_arg() {
+        let params = build_params(&[
+            "--oc-set-default".to_string(),
+            "--esp".to_string(),
+            r#"S:\"#.to_string(),
+            "--out".to_string(),
+            r#"C:\Temp\x.json"#.to_string(),
+        ]);
+        assert_eq!(
+            params,
+            r#""--oc-set-default" "--esp" "S:\\" "--out" "C:\Temp\x.json""#
+        );
     }
 }

@@ -388,7 +388,7 @@ mod imp {
     // ACCESS_DENIED（5）—— 两个都该翻译成「要提权」，绝不能当成「变量不存在」
     // （那是 Hidden 分支，会把权限问题误诊成「引导器托管」，实测踩过）。
     use windows_sys::Win32::Foundation::{
-        ERROR_ACCESS_DENIED, ERROR_PRIVILEGE_NOT_HELD,
+        ERROR_ACCESS_DENIED, ERROR_INSUFFICIENT_BUFFER, ERROR_PRIVILEGE_NOT_HELD,
     };
 
     /// 读写固件变量时两种「没权限」的错误码。
@@ -409,30 +409,46 @@ mod imp {
 
     pub(crate) fn read_var(name: &str, guid: &str) -> Result<Vec<u8>, NvramError> {
         let (name_w, guid_w) = utf16_key(name, guid);
-        let mut buffer = [0u8; 1024];
-        // GetFirmwareEnvironmentVariableW 没有「探大小」通道（不像 RegQueryValueEx），
-        // 直接单次调用拿全量；超过 1KB 的固件变量不在 AnyBoot 的用途里（BootNext 等
-        // 都是十几字节）
-        let size = unsafe {
-            GetFirmwareEnvironmentVariableW(
-                name_w.as_ptr(),
-                guid_w.as_ptr(),
-                buffer.as_mut_ptr() as *mut core::ffi::c_void,
-                buffer.len() as u32,
-            )
-        };
-        if size == 0 {
-            let error = unsafe { windows_sys::Win32::Foundation::GetLastError() };
-            if is_elevation_error(error) {
-                return Err(NvramError::NeedElevation(
-                    "读取 NVRAM 变量需要管理员权限".to_string(),
-                ));
+        // `GetFirmwareEnvironmentVariableW` 没有「探大小」通道（不像 RegQueryValueEx），
+        // 一次调用就得给足缓冲区。先按常见的 1 KB 起，报 122（缓冲区不够）再放大到 8 KB。
+        // **绝不能把 122 当成「变量不存在」**：一条带长 DevicePath 的 `Boot####` 完全可能
+        // 超过 1 KB，误判成 NotFound 会让上层得出「固件里没有这个引导项」这种相反的结论，
+        // 而且全程没有任何报错 —— 比直接失败更难查。
+        let read = |capacity: usize| -> Result<Vec<u8>, u32> {
+            let mut buffer = vec![0u8; capacity];
+            let size = unsafe {
+                GetFirmwareEnvironmentVariableW(
+                    name_w.as_ptr(),
+                    guid_w.as_ptr(),
+                    buffer.as_mut_ptr() as *mut core::ffi::c_void,
+                    buffer.len() as u32,
+                )
+            };
+            if size == 0 {
+                return Err(unsafe { windows_sys::Win32::Foundation::GetLastError() });
             }
-            return Err(NvramError::NotFound(format!(
+            buffer.truncate(size as usize);
+            Ok(buffer)
+        };
+        let outcome = read(1024).or_else(|error| {
+            if error == ERROR_INSUFFICIENT_BUFFER {
+                read(8192)
+            } else {
+                Err(error)
+            }
+        });
+        match outcome {
+            Ok(value) => Ok(value),
+            Err(error) if is_elevation_error(error) => Err(NvramError::NeedElevation(
+                "读取 NVRAM 变量需要管理员权限".to_string(),
+            )),
+            Err(ERROR_INSUFFICIENT_BUFFER) => Err(NvramError::Failed(format!(
+                "NVRAM 变量 {name} 超过 8 KB，读不下来（注意：这不是「变量不存在」）"
+            ))),
+            Err(error) => Err(NvramError::NotFound(format!(
                 "NVRAM 变量 {name} 不存在（GetLastError={error}）"
-            )));
+            ))),
         }
-        Ok(buffer[..size as usize].to_vec())
     }
 
     pub(crate) fn write_var(name: &str, guid: &str, value: &[u8]) -> Result<(), NvramError> {
@@ -510,6 +526,7 @@ mod imp {
                 .chain(std::iter::once(0))
                 .collect();
             if LookupPrivilegeValueW(std::ptr::null(), name.as_ptr(), &mut luid) == 0 {
+                windows_sys::Win32::Foundation::CloseHandle(token);
                 return false;
             }
             let tp = TOKEN_PRIVILEGES {
@@ -519,14 +536,22 @@ mod imp {
                     Attributes: SE_PRIVILEGE_ENABLED,
                 }],
             };
-            AdjustTokenPrivileges(
+            let ok = AdjustTokenPrivileges(
                 token,
                 0,
                 &tp,
                 0,
                 std::ptr::null_mut(),
                 std::ptr::null_mut(),
-            ) != 0
+            );
+            // 这个 API 的坑：**即使令牌里根本没有这条特权，它也返回非零**，只在
+            // GetLastError 里留 ERROR_NOT_ALL_ASSIGNED。不查这一下，返回值就是谎话 ——
+            // 而它存在的意义正是区分「没提权」与「提权了但特权没启用」这两种同症状的失败。
+            let assigned = ok != 0
+                && windows_sys::Win32::Foundation::GetLastError()
+                    != windows_sys::Win32::Foundation::ERROR_NOT_ALL_ASSIGNED;
+            windows_sys::Win32::Foundation::CloseHandle(token);
+            assigned
         }
     }
 }

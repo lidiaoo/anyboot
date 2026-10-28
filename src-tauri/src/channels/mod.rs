@@ -17,7 +17,9 @@ pub(crate) mod clover;
 // macOS 原生读得到 /System/Volumes/Preboot，不需要这个模块（依赖也只装在另两端）
 #[cfg(not(target_os = "macos"))]
 pub(crate) mod apfs_reader;
-#[cfg(any(target_os = "windows", target_os = "linux"))]
+// `test` 也放进来：命令行拼接（`quote_arg`）是纯字符串逻辑，得能在开发机上单测 ——
+// 它出错的样子只会在真机上表现为「参数串位」，那是没法靠肉眼 review 兜住的。
+#[cfg(any(target_os = "windows", target_os = "linux", test))]
 pub(crate) mod elevate;
 pub(crate) mod nvram;
 pub(crate) mod oc_default;
@@ -447,9 +449,15 @@ pub(crate) fn switch(app: &AppHandle, spec: &str) -> Result<String, String> {
         // 不如按需弹一次授权，让本程序的提权子进程跑同一套 set_default。
         // macOS 走免密助手信箱（helper_install），不经过这条路。
         SwitchSpec::OpenCoreDefault(target) => {
+            // 提权子进程做完就必须**就地返回**。落回下面那条非提权路径的后果：
+            // 它读 OCBt* 会失败（读不到被 `read_order` 当成「表是空的」），于是
+            // 重新算出一个槽号、再写一次 —— 写又被拒，用户看到失败，而 NVRAM
+            // 其实早就改好了；这种「成功报成失败」比直接失败更难排查。
             #[cfg(target_os = "windows")]
-            if nvram::boot_vars_view() == nvram::BootVarsView::NeedElevation {
-                oc_default::set_default_elevated(target)?;
+            {
+                if nvram::boot_vars_view() == nvram::BootVarsView::NeedElevation {
+                    return oc_default::set_default_elevated(&esp_root, target);
+                }
             }
             oc_default::set_default(&esp_root, target)?
         }

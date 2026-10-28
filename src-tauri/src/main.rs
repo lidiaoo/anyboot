@@ -40,10 +40,14 @@ fn main() {
                 .cloned()
         };
         let (Some(target), Some(out)) = (get("--target"), get("--out")) else {
-            eprintln!("用法：anyboot --oc-set-default --target <卷\\u{{1}}路径> --out <结果文件>");
+            eprintln!("用法：anyboot --oc-set-default --target <卷\\u{{1}}路径> [--esp <ESP 根>] --out <结果文件>");
             std::process::exit(2);
         };
-        std::process::exit(anyboot_lib::oc_set_default_main(&target, &out));
+        std::process::exit(anyboot_lib::oc_set_default_main(
+            &target,
+            get("--esp").as_deref(),
+            &out,
+        ));
     }
     // ⓪.7 NVRAM 变量 dump（提权版）：把 OC 私有（OCBt*）与固件全局（Boot*）
     //    两组启动变量全部 hex 落盘 —— 排障看 OC 到底写了什么槽，也是
