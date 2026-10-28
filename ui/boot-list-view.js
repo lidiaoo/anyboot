@@ -152,11 +152,33 @@ function ocMenuRow(entry, index, { busy, onSwitch, channel } = {}) {
   return row;
 }
 
-/// 整块「预演 OC 菜单」（details，默认折叠，不抢条目行的注意力）
+/// 预演块默认展开：这张列表就是「这台机器上 OC 会看到什么」，收起来等于把
+/// 关键信息藏了（用户 2026-10-28 报「怎么被折叠了」）。但「收起」这个动作要
+/// 记住 —— 快照每次刷新都会重建 DOM，不存偏好就会被强行展开回去。
+const OC_MENU_OPEN_KEY = "anyboot.ocMenuOpen";
+
+function ocMenuOpenByDefault() {
+  try {
+    const saved = localStorage.getItem(OC_MENU_OPEN_KEY);
+    return saved === null ? true : saved === "1";
+  } catch {
+    return true; // 隐私模式等取不到存储时，按默认展开
+  }
+}
+
+/// 整块「预演 OC 菜单」（details，默认展开，用户手动收起后记住）
 function renderOcMenuPreview(preview, { busy, onSwitch, channel } = {}) {
   if (!preview) return null;
   const box = document.createElement("details");
   box.className = "oc-menu";
+  box.open = ocMenuOpenByDefault();
+  box.addEventListener("toggle", () => {
+    try {
+      localStorage.setItem(OC_MENU_OPEN_KEY, box.open ? "1" : "0");
+    } catch {
+      /* 存不了就算了，下次仍按默认展开 */
+    }
+  });
 
   const summary = document.createElement("summary");
   const title = document.createElement("span");

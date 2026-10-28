@@ -2151,7 +2151,7 @@ button.primary-sol:hover:not(:disabled) {
 }
 .channel-health.info strong { color: var(--fg-dim); }
 
-/* ── 预演 OC 菜单（details，默认折叠，不抢条目行的注意力）──
+/* ── 预演 OC 菜单（details，默认展开，可收起且记住选择）──
    自适应三件套：外层 flex-wrap、中间层 min-width:0、路径 overflow-wrap:anywhere。
    任何一档宽度都不许把窗口撑出横向滚动条。 */
 .oc-menu {
