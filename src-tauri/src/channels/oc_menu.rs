@@ -375,14 +375,6 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
             Some((*number, description, normalized(&file_path)))
         })
         .collect();
-    let order_uuids: Vec<String> = order_items
-        .iter()
-        .filter_map(|(_, _, path)| {
-            path.split(['\\', '/'])
-                .find(|segment| is_uuid_segment(segment))
-                .map(|segment| segment.to_ascii_uppercase())
-        })
-        .collect();
 
     // ① 每个卷上的 bless 扫描（每卷只取第一个命中，与 OC 一致）
     let mut all_roots: Vec<(&str, &PathBuf)> = Vec::new();
@@ -424,6 +416,15 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
     // ② APFS Preboot：OC 对容器内每个卷 UUID 都试一次
     #[cfg(target_os = "macos")]
     {
+        // 只在 macOS 用（preboot_entries 认 Preboot 里的 UUID）；Windows 下算了也是死代码
+        let order_uuids: Vec<String> = order_items
+            .iter()
+            .filter_map(|(_, _, path)| {
+                path.split(['\\', '/'])
+                    .find(|segment| is_uuid_segment(segment))
+                    .map(|segment| segment.to_ascii_uppercase())
+            })
+            .collect();
         let primary = volumes
             .first()
             .map(|volume| volume.label.clone())

@@ -356,7 +356,9 @@ mod imp {
 mod imp {
     use super::*;
     use windows_sys::Win32::Foundation::ERROR_ACCESS_DENIED;
-    use windows_sys::Win32::System::SystemInformation::{
+    // 注意：windows-sys 0.59 里这俩函数落在 WindowsProgramming 模块
+    // （windows crate 才在 SystemInformation，别照搬）
+    use windows_sys::Win32::System::WindowsProgramming::{
         GetFirmwareEnvironmentVariableW, SetFirmwareEnvironmentVariableW,
     };
 
