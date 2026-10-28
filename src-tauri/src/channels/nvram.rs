@@ -250,6 +250,11 @@ mod imp {
         }
         Ok(())
     }
+
+    /// Linux 的 efivarfs 没有独立特权位：文件权限即一切，提权后天然可读写。
+    pub(crate) fn enable_system_environment_privilege() -> bool {
+        true
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -364,6 +369,11 @@ mod imp {
     pub(crate) fn can_write_boot_vars() -> bool {
         false
     }
+
+    /// macOS 原生读得到 NVRAM（`/usr/sbin/nvram`），没有特权启用这一说。
+    pub(crate) fn enable_system_environment_privilege() -> bool {
+        true
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -470,6 +480,55 @@ mod imp {
         }
         Ok(())
     }
+
+    /// 启用 `SeSystemEnvironmentPrivilege`。**提权 ≠ 特权已启用**：管理员令牌里
+    /// 这条特权通常处于 disabled 态，`Get/SetFirmwareEnvironmentVariableW` 要求
+    /// enabled 才肯干活（否则报 5/1314，和「没提权」一个症状，极易误诊）。
+    /// 提权子进程（dump / 设默认）读写变量前都该先调一次。
+    pub(crate) fn enable_system_environment_privilege() -> bool {
+        use windows_sys::Win32::Security::{
+            AdjustTokenPrivileges, LUID_AND_ATTRIBUTES, LookupPrivilegeValueW,
+            SE_PRIVILEGE_ENABLED, TOKEN_ADJUST_PRIVILEGES, TOKEN_PRIVILEGES,
+            TOKEN_QUERY,
+        };
+        // windows-sys 0.59 的坑位：OpenProcessToken 不在 Security，在 Threading
+        use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+        unsafe {
+            let mut token = std::ptr::null_mut();
+            if OpenProcessToken(
+                GetCurrentProcess(),
+                TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY,
+                &mut token,
+            ) == 0
+            {
+                return false;
+            }
+            let mut luid = core::mem::zeroed();
+            // 特权名不含 \\（本机），后缀补 NUL
+            let name: Vec<u16> = "SeSystemEnvironmentPrivilege"
+                .encode_utf16()
+                .chain(std::iter::once(0))
+                .collect();
+            if LookupPrivilegeValueW(std::ptr::null(), name.as_ptr(), &mut luid) == 0 {
+                return false;
+            }
+            let tp = TOKEN_PRIVILEGES {
+                PrivilegeCount: 1,
+                Privileges: [LUID_AND_ATTRIBUTES {
+                    Luid: luid,
+                    Attributes: SE_PRIVILEGE_ENABLED,
+                }],
+            };
+            AdjustTokenPrivileges(
+                token,
+                0,
+                &tp,
+                0,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            ) != 0
+        }
+    }
 }
 
 // ─────────────────────────── 平台无关入口 ───────────────────────────
@@ -560,6 +619,104 @@ pub(crate) fn read_boot_order() -> Vec<u16> {
 /// 读一个 Boot#### 项的 LOAD_OPTION 原值（不存在 → None）。
 pub(crate) fn read_boot_option(number: u16) -> Option<Vec<u8>> {
     read_var(&boot_var_name(number), GUID_GLOBAL).ok()
+}
+
+/// 启用 `SeSystemEnvironmentPrivilege`（Windows 有实际动作，其他平台恒 true）。
+/// 提权子进程读写 NVRAM 前都该先调 —— 提权 ≠ 特权已启用。
+pub(crate) fn enable_system_environment_privilege() -> bool {
+    imp::enable_system_environment_privilege()
+}
+
+// ─────────────────────────── NVRAM dump（提权子命令） ───────────────────────────
+
+/// dump 出来的一个变量：名字 + GUID + 原始字节 hex。只收录**读到**的，
+/// 不存在的变量不进列表（调用方看 count 就知道 OC 到底写没写过槽）。
+#[derive(serde::Serialize)]
+pub(crate) struct DumpVar {
+    pub(crate) name: String,
+    pub(crate) guid: String,
+    pub(crate) len: usize,
+    pub(crate) hex: String,
+}
+
+#[derive(serde::Serialize)]
+pub(crate) struct DumpFile {
+    pub(crate) ok: bool,
+    /// 特权启用是否成功（Windows：提权 ≠ SeSystemEnvironmentPrivilege 已启用）
+    pub(crate) privilege_enabled: bool,
+    pub(crate) count: usize,
+    pub(crate) vars: Vec<DumpVar>,
+    pub(crate) error: Option<String>,
+}
+
+/// 读一组「OC 私有 + 固件全局」启动变量。槽位全扫 0x0000-0x00FF：
+/// 不存在的变量一次 API 调用就返回，开销可忽略；OC 的槽编号跟随 BootOrder，
+/// 不假设它只用哪半区。
+pub(crate) fn dump_boot_vars() -> Vec<DumpVar> {
+    let _ = imp::enable_system_environment_privilege();
+    let oc_guid = super::oc_default::GUID_OC_VENDOR;
+    let mut vars = Vec::new();
+    let mut push = |name: String, guid: &str| {
+        if let Ok(value) = read_var(&name, guid) {
+            vars.push(DumpVar {
+                hex: value
+                    .iter()
+                    .map(|byte| format!("{byte:02X}"))
+                    .collect::<Vec<_>>()
+                    .join(" "),
+                name,
+                guid: guid.to_string(),
+                len: value.len(),
+            });
+        }
+    };
+    push("OCBtOrder".to_string(), oc_guid);
+    push("OCBtNext".to_string(), oc_guid);
+    push("BootOrder".to_string(), GUID_GLOBAL);
+    push("BootCurrent".to_string(), GUID_GLOBAL);
+    push("BootNext".to_string(), GUID_GLOBAL);
+    for number in 0x0000u16..=0x00FF {
+        push(boot_var_name(number), GUID_GLOBAL);
+        push(format!("OCBt{}", boot_var_name(number).trim_start_matches("Boot")), oc_guid);
+    }
+    vars
+}
+
+/// `--nvram-dump-privileged` 子命令体：提权进程里读 OCBt*/Boot* 全量，
+/// hex 落 JSON。两个用途：① 排障时直接看 OC 到底写了什么槽；
+/// ② 「路径 2」（凭真实字节复刻 APFS load option）的样本采集。
+/// 只在提权子进程里被调（main.rs ⓪.7 分支），绝不进 GUI。
+pub(crate) fn privileged_dump_main(out_path: &str) -> i32 {
+    let privilege_enabled = imp::enable_system_environment_privilege();
+    let vars = dump_boot_vars();
+    let count = vars.len();
+    let payload = DumpFile {
+        ok: true,
+        privilege_enabled,
+        count,
+        vars,
+        error: None,
+    };
+    match serde_json::to_string(&payload) {
+        Ok(text) => {
+            // 原子写：临时文件 + rename（与 apfs_reader 同款，父进程不会读到半截）
+            let tmp = std::path::PathBuf::from(format!("{out_path}.tmp-{}", std::process::id()));
+            if let Err(error) = std::fs::write(&tmp, text) {
+                eprintln!("写 dump 结果失败：{error}");
+                return 2;
+            }
+            if let Err(error) = std::fs::rename(&tmp, out_path) {
+                let _ = std::fs::remove_file(&tmp);
+                eprintln!("落盘 dump 结果失败：{error}");
+                return 2;
+            }
+            0
+        }
+        Err(error) => {
+            eprintln!("序列化 dump 结果失败：{error}");
+            2
+        }
+    }
 }
 
 #[cfg(test)]

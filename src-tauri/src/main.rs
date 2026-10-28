@@ -45,6 +45,23 @@ fn main() {
         };
         std::process::exit(anyboot_lib::oc_set_default_main(&target, &out));
     }
+    // ⓪.7 NVRAM 变量 dump（提权版）：把 OC 私有（OCBt*）与固件全局（Boot*）
+    //    两组启动变量全部 hex 落盘 —— 排障看 OC 到底写了什么槽，也是
+    //    「凭真实字节复刻 APFS load option」的样本采集。同样绝不进 Tauri。
+    if args.iter().any(|arg| arg == "--nvram-dump-privileged") {
+        let out = match args
+            .iter()
+            .position(|arg| arg == "--out")
+            .and_then(|index| args.get(index + 1))
+        {
+            Some(out) => out.clone(),
+            None => {
+                eprintln!("用法：anyboot --nvram-dump-privileged --out <结果文件路径>");
+                std::process::exit(2);
+            }
+        };
+        std::process::exit(anyboot_lib::nvram_dump_main(&out));
+    }
     // ① ssh 的 SSH_ASKPASS 把我们当程序调起来（argv 是密码提示语）：
     //    只把密码打到 stdout 就退，既不是 GUI 也不是普通 CLI。必须排在 cli_requested
     //    之前 —— 否则「一个不像命令的参数」会被当成 GUI 启动，ssh 那边只会读到空密码。

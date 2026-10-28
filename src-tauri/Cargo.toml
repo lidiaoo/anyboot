@@ -76,6 +76,8 @@ windows-sys = { version = "0.59", features = [
     "Win32_System_WindowsProgramming",
     # 提权重扫：SHELLEXECUTEINFOW 的 hkeyClass 字段挂在 Registry feature 下（0.59 的拆法）
     "Win32_System_Registry",
+    # NVRAM dump：AdjustTokenPrivileges 启用 SeSystemEnvironmentPrivilege（提权≠特权已启用）
+    "Win32_Security",
 ] }
 
 [target.'cfg(target_os = "macos")'.dependencies]

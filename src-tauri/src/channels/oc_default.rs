@@ -406,6 +406,10 @@ pub(crate) fn set_default_elevated(target: &str) -> Result<String, String> {
 /// `--out` 文件。ESP 自行定位（子进程没有 AppHandle，走不了 resolve_esp_root
 /// 的用户目录偏好，直接扫候选根）。
 pub(crate) fn privileged_set_default_main(target: &str, out_path: &str) -> i32 {
+    // 提权 ≠ 特权已启用：Windows 上 SeSystemEnvironmentPrivilege 在管理员令牌里
+    // 通常处于 disabled 态，不显式启用的话读写 OCBt*/Boot* 报 5/1314 —— 和
+    // 「没提权」同症状，会被误诊成「OC 没写过槽」（真机踩过：OCBt0080 明明在）。
+    let _ = super::nvram::enable_system_environment_privilege();
     let payload = match (|| -> Result<String, String> {
         let esp_root = super::candidate_roots()
             .into_iter()

@@ -482,6 +482,12 @@ pub fn oc_set_default_main(target: &str, out_path: &str) -> i32 {
     channels::oc_default::privileged_set_default_main(target, out_path)
 }
 
+/// `--nvram-dump-privileged` 子命令入口（main.rs ⓪.7 分支调）：提权子进程里
+/// 读 OCBt*/Boot* 全量 hex 写进 `--out` 指的 JSON 就退。见 `channels/nvram.rs`。
+pub fn nvram_dump_main(out_path: &str) -> i32 {
+    channels::nvram::privileged_dump_main(out_path)
+}
+
 /// 「提权重扫」（OpenCore 预演，Windows/Linux）：弹一次授权，用本程序自身跑
 /// APFS Preboot 扫描，结果缓存在进程里供预演重建使用。
 ///
