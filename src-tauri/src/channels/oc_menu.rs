@@ -405,17 +405,158 @@ fn volumes() -> Vec<Volume> {
         if out.iter().any(|known| same_path(&known.root, &root)) {
             continue;
         }
-        let fallback = root
-            .file_name()
-            .map(|name| name.to_string_lossy().to_string())
-            .filter(|name| !name.is_empty())
-            .unwrap_or_else(|| root.display().to_string());
+        let fallback = fallback_label(&root);
         out.push(Volume {
             label: volume_label(&root, &fallback),
             root,
         });
     }
+    disambiguate_labels(&mut out);
     out
+}
+
+/// 原生卷标：**OC 菜单里显示的就是它**，三端必须读同一份数据才对得上。
+///
+/// macOS 不用这个函数（挂载点目录名 `/Volumes/<卷标>` 本身就是卷标，见
+/// `root_volume_label`/`fallback_label`）；这里只补 Windows / Linux ——
+/// 它们的「挂载点」是 `H:\`、`/boot/efi` 这种纯定位符，不是卷名。
+/// 少了这一步，Windows 端预演就会把 `H:\` 当卷标印在卡片上（用户 2026-10-28
+/// 报「为什么跟 macOS 显示不一样，只有盘符」），而 OC 那边明明记的是 `ARCH-EFI`。
+#[cfg(target_os = "windows")]
+fn native_volume_label(root: &Path) -> Option<String> {
+    use std::os::windows::ffi::OsStrExt;
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetVolumeInformationW(
+            root: *const u16,
+            volume_name: *mut u16,
+            volume_name_size: u32,
+            serial: *mut u32,
+            max_component: *mut u32,
+            flags: *mut u32,
+            filesystem_name: *mut u16,
+            filesystem_name_size: u32,
+        ) -> i32;
+    }
+    let mut wide: Vec<u16> = root.as_os_str().encode_wide().collect();
+    // 必须带尾分隔符：`GetVolumeInformationW("H:")` 问的是「H: 的当前目录」，
+    // 不是 H: 这块卷（和 Win32 API 的通用约定一致）。
+    if wide.last() != Some(&(b'\\' as u16)) {
+        wide.push(b'\\' as u16);
+    }
+    wide.push(0);
+    let mut name = vec![0u16; 261]; // MAX_PATH + 1，卷标上限 32 字符，够用
+    let ok = unsafe {
+        GetVolumeInformationW(
+            wide.as_ptr(),
+            name.as_mut_ptr(),
+            name.len() as u32,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if ok == 0 {
+        return None;
+    }
+    let end = name.iter().position(|unit| *unit == 0).unwrap_or(name.len());
+    let text = String::from_utf16_lossy(&name[..end]).trim().to_string();
+    if text.is_empty() {
+        None
+    } else {
+        Some(text)
+    }
+}
+
+/// Linux：卷标在 udev 数据库里（`lsblk -no LABEL <挂载点>` 直接认挂载路径）。
+/// 读不到（没装 util-linux、或 vfat 没设标签）返回 None，由调用方退回挂载点名。
+#[cfg(target_os = "linux")]
+fn native_volume_label(root: &Path) -> Option<String> {
+    let output = command("lsblk")
+        .args(["-no", "LABEL"])
+        .arg(root)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    text.lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .map(str::to_string)
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "linux")))]
+fn native_volume_label(_root: &Path) -> Option<String> {
+    None
+}
+
+/// 卷标读不到时的兜底名。
+///
+/// macOS：挂载目录名就是卷标（`/Volumes/MacOS-efi` → `MacOS-efi`），直接用。
+/// Windows：盘符不是卷名 —— 以前这里返回 `H:\` 就是被当卷标印出去的那个 bug。
+/// 给一块没标签的 ESP 一个能认的名字（macOS 挂上去也是叫 `EFI`）。
+fn fallback_label(root: &Path) -> String {
+    #[cfg(target_os = "windows")]
+    {
+        let text = root.display().to_string();
+        let trimmed = text.trim_end_matches(['\\', '/']);
+        let is_drive_root = trimmed.len() == 2 && trimmed.ends_with(':');
+        if is_drive_root {
+            return if grub_rel(root, "EFI").is_dir() {
+                format!("EFI（{trimmed}）")
+            } else {
+                format!("本地卷（{trimmed}）")
+            };
+        }
+    }
+    root.file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| root.display().to_string())
+}
+
+/// 重名卷标的后缀：Windows 用盘符（`H:`），其他平台用挂载目录名。
+fn root_suffix(root: &Path) -> String {
+    #[cfg(target_os = "windows")]
+    {
+        let text = root.display().to_string();
+        let trimmed = text.trim_end_matches(['\\', '/']);
+        if !trimmed.is_empty() && trimmed.len() <= 3 {
+            return trimmed.to_string();
+        }
+    }
+    root.file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| root.display().to_string())
+}
+
+/// 卷标去重。
+///
+/// 不是排版问题而是**功能问题**：「设为默认」的值域里只有卷标，反查挂载根
+/// （`volume_root`）取的是第一个同名命中 —— 两块卷同标签就会写到错的分区上。
+/// 重名时给后出现的补一个稳定后缀（盘符 / 挂载目录名），两次枚举结果一致，
+/// 反查就不会飘。
+fn disambiguate_labels(volumes: &mut [Volume]) {
+    let mut seen: Vec<String> = Vec::new();
+    for volume in volumes.iter_mut() {
+        let mut label = volume.label.clone();
+        if seen.iter().any(|known| *known == label) {
+            let base = format!("{}（{}）", label, root_suffix(&volume.root));
+            label = base.clone();
+            let mut attempt = 2;
+            while seen.iter().any(|known| *known == label) {
+                label = format!("{base}#{attempt}");
+                attempt += 1;
+            }
+        }
+        seen.push(label.clone());
+        volume.label = label;
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -441,7 +582,9 @@ pub(crate) fn volume_root(label: &str) -> Option<PathBuf> {
 
 /// 卷标：OC 的取名顺序（`.contentDetails` → `.disk_label.contentDetails` → 卷标）。
 ///
-/// 实测这两个隐藏文件在 OC 的 ESP 上都可能不存在，读不到就退回挂载点名。
+/// 实测这两个隐藏文件在 OC 的 ESP 上都可能不存在，读不到就退回**文件系统卷标**
+/// （Windows `GetVolumeInformationW` / Linux `lsblk LABEL`）—— 这就是 OC 菜单里
+/// 显示、也是 macOS 挂载点名叫的那个字符串，三端因此报同一个名字。
 fn volume_label(root: &Path, fallback: &str) -> String {
     for rel in [".contentDetails", ".disk_label/contentDetails"] {
         if let Ok(text) = fs::read_to_string(grub_rel(root, rel)) {
@@ -450,6 +593,9 @@ fn volume_label(root: &Path, fallback: &str) -> String {
                 return text.to_string();
             }
         }
+    }
+    if let Some(native) = native_volume_label(root) {
+        return native;
     }
     fallback.to_string()
 }
@@ -757,8 +903,13 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
         ) {
             let existing = &mut entries[index];
             existing.source = "bootorder".to_string();
-            if !description.trim().is_empty() {
-                // OC 丢弃启动项里的描述、自己重新取名；这里留一句对照，方便核实
+            if !description.trim().is_empty()
+                && !description.trim().eq_ignore_ascii_case(&existing.title)
+            {
+                // OC 丢弃启动项里的描述、自己重新取名；这里留一句对照，方便核实。
+                // 描述与我们显示的卷标同一个串时不说 —— 否则用户看到「ARCH-EFI」
+                // 旁边写着「描述是 ARCH-EFI，OC 会丢掉它重新取名」，纯属噪音
+                // （卷标读对之前是「H:\ vs ARCH-EFI」，那句提示才有信息量）。
                 existing.note = Some(format!(
                     "{}启动项里记的描述是「{}」，OC 会丢掉它、按路径重新取名",
                     existing
@@ -1450,6 +1601,72 @@ mod tests {
         println!("—— 诊断 ——");
         for issue in &preview.issues {
             println!("({}) {}", issue.severity, issue.text);
+        }
+    }
+
+    #[test]
+    fn duplicate_labels_get_stable_suffix() {
+        // 两块卷同标签时，「设为默认」按卷标反查挂载根会挑到第一个 —— 必须去重，
+        // 且后缀要稳定（两次枚举结果一致，否则反查会飘到另一块盘上）。
+        let mut list = vec![
+            Volume {
+                label: "EFI".to_string(),
+                root: PathBuf::from("/Volumes/EFI"),
+            },
+            Volume {
+                label: "EFI".to_string(),
+                root: PathBuf::from("/Volumes/EFI 1"),
+            },
+            Volume {
+                label: "MAC".to_string(),
+                root: PathBuf::from("/Volumes/MAC"),
+            },
+        ];
+        disambiguate_labels(&mut list);
+        // 第一个保持原名，后出现的补后缀；不重名的一点都不动
+        assert_eq!(list[0].label, "EFI");
+        assert_eq!(list[1].label, "EFI（EFI 1）");
+        assert_eq!(list[2].label, "MAC");
+    }
+
+    #[test]
+    fn disambiguate_is_idempotent_for_unique_labels() {
+        let mut list = vec![
+            Volume {
+                label: "ARCH-EFI".to_string(),
+                root: PathBuf::from("/Volumes/ARCH-EFI"),
+            },
+            Volume {
+                label: "MacOS-efi".to_string(),
+                root: PathBuf::from("/Volumes/MacOS-efi"),
+            },
+        ];
+        let before: Vec<String> = list.iter().map(|v| v.label.clone()).collect();
+        disambiguate_labels(&mut list);
+        let after: Vec<String> = list.iter().map(|v| v.label.clone()).collect();
+        assert_eq!(before, after);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_fallback_label_is_not_a_bare_drive_letter() {
+        // 回归：`volumes()` 以前把 `H:\` 当卷标印在卡片上，用户看到「只有盘符」。
+        // 没标签的盘符要么报 EFI（有 \EFI 的 ESP），要么报「本地卷（X:)」。
+        let label = fallback_label(Path::new("Z:\\"));
+        assert_ne!(label, "Z:\\");
+        assert!(!label.ends_with(":\\"), "兜底名不能是裸盘符: {label}");
+        assert!(label.contains('Z'), "兜底名仍要能看出是哪块盘: {label}");
+    }
+
+    /// 真机探针：`cargo test --lib -- --ignored real_volume_labels --nocapture`
+    ///
+    /// 打一遍卷枚举结果 —— 三端对齐就靠这张表（Windows 上必须看到
+    /// `ARCH-EFI` / `MacOS-efi` / `WINDOWS-EFI` 这类卷标，不是 `H:\`）。
+    #[test]
+    #[ignore = "真机：读本机真实卷标"]
+    fn real_volume_labels() {
+        for volume in volumes() {
+            println!("{:24} <- {}", volume.label, volume.root.display());
         }
     }
 }
