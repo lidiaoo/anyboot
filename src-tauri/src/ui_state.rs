@@ -118,8 +118,10 @@ pub(crate) fn publish_ui(app: &AppHandle) -> UiState {
     if let Err(error) = app.emit(UI_STATE_CHANGED_EVENT, &state) {
         trace(app, "state", &format!("通知主窗口失败: {error}"));
     }
-    // 网页端 / 手机端的推送通道：没人连就没有任何开销（见 websocket_publish）
-    websocket_publish(&state);
+    // 网页端 / 手机端的推送通道：没人连就没有任何开销（见 websocket_publish）。
+    // 发给远程的快照剥掉本机窗口的贴边态（见 strip_window_state）——
+    // 本地 emit 用的是原始 state，所以这里 clone 一份改完再发。
+    websocket_publish(&strip_window_state(state.clone()));
     state
 }
 
@@ -134,9 +136,24 @@ pub(crate) static WS_CLIENTS: Mutex<Vec<(u64, SyncSender<String>)>> = Mutex::new
 /// 推送客户端的发号器，注销时靠它找到自己那一条。
 pub(crate) static WS_NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
+/// 远程（网页/手机）视角的快照：剥掉**本机窗口**的贴边态。
+///
+/// docked/dockEdge 描述的是「AnyBoot 主窗口在这台电脑上有没有贴边隐藏」，只对
+/// 本地主窗有意义（前端据此画白条、藏正文）。远程客户端没有白条窗口，收到
+/// docked=true 会把整页正文藏掉、只剩一条横幅 —— 看起来就像「连不上」
+/// （实测：PC 贴边后 127.0.0.1:12300 与手机「电脑页」整页空白，而电脑列表是
+/// 原生 UI、不吃快照，所以不受影响）。远程三条路（/api/ui-state、WS 首帧、
+/// WS 广播）一律按「没贴边」发；本地主窗走 Tauri 事件拿真实值，不受影响。
+pub(crate) fn strip_window_state(mut state: UiState) -> UiState {
+    state.docked = false;
+    state.dock_edge = None;
+    state
+}
+
 /// 当前快照的 JSON 串（`/api/ui-state`、WS 首帧、WS 广播共用同一份）。
 pub(crate) fn ui_state_json(app: &AppHandle) -> String {
-    serde_json::to_string(&get_ui_state(app.clone())).unwrap_or_else(|_| "{}".to_string())
+    let state = strip_window_state(get_ui_state(app.clone()));
+    serde_json::to_string(&state).unwrap_or_else(|_| "{}".to_string())
 }
 
 /// 当前推送客户端数量（只有单测要用；正常路径靠 `websocket_publish` 里的

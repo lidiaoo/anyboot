@@ -778,9 +778,10 @@ pub(crate) fn handle_remote_request(app: &AppHandle, request: &RemoteRequest) ->
                 .unwrap_or_else(|_| serde_json::json!([]));
             return RemoteReply::ok(200, value);
         }
-        // 网页控制台：完整快照（轮询用）+ 命令通道（真正改设置）
+        // 网页控制台：完整快照（轮询用）+ 命令通道（真正改设置）。
+        // 远程视角剥掉本机窗口的贴边态，否则 PC 贴边时网页整页空白（strip_window_state）
         "/api/ui-state" => {
-            let value = serde_json::to_value(get_ui_state(app.clone()))
+            let value = serde_json::to_value(strip_window_state(get_ui_state(app.clone())))
                 .unwrap_or_else(|_| serde_json::json!({}));
             return RemoteReply::ok(200, value);
         }
