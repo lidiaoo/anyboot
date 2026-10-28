@@ -2263,6 +2263,17 @@ button.primary-sol:hover:not(:disabled) {
   color: var(--fg-dim);
   overflow-wrap: anywhere;
 }
+/* 「设为默认」= OC 菜单里的 Ctrl+Enter。放在行尾、不参与挤压：
+   flex:0 0 auto 让 body 去收缩，别把按钮文字压成竖排（这是上次踩过的坑）。 */
+.oc-menu-set {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  padding: 4px 9px;
+  font-size: 11px;
+  line-height: 1.45;
+  border-radius: 7px;
+  white-space: nowrap;
+}
 .oc-menu-hidden,
 .oc-menu-issues {
   display: flex;
@@ -2459,6 +2470,14 @@ button.needs-elev {
   .boot-channel,
   #boot-channels-mount {
     min-width: 0;
+  }
+
+  /* 预演行：「设为默认」在窄档折到下一行右侧（宁可多一行，也不把路径挤成一列字） */
+  .oc-menu-row {
+    flex-wrap: wrap;
+  }
+  .oc-menu-set {
+    margin-left: auto;
   }
 }
 

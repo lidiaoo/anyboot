@@ -11,7 +11,7 @@
 use super::*;
 
 const OC_EFI: &str = "EFI/OC/OpenCore.efi";
-const OC_CONFIG: &str = "EFI/OC/config.plist";
+pub(crate) const OC_CONFIG: &str = "EFI/OC/config.plist";
 pub(crate) const OC_MARKER: &str = "OC\\OpenCore.efi";
 
 /// `LauncherOption` 的两个「OC 会自注册启动项」取值。
@@ -84,9 +84,13 @@ pub(crate) fn find_boot_number(marker: &str) -> Option<u16> {
 }
 
 /// 把 BootOrder + 全部 Boot#### 原值备份到 ESP（写任何 NVRAM 前调用；保留最近 10 份）。
+///
+/// `RequestBootVarRouting=true` 时 OC 的启动项存在私有命名空间（`OCBtOrder` /
+/// `OCBt####`），「设默认项」动的是那一组，所以两套都备一份 —— 否则出问题时
+/// 拿不到可回滚的原值。
 pub(crate) fn backup_nvram(esp_root: &Path) -> Result<(), String> {
     let mut snapshot = serde_json::json!({
-        "format": "anyboot-nvram-backup/1",
+        "format": "anyboot-nvram-backup/2",
         "at": anyboot_now_iso(),
     });
     for number in nvram::read_boot_order() {
@@ -97,6 +101,22 @@ pub(crate) fn backup_nvram(esp_root: &Path) -> Result<(), String> {
     }
     if let Ok(order) = nvram::read_var("BootOrder", nvram::GUID_GLOBAL) {
         snapshot["BootOrder"] = serde_json::Value::String(hex::encode(order));
+    }
+    let custom = oc_default::Namespace { custom: true };
+    let mut has_custom = false;
+    for number in custom.read_order() {
+        if let Some(value) = custom.read_option(number) {
+            let name = custom.boot_name(number);
+            snapshot[name.as_str()] = serde_json::Value::String(hex::encode(value));
+            has_custom = true;
+        }
+    }
+    if let Ok(order) = nvram::read_var(custom.order_name(), custom.guid()) {
+        snapshot[custom.order_name()] = serde_json::Value::String(hex::encode(order));
+        has_custom = true;
+    }
+    if has_custom {
+        snapshot["namespaces"] = serde_json::Value::String("global + oc-vendor".to_string());
     }
     let dir = grub_rel(esp_root, "EFI/anyboot/nvram-backup");
     let _ = fs::create_dir_all(&dir);

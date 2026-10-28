@@ -15,6 +15,7 @@ use super::*;
 pub(crate) mod boot_entry;
 pub(crate) mod clover;
 pub(crate) mod nvram;
+pub(crate) mod oc_default;
 pub(crate) mod oc_menu;
 pub(crate) mod opencore;
 pub(crate) mod plist_lite;
@@ -221,6 +222,9 @@ pub(crate) enum SwitchSpec {
     OpenCore,
     /// 修复 OC 的自注册配置：`short`（默认，不抢默认位）/ `full`
     OpenCoreRegister(String),
+    /// 把预演菜单里的某一项设为 OC 默认项（= OC 菜单里的 Ctrl+Enter）：
+    /// `<卷标>\u{1}<分区内路径>`
+    OpenCoreDefault(String),
     CloverDefault(String),
     CloverOneShot,
 }
@@ -249,6 +253,12 @@ pub(crate) fn parse_switch_spec(spec: &str) -> Option<SwitchSpec> {
                 mode.trim().to_ascii_lowercase(),
             ))
         }
+        // 设默认项：`<卷标>\u{1}<路径>`（路径里可能有 `:`，所以不能再切一次冒号）
+        ("opencore-default", Some(rest))
+            if rest.contains(oc_default::SEP) && !rest.starts_with(oc_default::SEP) =>
+        {
+            Some(SwitchSpec::OpenCoreDefault(rest.to_string()))
+        }
         ("clover-default", Some(volume)) if !volume.trim().is_empty() => {
             Some(SwitchSpec::CloverDefault(volume.trim().to_string()))
         }
@@ -271,6 +281,10 @@ impl SwitchSpec {
                 "把 OpenCore 写进固件启动项（BootOrder {}）",
                 if mode == "full" { "首位" } else { "末尾" }
             ),
+            Self::OpenCoreDefault(target) => {
+                let volume = target.split(oc_default::SEP).next().unwrap_or_default();
+                format!("把 {volume} 设为 OpenCore 默认启动项")
+            }
             Self::CloverDefault(volume) => format!("Clover 默认卷设为 {volume}"),
             Self::CloverOneShot => "下次启动进入 Clover（一次性）".to_string(),
         }
@@ -280,6 +294,7 @@ impl SwitchSpec {
     pub(crate) fn action_label(&self) -> &'static str {
         match self {
             Self::OpenCoreRegister(_) => "写入固件启动项",
+            Self::OpenCoreDefault(_) => "设置 OC 默认项",
             _ => "切换引导通道",
         }
     }
@@ -306,6 +321,8 @@ pub(crate) fn switch(app: &AppHandle, spec: &str) -> Result<String, String> {
         }
         // 「注册」不是切换：直接把注册结果的完整说明当消息
         SwitchSpec::OpenCoreRegister(mode) => opencore::register(&esp_root, mode)?,
+        // 「设默认项」= OC 菜单里的 Ctrl+Enter（写 OC 私有命名空间，绕过 macOS 白名单）
+        SwitchSpec::OpenCoreDefault(target) => oc_default::set_default(&esp_root, target)?,
         SwitchSpec::CloverDefault(volume) => {
             clover::set_default_volume(&esp_root, volume, None)?;
             parsed.describe()
@@ -389,6 +406,21 @@ mod tests {
             "模式名大小写不敏感"
         );
         assert_eq!(parse_switch_spec("opencore-register:disabled"), None);
+        // 设默认项：卷标与路径用 0x01 分隔（路径里可能有 `:`，所以不能再切一次冒号）
+        let target = "Macintosh HD\u{1}\\EFI\\Microsoft\\Boot\\bootmgfw.efi";
+        assert_eq!(
+            parse_switch_spec(&format!("opencore-default:{target}")),
+            Some(SwitchSpec::OpenCoreDefault(target.to_string()))
+        );
+        let with_colon = "VOL\u{1}\\EFI\\x:y.efi";
+        assert_eq!(
+            parse_switch_spec(&format!("opencore-default:{with_colon}")),
+            Some(SwitchSpec::OpenCoreDefault(with_colon.to_string()))
+        );
+        // 缺卷标 / 缺路径 → 拒绝（别把半截参数当成合法动作）
+        assert_eq!(parse_switch_spec("opencore-default:Macintosh HD"), None);
+        assert_eq!(parse_switch_spec("opencore-default:\u{1}\\EFI\\x.efi"), None);
+        assert_eq!(parse_switch_spec("opencore-default:"), None);
         assert_eq!(
             parse_switch_spec("clover-default:Macintosh HD"),
             Some(SwitchSpec::CloverDefault("Macintosh HD".into()))
@@ -413,6 +445,13 @@ mod tests {
             "写入固件启动项"
         );
         assert_eq!(SwitchSpec::OpenCore.action_label(), "切换引导通道");
+        assert_eq!(
+            SwitchSpec::OpenCoreDefault("Macintosh HD\u{1}\\System\\boot.efi".into()).action_label(),
+            "设置 OC 默认项"
+        );
+        assert!(SwitchSpec::OpenCoreDefault("Macintosh HD\u{1}\\System\\boot.efi".into())
+            .describe()
+            .contains("Macintosh HD"));
         // describe 要说清插到 BootOrder 哪儿（用户能预期默认启动项会不会变）
         assert!(SwitchSpec::OpenCoreRegister("full".into())
             .describe()

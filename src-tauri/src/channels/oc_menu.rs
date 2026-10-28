@@ -50,6 +50,9 @@ pub(crate) struct MenuEntry {
     /// 是不是默认项（BootOrder 里第一条能用的）
     pub(crate) default: bool,
     pub(crate) note: Option<String>,
+    /// 前端原样回传的值域（「设为默认」用，`opencore-default:<卷>\u{1}<路径>`）。
+    /// `None` = 这一项不能设默认（协议驱动条目、工具项、已经是默认项……）。
+    pub(crate) spec: Option<String>,
 }
 
 /// 预演结果（挂在 OpenCore 的 `ChannelView` 上一起下发）。
@@ -118,12 +121,20 @@ fn device_path_file(raw: &[u8]) -> Option<String> {
 }
 
 /// 分区内路径统一成 `\EFI\...`（OC 日志里的写法，也便于比对）。
-fn normalized(path: &str) -> String {
+pub(crate) fn normalized(path: &str) -> String {
     // 先统一分隔符再削前导 `\`：`/EFI/x` 与 `\EFI\x` 必须归一到同一个写法，
     // 否则「BootOrder 里的路径」和「卷扫描出的路径」永远对不上（单测钉住）。
     let body = path.trim().replace('/', "\\");
     let body = body.trim_start_matches('\\');
     format!("\\{body}")
+}
+
+/// 分区内路径（`\EFI\x.efi`）→ 挂载点下的相对路径（`EFI/x.efi`）。
+///
+/// `grub_rel` 只是 `join`，把带反斜杠的串丢给它会得到一个**不存在**的文件名
+/// （真机踩到：WINDOWS-EFI 上明明有 bootmgfw.efi，却被判成「文件不存在」）。
+pub(crate) fn relative_under_mount(path: &str) -> String {
+    path.replace('\\', "/").trim_start_matches('/').to_string()
 }
 
 fn is_uuid_segment(segment: &str) -> bool {
@@ -158,7 +169,7 @@ fn canonical_path(path: &str) -> String {
 ///
 /// 规则：**双方都带 UUID 时必须 UUID 相同**（否则是同一容器里的两个 macOS），
 /// 只要有一方不带，就按去掉 UUID/`Preboot` 的规范路径比较。
-fn same_target(left: &str, right: &str) -> bool {
+pub(crate) fn same_target(left: &str, right: &str) -> bool {
     if left.eq_ignore_ascii_case(right) {
         return true;
     }
@@ -224,14 +235,24 @@ fn volumes() -> Vec<Volume> {
 }
 
 #[cfg(target_os = "macos")]
-fn same_path(left: &Path, right: &Path) -> bool {
+pub(crate) fn same_path(left: &Path, right: &Path) -> bool {
     // `/Volumes/X` 与 `/` 不会重复，但 `/` 会被 read_dir 结果里的符号链接绕进来
     fs::canonicalize(left).ok() == fs::canonicalize(right).ok()
 }
 
 #[cfg(not(target_os = "macos"))]
-fn same_path(left: &Path, right: &Path) -> bool {
+pub(crate) fn same_path(left: &Path, right: &Path) -> bool {
     left == right
+}
+
+/// 卷标 → 挂载根（「设为默认」要按该分区自己造启动项时用）。
+///
+/// 重新枚举一遍而不是缓存：值域里只带了卷标，点击与渲染之间可能已经卸载/重挂。
+pub(crate) fn volume_root(label: &str) -> Option<PathBuf> {
+    volumes()
+        .into_iter()
+        .find(|volume| volume.label == label)
+        .map(|volume| volume.root)
 }
 
 /// 卷标：OC 的取名顺序（`.contentDetails` → `.disk_label.contentDetails` → 卷标）。
@@ -318,11 +339,33 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
 
     // ⓪ BootOrder 先解析成表：它既是 OC 的第一来源，也是「默认项」的唯一依据，
     // Preboot 那步还要用它的 UUID 判断「哪条 Preboot 是当前系统」。
-    let order = nvram::read_boot_order();
+    //
+    // 读的是**OC 实际会读的那一组变量**：`RequestBootVarRouting=true` 时 OC 用私有
+    // 命名空间的 `OCBtOrder` / `OCBt####`（`OcGetBootOrder` 按 `BootVariableGuid` 选名字，
+    // `DefaultEntryChoice.c:611-617`），固件全局 `BootOrder` 只是旁证。
+    let namespace = oc_default::Namespace::from_config(&config);
+    let mut order = namespace.read_order();
+    let mut namespace_fallback = false;
+    if order.is_empty() && namespace.custom {
+        let global = nvram::read_boot_order();
+        if !global.is_empty() {
+            order = global;
+            namespace_fallback = true;
+        }
+    }
+    let boot_option = |number: u16| -> Option<Vec<u8>> {
+        namespace.read_option(number).or_else(|| {
+            if namespace_fallback {
+                nvram::read_boot_option(number)
+            } else {
+                None
+            }
+        })
+    };
     let order_items: Vec<(u16, String, String)> = order
         .iter()
         .filter_map(|number| {
-            let value = nvram::read_boot_option(*number)?;
+            let value = boot_option(*number)?;
             let (description, file_path) = parse_load_option(&value)?;
             Some((*number, description, normalized(&file_path)))
         })
@@ -367,6 +410,7 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
                 auxiliary: false,
                 default: false,
                 note,
+                spec: None,
             });
             break;
         }
@@ -415,6 +459,8 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
                         auxiliary: false,
                         default: false,
                         note: Some("OpenLinuxBoot.efi 从 loader/entries 读出来的".to_string()),
+                        // 这类条目的设备路径里含 OC 自己的自定义节点，凭路径造不出来
+                        spec: None,
                     });
                 }
             }
@@ -435,6 +481,7 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
                 auxiliary: true,
                 default: false,
                 note: Some("协议驱动提供的工具项，不是可启动的系统".to_string()),
+                spec: None,
             });
         }
     }
@@ -466,8 +513,7 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
         }
         // 对不上：卷没挂载 / 文件已被删 / 路径不在我们扫的卷里
         let exists_anywhere = volumes.iter().any(|volume| {
-            let relative = wanted.trim_start_matches('\\');
-            grub_rel(&volume.root, relative).is_file()
+            grub_rel(&volume.root, relative_under_mount(wanted).as_str()).is_file()
         });
         // 同一容器里别的 macOS（Preboot 有、但本系统没挂载它的根卷）也会走到这里，
         // 那种情况下不算「死项」，只是这边看不到文件。
@@ -489,6 +535,8 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
                 "固件里有这一项，但对应的文件在本系统看不到（卷没挂载，或已被删除）"
                     .to_string()
             }),
+            // 卷标是「—」：既没挂载点也没有可抄的路径，设默认时给出的只会是一句报错
+            spec: None,
         });
         if !exists_anywhere {
             order_notes.push(format!("Boot{number:04X}"));
@@ -506,7 +554,7 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
     }
 
     // ⑥ 过滤：HideAuxiliary 只影响 auxiliary 项
-    let (mut visible, hidden): (Vec<MenuEntry>, Vec<MenuEntry>) = entries
+    let (mut visible, mut hidden): (Vec<MenuEntry>, Vec<MenuEntry>) = entries
         .into_iter()
         .partition(|entry| !(hide_auxiliary && entry.auxiliary));
     // 去重：OC 按 **DevicePath 全等** 去重（DevicePath 里含 HardDrive 节点 = 卷），
@@ -526,7 +574,33 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
         true
     });
 
+    // ⑥' 「设为默认」的值域（= OC 菜单里的 Ctrl+Enter）。放在最后统一算：
+    // 它依赖「是不是默认项」「source 是 BootOrder 还是 bless」，两者到这里才定。
+    let writable = namespace.writable();
+    for entry in visible.iter_mut().chain(hidden.iter_mut()) {
+        entry.spec = oc_default::entry_spec(entry, writable, esp_root);
+    }
+
     // ⑦ 诊断
+    if namespace_fallback {
+        issues.push(HealthIssue {
+            severity: "info".to_string(),
+            text: format!(
+                "OC 私有命名空间里还没有 {}（OC 没在里面记过默认项），下面按固件 BootOrder 展示；\
+                 在这里设一次默认项就会把它建起来",
+                namespace.order_name()
+            ),
+        });
+    }
+    if !writable {
+        issues.push(HealthIssue {
+            severity: "info".to_string(),
+            text: "不能在这里设默认项：OC 读的是固件全局 BootOrder（UEFI→Quirks→RequestBootVarRouting=false），\
+                   而本系统不允许写 Boot* 变量。把 UEFI→Quirks→RequestBootVarRouting 改成 true 后，\
+                   OC 会改用私有命名空间（OCBtOrder / OCBt0080），这个能力就会亮起来"
+                .to_string(),
+        });
+    }
     if scan_policy != 0 {
         issues.push(HealthIssue {
             severity: "info".to_string(),
@@ -624,11 +698,17 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
     }
 
     let summary = format!(
-        "扫了 {} 个卷 / BootOrder {} 项 / ScanPolicy={} / HideAuxiliary={}",
+        "扫了 {} 个卷 / {} {} 项 / ScanPolicy={} / HideAuxiliary={}{}",
         volumes.len(),
         order.len(),
+        namespace.order_name(),
         scan_policy,
-        if hide_auxiliary { "true" } else { "false" }
+        if hide_auxiliary { "true" } else { "false" },
+        if namespace.custom {
+            "（OC 私有命名空间，RequestBootVarRouting=true）"
+        } else {
+            ""
+        }
     );
 
     MenuPreview {
@@ -720,6 +800,7 @@ fn preboot_entries(out: &mut Vec<MenuEntry>, order_uuids: &[String], primary_lab
                 "同一 APFS 容器里的另一个 macOS：根卷没挂载，但 Preboot 里能取到 boot.efi"
                     .to_string()
             }),
+            spec: None,
         });
     }
 }
@@ -812,12 +893,13 @@ mod tests {
         println!("—— 会显示 ——");
         for entry in &preview.entries {
             println!(
-                "[{}] {} / {} / {}{}\n    {}",
+                "[{}] {} / {} / {}{}\n    可设默认: {}\n    {}",
                 entry.source,
                 entry.kind,
                 entry.volume,
                 entry.path,
                 if entry.default { "   << 默认 >>" } else { "" },
+                entry.spec.is_some(),
                 entry.note.as_deref().unwrap_or("-")
             );
         }

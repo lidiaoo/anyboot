@@ -150,12 +150,7 @@ pub(crate) fn decode_nvram_escaped(text: &str) -> Vec<u8> {
 pub(crate) fn elevated_nvram_script(entries: &[(&str, &str, &[u8])]) -> String {
     let commands: Vec<String> = entries
         .iter()
-        .map(|(name, guid, value)| {
-            format!(
-                "/usr/sbin/nvram {guid}:{name}={}",
-                encode_nvram_escaped(value)
-            )
-        })
+        .map(|(name, guid, value)| format!("/usr/sbin/nvram {}", nvram_write_arg(name, guid, value)))
         .collect();
     format!(
         "do shell script \"{}\" with administrator privileges",
@@ -170,6 +165,15 @@ pub(crate) fn encode_nvram_escaped(value: &[u8]) -> String {
         out.push_str(&format!("%{byte:02X}"));
     }
     out
+}
+
+/// 写入一个变量时**唯一**的 argv：`guid:name=%XX%XX…`。
+///
+/// 必须是**同一个**参数。拆成 `nvram guid:name =%XX…` 两个参数时，`nvram` 会把第一个
+/// 当「读取」（照原值打印一遍）、第二个当「设置一个空名字的变量」，**退出码 0 却什么
+/// 都没写**——实测踩到：`OCBtOrder` 明明改了值，回读还是老值，而且报不出错。
+pub(crate) fn nvram_write_arg(name: &str, guid: &str, value: &[u8]) -> String {
+    format!("{guid}:{name}={}", encode_nvram_escaped(value))
 }
 
 // ─────────────────────────── 平台实现层 ───────────────────────────
@@ -283,11 +287,9 @@ mod imp {
 
     /// 直写一条（不提权）：root 下、或该变量本身可写时成功。
     fn direct_write(name: &str, guid: &str, value: &[u8]) -> Result<(), NvramError> {
-        let key = format!("{guid}:{name}");
-        let encoded = format!("={}", encode_nvram_escaped(value));
         // 写路径要拿 stderr 判「是权限问题还是固件拒绝」，所以不能走 run_nvram（它吞 stderr）
         let output = command("/usr/sbin/nvram")
-            .args([key.as_str(), encoded.as_str()])
+            .arg(nvram_write_arg(name, guid, value))
             .output()
             .map_err(|error| NvramError::Failed(format!("无法执行 nvram: {error}")))?;
         if output.status.success() {
@@ -607,5 +609,19 @@ mod tests {
         assert!(script.contains(&format!("{GUID_GLOBAL}:BootOrder=%80%00%81%00")));
         assert_eq!(script.matches("nvram").count(), 2);
         assert_eq!(script.matches(" with administrator privileges").count(), 1);
+    }
+
+    #[test]
+    fn write_arg_is_a_single_argv() {
+        // 真机踩到过的坑：`nvram <key> =%XX…` 是两个参数 —— nvram 把第一个当读取、
+        // 第二个当「设置空名变量」，退出码 0 却什么都没写。整条 `key=value` 必须
+        // 是同一个 argv（不含空格，直接能当 shell 参数用）。
+        let arg = nvram_write_arg("OCBtOrder", "4D1FDA02-38C7-4A6A-9CC6-4BCCA8B30102", &[0x80, 0x00]);
+        assert_eq!(arg, "4D1FDA02-38C7-4A6A-9CC6-4BCCA8B30102:OCBtOrder=%80%00");
+        assert!(!arg.contains(' '), "整条必须是一个 argv，中间不许有空格");
+        assert_eq!(arg.matches('=').count(), 1, "只有一个等号（值是 % 转义，不会有裸等号）");
+        // 提权脚本里的每条命令也必须是这个形态
+        let script = elevated_nvram_script(&[("OCBtOrder", "4D1FDA02-38C7-4A6A-9CC6-4BCCA8B30102", &[0x80, 0x00])]);
+        assert!(script.contains(&format!("/usr/sbin/nvram {arg}")));
     }
 }

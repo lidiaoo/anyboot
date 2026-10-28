@@ -368,7 +368,44 @@ bless_exit=3        （NVRAM 一个字节都没变）
 | 读 `OCBt*` | ✅ | ✅ |
 | 写 `Boot*` | ❌ | ✅ |
 | 写 `OCBt*`（root） | ✅ | ✅ |
-| 复刻 Ctrl+Enter（写 `OCBt0080` + 重排 `OCBtOrder`） | ✅ 技术可行，**未在真机验证效果** | ✅ |
+| 复刻 Ctrl+Enter（写 `OCBt0080` + 重排 `OCBtOrder`） | ✅ 已真机跑通（见 §8.5） | ✅ |
+
+### 8.5 复刻 Ctrl+Enter：实现与两个实测结论
+
+`OcSetDefaultBootEntry` 只在「条目已在 `BootOrder` 里匹配上」时做一件事：把它的编号挪到顺序首位
+（`DefaultEntryChoice.c:1112-1147`）；没匹配上就现场造一条 `EFI_LOAD_OPTION` 塞进 `0x0080`
+（`:936-1103`，**永远只用这一个槽**，所以会覆盖上一条默认项的 load option）。
+
+AnyBoot 的 `channels/oc_default.rs` 照这个语义做，但避开了覆盖：
+
+```text
+① 目标在 OCBtOrder 里已有槽  → 只写 OCBtOrder（把编号挪到首位）
+② 固件全局 Boot0080 里有它   → 把那条的值原样抄进一个空闲 OCBt00XX，再排首位
+③ 卷上有明确的 .efi 文件     → 按该分区的 HardDrive 节点自己造一条（boot_entry 的布局代码）
+```
+
+真机验证（`oc_default::tests::real_esp_set_default`，root 跑，跑完自动还原）：
+
+```text
+原始 OCBtOrder: [0080]
+① 设 Windows 为默认 → 在 OCBtOrder 里新建 OCBt0081 并放到首位
+   写后顺序: [0081, 0080]        ← 回读校验通过
+② 设回 macOS → 把 OCBt0080 挪到 OCBtOrder 首位
+   还原后: [0080]  ✓ 与原始一致
+```
+
+**同一轮验证里抓到一个真 bug**（既有代码，不在这次新增里）：macOS 的 `nvram` 收两个参数
+`nvram <guid:name> =%XX%XX` 时，会把第一个当「读取」（照原值打印）、第二个当「设置一个空名字的变量」，
+**退出码 0，却什么都没写**。所以 `direct_write` 一直是"假成功"：
+
+| 场景 | 结果 |
+|---|---|
+| 变量**不存在** | GET 返回非 0 → 走提权回退（`elevated_nvram_script` 用的是**单个** argv，写法正确）→ 真的写进去了 |
+| 变量**已存在** | GET 返回 0 → 被当成"直写成功"→ **静默 no-op**，回读还是老值 |
+
+这个坑之所以一直没暴露：`Boot*` 在 macOS 上本来就不可写（`can_write_boot_vars()=false`，走不到这条路径），
+`OCBt*` 又是刚接进来的新路径。修法是一行：整条 `guid:name=%XX…` 必须是**同一个 argv**
+（`nvram::nvram_write_arg`，单测钉住"不含空格、只有一个等号"）。
 
 ---
 

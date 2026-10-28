@@ -58,8 +58,8 @@ const OC_MENU_ICONS = {
   unknown: "❓",
 };
 
-/// 预演里的一行（卷 + 路径 + 来源 + 备注）
-function ocMenuRow(entry, index) {
+/// 预演里的一行（卷 + 路径 + 来源 + 备注 + 「设为默认」）
+function ocMenuRow(entry, index, { busy, onSwitch, channel } = {}) {
   const row = document.createElement("div");
   row.className = "oc-menu-row";
   row.dataset.kind = entry.kind;
@@ -111,11 +111,28 @@ function ocMenuRow(entry, index) {
   }
 
   row.append(idx, body);
+
+  // 「设为默认」= OC 菜单里的 Ctrl+Enter。后端已经算好值域（entry.spec），
+  // 前端只负责原样发回去 —— 哪些项能设由后端按 OC 的规则判定，不在这里猜。
+  if (entry.spec && !entry.default) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "oc-menu-set needs-elev";
+    button.textContent = "设为默认 ⤴";
+    button.title =
+      "等价于在 OpenCore 菜单里对它按 Ctrl+Enter：写 OC 私有命名空间的 OCBt0080 / OCBtOrder，" +
+      "不碰被 macOS 挡住的 Boot* 变量；写前会整份备份 NVRAM";
+    button.disabled = Boolean(busy);
+    button.addEventListener("click", () => {
+      if (onSwitch) onSwitch({ spec: entry.spec }, channel);
+    });
+    row.append(button);
+  }
   return row;
 }
 
 /// 整块「预演 OC 菜单」（details，默认折叠，不抢条目行的注意力）
-function renderOcMenuPreview(preview) {
+function renderOcMenuPreview(preview, { busy, onSwitch, channel } = {}) {
   if (!preview) return null;
   const box = document.createElement("details");
   box.className = "oc-menu";
@@ -138,13 +155,17 @@ function renderOcMenuPreview(preview) {
   hint.className = "oc-menu-hint";
   hint.textContent =
     "OC 不遍历目录：它按固定规则找（BootOrder + 每个卷的 bless/预定义路径 + 条目协议驱动）。" +
-    "这里是按同一套规则纯读复算，不写盘、不改 NVRAM。";
+    "这里是按同一套规则纯读复算，不写盘、不改 NVRAM。" +
+    "「设为默认」等价于进 OC 菜单对目标按 Ctrl+Enter —— 改的是 OC 私有命名空间的 " +
+    "OCBtOrder / OCBt0080（macOS 不许写 Boot*，但这一组可以），写前整份备份。";
   box.append(hint);
 
   if ((preview.entries || []).length) {
     const list = document.createElement("div");
     list.className = "oc-menu-list";
-    preview.entries.forEach((entry, index) => list.append(ocMenuRow(entry, index)));
+    preview.entries.forEach((entry, index) =>
+      list.append(ocMenuRow(entry, index, { busy, onSwitch, channel })),
+    );
     box.append(list);
   } else {
     const empty = document.createElement("p");
@@ -256,7 +277,11 @@ function makeBootChannelCard(channel, { busy, onSwitch }) {
 
   // ── 预演 OC 菜单（只有 OpenCore 通道有）──
   if (channel.id === "opencore" && channel.menuPreview) {
-    const preview = renderOcMenuPreview(channel.menuPreview);
+    const preview = renderOcMenuPreview(channel.menuPreview, {
+      busy,
+      onSwitch,
+      channel,
+    });
     if (preview) section.append(preview);
   }
 
@@ -338,10 +363,12 @@ function makeBootChannelCard(channel, { busy, onSwitch }) {
 }
 
 /// 通道切换的 spec 组装（与后端 parse_switch_spec 的值域一致）。
-/// sdboot 条目 → `sdboot:<id>`；opencore 的条目 id 本身就是值域
-/// （`opencore` 进菜单 / `opencore-register` 修复自注册配置）；
+/// 预演行自带后端算好的完整值域（`entry.spec`，形如 `opencore-default:<卷>\u0001<路径>`）
+/// —— 前端不拼这个字符串；其余条目：sdboot → `sdboot:<id>`；
+/// opencore 的条目 id 本身就是值域（`opencore` 进菜单 / `opencore-register` 修复自注册）；
 /// clover 动作 → `clover-oneshot`（文件路线 clover-default:<volume> 走远程 API）。
 function bootChannelSpec(entry, channel) {
+  if (entry && entry.spec) return entry.spec;
   if (channel.id === "sdboot") return `sdboot:${entry.id}`;
   if (channel.id === "opencore") return entry.id;
   if (channel.id === "clover") return "clover-oneshot";

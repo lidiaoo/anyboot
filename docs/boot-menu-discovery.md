@@ -180,6 +180,35 @@ OpenCore 卡片上可展开一块 **预演 OC 菜单**。它按上面第 1–5 �
 
 它是**纯读**的：只读 ESP 上的文件和 `diskutil` 的输出，不会改任何东西，也不需要管理员密码。
 
+### 7.1 顺手把它设成默认项（= 进 OC 菜单按 Ctrl+Enter）
+
+预演出来的每一行右侧还有一个 **设为默认** 按钮。它做的事和你在 OC 菜单里对某个系统按 <kbd>Ctrl</kbd>+<kbd>Enter</kbd> 完全等价：
+
+| | OC 自己的做法 | AnyBoot 的做法 |
+|---|---|---|
+| 容器 | `BootOrder` + `Boot0080`（固件全局变量） | `OCBtOrder` + `OCBt0080`（OC 私有命名空间） |
+| macOS 能不能写 | ❌ 系统白名单拒绝，root 和 Apple 签名的 `bless` 都不行 | ✅ 换个 GUID 的普通变量，一次管理员授权就能写 |
+| 槽位 | 永远复用 `0x0080`，**上一条默认项会被覆盖** | 已有槽只调顺序；没有就新建一个空闲编号，原默认项不动 |
+| 生效时机 | 下次启动 | 下次启动 |
+
+为什么这条路成立：`UEFI→Quirks→RequestBootVarRouting=true` 时，OC 把「启动变量」整体搬到自己的 GUID
+（`4D1FDA02-38C7-4A6A-9CC6-4BCCA8B30102`）下，变量名加 `OCBt` 前缀（`OCBtOrder` / `OCBt0080` / `OCBtNext`）。
+OC 读菜单、读默认项读的都是这一组，而 macOS 只拦名字叫 `Boot*` 的变量 —— 于是这一组可以写。
+
+按钮出现的条件（写死的规则，列表里没有的一律不给按钮，避免点了必然失败）：
+
+- 这一项**已经在固件启动项里**（只改顺序，零风险）；
+- 或者这一项是**卷上一个明确的 `.efi` 文件**（Windows 的 `bootmgfw.efi`、泛型 `BOOTX64.EFI`，按该分区的
+  HardDrive 节点自己造一条）；
+- **不给**：工具项（`Reset NVRAM`）、协议驱动生成的条目（`OpenLinuxBoot` 的 `.conf` 内嵌 OC 自定义设备路径，
+  凭路径造不出来）、OC 自己的 Bootstrap 入口（设成默认等于每次启动都先回菜单）、已经是默认项的那一条。
+
+写法上有三道保险：动 NVRAM 前把两套命名空间整份备份到 `EFI/anyboot/nvram-backup/`（留 10 份）；写完**回读校验**
+（顺序首位 + 槽位内容），固件或系统静默丢弃会当场报出来；目标已经是默认项时直接返回「无需改动」，不备份、不写盘。
+
+> ⚠️ 前提是 `RequestBootVarRouting=true`。它为 `false` 时 OC 读的是固件全局 `BootOrder`，而 macOS 不允许写，
+> 卡片上会写明这一点并让按钮不出现 —— 改这一个 quirk 就能启用。
+
 ---
 
 ## 8. 需要 100% 准确时：让 OC 自己把菜单写进日志
@@ -215,9 +244,10 @@ OCB: Adding entry type (T:1|F:0|G:0) - ...\System\Library\CoreServices\boot.efi
 | 预演 OC 菜单 | ✅ 纯读 | ✅ 纯读 |
 | 读真实 `BootOrder` | ⚠️ 只读得到固件真值里的一小部分 | ✅ |
 | 写 `BootNext` 让下次进 OC | ❌ 系统白名单拒绝（root 也不行） | ✅ |
-| 设置 OC 默认项 | 只能进 OC 菜单按 **Ctrl+Enter** | 同上（写 `Boot*` 同样受限，但 `OCBt*` 可写） |
+| 设置 OC 默认项 | ✅ 走 OC 私有命名空间 `OCBt*`（见 7.1）；`RequestBootVarRouting=false` 时退回 ❌ | ✅ |
 
-macOS 上「读不全 / 写不了」不是权限不够，是系统按变量名精确拦截 `Boot*` 与 `efi-boot-device`。
+macOS 上「读不全 / 写不了 `Boot*`」不是权限不够，是系统按变量名精确拦截 `Boot*` 与 `efi-boot-device`。
+而 `OCBt*` 只是另一个 GUID 下的普通变量，能写 —— 这正是「设默认项」在 macOS 侧仍然可用的原因。
 实测证据（`bless` 一样被拒、`OCBt*` 反而可写）见
 [`boot-menu-discovery-internals.md`](boot-menu-discovery-internals.md) 第 6 节。
 
