@@ -1575,19 +1575,14 @@ class ComputerListActivity : ComponentActivity() {
     }
 
     /**
-     * 用系统浏览器打开。
-     *
-     * 注意手机端是明文 HTTP 局域网地址，因此这里的 URL 直接用档案里的地址 + token，
-     * 不做隧道处理 —— 走跳板机的电脑在浏览器里本来就连不上，明确提示比静默失败好。
+     * 用系统浏览器打开。默认走**直连**（用户 2026-10-28）：
+     * URL 直接用档案里的局域网地址 + token，跳板机只影响 App 内的连接通道 ——
+     * 浏览器侧连不上转发端点，但直连地址仍然有效。
      */
     private fun openInBrowser(profile: ServerProfile) {
         val host = ServerProfile.normalizeHost(profile.host())
         if (host.isEmpty()) {
             toast("这台电脑还没有可用地址")
-            return
-        }
-        if (ServerProfile.text(profile.jumpServerId).isNotEmpty()) {
-            toast("这台电脑走跳板机，系统浏览器连不上 —— 请用「打开页面」")
             return
         }
         val url = profile.urlFor(host, "")
@@ -2024,46 +2019,24 @@ class ComputerListActivity : ComponentActivity() {
     private fun ChannelPickerContent(profile: ServerProfile, channel: ChannelRow) {
         val palette = LocalPalette.current
         Column {
-            val detail = channel.detail.trim()
-            if (detail.isNotEmpty()) {
-                Text(
-                    detail,
-                    fontSize = 11.5.sp,
-                    color = palette.fgFaint,
-                    lineHeight = 19.sp,
-                    modifier = Modifier.padding(bottom = 6.dp),
-                )
-            }
-            channel.health.forEach { issue ->
-                Text(
-                    "· $issue",
-                    fontSize = 11.sp,
-                    color = palette.warn,
-                    lineHeight = 18.sp,
-                    modifier = Modifier.padding(bottom = 2.dp),
-                )
-            }
-            if (channel.permission == "nvram") {
-                Text(
-                    "⤴ 切换必经 NVRAM 写（电脑端可能弹管理员授权）",
-                    fontSize = 11.sp,
-                    color = palette.fgFaint,
-                    modifier = Modifier.padding(bottom = 4.dp),
-                )
-            }
+            // 说明与健康检查：收进感叹号（用户 2026-10-28：不要占位置），点了才展开
+            val ocNote = if (channel.id == "opencore")
+                "「设为默认 ⤴」等价于 OC 菜单里的 Ctrl+Enter：写 OCBt0080 / OCBtOrder，不碰被 macOS 挡住的 Boot* 变量；电脑端弹授权时批准即可"
+            else ""
+            val nvramNote = if (channel.permission == "nvram")
+                "⤴ 切换必经 NVRAM 写（电脑端可能弹管理员授权）"
+            else ""
+            ChannelNoteDisclosure(
+                detail = channel.detail.trim(),
+                issues = channel.health,
+                extra = listOf(nvramNote, ocNote).filter { it.isNotEmpty() }.joinToString("\n"),
+            )
             // OC 菜单预演：只有 OpenCore 通道有，动作行从这里出（顶层 entries 对 OC 是空的）
             val previewRows = if (channel.id == "opencore") channel.menuPreview else emptyList()
             if (previewRows.isNotEmpty()) {
                 previewRows.forEach { row ->
                     ChannelMenuRowView(profile, channel, row, palette)
                 }
-                Text(
-                    "「设为默认 ⤴」等价于 OC 菜单里的 Ctrl+Enter：写 OCBt0080 / OCBtOrder，不碰被 macOS 挡住的 Boot* 变量；电脑端弹授权时批准即可",
-                    fontSize = 10.5.sp,
-                    color = palette.fgFaint,
-                    lineHeight = 17.sp,
-                    modifier = Modifier.padding(top = 2.dp, bottom = 4.dp),
-                )
             }
             if (channel.entries.isEmpty() && previewRows.isEmpty()) {
                 Text(
@@ -2121,6 +2094,63 @@ class ComputerListActivity : ComponentActivity() {
                 }
                 Spacer(Modifier.height(4.dp))
                 Text("动作在下次重启时生效", fontSize = 11.sp, color = palette.fgFaint)
+            }
+        }
+    }
+
+    /**
+     * 通道的说明 + 健康检查：默认收进一枚 ⚠/ⓘ 小圆标（用户 2026-10-28：不要占位置）。
+     * ⚠ = 有健康检查条目，ⓘ = 纯说明；展开后 detail / issues / extra 依次铺开。
+     * 与 PC 网页端 .channel-note-toggle / .channel-note、iOS ChannelNoteDisclosure 同一套交互。
+     */
+    @Composable
+    private fun ChannelNoteDisclosure(detail: String, issues: List<String>, extra: String) {
+        val palette = LocalPalette.current
+        var expanded by remember { mutableStateOf(false) }
+        Column {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(22.dp)
+                    .clip(CircleShape)
+                    .border(1.dp, palette.fgFaint.copy(alpha = 0.4f), CircleShape)
+                    .clickable { expanded = !expanded },
+            ) {
+                Text(
+                    if (issues.isEmpty()) "ⓘ" else "⚠",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (issues.isEmpty()) palette.fgFaint else palette.warn,
+                )
+            }
+            if (expanded) {
+                if (detail.isNotEmpty()) {
+                    Text(
+                        detail,
+                        fontSize = 11.5.sp,
+                        color = palette.fgFaint,
+                        lineHeight = 19.sp,
+                        modifier = Modifier.padding(top = 6.dp, bottom = 6.dp),
+                    )
+                }
+                issues.forEach { issue ->
+                    Text(
+                        "· $issue",
+                        fontSize = 11.sp,
+                        color = palette.warn,
+                        lineHeight = 18.sp,
+                        modifier = Modifier.padding(bottom = 2.dp),
+                    )
+                }
+                if (extra.isNotEmpty()) {
+                    Text(
+                        extra,
+                        fontSize = 10.5.sp,
+                        color = palette.fgFaint,
+                        lineHeight = 17.sp,
+                        modifier = Modifier.padding(top = 2.dp, bottom = 4.dp),
+                    )
+                }
             }
         }
     }
@@ -2495,12 +2525,13 @@ class ComputerListActivity : ComponentActivity() {
         }
         val hits = info?.hits.orEmpty()
         val rows = ArrayList<PairRow>()
-        // 跳板机通道行：配了就亮出来（停用置灰「已停用」），与 PC 端列表同形。
+        // 跳板机通道行：配了且启用才亮出来（用户 2026-10-28：没开启的不上列表页）。
         // 探测结果按 kind 匹配 —— jump 的命中 pairId 为空，不能走下面的 pairId 匹配。
-        if (jumpId.isNotEmpty()) {
+        if (jumpId.isNotEmpty() &&
+            !profile.routeDisabled.contains(ServerProfile.ROUTE_JUMP)
+        ) {
             val jump = JumpStore.findJump(JumpStore.loadJumps(this), jumpId)
             val jumpHit = hits.firstOrNull { it.kind == ServerProfile.ROUTE_JUMP }
-            val jumpEnabled = !profile.routeDisabled.contains(ServerProfile.ROUTE_JUMP)
             val jumpInUse = state == STATE_ONLINE && info?.winnerKind == ServerProfile.ROUTE_JUMP
             rows.add(
                 PairRow(
@@ -2517,23 +2548,22 @@ class ComputerListActivity : ComponentActivity() {
                     lane = "",
                     source = "",
                     state = when {
-                        !jumpEnabled -> "已停用"
                         jumpInUse && jumpHit != null && jumpHit.ok -> "使用中 " + jumpHit.ms + "ms"
                         jumpInUse -> "使用中"
                         else -> probeStateText(jumpHit)
                     },
                     ok = jumpHit?.ok == true,
-                    enabled = jumpEnabled,
+                    enabled = true,
                 ),
             )
         }
         for (block in profile.pairBlockOrder()) {
-            for (pair in profile.pairsOfBlock(block, false)) {
+            // 已停用的配对不上列表页（用户 2026-10-28：连接策略没开启的就不展示）
+            for (pair in profile.pairsOfBlock(block, true)) {
                 val hit = hits.firstOrNull { it.pairId.isNotEmpty() && it.pairId == pair.id }
                 val inUse = pair.id == hitPair?.id
                 // 「使用中」也要带耗时：选了谁 + 探测快不慢一起说，别只剩一句「使用中」
                 val stateText = when {
-                    !pair.enabled -> "已停用"
                     inUse && hit != null && hit.ok -> "使用中 " + hit.ms + "ms"
                     inUse -> "使用中"
                     else -> probeStateText(hit)
@@ -2556,7 +2586,7 @@ class ComputerListActivity : ComponentActivity() {
                         source = pair.sourceLabel(),
                         state = stateText,
                         ok = hit?.ok == true,
-                        enabled = pair.enabled,
+                        enabled = true,
                     ),
                 )
             }

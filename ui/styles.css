@@ -2107,6 +2107,38 @@ button.primary-sol:hover:not(:disabled) {
   color: var(--warn-color, #fbbf24);
 }
 
+/* ── 说明与健康检查的收起开关（用户 2026-10-28：说明不要占位置）──
+   标题行最右一枚小圆标：⚠ = 有 warn 待办，ⓘ = 纯说明；点了才展开正文。
+   chip 自带 margin-left:auto 把行推满，圆标跟在 chip 右侧即可。 */
+.channel-note-toggle {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  margin-left: 8px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--fg-dim);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+.channel-note-toggle:hover {
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+}
+.channel-note-toggle.warn {
+  border-color: color-mix(in srgb, var(--warn-color, #fbbf24) 55%, transparent);
+  color: var(--warn-color, #fbbf24);
+}
+/* 展开后的正文容器：里面复用 .channel-pane-status / .channel-health 原排版 */
+.channel-note {
+  margin: -4px 0 10px;
+}
+.channel-note[hidden] {
+  display: none;
+}
+
 /* 状态小字（对齐 .grub-pane-status 的位置与字号） */
 .channel-pane-status {
   color: var(--fg-faint);

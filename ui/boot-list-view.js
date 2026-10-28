@@ -348,24 +348,27 @@ function makeBootChannelCard(
   titleRow.append(chip);
   section.append(titleRow);
 
-  // ── 摘要行（detail）──
+  // ── 说明与健康检查：默认收进标题行的感叹号（用户 2026-10-28：不要占位置）──
+  // detail 摘要 + health 条 + 全绿「✓ 健康检查通过」统一塞进 .channel-note，
+  // 标题行只留一枚 ⚠（有 warn 待办）/ ⓘ（纯说明）小圆标，点了才展开。
+  const noteLines = document.createElement("div");
+  noteLines.className = "channel-note";
+  let noteWarn = false;
   if (channel.detail) {
     const status = document.createElement("p");
     status.className = "channel-pane-status";
     status.textContent = channel.detail;
-    section.append(status);
+    noteLines.append(status);
   }
-
-  // ── 健康检查条（warn 黄 / 全绿 ✓）──
   const issues = channel.health || [];
   if (issues.length) {
-    // severity 只有 warn 才算"要处理"；info 是"这台机器上为什么只能看不能改"的说明，
-    // 用中性样式，不然卡片一看全是黄的、其实没坏。
+    // severity 只有 warn 才算"要处理"；info 是"这台机器上为什么只能看不能改"的说明。
     const ordered = [
       ...issues.filter((issue) => issue.severity === "warn"),
       ...issues.filter((issue) => issue.severity !== "warn"),
     ];
     const warnCount = ordered.filter((issue) => issue.severity === "warn").length;
+    noteWarn = warnCount > 0;
     const health = document.createElement("div");
     health.className = warnCount ? "channel-health bad" : "channel-health info";
     const head = document.createElement("strong");
@@ -380,14 +383,30 @@ function makeBootChannelCard(
       appendRichText(line, issue.text);
       health.append(line);
     }
-    section.append(health);
+    noteLines.append(health);
   } else if (channel.detected && channel.id !== "sdboot") {
     const health = document.createElement("div");
     health.className = "channel-health good";
     const head = document.createElement("strong");
     head.textContent = "✓ 健康检查通过";
     health.append(head);
-    section.append(health);
+    noteLines.append(health);
+  }
+  if (noteLines.childElementCount) {
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "channel-note-toggle" + (noteWarn ? " warn" : "");
+    toggle.textContent = noteWarn ? "⚠" : "ⓘ";
+    toggle.title = "说明与健康检查（点击展开 / 收起）";
+    toggle.setAttribute("aria-expanded", "false");
+    toggle.addEventListener("click", () => {
+      const open = noteLines.hidden;
+      noteLines.hidden = !open;
+      toggle.setAttribute("aria-expanded", String(open));
+    });
+    noteLines.hidden = true;
+    titleRow.append(toggle);
+    section.append(noteLines);
   }
 
   // ── 预演 OC 菜单（只有 OpenCore 通道有）──

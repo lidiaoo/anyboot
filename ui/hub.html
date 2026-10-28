@@ -7274,7 +7274,9 @@ window.__bkOnShow = async function () {
       meta.appendChild(ln);
     } else {
       // 每个配置好的地址一行：行首「直连」徽章 + 该地址的探测情况，行尾复制/浏览器打开
+      // 连接策略停用了直连：整行不上列表页（用户 2026-10-28：没开启的就不展示）
       addrLines.forEach(function (line) {
+        if (routeDisabledList.indexOf('lan') >= 0) return;
         const ln = document.createElement('div');
         ln.className = 'cq-dev-line';
         const lanKind = document.createElement('span');
@@ -7282,15 +7284,6 @@ window.__bkOnShow = async function () {
         lanKind.dataset.k = 'lan';
         lanKind.textContent = '直连';
         ln.appendChild(lanKind);
-        // 连接策略停用了直连：徽章置灰 + 明说，别让人以为这行还能连
-        if (routeDisabledList.indexOf('lan') >= 0) {
-          lanKind.style.opacity = '0.45';
-          lanKind.title = '连接策略里已停用「直连」通道';
-          const off = document.createElement('span');
-          off.className = 'cq-dev-src';
-          off.textContent = '已停用';
-          ln.appendChild(off);
-        }
         const a = document.createElement('span');
         a.className = 'cq-dev-addr';
         a.title = line.addr;
@@ -7317,11 +7310,12 @@ window.__bkOnShow = async function () {
         }
         meta.appendChild(ln);
       });
-      // 跳板机通道行：配了且启用就亮出来（转发端点只在本机有效，不给浏览器按钮）
+      // 跳板机通道行：配了且启用才亮出来（转发端点只在本机有效，不给浏览器按钮）；
+      // 连接策略停用了跳板机：整行不上列表页（用户 2026-10-28：没开启的就不展示）
       const jumpId = (remRow && remRow.jump_id || '').trim();
       const jumpDisabled = remRow && Array.isArray(remRow.route_disabled)
         ? remRow.route_disabled.indexOf('jump') >= 0 : false;
-      if (jumpId) {
+      if (jumpId && !jumpDisabled) {
         const jump = servers.find(function (s) { return s.id === jumpId; });
         const ln = document.createElement('div');
         ln.className = 'cq-dev-line';
@@ -7330,16 +7324,7 @@ window.__bkOnShow = async function () {
         jumpKind.dataset.k = 'jump';
         jumpKind.textContent = '跳板机';
         ln.appendChild(jumpKind);
-        // 连接策略停用了跳板机：徽章置灰 + 明说，与直连行同一套表达
-        if (jumpDisabled) {
-          jumpKind.style.opacity = '0.45';
-          jumpKind.title = '连接策略里已停用「跳板机」通道';
-          const off = document.createElement('span');
-          off.className = 'cq-dev-src';
-          off.textContent = '已停用';
-          ln.appendChild(off);
-        }
-        const jumpUsing = !jumpDisabled && pcWinnerKind.get(row.rid) === 'jump';
+        const jumpUsing = pcWinnerKind.get(row.rid) === 'jump';
         const jumpSt = jumpUsing ? cqProbeState(row.rid, 'jump', '', '') : null;
         const a = document.createElement('span');
         a.textContent = (jump ? (jump.name || jump.host || '跳板机') : '已删除的跳板机') +
@@ -7375,6 +7360,8 @@ window.__bkOnShow = async function () {
       const lane = pair.lane || rsPairLane(pair.kind, pair.addr);
       const routeKind = pair.kind === 'cloudflare' ? 'tunnel'
         : (pair.kind === 'tsnet' ? 'tsnet' : (lane === 'funnel' ? 'funnel' : 'ts'));
+      // 连接策略停用了这条通道：整行不上列表页（用户 2026-10-28：没开启的就不展示）
+      if (routeDisabledList.indexOf(routeKind) >= 0) return;
       const kindLabel = ROUTE_LABELS[routeKind] || pair.kind;
       const ln = document.createElement('div');
       ln.className = 'cq-dev-line' + (expired && !using ? ' cq-remote-expired' : '');

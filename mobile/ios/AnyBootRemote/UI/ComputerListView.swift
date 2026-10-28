@@ -469,41 +469,41 @@ struct ComputerListView: View {
         let hits = info?.hits ?? []
         var rows: [PairRowView] = []
 
-        // 跳板机通道行：配了就亮出来（停用置灰「已停用」）
+        // 跳板机通道行：配了且启用才亮出来（用户 2026-10-28：没开启的不上列表页）
         if !jumpId.isEmpty {
             let jump = JumpStore.shared.jump(jumpId)
             let jumpHit = hits.first { $0.kind == ServerProfile.routeJump }
             let jumpEnabled = !profile.routeDisabled.contains(ServerProfile.routeJump)
-            let jumpInUse = state == Reach.online && info?.winnerKind == ServerProfile.routeJump
-            let display: String
-            if let jump {
-                let name = jump.name.trimmingCharacters(in: .whitespaces)
-                display = name.isEmpty ? jump.host : name
-            } else {
-                display = "已删除的跳板机"
+            if jumpEnabled {
+                let jumpInUse = state == Reach.online && info?.winnerKind == ServerProfile.routeJump
+                let display: String
+                if let jump {
+                    let name = jump.name.trimmingCharacters(in: .whitespaces)
+                    display = name.isEmpty ? jump.host : name
+                } else {
+                    display = "已删除的跳板机"
+                }
+                rows.append(PairRowView(
+                    id: "jump",
+                    channel: "跳板机",
+                    addr: display,
+                    url: "",   // 转发端点只在本机会话有效，浏览器开不了
+                    lane: "",
+                    source: "",
+                    state: jumpInUse && jumpHit?.ok == true ? "使用中 \(jumpHit?.ms ?? 0)ms"
+                        : (jumpInUse ? "使用中" : probeStateText(jumpHit)),
+                    ok: jumpHit?.ok == true,
+                    enabled: true))
             }
-            rows.append(PairRowView(
-                id: "jump",
-                channel: "跳板机",
-                addr: display,
-                url: "",   // 转发端点只在本机会话有效，浏览器开不了
-                lane: "",
-                source: "",
-                state: !jumpEnabled ? "已停用"
-                    : (jumpInUse && jumpHit?.ok == true ? "使用中 \(jumpHit?.ms ?? 0)ms"
-                       : (jumpInUse ? "使用中" : probeStateText(jumpHit))),
-                ok: jumpHit?.ok == true,
-                enabled: jumpEnabled))
         }
 
         for block in profile.pairBlockOrder() {
-            for pair in profile.pairsOfBlock(block, enabledOnly: false) {
+            // 已停用的配对不上列表页（用户 2026-10-28：连接策略没开启的就不展示）
+            for pair in profile.pairsOfBlock(block, enabledOnly: true) {
                 let hit = hits.first { !$0.pairId.isEmpty && $0.pairId == pair.id }
                 let inUse = pair.id == hitPair?.id
                 let stateText: String
-                if !pair.enabled {
-                    stateText = "已停用"
-                } else if inUse && hit?.ok == true {
+                if inUse && hit?.ok == true {
                     stateText = "使用中 \(hit?.ms ?? 0)ms"
                 } else if inUse {
                     stateText = "使用中"
@@ -531,7 +531,7 @@ struct ComputerListView: View {
                     source: pair.sourceLabel,
                     state: stateText,
                     ok: hit?.ok == true,
-                    enabled: pair.enabled))
+                    enabled: true))
             }
         }
 
@@ -1533,28 +1533,17 @@ struct ComputerListView: View {
     /// 三引导器通道的动作列表（对齐 PC 网页端 makeBootChannelCard 的条目区）
     @ViewBuilder
     private func channelPickerContent(_ profile: ServerProfile, channel: ChannelGroup) -> some View {
-        if !channel.detail.trimmingCharacters(in: .whitespaces).isEmpty {
-            Text(channel.detail)
-                .font(.system(size: 11.5))
-                .lineSpacing(ABMetric.px(8))
-                .foregroundColor(ABColor.fgFaint)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.bottom, ABMetric.px(6))
-        }
-        ForEach(channel.health, id: \.self) { issue in
-            Text("· " + issue)
-                .font(.system(size: 11))
-                .lineSpacing(ABMetric.px(7))
-                .foregroundColor(ABColor.warn)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.bottom, ABMetric.px(2))
-        }
-        if channel.permission == "nvram" {
-            Text("⤴ 切换必经 NVRAM 写（电脑端可能弹管理员授权）")
-                .font(.system(size: 11))
-                .foregroundColor(ABColor.fgFaint)
-                .padding(.bottom, ABMetric.px(4))
-        }
+        // 说明与健康检查：收进感叹号（用户 2026-10-28：不要占位置），点了才展开
+        let ocNote = channel.id == "opencore"
+            ? "「设为默认 ⤴」等价于 OC 菜单里的 Ctrl+Enter：写 OCBt0080 / OCBtOrder，不碰被 macOS 挡住的 Boot* 变量；电脑端弹授权时批准即可"
+            : ""
+        let nvramNote = channel.permission == "nvram"
+            ? "⤴ 切换必经 NVRAM 写（电脑端可能弹管理员授权）"
+            : ""
+        ChannelNoteDisclosure(
+            detail: channel.detail.trimmingCharacters(in: .whitespaces),
+            issues: channel.health,
+            extra: [nvramNote, ocNote].filter { !$0.isEmpty }.joined(separator: "\n"))
         // OC 菜单预演：只有 OpenCore 通道有，动作行从这里出（顶层 entries 对 OC 是空的）
         let previewRows: [ChannelMenuRow] = channel.id == "opencore"
             ? (channel.menuPreview?.rows ?? [])
@@ -1563,13 +1552,6 @@ struct ComputerListView: View {
             ForEach(previewRows) { row in
                 ocMenuRowView(profile, channel: channel, row: row)
             }
-            Text("「设为默认 ⤴」等价于 OC 菜单里的 Ctrl+Enter：写 OCBt0080 / OCBtOrder，不碰被 macOS 挡住的 Boot* 变量；电脑端弹授权时批准即可")
-                .font(.system(size: 10.5))
-                .lineSpacing(ABMetric.px(7))
-                .foregroundColor(ABColor.fgFaint)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, ABMetric.px(2))
-                .padding(.bottom, ABMetric.px(4))
         }
         if channel.entries.isEmpty && previewRows.isEmpty {
             Text(channel.error.isEmpty ? "没有可执行的动作" : channel.error)
@@ -1794,13 +1776,11 @@ struct ComputerListView: View {
         nav.go(.computers)
     }
 
+    /// 浏览器打开默认走**直连**（用户 2026-10-28）：URL 用档案里的局域网地址 + 令牌，
+    /// 跳板机只影响 App 内的连接通道 —— 浏览器侧连不上转发端点，但直连地址仍然有效。
     private func openInBrowser(_ profile: ServerProfile) {
         guard let host = ServerProfile.normalizeHost(profile.host) else {
             toast("这台电脑还没有可用地址")
-            return
-        }
-        if !profile.jumpServerId.trimmingCharacters(in: .whitespaces).isEmpty {
-            toast("这台电脑走跳板机，系统浏览器连不上 —— 请用「打开页面」")
             return
         }
         guard let url = profile.url(for: host, transport: "") else {
@@ -2207,6 +2187,62 @@ struct ComputerListView: View {
 }
 
 // MARK: - 小工具
+
+/// 通道的说明 + 健康检查：默认收进一枚 ⚠/ⓘ 小圆标（用户 2026-10-28：不要占位置）。
+/// ⚠ = 有健康检查条目，ⓘ = 纯说明；展开后 detail / issues / extra 依次铺开。
+/// 与 PC 网页端 .channel-note-toggle / .channel-note 同一套交互。
+private struct ChannelNoteDisclosure: View {
+    let detail: String
+    let issues: [String]
+    let extra: String
+
+    @State private var expanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                expanded.toggle()
+            } label: {
+                Text(issues.isEmpty ? "ⓘ" : "⚠")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(issues.isEmpty ? ABColor.fgFaint : ABColor.warn)
+                    .frame(width: ABMetric.px(22), height: ABMetric.px(22))
+                    .background(
+                        Circle().strokeBorder(ABColor.fgFaint.opacity(0.4), lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+            .padding(.bottom, ABMetric.px(6))
+
+            if expanded {
+                if !detail.isEmpty {
+                    Text(detail)
+                        .font(.system(size: 11.5))
+                        .lineSpacing(ABMetric.px(8))
+                        .foregroundColor(ABColor.fgFaint)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.bottom, ABMetric.px(6))
+                }
+                ForEach(issues, id: \.self) { issue in
+                    Text("· " + issue)
+                        .font(.system(size: 11))
+                        .lineSpacing(ABMetric.px(7))
+                        .foregroundColor(ABColor.warn)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.bottom, ABMetric.px(2))
+                }
+                if !extra.isEmpty {
+                    Text(extra)
+                        .font(.system(size: 10.5))
+                        .lineSpacing(ABMetric.px(7))
+                        .foregroundColor(ABColor.fgFaint)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, ABMetric.px(2))
+                        .padding(.bottom, ABMetric.px(4))
+                }
+            }
+        }
+    }
+}
 
 /// 虚线
 private struct DashedLine: Shape {
