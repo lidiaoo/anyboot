@@ -697,29 +697,16 @@ struct ComputerListView: View {
 
     /// 状态 + 全部配置的地址（第一行跟着状态，其余地址逐行补）
     private func addressLines(_ row: CqRow) -> some View {
-        let count = row.profile.addressCount
+        // 连接策略停用了「直连」：地址行不上列表页（用户 2026-10-28：没开启的就不展示）
+        let lanDisabled = row.profile.routeDisabled.contains(ServerProfile.routeLan)
+        let count = lanDisabled ? 0 : row.profile.addressCount
         return VStack(alignment: .leading, spacing: ABMetric.px(3)) {
+            // 状态行独立成行（卡片级：在线 / 离线 / 唤醒中 …）
             HStack(spacing: 0) {
                 statusLine(row.state)
-                if count > 0 {
-                    let addr = row.profile.hostAt(0)
+                if count == 0 {
                     dot()
-                    Text(displayAddrOf(addr))
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundColor(ABColor.fgFaint)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                    lanHitBadge(row, addr)
-                    ForEach(row.profile.macsForHost(addr), id: \.self) { mac in
-                        dot()
-                        Text(mac.uppercased())
-                            .font(.system(size: 11, design: .monospaced))
-                            .foregroundColor(ABColor.fgFaint)
-                            .lineLimit(1)
-                    }
-                } else {
-                    dot()
-                    Text("(未配地址)")
+                    Text(lanDisabled ? "直连已停用" : "(未配地址)")
                         .font(.system(size: 11))
                         .foregroundColor(ABColor.fgFaint)
                 }
@@ -727,30 +714,73 @@ struct ComputerListView: View {
             }
             .padding(.leading, ABMetric.px(4))
 
-            ForEach(1..<max(1, count), id: \.self) { index in
-                if index < count {
-                    let addr = row.profile.hostAt(index)
-                    HStack(spacing: 0) {
-                        Text(displayAddrOf(addr))
-                            .font(.system(size: 11, design: .monospaced))
-                            .foregroundColor(ABColor.fgFaint)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                        lanHitBadge(row, addr)
-                        ForEach(row.profile.macsForHost(addr), id: \.self) { mac in
-                            dot()
-                            Text(mac.uppercased())
-                                .font(.system(size: 11, design: .monospaced))
-                                .foregroundColor(ABColor.fgFaint)
-                                .lineLimit(1)
-                        }
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.leading, ABMetric.px(4))
+            if count > 0 {
+                ForEach(0..<count, id: \.self) { index in
+                    directAddrLine(row, index: index)
                 }
             }
         }
         .padding(.top, ABMetric.px(5))
+    }
+
+    /// 直连地址行：与远程配对行同款格式（用户 2026-10-28）——
+    /// 耗时在前、类型在中、地址吃剩余宽度、行尾「复制 / 打开」。
+    private func directAddrLine(_ row: CqRow, index: Int) -> some View {
+        let addr = row.profile.hostAt(index)
+        let host = ServerProfile.normalizeHost(addr) ?? ""
+        let hit = row.hits.first {
+            $0.kind == ServerProfile.routeLan && ServerProfile.normalizeHost($0.origin) == host
+        }
+        return HStack(spacing: 0) {
+            Text(probeStateText(hit))
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundColor(hit == nil ? ABColor.fgFaint : (hit?.ok == true ? ABColor.ok : ABColor.bad))
+                .lineLimit(1)
+                .frame(width: ABMetric.px(72), alignment: .leading)
+
+            Text("直连")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundColor(ABColor.fgDim)
+                .lineLimit(1)
+                .layoutPriority(1)
+                .padding(.trailing, ABMetric.px(5))
+
+            Text(displayAddrOf(addr))
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundColor(ABColor.fg)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            ForEach(row.profile.macsForHost(addr), id: \.self) { mac in
+                Text(mac.uppercased())
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(ABColor.fgFaint)
+                    .lineLimit(1)
+                    .layoutPriority(1)
+                    .padding(.leading, ABMetric.px(5))
+            }
+
+            if let url = row.profile.url(for: addr, transport: "") {
+                Button("复制") {
+                    ABClipboard.copyRemoteSlot("直连地址", url.absoluteString)
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 10))
+                .foregroundColor(ABColor.fgFaint)
+                .layoutPriority(2)
+                .padding(.leading, ABMetric.px(5))
+                Button("打开") {
+                    UIApplication.shared.open(url)
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 10))
+                .foregroundColor(ABColor.fgFaint)
+                .layoutPriority(2)
+                .padding(.leading, ABMetric.px(5))
+            }
+        }
+        .padding(.leading, ABMetric.px(4))
     }
 
     /// 地址行里的「·」分隔点
@@ -790,21 +820,6 @@ struct ComputerListView: View {
         case Reach.waking, Reach.shutting, Reach.rebooting: return ABColor.toneBusy
         case Reach.sleeping: return ABColor.toneSleep
         default: return ABColor.toneOffline
-        }
-    }
-
-    /// 这块网卡在这轮心跳里的结果（通 = 延迟，不通 = 标出）
-    @ViewBuilder
-    private func lanHitBadge(_ row: CqRow, _ addr: String) -> some View {
-        if let host = ServerProfile.normalizeHost(addr),
-           let hit = row.hits.first(where: {
-               $0.kind == ServerProfile.routeLan && ServerProfile.normalizeHost($0.origin) == host
-           }) {
-            Text(hit.ok ? "通 \(hit.ms)ms" : "不通")
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundColor(hit.ok ? ABColor.ok : ABColor.bad)
-                .lineLimit(1)
-                .padding(.leading, ABMetric.px(6))
         }
     }
 

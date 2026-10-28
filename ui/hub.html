@@ -7092,11 +7092,17 @@ window.__bkOnShow = async function () {
       if (picked.act === 'view') cqOpenPage(row.rid);
       else if (picked.act === 'goto') cqGotoPage(row.rid);
       else if (picked.act === 'browser') {
+        // 浏览器打开只走**直连**（用户 2026-10-28）：固定用档案里的局域网地址 + 令牌。
+        // 跳板机转发端点只在 hub 本机会话里有效、公网隧道地址在远程配对行上有自己的
+        // 「浏览器打开」——这里不再按连接赢家挑地址，也就没有「经跳板机」的提示了。
         const url = row.local ? localUrl() : (function () {
           const r = remotes.find(function (x) { return x.id === row.rid; });
-          return r ? pcConnUrl(r) : '';
+          const addr = r ? pcFirstAddr(r) : '';
+          return addr
+            ? 'http://' + addr + '/?token=' + encodeURIComponent(r.token || '')
+            : '';
         })();
-        if (!url) { toast('这台电脑的地址还没就绪（经跳板机时稍等一下）', 'bad'); return; }
+        if (!url) { toast('这台电脑还没有可直连打开的地址', 'bad'); return; }
         // 走系统默认浏览器（后端 ShellExecuteW）；hub 自己的 window.open 只会开新 webview
         if (!invoke) { toast('打开浏览器需要应用环境', 'bad'); return; }
         invoke('remote_open_page', { url: url })

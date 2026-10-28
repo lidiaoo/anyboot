@@ -930,77 +930,29 @@ class ComputerListActivity : ComponentActivity() {
                 CardMenu(row)
             }
 
-            // 状态 + 全部配置的地址：第一行跟着状态，其余地址（和各自的 MAC）逐行补在下面
-            val addrCount = row.profile.addressCount()
+            // 状态行独立成行；直连地址行与远程配对行同款格式（用户 2026-10-28）：
+            // 耗时在前、类型在中、地址吃剩余宽度、行尾「复制 / 打开」。
+            // 连接策略停用了「直连」：地址行不上列表页（没开启的就不展示）。
+            val lanDisabled = row.profile.routeDisabled.contains(ServerProfile.ROUTE_LAN)
+            val addrCount = if (lanDisabled) 0 else row.profile.addressCount()
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.padding(start = 4.dp, top = 5.dp),
             ) {
                 StatusLine(row.state)
-                if (addrCount > 0) {
-                    val addr0 = displayAddrOf(row.profile.hostAt(0))
+                if (addrCount == 0) {
                     Spacer(Modifier.width(6.dp))
                     Text("·", fontSize = 11.sp, color = palette.fgFaint)
                     Spacer(Modifier.width(6.dp))
                     Text(
-                        addr0,
+                        if (lanDisabled) "直连已停用" else "(未配地址)",
                         fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace,
                         color = palette.fgFaint,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
                     )
-                    // 这块网卡的探测情况（同一套逐行结果，换样式展示）：通 = 延迟，不通 = 标出
-                    LanHitBadge(row, row.profile.hostAt(0))
-                    row.profile.macsForHost(row.profile.hostAt(0)).forEach { mac ->
-                        Spacer(Modifier.width(6.dp))
-                        Text("·", fontSize = 11.sp, color = palette.fgFaint)
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            mac.uppercase(Locale.US),
-                            fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace,
-                            color = palette.fgFaint,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                } else {
-                    Spacer(Modifier.width(6.dp))
-                    Text("·", fontSize = 11.sp, color = palette.fgFaint)
-                    Spacer(Modifier.width(6.dp))
-                    Text("(未配地址)", fontSize = 11.sp, color = palette.fgFaint)
                 }
             }
-            for (i in 1 until addrCount) {
-                val addr = row.profile.hostAt(i)
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(start = 4.dp, top = 3.dp),
-                ) {
-                    Text(
-                        displayAddrOf(addr),
-                        fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace,
-                        color = palette.fgFaint,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    LanHitBadge(row, addr)
-                    row.profile.macsForHost(addr).forEach { mac ->
-                        Spacer(Modifier.width(6.dp))
-                        Text("·", fontSize = 11.sp, color = palette.fgFaint)
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            mac.uppercase(Locale.US),
-                            fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace,
-                            color = palette.fgFaint,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
+            for (i in 0 until addrCount) {
+                DirectAddrRow(row, i)
             }
 
             // 远程配对（三个区块逐条列出）：地址 + 通道 + 来源 + 这一轮的探测结果。
@@ -1235,26 +1187,88 @@ class ComputerListActivity : ComponentActivity() {
     }
 
     /**
-     * 局域网地址行尾的探测情况小字：这块网卡在这轮心跳里的结果（通 = 延迟，不通 = 标出）。
-     * 探测机制属于电脑列表（连接优先级 / 停用通道都按列表策略算），这里只是换个样式展示。
+     * 直连地址行：与远程配对行同款格式（用户 2026-10-28）——
+     * 耗时在前、类型在中、地址吃剩余宽度、行尾「复制 / 打开」（URL 带档案令牌）。
      */
     @Composable
-    private fun LanHitBadge(row: CqRow, addr: String) {
+    private fun DirectAddrRow(row: CqRow, index: Int) {
         val palette = LocalPalette.current
+        val addr = row.profile.hostAt(index)
         val host = ServerProfile.normalizeHost(addr)
-        if (host.isEmpty()) return
         val hit = row.hits.firstOrNull {
             it.kind == ServerProfile.ROUTE_LAN &&
                 ServerProfile.normalizeHost(it.origin) == host
-        } ?: return
-        Spacer(Modifier.width(6.dp))
-        Text(
-            if (hit.ok) "通 " + hit.ms + "ms" else "不通",
-            fontSize = 10.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = if (hit.ok) palette.ok else palette.bad,
-            maxLines = 1,
-        )
+        }
+        val url = if (host.isEmpty()) "" else row.profile.urlFor(addr, "")
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(start = 4.dp, top = 3.dp),
+        ) {
+            Text(
+                probeStateText(hit),
+                fontSize = 10.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = when {
+                    hit == null -> palette.fgFaint
+                    hit.ok -> palette.ok
+                    else -> palette.bad
+                },
+                modifier = Modifier.width(72.dp),
+                maxLines = 1,
+            )
+            Text(
+                "直连",
+                fontSize = 10.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = palette.fgDim,
+                maxLines = 1,
+            )
+            Spacer(Modifier.width(5.dp))
+            Text(
+                displayAddrOf(addr),
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace,
+                color = palette.fg,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            row.profile.macsForHost(addr).forEach { mac ->
+                Spacer(Modifier.width(5.dp))
+                Text(
+                    mac.uppercase(Locale.US),
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.Monospace,
+                    color = palette.fgFaint,
+                    maxLines = 1,
+                )
+            }
+            if (url.isNotEmpty()) {
+                Spacer(Modifier.width(5.dp))
+                Text(
+                    "复制",
+                    fontSize = 10.sp,
+                    color = palette.fgFaint,
+                    modifier = Modifier.clickable {
+                        copyText(url)
+                        toast("已复制直连地址")
+                    },
+                )
+                Spacer(Modifier.width(5.dp))
+                Text(
+                    "打开",
+                    fontSize = 10.sp,
+                    color = palette.fgFaint,
+                    modifier = Modifier.clickable {
+                        try {
+                            startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)))
+                        } catch (error: Exception) {
+                            toast("没有能打开网页的应用")
+                        }
+                    },
+                )
+            }
+        }
     }
 
     /**
