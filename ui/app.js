@@ -789,7 +789,7 @@ const REFIND_SIM_SOURCE_LABEL = {
   firmware: "固件 Boot####",
 };
 
-function refindSimRow(entry, index) {
+function refindSimRow(entry, index, allowPick = false) {
   const row = document.createElement("div");
   row.className = "oc-menu-row";
   row.dataset.kind = entry.kind || "unknown";
@@ -811,9 +811,9 @@ function refindSimRow(entry, index) {
   if (entry.lastBoot) {
     const mark = document.createElement("span");
     mark.className = "oc-menu-last";
-    mark.textContent = "上次启动";
+    mark.textContent = "下次启动";
     mark.title =
-      "与 vars/PreviousBoot 里的标题一致：rEFInd「记住启动项」记的就是它，"
+      "vars/PreviousBoot 里就是这一项的标题：rEFInd 的「记住启动项」开机按它进，"
       + "default_selection 里的 + 会被替换成这一项";
     head.append(mark);
   }
@@ -850,6 +850,37 @@ function refindSimRow(entry, index) {
   }
 
   row.append(idx, body);
+
+  // 选中即写 vars/PreviousBoot（= rEFInd 的 StoreLoaderName）。后端只接受
+  // 本列表里原样带回去的标题，所以这里传 entry.title（带末尾空格的那个原文），
+  // 别 trim —— 少一个空格 rEFInd 就匹配不上。
+  if (allowPick && !entry.lastBoot) {
+    const pick = document.createElement("button");
+    pick.type = "button";
+    pick.className = "secondary sim-scan-pick";
+    pick.textContent = "下次启动";
+    pick.title =
+      "把这一项的标题写进 ESP 的 vars/PreviousBoot —— rEFInd 开机会按它启动"
+      + "（等价于在 rEFInd 菜单里选中它一次）";
+    pick.addEventListener("click", async () => {
+      pick.disabled = true;
+      try {
+        const status = await call("refind_sim_switch", { title: entry.title });
+        if (!status) return;
+        // 校验类失败（标题不在菜单里、被隐藏规则挡掉）后端是「正常返回 + error 字段」，
+        // 不抛异常 —— 这里必须显式显示，否则点了像没反应
+        if (status.error) {
+          showStatusBar(status.error, { error: true });
+        } else if (status.message) {
+          showStatusBar(status.message);
+        }
+      } finally {
+        pick.disabled = false;
+      }
+    });
+    row.append(pick);
+  }
+
   return row;
 }
 
@@ -863,7 +894,7 @@ function renderRefindSim(sim) {
   if (!sim) {
     // 变量目录都没找到时后端根本不算 —— 照实说，别留一块空白让人以为坏了
     simScanSummaryElement.textContent =
-      "还没有结果：变量目录扫描成功后会自动算一次（纯读，不影响上面的手动切换）";
+      "还没有结果：变量目录扫描成功后会自动算一次";
     return;
   }
 
@@ -877,7 +908,7 @@ function renderRefindSim(sim) {
   }
 
   (sim.entries || []).forEach((entry, index) => {
-    simScanListElement.append(refindSimRow(entry, index));
+    simScanListElement.append(refindSimRow(entry, index, true));
   });
   if (!(sim.entries || []).length) {
     const empty = document.createElement("small");
@@ -897,7 +928,7 @@ function renderRefindSim(sim) {
   }
 }
 
-function renderSystems(status, busy, grub) {
+function renderSystems(status, busy, grub, sim) {
   systemsElement.replaceChildren();
 
   // 顶部那行大字要说明「下次启动的系统是哪个」，先扫一遍选中项
@@ -980,7 +1011,11 @@ function renderSystems(status, busy, grub) {
   // 时，开机真正进的是 GRUB 环境块里选中的那个启动项 —— 两层一并显示
   // 「Linux › 启动项名」；rEFInd 选的不是 Linux（Windows/macOS 直接引导），
   // 或者 GRUB 侧还没选过，就只显示 rEFInd 这一层。
-  let nextBootText = activeName || "未知（没有选中的系统）";
+  // 三份快照都匹配不上、但 rEFInd 的 PreviousBoot 有值（刚用「模拟引导项扫描」
+  // 选了某一项就是这种情况）：那才是 rEFInd 真正会启动的，顶部大字按它说 ——
+  // 不然会显示「没有选中的系统」，跟事实相反。
+  const simPrevious = sim && sim.previousBoot ? String(sim.previousBoot).trim() : "";
+  let nextBootText = activeName || simPrevious || "未知（没有选中的系统）";
   if (activeSystem === "linux" && grub) {
     const selector = grub.nextEntry || grub.savedEntry || "";
     const entry = (grub.entries || []).find(
@@ -1007,7 +1042,7 @@ function renderSystems(status, busy, grub) {
       nextBootText += ` › ${leafLabel}`;
     }
   }
-  nextBootElement.classList.toggle("unknown", !activeName);
+  nextBootElement.classList.toggle("unknown", !activeName && !simPrevious);
   nextBootNameElement.textContent = nextBootText;
   // 顶部状态行要用它去重（见 render）
   return nextBootText;
@@ -1612,7 +1647,7 @@ function render(state) {
     !state.status.temporaryMount,
   );
 
-  renderSystems(state.status, busy, state.grub);
+  renderSystems(state.status, busy, state.grub, state.refindSim);
   // 模拟引导项扫描（纯读）：与上面三张系统卡并列的另一条链路，只展示不写盘
   renderRefindSim(state.refindSim);
   // 顶部那行状态文案：扫描成功后 status.message 就是「下次启动：X」，

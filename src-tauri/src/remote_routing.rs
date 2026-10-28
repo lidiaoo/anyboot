@@ -612,6 +612,19 @@ pub(crate) fn remote_ui_command_inner(
                 tauri::async_runtime::block_on(switch_boot_channel(app.clone(), target));
             status_value(status)
         }
+        // rEFInd 模拟引导项扫描：网页 / 手机端要能「重新模拟」、以及选中某一项写
+        // `vars/PreviousBoot`。之前只在本机 invoke 表里注册过，漏了这张白名单 ——
+        // 远程浏览器点按钮会报「未知或不受支持的命令」。
+        "refind_sim_scan" => {
+            serde_json::to_value(channels::refind_menu::refind_sim_scan(app.clone()))
+                .map_err(|error| format!("序列化失败: {error}"))
+        }
+        // 与 switch_boot_channel 同级别：直接改本机 ESP 上的文件，不走本机授权窗
+        // （网页控制台的 OC/Clover 卡片也是这么切换的）
+        "refind_sim_switch" => status_value(channels::refind_menu::refind_sim_switch(
+            app.clone(),
+            ui_str(args, "title")?,
+        )),
         "detect_esp" => {
             let path = ui_str(args, "path")?;
             detect_esp_blocking(app.clone(), path).map(serde_json::Value::String)

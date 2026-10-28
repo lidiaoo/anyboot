@@ -3380,8 +3380,10 @@ pub fn run() {
             backup::backup_pick_export_path,
             channels::boot_channels,
             channels::switch_boot_channel,
-            // rEFInd 模拟引导项扫描（纯读预演，与手动获取的 vars 快照并列）
+            // rEFInd 模拟引导项扫描（与手动获取的 vars 快照并列）
             channels::refind_menu::refind_sim_scan,
+            // 选中模拟条目 → 写 vars/PreviousBoot（等价 rEFInd 的 StoreLoaderName）
+            channels::refind_menu::refind_sim_switch,
             // 免密写 NVRAM 的 root 助手（装 / 卸各弹一次管理员授权）
             helper_install::boot_helper,
             hub_term::hub_term_open,

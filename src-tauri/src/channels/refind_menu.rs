@@ -1,4 +1,6 @@
-//! rEFInd 模拟引导项扫描（**纯读**：不写盘、不碰 NVRAM、不需要提权）。
+//! rEFInd 模拟引导项扫描（扫描本身**纯读**：不写盘、不碰 NVRAM、不需要提权；
+//! 只有用户在一个条目上点「下次启动」时才写 `vars/PreviousBoot`，见
+//! [`refind_sim_switch`]）。
 //!
 //! 与 `scan.rs` 那条「手动获取」链路**完全并列**，互不影响：
 //! * 手动获取 —— 只认 `vars/PreviousBoot-*` 快照（用户自己维护的三份文件），
@@ -152,6 +154,161 @@ pub(crate) fn refind_sim_scan(app: tauri::AppHandle) -> Option<SimPreview> {
     let sim = refresh_sim(&app);
     publish_ui(&app);
     sim
+}
+
+/// `PreviousBoot` 文件的字节形态：标题原文 UTF-16LE + 2 字节 NUL。
+///
+/// 对应 `StoreLoaderName()` 里的 `StrLen(Name) * 2 + 2`（`main.c:230`）——
+/// 请**注意**这里不带 Linux efivarfs 那 4 字节属性头，和 `vars/` 里现存文件的
+/// 形态完全一致（可拿 `PreviousBoot-linux` 这类快照对照）。
+fn previous_boot_bytes(title: &str) -> Vec<u8> {
+    let mut bytes: Vec<u8> = title
+        .encode_utf16()
+        .flat_map(|unit| unit.to_le_bytes())
+        .collect();
+    bytes.extend_from_slice(&[0, 0]);
+    bytes
+}
+
+/// 选中某个模拟条目 → 写 `vars/PreviousBoot`（「下次启动就是它」）。
+///
+/// 这正是 rEFInd 自己 `StoreLoaderName()` 做的事（`main.c:230`）：
+/// `EfivarSetRaw(&RefindGuid, L"PreviousBoot", Name, StrLen(Name)*2+2, TRUE)`；
+/// `use_nvram false` 时 `EfivarSetRaw` 把它落到 `EFI/refind/vars/PreviousBoot`，
+/// 下次开机 `AdjustDefaultSelection` 把 `default_selection` 里的 `+` 换成它。
+///
+/// 所以内容必须逐字节等于「标题原文的 UTF-16LE + 2 字节 NUL」：少一个末尾空格、
+/// 卷标大小写不同都会让 rEFInd 匹配不上，表现是「设置了却没生效、开机还进第一项」。
+/// 因此这里**只接受当前模拟列表里真实存在的可见项标题**（前端从 `SimEntry.title`
+/// 原样带回，不是用户手输的字符串）：
+/// * 手输 / 已过期的标题 → 拒绝，提示先重新模拟；
+/// * 被隐藏规则挡掉的标题 → 拒绝（菜单里没这一项，写了也匹配不上）。
+///
+/// 与「手动获取」的关系：两者写的是同一个 `PreviousBoot`，所以模拟这边选中后，
+/// 上面那三张快照卡会因为匹配不上而显示「未匹配模板」—— 这是如实的，不是坏了。
+#[tauri::command]
+pub(crate) fn refind_sim_switch(app: tauri::AppHandle, title: String) -> AppStatus {
+    let started = Instant::now();
+    let (vars_dir, active_mount, cached) = {
+        let state = app.state::<Mutex<AppState>>();
+        let state = state.lock().expect("state mutex poisoned");
+        (
+            state.vars_dir.clone(),
+            state.active_mount.clone(),
+            state.refind_sim.clone(),
+        )
+    };
+    let Some(vars_dir) = vars_dir else {
+        return update_failure_status(
+            &app,
+            "写入 PreviousBoot 失败",
+            "变量目录尚未就绪：先让上一轮扫描成功跑完".to_string(),
+        );
+    };
+    // 缓存没有（或过期）就先算一遍，保证校验用的是当前真实菜单
+    let sim = cached.unwrap_or_else(|| preview(&vars_dir));
+
+    // `use_nvram true` 时 rEFInd 从固件 NVRAM 读 PreviousBoot，`vars/` 里的文件它根本不看。
+    // 与其写一个「看着成功、开机没反应」的文件，不如拦住并说清改哪里。
+    if sim.var_mode == "nvram" {
+        return update_failure_status(
+            &app,
+            "写入 PreviousBoot 失败",
+            "refind.conf 里是 use_nvram true：rEFInd 从固件 NVRAM 读 PreviousBoot，\
+             不读 vars 目录里的文件。先把 refind.conf 改成 use_nvram false（或删掉那一行）"
+                .to_string(),
+        );
+    }
+
+    if let Some(blocked) = sim.hidden.iter().find(|entry| entry.title == title) {
+        let why = blocked
+            .hidden_by
+            .clone()
+            .unwrap_or_else(|| "隐藏规则".to_string());
+        return update_failure_status(
+            &app,
+            "写入 PreviousBoot 失败",
+            format!(
+                "「{}」被隐藏规则挡掉了（{why}）：rEFInd 菜单里没有这一项，\
+                 写进 PreviousBoot 也匹配不上，开机会退回第一项",
+                title.trim()
+            ),
+        );
+    }
+    if !sim.entries.iter().any(|entry| entry.title == title) {
+        return update_failure_status(
+            &app,
+            "写入 PreviousBoot 失败",
+            format!(
+                "「{}」不在当前模拟菜单里（多半是重新扫描后菜单变了）：先点「重新模拟」再选",
+                title.trim()
+            ),
+        );
+    }
+
+    // 内容 = 标题原文 UTF-16LE + 2 字节 NUL（对应 `StrLen(Name)*2+2`）。
+    // rEFInd 自己写这个文件不截断（`egSaveFile` 用 CREATE 打开，短串覆盖长串会留尾巴），
+    // 这里用「临时文件 + rename」整文件替换：等价但干净，也顺带清掉历史残留字节。
+    let bytes = previous_boot_bytes(&title);
+    let target = vars_dir.join("PreviousBoot");
+
+    let result = write_with_mount(active_mount.as_ref(), || {
+        let temporary = temporary_target(&target);
+        let written = (|| -> io::Result<()> {
+            fs::write(&temporary, &bytes)?;
+            let file = fs::OpenOptions::new().write(true).open(&temporary)?;
+            file.sync_all()?;
+            drop(file);
+            fs::rename(&temporary, &target)
+        })();
+        if written.is_err() {
+            let _ = fs::remove_file(&temporary);
+        }
+        written.map_err(|error| format!("写入 {} 失败: {error}", target.display()))?;
+        // 读回校验：多一个字节少一个字节都算没写对（rEFInd 只按 NUL 截断读，
+        // 但它比对的是整串标题，差一个字符就匹配不上）
+        let read_back =
+            fs::read(&target).map_err(|error| format!("写入后读回失败: {error}"))?;
+        if utf16le_to_string(&read_back) != title {
+            return Err(format!(
+                "写入校验失败：{} 读回的标题与目标不一致",
+                target.display()
+            ));
+        }
+        Ok(())
+    });
+
+    match result {
+        Ok(()) => {
+            trace(
+                &app,
+                "switch",
+                &format!(
+                    "模拟项写入 PreviousBoot 完成 title={} 耗时={}ms",
+                    title.trim(),
+                    started.elapsed().as_millis()
+                ),
+            );
+            let mut status = refresh_and_update(&app);
+            // refresh 会按「三份快照」重算 message（这次写入对不上任何快照），
+            // 这里换成用户真正做的事，别让他以为切换失败
+            status.message = format!("下次启动：{}", title.trim());
+            record_action(&app, "切换系统（模拟扫描）", true, &status.message);
+            status
+        }
+        Err(error) => {
+            trace(
+                &app,
+                "switch",
+                &format!(
+                    "模拟项写入 PreviousBoot 失败 title={} 错误={error}",
+                    title.trim()
+                ),
+            );
+            record_action(&app, "切换系统（模拟扫描）", false, &error);
+            update_failure_status(&app, "写入 PreviousBoot 失败", error)
+        }
+    }
 }
 
 // ─────────────────────────── refind.conf 解析 ───────────────────────────
@@ -995,6 +1152,46 @@ mod tests {
         assert!(filename_in("MAC", "EFI\\OC", "OpenCore.efi", &list).is_some());
         // 无关文件
         assert!(filename_in("ARCH-EFI", "EFI\\OC", "OpenCore.efi", &["grubx64.efi".to_string()]).is_none());
+    }
+
+    /// 写进 `PreviousBoot` 的字节必须与 rEFInd 写的形态一致：
+    /// UTF-16LE + 2 字节 NUL，且不带 efivarfs 那 4 字节属性头。
+    #[test]
+    fn previous_boot_bytes_match_refind_layout() {
+        let title = "Boot EFI\\arch-efi\\grubx64.efi from ARCH-EFI ";
+        let bytes = previous_boot_bytes(title);
+        assert_eq!(bytes.len(), title.chars().count() * 2 + 2);
+        assert_eq!(&bytes[bytes.len() - 2..], &[0, 0]);
+        // 小端：'B' = 0x42 0x00
+        assert_eq!(&bytes[..2], &[0x42, 0x00]);
+        assert_eq!(utf16le_to_string(&bytes), title);
+        // 末尾那个空格必须留住：rEFInd 的标题就带它，少一个字符就匹配不上
+        assert!(title.ends_with(' '));
+    }
+
+    /// 与 ESP 上现成的快照对齐（真机验证，默认 ignore）：
+    /// 把快照解成标题、再按我们的格式编回去，前缀必须逐字节一致 ——
+    /// 说明「标题 + NUL」就是 rEFInd 写文件的形状（尾部是它不截断留下的残留）。
+    #[test]
+    #[ignore]
+    fn previous_boot_bytes_match_snapshot() {
+        let dir = Path::new("/Volumes/REFIND/EFI/refind/vars");
+        for name in ["PreviousBoot-linux", "PreviousBoot-mac", "PreviousBoot-windows"] {
+            let path = dir.join(name);
+            let Ok(raw) = fs::read(&path) else { continue };
+            let title = utf16le_to_string(&raw);
+            let ours = previous_boot_bytes(&title);
+            if raw.len() >= ours.len() {
+                assert_eq!(&raw[..ours.len()], &ours[..], "{name} 前缀不一致");
+            }
+            println!(
+                "{name}: {} 字符 · ours={} 字节 · raw={} 字节（尾部残留 {}）",
+                title.chars().count(),
+                ours.len(),
+                raw.len(),
+                raw.len().saturating_sub(ours.len())
+            );
+        }
     }
 
     /// 真机快照：本机 ESP 挂在 /Volumes/REFIND。默认 ignore —— 只用来肉眼核对输出，
