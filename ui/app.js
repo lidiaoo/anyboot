@@ -789,7 +789,63 @@ const REFIND_SIM_SOURCE_LABEL = {
   firmware: "固件 Boot####",
 };
 
+// 子菜单里的每一项是谁给的（对应后端 SimChild.source）
+const REFIND_SIM_CHILD_SOURCE = {
+  default: "默认项",
+  options: "refind_linux.conf",
+  kernel: "折叠内核",
+  macos: "macOS 诊断",
+  stanza: "submenuentry",
+};
+
+/// 记住哪些条目被展开（按标题）。ui-state 每隔几秒推一次、每推一次整块重绘，
+/// 不记住的话用户刚点开的子菜单几秒后自己收回去（实测过，像点了没反应）。
+const refindSimExpanded = new Set();
+
+/// 第二层的一行：标题 + 传给 loader 的参数。
+function refindSimChildRow(child, index) {
+  const row = document.createElement("div");
+  row.className = "sim-scan-child";
+
+  const idx = document.createElement("span");
+  idx.className = "sim-scan-child-idx";
+  idx.textContent = String(index);
+
+  const body = document.createElement("span");
+  body.className = "oc-menu-body";
+
+  const head = document.createElement("span");
+  head.className = "oc-menu-head";
+  const name = document.createElement("b");
+  name.textContent = child.title || "";
+  head.append(name);
+  const tag = document.createElement("span");
+  tag.className = "oc-menu-src";
+  tag.textContent = REFIND_SIM_CHILD_SOURCE[child.source] || child.source;
+  head.append(tag);
+  body.append(head);
+
+  if (child.options) {
+    const options = document.createElement("code");
+    options.className = "oc-menu-path";
+    options.textContent = child.options;
+    body.append(options);
+  }
+  if (child.note) {
+    const note = document.createElement("small");
+    note.className = "oc-menu-note";
+    note.textContent = child.note;
+    body.append(note);
+  }
+
+  row.append(idx, body);
+  return row;
+}
+
 function refindSimRow(entry, index, allowPick = false) {
+  const wrap = document.createElement("div");
+  wrap.className = "sim-scan-item";
+
   const row = document.createElement("div");
   row.className = "oc-menu-row";
   row.dataset.kind = entry.kind || "unknown";
@@ -851,6 +907,55 @@ function refindSimRow(entry, index, allowPick = false) {
 
   row.append(idx, body);
 
+  // 第二层：rEFInd 每个 loader 都有子屏，但大多数只有「用默认选项启动」一条
+  // （进去也没什么可选的）—— 所以只在多于一条时给折叠入口，不把 15 行 × 1
+  // 条空面板全铺出来
+  const children = entry.children || [];
+  let panel = null;
+  if (children.length > 1) {
+    const expanded = refindSimExpanded.has(entry.title);
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "secondary sim-scan-toggle";
+    toggle.dataset.open = expanded ? "true" : "false";
+    toggle.textContent = `${expanded ? "▴" : "▾"} ${children.length} 项`;
+    toggle.title =
+      (entry.subscreen ? `${entry.subscreen}\n` : "")
+      + "rEFInd 里按 Tab / + / F2（Insert）进入这一层；空格是直接启动";
+    row.append(toggle);
+
+    panel = document.createElement("div");
+    panel.className = "sim-scan-children";
+    panel.hidden = !expanded;
+    if (entry.subscreen) {
+      const caption = document.createElement("small");
+      caption.className = "sim-scan-subscreen";
+      caption.textContent = entry.subscreen;
+      panel.append(caption);
+    }
+    // 子项不能设「下次启动」：rEFInd 的 default_selection（PreviousBoot）只在
+    // **主菜单**里做子串匹配（menu.c:336），子屏里的标题它根本不看
+    children.forEach((child, childIndex) => {
+      panel.append(refindSimChildRow(child, childIndex + 1));
+    });
+    const hint = document.createElement("small");
+    hint.className = "sim-scan-subscreen";
+    hint.textContent =
+      "这一层只能进去选、不能设成默认项：PreviousBoot 只在主菜单里匹配标题";
+    panel.append(hint);
+
+    toggle.addEventListener("click", () => {
+      panel.hidden = !panel.hidden;
+      if (panel.hidden) {
+        refindSimExpanded.delete(entry.title);
+      } else {
+        refindSimExpanded.add(entry.title);
+      }
+      toggle.dataset.open = panel.hidden ? "false" : "true";
+      toggle.textContent = `${panel.hidden ? "▾" : "▴"} ${children.length} 项`;
+    });
+  }
+
   // 选中即写 vars/PreviousBoot（= rEFInd 的 StoreLoaderName）。后端只接受
   // 本列表里原样带回去的标题，所以这里传 entry.title（带末尾空格的那个原文），
   // 别 trim —— 少一个空格 rEFInd 就匹配不上。
@@ -881,7 +986,9 @@ function refindSimRow(entry, index, allowPick = false) {
     row.append(pick);
   }
 
-  return row;
+  wrap.append(row);
+  if (panel) wrap.append(panel);
+  return wrap;
 }
 
 function renderRefindSim(sim) {

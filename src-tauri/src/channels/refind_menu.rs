@@ -81,6 +81,24 @@ const DEFAULT_DONT_SCAN_FILES: &[&str] = &[
 /// 注意 `EFI\BOOT` **不在**这里 —— 它只把 fallback 文件名摘出来单列，别的 .efi 照扫。
 const DEFAULT_DONT_SCAN_DIRS: &[&str] = &["EFI/refind", "EFI/tools"];
 
+/// 子菜单里的一项（rEFInd 的 `SubScreen` 条目，对应界面上「按 Tab/`+`/F2 进去」
+/// 看到的第二层）。
+///
+/// 来源只有三类（`scan.c GenerateSubScreen` / `linux.c AddKernelToSubmenu` /
+/// `config.c AddSubmenu`）：默认项、refind_linux.conf 的 options 变体、手写
+/// `submenuentry`。macOS 还有一组写死的诊断项。
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SimChild {
+    /// 子项标题**原文**（`GenerateSubScreen` 里就是菜单上显示的那一行）
+    pub(crate) title: String,
+    /// 传给 loader 的参数（`refind_linux.conf` 第二列起）；空串表示用默认
+    pub(crate) options: String,
+    /// default / options / kernel / macos / stanza
+    pub(crate) source: String,
+    pub(crate) note: Option<String>,
+}
+
 /// 一条模拟出来的引导项（要不要隐藏由 `hidden` 表形状决定，见 [`SimPreview`]）。
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -102,6 +120,12 @@ pub(crate) struct SimEntry {
     /// 命中隐藏规则的原因（排查「为什么少了一项」用）
     pub(crate) hidden_by: Option<String>,
     pub(crate) note: Option<String>,
+    /// 子屏标题（`Boot Options for <标题> on <卷标>`，`scan.c:245`）；
+    /// 没有子屏时为 `None`
+    pub(crate) subscreen: Option<String>,
+    /// 第二层条目。rEFInd 给几乎每个 loader 都建了子屏，所以「只有一条
+    /// `Boot using default options`」是常态 —— 前端只在一个以上时才展示
+    pub(crate) children: Vec<SimChild>,
 }
 
 /// 一次模拟扫描的结果（挂在 `UiState.refindSim` 上下发）。
@@ -325,6 +349,16 @@ struct MenuStanza {
     loader: String,
     volume: String,
     disabled: bool,
+    /// `submenuentry "标题" { options … }` —— 手写 stanza 的第二层（`config.c:1034`）
+    subs: Vec<SubStanza>,
+}
+
+/// 手写 stanza 里的一个子项。
+#[derive(Clone, Debug, Default)]
+struct SubStanza {
+    title: String,
+    options: String,
+    loader: String,
 }
 
 /// 本模块关心的配置项（其余几十个选项与菜单扫描无关，不解析）。
@@ -406,10 +440,58 @@ fn read_config(path: &Path, config: &mut RefindConfig, depth: usize) {
     let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
     let mut stanza: Option<MenuStanza> = None;
     let mut braces: i32 = 0;
+    // 进入某个 `submenuentry` 时的花括号深度；回到这个深度就是子项结束
+    let mut sub_base: Option<i32> = None;
     for line in text.lines() {
         let tokens = tokens_of(line);
         if let Some(current) = stanza.as_mut() {
-            if let Some(key) = tokens.first().map(|token| token.to_ascii_lowercase()) {
+            let key = tokens.first().map(|token| token.to_ascii_lowercase());
+            // `submenuentry "标题" {`：开一个子项（`config.c:1034`）
+            if matches!(key.as_deref(), Some("submenuentry")) {
+                if let Some(title) = tokens.get(1) {
+                    current.subs.push(SubStanza {
+                        title: title.clone(),
+                        options: String::new(),
+                        loader: String::new(),
+                    });
+                    sub_base = Some(braces);
+                    braces += brace_delta(line);
+                    if braces <= sub_base.unwrap_or(0) {
+                        sub_base = None;
+                    }
+                    continue;
+                }
+            }
+            if let Some(base) = sub_base {
+                // 子项内部：只收它自己的 options / loader，别污染父 stanza
+                if let Some(sub) = current.subs.last_mut() {
+                    match key.as_deref() {
+                        Some("options") => {
+                            if let Some(value) = tokens.get(1) {
+                                sub.options = value.clone();
+                            }
+                        }
+                        Some("loader") => {
+                            if let Some(value) = tokens.get(1) {
+                                sub.loader = value.clone();
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                braces += brace_delta(line);
+                if braces <= base {
+                    sub_base = None;
+                }
+                if braces <= 0 {
+                    if let Some(done) = stanza.take() {
+                        config.menu_entries.push(done);
+                    }
+                    sub_base = None;
+                }
+                continue;
+            }
+            if let Some(key) = key {
                 match key.as_str() {
                     "loader" => {
                         if let Some(value) = tokens.get(1) {
@@ -445,6 +527,7 @@ fn read_config(path: &Path, config: &mut RefindConfig, depth: usize) {
                         loader: String::new(),
                         volume: String::new(),
                         disabled: false,
+                        subs: Vec::new(),
                     });
                     braces = brace_delta(line);
                     if braces <= 0 {
@@ -800,6 +883,27 @@ pub(crate) fn preview(vars_dir: &Path) -> SimPreview {
         } else {
             "手写 stanza：由 refind.conf 的 menuentry 定义，不来自文件扫描".to_string()
         };
+        // 子屏：默认项 + 手写的 submenuentry（`config.c:880-1036`）
+        let mut children = vec![default_child()];
+        for sub in &stanza.subs {
+            children.push(SimChild {
+                title: sub.title.clone(),
+                options: sub.options.clone(),
+                source: "stanza".to_string(),
+                note: (!sub.loader.is_empty()).then(|| format!("loader: {}", sub.loader)),
+            });
+        }
+        let subscreen = (!stanza.subs.is_empty()).then(|| {
+            format!(
+                "Boot Options for {} on {}",
+                stanza
+                    .loader
+                    .rsplit(['\\', '/'])
+                    .next()
+                    .unwrap_or(stanza.loader.as_str()),
+                stanza.volume
+            )
+        });
         entries.push(SimEntry {
             title: stanza.title.clone(),
             kind,
@@ -810,6 +914,8 @@ pub(crate) fn preview(vars_dir: &Path) -> SimPreview {
             last_boot: matches_previous(previous_boot.as_deref(), &stanza.title),
             hidden_by: stanza.disabled.then(|| "stanza 里写了 disabled".to_string()),
             note: Some(note),
+            children,
+            subscreen,
         });
     }
 
@@ -841,8 +947,18 @@ pub(crate) fn preview(vars_dir: &Path) -> SimPreview {
 
     let (visible, hidden): (Vec<SimEntry>, Vec<SimEntry>) =
         entries.into_iter().partition(|entry| !entry.hidden);
+    // 第二层统计：只有一条「用默认选项启动」的子屏没意义，不计数
+    let with_subscreen = visible
+        .iter()
+        .filter(|entry| entry.children.len() > 1)
+        .count();
+    let variants: usize = visible
+        .iter()
+        .filter(|entry| entry.children.len() > 1)
+        .map(|entry| entry.children.len())
+        .sum();
     let summary = format!(
-        "扫描 {} 个卷 · scanfor={} · 菜单 {} 项{}",
+        "扫描 {} 个卷 · scanfor={} · 菜单 {} 项{}{}",
         volumes.len(),
         config.scanfor,
         visible.len(),
@@ -850,6 +966,11 @@ pub(crate) fn preview(vars_dir: &Path) -> SimPreview {
             String::new()
         } else {
             format!("（另有 {} 项被隐藏规则挡掉）", hidden.len())
+        },
+        if with_subscreen > 0 {
+            format!("（{with_subscreen} 项有第二层，共 {variants} 个启动变体）")
+        } else {
+            String::new()
         }
     );
 
@@ -865,6 +986,156 @@ pub(crate) fn preview(vars_dir: &Path) -> SimPreview {
         previous_boot,
         default_selection: config.default_selection,
     }
+}
+
+/// `SetLoaderDefaults`（`scan.c:478`、`519-568`）里的 OSType 判定。
+///
+/// 子菜单内容完全由它决定：`L` 读 `refind_linux.conf`、`M` 是 macOS 那组写死的
+/// 诊断项、其余类型 rEFInd 只给一条「用默认选项启动」。判定次序与源码一致
+/// （Linux 最先，命名线索只取文件名 `Basename`）。
+fn os_type_of(loader_path: &str) -> char {
+    let lower = loader_path.to_ascii_lowercase();
+    let name = lower.rsplit(['\\', '/']).next().unwrap_or(lower.as_str());
+    // LINUX_PREFIXES：x64 是 `vmlinuz,bzImage,kernel`（大小写不敏感的子串匹配）
+    if ["vmlinuz", "bzimage", "kernel"].iter().any(|hint| name.contains(hint)) {
+        return 'L';
+    }
+    if name.contains("refit") || name.contains("refind") {
+        return 'R';
+    }
+    if lower.contains("system\\library\\coreservices\\boot.efi")
+        || lower.contains("system/library/coreservices/boot.efi")
+    {
+        return 'M';
+    }
+    if name.contains("elilo") || name == "e.efi" {
+        return 'E';
+    }
+    if name.contains("grub") {
+        return 'G';
+    }
+    if matches!(
+        name,
+        "cdboot.efi" | "bootmgr.efi" | "bootmgfw.efi" | "bkpbootmgfw.efi"
+    ) {
+        return 'W';
+    }
+    if name == "xom.efi" {
+        return 'X';
+    }
+    if name.contains("ipxe") {
+        return 'N';
+    }
+    '\0'
+}
+
+/// 读同目录的 `refind_linux.conf` / `refind-linux.conf`（`config.c:74`）。
+///
+/// 每行 = `<标签> <options...>`，标签通常带引号。返回 `None` 表示没有这个文件 ——
+/// 注意 rEFInd 还会退到 `/etc/fstab` 与分区类型推测（`config.c:1252-1256`），
+/// 那两条我们没法复算，所以这里只认文件，没有就如实说「读不到」。
+fn read_linux_options(dir: &Path) -> Option<Vec<(String, String)>> {
+    for name in ["refind_linux.conf", "refind-linux.conf"] {
+        let Ok(text) = fs::read_to_string(dir.join(name)) else {
+            continue;
+        };
+        let rows = parse_options_text(&text);
+        if !rows.is_empty() {
+            return Some(rows);
+        }
+    }
+    None
+}
+
+/// `refind_linux.conf` 的行解析：引号标签 + 其余 options（`ReadTokenLine` 的语义）。
+fn parse_options_text(text: &str) -> Vec<(String, String)> {
+    let mut rows = Vec::new();
+    for raw in text.lines() {
+        let line = raw.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        rows.push(split_option_line(line));
+    }
+    rows
+}
+
+fn split_option_line(line: &str) -> (String, String) {
+    if let Some(rest) = line.strip_prefix('"') {
+        if let Some(end) = rest.find('"') {
+            return (
+                rest[..end].to_string(),
+                rest[end + 1..].trim().to_string(),
+            );
+        }
+    }
+    match line.find(char::is_whitespace) {
+        Some(index) => (line[..index].to_string(), line[index..].trim().to_string()),
+        None => (String::new(), line.to_string()),
+    }
+}
+
+/// `FindNumbers()`（`mystrings.c:245`）：文件名里**第一个数字**到**最后一个数字**
+/// 之间的整段（含点、连字符），例如 `vmlinuz-linux-6.9.7-arch1-1` → `6.9.7-arch1-1`。
+/// 用于把 options 里的 `%v`（`KERNEL_VERSION`）换成真版本号 —— 界面上该显示实际
+/// 参数，而不是一个占位符。
+fn kernel_version_of(name: &str) -> String {
+    let chars: Vec<char> = name.chars().collect();
+    let start = chars.iter().position(|c| c.is_ascii_digit());
+    let end = chars.iter().rposition(|c| c.is_ascii_digit());
+    match (start, end) {
+        (Some(start), Some(end)) if end >= start => chars[start..=end].iter().collect(),
+        _ => String::new(),
+    }
+}
+
+fn replace_kernel_version(options: &str, kernel_name: &str) -> String {
+    let version = kernel_version_of(kernel_name);
+    if version.is_empty() || !options.contains("%v") {
+        return options.to_string();
+    }
+    options.replace("%v", &version)
+}
+
+fn sub_child(title: &str, options: &str, source: &str) -> SimChild {
+    SimChild {
+        title: title.to_string(),
+        options: options.to_string(),
+        source: source.to_string(),
+        note: None,
+    }
+}
+
+/// `InitializeSubScreen`（`scan.c:236`）无条件塞进来的第一项。
+fn default_child() -> SimChild {
+    SimChild {
+        title: "Boot using default options".to_string(),
+        options: String::new(),
+        source: "default".to_string(),
+        note: Some(
+            "rEFInd 给每个 loader 都建了子屏，这一项就是用它自己的默认参数启动".to_string(),
+        ),
+    }
+}
+
+/// macOS 条目的子屏（`scan.c:291-368`）：一组建死的诊断项，
+/// 外加 `.diagnostics/diags.efi` 存在时的 Apple Hardware Test。
+fn macos_children(root: &Path) -> Vec<SimChild> {
+    let mut rows = vec![
+        sub_child("Boot macOS with a 64-bit kernel", "arch=x86_64", "macos"),
+        sub_child("Boot macOS with a 32-bit kernel", "arch=i386", "macos"),
+        sub_child("Boot macOS in verbose mode", "-v", "macos"),
+        sub_child("Boot macOS in verbose mode (64-bit)", "-v arch=x86_64", "macos"),
+        sub_child("Boot macOS in verbose mode (32-bit)", "-v arch=i386", "macos"),
+        sub_child("Boot macOS in single user mode", "-v -s", "macos"),
+        sub_child("Boot macOS in safe mode", "-v -x", "macos"),
+    ];
+    if grub_rel(root, "System/Library/CoreServices/.diagnostics/diags.efi").is_file() {
+        let mut entry = sub_child("Run Apple Hardware Test", "", "macos");
+        entry.note = Some("loader 换成 .diagnostics/diags.efi".to_string());
+        rows.push(entry);
+    }
+    rows
 }
 
 /// 单卷扫描（对应 `ScanEfiFiles`，`scan.c:1059`）。
@@ -885,6 +1156,9 @@ fn scan_volume(
         let path = "System\\Library\\CoreServices\\boot.efi".to_string();
         let hidden_by = filename_in(&label, "System\\Library\\CoreServices", "boot.efi", &config.dont_scan_files)
             .or_else(|| filename_in(&label, "System\\Library\\CoreServices", "boot.efi", hidden_tags));
+        // macOS 的子屏是一组写死的诊断项（`scan.c:291-368`）
+        let mut children = vec![default_child()];
+        children.extend(macos_children(root));
         out.push(SimEntry {
             title: if label.is_empty() {
                 "Boot macOS ".to_string()
@@ -894,11 +1168,13 @@ fn scan_volume(
             kind: "macos".to_string(),
             source: "macos".to_string(),
             volume: label.clone(),
-            path,
+            path: path.clone(),
             hidden: hidden_by.is_some(),
             last_boot: matches_previous(previous_boot, &format!("Boot macOS from {label}")),
             hidden_by,
             note: None,
+            children,
+            subscreen: Some(format!("Boot Options for {path} on {label}")),
         });
     }
 
@@ -924,6 +1200,7 @@ fn scan_volume(
         let hidden_by = filename_in(&label, dir, name, &config.dont_scan_files)
             .or_else(|| filename_in(&label, dir, name, hidden_tags));
         let full = format!("{title_text} from {label} ");
+        let windows_path = relative.replace('/', "\\");
         out.push(SimEntry {
             title: if label.is_empty() {
                 format!("Boot {title_text} ")
@@ -933,11 +1210,14 @@ fn scan_volume(
             kind: "windows".to_string(),
             source: "windows".to_string(),
             volume: label.clone(),
-            path: relative.replace('/', "\\"),
+            path: windows_path.clone(),
             hidden: hidden_by.is_some(),
             last_boot: matches_previous(previous_boot, &full),
             hidden_by,
             note: None,
+            // OSType 'W'：子屏里只有「用默认选项启动」这一条
+            children: vec![default_child()],
+            subscreen: Some(format!("Boot Options for {windows_path} on {label}")),
         });
     }
 
@@ -996,7 +1276,14 @@ fn scan_volume(
                 continue;
             }
             let lower = name.to_ascii_lowercase();
-            if !lower.ends_with(".efi") {
+            // rEFInd 扫的是 `*.efi` **加上** `vmlinuz*,bzImage*,kernel*`
+            // （`SetLinuxMatchPatterns`，`config.c:498`）—— 内核不是 .efi 后缀，
+            // 漏了这条就看不到「一个 Linux 条目 + 一堆内核」的折叠效果
+            let is_efi = lower.ends_with(".efi");
+            let is_kernel = ["vmlinuz", "bzimage", "kernel"]
+                .iter()
+                .any(|prefix| lower.starts_with(prefix));
+            if !is_efi && !is_kernel {
                 continue;
             }
             // `scan.c:930-931`：fallback 文件在 EFI\BOOT 里跳过（单独一条）
@@ -1019,12 +1306,46 @@ fn scan_volume(
             candidates.push((name, modified));
         }
         sort_by_mtime_desc(&mut candidates);
+        // `fold_linux_kernels`：同一目录里第二个及以后的 Linux 内核不再占主菜单
+        // 一行，而是挂进「第一个内核」的子屏（`scan.c:957-971`）。
+        let mut first_kernel: Option<usize> = None;
         for (name, _) in candidates {
             let relative = if display_dir.is_empty() {
                 name.clone()
             } else {
                 format!("{display_dir}\\{name}")
             };
+            let os_type = os_type_of(&relative);
+            let is_linux = os_type == 'L';
+
+            // 折叠：没有 refind_linux.conf 的内核，rEFInd 会**静默丢掉**
+            // （`AddKernelToSubmenu` 见 File == NULL 直接返回）—— 这里照做，
+            // 但让调用方知道少了谁，免得以为我们漏扫了
+            if is_linux && config.fold_linux_kernels {
+                if let Some(index) = first_kernel {
+                    let Some(rows) = read_linux_options(&absolute_dir) else {
+                        continue;
+                    };
+                    for (label, options) in rows {
+                        out[index].children.push(SimChild {
+                            title: format!(
+                                "{}: {}",
+                                name,
+                                if label.is_empty() {
+                                    "Boot Linux".to_string()
+                                } else {
+                                    label
+                                }
+                            ),
+                            options: replace_kernel_version(&options, &name),
+                            source: "kernel".to_string(),
+                            note: None,
+                        });
+                    }
+                    continue;
+                }
+            }
+
             let hidden_by = filename_in(&volume.label, &display_dir, &name, &config.dont_scan_files)
                 .or_else(|| filename_in(&volume.label, &display_dir, &name, hidden_tags));
             let title = if volume.label.is_empty() {
@@ -1032,10 +1353,12 @@ fn scan_volume(
             } else {
                 format!("Boot {relative} from {} ", volume.label)
             };
-            let note = if config.fold_linux_kernels
-                && relative.to_ascii_lowercase().contains("vmlinuz")
-            {
-                Some("Linux 内核（fold_linux_kernels 下会折叠进子菜单，不占主菜单一行）".to_string())
+            let note = if is_linux && config.fold_linux_kernels {
+                Some(
+                    "Linux 内核：同目录里其它内核会折叠进这一项的子菜单（候选项按 \
+                     refind_linux.conf 展开）"
+                        .to_string(),
+                )
             } else if relative.to_ascii_lowercase().contains("\\oc\\")
                 || name.eq_ignore_ascii_case("opencore.efi")
             {
@@ -1043,17 +1366,62 @@ fn scan_volume(
             } else {
                 None
             };
+
+            // 子屏：rEFInd 给每个条目都建了一条（`InitializeSubScreen`），
+            // 内容按 OSType 分发（`GenerateSubScreen`）
+            let mut children = vec![default_child()];
+            match os_type {
+                'L' => {
+                    if let Some(rows) = read_linux_options(&absolute_dir) {
+                        // 第一行不是新加一项，而是把「默认项」的标题换掉（`scan.c:382-385`）
+                        if let Some((label, options)) = rows.first() {
+                            let title = if label.is_empty() {
+                                "Boot Linux".to_string()
+                            } else {
+                                label.clone()
+                            };
+                            children[0].title = title;
+                            children[0].options = replace_kernel_version(options, &name);
+                            children[0].source = "options".to_string();
+                            children[0].note = None;
+                        }
+                        for (label, options) in rows.iter().skip(1) {
+                            children.push(SimChild {
+                                title: if label.is_empty() {
+                                    "Boot Linux".to_string()
+                                } else {
+                                    label.clone()
+                                },
+                                options: replace_kernel_version(options, &name),
+                                source: "options".to_string(),
+                                note: None,
+                            });
+                        }
+                    }
+                }
+                'M' => children.extend(macos_children(root)),
+                _ => {}
+            }
+
             out.push(SimEntry {
                 title: title.clone(),
                 kind: kind_of(&relative).to_string(),
                 source: "internal".to_string(),
                 volume: volume.label.clone(),
-                path: relative,
+                path: relative.clone(),
                 hidden: hidden_by.is_some(),
                 last_boot: matches_previous(previous_boot, &title),
                 hidden_by,
                 note,
+                children,
+                subscreen: Some(format!(
+                    "Boot Options for {relative} on {}",
+                    volume.label
+                )),
             });
+            if is_linux && first_kernel.is_none() {
+                first_kernel = Some(out.len() - 1);
+            }
         }
     }
 
@@ -1076,18 +1444,21 @@ fn scan_volume(
         } else {
             format!("Boot Fallback boot loader from {label} ")
         };
+        let fallback_path = relative.replace('/', "\\");
         out.push(SimEntry {
             title: title.clone(),
             kind: kind_of(relative).to_string(),
             source: "fallback".to_string(),
             volume: label.clone(),
-            path: relative.replace('/', "\\"),
+            path: fallback_path.clone(),
             hidden: hidden_by.is_some(),
             last_boot: matches_previous(previous_boot, &title),
             hidden_by,
             note: Some(
                 "EFI\\BOOT 兜底项：rEFInd 找不到别的引导器时固件也会走这里".to_string(),
             ),
+            children: vec![default_child()],
+            subscreen: Some(format!("Boot Options for {fallback_path} on {label}")),
         });
     }
 }
@@ -1194,6 +1565,42 @@ mod tests {
         }
     }
 
+    /// `FindNumbers` 的语义：第一个数字到最后一段数字之间的整段。
+    #[test]
+    fn kernel_version_slices_between_first_and_last_digit() {
+        assert_eq!(kernel_version_of("vmlinuz-linux-6.9.7-arch1-1"), "6.9.7-arch1-1");
+        assert_eq!(kernel_version_of("7.0.2.efi"), "7.0.2");
+        assert_eq!(kernel_version_of("vmlinuz"), "");
+        assert_eq!(replace_kernel_version("root=/dev/sda2 %v rw", "vmlinuz-6.1.0"), "root=/dev/sda2 6.1.0 rw");
+    }
+
+    /// `refind_linux.conf`：引号标签 + options；`#` 注释与空行跳过。
+    #[test]
+    fn parses_refind_linux_conf() {
+        let rows = parse_options_text(
+            "# 注释\n\"Arch Linux\"\troot=PARTUUID=abc rw add_efi_memmap\n\"Arch fallback\"\troot=PARTUUID=abc rw\n",
+        );
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].0, "Arch Linux");
+        assert_eq!(rows[0].1, "root=PARTUUID=abc rw add_efi_memmap");
+        assert_eq!(rows[1].0, "Arch fallback");
+        // 没写引号时第一词当标签（与 ReadTokenLine 一致）
+        assert_eq!(split_option_line("root=/dev/sda2 rw"), ("root=/dev/sda2".to_string(), "rw".to_string()));
+    }
+
+    /// OSType 判定次序（`scan.c:519`）：Linux 最先，名字只取 Basename。
+    #[test]
+    fn os_type_matches_refind_order() {
+        assert_eq!(os_type_of("EFI\\arch\\vmlinuz-linux"), 'L');
+        assert_eq!(os_type_of("vmlinuz-linux-6.9"), 'L');
+        assert_eq!(os_type_of("EFI\\arch\\grubx64.efi"), 'G');
+        assert_eq!(os_type_of("EFI\\Microsoft\\Boot\\bootmgfw.efi"), 'W');
+        assert_eq!(os_type_of("System\\Library\\CoreServices\\boot.efi"), 'M');
+        // OpenCore、UKI 这类既不是内核也不是已知类型：子屏只有「默认项」
+        assert_eq!(os_type_of("EFI\\OC\\OpenCore.efi"), '\0');
+        assert_eq!(os_type_of("EFI\\ArchLinux\\arch-linux-lts.efi"), '\0');
+    }
+
     /// 真机快照：本机 ESP 挂在 /Volumes/REFIND。默认 ignore —— 只用来肉眼核对输出，
     /// 别的机器上这块盘不存在，不能进常规测试。
     #[test]
@@ -1210,6 +1617,23 @@ mod tests {
         println!("scanfor: {} var_mode: {}", sim.scanfor, sim.var_mode);
         for (index, entry) in sim.entries.iter().enumerate() {
             println!("  {}. [{}] {} <- {} · {}", index + 1, entry.kind, entry.title, entry.volume, entry.path);
+            println!(
+                "      子屏: {:?}（{} 项）",
+                entry.subscreen,
+                entry.children.len()
+            );
+            for child in &entry.children {
+                println!(
+                    "        · [{}] {} {}",
+                    child.source,
+                    child.title,
+                    if child.options.is_empty() {
+                        String::new()
+                    } else {
+                        format!("| {}", child.options)
+                    }
+                );
+            }
         }
         for entry in &sim.hidden {
             println!("  (隐藏) [{}] {} <- {}", entry.kind, entry.title, entry.hidden_by.as_deref().unwrap_or("?"));
