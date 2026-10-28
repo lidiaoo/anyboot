@@ -51,7 +51,8 @@ pub(crate) struct HelperView {
     pub(crate) supported: bool,
     /// 助手已安装（文件在位）
     pub(crate) installed: bool,
-    /// 装的那份和当前 App 不是同一个构建（App 更新过）→ 建议重装
+    /// 装的那份和当前 App 不是同一个构建（App 更新过）→ 建议重装。
+    /// 按**内容**比（sha256），不看大小 —— 见 [`helper_is_stale`]。
     pub(crate) stale: bool,
     /// 一句话现状：为什么没开 / 开了以后少什么
     pub(crate) text: String,
@@ -60,21 +61,74 @@ pub(crate) struct HelperView {
 /// `/Library` 里那份助手是不是**当前这个**构建。
 ///
 /// 装过去的是 App 可执行文件本身，所以「App 升级了而助手没换」是必然会发生的事：
-/// 助手仍按旧代码校验、旧协议工作。这里用文件大小做判据（一次 metadata 调用，
-/// 快照每次刷新都会调，不能去算哈希）。大小一样但内容不同的情况理论上存在，
-/// 那种情况下协议没变，行为也一样，不会比现在更差。
+/// 助手仍按旧代码校验、旧协议工作。这条判断因此**不能只比文件大小**：
+/// macOS 的可执行文件有页对齐与代码签名，改几十字节的代码，文件长度很可能一字节不差
+/// （`LC_CODE_SIGNATURE` 只在跨页时才变）。而「助手是旧的」这次的后果恰恰是
+/// 「写进去了、回执 ok、其实写到了另一个变量」—— 判断不出来就等于没修。
+///
+/// 所以比内容：sha256。25 MB 读一次约几十毫秒，`view()` 每次快照都会调，
+/// 于是按 (长度, mtime) 缓存 —— 文件没变时只做一次 metadata。
 #[cfg(target_os = "macos")]
 fn helper_is_stale() -> bool {
-    let installed = Path::new(HELPER_PATH).metadata().map(|meta| meta.len());
-    let current = std::env::current_exe()
-        .ok()
-        .and_then(|path| path.metadata().ok())
-        .map(|meta| meta.len());
-    match (installed, current) {
-        (Ok(installed), Some(current)) => installed != current,
-        // 查不到就别说人家过期（宁可少提示，也不要误报让用户去重装）
+    let helper = Path::new(HELPER_PATH);
+    match (installed_digest(helper), current_digest()) {
+        (Some(installed), Some(current)) => installed != current,
+        // 查不到就别说过期（宁可少提示，也不要误报让用户去重装）
         _ => false,
     }
+}
+
+/// 安装副本的内容指纹，按 (长度, mtime) 缓存。
+#[cfg(target_os = "macos")]
+fn installed_digest(path: &Path) -> Option<String> {
+    use std::sync::{Mutex, OnceLock};
+    static CACHE: OnceLock<Mutex<Option<(u64, Option<std::time::SystemTime>, String)>>> =
+        OnceLock::new();
+    let meta = path.metadata().ok()?;
+    let key = (meta.len(), meta.modified().ok());
+    let cache = CACHE.get_or_init(|| Mutex::new(None));
+    if let Ok(guard) = cache.lock() {
+        if let Some((len, modified, digest)) = guard.as_ref() {
+            if (*len, *modified) == key {
+                return Some(digest.clone());
+            }
+        }
+    }
+    let digest = file_digest(path)?;
+    if let Ok(mut guard) = cache.lock() {
+        *guard = Some((key.0, key.1, digest.clone()));
+    }
+    Some(digest)
+}
+
+/// 本进程自己的指纹：进程生命周期内不会变，算一次就够。
+#[cfg(target_os = "macos")]
+fn current_digest() -> Option<String> {
+    use std::sync::OnceLock;
+    static DIGEST: OnceLock<Option<String>> = OnceLock::new();
+    DIGEST
+        .get_or_init(|| {
+            let exe = std::env::current_exe().ok()?;
+            file_digest(&exe)
+        })
+        .clone()
+}
+
+#[cfg(target_os = "macos")]
+fn file_digest(path: &Path) -> Option<String> {
+    use sha2::{Digest, Sha256};
+    use std::io::Read;
+    let mut file = std::fs::File::open(path).ok()?;
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0u8; 256 * 1024];
+    loop {
+        let read = file.read(&mut buffer).ok()?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Some(hex::encode(hasher.finalize()))
 }
 
 /// 读状态：只做文件检查。

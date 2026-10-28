@@ -264,8 +264,17 @@ pub(crate) fn set_default(esp_root: &Path, target: &str) -> Result<String, Strin
 
     // 回读校验：固件/系统可能静默丢弃写入（macOS 对私有命名空间也是要 root 的）
     if namespace.read_order().first() != Some(&number) {
+        // 两种可能：固件把写入丢了；或者 `/Library` 里那份免密助手是旧版本
+        // （旧版会把变量名转大写，写进 `OCBTORDER` 这个「同名的另一个变量」，
+        // `nvram` 照样回 ok）。后者只要重装助手就好，所以直接给出下一步。
+        let helper = crate::helper_install::view();
+        let hint = if helper.stale {
+            "（/Library 里那份免密助手是旧版本：点卡片上的「重装」换成当前版本再试）"
+        } else {
+            ""
+        };
         return Err(format!(
-            "{} 写进去了，但回读时 {} 不在首位——这次写入没有生效",
+            "{} 写进去了，但回读时 {} 不在首位——这次写入没有生效{hint}",
             namespace.order_name(),
             boot_name
         ));
