@@ -1143,12 +1143,20 @@ fn process_image_name(pid: u32) -> Option<String> {
 
 #[cfg(target_os = "macos")]
 fn process_image_name(pid: u32) -> Option<String> {
-    // ucomm = 被执行的名字（不带路径、不带参数），与 Linux 的 /proc/pid/exe 对齐
+    // 用 comm（完整路径）再取 basename，**不能用 ucomm**：ucomm 是内核的
+    // `p_comm`，长度上限 MAXCOMLEN = 16 字节，名字一长就被截断
+    // （`averylongprocessname12345` 读回来只剩 `averylongprocess`）。
+    // 生产二进制的名字是 `anyboot`，只有 7 字节，所以这个坑在 App 里看不出来；
+    // 但测试二进制叫 `anyboot_lib-<hash>`，20 多个字节 —— 于是
+    // [`is_same_app_process`] 永远比不相等，接管逻辑静默拒绝，
+    // 表现成「takeover 那条测试永远是 AlreadyRunning」。这跟「有别的实例在跑」
+    // 长得一模一样，曾经被误判成环境问题，白查了两轮。
     let output = command("ps")
-        .args(["-p", &pid.to_string(), "-o", "ucomm="])
+        .args(["-p", &pid.to_string(), "-o", "comm="])
         .output()
         .ok()?;
-    let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let name = Path::new(&path).file_name()?.to_string_lossy().into_owned();
     if name.is_empty() {
         None
     } else {
@@ -6793,6 +6801,32 @@ mod core_tests {
         );
         let _ = child.kill();
         let _ = child.wait();
+    }
+
+    /// 回归：本进程的可执行文件名必须**原样**读回来。
+    ///
+    /// `ps -o ucomm=` 只有 16 字节（MAXCOMLEN），测试二进制叫 `anyboot_lib-<hash>`
+    /// 正好被截断，`is_same_app_process` 因此永远 false —— 接管逻辑静默拒绝，
+    /// 下面那条 takeover 测试就永远报 AlreadyRunning，看起来像「有实例在跑」。
+    /// 换成 `comm=` 取 basename 之后，这条能从根上盯住截断问题。
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn own_image_name_is_not_truncated() {
+        let ours = std::env::current_exe()
+            .expect("当前可执行文件")
+            .file_name()
+            .expect("basename")
+            .to_string_lossy()
+            .into_owned();
+        assert!(
+            ours.len() > 16,
+            "这条测试只有在名字超过 ucomm 上限时才有意义: {ours}"
+        );
+        assert_eq!(
+            process_image_name(std::process::id()).as_deref(),
+            Some(ours.as_str()),
+            "可执行文件名被截断了 —— is_same_app_process 会永远判否"
+        );
     }
 
     /// 假实例：抢住锁、写好 pid，然后等着被杀。**只由下面的接管用例 spawn**，
