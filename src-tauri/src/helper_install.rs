@@ -306,11 +306,14 @@ fn staging_dir() -> Result<PathBuf, String> {
 
 /// 安装脚本正文（纯函数，便于用 `sh -n` 与断言验证）。
 ///
-/// 三条容易写错的细节，都在这里固定下来：
+/// 四条容易写错的细节，都在这里固定下来：
 /// 1. `in/` 必须是 **0733**：用户要能在里面新建请求文件，但不能列举别人的；
-/// 2. 先 `bootout` 再 `bootstrap`：重复安装（换版本重开）时作业已经加载，
+/// 2. `out/` 也是 0733：回执由 root 写（0644）、用户读；目录若给 0755，
+///    用户就读得到却**删不掉**自己的回执，`out/` 会一直堆着历史文件
+///    （排查「写了却没生效」时这些残留会误导判断）；
+/// 3. 先 `bootout` 再 `bootstrap`：重复安装（换版本重开）时作业已经加载，
 ///    直接 bootstrap 会报 "service already loaded" 然后整条 `set -e` 挂掉；
-/// 3. `bootstrap` 必须用**绝对路径**指向 plist，抄相对路径会去错目录找。
+/// 4. `bootstrap` 必须用**绝对路径**指向 plist，抄相对路径会去错目录找。
 #[cfg(target_os = "macos")]
 fn install_script(stage: &Path, plist: &Path) -> String {
     format!(
@@ -322,7 +325,7 @@ umask 022
 /usr/bin/xattr -c "{helper}" 2>/dev/null || true
 /usr/bin/install -d -m 0755 -o root -g wheel "{spool}"
 /usr/bin/install -d -m 0733 -o root -g wheel "{spool}/in"
-/usr/bin/install -d -m 0755 -o root -g wheel "{spool}/out"
+/usr/bin/install -d -m 0733 -o root -g wheel "{spool}/out"
 /usr/bin/install -d -m 0733 -o root -g wheel "{spool}/tmp"
 /usr/bin/install -m 0644 -o root -g wheel "{plist}" "{target_plist}"
 /bin/launchctl bootout system/{label} 2>/dev/null || true
@@ -505,6 +508,8 @@ mod tests {
 
             // in/ 是用户写请求的地方：可写但不可列举（0733）
             assert!(install.contains("-d -m 0733 -o root -g wheel \"/var/spool/anyboot/in\""));
+            // out/ 同样 0733：给 0755 用户就删不掉自己的回执，目录会越积越多
+            assert!(install.contains("-d -m 0733 -o root -g wheel \"/var/spool/anyboot/out\""));
             // 重复开启免密时作业已经加载：不先 bootout，bootstrap 会报 already loaded
             let bootout = install.find("bootout").expect("install 要先 bootout");
             let bootstrap = install.find("bootstrap system").expect("install 要 bootstrap");

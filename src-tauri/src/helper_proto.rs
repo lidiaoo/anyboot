@@ -184,8 +184,16 @@ pub fn valid_request_name(name: &str) -> bool {
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
-/// 允许写入的变量名。OC 自己只用这三种形状：
-/// `OCBtOrder`（默认启动顺序）、`OCBtNext`（一次性）、`OCBt####`（单个启动项，4 位大写十六进制编号）。
+/// 允许写入的变量名，且**必须是 OC 自己的拼法**（大小写完全一致）。
+/// OC 只用这三种形状：`OCBtOrder`（默认启动顺序）、`OCBtNext`（一次性）、
+/// `OCBt####`（单个启动项，4 位大写十六进制编号）。
+///
+/// 为什么一个字母的大小写都要卡死：UEFI 变量名是 UCS-2 字符串，**区分大小写**，
+/// `OCBtOrder` 与 `OCBTORDER` 是两个互不相干的变量。这里曾经把名字统一转成大写
+/// （本意只是「去重时好比较」），后果是助手把顺序写进了 `OCBTORDER`——
+/// `nvram` 退出码 0、回执 `ok`，可 OC 读的 `OCBtOrder` 一个字节都没变，
+/// 界面上只剩下「写进去了，但回读时不在首位」。实机上两个变量确实同时存在
+/// （真名里还是旧值），才定位到这里。所以现在：拼法不对一律拒，**不做任何大小写变换**。
 pub fn valid_name(name: &str) -> bool {
     let Some(rest) = name.strip_prefix("OCBt") else {
         return false;
@@ -193,7 +201,10 @@ pub fn valid_name(name: &str) -> bool {
     if rest == "Order" || rest == "Next" {
         return true;
     }
-    rest.len() == 4 && rest.bytes().all(|byte| byte.is_ascii_hexdigit())
+    rest.len() == 4
+        && rest
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'A'..=b'F').contains(&byte))
 }
 
 /// 校验并解码一个请求：返回可直接交给 `nvram` 的三元组。
@@ -227,12 +238,12 @@ pub fn validate(request: &Request) -> Result<Vec<(String, String, Vec<u8>)>, Str
                 op.name
             ));
         }
-        // 同一个名字出现两次：按谁先谁后生效全靠运气，直接拒
-        let name = op.name.to_ascii_uppercase();
-        if seen.contains(&name) {
-            return Err(format!("同一个变量被写了两次：{name}"));
+        // 同一个名字出现两次：按谁先谁后生效全靠运气，直接拒。
+        // 名字**原样**保留（不能为了去重改大小写——那会把写入引到另一个变量上）
+        if seen.contains(&op.name) {
+            return Err(format!("同一个变量被写了两次：{}", op.name));
         }
-        seen.push(name.clone());
+        seen.push(op.name.clone());
         if op.hex.len() % 2 != 0 || !op.hex.bytes().all(|byte| byte.is_ascii_hexdigit()) {
             return Err(format!("{} 的值不是合法十六进制串", op.name));
         }
@@ -241,7 +252,7 @@ pub fn validate(request: &Request) -> Result<Vec<(String, String, Vec<u8>)>, Str
         }
         let bytes = hex::decode(&op.hex)
             .map_err(|error| format!("{} 的值解码失败: {error}", op.name))?;
-        decoded.push((name, OC_GUID.to_string(), bytes));
+        decoded.push((op.name.clone(), OC_GUID.to_string(), bytes));
     }
     Ok(decoded)
 }
@@ -472,7 +483,7 @@ mod tests {
         assert!(valid_name("OCBtOrder"));
         assert!(valid_name("OCBtNext"));
         assert!(valid_name("OCBt0080"));
-        assert!(valid_name("OCBt00ab"), "小写十六进制也认（回写时统一大写）");
+        assert!(valid_name("OCBt00AB"));
         // 下面这些都不属于 OC 的命名空间，助手一律不碰
         assert!(!valid_name("BootOrder"));
         assert!(!valid_name("OCBt"));
@@ -480,6 +491,10 @@ mod tests {
         assert!(!valid_name("OCBtOrderX"));
         assert!(!valid_name("ocbt0080"));
         assert!(!valid_name(""));
+        // 大小写不同 = 另一个变量（实机踩过：顺序写进了 OCBTORDER，OC 读不到）
+        assert!(!valid_name("OCBTORDER"));
+        assert!(!valid_name("OCBT0080"));
+        assert!(!valid_name("OCBt00ab"), "小写编号也是另一个变量名");
     }
 
     #[test]
@@ -502,9 +517,24 @@ mod tests {
             op("OCBtOrder", "82008100"),
         ]);
         let decoded = validate(&request).expect("合法请求");
-        assert_eq!(decoded[0].0, "OCBT0082");
+        assert_eq!(decoded[0].0, "OCBt0082");
         assert_eq!(decoded[0].2, vec![0x82, 0x00]);
-        assert_eq!(decoded[1].0, "OCBTORDER");
+        assert_eq!(decoded[1].0, "OCBtOrder");
+    }
+
+    /// 回归（实机踩到）：`validate` 曾把变量名统一转大写，于是助手把顺序写进了
+    /// `OCBTORDER` 这个「同名的另一个变量」，`nvram` 却回 ok —— 表现为
+    /// 「写进去了，但回读时 OCBt0082 不在首位」。名字必须一个字母都不改地到达 nvram。
+    #[test]
+    fn names_reach_nvram_verbatim() {
+        let request = Request::new(vec![op("OCBtOrder", "82008100")]);
+        let decoded = validate(&request).expect("合法请求");
+        assert_eq!(decoded[0].0, "OCBtOrder");
+        let arg = nvram_arg(&decoded[0].0, &decoded[0].1, &decoded[0].2);
+        assert_eq!(arg, format!("{OC_GUID}:OCBtOrder=%82%00%81%00"));
+        // 大写形态不是 OC 的变量：必须拒，而不是「帮你改成大写再写」
+        assert!(validate(&Request::new(vec![op("OCBTORDER", "8200")])).is_err());
+        assert!(validate(&Request::new(vec![op("OCBT0082", "8200")])).is_err());
     }
 
     #[test]
