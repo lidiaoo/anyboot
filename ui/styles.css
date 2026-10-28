@@ -2220,49 +2220,20 @@ button.primary-sol:hover:not(:disabled) {
   color: var(--warn-color, #fbbf24);
 }
 
-/* ── 预演 OC 菜单（details，默认展开，可收起且记住选择）──
+/* ── OC 菜单区域（OpenCore 卡片正文的一块：不折叠、无标题）──
+   盒模型对齐上面的 .channel-health，读起来是同一层级的正文，不再套一个
+   带边框的子面板（用户 2026-10-28 要求「不要折叠菜单、不要标题」）。
    自适应三件套：外层 flex-wrap、中间层 min-width:0、路径 overflow-wrap:anywhere。
    任何一档宽度都不许把窗口撑出横向滚动条。 */
 .oc-menu {
-  border: 1px solid color-mix(in srgb, var(--text) 10%, transparent);
-  border-radius: 10px;
+  padding: 10px 12px;
   margin-bottom: 12px;
+  border-radius: 10px;
   background: color-mix(in srgb, var(--text) 3%, transparent);
   min-width: 0;
 }
-.oc-menu > summary {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 8px;
-  padding: 10px 12px;
-  cursor: pointer;
-  list-style: none;
-  font-size: 12px;
-}
-.oc-menu > summary::-webkit-details-marker { display: none; }
-.oc-menu > summary::before {
-  content: "▸";
-  color: var(--fg-dim);
-  font-size: 11px;
-}
-.oc-menu[open] > summary::before { content: "▾"; }
-.oc-menu-title {
-  font-weight: 600;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-.oc-menu-count {
-  flex: 0 0 auto;
-  font-size: 11px;
-  color: var(--fg-dim);
-  padding: 1px 7px;
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--text) 6%, transparent);
-}
-.oc-menu-hint,
-.oc-menu-summary {
-  margin: 0 12px 10px;
+.oc-menu-hint {
+  margin: 0 0 8px;
   font-size: 11px;
   line-height: 1.6;
   color: var(--fg-dim);
@@ -2272,8 +2243,14 @@ button.primary-sol:hover:not(:disabled) {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 0 12px 10px;
   min-width: 0;
+}
+/* 两个提权按钮共用一行；窄档自动折行 */
+.oc-menu-elevate {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
 }
 .oc-menu-row {
   display: flex;
@@ -2369,7 +2346,7 @@ button.primary-sol:hover:not(:disabled) {
   display: flex;
   flex-direction: column;
   gap: 5px;
-  margin: 0 12px 10px;
+  margin: 0 0 8px;
   padding: 8px 10px;
   border-radius: 8px;
   font-size: 11px;
