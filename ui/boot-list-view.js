@@ -353,7 +353,10 @@ function renderHelperLine(helper, { busy, onHelper } = {}) {
 }
 
 /// 组一张通道卡片的 DOM（结构与 .grub/.refind 卡同构）
-function makeBootChannelCard(channel, { busy, onSwitch, helper, onHelper }) {
+function makeBootChannelCard(
+  channel,
+  { busy, onSwitch, helper, onHelper, onPrebootElevate },
+) {
   const section = document.createElement("section");
   section.className = `refind boot-channel ${channel.id}`;
   section.id = `channel-${channel.id}`;
@@ -552,7 +555,15 @@ function renderBootChannels(channels, { busy, onSwitch, helper, onHelper, onPreb
   );
 
   for (const channel of [...detected, ...explained]) {
-    mount.append(makeBootChannelCard(channel, { busy, onSwitch, helper, onHelper }));
+    mount.append(
+      makeBootChannelCard(channel, {
+        busy,
+        onSwitch,
+        helper,
+        onHelper,
+        onPrebootElevate,
+      }),
+    );
   }
   // 折叠条只在「确实还有没说的」时出现；全部未检测到也要出现 —— 否则
   // 「一张 explained 卡片 + 两条彻底消失的通道」会让人以为后两个压根不存在。
