@@ -107,7 +107,7 @@ a{color:var(--accent-2)}
 .rail-tabs{display:flex;gap:4px;padding:0 12px 10px}
 .rail-tab{
   flex:1;height:26px;border:1px solid transparent;border-radius:7px;background:transparent;
-  color:var(--faint);font-size:11.5px;cursor:pointer;
+  color:var(--faint);font-size:11.5px;cursor:pointer;white-space:nowrap;
 }
 .rail-tab:hover{color:var(--text);background:var(--panel-2)}
 .rail-tab.is-on{background:var(--panel-3);color:var(--text);border-color:var(--line)}
@@ -731,6 +731,14 @@ svg.i.lg{width:16px;height:16px}
 /* ═══════════════════════════════════════════════════════════════════
    14. 容器查询：所有方案共用同一套断点（模拟窗口变窄时的行为）
    ═══════════════════════════════════════════════════════════════════ */
+/* 展台本身在窄屏上收一收，别把中间挤没 */
+@media (max-width:1080px){
+  .rail{width:168px}
+  .rail-item .rs{display:none}
+  .rail-head small{display:none}
+  .stage{padding:14px}
+  .stage-head{padding:10px 14px}
+}
 @container view (max-width: 900px){
   .lb-nav{width:200px}
   .le-side{width:210px}
