@@ -489,14 +489,21 @@ pub fn oc_set_default_main(target: &str, out_path: &str) -> i32 {
 /// 一会儿再点），同步命令会卡死整个界面 —— blocking_guard 的守卫不是摆设。
 #[tauri::command]
 async fn apfs_scan_elevated(
+    app: AppHandle,
     force: bool,
 ) -> Result<channels::apfs_reader::ElevatedScanOutcome, String> {
     // 不直接依赖 tokio（IQ6 定稿）：走 tauri::async_runtime 的 spawn_blocking
-    tauri::async_runtime::spawn_blocking(move || {
+    let outcome = tauri::async_runtime::spawn_blocking(move || {
         channels::apfs_reader::scan_preboot_elevated(force)
     })
     .await
-    .map_err(|error| format!("提权扫描任务异常退出：{error}"))?
+    .map_err(|error| format!("提权扫描任务异常退出：{error}"))?;
+    // 扫描成功只写了进程内提权缓存；三通道视图（含 OC 预演）缓存在 AppState
+    // 里，只有 refresh_channels 才重算 —— 不补这一步，get_ui_state 永远给旧
+    // 预演，前端那句「提权扫描完成，本页已刷新」就是空话（真机踩过：扫描
+    // 结果文件里明明有 MAC，页面死活不出现）。
+    channels::refresh_channels(&app);
+    outcome
 }
 
 // ==================== WebSocket 推送（网页端 / 手机端的 /api/ws） ====================
