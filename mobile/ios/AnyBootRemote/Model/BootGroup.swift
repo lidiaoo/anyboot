@@ -100,6 +100,30 @@ struct ChannelEntryView: Hashable, Identifiable {
     var requiresElevation: Bool
 }
 
+/// OC 菜单预演里的一行（后端 `oc_menu::MenuPreviewEntry`，camelCase）。
+/// `spec` 是后端算好的完整切换值域（`opencore-default:<卷>\u{1}<路径>`）——
+/// 原样拆成 channel+target 发回去，前端不拼这个字符串；spec 为空的行不可设。
+struct ChannelMenuRow: Hashable, Identifiable {
+    var title: String
+    var kind: String        // macos / windows / linux / tool / generic…
+    var volume: String
+    var path: String
+    var source: String      // bootorder / bless / scan…
+    var note: String
+    var isDefault: Bool
+    var auxiliary: Bool
+    var spec: String
+
+    var id: String { "\(title)|\(volume)|\(path)|\(kind)" }
+}
+
+/// OpenCore 通道专属：开机菜单长什么样（对齐 PC 网页端 renderOcMenuPreview 的数据）
+struct ChannelMenuPreview: Hashable {
+    var defaultSlot: String     // 当前默认槽（如 OCBt0080）
+    var orderSource: String
+    var rows: [ChannelMenuRow]
+}
+
 /// 一条引导器通道（后端 `ChannelView`，camelCase 序列化，GET /api/boot-channels）
 struct ChannelGroup: Hashable, Identifiable {
     var id: String          // sdboot / opencore / clover
@@ -113,6 +137,8 @@ struct ChannelGroup: Hashable, Identifiable {
     var lastBoot: String
     var error: String
     var health: [String]
+    /// 只有 OpenCore 通道有：开机菜单预演，动作行从这里出（顶层 entries 对 OC 是空的）
+    var menuPreview: ChannelMenuPreview?
 }
 
 // MARK: - 解析
@@ -236,6 +262,26 @@ enum BootParser {
                 let text = RemoteHttp.str(issue, "text").trimmingCharacters(in: .whitespaces)
                 return text.isEmpty ? nil : text
             }
+            // OC 菜单预演（只有 opencore 通道有；其它通道没有这个字段）
+            var menuPreview: ChannelMenuPreview?
+            if let rawPreview = item["menuPreview"] as? [String: Any] {
+                let rows: [ChannelMenuRow] = RemoteHttp.objects(rawPreview, "entries").map { entry in
+                    ChannelMenuRow(
+                        title: RemoteHttp.str(entry, "title").trimmingCharacters(in: .whitespaces),
+                        kind: RemoteHttp.str(entry, "kind").trimmingCharacters(in: .whitespaces),
+                        volume: RemoteHttp.str(entry, "volume").trimmingCharacters(in: .whitespaces),
+                        path: RemoteHttp.str(entry, "path").trimmingCharacters(in: .whitespaces),
+                        source: RemoteHttp.str(entry, "source").trimmingCharacters(in: .whitespaces),
+                        note: RemoteHttp.str(entry, "note").trimmingCharacters(in: .whitespaces),
+                        isDefault: RemoteHttp.bool(entry, "default"),
+                        auxiliary: RemoteHttp.bool(entry, "auxiliary"),
+                        spec: RemoteHttp.str(entry, "spec"))
+                }
+                menuPreview = ChannelMenuPreview(
+                    defaultSlot: RemoteHttp.str(rawPreview, "defaultSlot").trimmingCharacters(in: .whitespaces),
+                    orderSource: RemoteHttp.str(rawPreview, "orderSource").trimmingCharacters(in: .whitespaces),
+                    rows: rows)
+            }
             return ChannelGroup(
                 id: RemoteHttp.str(item, "id").trimmingCharacters(in: .whitespaces),
                 label: RemoteHttp.str(item, "label").trimmingCharacters(in: .whitespaces),
@@ -247,7 +293,8 @@ enum BootParser {
                 currentDefault: RemoteHttp.str(item, "currentDefault").trimmingCharacters(in: .whitespaces),
                 lastBoot: RemoteHttp.str(item, "lastBoot").trimmingCharacters(in: .whitespaces),
                 error: RemoteHttp.str(item, "error").trimmingCharacters(in: .whitespaces),
-                health: health)
+                health: health,
+                menuPreview: menuPreview)
         }
     }
 }
@@ -597,6 +644,40 @@ enum BootService {
         if !message.isEmpty { return message }
         if RemoteHttp.bool(json, "ok") || !json.keys.contains("ok") {
             return "已设置下次启动项"
+        }
+        let failure = RemoteHttp.str(json, "error").trimmingCharacters(in: .whitespaces)
+        return failure.isEmpty ? "请求被拒绝" : failure
+    }
+
+    /// OC 菜单预演行的「设为默认 ⤴」：`row.spec` 是后端算好的完整值域
+    /// （`opencore-default:<卷>\u{1}<路径>`），在**第一个**冒号处拆成 channel+target
+    /// 发回去 —— 服务端会用 `:` 原样拼回同一个 spec（`parse_switch_spec` 特意
+    /// 只切一次冒号，因为路径里可能有 `:`）。与 PC 网页端「原样发回 entry.spec」等价。
+    static func switchPreviewRow(_ profile: ServerProfile, row: ChannelMenuRow) async throws -> String {
+        let spec = row.spec.trimmingCharacters(in: .whitespaces)
+        guard let separator = spec.firstIndex(of: ":") else {
+            throw RemoteHttpError(message: "这一项不支持设为默认")
+        }
+        let channelName = String(spec[..<separator])
+        let target = String(spec[spec.index(after: separator)...])
+        if channelName.isEmpty || target.isEmpty {
+            throw RemoteHttpError(message: "这一项不支持设为默认")
+        }
+        guard let choice = await chooseEndpoint(profile) else {
+            throw RemoteHttpError(message: "这台电脑还没有可用地址")
+        }
+        guard choice.alive else {
+            throw RemoteHttpError(message: "电脑离线（局域网与远程都没通）")
+        }
+        func encode(_ value: String) -> String {
+            value.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? value
+        }
+        let path = "/api/boot-channel-switch?channel=\(encode(channelName))&target=\(encode(target))"
+        let json = try await RemoteHttp.json(endpoint: choice.url, token: choice.token, path: path)
+        let message = RemoteHttp.str(json, "message").trimmingCharacters(in: .whitespaces)
+        if !message.isEmpty { return message }
+        if RemoteHttp.bool(json, "ok") || !json.keys.contains("ok") {
+            return "已设为默认（等价 OC 菜单里的 Ctrl+Enter）"
         }
         let failure = RemoteHttp.str(json, "error").trimmingCharacters(in: .whitespaces)
         return failure.isEmpty ? "请求被拒绝" : failure

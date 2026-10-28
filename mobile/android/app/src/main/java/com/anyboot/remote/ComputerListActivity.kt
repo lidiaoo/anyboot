@@ -2039,7 +2039,21 @@ class ComputerListActivity : ComponentActivity() {
                     modifier = Modifier.padding(bottom = 4.dp),
                 )
             }
-            if (channel.entries.isEmpty()) {
+            // OC 菜单预演：只有 OpenCore 通道有，动作行从这里出（顶层 entries 对 OC 是空的）
+            val previewRows = if (channel.id == "opencore") channel.menuPreview else emptyList()
+            if (previewRows.isNotEmpty()) {
+                previewRows.forEach { row ->
+                    ChannelMenuRowView(profile, channel, row, palette)
+                }
+                Text(
+                    "「设为默认 ⤴」等价于 OC 菜单里的 Ctrl+Enter：写 OCBt0080 / OCBtOrder，不碰被 macOS 挡住的 Boot* 变量；电脑端弹授权时批准即可",
+                    fontSize = 10.5.sp,
+                    color = palette.fgFaint,
+                    lineHeight = 17.sp,
+                    modifier = Modifier.padding(top = 2.dp, bottom = 4.dp),
+                )
+            }
+            if (channel.entries.isEmpty() && previewRows.isEmpty()) {
                 Text(
                     channel.error.ifEmpty { "没有可执行的动作" },
                     fontSize = 12.5.sp,
@@ -2097,6 +2111,98 @@ class ComputerListActivity : ComponentActivity() {
                 Text("动作在下次重启时生效", fontSize = 11.sp, color = palette.fgFaint)
             }
         }
+    }
+
+    /**
+     * OC 菜单预演的一行：标题（含系统图标 + 「✓ 已是默认」/「辅助」角标）+ 卷·路径 + 备注，
+     * 行尾「设为默认 ⤴」（对齐 PC 网页端 ocMenuRow 的语义：默认行也占位渲染，
+     * 不让人误以为选不了）。
+     */
+    @Composable
+    private fun ChannelMenuRowView(
+        profile: ServerProfile,
+        channel: ChannelRow,
+        row: ChannelMenuRow,
+        palette: Palette,
+    ) {
+        Row(
+            verticalAlignment = Alignment.Top,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 6.dp)
+                .clip(RoundedCornerShape(11.dp))
+                .background(palette.elevate.copy(alpha = 0.5f))
+                .padding(horizontal = 11.dp, vertical = 10.dp),
+        ) {
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        ocMenuIcon(row.kind) + row.title,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = palette.fg,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (row.isDefault) {
+                        Spacer(Modifier.width(5.dp))
+                        Text(
+                            "✓ 已是默认",
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = palette.accent,
+                        )
+                    }
+                    if (row.auxiliary) {
+                        Spacer(Modifier.width(5.dp))
+                        Text("辅助", fontSize = 10.sp, color = palette.fgFaint)
+                    }
+                }
+                val pathText =
+                    if (row.volume.isNotEmpty() && row.volume != "—") "${row.volume} · ${row.path}" else row.path
+                Text(
+                    pathText,
+                    fontSize = 11.sp,
+                    color = palette.fgFaint,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (row.note.isNotEmpty()) {
+                    Text(
+                        row.note,
+                        fontSize = 10.5.sp,
+                        color = palette.fgFaint,
+                        lineHeight = 17.sp,
+                    )
+                }
+            }
+            if (!row.isDefault && row.spec.trim().isNotEmpty()) {
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "设为默认 ⤴",
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = palette.onAccent,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(9.dp))
+                        .background(palette.accent)
+                        .clickable {
+                            sheetRequest = null
+                            switchPreviewRow(profile, channel, row)
+                        }
+                        .padding(horizontal = 10.dp, vertical = 7.dp),
+                )
+            }
+        }
+    }
+
+    /** OC 菜单条目的系统图标（与 PC 网页端 OC_MENU_ICONS 同语义） */
+    private fun ocMenuIcon(kind: String): String = when (kind) {
+        "macos" -> "🍎 "
+        "windows" -> "🪟 "
+        "linux" -> "🐧 "
+        "tool" -> "⚙️ "
+        else -> ""
     }
 
     @OptIn(ExperimentalMaterial3Api::class)
@@ -2874,6 +2980,27 @@ class ComputerListActivity : ComponentActivity() {
                     if (text.isNotEmpty()) health.add(text)
                 }
             }
+            // OC 菜单预演（只有 opencore 通道有；其它通道没有这个字段）
+            val menuPreview = mutableListOf<ChannelMenuRow>()
+            val previewArray = item.optJSONObject("menuPreview")?.optJSONArray("entries")
+            if (previewArray != null) {
+                for (i in 0 until previewArray.length()) {
+                    val entry = previewArray.optJSONObject(i) ?: continue
+                    menuPreview.add(
+                        ChannelMenuRow(
+                            title = optStr(entry, "title").trim(),
+                            kind = optStr(entry, "kind").trim(),
+                            volume = optStr(entry, "volume").trim(),
+                            path = optStr(entry, "path").trim(),
+                            source = optStr(entry, "source").trim(),
+                            note = optStr(entry, "note").trim(),
+                            isDefault = entry.optBoolean("default", false),
+                            auxiliary = entry.optBoolean("auxiliary", false),
+                            spec = optStr(entry, "spec"),
+                        ),
+                    )
+                }
+            }
             channels.add(
                 ChannelRow(
                     id = optStr(item, "id").trim(),
@@ -2887,6 +3014,7 @@ class ComputerListActivity : ComponentActivity() {
                     lastBoot = optStr(item, "lastBoot").trim(),
                     error = optStr(item, "error").trim(),
                     health = health,
+                    menuPreview = menuPreview,
                 ),
             )
         }
@@ -3185,8 +3313,6 @@ class ComputerListActivity : ComponentActivity() {
      * 本身就是通道值域（`opencore`、`opencore-register`、`clover-oneshot`），target 省略。
      */
     private fun switchChannel(profile: ServerProfile, channel: ChannelRow, entry: ChannelEntryRow, verb: String) {
-        val id = profile.id
-        if (busy[id] != null) return
         val channelName: String
         val target: String
         if (channel.id == "sdboot") {
@@ -3204,6 +3330,35 @@ class ComputerListActivity : ComponentActivity() {
                 return
             }
         }
+        channelSwitchRequest(profile, channel, channelName, target, verb)
+    }
+
+    /**
+     * OC 菜单预演行的「设为默认 ⤴」：`row.spec` 是后端算好的完整值域
+     * （`opencore-default:<卷>\u0001<路径>`），在**第一个**冒号处拆成 channel+target
+     * 发回去 —— 服务端会用 `:` 原样拼回同一个 spec（`parse_switch_spec` 特意只切
+     * 一次冒号，因为路径里可能有 `:`）。与 PC 网页端「原样发回 entry.spec」等价。
+     */
+    private fun switchPreviewRow(profile: ServerProfile, channel: ChannelRow, row: ChannelMenuRow) {
+        val spec = row.spec.trim()
+        val sep = spec.indexOf(':')
+        if (spec.isEmpty() || sep <= 0 || sep == spec.length - 1) {
+            toast("这一项不支持设为默认")
+            return
+        }
+        channelSwitchRequest(profile, channel, spec.substring(0, sep), spec.substring(sep + 1), "设为默认")
+    }
+
+    /** 通道切换的公共请求体（busy 键 boot:ch-<通道 id>，通道按钮据此转圈） */
+    private fun channelSwitchRequest(
+        profile: ServerProfile,
+        channel: ChannelRow,
+        channelName: String,
+        target: String,
+        verb: String,
+    ) {
+        val id = profile.id
+        if (busy[id] != null) return
         busy[id] = "boot:ch-${channel.id}"
         Thread({
             val outcome = runCatching {
@@ -3553,6 +3708,25 @@ class ComputerListActivity : ComponentActivity() {
         val requiresElevation: Boolean,
     )
 
+    /**
+     * OC 菜单预演里的一行（后端 `oc_menu::MenuPreviewEntry`，camelCase）。
+     * `spec` 是后端算好的完整切换值域（`opencore-default:<卷>\u0001<路径>`）——
+     * 原样拆成 channel+target 发回去，前端不拼这个字符串；spec 为空的行不可设。
+     */
+    private data class ChannelMenuRow(
+        val title: String,
+        /** macos / windows / linux / tool / generic… */
+        val kind: String,
+        val volume: String,
+        val path: String,
+        /** bootorder / bless / scan… */
+        val source: String,
+        val note: String,
+        val isDefault: Boolean,
+        val auxiliary: Boolean,
+        val spec: String,
+    )
+
     /** 一条引导器通道（后端 `ChannelView`，GET /api/boot-channels） */
     private data class ChannelRow(
         /** sdboot / opencore / clover */
@@ -3570,6 +3744,8 @@ class ComputerListActivity : ComponentActivity() {
         val error: String,
         /** 健康检查问题（后端 HealthIssue.text，目前只有 warn 级） */
         val health: List<String>,
+        /** 只有 OpenCore 通道有：开机菜单预演，动作行从这里出（顶层 entries 对 OC 是空的） */
+        val menuPreview: List<ChannelMenuRow> = emptyList(),
     )
 
     /** 一条探测结果的状态文案：通 = 延迟；被赢家抢跑 / 串行没轮到 = 未测出（不是不通） */

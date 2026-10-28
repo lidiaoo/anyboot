@@ -1543,7 +1543,23 @@ struct ComputerListView: View {
                 .foregroundColor(ABColor.fgFaint)
                 .padding(.bottom, ABMetric.px(4))
         }
-        if channel.entries.isEmpty {
+        // OC 菜单预演：只有 OpenCore 通道有，动作行从这里出（顶层 entries 对 OC 是空的）
+        let previewRows: [ChannelMenuRow] = channel.id == "opencore"
+            ? (channel.menuPreview?.rows ?? [])
+            : []
+        if !previewRows.isEmpty {
+            ForEach(previewRows) { row in
+                ocMenuRowView(profile, channel: channel, row: row)
+            }
+            Text("「设为默认 ⤴」等价于 OC 菜单里的 Ctrl+Enter：写 OCBt0080 / OCBtOrder，不碰被 macOS 挡住的 Boot* 变量；电脑端弹授权时批准即可")
+                .font(.system(size: 10.5))
+                .lineSpacing(ABMetric.px(7))
+                .foregroundColor(ABColor.fgFaint)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, ABMetric.px(2))
+                .padding(.bottom, ABMetric.px(4))
+        }
+        if channel.entries.isEmpty && previewRows.isEmpty {
             Text(channel.error.isEmpty ? "没有可执行的动作" : channel.error)
                 .font(.system(size: 12.5))
                 .foregroundColor(ABColor.fgDim)
@@ -1870,6 +1886,113 @@ struct ComputerListView: View {
                     toast("\(verb) 失败：\(message)")
                 }
             }
+        }
+    }
+
+    /// OC 菜单预演的一行：序号 + 标题（含系统图标）+ 卷·路径 + 备注，
+    /// 行尾「✓ 已是默认」或「设为默认 ⤴」（对齐 PC 网页端 ocMenuRow 的语义：
+    /// 默认行也占位渲染，不让人误以为选不了）
+    private func ocMenuRowView(_ profile: ServerProfile,
+                               channel: ChannelGroup,
+                               row: ChannelMenuRow) -> some View {
+        let pathText = !row.volume.isEmpty && row.volume != "—"
+            ? "\(row.volume) · \(row.path)"
+            : row.path
+        return HStack(alignment: .top, spacing: ABMetric.px(8)) {
+            VStack(alignment: .leading, spacing: ABMetric.px(2)) {
+                HStack(spacing: ABMetric.px(5)) {
+                    Text(ocMenuIcon(row.kind) + row.title)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(ABColor.fg)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    if row.isDefault {
+                        Text("✓ 已是默认")
+                            .font(.system(size: 10.5, weight: .bold))
+                            .foregroundColor(ABColor.accent)
+                    }
+                    if row.auxiliary {
+                        Text("辅助")
+                            .font(.system(size: 10))
+                            .foregroundColor(ABColor.fgFaint)
+                    }
+                }
+                Text(pathText)
+                    .font(.system(size: 11))
+                    .foregroundColor(ABColor.fgFaint)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                if !row.note.isEmpty {
+                    Text(row.note)
+                        .font(.system(size: 10.5))
+                        .lineSpacing(ABMetric.px(7))
+                        .foregroundColor(ABColor.fgFaint)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if !row.isDefault && !row.spec.trimmingCharacters(in: .whitespaces).isEmpty {
+                Button {
+                    sheet = nil
+                    switchPreviewAction(profile, channel: channel, row: row)
+                } label: {
+                    Text("设为默认 ⤴")
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, ABMetric.px(10))
+                        .padding(.vertical, ABMetric.px(7))
+                        .background(
+                            RoundedRectangle(cornerRadius: ABMetric.px(9), style: .continuous)
+                                .fill(ABColor.accent))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, ABMetric.px(11))
+        .padding(.vertical, ABMetric.px(10))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: ABMetric.px(11), style: .continuous)
+                .fill(ABColor.elevate.opacity(0.5)))
+        .padding(.bottom, ABMetric.px(6))
+    }
+
+    /// OC 预演行「设为默认 ⤴」的动作（busy 键与通道切换共用，按钮据此转圈）
+    private func switchPreviewAction(_ profile: ServerProfile,
+                                     channel: ChannelGroup,
+                                     row: ChannelMenuRow) {
+        if busy[profile.id] != nil { return }
+        if row.spec.trimmingCharacters(in: .whitespaces).isEmpty {
+            toast("这一项不支持设为默认")
+            return
+        }
+        busy[profile.id] = "boot:ch-\(channel.id)"
+        Task {
+            do {
+                let message = try await BootService.switchPreviewRow(profile, row: row)
+                await MainActor.run {
+                    busy.removeValue(forKey: profile.id)
+                    toast(message)
+                }
+                reloadBoot(profile)
+            } catch {
+                await MainActor.run {
+                    busy.removeValue(forKey: profile.id)
+                    let message = (error as? RemoteHttpError)?.message ?? error.localizedDescription
+                    toast("设为默认失败：\(message)")
+                }
+            }
+        }
+    }
+
+    /// OC 菜单条目的系统图标（与 PC 网页端 OC_MENU_ICONS 同语义）
+    private func ocMenuIcon(_ kind: String) -> String {
+        switch kind {
+        case "macos": return "🍎 "
+        case "windows": return "🪟 "
+        case "linux": return "🐧 "
+        case "tool": return "⚙️ "
+        default: return ""
         }
     }
 
