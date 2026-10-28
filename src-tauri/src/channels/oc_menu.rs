@@ -37,6 +37,23 @@ pub(crate) const PREDEFINED: [(&str, &str); 4] = [
     ("EFI/BOOT/BOOTAA64.EFI", "generic"),
 ];
 
+/// 启动项的 `kind`：按路径尾段对 [`PREDEFINED`]（OC 自己只认这几条）。
+///
+/// 为什么不能只看「卷扫到了什么」：Preboot 里的 `boot.efi` 在 Windows/Linux 上
+/// 根本看不到文件（没有 APFS 驱动），但**对不上卷 ≠ 不是 macOS** —— 把它标成
+/// 「未知」会让人以为那条是坏的（真机踩到：`OCBt0080` 明明就是 MAC）。
+fn kind_of_path(path: &str) -> &'static str {
+    let lower = path.to_ascii_lowercase().replace('/', "\\");
+    PREDEFINED
+        .iter()
+        .find(|(relative, _)| {
+            let tail = format!("\\{}", relative.to_ascii_lowercase().replace('/', "\\"));
+            lower.ends_with(&tail)
+        })
+        .map(|(_, kind)| *kind)
+        .unwrap_or("unknown")
+}
+
 /// 一条预演出来的菜单项。
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -80,6 +97,9 @@ pub(crate) struct MenuPreview {
     /// Preboot 直读因权限失败、缓存里也没有数据 —— 前端据此渲染「提权重扫」按钮。
     /// macOS 恒为 false（原生路径没有权限这一说）。
     pub(crate) preboot_elevatable: bool,
+    /// 读不到启动顺序表（`OCBtOrder` / `BootOrder` 都是空）—— 前端据此渲染
+    /// 「提权读取启动顺序」按钮。没有它，用户点了「设为默认」看不到任何回显。
+    pub(crate) order_elevatable: bool,
 }
 
 /// 启动顺序表里的一项（`OCBtOrder` / `BootOrder` 的某个编号 + 它指向哪里）。
@@ -385,17 +405,161 @@ fn volumes() -> Vec<Volume> {
         if out.iter().any(|known| same_path(&known.root, &root)) {
             continue;
         }
-        let fallback = root
-            .file_name()
-            .map(|name| name.to_string_lossy().to_string())
-            .filter(|name| !name.is_empty())
-            .unwrap_or_else(|| root.display().to_string());
+        let fallback = fallback_label(&root);
         out.push(Volume {
             label: volume_label(&root, &fallback),
             root,
         });
     }
+    disambiguate_labels(&mut out);
     out
+}
+
+/// 原生卷标：**OC 菜单里显示的就是它**，三端必须读同一份数据才对得上。
+///
+/// macOS 不用这个函数（挂载点目录名 `/Volumes/<卷标>` 本身就是卷标，见
+/// `root_volume_label`/`fallback_label`）；这里只补 Windows / Linux ——
+/// 它们的「挂载点」是 `H:\`、`/boot/efi` 这种纯定位符，不是卷名。
+/// 少了这一步，Windows 端预演就会把 `H:\` 当卷标印在卡片上（用户 2026-10-28
+/// 报「为什么跟 macOS 显示不一样，只有盘符」），而 OC 那边明明记的是 `ARCH-EFI`。
+#[cfg(target_os = "windows")]
+fn native_volume_label(root: &Path) -> Option<String> {
+    use std::os::windows::ffi::OsStrExt;
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetVolumeInformationW(
+            root: *const u16,
+            volume_name: *mut u16,
+            volume_name_size: u32,
+            serial: *mut u32,
+            max_component: *mut u32,
+            flags: *mut u32,
+            filesystem_name: *mut u16,
+            filesystem_name_size: u32,
+        ) -> i32;
+    }
+    let mut wide: Vec<u16> = root.as_os_str().encode_wide().collect();
+    // 必须带尾分隔符：`GetVolumeInformationW("H:")` 问的是「H: 的当前目录」，
+    // 不是 H: 这块卷（和 Win32 API 的通用约定一致）。
+    if wide.last() != Some(&(b'\\' as u16)) {
+        wide.push(b'\\' as u16);
+    }
+    wide.push(0);
+    let mut name = vec![0u16; 261]; // MAX_PATH + 1，卷标上限 32 字符，够用
+    let ok = unsafe {
+        GetVolumeInformationW(
+            wide.as_ptr(),
+            name.as_mut_ptr(),
+            name.len() as u32,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if ok == 0 {
+        return None;
+    }
+    let end = name.iter().position(|unit| *unit == 0).unwrap_or(name.len());
+    let text = String::from_utf16_lossy(&name[..end]).trim().to_string();
+    if text.is_empty() {
+        None
+    } else {
+        Some(text)
+    }
+}
+
+/// Linux：卷标在 udev 数据库里（`lsblk -no LABEL <挂载点>` 直接认挂载路径）。
+/// 读不到（没装 util-linux、或 vfat 没设标签）返回 None，由调用方退回挂载点名。
+#[cfg(target_os = "linux")]
+fn native_volume_label(root: &Path) -> Option<String> {
+    // Linux：每个候选卷 fork 一次 lsblk（15~40ms）。如果埋点表里这行累计很高，
+    // 说明该改成「第一轮 lsblk -J 取全表、之后内存查表」—— 别凭感觉优化。
+    let _span = perf::span("cmd.lsblk_label");
+    let output = command("lsblk")
+        .args(["-no", "LABEL"])
+        .arg(root)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    text.lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .map(str::to_string)
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "linux")))]
+fn native_volume_label(_root: &Path) -> Option<String> {
+    None
+}
+
+/// 卷标读不到时的兜底名。
+///
+/// macOS：挂载目录名就是卷标（`/Volumes/MacOS-efi` → `MacOS-efi`），直接用。
+/// Windows：盘符不是卷名 —— 以前这里返回 `H:\` 就是被当卷标印出去的那个 bug。
+/// 给一块没标签的 ESP 一个能认的名字（macOS 挂上去也是叫 `EFI`）。
+fn fallback_label(root: &Path) -> String {
+    #[cfg(target_os = "windows")]
+    {
+        let text = root.display().to_string();
+        let trimmed = text.trim_end_matches(['\\', '/']);
+        let is_drive_root = trimmed.len() == 2 && trimmed.ends_with(':');
+        if is_drive_root {
+            return if grub_rel(root, "EFI").is_dir() {
+                format!("EFI（{trimmed}）")
+            } else {
+                format!("本地卷（{trimmed}）")
+            };
+        }
+    }
+    root.file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| root.display().to_string())
+}
+
+/// 重名卷标的后缀：Windows 用盘符（`H:`），其他平台用挂载目录名。
+fn root_suffix(root: &Path) -> String {
+    #[cfg(target_os = "windows")]
+    {
+        let text = root.display().to_string();
+        let trimmed = text.trim_end_matches(['\\', '/']);
+        if !trimmed.is_empty() && trimmed.len() <= 3 {
+            return trimmed.to_string();
+        }
+    }
+    root.file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| root.display().to_string())
+}
+
+/// 卷标去重。
+///
+/// 不是排版问题而是**功能问题**：「设为默认」的值域里只有卷标，反查挂载根
+/// （`volume_root`）取的是第一个同名命中 —— 两块卷同标签就会写到错的分区上。
+/// 重名时给后出现的补一个稳定后缀（盘符 / 挂载目录名），两次枚举结果一致，
+/// 反查就不会飘。
+fn disambiguate_labels(volumes: &mut [Volume]) {
+    let mut seen: Vec<String> = Vec::new();
+    for volume in volumes.iter_mut() {
+        let mut label = volume.label.clone();
+        if seen.iter().any(|known| *known == label) {
+            let base = format!("{}（{}）", label, root_suffix(&volume.root));
+            label = base.clone();
+            let mut attempt = 2;
+            while seen.iter().any(|known| *known == label) {
+                label = format!("{base}#{attempt}");
+                attempt += 1;
+            }
+        }
+        seen.push(label.clone());
+        volume.label = label;
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -421,7 +585,9 @@ pub(crate) fn volume_root(label: &str) -> Option<PathBuf> {
 
 /// 卷标：OC 的取名顺序（`.contentDetails` → `.disk_label.contentDetails` → 卷标）。
 ///
-/// 实测这两个隐藏文件在 OC 的 ESP 上都可能不存在，读不到就退回挂载点名。
+/// 实测这两个隐藏文件在 OC 的 ESP 上都可能不存在，读不到就退回**文件系统卷标**
+/// （Windows `GetVolumeInformationW` / Linux `lsblk LABEL`）—— 这就是 OC 菜单里
+/// 显示、也是 macOS 挂载点名叫的那个字符串，三端因此报同一个名字。
 fn volume_label(root: &Path, fallback: &str) -> String {
     for rel in [".contentDetails", ".disk_label/contentDetails"] {
         if let Ok(text) = fs::read_to_string(grub_rel(root, rel)) {
@@ -430,6 +596,9 @@ fn volume_label(root: &Path, fallback: &str) -> String {
                 return text.to_string();
             }
         }
+    }
+    if let Some(native) = native_volume_label(root) {
+        return native;
     }
     fallback.to_string()
 }
@@ -481,6 +650,8 @@ fn root_volume_label() -> String {
 
 /// 按 OC 的规则复算一遍菜单。只读 ESP 与系统卷。
 pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
+    // 预演是 OC 卡片的主体开销（枚举卷 + 读固件变量 + 扒 APFS），单独记总账
+    let _span = perf::span("oc.preview");
     let config = fs::read_to_string(grub_rel(esp_root, "EFI/OC/config.plist")).unwrap_or_default();
     let hide_auxiliary = matches!(
         plist_lite::read_scalar(&config, &["Misc", "Boot", "HideAuxiliary"]),
@@ -497,7 +668,12 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
             .any(|driver| driver.to_ascii_lowercase().contains(name))
     };
 
-    let volumes = volumes();
+    let volumes = {
+        // Windows 上这里会**第二次**跑 Get-Partition（candidate_roots → win_esp::list），
+        // 与 resolve_esp_root 那次完全重复 —— 埋点就是为了把这个数字摆出来
+        let _span = perf::span("oc.volumes");
+        volumes()
+    };
     let mut entries: Vec<MenuEntry> = Vec::new();
     let mut issues: Vec<HealthIssue> = Vec::new();
 
@@ -508,9 +684,29 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
     // 命名空间的 `OCBtOrder` / `OCBt####`（`OcGetBootOrder` 按 `BootVariableGuid` 选名字，
     // `DefaultEntryChoice.c:611-617`），固件全局 `BootOrder` 只是旁证。
     let namespace = oc_default::Namespace::from_config(&config);
-    let mut order = namespace.read_order();
+    let mut order = {
+        // 非提权时这一步要读 OCBtOrder 而失败（1314），失败本身很快；摊上的是
+        // 「读不到 → 吃快照 → 回退全局 BootOrder」三条路，各自的耗时差别很大
+        let _span = perf::span("oc.nvram_order");
+        namespace.read_order()
+    };
+    // 没管理员权限时读固件变量直接报 1314，OC 私有的 `OCBtOrder` 只是另一个 GUID
+    // 下的**同样受保护**的变量 —— 一样读不到，整表为空、默认项永远标不出来。
+    // 用户点了「设为默认」提示成功、页面却毫无变化，就是这个（真机踩到）。
+    // 提权子进程读过的快照顶 30 分钟：设默认、点「提权读取启动顺序」都会写它。
+    let snapshot = if order.is_empty() {
+        nvram::cached_boot_vars(namespace.custom)
+    } else {
+        None
+    };
+    let mut order_from_cache = false;
+    if let Some(snapshot) = &snapshot {
+        order = snapshot.order.clone();
+        order_from_cache = !order.is_empty();
+    }
     let mut namespace_fallback = false;
     if order.is_empty() && namespace.custom {
+        let _span = perf::span("nvram.global_order");
         let global = nvram::read_boot_order();
         if !global.is_empty() {
             order = global;
@@ -520,14 +716,26 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
     // 默认项到底读的是哪张表：OC 私有命名空间，还是固件全局。行标签、诊断文案
     // 都按它说 —— 读的是哪一组变量，界面上就不能写成另一组。
     let reading_private = namespace.custom && !namespace_fallback;
+    let cached_options: Vec<(u16, Vec<u8>)> = snapshot
+        .as_ref()
+        .map(|item| item.options.clone())
+        .unwrap_or_default();
     let boot_option = |number: u16| -> Option<Vec<u8>> {
-        namespace.read_option(number).or_else(|| {
-            if namespace_fallback {
-                nvram::read_boot_option(number)
-            } else {
-                None
-            }
-        })
+        namespace
+            .read_option(number)
+            .or_else(|| {
+                cached_options
+                    .iter()
+                    .find(|(slot, _)| *slot == number)
+                    .map(|(_, value)| value.clone())
+            })
+            .or_else(|| {
+                if namespace_fallback {
+                    nvram::read_boot_option(number)
+                } else {
+                    None
+                }
+            })
     };
     let order_items: Vec<OrderItem> = order
         .iter()
@@ -544,6 +752,7 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
         .collect();
 
     // ① 每个卷上的 bless 扫描（每卷只取第一个命中，与 OC 一致）
+    let bless_span = perf::span("oc.bless");
     let mut all_roots: Vec<(&str, &PathBuf)> = Vec::new();
     for volume in &volumes {
         all_roots.push((volume.label.as_str(), &volume.root));
@@ -579,6 +788,7 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
             break;
         }
     }
+    drop(bless_span);
 
     // ② APFS Preboot：OC 对容器内每个卷 UUID 都试一次
     #[cfg(target_os = "macos")]
@@ -604,6 +814,9 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
     // 说明**，不许静默吞掉让 macOS 条目凭空消失。权限失败时退一层吃提权缓存
     // （用户点过「提权重扫」之后，30 分钟内的预演重建都拿它当数据源）。
     #[cfg(not(target_os = "macos"))]
+    // 零挂载直读 APFS 容器：开整盘 + 走 B-tree，是「文件读」里最贵的一段
+    let preboot_span = perf::span("oc.preboot");
+    #[cfg(not(target_os = "macos"))]
     let (preboot_note, preboot_elevatable) = match super::apfs_reader::scan_preboot() {
         Ok(items) if !items.is_empty() => {
             (Some(push_preboot_entries(&mut entries, &items, "")), false)
@@ -626,6 +839,8 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
             }
         },
     };
+    #[cfg(not(target_os = "macos"))]
+    drop(preboot_span);
     #[cfg(target_os = "macos")]
     let (preboot_note, preboot_elevatable): (Option<String>, bool) = (None, false);
 
@@ -694,10 +909,11 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
     // 配对不能只比路径：`\EFI\BOOT\BOOTX64.EFI` 在多块 ESP 上都存在是常态，
     // 只比路径会把 ARCH-EFI 的启动项算到 MacOS-efi 头上（本机实测就是这样）。
     // `match_index` 会再用设备路径里的分区 GUID 校正。
-    let mut order_notes: Vec<String> = Vec::new();
+    let mut order_notes: Vec<(String, &'static str)> = Vec::new();
     // 编号 → entries 下标。**按启动顺序**记下来：⑤ 判默认项只能按这个顺序走。
     let mut placed: Vec<(u16, usize)> = Vec::new();
     let mut guid_cache: Vec<(String, Option<String>)> = Vec::new();
+    let match_span = perf::span("oc.order_match");
     for item in &order_items {
         let number = item.number;
         let description = &item.description;
@@ -711,8 +927,13 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
         ) {
             let existing = &mut entries[index];
             existing.source = "bootorder".to_string();
-            if !description.trim().is_empty() {
-                // OC 丢弃启动项里的描述、自己重新取名；这里留一句对照，方便核实
+            if !description.trim().is_empty()
+                && !description.trim().eq_ignore_ascii_case(&existing.title)
+            {
+                // OC 丢弃启动项里的描述、自己重新取名；这里留一句对照，方便核实。
+                // 描述与我们显示的卷标同一个串时不说 —— 否则用户看到「ARCH-EFI」
+                // 旁边写着「描述是 ARCH-EFI，OC 会丢掉它重新取名」，纯属噪音
+                // （卷标读对之前是「H:\ vs ARCH-EFI」，那句提示才有信息量）。
                 existing.note = Some(format!(
                     "{}启动项里记的描述是「{}」，OC 会丢掉它、按路径重新取名",
                     existing
@@ -732,6 +953,7 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
         });
         // 同一容器里别的 macOS（Preboot 有、但本系统没挂载它的根卷）也会走到这里，
         // 那种情况下不算「死项」，只是这边看不到文件。
+        let kind = kind_of_path(wanted);
         entries.push(MenuEntry {
             title: if description.trim().is_empty() {
                 // 变量名跟着命名空间走：OC 私有是 `OCBt0082`，固件全局是 `Boot0082`
@@ -739,7 +961,7 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
             } else {
                 description.clone()
             },
-            kind: "unknown".to_string(),
+            kind: kind.to_string(),
             source: "bootorder".to_string(),
             volume: "—".to_string(),
             path: wanted.clone(),
@@ -747,6 +969,10 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
             default: false,
             note: Some(if exists_anywhere {
                 "启动项里有这一项，但不在上面扫到的卷/路径里".to_string()
+            } else if kind == "macos" {
+                "这是 macOS 的 APFS 启动项：本系统没有 APFS 驱动，看不到文件属正常 —— \
+                 OC 自己能认（「设为默认」照样可用）"
+                    .to_string()
             } else {
                 "启动项里有这一项，但对应的文件在本系统看不到（卷没挂载，或已被删除）"
                     .to_string()
@@ -756,12 +982,12 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
         });
         placed.push((number, entries.len() - 1));
         if !exists_anywhere {
-            order_notes.push(namespace.boot_name(number));
+            order_notes.push((namespace.boot_name(number), kind));
         }
     }
+    drop(match_span);
 
     // ⑤ 默认项 = **启动顺序表里第一条真能启动的**，顺序必须按表走。
-    //
     // 以前这里是 `entries.iter_mut().find(source == "bootorder")`，等于拿「卷的
     // 遍历顺序」当启动顺序。实测踩到：`OCBtOrder = [0x82 WIN, 0x81 ARCH, 0x80 MAC]`，
     // 界面把 MAC 标成「OC 默认项」，而真默认项那一行反而挂着「设为默认」按钮 ——
@@ -798,12 +1024,48 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
 
     // ⑥' 「设为默认」的值域（= OC 菜单里的 Ctrl+Enter）。放在最后统一算：
     // 它依赖「是不是默认项」「source 是 BootOrder 还是 bless」，两者到这里才定。
+    //
+    // ESP 自己的**卷标**先算一次：generic 条目要靠它认出「这是我的 Bootstrap
+    // 入口」。以前是循环里逐条反查 `volume_root(卷标)`，那函数会重跑整个 `volumes()`
+    // （Windows 上一次全量分区查询 ≈1s），两个 generic 条目就白烧 1.87s。
+    let esp_label = volumes
+        .iter()
+        .find(|volume| same_path(&volume.root, esp_root))
+        .map(|volume| volume.label.clone());
     let writable = namespace.writable();
+    let spec_span = perf::span("oc.spec");
     for entry in visible.iter_mut().chain(hidden.iter_mut()) {
-        entry.spec = oc_default::entry_spec(entry, writable, esp_root);
+        entry.spec = oc_default::entry_spec(entry, writable, esp_label.as_deref());
     }
+    drop(spec_span);
 
     // ⑦ 诊断
+    if order_from_cache {
+        let minutes = snapshot
+            .as_ref()
+            .map(|item| item.taken_at.elapsed().as_secs() / 60)
+            .unwrap_or(0);
+        issues.push(HealthIssue {
+            severity: "info".to_string(),
+            text: format!(
+                "启动顺序来自 {minutes} 分钟前的一次提权读取（当前进程没权限直接读 `{}`）。\
+                 OC 或别的系统改过默认项后这里会滞后，要最新状态就点「提权读取启动顺序 ⤴」\
+                 再授权一次",
+                namespace.order_name()
+            ),
+        });
+    }
+    if order.is_empty() {
+        issues.push(HealthIssue {
+            severity: "warn".to_string(),
+            text: format!(
+                "读不到固件启动变量（`{}` 是空的）：当前进程没有管理员权限，`Boot*` 和 OC 私有的 \
+                 `OCBt*` 都读不了，所以下面标不出哪个条目是默认项 —— 但「设为默认」写入走的是\
+                 提权子进程，不受影响。点「提权读取启动顺序 ⤴」授权一次就能补齐回显",
+                namespace.order_name()
+            ),
+        });
+    }
     if namespace_fallback {
         issues.push(HealthIssue {
             severity: "info".to_string(),
@@ -838,10 +1100,18 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
         nvram::BootVarsView::NeedElevation => issues.push(HealthIssue {
             severity: "info".to_string(),
             text: if reading_private {
-                // 默认项读的是 `OCBt*`（另一个 GUID 下的普通变量），读不到 `Boot*`
-                // 不影响它 —— 再说一句「标记仅供参考」就成了白吓人
-                "当前进程没权限读固件 `Boot*` 变量（`BootCurrent` 读不到）：这只影响「OC 有没有在固件里注册」这类判断；\
-                 上面的默认项读的是 OC 私有 `OCBtOrder`，不受影响"
+                // 别写成「读 OCBtOrder 不受影响」：OCBt* 只是另一个 GUID 下的
+                // 同样受固件保护的变量，没权限一样读不到（真机踩过，用户按着
+                // 这句提示排了半天，实际默认项标记全丢）。
+                // 吃了提权缓存时也别再说「会缺」—— 已经补上了。
+                if order_from_cache {
+                    "当前进程没有管理员权限，固件变量都读不到（`BootCurrent` 与 OC 私有的 \
+                     `OCBtOrder` 一样）：下面的启动顺序来自提权读取的缓存，「OC 有没有在固件里\
+                     注册」这类判断仍然缺"
+                } else {
+                    "当前进程没有管理员权限，固件变量都读不到（`BootCurrent` 与 OC 私有的 \
+                     `OCBtOrder` 一样）：启动顺序表与「默认项」标记会缺，写入不受影响"
+                }
                     .to_string()
             } else {
                 "当前进程没权限读 EFI 变量（`BootCurrent` 读不到）：固件启动列表在这里不完整，\
@@ -852,8 +1122,8 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
         nvram::BootVarsView::Hidden => issues.push(HealthIssue {
             severity: "info".to_string(),
             text: if reading_private {
-                "本系统读不到固件 `Boot*` 变量（`BootCurrent` 读不到）：这只影响「OC 有没有在固件里注册」这类判断；\
-                 上面的默认项读的是 OC 私有 `OCBtOrder`，不受影响"
+                "本系统读不到固件 `Boot*` 变量（`BootCurrent` 读不到）：OC 私有的 `OCBtOrder` \
+                 同属固件变量空间，通常也读不到 —— 默认项标记可能因此缺失"
                     .to_string()
             } else {
                 "本系统读不到 `BootCurrent`：固件的启动列表在这里不完整，「默认项」标记仅供参考"
@@ -870,13 +1140,41 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
             ),
         });
     }
-    if !order_notes.is_empty() {
+    // 「找不到文件」必须分两种说，混成一句「死项」就是误诊：
+    //  · macOS 的 APFS 启动项：Windows/Linux 没有 APFS 驱动，看不见文件是常态，
+    //    OC 自己认得（`OCBt0080` 就是 MAC），在这里也能设默认；
+    //  · 其余：路径指向的文件真没了（卷没挂载或已被删），进菜单也点不动。
+    let (apfs_notes, dead_notes): (Vec<&(String, &str)>, Vec<&(String, &str)>) = order_notes
+        .iter()
+        .partition(|(_, kind)| *kind == "macos");
+    if !dead_notes.is_empty() {
         issues.push(HealthIssue {
             severity: "warn".to_string(),
             text: format!(
-                "`BootOrder` 里有 {} 项找不到对应文件（{}）——它们进了菜单也是点不动的死项",
-                order_notes.len(),
-                order_notes.join("、")
+                "`{}` 里有 {} 项找不到对应文件（{}）——它们进了菜单也是点不动的死项",
+                namespace.order_name(),
+                dead_notes.len(),
+                dead_notes
+                    .iter()
+                    .map(|(name, _)| name.clone())
+                    .collect::<Vec<_>>()
+                    .join("、")
+            ),
+        });
+    }
+    if !apfs_notes.is_empty() {
+        issues.push(HealthIssue {
+            severity: "info".to_string(),
+            text: format!(
+                "`{}` 里 {} 项是 macOS 的 APFS 启动项（{}）：本系统没有 APFS 驱动，看不到文件属正常，\
+                 OC 自己能认，在这里也能把它设为默认",
+                namespace.order_name(),
+                apfs_notes.len(),
+                apfs_notes
+                    .iter()
+                    .map(|(name, _)| name.clone())
+                    .collect::<Vec<_>>()
+                    .join("、")
             ),
         });
     }
@@ -973,6 +1271,9 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
         order_source,
         default_slot,
         preboot_elevatable,
+        // 整表读不到（没权限）或吃的是缓存 → 都给按钮：前者是「补齐」，
+        // 后者是「刷新」（OC 或别的系统改过默认项后缓存会滞后）。
+        order_elevatable: order.is_empty() || order_from_cache,
     }
 }
 
@@ -1334,6 +1635,72 @@ mod tests {
         println!("—— 诊断 ——");
         for issue in &preview.issues {
             println!("({}) {}", issue.severity, issue.text);
+        }
+    }
+
+    #[test]
+    fn duplicate_labels_get_stable_suffix() {
+        // 两块卷同标签时，「设为默认」按卷标反查挂载根会挑到第一个 —— 必须去重，
+        // 且后缀要稳定（两次枚举结果一致，否则反查会飘到另一块盘上）。
+        let mut list = vec![
+            Volume {
+                label: "EFI".to_string(),
+                root: PathBuf::from("/Volumes/EFI"),
+            },
+            Volume {
+                label: "EFI".to_string(),
+                root: PathBuf::from("/Volumes/EFI 1"),
+            },
+            Volume {
+                label: "MAC".to_string(),
+                root: PathBuf::from("/Volumes/MAC"),
+            },
+        ];
+        disambiguate_labels(&mut list);
+        // 第一个保持原名，后出现的补后缀；不重名的一点都不动
+        assert_eq!(list[0].label, "EFI");
+        assert_eq!(list[1].label, "EFI（EFI 1）");
+        assert_eq!(list[2].label, "MAC");
+    }
+
+    #[test]
+    fn disambiguate_is_idempotent_for_unique_labels() {
+        let mut list = vec![
+            Volume {
+                label: "ARCH-EFI".to_string(),
+                root: PathBuf::from("/Volumes/ARCH-EFI"),
+            },
+            Volume {
+                label: "MacOS-efi".to_string(),
+                root: PathBuf::from("/Volumes/MacOS-efi"),
+            },
+        ];
+        let before: Vec<String> = list.iter().map(|v| v.label.clone()).collect();
+        disambiguate_labels(&mut list);
+        let after: Vec<String> = list.iter().map(|v| v.label.clone()).collect();
+        assert_eq!(before, after);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_fallback_label_is_not_a_bare_drive_letter() {
+        // 回归：`volumes()` 以前把 `H:\` 当卷标印在卡片上，用户看到「只有盘符」。
+        // 没标签的盘符要么报 EFI（有 \EFI 的 ESP），要么报「本地卷（X:)」。
+        let label = fallback_label(Path::new("Z:\\"));
+        assert_ne!(label, "Z:\\");
+        assert!(!label.ends_with(":\\"), "兜底名不能是裸盘符: {label}");
+        assert!(label.contains('Z'), "兜底名仍要能看出是哪块盘: {label}");
+    }
+
+    /// 真机探针：`cargo test --lib -- --ignored real_volume_labels --nocapture`
+    ///
+    /// 打一遍卷枚举结果 —— 三端对齐就靠这张表（Windows 上必须看到
+    /// `ARCH-EFI` / `MacOS-efi` / `WINDOWS-EFI` 这类卷标，不是 `H:\`）。
+    #[test]
+    #[ignore = "真机：读本机真实卷标"]
+    fn real_volume_labels() {
+        for volume in volumes() {
+            println!("{:24} <- {}", volume.label, volume.root.display());
         }
     }
 }

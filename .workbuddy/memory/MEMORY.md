@@ -17,6 +17,11 @@
 - 忙闸必须有放闸路径（`POWER_RELEASE_MS=15s`）；`restart_app` 顺序 stop_http_server → release_instance_lock → app.restart()。
 - 替换已安装应用：先杀主进程（mac 上 `osascript quit` 常被拒，直接 `kill -TERM`）→ 清残留子进程（tsnet/cloudflared 可能成孤儿）→ 备份旧 .app → 暂存新 .app + `codesign -v` → `mv` 交换 → md5 与构建产物比对 → 启动并查 `/health`。
 
+## 性能（OC 扫描，2026-10-28）
+- **Windows 分区表一律走 `channels::partitions::all()`**（一次全量 `Get-Partition` + 60s 缓存 + 持锁 single-flight）。禁止再新起分区查询：一轮扫描原先 7 次冷启动共 7.3s，合并后 1 次，扫描 **8.3s → 1.0s**（同进程热刷新 25ms）。`win_esp::mount()` 成功后必须 `invalidate()`。
+- **先埋点再动手**：`perf::begin/span/flush` 把每段耗时写进 trace.log 的 `[perf]` 表（thread_local 隔离、含子口径）。凭直觉估「APFS 解析最慢」是错的，真凶是外部命令冷启动；`oc.spec` 那 1.9s 来自每个 generic 条目重算 `volumes()`。
+- 本机 ESP 的 GPT 类型是 `ebd0a0a2`（基本数据），`win_esp::list()` 恒空、走 26 盘符兜底——真机事实，别当 bug 修。`apfs.scan` 0ms 也正常（非提权开物理盘立刻 PermissionDenied）。
+
 ## 验证 PC UI（Windows，四条铁律）
 ① 用计划任务跑 .bat 启动（沙箱会杀 WebView2）；② 抓屏用 `GetDC(NULL)+BitBlt`（`PrintWindow` 恒黑）；③ webview 不吃注入点击，走 `ANYBOOT_TEST_OPEN_HUB` / `ANYBOOT_TEST_OPEN_TERM=1` 钩子；④ 本机无 `strings`，用 Python 提串。
 - CDP：`ANYBOOT_CDP_PORT=9223` + **所有 webview 都得过 `apply_browser_args`**（参数不一致 = 0x8007139F）；杀旧实例等 5s。
@@ -40,7 +45,7 @@
 - 服务器多地址：连接只用 host/port，探活按序试全部地址；下载目录空值 = 系统下载目录（`expand_home` 读 HOME **和** USERPROFILE）；sol 路由语义改了要同步 `hub.html`、`ServerProfile.java`、`MainActivity.kt` 三处。
 
 ## 构建
-- **Windows**：`src-tauri/target` 被标低完整性，别在原地修 → `CARGO_TARGET_DIR=J:/tmp/anyboot-target`（C 盘 <3G，别用 E/F）；产物 exe+dll 一起复制到 `%LOCALAPPDATA%\AnyBoot`（先备份）。12300 落保留段 bind 报 10013 → `netsh int ipv4 set dynamicport tcp start=49152 num=16384` 后重启 winnat。
+- **Windows**（2026-10-28 起定案：**不再往 J 盘写任何东西**，用户明确要求）：仓库在 `E:\Common\Project\IdeaProjects\anyboot`，产物用默认 `src-tauri/target`（已 gitignore），只把临时目录指到项目内 `$env:TMP=$env:TEMP='E:\...\anyboot\.build\tmp'`（WiX/NSIS 要几 GB，落 C: 会报 os error 112）。`npm run build` 出 msi+nsis，**管道退出码常为 1 但「Finished 2 bundles」即成功**。部署：先 `taskkill /IM anyboot.exe /F`，备份 `AnyBoot-bak-YYYYMMDD<x>.exe` 再复制 exe。12300 落保留段 bind 报 10013 → `netsh int ipv4 set dynamicport tcp start=49152 num=16384` 后重启 winnat。
 - **mac**（本机是 Hackintosh x86_64、无 arm64）：`npm run build:mac-intel`；tauri 的 `bundle_dmg.sh` 在本机会失败（要 GUI 自动化摆窗口）→ 卸残留挂载 + 删 `rw.*.dmg` + `hdiutil create -ov -format UDZO` 补包。Windows 版在这里编不出来（无 MSVC）。配方见 `2026-10-26.md`。
 - **Linux**：系统 `/usr/bin/rustc` 已坏（要 libLLVM.so.23.1）→ 用自装工具链 `/home/disk1/{cargo,rustup}-home`，release 偶发 SIGABRT 用 `CARGO_BUILD_JOBS=2`；**仓库目录跑不了 check**（指纹扫描读 .git exclude 报 EACCES）→ rsync `src-tauri` + 同级 `ui/` 到仓库外跑。细则见 `2026-10-25.md`。
 - **Android**：无 gradlew、无全局 gradle → 直接用 `~/.gradle/wrapper/dists/gradle-8.14.3-bin/*/gradle-8.14.3/bin/gradle`；必须给 JDK17（`/usr/local/software/jdk/jdk-17`）+ `ANDROID_HOME`，并**在命令行覆盖 `-Duser.home`**（`gradle.properties` 里写着 Linux 的 `/home/jianghh`，不覆盖连 debug keystore 都生不出）。产物核验：类不止在 classes.dex（本工程 4 个 dex，`RemotePair` 在 classes3.dex）→ 逐 dex 搜符号，别拿体积当判据。

@@ -167,59 +167,19 @@ function ocMenuRow(entry, index, { busy, onSwitch, channel, orderSource, default
   return row;
 }
 
-/// 预演块默认展开：这张列表就是「这台机器上 OC 会看到什么」，收起来等于把
-/// 关键信息藏了（用户 2026-10-28 报「怎么被折叠了」）。但「收起」这个动作要
-/// 记住 —— 快照每次刷新都会重建 DOM，不存偏好就会被强行展开回去。
-const OC_MENU_OPEN_KEY = "anyboot.ocMenuOpen";
-
-function ocMenuOpenByDefault() {
-  try {
-    const saved = localStorage.getItem(OC_MENU_OPEN_KEY);
-    return saved === null ? true : saved === "1";
-  } catch {
-    return true; // 隐私模式等取不到存储时，按默认展开
-  }
-}
-
-/// 整块「预演 OC 菜单」（details，默认展开，用户手动收起后记住）
-function renderOcMenuPreview(preview, { busy, onSwitch, channel, onPrebootElevate } = {}) {
+/// OC 卡片正文的一部分：这台机器上 OC 开机菜单会看到什么（只有 OpenCore 通道有）。
+///
+/// 不做折叠、不加标题、不写说明段：它就是卡片正文的一块，列表直接铺开
+/// （用户 2026-10-28 明确要求「不要折叠菜单、不要叫预演 OC 菜单、去掉提示，
+/// 就把区域展示到 opencore 下面」）。「设为默认」的写入语义收在按钮 title 里，
+/// 需要时悬停即可看到，不再占正文。
+function renderOcMenuPreview(
+  preview,
+  { busy, onSwitch, channel, onPrebootElevate, onOrderElevate } = {},
+) {
   if (!preview) return null;
-  const box = document.createElement("details");
+  const box = document.createElement("div");
   box.className = "oc-menu";
-  box.open = ocMenuOpenByDefault();
-  box.addEventListener("toggle", () => {
-    try {
-      localStorage.setItem(OC_MENU_OPEN_KEY, box.open ? "1" : "0");
-    } catch {
-      /* 存不了就算了，下次仍按默认展开 */
-    }
-  });
-
-  const summary = document.createElement("summary");
-  const title = document.createElement("span");
-  title.className = "oc-menu-title";
-  title.textContent = "预演 OC 菜单";
-  const count = document.createElement("span");
-  count.className = "oc-menu-count";
-  const parts = [`${(preview.entries || []).length} 项`];
-  if ((preview.hidden || []).length) {
-    parts.push(`${preview.hidden.length} 项被隐藏`);
-  }
-  count.textContent = parts.join(" · ");
-  summary.append(title, count);
-  box.append(summary);
-
-  const hint = document.createElement("p");
-  hint.className = "oc-menu-hint";
-  // 与上面健康检查同一套排版：键名 / 变量名用反引号标出，渲染成 <code>
-  appendRichText(
-    hint,
-    "OC 不遍历目录：它按固定规则找（`BootOrder` + 每个卷的 bless/预定义路径 + 条目协议驱动）。" +
-      "预演本身是纯读复算，不写盘、不改 NVRAM。" +
-      "「设为默认」才会写：等价于在 OC 菜单对目标按 `Ctrl+Enter`，改的是 OC 私有命名空间的 " +
-      "`OCBtOrder` / `OCBt0080`（macOS 不许写 `Boot*`，这一组可以），写前整份备份。",
-  );
-  box.append(hint);
 
   if ((preview.entries || []).length) {
     const list = document.createElement("div");
@@ -273,12 +233,14 @@ function renderOcMenuPreview(preview, { busy, onSwitch, channel, onPrebootElevat
     box.append(issueBox);
   }
 
-  // Preboot 直读因权限失败且没有缓存 → 给一个「提权重扫」按钮。
-  // 弹一次 UAC（或 pkexec），后端用本程序自身跑一次只读扫描、缓存在进程里，
-  // 完成后整页重载即可看到 macOS 条目 —— 不需要用户用管理员身份重启 App。
+  // 两个「提权」按钮共用一行 —— 它们是同一件事的两个触发点：主进程没有管理员
+  // 权限，弹一次授权让本程序自身去读，读完缓存在进程里供预演重建。
+  //  · Preboot 直读失败 → macOS 条目缺失；
+  //  · 启动顺序表读不到 → 「默认项」标记点不亮：用户点完「设为默认」提示成功，
+  //    界面上却毫无变化（真机踩到，因为 OCBtOrder 同样是受固件保护的变量）。
+  const elevateRow = document.createElement("div");
+  elevateRow.className = "oc-menu-elevate";
   if (preview.prebootElevatable && onPrebootElevate) {
-    const row = document.createElement("div");
-    row.className = "oc-menu-elevate";
     const button = document.createElement("button");
     button.type = "button";
     button.className = "channel-helper-action needs-elev";
@@ -288,16 +250,21 @@ function renderOcMenuPreview(preview, { busy, onSwitch, channel, onPrebootElevat
       "（不写盘、不装任何东西；结果缓存 30 分钟，之后不再询问）";
     button.disabled = Boolean(busy);
     button.addEventListener("click", () => onPrebootElevate(false));
-    row.append(button);
-    box.append(row);
+    elevateRow.append(button);
   }
-
-  if (preview.summary) {
-    const summaryLine = document.createElement("small");
-    summaryLine.className = "oc-menu-summary";
-    summaryLine.textContent = `推算输入：${preview.summary}　·　准确率上限约 90%——固件到底枚举得到哪几个卷，只有在 UEFI 里才知道`;
-    box.append(summaryLine);
+  if (preview.orderElevatable && onOrderElevate) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "channel-helper-action needs-elev";
+    button.textContent = "提权读取启动顺序 ⤴";
+    button.title =
+      "弹一次管理员授权，读一遍 OCBtOrder / OCBt####：当前进程没权限读固件变量，" +
+      "没有这份数据就标不出哪个条目是默认项（只读、不写盘；结果缓存 30 分钟）";
+    button.disabled = Boolean(busy);
+    button.addEventListener("click", () => onOrderElevate());
+    elevateRow.append(button);
   }
+  if (elevateRow.childElementCount) box.append(elevateRow);
 
   return box;
 }
@@ -355,7 +322,7 @@ function renderHelperLine(helper, { busy, onHelper } = {}) {
 /// 组一张通道卡片的 DOM（结构与 .grub/.refind 卡同构）
 function makeBootChannelCard(
   channel,
-  { busy, onSwitch, helper, onHelper, onPrebootElevate },
+  { busy, onSwitch, helper, onHelper, onPrebootElevate, onOrderElevate },
 ) {
   const section = document.createElement("section");
   section.className = `refind boot-channel ${channel.id}`;
@@ -430,6 +397,7 @@ function makeBootChannelCard(
       onSwitch,
       channel,
       onPrebootElevate,
+      onOrderElevate,
     });
     if (preview) section.append(preview);
   }
@@ -536,7 +504,10 @@ function bootChannelSpec(entry, channel) {
   return entry.id;
 }
 
-function renderBootChannels(channels, { busy, onSwitch, helper, onHelper, onPrebootElevate }) {
+function renderBootChannels(
+  channels,
+  { busy, onSwitch, helper, onHelper, onPrebootElevate, onOrderElevate },
+) {
   const mount = document.getElementById("boot-channels-mount");
   const collapsed = document.getElementById("boot-channel-collapsed");
   const collapsedNames = document.getElementById("boot-channel-collapsed-names");
@@ -562,6 +533,7 @@ function renderBootChannels(channels, { busy, onSwitch, helper, onHelper, onPreb
         helper,
         onHelper,
         onPrebootElevate,
+        onOrderElevate,
       }),
     );
   }

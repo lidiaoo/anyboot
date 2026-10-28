@@ -2,6 +2,9 @@ node_modules/
 dist/
 src-tauri/target*/
 src-tauri/gen/
+# 构建临时目录（TMP/TEMP 指到这里：WiX/NSIS 打包要在临时目录落几 GB，
+# C 盘紧的时候会把 os error 112 甩出来）。放项目内，别再用外部盘。
+.build/
 *.local
 .DS_Store
 .idea/

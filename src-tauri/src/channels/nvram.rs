@@ -656,7 +656,10 @@ pub(crate) fn enable_system_environment_privilege() -> bool {
 
 /// dump 出来的一个变量：名字 + GUID + 原始字节 hex。只收录**读到**的，
 /// 不存在的变量不进列表（调用方看 count 就知道 OC 到底写没写过槽）。
-#[derive(serde::Serialize)]
+///
+/// `Deserialize` 是为了父进程能解析提权子进程回传的这份数据（见
+/// [`BootVarsSnapshot`]）。
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub(crate) struct DumpVar {
     pub(crate) name: String,
     pub(crate) guid: String,
@@ -664,7 +667,7 @@ pub(crate) struct DumpVar {
     pub(crate) hex: String,
 }
 
-#[derive(serde::Serialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub(crate) struct DumpFile {
     pub(crate) ok: bool,
     /// 特权启用是否成功（Windows：提权 ≠ SeSystemEnvironmentPrivilege 已启用）
@@ -744,6 +747,167 @@ pub(crate) fn privileged_dump_main(out_path: &str) -> i32 {
     }
 }
 
+// ─────────────── 提权读到的启动项快照（主进程没权限读时靠它回显） ───────────────
+
+/// 一次提权读取拿到的启动项视图。
+///
+/// 为什么需要它：Windows 上非管理员进程读固件变量直接报 1314，而 OC 私有的
+/// `OCBtOrder` / `OCBt####` 只是**另一个 GUID 下的同样受保护**的变量 —— 一样读不到。
+/// 于是预演的启动顺序表整表为空，「默认项」标记永远点不亮：用户点了「设为默认」、
+/// 提示成功，页面上却毫无变化（真机踩到）。提权子进程本来就要读这张表，顺手把
+/// 读到的结果带回来，主进程没权限时用它回显。
+#[derive(Clone, Debug)]
+pub(crate) struct BootVarsSnapshot {
+    /// `true` = OC 私有 `OCBt*`；`false` = 固件全局 `Boot*`
+    pub(crate) custom: bool,
+    pub(crate) order: Vec<u16>,
+    /// 槽编号 → `EFI_LOAD_OPTION` 原始字节（只收 order 里出现且读到的）
+    pub(crate) options: Vec<(u16, Vec<u8>)>,
+    pub(crate) taken_at: std::time::Instant,
+}
+
+/// 与 Preboot 提权缓存同档。启动顺序变动很少，30 分钟只是「NVRAM 可能被别的
+/// 系统动过、缓存该失效」的护栏。
+const BOOT_VARS_SNAPSHOT_TTL: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+
+/// 只保留两个命名空间各一份（后写入的覆盖旧的）。
+static BOOT_VARS_SNAPSHOTS: std::sync::OnceLock<std::sync::Mutex<Vec<BootVarsSnapshot>>> =
+    std::sync::OnceLock::new();
+
+fn snapshot_cell() -> &'static std::sync::Mutex<Vec<BootVarsSnapshot>> {
+    BOOT_VARS_SNAPSHOTS.get_or_init(|| std::sync::Mutex::new(Vec::new()))
+}
+
+/// 存快照（同一命名空间的旧快照被替换）。
+pub(crate) fn store_boot_vars_snapshots(items: Vec<BootVarsSnapshot>) {
+    let Ok(mut guard) = snapshot_cell().lock() else {
+        return;
+    };
+    for item in items {
+        guard.retain(|old| old.custom != item.custom);
+        guard.push(item);
+    }
+}
+
+/// 取 TTL 内的快照；没有/过期 → None。
+pub(crate) fn cached_boot_vars(custom: bool) -> Option<BootVarsSnapshot> {
+    let guard = snapshot_cell().lock().ok()?;
+    guard
+        .iter()
+        .find(|item| item.custom == custom && item.taken_at.elapsed() < BOOT_VARS_SNAPSHOT_TTL)
+        .cloned()
+}
+
+/// `"80 00 82 00"` → `[80, 00, 82, 00]`。
+fn parse_hex_bytes(text: &str) -> Option<Vec<u8>> {
+    text.split_whitespace()
+        .map(|part| u8::from_str_radix(part, 16).ok())
+        .collect()
+}
+
+/// dump 出来的变量列表 → 各命名空间的快照（读不到对应 order 的那个不产出）。
+pub(crate) fn snapshots_from_vars(vars: &[DumpVar]) -> Vec<BootVarsSnapshot> {
+    let oc_guid = super::oc_default::GUID_OC_VENDOR;
+    let mut out = Vec::new();
+    for custom in [true, false] {
+        let (order_name, guid) = if custom {
+            ("OCBtOrder", oc_guid)
+        } else {
+            ("BootOrder", GUID_GLOBAL)
+        };
+        let Some(order_var) = vars
+            .iter()
+            .find(|var| var.name.eq_ignore_ascii_case(order_name) && var.guid.eq_ignore_ascii_case(guid))
+        else {
+            continue;
+        };
+        let Some(raw) = parse_hex_bytes(&order_var.hex) else {
+            continue;
+        };
+        let order = parse_boot_order(&raw);
+        if order.is_empty() {
+            continue;
+        }
+        let mut options = Vec::new();
+        for number in &order {
+            let wanted = if custom {
+                format!("OCBt{number:04X}")
+            } else {
+                boot_var_name(*number)
+            };
+            if let Some(var) = vars
+                .iter()
+                .find(|var| var.name.eq_ignore_ascii_case(&wanted) && var.guid.eq_ignore_ascii_case(guid))
+            {
+                if let Some(value) = parse_hex_bytes(&var.hex) {
+                    options.push((*number, value));
+                }
+            }
+        }
+        out.push(BootVarsSnapshot {
+            custom,
+            order,
+            options,
+            taken_at: std::time::Instant::now(),
+        });
+    }
+    out
+}
+
+/// 直接拿一批 dump 变量更新快照；返回是否至少读到一份启动顺序表。
+pub(crate) fn store_snapshots_from_vars(vars: Vec<DumpVar>) -> bool {
+    let snapshots = snapshots_from_vars(&vars);
+    let hit = !snapshots.is_empty();
+    store_boot_vars_snapshots(snapshots);
+    hit
+}
+
+/// 弹一次授权，提权读一遍 `OCBt*` / `Boot*` 全量，把启动顺序表存进进程内缓存。
+///
+/// **必须在 async 命令的工作线程上调**（Windows 的 ShellExecuteExW 同步等 UAC）。
+#[cfg(any(target_os = "windows", target_os = "linux", test))]
+pub(crate) fn refresh_boot_vars_elevated() -> Result<String, String> {
+    let out_path = super::elevate::result_file_path("nvram-dump");
+    super::elevate::run_elevated(
+        &[
+            "--nvram-dump-privileged".to_string(),
+            "--out".to_string(),
+            out_path.to_string_lossy().to_string(),
+        ],
+        &out_path,
+    )?;
+    let text = std::fs::read_to_string(&out_path)
+        .map_err(|error| format!("提权子进程退出了但结果文件读不到：{error}"))?;
+    let file: DumpFile = serde_json::from_str(&text)
+        .map_err(|error| format!("提权读取的结果不是合法 JSON：{error}"))?;
+    if !file.ok {
+        return Err(file
+            .error
+            .unwrap_or_else(|| "提权读取失败（子进程没给原因）".to_string()));
+    }
+    let snapshots = snapshots_from_vars(&file.vars);
+    if snapshots.is_empty() {
+        return Err(
+            "提权读到了 NVRAM，但里面没有启动顺序表（`OCBtOrder` / `BootOrder` 都读不到）：\
+             OC 还没在这个系统上记过默认项"
+                .to_string(),
+        );
+    }
+    let summary = snapshots
+        .iter()
+        .map(|snap| {
+            format!(
+                "{} {} 项",
+                if snap.custom { "OCBtOrder" } else { "BootOrder" },
+                snap.order.len()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" / ");
+    store_boot_vars_snapshots(snapshots);
+    Ok(format!("已提权读取启动顺序（{summary}），本页已刷新"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -755,6 +919,62 @@ mod tests {
         assert_eq!(raw.len(), 6);
         assert_eq!(&raw[..4], &[0x07, 0x00, 0x00, 0x00]);
         assert_eq!(strip_attr_header(&raw), Some(&[0x03, 0x00][..]));
+    }
+
+    fn dump_var(name: &str, guid: &str, hex: &str) -> DumpVar {
+        DumpVar {
+            name: name.to_string(),
+            guid: guid.to_string(),
+            len: hex.split_whitespace().count(),
+            hex: hex.to_string(),
+        }
+    }
+
+    #[test]
+    fn snapshots_split_by_namespace_and_keep_only_order_slots() {
+        let oc = super::super::oc_default::GUID_OC_VENDOR;
+        let vars = vec![
+            // OC 私有：80 在首位（用户按过 Ctrl+Enter 之后就是这个样子）
+            dump_var("OCBtOrder", oc, "80 00 82 00 81 00"),
+            dump_var("OCBt0080", oc, "01 00 00 00 02 00 4D 00 41 00 43 00"),
+            // 固件全局：顺序不同，值也不同 —— 两套不能混
+            dump_var("BootOrder", GUID_GLOBAL, "82 00 80 00"),
+            dump_var("Boot0082", GUID_GLOBAL, "01 00 00 00 00 00 00 00"),
+        ];
+        let snapshots = snapshots_from_vars(&vars);
+        assert_eq!(snapshots.len(), 2);
+
+        let private = snapshots
+            .iter()
+            .find(|snap| snap.custom)
+            .expect("OCBt 命名空间快照");
+        assert_eq!(private.order, vec![0x0080, 0x0082, 0x0081]);
+        // 只收「order 里出现 + 真的读到」的槽：OCBt0081/0082 没给值就不进列表
+        assert_eq!(private.options.len(), 1);
+        assert_eq!(private.options[0].0, 0x0080);
+        // 4 字节属性 + 2 字节路径长度 + "MAC" 的 UTF-16（6 字节）
+        assert_eq!(private.options[0].1.len(), 12);
+
+        let global = snapshots
+            .iter()
+            .find(|snap| !snap.custom)
+            .expect("Boot 命名空间快照");
+        assert_eq!(global.order, vec![0x0082, 0x0080]);
+        assert_eq!(global.options.len(), 1);
+    }
+
+    #[test]
+    fn snapshots_skip_namespace_without_order() {
+        // 只有槽没有顺序表 → 无法确定默认项，不产出
+        let oc = super::super::oc_default::GUID_OC_VENDOR;
+        let snapshots = snapshots_from_vars(&[dump_var(
+            "OCBt0080",
+            oc,
+            "01 00 00 00 02 00 4D 00 41 00 43 00",
+        )]);
+        assert!(snapshots.is_empty());
+        // 空的 order 值同样不算
+        assert!(snapshots_from_vars(&[dump_var("OCBtOrder", oc, "")]).is_empty());
     }
 
     #[test]

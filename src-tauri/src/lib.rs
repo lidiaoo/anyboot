@@ -134,6 +134,7 @@ mod remote_servers;
 mod scan;
 mod switch_flow;
 mod gpu_compat;
+mod perf;
 mod trace;
 mod ui_state;
 
@@ -524,6 +525,30 @@ async fn apfs_scan_elevated(
     // 结果文件里明明有 MAC，页面死活不出现）。
     channels::refresh_channels(&app);
     outcome
+}
+
+/// 「提权读取启动顺序」（OpenCore 预演，Windows/Linux）：弹一次授权，让本程序
+/// 自身跑 `--nvram-dump-privileged`，把 `OCBtOrder` / `OCBt####` 存进进程内
+/// 快照。主进程没有管理员权限读不到固件变量 —— 没有这份快照就标不出「默认项」，
+/// 用户点完「设为默认」会觉得完全没生效。
+///
+/// **必须 async**：同 `apfs_scan_elevated`，ShellExecuteExW 同步等 UAC。
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+async fn ocbt_refresh_elevated(app: AppHandle) -> Result<String, String> {
+    let message = tauri::async_runtime::spawn_blocking(channels::nvram::refresh_boot_vars_elevated)
+        .await
+        .map_err(|error| format!("提权读取任务异常退出：{error}"))??;
+    // 与提权重扫同理：快照只进了进程内缓存，三通道视图要重算才会带上它
+    channels::refresh_channels(&app);
+    Ok(message)
+}
+
+/// macOS 版占位：命令表两端必须同名（同 `apfs_scan_elevated`）。
+#[cfg(target_os = "macos")]
+#[tauri::command]
+async fn ocbt_refresh_elevated() -> Result<String, String> {
+    Err("macOS 能直接用 nvram 读启动变量，不需要提权读取".to_string())
 }
 
 /// macOS 版占位：命令表两端必须同名，否则 `generate_handler!` 得按平台分叉。
@@ -3291,6 +3316,8 @@ pub fn run() {
             // 前端异常上报（webview 无控制台，只写 trace.log）
             hub_report_error,
             apfs_scan_elevated,
+            // 提权读取 OC 启动顺序（主进程没权限读固件变量，靠它点亮「默认项」）
+            ocbt_refresh_elevated,
             hub::hub_save_server,
             hub::hub_delete_server,
             hub::hub_test_server,

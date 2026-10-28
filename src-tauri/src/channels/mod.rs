@@ -25,6 +25,7 @@ pub(crate) mod nvram;
 pub(crate) mod oc_default;
 pub(crate) mod oc_menu;
 pub(crate) mod opencore;
+pub(crate) mod partitions;
 pub(crate) mod plist_lite;
 pub(crate) mod sdboot;
 pub(crate) mod win_esp;
@@ -154,6 +155,9 @@ fn candidate_roots() -> Vec<PathBuf> {
     }
     // 拿不到 GPT 信息（MBR 盘、老系统、PowerShell 被裁剪）→ 退回原来的盘符扫描。
     // 这条兜底只在真的枚举不出 ESP 时才走，不会掩盖上面那条更准的路。
+    // 单独埋点：盲扫 26 个盘符时，一块**断连的网络盘 / 空光驱**能同步等到超时
+    // （SMB 断连十几秒），是「有时特别慢」的长尾来源。
+    let _span = perf::span("esp.drive_letters");
     (b'A'..=b'Z')
         .map(|letter| PathBuf::from(format!("{}:\\", letter as char)))
         .collect()
@@ -175,6 +179,9 @@ fn candidate_roots() -> Vec<PathBuf> {
 fn offline_extras() -> (Option<String>, Vec<ChannelEntry>) {
     #[cfg(target_os = "windows")]
     {
+        // 又一次 win_esp::list()（= 又一次 PowerShell）。它在「没找到 ESP」时才走，
+        // 但那种情况恰恰是用户最需要看到解释的时候，慢也得付。
+        let _span = perf::span("esp.offline_extras");
         // 只看「没有盘符」的：有盘符却没扫到，说明是「这块 ESP 上没有引导器」，
         // 跟盘符无关 —— 那时候给这条提示就是纯误导（用户会去挂一块早就挂好的分区）。
         let unlettered: Vec<win_esp::WinEsp> = win_esp::list()
@@ -224,6 +231,7 @@ fn offline_extras() -> (Option<String>, Vec<ChannelEntry>) {
 /// 三通道共用的 ESP 根目录。优先级：GRUB 链路已解析的 → 常见挂载点探测。
 /// （不引入第二个 ESP 探测实现：识别信息照抄 grub 链路的 EspInfo。）
 pub(crate) fn resolve_esp_root(app: &AppHandle) -> Option<(Option<EspInfo>, PathBuf)> {
+    let _span = perf::span("esp.resolve");
     {
         let state = app.state::<Mutex<AppState>>();
         let state = state.lock().expect("state mutex poisoned");
@@ -233,11 +241,20 @@ pub(crate) fn resolve_esp_root(app: &AppHandle) -> Option<(Option<EspInfo>, Path
             }
         }
     }
-    candidate_roots()
+    let roots = {
+        // Windows 上这一步 = 一次 PowerShell 冷启动（Get-Partition），是整条链路
+        // 最贵的单点；单独埋一段，才能一眼看出它到底占了多少
+        let _span = perf::span("esp.candidates");
+        candidate_roots()
+    };
+    roots
         .into_iter()
         .find(|root| has_channel_signature(root))
         .map(|root| {
-            let info = esp_probe(&root).ok();
+            let info = {
+                let _span = perf::span("esp.probe");
+                esp_probe(&root).ok()
+            };
             (info, root)
         })
 }
@@ -288,12 +305,22 @@ fn offline_view(
 /// 重算三通道视图并写回 AppState.channels（refresh_and_update 里 GRUB 刷新之后调）。
 /// 叫 refresh_channels 是因为 switch_flow::refresh（tauri 命令）经 glob 会撞名。
 pub(crate) fn refresh_channels(app: &AppHandle) {
+    let _span = perf::span("channels.all");
     let (esp, views) = match resolve_esp_root(app) {
         Some((esp, root)) => {
             let views = vec![
-                sdboot::view(&root),
-                opencore::view(&root),
-                clover::view(&root),
+                {
+                    let _span = perf::span("channels.sdboot");
+                    sdboot::view(&root)
+                },
+                {
+                    let _span = perf::span("channels.opencore");
+                    opencore::view(&root)
+                },
+                {
+                    let _span = perf::span("channels.clover");
+                    clover::view(&root)
+                },
             ];
             (esp, views)
         }

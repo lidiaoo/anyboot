@@ -168,6 +168,7 @@ pub(crate) fn find_mounted_by_partuuid(partuuid: &str) -> Option<PathBuf> {
 /// 挂载点；没挂载才由我们用 `mount`（必要时 pkexec 提权）以 **rw** 挂上。
 #[cfg(target_os = "linux")]
 pub(crate) fn grub_esp_dir(partuuid: &str) -> Result<(PathBuf, Option<ActiveMount>), String> {
+    let _span = crate::perf::span("cmd.lsblk_grub_esp");
     let output = command("lsblk")
         .args(["--json", "--output", "PATH,FSTYPE,UUID,PARTUUID,MOUNTPOINTS"])
         .stderr(Stdio::null())
@@ -241,6 +242,7 @@ pub(crate) fn grub_esp_dir(partuuid: &str) -> Result<(PathBuf, Option<ActiveMoun
 /// MOUNTPOINTS —— 用户自己挂好之后，我们直接把那个路径拿来用。
 #[cfg(target_os = "linux")]
 pub(crate) fn find_mounted_by_partuuid(partuuid: &str) -> Option<PathBuf> {
+    let _span = crate::perf::span("cmd.lsblk_mounted");
     let output = command("lsblk")
         .args(["--json", "--output", "PARTUUID,MOUNTPOINTS"])
         .stderr(Stdio::null())

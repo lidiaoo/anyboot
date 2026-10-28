@@ -1484,6 +1484,7 @@ function render(state) {
     helper: state.helper,
     onHelper: toggleBootHelper,
     onPrebootElevate: rescanPrebootElevated,
+    onOrderElevate: refreshBootOrderElevated,
   });
   renderNextBootLast(state.channels);
   renderSettings(state.settings);
@@ -3077,6 +3078,8 @@ async function switchGrub(selector) {
 // 用 helperPending 挡住连点：连点会排队弹两个密码框，第二个还会把刚装好的卸掉。
 let helperPending = false;
 let prebootElevatePending = false;
+// 「提权读取启动顺序」也在等 UAC，同样要防连点（两次弹窗会叠在一起）
+let orderElevatePending = false;
 
 // OC 预演的「提权重扫」：弹一次授权让后端只读扫一遍 APFS 容器，成功后重新拉
 // 快照 —— 新预演会带上 Preboot 条目。缓存 30 分钟，重复点击不会反复弹授权
@@ -3099,7 +3102,28 @@ async function rescanPrebootElevated(force) {
   }
 }
 
-async function toggleBootHelper(action) {  if (helperPending) {
+/// 「提权读取启动顺序」：主进程没有管理员权限，`Boot*` 与 OC 私有的 `OCBt*`
+/// 都读不到 → 预演标不出哪个条目是默认项，用户点完「设为默认」看不到任何回显。
+/// 弹一次授权让本程序自身 dump 一遍，后端把快照存进进程内并重算视图。
+async function refreshBootOrderElevated() {
+  if (orderElevatePending) {
+    return;
+  }
+  orderElevatePending = true;
+  showStatusBar("等待授权（UAC 弹窗）—— 批准后 AnyBoot 会只读读一遍启动变量…");
+  try {
+    const message = await invoke("ocbt_refresh_elevated");
+    showStatusBar(message || "已提权读取启动顺序");
+    await refreshSnapshotQuietly();
+  } catch (error) {
+    showStatusBar(String(error), { error: true });
+  } finally {
+    orderElevatePending = false;
+  }
+}
+
+async function toggleBootHelper(action) {
+  if (helperPending) {
     return;
   }
   helperPending = true;

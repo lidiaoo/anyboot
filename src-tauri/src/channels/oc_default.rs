@@ -168,7 +168,7 @@ fn build_from_volume(volume: &str, path: &str) -> Result<Vec<u8>, String> {
 pub(crate) fn entry_spec(
     entry: &oc_menu::MenuEntry,
     writable: bool,
-    esp_root: &Path,
+    esp_label: Option<&str>,
 ) -> Option<String> {
     if !writable || entry.default || entry.kind == "tool" || entry.volume == "—" {
         return None;
@@ -182,12 +182,13 @@ pub(crate) fn entry_spec(
     }
     // OC 自己的 Bootstrap 入口（这块 ESP 上的 \EFI\BOOT\BOOTX64.EFI）不提供：
     // 把它设成默认 = 每次启动都先回 OC 菜单，「默认项」就失去意义了。
-    if entry.kind == "generic" {
-        if let Some(root) = oc_menu::volume_root(&entry.volume) {
-            if oc_menu::same_path(&root, esp_root) {
-                return None;
-            }
-        }
+    //
+    // 判等用调用方算好的 **ESP 卷标**，**不要**在这里反查 `volume_root(卷标)`：
+    // 那个函数会重跑整条 `volumes()`（Windows 上 = 一次全量分区查询，约 1s），
+    // 而每个 generic 条目都会走到这里 —— 实测两个 generic 条目白烧 1.87s，
+    // 占整轮扫描的四分之一（2026-10-28 埋点抓到）。
+    if entry.kind == "generic" && esp_label.is_some_and(|label| label == entry.volume) {
+        return None;
     }
     // Preboot 条目额外带上条目名（第三段）：这类目标的固件设备路径要经过
     // apfs.efi 虚拟卷，AnyBoot 还造不出来 —— 匹配已有槽全靠「描述 == 条目名」
@@ -359,7 +360,7 @@ pub(crate) fn set_default(esp_root: &Path, target: &str) -> Result<String, Strin
 
 // ─────────────────────────── 按需提权（Windows） ───────────────────────────
 
-/// 提权子进程的回传文件：`{ ok, message | error }`。
+/// 提权子进程的回传文件：`{ ok, message | error, vars }`。
 #[derive(serde::Deserialize)]
 struct SetDefaultReply {
     ok: bool,
@@ -367,6 +368,11 @@ struct SetDefaultReply {
     message: Option<String>,
     #[serde(default)]
     error: Option<String>,
+    /// 子进程顺手 dump 的启动变量。父进程没有管理员权限，读不到 `OCBtOrder`
+    /// 就标不出默认项 —— 有了这份数据，「设为默认」成功后页面才能立刻回显
+    /// （否则用户看到的是「提示成功、界面毫无变化」）。
+    #[serde(default)]
+    vars: Vec<nvram::DumpVar>,
 }
 
 /// 「设为默认」的提权版：弹一次 UAC，让本程序自己（提权子进程）跑同一套
@@ -397,6 +403,11 @@ pub(crate) fn set_default_elevated(esp_root: &Path, target: &str) -> Result<Stri
         .map_err(|error| format!("提权子进程退出了但结果文件读不到：{error}"))?;
     let reply: SetDefaultReply = serde_json::from_str(&text)
         .map_err(|error| format!("提权设默认的结果不是合法 JSON：{error}"))?;
+    // 无论成功失败都先用子进程带回的变量更新快照：失败时它读到的东西同样能
+    // 解释「为什么失败」（比如槽确实不存在 vs 权限读不到）。
+    if !reply.vars.is_empty() {
+        nvram::store_snapshots_from_vars(reply.vars);
+    }
     if reply.ok {
         Ok(reply
             .message
@@ -415,7 +426,7 @@ pub(crate) fn privileged_set_default_main(target: &str, esp: Option<&str>, out_p
     // 通常处于 disabled 态，不显式启用的话读写 OCBt*/Boot* 报 5/1314 —— 和
     // 「没提权」同症状，会被误诊成「OC 没写过槽」（真机踩过：OCBt0080 明明在）。
     let _ = super::nvram::enable_system_environment_privilege();
-    let payload = match (|| -> Result<String, String> {
+    let message = (|| -> Result<String, String> {
         let esp_root = esp
             .map(PathBuf::from)
             .filter(|root| super::has_channel_signature(root))
@@ -426,9 +437,18 @@ pub(crate) fn privileged_set_default_main(target: &str, esp: Option<&str>, out_p
             })
             .ok_or_else(|| "没有找到可用的 ESP（三条通道都需要它）".to_string())?;
         set_default(&esp_root, target)
-    })() {
-        Ok(message) => serde_json::json!({ "ok": true, "message": message }),
-        Err(error) => serde_json::json!({ "ok": false, "error": error }),
+    })();
+    // 顺手把启动变量全量 dump 一遍带给父进程：它没有管理员权限，读不到
+    // `OCBtOrder` 就标不出「默认项」——写成功却没有任何回显（真机踩到）。
+    //
+    // **必须在 set_default 之后 dump**：早先写在这一步之前，带回去的是**写之前**的
+    // 顺序表，父进程存进快照、刷新后仍按旧表标默认项 —— 表现正是「点一次没反应，
+    // 非要再点一次才回显」（第二次带回的「旧表」刚好等于第一次写完的状态）。
+    // 失败路径同样要带：读到的东西能帮用户分清「槽真的不存在」和「权限读不到」。
+    let vars = super::nvram::dump_boot_vars();
+    let payload = match message {
+        Ok(message) => serde_json::json!({ "ok": true, "message": message, "vars": vars }),
+        Err(error) => serde_json::json!({ "ok": false, "error": error, "vars": vars }),
     };
     write_reply(out_path, &payload)
 }
@@ -506,7 +526,8 @@ mod tests {
 
     #[test]
     fn spec_gating() {
-        let esp = Path::new("/");
+        // 卷标判等（原来的 esp 根路径）：generic 条目落在这块 ESP 上才被挡
+        let esp: Option<&str> = None;
         // 已有固件启动项（bootorder）→ 可设
         assert!(entry_spec(&entry("MAC", "\\System\\boot.efi", "macos", "bootorder", false), true, esp).is_some());
         // 卷上的 windows 引导文件（bless）→ 可设
@@ -541,7 +562,7 @@ mod tests {
         let spec = entry_spec(
             &entry("Macintosh HD", "\\EFI\\Microsoft\\Boot\\bootmgfw.efi", "windows", "bless", false),
             true,
-            Path::new("/Volumes/Other"),
+            Some("Other"),
         )
         .expect("应可设");
         assert!(spec.starts_with("opencore-default:"));
