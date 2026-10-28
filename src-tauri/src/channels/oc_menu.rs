@@ -272,9 +272,14 @@ pub(crate) fn same_target(left: &str, right: &str) -> bool {
 
 // ─────────────────────────── 卷枚举 ───────────────────────────
 
-struct Volume {
-    label: String,
-    root: PathBuf,
+/// 一张可见卷（卷标 + 挂载根）。
+///
+/// `pub(crate)` 不是为了 OC：rEFInd 的模拟扫描（`refind_menu`）要用同一套卷枚举 ——
+/// 两边面对的是同一个 UEFI 世界，卷的可见性规则（没有 NTFS/ext4 驱动就看不到目录）
+/// 完全一致，各自再写一份必然漂移。
+pub(crate) struct Volume {
+    pub(crate) label: String,
+    pub(crate) root: PathBuf,
 }
 
 /// 卷的分区 GUID（`diskutil` 的 `DiskUUID`，小写）。非 macOS 一律 `None`。
@@ -379,7 +384,7 @@ fn default_index(placed: &[(u16, usize)], entries: &[MenuEntry]) -> Option<usize
 ///
 /// macOS 的根卷不在 `/Volumes` 下（那是 APFS 的 Data/System 合体），要单独加；
 /// 其余平台 `candidate_roots` 已经覆盖了常见挂载点。
-fn volumes() -> Vec<Volume> {
+pub(crate) fn volumes() -> Vec<Volume> {
     let mut out: Vec<Volume> = Vec::new();
     #[cfg(target_os = "macos")]
     {

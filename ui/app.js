@@ -458,6 +458,14 @@ const emitEvent = IS_BROWSER ? () => {} : tauri.event.emit;
 
 const statusElement = document.querySelector("#status");
 const systemsElement = document.querySelector("#systems");
+// 「模拟引导项扫描」区块（与上面三张手动获取的系统卡并列，纯读）
+const simScanSummaryElement = document.querySelector("#sim-scan-summary");
+const simScanIssuesElement = document.querySelector("#sim-scan-issues");
+const simScanListElement = document.querySelector("#sim-scan-list");
+const simScanHiddenElement = document.querySelector("#sim-scan-hidden");
+const simScanHiddenListElement = document.querySelector("#sim-scan-hidden-list");
+const simScanHiddenCountElement = document.querySelector("#sim-scan-hidden-count");
+const simScanRefreshElement = document.querySelector("#sim-scan-refresh");
 const directoryElement = document.querySelector("#vars-dir");
 const autostartElement = document.querySelector("#autostart");
 const closeActionElement = document.querySelector("#close-action");
@@ -745,6 +753,149 @@ statusBarCloseElement.addEventListener("click", () => {
   statusBarDismissed = statusBarMessage;
   hideStatusBar();
 });
+
+// ── 模拟引导项扫描 ──
+// 数据来自后端 channels::refind_menu::preview：按 rEFInd 自己的扫描规则
+// （refind/scan.c）纯读复算出的菜单。**与上面三张系统卡完全无关** —— 那三张是
+// 「手动获取」：读 vars/PreviousBoot-* 快照、切换 = 复制文件；这里只展示
+// 「rEFInd 开机菜单会列出什么」，不写盘、不改 PreviousBoot。
+const REFIND_SIM_ICONS = {
+  macos: "🍎",
+  windows: "🪟",
+  linux: "🐧",
+  opencore: "🅾️",
+  clover: "🍀",
+  generic: "⬜",
+  unknown: "❓",
+};
+
+const REFIND_SIM_KIND_LABEL = {
+  macos: "macOS",
+  windows: "Windows",
+  linux: "Linux",
+  opencore: "OpenCore",
+  clover: "Clover",
+  unknown: "未知",
+};
+
+const REFIND_SIM_SOURCE_LABEL = {
+  internal: "内置磁盘",
+  external: "外置磁盘",
+  optical: "光驱",
+  macos: "macOS bless",
+  windows: "Windows 专扫",
+  fallback: "EFI\\BOOT 兜底",
+  user: "refind.conf",
+  firmware: "固件 Boot####",
+};
+
+function refindSimRow(entry, index) {
+  const row = document.createElement("div");
+  row.className = "oc-menu-row";
+  row.dataset.kind = entry.kind || "unknown";
+
+  const idx = document.createElement("span");
+  idx.className = "oc-menu-idx";
+  idx.textContent = String(index + 1);
+
+  const body = document.createElement("span");
+  body.className = "oc-menu-body";
+
+  const head = document.createElement("span");
+  head.className = "oc-menu-head";
+  const name = document.createElement("b");
+  // rEFInd 的标题末尾带一个空格（scan.c:653 故意的），展示时去掉
+  name.textContent = (entry.title || "").trim();
+  head.append(name);
+
+  if (entry.lastBoot) {
+    const mark = document.createElement("span");
+    mark.className = "oc-menu-last";
+    mark.textContent = "上次启动";
+    mark.title =
+      "与 vars/PreviousBoot 里的标题一致：rEFInd「记住启动项」记的就是它，"
+      + "default_selection 里的 + 会被替换成这一项";
+    head.append(mark);
+  }
+
+  const kind = document.createElement("span");
+  kind.className = "oc-menu-kind";
+  kind.textContent = `${REFIND_SIM_ICONS[entry.kind] || "⬜"} ${
+    REFIND_SIM_KIND_LABEL[entry.kind] || entry.kind
+  }`;
+  head.append(kind);
+
+  const source = document.createElement("span");
+  source.className = "oc-menu-src";
+  source.textContent = REFIND_SIM_SOURCE_LABEL[entry.source] || entry.source;
+  head.append(source);
+
+  body.append(head);
+
+  const path = document.createElement("code");
+  path.className = "oc-menu-path";
+  path.textContent = entry.volume
+    ? `${entry.volume} · ${entry.path}`
+    : entry.path;
+  body.append(path);
+
+  const notes = [];
+  if (entry.note) notes.push(entry.note);
+  if (entry.hiddenBy) notes.push(`被隐藏规则挡掉：${entry.hiddenBy}`);
+  for (const text of notes) {
+    const note = document.createElement("small");
+    note.className = "oc-menu-note";
+    note.textContent = text;
+    body.append(note);
+  }
+
+  row.append(idx, body);
+  return row;
+}
+
+function renderRefindSim(sim) {
+  if (!simScanListElement) return;
+  simScanListElement.replaceChildren();
+  simScanIssuesElement.replaceChildren();
+  simScanHiddenListElement.replaceChildren();
+  simScanHiddenElement.hidden = true;
+
+  if (!sim) {
+    // 变量目录都没找到时后端根本不算 —— 照实说，别留一块空白让人以为坏了
+    simScanSummaryElement.textContent =
+      "还没有结果：变量目录扫描成功后会自动算一次（纯读，不影响上面的手动切换）";
+    return;
+  }
+
+  simScanSummaryElement.textContent = sim.summary || "";
+  for (const issue of sim.issues || []) {
+    const line = document.createElement("small");
+    line.className = "sim-scan-issue";
+    line.dataset.severity = issue.severity || "info";
+    line.textContent = `· ${issue.text}`;
+    simScanIssuesElement.append(line);
+  }
+
+  (sim.entries || []).forEach((entry, index) => {
+    simScanListElement.append(refindSimRow(entry, index));
+  });
+  if (!(sim.entries || []).length) {
+    const empty = document.createElement("small");
+    empty.className = "sim-scan-issue";
+    empty.textContent =
+      "· 这一轮 rEFInd 一项都没扫到：确认 ESP 已挂载、refind.conf 的 scanfor 含 i/e/o";
+    simScanListElement.append(empty);
+  }
+
+  const hidden = sim.hidden || [];
+  if (hidden.length) {
+    simScanHiddenElement.hidden = false;
+    simScanHiddenCountElement.textContent = String(hidden.length);
+    hidden.forEach((entry, index) => {
+      simScanHiddenListElement.append(refindSimRow(entry, index));
+    });
+  }
+}
 
 function renderSystems(status, busy, grub) {
   systemsElement.replaceChildren();
@@ -1462,6 +1613,8 @@ function render(state) {
   );
 
   renderSystems(state.status, busy, state.grub);
+  // 模拟引导项扫描（纯读）：与上面三张系统卡并列的另一条链路，只展示不写盘
+  renderRefindSim(state.refindSim);
   // 顶部那行状态文案：扫描成功后 status.message 就是「下次启动：X」，
   // 而下面的大字已经把下次启动说全了（级联时还带 GRUB 启动项，信息更多）
   // —— 用户定案 2026-10-13：凡是「下次启动：」开头的都算重复，不再显示。
@@ -1672,7 +1825,19 @@ async function call(command, args) {
 }
 
 refreshElement.addEventListener("click", () => call("refresh"));
-
+// 「重新模拟」只重算这一块（后端纯读，不改 PreviousBoot、不碰 NVRAM）。
+// 不用走整轮 refresh：那会把 GRUB/通道/挂载一起重扫，慢且没必要。
+if (simScanRefreshElement) {
+  simScanRefreshElement.addEventListener("click", async () => {
+    simScanRefreshElement.disabled = true;
+    try {
+      const sim = await call("refind_sim_scan");
+      if (sim) renderRefindSim(sim);
+    } finally {
+      simScanRefreshElement.disabled = false;
+    }
+  });
+}
 // ---------- 界面栏目页签（地址栏可寻址） ----------
 // 主窗口内容分三个栏目：系统引导（rEFInd + GRUB 同页，主功能）、
 // 基本设置（应用设置 + 远程控制）、SOL 远程唤醒（sol 接收器管理）。

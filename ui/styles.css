@@ -2277,6 +2277,85 @@ button.primary-sol:hover:not(:disabled) {
   gap: 6px;
   min-width: 0;
 }
+
+/* ── rEFInd 模拟引导项扫描（用户定案 2026-10-29） ──
+ * 与上面三张「手动获取」的系统卡并列：那是 vars 快照（切换 = 复制文件），
+ * 这里是按 rEFInd 扫描规则复算出来的菜单。列表行**复用 .oc-menu-* 的排版**
+ * （两类预演长得一样，用户才能一眼对比），这里只补外层间距与标题行。 */
+.sim-scan {
+  display: grid;
+  gap: 8px;
+  margin-top: 4px;
+  padding-top: 12px;
+  /* 与上面的系统卡分隔：一条虚线，别让人以为这堆行也属于那三张卡 */
+  border-top: 1px dashed var(--border);
+}
+.sim-scan-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+.sim-scan-head h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+.sim-scan-head small {
+  color: var(--text-faint);
+  font-size: 11px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.sim-scan-head button {
+  margin-left: auto;
+  font-size: 11px;
+  padding: 3px 9px;
+}
+.sim-scan-summary {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.sim-scan-issues {
+  display: grid;
+  gap: 4px;
+}
+.sim-scan-issue {
+  color: var(--text-faint);
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.sim-scan-issue[data-severity="warn"] {
+  color: var(--warn);
+}
+.sim-scan-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+/* 上次启动的那一项（= vars/PreviousBoot 的标题对上了） */
+.oc-menu-last {
+  color: var(--ok);
+  font-size: 10px;
+  border: 1px solid var(--ok-border);
+  border-radius: 999px;
+  padding: 1px 7px;
+  white-space: nowrap;
+}
+.sim-scan-hidden {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.sim-scan-hidden summary {
+  cursor: pointer;
+}
+.sim-scan-hidden[hidden] {
+  display: none;
+}
 /* 两个提权按钮共用一行；窄档自动折行 */
 .oc-menu-elevate {
   display: flex;

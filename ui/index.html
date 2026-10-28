@@ -113,6 +113,26 @@
 
           <section aria-label="可启动系统" id="systems" data-page-node-id="Id8skElJCJlzu02uKr9biB"></section>
 
+          <!-- 模拟引导项扫描（用户定案 2026-10-29）：与上面三张卡「手动获取」
+               （vars/PreviousBoot-* 快照，切换 = 复制文件）**并列**的另一条只读
+               链路 —— 按 rEFInd 自己的扫描规则（refind/scan.c）复算出「rEFInd
+               开机菜单里会列出哪些条目、各叫什么名字」。纯读：不写盘、不改
+               PreviousBoot、不需要提权，因此永远不影响上面那套手动切换。 -->
+          <section aria-label="模拟引导项扫描" class="sim-scan" id="sim-scan">
+            <div class="sim-scan-head">
+              <h3>模拟引导项扫描</h3>
+              <small>按 rEFInd 的扫描规则复算（只读，不改任何文件）</small>
+              <button class="secondary" id="sim-scan-refresh" type="button" title="重新读一遍 ESP 与 refind.conf，重算菜单">重新模拟</button>
+            </div>
+            <p class="sim-scan-summary" id="sim-scan-summary"></p>
+            <div class="sim-scan-issues" id="sim-scan-issues"></div>
+            <div class="sim-scan-list" id="sim-scan-list"></div>
+            <details class="sim-scan-hidden" id="sim-scan-hidden" hidden>
+              <summary>被隐藏的 <b id="sim-scan-hidden-count">0</b> 项（rEFInd 菜单里看不到）</summary>
+              <div class="sim-scan-list" id="sim-scan-hidden-list"></div>
+            </details>
+          </section>
+
           <!-- 变量目录属于 rEFInd 区，跟在系统列表正下方（用户定案 2026-10-13） -->
           <section class="directory" data-page-node-id="bY3QCnDBj6y94lntyxAKEl">
           <label for="vars-dir" data-page-node-id="AACq8BrwDR4bZWBrPKkTfs">变量目录</label>

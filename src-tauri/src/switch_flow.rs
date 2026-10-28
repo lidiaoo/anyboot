@@ -65,8 +65,15 @@ pub(crate) fn refresh_and_update(app: &AppHandle) -> AppStatus {
                 message: message.clone(),
                 error: None,
             };
+            // 模拟引导项扫描（纯读）：与上面那份「手动获取」的 vars 快照并列，
+            // 按 rEFInd 自己的规则复算菜单。失败不影响手动链路 —— 它只是展示。
+            let sim = {
+                let _span = perf::span("refind.sim");
+                channels::refind_menu::preview(&result.vars_dir)
+            };
             let state = app.state::<Mutex<AppState>>();
             let mut state = state.lock().expect("state mutex poisoned");
+            state.refind_sim = Some(sim);
             state.vars_dir = Some(result.vars_dir);
             state.active_mount = result.active_mount;
             state.variables = result.variables;
@@ -87,6 +94,7 @@ pub(crate) fn refresh_and_update(app: &AppHandle) -> AppStatus {
             let mut state = state.lock().expect("state mutex poisoned");
             state.vars_dir = None;
             state.variables = Vec::new();
+            state.refind_sim = None;
             state.message = message;
             state.error = status.error.clone();
             status

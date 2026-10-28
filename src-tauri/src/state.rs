@@ -34,6 +34,9 @@ pub(crate) struct AppState {
     pub(crate) explicit_dir: Option<PathBuf>,
     pub(crate) active_mount: Option<ActiveMount>,
     pub(crate) variables: Vec<VariableInfo>,
+    /// rEFInd「模拟引导项扫描」结果（纯读预演，与上面 `variables` 那条「手动获取」
+    /// 链路并列）。`None` = 没跑过 / 变量目录没找到。
+    pub(crate) refind_sim: Option<channels::refind_menu::SimPreview>,
     pub(crate) message: String,
     pub(crate) error: Option<String>,
     /// GRUB 细粒度切换（与上面 rEFInd 那套并列）
@@ -554,6 +557,9 @@ pub(crate) struct UiState {
     pub(crate) docked: bool,
     /// 贴向的屏幕边（top/bottom/left/right）；未贴边时为 null
     pub(crate) dock_edge: Option<String>,
+    /// rEFInd「模拟引导项扫描」：按 rEFInd 自己的菜单规则复算出的条目。
+    /// 与 `status.variables`（手动获取的 vars 快照）并列，互不影响。
+    pub(crate) refind_sim: Option<channels::refind_menu::SimPreview>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]

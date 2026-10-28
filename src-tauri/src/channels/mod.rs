@@ -27,6 +27,8 @@ pub(crate) mod oc_menu;
 pub(crate) mod opencore;
 pub(crate) mod partitions;
 pub(crate) mod plist_lite;
+/// rEFInd「模拟引导项扫描」：与 `scan.rs` 的「手动获取」（vars 快照）并列的另一条只读链路
+pub(crate) mod refind_menu;
 pub(crate) mod sdboot;
 pub(crate) mod win_esp;
 

@@ -82,6 +82,14 @@ pub(crate) fn ui_state(app: &AppHandle) -> UiState {
                 .ok()
                 .and_then(|state| state.auto_hide_edge.map(|edge| edge.as_str().to_string()))
         },
+        // 模拟引导项扫描：refresh_and_update 里已经算好，这里只取
+        refind_sim: {
+            let state = app.state::<Mutex<AppState>>();
+            state
+                .lock()
+                .ok()
+                .and_then(|state| state.refind_sim.clone())
+        },
     }
 }
 
