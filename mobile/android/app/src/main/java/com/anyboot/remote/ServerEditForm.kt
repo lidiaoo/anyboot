@@ -899,7 +899,6 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
         FieldLabel("连接优先级（↑↓ 调顺序；行尾开关启用 / 停用；名称下的小框 = 这个通道自己的探测超时/秒，留空用下面的默认值）")
         state.routeOrder.forEachIndexed { index, kind ->
             val available = state.routeAvailable(kind)
-            val enabled = available && kind !in state.routeDisabled
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
@@ -964,13 +963,14 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                     onClick = { state.routeMove(kind, 1) },
                 )
                 Switch(
-                    checked = enabled,
+                    // 开关只听 routeDisabled：没配配对的通道也要能停用（用户 2026-10-28：
+                    // 「不可用」只是暂没配地址，不允许关掉反而让停用开关点不动）
+                    checked = kind !in state.routeDisabled,
                     onCheckedChange = { on ->
                         if (on) state.routeDisabled.remove(kind) else if (kind !in state.routeDisabled) {
                             state.routeDisabled.add(kind)
                         }
                     },
-                    enabled = available,
                 )
             }
         }

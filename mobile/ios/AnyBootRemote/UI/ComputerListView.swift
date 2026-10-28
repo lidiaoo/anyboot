@@ -1837,7 +1837,7 @@ struct ComputerListView: View {
         let snapshot = store.servers
         if snapshot.isEmpty { return }
         refreshing = true
-        if !silent { toast("正在探测全部电脑…") }
+        // 静默执行不弹 toast：开始/完成都直接刷在列表上
         Task {
             for profile in snapshot {
                 let info = await BootService.fetchBootInfo(profile)

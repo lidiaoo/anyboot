@@ -842,7 +842,6 @@ struct ComputerEditorView: View {
     /// 连接优先级的一行：☰ + 名称/副标+超时 + ↑ ↓ + 开关
     private func routeRow(kind: String, index: Int, total: Int) -> some View {
         let available = routeAvailable(kind)
-        let enabled = available && !draft.routeDisabled.contains(kind)
         return HStack(spacing: 8) {
             Text("☰")
                 .font(.system(size: 13))
@@ -876,7 +875,9 @@ struct ComputerEditorView: View {
                 moveRoute(kind: kind, by: 1)
             }
             Toggle("", isOn: Binding(
-                get: { enabled },
+                // 开关只听 routeDisabled：没配配对的通道也要能停用（用户 2026-10-28：
+                // 「不可用」只是暂没配地址，不允许关掉反而让停用开关点不动）
+                get: { !draft.routeDisabled.contains(kind) },
                 set: { on in
                     if on {
                         draft.routeDisabled.removeAll { $0 == kind }
@@ -886,7 +887,6 @@ struct ComputerEditorView: View {
                 }))
                 .labelsHidden()
                 .scaleEffect(0.7, anchor: .trailing)
-                .disabled(!available)
                 .frame(width: 36)
         }
         .padding(.vertical, 2)

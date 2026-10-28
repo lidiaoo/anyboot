@@ -2663,7 +2663,7 @@ class ComputerListActivity : ComponentActivity() {
         val snapshot = servers.toList()
         if (snapshot.isEmpty()) return
         refreshing = true
-        toast("正在探测全部电脑…")
+        // 静默执行不弹 toast：开始/完成都直接刷在列表上，失败才提示
         Thread({
             for (profile in snapshot) {
                 // 后台线程里任何未捕获异常都会直接崩进程（用户看到的就是「闪退」），
@@ -2682,7 +2682,6 @@ class ComputerListActivity : ComponentActivity() {
                 // 主动刷新 = 要真实状态，之前动作留下的过渡态一律作废
                 transients.clear()
                 refreshing = false
-                toast("探测完成 · 已重载")
             }
         }, "anyboot-refresh").start()
     }

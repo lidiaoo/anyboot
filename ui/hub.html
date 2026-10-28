@@ -8078,9 +8078,8 @@ window.__bkOnShow = async function () {
     if (cqRefreshing) return;
     cqRefreshing = true;
     cqSetRefreshBusy(true);
-    toast('正在探测全部电脑的在线状态与引导项…');
+    // 静默执行不弹 toast（按钮会转一圈提示探测中，结果直接刷在列表上）
     loadRemotes()
-      .then(function () { toast('探测完成 · 共 ' + remotes.length + ' 台远端电脑'); })
       .catch(function (error) { toast('探测失败：' + error, 'bad'); })
       .finally(function () { cqRefreshing = false; cqSetRefreshBusy(false); });
   });
