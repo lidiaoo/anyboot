@@ -2248,8 +2248,7 @@ button.primary-sol:hover:not(:disabled) {
   overflow-wrap: anywhere;
 }
 .oc-menu-kind,
-.oc-menu-src,
-.oc-menu-default {
+.oc-menu-src {
   flex: 0 0 auto;
   font-size: 10px;
   padding: 1px 6px;
@@ -2260,11 +2259,6 @@ button.primary-sol:hover:not(:disabled) {
 .oc-menu-src {
   background: transparent;
   border: 1px solid color-mix(in srgb, var(--text) 12%, transparent);
-}
-.oc-menu-default {
-  color: var(--ok-color, #34d399);
-  background: transparent;
-  border: 1px solid color-mix(in srgb, var(--ok-color, #34d399) 45%, transparent);
 }
 .oc-menu-path {
   font-size: 10px;
@@ -2290,6 +2284,16 @@ button.primary-sol:hover:not(:disabled) {
   line-height: 1.45;
   border-radius: 7px;
   white-space: nowrap;
+}
+/* 已经是默认项：占住按钮的位置，但不可点。
+   以前这一格直接留空，看着像「这一行选不了」；真相是它在启动顺序里本来就排第一。
+   沿用原来的绿色（原来这个状态是行首一枚小徽章，位置离「动作列」太远）。 */
+.oc-menu-set.is-default {
+  color: var(--ok-color, #34d399);
+  background: transparent;
+  border: 1px dashed color-mix(in srgb, var(--ok-color, #34d399) 45%, transparent);
+  cursor: default;
+  user-select: none;
 }
 .oc-menu-hidden,
 .oc-menu-issues {

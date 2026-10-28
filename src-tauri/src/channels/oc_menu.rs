@@ -71,6 +71,21 @@ pub(crate) struct MenuPreview {
     pub(crate) issues: Vec<HealthIssue>,
     /// 输入摘要（扫了几个卷 / 读到几条 BootOrder / 关键配置值）
     pub(crate) summary: String,
+    /// 上面那条「默认项」是读哪张表定的：`private`（OC 私有 `OCBtOrder`）或
+    /// `global`（固件 `BootOrder`）。前端拿它给行标签取名 —— 读的是哪一组变量，
+    /// 界面上就不能写成另一组。
+    pub(crate) order_source: String,
+    /// 默认项对应的变量名（`OCBt0082` / `Boot0082`），查问题时直接照着看。
+    pub(crate) default_slot: Option<String>,
+}
+
+/// 启动顺序表里的一项（`OCBtOrder` / `BootOrder` 的某个编号 + 它指向哪里）。
+struct OrderItem {
+    number: u16,
+    description: String,
+    path: String,
+    /// 这项落在哪块分区上（区分「同名文件在另一块 ESP 上」的唯一依据）
+    hd: Option<boot_entry::HdNode>,
 }
 
 // ─────────────────────────── EFI_LOAD_OPTION 解析 ───────────────────────────
@@ -80,6 +95,12 @@ pub(crate) struct MenuPreview {
 /// `value` 是 `read_boot_option` 返回的**已剥掉 efivarfs 属性头**的裸值。
 /// 布局见 UEFI 2.x §3.1.3：`Attributes(4) | FilePathListLength(2) | 描述(UTF-16 NUL) | 设备路径`。
 pub(crate) fn parse_load_option(value: &[u8]) -> Option<(String, String)> {
+    let (description, raw) = split_load_option(value)?;
+    Some((description, device_path_file(raw).unwrap_or_default()))
+}
+
+/// 剥掉 `Attributes` / 路径表长度 / 描述，剩下设备路径列表。
+fn split_load_option(value: &[u8]) -> Option<(String, &[u8])> {
     if value.len() < 8 {
         return None;
     }
@@ -93,9 +114,46 @@ pub(crate) fn parse_load_option(value: &[u8]) -> Option<(String, String)> {
         }
         units.push(unit);
     }
-    let description = String::from_utf16_lossy(&units);
-    let path = device_path_file(&value[pos..]).unwrap_or_default();
-    Some((description, path))
+    Some((String::from_utf16_lossy(&units), &value[pos..]))
+}
+
+/// `EFI_LOAD_OPTION` 里的 HardDrive 节点：这一项到底指向**哪块分区**。
+///
+/// 只看文件路径分不清同名文件 —— 多块 ESP 上都有 `\EFI\BOOT\BOOTX64.EFI` 是常态
+/// （本机 4 块 ESP，其中两块都有）。路径一样、分区不同，只有这个节点里的分区 GUID
+/// 能分开；旧代码只比路径，于是把 ARCH-EFI 的启动项算到了 MacOS-efi 头上。
+pub(crate) fn partition_of(value: &[u8]) -> Option<boot_entry::HdNode> {
+    let (_, raw) = split_load_option(value)?;
+    let mut pos = 0usize;
+    while pos + 4 <= raw.len() {
+        let kind = raw[pos];
+        let subtype = raw[pos + 1];
+        let length = u16::from_le_bytes([raw[pos + 2], raw[pos + 3]]) as usize;
+        if length < 4 || pos + length > raw.len() {
+            return None;
+        }
+        if kind == 0x7f {
+            return None;
+        }
+        // Type 4 / SubType 1 / 长度 42：HardDrive 节点（布局见 boot_entry.rs 头注释）
+        if kind == 0x04 && subtype == 0x01 && length >= 42 {
+            let node = &raw[pos..pos + length];
+            // 末尾两字节 MBRType / SignatureType：0x02 = GPT 分区 GUID
+            if node[length - 1] != 0x02 {
+                return None;
+            }
+            let mut guid = [0u8; 16];
+            guid.copy_from_slice(&node[24..40]);
+            return Some(boot_entry::HdNode {
+                partition: u32::from_le_bytes(node[4..8].try_into().ok()?),
+                start_lba: u64::from_le_bytes(node[8..16].try_into().ok()?),
+                size_sectors: u64::from_le_bytes(node[16..24].try_into().ok()?),
+                guid,
+            });
+        }
+        pos += length;
+    }
+    None
 }
 
 /// 设备路径列表 → 第一个 `MEDIA_FILEPATH`（Type 4 / SubType 4）节点里的路径。
@@ -194,6 +252,104 @@ pub(crate) fn same_target(left: &str, right: &str) -> bool {
 struct Volume {
     label: String,
     root: PathBuf,
+}
+
+/// 卷的分区 GUID（`diskutil` 的 `DiskUUID`，小写）。非 macOS 一律 `None`。
+#[cfg(target_os = "macos")]
+fn disk_guid(root: &Path) -> Option<String> {
+    diskutil_field(&root.to_string_lossy(), "DiskUUID").map(|text| text.to_ascii_lowercase())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn disk_guid(_root: &Path) -> Option<String> {
+    None
+}
+
+/// 卷标 → 分区 GUID，带一次预演内的缓存。
+///
+/// **按需查**：每次 `diskutil info` 约 130ms，而绝大多数机器上路径不重复、根本用不到。
+/// 只有真出现「同名文件在多块卷上」时才会问到这里。
+fn cached_guid(
+    cache: &mut Vec<(String, Option<String>)>,
+    volumes: &[Volume],
+    label: &str,
+) -> Option<String> {
+    if let Some((_, guid)) = cache.iter().find(|(known, _)| known == label) {
+        return guid.clone();
+    }
+    let guid = volumes
+        .iter()
+        .find(|volume| volume.label == label)
+        .and_then(|volume| disk_guid(&volume.root));
+    cache.push((label.to_string(), guid.clone()));
+    guid
+}
+
+/// 这条启动项落到哪一条已扫出来的菜单项上。
+///
+/// 路径能唯一确定时就直接认；**只有出现同名文件（多块 ESP 上都有
+/// `\EFI\BOOT\BOOTX64.EFI`）才用分区 GUID 去挑**。
+///
+/// GUID 只做「挑」不做「否」：APFS 卷上 `diskutil` 给的 `DiskUUID` 是卷 UUID，
+/// 而启动项里记的是物理分区的 GPT GUID，两者天生不相等 —— 拿它当必要条件会把
+/// 正确的匹配也否掉（实测踩到：OCBt0080 因此变成了「文件看不到」的死项）。
+fn match_index(
+    entries: &[MenuEntry],
+    wanted: &str,
+    hd: Option<&boot_entry::HdNode>,
+    volumes: &[Volume],
+    cache: &mut Vec<(String, Option<String>)>,
+) -> Option<usize> {
+    match_index_with(entries, wanted, hd, |label| {
+        cached_guid(cache, volumes, label)
+    })
+}
+
+/// [`match_index`] 的纯逻辑部分：GUID 从哪来由调用方决定（生产环境问 diskutil，
+/// 单测直接给表 —— 这样判定规则可测，不用在测试里跑外部命令）。
+fn match_index_with(
+    entries: &[MenuEntry],
+    wanted: &str,
+    hd: Option<&boot_entry::HdNode>,
+    mut guid_of: impl FnMut(&str) -> Option<String>,
+) -> Option<usize> {
+    let candidates: Vec<usize> = entries
+        .iter()
+        .enumerate()
+        .filter(|(_, entry)| same_target(&entry.path, wanted))
+        .map(|(index, _)| index)
+        .collect();
+    match candidates.len() {
+        0 => None,
+        // 路径唯一：没有歧义，也就不必为它去调 diskutil
+        1 => Some(candidates[0]),
+        _ => {
+            if let Some(hd) = hd {
+                for index in &candidates {
+                    let Some(guid) = guid_of(&entries[*index].volume) else {
+                        continue;
+                    };
+                    if matches!(boot_entry::guid_bytes(&guid), Some(bytes) if bytes == hd.guid) {
+                        return Some(*index);
+                    }
+                }
+            }
+            // 分不出来就取先命中的那条：与没有 GUID 时的旧行为一致，
+            // 宁可维持原样，也不要因为「查不到」把一条真启动项判成死项
+            Some(candidates[0])
+        }
+    }
+}
+
+/// 默认项落在哪一条：**启动顺序表里第一条不是工具项的**。
+///
+/// `placed` 必须按启动顺序排（它就是 `order` 的顺序），不能按 `entries` 的下标
+/// 升序 —— 后者是「卷的遍历顺序」，与启动先后毫无关系。
+fn default_index(placed: &[(u16, usize)], entries: &[MenuEntry]) -> Option<usize> {
+    placed
+        .iter()
+        .find(|(_, index)| entries[*index].kind != "tool")
+        .map(|(_, index)| *index)
 }
 
 /// 主系统里看得见的卷。
@@ -358,6 +514,9 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
             namespace_fallback = true;
         }
     }
+    // 默认项到底读的是哪张表：OC 私有命名空间，还是固件全局。行标签、诊断文案
+    // 都按它说 —— 读的是哪一组变量，界面上就不能写成另一组。
+    let reading_private = namespace.custom && !namespace_fallback;
     let boot_option = |number: u16| -> Option<Vec<u8>> {
         namespace.read_option(number).or_else(|| {
             if namespace_fallback {
@@ -367,12 +526,17 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
             }
         })
     };
-    let order_items: Vec<(u16, String, String)> = order
+    let order_items: Vec<OrderItem> = order
         .iter()
         .filter_map(|number| {
             let value = boot_option(*number)?;
             let (description, file_path) = parse_load_option(&value)?;
-            Some((*number, description, normalized(&file_path)))
+            Some(OrderItem {
+                number: *number,
+                description,
+                path: normalized(&file_path),
+                hd: partition_of(&value),
+            })
         })
         .collect();
 
@@ -419,8 +583,9 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
         // 只在 macOS 用（preboot_entries 认 Preboot 里的 UUID）；Windows 下算了也是死代码
         let order_uuids: Vec<String> = order_items
             .iter()
-            .filter_map(|(_, _, path)| {
-                path.split(['\\', '/'])
+            .filter_map(|item| {
+                item.path
+                    .split(['\\', '/'])
                     .find(|segment| is_uuid_segment(segment))
                     .map(|segment| segment.to_ascii_uppercase())
             })
@@ -493,28 +658,40 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
     }
 
     // ④ BootOrder 落条目（表已经在 ⓪ 解析好）
+    //
+    // 配对不能只比路径：`\EFI\BOOT\BOOTX64.EFI` 在多块 ESP 上都存在是常态，
+    // 只比路径会把 ARCH-EFI 的启动项算到 MacOS-efi 头上（本机实测就是这样）。
+    // `match_index` 会再用设备路径里的分区 GUID 校正。
     let mut order_notes: Vec<String> = Vec::new();
-    for (number, description, wanted) in &order_items {
-        // 与卷扫描结果对上 → 只标来源与默认，不重复列一条。
-        // 用 same_target 而不是字符串全等：Preboot 形态的路径差一个 UUID 前缀。
-        if let Some(existing) = entries
-            .iter_mut()
-            .find(|entry| same_target(&entry.path, wanted))
-        {
+    // 编号 → entries 下标。**按启动顺序**记下来：⑤ 判默认项只能按这个顺序走。
+    let mut placed: Vec<(u16, usize)> = Vec::new();
+    let mut guid_cache: Vec<(String, Option<String>)> = Vec::new();
+    for item in &order_items {
+        let number = item.number;
+        let description = &item.description;
+        let wanted = &item.path;
+        if let Some(index) = match_index(
+            &entries,
+            wanted,
+            item.hd.as_ref(),
+            &volumes,
+            &mut guid_cache,
+        ) {
+            let existing = &mut entries[index];
             existing.source = "bootorder".to_string();
-            if description.trim().is_empty() {
-                continue;
+            if !description.trim().is_empty() {
+                // OC 丢弃启动项里的描述、自己重新取名；这里留一句对照，方便核实
+                existing.note = Some(format!(
+                    "{}启动项里记的描述是「{}」，OC 会丢掉它、按路径重新取名",
+                    existing
+                        .note
+                        .as_ref()
+                        .map(|note| format!("{note}；"))
+                        .unwrap_or_default(),
+                    description
+                ));
             }
-            // OC 丢弃 BootOrder 的描述、自己重新取名；这里留一句对照，方便核实
-            existing.note = Some(format!(
-                "{}固件里的描述是「{}」，OC 会丢掉它、按路径重新取名",
-                existing
-                    .note
-                    .as_ref()
-                    .map(|note| format!("{note}；"))
-                    .unwrap_or_default(),
-                description
-            ));
+            placed.push((number, index));
             continue;
         }
         // 对不上：卷没挂载 / 文件已被删 / 路径不在我们扫的卷里
@@ -525,7 +702,8 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
         // 那种情况下不算「死项」，只是这边看不到文件。
         entries.push(MenuEntry {
             title: if description.trim().is_empty() {
-                format!("Boot{number:04X}")
+                // 变量名跟着命名空间走：OC 私有是 `OCBt0082`，固件全局是 `Boot0082`
+                namespace.boot_name(number)
             } else {
                 description.clone()
             },
@@ -536,27 +714,33 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
             auxiliary: false,
             default: false,
             note: Some(if exists_anywhere {
-                "固件里有这一项，但不在上面扫到的卷/路径里".to_string()
+                "启动项里有这一项，但不在上面扫到的卷/路径里".to_string()
             } else {
-                "固件里有这一项，但对应的文件在本系统看不到（卷没挂载，或已被删除）"
+                "启动项里有这一项，但对应的文件在本系统看不到（卷没挂载，或已被删除）"
                     .to_string()
             }),
             // 卷标是「—」：既没挂载点也没有可抄的路径，设默认时给出的只会是一句报错
             spec: None,
         });
+        placed.push((number, entries.len() - 1));
         if !exists_anywhere {
-            order_notes.push(format!("Boot{number:04X}"));
+            order_notes.push(namespace.boot_name(number));
         }
     }
 
-    // ⑤ 默认项：BootOrder 里第一条能用的（OC 用它，与菜单顺序无关）
-    if !order_items.is_empty() {
-        if let Some(entry) = entries
-            .iter_mut()
-            .find(|entry| entry.source == "bootorder" && !entry.default && entry.kind != "tool")
-        {
-            entry.default = true;
-        }
+    // ⑤ 默认项 = **启动顺序表里第一条真能启动的**，顺序必须按表走。
+    //
+    // 以前这里是 `entries.iter_mut().find(source == "bootorder")`，等于拿「卷的
+    // 遍历顺序」当启动顺序。实测踩到：`OCBtOrder = [0x82 WIN, 0x81 ARCH, 0x80 MAC]`，
+    // 界面把 MAC 标成「OC 默认项」，而真默认项那一行反而挂着「设为默认」按钮 ——
+    // 点下去只是把已经在最前的项再挪一次，看起来像生效了，其实什么都没变。
+    let mut default_slot: Option<String> = None;
+    if let Some(index) = default_index(&placed, &entries) {
+        entries[index].default = true;
+        default_slot = placed
+            .iter()
+            .find(|(_, at)| *at == index)
+            .map(|(number, _)| namespace.boot_name(*number));
     }
 
     // ⑥ 过滤：HideAuxiliary 只影响 auxiliary 项
@@ -621,14 +805,28 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
         // 权限不足 ≠ 被托管：给的修法不一样，文案必须分开
         nvram::BootVarsView::NeedElevation => issues.push(HealthIssue {
             severity: "info".to_string(),
-            text: "当前进程没权限读 EFI 变量（`BootCurrent` 读不到）：固件启动列表在这里不完整，\
-                   「默认项」标记仅供参考；以管理员身份 / root 重跑即可看到完整列表"
-                .to_string(),
+            text: if reading_private {
+                // 默认项读的是 `OCBt*`（另一个 GUID 下的普通变量），读不到 `Boot*`
+                // 不影响它 —— 再说一句「标记仅供参考」就成了白吓人
+                "当前进程没权限读固件 `Boot*` 变量（`BootCurrent` 读不到）：这只影响「OC 有没有在固件里注册」这类判断；\
+                 上面的默认项读的是 OC 私有 `OCBtOrder`，不受影响"
+                    .to_string()
+            } else {
+                "当前进程没权限读 EFI 变量（`BootCurrent` 读不到）：固件启动列表在这里不完整，\
+                 「默认项」标记仅供参考；以管理员身份 / root 重跑即可看到完整列表"
+                    .to_string()
+            },
         }),
         nvram::BootVarsView::Hidden => issues.push(HealthIssue {
             severity: "info".to_string(),
-            text: "本系统读不到 `BootCurrent`：固件的启动列表在这里不完整，「默认项」标记仅供参考"
-                .to_string(),
+            text: if reading_private {
+                "本系统读不到固件 `Boot*` 变量（`BootCurrent` 读不到）：这只影响「OC 有没有在固件里注册」这类判断；\
+                 上面的默认项读的是 OC 私有 `OCBtOrder`，不受影响"
+                    .to_string()
+            } else {
+                "本系统读不到 `BootCurrent`：固件的启动列表在这里不完整，「默认项」标记仅供参考"
+                    .to_string()
+            },
         }),
     }
     if hide_auxiliary && !hidden.is_empty() {
@@ -725,11 +923,19 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
         }
     );
 
+    let order_source = if reading_private {
+        "private".to_string()
+    } else {
+        "global".to_string()
+    };
+
     MenuPreview {
         entries: visible,
         hidden,
         issues,
         summary,
+        order_source,
+        default_slot,
     }
 }
 
@@ -822,6 +1028,133 @@ fn preboot_entries(out: &mut Vec<MenuEntry>, order_uuids: &[String], primary_lab
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 造一条最小的预演项（只填判定要用的字段）。
+    fn row(title: &str, volume: &str, path: &str, kind: &str) -> MenuEntry {
+        MenuEntry {
+            title: title.to_string(),
+            kind: kind.to_string(),
+            source: "bless".to_string(),
+            volume: volume.to_string(),
+            path: path.to_string(),
+            auxiliary: false,
+            default: false,
+            note: None,
+            spec: None,
+        }
+    }
+
+    #[test]
+    fn partition_of_reads_the_hard_drive_node() {
+        // 与 boot_entry.rs 是同一份布局定义（那里有正向长度断言），这里反向读回来
+        let hd = boot_entry::HdNode {
+            partition: 3,
+            start_lba: 534_679_552,
+            size_sectors: 1_893_888,
+            guid: boot_entry::guid_bytes("755E3CB3-663D-464F-A6E3-B4C158A0E2F2").expect("guid"),
+        };
+        let value =
+            boot_entry::build_load_option("WINDOWS-EFI", &hd, "\\EFI\\Microsoft\\Boot\\bootmgfw.efi");
+        let parsed = partition_of(&value).expect("应该读出 HardDrive 节点");
+        assert_eq!(parsed.partition, 3);
+        assert_eq!(parsed.guid, hd.guid);
+        // 描述与路径不受影响
+        let (description, path) = parse_load_option(&value).expect("解析失败");
+        assert_eq!(description, "WINDOWS-EFI");
+        assert_eq!(path, "\\EFI\\Microsoft\\Boot\\bootmgfw.efi");
+    }
+
+    #[test]
+    fn default_follows_boot_order_not_scan_order() {
+        // 扫描顺序（entries）：MAC、WINDOWS-EFI、ARCH-EFI
+        // 启动顺序（placed）  ：WINDOWS-EFI(0x82) → ARCH-EFI(0x81) → MAC(0x80)
+        // 旧实现按 entries 顺序 find，把 MAC 标成默认项 —— 真机实测就是错的
+        let entries = vec![
+            row("MAC", "MAC", "\\System\\Library\\CoreServices\\boot.efi", "macos"),
+            row(
+                "WINDOWS-EFI",
+                "WINDOWS-EFI",
+                "\\EFI\\Microsoft\\Boot\\bootmgfw.efi",
+                "windows",
+            ),
+            row("ARCH-EFI", "ARCH-EFI", "\\EFI\\BOOT\\BOOTX64.EFI", "generic"),
+        ];
+        let placed = vec![(0x82u16, 1usize), (0x81, 2), (0x80, 0)];
+        assert_eq!(
+            default_index(&placed, &entries),
+            Some(1),
+            "默认项必须是启动顺序表里的第一条"
+        );
+    }
+
+    #[test]
+    fn tool_entries_are_skipped_when_picking_default() {
+        let entries = vec![
+            row("Reset NVRAM", "—", "resetnvramentry.efi", "tool"),
+            row("MAC", "MAC", "\\System\\Library\\CoreServices\\boot.efi", "macos"),
+        ];
+        let placed = vec![(0x90u16, 0usize), (0x80, 1)];
+        assert_eq!(
+            default_index(&placed, &entries),
+            Some(1),
+            "工具项不是能启动的系统，OC 也会跳过它"
+        );
+    }
+
+    #[test]
+    fn same_path_on_two_esps_is_split_by_partition_guid() {
+        // 本机形态：MacOS-efi 与 ARCH-EFI 上都有 \EFI\BOOT\BOOTX64.EFI，
+        // 只比路径会把 ARCH-EFI 的启动项算到先扫到的 MacOS-efi 头上
+        let entries = vec![
+            row("MacOS-efi", "MacOS-efi", "\\EFI\\BOOT\\BOOTX64.EFI", "generic"),
+            row("ARCH-EFI", "ARCH-EFI", "\\EFI\\BOOT\\BOOTX64.EFI", "generic"),
+        ];
+        let arch = "B3FBE669-D3B9-4789-B3FA-EA25CE4BA5EA";
+        let macos_efi = "42074C1D-E063-431C-AAC4-4FFBE441298E";
+        let hd = boot_entry::HdNode {
+            partition: 14,
+            start_lba: 0,
+            size_sectors: 0,
+            guid: boot_entry::guid_bytes(arch).expect("guid"),
+        };
+        let guid_of = |label: &str| match label {
+            "ARCH-EFI" => Some(arch.to_string()),
+            "MacOS-efi" => Some(macos_efi.to_string()),
+            _ => None,
+        };
+        assert_eq!(
+            match_index_with(&entries, "\\EFI\\BOOT\\BOOTX64.EFI", Some(&hd), &guid_of),
+            Some(1),
+            "同名文件在另一块 ESP 上时不能算命中"
+        );
+        // 拿不到 GUID 时退回路径比较：仍取先命中的那条（与旧行为一致，不因查不到而漏配）
+        assert_eq!(
+            match_index_with(&entries, "\\EFI\\BOOT\\BOOTX64.EFI", None, |_: &str| None),
+            Some(0)
+        );
+
+        // 路径唯一的 + GUID 对不上（APFS 就是这个形态：`DiskUUID` 是卷 UUID，
+        // 启动项里记的是物理分区的 GPT GUID）→ 仍然要认，不能判成死项。
+        // 实测踩到：一旦把 GUID 当必要条件，OCBt0080 就变成「文件看不到」的孤儿项。
+        let entries_macos =
+            vec![row("MAC", "MAC", "\\System\\Library\\CoreServices\\boot.efi", "macos")];
+        let container = boot_entry::HdNode {
+            partition: 2,
+            start_lba: 0,
+            size_sectors: 0,
+            guid: boot_entry::guid_bytes("D5E0D7F6-2193-43F7-A6BE-383FF9EC6C59").expect("guid"),
+        };
+        assert_eq!(
+            match_index_with(
+                &entries_macos,
+                "\\2D8A2ED9-B942-494D-9220-59187BC83F94\\System\\Library\\CoreServices\\boot.efi",
+                Some(&container),
+                |_: &str| Some(macos_efi.to_string())
+            ),
+            Some(0),
+            "GUID 不一致不能否掉唯一路径的匹配"
+        );
+    }
 
     #[test]
     fn load_option_parsing() {

@@ -70,6 +70,16 @@ const OC_MENU_SOURCE_LABEL = {
   protocol: "协议驱动",
 };
 
+/// 行首那条来源标签。`bootorder` 具体读的是哪一组变量由后端告诉我们：
+/// `RequestBootVarRouting=true` 时 OC 读的是私有命名空间的 `OCBtOrder`，
+/// 这时候再标「固件 BootOrder」就是写错了变量名（用户会去 `nvram` 里找一个不存在的东西）。
+function ocMenuSourceLabel(source, orderSource) {
+  if (source === "bootorder") {
+    return orderSource === "private" ? "OC 私有 OCBtOrder" : "固件 BootOrder";
+  }
+  return OC_MENU_SOURCE_LABEL[source] || source;
+}
+
 const OC_MENU_ICONS = {
   macos: "🍎",
   windows: "🪟",
@@ -80,7 +90,7 @@ const OC_MENU_ICONS = {
 };
 
 /// 预演里的一行（卷 + 路径 + 来源 + 备注 + 「设为默认」）
-function ocMenuRow(entry, index, { busy, onSwitch, channel } = {}) {
+function ocMenuRow(entry, index, { busy, onSwitch, channel, orderSource, defaultSlot } = {}) {
   const row = document.createElement("div");
   row.className = "oc-menu-row";
   row.dataset.kind = entry.kind;
@@ -105,15 +115,9 @@ function ocMenuRow(entry, index, { busy, onSwitch, channel } = {}) {
 
   const source = document.createElement("span");
   source.className = "oc-menu-src";
-  source.textContent = OC_MENU_SOURCE_LABEL[entry.source] || entry.source;
+  source.textContent = ocMenuSourceLabel(entry.source, orderSource);
   head.append(source);
 
-  if (entry.default) {
-    const badge = document.createElement("span");
-    badge.className = "oc-menu-default";
-    badge.textContent = "OC 默认项";
-    head.append(badge);
-  }
   body.append(head);
 
   const path = document.createElement("code");
@@ -135,7 +139,18 @@ function ocMenuRow(entry, index, { busy, onSwitch, channel } = {}) {
 
   // 「设为默认」= OC 菜单里的 Ctrl+Enter。后端已经算好值域（entry.spec），
   // 前端只负责原样发回去 —— 哪些项能设由后端按 OC 的规则判定，不在这里猜。
-  if (entry.spec && !entry.default) {
+  //
+  // 已经是默认项的那一行**也要占住这个位置**：以前直接不渲染，看着像「这一行选不了」
+  // 或「按钮怎么丢了」，而这恰恰是因为它本来就是默认项 —— OCBtOrder 里排第一的那条。
+  if (entry.default) {
+    const mark = document.createElement("span");
+    mark.className = "oc-menu-set is-default";
+    mark.textContent = "✓ 已是默认";
+    mark.title = `${
+      defaultSlot ? `${defaultSlot} ` : "启动顺序表第一条"
+    }就是这一项：下次开机会直接进它。再「设为默认」只是把已经在最前的项再挪一次，所以这行不给按钮。`;
+    row.append(mark);
+  } else if (entry.spec) {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "oc-menu-set needs-elev";
@@ -210,7 +225,15 @@ function renderOcMenuPreview(preview, { busy, onSwitch, channel } = {}) {
     const list = document.createElement("div");
     list.className = "oc-menu-list";
     preview.entries.forEach((entry, index) =>
-      list.append(ocMenuRow(entry, index, { busy, onSwitch, channel })),
+      list.append(
+        ocMenuRow(entry, index, {
+          busy,
+          onSwitch,
+          channel,
+          orderSource: preview.orderSource,
+          defaultSlot: preview.defaultSlot,
+        }),
+      ),
     );
     box.append(list);
   } else {
