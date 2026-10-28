@@ -17,6 +17,11 @@
 - 忙闸必须有放闸路径（`POWER_RELEASE_MS=15s`）；`restart_app` 顺序 stop_http_server → release_instance_lock → app.restart()。
 - 替换已安装应用：先杀主进程（mac 上 `osascript quit` 常被拒，直接 `kill -TERM`）→ 清残留子进程（tsnet/cloudflared 可能成孤儿）→ 备份旧 .app → 暂存新 .app + `codesign -v` → `mv` 交换 → md5 与构建产物比对 → 启动并查 `/health`。
 
+## 性能（OC 扫描，2026-10-28）
+- **Windows 分区表一律走 `channels::partitions::all()`**（一次全量 `Get-Partition` + 60s 缓存 + 持锁 single-flight）。禁止再新起分区查询：一轮扫描原先 7 次冷启动共 7.3s，合并后 1 次，扫描 **8.3s → 1.0s**（同进程热刷新 25ms）。`win_esp::mount()` 成功后必须 `invalidate()`。
+- **先埋点再动手**：`perf::begin/span/flush` 把每段耗时写进 trace.log 的 `[perf]` 表（thread_local 隔离、含子口径）。凭直觉估「APFS 解析最慢」是错的，真凶是外部命令冷启动；`oc.spec` 那 1.9s 来自每个 generic 条目重算 `volumes()`。
+- 本机 ESP 的 GPT 类型是 `ebd0a0a2`（基本数据），`win_esp::list()` 恒空、走 26 盘符兜底——真机事实，别当 bug 修。`apfs.scan` 0ms 也正常（非提权开物理盘立刻 PermissionDenied）。
+
 ## 验证 PC UI（Windows，四条铁律）
 ① 用计划任务跑 .bat 启动（沙箱会杀 WebView2）；② 抓屏用 `GetDC(NULL)+BitBlt`（`PrintWindow` 恒黑）；③ webview 不吃注入点击，走 `ANYBOOT_TEST_OPEN_HUB` / `ANYBOOT_TEST_OPEN_TERM=1` 钩子；④ 本机无 `strings`，用 Python 提串。
 - CDP：`ANYBOOT_CDP_PORT=9223` + **所有 webview 都得过 `apply_browser_args`**（参数不一致 = 0x8007139F）；杀旧实例等 5s。
