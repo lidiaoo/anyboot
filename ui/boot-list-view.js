@@ -30,6 +30,27 @@ function bootChannelChipText(channel) {
   return channel.chip === "warn" ? `已检测 · ${permission}` : `已检测 · ${permission}`;
 }
 
+// ── 富文本：设计稿的排版规则 ──
+// docs/boot-channel-ui-mockup.html 里健康检查条目是
+// `· <code>Misc→Boot→ShowPicker = false</code>：OC 不会弹菜单…`
+// —— 配置键 / NVRAM 变量名一律走等宽 <code>，不然一整串中文读下来分不清
+// 哪一段是键名、哪一段是解释。后端文案用反引号标注这些片段，这里切开渲染。
+// 非 code 部分仍用文本节点（不拼 HTML），文案里的任何字符都不会被当成标签。
+function appendRichText(container, text) {
+  String(text ?? "")
+    .split("`")
+    .forEach((part, index) => {
+      if (!part) return;
+      if (index % 2 === 1) {
+        const code = document.createElement("code");
+        code.textContent = part;
+        container.append(code);
+      } else {
+        container.append(document.createTextNode(part));
+      }
+    });
+}
+
 // ── 预演 OC 菜单 ──
 // 数据来自后端 oc_menu::preview（按 OC 自己的规则纯读复算一遍）。这里只管排版：
 // 一行一项，标出来源（BootOrder / bless / Preboot / 协议驱动）、类型、默认项。
@@ -153,11 +174,14 @@ function renderOcMenuPreview(preview, { busy, onSwitch, channel } = {}) {
 
   const hint = document.createElement("p");
   hint.className = "oc-menu-hint";
-  hint.textContent =
-    "OC 不遍历目录：它按固定规则找（BootOrder + 每个卷的 bless/预定义路径 + 条目协议驱动）。" +
-    "预演本身是纯读复算，不写盘、不改 NVRAM。" +
-    "「设为默认」才会写：它等价于在 OC 菜单对目标按 Ctrl+Enter，改的是 OC 私有命名空间的 " +
-    "OCBtOrder / OCBt0080（macOS 不许写 Boot*，这一组可以），写前整份备份。";
+  // 与上面健康检查同一套排版：键名 / 变量名用反引号标出，渲染成 <code>
+  appendRichText(
+    hint,
+    "OC 不遍历目录：它按固定规则找（`BootOrder` + 每个卷的 bless/预定义路径 + 条目协议驱动）。" +
+      "预演本身是纯读复算，不写盘、不改 NVRAM。" +
+      "「设为默认」才会写：等价于在 OC 菜单对目标按 `Ctrl+Enter`，改的是 OC 私有命名空间的 " +
+      "`OCBtOrder` / `OCBt0080`（macOS 不许写 `Boot*`，这一组可以），写前整份备份。",
+  );
   box.append(hint);
 
   if ((preview.entries || []).length) {
@@ -195,7 +219,10 @@ function renderOcMenuPreview(preview, { busy, onSwitch, channel } = {}) {
     for (const issue of preview.issues) {
       const line = document.createElement("small");
       if (issue.severity === "warn") line.className = "warn";
-      line.textContent = `${issue.severity === "warn" ? "⚠" : "ℹ"} ${issue.text}`;
+      line.append(
+        document.createTextNode(`${issue.severity === "warn" ? "⚠" : "ℹ"} `),
+      );
+      appendRichText(line, issue.text);
       issueBox.append(line);
     }
     box.append(issueBox);
@@ -262,7 +289,9 @@ function makeBootChannelCard(channel, { busy, onSwitch }) {
     health.append(head);
     for (const issue of ordered) {
       const line = document.createElement("span");
-      line.textContent = `· ${issue.text}`;
+      // 「· 」前缀 + 文案；文案里的反引号片段渲染成 <code>（见 appendRichText）
+      line.append(document.createTextNode("· "));
+      appendRichText(line, issue.text);
       health.append(line);
     }
     section.append(health);

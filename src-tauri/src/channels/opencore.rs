@@ -29,7 +29,9 @@ pub(crate) fn health_checks(config_xml: &str) -> Vec<HealthIssue> {
     if show_picker == Some(Scalar::Bool(false)) {
         issues.push(HealthIssue {
             severity: "warn".to_string(),
-            text: "Misc→Boot→ShowPicker=false：OC 不弹菜单，BootNext 指过去也看不到选择界面，建议改 true".to_string(),
+            // 反引号片段由前端渲染成等宽 <code>（设计稿 docs/boot-channel-ui-mockup.html
+            // 的排版规则：配置键、变量名要能从正文里一眼挑出来）
+            text: "`Misc→Boot→ShowPicker=false`：OC 不弹菜单，`BootNext` 指过去也看不到选择界面，建议改 true".to_string(),
         });
     }
     if plist_lite::read_scalar(config_xml, &["Misc", "Security", "AllowSetDefault"])
@@ -39,7 +41,7 @@ pub(crate) fn health_checks(config_xml: &str) -> Vec<HealthIssue> {
             severity: "warn".to_string(),
             // 只管 OC 自己那套热键：AnyBoot 的「设为默认」是直接写 NVRAM（OCBt*），
             // 不经过这个开关，所以别写成「无法设默认项」，那会与卡片上的按钮打架。
-            text: "Misc→Security→AllowSetDefault=false：OC 菜单里的 Ctrl+Enter 不生效，记不住默认项（建议改 true；AnyBoot 的「设为默认」直接写 NVRAM，不受它限制）"
+            text: "`Misc→Security→AllowSetDefault=false`：OC 菜单里的 `Ctrl+Enter` 不生效，记不住默认项（建议改 true；AnyBoot 的「设为默认」直接写 NVRAM，不受它限制）"
                 .to_string(),
         });
     }
@@ -48,7 +50,7 @@ pub(crate) fn health_checks(config_xml: &str) -> Vec<HealthIssue> {
     {
         issues.push(HealthIssue {
             severity: "warn".to_string(),
-            text: "Misc→Security→Vault=Secure：外部改动 OC 目录会自检失败，AnyBoot 不会改 OC 的任何文件"
+            text: "`Misc→Security→Vault=Secure`：外部改动 OC 目录会自检失败，AnyBoot 不会改 OC 的任何文件"
                 .to_string(),
         });
     }
@@ -520,12 +522,12 @@ pub(crate) fn view(esp_root: &Path) -> ChannelView {
         let mut reasons: Vec<String> = Vec::new();
         if hidden {
             reasons.push(
-                "启动列表在本系统不可见（读不到 BootCurrent，Boot* 被引导器托管了）".to_string(),
+                "启动列表在本系统不可见（读不到 `BootCurrent`，`Boot*` 被引导器托管了）".to_string(),
             );
         }
         if !can_write {
             reasons.push(
-                "本系统不允许用户态写 Boot* 变量（macOS 的 EFI 运行时白名单，管理员权限也一样）"
+                "本系统不允许用户态写 `Boot*` 变量（macOS 的 EFI 运行时白名单，管理员权限也一样）"
                     .to_string(),
             );
         }
@@ -538,9 +540,9 @@ pub(crate) fn view(esp_root: &Path) -> ChannelView {
             text: format!(
                 "所以 OpenCore 在固件里的注册状态以 BIOS / 引导器菜单为准{}",
                 if can_self_register {
-                    "（LauncherOption 已开，OC 会自己注册）"
+                    "（`LauncherOption` 已开，OC 会自己注册）"
                 } else {
-                    "（LauncherOption 没开，OC 不会自己注册）"
+                    "（`LauncherOption` 没开，OC 不会自己注册）"
                 }
             ),
         });
@@ -550,13 +552,13 @@ pub(crate) fn view(esp_root: &Path) -> ChannelView {
         health.push(HealthIssue {
             severity: "info".to_string(),
             text: if can_set_default {
-                "默认启动项仍然可以在这里直接设（等价于 OC 菜单里的 Ctrl+Enter）：\
+                "默认启动项仍然可以在这里直接设（等价于 OC 菜单里的 `Ctrl+Enter`）：\
                  点下方预演行末尾的「设为默认」"
                     .to_string()
             } else {
-                "想固定默认启动项，只能在 OC 菜单里对目标按 Ctrl+Enter；\
-                 把 UEFI→Quirks→RequestBootVarRouting 改成 true 后，OC 会改用私有命名空间\
-                 （OCBt*），这里就能直接设"
+                "想固定默认启动项，只能在 OC 菜单里对目标按 `Ctrl+Enter`；\
+                 把 `UEFI→Quirks→RequestBootVarRouting` 改成 true 后，OC 会改用私有命名空间\
+                 （`OCBt*`），这里就能直接设"
                     .to_string()
             },
         });
@@ -566,8 +568,8 @@ pub(crate) fn view(esp_root: &Path) -> ChannelView {
         health.push(HealthIssue {
             severity: "warn".to_string(),
             text: format!(
-                "固件启动列表里没有 OpenCore 项，且 LauncherOption={launcher_text}（OC 不自注册）——\
-                 进 OC 菜单把 Misc→Boot→LauncherOption 改成 Short/Full，重启一次后它自己会写进去"
+                "固件启动列表里没有 OpenCore 项，且 `LauncherOption={launcher_text}`（OC 不自注册）——\
+                 进 OC 菜单把 `Misc→Boot→LauncherOption` 改成 `Short` / `Full`，重启一次后它自己会写进去"
             ),
         });
     }

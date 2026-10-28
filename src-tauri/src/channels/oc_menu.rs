@@ -586,7 +586,7 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
         issues.push(HealthIssue {
             severity: "info".to_string(),
             text: format!(
-                "OC 私有命名空间里还没有 {}（OC 没在里面记过默认项），下面按固件 BootOrder 展示；\
+                "OC 私有命名空间里还没有 `{}`（OC 没在里面记过默认项），下面按固件 `BootOrder` 展示；\
                  在这里设一次默认项就会把它建起来",
                 namespace.order_name()
             ),
@@ -595,9 +595,9 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
     if !writable {
         issues.push(HealthIssue {
             severity: "info".to_string(),
-            text: "不能在这里设默认项：OC 读的是固件全局 BootOrder（UEFI→Quirks→RequestBootVarRouting=false），\
-                   而本系统不允许写 Boot* 变量。把 UEFI→Quirks→RequestBootVarRouting 改成 true 后，\
-                   OC 会改用私有命名空间（OCBtOrder / OCBt0080），这个能力就会亮起来"
+            text: "不能在这里设默认项：OC 读的是固件全局 `BootOrder`（`UEFI→Quirks→RequestBootVarRouting=false`），\
+                   而本系统不允许写 `Boot*` 变量。把 `UEFI→Quirks→RequestBootVarRouting` 改成 true 后，\
+                   OC 会改用私有命名空间（`OCBtOrder` / `OCBt0080`），这个能力就会亮起来"
                 .to_string(),
         });
     }
@@ -605,7 +605,7 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
         issues.push(HealthIssue {
             severity: "info".to_string(),
             text: format!(
-                "ScanPolicy={scan_policy}（非 0）：置了 LOCK 位，某些卷/文件系统会被直接跳过，\
+                "`ScanPolicy={scan_policy}`（非 0）：置了 LOCK 位，某些卷/文件系统会被直接跳过，\
                  下面的预演按「全部放行」算，可能与实际菜单有出入"
             ),
         });
@@ -613,7 +613,7 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
     if nvram::boot_vars_hidden() {
         issues.push(HealthIssue {
             severity: "info".to_string(),
-            text: "本系统读不到 BootCurrent：固件的启动列表在这里不完整，「默认项」标记仅供参考"
+            text: "本系统读不到 `BootCurrent`：固件的启动列表在这里不完整，「默认项」标记仅供参考"
                 .to_string(),
         });
     }
@@ -621,7 +621,7 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
         issues.push(HealthIssue {
             severity: "info".to_string(),
             text: format!(
-                "HideAuxiliary=true（Misc→Boot）：下面 {} 项会被收进二级菜单，首屏看不到",
+                "`HideAuxiliary=true`（`Misc→Boot`）：下面 {} 项会被收进二级菜单，首屏看不到",
                 hidden.len()
             ),
         });
@@ -630,7 +630,7 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
         issues.push(HealthIssue {
             severity: "warn".to_string(),
             text: format!(
-                "BootOrder 里有 {} 项找不到对应文件（{}）——它们进了菜单也是点不动的死项",
+                "`BootOrder` 里有 {} 项找不到对应文件（{}）——它们进了菜单也是点不动的死项",
                 order_notes.len(),
                 order_notes.join("、")
             ),
@@ -655,9 +655,9 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
         issues.push(HealthIssue {
             severity: "warn".to_string(),
             text: format!(
-                "rEFInd 在 {} 上，但不会出现在 OC 菜单里：OC 的预定义路径只有 boot.efi / \
-                 bootmgfw.efi / BOOTX64.EFI，rEFInd 三条都不占。要它出现，把 refind_x64.efi \
-                 复制一份到该卷的 \\EFI\\BOOT\\BOOTX64.EFI，或让固件 BootOrder 里有一条指向它",
+                "rEFInd 在 {} 上，但不会出现在 OC 菜单里：OC 的预定义路径只有 `boot.efi` / \
+                 `bootmgfw.efi` / `BOOTX64.EFI`，rEFInd 三条都不占。要它出现，把 `refind_x64.efi` \
+                 复制一份到该卷的 `\\EFI\\BOOT\\BOOTX64.EFI`，或让固件 `BootOrder` 里有一条指向它",
                 refind_volumes.join("、")
             ),
         });
@@ -684,12 +684,12 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
             severity: "warn".to_string(),
             text: format!(
                 "Linux 在 {} 上只会显示成一个泛型项（图标是问号，点进去才进 GRUB）——\
-                 Linux 不在 OC 的预定义路径表里。要得到独立内核条目，把 OpenLinuxBoot.efi \
-                 放进 EFI/OC/Drivers/ 并加到 UEFI→Drivers；它读 /loader/entries/*.conf，\
-                 没有就自动找 vmlinuz{}",
+                 Linux 不在 OC 的预定义路径表里。要得到独立内核条目，把 `OpenLinuxBoot.efi` \
+                 放进 `EFI/OC/Drivers/` 并加到 `UEFI→Drivers`；它读 `/loader/entries/*.conf`，\
+                 没有就自动找 `vmlinuz`{}",
                 linux_volumes.join("、"),
                 if driver_file {
-                    "（文件已在 Drivers 目录，只是没被 UEFI→Drivers 加载）"
+                    "（文件已在 Drivers 目录，只是没被 `UEFI→Drivers` 加载）"
                 } else {
                     "（当前 Drivers 目录里还没有这个文件）"
                 }
