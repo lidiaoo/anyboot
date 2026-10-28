@@ -471,6 +471,7 @@ pub(crate) fn view(esp_root: &Path) -> ChannelView {
             last_boot: None,
             last_boot_at: None,
             error: None,
+            menu_preview: None,
         };
     }
     let config = config_text.unwrap_or_default();
@@ -581,6 +582,8 @@ pub(crate) fn view(esp_root: &Path) -> ChannelView {
         last_boot,
         last_boot_at,
         error: None,
+        // 菜单预演：纯读（卷 + 预定义路径 + Preboot + BootOrder），不写盘、不碰 NVRAM
+        menu_preview: Some(oc_menu::preview(esp_root)),
     }
 }
 

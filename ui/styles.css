@@ -2137,6 +2137,153 @@ button.primary-sol:hover:not(:disabled) {
 }
 .channel-health.info strong { color: var(--fg-dim, rgba(255, 255, 255, 0.72)); }
 
+/* ── 预演 OC 菜单（details，默认折叠，不抢条目行的注意力）──
+   自适应三件套：外层 flex-wrap、中间层 min-width:0、路径 overflow-wrap:anywhere。
+   任何一档宽度都不许把窗口撑出横向滚动条。 */
+.oc-menu {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  margin-bottom: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  min-width: 0;
+}
+.oc-menu > summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 12px;
+}
+.oc-menu > summary::-webkit-details-marker { display: none; }
+.oc-menu > summary::before {
+  content: "▸";
+  color: var(--fg-dim);
+  font-size: 11px;
+}
+.oc-menu[open] > summary::before { content: "▾"; }
+.oc-menu-title {
+  font-weight: 600;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.oc-menu-count {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--fg-dim);
+  padding: 1px 7px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+}
+.oc-menu-hint,
+.oc-menu-summary {
+  margin: 0 12px 10px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--fg-dim);
+  overflow-wrap: anywhere;
+}
+.oc-menu-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 12px 10px;
+  min-width: 0;
+}
+.oc-menu-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 7px 9px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  min-width: 0;
+}
+.oc-menu-idx {
+  flex: 0 0 auto;
+  width: 18px;
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+  border-radius: 5px;
+  color: var(--fg-dim);
+  background: rgba(255, 255, 255, 0.06);
+}
+.oc-menu-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.oc-menu-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.oc-menu-head b {
+  font-size: 12px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.oc-menu-kind,
+.oc-menu-src,
+.oc-menu-default {
+  flex: 0 0 auto;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 5px;
+  color: var(--fg-dim);
+  background: rgba(255, 255, 255, 0.07);
+}
+.oc-menu-src {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+.oc-menu-default {
+  color: var(--ok-color, #34d399);
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--ok-color, #34d399) 45%, transparent);
+}
+.oc-menu-path {
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--fg-dim);
+  /* 长路径（Preboot 那种带 UUID 的）必须能断行，否则撑破卡片 */
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+.oc-menu-note {
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--fg-dim);
+  overflow-wrap: anywhere;
+}
+.oc-menu-hidden,
+.oc-menu-issues {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 0 12px 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--fg-dim);
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.oc-menu-hidden { background: rgba(255, 255, 255, 0.04); }
+.oc-menu-issues {
+  border-left: 2px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.03);
+}
+.oc-menu-issues small.warn { color: var(--warn-color, #fbbf24); }
+
 /* 条目行：图标 + 名称/路径 + 徽章 + 动作按钮 */
 .boot-list { display: flex; flex-direction: column; gap: 8px; }
 .boot-entry {

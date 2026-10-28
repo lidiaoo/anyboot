@@ -163,6 +163,7 @@ pub(crate) fn view(esp_root: &Path) -> ChannelView {
             last_boot: None,
             last_boot_at: None,
             error: None,
+            menu_preview: None,
         };
     }
     let default_value = conf_text.as_deref().and_then(loader_conf_default);
@@ -206,6 +207,7 @@ pub(crate) fn view(esp_root: &Path) -> ChannelView {
         last_boot,
         last_boot_at,
         error: None,
+        menu_preview: None,
     }
 }
 

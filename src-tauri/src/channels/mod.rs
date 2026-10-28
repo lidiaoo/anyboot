@@ -15,6 +15,7 @@ use super::*;
 pub(crate) mod boot_entry;
 pub(crate) mod clover;
 pub(crate) mod nvram;
+pub(crate) mod oc_menu;
 pub(crate) mod opencore;
 pub(crate) mod plist_lite;
 pub(crate) mod sdboot;
@@ -59,6 +60,9 @@ pub(crate) struct ChannelView {
     pub(crate) last_boot: Option<String>,
     pub(crate) last_boot_at: Option<String>,
     pub(crate) error: Option<String>,
+    /// OpenCore 专有：按 OC 自己的规则复算出来的菜单（纯读）。
+    /// 其他通道恒 `None`。
+    pub(crate) menu_preview: Option<oc_menu::MenuPreview>,
 }
 
 /// channels 链路的本端运行时状态（与 `GrubRuntime` 完全并列）。
@@ -178,6 +182,7 @@ fn offline_view(id: &'static str, label: &'static str, permission: &'static str)
         last_boot: None,
         last_boot_at: None,
         error: None,
+        menu_preview: None,
     }
 }
 

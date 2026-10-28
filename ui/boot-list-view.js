@@ -30,6 +30,166 @@ function bootChannelChipText(channel) {
   return channel.chip === "warn" ? `已检测 · ${permission}` : `已检测 · ${permission}`;
 }
 
+// ── 预演 OC 菜单 ──
+// 数据来自后端 oc_menu::preview（按 OC 自己的规则纯读复算一遍）。这里只管排版：
+// 一行一项，标出来源（BootOrder / bless / Preboot / 协议驱动）、类型、默认项。
+const OC_MENU_KIND_LABEL = {
+  macos: "macOS",
+  windows: "Windows",
+  generic: "泛型",
+  linux: "Linux",
+  tool: "工具项",
+  unknown: "未知",
+};
+
+const OC_MENU_SOURCE_LABEL = {
+  bootorder: "固件 BootOrder",
+  bless: "bless 扫描",
+  preboot: "APFS Preboot",
+  protocol: "协议驱动",
+};
+
+const OC_MENU_ICONS = {
+  macos: "🍎",
+  windows: "🪟",
+  generic: "⬜",
+  linux: "🐧",
+  tool: "⚙️",
+  unknown: "❓",
+};
+
+/// 预演里的一行（卷 + 路径 + 来源 + 备注）
+function ocMenuRow(entry, index) {
+  const row = document.createElement("div");
+  row.className = "oc-menu-row";
+  row.dataset.kind = entry.kind;
+
+  const idx = document.createElement("span");
+  idx.className = "oc-menu-idx";
+  idx.textContent = String(index + 1);
+
+  const body = document.createElement("span");
+  body.className = "oc-menu-body";
+
+  const head = document.createElement("span");
+  head.className = "oc-menu-head";
+  const name = document.createElement("b");
+  name.textContent = entry.title;
+  head.append(name);
+
+  const kind = document.createElement("span");
+  kind.className = "oc-menu-kind";
+  kind.textContent = `${OC_MENU_ICONS[entry.kind] || "⬜"} ${OC_MENU_KIND_LABEL[entry.kind] || entry.kind}`;
+  head.append(kind);
+
+  const source = document.createElement("span");
+  source.className = "oc-menu-src";
+  source.textContent = OC_MENU_SOURCE_LABEL[entry.source] || entry.source;
+  head.append(source);
+
+  if (entry.default) {
+    const badge = document.createElement("span");
+    badge.className = "oc-menu-default";
+    badge.textContent = "OC 默认项";
+    head.append(badge);
+  }
+  body.append(head);
+
+  const path = document.createElement("code");
+  path.className = "oc-menu-path";
+  path.textContent =
+    entry.volume && entry.volume !== "—"
+      ? `${entry.volume} · ${entry.path}`
+      : entry.path;
+  body.append(path);
+
+  if (entry.note) {
+    const note = document.createElement("small");
+    note.className = "oc-menu-note";
+    note.textContent = entry.note;
+    body.append(note);
+  }
+
+  row.append(idx, body);
+  return row;
+}
+
+/// 整块「预演 OC 菜单」（details，默认折叠，不抢条目行的注意力）
+function renderOcMenuPreview(preview) {
+  if (!preview) return null;
+  const box = document.createElement("details");
+  box.className = "oc-menu";
+
+  const summary = document.createElement("summary");
+  const title = document.createElement("span");
+  title.className = "oc-menu-title";
+  title.textContent = "预演 OC 菜单";
+  const count = document.createElement("span");
+  count.className = "oc-menu-count";
+  const parts = [`${(preview.entries || []).length} 项`];
+  if ((preview.hidden || []).length) {
+    parts.push(`${preview.hidden.length} 项被隐藏`);
+  }
+  count.textContent = parts.join(" · ");
+  summary.append(title, count);
+  box.append(summary);
+
+  const hint = document.createElement("p");
+  hint.className = "oc-menu-hint";
+  hint.textContent =
+    "OC 不遍历目录：它按固定规则找（BootOrder + 每个卷的 bless/预定义路径 + 条目协议驱动）。" +
+    "这里是按同一套规则纯读复算，不写盘、不改 NVRAM。";
+  box.append(hint);
+
+  if ((preview.entries || []).length) {
+    const list = document.createElement("div");
+    list.className = "oc-menu-list";
+    preview.entries.forEach((entry, index) => list.append(ocMenuRow(entry, index)));
+    box.append(list);
+  } else {
+    const empty = document.createElement("p");
+    empty.className = "oc-menu-hint";
+    empty.textContent =
+      "按当前配置算不出任何条目——ScanPolicy 太严、卷没挂载，或 OC 配置有问题。";
+    box.append(empty);
+  }
+
+  if ((preview.hidden || []).length) {
+    const hiddenBox = document.createElement("div");
+    hiddenBox.className = "oc-menu-hidden";
+    const head = document.createElement("strong");
+    head.textContent = `HideAuxiliary=true：下面 ${preview.hidden.length} 项会收进二级菜单，首屏看不到`;
+    hiddenBox.append(head);
+    for (const entry of preview.hidden) {
+      const line = document.createElement("small");
+      line.textContent = `· ${entry.title}（${OC_MENU_KIND_LABEL[entry.kind] || entry.kind}）`;
+      hiddenBox.append(line);
+    }
+    box.append(hiddenBox);
+  }
+
+  if ((preview.issues || []).length) {
+    const issueBox = document.createElement("div");
+    issueBox.className = "oc-menu-issues";
+    for (const issue of preview.issues) {
+      const line = document.createElement("small");
+      if (issue.severity === "warn") line.className = "warn";
+      line.textContent = `${issue.severity === "warn" ? "⚠" : "ℹ"} ${issue.text}`;
+      issueBox.append(line);
+    }
+    box.append(issueBox);
+  }
+
+  if (preview.summary) {
+    const summaryLine = document.createElement("small");
+    summaryLine.className = "oc-menu-summary";
+    summaryLine.textContent = `推算输入：${preview.summary}　·　准确率上限约 90%——固件到底枚举得到哪几个卷，只有在 UEFI 里才知道`;
+    box.append(summaryLine);
+  }
+
+  return box;
+}
+
 /// 组一张通道卡片的 DOM（结构与 .grub/.refind 卡同构）
 function makeBootChannelCard(channel, { busy, onSwitch }) {
   const section = document.createElement("section");
@@ -92,6 +252,12 @@ function makeBootChannelCard(channel, { busy, onSwitch }) {
     head.textContent = "✓ 健康检查通过";
     health.append(head);
     section.append(health);
+  }
+
+  // ── 预演 OC 菜单（只有 OpenCore 通道有）──
+  if (channel.id === "opencore" && channel.menuPreview) {
+    const preview = renderOcMenuPreview(channel.menuPreview);
+    if (preview) section.append(preview);
   }
 
   // ── 条目行 ──

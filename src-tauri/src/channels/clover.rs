@@ -91,6 +91,7 @@ pub(crate) fn view(esp_root: &Path) -> ChannelView {
             last_boot: None,
             last_boot_at: None,
             error: None,
+            menu_preview: None,
         };
     }
     let config = config_text.unwrap_or_default();
@@ -159,5 +160,6 @@ pub(crate) fn view(esp_root: &Path) -> ChannelView {
         last_boot,
         last_boot_at,
         error: None,
+        menu_preview: None,
     }
 }

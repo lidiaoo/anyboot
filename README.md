@@ -22,6 +22,7 @@ Windows / macOS / Linux 三端同一份代码，行为对齐。
 目录
 
 - [功能一览](#功能一览)
+- [OpenCore 菜单里的系统列表是怎么来的](#opencore-菜单里的系统列表是怎么来的)
 - [客户端（Web 端 / 移动端）](#客户端web-端--移动端)
 - [远程控制（HTTP 服务）](#远程控制http-服务)
   - [默认行为与安全默认值](#默认行为与安全默认值)
@@ -60,9 +61,48 @@ Windows / macOS / Linux 三端同一份代码，行为对齐。
 - **界面主题与不透明度**：暗色 / 亮色 / 跟随系统；窗口不透明度 0%–100% 可调。正文全部落在不透明的卡片上，只有标题/状态那几行直接压在窗体背景上（自带描边），所以把不透明度调到最低也读得清。
 - 主窗口从托盘呼出时**自动置顶**（不会被别的窗口盖住），点击别处失焦后自动取消置顶。
 - 系统列表：选中项打**绿色勾**（勾占独立一列，三行文字与按钮始终左对齐），顶部还有一行大字说明「下次启动的是哪个系统」。
+- **引导通道卡片**：rEFInd / GRUB 之外，把 OpenCore、Clover、systemd-boot 也做成同一张卡片（状态 chip、健康检查、当前默认 / 上次启动、一键切换）。OpenCore 卡片可展开**预演 OC 菜单**——不重启就告诉你「下次进 OC 会看到哪几项、各自从哪来、默认是哪项」（原理见 [OpenCore 菜单里的系统列表是怎么来的](#opencore-菜单里的系统列表是怎么来的)）。
 - 开机启动开关（macOS 走系统登录项，Windows 写注册表 Run，Linux 写 `~/.config/autostart`）。
 - Linux 能用 `lsblk` 找未挂载的 ESP/FAT 分区并临时只读挂载，写入前自动换读写、写完恢复只读。
 - 写入用同目录临时文件 + 原子替换 + SHA-256 校验。
+
+---
+
+## OpenCore 菜单里的系统列表是怎么来的
+
+开机按 F12 进 OpenCore，那一排系统图标看着像「它把硬盘扫了一遍」。**其实不是。**
+OC 从不遍历目录找系统，它是把三个固定来源并成一张表，过滤掉一部分，再按 NVRAM 里的顺序排一遍：
+
+| 来源 | 怎么来的 | 典型条目 |
+|---|---|---|
+| ① 固件 `BootOrder` 里的每条 `Boot####` | 读出 `EFI_LOAD_OPTION`，**丢掉描述和 OptionalData**，只留设备路径，再反查是哪个卷 | macOS（描述 `MAC`） |
+| ② 每个卷上的 Apple bless 扫描 | 依次试：blessed 文件 → blessed 文件夹 → **预定义路径表**（只有 3 条：`\System\Library\CoreServices\boot.efi`、`\EFI\Microsoft\Boot\bootmgfw.efi`、`\EFI\BOOT\BOOTX64.EFI`） | Windows、`MacOS-efi`（generic） |
+| ③ 第三方「条目协议」驱动 | `OpenLinuxBoot.efi` / `OpenLegacyBoot.efi` / `ResetNvramEntry.efi` 等自己往里塞 | `Reset NVRAM`、独立内核条目 |
+
+由此有三个容易踩的结论：
+
+- **Linux 不在预定义路径表里**（源码注释写明是设计选择）。所以没装 `OpenLinuxBoot.efi` 时，你的 Arch 在 OC 菜单里只是一个泛型的 `ARCH-EFI`（点进去才是 GRUB）。改 `ScanPolicy`、改 `HideAuxiliary` 都帮不上。
+- **rEFInd 默认不会出现在 OC 菜单里**——它的卷上既没有 `bootmgfw.efi` 也没有 `\EFI\BOOT\BOOTX64.EFI`，也不在 `BootOrder` 里，三条路全断。
+- **卷本身是否入候选只看 `ScanPolicy`**：`ScanPolicy=0` 时所有文件系统全放行，连 `Microsoft Basic Data` 类型的 ESP 也算。OC 在这个阶段不检查目录结构。
+
+另外两件事跟直觉相反：
+
+- **菜单顺序 ≠ 默认项**。顺序取决于固件返回文件系统句柄的次序；默认项是 `BootOrder` 里**第一条注册成功的非工具条目**。所以「默认的不在第一行」是正常现象。
+- **Ctrl+Enter 不改任何文件**，它调 `OcSetDefaultBootEntry` 去改 NVRAM：匹配已有 `Boot####` → 没有就现场造一个 → 写进 `0080` 这一个槽 → 和 `BootOrder[0]` 交换位置。OC 只用 `0x80` 一个槽，所以设新默认会覆盖上一条的 load option。
+
+**为什么不能在 macOS 里直接读 OC 算出来的那份菜单**：`OcScanForBootEntries` 是 UEFI 运行期函数，结果是内存链表，菜单渲染完就释放，重启即丢；OC 没有 IPC、没有导出接口，也从不把启动项写文件。主系统里能读到的是**输入**（卷、文件、NVRAM），不是**结果**。
+
+所以 AnyBoot 的做法是**按同一套规则预演**（纯读 ESP + `diskutil`，不写盘、不碰 NVRAM、不需要密码）：
+
+- 列出「下次进 OC 大概会看到哪几项」，每项标出**来源**（`BootOrder` / bless / Preboot / 协议驱动 / 自定义）、**类型**、**所在卷与文件路径**、**会不会被 `HideAuxiliary` 藏掉**
+- 标出**默认项**
+- 直接点出上面那三类问题：「rEFInd 不会出现」「Linux 只是泛型项，缺 `OpenLinuxBoot.efi`」「配置自相矛盾」
+
+准确率天花板在 **90% 左右**——卷、文件、NVRAM 都能读准，唯一猜不准的是「这块固件在那一刻能不能真的枚举到某个卷」（APFS 驱动没加载、USB 未初始化都会差）。想要 100%，可以让 OC 自己把菜单写进日志（改 `Misc→Debug` 三项后重启一次），代价是之后不再保存 `boot.efi` 的日志。
+
+> 📖 完整原理、逐函数源码追踪、实机验证与被推翻的几版结论：
+> [`docs/boot-menu-discovery.md`](docs/boot-menu-discovery.md)（原理与用法）
+> → [`docs/boot-menu-discovery-internals.md`](docs/boot-menu-discovery-internals.md)（详细原理与探索过程）
 
 ---
 

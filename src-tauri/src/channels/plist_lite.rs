@@ -219,6 +219,31 @@ pub(crate) fn has_key(xml: &str, path: &[&str]) -> bool {
     }
 }
 
+/// 沿路径读 `<array>` 里的字符串元素（`UEFI→Drivers`、`BlessOverride` 这类）。
+///
+/// 只摘 `<string>`：新版 config 的 `UEFI→Drivers` 是 `<dict>` 数组、路径在
+/// `Path` 键里也是 `<string>`，一并摘出来正合「里面有没有某个驱动」的用途。
+/// 值不是 array → `None`（不猜、不把单值当数组）。
+pub(crate) fn read_string_array(xml: &str, path: &[&str]) -> Option<Vec<String>> {
+    let (last, parents) = path.split_last()?;
+    let (scope_start, scope_end) = innermost_dict_span(xml, parents).ok()?;
+    let (start, end) = locate_pair(&xml[scope_start..scope_end], last)?;
+    let node = xml[scope_start + start..scope_start + end].trim();
+    let inner = node.strip_prefix("<array>")?.strip_suffix("</array>")?;
+    Some(
+        inner
+            .split("<string>")
+            .skip(1)
+            .filter_map(|chunk| chunk.split("</string>").next())
+            .map(|text| {
+                text.replace("&lt;", "<")
+                    .replace("&gt;", ">")
+                    .replace("&amp;", "&")
+            })
+            .collect(),
+    )
+}
+
 /// 沿路径改标量：返回**整份改写后的 XML**（除目标值节点外逐字节不变）。
 /// 路径定位失败 / 中间层不是 dict / 目标不存在 → Err，绝不插入猜出来的结构。
 pub(crate) fn rewrite_scalar(xml: &str, path: &[&str], new_value: PlistScalar) -> Result<String, String> {
