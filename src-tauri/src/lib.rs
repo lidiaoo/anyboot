@@ -134,6 +134,7 @@ mod remote_servers;
 mod scan;
 mod switch_flow;
 mod gpu_compat;
+mod perf;
 mod trace;
 mod ui_state;
 

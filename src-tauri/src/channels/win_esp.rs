@@ -109,6 +109,10 @@ pub(crate) fn parse_json(text: &str) -> Vec<WinEsp> {
 /// 整条链路弄挂（真读不到时界面还是原来的「未检测到」）。
 #[cfg(target_os = "windows")]
 pub(crate) fn list() -> Vec<WinEsp> {
+    // 这一次 PowerShell 冷启动是 Windows 端扫描的头号开销（实测进程内首次
+    // Get-Partition 711ms，新起进程还要叠 PowerShell 本体启动）。埋点单列，
+    // 因为它会被 resolve_esp_root / offline_extras / apfs 三处各调一次。
+    let _span = perf::span("cmd.get_partition");
     // `-like '*c12a7328*'` 而不是 `-eq '{…}'`：不同 PowerShell 版本对 GptType
     // 是否带花括号不一致，只比 GUID 本体最稳。
     const SCRIPT: &str = "Get-Partition | Where-Object { $_.GptType -like '*c12a7328*' } \

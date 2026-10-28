@@ -108,6 +108,7 @@ pub(crate) fn scan_unmounted_partition() -> Result<ScanResult, String> {
         return Err("未找到已挂载的 EFI/refind/vars 目录".to_string());
     }
 
+    let _span = crate::perf::span("cmd.lsblk_scan");
     let output = command("lsblk")
         .args([
             "--json",

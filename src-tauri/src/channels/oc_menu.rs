@@ -474,6 +474,9 @@ fn native_volume_label(root: &Path) -> Option<String> {
 /// 读不到（没装 util-linux、或 vfat 没设标签）返回 None，由调用方退回挂载点名。
 #[cfg(target_os = "linux")]
 fn native_volume_label(root: &Path) -> Option<String> {
+    // Linux：每个候选卷 fork 一次 lsblk（15~40ms）。如果埋点表里这行累计很高，
+    // 说明该改成「第一轮 lsblk -J 取全表、之后内存查表」—— 别凭感觉优化。
+    let _span = perf::span("cmd.lsblk_label");
     let output = command("lsblk")
         .args(["-no", "LABEL"])
         .arg(root)
@@ -647,6 +650,8 @@ fn root_volume_label() -> String {
 
 /// 按 OC 的规则复算一遍菜单。只读 ESP 与系统卷。
 pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
+    // 预演是 OC 卡片的主体开销（枚举卷 + 读固件变量 + 扒 APFS），单独记总账
+    let _span = perf::span("oc.preview");
     let config = fs::read_to_string(grub_rel(esp_root, "EFI/OC/config.plist")).unwrap_or_default();
     let hide_auxiliary = matches!(
         plist_lite::read_scalar(&config, &["Misc", "Boot", "HideAuxiliary"]),
@@ -663,7 +668,12 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
             .any(|driver| driver.to_ascii_lowercase().contains(name))
     };
 
-    let volumes = volumes();
+    let volumes = {
+        // Windows 上这里会**第二次**跑 Get-Partition（candidate_roots → win_esp::list），
+        // 与 resolve_esp_root 那次完全重复 —— 埋点就是为了把这个数字摆出来
+        let _span = perf::span("oc.volumes");
+        volumes()
+    };
     let mut entries: Vec<MenuEntry> = Vec::new();
     let mut issues: Vec<HealthIssue> = Vec::new();
 
@@ -674,7 +684,12 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
     // 命名空间的 `OCBtOrder` / `OCBt####`（`OcGetBootOrder` 按 `BootVariableGuid` 选名字，
     // `DefaultEntryChoice.c:611-617`），固件全局 `BootOrder` 只是旁证。
     let namespace = oc_default::Namespace::from_config(&config);
-    let mut order = namespace.read_order();
+    let mut order = {
+        // 非提权时这一步要读 OCBtOrder 而失败（1314），失败本身很快；摊上的是
+        // 「读不到 → 吃快照 → 回退全局 BootOrder」三条路，各自的耗时差别很大
+        let _span = perf::span("oc.nvram_order");
+        namespace.read_order()
+    };
     // 没管理员权限时读固件变量直接报 1314，OC 私有的 `OCBtOrder` 只是另一个 GUID
     // 下的**同样受保护**的变量 —— 一样读不到，整表为空、默认项永远标不出来。
     // 用户点了「设为默认」提示成功、页面却毫无变化，就是这个（真机踩到）。
@@ -796,6 +811,9 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
     // 说明**，不许静默吞掉让 macOS 条目凭空消失。权限失败时退一层吃提权缓存
     // （用户点过「提权重扫」之后，30 分钟内的预演重建都拿它当数据源）。
     #[cfg(not(target_os = "macos"))]
+    // 零挂载直读 APFS 容器：开整盘 + 走 B-tree，是「文件读」里最贵的一段
+    let preboot_span = perf::span("oc.preboot");
+    #[cfg(not(target_os = "macos"))]
     let (preboot_note, preboot_elevatable) = match super::apfs_reader::scan_preboot() {
         Ok(items) if !items.is_empty() => {
             (Some(push_preboot_entries(&mut entries, &items, "")), false)
@@ -818,6 +836,8 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
             }
         },
     };
+    #[cfg(not(target_os = "macos"))]
+    drop(preboot_span);
     #[cfg(target_os = "macos")]
     let (preboot_note, preboot_elevatable): (Option<String>, bool) = (None, false);
 

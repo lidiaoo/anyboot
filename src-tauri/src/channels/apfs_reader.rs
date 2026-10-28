@@ -86,6 +86,9 @@ pub(crate) fn partition_path_from_lsblk(text: &str) -> Option<String> {
 /// Windows：容器分区的坐标（开整盘 + 按偏移读，见 [`parse_partition_json`]）。
 #[cfg(target_os = "windows")]
 fn container_location() -> Result<ContainerLocation, String> {
+    // 又是一次 Get-Partition 冷启动（本脚本第 4 次）。只为拿一个 APFS 容器的偏移，
+    // 完全可以从 win_esp 那次输出里按 GptType 一起筛出来。
+    let _span = perf::span("cmd.get_partition_apfs");
     // 只按 GPT 类型认，不碰盘符 —— 和 win_esp::list 同一套做法
     const SCRIPT: &str = "Get-Partition | Where-Object { $_.GptType -like '*7c3457ef*' } \
                           | Select-Object -First 1 DiskNumber,Offset,Size \
@@ -105,6 +108,7 @@ fn container_location() -> Result<ContainerLocation, String> {
 /// Linux：容器分区设备路径（分区设备从分区第一个字节起，无需偏移换算）。
 #[cfg(target_os = "linux")]
 fn container_location() -> Result<String, String> {
+    let _span = perf::span("cmd.lsblk_parttype");
     let output = command("lsblk")
         .args(["-rno", "PATH,PARTTYPE"])
         .stderr(Stdio::null())
@@ -149,6 +153,9 @@ fn io_reason(error: &std::io::Error) -> String {
 /// 只做三件事：枚举根目录、试开 `boot.efi`、读 `.contentDetails`。整条链路
 /// 只读，任何失败都向上报原因，不返回半真半假的空结果。
 pub(crate) fn scan_preboot() -> Result<Vec<PrebootItem>, String> {
+    // 也埋一层：提权重扫（scan_preboot_elevated）走的是同一个函数，但那条路
+    // 不经过 oc_menu::preview，不埋就没有数字
+    let _span = perf::span("apfs.scan");
     use hadris_apfs::{sync::ApfsFs, VolumeSelector};
     use hadris_fs::{sync::Volume, MountOptions, OpenOptions};
     use hadris_storage::host::FileDevice;

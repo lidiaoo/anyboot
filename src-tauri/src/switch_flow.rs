@@ -31,6 +31,8 @@ pub(crate) fn publish_status(app: &AppHandle, status: &AppStatus) {
 
 pub(crate) fn refresh_and_update(app: &AppHandle) -> AppStatus {
     let started = Instant::now();
+    // 每轮清空埋点表：多轮混在一起就看不出单轮账了
+    perf::begin();
     trace(app, "scan", "开始扫描");
     set_busy(app, |busy| busy.scanning = true);
     let (explicit_dir, old_mount) = {
@@ -42,6 +44,9 @@ pub(crate) fn refresh_and_update(app: &AppHandle) -> AppStatus {
         let _ = mount.unmount();
     }
 
+    // rEFInd 变量目录扫描：Linux 上可能要临时挂盘，Windows/macOS 是纯文件读。
+    // 计时用显式 drop 收尾（不套 `{}`），免得整段 match 多缩进一层、diff 变噪音
+    let vars_span = perf::span("vars.scan");
     let status = match scan_vars_directory(explicit_dir.as_deref()) {
         Ok(result) => {
             let message = result
@@ -87,6 +92,7 @@ pub(crate) fn refresh_and_update(app: &AppHandle) -> AppStatus {
             status
         }
     };
+    drop(vars_span);
 
     trace(
         app,
@@ -102,10 +108,18 @@ pub(crate) fn refresh_and_update(app: &AppHandle) -> AppStatus {
     // **硬性条件（用户定案）**：ESP 必须已经由当前系统挂载在 /boot 下（fstab
     // 统一方案）—— 没挂就整条跳过：不自动挂载、不 pkexec、不写盘。手动链路
     // （识别/挂载/同步按钮）不受此限。
-    refresh_grub(app);
+    {
+        let _span = perf::span("grub.refresh");
+        refresh_grub(app);
+    }
     // 三引导器通道（systemd-boot / OC / Clover）跟着刷：只做文件/变量读取，
     // ESP 尽量复用 GRUB 链路解析好的那份
-    channels::refresh_channels(app);
+    {
+        let _span = perf::span("channels.refresh");
+        channels::refresh_channels(app);
+    }
+    // 埋点汇总：必须在两条链路都跑完之后，否则看不到它们各占多少
+    perf::flush(app, started.elapsed().as_millis());
     // 扫描结束：清 busy 并发布快照（托盘菜单与主窗口一起更新、菜单指纹相同就跳过重建）
     set_busy(app, |busy| busy.scanning = false);
     status

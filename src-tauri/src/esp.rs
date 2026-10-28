@@ -208,6 +208,7 @@ pub(crate) struct FindmntEntry {
 pub(crate) fn esp_probe(path: &Path) -> Result<EspInfo, String> {
     let root = fs::canonicalize(path)
         .map_err(|error| format!("路径打不开：{}（{error}）", path.display()))?;
+    let _span = crate::perf::span("cmd.findmnt");
     let output = command("findmnt")
         .args([
             "--json",
@@ -527,6 +528,10 @@ pub(crate) fn windows_volume(letter: char) -> Option<(String, String)> {
 /// MBR 盘没有 GUID（报告全零），比不上就如实命不中。
 #[cfg(target_os = "windows")]
 pub(crate) fn windows_partition_guids() -> Vec<(char, String)> {
+    // 第三次 PowerShell 冷启动（另外两次在 win_esp::list）。它只为了把
+    // `grub_efi_partuuid` 跟盘符对上，没有缓存就是纯浪费 —— 埋点把它记下来，
+    // 后面合并成一次 Get-Partition 时能直接对比。
+    let _span = crate::perf::span("cmd.partition_guids");
     let output = match command("powershell")
         .args([
             "-NoProfile",
