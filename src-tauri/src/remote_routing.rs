@@ -601,6 +601,17 @@ pub(crate) fn remote_ui_command_inner(
             let selector = ui_str(args, "selector")?;
             status_value(switch_grub(app.clone(), selector))
         }
+        // 三引导器通道切换（网页控制台 OC/Clover/systemd-boot 卡片的按钮都走这条；
+        // 本地 Tauri 窗口直接 invoke 不经此白名单，之前漏了 → 远程浏览器报
+        // 「未知或不受支持的命令 switch_boot_channel」）。async 命令在 HTTP worker
+        // 线程里 block_on；Windows「设为默认」弹 UAC 时会久等，与 GRUB/sol_* 同理
+        // 只是占住一个 worker，不构成自我死锁（那条死锁是 stop().join 专属）。
+        "switch_boot_channel" => {
+            let target = ui_str(args, "target")?;
+            let status =
+                tauri::async_runtime::block_on(switch_boot_channel(app.clone(), target));
+            status_value(status)
+        }
         "detect_esp" => {
             let path = ui_str(args, "path")?;
             detect_esp_blocking(app.clone(), path).map(serde_json::Value::String)
