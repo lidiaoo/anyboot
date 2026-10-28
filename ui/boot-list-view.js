@@ -395,15 +395,21 @@ function makeBootChannelCard(channel, { busy, onSwitch }) {
       button.classList.add("needs-elev");
     }
     // 「写入固件启动项」不是一次性启动动作，按钮文案要跟语义分开
-    // （它要写 NVRAM，属于提权动作 —— 带 ⤴ 才和「下次启动」区分得开）
+    // （它要写 NVRAM，属于提权动作 —— 带 ⤴ 才和「下次启动」区分得开）。
+    // 「给 ESP 分配盘符」同理：也不是启动动作，说的必须是它真正做的事。
     const isRepair = String(entry.id).endsWith("-register");
-    button.textContent = isRepair
+    const isMountEsp = String(entry.id).startsWith("mount-esp");
+    button.textContent = isMountEsp
       ? elevated
-        ? "写入固件 ⤴"
-        : "写入固件"
-      : elevated
-        ? "下次启动 ⤴"
-        : "下次启动";
+        ? "分配盘符 ⤴"
+        : "分配盘符"
+      : isRepair
+        ? elevated
+          ? "写入固件 ⤴"
+          : "写入固件"
+        : elevated
+          ? "下次启动 ⤴"
+          : "下次启动";
     button.disabled = busy;
     button.addEventListener("click", () => onSwitch(entry, channel));
     row.append(button);
@@ -436,12 +442,22 @@ function renderBootChannels(channels, { busy, onSwitch }) {
 
   mount.replaceChildren();
   const detected = (channels || []).filter((channel) => channel.detected);
-  const missing = (channels || []).filter((channel) => !channel.detected);
+  // 未检测到、但后端**查得到具体原因**的（目前只有 Windows 的「ESP 没有盘符」）：
+  // 照样渲染成卡片。否则用户只能看到折叠条里一行「OpenCore（未检测到）」，
+  // 完全不知道该做什么 —— 而这恰恰是唯一靠自己能修好的情况。
+  const explained = (channels || []).filter(
+    (channel) => !channel.detected && (channel.health || []).length > 0,
+  );
+  const missing = (channels || []).filter(
+    (channel) => !channel.detected && (channel.health || []).length === 0,
+  );
 
-  for (const channel of detected) {
+  for (const channel of [...detected, ...explained]) {
     mount.append(makeBootChannelCard(channel, { busy, onSwitch }));
   }
-  collapsed.hidden = missing.length === 0 || detected.length === 0;
+  // 折叠条只在「确实还有没说的」时出现；全部未检测到也要出现 —— 否则
+  // 「一张 explained 卡片 + 两条彻底消失的通道」会让人以为后两个压根不存在。
+  collapsed.hidden = missing.length === 0;
   collapsedNames.textContent = missing.map((channel) => channel.label).join("、")
     ? `${missing.map((channel) => channel.label).join("、")}（未检测到）`
     : "";

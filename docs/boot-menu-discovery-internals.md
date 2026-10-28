@@ -591,10 +591,17 @@ OC 的去重条件是 **DevicePath 全等**（`BootEntryManagement.c:522`），�
 
 ## 12. 未验证 / 待确认
 
-1. **复刻 Ctrl+Enter**：写 `OCBt0080` + 把 `0x80` 挪到 `OCBtOrder` 首位，重启后 OC 是否真的以此为默认 —— 代码路径明确（§7.4），但未真机验证。
-2. `OCBtNext` 能否作为「只下一次」的等效物（OC 启动后 `InternalClearNextVariables` 会删它）—— 同上，未真机验证。
+1. ~~复刻 Ctrl+Enter 是否真能让 OC 下次默认启动那个系统~~ —— **已真机验证**（§8.5）：
+   `OCBtOrder` 从 `[0080]` 改成 `[0081, 0080]`、回读一致，再改回 `[0080]` 与原始一致。
+2. `OCBtNext` 能否作为「只下一次」的等效物（OC 启动后 `InternalClearNextVariables` 会删它）—— 未真机验证。
 3. Linux 侧 `efivarfs` 写 `Boot*` 在 AMD 固件上的行为（预期可用，因为 Linux 不受 Apple 白名单限制）。
 4. `OpenCanopy` 图形 picker 与文本 picker 在辅助项处理上的差异（两者共用过滤逻辑，但图标解析不同）。
+5. **Windows 的两条命令**（`Get-Partition` 按 GPT 类型枚举 ESP、`Add-PartitionAccessPath -AssignDriveLetter` 分配盘符）：
+   解析层有 5 个单测钉住 `ConvertTo-Json` 的输出形状，**命令层一次都没实机跑过**。
+   尤其是 `Start-Process -Verb RunAs -Wait` 拿不到子进程退出码，成败只能靠事后重新枚举判断 ——
+   真实 UAC 下这条是否可靠（用户点「否」、盘符用完、策略禁止），需要一台 Windows 机器确认。
+6. `win_esp::parse_json` 对 `DriveLetter` 的**码点形式**（`83` 而不是 `"S"`）是防御性处理：
+   见过有人报告某些 PowerShell 版本这样序列化 `[char]`，但没拿到真实输出，两种都认着。
 
 ---
 

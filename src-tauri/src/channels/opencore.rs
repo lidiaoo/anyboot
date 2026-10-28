@@ -798,7 +798,7 @@ mod tests {
         println!(
             "can_write={} hidden={}",
             nvram::can_write_boot_vars(),
-            nvram::boot_vars_hidden()
+            nvram::boot_vars_view().is_blind()
         );
     }
 

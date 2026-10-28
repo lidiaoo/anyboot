@@ -36,6 +36,10 @@
 \EFI\BOOT\BOOTX64.EFI                    // 通用兜底
 ```
 
+兜底那一条是**按架构**的：x64 是 `BOOTX64.EFI`，ARM64 是 `BOOTAA64.EFI`（同一位置）。
+AnyBoot 的表里两条都列、x64 在前 —— 同一个卷上两者都存在的可能性极低，但少了 AA64
+那一条，Apple Silicon / Windows on ARM 上整条兜底会凭空消失。
+
 **Linux 不在表里，这是设计选择不是 bug。** 源码原话（`:71-72`）：
 
 > *Linux and related entries are not present here, because they have fine working software for boot management and do not use BOOTx64.efi in the first place.*
@@ -244,12 +248,48 @@ OCB: Adding entry type (T:1|F:0|G:0) - ...\System\Library\CoreServices\boot.efi
 | 预演 OC 菜单 | ✅ 纯读 | ✅ 纯读 |
 | 读真实 `BootOrder` | ⚠️ 只读得到固件真值里的一小部分 | ✅ |
 | 写 `BootNext` 让下次进 OC | ❌ 系统白名单拒绝（root 也不行） | ✅ |
-| 设置 OC 默认项 | ✅ 走 OC 私有命名空间 `OCBt*`（见 7.1）；`RequestBootVarRouting=false` 时退回 ❌ | ✅ |
+| 设置 OC 默认项 | ✅ 走 OC 私有命名空间 `OCBt*`（见 7.1）；`RequestBootVarRouting=false` 时退回 ❌ | ✅（Windows 还要求该项已在 `BootOrder` 里，见 9.1 ②） |
 
 macOS 上「读不全 / 写不了 `Boot*`」不是权限不够，是系统按变量名精确拦截 `Boot*` 与 `efi-boot-device`。
 而 `OCBt*` 只是另一个 GUID 下的普通变量，能写 —— 这正是「设默认项」在 macOS 侧仍然可用的原因。
 实测证据（`bless` 一样被拒、`OCBt*` 反而可写）见
 [`boot-menu-discovery-internals.md`](boot-menu-discovery-internals.md) 第 6 节。
+
+### 9.1 实现层：同一套规则，四处分叉
+
+预演规则、`EFI_LOAD_OPTION` 的构造（`boot_entry.rs`）、`BootOrder` 的解析全是平台无关的纯函数，
+三端共用一份、单测直接覆盖。真正按 `target_os` 分叉的只有四件事：
+
+| | macOS | Linux | Windows |
+|---|---|---|---|
+| 读 NVRAM | `/usr/sbin/nvram guid:name` | efivarfs 文件（4 字节属性头 + 值） | `GetFirmwareEnvironmentVariableW` |
+| 写 NVRAM | `nvram`（`osascript` 提权），只写得动 `OCBt*` | 直写，失败转 `pkexec` 暂存安装 | `SetFirmwareEnvironmentVariableW`（**要进程本身是管理员**） |
+| 找 ESP | `/Volumes` + `/` | `/efi`、`/boot/efi`、`/boot`、`/esp` | `Get-Partition` 按 GPT 类型 `c12a7328-…` 过滤 |
+| 取分区号 / 起始 LBA / GPT GUID | `diskutil info -plist` | `findmnt` + `lsblk` | ❌ 未实现（见下） |
+
+三处差异会带来实际后果，用之前得知道：
+
+**① Windows 的 ESP 天生没有盘符。** 不分配盘符的话，它在 Win32 文件 API 里根本不存在，
+按 `A:`–`Z:` 扫一个都扫不到。所以 `candidate_roots` 改成先用 `Get-Partition` 列出所有
+`GptType` 为 ESP 的分区，再取其挂载根。一块都没有盘符时，OpenCore 卡片会**照实说明**
+（「磁盘 0 分区 1（260 MB）没有盘符」）并给一个「分配盘符」按钮 —— 它调
+`Add-PartitionAccessPath -AssignDriveLetter`，经 `Start-Process -Verb RunAs` 弹一次 UAC。
+提权子进程的退出码拿不到，所以成败不靠返回码判断：**挂完重新枚举一遍，真拿到盘符才算成**
+（与 macOS 用 `osascript` 提权后回读校验同一思路）。
+
+**② Windows 上不能用「自己造一条启动项」这条兜底。** `boot_entry` 需要分区的起始 LBA 与
+GPT GUID，Windows 侧还没写这段（`partition_info_platform` 直接返回错误）。所以 Windows 上
+「设为默认」只有两条路能用：目标已在 `BootOrder` 里（只重排），或者能原样抄一条现成的值。
+路都能走通的前提是**以管理员身份运行**——非管理员进程连 `BootCurrent` 都读不到
+（`GetFirmwareEnvironmentVariableW` 要 `SeSystemEnvironmentPrivilege`）。
+
+> 这一点以前会被错判成「启动列表被引导器托管了」。现在 `nvram::BootVarsView` 把
+> 「变量不存在」和「没权限读」分开，文案也分开：前者让你去看 OC 配置，后者让你提权重开。
+> 混在一起的后果是——按提示查半天 OC，而真因是权限。
+
+**③ 卷标在不同平台不一样。** OC 显示的卷名来自 macOS 写在卷上的 `.contentDetails`；
+Linux / Windows 上这两个文件通常不存在，于是回退成挂载点名（`efi`）或盘符（`S:\`）。
+功能不受影响（「设为默认」按卷标反查时会重新枚举），但卡片里显示的名字会和 OC 菜单里的对不上。
 
 ---
 

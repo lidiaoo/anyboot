@@ -524,12 +524,6 @@ pub(crate) fn boot_vars_view() -> BootVarsView {
     }
 }
 
-/// 「看不见真相」（托管或权限不足都算）。只回答「能不能信 BootOrder」，
-/// 要区分原因用 [`boot_vars_view`]。
-pub(crate) fn boot_vars_hidden() -> bool {
-    boot_vars_view().is_blind()
-}
-
 /// 读 BootOrder（不存在返回空序列 —— 固件没设过 BootOrder 也是合法状态）。
 pub(crate) fn read_boot_order() -> Vec<u16> {
     read_var("BootOrder", GUID_GLOBAL)

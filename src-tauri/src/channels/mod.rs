@@ -20,6 +20,7 @@ pub(crate) mod oc_menu;
 pub(crate) mod opencore;
 pub(crate) mod plist_lite;
 pub(crate) mod sdboot;
+pub(crate) mod win_esp;
 
 // ─────────────────────────── 快照结构 ───────────────────────────
 
@@ -135,6 +136,17 @@ fn candidate_roots() -> Vec<PathBuf> {
 
 #[cfg(target_os = "windows")]
 fn candidate_roots() -> Vec<PathBuf> {
+    // 先按 GPT 类型直接把 ESP 列出来：Windows 默认**不给 ESP 分配盘符**，只扫
+    // `A:`–`Z:` 会一块都扫不到，三张卡片全变「未检测到」且不说原因。
+    let esp: Vec<PathBuf> = win_esp::list()
+        .into_iter()
+        .filter_map(|partition| partition.root())
+        .collect();
+    if !esp.is_empty() {
+        return esp;
+    }
+    // 拿不到 GPT 信息（MBR 盘、老系统、PowerShell 被裁剪）→ 退回原来的盘符扫描。
+    // 这条兜底只在真的枚举不出 ESP 时才走，不会掩盖上面那条更准的路。
     (b'A'..=b'Z')
         .map(|letter| PathBuf::from(format!("{}:\\", letter as char)))
         .collect()
@@ -143,6 +155,63 @@ fn candidate_roots() -> Vec<PathBuf> {
 #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 fn candidate_roots() -> Vec<PathBuf> {
     Vec::new()
+}
+
+/// 找不到 ESP 时的「原因 + 可点的修复动作」。目前只有 Windows 给得出。
+///
+/// 别小看这一句：Windows 上 ESP 天生没有盘符，`candidate_roots` 扫不到，通道就
+/// 一起缩进折叠条变成一行「OpenCore（未检测到）」。用户看到的是「AnyBoot 不支持
+/// 我这台机器」，真相却是「给那块 260 MB 的隐藏分区分配一个盘符就行」。
+///
+/// 一次调用把两件事都算了（提示文案 + 按钮），因为 `win_esp::list()` 要起一次
+/// PowerShell，分开算会白跑两遍。
+fn offline_extras() -> (Option<String>, Vec<ChannelEntry>) {
+    #[cfg(target_os = "windows")]
+    {
+        // 只看「没有盘符」的：有盘符却没扫到，说明是「这块 ESP 上没有引导器」，
+        // 跟盘符无关 —— 那时候给这条提示就是纯误导（用户会去挂一块早就挂好的分区）。
+        let unlettered: Vec<win_esp::WinEsp> = win_esp::list()
+            .into_iter()
+            .filter(|partition| partition.letter.is_none())
+            .collect();
+        if unlettered.is_empty() {
+            return (None, Vec::new());
+        }
+        let names = unlettered
+            .iter()
+            .map(win_esp::WinEsp::describe)
+            .collect::<Vec<_>>()
+            .join("、");
+        let hint = format!(
+            "这台机器上有 {} 块 EFI 系统分区没有盘符（{names}）——ESP 是隐藏分区，\
+             没有盘符就读不到里面的文件。用下面的按钮给其中一块分配盘符\
+             （会弹一次管理员授权），再点「重新识别」即可",
+            unlettered.len()
+        );
+        let entries = unlettered
+            .into_iter()
+            .map(|partition| ChannelEntry {
+                id: format!("mount-esp:{}:{}", partition.disk, partition.partition),
+                // 标题只放坐标：420px 下十几个字就到头了，大小得放副标题
+                title: partition.coords(),
+                detail: format!(
+                    "{}ESP 没有盘符时 Windows 读不到它的文件；这一步要一次管理员授权",
+                    if partition.size_mb > 0 {
+                        format!("{} MB · ", partition.size_mb)
+                    } else {
+                        String::new()
+                    }
+                ),
+                icon: "menu".to_string(),
+                requires_elevation: true,
+            })
+            .collect();
+        (Some(hint), entries)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        (None, Vec::new())
+    }
 }
 
 /// 三通道共用的 ESP 根目录。优先级：GRUB 链路已解析的 → 常见挂载点探测。
@@ -169,7 +238,29 @@ pub(crate) fn resolve_esp_root(app: &AppHandle) -> Option<(Option<EspInfo>, Path
 // ─────────────────────────── 刷新与快照 ───────────────────────────
 
 /// 没找到 ESP 时的全 off 视图（与 GRUB 空态同风格：照实说原因）。
-fn offline_view(id: &'static str, label: &'static str, permission: &'static str) -> ChannelView {
+///
+/// `explain` = 要尽力解释「为什么没找到」（目前只有 Windows 查得到，见
+/// [`offline_extras`]）。解释得出来时还会带一个可点的修复动作。
+/// 前端只在 `health` 非空时才把未检测的通道渲染成卡片 —— 没有原因可说的
+/// 仍然收进折叠条，不占版面。
+fn offline_view(
+    id: &'static str,
+    label: &'static str,
+    permission: &'static str,
+    explain: bool,
+) -> ChannelView {
+    let (hint, entries) = if explain {
+        offline_extras()
+    } else {
+        (None, Vec::new())
+    };
+    let health: Vec<HealthIssue> = hint
+        .map(|text| HealthIssue {
+            severity: "info".to_string(),
+            text,
+        })
+        .into_iter()
+        .collect();
     ChannelView {
         id,
         label,
@@ -177,8 +268,8 @@ fn offline_view(id: &'static str, label: &'static str, permission: &'static str)
         permission,
         chip: "off",
         detail: Some("没有找到挂载着的 ESP（或上面没有这个引导器）".to_string()),
-        health: Vec::new(),
-        entries: Vec::new(),
+        health,
+        entries,
         current_default: None,
         last_boot: None,
         last_boot_at: None,
@@ -200,10 +291,12 @@ pub(crate) fn refresh_channels(app: &AppHandle) {
             (esp, views)
         }
         None => {
+            // 原因只往 OpenCore 这张卡片上写：它是这里的主角（有预演列表、有「设为默认」），
+            // 三张卡各说一遍同一句话只会把版面撑乱。
             let views = vec![
-                offline_view("sdboot", "systemd-boot", "file"),
-                offline_view("opencore", "OpenCore", "nvram"),
-                offline_view("clover", "Clover", "file"),
+                offline_view("sdboot", "systemd-boot", "file", false),
+                offline_view("opencore", "OpenCore", "nvram", true),
+                offline_view("clover", "Clover", "file", false),
             ];
             (None, views)
         }
@@ -225,6 +318,9 @@ pub(crate) enum SwitchSpec {
     /// 把预演菜单里的某一项设为 OC 默认项（= OC 菜单里的 Ctrl+Enter）：
     /// `<卷标>\u{1}<分区内路径>`
     OpenCoreDefault(String),
+    /// 给一块没有盘符的 ESP 分配盘符（Windows 专属的前置动作）：
+    /// 必须在解析 ESP **之前**执行，见 [`switch`]。
+    MountEsp { disk: u32, partition: u32 },
     CloverDefault(String),
     CloverOneShot,
 }
@@ -259,6 +355,14 @@ pub(crate) fn parse_switch_spec(spec: &str) -> Option<SwitchSpec> {
         {
             Some(SwitchSpec::OpenCoreDefault(rest.to_string()))
         }
+        // 挂载 ESP：`<磁盘号>:<分区号>`（Windows 上 ESP 没盘符时的前置动作）
+        ("mount-esp", Some(rest)) => {
+            let (disk, partition) = rest.split_once(':')?;
+            Some(SwitchSpec::MountEsp {
+                disk: disk.trim().parse().ok()?,
+                partition: partition.trim().parse().ok()?,
+            })
+        }
         ("clover-default", Some(volume)) if !volume.trim().is_empty() => {
             Some(SwitchSpec::CloverDefault(volume.trim().to_string()))
         }
@@ -287,6 +391,9 @@ impl SwitchSpec {
             }
             Self::CloverDefault(volume) => format!("Clover 默认卷设为 {volume}"),
             Self::CloverOneShot => "下次启动进入 Clover（一次性）".to_string(),
+            Self::MountEsp { disk, partition } => {
+                format!("给 EFI 分区分配盘符（磁盘 {disk} 分区 {partition}）")
+            }
         }
     }
 
@@ -295,6 +402,7 @@ impl SwitchSpec {
         match self {
             Self::OpenCoreRegister(_) => "写入固件启动项",
             Self::OpenCoreDefault(_) => "设置 OC 默认项",
+            Self::MountEsp { .. } => "挂载 ESP",
             _ => "切换引导通道",
         }
     }
@@ -304,6 +412,14 @@ impl SwitchSpec {
 pub(crate) fn switch(app: &AppHandle, spec: &str) -> Result<String, String> {
     let parsed =
         parse_switch_spec(spec).ok_or_else(|| format!("未知的引导通道值域: {spec}"))?;
+    // 「给 ESP 分配盘符」是在**修前置条件**：它必须跑在 resolve_esp_root 之前，
+    // 否则永远是「没有找到可用的 ESP」——正是因为没盘符才找不到的。
+    if let SwitchSpec::MountEsp { disk, partition } = &parsed {
+        let root = win_esp::mount(*disk, *partition)?;
+        return Ok(format!(
+            "已给磁盘 {disk} 分区 {partition} 分配盘符 {root}，正在重新识别 ESP"
+        ));
+    }
     let (_esp, esp_root) = resolve_esp_root(app)
         .ok_or_else(|| "没有找到可用的 ESP（三条通道都需要它）".to_string())?;
     let message = match &parsed {
@@ -330,6 +446,10 @@ pub(crate) fn switch(app: &AppHandle, spec: &str) -> Result<String, String> {
         SwitchSpec::CloverOneShot => {
             let number = opencore::set_boot_next(&esp_root, clover::CLOVER_MARKER, "clover")?;
             format!("{}（Boot{}）", parsed.describe(), nvram::boot_var_name(number))
+        }
+        // 上面已经提前返回；留着是为了 match 穷尽（也防以后有人挪走那段而不知道）
+        SwitchSpec::MountEsp { .. } => {
+            return Err("挂载 ESP 必须在解析 ESP 之前处理".to_string())
         }
     };
     Ok(message)
