@@ -182,7 +182,7 @@ function ocMenuOpenByDefault() {
 }
 
 /// 整块「预演 OC 菜单」（details，默认展开，用户手动收起后记住）
-function renderOcMenuPreview(preview, { busy, onSwitch, channel } = {}) {
+function renderOcMenuPreview(preview, { busy, onSwitch, channel, onPrebootElevate } = {}) {
   if (!preview) return null;
   const box = document.createElement("details");
   box.className = "oc-menu";
@@ -271,6 +271,25 @@ function renderOcMenuPreview(preview, { busy, onSwitch, channel } = {}) {
       issueBox.append(line);
     }
     box.append(issueBox);
+  }
+
+  // Preboot 直读因权限失败且没有缓存 → 给一个「提权重扫」按钮。
+  // 弹一次 UAC（或 pkexec），后端用本程序自身跑一次只读扫描、缓存在进程里，
+  // 完成后整页重载即可看到 macOS 条目 —— 不需要用户用管理员身份重启 App。
+  if (preview.prebootElevatable && onPrebootElevate) {
+    const row = document.createElement("div");
+    row.className = "oc-menu-elevate";
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "channel-helper-action needs-elev";
+    button.textContent = "提权重扫 ⤴";
+    button.title =
+      "弹一次管理员授权，用 AnyBoot 自身只读扫一遍 APFS 容器翻出 macOS 条目" +
+      "（不写盘、不装任何东西；结果缓存 30 分钟，之后不再询问）";
+    button.disabled = Boolean(busy);
+    button.addEventListener("click", () => onPrebootElevate(false));
+    row.append(button);
+    box.append(row);
   }
 
   if (preview.summary) {
@@ -407,6 +426,7 @@ function makeBootChannelCard(channel, { busy, onSwitch, helper, onHelper }) {
       busy,
       onSwitch,
       channel,
+      onPrebootElevate,
     });
     if (preview) section.append(preview);
   }
@@ -513,7 +533,7 @@ function bootChannelSpec(entry, channel) {
   return entry.id;
 }
 
-function renderBootChannels(channels, { busy, onSwitch, helper, onHelper }) {
+function renderBootChannels(channels, { busy, onSwitch, helper, onHelper, onPrebootElevate }) {
   const mount = document.getElementById("boot-channels-mount");
   const collapsed = document.getElementById("boot-channel-collapsed");
   const collapsedNames = document.getElementById("boot-channel-collapsed-names");

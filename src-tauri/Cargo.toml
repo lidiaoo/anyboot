@@ -74,9 +74,21 @@ windows-sys = { version = "0.59", features = [
     "Win32_UI_WindowsAndMessaging",
     # NVRAM 读写：Get/SetFirmwareEnvironmentVariableW（0.59 里在 WindowsProgramming 模块）
     "Win32_System_WindowsProgramming",
+    # 提权重扫：SHELLEXECUTEINFOW 的 hkeyClass 字段挂在 Registry feature 下（0.59 的拆法）
+    "Win32_System_Registry",
 ] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", features = ["NSError", "NSString"] }
 objc2-service-management = "0.3"
+
+# 只读 APFS 解析（Preboot 卷扫描）：macOS 原生能读 Preboot，不需要；
+# Windows/Linux 靠它在内存里解析容器分区（零挂载，见 docs/apfs-预演三端统一选型.md）。
+# 锁死版本：上游自称 experimental、API 不承诺稳定，升级必须人工过一遍调用点。
+# 只用 sync 同步接口 + VolumeSelector 按卷名选卷（apfs crate 只能挂第一个卷，不够用）。
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+hadris-apfs = { version = "=3.0.0-rc.2", default-features = false, features = ["std", "sync"] }
+# apfs_reader 直接用它们的块设备抽象与 Volume 门面（版本与 hadris-apfs 锁死一致）
+hadris-fs = { version = "=3.0.0-rc.2", default-features = false, features = ["std", "sync"] }
+hadris-storage = { version = "=3.0.0-rc.2", default-features = false, features = ["std", "sync"] }

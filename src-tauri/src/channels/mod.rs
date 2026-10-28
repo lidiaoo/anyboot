@@ -14,6 +14,11 @@ use super::*;
 
 pub(crate) mod boot_entry;
 pub(crate) mod clover;
+// macOS 原生读得到 /System/Volumes/Preboot，不需要这个模块（依赖也只装在另两端）
+#[cfg(not(target_os = "macos"))]
+pub(crate) mod apfs_reader;
+#[cfg(any(target_os = "windows", target_os = "linux"))]
+pub(crate) mod elevate;
 pub(crate) mod nvram;
 pub(crate) mod oc_default;
 pub(crate) mod oc_menu;
@@ -437,8 +442,17 @@ pub(crate) fn switch(app: &AppHandle, spec: &str) -> Result<String, String> {
         }
         // 「注册」不是切换：直接把注册结果的完整说明当消息
         SwitchSpec::OpenCoreRegister(mode) => opencore::register(&esp_root, mode)?,
-        // 「设默认项」= OC 菜单里的 Ctrl+Enter（写 OC 私有命名空间，绕过 macOS 白名单）
-        SwitchSpec::OpenCoreDefault(target) => oc_default::set_default(&esp_root, target)?,
+        // 「设默认项」= OC 菜单里的 Ctrl+Enter（写 OC 私有命名空间，绕过 macOS 白名单）。
+        // Windows 非提权进程读写 OCBt* 直接被拒（1314/5）—— 与其让用户看一条失败，
+        // 不如按需弹一次授权，让本程序的提权子进程跑同一套 set_default。
+        // macOS 走免密助手信箱（helper_install），不经过这条路。
+        SwitchSpec::OpenCoreDefault(target) => {
+            #[cfg(target_os = "windows")]
+            if nvram::boot_vars_view() == nvram::BootVarsView::NeedElevation {
+                oc_default::set_default_elevated(target)?;
+            }
+            oc_default::set_default(&esp_root, target)?
+        }
         SwitchSpec::CloverDefault(volume) => {
             clover::set_default_volume(&esp_root, volume, None)?;
             parsed.describe()
@@ -491,9 +505,17 @@ pub(crate) fn boot_channels(app: AppHandle) -> Vec<ChannelView> {
 }
 
 #[tauri::command]
-pub(crate) fn switch_boot_channel(app: AppHandle, target: String) -> AppStatus {
+pub(crate) async fn switch_boot_channel(app: AppHandle, target: String) -> AppStatus {
     trace(&app, "command", &format!("switch_boot_channel target={target}"));
-    switch_channel_and_update(&app, &target)
+    // 提权（Windows 上「设为默认」弹 UAC）可能等几分钟，绝不能占 UI 线程 ——
+    // 这就是 blocking_guard 的存在理由。整条链路挪到工作线程，本函数只 await。
+    let app_for_task = app.clone();
+    let join =
+        tauri::async_runtime::spawn_blocking(move || switch_channel_and_update(&app_for_task, &target));
+    match join.await {
+        Ok(status) => status,
+        Err(error) => update_failure_status(&app, "切换失败", format!("任务异常退出：{error}")),
+    }
 }
 
 #[cfg(test)]

@@ -129,6 +129,19 @@ fn option_targets(value: &[u8], path: &str) -> bool {
     }
 }
 
+/// 一条 `EFI_LOAD_OPTION` 的描述与条目名相等 —— **preboot 目标的槽匹配判据**。
+///
+/// 为什么不用路径：Preboot 目标的固件设备路径经过 apfs.efi 虚拟卷，AnyBoot 目前
+/// 造不出来、也没真实样本可解析比对；而 OC 写 `OCBt####` 时的描述与 OC 菜单
+/// 条目名同源（`.disk_label` / `.contentDetails`），预演条目的 title 也是它 ——
+/// 描述相等 + 槽已在 OC 私有命名空间里，误配面很小（再错也只是改顺序，不写新值）。
+fn option_titled(value: &[u8], title: &str) -> bool {
+    matches!(
+        oc_menu::parse_load_option(value),
+        Some((description, _)) if !description.is_empty() && description.eq_ignore_ascii_case(title)
+    )
+}
+
 /// 卷上有个明确的 `.efi` 文件 → 按该分区的 HardDrive 节点自己造一条启动项。
 fn build_from_volume(volume: &str, path: &str) -> Result<Vec<u8>, String> {
     if !path.to_ascii_lowercase().ends_with(".efi") {
@@ -147,9 +160,11 @@ fn build_from_volume(volume: &str, path: &str) -> Result<Vec<u8>, String> {
 
 /// 预演菜单里某一项能不能「设为默认」，能则给出前端原样回传的值域。
 ///
-/// 只放两类：**已经在固件启动项里**（只改顺序，零风险）和**卷上有明确 .efi 文件**
-/// （自己造一条）。协议驱动生成的条目（`OpenLinuxBoot` 的 `.conf`）内嵌 OC 的
-/// 自定义设备路径节点，凭路径造不出来，不给按钮而不是给一个点了必然失败的按钮。
+/// 只放三类：**已经在固件启动项里**（只改顺序，零风险）、**卷上有明确 .efi 文件**
+/// （自己造一条）、**APFS Preboot 条目**（靠描述匹配 OC 亲写的槽，只重排不新建；
+/// 见 [`set_default`] 里 ③ 段的限制说明）。协议驱动生成的条目（`OpenLinuxBoot`
+/// 的 `.conf`）内嵌 OC 的自定义设备路径节点，凭路径造不出来，不给按钮而不是
+/// 给一个点了必然失败的按钮。
 pub(crate) fn entry_spec(
     entry: &oc_menu::MenuEntry,
     writable: bool,
@@ -160,7 +175,8 @@ pub(crate) fn entry_spec(
     }
     let supported = entry.source == "bootorder"
         || (entry.source == "bless"
-            && matches!(entry.kind.as_str(), "macos" | "windows" | "generic"));
+            && matches!(entry.kind.as_str(), "macos" | "windows" | "generic"))
+        || (entry.source == "preboot" && entry.kind == "macos");
     if !supported {
         return None;
     }
@@ -173,6 +189,15 @@ pub(crate) fn entry_spec(
             }
         }
     }
+    // Preboot 条目额外带上条目名（第三段）：这类目标的固件设备路径要经过
+    // apfs.efi 虚拟卷，AnyBoot 还造不出来 —— 匹配已有槽全靠「描述 == 条目名」
+    // （OC 写 OCBt#### 时的描述与菜单条目名同源，都是 .disk_label/.contentDetails）。
+    if entry.source == "preboot" {
+        return Some(format!(
+            "opencore-default:{}{SEP}{}{SEP}{}",
+            entry.volume, entry.path, entry.title
+        ));
+    }
     Some(format!(
         "opencore-default:{}{SEP}{}",
         entry.volume, entry.path
@@ -181,12 +206,17 @@ pub(crate) fn entry_spec(
 
 /// 把预演菜单里的某一项设为 OC 默认项（= 在 OC 菜单里对它按 Ctrl+Enter）。
 ///
-/// `target` 形如 `<卷标>\u{1}<分区内路径>`（就是 [`entry_spec`] 生成的那串）。
+/// `target` 形如 `<卷标>\u{1}<分区内路径>`（就是 [`entry_spec`] 生成的那串）；
+/// Preboot 条目多一段：`<卷标>\u{1}<路径>\u{1}<条目名>`（描述匹配用）。
 pub(crate) fn set_default(esp_root: &Path, target: &str) -> Result<String, String> {
-    let (volume, raw_path) = target
+    let (volume, rest) = target
         .split_once(SEP)
         .ok_or_else(|| "默认项参数里缺少卷或路径".to_string())?;
     let volume = volume.trim();
+    let (raw_path, title) = match rest.split_once(SEP) {
+        Some((path, title)) => (path, Some(title.trim()).filter(|t| !t.is_empty())),
+        None => (rest, None),
+    };
     let path = oc_menu::normalized(raw_path);
     let config = fs::read_to_string(grub_rel(esp_root, opencore::OC_CONFIG)).unwrap_or_default();
     let namespace = Namespace::from_config(&config);
@@ -201,11 +231,12 @@ pub(crate) fn set_default(esp_root: &Path, target: &str) -> Result<String, Strin
     }
     let order = namespace.read_order();
 
-    // ① 私有命名空间里已经有指向这个文件的启动项 → 只改顺序（与 OC 匹配到已有项的分支一致）
+    // ① 私有命名空间里已经有指向这个文件的启动项 → 只改顺序（与 OC 匹配到已有项的分支一致）。
+    //    Preboot 目标没有路径可比，靠「描述 == 条目名」认槽。
     let mut slot: Option<u16> = None;
     for number in &order {
         if let Some(value) = namespace.read_option(*number) {
-            if option_targets(&value, &path) {
+            if option_targets(&value, &path) || title.is_some_and(|t| option_titled(&value, t)) {
                 slot = Some(*number);
                 break;
             }
@@ -216,7 +247,7 @@ pub(crate) fn set_default(esp_root: &Path, target: &str) -> Result<String, Strin
     if slot.is_none() {
         for number in nvram::read_boot_order() {
             if let Some(value) = nvram::read_boot_option(number) {
-                if option_targets(&value, &path) {
+                if option_targets(&value, &path) || title.is_some_and(|t| option_titled(&value, t)) {
                     copied = Some(value);
                     break;
                 }
@@ -227,6 +258,17 @@ pub(crate) fn set_default(esp_root: &Path, target: &str) -> Result<String, Strin
     let (number, writing) = match slot {
         Some(number) => (number, None),
         None => {
+            // Preboot 目标造不出新条目：固件设备路径要经过 apfs.efi 虚拟卷，凭
+            // 「分区 GUID + 文件路径」构造出来的 HD 节点固件不认。这条路留给
+            // 「拿到 OC 亲写字节样本后按字节复刻」（docs/apfs-预演三端统一选型.md §8）。
+            if volume.starts_with("Preboot") {
+                return Err(format!(
+                    "「{volume}」指向 APFS 容器里的 boot.efi，AnyBoot 还不能凭路径构造新启动项。\
+                     在 OC 菜单里对这项按一次 Ctrl+Enter 之后，AnyBoot 就能识别这个槽、\
+                     一键把它设回默认（只重排 {}，不写新值）",
+                    namespace.order_name()
+                ));
+            }
             let number = boot_entry::next_free_number(&order, |candidate| {
                 namespace.read_option(candidate).is_some()
             })
@@ -315,6 +357,90 @@ pub(crate) fn set_default(esp_root: &Path, target: &str) -> Result<String, Strin
     ))
 }
 
+// ─────────────────────────── 按需提权（Windows） ───────────────────────────
+
+/// 提权子进程的回传文件：`{ ok, message | error }`。
+#[derive(serde::Deserialize)]
+struct SetDefaultReply {
+    ok: bool,
+    #[serde(default)]
+    message: Option<String>,
+    #[serde(default)]
+    error: Option<String>,
+}
+
+/// 「设为默认」的提权版：弹一次 UAC，让本程序自己（提权子进程）跑同一套
+/// [`set_default`]，结果经 JSON 文件回传。Windows 专用 —— macOS 走免密助手
+/// 信箱（helper_install），Linux 的 efivars 写路径尚未接提权（遗留）。
+///
+/// **必须在 async 命令的工作线程上调**：ShellExecuteExW 同步等 UAC 对话框。
+#[cfg(target_os = "windows")]
+pub(crate) fn set_default_elevated(target: &str) -> Result<String, String> {
+    let out_path = super::elevate::result_file_path("oc-set-default");
+    super::elevate::run_elevated(
+        &[
+            "--oc-set-default".to_string(),
+            "--target".to_string(),
+            target.to_string(),
+            "--out".to_string(),
+            out_path.to_string_lossy().to_string(),
+        ],
+        &out_path,
+    )?;
+    let text = std::fs::read_to_string(&out_path)
+        .map_err(|error| format!("提权子进程退出了但结果文件读不到：{error}"))?;
+    let reply: SetDefaultReply = serde_json::from_str(&text)
+        .map_err(|error| format!("提权设默认的结果不是合法 JSON：{error}"))?;
+    if reply.ok {
+        Ok(reply
+            .message
+            .unwrap_or_else(|| "已提权完成 OpenCore 默认项设置".to_string()))
+    } else {
+        Err(reply
+            .error
+            .unwrap_or_else(|| "提权设默认失败（子进程没给原因）".to_string()))
+    }
+}
+
+/// `--oc-set-default` 子命令体：提权子进程里跑 [`set_default`]，结果原子写进
+/// `--out` 文件。ESP 自行定位（子进程没有 AppHandle，走不了 resolve_esp_root
+/// 的用户目录偏好，直接扫候选根）。
+pub(crate) fn privileged_set_default_main(target: &str, out_path: &str) -> i32 {
+    let payload = match (|| -> Result<String, String> {
+        let esp_root = super::candidate_roots()
+            .into_iter()
+            .find(|root| super::has_channel_signature(root))
+            .ok_or_else(|| "没有找到可用的 ESP（三条通道都需要它）".to_string())?;
+        set_default(&esp_root, target)
+    })() {
+        Ok(message) => serde_json::json!({ "ok": true, "message": message }),
+        Err(error) => serde_json::json!({ "ok": false, "error": error }),
+    };
+    write_reply(out_path, &payload)
+}
+
+/// 结果原子落盘（临时文件 + rename，父进程读到的一定是完整 JSON）。
+fn write_reply(out_path: &str, payload: &serde_json::Value) -> i32 {
+    let text = match serde_json::to_string(payload) {
+        Ok(text) => text,
+        Err(error) => {
+            eprintln!("序列化结果失败：{error}");
+            return 2;
+        }
+    };
+    let tmp = std::path::PathBuf::from(format!("{out_path}.tmp-{}", std::process::id()));
+    if let Err(error) = std::fs::write(&tmp, text) {
+        eprintln!("写结果失败：{error}");
+        return 2;
+    }
+    if let Err(error) = std::fs::rename(&tmp, out_path) {
+        let _ = std::fs::remove_file(&tmp);
+        eprintln!("落盘结果失败：{error}");
+        return 2;
+    }
+    0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -383,8 +509,16 @@ mod tests {
             entry_spec(&entry("ARCH", "\\loader\\entries\\arch.conf", "linux", "protocol", false), true, esp)
                 .is_none()
         );
-        // 只有 Preboot、固件里没有启动项的另一个 macOS → 不给（值无处可抄、路径也造不出）
-        assert!(entry_spec(&entry("Preboot 2D8A2ED9", "\\Preboot\\2D8A2ED9-x\\boot.efi", "macos", "preboot", false), true, esp).is_none());
+        // Preboot 条目（APFS 容器里的 macOS）→ 可设，但值域带第三段条目名：
+        // 这类目标只走「描述匹配 OC 亲写的槽、重排顺序」，不新建启动项（见 set_default ③）
+        let preboot_spec = entry_spec(
+            &entry("Preboot 2D8A2ED9", "\\Preboot\\2D8A2ED9-x\\boot.efi", "macos", "preboot", false),
+            true,
+            esp,
+        )
+        .expect("preboot 条目现在给按钮（重排已有槽）");
+        assert!(preboot_spec.starts_with("opencore-default:"));
+        assert_eq!(preboot_spec.matches(SEP).count(), 2, "第三段是条目名");
     }
 
     #[test]

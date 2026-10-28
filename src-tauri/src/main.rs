@@ -16,6 +16,35 @@ fn main() {
         }
         std::process::exit(anyboot_lib::helper_proto::run_inbox());
     }
+    // ⓪.5 提权扫描子命令（Windows/Linux 读 APFS 整盘要管理员，按需自拉起一次，
+    //    结果经 JSON 文件回传给主进程 —— 见 channels/apfs_reader.rs 模块注释）。
+    //    与 --run-inbox 同理：绝不能进 Tauri（开窗口、抢单实例锁、监听端口全是要命的事）。
+    if let Some(pos) = args.iter().position(|arg| arg == "--apfs-scan-privileged") {
+        // 调用方只有我们自己（apfs_reader::spawn_*），固定两段式 `--out <path>`
+        let out = match args.get(pos + 2) {
+            Some(out) => out.clone(),
+            None => {
+                eprintln!("用法：anyboot --apfs-scan-privileged --out <结果文件路径>");
+                std::process::exit(2);
+            }
+        };
+        std::process::exit(anyboot_lib::apfs_privileged_scan_main(&out));
+    }
+    // ⓪.6 OC 设默认项（提权版）：主进程检测到没有 NVRAM 权限时自拉起，这里
+    //    完成整套 set_default 并把结果写回 --out 指的文件。同样绝不进 Tauri。
+    if args.iter().any(|arg| arg == "--oc-set-default") {
+        let get = |flag: &str| {
+            args.iter()
+                .position(|arg| arg == flag)
+                .and_then(|index| args.get(index + 1))
+                .cloned()
+        };
+        let (Some(target), Some(out)) = (get("--target"), get("--out")) else {
+            eprintln!("用法：anyboot --oc-set-default --target <卷\\u{{1}}路径> --out <结果文件>");
+            std::process::exit(2);
+        };
+        std::process::exit(anyboot_lib::oc_set_default_main(&target, &out));
+    }
     // ① ssh 的 SSH_ASKPASS 把我们当程序调起来（argv 是密码提示语）：
     //    只把密码打到 stdout 就退，既不是 GUI 也不是普通 CLI。必须排在 cli_requested
     //    之前 —— 否则「一个不像命令的参数」会被当成 GUI 启动，ssh 那边只会读到空密码。

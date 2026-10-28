@@ -369,12 +369,22 @@ mod imp {
 #[cfg(target_os = "windows")]
 mod imp {
     use super::*;
-    use windows_sys::Win32::Foundation::ERROR_ACCESS_DENIED;
     // 注意：windows-sys 0.59 里这俩函数落在 WindowsProgramming 模块
     // （windows crate 才在 SystemInformation，别照搬）
     use windows_sys::Win32::System::WindowsProgramming::{
         GetFirmwareEnvironmentVariableW, SetFirmwareEnvironmentVariableW,
     };
+    // 非提权进程读固件变量报 PRIVILEGE_NOT_HELD（1314），提权了但权限没启用报
+    // ACCESS_DENIED（5）—— 两个都该翻译成「要提权」，绝不能当成「变量不存在」
+    // （那是 Hidden 分支，会把权限问题误诊成「引导器托管」，实测踩过）。
+    use windows_sys::Win32::Foundation::{
+        ERROR_ACCESS_DENIED, ERROR_PRIVILEGE_NOT_HELD,
+    };
+
+    /// 读写固件变量时两种「没权限」的错误码。
+    fn is_elevation_error(error: u32) -> bool {
+        error == ERROR_ACCESS_DENIED || error == ERROR_PRIVILEGE_NOT_HELD
+    }
 
     fn utf16_key(name: &str, guid: &str) -> (Vec<u16>, Vec<u16>) {
         // GUID 要 UEFI 的 `{…}` 花括号形态
@@ -403,7 +413,7 @@ mod imp {
         };
         if size == 0 {
             let error = unsafe { windows_sys::Win32::Foundation::GetLastError() };
-            if error == ERROR_ACCESS_DENIED {
+            if is_elevation_error(error) {
                 return Err(NvramError::NeedElevation(
                     "读取 NVRAM 变量需要管理员权限".to_string(),
                 ));
@@ -433,7 +443,7 @@ mod imp {
             return Ok(());
         }
         let error = unsafe { windows_sys::Win32::Foundation::GetLastError() };
-        if error == ERROR_ACCESS_DENIED {
+        if is_elevation_error(error) {
             return Err(NvramError::NeedElevation(
                 "写 NVRAM 变量需要管理员权限（请以管理员身份运行 AnyBoot）".to_string(),
             ));

@@ -116,9 +116,13 @@ OC 从不遍历目录找系统，它是把三个固定来源并成一张表，�
 
 **Windows 的坑**：系统默认不给 EFI 分区分配盘符，而那个分区在资源管理器里是隐藏的。所以 `AnyBoot` 不用盘符扫描，而是按 GPT 类型 `c12a7328-…` 把 ESP 列出来；一块都没盘符时，OpenCore 卡片会显示成「未检测到」并**说明原因**（哪块磁盘哪个分区、多大），带一个「分配盘符」按钮 —— 点它会弹一次管理员授权，完成后自动重新识别。Linux 上则要求 ESP 是**已挂载**的（`/boot/efi` 或 `/efi`），没挂载同样扫不到。
 
+**macOS / Preboot 条目的三端差异**：目前预演里所有 macOS 条目（含 Preboot）只在 macOS 上算得出来——Windows / Linux 没有 APFS 驱动，`Preboot/<UUID>/…/boot.efi` 这一层物理不可见。已选定「纯 Rust 只读 APFS crate」方案补齐这条缺口（零挂载、直接解析容器分区，与 NVRAM 合并一次提权），
+选型过程与架构见 📖 [`docs/apfs-预演三端统一选型.md`](docs/apfs-预演三端统一选型.md)。
+
 > 📖 完整原理、逐函数源码追踪、实机验证与被推翻的几版结论：
 > [`docs/boot-menu-discovery.md`](docs/boot-menu-discovery.md)（原理与用法）
 > → [`docs/boot-menu-discovery-internals.md`](docs/boot-menu-discovery-internals.md)（详细原理与探索过程）
+> → [`docs/apfs-预演三端统一选型.md`](docs/apfs-预演三端统一选型.md)（Windows/Linux 补齐 Preboot 条目的技术选型）
 
 ---
 

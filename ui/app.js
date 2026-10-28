@@ -1483,6 +1483,7 @@ function render(state) {
     onSwitch: switchChannel,
     helper: state.helper,
     onHelper: toggleBootHelper,
+    onPrebootElevate: rescanPrebootElevated,
   });
   renderNextBootLast(state.channels);
   renderSettings(state.settings);
@@ -3075,8 +3076,30 @@ async function switchGrub(selector) {
 // 安装这一步本身还是要有一次管理员授权（写 /Library 必须 root），静默的是之后。
 // 用 helperPending 挡住连点：连点会排队弹两个密码框，第二个还会把刚装好的卸掉。
 let helperPending = false;
-async function toggleBootHelper(action) {
-  if (helperPending) {
+let prebootElevatePending = false;
+
+// OC 预演的「提权重扫」：弹一次授权让后端只读扫一遍 APFS 容器，成功后重新拉
+// 快照 —— 新预演会带上 Preboot 条目。缓存 30 分钟，重复点击不会反复弹授权
+// （force=false 先吃缓存；按钮目前只传 false，「重扫」走的是缓存过期后自然重弹）。
+async function rescanPrebootElevated(force) {
+  if (prebootElevatePending) {
+    return;
+  }
+  prebootElevatePending = true;
+  showStatusBar("等待授权（UAC 弹窗）—— 批准后 AnyBoot 会只读扫一遍 APFS 容器…");
+  try {
+    const outcome = await invoke("apfs_scan_elevated", { force: Boolean(force) });
+    showStatusBar(outcome && outcome.note ? outcome.note : "提权扫描完成");
+    // 预演是快照的一部分，重新拉一次就能看到 macOS 条目
+    await refreshSnapshotQuietly();
+  } catch (error) {
+    showStatusBar(String(error), { error: true });
+  } finally {
+    prebootElevatePending = false;
+  }
+}
+
+async function toggleBootHelper(action) {  if (helperPending) {
     return;
   }
   helperPending = true;
@@ -3098,16 +3121,26 @@ async function toggleBootHelper(action) {
   }
 }
 
+let switchPending = false;
+
 async function switchChannel(entry, channel) {
   if (!entry || !channel) {
     return;
   }
+  // UAC（Windows「设为默认」按需提权）可能等用户好一会儿，期间不能重复提交
+  if (switchPending) {
+    return;
+  }
   const spec = bootChannelSpec(entry, channel);
+  switchPending = true;
+  showStatusBar("正在执行（如弹出授权窗口，批准后 AnyBoot 会自动继续）…");
   try {
     await invoke("switch_boot_channel", { target: spec });
     // 后端写完会 publish 新快照（卡片 chip / 徽章跟着变）
   } catch (error) {
     showStatusBar(String(error), { error: true });
+  } finally {
+    switchPending = false;
   }
 }
 

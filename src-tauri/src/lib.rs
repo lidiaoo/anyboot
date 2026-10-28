@@ -468,6 +468,37 @@ fn hub_report_error(app: AppHandle, source: String, message: String, stack: Stri
     trace(&app, "js", &line);
 }
 
+/// `--apfs-scan-privileged` 子命令入口（main.rs ⓪.5 分支调）。
+/// 提权子进程在这里跑一次 Preboot 扫描、把结果写进 `--out` 指的 JSON 文件就退 ——
+/// 绝不碰 GUI / 单实例锁 / 端口。见 `channels/apfs_reader.rs` 的模块注释。
+pub fn apfs_privileged_scan_main(out_path: &str) -> i32 {
+    channels::apfs_reader::privileged_scan_main(out_path)
+}
+
+/// `--oc-set-default` 子命令入口（main.rs ⓪.6 分支调）：提权子进程里跑整套
+/// OC「设为默认」逻辑，结果写进 `--out` 指的 JSON 文件就退。见
+/// `channels/oc_default.rs` 的提权一节。
+pub fn oc_set_default_main(target: &str, out_path: &str) -> i32 {
+    channels::oc_default::privileged_set_default_main(target, out_path)
+}
+
+/// 「提权重扫」（OpenCore 预演，Windows/Linux）：弹一次授权，用本程序自身跑
+/// APFS Preboot 扫描，结果缓存在进程里供预演重建使用。
+///
+/// **必须 async**：Windows 的 ShellExecuteExW 会同步等 UAC 对话框（用户可能想
+/// 一会儿再点），同步命令会卡死整个界面 —— blocking_guard 的守卫不是摆设。
+#[tauri::command]
+async fn apfs_scan_elevated(
+    force: bool,
+) -> Result<channels::apfs_reader::ElevatedScanOutcome, String> {
+    // 不直接依赖 tokio（IQ6 定稿）：走 tauri::async_runtime 的 spawn_blocking
+    tauri::async_runtime::spawn_blocking(move || {
+        channels::apfs_reader::scan_preboot_elevated(force)
+    })
+    .await
+    .map_err(|error| format!("提权扫描任务异常退出：{error}"))?
+}
+
 // ==================== WebSocket 推送（网页端 / 手机端的 /api/ws） ====================
 //
 // 传输与握手在 http 模块，这里只管「谁订阅了」和「推什么」。推的内容与
@@ -3204,6 +3235,7 @@ pub fn run() {
             hub_health::hub_page_ping,
             // 前端异常上报（webview 无控制台，只写 trace.log）
             hub_report_error,
+            apfs_scan_elevated,
             hub::hub_save_server,
             hub::hub_delete_server,
             hub::hub_test_server,

@@ -77,6 +77,9 @@ pub(crate) struct MenuPreview {
     pub(crate) order_source: String,
     /// 默认项对应的变量名（`OCBt0082` / `Boot0082`），查问题时直接照着看。
     pub(crate) default_slot: Option<String>,
+    /// Preboot 直读因权限失败、缓存里也没有数据 —— 前端据此渲染「提权重扫」按钮。
+    /// macOS 恒为 false（原生路径没有权限这一说）。
+    pub(crate) preboot_elevatable: bool,
 }
 
 /// 启动顺序表里的一项（`OCBtOrder` / `BootOrder` 的某个编号 + 它指向哪里）。
@@ -580,7 +583,7 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
     // ② APFS Preboot：OC 对容器内每个卷 UUID 都试一次
     #[cfg(target_os = "macos")]
     {
-        // 只在 macOS 用（preboot_entries 认 Preboot 里的 UUID）；Windows 下算了也是死代码
+        // 只在 macOS 用（preboot_entries 认 Preboot 里的 UUID）；见下方非 macOS 分支
         let order_uuids: Vec<String> = order_items
             .iter()
             .filter_map(|item| {
@@ -596,6 +599,35 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
             .unwrap_or_default();
         preboot_entries(&mut entries, &order_uuids, &primary);
     }
+    // 非 macOS：Windows / Linux 没有 APFS 驱动，挂不了载 —— 走 apfs_reader 零挂载
+    // 直读容器分区。找不到 Preboot 卷（没装 macOS）不吭声；**任何失败都必须补行
+    // 说明**，不许静默吞掉让 macOS 条目凭空消失。权限失败时退一层吃提权缓存
+    // （用户点过「提权重扫」之后，30 分钟内的预演重建都拿它当数据源）。
+    #[cfg(not(target_os = "macos"))]
+    let (preboot_note, preboot_elevatable) = match super::apfs_reader::scan_preboot() {
+        Ok(items) if !items.is_empty() => {
+            (Some(push_preboot_entries(&mut entries, &items, "")), false)
+        }
+        Ok(_) => (None, false),
+        Err(reason) => match super::apfs_reader::cached_preboot() {
+            Some(items) if !items.is_empty() => (
+                Some(push_preboot_entries(&mut entries, &items, "（提权缓存，卷有变动请重扫）")),
+                false,
+            ),
+            _ => {
+                issues.push(HealthIssue {
+                    severity: "info".to_string(),
+                    text: format!(
+                        "macOS 条目（APFS Preboot）这次没扫出来：{reason}\
+                        。点「提权重扫」授权一次即可补齐"
+                    ),
+                });
+                (None, true)
+            }
+        },
+    };
+    #[cfg(target_os = "macos")]
+    let (preboot_note, preboot_elevatable): (Option<String>, bool) = (None, false);
 
     // ③ 协议驱动：OpenLinuxBoot 是真遍历目录的那个
     let linux_boot_loaded = loaded("openlinuxboot");
@@ -910,7 +942,7 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
     }
 
     let summary = format!(
-        "扫了 {} 个卷 / {} {} 项 / ScanPolicy={} / HideAuxiliary={}{}",
+        "扫了 {} 个卷 / {} {} 项 / ScanPolicy={} / HideAuxiliary={}{}{}",
         volumes.len(),
         order.len(),
         namespace.order_name(),
@@ -920,6 +952,10 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
             "（OC 私有命名空间，RequestBootVarRouting=true）"
         } else {
             ""
+        },
+        match preboot_note {
+            Some(note) => format!(" / {note}"),
+            None => String::new(),
         }
     );
 
@@ -936,7 +972,43 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
         summary,
         order_source,
         default_slot,
+        preboot_elevatable,
     }
+}
+
+/// 把直读/提权扫出来的 Preboot 条目拼成菜单行（与 macOS 侧 `preboot_entries`
+/// 同构输出）。返回给 summary 的那句「Preboot 直读 N 条」。
+#[cfg(not(target_os = "macos"))]
+fn push_preboot_entries(
+    out: &mut Vec<MenuEntry>,
+    items: &[super::apfs_reader::PrebootItem],
+    note_suffix: &str,
+) -> String {
+    for item in items {
+        let short = &item.uuid[..8.min(item.uuid.len())];
+        out.push(MenuEntry {
+            title: item
+                .label
+                .clone()
+                .unwrap_or_else(|| format!("macOS（Preboot {short}）")),
+            kind: "macos".to_string(),
+            source: "preboot".to_string(),
+            volume: format!("Preboot {short}"),
+            path: normalized(&format!(
+                "Preboot/{}/System/Library/CoreServices/boot.efi",
+                item.uuid
+            )),
+            auxiliary: false,
+            default: false,
+            note: Some(
+                "macOS 系统卷的引导文件在 APFS Preboot 卷里\
+                （AnyBoot 零挂载直读容器分区翻出来的，不写盘）"
+                    .to_string(),
+            ),
+            spec: None,
+        });
+    }
+    format!("Preboot 直读 {} 条{}", items.len(), note_suffix)
 }
 
 /// APFS Preboot 里的引导文件（OC 对同一容器内每个卷 UUID 都会试一遍）。
