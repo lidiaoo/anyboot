@@ -20,6 +20,40 @@ enum RemoteHttp {
                      token: String,
                      path: String,
                      timeoutMs: Int? = nil) async throws -> [String: Any] {
+        let (parsed, status) = try await raw(endpoint: endpoint, token: token,
+                                             path: path, timeoutMs: timeoutMs)
+        guard let json = parsed as? [String: Any] else {
+            throw RemoteHttpError(message: "这台电脑返回的不是 JSON 对象（\(status)）")
+        }
+        if status >= 400 {
+            let message = (json["message"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            throw RemoteHttpError(message: message.isEmpty ? "请求被拒绝" : message)
+        }
+        return json
+    }
+
+    /// 顶层是 JSON **数组**的版本（`/api/boot-channels` 直接返回 ChannelView[]）。
+    static func array(endpoint: String,
+                      token: String,
+                      path: String,
+                      timeoutMs: Int? = nil) async throws -> [[String: Any]] {
+        let (parsed, status) = try await raw(endpoint: endpoint, token: token,
+                                             path: path, timeoutMs: timeoutMs)
+        guard let list = parsed as? [Any] else {
+            // 老版本 PC 没有 /api/boot-channels，会 404 返回 JSON 对象 —— 给出可读错误
+            if let object = parsed as? [String: Any], status == 404 {
+                throw RemoteHttpError(message: "这台电脑的 AnyBoot 版本太旧，没有引导器通道接口")
+            }
+            throw RemoteHttpError(message: "这台电脑返回的不是 JSON 数组（\(status)）")
+        }
+        return list.compactMap { $0 as? [String: Any] }
+    }
+
+    /// 共用取数：返回（解析结果，HTTP 状态码）。json / array 各自负责形态与错误翻译。
+    private static func raw(endpoint: String,
+                            token: String,
+                            path: String,
+                            timeoutMs: Int? = nil) async throws -> (Any, Int) {
         let base = endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !base.isEmpty else { throw RemoteHttpError(message: "还没有可用地址") }
 
@@ -62,15 +96,10 @@ enum RemoteHttp {
         }
 
         let body = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let parsed = try? JSONSerialization.jsonObject(with: Data(body.utf8)),
-              let json = parsed as? [String: Any] else {
+        guard let parsed = try? JSONSerialization.jsonObject(with: Data(body.utf8)) else {
             throw RemoteHttpError(message: "这台电脑返回的不是合法 JSON（\(status)）：\(body.prefix(80))")
         }
-        if status >= 400 {
-            let message = (json["message"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            throw RemoteHttpError(message: message.isEmpty ? "请求被拒绝" : message)
-        }
-        return json
+        return (parsed, status)
     }
 
     /// 把 URLSession 的错误翻译成 Android 那几句中文

@@ -31,6 +31,8 @@ struct ComputerListView: View {
         static let refind = BootKind.refind
         static let grub = BootKind.grub
         static let help = "help"
+        /// 三引导器通道弹层（sdboot / opencore / clover），具体通道在 SheetRequest.channel 里
+        static let channel = "channel"
     }
 
     @ObservedObject private var store = ServerStore.shared
@@ -59,6 +61,8 @@ struct ComputerListView: View {
         let id = UUID()
         let rid: String
         let kind: String
+        /// kind == Kind.channel 时携带的通道
+        var channel: ChannelGroup? = nil
     }
 
     private struct ToastItem: Identifiable {
@@ -376,6 +380,7 @@ struct ComputerListView: View {
         let hits: [ProbeEngine.Hit]
         let refind: BootGroup
         let grub: BootGroup
+        let channels: [ChannelGroup]
         let state: String
         let conn: String
         let connRemote: Bool
@@ -539,6 +544,7 @@ struct ComputerListView: View {
             hits: hits,
             refind: info?.refind ?? emptyGroup(Kind.refind),
             grub: info?.grub ?? emptyGroup(Kind.grub),
+            channels: info?.channels ?? [],
             state: state,
             conn: conn,
             connRemote: usingRemote)
@@ -902,11 +908,127 @@ struct ComputerListView: View {
     // MARK: - 引导项按钮（BootButton 1592-1724）
 
     private func bootButtons(_ row: CqRow) -> some View {
-        VStack(spacing: ABMetric.px(6)) {
+        let detected = row.channels.filter { $0.detected }
+        let missing = row.channels.filter { !$0.detected }
+        return VStack(spacing: ABMetric.px(6)) {
             bootButton(row, kind: Kind.refind, group: row.refind)
             bootButton(row, kind: Kind.grub, group: row.grub)
+            // 三引导器通道：检测到的展开成按钮（与 PC 网页端 boot-list-view.js 同一套数据）
+            ForEach(detected) { group in
+                channelButton(row, group: group)
+            }
+            // 未检测到的收进一行折叠提示（PC 端「OpenCore（未检测到）」同款语义）
+            if !missing.isEmpty {
+                Text(missing.map { $0.label }.joined(separator: "、") + "（未检测到）")
+                    .font(.system(size: 10))
+                    .foregroundColor(ABColor.fgFaint)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.leading, ABMetric.px(11))
+                    .padding(.top, ABMetric.px(1))
+            }
         }
         .padding(.top, ABMetric.px(11))
+    }
+
+    /// 三引导器通道按钮：外观与 rEFInd/GRUB 一致，值区显示当前默认 / 首个动作
+    private func channelButton(_ row: CqRow, group: ChannelGroup) -> some View {
+        let work = busy[row.profile.id]
+        let working = work == "boot:ch-\(group.id)"
+        let usable = !group.entries.isEmpty && row.state == Reach.online && work == nil
+        var valueLabel: String
+        var dotKind = ""
+        if group.entries.isEmpty {
+            if row.state == Reach.unknown { valueLabel = "读取中…" }
+            else if row.state == Reach.offline { valueLabel = "离线不可改" }
+            else { valueLabel = "没有可用动作" }
+        } else {
+            let current = group.currentDefault.trimmingCharacters(in: .whitespaces)
+            if current.isEmpty, let first = group.entries.first {
+                valueLabel = first.title
+                dotKind = first.icon
+            } else {
+                valueLabel = current
+                dotKind = "menu"
+            }
+        }
+
+        let background = !usable ? ABColor.toneSoftDisabled : ABColor.toneSoft
+        let border = !usable ? ABColor.toneDashed : ABColor.line
+
+        return Button {
+            if group.entries.isEmpty {
+                toast("该设备没有可用的 \(group.label) 动作")
+            } else if row.state != Reach.online {
+                toast("设备不在线，无法修改引导项")
+            } else {
+                sheet = SheetRequest(rid: row.profile.id, kind: Kind.channel, channel: group)
+            }
+        } label: {
+            HStack(spacing: 0) {
+                Text(group.label)
+                    .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
+                    .foregroundColor(usable ? ABColor.fgDim : ABColor.fgFaint.opacity(0.75))
+                    .lineLimit(1)
+                    .frame(width: ABMetric.px(46), alignment: .leading)
+
+                if working {
+                    ProgressView()
+                        .scaleEffect(0.6)
+                        .frame(width: ABMetric.px(13), height: ABMetric.px(13))
+                    Spacer().frame(width: ABMetric.px(7))
+                } else if !dotKind.isEmpty {
+                    bootDot(iconKind(dotKind))
+                    Spacer().frame(width: ABMetric.px(7))
+                }
+
+                Text(valueLabel)
+                    .font(.system(size: 12.5, weight: usable ? .medium : .regular))
+                    .foregroundColor(usable ? ABColor.fg : ABColor.fgFaint.opacity(0.85))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                if group.permission == "nvram" && usable {
+                    Text("⤴")
+                        .font(.system(size: 10.5, weight: .bold))
+                        .foregroundColor(ABColor.fgFaint)
+                        .padding(.leading, ABMetric.px(5))
+                }
+                if usable {
+                    DrawnIcon.chevronDown(ABColor.fgFaint, size: ABMetric.px(14))
+                        .padding(.leading, ABMetric.px(7))
+                }
+            }
+            .padding(.leading, ABMetric.px(11))
+            .padding(.trailing, ABMetric.px(10))
+            .frame(maxWidth: .infinity)
+            .frame(height: ABMetric.px(42))
+            .background(
+                RoundedRectangle(cornerRadius: ABMetric.px(11), style: .continuous)
+                    .fill(background))
+            .overlay {
+                if usable {
+                    RoundedRectangle(cornerRadius: ABMetric.px(11), style: .continuous)
+                        .strokeBorder(border, lineWidth: 1)
+                } else {
+                    RoundedRectangle(cornerRadius: ABMetric.px(11), style: .continuous)
+                        .strokeBorder(border, style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                }
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// 后端 icon 值（linux/windows/macos/menu）→ 圆点色（win 蓝 / mac 灰 / linux 橙 / menu 空心）
+    private func iconKind(_ icon: String) -> String {
+        switch icon {
+        case "windows": return "win"
+        case "macos": return "mac"
+        case "linux": return "linux"
+        default: return "auto"
+        }
     }
 
     private func bootButton(_ row: CqRow, kind: String, group: BootGroup) -> some View {
@@ -1217,7 +1339,7 @@ struct ComputerListView: View {
             let help = request.kind == Kind.help
             let profile = store.profile(request.rid)
             let group: BootGroup? = {
-                guard !help else { return nil }
+                guard !help, request.kind != Kind.channel else { return nil }
                 let info = boots[request.rid]
                 return request.kind == Kind.refind ? info?.refind : info?.grub
             }()
@@ -1233,7 +1355,9 @@ struct ComputerListView: View {
                     // 标题行
                     HStack(spacing: 0) {
                         Text(help ? "操作说明"
-                             : (request.kind == Kind.refind ? "rEFInd 启动项" : "GRUB 启动项"))
+                             : request.kind == Kind.channel
+                                ? "\(request.channel?.label ?? "通道") 启动项"
+                                : (request.kind == Kind.refind ? "rEFInd 启动项" : "GRUB 启动项"))
                             .font(.system(size: 14.5, weight: .bold))
                             .foregroundColor(ABColor.fg)
                             .lineLimit(1)
@@ -1263,10 +1387,15 @@ struct ComputerListView: View {
                         VStack(alignment: .leading, spacing: 0) {
                             if help {
                                 helpContent
+                            } else if request.kind == Kind.channel,
+                                      let channel = request.channel, let profile {
+                                channelPickerContent(profile, channel: channel)
                             } else if let group, !group.options.isEmpty, let profile {
                                 bootPickerContent(profile, kind: request.kind, group: group)
                             } else {
-                                Text(group?.note.isEmpty == false ? group!.note : "没有可选的启动项")
+                                Text(group?.note.isEmpty == false ? group!.note
+                                     : (request.channel?.error.isEmpty == false
+                                        ? request.channel!.error : "没有可选的启动项"))
                                     .font(.system(size: 12.5))
                                     .lineSpacing(ABMetric.px(9))
                                     .foregroundColor(ABColor.fgDim)
@@ -1327,8 +1456,9 @@ struct ComputerListView: View {
             + "可以是局域网广播包，也可以走它自己的 AnyBoot 接口",
         "四个电源键任何时候都能按，不会因为在线/离线变灰；关机与重启立即执行，不会二次确认，请先保存工作",
         "引导项（rEFInd / GRUB）在下次重启时生效，可点「撤销」恢复成原来那项",
+        "systemd-boot / OpenCore / Clover 的动作卡同样在下次重启时生效；带 ⤴ 的必经 NVRAM 写",
         "电脑离线时读不到引导项",
-        "显示「未检测到」= 这台电脑没部署对应的引导管理器（rEFInd / GRUB），不是读取失败",
+        "显示「未检测到」= 这台电脑没部署对应的引导管理器（rEFInd / GRUB / OpenCore / Clover / systemd-boot），不是读取失败",
     ]
 
     @ViewBuilder
@@ -1386,6 +1516,82 @@ struct ComputerListView: View {
             .font(.system(size: 11))
             .foregroundColor(ABColor.fgFaint)
             .padding(.top, ABMetric.px(8))
+    }
+
+    /// 三引导器通道的动作列表（对齐 PC 网页端 makeBootChannelCard 的条目区）
+    @ViewBuilder
+    private func channelPickerContent(_ profile: ServerProfile, channel: ChannelGroup) -> some View {
+        if !channel.detail.trimmingCharacters(in: .whitespaces).isEmpty {
+            Text(channel.detail)
+                .font(.system(size: 11.5))
+                .lineSpacing(ABMetric.px(8))
+                .foregroundColor(ABColor.fgFaint)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.bottom, ABMetric.px(6))
+        }
+        ForEach(channel.health, id: \.self) { issue in
+            Text("· " + issue)
+                .font(.system(size: 11))
+                .lineSpacing(ABMetric.px(7))
+                .foregroundColor(ABColor.warn)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.bottom, ABMetric.px(2))
+        }
+        if channel.permission == "nvram" {
+            Text("⤴ 切换必经 NVRAM 写（电脑端可能弹管理员授权）")
+                .font(.system(size: 11))
+                .foregroundColor(ABColor.fgFaint)
+                .padding(.bottom, ABMetric.px(4))
+        }
+        if channel.entries.isEmpty {
+            Text(channel.error.isEmpty ? "没有可执行的动作" : channel.error)
+                .font(.system(size: 12.5))
+                .foregroundColor(ABColor.fgDim)
+        } else {
+            ForEach(channel.entries) { entry in
+                Button {
+                    sheet = nil
+                    switchChannelAction(profile, channel: channel, entry: entry, verb: "切换")
+                } label: {
+                    HStack(alignment: .top, spacing: ABMetric.px(8)) {
+                        bootDot(iconKind(entry.icon))
+                        VStack(alignment: .leading, spacing: ABMetric.px(2)) {
+                            HStack(spacing: ABMetric.px(5)) {
+                                Text(entry.title)
+                                    .font(.system(size: 14))
+                                    .foregroundColor(ABColor.fg)
+                                    .lineLimit(2)
+                                if entry.requiresElevation {
+                                    Text("⤴")
+                                        .font(.system(size: 10.5, weight: .bold))
+                                        .foregroundColor(ABColor.fgFaint)
+                                }
+                            }
+                            if !entry.detail.isEmpty {
+                                Text(entry.detail)
+                                    .font(.system(size: 11))
+                                    .lineSpacing(ABMetric.px(7))
+                                    .foregroundColor(ABColor.fgFaint)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .padding(.horizontal, ABMetric.px(11))
+                    .padding(.vertical, ABMetric.px(10))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: ABMetric.px(11), style: .continuous)
+                            .fill(ABColor.elevate.opacity(0.5)))
+                    .padding(.bottom, ABMetric.px(6))
+                }
+                .buttonStyle(.plain)
+            }
+            Text("动作在下次重启时生效")
+                .font(.system(size: 11))
+                .foregroundColor(ABColor.fgFaint)
+                .padding(.top, ABMetric.px(4))
+        }
     }
 
     /// GRUB 条目文字格式六档（跟随电脑 + 极简/简易/中等/原始/复杂）
@@ -1634,6 +1840,35 @@ struct ComputerListView: View {
                 try? await Task.sleep(nanoseconds: 10_000_000_000)
                 guard !Task.isCancelled else { return }
                 await MainActor.run { refreshAll(silent: true) }
+            }
+        }
+    }
+
+    /// 三引导器通道切换（busy 键前缀 boot:ch-<id>，通道按钮据此转圈）
+    private func switchChannelAction(_ profile: ServerProfile,
+                                     channel: ChannelGroup,
+                                     entry: ChannelEntryView,
+                                     verb: String) {
+        if busy[profile.id] != nil { return }
+        if entry.id.trimmingCharacters(in: .whitespaces).isEmpty {
+            toast("没有可执行的动作")
+            return
+        }
+        busy[profile.id] = "boot:ch-\(channel.id)"
+        Task {
+            do {
+                let message = try await BootService.switchChannel(profile, group: channel, entry: entry)
+                await MainActor.run {
+                    busy.removeValue(forKey: profile.id)
+                    toast(message)
+                }
+                reloadBoot(profile)
+            } catch {
+                await MainActor.run {
+                    busy.removeValue(forKey: profile.id)
+                    let message = (error as? RemoteHttpError)?.message ?? error.localizedDescription
+                    toast("\(verb) 失败：\(message)")
+                }
             }
         }
     }

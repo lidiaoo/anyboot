@@ -59,6 +59,8 @@ struct BootInfo {
     var error: String = ""
     var refind: BootGroup
     var grub: BootGroup
+    /// 三引导器通道（sdboot / opencore / clover）；PC 版本太旧时为空数组
+    var channels: [ChannelGroup] = []
     var machineOs: String = ""
     var hits: [ProbeEngine.Hit] = []
     var winnerKind: String = ""
@@ -85,6 +87,32 @@ struct GrubRow: Identifiable {
         if let option { return (isGroup ? "t:" : "o:") + option.value }
         return "g:" + text
     }
+}
+
+// MARK: - 三引导器通道（systemd-boot / OpenCore / Clover，对齐后端 ChannelView）
+
+/// 三引导器通道的一条可执行动作（后端 `ChannelEntry`，camelCase）
+struct ChannelEntryView: Hashable, Identifiable {
+    var id: String          // sdboot: 条目名；opencore/clover: 动作 id（本身就是切换值域）
+    var title: String
+    var detail: String
+    var icon: String        // linux / windows / macos / menu
+    var requiresElevation: Bool
+}
+
+/// 一条引导器通道（后端 `ChannelView`，camelCase 序列化，GET /api/boot-channels）
+struct ChannelGroup: Hashable, Identifiable {
+    var id: String          // sdboot / opencore / clover
+    var label: String
+    var detected: Bool
+    var permission: String  // "file" = 免提权；"nvram" = 切换必经 NVRAM 写
+    var chip: String        // ok / warn / off
+    var detail: String
+    var entries: [ChannelEntryView]
+    var currentDefault: String
+    var lastBoot: String
+    var error: String
+    var health: [String]
 }
 
 // MARK: - 解析
@@ -191,6 +219,36 @@ enum BootParser {
         }
         if chainloader && haystack.contains("efi") { return "auto" }
         return "linux"
+    }
+
+    /// `GET /api/boot-channels`（顶层就是 ChannelView 数组）→ 三引导器通道
+    static func parseChannels(_ list: [[String: Any]]) -> [ChannelGroup] {
+        list.map { item in
+            let entries: [ChannelEntryView] = RemoteHttp.objects(item, "entries").map { entry in
+                ChannelEntryView(
+                    id: RemoteHttp.str(entry, "id").trimmingCharacters(in: .whitespaces),
+                    title: RemoteHttp.str(entry, "title").trimmingCharacters(in: .whitespaces),
+                    detail: RemoteHttp.str(entry, "detail").trimmingCharacters(in: .whitespaces),
+                    icon: RemoteHttp.str(entry, "icon").trimmingCharacters(in: .whitespaces),
+                    requiresElevation: RemoteHttp.bool(entry, "requiresElevation"))
+            }
+            let health = RemoteHttp.objects(item, "health").compactMap { issue -> String? in
+                let text = RemoteHttp.str(issue, "text").trimmingCharacters(in: .whitespaces)
+                return text.isEmpty ? nil : text
+            }
+            return ChannelGroup(
+                id: RemoteHttp.str(item, "id").trimmingCharacters(in: .whitespaces),
+                label: RemoteHttp.str(item, "label").trimmingCharacters(in: .whitespaces),
+                detected: RemoteHttp.bool(item, "detected"),
+                permission: RemoteHttp.str(item, "permission").trimmingCharacters(in: .whitespaces),
+                chip: RemoteHttp.str(item, "chip").trimmingCharacters(in: .whitespaces),
+                detail: RemoteHttp.str(item, "detail").trimmingCharacters(in: .whitespaces),
+                entries: entries,
+                currentDefault: RemoteHttp.str(item, "currentDefault").trimmingCharacters(in: .whitespaces),
+                lastBoot: RemoteHttp.str(item, "lastBoot").trimmingCharacters(in: .whitespaces),
+                error: RemoteHttp.str(item, "error").trimmingCharacters(in: .whitespaces),
+                health: health)
+        }
     }
 }
 
@@ -457,13 +515,24 @@ enum BootService {
                                   current: "", next: "", saved: "", note: message, options: [])
         }
 
+        // 三引导器通道：失败不算致命（PC 版本旧没有这个接口，通道静默为空）
+        let channelGroups: [ChannelGroup]
+        do {
+            let list = try await RemoteHttp.array(endpoint: choice.url, token: choice.token,
+                                                  path: "/api/boot-channels")
+            channelGroups = BootParser.parseChannels(list)
+        } catch {
+            channelGroups = []
+        }
+
         return BootInfo(
-            ok: errors.count < 2,
+            ok: errors.count < 3,
             online: true,
             addr: choice.displayAddr,
             error: errors.joined(separator: "；"),
             refind: refindGroup,
             grub: grubGroup,
+            channels: channelGroups,
             machineOs: choice.os,
             hits: choice.hits,
             winnerKind: choice.kind)
@@ -483,6 +552,46 @@ enum BootService {
         let path = kind == BootKind.refind
             ? "/api/switch?system=\(encoded)"
             : "/api/grub-switch?entry=\(encoded)"
+        let json = try await RemoteHttp.json(endpoint: choice.url, token: choice.token, path: path)
+        let message = RemoteHttp.str(json, "message").trimmingCharacters(in: .whitespaces)
+        if !message.isEmpty { return message }
+        if RemoteHttp.bool(json, "ok") || !json.keys.contains("ok") {
+            return "已设置下次启动项"
+        }
+        let failure = RemoteHttp.str(json, "error").trimmingCharacters(in: .whitespaces)
+        return failure.isEmpty ? "请求被拒绝" : failure
+    }
+
+    /// 三引导器通道切换：`GET /api/boot-channel-switch?channel=&target=`。
+    /// spec 组装对齐 PC 网页端 `bootChannelSpec`（ui/boot-list-view.js:531）：
+    /// sdboot 条目 → channel=sdboot、target=条目 id（entry.id 就是 loader/entries 的名字）；
+    /// opencore / clover 的条目 id 本身就是通道值域（`opencore`、`opencore-register`、
+    /// `clover-oneshot`），target 省略。
+    static func switchChannel(_ profile: ServerProfile,
+                              group: ChannelGroup,
+                              entry: ChannelEntryView) async throws -> String {
+        let channelName: String
+        let target: String
+        if group.id == "sdboot" {
+            channelName = "sdboot"
+            target = entry.id.trimmingCharacters(in: .whitespaces)
+            if target.isEmpty { throw RemoteHttpError(message: "没有可切换的目标条目") }
+        } else {
+            channelName = entry.id.trimmingCharacters(in: .whitespaces)
+            target = ""
+            if channelName.isEmpty { throw RemoteHttpError(message: "没有可执行的通道动作") }
+        }
+        guard let choice = await chooseEndpoint(profile) else {
+            throw RemoteHttpError(message: "这台电脑还没有可用地址")
+        }
+        guard choice.alive else {
+            throw RemoteHttpError(message: "电脑离线（局域网与远程都没通）")
+        }
+        func encode(_ value: String) -> String {
+            value.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? value
+        }
+        var path = "/api/boot-channel-switch?channel=\(encode(channelName))"
+        if !target.isEmpty { path += "&target=\(encode(target))" }
         let json = try await RemoteHttp.json(endpoint: choice.url, token: choice.token, path: path)
         let message = RemoteHttp.str(json, "message").trimmingCharacters(in: .whitespaces)
         if !message.isEmpty { return message }

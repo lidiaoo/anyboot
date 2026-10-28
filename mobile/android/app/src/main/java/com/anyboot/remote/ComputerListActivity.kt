@@ -83,6 +83,7 @@ import java.net.URL
 import java.net.URLEncoder
 import java.util.HashMap
 import java.util.Locale
+import org.json.JSONArray
 import org.json.JSONObject
 
 /**
@@ -1112,13 +1113,27 @@ class ComputerListActivity : ComponentActivity() {
                 }
             }
 
-            // 两个引导项
+            // 两个引导项 + 三引导器通道（检测到的展开，未检测的折叠成一行提示）
             Column(
                 verticalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier.padding(top = 11.dp),
             ) {
                 BootButton(row, KIND_REFIND, row.refind)
                 BootButton(row, KIND_GRUB, row.grub)
+                row.channels.filter { it.detected }.forEach { channel ->
+                    ChannelBootButton(row, channel)
+                }
+                val missing = row.channels.filter { !it.detected }
+                if (missing.isNotEmpty()) {
+                    Text(
+                        missing.joinToString("、") { it.label } + "（未检测到）",
+                        fontSize = 10.sp,
+                        color = palette.fgFaint,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(start = 11.dp, top = 1.dp),
+                    )
+                }
             }
 
             // 待生效提示条
@@ -1706,6 +1721,108 @@ class ComputerListActivity : ComponentActivity() {
         }
     }
 
+    /** 三引导器通道按钮：外观与 BootButton 一致；值区显示当前默认 / 首个动作，nvram 通道带 ⤴ */
+    @Composable
+    private fun ChannelBootButton(row: CqRow, channel: ChannelRow) {
+        val palette = LocalPalette.current
+        val tone = LocalTone.current
+        val work = busy[row.profile.id]
+        val working = work == "boot:ch-${channel.id}"
+        val usable = channel.entries.isNotEmpty() && row.state == STATE_ONLINE && work == null
+
+        val valueLabel: String
+        val dot: String
+        if (channel.entries.isEmpty()) {
+            valueLabel = when {
+                row.state == STATE_UNKNOWN -> "读取中…"
+                row.state == STATE_OFFLINE -> "离线不可改"
+                else -> "没有可用动作"
+            }
+            dot = ""
+        } else {
+            val current = channel.currentDefault.trim()
+            if (current.isEmpty()) {
+                valueLabel = channel.entries.first().title
+                dot = iconKind(channel.entries.first().icon)
+            } else {
+                valueLabel = current
+                dot = iconKind("menu")
+            }
+        }
+
+        val shape = RoundedCornerShape(11.dp)
+        val background = if (usable) tone.soft else tone.softDisabled
+        val borderColor = if (usable) palette.line else tone.dashed
+
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(42.dp)
+                .clip(shape)
+                .background(background)
+                .then(
+                    if (usable) Modifier.border(1.dp, borderColor, shape)
+                    else Modifier.dashedBorder(borderColor, 11.dp, 1.dp)
+                )
+                .clickable(enabled = usable) {
+                    when {
+                        channel.entries.isEmpty() ->
+                            toast("该设备没有可用的 ${channel.label} 动作")
+                        row.state != STATE_ONLINE -> toast("设备不在线，无法修改引导项")
+                        else -> sheetRequest = SheetRequest(row.profile.id, KIND_CHANNEL, channel)
+                    }
+                }
+                .padding(start = 11.dp, end = 10.dp),
+        ) {
+            Text(
+                channel.label,
+                fontSize = 10.5.sp,
+                fontWeight = FontWeight.SemiBold,
+                fontFamily = FontFamily.Monospace,
+                color = if (usable) palette.fgDim else palette.fgFaint.copy(alpha = 0.75f),
+                maxLines = 1,
+                modifier = Modifier.width(46.dp),
+            )
+            if (working) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(13.dp),
+                    strokeWidth = 2.dp,
+                    color = palette.accent,
+                )
+                Spacer(Modifier.width(7.dp))
+            } else if (dot.isNotEmpty()) {
+                BootDot(dot)
+                Spacer(Modifier.width(7.dp))
+            }
+            Text(
+                valueLabel,
+                fontSize = 12.5.sp,
+                fontWeight = if (usable) FontWeight.Medium else FontWeight.Normal,
+                color = if (usable) palette.fg else palette.fgFaint.copy(alpha = 0.85f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            if (channel.permission == "nvram" && usable) {
+                Spacer(Modifier.width(5.dp))
+                Text("⤴", fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = palette.fgFaint)
+            }
+            if (usable) {
+                Spacer(Modifier.width(7.dp))
+                ChevronDownIcon(tint = palette.fgFaint, size = 14.dp)
+            }
+        }
+    }
+
+    /** 后端 icon 值（linux/windows/macos/menu）→ 圆点色（win 蓝 / mac 灰 / linux 橙 / menu 空心） */
+    private fun iconKind(icon: String): String = when (icon) {
+        "windows" -> "win"
+        "macos" -> "mac"
+        "linux" -> "linux"
+        else -> "auto"
+    }
+
     /** 启动项前面的分类小圆点：win 蓝 / mac 灰 / linux 橙 / auto 空心环 */
     @Composable
     private fun BootDot(kind: String) {
@@ -1890,6 +2007,98 @@ class ComputerListActivity : ComponentActivity() {
         }
     }
 
+    /** 三引导器通道的动作列表（对齐 PC 网页端 makeBootChannelCard 的条目区） */
+    @Composable
+    private fun ChannelPickerContent(profile: ServerProfile, channel: ChannelRow) {
+        val palette = LocalPalette.current
+        Column {
+            val detail = channel.detail.trim()
+            if (detail.isNotEmpty()) {
+                Text(
+                    detail,
+                    fontSize = 11.5.sp,
+                    color = palette.fgFaint,
+                    lineHeight = 19.sp,
+                    modifier = Modifier.padding(bottom = 6.dp),
+                )
+            }
+            channel.health.forEach { issue ->
+                Text(
+                    "· $issue",
+                    fontSize = 11.sp,
+                    color = palette.warn,
+                    lineHeight = 18.sp,
+                    modifier = Modifier.padding(bottom = 2.dp),
+                )
+            }
+            if (channel.permission == "nvram") {
+                Text(
+                    "⤴ 切换必经 NVRAM 写（电脑端可能弹管理员授权）",
+                    fontSize = 11.sp,
+                    color = palette.fgFaint,
+                    modifier = Modifier.padding(bottom = 4.dp),
+                )
+            }
+            if (channel.entries.isEmpty()) {
+                Text(
+                    channel.error.ifEmpty { "没有可执行的动作" },
+                    fontSize = 12.5.sp,
+                    color = palette.fgDim,
+                    lineHeight = 22.sp,
+                )
+            } else {
+                channel.entries.forEach { entry ->
+                    Row(
+                        verticalAlignment = Alignment.Top,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 6.dp)
+                            .clip(RoundedCornerShape(11.dp))
+                            .background(palette.elevate.copy(alpha = 0.5f))
+                            .clickable {
+                                sheetRequest = null
+                                switchChannel(profile, channel, entry, "切换")
+                            }
+                            .padding(horizontal = 11.dp, vertical = 10.dp),
+                    ) {
+                        BootDot(iconKind(entry.icon))
+                        Spacer(Modifier.width(8.dp))
+                        Column(Modifier.weight(1f)) {
+                            Row {
+                                Text(
+                                    entry.title,
+                                    fontSize = 14.sp,
+                                    color = palette.fg,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                if (entry.requiresElevation) {
+                                    Spacer(Modifier.width(5.dp))
+                                    Text(
+                                        "⤴",
+                                        fontSize = 10.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = palette.fgFaint,
+                                    )
+                                }
+                            }
+                            if (entry.detail.isNotEmpty()) {
+                                Text(
+                                    entry.detail,
+                                    fontSize = 11.sp,
+                                    color = palette.fgFaint,
+                                    lineHeight = 18.sp,
+                                )
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                Text("动作在下次重启时生效", fontSize = 11.sp, color = palette.fgFaint)
+            }
+        }
+    }
+
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     private fun PickSheet(request: SheetRequest) {
@@ -1901,8 +2110,10 @@ class ComputerListActivity : ComponentActivity() {
         val group = when {
             help -> null
             request.kind == KIND_REFIND -> info?.refind
-            else -> info?.grub
+            request.kind == KIND_GRUB -> info?.grub
+            else -> null
         }
+        val channel = if (request.kind == KIND_CHANNEL) request.channel else null
 
         ModalBottomSheet(
             onDismissRequest = { sheetRequest = null },
@@ -1936,7 +2147,12 @@ class ComputerListActivity : ComponentActivity() {
                         .padding(start = 18.dp, end = 8.dp, bottom = 10.dp),
                 ) {
                     Text(
-                        if (help) "操作说明" else if (request.kind == KIND_REFIND) "rEFInd 启动项" else "GRUB 启动项",
+                        when {
+                            help -> "操作说明"
+                            request.kind == KIND_CHANNEL -> "${channel?.label ?: "通道"} 启动项"
+                            request.kind == KIND_REFIND -> "rEFInd 启动项"
+                            else -> "GRUB 启动项"
+                        },
                         fontSize = 14.5.sp,
                         fontWeight = FontWeight.Bold,
                         color = palette.fg,
@@ -1982,6 +2198,8 @@ class ComputerListActivity : ComponentActivity() {
                         }
                         Spacer(Modifier.height(8.dp))
                         Text("电源操作不会弹出确认框", fontSize = 11.sp, color = palette.fgFaint)
+                    } else if (request.kind == KIND_CHANNEL && channel != null && profile != null) {
+                        ChannelPickerContent(profile, channel)
                     } else if (group != null && group.options.isNotEmpty() && profile != null) {
                         val rid = profile
                         if (request.kind == KIND_GRUB) {
@@ -2044,7 +2262,10 @@ class ComputerListActivity : ComponentActivity() {
                         Text("选择后将在下次重启时生效", fontSize = 11.sp, color = palette.fgFaint)
                     } else {
                         Text(
-                            group?.note?.ifEmpty { "没有可选的启动项" } ?: "没有可选的启动项",
+                            when {
+                                channel != null -> channel.error.ifEmpty { "没有可执行的动作" }
+                                else -> group?.note?.ifEmpty { "没有可选的启动项" } ?: "没有可选的启动项"
+                            },
                             fontSize = 12.5.sp,
                             color = palette.fgDim,
                             lineHeight = 22.sp,
@@ -2232,6 +2453,7 @@ class ComputerListActivity : ComponentActivity() {
             hits = hits,
             refind = info?.refind ?: emptyGroup(KIND_REFIND),
             grub = info?.grub ?: emptyGroup(KIND_GRUB),
+            channels = info?.channels ?: emptyList(),
             state = state,
             conn = conn,
             connRemote = usingRemote,
@@ -2400,13 +2622,20 @@ class ComputerListActivity : ComponentActivity() {
                 current = "", next = "", saved = "", note = message, options = emptyList(),
             )
         }
+        // 三引导器通道：失败不算致命（PC 版本旧没有这个接口，通道静默为空）
+        val channels = try {
+            parseChannels(httpJsonArray(endpoint, token, "/api/boot-channels"))
+        } catch (_: Exception) {
+            emptyList()
+        }
         return BootInfo(
-            ok = errors.size < 2,
+            ok = errors.size < 3,
             online = true,
             addr = choice.displayAddr(),
             error = errors.joinToString("；"),
             refind = refind,
             grub = grub,
+            channels = channels,
             machineOs = choice.os,
             hits = choice.hits,
             winnerKind = choice.kind,
@@ -2573,6 +2802,95 @@ class ComputerListActivity : ComponentActivity() {
         } finally {
             connection.disconnect()
         }
+    }
+
+    /** 顶层是 JSON 数组的版本（`/api/boot-channels` 直接返回 ChannelView[]） */
+    private fun httpJsonArray(endpoint: String, token: String, path: String): JSONArray {
+        val trimmed = ServerProfile.text(token)
+        val query = if (trimmed.isEmpty()) "" else {
+            (if (path.contains('?')) "&" else "?") + "token=" +
+                URLEncoder.encode(trimmed, "UTF-8")
+        }
+        val base = if (endpoint.startsWith("http://") || endpoint.startsWith("https://")) {
+            endpoint
+        } else {
+            "http://" + endpoint
+        }
+        val connection = URL(base + path + query)
+            .openConnection() as HttpURLConnection
+        connection.requestMethod = "GET"
+        connection.connectTimeout = CONNECT_TIMEOUT_MS
+        connection.readTimeout = READ_TIMEOUT_MS
+        connection.instanceFollowRedirects = false
+        try {
+            val status = connection.responseCode
+            if (status == 401) {
+                throw Exception("这台电脑不认这个 token（401）—— 到「服务器」里核对访问令牌")
+            }
+            if (status == 404) {
+                throw Exception("这台电脑的 AnyBoot 版本太旧，没有引导器通道接口")
+            }
+            val stream = if (status >= 400) connection.errorStream else connection.inputStream
+            val body = stream?.use { it.readBytes().toString(Charsets.UTF_8) } ?: ""
+            val array = try {
+                JSONArray(body.trim())
+            } catch (error: Exception) {
+                throw Exception("这台电脑返回的不是 JSON 数组（$status）：${error.message ?: ""}")
+            }
+            if (status >= 400) throw Exception("请求被拒绝（HTTP $status）")
+            return array
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    /** `GET /api/boot-channels`（顶层 ChannelView 数组）→ 三引导器通道 */
+    private fun parseChannels(array: JSONArray): List<ChannelRow> {
+        val channels = mutableListOf<ChannelRow>()
+        for (index in 0 until array.length()) {
+            val item = array.optJSONObject(index) ?: continue
+            val entries = mutableListOf<ChannelEntryRow>()
+            val entryArray = item.optJSONArray("entries")
+            if (entryArray != null) {
+                for (i in 0 until entryArray.length()) {
+                    val entry = entryArray.optJSONObject(i) ?: continue
+                    entries.add(
+                        ChannelEntryRow(
+                            id = optStr(entry, "id").trim(),
+                            title = optStr(entry, "title").trim(),
+                            detail = optStr(entry, "detail").trim(),
+                            icon = optStr(entry, "icon").trim(),
+                            requiresElevation = entry.optBoolean("requiresElevation", false),
+                        ),
+                    )
+                }
+            }
+            val health = mutableListOf<String>()
+            val healthArray = item.optJSONArray("health")
+            if (healthArray != null) {
+                for (i in 0 until healthArray.length()) {
+                    val issue = healthArray.optJSONObject(i) ?: continue
+                    val text = optStr(issue, "text").trim()
+                    if (text.isNotEmpty()) health.add(text)
+                }
+            }
+            channels.add(
+                ChannelRow(
+                    id = optStr(item, "id").trim(),
+                    label = optStr(item, "label").trim(),
+                    detected = item.optBoolean("detected", false),
+                    permission = optStr(item, "permission").trim(),
+                    chip = optStr(item, "chip").trim(),
+                    detail = optStr(item, "detail").trim(),
+                    entries = entries,
+                    currentDefault = optStr(item, "currentDefault").trim(),
+                    lastBoot = optStr(item, "lastBoot").trim(),
+                    error = optStr(item, "error").trim(),
+                    health = health,
+                ),
+            )
+        }
+        return channels
     }
 
     /** `/api/status` 的 variables → rEFInd 可选组（对齐 PC 端 refind_from_status） */
@@ -2860,6 +3178,60 @@ class ComputerListActivity : ComponentActivity() {
         }, "anyboot-boot-switch").start()
     }
 
+    /**
+     * 三引导器通道切换：`GET /api/boot-channel-switch?channel=&target=`。
+     * spec 组装对齐 PC 网页端 `bootChannelSpec`（ui/boot-list-view.js:531）：
+     * sdboot 条目 → channel=sdboot、target=条目 id；opencore / clover 的条目 id
+     * 本身就是通道值域（`opencore`、`opencore-register`、`clover-oneshot`），target 省略。
+     */
+    private fun switchChannel(profile: ServerProfile, channel: ChannelRow, entry: ChannelEntryRow, verb: String) {
+        val id = profile.id
+        if (busy[id] != null) return
+        val channelName: String
+        val target: String
+        if (channel.id == "sdboot") {
+            channelName = "sdboot"
+            target = entry.id.trim()
+            if (target.isEmpty()) {
+                toast("没有可切换的目标条目")
+                return
+            }
+        } else {
+            channelName = entry.id.trim()
+            target = ""
+            if (channelName.isEmpty()) {
+                toast("没有可执行的动作")
+                return
+            }
+        }
+        busy[id] = "boot:ch-${channel.id}"
+        Thread({
+            val outcome = runCatching {
+                val choice = chooseEndpoint(profile)
+                    ?: throw Exception("这台电脑还没有可用地址")
+                if (!choice.alive) throw Exception("电脑离线（局域网与远程都没通）")
+                var path = "/api/boot-channel-switch?channel=" + URLEncoder.encode(channelName, "UTF-8")
+                if (target.isNotEmpty()) {
+                    path += "&target=" + URLEncoder.encode(target, "UTF-8")
+                }
+                val json = httpJson(choice.url, choice.token, path)
+                json.optString("message", "").ifEmpty {
+                    if (json.optBoolean("ok", true)) "已设置下次启动项"
+                    else json.optString("error", "请求被拒绝")
+                }
+            }
+            runOnUiThread {
+                busy.remove(id)
+                outcome.onSuccess { message ->
+                    toast(message)
+                    reloadBoot(profile)
+                }.onFailure { error ->
+                    toast("$verb 失败：${error.message ?: "未知错误"}")
+                }
+            }
+        }, "anyboot-channel-switch").start()
+    }
+
     private fun performPower(profile: ServerProfile, action: String) {
         val id = profile.id
         // 不做任何拦截：四个电源键任何时候都能按（用户定案），连按就是连发。
@@ -3084,6 +3456,7 @@ class ComputerListActivity : ComponentActivity() {
         val hits: List<ProbeEngine.Hit>,
         val refind: BootGroup,
         val grub: BootGroup,
+        val channels: List<ChannelRow>,
         val state: String,
         /** 当前连接标注：直连 / 跳板机·xxx / 远程隧道 / Tailscale 直连 / Tailscale Funnel（远程只在探测赢家确实是它时） */
         val conn: String,
@@ -3160,12 +3533,43 @@ class ComputerListActivity : ComponentActivity() {
         val error: String,
         val refind: BootGroup,
         val grub: BootGroup,
+        /** 三引导器通道（sdboot / opencore / clover）；PC 版本太旧时为空列表 */
+        val channels: List<ChannelRow> = emptyList(),
         /** 探测赢家顺手带回来的系统族（windows / macos / linux）；老服务端为空 */
         val machineOs: String = "",
         /** 这一轮逐条配对的探测结果（按 pair_id 回填卡片上的行） */
         val hits: List<ProbeEngine.Hit> = emptyList(),
         /** 探测赢家的通道（lan / jump / tunnel / ts / funnel / tsnet）—— 连接标注只认它 */
         val winnerKind: String = "",
+    )
+
+    /** 三引导器通道里的一条可执行动作（后端 `ChannelEntry`，camelCase） */
+    private data class ChannelEntryRow(
+        val id: String,
+        val title: String,
+        val detail: String,
+        /** linux / windows / macos / menu —— 前端选图标用 */
+        val icon: String,
+        val requiresElevation: Boolean,
+    )
+
+    /** 一条引导器通道（后端 `ChannelView`，GET /api/boot-channels） */
+    private data class ChannelRow(
+        /** sdboot / opencore / clover */
+        val id: String,
+        val label: String,
+        val detected: Boolean,
+        /** "file" = 免提权；"nvram" = 切换必经 NVRAM 写 */
+        val permission: String,
+        /** ok / warn / off */
+        val chip: String,
+        val detail: String,
+        val entries: List<ChannelEntryRow>,
+        val currentDefault: String,
+        val lastBoot: String,
+        val error: String,
+        /** 健康检查问题（后端 HealthIssue.text，目前只有 warn 级） */
+        val health: List<String>,
     )
 
     /** 一条探测结果的状态文案：通 = 延迟；被赢家抢跑 / 串行没轮到 = 未测出（不是不通） */
@@ -3176,7 +3580,12 @@ class ComputerListActivity : ComponentActivity() {
         else -> "不通"
     }
 
-    private data class SheetRequest(val rid: String, val kind: String)
+    /** kind = KIND_CHANNEL 时携带通道视图 */
+    private data class SheetRequest(
+        val rid: String,
+        val kind: String,
+        val channel: ChannelRow? = null,
+    )
 
     private class CqToast(val text: String) {
         var shown by mutableStateOf(true)
@@ -3201,6 +3610,8 @@ class ComputerListActivity : ComponentActivity() {
         const val KIND_REFIND = "refind"
         const val KIND_GRUB = "grub"
         const val KIND_HELP = "help"
+        /** 三引导器通道弹层（sdboot / opencore / clover），具体通道在 SheetRequest.channel 里 */
+        const val KIND_CHANNEL = "channel"
 
         const val POWER_WAKE = "wake"
         const val POWER_SLEEP = "sleep"
@@ -3219,9 +3630,10 @@ class ComputerListActivity : ComponentActivity() {
                 "可以是局域网广播包，也可以走它自己的 AnyBoot 接口",
             "四个电源键任何时候都能按，不会因为在线/离线变灰；关机与重启立即执行，不会二次确认，请先保存工作",
             "引导项（rEFInd / GRUB）在下次重启时生效，可点「撤销」恢复成原来那项",
+            "systemd-boot / OpenCore / Clover 的动作卡同样在下次重启时生效；带 ⤴ 的必经 NVRAM 写",
             "电脑离线时读不到引导项",
             // 补上 PC 端 cqHelp 的第 5 条：没有它，用户会把「未检测到」当成读取失败
-            "显示「未检测到」= 这台电脑没部署对应的引导管理器（rEFInd / GRUB），不是读取失败",
+            "显示「未检测到」= 这台电脑没部署对应的引导管理器（rEFInd / GRUB / OpenCore / Clover / systemd-boot），不是读取失败",
         )
     }
 }
