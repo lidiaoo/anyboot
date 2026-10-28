@@ -220,7 +220,7 @@ function renderOcMenuPreview(preview, { busy, onSwitch, channel } = {}) {
       const line = document.createElement("small");
       if (issue.severity === "warn") line.className = "warn";
       line.append(
-        document.createTextNode(`${issue.severity === "warn" ? "⚠" : "ℹ"} `),
+        document.createTextNode(`${issue.severity === "warn" ? "⚠" : "ⓘ"} `),
       );
       appendRichText(line, issue.text);
       issueBox.append(line);
@@ -285,7 +285,9 @@ function makeBootChannelCard(channel, { busy, onSwitch }) {
     const health = document.createElement("div");
     health.className = warnCount ? "channel-health bad" : "channel-health info";
     const head = document.createElement("strong");
-    head.textContent = warnCount ? `⚠ 健康检查：${warnCount} 项建议处理` : "ℹ 说明";
+    // 「ℹ」不带变体选择符时多数系统字体只有一个细小的 i，看着像错字；
+    // ⓘ 是稳定的圈 i，与 ⚠ / ✓ 同一档视觉重量。
+    head.textContent = warnCount ? `⚠ 健康检查：${warnCount} 项建议处理` : "ⓘ 说明";
     health.append(head);
     for (const issue of ordered) {
       const line = document.createElement("span");
