@@ -4368,6 +4368,8 @@ mod core_tests {
             ("/app.js", "text/javascript; charset=utf-8"),
             ("/ui/app.js", "text/javascript; charset=utf-8"),
             ("/grub-list-view.js", "text/javascript; charset=utf-8"),
+            ("/boot-list-view.js", "text/javascript; charset=utf-8"),
+            ("/ui/boot-list-view.js", "text/javascript; charset=utf-8"),
             ("/styles.css", "text/css; charset=utf-8"),
             ("/ui/styles.css", "text/css; charset=utf-8"),
         ] {
@@ -4375,6 +4377,23 @@ mod core_tests {
             let (content_type, body) = reply.raw.expect("静态资源必须走 raw 响应体");
             assert_eq!(content_type, expected, "{path}");
             assert!(!body.is_empty(), "{path}");
+        }
+
+        // index.html 里 `<script src="./x.js">` 引到的每个文件都必须有路由。
+        // boot-list-view.js 曾经漏在这里：桌面端走 Tauri 资源协议照常，网页/手机端
+        // 拿到 404，整块引导通道卡片直接不出现，而且不报错、只是「少了点什么」。
+        // 这条断言跟着 index.html 走，以后再加脚本也不会漏。
+        for tag in crate::remote_routing::UI_INDEX_HTML.split("<script src=\"./") {
+            let name = tag.split('"').next().unwrap_or_default();
+            if !name.ends_with(".js") {
+                continue;
+            }
+            for path in [format!("/{name}"), format!("/ui/{name}")] {
+                assert!(
+                    static_ui_reply(&path).is_some(),
+                    "index.html 引用了 {name}，但静态资源路由里没有 {path}"
+                );
+            }
         }
 
         // 不认识的路径必须返回 None（继续走鉴权 / 404），别把什么都当页面发出去

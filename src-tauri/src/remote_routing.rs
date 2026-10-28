@@ -344,6 +344,9 @@ pub(crate) fn static_ui_reply(path: &str) -> Option<RemoteReply> {
         "/grub-list-view.js" | "/ui/grub-list-view.js" => {
             ("text/javascript; charset=utf-8", UI_GRUB_LIST_VIEW_JS)
         }
+        "/boot-list-view.js" | "/ui/boot-list-view.js" => {
+            ("text/javascript; charset=utf-8", UI_BOOT_LIST_VIEW_JS)
+        }
         "/styles.css" | "/ui/styles.css" => ("text/css; charset=utf-8", UI_STYLES_CSS),
         _ => return None,
     };
@@ -1081,3 +1084,9 @@ pub(crate) const UI_APP_JS: &str = include_str!("../../ui/app.js");
 pub(crate) const UI_STYLES_CSS: &str = include_str!("../../ui/styles.css");
 
 pub(crate) const UI_GRUB_LIST_VIEW_JS: &str = include_str!("../../ui/grub-list-view.js");
+
+/// 三引导器通道卡片（rEFInd / GRUB / OpenCore / Clover / systemd-boot 的列表与
+/// 「设为默认」按钮）由这个文件渲染。index.html 里一直有 `<script>` 引它，但路由
+/// 表漏了 —— 桌面端走 Tauri 资源协议不受影响，网页/手机端会 404，整块通道卡片
+/// 直接不出现。两个路径都挂上，与上面几个保持一致。
+pub(crate) const UI_BOOT_LIST_VIEW_JS: &str = include_str!("../../ui/boot-list-view.js");

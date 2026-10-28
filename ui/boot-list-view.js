@@ -155,9 +155,9 @@ function renderOcMenuPreview(preview, { busy, onSwitch, channel } = {}) {
   hint.className = "oc-menu-hint";
   hint.textContent =
     "OC 不遍历目录：它按固定规则找（BootOrder + 每个卷的 bless/预定义路径 + 条目协议驱动）。" +
-    "这里是按同一套规则纯读复算，不写盘、不改 NVRAM。" +
-    "「设为默认」等价于进 OC 菜单对目标按 Ctrl+Enter —— 改的是 OC 私有命名空间的 " +
-    "OCBtOrder / OCBt0080（macOS 不许写 Boot*，但这一组可以），写前整份备份。";
+    "预演本身是纯读复算，不写盘、不改 NVRAM。" +
+    "「设为默认」才会写：它等价于在 OC 菜单对目标按 Ctrl+Enter，改的是 OC 私有命名空间的 " +
+    "OCBtOrder / OCBt0080（macOS 不许写 Boot*，这一组可以），写前整份备份。";
   box.append(hint);
 
   if ((preview.entries || []).length) {

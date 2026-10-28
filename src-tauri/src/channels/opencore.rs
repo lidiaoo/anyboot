@@ -37,7 +37,9 @@ pub(crate) fn health_checks(config_xml: &str) -> Vec<HealthIssue> {
     {
         issues.push(HealthIssue {
             severity: "warn".to_string(),
-            text: "Misc→Security→AllowSetDefault=false：无法在 OC 菜单里用 Ctrl+Enter 记默认项"
+            // 只管 OC 自己那套热键：AnyBoot 的「设为默认」是直接写 NVRAM（OCBt*），
+            // 不经过这个开关，所以别写成「无法设默认项」，那会与卡片上的按钮打架。
+            text: "Misc→Security→AllowSetDefault=false：OC 菜单里的 Ctrl+Enter 不生效，记不住默认项（建议改 true；AnyBoot 的「设为默认」直接写 NVRAM，不受它限制）"
                 .to_string(),
         });
     }
@@ -500,6 +502,9 @@ pub(crate) fn view(esp_root: &Path) -> ChannelView {
     let can_self_register = self_registers(launcher.as_deref());
     // 本平台能不能写 Boot*（macOS 恒不能：Apple 的 NVRAM 白名单，root 也被拒）
     let can_write = nvram::can_write_boot_vars();
+    // 「设默认项」能不能做：写不了 Boot* 时，OC 的私有命名空间（OCBt*）仍是可写的，
+    // 那条路就是预演行里的「设为默认」按钮（= OC 菜单的 Ctrl+Enter）。
+    let can_set_default = oc_default::Namespace::from_config(&config).writable();
     // OS 侧看得见真实启动列表吗（OpenCore 的 RequestBootVarRouting 会把 Boot* 藏起来）
     let hidden = nvram::boot_vars_hidden();
     let found = find_boot_number(OC_MARKER);
@@ -510,7 +515,8 @@ pub(crate) fn view(esp_root: &Path) -> ChannelView {
     //     此时以「OC 被配置成自注册」为依据，并把「不可见」这件事如实写出来。
     let registered = found.is_some() || (hidden && can_self_register);
     if hidden || !can_write {
-        // 合成一条说明：这两件事对用户是同一个问题——「为什么在这台机器上只能看不能改」。
+        // 这几件事对用户是同一个问题——「为什么在这台机器上只能看不能改」。
+        // 但要拆成多条短句：原来拼成一整段，卡片里就是一坨灰字，重点全埋掉了。
         let mut reasons: Vec<String> = Vec::new();
         if hidden {
             reasons.push(
@@ -525,16 +531,34 @@ pub(crate) fn view(esp_root: &Path) -> ChannelView {
         }
         health.push(HealthIssue {
             severity: "info".to_string(),
+            text: format!("{}。", reasons.join("；")),
+        });
+        health.push(HealthIssue {
+            severity: "info".to_string(),
             text: format!(
-                "{}。所以这里只做展示与 OC 配置自检：OpenCore 在固件里的注册状态以 BIOS / 引导器菜单为准{}；\
-                 想固定默认启动项，在 OC 菜单里对目标系统按 Ctrl+Enter",
-                reasons.join("；"),
+                "所以 OpenCore 在固件里的注册状态以 BIOS / 引导器菜单为准{}",
                 if can_self_register {
                     "（LauncherOption 已开，OC 会自己注册）"
                 } else {
                     "（LauncherOption 没开，OC 不会自己注册）"
                 }
             ),
+        });
+        // 「默认启动项」是这里唯一还能改的东西：OC 把启动项托管到私有命名空间
+        // （OCBt*），那组变量不归 macOS 的 Boot* 白名单管（实测 root 可写、可回读）。
+        // 只有在 RequestBootVarRouting 关着、写不了私有命名空间时，才退回 Ctrl+Enter。
+        health.push(HealthIssue {
+            severity: "info".to_string(),
+            text: if can_set_default {
+                "默认启动项仍然可以在这里直接设（等价于 OC 菜单里的 Ctrl+Enter）：\
+                 点下方预演行末尾的「设为默认」"
+                    .to_string()
+            } else {
+                "想固定默认启动项，只能在 OC 菜单里对目标按 Ctrl+Enter；\
+                 把 UEFI→Quirks→RequestBootVarRouting 改成 true 后，OC 会改用私有命名空间\
+                 （OCBt*），这里就能直接设"
+                    .to_string()
+            },
         });
     }
     if !registered {
@@ -719,7 +743,8 @@ mod tests {
 
     /// 真机自检（`cargo test --lib -- --ignored real_esp_view --nocapture`）。
     /// 钉住 macOS 上这张卡片的形态：列表不可见 + 写不了 Boot* 时，应当是「绿 chip +
-    /// 一条 info 说明 + 零个按钮」，而不是把残缺的 BootOrder 当成「固件里没有 OC 项」。
+    /// 三条 info 说明（原因 / 注册状态 / 还能设默认项）+ 零个按钮」，而不是把残缺的
+    /// BootOrder 当成「固件里没有 OC 项」。
     #[test]
     #[ignore]
     fn real_esp_view() {
