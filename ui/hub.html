@@ -9653,9 +9653,9 @@ window.__bkOnShow = async function () {
     box.textContent = '';
     rsRouteOrder.forEach(function (kind, index) {
       const available = rsRouteAvailable(kind);
-      const enabled = available && !rsRouteDisabled[kind];
+      const off = !!rsRouteDisabled[kind];
       const row = document.createElement('div');
-      row.className = 'rp-row' + (enabled ? '' : ' rp-off') + (available ? '' : ' rp-na');
+      row.className = 'rp-row' + (off ? ' rp-off' : '') + (available ? '' : ' rp-na');
       row.draggable = true;
       row.dataset.kind = kind;
       const grip = document.createElement('span');
@@ -9703,13 +9703,14 @@ window.__bkOnShow = async function () {
       dn.addEventListener('click', function () { rsRouteMove(kind, 1); });
       row.appendChild(grip); row.appendChild(name); row.appendChild(sub);
       row.appendChild(timeoutField); row.appendChild(up); row.appendChild(dn);
-      // 启停开关
+      // 启停开关：只听 rsRouteDisabled，永不禁用 —— 没配配对的通道也要能停用
+      //（用户 2026-10-28：以前 disabled=!available，不可用通道显示「关」但保存成
+      //「开」，探测照跑、重开弹窗看着像开关自己弹回来）
       const label = document.createElement('label');
       label.className = 'switch';
       const input = document.createElement('input');
       input.type = 'checkbox';
-      input.checked = enabled;
-      input.disabled = !available;
+      input.checked = !rsRouteDisabled[kind];
       input.addEventListener('change', function () {
         rsRouteDisabled[kind] = !input.checked;
         rsRenderRoutes();
