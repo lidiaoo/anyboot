@@ -321,6 +321,20 @@ mod imp {
         let Some(first_error) = first_error else {
             return Ok(());
         };
+        // ② 免密助手（如果开着）：它就是为「别再弹密码」装的，所以排在密码框之前。
+        //    远程请求也走这条路 —— 它不需要「本机有人点确认」，而 osascript 需要。
+        //    注意分类：助手**明确拒绝**（变量名越界、nvram 报错）时不能再弹密码框，
+        //    那只会让用户输一次密码、再失败一次，并把真正的原因埋掉。
+        if crate::helper_install::installed() {
+            match crate::helper_install::request(entries) {
+                Ok(()) => return Ok(()),
+                Err(crate::helper_install::HelperError::Rejected(text)) => {
+                    return Err(NvramError::Failed(text))
+                }
+                // 没通路（launchd 没加载 / 超时）：退回密码框，功能不能因此失效
+                Err(crate::helper_install::HelperError::Unavailable(_)) => {}
+            }
+        }
         if let Some(error) = gui_auth_forbidden() {
             return Err(NvramError::NeedElevation(error));
         }

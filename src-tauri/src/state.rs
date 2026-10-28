@@ -546,6 +546,8 @@ pub(crate) struct UiState {
     pub(crate) grub: GrubView,
     /// 三引导器通道视图（与 grub 并列的第三块；channels::refresh 产出）
     pub(crate) channels: Vec<channels::ChannelView>,
+    /// 免密写 NVRAM 的 root 助手状态（装没装、为什么）。前端只在 OC 卡片里显示。
+    pub(crate) helper: crate::helper_install::HelperView,
     /// 当前生效的 09_anyboot 正文（供界面「查看 / 修改」用）
     pub(crate) grub_script: String,
     /// 主窗口当前是否处于「贴边隐藏」态（前端据此在窗口边界画一条白条）

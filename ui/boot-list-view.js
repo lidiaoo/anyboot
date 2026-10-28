@@ -283,8 +283,58 @@ function renderOcMenuPreview(preview, { busy, onSwitch, channel } = {}) {
   return box;
 }
 
+/// 免密模式那一行（只出现在 OpenCore 卡片里 —— 只有它的「设为默认」需要写 NVRAM）。
+///
+/// 为什么值得占一行：一次「设为默认」要写 `OCBtOrder` + `OCBt0080` 两条变量，
+/// 以前每条路径都要一次管理员密码。装上 root 助手后就不弹了，但代价是
+/// `/Library` 里多一个守护项 —— 这是个需要用户自己决定要不要的取舍，
+/// 所以把「现在是什么状态、开了以后少什么」直接写在卡片里，不藏在设置页。
+function renderHelperLine(helper, { busy, onHelper } = {}) {
+  if (!helper || !helper.supported) return null;
+
+  const box = document.createElement("div");
+  box.className = "channel-helper";
+  box.dataset.state = helper.installed ? (helper.stale ? "stale" : "on") : "off";
+
+  const label = document.createElement("span");
+  label.className = "channel-helper-label";
+  label.textContent = "免密模式";
+
+  const text = document.createElement("small");
+  text.className = "channel-helper-text";
+  appendRichText(text, helper.text);
+
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "channel-helper-action needs-elev";
+  // 三种状态给三个不同的动词：装上去的助手是 App 的副本，App 更新后它就成了旧版本，
+  // 这时候最该做的不是「关闭」而是「重装」—— 否则它按旧协议继续工作，谁也看不出来。
+  if (helper.installed && helper.stale) {
+    button.textContent = "重装 ⤴";
+    button.title =
+      "把 /Library 里那份旧助手换成当前这个版本（一次管理员密码）；启动项设置不受影响";
+  } else if (helper.installed) {
+    button.textContent = "关闭";
+    button.title =
+      "删掉 /Library 里的 root 助手与信箱：之后「设为默认」恢复成每次输入一次密码";
+  } else {
+    button.textContent = "开启 ⤴";
+    button.title =
+      "安装时弹一次管理员密码；之后由 root 助手直接写 OCBt*，不再询问。" +
+      "助手只在收到请求时被 launchd 唤起，不常驻、不开端口";
+  }
+  button.disabled = Boolean(busy);
+  button.addEventListener("click", () => {
+    const action = helper.installed && !helper.stale ? "uninstall" : "install";
+    if (onHelper) onHelper(action);
+  });
+
+  box.append(label, text, button);
+  return box;
+}
+
 /// 组一张通道卡片的 DOM（结构与 .grub/.refind 卡同构）
-function makeBootChannelCard(channel, { busy, onSwitch }) {
+function makeBootChannelCard(channel, { busy, onSwitch, helper, onHelper }) {
   const section = document.createElement("section");
   section.className = `refind boot-channel ${channel.id}`;
   section.id = `channel-${channel.id}`;
@@ -359,6 +409,12 @@ function makeBootChannelCard(channel, { busy, onSwitch }) {
       channel,
     });
     if (preview) section.append(preview);
+  }
+
+  // ── 免密模式（只有 OpenCore 需要：它的「设为默认」要写 NVRAM）──
+  if (channel.id === "opencore" && helper) {
+    const line = renderHelperLine(helper, { busy, onHelper });
+    if (line) section.append(line);
   }
 
   // ── 条目行 ──
@@ -457,7 +513,7 @@ function bootChannelSpec(entry, channel) {
   return entry.id;
 }
 
-function renderBootChannels(channels, { busy, onSwitch }) {
+function renderBootChannels(channels, { busy, onSwitch, helper, onHelper }) {
   const mount = document.getElementById("boot-channels-mount");
   const collapsed = document.getElementById("boot-channel-collapsed");
   const collapsedNames = document.getElementById("boot-channel-collapsed-names");
@@ -476,7 +532,7 @@ function renderBootChannels(channels, { busy, onSwitch }) {
   );
 
   for (const channel of [...detected, ...explained]) {
-    mount.append(makeBootChannelCard(channel, { busy, onSwitch }));
+    mount.append(makeBootChannelCard(channel, { busy, onSwitch, helper, onHelper }));
   }
   // 折叠条只在「确实还有没说的」时出现；全部未检测到也要出现 —— 否则
   // 「一张 explained 卡片 + 两条彻底消失的通道」会让人以为后两个压根不存在。

@@ -1478,7 +1478,12 @@ function render(state) {
     state.settings && state.settings.grubListView,
   );
   // 三引导器通道（systemd-boot / OC / Clover）：快照 channels 驱动，同构卡片
-  renderBootChannels(state.channels, { busy, onSwitch: switchChannel });
+  renderBootChannels(state.channels, {
+    busy,
+    onSwitch: switchChannel,
+    helper: state.helper,
+    onHelper: toggleBootHelper,
+  });
   renderNextBootLast(state.channels);
   renderSettings(state.settings);
   renderRemote(state.http, state.settings);
@@ -3066,6 +3071,33 @@ async function switchGrub(selector) {
 /// 切换三引导器通道的条目（systemd-boot / OpenCore / Clover）。
 /// 与 switchGrub 同款：不走 call()，结果由后端 record_action + publish_ui
 /// 带回窗口底部提示条；失败原因这里直接兜底显示。
+// 「开启 / 关闭免密模式」：装一个 root 小助手，让「设为默认」不再每次弹密码。
+// 安装这一步本身还是要有一次管理员授权（写 /Library 必须 root），静默的是之后。
+// 用 helperPending 挡住连点：连点会排队弹两个密码框，第二个还会把刚装好的卸掉。
+let helperPending = false;
+async function toggleBootHelper(action) {
+  if (helperPending) {
+    return;
+  }
+  helperPending = true;
+  showStatusBar(
+    action === "install"
+      ? "正在安装免密助手（需要一次管理员授权）…"
+      : "正在卸载免密助手…",
+  );
+  try {
+    const message = await invoke("boot_helper", { action });
+    showStatusBar(message);
+    // 装 / 卸都改变了卡片上「免密模式」那一行，重新拉一次快照
+    // （后端只读文件状态，不需要重新扫盘）
+    await refreshSnapshotQuietly();
+  } catch (error) {
+    showStatusBar(String(error), { error: true });
+  } finally {
+    helperPending = false;
+  }
+}
+
 async function switchChannel(entry, channel) {
   if (!entry || !channel) {
     return;

@@ -297,6 +297,54 @@ GPT GUID，Windows 侧还没写这段（`partition_info_platform` 直接返回�
 Linux / Windows 上这两个文件通常不存在，于是回退成挂载点名（`efi`）或盘符（`S:\`）。
 功能不受影响（「设为默认」按卷标反查时会重新枚举），但卡片里显示的名字会和 OC 菜单里的对不上。
 
+### 9.2 免密模式：装一次，之后不再弹密码
+
+「设为默认」要写 `OCBtOrder` + 一条 `OCBt####`。macOS 上**非 root 写 NVRAM 在 iokit 层就被拒**
+（实测 `nvram` 报 `(iokit/common) general error`，那是被伪装成通用错误的权限拒绝），
+所以默认走的是 `osascript … with administrator privileges`：每点一次，输一次密码。
+
+要去掉这个密码框，只能让一个 **root 进程**替 App 写。实现是那张卡片里的「免密模式 / 开启」：
+
+```
+App  ──写 JSON──▶  /var/spool/anyboot/in/   (0733，用户可新建、不可列举)
+                        │  kqueue 触发 WatchPaths
+                        ▼
+/ Library/LaunchDaemons/com.example.anyboot.helper.plist
+     └─ 唤起 /Library/PrivilegedHelperTools/com.example.anyboot.helper --run-inbox
+                        │  校验 → nvram guid:name=%XX…
+                        ▼
+              /var/spool/anyboot/out/<同名>.json   → App 轮询取结果
+```
+
+几个刻意的选择：
+
+- **用文件信箱，不用 socket。** launchd 的 `WatchPaths` 盯着 `in/` 目录就够了：
+  没有常驻进程、不占端口，也不存在「连接断了 / 半包 / 重连」这些问题。请求先写进
+  `tmp/` 再 `rename` 进 `in/`，助手永远读不到写了一半的 JSON。
+- **助手只在有请求时被唤起**（`RunAtLoad=false`），处理完就退。
+- **只认 OpenCore 私有命名空间**：`OCBtOrder` / `OCBtNext` / `OCBt####`，GUID 必须是
+  `4D1FDA02-…`；值是十六进制串、≤512 字节、单次 ≤8 条；**不执行 shell、不接受路径**。
+  越界的请求直接回错误，不会「先试试看」。
+- **失败分两类**。`Unavailable`（没装、launchd 没加载、4 秒没响应）→ 退回密码框，功能
+  不受影响；`Rejected`（变量名越界、`nvram` 报错）→ **直接报错，不再弹密码**。
+  搞混这两个的后果是「输一次密码、再失败一次」，而真正的原因被埋掉。
+- **超时要撤回请求**。助手 4 秒没响应就把 `in/` 里的请求删掉，否则它十分钟后才醒来，
+  会在用户完全不知情的情况下把启动项改掉 —— 那种「鬼写」比失败更难排查。
+
+代价必须一起说清楚：装上以后，**任何以当前用户身份运行的进程**都可以让它改 OpenCore 的
+默认启动项（最坏后果就是「默认项被改」，拿不到 root、执行不了任意命令）；`/Library` 里还会
+多一份 ~25 MB 的副本（装的是本程序的拷贝，用 `--run-inbox` 进入助手模式，所以不存在版本错配）。
+不想承担这个交换，就保持关闭 —— 关着的时候功能和以前完全一样，只是每次要密码。
+
+**更新 App 之后**，「免密模式」那一行会自己变成「旧版本」并给出「重装」：`/Library` 里那份是
+上次安装时的可执行文件，不会跟着 App 一起更新。判据是两份文件的大小差异（每次快照只多一次
+`metadata` 调用，不算哈希）—— 大小相同但内容不同的情况理论上会漏判，那种情况下协议没变，
+行为一致，不会更糟。
+
+> 为什么不用 `SMAppService` / `SMJobBless`：这两个「正规」通道要求 App 与助手都用**带 Team ID
+> 的证书**签名。本项目是 ad-hoc 签名（`Signature=adhoc`、无 `TeamIdentifier`），注册必然失败。
+> 别把这段改成 SMAppService 除非先解决签名身份，否则会出现「装不上、但看起来什么都没发生」。
+
 ---
 
 ## 相关文档

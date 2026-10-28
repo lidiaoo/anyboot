@@ -627,6 +627,14 @@ entries   = [MAC, WINDOWS-EFI, MacOS-efi, ARCH-EFI]   # MAC 先被扫到
    真实 UAC 下这条是否可靠（用户点「否」、盘符用完、策略禁止），需要一台 Windows 机器确认。
 6. `win_esp::parse_json` 对 `DriveLetter` 的**码点形式**（`83` 而不是 `"S"`）是防御性处理：
    见过有人报告某些 PowerShell 版本这样序列化 `[char]`，但没拿到真实输出，两种都认着。
+7. **免密助手的安装链路没有经过一次真实授权**（见 §9.2 of `boot-menu-discovery.md`）。
+   `osascript … with administrator privileges` → `install` 落 `/Library` → `launchctl bootstrap`
+   这一段需要人点一次密码，开发环境里做不到，所以代码只做到了「语法与顺序可验证」：
+   `sh -n` 检查安装/卸载脚本、`plutil -lint` 检查 launchd plist、断言 `bootout` 在 `bootstrap` 之前。
+   **没验证的**：`launchctl bootstrap system` 在真机上是否一次成功、`WatchPaths` 对
+   「rename 进目录」是否必然触发、以及助手以 root 执行 `nvram` 的实际耗时。
+8. 助手的**超时阈值**（4 秒）是估的：launchd 冷启动一般 <300 ms，但没有在低配机器上量过。
+   如果真机上出现「第一次点要等 4 秒才退回密码框」，就把它调大，别调小。
 
 ---
 

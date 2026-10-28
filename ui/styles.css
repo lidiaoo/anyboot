@@ -2151,6 +2151,75 @@ button.primary-sol:hover:not(:disabled) {
 }
 .channel-health.info strong { color: var(--fg-dim); }
 
+/* ── 免密模式（root 助手）：一行状态 + 一个开关 ──
+   它不是启动项，所以视觉权重比条目行轻：虚线框 + 与健康检查同一档字号。
+   开启后换成实线绿框 —— 这条从「待办」变成「已就绪」，扫一眼就能分辨。 */
+.channel-helper {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 10px;
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px dashed color-mix(in srgb, var(--text) 16%, transparent);
+  background: color-mix(in srgb, var(--text) 2.5%, transparent);
+  min-width: 0;
+}
+.channel-helper-label {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--fg-dim);
+}
+.channel-helper-text {
+  flex: 1 1 200px;
+  min-width: 0;
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--fg-dim);
+  /* 文案里有 `/Library/...` 这种长路径：窄屏必须能在任意位置断，不能撑出横向滚动 */
+  overflow-wrap: anywhere;
+}
+.channel-helper-text code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  font-size: 10px;
+}
+.channel-helper-action {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 4px 9px;
+  font-size: 11px;
+  line-height: 1.45;
+  border-radius: 7px;
+  white-space: nowrap;
+  /* 次要动作，别和「设为默认」「下次启动」抢视觉重量：
+     以前用主色实心，整行看着像主 CTA，而它其实是「要不要少输一次密码」的取舍开关 */
+  background: var(--btn-secondary);
+  color: var(--btn-secondary-text);
+}
+.channel-helper-action:hover:not(:disabled) {
+  background: var(--btn-secondary-hover);
+}
+.channel-helper[data-state="on"] {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--ok-color, #34d399) 35%, transparent);
+  background: color-mix(in srgb, var(--ok-color, #34d399) 5%, transparent);
+}
+.channel-helper[data-state="on"] .channel-helper-label {
+  color: var(--ok-color, #34d399);
+}
+/* 已装但版本旧：黄框，和健康检查里的 warn 同一套语义（要处理，但没坏） */
+.channel-helper[data-state="stale"] {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--warn-color, #fbbf24) 40%, transparent);
+  background: color-mix(in srgb, var(--warn-color, #fbbf24) 6%, transparent);
+}
+.channel-helper[data-state="stale"] .channel-helper-label {
+  color: var(--warn-color, #fbbf24);
+}
+
 /* ── 预演 OC 菜单（details，默认展开，可收起且记住选择）──
    自适应三件套：外层 flex-wrap、中间层 min-width:0、路径 overflow-wrap:anywhere。
    任何一档宽度都不许把窗口撑出横向滚动条。 */

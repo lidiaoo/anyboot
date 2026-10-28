@@ -188,6 +188,11 @@ pub(crate) use login_item::*;
 pub(crate) use power::*;
 pub(crate) use mount::*;
 
+/// 免密写 NVRAM：协议（App ↔ root 助手）与安装器。
+/// `helper_proto` 要公开给 `bin/anyboot_helper.rs` 用，所以是 `pub mod`。
+pub mod helper_proto;
+pub(crate) mod helper_install;
+
 mod state;
 pub(crate) use state::*;
 
@@ -3220,6 +3225,8 @@ pub fn run() {
             backup::backup_pick_export_path,
             channels::boot_channels,
             channels::switch_boot_channel,
+            // 免密写 NVRAM 的 root 助手（装 / 卸各弹一次管理员授权）
+            helper_install::boot_helper,
             hub_term::hub_term_open,
             hub_term::hub_term_write,
             hub_term::hub_term_resize,

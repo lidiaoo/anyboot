@@ -66,6 +66,8 @@ pub(crate) fn ui_state(app: &AppHandle) -> UiState {
         grub,
         grub_script,
         channels,
+        // 免密助手状态：只做文件检查（每次快照都调，不能在这里试探性写 NVRAM）
+        helper: crate::helper_install::view(),
         docked: {
             let state = app.state::<Mutex<AppState>>();
             state
