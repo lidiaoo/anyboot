@@ -139,6 +139,11 @@ struct ChannelGroup: Hashable, Identifiable {
     var health: [String]
     /// 只有 OpenCore 通道有：开机菜单预演，动作行从这里出（顶层 entries 对 OC 是空的）
     var menuPreview: ChannelMenuPreview?
+
+    /// 可执行动作总数：顶层 entries + OC 菜单预演行。
+    /// OpenCore 的条目全在 menuPreview、顶层 entries 恒为空 —— 判断「通道有没有动作」
+    /// 必须两边都数，否则列表上的 OC 按钮会误判成「没有可用动作」（真机踩过）。
+    var actionCount: Int { entries.count + (menuPreview?.rows.count ?? 0) }
 }
 
 // MARK: - 解析

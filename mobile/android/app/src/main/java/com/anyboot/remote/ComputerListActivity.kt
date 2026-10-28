@@ -1728,17 +1728,29 @@ class ComputerListActivity : ComponentActivity() {
         val tone = LocalTone.current
         val work = busy[row.profile.id]
         val working = work == "boot:ch-${channel.id}"
-        val usable = channel.entries.isNotEmpty() && row.state == STATE_ONLINE && work == null
+        // 可用性看 entries + OC 预演行：OC 的条目全在 menuPreview、顶层 entries 恒空，
+        // 只看 entries 会把 OC 误判成「没有可用动作」、点不开弹层。
+        val actionCount = channel.entries.size + channel.menuPreview.size
+        val usable = actionCount > 0 && row.state == STATE_ONLINE && work == null
 
         val valueLabel: String
         val dot: String
         if (channel.entries.isEmpty()) {
-            valueLabel = when {
-                row.state == STATE_UNKNOWN -> "读取中…"
-                row.state == STATE_OFFLINE -> "离线不可改"
-                else -> "没有可用动作"
+            // 顶层空 → 动作可能全在 OC 预演行里：值区显示预演里的默认项 / 首行
+            val previewRows = channel.menuPreview
+            if (previewRows.isEmpty()) {
+                valueLabel = when {
+                    row.state == STATE_UNKNOWN -> "读取中…"
+                    row.state == STATE_OFFLINE -> "离线不可改"
+                    else -> "没有可用动作"
+                }
+                dot = ""
+            } else {
+                val picked = previewRows.firstOrNull { it.isDefault && it.spec.isNotEmpty() }
+                    ?: previewRows.first()
+                valueLabel = picked.title
+                dot = iconKind(picked.kind)
             }
-            dot = ""
         } else {
             val current = channel.currentDefault.trim()
             if (current.isEmpty()) {
@@ -1767,7 +1779,7 @@ class ComputerListActivity : ComponentActivity() {
                 )
                 .clickable(enabled = usable) {
                     when {
-                        channel.entries.isEmpty() ->
+                        actionCount == 0 ->
                             toast("该设备没有可用的 ${channel.label} 动作")
                         row.state != STATE_ONLINE -> toast("设备不在线，无法修改引导项")
                         else -> sheetRequest = SheetRequest(row.profile.id, KIND_CHANNEL, channel)

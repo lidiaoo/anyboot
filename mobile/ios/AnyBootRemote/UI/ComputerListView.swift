@@ -932,17 +932,29 @@ struct ComputerListView: View {
         .padding(.top, ABMetric.px(11))
     }
 
-    /// 三引导器通道按钮：外观与 rEFInd/GRUB 一致，值区显示当前默认 / 首个动作
+    /// 三引导器通道按钮：外观与 rEFInd/GRUB 一致，值区显示当前默认 / 首个动作。
+    /// 注意可用性看 actionCount（entries + OC 预演行）：OC 的条目全在 menuPreview，
+    /// 只看顶层 entries 会把 OC 误判成「没有可用动作」、点不开弹层。
     private func channelButton(_ row: CqRow, group: ChannelGroup) -> some View {
         let work = busy[row.profile.id]
         let working = work == "boot:ch-\(group.id)"
-        let usable = !group.entries.isEmpty && row.state == Reach.online && work == nil
+        let usable = group.actionCount > 0 && row.state == Reach.online && work == nil
         var valueLabel: String
         var dotKind = ""
         if group.entries.isEmpty {
-            if row.state == Reach.unknown { valueLabel = "读取中…" }
-            else if row.state == Reach.offline { valueLabel = "离线不可改" }
-            else { valueLabel = "没有可用动作" }
+            // 顶层空 → 动作可能全在 OC 预演行里：值区显示预演里的默认项 / 首行
+            let previewRows = group.menuPreview?.rows ?? []
+            if previewRows.isEmpty {
+                if row.state == Reach.unknown { valueLabel = "读取中…" }
+                else if row.state == Reach.offline { valueLabel = "离线不可改" }
+                else { valueLabel = "没有可用动作" }
+            } else if let defaultRow = previewRows.first(where: { $0.isDefault && !$0.spec.isEmpty }) {
+                valueLabel = defaultRow.title
+                dotKind = defaultRow.kind
+            } else {
+                valueLabel = previewRows[0].title
+                dotKind = previewRows[0].kind
+            }
         } else {
             let current = group.currentDefault.trimmingCharacters(in: .whitespaces)
             if current.isEmpty, let first = group.entries.first {
@@ -958,7 +970,7 @@ struct ComputerListView: View {
         let border = !usable ? ABColor.toneDashed : ABColor.line
 
         return Button {
-            if group.entries.isEmpty {
+            if group.actionCount == 0 {
                 toast("该设备没有可用的 \(group.label) 动作")
             } else if row.state != Reach.online {
                 toast("设备不在线，无法修改引导项")
