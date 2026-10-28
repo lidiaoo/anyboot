@@ -9879,6 +9879,9 @@ window.__bkOnShow = async function () {
           const lane = p.lane || rsPairLane('ts', p.addr);
           const routeKind = block === 'cloudflare' ? 'tunnel'
             : (block === 'tsnet' ? 'tsnet' : (lane === 'funnel' ? 'funnel' : 'ts'));
+          // 连接策略停用的通道不进测试（用户 2026-10-28：探测列表听开关的，与
+          // 平时轮询的 pcRouteCandidates 同口径 —— ts 区块里 ts / funnel 各听各的开关）
+          if (rsRouteDisabled[routeKind]) return;
           // 三层继承：条目 → 区块 → 全局（0 = 后端落全局默认）。
           // 不带令牌：探活打的是免鉴权的 /health，令牌只影响能不能进界面
           list.push({ kind: routeKind, origin: p.addr,

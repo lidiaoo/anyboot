@@ -500,6 +500,9 @@ struct ComputerListView: View {
         for block in profile.pairBlockOrder() {
             // 已停用的配对不上列表页（用户 2026-10-28：连接策略没开启的就不展示）
             for pair in profile.pairsOfBlock(block, enabledOnly: true) {
+                // 连接策略停用了这条通道：整行也不上列表页（ts 区块里「TS 直连」与
+                // 「TS Funnel」是两行独立开关，停用哪个只藏哪条）
+                if profile.routeDisabled.contains(pair.routeKind) { continue }
                 let hit = hits.first { !$0.pairId.isEmpty && $0.pairId == pair.id }
                 let inUse = pair.id == hitPair?.id
                 let stateText: String

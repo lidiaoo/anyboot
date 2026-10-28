@@ -2574,6 +2574,9 @@ class ComputerListActivity : ComponentActivity() {
         for (block in profile.pairBlockOrder()) {
             // 已停用的配对不上列表页（用户 2026-10-28：连接策略没开启的就不展示）
             for (pair in profile.pairsOfBlock(block, true)) {
+                // 连接策略停用了这条通道：整行也不上列表页（ts 区块里「TS 直连」与
+                // 「TS Funnel」是两行独立开关，停用哪个只藏哪条）
+                if (profile.routeDisabled.contains(pair.routeKind())) continue
                 val hit = hits.firstOrNull { it.pairId.isNotEmpty() && it.pairId == pair.id }
                 val inUse = pair.id == hitPair?.id
                 // 「使用中」也要带耗时：选了谁 + 探测快不慢一起说，别只剩一句「使用中」
