@@ -706,6 +706,7 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
     }
     let mut namespace_fallback = false;
     if order.is_empty() && namespace.custom {
+        let _span = perf::span("nvram.global_order");
         let global = nvram::read_boot_order();
         if !global.is_empty() {
             order = global;
@@ -751,6 +752,7 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
         .collect();
 
     // ① 每个卷上的 bless 扫描（每卷只取第一个命中，与 OC 一致）
+    let bless_span = perf::span("oc.bless");
     let mut all_roots: Vec<(&str, &PathBuf)> = Vec::new();
     for volume in &volumes {
         all_roots.push((volume.label.as_str(), &volume.root));
@@ -786,6 +788,7 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
             break;
         }
     }
+    drop(bless_span);
 
     // ② APFS Preboot：OC 对容器内每个卷 UUID 都试一次
     #[cfg(target_os = "macos")]
@@ -910,6 +913,7 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
     // 编号 → entries 下标。**按启动顺序**记下来：⑤ 判默认项只能按这个顺序走。
     let mut placed: Vec<(u16, usize)> = Vec::new();
     let mut guid_cache: Vec<(String, Option<String>)> = Vec::new();
+    let match_span = perf::span("oc.order_match");
     for item in &order_items {
         let number = item.number;
         let description = &item.description;
@@ -981,9 +985,9 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
             order_notes.push((namespace.boot_name(number), kind));
         }
     }
+    drop(match_span);
 
     // ⑤ 默认项 = **启动顺序表里第一条真能启动的**，顺序必须按表走。
-    //
     // 以前这里是 `entries.iter_mut().find(source == "bootorder")`，等于拿「卷的
     // 遍历顺序」当启动顺序。实测踩到：`OCBtOrder = [0x82 WIN, 0x81 ARCH, 0x80 MAC]`，
     // 界面把 MAC 标成「OC 默认项」，而真默认项那一行反而挂着「设为默认」按钮 ——
@@ -1020,10 +1024,20 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
 
     // ⑥' 「设为默认」的值域（= OC 菜单里的 Ctrl+Enter）。放在最后统一算：
     // 它依赖「是不是默认项」「source 是 BootOrder 还是 bless」，两者到这里才定。
+    //
+    // ESP 自己的**卷标**先算一次：generic 条目要靠它认出「这是我的 Bootstrap
+    // 入口」。以前是循环里逐条反查 `volume_root(卷标)`，那函数会重跑整个 `volumes()`
+    // （Windows 上一次全量分区查询 ≈1s），两个 generic 条目就白烧 1.87s。
+    let esp_label = volumes
+        .iter()
+        .find(|volume| same_path(&volume.root, esp_root))
+        .map(|volume| volume.label.clone());
     let writable = namespace.writable();
+    let spec_span = perf::span("oc.spec");
     for entry in visible.iter_mut().chain(hidden.iter_mut()) {
-        entry.spec = oc_default::entry_spec(entry, writable, esp_root);
+        entry.spec = oc_default::entry_spec(entry, writable, esp_label.as_deref());
     }
+    drop(spec_span);
 
     // ⑦ 诊断
     if order_from_cache {

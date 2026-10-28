@@ -168,7 +168,7 @@ fn build_from_volume(volume: &str, path: &str) -> Result<Vec<u8>, String> {
 pub(crate) fn entry_spec(
     entry: &oc_menu::MenuEntry,
     writable: bool,
-    esp_root: &Path,
+    esp_label: Option<&str>,
 ) -> Option<String> {
     if !writable || entry.default || entry.kind == "tool" || entry.volume == "—" {
         return None;
@@ -182,12 +182,13 @@ pub(crate) fn entry_spec(
     }
     // OC 自己的 Bootstrap 入口（这块 ESP 上的 \EFI\BOOT\BOOTX64.EFI）不提供：
     // 把它设成默认 = 每次启动都先回 OC 菜单，「默认项」就失去意义了。
-    if entry.kind == "generic" {
-        if let Some(root) = oc_menu::volume_root(&entry.volume) {
-            if oc_menu::same_path(&root, esp_root) {
-                return None;
-            }
-        }
+    //
+    // 判等用调用方算好的 **ESP 卷标**，**不要**在这里反查 `volume_root(卷标)`：
+    // 那个函数会重跑整条 `volumes()`（Windows 上 = 一次全量分区查询，约 1s），
+    // 而每个 generic 条目都会走到这里 —— 实测两个 generic 条目白烧 1.87s，
+    // 占整轮扫描的四分之一（2026-10-28 埋点抓到）。
+    if entry.kind == "generic" && esp_label.is_some_and(|label| label == entry.volume) {
+        return None;
     }
     // Preboot 条目额外带上条目名（第三段）：这类目标的固件设备路径要经过
     // apfs.efi 虚拟卷，AnyBoot 还造不出来 —— 匹配已有槽全靠「描述 == 条目名」
@@ -520,7 +521,8 @@ mod tests {
 
     #[test]
     fn spec_gating() {
-        let esp = Path::new("/");
+        // 卷标判等（原来的 esp 根路径）：generic 条目落在这块 ESP 上才被挡
+        let esp: Option<&str> = None;
         // 已有固件启动项（bootorder）→ 可设
         assert!(entry_spec(&entry("MAC", "\\System\\boot.efi", "macos", "bootorder", false), true, esp).is_some());
         // 卷上的 windows 引导文件（bless）→ 可设
@@ -555,7 +557,7 @@ mod tests {
         let spec = entry_spec(
             &entry("Macintosh HD", "\\EFI\\Microsoft\\Boot\\bootmgfw.efi", "windows", "bless", false),
             true,
-            Path::new("/Volumes/Other"),
+            Some("Other"),
         )
         .expect("应可设");
         assert!(spec.starts_with("opencore-default:"));

@@ -48,92 +48,26 @@ impl WinEsp {
     }
 }
 
-/// `Get-Partition | ... | ConvertTo-Json -Compress` 的输出 → 分区表（纯函数）。
+/// 本机所有 EFI 系统分区（按 GPT 类型认，不需要盘符）。
 ///
-/// 两处形状差异要吸收：
-/// * **只有一个结果时** `ConvertTo-Json` 出对象而不是数组；
-/// * `DriveLetter` 是 `[char]`，`ConvertTo-Json` 序列化成 `"S"`，但个别版本会写成
-///   数字码点（`83`）—— 两种都认。
-pub(crate) fn parse_json(text: &str) -> Vec<WinEsp> {
-    let trimmed = text.trim();
-    if trimmed.is_empty() {
-        return Vec::new();
-    }
-    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(trimmed) else {
-        return Vec::new();
-    };
-    let rows = match parsed {
-        serde_json::Value::Array(rows) => rows,
-        row @ serde_json::Value::Object(_) => vec![row],
-        _ => return Vec::new(),
-    };
-    rows.into_iter()
-        .filter_map(|row| {
-            let disk = row.get("DiskNumber")?.as_u64()? as u32;
-            let partition = row.get("PartitionNumber")?.as_u64()? as u32;
-            let letter = match row.get("DriveLetter") {
-                Some(serde_json::Value::String(text)) => text
-                    .trim()
-                    .chars()
-                    .next()
-                    .filter(char::is_ascii_alphabetic)
-                    .map(|letter| letter.to_ascii_uppercase()),
-                Some(serde_json::Value::Number(number)) => number
-                    .as_u64()
-                    .and_then(|code| u8::try_from(code).ok())
-                    .map(char::from)
-                    .filter(char::is_ascii_alphabetic)
-                    .map(|letter| letter.to_ascii_uppercase()),
-                _ => None,
-            };
-            let size_mb = match row.get("Size") {
-                Some(serde_json::Value::Number(number)) => number.as_u64(),
-                Some(serde_json::Value::String(text)) => text.trim().parse::<u64>().ok(),
-                _ => None,
-            }
-            .map(|bytes| bytes / (1024 * 1024))
-            .unwrap_or(0);
-            Some(WinEsp {
-                disk,
-                partition,
-                letter,
-                size_mb,
-            })
+/// 数据来自 [`super::partitions`] 的共享分区表（一次 `Get-Partition` + 60s 缓存），
+/// 不再自己起 PowerShell —— 一轮扫描里这张表会被要 3 次（ESP 列表、候选卷、
+/// 若干 generic 条目的卷反查），每次都起进程曾是 3.7s 的来源。
+///
+/// 失败一律返回空表：这条只是「让提示说得准」，不该因为读表失败把整条链路弄挂。
+pub(crate) fn list() -> Vec<WinEsp> {
+    super::partitions::all()
+        .into_iter()
+        .filter(super::partitions::Partition::is_esp)
+        .map(|row| WinEsp {
+            disk: row.disk,
+            partition: row.partition,
+            letter: row.letter,
+            size_mb: row.size_mb(),
         })
         .collect()
 }
 
-/// 本机所有 EFI 系统分区（按 GPT 类型认，不需要盘符）。
-///
-/// 失败一律返回空表：这条只是「让提示说得准」，不该因为 PowerShell 抽风把
-/// 整条链路弄挂（真读不到时界面还是原来的「未检测到」）。
-#[cfg(target_os = "windows")]
-pub(crate) fn list() -> Vec<WinEsp> {
-    // 这一次 PowerShell 冷启动是 Windows 端扫描的头号开销（实测进程内首次
-    // Get-Partition 711ms，新起进程还要叠 PowerShell 本体启动）。埋点单列，
-    // 因为它会被 resolve_esp_root / offline_extras / apfs 三处各调一次。
-    let _span = perf::span("cmd.get_partition");
-    // `-like '*c12a7328*'` 而不是 `-eq '{…}'`：不同 PowerShell 版本对 GptType
-    // 是否带花括号不一致，只比 GUID 本体最稳。
-    const SCRIPT: &str = "Get-Partition | Where-Object { $_.GptType -like '*c12a7328*' } \
-                          | Select-Object DiskNumber,PartitionNumber,DriveLetter,Size \
-                          | ConvertTo-Json -Compress";
-    let output = command("powershell")
-        .args(["-NoProfile", "-NonInteractive", "-Command", SCRIPT])
-        .stderr(Stdio::null())
-        .output();
-    match output {
-        Ok(output) if output.status.success() => {
-            parse_json(&String::from_utf8_lossy(&output.stdout))
-        }
-        _ => Vec::new(),
-    }
-}
-
-#[cfg(not(target_os = "windows"))]
-pub(crate) fn list() -> Vec<WinEsp> {
-    Vec::new()
-}
 
 /// 给一块没有盘符的 ESP 分配盘符（`Add-PartitionAccessPath -AssignDriveLetter`）。
 ///
@@ -157,6 +91,9 @@ pub(crate) fn mount(disk: u32, partition: u32) -> Result<String, String> {
     if let Err(error) = launched {
         return Err(format!("无法调用 PowerShell 提权: {error}"));
     }
+    // 挂载动作可能真的改了分区表（也可能被用户拒绝），先作废缓存再回读 ——
+    // 不作废就会读到 60 秒前那张「还没有盘符」的旧表，回读永远失败
+    super::partitions::invalidate();
     // 回读：分配成功的话，这块分区现在应该有盘符了
     for esp in list() {
         if esp.disk == disk && esp.partition == partition {
@@ -179,51 +116,6 @@ pub(crate) fn mount(_disk: u32, _partition: u32) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// 真机形状（`Get-Partition | ConvertTo-Json -Compress`，两块盘各一块 ESP，
-    /// 一块有盘符一块没有）。DriveLetter 为 null 是常见情况。
-    #[test]
-    fn parses_real_converttojson_shape() {
-        let text = r#"[
-            {"DiskNumber":0,"PartitionNumber":1,"DriveLetter":null,"Size":272629760},
-            {"DiskNumber":1,"PartitionNumber":2,"DriveLetter":"S","Size":104857600}
-        ]"#;
-        let esp = parse_json(text);
-        assert_eq!(esp.len(), 2);
-        assert_eq!(esp[0].disk, 0);
-        assert_eq!(esp[0].partition, 1);
-        assert_eq!(esp[0].letter, None, "没有盘符要留成 None，不能当成 0 或空字符");
-        assert_eq!(esp[0].size_mb, 260, "272629760 字节 = 260 MB");
-        assert_eq!(esp[1].letter, Some('S'));
-        assert_eq!(esp[1].root().unwrap().display().to_string(), "S:\\");
-    }
-
-    /// 单个结果时 ConvertTo-Json 出对象而不是数组 —— 不能因此整条丢掉。
-    #[test]
-    fn parses_single_object() {
-        let esp = parse_json(r#"{"DiskNumber":2,"PartitionNumber":3,"DriveLetter":null,"Size":0}"#);
-        assert_eq!(esp.len(), 1);
-        assert_eq!(esp[0].describe(), "磁盘 2 分区 3", "大小 0 时不摆「0 MB」");
-    }
-
-    /// 盘符可能被序列化成码点（个别 PowerShell 版本）；大小也可能带引号。
-    #[test]
-    fn tolerates_alternate_scalar_shapes() {
-        let esp = parse_json(r#"[{"DiskNumber":0,"PartitionNumber":1,"DriveLetter":83,"Size":"104857600"}]"#);
-        assert_eq!(esp.len(), 1);
-        assert_eq!(esp[0].letter, Some('S'));
-        assert_eq!(esp[0].size_mb, 100);
-    }
-
-    /// 非数组、空串、坏 JSON 都只返回空表（这条路径失败不该让界面报错）。
-    #[test]
-    fn bad_input_yields_empty() {
-        assert!(parse_json("").is_empty());
-        assert!(parse_json("   ").is_empty());
-        assert!(parse_json("not json").is_empty());
-        assert!(parse_json("null").is_empty());
-        assert!(parse_json(r#"{"DiskNumber":"x"}"#).is_empty(), "字段类型不对就跳过这一行");
-    }
 
     /// 非 Windows 上 mount 只是占位，必须给出能读懂的理由而不是静默 Ok。
     #[test]

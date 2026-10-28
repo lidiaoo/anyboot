@@ -25,6 +25,7 @@ pub(crate) mod nvram;
 pub(crate) mod oc_default;
 pub(crate) mod oc_menu;
 pub(crate) mod opencore;
+pub(crate) mod partitions;
 pub(crate) mod plist_lite;
 pub(crate) mod sdboot;
 pub(crate) mod win_esp;

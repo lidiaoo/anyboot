@@ -528,50 +528,13 @@ pub(crate) fn windows_volume(letter: char) -> Option<(String, String)> {
 /// MBR 盘没有 GUID（报告全零），比不上就如实命不中。
 #[cfg(target_os = "windows")]
 pub(crate) fn windows_partition_guids() -> Vec<(char, String)> {
-    // 第三次 PowerShell 冷启动（另外两次在 win_esp::list）。它只为了把
-    // `grub_efi_partuuid` 跟盘符对上，没有缓存就是纯浪费 —— 埋点把它记下来，
-    // 后面合并成一次 Get-Partition 时能直接对比。
-    let _span = crate::perf::span("cmd.partition_guids");
-    let output = match command("powershell")
-        .args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            "Get-Partition | Where-Object DriveLetter | Select-Object DriveLetter,Guid | ConvertTo-Json -Compress",
-        ])
-        .stderr(Stdio::null())
-        .output()
-    {
-        Ok(output) if output.status.success() => output,
-        _ => return Vec::new(),
-    };
-    let parsed: serde_json::Value = match serde_json::from_slice(&output.stdout) {
-        Ok(value) => value,
-        Err(_) => return Vec::new(),
-    };
-    // 单个分区时 ConvertTo-Json 出对象而不是数组 —— 统一当数组处理
-    let rows = match parsed {
-        serde_json::Value::Array(rows) => rows,
-        row @ serde_json::Value::Object(_) => vec![row],
-        _ => return Vec::new(),
-    };
-    rows.into_iter()
+    // 数据来自 channels::partitions 的共享表（一次全量查询 + 60s 缓存）。
+    // 原来这里自己起一次外部命令，一轮扫描要在这里白付 3 次约 1.1s —— 见该模块注释。
+    channels::partitions::all()
+        .into_iter()
         .filter_map(|row| {
-            // DriveLetter 是 `[char]`：ConvertTo-Json 通常出 "S"，个别 PowerShell
-            // 版本会写成码点 83 —— `win_esp::parse_json` 已经为这个形状做过容错，
-            // 这里是同一套处理（否则那条分区只是「查不到 partuuid」，不会报错，
-            // 也很难发现）。
-            let letter = match row.get("DriveLetter")? {
-                serde_json::Value::String(text) => text.trim().chars().next()?,
-                serde_json::Value::Number(number) => number
-                    .as_u64()
-                    .and_then(|code| u8::try_from(code).ok())
-                    .map(char::from)?,
-                _ => return None,
-            }
-            .to_ascii_uppercase();
-            let guid = row.get("Guid")?.as_str()?;
-            Some((letter, guid.trim_matches(['{', '}']).to_string()))
+            let letter = row.letter?;
+            (!row.guid.is_empty()).then_some((letter, row.guid))
         })
         .collect()
 }

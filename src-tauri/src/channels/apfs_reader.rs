@@ -39,34 +39,6 @@ pub(crate) struct PrebootItem {
 
 // ─────────────────────────── 容器分区定位（纯函数 + 平台探测） ───────────────────────────
 
-/// Windows：`Get-Partition` JSON → 容器分区的（磁盘号，字节偏移，字节长）。
-///
-/// **不能走 AccessPaths**：Windows 不给未知文件系统的分区建卷路径（实测
-/// `AccessPaths=null`），`\\?\Volume{…}` 这条路对 APFS 分区根本不存在。
-/// 所以只取坐标，后面开整盘 `\\.\PhysicalDriveN` 再按偏移读。单条时
-/// `ConvertTo-Json` 出对象而不是数组 —— 两种形状都认。
-#[cfg(target_os = "windows")]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ContainerLocation {
-    pub(crate) disk: u32,
-    pub(crate) offset: u64,
-    pub(crate) size: u64,
-}
-
-#[cfg(target_os = "windows")]
-pub(crate) fn parse_partition_json(json: &str) -> Option<ContainerLocation> {
-    let parsed = serde_json::from_str::<serde_json::Value>(json.trim()).ok()?;
-    let row = match &parsed {
-        serde_json::Value::Array(rows) => rows.first()?,
-        row @ serde_json::Value::Object(_) => row,
-        _ => return None,
-    };
-    let disk = row.get("DiskNumber")?.as_u64()? as u32;
-    let offset = row.get("Offset")?.as_u64()?;
-    let size = row.get("Size")?.as_u64()?;
-    (size > 0).then_some(ContainerLocation { disk, offset, size })
-}
-
 /// Linux：`lsblk -rno PATH,PARTTYPE` 的输出 → 容器分区设备路径。
 ///
 /// `-r` 紧凑格式每行 `PATH PARTTYPE`；PARTTYPE 大小写不定（旧版 lsblk 小写），
@@ -83,25 +55,35 @@ pub(crate) fn partition_path_from_lsblk(text: &str) -> Option<String> {
         .next()
 }
 
-/// Windows：容器分区的坐标（开整盘 + 按偏移读，见 [`parse_partition_json`]）。
+/// Windows：APFS 容器分区的坐标。为什么只取坐标：Windows 不给未知文件系统的
+/// 分区建卷路径（实测 `AccessPaths=null`），`\\?\Volume{…}` 这条路对 APFS
+/// 分区根本不存在 —— 只能开整盘 `\\.\PhysicalDriveN` 再按偏移读。
+#[cfg(target_os = "windows")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ContainerLocation {
+    pub(crate) disk: u32,
+    pub(crate) offset: u64,
+    pub(crate) size: u64,
+}
+
+/// Windows：容器分区的坐标（开整盘 + 按偏移读）。
+///
+/// 与 ESP 列表同源 —— 都来自 [`super::partitions`] 那张共享表。原来这里自己起
+/// 一次全量分区查询，只为拿一个容器的偏移（一轮扫描第 4 次，约 1s）。
 #[cfg(target_os = "windows")]
 fn container_location() -> Result<ContainerLocation, String> {
-    // 又是一次 Get-Partition 冷启动（本脚本第 4 次）。只为拿一个 APFS 容器的偏移，
-    // 完全可以从 win_esp 那次输出里按 GptType 一起筛出来。
-    let _span = perf::span("cmd.get_partition_apfs");
-    // 只按 GPT 类型认，不碰盘符 —— 和 win_esp::list 同一套做法
-    const SCRIPT: &str = "Get-Partition | Where-Object { $_.GptType -like '*7c3457ef*' } \
-                          | Select-Object -First 1 DiskNumber,Offset,Size \
-                          | ConvertTo-Json -Compress";
-    let output = command("powershell")
-        .args(["-NoProfile", "-NonInteractive", "-Command", SCRIPT])
-        .stderr(Stdio::null())
-        .output()
-        .map_err(|error| format!("无法调用 PowerShell 枚举分区: {error}"))?;
-    if !output.status.success() {
-        return Err("Get-Partition 枚举失败（这不该发生，上一条 ESP 探测还依赖它）".to_string());
+    let rows = super::partitions::all();
+    if rows.is_empty() {
+        return Err("读不到分区表（枚举分区失败，可能是分区服务异常）".to_string());
     }
-    parse_partition_json(&String::from_utf8_lossy(&output.stdout))
+    // 不碰盘符：Windows 不给未知文件系统的分区建卷路径，只能开整盘按偏移读
+    rows.into_iter()
+        .find(|row| row.is_apfs() && row.size > 0)
+        .map(|row| ContainerLocation {
+            disk: row.disk,
+            offset: row.offset,
+            size: row.size,
+        })
         .ok_or_else(|| "这台机器上没有 APFS 容器分区（没装 macOS，Preboot 自然无从谈起）".to_string())
 }
 
@@ -165,7 +147,7 @@ pub(crate) fn scan_preboot() -> Result<Vec<PrebootItem>, String> {
     // 要求的扇区对齐自动满足。
     let block_size = hadris_storage::BlockSize::new(4096).expect("4096 是合法块大小");
 
-    // Windows：开整盘 + Partition 偏移（APFS 分区没有卷路径，见 parse_partition_json）；
+    // Windows：开整盘 + Partition 偏移（APFS 分区没有卷路径，坐标由 container_location 给）；
     // Linux：直接开分区设备（分区设备天生从分区头开始，不用偏移）。
     #[cfg(target_os = "windows")]
     let device = {
@@ -432,31 +414,6 @@ mod tests {
         assert!(!is_uuid_dir("."));
         assert!(!is_uuid_dir("C8B0D4AC-1234-5678-9ABC-DEF01234567")); // 少一位
         assert!(!is_uuid_dir("C8B0D4AC_1234-5678-9ABC-DEF012345678"));
-    }
-
-    /// 真机形状：单条结果 ConvertTo-Json 出对象。磁盘 0 分区 17，偏移/大小都是
-    /// 4096 的倍数（Partition 设备要求块对齐，非对齐的容器直接拒收）。
-    #[cfg(target_os = "windows")]
-    #[test]
-    fn partition_json_single_object() {
-        let json = r#"{"DiskNumber":0,"Offset":1261563805696,"Size":416157794304}"#;
-        let location = parse_partition_json(json).expect("单条对象也要认");
-        assert_eq!(location.disk, 0);
-        assert_eq!(location.offset, 1_261_563_805_696);
-        assert_eq!(location.size, 416_157_794_304);
-        assert_eq!(location.offset % 4096, 0, "偏移必须 4096 对齐");
-    }
-
-    /// 数组形状（未来多块 APFS 盘时）：取第一条；坏形状/空 Size 一律 None。
-    #[cfg(target_os = "windows")]
-    #[test]
-    fn partition_json_array_and_bad_input() {
-        let json = r#"[{"DiskNumber":1,"Offset":4096,"Size":1000}]"#;
-        assert_eq!(parse_partition_json(json).unwrap().disk, 1);
-        assert_eq!(parse_partition_json(""), None);
-        assert_eq!(parse_partition_json("not json"), None);
-        assert_eq!(parse_partition_json(r#"{"DiskNumber":0,"Offset":0,"Size":0}"#), None, "Size=0 是探测噪音");
-        assert_eq!(parse_partition_json(r#"{"DiskNumber":"x"}"#), None, "字段类型不对就跳过");
     }
 
     /// lsblk 紧凑格式：PATH 在前 PARTTYPE 在后，大小写不敏感地认容器类型。
