@@ -12,6 +12,7 @@
 - 沙箱里 HOME 读不到 global git config → `git -c user.name=jianghuihua -c user.email=2503338074@qq.com`，提交后 `git log --oneline -3` 核对（偶发一次写入双提交）。
 
 ## 交付铁律
+- **⛔ 不要主动构建/重出包（deb/rpm/AppImage/jammy/APK 全算）**：用户反复强调（2026-10-29「我说多少遍了」），构建由**用户自己做**。我的交付终点 = 代码提交 + cargo test 全绿 + 改动说明；用户明确说「出包」「构建」才动手，且只出用户点名的那几个。
 - **⛔ 永不跑 `connectedDebugAndroidTest` / 任何 `connected*` gradle 任务**（AGP 前置 `uninstallDebug` 会卸载用户手机上的 app，SharedPreferences 档案全部丢失，2026-10-26 已造成一次真实数据事故）。instrumented test 只走手动流程：`assembleDebug assembleDebugAndroidTest` → `adb install -t -r` 两包 → `adb shell am instrument -w`（realme 真机上 gradle 直跑 instrumentation 会 "failed to attach"，手动跑正常）。
 - 交付 = 测试 + release 构建 + 实机验证；构建前先退出运行中的 anyboot，产物 md5 必核。
 - 前端编译期嵌入二进制：改完必须强制 codegen 重编，并用 brotli 解 `tauri-codegen-assets/*` 搜新函数名确认真的进去了（别靠 `strings` 搜中文）。
