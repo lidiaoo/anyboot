@@ -536,7 +536,7 @@ fn esp_install_via_helper(source: &Path, target: &Path) -> Option<Result<(), Str
     if !crate::linux_priv::helper_ready() {
         return None;
     }
-    let out = unique_temp_path("anyboot-esp-install-out");
+    let out = unique_temp_path_under(crate::linux_priv::SCRATCH_DIR, "anyboot-esp-install-out");
     let args = vec![
         "--linux-esp-install".to_string(),
         "--src".to_string(),
@@ -568,6 +568,11 @@ fn esp_install_via_helper(source: &Path, target: &Path) -> Option<Result<(), Str
 /// `--linux-esp-install` 的 root 侧执行体：复制 → 0644 → 保留 mtime → 落盘结果。
 #[cfg(target_os = "linux")]
 pub(crate) fn esp_install_child_main(src: &str, dst: &str, out_path: &str) -> i32 {
+    // 结果文件先卡路径：这条是 root 跑的，`--out` 由调用方给
+    if let Err(error) = crate::linux_priv::guard_result_path(out_path) {
+        eprintln!("{error}");
+        return 2;
+    }
     let (ok, text) = match esp_install_as_root(Path::new(src), Path::new(dst)) {
         Ok(()) => (true, serde_json::json!({"ok": true}).to_string()),
         Err(error) => (
@@ -592,24 +597,112 @@ pub(crate) fn esp_install_child_main(_src: &str, _dst: &str, _out_path: &str) ->
     2
 }
 
+/// **目标里明令不许写的系统目录**。助手是以 root 跑的，`sudoers` 只保证「能跑这个
+/// 程序」，能写哪里必须由程序自己把关 —— 否则 `--dst /etc/passwd` 就是一条直通 root
+/// 的后门（加个无密码的 root 用户）。引导相关的位置（`/boot`、挂载着的 ESP）不在其中。
+///
+/// `/var` 整棵拒：往 `/var/spool/cron/crontabs/root` 写一个文件就是定时 root 后门，
+/// 而我们的合法写入点（`/boot`、ESP 挂载点）没有一个落在 `/var` 底下。
+#[cfg(target_os = "linux")]
+const DENIED_TARGET_PREFIXES: &[&str] = &[
+    "/etc",
+    "/usr",
+    "/bin",
+    "/sbin",
+    "/lib",
+    "/lib32",
+    "/lib64",
+    "/opt",
+    "/root",
+    "/proc",
+    "/sys",
+    "/dev",
+    "/var",
+    "/home",
+    "/srv",
+];
+
+/// **源里明令不许读的**。`--src /etc/shadow --dst /tmp/x` 等于把 root 私有文件
+/// 复制到世界可读的地方 —— 提权一样发生了，只是绕了一圈。
+#[cfg(target_os = "linux")]
+const DENIED_SOURCE_PREFIXES: &[&str] = &[
+    "/etc/shadow",
+    "/etc/gshadow",
+    "/etc/sudoers",
+    "/etc/ssh",
+    "/root",
+];
+
+/// 写入前的路径闸门（纯判断，好测）。任何一条不过就整条命令失败。
+#[cfg(target_os = "linux")]
+fn guard_install_paths(src: &Path, dst: &Path) -> Result<(), String> {
+    use std::path::Component;
+    for path in [src, dst] {
+        if !path.is_absolute() {
+            return Err(format!("只接受绝对路径：{}", path.display()));
+        }
+        if path
+            .components()
+            .any(|part| matches!(part, Component::ParentDir))
+        {
+            return Err(format!("路径里不许有 ..：{}", path.display()));
+        }
+    }
+    if src == dst {
+        return Err("源和目标相同，拒绝".to_string());
+    }
+    for prefix in DENIED_TARGET_PREFIXES {
+        if dst.starts_with(prefix) {
+            return Err(format!("拒绝写入 {prefix}：助手只写引导相关位置"));
+        }
+    }
+    for prefix in DENIED_SOURCE_PREFIXES {
+        if src.starts_with(prefix) {
+            return Err(format!("拒绝读取 {prefix}"));
+        }
+    }
+    let src_text = src.to_string_lossy();
+    if src_text.contains("/.ssh/") || src_text.ends_with("/id_rsa") || src_text.ends_with("/id_ed25519")
+    {
+        return Err("拒绝读取私钥/授权文件".to_string());
+    }
+    // 符号链接一律不接：源是链接 = 实际读的是它指向的东西（绕开上面的前缀判断）；
+    // 目标是链接 = 把写入引到别处（内核层还用 O_NOFOLLOW 再挡一次）。
+    for path in [src, dst] {
+        if let Ok(meta) = fs::symlink_metadata(path) {
+            if meta.file_type().is_symlink() {
+                return Err(format!("不接受符号链接：{}", path.display()));
+            }
+        }
+    }
+    Ok(())
+}
+
 #[cfg(target_os = "linux")]
 fn esp_install_as_root(src: &Path, dst: &Path) -> Result<(), String> {
-    use std::os::unix::fs::PermissionsExt;
+    use std::io::Write;
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
     if unsafe { libc::geteuid() } != 0 {
         return Err("必须以 root 运行".to_string());
     }
+    guard_install_paths(src, dst)?;
     let bytes = fs::read(src).map_err(|error| format!("读不了源 {}：{error}", src.display()))?;
-    fs::write(dst, &bytes).map_err(|error| format!("写不进 {}：{error}", dst.display()))?;
-    fs::set_permissions(dst, fs::Permissions::from_mode(0o644))
-        .map_err(|error| format!("设权限失败：{error}"))?;
-    // 保留 mtime：上游靠 size+mtime 判断「已同步」，丢了它每次扫描都会重写
     let modified = fs::metadata(src)
         .and_then(|meta| meta.modified())
         .map_err(|error| format!("读源 mtime 失败：{error}"))?;
-    let file = fs::OpenOptions::new()
+    // O_NOFOLLOW：目标若是符号链接直接 ELOOP，不给「用链接把写入引到别处」的机会
+    let mut file = fs::OpenOptions::new()
         .write(true)
+        .create(true)
+        .truncate(true)
+        .custom_flags(libc::O_NOFOLLOW)
         .open(dst)
-        .map_err(|error| format!("回开目标失败：{error}"))?;
+        .map_err(|error| format!("打不开 {}：{error}（若是符号链接会被拒绝）", dst.display()))?;
+    file.write_all(&bytes)
+        .map_err(|error| format!("写不进 {}：{error}", dst.display()))?;
+    file.set_permissions(fs::Permissions::from_mode(0o644))
+        .map_err(|error| format!("设权限失败：{error}"))?;
+    // 保留 mtime：上游靠 size+mtime 判断「已同步」，丢了它每次扫描都会重写
     file.set_times(fs::FileTimes::new().set_modified(modified))
         .map_err(|error| format!("设 mtime 失败：{error}"))?;
     file.sync_all()
@@ -620,11 +713,19 @@ fn esp_install_as_root(src: &Path, dst: &Path) -> Result<(), String> {
 /// `$TMPDIR` 下一个本次调用专用的路径（与 `temporary_target` 同一套去重思路）。
 #[cfg(target_os = "linux")]
 pub(crate) fn unique_temp_path(prefix: &str) -> PathBuf {
+    unique_temp_path_under(&std::env::temp_dir().to_string_lossy(), prefix)
+}
+
+/// 指定目录下的本次调用专用路径。root 侧的「结果文件」必须落在 `/tmp`
+/// （见 `linux_priv::SCRATCH_DIR`）：那边要校验前缀，而 root 的 `$TMPDIR`
+/// 与用户会话的常常不同。
+#[cfg(target_os = "linux")]
+fn unique_temp_path_under(dir: &str, prefix: &str) -> PathBuf {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_nanos())
         .unwrap_or_default();
-    std::env::temp_dir().join(format!("{prefix}-{}-{unique}", std::process::id()))
+    PathBuf::from(dir).join(format!("{prefix}-{}-{unique}", std::process::id()))
 }
 
 /// 把内存里的字节落进 ESP：先写用户态暂存文件，再让 root `install` 过去。
@@ -1457,4 +1558,85 @@ pub(crate) async fn sync_grub(app: AppHandle) -> Result<(), String> {
 pub(crate) fn switch_grub(app: AppHandle, selector: String) -> AppStatus {
     trace(&app, "command", &format!("switch_grub selector={selector}"));
     switch_grub_and_update(&app, &selector)
+}
+
+/// 免密助手的**参数白名单**：sudoers 只保证「能跑这个程序」，能写/能读哪里全靠这里。
+/// 这几条挂了不会表现为「越权失败」，而是「写 ESP 突然报错」—— 所以要有单测钉住
+/// 正常路径仍然放行。
+#[cfg(all(test, target_os = "linux"))]
+mod guard_tests {
+    use super::*;
+
+    fn ok(src: &str, dst: &str) -> bool {
+        guard_install_paths(Path::new(src), Path::new(dst)).is_ok()
+    }
+
+    #[test]
+    fn allows_normal_esp_and_boot_writes() {
+        assert!(ok("/tmp/anyboot-esp-stage-1-2", "/boot/efi/EFI/OC/config.plist"));
+        assert!(ok("/boot/grub/grub.cfg", "/boot/efi/EFI/grub/grub.cfg"));
+        assert!(ok("/run/user/1000/anyboot-stage", "/boot/grub/grub.cfg"));
+        // ESP 也可能挂在 /mnt、/media、/run/media 下面 —— 这些必须照旧放行
+        assert!(ok("/tmp/stage", "/mnt/esp/EFI/OC/config.plist"));
+        assert!(ok("/tmp/stage", "/media/jianghh/ESP/EFI/OC/config.plist"));
+    }
+
+    #[test]
+    fn rejects_writing_into_system_dirs() {
+        // 写这些地方等于直接拿 root：/etc/passwd 加个无密码用户、/usr/bin 换二进制
+        for dst in [
+            "/etc/passwd",
+            "/etc/sudoers.d/anyboot",
+            "/usr/bin/su",
+            "/usr/lib/anyboot/anyboot-priv",
+            "/bin/sh",
+            "/root/.bashrc",
+            "/proc/self/mem",
+            "/dev/sda",
+            "/var/lib/anyboot/priv.json",
+            // 往 crontab 写一坨就是定时 root 后门
+            "/var/spool/cron/crontabs/root",
+            // 往别人的 shell 启动文件里写，等于换个用户执行
+            "/home/jianghh/.bashrc",
+        ] {
+            assert!(!ok("/tmp/x", dst), "不该允许写 {dst}");
+        }
+    }
+
+    #[test]
+    fn rejects_reading_secrets() {
+        // 把 root 私有文件复制到世界可读的地方，同样是提权
+        for src in [
+            "/etc/shadow",
+            "/etc/gshadow",
+            "/etc/ssh/ssh_host_ed25519_key",
+            "/root/.ssh/id_rsa",
+            "/home/jianghh/.ssh/id_ed25519",
+        ] {
+            assert!(!ok(src, "/tmp/dump"), "不该允许读 {src}");
+        }
+    }
+
+    #[test]
+    fn rejects_relative_traversal_and_self_copy() {
+        assert!(!ok("tmp/x", "/boot/efi/x"));
+        assert!(!ok("/tmp/x", "boot/efi/x"));
+        // `..` 能把上面的前缀判断绕过去（/tmp/../etc/passwd），一律不接
+        assert!(!ok("/tmp/x", "/tmp/../etc/passwd"));
+        assert!(!ok("/tmp/x", "/boot/../etc/passwd"));
+        assert!(!ok("/boot/grub/grub.cfg", "/boot/grub/grub.cfg"));
+    }
+
+    #[test]
+    fn rejects_symlink_source() {
+        // 源是符号链接 = 实际读的是它指向的东西，前缀判断就被绕过去了
+        let dir = std::env::temp_dir().join(format!("anyboot-guard-{}", std::process::id()));
+        let _ = fs::create_dir_all(&dir);
+        let link = dir.join("link");
+        let _ = fs::remove_file(&link);
+        std::os::unix::fs::symlink("/etc/shadow", &link).expect("建符号链接");
+        assert!(!guard_install_paths(&link, Path::new("/tmp/dump")).is_ok());
+        let _ = fs::remove_file(&link);
+        let _ = fs::remove_dir(&dir);
+    }
 }

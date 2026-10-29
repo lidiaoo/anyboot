@@ -137,9 +137,13 @@ pub(crate) struct ChannelsRuntime {
 ///
 /// `#[cfg(unix)]` 那段权限是给 macOS 的：子进程是 root，写出来的文件属主也是
 /// root，不放开读权限的话发起请求的用户读不到自己的结果。
+///
+/// 写临时文件时带 `O_NOFOLLOW | O_EXCL`：临时文件名是「结果路径 + pid」，可预测，
+/// 而结果路径通常落在世界可写的 `/tmp`。不带这两个标志的话，别人可以先建一个
+/// 同名符号链接，让我们以 **root** 身份往他指定的文件里写这段 JSON。
 pub(crate) fn write_result_file(out_path: &str, text: &str) -> i32 {
     let tmp = std::path::PathBuf::from(format!("{out_path}.tmp-{}", std::process::id()));
-    if let Err(error) = std::fs::write(&tmp, text) {
+    if let Err(error) = write_new_file(&tmp, text) {
         eprintln!("写结果失败：{error}");
         return 2;
     }
@@ -154,6 +158,29 @@ pub(crate) fn write_result_file(out_path: &str, text: &str) -> i32 {
         let _ = std::fs::set_permissions(out_path, std::fs::Permissions::from_mode(0o644));
     }
     0
+}
+
+/// 只新建、不跟随符号链接地写一个文件（跨平台：非 unix 退化成普通写）。
+fn write_new_file(path: &std::path::Path, text: &str) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o644).custom_flags(libc::O_NOFOLLOW);
+    }
+    // create_new 遇到同名残留会失败；那是上一次崩溃留下的，删掉再来一次
+    let mut file = match options.open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            std::fs::remove_file(path)?;
+            options.open(path)?
+        }
+        Err(error) => return Err(error),
+    };
+    file.write_all(text.as_bytes())?;
+    file.sync_all()
 }
 
 /// UTC ISO8601（无 chrono 依赖，civil-from-days；与 backup::iso_now 同算法）。

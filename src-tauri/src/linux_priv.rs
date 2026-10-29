@@ -20,6 +20,7 @@
 //! 3. 临时文件**不能**放在 `/etc/sudoers.d/` 里：该目录下所有不以 `~` 结尾的文件
 //!    **都会被 include**，`.tmp` / `.bak` 一样会被当成规则解析。
 
+use std::fs;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -32,6 +33,39 @@ pub(crate) const SUDOERS_PATH: &str = "/etc/sudoers.d/anyboot";
 pub(crate) const STATE_DIR: &str = "/var/lib/anyboot";
 /// 安装记录：给谁装的、哪个版本。
 pub(crate) const META_PATH: &str = "/var/lib/anyboot/priv.json";
+
+/// 特权子命令的「结果文件」只允许落在这里。
+///
+/// 子命令是 root 跑的，`--out` 由调用方给 —— 不限制的话它就是个「以 root 身份往
+/// 任意路径写一段固定 JSON」的原语（覆盖 `/etc/cron.d/x` 之类）。固定成 `/tmp`
+/// 两边都不用猜对方的 `$TMPDIR`。
+pub(crate) const SCRATCH_DIR: &str = "/tmp";
+
+/// 校验 `--out`：必须是绝对路径、直接位于 [`SCRATCH_DIR`] 下、且不含 `..` / 符号链接。
+///
+/// 三道闸都是有原因的，不是洁癖：
+/// - `/tmp/../etc/cron.d/x` 用 `starts_with` 判断是能过的（组件比较时 `..` 只是个普通组件）；
+/// - `/tmp/sub/x` 这种子目录可以被别人换成指向 `/etc` 的符号链接，然后我们跟着写；
+/// - 最终文件名是我们自己起的、可预测（含 pid），别人能抢先在 `/tmp` 里建同名符号链接。
+pub(crate) fn guard_result_path(out: &str) -> Result<(), String> {
+    let path = Path::new(out);
+    if !path.is_absolute() {
+        return Err(format!("结果文件要绝对路径：{out}"));
+    }
+    if path.components().any(|part| part.as_os_str() == "..") {
+        return Err(format!("结果文件路径不许带 ..：{out}"));
+    }
+    if path.parent() != Some(Path::new(SCRATCH_DIR)) {
+        return Err(format!("结果文件要直接放在 {SCRATCH_DIR} 下：{out}"));
+    }
+    // 已经存在时多半是上一次崩溃残留、或者别人抢注的符号链接 —— 两种都不接
+    if let Ok(meta) = fs::symlink_metadata(path) {
+        if meta.file_type().is_symlink() {
+            return Err(format!("结果文件路径是符号链接：{out}"));
+        }
+    }
+    Ok(())
+}
 
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -574,7 +608,9 @@ mod imp {
     /// —— 装组件的动作本来就该让用户看见系统授权框。
     fn run_root_subcommand(flag: &str, password: Option<&str>) -> Result<(), String> {
         let exe = std::env::current_exe().map_err(|error| format!("拿不到自身路径：{error}"))?;
-        let out = std::env::temp_dir().join(format!(
+        // 落 /tmp 而不是 `env::temp_dir()`：root 侧要校验这个前缀，两边的 `$TMPDIR`
+        // 不一定一样（用户会话常见 `/run/user/1000`）
+        let out = PathBuf::from(SCRATCH_DIR).join(format!(
             "anyboot-priv-{}-{}.json",
             std::process::id(),
             flag.trim_start_matches("--")
@@ -764,6 +800,11 @@ pub fn uninstall_main(out_path: &str) -> i32 {
 }
 
 fn write_result(out_path: &str, outcome: Result<(), String>) -> i32 {
+    // 先卡路径再写：这条是 root 侧执行体，`--out` 由调用方给
+    if let Err(error) = guard_result_path(out_path) {
+        eprintln!("{error}");
+        return 2;
+    }
     let payload = match outcome {
         Ok(()) => serde_json::json!({"ok": true}),
         Err(error) => serde_json::json!({"ok": false, "error": error}),
@@ -883,5 +924,37 @@ mod tests {
         assert!(text.starts_with("未安装"));
         assert!(text.contains("输一次密码"));
         assert!(describe("ready", "jianghh", "0.1.0").contains("jianghh"));
+    }
+
+    /// 结果文件路径闸门：这是 root 侧唯一的「按调用方给的路径写」入口。
+    #[test]
+    fn result_path_guard_only_takes_flat_tmp_files() {
+        assert!(guard_result_path("/tmp/anyboot-priv-123-linux-priv-install.json").is_ok());
+        // 相对路径：root 进程的 cwd 我们控制不了
+        assert!(guard_result_path("anyboot-priv-1.json").is_err());
+        // `..` 能绕过 starts_with（组件比较时 `..` 只是普通组件）
+        assert!(guard_result_path("/tmp/../etc/cron.d/anyboot").is_err());
+        // 子目录可以被别人整目录换成指向 /etc 的符号链接
+        assert!(guard_result_path("/tmp/anyboot/x.json").is_err());
+        // /tmpfoo 与 /tmp 不是一回事，/var/tmp 也不在允许范围
+        assert!(guard_result_path("/tmpfoo/x.json").is_err());
+        assert!(guard_result_path("/var/tmp/x.json").is_err());
+        assert!(guard_result_path("/etc/sudoers.d/anyboot").is_err());
+        assert!(guard_result_path("/tmp").is_err());
+    }
+
+    /// 同名符号链接抢注：结果文件名含 pid，可预测，所以必须拒绝。
+    #[cfg(unix)]
+    #[test]
+    fn result_path_guard_rejects_predropped_symlink() {
+        let link = PathBuf::from(SCRATCH_DIR).join(format!(
+            "anyboot-priv-guard-test-{}.json",
+            std::process::id()
+        ));
+        let _ = fs::remove_file(&link);
+        std::os::unix::fs::symlink("/etc/passwd", &link).expect("建符号链接");
+        let guarded = guard_result_path(&link.to_string_lossy());
+        let _ = fs::remove_file(&link);
+        assert!(guarded.is_err(), "指向 /etc/passwd 的符号链接必须被拒");
     }
 }
