@@ -1130,6 +1130,9 @@ pub(crate) fn spawn_boot_esp_mount(app: AppHandle) {
         }
         if mounted_any {
             refresh_channels(&app);
+            // 与 boot-scan 同款一次性推送：首帧已画完，这一拍把「挂上之后
+            // 检测到了」补进窗口 —— 不推的话卡片要等用户手动刷新才变绿
+            crate::publish_ui(&app);
         }
     });
     #[cfg(not(target_os = "linux"))]
