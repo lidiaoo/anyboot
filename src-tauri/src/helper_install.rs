@@ -23,6 +23,12 @@ pub(crate) const PLIST_PATH: &str = "/Library/LaunchDaemons/com.example.anyboot.
 /// 等助手回结果的时长。launchd 唤起一次通常 <300ms；4 秒是「慢机器 + 冷启动」的
 /// 上限，超过就不是慢了，是没装上或被拦了 —— 那时候要退回密码框，不能让用户干等。
 const REPLY_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(4000);
+
+/// 读 Linux 分区的超时。真机十块分区、每块读 fstab/cfg/os-release，实测 2.3 秒；
+/// 但那是暖缓存。冷启动 + 十块盘的 inode 寻道可以到十几秒，25 秒是「还没回就是坏了」。
+/// **不能用 [`REPLY_TIMEOUT`]**：那样一块大分区就能让整个扫描被判成「助手没响应」。
+const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(25_000);
+
 const REPLY_POLL: std::time::Duration = std::time::Duration::from_millis(40);
 
 /// 调用助手时的两类失败。区别很重要：
@@ -189,21 +195,55 @@ pub(crate) fn request(entries: &[(&str, &str, &[u8])]) -> Result<(), HelperError
             hex: hex::encode(value),
         })
         .collect();
-    let request = Request::new(ops);
+    send(&Request::new(ops), REPLY_TIMEOUT).map(|_| ())
+}
+
+/// 让 root 助手枚举 ext4 分区并读 fstab / grub.cfg / grubenv。返回整包 JSON 字节。
+///
+/// 返回的是**原始字节**而不是解析好的结构：协议层不该知道 `ProbePayload` 长什么样，
+/// 解析留在 `channels::linux_grub`。
+#[cfg(target_os = "macos")]
+pub(crate) fn linux_probe(esp: &str) -> Result<Vec<u8>, HelperError> {
+    let (_, blob) = send(&Request::linux_probe(esp), PROBE_TIMEOUT)?;
+    blob.ok_or_else(|| {
+        HelperError::Unavailable("免密助手回了成功，但没有附探测结果".to_string())
+    })
+}
+
+/// 让 root 助手把 1024 字节环境块覆盖回 `dev` 的 `rel`。
+#[cfg(target_os = "macos")]
+pub(crate) fn linux_write_env(
+    dev: &str,
+    rel: &str,
+    block: &[u8],
+) -> Result<String, HelperError> {
+    let (reply, _) = send(&Request::linux_write_env(dev, rel, block), REPLY_TIMEOUT)?;
+    Ok(reply.detail.unwrap_or_else(|| "已写入".to_string()))
+}
+
+/// 投递一个请求并等回执。返回 `(回执, 载荷)`。
+///
+/// 载荷（`blob`）由助手先落盘、再落回执，所以**看到回执就等于载荷完整** ——
+/// 这里的读文件不需要任何「等它写完」的重试。
+#[cfg(target_os = "macos")]
+fn send(
+    request: &Request,
+    timeout: std::time::Duration,
+) -> Result<(Reply, Option<Vec<u8>>), HelperError> {
     // 校验放在本地也走一遍：请求格式错了就别去打扰 root 进程，
     // 而且能把错误说成「AnyBoot 要写的变量名不在允许范围」这种人话。
-    if let Err(error) = helper_proto::validate(&request) {
+    if let Err(error) = helper_proto::validate(request) {
         return Err(HelperError::Rejected(error));
     }
     let json = request
         .to_json()
-        .map_err(|error| HelperError::Unavailable(error))?;
+        .map_err(HelperError::Unavailable)?;
     let name = request.file_name();
     let stem = name.trim_end_matches(".json").to_string();
 
     deliver(&name, &json)?;
 
-    let deadline = std::time::Instant::now() + REPLY_TIMEOUT;
+    let deadline = std::time::Instant::now() + timeout;
     let reply_path = Request::outbox_dir().join(format!("{stem}.json"));
     loop {
         if let Ok(bytes) = std::fs::read(&reply_path) {
@@ -211,15 +251,35 @@ pub(crate) fn request(entries: &[(&str, &str, &[u8])]) -> Result<(), HelperError
             let reply: Reply = serde_json::from_slice(&bytes).map_err(|error| {
                 HelperError::Rejected(format!("助手的回复看不懂（{error}）"))
             })?;
-            return if reply.ok {
-                Ok(())
-            } else {
-                Err(HelperError::Rejected(
+            if !reply.ok {
+                return Err(HelperError::Rejected(
                     reply
                         .error
                         .unwrap_or_else(|| "助手拒绝了这次写入，但没给原因".to_string()),
-                ))
+                ));
+            }
+            let blob = match reply.blob.as_deref() {
+                Some(name) => {
+                    // 载荷名由助手给，但它只会是 `<stem>.blob`；仍然过一遍形状，
+                    // 免得一个被篡改的回执把读取引到别处
+                    if name.contains('/') || name.contains("..") {
+                        return Err(HelperError::Rejected(format!(
+                            "助手给的结果文件名不合法：{name}"
+                        )));
+                    }
+                    let path = Request::outbox_dir().join(name);
+                    let bytes = std::fs::read(&path).map_err(|error| {
+                        HelperError::Rejected(format!(
+                            "回执说有结果载荷，但读不到（{}）：{error}",
+                            path.display()
+                        ))
+                    })?;
+                    let _ = std::fs::remove_file(&path);
+                    Some(bytes)
+                }
+                None => None,
             };
+            return Ok((reply, blob));
         }
         if std::time::Instant::now() >= deadline {
             // 还没被处理就把请求撤掉：否则助手十分钟后才醒来，会在用户完全不知情的
@@ -227,7 +287,7 @@ pub(crate) fn request(entries: &[(&str, &str, &[u8])]) -> Result<(), HelperError
             let _ = std::fs::remove_file(Request::inbox_dir().join(&name));
             return Err(HelperError::Unavailable(format!(
                 "免密助手在 {} 秒内没有响应（launchd 作业可能没加载，或助手被系统拦下了）",
-                REPLY_TIMEOUT.as_secs()
+                timeout.as_secs()
             )));
         }
         std::thread::sleep(REPLY_POLL);
@@ -236,6 +296,20 @@ pub(crate) fn request(entries: &[(&str, &str, &[u8])]) -> Result<(), HelperError
 
 #[cfg(not(target_os = "macos"))]
 pub(crate) fn request(_entries: &[(&str, &str, &[u8])]) -> Result<(), HelperError> {
+    Err(HelperError::Unavailable("这个平台没有免密助手".to_string()))
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn linux_probe(_esp: &str) -> Result<Vec<u8>, HelperError> {
+    Err(HelperError::Unavailable("这个平台没有免密助手".to_string()))
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn linux_write_env(
+    _dev: &str,
+    _rel: &str,
+    _block: &[u8],
+) -> Result<String, HelperError> {
     Err(HelperError::Unavailable("这个平台没有免密助手".to_string()))
 }
 

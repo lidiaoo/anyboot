@@ -962,10 +962,22 @@ body[data-grub-mode="pane"] #grub {
  * 左 = 手动解析（09_anyboot + ESP 上的 grub.cfg），右 = 自动读取（Linux
  * 分区自己的 /boot/grub{,2}）。两条链路数据源不同，条目常常不一样 ——
  * 并排摆着才能一眼看出「为什么两边对不上」，堆成上下两块反而看不出来。
- * auto-fit + 320px 下限：窗口窄下来自己退回上下堆叠，不用另写 @media。 */
+ *
+ * **默认就并排**（用户同日追加要求）。原来用 auto-fit + 320px 下限，内嵌
+ * 460px 列里装不下两块就自动堆成上下 —— 等于「并排」只在加宽模式存在。
+ *
+ * 现在这条式子同时满足三件事，不需要容器查询也不需要 @media：
+ *   max(200px, 45%) 下限 —— 45% 保证最多两列（三列要 135% 宽），
+ *                    200px 保证太窄时退回一列（两块 200 + gap 装不下就折叠）。
+ *   内嵌 460px → 每块约 220px；加宽 932px → 每块约 460px；<410px → 堆叠。
+ * 用 minmax(0, 1fr) 而不是 1fr：`1fr` 的隐含下限是 min-content，
+ * 一个长内核名就能把列顶宽、把另一块挤没。
+ *
+ * 没走 @container：pane 模式会把两块搬进右栏（#grub 本身 display:none），
+ * 那时容器查询的祖先不是 #grub，规则直接不匹配 —— 反而更难预测。 */
 .grub-dual {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(max(200px, 45%), 1fr));
   gap: 10px;
   align-items: start;
 }

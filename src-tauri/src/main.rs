@@ -2,19 +2,20 @@
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    // ⓪ root 助手模式（免密写 NVRAM）：必须排在所有分支最前 ——
+    // ⓪ root 助手模式（免密写 NVRAM / 免密读 Linux 分区）：必须排在所有分支最前 ——
     //    装到 /Library 的是本程序的副本，被 launchd 唤起时带 `--run-inbox`，
     //    此时**绝不能**进 Tauri（那会去开窗口、抢单实例锁、监听端口）。
     if args.iter().any(|arg| arg == "--run-inbox") {
-        // 非 root 跑没有意义（写 NVRAM 必然被拒）：早失败比晚失败好，
+        // 非 root 跑没有意义（写 NVRAM、开 /dev/rdisk 必然被拒）：早失败比晚失败好，
         // 否则用户看到的是「助手回了失败」，真相却是「你以自己身份跑了它」。
-        // dry-run 是测试用的例外（见 helper_proto::apply）。
         let dry_run = std::env::var("ANYBOOT_HELPER_DRY_RUN").as_deref() == Ok("1");
         if !dry_run && anyboot_lib::helper_proto::current_uid() != 0 {
             eprintln!("anyboot --run-inbox 必须以 root 运行（launchd 作业会这么做）。");
             std::process::exit(3);
         }
-        std::process::exit(anyboot_lib::helper_proto::run_inbox());
+        std::process::exit(anyboot_lib::helper_proto::run_inbox(
+            &anyboot_lib::helper_exec::System,
+        ));
     }
     // ⓪.5 提权扫描子命令（Windows/Linux 读 APFS 整盘要管理员，按需自拉起一次，
     //    结果经 JSON 文件回传给主进程 —— 见 channels/apfs_reader.rs 模块注释）。

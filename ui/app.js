@@ -1619,7 +1619,16 @@ function renderGrubAuto(view, busy, format) {
   } else if (target) {
     footBits.push("没有 grubenv 就没法记住启动项：先在该系统里跑一次 grub-editenv create。");
   }
-  if (view.needsElevation && view.platform !== "linux") {
+  // 「这次为什么弹 / 没弹密码」必须说出来。
+  // 装了免密助手之后还提示「每读一次都要授权」就是假话；没装却不说，
+  // 用户会以为程序坏了。via 由后端如实填（host / helper / elevated）。
+  if (view.via === "helper") {
+    footBits.push("本次由免密助手读取，没有弹密码。");
+  } else if (view.via === "elevated") {
+    footBits.push(
+      "本次是一次性授权读取（弹了密码）。在 OpenCore 卡片里开启「免密模式」后不再弹。",
+    );
+  } else if (view.needsElevation && view.platform !== "linux") {
     footBits.push("每读一次都要管理员授权。");
   }
   grubAutoFootElement.textContent = footBits.join(" ");
@@ -1663,8 +1672,15 @@ async function switchGrubAuto(selector) {
   grubAutoSummaryElement.textContent = "正在写入 grubenv…";
   grubAutoSummaryElement.classList.remove("fail");
   try {
-    await invoke("linux_grub_switch", { selector });
-    grubAutoSummaryElement.textContent = "";
+    // 后端返回的就是**切换之后**的视图（saved_entry / next_entry 已用刚写进去的
+    // 那块回填），直接拿它重画，不用等下一轮快照 —— 快照要绕 publish_ui 一圈，
+    // 中间那一下界面上还是旧值，用户会以为没切成功。
+    const view = await invoke("linux_grub_switch", { selector });
+    if (view && typeof view === "object") {
+      renderGrubAuto(view, false, grubListFormatElement.value);
+    } else {
+      grubAutoSummaryElement.textContent = "";
+    }
   } catch (error) {
     grubAutoSummaryElement.textContent = String(error);
     grubAutoSummaryElement.classList.add("fail");

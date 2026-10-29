@@ -290,22 +290,21 @@ channels/linux_grub.rs        # 自动读取通道
 自研版的能力边界正好等于需求边界：只认 `extent`（不认 `indirect block`）、只读不解压、
 不碰 journal，所以 `RECOVER` 位挂着时**直接拒绝写**（只读照常）。约 1000 行，7 项单测。
 
-### 13.2 偏离用户定案：helper → `osascript` 一次性提权
+### 13.2 提权路径：先 osascript 落地，当日收口到 helper（v2）
 
-定案第 3 条是「macOS 走 helper」。这一版实际走的是
-`osascript -e 'do shell script "…" with administrator privileges'`，每次读盘弹一次授权。
+定案第 3 条是「macOS 走 helper」。第一版为了先把语义跑通，走的是
+`osascript -e 'do shell script "…" with administrator privileges'`：每次读盘弹一次授权。
 
-原因：项目里的 root helper（待办 #72 `helper_proto.rs`）**目前还不存在**，
-而扩 helper 协议要先做「装 helper、签 helper、升 helper」三件事，会把这一期拖成两期。
+当时的判断「`helper_proto.rs` 不存在」**是错的** —— 它一直在，只是协议 v1 只能写
+`OCBt*`（OpenCore 的默认启动项），没有「读块设备」这种任务。所以不是从零做助手，
+而是**扩协议**。同一轮就收口了，见 §14。
 
-代价与真相：
-- 每次「重新读取」弹一次密码 → 所以**不做开机自动扫**，改成按钮触发；
+两版共有的代价与真相：
 - 一次性提权只拿得到一次结果 → `refresh()` 里**只探一次**，视图与写盘上下文
   （`runtime_from`）从同一份 payload 出，切启动项时不二次弹框；
-- 用户点「取消」时 `osascript` 返回 `-128`，已单独识别成「已取消授权」，不当报错。
-
-要回到 helper 方案，需要重做的只有 `probe()` / `run_privileged()` 两个函数；
-定位与解析（`locate` / `build_view` / `ext4_raw`）完全不用动。
+- 用户点「取消」时 `osascript` 返回 `-128`，已单独识别成「已取消授权」，不当报错；
+- 两种路径**共用同一个写入函数** `write_env_block` —— 免得「免密模式干净、
+  弹密码模式不干净」这种差异随时间去漂。
 
 ### 13.3 真机数据（本机 disk0 · 2TB · 10 块 ext4）
 
@@ -375,3 +374,213 @@ channels/linux_grub.rs        # 自动读取通道
 - **btrfs / LUKS / LVM**：识别到即明确报不支持，不静默跳过。
 - **写 env 的 e2fsck 复验**：代码里有回读逐字节比对，但没有跑过 `e2fsck -fn`；
   Arch 里的验证留待下次重启时一起做（改 `next_entry` → 重启 → 确认进的是那一项）。
+
+## 14. 收口：helper 协议 v2 与内嵌并排（2026-10-29 同日晚）
+
+用户追加「都做了」= ① 补 helper ② 内嵌模式也强制并排。
+
+### 14.1 先纠正一条事实：helper 一直存在
+
+上一节写的「`helper_proto.rs` 不存在」是错的。真实情况：
+
+| 件 | 状态 |
+|---|---|
+| `helper_proto.rs`（669 行） | 在。协议 v1 + 文件信箱 + `run_inbox` |
+| `helper_install.rs`（692 行） | 在。装 / 卸 / `launchd WatchPaths` / sha256 判「是不是当前构建」 |
+| `/Library/PrivilegedHelperTools/com.example.anyboot.helper` | **装着的**（10-28 装过一次） |
+
+缺的只是「助手能做的事」：v1 的 `validate` 只放行 OpenCore 私有命名空间下的
+`OCBt*`，一条 `Op` 就是「写一个 NVRAM 变量」。所以这一轮不是从零做助手，是**扩协议**。
+
+### 14.2 协议 v2：三种任务，一个扁平结构
+
+```rust
+pub enum Kind { Nvram, LinuxProbe, LinuxWriteEnv }
+
+pub struct Request {
+    v: u32, kind: Kind,
+    ops: Vec<Op>,        // Nvram
+    esp: Option<String>, // LinuxProbe：所选 ESP 的 PARTUUID（只是查询条件）
+    dev: Option<String>, // LinuxWriteEnv：disk0s9
+    rel: Option<String>, // LinuxWriteEnv：只能是两个常量之一
+    hex: Option<String>, // LinuxWriteEnv：1024 字节
+}
+```
+
+**为什么不用 serde 的 internally-tagged enum**：`deny_unknown_fields` 对
+internally/adjacently tagged 枚举不生效（serde 的已知限制）。而「请求格式固定、
+多一个字段就拒」正是这一层要守住的东西 —— 静默忽略一个 `dev` 字段，等于让
+「你以为写了 A，其实写了 B」有机会发生。扁平结构 + 显式交叉校验把这件事做死了。
+
+**大载荷走 blob，不进回执**：Linux 探测一次 135 KB（十块分区、七份 grub.cfg）。
+塞进回执等于每条回执都几百 KB。现在：
+
+```
+助手：执行 → 写 outbox/<stem>.blob（先 .part 再 rename）→ 写 outbox/<stem>.json（带 blob 名）
+App ：轮询到 .json → 按名字读 .blob → 删掉
+```
+
+顺序是硬要求：**回执出现就是「blob 已完整」的信号**，反过来的顺序会让 App 偶尔
+读到半个文件 —— 那种错只在快机器上偶发，最难查。
+
+### 14.3 放宽了什么 / 没放宽什么
+
+放宽（这是 ack 过的边界，写在 `helper_proto.rs` 头注释里）：
+
+- 能读**所有 ext4 分区里的三个固定相对路径**：`etc/fstab`、`boot/grub{,2}/grub.cfg`、
+  `boot/grub{,2}/grubenv`；
+- 能把 `grubenv` 的 1024 字节原地覆盖。
+
+**没有**放宽（这几条是边界，不是「暂时」）：
+
+| 约束 | 实现 |
+|---|---|
+| 请求里没有路径参数 | `LinuxProbe` 不接受 `dev/rel/hex`；读什么由助手自己枚举 |
+| 写路径只有两个常量 | `LINUX_ENV_RELS = ["boot/grub/grubenv", "boot/grub2/grubenv"]` |
+| 设备名只认 `diskNsM` | `valid_disk_dev`：拒 `/dev/` 前缀、拒 `rdisk` 前缀、拒整盘、拒 `s0`、拒前导零 |
+| 环境块必须正好 1024 字节 | 1023 / 1025 都拒 |
+| 交叉字段一律拒 | `Nvram` 带 `dev`、`LinuxWriteEnv` 带 `esp`、`LinuxProbe` 带 `dev` 全部报错 |
+| 不执行 shell、不跟软链接 | 沿用 v1 |
+
+`valid_disk_dev` 里有一条值得记：**盘号 `0` 本身合法**。第一版写「不以前导零开头」，
+把 `disk0s9` 一起拒了（单测当场抓到）。
+
+### 14.4 分层：协议不碰设备
+
+```
+helper_proto.rs   收请求 / 校验 / 回执    —— 纯逻辑，任何权限任何平台都能单测
+   ↓ trait Executor
+helper_exec.rs    真正碰设备              —— 只在 root 助手进程里跑，一行单测都没有
+```
+
+`run_inbox(&dyn Executor)` 收一个执行器；生产传 `helper_exec::System`，
+单测传 `FakeExecutor`。端到端测试因此能同时覆盖三条任务 + 两个坏请求，
+而**不需要 root、不需要真设备**，还能断言「坏请求一次都没到达执行层」
+（`executor.calls == 3`）。
+
+`apply_nvram` 从 `helper_proto` 搬到 `helper_exec` 是这次分层的直接结果：
+协议层一行设备代码都不该有。
+
+### 14.5 超时：探测不能和写变量用同一个值
+
+| 任务 | 超时 | 理由 |
+|---|---|---|
+| `Nvram` / `LinuxWriteEnv` | 4 s | launchd 唤起 + 一次 `nvram`，实测 <300 ms |
+| `LinuxProbe` | **25 s** | 真机暖缓存 2.3 s，冷启动 + 十块盘寻道可到十几秒 |
+
+用 4 s 的话，一块大分区就能让整个扫描被判成「助手没响应」，然后回落去弹密码 ——
+用户看到的是「免密又坏了」。
+
+### 14.6 旧助手：必须说出来，不能装作免密
+
+App 升级后 `/Library` 里还是上一版助手（协议 v1，不认 `kind`）。处理：
+
+```rust
+if helper.installed && !helper.stale { 走 helper }
+else { 走 osascript；若 installed && stale → issues 里推一条 }
+```
+
+那条 issue 写的是「免密助手还是上一个版本的：这次用了一次性授权。在 OpenCore
+卡片里把「免密模式」关掉再开一次，就能恢复免密。」—— 不说明的话，用户看到的就是
+「明明开着免密，怎么又弹密码了」。
+
+### 14.7 真机验证（v2 全链路）
+
+用临时信箱（`ANYBOOT_HELPER_SPOOL`）+ root 跑 `--run-inbox`，不碰
+`/var/spool/anyboot`，也不碰已装的那份旧助手：
+
+```
+=== LinuxProbe ===
+回执 {"ok":true,"detail":"读取完成（134979 字节）","blob":"0-1-....blob"}
+blob 134,979 字节；disk0s9 envHex 2048 字符；cfgText 51,075 字节
+
+=== LinuxWriteEnv（把 disk0s9 的 grubenv 原样写回）===
+回执 {"ok":true,"detail":"已写入 disk0s9:boot/grub/grubenv（1024 字节，回读一致）"}
+
+=== 写后重新探测的对比 ===
+envHex 逐字节一致: True
+grub.cfg 也一致: True
+分区数: 10 -> 10，清单一致: True
+环境块头部: b'# GRUB Environme'
+```
+
+写的是**与原来完全相同的内容**，所以这条验证的是：能定位 inode、能原地覆盖、
+回读一致、并且除那 1024 字节外什么都没动。
+
+### 14.8 UI：内嵌模式也并排
+
+原来 `repeat(auto-fit, minmax(320px, 1fr))` 在内嵌 460px 列里装不下两块，自动堆成上下
+—— 等于「并排」只在加宽模式存在。改成：
+
+```css
+#grub { container-type: inline-size; }          /* 内嵌列宽与视口无关，只能按容器判 */
+
+.grub-dual {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));  /* 默认就并排 */
+}
+
+@container (max-width: 420px) {                   /* 真的窄才堆叠 */
+  .grub-dual { grid-template-columns: minmax(0, 1fr); }
+}
+```
+
+- 内嵌 460px 列下每块约 210px：挤，但比上下堆叠少滚一屏；
+- `minmax(0, 1fr)` 而不是 `1fr`：长内核名换行而不是撑破列宽（`1fr` 的隐含下限是
+  `min-content`，一个长名字就能把列顶宽）；
+- 脚注按 `view.via` 如实说：`helper` → 「本次由免密助手读取，没有弹密码」；
+  `elevated` → 「本次是一次性授权读取（弹了密码）。开启免密模式后不再弹」；
+  空 → 「每读一次都要管理员授权」。
+
+### 14.9 还没做的
+
+- **Windows 侧仍不支持写 ext4**：`write_env_block` 在非 macOS 返回「分区偏移方案尚未接上」；
+- **没跑 e2fsck**：macOS 上没有 ext4 工具，一致性靠助手自己的「写完整块回读逐字节比对」；
+- **没重启验证 `next_entry` 真的生效**：这一步只能人工重启确认；
+- **装到 `/Library` 的新助手还要用户点一次**：升级后 `stale=true`，需在 OpenCore 卡片
+  里关一次再开；之后新装机器上第一次点也会弹一次密码（写 `/Library` 必须 root）。
+
+### 14.10 收口时抓到的两个真问题
+
+**① `linux_grub_switch` 返回了 `AppStatus`（rEFInd 的状态结构）**
+
+实测返回：
+
+```json
+{"cmd":"linux_grub_switch","ok":true,"result":{
+  "message":"已连接 rEFInd；PreviousBoot 未匹配模板",
+  "variables":[{"displayName":"Linux",...},{"displayName":"Windows",...},...],
+  "varsDir":"/Volumes/REFIND/EFI/refind/vars"}}
+```
+
+`switch` 内部写 grubenv 是成功的（随后重扫确认 `saved_entry`/`next_entry` 都变了），
+但返回值是 rEFInd 的状态对象，`message` 是**上一次 rEFInd 操作**留下的那句。
+
+为什么一直没暴露：前端 `switchGrubAuto` 忽略了返回值，只把摘要清空。但网页端
+`/api/ui-command` 会把它原样吐出去 —— 任何一个走 HTTP 的调用方都会读到一句
+完全无关的话。
+
+改成返回 `LinuxGrubView`（和 `scan` / `pick` 一致），前端直接用它重画。
+
+**② 「切完再扫一次」在 osascript 模式下 = 再弹一次密码框**
+
+原实现成功分支里有 `let _ = refresh(&app, None)`，注释写的是「不弹新授权：
+这次走的是同一份缓存路径」。**注释是错的**：`refresh()` 第一件事就是
+`probe()`，在没装助手的机器上那次 probe 会再拉起一次授权框。
+
+现在改成不重扫：只写了 1024 字节 env，`grub.cfg` 没变，没必要再枚举分区。
+`saved_entry` / `next_entry` 直接用**刚写进去的那块**回填，并把新块存回
+`Runtime.env_bytes` —— 这一条也是必须的：连续切两次时，第二次要是不基于新块算，
+第一次写的 `saved_entry` 会被旧块覆盖回去。
+
+### 14.11 实测：为什么 4 秒超时必须改
+
+| 场景 | 耗时 |
+|---|---|
+| 临时信箱 + root 直接跑 `--run-inbox`（首轮） | 2.3 s |
+| 同一份请求，经 launchd 冷起动 | 4.50 s |
+| 界面「重新读取」（HTTP → helper） | 4.59 s / 3.42 s（暖缓存） |
+
+4.50 s 已经越过原来的 `REPLY_TIMEOUT = 4s`。如果没把探测超时单独放宽到 25 s，
+第一次扫描就会被判「助手没响应」→ 回落弹密码 → 用户以为免密坏了。
+这个数字不是估的，是收口当天真机跑出来的。

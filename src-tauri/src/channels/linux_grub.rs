@@ -112,6 +112,11 @@ impl PartReport {
 pub(crate) struct ProbePayload {
     pub(crate) ok: bool,
     pub(crate) error: Option<String>,
+    /// 这份数据是怎么拿到的：`host`（Linux 本机直读）/ `helper`（root 助手，免密）/
+    /// `elevated`（一次性授权子进程，弹过密码）。UI 要如实显示 ——
+    /// 「为什么这次没弹密码」和「为什么这次弹了」都得有答案。
+    #[serde(default)]
+    pub(crate) via: String,
     /// 所选 ESP 的标识（用户设置的 partition UUID 对应的那块分区的实际身份）
     pub(crate) esp: Option<IdentityWire>,
     pub(crate) parts: Vec<PartReport>,
@@ -197,6 +202,10 @@ pub(crate) struct LinuxGrubView {
     pub(crate) platform: String,
     /// 本端读盘要不要提权（macOS/Windows 是 true）
     pub(crate) needs_elevation: bool,
+    /// 这次是免密还是弹了密码：`host` / `helper` / `elevated`（空 = 还没读成功过）。
+    /// 前端拿它显示「免密助手」的徽标，不再靠猜。
+    #[serde(default)]
+    pub(crate) via: String,
     pub(crate) target: Option<LinuxTarget>,
     /// `exact` / `inferred` / `self` / `manual` / `none`
     pub(crate) confidence: String,
@@ -434,6 +443,7 @@ pub(crate) fn build_view(
         scanned_at: Some(anyboot_now_iso()),
         platform: platform.to_string(),
         needs_elevation,
+        via: payload.via.clone(),
         confidence: "none".to_string(),
         issues: payload.notes.clone(),
         manual_takes_over,
@@ -576,7 +586,11 @@ pub(crate) fn build_view(
 
 // ─────────────────────────── 扫描入口 ───────────────────────────
 
-/// 扫一遍：Linux 本机直读，另外两端拉起提权子进程。
+/// 扫一遍：Linux 本机直读，另外两端提起权进程。
+///
+/// macOS 上**优先走 root 助手**（装了就是免密），没装/没响应才回落到
+/// 「一次性授权子进程」。这个优先级不是性能优化：每次切启动项都弹密码的话，
+/// 这个功能不会被用起来。
 pub(crate) fn probe(esp_partuuid: &str, prefer_dev: &str) -> Result<ProbePayload, String> {
     #[cfg(target_os = "linux")]
     {
@@ -587,17 +601,78 @@ pub(crate) fn probe(esp_partuuid: &str, prefer_dev: &str) -> Result<ProbePayload
     {
         // 「优先用哪块分区」由主进程在 locate() 里决定，子进程只负责摆事实
         let _ = prefer_dev;
-        let mut args = vec!["--linux-grub-probe".to_string()];
-        if !esp_partuuid.trim().is_empty() {
-            args.push("--esp".to_string());
-            args.push(esp_partuuid.trim().to_string());
+
+        #[cfg(target_os = "macos")]
+        let helper = crate::helper_install::view();
+
+        #[cfg(target_os = "macos")]
+        if helper.installed && !helper.stale {
+            match probe_via_helper(esp_partuuid) {
+                Ok(mut payload) => {
+                    payload.via = "helper".to_string();
+                    return Ok(payload);
+                }
+                // 助手明确拒绝：请求非法，或它自己读盘失败。再弹一次密码只会再失败一次，
+                // 直接把真实原因报上去（弹框会把「权限不够」这种真相盖掉）。
+                Err(crate::helper_install::HelperError::Rejected(error)) => return Err(error),
+                // 这条路不通（超时 / 作业没加载 / 被系统拦）：回落一次性授权。
+                // 回落成功时不打扰用户；回落也失败时 osascript 会说自己的原因。
+                Err(crate::helper_install::HelperError::Unavailable(_why)) => {}
+            }
         }
-        let out = temp_path("probe");
-        args.push("--out".to_string());
-        args.push(out.to_string_lossy().to_string());
-        run_privileged(&args, &out)?;
-        read_payload(&out)
+
+        let mut payload = probe_via_elevated(esp_partuuid)?;
+        payload.via = "elevated".to_string();
+        // 「装了但是旧版本」是最容易让人以为「免密坏了」的情况：App 升级过、
+        // `/Library` 里还是旧助手，协议与校验规则都可能对不上，只能先走弹密码那条路。
+        // 不说明的话，用户看到的就是「明明开着免密，怎么又弹密码了」。
+        #[cfg(target_os = "macos")]
+        if helper.installed && helper.stale {
+            payload.notes.push(
+                "免密助手还是上一个版本的：这次用了一次性授权。\
+                 在 OpenCore 卡片里把「免密模式」关掉再开一次，就能恢复免密。"
+                    .to_string(),
+            );
+        }
+        Ok(payload)
     }
+}
+
+/// 免密助手这条路能不能走：装了、且是当前构建。
+///
+/// 「是当前构建」必须一起判（见 `helper_install::helper_is_stale`）：旧助手的校验规则
+/// 与协议都可能是旧的，让它处理 v2 请求只会得到一句看不懂的错。
+#[cfg(target_os = "macos")]
+fn helper_ready() -> bool {
+    let view = crate::helper_install::view();
+    view.installed && !view.stale
+}
+
+#[cfg(target_os = "macos")]
+fn probe_via_helper(
+    esp_partuuid: &str,
+) -> Result<ProbePayload, crate::helper_install::HelperError> {
+    let bytes = crate::helper_install::linux_probe(esp_partuuid)?;
+    serde_json::from_slice(&bytes).map_err(|error| {
+        crate::helper_install::HelperError::Rejected(format!(
+            "免密助手给的探测结果不是合法 JSON：{error}"
+        ))
+    })
+}
+
+/// 一次性授权（osascript / UAC）：弹一次密码，跑一个把自己提权起来的子进程。
+#[cfg(not(target_os = "linux"))]
+fn probe_via_elevated(esp_partuuid: &str) -> Result<ProbePayload, String> {
+    let mut args = vec!["--linux-grub-probe".to_string()];
+    if !esp_partuuid.trim().is_empty() {
+        args.push("--esp".to_string());
+        args.push(esp_partuuid.trim().to_string());
+    }
+    let out = temp_path("probe");
+    args.push("--out".to_string());
+    args.push(out.to_string_lossy().to_string());
+    run_privileged(&args, &out)?;
+    read_payload(&out)
 }
 
 fn read_payload(path: &Path) -> Result<ProbePayload, String> {
@@ -777,22 +852,30 @@ pub(crate) fn write_child_main(dev: &str, rel: &str, payload_path: &str, out: &s
     0
 }
 
-#[cfg(target_os = "macos")]
 fn write_child_work(dev: &str, rel: &str, payload_path: &str) -> Result<String, String> {
     let bytes = std::fs::read(payload_path)
         .map_err(|error| format!("读不到待写内容（{payload_path}）：{error}"))?;
-    validate_env_block(&bytes)?;
+    write_env_block(dev, rel, &bytes)
+}
+
+/// 把 1024 字节环境块写回 `dev` 上的 `rel`。
+///
+/// **两条提权路径共用这一份**（root 助手 / 一次性授权子进程）：写入语义只能有一处，
+/// 否则「免密模式干净、弹密码模式不干净」这种差异会随时间去漂。
+#[cfg(target_os = "macos")]
+pub(crate) fn write_env_block(dev: &str, rel: &str, bytes: &[u8]) -> Result<String, String> {
+    validate_env_block(bytes)?;
     if rel.contains("..") || rel.starts_with('/') {
         return Err("写入路径必须是分区内的相对路径".to_string());
     }
     let source = FileSource::open_raw_rw(&raw_path(dev))?;
     let mut fs = Ext4::open(Box::new(source))?;
-    fs.overwrite_in_place(rel, &bytes)?;
+    fs.overwrite_in_place(rel, bytes)?;
     Ok(format!("已写入 {dev}:{rel}（{} 字节，回读一致）", bytes.len()))
 }
 
 #[cfg(not(target_os = "macos"))]
-fn write_child_work(_dev: &str, _rel: &str, _payload_path: &str) -> Result<String, String> {
+pub(crate) fn write_env_block(_dev: &str, _rel: &str, _bytes: &[u8]) -> Result<String, String> {
     Err("这一端还不支持写 ext4：Windows 的分区偏移方案尚未接上".to_string())
 }
 
@@ -1098,7 +1181,11 @@ pub(crate) fn fat_volume_serial(sector: &[u8]) -> Option<u32> {
 // ─────────────────────────── 写盘 ───────────────────────────
 
 /// 把 selector 写进目标分区的环境块（`saved_entry` + `next_entry`，与手动链路同规则）。
-pub(crate) fn write_env(runtime: &Runtime, selector: &str) -> Result<String, String> {
+///
+/// 返回 `(给人看的一句话, 写进去的那 1024 字节)`。**要把新块带出去**：
+/// 调用方得用它更新状态里的 `env_bytes`，否则连续切两次时第二次会拿**旧块**
+/// 去算新块 —— 第一次写的 `saved_entry` 就被覆盖回去了。
+pub(crate) fn write_env(runtime: &Runtime, selector: &str) -> Result<(String, Vec<u8>), String> {
     if !runtime.selectors.iter().any(|value| value == selector) {
         return Err(format!("当前 grub.cfg 里没有这一项：{selector}"));
     }
@@ -1110,8 +1197,21 @@ pub(crate) fn write_env(runtime: &Runtime, selector: &str) -> Result<String, Str
     validate_env_block(&block)?;
 
     if runtime.host {
-        return write_env_host(&runtime.env_rel, &block);
+        return write_env_host(&runtime.env_rel, &block).map(|detail| (detail, block));
     }
+
+    // 与 probe 同一套优先级：装了助手就免密写，否则弹一次密码。
+    #[cfg(target_os = "macos")]
+    if helper_ready() {
+        match crate::helper_install::linux_write_env(&runtime.dev, &runtime.env_rel, &block) {
+            Ok(detail) => return Ok((detail, block)),
+            // 助手拒绝 = 真的写不进去（分区脏 / 文件不存在 / RECOVER 位挂着）。
+            // 这时候再弹密码只会得到同一个错误，还多让用户输一次密码。
+            Err(crate::helper_install::HelperError::Rejected(error)) => return Err(error),
+            Err(crate::helper_install::HelperError::Unavailable(_why)) => {}
+        }
+    }
+
     let payload = temp_path("env");
     std::fs::write(&payload, &block).map_err(|error| format!("暂存待写内容失败：{error}"))?;
     let out = temp_path("write");
@@ -1138,11 +1238,12 @@ pub(crate) fn write_env(runtime: &Runtime, selector: &str) -> Result<String, Str
     match payload_reply {
         Ok(reply) => {
             if reply.ok {
-                Ok(reply
+                let detail = reply
                     .notes
                     .first()
                     .cloned()
-                    .unwrap_or_else(|| "已写入环境块".to_string()))
+                    .unwrap_or_else(|| "已写入环境块".to_string());
+                Ok((detail, block))
             } else {
                 Err(reply.error.unwrap_or_else(|| "写入失败".to_string()))
             }
@@ -1201,31 +1302,77 @@ pub(crate) fn linux_grub_pick(app: AppHandle, dev: String) -> Option<LinuxGrubVi
 }
 
 /// 切换下次启动：写目标分区自己的 grubenv。
+///
+/// 返回**切换后的 GRUB 视图**，不返回 `AppStatus`。两个原因：
+/// 1. `AppStatus` 是 rEFInd 的状态结构（`vars_dir` / `variables` / `message`），
+///    把 GRUB 的结果塞进去会让网页端读到「已连接 rEFInd；PreviousBoot 未匹配模板」
+///    这种完全无关的话 —— 那是上一次 rEFInd 操作留下的 message；
+/// 2. 前端其实忽略返回值，所以这个错一直没暴露，但 HTTP 通道会原样吐出去。
+///
+/// **不重扫**：只写了 1024 字节 env，`grub.cfg` 没变，没必要再探一遍分区；
+/// 而在没装免密助手时「再探一遍」= 再弹一次密码框。`saved_entry` / `next_entry`
+/// 直接用刚写进去的那块回填，并把新块存回 runtime —— 否则连续切两次时，
+/// 第二次会拿**旧块**去算，把第一次的 `saved_entry` 覆盖掉。
 #[tauri::command]
-pub(crate) fn linux_grub_switch(app: AppHandle, selector: String) -> AppStatus {
-    let runtime = {
+pub(crate) fn linux_grub_switch(app: AppHandle, selector: String) -> LinuxGrubView {
+    let (runtime, current) = {
         let state = app.state::<Mutex<AppState>>();
         let state = state.lock().expect("state mutex poisoned");
-        state.linux_grub_rt.clone()
+        (state.linux_grub_rt.clone(), state.linux_grub.clone())
     };
     let Some(runtime) = runtime else {
-        return update_failure_status(
-            &app,
-            "切换失败",
-            "还没扫描过：先点「重新扫描」，让界面拿到目标分区的 grubenv".to_string(),
-        );
+        let message = "还没扫描过：先点「重新读取」，让界面拿到目标分区的 grubenv".to_string();
+        record_action(&app, "切换 GRUB 启动项（自动读取）失败", false, &message);
+        let mut view = current.unwrap_or_else(|| LinuxGrubView {
+            platform: platform_name().to_string(),
+            needs_elevation: !cfg!(target_os = "linux"),
+            ..LinuxGrubView::default()
+        });
+        view.error = Some(message.clone());
+        view.issues.insert(0, message);
+        return view;
     };
+
     match write_env(&runtime, &selector) {
-        Ok(detail) => {
-            // 让界面立刻反映 saved_entry/next_entry（重扫一次，不弹新授权：
-            // 这次走的是同一份缓存路径，不会重新枚举分区）
-            let _ = refresh(&app, None);
+        Ok((detail, block)) => {
             let message = format!("下次启动：{selector}｜{detail}");
+            let saved = crate::grub::env_value(&block, "saved_entry").filter(|value| !value.is_empty());
+            let next = crate::grub::env_value(&block, "next_entry").filter(|value| !value.is_empty());
+            let view = {
+                let state = app.state::<Mutex<AppState>>();
+                let mut state = state.lock().expect("state mutex poisoned");
+                state.linux_grub_rt = Some(Runtime {
+                    env_bytes: block,
+                    ..runtime
+                });
+                let view = state.linux_grub.get_or_insert_with(|| LinuxGrubView {
+                    platform: platform_name().to_string(),
+                    needs_elevation: !cfg!(target_os = "linux"),
+                    ..LinuxGrubView::default()
+                });
+                view.saved_entry = saved;
+                view.next_entry = next;
+                view.error = None;
+                view.clone()
+            };
             record_action(&app, "切换 GRUB 启动项（自动读取）", true, &message);
             publish_ui(&app);
-            state_snapshot(&app)
+            view
         }
-        Err(error) => update_failure_status(&app, "切换 GRUB 启动项（自动读取）失败", error),
+        Err(error) => {
+            record_action(&app, "切换 GRUB 启动项（自动读取）失败", false, &error);
+            // 写失败时 runtime 仍然有效（cfg 是好的，可能是分区脏 / 只读），
+            // 所以不清它 —— 用户修好之后还能直接再点一次，不必重扫。
+            let mut view = current.unwrap_or_else(|| LinuxGrubView {
+                platform: platform_name().to_string(),
+                needs_elevation: !cfg!(target_os = "linux"),
+                ..LinuxGrubView::default()
+            });
+            view.error = Some(error.clone());
+            view.issues.insert(0, error);
+            publish_ui(&app);
+            view
+        }
     }
 }
 
@@ -1536,6 +1683,45 @@ mod tests {
         let payload = probe_raw(&esp).expect("probe_raw 失败");
         let view = build_view(&payload, "macos", true, None, false);
         println!("{}", serde_json::to_string_pretty(&view).unwrap());
+    }
+
+    /// 真机：走 **root 助手（免密）** 读一遍，验证 App 侧客户端 + v2 协议 + 解析三者合得上。
+    ///
+    /// 与 [`live_probe`] 的区别：那条测「本进程以 root 直接读块设备」，
+    /// 这条测「普通用户进程投请求 → launchd 唤起 root 助手 → 读 → 回 blob」。
+    /// 后者才是 App 在 macOS 上的真实路径，而且**全程不该出现密码框**。
+    ///
+    /// 前提：助手已安装。**不判 `stale`** —— 那个判断比的是
+    /// `current_exe()` 与 `/Library` 里的副本，而测试进程的 `current_exe` 是
+    /// `target/debug/deps/anyboot-xxxx`，跟 App 本体永远不同，判了必然误报。
+    /// 产品里 App 进程比的是自己，两者是同一份复制，摘要一致。
+    ///
+    /// 助手是旧协议时这条会失败（回 `请求不是合法 JSON`）—— 那正是要暴露的：
+    /// 去 OpenCore 卡片里关一次再开一次免密模式。
+    /// `cargo test --lib live_helper_probe -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn live_helper_probe() {
+        if !cfg!(target_os = "macos") {
+            return;
+        }
+        if !crate::helper_install::installed() {
+            println!("跳过：免密助手没装（这条测试只测免密路径）");
+            return;
+        }
+        let started = std::time::Instant::now();
+        let bytes = crate::helper_install::linux_probe("").expect("免密助手读取失败");
+        println!(
+            "回包 {} 字节，耗时 {:?}",
+            bytes.len(),
+            started.elapsed()
+        );
+        let payload: ProbePayload = serde_json::from_slice(&bytes).expect("回包不是 ProbePayload");
+        assert!(payload.ok, "助手回了 ok=false：{:?}", payload.error);
+        assert!(!payload.parts.is_empty(), "一块 ext4 都没读到");
+        let with_cfg = payload.parts.iter().filter(|part| part.cfg_rel.is_some()).count();
+        println!("{} 块 ext4，其中 {} 块有 grub.cfg", payload.parts.len(), with_cfg);
+        assert!(with_cfg > 0, "一块带 grub.cfg 的分区都没有");
     }
 
     /// 真机对照（要 root，`cargo test -- --ignored live_probe` 由 sudo 跑）：

@@ -189,9 +189,10 @@ pub(crate) use login_item::*;
 pub(crate) use power::*;
 pub(crate) use mount::*;
 
-/// 免密写 NVRAM：协议（App ↔ root 助手）与安装器。
-/// `helper_proto` 要公开给 `bin/anyboot_helper.rs` 用，所以是 `pub mod`。
+/// 免密写 NVRAM / 读 Linux 分区：协议（App ↔ root 助手）、执行器与安装器。
+/// `helper_proto` / `helper_exec` 要公开给 `main.rs` 的 `--run-inbox` 分支用，所以是 `pub mod`。
 pub mod helper_proto;
+pub mod helper_exec;
 pub(crate) mod helper_install;
 
 mod state;

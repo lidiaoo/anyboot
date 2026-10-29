@@ -642,10 +642,11 @@ pub(crate) fn remote_ui_command_inner(
             ui_str(args, "dev")?,
         ))
         .map_err(|error| format!("序列化失败: {error}")),
-        "linux_grub_switch" => status_value(channels::linux_grub::linux_grub_switch(
+        "linux_grub_switch" => serde_json::to_value(channels::linux_grub::linux_grub_switch(
             app.clone(),
             ui_str(args, "selector")?,
-        )),
+        ))
+        .map_err(|error| format!("序列化失败: {error}")),
         "detect_esp" => {
             let path = ui_str(args, "path")?;
             detect_esp_blocking(app.clone(), path).map(serde_json::Value::String)
