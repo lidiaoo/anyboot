@@ -932,22 +932,13 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
         ) {
             let existing = &mut entries[index];
             existing.source = "bootorder".to_string();
-            if !description.trim().is_empty()
-                && !description.trim().eq_ignore_ascii_case(&existing.title)
-            {
-                // OC 丢弃启动项里的描述、自己重新取名；这里留一句对照，方便核实。
-                // 描述与我们显示的卷标同一个串时不说 —— 否则用户看到「ARCH-EFI」
-                // 旁边写着「描述是 ARCH-EFI，OC 会丢掉它重新取名」，纯属噪音
-                // （卷标读对之前是「H:\ vs ARCH-EFI」，那句提示才有信息量）。
-                existing.note = Some(format!(
-                    "{}启动项里记的描述是「{}」，OC 会丢掉它、按路径重新取名",
-                    existing
-                        .note
-                        .as_ref()
-                        .map(|note| format!("{note}；"))
-                        .unwrap_or_default(),
-                    description
-                ));
+            // 标题统一用 **OC 启动项自己的描述**（Boot####/OCBt#### 里的 Description
+            // 字段）—— 这正是 OC 菜单里显示的那个名字，三端天然一致。以前标题用
+            // 卷标，Linux 上卷没标签就掉到设备名（用户截图里的 `nvme0n1p3`），
+            // 与 MAC 行（无卷可比、标题落描述）风格割裂；用户定案 2026-10-29：
+            // 三端统一按 macOS/描述的命名来。卷标不丢 —— meta 行仍然显示「卷 · 路径」。
+            if !description.trim().is_empty() {
+                existing.title = description.trim().to_string();
             }
             placed.push((number, index));
             continue;
