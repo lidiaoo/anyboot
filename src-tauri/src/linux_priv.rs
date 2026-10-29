@@ -312,14 +312,24 @@ mod imp {
 
     /// `visudo -cf <file>`：语法不过就不写。找不到 visudo 也拒绝 —— 宁可装不上，
     /// 也不能往 `/etc/sudoers.d/` 里塞一份没校验过的文件（写坏了整机 sudo 不可用）。
+    ///
+    /// 这段是 root 在跑，所以不吃 `PATH`：先按各发行版的标准位置找（Debian/RHEL 在
+    /// `/usr/sbin`，Arch 也是），找不到才退回 `PATH` 查找，并且**清空环境变量**再执行
+    /// —— 否则调用方塞一个 `LD_PRELOAD` / 假 `PATH` 就能让「校验」变成「跑我的程序」。
     fn verify_sudoers(path: &Path) -> Result<(), String> {
-        let visudo = find_in_path("visudo")
+        let visudo = ["/usr/sbin/visudo", "/sbin/visudo", "/usr/bin/visudo", "/bin/visudo"]
+            .iter()
+            .map(PathBuf::from)
+            .find(|candidate| candidate.is_file())
+            .or_else(|| find_in_path("visudo").map(PathBuf::from))
             .ok_or("没找到 visudo（sudo 的校验工具），出于安全不写入未校验的授权文件")?;
-        let output = Command::new(visudo)
+        let output = Command::new(&visudo)
             .arg("-cf")
             .arg(path)
+            .env_clear()
+            .env("PATH", "/usr/sbin:/usr/bin:/sbin:/bin")
             .output()
-            .map_err(|error| format!("跑 visudo 失败：{error}"))?;
+            .map_err(|error| format!("跑 {} 失败：{error}", visudo.display()))?;
         if output.status.success() {
             Ok(())
         } else {

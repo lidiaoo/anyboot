@@ -93,10 +93,24 @@ sudoers 只按「命令 + 参数模式」授权。
 
 ## 安全上要记住的三件事
 
-1. 这套东西一旦装好，**本用户下任何进程**都能让助手做缓冲区里那些白名单动作。所以
-   助手必须：参数白名单、路径校验、`O_NOFOLLOW`、清空环境变量、不读 `PATH`。
+1. 这套东西一旦装好，**本用户下任何进程**都能让助手做它白名单里允许的动作。所以
+   `sudoers` 只解决「能不能跑这个程序」，**能读写哪里全靠助手自己**，具体落在三处：
+   - `grub_esp::guard_install_paths`：目标拒写 `/etc` `/usr` `/bin` `/sbin` `/lib*`
+     `/opt` `/root` `/proc` `/sys` `/dev` `/var` `/home` `/srv`（`/var` 整棵拒是因为
+     `/var/spool/cron/crontabs/root` 能造定时 root 后门）；源拒读 `shadow` / `gshadow`
+     / `sudoers` / `/etc/ssh` / `/root` 与私钥；绝对路径、无 `..`、源目标不同、两端都不接
+     符号链接。真正写入时再叠一层 `O_NOFOLLOW` + `0644`，并**保住 mtime**（上游靠
+     `size+mtime` 判「已同步」，丢了会每次扫描都重写）。
+   - `linux_priv::guard_result_path`：`--out` 是 root 侧唯一「按调用方给的路径写」的入口，
+     必须**直接**落在 `/tmp`、不带 `..`、本身不是符号链接；落盘用 `O_NOFOLLOW|O_EXCL`
+     新建，防同名符号链接抢注（文件名含 pid，可预测）。
+   - `channels::write_result_file`：五个特权子命令共用的落盘路径，临时文件同样
+     `create_new + O_NOFOLLOW`。
 2. `visudo -cf` 是硬门槛，不是可选步骤。
-3. 用户名白名单是硬门槛（见上）。
+3. 用户名白名单是硬门槛：带换行/逗号/`!` 的用户名能往 sudoers 里塞任意规则。
+
+这三条都有单测钉着（`grub_esp::guard_tests` 5 条、`linux_priv::tests` 6 条）；白名单
+误伤的表现不是「越权被拒」，而是「写 ESP 突然报错」，所以放行用例同样要跑。
 
 ## 怎么验证
 
