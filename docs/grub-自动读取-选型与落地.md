@@ -584,3 +584,127 @@ grub.cfg 也一致: True
 4.50 s 已经越过原来的 `REPLY_TIMEOUT = 4s`。如果没把探测超时单独放宽到 25 s，
 第一次扫描就会被判「助手没响应」→ 回落弹密码 → 用户以为免密坏了。
 这个数字不是估的，是收口当天真机跑出来的。
+
+## 15. 再改：ESP 提为公共区 + 手动/自动改成横向标签（2026-10-29）
+
+用户一句话定的版式：
+
+> grub 中的 efi 相关是公共区域 自动和手动分为两个横向标签 默认进自动标签
+
+### 15.1 为什么要「公共区」这层结构
+
+上一版把两块**并排**（§14），隐含了一个错误假设：手动和自动是两条平行链路、
+各自带自己的配置。实际上「哪块 ESP」是**两条链路共同的前提**：
+
+- 手动解析读的是这块 ESP 上的 `/EFI/grub.cfg` 与 `/EFI/grubenv`；
+- 自动读取拿这块 ESP 的 FAT 序列（或 `/dev/xxx`）去各 Linux 分区的 fstab 里反查。
+
+把 ESP 目录 / 挂载 / 分区 UUID / 同步放进任何一个面板，都会让另一种模式
+找不到配置入口。所以它是 `#grub-esp`，站在标签之外，对两边同时可见。
+
+### 15.2 分界线：什么归手动标签
+
+| 内容 | 归属 | 理由 |
+|---|---|---|
+| ESP 目录 / 挂载 / 分区 UUID / 同步 / 空状态 | **公共** | 两条链路都要先答「哪块 ESP」 |
+| 列表（`#grub-list`） | 手动 | 数据源是 ESP 上的 cfg |
+| 安装 / 卸载 `09_anyboot`、内置脚本、执行过程 | 手动 | 只有手动链路需要这个东西 |
+| 引导配置须知（os-prober / EFI 顺序） | 手动 | 讲的是「怎么让 ESP 上那份 cfg 有别的系统」 |
+| 自动读取面板整体 | 自动 | — |
+| 展示方式 / 列表格式 / 提示与错误 | **公共** | 展示方式挪的是面板本身，与选了哪个标签无关 |
+
+### 15.3 默认进自动，而且**不记住**上次选择
+
+`grubTab` 是纯前端状态，不落盘。要是按「记住上次」做，第二次打开就落在手动，
+正好违背「默认进自动」。代价是每次启动都回到自动 —— 这是用户要的。
+
+### 15.4 搬 DOM 的两阶段（这版最容易写错的地方）
+
+`applyGrubLayout` 原来是一趟 `appendChild`，现在必须分两阶段：
+
+```text
+① 该离开 #grub 的先搬走（pane：全部；list：只搬手动面板）
+② 留下的按出厂顺序 insertBefore 回去（倒序插，anchor = 已就位的下一个兄弟）
+```
+
+一趟 `appendChild` 会把节点全堆到末尾 —— 手动面板会跑到「执行过程」「提示行」
+后面。这个坑上一版靠一句特判（`grubDualElement.insertBefore`）绕过去了，
+标签化之后特判失效，必须换成正经的顺序复原。
+
+`#grub-panel-manual` 现在自己就是被搬的单位（列表在它里面），
+所以 `grubCanonicalOrder` 只认面板、不再认 `#grub-list`。
+
+### 15.5 「列表独立」模式下标签与右栏的关系
+
+list 模式下把**整个手动面板**搬进右栏。此时：
+
+- 手动面板不在 `#grub` 里 → `syncGrubTabs` **不给它设 hidden**，
+  否则右栏会被清成白板；
+- 切到「自动」标签时，左栏显示自动面板、右栏仍显示手动列表。
+  这是有意的：list 模式的语义就是「列表独占右栏」。
+
+### 15.6 `[hidden]` 必须手写一条
+
+`.grub-panel { display: grid }` 是作者样式，会盖掉 UA 的 `[hidden] { display: none }`
+—— 不补 `.grub-panel[hidden] { display: none }`，切标签时两个面板会**同时显示**。
+（`.grub-empty-state[hidden]` 早就吃过这个亏，抄了同一条。）
+
+### 15.7 顺手修掉一个一直存在的排版 bug
+
+`.grub-advice strong { display: block }` 本意是让标题「引导配置须知」独占一行，
+但它同时把条目里的**句中强调**也块级化了 —— `os-prober`、`一个`、`boot, efi`、
+`EFI 第一启动项` 各自被挤成单独一行，一句话断成三截。
+
+这段文字以前没人正眼看过（须知在页面底部，且改版前也没有截图机会）。
+改成 `.grub-advice > strong`（只认标题）+ `.grub-advice li strong`（句中强调）后，
+三条须知各自连贯成句。
+
+### 15.8 视觉验证：无头 Chrome（这一轮终于有截图）
+
+`screencapture` 在本会话一直报 `could not create image from display`（拿不到显示权限）。
+改用 **Chrome headless 软件渲染**，不需要显示权限：
+
+```bash
+"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+  --headless=new --disable-gpu --hide-scrollbars \
+  --window-size=1280,1800 --virtual-time-budget=4000 \
+  --screenshot=/tmp/grub_tabs.png \
+  "file:///Users/jianghh/IdeaProjects/anyboot/ui/index.html"
+```
+
+配合一份临时页（复制 index.html、尾部加 1.2 s 后 `.click()`）验证了切标签后的状态，
+临时页验完即删。实际确认到的：
+
+- ESP 公共区在标签之上、带左侧竖线，两条读取方式共用；
+- 标签默认选中「自动」（浅底 + 加粗 + 强调色下划线）；
+- 点「手动解析」后：说明文字 → 空列表 → 内置脚本折叠 → 引导配置须知，
+  上方 ESP 公共区不动；
+- 窄窗（520px）下标签与面板都不溢出错位。
+
+**注意**：`file://` 打开时走的是「纯预览」分支（无 Tauri、无后端），
+列表里没有真实数据；布局与配色是真的，条目内容是假的。真机数据靠 HTTP 接口验（§14）。
+
+### 15.9 真实数据下的交互断言（CDP）
+
+光有静态截图不够 —— 标签能不能点、点了会不会两个面板一起露出来，得真点一次。
+用 Chrome 的调试端口 + Node 22 内置的 `WebSocket`（零依赖）直接驱动页面：
+
+```text
+初始：        visible=[grub-panel-auto]     selected=[auto]   手动列表已渲染 60 条
+点「手动解析」：visible=[grub-panel-manual]   selected=[manual]
+点回「自动」：  visible=[grub-panel-auto]    selected=[auto]
+按 →（键盘）： visible=[grub-panel-manual]   selected=[manual]
+```
+
+「任意时刻有且只有一个面板可见」这条一直是成立的，`manualHidden=true`。
+顺带确认了两件容易被忽略的事：
+
+- **手动面板 hidden 时内容也已经渲染好了**（60 个条目），切过去是瞬间的，
+  不用等第二次拉快照；
+- `#grub` 的直接子节点顺序与 §15.2 的分工完全一致：
+  `head → esp → tabs → panel-auto → panel-manual → mode-row → format-row → hint → error`。
+
+中间踩过一次假警报：用 `chrome --dump-dom` 抓页面时看到手动面板**没有** hidden 属性，
+一度以为 `syncGrubTabs` 判断错了。改用 CDP 在当前页面求值，得到的是 `manualHidden: true`
+—— `--dump-dom` 抓的是渲染过程中的某一帧，不是稳定态。**结论：验证 DOM 状态要用
+CDP 求值，不要用一次性 dump。**

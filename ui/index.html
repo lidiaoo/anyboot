@@ -161,32 +161,115 @@
             <small id="grub-meta" data-page-node-id="yfF4nq97WpiwUYJWnddipQ"></small>
           </div>
 
-          <!-- 解析的系统列表摆在 GRUB 区最上方（用户定案 2026-10-13）：
-               打开就能看到结果，配置行全部让位到下面。空状态跟列表占同一个位。 -->
-          <div class="grub-empty-state" id="grub-empty" hidden data-page-node-id="EOBeOTB3G44gTvyN1RsDez">
-            <strong data-page-node-id="JjEOrGo6Rl3CADIKmfEN3A">还没识别到 GRUB 启动信息</strong>
-            <small
-               data-page-node-id="WqskiLQdcw0AsB3QZ7Ev68">选 ESP 分区里的文件夹去识别，或直接填上面的 fs-uuid ——
-              两种方式填一个就行，另一个会自动对上</small
-            >
-            <div class="actions" data-page-node-id="nmlwFViptksRAnRXWGN431">
-              <button class="secondary" id="grub-empty-pick" type="button" data-page-node-id="n8pLbwhxNjnrNo50pl4CoZ">
-                选择文件夹识别…
+          <!-- ══════════ 公共区域：ESP（用户定案 2026-10-29）══════════
+               两种读取方式都要先答「哪块 ESP」：手动解析读它上面的 /EFI/grub.cfg，
+               自动读取拿它去各 Linux 分区的 fstab 里反查。放进任何一个标签都会让
+               另一种模式找不到配置入口，所以它必须站在标签之外、对两边同时可见。 -->
+          <div class="grub-esp" id="grub-esp">
+            <div class="grub-esp-head">
+              <strong>ESP 分区</strong>
+              <small>手动 / 自动共用</small>
+            </div>
+
+            <!-- 空状态跟列表占同一个位（用户定案 2026-10-13） -->
+            <div class="grub-empty-state" id="grub-empty" hidden data-page-node-id="EOBeOTB3G44gTvyN1RsDez">
+              <strong data-page-node-id="JjEOrGo6Rl3CADIKmfEN3A">还没识别到 GRUB 启动信息</strong>
+              <small
+                 data-page-node-id="WqskiLQdcw0AsB3QZ7Ev68">选 ESP 分区里的文件夹去识别，或直接填下面的 fs-uuid ——
+                两种方式填一个就行，另一个会自动对上</small
+              >
+              <div class="actions" data-page-node-id="nmlwFViptksRAnRXWGN431">
+                <button class="secondary" id="grub-empty-pick" type="button" data-page-node-id="n8pLbwhxNjnrNo50pl4CoZ">
+                  选择文件夹识别…
+                </button>
+              </div>
+            </div>
+
+            <!-- 先给目录、点「识别」——自动判断是不是 FAT32 并从中取出 fs-uuid；
+                 也可以什么都不给、只手工填下面的 fs-uuid，两种方式等价。
+                 「选择文件夹」呼出系统文件夹选择框，选中后自动走识别。
+                 「保存」只存目录原文（清空后保存即清掉目录，fs-uuid 不动）。 -->
+            <div class="grub-row" data-page-node-id="ZYT8Gzp7nhZgh6gQhbhbO0">
+              <label for="grub-dir" data-page-node-id="8aYgzDbg5RyzkwYXgD3gNI">ESP 目录</label>
+              <input
+                id="grub-dir"
+                placeholder="H:\ 或 /boot/efi 或 /Volumes/ARCH-EFI（分区里任意路径都行）"
+                spellcheck="false"
+                type="text" data-page-node-id="ip1eWyBijIA7rc5yLPArkT"
+              />
+              <button class="secondary" id="grub-dir-pick" type="button" data-page-node-id="cEV12U9W0GUVJMBAUEJ1nK">选择文件夹…</button>
+              <button class="secondary" id="grub-dir-detect" type="button" data-page-node-id="XHx1WDh81vw6PrVR8SSceF">识别</button>
+              <button class="secondary" id="grub-dir-save" type="button" data-page-node-id="tg8I0RHbFBJjxN3DaKxjby">保存</button>
+              <button class="secondary" id="grub-dir-open" type="button" data-page-node-id="FBiFqxy78EjGruVgmffb6n">
+                打开文件管理器
               </button>
+            </div>
+
+            <div class="grub-row" data-page-node-id="Q2wgvOuonjQUlK8boI9dcE">
+              <label class="grub-check" for="grub-mount" data-page-node-id="zvdg5IhTxiS60U3EWAoyZs">
+                <input id="grub-mount" type="checkbox" data-page-node-id="MMIDNHN2BQJ2jpiZ4tmw6Z" />
+                <span id="grub-mount-label" data-page-node-id="ZINZFYWIt8UtD0HLLqhqDL">挂载 ESP（勾上后可直接读写）</span>
+              </label>
+              <small class="grub-part" id="grub-part" data-page-node-id="TKSXMHWEEKYPt2uNWBug38"></small>
+            </div>
+
+            <div class="grub-row" data-page-node-id="y0ZTlPd72eEyWXAZqVQ3W8">
+              <label for="grub-partuuid" data-page-node-id="GBAJWylnusFh3fymtGqjJu">ESP 的分区 UUID</label>
+              <input
+                id="grub-partuuid"
+                placeholder="GPT 分区 GUID，如 F69D7BF9-E8A9-3135-A5CB-4BD0CA7344E3（三端同值：Linux lsblk -o PARTUUID / macOS diskutil / Windows Get-Partition）"
+                spellcheck="false"
+                type="text" data-page-node-id="jTwP3cJw3YQl41wSG8UOHz"
+              />
+              <button class="secondary" id="grub-partuuid-save" type="button" data-page-node-id="OcgnXyOVYQU1004Wz5oJsm">保存</button>
+              <button class="secondary" id="grub-partuuid-detect" type="button" data-page-node-id="FWKKiT0OGC95lDVB76GxwG">识别</button>
+            </div>
+
+            <!-- 同步（用户定案）：把当前系统 /boot/grub（或 grub2）的 grub.cfg 覆盖
+                 搬进 ESP，grubenv 没有才搬；硬性条件是该分区已挂载到 /boot 或
+                 /boot/efi，否则不动（不自动挂载、不 pkexec、不写盘）。识别只解析。 -->
+            <div class="grub-row" data-page-node-id="AtbiPKZODJ0t3MpmNuBz34">
+              <button class="secondary" id="grub-sync" type="button" data-page-node-id="EzaAhncRF0DurPaAZzLOjR">同步</button>
+              <small class="grub-part" id="grub-sync-note" data-page-node-id="f1hfafUpmu1p7ZeIhAJ1pK"
+                >把当前系统 /boot/grub/grub.cfg 同步到 ESP（需已挂载到 /boot 或 /boot/efi）</small
+              >
             </div>
           </div>
 
-          <!-- 并排两块（用户定案 2026-10-29 第 5 条）：
-               左 = 手动解析（装了 09_anyboot，读 ESP 上的 grub.cfg / grubenv）；
-               右 = 自动读取（没装，直接读 Linux 分区自己的 /boot/grub{,2}）。
-               两条链路数据源完全不同，摆在一起才看得出「为什么两边条目不一样」。 -->
-          <div class="grub-dual" id="grub-dual">
-            <div class="grub-list" id="grub-list" data-page-node-id="LCPEAOijd48J8tVo1t58qD"></div>
+          <!-- ══════════ 两个横向标签（用户定案 2026-10-29）══════════
+               「自动读取」排第一位并默认选中：没装 09_anyboot 的大多数人都该走这条，
+               它不需要任何 Linux 侧准备。标签只切面板显隐，不动公共区。 -->
+          <div class="grub-tabs" id="grub-tabs" role="tablist" aria-label="GRUB 读取方式">
+            <button
+              class="grub-tab is-active"
+              id="grub-tab-auto"
+              type="button"
+              role="tab"
+              aria-selected="true"
+              aria-controls="grub-panel-auto"
+              data-grub-tab="auto"
+            >
+              自动读取
+            </button>
+            <button
+              class="grub-tab"
+              id="grub-tab-manual"
+              type="button"
+              role="tab"
+              aria-selected="false"
+              aria-controls="grub-panel-manual"
+              data-grub-tab="manual"
+            >
+              手动解析
+            </button>
+          </div>
 
+          <!-- 面板一：自动读取 —— 直接读 Linux 分区自己的 /boot/grub{,2} -->
+          <div class="grub-panel" id="grub-panel-auto" role="tabpanel" aria-labelledby="grub-tab-auto">
             <section aria-label="自动读取（Linux 分区自己的 GRUB）" class="grub-auto" id="grub-auto">
               <div class="grub-auto-head">
-                <h3>自动读取 <small>没装 09_anyboot 时走这条</small></h3>
-                <button class="secondary" id="grub-auto-refresh" type="button" title="按设置里选的 ESP 分区重新定位 Linux 分区并读取">重新读取</button>
+                <h3>直接读 Linux 分区自己的 grub.cfg <small>不用装 09_anyboot</small></h3>
+                <button class="secondary" id="grub-auto-refresh" type="button" title="按上面选的 ESP 分区重新定位 Linux 分区并读取">重新读取</button>
               </div>
               <p class="grub-auto-summary" id="grub-auto-summary"></p>
               <div class="grub-auto-target" id="grub-auto-target" hidden></div>
@@ -197,8 +280,65 @@
             </section>
           </div>
 
+          <!-- 面板二：手动解析 —— 读 ESP 上的 /EFI/grub.cfg（由 09_anyboot 同步） -->
+          <div class="grub-panel" id="grub-panel-manual" role="tabpanel" aria-labelledby="grub-tab-manual" hidden>
+            <p class="grub-panel-note">
+              读的是 ESP 上的 <code>/EFI/grub.cfg</code> 与 <code>/EFI/grubenv</code>：在 Linux 上装
+              <code>09_anyboot</code> 后，每次 <code>update-grub</code> 会把它同步过来。
+            </p>
+            <div class="grub-list" id="grub-list" data-page-node-id="LCPEAOijd48J8tVo1t58qD"></div>
+
+            <!-- 安装 / 卸载 09_anyboot：只在 Linux 上出现 -->
+            <div class="actions hidden" id="grub-install-actions" data-page-node-id="rs4TR1K7mWcOHBW2OniR7a">
+              <button class="secondary" id="grub-install" type="button" data-page-node-id="FrD4MFnk0yYAsPaXzE53TF">
+                安装 09_anyboot
+              </button>
+              <button class="secondary" id="grub-uninstall" type="button" data-page-node-id="ajDxCqDTUrgBF3dnavWhE2">
+                卸载 09_anyboot
+              </button>
+            </div>
+            <!-- 安装 / 卸载的执行过程：跑了哪几条命令、退出码多少、stderr 说了什么 -->
+            <details class="grub-log hidden" id="grub-log-box" data-page-node-id="cs8hZg1jYIg5ba9H8nyRD2">
+              <summary id="grub-log-summary" data-page-node-id="flEuBTclDyBBJi7iEyME5j">执行过程</summary>
+              <pre id="grub-log" data-page-node-id="wBWnBo5TUVCDBcJlFhZE2U"></pre>
+            </details>
+
+            <details class="grub-script" data-page-node-id="AdpXjg6u4z6jBBEXv1f5Lk">
+              <summary data-page-node-id="AGUVjPpH0OmCFwBlnu4WnK">查看 / 修改内置脚本（09_anyboot）</summary>
+              <small
+                 data-page-node-id="wL190GWBgzKbnXXp96M40A">安装时只把 <code data-page-node-id="BJetAZzrR6iCdUbuQRg11D">@@ESP_UUID@@</code> 换成上面填的 fs-uuid，其余按这里的正文来；
+                清空后保存 = 恢复内置模板</small
+              >
+              <textarea id="grub-script" rows="8" spellcheck="false"></textarea>
+              <div class="actions" data-page-node-id="HNJOaOD4H2d56IeHFu3nRa">
+                <button class="secondary" id="grub-script-save" type="button" data-page-node-id="8YUhMA1H6qr8fVULLZ3OWK">
+                  保存脚本
+                </button>
+                <button class="secondary" id="grub-script-reset" type="button" data-page-node-id="NkzPQCqRUVpOyb3vuYguUa">
+                  恢复内置
+                </button>
+              </div>
+            </details>
+
+            <!-- 引导配置须知（用户定案 2026-10-13）：os-prober / EFI 顺序 /
+                 Windows 分区标志，是「GRUB 列表里能看到别的系统」的前提。 -->
+            <small class="grub-advice" id="grub-advice" data-page-node-id="yBgBbmYqfxSmFWHG8zjym9">
+              <strong data-page-node-id="V8PjZ9VPqrp8BNI9pTCss9">引导配置须知</strong>
+              <ul data-page-node-id="ozkyMO6JF7TuRObyxDxpsG">
+                <li data-page-node-id="rnRegt5UTcY1aTXOuOkihp">Linux 必须开启 <strong data-page-node-id="zeFbawh0l4hgeOFPTkyZ0W">os-prober</strong>：在 <code data-page-node-id="W6OxfYDkqdfuNAY1kPpYTo">/etc/default/grub</code> 里加
+                  <code data-page-node-id="FMmDbYD0gacABUEo5gBvtm">GRUB_DISABLE_OS_PROBER=false</code> 后执行 update-grub，其他系统的启动项才会进 grub.cfg；
+                  装了多个 Linux 发行版时，只需让<strong data-page-node-id="LvdZkjb1segkPMRRj5uJWb">一个</strong>发行版管理 EFI（它的 GRUB + os-prober 收集其余系统）。</li>
+                <li data-page-node-id="f052j0rxBHwAxNnmZy5FMH">Windows 的 EFI 分区，GPT 标志必须是 <code data-page-node-id="D4z7ydyrDzXGrDM4dsxzI6">boot, efi</code>（gparted 里给该分区设 boot 标志），
+                  否则 os-prober 不识别它。</li>
+                <li data-page-node-id="fWLStrFB90YT37a8qFQP2M"><strong data-page-node-id="nGqy6EHpZjQbhxBEE3xvxs">EFI 第一启动项</strong>：用 rEFInd 就把 rEFInd 的 EFI 设为第一启动项；
+                  不用 rEFInd 就把 GRUB 的 EFI 设为第一启动项。</li>
+              </ul>
+            </small>
+          </div>
+
           <!-- 展示方式：① 内嵌 ② 加宽内嵌 ③ 加宽+列表独占右栏 ④ 加宽+GRUB 全在右栏。
-               切换由后端落盘并调整窗口宽度；前端按模式把 GRUB 区块搬进/搬出右栏。 -->
+               切换由后端落盘并调整窗口宽度；前端按模式把 GRUB 区块搬进/搬出右栏。
+               放在两个面板之外：它挪的是「面板本身」，跟选了哪个标签无关。 -->
           <div class="grub-row" id="grub-mode-row" data-page-node-id="lMCQJw47HJcSfH9FudwUu8">
             <label for="grub-view-mode" data-page-node-id="D5FyCiR6X39LdlaMYKkJFE">展示方式</label>
             <select id="grub-view-mode" data-page-node-id="stvH0uvUn1BBy4KVabfsQK">
@@ -223,105 +363,8 @@
             </select>
           </div>
 
-          <!-- 引导配置须知（用户定案 2026-10-13）：os-prober / EFI 顺序 /
-               Windows 分区标志，是「GRUB 列表里能看到别的系统」的前提。 -->
-          <small class="grub-advice" id="grub-advice" data-page-node-id="yBgBbmYqfxSmFWHG8zjym9">
-            <strong data-page-node-id="V8PjZ9VPqrp8BNI9pTCss9">引导配置须知</strong>
-            <ul data-page-node-id="ozkyMO6JF7TuRObyxDxpsG">
-              <li data-page-node-id="rnRegt5UTcY1aTXOuOkihp">Linux 必须开启 <strong data-page-node-id="zeFbawh0l4hgeOFPTkyZ0W">os-prober</strong>：在 <code data-page-node-id="W6OxfYDkqdfuNAY1kPpYTo">/etc/default/grub</code> 里加
-                <code data-page-node-id="FMmDbYD0gacABUEo5gBvtm">GRUB_DISABLE_OS_PROBER=false</code> 后执行 update-grub，其他系统的启动项才会进 grub.cfg；
-                装了多个 Linux 发行版时，只需让<strong data-page-node-id="LvdZkjb1segkPMRRj5uJWb">一个</strong>发行版管理 EFI（它的 GRUB + os-prober 收集其余系统）。</li>
-              <li data-page-node-id="f052j0rxBHwAxNnmZy5FMH">Windows 的 EFI 分区，GPT 标志必须是 <code data-page-node-id="D4z7ydyrDzXGrDM4dsxzI6">boot, efi</code>（gparted 里给该分区设 boot 标志），
-                否则 os-prober 不识别它。</li>
-              <li data-page-node-id="fWLStrFB90YT37a8qFQP2M"><strong data-page-node-id="nGqy6EHpZjQbhxBEE3xvxs">EFI 第一启动项</strong>：用 rEFInd 就把 rEFInd 的 EFI 设为第一启动项；
-                不用 rEFInd 就把 GRUB 的 EFI 设为第一启动项。</li>
-            </ul>
-          </small>
-
-          <!-- 先给目录、点「识别」——自动判断是不是 FAT32 并从中取出 fs-uuid；
-               也可以什么都不给、只手工填下面的 fs-uuid，两种方式等价。
-               「选择文件夹」呼出系统文件夹选择框，选中后自动走识别。
-               「保存」只存目录原文（清空后保存即清掉目录，fs-uuid 不动）。 -->
-          <div class="grub-row" data-page-node-id="ZYT8Gzp7nhZgh6gQhbhbO0">
-            <label for="grub-dir" data-page-node-id="8aYgzDbg5RyzkwYXgD3gNI">ESP 目录</label>
-            <input
-              id="grub-dir"
-              placeholder="H:\ 或 /boot/efi 或 /Volumes/ARCH-EFI（分区里任意路径都行）"
-              spellcheck="false"
-              type="text" data-page-node-id="ip1eWyBijIA7rc5yLPArkT"
-            />
-            <button class="secondary" id="grub-dir-pick" type="button" data-page-node-id="cEV12U9W0GUVJMBAUEJ1nK">选择文件夹…</button>
-            <button class="secondary" id="grub-dir-detect" type="button" data-page-node-id="XHx1WDh81vw6PrVR8SSceF">识别</button>
-            <button class="secondary" id="grub-dir-save" type="button" data-page-node-id="tg8I0RHbFBJjxN3DaKxjby">保存</button>
-            <button class="secondary" id="grub-dir-open" type="button" data-page-node-id="FBiFqxy78EjGruVgmffb6n">
-              打开文件管理器
-            </button>
-          </div>
-
-          <div class="grub-row" data-page-node-id="Q2wgvOuonjQUlK8boI9dcE">
-            <label class="grub-check" for="grub-mount" data-page-node-id="zvdg5IhTxiS60U3EWAoyZs">
-              <input id="grub-mount" type="checkbox" data-page-node-id="MMIDNHN2BQJ2jpiZ4tmw6Z" />
-              <span id="grub-mount-label" data-page-node-id="ZINZFYWIt8UtD0HLLqhqDL">挂载 ESP（勾上后可直接读写）</span>
-            </label>
-            <small class="grub-part" id="grub-part" data-page-node-id="TKSXMHWEEKYPt2uNWBug38"></small>
-          </div>
-
-          <div class="grub-row" data-page-node-id="y0ZTlPd72eEyWXAZqVQ3W8">
-            <label for="grub-partuuid" data-page-node-id="GBAJWylnusFh3fymtGqjJu">ESP 的分区 UUID</label>
-            <input
-              id="grub-partuuid"
-              placeholder="GPT 分区 GUID，如 F69D7BF9-E8A9-3135-A5CB-4BD0CA7344E3（三端同值：Linux lsblk -o PARTUUID / macOS diskutil / Windows Get-Partition）"
-              spellcheck="false"
-              type="text" data-page-node-id="jTwP3cJw3YQl41wSG8UOHz"
-            />
-            <button class="secondary" id="grub-partuuid-save" type="button" data-page-node-id="OcgnXyOVYQU1004Wz5oJsm">保存</button>
-            <button class="secondary" id="grub-partuuid-detect" type="button" data-page-node-id="FWKKiT0OGC95lDVB76GxwG">识别</button>
-          </div>
-
-          <!-- 同步（用户定案）：把当前系统 /boot/grub（或 grub2）的 grub.cfg 覆盖
-               搬进 ESP，grubenv 没有才搬；硬性条件是该分区已挂载到 /boot 或
-               /boot/efi，否则不动（不自动挂载、不 pkexec、不写盘）。识别只解析。 -->
-          <div class="grub-row" data-page-node-id="AtbiPKZODJ0t3MpmNuBz34">
-            <button class="secondary" id="grub-sync" type="button" data-page-node-id="EzaAhncRF0DurPaAZzLOjR">同步</button>
-            <small class="grub-part" id="grub-sync-note" data-page-node-id="f1hfafUpmu1p7ZeIhAJ1pK"
-              >把当前系统 /boot/grub/grub.cfg 同步到 ESP（需已挂载到 /boot 或 /boot/efi）</small
-            >
-          </div>
-
           <p class="grub-hint" id="grub-hint" data-page-node-id="3dawabOWBkuO3puhUVYJxY"></p>
           <p class="grub-error hidden" id="grub-error" role="status" data-page-node-id="4Gwu6OIMFupjTCE0FeHvI6"></p>
-
-          <!-- 安装 / 卸载 09_anyboot：只在 Linux 上出现 -->
-          <div class="actions hidden" id="grub-install-actions" data-page-node-id="rs4TR1K7mWcOHBW2OniR7a">
-            <button class="secondary" id="grub-install" type="button" data-page-node-id="FrD4MFnk0yYAsPaXzE53TF">
-              安装 09_anyboot
-            </button>
-            <button class="secondary" id="grub-uninstall" type="button" data-page-node-id="ajDxCqDTUrgBF3dnavWhE2">
-              卸载 09_anyboot
-            </button>
-          </div>
-          <!-- 安装 / 卸载的执行过程：跑了哪几条命令、退出码多少、stderr 说了什么 -->
-          <details class="grub-log hidden" id="grub-log-box" data-page-node-id="cs8hZg1jYIg5ba9H8nyRD2">
-            <summary id="grub-log-summary" data-page-node-id="flEuBTclDyBBJi7iEyME5j">执行过程</summary>
-            <pre id="grub-log" data-page-node-id="wBWnBo5TUVCDBcJlFhZE2U"></pre>
-          </details>
-
-          <details class="grub-script" data-page-node-id="AdpXjg6u4z6jBBEXv1f5Lk">
-            <summary data-page-node-id="AGUVjPpH0OmCFwBlnu4WnK">查看 / 修改内置脚本（09_anyboot）</summary>
-            <small
-               data-page-node-id="wL190GWBgzKbnXXp96M40A">安装时只把 <code data-page-node-id="BJetAZzrR6iCdUbuQRg11D">@@ESP_UUID@@</code> 换成上面填的 fs-uuid，其余按这里的正文来；
-              清空后保存 = 恢复内置模板</small
-            >
-            <textarea id="grub-script" rows="8" spellcheck="false"></textarea>
-            <div class="actions" data-page-node-id="HNJOaOD4H2d56IeHFu3nRa">
-              <button class="secondary" id="grub-script-save" type="button" data-page-node-id="8YUhMA1H6qr8fVULLZ3OWK">
-                保存脚本
-              </button>
-              <button class="secondary" id="grub-script-reset" type="button" data-page-node-id="NkzPQCqRUVpOyb3vuYguUa">
-                恢复内置
-              </button>
-            </div>
-          </details>
         </section>
 
         <!-- ══════════ 三引导器通道（systemd-boot / OpenCore / Clover） ══════════ -->

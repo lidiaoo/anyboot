@@ -739,10 +739,19 @@ body[data-grub-mode="pane"] .boot-divider {
   line-height: 1.7;
 }
 
-.grub-advice strong {
+/* 第一行的那个 strong 是标题（「引导配置须知」），独占一行；
+ * 但条目里的 strong 是**句中强调**（os-prober / 一个 / boot, efi / EFI 第一启动项），
+ * 必须留在句子里。原来统一 display:block，等于把每个句子拦腰截断成三行
+ * —— 这段文字以前一直没人正眼看过，是「标签化」之后才被截图暴露出来的。 */
+.grub-advice > strong {
   display: block;
   margin-bottom: 2px;
   color: var(--text);
+}
+
+.grub-advice li strong {
+  color: var(--text);
+  font-weight: 600;
 }
 
 .grub-advice ul {
@@ -958,28 +967,107 @@ body[data-grub-mode="pane"] #grub {
   background: var(--input-bg);
 }
 
-/* ── 并排两块（用户定案 2026-10-29 第 5 条）─────────────────────────
- * 左 = 手动解析（09_anyboot + ESP 上的 grub.cfg），右 = 自动读取（Linux
- * 分区自己的 /boot/grub{,2}）。两条链路数据源不同，条目常常不一样 ——
- * 并排摆着才能一眼看出「为什么两边对不上」，堆成上下两块反而看不出来。
- *
- * **默认就并排**（用户同日追加要求）。原来用 auto-fit + 320px 下限，内嵌
- * 460px 列里装不下两块就自动堆成上下 —— 等于「并排」只在加宽模式存在。
- *
- * 现在这条式子同时满足三件事，不需要容器查询也不需要 @media：
- *   max(200px, 45%) 下限 —— 45% 保证最多两列（三列要 135% 宽），
- *                    200px 保证太窄时退回一列（两块 200 + gap 装不下就折叠）。
- *   内嵌 460px → 每块约 220px；加宽 932px → 每块约 460px；<410px → 堆叠。
- * 用 minmax(0, 1fr) 而不是 1fr：`1fr` 的隐含下限是 min-content，
- * 一个长内核名就能把列顶宽、把另一块挤没。
- *
- * 没走 @container：pane 模式会把两块搬进右栏（#grub 本身 display:none），
- * 那时容器查询的祖先不是 #grub，规则直接不匹配 —— 反而更难预测。 */
-.grub-dual {
+/* ── ESP 公共区（用户定案 2026-10-29）──────────────────────────────
+ * 手动解析（读 ESP 上的 /EFI/grub.cfg）与自动读取（拿 ESP 去各 Linux 分区
+ * 的 fstab 里反查）都要先答「哪块 ESP」，所以这一段站在两个标签之外。
+ * 用一条左侧竖线而不是完整卡片：它属于 GRUB 区内部的一节，
+ * 再包一层边框会跟 .grub 自己的边框叠成「框里套框」的噪音。 */
+.grub-esp {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(max(200px, 45%), 1fr));
-  gap: 10px;
-  align-items: start;
+  gap: 8px;
+  padding-left: 10px;
+  border-left: 2px solid var(--border);
+}
+
+.grub-esp-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.grub-esp-head strong {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.grub-esp-head small {
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+/* ── 两个横向标签（用户定案 2026-10-29）────────────────────────────
+ * 「自动读取」在前、默认选中：没装 09_anyboot 的人走这条，不需要任何
+ * Linux 侧准备。选中态用「下边框与内容区连成一片」的表达，
+ * 不加阴影/高饱和底色 —— 这一块本来就已经有两层边框了。 */
+.grub-tabs {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--border);
+  /* 让标签栏的下边框与面板之间不留缝，视觉上是「页签贴在内容上」 */
+  margin-bottom: -4px;
+}
+
+.grub-tab {
+  appearance: none;
+  margin-bottom: -1px;
+  padding: 6px 14px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  background: transparent;
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.grub-tab:hover {
+  color: var(--text);
+}
+
+.grub-tab.is-active {
+  border-color: var(--border);
+  background: var(--input-bg);
+  color: var(--text);
+  font-weight: 600;
+  /* 底色只比 .grub 的背板亮一点点，光靠它分辨「现在在看哪个」太吃力；
+   * 一条强调色下划线把选中态钉住（inset 阴影不占布局，不会把标签撑高）。 */
+  box-shadow: inset 0 -2px 0 var(--btn);
+}
+
+.grub-tab:focus-visible {
+  outline: 2px solid var(--accent, var(--border-strong));
+  outline-offset: 1px;
+}
+
+/* 面板本体没有自己的边框：内容（列表 / 自动块）自己带框，
+ * 再包一层就变成三层套框。只负责去掉标签栏留下的负边距。 */
+.grub-panel {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding-top: 4px;
+}
+
+/* 作者样式里的 display:grid 会盖掉 UA 的 [hidden]{display:none} ——
+ * 不显式写这一条，切标签时两个面板会同时显示。 */
+.grub-panel[hidden] {
+  display: none;
+}
+
+.grub-panel-note {
+  margin: 0;
+  color: var(--text-faint);
+  font-size: 11px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.grub-panel-note code {
+  color: var(--text-dim);
+  font-family: var(--font-mono, ui-monospace, monospace);
 }
 
 .grub-auto {

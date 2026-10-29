@@ -588,9 +588,11 @@ const grubErrorElement = document.querySelector("#grub-error");
 const grubEmptyElement = document.querySelector("#grub-empty");
 const grubEmptyPickElement = document.querySelector("#grub-empty-pick");
 const grubListElement = document.querySelector("#grub-list");
-// 并排两块（用户定案 2026-10-29 第 5 条）：左 = 手动解析、右 = 自动读取。
-// 右块自己一套状态行 / 问题列表 / 候选列表 / 条目列表，与左块互不影响。
-const grubDualElement = document.querySelector("#grub-dual");
+// 两个横向标签（用户定案 2026-10-29）：自动读取 / 手动解析，默认自动。
+// ESP 那几项在标签之外，两种模式共用；标签只切这两个面板的显隐。
+const grubTabsElement = document.querySelector("#grub-tabs");
+const grubPanelAutoElement = document.querySelector("#grub-panel-auto");
+const grubPanelManualElement = document.querySelector("#grub-panel-manual");
 const grubAutoElement = document.querySelector("#grub-auto");
 const grubAutoRefreshElement = document.querySelector("#grub-auto-refresh");
 const grubAutoSummaryElement = document.querySelector("#grub-auto-summary");
@@ -1277,7 +1279,8 @@ function renderEsp(grub) {
 /// 展示模式的 DOM 搬位：把 <main> 里 #grub 的子节点按模式搬进/搬出右栏。
 /// 四种模式（与设置里的 grubListView 一一对应）：
 /// · inline 内嵌 / wide 加宽 —— 全部子节点按出厂顺序回 #grub（左栏主流程里）；
-/// · list 列表独立 —— 配置留在 #grub，列表搬进右栏；
+/// · list 列表独立 —— 配置留在 #grub，「手动解析」面板整体搬进右栏
+///   （列表是那个面板的正文，跟着它走；标签栏留在左栏，切到自动也不打架）；
 /// · pane GRUB 独立 —— 子节点搬进右栏（#grub 变空壳，CSS 藏掉），
 ///   **但头部（圆标/标题/状态行）钉在卡片上方**：用户定案 2026-10-13，
 ///   头部不参与滚动 —— sticky 在 grid 子项上会被约束在自己的网格区里、
@@ -1285,6 +1288,7 @@ function renderEsp(grub) {
 /// 只在模式真正变化时才搬（renderGrub 里比对缓存），别每帧搬 DOM。
 /// 「出厂顺序」在脚本加载完、任何搬移发生之前捕获一次，回搬时靠它复原。
 const grubCanonicalOrder = [...grubSectionElement.children];
+const grubHeadElement = grubSectionElement.querySelector(".grub-head");
 let grubLayoutMode = null;
 function applyGrubLayout(mode) {
   if (grubLayoutMode === mode) {
@@ -1292,21 +1296,67 @@ function applyGrubLayout(mode) {
   }
   grubLayoutMode = mode;
   document.body.dataset.grubMode = mode;
-  for (const el of grubCanonicalOrder) {
-    if (mode === "pane" && el.classList.contains("grub-head")) {
-      // 头部常驻：插到滚动容器前面，滚轮永远碰不到它
-      grubPaneBodyElement.parentNode.insertBefore(el, grubPaneBodyElement);
+
+  const allToPane = mode === "pane";
+  const manualToPane = mode === "list";
+
+  // 第一步：该走的先走。搬出去再插回来会打乱 #grub 里的相对顺序，
+  // 所以两个阶段分开，别指望一趟 appendChild 搞定。
+  if (allToPane && grubHeadElement) {
+    // 头部常驻：插到滚动容器前面，滚轮永远碰不到它
+    grubPaneBodyElement.parentNode.insertBefore(grubHeadElement, grubPaneBodyElement);
+  }
+  if (allToPane) {
+    for (const el of grubCanonicalOrder) {
+      if (el === grubHeadElement) {
+        continue;
+      }
+      grubPaneBodyElement.appendChild(el);
+    }
+  } else if (manualToPane) {
+    grubPaneBodyElement.appendChild(grubPanelManualElement);
+  }
+
+  // 第二步：没走的按出厂顺序插回 #grub。倒着插 + insertBefore(el, anchor)：
+  // 单趟 appendChild 会把它们全堆到末尾，面板就会跑到「执行过程 / 提示行」后面。
+  let anchor = null;
+  for (let index = grubCanonicalOrder.length - 1; index >= 0; index -= 1) {
+    const el = grubCanonicalOrder[index];
+    if (allToPane || (manualToPane && el === grubPanelManualElement)) {
       continue;
     }
-    const toPane = mode === "pane" || (mode === "list" && el === grubListElement);
-    (toPane ? grubPaneBodyElement : grubSectionElement).appendChild(el);
+    grubSectionElement.insertBefore(el, anchor);
+    anchor = el;
   }
-  // #grub-list 现在住在 .grub-dual 里，不再是 #grub 的直接子节点 ——
-  // 上面那轮回搬只认识「出厂时就是 #grub 子节点」的那些，所以它自己回来这一步
-  // 得单独做，否则模式 ③ 之后左右两块永远并列不回去。
-  if (mode !== "list" && grubListElement.parentNode !== grubDualElement) {
-    grubDualElement.insertBefore(grubListElement, grubAutoElement);
+
+  syncGrubTabs();
+}
+
+/// 当前选中的标签。**不持久化**：用户要的是「默认进自动」，
+/// 记住上次选择的话第二次打开就变成手动了，反而违背这条。
+let grubTab = "auto";
+
+/// 把标签选中态与面板显隐对齐。
+///
+/// 「列表独立」模式下手动面板已被搬进右栏，它不再归标签管：
+/// 在这里给它设 hidden 会把右栏清成白板，所以只处理还留在 #grub 里的面板。
+function syncGrubTabs() {
+  for (const [name, panel, button] of [
+    ["auto", grubPanelAutoElement, document.querySelector("#grub-tab-auto")],
+    ["manual", grubPanelManualElement, document.querySelector("#grub-tab-manual")],
+  ]) {
+    const active = name === grubTab;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-selected", active ? "true" : "false");
+    button.tabIndex = active ? 0 : -1;
+    const owned = panel.parentNode === grubSectionElement;
+    panel.hidden = owned ? !active : false;
   }
+}
+
+function setGrubTab(name) {
+  grubTab = name === "manual" ? "manual" : "auto";
+  syncGrubTabs();
 }
 
 /// GRUB 区块：列的是 grub.cfg 里的启动项，条数可能几十个，
@@ -1454,7 +1504,7 @@ function renderGrubAuto(view, busy, format) {
     grubAutoListElement.replaceChildren();
     grubAutoCandidatesElement.hidden = true;
     grubAutoFootElement.textContent =
-      "macOS / Windows 读 Linux 分区要管理员授权，每读一次弹一次（Linux 本机不用）。";
+      "macOS / Windows 读 Linux 分区要 root：开了免密助手就直接读，没开每次会弹一次授权（Linux 本机都不用）。";
     return;
   }
 
@@ -3902,6 +3952,33 @@ grubListFormatElement.addEventListener("change", () => {
     false,
     grubListFormatElement.value,
   );
+});
+
+// 两个横向标签（自动读取 / 手动解析）：纯前端显隐，不落盘 ——
+// 用户要的是「默认进自动」，记住上次选择反而会让第二次打开直接落到手动。
+grubTabsElement.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-grub-tab]");
+  if (button) {
+    setGrubTab(button.dataset.grubTab);
+  }
+});
+
+// 键盘：左右箭头在标签间走，Home/End 跳首尾（tablist 的标准行为）
+grubTabsElement.addEventListener("keydown", (event) => {
+  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
+    return;
+  }
+  event.preventDefault();
+  const next =
+    event.key === "Home"
+      ? "auto"
+      : event.key === "End"
+        ? "manual"
+        : grubTab === "auto"
+          ? "manual"
+          : "auto";
+  setGrubTab(next);
+  document.querySelector(`[data-grub-tab="${next}"]`).focus();
 });
 
 // 自动读取：手动触发（macOS 每读一次弹一次授权，不能开机就扫）
