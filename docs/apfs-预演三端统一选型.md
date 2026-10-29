@@ -97,6 +97,8 @@ Preboot：/<UUID>/System/Library/CoreServices/boot.efi  ← 目录树节点
 6. ✅ 单元测试（分区 JSON 解析 / lsblk 解析 / UUID 形态门）+ 真机集成测试 `real_machine_scan`（`#[ignore]`，`cargo test real_machine_scan -- --ignored --nocapture` 手动跑）。
 
 遗留事项：
-- Linux 端尚未真机验证（代码路径与 Windows 共用同一 crate，风险点在 lsblk PARTTYPE 列的发行版覆盖度）；
+- Linux 端**读链路**已真机验证（2026-10-29，`real_linux_oc_read` 探针）：efivarfs 直读 `BootOrder` / `Boot0080..0082` 与 OC 私有 `OCBtOrder` / `OCBt0080..0082` 全部解析正确（描述 + 分区内路径）。
+  仍未验证的两点：① `lsblk -rno PATH,PARTTYPE` 的 PARTTYPE 列覆盖度（沙箱里读不到 `/dev`，值恒空；需要真机桌面会话跑一次）；② `pkexec` 写 efivarfs 那条路（`install -p` 是否会因 efivarfs 不支持 chmod/truncate 被拒）。
+- **Linux 只枚举已挂载的卷**（`candidate_roots()` = `/efi`、`/boot/efi`、`/boot`、`/esp`）。OC 装在另一块没挂载的 ESP 上时，通道卡片直接报「未检测到」—— 实测本机就是这样（`/boot/efi` 是 GRUB 那块，OC 那块没挂）。Windows 用 `Get-Partition` 全盘枚举再临时挂载，macOS 靠 `/Volumes` 自动挂载，Linux 缺等价的一步，这是三端里最后一块实质差距；
 - 提权合并 UI（非提权失败时引导用户提权重扫）暂未做 —— 现状是补 issue 行说明原因；
 - hadris-apfs 升级策略：锁死 `=3.0.0-rc.2`，升级须人工过调用点 + 真机重验。

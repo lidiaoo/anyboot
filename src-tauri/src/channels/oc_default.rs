@@ -376,8 +376,10 @@ struct SetDefaultReply {
 }
 
 /// 「设为默认」的提权版：弹一次 UAC，让本程序自己（提权子进程）跑同一套
-/// [`set_default`]，结果经 JSON 文件回传。Windows 专用 —— macOS 走免密助手
-/// 信箱（helper_install），Linux 的 efivars 写路径尚未接提权（遗留）。
+/// [`set_default`]，结果经 JSON 文件回传。Windows 专用 —— 另外两端各有各的通路：
+/// macOS 走免密助手信箱（helper_install），Linux 由 [`nvram`] 自己的 efivarfs 写路径
+/// 兜底（直写失败就 `stage_and_install` 经 pkexec 落盘，不需要这条子进程），
+/// 所以 Linux 上是「同一个进程里先试直写、不行再弹一次 polkit 授权」。
 ///
 /// **必须在 async 命令的工作线程上调**：ShellExecuteExW 同步等 UAC 对话框。
 #[cfg(target_os = "windows")]

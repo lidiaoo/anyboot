@@ -1708,4 +1708,72 @@ mod tests {
             println!("{:24} <- {}", volume.label, volume.root.display());
         }
     }
+
+    /// 真机探针（Linux）：把两套命名空间的启动变量 + 预演结果原样打出来。
+    ///
+    /// `cargo test --lib -- --ignored real_linux_oc_read --nocapture`
+    ///
+    /// **只读**：一个变量都不写，跑多少次都不会改固件状态。它回答的就是
+    /// 「Linux 这条链在真机上到底读到什么」—— efivarfs 的文件名大小写、属性头、
+    /// `OCBt*` 命名空间、卷枚举、预演，任何一环错在这里都看得见。
+    #[cfg(target_os = "linux")]
+    #[test]
+    #[ignore = "真机：读本机 efivarfs 与已挂载的 ESP"]
+    fn real_linux_oc_read() {
+        let global = nvram::read_boot_order();
+        println!("== 固件全局 BootOrder = {global:?}");
+        for number in &global {
+            println!(
+                "   {:>9} = {:?}",
+                nvram::boot_var_name(*number),
+                nvram::read_boot_option(*number)
+                    .as_deref()
+                    .and_then(parse_load_option)
+            );
+        }
+
+        let custom = oc_default::Namespace { custom: true };
+        let order = custom.read_order();
+        println!("== OC 私有 {} = {order:?}", custom.order_name());
+        for number in &order {
+            println!(
+                "   {:>9} = {:?}",
+                custom.boot_name(*number),
+                custom.read_option(*number)
+                    .as_deref()
+                    .and_then(parse_load_option)
+            );
+        }
+
+        println!("== 卷（只有已挂载的才看得见）：");
+        let all = volumes();
+        for volume in &all {
+            println!("{:24} <- {}", volume.label, volume.root.display());
+        }
+
+        let esp = all
+            .iter()
+            .map(|volume| volume.root.clone())
+            .find(|root| root.join("EFI/OC/OpenCore.efi").is_file());
+        match esp {
+            None => println!("== 预演：候选根里没有装 OC 的 ESP（Linux 不枚举未挂载分区）"),
+            Some(root) => {
+                let preview = preview(&root);
+                println!("== 预演 {}：{}", root.display(), preview.summary);
+                println!(
+                    "   默认项来自 {:?}（槽 {:?}）",
+                    preview.order_source, preview.default_slot
+                );
+                for entry in preview.entries.iter().chain(preview.hidden.iter()) {
+                    println!(
+                        "   [{:9}] {:22} {:28} default={} {:?}",
+                        entry.source, entry.title, entry.path, entry.default, entry.note
+                    );
+                }
+                for issue in &preview.issues {
+                    println!("   ! {:?} {}", issue.severity, issue.text);
+                }
+            }
+        }
+    }
 }
