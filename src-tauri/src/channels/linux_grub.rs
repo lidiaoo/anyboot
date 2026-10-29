@@ -703,7 +703,7 @@ pub(crate) fn probe(
         let mut payload = probe_host();
         payload.notes.push(match failure {
             Some(error) => format!("全量扫描没跑起来：{error}。这次只读了本机"),
-            None => "只读了本机：装一次免密组件（「关于」页），之后自动扫描就会遍历全部 \
+            None => "只读了本机：装一次免密组件（「系统引导页」），之后自动扫描就会遍历全部 \
                      ext4 分区、按 fstab 找到挂载所选 ESP 的那块 Linux"
                 .to_string(),
         });

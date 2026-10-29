@@ -789,7 +789,7 @@ pub(crate) fn spawn_boot_privileged_scan(app: AppHandle) {
             crate::trace(
                 &app,
                 "boot-scan",
-                "跳过开机自动提权扫描：免密组件没装好（「关于」页点一次「安装免密组件」），\
+                "跳过开机自动提权扫描：免密组件没装好（「系统引导页」点一次「安装免密组件」），\
                  卡片上的「重扫 macOS 条目 / 重读启动顺序」仍可手动授权",
             );
             return;
@@ -1017,7 +1017,7 @@ fn linux_mount_esp_ro(device: &str, allow_pkexec: bool) -> Result<PathBuf, Strin
         }
     } else if !allow_pkexec {
         return Err(
-            "没装免密组件，启动时不自动挂载（「关于」页装一次，或点卡片上的按钮手动挂）"
+            "没装免密组件，启动时不自动挂载（「系统引导页」装一次，或点卡片上的按钮手动挂）"
                 .to_string(),
         );
     } else {
@@ -1101,7 +1101,7 @@ pub(crate) fn spawn_boot_esp_mount(app: AppHandle) {
             crate::trace(
                 &app,
                 "boot-esp-mount",
-                "跳过开机自动挂载 ESP：免密组件没装好（「关于」页点一次「安装免密组件」，\
+                "跳过开机自动挂载 ESP：免密组件没装好（「系统引导页」点一次「安装免密组件」，\
                  或用卡片上的「只读挂载」手动挂）",
             );
             return;

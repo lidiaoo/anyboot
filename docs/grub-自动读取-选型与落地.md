@@ -961,3 +961,87 @@ live_helper_probe：回包 129326 字节，耗时 4.18s，10 块 ext4 / 7 块有
 
 
 
+
+## 20. Linux 端接入：从「被短路」到全链贯通（2026-10-29/30）
+
+这条线此前是文档里没有的一章：**Linux 上自动读取从来就没跑过遍历逻辑**。
+`probe()` 在 Linux 分支被两行短路：
+
+```rust
+let _ = (esp_partuuid, prefer_dev, elevation);   // 用户设的 ESP UUID 整个被丢弃
+Ok(probe_host())                                  // 只读本机 /boot/grub{,2}/grub.cfg
+```
+
+本机是 rEFInd 启动（根分区里没有这两个文件），于是必然报「本机没找到」——
+截图报障（2026-10-29 23:59）的根因不是「检测不到」，是「Linux 分支压根没实现」。
+
+### 20.1 用户定案（五步规则，2026-10-30 追加写入三点）
+
+**扫描五步**：
+
+1. 读用户设定的 ESP UUID / 分区路径（`settings.grub_efi_partuuid`）；
+2. 遍历磁盘上所有 Linux 分区，看谁的 fstab 挂载了这块 ESP；
+3. 挂载了就读**该分区下的** `/boot/grub/grub.cfg`（兼容 `grub2` 路径）；
+4. 解析引导条目的逻辑复用（`parse_grub_cfg` 原样）；
+5. 用户选择之后，写入**该分区下的** `/boot/grub/grubenv`（兼容 grub/grub2）。
+
+**写入三点**（对第一版理解的纠正）：
+
+- 「写 `/boot/grub/grubenv`」指的是**目标分区里**的那份，不是本机的；
+- 要讲清操作文件的风险，**用成熟做法**；
+- **必须提权**——包括本机行（`/boot/grub` 归 root，普通身份直写必 EACCES）。
+
+### 20.2 技术选型：为什么全是复用
+
+| 部件 | 选定 | 理由 |
+|---|---|---|
+| ext4 解析 | 自研 `ext4_raw`（§13.1 已定） | 能力边界 = 需求边界；Linux 上同一份代码直接跑 |
+| 分区枚举 | `lsblk -J` + sysfs 兜底 | `unmounted_esp_partitions()` 已有同款双来源；本机 udev 缺失只有 sysfs 管用 |
+| ESP 身份（FAT 卷序列） | `esp::fat_boot_sector` | fstab 里 `UUID=E537-7F31` 是 FAT 序列不是 GPT GUID（§13.7 教训照抄） |
+| 提权探测 | `--linux-grub-probe` 子命令 + `linux_priv::run_via_helper` | 免密助手三通道（助手→pkexec→密码），`status=="ready"` 才静默 |
+| 提权写入 | `--linux-grub-write` 子命令（**早已存在**，macOS/Windows 共用） | root 硬校验 + 参数白名单现成，一行没改 |
+| 本机行 | `fs::read` 直读 + 提权写 | 定案 1「Linux 本机不经过 ext4 驱动」照旧 |
+
+**零新依赖、零新子命令**：扫描复用 `scan_ext4`，写入复用 `write_child_main`。
+
+### 20.3 写入的三档成熟度（用户问「风险」后的定案）
+
+`write_env_block` Linux 实现按风险从低到高自动选，**能走内核就绝不裸写**：
+
+| 档 | 条件 | 做法 | 风险控制 |
+|---|---|---|---|
+| ① | `dev == "本机"` | root 原地覆盖绝对路径文件 | 内核 ext4 驱动 |
+| ② | 分区已挂载（`/proc/self/mounts` 认 ext 家族 + rw） | 写挂载点下的文件 | **坚持不裸写已挂载分区**：裸写绕过页缓存，脏页回写会把写入盖掉，ext4 日志还可能把绕过日志的数据当崩溃恢复回滚 |
+| ③ | 未挂载 | 裸设备 O_RDWR → `overwrite_in_place` | 官方 `grub-editenv` 同语义：inode→extent 定位它自己的数据块，整块读改写、回读逐字节比对；RECOVER 拒写；不动元数据 |
+
+四道硬闸三档通用：文件必须已存在**不创建**、尺寸必须恰好 1024 字节、
+路径 `..`/绝对路径混用直接拒、btrfs/zfs 挂载点不认（布局不同，宁可裸写不猜）。
+
+### 20.4 落地里的两个真 bug
+
+1. **`runtime_from` 的 `host: view.platform == "linux"`** —— Linux 上恒 true，
+   helper 扫出的真实分区也被当本机文件写：而分区行的 `env_rel` 是**分区内相对路径**
+   （`boot/grub/grubenv`），在主机上按相对路径打开必然失败。改为 `part.dev == "本机"`。
+   这条被 `runtime_host_only_for_host_row` 单测锁住。
+2. **probe 的 notes 文案指向「关于」页** —— 免密提权卡 2026-10-29 已迁到 index.html
+   系统引导页（hub.html 关于页是远程管理窗），4 处文案同步改成「系统引导页」。
+
+### 20.5 本轮提交
+
+| 提交 | 内容 |
+|---|---|
+| `0d7d59c` | Linux 扫描链：`probe_raw` 从别名短路改为真遍历；`probe()` 免密优先、没装回落本机直读并说明差距 |
+| `f30d2bf` | Linux 写入链：三档成熟度、host 判定修正、`ext4_raw` 补 `open_raw_rw`、本机行也走提权 |
+
+### 20.6 TODO 增补（Linux 侧）
+
+- [ ] **真机验证·扫描**：装免密组件 → 自动 tab 应列出本机其它 ext4 的 Linux
+      （按各自 fstab 挂载所选 ESP 的那块被 `locate()` 精确选中）；没装组件时
+      保持本机行 + 提示装组件；
+- [ ] **真机验证·写入**：选条目切换 → 目标分区挂载着应报「已写入 …（挂载点 …，
+      回读一致）」；未挂载走裸写；`grub.cfg` 不变、只有 saved_entry/next_entry 生效；
+- [ ] **真机验证·重启生效**：改 `next_entry` → 重启 → 确认进的是那一项
+      （§10 阶段 1 遗留项，Linux 侧现在才有条件做）；
+- [ ] btrfs 分区遇到时明确报「不支持」——本机还没有 btrfs 的 `/boot`，识别分支
+      已有（非 ext4 静默跳过 + notes），文案是否要更显眼待真机看效果；
+- [ ] 快照字段同步到网页端 / 手机端（§10 阶段 3 遗留，未变）。
