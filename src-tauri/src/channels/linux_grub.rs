@@ -685,13 +685,15 @@ pub(crate) fn probe(
 ) -> Result<ProbePayload, String> {
     #[cfg(target_os = "linux")]
     {
-        let _ = (prefer_dev, elevation);
-        // 与 macOS/Windows 同一套逻辑（用户定案 2026-10-29）：免密就绪 → 静默
-        // 全量扫描（枚举分区 + ext4 遍历 + fstab 定位），自动刷新也走这条，
-        // **绝不弹框**；助手不在/没跑通 → 回落本机直读，差距必须说清楚。
-        let helper_ready = crate::linux_priv::status().state == "ready";
+        let _ = prefer_dev;
+        // 与 macOS/Windows 同一套逻辑：免密就绪 → 静默全量扫描（枚举分区 +
+        // ext4 遍历 + fstab 定位）；不在/没跑通 → **回落一次性授权**
+        // （`run_privileged` 内部就是 免密助手 → pkexec → sudo 三条链）。
+        // **绝不**回落本机直读：/boot/grub/grub.cfg 是 0600 root（grub-mkconfig
+        // 自己 umask 077），普通用户读不动，直读只会得到误导性的「没找到」
+        // （2026-10-30 用户定案，与 write_env 的回落形态对齐）。
         let mut failure: Option<String> = None;
-        if helper_ready {
+        if crate::linux_priv::status().state == "ready" {
             match probe_via_helper_linux(esp_partuuid) {
                 Ok(mut payload) => {
                     payload.via = "helper".to_string();
@@ -700,14 +702,23 @@ pub(crate) fn probe(
                 Err(error) => failure = Some(error),
             }
         }
-        let mut payload = probe_host();
+        // 自动扫（进页面刷新）与远程请求不许弹框 —— 与 macOS 同一条铁律；
+        // 远程场景 spawn_privileged 自己也会拦（allow_gui=false）。
+        if elevation.is_silent() {
+            return Err(format!(
+                "免密组件没接上（{}）：自动扫描不弹管理员授权，装好免密组件\
+                 （「系统引导页」）后重开 App 即自动读；也可以点「重新读取」\
+                 手动扫（那一次会请求授权）",
+                failure.as_deref().unwrap_or("没装或版本不匹配")
+            ));
+        }
+        let mut payload = probe_via_elevated(esp_partuuid, elevation)?;
+        payload.via = "elevated".to_string();
         payload.notes.push(match failure {
-            Some(error) => format!("全量扫描没跑起来：{error}。这次只读了本机"),
-            None => "只读了本机：装一次免密组件（「系统引导页」），之后自动扫描就会遍历全部 \
-                     ext4 分区、按 fstab 找到挂载所选 ESP 的那块 Linux"
-                .to_string(),
+            Some(why) => format!("免密组件这次没接上（{why}）：改用了一次性授权"),
+            None => "没装免密助手：这次用了授权框（装好免密组件即可全程无感）".to_string(),
         });
-        return Ok(payload);
+        Ok(payload)
     }
     #[cfg(not(target_os = "linux"))]
     {
@@ -879,8 +890,10 @@ pub(crate) fn parts_for_sim(app: &AppHandle) -> (Vec<PartReport>, Option<String>
     }
 }
 
-/// 一次性授权（osascript / UAC）：弹一次密码，跑一个把自己提权起来的子进程。
-#[cfg(not(target_os = "linux"))]
+/// 一次性授权（osascript / UAC / pkexec）：弹一次密码，跑一个把自己提权起来的子进程。
+///
+/// 三端共用：Linux 上 `run_privileged` 内部按「免密助手 → pkexec → sudo」
+/// 逐条试，弹框只是其中一环 —— 装好免密组件的用户在这里根本不会被弹。
 fn probe_via_elevated(
     esp_partuuid: &str,
     elevation: Elevation,

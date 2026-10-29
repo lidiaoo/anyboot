@@ -1033,11 +1033,35 @@ Ok(probe_host())                                  // 只读本机 /boot/grub{,2}
 | `0d7d59c` | Linux 扫描链：`probe_raw` 从别名短路改为真遍历；`probe()` 免密优先、没装回落本机直读并说明差距 |
 | `f30d2bf` | Linux 写入链：三档成熟度、host 判定修正、`ext4_raw` 补 `open_raw_rw`、本机行也走提权 |
 
+### 20.7 回落链修正（2026-10-30，用户定案）
+
+`0d7d59c` 时代 probe() 的 Linux 回落是「本机直读」，真机暴露两点问题：
+
+1. **本机直读必然失败**：`/boot/grub/grub.cfg` 是 `0600 root`（`grub-mkconfig`
+   自己 `umask 077`），普通用户读不动 → `if let Ok(read)` 把 EACCES 静默当
+   「没这个文件」，报出误导性的「本机没找到 …grub.cfg」；
+2. **回落目标本来就该是授权而不是认输**：写入链 `write_env` 的形态是
+   免密失败 → `run_privileged`（免密助手 → pkexec → sudo 三条链），扫描没理由更弱。
+
+修正后的 Linux `probe()`：
+
+| 条件 | 行为 |
+|---|---|
+| 免密组件 `state=="ready"` | `run_via_helper` 静默全量扫（原样） |
+| 不就绪 / 没跑通 + `Elevation::Allow`（用户手点） | `probe_via_elevated`（三端共用）：helper 失败自动落 pkexec / sudo，notes 带真实原因 |
+| 不就绪 / 没跑通 + `Elevation::Silent`（自动刷新 / 远程） | **报错不弹框**（与 macOS 同一条铁律），错误文案引导装免密组件或手点「重新读取」 |
+
+远程请求天然被拦：`spawn_privileged` 的 `allow_gui=false`（`remoteAllowGuiAuth`）
+会拒绝弹框，手机端只能靠免密组件静默完成 —— 与其它提权操作同一策略。
+
+`probe_host()` 不再作为 probe 的回落（Linux `probe_raw` 的本机行仍用它），
+「只读了本机」这条 notes 文案随之删除。
+
 ### 20.6 TODO 增补（Linux 侧）
 
 - [ ] **真机验证·扫描**：装免密组件 → 自动 tab 应列出本机其它 ext4 的 Linux
       （按各自 fstab 挂载所选 ESP 的那块被 `locate()` 精确选中）；没装组件时
-      保持本机行 + 提示装组件；
+      手点「重新读取」应弹一次 pkexec 授权并扫出全量（§20.7），自动刷新则报错引导；
 - [ ] **真机验证·写入**：选条目切换 → 目标分区挂载着应报「已写入 …（挂载点 …，
       回读一致）」；未挂载走裸写；`grub.cfg` 不变、只有 saved_entry/next_entry 生效；
 - [ ] **真机验证·重启生效**：改 `next_entry` → 重启 → 确认进的是那一项
