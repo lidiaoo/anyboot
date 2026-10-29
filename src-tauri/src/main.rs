@@ -66,6 +66,26 @@ fn main() {
         };
         std::process::exit(anyboot_lib::apfs_privileged_scan_main(&out));
     }
+    // ⓪.5b ESP 只读挂载（提权版）：免密助手以 root 执行 mount。启动自动挂载与
+    //    卡片按钮共用；参数白名单见 linux_priv::validate_mount_request。
+    if args.iter().any(|arg| arg == "--linux-mount-esp") {
+        let get = |flag: &str| {
+            args.iter()
+                .position(|arg| arg == flag)
+                .and_then(|index| args.get(index + 1))
+                .cloned()
+        };
+        let (Some(device), Some(mountpoint), Some(out)) =
+            (get("--device"), get("--mountpoint"), get("--out"))
+        else {
+            eprintln!("用法：anyboot --linux-mount-esp --device <dev> --mountpoint <dir> [--fstype <fs>] --out <结果文件>");
+            std::process::exit(2);
+        };
+        let fstype = get("--fstype").unwrap_or_default();
+        std::process::exit(anyboot_lib::linux_mount_esp_main(
+            &device, &mountpoint, &fstype, &out,
+        ));
+    }
     // ⓪.6 OC 设默认项（提权版）：主进程检测到没有 NVRAM 权限时自拉起，这里
     //    完成整套 set_default 并把结果写回 --out 指的文件。同样绝不进 Tauri。
     if args.iter().any(|arg| arg == "--oc-set-default") {

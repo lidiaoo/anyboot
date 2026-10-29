@@ -809,6 +809,86 @@ pub fn uninstall_main(out_path: &str) -> i32 {
     write_result(out_path, imp::uninstall_as_root())
 }
 
+/// `--linux-mount-esp` 的子命令体：root 侧**只读**挂载一块 EFI 系统分区，结果写 JSON。
+///
+/// 启动自动挂载与卡片按钮共用这条链路。参数来自用户态主进程，而本进程是 root ——
+/// 所以入口先过 [`validate_mount_request`] 白名单，再动手。
+pub fn mount_esp_main(
+    device: &str,
+    mountpoint: &str,
+    fstype: &str,
+    out_path: &str,
+) -> i32 {
+    let outcome = match validate_mount_request(device, mountpoint, fstype) {
+        Ok(()) => mount_esp_as_root(device, mountpoint, fstype),
+        Err(error) => Err(error),
+    };
+    write_result(out_path, outcome)
+}
+
+/// 挂载请求白名单（纯函数，好测）。
+///
+/// 三样都卡死：
+/// - **设备**必须 `/dev/` 开头、无 `..`、无空白（块设备名不会有空格）；
+/// - **挂载点**必须绝对、无 `..`，且路径里有一段叫 `anyboot-esp` —— 只允许挂进
+///   我们自己的挂载点目录，不给「帮 root 把东西挂到别处」留口子；
+/// - **文件系统**为空（让 mount 自己探测）或 FAT 家族 —— 这条链路只为 ESP 存在，
+///   别的文件系统本来也挂不动（APFS 没驱动，探测失败正是期望行为）。
+fn validate_mount_request(device: &str, mountpoint: &str, fstype: &str) -> Result<(), String> {
+    if !device.starts_with("/dev/")
+        || device.contains("..")
+        || device.split_whitespace().count() != 1
+        || device.len() > 64
+    {
+        return Err(format!("拒绝挂载非常规设备路径: {device:?}"));
+    }
+    let path = Path::new(mountpoint);
+    if !path.is_absolute()
+        || mountpoint.contains("..")
+        || !path
+            .components()
+            .any(|component| component.as_os_str() == "anyboot-esp")
+    {
+        return Err(format!("挂载点必须落在 anyboot-esp 目录下: {mountpoint:?}"));
+    }
+    if !fstype.is_empty() && !matches!(fstype, "vfat" | "fat" | "msdos" | "exfat") {
+        return Err(format!("这条链路只挂 FAT 家族（ESP），不接受 {fstype:?}"));
+    }
+    Ok(())
+}
+
+/// root 侧的实际挂载。`uid`/`gid` 取 sudo 传进来的 `SUDO_UID`/`SUDO_GID` ——
+/// FAT 上的文件归属由挂载选项决定，不给的话全归 root，普通用户连自己挂的
+/// 分区都读不了。
+fn mount_esp_as_root(device: &str, mountpoint: &str, fstype: &str) -> Result<(), String> {
+    let mut options = String::from("ro");
+    let sudo_uid = std::env::var("SUDO_UID").ok();
+    let sudo_gid = std::env::var("SUDO_GID").ok();
+    if let (Some(uid), Some(gid)) = (&sudo_uid, &sudo_gid) {
+        if uid.bytes().all(|byte| byte.is_ascii_digit())
+            && gid.bytes().all(|byte| byte.is_ascii_digit())
+        {
+            options = format!("{options},uid={uid},gid={gid}");
+        }
+    }
+    let mut command = std::process::Command::new("mount");
+    command.arg("-o").arg(&options);
+    if !fstype.is_empty() {
+        command.arg("-t").arg(fstype);
+    }
+    command.arg(device).arg(mountpoint);
+    let output = command
+        .output()
+        .map_err(|error| format!("无法执行 mount: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "mount 失败: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    Ok(())
+}
+
 fn write_result(out_path: &str, outcome: Result<(), String>) -> i32 {
     // 先卡路径再写：这条是 root 侧执行体，`--out` 由调用方给
     if let Err(error) = guard_result_path(out_path) {
@@ -878,6 +958,69 @@ pub(crate) async fn linux_priv_uninstall(password: Option<String>) -> Result<Pri
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 挂载请求白名单：助手以 root 跑 mount，参数必须一道道卡死。
+    #[test]
+    fn mount_request_whitelist() {
+        // 正常路径：ESP 设备 + 我们自己的挂载点目录
+        assert!(validate_mount_request(
+            "/dev/nvme0n1p5",
+            "/run/user/1000/anyboot-esp/nvme0n1p5",
+            "vfat"
+        )
+        .is_ok());
+        // fstype 留空 = 让 mount 自己探测，也放行
+        assert!(validate_mount_request("/dev/sda2", "/tmp/anyboot-esp/sda2", "").is_ok());
+
+        // 设备：不认非常规路径
+        assert!(validate_mount_request(
+            "nvme0n1p5",
+            "/run/user/1000/anyboot-esp/nvme0n1p5",
+            "vfat"
+        )
+        .is_err());
+        assert!(validate_mount_request(
+            "/dev/../etc/passwd",
+            "/run/user/1000/anyboot-esp/x",
+            "vfat"
+        )
+        .is_err());
+        assert!(validate_mount_request(
+            "/dev/sda1 /dev/sdb1",
+            "/run/user/1000/anyboot-esp/x",
+            "vfat"
+        )
+        .is_err());
+
+        // 挂载点：必须绝对、无 ..、必须落在 anyboot-esp 下
+        assert!(validate_mount_request(
+            "/dev/sda2",
+            "anyboot-esp/sda2",
+            "vfat"
+        )
+        .is_err());
+        assert!(validate_mount_request("/dev/sda2", "/home/user/x", "vfat").is_err());
+        assert!(validate_mount_request(
+            "/dev/sda2",
+            "/tmp/anyboot-esp/../../etc/cron.d",
+            "vfat"
+        )
+        .is_err());
+
+        // 文件系统：只认 FAT 家族 —— APFS/ext4 都不是这条路该挂的
+        assert!(validate_mount_request(
+            "/dev/nvme0n1p5",
+            "/run/user/1000/anyboot-esp/nvme0n1p5",
+            "apfs"
+        )
+        .is_err());
+        assert!(validate_mount_request(
+            "/dev/nvme0n1p16",
+            "/run/user/1000/anyboot-esp/nvme0n1p16",
+            "ext4"
+        )
+        .is_err());
+    }
 
     /// 用户名进 sudoers 前必须过白名单：能塞进换行/逗号/`!` 的名字就是提权漏洞。
     #[test]

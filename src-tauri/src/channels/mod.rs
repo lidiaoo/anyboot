@@ -957,11 +957,14 @@ impl SwitchSpec {
 /// 2. 挂载点由我们自己拼（`$XDG_RUNTIME_DIR/anyboot-esp/<设备名>`），不接外部路径；
 /// 3. 一律 `ro` + `nosuid,nodev`（见 `mount_options`），只读看一眼，不当系统盘用。
 ///
-/// 挂载需要 root：`mount_command` 在本进程不是 root 时会走 `pkexec`，也就是
-/// **一次管理员授权**。这条只在用户点了卡片上那一项时执行，不在自动刷新里跑 ——
-/// 自动刷新弹授权框，等于让没人看着的机器永远刷不出结果。
+/// 挂载需要 root。两条路，按 `allow_pkexec` 分：
+///
+/// - **免密助手**（装了 `/etc/sudoers.d/anyboot` 就是它）：静默，无感，启动自动
+///   挂载只认这条路；
+/// - **pkexec**：系统授权框，一次一弹。只在用户亲手点按钮（`allow_pkexec=true`）
+///   时才允许 —— 启动那一拍没人看着屏幕，弹了等于永远刷不出结果。
 #[cfg(target_os = "linux")]
-fn linux_mount_esp_ro(device: &str) -> Result<PathBuf, String> {
+fn linux_mount_esp_ro(device: &str, allow_pkexec: bool) -> Result<PathBuf, String> {
     let _span = perf::span("esp.mount");
     let found = crate::scan::unmounted_esp_partitions()
         .into_iter()
@@ -981,25 +984,63 @@ fn linux_mount_esp_ro(device: &str) -> Result<PathBuf, String> {
     if mountpoint.join("EFI").is_dir() {
         return Ok(mountpoint);
     }
-    let output = {
-        let mut cmd = crate::mount::mount_command("mount");
-        cmd.args(["-o", &crate::mount::mount_options("ro")]);
-        // 知道类型就显式给（省一次探测）；不知道就交给 mount 自己探 ——
-        // 猜一个 `vfat` 上去只会把本来能挂的分区挂失败。
-        if let Some(fstype) = &found.fstype {
-            cmd.arg("-t").arg(fstype);
+    let fstype = found.fstype.as_deref();
+    // 只认 state == "ready"（= 助手在 + 授权在 + **版本与本程序一致**）。
+    // 别用 helper_ready()：那是旧版助手副本也会过的 —— 它不认识 --linux-mount-esp，
+    // sudo 拉起来会带着 root 身份一路落进 Tauri，绝不能把新参数喂给它。
+    if crate::linux_priv::status().state == "ready" {
+        match mount_esp_via_helper(&found.device, &mountpoint, fstype) {
+            Ok(()) => {}
+            // 免密路挂失败（APFS、内核裁剪了 vfat……）：真实原因优先透出；
+            // 但自动挂载绝不能退到弹框那一步
+            Err(error) if !allow_pkexec => return Err(error),
+            Err(_) => {
+                let output = {
+                    let mut cmd = crate::mount::mount_command("mount");
+                    cmd.args(["-o", &crate::mount::mount_options("ro")]);
+                    if let Some(fstype) = fstype {
+                        cmd.arg("-t").arg(fstype);
+                    }
+                    cmd.arg(&found.device)
+                        .arg(&mountpoint)
+                        .output()
+                        .map_err(|error| format!("无法执行 mount: {error}"))?
+                };
+                if !output.status.success() {
+                    return Err(format!(
+                        "挂载 {} 失败: {}",
+                        found.device,
+                        String::from_utf8_lossy(&output.stderr).trim()
+                    ));
+                }
+            }
         }
-        cmd.arg(&found.device)
-            .arg(&mountpoint)
-            .output()
-            .map_err(|error| format!("无法执行 mount: {error}"))?
-    };
-    if !output.status.success() {
-        return Err(format!(
-            "挂载 {} 失败: {}",
-            found.device,
-            String::from_utf8_lossy(&output.stderr).trim()
-        ));
+    } else if !allow_pkexec {
+        return Err(
+            "没装免密组件，启动时不自动挂载（「关于」页装一次，或点卡片上的按钮手动挂）"
+                .to_string(),
+        );
+    } else {
+        let output = {
+            let mut cmd = crate::mount::mount_command("mount");
+            cmd.args(["-o", &crate::mount::mount_options("ro")]);
+            // 知道类型就显式给（省一次探测）；不知道就交给 mount 自己探 ——
+            // 猜一个 `vfat` 上去只会把本来能挂的分区挂失败。
+            if let Some(fstype) = fstype {
+                cmd.arg("-t").arg(fstype);
+            }
+            cmd.arg(&found.device)
+                .arg(&mountpoint)
+                .output()
+                .map_err(|error| format!("无法执行 mount: {error}"))?
+        };
+        if !output.status.success() {
+            return Err(format!(
+                "挂载 {} 失败: {}",
+                found.device,
+                String::from_utf8_lossy(&output.stderr).trim()
+            ));
+        }
     }
     if !mountpoint.join("EFI").is_dir() {
         return Err(format!(
@@ -1008,6 +1049,93 @@ fn linux_mount_esp_ro(device: &str) -> Result<PathBuf, String> {
         ));
     }
     Ok(mountpoint)
+}
+
+/// 走免密助手的只读挂载：sudo → `/usr/lib/anyboot/anyboot-priv --linux-mount-esp`，
+/// 结果从 JSON 文件读回。成功与否以「ok 字段」为准（mount 本身失败也算跑通）。
+#[cfg(target_os = "linux")]
+fn mount_esp_via_helper(
+    device: &str,
+    mountpoint: &Path,
+    fstype: Option<&str>,
+) -> Result<(), String> {
+    let out = crate::grub_esp::unique_temp_path_under(
+        crate::linux_priv::SCRATCH_DIR,
+        "anyboot-esp-mount-out",
+    );
+    let args = vec![
+        "--linux-mount-esp".to_string(),
+        "--device".to_string(),
+        device.to_string(),
+        "--mountpoint".to_string(),
+        mountpoint.display().to_string(),
+        "--fstype".to_string(),
+        fstype.unwrap_or_default().to_string(),
+        "--out".to_string(),
+        out.display().to_string(),
+    ];
+    crate::linux_priv::run_via_helper(&args, &out)?;
+    let text = std::fs::read_to_string(&out).unwrap_or_default();
+    let _ = std::fs::remove_file(&out);
+    let value: serde_json::Value = serde_json::from_str(&text)
+        .map_err(|_| "免密挂载没写出结果（授权多半失效了，重装一次免密组件）".to_string())?;
+    if value.get("ok").and_then(|flag| flag.as_bool()) == Some(true) {
+        return Ok(());
+    }
+    Err(value
+        .get("error")
+        .and_then(|error| error.as_str())
+        .unwrap_or("免密挂载失败")
+        .to_string())
+}
+
+/// 开机自动「只读挂载」所有未挂载的 ESP —— 进 App 卡片就有数据，不用手点。
+///
+/// 与 `spawn_boot_privileged_scan` 同一条规矩：**只走免密助手，没装好整段跳过**，
+/// 绝不在开机那一拍弹授权框。单块挂不上（APFS、内核裁剪了 vfat……）只留一行
+/// trace，不阻塞其余的。挂完至少一块就刷新一次通道，让 OC 卡片当场变绿。
+pub(crate) fn spawn_boot_esp_mount(app: AppHandle) {
+    #[cfg(target_os = "linux")]
+    std::thread::spawn(move || {
+        if crate::linux_priv::status().state != "ready" {
+            crate::trace(
+                &app,
+                "boot-esp-mount",
+                "跳过开机自动挂载 ESP：免密组件没装好（「关于」页点一次「安装免密组件」，\
+                 或用卡片上的「只读挂载」手动挂）",
+            );
+            return;
+        }
+        let unmounted = crate::scan::unmounted_esp_partitions();
+        if unmounted.is_empty() {
+            return;
+        }
+        let mut mounted_any = false;
+        for part in &unmounted {
+            match linux_mount_esp_ro(&part.device, false) {
+                Ok(_) => {
+                    crate::trace(
+                        &app,
+                        "boot-esp-mount",
+                        &format!("已只读挂载 {}", part.device),
+                    );
+                    mounted_any = true;
+                }
+                Err(error) => crate::trace(
+                    &app,
+                    "boot-esp-mount",
+                    &format!("{} 挂不上：{error}", part.device),
+                ),
+            }
+        }
+        if mounted_any {
+            refresh_channels(&app);
+        }
+    });
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = app;
+    }
 }
 
 /// 执行一次通道切换（不动 busy / 不发布快照，调用方管）。
@@ -1024,9 +1152,10 @@ pub(crate) fn switch(app: &AppHandle, spec: &str) -> Result<String, String> {
     }
     // 「把一块没挂载的 ESP 只读挂上来」同样是在**修前置条件**，也得跑在解析之前：
     // 没挂载的分区对候选集根本不存在，先解析只会得到「没有找到可用的 ESP」。
+    // 这是用户亲手点的按钮：免密挂失败允许退到 pkexec 弹一次授权。
     #[cfg(target_os = "linux")]
     if let SwitchSpec::MountPartition(device) = &parsed {
-        let mountpoint = linux_mount_esp_ro(device)?;
+        let mountpoint = linux_mount_esp_ro(device, true)?;
         return Ok(format!(
             "已把 {device} 只读挂载到 {}，正在重新识别 ESP",
             mountpoint.display()
@@ -1057,50 +1186,65 @@ pub(crate) fn switch(app: &AppHandle, spec: &str) -> Result<String, String> {
             kind.signature_hint()
         )
     })?;
-    let message = match &parsed {
-        SwitchSpec::Sdboot(id) => {
-            sdboot::set_default(&esp_root, id)?;
-            parsed.describe()
-        }
-        SwitchSpec::SdbootOneShot(id) => {
-            sdboot::one_shot(&esp_root, id)?;
-            parsed.describe()
-        }
-        SwitchSpec::OpenCore => {
-            let number = opencore::set_boot_next(&esp_root, opencore::OC_MARKER, "opencore")?;
-            format!("{}（Boot{}，用后自动失效）", parsed.describe(), nvram::boot_var_name(number))
-        }
-        // 「注册」不是切换：直接把注册结果的完整说明当消息
-        SwitchSpec::OpenCoreRegister(mode) => opencore::register(&esp_root, mode)?,
-        // 「设默认项」= OC 菜单里的 Ctrl+Enter（写 OC 私有命名空间，绕过 macOS 白名单）。
-        // Windows 非提权进程读写 OCBt* 直接被拒（1314/5）—— 与其让用户看一条失败，
-        // 不如按需弹一次授权，让本程序的提权子进程跑同一套 set_default。
-        // macOS 走免密助手信箱（helper_install），不经过这条路。
-        SwitchSpec::OpenCoreDefault(target) => {
-            // 提权子进程做完就必须**就地返回**。落回下面那条非提权路径的后果：
-            // 它读 OCBt* 会失败（读不到被 `read_order` 当成「表是空的」），于是
-            // 重新算出一个槽号、再写一次 —— 写又被拒，用户看到失败，而 NVRAM
-            // 其实早就改好了；这种「成功报成失败」比直接失败更难排查。
-            #[cfg(target_os = "windows")]
-            {
-                if nvram::boot_vars_view() == nvram::BootVarsView::NeedElevation {
-                    return oc_default::set_default_elevated(&esp_root, target);
-                }
+    // 这块 ESP 很可能是我们自己「只读挂载」上来的（卡片上那个按钮）。写动作全都要
+    // 往它上面落文件（NVRAM 备份、state.json、必要时改 config.plist），只读挂载会
+    // 直接 EROFS —— 所以临时转可写、跑完转回只读。与扫描 rEFInd 时同一套 with_mount。
+    let readonly_mount = crate::mount::readonly_mount_of(&esp_root);
+    let message = crate::mount::with_mount(readonly_mount.as_ref(), || {
+        apply_spec(&parsed, &esp_root)
+    })?;
+    Ok(message)
+}
+
+/// 写入类动作的实际执行（切换 / 注册 / 设默认 / 一次性启动）。
+///
+/// 拆出来是为了让「只读挂载临时转可写」只写一遍：这些动作全都要往 ESP 落文件
+/// （NVRAM 备份 `EFI/anyboot/nvram/`、`state.json`、必要时改 `config.plist`）。
+fn apply_spec(parsed: &SwitchSpec, esp_root: &Path) -> Result<String, String> {
+    let message = match parsed {
+    SwitchSpec::Sdboot(id) => {
+        sdboot::set_default(&esp_root, id)?;
+        parsed.describe()
+    }
+    SwitchSpec::SdbootOneShot(id) => {
+        sdboot::one_shot(&esp_root, id)?;
+        parsed.describe()
+    }
+    SwitchSpec::OpenCore => {
+        let number = opencore::set_boot_next(&esp_root, opencore::OC_MARKER, "opencore")?;
+        format!("{}（Boot{}，用后自动失效）", parsed.describe(), nvram::boot_var_name(number))
+    }
+    // 「注册」不是切换：直接把注册结果的完整说明当消息
+    SwitchSpec::OpenCoreRegister(mode) => opencore::register(&esp_root, mode)?,
+    // 「设默认项」= OC 菜单里的 Ctrl+Enter（写 OC 私有命名空间，绕过 macOS 白名单）。
+    // Windows 非提权进程读写 OCBt* 直接被拒（1314/5）—— 与其让用户看一条失败，
+    // 不如按需弹一次授权，让本程序的提权子进程跑同一套 set_default。
+    // macOS 走免密助手信箱（helper_install），不经过这条路。
+    SwitchSpec::OpenCoreDefault(target) => {
+        // 提权子进程做完就必须**就地返回**。落回下面那条非提权路径的后果：
+        // 它读 OCBt* 会失败（读不到被 `read_order` 当成「表是空的」），于是
+        // 重新算出一个槽号、再写一次 —— 写又被拒，用户看到失败，而 NVRAM
+        // 其实早就改好了；这种「成功报成失败」比直接失败更难排查。
+        #[cfg(target_os = "windows")]
+        {
+            if nvram::boot_vars_view() == nvram::BootVarsView::NeedElevation {
+                return oc_default::set_default_elevated(&esp_root, target);
             }
-            oc_default::set_default(&esp_root, target)?
         }
-        SwitchSpec::CloverDefault(volume) => {
-            clover::set_default_volume(&esp_root, volume, None)?;
-            parsed.describe()
-        }
-        SwitchSpec::CloverOneShot => {
-            let number = opencore::set_boot_next(&esp_root, clover::CLOVER_MARKER, "clover")?;
-            format!("{}（Boot{}）", parsed.describe(), nvram::boot_var_name(number))
-        }
-        // 上面已经提前返回；留着是为了 match 穷尽（也防以后有人挪走那段而不知道）
-        SwitchSpec::MountEsp { .. } | SwitchSpec::MountPartition(_) => {
-            return Err("挂载 ESP 必须在解析 ESP 之前处理".to_string())
-        }
+        oc_default::set_default(&esp_root, target)?
+    }
+    SwitchSpec::CloverDefault(volume) => {
+        clover::set_default_volume(&esp_root, volume, None)?;
+        parsed.describe()
+    }
+    SwitchSpec::CloverOneShot => {
+        let number = opencore::set_boot_next(&esp_root, clover::CLOVER_MARKER, "clover")?;
+        format!("{}（Boot{}）", parsed.describe(), nvram::boot_var_name(number))
+    }
+    // 上面已经提前返回；留着是为了 match 穷尽（也防以后有人挪走那段而不知道）
+    SwitchSpec::MountEsp { .. } | SwitchSpec::MountPartition(_) => {
+        return Err("挂载 ESP 必须在解析 ESP 之前处理".to_string())
+    }
     };
     Ok(message)
 }

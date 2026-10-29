@@ -720,7 +720,7 @@ pub(crate) fn unique_temp_path(prefix: &str) -> PathBuf {
 /// （见 `linux_priv::SCRATCH_DIR`）：那边要校验前缀，而 root 的 `$TMPDIR`
 /// 与用户会话的常常不同。
 #[cfg(target_os = "linux")]
-fn unique_temp_path_under(dir: &str, prefix: &str) -> PathBuf {
+pub(crate) fn unique_temp_path_under(dir: &str, prefix: &str) -> PathBuf {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_nanos())

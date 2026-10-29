@@ -257,6 +257,18 @@ pub(crate) fn write_with_mount<F>(active_mount: Option<&ActiveMount>, operation:
 where
     F: FnOnce() -> Result<(), String>,
 {
+    with_mount(active_mount, operation)
+}
+
+/// 同 [`write_with_mount`]，但把操作的结果原样透传出去（切换通道要拿消息文案）。
+///
+/// 语义严格是「临时提升、用完还原」：调用方传进来的必须是**本来是只读**的挂载
+/// （见 [`readonly_mount_of`]）。传一个本来可写的挂载进来，走完会把用户的
+/// `/boot/efi` 变成只读 —— 那比不做还坏。
+pub(crate) fn with_mount<T, F>(active_mount: Option<&ActiveMount>, operation: F) -> Result<T, String>
+where
+    F: FnOnce() -> Result<T, String>,
+{
     if let Some(mount) = active_mount.as_ref() {
         mount
             .remount("rw")
@@ -268,6 +280,72 @@ where
     }
     result
 }
+
+/// 某个路径所在的**只读** FAT 挂载（不是只读、或压根没挂载 → None）。
+///
+/// 给「这块 ESP 是我们自己只读挂上来的，现在要往里写东西」用：
+/// `/proc/self/mountinfo` 里取**最长前缀**匹配的那一层（考虑嵌套挂载），
+/// 只认 FAT 系 —— 别的文件系统不归这里管。
+#[cfg(target_os = "linux")]
+pub(crate) fn readonly_mount_of(path: &Path) -> Option<ActiveMount> {
+    let mountinfo = fs::read_to_string("/proc/self/mountinfo").ok()?;
+    readonly_mount_in(&mountinfo, path)
+}
+
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn readonly_mount_of(_path: &Path) -> Option<ActiveMount> {
+    None
+}
+
+/// [`readonly_mount_of`] 的纯函数版（单测直接喂一段 mountinfo 文本）。
+#[cfg(target_os = "linux")]
+pub(crate) fn readonly_mount_in(mountinfo: &str, path: &Path) -> Option<ActiveMount> {
+    let mut best: Option<(ActiveMount, usize)> = None;
+    for line in mountinfo.lines() {
+        let fields = line.split_whitespace().collect::<Vec<_>>();
+        let Some(mountpoint) = fields.get(4) else {
+            continue;
+        };
+        let Some(options) = fields.get(5) else {
+            continue;
+        };
+        let Some(separator) = fields.iter().position(|field| *field == "-") else {
+            continue;
+        };
+        let Some(fstype) = fields.get(separator + 1) else {
+            continue;
+        };
+        if !FAT_FILESYSTEMS.contains(fstype) {
+            continue;
+        }
+        // 第 5 段是 per-mount 选项；`ro` 就写在里面（`rw,relatime` 这种）
+        if !options.split(',').any(|option| option == "ro") {
+            continue;
+        }
+        let mountpoint = decode_mountinfo_path(mountpoint);
+        if !path.starts_with(&mountpoint) {
+            continue;
+        }
+        let depth = mountpoint.as_os_str().len();
+        if best.as_ref().is_some_and(|(_, current)| *current >= depth) {
+            continue;
+        }
+        let device = fields
+            .get(separator + 2)
+            .map(|device| decode_mountinfo_path(device))
+            .unwrap_or_default();
+        best = Some((
+            ActiveMount {
+                device,
+                owned: is_owned_mountpoint(&mountpoint),
+                mountpoint,
+            },
+            depth,
+        ));
+    }
+    best.map(|(mount, _)| mount)
+}
+
 
 pub(crate) fn temporary_target(target: &Path) -> PathBuf {
     let unique = SystemTime::now()
@@ -434,4 +512,43 @@ pub(crate) fn decode_mountinfo_path(path: &str) -> PathBuf {
         }
     }
     PathBuf::from(decoded)
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::*;
+
+    /// 本机 `nvme0n1p5` 是 `MacOS-efi`（2.9 GiB），这块盘就是「卡片上点只读挂载」
+    /// 挂上来的那种 —— 写动作要能把它临时转可写。
+    const MOUNTINFO: &str = "\
+36 25 259:5 / /run/user/1000/anyboot-esp/nvme0n1p5 ro,nosuid,nodev,relatime shared:1 - vfat /dev/nvme0n1p5 rw,fmask=0022,dmask=0022
+37 25 259:14 / /boot/efi rw,relatime shared:2 - vfat /dev/nvme0n1p14 rw,fmask=0022
+38 25 259:16 / /home rw,relatime shared:3 - ext4 /dev/nvme0n1p16 rw
+39 25 259:5 / /run/user/1000/anyboot-esp/nvme0n1p5/EFI ro,nosuid,nodev shared:1 - vfat /dev/nvme0n1p5 rw
+";
+
+    #[test]
+    fn finds_readonly_mount_of_esp() {
+        let found = readonly_mount_in(
+            MOUNTINFO,
+            Path::new("/run/user/1000/anyboot-esp/nvme0n1p5/EFI/OC"),
+        )
+        .expect("只读挂着的 ESP 应当被识别出来");
+        // 嵌套挂载要取**最长前缀**（这里是 /EFI 那一层），否则 remount 会打到父层
+        assert_eq!(
+            found.mountpoint,
+            PathBuf::from("/run/user/1000/anyboot-esp/nvme0n1p5/EFI")
+        );
+        assert_eq!(found.device, PathBuf::from("/dev/nvme0n1p5"));
+    }
+
+    #[test]
+    fn readonly_lookup_ignores_writable_mounts() {
+        // /boot/efi 是可写的：绝不能返回它，否则 with_mount 走完会把用户的 fstab
+        // 挂载改成只读
+        assert!(readonly_mount_in(MOUNTINFO, Path::new("/boot/efi/EFI/OC")).is_none());
+        // 只读的 ext4 也不该被当成 ESP（这里只管 FAT 系）
+        assert!(readonly_mount_in(MOUNTINFO, Path::new("/home/jianghh")).is_none());
+        assert!(readonly_mount_in(MOUNTINFO, Path::new("/tmp/whatever")).is_none());
+    }
 }

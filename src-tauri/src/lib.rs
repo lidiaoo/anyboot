@@ -535,6 +535,12 @@ pub fn linux_priv_install_main(out_path: &str) -> i32 {
     linux_priv::install_main(out_path)
 }
 
+/// `--linux-mount-esp` 子命令入口（main.rs ⓪.5b 分支调）：root 侧只读挂载一块
+/// ESP，结果写 `--out` 指的 JSON。参数白名单见 `linux_priv::validate_mount_request`。
+pub fn linux_mount_esp_main(device: &str, mountpoint: &str, fstype: &str, out_path: &str) -> i32 {
+    linux_priv::mount_esp_main(device, mountpoint, fstype, out_path)
+}
+
 /// `--linux-priv-uninstall`：删免密组件（授权文件 + 助手 + 元数据），不留常驻对象。
 pub fn linux_priv_uninstall_main(out_path: &str) -> i32 {
     linux_priv::uninstall_main(out_path)
@@ -3513,6 +3519,9 @@ pub fn run() {
             // 管理员读得到。服务在位时这两步完全静默（无 UAC），服务不在就跳过 ——
             // 见 channels::spawn_boot_privileged_scan。
             channels::spawn_boot_privileged_scan(app.handle().clone());
+            // 「一进去就把没挂的 ESP 只读挂上」：免密助手在位时静默补挂（Linux），
+            // 挂完刷新通道，OpenCore 卡片不用手点就有数据。见 channels::spawn_boot_esp_mount。
+            channels::spawn_boot_esp_mount(app.handle().clone());
             // 远程保活刷新：手机/网页连着推送通道时，数据更新不再依赖主窗页面的 JS
             spawn_remote_keepfresh(app.handle().clone());
             Ok(())
