@@ -685,8 +685,29 @@ pub(crate) fn probe(
 ) -> Result<ProbePayload, String> {
     #[cfg(target_os = "linux")]
     {
-        let _ = (esp_partuuid, prefer_dev, elevation);
-        Ok(probe_host())
+        let _ = (prefer_dev, elevation);
+        // 与 macOS/Windows 同一套逻辑（用户定案 2026-10-29）：免密就绪 → 静默
+        // 全量扫描（枚举分区 + ext4 遍历 + fstab 定位），自动刷新也走这条，
+        // **绝不弹框**；助手不在/没跑通 → 回落本机直读，差距必须说清楚。
+        let helper_ready = crate::linux_priv::status().state == "ready";
+        let mut failure: Option<String> = None;
+        if helper_ready {
+            match probe_via_helper_linux(esp_partuuid) {
+                Ok(mut payload) => {
+                    payload.via = "helper".to_string();
+                    return Ok(payload);
+                }
+                Err(error) => failure = Some(error),
+            }
+        }
+        let mut payload = probe_host();
+        payload.notes.push(match failure {
+            Some(error) => format!("全量扫描没跑起来：{error}。这次只读了本机"),
+            None => "只读了本机：装一次免密组件（「关于」页），之后自动扫描就会遍历全部 \
+                     ext4 分区、按 fstab 找到挂载所选 ESP 的那块 Linux"
+                .to_string(),
+        });
+        return Ok(payload);
     }
     #[cfg(not(target_os = "linux"))]
     {
@@ -895,6 +916,28 @@ fn probe_via_elevated(
         let _ = elevation;
         run_privileged(&args, &out)?
     };
+    read_payload(&out)
+}
+
+/// Linux 专用：走**免密助手**做全量扫描（`--linux-grub-probe` 子命令）。
+///
+/// 与 `mount_esp_via_helper` 同构：结果文件放 `/tmp` 下（助手的 `--out` 白名单），
+/// 成败以「结果文件写没写」为准。调用前调用方已确认 `status() == "ready"`
+/// （版本匹配的助手才认识这批参数）。
+#[cfg(target_os = "linux")]
+fn probe_via_helper_linux(esp_partuuid: &str) -> Result<ProbePayload, String> {
+    let out = crate::grub_esp::unique_temp_path_under(
+        crate::linux_priv::SCRATCH_DIR,
+        "anyboot-grub-probe-out",
+    );
+    let mut args = vec!["--linux-grub-probe".to_string()];
+    if !esp_partuuid.trim().is_empty() {
+        args.push("--esp".to_string());
+        args.push(esp_partuuid.trim().to_string());
+    }
+    args.push("--out".to_string());
+    args.push(out.to_string_lossy().to_string());
+    crate::linux_priv::run_via_helper(&args, &out)?;
     read_payload(&out)
 }
 
@@ -1494,9 +1537,170 @@ pub(crate) fn probe_raw(esp_partuuid: &str) -> Result<ProbePayload, String> {
     Ok(payload)
 }
 
+/// Linux（免密助手子进程，root）：本机直读 + ext4 遍历，与 macOS/Windows 同一套
+/// 「fstab 定位」逻辑 —— 用户定案 2026-10-29：自动读取和手动解析共用它，不再别名短路。
 #[cfg(target_os = "linux")]
-pub(crate) fn probe_raw(_esp_partuuid: &str) -> Result<ProbePayload, String> {
-    Ok(probe_host())
+pub(crate) fn probe_raw(esp_partuuid: &str) -> Result<ProbePayload, String> {
+    // 本机（root 视角）的 /etc/fstab + /boot/grub/* 永远带上：便宜，且覆盖
+    // 「根分区不是 ext4」的布局；下面的遍历会跳过宿主根分区，不会出两行。
+    let mut payload = probe_host();
+    let sys = system_partitions_linux();
+    if sys.is_empty() {
+        payload
+            .notes
+            .push("lsblk 没列出任何分区，ext4 遍历跳过".to_string());
+        return Ok(payload);
+    }
+    // 所选 ESP 的身份：按 PARTUUID 定位 + 读 FAT 卷序列/卷标（fstab 里的
+    // `UUID=E537-7F31` 是 FAT 序列，不是 GPT PARTUUID —— 与 macOS 分支同构）。
+    if !esp_partuuid.trim().is_empty() {
+        let wanted = part_spec::normalize_uuid(esp_partuuid);
+        if let Some(hit) = sys.iter().find(|part| {
+            part.part_uuid
+                .as_deref()
+                .map(part_spec::normalize_uuid)
+                .as_deref()
+                == Some(wanted.as_str())
+        }) {
+            let fat = first_sector(&hit.dev)
+                .and_then(|sector| fat_volume_serial(&sector))
+                .map(|serial| format!("{:04X}-{:04X}", serial >> 16, serial & 0xFFFF));
+            payload.esp = Some(IdentityWire {
+                fs_uuid: fat,
+                part_uuid: hit.part_uuid.clone(),
+                label: hit.label.clone(),
+                part_label: None,
+                disk_index: hit.disk_index,
+                part_number: hit.part_number,
+            });
+        } else {
+            payload.notes.push(format!(
+                "本机没有 PARTUUID 为 {esp_partuuid} 的分区（设置里填错了？）"
+            ));
+        }
+    }
+    let host_root = host_root_dev();
+    let mut scanned = 0usize;
+    for part in &sys {
+        // 只试分区，不试整盘；宿主根分区本机那行已经覆盖
+        if part.part_number == 0 || host_root.as_deref() == Some(part.dev.as_str()) {
+            continue;
+        }
+        let source = match FileSource::open_raw(&part.dev) {
+            Ok(source) => source,
+            Err(why) => {
+                payload.notes.push(format!("{} 打不开：{why}", part.dev));
+                continue;
+            }
+        };
+        let Ok(mut fs) = Ext4::open(Box::new(source)) else {
+            continue; // 不是 ext4：正常跳过，不刷问题列表
+        };
+        scanned += 1;
+        payload.parts.push(scan_ext4(
+            &mut fs,
+            &Ext4Candidate {
+                dev: part.dev.clone(),
+                label: part.label.clone(),
+                size: part.size.clone(),
+                part_uuid: part.part_uuid.clone(),
+                part_number: part.part_number,
+                disk_index: part.disk_index,
+            },
+        ));
+    }
+    if scanned == 0 {
+        payload
+            .notes
+            .push("其余分区里没有可读的 ext4（没有别的 Linux，或都不是 ext4）".to_string());
+    }
+    Ok(payload)
+}
+
+/// Linux 分区枚举：`lsblk -J` 一把拿全。PARTUUID/LABEL 依赖 udev —— 本机
+/// `/run/udev` 缺失时会是空，照收：ext4 的 fs-uuid 在 superblock 里、FAT 序列
+/// 在引导扇区里，都不依赖 udev；fstab 按 PARTUUID 匹配的那一支会受影响，
+/// 由 `locate()` 的「设备名/卷标推断」与「单候选兜底」接着。
+#[cfg(target_os = "linux")]
+fn system_partitions_linux() -> Vec<SysPart> {
+    let _span = crate::perf::span("cmd.lsblk_parts");
+    let Ok(output) = std::process::Command::new("lsblk")
+        .args(["-Jno", "NAME,PATH,PARTUUID,LABEL,SIZE,TYPE"])
+        .output()
+    else {
+        return Vec::new();
+    };
+    if !output.status.success() {
+        return Vec::new();
+    }
+    #[derive(serde::Deserialize)]
+    struct LsblkOut {
+        #[serde(default)]
+        blockdevices: Vec<LsblkRow>,
+    }
+    #[derive(serde::Deserialize)]
+    struct LsblkRow {
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        path: Option<String>,
+        #[serde(default)]
+        partuuid: Option<String>,
+        #[serde(default)]
+        label: Option<String>,
+        #[serde(default)]
+        size: Option<String>,
+        #[serde(rename = "type", default)]
+        kind: Option<String>,
+    }
+    let Ok(parsed) = serde_json::from_slice::<LsblkOut>(&output.stdout) else {
+        return Vec::new();
+    };
+    parsed
+        .blockdevices
+        .into_iter()
+        .filter(|row| row.kind.as_deref() == Some("part"))
+        .filter_map(|row| {
+            let dev = row
+                .path
+                .or_else(|| row.name.map(|name| format!("/dev/{name}")))?;
+            let number = dev
+                .rsplit(|c: char| !c.is_ascii_digit())
+                .next()
+                .and_then(|digits| digits.parse::<u32>().ok())
+                .unwrap_or(0);
+            Some(SysPart {
+                dev,
+                label: row.label.filter(|text| !text.trim().is_empty()),
+                size: row.size,
+                part_uuid: row.partuuid.filter(|text| !text.trim().is_empty()),
+                disk_index: 0,
+                part_number: number,
+            })
+        })
+        .collect()
+}
+
+/// 宿主根分区的设备名（`/proc/self/mountinfo` 里挂载点为 `/` 的那行的 source）。
+///
+/// 遍历时跳过它：`probe_host()` 的「本机」行已经带它的 fstab / grub.cfg，
+/// 再扫一遍只会出两行同系统的重复条目。根分区是 btrfs 等非 ext4 时跳过它
+/// 也无损 —— `Ext4::open` 反正会失败。
+#[cfg(target_os = "linux")]
+fn host_root_dev() -> Option<String> {
+    let text = std::fs::read_to_string("/proc/self/mountinfo").ok()?;
+    for line in text.lines() {
+        let Some((pre, post)) = line.split_once(" - ") else {
+            continue;
+        };
+        // pre: `36 35 8:2 / / rw ...` —— 第 5 列（下标 4）是挂载点
+        if pre.split(' ').nth(4) != Some("/") {
+            continue;
+        }
+        // post: `ext4 /dev/nvme0n1p2 rw,...` —— 第 2 列是 source
+        return post.split(' ').nth(1).map(str::to_string);
+    }
+    None
 }
 
 // ─────────────────────────── macOS 分区枚举 ───────────────────────────
@@ -1602,6 +1806,13 @@ fn parse_disk_id(text: &str) -> Option<(u32, u32)> {
 #[cfg(target_os = "macos")]
 fn first_sector(dev: &str) -> Option<Vec<u8>> {
     let mut source = FileSource::open_raw(&raw_path(dev)).ok()?;
+    read_first_sector(&mut source)
+}
+
+/// Linux 版：`lsblk` 给的 PATH 已经是 `/dev/...`，直接开（root 侧才走得通）。
+#[cfg(target_os = "linux")]
+fn first_sector(dev: &str) -> Option<Vec<u8>> {
+    let mut source = FileSource::open_raw(dev).ok()?;
     read_first_sector(&mut source)
 }
 

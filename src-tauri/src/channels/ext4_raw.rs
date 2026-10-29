@@ -113,6 +113,23 @@ impl FileSource {
         })
     }
 
+    /// Linux：裸分区节点（`/dev/nvme0n1p2`）**只读**打开。
+    ///
+    /// 与 macOS 不同：Linux 对已挂载分区的只读打开不 EBUSY，align 也不挑
+    /// （那是 `/dev/rdisk*` 的怪癖）。这条只在免密助手子进程里跑到 ——
+    /// 开 `/dev/*` 本来就要 root。
+    #[cfg(target_os = "linux")]
+    pub(crate) fn open_raw(path: &str) -> Result<Self, String> {
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .open(path)
+            .map_err(|error| format!("打不开 {path}：{error}"))?;
+        Ok(Self {
+            writable: false,
+            ..Self::new(file, 0, 1)
+        })
+    }
+
     /// macOS：读写方式打开裸分区（写 grubenv 用）。分区被挂载时会 EBUSY，
     /// 那种情况只能先卸载 —— 报错要说清楚，别让用户以为是权限问题。
     #[cfg(target_os = "macos")]
