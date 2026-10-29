@@ -644,14 +644,36 @@ pub(crate) fn view(esp_root: &Path) -> ChannelView {
     let config_text = fs::read_to_string(&config_path).ok();
     let detected = efi_exists && config_text.is_some();
     if !detected {
+        // 「这块 ESP 上没有 EFI/OC」和「有 OpenCore.efi 但 config.plist 读不到」
+        // 是两件事：前者要装 OC，后者是权限或文件损坏。糊成一句「未检测到」
+        // 等于什么都没说 —— 而 OpenCore 是预演列表的主通道，用户最需要知道
+        // 它到底缺了哪一步。
+        let reason = if efi_exists {
+            format!(
+                "{} 在，但同目录的 `config.plist` 读不到（文件缺失、损坏，或当前用户没有读权限）",
+                grub_rel(esp_root, OC_EFI).display()
+            )
+        } else {
+            format!(
+                "这块 ESP（{}）上没有 `EFI/OC` —— 该盘还没装 OpenCore",
+                esp_root.display()
+            )
+        };
         return ChannelView {
             id: "opencore",
             label: "OpenCore",
             detected: false,
             permission: "nvram",
             chip: "off",
-            detail: None,
-            health: Vec::new(),
+            detail: Some(reason.clone()),
+            // health 非空 → 前端把这张卡渲染出来（而不是折进一行「未检测到」）。
+            // 这是「未检测到的通道必须给一行为什么 + 怎么修」的落点。
+            health: vec![HealthIssue {
+                severity: "info".to_string(),
+                text: format!(
+                    "{reason}。装好之后（把整个 `EFI/OC` 目录拷进这块 ESP）点「重新识别」即可"
+                ),
+            }],
             entries: Vec::new(),
             current_default: None,
             last_boot: None,

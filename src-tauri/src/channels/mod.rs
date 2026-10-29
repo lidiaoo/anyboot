@@ -223,6 +223,56 @@ fn has_channel_signature(root: &Path) -> bool {
     grub_rel(root, "loader/loader.conf").is_file()
         || grub_rel(root, "EFI/OC/OpenCore.efi").is_file()
         || grub_rel(root, "EFI/CLOVER/CLOVERX64.efi").is_file()
+        || has_grub_signature(root)
+}
+
+/// GRUB 也是「这块 ESP 上确实装了引导器」的一种。
+///
+/// 原先只认 systemd-boot / OpenCore / Clover 三个签名，于是纯 GRUB 的 Linux
+/// 机器三个全落空 → [`resolve_esp_root`] 判「这台机器没有 ESP」→ 三张通道卡
+/// 一起变「未检测到」。macOS 上永远撞不到这件事（黑苹果的前置就是装 OC，
+/// 判据必然成立），Linux 上却是绝大多数机器的常态 —— 同一个判据在两端
+/// 语义完全相反，这是 Linux 端通道整块失灵的根因。
+///
+/// 只认「引导器文件」而**不是**「有 EFI 目录就好」：后者会把签名校验降级成
+/// 「任意一个 FAT 卷」，而这个函数同时是特权路径的准入条件
+/// （见 [`resolve_esp_root_arg`]，特权进程会往它下面写 `EFI/anyboot/...`）。
+fn has_grub_signature(root: &Path) -> bool {
+    // AnyBoot 自己往 ESP 上写的那份 GRUB 配置（装过 09_anyboot 就一定有）
+    if grub_rel(root, "EFI/grub.cfg").is_file() {
+        return true;
+    }
+    // 兜底引导路径：任何装过系统的 ESP 都有它。GRUB、Windows、以及 OC 的
+    // Bootstrap 方案都会把各自的 loader 丢在这儿。
+    if grub_rel(root, "EFI/BOOT/BOOTX64.EFI").is_file()
+        || grub_rel(root, "EFI/BOOT/BOOTIA32.EFI").is_file()
+        || grub_rel(root, "EFI/BOOT/BOOTAA64.EFI").is_file()
+    {
+        return true;
+    }
+    // 发行版自己的目录（`EFI/arch`、`EFI/ubuntu`、`EFI/fedora`…）里的 grub 本体。
+    // 走到这里说明连 EFI/BOOT 都被人删了，但 grub 还在，仍然算一块能用的 ESP。
+    let Ok(entries) = std::fs::read_dir(grub_rel(root, "EFI")) else {
+        return false;
+    };
+    entries.flatten().any(|entry| {
+        let dir = entry.path();
+        if !dir.is_dir() {
+            return false;
+        }
+        ["grubx64.efi", "grubia32.efi", "grubaa64.efi"]
+            .iter()
+            .any(|name| dir.join(name).is_file())
+    })
+}
+
+/// 一块**已被上游链路确认过身份**的 ESP 长什么样：根下有 `EFI/` 目录。
+///
+/// 比 [`has_channel_signature`] 宽，因为调用方已经带着上下文来 —— 分区是按
+/// fstab 的 UUID/PARTUUID 精确匹配出来的，不必再靠「里面装了哪个引导器」反推。
+/// **只给只读探测用**，别拿它当特权写的准入条件（那要看签名）。
+fn looks_like_esp(root: &Path) -> bool {
+    grub_rel(root, "EFI").is_dir()
 }
 
 /// 解析「这次特权操作作用于哪块 ESP」：优先用调用方点名的那块（**必须真的带通道
@@ -258,13 +308,79 @@ fn esp_root_is_volume_root(root: &Path) -> bool {
     root.parent().is_none() && root.is_absolute()
 }
 
-/// 平台各自的常见挂载点（GRUB 链路没解析出 ESP 时的兜底探测）。
+/// Linux 上「去哪些目录找 ESP」= 四个固定路径 + 挂载表里**所有 FAT 家族卷**。
+///
+/// 为什么要动挂载表：macOS 的候选根是 `/Volumes` 全量 —— 任何磁盘的挂载点都在
+/// 那儿，用户在哪儿挂上 ESP 都躲不掉。Linux 没有这种统一目录，只给
+/// `/efi /boot/efi /boot /esp` 四个固定点的话，`/mnt/esp`、`/run/media/me/EFI`、
+/// 双系统另一块盘的 ESP（本机 `nvme0n1p4` 就是一例）全在射程外，表现就是
+/// 「明明挂着一块带 OpenCore 的分区，卡片却写未检测到」。
+///
+/// 只取 FAT 家族：ESP 规范上就是 FAT12/16/32。把几百个 tmpfs / ext4 / proc
+/// 挂载点都拿去 `is_file()` 一遍是白花 syscall，而且会把整条扫描拖慢 ——
+/// 这一步在每次刷新通道时都会跑。
 #[cfg(target_os = "linux")]
 fn candidate_roots() -> Vec<PathBuf> {
-    ["/efi", "/boot/efi", "/boot", "/esp"]
+    let mut roots: Vec<PathBuf> = ["/efi", "/boot/efi", "/boot", "/esp"]
         .iter()
         .map(PathBuf::from)
-        .collect()
+        .collect();
+    for root in fat_mount_points() {
+        if !roots.contains(&root) {
+            roots.push(root);
+        }
+    }
+    roots
+}
+
+/// 挂载表里的 FAT 家族挂载点（读 `/proc/self/mounts`，不起外部命令）。
+///
+/// 别改用 `lsblk`：这一步是「扫候选目录」，只需要已挂载的卷；`lsblk` 多给的是
+/// 未挂载分区，而要不要挂载是另一件事（未挂载就挂属于改系统状态，得用户点头）。
+///
+/// 挂载点里的空格 / 制表符 / 反斜杠被内核转义成 `\040` `\011` `\134`，
+/// 不还原就会拿一串带反斜杠的假路径去 `is_file()`。
+#[cfg(target_os = "linux")]
+fn fat_mount_points() -> Vec<PathBuf> {
+    let text = std::fs::read_to_string("/proc/self/mounts").unwrap_or_default();
+    let mut out = Vec::new();
+    for line in text.lines() {
+        // 字段序：device mountpoint fstype options dump pass
+        let mut fields = line.split(' ');
+        let Some(_device) = fields.next() else { continue };
+        let Some(mountpoint) = fields.next() else {
+            continue;
+        };
+        let Some(fstype) = fields.next() else {
+            continue;
+        };
+        if !matches!(fstype, "vfat" | "msdos" | "fat" | "exfat") {
+            continue;
+        }
+        out.push(PathBuf::from(unescape_mount_point(mountpoint)));
+    }
+    out
+}
+
+/// 还原 mountinfo 的八进制转义（`\040` = 空格）。
+#[cfg(target_os = "linux")]
+fn unescape_mount_point(raw: &str) -> String {
+    let bytes = raw.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'\\' && index + 3 < bytes.len() {
+            let digits = &raw[index + 1..index + 4];
+            if let Ok(byte) = u8::from_str_radix(digits, 8) {
+                out.push(byte);
+                index += 4;
+                continue;
+            }
+        }
+        out.push(bytes[index]);
+        index += 1;
+    }
+    String::from_utf8_lossy(&out).to_string()
 }
 
 #[cfg(target_os = "macos")]
@@ -305,14 +421,15 @@ fn candidate_roots() -> Vec<PathBuf> {
     Vec::new()
 }
 
-/// 找不到 ESP 时的「原因 + 可点的修复动作」。目前只有 Windows 给得出。
+/// 找不到 ESP 时的「原因 +（能给的）修复动作」。
 ///
-/// 别小看这一句：Windows 上 ESP 天生没有盘符，`candidate_roots` 扫不到，通道就
-/// 一起缩进折叠条变成一行「OpenCore（未检测到）」。用户看到的是「AnyBoot 不支持
-/// 我这台机器」，真相却是「给那块 260 MB 的隐藏分区分配一个盘符就行」。
+/// 别小看这一句：没有它，通道就一起缩进折叠条变成一行「OpenCore（未检测到）」
+/// —— 用户看到的是「AnyBoot 不支持我这台机器」，而真相可能只是「给那块 260 MB
+/// 的隐藏分区分配一个盘符」（Windows），或者「ESP 压根还没挂载」（Linux）。
 ///
-/// 一次调用把两件事都算了（提示文案 + 按钮），因为 `win_esp::list()` 要起一次
-/// PowerShell，分开算会白跑两遍。
+/// 两端给的东西不同：Windows 能直接给按钮（分配盘符），Linux 没有等价动作，
+/// 所以给的是**情况分类** —— 「一块都没挂」和「挂了但上面没有引导器」修法完全不同。
+/// 但一条都不给是不行的：那正是「未检测到的通道必须说明为什么」的落点。
 fn offline_extras() -> (Option<String>, Vec<ChannelEntry>) {
     #[cfg(target_os = "windows")]
     {
@@ -359,7 +476,40 @@ fn offline_extras() -> (Option<String>, Vec<ChannelEntry>) {
             .collect();
         (Some(hint), entries)
     }
-    #[cfg(not(target_os = "windows"))]
+    // Linux：没有「分配盘符」这种动作，能给的是**说清是哪一种情况** ——
+    // 「一块都没挂」和「挂了但上面没引导器」的修法完全不同，糊成一句
+    // 「未检测到」等于让用户自己猜。
+    #[cfg(target_os = "linux")]
+    {
+        let esp: Vec<String> = candidate_roots()
+            .into_iter()
+            .filter(|root| looks_like_esp(root))
+            .map(|root| root.display().to_string())
+            .collect();
+        if esp.is_empty() {
+            (
+                Some(
+                    "没找到任何带 EFI 目录的分区：ESP 可能还没挂载\
+                     （`lsblk -f | grep vfat` 看一眼哪块是 EFI 系统分区），\
+                     也可能是这台机器走 BIOS 引导、根本没有 ESP"
+                        .to_string(),
+                ),
+                Vec::new(),
+            )
+        } else {
+            (
+                Some(format!(
+                    "找到了 {} 块带 EFI 目录的分区（{}），但上面既没有 GRUB，\
+                     也没有 OpenCore / systemd-boot / Clover —— 也就是说这块盘上\
+                     还没装任何引导器，或者它们被放在了非标准目录",
+                    esp.len(),
+                    esp.join("、")
+                )),
+                Vec::new(),
+            )
+        }
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
     {
         (None, Vec::new())
     }
@@ -373,7 +523,16 @@ pub(crate) fn resolve_esp_root(app: &AppHandle) -> Option<(Option<EspInfo>, Path
         let state = app.state::<Mutex<AppState>>();
         let state = state.lock().expect("state mutex poisoned");
         if let Some(dir) = &state.grub.efi_dir {
-            if has_channel_signature(dir) {
+            // GRUB 链路给出的这块 ESP 是按 fstab 里的 UUID/PARTUUID **精确匹配**
+            // 出来的（见 `linux_grub::locate`），比「目录里有没有某个引导器」更权威。
+            // 只看签名的话，一块只装 GRUB 的 ESP 会被自己的签名判据否掉 ——
+            // 于是「明明已经定位到 ESP，却报告没有 ESP」。
+            // 这里只喂只读探测；特权写那条路仍然要严格签名（`resolve_esp_root_arg`）。
+            // `looks_like_esp` 只对 Linux 放宽：Windows 上「有盘符 + 有 EFI 目录」
+            // 太容易命中（随便插个 U 盘就够），而它的 GRUB 链路本来就能给出盘符。
+            let trusted =
+                has_channel_signature(dir) || (cfg!(target_os = "linux") && looks_like_esp(dir));
+            if trusted {
                 return Some((state.grub.esp.clone(), dir.clone()));
             }
         }
@@ -400,8 +559,8 @@ pub(crate) fn resolve_esp_root(app: &AppHandle) -> Option<(Option<EspInfo>, Path
 
 /// 没找到 ESP 时的全 off 视图（与 GRUB 空态同风格：照实说原因）。
 ///
-/// `explain` = 要尽力解释「为什么没找到」（目前只有 Windows 查得到，见
-/// [`offline_extras`]）。解释得出来时还会带一个可点的修复动作。
+/// `explain` = 要尽力解释「为什么没找到」（见 [`offline_extras`]：
+/// Windows 会带一个可点的修复动作，Linux 给的是情况分类）。
 /// 前端只在 `health` 非空时才把未检测的通道渲染成卡片 —— 没有原因可说的
 /// 仍然收进折叠条，不占版面。
 fn offline_view(
@@ -485,21 +644,35 @@ pub(crate) fn refresh_channels(app: &AppHandle) {
 /// 2. **APFS Preboot**（macOS 条目）—— 零挂载直读 APFS 容器要开整盘，EACCES；
 ///    读不到时 OC 预演里 macOS 条目凭空消失。
 ///
-/// 两条都**只走静默通道**（[`Elevation::Silent`] → Windows 特权服务）：
-/// 服务没在跑就整段跳过并留一行 trace，绝不在开机那一拍弹 UAC。
+/// 两条都**只走静默通道**（[`Elevation::Silent`] → Windows 特权服务 / Linux 免密助手）：
+/// 通道没就位就整段跳过并留一行 trace，绝不在开机那一拍弹授权框。
 /// 跳过的代价只是「要手动点卡片上的按钮」，而不是「开机弹一个没人看着的授权框」。
 ///
 /// 并发关系：这段和 `refresh_and_update` 的首次扫描是两条独立线程，谁先跑完都行 ——
 /// 两份数据都在进程内缓存里，`refresh_channels` 读的是缓存，不看扫描先后。
 pub(crate) fn spawn_boot_privileged_scan(app: AppHandle) {
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
     std::thread::spawn(move || {
+        #[cfg(target_os = "windows")]
         if !crate::service_win::usable_from_here() {
             crate::trace(
                 &app,
                 "boot-scan",
                 "跳过开机自动提权扫描：特权服务没在运行，或当前不是安装目录里那份 exe\
                  （卡片上的「重扫 macOS 条目 / 重读启动顺序」仍可手动授权）",
+            );
+            return;
+        }
+        // Linux 的静默通道 = 免密助手。只在「助手 + sudoers 都到位、版本也对得上」
+        // 时才往下走：半装状态下再往下一层就退到 pkexec，而开机那一拍没人点得到
+        // 授权框（这正是原先整段被跳过的原因 —— 免密组件落地后这个前提已经不成立）。
+        #[cfg(target_os = "linux")]
+        if crate::linux_priv::status().state != "ready" {
+            crate::trace(
+                &app,
+                "boot-scan",
+                "跳过开机自动提权扫描：免密组件没装好（「关于」页点一次「安装免密组件」），\
+                 卡片上的「重扫 macOS 条目 / 重读启动顺序」仍可手动授权",
             );
             return;
         }
@@ -529,8 +702,8 @@ pub(crate) fn spawn_boot_privileged_scan(app: AppHandle) {
             crate::publish_ui(&app);
         }
     });
-    // 别的平台没有静默提权通道（macOS 本来就能直读，Linux 走 pkexec 必弹授权）
-    #[cfg(not(target_os = "windows"))]
+    // macOS 原生就能读 NVRAM 与 /System/Volumes/Preboot，不需要这条提权链
+    #[cfg(target_os = "macos")]
     let _ = app;
 }
 
@@ -788,6 +961,98 @@ mod tests {
         assert!(Elevation::from_auto(true).is_silent());
         assert_eq!(Elevation::from_auto(false), Elevation::Allow);
         assert!(!Elevation::from_auto(false).is_silent());
+    }
+
+    /// Linux：挂载表里的八进制转义必须还原。
+    ///
+    /// 卷标带空格的 U 盘/分区挂出来就是 `/run/media/me/My\040Disk` 这种形态，
+    /// 不还原等于拿一串带反斜杠的假路径去 `is_file()` —— 表现是「明明插着，
+    /// 就是检测不到」，而且不会有任何报错。
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn mount_point_escapes_are_unescaped() {
+        assert_eq!(unescape_mount_point("/boot/efi"), "/boot/efi");
+        assert_eq!(
+            unescape_mount_point(r"/run/media/me/My\040Disk"),
+            "/run/media/me/My Disk"
+        );
+        assert_eq!(unescape_mount_point(r"/a\011b"), "/a\tb");
+        // 不是合法八进制就原样留着：别把真的反斜杠吃掉
+        assert_eq!(unescape_mount_point(r"/a\zzz"), r"/a\zzz");
+        // 不足三位的残缺转义同样原样保留
+        assert_eq!(unescape_mount_point(r"/tail\04"), r"/tail\04");
+    }
+
+    #[cfg(target_os = "linux")]
+    fn signature_scratch(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "anyboot-sig-{tag}-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("建临时目录");
+        dir
+    }
+
+    /// 纯 GRUB 的 ESP 必须被认出来 —— 这是 Linux 端通道整块失灵的根因：
+    /// 原先只认 systemd-boot / OC / Clover，GRUB 机器三个全落空，
+    /// `resolve_esp_root` 于是报「这台机器没有 ESP」。
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn grub_signature_covers_the_three_real_layouts() {
+        // ① AnyBoot 自己写的那份 EFI/grub.cfg
+        let root = signature_scratch("grubcfg");
+        std::fs::create_dir_all(root.join("EFI")).unwrap();
+        std::fs::write(root.join("EFI/grub.cfg"), "menuentry x {}\n").unwrap();
+        assert!(has_channel_signature(&root), "EFI/grub.cfg 没被认出来");
+        let _ = std::fs::remove_dir_all(&root);
+
+        // ② 发行版目录里的 grub 本体（arch / ubuntu / fedora 都是这个形状）
+        let root = signature_scratch("distro");
+        std::fs::create_dir_all(root.join("EFI/arch")).unwrap();
+        std::fs::write(root.join("EFI/arch/grubx64.efi"), b"MZ").unwrap();
+        assert!(has_channel_signature(&root), "EFI/arch/grubx64.efi 没被认出来");
+        let _ = std::fs::remove_dir_all(&root);
+
+        // ③ 兜底引导路径
+        let root = signature_scratch("bootpath");
+        std::fs::create_dir_all(root.join("EFI/BOOT")).unwrap();
+        std::fs::write(root.join("EFI/BOOT/BOOTX64.EFI"), b"MZ").unwrap();
+        assert!(has_channel_signature(&root), "EFI/BOOT/BOOTX64.EFI 没被认出来");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// 反过来：空 ESP（只有 EFI 目录、里面什么都没有）**不算**签名。
+    ///
+    /// 这个函数同时是特权写的准入门（`resolve_esp_root_arg`），放宽成
+    /// 「有 EFI 目录就行」等于「任意一块 FAT 卷都能被 root 进程写」。
+    /// 而 `looks_like_esp` 认得它 —— 那条路只喂只读探测，且有上游 UUID 匹配背书。
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn empty_efi_dir_is_not_a_signature() {
+        let root = signature_scratch("empty");
+        std::fs::create_dir_all(root.join("EFI")).unwrap();
+        assert!(!has_channel_signature(&root), "空 EFI 目录不该算签名");
+        assert!(looks_like_esp(&root), "已确认过的 ESP 只要求有 EFI 目录");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// 四个固定路径必须永远在候选里（哪怕机器上一块 FAT 都没挂）——
+    /// 这条挂了的表现是「所有 Linux 机器一律检测不到」。
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn candidate_roots_always_keep_the_standard_paths() {
+        let roots = candidate_roots();
+        for want in ["/efi", "/boot/efi", "/boot", "/esp"] {
+            assert!(
+                roots.iter().any(|root| root.as_path() == Path::new(want)),
+                "候选根里缺了 {want}"
+            );
+        }
+        let mut sorted = roots.clone();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(sorted.len(), roots.len(), "候选根里有重复项，会让扫描白跑");
     }
 
     #[test]
