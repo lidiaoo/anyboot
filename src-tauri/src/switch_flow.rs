@@ -54,7 +54,9 @@ pub(crate) fn refresh_and_update(app: &AppHandle) -> AppStatus {
                 .iter()
                 .find(|item| item.active)
                 .map(|item| format!("下次启动：{}", item.display_name))
-                .unwrap_or_else(|| "已连接 rEFInd；PreviousBoot 未匹配模板".to_string());
+                // PreviousBoot 没匹配上模板时不给兜底文案（用户要求去掉这行）：
+                // message 留空，前端对空 message 一律不显示
+                .unwrap_or_default();
             let status = AppStatus {
                 vars_dir: Some(display_path(&result.vars_dir)),
                 temporary_mount: result

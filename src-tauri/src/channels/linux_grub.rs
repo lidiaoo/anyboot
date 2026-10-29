@@ -1556,8 +1556,8 @@ pub(crate) fn pick_blocking(app: AppHandle, dev: String) -> Option<LinuxGrubView
 ///
 /// 返回**切换后的 GRUB 视图**，不返回 `AppStatus`。两个原因：
 /// 1. `AppStatus` 是 rEFInd 的状态结构（`vars_dir` / `variables` / `message`），
-///    把 GRUB 的结果塞进去会让网页端读到「已连接 rEFInd；PreviousBoot 未匹配模板」
-///    这种完全无关的话 —— 那是上一次 rEFInd 操作留下的 message；
+///    把 GRUB 的结果塞进去会让网页端读到 rEFInd 遗留的 message
+///    （那是上一次 rEFInd 操作留下的，与 GRUB 无关）；
 /// 2. 前端其实忽略返回值，所以这个错一直没暴露，但 HTTP 通道会原样吐出去。
 ///
 /// **不重扫**：只写了 1024 字节 env，`grub.cfg` 没变，没必要再探一遍分区；
