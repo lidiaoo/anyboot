@@ -18,6 +18,7 @@
 - 忙闸必须有放闸路径（`POWER_RELEASE_MS=15s`）；`restart_app` 顺序 stop_http_server → release_instance_lock → app.restart()。
 - 替换已安装应用：先杀主进程（mac 上 `osascript quit` 常被拒，直接 `kill -TERM`）→ 清残留子进程（tsnet/cloudflared 可能成孤儿）→ 备份旧 .app → 暂存新 .app + `codesign -v` → `mv` 交换 → md5 与构建产物比对 → 启动并查 `/health`。
 - **装特权组件必须同时给卸载路径**：Linux 的 `sudoers` 免密（`/etc/sudoers.d/anyboot` + `/usr/lib/anyboot/`）要三条删除路都能走（deb/rpm 的 postrm、界面「移除授权」、文档两行手删），且**升级不删**（deb `$1=upgrade` / rpm `$1=1`）。规则文本必须过 `visudo -cf`，临时文件与备份**绝不能落进 `/etc/sudoers.d/`**（该目录所有非 `~` 结尾文件都会被 include）。细节 `docs/linux-privilege.md`。
+- **root 助手必须自带参数白名单**：sudoers 只保证「能跑这个程序」，读写哪里全靠程序自己。写入前过 `grub_esp::guard_install_paths`（目标拒 `/etc /usr /bin /sbin /lib* /opt /root /proc /sys /dev /var /home /srv`，源拒 shadow/sudoers/ssh/私钥，绝对路径、无 `..`、不接符号链接）、`--out` 过 `linux_priv::guard_result_path`（只能直接落 `/tmp`、无 `..`、非链接），落盘再叠 `O_NOFOLLOW`。root 侧调外部命令走**绝对路径 + `env_clear`**（否则调用方一个 `LD_PRELOAD` 就把「校验」变成「跑我的程序」）。白名单的**放行用例和拒绝用例一样要测**——误伤表现为「写 ESP 突然报错」，只测拒绝会漏。
 
 ## 性能（OC 扫描，2026-10-28）
 - **Windows 分区表一律走 `channels::partitions::all()`**（一次全量 `Get-Partition` + 60s 缓存 + 持锁 single-flight）。禁止再新起分区查询：一轮扫描原先 7 次冷启动共 7.3s，合并后 1 次，扫描 **8.3s → 1.0s**（同进程热刷新 25ms）。`win_esp::mount()` 成功后必须 `invalidate()`。
