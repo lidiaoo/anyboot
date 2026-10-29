@@ -371,10 +371,21 @@ channels/linux_grub.rs        # 自动读取通道
 ### 13.7 本轮没做的事
 
 - ~~**Windows 侧**：`\\.\PhysicalDriveN` + 分区偏移~~ —— **2026-10-29 补上了**：
-  `probe_raw` 枚举 `partitions::all()` 里的 Linux 分区（GPT `0fc63daf…`），按 `Offset`
-  开整盘读，解析与 macOS 共用同一份 `scan_ext4`；写 `grubenv` 走同一条路
-  （`write_env_block` 把 `disk1p3` 反查回偏移）。偏移来自 `Get-Partition`，
-  **不需要 `DeviceIoControl`** —— 当初的方案里这句是多余的，分区表缓存已经有了。
+  `probe_raw` 枚举 `partitions::all()` 里的分区，按 `Offset` 开整盘读，解析与 macOS
+  共用同一份 `scan_ext4`；写 `grubenv` 走同一条路（`write_env_block` 把 `disk1p3`
+  反查回偏移）。偏移来自 `Get-Partition`，**不需要 `DeviceIoControl`** —— 当初的
+  方案里这句是多余的，分区表缓存已经有了。
+- **ESP 身份必须包含 FAT 卷序列**（同日修正）：「所选 ESP → 哪块 Linux 分区」这一步
+  靠的是 fstab 里那行 `UUID=E537-7F31 /boot/efi vfat …`，而这个 UUID 是 **FAT 卷序列**，
+  不是分区 GUID。Windows 版最初只填了 `part_uuid`，`fs_uuid` / `label` 留 `None`，
+  于是精确匹配永远不中 —— 界面只会说「没定位到你选的 ESP 对应的 Linux 分区」，
+  而真相是「没有钥匙」。现在与 macOS 同路：在提权子进程里读 ESP 首扇区，
+  按簇数判 FAT12/16/32（序列号 12/16 在 `0x27`、32 在 `0x43`，卷标随之在 `0x2B`/`0x47`），
+  解析直接复用 `esp::fat_boot_sector`，不另写一份。
+- **枚举口径也向 macOS 看齐**：不再只筛 `0fc63daf`。XBOOTLDR（`bc13c2ff…`）与发行版
+  自定义类型里同样可能是 ext4 的 `/boot`，硬筛会出现「磁盘管理里看得到、程序里扫不到」。
+  现在按 `Linux 类型优先 + 其余兜底` 的顺序逐块试，靠 `Ext4::open` 判定，
+  非 Linux 类型打不开时**不刷问题列表**（MSR / 恢复分区本来就没有文件系统）。
 - **btrfs / LUKS / LVM**：识别到即明确报不支持，不静默跳过。
 - **写 env 的 e2fsck 复验**：代码里有回读逐字节比对，但没有跑过 `e2fsck -fn`；
   Arch 里的验证留待下次重启时一起做（改 `next_entry` → 重启 → 确认进的是那一项）。

@@ -581,6 +581,21 @@ pub(crate) fn build_view(
         view.confidence = "none".to_string();
         view.confidence_note = Some(if parts.is_empty() {
             "没扫到任何 ext4 分区（本机没有 Linux 分区，或者都不支持）".to_string()
+        } else if esp.is_none() {
+            // 与「fstab 里没挂这个 ESP」分开说：一个是 ESP 本身没认出来（设置里的
+            // 分区 UUID 对不上），一个是认出来了但没有哪块分区挂它。含糊成一句
+            // 会让用户去翻 fstab，而真正的原因在设置里。
+            "还没认出你选的 ESP（设置里的分区 UUID 没对上任何分区）：从下面的列表里选一块，之后就记住它"
+                .to_string()
+        } else if esp
+            .as_ref()
+            .is_some_and(|esp| esp.fs_uuid.is_none() && esp.label.is_none())
+        {
+            // 认出分区了，但拿不到「fstab 会写的那种身份」—— 匹配只剩 PARTUUID
+            // 一条路，而 Linux 侧几乎都写 `UUID=XXXX-XXXX`。这种「认出了但没钥匙」
+            // 的状态必须单独说，否则用户只会看到「没定位到」，以为是分区选错。
+            "认出了你选的 ESP，但读不到它的 FAT 卷序列与卷标（只能按 PARTUUID 匹配）：从下面的列表里选一块，之后就记住它"
+                .to_string()
         } else {
             "没定位到你选的 ESP 对应的 Linux 分区：从下面的列表里选一块，之后就记住它".to_string()
         });
@@ -1198,7 +1213,7 @@ fn scan_ext4(fs: &mut Ext4, cand: &Ext4Candidate) -> PartReport {
         let Ok(names) = fs.list_dir(dir) else {
             continue;
         };
-        let mut files: Vec<DirFile> = names
+        let files: Vec<DirFile> = names
             .into_iter()
             .filter(|name| !name.starts_with('.'))
             .take(MAX_LISTING_FILES)
@@ -1349,19 +1364,32 @@ pub(crate) fn probe_raw(esp_partuuid: &str) -> Result<ProbePayload, String> {
         return Ok(payload);
     }
 
-    // 所选 ESP 的身份：只能按 PARTUUID 认。FAT 卷序列要再读一次分区首扇区，
-    // 而 ESP 在 Windows 上通常有盘符、这条链路不需要它 —— 留空，别让调用方
-    // 以为「有 part_uuid 就一定有 fs_uuid」。
+    // 所选 ESP 的身份。**必须把 FAT 卷序列读出来**：Linux 的 fstab 里最常见的
+    // 写法是 `UUID=E537-7F31 /boot/efi vfat ...`，那个 UUID 是 FAT 卷序列，
+    // 不是分区 GUID —— 少了它 `locate()` 就永远认不出「哪块 Linux 分区挂的是
+    // 这个 ESP」，界面只能报「没定位到你选的 ESP 对应的 Linux 分区」。
+    // 卷标同理（`LABEL=EFI` 那一支）。
     if !esp_partuuid.trim().is_empty() {
         let wanted = part_spec::normalize_uuid(esp_partuuid);
         if let Some(hit) = rows
             .iter()
             .find(|row| !row.guid.is_empty() && part_spec::normalize_uuid(&row.guid) == wanted)
         {
+            let sector = first_sector(hit.disk, hit.offset);
+            let serial = sector.as_deref().and_then(fat_volume_serial);
+            let label = sector.as_deref().and_then(fat_volume_label);
+            if serial.is_none() {
+                // 读不到卷序列不是致命错，但要让用户知道「按 UUID 匹配这条路走不通」，
+                // 否则界面上只会说「没定位到」，看不出是权限还是文件系统不对。
+                payload.notes.push(format!(
+                    "读不出 ESP（disk{}p{}）的 FAT 卷序列：按 fstab 的 UUID= 匹配这一路不可用",
+                    hit.disk, hit.partition
+                ));
+            }
             payload.esp = Some(IdentityWire {
-                fs_uuid: None,
+                fs_uuid: serial.map(|value| format!("{:04X}-{:04X}", value >> 16, value & 0xFFFF)),
                 part_uuid: Some(hit.guid.clone()),
-                label: None,
+                label,
                 part_label: None,
                 disk_index: hit.disk,
                 part_number: hit.partition,
@@ -1373,8 +1401,18 @@ pub(crate) fn probe_raw(esp_partuuid: &str) -> Result<ProbePayload, String> {
         }
     }
 
+    // 候选顺序：Linux 类型分区在前（正常机器第一块就命中），其余分区排后面。
+    //
+    // **不按 GPT 类型一刀切**。XBOOTLDR（`bc13c2ff-…`）与个别发行版自定义的类型
+    // 里同样可能是 ext4 的 `/boot`，只认 `8300` 就会出现「磁盘管理里看得到、
+    // 程序里扫不到」。macOS 端本来就不筛类型（读不动就 `Ext4::open` 失败跳过），
+    // 这里照同一条尺子 —— 反正每块分区只多读一个超级块。
+    let mut candidates: Vec<_> = rows.iter().filter(|row| row.is_linux()).collect();
+    candidates.extend(rows.iter().filter(|row| !row.is_linux()));
+
     let mut denied = 0usize;
-    for part in rows.iter().filter(|row| row.is_linux()) {
+    for part in candidates {
+        let linux = part.is_linux();
         // 与 PartReport.dev 的既有约定一致：macOS 是 `disk0s9`、Windows 是 `disk0p9`
         let dev = format!("disk{}p{}", part.disk, part.partition);
         let source = match FileSource::open_physical(part.disk, part.offset, false) {
@@ -1384,8 +1422,12 @@ pub(crate) fn probe_raw(esp_partuuid: &str) -> Result<ProbePayload, String> {
                     denied += 1;
                 }
                 // 报错原文一定带出来（APFS 那边踩过：把 io 原因吞成
-                // 「可能被占用」，白查半天权限）
-                payload.notes.push(format!("{dev} 打不开：{why}"));
+                // 「可能被占用」，白查半天权限）。**但只对 Linux 类型报**：
+                // MSR / 恢复分区本来就没有可读的文件系统，全报出来会把
+                // 真正的问题淹掉。
+                if linux {
+                    payload.notes.push(format!("{dev} 打不开：{why}"));
+                }
                 continue;
             }
         };
@@ -1523,31 +1565,58 @@ fn parse_disk_id(text: &str) -> Option<(u32, u32)> {
 #[cfg(target_os = "macos")]
 fn first_sector(dev: &str) -> Option<Vec<u8>> {
     let mut source = FileSource::open_raw(&raw_path(dev)).ok()?;
+    read_first_sector(&mut source)
+}
+
+/// Windows 版：没有分区级设备节点，只能开整盘按偏移读这一个扇区。
+#[cfg(target_os = "windows")]
+fn first_sector(disk: u32, offset: u64) -> Option<Vec<u8>> {
+    let mut source = FileSource::open_physical(disk, offset, false).ok()?;
+    read_first_sector(&mut source)
+}
+
+fn read_first_sector(source: &mut FileSource) -> Option<Vec<u8>> {
     let mut sector = vec![0u8; 512];
     source.read_at(0, &mut sector).ok()?;
     Some(sector)
 }
 
-/// FAT 卷序列（4 字节小端，位于偏移 `0x43`）。它就是 GRUB / `/etc/fstab` 里的
-/// `UUID=XXXX-XXXX`。只有 FAT 家族才有，别的文件系统返回 `None`。
+/// FAT 卷序列 —— 就是 `/etc/fstab` 与 GRUB 里的 `UUID=XXXX-XXXX`。
+///
+/// 委托 [`crate::esp::fat_boot_sector`]：它按**簇数**判 FAT12/16/32，序列号位置
+/// 随之不同（12/16 在 `0x27`、32 在 `0x43`）。自己固定读 `0x43` 在 FAT16 的 ESP 上
+/// 会读出一串垃圾，然后表现成「fstab 里的 UUID 对不上」—— 和「根本没读到」
+/// 长得一模一样，是最难查的那种失败。
 pub(crate) fn fat_volume_serial(sector: &[u8]) -> Option<u32> {
-    if sector.len() < 0x47 {
+    if sector.len() < 512 || sector[510] != 0x55 || sector[511] != 0xAA {
         return None;
     }
-    // 引导扇区签名 0x55AA 存在、且不是 NTFS（NTFS 的 0x43 处也有数据，但那不是卷序列）
-    if sector[510] != 0x55 || sector[511] != 0xAA {
+    // NTFS 的 BPB 在同一批偏移上也有非零字段，能算出一个「像 FAT」的簇数 ——
+    // 先按 OEM 名排掉，别把 NTFS 的散列当成卷序列。
+    if &sector[3..11] == b"NTFS    " {
         return None;
     }
-    let fs_type = &sector[54..62];
-    if fs_type == b"NTFS    " {
+    let (_, serial) = crate::esp::fat_boot_sector(sector)?;
+    u32::from_str_radix(&serial, 16).ok()
+}
+
+/// FAT 卷标（`BS_VolLab`，11 字节空格填充）。
+///
+/// `fstab` 里写成 `LABEL=EFI` 时靠它匹配 —— 和 `UUID=` 是同一条链路的两个分支。
+/// 偏移随 FAT 类型不同：FAT12/16 在 `0x2B`，FAT32 在 `0x47`。
+/// 全空格 = 没设卷标，返回 `None`：空字符串绝不能当成「可匹配的值」，
+/// 否则任意一块没有卷标的分区都会被算成命中。
+pub(crate) fn fat_volume_label(sector: &[u8]) -> Option<String> {
+    let (kind, _) = crate::esp::fat_boot_sector(sector)?;
+    let at = if kind == "FAT32" { 0x47 } else { 0x2B };
+    let raw = sector.get(at..at + 11)?;
+    let label: String = raw.iter().map(|byte| *byte as char).collect();
+    let label = label.trim().to_string();
+    // 卷标只允许大写 ASCII；出现控制字符说明这条链路读到的不是 FAT 引导扇区
+    if label.is_empty() || !label.chars().all(|character| character.is_ascii_graphic()) {
         return None;
     }
-    Some(u32::from_le_bytes([
-        sector[0x43],
-        sector[0x44],
-        sector[0x45],
-        sector[0x46],
-    ]))
+    Some(label)
 }
 
 // ─────────────────────────── 写盘 ───────────────────────────
@@ -2155,17 +2224,55 @@ mod tests {
         assert!(validate_env_block(&wrong_header).is_err());
     }
 
-    #[test]
-    fn fat_serial_reads_offset_0x43() {
+    /// FAT32 的 BPB 骨架：簇数 ≥ 65525 才会被判成 FAT32，序列号才落在 `0x43`。
+    /// 只填 `0x43` 处的序列号是不够的 —— 簇数字段全是 0 时根本判不出类型。
+    fn fat32_sector() -> Vec<u8> {
         let mut sector = vec![0u8; 512];
-        sector[0x43..0x47].copy_from_slice(&0x4754_DCADu32.to_le_bytes());
+        sector[11..13].copy_from_slice(&512u16.to_le_bytes()); // 每扇区字节数
+        sector[13] = 8; // 每簇扇区数
+        sector[14..16].copy_from_slice(&32u16.to_le_bytes()); // 保留扇区
+        sector[16] = 2; // FAT 份数
+        sector[32..36].copy_from_slice(&1_048_576u32.to_le_bytes()); // 总扇区数
+        sector[36..40].copy_from_slice(&1_000u32.to_le_bytes()); // 每份 FAT 的扇区数
         sector[510] = 0x55;
         sector[511] = 0xAA;
-        sector[54..62].copy_from_slice(b"FAT32   ");
+        sector
+    }
+
+    #[test]
+    fn fat_serial_reads_fat32_bs_volid() {
+        let mut sector = fat32_sector();
+        sector[0x43..0x47].copy_from_slice(&0x4754_DCADu32.to_le_bytes());
         assert_eq!(fat_volume_serial(&sector), Some(0x4754_DCAD));
         // NTFS 的同一位置不是卷序列，不能当 UUID 用
-        sector[54..62].copy_from_slice(b"NTFS    ");
+        sector[3..11].copy_from_slice(b"NTFS    ");
         assert_eq!(fat_volume_serial(&sector), None);
+    }
+
+    /// FAT32 与 FAT12/16 的卷标不在同一个偏移 —— 固定读 `0x47` 会在 FAT16 的
+    /// ESP 上读出 `BS_FilSysType` 那一带的字节，表现为「fstab 里的 LABEL 认不出」。
+    #[test]
+    fn fat_label_follows_fat_type() {
+        // FAT32：BS_VolLab 在 0x47
+        let mut sector = fat32_sector();
+        sector[0x47..0x52].copy_from_slice(b"EFI        ");
+        assert_eq!(fat_volume_label(&sector).as_deref(), Some("EFI"));
+        // 全空格 = 没设卷标。绝不能返回空串：那样任意一块没卷标的分区都会被
+        // `LABEL=` 那一行算成命中，等于乱选一块。
+        sector[0x47..0x52].copy_from_slice(b"           ");
+        assert_eq!(fat_volume_label(&sector), None);
+
+        // FAT16：BS_VolLab 在 0x2B
+        let mut sector = vec![0u8; 512];
+        sector[11..13].copy_from_slice(&512u16.to_le_bytes());
+        sector[13] = 4;
+        sector[14..16].copy_from_slice(&1u16.to_le_bytes());
+        sector[16] = 2;
+        sector[17..19].copy_from_slice(&512u16.to_le_bytes()); // 根目录项数
+        sector[19..21].copy_from_slice(&40_000u16.to_le_bytes());
+        sector[22..24].copy_from_slice(&100u16.to_le_bytes());
+        sector[0x2B..0x36].copy_from_slice(b"BOOT       ");
+        assert_eq!(fat_volume_label(&sector).as_deref(), Some("BOOT"));
     }
 
     #[test]
