@@ -3405,6 +3405,7 @@ pub fn run() {
             channels::linux_grub::linux_grub_scan,
             channels::linux_grub::linux_grub_pick,
             channels::linux_grub::linux_grub_switch,
+            channels::linux_grub::linux_grub_helper_ready,
             // 免密写 NVRAM 的 root 助手（装 / 卸各弹一次管理员授权）
             helper_install::boot_helper,
             hub_term::hub_term_open,

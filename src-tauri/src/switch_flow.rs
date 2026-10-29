@@ -67,9 +67,13 @@ pub(crate) fn refresh_and_update(app: &AppHandle) -> AppStatus {
             };
             // 模拟引导项扫描（纯读）：与上面那份「手动获取」的 vars 快照并列，
             // 按 rEFInd 自己的规则复算菜单。失败不影响手动链路 —— 它只是展示。
+            // Linux 分区清单**只读探测缓存**：这是启动路径，为它现探一次
+            // 4~5 秒不值得；开机自动扫（免密助手在位时）会先把缓存填上。
             let sim = {
                 let _span = perf::span("refind.sim");
-                channels::refind_menu::preview(&result.vars_dir)
+                let (parts, note) =
+                    channels::refind_menu::linux_grub_parts_from_cache(app);
+                channels::refind_menu::preview(&result.vars_dir, &parts, note)
             };
             let state = app.state::<Mutex<AppState>>();
             let mut state = state.lock().expect("state mutex poisoned");

@@ -170,7 +170,10 @@ pub(crate) fn refresh_sim(app: &tauri::AppHandle) -> Option<SimPreview> {
             .ok()
             .and_then(|state| state.vars_dir.clone())
     };
-    let sim = vars_dir.map(|dir| preview(&dir));
+    // Linux 分区清单：缓存优先，没有且助手在位就免密现探（绝不弹授权）。
+    // 这一步只影响模拟扫描的 Linux 内核条目，ESP 路径扫描不依赖它。
+    let (parts, note) = crate::channels::linux_grub::parts_for_sim(app);
+    let sim = vars_dir.map(|dir| preview(&dir, &parts, note));
     let state = app.state::<Mutex<AppState>>();
     if let Ok(mut state) = state.lock() {
         state.refind_sim = sim.clone();
@@ -235,8 +238,14 @@ pub(crate) fn refind_sim_switch(app: tauri::AppHandle, title: String) -> AppStat
             "变量目录尚未就绪：先让上一轮扫描成功跑完".to_string(),
         );
     };
-    // 缓存没有（或过期）就先算一遍，保证校验用的是当前真实菜单
-    let sim = cached.unwrap_or_else(|| preview(&vars_dir));
+    // 缓存没有（或过期）就先算一遍，保证校验用的是当前真实菜单。
+    // 这里**只读探测缓存、不现探**：切换前再多等 4~5 秒不值得，缓存旧一点
+    // 顶多让校验的菜单多/少几个内核条目 —— 而前端传来的标题本就来自当前
+    // 展示的那份 sim，一致的概率远大于失效。
+    let sim = cached.unwrap_or_else(|| {
+        let (parts, note) = linux_grub_parts_from_cache(&app);
+        preview(&vars_dir, &parts, note)
+    });
 
     // `use_nvram true` 时 rEFInd 从固件 NVRAM 读 PreviousBoot，`vars/` 里的文件它根本不看。
     // 与其写一个「看着成功、开机没反应」的文件，不如拦住并说清改哪里。
@@ -775,6 +784,38 @@ fn sort_by_mtime_desc(files: &mut [(String, std::time::SystemTime)]) {
 
 // ─────────────────────────── 主流程 ───────────────────────────
 
+/// 只读 `AppState.linux_probe_cache`，**绝不现探**（启动扫描与切换前校验
+/// 那两条路用的都是它：多等 4~5 秒不值得，也绝不许在这些路径上冒出授权框）。
+pub(crate) fn linux_grub_parts_from_cache(
+    app: &tauri::AppHandle,
+) -> (Vec<crate::channels::linux_grub::PartReport>, Option<String>) {
+    #[cfg(target_os = "macos")]
+    {
+        let cached = app
+            .state::<Mutex<AppState>>()
+            .lock()
+            .ok()
+            .and_then(|state| state.linux_probe_cache.clone());
+        match cached {
+            Some(payload) => (payload.parts, payload.notes.first().cloned()),
+            None => (
+                Vec::new(),
+                Some(
+                    "还没探测过 Linux 分区（在 GRUB 区点一次「重新读取」，\
+                     或装好免密助手后点「重新模拟」）"
+                        .to_string(),
+                ),
+            ),
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+        (Vec::new(), None)
+    }
+}
+
 /// 把 `EFI/refind/vars` 反推到 ESP 根（`vars` → `refind` → `EFI` → 根）。
 fn esp_root_of(vars_dir: &Path) -> Option<PathBuf> {
     let refind_dir = vars_dir.parent()?;
@@ -784,7 +825,16 @@ fn esp_root_of(vars_dir: &Path) -> Option<PathBuf> {
 }
 
 /// 模拟一次完整扫描（纯读）。
-pub(crate) fn preview(vars_dir: &Path) -> SimPreview {
+///
+/// `linux_parts`：Linux 分区的裸设备探测数据（`linux_grub::parts_for_sim`）。
+/// macOS 上 ext4 分区没有挂载点，ESP 路径扫描永远看不见 Linux 内核 —— 这批
+/// 数据就是模拟「rEFInd 装了 ext4 驱动」的输入。空 = 扫不到（原因走
+/// `linux_note` 进 issues，绝不无声跳过）。
+pub(crate) fn preview(
+    vars_dir: &Path,
+    linux_parts: &[crate::channels::linux_grub::PartReport],
+    linux_note: Option<String>,
+) -> SimPreview {
     let _span = perf::span("refind.sim");
     let vars_dir_text = vars_dir.display().to_string();
     let mut issues: Vec<HealthIssue> = Vec::new();
@@ -888,6 +938,38 @@ pub(crate) fn preview(vars_dir: &Path) -> SimPreview {
                 &mut entries,
             );
         }
+    }
+
+    // Linux 分区里的内核（rEFInd + ext4 驱动的行为）：数据来自免密探测缓存。
+    // `linux_note` 是「为什么拿不到数据」的如实说明 —— 没装助手 / Windows 端
+    // 未支持 / 助手回执异常，都要让用户看见，而不是悄悄少一类条目。
+    if let Some(note) = linux_note {
+        issues.push(HealthIssue {
+            severity: "info".to_string(),
+            text: format!("Linux 分区内核扫描：{note}"),
+        });
+    }
+    linux_kernel_entries(
+        linux_parts,
+        &config,
+        &hidden_tags,
+        previous_boot.as_deref(),
+        &mut entries,
+        &mut issues,
+    );
+    let scanned_ext4 = linux_parts
+        .iter()
+        .filter(|part| !part.dir_listings.is_empty())
+        .count();
+    if scanned_ext4 > 0 {
+        issues.push(HealthIssue {
+            severity: "info".to_string(),
+            text: format!(
+                "扫描了 {scanned_ext4} 块 Linux（ext4）分区里的内核 —— 这就是 \
+                 rEFInd 装上 ext4 驱动后多出来的那一批；清单纯读，切换仍是写 \
+                 vars/PreviousBoot"
+            ),
+        });
     }
 
     // ScanUserConfigured：refind.conf 里手写的 menuentry。`disabled` 的条目
@@ -1499,6 +1581,222 @@ fn scan_volume(
     }
 }
 
+/// Linux 分区（ext4 裸设备探测数据）里的内核条目 —— 模拟 rEFInd **装着 ext4
+/// 驱动**时的行为：能读 Linux 分区后，它的卷循环就会把根目录和 `/boot` 里的
+/// `vmlinuz*` / `bzImage*` / `kernel*` 内核捡出来（`ScanLoaderDir`，
+/// `scan.c:907`；前缀来自 `scan_all_linux_kernels` + `linux_prefixes`）。
+///
+/// 数据来自 `linux_grub::parts_for_sim`（免密助手探测的缓存或现探，**绝不
+/// 回落弹授权**）；语义与 [`scan_volume`] ③ 完全一致，除了三条 rEFInd 细节
+/// 这里做对了、那边一直是「与路径扫描一致」的近似：
+/// * `vmlinuz-0-rescue`（Fedora 救援内核）强制沉底 —— 否则折叠后它会成为
+///   第一项、变成默认启动（`AddLoaderListEntry`，`scan.c:698`）；
+/// * 内核间共享同一份 `refind_linux.conf`（同一目录）；
+/// * `.efi.signed` 的判定由清单里有没有同名+.signed 决定（raw 读没有
+///   `Path::is_file`，用清单查）。
+fn linux_kernel_entries(
+    parts: &[crate::channels::linux_grub::PartReport],
+    config: &RefindConfig,
+    hidden_tags: &[String],
+    previous_boot: Option<&str>,
+    out: &mut Vec<SimEntry>,
+    issues: &mut Vec<HealthIssue>,
+) {
+    for part in parts {
+        if part.dir_listings.is_empty() {
+            continue;
+        }
+        let label = if part.label.is_empty() {
+            part.dev.clone()
+        } else {
+            part.label.clone()
+        };
+        if config
+            .dont_scan_volumes
+            .iter()
+            .any(|blocked| blocked.eq_ignore_ascii_case(&label))
+        {
+            continue;
+        }
+
+        for listing in &part.dir_listings {
+            let display_dir = listing.dir.replace('/', "\\");
+            // （名字, mtime）先按前缀筛内核，再按 mtime 新→旧排 —— 与
+            // rEFInd 的 AddLoaderListEntry 同序；rescue 内核沉到最尾。
+            let mut candidates: Vec<(String, i64)> = listing
+                .files
+                .iter()
+                .filter(|file| {
+                    let lower = file.name.to_ascii_lowercase();
+                    let is_efi = lower.ends_with(".efi");
+                    let is_kernel = config.scan_all_linux_kernels
+                        && config
+                            .linux_prefixes
+                            .iter()
+                            .any(|prefix| lower.starts_with(&prefix.to_ascii_lowercase()));
+                    is_efi || is_kernel
+                })
+                .map(|file| (file.name.clone(), file.mtime))
+                .collect();
+            sort_candidates_desc(&mut candidates);
+
+            // `.efi.signed` 副本存在时跳过未签名那份（`HasSignedCounterpart`）
+            let names: std::collections::HashSet<String> = candidates
+                .iter()
+                .map(|(name, _)| name.to_ascii_lowercase())
+                .collect();
+            candidates.retain(|(name, _)| {
+                !names.contains(&format!("{}.efi.signed", name.to_ascii_lowercase()))
+            });
+
+            let rows = listing
+                .refind_linux_conf
+                .as_deref()
+                .map(parse_options_text)
+                .unwrap_or_default();
+            let mut first_kernel: Option<usize> = None;
+            // fold 时被 rEFInd 静默丢掉的内核（没有 refind_linux.conf 可用）：
+            // 聚合记一条 info，别让用户以为是我们漏扫
+            let mut dropped: Vec<String> = Vec::new();
+
+            for (name, _) in candidates {
+                let relative = if display_dir.is_empty() {
+                    name.clone()
+                } else {
+                    format!("{display_dir}\\{name}")
+                };
+                let os_type = os_type_of(&relative, &config.linux_prefixes);
+                let is_linux = os_type == 'L';
+
+                // fold_linux_kernels：后续内核没有 refind_linux.conf 会被
+                // rEFInd **静默丢掉**（`AddKernelToSubmenu` 见 File == NULL
+                // 直接返回）—— 照做，但 issues 里必须让人知道少了谁。
+                if is_linux && config.fold_linux_kernels {
+                    if let Some(index) = first_kernel {
+                        if rows.is_empty() {
+                            dropped.push(relative);
+                            continue;
+                        }
+                        for (label_row, options) in &rows {
+                            out[index].children.push(SimChild {
+                                title: format!(
+                                    "{name}: {}",
+                                    if label_row.is_empty() {
+                                        "Boot Linux"
+                                    } else {
+                                        label_row
+                                    }
+                                ),
+                                options: replace_kernel_version(options, &name),
+                                source: "kernel".to_string(),
+                                note: None,
+                            });
+                        }
+                        continue;
+                    }
+                }
+
+                let hidden_by =
+                    filename_in(&label, &display_dir, &name, &config.dont_scan_files)
+                        .or_else(|| filename_in(&label, &display_dir, &name, hidden_tags));
+                let title = if label.is_empty() {
+                    format!("Boot {relative} ")
+                } else {
+                    format!("Boot {relative} from {label} ")
+                };
+                let note = if is_linux && config.fold_linux_kernels {
+                    Some(
+                        "Linux 内核（ext4 分区）：同目录其它内核折叠进这一项的子菜单"
+                            .to_string(),
+                    )
+                } else {
+                    None
+                };
+
+                // 子屏：与 scan_volume 的 'L' 分支同一套 —— 第一行换掉默认项
+                let mut children = vec![default_child()];
+                if os_type == 'L' && !rows.is_empty() {
+                    if let Some((label_row, options)) = rows.first() {
+                        children[0].title = if label_row.is_empty() {
+                            "Boot Linux".to_string()
+                        } else {
+                            label_row.clone()
+                        };
+                        children[0].options = replace_kernel_version(options, &name);
+                        children[0].source = "options".to_string();
+                        children[0].note = part
+                            .os_pretty_name
+                            .clone()
+                            .map(|name| format!("发行版：{name}"));
+                    }
+                    for (label_row, options) in rows.iter().skip(1) {
+                        children.push(SimChild {
+                            title: if label_row.is_empty() {
+                                "Boot Linux".to_string()
+                            } else {
+                                label_row.clone()
+                            },
+                            options: replace_kernel_version(options, &name),
+                            source: "options".to_string(),
+                            note: None,
+                        });
+                    }
+                }
+
+                out.push(SimEntry {
+                    title: title.clone(),
+                    kind: kind_of(&relative).to_string(),
+                    source: "ext4".to_string(),
+                    volume: label.clone(),
+                    path: relative.clone(),
+                    hidden: hidden_by.is_some(),
+                    last_boot: matches_previous(previous_boot, &title),
+                    hidden_by,
+                    note,
+                    children,
+                    subscreen: Some(format!(
+                        "Boot Options for {relative} on {label}"
+                    )),
+                });
+                if is_linux && first_kernel.is_none() {
+                    first_kernel = Some(out.len() - 1);
+                }
+            }
+            if !dropped.is_empty() {
+                issues.push(HealthIssue {
+                    severity: "info".to_string(),
+                    text: format!(
+                        "{}（{}）里有 {} 个内核没带 refind_linux.conf：\
+                         fold_linux_kernels 开着时 rEFInd 会把它们静默丢弃（{}）",
+                        label,
+                        if display_dir.is_empty() {
+                            "/"
+                        } else {
+                            &display_dir
+                        },
+                        dropped.len(),
+                        dropped.join("、"),
+                    ),
+                });
+            }
+        }
+    }
+}
+
+/// 候选内核按 mtime 新→旧；`vmlinuz-0-rescue` 永远沉底（`scan.c:698`：
+/// 否则折叠之后它会排在最前、被当成默认内核）。
+fn sort_candidates_desc(files: &mut [(String, i64)]) {
+    files.sort_by(|left, right| {
+        let rescue_left = left.0.contains("vmlinuz-0-rescue");
+        let rescue_right = right.0.contains("vmlinuz-0-rescue");
+        match (rescue_left, rescue_right) {
+            (true, false) => std::cmp::Ordering::Greater,
+            (false, true) => std::cmp::Ordering::Less,
+            _ => right.1.cmp(&left.1).then_with(|| left.0.cmp(&right.0)),
+        }
+    });
+}
+
 /// 目录是否在 `dont_scan_dirs` 里（rEFInd 的元素可能是 `卷:GUID` 前缀，这边只比路径）。
 fn is_blocked_dir(relative: &str, list: &[String]) -> bool {
     let target = norm_path(relative);
@@ -1516,6 +1814,7 @@ fn is_blocked_dir(relative: &str, list: &[String]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::channels::linux_grub::{DirFile, DirListing};
 
     /// 纯函数：UTF-16LE 必须按第一个 NUL 截断（rEFInd 写文件不截断，尾巴有旧残留）。
     #[test]
@@ -1652,6 +1951,179 @@ mod tests {
         assert_eq!(os_type_of("EFI\\x\\vmlinuz-6.1", &custom), '\0');
     }
 
+    // ── Linux 分区内核扫描（ext4 裸设备数据 → SimEntry）───────────────
+
+    /// 造一块带清单的 ext4 分区报告。
+    fn part_with(listing: DirListing) -> crate::channels::linux_grub::PartReport {
+        crate::channels::linux_grub::PartReport {
+            dev: "disk0s9".to_string(),
+            label: "arch-gui".to_string(),
+            os_id: Some("arch".to_string()),
+            os_pretty_name: Some("Arch Linux".to_string()),
+            dir_listings: vec![listing],
+            ..Default::default()
+        }
+    }
+
+    fn file(name: &str, mtime: i64) -> crate::channels::linux_grub::DirFile {
+        crate::channels::linux_grub::DirFile {
+            name: name.to_string(),
+            mtime,
+        }
+    }
+
+    const CONF: &str = "\"Arch Linux\"\troot=PARTUUID=abc rw\n\"Fallback\"\troot=PARTUUID=abc rw\n";
+
+    /// 折叠：同目录第二个内核挂进第一个内核的子菜单（每份 conf 两个变体）。
+    #[test]
+    fn linux_scan_folds_kernels_with_conf() {
+        let listing = DirListing {
+            dir: "boot".to_string(),
+            files: vec![
+                file("vmlinuz-linux", 100),
+                file("vmlinuz-linux-lts", 90),
+                file("initramfs-linux.img", 101),
+            ],
+            refind_linux_conf: Some(CONF.to_string()),
+        };
+        let config = RefindConfig::default();
+        let mut out = Vec::new();
+        let mut issues = Vec::new();
+        linux_kernel_entries(
+            &[part_with(listing)],
+            &config,
+            &[],
+            None,
+            &mut out,
+            &mut issues,
+        );
+        assert_eq!(out.len(), 1, "两个内核应折叠成一条");
+        assert_eq!(out[0].title, "Boot boot\\vmlinuz-linux from arch-gui ");
+        assert_eq!(out[0].children.len(), 4, "conf 2 行 + 折叠内核的 conf 2 行");
+        assert!(out[0].children.iter().any(|child| child.title.contains("vmlinuz-linux-lts")));
+    }
+
+    /// rescue 内核永远沉底：mtime 更新也不许它抢第一（否则折叠后它成默认）。
+    #[test]
+    fn linux_scan_sinks_rescue_kernel() {
+        let listing = DirListing {
+            dir: String::new(),
+            files: vec![
+                file("vmlinuz-0-rescue", 999),
+                file("vmlinuz-6.9", 100),
+            ],
+            refind_linux_conf: Some(CONF.to_string()),
+        };
+        let config = RefindConfig::default();
+        let mut out = Vec::new();
+        let mut issues = Vec::new();
+        linux_kernel_entries(
+            &[part_with(listing)],
+            &config,
+            &[],
+            None,
+            &mut out,
+            &mut issues,
+        );
+        assert_eq!(out.len(), 1);
+        assert!(
+            out[0].title.contains("vmlinuz-6.9"),
+            "正常内核应排第一，实际 {}",
+            out[0].title
+        );
+    }
+
+    /// 没带 refind_linux.conf 的后续内核：rEFInd 静默丢弃，我们记一条 info。
+    #[test]
+    fn linux_scan_reports_dropped_kernelless_conf() {
+        let listing = DirListing {
+            dir: "boot".to_string(),
+            files: vec![file("vmlinuz-linux", 100), file("vmlinuz-linux-lts", 90)],
+            refind_linux_conf: None,
+        };
+        let config = RefindConfig::default();
+        let mut out = Vec::new();
+        let mut issues = Vec::new();
+        linux_kernel_entries(
+            &[part_with(listing)],
+            &config,
+            &[],
+            None,
+            &mut out,
+            &mut issues,
+        );
+        assert_eq!(out.len(), 1, "只有第一个内核成条目");
+        assert_eq!(out[0].children.len(), 1, "没有 conf，子屏只有默认项");
+        assert!(
+            issues.iter().any(|issue| issue.text.contains("vmlinuz-linux-lts")),
+            "丢弃名单必须写进 issues"
+        );
+    }
+
+    /// `.efi.signed` 副本存在时跳过未签名那份（HasSignedCounterpart）。
+    #[test]
+    fn linux_scan_skips_unsigned_with_signed_counterpart() {
+        let listing = DirListing {
+            dir: String::new(),
+            files: vec![
+                file("vmlinuz-6.9", 100),
+                file("vmlinuz-6.9.efi.signed", 101),
+            ],
+            refind_linux_conf: Some(CONF.to_string()),
+        };
+        let config = RefindConfig::default();
+        let mut out = Vec::new();
+        let mut issues = Vec::new();
+        linux_kernel_entries(
+            &[part_with(listing)],
+            &config,
+            &[],
+            None,
+            &mut out,
+            &mut issues,
+        );
+        assert_eq!(out.len(), 1, "只剩签名副本一份");
+        assert!(out[0].title.contains("vmlinuz-6.9.efi.signed"));
+    }
+
+    /// dont_scan_files / HiddenTags 照样生效；卷黑名单整块跳过。
+    #[test]
+    fn linux_scan_honors_hidden_rules() {
+        let listing = DirListing {
+            dir: "boot".to_string(),
+            files: vec![file("vmlinuz-linux", 100)],
+            refind_linux_conf: Some(CONF.to_string()),
+        };
+        let config = RefindConfig::default();
+        let mut out = Vec::new();
+        let mut issues = Vec::new();
+        linux_kernel_entries(
+            &[part_with(listing.clone())],
+            &config,
+            &["boot\\vmlinuz-linux".to_string()],
+            None,
+            &mut out,
+            &mut issues,
+        );
+        assert_eq!(out.len(), 1);
+        assert!(out[0].hidden, "HiddenTags 里点名的内核必须被挡掉");
+        assert_eq!(out[0].hidden_by.as_deref(), Some("boot\\vmlinuz-linux"));
+
+        let mut blocked = config.clone();
+        blocked.dont_scan_volumes = vec!["arch-gui".to_string()];
+        let mut out2 = Vec::new();
+        let mut issues2 = Vec::new();
+        linux_kernel_entries(
+            &[part_with(listing)],
+            &blocked,
+            &[],
+            None,
+            &mut out2,
+            &mut issues2,
+        );
+        assert!(out2.is_empty(), "卷被 dont_scan_volumes 点名时整块跳过");
+    }
+
     /// 真机快照：本机 ESP 挂在 /Volumes/REFIND。默认 ignore —— 只用来肉眼核对输出，
     /// 别的机器上这块盘不存在，不能进常规测试。
     #[test]
@@ -1662,7 +2134,7 @@ mod tests {
             println!("没有 {dir:?}，跳过");
             return;
         }
-        let sim = preview(dir);
+        let sim = preview(dir, &[], None);
         println!("summary: {}", sim.summary);
         println!("previous_boot: {:?}", sim.previous_boot);
         println!("scanfor: {} var_mode: {}", sim.scanfor, sim.var_mode);

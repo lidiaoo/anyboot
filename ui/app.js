@@ -593,12 +593,17 @@ const grubListElement = document.querySelector("#grub-list");
 const grubTabsElement = document.querySelector("#grub-tabs");
 const grubPanelAutoElement = document.querySelector("#grub-panel-auto");
 const grubPanelManualElement = document.querySelector("#grub-panel-manual");
+const refindTabsElement = document.querySelector("#refind-tabs");
+const refindPanelAutoElement = document.querySelector("#refind-panel-auto");
+const refindPanelManualElement = document.querySelector("#refind-panel-manual");
 const grubAutoElement = document.querySelector("#grub-auto");
 const grubAutoRefreshElement = document.querySelector("#grub-auto-refresh");
 const grubAutoSummaryElement = document.querySelector("#grub-auto-summary");
 const grubAutoTargetElement = document.querySelector("#grub-auto-target");
 const grubAutoIssuesElement = document.querySelector("#grub-auto-issues");
 const grubAutoListElement = document.querySelector("#grub-auto-list");
+const grubAutoPickerElement = document.querySelector("#grub-auto-picker");
+const grubAutoPickerSummaryElement = document.querySelector("#grub-auto-picker-summary");
 const grubAutoCandidatesElement = document.querySelector("#grub-auto-candidates");
 const grubAutoFootElement = document.querySelector("#grub-auto-foot");
 // GRUB 区块本体（左栏主流程里）与右栏容器：展示模式切换时把节点搬进/搬出右栏
@@ -630,12 +635,6 @@ const autostartStateLabels = new Map([
   ["requires-approval", "已注册，待系统在登录项中批准"],
   ["disabled", "未加入系统登录项"],
   ["unavailable", "登录项状态不可用"],
-]);
-
-const switchButtonLabel = new Map([
-  ["linux", "下次启动 Linux"],
-  ["windows", "下次启动 Windows"],
-  ["macos", "下次启动 macOS"],
 ]);
 
 const powerLabels = new Map([
@@ -800,6 +799,8 @@ const REFIND_SIM_SOURCE_LABEL = {
   fallback: "EFI\\BOOT 兜底",
   user: "refind.conf",
   firmware: "固件 Boot####",
+  // Linux 分区（ext4 裸读）扫出来的内核 —— 相当于 rEFInd 装上 ext4 驱动
+  ext4: "ext4 分区",
 };
 
 // 子菜单里的每一项是谁给的（对应后端 SimChild.source）
@@ -1092,33 +1093,33 @@ function renderSystems(status, busy, grub, sim) {
   let activeName = null;
   let activeSystem = null;
 
-  for (const item of status.variables) {
-    const card = document.createElement("article");
-    card.className = [
-      "system-card",
-      item.active ? "active" : "",
-      item.exists ? "" : "unavailable",
-    ].filter(Boolean).join(" ");
+  // 与「模拟引导项扫描」同一套样式（用户定案 2026-10-29）：三张大卡片换成
+  // GRUB 的 .grub-list —— 一行一个系统，**整行点一下 = 写它的 PreviousBoot
+  // 快照**（与模拟扫描「点条目 = 切过去」同一手势）。直接用 GRUB 的类名，
+  // 长得一样靠的是同一份 CSS，不是照着描。
+  const box = document.createElement("div");
+  box.className = "grub-list sim-list";
+  const listBox = document.createElement("div");
+  listBox.className = "grub-list-body";
+  box.append(listBox);
 
-    // 勾占**独立的一列**（固定 26px）：有没有勾都不会挤动名称/按钮，三行天然对齐
-    const check = document.createElement("span");
-    check.className = "system-check";
-    check.textContent = item.active ? "✓" : "";
-    check.setAttribute("aria-hidden", "true");
+  for (const item of status.variables) {
     if (item.active) {
       activeName = item.displayName;
       activeSystem = item.system;
     }
+    const row = document.createElement("div");
+    row.className = "grub-entry is-child";
+    if (item.active) {
+      row.classList.add("active");
+    }
+    if (!item.exists) {
+      row.classList.add("is-unavailable");
+    }
 
-    const name = document.createElement("div");
-    name.className = "system-name";
-    const title = document.createElement("strong");
-    title.textContent = item.displayName;
-    const source = document.createElement("small");
-    source.textContent = item.exists
-      ? item.sourceName
-      : `${item.sourceName}（不存在）`;
-    name.append(title, source);
+    const name = document.createElement("span");
+    name.className = "grub-entry-name";
+    name.textContent = `${REFIND_SIM_ICONS[item.system] || "⬜"} ${item.displayName}`;
 
     // Linux 项旁的问号提示（用户定案 2026-10-13）：rEFInd 的 Linux 项背后
     // 是 GRUB 在引导，要能读取 grub 列表 / 操作下次 Linux 启动项，前提是
@@ -1142,27 +1143,42 @@ function renderSystems(status, busy, grub, sim) {
       name.append(help);
     }
 
-    const button = document.createElement("button");
-    button.type = "button";
-    button.textContent = item.active
+    const side = document.createElement("span");
+    side.className = "grub-entry-side";
+    const tag = document.createElement("small");
+    tag.className = "grub-entry-tag";
+    tag.textContent = item.active
       ? "已选择"
-      : switchButtonLabel.get(item.system);
-    button.disabled = !item.exists || busy || Boolean(status.error);
-    button.addEventListener("click", async () => {
-      const result = await call("switch_system", { system: item.system });
-      // 网页 / 手机端：选择系统会被后端转成「远程请求」—— 本机弹授权窗、
-      // 显示来源客户端，本机用户确认后才真的切换。这里如实说一声，
-      // 别让用户以为点了没反应（本机主窗口点按钮仍是即时生效的）。
-      if (IS_BROWSER && result && result.pending) {
-        showStatusBar(
-          `已发送到本机：${result.message || "等待本机确认后切换"}`,
-        );
-      }
-    });
+      : item.exists
+        ? item.sourceName
+        : `${item.sourceName}（不存在）`;
+    side.append(tag);
+    row.append(name, side);
 
-    card.append(check, name, button);
-    systemsElement.append(card);
+    // 与旧版大卡片的按钮同规则：不存在 / 忙 / 出错 都不可点；已选择的自然也不点
+    const switchable =
+      item.exists && !busy && !status.error && !item.active;
+    if (switchable) {
+      row.tabIndex = 0;
+      row.setAttribute("role", "button");
+      row.title = `点一下 = 下次启动 ${item.displayName}（写入 ${item.sourceName}）`;
+      row.addEventListener("click", async () => {
+        const result = await call("switch_system", { system: item.system });
+        // 网页 / 手机端：选择系统会被后端转成「远程请求」—— 本机弹授权窗、
+        // 显示来源客户端，本机用户确认后才真的切换。这里如实说一声，
+        // 别让用户以为点了没反应（本机主窗口点按钮仍是即时生效的）。
+        if (IS_BROWSER && result && result.pending) {
+          showStatusBar(
+            `已发送到本机：${result.message || "等待本机确认后切换"}`,
+          );
+        }
+      });
+    } else if (!item.exists) {
+      row.title = `${item.sourceName} 不存在：快照还没生成过（切过去一次就有）`;
+    }
+    listBox.append(row);
   }
+  systemsElement.append(box);
 
   // 下次启动 = 两层引导的级联总结（用户定案 2026-10-13）：rEFInd 选了 Linux
   // 时，开机真正进的是 GRUB 环境块里选中的那个启动项 —— 两层一并显示
@@ -1359,6 +1375,30 @@ function setGrubTab(name) {
   syncGrubTabs();
 }
 
+/// rEFInd 区的标签（自动扫描 / 手动处理）：与 GRUB 区同一套交互与样式
+/// （复用 .grub-tabs / .grub-tab / .grub-panel 类名），同样**不持久化** ——
+/// 默认进自动扫描。rEFInd 面板没有被「列表独立」模式搬走的可能，
+/// 不需要 GRUB 那边的 owned 判断，直接切 hidden。
+let refindTab = "auto";
+
+function syncRefindTabs() {
+  for (const [name, panel, button] of [
+    ["auto", refindPanelAutoElement, document.querySelector("#refind-tab-auto")],
+    ["manual", refindPanelManualElement, document.querySelector("#refind-tab-manual")],
+  ]) {
+    const active = name === refindTab;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-selected", active ? "true" : "false");
+    button.tabIndex = active ? 0 : -1;
+    panel.hidden = !active;
+  }
+}
+
+function setRefindTab(name) {
+  refindTab = name === "manual" ? "manual" : "auto";
+  syncRefindTabs();
+}
+
 /// GRUB 区块：列的是 grub.cfg 里的启动项，条数可能几十个，
 /// 所以字号比左栏「可启动系统」小一号（用户明确要求）。
 ///
@@ -1464,8 +1504,10 @@ function renderGrub(grub, script, busy, listViewMode) {
  * grubenv」（没装也能读）。所以两块各画各的，不共用任何状态。
  *
  * 三条界面规矩：
- * ① 不自动扫：macOS 每次读裸设备都要管理员授权，开机就弹密码框属于骚扰，
- *    改成用户点「重新读取」才动；
+ * ① 默认不自动扫，但**免密助手在位时例外**：osascript 弹密码年代，开机就读
+ *    裸设备 = 开机弹密码框，属于骚扰；助手免密后这个代价没了，进页面自动读
+ *    一次（见文件底部）。助手不在位（会弹密码）仍保持手动 —— 所以自动扫前
+ *    要先问后端「助手在不在」。
  * ② 目标分区必须点名：dev / 卷标 / 发行版 / cfg 的修改时间全摆出来 ——
  *    自动读取没有 09_anyboot 帮忙同步，cfg 可能是几个月前的旧文件，
  *    不说清楚就会让人以为「菜单是新的」；
@@ -1502,7 +1544,8 @@ function renderGrubAuto(view, busy, format) {
     grubAutoTargetElement.hidden = true;
     grubAutoIssuesElement.replaceChildren();
     grubAutoListElement.replaceChildren();
-    grubAutoCandidatesElement.hidden = true;
+    grubAutoPickerElement.hidden = true;
+    grubAutoCandidatesElement.replaceChildren();
     grubAutoFootElement.textContent =
       "macOS / Windows 读 Linux 分区要 root：开了免密助手就直接读，没开每次会弹一次授权（Linux 本机都不用）。";
     return;
@@ -1520,6 +1563,12 @@ function renderGrubAuto(view, busy, format) {
     bits.push(`${entries.length} 个启动项`);
     if (view.cfgMtime) {
       bits.push(`cfg 修改于 ${formatLocalTime(view.cfgMtime)}`);
+    }
+    // 分区读到了、但写盘被拒（脏分区 / 只读）时，error 与 target 会同时存在。
+    // 原来只在「没有 target」的分支里显示 error，于是「切换失败」这句话
+    // 永远不会出现在这一行 —— 用户看到的就是「点了没反应」。
+    if (view.error) {
+      bits.push(view.error);
     }
   } else if (view.error) {
     bits.push(view.error);
@@ -1572,6 +1621,11 @@ function renderGrubAuto(view, busy, format) {
     if (envBits.length) {
       targetLines.push(envBits.join(" · "));
     }
+    // 分区自身状态（RECOVER 脏标志等）：写在框头，比藏在 issues 里更容易被看见，
+    // 也直接解释了「为什么切换启动项会被拒」。
+    if (target.note) {
+      targetLines.push(`⚠ ${target.note}`);
+    }
   }
   grubAutoTargetElement.replaceChildren();
   for (const line of targetLines) {
@@ -1590,28 +1644,50 @@ function renderGrubAuto(view, busy, format) {
     grubAutoIssuesElement.append(row);
   }
 
-  // 候选分区：定位不到（或被判定为「不唯一」）时让人点，点了就记住
-  const showCandidates = confidence === "none" || (view.candidates || []).length > 1;
+  // 候选分区：折成一行小字（<details>）。定位不到（或被判定为「不唯一」）时
+  // 才需要人点，点了就记住（后端落在 settings.linux_grub_dev）。
+  const candidates = view.candidates || [];
+  const manualPick = confidence === "manual" && Boolean(target);
+  // 手选状态也要露这一行：手选会把「按 fstab 自动定位」长期顶掉，
+  // 没有这条入口就回不去了（哪怕只有一块候选）。
+  const showCandidates =
+    candidates.length > 0 &&
+    (confidence === "none" || candidates.length > 1 || manualPick);
   grubAutoCandidatesElement.replaceChildren();
-  grubAutoCandidatesElement.hidden = !showCandidates || !(view.candidates || []).length;
+  grubAutoPickerElement.hidden = !showCandidates;
   if (showCandidates) {
-    for (const candidate of view.candidates || []) {
+    const withCfg = candidates.filter((candidate) => candidate.cfgRel).length;
+    const summaryBits = ["换一块分区读", `${withCfg} 块有 grub.cfg`];
+    if (manualPick) {
+      summaryBits.push(`当前手选 ${target.dev}`);
+    }
+    grubAutoPickerSummaryElement.textContent = summaryBits.join(" · ");
+    // 判定不出目标时这一行就是唯一的出路：直接摊开，别让人再点一次
+    if (confidence === "none") {
+      grubAutoPickerElement.open = true;
+    }
+    for (const candidate of candidates) {
       const row = document.createElement("button");
       row.type = "button";
       row.className = "grub-auto-candidate";
       row.disabled = Boolean(busy);
+      row.dataset.dev = candidate.dev;
       const isCurrent = target && target.dev === candidate.dev;
       if (isCurrent) {
         row.classList.add("is-current");
       }
       const mark = document.createElement("span");
-      mark.className = `mark ${candidate.matched === "exact" ? "exact" : ""}`;
+      mark.className = `mark ${candidate.matched === "exact" ? "exact" : ""}${
+        candidate.matched === "manual" ? "manual" : ""
+      }`;
       mark.textContent =
         candidate.matched === "exact"
           ? "精确"
           : candidate.matched === "inferred"
             ? "推断"
-            : "—";
+            : candidate.matched === "manual"
+              ? "手选"
+              : "—";
       const name = document.createElement("span");
       const nameBits = [candidate.dev];
       if (candidate.label) {
@@ -1627,15 +1703,42 @@ function renderGrubAuto(view, busy, format) {
       const right = document.createElement("span");
       right.className = "mark";
       right.style.marginLeft = "auto";
-      right.textContent = candidate.cfgMtime
-        ? formatLocalTime(candidate.cfgMtime)
-        : "";
+      // 当前正在读的那块：光靠描边在小窗里不够 —— 点完必须一眼看到「换没换过去」
+      right.textContent = isCurrent
+        ? `当前${candidate.cfgMtime ? ` · ${formatLocalTime(candidate.cfgMtime)}` : ""}`
+        : candidate.cfgMtime
+          ? formatLocalTime(candidate.cfgMtime)
+          : "";
+      if (isCurrent) {
+        right.classList.add("is-current-mark");
+      }
       row.append(mark, name, right);
+      // 脏分区（ext4 RECOVER 位挂着）读得出来、写不进去：提前说，
+      // 别等用户点一次启动项被拒一次才发现。
+      if (candidate.note) {
+        const warn = document.createElement("span");
+        warn.className = "mark warn";
+        warn.textContent = "只读";
+        warn.title = candidate.note;
+        row.append(warn);
+      }
       row.title = candidate.espSpec
-        ? `fstab：${candidate.espSpec}`
-        : candidate.cfgRel || "这块分区里没找到 grub.cfg";
-      row.addEventListener("click", () => pickGrubAuto(candidate.dev));
+        ? `fstab：${candidate.espSpec}${candidate.note ? `\n${candidate.note}` : ""}`
+        : candidate.note || candidate.cfgRel || "这块分区里没找到 grub.cfg";
+      // 不在这里绑 click：整份候选列表每拍渲染都会 replaceChildren 重建，
+      // 绑在行上的监听会跟着行一起消失。统一在容器上委托一次（见文件末尾）。
       grubAutoCandidatesElement.append(row);
+    }
+    // 手选过之后「自动定位」就被一直顶掉了（后端每扫一次都按记下的这块读），
+    // 所以必须给一条回去的路，否则用户只能重装或改配置文件。
+    if (manualPick) {
+      const reset = document.createElement("button");
+      reset.type = "button";
+      reset.className = "grub-auto-candidate is-reset";
+      reset.disabled = Boolean(busy);
+      reset.dataset.dev = "";
+      reset.textContent = "恢复自动定位（按 ESP 的 fstab 重新找）";
+      grubAutoCandidatesElement.append(reset);
     }
   }
 
@@ -1700,16 +1803,51 @@ async function refreshGrubAuto() {
   }
 }
 
-/// 「就选这块」：记住用户点的分区，然后按它重扫。
+/// 「就选这块」：记住用户点的分区，然后按它重扫。传空串 = 忘掉手选、
+/// 回到「按 ESP 的 fstab 自动定位」。
+///
+/// 回显（用户 2026-10-29：点完什么都没发生）：
+/// 1. **不收起候选列表** —— 原来一点就把整块藏掉，等 4~5 秒探测回来才重画，
+///    期间界面等于没反应；现在列表留着，行变成禁用态（灰），读的这块原地打勾；
+/// 2. 被点的那行立刻进「读取中…」状态，读完由 `renderGrubAuto` 把「当前」
+///    标记挪过去 —— 选中的是不是刚点的那块，一眼可见；
+/// 3. 重复点击由 `grubAutoPicking` 挡掉，免得一次点击发两次探测（会两次弹密码）。
+let grubAutoPicking = false;
+
 async function pickGrubAuto(dev) {
-  grubAutoCandidatesElement.hidden = true;
-  grubAutoSummaryElement.textContent = `正在读 ${dev}…`;
+  if (grubAutoPicking) {
+    return;
+  }
+  grubAutoPicking = true;
+  const rows = [...grubAutoCandidatesElement.querySelectorAll("button")];
+  for (const row of rows) {
+    row.disabled = true;
+  }
+  const picked = rows.find((row) => row.dataset.dev === dev);
+  if (picked) {
+    picked.classList.add("is-picking");
+  }
+  grubAutoRefreshElement.disabled = true;
+  grubAutoSummaryElement.textContent = dev
+    ? `正在读 ${dev}…`
+    : "正在按 ESP 的 fstab 重新定位…";
+  grubAutoSummaryElement.classList.remove("fail");
   try {
     const view = await invoke("linux_grub_pick", { dev });
     renderGrubAuto(view, false, grubListFormatElement.value);
   } catch (error) {
     grubAutoSummaryElement.textContent = String(error);
     grubAutoSummaryElement.classList.add("fail");
+    // 与 switchGrubAuto 同理：摘要在面板顶上，别让失败结论落在视口外
+    showStatusBar(String(error), { error: true });
+    grubAutoSummaryElement.scrollIntoView({ behavior: "smooth", block: "center" });
+    for (const row of rows) {
+      row.disabled = false;
+    }
+    picked?.classList.remove("is-picking");
+  } finally {
+    grubAutoPicking = false;
+    grubAutoRefreshElement.disabled = false;
   }
 }
 
@@ -1728,12 +1866,20 @@ async function switchGrubAuto(selector) {
     const view = await invoke("linux_grub_switch", { selector });
     if (view && typeof view === "object") {
       renderGrubAuto(view, false, grubListFormatElement.value);
+      // 失败必须两处都到：摘要行滚进视野（就近），底部固定提示条同时弹
+      // （用户 2026-10-29 原话「应该弹窗提示」—— 底条常驻窗口底部，不靠滚动）。
+      if (view.error) {
+        showStatusBar(view.error, { error: true });
+        grubAutoSummaryElement.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
     } else {
       grubAutoSummaryElement.textContent = "";
     }
   } catch (error) {
     grubAutoSummaryElement.textContent = String(error);
     grubAutoSummaryElement.classList.add("fail");
+    showStatusBar(String(error), { error: true });
+    grubAutoSummaryElement.scrollIntoView({ behavior: "smooth", block: "center" });
   }
 }
 
@@ -3954,6 +4100,17 @@ grubListFormatElement.addEventListener("change", () => {
   );
 });
 
+// 候选分区：整块列表每拍渲染都会重建，所以监听挂在容器上（委托）而不是行上。
+// 行上绑过一次的写法在「渲染一拍正好落在按下与抬起之间」时会丢点击 ——
+// 用户看到的就是「点了没反应」。
+grubAutoCandidatesElement.addEventListener("click", (event) => {
+  const row = event.target.closest("button[data-dev]");
+  if (!row || row.disabled || !grubAutoCandidatesElement.contains(row)) {
+    return;
+  }
+  pickGrubAuto(row.dataset.dev ?? "");
+});
+
 // 两个横向标签（自动读取 / 手动解析）：纯前端显隐，不落盘 ——
 // 用户要的是「默认进自动」，记住上次选择反而会让第二次打开直接落到手动。
 grubTabsElement.addEventListener("click", (event) => {
@@ -3981,8 +4138,77 @@ grubTabsElement.addEventListener("keydown", (event) => {
   document.querySelector(`[data-grub-tab="${next}"]`).focus();
 });
 
-// 自动读取：手动触发（macOS 每读一次弹一次授权，不能开机就扫）
+// rEFInd 区标签（自动扫描 / 手动处理）：点击与键盘，与 GRUB 区同一套行为
+refindTabsElement.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-refind-tab]");
+  if (button) {
+    setRefindTab(button.dataset.refindTab);
+  }
+});
+
+refindTabsElement.addEventListener("keydown", (event) => {
+  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
+    return;
+  }
+  event.preventDefault();
+  const next =
+    event.key === "Home"
+      ? "auto"
+      : event.key === "End"
+        ? "manual"
+        : refindTab === "auto"
+          ? "manual"
+          : "auto";
+  setRefindTab(next);
+  document.querySelector(`[data-refind-tab="${next}"]`).focus();
+});
+
+// 自动读取：手动触发始终可用
 grubAutoRefreshElement.addEventListener("click", refreshGrubAuto);
+
+// 免密助手在位就自动扫一次：「不自动扫」是 osascript 弹密码年代定的规矩，
+// 助手免密后开机读裸设备没有骚扰问题了。不在位（会弹密码）保持手动，
+// 别让自动扫变成「一打开 App 就弹密码框」。
+//
+// 自动扫是**免密专用**的（后端 auto=true：助手没接上就报错、绝不弹授权）——
+// 开机瞬间整机 I/O 高峰，助手冷启动撞上 25s 超时是实测发生过的事（2026-10-29
+// 「刚进 App 就要密码」）。失败后 8 秒自动重试一次；还不行就明说，等用户手点。
+let grubAutoBootRetried = false;
+
+function retryGrubBootScan() {
+  grubAutoBootRetried = true;
+  grubAutoSummaryElement.textContent = "免密助手没接上，8 秒后自动重试…";
+  setTimeout(() => {
+    if (!lastLinuxGrubView) {
+      bootScanGrubAuto();
+    }
+  }, 8000);
+}
+
+function bootScanGrubAuto() {
+  invoke("linux_grub_scan", { target: null, auto: true })
+    .then((view) => {
+      renderGrubAuto(view, false, grubListFormatElement.value);
+      if ((!view || view.error) && !grubAutoBootRetried) {
+        retryGrubBootScan();
+      }
+    })
+    .catch((error) => {
+      grubAutoSummaryElement.textContent = String(error);
+      grubAutoSummaryElement.classList.add("fail");
+      if (!grubAutoBootRetried) {
+        retryGrubBootScan();
+      }
+    });
+}
+
+invoke("linux_grub_helper_ready")
+  .then((ready) => {
+    if (ready && !lastLinuxGrubView) {
+      bootScanGrubAuto();
+    }
+  })
+  .catch(() => {});
 
 // 识别 ESP 目录：后端判断是不是 FAT32，并把分区 UUID（识别键）填好
 grubDirDetectElement.addEventListener("click", async () => {

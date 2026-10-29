@@ -57,8 +57,12 @@ pub(crate) struct HelperView {
     pub(crate) supported: bool,
     /// 助手已安装（文件在位）
     pub(crate) installed: bool,
-    /// 装的那份和当前 App 不是同一个构建（App 更新过）→ 建议重装。
+    /// 装的那份和当前 App 不是同一个构建（App 更新过）。
     /// 按**内容**比（sha256），不看大小 —— 见 [`helper_is_stale`]。
+    ///
+    /// **只用来提示「建议重装」，不再当门禁**：真正决定能不能用的是协议版本
+    /// （请求里的 `v`，助手侧 `helper_proto::validate` 对不上会直接拒绝）。
+    /// 以前拿它当门禁的后果是「App 重新构建一次，所有免密读取都退回弹密码」。
     pub(crate) stale: bool,
     /// 一句话现状：为什么没开 / 开了以后少什么
     pub(crate) text: String,
@@ -152,8 +156,10 @@ pub(crate) fn view() -> HelperView {
             stale,
             text: if stale {
                 // 不用 markdown 加粗：前端只把反引号渲染成 <code>，`**` 会原样露出来
-                "已开启，但 `/Library` 里那份是旧版本（App 更新过）：点「重装」换成当前的，\
-                 之后仍然免密"
+                // 注意：**过期不等于不能用**（见 linux_grub::helper_ready 的说明）。
+                // 同协议、不同构建照常免密，这里只是提示「想保持一致可以重装」。
+                "已开启：`/Library` 里那份是上一个构建装的，协议一致，照常免密。\
+                 想消掉这条提示就点「重装」"
                     .to_string()
             } else if installed {
                 "已开启：由 root 助手写 `OCBt*`，不再询问密码。卸载后恢复成每次输入密码"

@@ -634,18 +634,28 @@ pub(crate) fn remote_ui_command_inner(
                 .get("target")
                 .and_then(|value| value.as_str())
                 .map(str::to_string);
-            serde_json::to_value(channels::linux_grub::linux_grub_scan(app.clone(), target))
-                .map_err(|error| format!("序列化失败: {error}"))
+            // auto=true（开机自动扫）不许回落弹授权；手点/HTTP 默认允许
+            let auto = args.get("auto").and_then(|value| value.as_bool());
+            serde_json::to_value(channels::linux_grub::scan_blocking(
+                app.clone(),
+                target,
+                !auto.unwrap_or(false),
+            ))
+            .map_err(|error| format!("序列化失败: {error}"))
         }
-        "linux_grub_pick" => serde_json::to_value(channels::linux_grub::linux_grub_pick(
+        "linux_grub_pick" => serde_json::to_value(channels::linux_grub::pick_blocking(
             app.clone(),
             ui_str(args, "dev")?,
         ))
         .map_err(|error| format!("序列化失败: {error}")),
-        "linux_grub_switch" => serde_json::to_value(channels::linux_grub::linux_grub_switch(
+        "linux_grub_switch" => serde_json::to_value(channels::linux_grub::switch_blocking(
             app.clone(),
             ui_str(args, "selector")?,
         ))
+        .map_err(|error| format!("序列化失败: {error}")),
+        "linux_grub_helper_ready" => serde_json::to_value(
+            channels::linux_grub::helper_ready_blocking(),
+        )
         .map_err(|error| format!("序列化失败: {error}")),
         "detect_esp" => {
             let path = ui_str(args, "path")?;

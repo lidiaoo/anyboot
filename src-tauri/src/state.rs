@@ -43,6 +43,10 @@ pub(crate) struct AppState {
     /// 写 grubenv 的上下文（目标分区、环境块原始字节、允许写的 selector 白名单）。
     /// 扫描成功后缓存，切换时不再重新枚举分区（macOS 上重探 = 再来一次授权框）。
     pub(crate) linux_grub_rt: Option<channels::linux_grub::Runtime>,
+    /// 最近一次 Linux 分区探测的**全量**结果（每块 ext4 的目录清单 /
+    /// refind_linux.conf / os-release）。rEFInd 模拟扫描从中取 Linux 内核数据，
+    /// 绝不为它单独再探一轮（见 [`linux_grub::parts_for_sim`]）。
+    pub(crate) linux_probe_cache: Option<channels::linux_grub::ProbePayload>,
     pub(crate) message: String,
     pub(crate) error: Option<String>,
     /// GRUB 细粒度切换（与上面 rEFInd 那套并列）

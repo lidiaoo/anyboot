@@ -47,6 +47,32 @@ const MAX_FSTAB_BYTES: usize = 256 * 1024;
 /// os-release 读取上限
 const MAX_SMALL_BYTES: usize = 8192;
 
+/// 单个目录清单的条数上限：`/` 根目录与 `/boot` 通常几十个文件，
+/// 512 已经是病态布局；超出就截断，模拟扫描宁缺毋滥也不把内存吃爆。
+const MAX_LISTING_FILES: usize = 512;
+
+/// `/etc/os-release` 的 `PRETTY_NAME=`（带引号剥掉）。
+pub(crate) fn os_release_pretty_name(text: &str) -> Option<String> {
+    for line in text.lines() {
+        if let Some(value) = line.trim().strip_prefix("PRETTY_NAME=") {
+            let value = value.trim_matches('"').trim();
+            if !value.is_empty() {
+                return Some(value.to_string());
+            }
+        }
+    }
+    None
+}
+
+/// 拼分区内相对路径（`dir` 是 `""` 或 `boot`）。
+fn join_rel(dir: &str, name: &str) -> String {
+    if dir.is_empty() {
+        name.to_string()
+    } else {
+        format!("{dir}/{name}")
+    }
+}
+
 // ─────────────────────────── 跨端数据结构 ───────────────────────────
 
 /// 一条 fstab 挂载行（**不含 options** —— 里面常有明文密码）。
@@ -56,6 +82,30 @@ pub(crate) struct MountHint {
     pub(crate) spec: String,
     pub(crate) mountpoint: String,
     pub(crate) fstype: String,
+}
+
+/// 一块 ext4 分区里某个目录的文件清单（给 rEFInd 模拟扫描用）。
+///
+/// rEFInd 装了 ext4 驱动后会去 Linux 分区的根目录和 `/boot` 找内核
+/// （`vmlinuz*` / `bzImage*` / `kernel*` 前缀，`scan.c:1071-1073` 把前缀并进
+/// 匹配模式）；这里**不做前缀过滤**，把整个目录的清单端回来 —— 匹配规则
+/// （`linux_prefixes` 可被 refind.conf 改）留在主进程的模拟扫描里。
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DirListing {
+    /// 分区内路径：`""`（根目录）或 `boot`
+    pub(crate) dir: String,
+    /// 文件名 + mtime（epoch 秒）。跳过 `.` 开头（AppleDouble `._xxx` 等）
+    pub(crate) files: Vec<DirFile>,
+    /// 这个目录里的 `refind_linux.conf` 原文（内核条目的标题与选项来源）
+    pub(crate) refind_linux_conf: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DirFile {
+    pub(crate) name: String,
+    pub(crate) mtime: i64,
 }
 
 /// 一块 Linux 分区的探测结果（提权子进程产出，主进程消费）。
@@ -85,6 +135,13 @@ pub(crate) struct PartReport {
     pub(crate) root_uuid: Option<String>,
     /// `/etc/os-release` 的 `ID`（`arch` / `fedora` …）
     pub(crate) os_id: Option<String>,
+    /// `/etc/os-release` 的 `PRETTY_NAME`（模拟扫描的 Linux 条目说明用）
+    #[serde(default)]
+    pub(crate) os_pretty_name: Option<String>,
+    /// 根目录与 `/boot` 的文件清单（ext4 卷才有；**serde default**：
+    /// 旧助手的回执里没有这个字段，解析成空 —— 模拟扫描据此提示重装）
+    #[serde(default)]
+    pub(crate) dir_listings: Vec<DirListing>,
     pub(crate) note: Option<String>,
 }
 
@@ -174,6 +231,9 @@ pub(crate) struct LinuxTarget {
     pub(crate) os_id: Option<String>,
     /// 本端直读（Linux）还是走裸设备（macOS/Windows）
     pub(crate) host: bool,
+    /// 这块分区自己的状态提示（如 ext4 的 RECOVER 脏标志：只读可以、写入会被拒）。
+    /// 必须传到界面上：否则用户点一次启动项才被拒一次，看着就是「点了没反应」。
+    pub(crate) note: Option<String>,
 }
 
 /// 「换一个」列表里的一行
@@ -191,6 +251,8 @@ pub(crate) struct LinuxCandidate {
     /// fstab 里那一行的原文（不含 options）
     pub(crate) esp_spec: Option<String>,
     pub(crate) os_id: Option<String>,
+    /// 这块分区自己的状态提示（RECOVER 脏标志等）；有它就等于「能读、不能写」
+    pub(crate) note: Option<String>,
 }
 
 /// 界面的整块视图（存进快照，前端并排第二块用它）
@@ -511,6 +573,7 @@ pub(crate) fn build_view(
             matched,
             esp_spec,
             os_id: part.os_id.clone(),
+            note: part.note.clone(),
         });
     }
 
@@ -535,6 +598,7 @@ pub(crate) fn build_view(
         root_uuid: part.root_uuid.clone(),
         os_id: part.os_id.clone(),
         host: platform == "linux",
+        note: part.note.clone(),
     });
 
     let Some(cfg_text) = &part.cfg_text else {
@@ -591,10 +655,19 @@ pub(crate) fn build_view(
 /// macOS 上**优先走 root 助手**（装了就是免密），没装/没响应才回落到
 /// 「一次性授权子进程」。这个优先级不是性能优化：每次切启动项都弹密码的话，
 /// 这个功能不会被用起来。
-pub(crate) fn probe(esp_partuuid: &str, prefer_dev: &str) -> Result<ProbePayload, String> {
+///
+/// `allow_fallback=false` 是**自动扫描**（开机自启那次）专用：绝不允许弹授权。
+/// 开机瞬间整机 I/O 高峰、助手冷启动，25 秒超时并不保险 —— 撞上就回落 osascript，
+/// 用户看到的就是「刚进 App 就要密码」（2026-10-29 实测）。这种情况直接报错，
+/// 前端会自动重试；用户手点「重新读取」才允许回落（主动点的，弹了不意外）。
+pub(crate) fn probe(
+    esp_partuuid: &str,
+    prefer_dev: &str,
+    allow_fallback: bool,
+) -> Result<ProbePayload, String> {
     #[cfg(target_os = "linux")]
     {
-        let _ = (esp_partuuid, prefer_dev);
+        let _ = (esp_partuuid, prefer_dev, allow_fallback);
         Ok(probe_host())
     }
     #[cfg(not(target_os = "linux"))]
@@ -605,8 +678,29 @@ pub(crate) fn probe(esp_partuuid: &str, prefer_dev: &str) -> Result<ProbePayload
         #[cfg(target_os = "macos")]
         let helper = crate::helper_install::view();
 
+        #[cfg(not(target_os = "linux"))]
+        if !allow_fallback {
+            #[cfg(target_os = "macos")]
+            if !helper.installed {
+                return Err(
+                    "没装免密助手：自动扫描不弹管理员授权，装好助手后重开 App 即自动读；\
+                     也可以点「重新读取」手动扫（会请求一次密码）"
+                        .to_string(),
+                );
+            }
+            #[cfg(not(target_os = "macos"))]
+            return Err(
+                "自动扫描不弹管理员授权：点「重新读取」手动扫一次（会请求一次密码）"
+                    .to_string(),
+            );
+        }
+
+        // 助手「回来了但没干完」时记下它说的原因，回落之后要写进 notes
         #[cfg(target_os = "macos")]
-        if helper.installed && !helper.stale {
+        let mut fell_back: Option<String> = None;
+
+        #[cfg(target_os = "macos")]
+        if helper.installed {
             match probe_via_helper(esp_partuuid) {
                 Ok(mut payload) => {
                     payload.via = "helper".to_string();
@@ -617,35 +711,52 @@ pub(crate) fn probe(esp_partuuid: &str, prefer_dev: &str) -> Result<ProbePayload
                 Err(crate::helper_install::HelperError::Rejected(error)) => return Err(error),
                 // 这条路不通（超时 / 作业没加载 / 被系统拦）：回落一次性授权。
                 // 回落成功时不打扰用户；回落也失败时 osascript 会说自己的原因。
-                Err(crate::helper_install::HelperError::Unavailable(_why)) => {}
+                Err(crate::helper_install::HelperError::Unavailable(why)) => {
+                    if !allow_fallback {
+                        return Err(format!(
+                            "免密助手没接上（{why}）：自动扫描不弹管理员授权，\
+                             稍后会自动重试；也可以点「重新读取」手动扫"
+                        ));
+                    }
+                    fell_back = Some(why);
+                }
             }
         }
 
         let mut payload = probe_via_elevated(esp_partuuid)?;
         payload.via = "elevated".to_string();
-        // 「装了但是旧版本」是最容易让人以为「免密坏了」的情况：App 升级过、
-        // `/Library` 里还是旧助手，协议与校验规则都可能对不上，只能先走弹密码那条路。
-        // 不说明的话，用户看到的就是「明明开着免密，怎么又弹密码了」。
+        // 走到这里说明助手没把活干完。最常见的原因是「App 重装过、/Library 里那份
+        // 还是上一个构建」（`view().stale`），此外还有超时 / 作业没加载。
+        // 不说清楚，用户看到的就是「明明开着免密，怎么又弹密码了」。
         #[cfg(target_os = "macos")]
-        if helper.installed && helper.stale {
-            payload.notes.push(
-                "免密助手还是上一个版本的：这次用了一次性授权。\
-                 在 OpenCore 卡片里把「免密模式」关掉再开一次，就能恢复免密。"
-                    .to_string(),
-            );
-        }
+        payload.notes.push({
+            let hint = if helper.stale {
+                "（/Library 里那份助手是上一个构建装的，点「重装」可消掉这条）"
+            } else {
+                ""
+            };
+            match fell_back {
+                Some(why) => format!("免密助手这次没接上（{why}）：改用了一次性授权{hint}"),
+                None => format!("没有可用的免密助手：改用了一次性授权{hint}"),
+            }
+        });
         Ok(payload)
     }
 }
 
-/// 免密助手这条路能不能走：装了、且是当前构建。
+/// 免密助手这条路能不能走：只问「装没装」。
 ///
-/// 「是当前构建」必须一起判（见 `helper_install::helper_is_stale`）：旧助手的校验规则
-/// 与协议都可能是旧的，让它处理 v2 请求只会得到一句看不懂的错。
+/// 曾经这里还要求「装的那份必须是当前构建」（digest 一致），结果是**每次 App
+/// 重新构建/升级后，所有读取与写入都会退回弹密码**，用户只会觉得「免密坏了」。
+/// 真正的契约是协议版本：请求里带 `v`，助手侧的 `helper_proto::validate` 对不上
+/// 就直接拒绝并回一句「协议版本不支持」，绝不会闷头按旧语义乱写。所以：
+/// - 同协议、不同构建 → 照常免密（这正是开发期每天都会遇到的情况）；
+/// - 协议不同 → 助手拒绝 → 调用方把真实原因报出来，用户重装一次助手即可。
+///
+/// `view().stale` 现在只用来提示「建议重装」，不再当门禁。
 #[cfg(target_os = "macos")]
 fn helper_ready() -> bool {
-    let view = crate::helper_install::view();
-    view.installed && !view.stale
+    crate::helper_install::view().installed
 }
 
 #[cfg(target_os = "macos")]
@@ -658,6 +769,69 @@ fn probe_via_helper(
             "免密助手给的探测结果不是合法 JSON：{error}"
         ))
     })
+}
+
+/// 给 rEFInd 模拟扫描的「Linux 分区清单」：取最近一次探测的缓存；
+/// 没有缓存、助手在位，就现跑一次**免密专用**探测（不回落弹授权）。
+///
+/// 返回 `(parts, 失败原因)`。`parts` 为空说明拿不到 —— 模拟扫描会把原因
+/// 写进 issue，而不是悄悄少一块分区。Linux 本机不需要这条链路：ext4 分区
+/// 都挂着，`oc_menu::volumes()` 已经覆盖（返回空 + None，模拟扫描自然跳过）。
+pub(crate) fn parts_for_sim(app: &AppHandle) -> (Vec<PartReport>, Option<String>) {
+    #[cfg(target_os = "linux")]
+    {
+        let _ = app;
+        (Vec::new(), None)
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let _ = app;
+        (
+            Vec::new(),
+            Some("Windows 端还没接 ext4 读取：模拟扫描暂不能扫 Linux 分区里的内核".to_string()),
+        )
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(cached) = app
+            .state::<Mutex<AppState>>()
+            .lock()
+            .ok()
+            .and_then(|state| state.linux_probe_cache.clone())
+        {
+            // 缓存可能是空手而归的（比如设备全打不开）：也如实返回，
+            // 让模拟扫描的 issue 把那句 note 带出去。
+            let note = cached.notes.first().cloned();
+            return (cached.parts, note);
+        }
+        if !helper_ready() {
+            return (
+                Vec::new(),
+                Some(
+                    "Linux 分区里的内核要读 ext4 裸设备（需要免密助手或一次授权）。\
+                     装好助手后点「重新模拟」即可扫出内核条目"
+                        .to_string(),
+                ),
+            );
+        }
+        let esp = stored_settings(app).grub_efi_partuuid;
+        match probe_via_helper(&esp) {
+            Ok(payload) => {
+                let note = payload.notes.first().cloned();
+                let parts = payload.parts.clone();
+                if let Ok(mut state) = app.state::<Mutex<AppState>>().lock() {
+                    state.linux_probe_cache = Some(payload);
+                }
+                (parts, note)
+            }
+            Err(crate::helper_install::HelperError::Rejected(error)) => (Vec::new(), Some(error)),
+            Err(crate::helper_install::HelperError::Unavailable(why)) => {
+                (Vec::new(), Some(format!("免密助手没接上：{why}")))
+            }
+        }
+    }
 }
 
 /// 一次性授权（osascript / UAC）：弹一次密码，跑一个把自己提权起来的子进程。
@@ -1002,9 +1176,50 @@ pub(crate) fn probe_raw(esp_partuuid: &str) -> Result<ProbePayload, String> {
                 })
                 .collect();
         }
-        // os-release（只为在列表里好认）
+        // os-release（只为在列表里好认；PRETTY_NAME 给模拟扫描的 Linux 条目用）
         if let Ok(Some(bytes)) = fs.read_path("etc/os-release", MAX_SMALL_BYTES) {
-            report.os_id = os_release_id(&String::from_utf8_lossy(&bytes));
+            let text = String::from_utf8_lossy(&bytes);
+            report.os_id = os_release_id(&text);
+            report.os_pretty_name = os_release_pretty_name(&text);
+        }
+        // 内核目录清单（rEFInd 装了 ext4 驱动后扫的就是这两处：根目录 + /boot）。
+        // 只在**有 ext4 文件系统可读**时才有意义，FAT ESP 的 PartReport 根本不会
+        // 走到这里（Ext4::open 失败直接 continue 了）。
+        for dir in ["", "boot"] {
+            let Ok(names) = fs.list_dir(dir) else {
+                continue;
+            };
+            let mut files: Vec<DirFile> = names
+                .into_iter()
+                .filter(|name| !name.starts_with('.'))
+                .take(MAX_LISTING_FILES)
+                .filter_map(|name| {
+                    // 只留文件（rEFInd 的 DirIter 也只匹配文件）；目录名如
+                    // "efi" 不会撞 vmlinuz 前缀，但端给主进程的清单干净些好。
+                    // mtime 对折叠排序至关重要（rEFInd 新内核排最前）。
+                    let meta = fs.stat(&join_rel(dir, &name))?;
+                    if meta.is_dir {
+                        return None;
+                    }
+                    Some(DirFile {
+                        name,
+                        mtime: meta.mtime,
+                    })
+                })
+                .collect();
+            // list_dir 已按名字排好序，这里不用再排；**mtime 排序是消费方的
+            // 事**（要照顾 rescue 内核沉底，那是消费方才知道的事）。
+            let conf_rel = format!("{dir}/refind_linux.conf");
+            let refind_linux_conf = fs
+                .read_path(&conf_rel, MAX_SMALL_BYTES)
+                .ok()
+                .flatten()
+                .map(|bytes| String::from_utf8_lossy(&bytes).to_string());
+            report.dir_listings.push(DirListing {
+                dir: dir.to_string(),
+                files,
+                refind_linux_conf,
+            });
         }
         // grub.cfg / grubenv
         for dir in GRUB_DIRS {
@@ -1284,21 +1499,57 @@ fn write_env_host(path: &str, block: &[u8]) -> Result<String, String> {
 // ─────────────────────────── 命令 ───────────────────────────
 
 /// 「重新扫描」：按当前设置定位目标分区并读出菜单。
+///
+/// **必须在阻塞池里跑**（用户 2026-10-29「点击没反应」的真实原因）：
+/// 一次探测要读十块裸分区 —— 助手冷启 4~5 秒、走 osascript 还要弹授权。
+/// 同步命令是跑在 WebView 的 IPC/UI 线程上的，这几秒里整个窗口不绘制、
+/// 不吃点击：`[render]` 心跳和界面轮询都会断在那儿（trace 里能直接看到
+/// 4~20 秒的空档），用户看到的就是「点了没反应」，然后连点几次排成一队。
+///
+/// `auto=true` 是开机自动扫：助手没接上**不许弹授权**（见 `probe`），报错让
+/// 前端自动重试；`auto=false`（手点）才回落一次性授权。
 #[tauri::command]
-pub(crate) fn linux_grub_scan(app: AppHandle, target: Option<String>) -> Option<LinuxGrubView> {
-    Some(refresh(&app, target.as_deref()))
+pub(crate) async fn linux_grub_scan(
+    app: AppHandle,
+    target: Option<String>,
+    auto: Option<bool>,
+) -> Option<LinuxGrubView> {
+    let allow_fallback = !auto.unwrap_or(false);
+    tauri::async_runtime::spawn_blocking(move || scan_blocking(app, target, allow_fallback))
+        .await
+        .ok()
+        .flatten()
+}
+
+/// `linux_grub_scan` 的同步实现（阻塞，只能在阻塞池或 HTTP 线程里调用）。
+pub(crate) fn scan_blocking(
+    app: AppHandle,
+    target: Option<String>,
+    allow_fallback: bool,
+) -> Option<LinuxGrubView> {
+    Some(refresh(&app, target.as_deref(), allow_fallback))
 }
 
 /// 「换一个」：记住用户选的分区，然后立刻按它重扫。
 #[tauri::command]
-pub(crate) fn linux_grub_pick(app: AppHandle, dev: String) -> Option<LinuxGrubView> {
+pub(crate) async fn linux_grub_pick(app: AppHandle, dev: String) -> Option<LinuxGrubView> {
+    tauri::async_runtime::spawn_blocking(move || pick_blocking(app, dev))
+        .await
+        .ok()
+        .flatten()
+}
+
+/// `linux_grub_pick` 的同步实现。先落盘再扫：扫失败（分区里没有 cfg）时
+/// 选择本身也要留住，否则用户会以为「选了又弹回去」。
+pub(crate) fn pick_blocking(app: AppHandle, dev: String) -> Option<LinuxGrubView> {
     let dev = dev.trim().to_string();
     let mut settings = stored_settings(&app);
     settings.linux_grub_dev = dev.clone();
     if let Err(error) = save_settings(&app, &settings) {
         trace(&app, "linux_grub", &format!("保存目标分区失败：{error}"));
     }
-    Some(refresh(&app, Some(&dev)))
+    // pick 永远是用户主动点的：允许回落一次性授权
+    Some(refresh(&app, Some(&dev), true))
 }
 
 /// 切换下次启动：写目标分区自己的 grubenv。
@@ -1314,7 +1565,27 @@ pub(crate) fn linux_grub_pick(app: AppHandle, dev: String) -> Option<LinuxGrubVi
 /// 直接用刚写进去的那块回填，并把新块存回 runtime —— 否则连续切两次时，
 /// 第二次会拿**旧块**去算，把第一次的 `saved_entry` 覆盖掉。
 #[tauri::command]
-pub(crate) fn linux_grub_switch(app: AppHandle, selector: String) -> LinuxGrubView {
+pub(crate) async fn linux_grub_switch(app: AppHandle, selector: String) -> LinuxGrubView {
+    let log_app = app.clone();
+    match tauri::async_runtime::spawn_blocking(move || switch_blocking(app, selector)).await {
+        Ok(view) => view,
+        // 阻塞池 join 失败（任务 panic）：别让界面停在「正在写入…」到天荒地老
+        Err(error) => {
+            let message = format!("切换任务没跑起来：{error}");
+            trace(&log_app, "linux_grub", &message);
+            record_action(&log_app, "切换 GRUB 启动项（自动读取）失败", false, &message);
+            let mut view = LinuxGrubView::failed(platform_name(), message);
+            view.needs_elevation = !cfg!(target_os = "linux");
+            publish_ui(&log_app);
+            view
+        }
+    }
+}
+
+/// `linux_grub_switch` 的同步实现：写 1024 字节 env（打不开分区就报真实原因）。
+///
+/// 同样不能待在 UI 线程上：写盘要先探分区、必要时唤起免密助手 —— 一次几秒。
+pub(crate) fn switch_blocking(app: AppHandle, selector: String) -> LinuxGrubView {
     let (runtime, current) = {
         let state = app.state::<Mutex<AppState>>();
         let state = state.lock().expect("state mutex poisoned");
@@ -1370,17 +1641,58 @@ pub(crate) fn linux_grub_switch(app: AppHandle, selector: String) -> LinuxGrubVi
             });
             view.error = Some(error.clone());
             view.issues.insert(0, error);
+            // **失败也要存回状态**：原来只把带 error 的视图 return 给前端，
+            // 而 publish_ui 推的是 state 里那份**没有** issue 的旧视图 ——
+            // 错误在下一次快照（3 秒）就被覆盖掉了，用户看到的就是
+            // 「点了一下，闪了行字，然后什么都没发生」。runtime 不动，还能再点。
+            {
+                let state = app.state::<Mutex<AppState>>();
+                let mut state = state.lock().expect("state mutex poisoned");
+                state.linux_grub = Some(view.clone());
+            }
             publish_ui(&app);
             view
         }
     }
 }
 
-fn store(app: &AppHandle, view: LinuxGrubView, runtime: Option<Runtime>) {
+/// 免密助手在不在位 —— 前端拿它决定「进页面要不要自动扫」。
+///
+/// 「不自动扫」是 osascript 弹密码年代定的规矩：开机就读裸设备 = 开机弹密码框。
+/// 助手免密之后这个代价没了，但**助手不在位时仍会弹密码**，所以必须先问一句
+/// 再决定。只查 `/Library` 里装没装（外加算一次摘要比对协议说明），不碰设备。
+#[tauri::command]
+pub(crate) async fn linux_grub_helper_ready() -> bool {
+    tauri::async_runtime::spawn_blocking(helper_ready_blocking)
+        .await
+        .unwrap_or(false)
+}
+
+/// `linux_grub_helper_ready` 的同步实现：HTTP 路由本来就跑在工作线程上，直调。
+pub(crate) fn helper_ready_blocking() -> bool {
+    #[cfg(target_os = "macos")]
+    return crate::helper_install::view().installed;
+
+    #[cfg(not(target_os = "macos"))]
+    return true;
+}
+
+fn store(
+    app: &AppHandle,
+    view: LinuxGrubView,
+    runtime: Option<Runtime>,
+    probe: Option<&ProbePayload>,
+) {
     let state = app.state::<Mutex<AppState>>();
     let mut state = state.lock().expect("state mutex poisoned");
     state.linux_grub = Some(view);
     state.linux_grub_rt = runtime;
+    // 全量探测结果缓存给 rEFInd 模拟扫描复用：模拟扫描只要分区清单（内核
+    // 文件名/mtime/os-release），绝不再为它开一轮裸设备探测 —— macOS 上
+    // 每一轮都是 4~5 秒 + 可能的授权框。
+    if let Some(payload) = probe {
+        state.linux_probe_cache = Some(payload.clone());
+    }
 }
 
 /// 写盘上下文：从**同一份** payload 里取，绝不为了拿 env 再探一次
@@ -1410,7 +1722,7 @@ fn runtime_from(payload: &ProbePayload, view: &LinuxGrubView, prefer: &str) -> O
 
 /// 扫一遍 → 组装视图 → 写回状态。任何一步失败都返回「带 error 的视图」，
 /// 绝不把旧数据当成新结果留在界面上。
-pub(crate) fn refresh(app: &AppHandle, target: Option<&str>) -> LinuxGrubView {
+pub(crate) fn refresh(app: &AppHandle, target: Option<&str>, allow_fallback: bool) -> LinuxGrubView {
     let settings = stored_settings(app);
     let prefer = target
         .map(str::to_string)
@@ -1423,11 +1735,11 @@ pub(crate) fn refresh(app: &AppHandle, target: Option<&str>) -> LinuxGrubView {
     };
     let esp_partuuid = settings.grub_efi_partuuid.clone();
 
-    let payload = match probe(&esp_partuuid, &prefer) {
+    let payload = match probe(&esp_partuuid, &prefer, allow_fallback) {
         Ok(payload) => payload,
         Err(error) => {
             let view = LinuxGrubView::failed(platform_name(), error);
-            store(app, view.clone(), None);
+            store(app, view.clone(), None, None);
             return view;
         }
     };
@@ -1448,7 +1760,7 @@ pub(crate) fn refresh(app: &AppHandle, target: Option<&str>) -> LinuxGrubView {
         );
     }
     let runtime = runtime_from(&payload, &view, &prefer);
-    store(app, view.clone(), runtime);
+    store(app, view.clone(), runtime, Some(&payload));
     view
 }
 
@@ -1557,6 +1869,22 @@ mod tests {
     }
 
     #[test]
+    fn locate_ignores_blank_manual_choice() {
+        // 「恢复自动定位」在前端传空串：必须当成「没手选过」，
+        // 否则清不掉手选状态，fstab 自动定位永远回不来。
+        let parts = vec![
+            report("disk0s7", "AAAA", vec![], true),
+            report("disk0s9", "BBBB", vec![("UUID=e537-7f31", "/boot/efi", "vfat")], true),
+        ];
+        let selection = locate(&parts, Some(&esp()), Some("")).unwrap();
+        assert_eq!(selection.index, 1);
+        assert_eq!(selection.confidence, "exact");
+        // 空白也不算手选
+        let selection = locate(&parts, Some(&esp()), Some("   ")).unwrap();
+        assert_eq!(selection.confidence, "exact");
+    }
+
+    #[test]
     fn locate_without_match_selects_nothing_when_ambiguous() {
         // 两块都有 cfg、都没挂所选 ESP → 不选（让用户点），不猜
         let parts = vec![
@@ -1601,6 +1929,34 @@ mod tests {
         assert_eq!(view.entries[0].selector, "Arch");
         assert!(view.env_exists);
         assert_eq!(view.candidates.len(), 1);
+    }
+
+    /// 分区脏（ext4 RECOVER）时后端给这条分区挂了 `note`：目标与候选列表
+    /// 都必须把它带到界面上 —— 不然用户点一次启动项被拒一次，看起来就是
+    /// 「点了没反应」（2026-10-29 现场，同一条错误连点四次）。
+    #[test]
+    fn dirty_partition_note_reaches_view() {
+        let mut part = report(
+            "disk0s9",
+            "BBBB",
+            vec![("UUID=E537-7F31", "/boot/efi", "vfat")],
+            true,
+        );
+        let note = "上次没干净关机（RECOVER 标志），只读可用、写入会被拒".to_string();
+        part.note = Some(note.clone());
+        let payload = ProbePayload {
+            ok: true,
+            esp: Some(IdentityWire {
+                fs_uuid: Some("E537-7F31".to_string()),
+                ..IdentityWire::default()
+            }),
+            parts: vec![part],
+            notes: Vec::new(),
+            ..ProbePayload::default()
+        };
+        let view = build_view(&payload, "macos", true, None, false);
+        assert_eq!(view.target.as_ref().and_then(|t| t.note.clone()), Some(note.clone()));
+        assert_eq!(view.candidates[0].note.clone(), Some(note));
     }
 
     /// cfg 存在但不是 GRUB 配置（真机 disk0s13 里躺的就是一段纯文本笔记）：
@@ -1722,6 +2078,49 @@ mod tests {
         let with_cfg = payload.parts.iter().filter(|part| part.cfg_rel.is_some()).count();
         println!("{} 块 ext4，其中 {} 块有 grub.cfg", payload.parts.len(), with_cfg);
         assert!(with_cfg > 0, "一块带 grub.cfg 的分区都没有");
+
+        // 内核清单（rEFInd 模拟扫描的输入）：vmlinuz*/bzImage*/kernel*/*.efi。
+        // **旧助手的回执没有 dir_listings**（serde default 解析成空）—— 所以
+        // 这里只在「至少一块分区带清单」时才断言内核非空：旧助手时代这条测试
+        // 照常绿，重装新助手之后它自动升级成端到端检查。
+        let mut kernel_parts = 0;
+        let mut listed_parts = 0;
+        for part in &payload.parts {
+            for listing in &part.dir_listings {
+                listed_parts += 1;
+                let kernels: Vec<&str> = listing
+                    .files
+                    .iter()
+                    .map(|file| file.name.as_str())
+                    .filter(|name| {
+                        let lower = name.to_ascii_lowercase();
+                        lower.starts_with("vmlinuz")
+                            || lower.starts_with("bzimage")
+                            || lower.starts_with("kernel")
+                            || lower.ends_with(".efi")
+                    })
+                    .collect();
+                if kernels.is_empty() {
+                    continue;
+                }
+                kernel_parts += 1;
+                println!(
+                    "{} ({:?}) [{}] conf={}",
+                    part.dev,
+                    part.label,
+                    listing.dir,
+                    listing.refind_linux_conf.is_some()
+                );
+                for kernel in kernels {
+                    println!("    {kernel}");
+                }
+            }
+        }
+        if listed_parts == 0 {
+            println!("清单字段全空：/Library 里还是旧版助手（重装后这条会变成真检查）");
+        } else {
+            assert!(kernel_parts > 0, "有清单但没有一块分区带内核文件");
+        }
     }
 
     /// 真机对照（要 root，`cargo test -- --ignored live_probe` 由 sudo 跑）：

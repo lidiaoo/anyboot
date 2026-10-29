@@ -502,53 +502,20 @@ h1,
   color: var(--text-faint);
 }
 
-/* ---------- 系统列表：勾 / 名称 / 按钮 三列，列宽固定所以天然左对齐 ---------- */
+/* ---------- 系统列表（手动获取）：与模拟扫描同一套 grub-list 行式样式 ----------
+ * 结构见 app.js renderSystems：直接用 .grub-list / .grub-entry / .active，
+ * 这里只补「快照不存在」的压暗 —— 剩下的观感全部来自 GRUB 那份 CSS。 */
 #systems {
   display: grid;
   gap: 10px;
 }
 
-.system-card {
-  display: grid;
-  grid-template-columns: 26px 1fr auto;
-  align-items: center;
-  gap: 10px;
-  padding: 14px 16px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--panel);
+.grub-entry.is-unavailable {
+  opacity: 0.55;
 }
 
-.system-card.active {
-  border-color: var(--ok-border);
-  background: var(--ok-bg);
-}
-
-.system-card.unavailable {
-  opacity: 0.45;
-}
-
-/* 勾占独立一列：选中就显示绿勾、没选中就空着，其他列不会因此错位 */
-.system-check {
-  color: var(--ok);
-  font-size: 18px;
-  font-weight: 700;
-  text-align: center;
-}
-
-.system-name {
-  display: grid;
-  gap: 3px;
-  justify-items: start;
-  text-align: left;
-}
-
-.system-name strong {
-  font-size: 15px;
-}
-
-.system-name small {
-  color: var(--text-faint);
+.grub-entry.is-unavailable .grub-entry-name {
+  color: var(--text-dim);
 }
 
 /* ============ 单窗口 + 四种展示模式（body[data-grub-mode] 驱动） ============
@@ -1114,18 +1081,50 @@ body[data-grub-mode="pane"] #grub {
   color: var(--warn);
 }
 
+/* ── 自动读取：一个框装完（用户定案 2026-10-29）──────────────────────
+ * 原来「分区明细」和「启动项列表」各带一圈边框，纵向叠成两块，读起来像框里
+ * 套框。现在明细当这个框的框头（一条分隔线隔开），启动项当框身，整块只剩
+ * 一圈边框。圆角裁切（overflow:hidden）保证列表滚动时行不越出圆角。 */
+.grub-auto-card {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--input-bg);
+  /* 这里**不能**用 overflow:hidden 裁圆角：它会把最近滚动容器抢成自己，
+     ③④ 模式下「选中项置顶」就钉不住右栏了（sticky 的锚点被这块偷走）。
+     框内边距 4px 已经让行不贴角，不需要裁。 */
+}
+
 /* 命中的目标分区：dev / 卷标 / 发行版 / cfg 新旧全摆出来 ——
  * 自动读取没有 09_anyboot 帮忙同步，cfg 可能是几个月前的旧文件。 */
 .grub-auto-target {
   display: grid;
   gap: 2px;
   padding: 6px 8px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  border: 0;
   color: var(--text-dim);
   font-size: 11px;
   line-height: 1.6;
   overflow-wrap: anywhere;
+}
+
+/* 有明细才画那条分隔线；没有明细时框头整块不占位（display:grid 会盖掉
+ * UA 的 [hidden]{display:none}，必须显式补）。 */
+.grub-auto-target[hidden] {
+  display: none;
+}
+
+.grub-auto-card > .grub-auto-target:not([hidden]) {
+  border-bottom: 1px solid var(--border);
+}
+
+/* 列表不再是自己的框：边框/底色/圆角全部交给 .grub-auto-card。
+ * 用 ID 提权压过 body[data-grub-mode] .grub-list 那一组（限高保留）。 */
+.grub-auto-card > #grub-auto-list {
+  padding: 4px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .grub-auto-target b {
@@ -1148,6 +1147,35 @@ body[data-grub-mode="pane"] #grub {
   overflow-wrap: anywhere;
 }
 
+/* 候选分区：折成一行小字（用户定案 2026-10-29）——
+ * 定位唯一时这一整块不该占版面，<details> 收起只剩 11px 的 summary；
+ * 判定不出目标时 app.js 会把它 open=true 直接摊开（那会儿它是唯一出路）。 */
+.grub-auto-picker {
+  min-width: 0;
+}
+
+/* <details> 默认 display:block，[hidden] 的 UA 规则压不住需要显式补 */
+.grub-auto-picker[hidden] {
+  display: none;
+}
+
+.grub-auto-picker > summary {
+  color: var(--text-faint);
+  font-size: 11px;
+  line-height: 1.6;
+  cursor: pointer;
+  list-style-position: inside;
+}
+
+.grub-auto-picker > summary:hover {
+  color: var(--text-dim);
+}
+
+.grub-auto-picker[open] > summary {
+  margin-bottom: 4px;
+  color: var(--text-dim);
+}
+
 .grub-auto-candidates {
   display: grid;
   gap: 4px;
@@ -1168,6 +1196,19 @@ body[data-grub-mode="pane"] #grub {
   cursor: pointer;
 }
 
+/* 「恢复自动定位」：这是一条动作、不是一块候选分区，所以虚线 + 无底色，
+ * 免得跟上面的分区行看成一类 */
+.grub-auto-candidate.is-reset {
+  justify-content: center;
+  border-style: dashed;
+  background: transparent;
+  color: var(--text-faint);
+}
+
+.grub-auto-candidate.is-reset:hover {
+  color: var(--text-dim);
+}
+
 .grub-auto-candidate:hover {
   border-color: var(--border-strong);
 }
@@ -1180,6 +1221,30 @@ body[data-grub-mode="pane"] #grub {
  * 别让「按设备名猜的」看上去跟「UUID 对上的」一样可信。 */
 .grub-auto-candidate .mark.exact {
   color: var(--ok);
+}
+
+/* 「手选」既不是精确也不是推断：用链接色区分，别跟绿色的精确混成一种 */
+.grub-auto-candidate .mark.manual {
+  color: var(--link);
+}
+
+/* 右侧「当前 · 时间」：这一块就是正在读的分区，点完回显全靠它 */
+.grub-auto-candidate .mark.is-current-mark {
+  color: var(--ok);
+}
+
+/* 「只读」：分区脏（RECOVER）→ 读得出来、写不进去。提前标出来，
+ * 用户就不会点一次启动项被拒一次还以为「点击没反应」。 */
+.grub-auto-candidate .mark.warn {
+  color: var(--warn);
+  white-space: nowrap;
+}
+
+/* 点下去到读回来之间（探测 4~5 秒）：留在原位、描边变绿、不跟着其它行变暗 */
+.grub-auto-candidate.is-picking {
+  border-color: var(--ok-border);
+  color: var(--text-dim);
+  opacity: 1;
 }
 
 /* 当前正在读的那块：候选列表里也要能认出来，否则「换了没换」看不出来 */
@@ -2107,18 +2172,6 @@ body.dock-right #hotzone {
     -webkit-box-orient: vertical;
     overflow: hidden;
     word-break: break-all;
-  }
-
-  /* ④ 系统卡片：勾 + 名称一行，按钮整行铺开 */
-  .system-card {
-    grid-template-columns: 22px minmax(0, 1fr);
-    row-gap: 8px;
-    padding: 12px;
-  }
-  .system-card > button {
-    grid-column: 1 / -1;
-    justify-self: stretch;
-    white-space: nowrap;
   }
 
   /* 「下次启动」的级联全链常在二十字以上，收一档字号少折一行 */

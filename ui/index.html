@@ -111,13 +111,38 @@
             <h2>rEFInd 启动项</h2>
           </div>
 
-          <section aria-label="可启动系统" id="systems" data-page-node-id="Id8skElJCJlzu02uKr9biB"></section>
+          <!-- ══════════ 两个横向标签（用户定案 2026-10-29，与 GRUB 区同构）══════════
+               「自动扫描」默认选中：按 rEFInd 规则复算菜单，纯读、零准备；
+               「手动处理」是 vars/PreviousBoot 快照那条链路 —— 点条目 = 写快照。
+               标签只切面板显隐；「下次启动」大字是两条链路共用的回显，留在标签上面。 -->
+          <div class="grub-tabs" id="refind-tabs" role="tablist" aria-label="rEFInd 读取方式">
+            <button
+              class="grub-tab is-active"
+              id="refind-tab-auto"
+              type="button"
+              role="tab"
+              aria-selected="true"
+              aria-controls="refind-panel-auto"
+              data-refind-tab="auto"
+            >
+              自动扫描
+            </button>
+            <button
+              class="grub-tab"
+              id="refind-tab-manual"
+              type="button"
+              role="tab"
+              aria-selected="false"
+              aria-controls="refind-panel-manual"
+              data-refind-tab="manual"
+            >
+              手动处理
+            </button>
+          </div>
 
-          <!-- 模拟引导项扫描（用户定案 2026-10-29）：与上面三张卡「手动获取」
-               （vars/PreviousBoot-* 快照，切换 = 复制文件）**并列**的另一条只读
-               链路 —— 按 rEFInd 自己的扫描规则（refind/scan.c）复算出「rEFInd
-               开机菜单里会列出哪些条目、各叫什么名字」。纯读：不写盘、不改
-               PreviousBoot、不需要提权，因此永远不影响上面那套手动切换。 -->
+          <!-- 面板一：自动扫描 —— 按 rEFInd 自己的规则（refind/scan.c）复算菜单。
+               纯读：不写盘、不改 PreviousBoot、不需要提权，永远不影响手动那条。 -->
+          <div class="grub-panel" id="refind-panel-auto" role="tabpanel" aria-labelledby="refind-tab-auto">
           <section aria-label="模拟引导项扫描" class="sim-scan" id="sim-scan">
             <div class="sim-scan-head">
               <h3>模拟引导项扫描</h3>
@@ -132,6 +157,13 @@
               <div class="sim-scan-list" id="sim-scan-hidden-list"></div>
             </details>
           </section>
+          </div>
+
+          <!-- 面板二：手动处理 —— vars/PreviousBoot 快照那条链路：三行系统 +
+               变量目录设置（用户定案 2026-10-29：变量目录跟在手动处理下方，
+               它只影响这条链路读写 vars 的位置，与自动扫描无关）。 -->
+          <div class="grub-panel" id="refind-panel-manual" role="tabpanel" aria-labelledby="refind-tab-manual" hidden>
+          <section aria-label="可启动系统" id="systems" data-page-node-id="Id8skElJCJlzu02uKr9biB"></section>
 
           <!-- 变量目录属于 rEFInd 区，跟在系统列表正下方（用户定案 2026-10-13） -->
           <section class="directory" data-page-node-id="bY3QCnDBj6y94lntyxAKEl">
@@ -144,6 +176,7 @@
             <button class="secondary" id="refresh" type="button" data-page-node-id="rG8qunodWqs3ws7YyniDz7">扫描</button>
           </div>
         </section>
+          </div>
         </section><!-- /refind -->
 
         <!-- rEFInd 区与 GRUB 区的分界：两套引导机制并列，一道明显的横隔
@@ -272,10 +305,21 @@
                 <button class="secondary" id="grub-auto-refresh" type="button" title="按上面选的 ESP 分区重新定位 Linux 分区并读取">重新读取</button>
               </div>
               <p class="grub-auto-summary" id="grub-auto-summary"></p>
-              <div class="grub-auto-target" id="grub-auto-target" hidden></div>
               <div class="grub-auto-issues" id="grub-auto-issues"></div>
-              <div class="grub-list" id="grub-auto-list"></div>
-              <div class="grub-auto-candidates" id="grub-auto-candidates" hidden></div>
+              <!-- 一个框装完（用户定案 2026-10-29）：分区明细当框头、启动项当框身。
+                   原来两块各自带边框，读起来像「框里还有一个框」，也把有限的
+                   纵向空间切掉两刀。 -->
+              <div class="grub-auto-card" id="grub-auto-card">
+                <div class="grub-auto-target" id="grub-auto-target" hidden></div>
+                <div class="grub-list" id="grub-auto-list"></div>
+              </div>
+              <!-- 候选分区折成一行小字（用户定案 2026-10-29）：定位到唯一一块时
+                   这一整块不该占版面，点开才有内容。判定不出（confidence=none）
+                   时自动展开 —— 那会儿它是唯一的出路。 -->
+              <details class="grub-auto-picker" id="grub-auto-picker" hidden>
+                <summary id="grub-auto-picker-summary">换一块分区读</summary>
+                <div class="grub-auto-candidates" id="grub-auto-candidates"></div>
+              </details>
               <small class="grub-auto-foot" id="grub-auto-foot"></small>
             </section>
           </div>

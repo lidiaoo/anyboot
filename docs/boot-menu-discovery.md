@@ -352,6 +352,42 @@ App  ──写 JSON──▶  /var/spool/anyboot/in/   (0733，用户可新建�
 
 ---
 
+## 10. Linux 分区内核扫描（2026-10-29：ext4 裸读接通后补齐的最后一块）
+
+rEFInd 装上 ext4 驱动后，卷循环会进 Linux 分区把内核捡出来（`ScanLoaderDir`，
+`scan.c:907`：根目录 + `also_scan_dirs` 默认含 `boot`；前缀 `vmlinuz*/bzImage*/
+kernel*` 由 `scan_all_linux_kernels` + `linux_prefixes` 决定；initrd 只认
+`init*,booster*` 前缀再按版本号配对，`linux.c:102`）。AnyBoot 的模拟扫描
+（refind_menu.rs）一直只有 ESP 路径扫描——macOS 上 ext4 分区没有挂载点，
+`oc_menu::volumes()` 根本不返回它们，Linux 内核条目因此名存实亡。
+
+ext4_raw.rs（自研只读 ext4 解析）接通后，这条路补齐了：
+
+- **数据**：`linux_grub::probe_raw`（helper / 提权子进程 / Linux 本机三条路径
+  共用）在原有的每分区循环里顺带做 `list_dir("")` + `list_dir("boot")`
+  （各 cap 512 文件，只留文件不留目录）、读 `refind_linux.conf`，装进
+  `PartReport.dir_listings`（serde default——旧助手回执没有字段就解析成空，
+  协议 v2 不用 bump）。
+- **缓存**：全量 `ProbePayload` 存 `AppState.linux_probe_cache`（`store()`），
+  模拟扫描复用它，绝不为 Linux 内核单独再探一轮（macOS 每轮 4~5 秒）。
+- **取数**：`linux_grub::parts_for_sim`（手动「重新模拟」用：缓存 → 没有且
+  助手在位就免密现探，**绝不回落弹授权**）与 `refind_menu::
+  linux_grub_parts_from_cache`（启动扫描 / 切换前校验用：只读缓存）。
+- **消费**：`refind_menu::linux_kernel_entries` —— 与 `scan_volume` ③ 同一套
+  语义（前缀匹配、mtime 降序、fold 进第一个内核的子菜单、refind_linux.conf
+  展开变体、dont_scan_files / HiddenTags 隐藏过滤），外加两条 rEFInd 细节：
+  `vmlinuz-0-rescue` 强制沉底（`scan.c:698`，否则折叠后它变成默认启动）；
+  没带 refind_linux.conf 的后续内核 rEFInd 会静默丢弃，这里照做但聚合成一条
+  info issue。`source: "ext4"`，前端标签「ext4 分区」。
+- **边界**：只扫根目录与 `/boot` 两层（覆盖 Arch/Debian/Fedora 布局）；
+  Linux 分区里的 `EFI\*` 子目录引导器不在清单内（那些多半就是 ESP 上已有的
+  同一批 loader）。Windows 端仍未接 ext4，issue 会如实说明。
+
+单测 5 项（折叠 / rescue 沉底 / 无 conf 丢弃 / .efi.signed 去重 / 隐藏规则），
+`live_helper_probe` 兼容旧助手（清单字段全空时降级为提示，重装助手后自动
+升级为端到端检查）。**启用前提：在 OC 卡片把免密助手重装一次**（助手二进制
+= App 本体，重装才会带上新的清单采集代码）。
+
 ## 相关文档
 
 - 详细原理与探索过程（逐函数源码、实机验证、被推翻的结论）：[`boot-menu-discovery-internals.md`](boot-menu-discovery-internals.md)

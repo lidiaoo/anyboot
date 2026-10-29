@@ -708,3 +708,239 @@ list 模式下把**整个手动面板**搬进右栏。此时：
 一度以为 `syncGrubTabs` 判断错了。改用 CDP 在当前页面求值，得到的是 `manualHidden: true`
 —— `--dump-dom` 抓的是渲染过程中的某一帧，不是稳定态。**结论：验证 DOM 状态要用
 CDP 求值，不要用一次性 dump。**
+
+## 16. 自动读取合成一个框（用户定案 2026-10-29）
+
+用户截图指出「为啥会有两个框」并给出做法：**自动模式的数据都放进第一个框**。
+
+### 16.1 原来那两个框是什么
+
+不是「标签 + 面板」，是自动面板内部两块各自带 `1px` 边框的兄弟块：
+
+```text
+① .grub-auto-target   分区明细（发行版 · UUID · 容量 / cfg 路径 · 大小 · 改于 / env …）
+② .grub-list          启动项列表（本身也是滚动容器，inline 模式限高 45vh）
+```
+
+两块上下叠着、都带圆角和 `--input-bg` 底色，读起来像框里套框，纵向还被
+两圈边框 + 两个 8px 间距切掉约 30px —— 在 460px 宽的小窗里很值钱。
+
+### 16.2 改法
+
+结构上加一层 `.grub-auto-card`，把 ①② 收进同一个框：明细当**框头**（`border-bottom`
+分隔线），列表当**框身**（边框/底色/圆角全部交出去）。
+
+```text
+#grub-auto
+├── .grub-auto-summary      一句话结论（也在出错时当报错出口）
+├── .grub-auto-issues       问题列表（空菜单 / 没有 grubenv …）
+├── .grub-auto-card         ← 唯一的框
+│   ├── .grub-auto-target   框头（hidden 时连分隔线一起消失）
+│   └── #grub-auto-list     框身（滚动容器，限高原样保留）
+├── .grub-auto-candidates   候选分区（点一块切过去，仍是行按钮）
+└── .grub-auto-foot         脚注
+```
+
+两个必须写下来的坑：
+
+1. **`.grub-auto-card` 不能加 `overflow: hidden`。** 想用它裁圆角很自然，但
+   `overflow:hidden` 会把「最近滚动容器」抢成自己，③④（列表独立 / GRUB 独立右栏）
+   模式下 `.grub-entry.is-pinned` 的 sticky 就钉不住 `.pane-body` 了 —— 那正是
+   §13 专门修过的「选中项置顶」。框内 4px 内边距已经让行不贴角，不需要裁。
+2. **`display:grid` 会盖掉 UA 的 `[hidden]{display:none}`。** `.grub-auto-target`
+   是 grid 容器，`hidden` 一直没生效过：没有目标分区时会留一条空的带边框细条
+   （14px 高）。这次顺手补了 `.grub-auto-target[hidden]{display:none}`，分隔线用
+   `:not([hidden])` 才画。
+
+### 16.3 验证
+
+临时页（复制新结构 + 22 条假条目 + 7 个候选分区）跑无头 Chrome，再按应用窗口宽度
+（476px）截图核对：**带完整边框的卡片只剩一个**，框头三行明细、下面一条分隔线、
+再往下是启动项列表，列表右边缘贴框沿但不越界。
+
+CDP 求值（inline 模式）：
+
+```text
+cardBorder=1px  cardRadius=8px
+listBorder=0px  listBg=transparent   listOverflowY=auto
+listScrollH=615 > listClientH=411    → 列表仍自己滚（限高还在）
+滚动 120px 后 pinned 行 top 仍等于「列表顶 + 4px」 → sticky 置顶没被破坏
+targetBottomBorder=1px               → 有明细时才有那条分隔线
+```
+
+高度与改前一致：框头原本就占那么多，只是从「框外」挪到「框内」，宽排（wide）
+的 `calc(100vh - 380px)` 不需要跟着调。
+
+### 16.4 没动的地方
+
+- **候选分区列表仍留在框外**（一块块窄行按钮，`精确/推断` 标记 + 当前项描边）。
+  它是「换一块分区读」的操作入口，不是数据；框里只放「这块分区的数据」。
+  真机 7 个发行版里只有一个把 ESP 写进了 fstab，自动定位常常判成「不唯一」，
+  这个入口不能藏。
+- 手动解析面板不动：它读的是 ESP 上那一份 `/EFI/grub.cfg`，没有「分区明细」这种东西。
+
+## 17. 候选分区折成一行小字 + 手选的回头路（用户定案 2026-10-29）
+
+用户要「把它折叠成一行小字」，同时问「选择框可以选择了吗 / 选择之后的逻辑」。
+
+### 17.1 折叠
+
+`<details>` 包住原来那串候选分区行，收起时只剩一行 11px 灰字：
+
+```text
+▸ 换一块分区读 · 7 块有 grub.cfg            ← 收起
+▾ 换一块分区读 · 7 块有 grub.cfg · 当前手选 disk0s9   ← 展开（手选时多一段）
+```
+
+- `summary` 里的「N 块有 grub.cfg」用 `candidates.filter(c => c.cfgRel)` 现算 ——
+  真机上有些分区（manjaro 的 disk0s13 就是）里面是段中文笔记，不是 cfg。
+- **`confidence === "none"` 时自动 `open = true`**：一块都定位不到的时候，
+  这行是唯一出路，不能还让人先点一下。
+- 其余情况只在 `renderGrubAuto` 里改文案，**不碰 `open`** —— 否则每次重画
+  （切条目、写 env 回来）都会把用户展开的列表又收起来。
+- 有个 CSS 坑：`<details>` 的 `[hidden]` 也一样被作者样式压不住，需要显式
+  `.grub-auto-picker[hidden]{display:none}`。
+
+### 17.2 选择框能选吗：能，链路是这样
+
+```text
+点分区行
+  → invoke("linux_grub_pick", { dev })
+  → 后端 settings.linux_grub_dev = dev（落盘）+ refresh(Some(dev))
+  → locate() 第一分支命中 prefer_dev → confidence = "manual"
+      备注「按你选择的磁盘（disk0s9）读取」
+  → 视图重画：摘要显示该分区 / 框头换成它的明细 / 列表换成它的菜单
+```
+
+选了之后**不是一次性的**：`refresh()` 在 `target` 为空时读的就是
+`settings.linux_grub_dev`，所以「重新读取」、切标签、重启 App 全都按这块分区走。
+这是有意的 —— 用户点它就是在说「以后就读这块」。
+
+副作用是「按 ESP 的 fstab 自动定位」被长期顶掉，而界面上原本**没有任何入口能
+清掉** `linux_grub_dev`（只能改配置文件或重装）。所以这次补了一条：
+
+```text
+手选状态下，候选列表末尾多一行虚线按钮：
+「恢复自动定位（按 ESP 的 fstab 重新找）」→ pickGrubAuto("") → dev 存空串
+```
+
+`locate()` 里 `prefer_dev.trim()` 为空的判定本来就有（`filter(|v| !v.trim().is_empty())`），
+空串天然等于「没手选过」，后端不需要新命令。补了一条单测锁住这个语义：
+`locate_ignores_blank_manual_choice`（`""` 与 `"   "` 都必须落回 `exact`）。
+
+### 17.3 顺手对齐的细节
+
+- 候选行左侧标记原来只有「精确 / 推断 / —」。手选中的那块后端给的是
+  `matched = "manual"`，前端原来把它显示成「—」，看着像「啥也不是」。现在显示
+  **手选**（链接色，与绿色的精确、灰色的推断区分开）。
+- 选中行的描边（`is-current`）与标记是两个维度：手选那块也照样描边，
+  一眼能看出「现在读的就是它」。
+- 手选后若那块分区没有 grub.cfg，走的是原有的 `error` 分支（摘要变红 + 写明
+  「没找到 grub.cfg（找过 boot/grub 与 boot/grub2）」），不会静默给个空列表。
+
+### 17.4 验证
+
+无头 Chrome 按 476px 窗宽截图，两种态都核对过：收起时是卡片下面一行带三角的
+小字，与卡片左对齐；展开后 7 行候选 + `手选` 标记 + 底部虚线按钮，
+`is-current` 那行描边正常。`node --check ui/app.js` 通过；
+`cargo test --lib channels::linux_grub` 14 passed（新增 1 条）。
+
+## 18. 「免密怎么又弹密码」与「选了没回显」（用户报障 2026-10-29）
+
+两条报障其实是两个独立的坑，一条后端一条前端。
+
+### 18.1 为什么扫描 / 选分区又弹密码了
+
+不是助手坏了，是**门禁判错了**。原来的优先级判断是：
+
+```rust
+if helper.installed && !helper.stale { 走助手 }   // 否则回落 osascript
+```
+
+`stale` 是拿 `/Library/PrivilegedHelperTools/com.example.anyboot.helper` 的 sha256
+和**当前 App 可执行文件**比。而装过去的助手就是 App 二进制的副本 —— 所以
+**每次重新构建/升级 App，助手立刻被判成「旧版本」，之后所有读取与写入都会弹密码**。
+今天这次报障就是这么来的：12:04 装了助手，12:13 我又构建了一版，摘要一比对就
+对不上（两者文件长度还都一样，25407424 字节 —— 正是 `helper_is_stale` 注释里
+担心的那种「长度一样、内容不同」）。
+
+真机实测证明助手本身完全正常（同一台机器，绕过门禁直连）：
+
+```text
+live_helper_probe：回包 129326 字节，耗时 4.18s，10 块 ext4 / 7 块有 grub.cfg
+```
+
+**改法：把门禁换成协议版本，而不是 digest。**
+
+- `helper_ready()` 只看 `view().installed`；
+- 真正的契约是请求里的 `v`：助手侧 `helper_proto::validate()` 一上来就比
+  `request.v != PROTOCOL_VERSION`，对不上直接拒绝并回「协议版本不支持」，
+  **不会闷头按旧语义乱写**（这正是当初加 digest 门禁想防的事）；
+- 于是：同协议、不同构建 → 照常免密；协议不同 → 助手明确拒绝 → 调用方把真实
+  原因报出来，用户重装一次即可。开发期每天重构建几十次也不会再退化成弹密码。
+- `view().stale` 保留，但**只用来提示**「建议重装」（OpenCore 卡片那句文案也改了：
+  「协议一致，照常免密。想消掉这条提示就点「重装」」）。
+- 回落时不再说「免密助手还是上一个版本」这种猜原因的话，改成带上真实原因：
+  `免密助手这次没接上（超时 / 作业没加载 …）：改用了一次性授权`。
+
+### 18.2 为什么「选了没回显」
+
+三个原因叠在一起，都在前端：
+
+1. `pickGrubAuto` 一点就把整块候选列表 **`hidden = true` 并且 `open = false`**；
+   而探测一次要 4~5 秒（免密），弹密码时更久。这段时间界面上等于什么都没发生，
+   回来之后列表还是收起的 —— 回显全被自己藏了。
+2. 点的那块如果**本来就是当前块**，摘要、框头、列表全都一模一样，
+   唯一的变化是那句被藏起来的「当前手选 …」。
+3. 行右侧只有 cfg 修改时间，看不出「现在读的是哪一块」。
+
+对应改法：
+
+- 不再隐藏、不再收起：行原地变禁用（其它行 55% 透明），被点的那行加
+  `.is-picking`（描边转绿、保持不透明），读完由重画把状态落定；
+- 右侧加**当前 · 时间**（`.mark.is-current-mark`，绿色），左侧标记手选时显示
+  **手选**（链接色）—— 三个信号叠加，换没换过去一眼可见；
+- 加 `grubAutoPicking` 闸门：探测期间重复点击直接忽略，否则一次点击会发两个请求、
+  连弹两次密码框。
+
+### 18.3 验证
+
+- `cargo check --lib` 干净；`cargo test --lib -- --ignored live_helper_probe` 通过
+  （真机 129326 字节 / 4.18s，免密）；
+- 476px 窗宽截图核对：候选行 `手选 disk0s9 · arch-gui · arch` + 绿色
+  `当前 · 2026/10/29 11:41` + 绿色描边；
+- `node --check ui/app.js` 通过。
+
+## 19. 「下拉框选择还是没用、点击没反应」根因（用户报障 2026-10-29）
+
+用户在 App 里点候选分区毫无反应。HTTP 直连同一命令是通的（~5s 返回视图），
+说明后端没问题；真机 WebKit 命中测试也正常。最后从 trace 日志的轮询空档
+里看出真相：**三个命令都是同步 `#[tauri::command]`，跑在主线程上**。
+
+探测一次要 4~5 秒（读 10 块裸设备），期间整个 WebView 的事件循环被卡死：
+点击丢失、菜单无响应、轮询也停——不是「没反应」，是「整个 App 冻住了 5 秒」。
+项目里本来就有 `blocking_guard`（启动时断言命令不能阻塞主线程），但这三个
+命令早于该守卫，漏网了。
+
+改法：
+
+- `linux_grub_scan / linux_grub_pick / linux_grub_switch` 全部改成
+  `async fn`，实现体挪进 `*_blocking`（`scan_blocking / pick_blocking /
+  switch_blocking`），命令侧 `tauri::async_runtime::spawn_blocking` 包装；
+  join 失败时返回 `LinuxGrubView::failed`（不再 panic 成前端 undefined）。
+- `remote_routing`（HTTP 通道）本来就跑在工作线程上，直接调 `*_blocking`，
+  不必过 async。
+- 切换失败（写 grubenv 出错）时把错误视图也写回 `publish_ui` 状态——
+  原来错误只在返回值里闪 3 秒，轮询一次就把它覆盖没了。
+- 候选行点击回调改成显式 `() => pickGrubAuto(candidate.dev)`（原来直接传
+  事件对象当 dev，HTML harness 里看不出来，因为 mock 里没触发 invoke）。
+
+验证：`cargo test --lib channels::linux_grub` 16 passed、blocking_guard
+测试通过、HTTP 通道 `linux_grub_pick {"dev":""}` 实测恢复自动定位成功、
+`node --check` 通过。构建并覆盖安装到 /Applications（sha256 校验一致）。
+
+教训：**「点击没反应」先查命令是不是 sync fn 在主线程上跑**，别急着改
+前端；`blocking_guard` 只覆盖它声明之后写的命令，老命令要逐个补。
+
+
+
