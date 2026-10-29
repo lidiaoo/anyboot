@@ -798,16 +798,86 @@ const REFIND_SIM_CHILD_SOURCE = {
   stanza: "submenuentry",
 };
 
-/// 被手动收起的条目（按标题）。默认与 GRUB 区一致 —— 那边就是一整棵铺开的树
-/// （`ui/grub-list-view.js` 的组头 + 子项），点一下组头才收起来。
-/// 记「收起的」而不是「展开的」：ui-state 每隔几秒整块重绘，记展开的话新出现的
-/// 条目默认是收的，与 GRUB 的观感不一致。
+/// 被手动收起的条目（按标题）。默认全展开 —— 与 GRUB 区一致（那边就是一整棵
+/// 铺开的树），点一下组头才收起来。记「收起的」而不是「展开的」：ui-state 每隔
+/// 几秒整块重绘，记展开的话重绘后又得重新点开。
 const refindSimCollapsed = new Set();
 
+/// 一行 = GRUB 区的一行。
+/// 用户定案 2026-10-29「一比一还原 GRUB 区的下拉框」：这里**不再另开一套 sim-*
+/// 样式**，直接用 GRUB 的类名（`.grub-entry` / `.is-group` / `.is-child` /
+/// `.active` / `-name` / `-tag` / `-count`）—— 两处长得一样靠的是同一份 CSS，
+/// 而不是照着描一遍；以后 GRUB 那边调整，这里自动跟着变。
+///
+/// 用 <div> 而不是 GRUB 那边用的 <button>：组头行右侧还要放「下次启动」按钮，
+/// button 嵌 button 是非法 HTML，浏览器会把外层拆开。
+function refindSimRow({ text, icon, arrow, tag, tagClass, group, active, title }) {
+  const row = document.createElement("div");
+  row.className = "grub-entry";
+  row.classList.add(group ? "is-group" : "is-child");
+  if (active) row.classList.add("active");
+  if (title) row.title = title;
+
+  const name = document.createElement("span");
+  name.className = "grub-entry-name";
+  name.textContent = `${arrow || ""}${icon ? `${icon} ` : ""}${text}`;
+  row.append(name);
+
+  const side = document.createElement("span");
+  side.className = "grub-entry-side";
+  if (tag) {
+    const tagElement = document.createElement("small");
+    tagElement.className = tagClass || "grub-entry-tag";
+    tagElement.textContent = tag;
+    side.append(tagElement);
+  }
+  row.append(side);
+  return row;
+}
+
+/// 写 vars/PreviousBoot。传 entry.title **原文**（rEFInd 的标题末尾带一个空格，
+/// scan.c:653），trim 过就匹配不上。
+async function refindSimApply(entry, trigger) {
+  if (trigger) trigger.disabled = true;
+  try {
+    const status = await call("refind_sim_switch", { title: entry.title });
+    if (!status) return;
+    // 校验类失败（标题不在菜单里、被隐藏规则挡掉）后端是「正常返回 + error
+    // 字段」，不抛异常 —— 这里必须显式显示，否则点了像没反应
+    if (status.error) {
+      showStatusBar(status.error, { error: true });
+    } else if (status.message) {
+      showStatusBar(status.message);
+    }
+  } finally {
+    if (trigger) trigger.disabled = false;
+  }
+}
+
+/// 组头行右侧那颗「下次启动」小按钮。组头整行已经被「展开/收起」占了，
+/// 想把它设成默认项只能走这颗按钮；普通行没有按钮 —— 整行点一下就是这动作
+/// （与 GRUB 区「点条目 = 切过去」同一个手势）。
+function refindSimPick(entry) {
+  const pick = document.createElement("button");
+  pick.type = "button";
+  pick.className = "secondary sim-pick";
+  pick.textContent = "下次启动";
+  pick.title =
+    "把这一项的标题写进 ESP 的 vars/PreviousBoot —— rEFInd 开机会按它启动"
+    + "（等价于在 rEFInd 菜单里选中它一次）";
+  pick.addEventListener("click", (event) => {
+    // 组头整行可点（展开/收起），别让按钮的点击冒泡上去
+    event.stopPropagation();
+    refindSimApply(entry, pick);
+  });
+  return pick;
+}
+
 /// 顶层条目 + 它的第二层（rEFInd 的子屏），按顺序返回要塞进列表框的节点。
-/// 行样式照抄 GRUB 区（`.grub-entry`）：顶层 `▸ 图标 标题` + 右侧小字数量，
-/// 子项 `↳ 标题` 缩进并挂一条竖引导线。
-function refindSimEntryNodes(entry, allowPick) {
+/// 组头 `▸ 图标 标题` + 右侧「N 项」（点一下展开/收起，展开后 ▸ 变 ▾）；
+/// 子项 `↳ 图标 标题` + 右侧来源标签，缩进一格并挂一条竖引导线。
+/// 顶层普通项与 GRUB 一致：缩进、不画 ↳（grub-list-view.js 里 depth 0 就不加箭头）。
+function refindSimEntryNodes(entry, allowPick, { pinned = false } = {}) {
   const title = (entry.title || "").trim();
   const icon = REFIND_SIM_ICONS[entry.kind] || "⬜";
   const children = entry.children || [];
@@ -815,104 +885,75 @@ function refindSimEntryNodes(entry, allowPick) {
   const foldable = children.length > 1;
   let open = foldable && !refindSimCollapsed.has(entry.title);
 
-  const row = document.createElement("div");
-  // 有第二层的才按 GRUB 的「组头」画（左侧色条 + 主题色加粗），
-  // 其余就是 GRUB 那边普通的一行 —— 15 条全涂成组头太吵
-  row.className = foldable ? "sim-node is-group" : "sim-node is-top";
-  if (entry.lastBoot) row.classList.add("is-last");
-  if (foldable) {
-    row.tabIndex = 0;
-    row.setAttribute("role", "button");
-    row.setAttribute("aria-expanded", String(open));
-    row.title =
-      (entry.subscreen ? `${entry.subscreen}\n` : "")
-      + "rEFInd 里按 Tab / + / F2（Insert）进这一层；空格是直接启动";
-  } else if (entry.note) {
-    row.title = entry.note;
+  // 悬停提示：路径 + 卷 + 来源（GRUB 那边路径也不占一行，都收进 title）
+  const hover = [
+    entry.volume ? `${entry.volume} · ${entry.path}` : entry.path,
+    REFIND_SIM_SOURCE_LABEL[entry.source] || "",
+    entry.subscreen || "",
+    entry.note || "",
+    entry.hiddenBy ? `被隐藏规则挡掉：${entry.hiddenBy}` : "",
+    foldable
+      ? "rEFInd 里按 Tab / + / F2（Insert）进这一层；空格是直接启动"
+      : "",
+  ].filter(Boolean).join("\n");
+
+  const row = refindSimRow({
+    text: title,
+    icon,
+    // 顶层普通项与 GRUB 一致：不画 ↳（只有子屏里的行才画）。
+    // 置顶那份不展开，所以也不给它 ▾/▸（有箭头却点不动最招人点）
+    arrow: foldable && !pinned ? (open ? "▾ " : "▸ ") : "",
+    tag: foldable ? `${children.length} 项` : "",
+    tagClass: "grub-entry-count",
+    group: foldable,
+    active: entry.lastBoot,
+    title: hover,
+  });
+
+  if (allowPick && !entry.lastBoot) {
+    if (foldable) {
+      // 组头整行已是「展开/收起」，写盘只能走右侧小按钮
+      row.querySelector(".grub-entry-side").append(refindSimPick(entry));
+    } else if (!pinned) {
+      // 普通行：整行点一下 = 设为下次启动（与 GRUB 区点条目切过去同一手势）
+      row.tabIndex = 0;
+      row.setAttribute("role", "button");
+      row.title += "\n点一下 = 设为下次启动";
+      row.addEventListener("click", () => refindSimApply(entry));
+      row.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          refindSimApply(entry);
+        }
+      });
+    }
   }
-
-  const body = document.createElement("span");
-  body.className = "sim-node-body";
-
-  const name = document.createElement("span");
-  name.className = "sim-node-name";
-  // rEFInd 的标题末尾带一个空格（scan.c:653 故意的），展示时去掉
-  const paintName = () => {
-    name.textContent = `${foldable ? (open ? "▾ " : "▸ ") : ""}${icon} ${title}`;
-  };
-  paintName();
-  body.append(name);
-
-  const path = document.createElement("code");
-  path.className = "sim-node-path";
-  path.textContent = entry.volume ? `${entry.volume} · ${entry.path}` : entry.path;
-  body.append(path);
-
-  // 隐藏项才有的那一行：说清是谁把它挡掉的
-  if (entry.hiddenBy) {
-    const why = document.createElement("small");
-    why.className = "sim-node-why";
-    why.textContent = `被隐藏规则挡掉：${entry.hiddenBy}`;
-    body.append(why);
-  }
-  row.append(body);
-
-  const side = document.createElement("span");
-  side.className = "sim-node-side";
-  if (foldable) {
-    const count = document.createElement("small");
-    count.className = "sim-node-tag";
-    count.textContent = `${children.length} 项`;
-    side.append(count);
-  }
-  if (entry.lastBoot) {
+  // 「下次启动」徽标只挂在置顶那一份上：原位那行靠 .active 绿框说明身份，
+  // 两条都挂徽标会看起来像两个不同的启动项
+  if (pinned && entry.lastBoot) {
     const mark = document.createElement("small");
-    mark.className = "sim-node-last";
+    mark.className = "grub-entry-tag sim-last-mark";
     mark.textContent = "下次启动";
     mark.title =
       "vars/PreviousBoot 里就是这一项的标题：rEFInd 的「记住启动项」开机按它进，"
       + "default_selection 里的 + 会被替换成这一项";
-    side.append(mark);
+    row.querySelector(".grub-entry-side").prepend(mark);
   }
-  if (allowPick && !entry.lastBoot) {
-    // 传 entry.title（带末尾空格的那个原文），别 trim —— 少一个空格 rEFInd 就匹配不上
-    const pick = document.createElement("button");
-    pick.type = "button";
-    pick.className = "secondary sim-node-pick";
-    pick.textContent = "下次启动";
-    pick.title =
-      "把这一项的标题写进 ESP 的 vars/PreviousBoot —— rEFInd 开机会按它启动"
-      + "（等价于在 rEFInd 菜单里选中它一次）";
-    pick.addEventListener("click", async (event) => {
-      // 别让点击冒泡到行上（那是展开/收起）
-      event.stopPropagation();
-      pick.disabled = true;
-      try {
-        const status = await call("refind_sim_switch", { title: entry.title });
-        if (!status) return;
-        // 校验类失败（标题不在菜单里、被隐藏规则挡掉）后端是「正常返回 + error
-        // 字段」，不抛异常 —— 这里必须显式显示，否则点了像没反应
-        if (status.error) {
-          showStatusBar(status.error, { error: true });
-        } else if (status.message) {
-          showStatusBar(status.message);
-        }
-      } finally {
-        pick.disabled = false;
-      }
-    });
-    side.append(pick);
-  }
-  if (side.childNodes.length) row.append(side);
 
   const nodes = [row];
-  if (!foldable) return nodes;
+  // 置顶行只是「当前项」的快捷副本，不在这里展开（GRUB 的置顶行同样是叶子）
+  if (!foldable || pinned) return nodes;
 
-  // 第二层：与 GRUB 的子项同款（缩进 + 竖引导线 + ↳ 前缀）
+  row.tabIndex = 0;
+  row.setAttribute("role", "button");
+  row.setAttribute("aria-expanded", String(open));
+
+  // 第二层：与 GRUB 的子项同款（缩进 + 竖引导线 + ↳ 前缀）。
+  // 面板复用 .grub-list-body 的 grid 间距，展开后行距与 GRUB 列表完全一致。
   const panel = document.createElement("div");
-  panel.className = "sim-children";
+  panel.className = "grub-list-body sim-children";
   panel.hidden = !open;
-  children.forEach((child) => panel.append(refindSimChildNode(child)));
+  children.forEach((child) => panel.append(refindSimChildNode(child, icon)));
   // 子项不能设「下次启动」：PreviousBoot（default_selection）只在主菜单里匹配
   // （menu.c:316 不递归子屏），子屏标题写进去也不会生效
   const hint = document.createElement("small");
@@ -930,7 +971,8 @@ function refindSimEntryNodes(entry, allowPick) {
     }
     panel.hidden = !open;
     row.setAttribute("aria-expanded", String(open));
-    paintName();
+    row.querySelector(".grub-entry-name").textContent =
+      `${open ? "▾ " : "▸ "}${icon} ${title}`;
   };
   row.addEventListener("click", toggle);
   row.addEventListener("keydown", (event) => {
@@ -944,44 +986,44 @@ function refindSimEntryNodes(entry, allowPick) {
   return nodes;
 }
 
-/// 子屏里的一行：`↳ 标题` + 传给 loader 的参数，右侧是来源标签
-function refindSimChildNode(child) {
-  const row = document.createElement("div");
-  row.className = "sim-node is-child";
-
-  const body = document.createElement("span");
-  body.className = "sim-node-body";
-  const name = document.createElement("span");
-  name.className = "sim-node-name";
-  name.textContent = `↳ ${child.title || ""}`;
-  body.append(name);
-  if (child.options) {
-    const options = document.createElement("code");
-    options.className = "sim-node-path";
-    options.textContent = child.options;
-    body.append(options);
-  }
-  row.append(body);
-
-  const side = document.createElement("span");
-  side.className = "sim-node-side";
-  const tag = document.createElement("small");
-  tag.className = "sim-node-tag";
-  tag.textContent = REFIND_SIM_CHILD_SOURCE[child.source] || child.source;
-  side.append(tag);
-  if (child.note) side.title = child.note;
-  row.append(side);
-  return row;
+/// 子屏里的一行：`↳ 图标 标题`，传给 loader 的参数收在 title 里。
+/// 右侧只给第一条挂「默认项」—— 其余子项的来源整屏都一样（macOS 诊断 /
+/// refind_linux.conf / 折叠内核），逐行重复只是噪音，放到 title 里按需看。
+function refindSimChildNode(child, icon) {
+  return refindSimRow({
+    text: child.title || "",
+    icon,
+    arrow: "↳ ",
+    tag: child.source === "default" ? REFIND_SIM_CHILD_SOURCE.default : "",
+    title: [
+      child.options,
+      child.note,
+      REFIND_SIM_CHILD_SOURCE[child.source] || child.source,
+    ].filter(Boolean).join("\n"),
+  });
 }
 
-/// 一整个「列表框」：边框/底色/圆角/行高照抄 GRUB 区（`.grub-list` + `.grub-entry`）。
+/// 一整个「列表框」：外层就是 GRUB 的 `.grub-list`（同一份边框/底色/圆角，
+/// 加上 .sim-list 只是为了躲开 GRUB 那些按展示模式加的限高与内滚动）。
 /// `plain` 给隐藏项那份用 —— 它已经在 <details> 里，不再套第二层边框。
 function refindSimTree(entries, { allowPick = false, plain = false } = {}) {
   const box = document.createElement("div");
-  box.className = plain ? "sim-tree sim-tree-plain" : "sim-tree";
+  box.className = plain ? "grub-list sim-list sim-list-plain" : "grub-list sim-list";
+  // 当前「记住的启动项」置顶（与 GRUB 区的置顶行同一规则），原位照常显示 ——
+  // 用户一眼看到就是它，不用在 15 行里找那一圈绿框。隐藏项那份不置顶：
+  // 它本来就在折叠区里，再挑一行出来反而莫名多一条。
+  const pinnedIndex = plain ? -1 : entries.findIndex((entry) => entry.lastBoot);
+  if (pinnedIndex >= 0) {
+    box.append(
+      refindSimEntryNodes(entries[pinnedIndex], allowPick, { pinned: true })[0],
+    );
+  }
+  const body = document.createElement("div");
+  body.className = "grub-list-body";
   entries.forEach((entry) => {
-    refindSimEntryNodes(entry, allowPick).forEach((node) => box.append(node));
+    refindSimEntryNodes(entry, allowPick).forEach((node) => body.append(node));
   });
+  box.append(body);
   return box;
 }
 
