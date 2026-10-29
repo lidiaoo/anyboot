@@ -389,6 +389,15 @@ channels/linux_grub.rs        # 自动读取通道
 - **btrfs / LUKS / LVM**：识别到即明确报不支持，不静默跳过。
 - **写 env 的 e2fsck 复验**：代码里有回读逐字节比对，但没有跑过 `e2fsck -fn`；
   Arch 里的验证留待下次重启时一起做（改 `next_entry` → 重启 → 确认进的是那一项）。
+- **Windows 裸写吃 os error 5**（2026-10-30 真机）：读探测全绿、一写环境块就
+  「写设备失败：拒绝访问」。根因是 MSDN「Blocking Direct Write Operations」那条
+  规矩 —— 对 `\\.\PhysicalDriveN` 的裸写，凡落在**已挂载卷**扇区上的都是
+  `ERROR_ACCESS_DENIED(5)`；「已挂载」与盘符无关，ESP 的 FAT 卷没分配字母也是
+  mounted。解法是官方流程：`volume_lock::lock_extent` 用
+  `IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS` 逐卷比对盖住目标偏移的卷，
+  `FSCTL_DISMOUNT_VOLUME`（必要）+ `FSCTL_LOCK_VOLUME`（尽力）后写，
+  RAII 放开，系统随后自动重新挂载。只挂在写路径（`write_env_block` Windows 版），
+  只读探测不锁卷。
 
 ## 14. 收口：helper 协议 v2 与内嵌并排（2026-10-29 同日晚）
 

@@ -313,7 +313,7 @@ fn pwrite_all(file: &File, buf: &[u8], offset: u64) -> Result<(), String> {
     while done < buf.len() {
         let wrote = file
             .seek_write(&buf[done..], offset + done as u64)
-            .map_err(|error| format!("写设备失败：{error}"))?;
+            .map_err(|error| format!("写设备失败（offset={}）：{error}", offset + done as u64))?;
         if wrote == 0 {
             return Err("写设备没有进展".to_string());
         }

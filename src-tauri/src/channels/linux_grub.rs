@@ -1206,6 +1206,11 @@ pub(crate) fn write_env_block(dev: &str, rel: &str, bytes: &[u8]) -> Result<Stri
         .into_iter()
         .find(|row| row.disk == disk && row.partition == partition)
         .ok_or_else(|| format!("分区表里找不到 {dev}（盘被拔了？分区表变了？）"))?;
+    // 写之前先把盖住这个分区的卷「锁 + 卸载」：Windows 对 mounted volume
+    // 上的扇区裸写一律 ERROR_ACCESS_DENIED(5)——读不拦、写拦。ESP 的 FAT 卷
+    // 哪怕没盘符也是挂载着的（2026-10-30 真机：探测全绿，一写就 os error 5）。
+    // guard 活到函数结束（含回读校验），drop 时放开，系统随后自动重新挂载。
+    let _volume_guard = crate::volume_lock::lock_extent(disk, row.offset)?;
     let source = FileSource::open_physical(disk, row.offset, true)?;
     let mut fs = Ext4::open(Box::new(source))?;
     fs.overwrite_in_place(rel, bytes)?;

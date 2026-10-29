@@ -1027,7 +1027,9 @@ pub(crate) async fn linux_priv_uninstall(password: Option<String>) -> Result<Pri
     .map_err(|error| format!("移除免密组件执行失败: {error}"))?
 }
 
-#[cfg(test)]
+// 测试全在打 Linux 的 `imp`（staging / mount 白名单 / sudoers），整块跟着
+// Linux 编译 —— 不加门的话 Windows 跑 `cargo test` 直接编译不过。
+#[cfg(all(test, target_os = "linux"))]
 mod tests {
     use super::*;
 

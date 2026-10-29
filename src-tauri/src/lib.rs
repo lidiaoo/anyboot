@@ -202,6 +202,11 @@ pub(crate) mod helper_install;
 /// 别的平台展开成空模块 —— 这样 `main.rs` 的分支可以无条件写，不用 cfg。
 mod service_win;
 
+/// 裸盘写入前的「锁卷 + 卸载卷」：Windows 对 mounted volume 上的扇区裸写一律
+/// 拒绝访问（os error 5），必须先 FSCTL_DISMOUNT。只有 Windows 版 GRUB 写盘用。
+#[cfg(target_os = "windows")]
+pub(crate) mod volume_lock;
+
 mod state;
 pub(crate) use state::*;
 
