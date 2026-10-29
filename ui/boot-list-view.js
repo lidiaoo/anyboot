@@ -486,20 +486,21 @@ function makeBootChannelCard(
     }
     // 「写入固件启动项」不是一次性启动动作，按钮文案要跟语义分开
     // （它要写 NVRAM，属于提权动作 —— 带 ⤴ 才和「下次启动」区分得开）。
-    // 「给 ESP 分配盘符」同理：也不是启动动作，说的必须是它真正做的事。
-    const isRepair = String(entry.id).endsWith("-register");
-    const isMountEsp = String(entry.id).startsWith("mount-esp");
-    button.textContent = isMountEsp
-      ? elevated
-        ? "分配盘符 ⤴"
-        : "分配盘符"
-      : isRepair
-        ? elevated
-          ? "写入固件 ⤴"
-          : "写入固件"
-        : elevated
-          ? "下次启动 ⤴"
+    // 「给 ESP 分配盘符」/「只读挂载一块没挂载的 ESP」同理：都不是启动动作，
+    // 说的必须是它真正做的事 —— 否则 Linux 上那行会显示成「下次启动」，
+    // 点下去却在挂载分区。
+    const specId = String(entry.id);
+    const isRepair = specId.endsWith("-register");
+    const isMountEsp = specId.startsWith("mount-esp");
+    const isMountPart = specId.startsWith("mount-part");
+    const label = isMountPart
+      ? "只读挂载"
+      : isMountEsp
+        ? "分配盘符"
+        : isRepair
+          ? "写入固件"
           : "下次启动";
+    button.textContent = elevated ? `${label} ⤴` : label;
     button.disabled = busy;
     button.addEventListener("click", () => onSwitch(entry, channel));
     row.append(button);

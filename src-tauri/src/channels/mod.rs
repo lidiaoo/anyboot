@@ -218,11 +218,60 @@ pub(crate) fn anyboot_iso_at(ms: u64) -> String {
 
 // ─────────────────────────── ESP 定位 ───────────────────────────
 
-/// 目录上有没有任一通道的标志性文件（是块挂载着的 ESP 且确实在用）。
+/// 三张通道卡的身份。
+///
+/// 定位层给出**候选集**，每张卡只认自己那份签名 —— 这是「一块 ESP 服务三通道」
+/// 拆开后的调用约定：`systemd-boot` 要 `loader/loader.conf`，OpenCore 要
+/// `EFI/OC/OpenCore.efi`，Clover 要 `EFI/CLOVER/CLOVERX64.efi`，三者互不代劳。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ChannelKind {
+    Sdboot,
+    OpenCore,
+    Clover,
+}
+
+impl ChannelKind {
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::Sdboot => "systemd-boot",
+            Self::OpenCore => "OpenCore",
+            Self::Clover => "Clover",
+        }
+    }
+
+    /// 这块盘上有没有**这张卡自己**那套引导器。
+    ///
+    /// 刻意不含 GRUB：GRUB 不是「通道卡」（它是当前系统的引导器，身份由
+    /// `state.grub` 给出），而且它的判据里认 `EFI/BOOT/BOOTX64.EFI` —— 那个文件
+    /// Windows ESP、黑苹果的 OC Bootstrap、几乎所有装过系统的 ESP 上都有。
+    /// 一旦把它混进逐卡判据，OpenCore 卡就会在「只有 GRUB 的 ESP」上误报已检测，
+    /// 然后在错误的盘上设启动项。
+    pub(crate) fn has_signature(self, root: &Path) -> bool {
+        match self {
+            Self::Sdboot => grub_rel(root, "loader/loader.conf").is_file(),
+            Self::OpenCore => grub_rel(root, "EFI/OC/OpenCore.efi").is_file(),
+            Self::Clover => grub_rel(root, "EFI/CLOVER/CLOVERX64.efi").is_file(),
+        }
+    }
+
+    /// 判据文件在 ESP 上的相对路径（报错文案用，别再抄一遍字面量）。
+    pub(crate) fn signature_hint(self) -> &'static str {
+        match self {
+            Self::Sdboot => "loader/loader.conf",
+            Self::OpenCore => "EFI/OC/OpenCore.efi",
+            Self::Clover => "EFI/CLOVER/CLOVERX64.efi",
+        }
+    }
+}
+
+/// 目录上有没有**任一**引导器的标志性文件（是块挂载着的 ESP 且确实在用）。
+///
+/// 只留两个用途：判断「这块盘算不算 ESP」（特权写的准入门）与「值不值得进候选」。
+/// **不要**拿它当某张卡的检测判据 —— 那正是「双 ESP 机器上 OC 永远看不见」的成因。
 fn has_channel_signature(root: &Path) -> bool {
-    grub_rel(root, "loader/loader.conf").is_file()
-        || grub_rel(root, "EFI/OC/OpenCore.efi").is_file()
-        || grub_rel(root, "EFI/CLOVER/CLOVERX64.efi").is_file()
+    ChannelKind::Sdboot.has_signature(root)
+        || ChannelKind::OpenCore.has_signature(root)
+        || ChannelKind::Clover.has_signature(root)
         || has_grub_signature(root)
 }
 
@@ -476,17 +525,50 @@ fn offline_extras() -> (Option<String>, Vec<ChannelEntry>) {
             .collect();
         (Some(hint), entries)
     }
-    // Linux：没有「分配盘符」这种动作，能给的是**说清是哪一种情况** ——
-    // 「一块都没挂」和「挂了但上面没引导器」的修法完全不同，糊成一句
-    // 「未检测到」等于让用户自己猜。
+    // Linux：没有「分配盘符」这种动作，但**有**「挂上来」这个等价动作。
+    // 关键在于先把情况说清：「挂载着但没引导器」和「压根没挂载」修法完全不同，
+    // 糊成一句「未检测到」等于让用户自己猜 —— 而后者正是双系统黑苹果的常态
+    // （OpenCore 在另一块盘的 ESP 里，那块盘开机时不会自动挂）。
     #[cfg(target_os = "linux")]
     {
-        let esp: Vec<String> = candidate_roots()
+        let mounted: Vec<String> = candidate_roots()
             .into_iter()
             .filter(|root| looks_like_esp(root))
             .map(|root| root.display().to_string())
             .collect();
-        if esp.is_empty() {
+        let unmounted = crate::scan::unmounted_esp_partitions();
+        if !unmounted.is_empty() {
+            let names = unmounted
+                .iter()
+                .map(crate::scan::UnmountedEsp::describe)
+                .collect::<Vec<_>>()
+                .join("、");
+            let mut hint = format!(
+                "检测到 {} 块没有挂载的 EFI 系统分区（{names}）—— ESP 没挂载，\
+                 里面的文件就读不到，OpenCore 很可能就在其中。点下面那一项把它\
+                 只读挂上来（会弹一次管理员授权），挂好后自动重新识别",
+                unmounted.len()
+            );
+            if !mounted.is_empty() {
+                hint.push_str(&format!(
+                    "；现在已经挂着的 {} 上都没有 EFI/OC",
+                    mounted.join("、")
+                ));
+            }
+            let entries = unmounted
+                .into_iter()
+                .map(|part| ChannelEntry {
+                    id: format!("mount-part:{}", part.device),
+                    // 标题只放设备名：420px 下十几个字就到头了，卷标与大小放副标题
+                    title: part.device.trim_start_matches("/dev/").to_string(),
+                    detail: format!("{} · {}", part.label, part.size),
+                    icon: "menu".to_string(),
+                    requires_elevation: true,
+                })
+                .collect();
+            return (Some(hint), entries);
+        }
+        if mounted.is_empty() {
             (
                 Some(
                     "没找到任何带 EFI 目录的分区：ESP 可能还没挂载\
@@ -499,11 +581,10 @@ fn offline_extras() -> (Option<String>, Vec<ChannelEntry>) {
         } else {
             (
                 Some(format!(
-                    "找到了 {} 块带 EFI 目录的分区（{}），但上面既没有 GRUB，\
-                     也没有 OpenCore / systemd-boot / Clover —— 也就是说这块盘上\
-                     还没装任何引导器，或者它们被放在了非标准目录",
-                    esp.len(),
-                    esp.join("、")
+                    "找到了 {} 块带 EFI 目录的分区（{}），但上面都没有 EFI/OC —— \
+                     也就是说这块盘上还没装 OpenCore，或者它被放在了非标准目录",
+                    mounted.len(),
+                    mounted.join("、")
                 )),
                 Vec::new(),
             )
@@ -515,44 +596,78 @@ fn offline_extras() -> (Option<String>, Vec<ChannelEntry>) {
     }
 }
 
-/// 三通道共用的 ESP 根目录。优先级：GRUB 链路已解析的 → 常见挂载点探测。
-/// （不引入第二个 ESP 探测实现：识别信息照抄 grub 链路的 EspInfo。）
-pub(crate) fn resolve_esp_root(app: &AppHandle) -> Option<(Option<EspInfo>, PathBuf)> {
+/// 三通道共用的 ESP **候选集**（有序、去重）。
+///
+/// 为什么返回集合而不是一块盘：三张卡真正要问的是「哪块盘上有**我这套**引导器」，
+/// 而定位层能回答的只是「哪块盘上有**任一**引导器」。压成一个答案的后果是：
+/// 双 ESP 机器上先命中的那块（通常是系统盘，带 GRUB 或 Windows Boot Manager）
+/// 赢，另一块盘上的 OpenCore 永远看不见 —— 卡片报「没有 EFI/OC」，
+/// 而它是在**错误的盘**上正确地说这句话。
+///
+/// 顺序即优先级：GRUB 链路按 fstab 的 UUID/PARTUUID 精确匹配出来的那块放最前
+/// （它最权威，但**不再提前返回**），其后是各平台的常规候选。
+///
+/// 只读探测到此为止；特权写那条路仍然走 [`resolve_esp_root_arg`]（严格签名 +
+/// Windows 卷根），两条别混。
+pub(crate) fn esp_candidates(app: &AppHandle) -> Vec<PathBuf> {
     let _span = perf::span("esp.resolve");
+    let mut roots: Vec<PathBuf> = Vec::new();
     {
         let state = app.state::<Mutex<AppState>>();
         let state = state.lock().expect("state mutex poisoned");
         if let Some(dir) = &state.grub.efi_dir {
-            // GRUB 链路给出的这块 ESP 是按 fstab 里的 UUID/PARTUUID **精确匹配**
-            // 出来的（见 `linux_grub::locate`），比「目录里有没有某个引导器」更权威。
+            // 这块 ESP 是按 fstab 里的 UUID/PARTUUID 精确匹配出来的
+            // （见 `linux_grub::locate`），比「目录里有没有某个引导器」更权威。
             // 只看签名的话，一块只装 GRUB 的 ESP 会被自己的签名判据否掉 ——
             // 于是「明明已经定位到 ESP，却报告没有 ESP」。
-            // 这里只喂只读探测；特权写那条路仍然要严格签名（`resolve_esp_root_arg`）。
             // `looks_like_esp` 只对 Linux 放宽：Windows 上「有盘符 + 有 EFI 目录」
             // 太容易命中（随便插个 U 盘就够），而它的 GRUB 链路本来就能给出盘符。
             let trusted =
                 has_channel_signature(dir) || (cfg!(target_os = "linux") && looks_like_esp(dir));
             if trusted {
-                return Some((state.grub.esp.clone(), dir.clone()));
+                roots.push(dir.clone());
             }
         }
     }
-    let roots = {
+    let candidates = {
         // Windows 上这一步 = 一次 PowerShell 冷启动（Get-Partition），是整条链路
         // 最贵的单点；单独埋一段，才能一眼看出它到底占了多少
         let _span = perf::span("esp.candidates");
         candidate_roots()
     };
+    for root in candidates {
+        if !roots.iter().any(|known| same_root(known, &root)) {
+            roots.push(root);
+        }
+    }
     roots
-        .into_iter()
-        .find(|root| has_channel_signature(root))
-        .map(|root| {
-            let info = {
-                let _span = perf::span("esp.probe");
-                esp_probe(&root).ok()
-            };
-            (info, root)
-        })
+}
+
+/// 两个候选根是不是同一块盘（Windows 上 `H:\` 与 `H:` 是同一个卷，且大小写不敏感；
+/// 不去重就会对同一个卷白扫一遍 —— Windows 上那是一次 `statfs` 起步的代价）。
+fn same_root(left: &Path, right: &Path) -> bool {
+    fn trim(path: &Path) -> String {
+        path.to_string_lossy()
+            .trim_end_matches(['/', '\\'])
+            .to_string()
+    }
+    let (left, right) = (trim(left), trim(right));
+    if cfg!(target_os = "windows") {
+        left.eq_ignore_ascii_case(&right)
+    } else {
+        left == right
+    }
+}
+
+/// 从候选集里挑出这张卡要用的那块盘（第一个带它自己签名的）。
+///
+/// 找不到就是「这块盘上真没装这个引导器」，该由调用方给原因，而不是退回去
+/// 拿别的盘凑数。
+fn pick_esp(roots: &[PathBuf], kind: ChannelKind) -> Option<PathBuf> {
+    roots
+        .iter()
+        .find(|root| kind.has_signature(root))
+        .cloned()
 }
 
 // ─────────────────────────── 刷新与快照 ───────────────────────────
@@ -602,35 +717,38 @@ fn offline_view(
 /// 叫 refresh_channels 是因为 switch_flow::refresh（tauri 命令）经 glob 会撞名。
 pub(crate) fn refresh_channels(app: &AppHandle) {
     let _span = perf::span("channels.all");
-    let (esp, views) = match resolve_esp_root(app) {
-        Some((esp, root)) => {
-            let views = vec![
-                {
-                    let _span = perf::span("channels.sdboot");
-                    sdboot::view(&root)
-                },
-                {
-                    let _span = perf::span("channels.opencore");
-                    opencore::view(&root)
-                },
-                {
-                    let _span = perf::span("channels.clover");
-                    clover::view(&root)
-                },
-            ];
-            (esp, views)
-        }
-        None => {
-            // 原因只往 OpenCore 这张卡片上写：它是这里的主角（有预演列表、有「设为默认」），
-            // 三张卡各说一遍同一句话只会把版面撑乱。
-            let views = vec![
-                offline_view("sdboot", "systemd-boot", "file", false),
-                offline_view("opencore", "OpenCore", "nvram", true),
-                offline_view("clover", "Clover", "file", false),
-            ];
-            (None, views)
-        }
-    };
+    // 候选集算一次，三张卡各自在里面挑带自己签名的那块 —— 不再共用同一个 root。
+    let candidates = esp_candidates(app);
+    let views = vec![
+        match pick_esp(&candidates, ChannelKind::Sdboot) {
+            Some(root) => {
+                let _span = perf::span("channels.sdboot");
+                sdboot::view(&root)
+            }
+            // 原因只往 OpenCore 这张卡片上写：它是这里的主角（有预演列表、有
+            // 「设为默认」），三张卡各说一遍同一句话只会把版面撑乱。
+            None => offline_view("sdboot", "systemd-boot", "file", false),
+        },
+        match pick_esp(&candidates, ChannelKind::OpenCore) {
+            Some(root) => {
+                let _span = perf::span("channels.opencore");
+                opencore::view(&root)
+            }
+            None => offline_view("opencore", "OpenCore", "nvram", true),
+        },
+        match pick_esp(&candidates, ChannelKind::Clover) {
+            Some(root) => {
+                let _span = perf::span("channels.clover");
+                clover::view(&root)
+            }
+            None => offline_view("clover", "Clover", "file", false),
+        },
+    ];
+    // 只给 OC 那块做识别详情（视图里用的 esp 字段目前只作展示，取主角那块）
+    let esp = pick_esp(&candidates, ChannelKind::OpenCore).and_then(|root| {
+        let _span = perf::span("esp.probe");
+        esp_probe(&root).ok()
+    });
     let state = app.state::<Mutex<AppState>>();
     state.lock().expect("state mutex poisoned").channels = ChannelsRuntime { esp, views };
 }
@@ -723,6 +841,9 @@ pub(crate) enum SwitchSpec {
     /// 给一块没有盘符的 ESP 分配盘符（Windows 专属的前置动作）：
     /// 必须在解析 ESP **之前**执行，见 [`switch`]。
     MountEsp { disk: u32, partition: u32 },
+    /// 把一块**没挂载**的 ESP 只读挂上来（Linux 的前置动作，与上面那条对称）：
+    /// 值是设备节点（`/dev/nvme0n1p5`）。同样必须在解析 ESP 之前执行。
+    MountPartition(String),
     CloverDefault(String),
     CloverOneShot,
 }
@@ -765,6 +886,23 @@ pub(crate) fn parse_switch_spec(spec: &str) -> Option<SwitchSpec> {
                 partition: partition.trim().parse().ok()?,
             })
         }
+        // 只读挂载一块没挂载的 ESP：`/dev/nvme0n1p5`（Linux）。
+        // 只收设备节点形状的字符串 —— 这个值会原样交给 `mount`，
+        // 放任何带空格/`..`/多级路径的东西进来都等于让前端指定挂载目标。
+        ("mount-part", Some(device)) => {
+            let device = device.trim();
+            let name = device.strip_prefix("/dev/")?;
+            if name.is_empty()
+                || name.contains('/')
+                || name.contains("..")
+                || !name
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+            {
+                return None;
+            }
+            Some(SwitchSpec::MountPartition(device.to_string()))
+        }
         ("clover-default", Some(volume)) if !volume.trim().is_empty() => {
             Some(SwitchSpec::CloverDefault(volume.trim().to_string()))
         }
@@ -796,6 +934,7 @@ impl SwitchSpec {
             Self::MountEsp { disk, partition } => {
                 format!("给 EFI 分区分配盘符（磁盘 {disk} 分区 {partition}）")
             }
+            Self::MountPartition(device) => format!("只读挂载 {device} 后重新识别"),
         }
     }
 
@@ -804,10 +943,71 @@ impl SwitchSpec {
         match self {
             Self::OpenCoreRegister(_) => "写入固件启动项",
             Self::OpenCoreDefault(_) => "设置 OC 默认项",
-            Self::MountEsp { .. } => "挂载 ESP",
+            Self::MountEsp { .. } | Self::MountPartition(_) => "挂载 ESP",
             _ => "切换引导通道",
         }
     }
+}
+
+/// 把一块没挂载的 ESP **只读**挂到本程序自己的目录下。
+///
+/// 三道闸，缺一条都能变成「让前端指定 root 挂载任意东西」：
+/// 1. 设备必须出现在 [`crate::scan::unmounted_esp_partitions`] 里（真实枚举出来的
+///    ESP 分区，不是前端说了算）；
+/// 2. 挂载点由我们自己拼（`$XDG_RUNTIME_DIR/anyboot-esp/<设备名>`），不接外部路径；
+/// 3. 一律 `ro` + `nosuid,nodev`（见 `mount_options`），只读看一眼，不当系统盘用。
+///
+/// 挂载需要 root：`mount_command` 在本进程不是 root 时会走 `pkexec`，也就是
+/// **一次管理员授权**。这条只在用户点了卡片上那一项时执行，不在自动刷新里跑 ——
+/// 自动刷新弹授权框，等于让没人看着的机器永远刷不出结果。
+#[cfg(target_os = "linux")]
+fn linux_mount_esp_ro(device: &str) -> Result<PathBuf, String> {
+    let _span = perf::span("esp.mount");
+    let found = crate::scan::unmounted_esp_partitions()
+        .into_iter()
+        .find(|part| part.device == device)
+        .ok_or_else(|| {
+            format!("{device} 不在「未挂载的 EFI 系统分区」列表里（可能已经挂上了，刷新看看）")
+        })?;
+    let base = crate::esp::esp_mountpoint();
+    std::fs::create_dir_all(&base).map_err(|error| format!("无法创建挂载点目录: {error}"))?;
+    let name = found
+        .device
+        .trim_start_matches("/dev/")
+        .replace(['/', ' '], "_");
+    let mountpoint = base.join(name);
+    std::fs::create_dir_all(&mountpoint).map_err(|error| format!("无法创建挂载点: {error}"))?;
+    // 上一次点过就已经挂着了：直接复用，别重复挂（重复挂会在同一个点上叠加）
+    if mountpoint.join("EFI").is_dir() {
+        return Ok(mountpoint);
+    }
+    let output = {
+        let mut cmd = crate::mount::mount_command("mount");
+        cmd.args(["-o", &crate::mount::mount_options("ro")]);
+        // 知道类型就显式给（省一次探测）；不知道就交给 mount 自己探 ——
+        // 猜一个 `vfat` 上去只会把本来能挂的分区挂失败。
+        if let Some(fstype) = &found.fstype {
+            cmd.arg("-t").arg(fstype);
+        }
+        cmd.arg(&found.device)
+            .arg(&mountpoint)
+            .output()
+            .map_err(|error| format!("无法执行 mount: {error}"))?
+    };
+    if !output.status.success() {
+        return Err(format!(
+            "挂载 {} 失败: {}",
+            found.device,
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    if !mountpoint.join("EFI").is_dir() {
+        return Err(format!(
+            "{} 挂上了，但根下没有 EFI 目录 —— 它可能不是 ESP",
+            found.device
+        ));
+    }
+    Ok(mountpoint)
 }
 
 /// 执行一次通道切换（不动 busy / 不发布快照，调用方管）。
@@ -822,8 +1022,41 @@ pub(crate) fn switch(app: &AppHandle, spec: &str) -> Result<String, String> {
             "已给磁盘 {disk} 分区 {partition} 分配盘符 {root}，正在重新识别 ESP"
         ));
     }
-    let (_esp, esp_root) = resolve_esp_root(app)
-        .ok_or_else(|| "没有找到可用的 ESP（三条通道都需要它）".to_string())?;
+    // 「把一块没挂载的 ESP 只读挂上来」同样是在**修前置条件**，也得跑在解析之前：
+    // 没挂载的分区对候选集根本不存在，先解析只会得到「没有找到可用的 ESP」。
+    #[cfg(target_os = "linux")]
+    if let SwitchSpec::MountPartition(device) = &parsed {
+        let mountpoint = linux_mount_esp_ro(device)?;
+        return Ok(format!(
+            "已把 {device} 只读挂载到 {}，正在重新识别 ESP",
+            mountpoint.display()
+        ));
+    }
+    // 每张卡去候选集里挑**带自己签名**的那块：切 OpenCore 的启动项却写进
+    // systemd-boot 的 ESP，是比「找不到」更坏的失败 —— 它会成功，然后不生效。
+    let kind = match &parsed {
+        SwitchSpec::Sdboot(_) | SwitchSpec::SdbootOneShot(_) => ChannelKind::Sdboot,
+        SwitchSpec::OpenCore
+        | SwitchSpec::OpenCoreRegister(_)
+        | SwitchSpec::OpenCoreDefault(_) => ChannelKind::OpenCore,
+        SwitchSpec::CloverDefault(_) | SwitchSpec::CloverOneShot => ChannelKind::Clover,
+        // 只有 Linux 提供「只读挂上来」这个前置动作（macOS 走 diskutil mount，
+        // Windows 走分配盘符），走到这里说明是别的平台收到了 Linux 的值域。
+        SwitchSpec::MountPartition(_) => {
+            return Err("只读挂载 ESP 目前只在 Linux 上提供".to_string())
+        }
+        // 上面都提前返回了；留着是为了 match 穷尽（也防以后有人挪走那段而不知道）
+        SwitchSpec::MountEsp { .. } => {
+            return Err("挂载 ESP 必须在解析 ESP 之前处理".to_string())
+        }
+    };
+    let esp_root = pick_esp(&esp_candidates(app), kind).ok_or_else(|| {
+        format!(
+            "候选的 ESP 里没有一块装着 {}（它要的是 {}）",
+            kind.label(),
+            kind.signature_hint()
+        )
+    })?;
     let message = match &parsed {
         SwitchSpec::Sdboot(id) => {
             sdboot::set_default(&esp_root, id)?;
@@ -865,7 +1098,7 @@ pub(crate) fn switch(app: &AppHandle, spec: &str) -> Result<String, String> {
             format!("{}（Boot{}）", parsed.describe(), nvram::boot_var_name(number))
         }
         // 上面已经提前返回；留着是为了 match 穷尽（也防以后有人挪走那段而不知道）
-        SwitchSpec::MountEsp { .. } => {
+        SwitchSpec::MountEsp { .. } | SwitchSpec::MountPartition(_) => {
             return Err("挂载 ESP 必须在解析 ESP 之前处理".to_string())
         }
     };
@@ -1035,6 +1268,113 @@ mod tests {
         assert!(!has_channel_signature(&root), "空 EFI 目录不该算签名");
         assert!(looks_like_esp(&root), "已确认过的 ESP 只要求有 EFI 目录");
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// 逐卡判据必须互不代劳：一块「只有 GRUB」的盘上，三张卡都得说「没装」。
+    ///
+    /// 这是「双 ESP 机器上 OpenCore 永远看不见」的回归闸门：一旦有人把
+    /// [`has_channel_signature`]（任一签名）塞回逐卡判断里，OC 卡就会在这块
+    /// 只有 GRUB 的盘上误报已检测 —— 然后往错误的盘写启动项。
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn channel_kinds_never_borrow_each_others_signature() {
+        let root = signature_scratch("kinds");
+        std::fs::create_dir_all(root.join("EFI/BOOT")).unwrap();
+        std::fs::write(root.join("EFI/BOOT/BOOTX64.EFI"), b"MZ").unwrap();
+        std::fs::write(root.join("EFI/grub.cfg"), "menuentry x {}\n").unwrap();
+        for kind in [
+            ChannelKind::Sdboot,
+            ChannelKind::OpenCore,
+            ChannelKind::Clover,
+        ] {
+            assert!(
+                !kind.has_signature(&root),
+                "只有 GRUB 的盘被判成了 {}",
+                kind.label()
+            );
+        }
+        assert!(has_channel_signature(&root), "GRUB 盘必须仍算一块可用的 ESP");
+
+        // 反过来：装了 OC 就只有 OC 认领这份签名
+        std::fs::create_dir_all(root.join("EFI/OC")).unwrap();
+        std::fs::write(root.join("EFI/OC/OpenCore.efi"), b"MZ").unwrap();
+        assert!(ChannelKind::OpenCore.has_signature(&root));
+        assert!(!ChannelKind::Sdboot.has_signature(&root), "OC 的盘不该被 sdboot 认领");
+        assert!(!ChannelKind::Clover.has_signature(&root), "OC 的盘不该被 Clover 认领");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// 候选集里每张卡挑到**自己的**那块，而不是「谁排前面谁通吃」。
+    ///
+    /// 本机的真实形状：`/boot/efi`（只有 GRUB）排在前面，OpenCore 在另一块盘上。
+    /// 旧逻辑 `find(has_channel_signature)` 会永远停在第一块，OC 卡报「没有 EFI/OC」。
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn pick_esp_is_per_channel_not_first_match() {
+        let first = signature_scratch("pick-first");
+        std::fs::create_dir_all(first.join("EFI/BOOT")).unwrap();
+        std::fs::write(first.join("EFI/BOOT/BOOTX64.EFI"), b"MZ").unwrap();
+        let second = signature_scratch("pick-second");
+        std::fs::create_dir_all(second.join("EFI/OC")).unwrap();
+        std::fs::write(second.join("EFI/OC/OpenCore.efi"), b"MZ").unwrap();
+
+        let roots = vec![first.clone(), second.clone()];
+        assert_eq!(
+            pick_esp(&roots, ChannelKind::OpenCore),
+            Some(second.clone()),
+            "OC 必须挑到后面那块，而不是排在最前的 GRUB 盘"
+        );
+        assert_eq!(
+            pick_esp(&roots, ChannelKind::Sdboot),
+            None,
+            "两块盘上都没有 loader/loader.conf，就该如实返回 None"
+        );
+        let _ = std::fs::remove_dir_all(&first);
+        let _ = std::fs::remove_dir_all(&second);
+    }
+
+    /// 现场诊断：把本机「未挂载的 ESP」原样打出来。
+    ///
+    /// `cargo test --lib -- --ignored dump_unmounted_esp --nocapture`
+    ///
+    /// 这条是给人看的，不是断言：换一台机器、换一个发行版，udev 有没有起来、
+    /// `lsblk` 的 FSTYPE 是不是空的，只有打出来才知道。
+    #[cfg(target_os = "linux")]
+    #[test]
+    #[ignore]
+    fn dump_unmounted_esp() {
+        for part in crate::scan::unmounted_esp_partitions() {
+            println!(
+                "{} | {} | {} | fstype={:?}",
+                part.device, part.label, part.size, part.fstype
+            );
+        }
+    }
+
+    /// `mount-part:` 只收设备节点形状的字符串。
+    /// 这个值会原样交给 `mount`（而且是提权跑的），放宽等于让前端指定挂载任何东西；
+    /// 带空格能夹参数、带 `/` 能跑出 `/dev` 之外、带 `..` 能离开 `/dev`。
+    #[test]
+    fn mount_partition_spec_is_sanitized() {
+        assert_eq!(
+            parse_switch_spec("mount-part:/dev/nvme0n1p5"),
+            Some(SwitchSpec::MountPartition("/dev/nvme0n1p5".to_string()))
+        );
+        assert_eq!(
+            parse_switch_spec("mount-part:/dev/sda1"),
+            Some(SwitchSpec::MountPartition("/dev/sda1".to_string()))
+        );
+        for bad in [
+            "mount-part:nvme0n1p5",
+            "mount-part:/dev/",
+            "mount-part:/dev/a/b",
+            "mount-part:/dev/../etc/passwd",
+            "mount-part:/dev/sda1 -o rw",
+            "mount-part:/dev/sda1;reboot",
+            "mount-part:",
+        ] {
+            assert_eq!(parse_switch_spec(bad), None, "{bad} 不该被接受");
+        }
     }
 
     /// 四个固定路径必须永远在候选里（哪怕机器上一块 FAT 都没挂）——
