@@ -37,6 +37,12 @@ pub(crate) struct AppState {
     /// rEFInd「模拟引导项扫描」结果（纯读预演，与上面 `variables` 那条「手动获取」
     /// 链路并列）。`None` = 没跑过 / 变量目录没找到。
     pub(crate) refind_sim: Option<channels::refind_menu::SimPreview>,
+    /// GRUB「自动读取」视图：没装 09_anyboot 时直接读 Linux 分区里的
+    /// grub.cfg / grubenv 得到的结果，与下面 `grub`（手动解析）并列。
+    pub(crate) linux_grub: Option<channels::linux_grub::LinuxGrubView>,
+    /// 写 grubenv 的上下文（目标分区、环境块原始字节、允许写的 selector 白名单）。
+    /// 扫描成功后缓存，切换时不再重新枚举分区（macOS 上重探 = 再来一次授权框）。
+    pub(crate) linux_grub_rt: Option<channels::linux_grub::Runtime>,
     pub(crate) message: String,
     pub(crate) error: Option<String>,
     /// GRUB 细粒度切换（与上面 rEFInd 那套并列）
@@ -560,6 +566,9 @@ pub(crate) struct UiState {
     /// rEFInd「模拟引导项扫描」：按 rEFInd 自己的菜单规则复算出的条目。
     /// 与 `status.variables`（手动获取的 vars 快照）并列，互不影响。
     pub(crate) refind_sim: Option<channels::refind_menu::SimPreview>,
+    /// GRUB「自动读取」（直接读 Linux 分区里的 grub.cfg / grubenv）：
+    /// 与 `grub`（ESP 上的手动解析）并列的第二块。
+    pub(crate) linux_grub: Option<channels::linux_grub::LinuxGrubView>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
@@ -639,6 +648,9 @@ pub(crate) struct Settings {
     /// raw（原始）/ minimal（极简）/ simple（简易）/ medium（中等）/
     /// detailed（复杂）。落盘存归一化后的小写值。
     pub(crate) grub_list_format: String,
+    /// 「自动读取」记住的目标分区（`disk0s9` / `sdb1` …）：用户从候选列表里点过
+    /// 哪一块就记住它，下次直接按它读。空 = 靠 fstab 自动定位（选中 ESP 的那块）。
+    pub(crate) linux_grub_dev: String,
     /// 主窗口贴边自动隐藏：鼠标离开后窗口贴到最近的屏幕边缘、只露一条边，
     /// 悬停边条再展开。关掉时窗口保持完整可见。
     pub(crate) main_auto_hide: bool,
@@ -760,6 +772,7 @@ impl Default for Settings {
             grub_script_override: String::new(),
             grub_list_view: "inline".to_string(),
             grub_list_format: "minimal".to_string(),
+            linux_grub_dev: String::new(),
             main_auto_hide: false,
             main_always_on_top: true,
             main_auto_hide_edge_distance: 24,

@@ -66,6 +66,57 @@ fn main() {
         };
         std::process::exit(anyboot_lib::nvram_dump_main(&out));
     }
+    // ⓪.55 GRUB「自动读取」扫描（提权版）：读 Linux 分区里的 grub.cfg / grubenv。
+    //     macOS / Windows 的裸设备只有 root / 管理员能打开，所以这一段由主进程
+    //     按需自拉起。与上面几条同理：绝不进 Tauri。
+    if args.iter().any(|arg| arg == "--linux-grub-probe") {
+        if anyboot_lib::helper_proto::current_uid() != 0 {
+            eprintln!("anyboot --linux-grub-probe 必须以 root 运行（读裸分区需要）");
+            std::process::exit(3);
+        }
+        let get = |flag: &str| {
+            args.iter()
+                .position(|arg| arg == flag)
+                .and_then(|index| args.get(index + 1))
+                .cloned()
+        };
+        let Some(out) = get("--out") else {
+            eprintln!("用法：anyboot --linux-grub-probe [--esp <ESP 分区 UUID>] --out <结果文件>");
+            std::process::exit(2);
+        };
+        std::process::exit(anyboot_lib::linux_grub_probe_main(
+            &out,
+            get("--esp").as_deref(),
+        ));
+    }
+    // ⓪.56 GRUB「自动读取」写环境块（提权版）：定点覆盖目标分区的 1024 字节 grubenv。
+    if args.iter().any(|arg| arg == "--linux-grub-write") {
+        if anyboot_lib::helper_proto::current_uid() != 0 {
+            eprintln!("anyboot --linux-grub-write 必须以 root 运行（写裸分区需要）");
+            std::process::exit(3);
+        }
+        let get = |flag: &str| {
+            args.iter()
+                .position(|arg| arg == flag)
+                .and_then(|index| args.get(index + 1))
+                .cloned()
+        };
+        let (Some(dev), Some(rel), Some(payload), Some(out)) = (
+            get("--dev"),
+            get("--rel"),
+            get("--payload"),
+            get("--out"),
+        ) else {
+            eprintln!(
+                "用法：anyboot --linux-grub-write --dev <disk0s9> --rel <boot/grub/grubenv> \
+                 --payload <1024 字节文件> --out <结果文件>"
+            );
+            std::process::exit(2);
+        };
+        std::process::exit(anyboot_lib::linux_grub_write_main(
+            &dev, &rel, &payload, &out,
+        ));
+    }
     // ① ssh 的 SSH_ASKPASS 把我们当程序调起来（argv 是密码提示语）：
     //    只把密码打到 stdout 就退，既不是 GUI 也不是普通 CLI。必须排在 cli_requested
     //    之前 —— 否则「一个不像命令的参数」会被当成 GUI 启动，ssh 那边只会读到空密码。

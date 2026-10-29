@@ -2054,18 +2054,17 @@ pub(crate) fn gateway_pair_decide(
         String::new(),
         Some("tunnel".to_string()),
     )?;
-    if let Some(map) = PAIR_RESULTS.lock().unwrap().as_mut() {
-        map.insert(
-            pending.nonce,
-            (issued.pair.clone(), now_millis() + PAIR_TTL_SECS * 1000),
-        );
-    } else {
-        let mut map = std::collections::HashMap::new();
-        map.insert(
-            pending.nonce,
-            (issued.pair.clone(), now_millis() + PAIR_TTL_SECS * 1000),
-        );
-        *PAIR_RESULTS.lock().unwrap() = Some(map);
+    // 一把锁只锁一次。原来写成 `if let Some(map) = PAIR_RESULTS.lock()...as_mut()`
+    // + `else` 里再 `PAIR_RESULTS.lock()`：`if let` 的临时 guard 活到整块结束，
+    // 走 else 分支时就是「拿着锁再锁同一把」—— std 的 Mutex 不可重入，必死锁
+    // （clippy::if_let_mutex 直接报 error）。这里用 get_or_insert_with 一次解决。
+    {
+        let mut slot = PAIR_RESULTS.lock().unwrap();
+        slot.get_or_insert_with(std::collections::HashMap::new)
+            .insert(
+                pending.nonce,
+                (issued.pair.clone(), now_millis() + PAIR_TTL_SECS * 1000),
+            );
     }
     gw_log(&app, &format!("[gateway] 同意配对 {}", pending.name));
     Ok(Some(issued))

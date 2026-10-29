@@ -625,6 +625,27 @@ pub(crate) fn remote_ui_command_inner(
             app.clone(),
             ui_str(args, "title")?,
         )),
+        // GRUB 自动读取（没装 09_anyboot）：与手动解析并列的第二块。
+        // 注意：macOS / Windows 上每次扫描都要拉起一个提权子进程 ——
+        // 网页/手机端点这一下，桌面端会看到一次授权框。这是读裸分区的物理前提，
+        // 不是我们多弹一次。
+        "linux_grub_scan" => {
+            let target = args
+                .get("target")
+                .and_then(|value| value.as_str())
+                .map(str::to_string);
+            serde_json::to_value(channels::linux_grub::linux_grub_scan(app.clone(), target))
+                .map_err(|error| format!("序列化失败: {error}"))
+        }
+        "linux_grub_pick" => serde_json::to_value(channels::linux_grub::linux_grub_pick(
+            app.clone(),
+            ui_str(args, "dev")?,
+        ))
+        .map_err(|error| format!("序列化失败: {error}")),
+        "linux_grub_switch" => status_value(channels::linux_grub::linux_grub_switch(
+            app.clone(),
+            ui_str(args, "selector")?,
+        )),
         "detect_esp" => {
             let path = ui_str(args, "path")?;
             detect_esp_blocking(app.clone(), path).map(serde_json::Value::String)

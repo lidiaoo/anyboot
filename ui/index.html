@@ -176,7 +176,26 @@
             </div>
           </div>
 
-          <div class="grub-list" id="grub-list" data-page-node-id="LCPEAOijd48J8tVo1t58qD"></div>
+          <!-- 并排两块（用户定案 2026-10-29 第 5 条）：
+               左 = 手动解析（装了 09_anyboot，读 ESP 上的 grub.cfg / grubenv）；
+               右 = 自动读取（没装，直接读 Linux 分区自己的 /boot/grub{,2}）。
+               两条链路数据源完全不同，摆在一起才看得出「为什么两边条目不一样」。 -->
+          <div class="grub-dual" id="grub-dual">
+            <div class="grub-list" id="grub-list" data-page-node-id="LCPEAOijd48J8tVo1t58qD"></div>
+
+            <section aria-label="自动读取（Linux 分区自己的 GRUB）" class="grub-auto" id="grub-auto">
+              <div class="grub-auto-head">
+                <h3>自动读取 <small>没装 09_anyboot 时走这条</small></h3>
+                <button class="secondary" id="grub-auto-refresh" type="button" title="按设置里选的 ESP 分区重新定位 Linux 分区并读取">重新读取</button>
+              </div>
+              <p class="grub-auto-summary" id="grub-auto-summary"></p>
+              <div class="grub-auto-target" id="grub-auto-target" hidden></div>
+              <div class="grub-auto-issues" id="grub-auto-issues"></div>
+              <div class="grub-list" id="grub-auto-list"></div>
+              <div class="grub-auto-candidates" id="grub-auto-candidates" hidden></div>
+              <small class="grub-auto-foot" id="grub-auto-foot"></small>
+            </section>
+          </div>
 
           <!-- 展示方式：① 内嵌 ② 加宽内嵌 ③ 加宽+列表独占右栏 ④ 加宽+GRUB 全在右栏。
                切换由后端落盘并调整窗口宽度；前端按模式把 GRUB 区块搬进/搬出右栏。 -->

@@ -90,6 +90,14 @@ pub(crate) fn ui_state(app: &AppHandle) -> UiState {
                 .ok()
                 .and_then(|state| state.refind_sim.clone())
         },
+        // GRUB 自动读取：只有用户点过「重新扫描」才有内容（不随轮询自动探测）
+        linux_grub: {
+            let state = app.state::<Mutex<AppState>>();
+            state
+                .lock()
+                .ok()
+                .and_then(|state| state.linux_grub.clone())
+        },
     }
 }
 

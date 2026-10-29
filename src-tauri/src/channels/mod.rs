@@ -14,6 +14,12 @@ use super::*;
 
 pub(crate) mod boot_entry;
 pub(crate) mod clover;
+/// ext4 极简解析：自动读取模式（不装 09_anyboot）直读 Linux 分区的底层
+pub(crate) mod ext4_raw;
+/// GRUB「自动读取」通道：读 Linux 分区里的 grub.cfg / grubenv，与手动解析并列
+pub(crate) mod linux_grub;
+/// 分区标识（UUID / PARTUUID / LABEL / /dev/sda1）的统一解析
+pub(crate) mod part_spec;
 // macOS 原生读得到 /System/Volumes/Preboot，不需要这个模块（依赖也只装在另两端）
 #[cfg(not(target_os = "macos"))]
 pub(crate) mod apfs_reader;
@@ -98,6 +104,14 @@ pub(crate) fn anyboot_now_iso() -> String {
     if ms == 0 {
         return String::new();
     }
+    anyboot_iso_at(ms)
+}
+
+/// 把「毫秒时间戳」格式化成同一个 UTC ISO8601。
+///
+/// 分开一个函数是为了展示**文件修改时间**（`grub.cfg` 的 mtime）——自动读取
+/// 模式没有同步动作，用户必须能看出这份菜单是哪天生成的。
+pub(crate) fn anyboot_iso_at(ms: u64) -> String {
     let days = (ms / 86_400_000) as i64;
     let rem = ms % 86_400_000;
     let (h, m, s) = (rem / 3_600_000, (rem / 60_000) % 60, (rem / 1000) % 60);

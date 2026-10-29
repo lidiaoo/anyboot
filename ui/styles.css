@@ -958,6 +958,135 @@ body[data-grub-mode="pane"] #grub {
   background: var(--input-bg);
 }
 
+/* ── 并排两块（用户定案 2026-10-29 第 5 条）─────────────────────────
+ * 左 = 手动解析（09_anyboot + ESP 上的 grub.cfg），右 = 自动读取（Linux
+ * 分区自己的 /boot/grub{,2}）。两条链路数据源不同，条目常常不一样 ——
+ * 并排摆着才能一眼看出「为什么两边对不上」，堆成上下两块反而看不出来。
+ * auto-fit + 320px 下限：窗口窄下来自己退回上下堆叠，不用另写 @media。 */
+.grub-dual {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 10px;
+  align-items: start;
+}
+
+.grub-auto {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.grub-auto-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.grub-auto-head h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.grub-auto-head h3 small {
+  margin-left: 4px;
+  color: var(--text-faint);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.grub-auto-head button {
+  margin-left: auto;
+}
+
+.grub-auto-summary,
+.grub-auto-foot {
+  margin: 0;
+  color: var(--text-faint);
+  font-size: 11px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+/* 出错时这一行就是唯一的报错出口（读不到分区 / 取消授权 / 找不到 cfg） */
+.grub-auto-summary.fail {
+  color: var(--warn);
+}
+
+/* 命中的目标分区：dev / 卷标 / 发行版 / cfg 新旧全摆出来 ——
+ * 自动读取没有 09_anyboot 帮忙同步，cfg 可能是几个月前的旧文件。 */
+.grub-auto-target {
+  display: grid;
+  gap: 2px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.grub-auto-target b {
+  color: var(--text);
+}
+
+.grub-auto-issues {
+  display: grid;
+  gap: 4px;
+}
+
+.grub-auto-issue {
+  padding: 6px 8px;
+  border: 1px solid var(--border-strong);
+  border-left: 3px solid var(--warn);
+  border-radius: 6px;
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.grub-auto-candidates {
+  display: grid;
+  gap: 4px;
+}
+
+.grub-auto-candidate {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--input-bg);
+  color: var(--text);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.grub-auto-candidate:hover {
+  border-color: var(--border-strong);
+}
+
+.grub-auto-candidate .mark {
+  color: var(--text-faint);
+}
+
+/* 精确命中（UUID / PARTUUID 对上）才上绿色：推断出来的一律灰着，
+ * 别让「按设备名猜的」看上去跟「UUID 对上的」一样可信。 */
+.grub-auto-candidate .mark.exact {
+  color: var(--ok);
+}
+
+/* 当前正在读的那块：候选列表里也要能认出来，否则「换了没换」看不出来 */
+.grub-auto-candidate.is-current {
+  border-color: var(--ok-border);
+}
+
 /* GRUB 空状态：还没识别出任何 GRUB 信息（没填 fs-uuid、也没识别过目录）
  * 时替代一片空白的引导卡。虚线框 = 「这里是空的、等你来填」。 */
 .grub-empty-state {
@@ -1018,6 +1147,12 @@ body[data-grub-mode="wide"] .grub-list-body {
 
 body[data-grub-mode="wide"] .grub-list {
   max-height: calc(100vh - 380px);
+}
+
+/* 但「加宽铺两列」只给左边那块：并排之后每块只有半宽，右块再铺两列
+ * 就变成每列两百来像素，内核名要换三行。 */
+body[data-grub-mode="wide"] #grub-auto-list .grub-list-body {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .grub-empty {

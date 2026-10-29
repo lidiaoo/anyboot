@@ -588,6 +588,17 @@ const grubErrorElement = document.querySelector("#grub-error");
 const grubEmptyElement = document.querySelector("#grub-empty");
 const grubEmptyPickElement = document.querySelector("#grub-empty-pick");
 const grubListElement = document.querySelector("#grub-list");
+// 并排两块（用户定案 2026-10-29 第 5 条）：左 = 手动解析、右 = 自动读取。
+// 右块自己一套状态行 / 问题列表 / 候选列表 / 条目列表，与左块互不影响。
+const grubDualElement = document.querySelector("#grub-dual");
+const grubAutoElement = document.querySelector("#grub-auto");
+const grubAutoRefreshElement = document.querySelector("#grub-auto-refresh");
+const grubAutoSummaryElement = document.querySelector("#grub-auto-summary");
+const grubAutoTargetElement = document.querySelector("#grub-auto-target");
+const grubAutoIssuesElement = document.querySelector("#grub-auto-issues");
+const grubAutoListElement = document.querySelector("#grub-auto-list");
+const grubAutoCandidatesElement = document.querySelector("#grub-auto-candidates");
+const grubAutoFootElement = document.querySelector("#grub-auto-foot");
 // GRUB 区块本体（左栏主流程里）与右栏容器：展示模式切换时把节点搬进/搬出右栏
 const grubSectionElement = document.querySelector("#grub");
 const grubPaneBodyElement = document.querySelector("#grub-pane-body");
@@ -1290,6 +1301,12 @@ function applyGrubLayout(mode) {
     const toPane = mode === "pane" || (mode === "list" && el === grubListElement);
     (toPane ? grubPaneBodyElement : grubSectionElement).appendChild(el);
   }
+  // #grub-list 现在住在 .grub-dual 里，不再是 #grub 的直接子节点 ——
+  // 上面那轮回搬只认识「出厂时就是 #grub 子节点」的那些，所以它自己回来这一步
+  // 得单独做，否则模式 ③ 之后左右两块永远并列不回去。
+  if (mode !== "list" && grubListElement.parentNode !== grubDualElement) {
+    grubDualElement.insertBefore(grubListElement, grubAutoElement);
+  }
 }
 
 /// GRUB 区块：列的是 grub.cfg 里的启动项，条数可能几十个，
@@ -1388,6 +1405,270 @@ function renderGrub(grub, script, busy, listViewMode) {
   }
 
   renderScriptLog(grub.scriptLog);
+}
+
+/* ── 自动读取（并排第二块，用户定案 2026-10-29）─────────────────────────
+ *
+ * 数据源跟左边完全不同：左边是「ESP 上的 grub.cfg + EFI/grubenv」（装了
+ * 09_anyboot 才有），这里是「Linux 分区自己的 /boot/grub{,2}/grub.cfg +
+ * grubenv」（没装也能读）。所以两块各画各的，不共用任何状态。
+ *
+ * 三条界面规矩：
+ * ① 不自动扫：macOS 每次读裸设备都要管理员授权，开机就弹密码框属于骚扰，
+ *    改成用户点「重新读取」才动；
+ * ② 目标分区必须点名：dev / 卷标 / 发行版 / cfg 的修改时间全摆出来 ——
+ *    自动读取没有 09_anyboot 帮忙同步，cfg 可能是几个月前的旧文件，
+ *    不说清楚就会让人以为「菜单是新的」；
+ * ③ 定位不到就列候选让人点，绝不替用户猜（locate 的 none 就是这种case）。
+ */
+
+/// 最近一次的自动读取结果。切换「列表格式」时重画要用它 —— 重扫一次要再弹
+/// 一次管理员授权，改个显示格式不值得付这个代价。
+let lastLinuxGrubView = null;
+
+/// 体积：grub.cfg 几十 KB、grubenv 恒定 1024 字节，按 B / KB 两档就够。
+function grubAutoBytes(bytes) {  const value = Number(bytes);
+  if (!Number.isFinite(value) || value <= 0) {
+    return "0 B";
+  }
+  if (value < 1024) {
+    return `${value} 字节`;
+  }
+  return `${(value / 1024).toFixed(1)} KB`;
+}
+
+function renderGrubAuto(view, busy, format) {
+  if (!grubAutoElement) {
+    return;
+  }
+  grubAutoRefreshElement.disabled = Boolean(busy);
+  if (view) {
+    lastLinuxGrubView = view;
+  }
+
+  if (!view) {
+    grubAutoSummaryElement.textContent =
+      "还没读过。点「重新读取」按上面填的 ESP 分区去各块 Linux 分区里找 grub.cfg。";
+    grubAutoTargetElement.hidden = true;
+    grubAutoIssuesElement.replaceChildren();
+    grubAutoListElement.replaceChildren();
+    grubAutoCandidatesElement.hidden = true;
+    grubAutoFootElement.textContent =
+      "macOS / Windows 读 Linux 分区要管理员授权，每读一次弹一次（Linux 本机不用）。";
+    return;
+  }
+
+  const target = view.target || null;
+  const entries = view.entries || [];
+  const issues = view.issues || [];
+  const confidence = view.confidence || "none";
+
+  // 一句话结论：谁、有多少条、什么时候改的
+  const bits = [];
+  if (target && target.dev) {
+    bits.push(`${target.dev}${target.label ? `（${target.label}）` : ""}`);
+    bits.push(`${entries.length} 个启动项`);
+    if (view.cfgMtime) {
+      bits.push(`cfg 修改于 ${formatLocalTime(view.cfgMtime)}`);
+    }
+  } else if (view.error) {
+    bits.push(view.error);
+  } else {
+    bits.push(view.confidenceNote || "没定位到目标分区");
+  }
+  grubAutoSummaryElement.textContent = bits.join(" · ");
+  grubAutoSummaryElement.classList.toggle("fail", Boolean(view.error));
+
+  // 目标分区明细
+  const targetLines = [];
+  if (target) {
+    const who = [];
+    who.push(target.osId || target.label || "Linux");
+    if (target.fsUuid) {
+      who.push(`UUID=${target.fsUuid}`);
+    }
+    if (target.size) {
+      who.push(target.size);
+    }
+    if (target.rootUuid && target.fsUuid && target.rootUuid.replace(/-/g, "") !== target.fsUuid) {
+      // cfg 里的 root=UUID 与分区自身 UUID 不一致：cfg 可能来自别的系统
+      who.push(`⚠ cfg 里的 root=${target.rootUuid}`);
+    }
+    targetLines.push(who.join(" · "));
+    const cfgBits = [];
+    if (view.cfgRel) {
+      cfgBits.push(`cfg ${view.cfgRel}`);
+    }
+    if (view.cfgSize) {
+      cfgBits.push(`${grubAutoBytes(view.cfgSize)}`);
+    }
+    if (view.cfgMtime) {
+      cfgBits.push(`改于 ${formatLocalTime(view.cfgMtime)}`);
+    }
+    targetLines.push(cfgBits.join(" · "));
+    const envBits = [];
+    if (view.envExists) {
+      envBits.push(`env ${view.envRel || "boot/grub/grubenv"}`);
+      envBits.push(`${grubAutoBytes(view.envSize || 1024)}`);
+      if (view.nextEntry) {
+        envBits.push(`一次性 ${view.nextEntry}`);
+      }
+      if (view.savedEntry) {
+        envBits.push(`默认 ${view.savedEntry}`);
+      }
+    } else if (view.envRel) {
+      envBits.push(`没有 ${view.envRel}`);
+    }
+    if (envBits.length) {
+      targetLines.push(envBits.join(" · "));
+    }
+  }
+  grubAutoTargetElement.replaceChildren();
+  for (const line of targetLines) {
+    const row = document.createElement("div");
+    row.textContent = line;
+    grubAutoTargetElement.append(row);
+  }
+  grubAutoTargetElement.hidden = targetLines.length === 0;
+
+  // 问题列表：空菜单 / 没有 grubenv / 写不生效 …… 一条都不许吞
+  grubAutoIssuesElement.replaceChildren();
+  for (const issue of issues) {
+    const row = document.createElement("div");
+    row.className = "grub-auto-issue";
+    row.textContent = issue;
+    grubAutoIssuesElement.append(row);
+  }
+
+  // 候选分区：定位不到（或被判定为「不唯一」）时让人点，点了就记住
+  const showCandidates = confidence === "none" || (view.candidates || []).length > 1;
+  grubAutoCandidatesElement.replaceChildren();
+  grubAutoCandidatesElement.hidden = !showCandidates || !(view.candidates || []).length;
+  if (showCandidates) {
+    for (const candidate of view.candidates || []) {
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "grub-auto-candidate";
+      row.disabled = Boolean(busy);
+      const isCurrent = target && target.dev === candidate.dev;
+      if (isCurrent) {
+        row.classList.add("is-current");
+      }
+      const mark = document.createElement("span");
+      mark.className = `mark ${candidate.matched === "exact" ? "exact" : ""}`;
+      mark.textContent =
+        candidate.matched === "exact"
+          ? "精确"
+          : candidate.matched === "inferred"
+            ? "推断"
+            : "—";
+      const name = document.createElement("span");
+      const nameBits = [candidate.dev];
+      if (candidate.label) {
+        nameBits.push(candidate.label);
+      }
+      if (candidate.osId) {
+        nameBits.push(candidate.osId);
+      }
+      if (!candidate.cfgRel) {
+        nameBits.push("没有 grub.cfg");
+      }
+      name.textContent = nameBits.join(" · ");
+      const right = document.createElement("span");
+      right.className = "mark";
+      right.style.marginLeft = "auto";
+      right.textContent = candidate.cfgMtime
+        ? formatLocalTime(candidate.cfgMtime)
+        : "";
+      row.append(mark, name, right);
+      row.title = candidate.espSpec
+        ? `fstab：${candidate.espSpec}`
+        : candidate.cfgRel || "这块分区里没找到 grub.cfg";
+      row.addEventListener("click", () => pickGrubAuto(candidate.dev));
+      grubAutoCandidatesElement.append(row);
+    }
+  }
+
+  // 条目列表：直接复用左栏那套渲染器（组头 / 内核名 / 列表格式都一样）
+  renderGrubEntries({
+    container: grubAutoListElement,
+    grub: {
+      entries,
+      groups: view.groups || [],
+      savedEntry: view.savedEntry,
+      nextEntry: view.nextEntry,
+      // 左栏渲染器靠它区分「没配」和「配了但没条目」的空文案
+      partuuid: target && target.dev,
+    },
+    busy,
+    format,
+    onSwitch: switchGrubAuto,
+  });
+
+  // 脚注：写的是哪一份 env、以及最要命的那句提醒
+  const footBits = [];
+  if (view.manualTakesOver) {
+    footBits.push(
+      "⚠ 这台机器装了 09_anyboot 且 ESP 上有 EFI/grubenv：GRUB 会优先读那份，这里写的不会生效。",
+    );
+  }
+  if (target && view.envExists) {
+    footBits.push(
+      `切换只覆盖这块分区自己的 ${view.envRel || "boot/grub/grubenv"}（定长 1024 字节原地写，不动 inode）。`,
+    );
+  } else if (target) {
+    footBits.push("没有 grubenv 就没法记住启动项：先在该系统里跑一次 grub-editenv create。");
+  }
+  if (view.needsElevation && view.platform !== "linux") {
+    footBits.push("每读一次都要管理员授权。");
+  }
+  grubAutoFootElement.textContent = footBits.join(" ");
+}
+
+/// 「重新读取」：按当前 ESP 设置重扫一遍，用返回值直接重画（不等下一帧快照）。
+async function refreshGrubAuto() {
+  grubAutoRefreshElement.disabled = true;
+  grubAutoSummaryElement.textContent = "正在读 Linux 分区…";
+  grubAutoSummaryElement.classList.remove("fail");
+  try {
+    const view = await invoke("linux_grub_scan", { target: null });
+    renderGrubAuto(view, false, grubListFormatElement.value);
+  } catch (error) {
+    grubAutoSummaryElement.textContent = String(error);
+    grubAutoSummaryElement.classList.add("fail");
+  } finally {
+    grubAutoRefreshElement.disabled = false;
+  }
+}
+
+/// 「就选这块」：记住用户点的分区，然后按它重扫。
+async function pickGrubAuto(dev) {
+  grubAutoCandidatesElement.hidden = true;
+  grubAutoSummaryElement.textContent = `正在读 ${dev}…`;
+  try {
+    const view = await invoke("linux_grub_pick", { dev });
+    renderGrubAuto(view, false, grubListFormatElement.value);
+  } catch (error) {
+    grubAutoSummaryElement.textContent = String(error);
+    grubAutoSummaryElement.classList.add("fail");
+  }
+}
+
+/// 写自动读取那份 grubenv。与 switchGrub 同款：不走 call()，成败由后端
+/// record_action + publish_ui 带回底部提示条，这里只兜中间态与兜底文案。
+async function switchGrubAuto(selector) {
+  if (!selector) {
+    return;
+  }
+  grubAutoSummaryElement.textContent = "正在写入 grubenv…";
+  grubAutoSummaryElement.classList.remove("fail");
+  try {
+    await invoke("linux_grub_switch", { selector });
+    grubAutoSummaryElement.textContent = "";
+  } catch (error) {
+    grubAutoSummaryElement.textContent = String(error);
+    grubAutoSummaryElement.classList.add("fail");
+  }
 }
 
 /// 安装 / 卸载 09_anyboot 的执行过程：跑了哪几条命令、退出码、stderr 原文。
@@ -1808,6 +2089,12 @@ function render(state) {
     state.grubScript,
     busy,
     state.settings && state.settings.grubListView,
+  );
+  // 并排第二块：自动读取（没装 09_anyboot 时直接读 Linux 分区自己的 grub.cfg）
+  renderGrubAuto(
+    state.linuxGrub,
+    busy,
+    (state.grub && state.grub.listFormat) || "minimal",
   );
   // 三引导器通道（systemd-boot / OC / Clover）：快照 channels 驱动，同构卡片
   renderBootChannels(state.channels, {
@@ -3593,7 +3880,16 @@ grubViewModeElement.addEventListener("change", () => {
 // 列表格式（原始/极简/简易/中等/复杂）：纯展示偏好，后端落盘后广播回来
 grubListFormatElement.addEventListener("change", () => {
   call("set_grub_list_format", { format: grubListFormatElement.value });
+  // 自动读取那一块共用同一个格式偏好：立刻跟着换，不用等下一帧快照
+  renderGrubAuto(
+    lastLinuxGrubView,
+    false,
+    grubListFormatElement.value,
+  );
 });
+
+// 自动读取：手动触发（macOS 每读一次弹一次授权，不能开机就扫）
+grubAutoRefreshElement.addEventListener("click", refreshGrubAuto);
 
 // 识别 ESP 目录：后端判断是不是 FAT32，并把分区 UUID（识别键）填好
 grubDirDetectElement.addEventListener("click", async () => {

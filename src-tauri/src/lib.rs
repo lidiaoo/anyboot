@@ -496,6 +496,22 @@ pub fn oc_set_default_main(target: &str, esp: Option<&str>, out_path: &str) -> i
     channels::oc_default::privileged_set_default_main(target, esp, out_path)
 }
 
+/// `--linux-grub-probe` 子命令入口（main.rs ⓪.55 分支调）：提权子进程里枚举
+/// Linux 分区、读 `etc/fstab` / `boot/grub{,2}/grub.cfg` / `.../grubenv`，
+/// 结果写进 `--out` 指的 JSON 就退。绝不碰 GUI / 单实例锁 / 端口。
+///
+/// `esp` = 用户设置里那块 ESP 的**分区 UUID**：子进程据此把 ESP 的 FAT 卷序列
+/// 读出来（`fstab` 里最常用 `UUID=XXXX-XXXX` 这种写法）。
+pub fn linux_grub_probe_main(out_path: &str, esp: Option<&str>) -> i32 {
+    channels::linux_grub::probe_child_main(out_path, esp.unwrap_or(""))
+}
+
+/// `--linux-grub-write` 子命令入口（main.rs ⓪.56 分支调）：把一个**已存在**的
+/// 1024 字节环境块定点覆盖回目标分区的 grubenv（只碰它自己的第一个数据块）。
+pub fn linux_grub_write_main(dev: &str, rel: &str, payload: &str, out_path: &str) -> i32 {
+    channels::linux_grub::write_child_main(dev, rel, payload, out_path)
+}
+
 /// `--nvram-dump-privileged` 子命令入口（main.rs ⓪.7 分支调）：提权子进程里
 /// 读 OCBt*/Boot* 全量 hex 写进 `--out` 指的 JSON 就退。见 `channels/nvram.rs`。
 pub fn nvram_dump_main(out_path: &str) -> i32 {
@@ -3384,6 +3400,10 @@ pub fn run() {
             channels::refind_menu::refind_sim_scan,
             // 选中模拟条目 → 写 vars/PreviousBoot（等价 rEFInd 的 StoreLoaderName）
             channels::refind_menu::refind_sim_switch,
+            // GRUB 自动读取（没装 09_anyboot）：直接读 Linux 分区里的 grub.cfg / grubenv
+            channels::linux_grub::linux_grub_scan,
+            channels::linux_grub::linux_grub_pick,
+            channels::linux_grub::linux_grub_switch,
             // 免密写 NVRAM 的 root 助手（装 / 卸各弹一次管理员授权）
             helper_install::boot_helper,
             hub_term::hub_term_open,
