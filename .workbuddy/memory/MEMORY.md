@@ -7,6 +7,7 @@
 - **commit 我做、push 用户做**；只提交本轮相关文件。`hub*.rs`、`ui/hub.html`、`docs/client-ui/`、`debx/` 属 PC 端 server-hub 线，别混进移动端提交。
 - `.workbuddy/`：`memory/` + `probes/` 入库；`artifacts/` 已 gitignore（旧二进制备份放这里）。
 - **Rust 改动提交前必须 `cargo check`**。子模块不继承父模块作用域，crate 根私有 item 要 `use crate::XXX;` 引入。
+- **`cfg(target_os)` 分支必须逐平台 check**：在 mac 上编不到 linux/windows 分支（027f1fc 就这么坏的 —— `channels/elevate.rs` 的 linux 分支少了 `command`/`Stdio` 导入、`linux_grub.rs` 调了 mac-only 的 `run_privileged`，`cargo build` 直接 E0425）。Linux 侧做法：rsync 到 `/home/disk1/anyboot-check`，跑 `/usr/bin/cargo check --lib` **再加 `cargo test --lib`**（只在 windows 成立的探针测试没设 cfg 会让 Linux 上 test 编译失败，而 `--release` build 看不见）。
 - 改 server-hub 线要跑 Windows 目标 check（Linux 过 ≠ Win 过）。
 - 沙箱里 HOME 读不到 global git config → `git -c user.name=jianghuihua -c user.email=2503338074@qq.com`，提交后 `git log --oneline -3` 核对（偶发一次写入双提交）。
 
