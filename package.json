@@ -9,7 +9,7 @@
     "tauri": "tauri",
     "dev": "tauri dev",
     "build": "tauri build",
-    "build:linux": "ARCH=$(uname -m) tauri build --bundles deb,rpm,appimage",
+    "build:linux": "bash scripts/build-linux.sh",
     "build:linux-portable": "tauri build --no-bundle && bash scripts/make-appimage-jammy.sh",
     "build:win": "tauri build --bundles nsis,msi",
     "build:mac-intel": "env -u CARGO PATH=\"$HOME/.cargo/bin:$PATH\" CC=/usr/bin/clang CXX=/usr/bin/clang++ AR=/usr/bin/ar tauri build --target x86_64-apple-darwin",
