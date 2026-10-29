@@ -989,7 +989,11 @@ Ok(probe_host())                                  // 只读本机 /boot/grub{,2}
 
 - 「写 `/boot/grub/grubenv`」指的是**目标分区里**的那份，不是本机的；
 - 要讲清操作文件的风险，**用成熟做法**；
-- **必须提权**——包括本机行（`/boot/grub` 归 root，普通身份直写必 EACCES）。
+- **必须提权**——`/boot/grub` 归 root，普通身份直写必 EACCES。
+
+**没有「本机」特例**（2026-10-30 追加定案）：扫描不设「本机行」、不跳过宿主
+根分区 —— 宿主根分区和其它 ext4 一视同仁进遍历，定位与写入一律按分区语义。
+用户明确：「我不要优先本机和跳过本机的功能」。
 
 ### 20.2 技术选型：为什么全是复用
 
@@ -1000,29 +1004,32 @@ Ok(probe_host())                                  // 只读本机 /boot/grub{,2}
 | ESP 身份（FAT 卷序列） | `esp::fat_boot_sector` | fstab 里 `UUID=E537-7F31` 是 FAT 序列不是 GPT GUID（§13.7 教训照抄） |
 | 提权探测 | `--linux-grub-probe` 子命令 + `linux_priv::run_via_helper` | 免密助手三通道（助手→pkexec→密码），`status=="ready"` 才静默 |
 | 提权写入 | `--linux-grub-write` 子命令（**早已存在**，macOS/Windows 共用） | root 硬校验 + 参数白名单现成，一行没改 |
-| 本机行 | `fs::read` 直读 + 提权写 | 定案 1「Linux 本机不经过 ext4 驱动」照旧 |
+| ~~本机行~~ | **已删除**（2026-10-30 定案） | 宿主根分区与其它 ext4 统一走 `scan_ext4`，无特例 |
 
 **零新依赖、零新子命令**：扫描复用 `scan_ext4`，写入复用 `write_child_main`。
 
-### 20.3 写入的三档成熟度（用户问「风险」后的定案）
+### 20.3 写入的两档成熟度（用户问「风险」后的定案；2026-10-30 删本机档）
 
 `write_env_block` Linux 实现按风险从低到高自动选，**能走内核就绝不裸写**：
 
 | 档 | 条件 | 做法 | 风险控制 |
 |---|---|---|---|
-| ① | `dev == "本机"` | root 原地覆盖绝对路径文件 | 内核 ext4 驱动 |
-| ② | 分区已挂载（`/proc/self/mounts` 认 ext 家族 + rw） | 写挂载点下的文件 | **坚持不裸写已挂载分区**：裸写绕过页缓存，脏页回写会把写入盖掉，ext4 日志还可能把绕过日志的数据当崩溃恢复回滚 |
-| ③ | 未挂载 | 裸设备 O_RDWR → `overwrite_in_place` | 官方 `grub-editenv` 同语义：inode→extent 定位它自己的数据块，整块读改写、回读逐字节比对；RECOVER 拒写；不动元数据 |
+| ① | 分区已挂载（`/proc/self/mounts` 认 ext 家族 + rw） | 写挂载点下的文件 | **坚持不裸写已挂载分区**：裸写绕过页缓存，脏页回写会把写入盖掉，ext4 日志还可能把绕过日志的数据当崩溃恢复回滚 |
+| ② | 未挂载 | 裸设备 O_RDWR → `overwrite_in_place` | 官方 `grub-editenv` 同语义：inode→extent 定位它自己的数据块，整块读改写、回读逐字节比对；RECOVER 拒写；不动元数据 |
 
-四道硬闸三档通用：文件必须已存在**不创建**、尺寸必须恰好 1024 字节、
+（原①「`dev=="本机"` 绝对路径直写」随本机行一起删除：宿主根分区挂载着，
+自然落进①挂载点档，路径同样是 `/boot/grub/grubenv`。）
+
+四道硬闸两档通用：文件必须已存在**不创建**、尺寸必须恰好 1024 字节、
 路径 `..`/绝对路径混用直接拒、btrfs/zfs 挂载点不认（布局不同，宁可裸写不猜）。
 
 ### 20.4 落地里的两个真 bug
 
 1. **`runtime_from` 的 `host: view.platform == "linux"`** —— Linux 上恒 true，
    helper 扫出的真实分区也被当本机文件写：而分区行的 `env_rel` 是**分区内相对路径**
-   （`boot/grub/grubenv`），在主机上按相对路径打开必然失败。改为 `part.dev == "本机"`。
-   这条被 `runtime_host_only_for_host_row` 单测锁住。
+   （`boot/grub/grubenv`），在主机上按相对路径打开必然失败。改为 `part.dev == "本机"`；
+   2026-10-30 本机行整体删除后，`Runtime.host` 字段连同 write_env 的 host 分支、
+   `write_env_host` 一并移除（`runtime_uses_partition_semantics` 单测锁分区语义）。
 2. **probe 的 notes 文案指向「关于」页** —— 免密提权卡 2026-10-29 已迁到 index.html
    系统引导页（hub.html 关于页是远程管理窗），4 处文案同步改成「系统引导页」。
 
@@ -1054,8 +1061,22 @@ Ok(probe_host())                                  // 只读本机 /boot/grub{,2}
 远程请求天然被拦：`spawn_privileged` 的 `allow_gui=false`（`remoteAllowGuiAuth`）
 会拒绝弹框，手机端只能靠免密组件静默完成 —— 与其它提权操作同一策略。
 
-`probe_host()` 不再作为 probe 的回落（Linux `probe_raw` 的本机行仍用它），
+`probe_host()` 与「本机行」已整体删除（§20.1 追加定案：不设本机特例），
 「只读了本机」这条 notes 文案随之删除。
+
+### 20.8 本机特例移除（2026-10-30，用户定案）
+
+用户明确「我不要优先本机和跳过本机的功能」，连带清理：
+
+| 移除项 | 说明 |
+|---|---|
+| `probe_host()` | 不再产生 `dev=="本机"` 的行；`lsblk` 枚举到的宿主根分区照常进 `scan_ext4` |
+| 遍历跳过宿主根分区 | `host_root_dev()` 删除，全量一视同仁 |
+| `write_env_block` ①「本机绝对路径」档 | 宿主根分区挂载着 rw，自然落进挂载点档，语义不变 |
+| `Runtime.host` 字段 + `write_env` 的 host 分支 + `write_env_host()` | 分区语义唯一 |
+
+行为变化提示：根分区是 btrfs 且 `/boot` 未独立成 ext4 分区的布局，本机系统
+不会再单独成行（裸 ext4 遍历读不了 btrfs）—— 与「无特例」的定案一致。
 
 ### 20.6 TODO 增补（Linux 侧）
 

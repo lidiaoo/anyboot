@@ -11,7 +11,8 @@
 //! | 提权 | 不需要 | 裸设备要 root / 管理员 |
 //!
 //! 三端的数据来源：
-//! * **Linux 本机**：`fs` 直读（`/boot/grub` 或 `/boot/grub2`），零驱动零提权；
+//! * **Linux**：免密助手 / 一次性提权子进程（root）—— 本机根分区与其它 ext4
+//!   完全同一套裸读遍历，**不设「本机行」特例**（用户定案 2026-10-30）；
 //! * **macOS**：`osascript … with administrator privileges` 拉起本程序的
 //!   `--linux-grub-probe` / `--linux-grub-write` 子命令（app 本身不是 root，
 //!   `/dev/rdisk*` 是 `root:operator 0640`，实测普通用户连 `dd` 都被拒）；
@@ -306,10 +307,9 @@ impl LinuxGrubView {
 /// 写盘需要的上下文（扫描成功后缓存，切换时直接用，不重新探测）
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Runtime {
-    /// macOS/Windows：`disk0s9`；Linux 直读时为空
+    /// macOS/Windows：`disk0s9`；Linux 是 `/dev/…` 分区名
     pub(crate) dev: String,
-    pub(crate) host: bool,
-    /// ext4 分区内路径（`boot/grub/grubenv`）或本机绝对路径
+    /// ext4 分区内路径（`boot/grub/grubenv`）
     pub(crate) env_rel: String,
     pub(crate) env_bytes: Vec<u8>,
     /// 当前菜单里的 selector 白名单：只允许写真实存在的条目
@@ -1023,73 +1023,6 @@ fn run_privileged(args: &[String], out: &Path) -> Result<(), String> {
     super::elevate::run_elevated(args, out)
 }
 
-/// Linux 本机：不需要任何子进程，`fs` 直接读。
-#[cfg(target_os = "linux")]
-fn probe_host() -> ProbePayload {
-    let mut payload = ProbePayload {
-        ok: true,
-        ..ProbePayload::default()
-    };
-    let os_release = std::fs::read_to_string("/etc/os-release").unwrap_or_default();
-    let id = os_release_id(&os_release);
-    let label = os_release
-        .lines()
-        .find_map(|line| line.strip_prefix("PRETTY_NAME="))
-        .map(|value| value.trim_matches('"').to_string())
-        .filter(|value| !value.is_empty())
-        .or_else(|| id.clone())
-        .unwrap_or_else(|| "本机".to_string());
-
-    let mut part = PartReport {
-        dev: "本机".to_string(),
-        label,
-        os_id: id,
-        part_number: 0,
-        ..PartReport::default()
-    };
-    // `/boot` 可能是独立分区：判据是 `/boot/grub` 存在即可，
-    // 两种布局下路径都成立，这里不需要额外区分
-    for dir in GRUB_DIRS {
-        let cfg = format!("/{dir}/grub.cfg");
-        let env = format!("/{dir}/grubenv");
-        if let Ok(bytes) = std::fs::read(&cfg) {
-            part.cfg_rel = Some(cfg.clone());
-            part.cfg_text = Some(String::from_utf8_lossy(&bytes[..bytes.len().min(MAX_CFG_BYTES)]).to_string());
-            part.cfg_mtime = std::fs::metadata(&cfg)
-                .ok()
-                .and_then(|meta| meta.modified().ok())
-                .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
-                .map(|value| value.as_secs() as i64);
-            part.root_uuid = part.cfg_text.as_deref().and_then(cfg_root_uuid);
-            if let Ok(env_bytes) = std::fs::read(&env) {
-                if env_bytes.len() == ENV_BLOCK_SIZE {
-                    part.env_rel = Some(env.clone());
-                    part.env_hex = Some(hex::encode(&env_bytes));
-                }
-            }
-            break;
-        }
-    }
-    if part.cfg_rel.is_none() {
-        payload
-            .notes
-            .push("本机没找到 /boot/grub/grub.cfg 或 /boot/grub2/grub.cfg".to_string());
-    }
-    if let Ok(text) = std::fs::read_to_string("/etc/fstab") {
-        let entries = part_spec::parse_fstab(&text);
-        part.mounts = entries
-            .into_iter()
-            .map(|entry| MountHint {
-                spec: entry.spec,
-                mountpoint: entry.mountpoint,
-                fstype: entry.fstype,
-            })
-            .collect();
-    }
-    payload.parts.push(part);
-    payload
-}
-
 // ─────────────────────────── 提权子进程 ───────────────────────────
 
 /// 子进程入口：枚举分区 → 读 fstab / grub.cfg / grubenv → 写 JSON。
@@ -1223,15 +1156,13 @@ fn parse_win_dev(dev: &str) -> Option<(u32, u32)> {
     Some((disk.parse().ok()?, partition.parse().ok()?))
 }
 
-/// Linux 写入：三档按成熟度排序，能走内核就绝不裸写（用户定案 2026-10-30）。
+/// Linux 写入：两档按成熟度排序，能走内核就绝不裸写（用户定案 2026-10-30）。
 ///
-///   ① `dev == "本机"`：rel 是本机绝对路径（`/boot/grub{,2}/grubenv`，probe_host
-///      记的就是这种），root 直接原地覆盖文件 —— 内核 ext4 驱动，最成熟的一条；
-///   ② 分区已挂载（`/proc/self/mounts` 能查到、fstype 是 ext 家族）：写挂载点下
-///      的文件，同样内核驱动。**为什么坚持不走裸写**：对已挂载分区裸写绕过页
+///   ① 分区已挂载（`/proc/self/mounts` 能查到、fstype 是 ext 家族）：写挂载点下
+///      的文件，内核驱动。**为什么坚持不走裸写**：对已挂载分区裸写绕过页
 ///      缓存，内核的脏页回写可能把写入盖掉（写丢失），ext4 日志也可能把
 ///      「绕过日志的数据」当崩溃恢复回滚 —— 文件系统层面风险不可控；
-///   ③ 未挂载：裸设备 O_RDWR + [`Ext4::overwrite_in_place`] —— 与官方
+///   ② 未挂载：裸设备 O_RDWR + [`Ext4::overwrite_in_place`] —— 与官方
 ///      `grub-editenv` 同语义：按 inode→extent 定位**它自己的数据块**，整块
 ///      读改写、写完回读逐字节比对；不分配块、不改 inode/位图/超级块；
 ///      RECOVER 标志挂着直接拒写。这是 grub-editenv 三十年来的做法，
@@ -1241,14 +1172,6 @@ fn parse_win_dev(dev: &str) -> Option<(u32, u32)> {
 #[cfg(target_os = "linux")]
 pub(crate) fn write_env_block(dev: &str, rel: &str, bytes: &[u8]) -> Result<String, String> {
     validate_env_block(bytes)?;
-    if dev == "本机" {
-        // 本机行：probe_host 记的 rel 是绝对路径；分区相对路径到这儿就是错传
-        if rel.contains("..") || !rel.starts_with('/') {
-            return Err(format!("本机 grubenv 必须是绝对路径（/boot/grub/grubenv），收到 {rel:?}"));
-        }
-        overwrite_file_in_place(std::path::Path::new(rel), bytes)?;
-        return Ok(format!("已写入 {rel}（本机，{} 字节，回读一致）", bytes.len()));
-    }
     if rel.contains("..") || rel.starts_with('/') {
         return Err("写入路径必须是分区内的相对路径".to_string());
     }
@@ -1691,13 +1614,16 @@ pub(crate) fn probe_raw(esp_partuuid: &str) -> Result<ProbePayload, String> {
     Ok(payload)
 }
 
-/// Linux（免密助手子进程，root）：本机直读 + ext4 遍历，与 macOS/Windows 同一套
+/// Linux（免密助手子进程，root）：ext4 全量遍历，与 macOS/Windows 同一套
 /// 「fstab 定位」逻辑 —— 用户定案 2026-10-29：自动读取和手动解析共用它，不再别名短路。
+/// **没有「本机行」特例**（用户定案 2026-10-30）：宿主根分区和其它 ext4 一样进
+/// 遍历，定位与写入一律按分区语义走。
 #[cfg(target_os = "linux")]
 pub(crate) fn probe_raw(esp_partuuid: &str) -> Result<ProbePayload, String> {
-    // 本机（root 视角）的 /etc/fstab + /boot/grub/* 永远带上：便宜，且覆盖
-    // 「根分区不是 ext4」的布局；下面的遍历会跳过宿主根分区，不会出两行。
-    let mut payload = probe_host();
+    let mut payload = ProbePayload {
+        ok: true,
+        ..ProbePayload::default()
+    };
     let sys = system_partitions_linux();
     if sys.is_empty() {
         payload
@@ -1733,11 +1659,11 @@ pub(crate) fn probe_raw(esp_partuuid: &str) -> Result<ProbePayload, String> {
             ));
         }
     }
-    let host_root = host_root_dev();
     let mut scanned = 0usize;
     for part in &sys {
-        // 只试分区，不试整盘；宿主根分区本机那行已经覆盖
-        if part.part_number == 0 || host_root.as_deref() == Some(part.dev.as_str()) {
+        // 只试分区，不试整盘；宿主根分区**不跳过** —— 和其它 ext4 一视同仁
+        // （用户定案 2026-10-30：没有「本机」特例）。它已挂载 rw，写入走挂载点档。
+        if part.part_number == 0 {
             continue;
         }
         let source = match FileSource::open_raw(&part.dev) {
@@ -1766,7 +1692,7 @@ pub(crate) fn probe_raw(esp_partuuid: &str) -> Result<ProbePayload, String> {
     if scanned == 0 {
         payload
             .notes
-            .push("其余分区里没有可读的 ext4（没有别的 Linux，或都不是 ext4）".to_string());
+            .push("没有可读的 ext4 分区（本机没有 Linux 分区，或都不是 ext4）".to_string());
     }
     Ok(payload)
 }
@@ -1833,28 +1759,6 @@ fn system_partitions_linux() -> Vec<SysPart> {
             })
         })
         .collect()
-}
-
-/// 宿主根分区的设备名（`/proc/self/mountinfo` 里挂载点为 `/` 的那行的 source）。
-///
-/// 遍历时跳过它：`probe_host()` 的「本机」行已经带它的 fstab / grub.cfg，
-/// 再扫一遍只会出两行同系统的重复条目。根分区是 btrfs 等非 ext4 时跳过它
-/// 也无损 —— `Ext4::open` 反正会失败。
-#[cfg(target_os = "linux")]
-fn host_root_dev() -> Option<String> {
-    let text = std::fs::read_to_string("/proc/self/mountinfo").ok()?;
-    for line in text.lines() {
-        let Some((pre, post)) = line.split_once(" - ") else {
-            continue;
-        };
-        // pre: `36 35 8:2 / / rw ...` —— 第 5 列（下标 4）是挂载点
-        if pre.split(' ').nth(4) != Some("/") {
-            continue;
-        }
-        // post: `ext4 /dev/nvme0n1p2 rw,...` —— 第 2 列是 source
-        return post.split(' ').nth(1).map(str::to_string);
-    }
-    None
 }
 
 // ─────────────────────────── macOS 分区枚举 ───────────────────────────
@@ -2039,15 +1943,6 @@ pub(crate) fn write_env(runtime: &Runtime, selector: &str) -> Result<(String, Ve
     let block = crate::grub::set_env_vars(&runtime.env_bytes, &updates)?;
     validate_env_block(&block)?;
 
-    // 本机行：macOS / Windows 不存在这种 runtime（probe_host 是 Linux 专属），
-    // 这条只为编译完整。**Linux 不走这里**：/boot/grub 归 root，本机行同样
-    // 必须提权 —— 落穿到下面的公共提权段（dev="本机"、rel=绝对路径，
-    // root 侧按绝对路径写文件，见 write_env_block ①）。
-    #[cfg(not(target_os = "linux"))]
-    if runtime.host {
-        return write_env_host(&runtime.env_rel, &block).map(|detail| (detail, block));
-    }
-
     // 与 probe 同一套优先级：装了助手就免密写，否则弹一次密码。
     #[cfg(target_os = "macos")]
     if helper_ready() {
@@ -2112,38 +2007,6 @@ pub(crate) fn write_env(runtime: &Runtime, selector: &str) -> Result<(String, Ve
         }
         Err(error) => Err(error),
     }
-}
-
-/// Linux 本机：直接改文件。**原地**覆盖同样 1024 字节，不做 rename
-/// （rename 要改目录项，正是我们要避开的那类元数据写入）。
-///
-/// 只在非 Linux 平台可达（Linux 的本机行走提权子进程，见 write_env）。
-#[cfg(not(target_os = "linux"))]
-fn write_env_host(path: &str, block: &[u8]) -> Result<String, String> {
-    use std::io::{Seek, SeekFrom, Write};
-    let mut file = std::fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(path)
-        .map_err(|error| format!("打开 {path} 失败：{error}"))?;
-    let size = file
-        .metadata()
-        .map_err(|error| format!("读 {path} 信息失败：{error}"))?
-        .len();
-    if size != ENV_BLOCK_SIZE as u64 {
-        return Err(format!(
-            "{path} 是 {size} 字节（应为 {ENV_BLOCK_SIZE}）—— 不是合法的 GRUB 环境块，拒绝写入"
-        ));
-    }
-    file.seek(SeekFrom::Start(0))
-        .and_then(|_| file.write_all(block))
-        .and_then(|_| file.sync_all())
-        .map_err(|error| format!("写 {path} 失败：{error}"))?;
-    let written = std::fs::read(path).map_err(|error| format!("回读 {path} 失败：{error}"))?;
-    if written != block {
-        return Err("回读不一致：写入没有真正生效".to_string());
-    }
-    Ok(format!("已写入 {path}（{ENV_BLOCK_SIZE} 字节，回读一致）"))
 }
 
 // ─────────────────────────── 命令 ───────────────────────────
@@ -2374,11 +2237,6 @@ fn runtime_from(payload: &ProbePayload, view: &LinuxGrubView, prefer: &str) -> O
     }
     Some(Runtime {
         dev: part.dev.clone(),
-        // host 只对「本机行」成立（probe_host 的 PartReport.dev 就叫"本机"）。
-        // 以前按 platform 判：Linux 上恒 true，helper 扫出的真实分区也被当成
-        // 本机文件去写 —— 而 env_rel 是分区内的相对路径（boot/grub/grubenv），
-        // 在主机上按相对路径打开必然失败。用户定案：写入一律按分区语义。
-        host: part.dev == "本机",
         env_rel,
         env_bytes: part.env_bytes()?,
         selectors: view.entries.iter().map(|entry| entry.selector.clone()).collect(),
@@ -2570,57 +2428,30 @@ mod tests {
         assert_eq!(selection.confidence, "self");
     }
 
-    /// host 判定只认「本机行」：helper 扫出的真实分区哪怕就跑在本机上也必须
-    /// 走分区写入语义 —— 以前按 `view.platform == "linux"` 判，Linux 上恒 true，
-    /// 把分区的相对 env_rel（`boot/grub/grubenv`）当主机路径打开必然失败
-    /// （2026-10-30 用户定案的修正：写入一律按分区语义）。
+    /// 写入上下文一律分区语义：fstab 精确命中的行成为 target，env_rel 是
+    /// 分区内相对路径（2026-10-30 定案：**没有「本机行」特例**，宿主根分区
+    /// 与其它 ext4 一视同仁）。
     #[test]
-    fn runtime_host_only_for_host_row() {
-        // 本机行的形状：dev 叫"本机"、env_rel 是绝对路径（probe_host 记法）
-        let host_row = PartReport {
-            dev: "本机".to_string(),
-            label: "本机".to_string(),
-            os_id: Some("Arch Linux".to_string()),
-            part_number: 0,
-            cfg_rel: Some("/boot/grub/grub.cfg".to_string()),
-            cfg_text: Some(
-                "menuentry 'Arch' {\n\tlinux /vmlinuz-linux root=UUID=84d0b19d-4ee2-4cd4-bc2c-80a77c19c702\n}\n"
-                    .to_string(),
-            ),
-            env_rel: Some("/boot/grub/grubenv".to_string()),
-            env_hex: Some(hex::encode(crate::grub::empty_env_block())),
-            ..PartReport::default()
-        };
+    fn runtime_uses_partition_semantics() {
         let payload = ProbePayload {
             ok: true,
             esp: Some(IdentityWire {
                 fs_uuid: Some("E537-7F31".to_string()),
                 ..IdentityWire::default()
             }),
-            parts: vec![
-                host_row,
-                report(
-                    "/dev/sda7",
-                    "BBBB",
-                    vec![("UUID=E537-7F31", "/boot/efi", "vfat")],
-                    true,
-                ),
-            ],
+            parts: vec![report(
+                "/dev/sda7",
+                "BBBB",
+                vec![("UUID=E537-7F31", "/boot/efi", "vfat")],
+                true,
+            )],
             notes: Vec::new(),
             ..ProbePayload::default()
         };
-        // 默认（无手动指定）：fstab 精确命中分区行 → 分区语义
         let view = build_view(&payload, "linux", false, None, false);
         let runtime = runtime_from(&payload, &view, "").expect("分区行应可定位");
-        assert!(!runtime.host);
         assert_eq!(runtime.dev, "/dev/sda7");
         assert_eq!(runtime.env_rel, "boot/grub/grubenv");
-
-        // 手动指定本机行 → 本机语义，env_rel 保持绝对路径
-        let view = build_view(&payload, "linux", false, Some("本机"), false);
-        let runtime = runtime_from(&payload, &view, "本机").expect("本机行应可定位");
-        assert!(runtime.host);
-        assert_eq!(runtime.env_rel, "/boot/grub/grubenv");
     }
 
     /// `/proc/self/mounts` 解析：八进制转义、ro 选项、非 ext 忽略。
