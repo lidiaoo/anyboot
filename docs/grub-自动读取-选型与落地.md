@@ -237,7 +237,8 @@ channels/linux_grub.rs        # 自动读取通道
 - [ ] spike ②：`grubenv` 定点写后，Arch 里 `e2fsck -fn` 干净、只碰 1 个数据块
 - [~] helper 协议 v2：**这一版先用 `osascript with administrator privileges` 一次性提权子进程**，没有扩 helper，见 §13.2
 - [x] macOS `BlockSource`：`/dev/rdiskNsM`
-- [ ] Windows `BlockSource`：`\\.\PhysicalDriveN` + 分区偏移，提权复用 `elevate.rs`（UAC）
+- [x] Windows `BlockSource`：`\\.\PhysicalDriveN` + 分区偏移，提权复用 `elevate.rs`（UAC）；
+      偏移取 `Get-Partition` 的 `Offset`（**不是** `DeviceIoControl`），见 `ext4_raw::FileSource::open_physical`
 - [ ] helper 重装流程与旧版本回退提示
 
 **阶段 3 · 定位与 UI**
@@ -369,8 +370,11 @@ channels/linux_grub.rs        # 自动读取通道
 
 ### 13.7 本轮没做的事
 
-- **Windows 侧**：`probe_raw` / `write_child_work` 是明确的「还不支持」占位，
-  要补的是 `\\.\PhysicalDriveN` + 分区偏移（`DeviceIoControl` 拿分区起点）。
+- ~~**Windows 侧**：`\\.\PhysicalDriveN` + 分区偏移~~ —— **2026-10-29 补上了**：
+  `probe_raw` 枚举 `partitions::all()` 里的 Linux 分区（GPT `0fc63daf…`），按 `Offset`
+  开整盘读，解析与 macOS 共用同一份 `scan_ext4`；写 `grubenv` 走同一条路
+  （`write_env_block` 把 `disk1p3` 反查回偏移）。偏移来自 `Get-Partition`，
+  **不需要 `DeviceIoControl`** —— 当初的方案里这句是多余的，分区表缓存已经有了。
 - **btrfs / LUKS / LVM**：识别到即明确报不支持，不静默跳过。
 - **写 env 的 e2fsck 复验**：代码里有回读逐字节比对，但没有跑过 `e2fsck -fn`；
   Arch 里的验证留待下次重启时一起做（改 `next_entry` → 重启 → 确认进的是那一项）。
@@ -534,7 +538,9 @@ grub.cfg 也一致: True
 
 ### 14.9 还没做的
 
-- **Windows 侧仍不支持写 ext4**：`write_env_block` 在非 macOS 返回「分区偏移方案尚未接上」；
+- ~~**Windows 侧仍不支持写 ext4**~~ —— 2026-10-29 已接上：`disk1p3` → `Offset` → 整盘读写，
+  与 macOS 共用 `overwrite_in_place`。**真机验证仍缺一台双系统机器**（开发机上没有
+  ext4 分区，这条路一次都跑不到，现阶段只有 `parse_win_dev` 的形状测试兜着）；
 - **没跑 e2fsck**：macOS 上没有 ext4 工具，一致性靠助手自己的「写完整块回读逐字节比对」；
 - **没重启验证 `next_entry` 真的生效**：这一步只能人工重启确认；
 - **装到 `/Library` 的新助手还要用户点一次**：升级后 `stale=true`，需在 OpenCore 卡片

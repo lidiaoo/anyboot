@@ -786,10 +786,24 @@ pub(crate) fn parts_for_sim(app: &AppHandle) -> (Vec<PartReport>, Option<String>
 
     #[cfg(target_os = "windows")]
     {
-        let _ = app;
+        if let Some(cached) = app
+            .state::<Mutex<AppState>>()
+            .lock()
+            .ok()
+            .and_then(|state| state.linux_probe_cache.clone())
+        {
+            let note = cached.notes.first().cloned();
+            return (cached.parts, note);
+        }
+        // Windows 没有免密助手这条路，而模拟扫描是自动跑的 —— 不能在这里弹 UAC，
+        // 否则每重建一次预演就冒一个授权框。等用户手动「重新读取」扫过一次即可。
         (
             Vec::new(),
-            Some("Windows 端还没接 ext4 读取：模拟扫描暂不能扫 Linux 分区里的内核".to_string()),
+            Some(
+                "Linux 分区里的内核要读 ext4 裸设备（Windows 上必须提权）：\
+                 点一次「重新读取」授权扫描后，这里就能扫出内核条目"
+                    .to_string(),
+            ),
         )
     }
 
@@ -1048,9 +1062,44 @@ pub(crate) fn write_env_block(dev: &str, rel: &str, bytes: &[u8]) -> Result<Stri
     Ok(format!("已写入 {dev}:{rel}（{} 字节，回读一致）", bytes.len()))
 }
 
-#[cfg(not(target_os = "macos"))]
+/// Windows：同样的写入语义，只是多一步「把 `disk1p3` 换回整盘偏移」。
+///
+/// `dev` 是 [`PartReport::dev`] 里那个 `disk{N}p{M}`，子进程重新查一次分区表拿
+/// `Offset` —— 不复用父进程的缓存，因为写的时候磁盘可能刚被重分区过，而写错
+/// 偏移的后果是把别人的分区写坏，这一秒的查询绝对省不得。
+#[cfg(target_os = "windows")]
+pub(crate) fn write_env_block(dev: &str, rel: &str, bytes: &[u8]) -> Result<String, String> {
+    validate_env_block(bytes)?;
+    if rel.contains("..") || rel.starts_with('/') {
+        return Err("写入路径必须是分区内的相对路径".to_string());
+    }
+    let (disk, partition) = parse_win_dev(dev).ok_or_else(|| {
+        format!("看不懂的分区标识 {dev}（这里要的是 disk0p9 这种形式）")
+    })?;
+    let row = super::partitions::all()
+        .into_iter()
+        .find(|row| row.disk == disk && row.partition == partition)
+        .ok_or_else(|| format!("分区表里找不到 {dev}（盘被拔了？分区表变了？）"))?;
+    let source = FileSource::open_physical(disk, row.offset, true)?;
+    let mut fs = Ext4::open(Box::new(source))?;
+    fs.overwrite_in_place(rel, bytes)?;
+    Ok(format!(
+        "已写入 {dev}:{rel}（{} 字节，回读一致）",
+        bytes.len()
+    ))
+}
+
+/// `disk1p3` → `(1, 3)`。解析失败返回 `None`（宁可报错也不猜一个偏移）。
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn parse_win_dev(dev: &str) -> Option<(u32, u32)> {
+    let rest = dev.trim().strip_prefix("disk")?;
+    let (disk, partition) = rest.split_once('p')?;
+    Some((disk.parse().ok()?, partition.parse().ok()?))
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 pub(crate) fn write_env_block(_dev: &str, _rel: &str, _bytes: &[u8]) -> Result<String, String> {
-    Err("这一端还不支持写 ext4：Windows 的分区偏移方案尚未接上".to_string())
+    Err("这一端还不支持写 ext4：请在本机直接改 /boot/grub/grubenv".to_string())
 }
 
 fn write_json(out: &str, payload: &ProbePayload) {
@@ -1086,6 +1135,122 @@ pub(crate) fn validate_env_block(bytes: &[u8]) -> Result<(), String> {
         ));
     }
     Ok(())
+}
+
+/// 一块 ext4 分区的身份与坐标。两端只差「怎么打开」，读完之后要的东西完全一样。
+#[cfg_attr(target_os = "linux", allow(dead_code))]
+struct Ext4Candidate {
+    dev: String,
+    label: Option<String>,
+    size: Option<String>,
+    part_uuid: Option<String>,
+    part_number: u32,
+    disk_index: u32,
+}
+
+/// 解析一块**已经打开**的 ext4 分区：fstab / os-release / 目录清单 / grub.cfg / grubenv。
+///
+/// 只写这一份的理由：这些字段就是「自动读取」通道的全部产出，两端各写一遍必然漂 ——
+/// 一边加了 `dir_listings`、另一边忘了加，rEFInd 模拟在那一端就永远看不到内核清单，
+/// 而这种缺失不会报错，只会表现为「列表里少几项」。
+#[cfg_attr(target_os = "linux", allow(dead_code))]
+fn scan_ext4(fs: &mut Ext4, cand: &Ext4Candidate) -> PartReport {
+    let mut report = PartReport {
+        dev: cand.dev.clone(),
+        label: if fs.sb.label.is_empty() {
+            cand.label.clone().unwrap_or_default()
+        } else {
+            fs.sb.label.clone()
+        },
+        size: cand.size.clone(),
+        fs_uuid: Some(part_spec::normalize_uuid(&fs.sb.uuid)),
+        part_uuid: cand.part_uuid.clone(),
+        part_label: None,
+        part_number: cand.part_number,
+        disk_index: cand.disk_index,
+        ..PartReport::default()
+    };
+    if fs.sb.needs_recovery() {
+        report.note = Some("上次没干净关机（RECOVER 标志），只读可用、写入会被拒".to_string());
+    }
+    // fstab
+    if let Ok(Some(bytes)) = fs.read_path("etc/fstab", MAX_FSTAB_BYTES) {
+        let text = String::from_utf8_lossy(&bytes);
+        report.mounts = part_spec::parse_fstab(&text)
+            .into_iter()
+            .map(|entry| MountHint {
+                spec: entry.spec,
+                mountpoint: entry.mountpoint,
+                fstype: entry.fstype,
+            })
+            .collect();
+    }
+    // os-release（只为在列表里好认；PRETTY_NAME 给模拟扫描的 Linux 条目用）
+    if let Ok(Some(bytes)) = fs.read_path("etc/os-release", MAX_SMALL_BYTES) {
+        let text = String::from_utf8_lossy(&bytes);
+        report.os_id = os_release_id(&text);
+        report.os_pretty_name = os_release_pretty_name(&text);
+    }
+    // 内核目录清单（rEFInd 装了 ext4 驱动后扫的就是这两处：根目录 + /boot）。
+    // 只在**有 ext4 文件系统可读**时才有意义，FAT ESP 的 PartReport 根本不会
+    // 走到这里（Ext4::open 失败直接 continue 了）。
+    for dir in ["", "boot"] {
+        let Ok(names) = fs.list_dir(dir) else {
+            continue;
+        };
+        let mut files: Vec<DirFile> = names
+            .into_iter()
+            .filter(|name| !name.starts_with('.'))
+            .take(MAX_LISTING_FILES)
+            .filter_map(|name| {
+                // 只留文件（rEFInd 的 DirIter 也只匹配文件）；目录名如
+                // "efi" 不会撞 vmlinuz 前缀，但端给主进程的清单干净些好。
+                // mtime 对折叠排序至关重要（rEFInd 新内核排最前）。
+                let meta = fs.stat(&join_rel(dir, &name))?;
+                if meta.is_dir {
+                    return None;
+                }
+                Some(DirFile {
+                    name,
+                    mtime: meta.mtime,
+                })
+            })
+            .collect();
+        // list_dir 已按名字排好序，这里不用再排；**mtime 排序是消费方的
+        // 事**（要照顾 rescue 内核沉底，那是消费方才知道的事）。
+        let conf_rel = format!("{dir}/refind_linux.conf");
+        let refind_linux_conf = fs
+            .read_path(&conf_rel, MAX_SMALL_BYTES)
+            .ok()
+            .flatten()
+            .map(|bytes| String::from_utf8_lossy(&bytes).to_string());
+        report.dir_listings.push(DirListing {
+            dir: dir.to_string(),
+            files,
+            refind_linux_conf,
+        });
+    }
+    // grub.cfg / grubenv
+    for dir in GRUB_DIRS {
+        let cfg_rel = format!("{dir}/grub.cfg");
+        let env_rel = format!("{dir}/grubenv");
+        let cfg = fs.read_path(&cfg_rel, MAX_CFG_BYTES).unwrap_or(None);
+        let Some(cfg_bytes) = cfg else {
+            continue;
+        };
+        report.cfg_mtime = fs.stat(&cfg_rel).map(|meta| meta.mtime);
+        report.cfg_text = Some(String::from_utf8_lossy(&cfg_bytes).to_string());
+        report.cfg_rel = Some(cfg_rel.clone());
+        report.root_uuid = report.cfg_text.as_deref().and_then(cfg_root_uuid);
+        if let Ok(Some(env)) = fs.read_path(&env_rel, ENV_BLOCK_SIZE + 1) {
+            if env.len() == ENV_BLOCK_SIZE {
+                report.env_rel = Some(env_rel.clone());
+                report.env_hex = Some(hex::encode(&env));
+            }
+        }
+        break;
+    }
+    report
 }
 
 /// 真正的枚举与读取（子进程里跑，或 Linux 本机排障时直接调）
@@ -1146,116 +1311,108 @@ pub(crate) fn probe_raw(esp_partuuid: &str) -> Result<ProbePayload, String> {
         let Ok(mut fs) = Ext4::open(Box::new(source)) else {
             continue; // 不是 ext4：正常跳过，不刷问题列表
         };
-        let mut report = PartReport {
-            dev: part.dev.clone(),
-            label: if fs.sb.label.is_empty() {
-                part.label.clone().unwrap_or_default()
-            } else {
-                fs.sb.label.clone()
+        payload.parts.push(scan_ext4(
+            &mut fs,
+            &Ext4Candidate {
+                dev: part.dev.clone(),
+                label: part.label.clone(),
+                size: part.size.clone(),
+                part_uuid: part.part_uuid.clone(),
+                part_number: part.part_number,
+                disk_index: part.disk_index,
             },
-            size: part.size.clone(),
-            fs_uuid: Some(part_spec::normalize_uuid(&fs.sb.uuid)),
-            part_uuid: part.part_uuid.clone(),
-            part_label: None,
-            part_number: part.part_number,
-            disk_index: part.disk_index,
-            ..PartReport::default()
-        };
-        if fs.sb.needs_recovery() {
-            report.note = Some("上次没干净关机（RECOVER 标志），只读可用、写入会被拒".to_string());
-        }
-        // fstab
-        if let Ok(Some(bytes)) = fs.read_path("etc/fstab", MAX_FSTAB_BYTES) {
-            let text = String::from_utf8_lossy(&bytes);
-            report.mounts = part_spec::parse_fstab(&text)
-                .into_iter()
-                .map(|entry| MountHint {
-                    spec: entry.spec,
-                    mountpoint: entry.mountpoint,
-                    fstype: entry.fstype,
-                })
-                .collect();
-        }
-        // os-release（只为在列表里好认；PRETTY_NAME 给模拟扫描的 Linux 条目用）
-        if let Ok(Some(bytes)) = fs.read_path("etc/os-release", MAX_SMALL_BYTES) {
-            let text = String::from_utf8_lossy(&bytes);
-            report.os_id = os_release_id(&text);
-            report.os_pretty_name = os_release_pretty_name(&text);
-        }
-        // 内核目录清单（rEFInd 装了 ext4 驱动后扫的就是这两处：根目录 + /boot）。
-        // 只在**有 ext4 文件系统可读**时才有意义，FAT ESP 的 PartReport 根本不会
-        // 走到这里（Ext4::open 失败直接 continue 了）。
-        for dir in ["", "boot"] {
-            let Ok(names) = fs.list_dir(dir) else {
-                continue;
-            };
-            let mut files: Vec<DirFile> = names
-                .into_iter()
-                .filter(|name| !name.starts_with('.'))
-                .take(MAX_LISTING_FILES)
-                .filter_map(|name| {
-                    // 只留文件（rEFInd 的 DirIter 也只匹配文件）；目录名如
-                    // "efi" 不会撞 vmlinuz 前缀，但端给主进程的清单干净些好。
-                    // mtime 对折叠排序至关重要（rEFInd 新内核排最前）。
-                    let meta = fs.stat(&join_rel(dir, &name))?;
-                    if meta.is_dir {
-                        return None;
-                    }
-                    Some(DirFile {
-                        name,
-                        mtime: meta.mtime,
-                    })
-                })
-                .collect();
-            // list_dir 已按名字排好序，这里不用再排；**mtime 排序是消费方的
-            // 事**（要照顾 rescue 内核沉底，那是消费方才知道的事）。
-            let conf_rel = format!("{dir}/refind_linux.conf");
-            let refind_linux_conf = fs
-                .read_path(&conf_rel, MAX_SMALL_BYTES)
-                .ok()
-                .flatten()
-                .map(|bytes| String::from_utf8_lossy(&bytes).to_string());
-            report.dir_listings.push(DirListing {
-                dir: dir.to_string(),
-                files,
-                refind_linux_conf,
-            });
-        }
-        // grub.cfg / grubenv
-        for dir in GRUB_DIRS {
-            let cfg_rel = format!("{dir}/grub.cfg");
-            let env_rel = format!("{dir}/grubenv");
-            let cfg = fs.read_path(&cfg_rel, MAX_CFG_BYTES).unwrap_or(None);
-            let Some(cfg_bytes) = cfg else {
-                continue;
-            };
-            report.cfg_mtime = fs.stat(&cfg_rel).map(|meta| meta.mtime);
-            report.cfg_text = Some(String::from_utf8_lossy(&cfg_bytes).to_string());
-            report.cfg_rel = Some(cfg_rel.clone());
-            report.root_uuid = report
-                .cfg_text
-                .as_deref()
-                .and_then(cfg_root_uuid);
-            if let Ok(Some(env)) = fs.read_path(&env_rel, ENV_BLOCK_SIZE + 1) {
-                if env.len() == ENV_BLOCK_SIZE {
-                    report.env_rel = Some(env_rel.clone());
-                    report.env_hex = Some(hex::encode(&env));
-                }
-            }
-            break;
-        }
-        payload.parts.push(report);
+        ));
     }
     Ok(payload)
 }
 
+/// Windows：Linux 分区没有盘符，只能开整盘再按分区偏移读。
+///
+/// Windows 读不了 ext4，所以系统根本不给这些分区分配盘符 —— 不存在「分区级」
+/// 路径可开，唯一入口是 `\\.\PhysicalDriveN` + `Get-Partition` 给的 `Offset`。
+/// 这和 APFS 容器那条路是同一招（`apfs_reader` 的 `container_location`）。
+///
+/// **这条路径只会在提权子进程里跑到**：非 Linux 平台上 `probe()` 一律走
+/// `probe_via_elevated`，物理磁盘的 `CreateFile` 也本来就要管理员。所以这里
+/// 不再判断权限，把 io 错误原样带出去 —— 万一真被拒，说明 UAC 那次没提上来。
 #[cfg(target_os = "windows")]
-pub(crate) fn probe_raw(_esp_partuuid: &str) -> Result<ProbePayload, String> {
-    Err(
-        "Windows 侧还在做：需要按分区偏移打开 \\\\.\\PhysicalDriveN 才能读 ext4。\
-         当前版本请在这一端用「手动解析」（装 09_anyboot），或在 macOS / Linux 上查看"
-            .to_string(),
-    )
+pub(crate) fn probe_raw(esp_partuuid: &str) -> Result<ProbePayload, String> {
+    let mut payload = ProbePayload {
+        ok: true,
+        ..ProbePayload::default()
+    };
+    let rows = super::partitions::all();
+    if rows.is_empty() {
+        payload
+            .notes
+            .push("读不到分区表（Get-Partition 没有返回任何行）".to_string());
+        return Ok(payload);
+    }
+
+    // 所选 ESP 的身份：只能按 PARTUUID 认。FAT 卷序列要再读一次分区首扇区，
+    // 而 ESP 在 Windows 上通常有盘符、这条链路不需要它 —— 留空，别让调用方
+    // 以为「有 part_uuid 就一定有 fs_uuid」。
+    if !esp_partuuid.trim().is_empty() {
+        let wanted = part_spec::normalize_uuid(esp_partuuid);
+        if let Some(hit) = rows
+            .iter()
+            .find(|row| !row.guid.is_empty() && part_spec::normalize_uuid(&row.guid) == wanted)
+        {
+            payload.esp = Some(IdentityWire {
+                fs_uuid: None,
+                part_uuid: Some(hit.guid.clone()),
+                label: None,
+                part_label: None,
+                disk_index: hit.disk,
+                part_number: hit.partition,
+            });
+        } else {
+            payload.notes.push(format!(
+                "分区表里没有 PARTUUID 为 {esp_partuuid} 的分区（设置里填错了？）"
+            ));
+        }
+    }
+
+    let mut denied = 0usize;
+    for part in rows.iter().filter(|row| row.is_linux()) {
+        // 与 PartReport.dev 的既有约定一致：macOS 是 `disk0s9`、Windows 是 `disk0p9`
+        let dev = format!("disk{}p{}", part.disk, part.partition);
+        let source = match FileSource::open_physical(part.disk, part.offset, false) {
+            Ok(source) => source,
+            Err(why) => {
+                if why.contains("管理员权限") {
+                    denied += 1;
+                }
+                // 报错原文一定带出来（APFS 那边踩过：把 io 原因吞成
+                // 「可能被占用」，白查半天权限）
+                payload.notes.push(format!("{dev} 打不开：{why}"));
+                continue;
+            }
+        };
+        let Ok(mut fs) = Ext4::open(Box::new(source)) else {
+            continue; // 不是 ext4：正常跳过，不刷问题列表
+        };
+        payload.parts.push(scan_ext4(
+            &mut fs,
+            &Ext4Candidate {
+                dev,
+                label: None,
+                size: Some(format!("{} MB", part.size_mb())),
+                part_uuid: Some(part.guid.clone()).filter(|value| !value.is_empty()),
+                part_number: part.partition,
+                disk_index: part.disk,
+            },
+        ));
+    }
+
+    if payload.parts.is_empty() {
+        payload.notes.push(if denied > 0 {
+            "没有管理员权限，打不开物理磁盘：点「重新读取」授权一次就能读".to_string()
+        } else {
+            "没扫到任何 ext4 分区（本机没有 Linux 分区，或者都不支持）".to_string()
+        });
+    }
+    Ok(payload)
 }
 
 #[cfg(target_os = "linux")]
@@ -2016,6 +2173,27 @@ mod tests {
         assert_eq!(parse_disk_id("disk0s9"), Some((0, 9)));
         assert_eq!(parse_disk_id("disk2"), Some((2, 0)));
         assert_eq!(parse_disk_id("rdisk0s9"), None);
+    }
+
+    /// Windows 的分区标识：`disk1p3`。
+    ///
+    /// 生成端在 `probe_raw`（`format!("disk{}p{}")`），解析端在 `write_env_block` ——
+    /// 两边必须是同一套写法，否则表现是「扫得到、写不进」，而错误还只是
+    /// 「看不懂的分区标识」，最难查的那一类。
+    #[test]
+    fn win_disk_ids_parse() {
+        assert_eq!(parse_win_dev("disk1p3"), Some((1, 3)));
+        assert_eq!(parse_win_dev("disk0p12"), Some((0, 12)));
+        assert_eq!(
+            format!("disk{}p{}", 1u32, 3u32),
+            "disk1p3",
+            "生成端与解析端必须同构"
+        );
+        // 猜一个偏移等于往别人的分区上写，认不出的一律 None
+        assert_eq!(parse_win_dev("disk1"), None);
+        assert_eq!(parse_win_dev("disk1p"), None);
+        assert_eq!(parse_win_dev("diskxp3"), None);
+        assert_eq!(parse_win_dev("sdb1"), None);
     }
 
     /// 裸设备路径只能加一个 `r`。

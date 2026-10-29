@@ -136,6 +136,36 @@ impl FileSource {
         let file = File::open(path).map_err(|error| format!("打不开 {path}：{error}"))?;
         Ok(Self::new(file, 0, 1))
     }
+
+    /// Windows：按分区偏移打开整盘 `\\.\PhysicalDriveN`。
+    ///
+    /// 为什么不沿用 `\\.\X:`：Windows 读不了 ext4，所以根本不会给 Linux 分区分配
+    /// 盘符 —— 没有「分区级」路径可开，只能开整盘、用 `base` 把窗口推到分区起点。
+    /// APFS 容器那条路（`apfs_reader` 的 `container_location`）用的是同一招。
+    ///
+    /// **只对提权进程有效**：`CreateFile` 打开物理磁盘非管理员一律
+    /// `ERROR_ACCESS_DENIED (5)`。探测链路里这个函数只在提权子进程里被调用
+    /// （见 `linux_grub::probe`），所以这里把错误原样带出来就够，别猜。
+    #[cfg(target_os = "windows")]
+    pub(crate) fn open_physical(disk: u32, base: u64, writable: bool) -> Result<Self, String> {
+        let path = format!(r"\\.\PhysicalDrive{disk}");
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(writable)
+            .open(&path)
+            .map_err(|error| {
+                let hint = if error.raw_os_error() == Some(5) {
+                    "（物理磁盘要管理员权限才能打开）"
+                } else {
+                    ""
+                };
+                format!("打不开整盘 {path}：{error}{hint}")
+            })?;
+        Ok(Self {
+            writable,
+            ..Self::new(file, base, 512)
+        })
+    }
 }
 
 impl BlockSource for FileSource {

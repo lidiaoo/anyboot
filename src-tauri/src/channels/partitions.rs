@@ -28,6 +28,9 @@ pub(crate) const TTL: Duration = Duration::from_secs(60);
 pub(crate) const ESP_GPT: &str = "c12a7328-f81f-11d2-ba4b-00a0c93ec93b";
 /// APFS 容器的 GPT 类型（跨平台同一把尺子，见 `apfs_reader::CONTAINER_GPT_TYPE`）。
 pub(crate) const APFS_GPT: &str = "7c3457ef-0000-11aa-aa11-00306543ecac";
+/// Linux 文件系统数据分区的 GPT 类型（根分区 / `/boot` 都是它）。
+/// 只认这一类：LVM（`e6d6d379…`）与 RAID（`a19d880f…`）里的 ext4 我们不解析。
+pub(crate) const LINUX_GPT: &str = "0fc63daf-8483-4772-8e79-3d69d8477de4";
 
 /// 一条分区。只留三处调用方真正要的字段。
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -56,6 +59,12 @@ impl Partition {
 
     pub(crate) fn is_apfs(&self) -> bool {
         self.gpt_type.starts_with(&APFS_GPT[..8])
+    }
+
+    /// Linux 文件系统分区。Windows 读 ext4 靠它筛候选：这些分区没有盘符，
+    /// 唯一入口是「开整盘 + `offset`」。
+    pub(crate) fn is_linux(&self) -> bool {
+        self.gpt_type.starts_with(&LINUX_GPT[..8])
     }
 
     /// 可访问的挂载根（`S:\`）；没盘符就是 `None`。
@@ -221,6 +230,20 @@ pub(crate) fn all() -> Vec<Partition> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Linux 分区按类型认出来 —— Windows 读 ext4 的唯一入口就是它。
+    #[test]
+    fn recognises_linux_partitions() {
+        let rows = parse_json(
+            r#"[{"DiskNumber":1,"PartitionNumber":3,"DriveLetter":null,"Size":107374182400,
+                 "Offset":1048576000,"GptType":"{0fc63daf-8483-4772-8e79-3d69d8477de4}"},
+                {"DiskNumber":1,"PartitionNumber":4,"DriveLetter":null,"Size":1073741824,
+                 "Offset":2118123520,"GptType":"{e6d6d379-f507-44c2-a23c-238f2a3a45e5}"}]"#,
+        );
+        assert!(rows[0].is_linux(), "根分区必须认出来");
+        assert!(!rows[0].is_esp() && !rows[0].is_apfs(), "三种类型不能串");
+        assert!(!rows[1].is_linux(), "LVM 成员不是我们能解析的 ext4，别当候选");
+    }
 
     /// 真机形状：一块盘一块 ESP（无盘符）、一块有盘符，外加一块 APFS 容器。
     #[test]
