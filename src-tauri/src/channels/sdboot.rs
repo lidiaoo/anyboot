@@ -250,6 +250,16 @@ pub(crate) fn set_default(esp_root: &Path, entry_id: &str) -> Result<(), String>
 /// 策略B：one-shot —— 写 `LoaderEntryOneShot`，只影响**下一次**启动，过后自动失效。
 /// 校验与策略A同一套（id 必须真实存在）。
 pub(crate) fn one_shot(esp_root: &Path, entry_id: &str) -> Result<(), String> {
+    // Windows 上写固件变量要有管理员令牌：没权限就走特权服务（服务不可用才弹一次
+    // 授权），别让「下次启动进这个条目」只能在有人守着屏幕的时候用。
+    #[cfg(target_os = "windows")]
+    if !super::opencore::can_touch_firmware() {
+        return one_shot_elevated(esp_root, entry_id);
+    }
+    one_shot_direct(esp_root, entry_id)
+}
+
+fn one_shot_direct(esp_root: &Path, entry_id: &str) -> Result<(), String> {
     let entries = list_entries(esp_root);
     if !entries.iter().any(|entry| entry.id == entry_id) {
         return Err(format!("条目 {entry_id} 不在 systemd-boot 的条目列表里，拒绝写 NVRAM"));
@@ -266,6 +276,40 @@ pub(crate) fn one_shot(esp_root: &Path, entry_id: &str) -> Result<(), String> {
             ),
         ],
     )
+}
+
+/// 「one-shot」的提权版：服务优先，服务不可用才弹一次授权。
+#[cfg(target_os = "windows")]
+fn one_shot_elevated(esp_root: &Path, entry_id: &str) -> Result<(), String> {
+    let body = super::elevate::run_op(
+        "sdboot_one_shot",
+        serde_json::json!({
+            "entry": entry_id,
+            "esp": esp_root.to_string_lossy(),
+        }),
+    )?;
+    let reply: super::opencore::MessageReply = serde_json::from_str(&body)
+        .map_err(|error| format!("特权侧返回的不是合法 JSON：{error}"))?;
+    reply.into_result("提权写 LoaderEntryOneShot 失败").map(|_| ())
+}
+
+/// 跑一次 one-shot 并序列化成 JSON 文本（服务与提权子进程共用）。
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+pub(crate) fn one_shot_json(esp: Option<&str>, entry_id: &str) -> Result<String, String> {
+    if entry_id.trim().is_empty() {
+        return Err("缺少条目 id".to_string());
+    }
+    let _ = nvram::enable_system_environment_privilege();
+    let payload = match super::resolve_esp_root_arg(esp)
+        .and_then(|root| one_shot_direct(&root, entry_id))
+    {
+        Ok(()) => serde_json::json!({
+            "ok": true,
+            "message": format!("下次启动进入 {entry_id}（用后自动失效）"),
+        }),
+        Err(error) => serde_json::json!({ "ok": false, "error": error }),
+    };
+    serde_json::to_string(&payload).map_err(|error| format!("序列化结果失败：{error}"))
 }
 
 #[cfg(test)]

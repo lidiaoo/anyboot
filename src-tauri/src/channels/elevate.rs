@@ -1,11 +1,13 @@
-//! 按需提权：弹一次 UAC（Windows）/ pkexec（Linux），让**本程序自己**带参数跑
-//! 一个子命令，结果经 JSON 文件回传。目前两个用户：
+//! 按需提权：**Windows 上所有需要管理员权限的操作，唯一收口在 [`run_op`]**。
 //!
-//! * APFS Preboot 直读（`--apfs-scan-privileged`，见 `apfs_reader.rs`）；
-//! * OC 设默认项（`--oc-set-default`，见 `oc_default.rs`）。
+//! 顺序永远是「特权服务优先，服务不可用才弹一次授权」：
+//! [`run_op`] → [`run_privileged_op`] → 服务（命名管道）／兜底（UAC 或 pkexec）。
+//! 服务与兜底跑的是**同一份** `service_win::dispatch`，所以两条路的语义不会漂。
 //!
-//! 为什么不做成 macOS 那样的常驻助手：这两件事都是「偶尔来一次」，一次性的
-//! ShellExecute/pkexec 没有安装步骤、没有守护项、用完即退，安全面小得多。
+//! 为什么不做成 macOS 那样的常驻助手就完事：这两条通道各有各的必要性 ——
+//! 服务是「无人值守能真的做完事」的唯一办法；UAC 兜底是「没装服务也能用」的
+//! 唯一办法（Portable / 用户目录版根本没有服务）。缺一条就会在某一类机器上
+//! 变成死路。
 //!
 //! 与 blocking_guard 的关系：**调用方必须在 async 命令的工作线程上**——
 //! Windows 的 ShellExecuteExW 会同步等 UAC 对话框，用户可能想几分钟再点。
@@ -58,6 +60,35 @@ enum ServiceOutcome {
     Served,
     Unavailable(String),
     Failed(String),
+}
+
+/// **一次特权操作的标准往返**：服务优先 → 服务不可用才弹授权 → 从结果文件读回 body。
+///
+/// `op` 必须是服务端白名单里的名字（见 `service_win::dispatch`），`args` 是它的参数。
+/// UAC 那条路走通用子命令 `--privileged-op <op> --args <json> --out <file>`，因此
+/// **两条路跑的是同一份 dispatch** —— 「走服务时成功、弹授权就报参数错」这类漂移
+/// 从结构上就不可能出现。
+///
+/// 返回的是「本该写进 `--out` 的那段 JSON 文本」，由调用方自己解析（`{"ok":true,…}`
+/// 或 `{"ok":false,"error":…}`）。为什么不让这里统一解析：每条 op 的返回体字段不同，
+/// 在这一层收窄成 `Result<String, String>` 会把「op 自己判定的失败」压成和传输失败
+/// 一样的错误，调用方就没法区分「服务没装」和「固件拒绝写入」。
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+pub(crate) fn run_op(op: &str, args: serde_json::Value) -> Result<String, String> {
+    let out_path = result_file_path(op);
+    let args_json =
+        serde_json::to_string(&args).map_err(|error| format!("参数序列化失败：{error}"))?;
+    let fallback = vec![
+        "--privileged-op".to_string(),
+        op.to_string(),
+        "--args".to_string(),
+        args_json,
+        "--out".to_string(),
+        out_path.to_string_lossy().to_string(),
+    ];
+    run_privileged_op(op, args, &fallback, &out_path)?;
+    std::fs::read_to_string(&out_path)
+        .map_err(|error| format!("特权操作跑完了但结果文件读不到：{error}"))
 }
 
 #[cfg(target_os = "windows")]

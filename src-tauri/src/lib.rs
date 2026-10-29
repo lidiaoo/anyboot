@@ -607,9 +607,43 @@ pub fn service_status_main() -> i32 {
     }
 }
 
-/// 「提权重扫」（OpenCore 预演，Windows/Linux）：弹一次授权，用本程序自身跑
-/// APFS Preboot 扫描，结果缓存在进程里供预演重建使用。
+/// `--privileged-op <op> --args <json> --out <file>`：**通用**提权子命令。
 ///
+/// 内部直接复用 `service_win::dispatch` —— 于是「常驻服务」与「弹一次授权」两条
+/// 提权路跑的是同一份 op 实现，参数校验、错误文案、返回体形状全部一致。加一个新
+/// 的可提权能力只需要在 dispatch 里加一条 match 臂，不必再写一条 argv 分支。
+///
+/// 只在 Windows 存在：macOS 走 launchd 免密助手（`--run-inbox`），Linux 走 pkexec
+/// 的专用子命令，各自有自己的通道。
+pub fn privileged_op_main(op: &str, args_json: &str, out_path: &str) -> i32 {
+    #[cfg(target_os = "windows")]
+    {
+        let args: serde_json::Value = match serde_json::from_str(args_json) {
+            Ok(value) => value,
+            Err(error) => {
+                eprintln!("--args 不是合法 JSON：{error}");
+                return 2;
+            }
+        };
+        let request = serde_json::json!({ "v": 1, "op": op, "args": args });
+        match service_win::dispatch(&request) {
+            Ok(body) => channels::write_result_file(out_path, &body),
+            Err(error) => {
+                eprintln!("{error}");
+                2
+            }
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (op, args_json, out_path);
+        eprintln!("这个平台没有 --privileged-op（各平台走自己的提权通道）");
+        2
+    }
+}
+
+/// 「提权重扫」（OpenCore 预演，Windows/Linux）：弹一次授权，用本程序自身跑
+/// APFS Preboot 扫描，结果缓存在进程里供预演重建使用。///
 /// **必须 async**：Windows 的 ShellExecuteExW 会同步等 UAC 对话框（用户可能想
 /// 一会儿再点），同步命令会卡死整个界面 —— blocking_guard 的守卫不是摆设。
 #[cfg(not(target_os = "macos"))]

@@ -434,15 +434,10 @@ pub(crate) fn set_default_json(target: &str, esp: Option<&str>) -> Result<String
     // 「没提权」同症状，会被误诊成「OC 没写过槽」（真机踩过：OCBt0080 明明在）。
     let _ = super::nvram::enable_system_environment_privilege();
     let message = (|| -> Result<String, String> {
-        let esp_root = esp
-            .map(PathBuf::from)
-            .filter(|root| super::has_channel_signature(root))
-            .or_else(|| {
-                super::candidate_roots()
-                    .into_iter()
-                    .find(|root| super::has_channel_signature(root))
-            })
-            .ok_or_else(|| "没有找到可用的 ESP（三条通道都需要它）".to_string())?;
+        // 路径解析统一走 resolve_esp_root_arg：它除了「要有通道签名」，在 Windows
+        // 上还要求必须是卷根 —— `esp` 是特权请求里唯一的路径参数，宽松处理就等于
+        // 让调用方指定 SYSTEM 往哪个目录写。
+        let esp_root = super::resolve_esp_root_arg(esp)?;
         set_default(&esp_root, target)
     })();
     // 顺手把启动变量全量 dump 一遍带给父进程：它没有管理员权限，读不到

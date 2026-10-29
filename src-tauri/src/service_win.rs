@@ -27,7 +27,10 @@
 //!
 //! # 授权边界（这段是设计，不是「暂时」）
 //!
-//! - **op 白名单只有 5 个**，写死在 [`dispatch`] 里；不接受任意命令行、不执行 shell。
+//! - **op 白名单只有 9 个**（读 / 写固件变量、设 OC 默认项、GRUB 探测与写 grubenv、
+//!   systemd-boot one-shot、注册固件启动项、给 ESP 分配盘符），写死在 [`dispatch`]
+//!   里；不接受任意命令行、不执行 shell。**这也是 `--privileged-op` 子命令的实现**，
+//!   所以「走服务」和「弹 UAC 兜底」跑的是同一份代码。
 //! - `linux_grub_write` 的 `rel` 只认 `boot/grub{,2}/grubenv` 两个常量，不接受任意
 //!   路径 —— 否则「写 1024 字节」就变成「能改 ext4 里任意文件的前 1024 字节」。
 //! - 请求里没有「读/写哪块盘」的自由：分区由服务自己按分区表枚举。
@@ -48,7 +51,7 @@
 
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock};
 
 use serde_json::{json, Value};
@@ -84,6 +87,8 @@ const ERR_PIPE_CONNECTED: u32 = 535;
 const ERR_SERVICE_DOES_NOT_EXIST: u32 = 1060;
 const ERR_SERVICE_EXISTS: u32 = 1073;
 const ERR_SERVICE_ALREADY_RUNNING: u32 = 1056;
+/// 服务已标记删除（`DeleteService` 之后、SCM 真正移除之前）。
+const ERR_SERVICE_MARKED_FOR_DELETE: u32 = 1072;
 
 const SC_MANAGER_CONNECT: u32 = 0x0001;
 const SC_MANAGER_CREATE_SERVICE: u32 = 0x0002;
@@ -173,6 +178,25 @@ fn log_installer_result(tag: &str, result: &Result<String, String>) {
 /// 停止标志。控制处理函数（SCM 线程）写，管道线程读。
 static STOP: OnceLock<Arc<AtomicBool>> = OnceLock::new();
 
+/// 正在处理中的请求数。停止服务时要等它们跑完再报 STOPPED ——
+/// 半途把一个正在写 NVRAM / 写 ESP 的请求砍断，比「多等半秒」糟得多。
+static INFLIGHT: AtomicUsize = AtomicUsize::new(0);
+
+/// 归零计数用：**用 Drop 而不是在末尾手动减**，否则一个 panic 就把计数永久顶住，
+/// 之后每次停服务都要白等满 5 秒。
+struct InflightGuard;
+impl InflightGuard {
+    fn enter() -> Self {
+        INFLIGHT.fetch_add(1, Ordering::Relaxed);
+        InflightGuard
+    }
+}
+impl Drop for InflightGuard {
+    fn drop(&mut self) {
+        INFLIGHT.fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
 /// `--run-service` 子命令：进 SCM 分发器，**绝不能**再往下走到 Tauri
 /// （那会开窗口、抢单实例锁、监听端口，服务里全是灾难）。
 pub(crate) fn run_service() -> i32 {
@@ -214,6 +238,12 @@ unsafe extern "system" fn service_main(_argc: u32, _argv: *mut *mut u16) {
         std::thread::sleep(std::time::Duration::from_millis(200));
     }
     log_line("service stopping");
+    // 等处理中的请求跑完再报 STOPPED（最多 5 秒）：切系统这类写入被半途砍断，
+    // 留下的是「NVRAM 写了一半」或「state.json 与固件不一致」，比慢一点严重得多。
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while INFLIGHT.load(Ordering::Relaxed) > 0 && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
     report(handle, SERVICE_STOPPED, 0);
 }
 
@@ -238,35 +268,53 @@ unsafe fn report(handle: HANDLE, state: u32, wait_hint: u32) {
     unsafe { SetServiceStatus(handle, &mut status) };
 }
 
+/// 接受连接的主循环：**连上就交给独立线程，自己立刻回去等下一个**。
+///
+/// 曾经的写法是 `handle_client(pipe)` 同步跑完再 accept 下一个 —— 于是服务是串行的：
+/// 一次 APFS 扫描（十块盘，冷缓存十几秒）期间，任何并发请求都撞上 `ERROR_PIPE_BUSY`；
+/// 客户端那边只等 5 秒，等不到就报「特权服务忙」且**不回退 UAC**（那是 `Failed` 不是
+/// `Unavailable`）。现在「切系统」这种必须秒回的操作和「扫描」这种慢操作能并存了。
+///
+/// 停止服务时不 join 这些线程：`service_main` 报完 STOPPED 就返回，进程退出把它们
+/// 一起带走；在此之前 `INFLIGHT` 那道闸已经保证没有写到一半的请求。
 fn serve_loop(stop: Arc<AtomicBool>) {
     while !stop.load(Ordering::Relaxed) {
-        match create_pipe_instance() {
-            Ok(pipe) => {
-                // 阻塞到有客户端连上。服务停止时这个线程会被进程退出带走，
-                // 不需要为了「优雅退出」引入 overlapped IO。
-                let connected = unsafe { ConnectNamedPipe(pipe, std::ptr::null_mut()) };
-                if connected == 0 {
-                    let code = unsafe { GetLastError() };
-                    if code != ERR_PIPE_CONNECTED {
-                        log_line(&format!("ConnectNamedPipe failed: {code}"));
-                        unsafe {
-                            CloseHandle(pipe);
-                        }
-                        continue;
-                    }
-                }
-                handle_client(pipe);
-                unsafe {
-                    DisconnectNamedPipe(pipe);
-                    CloseHandle(pipe);
-                }
-            }
+        let pipe = match create_pipe_instance() {
+            Ok(pipe) => pipe,
             Err(error) => {
                 // 拿不到管道（极少见：句柄耗尽）。别空转把 CPU 打满。
                 log_line(&format!("create pipe failed: {error}"));
                 std::thread::sleep(std::time::Duration::from_secs(1));
+                continue;
+            }
+        };
+        // 在这里（而不是工作线程里）等连接：一个实例只服务一个客户端，等连接占住
+        // 主循环没关系（下一个实例建出来就有了并行度）；反过来「先 spawn 再等连接」
+        // 会在没有客户端时无限堆线程。
+        let connected = unsafe { ConnectNamedPipe(pipe, std::ptr::null_mut()) };
+        if connected == 0 {
+            let code = unsafe { GetLastError() };
+            if code != ERR_PIPE_CONNECTED {
+                log_line(&format!("ConnectNamedPipe failed: {code}"));
+                unsafe { CloseHandle(pipe) };
+                continue;
             }
         }
+        // 句柄以 `usize` 形式搬进线程：`HANDLE` 是裸指针、没有 `Send`，而闭包的
+        // 精确捕获会直接抓到那个字段（连包裹类型都救不了）。转成整数只是绕过
+        // 类型系统这道闸，语义上没问题 —— 管道句柄是内核对象，在哪个线程用都行。
+        let raw = pipe as usize;
+        std::thread::spawn(move || {
+            let pipe = raw as HANDLE;
+            let guard = InflightGuard::enter();
+            handle_client(pipe);
+            // 先归零再断开：断开那一刻已经不需要再拦停服务了
+            drop(guard);
+            unsafe {
+                DisconnectNamedPipe(pipe);
+                CloseHandle(pipe);
+            }
+        });
     }
 }
 
@@ -375,13 +423,20 @@ fn handle_client(pipe: HANDLE) {
     // 本程序）就永远传不回去 —— 安全拒绝路径上最不该丢的就是原因。
     let reply = match read_request(pipe) {
         Ok(text) => match caller_is_our_exe(pipe) {
-            Err(reason) => json!({ "ok": false, "error": reason }),
+            // 带上 code：调用方不是「安装目录里那份」（便携副本、旧副本）是
+            // **可用性问题**，不是操作失败 —— 客户端要据此改走 UAC 兜底，
+            // 否则「本机装了服务」反而把便携版的特权操作全堵死。
+            Err(reason) => json!({ "ok": false, "code": CODE_NOT_OUR_EXE, "error": reason }),
             Ok(()) => match serde_json::from_str::<Value>(&text) {
                 Ok(request) => match dispatch(&request) {
                     Ok(body) => json!({ "ok": true, "body": body }),
                     Err(error) => {
                         log_line(&format!("op failed: {error}"));
-                        json!({ "ok": false, "error": error })
+                        let mut reply = json!({ "ok": false, "error": error });
+                        if error.starts_with(UNKNOWN_OP_PREFIX) {
+                            reply["code"] = json!(CODE_UNKNOWN_OP);
+                        }
+                        reply
                     }
                 },
                 Err(error) => json!({ "ok": false, "error": format!("请求不是合法 JSON：{error}") }),
@@ -441,7 +496,10 @@ fn same_path(left: &str, right: &str) -> bool {
 
 /// op 白名单。**新增能力只能加在这里**，不要开放「任意命令行」——
 /// 那就等于给同用户一个 SYSTEM shell。
-fn dispatch(request: &Value) -> Result<String, String> {
+///
+/// 也是「弹 UAC 那条路」的同一份实现：`--privileged-op` 子命令直接调本函数，
+/// 所以服务与兜底两条路的语义永远一致（参数校验、错误文案、返回体形状）。
+pub(crate) fn dispatch(request: &Value) -> Result<String, String> {
     let op = request
         .get("op")
         .and_then(Value::as_str)
@@ -452,6 +510,14 @@ fn dispatch(request: &Value) -> Result<String, String> {
             .and_then(Value::as_str)
             .map(str::to_string)
             .ok_or_else(|| format!("{op} 缺少参数 {name}"))
+    };
+    // 数字参数一律走 JSON number：字符串数字会被 serde 当成 `null`，这里不接受
+    // 「看起来像数字的字符串」—— 少一条隐式转换就少一种歧义。
+    let num_arg = |name: &str| -> Result<u32, String> {
+        args.get(name)
+            .and_then(Value::as_u64)
+            .and_then(|value| u32::try_from(value).ok())
+            .ok_or_else(|| format!("{op} 缺少数字参数 {name}"))
     };
     match op {
         "apfs_scan" => crate::channels::apfs_reader::privileged_scan_json(),
@@ -477,9 +543,52 @@ fn dispatch(request: &Value) -> Result<String, String> {
             let bytes = hex::decode(&payload_hex).map_err(|error| format!("payload 不是合法 hex：{error}"))?;
             crate::channels::linux_grub::write_child_json(&dev, &rel, &bytes)
         }
-        other => Err(format!("不认识的操作 {other}（白名单只有 5 个）")),
+        // ── 固件启动项写入 ───────────────────────────────────────────────
+        // 为什么放在白名单里：「下次启动进 OpenCore」「注册固件启动项」是远程
+        // **最常用**的动作，而写 Boot* 的天生门槛就是管理员令牌。参数一律收
+        // 「通道名 / 注册方式 / 条目 id」，不收变量名也不收原始字节 —— 服务端自己
+        // 按分区与分区表算出该写什么。
+        "nvram_boot_next" => {
+            let channel = text_arg("channel")?;
+            crate::channels::opencore::boot_next_json(&channel, args.get("esp").and_then(Value::as_str))
+        }
+        "nvram_register_boot" => {
+            let mode = args.get("mode").and_then(Value::as_str).unwrap_or("");
+            crate::channels::opencore::register_boot_entry_json(
+                mode,
+                args.get("esp").and_then(Value::as_str),
+            )
+        }
+        "sdboot_one_shot" => {
+            let entry = text_arg("entry")?;
+            crate::channels::sdboot::one_shot_json(args.get("esp").and_then(Value::as_str), &entry)
+        }
+        // ── 给 ESP 分配盘符 ─────────────────────────────────────────────
+        // 只收两个数字：磁盘号、分区号。脚本由服务端拼，调用方碰不到命令行。
+        "esp_assign_letter" => {
+            let disk = num_arg("disk")?;
+            let partition = num_arg("partition")?;
+            crate::channels::win_esp::assign_letter_json(disk, partition)
+        }
+        other => Err(format!("{UNKNOWN_OP_PREFIX} {other}（白名单只有 9 个）")),
     }
 }
+
+/// 「这个 op 我不认识」的固定前缀。
+///
+/// 它不只用来写错误文案：**升级期的版本错配全靠它识别**。装了新程序、服务却还是
+/// 老进程（升级后没重启）时，服务会回这一条；客户端据此改判成「服务不可用」→
+/// 走 UAC 兜底，而不是硬失败。所以这条文案是协议的一部分，别随手改字。
+const UNKNOWN_OP_PREFIX: &str = "不认识的操作";
+
+/// 应答里的 `code`：**这个服务帮不了你，请换条路**（客户端据此回退 UAC）。
+///
+/// 两种都算「可用性问题」，绝不能当 `Failed`：
+/// * `unknown_op`：服务是旧版本（升级后没重启），不认识新 op；
+/// * `not_our_exe`：调用方不是安装目录里那份（便携副本）。若不回退，
+///   「本机装了服务」反而会让便携版的每一个特权操作都报「拒绝执行」。
+const CODE_UNKNOWN_OP: &str = "unknown_op";
+const CODE_NOT_OUR_EXE: &str = "not_our_exe";
 
 // ─────────────────────────────── 客户端 ───────────────────────────────
 
@@ -602,23 +711,37 @@ fn round_trip(request: &Value) -> ServiceCall {
     unsafe { CloseHandle(handle) };
 
     let text = String::from_utf8_lossy(&raw);
-    let Ok(reply) = serde_json::from_str::<Value>(text.trim()) else {
+    classify_reply(text.trim())
+}
+
+/// 把服务的应答文本分类成 [`ServiceCall`]（弄成纯函数是为了能单测 ——
+/// 「旧服务不认识新 op」这条版本错配契约必须有测试钉住）。
+fn classify_reply(text: &str) -> ServiceCall {
+    let Ok(reply) = serde_json::from_str::<Value>(text) else {
         return ServiceCall::Failed("特权服务回了非 JSON 应答".to_string());
     };
     if reply.get("ok").and_then(Value::as_bool) == Some(true) {
-        match reply.get("body").and_then(Value::as_str) {
+        return match reply.get("body").and_then(Value::as_str) {
             Some(body) => ServiceCall::Ok(body.to_string()),
             None => ServiceCall::Failed("特权服务应答缺少 body".to_string()),
-        }
-    } else {
-        ServiceCall::Failed(
-            reply
-                .get("error")
-                .and_then(Value::as_str)
-                .unwrap_or("特权服务没说原因")
-                .to_string(),
-        )
+        };
     }
+    // 版本错配 / 调用方不是安装副本：都当成「不可用」而不是「失败」——
+    // 否则新程序 + 旧服务、或便携版 + 已装服务，会表现成「操作直接报错且
+    // 不弹授权」，用户完全没有出路。
+    let code = reply.get("code").and_then(Value::as_str).unwrap_or("");
+    let message = reply.get("error").and_then(Value::as_str).unwrap_or("");
+    if code == CODE_UNKNOWN_OP || message.starts_with(UNKNOWN_OP_PREFIX) {
+        return ServiceCall::Unavailable(format!("特权服务是旧版本（{message}），改用授权弹窗"));
+    }
+    if code == CODE_NOT_OUR_EXE {
+        return ServiceCall::Unavailable(format!("{message}；改用授权弹窗"));
+    }
+    ServiceCall::Failed(if message.is_empty() {
+        "特权服务没说原因".to_string()
+    } else {
+        message.to_string()
+    })
 }
 
 // ─────────────────────────── 安装 / 卸载 / 状态 ───────────────────────────
@@ -758,6 +881,7 @@ fn install_inner() -> Result<String, String> {
         )
     };
     let mut created = true;
+    let mut recreate_code = 0u32;
     if service.is_null() {
         let code = unsafe { GetLastError() };
         if code != ERR_SERVICE_EXISTS {
@@ -777,27 +901,10 @@ fn install_inner() -> Result<String, String> {
         stop_service(service);
         unsafe { DeleteService(service) };
         unsafe { CloseServiceHandle(service) };
-        service = unsafe {
-            CreateServiceW(
-                manager,
-                name.as_ptr(),
-                display.as_ptr(),
-                SERVICE_ALL_ACCESS,
-                SERVICE_WIN32_OWN_PROCESS,
-                SERVICE_AUTO_START,
-                SERVICE_ERROR_NORMAL,
-                bin.as_ptr(),
-                std::ptr::null(),
-                std::ptr::null_mut(),
-                std::ptr::null(),
-                std::ptr::null(),
-                std::ptr::null(),
-            )
-        };
+        service = recreate_service(manager, name.as_ptr(), display.as_ptr(), bin.as_ptr(), &mut recreate_code);
         if service.is_null() {
-            let code = unsafe { GetLastError() };
             unsafe { CloseServiceHandle(manager) };
-            return Err(format!("重建服务失败（{code}）：服务可能还在停止过程中，稍等重试"));
+            return Err(install_error(recreate_code));
         }
     }
 
@@ -857,8 +964,56 @@ fn install_inner() -> Result<String, String> {
 fn install_error(code: u32) -> String {
     match code {
         ERR_ACCESS_DENIED => "拒绝访问：要以管理员身份运行 --install-service".to_string(),
+        ERR_SERVICE_MARKED_FOR_DELETE => {
+            "服务已标记删除但还没被 SCM 真正移除（刚才的卸载/升级还没走完）。\
+             过几秒重跑一次 --install-service，或用重启系统收尾"
+                .to_string()
+        }
         _ => format!("注册服务失败（{code}）"),
     }
+}
+
+/// 重建服务（升级路径）：`DeleteService` 是**异步**的 —— SCM 要等所有句柄关闭才
+/// 真正移除对象，紧接着 `CreateService` 会吃到 1072（已标记删除）。
+///
+/// 这段重试不是「保险起见」：升级时安装器必须重建服务才能换掉 binPath 里旧的
+/// 绝对路径，而安装器那边是 `Return="ignore"`（装不上不阻断安装）。一次 1072
+/// 就等于「升级完免 UAC 静默失效，日志里只有一个错误码」—— 真机上最难查的那类。
+fn recreate_service(
+    manager: HANDLE,
+    name: *const u16,
+    display: *const u16,
+    bin: *const u16,
+    last_code: &mut u32,
+) -> HANDLE {
+    for attempt in 0..20 {
+        let handle = unsafe {
+            CreateServiceW(
+                manager,
+                name,
+                display,
+                SERVICE_ALL_ACCESS,
+                SERVICE_WIN32_OWN_PROCESS,
+                SERVICE_AUTO_START,
+                SERVICE_ERROR_NORMAL,
+                bin,
+                std::ptr::null(),
+                std::ptr::null_mut(),
+                std::ptr::null(),
+                std::ptr::null(),
+                std::ptr::null(),
+            )
+        };
+        if !handle.is_null() {
+            return handle;
+        }
+        *last_code = unsafe { GetLastError() };
+        if *last_code != ERR_SERVICE_MARKED_FOR_DELETE || attempt == 19 {
+            return std::ptr::null_mut();
+        }
+        std::thread::sleep(std::time::Duration::from_millis(150));
+    }
+    std::ptr::null_mut()
 }
 
 fn stop_service(service: HANDLE) -> bool {
@@ -939,6 +1094,66 @@ fn uninstall_inner() -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 每个新 op 的**参数校验都必须在碰硬件之前**发生：这些用例在开发机
+    /// （没有固件写权限、没有 ESP）上跑得通，正是因为非法输入先被拒了。
+    /// 反过来说，哪天真让 `nvram_boot_next` 拿坏参数去写 NVRAM，这几条会
+    /// 直接红掉 —— 那正是我们想要的报警方式。
+    #[test]
+    fn dispatch_rejects_bad_arguments_before_touching_hardware() {
+        // 通道名是枚举，不认「别的引导器」
+        let error = dispatch(&json!({ "op": "nvram_boot_next", "args": { "channel": "grub" } }))
+            .unwrap_err();
+        assert!(error.contains("不认识的通道"), "{error}");
+        // 注册方式同理
+        let error = dispatch(&json!({ "op": "nvram_register_boot", "args": { "mode": "always" } }))
+            .unwrap_err();
+        assert!(error.contains("不认识的注册方式"), "{error}");
+        // one-shot 的条目 id 不能为空
+        let error =
+            dispatch(&json!({ "op": "sdboot_one_shot", "args": { "entry": "  " } })).unwrap_err();
+        assert!(error.contains("缺少条目 id"), "{error}");
+        // 盘符分配的磁盘号必须是 JSON 数字：「2」这种字符串不接受
+        let error = dispatch(&json!({
+            "op": "esp_assign_letter",
+            "args": { "disk": "2", "partition": 1 }
+        }))
+        .unwrap_err();
+        assert!(error.contains("缺少数字参数 disk"), "{error}");
+        let error =
+            dispatch(&json!({ "op": "esp_assign_letter", "args": { "disk": 2 } })).unwrap_err();
+        assert!(error.contains("缺少数字参数 partition"), "{error}");
+    }
+
+    /// 升级期的版本错配契约：旧服务回「不认识的操作」时，客户端必须判成
+    /// **可用性问题**（→ 回退 UAC），而不是「操作失败」（→ 直接报错、不给退路）。
+    /// 这条一旦写错，用户装了新版本却什么特权操作都做不了，还看不到原因。
+    #[test]
+    fn unknown_op_from_old_service_degrades_to_unavailable() {
+        let old_service = r#"{"ok":false,"error":"不认识的操作 nvram_boot_next（白名单只有 5 个）"}"#;
+        match classify_reply(old_service) {
+            ServiceCall::Unavailable(why) => assert!(why.contains("旧版本"), "{why}"),
+            ServiceCall::Failed(why) => panic!("旧服务被当成硬失败：{why}"),
+            ServiceCall::Ok(_) => panic!("不该成功"),
+        }
+        // 真正的业务失败仍然是 Failed（不能顺手把它也降级成「换条路」，
+        // 否则同一个错误会被弹两次授权再报一次）
+        match classify_reply(r#"{"ok":false,"error":"固件拒绝写入"}"#) {
+            ServiceCall::Failed(why) => assert_eq!(why, "固件拒绝写入"),
+            _ => panic!("业务失败被误判成可用性问题"),
+        }
+        match classify_reply(r#"{"ok":true,"body":"{\"ok\":true}"}"#) {
+            ServiceCall::Ok(body) => assert!(body.contains("\"ok\":true")),
+            _ => panic!("正常应答没解出来"),
+        }
+        // 便携副本调用已安装的服务：必须回退 UAC，不能硬失败
+        match classify_reply(
+            r#"{"ok":false,"code":"not_our_exe","error":"调用方不是本程序的安装副本"}"#,
+        ) {
+            ServiceCall::Unavailable(why) => assert!(why.contains("改用授权弹窗"), "{why}"),
+            _ => panic!("便携副本被服务拒了却没有退路"),
+        }
+    }
 
     /// 白名单之外的操作必须被拒 —— 这是「不给 SYSTEM shell」的唯一闸门。
     #[test]

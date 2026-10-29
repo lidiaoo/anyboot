@@ -165,6 +165,39 @@ fn has_channel_signature(root: &Path) -> bool {
         || grub_rel(root, "EFI/CLOVER/CLOVERX64.efi").is_file()
 }
 
+/// 解析「这次特权操作作用于哪块 ESP」：优先用调用方点名的那块（**必须真的带通道
+/// 签名**），拿不到才按候选列表挑第一块带签名的。
+///
+/// 为什么特权路径上必须过这一关：`esp` 是请求里唯一一个「路径」形态的参数，而
+/// 特权进程（SYSTEM 服务 / 提权子进程）会往它下面写 `EFI/anyboot/...` 与 NVRAM
+/// 备份。不校验的话，一个路径参数就成了「让 SYSTEM 在任意目录建文件」。签名校验
+/// 把可写范围压回「确实装过引导器的卷」；Windows 上再叠一条「必须是卷根」
+/// （见 [`esp_root_is_volume_root`]），因为那里的 ESP 根永远是 `X:\` 这种形状。
+pub(crate) fn resolve_esp_root_arg(esp: Option<&str>) -> Result<PathBuf, String> {
+    let root = esp
+        .map(PathBuf::from)
+        .filter(|root| has_channel_signature(root))
+        .or_else(|| candidate_roots().into_iter().find(|root| has_channel_signature(root)))
+        .ok_or_else(|| "没有找到可用的 ESP（三条通道都需要它）".to_string())?;
+    #[cfg(target_os = "windows")]
+    if !esp_root_is_volume_root(&root) {
+        return Err(format!(
+            "只接受卷根形态的 ESP 路径（{}），不接受它下面的子目录",
+            root.display()
+        ));
+    }
+    Ok(root)
+}
+
+/// ESP 根在 Windows 上必须是卷根（`H:\`）：`H:\EFI` 这种子目录不是「一块 ESP」，
+/// 拿它当根会让 `EFI/anyboot/...` 落到 `H:\EFI\EFI\anyboot\...`，而且更糟的是
+/// 给了「随便挑个深层目录当根」的可能。
+#[cfg(target_os = "windows")]
+fn esp_root_is_volume_root(root: &Path) -> bool {
+    // `Path::new("H:\\").parent()` 是 None（只有前缀 + 根，没有名字分量）
+    root.parent().is_none() && root.is_absolute()
+}
+
 /// 平台各自的常见挂载点（GRUB 链路没解析出 ESP 时的兜底探测）。
 #[cfg(target_os = "linux")]
 fn candidate_roots() -> Vec<PathBuf> {
@@ -600,6 +633,34 @@ pub(crate) async fn switch_boot_channel(app: AppHandle, target: String) -> AppSt
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 特权路径只接受「卷根」形态的 ESP。放行 `H:\EFI` 这种子目录会让
+    /// `EFI/anyboot/...` 落成 `H:\EFI\EFI\anyboot\...`，更糟的是把「随便挑个
+    /// 深层目录当根」变成了可能 —— 而写它的是 SYSTEM。
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn esp_root_must_be_a_volume_root() {
+        assert!(esp_root_is_volume_root(Path::new(r"H:\")));
+        assert!(esp_root_is_volume_root(Path::new(r"C:\")));
+        assert!(!esp_root_is_volume_root(Path::new(r"H:\EFI")));
+        assert!(!esp_root_is_volume_root(Path::new(r"H:\EFI\OC")));
+        // 盘符相对路径（`H:`）既不是绝对路径也不是卷根
+        assert!(!esp_root_is_volume_root(Path::new(r"H:")));
+    }
+
+    /// 找不到带通道签名的 ESP 时，**绝不能**把调用方点名的那个路径当结果用：
+    /// `esp` 是特权请求里唯一的路径参数，宽松处理等于让调用方指定写哪儿。
+    ///
+    /// 注意这里不能断言「一定报错」：本机真有一块带签名的 ESP 时会退回到它，
+    /// 那是对的（候选列表从来是可信来源）。要钉住的是「点名 + 无签名 → 不用它」。
+    #[test]
+    fn resolve_esp_root_never_trusts_an_unsigned_path() {
+        let missing = std::env::temp_dir().join("anyboot-no-such-esp");
+        match resolve_esp_root_arg(Some(&missing.to_string_lossy())) {
+            Ok(root) => assert_ne!(root, missing, "不该把没有通道签名的路径当 ESP 根"),
+            Err(error) => assert!(error.contains("没有找到可用的 ESP"), "{error}"),
+        }
+    }
 
     #[test]
     fn switch_spec_parsing() {

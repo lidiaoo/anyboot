@@ -331,6 +331,16 @@ fn upsert(
 /// `mode=full` → 插到 BootOrder 最前（抢默认启动）；缺省 / `short` → 追加到末尾
 /// （固件启动菜单里能看到它，但默认启动项仍由 AnyBoot 决定）。
 pub(crate) fn register_boot_entry(esp_root: &Path, mode: &str) -> Result<String, String> {
+    // 没有固件写权限时**先别试**：读不到 BootOrder / Boot#### 会得出「一个都没注册」，
+    // 于是新建一个槽、写到一半被拒 —— 用户看到一条莫名其妙的失败。交给特权侧做同一件事。
+    #[cfg(target_os = "windows")]
+    if !can_touch_firmware() {
+        return register_boot_entry_elevated(esp_root, mode);
+    }
+    register_boot_entry_direct(esp_root, mode)
+}
+
+fn register_boot_entry_direct(esp_root: &Path, mode: &str) -> Result<String, String> {
     if !nvram::can_write_boot_vars() {
         return Err(
             "本系统不允许用户态写 NVRAM 的 Boot* 变量（macOS 的 EFI 运行时白名单，管理员权限也一样），\
@@ -403,6 +413,68 @@ pub(crate) fn register_boot_entry(esp_root: &Path, mode: &str) -> Result<String,
     ))
 }
 
+/// 「修复并注册」的提权版：服务优先，服务不可用才弹一次授权。
+#[cfg(target_os = "windows")]
+fn register_boot_entry_elevated(esp_root: &Path, mode: &str) -> Result<String, String> {
+    let body = super::elevate::run_op(
+        "nvram_register_boot",
+        serde_json::json!({
+            "mode": mode,
+            "esp": esp_root.to_string_lossy(),
+        }),
+    )?;
+    let reply: MessageReply = serde_json::from_str(&body)
+        .map_err(|error| format!("特权侧返回的不是合法 JSON：{error}"))?;
+    reply.into_result("提权写固件启动项失败")
+}
+
+/// 只认 `full` / `short` / 空（空 = 追加到末尾）。放行任意字符串的话，
+/// 「注册方式」就成了一个能写进固件的自由输入。
+fn normalize_register_mode(mode: &str) -> Result<String, String> {
+    match mode.trim().to_ascii_lowercase().as_str() {
+        "" | "short" => Ok("short".to_string()),
+        "full" => Ok("full".to_string()),
+        other => Err(format!(
+            "不认识的注册方式 {other}（只接受 full / short）"
+        )),
+    }
+}
+
+/// 跑一次「写固件启动项」并序列化成 JSON 文本（服务与提权子进程共用）。
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+pub(crate) fn register_boot_entry_json(mode: &str, esp: Option<&str>) -> Result<String, String> {
+    let mode = normalize_register_mode(mode)?;
+    let _ = nvram::enable_system_environment_privilege();
+    let payload = match super::resolve_esp_root_arg(esp)
+        .and_then(|root| register_boot_entry_direct(&root, &mode))
+    {
+        Ok(message) => serde_json::json!({ "ok": true, "message": message }),
+        Err(error) => serde_json::json!({ "ok": false, "error": error }),
+    };
+    serde_json::to_string(&payload).map_err(|error| format!("序列化结果失败：{error}"))
+}
+
+/// `{ ok, message | error }` —— 只回一句话的特权 op 共用。
+#[derive(serde::Deserialize)]
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+pub(crate) struct MessageReply {
+    ok: bool,
+    #[serde(default)]
+    message: Option<String>,
+    #[serde(default)]
+    error: Option<String>,
+}
+
+impl MessageReply {
+    pub(crate) fn into_result(self, fallback: &str) -> Result<String, String> {
+        if self.ok {
+            Ok(self.message.unwrap_or_else(|| fallback.to_string()))
+        } else {
+            Err(self.error.unwrap_or_else(|| format!("{fallback}（没给原因）")))
+        }
+    }
+}
+
 /// 「修复并注册」的统一入口。
 ///
 /// 顺序是「先动手、再改配置」：能直接写进固件就立刻生效（卡片当场变绿）；
@@ -411,6 +483,10 @@ pub(crate) fn register_boot_entry(esp_root: &Path, mode: &str) -> Result<String,
 pub(crate) fn register(esp_root: &Path, mode: &str) -> Result<String, String> {
     match register_boot_entry(esp_root, mode) {
         Ok(message) => Ok(message),
+        // 用户明确拒绝了授权 → **不要**「那就改配置吧」。在没得到同意的前提下动
+        // ESP 上的 config.plist 是另一件事，而且很可能是他不想要的；如实报出来，
+        // 让他自己决定要不要再来一次。
+        Err(error) if error.contains("已取消授权") => Err(error),
         Err(error) => {
             let fallback = fix_launcher_option(esp_root, mode)?;
             Ok(format!(
@@ -420,9 +496,42 @@ pub(crate) fn register(esp_root: &Path, mode: &str) -> Result<String, String> {
     }
 }
 
+/// 通道名 → 载入项里的标志片段。**只认这两个**：特权服务的 op 只收通道名，
+/// 不收 marker 字符串 —— marker 参与「哪条 Boot#### 算目标」的判定，让调用方
+/// 随便传等于把匹配规则交给它（服务侧还会据此写固件）。
+pub(crate) fn marker_for(channel: &str) -> Option<&'static str> {
+    match channel {
+        "opencore" => Some(OC_MARKER),
+        "clover" => Some(super::clover::CLOVER_MARKER),
+        _ => None,
+    }
+}
+
+/// 当前进程能不能真的读写固件变量。
+///
+/// **不能只看 `boot_vars_view()`**：管理员令牌里 `SeSystemEnvironmentPrivilege`
+/// 默认是 disabled 状态，不显式启用的话连管理员也读不到，会被误判成「没权限」
+/// 从而白走一趟服务、白弹一次授权。所以先启用再读。
+#[cfg(target_os = "windows")]
+pub(crate) fn can_touch_firmware() -> bool {
+    let _ = nvram::enable_system_environment_privilege();
+    nvram::boot_vars_view() == nvram::BootVarsView::Visible
+}
+
 /// 写 BootNext 指向 `marker`（OC/Clover 共用）对应的启动项。找到 → 写；没找到 →
 /// 报错提示（创建 Boot#### 的 DevicePath 构造在后续版本补，先不赌固件兼容性）。
 pub(crate) fn set_boot_next(esp_root: &Path, marker: &str, channel: &str) -> Result<u16, String> {
+    // Windows 上标准用户进程读写 Boot* 一律 1314：「下次启动进入 OpenCore」
+    // 恰恰是远程最常用的那个操作，所以这里必须走特权服务（服务不在才弹一次授权）。
+    // 这条判断是本文件所有 NVRAM 写的公共前置，别在别处再抄一遍。
+    #[cfg(target_os = "windows")]
+    if !can_touch_firmware() {
+        return set_boot_next_elevated(esp_root, channel);
+    }
+    set_boot_next_direct(esp_root, marker, channel)
+}
+
+fn set_boot_next_direct(esp_root: &Path, marker: &str, channel: &str) -> Result<u16, String> {
     // 先判平台能力：macOS 上写 Boot* 会被系统白名单直接拒绝（root 也一样），
     // 与其写完报 `not permitted`，不如在这里说清原因和替代方案。
     if !nvram::can_write_boot_vars() {
@@ -443,6 +552,56 @@ pub(crate) fn set_boot_next(esp_root: &Path, marker: &str, channel: &str) -> Res
         .map_err(|error| error.message())?;
     update_channel_state(esp_root, channel, &[("bootNext", number.into())])?;
     Ok(number)
+}
+
+/// 「写 BootNext」的提权版：服务优先（常驻、免 UAC），服务不可用才弹一次授权。
+///
+/// 子进程 / 服务跑的是同一个 [`boot_next_direct`]，所以两条路不会出现
+/// 「走服务成功、弹授权报参数错」。
+#[cfg(target_os = "windows")]
+fn set_boot_next_elevated(esp_root: &Path, channel: &str) -> Result<u16, String> {
+    let body = super::elevate::run_op(
+        "nvram_boot_next",
+        serde_json::json!({
+            "channel": channel,
+            "esp": esp_root.to_string_lossy(),
+        }),
+    )?;
+    let reply: BootNextReply = serde_json::from_str(&body)
+        .map_err(|error| format!("特权侧返回的不是合法 JSON：{error}"))?;
+    match (reply.ok, reply.number) {
+        (true, Some(number)) => Ok(number),
+        _ => Err(reply
+            .error
+            .unwrap_or_else(|| "提权写 BootNext 失败（没给原因）".to_string())),
+    }
+}
+
+/// 特权侧的回传体。
+#[derive(serde::Deserialize)]
+struct BootNextReply {
+    ok: bool,
+    #[serde(default)]
+    number: Option<u16>,
+    #[serde(default)]
+    error: Option<String>,
+}
+
+/// 跑一次「写 BootNext」并序列化成 JSON 文本（服务与提权子进程共用）。
+/// 只有 Windows 的特权通道会调它（macOS/Linux 各自直连），其它平台只是编进来备用。
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+pub(crate) fn boot_next_json(channel: &str, esp: Option<&str>) -> Result<String, String> {
+    let marker = marker_for(channel)
+        .ok_or_else(|| format!("不认识的通道 {channel}（只接受 opencore / clover）"))?;
+    // 提权 ≠ 特权已启用，先 adjust 一次（见 can_touch_firmware 的注释）
+    let _ = nvram::enable_system_environment_privilege();
+    let payload = match super::resolve_esp_root_arg(esp)
+        .and_then(|root| set_boot_next_direct(&root, marker, channel))
+    {
+        Ok(number) => serde_json::json!({ "ok": true, "number": number }),
+        Err(error) => serde_json::json!({ "ok": false, "error": error }),
+    };
+    serde_json::to_string(&payload).map_err(|error| format!("序列化结果失败：{error}"))
 }
 
 /// 通用通道状态写盘（EFI/anyboot/<channel>/state.json）。
@@ -663,6 +822,26 @@ pub(crate) fn view(esp_root: &Path) -> ChannelView {
 mod tests {
     use super::*;
     use plist_lite::PlistScalar as Scalar;
+
+    /// 特权 op 只收通道名，不收 marker 字符串 —— 认错一个名字就等于按错误的
+    /// 路径去匹配 Boot####，最后写进固件的是别的引导器。
+    #[test]
+    fn marker_only_for_known_channels() {
+        assert_eq!(marker_for("opencore"), Some(OC_MARKER));
+        assert_eq!(marker_for("clover"), Some(super::super::clover::CLOVER_MARKER));
+        assert_eq!(marker_for("grub"), None);
+        assert_eq!(marker_for(""), None);
+        assert_eq!(marker_for("OpenCore"), None);
+    }
+
+    #[test]
+    fn register_mode_is_enum_not_free_text() {
+        assert_eq!(normalize_register_mode("").unwrap(), "short");
+        assert_eq!(normalize_register_mode("short").unwrap(), "short");
+        assert_eq!(normalize_register_mode(" FULL ").unwrap(), "full");
+        assert!(normalize_register_mode("always").is_err());
+        assert!(normalize_register_mode("disabled").is_err());
+    }
 
     /// 典型「Bootstrap 兜底」配置：LauncherOption=Disabled（OC 不自注册）、
     /// 没有 RequestBootVarRouting 键、WriteFlash=false。

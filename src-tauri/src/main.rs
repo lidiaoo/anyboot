@@ -18,6 +18,25 @@ fn main() {
     if args.iter().any(|arg| arg == "--service-status") {
         std::process::exit(anyboot_lib::service_status_main());
     }
+    // ⓪.1 **通用提权子命令**（Windows）：`--privileged-op <op> --args <json> --out <file>`。
+    //      服务不在时，`elevate::run_op` 会用 ShellExecuteExW(runas) 把本程序以这个
+    //      形式拉起来，而它内部跑的正是服务端那份 `dispatch` —— 两条提权路共用一份
+    //      实现。新增一个可提权操作只需要：dispatch 加一条 match 臂 + 调用方换
+    //      `run_op`，不必再加 argv 分支（下面那几条专用分支是历史形状，保留兼容）。
+    if let Some(pos) = args.iter().position(|arg| arg == "--privileged-op") {
+        let get = |flag: &str| {
+            args.iter()
+                .position(|arg| arg == flag)
+                .and_then(|index| args.get(index + 1))
+                .cloned()
+        };
+        let (Some(op), Some(out)) = (args.get(pos + 1).cloned(), get("--out")) else {
+            eprintln!("用法：anyboot --privileged-op <op> --args <json> --out <结果文件>");
+            std::process::exit(2);
+        };
+        let args_json = get("--args").unwrap_or_else(|| "{}".to_string());
+        std::process::exit(anyboot_lib::privileged_op_main(&op, &args_json, &out));
+    }
     // ⓪ root 助手模式（免密写 NVRAM / 免密读 Linux 分区）：必须排在所有分支最前 ——
     //    装到 /Library 的是本程序的副本，被 launchd 唤起时带 `--run-inbox`，
     //    此时**绝不能**进 Tauri（那会去开窗口、抢单实例锁、监听端口）。

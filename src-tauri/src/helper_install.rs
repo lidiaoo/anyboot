@@ -587,9 +587,16 @@ mod tests {
         let view = view();
         // 这台开发机上没装过：断言「未装」时文案必须点明代价与收益，
         // 因为用户就是靠这句话决定要不要开。
+        //
+        // 只在 macOS 断言文案：那句话（`每次…root 助手`）是 macOS 分支写的，
+        // Windows / Linux 的 `view()` 是「不支持」的桩，文案完全不同 ——
+        // 原来这条断言没加平台门，在 Windows 上一直是红的，红久了就没人看测试了。
         if !view.installed {
-            assert!(view.text.contains("每次"));
-            assert!(view.text.contains("root"));
+            #[cfg(target_os = "macos")]
+            {
+                assert!(view.text.contains("每次"));
+                assert!(view.text.contains("root"));
+            }
         }
         assert_eq!(view.installed, Path::new(HELPER_PATH).is_file() && Path::new(PLIST_PATH).is_file());
     }

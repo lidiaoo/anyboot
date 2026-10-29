@@ -71,41 +71,102 @@ pub(crate) fn list() -> Vec<WinEsp> {
 
 /// 给一块没有盘符的 ESP 分配盘符（`Add-PartitionAccessPath -AssignDriveLetter`）。
 ///
-/// 这一步必须要管理员权限，所以用 `Start-Process -Verb RunAs` 弹一次 UAC。
-/// **新进程的退出码拿不到**，因此不靠返回码判断成败 —— 挂完重新枚举一遍，
-/// 真拿到盘符才算成（与 macOS 用 osascript 提权后回读校验是同一思路）。
-/// 用户点了「否」时枚举不到盘符，如实报出来。
+/// **走统一的提权通道**：特权服务优先（常驻、免 UAC），服务不可用才弹一次授权。
+/// 之前这里是裸 `Start-Process -Verb RunAs`，等于把「ESP 没盘符」这类机器上的
+/// 所有通道动作都锁死在「必须有人守在屏幕前」—— 而挂载恰恰是那些机器的前置条件，
+/// 前置条件卡住，后面全部免谈。
+///
+/// 回读校验保留：盘符是「分配完才能知道结果」的操作，真拿到 `X:\` 才算成。
 #[cfg(target_os = "windows")]
 pub(crate) fn mount(disk: u32, partition: u32) -> Result<String, String> {
-    // 只用两个数字参数拼脚本，不存在引号/注入面
-    let inner = format!(
-        "Add-PartitionAccessPath -DiskNumber {disk} -PartitionNumber {partition} -AssignDriveLetter"
-    );
-    let outer = format!(
-        "Start-Process powershell -Verb RunAs -Wait -ArgumentList '-NoProfile','-NonInteractive','-Command','{inner}'"
-    );
-    let launched = command("powershell")
-        .args(["-NoProfile", "-NonInteractive", "-Command", &outer])
-        .stderr(Stdio::null())
-        .output();
-    if let Err(error) = launched {
-        return Err(format!("无法调用 PowerShell 提权: {error}"));
-    }
-    // 挂载动作可能真的改了分区表（也可能被用户拒绝），先作废缓存再回读 ——
-    // 不作废就会读到 60 秒前那张「还没有盘符」的旧表，回读永远失败
+    let body = super::elevate::run_op(
+        "esp_assign_letter",
+        serde_json::json!({ "disk": disk, "partition": partition }),
+    )?;
+    let reply: LetterReply =
+        serde_json::from_str(&body).map_err(|error| format!("特权侧返回的不是合法 JSON：{error}"))?;
+    // 父进程的分区表也有 60 秒缓存：「还没有盘符」是挂载之前的事实，不作废就永远
+    // 回读失败（哪怕盘符已经真的分配好了）。
     super::partitions::invalidate();
-    // 回读：分配成功的话，这块分区现在应该有盘符了
+    if !reply.ok {
+        return Err(reply
+            .error
+            .unwrap_or_else(|| "分配盘符失败（没给原因）".to_string()));
+    }
     for esp in list() {
         if esp.disk == disk && esp.partition == partition {
             if let Some(root) = esp.root() {
                 return Ok(root.display().to_string());
             }
             return Err(
-                "授权被取消，或系统没能给这块 EFI 分区分配盘符（盘符可能已经用完了）".to_string(),
+                "授权成功但系统没能给这块 EFI 分区分配盘符（盘符可能已经用完了）".to_string(),
             );
         }
     }
     Err("挂载后没再找到这块 EFI 分区：点「重新识别」再看一次".to_string())
+}
+
+/// 特权侧的回传体。
+#[derive(serde::Deserialize)]
+struct LetterReply {
+    ok: bool,
+    #[serde(default)]
+    error: Option<String>,
+}
+
+/// 跑一次「分配盘符」并序列化成 JSON 文本（服务与提权子进程共用）。
+#[cfg(target_os = "windows")]
+pub(crate) fn assign_letter_json(disk: u32, partition: u32) -> Result<String, String> {
+    let payload = match assign_letter_direct(disk, partition) {
+        Ok(root) => serde_json::json!({ "ok": true, "root": root }),
+        Err(error) => serde_json::json!({ "ok": false, "error": error }),
+    };
+    serde_json::to_string(&payload).map_err(|error| format!("序列化结果失败：{error}"))
+}
+
+/// 直接调 `Add-PartitionAccessPath`。**不要再套一层 RunAs**：这条路本身就跑在
+/// 特权服务 / 提权子进程里，里面再 `Start-Process -Verb RunAs` 只会又弹一次 UAC
+/// 然后失败（Session 0 里连弹都弹不出来）。
+#[cfg(target_os = "windows")]
+fn assign_letter_direct(disk: u32, partition: u32) -> Result<String, String> {
+    // 只用两个数字参数拼脚本，不存在引号/注入面
+    let script = format!(
+        "Add-PartitionAccessPath -DiskNumber {disk} -PartitionNumber {partition} -AssignDriveLetter"
+    );
+    let output = command("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .stderr(Stdio::null())
+        .output()
+        .map_err(|error| format!("无法调用 PowerShell 分配盘符：{error}"))?;
+    if !output.status.success() {
+        let detail = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        return Err(if detail.is_empty() {
+            "分配盘符的 PowerShell 返回失败（多半是没有空闲盘符了）".to_string()
+        } else {
+            format!("分配盘符失败：{detail}")
+        });
+    }
+    // 刚刚可能真的改了盘符分配，先作废分区表缓存再回读。
+    // **要重试几次**：`Add-PartitionAccessPath` 返回成功时盘符已经定了，但
+    // `Get-Partition` 反映出来可能晚一拍（卷管理器的挂载通知是异步的）。
+    // 只试一次会把「其实成功了」报成失败，用户照着提示再点一次，又得到
+    // 「这块分区已经有盘符了」—— 最容易让人怀疑程序坏了的那种来回。
+    for attempt in 0..3 {
+        super::partitions::invalidate();
+        for esp in list() {
+            if esp.disk == disk && esp.partition == partition {
+                if let Some(root) = esp.root() {
+                    return Ok(root.display().to_string());
+                }
+            }
+        }
+        if attempt < 2 {
+            std::thread::sleep(std::time::Duration::from_millis(400));
+        }
+    }
+    Err("分配盘符的请求成功了，但重新枚举三次都没看到这块 EFI 分区有盘符\
+         （盘符可能已经用完了；也可能需要点「重新识别」再看一次）"
+        .to_string())
 }
 
 #[cfg(not(target_os = "windows"))]
