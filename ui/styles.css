@@ -2354,10 +2354,19 @@ button.primary-sol:hover:not(:disabled) {
 
 /* 模拟扫描的列表框：**就是** GRUB 区那一个（用户定案 2026-10-29「一比一还原」）——
  * 渲染时直接套 `.grub-list` + `.grub-entry`，样式不在这里另抄一份。
- * 这里只用 ID 提权压掉 GRUB 区因为「挤在固定栏里」才有的那两条规矩 ——
- * 限高 + 内滚动（整页本来就在滚，再套一层只会把展开的第二层藏起来）。
- * 必须用 ID：`body[data-grub-mode="inline"] .grub-list` 的权重比 `.sim-scan .grub-list` 高。 */
-#sim-scan .grub-list,
+ *
+ * 高度也跟着 GRUB 限住、自己滚（用户 08:47：怎么没有滚轮 —— 上一版为了不藏内容
+ * 把限高去掉，35 行全铺开只能靠整页滚，回头找上面几项得滚很远）。
+ * 置顶的「当前项」是 sticky（.is-pinned），在这个滚动容器里滚动时钉在框顶。
+ * 必须用 ID 提权：`body[data-grub-mode="inline"] .grub-list` 的权重比
+ * `.sim-scan .grub-list` 高，普通选择器压不住它。 */
+#sim-scan .grub-list {
+  max-height: min(420px, 60vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* 隐藏项那份在 <details> 里，展开后跟着页面走，不再套第二层内滚动 */
 #sim-scan-hidden .grub-list {
   max-height: none;
   overflow: visible;

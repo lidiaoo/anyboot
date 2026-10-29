@@ -910,6 +910,9 @@ function refindSimEntryNodes(entry, allowPick, { pinned = false } = {}) {
     title: hover,
   });
 
+  // 置顶行在滚动容器里钉住顶部（GRUB 那边 .is-pinned 就这作用），滚多远都在
+  if (pinned) row.classList.add("is-pinned");
+
   if (allowPick && !entry.lastBoot) {
     if (foldable) {
       // 组头整行已是「展开/收起」，写盘只能走右侧小按钮
