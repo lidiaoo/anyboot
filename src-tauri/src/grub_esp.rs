@@ -635,6 +635,15 @@ const DENIED_SOURCE_PREFIXES: &[&str] = &[
 
 /// 写入前的路径闸门（纯判断，好测）。任何一条不过就整条命令失败。
 #[cfg(target_os = "linux")]
+fn is_efivars_var_path(dst: &Path) -> bool {
+    const EFIVARS_DIR: &str = "/sys/firmware/efi/efivars";
+    match dst.parent() {
+        Some(parent) => parent == Path::new(EFIVARS_DIR),
+        None => false,
+    }
+}
+
+#[cfg(target_os = "linux")]
 fn guard_install_paths(src: &Path, dst: &Path) -> Result<(), String> {
     use std::path::Component;
     for path in [src, dst] {
@@ -653,6 +662,13 @@ fn guard_install_paths(src: &Path, dst: &Path) -> Result<(), String> {
     }
     for prefix in DENIED_TARGET_PREFIXES {
         if dst.starts_with(prefix) {
+            // efivarfs 例外：「设为默认」要写 Boot* 固件变量（`/sys/firmware/efi/efivars`
+            // 底下的 `Name-GUID` 文件），这是引导写入的本职工作 —— 没有这条白名单，
+            // 装了免密助手后设默认反而被自己的闸门挡死（pkexec 老路不受此限，所以
+            // 以前没暴露）。只放行 efivars 目录的**直接子文件**，/sys 其余照旧整棵拒。
+            if is_efivars_var_path(dst) {
+                continue;
+            }
             return Err(format!("拒绝写入 {prefix}：助手只写引导相关位置"));
         }
     }
@@ -1579,6 +1595,20 @@ mod guard_tests {
         // ESP 也可能挂在 /mnt、/media、/run/media 下面 —— 这些必须照旧放行
         assert!(ok("/tmp/stage", "/mnt/esp/EFI/OC/config.plist"));
         assert!(ok("/tmp/stage", "/media/jianghh/ESP/EFI/OC/config.plist"));
+    }
+
+    #[test]
+    fn allows_efivars_var_writes_but_not_the_rest_of_sys() {
+        // 「设为默认」写 Boot* 固件变量：efivars 目录的直接子文件放行
+        assert!(ok(
+            "/tmp/anyboot-nvram-stage",
+            "/sys/firmware/efi/efivars/Boot0001-8be4df61-93ca-11d2-aa0d-00e098032b8c"
+        ));
+        // efivars 目录本身、/sys 深处别的路径、efivars 的子目录 —— 一律照旧拒绝
+        assert!(!ok("/tmp/x", "/sys/firmware/efi/efivars"));
+        assert!(!ok("/tmp/x", "/sys/firmware/efi/efivars/sub/x"));
+        assert!(!ok("/tmp/x", "/sys/class/gpio/export"));
+        assert!(!ok("/tmp/x", "/sys/kernel/mm/transparent_hugepage/enabled"));
     }
 
     #[test]

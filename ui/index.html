@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="zh-CN" data-page-node-id="ipKZaEBYXhuMMawECdW3B5">
   <head data-page-node-id="g3yPX9BiTlbOqLdJRkXE1J">
-    <!-- build: 20261021-sol-remote（改动排查标记：web 端 SOL 页远程可用化） -->
+    <!-- build: 20261029-priv-boot-page（免密提权卡移入系统引导页；AppImage 提权走 ~/.cache 执行副本） -->
     <meta charset="UTF-8" data-page-node-id="I7Y9wcNb3X4vlQ3AGJteWN" />
     <!-- 首帧防闪：在 CSS 之前、脚本之前就把主题与不透明度写到 <html> 上。
          后端 settings 仍是唯一真相源（app.js 拿到快照后会覆盖），这里只是
@@ -422,6 +422,33 @@
           <span class="boot-channel-collapsed-names" id="boot-channel-collapsed-names"></span>
         </div>
         <!-- ══════════ /三引导器通道 ══════════ -->
+
+        <!-- ══════════ Linux 免密提权（sudoers）══════════
+             服务于本机引导管理：「设为默认」写固件变量、读写 ESP 不再每次弹密码。
+             非 Linux 由后端 status.platform=false 直接隐藏。原在 hub.html 关于页，
+             但 hub 是远程管理窗、这功能只管本机 —— 用户定案 2026-10-29 移到系统引导页。 -->
+        <section aria-label="免密提权" class="priv-card" id="privCard" hidden>
+          <div class="priv-head">
+            <h3>免密提权</h3>
+            <span class="priv-badge" id="privBadge">读取中</span>
+          </div>
+          <p class="priv-state" id="privState">正在读取状态…</p>
+          <p class="priv-paths mono" id="privPaths"></p>
+          <div class="actions">
+            <button id="privInstall" type="button">安装免密组件</button>
+            <button class="secondary" id="privRemove" type="button">移除授权</button>
+          </div>
+          <div class="priv-pw" id="privPwBox" hidden>
+            <label for="privPw">本机登录密码（只在本次运行的内存里，用于 sudo 兜底）</label>
+            <input id="privPw" type="password" autocomplete="off" spellcheck="false" placeholder="登录密码" />
+            <div class="actions">
+              <button id="privPwGo" type="button">用密码继续</button>
+              <button class="secondary" id="privPwCancel" type="button">取消</button>
+            </div>
+          </div>
+          <p class="priv-note" id="privNote"></p>
+        </section>
+        <!-- ══════════ /免密提权 ══════════ -->
         </div><!-- /tab-boot -->
 
         <!-- 栏目二：基本设置 —— 应用设置 + 远程控制 -->
@@ -956,5 +983,112 @@
     <script src="./grub-list-view.js"></script>
     <script src="./boot-list-view.js"></script>
     <script src="./app.js"></script>
+    <script>
+      // ============ Linux 免密提权（sudoers）：状态 / 安装 / 移除 ============
+      // 装一次之后「设为默认」写固件变量 / 读写 ESP 不再弹密码框；移除 = 删掉
+      // /etc/sudoers.d/anyboot 与助手副本。卡片默认 hidden，status 拉到才显示 ——
+      // 非 Linux（platform=false）与浏览器预览模式自然保持隐藏。
+      (function () {
+        var privEl = function (id) { return document.getElementById(id); };
+        var invoke = (window.__TAURI__ && window.__TAURI__.core) ? window.__TAURI__.core.invoke : null;
+        var privBusy = false;
+        var privPending = ""; // 'install' | 'uninstall'：密码框「用密码继续」接着做哪件事
+
+        function privRender(st) {
+          var card = privEl("privCard");
+          if (!card) return;
+          if (!st || !st.platform) { card.hidden = true; return; }
+          card.hidden = false;
+          var badge = privEl("privBadge");
+          var warn = st.state === "stale" || st.state === "outdated";
+          badge.className = "priv-badge" + (st.state === "ready" ? " ok" : (warn ? " warn" : ""));
+          badge.textContent = st.state === "ready" ? "已生效"
+            : st.state === "outdated" ? "待更新"
+              : st.state === "stale" ? "有残留" : "未安装";
+          privEl("privState").textContent = st.detail;
+          privEl("privPaths").textContent =
+            (st.sudoersExists ? "授权：" + st.sudoersPath + (st.user ? " → " + st.user : "") : "授权：未写入") +
+            " · " + (st.helperExists ? "助手已就位" : "助手未安装");
+          privEl("privInstall").textContent = st.state === "ready" ? "重新安装"
+            : st.state === "stale" ? "清理并重装" : "安装免密组件";
+          privEl("privRemove").hidden = !st.sudoersExists && !st.helperExists;
+          privEl("privRemove").textContent = st.state === "stale" ? "清除残留" : "移除授权";
+          privEl("privNote").textContent = st.hasPkexec
+            ? "授权时弹一次系统对话框（polkit）。用 deb/rpm 卸载 AnyBoot 时，这份授权会被一起删掉。"
+            : (st.hasSudo
+              ? "这台机器没有 polkit：安装时会要你输一次登录密码（只用内存里那一次，之后靠授权文件免密）。"
+              : "这台机器既没有 pkexec 也没有 sudo，装不了免密组件。");
+        }
+
+        async function privLoad() {
+          var card = privEl("privCard");
+          if (!card || !invoke) return;
+          try {
+            privRender(await invoke("linux_priv_status"));
+          } catch (e) { card.hidden = true; }
+        }
+
+        function privSetBusy(on) {
+          privBusy = on;
+          ["privInstall", "privRemove", "privPwGo"].forEach(function (id) {
+            var el = privEl(id);
+            if (el) el.disabled = on;
+          });
+        }
+
+        async function privRun(action, password) {
+          if (privBusy || !invoke) return;
+          privSetBusy(true);
+          var label = action === "install" ? "安装" : "移除";
+          privEl("privState").textContent = label + "中…（可能弹一次系统授权框）";
+          try {
+            var st = await invoke(action === "install" ? "linux_priv_install" : "linux_priv_uninstall",
+              { password: password || null });
+            privEl("privPwBox").hidden = true;
+            privEl("privPw").value = "";
+            privPending = "";
+            privRender(st);
+            privEl("privState").textContent = action === "install"
+              ? "免密组件已装好：之后提权不再弹密码框"
+              : "授权已移除";
+          } catch (e) {
+            var text = String(e || "");
+            // 授权没拿到（没 polkit / sudo 要密码）→ 展开密码框兜底，而不是只报一句错
+            if (/password|密码|授权|pkexec|sudo|Permission/i.test(text)) {
+              privPending = action;
+              privEl("privPwBox").hidden = false;
+              privEl("privPw").focus();
+              privEl("privState").textContent = "需要密码才能继续：" + text;
+            } else {
+              privEl("privState").textContent = label + "失败：" + text;
+            }
+          } finally {
+            privSetBusy(false);
+          }
+        }
+
+        (function bindPriv() {
+          var install = privEl("privInstall");
+          if (!install) return;
+          install.addEventListener("click", function () { privRun("install"); });
+          privEl("privRemove").addEventListener("click", function () { privRun("uninstall"); });
+          privEl("privPwGo").addEventListener("click", function () {
+            var pw = privEl("privPw").value;
+            if (!pw) { privEl("privPw").focus(); return; }
+            privRun(privPending || "install", pw);
+          });
+          privEl("privPwCancel").addEventListener("click", function () {
+            privEl("privPwBox").hidden = true;
+            privEl("privPw").value = "";
+            privPending = "";
+            privLoad();
+          });
+          privEl("privPw").addEventListener("keydown", function (ev) {
+            if (ev.key === "Enter") privEl("privPwGo").click();
+          });
+          privLoad();
+        })();
+      })();
+    </script>
   </body>
 </html>

@@ -612,12 +612,62 @@ mod imp {
         Err(format!("提权失败：{}", tried.join("；")))
     }
 
+    /// AppImage 场景的执行副本：pkexec / sudo **执行不了 /tmp 下的文件**。
+    ///
+    /// AppImage 运行时把 squashfs 挂在 `/tmp/.mount_*`，而新版 Debian/Ubuntu 默认给
+    /// /tmp 加了 `noexec` —— 于是 pkexec 报 "Error accessing ...: Permission denied"、
+    /// sudo 报 "找不到命令"，免密组件在 AppImage 里永远装不上。处理：把自身复制到
+    /// `$XDG_CACHE_HOME/anyboot/priv-stage/`（用户主目录所在盘，exec 必允许），
+    /// 提权命令跑这份副本。root 子进程的 `current_exe()` 也会指到这份真文件，
+    /// `install_as_root` 里复制助手副本的源同样跟着安全。
+    fn stage_executable_copy() -> Result<PathBuf, String> {
+        let exe = std::env::current_exe().map_err(|error| format!("拿不到自身路径：{error}"))?;
+        if !needs_exec_staging(&exe) {
+            return Ok(exe);
+        }
+        let cache = std::env::var_os("XDG_CACHE_HOME")
+            .map(PathBuf::from)
+            .filter(|p| p.is_absolute())
+            .or_else(|| {
+                std::env::var_os("HOME")
+                    .map(PathBuf::from)
+                    .filter(|p| p.is_absolute())
+                    .map(|home| home.join(".cache"))
+            })
+            .ok_or_else(|| "拿不到缓存目录（HOME 与 XDG_CACHE_HOME 都为空），无法暂存执行副本".to_string())?;
+        let dir = cache.join("anyboot").join("priv-stage");
+        fs::create_dir_all(&dir).map_err(|error| format!("创建 {} 失败：{error}", dir.display()))?;
+        let target = dir.join("anyboot");
+        // 写 .new 再 rename：目标可能正被上一个 root 子进程执行（inode 级安全，与
+        // install_as_root 换助手副本同一招）
+        let staged = dir.join("anyboot.new");
+        fs::copy(&exe, &staged)
+            .map_err(|error| format!("暂存执行副本到 {} 失败：{error}", staged.display()))?;
+        let _ = fs::set_permissions(&staged, fs::Permissions::from_mode(0o755));
+        fs::rename(&staged, &target)
+            .map_err(|error| format!("落位执行副本失败：{error}"))?;
+        Ok(target)
+    }
+
+    /// 判定要不要暂存：路径在 /tmp（或 AppImage 的 `.mount_` 挂载点）下就需要。
+    /// 纯函数好测；只看路径形状，不做「/tmp 是否 noexec」的运行时探测 —— 与其猜
+    /// 挂载选项，不如凡是挂载点里的都暂存一份，deb/rpm 安装路径不受影响。
+    pub(super) fn needs_exec_staging(exe: &Path) -> bool {
+        if exe.starts_with("/tmp") || exe.starts_with("/var/tmp") {
+            return true;
+        }
+        exe.components().any(|c| {
+            let part = c.as_os_str().to_string_lossy();
+            part.starts_with(".mount_") || part == "mnt_appimage"
+        })
+    }
+
     /// 需要 root 才能做的「删 / 装」走的桥：`pkexec <self> --linux-priv-* --out <file>`。
     ///
     /// 和运行时那条链不同：这里**允许弹框**（用户就在屏幕前点按钮），并且优先 pkexec
     /// —— 装组件的动作本来就该让用户看见系统授权框。
     fn run_root_subcommand(flag: &str, password: Option<&str>) -> Result<(), String> {
-        let exe = std::env::current_exe().map_err(|error| format!("拿不到自身路径：{error}"))?;
+        let exe = stage_executable_copy()?;
         // 落 /tmp 而不是 `env::temp_dir()`：root 侧要校验这个前缀，两边的 `$TMPDIR`
         // 不一定一样（用户会话常见 `/run/user/1000`）
         let out = PathBuf::from(SCRATCH_DIR).join(format!(
@@ -958,6 +1008,26 @@ pub(crate) async fn linux_priv_uninstall(password: Option<String>) -> Result<Pri
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// AppImage / noexec 场景：路径在 /tmp 或 .mount_* 下必须暂存执行副本，
+    /// 否则 pkexec / sudo 执行不了（Permission denied / 找不到命令）。
+    #[test]
+    fn exec_staging_decision() {
+        // AppImage 挂载点（用户实况）
+        assert!(imp::needs_exec_staging(Path::new(
+            "/tmp/.mount_AnyBooNlAmgG/usr/bin/anyboot"
+        )));
+        // /tmp、/var/tmp 直放（新版发行版默认 noexec）
+        assert!(imp::needs_exec_staging(Path::new("/tmp/anyboot")));
+        assert!(imp::needs_exec_staging(Path::new("/var/tmp/anyboot")));
+        // deb/rpm 正常安装路径、开发 target —— 不暂存
+        assert!(!imp::needs_exec_staging(Path::new(
+            "/usr/bin/anyboot"
+        )));
+        assert!(!imp::needs_exec_staging(Path::new(
+            "/home/jianghh/anyboot/src-tauri/target/release/anyboot"
+        )));
+    }
 
     /// 挂载请求白名单：助手以 root 跑 mount，参数必须一道道卡死。
     #[test]

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- ui-version: 20261029-linux-priv（关于页新增「免密提权」卡：状态/安装/移除/密码兜底） -->
+<!-- ui-version: 20261029-priv-moved-out（免密提权卡移去 index.html 系统引导页：只管本机，与远程管理窗无关） -->
 <script>try{window.ANYBOOT_UI_VERSION='20261029-linux-priv';}catch(e){}</script>
 <script src="qrcode.min.js"></script>
 <!-- AnyBoot 远程管理（server-hub）。
@@ -799,33 +799,6 @@
     margin-top: 18px; padding-top: 14px; border-top: 1px solid rgb(var(--line));
     font-size: 11px; line-height: 1.8; color: rgb(var(--fg-faint));
   }
-  /* ---- 免密提权卡（只在 Linux 显示）：状态 + 安装/移除 + 密码兜底 ---- */
-  .priv-card { margin-top: 14px; max-width: 460px; text-align: left; padding: 20px 22px 18px; }
-  .priv-head { display: flex; align-items: center; gap: 8px; }
-  .priv-head h3 { margin: 0; font-size: 14px; font-weight: 600; }
-  .priv-badge {
-    font-size: 10px; font-weight: 600; line-height: 1; padding: 3px 6px; border-radius: 5px;
-    border: 1px solid rgb(var(--line)); color: rgb(var(--fg-dim));
-  }
-  .priv-badge.ok { color: rgb(var(--accent)); border-color: rgb(var(--accent) / .35); background: rgb(var(--accent) / .12); }
-  .priv-badge.warn { color: rgb(var(--warn, 217 119 6)); border-color: rgb(var(--warn, 217 119 6) / .35); }
-  .priv-state { margin: 8px 0 0; font-size: 12.5px; line-height: 1.6; color: rgb(var(--fg)); }
-  .priv-paths {
-    margin: 6px 0 0; font-size: 11px; line-height: 1.7; color: rgb(var(--fg-faint));
-    word-break: break-all;
-  }
-  .priv-pw { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
-  .priv-pw[hidden] { display: none; }
-  .priv-pw label { font-size: 11px; color: rgb(var(--fg-faint)); }
-  .priv-pw input {
-    width: 100%; box-sizing: border-box; padding: 8px 11px; font: inherit; font-size: 13px;
-    border-radius: 9px; outline: none; color: rgb(var(--fg));
-    background: rgb(var(--elevate)); border: 1px solid rgb(var(--line));
-  }
-  .priv-pw input:focus { border-color: rgb(var(--accent) / .55); }
-  .priv-card .about-btns { margin-top: 14px; justify-content: flex-start; }
-  .priv-note { margin: 12px 0 0; font-size: 11px; line-height: 1.75; color: rgb(var(--fg-faint)); }
-
   /* ============ 弹窗 ============ */
   .overlay {
     position: fixed; inset: 0; z-index: 40;
@@ -4173,28 +4146,6 @@ window.__bkOnShow = async function () {
               终端 / 文件 / 密钥基于系统 ssh / sftp / ssh-keygen
             </div>
           </div>
-          <!-- Linux 免密提权：非 Linux 由后端 status.platform=false 直接隐藏 -->
-          <div class="about-card priv-card" id="privCard" hidden>
-            <div class="priv-head">
-              <h3>免密提权</h3>
-              <span class="priv-badge" id="privBadge">读取中</span>
-            </div>
-            <p class="priv-state" id="privState">正在读取状态…</p>
-            <p class="priv-paths mono" id="privPaths"></p>
-            <div class="about-btns">
-              <button class="btn primary" id="privInstall">安装免密组件</button>
-              <button class="btn" id="privRemove">移除授权</button>
-            </div>
-            <div class="priv-pw" id="privPwBox" hidden>
-              <label for="privPw">本机登录密码（只在本次运行的内存里，用于 sudo 兜底）</label>
-              <input id="privPw" type="password" autocomplete="off" spellcheck="false" placeholder="登录密码">
-              <div class="about-btns" style="margin-top:0;justify-content:flex-start">
-                <button class="btn primary" id="privPwGo">用密码继续</button>
-                <button class="btn" id="privPwCancel">取消</button>
-              </div>
-            </div>
-            <p class="priv-note" id="privNote"></p>
-          </div>
         </div>
       </section>
 
@@ -4645,7 +4596,6 @@ window.__bkOnShow = async function () {
       else if (name === 'transfers') renderTransfers();
       else if (name === 'keys') renderKeysPage();
       else if (name === 'backup') { if (window.__bkOnShow) window.__bkOnShow(); }
-      else if (name === 'about') { if (window.__privOnShow) window.__privOnShow(); }
       else if (name === 'files') { syncActionPages(); fbSync(); }
       else syncActionPages();
     }
@@ -6329,111 +6279,6 @@ window.__bkOnShow = async function () {
       if (av) av.textContent = v; // 卡片模板里已带「v」前缀
     }).catch(function () { });
   }
-
-  // ============ Linux 免密提权（sudoers）：状态 / 安装 / 移除 ============
-  // 装一次之后写 ESP / 固件变量不再弹密码框；移除 = 删掉 /etc/sudoers.d/anyboot
-  // 与助手副本，系统里不留任何常驻对象。非 Linux 由 status.platform=false 隐藏整张卡。
-  let privBusy = false;
-  let privPending = ''; // 'install' | 'uninstall'：密码框「用密码继续」要接着做哪件事
-
-  function privEl(id) { return document.getElementById(id); }
-
-  function privRender(st) {
-    const card = privEl('privCard');
-    if (!card) return;
-    if (!st || !st.platform) { card.hidden = true; return; }
-    card.hidden = false;
-    const badge = privEl('privBadge');
-    const warn = st.state === 'stale' || st.state === 'outdated';
-    badge.className = 'priv-badge' + (st.state === 'ready' ? ' ok' : (warn ? ' warn' : ''));
-    badge.textContent = st.state === 'ready' ? '已生效'
-      : st.state === 'outdated' ? '待更新'
-        : st.state === 'stale' ? '有残留' : '未安装';
-    privEl('privState').textContent = st.detail;
-    privEl('privPaths').textContent =
-      (st.sudoersExists ? '授权：' + st.sudoersPath + (st.user ? ' → ' + st.user : '') : '授权：未写入') +
-      ' · ' + (st.helperExists ? '助手已就位' : '助手未安装');
-    privEl('privInstall').textContent = st.state === 'ready' ? '重新安装'
-      : st.state === 'stale' ? '清理并重装' : '安装免密组件';
-    privEl('privRemove').hidden = !st.sudoersExists && !st.helperExists;
-    privEl('privRemove').textContent = st.state === 'stale' ? '清除残留' : '移除授权';
-    privEl('privNote').textContent = st.hasPkexec
-      ? '授权时弹一次系统对话框（polkit）。用 deb/rpm 卸载 AnyBoot 时，这份授权会被一起删掉。'
-      : (st.hasSudo
-        ? '这台机器没有 polkit：安装时会要你输一次登录密码（只用内存里那一次，之后靠授权文件免密）。'
-        : '这台机器既没有 pkexec 也没有 sudo，装不了免密组件。');
-  }
-
-  async function privLoad() {
-    const card = privEl('privCard');
-    if (!card) return;
-    if (!invoke) { card.hidden = true; return; }
-    try {
-      privRender(await invoke('linux_priv_status'));
-    } catch (e) {
-      card.hidden = true;
-    }
-  }
-
-  function privSetBusy(on) {
-    privBusy = on;
-    ['privInstall', 'privRemove', 'privPwGo'].forEach(function (id) {
-      const el = privEl(id);
-      if (el) el.disabled = on;
-    });
-  }
-
-  async function privRun(action, password) {
-    if (privBusy || !invoke) return;
-    privSetBusy(true);
-    const label = action === 'install' ? '安装' : '移除';
-    privEl('privState').textContent = label + '中…（可能弹一次系统授权框）';
-    try {
-      const st = await invoke(action === 'install' ? 'linux_priv_install' : 'linux_priv_uninstall',
-        { password: password || null });
-      privEl('privPwBox').hidden = true;
-      privEl('privPw').value = '';
-      privPending = '';
-      privRender(st);
-      toast(action === 'install' ? '免密组件已装好：之后提权不再弹密码框' : '授权已移除');
-    } catch (e) {
-      const text = String(e || '');
-      // 授权没拿到（没 polkit / sudo 要密码）→ 展开密码框兜底，而不是只报一句错
-      if (/password|密码|授权|pkexec|sudo|Permission/i.test(text)) {
-        privPending = action;
-        privEl('privPwBox').hidden = false;
-        privEl('privPw').focus();
-        privEl('privState').textContent = '需要密码才能继续：' + text;
-      } else {
-        privEl('privState').textContent = label + '失败：' + text;
-      }
-    } finally {
-      privSetBusy(false);
-    }
-  }
-
-  (function bindPriv() {
-    const install = privEl('privInstall');
-    if (!install) return;
-    install.addEventListener('click', function () { privRun('install'); });
-    privEl('privRemove').addEventListener('click', function () { privRun('uninstall'); });
-    privEl('privPwGo').addEventListener('click', function () {
-      const pw = privEl('privPw').value;
-      if (!pw) { privEl('privPw').focus(); return; }
-      privRun(privPending || 'install', pw);
-    });
-    privEl('privPwCancel').addEventListener('click', function () {
-      privEl('privPwBox').hidden = true;
-      privEl('privPw').value = '';
-      privPending = '';
-      privLoad();
-    });
-    privEl('privPw').addEventListener('keydown', function (ev) {
-      if (ev.key === 'Enter') privEl('privPwGo').click();
-    });
-  })();
-  // 进「关于」页时刷新一次（showPage 在另一个作用域里，按备份页那套约定挂全局）
-  window.__privOnShow = privLoad;
 
   // ============ 电脑页（列表视图：在线状态 / 引导项 / 电源指令） ============
   // 数据两段：

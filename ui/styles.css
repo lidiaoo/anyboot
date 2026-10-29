@@ -3091,3 +3091,46 @@ button.needs-elev {
     margin-left: 0;
   }
 }
+
+/* ══════════ Linux 免密提权卡（系统引导页底部，index.html）══════════
+   原 hub.html 关于页样式迁来，按本文件令牌重写（用户定案 2026-10-29）。 */
+.priv-card {
+  margin-top: 18px;
+  padding: 16px 18px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+}
+.priv-head { display: flex; align-items: center; gap: 8px; }
+.priv-head h3 { margin: 0; font-size: 13.5px; font-weight: 600; }
+.priv-badge {
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  color: var(--text-dim);
+}
+.priv-badge.ok { color: var(--ok); border-color: var(--ok-border); background: var(--ok-bg); }
+.priv-badge.warn { color: var(--warn); border-color: var(--warn); }
+.priv-state { margin: 8px 0 0; font-size: 12.5px; line-height: 1.6; }
+.priv-paths {
+  margin: 6px 0 0;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--text-dim);
+  word-break: break-all;
+}
+.priv-pw { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+.priv-pw[hidden] { display: none; }
+.priv-pw label { font-size: 11px; color: var(--text-faint); }
+.priv-pw input {
+  max-width: 320px;
+  padding: 7px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--input-bg);
+  color: var(--text);
+  font-size: 12.5px;
+}
+.priv-pw input:focus { border-color: var(--accent, #6366f1); outline: none; }
+.priv-note { margin: 10px 0 0; font-size: 11px; line-height: 1.7; color: var(--text-faint); }
