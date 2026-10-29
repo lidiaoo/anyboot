@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  AnyBoot 的 WiX 片段（Tauri 的 bundle.windows.wix.fragmentPaths 指向本文件）。
+
+  为什么 MSI 也要有这一份：
+  NSIS 有 installerHooks，MSI（WiX）**没有任何安装钩子机制**，只有片段（fragment）。
+  NSIS 那份靠钩子注册服务；MSI 这边如果不补同样的动作，用 .msi 装出来的产品就是
+  「有程序、没服务」—— 用户装完发现免 UAC 不生效，还得手工跑 install-service。
+  所以两端各自声明一次，但**注册逻辑只有一份**：都是调 exe 自己的
+  install-service / uninstall-service 子命令，服务名、binPath、失败回滚的判断
+  全在 Rust 侧，不会出现「安装器以为注册了、exe 以为没注册」的漂移。
+
+  为什么用自定义动作而不是 WiX 的 ServiceInstall：
+  ServiceInstall 必须写在「包含该 exe 那个 Component」里，而这个 Component 是
+  Tauri 生成的 main.wxs 里的 Path 组件，片段无法往别人的组件里塞子元素；
+  复制一个 File 到新组件又会造成同一文件被两个组件拥有（MSI 直接报 ICE 错误）。
+  Tauri 主模板里 LaunchApplication 就是这么用 FileKey 调 exe 的，同一套写法。
+
+  执行时机（两条都必须，且都 Return="ignore"）：
+  · 卸载：Before="RemoveFiles"，条件 REMOVE="ALL"。必须赶在删文件之前 —— 服务进程
+    就是 anyboot.exe 本身，文件被占用的话 RemoveFiles 会要求重启才能完成卸载。
+    反过来「只删文件不删服务」会留下一个指向不存在 exe 的服务，之后每次开机
+    SCM 都报 7000，事件日志里挂一个用户看不懂的失败项。
+  · 安装/修复：After="InstallFiles"，条件 NOT REMOVE="ALL"。升级时
+    MajorUpgrade(afterInstallInitialize) 先跑旧产品卸载（服务被删），再装新文件，
+    这里重新注册 —— 所以服务里存的绝对路径永远指向当前安装位置。
+  Return="ignore"：服务注册失败不应阻断安装。装不上只影响「免 UAC」，
+  功能本身还有弹出授权那条路可走。
+
+  注意：XML 注释里不能出现连续两个减号，所以本文件的注释一律不写长选项前缀。
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Fragment>
+    <!--
+      这个空组件存在的唯一目的：给 light 一个「引用入口」。
+
+      WiX 的 light 只保留「可被引用到」的行：一个片段里的 CustomAction /
+      InstallExecuteSequence 如果没有任何符号被主模板引用，整段会被静默丢弃
+      （candle 和 light 都不报错，装出来的 MSI 里就是没有这些动作 —— 踩过一次）。
+      所以我在这里放一个带注册表键的组件，配置里的 componentRefs 指向它，
+      片段就被拉进来了。注册表键本身无害：它只是记录「本机由安装器注册过助手服务」，
+      方便以后排查到底是安装器没跑、还是服务被外部删掉了。
+    -->
+    <DirectoryRef Id="INSTALLDIR">
+      <Component Id="AnyBootServiceBridge" Guid="7c8e1d62-3f4a-4b9e-9c21-5a0d6e7b8f31" Win64="yes">
+        <RegistryValue Root="HKLM" Key="Software\AnyBoot\Service" Name="InstallerRegistered" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+
+    <CustomAction
+        Id="AnyBootInstallService"
+        FileKey="Path"
+        ExeCommand="--install-service"
+        Return="ignore" />
+
+    <CustomAction
+        Id="AnyBootUninstallService"
+        FileKey="Path"
+        ExeCommand="--uninstall-service"
+        Return="ignore" />
+
+    <InstallExecuteSequence>
+      <Custom Action="AnyBootUninstallService" Before="RemoveFiles">REMOVE="ALL"</Custom>
+      <Custom Action="AnyBootInstallService" After="InstallFiles">NOT REMOVE="ALL"</Custom>
+    </InstallExecuteSequence>
+  </Fragment>
+</Wix>
