@@ -2,6 +2,22 @@
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    // ⓪⁻ 特权助手服务（Windows）：`--run-service` 由 SCM 拉起并常驻，另外三条是
+    //     安装 / 卸载 / 查询。**排在所有分支最前**，理由同 --run-inbox：服务进程
+    //     绝不能进 Tauri（开窗口、抢单实例锁、监听端口都会把常驻服务毁掉）。
+    //     它存在的意义只有一个：远程 / 无人值守时没有桌面可点 UAC。
+    if args.iter().any(|arg| arg == "--run-service") {
+        std::process::exit(anyboot_lib::service_run_main());
+    }
+    if args.iter().any(|arg| arg == "--install-service") {
+        std::process::exit(anyboot_lib::service_install_main());
+    }
+    if args.iter().any(|arg| arg == "--uninstall-service") {
+        std::process::exit(anyboot_lib::service_uninstall_main());
+    }
+    if args.iter().any(|arg| arg == "--service-status") {
+        std::process::exit(anyboot_lib::service_status_main());
+    }
     // ⓪ root 助手模式（免密写 NVRAM / 免密读 Linux 分区）：必须排在所有分支最前 ——
     //    装到 /Library 的是本程序的副本，被 launchd 唤起时带 `--run-inbox`，
     //    此时**绝不能**进 Tauri（那会去开窗口、抢单实例锁、监听端口）。

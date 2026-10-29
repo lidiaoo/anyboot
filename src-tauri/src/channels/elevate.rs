@@ -28,6 +28,62 @@ pub(crate) fn run_elevated(args: &[String], out_path: &std::path::Path) -> Resul
     spawn_and_wait(args, &out_text)
 }
 
+/// 一次特权操作的完整投递：**先问常驻服务，服务不在才弹授权**。
+///
+/// 顺序不能反。远程 / 无人值守时 UAC 对话框弹在主机的交互桌面上（手机上永远
+/// 看不到），反过来的话每一次特权操作都会先卡 30 秒再失败。而服务不可用
+/// （没装、被删、被策略禁）时必须能退回弹出授权 —— 有人在机器前的时候，
+/// 「装个服务」不该是使用前提。
+///
+/// 三种结果的处置不同，别合并：
+/// - 服务做完了 → 直接返回，**不要再弹 UAC**；
+/// - 服务明确失败 → 立刻返回错误。再弹一次 UAC 只会把同一个错误再报一遍，
+///   还要用户多点一次确认；
+/// - 服务不可用 → 走 `fallback_args` 那条老路（Windows 弹 UAC / Linux pkexec）。
+pub(crate) fn run_privileged_op(
+    op: &str,
+    service_args: serde_json::Value,
+    fallback_args: &[String],
+    out_path: &std::path::Path,
+) -> Result<(), String> {
+    match try_service(op, service_args, out_path) {
+        ServiceOutcome::Served => return Ok(()),
+        ServiceOutcome::Failed(reason) => return Err(reason),
+        ServiceOutcome::Unavailable(_) => {}
+    }
+    run_elevated(fallback_args, out_path)
+}
+
+enum ServiceOutcome {
+    Served,
+    Unavailable(String),
+    Failed(String),
+}
+
+#[cfg(target_os = "windows")]
+fn try_service(op: &str, args: serde_json::Value, out_path: &std::path::Path) -> ServiceOutcome {
+    // 上一次残留不能被当成新结果（与 run_elevated 同一条纪律）
+    let _ = std::fs::remove_file(out_path);
+    match crate::service_win::call(op, args) {
+        crate::service_win::ServiceCall::Ok(body) => {
+            let path = out_path.to_string_lossy().to_string();
+            if super::write_result_file(&path, &body) == 0 {
+                ServiceOutcome::Served
+            } else {
+                ServiceOutcome::Failed("特权服务算完了，但结果落盘失败（磁盘满 / 目录只读？）".to_string())
+            }
+        }
+        crate::service_win::ServiceCall::Unavailable(why) => ServiceOutcome::Unavailable(why),
+        crate::service_win::ServiceCall::Failed(why) => ServiceOutcome::Failed(why),
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn try_service(_op: &str, _args: serde_json::Value, _out_path: &std::path::Path) -> ServiceOutcome {
+    // 只有 Windows 有这个常驻服务（macOS 走 launchd 助手，Linux 走 pkexec）
+    ServiceOutcome::Unavailable("这个平台没有特权服务".to_string())
+}
+
 /// 把参数拼成 `lpParameters` 里的那一条命令行（Windows 规则）。
 #[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
 fn build_params(args: &[String]) -> String {

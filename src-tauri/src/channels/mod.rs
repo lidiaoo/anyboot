@@ -95,6 +95,34 @@ pub(crate) struct ChannelsRuntime {
 
 // ─────────────────────────── 时间工具 ───────────────────────────
 
+/// 把特权子进程（或特权服务）算出来的那段 JSON **原子**落盘：临时文件 + rename。
+///
+/// 为什么共用一份：五个特权子命令原来各写一遍「tmp + rename + 失败清理」，
+/// 任何一份写成直接 `write` 都会让父进程有机会读到半截 JSON —— 那种失败只在
+/// 机器卡顿时出现，属于最难复现的一类。现在文件路径与管道路径都产同一段文本，
+/// 落盘也只该有一处。
+///
+/// `#[cfg(unix)]` 那段权限是给 macOS 的：子进程是 root，写出来的文件属主也是
+/// root，不放开读权限的话发起请求的用户读不到自己的结果。
+pub(crate) fn write_result_file(out_path: &str, text: &str) -> i32 {
+    let tmp = std::path::PathBuf::from(format!("{out_path}.tmp-{}", std::process::id()));
+    if let Err(error) = std::fs::write(&tmp, text) {
+        eprintln!("写结果失败：{error}");
+        return 2;
+    }
+    if let Err(error) = std::fs::rename(&tmp, out_path) {
+        let _ = std::fs::remove_file(&tmp);
+        eprintln!("落盘结果失败：{error}");
+        return 2;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(out_path, std::fs::Permissions::from_mode(0o644));
+    }
+    0
+}
+
 /// UTC ISO8601（无 chrono 依赖，civil-from-days；与 backup::iso_now 同算法）。
 pub(crate) fn anyboot_now_iso() -> String {
     let ms = SystemTime::now()

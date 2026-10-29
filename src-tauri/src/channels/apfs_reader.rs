@@ -341,18 +341,16 @@ pub(crate) fn scan_preboot_elevated(force: bool) -> Result<ElevatedScanOutcome, 
     })
 }
 
-/// 弹一次授权 → 等子进程退出 → 读回结果文件。
+/// 走特权服务（若已安装），否则弹一次授权 → 等子进程退出 → 读回结果文件。
 fn run_privileged_scan() -> Result<Vec<PrebootItem>, String> {
     // 拉起与等待的机制在 elevate.rs（与「OC 设默认项」共用同一套自拉起通道）
     let out_path = super::elevate::result_file_path("apfs-scan");
-    super::elevate::run_elevated(
-        &[
-            "--apfs-scan-privileged".to_string(),
-            "--out".to_string(),
-            out_path.to_string_lossy().to_string(),
-        ],
-        &out_path,
-    )?;
+    let args = vec![
+        "--apfs-scan-privileged".to_string(),
+        "--out".to_string(),
+        out_path.to_string_lossy().to_string(),
+    ];
+    super::elevate::run_privileged_op("apfs_scan", serde_json::json!({}), &args, &out_path)?;
     let text = std::fs::read_to_string(&out_path)
         .map_err(|error| format!("提权子进程退出了但结果文件读不到：{error}"))?;
     let payload: PrivilegedScanFile = serde_json::from_str(&text)
@@ -366,9 +364,12 @@ fn run_privileged_scan() -> Result<Vec<PrebootItem>, String> {
     }
 }
 
-/// `--apfs-scan-privileged` 子命令体：跑一次扫描，把结果**原子**写进 `--out` 文件。
-/// 只在提权子进程里被调（main.rs 把它排在所有分支最前，绝不进 GUI）。
-pub(crate) fn privileged_scan_main(out_path: &str) -> i32 {
+/// 跑一次 Preboot 扫描并序列化成 JSON 文本。
+///
+/// 返回值就是「原本要写进 `--out` 的那段文本」：一次性授权子进程把它落盘，
+/// 特权服务直接经管道把它送回主进程 —— 两条路产出的字节完全一致，下游解析器
+/// 不需要知道这次是弹了 UAC 还是走了服务。
+pub(crate) fn privileged_scan_json() -> Result<String, String> {
     let payload = match scan_preboot() {
         Ok(items) => PrivilegedScanFile {
             ok: true,
@@ -381,25 +382,19 @@ pub(crate) fn privileged_scan_main(out_path: &str) -> i32 {
             error: Some(reason),
         },
     };
-    let text = match serde_json::to_string(&payload) {
-        Ok(text) => text,
+    serde_json::to_string(&payload).map_err(|error| format!("序列化扫描结果失败：{error}"))
+}
+
+/// `--apfs-scan-privileged` 子命令体：跑一次扫描，把结果**原子**写进 `--out` 文件。
+/// 只在提权子进程里被调（main.rs 把它排在所有分支最前，绝不进 GUI）。
+pub(crate) fn privileged_scan_main(out_path: &str) -> i32 {
+    match privileged_scan_json() {
+        Ok(text) => super::write_result_file(out_path, &text),
         Err(error) => {
-            eprintln!("序列化扫描结果失败：{error}");
-            return 2;
+            eprintln!("{error}");
+            2
         }
-    };
-    // 原子写：临时文件 + rename，父进程读到的一定是完整 JSON，不会是半截
-    let tmp = std::path::PathBuf::from(format!("{out_path}.tmp-{}", std::process::id()));
-    if let Err(error) = std::fs::write(&tmp, text) {
-        eprintln!("写扫描结果失败：{error}");
-        return 2;
     }
-    if let Err(error) = std::fs::rename(&tmp, out_path) {
-        let _ = std::fs::remove_file(&tmp);
-        eprintln!("落盘扫描结果失败：{error}");
-        return 2;
-    }
-    0
 }
 
 #[cfg(test)]

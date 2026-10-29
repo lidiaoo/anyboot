@@ -78,6 +78,14 @@ windows-sys = { version = "0.59", features = [
     "Win32_System_Registry",
     # NVRAM dump：AdjustTokenPrivileges 启用 SeSystemEnvironmentPrivilege（提权≠特权已启用）
     "Win32_Security",
+    # 特权助手服务（免 UAC 提权，见 service_win.rs）：SCM + 命名管道 + 卷句柄
+    "Win32_System_Services",
+    "Win32_System_Pipes",
+    "Win32_Storage_FileSystem",
+    # ReadFile/WriteFile/ConnectNamedPipe 都在这个特性门后面（0.59 的拆法）
+    "Win32_System_IO",
+    # 管道 DACL 用 SDDL 字符串构造（ConvertStringSecurityDescriptorToSecurityDescriptorW）
+    "Win32_Security_Authorization",
 ] }
 
 [target.'cfg(target_os = "macos")'.dependencies]

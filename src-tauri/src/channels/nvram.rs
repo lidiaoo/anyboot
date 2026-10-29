@@ -710,11 +710,8 @@ pub(crate) fn dump_boot_vars() -> Vec<DumpVar> {
     vars
 }
 
-/// `--nvram-dump-privileged` 子命令体：提权进程里读 OCBt*/Boot* 全量，
-/// hex 落 JSON。两个用途：① 排障时直接看 OC 到底写了什么槽；
-/// ② 「路径 2」（凭真实字节复刻 APFS load option）的样本采集。
-/// 只在提权子进程里被调（main.rs ⓪.7 分支），绝不进 GUI。
-pub(crate) fn privileged_dump_main(out_path: &str) -> i32 {
+/// 读 OCBt*/Boot* 全量并序列化成 JSON 文本（文件路径与特权服务共用同一份）。
+pub(crate) fn privileged_dump_json() -> Result<String, String> {
     let privilege_enabled = imp::enable_system_environment_privilege();
     let vars = dump_boot_vars();
     let count = vars.len();
@@ -725,23 +722,18 @@ pub(crate) fn privileged_dump_main(out_path: &str) -> i32 {
         vars,
         error: None,
     };
-    match serde_json::to_string(&payload) {
-        Ok(text) => {
-            // 原子写：临时文件 + rename（与 apfs_reader 同款，父进程不会读到半截）
-            let tmp = std::path::PathBuf::from(format!("{out_path}.tmp-{}", std::process::id()));
-            if let Err(error) = std::fs::write(&tmp, text) {
-                eprintln!("写 dump 结果失败：{error}");
-                return 2;
-            }
-            if let Err(error) = std::fs::rename(&tmp, out_path) {
-                let _ = std::fs::remove_file(&tmp);
-                eprintln!("落盘 dump 结果失败：{error}");
-                return 2;
-            }
-            0
-        }
+    serde_json::to_string(&payload).map_err(|error| format!("序列化 dump 结果失败：{error}"))
+}
+
+/// `--nvram-dump-privileged` 子命令体：提权进程里读 OCBt*/Boot* 全量，
+/// hex 落 JSON。两个用途：① 排障时直接看 OC 到底写了什么槽；
+/// ② 「路径 2」（凭真实字节复刻 APFS load option）的样本采集。
+/// 只在提权子进程里被调（main.rs ⓪.7 分支），绝不进 GUI。
+pub(crate) fn privileged_dump_main(out_path: &str) -> i32 {
+    match privileged_dump_json() {
+        Ok(text) => super::write_result_file(out_path, &text),
         Err(error) => {
-            eprintln!("序列化 dump 结果失败：{error}");
+            eprintln!("{error}");
             2
         }
     }
@@ -868,14 +860,12 @@ pub(crate) fn store_snapshots_from_vars(vars: Vec<DumpVar>) -> bool {
 #[cfg(any(target_os = "windows", target_os = "linux", test))]
 pub(crate) fn refresh_boot_vars_elevated() -> Result<String, String> {
     let out_path = super::elevate::result_file_path("nvram-dump");
-    super::elevate::run_elevated(
-        &[
-            "--nvram-dump-privileged".to_string(),
-            "--out".to_string(),
-            out_path.to_string_lossy().to_string(),
-        ],
-        &out_path,
-    )?;
+    let args = vec![
+        "--nvram-dump-privileged".to_string(),
+        "--out".to_string(),
+        out_path.to_string_lossy().to_string(),
+    ];
+    super::elevate::run_privileged_op("nvram_dump", serde_json::json!({}), &args, &out_path)?;
     let text = std::fs::read_to_string(&out_path)
         .map_err(|error| format!("提权子进程退出了但结果文件读不到：{error}"))?;
     let file: DumpFile = serde_json::from_str(&text)

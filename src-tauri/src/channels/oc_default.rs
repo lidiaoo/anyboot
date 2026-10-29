@@ -383,20 +383,24 @@ struct SetDefaultReply {
 #[cfg(target_os = "windows")]
 pub(crate) fn set_default_elevated(esp_root: &Path, target: &str) -> Result<String, String> {
     let out_path = super::elevate::result_file_path("oc-set-default");
-    super::elevate::run_elevated(
-        &[
-            "--oc-set-default".to_string(),
-            "--target".to_string(),
-            target.to_string(),
-            // ESP 根必须跟着传：子进程若自己再扫一遍，挑的是「第一条带引导器签名的
-            // ESP」，多块 ESP 的机器上未必是父进程选中的那块。挑错一块的后果不是
-            // 报错，而是读错 OC 的 config（`RequestBootVarRouting` 决定命名空间是
-            // Boot* 还是 OCBt*），写进另一套变量 —— 又是一次「写成功了但没生效」。
-            "--esp".to_string(),
-            esp_root.to_string_lossy().to_string(),
-            "--out".to_string(),
-            out_path.to_string_lossy().to_string(),
-        ],
+    // ESP 根必须跟着传：子进程若自己再扫一遍，挑的是「第一条带引导器签名的
+    // ESP」，多块 ESP 的机器上未必是父进程选中的那块。挑错一块的后果不是
+    // 报错，而是读错 OC 的 config（`RequestBootVarRouting` 决定命名空间是
+    // Boot* 还是 OCBt*），写进另一套变量 —— 又是一次「写成功了但没生效」。
+    let esp_text = esp_root.to_string_lossy().to_string();
+    let args = [
+        "--oc-set-default".to_string(),
+        "--target".to_string(),
+        target.to_string(),
+        "--esp".to_string(),
+        esp_text.clone(),
+        "--out".to_string(),
+        out_path.to_string_lossy().to_string(),
+    ];
+    super::elevate::run_privileged_op(
+        "oc_set_default",
+        serde_json::json!({ "target": target, "esp": esp_text }),
+        &args,
         &out_path,
     )?;
     let text = std::fs::read_to_string(&out_path)
@@ -419,9 +423,12 @@ pub(crate) fn set_default_elevated(esp_root: &Path, target: &str) -> Result<Stri
     }
 }
 
-/// `--oc-set-default` 子命令体：提权子进程里跑 [`set_default`]，结果原子写进
-/// `--out` 文件。`esp` 是父进程选中的那块（优先用），拿不到才自己扫候选根。
-pub(crate) fn privileged_set_default_main(target: &str, esp: Option<&str>, out_path: &str) -> i32 {
+/// 跑完整的「设为默认」并把结果序列化成 JSON 文本。
+///
+/// 两条提权路径共用：一次性授权子进程落盘、常驻特权服务经管道回传 —— 两者产出的
+/// 文本必须逐字节同形，否则「走服务时父进程解析失败、弹 UAC 时正常」这种差异会
+/// 随时间去漂。
+pub(crate) fn set_default_json(target: &str, esp: Option<&str>) -> Result<String, String> {
     // 提权 ≠ 特权已启用：Windows 上 SeSystemEnvironmentPrivilege 在管理员令牌里
     // 通常处于 disabled 态，不显式启用的话读写 OCBt*/Boot* 报 5/1314 —— 和
     // 「没提权」同症状，会被误诊成「OC 没写过槽」（真机踩过：OCBt0080 明明在）。
@@ -450,29 +457,19 @@ pub(crate) fn privileged_set_default_main(target: &str, esp: Option<&str>, out_p
         Ok(message) => serde_json::json!({ "ok": true, "message": message, "vars": vars }),
         Err(error) => serde_json::json!({ "ok": false, "error": error, "vars": vars }),
     };
-    write_reply(out_path, &payload)
+    serde_json::to_string(&payload).map_err(|error| format!("序列化结果失败：{error}"))
 }
 
-/// 结果原子落盘（临时文件 + rename，父进程读到的一定是完整 JSON）。
-fn write_reply(out_path: &str, payload: &serde_json::Value) -> i32 {
-    let text = match serde_json::to_string(payload) {
-        Ok(text) => text,
+/// `--oc-set-default` 子命令体：提权子进程里跑 [`set_default`]，结果原子写进
+/// `--out` 文件。`esp` 是父进程选中的那块（优先用），拿不到才自己扫候选根。
+pub(crate) fn privileged_set_default_main(target: &str, esp: Option<&str>, out_path: &str) -> i32 {
+    match set_default_json(target, esp) {
+        Ok(text) => super::write_result_file(out_path, &text),
         Err(error) => {
-            eprintln!("序列化结果失败：{error}");
-            return 2;
+            eprintln!("{error}");
+            2
         }
-    };
-    let tmp = std::path::PathBuf::from(format!("{out_path}.tmp-{}", std::process::id()));
-    if let Err(error) = std::fs::write(&tmp, text) {
-        eprintln!("写结果失败：{error}");
-        return 2;
     }
-    if let Err(error) = std::fs::rename(&tmp, out_path) {
-        let _ = std::fs::remove_file(&tmp);
-        eprintln!("落盘结果失败：{error}");
-        return 2;
-    }
-    0
 }
 
 #[cfg(test)]

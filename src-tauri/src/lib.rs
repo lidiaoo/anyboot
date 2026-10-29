@@ -194,6 +194,9 @@ pub(crate) use mount::*;
 pub mod helper_proto;
 pub mod helper_exec;
 pub(crate) mod helper_install;
+/// Windows 特权助手服务（免 UAC 提权，供远程 / 无人值守）。整文件 `cfg(windows)`，
+/// 别的平台展开成空模块 —— 这样 `main.rs` 的分支可以无条件写，不用 cfg。
+mod service_win;
 
 mod state;
 pub(crate) use state::*;
@@ -517,6 +520,85 @@ pub fn linux_grub_write_main(dev: &str, rel: &str, payload: &str, out_path: &str
 /// 读 OCBt*/Boot* 全量 hex 写进 `--out` 指的 JSON 就退。见 `channels/nvram.rs`。
 pub fn nvram_dump_main(out_path: &str) -> i32 {
     channels::nvram::privileged_dump_main(out_path)
+}
+
+/// `--run-service` 子命令入口（main.rs ⓪ 分支调）：进 SCM 分发器，常驻提供
+/// 免 UAC 的特权操作。**绝不能进 Tauri**（服务在 Session 0，开窗/抢单实例锁/
+/// 监听端口全是灾难）。见 `service_win.rs`。
+pub fn service_run_main() -> i32 {
+    #[cfg(target_os = "windows")]
+    {
+        service_win::run_service()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        eprintln!("特权助手服务只在 Windows 上有");
+        2
+    }
+}
+
+/// `--install-service`：注册并启动特权服务（需要管理员；macOS/Linux 各有自己的
+/// 免密机制，这里只做 Windows）。
+pub fn service_install_main() -> i32 {
+    #[cfg(target_os = "windows")]
+    {
+        match service_win::install() {
+            Ok(message) => {
+                println!("{message}");
+                0
+            }
+            Err(error) => {
+                eprintln!("{error}");
+                1
+            }
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        eprintln!("--install-service 只在 Windows 上有（macOS 用 helper_install，Linux 用 polkit）");
+        2
+    }
+}
+
+/// `--uninstall-service`：停掉并删除特权服务。
+///
+/// **卸载程序必须调它**：Windows 的服务注册与安装包之间没有关联，不调就留下孤儿，
+/// 之后每次开机 SCM 都会报一个指向不存在文件的服务启动失败。
+pub fn service_uninstall_main() -> i32 {
+    #[cfg(target_os = "windows")]
+    {
+        match service_win::uninstall() {
+            Ok(message) => {
+                println!("{message}");
+                0
+            }
+            Err(error) => {
+                eprintln!("{error}");
+                1
+            }
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        0
+    }
+}
+
+/// `--service-status`：把状态打到 stdout（`missing` / `stopped` / `running` /
+/// `unknown`），安装器与排障脚本按它判断，不要解析中文描述。
+pub fn service_status_main() -> i32 {
+    #[cfg(target_os = "windows")]
+    {
+        let state = service_win::state();
+        // 机器可读的那个（installer / 脚本按它判断），别让人去解析中文
+        println!("{state:?}");
+        0
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        println!("Missing");
+        0
+    }
 }
 
 /// 「提权重扫」（OpenCore 预演，Windows/Linux）：弹一次授权，用本程序自身跑

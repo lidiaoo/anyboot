@@ -874,6 +874,16 @@ fn probe_via_elevated(esp_partuuid: &str) -> Result<ProbePayload, String> {
     let out = temp_path("probe");
     args.push("--out".to_string());
     args.push(out.to_string_lossy().to_string());
+    // Windows：先问常驻服务（远程/无人值守唯一可行），不可用才弹 UAC。
+    // 别的平台没有这个服务，直接走各自的一次性授权。
+    #[cfg(target_os = "windows")]
+    super::elevate::run_privileged_op(
+        "linux_grub_probe",
+        serde_json::json!({ "esp": esp_partuuid.trim() }),
+        &args,
+        &out,
+    )?;
+    #[cfg(not(target_os = "windows"))]
     run_privileged(&args, &out)?;
     read_payload(&out)
 }
@@ -934,11 +944,6 @@ fn run_privileged(args: &[String], out: &Path) -> Result<(), String> {
 #[cfg(target_os = "macos")]
 fn sh_quote(raw: &str) -> String {
     format!("'{}'", raw.replace('\'', "'\\''"))
-}
-
-#[cfg(target_os = "windows")]
-fn run_privileged(args: &[String], out: &Path) -> Result<(), String> {
-    super::elevate::run_elevated(args, out)
 }
 
 /// Linux 本机：不需要任何子进程，`fs` 直接读。
@@ -1014,7 +1019,8 @@ fn probe_host() -> ProbePayload {
 ///
 /// **调用方不传任何路径**：分区由子进程自己枚举，它只读三样东西
 /// （`etc/fstab`、`boot/grub{,2}/grub.cfg`、`.../grubenv`），拿不到别的文件。
-pub(crate) fn probe_child_main(out: &str, esp_partuuid: &str) -> i32 {
+/// 跑一次探测并序列化成 JSON 文本（一次性授权子进程落盘，特权服务直接回传）。
+pub(crate) fn probe_child_json(esp_partuuid: &str) -> Result<String, String> {
     let payload = match probe_raw(esp_partuuid) {
         Ok(payload) => payload,
         Err(error) => ProbePayload {
@@ -1023,8 +1029,17 @@ pub(crate) fn probe_child_main(out: &str, esp_partuuid: &str) -> i32 {
             ..ProbePayload::default()
         },
     };
-    write_json(out, &payload);
-    0
+    serde_json::to_string(&payload).map_err(|error| format!("序列化探测结果失败：{error}"))
+}
+
+pub(crate) fn probe_child_main(out: &str, esp_partuuid: &str) -> i32 {
+    match probe_child_json(esp_partuuid) {
+        Ok(text) => super::write_result_file(out, &text),
+        Err(error) => {
+            eprintln!("{error}");
+            2
+        }
+    }
 }
 
 /// `disk0s9` → `/dev/rdisk0s9`
@@ -1036,9 +1051,13 @@ pub(crate) fn raw_path(dev: &str) -> String {
     format!("/dev/r{dev}")
 }
 
-/// 子进程入口：把 1024 字节环境块写回指定分区里的指定文件。
-pub(crate) fn write_child_main(dev: &str, rel: &str, payload_path: &str, out: &str) -> i32 {
-    let reply = match write_child_work(dev, rel, payload_path) {
+/// 把 1024 字节环境块写回 `dev` 上的 `rel`，返回与落盘文件同形的 JSON 文本。
+///
+/// **两条提权路径共用这一份**（一次性授权的 `--linux-grub-write` 子进程、
+/// 常驻特权服务的 `linux_grub_write` op）：写入语义只能有一处，否则
+/// 「走服务干净、弹 UAC 不干净」这种差异会随时间去漂。
+pub(crate) fn write_child_json(dev: &str, rel: &str, bytes: &[u8]) -> Result<String, String> {
+    let reply = match write_env_block(dev, rel, bytes) {
         Ok(detail) => ProbePayload {
             ok: true,
             error: None,
@@ -1051,14 +1070,29 @@ pub(crate) fn write_child_main(dev: &str, rel: &str, payload_path: &str, out: &s
             ..ProbePayload::default()
         },
     };
-    write_json(out, &reply);
-    0
+    serde_json::to_string(&reply).map_err(|error| format!("序列化写入结果失败：{error}"))
 }
 
-fn write_child_work(dev: &str, rel: &str, payload_path: &str) -> Result<String, String> {
-    let bytes = std::fs::read(payload_path)
-        .map_err(|error| format!("读不到待写内容（{payload_path}）：{error}"))?;
-    write_env_block(dev, rel, &bytes)
+/// 子进程入口：把 1024 字节环境块写回指定分区里的指定文件。
+pub(crate) fn write_child_main(dev: &str, rel: &str, payload_path: &str, out: &str) -> i32 {
+    let text = match std::fs::read(payload_path) {
+        Ok(bytes) => write_child_json(dev, rel, &bytes),
+        Err(error) => {
+            let reply = ProbePayload {
+                ok: false,
+                error: Some(format!("读不到待写内容（{payload_path}）：{error}")),
+                ..ProbePayload::default()
+            };
+            serde_json::to_string(&reply).map_err(|error| format!("序列化写入结果失败：{error}"))
+        }
+    };
+    match text {
+        Ok(text) => super::write_result_file(out, &text),
+        Err(error) => {
+            eprintln!("{error}");
+            2
+        }
+    }
 }
 
 /// 把 1024 字节环境块写回 `dev` 上的 `rel`。
@@ -1115,24 +1149,6 @@ fn parse_win_dev(dev: &str) -> Option<(u32, u32)> {
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 pub(crate) fn write_env_block(_dev: &str, _rel: &str, _bytes: &[u8]) -> Result<String, String> {
     Err("这一端还不支持写 ext4：请在本机直接改 /boot/grub/grubenv".to_string())
-}
-
-fn write_json(out: &str, payload: &ProbePayload) {
-    match serde_json::to_vec(payload) {
-        Ok(bytes) => {
-            if let Err(error) = std::fs::write(out, &bytes) {
-                eprintln!("写结果失败：{error}");
-            } else {
-                // 结果文件要给发起请求的用户读（子进程是 root）
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::PermissionsExt;
-                    let _ = std::fs::set_permissions(out, std::fs::Permissions::from_mode(0o644));
-                }
-            }
-        }
-        Err(error) => eprintln!("序列化结果失败：{error}"),
-    }
 }
 
 /// 环境块的三条硬性校验：尺寸、头部、以 `#` 补满（与 `grub-editenv` 一致）
@@ -1667,6 +1683,20 @@ pub(crate) fn write_env(runtime: &Runtime, selector: &str) -> Result<(String, Ve
         "--out".to_string(),
         out.to_string_lossy().to_string(),
     ];
+    #[cfg(target_os = "windows")]
+    let result = super::elevate::run_privileged_op(
+        "linux_grub_write",
+        serde_json::json!({
+            "dev": runtime.dev,
+            "rel": runtime.env_rel,
+            // 服务走 hex 而不是文件路径：请求里只带 1024 字节内容，
+            // 不在 SYSTEM 进程里再读一个用户可写的临时文件。
+            "payload_hex": hex::encode(&block),
+        }),
+        &args,
+        &out,
+    );
+    #[cfg(not(target_os = "windows"))]
     let result = run_privileged(&args, &out);
     let _ = std::fs::remove_file(&payload);
     let payload_reply = match result {
