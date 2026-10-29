@@ -798,182 +798,100 @@ const REFIND_SIM_CHILD_SOURCE = {
   stanza: "submenuentry",
 };
 
-/// 记住哪些条目被展开（按标题）。ui-state 每隔几秒推一次、每推一次整块重绘，
-/// 不记住的话用户刚点开的子菜单几秒后自己收回去（实测过，像点了没反应）。
-const refindSimExpanded = new Set();
+/// 被手动收起的条目（按标题）。默认与 GRUB 区一致 —— 那边就是一整棵铺开的树
+/// （`ui/grub-list-view.js` 的组头 + 子项），点一下组头才收起来。
+/// 记「收起的」而不是「展开的」：ui-state 每隔几秒整块重绘，记展开的话新出现的
+/// 条目默认是收的，与 GRUB 的观感不一致。
+const refindSimCollapsed = new Set();
 
-/// 第二层的一行：标题 + 传给 loader 的参数。
-function refindSimChildRow(child, index) {
-  const row = document.createElement("div");
-  row.className = "sim-scan-child";
-
-  const idx = document.createElement("span");
-  idx.className = "sim-scan-child-idx";
-  idx.textContent = String(index);
-
-  const body = document.createElement("span");
-  body.className = "oc-menu-body";
-
-  const head = document.createElement("span");
-  head.className = "oc-menu-head";
-  const name = document.createElement("b");
-  name.textContent = child.title || "";
-  head.append(name);
-  const tag = document.createElement("span");
-  tag.className = "oc-menu-src";
-  tag.textContent = REFIND_SIM_CHILD_SOURCE[child.source] || child.source;
-  head.append(tag);
-  body.append(head);
-
-  if (child.options) {
-    const options = document.createElement("code");
-    options.className = "oc-menu-path";
-    options.textContent = child.options;
-    body.append(options);
-  }
-  if (child.note) {
-    const note = document.createElement("small");
-    note.className = "oc-menu-note";
-    note.textContent = child.note;
-    body.append(note);
-  }
-
-  row.append(idx, body);
-  return row;
-}
-
-function refindSimRow(entry, index, allowPick = false) {
-  const wrap = document.createElement("div");
-  wrap.className = "sim-scan-item";
+/// 顶层条目 + 它的第二层（rEFInd 的子屏），按顺序返回要塞进列表框的节点。
+/// 行样式照抄 GRUB 区（`.grub-entry`）：顶层 `▸ 图标 标题` + 右侧小字数量，
+/// 子项 `↳ 标题` 缩进并挂一条竖引导线。
+function refindSimEntryNodes(entry, allowPick) {
+  const title = (entry.title || "").trim();
+  const icon = REFIND_SIM_ICONS[entry.kind] || "⬜";
+  const children = entry.children || [];
+  // 只有一条「用默认选项启动」的子屏进去也没得选，不值得给展开入口
+  const foldable = children.length > 1;
+  let open = foldable && !refindSimCollapsed.has(entry.title);
 
   const row = document.createElement("div");
-  row.className = "oc-menu-row";
-  row.dataset.kind = entry.kind || "unknown";
-
-  const idx = document.createElement("span");
-  idx.className = "oc-menu-idx";
-  idx.textContent = String(index + 1);
+  // 有第二层的才按 GRUB 的「组头」画（左侧色条 + 主题色加粗），
+  // 其余就是 GRUB 那边普通的一行 —— 15 条全涂成组头太吵
+  row.className = foldable ? "sim-node is-group" : "sim-node is-top";
+  if (entry.lastBoot) row.classList.add("is-last");
+  if (foldable) {
+    row.tabIndex = 0;
+    row.setAttribute("role", "button");
+    row.setAttribute("aria-expanded", String(open));
+    row.title =
+      (entry.subscreen ? `${entry.subscreen}\n` : "")
+      + "rEFInd 里按 Tab / + / F2（Insert）进这一层；空格是直接启动";
+  } else if (entry.note) {
+    row.title = entry.note;
+  }
 
   const body = document.createElement("span");
-  body.className = "oc-menu-body";
+  body.className = "sim-node-body";
 
-  const head = document.createElement("span");
-  head.className = "oc-menu-head";
-  const name = document.createElement("b");
+  const name = document.createElement("span");
+  name.className = "sim-node-name";
   // rEFInd 的标题末尾带一个空格（scan.c:653 故意的），展示时去掉
-  name.textContent = (entry.title || "").trim();
-  head.append(name);
+  const paintName = () => {
+    name.textContent = `${foldable ? (open ? "▾ " : "▸ ") : ""}${icon} ${title}`;
+  };
+  paintName();
+  body.append(name);
 
+  const path = document.createElement("code");
+  path.className = "sim-node-path";
+  path.textContent = entry.volume ? `${entry.volume} · ${entry.path}` : entry.path;
+  body.append(path);
+
+  // 隐藏项才有的那一行：说清是谁把它挡掉的
+  if (entry.hiddenBy) {
+    const why = document.createElement("small");
+    why.className = "sim-node-why";
+    why.textContent = `被隐藏规则挡掉：${entry.hiddenBy}`;
+    body.append(why);
+  }
+  row.append(body);
+
+  const side = document.createElement("span");
+  side.className = "sim-node-side";
+  if (foldable) {
+    const count = document.createElement("small");
+    count.className = "sim-node-tag";
+    count.textContent = `${children.length} 项`;
+    side.append(count);
+  }
   if (entry.lastBoot) {
-    const mark = document.createElement("span");
-    mark.className = "oc-menu-last";
+    const mark = document.createElement("small");
+    mark.className = "sim-node-last";
     mark.textContent = "下次启动";
     mark.title =
       "vars/PreviousBoot 里就是这一项的标题：rEFInd 的「记住启动项」开机按它进，"
       + "default_selection 里的 + 会被替换成这一项";
-    head.append(mark);
+    side.append(mark);
   }
-
-  const kind = document.createElement("span");
-  kind.className = "oc-menu-kind";
-  kind.textContent = `${REFIND_SIM_ICONS[entry.kind] || "⬜"} ${
-    REFIND_SIM_KIND_LABEL[entry.kind] || entry.kind
-  }`;
-  head.append(kind);
-
-  const source = document.createElement("span");
-  source.className = "oc-menu-src";
-  source.textContent = REFIND_SIM_SOURCE_LABEL[entry.source] || entry.source;
-  head.append(source);
-
-  body.append(head);
-
-  const path = document.createElement("code");
-  path.className = "oc-menu-path";
-  path.textContent = entry.volume
-    ? `${entry.volume} · ${entry.path}`
-    : entry.path;
-  body.append(path);
-
-  const notes = [];
-  if (entry.note) notes.push(entry.note);
-  if (entry.hiddenBy) notes.push(`被隐藏规则挡掉：${entry.hiddenBy}`);
-  for (const text of notes) {
-    const note = document.createElement("small");
-    note.className = "oc-menu-note";
-    note.textContent = text;
-    body.append(note);
-  }
-
-  row.append(idx, body);
-
-  // 第二层：rEFInd 每个 loader 都有子屏，但大多数只有「用默认选项启动」一条
-  // （进去也没什么可选的）—— 所以只在多于一条时给折叠入口，不把 15 行 × 1
-  // 条空面板全铺出来
-  const children = entry.children || [];
-  let panel = null;
-  if (children.length > 1) {
-    const expanded = refindSimExpanded.has(entry.title);
-    const toggle = document.createElement("button");
-    toggle.type = "button";
-    toggle.className = "secondary sim-scan-toggle";
-    toggle.dataset.open = expanded ? "true" : "false";
-    toggle.textContent = `${expanded ? "▴" : "▾"} ${children.length} 项`;
-    toggle.title =
-      (entry.subscreen ? `${entry.subscreen}\n` : "")
-      + "rEFInd 里按 Tab / + / F2（Insert）进入这一层；空格是直接启动";
-    row.append(toggle);
-
-    panel = document.createElement("div");
-    panel.className = "sim-scan-children";
-    panel.hidden = !expanded;
-    if (entry.subscreen) {
-      const caption = document.createElement("small");
-      caption.className = "sim-scan-subscreen";
-      caption.textContent = entry.subscreen;
-      panel.append(caption);
-    }
-    // 子项不能设「下次启动」：rEFInd 的 default_selection（PreviousBoot）只在
-    // **主菜单**里做子串匹配（menu.c:336），子屏里的标题它根本不看
-    children.forEach((child, childIndex) => {
-      panel.append(refindSimChildRow(child, childIndex + 1));
-    });
-    const hint = document.createElement("small");
-    hint.className = "sim-scan-subscreen";
-    hint.textContent =
-      "这一层只能进去选、不能设成默认项：PreviousBoot 只在主菜单里匹配标题";
-    panel.append(hint);
-
-    toggle.addEventListener("click", () => {
-      panel.hidden = !panel.hidden;
-      if (panel.hidden) {
-        refindSimExpanded.delete(entry.title);
-      } else {
-        refindSimExpanded.add(entry.title);
-      }
-      toggle.dataset.open = panel.hidden ? "false" : "true";
-      toggle.textContent = `${panel.hidden ? "▾" : "▴"} ${children.length} 项`;
-    });
-  }
-
-  // 选中即写 vars/PreviousBoot（= rEFInd 的 StoreLoaderName）。后端只接受
-  // 本列表里原样带回去的标题，所以这里传 entry.title（带末尾空格的那个原文），
-  // 别 trim —— 少一个空格 rEFInd 就匹配不上。
   if (allowPick && !entry.lastBoot) {
+    // 传 entry.title（带末尾空格的那个原文），别 trim —— 少一个空格 rEFInd 就匹配不上
     const pick = document.createElement("button");
     pick.type = "button";
-    pick.className = "secondary sim-scan-pick";
+    pick.className = "secondary sim-node-pick";
     pick.textContent = "下次启动";
     pick.title =
       "把这一项的标题写进 ESP 的 vars/PreviousBoot —— rEFInd 开机会按它启动"
       + "（等价于在 rEFInd 菜单里选中它一次）";
-    pick.addEventListener("click", async () => {
+    pick.addEventListener("click", async (event) => {
+      // 别让点击冒泡到行上（那是展开/收起）
+      event.stopPropagation();
       pick.disabled = true;
       try {
         const status = await call("refind_sim_switch", { title: entry.title });
         if (!status) return;
-        // 校验类失败（标题不在菜单里、被隐藏规则挡掉）后端是「正常返回 + error 字段」，
-        // 不抛异常 —— 这里必须显式显示，否则点了像没反应
+        // 校验类失败（标题不在菜单里、被隐藏规则挡掉）后端是「正常返回 + error
+        // 字段」，不抛异常 —— 这里必须显式显示，否则点了像没反应
         if (status.error) {
           showStatusBar(status.error, { error: true });
         } else if (status.message) {
@@ -983,12 +901,88 @@ function refindSimRow(entry, index, allowPick = false) {
         pick.disabled = false;
       }
     });
-    row.append(pick);
+    side.append(pick);
   }
+  if (side.childNodes.length) row.append(side);
 
-  wrap.append(row);
-  if (panel) wrap.append(panel);
-  return wrap;
+  const nodes = [row];
+  if (!foldable) return nodes;
+
+  // 第二层：与 GRUB 的子项同款（缩进 + 竖引导线 + ↳ 前缀）
+  const panel = document.createElement("div");
+  panel.className = "sim-children";
+  panel.hidden = !open;
+  children.forEach((child) => panel.append(refindSimChildNode(child)));
+  // 子项不能设「下次启动」：PreviousBoot（default_selection）只在主菜单里匹配
+  // （menu.c:316 不递归子屏），子屏标题写进去也不会生效
+  const hint = document.createElement("small");
+  hint.className = "sim-children-hint";
+  hint.textContent =
+    "这一层只能进去选、不能设成默认项：PreviousBoot 只在主菜单里匹配标题";
+  panel.append(hint);
+
+  const toggle = () => {
+    open = !open;
+    if (open) {
+      refindSimCollapsed.delete(entry.title);
+    } else {
+      refindSimCollapsed.add(entry.title);
+    }
+    panel.hidden = !open;
+    row.setAttribute("aria-expanded", String(open));
+    paintName();
+  };
+  row.addEventListener("click", toggle);
+  row.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      toggle();
+    }
+  });
+
+  nodes.push(panel);
+  return nodes;
+}
+
+/// 子屏里的一行：`↳ 标题` + 传给 loader 的参数，右侧是来源标签
+function refindSimChildNode(child) {
+  const row = document.createElement("div");
+  row.className = "sim-node is-child";
+
+  const body = document.createElement("span");
+  body.className = "sim-node-body";
+  const name = document.createElement("span");
+  name.className = "sim-node-name";
+  name.textContent = `↳ ${child.title || ""}`;
+  body.append(name);
+  if (child.options) {
+    const options = document.createElement("code");
+    options.className = "sim-node-path";
+    options.textContent = child.options;
+    body.append(options);
+  }
+  row.append(body);
+
+  const side = document.createElement("span");
+  side.className = "sim-node-side";
+  const tag = document.createElement("small");
+  tag.className = "sim-node-tag";
+  tag.textContent = REFIND_SIM_CHILD_SOURCE[child.source] || child.source;
+  side.append(tag);
+  if (child.note) side.title = child.note;
+  row.append(side);
+  return row;
+}
+
+/// 一整个「列表框」：边框/底色/圆角/行高照抄 GRUB 区（`.grub-list` + `.grub-entry`）。
+/// `plain` 给隐藏项那份用 —— 它已经在 <details> 里，不再套第二层边框。
+function refindSimTree(entries, { allowPick = false, plain = false } = {}) {
+  const box = document.createElement("div");
+  box.className = plain ? "sim-tree sim-tree-plain" : "sim-tree";
+  entries.forEach((entry) => {
+    refindSimEntryNodes(entry, allowPick).forEach((node) => box.append(node));
+  });
+  return box;
 }
 
 function renderRefindSim(sim) {
@@ -1014,9 +1008,9 @@ function renderRefindSim(sim) {
     simScanIssuesElement.append(line);
   }
 
-  (sim.entries || []).forEach((entry, index) => {
-    simScanListElement.append(refindSimRow(entry, index, true));
-  });
+  if ((sim.entries || []).length) {
+    simScanListElement.append(refindSimTree(sim.entries, { allowPick: true }));
+  }
   if (!(sim.entries || []).length) {
     const empty = document.createElement("small");
     empty.className = "sim-scan-issue";
@@ -1029,9 +1023,7 @@ function renderRefindSim(sim) {
   if (hidden.length) {
     simScanHiddenElement.hidden = false;
     simScanHiddenCountElement.textContent = String(hidden.length);
-    hidden.forEach((entry, index) => {
-      simScanHiddenListElement.append(refindSimRow(entry, index));
-    });
+    simScanHiddenListElement.append(refindSimTree(hidden, { plain: true }));
   }
 }
 
