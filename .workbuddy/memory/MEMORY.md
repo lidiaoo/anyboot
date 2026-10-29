@@ -36,6 +36,7 @@
 - 默认值钉死常量并配单测：亮色 / 90% / `remoteAllowGuiAuth=true` / 默认高度 = 整屏 2/3。
 - 下次启动大字 = 级联全链；Rust 文案与前端 `nextBootText` / `rowLabel` 一字不差。
 - 新增托盘菜单项：`grub_menu_nodes`（主窗/自绘窗/Linux dbusmenu/Win-mac classic 四处共用）与 `build_tray_menu` 两边都要加。
+- **ESP 定位层只给候选集，三张通道卡各自挑**（`ChannelKind::has_signature`）：别再退回「一块 ESP 服务三通道」，也别把 GRUB 判据塞进逐卡判断（它认 `EFI/BOOT/BOOTX64.EFI`，几乎每块 ESP 都有 → OC 卡会在错误的盘上误报已检测）。Linux 未挂载的 ESP 靠 `unmounted_esp_partitions()`（lsblk + sysfs `PARTNAME` 双来源，udev 缺失时只有后者管用）。
 
 ## 远端管理（server-hub）
 - **产品定则：连接策略机制只属于「电脑列表」**——优先级/停用/探测赢家都由它算，「电脑」页（PC hub 与移动端）只是另一展示主题、样式不同、逻辑分支不许另写。`route_disabled` 认全部六通道 id（别再只认 lan/jump）；电脑页标注只认探测赢家 kind（`pcWinnerKind` / HeartbeatManager `State.kind`）。
