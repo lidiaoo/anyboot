@@ -147,6 +147,28 @@ impl FileSource {
         Ok(Self::new(file, 0, 512))
     }
 
+    /// Linux：读写方式打开裸分区（写 grubenv 用）。只在 root 提权子进程里跑到
+    /// （开 `/dev/*` 写本来就要 root）。与 macOS 不同：Linux 对已挂载分区的
+    /// O_RDWR 打开不 EBUSY、align 也不挑 —— 但调用方必须自己先查挂载：
+    /// 对已挂载分区裸写会绕过内核页缓存，能走挂载点文件就绝不裸写
+    /// （见 `linux_grub::write_env_block` 的三档排序）。
+    #[cfg(target_os = "linux")]
+    pub(crate) fn open_raw_rw(path: &str) -> Result<Self, String> {
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(path)
+            .map_err(|error| {
+                let hint = if error.raw_os_error() == Some(13) {
+                    "（裸设备写入要 root —— 这条只该在提权子进程里跑到）"
+                } else {
+                    ""
+                };
+                format!("以读写方式打不开 {path}：{error}{hint}")
+            })?;
+        Ok(Self::new(file, 0, 1))
+    }
+
     /// 普通镜像文件（单测 / 排障用）
     #[allow(dead_code)]
     pub(crate) fn open_file(path: &str) -> Result<Self, String> {

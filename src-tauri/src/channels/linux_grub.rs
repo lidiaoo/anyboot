@@ -1210,9 +1210,150 @@ fn parse_win_dev(dev: &str) -> Option<(u32, u32)> {
     Some((disk.parse().ok()?, partition.parse().ok()?))
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
-pub(crate) fn write_env_block(_dev: &str, _rel: &str, _bytes: &[u8]) -> Result<String, String> {
-    Err("这一端还不支持写 ext4：请在本机直接改 /boot/grub/grubenv".to_string())
+/// Linux 写入：三档按成熟度排序，能走内核就绝不裸写（用户定案 2026-10-30）。
+///
+///   ① `dev == "本机"`：rel 是本机绝对路径（`/boot/grub{,2}/grubenv`，probe_host
+///      记的就是这种），root 直接原地覆盖文件 —— 内核 ext4 驱动，最成熟的一条；
+///   ② 分区已挂载（`/proc/self/mounts` 能查到、fstype 是 ext 家族）：写挂载点下
+///      的文件，同样内核驱动。**为什么坚持不走裸写**：对已挂载分区裸写绕过页
+///      缓存，内核的脏页回写可能把写入盖掉（写丢失），ext4 日志也可能把
+///      「绕过日志的数据」当崩溃恢复回滚 —— 文件系统层面风险不可控；
+///   ③ 未挂载：裸设备 O_RDWR + [`Ext4::overwrite_in_place`] —— 与官方
+///      `grub-editenv` 同语义：按 inode→extent 定位**它自己的数据块**，整块
+///      读改写、写完回读逐字节比对；不分配块、不改 inode/位图/超级块；
+///      RECOVER 标志挂着直接拒写。这是 grub-editenv 三十年来的做法，
+///      是「未挂载时改环境块」的成熟基准。
+///
+/// 提权由调用链保证（`--linux-grub-write` 子命令 main.rs ⓪.56 有 root 硬校验）。
+#[cfg(target_os = "linux")]
+pub(crate) fn write_env_block(dev: &str, rel: &str, bytes: &[u8]) -> Result<String, String> {
+    validate_env_block(bytes)?;
+    if dev == "本机" {
+        // 本机行：probe_host 记的 rel 是绝对路径；分区相对路径到这儿就是错传
+        if rel.contains("..") || !rel.starts_with('/') {
+            return Err(format!("本机 grubenv 必须是绝对路径（/boot/grub/grubenv），收到 {rel:?}"));
+        }
+        overwrite_file_in_place(std::path::Path::new(rel), bytes)?;
+        return Ok(format!("已写入 {rel}（本机，{} 字节，回读一致）", bytes.len()));
+    }
+    if rel.contains("..") || rel.starts_with('/') {
+        return Err("写入路径必须是分区内的相对路径".to_string());
+    }
+    if let Some(mountpoint) = ext_mountpoint_of(dev) {
+        let target = mountpoint.join(rel);
+        overwrite_file_in_place(&target, bytes).map_err(|error| {
+            format!("{dev}（挂载于 {}）：{error}", mountpoint.display())
+        })?;
+        return Ok(format!(
+            "已写入 {}（挂载点 {}，{} 字节，回读一致）",
+            dev,
+            mountpoint.display(),
+            bytes.len()
+        ));
+    }
+    let source = FileSource::open_raw_rw(dev)?;
+    let mut fs = Ext4::open(Box::new(source))?;
+    fs.overwrite_in_place(rel, bytes)?;
+    Ok(format!("已写入 {dev}:{rel}（{} 字节，回读一致）", bytes.len()))
+}
+
+/// 原地覆盖一个**已存在**文件的前 N 字节：不截断、不创建、尺寸逐字节核对、
+/// 写完回读比对（写盘出错时内核常常「成功返回」）。grubenv 是定长 1024 字节，
+/// 这四道校验缺一道都可能把别人的文件写坏。
+fn overwrite_file_in_place(path: &std::path::Path, bytes: &[u8]) -> Result<(), String> {
+    use std::io::{Read, Seek, SeekFrom, Write};
+    let mut file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path)
+        .map_err(|error| {
+            let hint = if error.kind() == std::io::ErrorKind::NotFound {
+                "（环境块文件不存在：本程序不会替你创建它 —— 创建要分配块、改 inode）"
+            } else {
+                ""
+            };
+            format!("打不开 {}：{error}{hint}", path.display())
+        })?;
+    let size = file
+        .metadata()
+        .map_err(|error| format!("读 {} 信息失败：{error}", path.display()))?
+        .len();
+    if size != bytes.len() as u64 {
+        return Err(format!(
+            "{} 是 {size} 字节，要写 {} 字节 —— 尺寸不一致，拒绝覆盖",
+            path.display(),
+            bytes.len()
+        ));
+    }
+    file.seek(SeekFrom::Start(0))
+        .and_then(|_| file.write_all(bytes))
+        .map_err(|error| format!("写 {} 失败：{error}", path.display()))?;
+    file.seek(SeekFrom::Start(0))
+        .and_then(|_| {
+            let mut verify = vec![0u8; bytes.len()];
+            file.read_exact(&mut verify).map(|_| verify)
+        })
+        .map_err(|error| format!("回读 {} 失败：{error}", path.display()))?
+        .iter()
+        .zip(bytes)
+        .enumerate()
+        .find(|(_, (got, want))| got != want)
+        .map_or(Ok(()), |(index, _)| {
+            Err(format!("{} 回读不一致（第 {index} 字节）—— 设备可能没真正落盘", path.display()))
+        })
+}
+
+/// `/proc/self/mounts` 里找这块设备的 ext 家族挂载点。
+///
+/// 只认 ext2/3/4：btrfs 有子卷、zfs 布局另说，挂载点下 `boot/grub/grubenv`
+/// 不一定还在分区内的那个位置 —— 宁可走裸写（ext4 语义我们完全掌握）也别猜路径。
+/// 多重挂载取第一个 rw；转义（`\040` 空格等）按内核 mount 表的规则解。
+#[cfg(target_os = "linux")]
+fn ext_mountpoint_of(dev: &str) -> Option<std::path::PathBuf> {
+    let text = std::fs::read_to_string("/proc/self/mounts").ok()?;
+    parse_mounts(&text)
+        .into_iter()
+        .find(|(source, _, fstype, rw)| source == dev && *rw && fstype.starts_with("ext"))
+        .map(|(_, mountpoint, _, _)| mountpoint)
+}
+
+/// 解析 `/proc/self/mounts` 文本 → `(设备, 挂载点, fstype, 可写)`。
+/// 挂载表里空格等字符写成 `\040` 八进制转义，必须解回来，否则挂载点带空格
+/// 的机器（`/media/My Disk`）永远匹配不上。
+#[cfg_attr(not(test), allow(dead_code))]
+fn parse_mounts(text: &str) -> Vec<(String, std::path::PathBuf, String, bool)> {
+    text.lines()
+        .filter_map(|line| {
+            let mut fields = line.split_whitespace();
+            let source = unescape_mounts(fields.next()?)?;
+            let mountpoint = unescape_mounts(fields.next()?)?;
+            let fstype = unescape_mounts(fields.next()?)?;
+            let options = fields.next().unwrap_or("");
+            Some((
+                source,
+                std::path::PathBuf::from(mountpoint),
+                fstype,
+                !options.split(',').any(|option| option == "ro"),
+            ))
+        })
+        .collect()
+}
+
+/// 解挂载表八进制转义（`\040` = 空格、`\011` = 制表、`\134` = 反斜杠）
+#[cfg_attr(not(test), allow(dead_code))]
+fn unescape_mounts(field: &str) -> Option<String> {
+    let mut out = String::with_capacity(field.len());
+    let mut chars = field.chars();
+    while let Some(ch) = chars.next() {
+        if ch != '\\' {
+            out.push(ch);
+            continue;
+        }
+        let digits = (chars.next()?, chars.next()?, chars.next()?);
+        let code = digits.0.to_digit(8)? * 64 + digits.1.to_digit(8)? * 8 + digits.2.to_digit(8)?;
+        out.push(char::from_u32(code)?);
+    }
+    Some(out)
 }
 
 /// 环境块的三条硬性校验：尺寸、头部、以 `#` 补满（与 `grub-editenv` 一致）
@@ -1885,6 +2026,11 @@ pub(crate) fn write_env(runtime: &Runtime, selector: &str) -> Result<(String, Ve
     let block = crate::grub::set_env_vars(&runtime.env_bytes, &updates)?;
     validate_env_block(&block)?;
 
+    // 本机行：macOS / Windows 不存在这种 runtime（probe_host 是 Linux 专属），
+    // 这条只为编译完整。**Linux 不走这里**：/boot/grub 归 root，本机行同样
+    // 必须提权 —— 落穿到下面的公共提权段（dev="本机"、rel=绝对路径，
+    // root 侧按绝对路径写文件，见 write_env_block ①）。
+    #[cfg(not(target_os = "linux"))]
     if runtime.host {
         return write_env_host(&runtime.env_rel, &block).map(|detail| (detail, block));
     }
@@ -1957,6 +2103,9 @@ pub(crate) fn write_env(runtime: &Runtime, selector: &str) -> Result<(String, Ve
 
 /// Linux 本机：直接改文件。**原地**覆盖同样 1024 字节，不做 rename
 /// （rename 要改目录项，正是我们要避开的那类元数据写入）。
+///
+/// 只在非 Linux 平台可达（Linux 的本机行走提权子进程，见 write_env）。
+#[cfg(not(target_os = "linux"))]
 fn write_env_host(path: &str, block: &[u8]) -> Result<String, String> {
     use std::io::{Seek, SeekFrom, Write};
     let mut file = std::fs::OpenOptions::new()
@@ -2212,7 +2361,11 @@ fn runtime_from(payload: &ProbePayload, view: &LinuxGrubView, prefer: &str) -> O
     }
     Some(Runtime {
         dev: part.dev.clone(),
-        host: view.platform == "linux",
+        // host 只对「本机行」成立（probe_host 的 PartReport.dev 就叫"本机"）。
+        // 以前按 platform 判：Linux 上恒 true，helper 扫出的真实分区也被当成
+        // 本机文件去写 —— 而 env_rel 是分区内的相对路径（boot/grub/grubenv），
+        // 在主机上按相对路径打开必然失败。用户定案：写入一律按分区语义。
+        host: part.dev == "本机",
         env_rel,
         env_bytes: part.env_bytes()?,
         selectors: view.entries.iter().map(|entry| entry.selector.clone()).collect(),
@@ -2402,6 +2555,106 @@ mod tests {
         let selection = locate(&parts, Some(&esp()), None).unwrap();
         assert_eq!(selection.index, 1);
         assert_eq!(selection.confidence, "self");
+    }
+
+    /// host 判定只认「本机行」：helper 扫出的真实分区哪怕就跑在本机上也必须
+    /// 走分区写入语义 —— 以前按 `view.platform == "linux"` 判，Linux 上恒 true，
+    /// 把分区的相对 env_rel（`boot/grub/grubenv`）当主机路径打开必然失败
+    /// （2026-10-30 用户定案的修正：写入一律按分区语义）。
+    #[test]
+    fn runtime_host_only_for_host_row() {
+        // 本机行的形状：dev 叫"本机"、env_rel 是绝对路径（probe_host 记法）
+        let host_row = PartReport {
+            dev: "本机".to_string(),
+            label: "本机".to_string(),
+            os_id: Some("Arch Linux".to_string()),
+            part_number: 0,
+            cfg_rel: Some("/boot/grub/grub.cfg".to_string()),
+            cfg_text: Some(
+                "menuentry 'Arch' {\n\tlinux /vmlinuz-linux root=UUID=84d0b19d-4ee2-4cd4-bc2c-80a77c19c702\n}\n"
+                    .to_string(),
+            ),
+            env_rel: Some("/boot/grub/grubenv".to_string()),
+            env_hex: Some(hex::encode(crate::grub::empty_env_block())),
+            ..PartReport::default()
+        };
+        let payload = ProbePayload {
+            ok: true,
+            esp: Some(IdentityWire {
+                fs_uuid: Some("E537-7F31".to_string()),
+                ..IdentityWire::default()
+            }),
+            parts: vec![
+                host_row,
+                report(
+                    "/dev/sda7",
+                    "BBBB",
+                    vec![("UUID=E537-7F31", "/boot/efi", "vfat")],
+                    true,
+                ),
+            ],
+            notes: Vec::new(),
+            ..ProbePayload::default()
+        };
+        // 默认（无手动指定）：fstab 精确命中分区行 → 分区语义
+        let view = build_view(&payload, "linux", false, None, false);
+        let runtime = runtime_from(&payload, &view, "").expect("分区行应可定位");
+        assert!(!runtime.host);
+        assert_eq!(runtime.dev, "/dev/sda7");
+        assert_eq!(runtime.env_rel, "boot/grub/grubenv");
+
+        // 手动指定本机行 → 本机语义，env_rel 保持绝对路径
+        let view = build_view(&payload, "linux", false, Some("本机"), false);
+        let runtime = runtime_from(&payload, &view, "本机").expect("本机行应可定位");
+        assert!(runtime.host);
+        assert_eq!(runtime.env_rel, "/boot/grub/grubenv");
+    }
+
+    /// `/proc/self/mounts` 解析：八进制转义、ro 选项、非 ext 忽略。
+    #[test]
+    fn parse_mounts_handles_escapes_and_ro() {
+        let text = concat!(
+            "/dev/nvme0n1p2 / ext4 rw,relatime 0 0\n",
+            "/dev/sda7 /media/My\\040Disk ext4 rw 0 0\n",
+            "/dev/sda8 /mnt/esp vfat ro,nosuid 0 0\n",
+            "/dev/sda9 /mnt/btr btrfs rw,subvol=@ 0 0\n",
+        );
+        let mounts = parse_mounts(text);
+        assert_eq!(mounts.len(), 4);
+        assert_eq!(mounts[0].0, "/dev/nvme0n1p2");
+        assert_eq!(mounts[0].1, std::path::PathBuf::from("/"));
+        assert!(mounts[0].3);
+        // \040 = 空格：不解转义就永远匹配不上带空格的挂载点
+        assert_eq!(mounts[1].1, std::path::PathBuf::from("/media/My Disk"));
+        // ro 挂载：不能当写入点
+        assert!(!mounts[2].3);
+        // ext_mountpoint_of 只认 ext 家族
+        let found = mounts
+            .iter()
+            .find(|(source, _, fstype, rw)| source == "/dev/sda7" && *rw && fstype.starts_with("ext"))
+            .map(|(_, mp, _, _)| mp.clone());
+        assert_eq!(found, Some(std::path::PathBuf::from("/media/My Disk")));
+    }
+
+    /// 原地覆盖的四道闸：不存在不创建、尺寸不一致拒绝、写入生效、内容核对。
+    #[test]
+    fn overwrite_file_in_place_rules() {
+        let path = std::env::temp_dir().join(format!("anyboot-env-test-{}.bin", std::process::id()));
+        let block = crate::grub::empty_env_block();
+        std::fs::write(&path, &block).expect("准备测试文件");
+        // 尺寸不一致必须拒绝
+        let mut short = block.clone();
+        short.truncate(512);
+        assert!(overwrite_file_in_place(&path, &short).is_err());
+        // 正常写入生效
+        let mut next = block.clone();
+        next[..2].copy_from_slice(b"#X");
+        overwrite_file_in_place(&path, &next).expect("合法覆盖应成功");
+        let on_disk = std::fs::read(&path).expect("回读");
+        assert_eq!(on_disk, next);
+        let _ = std::fs::remove_file(&path);
+        // 不存在的文件不创建
+        assert!(overwrite_file_in_place(&std::env::temp_dir().join("anyboot-absent-env"), &block).is_err());
     }
 
     #[test]
