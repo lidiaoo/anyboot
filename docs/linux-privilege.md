@@ -141,3 +141,15 @@ rpm -qp --scripts AnyBoot-*.rpm | grep -n "sudoers.d/anyboot"
 ```
 
 两条都应打印出 `rm -f /etc/sudoers.d/anyboot`。
+
+**2026-10-29 实测已确认**（tauri-cli 2.x，`tauri build --bundles deb,rpm`）：
+
+- deb 的控制段里多出 `postrm`（`-rwxr-xr-x`，0755），内容就是本仓库这份脚本；
+- rpm 里是 `postuninstall scriptlet`，同一份内容；
+- 主二进制里 `--linux-priv-install` / `--linux-priv-uninstall` / `--linux-esp-install`
+  与 `/etc/sudoers.d/anyboot`、`/usr/lib/anyboot/anyboot-priv` 诸串都在；
+- 「关于」页那张卡也在包里：解 brotli 后的 `hub.html` 资产与仓库 `ui/hub.html`
+  **字节完全相同**（668800B，sha256 前 16 位 `0bb2bdbcc0a39a3d`）。
+
+即 `bundle.linux.deb/rpm.postRemoveScript` → deb `postrm` / rpm `%postun` 这条路是通的，
+不需要在打包脚本里再手动塞钩子。

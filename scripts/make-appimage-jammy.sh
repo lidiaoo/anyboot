@@ -102,6 +102,20 @@ cp -a "$SYS/usr/lib/x86_64-linux-gnu/." "$APPDIR/usr/lib/"
 mkdir -p "$APPDIR/usr/lib64/webkit2gtk-4.1"
 cp -a "$APPDIR/usr/lib/webkit2gtk-4.1/." "$APPDIR/usr/lib64/webkit2gtk-4.1/"
 
+# ⚠️ 上面 `rm -rf usr/lib` 是整棵删的，会把 tauri 的 resources 一起带走：
+#    usr/lib/AnyBoot/binaries/anyboot-tsnet-linux-{amd64,arm64}（tauri.linux.conf.json
+#    的 bundle.resources）。sidecar 丢了**不会报错**，只会让 tsnet/远程组网静默不可用——
+#    所以这里必须补回来，并且后面自检要核。
+mkdir -p "$APPDIR/usr/lib/AnyBoot/binaries"
+for f in anyboot-tsnet-linux-amd64 anyboot-tsnet-linux-arm64; do
+  if [ -f "$PROJ/src-tauri/binaries/$f" ]; then
+    cp -f "$PROJ/src-tauri/binaries/$f" "$APPDIR/usr/lib/AnyBoot/binaries/$f"
+    chmod 0755 "$APPDIR/usr/lib/AnyBoot/binaries/$f"
+  else
+    echo "✗ 缺 sidecar 源 $PROJ/src-tauri/binaries/$f（先跑 scripts/build-sidecar.sh）"; exit 1
+  fi
+done
+
 echo "==> 3.5/7 改写 libwebkit 辅助进程路径（jammy 发布版无 WEBKIT_EXEC_PATH，只能照 tauri#5292 打相对路径）"
 python3 - "$APPDIR/usr/lib/libwebkit2gtk-4.1.so.0" <<'PYEOF'
 import sys, os
@@ -186,6 +200,39 @@ echo "  全包最高 GLIBC 需求 = $MAX"
 # 正确判据：MAX 自己排在 2.35 之前（含相等）才放行（见上文 BINMAX 处的说明）
 [ "$MAX" = "$(printf '%s\n2.35\n' "$MAX" | sort -Vu | head -1)" ] || { echo "  ✗ 超过 2.35"; exit 1; }
 
+echo "==> 自检 A2：tauri resources 在包内（tsnet sidecar 缺了不会报错，只会静默失效）"
+for f in anyboot-tsnet-linux-amd64 anyboot-tsnet-linux-arm64; do
+  p="$APPDIR/usr/lib/AnyBoot/binaries/$f"
+  [ -x "$p" ] || { echo "  ✗ 缺 $p"; exit 1; }
+  cmp -s "$p" "$PROJ/src-tauri/binaries/$f" || { echo "  ✗ $f 与源不一致（版本错位）"; exit 1; }
+  echo "  ✓ $f  $(stat -c%s "$p") 字节"
+done
+
+echo "==> 自检 A3：前端资产确实是本轮构建的"
+# 资产是 brotli 压缩后嵌进二进制的，扫二进制不现实；改查 codegen 产物目录。
+# 目录跟着**本体二进制**走（BIN 常是指向另一条构建线的符号链接，直接用
+# $PROJ/src-tauri/target 会查到上一次的旧资产，得出「不一致」的假警报）。
+# 注意：一轮会编出几十个页面资产，hub.html 往往不是 mtime 最新的那个 —— 全量解压搜。
+BINREAL=$(readlink -f "$BIN" 2>/dev/null || echo "$BIN")
+ASSET_ROOT=$(ls -d "$(dirname "$BINREAL")/build"/anyboot-*/out/tauri-codegen-assets 2>/dev/null | tail -1)
+if [ -n "$ASSET_ROOT" ]; then
+  node - "$ASSET_ROOT" "$PROJ/ui/hub.html" <<'JSEOF'
+const fs = require('fs'), path = require('path'), zlib = require('zlib');
+const [root, hub] = process.argv.slice(2);
+const want = fs.readFileSync(hub);
+const hits = fs.readdirSync(root).filter(f => {
+  try {
+    const out = zlib.brotliDecompressSync(fs.readFileSync(path.join(root, f)));
+    return out.length === want.length && out.equals(want);
+  } catch (e) { return false; }
+});
+if (!hits.length) { console.error('  ✗ 没找到与 ui/hub.html 字节一致的 codegen 资产（codegen 没重编？）'); process.exit(1); }
+console.log('  ✓ hub.html 资产字节一致（' + want.length + ' 字节）→ ' + hits[0].slice(0, 12) + '…');
+JSEOF
+else
+  echo "  · 跳过（找不到 $PROJ/src-tauri/target/release/build/anyboot-*/out）"
+fi
+
 echo "==> 自检 B：每个 ELF 的依赖都能在包内解出"
 MISS=0
 while read -r f; do
@@ -202,7 +249,10 @@ head -c "$OFF" "$ORIG" > "$RT"
 chmod +x "$RT"
 cd "$BUILD"
 set +e
-"$APPIMAGETOOL" --runtime-file "$RT" "$APPDIR" "$OUT"
+# ARCH=x86_64 必须显式给：tauri 的 resources 里带了 arm64 的 tsnet sidecar，包内同时
+# 存在两个架构的二进制，appimagetool 自检会说「More than one architectures were found」
+# 然后拒绝打包（不是我们的包真有错，是它按 ELF 猜架构）。runtime 本身也只有 x86_64 一份。
+ARCH=x86_64 "$APPIMAGETOOL" --runtime-file "$RT" "$APPDIR" "$OUT"
 RC=$?
 set -e
 # appimagetool 收尾偶发段错误（上游已知），以产物存在、自报偏移且**是本次新建**为准
