@@ -634,12 +634,12 @@ pub(crate) fn remote_ui_command_inner(
                 .get("target")
                 .and_then(|value| value.as_str())
                 .map(str::to_string);
-            // auto=true（开机自动扫）不许回落弹授权；手点/HTTP 默认允许
+            // auto=true（开机/进页面自动扫）只许走静默提权；手点/HTTP 默认允许弹授权
             let auto = args.get("auto").and_then(|value| value.as_bool());
             serde_json::to_value(channels::linux_grub::scan_blocking(
                 app.clone(),
                 target,
-                !auto.unwrap_or(false),
+                channels::Elevation::from_auto(auto.unwrap_or(false)),
             ))
             .map_err(|error| format!("序列化失败: {error}"))
         }

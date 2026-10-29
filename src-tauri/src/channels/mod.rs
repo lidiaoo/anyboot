@@ -38,6 +38,39 @@ pub(crate) mod refind_menu;
 pub(crate) mod sdboot;
 pub(crate) mod win_esp;
 
+// ─────────────────────────── 提权方式 ───────────────────────────
+
+/// 这次提权是**谁发起的** —— 决定「能不能弹授权框」。两个调用方要的语义完全不同，
+/// 用一个 bool（`allow_fallback`）传会一路读成「要不要回落」，实际约束是：
+///
+/// * [`Elevation::Allow`]：用户亲手点的按钮。服务优先，服务不可用就弹一次授权；
+/// * [`Elevation::Silent`]：开机 / 进页面**自动**扫。只允许静默通道
+///   （Windows 特权服务、macOS 免密助手），拿不到就报错 —— 绝不弹授权。
+///
+/// 为什么自动扫必须这么严：开机那一拍没人盯着屏幕，UAC 框要么被无视（30 秒后失败），
+/// 要么在最不该打扰的时候弹出来；远程/无人值守更是永远点不到。代价是服务/助手不在位
+/// 时自动扫一定失败，所以界面上始终留着会弹授权的手动按钮。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Elevation {
+    Allow,
+    Silent,
+}
+
+impl Elevation {
+    /// 前端传的 `auto`（true = 开机自动扫那些调用）→ 提权方式。
+    pub(crate) fn from_auto(auto: bool) -> Self {
+        if auto {
+            Self::Silent
+        } else {
+            Self::Allow
+        }
+    }
+
+    pub(crate) fn is_silent(self) -> bool {
+        self == Self::Silent
+    }
+}
+
 // ─────────────────────────── 快照结构 ───────────────────────────
 
 #[derive(Clone, Debug, Serialize)]
@@ -416,6 +449,64 @@ pub(crate) fn refresh_channels(app: &AppHandle) {
     state.lock().expect("state mutex poisoned").channels = ChannelsRuntime { esp, views };
 }
 
+// ─────────────────── 开机自动「提权扫」（进 App 就有数据） ───────────────────
+
+/// App 一起来就在后台补两份数据，用户的体感是「一进去就有」：
+///
+/// 1. **OC 启动顺序**（`OCBtOrder` / `BootOrder`）—— 固件变量对非管理员一律
+///    `1314`，读不到就标不出「默认项」：用户看到列表却看不出哪个是默认；
+/// 2. **APFS Preboot**（macOS 条目）—— 零挂载直读 APFS 容器要开整盘，EACCES；
+///    读不到时 OC 预演里 macOS 条目凭空消失。
+///
+/// 两条都**只走静默通道**（[`Elevation::Silent`] → Windows 特权服务）：
+/// 服务没在跑就整段跳过并留一行 trace，绝不在开机那一拍弹 UAC。
+/// 跳过的代价只是「要手动点卡片上的按钮」，而不是「开机弹一个没人看着的授权框」。
+///
+/// 并发关系：这段和 `refresh_and_update` 的首次扫描是两条独立线程，谁先跑完都行 ——
+/// 两份数据都在进程内缓存里，`refresh_channels` 读的是缓存，不看扫描先后。
+pub(crate) fn spawn_boot_privileged_scan(app: AppHandle) {
+    #[cfg(target_os = "windows")]
+    std::thread::spawn(move || {
+        if !crate::service_win::usable_from_here() {
+            crate::trace(
+                &app,
+                "boot-scan",
+                "跳过开机自动提权扫描：特权服务没在运行，或当前不是安装目录里那份 exe\
+                 （卡片上的「重扫 macOS 条目 / 重读启动顺序」仍可手动授权）",
+            );
+            return;
+        }
+        let mut touched = false;
+        match nvram::refresh_boot_vars_elevated(Elevation::Silent) {
+            Ok(message) => {
+                crate::trace(&app, "boot-scan", &format!("启动顺序：{message}"));
+                touched = true;
+            }
+            // 读不到不影响页面：预演照旧，只是「默认项」标不出来
+            Err(error) => crate::trace(&app, "boot-scan", &format!("启动顺序没读到：{error}")),
+        }
+        match apfs_reader::scan_preboot_elevated(false, Elevation::Silent) {
+            Ok(outcome) => {
+                crate::trace(
+                    &app,
+                    "boot-scan",
+                    &format!("APFS Preboot：{} 条｜{}", outcome.items.len(), outcome.note),
+                );
+                touched = true;
+            }
+            Err(error) => crate::trace(&app, "boot-scan", &format!("APFS Preboot 没扫到：{error}")),
+        }
+        if touched {
+            refresh_channels(&app);
+            // 一次性推送：窗口已经把首帧画完了，这一拍只补上刚读到的默认项/macOS 条目
+            crate::publish_ui(&app);
+        }
+    });
+    // 别的平台没有静默提权通道（macOS 本来就能直读，Linux 走 pkexec 必弹授权）
+    #[cfg(not(target_os = "windows"))]
+    let _ = app;
+}
+
 // ─────────────────────────── 切换 ───────────────────────────
 
 /// 切换值域的解析（纯函数，好单测）。
@@ -660,6 +751,16 @@ mod tests {
             Ok(root) => assert_ne!(root, missing, "不该把没有通道签名的路径当 ESP 根"),
             Err(error) => assert!(error.contains("没有找到可用的 ESP"), "{error}"),
         }
+    }
+
+    /// 「自动扫不弹授权」这条规矩的唯一入口：前端的 `auto=true` 必须落成 `Silent`。
+    /// 一旦有人把它接反，开机就会弹 UAC —— 而这在没有人的机器上等于功能彻底失效。
+    #[test]
+    fn auto_scan_never_allows_a_prompt() {
+        assert_eq!(Elevation::from_auto(true), Elevation::Silent);
+        assert!(Elevation::from_auto(true).is_silent());
+        assert_eq!(Elevation::from_auto(false), Elevation::Allow);
+        assert!(!Elevation::from_auto(false).is_silent());
     }
 
     #[test]

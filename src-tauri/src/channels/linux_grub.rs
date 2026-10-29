@@ -671,18 +671,21 @@ pub(crate) fn build_view(
 /// 「一次性授权子进程」。这个优先级不是性能优化：每次切启动项都弹密码的话，
 /// 这个功能不会被用起来。
 ///
-/// `allow_fallback=false` 是**自动扫描**（开机自启那次）专用：绝不允许弹授权。
-/// 开机瞬间整机 I/O 高峰、助手冷启动，25 秒超时并不保险 —— 撞上就回落 osascript，
-/// 用户看到的就是「刚进 App 就要密码」（2026-10-29 实测）。这种情况直接报错，
-/// 前端会自动重试；用户手点「重新读取」才允许回落（主动点的，弹了不意外）。
+/// `elevation` 是**谁发起的**（见 [`Elevation`]）：
+/// * [`Elevation::Silent`]：开机自动扫。只允许静默通道 —— macOS 的免密助手、
+///   Windows 的特权服务；都没有就报错让前端重试，**绝不弹授权**
+///   （开机瞬间整机 I/O 高峰、助手冷启动，25 秒超时并不保险 —— 撞上就回落
+///   osascript，用户看到的就是「刚进 App 就要密码」，2026-10-29 实测）；
+/// * [`Elevation::Allow`]：用户手点「重新读取」。服务不可用才弹一次授权
+///   （主动点的，弹了不意外）。
 pub(crate) fn probe(
     esp_partuuid: &str,
     prefer_dev: &str,
-    allow_fallback: bool,
+    elevation: Elevation,
 ) -> Result<ProbePayload, String> {
     #[cfg(target_os = "linux")]
     {
-        let _ = (esp_partuuid, prefer_dev, allow_fallback);
+        let _ = (esp_partuuid, prefer_dev, elevation);
         Ok(probe_host())
     }
     #[cfg(not(target_os = "linux"))]
@@ -693,19 +696,11 @@ pub(crate) fn probe(
         #[cfg(target_os = "macos")]
         let helper = crate::helper_install::view();
 
-        #[cfg(not(target_os = "linux"))]
-        if !allow_fallback {
-            #[cfg(target_os = "macos")]
-            if !helper.installed {
-                return Err(
-                    "没装免密助手：自动扫描不弹管理员授权，装好助手后重开 App 即自动读；\
-                     也可以点「重新读取」手动扫（会请求一次密码）"
-                        .to_string(),
-                );
-            }
-            #[cfg(not(target_os = "macos"))]
+        #[cfg(target_os = "macos")]
+        if elevation.is_silent() && !helper.installed {
             return Err(
-                "自动扫描不弹管理员授权：点「重新读取」手动扫一次（会请求一次密码）"
+                "没装免密助手：自动扫描不弹管理员授权，装好助手后重开 App 即自动读；\
+                 也可以点「重新读取」手动扫（会请求一次密码）"
                     .to_string(),
             );
         }
@@ -727,7 +722,7 @@ pub(crate) fn probe(
                 // 这条路不通（超时 / 作业没加载 / 被系统拦）：回落一次性授权。
                 // 回落成功时不打扰用户；回落也失败时 osascript 会说自己的原因。
                 Err(crate::helper_install::HelperError::Unavailable(why)) => {
-                    if !allow_fallback {
+                    if elevation.is_silent() {
                         return Err(format!(
                             "免密助手没接上（{why}）：自动扫描不弹管理员授权，\
                              稍后会自动重试；也可以点「重新读取」手动扫"
@@ -738,7 +733,7 @@ pub(crate) fn probe(
             }
         }
 
-        let mut payload = probe_via_elevated(esp_partuuid)?;
+        let mut payload = probe_via_elevated(esp_partuuid, elevation)?;
         payload.via = "elevated".to_string();
         // 走到这里说明助手没把活干完。最常见的原因是「App 重装过、/Library 里那份
         // 还是上一个构建」（`view().stale`），此外还有超时 / 作业没加载。
@@ -865,7 +860,10 @@ pub(crate) fn parts_for_sim(app: &AppHandle) -> (Vec<PartReport>, Option<String>
 
 /// 一次性授权（osascript / UAC）：弹一次密码，跑一个把自己提权起来的子进程。
 #[cfg(not(target_os = "linux"))]
-fn probe_via_elevated(esp_partuuid: &str) -> Result<ProbePayload, String> {
+fn probe_via_elevated(
+    esp_partuuid: &str,
+    elevation: Elevation,
+) -> Result<ProbePayload, String> {
     let mut args = vec!["--linux-grub-probe".to_string()];
     if !esp_partuuid.trim().is_empty() {
         args.push("--esp".to_string());
@@ -875,16 +873,28 @@ fn probe_via_elevated(esp_partuuid: &str) -> Result<ProbePayload, String> {
     args.push("--out".to_string());
     args.push(out.to_string_lossy().to_string());
     // Windows：先问常驻服务（远程/无人值守唯一可行），不可用才弹 UAC。
-    // 别的平台没有这个服务，直接走各自的一次性授权。
+    // 但 `Silent`（开机自动扫）连 UAC 都不许弹 —— 只走服务，没有就报错。
+    // 别的平台没有这个服务，直接走各自的一次性授权（macOS 的免密分支已在上面拦过）。
     #[cfg(target_os = "windows")]
-    super::elevate::run_privileged_op(
-        "linux_grub_probe",
-        serde_json::json!({ "esp": esp_partuuid.trim() }),
-        &args,
-        &out,
-    )?;
+    if elevation.is_silent() {
+        super::elevate::run_silent_op(
+            "linux_grub_probe",
+            serde_json::json!({ "esp": esp_partuuid.trim() }),
+            &out,
+        )?;
+    } else {
+        super::elevate::run_privileged_op(
+            "linux_grub_probe",
+            serde_json::json!({ "esp": esp_partuuid.trim() }),
+            &args,
+            &out,
+        )?;
+    }
     #[cfg(not(target_os = "windows"))]
-    run_privileged(&args, &out)?;
+    {
+        let _ = elevation;
+        run_privileged(&args, &out)?
+    };
     read_payload(&out)
 }
 
@@ -1762,16 +1772,16 @@ fn write_env_host(path: &str, block: &[u8]) -> Result<String, String> {
 /// 不吃点击：`[render]` 心跳和界面轮询都会断在那儿（trace 里能直接看到
 /// 4~20 秒的空档），用户看到的就是「点了没反应」，然后连点几次排成一队。
 ///
-/// `auto=true` 是开机自动扫：助手没接上**不许弹授权**（见 `probe`），报错让
-/// 前端自动重试；`auto=false`（手点）才回落一次性授权。
+/// `auto=true` 是开机自动扫：**只许静默提权**（macOS 免密助手 / Windows 特权服务），
+/// 拿不到就报错让前端重试，绝不弹授权；`auto=false`（手点）才回落一次性授权。
 #[tauri::command]
 pub(crate) async fn linux_grub_scan(
     app: AppHandle,
     target: Option<String>,
     auto: Option<bool>,
 ) -> Option<LinuxGrubView> {
-    let allow_fallback = !auto.unwrap_or(false);
-    tauri::async_runtime::spawn_blocking(move || scan_blocking(app, target, allow_fallback))
+    let elevation = Elevation::from_auto(auto.unwrap_or(false));
+    tauri::async_runtime::spawn_blocking(move || scan_blocking(app, target, elevation))
         .await
         .ok()
         .flatten()
@@ -1781,9 +1791,9 @@ pub(crate) async fn linux_grub_scan(
 pub(crate) fn scan_blocking(
     app: AppHandle,
     target: Option<String>,
-    allow_fallback: bool,
+    elevation: Elevation,
 ) -> Option<LinuxGrubView> {
-    Some(refresh(&app, target.as_deref(), allow_fallback))
+    Some(refresh(&app, target.as_deref(), elevation))
 }
 
 /// 「换一个」：记住用户选的分区，然后立刻按它重扫。
@@ -1805,7 +1815,7 @@ pub(crate) fn pick_blocking(app: AppHandle, dev: String) -> Option<LinuxGrubView
         trace(&app, "linux_grub", &format!("保存目标分区失败：{error}"));
     }
     // pick 永远是用户主动点的：允许回落一次性授权
-    Some(refresh(&app, Some(&dev), true))
+    Some(refresh(&app, Some(&dev), Elevation::Allow))
 }
 
 /// 切换下次启动：写目标分区自己的 grubenv。
@@ -1915,8 +1925,13 @@ pub(crate) fn switch_blocking(app: AppHandle, selector: String) -> LinuxGrubView
 /// 免密助手在不在位 —— 前端拿它决定「进页面要不要自动扫」。
 ///
 /// 「不自动扫」是 osascript 弹密码年代定的规矩：开机就读裸设备 = 开机弹密码框。
-/// 助手免密之后这个代价没了，但**助手不在位时仍会弹密码**，所以必须先问一句
-/// 再决定。只查 `/Library` 里装没装（外加算一次摘要比对协议说明），不碰设备。
+/// 免密之后这个代价没了，但**没有免密通道时仍会弹密码**，所以必须先问一句再决定。
+/// 只查 `/Library` 里装没装（外加算一次摘要比对协议说明），不碰设备。
+///
+/// 三端语义统一成「**有静默提权通道吗**」：
+/// * macOS：root 助手装没装；
+/// * Windows：特权服务在不在跑（没有它就只剩 UAC 一条路，自动扫必然失败）；
+/// * Linux：本机直读，永远 ready（`true`）。
 #[tauri::command]
 pub(crate) async fn linux_grub_helper_ready() -> bool {
     tauri::async_runtime::spawn_blocking(helper_ready_blocking)
@@ -1929,7 +1944,13 @@ pub(crate) fn helper_ready_blocking() -> bool {
     #[cfg(target_os = "macos")]
     return crate::helper_install::view().installed;
 
-    #[cfg(not(target_os = "macos"))]
+    // Windows 的「静默通道」就是特权服务：没在跑时自动扫只会换来一条
+    // 「不弹授权」的报错，不如干脆不扫 —— 手动点「重新读取」才走 UAC。
+    // 便携副本同理（服务会拒掉非安装目录的调用方，问也是白问）。
+    #[cfg(target_os = "windows")]
+    return crate::service_win::usable_from_here();
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     return true;
 }
 
@@ -1978,7 +1999,7 @@ fn runtime_from(payload: &ProbePayload, view: &LinuxGrubView, prefer: &str) -> O
 
 /// 扫一遍 → 组装视图 → 写回状态。任何一步失败都返回「带 error 的视图」，
 /// 绝不把旧数据当成新结果留在界面上。
-pub(crate) fn refresh(app: &AppHandle, target: Option<&str>, allow_fallback: bool) -> LinuxGrubView {
+pub(crate) fn refresh(app: &AppHandle, target: Option<&str>, elevation: Elevation) -> LinuxGrubView {
     let settings = stored_settings(app);
     let prefer = target
         .map(str::to_string)
@@ -1991,7 +2012,7 @@ pub(crate) fn refresh(app: &AppHandle, target: Option<&str>, allow_fallback: boo
     };
     let esp_partuuid = settings.grub_efi_partuuid.clone();
 
-    let payload = match probe(&esp_partuuid, &prefer, allow_fallback) {
+    let payload = match probe(&esp_partuuid, &prefer, elevation) {
         Ok(payload) => payload,
         Err(error) => {
             let view = LinuxGrubView::failed(platform_name(), error);

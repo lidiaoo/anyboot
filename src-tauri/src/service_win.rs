@@ -766,6 +766,39 @@ impl State {
     }
 }
 
+/// 现在这份 exe 能不能用这台机器上的特权服务 —— 也就是「值不值得去问它」。
+///
+/// 两个条件缺一不可：
+/// 1. 服务在跑（`state() == Running`）；
+/// 2. **我们自己就是安装目录那份**。服务端只接受与它同路径的调用方
+///    （[`caller_is_our_exe`]），便携副本 / 解压到别处的副本去问必定被拒。
+///
+/// 第 2 条是给「自动提权扫」用的：不问就不会留下一条 `not_our_exe` 的错误，
+/// 便携版也不会每次开机都在界面上刷一行红字 —— 它本来就走 UAC 那条路。
+pub(crate) fn usable_from_here() -> bool {
+    state() == State::Running && is_installed_copy()
+}
+
+/// 安装目录固定 `%ProgramFiles%\AnyBoot`（NSIS 与 MSI 两边都钉死了这个路径，
+/// 不是默认值碰巧一致 —— 服务以 SYSTEM 跑，安装目录必须不可被用户改写）。
+fn installed_exe_path() -> Option<std::path::PathBuf> {
+    std::env::var_os("ProgramFiles")
+        .map(|root| std::path::PathBuf::from(root).join("AnyBoot").join("anyboot.exe"))
+}
+
+fn is_installed_copy() -> bool {
+    let Ok(ours) = std::env::current_exe() else {
+        return false;
+    };
+    let Some(expected) = installed_exe_path() else {
+        return false;
+    };
+    same_path(
+        &ours.to_string_lossy(),
+        &expected.to_string_lossy(),
+    )
+}
+
 pub(crate) fn state() -> State {
     let manager = unsafe { OpenSCManagerW(std::ptr::null(), std::ptr::null(), SC_MANAGER_CONNECT) };
     if manager.is_null() {

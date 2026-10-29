@@ -233,8 +233,9 @@ function renderOcMenuPreview(
     box.append(issueBox);
   }
 
-  // 两个「提权」按钮共用一行 —— 它们是同一件事的两个触发点：主进程没有管理员
-  // 权限，弹一次授权让本程序自身去读，读完缓存在进程里供预演重建。
+  // 两个「提权」按钮共用一行 —— 它们是同一件事的两个触发点。**平时用不到**：
+  // 进 App 时后端已经自动静默扫过（服务在位就不弹授权），这两个按钮是
+  // 「服务没装 / 想强制重扫」时的手动补口 —— 那一次会请求授权。
   //  · Preboot 直读失败 → macOS 条目缺失；
   //  · 启动顺序表读不到 → 「默认项」标记点不亮：用户点完「设为默认」提示成功，
   //    界面上却毫无变化（真机踩到，因为 OCBtOrder 同样是受固件保护的变量）。
@@ -244,10 +245,10 @@ function renderOcMenuPreview(
     const button = document.createElement("button");
     button.type = "button";
     button.className = "channel-helper-action needs-elev";
-    button.textContent = "提权重扫 ⤴";
+    button.textContent = "重扫 macOS 条目 ⤴";
     button.title =
-      "弹一次管理员授权，用 AnyBoot 自身只读扫一遍 APFS 容器翻出 macOS 条目" +
-      "（不写盘、不装任何东西；结果缓存 30 分钟，之后不再询问）";
+      "只读扫一遍 APFS 容器翻出 macOS 条目。装了特权服务时完全静默；" +
+      "没装会请求一次授权（不写盘、不装东西；结果缓存 30 分钟）";
     button.disabled = Boolean(busy);
     button.addEventListener("click", () => onPrebootElevate(false));
     elevateRow.append(button);
@@ -256,10 +257,10 @@ function renderOcMenuPreview(
     const button = document.createElement("button");
     button.type = "button";
     button.className = "channel-helper-action needs-elev";
-    button.textContent = "提权读取启动顺序 ⤴";
+    button.textContent = "重读启动顺序 ⤴";
     button.title =
-      "弹一次管理员授权，读一遍 OCBtOrder / OCBt####：当前进程没权限读固件变量，" +
-      "没有这份数据就标不出哪个条目是默认项（只读、不写盘；结果缓存 30 分钟）";
+      "读一遍 OCBtOrder / OCBt####：当前进程没权限读固件变量，" +
+      "没有这份数据就标不出哪个条目是默认项（只读、不写盘；装了特权服务时静默）";
     button.disabled = Boolean(busy);
     button.addEventListener("click", () => onOrderElevate());
     elevateRow.append(button);

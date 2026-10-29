@@ -91,6 +91,46 @@ pub(crate) fn run_op(op: &str, args: serde_json::Value) -> Result<String, String
         .map_err(|error| format!("特权操作跑完了但结果文件读不到：{error}"))
 }
 
+/// **只走服务、绝不弹授权**的一次特权操作（开机 / 进页面自动扫专用）。
+///
+/// 和 [`run_privileged_op`] 的唯一区别是「服务不可用时怎么办」：这里直接报错，
+/// 不回落 UAC。理由很硬 —— 自动扫发生时没人看着屏幕：
+/// * 远程 / 无人值守：UAC 弹在主机桌面上，手机端永远点不到，只会白等 30 秒；
+/// * 有人在场：开机瞬间弹一个「用户没主动要求」的授权框，是最招人烦的一种打扰，
+///   而且拒一次就等于这次扫描彻底失败，用户还不知道自己拒了什么。
+///
+/// 所以静默通道只有两条 —— Windows 特权服务、macOS 免密助手（那边不走这个模块）。
+/// 都没有就老实报错，界面上的手动按钮仍然可以弹一次授权（用户主动点的，弹了不意外）。
+///
+/// 成功时把服务回传的 body 写进 `out_path`，与 UAC 那条路**落同一份文件**，
+/// 调用方之后的解析代码完全不用分叉。
+pub(crate) fn run_silent_op(
+    op: &str,
+    args: serde_json::Value,
+    out_path: &std::path::Path,
+) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        return match try_service(op, args, out_path) {
+            ServiceOutcome::Served => Ok(()),
+            // 服务明确失败：如实报（自动扫失败也要看得见原因，别吞）
+            ServiceOutcome::Failed(reason) => Err(reason),
+            ServiceOutcome::Unavailable(why) => Err(format!(
+                "{why}：自动提权扫描不弹授权（装好特权服务后重开 AnyBoot 即自动完成；\
+                 也可以手动点一次，那一次会请求授权）"
+            )),
+        };
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (op, args, out_path);
+        Err(
+            "这个平台没有静默提权通道：自动扫描不弹授权，手动点一次即可（那次会请求授权）"
+                .to_string(),
+        )
+    }
+}
+
 #[cfg(target_os = "windows")]
 fn try_service(op: &str, args: serde_json::Value, out_path: &std::path::Path) -> ServiceOutcome {
     // 上一次残留不能被当成新结果（与 run_elevated 同一条纪律）

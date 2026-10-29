@@ -837,7 +837,7 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
                     severity: "info".to_string(),
                     text: format!(
                         "macOS 条目（APFS Preboot）这次没扫出来：{reason}\
-                        。点「提权重扫」授权一次即可补齐"
+                        。点「重扫 macOS 条目」补齐（装了特权服务时静默，没装会请求一次授权）"
                     ),
                 });
                 (None, true)
@@ -1054,8 +1054,7 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
             severity: "info".to_string(),
             text: format!(
                 "启动顺序来自 {minutes} 分钟前的一次提权读取（当前进程没权限直接读 `{}`）。\
-                 OC 或别的系统改过默认项后这里会滞后，要最新状态就点「提权读取启动顺序 ⤴」\
-                 再授权一次",
+                 OC 或别的系统改过默认项后这里会滞后，要最新状态就点「重读启动顺序 ⤴」",
                 namespace.order_name()
             ),
         });
@@ -1066,7 +1065,8 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
             text: format!(
                 "读不到固件启动变量（`{}` 是空的）：当前进程没有管理员权限，`Boot*` 和 OC 私有的 \
                  `OCBt*` 都读不了，所以下面标不出哪个条目是默认项 —— 但「设为默认」写入走的是\
-                 提权子进程，不受影响。点「提权读取启动顺序 ⤴」授权一次就能补齐回显",
+                 提权子进程，不受影响。点「重读启动顺序 ⤴」就能补齐回显\
+                 （装了特权服务时静默，没装会请求一次授权）",
                 namespace.order_name()
             ),
         });

@@ -857,15 +857,24 @@ pub(crate) fn store_snapshots_from_vars(vars: Vec<DumpVar>) -> bool {
 /// 弹一次授权，提权读一遍 `OCBt*` / `Boot*` 全量，把启动顺序表存进进程内缓存。
 ///
 /// **必须在 async 命令的工作线程上调**（Windows 的 ShellExecuteExW 同步等 UAC）。
+///
+/// `elevation` 见 [`super::Elevation`]：`Silent`（开机自动扫）只走特权服务，
+/// 服务不可用就报错、**绝不弹授权** —— 这一拍没人看着屏幕，弹了也只会被无视。
 #[cfg(any(target_os = "windows", target_os = "linux", test))]
-pub(crate) fn refresh_boot_vars_elevated() -> Result<String, String> {
+pub(crate) fn refresh_boot_vars_elevated(
+    elevation: super::Elevation,
+) -> Result<String, String> {
     let out_path = super::elevate::result_file_path("nvram-dump");
     let args = vec![
         "--nvram-dump-privileged".to_string(),
         "--out".to_string(),
         out_path.to_string_lossy().to_string(),
     ];
-    super::elevate::run_privileged_op("nvram_dump", serde_json::json!({}), &args, &out_path)?;
+    if elevation.is_silent() {
+        super::elevate::run_silent_op("nvram_dump", serde_json::json!({}), &out_path)?;
+    } else {
+        super::elevate::run_privileged_op("nvram_dump", serde_json::json!({}), &args, &out_path)?;
+    }
     let text = std::fs::read_to_string(&out_path)
         .map_err(|error| format!("提权子进程退出了但结果文件读不到：{error}"))?;
     let file: DumpFile = serde_json::from_str(&text)

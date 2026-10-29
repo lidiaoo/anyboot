@@ -308,7 +308,13 @@ pub(crate) struct ElevatedScanOutcome {
 ///
 /// `force=false` 先吃缓存；当前进程本来就有权限（用户用管理员跑的 App）就直接扫，
 /// 不折腾授权。`force=true` 无条件重弹授权重扫。
-pub(crate) fn scan_preboot_elevated(force: bool) -> Result<ElevatedScanOutcome, String> {
+///
+/// `elevation` 见 [`super::Elevation`]：`Silent`（开机自动扫）只走特权服务，
+/// 服务不可用就报错、绝不弹 UAC —— 开机时没人盯着屏幕，也没人点得到那口授权框。
+pub(crate) fn scan_preboot_elevated(
+    force: bool,
+    elevation: super::Elevation,
+) -> Result<ElevatedScanOutcome, String> {
     if !force {
         if let Some(items) = cached_preboot() {
             let count = items.len();
@@ -332,17 +338,22 @@ pub(crate) fn scan_preboot_elevated(force: bool) -> Result<ElevatedScanOutcome, 
             Err(_) => {}
         }
     }
-    let items = run_privileged_scan()?;
+    let items = run_privileged_scan(elevation)?;
     store_cache(&items);
     Ok(ElevatedScanOutcome {
         items,
         from_cache: false,
-        note: "提权扫描完成，本页已刷新".to_string(),
+        note: if elevation.is_silent() {
+            "已自动提权扫描（特权服务，没弹授权），本页已刷新".to_string()
+        } else {
+            "提权扫描完成，本页已刷新".to_string()
+        },
     })
 }
 
 /// 走特权服务（若已安装），否则弹一次授权 → 等子进程退出 → 读回结果文件。
-fn run_privileged_scan() -> Result<Vec<PrebootItem>, String> {
+/// `elevation=Silent` 时只剩前半句：服务不在就直接失败。
+fn run_privileged_scan(elevation: super::Elevation) -> Result<Vec<PrebootItem>, String> {
     // 拉起与等待的机制在 elevate.rs（与「OC 设默认项」共用同一套自拉起通道）
     let out_path = super::elevate::result_file_path("apfs-scan");
     let args = vec![
@@ -350,7 +361,11 @@ fn run_privileged_scan() -> Result<Vec<PrebootItem>, String> {
         "--out".to_string(),
         out_path.to_string_lossy().to_string(),
     ];
-    super::elevate::run_privileged_op("apfs_scan", serde_json::json!({}), &args, &out_path)?;
+    if elevation.is_silent() {
+        super::elevate::run_silent_op("apfs_scan", serde_json::json!({}), &out_path)?;
+    } else {
+        super::elevate::run_privileged_op("apfs_scan", serde_json::json!({}), &args, &out_path)?;
+    }
     let text = std::fs::read_to_string(&out_path)
         .map_err(|error| format!("提权子进程退出了但结果文件读不到：{error}"))?;
     let payload: PrivilegedScanFile = serde_json::from_str(&text)

@@ -3932,7 +3932,7 @@ async function rescanPrebootElevated(force) {
     return;
   }
   prebootElevatePending = true;
-  showStatusBar("等待授权（UAC 弹窗）—— 批准后 AnyBoot 会只读扫一遍 APFS 容器…");
+  showStatusBar("正在重扫 APFS 容器（装了特权服务时不会弹授权，否则会请求一次）…");
   try {
     const outcome = await invoke("apfs_scan_elevated", { force: Boolean(force) });
     showStatusBar(outcome && outcome.note ? outcome.note : "提权扫描完成");
@@ -3953,7 +3953,7 @@ async function refreshBootOrderElevated() {
     return;
   }
   orderElevatePending = true;
-  showStatusBar("等待授权（UAC 弹窗）—— 批准后 AnyBoot 会只读读一遍启动变量…");
+  showStatusBar("正在读取启动顺序（装了特权服务时不会弹授权，否则会请求一次）…");
   try {
     const message = await invoke("ocbt_refresh_elevated");
     showStatusBar(message || "已提权读取启动顺序");
@@ -4170,14 +4170,23 @@ grubAutoRefreshElement.addEventListener("click", refreshGrubAuto);
 // 助手免密后开机读裸设备没有骚扰问题了。不在位（会弹密码）保持手动，
 // 别让自动扫变成「一打开 App 就弹密码框」。
 //
-// 自动扫是**免密专用**的（后端 auto=true：助手没接上就报错、绝不弹授权）——
-// 开机瞬间整机 I/O 高峰，助手冷启动撞上 25s 超时是实测发生过的事（2026-10-29
-// 「刚进 App 就要密码」）。失败后 8 秒自动重试一次；还不行就明说，等用户手点。
+// 自动扫是**免密专用**的（后端 auto=true：只走静默通道 —— macOS 免密助手 /
+// Windows 特权服务，都没有就报错、绝不弹授权）——开机瞬间整机 I/O 高峰，助手
+// 冷启动撞上 25s 超时是实测发生过的事（2026-10-29「刚进 App 就要密码」）。
+//
+// 失败分两种，处置完全不同：
+// * 静默通道**暂时**没接上（助手冷启/超时）→ 8 秒后自动重试一次，值得等；
+// * 静默通道**根本不在位**（没装助手 / 没装特权服务）→ 重试一百次也一样，
+//   直接说清楚「点一下手动扫，那次会请求授权」，别再骗用户等。
 let grubAutoBootRetried = false;
+
+function grubAutoNeedsManual(error) {
+  return /不弹授权|没装免密助手|没有静默提权通道/.test(String(error || ""));
+}
 
 function retryGrubBootScan() {
   grubAutoBootRetried = true;
-  grubAutoSummaryElement.textContent = "免密助手没接上，8 秒后自动重试…";
+  grubAutoSummaryElement.textContent = "免密读取暂时没接上，8 秒后自动重试…";
   setTimeout(() => {
     if (!lastLinuxGrubView) {
       bootScanGrubAuto();
@@ -4189,14 +4198,22 @@ function bootScanGrubAuto() {
   invoke("linux_grub_scan", { target: null, auto: true })
     .then((view) => {
       renderGrubAuto(view, false, grubListFormatElement.value);
-      if ((!view || view.error) && !grubAutoBootRetried) {
-        retryGrubBootScan();
+      const error = view ? view.error : "自动读取没有返回结果";
+      if (error && !grubAutoBootRetried) {
+        if (grubAutoNeedsManual(error)) {
+          // 静默通道不在位：不给重试，直接把「怎么办」写进摘要行
+          grubAutoSummaryElement.textContent =
+            "自动读取没有静默提权通道（未装特权服务/免密助手）：点「重新读取」授权一次即可";
+          grubAutoSummaryElement.classList.add("fail");
+        } else {
+          retryGrubBootScan();
+        }
       }
     })
     .catch((error) => {
       grubAutoSummaryElement.textContent = String(error);
       grubAutoSummaryElement.classList.add("fail");
-      if (!grubAutoBootRetried) {
+      if (!grubAutoBootRetried && !grubAutoNeedsManual(error)) {
         retryGrubBootScan();
       }
     });

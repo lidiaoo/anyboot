@@ -598,6 +598,12 @@ pub fn service_status_main() -> i32 {
         let state = service_win::state();
         // 机器可读的那个（installer / 脚本按它判断），别让人去解析中文
         println!("{state:?}");
+        // 第二行是给人排障的：「服务在跑，但为什么没自动扫」最常见的原因就是
+        // 当前跑的是便携副本 —— 服务只接受安装目录里的调用方。
+        if state == service_win::State::Running && !service_win::usable_from_here() {
+            println!("注意：当前这份 exe 不是安装目录（%ProgramFiles%\\AnyBoot）里的那份，");
+            println!("      特权服务会拒绝它的调用 → 自动提权扫描会跳过，只能走 UAC。");
+        }
         0
     }
     #[cfg(not(target_os = "windows"))]
@@ -646,15 +652,20 @@ pub fn privileged_op_main(op: &str, args_json: &str, out_path: &str) -> i32 {
 /// APFS Preboot 扫描，结果缓存在进程里供预演重建使用。///
 /// **必须 async**：Windows 的 ShellExecuteExW 会同步等 UAC 对话框（用户可能想
 /// 一会儿再点），同步命令会卡死整个界面 —— blocking_guard 的守卫不是摆设。
+///
+/// `auto=true` 是**开机自动扫**：只走特权服务，服务不在就报错、绝不弹授权
+/// （见 [`channels::Elevation`]）。
 #[cfg(not(target_os = "macos"))]
 #[tauri::command]
 async fn apfs_scan_elevated(
     app: AppHandle,
     force: bool,
+    auto: Option<bool>,
 ) -> Result<channels::apfs_reader::ElevatedScanOutcome, String> {
+    let elevation = channels::Elevation::from_auto(auto.unwrap_or(false));
     // 不直接依赖 tokio（IQ6 定稿）：走 tauri::async_runtime 的 spawn_blocking
     let outcome = tauri::async_runtime::spawn_blocking(move || {
-        channels::apfs_reader::scan_preboot_elevated(force)
+        channels::apfs_reader::scan_preboot_elevated(force, elevation)
     })
     .await
     .map_err(|error| format!("提权扫描任务异常退出：{error}"))?;
@@ -672,12 +683,16 @@ async fn apfs_scan_elevated(
 /// 用户点完「设为默认」会觉得完全没生效。
 ///
 /// **必须 async**：同 `apfs_scan_elevated`，ShellExecuteExW 同步等 UAC。
+/// `auto=true` 同上：只走特权服务，不弹授权。
 #[cfg(not(target_os = "macos"))]
 #[tauri::command]
-async fn ocbt_refresh_elevated(app: AppHandle) -> Result<String, String> {
-    let message = tauri::async_runtime::spawn_blocking(channels::nvram::refresh_boot_vars_elevated)
-        .await
-        .map_err(|error| format!("提权读取任务异常退出：{error}"))??;
+async fn ocbt_refresh_elevated(app: AppHandle, auto: Option<bool>) -> Result<String, String> {
+    let elevation = channels::Elevation::from_auto(auto.unwrap_or(false));
+    let message = tauri::async_runtime::spawn_blocking(move || {
+        channels::nvram::refresh_boot_vars_elevated(elevation)
+    })
+    .await
+    .map_err(|error| format!("提权读取任务异常退出：{error}"))??;
     // 与提权重扫同理：快照只进了进程内缓存，三通道视图要重算才会带上它
     channels::refresh_channels(&app);
     Ok(message)
@@ -686,7 +701,8 @@ async fn ocbt_refresh_elevated(app: AppHandle) -> Result<String, String> {
 /// macOS 版占位：命令表两端必须同名（同 `apfs_scan_elevated`）。
 #[cfg(target_os = "macos")]
 #[tauri::command]
-async fn ocbt_refresh_elevated() -> Result<String, String> {
+async fn ocbt_refresh_elevated(auto: Option<bool>) -> Result<String, String> {
+    let _ = auto;
     Err("macOS 能直接用 nvram 读启动变量，不需要提权读取".to_string())
 }
 
@@ -694,10 +710,10 @@ async fn ocbt_refresh_elevated() -> Result<String, String> {
 /// 前端在 macOS 上不会显示「提权重扫」按钮（`prebootElevatable` 只在非 mac 为真）。
 #[cfg(target_os = "macos")]
 #[tauri::command]
-async fn apfs_scan_elevated(force: bool) -> Result<serde_json::Value, String> {
+async fn apfs_scan_elevated(force: bool, auto: Option<bool>) -> Result<serde_json::Value, String> {
     // 参数名与真实现保持一致：Tauri 按名字匹配 invoke 的实参，改名会让调用方
     // 收到「缺少参数」而不是这句话
-    let _ = force;
+    let _ = (force, auto);
     Err("macOS 直接读 /System/Volumes/Preboot，不需要提权扫描".to_string())
 }
 
@@ -3469,6 +3485,10 @@ pub fn run() {
 
             let app_handle = app.handle().clone();
             std::thread::spawn(move || refresh_and_update(&app_handle));
+            // 「一进去就自动提权扫」：OC 预演（macOS 条目）与默认项（OCBt*）只有
+            // 管理员读得到。服务在位时这两步完全静默（无 UAC），服务不在就跳过 ——
+            // 见 channels::spawn_boot_privileged_scan。
+            channels::spawn_boot_privileged_scan(app.handle().clone());
             // 远程保活刷新：手机/网页连着推送通道时，数据更新不再依赖主窗页面的 JS
             spawn_remote_keepfresh(app.handle().clone());
             Ok(())
