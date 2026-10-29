@@ -37,6 +37,12 @@ use super::*;
 
 /// `scanfor` 缺省值（`main.c:488`；Mac 固件上是 `ihebocm`，但文件扫描部分一致）。
 const DEFAULT_SCANFOR: &str = "ieom";
+/// `LINUX_PREFIXES` 缺省值（`global.h:205-209`）：x86 是 `vmlinuz,bzImage,kernel`，
+/// aarch64 是 `vmlinuz,Image,kernel` —— 差异只在第二个（bzImage / Image）。
+#[cfg(target_arch = "aarch64")]
+const DEFAULT_LINUX_PREFIXES: &[&str] = &["vmlinuz", "Image", "kernel"];
+#[cfg(not(target_arch = "aarch64"))]
+const DEFAULT_LINUX_PREFIXES: &[&str] = &["vmlinuz", "bzImage", "kernel"];
 /// `also_scan_dirs` 缺省值（`config.h:83`）。
 const DEFAULT_ALSO_SCAN: &[&str] = &["boot", "@/boot"];
 /// `dont_scan_volumes` 缺省值（`config.h:82`）。
@@ -370,6 +376,14 @@ struct RefindConfig {
     dont_scan_files: Vec<String>,
     dont_scan_volumes: Vec<String>,
     fold_linux_kernels: bool,
+    /// `scan_all_linux_kernels`（默认 true，`config.c:806`）：为真时把
+    /// `linux_prefixes` 各加一个 `*` 并进 `LOADER_MATCH_PATTERNS`
+    /// （`scan.c:1071-1073`）—— **这条才是「扫不扫无扩展名内核」的开关**，
+    /// 不在 `scanfor` 里（scanfor 只认 i/e/o/n/m/f/c/h/b）。
+    scan_all_linux_kernels: bool,
+    /// `linux_prefixes`（默认 `vmlinuz,bzImage,kernel`；aarch64 是
+    /// `vmlinuz,Image,kernel`，见 `global.h:205-209`）
+    linux_prefixes: Vec<String>,
     use_nvram: bool,
     default_selection: String,
     /// `menuentry "标题" { ... }` 块（`ScanUserConfigured`）
@@ -388,6 +402,8 @@ impl Default for RefindConfig {
                 .map(|s| s.to_string())
                 .collect(),
             fold_linux_kernels: true,
+            scan_all_linux_kernels: true,
+            linux_prefixes: DEFAULT_LINUX_PREFIXES.iter().map(|s| s.to_string()).collect(),
             use_nvram: true,
             default_selection: String::new(),
             menu_entries: Vec::new(),
@@ -560,6 +576,18 @@ fn read_config(path: &Path, config: &mut RefindConfig, depth: usize) {
                     .first()
                     .map(|value| !matches!(value.to_ascii_lowercase().as_str(), "false" | "0" | "off"))
                     .unwrap_or(true);
+            }
+            "scan_all_linux_kernels" => {
+                config.scan_all_linux_kernels = args
+                    .first()
+                    .map(|value| !matches!(value.to_ascii_lowercase().as_str(), "false" | "0" | "off"))
+                    .unwrap_or(true);
+            }
+            "linux_prefixes" => {
+                // `HandleStrings`：整行是一个逗号分隔的串，不是多个 token
+                if let Some(value) = args.first() {
+                    config.linux_prefixes = csv(value);
+                }
             }
             "use_nvram" => {
                 config.use_nvram = args
@@ -993,11 +1021,15 @@ pub(crate) fn preview(vars_dir: &Path) -> SimPreview {
 /// 子菜单内容完全由它决定：`L` 读 `refind_linux.conf`、`M` 是 macOS 那组写死的
 /// 诊断项、其余类型 rEFInd 只给一条「用默认选项启动」。判定次序与源码一致
 /// （Linux 最先，命名线索只取文件名 `Basename`）。
-fn os_type_of(loader_path: &str) -> char {
+fn os_type_of(loader_path: &str, linux_prefixes: &[String]) -> char {
     let lower = loader_path.to_ascii_lowercase();
     let name = lower.rsplit(['\\', '/']).next().unwrap_or(lower.as_str());
-    // LINUX_PREFIXES：x64 是 `vmlinuz,bzImage,kernel`（大小写不敏感的子串匹配）
-    if ["vmlinuz", "bzimage", "kernel"].iter().any(|hint| name.contains(hint)) {
+    // `IsInSubstring(FileName, LinuxPrefixes)`（`scan.c:493`）：**子串**匹配，
+    // 不是前缀 —— 前缀表随 `linux_prefixes` 变（x64 是 vmlinuz/bzImage/kernel）
+    if linux_prefixes
+        .iter()
+        .any(|hint| name.contains(&hint.to_ascii_lowercase()))
+    {
         return 'L';
     }
     if name.contains("refit") || name.contains("refind") {
@@ -1278,11 +1310,15 @@ fn scan_volume(
             let lower = name.to_ascii_lowercase();
             // rEFInd 扫的是 `*.efi` **加上** `vmlinuz*,bzImage*,kernel*`
             // （`SetLinuxMatchPatterns`，`config.c:498`）—— 内核不是 .efi 后缀，
-            // 漏了这条就看不到「一个 Linux 条目 + 一堆内核」的折叠效果
+            // 漏了这条就看不到「一个 Linux 条目 + 一堆内核」的折叠效果。
+            // 那串前缀只在 `scan_all_linux_kernels`（默认 true）为真时才并进来
+            // （`scan.c:1071-1073`），用户可以 `linux_prefixes` 改。
             let is_efi = lower.ends_with(".efi");
-            let is_kernel = ["vmlinuz", "bzimage", "kernel"]
-                .iter()
-                .any(|prefix| lower.starts_with(prefix));
+            let is_kernel = config.scan_all_linux_kernels
+                && config
+                    .linux_prefixes
+                    .iter()
+                    .any(|prefix| lower.starts_with(&prefix.to_ascii_lowercase()));
             if !is_efi && !is_kernel {
                 continue;
             }
@@ -1315,7 +1351,7 @@ fn scan_volume(
             } else {
                 format!("{display_dir}\\{name}")
             };
-            let os_type = os_type_of(&relative);
+            let os_type = os_type_of(&relative, &config.linux_prefixes);
             let is_linux = os_type == 'L';
 
             // 折叠：没有 refind_linux.conf 的内核，rEFInd 会**静默丢掉**
@@ -1503,6 +1539,16 @@ mod tests {
         // rEFInd 默认把 RefindGuid 变量写 NVRAM（这台的 ESP 上配了 use_nvram false，
         // 但那是配置出来的，不是默认值）
         assert!(config.use_nvram);
+        // 无扩展名内核默认就扫（`main.c:94`），前缀表是 LINUX_PREFIXES 那一份
+        assert!(config.scan_all_linux_kernels);
+        assert!(config
+            .linux_prefixes
+            .iter()
+            .any(|p| p.eq_ignore_ascii_case("vmlinuz")));
+        assert!(config
+            .linux_prefixes
+            .iter()
+            .any(|p| p.eq_ignore_ascii_case("kernel")));
     }
 
     /// `FilenameIn` 语义：纯文件名 / 路径 / `卷:路径` 三种元素都能命中（大小写不敏感）。
@@ -1591,14 +1637,19 @@ mod tests {
     /// OSType 判定次序（`scan.c:519`）：Linux 最先，名字只取 Basename。
     #[test]
     fn os_type_matches_refind_order() {
-        assert_eq!(os_type_of("EFI\\arch\\vmlinuz-linux"), 'L');
-        assert_eq!(os_type_of("vmlinuz-linux-6.9"), 'L');
-        assert_eq!(os_type_of("EFI\\arch\\grubx64.efi"), 'G');
-        assert_eq!(os_type_of("EFI\\Microsoft\\Boot\\bootmgfw.efi"), 'W');
-        assert_eq!(os_type_of("System\\Library\\CoreServices\\boot.efi"), 'M');
+        let prefixes: Vec<String> = DEFAULT_LINUX_PREFIXES.iter().map(|s| s.to_string()).collect();
+        assert_eq!(os_type_of("EFI\\arch\\vmlinuz-linux", &prefixes), 'L');
+        assert_eq!(os_type_of("vmlinuz-linux-6.9", &prefixes), 'L');
+        assert_eq!(os_type_of("EFI\\arch\\grubx64.efi", &prefixes), 'G');
+        assert_eq!(os_type_of("EFI\\Microsoft\\Boot\\bootmgfw.efi", &prefixes), 'W');
+        assert_eq!(os_type_of("System\\Library\\CoreServices\\boot.efi", &prefixes), 'M');
         // OpenCore、UKI 这类既不是内核也不是已知类型：子屏只有「默认项」
-        assert_eq!(os_type_of("EFI\\OC\\OpenCore.efi"), '\0');
-        assert_eq!(os_type_of("EFI\\ArchLinux\\arch-linux-lts.efi"), '\0');
+        assert_eq!(os_type_of("EFI\\OC\\OpenCore.efi", &prefixes), '\0');
+        assert_eq!(os_type_of("EFI\\ArchLinux\\arch-linux-lts.efi", &prefixes), '\0');
+        // 用户自定义前缀（linux_prefixes）也照子串判定
+        let custom = vec!["mykernel".to_string()];
+        assert_eq!(os_type_of("EFI\\x\\mykernel-6.1", &custom), 'L');
+        assert_eq!(os_type_of("EFI\\x\\vmlinuz-6.1", &custom), '\0');
     }
 
     /// 真机快照：本机 ESP 挂在 /Volumes/REFIND。默认 ignore —— 只用来肉眼核对输出，
