@@ -144,6 +144,21 @@ pub(crate) fn classify(helper: bool, sudoers: bool, installed: Option<&str>) -> 
     }
 }
 
+/// 把 stat 授权文件的结果折算成「装没装」的三值可见性：
+/// `Some(true)` 读到了、`Some(false)` 确定不存在、`None` **不可知**。
+///
+/// 为什么三值：`/etc/sudoers.d` 在不少发行版是 `0750 root:root`（真机
+/// Arch 实测）—— 普通用户连目录都进不去，stat 里面的授权文件只会 EACCES。
+/// **读不到 ≠ 没装**：把 EACCES 当「没装」，装好的组件会被判成「残留」，
+/// 免密永远进不了 ready，每次都白弹一次 pkexec（2026-10-30 真机真 bug）。
+fn sudoers_stat_visibility(result: std::io::Result<std::fs::Metadata>) -> Option<bool> {
+    match result {
+        Ok(_) => Some(true),
+        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => None,
+        Err(_) => Some(false),
+    }
+}
+
 /// 把 `classify` 的结果翻成界面文案。
 pub(crate) fn describe(state: &str, user: &str, installed: &str) -> String {
     match state {
@@ -259,8 +274,15 @@ mod imp {
 
     pub(crate) fn status() -> PrivStatus {
         let helper_exists = Path::new(HELPER_PATH).is_file();
-        let sudoers_exists = Path::new(SUDOERS_PATH).exists();
         let meta = read_meta();
+        // EACCES（目录 0750 看不见）时以 meta 为准：安装流程是
+        // 「写助手 → 写 sudoers（visudo 校验过）→ 写 meta」，meta 存在就说明
+        // sudoers 那步成功落过盘。真被手动删掉 sudoers 的情况由调用方兜底
+        // —— sudo -n 失败会带着真实原因落进提权链的下一段。
+        let sudoers_exists = match sudoers_stat_visibility(fs::metadata(SUDOERS_PATH)) {
+            Some(visible) => visible,
+            None => meta.is_some(),
+        };
         let installed = meta.as_ref().map(|m| m.version.clone()).unwrap_or_default();
         let user = meta.as_ref().map(|m| m.user.clone()).unwrap_or_default();
         let state = classify(helper_exists, sudoers_exists, meta.as_ref().map(|m| m.version.as_str()));
@@ -1138,6 +1160,25 @@ mod tests {
         assert_eq!(classify(false, false, None), "absent");
         assert_eq!(classify(true, false, None), "stale");
         assert_eq!(classify(false, true, None), "stale");
+    }
+
+    /// `/etc/sudoers.d` 是 0750 时普通用户 stat 授权文件只会 EACCES —— 必须
+    /// 报「不可知」让调用方回落到 meta，**绝不能当成「没装」**（否则装好的
+    /// 组件永远进不了 ready，免密变每次弹 pkexec，2026-10-30 真机事故）。
+    #[test]
+    fn sudoers_stat_permission_denied_is_unknown_not_missing() {
+        assert_eq!(
+            sudoers_stat_visibility(Err(std::io::Error::from(std::io::ErrorKind::NotFound))),
+            Some(false)
+        );
+        assert_eq!(
+            sudoers_stat_visibility(Err(std::io::Error::from(
+                std::io::ErrorKind::PermissionDenied
+            ))),
+            None
+        );
+        // Ok(true) 分支需要真实 Metadata，单测构造不了；其语义由 classify 的
+        // (true, true) 用例锁住
     }
 
     #[test]
