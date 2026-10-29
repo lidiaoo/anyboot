@@ -956,6 +956,17 @@ fn sh_quote(raw: &str) -> String {
     format!("'{}'", raw.replace('\'', "'\\''"))
 }
 
+/// 拉起提权子进程并等它退出（Linux 版：`pkexec` + 自身可执行文件 + 同一批参数）。
+///
+/// 和 macOS 那条路同构 —— 提权后仍是本程序自己解析 `--linux-grub-probe` /
+/// `--linux-grub-write`，所以两条通道跑的是同一份子命令实现，语义不会漂。
+/// 真正起进程的动作交给 [`super::elevate::run_elevated`]（它同时负责清掉上一次
+/// 残留的结果文件）。
+#[cfg(target_os = "linux")]
+fn run_privileged(args: &[String], out: &Path) -> Result<(), String> {
+    super::elevate::run_elevated(args, out)
+}
+
 /// Linux 本机：不需要任何子进程，`fs` 直接读。
 #[cfg(target_os = "linux")]
 fn probe_host() -> ProbePayload {

@@ -459,6 +459,11 @@ mod tests {
 
     /// 临时探针：看 Preboot/<uuid>/System/Library/CoreServices 里到底有什么、
     /// .contentDetails 为什么读不到（`--ignored --nocapture` 手动跑）。
+    ///
+    /// 只在 Windows 下编译：这条探针按「开整盘 + 自己算偏移」写的
+    /// （`\\.\PhysicalDriveN`）。Linux 的 `container_location()` 返回的是**分区设备路径**，
+    /// 没有 disk/offset/size 这三格 —— 不设 cfg 会让 `cargo test` 在 Linux 上直接编译失败。
+    #[cfg(target_os = "windows")]
     #[test]
     #[ignore = "碰真实磁盘，手动跑"]
     fn probe_core_services() {

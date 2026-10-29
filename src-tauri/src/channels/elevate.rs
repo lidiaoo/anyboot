@@ -13,6 +13,14 @@
 //! Windows 的 ShellExecuteExW 会同步等 UAC 对话框，用户可能想几分钟再点。
 #![cfg(any(target_os = "windows", target_os = "linux", test))]
 
+// Linux 兜底用 `pkexec` 拉起自身，仍然走 crate 根那把「起子进程的唯一入口」
+// （Windows 上它带 CREATE_NO_WINDOW，其他平台等价于 `Command::new`）。
+// 子模块不继承父模块作用域，这两个得自己引入 —— 少一行就是 E0425 / E0433。
+#[cfg(target_os = "linux")]
+use crate::command;
+#[cfg(target_os = "linux")]
+use std::process::Stdio;
+
 /// 回传文件放 %TEMP%：主进程与提权子进程是同一个用户（令牌只提权不改身份），
 /// %TEMP% 同目录同权限；用完留在原地由系统清理。
 ///
