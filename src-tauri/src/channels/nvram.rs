@@ -871,6 +871,13 @@ pub(crate) fn refresh_boot_vars_elevated(
         out_path.to_string_lossy().to_string(),
     ];
     if elevation.is_silent() {
+        // Linux 的静默通道就是免密助手（Windows 走特权服务，macOS 不走这个模块）。
+        // 没装就如实报错：这一拍没人看着屏幕，弹授权框只会白等超时。
+        #[cfg(target_os = "linux")]
+        crate::linux_priv::run_via_helper(&args, &out_path).map_err(|error| {
+            format!("自动提权读取需要免密组件（{error}）：装一次之后开机扫描就不再问密码")
+        })?;
+        #[cfg(not(target_os = "linux"))]
         super::elevate::run_silent_op("nvram_dump", serde_json::json!({}), &out_path)?;
     } else {
         super::elevate::run_privileged_op("nvram_dump", serde_json::json!({}), &args, &out_path)?;

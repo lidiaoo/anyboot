@@ -727,6 +727,7 @@ curl -s -X POST -H "X-Auth-Token: <token>" \
   - ESP 未挂载时会通过 `pkexec` 弹系统授权并临时挂载（挂载选项绑定到实际登录用户）。这样挂上来的 ESP 属主就是当前用户，读写都不再需要 root。
   - **ESP 已被系统挂在 `/boot/efi` 时**（fstab 挂的 vfat 属主是 root、`dmask=0022` → 普通用户建不了文件），或者 **`/boot/grub/grub.cfg` 是 root 私有的**（`grub-mkconfig` 自己 `umask 077`，刻意写成 `0600` → 普通用户连读都读不到），这两件事普通用户做不到。此时「同步」与「切换 GRUB 启动项」会走一次 `pkexec install` 由 root 完成，**弹一次授权框**；同一份 `grub.cfg` 不会重复弹 —— ESP 上副本的 size/mtime 一对上就跳过（`install -p` 会把源的 mtime 带过去）。
   - 想完全不弹框：把 ESP 预挂载成当前用户可写（fstab 加 `uid=<你>,gid=<你>`），或装 `linux/anyboot-grub-setup.sh`（`anyboot-grub-export.{path,service}`，由 root 在 `grub.cfg` 变化时自动镜像到 ESP）。
+  - **最省事的做法：在「关于」页装一次「免密提权」**（写一行 `sudoers` 规则 + 一份助手副本），之后写 ESP / 固件变量都不再弹框，远程请求也能直接做完。见 [Linux 免密提权](docs/linux-privilege.md)。
 - **macOS**：ESP 未挂载时需要先用系统工具挂载，或在主窗口指定已挂载的变量目录。
 - **远程/CLI**：默认不弹本机授权框，遇到必须授权的情况直接失败（见 [远程需要“本机授权”时怎么办](#远程需要本机授权时怎么办)）。远程请求执行期间**一步都不会弹框**（写 ESP / 同步 grub.cfg 也一样）：需要 root 的那一步直接失败并说明「请在目标机主窗口点一次「同步」，或打开 `remoteAllowGuiAuth`」。
 
@@ -763,6 +764,23 @@ AnyBoot 是**单实例**应用：同一时间只允许跑一个。第二次启�
 - 「重启程序」按钮会**先放锁再拉起新进程**（tauri 的重启是「先起新进程、再退旧进程」），所以点它不会把自己锁在门外。
 - 那句兜底提示在 macOS 上走 `osascript` 的 `display dialog`（跟电源动作同一条路），Linux / Windows 用应用自带的对话框。
 - 想同时跑两套（比如做验证）：`ANYBOOT_CONFIG_DIR=/tmp/ab-test <可执行文件>` —— 锁和 pid 都跟着配置目录走，两套互不干扰，**也不会互相接管**。
+
+### Linux 上每次提权都要输密码
+
+写 ESP、写固件变量（`BootNext` / `OCBt*`）这些事要 root，而 Linux 没有 macOS 那种系统级助手，默认只能每次走 `pkexec` 弹一次授权框。
+
+在**「关于」页 →「免密提权」卡**点一次「安装免密组件」，之后就不再问了。它只做三件事：
+
+| 落地的对象 | 内容 |
+|---|---|
+| `/etc/sudoers.d/anyboot` | 一行：`<你的用户名> ALL=(root) NOPASSWD: /usr/lib/anyboot/anyboot-priv` |
+| `/usr/lib/anyboot/anyboot-priv` | 本程序的一份副本（root 拥有，0755） |
+| `/var/lib/anyboot/priv.json` | 安装记录：给谁装的、哪个版本 |
+
+- **为什么授权的是自己的助手而不是 `install` / `mount`**：sudoers 只按「命令 + 参数」授权，授权 `install` 等于把「任意文件复制到任意位置」放出去。授权助手时，能做什么由助手自己的参数白名单决定。
+- **卸载会不会留东西**：`deb`/`rpm` 卸载会跑 `postrm`/`%postun` 把那三样一起删（升级时**不删**，否则更个新功能就没了）；AppImage 请先在「关于」页点「移除授权」再删文件。手动清理就两行：`sudo rm -f /etc/sudoers.d/anyboot` + `sudo rm -rf /usr/lib/anyboot`。
+- 装完想立刻核对：`sudo -n /usr/lib/anyboot/anyboot-priv --linux-priv-install --out /tmp/x.json` 不该再要密码（它会重装一遍，幂等）。
+- 完整设计与安全边界见 [Linux 免密提权](docs/linux-privilege.md)。
 
 ### 端口被占用 / 想换端口
 

@@ -13,13 +13,8 @@
 //! Windows 的 ShellExecuteExW 会同步等 UAC 对话框，用户可能想几分钟再点。
 #![cfg(any(target_os = "windows", target_os = "linux", test))]
 
-// Linux 兜底用 `pkexec` 拉起自身，仍然走 crate 根那把「起子进程的唯一入口」
-// （Windows 上它带 CREATE_NO_WINDOW，其他平台等价于 `Command::new`）。
-// 子模块不继承父模块作用域，这两个得自己引入 —— 少一行就是 E0425 / E0433。
-#[cfg(target_os = "linux")]
-use crate::command;
-#[cfg(target_os = "linux")]
-use std::process::Stdio;
+// Linux 的提权链已经整体搬到 `linux_priv`（免密助手 → pkexec → 密码），
+// 这里只留一个转发 —— 所以本文件不再需要 `command` / `Stdio`。
 
 /// 回传文件放 %TEMP%：主进程与提权子进程是同一个用户（令牌只提权不改身份），
 /// %TEMP% 同目录同权限；用完留在原地由系统清理。
@@ -265,20 +260,17 @@ fn spawn_and_wait(args: &[String], _out_path: &str) -> Result<(), String> {
 }
 
 #[cfg(target_os = "linux")]
-fn spawn_and_wait(args: &[String], _out_path: &str) -> Result<(), String> {
-    let exe = std::env::current_exe().map_err(|error| format!("拿不到自身路径：{error}"))?;
-    // pkexec 会一直等到目标程序退出（取消授权则立刻失败），正好当同步等待用
-    let status = command("pkexec")
-        .arg(exe)
-        .args(args)
-        .stderr(Stdio::null())
-        .status()
-        .map_err(|error| format!("无法调起 pkexec（装 polkit 了吗）：{error}"))?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err("授权被取消或子命令失败（pkexec 非零退出）".to_string())
-    }
+fn spawn_and_wait(args: &[String], out_path: &str) -> Result<(), String> {
+    // 三条通道依次试，**免密优先**（细节见 linux_priv 模块）：
+    //   ① `/usr/lib/anyboot/anyboot-priv`（装了免密组件时走这条，全程无感）
+    //   ② pkexec + 系统授权框（有 polkit 的桌面的老路）
+    //   ③ 界面里输过一次的密码（`sudo -S`，会话内一次）
+    //
+    // 「能不能弹框」由远程策略决定（`remoteAllowGuiAuth`）：远程请求默认不许弹，
+    // 但**免密那条照样能用** —— 这正是这套方案对远程 / 无人值守场景的意义：以前
+    // 远程一遇到提权就只能拒绝，现在装一次组件就能直接做完。
+    let allow_gui = crate::power::gui_auth_forbidden().is_none();
+    crate::linux_priv::spawn_privileged(args, std::path::Path::new(out_path), allow_gui)
 }
 
 /// 只在 `cfg(test)` 下需要存在：让整个模块能在开发机（macOS）上编译，

@@ -171,6 +171,10 @@ pub(crate) use settings_commands::*;
 mod esp;
 mod grub_esp;
 mod grub_install;
+/// Linux 免密提权（sudoers）：装一次之后写 ESP / 固件变量不再弹密码框。
+/// 非 Linux 上模块照常参与编译，内部实现返回「不支持」——这样命令注册与界面
+/// 不用到处加 cfg（前端只按 `platform` 字段决定显不显示这张卡）。
+pub(crate) mod linux_priv;
 
 pub(crate) use esp::*;
 pub(crate) use grub_esp::*;
@@ -514,6 +518,26 @@ pub fn linux_grub_probe_main(out_path: &str, esp: Option<&str>) -> i32 {
 /// 1024 字节环境块定点覆盖回目标分区的 grubenv（只碰它自己的第一个数据块）。
 pub fn linux_grub_write_main(dev: &str, rel: &str, payload: &str, out_path: &str) -> i32 {
     channels::linux_grub::write_child_main(dev, rel, payload, out_path)
+}
+
+/// `--linux-esp-install` 子命令入口（main.rs ⓪.57）：把 `--src` 复制到 `--dst`。
+///
+/// 存在的理由：免密助手只该做「我们 review 过的事」。让 sudoers 去授权系统的
+/// `install`，等于把「任意文件复制到任意位置」放出去；改成自己实现这 40 行，
+/// 授权面就只剩「往给定路径写一份内容」。
+pub fn linux_esp_install_main(src: &str, dst: &str, out_path: &str) -> i32 {
+    grub_esp::esp_install_child_main(src, dst, out_path)
+}
+
+/// `--linux-priv-install`：装免密组件（写 `/etc/sudoers.d/anyboot` + 助手副本）。
+/// 必须 root；由 `linux_priv` 用 pkexec / sudo 拉起来。
+pub fn linux_priv_install_main(out_path: &str) -> i32 {
+    linux_priv::install_main(out_path)
+}
+
+/// `--linux-priv-uninstall`：删免密组件（授权文件 + 助手 + 元数据），不留常驻对象。
+pub fn linux_priv_uninstall_main(out_path: &str) -> i32 {
+    linux_priv::uninstall_main(out_path)
 }
 
 /// `--nvram-dump-privileged` 子命令入口（main.rs ⓪.7 分支调）：提权子进程里
@@ -3644,6 +3668,9 @@ pub fn run() {
             detect_esp,
             detect_grub_by_partuuid,
             pick_grub_dir,
+            linux_priv::linux_priv_status,
+            linux_priv::linux_priv_install,
+            linux_priv::linux_priv_uninstall,
             set_grub_mount,
             open_grub_dir,
             sync_grub,

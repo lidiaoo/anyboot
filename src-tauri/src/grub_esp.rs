@@ -483,14 +483,26 @@ pub(crate) fn same_size_and_time(source: &Path, target: &Path) -> bool {
     delta <= Duration::from_secs(2)
 }
 
-/// 以 root 把 `source` 写到 `target`：`pkexec install -p -m 0644`（本来就是 root 就直连）。
+/// 以 root 把 `source` 写到 `target`。两条通道，优先免密：
+/// * **装了免密助手** → 本程序自己的 root 副本写（[`esp_install_via_helper`]），不弹框；
+/// * 没装 → `pkexec install -p -m 0644`（老路，每次问一次密码）。
 ///
-/// * 读源和写目标必须是**同一条命令**：源 0600，普通用户连读都读不到，没法先在用户态
-///   复制一份再提权写。
-/// * `install -p` 把源的 mtime 一起带过去 —— 下一次 `same_size_and_time` 才认得出
-///   「已同步」，否则每次扫描都要再授权一次。
+/// 为什么不干脆让 sudoers 授权系统的 `install`：sudo 只按「命令 + 参数模式」授权，
+/// 授了 `install` 就等于授了「任意文件复制到任意位置」（拼一条
+/// `install -m 4755 x /usr/bin/su` 就是 root 后门）。所以那一小段自己实现，
+/// 授权面收窄成「往给定路径写一份内容」。
+///
+/// * 读源和写目标必须是**同一次提权**：源 0600，普通用户连读都读不到，没法先在
+///   用户态复制一份再提权写。
+/// * 要保住源的 mtime —— 下一次 `same_size_and_time` 才认得出「已同步」，
+///   否则每次扫描都要重写一遍。助手那条路显式 set_times，`install -p` 自带。
 #[cfg(target_os = "linux")]
 pub(crate) fn privileged_install(source: &Path, target: &Path) -> Result<(), String> {
+    // `None` = 助手没跑起来（没装 / 授权被删）→ 落回 pkexec；
+    // `Some(Err)` = 助手跑了但没写成 → 直接报，不能再弹一次授权框把同样的错报两遍。
+    if let Some(result) = esp_install_via_helper(source, target) {
+        return result;
+    }
     if let Some(error) = gui_auth_forbidden() {
         return Err(error);
     }
@@ -513,6 +525,96 @@ pub(crate) fn privileged_install(source: &Path, target: &Path) -> Result<(), Str
             format!("{stderr}（授权被取消？本机没有 polkit 授权代理？）")
         }
     ))
+}
+
+/// 走免密助手做一次 ESP 写入。`None` = 通道不可用（没装 / sudo 拒绝），调用方落回 pkexec。
+///
+/// 请求与 root 侧执行体是同一条子命令（`--linux-esp-install`），所以「助手能跑」
+/// 和「pkexec 能跑」永远是同一份实现。
+#[cfg(target_os = "linux")]
+fn esp_install_via_helper(source: &Path, target: &Path) -> Option<Result<(), String>> {
+    if !crate::linux_priv::helper_ready() {
+        return None;
+    }
+    let out = unique_temp_path("anyboot-esp-install-out");
+    let args = vec![
+        "--linux-esp-install".to_string(),
+        "--src".to_string(),
+        source.to_string_lossy().to_string(),
+        "--dst".to_string(),
+        target.to_string_lossy().to_string(),
+        "--out".to_string(),
+        out.to_string_lossy().to_string(),
+    ];
+    if crate::linux_priv::run_via_helper(&args, &out).is_err() {
+        let _ = fs::remove_file(&out);
+        return None;
+    }
+    let text = fs::read_to_string(&out).unwrap_or_default();
+    let _ = fs::remove_file(&out);
+    Some(match serde_json::from_str::<serde_json::Value>(&text) {
+        Ok(value) if value.get("ok").and_then(|ok| ok.as_bool()).unwrap_or(false) => Ok(()),
+        Ok(value) => Err(format!(
+            "免密助手没写完：{}",
+            value
+                .get("error")
+                .and_then(|error| error.as_str())
+                .unwrap_or("助手没说原因")
+        )),
+        Err(_) => Err(format!("免密助手回传的不是 JSON：{text}")),
+    })
+}
+
+/// `--linux-esp-install` 的 root 侧执行体：复制 → 0644 → 保留 mtime → 落盘结果。
+#[cfg(target_os = "linux")]
+pub(crate) fn esp_install_child_main(src: &str, dst: &str, out_path: &str) -> i32 {
+    let (ok, text) = match esp_install_as_root(Path::new(src), Path::new(dst)) {
+        Ok(()) => (true, serde_json::json!({"ok": true}).to_string()),
+        Err(error) => (
+            false,
+            serde_json::json!({"ok": false, "error": error}).to_string(),
+        ),
+    };
+    let code = super::channels::write_result_file(out_path, &text);
+    if code != 0 {
+        return code;
+    }
+    if ok {
+        0
+    } else {
+        1
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn esp_install_child_main(_src: &str, _dst: &str, _out_path: &str) -> i32 {
+    eprintln!("--linux-esp-install 只在 Linux 上有意义");
+    2
+}
+
+#[cfg(target_os = "linux")]
+fn esp_install_as_root(src: &Path, dst: &Path) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt;
+    if unsafe { libc::geteuid() } != 0 {
+        return Err("必须以 root 运行".to_string());
+    }
+    let bytes = fs::read(src).map_err(|error| format!("读不了源 {}：{error}", src.display()))?;
+    fs::write(dst, &bytes).map_err(|error| format!("写不进 {}：{error}", dst.display()))?;
+    fs::set_permissions(dst, fs::Permissions::from_mode(0o644))
+        .map_err(|error| format!("设权限失败：{error}"))?;
+    // 保留 mtime：上游靠 size+mtime 判断「已同步」，丢了它每次扫描都会重写
+    let modified = fs::metadata(src)
+        .and_then(|meta| meta.modified())
+        .map_err(|error| format!("读源 mtime 失败：{error}"))?;
+    let file = fs::OpenOptions::new()
+        .write(true)
+        .open(dst)
+        .map_err(|error| format!("回开目标失败：{error}"))?;
+    file.set_times(fs::FileTimes::new().set_modified(modified))
+        .map_err(|error| format!("设 mtime 失败：{error}"))?;
+    file.sync_all()
+        .map_err(|error| format!("fsync 失败（U 盘/ESP 拔了？）：{error}"))?;
+    Ok(())
 }
 
 /// `$TMPDIR` 下一个本次调用专用的路径（与 `temporary_target` 同一套去重思路）。

@@ -153,6 +153,57 @@ fn main() {
             &dev, &rel, &payload, &out,
         ));
     }
+    // ⓪.57 ESP 文件写入（提权版）：免密助手与 pkexec 兜底**都跑这一条** ——
+    //      「走助手时成功、弹授权就报参数错」这类漂移从结构上就不可能出现。
+    //      同样绝不进 Tauri。
+    if args.iter().any(|arg| arg == "--linux-esp-install") {
+        if anyboot_lib::helper_proto::current_uid() != 0 {
+            eprintln!("anyboot --linux-esp-install 必须以 root 运行（写 ESP 需要）");
+            std::process::exit(3);
+        }
+        let get = |flag: &str| {
+            args.iter()
+                .position(|arg| arg == flag)
+                .and_then(|index| args.get(index + 1))
+                .cloned()
+        };
+        let (Some(src), Some(dst), Some(out)) = (get("--src"), get("--dst"), get("--out")) else {
+            eprintln!("用法：anyboot --linux-esp-install --src <源> --dst <目标> --out <结果文件>");
+            std::process::exit(2);
+        };
+        std::process::exit(anyboot_lib::linux_esp_install_main(&src, &dst, &out));
+    }
+    // ⓪.58 免密组件（sudoers）的安装 / 卸载：**必须 root**，由 linux_priv 模块用
+    //      pkexec / sudo 拉起来。和其余子命令一样绝不进 Tauri —— 这两条只写文件，
+    //      进了 Tauri 就会开窗口、抢单实例锁。
+    for (flag, label) in [
+        ("--linux-priv-install", "安装"),
+        ("--linux-priv-uninstall", "移除"),
+    ] {
+        if !args.iter().any(|arg| arg == flag) {
+            continue;
+        }
+        if anyboot_lib::helper_proto::current_uid() != 0 {
+            eprintln!("anyboot {flag} 必须以 root 运行（{label}免密组件要写 /etc 与 /usr/lib）");
+            std::process::exit(3);
+        }
+        let out = match args
+            .iter()
+            .position(|arg| arg == "--out")
+            .and_then(|index| args.get(index + 1))
+        {
+            Some(out) => out.clone(),
+            None => {
+                eprintln!("用法：anyboot {flag} --out <结果文件>");
+                std::process::exit(2);
+            }
+        };
+        std::process::exit(if flag == "--linux-priv-install" {
+            anyboot_lib::linux_priv_install_main(&out)
+        } else {
+            anyboot_lib::linux_priv_uninstall_main(&out)
+        });
+    }
     // ① ssh 的 SSH_ASKPASS 把我们当程序调起来（argv 是密码提示语）：
     //    只把密码打到 stdout 就退，既不是 GUI 也不是普通 CLI。必须排在 cli_requested
     //    之前 —— 否则「一个不像命令的参数」会被当成 GUI 启动，ssh 那边只会读到空密码。
