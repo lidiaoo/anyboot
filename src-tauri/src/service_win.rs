@@ -128,6 +128,13 @@ fn wide(text: &str) -> Vec<u16> {
 }
 
 fn log_line(message: &str) {
+    log_line_to("service.log", message);
+}
+
+/// 往 `%ProgramData%\AnyBoot\<file_name>` 追加一行。服务与安装器共用：
+/// 服务写 `service.log`，安装器写 `install.log`（分开放，否则常驻服务的
+/// 心跳会把安装失败的记录冲得看不见）。
+fn log_line_to(file_name: &str, message: &str) {
     // 服务在 Session 0，没有任何前台可写；排障只能靠文件。失败就静默，
     // 日志写不进去绝不能让业务失败。
     let Ok(program_data) = std::env::var("ProgramData") else {
@@ -135,7 +142,7 @@ fn log_line(message: &str) {
     };
     let dir = std::path::Path::new(&program_data).join("AnyBoot");
     let _ = std::fs::create_dir_all(&dir);
-    let path = dir.join("service.log");
+    let path = dir.join(file_name);
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|value| value.as_secs())
@@ -145,6 +152,21 @@ fn log_line(message: &str) {
         let _ = writeln!(file, "[{stamp}] {message}");
     }
 }
+
+/// 安装器里的自定义动作是 `Return="ignore"`：失败既不弹框也不阻断安装，
+/// 用户在「装完了但免 UAC 不生效」时没有任何线索。所以安装/卸载的**每次**
+/// 结果（连同是哪个 exe 在尝试）都记一行 —— 排查时先看这个文件。
+fn log_installer_result(tag: &str, result: &Result<String, String>) {
+    let exe = std::env::current_exe()
+        .map(|path| path.display().to_string())
+        .unwrap_or_else(|_| "<unknown>".to_string());
+    let line = match result {
+        Ok(detail) => format!("{tag} ok: {detail} [exe: {exe}]"),
+        Err(error) => format!("{tag} FAILED: {error} [exe: {exe}]"),
+    };
+    log_line_to("install.log", &line);
+}
+
 
 // ─────────────────────────────── 服务端 ───────────────────────────────
 
@@ -686,6 +708,12 @@ fn install_dir_is_protected(exe: &std::path::Path) -> bool {
 /// 变过（`currentUser` → `perMachine`），而任务/服务里存的是**绝对路径**，
 /// 不更新就会指向一个不存在的文件（开机报 7000/7009，用户看不懂）。
 pub(crate) fn install() -> Result<String, String> {
+    let result = install_inner();
+    log_installer_result("install", &result);
+    result
+}
+
+fn install_inner() -> Result<String, String> {
     let exe = std::env::current_exe().map_err(|error| format!("拿不到自身路径：{error}"))?;
     if !install_dir_is_protected(&exe) {
         return Err(format!(
@@ -868,6 +896,12 @@ fn stop_service(service: HANDLE) -> bool {
 /// `--uninstall-service`：停 → 删。**顺序不能反**：服务在跑时 exe 被锁，
 /// 先删文件会失败；而只 `DeleteService` 不停止，服务会一直挂到进程退出。
 pub(crate) fn uninstall() -> Result<String, String> {
+    let result = uninstall_inner();
+    log_installer_result("uninstall", &result);
+    result
+}
+
+fn uninstall_inner() -> Result<String, String> {
     let manager = unsafe { OpenSCManagerW(std::ptr::null(), std::ptr::null(), SC_MANAGER_CONNECT) };
     if manager.is_null() {
         return Err(format!("打不开服务管理器（{}）", unsafe { GetLastError() }));
