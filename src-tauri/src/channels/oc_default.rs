@@ -170,7 +170,17 @@ pub(crate) fn entry_spec(
     writable: bool,
     esp_label: Option<&str>,
 ) -> Option<String> {
-    if !writable || entry.default || entry.kind == "tool" || entry.volume == "—" {
+    // 卷是「—」的 BootOrder macOS 条目照样给按钮：它一定有真实的 OCBt####
+    // 槽（条目本来就是从启动顺序表里解析出来的），`set_default` 的 ① 按**路径**
+    // 认槽、只重排顺序，从头到尾用不到卷 —— 只有 ③「凭空造新条目」才需要卷，
+    // 而那条路对已有槽的条目走不到。别的 kind 卷为「—」意味着文件真没了
+    // （卷没挂载或已删除），把死槽排到第一只会让机器起不来，照旧不给。
+    let reorder_only = entry.source == "bootorder" && entry.kind == "macos" && entry.volume == "—";
+    if !writable
+        || entry.default
+        || entry.kind == "tool"
+        || (entry.volume == "—" && !reorder_only)
+    {
         return None;
     }
     let supported = entry.source == "bootorder"
@@ -533,6 +543,14 @@ mod tests {
         assert!(entry_spec(&entry("MAC", "\\System\\boot.efi", "macos", "bootorder", true), true, esp).is_none());
         assert!(entry_spec(&entry("MAC", "\\System\\boot.efi", "macos", "bootorder", false), false, esp).is_none());
         assert!(entry_spec(&entry("—", "resetnvramentry.efi", "tool", "protocol", false), true, esp).is_none());
+        // 例外：BootOrder 里的 macOS 条目，本机没有 APFS 驱动所以卷显示「—」，
+        // 但槽是真实的 —— set_default ① 按路径认槽只重排，给按钮（真机截图反馈 2026-10-29）
+        assert!(
+            entry_spec(&entry("—", "\\2B42D8D9-x\\System\\Library\\CoreServices\\boot.efi", "macos", "bootorder", false), true, esp)
+                .is_some()
+        );
+        // 同为「—」但不是 bootorder+macos（文件真没了的死项）→ 照旧不给
+        assert!(entry_spec(&entry("—", "\\EFI\\Microsoft\\Boot\\bootmgfw.efi", "windows", "bootorder", false), true, esp).is_none());
         // 协议驱动条目（OpenLinuxBoot 的 .conf）造不出设备路径 → 不给
         assert!(
             entry_spec(&entry("ARCH", "\\loader\\entries\\arch.conf", "linux", "protocol", false), true, esp)

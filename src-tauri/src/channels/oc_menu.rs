@@ -982,7 +982,8 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
                 "启动项里有这一项，但对应的文件在本系统看不到（卷没挂载，或已被删除）"
                     .to_string()
             }),
-            // 卷标是「—」：既没挂载点也没有可抄的路径，设默认时给出的只会是一句报错
+            // 卷标是「—」：`entry_spec` 对非 macOS 死项不给值域；macOS 条目例外 ——
+            // 它有真实槽，set_default 按路径认槽只重排，「设为默认」照样可用
             spec: None,
         });
         placed.push((number, entries.len() - 1));
