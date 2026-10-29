@@ -719,8 +719,8 @@ fn install_inner() -> Result<String, String> {
         return Err(format!(
             "拒绝在用户可写目录注册特权服务：{}。\
              服务会以 SYSTEM 运行，而这个目录当前用户（以及任何同用户进程）都能改 —— \
-             等于留下一个本地提权后门。请用 perMachine 安装（Program Files），或手工把 \
-             anyboot.exe 放到 %ProgramFiles%\\AnyBoot\\ 再执行本命令。",
+             等于留下一个本地提权后门。安装包默认装到 %ProgramFiles%\\AnyBoot；\
+             若你手工移动过程序，把 anyboot.exe 放回 Program Files 再执行本命令。",
             exe.display()
         ));
     }

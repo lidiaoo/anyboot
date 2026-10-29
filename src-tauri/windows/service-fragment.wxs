@@ -30,6 +30,12 @@
   注意：XML 注释里不能出现连续两个减号，所以本文件的注释一律不写长选项前缀。
 -->
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <?if $(sys.BUILDARCH) = "x86"?>
+    <?define AnyBootProgramFiles = "ProgramFilesFolder" ?>
+  <?else?>
+    <?define AnyBootProgramFiles = "ProgramFiles64Folder" ?>
+  <?endif?>
+
   <Fragment>
     <!--
       这个空组件存在的唯一目的：给 light 一个「引用入口」。
@@ -46,6 +52,32 @@
         <RegistryValue Root="HKLM" Key="Software\AnyBoot\Service" Name="InstallerRegistered" Type="integer" Value="1" KeyPath="yes" />
       </Component>
     </DirectoryRef>
+
+    <!--
+      安装目录固定为 %ProgramFiles%\AnyBoot —— 这不是审美问题：服务以 SYSTEM 运行，
+      程序落在普通用户能写的目录就等于留了个本地提权后门（install-service 会拒绝
+      这种目录，拒绝后安装器又只能静默跳过）。
+
+      坑在 Tauri 生成的 main.wxs 里：INSTALLDIR 属性的默认值来自 HKCU
+      Software\example\AnyBoot 的 InstallDir /（默认）两个值，那是老版本用 NSIS
+      perUser 装在 %LOCALAPPDATA% 时写下的。结果「升级到 perMachine」的产品会被
+      这段陈旧记忆拽回用户目录 —— 实测 .msi 装到了 C://Users//<用户>//AppData//Local//AnyBoot，
+      服务注册被拒，用户只看到「装完了但免 UAC 不生效」。
+
+      AppSearch 在界面序列和执行序列**都会**跑，跑完就把 INSTALLDIR 覆盖成注册表里的
+      旧路径；所以这里在两个序列里都于 AppSearch 之后重新钉一遍，值取 Directory 表里
+      已经声明好的那个（[ProgramFiles64Folder]AnyBoot），这样 costing 能对上，
+      不会出现「属性指向一个目录表里不存在的路径」。
+
+      代价：安装向导里的目录框改不动（执行序列还会改回来）。这是有意的 ——
+      允许装到用户可写目录，服务就必然是坏的。哪天要放开自定义目录，得同时给
+      install-service 换个「从安全目录自举副本」的方案，不能只改这里。
+    -->
+    <SetProperty
+        Id="INSTALLDIR"
+        Value="[$(var.AnyBootProgramFiles)]AnyBoot"
+        After="AppSearch"
+        Sequence="both">NOT Installed</SetProperty>
 
     <CustomAction
         Id="AnyBootInstallService"
