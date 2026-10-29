@@ -17,15 +17,32 @@
   Tauri 主模板里 LaunchApplication 就是这么用 FileKey 调 exe 的，同一套写法。
 
   执行时机（两条都必须，且都 Return="ignore"）：
-  · 卸载：Before="RemoveFiles"，条件 REMOVE="ALL"。必须赶在删文件之前 —— 服务进程
-    就是 anyboot.exe 本身，文件被占用的话 RemoveFiles 会要求重启才能完成卸载。
+  · 卸载：Before="RemoveFiles"，条件 REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE。必须赶在删文件之前 ——
+    服务进程就是 anyboot.exe 本身，文件被占用的话 RemoveFiles 会要求重启才能完成卸载。
     反过来「只删文件不删服务」会留下一个指向不存在 exe 的服务，之后每次开机
     SCM 都报 7000，事件日志里挂一个用户看不懂的失败项。
+    为什么要排掉 UPGRADINGPRODUCTCODE：Tauri 的 MajorUpgrade 是
+    Schedule=afterInstallFinalize —— **先装新版本、后卸旧版本**。旧版本卸载时这条
+    动作会去调同一个 exe 的 uninstall-service，把刚建好的新服务当场删掉，
+    升完级免 UAC 又失效。该属性只在「因大版本升级而被移除」的会话里有值，
+    用户主动卸载时没有，所以不会妨碍真正要删服务的场景。
   · 安装/修复：After="InstallFiles"，条件 NOT REMOVE="ALL"。升级时
     MajorUpgrade(afterInstallInitialize) 先跑旧产品卸载（服务被删），再装新文件，
     这里重新注册 —— 所以服务里存的绝对路径永远指向当前安装位置。
   Return="ignore"：服务注册失败不应阻断安装。装不上只影响「免 UAC」，
   功能本身还有弹出授权那条路可走。
+
+  **必须 Execute="deferred" Impersonate="no"**，这不是风格问题（2026-10-29 真机踩到）：
+  MSI 的执行序列在 InstallInitialize..InstallFinalize 之间只是「录制脚本」，
+  InstallFiles 这时只被记了一笔，**文件还没真正落盘**，真正拷贝发生在
+  InstallFinalize 的回放阶段；而**立即型**自定义动作是在录制阶段当场执行的。
+  于是立即型 + FileKey 的组合必然踩 1721「A program required for this install
+  could not be run」——exe 那时根本还不存在，加上 Return="ignore" 连错误都被吞掉，
+  结果就是「装完了、没服务、日志里一个字都没有」。实测日志：
+      Note: 1: 1721 2: AnyBootInstallService 3: ...\anyboot.exe 4: install-service
+  改成延迟型后动作被写进脚本、在回放阶段（文件已就位）执行，ActionType 从 82 变 3154。
+  顺带 Impersonate="no" 让它以 SYSTEM 在 msiexec 服务里跑 —— 注册服务本来就要这个身份，
+  立即型是以调用者身份跑的，即便文件存在也会因权限不足失败。
 
   注意：XML 注释里不能出现连续两个减号，所以本文件的注释一律不写长选项前缀。
 -->
@@ -83,16 +100,20 @@
         Id="AnyBootInstallService"
         FileKey="Path"
         ExeCommand="--install-service"
+        Execute="deferred"
+        Impersonate="no"
         Return="ignore" />
 
     <CustomAction
         Id="AnyBootUninstallService"
         FileKey="Path"
         ExeCommand="--uninstall-service"
+        Execute="deferred"
+        Impersonate="no"
         Return="ignore" />
 
     <InstallExecuteSequence>
-      <Custom Action="AnyBootUninstallService" Before="RemoveFiles">REMOVE="ALL"</Custom>
+      <Custom Action="AnyBootUninstallService" Before="RemoveFiles">REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE</Custom>
       <Custom Action="AnyBootInstallService" After="InstallFiles">NOT REMOVE="ALL"</Custom>
     </InstallExecuteSequence>
   </Fragment>

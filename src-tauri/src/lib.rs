@@ -539,16 +539,21 @@ pub fn service_run_main() -> i32 {
 
 /// `--install-service`：注册并启动特权服务（需要管理员；macOS/Linux 各有自己的
 /// 免密机制，这里只做 Windows）。
+///
+/// 输出一律用 `let _ = writeln!` 而不是 `println!`：安装器的延迟动作跑在
+/// 无控制台的 SYSTEM 上下文里，stdout 句柄是空的，而 `println!` 写失败会 panic
+/// （退出码 101）—— 一条本来成功的结果就被 panic 改写了。日志已经落盘，输出只是给人看。
 pub fn service_install_main() -> i32 {
     #[cfg(target_os = "windows")]
     {
+        use std::io::Write;
         match service_win::install() {
             Ok(message) => {
-                println!("{message}");
+                let _ = writeln!(std::io::stdout(), "{message}");
                 0
             }
             Err(error) => {
-                eprintln!("{error}");
+                let _ = writeln!(std::io::stderr(), "{error}");
                 1
             }
         }
@@ -567,13 +572,14 @@ pub fn service_install_main() -> i32 {
 pub fn service_uninstall_main() -> i32 {
     #[cfg(target_os = "windows")]
     {
+        use std::io::Write;
         match service_win::uninstall() {
             Ok(message) => {
-                println!("{message}");
+                let _ = writeln!(std::io::stdout(), "{message}");
                 0
             }
             Err(error) => {
-                eprintln!("{error}");
+                let _ = writeln!(std::io::stderr(), "{error}");
                 1
             }
         }
