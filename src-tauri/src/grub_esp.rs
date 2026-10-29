@@ -706,6 +706,12 @@ fn esp_install_as_root(src: &Path, dst: &Path) -> Result<(), String> {
     let modified = fs::metadata(src)
         .and_then(|meta| meta.modified())
         .map_err(|error| format!("读源 mtime 失败：{error}"))?;
+    // efivarfs（固件变量）的写入规则完全不同：没有 fsync、不需要保 mtime、
+    // 非白名单变量还带着内核打的 S_IMMUTABLE —— 走专用通道，别落到下面的
+    // ESP 文件逻辑里（那边 set_times/sync_all 在 efivarfs 上要么无意义要么报错）。
+    if is_efivars_var_path(dst) {
+        return efivars_install_as_root(&bytes, dst);
+    }
     // O_NOFOLLOW：目标若是符号链接直接 ELOOP，不给「用链接把写入引到别处」的机会
     let mut file = fs::OpenOptions::new()
         .write(true)
@@ -723,6 +729,92 @@ fn esp_install_as_root(src: &Path, dst: &Path) -> Result<(), String> {
         .map_err(|error| format!("设 mtime 失败：{error}"))?;
     file.sync_all()
         .map_err(|error| format!("fsync 失败（U 盘/ESP 拔了？）：{error}"))?;
+    Ok(())
+}
+
+/// efivarfs 的 FS_IOC_GET/SETFLAGS（x86_64 与 aarch64 同值）与 FS_IMMUTABLE_FL。
+#[cfg(target_os = "linux")]
+const FS_IOC_GETFLAGS: libc::c_ulong = 0x8008_6601;
+#[cfg(target_os = "linux")]
+const FS_IOC_SETFLAGS: libc::c_ulong = 0x4008_6602;
+#[cfg(target_os = "linux")]
+const FS_IMMUTABLE_FL: libc::c_long = 0x0000_0010;
+
+/// 清掉 / 恢复 efivarfs 变量文件的 S_IMMUTABLE 位（chattr ±i 同款 ioctl）。
+///
+/// 内核给 efivarfs 只放行它能校验的「白名单变量」（Boot*/BootOrder/BootNext/ConOut…），
+/// 其余（OCBtOrder 这类厂商变量）挂载时就带 S_IMMUTABLE —— open 写一律 EPERM，
+/// **root 也不豁免**。这是 efivarfs 的设计而非权限缺失；fileattr_set 明确只支持
+/// 这个标志的改动，清掉即写、写完恢复（inode 每次挂载重建，不恢复也只是本次开机内可写）。
+#[cfg(target_os = "linux")]
+fn efivars_set_immutable(path: &Path, on: bool) -> Result<(), String> {
+    use std::os::unix::io::AsRawFd;
+    let file = fs::File::open(path)
+        .map_err(|error| format!("打不开 {}（设不可变位）：{error}", path.display()))?;
+    let mut flags: libc::c_long = 0;
+    let rc = unsafe { libc::ioctl(file.as_raw_fd(), FS_IOC_GETFLAGS, &mut flags) };
+    if rc < 0 {
+        return Err(format!(
+            "读 {} 的文件标志失败（不是 efivarfs？）：{}",
+            path.display(),
+            std::io::Error::last_os_error()
+        ));
+    }
+    let new_flags = if on {
+        flags | FS_IMMUTABLE_FL
+    } else {
+        flags & !FS_IMMUTABLE_FL
+    };
+    if new_flags == flags {
+        return Ok(());
+    }
+    let rc = unsafe { libc::ioctl(file.as_raw_fd(), FS_IOC_SETFLAGS, &new_flags) };
+    if rc < 0 {
+        return Err(format!(
+            "改 {} 的不可变位失败（需要 root）：{}",
+            path.display(),
+            std::io::Error::last_os_error()
+        ));
+    }
+    Ok(())
+}
+
+/// efivarfs 专用写入：write 那一下就是提交，没有 fsync 可做（efivarfs 不提供，
+/// sync_all 只会 EINVAL）；也不设权限/保 mtime —— inode 属主与时间是挂载选项定的。
+#[cfg(target_os = "linux")]
+fn efivars_install_as_root(bytes: &[u8], dst: &Path) -> Result<(), String> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut cleared = false;
+    let mut file = loop {
+        match fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(dst)
+        {
+            Ok(file) => break file,
+            // EPERM = 变量带 S_IMMUTABLE。给一次机会清掉重开；再失败就是真没权限。
+            Err(error)
+                if error.kind() == std::io::ErrorKind::PermissionDenied && !cleared =>
+            {
+                efivars_set_immutable(dst, false)?;
+                cleared = true;
+            }
+            Err(error) => {
+                return Err(format!(
+                    "打不开 {}：{error}（若是符号链接会被拒绝）",
+                    dst.display()
+                ))
+            }
+        }
+    };
+    // efivarfs 要求整段值一次 write 提交（内容自带 4 字节属性头，上游已拼好）
+    file.write_all(bytes)
+        .map_err(|error| format!("写不进 {}：{error}", dst.display()))?;
+    if cleared {
+        efivars_set_immutable(dst, true)?;
+    }
     Ok(())
 }
 
