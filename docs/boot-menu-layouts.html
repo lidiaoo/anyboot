@@ -930,6 +930,17 @@ table.big tr:hover td{background:var(--panel-2)}
 .toast .grow{flex:1;min-width:0}
 .mock-scrim{position:relative;border-radius:11px;overflow:hidden;border:1px solid var(--line);background:radial-gradient(600px 200px at 50% 0%,rgba(99,102,241,.14),transparent),var(--panel-2);padding:18px;display:flex;justify-content:center}
 .stars{color:var(--accent-2);font-size:10px;letter-spacing:1px;white-space:nowrap}
+/* ── 侧栏隐藏：shell 挂 .rail-off，主区占满 ── */
+.shell.rail-off .rail{display:none}
+.shell.rail-off .stage-col{width:100%}
+.rail-fab{
+  display:none;position:fixed;left:10px;bottom:10px;z-index:60;
+  padding:7px 11px;border-radius:9px;border:1px solid var(--line-2);
+  background:var(--panel-3);color:var(--text);font:600 11.5px var(--ui);
+  cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.35);
+}
+.shell.rail-off .rail-fab{display:block}
+.rail-fab:hover{background:var(--panel-2)}
 </style>
 </head>
 <body>
@@ -964,6 +975,8 @@ table.big tr:hover td{background:var(--panel-2)}
     </div>
   </aside>
 
+  <button class="rail-fab" id="railFab" title="展开侧栏（快捷键 [ ）">☰ 方案目录</button>
+
   <!-- ── 中：展台 ── -->
   <main class="stage-col">
     <div class="stage-head">
@@ -972,6 +985,7 @@ table.big tr:hover td{background:var(--panel-2)}
         <p id="stageSub">同一份快照，十一种信息架构。</p>
       </div>
       <div class="toolbar">
+        <button class="btn sm ghost" id="toggleRail">隐藏侧栏</button>
         <button class="btn sm ghost" id="toggleNotes">隐藏说明</button>
       </div>
     </div>
@@ -3350,6 +3364,29 @@ document.getElementById("toggleNotes").addEventListener("click", (e) => {
   e.currentTarget.textContent = state.notes ? "隐藏说明" : "显示说明";
   render();
 });
+
+/* ── 侧栏隐藏开关（默认藏起，记忆到 localStorage；左下角 FAB / 快捷键 [ 唤回）── */
+const shell = document.querySelector(".shell");
+function applyRail() {
+  const off = localStorage.getItem("bml_railOff") !== "0"; // 默认隐藏
+  shell.classList.toggle("rail-off", off);
+  document.getElementById("toggleRail").textContent = off ? "显示侧栏" : "隐藏侧栏";
+}
+document.getElementById("toggleRail").addEventListener("click", () => {
+  localStorage.setItem("bml_railOff", localStorage.getItem("bml_railOff") === "1" ? "0" : "1");
+  applyRail();
+});
+document.getElementById("railFab").addEventListener("click", () => {
+  localStorage.setItem("bml_railOff", "0");
+  applyRail();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "[" && !/INPUT|TEXTAREA/.test(document.activeElement?.tagName || "")) {
+    localStorage.setItem("bml_railOff", localStorage.getItem("bml_railOff") === "1" ? "0" : "1");
+    applyRail();
+  }
+});
+applyRail();
 
 const ovl = document.getElementById("ovl");
 function openFlow() {
