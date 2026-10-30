@@ -3171,6 +3171,16 @@ pub fn run() {
                     }
                     return;
                 }
+                // 主窗口改尺寸：运行中调分辨率时 WM 可能只发 WM_SIZE（没 Moved），
+                // 那条路径也要排一次夹取，把放不进新工作区的窗口收进来。
+                // 拖边缩放期间 Resized 连发 —— schedule_clamp 有世代号去重，无妨。
+                if let tauri::WindowEvent::Resized(_) = event {
+                    if window.label() == MAIN_WINDOW_LABEL {
+                        let app = window.app_handle().clone();
+                        schedule_clamp(&app);
+                    }
+                    return;
+                }
             }
             #[cfg(not(desktop))]
             let _ = (window, event);

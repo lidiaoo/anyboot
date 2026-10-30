@@ -1793,6 +1793,34 @@ pub(crate) fn clamp_main_window(app: &AppHandle, main: &tauri::WebviewWindow) {
         return;
     };
     let work = monitor.work_area();
+    // 分辨率调小 / 拖去小屏后窗口可能比工作区还大：位置夹取只管「摆进来」，
+    // 管不了「本身放不下」（WM 会把窗口裁剪在屏内，看起来就是「调了分辨率
+    // 窗口一点没变」）。这里把尺寸也收进工作区 —— set_main_window_size 统一
+    // 走夹取 + 落盘 + 重居中。正常拖动不会触发（窗口拖不出工作区外变大），
+    // 只有跨屏拖到更小的屏、或运行中改了分辨率才进这条分支。
+    if win_w > work.size.width as i32 || win_h > work.size.height as i32 {
+        let settings = stored_settings(app);
+        startup_debug(
+            app,
+            &format!(
+                "clamp: client {}x{} 超出工作区 {}x{}，按记忆逻辑尺寸 {:?}x{:?} 收缩",
+                win_w,
+                win_h,
+                work.size.width,
+                work.size.height,
+                settings.window_width,
+                settings.window_height
+            ),
+        );
+        if let Err(error) = crate::window_geometry::set_main_window_size(
+            app,
+            settings.window_width,
+            settings.window_height,
+        ) {
+            trace(app, "autohide", &format!("clamp 收缩窗口尺寸失败: {error}"));
+        }
+        return; // set_size 自带重落位（recenter_after_window_size），别再抢
+    }
     let (x, y) = clamp_to_work(
         win_x,
         win_y,
