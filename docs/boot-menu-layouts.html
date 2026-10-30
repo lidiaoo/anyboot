@@ -232,7 +232,7 @@ a{color:var(--accent-2)}
 .cmp tr:hover td{background:var(--panel-2)}
 
 /* ═══════════════════════════════════════════════════════════════════
-   3. 通用组件（10 个方案共用的一套原子）
+   3. 通用组件（11 个方案共用的一套原子）
    ═══════════════════════════════════════════════════════════════════ */
 .ldr{
   --c:#6366f1;
@@ -695,7 +695,8 @@ svg.i.lg{width:16px;height:16px}
 .li-tile .big small{font:10px var(--font);color:var(--faint);margin-left:4px}
 .li-tile .s{font:10px var(--mono);color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .li-tile .foot{margin-top:auto;display:flex;align-items:center;gap:6px;font-size:10.5px;color:var(--faint)}
-@container view (min-width: 900px){ .li-grid > .li-tile:last-child{grid-column:span 2} }
+/* 模拟窗口 ≥900px（.vw-g 由 JS 挂）：磁贴 4 列时最后一块横跨两列 */
+.win-body.vw-g .li-grid > .li-tile:last-child{grid-column:span 2}
 .li-sheetbar{
   flex:none;display:flex;align-items:center;gap:9px;margin-top:10px;padding:9px 11px;
   border:1px solid var(--line);border-radius:10px;background:var(--panel-2);font-size:11.5px;color:var(--dim);
@@ -729,9 +730,67 @@ svg.i.lg{width:16px;height:16px}
 .lj-setgroup .gt{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--fainter);padding:2px 2px}
 
 /* ═══════════════════════════════════════════════════════════════════
-   14. 容器查询：所有方案共用同一套断点（模拟窗口变窄时的行为）
+   13.5 方案 K —— 系统引导高级设置（区域编排）
+   用户自选展示哪些引导器（rEFInd / GRUB / OpenCore / Clover /
+   systemd-boot），分进两个区域；区域之间 左右/上下，区域内部再各选
+   上下/左右 —— 方向全是数据（.h/.v 类），全程 flex，无绝对定位。
    ═══════════════════════════════════════════════════════════════════ */
-/* 展台本身在窄屏上收一收，别把中间挤没 */
+.k{display:flex;flex-direction:column;height:100%;min-height:0;gap:10px}
+.k-bar{
+  flex:none;display:flex;flex-direction:column;gap:7px;padding:9px 11px;
+  border:1px solid var(--line);border-radius:11px;background:var(--panel);
+}
+.k-row{display:flex;align-items:center;gap:7px;flex-wrap:wrap;min-width:0}
+.k-lbl{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--fainter);flex:none;min-width:62px}
+.k-chip{
+  display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 3px 0 5px;
+  border-radius:8px;border:1px solid var(--line-2);background:var(--panel-2);
+  color:var(--dim);font-size:11.5px;cursor:pointer;flex:none;user-select:none;
+}
+.k-chip:hover{border-color:var(--line-3);color:var(--text)}
+.k-chip.is-on{color:var(--text);border-color:color-mix(in srgb,var(--accent) 45%,var(--line-2));background:color-mix(in srgb,var(--accent) 12%,transparent)}
+.k-chip.is-off{opacity:.6}
+.k-rg{
+  height:18px;padding:0 5px;margin-left:1px;border-radius:5px;border:0;cursor:pointer;
+  font:600 9.5px var(--mono);letter-spacing:.04em;
+  background:var(--panel-4);color:var(--faint);
+}
+.k-rg:hover{color:var(--text);background:var(--panel-3)}
+.k-stage{flex:1;min-height:0;display:flex;gap:10px}
+.k-stage.h{flex-direction:row}
+.k-stage.v{flex-direction:column}
+.k-region{
+  flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;
+  border:1px dashed var(--line-2);border-radius:11px;
+  background:color-mix(in srgb,var(--panel) 55%,transparent);
+}
+.k-rhd{
+  flex:none;display:flex;align-items:center;gap:8px;padding:6px 10px;
+  border-bottom:1px dashed var(--line-2);font-size:11px;color:var(--faint);
+  min-width:0;flex-wrap:wrap;
+}
+.k-rhd b{color:var(--dim);font-weight:600}
+.k-rhd .grow{flex:1;min-width:0}
+.k-rbody{flex:1;min-height:0;display:flex;gap:9px;padding:9px}
+.k-rbody.h{flex-direction:row}
+.k-rbody.v{flex-direction:column}
+.k-rbody.is-empty{align-items:center;justify-content:center}
+.k-card{
+  flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;
+  background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden;
+}
+.k-card-head{flex:none;display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--line);min-width:0}
+.k-card-head .nm{flex:1;min-width:0;font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.k-entries{flex:1;min-height:0;overflow-y:auto;padding:2px 6px 6px}
+.k-empty-hint{display:flex;flex-direction:column;align-items:center;gap:5px;color:var(--fainter);font-size:11.5px;text-align:center;padding:10px}
+
+/* ═══════════════════════════════════════════════════════════════════
+   14. 容器断点：所有方案共用同一套断点（模拟窗口变窄时的行为）
+   用 JS ResizeObserver 往 .win-body 挂 .vw-900/.vw-760/.vw-520/.vw-g
+   再配类选择器，而不是 @container —— 老WebView/旧Edge 没有 container
+   queries 时整套自适应会整体失效，类断点在任何内核都成立。
+   ═══════════════════════════════════════════════════════════════════ */
+/* 展台本身在窄屏上收一收，别把中间挤没（这是真实视口，媒体查询没问题） */
 @media (max-width:1080px){
   .rail{width:168px}
   .rail-item .rs{display:none}
@@ -739,56 +798,56 @@ svg.i.lg{width:16px;height:16px}
   .stage{padding:14px}
   .stage-head{padding:10px 14px}
 }
-@container view (max-width: 900px){
-  .lb-nav{width:200px}
-  .le-side{width:210px}
-  .lg-side{width:220px}
-  .lj-c1{width:160px}
-  .lj-c3{width:230px}
-  .li-grid{grid-template-columns:repeat(2,1fr)}
-  .li-hero{grid-column:span 2;grid-row:span 1}
-}
-@container view (max-width: 760px){
-  .notes-wide{display:none}
-  .lb{flex-direction:column}
-  .lb-nav{width:auto;flex:none;border-right:0;border-bottom:1px solid var(--line)}
-  .lb-list{flex-direction:row;overflow-x:auto;overflow-y:hidden;padding:0 8px 8px;gap:5px}
-  .lb-item{width:auto;flex:none;padding:6px 8px;border:1px solid var(--line);background:var(--panel)}
-  .lb-item .nm small{display:none}
-  .lb-grip{display:none}
-  .lb-nav-head,.lb-nav-foot{display:none}
-  .le{flex-direction:column}
-  .le-side{width:auto;flex-direction:row;overflow-x:auto;overflow-y:visible}
-  .le-pred{min-width:210px}
-  .lg{flex-direction:column}
-  .lg-side{display:none}
-  .lj-c1{width:60px}
-  .lj-c1 .hd{display:none}
-  .lj-navi .nm,.lj-navi .ldr{display:none}
-  .lj-navi{justify-content:center}
-  .lj-c3{position:absolute;right:0;top:0;bottom:0;width:250px;box-shadow:-10px 0 30px rgba(0,0,0,.4)}
-  .lj{position:relative;overflow:hidden}
-  .la-index{top:-16px}
-  .ld-card.span{flex-direction:column}
-  .ld-card.span .ld-left{width:auto;border-right:0;border-bottom:1px solid var(--line)}
-  .li-grid{grid-template-columns:1fr 1fr}
-  .li-hero{grid-column:span 2}
-  .win-body{padding:12px}
-  .la-index{margin:-12px -12px 10px;padding:8px 12px;top:-12px}
-  .lc,.lb,.lj,.lg{margin:-12px}
-  .lc-body,.lb-scroll{padding:10px}
-}
-@container view (max-width: 520px){
-  .li-grid{grid-template-columns:1fr}
-  .li-hero{grid-column:span 1}
-  .lj-c1{display:none}
-  .lc-toolbar .hide-sm{display:none}
-  .lb-main-head{padding:11px 12px}
-  .ld-grid{grid-template-columns:1fr}
-  .la-index .la-chip span.nm{display:none}
-  .lf table{min-width:520px}
-  .le-pred .v{font-size:14px}
-}
+/* ── ≤900px：侧栏收窄 ── */
+.win-body.vw-900 .lb-nav{width:200px}
+.win-body.vw-900 .le-side{width:210px}
+.win-body.vw-900 .lg-side{width:220px}
+.win-body.vw-900 .lj-c1{width:160px}
+.win-body.vw-900 .lj-c3{width:230px}
+.win-body.vw-900 .li-grid{grid-template-columns:repeat(2,1fr)}
+.win-body.vw-900 .li-hero{grid-column:span 2;grid-row:span 1}
+.win-body.vw-900 .k-stage.h{flex-direction:column}
+/* ── ≤760px：上下结构 / 横滑条 ── */
+.win-body.vw-760 .notes-wide{display:none}
+.win-body.vw-760 .lb{flex-direction:column}
+.win-body.vw-760 .lb-nav{width:auto;flex:none;border-right:0;border-bottom:1px solid var(--line)}
+.win-body.vw-760 .lb-list{flex-direction:row;overflow-x:auto;overflow-y:hidden;padding:0 8px 8px;gap:5px}
+.win-body.vw-760 .lb-item{width:auto;flex:none;padding:6px 8px;border:1px solid var(--line);background:var(--panel)}
+.win-body.vw-760 .lb-item .nm small{display:none}
+.win-body.vw-760 .lb-grip{display:none}
+.win-body.vw-760 .lb-nav-head,.win-body.vw-760 .lb-nav-foot{display:none}
+.win-body.vw-760 .le{flex-direction:column}
+.win-body.vw-760 .le-side{width:auto;flex-direction:row;overflow-x:auto;overflow-y:visible}
+.win-body.vw-760 .le-pred{min-width:210px}
+.win-body.vw-760 .lg{flex-direction:column}
+.win-body.vw-760 .lg-side{display:none}
+.win-body.vw-760 .lj-c1{width:60px}
+.win-body.vw-760 .lj-c1 .hd{display:none}
+.win-body.vw-760 .lj-navi .nm,.win-body.vw-760 .lj-navi .ldr{display:none}
+.win-body.vw-760 .lj-navi{justify-content:center}
+.win-body.vw-760 .lj-c3{position:absolute;right:0;top:0;bottom:0;width:250px;box-shadow:-10px 0 30px rgba(0,0,0,.4)}
+.win-body.vw-760 .lj{position:relative;overflow:hidden}
+.win-body.vw-760 .la-index{top:-16px}
+.win-body.vw-760 .ld-card.span{flex-direction:column}
+.win-body.vw-760 .ld-card.span .ld-left{width:auto;border-right:0;border-bottom:1px solid var(--line)}
+.win-body.vw-760 .li-grid{grid-template-columns:1fr 1fr}
+.win-body.vw-760 .li-hero{grid-column:span 2}
+.win-body.vw-760 .win-body{padding:12px}
+.win-body.vw-760{padding:12px}
+.win-body.vw-760 .la-index{margin:-12px -12px 10px;padding:8px 12px;top:-12px}
+.win-body.vw-760 .lc,.win-body.vw-760 .lb,.win-body.vw-760 .lj,.win-body.vw-760 .lg{margin:-12px}
+.win-body.vw-760 .lc-body,.win-body.vw-760 .lb-scroll{padding:10px}
+/* ── ≤520px：手机 ── */
+.win-body.vw-520 .li-grid{grid-template-columns:1fr}
+.win-body.vw-520 .li-hero{grid-column:span 1}
+.win-body.vw-520 .lj-c1{display:none}
+.win-body.vw-520 .lc-toolbar .hide-sm{display:none}
+.win-body.vw-520 .lb-main-head{padding:11px 12px}
+.win-body.vw-520 .ld-grid{grid-template-columns:1fr}
+.win-body.vw-520 .la-index .la-chip span.nm{display:none}
+.win-body.vw-520 .lf table{min-width:520px}
+.win-body.vw-520 .le-pred .v{font-size:14px}
+.win-body.vw-520 .k-rbody.h{flex-direction:column}
 
 /* ═══════════════════════════════════════════════════════════════════
    15. 组件规格页 / 逻辑图页 / 总览页
@@ -881,7 +940,7 @@ table.big tr:hover td{background:var(--panel-2)}
       <div class="rail-logo">AB</div>
       <div>
         <b>引导菜单排版</b>
-        <small>10 方案 · 设计稿 v1</small>
+        <small>11 方案 · 设计稿 v2</small>
       </div>
     </div>
     <div class="rail-tabs">
@@ -910,7 +969,7 @@ table.big tr:hover td{background:var(--panel-2)}
     <div class="stage-head">
       <div class="tt">
         <h1><span class="kicker" id="stageKicker">OVERVIEW</span><span id="stageTitle">总览与取舍</span></h1>
-        <p id="stageSub">同一份快照，十种信息架构。</p>
+        <p id="stageSub">同一份快照，十一种信息架构。</p>
       </div>
       <div class="toolbar">
         <button class="btn sm ghost" id="toggleNotes">隐藏说明</button>
@@ -1094,7 +1153,7 @@ function stateChip(l) {
 }
 function loaderMeta(l) { return `${l.ver} · ${l.esp} · ${l.entries.length} 个条目`; }
 
-/** 条目行：10 个方案共用的最小单元 */
+/** 条目行：11 个方案共用的最小单元 */
 function entryRow(e, l, opt) {
   opt = opt || {};
   const row = n("div", "row" + (e.def && !opt.noDefStyle ? " is-def" : ""));
@@ -2018,6 +2077,147 @@ function viewJ() {
 }
 
 /* ═══════════════════════════════════════════════════════════════════
+   13.9 方案 K —— 系统引导高级设置（区域编排）
+   ═══════════════════════════════════════════════════════════════════ */
+/* 编排状态放模块级：切宽度/主题会整页重渲染，用户的编排不该被清掉。
+   落地时这里是 localStorage（anyboot.bootRegions）。 */
+const K_DEFAULT = {
+  visible: { oc: true, refind: true, grub: true, sdboot: false, clover: false },
+  region:  { oc: 1, refind: 1, grub: 2, sdboot: 2, clover: 2 },
+  axis: "h",              // 两个区域之间：h = 左右，v = 上下
+  dir: { 1: "v", 2: "v" } // 区域内部：v = 上下，h = 左右
+};
+let kState = null;
+function kStateLive() {
+  if (!kState) kState = JSON.parse(JSON.stringify(K_DEFAULT));
+  return kState;
+}
+
+/* 区域里的引导器卡：与 A 的卡片同一套原子，只是压掉外边距 */
+function kLoaderCard(l) {
+  const card = n("div", "k-card");
+  const head = n("div", "k-card-head");
+  head.append(ldr(l, "sm"), n("span", "nm", l.name), stateChip(l), n("span", "grow"));
+  head.append(btn("下次启动", "btn xs"));
+  card.append(head);
+  const scroll = n("div", "k-entries");
+  const list = n("div", "entries");
+  list.style.padding = "2px 0 0";
+  l.entries.forEach((e) => list.append(entryRow(e, l, { more: false })));
+  scroll.append(list);
+  card.append(scroll);
+  return card;
+}
+
+function viewK() {
+  const st = kStateLive();
+  const wrap = n("div", "k");
+
+  /* ── 设置条：启用哪些引导器 + 两个区域怎么分 ── */
+  const bar = n("div", "k-bar");
+  const row1 = n("div", "k-row");
+  row1.append(n("span", "k-lbl", "启用引导器"));
+  const chips = {};
+  LOADERS.forEach((l) => {
+    const c = n("button", "k-chip");
+    c.type = "button";
+    c.title = "点击 开/关 展示该引导器";
+    c.append(ldr(l, "sm"), n("span", null, l.name));
+    const rg = n("button", "k-rg", "区" + st.region[l.id]);
+    rg.type = "button";
+    rg.title = "点击切到另一个区域";
+    rg.addEventListener("click", (e) => {
+      e.stopPropagation();
+      st.region[l.id] = st.region[l.id] === 1 ? 2 : 1;
+      paint();
+    });
+    c.append(rg);
+    c.addEventListener("click", () => { st.visible[l.id] = !st.visible[l.id]; paint(); });
+    chips[l.id] = c;
+    row1.append(c);
+  });
+  const reset = btn("重置", "btn xs ghost", "refresh");
+  reset.title = "回到默认编排：OC + rEFInd 在区域 1，GRUB 在区域 2";
+  reset.addEventListener("click", () => {
+    const d = JSON.parse(JSON.stringify(K_DEFAULT));
+    st.visible = d.visible; st.region = d.region; st.axis = d.axis; st.dir = d.dir;
+    paint();
+  });
+  row1.append(n("span", "grow"), reset);
+
+  const row2 = n("div", "k-row");
+  row2.append(n("span", "k-lbl", "区域分布"));
+  const axisSeg = n("div", "seg");
+  [["h", "左右"], ["v", "上下"]].forEach(([val, txt]) => {
+    const b = n("button", st.axis === val ? "is-on" : "", txt);
+    b.type = "button";
+    b.addEventListener("click", () => { st.axis = val; paint(); });
+    axisSeg.append(b);
+  });
+  row2.append(axisSeg);
+  row2.append(n("span", "hint", "点芯片开/关；点「区1/区2」挪区；区域内部排布在区域标题行选"));
+
+  bar.append(row1, row2);
+
+  /* ── 舞台：两个区域，方向由 st.axis 决定 ── */
+  const stage = n("div", "k-stage h");
+  const regions = {};
+  [1, 2].forEach((idx) => {
+    const region = n("section", "k-region");
+    const rhd = n("div", "k-rhd");
+    const seg = n("div", "seg");
+    [["v", "上下"], ["h", "左右"]].forEach(([val, txt]) => {
+      const b = n("button", st.dir[idx] === val ? "is-on" : "", txt);
+      b.type = "button";
+      b.title = "区域 " + idx + " 内部卡片的排布方向";
+      b.addEventListener("click", () => { st.dir[idx] = val; paint(); });
+      seg.append(b);
+    });
+    rhd.append(n("b", null, "区域 " + idx), seg, n("span", "grow"));
+    const rbody = n("div", "k-rbody v");
+    region.append(rhd, rbody);
+    regions[idx] = { rhd, rbody };
+    stage.append(region);
+  });
+
+  function paint() {
+    LOADERS.forEach((l) => {
+      chips[l.id].classList.toggle("is-on", st.visible[l.id]);
+      chips[l.id].classList.toggle("is-off", !st.visible[l.id]);
+      chips[l.id].querySelector(".k-rg").textContent = "区" + st.region[l.id];
+    });
+    stage.classList.toggle("h", st.axis === "h");
+    stage.classList.toggle("v", st.axis === "v");
+    [1, 2].forEach((idx) => {
+      const list = LOADERS.filter((l) => st.visible[l.id] && st.region[l.id] === idx);
+      const R = regions[idx];
+      R.rhd.querySelectorAll(".seg button").forEach((b, i) => {
+        b.classList.toggle("is-on", (i === 0) === (st.dir[idx] === "v"));
+      });
+      const oldCnt = R.rhd.querySelector(".cnt");
+      if (oldCnt) oldCnt.remove();
+      R.rhd.append(n("span", "cnt hint", list.length + " 个引导器"));
+      R.rbody.classList.toggle("h", st.dir[idx] === "h");
+      R.rbody.classList.toggle("v", st.dir[idx] === "v");
+      R.rbody.replaceChildren();
+      if (!list.length) {
+        R.rbody.classList.add("is-empty");
+        const hint = n("div", "k-empty-hint");
+        hint.append(icon("eye", "lg"), n("span", null, "区域 " + idx + " 没有启用任何引导器"));
+        R.rbody.append(hint);
+        return;
+      }
+      R.rbody.classList.remove("is-empty");
+      list.forEach((l) => R.rbody.append(kLoaderCard(l)));
+    });
+  }
+
+  wrap.append(bar, stage);
+  paint();
+  return wrap;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
    14. 方案清单 + 设计说明文案
    ═══════════════════════════════════════════════════════════════════ */
 const LAYOUTS = [
@@ -2389,6 +2589,43 @@ const LAYOUTS = [
       cons: ["1100px 以下三栏会挤，必须靠折叠", "实现复杂度最高（三条独立滚动 + 焦点管理）"],
       vote: "面向「调参党」：装系统、排障时的专业视图。"
     }
+  },
+  {
+    id: "K", key: "K", name: "系统引导高级设置（区域编排）", tag: "布局主权交给用户",
+    sub: "自选展示哪些引导器（rEFInd / GRUB / OpenCore / Clover / systemd-boot），分进两个区域；区域之间 左右/上下，区域内部再各选 上下/左右 —— 同一套卡片吃下全部组合。",
+    fn: viewK,
+    notes: {
+      idea: "排版本身成为可配置对象：先在设置条勾选哪些引导器上桌面（没勾的直接不渲染），再把它们分进区域 1/2，两个区域之间按「区域分布」左右或上下，每个区域内部再按自己的「内部排布」上下或左右。比如勾了 rEFInd + GRUB、分布选左右，就是 rEFInd 在左区、GRUB 在右区；把区域 1 内部改成左右，OC 和 rEFInd 又在左区里并排 —— A/B/J 的静态结构在这里全部变成参数。",
+      tree: "win-body\n└─ .k  column\n   ├─ .k-bar    flex:none（启用芯片×5 + 区域分布 seg + 重置）\n   └─ .k-stage  flex:1 · 方向 = 用户配置（.h 左右 / .v 上下）\n      └─ .k-region × 2  column · flex:1\n         ├─ .k-rhd   flex:none（区域名 + 内部排布 seg + 计数）\n         └─ .k-rbody flex:1 · 方向 = 区域配置（.h/.v）\n            └─ .k-card × n  column · flex:1\n               ├─ .k-card-head  flex:none\n               └─ .k-entries    flex:1 · min-height:0 · overflow-y:auto",
+      flex: [
+        "方向是数据不是写死的选择器：k-stage 主轴由「区域分布」决定，k-rbody 主轴由各区域自己的配置决定 —— 换方向只是换 .h/.v 类，滚动模型（min-height:0 + 内部 overflow）完全不变。",
+        "两级 flex:1 链：区域在 stage 里 flex:1，卡片在区域里 flex:1，条目列表在卡片里 flex:1 —— 上下/左右任何一个方向上都能均分剩余空间，min-width:0/min-height:0 防长路径撑破。",
+        "空区域不塌：rbody 变成 flex 居中的空态提示，另一侧区域 flex:1 自然吃满；两个区域都空给「去设置条启用至少一个」的引导。"
+      ],
+      bps: [
+        "≥900px：区域分布按用户配置原样渲染（选左右就是左右）。",
+        "<900px：两个区域强制纵排（区域内部排布照旧）—— 横向没地方，竖着还有。",
+        "<520px：区域内部的「左右」也降级为纵向，卡片全宽堆叠，条目行保持单行 ellipsis。"
+      ],
+      compose: "芯片点击 = 开/关该引导器；芯片上的「区1/区2」区标 = 挪到另一个区域；「重置」回默认编排（OC + rEFInd 在区1、GRUB 在区2）。全部状态进 localStorage，重开 App 不丢。",
+      settings: "这一页本身就是设置：顶栏是全局（启用 + 分布），区域标题行是局部（内部排布）—— 两级设置全部内联可见、改完即生效，不进弹层。",
+      buttons: [
+        ["启用芯片 ×5", "设置条", "开/关 rEFInd / GRUB / OpenCore / Clover / systemd-boot 的展示"],
+        ["区1 / 区2 区标", "芯片尾部", "把该引导器挪到另一个区域（编排即预览）"],
+        ["左右 / 上下", "设置条 seg", "两个区域之间的分布方向"],
+        ["上下 / 左右 ×2", "区域标题行 seg", "该区域内部卡片的排布方向"],
+        ["重置", "设置条右侧", "恢复默认编排；localStorage 一起清"],
+        ["下次启动 / 设为默认", "卡片条目行尾", "语义与其它方案一致，编排不吞功能"]
+      ],
+      dialogs: [
+        ["无弹窗", "全部设置内联；这是「编排即预览」的页面"],
+        ["全空态", "两个区域都没启用时给引导文案，不给白屏"],
+        ["提权说明", "条目动作触发的提权弹窗与 A/B 共用"]
+      ],
+      pros: ["布局主权交给用户：启用组合 2⁵ × 分布 2 × 区域内排布 2²，一套组件全吃下", "与 A/B/J 共用卡片与条目原子，实现成本就是状态管理那点活", "空区域/单区域边界自然，不需要特判布局分支"],
+      cons: ["组合太多没法穷举截图，文档只能给代表形态", "用户可能排出很怪的布局（全挤一边、单区域塞 5 个），要靠默认值和区域上限兜底"],
+      vote: "作为「编排」入口的落点：系统引导高级设置 = 这套参数 + 实时预览。"
+    }
   }
 ];
 
@@ -2421,8 +2658,8 @@ function svgWrap(id, w, h, inner) {
 
 const DIAGRAMS = [
   {
-    title: "① 数据流分层：一份快照，十种排版",
-    note: "后端只产出 channels[]，编排（固定/排序/收起）是前端独立一层，十种视图共用同一套原子组件。换排版不动后端。",
+    title: "① 数据流分层：一份快照，十一种排版",
+    note: "后端只产出 channels[]，编排（固定/排序/收起/区域）是前端独立一层，十一种视图共用同一套原子组件。换排版不动后端。",
     svg: svgWrap("d1", 900, 262, [
       box(16, 44, 150, 64, "ESP / 固件", ["BootOrder · loader.conf", "OC 私有 OCBt*"], { stroke: "var(--info)" }),
       arrow(166, 76, 194, 76, "d1"),
@@ -2541,16 +2778,17 @@ const CMP_ROWS = [
   ["G", "命令面板", "★★☆", "设置页统一管", "⌘, 抽屉", "完全不受影响", "中"],
   ["H", "手风琴", "★★★", "拖拽 + ⋯ 菜单", "行尾 ⋯", "折叠后收敛住", "低"],
   ["I", "Bento 磁贴", "★★☆", "底部抽屉", "底部抽屉", "磁贴变多，要滚", "中"],
-  ["J", "三栏工作台", "★★★", "左栏拖拽", "常驻右栏", "稳定（≥1100px）", "高"]
+  ["J", "三栏工作台", "★★★", "左栏拖拽", "常驻右栏", "稳定（≥1100px）", "高"],
+  ["K", "区域编排（高级设置）", "★★☆", "芯片开关 + 挪区 + 方向", "内联两级（全局/区域）", "两区域均分，纵排兜底", "中"]
 ];
 function overviewView() {
   const wrap = n("div", "ov");
   const hero = n("div", "ov-hero");
   hero.append(n("h2", null, "一台机器上 5 个引导器，怎么放才不塌"));
   hero.append(n("p", null,
-    "现在是一个 tab 里竖着堆卡片：GRUB 配置块 + systemd-boot + OpenCore（含预演菜单）+ Clover。每加一条通道，页面就长一屏，设置和条目混在一起，用户找不到「我上次改的那个 ESP 路径」。下面十种排版都在解决同一组问题：对象多了怎么分组、条目多了怎么收、设置放哪里不打扰浏览。"));
+    "现在是一个 tab 里竖着堆卡片：GRUB 配置块 + systemd-boot + OpenCore（含预演菜单）+ Clover。每加一条通道，页面就长一屏，设置和条目混在一起，用户找不到「我上次改的那个 ESP 路径」。下面十一种排版都在解决同一组问题：对象多了怎么分组、条目多了怎么收、设置放哪里不打扰浏览。"));
   const kpis = n("div", "ov-kpis");
-  [["5", "引导器"], [String(TOTAL), "条目"], ["3", "设置层级"], ["10", "排版方案"]].forEach((k) => {
+  [["5", "引导器"], [String(TOTAL), "条目"], ["3", "设置层级"], [String(LAYOUTS.length), "排版方案"]].forEach((k) => {
     const b = n("div", "ov-kpi");
     b.append(n("b", null, k[0]), n("small", null, k[1]));
     kpis.append(b);
@@ -2560,7 +2798,7 @@ function overviewView() {
 
   const conv = n("div", "spec");
   const convH = n("h3", null, "十条通用约定");
-  convH.append(n("small", null, "10 个方案都必须遵守"));
+  convH.append(n("small", null, "11 个方案都必须遵守"));
   conv.append(convH);
   const cb = n("div", "spec-body");
   const ul = n("ul", "nlist");
@@ -2581,7 +2819,7 @@ function overviewView() {
   wrap.append(conv);
 
   const cmp = n("div", "spec");
-  const cmpH = n("h3", null, "十种方案横向对比");
+  const cmpH = n("h3", null, "十一种方案横向对比");
   cmpH.append(n("small", null, "密度 / 编排 / 设置入口 / 规模上限 / 改动量"));
   cmp.append(cmpH);
   const cb2 = n("div", "spec-body");
@@ -2648,7 +2886,7 @@ function specsView() {
   const wrap = n("div", "ov");
   const hero = n("div", "ov-hero");
   hero.append(n("h2", null, "组件规格：每个按钮、每个弹层"));
-  hero.append(n("p", null, "十种排版共用这一套原子。尺寸基于 13px 正文、8px 栅格；所有按钮高度是 28 / 24 / 20 三档，图标 14px 线性描边 1.6。危险动作永远单独配色 + 二次确认，且默认焦点在「取消」。"));
+  hero.append(n("p", null, "十一种排版共用这一套原子。尺寸基于 13px 正文、8px 栅格；所有按钮高度是 28 / 24 / 20 三档，图标 14px 线性描边 1.6。危险动作永远单独配色 + 二次确认，且默认焦点在「取消」。"));
   wrap.append(hero);
 
   const grid = n("div", "spec-grid");
@@ -3013,6 +3251,19 @@ const stageTitle = document.getElementById("stageTitle");
 const stageSub = document.getElementById("stageSub");
 
 const state = { tab: "layouts", idx: -1, width: 1180, notes: window.innerWidth >= 1520 };
+
+/* 模拟窗口的容器断点：ResizeObserver 往 .win-body 挂 .vw-* 类。
+   之前用的 @container 在没有 container queries 的内核上会整体失效 ——
+   窗口一窄侧栏/主区还按宽屏排，挤成一团。类断点在任何内核都成立，
+   CSS 里所有断点规则都已改成 .win-body.vw-900 / .vw-760 / .vw-520 前缀。 */
+const vwRO = new ResizeObserver((entries) => {
+  const w = entries[0].contentRect.width;
+  view.classList.toggle("vw-g", w >= 900);
+  view.classList.toggle("vw-900", w <= 900);
+  view.classList.toggle("vw-760", w <= 760);
+  view.classList.toggle("vw-520", w <= 520);
+});
+vwRO.observe(view);
 
 function renderRail() {
   railList.replaceChildren();
