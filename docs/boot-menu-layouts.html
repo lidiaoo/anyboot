@@ -756,9 +756,23 @@ svg.i.lg{width:16px;height:16px}
   background:var(--panel-4);color:var(--faint);
 }
 .k-rg:hover{color:var(--text);background:var(--panel-3)}
-.k-stage{flex:1;min-height:0;display:flex;gap:10px}
+.k-stage{flex:1;min-height:0;display:flex;gap:0}
 .k-stage.h{flex-direction:row}
 .k-stage.v{flex-direction:column}
+/* 区域一尺寸由拖动分隔条决定（--k-r1 = 区域一占比），区域二吃剩余 */
+.k-stage.h > .k-region:first-child{width:var(--k-r1,50%);flex:none}
+.k-stage.v > .k-region:first-child{height:var(--k-r1,50%);flex:none}
+.k-stage.h > .k-region:last-child{flex:1;min-width:0}
+.k-stage.v > .k-region:last-child{flex:1;min-height:0}
+.k-split{
+  flex:none;display:grid;place-items:center;user-select:none;touch-action:none;
+  width:12px;cursor:col-resize;color:var(--fainter);
+}
+.k-stage.v .k-split{width:auto;height:12px;cursor:row-resize}
+.k-split::before{content:"";border-radius:999px;background:var(--line-2);transition:background .15s}
+.k-stage.h .k-split::before{width:3px;height:44px}
+.k-stage.v .k-split::before{width:44px;height:3px}
+.k-split:hover::before,.k-split.is-drag::before{background:var(--accent)}
 .k-region{
   flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;
   border:1px dashed var(--line-2);border-radius:11px;
@@ -783,6 +797,27 @@ svg.i.lg{width:16px;height:16px}
 .k-card-head .nm{flex:1;min-width:0;font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .k-entries{flex:1;min-height:0;overflow-y:auto;padding:2px 6px 6px}
 .k-empty-hint{display:flex;flex-direction:column;align-items:center;gap:5px;color:var(--fainter);font-size:11.5px;text-align:center;padding:10px}
+/* 启用引导器标签行：与现有源码 ui/styles.css 的 .tabs/.tab 同形 ——
+   文字 tab + 底部 2px 圆角短杠高亮，落地时可直接搬同一段结构 */
+.k-tabs{
+  display:flex;gap:4px;min-width:0;overflow-x:auto;
+  border-bottom:1px solid var(--line);padding:0 2px;scrollbar-width:none;
+}
+.k-tabs::-webkit-scrollbar{display:none}
+.k-tab{
+  appearance:none;border:0;background:none;color:var(--dim);
+  font:inherit;font-weight:600;font-size:12px;
+  padding:7px 12px 8px;cursor:pointer;position:relative;
+  white-space:nowrap;display:inline-flex;align-items:center;gap:6px;
+  opacity:.55;transition:opacity .15s;
+}
+.k-tab::after{
+  content:"";position:absolute;left:10px;right:10px;bottom:-1px;height:2px;
+  border-radius:999px;background:transparent;
+}
+.k-tab:hover{opacity:1}
+.k-tab.is-on{color:var(--accent);opacity:1}
+.k-tab.is-on::after{background:var(--accent)}
 
 /* ═══════════════════════════════════════════════════════════════════
    14. 容器断点：所有方案共用同一套断点（模拟窗口变窄时的行为）
@@ -2099,7 +2134,8 @@ const K_DEFAULT = {
   visible: { oc: true, refind: true, grub: true, sdboot: false, clover: false },
   region:  { oc: 1, refind: 1, grub: 2, sdboot: 2, clover: 2 },
   axis: "h",              // 两个区域之间：h = 左右，v = 上下
-  dir: { 1: "v", 2: "v" } // 区域内部：v = 上下，h = 左右
+  dir: { 1: "v", 2: "v" },// 区域内部：v = 上下，h = 左右
+  ratio: 0.5              // 分隔条位置：区域一占舞台的比例（拖动改写，双击回中）
 };
 let kState = null;
 function kStateLive() {
@@ -2142,13 +2178,14 @@ function viewK() {
   const st = kStateLive();
   const wrap = n("div", "k");
 
-  /* ── 设置条：启用哪些引导器 + 两个区域怎么分 ── */
+  /* ── 启用引导器：横向标签行，与现有源码 ui/index.html 顶部 .tabs/.tab
+        同形（文字 tab + 底部 2px 圆角短杠）——落地时直接沿用同一套结构，
+        选中的（启用的）才会在下面区域里出现。 ── */
   const bar = n("div", "k-bar");
-  const row1 = n("div", "k-row");
-  row1.append(n("span", "k-lbl", "启用引导器"));
-  const chips = {};
+  const row1 = n("div", "k-tabs");
+  const tabs = {};
   LOADERS.forEach((l) => {
-    const c = n("button", "k-chip");
+    const c = n("button", "k-tab");
     c.type = "button";
     c.title = "点击 开/关 展示该引导器";
     c.append(ldr(l, "sm"), n("span", null, l.name));
@@ -2162,14 +2199,14 @@ function viewK() {
     });
     c.append(rg);
     c.addEventListener("click", () => { st.visible[l.id] = !st.visible[l.id]; paint(); });
-    chips[l.id] = c;
+    tabs[l.id] = c;
     row1.append(c);
   });
   const reset = btn("重置", "btn xs ghost", "refresh");
-  reset.title = "回到默认编排：OC + rEFInd 在区域 1，GRUB 在区域 2";
+  reset.title = "回到默认编排：OC + rEFInd 在区域 1，GRUB 在区域 2，对半分";
   reset.addEventListener("click", () => {
     const d = JSON.parse(JSON.stringify(K_DEFAULT));
-    st.visible = d.visible; st.region = d.region; st.axis = d.axis; st.dir = d.dir;
+    st.visible = d.visible; st.region = d.region; st.axis = d.axis; st.dir = d.dir; st.ratio = d.ratio;
     paint();
   });
   row1.append(n("span", "grow"), reset);
@@ -2184,11 +2221,12 @@ function viewK() {
     axisSeg.append(b);
   });
   row2.append(axisSeg);
-  row2.append(n("span", "hint", "点芯片开/关；点「区1/区2」挪区；区域内部排布在区域标题行选"));
+  row2.append(n("span", "hint", "点标签开/关；点「区1/区2」挪区；**拖中间分隔条**定两块区域谁大谁小，双击回对半分".replace(/\*\*/g, "")));
 
   bar.append(row1, row2);
 
-  /* ── 舞台：两个区域，方向由 st.axis 决定 ── */
+  /* ── 舞台：区域一 ── 分隔条 ── 区域二；方向由 st.axis 决定，区域一
+     的占比由分隔条拖动（st.ratio）决定 —— 「一分为二，拖动定优先级」。 ── */
   const stage = n("div", "k-stage h");
   const regions = {};
   [1, 2].forEach((idx) => {
@@ -2205,18 +2243,48 @@ function viewK() {
     rhd.append(n("b", null, "区域 " + idx), seg, n("span", "grow"));
     const rbody = n("div", "k-rbody v");
     region.append(rhd, rbody);
-    regions[idx] = { rhd, rbody };
+    regions[idx] = { rhd, rbody, region };
     stage.append(region);
+    // 区域一后面插分隔条
+    if (idx === 1) {
+      const split = n("div", "k-split");
+      split.title = "拖动调整两块区域的大小（双击恢复对半分）";
+      split.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        split.classList.add("is-drag");
+        split.setPointerCapture(e.pointerId);
+        const move = (ev) => {
+          const rect = stage.getBoundingClientRect();
+          const raw = st.axis === "h"
+            ? (ev.clientX - rect.left) / rect.width
+            : (ev.clientY - rect.top) / rect.height;
+          st.ratio = Math.min(0.85, Math.max(0.15, raw));
+          stage.style.setProperty("--k-r1", (st.ratio * 100).toFixed(1) + "%");
+          const cnt = regions[1].rhd.querySelector(".cnt");
+          if (cnt) cnt.textContent = Math.round(st.ratio * 100) + "%" + (cnt.dataset.tail || "");
+        };
+        const up = (ev) => {
+          split.classList.remove("is-drag");
+          split.removeEventListener("pointermove", move);
+          split.removeEventListener("pointerup", up);
+        };
+        split.addEventListener("pointermove", move);
+        split.addEventListener("pointerup", up);
+      });
+      split.addEventListener("dblclick", () => { st.ratio = 0.5; paint(); });
+      stage.append(split);
+    }
   });
 
   function paint() {
     LOADERS.forEach((l) => {
-      chips[l.id].classList.toggle("is-on", st.visible[l.id]);
-      chips[l.id].classList.toggle("is-off", !st.visible[l.id]);
-      chips[l.id].querySelector(".k-rg").textContent = "区" + st.region[l.id];
+      tabs[l.id].classList.toggle("is-on", st.visible[l.id]);
+      tabs[l.id].classList.toggle("is-off", !st.visible[l.id]);
+      tabs[l.id].querySelector(".k-rg").textContent = "区" + st.region[l.id];
     });
     stage.classList.toggle("h", st.axis === "h");
     stage.classList.toggle("v", st.axis === "v");
+    stage.style.setProperty("--k-r1", (st.ratio * 100).toFixed(1) + "%");
     [1, 2].forEach((idx) => {
       const list = LOADERS.filter((l) => st.visible[l.id] && st.region[l.id] === idx);
       const R = regions[idx];
@@ -2225,7 +2293,12 @@ function viewK() {
       });
       const oldCnt = R.rhd.querySelector(".cnt");
       if (oldCnt) oldCnt.remove();
-      R.rhd.append(n("span", "cnt hint", list.length + " 个引导器"));
+      const cnt = n("span", "cnt hint", list.length + " 个引导器");
+      if (idx === 1) {
+        cnt.textContent = Math.round(st.ratio * 100) + "% · " + list.length + " 个引导器";
+        cnt.dataset.tail = " · " + list.length + " 个引导器";
+      }
+      R.rhd.append(cnt);
       R.rbody.classList.toggle("h", st.dir[idx] === "h");
       R.rbody.classList.toggle("v", st.dir[idx] === "v");
       R.rbody.replaceChildren();
@@ -2621,29 +2694,31 @@ const LAYOUTS = [
   },
   {
     id: "K", key: "K", name: "系统引导高级设置（区域编排）", tag: "布局主权交给用户",
-    sub: "自选展示哪些引导器（rEFInd / GRUB / OpenCore / Clover / systemd-boot），分进两个区域；区域之间 左右/上下，区域内部再各选 上下/左右 —— 同一套卡片吃下全部组合。",
+    sub: "自选展示哪些引导器（rEFInd / GRUB / OpenCore / Clover / systemd-boot），分进两个区域；区域间 左右/上下 一分为二，拖动分隔条定两块谁大谁小，区域内部再各选 上下/左右。",
     fn: viewK,
     notes: {
-      idea: "排版本身成为可配置对象：先在设置条勾选哪些引导器上桌面（没勾的直接不渲染），再把它们分进区域 1/2，两个区域之间按「区域分布」左右或上下，每个区域内部再按自己的「内部排布」上下或左右。比如勾了 rEFInd + GRUB、分布选左右，就是 rEFInd 在左区、GRUB 在右区；把区域 1 内部改成左右，OC 和 rEFInd 又在左区里并排 —— A/B/J 的静态结构在这里全部变成参数。",
-      tree: "win-body\n└─ .k  column\n   ├─ .k-bar    flex:none（启用芯片×5 + 区域分布 seg + 重置）\n   └─ .k-stage  flex:1 · 方向 = 用户配置（.h 左右 / .v 上下）\n      └─ .k-region × 2  column · flex:1\n         ├─ .k-rhd   flex:none（区域名 + 内部排布 seg + 计数）\n         └─ .k-rbody flex:1 · 方向 = 区域配置（.h/.v）\n            └─ .k-card × n  column · flex:1\n               ├─ .k-card-head  flex:none\n               └─ .k-entries    flex:1 · min-height:0 · overflow-y:auto",
+      idea: "排版本身成为可配置对象：顶部横向标签行（与现有源码 ui/index.html 的 .tabs/.tab 同形）勾选哪些引导器上桌面（没勾的直接不渲染），再把它们分进区域 1/2；两个区域之间按「区域分布」左右或上下**一分为二，中间是可拖动分隔条** —— 拖动决定两块区域谁大谁小（区域一头部实时显示百分比），双击分隔条回对半分。每个区域内部再按自己的「内部排布」上下或左右。比如勾了 rEFInd + GRUB、分布选左右，就是 rEFInd 在左区、GRUB 在右区；把分隔条拖到 70%，左区就吃七成空间 —— A/B/J 的静态结构在这里全部变成参数。",
+      tree: "win-body\n└─ .k  column\n   ├─ .k-bar    flex:none（.k-tabs 横向标签行 + 区域分布 seg + 重置）\n   └─ .k-stage  flex:1 · 方向 = 用户配置（.h 左右 / .v 上下）\n      ├─ .k-region①  width/height = --k-r1（分隔条拖动）\n      ├─ .k-split    flex:none · 12px 热区（col/row-resize）\n      └─ .k-region②  flex:1 吃剩余\n         ├─ .k-rhd   flex:none（区域名 + 内部排布 seg + 占比/计数）\n         └─ .k-rbody flex:1 · 方向 = 区域配置（.h/.v）\n            └─ .k-card × n  column · flex:1\n               ├─ .k-card-head  flex:none\n               └─ .k-entries    flex:1 · min-height:0 · overflow-y:auto",
       flex: [
         "方向是数据不是写死的选择器：k-stage 主轴由「区域分布」决定，k-rbody 主轴由各区域自己的配置决定 —— 换方向只是换 .h/.v 类，滚动模型（min-height:0 + 内部 overflow）完全不变。",
-        "两级 flex:1 链：区域在 stage 里 flex:1，卡片在区域里 flex:1，条目列表在卡片里 flex:1 —— 上下/左右任何一个方向上都能均分剩余空间，min-width:0/min-height:0 防长路径撑破。",
-        "空区域不塌：rbody 变成 flex 居中的空态提示，另一侧区域 flex:1 自然吃满；两个区域都空给「去设置条启用至少一个」的引导。"
+        "区域一尺寸走 --k-r1 变量（width 或 height 随主轴），区域二 flex:1 吃剩余 —— 分隔条拖动只改一个 CSS 变量，两级布局零重排逻辑。",
+        "分隔条 12px 热区 + pointer capture；条目列表 min-height:0 + overflow-y:auto，14 条真机量级在卡片内部滚动，不撑破区域。",
+        "空区域不塌：rbody 变成 flex 居中的空态提示，另一侧区域 flex:1 自然吃满。"
       ],
       bps: [
         "≥900px：区域分布按用户配置原样渲染（选左右就是左右）。",
         "<900px：两个区域强制纵排（区域内部排布照旧）—— 横向没地方，竖着还有。",
         "<520px：区域内部的「左右」也降级为纵向，卡片全宽堆叠，条目行保持单行 ellipsis。"
       ],
-      compose: "芯片点击 = 开/关该引导器；芯片上的「区1/区2」区标 = 挪到另一个区域；「重置」回默认编排（OC + rEFInd 在区1、GRUB 在区2）。全部状态进 localStorage，重开 App 不丢。",
+      compose: "标签点击 = 开/关该引导器；标签上的「区1/区2」区标 = 挪到另一个区域；**拖动分隔条** = 定两块区域占比（双击回 50%）；「重置」回默认编排。全部状态进 localStorage，重开 App 不丢。",
       settings: "这一页本身就是设置：顶栏是全局（启用 + 分布），区域标题行是局部（内部排布）—— 两级设置全部内联可见、改完即生效，不进弹层。",
       buttons: [
-        ["启用芯片 ×5", "设置条", "开/关 rEFInd / GRUB / OpenCore / Clover / systemd-boot 的展示"],
-        ["区1 / 区2 区标", "芯片尾部", "把该引导器挪到另一个区域（编排即预览）"],
+        ["启用标签 ×5", "顶部横向标签行", "开/关 rEFInd / GRUB / OpenCore / Clover / systemd-boot（形态与主界面页签一致）"],
+        ["区1 / 区2 区标", "标签尾部", "把该引导器挪到另一个区域（编排即预览）"],
         ["左右 / 上下", "设置条 seg", "两个区域之间的分布方向"],
+        ["拖动分隔条", "两区域之间", "一分为二定占比（15%–85%），双击回对半分"],
         ["上下 / 左右 ×2", "区域标题行 seg", "该区域内部卡片的排布方向"],
-        ["重置", "设置条右侧", "恢复默认编排；localStorage 一起清"],
+        ["重置", "标签行右侧", "恢复默认编排；localStorage 一起清"],
         ["下次启动 / 设为默认", "卡片条目行尾", "语义与其它方案一致，编排不吞功能"]
       ],
       dialogs: [
