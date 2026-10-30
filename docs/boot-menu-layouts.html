@@ -2112,15 +2112,30 @@ function kLoaderCard(l) {
   const card = n("div", "k-card");
   const head = n("div", "k-card-head");
   head.append(ldr(l, "sm"), n("span", "nm", l.name), stateChip(l), n("span", "grow"));
+  // 真机上一台机 GRUB 68 条、rEFInd 十几条都常见：这里把每家凑到 14 条，
+  // 验证「条目超出可视高度 → 卡片内部滚动」而不是把区域撑爆。
+  const list0 = kEntriesFor(l);
+  head.append(n("span", "hint", list0.length + " 条"));
   head.append(btn("下次启动", "btn xs"));
   card.append(head);
   const scroll = n("div", "k-entries");
   const list = n("div", "entries");
   list.style.padding = "2px 0 0";
-  l.entries.forEach((e) => list.append(entryRow(e, l, { more: false })));
+  list0.forEach((e) => list.append(entryRow(e, l, { more: false })));
   scroll.append(list);
   card.append(scroll);
   return card;
+}
+
+/* K 的演示数据：在真实条目后面补「变体」凑满 14 条。设计稿里用 ——
+   落地版数据直接来自后端扫描，这里只负责把滚动行为演出来。 */
+function kEntriesFor(l) {
+  const out = l.entries.slice();
+  while (out.length < 14) {
+    const src = out[out.length % Math.max(l.entries.length, 1)];
+    out.push(Object.assign({}, src, { t: src.t + " · 变体" + (out.length + 1), def: false }));
+  }
+  return out;
 }
 
 function viewK() {
@@ -3411,19 +3426,23 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") ovl.classList.remove("is-on");
 });
 
-/* 支持用 #B / #specs / #flow 直接打开某一页（截图与分享用） */
+/* 支持用 #K / #specs / #flow 直接打开某一页（截图与分享用）。
+   没带 hash 时**默认落在 K（系统引导高级设置）**：侧栏默认收起，
+   总览当着陆页的话 K 这类新方案根本没机会被看到（2026-10-30 用户反馈）。 */
 (function fromHash() {
   const q = new URLSearchParams(location.search || "");
   const w = Number(q.get("w"));
   if ([1180, 900, 620, 430].indexOf(w) >= 0) state.width = w;
   const h = (location.hash || "").replace("#", "").toLowerCase();
-  if (!h) return;
-  if (h === "specs") state.tab = "specs";
-  else if (h === "flow") state.tab = "flow";
-  else {
+  if (h === "specs") { state.tab = "specs"; return; }
+  if (h === "flow") { state.tab = "flow"; return; }
+  if (h === "o") { state.idx = -1; return; } // 总览要显式要
+  if (h) {
     const i = LAYOUTS.findIndex((x) => x.key.toLowerCase() === h);
-    if (i >= 0) { state.tab = "layouts"; state.idx = i; }
+    if (i >= 0) { state.tab = "layouts"; state.idx = i; return; }
   }
+  state.tab = "layouts";
+  state.idx = LAYOUTS.length - 1;
 })();
 
 renderRail();
