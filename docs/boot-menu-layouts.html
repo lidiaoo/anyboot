@@ -168,11 +168,30 @@ a{color:var(--accent-2)}
 .win-tag{margin-left:auto;font:10px var(--mono);color:var(--fainter);border:1px solid var(--line);padding:1px 6px;border-radius:5px}
 .win-body{
   container-type:inline-size;container-name:view;
-  height:min(720px,calc(100vh - 180px));min-height:440px;
+  height:min(640px,calc(100vh - 280px));min-height:400px;
   overflow:auto;padding:16px;
   background:var(--bg);
 }
 .win-body.no-pad{padding:0}
+/* ── 真实 App 头部复刻（ui/index.html 的 header + nav.tabs）：
+      纯装饰，pointer-events:none，所有方案共用这一层窗壳 ── */
+.app-chrome{
+  flex:none;background:var(--panel);border-bottom:1px solid var(--line);
+  pointer-events:none;user-select:none;
+}
+.app-hdr{display:flex;align-items:flex-start;gap:12px;padding:12px 16px 4px}
+.app-hdr h1{font-size:21px;font-weight:700;line-height:1.3}
+.app-acts{
+  margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;
+  max-width:72%;
+}
+.app-act{
+  padding:7px 14px;border-radius:10px;border:1px solid var(--line-2);
+  background:var(--panel-2);color:var(--text);font-size:12px;font-weight:500;
+  white-space:nowrap;
+}
+.app-tabs{padding:0 10px}
+.app-tabs .k-tab{font-size:13px;padding:9px 14px 10px;pointer-events:none}
 
 /* ═══════════════════════════════════════════════════════════════════
    2. 说明面板
@@ -1030,6 +1049,28 @@ table.big tr:hover td{background:var(--panel-2)}
           <div class="win-dots"><i></i><i></i><i></i></div>
           <span class="win-title">AnyBoot — 引导</span>
           <span class="win-tag" id="winTag">1180 × 600</span>
+        </div>
+        <!-- 真实 App 的头部原样保留（ui/index.html）：标题 + 动作按钮组 +
+             界面栏目页签。所有排版方案都在这层头部之下展开 —— 设计稿
+             演示的是「系统引导」页签里的内容怎么排，不是换掉整个窗壳。
+             纯装饰：pointer-events 关掉，不响应点击。 -->
+        <div class="app-chrome" aria-hidden="true">
+          <div class="app-hdr">
+            <h1>AnyBoot</h1>
+            <div class="app-acts">
+              <span class="app-act">远程管理</span>
+              <span class="app-act">重启系统</span>
+              <span class="app-act">关机</span>
+              <span class="app-act">睡眠</span>
+              <span class="app-act">重启程序</span>
+              <span class="app-act">退出程序</span>
+            </div>
+          </div>
+          <div class="k-tabs app-tabs">
+            <span class="k-tab is-on">系统引导</span>
+            <span class="k-tab">基本设置</span>
+            <span class="k-tab">SOL 远程唤醒</span>
+          </div>
         </div>
         <div class="win-body" id="view"></div>
       </div>
