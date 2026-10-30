@@ -50,34 +50,35 @@
          「热区厚度 − 贴边缝隙」写入 CSS 变量，超出窗口槽位（40px）的部分
          在窗口外，天然被裁掉。 -->
     <div id="hotzone" data-page-node-id="8uHDBxXqvTjBBgBExM7mu2"></div>
-    <!-- 单窗口双栏：左栏 = 原主窗口的全部元素，右栏 = GRUB 专属区。
-         两栏等宽（flex 基准都是 0），中间用一条纯空白长条隔开 —— 宽度取原来
-         两个独立窗口之间那条桌面缝隙的 12px，所以窗口总宽 932 = 460 + 12 + 460，
-         和以前主窗 + GRUB 窗并排占的总宽度一致。
-         展示模式 ③④ 时两栏各自一个滚动容器（左 = <main>，右 = .pane-body），
-         滚动条互不影响；模式 ①② 右栏隐藏、左栏独占整窗。 -->
+    <!-- 单栏主容器：原来的「右栏 = GRUB 专属区」（展示方式 ③④）已移除 ——
+         加宽 / 左右布局由「引导高级设置 → 布局」接管（窗口落宽走后端
+         set_boot_layout，两栏滚动容器由 boot-adv.js 自建）。 -->
     <div class="app-columns" data-page-node-id="1OTCHz4amVxgkNtMylMSAx">
-      <!-- 左栏：原主窗口的全部内容，GRUB 那一整块搬到右栏去了 -->
+      <!-- 左栏：原主窗口的全部内容 -->
       <main class="pane pane-main" data-page-node-id="EJa4vqxl29IOquEVLGPj5N">
         <header data-page-node-id="LbHHCD0vLyCxN9CoKPOMr7">
           <!-- 电源三键贴着应用名放同一行、右对齐（用户定案 2026-10-13）：
                高频动作抬到最顺手的位置，左栏留给引导主流程 -->
           <div class="header-row">
             <h1 data-page-node-id="z7rmJtH6aBtPGSohd0cT0u">AnyBoot</h1>
+            <!-- 工具条一律「纯图标小方钮」（用户定案 2026-10-30：这一排文字太占位置，
+                 标题行被顶掉半截）。文案不丢：title 给原生悬浮提示、aria-label 给
+                 读屏与自动化，脚本仍按 id 取用，逻辑零改动。
+                 图标是 16×16 的描边 set，跟引导页那套（svg.i）同一视觉语言。 -->
             <div class="system-actions">
               <!-- 远程管理（SSH 终端 / SFTP 文件 / 密钥 / 隧道）是同级的另一个模块：
                    入口在这里给一份全局的；终端、文件、密钥三个独立窗的顶栏也各有一份，
                    走到哪儿都能一步回到远程管理。网页端（远程控制页）无意义，由 app.js 隐藏。 -->
-              <button class="secondary" id="open-hub" type="button" data-page-node-id="OpenHubBtn001QaZx9CdEf2">远程管理</button>
-              <button class="secondary" id="power-reboot" type="button" data-page-node-id="2RIN6kKHt7BM26YL6EVjzc">重启系统</button>
-              <button class="secondary" id="power-shutdown" type="button" data-page-node-id="xEVk1ZrGxSZHXPzAnd1orK">关机</button>
-              <button class="secondary" id="power-sleep" type="button" data-page-node-id="eiRSB4x9Qn7sTfWEjJnjqH">睡眠</button>
+              <button aria-label="远程管理" class="secondary ico-btn" id="open-hub" title="远程管理" type="button" data-page-node-id="OpenHubBtn001QaZx9CdEf2"><svg aria-hidden="true" class="i" focusable="false" viewBox="0 0 16 16"><rect height="8.2" rx="1.4" width="11.6" x="2.2" y="3"/><path d="M5.4 6.2 7 7.6 5.4 9"/><path d="M8.4 9h2.4"/></svg></button>
+              <button aria-label="重启系统" class="secondary ico-btn" id="power-reboot" title="重启系统" type="button" data-page-node-id="2RIN6kKHt7BM26YL6EVjzc"><svg aria-hidden="true" class="i" focusable="false" viewBox="0 0 16 16"><path d="M12.8 8a4.8 4.8 0 1 1-1.5-3.5"/><path d="M13 3.1v3h-3"/></svg></button>
+              <button aria-label="关机" class="secondary ico-btn" id="power-shutdown" title="关机" type="button" data-page-node-id="xEVk1ZrGxSZHXPzAnd1orK"><svg aria-hidden="true" class="i" focusable="false" viewBox="0 0 16 16"><path d="M8 2.6v5"/><path d="M11.7 4.8a5 5 0 1 1-7.4 0"/></svg></button>
+              <button aria-label="睡眠" class="secondary ico-btn" id="power-sleep" title="睡眠" type="button" data-page-node-id="eiRSB4x9Qn7sTfWEjJnjqH"><svg aria-hidden="true" class="i" focusable="false" viewBox="0 0 16 16"><path d="M10.6 2.5a5.6 5.6 0 1 0 2.9 8.3 4.7 4.7 0 0 1-2.9-8.3Z"/></svg></button>
               <!-- 应用自身的两个动作跟在电源三键后面（用户定案 2026-10-15）：
                    系统动作在前、程序动作在后，同一行右对齐 —— 托盘菜单里的
                    「退出程序」就是这个按钮的托盘版，语义完全一致。
                    网页端（远程）没有意义也不放行，由 app.js 隐藏。 -->
-              <button class="secondary" id="restart-app" type="button" data-page-node-id="RstAppBtn0012QaZx9CdEf2">重启程序</button>
-              <button class="secondary" id="quit-app" type="button" data-page-node-id="QuitAppBtn001QaZx9CdEf2">退出程序</button>
+              <button aria-label="重启程序" class="secondary ico-btn" id="restart-app" title="重启程序" type="button" data-page-node-id="RstAppBtn0012QaZx9CdEf2"><svg aria-hidden="true" class="i" focusable="false" viewBox="0 0 16 16"><rect height="10.4" rx="2.2" width="10.4" x="2.8" y="2.8"/><path d="M9.6 6.4a2.3 2.3 0 1 0 .3 3.2"/><path d="M9.8 4.9v1.7H8.1"/></svg></button>
+              <button aria-label="退出程序" class="secondary ico-btn" id="quit-app" title="退出程序" type="button" data-page-node-id="QuitAppBtn001QaZx9CdEf2"><svg aria-hidden="true" class="i" focusable="false" viewBox="0 0 16 16"><path d="M9.7 2.7h2a1.4 1.4 0 0 1 1.4 1.4v7.8a1.4 1.4 0 0 1-1.4 1.4h-2"/><path d="M3 8h5.5"/><path d="M6.3 5.8 4.1 8l2.2 2.2"/></svg></button>
             </div>
           </div>
           <p id="status" data-page-node-id="cAHMTMt6bTdwE2O13BnbnI">正在扫描 rEFInd 变量目录…</p>
@@ -87,6 +88,7 @@
              切换纯前端、localStorage 记住上次的栏目。 -->
         <nav aria-label="界面栏目" class="tabs" id="tabs" data-page-node-id="ujqjfv4LcoPl00TnoXePfB">
           <button class="tab active" data-tab="boot" type="button" data-page-node-id="QjwgqcKkegbDMH18R3P0BP">系统引导</button>
+          <button class="tab" data-tab="adv-boot" type="button">引导高级设置</button>
           <button class="tab" data-tab="settings" type="button" data-page-node-id="KewiPZuQfLAU8WJBd1FbQg">基本设置</button>
           <button class="tab" data-tab="sol" type="button">SOL 远程唤醒</button>
         </nav>
@@ -98,6 +100,11 @@
           <small data-page-node-id="exBlOMxEq761I1Tej3EyQY">下次启动</small>
           <strong id="next-boot-name" data-page-node-id="AMVyFOoOKANoXH2D2Yvimg">未知</strong>
           <small class="next-boot-last" id="next-boot-last" hidden>上次启动 <b></b></small>
+          <!-- 每行 = 一个引导器 + 它当前选中的条目（2026-10-30 用户定案：只列
+               「引导高级设置」里勾选启用的引导器，没启用的不出现）。由
+               boot-adv.js 的 paintNextBootRows 填充；有内容时原来的单行大字
+               自动让位（.next-boot.has-rows）。 -->
+          <div class="next-boot-rows" id="next-boot-rows" hidden></div>
         </section>
 
         <!-- 电源三键已上移到头部（应用名右侧、右对齐），原独立段落取消 -->
@@ -109,6 +116,31 @@
           <div class="grub-title-row">
             <span class="zone-tag" id="refind-zone-tag">rEFInd 区</span>
             <h2>rEFInd 启动项</h2>
+          </div>
+
+          <!-- 面板一：自动扫描 —— 按 rEFInd 自己的规则（refind/scan.c）复算菜单。
+               纯读：不写盘、不改 PreviousBoot、不需要提权，永远不影响手动那条。 -->
+          <div class="grub-panel" id="refind-panel-auto" role="tabpanel" aria-labelledby="refind-tab-auto">
+          <section aria-label="模拟引导项扫描" class="sim-scan" id="sim-scan">
+            <div class="sim-scan-head">
+              <h3>模拟引导项扫描</h3>
+              <small>按 rEFInd 规则复算 · 点条目展开第二层（rEFInd 里按 Tab / + / F2 进入）· 「下次启动」写 vars/PreviousBoot</small>
+              <button class="secondary" id="sim-scan-refresh" type="button" title="重新读一遍 ESP 与 refind.conf，重算菜单">重新模拟</button>
+            </div>
+            <p class="sim-scan-summary" id="sim-scan-summary"></p>
+            <div class="sim-scan-issues" id="sim-scan-issues"></div>
+            <div class="sim-scan-list" id="sim-scan-list"></div>
+            <details class="sim-scan-hidden" id="sim-scan-hidden" hidden>
+              <summary>被隐藏的 <b id="sim-scan-hidden-count">0</b> 项（rEFInd 菜单里看不到）</summary>
+              <div class="sim-scan-list" id="sim-scan-hidden-list"></div>
+            </details>
+          </section>
+          </div>
+
+          <!-- 面板二：手动处理 —— vars/PreviousBoot 快照那条链路：三行系统。
+               变量目录设置已移到标签行之后（它只影响这条链路读写 vars 的位置）。 -->
+          <div class="grub-panel" id="refind-panel-manual" role="tabpanel" aria-labelledby="refind-tab-manual" hidden>
+          <section aria-label="可启动系统" id="systems" data-page-node-id="Id8skElJCJlzu02uKr9biB"></section>
           </div>
 
           <!-- ══════════ 两个横向标签（用户定案 2026-10-29，与 GRUB 区同构）══════════
@@ -140,31 +172,6 @@
             </button>
           </div>
 
-          <!-- 面板一：自动扫描 —— 按 rEFInd 自己的规则（refind/scan.c）复算菜单。
-               纯读：不写盘、不改 PreviousBoot、不需要提权，永远不影响手动那条。 -->
-          <div class="grub-panel" id="refind-panel-auto" role="tabpanel" aria-labelledby="refind-tab-auto">
-          <section aria-label="模拟引导项扫描" class="sim-scan" id="sim-scan">
-            <div class="sim-scan-head">
-              <h3>模拟引导项扫描</h3>
-              <small>按 rEFInd 规则复算 · 点条目展开第二层（rEFInd 里按 Tab / + / F2 进入）· 「下次启动」写 vars/PreviousBoot</small>
-              <button class="secondary" id="sim-scan-refresh" type="button" title="重新读一遍 ESP 与 refind.conf，重算菜单">重新模拟</button>
-            </div>
-            <p class="sim-scan-summary" id="sim-scan-summary"></p>
-            <div class="sim-scan-issues" id="sim-scan-issues"></div>
-            <div class="sim-scan-list" id="sim-scan-list"></div>
-            <details class="sim-scan-hidden" id="sim-scan-hidden" hidden>
-              <summary>被隐藏的 <b id="sim-scan-hidden-count">0</b> 项（rEFInd 菜单里看不到）</summary>
-              <div class="sim-scan-list" id="sim-scan-hidden-list"></div>
-            </details>
-          </section>
-          </div>
-
-          <!-- 面板二：手动处理 —— vars/PreviousBoot 快照那条链路：三行系统 +
-               变量目录设置（用户定案 2026-10-29：变量目录跟在手动处理下方，
-               它只影响这条链路读写 vars 的位置，与自动扫描无关）。 -->
-          <div class="grub-panel" id="refind-panel-manual" role="tabpanel" aria-labelledby="refind-tab-manual" hidden>
-          <section aria-label="可启动系统" id="systems" data-page-node-id="Id8skElJCJlzu02uKr9biB"></section>
-
           <!-- 变量目录属于 rEFInd 区，跟在系统列表正下方（用户定案 2026-10-13） -->
           <section class="directory" data-page-node-id="bY3QCnDBj6y94lntyxAKEl">
           <label for="vars-dir" data-page-node-id="AACq8BrwDR4bZWBrPKkTfs">变量目录</label>
@@ -176,7 +183,6 @@
             <button class="secondary" id="refresh" type="button" data-page-node-id="rG8qunodWqs3ws7YyniDz7">扫描</button>
           </div>
         </section>
-          </div>
         </section><!-- /refind -->
 
         <!-- rEFInd 区与 GRUB 区的分界：两套引导机制并列，一道明显的横隔
@@ -192,6 +198,131 @@
             </div>
             <small class="grub-pane-status" id="grub-status" role="status" data-page-node-id="1DT8K5Hur4K5THcJNfSBEB"></small>
             <small id="grub-meta" data-page-node-id="yfF4nq97WpiwUYJWnddipQ"></small>
+          </div>
+
+          <!-- 面板一：自动读取 —— 直接读 Linux 分区自己的 /boot/grub{,2} -->
+          <div class="grub-panel" id="grub-panel-auto" role="tabpanel" aria-labelledby="grub-tab-auto">
+            <section aria-label="自动读取（Linux 分区自己的 GRUB）" class="grub-auto" id="grub-auto">
+              <div class="grub-auto-head">
+                <h3>直接读 Linux 分区自己的 grub.cfg <small>不用装 09_anyboot</small></h3>
+                <button class="secondary" id="grub-auto-refresh" type="button" title="按下方选的 ESP 分区重新定位 Linux 分区并读取">重新读取</button>
+              </div>
+              <p class="grub-auto-summary" id="grub-auto-summary"></p>
+              <div class="grub-auto-issues" id="grub-auto-issues"></div>
+              <!-- 一个框装完（用户定案 2026-10-29）：分区明细当框头、启动项当框身。
+                   原来两块各自带边框，读起来像「框里还有一个框」，也把有限的
+                   纵向空间切掉两刀。 -->
+              <div class="grub-auto-card" id="grub-auto-card">
+                <div class="grub-auto-target" id="grub-auto-target" hidden></div>
+                <div class="grub-list" id="grub-auto-list"></div>
+              </div>
+              <!-- 候选分区折成一行小字（用户定案 2026-10-29）：定位到唯一一块时
+                   这一整块不该占版面，点开才有内容。判定不出（confidence=none）
+                   时自动展开 —— 那会儿它是唯一的出路。 -->
+              <details class="grub-auto-picker" id="grub-auto-picker" hidden>
+                <summary id="grub-auto-picker-summary">换一块分区读</summary>
+                <div class="grub-auto-candidates" id="grub-auto-candidates"></div>
+              </details>
+              <small class="grub-auto-foot" id="grub-auto-foot"></small>
+            </section>
+          </div>
+
+          <!-- 面板二：手动解析 —— 读 ESP 上的 /EFI/grub.cfg（由 09_anyboot 同步） -->
+          <div class="grub-panel" id="grub-panel-manual" role="tabpanel" aria-labelledby="grub-tab-manual" hidden>
+            <p class="grub-panel-note">
+              读的是 ESP 上的 <code>/EFI/grub.cfg</code> 与 <code>/EFI/grubenv</code>：在 Linux 上装
+              <code>09_anyboot</code> 后，每次 <code>update-grub</code> 会把它同步过来。
+            </p>
+            <div class="grub-list" id="grub-list" data-page-node-id="LCPEAOijd48J8tVo1t58qD"></div>
+
+            <!-- 安装 / 卸载 09_anyboot：只在 Linux 上出现 -->
+            <div class="actions hidden" id="grub-install-actions" data-page-node-id="rs4TR1K7mWcOHBW2OniR7a">
+              <button class="secondary" id="grub-install" type="button" data-page-node-id="FrD4MFnk0yYAsPaXzE53TF">
+                安装 09_anyboot
+              </button>
+              <button class="secondary" id="grub-uninstall" type="button" data-page-node-id="ajDxCqDTUrgBF3dnavWhE2">
+                卸载 09_anyboot
+              </button>
+            </div>
+            <!-- 安装 / 卸载的执行过程：跑了哪几条命令、退出码多少、stderr 说了什么 -->
+            <details class="grub-log hidden" id="grub-log-box" data-page-node-id="cs8hZg1jYIg5ba9H8nyRD2">
+              <summary id="grub-log-summary" data-page-node-id="flEuBTclDyBBJi7iEyME5j">执行过程</summary>
+              <pre id="grub-log" data-page-node-id="wBWnBo5TUVCDBcJlFhZE2U"></pre>
+            </details>
+
+            <details class="grub-script" data-page-node-id="AdpXjg6u4z6jBBEXv1f5Lk">
+              <summary data-page-node-id="AGUVjPpH0OmCFwBlnu4WnK">查看 / 修改内置脚本（09_anyboot）</summary>
+              <small
+                 data-page-node-id="wL190GWBgzKbnXXp96M40A">安装时只把 <code data-page-node-id="BJetAZzrR6iCdUbuQRg11D">@@ESP_UUID@@</code> 换成下方「ESP 分区」里填的 fs-uuid，其余按这里的正文来；
+                清空后保存 = 恢复内置模板</small
+              >
+              <textarea id="grub-script" rows="8" spellcheck="false"></textarea>
+              <div class="actions" data-page-node-id="HNJOaOD4H2d56IeHFu3nRa">
+                <button class="secondary" id="grub-script-save" type="button" data-page-node-id="8YUhMA1H6qr8fVULLZ3OWK">
+                  保存脚本
+                </button>
+                <button class="secondary" id="grub-script-reset" type="button" data-page-node-id="NkzPQCqRUVpOyb3vuYguUa">
+                  恢复内置
+                </button>
+              </div>
+            </details>
+
+            <!-- 引导配置须知（用户定案 2026-10-13）：os-prober / EFI 顺序 /
+                 Windows 分区标志，是「GRUB 列表里能看到别的系统」的前提。 -->
+            <small class="grub-advice" id="grub-advice" data-page-node-id="yBgBbmYqfxSmFWHG8zjym9">
+              <strong data-page-node-id="V8PjZ9VPqrp8BNI9pTCss9">引导配置须知</strong>
+              <ul data-page-node-id="ozkyMO6JF7TuRObyxDxpsG">
+                <li data-page-node-id="rnRegt5UTcY1aTXOuOkihp">Linux 必须开启 <strong data-page-node-id="zeFbawh0l4hgeOFPTkyZ0W">os-prober</strong>：在 <code data-page-node-id="W6OxfYDkqdfuNAY1kPpYTo">/etc/default/grub</code> 里加
+                  <code data-page-node-id="FMmDbYD0gacABUEo5gBvtm">GRUB_DISABLE_OS_PROBER=false</code> 后执行 update-grub，其他系统的启动项才会进 grub.cfg；
+                  装了多个 Linux 发行版时，只需让<strong data-page-node-id="LvdZkjb1segkPMRRj5uJWb">一个</strong>发行版管理 EFI（它的 GRUB + os-prober 收集其余系统）。</li>
+                <li data-page-node-id="f052j0rxBHwAxNnmZy5FMH">Windows 的 EFI 分区，GPT 标志必须是 <code data-page-node-id="D4z7ydyrDzXGrDM4dsxzI6">boot, efi</code>（gparted 里给该分区设 boot 标志），
+                  否则 os-prober 不识别它。</li>
+                <li data-page-node-id="fWLStrFB90YT37a8qFQP2M"><strong data-page-node-id="nGqy6EHpZjQbhxBEE3xvxs">EFI 第一启动项</strong>：用 rEFInd 就把 rEFInd 的 EFI 设为第一启动项；
+                  不用 rEFInd 就把 GRUB 的 EFI 设为第一启动项。</li>
+              </ul>
+            </small>
+          </div>
+
+          <!-- ══════════ 两个横向标签（用户定案 2026-10-29）══════════
+               「自动读取」排第一位并默认选中：没装 09_anyboot 的大多数人都该走这条，
+               它不需要任何 Linux 侧准备。标签只切面板显隐，不动公共区。 -->
+          <div class="grub-tabs" id="grub-tabs" role="tablist" aria-label="GRUB 读取方式">
+            <button
+              class="grub-tab is-active"
+              id="grub-tab-auto"
+              type="button"
+              role="tab"
+              aria-selected="true"
+              aria-controls="grub-panel-auto"
+              data-grub-tab="auto"
+            >
+              自动读取
+            </button>
+            <button
+              class="grub-tab"
+              id="grub-tab-manual"
+              type="button"
+              role="tab"
+              aria-selected="false"
+              aria-controls="grub-panel-manual"
+              data-grub-tab="manual"
+            >
+              手动解析
+            </button>
+          </div>
+
+          <!-- 列表格式：原始（现版样式）/ 极简（去前缀内核名）/ 简易（极简 +
+               组头带 ESP 位置）/ 中等（完整内核名）/ 复杂（完整名称 + 内核右对齐）。
+               组头按关键字（windows/mac/linux）加系统图标。纯前端渲染偏好。 -->
+          <div class="grub-row" id="grub-format-row" data-page-node-id="AhLzGPu8QYiJQBSfZj4H4t">
+            <label for="grub-list-format" data-page-node-id="CZD8oPWxoHqAitmg11hYa7">列表格式</label>
+            <select id="grub-list-format" data-page-node-id="a2M8g69d5WyLflbz17JV4b">
+              <option value="raw" data-page-node-id="hBhezIULIbwCozFZgdcpPD">原始</option>
+              <option value="minimal" selected data-page-node-id="SmwfYe4rLeuyLhCQbPZr1m">极简</option>
+              <option value="simple" data-page-node-id="4r555wva23wPCZCQEIbdKt">简易</option>
+              <option value="medium" data-page-node-id="OJG2gtJA0V5bX3hU4DwGi8">中等</option>
+              <option value="detailed" data-page-node-id="HlzSpvXh2IJoBI3pzEUCDv">复杂</option>
+            </select>
           </div>
 
           <!-- ══════════ 公共区域：ESP（用户定案 2026-10-29）══════════
@@ -269,145 +400,8 @@
             </div>
           </div>
 
-          <!-- ══════════ 两个横向标签（用户定案 2026-10-29）══════════
-               「自动读取」排第一位并默认选中：没装 09_anyboot 的大多数人都该走这条，
-               它不需要任何 Linux 侧准备。标签只切面板显隐，不动公共区。 -->
-          <div class="grub-tabs" id="grub-tabs" role="tablist" aria-label="GRUB 读取方式">
-            <button
-              class="grub-tab is-active"
-              id="grub-tab-auto"
-              type="button"
-              role="tab"
-              aria-selected="true"
-              aria-controls="grub-panel-auto"
-              data-grub-tab="auto"
-            >
-              自动读取
-            </button>
-            <button
-              class="grub-tab"
-              id="grub-tab-manual"
-              type="button"
-              role="tab"
-              aria-selected="false"
-              aria-controls="grub-panel-manual"
-              data-grub-tab="manual"
-            >
-              手动解析
-            </button>
-          </div>
-
-          <!-- 面板一：自动读取 —— 直接读 Linux 分区自己的 /boot/grub{,2} -->
-          <div class="grub-panel" id="grub-panel-auto" role="tabpanel" aria-labelledby="grub-tab-auto">
-            <section aria-label="自动读取（Linux 分区自己的 GRUB）" class="grub-auto" id="grub-auto">
-              <div class="grub-auto-head">
-                <h3>直接读 Linux 分区自己的 grub.cfg <small>不用装 09_anyboot</small></h3>
-                <button class="secondary" id="grub-auto-refresh" type="button" title="按上面选的 ESP 分区重新定位 Linux 分区并读取">重新读取</button>
-              </div>
-              <p class="grub-auto-summary" id="grub-auto-summary"></p>
-              <div class="grub-auto-issues" id="grub-auto-issues"></div>
-              <!-- 一个框装完（用户定案 2026-10-29）：分区明细当框头、启动项当框身。
-                   原来两块各自带边框，读起来像「框里还有一个框」，也把有限的
-                   纵向空间切掉两刀。 -->
-              <div class="grub-auto-card" id="grub-auto-card">
-                <div class="grub-auto-target" id="grub-auto-target" hidden></div>
-                <div class="grub-list" id="grub-auto-list"></div>
-              </div>
-              <!-- 候选分区折成一行小字（用户定案 2026-10-29）：定位到唯一一块时
-                   这一整块不该占版面，点开才有内容。判定不出（confidence=none）
-                   时自动展开 —— 那会儿它是唯一的出路。 -->
-              <details class="grub-auto-picker" id="grub-auto-picker" hidden>
-                <summary id="grub-auto-picker-summary">换一块分区读</summary>
-                <div class="grub-auto-candidates" id="grub-auto-candidates"></div>
-              </details>
-              <small class="grub-auto-foot" id="grub-auto-foot"></small>
-            </section>
-          </div>
-
-          <!-- 面板二：手动解析 —— 读 ESP 上的 /EFI/grub.cfg（由 09_anyboot 同步） -->
-          <div class="grub-panel" id="grub-panel-manual" role="tabpanel" aria-labelledby="grub-tab-manual" hidden>
-            <p class="grub-panel-note">
-              读的是 ESP 上的 <code>/EFI/grub.cfg</code> 与 <code>/EFI/grubenv</code>：在 Linux 上装
-              <code>09_anyboot</code> 后，每次 <code>update-grub</code> 会把它同步过来。
-            </p>
-            <div class="grub-list" id="grub-list" data-page-node-id="LCPEAOijd48J8tVo1t58qD"></div>
-
-            <!-- 安装 / 卸载 09_anyboot：只在 Linux 上出现 -->
-            <div class="actions hidden" id="grub-install-actions" data-page-node-id="rs4TR1K7mWcOHBW2OniR7a">
-              <button class="secondary" id="grub-install" type="button" data-page-node-id="FrD4MFnk0yYAsPaXzE53TF">
-                安装 09_anyboot
-              </button>
-              <button class="secondary" id="grub-uninstall" type="button" data-page-node-id="ajDxCqDTUrgBF3dnavWhE2">
-                卸载 09_anyboot
-              </button>
-            </div>
-            <!-- 安装 / 卸载的执行过程：跑了哪几条命令、退出码多少、stderr 说了什么 -->
-            <details class="grub-log hidden" id="grub-log-box" data-page-node-id="cs8hZg1jYIg5ba9H8nyRD2">
-              <summary id="grub-log-summary" data-page-node-id="flEuBTclDyBBJi7iEyME5j">执行过程</summary>
-              <pre id="grub-log" data-page-node-id="wBWnBo5TUVCDBcJlFhZE2U"></pre>
-            </details>
-
-            <details class="grub-script" data-page-node-id="AdpXjg6u4z6jBBEXv1f5Lk">
-              <summary data-page-node-id="AGUVjPpH0OmCFwBlnu4WnK">查看 / 修改内置脚本（09_anyboot）</summary>
-              <small
-                 data-page-node-id="wL190GWBgzKbnXXp96M40A">安装时只把 <code data-page-node-id="BJetAZzrR6iCdUbuQRg11D">@@ESP_UUID@@</code> 换成上面填的 fs-uuid，其余按这里的正文来；
-                清空后保存 = 恢复内置模板</small
-              >
-              <textarea id="grub-script" rows="8" spellcheck="false"></textarea>
-              <div class="actions" data-page-node-id="HNJOaOD4H2d56IeHFu3nRa">
-                <button class="secondary" id="grub-script-save" type="button" data-page-node-id="8YUhMA1H6qr8fVULLZ3OWK">
-                  保存脚本
-                </button>
-                <button class="secondary" id="grub-script-reset" type="button" data-page-node-id="NkzPQCqRUVpOyb3vuYguUa">
-                  恢复内置
-                </button>
-              </div>
-            </details>
-
-            <!-- 引导配置须知（用户定案 2026-10-13）：os-prober / EFI 顺序 /
-                 Windows 分区标志，是「GRUB 列表里能看到别的系统」的前提。 -->
-            <small class="grub-advice" id="grub-advice" data-page-node-id="yBgBbmYqfxSmFWHG8zjym9">
-              <strong data-page-node-id="V8PjZ9VPqrp8BNI9pTCss9">引导配置须知</strong>
-              <ul data-page-node-id="ozkyMO6JF7TuRObyxDxpsG">
-                <li data-page-node-id="rnRegt5UTcY1aTXOuOkihp">Linux 必须开启 <strong data-page-node-id="zeFbawh0l4hgeOFPTkyZ0W">os-prober</strong>：在 <code data-page-node-id="W6OxfYDkqdfuNAY1kPpYTo">/etc/default/grub</code> 里加
-                  <code data-page-node-id="FMmDbYD0gacABUEo5gBvtm">GRUB_DISABLE_OS_PROBER=false</code> 后执行 update-grub，其他系统的启动项才会进 grub.cfg；
-                  装了多个 Linux 发行版时，只需让<strong data-page-node-id="LvdZkjb1segkPMRRj5uJWb">一个</strong>发行版管理 EFI（它的 GRUB + os-prober 收集其余系统）。</li>
-                <li data-page-node-id="f052j0rxBHwAxNnmZy5FMH">Windows 的 EFI 分区，GPT 标志必须是 <code data-page-node-id="D4z7ydyrDzXGrDM4dsxzI6">boot, efi</code>（gparted 里给该分区设 boot 标志），
-                  否则 os-prober 不识别它。</li>
-                <li data-page-node-id="fWLStrFB90YT37a8qFQP2M"><strong data-page-node-id="nGqy6EHpZjQbhxBEE3xvxs">EFI 第一启动项</strong>：用 rEFInd 就把 rEFInd 的 EFI 设为第一启动项；
-                  不用 rEFInd 就把 GRUB 的 EFI 设为第一启动项。</li>
-              </ul>
-            </small>
-          </div>
-
-          <!-- 展示方式：① 内嵌 ② 加宽内嵌 ③ 加宽+列表独占右栏 ④ 加宽+GRUB 全在右栏。
-               切换由后端落盘并调整窗口宽度；前端按模式把 GRUB 区块搬进/搬出右栏。
-               放在两个面板之外：它挪的是「面板本身」，跟选了哪个标签无关。 -->
-          <div class="grub-row" id="grub-mode-row" data-page-node-id="lMCQJw47HJcSfH9FudwUu8">
-            <label for="grub-view-mode" data-page-node-id="D5FyCiR6X39LdlaMYKkJFE">展示方式</label>
-            <select id="grub-view-mode" data-page-node-id="stvH0uvUn1BBy4KVabfsQK">
-              <option value="inline" data-page-node-id="liXw7UpXrFCcpe0310Si05">内嵌列表</option>
-              <option value="wide" data-page-node-id="sKeGBcukr1S4x2cnMgSldH">加宽窗口展示</option>
-              <option value="list" data-page-node-id="KVnvDJaX3rZhizGxtLtf4k">列表独立区域</option>
-              <option value="pane" data-page-node-id="T32VJMtWXXXVU5tEP1OwAL">GRUB 独立区域</option>
-            </select>
-          </div>
-
-          <!-- 列表格式：原始（现版样式）/ 极简（去前缀内核名）/ 简易（极简 +
-               组头带 ESP 位置）/ 中等（完整内核名）/ 复杂（完整名称 + 内核右对齐）。
-               组头按关键字（windows/mac/linux）加系统图标。纯前端渲染偏好。 -->
-          <div class="grub-row" id="grub-format-row" data-page-node-id="AhLzGPu8QYiJQBSfZj4H4t">
-            <label for="grub-list-format" data-page-node-id="CZD8oPWxoHqAitmg11hYa7">列表格式</label>
-            <select id="grub-list-format" data-page-node-id="a2M8g69d5WyLflbz17JV4b">
-              <option value="raw" data-page-node-id="hBhezIULIbwCozFZgdcpPD">原始</option>
-              <option value="minimal" selected data-page-node-id="SmwfYe4rLeuyLhCQbPZr1m">极简</option>
-              <option value="simple" data-page-node-id="4r555wva23wPCZCQEIbdKt">简易</option>
-              <option value="medium" data-page-node-id="OJG2gtJA0V5bX3hU4DwGi8">中等</option>
-              <option value="detailed" data-page-node-id="HlzSpvXh2IJoBI3pzEUCDv">复杂</option>
-            </select>
-          </div>
-
           <p class="grub-hint" id="grub-hint" data-page-node-id="3dawabOWBkuO3puhUVYJxY"></p>
+
           <p class="grub-error hidden" id="grub-error" role="status" data-page-node-id="4Gwu6OIMFupjTCE0FeHvI6"></p>
         </section>
 
@@ -450,6 +444,14 @@
         </section>
         <!-- ══════════ /免密提权 ══════════ -->
         </div><!-- /tab-boot -->
+
+        <!-- 栏目一·右：引导高级设置（设计稿 docs/boot-menu-layouts.html 方案 K）
+             启用引导器 / 版式主题 / 布局（默认|左右）/ 菜单样式 / 上下排序 /
+             引导器设置（ESP·权限·默认项·脚本·免密）；配置驱动「系统引导」页渲染。
+             面板内容由 boot-adv.js 渲染（bootAdvRender），本节点只是挂载点。 -->
+        <div class="tab-panel" id="tab-adv-boot">
+          <div id="boot-adv-mount"></div>
+        </div>
 
         <!-- 栏目二：基本设置 —— 应用设置 + 远程控制 -->
         <div class="tab-panel" id="tab-settings" data-page-node-id="HiFBWeQAK6DDHnCplD8NHx">
@@ -601,7 +603,7 @@
           <div class="setting" data-page-node-id="RstWinSize0001QaZx9CdEf2">
             <span class="setting-text" data-page-node-id="RstWinSize0002QaZx9CdEf2">
               <strong data-page-node-id="RstWinSize0003QaZx9CdEf2">重置窗口大小</strong>
-              <small data-page-node-id="RstWinSize0004QaZx9CdEf2">宽回到当前展示方式的标称值、高回到整屏高度的 2/3（与托盘「重置窗口大小」同源）</small>
+              <small data-page-node-id="RstWinSize0004QaZx9CdEf2">宽回到内嵌单栏的标称值（460）、高回到整屏高度的 2/3（与托盘「重置窗口大小」同源）</small>
             </span>
             <button class="secondary" id="reset-main-window-size" type="button" data-page-node-id="RstWinSize0005QaZx9CdEf2">重置窗口大小</button>
           </div>
@@ -952,23 +954,6 @@
         </section>
         </div><!-- /tab-sol -->
       </main>
-
-      <!-- 中缝：纯空白长条，不放任何内容，只为把两栏分开 -->
-      <div aria-hidden="true" class="pane-gap" data-page-node-id="6HxxgMQGVibZShHovgxXsj"></div>
-
-      <!-- 右栏 = GRUB 专属区：独立窗口那份（标题 / 元信息 / 回执 / 当前选中项 /
-           树列表）和原来主窗口里的 GRUB 配置区合并到这里。
-           GRUB 细粒度切换与左边「可启动系统」是两套并列机制 —— 那边走 rEFInd 的
-           PreviousBoot，这里走 GRUB 自己的环境块(grubenv)；填了 ESP 的 fs-uuid
-           才会列出 grub.cfg 里的启动项。 -->
-      <section aria-label="GRUB 独立区域" class="pane pane-grub" data-page-node-id="pKkRkKMeL5lfRRDok1Ochx">
-        <!-- 空壳：内容（GRUB 区块整体或仅列表）由 app.js 按展示模式把
-             <main> 里的节点搬进来；模式 ① ② 时整个右栏隐藏。 -->
-        <header class="grub-pane-head" data-page-node-id="ZJH2ygExdfB8gkwSD6TinO">
-          <strong data-page-node-id="E0W65Fir4dk6GD4VajVZnw">GRUB</strong>
-        </header>
-        <div class="pane-body" id="grub-pane-body" data-page-node-id="GzJrbXPjPY9NM3vZ5kKwf8"></div>
-      </section>
     </div>
 
     <!-- 窗口自己的底部提示条（在 .app-columns 之外、和它平级）：
@@ -982,6 +967,7 @@
     <!-- GRUB 树形列表的渲染逻辑（右栏用） -->
     <script src="./grub-list-view.js"></script>
     <script src="./boot-list-view.js"></script>
+    <script src="./boot-adv.js"></script>
     <script src="./app.js"></script>
     <script>
       // ============ Linux 免密提权（sudoers）：状态 / 安装 / 移除 ============

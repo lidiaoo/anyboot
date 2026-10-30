@@ -3710,7 +3710,9 @@ pub fn run() {
             report_dock_strip_rect,
             set_grub_list_view,
             set_grub_list_format,
+            set_loader_mode,
             set_window_size,
+            set_boot_layout,
             set_window_size_locked,
             reset_window_size,
             reset_main_window_position,
@@ -4400,12 +4402,12 @@ mod core_tests {
         assert_eq!(normalize_theme(""), "dark");
         assert_eq!(normalize_theme("solarized"), "dark");
 
-        // 展示方式四值归一：老配置的 window 由 pane 承接，脏数据回落 inline
+        // 展示方式归一（已废弃的四值：list/pane 功能砍掉，window 一并回落 inline）
         assert_eq!(normalize_grub_list_view("inline"), "inline");
         assert_eq!(normalize_grub_list_view(" WIDE "), "wide");
-        assert_eq!(normalize_grub_list_view("list"), "list");
-        assert_eq!(normalize_grub_list_view("pane"), "pane");
-        assert_eq!(normalize_grub_list_view("Window"), "pane");
+        assert_eq!(normalize_grub_list_view("list"), "inline");
+        assert_eq!(normalize_grub_list_view("pane"), "inline");
+        assert_eq!(normalize_grub_list_view("Window"), "inline");
         assert_eq!(normalize_grub_list_view(""), "inline");
         assert_eq!(normalize_grub_list_view("floating"), "inline");
 
@@ -4426,11 +4428,9 @@ mod core_tests {
         );
         assert_eq!(percent_encode_component("中文 条目"), "%E4%B8%AD%E6%96%87%20%E6%9D%A1%E7%9B%AE");
         assert_eq!(percent_encode_component("a-B_c.d~e"), "a-B_c.d~e");
-        // 宽度跟着模式走：内嵌 460，其余 932
+        // 宽度跟着模式走：内嵌 460，加宽 932（list/pane 已废弃，不再出现）
         assert_eq!(grub_layout_width("inline"), 460.0);
         assert_eq!(grub_layout_width("wide"), 932.0);
-        assert_eq!(grub_layout_width("list"), 932.0);
-        assert_eq!(grub_layout_width("pane"), 932.0);
 
         // 展示方式的落宽：未记过尺寸用标称；记过尊重记忆；切模式覆盖记忆
         // —— 锁定窗口大小不拦切模式的落宽（用户定案 2026-10-13）
@@ -5493,13 +5493,16 @@ mod core_tests {
         let reply =
             route_remote_command(&sample_request("/api/switch", &[], true)).expect_err("缺 system");
         assert_eq!(reply.status, 400);
-        let reply = route_remote_command(&sample_request(
-            "/api/switch",
-            &[("system", "solaris")],
-            true,
-        ))
-        .expect_err("未知系统");
-        assert_eq!(reply.status, 400);
+        // 值域不在路由层校验了：自动扫描模式下 system 是 rEFInd 菜单条目标题，
+        // 未知值挪到执行端按读取方式分流后报错（见 execute_remote_command）
+        assert_eq!(
+            route_remote_command(&sample_request(
+                "/api/switch",
+                &[("system", "solaris")],
+                true,
+            )),
+            Ok(RemoteCommand::Switch("solaris".to_string()))
+        );
 
         // /api/power：缺省 = reboot（默认就是重启）
         assert_eq!(
@@ -5813,17 +5816,6 @@ mod core_tests {
         assert_eq!(menu_status_line("下次启动：未知", "下次启动：未知"), None);
     }
 
-    fn next_boot_variable(system: &str, display_name: &str, active: bool, exists: bool) -> VariableInfo {
-        VariableInfo {
-            system: system.to_string(),
-            display_name: display_name.to_string(),
-            source_name: format!("PreviousBoot-{system}"),
-            source: std::path::PathBuf::from("/tmp/PreviousBoot"),
-            exists,
-            active,
-        }
-    }
-
     fn next_boot_entry(
         selector: &str,
         name: &str,
@@ -5839,6 +5831,17 @@ mod core_tests {
             chainloader: kernel.is_none(),
             kernels: kernel.map(|kernel| vec![kernel.to_string()]).unwrap_or_default(),
             variants: 1,
+        }
+    }
+
+    /// 测试用：自动模式下的 rEFInd 数据源（`sim` 为空 = 还没扫过）。
+    fn auto_refind<'a>(
+        sim: Option<&'a channels::refind_menu::SimPreview>,
+    ) -> menu_model::RefindSource<'a> {
+        menu_model::RefindSource {
+            mode: state::LoaderMode::Auto,
+            sim,
+            variables: &[],
         }
     }
 
@@ -5871,86 +5874,592 @@ mod core_tests {
         }
     }
 
-    /// 托盘顶部那行「下次启动」用的是**主窗口那行大字的同一份级联文字**
-    /// （用户报：托盘只显示 rEFInd 一层，主窗口却是「Linux › OpenCore (macOS)」）。
+    /// 托盘「下次启动」多行：每个引导器一行 + 它选中的条目（与主窗那几行同规则）。
     #[test]
-    fn tray_next_boot_line_mirrors_the_main_window_cascade() {
-        let linux = vec![next_boot_variable("linux", "Linux", true, true)];
-        let none = next_boot_grub_view(vec![], vec![], None, "minimal");
+    fn tray_next_boot_label_has_one_line_per_loader() {
+        let rows = vec![
+            ("rEFInd".to_string(), "OpenCore (macOS)".to_string()),
+            ("GRUB".to_string(), String::new()),
+            ("OpenCore".to_string(), "macOS".to_string()),
+        ];
+        assert_eq!(
+            next_boot_label_from_rows(&rows),
+            "下次启动\nrEFInd · OpenCore (macOS)\nGRUB · 未选中条目\nOpenCore · macOS"
+        );
+        // 一个引导器都没读到时不摆空行
+        assert_eq!(
+            next_boot_label_from_rows(&[]),
+            "下次启动\n未知（没有选中的系统）"
+        );
+    }
 
-        // rEFInd 选的是 Windows（直接引导）→ 只有 rEFInd 这一层，不级联
-        assert_eq!(
-            next_boot_cascade(&[next_boot_variable("windows", "Windows", true, true)], &none),
-            "Windows"
+    /// 通道条目的「当前项」判定与切换值域：与主窗 `boot-list-view.js` 同一条规则
+    /// （currentDefault 有时是 id、有时是标题，还可能是一段包含标题的串）。
+    #[test]
+    fn tray_channel_entry_matching_and_spec() {
+        let entry = |id: &str, title: &str| channels::ChannelEntry {
+            id: id.to_string(),
+            title: title.to_string(),
+            detail: String::new(),
+            icon: "linux".to_string(),
+            requires_elevation: false,
+        };
+        let arch = entry("arch", "Arch Linux");
+        assert!(channel_entry_is_default("arch", &arch), "按条目 id");
+        assert!(channel_entry_is_default("Arch Linux", &arch), "按标题");
+        assert!(
+            channel_entry_is_default("boot:Arch Linux:0", &arch),
+            "标题被包含（OC 预演给的串）"
         );
-        // 没有选中的系统
-        assert_eq!(next_boot_cascade(&[], &none), "未知（没有选中的系统）");
-        // 选中 Linux 但 GRUB 侧还没选过 / 找不到那个条目 → 也只显示这一层
-        assert_eq!(next_boot_cascade(&linux, &none), "Linux");
+        assert!(!channel_entry_is_default("", &arch), "空 currentDefault 不算选中");
+        assert!(!channel_entry_is_default("Fedora", &arch));
+        // 空标题绝不能靠 contains 恒真
+        let unnamed = entry("x", "");
+        assert!(!channel_entry_is_default("anything", &unnamed));
 
-        // 用户报的那条：GRUB 顶层条目、没有内核 → 用菜单标题
-        let top = vec![next_boot_entry("opencore", "OpenCore (macOS)", None, None)];
-        assert_eq!(
-            next_boot_cascade(
-                &linux,
-                &next_boot_grub_view(top.clone(), vec![], Some("opencore"), "minimal")
-            ),
-            "Linux › OpenCore (macOS)"
-        );
-        // 条目文字随列表格式变（与 GRUB 列表的 rowLabel 同规则）
-        let kernel = vec![next_boot_entry("arch", "Arch Linux", None, Some("vmlinuz-linux"))];
-        assert_eq!(
-            next_boot_cascade(
-                &linux,
-                &next_boot_grub_view(kernel.clone(), vec![], Some("arch"), "minimal")
-            ),
-            "Linux › linux",
-            "极简/简易：去掉 vmlinuz-/linux- 前缀"
-        );
-        assert_eq!(
-            next_boot_cascade(
-                &linux,
-                &next_boot_grub_view(kernel.clone(), vec![], Some("arch"), "simple")
-            ),
-            "Linux › linux"
-        );
-        assert_eq!(
-            next_boot_cascade(
-                &linux,
-                &next_boot_grub_view(kernel.clone(), vec![], Some("arch"), "medium")
-            ),
-            "Linux › vmlinuz-linux",
-            "中等：完整内核名"
-        );
-        assert_eq!(
-            next_boot_cascade(&linux, &next_boot_grub_view(kernel, vec![], Some("arch"), "detailed")),
-            "Linux › Arch Linux",
-            "其余格式：菜单标题"
-        );
+        assert_eq!(channel_entry_spec("sdboot", &arch), "sdboot:arch");
+        assert_eq!(channel_entry_spec("opencore", &arch), "arch");
+        assert_eq!(channel_entry_spec("clover", &arch), "clover-oneshot");
+    }
 
-        // submenu 子条目带上父级组名：「Linux › 组名 › 条目」
-        let nested = vec![next_boot_entry("macos", "OpenCore", Some("g-macos"), None)];
-        let groups = vec![grub::GrubGroup {
-            id: "g-macos".to_string(),
-            name: "macOS".to_string(),
-        }];
-        assert_eq!(
-            next_boot_cascade(
-                &linux,
-                &next_boot_grub_view(nested, groups, Some("macos"), "minimal")
-            ),
-            "Linux › macOS › OpenCore"
-        );
+    /// 托盘 rEFInd 下拉框：顺序 = rEFInd 菜单顺序；命中 `PreviousBoot` 的那条
+    /// 置顶打勾、原位不再重复；被隐藏规则挡掉的条目不出现。
+    #[test]
+    fn tray_refind_loader_nodes_mirror_the_sim_menu() {
+        let entry = |title: &str, hidden: bool, last_boot: bool| channels::refind_menu::SimEntry {
+            title: title.to_string(),
+            kind: "linux".to_string(),
+            source: "internal".to_string(),
+            volume: "ESP".to_string(),
+            path: "EFI/x.efi".to_string(),
+            hidden,
+            last_boot,
+            hidden_by: None,
+            note: None,
+            subscreen: None,
+            children: Vec::new(),
+        };
+        let sim = channels::refind_menu::SimPreview {
+            entries: vec![
+                entry("Windows ", false, false),
+                entry("OpenCore (macOS)", false, true),
+                entry("被隐藏的项", true, false),
+            ],
+            hidden: Vec::new(),
+            issues: Vec::new(),
+            summary: String::new(),
+            vars_dir: String::new(),
+            config_path: None,
+            scanfor: String::new(),
+            var_mode: String::new(),
+            previous_boot: None,
+            default_selection: String::new(),
+        };
+        let refind_src = auto_refind(Some(&sim));
+        let nodes = refind_loader_nodes(&refind_src.rows(), false);
+        let labels: Vec<&str> = nodes.iter().map(|node| node.label.as_str()).collect();
+        assert_eq!(labels, vec!["🍎 OpenCore (macOS)", "🪟 Windows"]);
+        assert_eq!(nodes[0].checked, Some(true), "选中项置顶且打勾");
+        assert_eq!(nodes[1].checked, Some(false));
+        // id 带标题**原文**：Windows 末尾那个空格必须留着（rEFInd 按原文匹配）
+        assert_eq!(nodes[1].id.as_deref(), Some("refind-switch:Windows "));
+        assert!(nodes.iter().all(|node| node.keeps_open), "选择项点完不关菜单");
+    }
 
-        // 找不到那个 selector 的条目（比如条目名变了）→ 退回单层，绝不显示半截
-        let entries = vec![next_boot_entry("a", "A", None, None)];
+    /// 托盘通道下拉框：当前默认项置顶一份（原位不重复），值域与主窗一致。
+    #[test]
+    fn tray_channel_loader_nodes_put_the_default_on_top() {
+        let entry = |id: &str, title: &str| channels::ChannelEntry {
+            id: id.to_string(),
+            title: title.to_string(),
+            detail: String::new(),
+            icon: "macos".to_string(),
+            requires_elevation: true,
+        };
+        let channel = channels::ChannelView {
+            id: "opencore",
+            label: "OpenCore",
+            detected: true,
+            permission: "nvram",
+            chip: "ok",
+            detail: None,
+            health: Vec::new(),
+            entries: vec![
+                entry("opencore", "进 OpenCore 菜单"),
+                entry("MacOS-efi", "macOS"),
+            ],
+            current_default: Some("MacOS-efi".to_string()),
+            last_boot: None,
+            last_boot_at: None,
+            error: None,
+            menu_preview: None,
+        };
+        let nodes = channel_loader_nodes(&channel, false);
+        assert_eq!(nodes.len(), 2, "选中项只在置顶那一份出现");
+        assert_eq!(nodes[0].label, "🍎 macOS");
+        assert_eq!(nodes[0].checked, Some(true));
+        assert_eq!(nodes[0].id.as_deref(), Some("channel-switch:MacOS-efi"));
+        assert_eq!(nodes[1].label, "进 OpenCore 菜单");
+        // 需要提权的条目照样可点（走服务优先 / 授权兜底），不预先置灰
+        assert!(nodes[1].enabled);
+    }
+
+    /// OpenCore 的可切换项**在菜单预演里**（顶层 `entries` 只放「写入固件启动项」
+    /// 这类修复动作）：托盘下拉与「下次启动」都必须把预演行摊开。只读 `entries`
+    /// 的话那块会退化成一句「没有可切换的菜单项」—— 用户 2026-10-30 报的
+    /// 「托盘为什么没有 OpenCore 列表」就是这条。
+    #[test]
+    fn tray_opencore_rows_come_from_the_menu_preview() {
+        let preview_entry = |title: &str, spec: Option<&str>, default: bool| {
+            channels::oc_menu::MenuEntry {
+                title: title.to_string(),
+                kind: "windows".to_string(),
+                source: "bless".to_string(),
+                volume: "WINDOWS-EFI".to_string(),
+                path: "\\EFI\\Microsoft\\Boot\\bootmgfw.efi".to_string(),
+                auxiliary: false,
+                default,
+                note: None,
+                spec: spec.map(str::to_string),
+            }
+        };
+        let windows_spec = "opencore-default:WINDOWS-EFI\u{1}\\EFI\\Microsoft\\Boot\\bootmgfw.efi";
+        let arch_spec = "opencore-default:ARCH-EFI\u{1}\\EFI\\BOOT\\BOOTX64.EFI";
+        let channel = channels::ChannelView {
+            id: "opencore",
+            label: "OpenCore",
+            detected: true,
+            permission: "nvram",
+            chip: "ok",
+            detail: None,
+            health: Vec::new(),
+            // 真机就是这个样子：读不到 NVRAM 时 entries 是空的
+            entries: Vec::new(),
+            current_default: None,
+            last_boot: None,
+            last_boot_at: None,
+            error: None,
+            menu_preview: Some(channels::oc_menu::MenuPreview {
+                entries: vec![
+                    preview_entry("WINDOWS-EFI", Some(windows_spec), true),
+                    // 工具项 / OC 自己的 Bootstrap 入口：spec 为空 = 点了没有值域可发
+                    preview_entry("Reset NVRAM", None, false),
+                    preview_entry("MacOS-efi", None, false),
+                    preview_entry("ARCH-EFI", Some(arch_spec), false),
+                ],
+                hidden: Vec::new(),
+                issues: Vec::new(),
+                summary: String::new(),
+                order_source: "private".to_string(),
+                default_slot: None,
+                preboot_elevatable: true,
+                order_elevatable: true,
+            }),
+        };
+        let nodes = channel_loader_nodes(&channel, false);
+        let labels: Vec<&str> = nodes.iter().map(|node| node.label.as_str()).collect();
         assert_eq!(
-            next_boot_cascade(
-                &linux,
-                &next_boot_grub_view(entries, vec![], Some("missing"), "minimal")
-            ),
-            "Linux"
+            labels,
+            vec!["🪟 WINDOWS-EFI", "ARCH-EFI", "Reset NVRAM", "🍎 MacOS-efi"],
+            "可切换的置顶/随后，没有 spec 的行也要镜像（置灰），与主窗卡片同一份内容"
         );
+        assert_eq!(nodes[0].checked, Some(true), "预演里的 default 项置顶打勾");
+        assert!(
+            nodes[2].enabled && nodes[3].enabled,
+            "镜像行必须可用：Windows 把禁用项的位图勾画成灰色，对勾就不一致了"
+        );
+        assert_eq!(
+            nodes[0].id.as_deref(),
+            Some(format!("channel-switch:{windows_spec}").as_str())
+        );
+        // 「下次启动」那一行也要出现（否则托盘顶部与主窗对不上）
+        let grub = next_boot_grub_view(Vec::new(), Vec::new(), None, "full");
+        let rows = next_boot_rows_from(
+            auto_refind(None),
+            &grub,
+            std::slice::from_ref(&channel),
+        );
+        assert_eq!(rows, vec![("OpenCore".to_string(), "WINDOWS-EFI".to_string())]);
+    }
+
+    /// OpenCore 的默认项可能没有切换值域（macOS 的引导文件在 APFS Preboot 卷里，
+    /// OC 不产 `opencore-default:`）：它进不了切换下拉，但「下次启动」必须写明是
+    /// 它 —— 否则主窗/托盘那行显示「未选中条目」，而下面列表里它明明是选中态。
+    #[test]
+    fn tray_next_boot_uses_default_row_without_spec() {
+        let preview_entry = |title: &str, kind: &str, spec: Option<&str>, default: bool| {
+            channels::oc_menu::MenuEntry {
+                title: title.to_string(),
+                kind: kind.to_string(),
+                source: "preboot".to_string(),
+                volume: title.to_string(),
+                path: "\\System\\Library\\CoreServices\\boot.efi".to_string(),
+                auxiliary: false,
+                default,
+                note: None,
+                spec: spec.map(str::to_string),
+            }
+        };
+        let channel = channels::ChannelView {
+            id: "opencore",
+            label: "OpenCore",
+            detected: true,
+            permission: "nvram",
+            chip: "ok",
+            detail: None,
+            health: Vec::new(),
+            entries: Vec::new(),
+            current_default: None,
+            last_boot: None,
+            last_boot_at: None,
+            error: None,
+            menu_preview: Some(channels::oc_menu::MenuPreview {
+                entries: vec![
+                    // 真机那台：默认项是 macOS，走 Preboot，没有可发的值域
+                    preview_entry("MAC", "macos", None, true),
+                    preview_entry(
+                        "WINDOWS-EFI",
+                        "windows",
+                        Some(
+                            "opencore-default:WINDOWS-EFI\u{1}\\EFI\\Microsoft\\Boot\\bootmgfw.efi",
+                        ),
+                        false,
+                    ),
+                ],
+                hidden: Vec::new(),
+                issues: Vec::new(),
+                summary: String::new(),
+                order_source: "private".to_string(),
+                default_slot: Some("OCBt0080".to_string()),
+                preboot_elevatable: true,
+                order_elevatable: true,
+            }),
+        };
+        // 下拉里能发值域的那条在前；MAC 没有 spec，**照样要镜像进来**（置灰 +
+        // 打勾）—— 缺了它托盘下拉与主窗列表就对不上（用户 2026-10-30 晚报的
+        // 「OpenCore 右键菜单依旧不对」）。但它是禁用项：点了没有值域可发。
+        let nodes = channel_loader_nodes(&channel, false);
+        assert_eq!(nodes.len(), 2, "可切换行 + 无 spec 的默认行");
+        assert_eq!(nodes[0].label, "🪟 WINDOWS-EFI");
+        assert_eq!(nodes[0].checked, Some(false), "默认项是 MAC，它不打勾");
+        assert_eq!(nodes[1].label, "🍎 MAC");
+        // 可用但点了没动作（id 不在解析白名单）—— 勾才不会被 Windows 画成灰色
+        assert!(nodes[1].enabled, "没有值域的默认行也保持可用，对勾样式与其它块一致");
+        assert_eq!(nodes[1].checked, Some(true), "默认行打勾");
+        assert!(
+            nodes[1].id.as_deref().is_some_and(|id| id.starts_with("channel-fixed:")),
+            "镜像行走不解析的 id 前缀"
+        );
+        assert_eq!(MenuAction::from_id("channel-fixed:MAC"), None);
+        // 「下次启动」照实写 MAC：要回答的是「下次会起谁」，不是「能不能在这改」
+        let grub = next_boot_grub_view(Vec::new(), Vec::new(), None, "full");
+        let rows = next_boot_rows_from(
+            auto_refind(None),
+            &grub,
+            std::slice::from_ref(&channel),
+        );
+        assert_eq!(rows, vec![("OpenCore".to_string(), "MAC".to_string())]);
+    }
+
+    /// 电脑列表的 `/api/grub`（`remote_grub_json`）与托盘 / 主窗共用同一条覆盖
+    /// 规则：自动模式用 linux_grub 的 entries / next·saved 覆盖 ESP 快照；
+    /// 手动模式与 linux_grub 还没扫到内容时保留 ESP 快照。
+    #[test]
+    fn overlay_linux_grub_follows_the_read_mode() {
+        let mut view = next_boot_grub_view(
+            vec![next_boot_entry("esp-1", "ESP Entry", None, Some("vmlinuz"))],
+            Vec::new(),
+            Some("esp-1"),
+            "full",
+        );
+        let mut linux = channels::linux_grub::LinuxGrubView::default();
+        linux.entries = vec![next_boot_entry("arch", "Arch Linux", None, Some("vmlinuz"))];
+        linux.next_entry = Some("arch".to_string());
+        linux.saved_entry = Some("arch".to_string());
+
+        // 自动模式：整块换过去
+        let mut overridden = view.clone();
+        menu_model::overlay_linux_grub(&mut overridden, Some(&linux), false);
+        assert_eq!(overridden.entries.len(), 1);
+        assert_eq!(overridden.entries[0].name, "Arch Linux");
+        assert_eq!(overridden.next_entry.as_deref(), Some("arch"));
+
+        // 手动模式：ESP 快照原样保留
+        let mut manual = view.clone();
+        menu_model::overlay_linux_grub(&mut manual, Some(&linux), true);
+        assert_eq!(manual.entries[0].name, "ESP Entry");
+        assert_eq!(manual.next_entry.as_deref(), Some("esp-1"));
+
+        // linux_grub 还没扫到内容：也保留 ESP 快照
+        let empty = channels::linux_grub::LinuxGrubView::default();
+        menu_model::overlay_linux_grub(&mut view, Some(&empty), false);
+        assert_eq!(view.entries[0].name, "ESP Entry");
+    }
+
+    /// 电脑列表（PC hub / 手机）回传的标题被 trim 过，而写 `vars/PreviousBoot`
+    /// 要标题原文（末尾空格也是标题的一部分）—— 解析器先精确、后 trim。
+    #[test]
+    fn resolve_sim_title_tolerates_trimmed_titles() {
+        let entry = |title: &str| channels::refind_menu::SimEntry {
+            title: title.to_string(),
+            kind: "linux".to_string(),
+            source: "internal".to_string(),
+            volume: "ESP".to_string(),
+            path: "vmlinuz".to_string(),
+            hidden: false,
+            last_boot: false,
+            hidden_by: None,
+            note: None,
+            subscreen: None,
+            children: Vec::new(),
+        };
+        let entries = vec![entry("Arch Linux "), entry("Windows")];
+        assert_eq!(
+            remote_routing::resolve_sim_title(&entries, "Windows"),
+            Some("Windows")
+        );
+        assert_eq!(
+            remote_routing::resolve_sim_title(&entries, "Arch Linux"),
+            Some("Arch Linux "),
+            "trim 过的标题要回溯到原文"
+        );
+        assert_eq!(
+            remote_routing::resolve_sim_title(&entries, "  Arch Linux  "),
+            Some("Arch Linux ")
+        );
+        assert_eq!(remote_routing::resolve_sim_title(&entries, ""), None);
+        assert_eq!(remote_routing::resolve_sim_title(&entries, "Fedora"), None);
+    }
+
+    /// 新增的两种菜单 id 必须能解析回切换动作（解析不出来 = 点了没反应）。
+    /// 引导区组装：顺序与主窗卡片一致（rEFInd → GRUB → 通道），
+    /// 顶部「下次启动」多行：rEFInd 取 `PreviousBoot` 命中的那条、通道取
+    /// `currentDefault` 命中的那条；GRUB 没内容就整行不出现（不摆「未选中」）。
+    #[test]
+    fn tray_next_boot_rows_follow_each_loader_default() {
+        let sim = channels::refind_menu::SimPreview {
+            entries: vec![
+                channels::refind_menu::SimEntry {
+                    title: "Windows ".to_string(),
+                    kind: "windows".to_string(),
+                    source: "internal".to_string(),
+                    volume: "ESP".to_string(),
+                    path: "EFI/Microsoft/Boot/bootmgfw.efi".to_string(),
+                    hidden: false,
+                    last_boot: false,
+                    hidden_by: None,
+                    note: None,
+                    subscreen: None,
+                    children: Vec::new(),
+                },
+                channels::refind_menu::SimEntry {
+                    title: "OpenCore (macOS)".to_string(),
+                    kind: "macos".to_string(),
+                    source: "internal".to_string(),
+                    volume: "ESP".to_string(),
+                    path: "EFI/OC/OpenCore.efi".to_string(),
+                    hidden: false,
+                    last_boot: true,
+                    hidden_by: None,
+                    note: None,
+                    subscreen: None,
+                    children: Vec::new(),
+                },
+            ],
+            hidden: Vec::new(),
+            issues: Vec::new(),
+            summary: String::new(),
+            vars_dir: String::new(),
+            config_path: None,
+            scanfor: String::new(),
+            var_mode: String::new(),
+            previous_boot: None,
+            default_selection: String::new(),
+        };
+        let channel = channels::ChannelView {
+            id: "opencore",
+            label: "OpenCore",
+            detected: true,
+            permission: "nvram",
+            chip: "ok",
+            detail: None,
+            health: Vec::new(),
+            entries: vec![channels::ChannelEntry {
+                id: "MacOS-efi".to_string(),
+                title: "macOS".to_string(),
+                detail: String::new(),
+                icon: "macos".to_string(),
+                requires_elevation: true,
+            }],
+            current_default: Some("MacOS-efi".to_string()),
+            last_boot: None,
+            last_boot_at: None,
+            error: None,
+            menu_preview: None,
+        };
+        let empty_grub = next_boot_grub_view(vec![], vec![], None, "minimal");
+        let rows = next_boot_rows_from(auto_refind(Some(&sim)), &empty_grub, std::slice::from_ref(&channel));
+        assert_eq!(
+            rows,
+            vec![
+                ("rEFInd".to_string(), "OpenCore (macOS)".to_string()),
+                ("OpenCore".to_string(), "macOS".to_string()),
+            ],
+            "GRUB 没条目就不占行；展示用 trim 过的标题"
+        );
+        // 一个引导器都没有 → 空表（顶部退回「未知」）
+        assert!(next_boot_rows_from(auto_refind(None), &empty_grub, &[]).is_empty());
+    }
+
+    /// 没检测到的整块不出现（不摆空壳子菜单），但末尾要留一行说明 ——
+    /// 否则用户只看到两块，会以为程序漏做了别的引导器（2026-10-30 的真实反馈）。
+    #[test]
+    fn tray_loader_section_orders_and_skips_empty_groups() {
+        let entry = || channels::ChannelEntry {
+            id: "e".to_string(),
+            title: "Entry".to_string(),
+            detail: String::new(),
+            icon: "linux".to_string(),
+            requires_elevation: false,
+        };
+        let channel = |id: &'static str, label: &'static str, detected: bool| channels::ChannelView {
+            id,
+            label,
+            detected,
+            permission: "file",
+            chip: "ok",
+            detail: None,
+            health: Vec::new(),
+            entries: if detected { vec![entry()] } else { Vec::new() },
+            current_default: None,
+            last_boot: None,
+            last_boot_at: None,
+            error: None,
+            menu_preview: None,
+        };
+        let empty_grub = next_boot_grub_view(vec![], vec![], None, "minimal");
+        // 空 GRUB（只有一条「还没配置 ESP」）整块跳过；未检测到的 Clover 同理
+        let nodes = loader_menu_nodes_from(
+            auto_refind(None),
+            &empty_grub,
+            &[
+                channel("sdboot", "systemd-boot", true),
+                channel("opencore", "OpenCore", true),
+                channel("clover", "Clover", false),
+            ],
+            false,
+        );
+        let labels: Vec<&str> = nodes.iter().map(|node| node.label.as_str()).collect();
+        assert_eq!(
+            labels,
+            vec![
+                "systemd-boot 启动项",
+                "OpenCore 启动项",
+                "未检测到：Clover（这台机器上没有）",
+            ],
+            "未检测到的通道不摆空壳子菜单，只留一行说明"
+        );
+        assert_eq!(nodes[2].kind, "item");
+        assert!(!nodes[2].enabled, "说明行不可点");
+        assert!(nodes[..2].iter().all(|node| node.kind == "sub"));
+        // 检测到但当前没有可切换条目 → 照样出块，块内是一条禁用说明
+        let bare = channel("opencore", "OpenCore", true);
+        let bare = channels::ChannelView {
+            entries: Vec::new(),
+            ..bare
+        };
+        let nodes = loader_menu_nodes_from(auto_refind(None), &empty_grub, std::slice::from_ref(&bare), false);
+        assert_eq!(nodes.len(), 1);
+        assert_eq!(nodes[0].children.len(), 1);
+        assert!(!nodes[0].children[0].enabled, "说明行不可点");
+        // 一块都没有时返回空表（build_menu_nodes 会补一条「没有可用的引导项」）
+        assert!(loader_menu_nodes_from(auto_refind(None), &empty_grub, &[], false).is_empty());
+    }
+
+    #[test]
+    fn tray_switch_ids_parse_to_actions() {
+        assert_eq!(
+            MenuAction::from_id("refind-switch:Windows "),
+            Some(MenuAction::SwitchRefind("Windows ".to_string()))
+        );
+        assert_eq!(
+            MenuAction::from_id("channel-switch:sdboot:arch"),
+            Some(MenuAction::SwitchChannel("sdboot:arch".to_string()))
+        );
+        // 空值不解析：否则会拿空标题去写 PreviousBoot
+        assert_eq!(MenuAction::from_id("refind-switch:"), None);
+        assert_eq!(MenuAction::from_id("channel-switch:   "), None);
+        // 手动处理链路的系统行：值域是 system 名，动作是写 vars 快照
+        assert_eq!(
+            MenuAction::from_id("refind-sys:linux"),
+            Some(MenuAction::SwitchSystem("linux".to_string()))
+        );
+        assert_eq!(MenuAction::from_id("refind-sys:  "), None);
+    }
+
+    /// rEFInd 的「选中项」跟着读取方式走：自动看 `PreviousBoot`（lastBoot），
+    /// 手动看 vars 快照里标 active 的那条 —— 两套数据源、两套动作值域。
+    #[test]
+    fn tray_refind_rows_follow_the_read_mode() {
+        let variables = vec![
+            VariableInfo {
+                system: "windows".to_string(),
+                display_name: "Windows Boot Manager".to_string(),
+                source_name: "Boot0080".to_string(),
+                source: PathBuf::new(),
+                exists: true,
+                active: false,
+            },
+            VariableInfo {
+                system: "linux".to_string(),
+                display_name: "Linux".to_string(),
+                source_name: "Boot0081".to_string(),
+                source: PathBuf::new(),
+                exists: true,
+                active: true,
+            },
+            VariableInfo {
+                system: "macos".to_string(),
+                display_name: "macOS".to_string(),
+                source_name: "Boot0082".to_string(),
+                source: PathBuf::new(),
+                exists: false,
+                active: false,
+            },
+        ];
+        let manual = menu_model::RefindSource {
+            mode: state::LoaderMode::Manual,
+            sim: None,
+            variables: &variables,
+        };
+        let rows = manual.rows();
+        assert_eq!(rows.len(), 2, "不存在的系统不列");
+        let nodes = refind_loader_nodes(&rows, false);
+        assert_eq!(nodes[0].label, "🐧 Linux", "快照里 active 的那条置顶");
+        assert_eq!(nodes[0].checked, Some(true));
+        assert_eq!(nodes[0].id.as_deref(), Some("refind-sys:linux"));
+        assert_eq!(nodes[1].checked, Some(false));
+        // 顶部「下次启动」同一份
+        let grub = next_boot_grub_view(Vec::new(), Vec::new(), None, "full");
+        assert_eq!(
+            next_boot_rows_from(
+                menu_model::RefindSource {
+                    mode: state::LoaderMode::Manual,
+                    sim: None,
+                    variables: &variables,
+                },
+                &grub,
+                &[],
+            ),
+            vec![("rEFInd".to_string(), "Linux".to_string())]
+        );
+        // 手动模式没有 vars 快照时整行不出现（不摆「未选中」噪音）
+        let none = menu_model::RefindSource {
+            mode: state::LoaderMode::Manual,
+            sim: None,
+            variables: &[],
+        };
+        assert!(next_boot_rows_from(none, &grub, &[]).is_empty());
     }
 
     /// 托盘 GRUB 区与主窗 GRUB 列表**同一套格式逻辑**：置顶当前项（组内子项带

@@ -193,6 +193,53 @@ pub(crate) fn grub_layout_target_width(nominal: u32, remembered: u32, force: boo
     }
 }
 
+/// 「引导高级设置 → 布局」的窗口落宽（2026-10-30 用户定案：加宽 / 左右布局
+/// 抄袭原 GRUB 独立区域的窗口加宽能力，展示方式下拉随之移除）。
+/// · mode = "wide"（加宽）| "lr"（左右布局）= 窗口至少 932 逻辑宽
+///   （两栏标称 460 + 12 + 460；已经 ≥932 就不动 —— 用户手动拉得更宽的尊重
+///   现值）；高度用记忆值，没记过按默认屏高 2/3。锁定窗口大小不拦这条
+///   （锁定只禁手拖缩放，明确落宽操作放行，用户定案 2026-10-13）。
+/// · mode = "default"（切回默认）= 回内嵌标称宽 **460**。这里**不再问已废弃的
+///   `grub_list_view`** —— 老配置里可能还存着 "wide"（旧「加宽窗口展示」），
+///   照它落宽会让「默认」也变成 932，用户看到的就是「点了默认窗口不缩回正常
+///   宽度」。展示方式下拉已移除，布局的唯一事实源是前端 advState.layout。
+#[tauri::command]
+pub(crate) fn set_boot_layout(app: AppHandle, mode: String) -> Result<(), String> {
+    trace(&app, "command", &format!("set_boot_layout mode={mode}"));
+    if mode != "wide" && mode != "lr" {
+        let settings = stored_settings(&app);
+        let height = if settings.window_height == 0 {
+            // 还没记过尺寸（新装 / 清过配置）：默认占整屏高度的 2/3
+            default_window_height(&app)
+        } else {
+            settings.window_height
+        };
+        let width = crate::settings_commands::grub_layout_width("inline") as u32;
+        return set_main_window_size(&app, width, height);
+    }
+    let Some(main) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
+        return Ok(());
+    };
+    let target_width = crate::settings_commands::grub_layout_width("wide") as u32;
+    // inner_size 是物理像素，除以缩放才是逻辑宽（与滑条回写同一套换算）
+    let scale = main.scale_factor().unwrap_or(1.0);
+    let scale = if scale > 0.0 { scale } else { 1.0 };
+    let logical_width = main
+        .inner_size()
+        .map(|size| size.width as f64 / scale)
+        .unwrap_or(0.0);
+    if logical_width + 0.5 >= target_width as f64 {
+        return Ok(());
+    }
+    let settings = stored_settings(&app);
+    let height = if settings.window_height == 0 {
+        default_window_height(&app)
+    } else {
+        settings.window_height
+    };
+    set_main_window_size(&app, target_width, height)
+}
+
 /// 把主窗口摆到当前显示器工作区的中心（物理像素，夹回工作区）。返回落点。
 /// 挑「主窗口此刻所在」的那块显示器。
 ///

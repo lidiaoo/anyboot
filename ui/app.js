@@ -606,11 +606,9 @@ const grubAutoPickerElement = document.querySelector("#grub-auto-picker");
 const grubAutoPickerSummaryElement = document.querySelector("#grub-auto-picker-summary");
 const grubAutoCandidatesElement = document.querySelector("#grub-auto-candidates");
 const grubAutoFootElement = document.querySelector("#grub-auto-foot");
-// GRUB 区块本体（左栏主流程里）与右栏容器：展示模式切换时把节点搬进/搬出右栏
+// GRUB 区块本体（左栏主流程里）。原「展示方式」下拉（内嵌/加宽/列表独立/
+// GRUB 独立）已移除：加宽 / 左右布局并入「引导高级设置 → 布局」，GRUB 区块恒内嵌。
 const grubSectionElement = document.querySelector("#grub");
-const grubPaneBodyElement = document.querySelector("#grub-pane-body");
-// 展示方式下拉框（内嵌 / 加宽 / 列表独立 / GRUB 独立）
-const grubViewModeElement = document.querySelector("#grub-view-mode");
 const grubListFormatElement = document.querySelector("#grub-list-format");
 // 切换启动项的回执行（跟着配置块走）：中间态与失败原因
 const grubStatusElement = document.querySelector("#grub-status");
@@ -771,14 +769,17 @@ statusBarCloseElement.addEventListener("click", () => {
 // （refind/scan.c）纯读复算出的菜单。**与上面三张系统卡完全无关** —— 那三张是
 // 「手动获取」：读 vars/PreviousBoot-* 快照、切换 = 复制文件；这里只展示
 // 「rEFInd 开机菜单会列出什么」，不写盘、不改 PreviousBoot。
-const REFIND_SIM_ICONS = {
-  macos: "🍎",
-  windows: "🪟",
-  linux: "🐧",
-  opencore: "🅾️",
-  clover: "🍀",
-  generic: "⬜",
-  unknown: "❓",
+// 条目行的系统字章（设计稿 .row-ico）：kind → 字章规格（cls/tag）。
+// 2026-10-30 用户拍板：条目行以 UI 图为准，emoji 图标全部换成字章
+// （元素用 grub-list-view.js 里的共用 osChipElement 造）。
+const REFIND_SIM_OS_CHIP = {
+  macos: { cls: "mac", tag: "MAC" },
+  windows: { cls: "win", tag: "WIN" },
+  linux: { cls: "lin", tag: "LNX" },
+  opencore: { cls: "tool", tag: "OC" },
+  clover: { cls: "tool", tag: "CLV" },
+  generic: { cls: "fw", tag: "FW" },
+  unknown: { cls: "", tag: "?" },
 };
 
 const REFIND_SIM_KIND_LABEL = {
@@ -832,9 +833,14 @@ function refindSimRow({ text, icon, arrow, tag, tagClass, group, active, title }
   if (active) row.classList.add("active");
   if (title) row.title = title;
 
+  // 系统字章（设计稿 .row-ico）：icon 传字章规格（{cls,tag}），不传就不挂
+  if (icon) {
+    row.append(osChipElement(icon));
+  }
+
   const name = document.createElement("span");
   name.className = "grub-entry-name";
-  name.textContent = `${arrow || ""}${icon ? `${icon} ` : ""}${text}`;
+  name.textContent = `${arrow || ""}${text}`;
   row.append(name);
 
   const side = document.createElement("span");
@@ -893,7 +899,14 @@ function refindSimPick(entry) {
 /// 顶层普通项与 GRUB 一致：缩进、不画 ↳（grub-list-view.js 里 depth 0 就不加箭头）。
 function refindSimEntryNodes(entry, allowPick, { pinned = false } = {}) {
   const title = (entry.title || "").trim();
-  const icon = REFIND_SIM_ICONS[entry.kind] || "⬜";
+  // 后端认不出 kind 的条目（泛型 EFI 二进制，如 \ArchLinux\7.0.2.efi）别急着
+  // 挂「?」—— 标题里的路径/关键词（ArchLinux / Windows / mac）大多能救回来。
+  // 注意 unknown 档本身是个真值对象（{cls:"",tag:"?"}），不能直接放进 || 链。
+  const kindChip = REFIND_SIM_OS_CHIP[entry.kind];
+  const icon = (kindChip && kindChip.cls ? kindChip : null)
+    || grubOsChip(title)
+    || kindChip
+    || REFIND_SIM_OS_CHIP.unknown;
   const children = entry.children || [];
   // 只有一条「用默认选项启动」的子屏进去也没得选，不值得给展开入口
   const foldable = children.length > 1;
@@ -989,7 +1002,7 @@ function refindSimEntryNodes(entry, allowPick, { pinned = false } = {}) {
     panel.hidden = !open;
     row.setAttribute("aria-expanded", String(open));
     row.querySelector(".grub-entry-name").textContent =
-      `${open ? "▾ " : "▸ "}${icon} ${title}`;
+      `${open ? "▾ " : "▸ "}${title}`;
   };
   row.addEventListener("click", toggle);
   row.addEventListener("keydown", (event) => {
@@ -1117,9 +1130,13 @@ function renderSystems(status, busy, grub, sim) {
       row.classList.add("is-unavailable");
     }
 
+    row.append(
+      osChipElement(REFIND_SIM_OS_CHIP[item.system] || REFIND_SIM_OS_CHIP.unknown),
+    );
+
     const name = document.createElement("span");
     name.className = "grub-entry-name";
-    name.textContent = `${REFIND_SIM_ICONS[item.system] || "⬜"} ${item.displayName}`;
+    name.textContent = item.displayName;
 
     // Linux 项旁的问号提示（用户定案 2026-10-13）：rEFInd 的 Linux 项背后
     // 是 GRUB 在引导，要能读取 grub 列表 / 操作下次 Linux 启动项，前提是
@@ -1292,70 +1309,43 @@ function renderEsp(grub) {
   grubPartElement.append(...nodes);
 }
 
-/// 展示模式的 DOM 搬位：把 <main> 里 #grub 的子节点按模式搬进/搬出右栏。
-/// 四种模式（与设置里的 grubListView 一一对应）：
-/// · inline 内嵌 / wide 加宽 —— 全部子节点按出厂顺序回 #grub（左栏主流程里）；
-/// · list 列表独立 —— 配置留在 #grub，「手动解析」面板整体搬进右栏
-///   （列表是那个面板的正文，跟着它走；标签栏留在左栏，切到自动也不打架）；
-/// · pane GRUB 独立 —— 子节点搬进右栏（#grub 变空壳，CSS 藏掉），
-///   **但头部（圆标/标题/状态行）钉在卡片上方**：用户定案 2026-10-13，
-///   头部不参与滚动 —— sticky 在 grid 子项上会被约束在自己的网格区里、
-///   滚过头就跟着走，所以直接搬出滚动容器（.pane-body）放到它前面。
-/// 只在模式真正变化时才搬（renderGrub 里比对缓存），别每帧搬 DOM。
-/// 「出厂顺序」在脚本加载完、任何搬移发生之前捕获一次，回搬时靠它复原。
-const grubCanonicalOrder = [...grubSectionElement.children];
-const grubHeadElement = grubSectionElement.querySelector(".grub-head");
-let grubLayoutMode = null;
-function applyGrubLayout(mode) {
-  if (grubLayoutMode === mode) {
-    return;
-  }
-  grubLayoutMode = mode;
-  document.body.dataset.grubMode = mode;
+/// 展示模式的 DOM 搬位机制已随「展示方式」下拉一起移除（列表独立 / GRUB 独立
+/// 两个模式砍掉，加宽并入「引导高级设置 → 布局」）。GRUB 区块恒内嵌在左栏主流程；
+/// body[data-grub-mode] 固定 inline，让既有的 inline 专属样式（列表限高自滚等）
+/// 继续按原样生效，不用逐条改写选择器。
+document.body.dataset.grubMode = "inline";
 
-  const allToPane = mode === "pane";
-  const manualToPane = mode === "list";
-
-  // 第一步：该走的先走。搬出去再插回来会打乱 #grub 里的相对顺序，
-  // 所以两个阶段分开，别指望一趟 appendChild 搞定。
-  if (allToPane && grubHeadElement) {
-    // 头部常驻：插到滚动容器前面，滚轮永远碰不到它
-    grubPaneBodyElement.parentNode.insertBefore(grubHeadElement, grubPaneBodyElement);
-  }
-  if (allToPane) {
-    for (const el of grubCanonicalOrder) {
-      if (el === grubHeadElement) {
-        continue;
-      }
-      grubPaneBodyElement.appendChild(el);
-    }
-  } else if (manualToPane) {
-    grubPaneBodyElement.appendChild(grubPanelManualElement);
-  }
-
-  // 第二步：没走的按出厂顺序插回 #grub。倒着插 + insertBefore(el, anchor)：
-  // 单趟 appendChild 会把它们全堆到末尾，面板就会跑到「执行过程 / 提示行」后面。
-  let anchor = null;
-  for (let index = grubCanonicalOrder.length - 1; index >= 0; index -= 1) {
-    const el = grubCanonicalOrder[index];
-    if (allToPane || (manualToPane && el === grubPanelManualElement)) {
-      continue;
-    }
-    grubSectionElement.insertBefore(el, anchor);
-    anchor = el;
-  }
-
-  syncGrubTabs();
-}
-
-/// 当前选中的标签。**不持久化**：用户要的是「默认进自动」，
-/// 记住上次选择的话第二次打开就变成手动了，反而违背这条。
+/// 当前选中的标签。**由后端设置驱动**（`Settings.grubMode`）：它同时决定
+/// 「下次启动」写谁、托盘那块列哪一份，只记在前端的话托盘永远看不到。
+/// 默认自动（用户 2026-10-29 定案「默认进自动」）。
 let grubTab = "auto";
 
+/// 把页签选中的读取方式落盘（托盘、主窗共用一份快照）。
+async function pushLoaderMode(loader, mode) {
+  try {
+    await invoke("set_loader_mode", { loader, mode });
+  } catch (error) {
+    showStatusBar(String(error), { error: true });
+  }
+}
+
+/// 设置里的读取方式是权威值：切页签后后端立刻落盘，下一拍快照回来这里对一次账
+/// （从托盘或另一处改过之后，主窗页签不能停在旧位置、面板显另一份数据）。
+function applyLoaderModes(settings) {
+  if (!settings) return;
+  const grubWanted = settings.grubMode === "manual" ? "manual" : "auto";
+  if (grubTab !== grubWanted) {
+    grubTab = grubWanted;
+    syncGrubTabs();
+  }
+  const refindWanted = settings.refindMode === "manual" ? "manual" : "auto";
+  if (refindTab !== refindWanted) {
+    refindTab = refindWanted;
+    syncRefindTabs();
+  }
+}
+
 /// 把标签选中态与面板显隐对齐。
-///
-/// 「列表独立」模式下手动面板已被搬进右栏，它不再归标签管：
-/// 在这里给它设 hidden 会把右栏清成白板，所以只处理还留在 #grub 里的面板。
 function syncGrubTabs() {
   for (const [name, panel, button] of [
     ["auto", grubPanelAutoElement, document.querySelector("#grub-tab-auto")],
@@ -1365,20 +1355,23 @@ function syncGrubTabs() {
     button.classList.toggle("is-active", active);
     button.setAttribute("aria-selected", active ? "true" : "false");
     button.tabIndex = active ? 0 : -1;
-    const owned = panel.parentNode === grubSectionElement;
-    panel.hidden = owned ? !active : false;
+    panel.hidden = !active;
   }
 }
 
 function setGrubTab(name) {
-  grubTab = name === "manual" ? "manual" : "auto";
+  const next = name === "manual" ? "manual" : "auto";
+  const changed = grubTab !== next;
+  grubTab = next;
   syncGrubTabs();
+  if (changed) void pushLoaderMode("grub", next);
 }
 
 /// rEFInd 区的标签（自动扫描 / 手动处理）：与 GRUB 区同一套交互与样式
-/// （复用 .grub-tabs / .grub-tab / .grub-panel 类名），同样**不持久化** ——
-/// 默认进自动扫描。rEFInd 面板没有被「列表独立」模式搬走的可能，
-/// 不需要 GRUB 那边的 owned 判断，直接切 hidden。
+/// （复用 .grub-tabs / .grub-tab / .grub-panel 类名）。同样由后端设置驱动
+/// （`Settings.refindMode`）：自动看 `PreviousBoot`，手动看 vars 快照。
+/// rEFInd 面板没有被「列表独立」模式搬走的可能，不需要 GRUB 那边的
+/// owned 判断，直接切 hidden。
 let refindTab = "auto";
 
 function syncRefindTabs() {
@@ -1395,8 +1388,11 @@ function syncRefindTabs() {
 }
 
 function setRefindTab(name) {
-  refindTab = name === "manual" ? "manual" : "auto";
+  const next = name === "manual" ? "manual" : "auto";
+  const changed = refindTab !== next;
+  refindTab = next;
   syncRefindTabs();
+  if (changed) void pushLoaderMode("refind", next);
 }
 
 /// GRUB 区块：列的是 grub.cfg 里的启动项，条数可能几十个，
@@ -1404,22 +1400,12 @@ function setRefindTab(name) {
 ///
 /// 三处输入框（ESP 目录 / 分区 UUID / 脚本正文）只在**没被聚焦**时才回写，
 /// 否则用户打字打到一半会被快照盖掉。
-function renderGrub(grub, script, busy, listViewMode) {
+function renderGrub(grub, script, busy) {
   if (!grub) {
     return;
   }
 
-  // 展示模式：快照里的值归一后落地（搬 DOM + 亮/藏右栏 + 调整列表滚动方式）。
-  // 下拉框的值只在和快照不一致时才写，避免用户正展开选项时被状态事件弹回去。
-  const mode =
-    listViewMode === "wide" || listViewMode === "list" || listViewMode === "pane"
-      ? listViewMode
-      : "inline";
-  applyGrubLayout(mode);
-  if (grubViewModeElement.value !== mode) {
-    grubViewModeElement.value = mode;
-  }
-  // 列表格式同理：只在不一致时写，避免展开选项时被快照弹回（快照缺字段回落极简）
+  // 列表格式：只在不一致时写，避免展开选项时被快照弹回（快照缺字段回落极简）
   const listFormat = grub.listFormat || "minimal";
   if (grubListFormatElement.value !== listFormat) {
     grubListFormatElement.value = listFormat;
@@ -1474,7 +1460,7 @@ function renderGrub(grub, script, busy, listViewMode) {
   const unidentified = !grub.partuuid && !grub.efiDir;
   grubEmptyElement.hidden = !unidentified;
 
-  // 树列表：唯一的渲染处（列表节点在哪由 applyGrubLayout 决定，这里只管往里画；
+  // 树列表：唯一的渲染处（列表节点恒在 #grub 主流程里，这里只管往里画；
   // 节点引用不变，搬完位置渲染照常生效）
   renderGrubEntries({
     container: grubListElement,
@@ -1540,7 +1526,7 @@ function renderGrubAuto(view, busy, format) {
 
   if (!view) {
     grubAutoSummaryElement.textContent =
-      "还没读过。点「重新读取」按上面填的 ESP 分区去各块 Linux 分区里找 grub.cfg。";
+      "还没读过。点「重新读取」按下方「ESP 分区」里填的路径去各块 Linux 分区里找 grub.cfg。";
     grubAutoTargetElement.hidden = true;
     grubAutoIssuesElement.replaceChildren();
     grubAutoListElement.replaceChildren();
@@ -1609,11 +1595,17 @@ function renderGrubAuto(view, busy, format) {
     if (view.envExists) {
       envBits.push(`env ${view.envRel || "boot/grub/grubenv"}`);
       envBits.push(`${grubAutoBytes(view.envSize || 1024)}`);
-      if (view.nextEntry) {
-        envBits.push(`一次性 ${view.nextEntry}`);
-      }
-      if (view.savedEntry) {
-        envBits.push(`默认 ${view.savedEntry}`);
+      // 一次性项与永久默认常常是同一项（osprober 那种超长机器名会有 150+ 字）：
+      // 原样各印一遍等于把同一串巨长文本写两遍，把明细顶成四五行。相同就合写。
+      if (view.nextEntry && view.savedEntry && view.nextEntry === view.savedEntry) {
+        envBits.push(`一次性/默认 ${view.nextEntry}`);
+      } else {
+        if (view.nextEntry) {
+          envBits.push(`一次性 ${view.nextEntry}`);
+        }
+        if (view.savedEntry) {
+          envBits.push(`默认 ${view.savedEntry}`);
+        }
       }
     } else if (view.envRel) {
       envBits.push(`没有 ${view.envRel}`);
@@ -2285,6 +2277,9 @@ function render(state) {
   );
 
   renderSystems(state.status, busy, state.grub, state.refindSim);
+  // 读取方式（自动 / 手动）：设置里的是权威值，页签跟着它走 —— 否则托盘按新模式
+  // 勾好了、主窗这块还停在旧模式，两处又对不上。
+  applyLoaderModes(state.settings);
   // 模拟引导项扫描（纯读）：与上面三张系统卡并列的另一条链路，只展示不写盘
   renderRefindSim(state.refindSim);
   // 顶部那行状态文案：扫描成功后 status.message 就是「下次启动：X」，
@@ -2300,7 +2295,6 @@ function render(state) {
     state.grub,
     state.grubScript,
     busy,
-    state.settings && state.settings.grubListView,
   );
   // 并排第二块：自动读取（没装 09_anyboot 时直接读 Linux 分区自己的 grub.cfg）
   renderGrubAuto(
@@ -2321,6 +2315,10 @@ function render(state) {
   renderSettings(state.settings);
   renderRemote(state.http, state.settings);
   renderPending(state.notify);
+  // 引导高级设置：数据适配 + 页签渲染 + 「系统引导」页按配置重排（boot-adv.js）
+  if (window.BootAdv) {
+    window.BootAdv.onSnapshot(state);
+  }
 
   // 动作进行中两边一起禁用（托盘那边由后端按同一份 busy 置灰）。
   for (const element of [
@@ -2524,10 +2522,11 @@ if (simScanRefreshElement) {
 //   #/settings → 基本设置
 //   #/sol   → SOL 远程唤醒
 // 这样刷新页面、收藏、把链接发给别人，都落回同一个栏目里。
-const TAB_ROUTES = { boot: "#/boot", settings: "#/settings", sol: "#/sol" };
+const TAB_ROUTES = { boot: "#/boot", "adv-boot": "#/adv-boot", settings: "#/settings", sol: "#/sol" };
 const tabButtons = Array.from(document.querySelectorAll("#tabs .tab"));
 const tabPanels = {
   boot: document.querySelector("#tab-boot"),
+  "adv-boot": document.querySelector("#tab-adv-boot"),
   settings: document.querySelector("#tab-settings"),
   sol: document.querySelector("#tab-sol"),
 };
@@ -2565,12 +2564,6 @@ function activateTab(name, options = {}) {
   }
   for (const [key, panel] of Object.entries(tabPanels)) {
     panel.classList.toggle("active", key === name);
-  }
-  // GRUB 独立右栏（展示方式 ③④）只属于引导栏目：切到设置页时收起，
-  // 切回时清掉内联样式，显隐交还原有的展示模式机制接管。
-  const grubPane = document.querySelector(".pane-grub");
-  if (grubPane) {
-    grubPane.style.display = name === "boot" ? "" : "none";
   }
   // SOL 面板按需拉取：只在**进**这个栏目时读一次 sol 状态（独立服务，
   // 不进 UiState 快照），离开不动作，回来再刷。
@@ -4081,13 +4074,6 @@ function grubMessage(text, { error = false } = {}) {
     showStatusBar(message, { error });
   }
 }
-
-// 展示方式切换（内嵌 / 加宽 / 列表独立 / GRUB 独立）：后端负责保存设置并
-// 调整窗口宽度（460 ⇄ 932），前端只管把选择报上去；布局本身由下一帧快照
-// 的 renderGrub → applyGrubLayout 落地。
-grubViewModeElement.addEventListener("change", () => {
-  call("set_grub_list_view", { mode: grubViewModeElement.value });
-});
 
 // 列表格式（原始/极简/简易/中等/复杂）：纯展示偏好，后端落盘后广播回来
 grubListFormatElement.addEventListener("change", () => {

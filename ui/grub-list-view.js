@@ -1,4 +1,4 @@
-// GRUB 启动项列表的渲染逻辑：右侧 GRUB 专属区（.pane-grub）用这一份。
+// GRUB 启动项列表的渲染逻辑：引导页主流程里的 GRUB 区（#grub）用这一份。
 //
 // grub.cfg 里的 submenu 是分组、不是可选条目（后端解析器按同一规则跳过它），
 // 所以这里**自己把组头补出来**：子条目归到它的父 submenu 下，并统计组内数量。
@@ -15,14 +15,53 @@
 // 组头按关键字（windows / mac / linux）在名字前加系统图标。
 "use strict";
 
-/// 按关键字给条目/组名挑系统图标：windows → 🪟，mac → 🍎，linux → 🐧，
-/// 都不中就不加图标（不猜）。
-function grubOsIcon(text) {
+// ── 系统字章（设计稿 .row-ico，2026-10-30 用户拍板：条目行以 UI 图为准）──
+// emoji 图标（🐧🪟🍎）跨平台观感不可控、暗色下发闷，设计稿用 MAC/WIN/LNX
+// 小字章代替。三个渲染文件（本文件 / app.js / boot-list-view.js）共用这一颗。
+/// 按关键字给条目/组名挑系统字章：windows → WIN，mac → MAC，linux → LNX，
+/// 都不中就返回 null（不猜）。
+function grubOsChip(text) {
   const lowered = (text || "").toLowerCase();
-  if (lowered.includes("windows")) return "🪟 ";
-  if (lowered.includes("mac") || lowered.includes("apple")) return "🍎 ";
-  if (lowered.includes("linux")) return "🐧 ";
-  return "";
+  if (lowered.includes("windows")) return { cls: "win", tag: "WIN" };
+  if (lowered.includes("mac") || lowered.includes("apple")) return { cls: "mac", tag: "MAC" };
+  if (lowered.includes("linux")) return { cls: "lin", tag: "LNX" };
+  return null;
+}
+
+/// 系统图标（2026-10-31 用户要求：字章换成真系统 logo，同托盘那种观感）。
+/// win = Windows 四格旗，mac = Apple 苹果，lin = Tux 企鹅剪影。
+/// 只有 win/mac/lin 有 logo；tool/fw/unknown 没有公认 logo，退回字章文本。
+/// 元素里同时保留 title（原字章文案），悬停还能认出是哪一档。
+const OS_LOGO_SVG = {
+  win: {
+    vb: "0 0 16 16",
+    d: '<path d="M1 3.6 6.9 2.8v5H1V3.6ZM7.9 2.7 15 1.7v6.1H7.9V2.7ZM1 8.8h5.9v5L1 12.9V8.8ZM7.9 8.8H15v6.1l-7.1-1V8.8Z"/>',
+  },
+  mac: {
+    vb: "0 0 24 24",
+    d: '<path d="M12.15 6.9c-.95 0-2.42-1.08-3.96-1.04-2.04.03-3.91 1.18-4.96 3.01-2.12 3.68-.55 9.1 1.52 12.09 1.01 1.45 2.21 3.09 3.79 3.04 1.52-.06 2.09-.99 3.94-.99 1.83 0 2.35.99 3.96.95 1.64-.03 2.68-1.48 3.68-2.95 1.16-1.69 1.63-3.32 1.66-3.41-.04-.02-3.18-1.22-3.22-4.86-.03-3.04 2.48-4.5 2.6-4.56-1.43-2.09-3.62-2.32-4.39-2.38-2-.15-3.68 1.1-4.61 1.1h-.01Zm2.4-2.35c.84-1.01 1.4-2.42 1.24-3.83-1.2.05-2.66.8-3.53 1.82-.78.9-1.45 2.34-1.27 3.71 1.34.1 2.71-.68 3.56-1.7h0Z"/>',
+  },
+  lin: {
+    vb: "0 0 16 16",
+    // 手绘极简 Tux：身体剪影 + evenodd 挖出眼睛/肚皮，14px 下轮廓可辨即可
+    d: '<path fill-rule="evenodd" d="M8 1c-2 0-3.3 1.6-3.3 3.7 0 1 .3 1.9.5 2.7.2.6 0 1.2-.5 1.9-.8 1.1-1.9 2.3-1.9 3.7 0 .8.6 1.2 1.2.8.2-.1.5-.3.8-.5.3.6.9 1 1.7 1.2-.3.3-.4.6-.3.8.1.4.8.5 1.8.5s1.7-.1 1.8-.5c.1-.2 0-.5-.3-.8.8-.2 1.4-.6 1.7-1.2.3.2.6.4.8.5.6.4 1.2 0 1.2-.8 0-1.4-1.1-2.6-1.9-3.7-.5-.7-.7-1.3-.5-1.9.2-.8.5-1.7.5-2.7C11.3 2.6 10 1 8 1Zm-1.5 3.1c.4 0 .7.4.7.9s-.3.9-.7.9-.7-.4-.7-.9.3-.9.7-.9Zm3 0c.4 0 .7.4.7.9s-.3.9-.7.9-.7-.4-.7-.9.3-.9.7-.9ZM8 6.6c.4 0 .8.2.8.5s-.1.4-.3.3c-.1-.1-.3-.1-.5-.1s-.4 0-.5.1c-.2.1-.3 0-.3-.3s.4-.5.8-.5Zm-2.6 2.8c.9-.6 1.7-.9 2.6-.9s1.7.3 2.6.9c1 .7 1.5 1.8 1.2 2.6-.3.7-1.1.9-1.9.4-.6-.4-1.2-.5-1.9-.5s-1.3.1-1.9.5c-.8.5-1.6.3-1.9-.4-.3-.8.2-1.9 1.2-2.6Z"/>',
+  },
+};
+
+/// 字章元素：22×22 圆角小方块，形状与配色在设计稿 CSS 的 .row-ico 里。
+/// 有系统 logo（win/mac/lin）就画 logo，否则退回字章文本（tool/fw/未知）。
+function osChipElement(chip) {
+  const el = document.createElement("span");
+  el.className = "row-ico" + (chip && chip.cls ? " " + chip.cls : "");
+  const logo = chip && OS_LOGO_SVG[chip.cls];
+  if (logo) {
+    const tag = (chip && chip.tag) || "";
+    if (tag) el.title = tag;
+    el.innerHTML = '<svg viewBox="' + logo.vb + '" aria-hidden="true">' + logo.d + "</svg>";
+  } else {
+    el.textContent = (chip && chip.tag) || "?";
+  }
+  return el;
 }
 
 /// 条目的内核名：优先取 `linux` 行解析出的内核文件名，取不到退回标题原文。
@@ -241,8 +280,12 @@ function renderFormatEntries({ container, grub, busy, onSwitch, entries, activeS
     const name = document.createElement("span");
     name.className = "grub-entry-name";
     const arrow = pinned ? "" : depth < 0 ? "▸ " : "↳ ";
-    name.textContent = arrow + (icon || "") + text;
+    name.textContent = arrow + text;
     row.append(name);
+
+    if (icon) {
+      row.prepend(osChipElement(icon));
+    }
 
     if (tag) {
       const tagElement = document.createElement("small");
@@ -262,7 +305,7 @@ function renderFormatEntries({ container, grub, busy, onSwitch, entries, activeS
     const distinct = new Set(children.map(labelOf)).size;
     return makeRow({
       text: title,
-      icon: grubOsIcon(title),
+      icon: grubOsChip(title),
       tag: distinct + " 项" + locationText,
       depth: -1,
       selector: submenuId,
@@ -279,7 +322,11 @@ function renderFormatEntries({ container, grub, busy, onSwitch, entries, activeS
       pinned && entry.submenu
         ? (groupTitles.get(entry.submenu) || entry.submenu) + " › "
         : "";
-    const icon = grubOsIcon(prefix || ownTitle);
+    // 系统字章的判定顺序：组名/原名 → 整名。极简/简易格式把行文字剥成
+    // 「7.0.2.efi」这类纯内核版本号，"linux" 字样丢了，只按行文字判会
+    // 退化成「?」—— 原始菜单标题（Arch Linux…）里才有系统关键词。
+    const icon = grubOsChip(prefix || ownTitle) || grubOsChip(rowLabel(entry))
+      || grubOsChip(entry.class || "");
     return makeRow({
       text: prefix + rowLabel(entry),
       icon,

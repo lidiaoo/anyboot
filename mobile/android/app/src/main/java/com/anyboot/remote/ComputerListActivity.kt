@@ -1755,8 +1755,10 @@ class ComputerListActivity : ComponentActivity() {
                 }
                 dot = ""
             } else {
-                val picked = previewRows.firstOrNull { it.isDefault && it.spec.isNotEmpty() }
-                    ?: previewRows.first()
+                // 默认项不一定有可发的值域（OC 默认项在 Preboot 卷上 spec=null），
+                // 判「下次启动是谁」只看预演里 default 标记的那行 —— 与托盘 /
+                // PC 端 channel_default_title 同一条规则，别退回第一行。
+                val picked = previewRows.firstOrNull { it.isDefault } ?: previewRows.first()
                 valueLabel = picked.title
                 dot = iconKind(picked.kind)
             }
@@ -3092,7 +3094,9 @@ class ComputerListActivity : ComponentActivity() {
                 if (system.isEmpty()) continue
                 val label = optStr(item, "displayName").trim().ifEmpty { system }
                 if (item.optBoolean("active", false)) current = system
-                options.add(BootOption(system, label, refindClass(system)))
+                // 自动扫描模式下 system 是菜单条目标题（会 trim），图标分类优先
+                // 吃服务端带来的 kind 字段，认不出再按标题关键词救
+                options.add(BootOption(system, label, refindClass(system, label, optStr(item, "kind"))))
             }
         }
         return BootGroup(
@@ -3308,10 +3312,20 @@ class ComputerListActivity : ComponentActivity() {
         return rows
     }
 
-    private fun refindClass(system: String): String = when (system) {
-        "windows" -> "win"
-        "macos" -> "mac"
-        else -> "linux"
+    /** rEFInd 行的图标分类：优先服务端 `kind`，认不出按 system/标题关键词救 */
+    private fun refindClass(system: String, label: String = "", kind: String = ""): String {
+        when (kind.trim().lowercase()) {
+            "windows" -> return "win"
+            "macos", "opencore", "clover" -> return "mac"
+            "linux" -> return "linux"
+        }
+        val hay = "$system $label".lowercase()
+        return when {
+            hay.contains("windows") -> "win"
+            hay.contains("mac") || hay.contains("apple") || hay.contains("osx")
+                || hay.contains("opencore") || hay.contains("clover") -> "mac"
+            else -> "linux"
+        }
     }
 
     private fun grubClass(name: String, klass: String, chainloader: Boolean): String {

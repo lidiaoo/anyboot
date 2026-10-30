@@ -3,9 +3,9 @@
 
 use super::*;
 
-/// 切换 GRUB 区块的展示方式（内嵌 / 加宽 / 列表独立 / GRUB 独立）：
-/// 落盘 + 按新模式调窗口宽度（460 ⇄ 932）。布局搬移由前端按快照里的
-/// grubListView 自己做 —— 后端只管设置与窗口尺寸这两件它该管的事。
+/// 切换 GRUB 区块的展示方式。**已废弃**：前端「展示方式」下拉移除（2026-10-30，
+/// 加宽 / 左右布局并入引导高级设置 → 布局），仅保留命令兼容远程通道 ——
+/// list/pane 老值归一成 inline，不再产生新语义。
 #[tauri::command]
 pub(crate) fn set_grub_list_view(app: AppHandle, mode: String) -> Result<SettingsView, String> {
     let mode = normalize_grub_list_view(&mode).to_string();

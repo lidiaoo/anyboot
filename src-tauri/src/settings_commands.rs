@@ -50,14 +50,14 @@ pub(crate) fn fixed_monitor_index(names: &[&str], fixed: &str) -> Option<usize> 
     names.iter().position(|name| *name == fixed)
 }
 
-/// GRUB 区块展示方式归一（纯函数）：inline / wide / list / pane，
-/// 其余一律回落 inline。老配置里的 `window`（独立窗口）已经演进成
-/// 同一窗口里的「独立区域」，语义由 `pane` 承接 —— 老用户无感迁移。
+/// GRUB 区块展示方式归一（纯函数）。**该设置已废弃**（2026-10-30 用户定案：
+/// 「展示方式」下拉移除，加宽 / 左右布局并入「引导高级设置 → 布局」，窗口
+/// 落宽走 set_boot_layout）。仍保留归一的原因：老配置里可能存着 wide / list /
+/// pane / window —— list（列表独立区域）与 pane/window（GRUB 独立区域）功能
+/// 已砍，一律回落 inline；wide 语义仍在（老用户窗口保持 932 标称的落宽习惯）。
 pub(crate) fn normalize_grub_list_view(value: &str) -> &'static str {
     match value.trim().to_ascii_lowercase().as_str() {
         "wide" => "wide",
-        "list" => "list",
-        "window" | "pane" => "pane",
         _ => "inline",
     }
 }
@@ -76,8 +76,7 @@ pub(crate) fn normalize_grub_list_format(value: &str) -> &'static str {
 }
 
 /// 展示方式对应的窗口宽度（逻辑像素）：内嵌 = 单栏 460；
-/// 加宽 / 列表独立 / GRUB 独立 = 932 = 左栏 460 + 中缝 12 + 右栏 460
-/// （和以前「主窗 + GRUB 独立窗」并排占的总宽度一致，前端两栏等宽）。
+/// 加宽 = 932（原「加宽窗口展示」的标称，现由引导高级设置的「加宽」承接）。
 pub(crate) fn grub_layout_width(mode: &str) -> f64 {
     if mode == "inline" {
         460.0
@@ -87,6 +86,38 @@ pub(crate) fn grub_layout_width(mode: &str) -> f64 {
 }
 
 /// 主题强调色：前端据此派生按钮/链接色（--accent 系列），后端只存值。
+/// 切换某个引导器的读取方式（`auto` / `manual`）。
+///
+/// 这一项**必须落盘并广播**：它决定「下次启动」写谁、托盘引导列表列哪一份、勾在
+/// 哪一行。只记在前端的话，托盘菜单是 Rust 侧构建的，永远看不到 —— 用户看到的
+/// 就是「主窗按自动走、托盘还按手动勾」。
+#[tauri::command]
+pub(crate) fn set_loader_mode(
+    app: AppHandle,
+    loader: String,
+    mode: String,
+) -> Result<SettingsView, String> {
+    let Some(mode) = state::LoaderMode::parse(&mode) else {
+        return Err(format!("未知的读取方式：{mode}（只有 auto / manual）"));
+    };
+    let loader = loader.trim().to_ascii_lowercase();
+    let mut settings = stored_settings(&app);
+    match loader.as_str() {
+        "refind" => settings.refind_mode = mode,
+        "grub" => settings.grub_mode = mode,
+        other => return Err(format!("未知的引导器：{other}（只有 refind / grub）")),
+    }
+    trace(
+        &app,
+        "command",
+        &format!("set_loader_mode loader={loader} mode={mode:?}"),
+    );
+    save_settings(&app, &settings)?;
+    // 托盘/主窗共用同一份快照：广播一次，两边同时按新模式取数据源
+    publish_ui(&app);
+    Ok(publish_settings(&app))
+}
+
 #[tauri::command]
 pub(crate) fn set_accent_color(app: AppHandle, color: String) -> Result<SettingsView, String> {
     let color = normalize_hex_color(&color).ok_or_else(|| format!("颜色格式无效: {color}"))?;
@@ -97,8 +128,7 @@ pub(crate) fn set_accent_color(app: AppHandle, color: String) -> Result<Settings
     Ok(publish_settings(&app))
 }
 
-/// 托盘菜单方式：classic（三端各自方式，默认）/ unified（positioner 全局统一）。
-/// 落位在下次弹菜单时按新值走（tray_menu_present 每次现读设置）；菜单形态
+/// 托盘菜单方式：classic（三端各自方式，默认）/ unified（positioner 全局统一）。/// 落位在下次弹菜单时按新值走（tray_menu_present 每次现读设置）；菜单形态
 /// （SNI 的 Menu 属性）由宿主在注册时缓存，GNOME 上切完重启应用才完全生效。
 #[tauri::command]
 pub(crate) fn set_tray_menu_style(app: AppHandle, mode: String) -> Result<SettingsView, String> {
