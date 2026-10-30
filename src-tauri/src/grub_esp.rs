@@ -533,7 +533,11 @@ pub(crate) fn privileged_install(source: &Path, target: &Path) -> Result<(), Str
 /// 和「pkexec 能跑」永远是同一份实现。
 #[cfg(target_os = "linux")]
 fn esp_install_via_helper(source: &Path, target: &Path) -> Option<Result<(), String>> {
-    if !crate::linux_priv::helper_ready() {
+    // 门用 status().state == "ready" 而不是 helper_ready()：后者只看文件在不在，
+    // 旧版助手也过 —— 旧助手不认识 `--linux-esp-install` 时会带着 root 身份落进
+    // Tauri 启动主程序。ready 含版本比对，版本不对就返回 None 落回 pkexec
+    // （那边跑的是当前 exe，参数必然认识）。
+    if crate::linux_priv::status().state != "ready" {
         return None;
     }
     let out = unique_temp_path_under(crate::linux_priv::SCRATCH_DIR, "anyboot-esp-install-out");

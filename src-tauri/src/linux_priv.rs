@@ -542,14 +542,20 @@ mod imp {
     ) -> Result<(), String> {
         let mut tried: Vec<String> = Vec::new();
 
-        // ① 免密（装了就是这条路，全程无感）
-        if helper_ready() {
+        // ① 免密（装了就是这条路，全程无感）。
+        //
+        // 判据用 status().state == "ready" 而不是 helper_ready()：后者只看文件在
+        // 不在，**旧版助手也过**。把只有新版才认识的参数喂给旧助手，它解析不到
+        // 子命令就会带着 root 身份落进 Tauri 启动主程序 —— mod.rs 的 ESP 挂载链
+        // 特意用 ready（含版本比对）防过这一手，这条通用链同样要防。版本不 ready
+        // 时直接落到 ②③，反正那边跑的是当前这份 exe，参数必然认识。
+        if status().state == "ready" {
             match run_via_helper(args, out_path) {
                 Ok(()) => return Ok(()),
                 Err(error) => tried.push(error),
             }
         } else {
-            tried.push("没装免密助手".to_string());
+            tried.push("没装免密助手（或版本不匹配）".to_string());
         }
 
         if !allow_gui {
@@ -559,20 +565,31 @@ mod imp {
             ));
         }
 
-        // ② pkexec：系统自己的授权框（有 polkit 的桌面才有）
+        // ② pkexec：系统自己的授权框（有 polkit 的桌面才有）。
+        //
+        // 执行体走 stage_executable_copy() 而不是 current_exe()：AppImage 的挂载点
+        // 在 /tmp 下，新版发行版给 /tmp 加了 noexec，pkexec 会报 "Error accessing"
+        // 直接失败 —— 装/卸组件那条链（run_root_subcommand）早就为此暂存过副本，
+        // 这条运行时链此前漏了同样的处理（2026-10-30 审计补上）。顺带把 stderr
+        // 收进 tried：以前只回「pkexec 退出码 126」，没法排障。
         if find_in_path("pkexec").is_some() {
-            let exe = std::env::current_exe().map_err(|error| format!("拿不到自身路径：{error}"))?;
+            let exe = stage_executable_copy()?;
             let _ = fs::remove_file(out_path);
-            let status = Command::new("pkexec")
-                .arg(exe)
+            let output = Command::new("pkexec")
+                .arg(&exe)
                 .args(args)
-                .stderr(Stdio::null())
-                .status()
+                .stderr(Stdio::piped())
+                .output()
                 .map_err(|error| format!("无法调起 pkexec：{error}"))?;
             if out_ready(out_path) {
                 return Ok(());
             }
-            tried.push(format!("pkexec 退出码 {}", status.code().unwrap_or(-1)));
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            tried.push(if stderr.is_empty() {
+                format!("pkexec 退出码 {}", output.status.code().unwrap_or(-1))
+            } else {
+                format!("pkexec：{stderr}")
+            });
         } else {
             tried.push("没有 pkexec".to_string());
         }
@@ -584,25 +601,31 @@ mod imp {
         //    攒到时间戳」时才需要。sudo -S 成功后立刻把密码从内存里丢掉 ——
         //    之后靠时间戳就够了，没必要继续留着。
         if find_in_path("sudo").is_some() {
-            let exe = std::env::current_exe().map_err(|error| format!("拿不到自身路径：{error}"))?;
+            // 同 ②：AppImage / noexec 场景要先暂存可执行副本
+            let exe = stage_executable_copy()?;
             let _ = fs::remove_file(out_path);
-            if let Ok(status) = Command::new("sudo")
+            let attempt = Command::new("sudo")
                 .arg("-n")
                 .arg(&exe)
                 .args(args)
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status()
-            {
+                .stderr(Stdio::piped())
+                .output();
+            if let Ok(output) = attempt {
                 if out_ready(out_path) {
                     return Ok(());
                 }
                 if !password_present() {
-                    tried.push(format!(
-                        "sudo -n 退出码 {}（没攒到时间戳，也没输过密码）",
-                        status.code().unwrap_or(-1)
-                    ));
+                    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                    tried.push(if stderr.is_empty() {
+                        format!(
+                            "sudo -n 退出码 {}（没攒到时间戳，也没输过密码）",
+                            output.status.code().unwrap_or(-1)
+                        )
+                    } else {
+                        format!("sudo -n：{stderr}")
+                    });
                 }
             }
             if let Some(secret) = peek_password() {
