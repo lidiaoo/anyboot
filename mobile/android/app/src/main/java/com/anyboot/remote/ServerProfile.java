@@ -2060,6 +2060,53 @@ final class ServerProfile {
         }
     }
 
+    // ------------------------------------------------------------------
+    // 访客主题（查看方偏好，与网页端 abTheme 参数同一约定）
+    // ------------------------------------------------------------------
+    //
+    // WebView 加载的是**那台电脑**自己的页面：跨来源，localStorage 各存各的桶，
+    // 版式主题偏好互不相通（看一台就得重选一次，还让人以为「改了他的主题」）。
+    // App 把「我选的主题」经 URL（abTheme=<字母>）带过去：页面照它渲染，但
+    // 不读也不写它自己桶里的主题 —— 「不改掉他的主题，用我的主题看」。
+
+    /** 版式主题字母（与网页端 THEME_LAYOUT_MODES 的键一致；首项 "" = 不带参数，跟随电脑自己保存的主题） */
+    static final String[] BOOT_THEMES = {"", "K", "A", "B", "C", "G", "I", "J"};
+
+    /** 查看方的引导页主题偏好（anyboot_ui/bootTheme；空 = 不带参数） */
+    static String guestBootTheme(android.content.Context context) {
+        try {
+            return context.getSharedPreferences("anyboot_ui", android.content.Context.MODE_PRIVATE)
+                .getString("bootTheme", "");
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
+
+    static void setGuestBootTheme(android.content.Context context, String theme) {
+        String value = theme == null ? "" : theme.trim();
+        boolean known = false;
+        for (String candidate : BOOT_THEMES) {
+            if (candidate.equals(value)) {
+                known = true;
+                break;
+            }
+        }
+        if (!known) {
+            value = "";
+        }
+        context.getSharedPreferences("anyboot_ui", android.content.Context.MODE_PRIVATE)
+            .edit().putString("bootTheme", value).apply();
+    }
+
+    /** 给访问 URL 追加访客主题参数（url 空 / 偏好空原样返回；这些 URL 恒带 ?token=…，直接拼 & 安全） */
+    static String withGuestTheme(android.content.Context context, String url) {
+        String theme = guestBootTheme(context);
+        if (url == null || url.isEmpty() || theme.isEmpty()) {
+            return url;
+        }
+        return url + "&abTheme=" + theme;
+    }
+
     /** 去首尾空白（所有可空字符串字段统一走这里，免得满地判 null） */
     static String text(String raw) {
         return raw == null ? "" : raw.trim();

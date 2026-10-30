@@ -156,6 +156,8 @@ class MainActivity : ComponentActivity() {
     private var deleteServerTarget by mutableStateOf<ServerProfile?>(null)
     private var serverListOpen by mutableStateOf(false)
     private var transportOpen by mutableStateOf(false)
+    private var bootThemeOpen by mutableStateOf(false)
+    private var bootTheme by mutableStateOf("")
 
     // ---- 系统信息弹层（点系统徽标 / 菜单打开） ----
     private var sysInfoTarget by mutableStateOf<ServerProfile?>(null)
@@ -196,6 +198,7 @@ class MainActivity : ComponentActivity() {
         ServerRepository.ensureLoaded(this)
         connectAll = ServerStore.connectAll(this)
         transport = ServerStore.transport(this)
+        bootTheme = ServerProfile.guestBootTheme(this)
         activeId = ServerStore.activeId(this)
         // 上次选中的那台可能已被删掉（在电脑列表里删的）：退到第一台，别留个空标签
         if (servers.none { it.id == activeId }) {
@@ -337,6 +340,7 @@ class MainActivity : ComponentActivity() {
                 deleteServerTarget?.let { DeleteServerDialog(it) }
                 if (serverListOpen) ServerListDialog()
                 if (transportOpen) TransportDialog()
+                if (bootThemeOpen) BootThemeDialog()
                 if (failReloadOpen) FailReloadDialog()
                 if (sleepHelpOpen) SleepHelpDialog()
                 sysInfoTarget?.let { target ->
@@ -614,6 +618,9 @@ class MainActivity : ComponentActivity() {
                 )
                 DropdownMenuItem(text = { Text("传输方式（${transportLabel()}）") }, onClick = {
                     open = false; transportOpen = true
+                })
+                DropdownMenuItem(text = { Text("引导页主题（${bootThemeLabel()}）") }, onClick = {
+                    open = false; bootThemeOpen = true
                 })
             }
         }
@@ -1305,6 +1312,63 @@ class MainActivity : ComponentActivity() {
         else -> "自动"
     }
 
+    /** 菜单上那一条「引导页主题（…）」给人看的说法 */
+    private fun bootThemeLabel(): String = when (bootTheme) {
+        "" -> "跟随电脑"
+        "K" -> "不套用"
+        else -> bootTheme
+    }
+
+    /**
+     * 引导页主题（查看方偏好）：WebView 看的是那台电脑的页面，跨来源 localStorage
+     * 各存各的桶 —— 这里选的主题经 URL（abTheme）带过去，页面照它渲染但不改动
+     * 电脑自己保存的主题。「跟随电脑」= 不带偏好，看哪台就用哪台自己的。
+     */
+    @Composable
+    private fun BootThemeDialog() {
+        AlertDialog(
+            onDismissRequest = { bootThemeOpen = false },
+            title = { Text("引导页主题") },
+            text = {
+                Column {
+                    ServerProfile.BOOT_THEMES.forEach { value ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    bootTheme = value
+                                    ServerProfile.setGuestBootTheme(this@MainActivity, value)
+                                    bootThemeOpen = false
+                                    toast("已选择「${bootThemeLabel()}」：重载页面后生效")
+                                }
+                                .padding(vertical = 6.dp),
+                        ) {
+                            RadioButton(selected = bootTheme == value, onClick = {
+                                bootTheme = value
+                                ServerProfile.setGuestBootTheme(this@MainActivity, value)
+                                bootThemeOpen = false
+                                toast("已选择「${bootThemeLabel()}」：重载页面后生效")
+                            })
+                            Text(
+                                when (value) {
+                                    "" -> "跟随电脑（不带回退）"
+                                    "K" -> "不套用主题"
+                                    else -> "方案 $value"
+                                },
+                                fontSize = 14.sp, modifier = Modifier.weight(1f, fill = false),
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { bootThemeOpen = false }) { Text("取消") }
+            },
+        )
+    }
+
     private fun confirmDelete(profile: ServerProfile) {
         deleteServerTarget = profile
     }
@@ -1428,7 +1492,8 @@ class MainActivity : ComponentActivity() {
         }
         tab.effectiveAddress = ""
         // 传输方式从 URL 带进网页 —— 用 localStorage 会随地址（来源）变化而丢
-        tab.view?.loadUrl(profile.urlAt(tab.addressIndex, transport))
+        // 访客主题一并带上：WebView 看的是那台电脑的页面，跨来源主题偏好互不相通
+        tab.view?.loadUrl(ServerProfile.withGuestTheme(this, profile.urlAt(tab.addressIndex, transport)))
     }
 
     /**
@@ -1462,7 +1527,7 @@ class MainActivity : ComponentActivity() {
             runOnUiThread {
                 val fresh = tabs[tab.profile.id] ?: return@runOnUiThread
                 fresh.effectiveAddress = localAddress
-                fresh.view?.loadUrl(tab.profile.urlFor(localAddress, transport))
+                fresh.view?.loadUrl(ServerProfile.withGuestTheme(this, tab.profile.urlFor(localAddress, transport)))
             }
         }, "anyboot-tunnel").start()
     }
@@ -1567,7 +1632,7 @@ class MainActivity : ComponentActivity() {
             toast("局域网不通，改走" + ServerProfile.routeLabel(winner.kind) + "…")
         }
         tab.effectiveAddress = ""
-        tab.view?.loadUrl(profile.remoteUrlFor(winner.origin, transport))
+        tab.view?.loadUrl(ServerProfile.withGuestTheme(this, profile.remoteUrlFor(winner.origin, transport)))
         return true
     }
 

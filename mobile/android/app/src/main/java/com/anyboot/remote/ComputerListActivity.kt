@@ -209,9 +209,11 @@ class ComputerListActivity : ComponentActivity() {
     private var moreServerListOpen by mutableStateOf(false)
     private var moreTransportOpen by mutableStateOf(false)
     private var moreFailReloadOpen by mutableStateOf(false)
+    private var moreBootThemeOpen by mutableStateOf(false)
     private var moreConnectAll by mutableStateOf(false)
     private var moreTransport by mutableStateOf("auto")
     private var moreFailReloadSec by mutableStateOf(5)
+    private var moreBootTheme by mutableStateOf("")
 
     /** 列表里选中的电脑（点卡片选中 = 设为「当前电脑」；「重载当前电脑」作用于它） */
     private var selectedId by mutableStateOf("")
@@ -228,6 +230,7 @@ class ComputerListActivity : ComponentActivity() {
         moreConnectAll = ServerStore.connectAll(this)
         moreTransport = ServerStore.transport(this)
         moreFailReloadSec = getSharedPreferences(UI_PREFS, MODE_PRIVATE).getInt("failReloadSec", 5)
+        moreBootTheme = ServerProfile.guestBootTheme(this)
         // 默认选中电脑页的当前那台；之后点卡片即切换
         selectedId = ServerStore.activeId(this)
         reloadServers()
@@ -302,6 +305,7 @@ class ComputerListActivity : ComponentActivity() {
                 if (moreServerListOpen) MoreServerListDialog()
                 if (moreTransportOpen) MoreTransportDialog()
                 if (moreFailReloadOpen) MoreFailReloadDialog()
+                if (moreBootThemeOpen) MoreBootThemeDialog()
                 sysInfoTarget?.let { target ->
                     SystemInfoDialog(
                         title = target.label(),
@@ -481,6 +485,9 @@ class ComputerListActivity : ComponentActivity() {
                 DropdownMenuItem(text = { Text("传输方式（${transportLabel()}）") }, onClick = {
                     open = false; moreTransportOpen = true
                 })
+                DropdownMenuItem(text = { Text("引导页主题（${bootThemeLabel()}）") }, onClick = {
+                    open = false; moreBootThemeOpen = true
+                })
             }
         }
     }
@@ -490,6 +497,70 @@ class ComputerListActivity : ComponentActivity() {
         "ws" -> "推送"
         "http" -> "轮询"
         else -> "自动"
+    }
+
+    /** 菜单上那一条「引导页主题（…）」给人看的说法 */
+    private fun bootThemeLabel(): String = when (moreBootTheme) {
+        "" -> "跟随电脑"
+        "K" -> "不套用"
+        else -> moreBootTheme
+    }
+
+    /**
+     * 引导页主题（查看方偏好）：进电脑页面时经 URL（abTheme）带给那台电脑，
+     * 页面照它渲染但不改动电脑自己保存的主题 —— 「不改掉他的主题，用我的看」。
+     */
+    @Composable
+    private fun MoreBootThemeDialog() {
+        val palette = LocalPalette.current
+        AlertDialog(
+            onDismissRequest = { moreBootThemeOpen = false },
+            containerColor = palette.card,
+            title = { Text("引导页主题") },
+            text = {
+                Column {
+                    Text(
+                        "进电脑页面时按这里选的主题显示（不改掉电脑自己保存的主题）。\"跟随电脑\" = 不带偏好，看哪台就用哪台自己的。",
+                        fontSize = 13.sp, color = palette.fgDim,
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    ServerProfile.BOOT_THEMES.forEach { value ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    moreBootTheme = value
+                                    ServerProfile.setGuestBootTheme(this@ComputerListActivity, value)
+                                    moreBootThemeOpen = false
+                                    toast("已选择「${bootThemeLabel()}」：进电脑页面后生效")
+                                }
+                                .padding(vertical = 6.dp),
+                        ) {
+                            RadioButton(selected = moreBootTheme == value, onClick = {
+                                moreBootTheme = value
+                                ServerProfile.setGuestBootTheme(this@ComputerListActivity, value)
+                                moreBootThemeOpen = false
+                                toast("已选择「${bootThemeLabel()}」：进电脑页面后生效")
+                            })
+                            Text(
+                                when (value) {
+                                    "" -> "跟随电脑（不带回退）"
+                                    "K" -> "不套用主题"
+                                    else -> "方案 $value"
+                                },
+                                fontSize = 14.sp, color = palette.fg,
+                                modifier = Modifier.weight(1f, fill = false),
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { moreBootThemeOpen = false }) { Text("取消") }
+            },
+        )
     }
 
     // ---- ⋮ 菜单的三个弹窗（与 MainActivity 同一套设置，读写同一份偏好） ----

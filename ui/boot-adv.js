@@ -61,6 +61,28 @@
   const THEME_RENDERERS = {}; // 预演渲染器（设置页）：theme -> fn(loaders) -> DOM
   const THEME_ARRANGERS = {}; // 真实页布置器（#tab-boot）
 
+  // ── 访客主题（远程查看）───────────────────────────────────────────────
+  // hub 的电脑页 iframe / 手机 WebView 看某台电脑时，加载的是**那台电脑**
+  // 自己的页面 —— 跨来源，localStorage 各存各的桶，主题偏好互不相通（看
+  // 一台就要重选一次，还让人以为「改了他的主题」）。查看方把「我应用的
+  // 主题」经 URL（abTheme=<字母>）带过来：页面照它渲染，但**不读也不写**
+  // 本地桶里的主题 —— 「不改掉他的主题，用我的主题看」。主窗口自己打开
+  // 时没有这个参数，行为不变。
+  const GUEST_THEME = (() => {
+    try {
+      const val = new URLSearchParams(window.location.search).get("abTheme") || "";
+      return THEME_LAYOUT_MODES[val] ? val : "";
+    } catch (error) {
+      void error;
+      return "";
+    }
+  })();
+  const isGuestView = () => GUEST_THEME !== "";
+  /// 实际渲染的主题：访客跟随查看方（URL 参数），本机用自己保存的
+  function effectiveTheme() {
+    return GUEST_THEME || advState.theme;
+  }
+
   // ── 状态模型 + 持久化 ─────────────────────────────────────────────────
   const STORAGE_KEY = "anyboot.boot-adv";
   const DEFAULT_STATE = {
@@ -127,7 +149,7 @@
 
   /// 当前主题允许的布局档位（首项 = 基准档）
   function layoutModes(theme) {
-    return THEME_LAYOUT_MODES[theme || advState.theme] || ["default", "wide"];
+    return THEME_LAYOUT_MODES[theme || effectiveTheme()] || ["default", "wide"];
   }
 
   /// 实际生效的布局：存的档位当前主题没有时，按该主题的**基准档**渲染
@@ -764,10 +786,17 @@
             ? "（B / G / J 是加宽版面：窗口自动加宽到 932，布局只有「加宽」）"
             : "");
       b.addEventListener("click", () => { advState.theme = val; saveState(); applyAll(); });
+      // 访客模式：主题由查看方（URL abTheme）决定，本页改了也不会生效——
+      // 置灰说明，别让人点了以为「没保存」
+      if (isGuestView()) {
+        b.disabled = true;
+      }
       themeSeg.append(b);
     }
     rowTheme.append(themeSeg,
-      n("span", "hint", "主题只决定每张卡怎么画；B / G / J 是加宽版面，选中即把窗口加宽到 932。"));
+      n("span", "hint", isGuestView()
+        ? "主题跟随查看方（远程管理窗 / 手机 App）的选择显示，不改动这台电脑保存的主题。"
+        : "主题只决定每张卡怎么画；B / G / J 是加宽版面，选中即把窗口加宽到 932。"));
     bar.append(rowTheme);
 
     // row3：布局（独立一行）
@@ -783,8 +812,8 @@
         // 不摆假的：当前主题吃不到这一档就置灰说明，别让用户点了以为「没保存」
         b.disabled = true;
         b.title = layoutWideOnly()
-          ? "主题 " + advState.theme + " 是加宽版面（B / G / J 只能用「加宽」）：窗口固定按 932 落宽。先前选的档位仍会记着，换回「不套用主题」/ A / C 自动恢复"
-          : "当前主题（" + advState.theme + "）不支持左右布局；换「不套用主题」或 A / C 再选。已选的左右布局会记着，换回来自动生效";
+          ? "主题 " + effectiveTheme() + " 是加宽版面（B / G / J 只能用「加宽」）：窗口固定按 932 落宽。先前选的档位仍会记着，换回「不套用主题」/ A / C 自动恢复"
+          : "当前主题（" + effectiveTheme() + "）不支持左右布局；换「不套用主题」或 A / C 再选。已选的左右布局会记着，换回来自动生效";
       } else {
         b.title = val === "default"
           ? "默认：全部启用的引导器单列竖排（窗口 460 标称宽），用「上下排序」调先后"
@@ -855,10 +884,10 @@
       // 主题不支持左右布局（B/G/I/J）时整颗不摆 —— 点了也没有任何可见效果，
       // 只会被当成「设置没保存」。其它主题常显（藏起来会让点击落到标签上、
       // 把引导器关掉，见上面的点击处理）。
-      rg.style.display = THEME_H[advState.theme] ? "" : "none";
+      rg.style.display = THEME_H[effectiveTheme()] ? "" : "none";
       rg.style.opacity = lrOn ? "" : "0.55";
     }
-    themeSeg.querySelectorAll("button").forEach((b) => b.classList.toggle("is-on", b.dataset.val === advState.theme));
+    themeSeg.querySelectorAll("button").forEach((b) => b.classList.toggle("is-on", b.dataset.val === effectiveTheme()));
     // 布局档位按主题能力置灰（不隐藏：隐藏会让人以为「选项丢了」）；
     // 当前值若是不支持的档位，effectiveLayout() 已回落该主题的基准档
     layoutSeg.querySelectorAll("button").forEach((b) => {
@@ -912,15 +941,15 @@
         return;
       }
       rbody.classList.remove("is-empty");
-      rbody.classList.toggle("is-theme", advState.theme !== "K");
-      if (advState.theme === "K") {
+      rbody.classList.toggle("is-theme", effectiveTheme() !== "K");
+      if (effectiveTheme() === "K") {
         const content = n("div", "k-zone-cards");
         list.forEach((l) => content.append(kLoaderCard(l)));
         rbody.append(content);
       } else {
-        const renderer = THEME_RENDERERS[advState.theme];
+        const renderer = THEME_RENDERERS[effectiveTheme()];
         const fit = n("div", "k-theme-fit");
-        fit.append(renderer ? renderer(list) : n("div", "empty", n("b", null, `主题 ${advState.theme} 还没实装`)));
+        fit.append(renderer ? renderer(list) : n("div", "empty", n("b", null, `主题 ${effectiveTheme()} 还没实装`)));
         rbody.append(fit);
       }
     }
@@ -2294,14 +2323,14 @@
         rbody.append(empty);
         return;
       }
-      const renderer = THEME_RENDERERS[advState.theme];
+      const renderer = THEME_RENDERERS[effectiveTheme()];
       const fit = n("div", "k-theme-fit");
       fit.append(renderer
         ? renderer(cols, bootBuild, {
-          active: themeSel[advState.theme],
-          onSelect: (id) => { themeSel[advState.theme] = id; },
+          active: themeSel[effectiveTheme()],
+          onSelect: (id) => { themeSel[effectiveTheme()] = id; },
         })
-        : n("div", "empty", n("b", null, `主题 ${advState.theme} 还没实装`)));
+        : n("div", "empty", n("b", null, `主题 ${effectiveTheme()} 还没实装`)));
       rbody.append(fit);
     }
 
@@ -2551,7 +2580,7 @@
     closeSheet();
     sheetLid = null;
     iSheetOpen = null;
-    if (advState.theme === "K") {
+    if (effectiveTheme() === "K") {
       applyKArrangement();
     } else {
       const list = placedLoaders(true);
@@ -2564,7 +2593,7 @@
     // 主题在 932 和 1180 下高度各不相同，短主题（G）底下留一大片空。
     {
       const t = bootTab();
-      const fill = advState.theme !== "K";
+      const fill = effectiveTheme() !== "K";
       if (t) t.classList.toggle("ba-fill", fill);
       if (fill) document.body.dataset.baFill = "1";
       else delete document.body.dataset.baFill;
@@ -2586,12 +2615,12 @@
       lastAppliedLayout = applied;
       const t = bootTab();
       reportClientError("layout", "saved=" + advState.layout + " effective=" + applied
-        + " theme=" + advState.theme + " tabClass=" + (t ? t.className : "-")
+        + " theme=" + effectiveTheme() + " tabClass=" + (t ? t.className : "-")
         + " cols=" + (t ? t.querySelectorAll(".ba-lr-cols").length : -1)
         + " colKids=" + (t && t.querySelector(".ba-col") ? t.querySelector(".ba-col").children.length : -1));
     }
     // I 主题：抽屉开着的话重排后凭 sheetLid 重开（快照每 5s 一拍，不能吹掉）
-    if (reopenLid && advState.theme === "I" && iSheetOpen) {
+    if (reopenLid && effectiveTheme() === "I" && iSheetOpen) {
       const l = placedLoaders(true).find((x) => x.id === reopenLid);
       const rootEl = bootTab().querySelector(".ba-theme-root .li");
       if (l && rootEl && rootEl._iBuild) {
@@ -2638,6 +2667,8 @@
     layoutModes,
     layoutWideOnly,
     effectiveLayout,
+    effectiveTheme,
+    isGuestView,
     THEMES,
     THEME_RENDERERS,
     LOADER_IDS,

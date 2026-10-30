@@ -6357,6 +6357,24 @@ window.__bkOnShow = async function () {
     return !winner || winner === 'jump';
   }
   /**
+   * 查看方主题（URL 追加段）。iframe 里那台电脑的页面跨来源、localStorage
+   * 各存各的桶，版式主题偏好互不相通 —— 看一台就得重选一次，还让人以为
+   * 「改了他的主题」。把本应用选的主题（hub 与主窗同源、共用一份偏好）
+   * 经 abTheme 带过去：那边照它渲染，但不读也不写它自己桶里的主题 ——
+   * 「不改掉他的主题，用我的主题看」。没选过/解析不了返回空串（不带参数，
+   * 那边按它自己保存的主题渲染）。主窗改主题后已开的 iframe 要重载才跟随。
+   */
+  function withGuestTheme(url) {
+    if (!url) return url;
+    let theme = '';
+    try {
+      const raw = localStorage.getItem('anyboot.boot-adv');
+      const val = raw ? (JSON.parse(raw).theme || '') : '';
+      if (/^[A-K]$/.test(val)) theme = val;
+    } catch (e) { /* 偏好解析不了就当作没选过 */ }
+    return theme ? url + '&abTheme=' + theme : url;
+  }
+  /**
    * iframe / 连接 URL。通道选择**听电脑列表的机制**（探测赢家 / 优先级表）：
    * 赢家是远程 → https origin + ab_token；赢家是直连 → 局域网地址（哪怕配了
    * 跳板机也不再独占连接——直连通了就该走直连，它更快）；赢家是跳板机 →
@@ -6365,7 +6383,7 @@ window.__bkOnShow = async function () {
   function pcConnUrl(r) {
     const win = pcRemoteWin.get(r.id);
     // 令牌用**赢家那条配对**自己的：不同配对各带各的网关客户端令牌
-    if (win) return win + '/?ab_token=' + encodeURIComponent(pcTokenForAddr(r, win));
+    if (win) return withGuestTheme(win + '/?ab_token=' + encodeURIComponent(pcTokenForAddr(r, win)));
     const winner = pcWinnerKind.get(r.id) || '';
     const kind = (winner === 'lan' || winner === 'jump') ? winner : pcDefaultLocalKind(r);
     const token = encodeURIComponent(r.token || '');
@@ -6373,9 +6391,9 @@ window.__bkOnShow = async function () {
     if (kind === 'jump') {
       const ep = pcEps.get(r.id);
       // 跳板端点还没解析好：返回空串，pcResolveEp 到货后重建 iframe
-      return ep ? 'http://' + ep.host + ':' + ep.port + '/?token=' + token : '';
+      return ep ? withGuestTheme('http://' + ep.host + ':' + ep.port + '/?token=' + token) : '';
     }
-    return 'http://' + pcFirstAddr(r) + '/?token=' + token;
+    return withGuestTheme('http://' + pcFirstAddr(r) + '/?token=' + token);
   }
   // 经跳板机：后端起 ControlMaster 复用的 ssh -L 转发，端点 = 127.0.0.1:<port>
   function pcResolveEp(r) {
@@ -7975,7 +7993,7 @@ window.__bkOnShow = async function () {
     if (frame) return frame;
     frame = document.createElement('iframe');
     frame.title = rid === 'local' ? '本机页面' : '服务端页面';
-    const url = rid === 'local' ? localUrl() : (function () {
+    const url = rid === 'local' ? withGuestTheme(localUrl()) : (function () {
       const r = remotes.find(function (x) { return x.id === rid; });
       return r ? pcConnUrl(r) : '';
     })();
@@ -8063,7 +8081,7 @@ window.__bkOnShow = async function () {
     // 端点晚到时补 src
     const frame = pcEnsureFrame(cqViewRid);
     if (!frame.getAttribute('src')) {
-      const url = cqViewRid === 'local' ? localUrl() : (function () {
+      const url = cqViewRid === 'local' ? withGuestTheme(localUrl()) : (function () {
         const r = remotes.find(function (x) { return x.id === cqViewRid; });
         return r ? pcConnUrl(r) : '';
       })();
@@ -8232,7 +8250,7 @@ window.__bkOnShow = async function () {
   function pageEmptyEl() { return document.getElementById('pageEmpty'); }
 
   function pageUrl(rid) {
-    if (rid === 'local') return localUrl();
+    if (rid === 'local') return withGuestTheme(localUrl());
     const r = remotes.find(function (x) { return x.id === rid; });
     return r ? pcConnUrl(r) : '';
   }
