@@ -205,6 +205,35 @@ impl FileSource {
             ..Self::new(file, base, 512)
         })
     }
+
+    /// Windows：直接打开分区设备 `\\.\Harddisk{disk}Partition{partition}`（base=0）。
+    ///
+    /// **写盘必须用这个，不能用 [`Self::open_physical`]**：对整盘句柄的裸写，
+    /// Windows 按分区拦截——落到任何分区扇区的写（除该分区首扇区）一律
+    /// `ERROR_ACCESS_DENIED(5)`，**与这块分区有没有卷对象无关**。2026-10-30 真机：
+    /// disk0p9 是 ext4，mountmgr 根本没给它建卷对象（FindFirstVolumeW 枚举不到，
+    /// 想锁卷卸载都无的放矢），但整盘句柄写照样被拒；改开分区设备即解。
+    /// 这也是探测到同症状的案例（驱动写 PhysicalDrive0 的无盘符分区，改开
+    /// `\Device\HarddiskNPartitionM` 后解决）的共同结论。
+    ///
+    /// 读不受这条拦截（探测仍走整盘），这里只给写路径用。
+    #[cfg(target_os = "windows")]
+    pub(crate) fn open_partition(disk: u32, partition: u32, writable: bool) -> Result<Self, String> {
+        let path = format!(r"\\.\Harddisk{disk}Partition{partition}");
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(writable)
+            .open(&path)
+            .map_err(|error| {
+                let hint = if error.raw_os_error() == Some(5) {
+                    "（分区设备要管理员权限才能打开）"
+                } else {
+                    ""
+                };
+                format!("打不开分区设备 {path}：{error}{hint}")
+            })?;
+        Ok(Self::new(file, 0, 512))
+    }
 }
 
 impl BlockSource for FileSource {

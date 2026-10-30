@@ -389,15 +389,18 @@ channels/linux_grub.rs        # 自动读取通道
 - **btrfs / LUKS / LVM**：识别到即明确报不支持，不静默跳过。
 - **写 env 的 e2fsck 复验**：代码里有回读逐字节比对，但没有跑过 `e2fsck -fn`；
   Arch 里的验证留待下次重启时一起做（改 `next_entry` → 重启 → 确认进的是那一项）。
-- **Windows 裸写吃 os error 5**（2026-10-30 真机）：读探测全绿、一写环境块就
-  「写设备失败：拒绝访问」。根因是 MSDN「Blocking Direct Write Operations」那条
-  规矩 —— 对 `\\.\PhysicalDriveN` 的裸写，凡落在**已挂载卷**扇区上的都是
-  `ERROR_ACCESS_DENIED(5)`；「已挂载」与盘符无关，ESP 的 FAT 卷没分配字母也是
-  mounted。解法是官方流程：`volume_lock::lock_extent` 用
-  `IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS` 逐卷比对盖住目标偏移的卷，
-  `FSCTL_DISMOUNT_VOLUME`（必要）+ `FSCTL_LOCK_VOLUME`（尽力）后写，
-  RAII 放开，系统随后自动重新挂载。只挂在写路径（`write_env_block` Windows 版），
-  只读探测不锁卷。
+- **Windows 裸写吃 os error 5**（2026-10-30 真机，两轮定位）：
+  读探测全绿、一写环境块就「写设备失败：拒绝访问」。**第一轮**以为是 MSDN
+  「mounted volume 拦截」，做了锁卷 + 卸载（`volume_lock.rs`）——真机实测：
+  mountmgr 对 ext4 分区**根本不建卷对象**（24 个分区只枚举到 10 个有盘符的），
+  `FindFirstVolumeW` 找不到可锁的卷，可整盘句柄的写照样被拒。说明拦截与卷无关。
+  **第二轮结论：Windows 对整盘句柄（`\\.\PhysicalDriveN`）的裸写是按分区卡的**，
+  落到任何分区扇区的写（除该分区首扇区）一律 ACCESS_DENIED；和探测到的同症状
+  案例一致（驱动写 PhysicalDrive0 的无盘符分区失败，改开分区设备后解决）。
+  修法：**写盘改开分区设备 `\\.\HarddiskNPartitionM`（base=0）**
+  （`ext4_raw::open_partition`），整盘路径只作后备；卷锁降级为尽力而为
+  （枚举到卷就卸载，枚举不到直接放行）。分区设备路径在 Win32 命名空间本来就有
+  （`\\.\Harddisk0Partition9` 非管理员打开报 error 5 = 名字存在、权限不够）。
 
 ## 14. 收口：helper 协议 v2 与内嵌并排（2026-10-29 同日晚）
 

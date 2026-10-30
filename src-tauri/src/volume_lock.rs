@@ -60,21 +60,20 @@ impl Drop for MountedVolumeGuard {
     }
 }
 
-/// 找到「盘号 `disk` 上从 `offset` 开始的那块分区」所属的卷，把它卸载（并尽力锁定），
-/// 让随后的 `\\.\PhysicalDriveN` 裸写不再吃 `ERROR_ACCESS_DENIED`。
+/// 找到「盘号 `disk` 上从 `offset` 开始的那块分区」所属的卷，把它卸载（并尽力锁定）。
 ///
-/// 找不到覆盖该偏移的卷（卷对象不存在）→ 报错，宁可不写也不裸奔。
-pub(crate) fn lock_extent(disk: u32, offset: u64) -> Result<MountedVolumeGuard, String> {
+/// 返回 `Ok(None)` 表示**没有可枚举的卷对象**——这不是错误：ext4 这类 Windows
+/// 不认识的分区，mountmgr 经常不给它建 GUID 卷接口（2026-10-30 真机：24 个分区
+/// 只枚举到 10 个有盘符的），此时直接走分区设备写入即可，没有可锁的东西。
+pub(crate) fn lock_extent(disk: u32, offset: u64) -> Result<Option<MountedVolumeGuard>, String> {
     // \\?\Volume{xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx}\ —— 远短于 MAX_PATH，
     // 按 MSDN 样例给 261 一劳永逸。
     let mut name = [0u16; 261];
     unsafe {
         let find = FindFirstVolumeW(name.as_mut_ptr(), name.len() as u32);
         if find == INVALID_HANDLE_VALUE {
-            return Err(format!(
-                "枚举卷失败（Win32 错误 {}）：没法在裸写前卸载目标卷",
-                windows_sys::Win32::Foundation::GetLastError()
-            ));
+            // 枚举不起来就当没有可锁的卷：写入走分区设备，锁卷只是尽力而为
+            return Ok(None);
         }
 
         let mut more = 1i32; // windows-sys 的 BOOL
@@ -88,7 +87,7 @@ pub(crate) fn lock_extent(disk: u32, offset: u64) -> Result<MountedVolumeGuard, 
             match try_lock(open_path, disk, offset) {
                 Some(Ok(guard)) => {
                     FindVolumeClose(find);
-                    return Ok(guard);
+                    return Ok(Some(guard));
                 }
                 // 就是这个卷但卸载失败：带真实原因直接报，别再翻别的卷
                 Some(Err(error)) => {
@@ -102,11 +101,9 @@ pub(crate) fn lock_extent(disk: u32, offset: u64) -> Result<MountedVolumeGuard, 
         }
         FindVolumeClose(find);
 
-        let looked_at = if tried == 1 { "1 个卷" } else { &format!("{tried} 个卷") };
-        Err(format!(
-            "盘 {disk} 偏移 {offset} 找不到所属卷（比对了 {looked_at}）：\
-             裸写前必须卸载目标卷，否则 Windows 会以「拒绝访问」拦下写入"
-        ))
+        // 枚举完没有卷盖住这个偏移：ext4 等不认识的分区常态，交给分区设备写入
+        let _ = tried;
+        Ok(None)
     }
 }
 
