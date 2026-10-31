@@ -10,8 +10,10 @@
 //!    的消息循环上，收 `WM_DISPLAYCHANGE`：分辨率 / 色深 / 方向变化。
 //! 2. **轮询兜底**（用户实测 2026-10-31：改 DPI 缩放 300→175 时
 //!    `WM_SETTINGCHANGE(WindowMetrics)` 根本没到——这条广播不可靠）：
-//!    独立线程每 1.5s 读一次系统 DPI + 主屏分辨率，和上次比变了就触发。
-//!    广播收不收得到无所谓，任何缩放值都会被轮询抓到。
+//!    独立线程每 1.5s 枚举全部显示器，采样「物理分辨率 + EFFECTIVE_DPI」
+//!    签名，和上次比变了就触发。注意签名必须用每显示器的有效 DPI——
+//!    `GetDpiForSystem` 的「系统 DPI」登录时定格、运行中改缩放不动
+//!    （第一版轮询靠它，用户实测同样没反应的根因）。
 //!
 //! 收到后去抖 1s（显示切换常连发多条，重置落两拍几何也不便宜），然后
 //! `run_on_main_thread` 调 `window_geometry::reset_window_size_inner` —— 与
@@ -27,13 +29,15 @@ mod imp {
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::OnceLock;
     use std::time::Duration;
-    use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+    use windows_sys::Win32::Foundation::{BOOL, HWND, LPARAM, LRESULT, RECT, WPARAM};
+    use windows_sys::Win32::Graphics::Gdi::{
+        EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFO,
+    };
     use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
-    use windows_sys::Win32::UI::HiDpi::GetDpiForSystem;
+    use windows_sys::Win32::UI::HiDpi::GetDpiForMonitor;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, RegisterClassW,
-        TranslateMessage, GetSystemMetrics, MSG, WNDCLASSW, HWND_MESSAGE, SM_CXSCREEN,
-        SM_CYSCREEN, WM_DISPLAYCHANGE, WM_SETTINGCHANGE,
+        TranslateMessage, MSG, WNDCLASSW, HWND_MESSAGE, WM_DISPLAYCHANGE, WM_SETTINGCHANGE,
     };
 
     static APP: OnceLock<AppHandle> = OnceLock::new();
@@ -120,17 +124,49 @@ mod imp {
         }
     }
 
-    /// 当前显示环境签名：系统 DPI + 主屏分辨率。任一变化 = 缩放或分辨率动了。
-    /// 这些查询对进程 DPI 感知级别敏感，但 tauri(tao) 默认 per-monitor v2，
-    /// 拿到的就是真实值；就算被虚拟化，变没变这个**相对信号**依然成立。
-    fn display_signature() -> (u32, i32, i32) {
-        unsafe {
-            (
-                GetDpiForSystem(),
-                GetSystemMetrics(SM_CXSCREEN),
-                GetSystemMetrics(SM_CYSCREEN),
-            )
+    /// 显示器签名条目：物理宽、物理高、有效 DPI x/y（每台显示器一条）。
+    type MonitorSig = Vec<(i32, i32, u32, u32)>;
+
+    /// EnumDisplayMonitors 回调：收一台显示器的物理 rect + 有效 DPI。
+    unsafe extern "system" fn monitor_enum_proc(
+        hmonitor: HMONITOR,
+        _hdc: HDC,
+        _rect: *mut RECT,
+        lparam: LPARAM,
+    ) -> BOOL {
+        let list = &mut *(lparam as usize as *mut MonitorSig);
+        let mut info: MONITORINFO = std::mem::zeroed();
+        info.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+        if GetMonitorInfoW(hmonitor, &mut info) != 0 {
+            let mut dpi_x: u32 = 0;
+            let mut dpi_y: u32 = 0;
+            // MDT_EFFECTIVE_DPI = 该显示器当前缩放比例的体现，改缩放立即变。
+            // 查询失败（感知级别不配合）也不拦：物理 rect 的变化仍能抓到分辨率档。
+            let _ = GetDpiForMonitor(hmonitor, 0 /* MDT_EFFECTIVE_DPI */, &mut dpi_x, &mut dpi_y);
+            list.push((
+                info.rcMonitor.right - info.rcMonitor.left,
+                info.rcMonitor.bottom - info.rcMonitor.top,
+                dpi_x,
+                dpi_y,
+            ));
         }
+        1 // TRUE：继续枚举
+    }
+
+    /// 当前显示环境签名：全部显示器的（物理宽、高、有效 DPI），排序后比较。
+    /// 任何显示器改缩放（任意值）或改分辨率，签名都会变。
+    fn display_signature() -> MonitorSig {
+        let mut list: MonitorSig = Vec::new();
+        unsafe {
+            EnumDisplayMonitors(
+                std::ptr::null_mut(),
+                std::ptr::null(),
+                Some(monitor_enum_proc),
+                &mut list as *mut _ as LPARAM,
+            );
+        }
+        list.sort_unstable();
+        list
     }
 
     /// 轮询兜底线程：每 1.5s 采样一次显示签名，变了就走重置。
@@ -140,17 +176,30 @@ mod imp {
         std::thread::Builder::new()
             .name("display-dpi-poll".into())
             .spawn(move || {
+                // 首拍基线：显示器枚举签名 + 主窗 scale_factor（tao 收到
+                // WM_DPICHANGED 后更新，双保险，不依赖进程感知级别的假设）。
                 let mut last = display_signature();
+                let mut last_scale = window_scale();
                 loop {
                     std::thread::sleep(Duration::from_millis(POLL_INTERVAL_MS));
                     let now = display_signature();
-                    if now != last {
+                    let now_scale = window_scale();
+                    if now != last || now_scale != last_scale {
                         last = now;
+                        last_scale = now_scale;
                         request_reset("缩放/分辨率变化（轮询）");
                     }
                 }
             })
             .ok();
+    }
+
+    /// 主窗当前 scale_factor（拿不到窗口按 0.0，首轮之后窗口在就没问题）。
+    fn window_scale() -> f64 {
+        APP.get()
+            .and_then(|app| app.get_webview_window("main"))
+            .and_then(|window| window.scale_factor().ok())
+            .unwrap_or(0.0)
     }
 
     pub(super) fn spawn(app: AppHandle) {
