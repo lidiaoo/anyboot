@@ -1701,9 +1701,10 @@
   .pb-main, .pb-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
   /* 操作件打包：地址再窄也先把这组整体保留在一行，不会把 ✕ 漏到下一行 */
   .pb-act { display: flex; align-items: center; gap: 6px; flex: none; margin-left: auto; }
-  /* 「是否展示连通性」开关 + 旁边的三个字小标签（开关多了一颗，光看滑块分不清谁是谁） */
-  .pb-showprobe { display: inline-flex; align-items: center; gap: 3px; flex: none; }
-  .pb-showprobe-l { font-size: 10px; color: rgb(var(--fg-faint)); user-select: none; }
+  /* 开关旁的三个字小标签（一行两颗开关，光看滑块分不清谁是谁）：pb-swtag 通用，
+     pb-showprobe 是「连通性」沿用名（用户 2026-10-31：两颗开关都要有文字） */
+  .pb-showprobe, .pb-swtag { display: inline-flex; align-items: center; gap: 3px; flex: none; }
+  .pb-showprobe-l, .pb-swtag-l { font-size: 10px; color: rgb(var(--fg-faint)); user-select: none; }
   .pb-addr {
     flex: 1 1 200px; min-width: 0; padding: 4px 7px; font-size: 11.5px;
     border: 1px solid rgb(var(--line)); border-radius: 7px;
@@ -9417,6 +9418,15 @@ window.__bkOnShow = async function () {
     trk.setAttribute('aria-hidden', 'true');
     enable.appendChild(box);
     enable.appendChild(trk);
+    // 启用开关也带文字（用户 2026-10-31）：旁边连通性有标签，这颗光秃秃分不清
+    const enableWrap = document.createElement('span');
+    enableWrap.className = 'pb-swtag';
+    enableWrap.title = box.title;
+    enableWrap.appendChild(enable);
+    const enableLbl = document.createElement('span');
+    enableLbl.className = 'pb-swtag-l';
+    enableLbl.textContent = '启用';
+    enableWrap.appendChild(enableLbl);
     // 「是否展示连通性」（用户 2026-10-31）：默认开。关掉后电脑列表不显示这条
     // 配对的探测小字（延迟 / 失败原因）—— 探测照跑、连接照常，只是眼不见心不烦
     const showProbe = document.createElement('label');
@@ -9470,7 +9480,7 @@ window.__bkOnShow = async function () {
     act.appendChild(up);
     act.appendChild(down);
     act.appendChild(del);
-    act.appendChild(enable);
+    act.appendChild(enableWrap);
     act.appendChild(showProbeWrap);
     main.appendChild(act);
     const meta = document.createElement('div');
@@ -9959,7 +9969,16 @@ window.__bkOnShow = async function () {
       trk.className = 'trk';
       trk.setAttribute('aria-hidden', 'true');
       label.appendChild(input); label.appendChild(trk);
-      row.appendChild(label);
+      // 启停开关也带文字（用户 2026-10-31）：旁边连通性有标签，这颗光秃秃分不清
+      const labelWrap = document.createElement('span');
+      labelWrap.className = 'pb-swtag';
+      labelWrap.title = '启用 / 停用这条通道：停用后整条通道不参与探测与连接';
+      labelWrap.appendChild(label);
+      const labelTxt = document.createElement('span');
+      labelTxt.className = 'pb-swtag-l';
+      labelTxt.textContent = '启用';
+      labelWrap.appendChild(labelTxt);
+      row.appendChild(labelWrap);
       // 「是否展示连通性」开关（用户 2026-10-31）：默认开。关掉后电脑列表不显示
       // 这个通道所有条目的探测小字（延迟 / 失败原因）—— 探测照跑、连接照常
       const spLabel = document.createElement('label');
