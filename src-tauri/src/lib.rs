@@ -151,6 +151,7 @@ mod tray_classic;
 mod menu_model;
 mod tray_menu_window;
 mod notify;
+mod display_change_watch;
 
 pub(crate) use window_geometry::*;
 pub(crate) use dock_autohide::*;
@@ -3413,6 +3414,13 @@ pub fn run() {
                 // dbusmenu 由宿主渲染（GtkMenu 自带滚动）。Win/mac 不受影响。
                 #[cfg(target_os = "linux")]
                 linux_sni::spawn(app.handle().clone());
+                // Windows：分辨率 / DPI 缩放变化 → 按托盘「重置窗口大小」同一条
+                // 路径重算主窗尺寸（MESSAGEONLY 窗口收 WM_DISPLAYCHANGE /
+                // WM_SETTINGCHANGE"WindowMetrics"，去抖后 run_on_main_thread）。
+                // 之前的 fit-to-work-area 只在窗口自身 Resized/Moved 时夹取，
+                // 改分辨率不动窗口尺寸 → 事件不来 → 窗口纹丝不动（用户实测）。
+                #[cfg(target_os = "windows")]
+                display_change_watch::spawn(app.handle().clone());
                 if tray_menu_style_is_unified(app.handle()) {
                     // Windows / macOS：托盘只留**图标**，不挂任何原生菜单 —— 菜单是
                     // 同一扇自绘窗（tray-menu）。左键=显示主窗口，右键=自绘菜单。

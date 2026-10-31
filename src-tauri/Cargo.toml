@@ -74,6 +74,11 @@ windows-sys = { version = "0.59", features = [
     "Win32_UI_WindowsAndMessaging",
     # NVRAM 读写：Get/SetFirmwareEnvironmentVariableW（0.59 里在 WindowsProgramming 模块）
     "Win32_System_WindowsProgramming",
+    # 显示变化监听：RegisterClassW/WNDCLASSW 在 0.59 里挂在 Graphics_Gdi 门后
+    # （display_change_watch 的隐形窗口）
+    "Win32_Graphics_Gdi",
+    # 显示变化监听：GetModuleHandleW（display_change_watch 的隐形窗口类注册）
+    "Win32_System_LibraryLoader",
     # 提权重扫：SHELLEXECUTEINFOW 的 hkeyClass 字段挂在 Registry feature 下（0.59 的拆法）
     "Win32_System_Registry",
     # NVRAM dump：AdjustTokenPrivileges 启用 SeSystemEnvironmentPrivilege（提权≠特权已启用）
