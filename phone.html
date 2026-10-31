@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AnyBoot 移动端体验</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; min-height: 100vh; background: radial-gradient(1200px 600px at 50% -10%, #1c2740, #0d1117);
+         display: flex; flex-direction: column; align-items: center; font-family: -apple-system, "PingFang SC", sans-serif; }
+  .top { color: #8b949e; padding: 22px 16px 14px; text-align: center; font-size: 14px; line-height: 1.6; }
+  .top a { color: #58a6ff; text-decoration: none; margin-left: 12px; }
+  .phone { width: 392px; height: 830px; border-radius: 48px; background: #050507; padding: 10px;
+           box-shadow: 0 0 0 2px #30363d, 0 30px 80px rgba(0,0,0,.6); position: relative; }
+  .notch { position: absolute; top: 22px; left: 50%; transform: translateX(-50%); width: 110px; height: 26px;
+           background: #050507; border-radius: 999px; z-index: 5; border: 1px solid #30363d; }
+  .screen { width: 100%; height: 100%; border: 0; border-radius: 38px; background: #fff; }
+  @media (max-width: 600px) {
+    /* 真手机：不套框，全屏直达 */
+    body > .top, body > .phone { display: none; }
+    body::before { content: ""; }
+  }
+</style>
+<script>
+  // 手机 / 窄屏访问时直接跳到真实界面（假手机框套假手机框没有意义）
+  if (window.matchMedia("(max-width: 600px)").matches) {
+    location.replace("./app.html#/boot");
+  }
+</script>
+</head>
+<body>
+<div class="top">📱 移动端体验 —— 手机浏览器 / App 打开电脑上 AnyBoot 的样子<br>
+<a href="./app.html#/boot">全屏打开 ↗</a><a href="./index.html">← 返回首页</a></div>
+<div class="phone">
+  <div class="notch"></div>
+  <iframe class="screen" src="./app.html#/boot" title="AnyBoot 移动端演示"></iframe>
+</div>
+</body>
+</html>

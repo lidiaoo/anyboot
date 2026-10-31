@@ -1,0 +1,1089 @@
+<!doctype html>
+<html lang="zh-CN" data-page-node-id="ipKZaEBYXhuMMawECdW3B5">
+  <head data-page-node-id="g3yPX9BiTlbOqLdJRkXE1J">
+    <!-- build: 20261029-priv-boot-page（免密提权卡移入系统引导页；AppImage 提权走 ~/.cache 执行副本） -->
+    <meta charset="UTF-8" data-page-node-id="I7Y9wcNb3X4vlQ3AGJteWN" />
+    <!-- 首帧防闪：在 CSS 之前、脚本之前就把主题与不透明度写到 <html> 上。
+         后端 settings 仍是唯一真相源（app.js 拿到快照后会覆盖），这里只是
+         把「上一次已知的值」提前用上 —— 否则重载那一拍会先按默认暗色画一遍，
+         用户设置是亮色时就闪一下。localStorage 是只读镜像，不影响真实设置。 -->
+    <script>
+      (function () {
+        var ACCENT_KEYS = [
+          "--accent",
+          "--accent-hover",
+          "--accent-link",
+          "--accent-link-hover",
+        ];
+        try {
+          // 访客亮暗（abUi=light|dark，远程管理窗 / 手机 App 带来）：首帧就
+          // 照它画，不读本机镜像 —— app.js 同样按它渲染且不写回镜像。
+          var guestUi = new URLSearchParams(window.location.search).get("abUi");
+          if (guestUi === "light" || guestUi === "dark") {
+            document.documentElement.dataset.theme = guestUi;
+          } else {
+            var theme = localStorage.getItem("anyboot.theme-resolved");
+            if (theme === "light" || theme === "dark") {
+              document.documentElement.dataset.theme = theme;
+            }
+          }
+          var alpha = localStorage.getItem("anyboot.ui-alpha");
+          if (alpha) {
+            document.documentElement.style.setProperty("--ui-alpha", alpha);
+          }
+          // 强调色四项（含派生色阶）一并还原，首帧按钮/链接色不跳
+          for (var i = 0; i < ACCENT_KEYS.length; i++) {
+            var name = ACCENT_KEYS[i];
+            var value = localStorage.getItem("anyboot." + name.slice(2));
+            if (value) {
+              document.documentElement.style.setProperty(name, value);
+            }
+          }
+        } catch (e) {
+          /* localStorage 不可用：按默认暗色走 */
+        }
+      })();
+    </script>
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" data-page-node-id="EqVHhk2BvU9iAnH7og8YL2" />
+    <title>AnyBoot</title>
+    <link href="./styles.css" rel="stylesheet" data-page-node-id="TW40ENGyWRZ8hfyIKgbDdc" />
+  </head>
+  <body data-page-node-id="hHneRKjKOaDVqQOirfcUOC">
+    <!-- 贴边隐藏时，窗口贴在屏幕某条边只露一条缝：这条小白条就是那道缝，
+         提示用户「鼠标移到这儿就能把窗口展开」。只在不停靠时由 JS 加类显示。 -->
+    <div id="dock-strip" data-page-node-id="za8JFIW7TVx0EtkUFcqdgj"></div>
+    <!-- 热区可视化层：贴边态下把「鼠标移入即呼出」的触发带画出来（默认全透明
+         看不见），调试热区厚度/边界时打开底色或边框。几何由 app.js 按
+         「热区厚度 − 贴边缝隙」写入 CSS 变量，超出窗口槽位（40px）的部分
+         在窗口外，天然被裁掉。 -->
+    <div id="hotzone" data-page-node-id="8uHDBxXqvTjBBgBExM7mu2"></div>
+    <!-- 单栏主容器：原来的「右栏 = GRUB 专属区」（展示方式 ③④）已移除 ——
+         加宽 / 左右布局由「引导高级设置 → 布局」接管（窗口落宽走后端
+         set_boot_layout，两栏滚动容器由 boot-adv.js 自建）。 -->
+    <div class="app-columns" data-page-node-id="1OTCHz4amVxgkNtMylMSAx">
+      <!-- 左栏：原主窗口的全部内容 -->
+      <main class="pane pane-main" data-page-node-id="EJa4vqxl29IOquEVLGPj5N">
+        <header data-page-node-id="LbHHCD0vLyCxN9CoKPOMr7">
+          <!-- 电源三键贴着应用名放同一行、右对齐（用户定案 2026-10-13）：
+               高频动作抬到最顺手的位置，左栏留给引导主流程 -->
+          <div class="header-row">
+            <h1 data-page-node-id="z7rmJtH6aBtPGSohd0cT0u">AnyBoot</h1>
+            <!-- 工具条一律「纯图标小方钮」（用户定案 2026-10-30：这一排文字太占位置，
+                 标题行被顶掉半截）。文案不丢：title 给原生悬浮提示、aria-label 给
+                 读屏与自动化，脚本仍按 id 取用，逻辑零改动。
+                 图标是 16×16 的描边 set，跟引导页那套（svg.i）同一视觉语言。 -->
+            <div class="system-actions">
+              <!-- 远程管理（SSH 终端 / SFTP 文件 / 密钥 / 隧道）是同级的另一个模块：
+                   入口在这里给一份全局的；终端、文件、密钥三个独立窗的顶栏也各有一份，
+                   走到哪儿都能一步回到远程管理。网页端（远程控制页）无意义，由 app.js 隐藏。 -->
+              <button aria-label="远程管理" class="secondary ico-btn" id="open-hub" title="远程管理" type="button" data-page-node-id="OpenHubBtn001QaZx9CdEf2"><svg aria-hidden="true" class="i" focusable="false" viewBox="0 0 16 16"><rect height="8.2" rx="1.4" width="11.6" x="2.2" y="3"/><path d="M5.4 6.2 7 7.6 5.4 9"/><path d="M8.4 9h2.4"/></svg></button>
+              <button aria-label="重启系统" class="secondary ico-btn" id="power-reboot" title="重启系统" type="button" data-page-node-id="2RIN6kKHt7BM26YL6EVjzc"><svg aria-hidden="true" class="i" focusable="false" viewBox="0 0 16 16"><path d="M12.8 8a4.8 4.8 0 1 1-1.5-3.5"/><path d="M13 3.1v3h-3"/></svg></button>
+              <button aria-label="关机" class="secondary ico-btn" id="power-shutdown" title="关机" type="button" data-page-node-id="xEVk1ZrGxSZHXPzAnd1orK"><svg aria-hidden="true" class="i" focusable="false" viewBox="0 0 16 16"><path d="M8 2.6v5"/><path d="M11.7 4.8a5 5 0 1 1-7.4 0"/></svg></button>
+              <button aria-label="睡眠" class="secondary ico-btn" id="power-sleep" title="睡眠" type="button" data-page-node-id="eiRSB4x9Qn7sTfWEjJnjqH"><svg aria-hidden="true" class="i" focusable="false" viewBox="0 0 16 16"><path d="M10.6 2.5a5.6 5.6 0 1 0 2.9 8.3 4.7 4.7 0 0 1-2.9-8.3Z"/></svg></button>
+              <!-- 应用自身的两个动作跟在电源三键后面（用户定案 2026-10-15）：
+                   系统动作在前、程序动作在后，同一行右对齐 —— 托盘菜单里的
+                   「退出程序」就是这个按钮的托盘版，语义完全一致。
+                   网页端（远程）没有意义也不放行，由 app.js 隐藏。 -->
+              <button aria-label="重启程序" class="secondary ico-btn" id="restart-app" title="重启程序" type="button" data-page-node-id="RstAppBtn0012QaZx9CdEf2"><svg aria-hidden="true" class="i" focusable="false" viewBox="0 0 16 16"><rect height="10.4" rx="2.2" width="10.4" x="2.8" y="2.8"/><path d="M9.6 6.4a2.3 2.3 0 1 0 .3 3.2"/><path d="M9.8 4.9v1.7H8.1"/></svg></button>
+              <button aria-label="退出程序" class="secondary ico-btn" id="quit-app" title="退出程序" type="button" data-page-node-id="QuitAppBtn001QaZx9CdEf2"><svg aria-hidden="true" class="i" focusable="false" viewBox="0 0 16 16"><path d="M9.7 2.7h2a1.4 1.4 0 0 1 1.4 1.4v7.8a1.4 1.4 0 0 1-1.4 1.4h-2"/><path d="M3 8h5.5"/><path d="M6.3 5.8 4.1 8l2.2 2.2"/></svg></button>
+            </div>
+          </div>
+          <p id="status" data-page-node-id="cAHMTMt6bTdwE2O13BnbnI">正在扫描 rEFInd 变量目录…</p>
+        </header>
+
+        <!-- 界面栏目页签：主功能（引导切换）在前，设置低频收在后。
+             切换纯前端、localStorage 记住上次的栏目。 -->
+        <nav aria-label="界面栏目" class="tabs" id="tabs" data-page-node-id="ujqjfv4LcoPl00TnoXePfB">
+          <button class="tab active" data-tab="boot" type="button" data-page-node-id="QjwgqcKkegbDMH18R3P0BP">系统引导</button>
+          <button class="tab" data-tab="adv-boot" type="button">引导高级设置</button>
+          <button class="tab" data-tab="settings" type="button" data-page-node-id="KewiPZuQfLAU8WJBd1FbQg">基本设置</button>
+          <button class="tab" data-tab="sol" type="button">SOL 远程唤醒</button>
+        </nav>
+
+        <!-- 栏目一：系统引导 —— rEFInd（下次启动 / 电源 / 系统列表 / 变量目录）
+             与 GRUB 启动项同页，两套引导器并列。 -->
+        <div class="tab-panel active" id="tab-boot" data-page-node-id="KhgEQEjVWU0ev9h19cGCfq">
+        <section aria-label="下次启动" class="next-boot" id="next-boot" data-page-node-id="Yqo4Jg3zpnxoHdIFHeKkrB">
+          <small data-page-node-id="exBlOMxEq761I1Tej3EyQY">下次启动</small>
+          <strong id="next-boot-name" data-page-node-id="AMVyFOoOKANoXH2D2Yvimg">未知</strong>
+          <small class="next-boot-last" id="next-boot-last" hidden>上次启动 <b></b></small>
+          <!-- 每行 = 一个引导器 + 它当前选中的条目（2026-10-30 用户定案：只列
+               「引导高级设置」里勾选启用的引导器，没启用的不出现）。由
+               boot-adv.js 的 paintNextBootRows 填充；有内容时原来的单行大字
+               自动让位（.next-boot.has-rows）。 -->
+          <div class="next-boot-rows" id="next-boot-rows" hidden></div>
+        </section>
+
+        <!-- 电源三键已上移到头部（应用名右侧、右对齐），原独立段落取消 -->
+
+        <!-- rEFInd 区（用户定案 2026-10-13）：整块套进与 GRUB 区同款的卡片
+             背板（.refind 与 .grub 同一边框/底色/圆角），圆标 + 标题一行与
+             GRUB 区完全同构 —— 标题就叫「rEFInd 启动项」，与「GRUB 启动项」对齐。 -->
+        <section aria-label="rEFInd 启动项" class="refind" id="refind">
+          <div class="grub-title-row">
+            <span class="zone-tag" id="refind-zone-tag">rEFInd 区</span>
+            <h2>rEFInd 启动项</h2>
+          </div>
+
+          <!-- 面板一：自动扫描 —— 按 rEFInd 自己的规则（refind/scan.c）复算菜单。
+               纯读：不写盘、不改 PreviousBoot、不需要提权，永远不影响手动那条。 -->
+          <div class="grub-panel" id="refind-panel-auto" role="tabpanel" aria-labelledby="refind-tab-auto">
+          <section aria-label="模拟引导项扫描" class="sim-scan" id="sim-scan">
+            <div class="sim-scan-head">
+              <h3>模拟引导项扫描</h3>
+              <small>按 rEFInd 规则复算 · 点条目展开第二层（rEFInd 里按 Tab / + / F2 进入）· 「下次启动」写 vars/PreviousBoot</small>
+              <button class="secondary" id="sim-scan-refresh" type="button" title="重新读一遍 ESP 与 refind.conf，重算菜单">重新模拟</button>
+            </div>
+            <p class="sim-scan-summary" id="sim-scan-summary"></p>
+            <div class="sim-scan-issues" id="sim-scan-issues"></div>
+            <div class="sim-scan-list" id="sim-scan-list"></div>
+            <details class="sim-scan-hidden" id="sim-scan-hidden" hidden>
+              <summary>被隐藏的 <b id="sim-scan-hidden-count">0</b> 项（rEFInd 菜单里看不到）</summary>
+              <div class="sim-scan-list" id="sim-scan-hidden-list"></div>
+            </details>
+          </section>
+          </div>
+
+          <!-- 面板二：手动处理 —— vars/PreviousBoot 快照那条链路：三行系统。
+               变量目录设置已移到标签行之后（它只影响这条链路读写 vars 的位置）。 -->
+          <div class="grub-panel" id="refind-panel-manual" role="tabpanel" aria-labelledby="refind-tab-manual" hidden>
+          <section aria-label="可启动系统" id="systems" data-page-node-id="Id8skElJCJlzu02uKr9biB"></section>
+          </div>
+
+          <!-- ══════════ 两个横向标签（用户定案 2026-10-29，与 GRUB 区同构）══════════
+               「自动扫描」默认选中：按 rEFInd 规则复算菜单，纯读、零准备；
+               「手动处理」是 vars/PreviousBoot 快照那条链路 —— 点条目 = 写快照。
+               标签只切面板显隐；「下次启动」大字是两条链路共用的回显，留在标签上面。 -->
+          <div class="grub-tabs" id="refind-tabs" role="tablist" aria-label="rEFInd 读取方式">
+            <button
+              class="grub-tab is-active"
+              id="refind-tab-auto"
+              type="button"
+              role="tab"
+              aria-selected="true"
+              aria-controls="refind-panel-auto"
+              data-refind-tab="auto"
+            >
+              自动扫描
+            </button>
+            <button
+              class="grub-tab"
+              id="refind-tab-manual"
+              type="button"
+              role="tab"
+              aria-selected="false"
+              aria-controls="refind-panel-manual"
+              data-refind-tab="manual"
+            >
+              手动处理
+            </button>
+          </div>
+
+          <!-- 变量目录属于 rEFInd 区，跟在系统列表正下方（用户定案 2026-10-13） -->
+          <section class="directory" data-page-node-id="bY3QCnDBj6y94lntyxAKEl">
+          <label for="vars-dir" data-page-node-id="AACq8BrwDR4bZWBrPKkTfs">变量目录</label>
+          <input id="vars-dir" placeholder="留空则自动扫描 EFI/refind/vars" spellcheck="false" type="text" data-page-node-id="1yUoG52MASLck2ARaiWp8g" />
+          <div class="actions" data-page-node-id="h9N94Nb2KFxNxXiQ2u64FJ">
+            <button class="secondary" id="open-vars-dir" type="button" data-page-node-id="tXkN6CAEmlKg7iXwd8W9kP">打开变量目录</button>
+            <button id="use-directory" type="button" data-page-node-id="hTqaoTH32yxmTd3KpxSzJp">使用此目录</button>
+            <button class="secondary hidden" id="unmount-temporary" type="button" data-page-node-id="5facgAl7jq1lcpPKiCLq5j">卸载临时挂载</button>
+            <button class="secondary" id="refresh" type="button" data-page-node-id="rG8qunodWqs3ws7YyniDz7">扫描</button>
+          </div>
+        </section>
+        </section><!-- /refind -->
+
+        <!-- rEFInd 区与 GRUB 区的分界：两套引导机制并列，一道明显的横隔
+             防止用户把下面的启动项当成 rEFInd 的一部分（GRUB 独立右栏模式下
+             这道线随 #grub 一起藏掉，见 CSS）。 -->
+        <hr aria-hidden="true" class="boot-divider" id="boot-divider" data-page-node-id="qCCL2xeAguBzMTyKHHMztT" />
+
+        <section aria-label="GRUB 启动项" class="grub" id="grub" data-page-node-id="PJMPhLqMDBSQHKxL7f1Avw">
+          <div class="grub-head" data-page-node-id="2ERY47G82KULQdagoCej2B">
+            <div class="grub-title-row">
+              <span class="zone-tag" id="grub-zone-tag">GRUB 区</span>
+              <h2 data-page-node-id="Pvya5hK0zkLtyPd0NzIA0X">GRUB 启动项</h2>
+            </div>
+            <small class="grub-pane-status" id="grub-status" role="status" data-page-node-id="1DT8K5Hur4K5THcJNfSBEB"></small>
+            <small id="grub-meta" data-page-node-id="yfF4nq97WpiwUYJWnddipQ"></small>
+          </div>
+
+          <!-- 面板一：自动读取 —— 直接读 Linux 分区自己的 /boot/grub{,2} -->
+          <div class="grub-panel" id="grub-panel-auto" role="tabpanel" aria-labelledby="grub-tab-auto">
+            <section aria-label="自动读取（Linux 分区自己的 GRUB）" class="grub-auto" id="grub-auto">
+              <div class="grub-auto-head">
+                <h3>直接读 Linux 分区自己的 grub.cfg <small>不用装 09_anyboot</small></h3>
+                <button class="secondary" id="grub-auto-refresh" type="button" title="按下方选的 ESP 分区重新定位 Linux 分区并读取">重新读取</button>
+              </div>
+              <p class="grub-auto-summary" id="grub-auto-summary"></p>
+              <div class="grub-auto-issues" id="grub-auto-issues"></div>
+              <!-- 一个框装完（用户定案 2026-10-29）：分区明细当框头、启动项当框身。
+                   原来两块各自带边框，读起来像「框里还有一个框」，也把有限的
+                   纵向空间切掉两刀。 -->
+              <div class="grub-auto-card" id="grub-auto-card">
+                <div class="grub-auto-target" id="grub-auto-target" hidden></div>
+                <div class="grub-list" id="grub-auto-list"></div>
+              </div>
+              <!-- 候选分区折成一行小字（用户定案 2026-10-29）：定位到唯一一块时
+                   这一整块不该占版面，点开才有内容。判定不出（confidence=none）
+                   时自动展开 —— 那会儿它是唯一的出路。 -->
+              <details class="grub-auto-picker" id="grub-auto-picker" hidden>
+                <summary id="grub-auto-picker-summary">换一块分区读</summary>
+                <div class="grub-auto-candidates" id="grub-auto-candidates"></div>
+              </details>
+              <small class="grub-auto-foot" id="grub-auto-foot"></small>
+            </section>
+          </div>
+
+          <!-- 面板二：手动解析 —— 读 ESP 上的 /EFI/grub.cfg（由 09_anyboot 同步） -->
+          <div class="grub-panel" id="grub-panel-manual" role="tabpanel" aria-labelledby="grub-tab-manual" hidden>
+            <p class="grub-panel-note">
+              读的是 ESP 上的 <code>/EFI/grub.cfg</code> 与 <code>/EFI/grubenv</code>：在 Linux 上装
+              <code>09_anyboot</code> 后，每次 <code>update-grub</code> 会把它同步过来。
+            </p>
+            <div class="grub-list" id="grub-list" data-page-node-id="LCPEAOijd48J8tVo1t58qD"></div>
+
+            <!-- 安装 / 卸载 09_anyboot：只在 Linux 上出现 -->
+            <div class="actions hidden" id="grub-install-actions" data-page-node-id="rs4TR1K7mWcOHBW2OniR7a">
+              <button class="secondary" id="grub-install" type="button" data-page-node-id="FrD4MFnk0yYAsPaXzE53TF">
+                安装 09_anyboot
+              </button>
+              <button class="secondary" id="grub-uninstall" type="button" data-page-node-id="ajDxCqDTUrgBF3dnavWhE2">
+                卸载 09_anyboot
+              </button>
+            </div>
+            <!-- 安装 / 卸载的执行过程：跑了哪几条命令、退出码多少、stderr 说了什么 -->
+            <details class="grub-log hidden" id="grub-log-box" data-page-node-id="cs8hZg1jYIg5ba9H8nyRD2">
+              <summary id="grub-log-summary" data-page-node-id="flEuBTclDyBBJi7iEyME5j">执行过程</summary>
+              <pre id="grub-log" data-page-node-id="wBWnBo5TUVCDBcJlFhZE2U"></pre>
+            </details>
+
+            <details class="grub-script" data-page-node-id="AdpXjg6u4z6jBBEXv1f5Lk">
+              <summary data-page-node-id="AGUVjPpH0OmCFwBlnu4WnK">查看 / 修改内置脚本（09_anyboot）</summary>
+              <small
+                 data-page-node-id="wL190GWBgzKbnXXp96M40A">安装时只把 <code data-page-node-id="BJetAZzrR6iCdUbuQRg11D">@@ESP_UUID@@</code> 换成下方「ESP 分区」里填的 fs-uuid，其余按这里的正文来；
+                清空后保存 = 恢复内置模板</small
+              >
+              <textarea id="grub-script" rows="8" spellcheck="false"></textarea>
+              <div class="actions" data-page-node-id="HNJOaOD4H2d56IeHFu3nRa">
+                <button class="secondary" id="grub-script-save" type="button" data-page-node-id="8YUhMA1H6qr8fVULLZ3OWK">
+                  保存脚本
+                </button>
+                <button class="secondary" id="grub-script-reset" type="button" data-page-node-id="NkzPQCqRUVpOyb3vuYguUa">
+                  恢复内置
+                </button>
+              </div>
+            </details>
+
+            <!-- 引导配置须知（用户定案 2026-10-13）：os-prober / EFI 顺序 /
+                 Windows 分区标志，是「GRUB 列表里能看到别的系统」的前提。 -->
+            <small class="grub-advice" id="grub-advice" data-page-node-id="yBgBbmYqfxSmFWHG8zjym9">
+              <strong data-page-node-id="V8PjZ9VPqrp8BNI9pTCss9">引导配置须知</strong>
+              <ul data-page-node-id="ozkyMO6JF7TuRObyxDxpsG">
+                <li data-page-node-id="rnRegt5UTcY1aTXOuOkihp">Linux 必须开启 <strong data-page-node-id="zeFbawh0l4hgeOFPTkyZ0W">os-prober</strong>：在 <code data-page-node-id="W6OxfYDkqdfuNAY1kPpYTo">/etc/default/grub</code> 里加
+                  <code data-page-node-id="FMmDbYD0gacABUEo5gBvtm">GRUB_DISABLE_OS_PROBER=false</code> 后执行 update-grub，其他系统的启动项才会进 grub.cfg；
+                  装了多个 Linux 发行版时，只需让<strong data-page-node-id="LvdZkjb1segkPMRRj5uJWb">一个</strong>发行版管理 EFI（它的 GRUB + os-prober 收集其余系统）。</li>
+                <li data-page-node-id="f052j0rxBHwAxNnmZy5FMH">Windows 的 EFI 分区，GPT 标志必须是 <code data-page-node-id="D4z7ydyrDzXGrDM4dsxzI6">boot, efi</code>（gparted 里给该分区设 boot 标志），
+                  否则 os-prober 不识别它。</li>
+                <li data-page-node-id="fWLStrFB90YT37a8qFQP2M"><strong data-page-node-id="nGqy6EHpZjQbhxBEE3xvxs">EFI 第一启动项</strong>：用 rEFInd 就把 rEFInd 的 EFI 设为第一启动项；
+                  不用 rEFInd 就把 GRUB 的 EFI 设为第一启动项。</li>
+              </ul>
+            </small>
+          </div>
+
+          <!-- ══════════ 两个横向标签（用户定案 2026-10-29）══════════
+               「自动读取」排第一位并默认选中：没装 09_anyboot 的大多数人都该走这条，
+               它不需要任何 Linux 侧准备。标签只切面板显隐，不动公共区。 -->
+          <div class="grub-tabs" id="grub-tabs" role="tablist" aria-label="GRUB 读取方式">
+            <button
+              class="grub-tab is-active"
+              id="grub-tab-auto"
+              type="button"
+              role="tab"
+              aria-selected="true"
+              aria-controls="grub-panel-auto"
+              data-grub-tab="auto"
+            >
+              自动读取
+            </button>
+            <button
+              class="grub-tab"
+              id="grub-tab-manual"
+              type="button"
+              role="tab"
+              aria-selected="false"
+              aria-controls="grub-panel-manual"
+              data-grub-tab="manual"
+            >
+              手动解析
+            </button>
+          </div>
+
+          <!-- 列表格式：原始（现版样式）/ 极简（去前缀内核名）/ 简易（极简 +
+               组头带 ESP 位置）/ 中等（完整内核名）/ 复杂（完整名称 + 内核右对齐）。
+               组头按关键字（windows/mac/linux）加系统图标。纯前端渲染偏好。 -->
+          <div class="grub-row" id="grub-format-row" data-page-node-id="AhLzGPu8QYiJQBSfZj4H4t">
+            <label for="grub-list-format" data-page-node-id="CZD8oPWxoHqAitmg11hYa7">列表格式</label>
+            <select id="grub-list-format" data-page-node-id="a2M8g69d5WyLflbz17JV4b">
+              <option value="raw" data-page-node-id="hBhezIULIbwCozFZgdcpPD">原始</option>
+              <option value="minimal" selected data-page-node-id="SmwfYe4rLeuyLhCQbPZr1m">极简</option>
+              <option value="simple" data-page-node-id="4r555wva23wPCZCQEIbdKt">简易</option>
+              <option value="medium" data-page-node-id="OJG2gtJA0V5bX3hU4DwGi8">中等</option>
+              <option value="detailed" data-page-node-id="HlzSpvXh2IJoBI3pzEUCDv">复杂</option>
+            </select>
+          </div>
+
+          <!-- ══════════ 公共区域：ESP（用户定案 2026-10-29）══════════
+               两种读取方式都要先答「哪块 ESP」：手动解析读它上面的 /EFI/grub.cfg，
+               自动读取拿它去各 Linux 分区的 fstab 里反查。放进任何一个标签都会让
+               另一种模式找不到配置入口，所以它必须站在标签之外、对两边同时可见。 -->
+          <div class="grub-esp" id="grub-esp">
+            <div class="grub-esp-head">
+              <strong>ESP 分区</strong>
+              <small>手动 / 自动共用</small>
+            </div>
+
+            <!-- 空状态跟列表占同一个位（用户定案 2026-10-13） -->
+            <div class="grub-empty-state" id="grub-empty" hidden data-page-node-id="EOBeOTB3G44gTvyN1RsDez">
+              <strong data-page-node-id="JjEOrGo6Rl3CADIKmfEN3A">还没识别到 GRUB 启动信息</strong>
+              <small
+                 data-page-node-id="WqskiLQdcw0AsB3QZ7Ev68">选 ESP 分区里的文件夹去识别，或直接填下面的 fs-uuid ——
+                两种方式填一个就行，另一个会自动对上</small
+              >
+              <div class="actions" data-page-node-id="nmlwFViptksRAnRXWGN431">
+                <button class="secondary" id="grub-empty-pick" type="button" data-page-node-id="n8pLbwhxNjnrNo50pl4CoZ">
+                  选择文件夹识别…
+                </button>
+              </div>
+            </div>
+
+            <!-- 先给目录、点「识别」——自动判断是不是 FAT32 并从中取出 fs-uuid；
+                 也可以什么都不给、只手工填下面的 fs-uuid，两种方式等价。
+                 「选择文件夹」呼出系统文件夹选择框，选中后自动走识别。
+                 「保存」只存目录原文（清空后保存即清掉目录，fs-uuid 不动）。 -->
+            <div class="grub-row" data-page-node-id="ZYT8Gzp7nhZgh6gQhbhbO0">
+              <label for="grub-dir" data-page-node-id="8aYgzDbg5RyzkwYXgD3gNI">ESP 目录</label>
+              <input
+                id="grub-dir"
+                placeholder="H:\ 或 /boot/efi 或 /Volumes/ARCH-EFI（分区里任意路径都行）"
+                spellcheck="false"
+                type="text" data-page-node-id="ip1eWyBijIA7rc5yLPArkT"
+              />
+              <button class="secondary" id="grub-dir-pick" type="button" data-page-node-id="cEV12U9W0GUVJMBAUEJ1nK">选择文件夹…</button>
+              <button class="secondary" id="grub-dir-detect" type="button" data-page-node-id="XHx1WDh81vw6PrVR8SSceF">识别</button>
+              <button class="secondary" id="grub-dir-save" type="button" data-page-node-id="tg8I0RHbFBJjxN3DaKxjby">保存</button>
+              <button class="secondary" id="grub-dir-open" type="button" data-page-node-id="FBiFqxy78EjGruVgmffb6n">
+                打开文件管理器
+              </button>
+            </div>
+
+            <div class="grub-row" data-page-node-id="Q2wgvOuonjQUlK8boI9dcE">
+              <label class="grub-check" for="grub-mount" data-page-node-id="zvdg5IhTxiS60U3EWAoyZs">
+                <input id="grub-mount" type="checkbox" data-page-node-id="MMIDNHN2BQJ2jpiZ4tmw6Z" />
+                <span id="grub-mount-label" data-page-node-id="ZINZFYWIt8UtD0HLLqhqDL">挂载 ESP（勾上后可直接读写）</span>
+              </label>
+              <small class="grub-part" id="grub-part" data-page-node-id="TKSXMHWEEKYPt2uNWBug38"></small>
+            </div>
+
+            <div class="grub-row" data-page-node-id="y0ZTlPd72eEyWXAZqVQ3W8">
+              <label for="grub-partuuid" data-page-node-id="GBAJWylnusFh3fymtGqjJu">ESP 的分区 UUID</label>
+              <input
+                id="grub-partuuid"
+                placeholder="GPT 分区 GUID，如 F69D7BF9-E8A9-3135-A5CB-4BD0CA7344E3（三端同值：Linux lsblk -o PARTUUID / macOS diskutil / Windows Get-Partition）"
+                spellcheck="false"
+                type="text" data-page-node-id="jTwP3cJw3YQl41wSG8UOHz"
+              />
+              <button class="secondary" id="grub-partuuid-save" type="button" data-page-node-id="OcgnXyOVYQU1004Wz5oJsm">保存</button>
+              <button class="secondary" id="grub-partuuid-detect" type="button" data-page-node-id="FWKKiT0OGC95lDVB76GxwG">识别</button>
+            </div>
+
+            <!-- 同步（用户定案）：把当前系统 /boot/grub（或 grub2）的 grub.cfg 覆盖
+                 搬进 ESP，grubenv 没有才搬；硬性条件是该分区已挂载到 /boot 或
+                 /boot/efi，否则不动（不自动挂载、不 pkexec、不写盘）。识别只解析。 -->
+            <div class="grub-row" data-page-node-id="AtbiPKZODJ0t3MpmNuBz34">
+              <button class="secondary" id="grub-sync" type="button" data-page-node-id="EzaAhncRF0DurPaAZzLOjR">同步</button>
+              <small class="grub-part" id="grub-sync-note" data-page-node-id="f1hfafUpmu1p7ZeIhAJ1pK"
+                >把当前系统 /boot/grub/grub.cfg 同步到 ESP（需已挂载到 /boot 或 /boot/efi）</small
+              >
+            </div>
+          </div>
+
+          <p class="grub-hint" id="grub-hint" data-page-node-id="3dawabOWBkuO3puhUVYJxY"></p>
+
+          <p class="grub-error hidden" id="grub-error" role="status" data-page-node-id="4Gwu6OIMFupjTCE0FeHvI6"></p>
+        </section>
+
+        <!-- ══════════ 三引导器通道（systemd-boot / OpenCore / Clover） ══════════ -->
+        <hr aria-hidden="true" class="boot-divider" />
+        <!-- 卡片由 boot-list-view.js 按快照的 channels 数组动态渲染 -->
+        <div id="boot-channels-mount"></div>
+
+        <!-- 未检测到的引导器：折叠条，不占版面（boot-list-view.js 维护内容与显隐） -->
+        <div class="boot-channel-collapsed" id="boot-channel-collapsed" hidden>
+          <span>其他引导器</span>
+          <span class="boot-channel-collapsed-names" id="boot-channel-collapsed-names"></span>
+        </div>
+        <!-- ══════════ /三引导器通道 ══════════ -->
+
+        <!-- ══════════ Linux 免密提权（sudoers）══════════
+             服务于本机引导管理：「设为默认」写固件变量、读写 ESP 不再每次弹密码。
+             非 Linux 由后端 status.platform=false 直接隐藏。原在 hub.html 关于页，
+             但 hub 是远程管理窗、这功能只管本机 —— 用户定案 2026-10-29 移到系统引导页。 -->
+        <section aria-label="免密提权" class="priv-card" id="privCard" hidden>
+          <div class="priv-head">
+            <h3>免密提权</h3>
+            <span class="priv-badge" id="privBadge">读取中</span>
+          </div>
+          <p class="priv-state" id="privState">正在读取状态…</p>
+          <p class="priv-paths mono" id="privPaths"></p>
+          <div class="actions">
+            <button id="privInstall" type="button">安装免密组件</button>
+            <button class="secondary" id="privRemove" type="button">移除授权</button>
+          </div>
+          <div class="priv-pw" id="privPwBox" hidden>
+            <label for="privPw">本机登录密码（只在本次运行的内存里，用于 sudo 兜底）</label>
+            <input id="privPw" type="password" autocomplete="off" spellcheck="false" placeholder="登录密码" />
+            <div class="actions">
+              <button id="privPwGo" type="button">用密码继续</button>
+              <button class="secondary" id="privPwCancel" type="button">取消</button>
+            </div>
+          </div>
+          <p class="priv-note" id="privNote"></p>
+        </section>
+        <!-- ══════════ /免密提权 ══════════ -->
+        </div><!-- /tab-boot -->
+
+        <!-- 栏目一·右：引导高级设置（设计稿 docs/boot-menu-layouts.html 方案 K）
+             启用引导器 / 版式主题 / 布局（默认|左右）/ 菜单样式 / 上下排序 /
+             引导器设置（ESP·权限·默认项·脚本·免密）；配置驱动「系统引导」页渲染。
+             面板内容由 boot-adv.js 渲染（bootAdvRender），本节点只是挂载点。 -->
+        <div class="tab-panel" id="tab-adv-boot">
+          <div id="boot-adv-mount"></div>
+        </div>
+
+        <!-- 栏目二：基本设置 —— 应用设置 + 远程控制 -->
+        <div class="tab-panel" id="tab-settings" data-page-node-id="HiFBWeQAK6DDHnCplD8NHx">
+        <section aria-label="应用设置" class="settings" data-page-node-id="dTWHwQ6tJPaQ5pLecKAHOn">
+          <h2 data-page-node-id="jJR2CiOkekhjV0FHh2v9Yx">应用设置</h2>
+          <label class="setting" data-page-node-id="sDCPx0BuJWtXIklVq9qR6j">
+            <span class="setting-text" data-page-node-id="g29ETmPdq1D9jsHY2HabtZ">
+              <strong data-page-node-id="ttMFs0f8vqt4I6zwGr6QAf">开机启动</strong>
+              <small data-page-node-id="fMVyMDSq2klGuQeoXmo0YU">登录系统后自动启动，常驻托盘待命</small>
+              <small class="setting-state" id="autostart-state" data-page-node-id="MvUlE8BoQy74FTC3pxMopE"></small>
+            </span>
+            <input id="autostart" type="checkbox" data-page-node-id="dc3UywUGfTp5j2Xh42DrRs" />
+          </label>
+          <label class="setting" data-page-node-id="BdxG3kK13RqBS5hL4uZ4xp">
+            <span class="setting-text" data-page-node-id="b4qhZ0m7PBmu5YggxWJHbP">
+              <strong data-page-node-id="rgfGwr5R1l7vwoICToE1G6">启动时隐藏主界面</strong>
+              <small data-page-node-id="Q8LTAO4z5gc2J1pTUs4AO8">启动后不直接打开主菜单，仅显示在托盘</small>
+            </span>
+            <input id="start-in-tray" type="checkbox" data-page-node-id="4q2c3E1kfBhieiD6DzSw9s" />
+          </label>
+          <label class="setting" data-page-node-id="JYjXa0Sq6Dyc3I60ByTJy4">
+            <span class="setting-text" data-page-node-id="AAkBfRF6p7ZaCuGksD4sOF">
+              <strong data-page-node-id="0QdRGvc5eB56MFRJBZzAkE">窗口始终置顶</strong>
+              <small data-page-node-id="F6Ee83wLShVbQKsHHpe4vj">主窗口任何情况下都不被别的窗口盖住；取消勾选后可被正常覆盖</small>
+            </span>
+            <input id="main-always-on-top" type="checkbox" data-page-node-id="O9ZNIVPBLCXfE31isdn2O6" />
+          </label>
+          <label class="setting" data-page-node-id="zthYAD1BUIo8aEtvsGnHvn">
+            <span class="setting-text" data-page-node-id="1tKU2uCnRIbqylDwt88ix9">
+              <strong data-page-node-id="zWwG050L3myh4BG3YAQPo0">贴边自动隐藏</strong>
+              <small data-page-node-id="FecTFMU6yOH6yDr4r6CRKW">鼠标离开后主窗口贴到最近的屏幕边，只露一条边条；悬停边条再展开</small>
+              <small class="setting-state hidden" id="main-auto-hide-state"></small>
+            </span>
+            <input id="main-auto-hide" type="checkbox" data-page-node-id="Pa8FWDJgoXg3TR2AS7NqEg" />
+          </label>
+          <label class="setting" data-page-node-id="u5q9qBmYNmKruuKoqA1HZu">
+            <span class="setting-text" data-page-node-id="bKCSrIDOwmOIjQ3MsMTZxZ">
+              <strong data-page-node-id="xtKw2TmcviYf26TzcovIUe">贴边触发距离</strong>
+              <small data-page-node-id="Tq8q5JCj8EXf5OdYTEpSgl">主窗口距屏幕边框不超过该像素值、且鼠标离开窗口时才隐藏（0–200，越大越灵敏）</small>
+            </span>
+            <input id="main-auto-hide-edge-distance" type="number" min="0" max="200" step="1" data-page-node-id="PFx6X9UlsDgrmunV57XgG6" />
+          </label>
+          <div class="setting" data-page-node-id="EBbEiEuTJgHv7BrV66BfPZ">
+            <span class="setting-text" data-page-node-id="3GNT1BljoSpcFMDL28lyN0">
+              <strong data-page-node-id="1GrUgUOLdV4vgeNnEYZiyp">悬浮呼出延时</strong>
+              <small data-page-node-id="Mxu8JHqcjN53II6qpoz0Qc">鼠标压住白条持续这么久才展开主窗（0–2000 毫秒，0 = 立即）</small>
+            </span>
+            <input id="main-dock-strip-hover-ms" type="number" min="0" max="2000" step="50" data-page-node-id="V9WslhHht9o9Ywmuj2gRmO" />
+          </div>
+          <div class="setting" data-page-node-id="X2GGWBXiTLx628ET2Q0nqX">
+            <span class="setting-text" data-page-node-id="5e4Jw4At9upY96unkz133X">
+              <strong data-page-node-id="yOMEfh8aEJFDeWVOrK7VzA">白条距屏幕边界</strong>
+              <small data-page-node-id="hVhtLe52IWHDIMHS25pxtW">贴边隐藏时白条离屏幕边框留出的距离（0–100px，0 = 紧贴边缘）</small>
+            </span>
+            <input id="main-dock-strip-edge-gap" type="number" min="0" max="100" step="1" data-page-node-id="TN0s4fpGN03aplAc4ddFJq" />
+          </div>
+          <div class="setting" data-page-node-id="WpKGPBDoHFsH94szKH74mZ">
+            <span class="setting-text" data-page-node-id="YDv4uK1c43Z5lYYqd4pykd">
+              <strong data-page-node-id="dGVJqeKGSlgCDfpIHeXL51">贴边白条厚度</strong>
+              <small id="main-dock-strip-thickness-state" data-page-node-id="zvaBOHwihzy4RuizHicdDe">6px（拖动即时预览）</small>
+            </span>
+            <span class="remote-inline" data-page-node-id="AaXwlggBrejUexYzhu792M">
+              <input id="main-dock-strip-thickness" type="range" min="2" max="40" step="1" value="6" data-page-node-id="ojgAYzfupAfPQG0gGAEZIe" />
+            </span>
+          </div>
+          <div class="setting" data-page-node-id="n6BSijJUNTX2YEuCK4hyYN">
+            <span class="setting-text" data-page-node-id="AnAeh2hyJvx0vMO947Z4YL">
+              <strong data-page-node-id="XTYBrD3MEuxd2szGMlZq98">贴边白条长度</strong>
+              <small id="main-dock-strip-length-state" data-page-node-id="A7gGmnTWsvIf7ceIMopsvw">100%（主窗那条边长的百分比）</small>
+            </span>
+            <span class="remote-inline" data-page-node-id="7b6ZzhhHzF2M1bWAnPQjsr">
+              <input id="main-dock-strip-length" type="range" min="10" max="100" step="5" value="100" data-page-node-id="CzhM2NfDyQVXHDpoS8v3fG" />
+            </span>
+          </div>
+          <div class="setting" data-page-node-id="KjCVOaqx9WKUcFluVJ49bb">
+            <span class="setting-text" data-page-node-id="3FlJDMo1ABdcycQtEkEhU3">
+              <strong data-page-node-id="sFgdjUBzibqrYuUENqXHqv">贴边白条不透明度</strong>
+              <small id="main-dock-strip-opacity-state" data-page-node-id="lRD86G7pbDf5eW1S0AmFtM">100%（拖动即时预览）</small>
+            </span>
+            <span class="remote-inline" data-page-node-id="BVquJJX8S6RIHX9r3hZqvp">
+              <input id="main-dock-strip-opacity" type="range" min="10" max="100" step="5" value="100" data-page-node-id="Wo0eWbqfPJHsFz29LKA5Ax" />
+            </span>
+          </div>
+          <div class="setting" data-page-node-id="7bH4nCdA0EMXMqFHBvUoqf">
+            <span class="setting-text" data-page-node-id="IU2RPh6JAxV0I4hqBJJAhD">
+              <strong data-page-node-id="dht74C235wAE756BWA3BN8">贴边白条颜色</strong>
+              <small data-page-node-id="ZNkJa54BSTbidtQJUX1qcF">点开调色板选一个色调，即时预览</small>
+            </span>
+            <span class="remote-inline" data-page-node-id="PWzAhqD08LyY1ITQqgc0nX">
+              <input id="main-dock-strip-color" type="color" value="#ffffff" data-page-node-id="5NhhCHbpl8rW0Cipln2tXT" />
+            </span>
+          </div>
+          <div class="setting" data-page-node-id="beXTSS7UAF8UU4BSZ6fHy3">
+            <span class="setting-text" data-page-node-id="LerYxAK8xi1tv2VfClXGe3">
+              <strong data-page-node-id="AMwpftEHpGFLYPZesP7qjS">热区触发厚度</strong>
+              <small id="main-hotzone-thickness-state" data-page-node-id="gdWkOWzSnvgJOx1rOzw8xo">40px（鼠标移入屏幕边往内这一段就呼出主窗）</small>
+            </span>
+            <span class="remote-inline" data-page-node-id="OZG7EpDixO1DozLx4hXaqH">
+              <input id="main-hotzone-thickness" type="range" min="1" max="100" step="1" value="40" data-page-node-id="lKtfwSMF2K834gu4PPhxO0" />
+            </span>
+          </div>
+          <div class="setting" data-page-node-id="saGFX18ncbULH0JkOvTjZG">
+            <span class="setting-text" data-page-node-id="PrvyvraLCg4ugJP4CDAc3O">
+              <strong data-page-node-id="rzeD6TW67tMytKtaxWaA1t">热区调试底色与透明度</strong>
+              <small id="main-hotzone-opacity-state" data-page-node-id="Apznm5l8l2M0nYzlKmPyRf">0%（默认全透明看不见；调出来可核对热区边界）</small>
+            </span>
+            <span class="remote-inline" data-page-node-id="3XgXxB6KSiicErGM16Z4lV">
+              <input id="main-hotzone-color" type="color" value="#ff0000" data-page-node-id="bZbBd24mGJLpAcxdjWRcum" />
+              <input id="main-hotzone-opacity" type="range" min="0" max="100" step="5" value="0" data-page-node-id="WwM0Qyi51Zx9G0dpYE97VD" />
+            </span>
+          </div>
+          <label class="setting" data-page-node-id="0LB6mDr0vFxpjfjDyy3NDE">
+            <span class="setting-text" data-page-node-id="Cb4oWan6TL95zzUVMdqaxK">
+              <strong data-page-node-id="HntgdbwjKENAjUPY3tkiEl">热区边框</strong>
+              <small data-page-node-id="aHzIEK4UCyWva9DEeE328S">给热区画一圈边框，调试用（默认关）</small>
+            </span>
+            <span class="remote-inline" data-page-node-id="OBVoDjI3YdVPTLCmAc6bgH">
+              <input id="main-hotzone-border" type="checkbox" data-page-node-id="GtLbJVnau2pBuffGz6dpsm" />
+              <input id="main-hotzone-border-color" type="color" value="#ff0000" data-page-node-id="ZUZlHdauBgrugwY26hknIY" />
+            </span>
+          </label>
+          <label class="setting" data-page-node-id="3N0s93HHOq4OVT9fflvko1">
+            <span class="setting-text" data-page-node-id="inNlb5Imo1csNpGU4TOmaV">
+              <strong data-page-node-id="yHC869PPMZeuNmnfuwZ64P">固定显示位置</strong>
+              <small data-page-node-id="c02mcxB4BRDAce55J7c4Lu">屏幕中间=每次显示都居中；上次位置=记住你最后一次摆放的位置；自由=可随意拖动</small>
+            </span>
+            <select id="main-window-position" data-page-node-id="R7Ao26dHIqMDAlFBmSk90E">
+              <option value="free" data-page-node-id="SmpIhti2CqCBWLzymtyM15">自由拖动</option>
+              <option value="center" data-page-node-id="mCGN0zDu8NQ77h5ilO8aPU">屏幕中间</option>
+              <option value="last" data-page-node-id="XKDvf3kHBojr0fFOFfKiAw">上次位置</option>
+            </select>
+          </label>
+          <label class="setting" data-page-node-id="FxMon001NodeQaZx9CdEf2">
+            <span class="setting-text" data-page-node-id="FxMon002NodeQaZx9CdEf2">
+              <strong data-page-node-id="FxMon003NodeQaZx9CdEf2">固定显示器</strong>
+              <small data-page-node-id="FxMon004NodeQaZx9CdEf2">选了某台显示器后主窗口只在这台显示器里显示：居中、呼出、贴边都落在它上面，拖到别的显示器会被夹回来；自动 = 不限制</small>
+            </span>
+            <select id="main-fixed-monitor" data-page-node-id="FxMon005NodeQaZx9CdEf2">
+              <option value="auto" data-page-node-id="FxMon006NodeQaZx9CdEf2">自动（不固定）</option>
+            </select>
+          </label>
+          <div class="setting" data-page-node-id="Lk8Buof7Dht9WMplQfBQGE">
+            <span class="setting-text" data-page-node-id="FPTTwvZ0recP5GbWnCZrg7">
+              <strong data-page-node-id="TjMDXbnVX4QtE1T50ZDZBp">重置位置</strong>
+              <small data-page-node-id="JGt5vB56TTKaJDbRdug51t">把主窗口立即放回屏幕正中央（在「上次位置」模式下也会记忆这个中心点为新的落点）</small>
+            </span>
+            <button class="secondary" id="reset-main-window-position" type="button" data-page-node-id="tJGVFjBjKePLpmrR4nt9dK">重置到屏幕中央</button>
+          </div>
+          <div class="setting" data-page-node-id="RstWinSize0001QaZx9CdEf2">
+            <span class="setting-text" data-page-node-id="RstWinSize0002QaZx9CdEf2">
+              <strong data-page-node-id="RstWinSize0003QaZx9CdEf2">重置窗口大小</strong>
+              <small data-page-node-id="RstWinSize0004QaZx9CdEf2">宽回到内嵌单栏的标称值（460）、高回到整屏高度的 2/3（与托盘「重置窗口大小」同源）</small>
+            </span>
+            <button class="secondary" id="reset-main-window-size" type="button" data-page-node-id="RstWinSize0005QaZx9CdEf2">重置窗口大小</button>
+          </div>
+          <div class="setting" data-page-node-id="yZn7s6Etu9jXcMDYyHVIRD">
+            <span class="setting-text" data-page-node-id="E9plInC2TiGYcnCyrIQ6DT">
+              <strong data-page-node-id="4AQB0EDjqcxWHAhbhCg2sp">窗口宽度</strong>
+              <small id="window-size-width-state" data-page-node-id="qwSv72thFwVbgxcxxKLp2k">460px（拖动实时调整窗口）</small>
+            </span>
+            <span class="remote-inline" data-page-node-id="0FnOdHlQAB9TZwCb1wGbKO">
+              <input id="window-size-width" type="range" min="360" max="1600" step="4" value="460" data-page-node-id="ua2MxBMx5XqyAMMOrNaM2Y" />
+            </span>
+          </div>
+          <div class="setting" data-page-node-id="Zhx2QftTcMtA1ZblHlLM7e">
+            <span class="setting-text" data-page-node-id="9zA5NCFa91a5xYBn5wibAj">
+              <strong data-page-node-id="NTLkKztCPNEDAMUuG0fq30">窗口高度</strong>
+              <small id="window-size-height-state" data-page-node-id="vaBBv6kfv1Iw9GG13xhNiu">560px（拖动实时调整窗口）</small>
+            </span>
+            <span class="remote-inline" data-page-node-id="NOHxBUxZCIgWHzxSI2RGAG">
+              <input id="window-size-height" type="range" min="560" max="1200" step="4" value="560" data-page-node-id="LAUdkiwB5ZuIsrk3hYIt6b" />
+            </span>
+          </div>
+          <label class="setting" data-page-node-id="JlgaTDxW8z0SjQjfbpQwug">
+            <span class="setting-text" data-page-node-id="hYFDQ0RDgmlgjEQVYCLMfd">
+              <strong data-page-node-id="YxWrIiCRLTa20ON70fzAQk">锁定窗口大小</strong>
+              <small data-page-node-id="B1lZRnBKP3AGoECUHL665L">锁定后不能拖拽窗口边框改变大小、也不能最大化；上面的宽高滑条同时停用（双向实时生效）</small>
+            </span>
+            <input id="window-size-locked" type="checkbox" data-page-node-id="AaE3CxylbpoGGzaAvrRBNl" />
+          </label>
+          <label class="setting" data-page-node-id="Fp4g78RHVARxkMkfE1F89e">
+            <span class="setting-text" data-page-node-id="KYTaWhnCMtznePLlWFsg2Y">
+              <strong data-page-node-id="VNcOL8ZGMsNHUZEitGW22V">隐藏程序（任务栏/Dock）</strong>
+              <small data-page-node-id="jxFsr6rzjyMZRVooeq6pFT">Linux/Windows 不显示任务栏图标，macOS 不显示 Dock 图标</small>
+            </span>
+            <input id="hide-from-dock-taskbar" type="checkbox" data-page-node-id="wLAZiP6F0DvXWc12C8NvlQ" />
+          </label>
+          <div class="setting" data-page-node-id="jFEK9FEgY9thvhJ97P1nNa">
+            <span class="setting-text" data-page-node-id="1HtnpVDGq7Ow0SZTq108sI">
+              <strong data-page-node-id="wTBIFSd9wP26jOudQo8djE">点击窗口 ❌ 时</strong>
+              <small data-page-node-id="QgIOIO0iEGX7YPrUwgO11j">可在托盘菜单「显示主窗口」中重新打开</small>
+            </span>
+            <select id="close-action" data-page-node-id="ZrZc2sp4bQaKJQ2HxFsLdk">
+              <option value="tray" data-page-node-id="FyRqQ7YC0Ms1WLvzcXO6jc">最小化到托盘</option>
+              <option value="quit" data-page-node-id="68xuEaWR1yT8W0cZ3Bu4CE">退出程序</option>
+            </select>
+          </div>
+          <label class="setting" data-page-node-id="TrySty0001NodeQaZx9CdEf2">
+            <span class="setting-text" data-page-node-id="TrySty0002NodeQaZx9CdEf2">
+              <strong data-page-node-id="TrySty0003NodeQaZx9CdEf2">托盘菜单方式</strong>
+              <small data-page-node-id="TrySty0004NodeQaZx9CdEf2">各自方式=三端各用系统原生托盘菜单（默认）；全局统一=所有平台右键直接展示同一份菜单内容（Windows/macOS 弹自绘菜单窗，Linux 由桌面环境渲染）。切换后重启应用生效</small>
+            </span>
+            <select id="tray-menu-style" data-page-node-id="TrySty0005NodeQaZx9CdEf2">
+              <option value="classic" data-page-node-id="TrySty0006NodeQaZx9CdEf2">各自方式（默认）</option>
+              <option value="unified" data-page-node-id="TrySty0007NodeQaZx9CdEf2">全局统一</option>
+            </select>
+          </label>
+          <div class="setting" data-page-node-id="ACvP1uR0kYemN25ORYRC1b">
+            <span class="setting-text" data-page-node-id="YjiXsjnJKJTpvEvUoZuEij">
+              <strong data-page-node-id="MqV2DNLk5BMV9DHLzJmlGp">界面主题</strong>
+              <small data-page-node-id="XxtRD1J05qPsalLz3uAR6D">暗色 / 亮色 / 跟随系统</small>
+            </span>
+            <select id="theme" data-page-node-id="5hPQOWifLI4xqwpByrF0Fg">
+              <option value="light" data-page-node-id="dbcVo4HGI0JhtbvPICpwnd">亮色</option>
+              <option value="dark" data-page-node-id="YAPapoICYUHROgWcBvDUCr">暗色</option>
+              <option value="system" data-page-node-id="dDZUsJ87Iy3Waa1B82FDDC">跟随系统</option>
+            </select>
+          </div>
+          <div class="setting" data-page-node-id="F1GjWX4YvLutFnBwSqJ1oP">
+            <span class="setting-text" data-page-node-id="xxNOhU9xJMUr6a5uvaShpB">
+              <strong data-page-node-id="ElJsd8bQ5eEtmhKh8OsVWk">主题色调</strong>
+              <small data-page-node-id="9lURFL4IUtLAxdPStb4xhs">点开调色板选强调色，按钮/链接跟着变色（主窗口和 GRUB 窗口同步）</small>
+            </span>
+            <span class="remote-inline" data-page-node-id="ZMPJy3fUMPjl6pziwW7C7o">
+              <input id="accent-color" type="color" value="#6366f1" data-page-node-id="E4psWGoFhRl3wO8YVE2Ebh" />
+            </span>
+          </div>
+          <div class="setting" data-page-node-id="jo1RL1sLBDYFFzjMWxD7pv">
+            <span class="setting-text" data-page-node-id="2EsFnuc6KGJUDAzpFoCVYD">
+              <strong data-page-node-id="QGj3l1vMBSjk8B4DDHgCmQ">窗口不透明度</strong>
+              <small id="opacity-state" data-page-node-id="xkAsIAMPE8AktkI07GVf33">90%（拖动即时预览）</small>
+            </span>
+            <span class="remote-inline" data-page-node-id="jmR69RVjBlstfbYCW7xwhE">
+              <input id="opacity" max="100" min="0" step="5" type="range" value="90" data-page-node-id="KxXvAr7VJ2E1ExqaGhEj3u" />
+            </span>
+          </div>
+          <button class="link hidden" id="login-items" type="button" data-page-node-id="mbw1hhzh0U8RK3dY0Vu5Ef">
+            打开「登录项与扩展」设置
+          </button>
+        </section>
+
+        <section aria-label="远程控制" class="settings" id="remote" data-page-node-id="hOETMVaZDCBHNhAvKj6yEg">
+          <h2 data-page-node-id="wQvYqrGgyAr3S7cO1iTEn5">远程控制</h2>
+          <div class="setting" data-page-node-id="V6P7wF4868QrcsHvXufoNy">
+            <span class="setting-text" data-page-node-id="RKX5rxuO1v6WvraUZdFSUa">
+              <strong data-page-node-id="gieRiMezGNnOVHl32NKGnE">HTTP 服务</strong>
+              <small class="setting-state" id="http-state" data-page-node-id="kN2lkcGdZBm8M6uERhEdVo">正在读取…</small>
+            </span>
+            <input id="http-enabled" type="checkbox" data-page-node-id="TSZIUI797zju9pCOK5QOkh" />
+          </div>
+          <div class="setting" data-page-node-id="lIe4xulpDgvetEmrY5juw4">
+            <span class="setting-text" data-page-node-id="5XnORxAoUOMpS3waqwKt13">
+              <strong data-page-node-id="HpPDDjyC5ITDD3NAUnigj8">监听地址 / 端口</strong>
+              <small data-page-node-id="N0P32oTpwX5Tdgy0lxVcbu">默认 0.0.0.0:12300；改成 127.0.0.1 则只能本机或 SSH 隧道访问</small>
+            </span>
+            <span class="remote-inline" data-page-node-id="0W7la2SLaFohNjQIaVmPeR">
+              <input id="http-bind" spellcheck="false" type="text" data-page-node-id="YQTpjWTjE8tDyRRqEIEZ96" />
+              <input id="http-port" inputmode="numeric" spellcheck="false" type="text" data-page-node-id="I9Zl4MafVofCDO82ccvxW8" />
+              <button class="secondary" id="http-apply" type="button" data-page-node-id="i7LqZpJijz9nYJ0nLtGYoC">应用</button>
+            </span>
+          </div>
+          <div class="setting" data-page-node-id="YTyqujfvzSwWnGUaEQcHf2">
+            <span class="setting-text" data-page-node-id="AcX0XCVkbJCMiMB52CGEhr">
+              <strong data-page-node-id="xERZWPs6bpb7I8AXUmsiCr">打开 Web 页面</strong>
+              <small data-page-node-id="Bacx03mOm6htSpbOsbccSm">用系统默认浏览器打开控制页，自动带上访问令牌，不用手输</small>
+            </span>
+            <span class="remote-inline" data-page-node-id="IChktk9d5FvcVBQNtuGfci">
+              <button class="secondary" id="open-web" type="button" data-page-node-id="Sy4LcCnbwpDF3i0WIvFmaH">打开 Web 页面</button>
+            </span>
+          </div>
+          <div class="port-occupant hidden" id="port-occupant" data-page-node-id="d7EHiyv9CE7oCadEa0LLBH">
+            <strong data-page-node-id="hGbETDF1j4hOTguzwZaWqE">端口被占用</strong>
+            <small id="port-occupant-message" data-page-node-id="V4K1cUOJ6FCCobK1sGrUyL"></small>
+            <small class="setting-state" id="port-occupant-hint" data-page-node-id="neL44EgCeL9jhcq4gcJPxe"></small>
+            <div class="actions" data-page-node-id="OAvKOxgKitIjcyEBRVDTz5">
+              <button class="secondary" id="retry-http" type="button" data-page-node-id="mek7SqHF97E5BQr1YSA3qv">重试监听</button>
+              <button class="danger" id="kill-occupant" type="button" data-page-node-id="m0SLeSSBBUZo8J3HeVXNFh">结束占用进程</button>
+            </div>
+          </div>
+          <div class="setting setting-block" data-page-node-id="5Vh7QDvfPcKITk5F9VBCwG">
+            <span class="setting-text" data-page-node-id="XqvEclnsJYGA0L7aUsKwXq">
+              <strong data-page-node-id="Mp4SOFQG573KMF4DFXS7gD">访问令牌（token）</strong>
+              <small class="setting-state" id="token-hint" data-page-node-id="bB2w5ZU5ajVzsfhxAEGhXQ"></small>
+              <small data-page-node-id="RXMhxYGvL9TJsHNMwF9YIX">自己填一个也可以：4–128 位可见 ASCII（字母/数字/符号），不能有空格和中文；清空则服务不启动</small>
+            </span>
+            <span class="remote-inline" data-page-node-id="2YY53Q5b5jHUtrHbDRJ19z">
+              <input id="token-input" placeholder="自定义 token…" spellcheck="false" type="text" data-page-node-id="DpScIbbzF26LT17u8AyuSW" />
+              <button class="secondary" id="token-save" type="button" data-page-node-id="1Hud9dqMZXRUjZdxcisWuH">保存</button>
+            </span>
+            <span class="remote-inline" data-page-node-id="qE5lYyDokai7kMEsZwc8T4">
+              <button class="secondary" id="token-reveal" type="button" data-page-node-id="B2Emz7cdoRoeFIq8ED0y3u">显示当前</button>
+              <button class="secondary" id="token-copy" type="button" data-page-node-id="r5GUN5oxM8YtHFXy8JvZjW">复制</button>
+              <button class="secondary" id="token-regenerate" type="button" data-page-node-id="7r63w2PrMNJpGQ0cyV9PrJ">重新生成</button>
+            </span>
+          </div>
+          <div class="setting" data-page-node-id="0j6bmwkPpD1r6SMnkC0Pvr">
+            <span class="setting-text" data-page-node-id="NYxJoKayyLNN1Sh2I0Q39R">
+              <strong data-page-node-id="ItoGRYjQZcjVg8AuLlPZJW">远程请求通知</strong>
+              <small data-page-node-id="HIhnyTDTRcxfqqXxsh8fo2">总开关；关掉后不再弹窗，只在主窗口显示待执行请求</small>
+            </span>
+            <input id="notify-enabled" type="checkbox" data-page-node-id="RTHdBRgjLMjE9Q7tmNhtoL" />
+          </div>
+          <div class="setting" data-page-node-id="ucO2rZROwYTAZajVF6G0w3">
+            <span class="setting-text" data-page-node-id="j1bICIDWxx8xf4ivbDfKZe">
+              <strong data-page-node-id="FnrQICo808M8IQKfczKDEM">HTTP 渠道（webhook / curl / 面板）</strong>
+              <small data-page-node-id="cSH9J0BViOuMGN1zmVE1FP">弹窗通知 + 延迟秒数（0 = 立即执行）</small>
+            </span>
+            <span class="remote-inline" data-page-node-id="3djr6Q7wVMfaoP0KhEWACu">
+              <input id="http-channel-notify" type="checkbox" data-page-node-id="WcJ37UUTs2ZzcRgmgEcWMM" />
+              <input id="http-channel-delay" inputmode="numeric" spellcheck="false" type="text" data-page-node-id="BDk2hbTvL77ncSS2YZAUs6" />
+            </span>
+          </div>
+          <div class="setting" data-page-node-id="u6GfI5q3oEXeyQxPiJZq1A">
+            <span class="setting-text" data-page-node-id="cCtjFKubDU7rcctWvu4ei6">
+              <strong data-page-node-id="Ice4wWG95zdGr2PZ8YV8OE">SSH / CLI 渠道</strong>
+              <small data-page-node-id="s1XdQUJzr2nlf8wO15m6wB">ssh 远程调用的通知与延迟（与 webhook 分开配置）</small>
+            </span>
+            <span class="remote-inline" data-page-node-id="ZUrHh4ED7EM6EirO5RFgvL">
+              <input id="cli-channel-notify" type="checkbox" data-page-node-id="gSPtaGOFSvC6GJJSaBPCg8" />
+              <input id="cli-channel-delay" inputmode="numeric" spellcheck="false" type="text" data-page-node-id="Hdm1dvtDui4tQCFDq1pf6A" />
+            </span>
+          </div>
+          <div class="setting" data-page-node-id="AfigEdNWj2CGu6Q5Ns2eS0">
+            <span class="setting-text" data-page-node-id="mFLbP9ftX1365cjZzdRYYT">
+              <strong data-page-node-id="JvNFBNW7CzlmO22b5svVCW">远程可触发本机授权框</strong>
+              <small data-page-node-id="HNvVJwfQNfFprHumUXfBga">默认关：远程遇到需要本机授权的操作会直接说明原因，不会挂着等人点确认</small>
+            </span>
+            <input id="remote-allow-gui-auth" type="checkbox" data-page-node-id="jj4ku7BlRf843uWZPczPG5" />
+          </div>
+          <div class="pending hidden" id="pending-card" data-page-node-id="jKTQG6VwF1Z4Dz2nW5cwt2">
+            <strong id="pending-title" data-page-node-id="GuwGFeXTKteFYXtsfRCbmQ">远程请求待执行</strong>
+            <small id="pending-detail" data-page-node-id="XfTxqsgrBbbVphwU7K56QO"></small>
+            <div class="actions" data-page-node-id="B5BRZJuer3iJXv1wvov481">
+              <button id="pending-run" type="button" data-page-node-id="FoqnKuLzW61lGyLc6PmKhK">立即执行</button>
+              <button class="secondary" id="pending-cancel" type="button" data-page-node-id="3JYjThnNiRCtYmpHlQIp3l">取消</button>
+            </div>
+          </div>
+          <div class="remote-hint" data-page-node-id="XT4gTdkDjCc5QfnQtXV69d">
+            <strong data-page-node-id="EjdTA2rFNLvWjXWafg9SlQ">远程怎么调</strong>
+            <small data-page-node-id="lnZW5KJe3Gd9MdMLGdbmtc">下面这段默认就展开、含明文 token（注意旁人视线）；上面的令牌 / 地址 / 端口一改，这里立刻同步</small>
+            <pre id="http-hint" data-page-node-id="KB7a6N9HSiF2MxRMhDJfAx">点「复制命令」拿含 token 的可直接执行示例（含 ssh 用法）</pre>
+            <div class="actions" data-page-node-id="m5MucHCV2aKV3WRnOGwJv1">
+              <button class="secondary" id="http-hint-copy" type="button" data-page-node-id="A5FSDlCaC7NhIfSyUCVLQB">复制命令</button>
+            </div>
+          </div>
+          <div class="remote-log" data-page-node-id="lpteMSV9noPigrpiJshkWB">
+            <strong data-page-node-id="okn2iajD6y8wtHqn9HGtSj">最近请求</strong>
+            <ol id="http-requests" data-page-node-id="fmp6Ex61YHMrzKZdRLraPs"></ol>
+          </div>
+          <div class="setting" id="setting-sound" data-page-node-id="2eyVAm2AArqhlorY8BJtva">
+            <span class="setting-text" data-page-node-id="M94MUi3BlrHC4p22WGLAHm">
+              <strong data-page-node-id="CkzzomF2SyLcQ1FpJHGWg4">提示音</strong>
+              <small data-page-node-id="dBEpH3S4YodkkMTC2EFbgD">收到远程请求时播放提示音（系统默认或自定义文件）</small>
+            </span>
+            <span class="remote-inline" data-page-node-id="zFa6m4l7yZDdseyCQxQ3ql">
+              <input id="play-sound" type="checkbox" data-page-node-id="nUfi8CG0ecbm18sPMcteWW" />
+              <input id="sound-file-path" spellcheck="false" type="text" placeholder="自定义路径（留空用内置音）" data-page-node-id="okhulc0rk1VAe7a2ZfprUO" />
+              <button class="secondary" id="sound-apply" type="button" data-page-node-id="5dMxDDEpJwwGY6y4MKWd7F">应用</button>
+            </span>
+          </div>
+          <div class="actions" id="open-dir-actions" data-page-node-id="qIPpl5EC2V3JcebFq22KCw">
+            <button class="secondary" id="open-config-dir" type="button" data-page-node-id="9rJX4w97sedAEciB23eUPh">打开配置目录（含 trace.log / settings.json）</button>
+          </div>
+        </section>
+        </div><!-- /tab-settings -->
+
+        <!-- 栏目三：SOL 远程唤醒 —— sol 接收器（Wake-on-LAN 反向：收到魔法包执行关机/重启/睡眠）
+             的安装、卸载、运行状态、监听端口、配置编辑与安装目录。后端 sol_panel.rs。 -->
+        <div class="tab-panel" id="tab-sol">
+        <section aria-label="SOL 远程唤醒" class="settings" id="sol-section">
+          <h2>SOL 远程唤醒</h2>
+          <p class="sol-desc">sol 监听本机网卡的 Wake-on-LAN 魔法包：手机 / 别的电脑发一个包，这台机器就按规则执行关机、重启、睡眠等动作（本机已配端口 10=睡眠、11=关机、12=重启）。</p>
+
+  <!-- 运行状态一览 -->
+          <div class="setting" id="sol-state-row">
+            <span class="setting-text">
+              <strong>运行状态</strong>
+              <small class="setting-state" id="sol-state-text">正在读取…</small>
+            </span>
+            <span class="remote-inline">
+              <button class="secondary" id="sol-refresh" type="button">刷新状态</button>
+              <button class="secondary hidden" id="sol-status-privileged" type="button" title="服务状态被系统权限挡住时才出现">授权查看状态</button>
+              <button class="secondary" id="sol-restart-service" type="button">重启服务</button>
+            </span>
+          </div>
+
+          <!-- HTTP 控制面：三个独立选项，与 sol.yaml 双向联动（sol 自动热重载） -->
+          <div class="setting" id="sol-http-enabled-row">
+            <span class="setting-text">
+              <strong>HTTP 服务监听</strong>
+              <small class="setting-state" id="sol-http-enabled-state">正在读取…</small>
+            </span>
+            <input id="sol-http-enabled" type="checkbox" />
+          </div>
+
+          <div class="setting" id="sol-http-listen-row">
+            <span class="setting-text">
+              <strong>监听地址</strong>
+              <small class="setting-state" id="sol-http-listen-state">host:port，如 127.0.0.1:8080；改完自动热重载</small>
+            </span>
+            <span class="remote-inline">
+              <input id="sol-http-listen" spellcheck="false" type="text" placeholder="127.0.0.1:8080" style="width: 200px;" />
+              <button class="secondary" id="sol-http-listen-save" type="button">应用</button>
+            </span>
+          </div>
+
+          <!-- Token：上下两排 —— 上排「当前 token（纯文字）」+ 复制，下排「新 token」+ 生成 / 应用 -->
+          <div class="setting setting-block" id="sol-http-token-row">
+            <span class="setting-text">
+              <strong>Token 设置</strong>
+              <small class="setting-state" id="sol-http-token-state">—</small>
+            </span>
+            <div class="sol-token-line">
+              <span class="sol-token-value" id="sol-http-token-current" title="当前配置里的 token（只读），点右边「复制」拷贝">—</span>
+              <button class="secondary" id="sol-http-token-copy" type="button">复制</button>
+            </div>
+            <div class="sol-token-line">
+              <input id="sol-http-token" spellcheck="false" type="text" placeholder="新 token（≥8 位），留空不改动" style="flex: 1 1 220px;" />
+              <button class="secondary" id="sol-http-token-generate" type="button">生成</button>
+              <button class="secondary" id="sol-http-token-save" type="button">应用</button>
+            </div>
+          </div>
+
+
+          <!-- 动作区：一键安装（静默）/ 手动安装（调终端）；安装一律走官方 install.sh -->
+          <div class="actions">
+            <button class="primary-sol" id="sol-one-click" type="button">一键安装（静默）</button>
+            <button class="secondary" id="sol-one-click-terminal" type="button">手动安装（调终端）</button>
+          </div>
+          <small class="sol-hint" id="sol-install-hint">安装 = 下载 → <b>清空安装目录</b> → 解压到安装目录 → 官方 install.sh（静默 = 无人值守自动确认；手动 = 呼出终端由你回答脚本问句）。<b>解压前会清空安装目录，但保留 sol.yaml 配置文件</b>（端口、token 等设置不丢）；包内容直接铺在安装目录下，不保留 sol-v* 子目录。配置 sol.yaml 就在安装目录里；卸载保留它以便回滚。<br />已经解压好（比如用「选择安装包…」自己挑的包）时，「手动安装（调终端）」直接在终端里跑官方脚本，不再重新下载。<br />落点：三端全部在用户目录 —— Linux/macOS <code>~/sol</code>（二进制 <code>bin/sol</code>）；Windows <code>%USERPROFILE%\sol</code>（二进制 <code>sol.exe</code> 同目录）。</small>
+
+          <!-- 安装包：下载（进度条）→ 解压 → 安装；目录可自定义，也支持手工选包 -->
+          <div class="setting-block sol-pkg-block">
+            <span class="setting-text">
+              <strong>安装包</strong>
+              <small class="setting-state" id="sol-pkg-state">未下载</small>
+            </span>
+            <!-- 下载进度条（下载中显示） -->
+            <div class="sol-progress" id="sol-progress" hidden>
+              <div class="sol-progress-track">
+                <div class="sol-progress-fill" id="sol-progress-fill"></div>
+              </div>
+              <small class="sol-progress-text" id="sol-progress-text">0%</small>
+            </div>
+            <div class="setting">
+              <span class="setting-text">
+                <strong>安装目录</strong>
+                <small class="setting-state" id="sol-dir-state">—</small>
+              </span>
+              <span class="remote-inline">
+                <input id="sol-dir-input" spellcheck="false" type="text" placeholder="~/sol（默认）" style="width: 280px;" />
+                <button class="secondary" id="sol-pick-dir" type="button">选择…</button>
+                <button class="secondary" id="sol-open-dir-input" type="button" title="打开当前填写的目录">打开</button>
+              </span>
+            </div>
+            <span class="remote-inline">
+              <button class="secondary" id="sol-download" type="button">下载</button>
+              <button class="secondary" id="sol-pick-archive" type="button">选择安装包…</button>
+              <button class="secondary" id="sol-extract" type="button" disabled title="解压前会先清空安装目录（保留 sol.yaml 配置文件），再把包内容直接铺到安装目录，不再保留 sol-v* 子目录">解压到安装目录</button>
+            </span>
+            <small class="sol-hint" id="sol-pkg-hint">从 GitHub release 下载当前平台的 sol-vX.Y.Z-<span id="sol-pkg-target">…</span>.tar.gz；也可以点「选择安装包…」从文件管理器挑一个已有包（.tar.gz / .zip），解压完回到上面点「手动安装（调终端）」即可安装。</small>
+            <small class="sol-hint" id="sol-project-line">
+              项目：
+              <a href="#" id="sol-project-repo" title="打开 GitHub 仓库">lidiaoo/sol</a>
+              ·
+              <a href="#" id="sol-project-releases" title="打开 Releases 页面">Releases</a>
+              ·
+              <span id="sol-project-version">…</span>
+            </small>
+          </div>
+
+          <!-- 日志区：一键安装 / 下载 / 解压 / 安装的全过程输出 -->
+          <div class="setting-block sol-log-block">
+            <div class="setting">
+              <span class="setting-text">
+                <strong>日志</strong>
+                <small class="setting-state" id="sol-log-count">0 条</small>
+              </span>
+              <span class="remote-inline">
+                <button class="secondary" id="sol-log-clear" type="button">清空</button>
+              </span>
+            </div>
+            <pre class="sol-log" id="sol-log" aria-live="polite">（还没有日志）</pre>
+          </div>
+
+          <!-- 配置文件编辑 -->
+          <div class="setting-block">
+            <span class="setting-text">
+              <strong>配置文件</strong>
+              <small class="setting-state" id="sol-config-path">—</small>
+            </span>
+            <textarea id="sol-config-text" class="sol-config-editor" spellcheck="false" rows="16" placeholder="正在读取配置…"></textarea>
+            <span class="remote-inline">
+              <button class="secondary" id="sol-config-refresh" type="button">刷新配置</button>
+              <button class="primary-sol" id="sol-config-save" type="button">保存配置</button>
+              <button class="secondary" id="sol-config-reload" type="button">放弃修改</button>
+            </span>
+            <small class="sol-hint">保存后 sol 自动热重载（改坏了也不会顶掉正在跑的那份）；原文件自动备份为 *.bak-anyboot。配置在安装时会自动放宽为 0644（本机所有登录用户可读），所以读取不再需要密码；配置里有控制面 token，请勿在不信任的多用户机器上使用。</small>
+          </div>
+        </section>
+        </div><!-- /tab-sol -->
+      </main>
+    </div>
+
+    <!-- 窗口自己的底部提示条（在 .app-columns 之外、和它平级）：
+         所有操作的回执都落在这里，不用再把滚轮拖到页面底部才看得见。
+         有内容才占位，没有就整条收起。 -->
+    <div aria-live="polite" class="status-bar hidden" id="status-bar" role="status" data-page-node-id="rZ4umO5cuAf2BYX4tBnAEk">
+      <span class="status-bar-icon" id="status-bar-icon" aria-hidden="true" data-page-node-id="3PB006VjWpD4ul6B7PBHiG"></span>
+      <span class="status-bar-text" id="status-bar-text" data-page-node-id="qNG41W45l3idIyauRvLukH"></span>
+      <button class="status-bar-close" id="status-bar-close" title="收起" type="button" data-page-node-id="EjICBUvPHX8z769BSBvEFX">×</button>
+    </div>
+    <!-- GRUB 树形列表的渲染逻辑（右栏用） -->
+    <script src="./demo-data.js"></script>
+    <script src="./demo-mock.js"></script>
+    <script src="./grub-list-view.js"></script>
+    <script src="./boot-list-view.js"></script>
+    <script src="./boot-adv.js"></script>
+    <script src="./app.js"></script>
+    <script>
+      // ============ Linux 免密提权（sudoers）：状态 / 安装 / 移除 ============
+      // 装一次之后「设为默认」写固件变量 / 读写 ESP 不再弹密码框；移除 = 删掉
+      // /etc/sudoers.d/anyboot 与助手副本。卡片默认 hidden，status 拉到才显示 ——
+      // 非 Linux（platform=false）与浏览器预览模式自然保持隐藏。
+      (function () {
+        var privEl = function (id) { return document.getElementById(id); };
+        var invoke = (window.__TAURI__ && window.__TAURI__.core) ? window.__TAURI__.core.invoke : null;
+        var privBusy = false;
+        var privPending = ""; // 'install' | 'uninstall'：密码框「用密码继续」接着做哪件事
+
+        function privRender(st) {
+          var card = privEl("privCard");
+          if (!card) return;
+          if (!st || !st.platform) { card.hidden = true; return; }
+          card.hidden = false;
+          var badge = privEl("privBadge");
+          var warn = st.state === "stale" || st.state === "outdated";
+          badge.className = "priv-badge" + (st.state === "ready" ? " ok" : (warn ? " warn" : ""));
+          badge.textContent = st.state === "ready" ? "已生效"
+            : st.state === "outdated" ? "待更新"
+              : st.state === "stale" ? "有残留" : "未安装";
+          privEl("privState").textContent = st.detail;
+          privEl("privPaths").textContent =
+            (st.sudoersExists ? "授权：" + st.sudoersPath + (st.user ? " → " + st.user : "") : "授权：未写入") +
+            " · " + (st.helperExists ? "助手已就位" : "助手未安装");
+          privEl("privInstall").textContent = st.state === "ready" ? "重新安装"
+            : st.state === "stale" ? "清理并重装" : "安装免密组件";
+          privEl("privRemove").hidden = !st.sudoersExists && !st.helperExists;
+          privEl("privRemove").textContent = st.state === "stale" ? "清除残留" : "移除授权";
+          privEl("privNote").textContent = st.hasPkexec
+            ? "授权时弹一次系统对话框（polkit）。用 deb/rpm 卸载 AnyBoot 时，这份授权会被一起删掉。"
+            : (st.hasSudo
+              ? "这台机器没有 polkit：安装时会要你输一次登录密码（只用内存里那一次，之后靠授权文件免密）。"
+              : "这台机器既没有 pkexec 也没有 sudo，装不了免密组件。");
+        }
+
+        async function privLoad() {
+          var card = privEl("privCard");
+          if (!card || !invoke) return;
+          try {
+            privRender(await invoke("linux_priv_status"));
+          } catch (e) { card.hidden = true; }
+        }
+
+        function privSetBusy(on) {
+          privBusy = on;
+          ["privInstall", "privRemove", "privPwGo"].forEach(function (id) {
+            var el = privEl(id);
+            if (el) el.disabled = on;
+          });
+        }
+
+        async function privRun(action, password) {
+          if (privBusy || !invoke) return;
+          privSetBusy(true);
+          var label = action === "install" ? "安装" : "移除";
+          privEl("privState").textContent = label + "中…（可能弹一次系统授权框）";
+          try {
+            var st = await invoke(action === "install" ? "linux_priv_install" : "linux_priv_uninstall",
+              { password: password || null });
+            privEl("privPwBox").hidden = true;
+            privEl("privPw").value = "";
+            privPending = "";
+            privRender(st);
+            privEl("privState").textContent = action === "install"
+              ? "免密组件已装好：之后提权不再弹密码框"
+              : "授权已移除";
+          } catch (e) {
+            var text = String(e || "");
+            // 授权没拿到（没 polkit / sudo 要密码）→ 展开密码框兜底，而不是只报一句错
+            if (/password|密码|授权|pkexec|sudo|Permission/i.test(text)) {
+              privPending = action;
+              privEl("privPwBox").hidden = false;
+              privEl("privPw").focus();
+              privEl("privState").textContent = "需要密码才能继续：" + text;
+            } else {
+              privEl("privState").textContent = label + "失败：" + text;
+            }
+          } finally {
+            privSetBusy(false);
+          }
+        }
+
+        (function bindPriv() {
+          var install = privEl("privInstall");
+          if (!install) return;
+          install.addEventListener("click", function () { privRun("install"); });
+          privEl("privRemove").addEventListener("click", function () { privRun("uninstall"); });
+          privEl("privPwGo").addEventListener("click", function () {
+            var pw = privEl("privPw").value;
+            if (!pw) { privEl("privPw").focus(); return; }
+            privRun(privPending || "install", pw);
+          });
+          privEl("privPwCancel").addEventListener("click", function () {
+            privEl("privPwBox").hidden = true;
+            privEl("privPw").value = "";
+            privPending = "";
+            privLoad();
+          });
+          privEl("privPw").addEventListener("keydown", function (ev) {
+            if (ev.key === "Enter") privEl("privPwGo").click();
+          });
+          privLoad();
+        })();
+      })();
+    </script>
+  </body>
+</html>

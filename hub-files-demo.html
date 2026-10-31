@@ -1,0 +1,1267 @@
+<!DOCTYPE html>
+<!-- server-files SFTP 文件浏览独立窗 —— docs/client-ui/pc-redesign-v2 files + files-menu 屏的一比一实现。
+     数据全部走真实后端（hub_sftp.rs，系统 sftp CLI + ControlMaster 复用）：
+     列表/建目录/重命名/删除/上传/下载 + 文件操作面板（对象预览 + 下载到本机/重命名/复制路径/删除
+     + 更多操作：详情/复制/剪切/复制到.../移动到...，复制/剪切只做标记、由复制到/移动到落位）
+     + 传输方向徽标/速度/剩余时间 + 已连接 user@host pill + 路径 ▾ 快跳。
+     Telnet 不提供 —— 标题栏 pill 显示原因。自绘关闭钮由系统标题栏承担（省略）。 -->
+<html lang="zh-CN" class="dark" data-page-node-id="Dx1Fnp2DTFQRsik6g65JG3">
+<head data-page-node-id="Mx4nIkbAMCLFDCZq59f9H6">
+<script src="demo-data.js"></script>
+<script src="hub-demo-data.js"></script>
+<script src="demo-mock.js"></script>
+<script src="hub-shim.js"></script>
+
+<meta charset="UTF-8" data-page-node-id="1FpzAfXbqEHz9s0ywPUFUB">
+<meta name="viewport" content="width=device-width, initial-scale=1.0" data-page-node-id="srWDDfmxKnnGCKNOLpjWtM">
+<title>AnyBoot 文件</title>
+<style>
+  /* ---- 主题 token：与设计稿同一套色板 ---- */
+  html.dark{
+    --base:2 6 23; --term:4 7 15; --card:14 18 35; --elevate:20 26 46;
+    --line:36 43 65; --linestrong:51 65 85;
+    --fg:248 250 252; --fgdim:148 163 184; --fgfaint:100 116 139;
+    --fg-dim:148 163 184; --fg-faint:100 116 139;
+    --ok:34 197 94; --warn:245 158 11; --bad:239 68 68; --accent:99 102 241;
+    --tblue:96 165 250;
+    color-scheme:dark;
+  }
+  html.light{
+    --base:244 246 250; --term:4 7 15; --card:255 255 255; --elevate:241 245 250;
+    --line:226 232 240; --linestrong:203 213 225;
+    --fg:15 23 42; --fgdim:90 100 118; --fgfaint:138 148 166;
+    --fg-dim:90 100 118; --fg-faint:138 148 166;
+    --ok:22 163 74; --warn:180 83 9; --bad:220 38 38; --accent:79 70 229;
+    --tblue:37 99 235;
+    color-scheme:light;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; }
+  body {
+    background: rgb(var(--base));
+    color: rgb(var(--fg));
+    font: 14px/1.5 -apple-system, "Segoe UI", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+    display:flex; flex-direction:column; overflow:hidden;
+  }
+  button { font: inherit; color: inherit; }
+  [hidden] { display:none !important; }
+  .scroll-thin::-webkit-scrollbar { width:8px; height:8px; }
+  .scroll-thin::-webkit-scrollbar-thumb { background: rgb(var(--linestrong)); border-radius:4px; }
+  @media (prefers-reduced-motion: reduce) { *,*::before,*::after { transition:none!important; animation:none!important; } }
+  .mono { font-family: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace; }
+
+  /* ============ 标题栏 ============ */
+  header {
+    display:flex; align-items:center; gap:10px; min-height:44px; padding:6px 16px;
+    border-bottom:1px solid rgb(var(--line)); background:rgb(var(--card) / .6);
+    user-select:none; flex:none;
+  }
+  header .appicon {
+    display:grid; place-items:center; width:24px; height:24px; border-radius:6px; flex:none;
+    background:rgb(var(--tblue) / .15); color:rgb(var(--tblue));
+  }
+  header h1 { margin:0; font-size:13px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
+  .pill {
+    display:inline-flex; align-items:center; gap:6px; border-radius:9999px;
+    padding:2px 9px; font-size:11px; font-weight:500; flex:none;
+  }
+  .pill.ok { background:rgb(var(--ok) / .1); color:rgb(var(--ok)); }
+  .pill.bad { background:rgb(var(--bad) / .1); color:rgb(var(--bad)); }
+  .pill .dot { width:6px; height:6px; border-radius:50%; background:currentColor; }
+  header .tools { margin-left:auto; display:flex; align-items:center; gap:2px; color:rgb(var(--fgfaint)); flex:none; }
+  .toolbtn {
+    display:inline-flex; align-items:center; gap:5px; height:26px; padding:0 9px;
+    border:0; background:transparent; border-radius:6px; font-size:12px; cursor:pointer; color:inherit;
+    transition: background .15s, color .15s;
+  }
+  .toolbtn:hover { background:rgb(var(--elevate)); color:rgb(var(--fg)); }
+
+  /* ============ 路径栏 + 操作 ============ */
+  .pathbar {
+    display:flex; flex-wrap:wrap; align-items:center; gap:8px; flex:none;
+    border-bottom:1px solid rgb(var(--line)); background:rgb(var(--card) / .3);
+    padding:9px 14px;
+  }
+  .iconbtn {
+    display:grid; place-items:center; width:32px; height:32px; flex:none;
+    border:1px solid rgb(var(--line)); border-radius:9px; background:rgb(var(--elevate));
+    color:rgb(var(--fgdim)); cursor:pointer; transition: border-color .15s, color .15s;
+  }
+  .iconbtn:hover { border-color:rgb(var(--linestrong)); color:rgb(var(--fg)); }
+  .crumbs {
+    display:flex; align-items:center; gap:2px; min-width:0; flex:1; overflow-x:auto;
+    border:1px solid rgb(var(--line)); border-radius:9px; background:rgb(var(--term));
+    padding:6px 10px; font-family:ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace; font-size:12px;
+  }
+  .crumbs::-webkit-scrollbar { height:0; }
+  .crumb { border:0; background:transparent; padding:1px 5px; border-radius:4px; color:rgb(var(--tblue)); cursor:pointer; white-space:nowrap; }
+  .crumb:hover { background:rgb(var(--elevate)); }
+  .crumb[aria-current="true"] { color:rgb(var(--fg)); cursor:default; }
+  .crumb-sep { color:rgb(var(--fg-faint)); }
+  .btn {
+    display:inline-flex; align-items:center; gap:6px; height:32px; padding:0 12px;
+    border:1px solid rgb(var(--line)); border-radius:9px; background:rgb(var(--elevate));
+    font-size:12px; font-weight:500; cursor:pointer; white-space:nowrap;
+    transition: border-color .15s, background .15s;
+  }
+  .btn:hover { border-color:rgb(var(--linestrong)); }
+  .btn.primary { border:0; background:rgb(var(--accent)); color:#fff; font-weight:600; }
+  .btn.primary:hover { background:rgb(var(--accent) / .85); }
+  .btn:disabled { opacity:.5; cursor:not-allowed; }
+
+  /* ============ 文件表 ============ */
+  .table-wrap { flex:1; min-height:0; overflow:auto; container-type:inline-size; }
+  table { width:100%; min-width:560px; border-collapse:collapse; text-align:left; font-size:13px; }
+  /* 窄容器降级：先藏「修改时间」，再藏「权限」，名称列永远在 */
+  @container (max-width: 640px) {
+    table { min-width:460px; }
+    th:nth-child(4), td:nth-child(4) { display:none; }
+  }
+  @container (max-width: 540px) {
+    table { min-width:380px; }
+    th:nth-child(3), td:nth-child(3) { display:none; }
+  }
+  thead { position:sticky; top:0; z-index:10; background:rgb(var(--card) / .95); backdrop-filter: blur(4px); }
+  thead tr { border-bottom:1px solid rgb(var(--line)); }
+  th {
+    padding:9px 12px; font-size:11px; font-weight:600; text-transform:uppercase;
+    letter-spacing:.08em; color:rgb(var(--fg-faint));
+  }
+  tbody { font-family:ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace; font-size:13px; }
+  tbody tr { border-bottom:1px solid rgb(var(--line) / .6); cursor:default; }
+  tbody tr:hover { background:rgb(var(--elevate) / .6); }
+  tbody tr.selected { background:rgb(var(--tblue) / .07); }
+  td { padding:9px 12px; }
+  td .namecell { display:flex; align-items:center; gap:10px; }
+  td .namecell svg { width:16px; height:16px; flex:none; }
+  td .namecell.dir svg { color:rgb(var(--tblue)); }
+  td .namecell.link svg { color:rgb(var(--warn)); }
+  td .namecell.file svg { color:rgb(var(--fgdim)); }
+  td .namecell span { font-family:-apple-system,"Segoe UI","Noto Sans SC",sans-serif; }
+  .dim { color:rgb(var(--fg-dim)); } .faint { color:rgb(var(--fg-faint)); }
+  .rowdl {
+    border:0; background:transparent; border-radius:6px; padding:4px; cursor:pointer;
+    color:rgb(var(--fg-faint)); display:inline-grid; place-items:center;
+  }
+  .rowdl svg { width:14px; height:14px; }
+  .rowdl:hover { color:rgb(var(--fg)); }
+
+  /* 行内 ⋯ 菜单 / 路径快跳菜单（设计稿 files 屏） */
+  .popmenu {
+    position:fixed; z-index:60; min-width:132px; padding:4px;
+    background:rgb(var(--card)); border:1px solid rgb(var(--linestrong)); border-radius:9px;
+    box-shadow:0 16px 40px -8px rgba(0,0,0,.65);
+  }
+  .popmenu button {
+    display:flex; width:100%; align-items:center; gap:8px; border:0; background:transparent;
+    border-radius:6px; padding:7px 10px; font-size:12.5px; cursor:pointer; color:rgb(var(--fg)); text-align:left;
+  }
+  .popmenu button:hover { background:rgb(var(--elevate)); }
+  .popmenu button.danger { color:rgb(var(--bad)); }
+  .popmenu button.cur { color:rgb(var(--fgfaint)); cursor:default; }
+  .popmenu button.cur:hover { background:transparent; }
+  .popmenu .mono { font-size:12px; }
+
+  /* 行尾 ⋯ 文件操作面板（设计稿 pc-redesign-v2 files-menu 屏一比一） */
+  .filemenu {
+    position:fixed; z-index:60; width:272px; padding:10px;
+    background:rgb(var(--card)); border:1px solid rgb(var(--linestrong)); border-radius:14px;
+    box-shadow:0 16px 40px -8px rgba(0,0,0,.65);
+  }
+  .fm-preview {
+    display:flex; align-items:center; gap:10px; padding:9px;
+    border:1px solid rgb(var(--line)); border-radius:10px; background:rgb(var(--base));
+  }
+  .fm-icon {
+    display:grid; place-items:center; width:34px; height:34px; flex:none; border-radius:8px;
+    background:rgb(var(--tblue) / .12); color:rgb(var(--tblue));
+  }
+  .fm-icon svg { width:16px; height:16px; }
+  .fm-names { min-width:0; flex:1; display:flex; flex-direction:column; gap:1px; }
+  .fm-name { font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .fm-meta { font-size:11px; color:rgb(var(--fgdim)); }
+  .fm-close {
+    display:grid; place-items:center; width:26px; height:26px; flex:none; border:0; border-radius:9999px;
+    background:transparent; color:rgb(var(--fgdim)); cursor:pointer;
+  }
+  .fm-close:hover { background:rgb(var(--elevate)); color:rgb(var(--fg)); }
+  .fm-group { display:flex; flex-direction:column; gap:2px; margin-top:8px; }
+  .fm-label { margin:8px 0 0; padding:0 12px; font-size:11px; color:rgb(var(--fgfaint)); }
+  .fm-act {
+    display:flex; width:100%; align-items:center; gap:10px; height:34px; padding:0 12px;
+    border:0; background:transparent; border-radius:8px; font-size:12.5px; cursor:pointer;
+    color:rgb(var(--fg)); text-align:left;
+  }
+  .fm-act svg { width:15px; height:15px; flex:none; color:rgb(var(--fgdim)); }
+  .fm-act:hover { background:rgb(var(--elevate)); }
+  .fm-act.accent { color:rgb(var(--accent)); font-weight:500; }
+  .fm-act.accent svg { color:rgb(var(--accent)); }
+  .fm-act.danger { color:rgb(var(--bad)); font-weight:500; }
+  .fm-act.danger svg { color:rgb(var(--bad)); }
+  .fm-act.danger:hover { background:rgb(var(--bad) / .1); }
+
+  /* 详情键值行 */
+  .kv { display:flex; justify-content:space-between; gap:14px; font-size:13px; }
+  .kv > span:first-child { flex:none; color:rgb(var(--fg-faint)); }
+  .kv > span:last-child { text-align:right; word-break:break-all; font-family:ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace; }
+  .modal-body .hint { font-size:11px; color:rgb(var(--fg-faint)); }
+
+  .btn.dangerbtn { border:0; background:rgb(var(--bad)); color:#fff; font-weight:600; }
+  .btn.dangerbtn:hover { background:rgb(var(--bad) / .85); }
+  .modal-body p { margin:0; font-size:13px; line-height:1.6; color:rgb(var(--fgdim)); word-break:break-all; }
+
+  /* 传输徽标 + 速度/剩余（设计稿：64% · 18.2 MB/s · 剩余 12s） */
+  .tbadge {
+    display:inline-flex; align-items:center; flex:none; border-radius:9999px; padding:1px 8px;
+    font-size:10px; font-weight:700; font-family:-apple-system,"Segoe UI","Noto Sans SC",sans-serif;
+  }
+  .tbadge.down { background:rgb(var(--tblue) / .14); color:rgb(var(--tblue)); }
+  .tbadge.up { background:rgb(var(--accent) / .14); color:rgb(var(--accent)); }
+  .tmeta { color:rgb(var(--fgfaint)); white-space:nowrap; }
+  .empty-tip { padding:44px 0; text-align:center; color:rgb(var(--fg-faint)); font-size:13px; }
+
+  /* ============ 传输队列 + 状态栏 ============ */
+  .transfer {
+    display:flex; align-items:center; gap:12px; flex:none;
+    border-top:1px solid rgb(var(--line)); background:rgb(var(--card) / .4);
+    padding:7px 14px; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12px; color:rgb(var(--fgdim));
+  }
+  .transfer[hidden] { display:none; }
+  .spin { width:14px; height:14px; flex:none; color:rgb(var(--accent)); animation:ab-spin 1s linear infinite; }
+  @keyframes ab-spin { to { transform: rotate(360deg); } }
+  .bar { height:6px; min-width:120px; flex:1; border-radius:9999px; background:rgb(var(--elevate)); overflow:hidden; }
+  .bar > div { height:100%; border-radius:9999px; background:linear-gradient(90deg, rgb(var(--accent)), rgb(var(--tblue))); transition: width .25s; }
+  .bar.indet > div { width:40% !important; animation:ab-slide 1.1s ease-in-out infinite; }
+  .bar.paused > div { background:rgb(var(--warn) / .7); }
+  @keyframes ab-slide { 0% { margin-left:-40%; } 100% { margin-left:100%; } }
+  .pct { font-size:12px; color:rgb(var(--accent)); min-width:38px; text-align:right; }
+  .pct.fail { color:rgb(var(--bad)); }
+  .tbtn {
+    flex:none; height:24px; padding:0 10px; border-radius:7px; font-size:11px; cursor:pointer;
+    border:1px solid rgb(var(--linestrong)); background:rgb(var(--elevate)); color:rgb(var(--fg));
+    font-family:-apple-system,"Segoe UI","Noto Sans SC",sans-serif;
+  }
+  .tbtn:hover { border-color:rgb(var(--accent)); }
+  .tbtn.danger { border-color:rgb(var(--bad) / .4); color:rgb(var(--bad)); }
+  .tbtn[hidden] { display:none; }
+  footer {
+    display:flex; align-items:center; gap:14px; flex:none;
+    border-top:1px solid rgb(var(--line)); background:rgb(var(--card) / .6);
+    padding:7px 20px; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px; color:rgb(var(--fgfaint));
+  }
+  footer .clock { margin-left:auto; }
+
+  /* 弹层 & Toast */
+  .modal { position:fixed; inset:0; z-index:40; display:grid; place-items:center; background:rgba(0,0,0,.6); padding:24px; }
+  .modal-card { width:100%; max-width:380px; background:rgb(var(--card)); border:1px solid rgb(var(--linestrong)); border-radius:14px; box-shadow:0 16px 48px -8px rgba(0,0,0,.65); }
+  .modal-head { display:flex; align-items:center; justify-content:space-between; padding:14px 22px; border-bottom:1px solid rgb(var(--line)); }
+  .modal-head h3 { margin:0; font-size:15px; font-weight:600; }
+  .modal-body { padding:18px 22px; display:flex; flex-direction:column; gap:8px; }
+  .modal-body label { font-size:12px; font-weight:500; color:rgb(var(--fgdim)); }
+  .modal-body input {
+    height:36px; width:100%; border:1px solid rgb(var(--line)); border-radius:9px;
+    background:rgb(var(--elevate)); padding:0 12px; color:rgb(var(--fg)); font-size:13px; outline:none;
+  }
+  .modal-body input:focus { border-color:rgb(var(--accent) / .6); }
+  .modal-foot { display:flex; justify-content:flex-end; gap:8px; border-top:1px solid rgb(var(--line)); padding:14px 22px; }
+  .btn.plain { border:0; background:transparent; color:rgb(var(--fgdim)); }
+  .btn.plain:hover { color:rgb(var(--fg)); }
+  #toast {
+    position:fixed; bottom:24px; left:50%; transform:translateX(-50%); z-index:50;
+    background:rgb(var(--elevate)); border:1px solid rgb(var(--linestrong)); border-radius:9px;
+    padding:10px 16px; font-size:13px; box-shadow:0 16px 40px -8px rgba(0,0,0,.65); transition:opacity .2s;
+    max-width:80vw; word-break:break-all;
+  }
+</style>
+</head>
+<body data-page-node-id="ChUPyj4v0PAJnHIaD9RkdV">
+
+<header data-page-node-id="ivqRTG24CuujI7vqcfkEBi">
+  <span class="appicon" aria-hidden="true" data-page-node-id="2OHvBiPWHj8N8fVd9qkllR">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="SOMqahKKXVZ5gJE7oBUVUu"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" data-page-node-id="LrtL3StX3ELHOh4afHw8EF"/></svg>
+  </span>
+  <h1 id="title" data-page-node-id="YTUm127elCWJVJR8U4kV2R">文件</h1>
+  <span id="connPill" class="pill bad" hidden data-page-node-id="YXB3HBu36pjRYDksf6CAIm"><span class="dot" data-page-node-id="LWSrPF2f4EnPplLCnypyjP"></span><span id="connText" data-page-node-id="gxRQayK7QQK5RdghFsl9fH">连接中…</span></span>
+  <div class="tools" data-page-node-id="wq2Th5Min4ByfBaiZEElep">
+    <button class="toolbtn" id="hubBtn" aria-label="打开远程管理" title="打开远程管理">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="7" rx="2"/><rect x="2" y="14" width="20" height="7" rx="2"/><path d="M6 6.5h.01M6 17.5h.01"/></svg>
+      远程管理
+    </button>
+    <button class="toolbtn" id="themeBtn" aria-label="切换主题" data-page-node-id="NgJKRLDEdvgsn8dDKwZBqA">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" data-page-node-id="Ah2E8mSoc38romBkPchono"><circle cx="12" cy="12" r="9" data-page-node-id="zrIcAQbuKCiq1VMCHuUnSf"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none" data-page-node-id="gQxH94I7V6zU214ndxbHXN"/></svg>
+      主题
+    </button>
+  </div>
+</header>
+
+<div class="pathbar" data-page-node-id="VLNn7tX3iDcMlvRLPlIWYm">
+  <button class="iconbtn" id="upBtn" aria-label="上一级" title="上一级" data-page-node-id="QokyXN6dmkEuAVmGmLFH3P">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="TCgFOVGdhhQGDoB8aSivVx"><path d="M19 12H5M11 18l-6-6 6-6" data-page-node-id="rK3yX1HRTbGSCGNZyb81OK"/></svg>
+  </button>
+  <button class="iconbtn" id="refreshBtn" aria-label="刷新" title="刷新" data-page-node-id="y4rtQeAXMIgq4oGp232lHY">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" data-page-node-id="44JjHxSYXPqX2JAHL54aQN"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 3v6h-6" data-page-node-id="EvfaQGwqCgToj1EJmTjFEY"/></svg>
+  </button>
+  <nav class="crumbs scroll-thin" id="crumbs" aria-label="路径" data-page-node-id="uyQ1CCOZIFb94dy9vE42iW"></nav>
+  <button class="iconbtn" id="pathDropBtn" aria-label="路径快跳" title="上级目录快跳" data-page-node-id="3jZz0u45Xl3AWowNnJYBvW">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="DVm3BAxzyENGnR6ipT1gK4"><path d="M6 9l6 6 6-6" data-page-node-id="DGs91JXrQH6H1MseqXC9Kk"/></svg>
+  </button>
+  <button class="btn" id="mkdirBtn" data-page-node-id="IpECxonMEyB73ItxPTSXoE">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="NxFB6uUzGxbilydJHb3Xgq"><path d="M12 5v14M5 12h14" data-page-node-id="8e4ixIWrYq9aXAECfTluup"/></svg>
+    新建目录
+  </button>
+  <button class="btn primary" id="uploadBtn" data-page-node-id="MXOSfFzC4bcuaoTAF2EjMG">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="XKrhEeG3KAxH6zoblw0cue"><path d="M12 19V5M5 12l7-7 7 7" data-page-node-id="d3WR89FMTADmPuppIrY48E"/></svg>
+    上传
+  </button>
+  <button class="btn" id="downloadBtn" disabled title="未选中文件" data-page-node-id="G3UqpHQREefhPRSJP8DgYJ">下载</button>
+</div>
+
+<div class="table-wrap scroll-thin" id="tableWrap" data-page-node-id="gJQE0IZ86J6S05O0GUwMuR">
+  <table aria-label="文件列表" data-page-node-id="xFdyZH4ovm3DEiYC3WOYAL">
+    <thead data-page-node-id="THh9vOPxMFnJPTxtiAUDMv">
+      <tr data-page-node-id="CntRR5PGyNvCRBIOTadXss">
+        <th data-page-node-id="bwiXsuExgGbchnkyKyzZ9I">名称</th>
+        <th style="width:90px" data-page-node-id="zGqRBz2rZ5IeyBccfSQlXJ">大小</th>
+        <th style="width:120px" data-page-node-id="7EI0Yj3lmNpnJjGylUfw1d">权限</th>
+        <th style="width:130px" data-page-node-id="vzYldNOUxhwudBtA9iwqla">修改时间</th>
+        <th style="width:64px; text-align:right" data-page-node-id="r2pHBSEPJ2uNxVaIPuWkBL">操作</th>
+      </tr>
+    </thead>
+    <tbody id="tbody" data-page-node-id="UxzroEeNWg8BjP3OwgkUUS"></tbody>
+  </table>
+  <div class="empty-tip" id="emptyTip" hidden data-page-node-id="SNdSCafNLxx7NsvDMU3BsS"></div>
+</div>
+
+<div class="transfer" id="transfer" hidden data-page-node-id="UFqs6GmrHkGHmcJJNWg5PX">
+  <svg class="spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" width="14" height="14" data-page-node-id="wSD8h36tA5ljKb5zQU6T4N"><path d="M21 12a9 9 0 1 1-9-9" data-page-node-id="PTbw9uqnBGRXmUFE4rGAMk"/></svg>
+  <span class="tbadge down" id="transferDir" hidden data-page-node-id="MsFV8YwsTsbSPyupBPTsOO">↓ 下载</span>
+  <span id="transferName" data-page-node-id="GD92drNmWPOJfdYCRylkv9">—</span>
+  <div class="bar" id="transferBar" data-page-node-id="9ZYKnBrPQ7K86cpre1M16B"><div id="transferFill" style="width:0%" data-page-node-id="9Y6QAOfGGizgdx2v7K9vmJ"></div></div>
+  <span class="tmeta" id="transferMeta" data-page-node-id="aBENSY1eW4mjhIDivRNsrd"></span>
+  <span class="pct" id="transferPct" data-page-node-id="dw91cnMinFlnZ4veO3AwLz">0%</span>
+  <button class="tbtn" id="transferAct" hidden data-page-node-id="txActBtn1">暂停</button>
+  <button class="tbtn danger" id="transferGiveup" hidden data-page-node-id="txGiveupBtn1">放弃</button>
+</div>
+
+<footer data-page-node-id="DslhveVixpYawtZdkOAuVW">
+  <span id="footCount" data-page-node-id="114DMFDqgQmcg1XyLGe3U6">—</span>
+  <span aria-hidden="true" data-page-node-id="eWHlMOLgVbWOgRFQMyVlIX">·</span><span data-page-node-id="dK2INCQQxExTC35H8VNGZm">SFTP 复用 SSH 会话</span>
+  <span class="clock" id="footClock" data-page-node-id="HvROc8IGBJEURYqg6izZrh">—</span>
+</footer>
+
+<!-- 新建目录弹层 -->
+<div class="modal" id="mkdirModal" hidden role="dialog" aria-modal="true" aria-labelledby="mkdirTitle" data-page-node-id="iigJdZaDczh0j9B3ViW8RL">
+  <div class="modal-card" data-page-node-id="pByqNMDFYpkUqgTsak5NhC">
+    <div class="modal-head" data-page-node-id="wRGErB2OgzlmUqs8Tgzx3D">
+      <h3 id="mkdirTitle" data-page-node-id="CPcS4aem4DT58ZG2we1Ps7">新建目录</h3>
+      <button id="mkdirClose" aria-label="关闭" data-page-node-id="9MyJ1Nq5Lij8ojlA1fnDs0">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" data-page-node-id="ZBo4pEkuF09DNfBtNP3taa"><path d="M6 6l12 12M18 6L6 18" data-page-node-id="oZjk1thooJzInGlKh8yBUc"/></svg>
+      </button>
+    </div>
+    <form class="modal-body" id="mkdirForm" data-page-node-id="iFv0Mx7JUSLQ5O2uBazU13">
+      <label for="mkdirName" data-page-node-id="5fcbShBrGNykWYG6iF4oan">目录名（当前目录下创建）</label>
+      <input id="mkdirName" placeholder="例如 backup" autocomplete="off" required data-page-node-id="FYqALu5CyBXSMuCTiNmztf">
+    </form>
+    <div class="modal-foot" data-page-node-id="BJea4HzBR450ExN8Ed66GN">
+      <button class="btn plain" id="mkdirCancel" data-page-node-id="N9VtXov2bnOLBuXETHM5st">取消</button>
+      <button class="btn primary" id="mkdirOk" data-page-node-id="ElWwLawoRLRTz7HObzuLyc">创建</button>
+    </div>
+  </div>
+</div>
+
+<!-- 行尾 ⋯ 文件操作面板（设计稿 files-menu 屏：对象预览 + 主动作四项 + 更多操作五项） -->
+<div class="filemenu" id="rowMenu" hidden role="menu" aria-label="文件操作" data-page-node-id="z2VaeQHY3gg9WwDIFK7eNm">
+  <div class="fm-preview" data-page-node-id="X4Gd7RSGgGRFDF4JjxWz4q">
+    <span class="fm-icon" id="fmIcon" aria-hidden="true" data-page-node-id="qZT6bOPQcvAD4pWoRKH7bu">
+      <svg id="fmIcoFile" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="HSAG9PoCtikB3syMntjBrl"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" data-page-node-id="gz5FpLMs12ThOZnSnodQtm"/><path d="M14 2v6h6" data-page-node-id="NmAY47JpCd7oIas3rKqGJK"/></svg>
+      <svg id="fmIcoDir" hidden viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="pENg2YXD5h5Wnt2dVnISvo"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" data-page-node-id="HB3nkGKSq1J4449TX9qOFJ"/></svg>
+      <svg id="fmIcoLink" hidden viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="uokDYXrcRA11E7d16QYfCI"><path d="M13 2L3 14h7l-1 8 10-12h-7z" data-page-node-id="UXw9EBRyxEpFGhskXDLILJ"/></svg>
+    </span>
+    <span class="fm-names" data-page-node-id="WCITL46zRzwRRnFTQq2eMG">
+      <span class="fm-name" id="fmName" data-page-node-id="5XJXqAlVWCxYOVGONz8UR7">—</span>
+      <span class="fm-meta mono" id="fmMeta" data-page-node-id="EdSx17XjRL8hPBPH37koFm">—</span>
+    </span>
+    <button class="fm-close" id="fmClose" aria-label="关闭" data-page-node-id="a1UZnq9qVoDuFoi9E2G3zd">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" data-page-node-id="xdsOryo3n8T4vYzkqS5JHd"><path d="M6 6l12 12M18 6L6 18" data-page-node-id="s927OF4RVYYmHrltpdsBKP"/></svg>
+    </button>
+  </div>
+  <div class="fm-group" style="margin-top:10px" data-page-node-id="oxXT0dRpLejSFBnTBnLcHk">
+    <button role="menuitem" class="fm-act accent" id="rmDownload" data-page-node-id="XKaLybOMglYOP2BDYq6Fa2">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="h4H2foWwvQlS0PhFaOoARc"><path d="M12 3v12M7 10l5 5 5-5" data-page-node-id="NJqRcclfFeQMpHDfaWESaf"/><path d="M4 21h16" data-page-node-id="x5zo9t7CIRAz2vRAjXaCMH"/></svg>
+      下载到本机
+    </button>
+    <button role="menuitem" class="fm-act" id="rmRename" data-page-node-id="RGHkcj8nN4ae4LxtSHR6RE">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="iRe0agORsZK8qPhklwwGIU"><path d="M12 20h9" data-page-node-id="8VDggWW64HmTDeJxpvNYOA"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" data-page-node-id="ijGxaeFCbMzCWzQGRXZzpC"/></svg>
+      重命名
+    </button>
+    <button role="menuitem" class="fm-act" id="rmCopyPath" data-page-node-id="OEEJHzCzctuaKXPljFNvDB">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="BuBlEeODAFjh0x0ByxbBE0"><rect x="9" y="9" width="12" height="12" rx="2" data-page-node-id="K2D8iYB2kH7nVeS5mGwjBo"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" data-page-node-id="0KDIXoEsxewmDQEnB72tYI"/></svg>
+      复制路径
+    </button>
+    <button role="menuitem" class="fm-act danger" id="rmDelete" data-page-node-id="Pxv5aNMJZ5lb2sTcmSFHxk">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="JHHJ0GEUXmpRcWH5alAbjp"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" data-page-node-id="NOUWigMkbqriZfOdb0FsHW"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" data-page-node-id="dBmSF1SmGRHMG679nMaDoE"/></svg>
+      删除
+    </button>
+  </div>
+  <div class="fm-more" data-page-node-id="OkUy9mUGck88PRAxbHZsw5">
+    <p class="fm-label" data-page-node-id="ZU6gscpl2RAhaGCTWZo3JB">更多操作</p>
+    <div class="fm-group" data-page-node-id="uEer4QhwBoMcRrqJwOmCuq">
+      <button role="menuitem" class="fm-act" id="rmInfo" data-page-node-id="LZZC07oK90xPpwj847kY26">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="HeVFEPdLfPznN8q7aslnAJ"><circle cx="12" cy="12" r="9" data-page-node-id="ofitH6Dpi9bbl5s3Ttidf3"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01" data-page-node-id="7yPUOBDqaHMZnA684nzGA6"/></svg>
+        详情
+      </button>
+      <button role="menuitem" class="fm-act" id="rmCopy" data-page-node-id="JhrUbIdcu9Yg2AJxbXGtcx">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="2nL7gTlCd0nevkRmfv8gkt"><rect x="9" y="9" width="12" height="12" rx="2" data-page-node-id="WKB6CHvJOFxYKYRtkCsSNE"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" data-page-node-id="BuBuDuWSnqoFSrRb7kSQXr"/></svg>
+        复制
+      </button>
+      <button role="menuitem" class="fm-act" id="rmCut" data-page-node-id="Fv85wimzowL26c0RpiAzXa">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="T33lPxYlESLO6TzwQ5fwEH"><circle cx="6" cy="6" r="3" data-page-node-id="ZcWM7Iv7iMWvZCys8jFsa2"/><circle cx="6" cy="18" r="3" data-page-node-id="nujSVE7LkHQ8XMJcF5Zcm2"/><path d="M20 4 8.12 15.88M14.47 14.48 20 20M8.12 8.12 12 12" data-page-node-id="dXnrIzewcgFKSNMQOtX3F7"/></svg>
+        剪切
+      </button>
+      <button role="menuitem" class="fm-act" id="rmCopyTo" data-page-node-id="aelx9OMOtBIAi4ycdc0Qfg">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="Cw3xlYHI3kDWHiOE8LyJGv"><path d="M2 9V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9" data-page-node-id="WRm04qVjlN8KAnGekGOAh9"/><path d="M2 13h10" data-page-node-id="LysD25bJAcSFG0pQn7JXXH"/><path d="m9 10 3 3-3 3" data-page-node-id="UNwVwPCrGRFp8pbbxtO69C"/></svg>
+        复制到...
+      </button>
+      <button role="menuitem" class="fm-act" id="rmMoveTo" data-page-node-id="wwviUhPZqYYWl284nfCVKf">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-page-node-id="MZvuyPD9WDEDGjLfolZGDo"><path d="M2 9V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9" data-page-node-id="G4T6xphiKiTYCK93D7Iec3"/><path d="M2 13h6" data-page-node-id="iHJgmiGiymd5NOCZMoR2fl"/><path d="m9 16-3-3 3-3" data-page-node-id="865qPyNmdsgiGtCHBEAY6K"/></svg>
+        移动到...
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- 路径快跳菜单 -->
+<div class="popmenu" id="pathMenu" hidden role="menu" aria-label="上级目录" data-page-node-id="yg9HWLdPAXKdPcJKf4s17n"></div>
+
+<!-- 重命名弹层 -->
+<div class="modal" id="renameModal" hidden role="dialog" aria-modal="true" aria-labelledby="renameTitle" data-page-node-id="WOKE9fzPdRME6pOu5NbiJc">
+  <div class="modal-card" data-page-node-id="98vEsZ2cV3IC6uCXOAKUS4">
+    <div class="modal-head" data-page-node-id="a7mcUHGHEfvlVV5IQi3k8A">
+      <h3 id="renameTitle" data-page-node-id="5iWuFIPUJbUWRMJP3zOGBR">重命名</h3>
+      <button id="renameClose" aria-label="关闭" data-page-node-id="j6OA1p25NhFOxPGvqUKd4B">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" data-page-node-id="46AifkwrxkReAJJ547ahWI"><path d="M6 6l12 12M18 6L6 18" data-page-node-id="UaJ06XuATYgij6DJXI3jCl"/></svg>
+      </button>
+    </div>
+    <form class="modal-body" id="renameForm" data-page-node-id="lSqYhFDOZCKaBw0W2yl7TD">
+      <label for="renameName" data-page-node-id="wDJQ0lwNsoiMJpdCI7Mqjk">新名称</label>
+      <input id="renameName" autocomplete="off" required data-page-node-id="h51p7D9soCq1faHhw2w1hp">
+    </form>
+    <div class="modal-foot" data-page-node-id="si0478vSGpvkJseQCCiah3">
+      <button class="btn plain" id="renameCancel" data-page-node-id="LrZBBXRRRQ6CfcUKOSlJgr">取消</button>
+      <button class="btn primary" id="renameOk" data-page-node-id="qAIOztQb2w6UUTtlSNYlND">重命名</button>
+    </div>
+  </div>
+</div>
+
+<!-- 删除确认弹层 -->
+<div class="modal" id="delModal" hidden role="dialog" aria-modal="true" aria-labelledby="delTitle" data-page-node-id="nHwznTe0jUtAJ15BPHBP7i">
+  <div class="modal-card" data-page-node-id="nc8IkVjU8plHgcxwFbtPqh">
+    <div class="modal-head" data-page-node-id="leZ7DEqFfl9hm3NQFzqZTX">
+      <h3 id="delTitle" data-page-node-id="FylnrESRpnAo5NkudOCUcs">删除</h3>
+      <button id="delClose" aria-label="关闭" data-page-node-id="7PkUIF0uTck44VZrAqQLfr">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" data-page-node-id="bqxTXyVC36aToQWHMP0CIE"><path d="M6 6l12 12M18 6L6 18" data-page-node-id="BO2d0TjagBVFA5BG8b1q5L"/></svg>
+      </button>
+    </div>
+    <div class="modal-body" data-page-node-id="3mmFnS39xBWV8CPUkDX8Sh">
+      <p id="delText" data-page-node-id="aGmy69msoLqBpCKccsZ6U9"></p>
+    </div>
+    <div class="modal-foot" data-page-node-id="hwNbIRptlCXvEYSS4ZWC12">
+      <button class="btn plain" id="delCancel" data-page-node-id="9UBWM3hSn6NxUVByPscpFL">取消</button>
+      <button class="btn dangerbtn" id="delOk" data-page-node-id="BUGq12r3awT40gebYi1aaA">删除</button>
+    </div>
+  </div>
+</div>
+
+<!-- 详情弹层 -->
+<div class="modal" id="infoModal" hidden role="dialog" aria-modal="true" aria-labelledby="infoTitle" data-page-node-id="dUEpc0CCDMRPWibLza7QCZ">
+  <div class="modal-card" data-page-node-id="RH8gFbeN6GCIF1vjiuVvLG">
+    <div class="modal-head" data-page-node-id="ylR9IZsTEhCMz5tqHNj5zp">
+      <h3 id="infoTitle" data-page-node-id="VdsZjV45NYR49wxBiMuSKX">详情</h3>
+      <button id="infoClose" aria-label="关闭" data-page-node-id="6PY511eQIpaDFqdkAu3Yqr">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" data-page-node-id="BDiIx8OWudOVNyphQlIiTJ"><path d="M6 6l12 12M18 6L6 18" data-page-node-id="eHhQcYLL6z78evauTThi6r"/></svg>
+      </button>
+    </div>
+    <div class="modal-body" id="infoRows" data-page-node-id="fn1Vk0YiIBb9KYaUUQvz1j"></div>
+    <div class="modal-foot" data-page-node-id="Pb7qu2YKqQsB7G7PSPrCru">
+      <button class="btn primary" id="infoOk" data-page-node-id="0NKvEIcSXAOyG6M9kPTLce">好</button>
+    </div>
+  </div>
+</div>
+
+<!-- 复制到 / 移动到 弹层（目标路径） -->
+<div class="modal" id="destModal" hidden role="dialog" aria-modal="true" aria-labelledby="destTitle" data-page-node-id="oMPLHmbK6SoEQF1ewIGDtw">
+  <div class="modal-card" data-page-node-id="Q1kZKGEHjSZKNLlJXApI5s">
+    <div class="modal-head" data-page-node-id="LFpizmNUhVJcIr0pAtGgHi">
+      <h3 id="destTitle" data-page-node-id="p4WF7ymhdJqMHrUEWghip0">复制到</h3>
+      <button id="destClose" aria-label="关闭" data-page-node-id="e790HnDaDLFe8SrBIhCHvE">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" data-page-node-id="NU2E4CqQ3eV0jre3uPHMf5"><path d="M6 6l12 12M18 6L6 18" data-page-node-id="lCVtcHDJZYGZ8183xlyIX0"/></svg>
+      </button>
+    </div>
+    <form class="modal-body" id="destForm" data-page-node-id="LYy9dtIdEhHQEJse1vutuO">
+      <label for="destPath" id="destLabel" data-page-node-id="HX8RJMVW2cFRMOfl6hU7F6">目标路径（含文件名）</label>
+      <input id="destPath" autocomplete="off" required data-page-node-id="jLeYUKqx7seB9gwoIR903W">
+      <p class="hint" data-page-node-id="KRmw4v4DuxnBZDQDQIwkid">目录不存在会原样报错；目标已存在会被覆盖。</p>
+    </form>
+    <div class="modal-foot" data-page-node-id="fhQmY6yrRr6oGUs1eVPMVE">
+      <button class="btn plain" id="destCancel" data-page-node-id="4hy3F7XAM15yFKR7zfv9lU">取消</button>
+      <button class="btn primary" id="destOk" data-page-node-id="3E0hNiLUFOWjMoO3zbB2yY">执行</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" hidden data-page-node-id="lJpdBAB9EXZdSXEKAADHbA"></div>
+
+<script>
+const HAS_TAURI = typeof window.__TAURI__ !== "undefined";
+const invoke = HAS_TAURI ? window.__TAURI__.core.invoke : null;
+const listen = HAS_TAURI ? window.__TAURI__.event.listen : null;
+
+let toastTimer;
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.hidden = false; t.style.opacity = 1;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.style.opacity = 0; setTimeout(() => t.hidden = true, 200); }, 2600);
+}
+
+// 与主界面同一个真相源（settings.theme）：初始问后端，切换调 set_theme，
+// theme-changed 广播让所有窗口跟着变。localStorage 的 ab-theme 已废弃。
+const resolvedTheme = (t) =>
+  t === 'light' || t === 'dark' ? t
+  : (!window.matchMedia || !window.matchMedia('(prefers-color-scheme: light)').matches) ? 'dark' : 'light';
+function applyTheme(t) {
+  document.documentElement.classList.remove('light', 'dark');
+  document.documentElement.classList.add(t);
+}
+/* ---------- 远程管理入口（顶栏） ---------- */
+// 文件窗顶栏的「远程管理」：回到 server-hub（已开则聚焦），与终端/密钥窗一致。
+const hubBtnElement = document.getElementById('hubBtn');
+if (hubBtnElement) {
+  hubBtnElement.addEventListener('click', async function () {
+    if (!invoke) { toast('浏览器里无法打开本机窗口'); return; }
+    try {
+      await invoke('hub_open_window');
+    } catch (error) {
+      toast(String(error));
+    }
+  });
+}
+
+document.getElementById('themeBtn').addEventListener('click', () => {
+  const next = document.documentElement.classList.contains('light') ? 'dark' : 'light';
+  applyTheme(next);
+  if (invoke) invoke('set_theme', { theme: next }).catch(() => {});
+});
+if (invoke) {
+  invoke('get_ui_state').then((state) => {
+    applyTheme(resolvedTheme(state && state.settings && state.settings.theme));
+  }).catch(() => {});
+  window.__TAURI__.event.listen('theme-changed', (event) => {
+    applyTheme(resolvedTheme(event && event.payload));
+  }).catch(() => {});
+} else {
+  applyTheme('dark');
+}
+
+/* ---------- 状态 ---------- */
+let server = null;          // HubServer json
+let cwd = '/';              // 当前远端目录
+let entries = [];           // SftpEntry[]
+let selected = null;        // 选中的文件（仅文件可下载）
+let busy = false;           // 列表/传输进行中
+
+const $ = (id) => document.getElementById(id);
+const DIR_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>';
+const FILE_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>';
+const LINK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h7l-1 8 10-12h-7z"/></svg>';
+const MORE_SVG = '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>';
+
+function humanSize(n) {
+  if (n < 1024) return n + 'B';
+  const units = ['K', 'M', 'G', 'T'];
+  let v = n;
+  for (const u of units) {
+    v /= 1024;
+    if (v < 1024) return (v >= 100 ? v.toFixed(0) : v.toFixed(1)) + u;
+  }
+  return v.toFixed(1) + 'P';
+}
+
+function joinPath(dir, name) {
+  return dir.endsWith('/') ? dir + name : dir + '/' + name;
+}
+
+/* ---------- 面包屑 ---------- */
+function renderCrumbs() {
+  const nav = $('crumbs');
+  nav.textContent = '';
+  const parts = cwd.split('/').filter((p) => p !== '');
+  const addCrumb = (label, target, isCurrent) => {
+    if (!isCurrent) {
+      const sep = document.createElement('span');
+      sep.className = 'crumb-sep'; sep.textContent = '›'; sep.setAttribute('aria-hidden', 'true');
+      nav.appendChild(sep);
+    }
+    const b = document.createElement('button');
+    b.className = 'crumb';
+    b.textContent = label;
+    b.setAttribute('aria-current', String(isCurrent));
+    if (!isCurrent) b.addEventListener('click', () => gotoDir(target));
+    nav.appendChild(b);
+  };
+  addCrumb('/', '/', parts.length === 0);
+  let acc = '';
+  parts.forEach((part, i) => {
+    acc += '/' + part;
+    addCrumb(part, acc, i === parts.length - 1);
+  });
+  nav.scrollLeft = nav.scrollWidth;
+}
+
+/* ---------- 列表 ---------- */
+function renderTable() {
+  const tbody = $('tbody');
+  tbody.textContent = '';
+  let totalSize = 0;
+  for (const entry of entries) {
+    totalSize += entry.size || 0;
+    const tr = document.createElement('tr');
+    tr.dataset.name = entry.name;
+    const kind = entry.dir ? 'dir' : (entry.link ? 'link' : 'file');
+    tr.innerHTML =
+      '<td><span class="namecell ' + kind + '">' +
+      (kind === 'dir' ? DIR_SVG : kind === 'link' ? LINK_SVG : FILE_SVG) +
+      '<span></span></span></td>' +
+      '<td class="' + (entry.dir ? 'faint' : '') + '">' + (entry.dir ? '—' : humanSize(entry.size)) + '</td>' +
+      '<td class="dim">' + (entry.perms || '—') + '</td>' +
+      '<td class="dim">' + (entry.mtime || '—') + '</td>' +
+      '<td style="text-align:right"></td>';
+    tr.querySelector('.namecell span').textContent = entry.name;
+    const opTd = tr.lastElementChild;
+    const op = document.createElement('button');
+    op.className = 'rowdl'; op.title = '操作'; op.setAttribute('aria-label', entry.name + ' 操作');
+    op.innerHTML = MORE_SVG;
+    op.addEventListener('click', (e) => { e.stopPropagation(); openRowMenu(op, entry); });
+    opTd.appendChild(op);
+    tr.addEventListener('click', () => selectEntry(tr, entry));
+    tr.addEventListener('dblclick', () => { if (entry.dir) gotoDir(joinPath(cwd, entry.name)); });
+    tbody.appendChild(tr);
+  }
+  $('footCount').textContent = entries.length
+    ? `${entries.length} 项 · ${humanSize(totalSize)}`
+    : '0 项';
+  const tip = $('emptyTip');
+  if (!entries.length) {
+    tip.hidden = false;
+    tip.textContent = busy ? '读取中…' : '（空目录）';
+  } else {
+    tip.hidden = true;
+  }
+}
+
+function selectEntry(tr, entry) {
+  if (entry.dir) return;
+  selected = entry;
+  document.querySelectorAll('#tbody tr.selected').forEach((row) => row.classList.remove('selected'));
+  tr.classList.add('selected');
+  $('downloadBtn').disabled = false;
+  $('downloadBtn').title = '下载 ' + entry.name;
+}
+
+async function gotoDir(path, force) {
+  if (!invoke || !server) return;
+  if (busy && !force) return;
+  busy = true;
+  selected = null;
+  $('downloadBtn').disabled = true;
+  try {
+    const list = await invoke('hub_sftp_list', { server, path });
+    cwd = path;
+    entries = list || [];
+    renderCrumbs();
+    renderTable();
+  } catch (e) {
+    toast('读取失败：' + e);
+  } finally {
+    busy = false;
+  }
+}
+
+async function refresh() {
+  await gotoDir(cwd, true);
+}
+
+/* ---------- 传输 ---------- */
+let prog = { key: '', lastBytes: 0, lastT: 0, speed: 0 };
+function showTransfer(dir, name, indeterminate) {
+  const badge = $('transferDir');
+  badge.hidden = !dir;
+  badge.textContent = dir === 'up' ? '↑ 上传' : '↓ 下载';
+  badge.className = 'tbadge ' + (dir === 'up' ? 'up' : 'down');
+  const key = dir + '|' + name;
+  // 只有换目标（新传输）才清零进度条：同一任务的后续事件（尤其 paused，
+  // 此时后端可能没带 total，下面的分支重设不了百分比）必须保留 running
+  // 阶段攒出的显示 —— 否则暂停那一帧进度条会被清掉，看起来像「渲染丢失」。
+  const fresh = prog.key !== key;
+  if (fresh) prog = { key, lastBytes: 0, lastT: 0, speed: 0 };
+  $('transfer').hidden = false;
+  $('transferName').textContent = name;
+  const bar = $('transferBar');
+  bar.classList.toggle('indet', !!indeterminate);
+  if (fresh || indeterminate) {
+    $('transferFill').style.width = indeterminate ? '40%' : '0%';
+    $('transferPct').textContent = '0%';
+  }
+  $('transferPct').classList.remove('fail');
+  if (fresh) $('transferMeta').textContent = '';
+}
+function progTick(bytes, total) {
+  const now = performance.now();
+  if (prog.lastT) {
+    const dt = (now - prog.lastT) / 1000;
+    if (dt > 0.25) {
+      prog.speed = Math.max(0, (bytes - prog.lastBytes) / dt);
+      prog.lastBytes = bytes;
+      prog.lastT = now;
+    }
+  } else {
+    prog.lastBytes = bytes;
+    prog.lastT = now;
+  }
+  let meta = '';
+  if (prog.speed > 0) {
+    meta = humanSize(prog.speed) + '/s';
+    if (total > 0 && prog.speed > 0) {
+      const remain = Math.max(0, (total - bytes) / prog.speed);
+      meta += remain < 60
+        ? ' · 剩余 ' + Math.ceil(remain) + 's'
+        : ' · 剩余 ' + Math.floor(remain / 60) + 'm' + String(Math.floor(remain % 60)).padStart(2, '0') + 's';
+    }
+  }
+  $('transferMeta').textContent = meta;
+}
+function updateTransfer(bytes, total) {
+  const pct = total > 0 ? Math.min(100, Math.round((bytes / total) * 100)) : 0;
+  $('transferFill').style.width = pct + '%';
+  $('transferPct').textContent = pct + '%';
+  progTick(bytes, total);
+}
+function hideTransfer() { $('transfer').hidden = true; }
+
+/* ---------- 传输条暂停/继续/放弃（断点续传；按 key 调后端） ---------- */
+let tx = null;   // 当前传输条指向的任务 {key, dir, paused}
+function txPaint() {
+  const has = !!tx;
+  $('transferAct').hidden = !has;
+  $('transferGiveup').hidden = !has;
+  if (!has) return;
+  $('transferAct').textContent = tx.paused ? '继续' : '暂停';
+  $('transferBar').classList.toggle('paused', !!tx.paused);
+  $('transferDir').textContent = tx.dir === 'up'
+    ? (tx.paused ? '↑ 已暂停' : '↑ 上传')
+    : (tx.paused ? '↓ 已暂停' : '↓ 下载');
+}
+function txBarPausedCls(on) { $('transferBar').classList.toggle('paused', !!on); }
+$('transferAct').addEventListener('click', () => {
+  if (!invoke || !tx) return;
+  const goingPause = !tx.paused;
+  invoke('hub_sftp_transfer_ctl', { action: goingPause ? 'pause' : 'resume', key: tx.key })
+    .then((n) => {
+      if (!n) return;
+      if (goingPause) {
+        tx.paused = true;
+        tx.pausedAt = Date.now();   // 暂停宽限锚点：2s 内的迟到 running 事件不许解暂停
+        txPaint();
+        toast('已暂停，可稍后从断点继续');
+      } else {
+        tx.paused = false;
+        tx.pausedAt = 0;
+        $('transferPct').classList.remove('fail');
+        txPaint();
+      }
+    })
+    .catch((e) => toast('传输控制失败：' + e));
+});
+$('transferGiveup').addEventListener('click', () => {
+  if (!invoke || !tx) return;
+  invoke('hub_sftp_transfer_ctl', { action: 'abandon', key: tx.key })
+    .then((n) => {
+      if (!n) return;
+      toast('已放弃：半截文件已清理');
+      tx = null;
+      hideTransfer();
+    })
+    .catch((e) => toast('放弃失败：' + e));
+});
+
+async function downloadEntry(entry) {
+  if (!invoke || !server || busy) return;
+  busy = true;
+  showTransfer('down', '下载 ' + entry.name, false);
+  try {
+    // 下载路径取终端设置的「下载路径」；没设置就落系统下载目录
+    let downDir = '';
+    try {
+      const s = JSON.parse(localStorage.getItem('ab-term-settings') || '{}');
+      const raw = typeof s.downDir === 'string' ? s.downDir.trim() : '';
+      // 空 / `~`（旧版本写死的默认值）= 未设置 → 用系统下载目录
+      if (raw && raw !== '~' && raw !== '~/') downDir = raw;
+    } catch (e) {}
+    if (!downDir) {
+      try { downDir = await invoke('hub_download_dir_default'); } catch (e) {}
+    }
+    const local = await invoke('hub_sftp_download', {
+      server,
+      remotePath: joinPath(cwd, entry.name),
+      total: entry.size || 0,
+      filename: entry.name,
+      localDir: downDir || null,
+    });
+    toast('已下载到 ' + local);
+  } catch (e) {
+    hideTransfer();
+    toast('下载失败：' + e);
+  } finally {
+    busy = false;
+    setTimeout(hideTransfer, 600);
+  }
+}
+
+async function upload() {
+  if (!invoke || !server || busy) return;
+  busy = true;
+  try {
+    const uploaded = await invoke('hub_sftp_upload', { server, remoteDir: cwd });
+    if (uploaded?.length) toast('已上传 ' + uploaded.length + ' 个文件');
+  } catch (e) {
+    const msg = String(e);
+    if (msg !== '未选择文件') toast('上传失败：' + msg);
+  } finally {
+    busy = false;
+    hideTransfer();
+    await refresh();
+  }
+}
+
+/* ---------- 新建目录 ---------- */
+function openMkdir() {
+  $('mkdirName').value = '';
+  $('mkdirModal').hidden = false;
+  $('mkdirName').focus();
+}
+function closeMkdir() { $('mkdirModal').hidden = true; }
+async function submitMkdir() {
+  const name = $('mkdirName').value.trim();
+  if (!name) return;
+  try {
+    await invoke('hub_sftp_mkdir', { server, path: joinPath(cwd, name) });
+    closeMkdir();
+    toast('已创建 ' + name);
+    await refresh();
+  } catch (e) {
+    toast('创建失败：' + e);
+  }
+}
+$('mkdirBtn').addEventListener('click', openMkdir);
+$('mkdirClose').addEventListener('click', closeMkdir);
+$('mkdirCancel').addEventListener('click', closeMkdir);
+$('mkdirOk').addEventListener('click', submitMkdir);
+$('mkdirForm').addEventListener('submit', (e) => { e.preventDefault(); submitMkdir(); });
+$('mkdirModal').addEventListener('click', (e) => { if (e.target.id === 'mkdirModal') closeMkdir(); });
+
+/* ---------- 行尾 ⋯ 文件操作面板（设计稿 files-menu 屏） ---------- */
+let menuTarget = null;                       // 面板当前指向的条目
+let clip = null;                             // 复制/剪切标记 { entry, dir, mode: 'copy'|'cut' }
+let destState = null;                        // 复制到/移动到待执行 { mode, src, fromDir }
+
+function kindOf(entry) { return entry.dir ? 'dir' : (entry.link ? 'link' : 'file'); }
+
+function openRowMenu(btn, entry) {
+  menuTarget = entry;
+  // 对象预览：图标/配色随类型（与文件表同款），meta = 大小 · 修改时间
+  const kind = kindOf(entry);
+  $('fmIcoFile').hidden = kind !== 'file';
+  $('fmIcoDir').hidden = kind !== 'dir';
+  $('fmIcoLink').hidden = kind !== 'link';
+  const icon = $('fmIcon');
+  const color = kind === 'dir' ? 'var(--tblue)' : kind === 'link' ? 'var(--warn)' : 'var(--fgdim)';
+  icon.style.color = `rgb(${color})`;
+  icon.style.background = `rgb(${color} / .12)`;
+  $('fmName').textContent = entry.name;
+  $('fmMeta').textContent = (entry.dir ? '—' : humanSize(entry.size)) + ' · ' + (entry.mtime || '—');
+  $('rmDownload').hidden = !!entry.dir;   // 目录无下载（对齐手机：动作对齐 SFTP 实际能力）
+  $('rmDownload').disabled = busy;
+  const m = $('rowMenu');
+  m.hidden = false;
+  const r = btn.getBoundingClientRect();
+  const mw = m.offsetWidth, mh = m.offsetHeight;
+  let x = Math.min(r.right - mw, window.innerWidth - mw - 8);
+  let y = r.bottom + 4;
+  if (y + mh > window.innerHeight - 8) y = Math.max(8, r.top - mh - 4);
+  m.style.left = Math.max(8, x) + 'px';
+  m.style.top = y + 'px';
+}
+function closeRowMenu() { $('rowMenu').hidden = true; }
+
+async function writeClipboard(text) {
+  try { await navigator.clipboard.writeText(text); }
+  catch (e) {
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); } catch (e2) {}
+    ta.remove();
+  }
+}
+
+/* 主动作 */
+$('rmDownload').addEventListener('click', () => { const e = menuTarget; closeRowMenu(); if (e && !e.dir) downloadEntry(e); });
+$('rmRename').addEventListener('click', () => { const e = menuTarget; closeRowMenu(); if (e) openRename(e); });
+$('rmCopyPath').addEventListener('click', () => { const e = menuTarget; closeRowMenu(); if (!e) return; writeClipboard(joinPath(cwd, e.name.split(' -> ')[0])); toast('已复制路径'); });
+$('rmDelete').addEventListener('click', () => { const e = menuTarget; closeRowMenu(); if (e) openDelete(e); });
+$('fmClose').addEventListener('click', closeRowMenu);
+
+/* 详情：来自列表元数据；软链接指向后端按需拉取（真 sshd 的 ls -la longname 不带 -> target） */
+$('rmInfo').addEventListener('click', () => {
+  const e = menuTarget; closeRowMenu(); if (!e) return;
+  const rows = [
+    ['名称', e.name.split(' -> ')[0]],
+    ['类型', e.dir ? '目录' : e.link ? '软链接' : '文件'],
+    ['大小', e.dir ? '—' : humanSize(e.size) + '（' + e.size + ' B）'],
+    ['权限', e.perms || '—'],
+    ['修改时间', e.mtime || '—'],
+    ['路径', joinPath(cwd, e.name)],
+  ];
+  if (e.link) rows.splice(2, 0, ['指向', e.target || '读取中…']);
+  const box = $('infoRows');
+  box.textContent = '';
+  const valueEls = {};
+  for (const [k, v] of rows) {
+    const line = document.createElement('div');
+    line.className = 'kv';
+    const a = document.createElement('span'); a.textContent = k;
+    const b = document.createElement('span'); b.textContent = v;
+    line.append(a, b);
+    box.appendChild(line);
+    valueEls[k] = b;
+  }
+  $('infoModal').hidden = false;
+  if (e.link && !e.target) {
+    invoke('hub_sftp_readlink', { server, path: joinPath(cwd, e.name) })
+      .then((target) => { if (!$('infoModal').hidden && valueEls['指向']) valueEls['指向'].textContent = target || '（无法读取）'; })
+      .catch(() => { if (!$('infoModal').hidden && valueEls['指向']) valueEls['指向'].textContent = '（无法读取）'; });
+  }
+});
+function closeInfo() { $('infoModal').hidden = true; }
+$('infoClose').addEventListener('click', closeInfo);
+$('infoOk').addEventListener('click', closeInfo);
+$('infoModal').addEventListener('click', (e) => { if (e.target.id === 'infoModal') closeInfo(); });
+
+/* 复制 / 剪切：只做标记（与手机一致），由「复制到 / 移动到」落到目标路径 */
+$('rmCopy').addEventListener('click', () => {
+  const e = menuTarget; closeRowMenu(); if (!e) return;
+  clip = { entry: e, dir: cwd, mode: 'copy' };
+  toast('已复制 ' + e.name + ' —— 到目标位置用「复制到...」落下');
+});
+$('rmCut').addEventListener('click', () => {
+  const e = menuTarget; closeRowMenu(); if (!e) return;
+  clip = { entry: e, dir: cwd, mode: 'cut' };
+  toast('已剪切 ' + e.name + ' —— 到目标位置用「移动到...」落下');
+});
+
+/* 复制到 / 移动到：优先消费复制/剪切标记，否则对当前面板条目 */
+$('rmCopyTo').addEventListener('click', () => { closeRowMenu(); openDest('copy'); });
+$('rmMoveTo').addEventListener('click', () => { closeRowMenu(); openDest('move'); });
+
+function openDest(mode) {
+  let src, fromDir;
+  const wantClip = mode === 'copy' ? 'copy' : 'cut';   // clip 标记是 copy/cut，动作是 copy/move
+  if (clip && clip.mode === wantClip) { src = clip.entry; fromDir = clip.dir; }
+  else if (menuTarget) { src = menuTarget; fromDir = cwd; }
+  else { toast('先在文件上选「' + (mode === 'copy' ? '复制' : '剪切') + '」'); return; }
+  destState = { mode, src, fromDir };
+  $('destTitle').textContent = mode === 'copy' ? '复制到' : '移动到';
+  $('destLabel').textContent = (mode === 'copy' ? '复制 ' : '移动 ') + src.name.split(' -> ')[0] + ' 到（目标路径，含文件名）';
+  $('destPath').value = joinPath(cwd, src.name.split(' -> ')[0]);
+  $('destModal').hidden = false;
+  $('destPath').focus();
+  $('destPath').select();
+}
+function closeDest() { $('destModal').hidden = true; destState = null; }
+async function submitDest() {
+  const st = destState;
+  closeDest();
+  if (!st) return;
+  const to = $('destPath').value.trim();
+  const from = joinPath(st.fromDir, st.src.name.split(' -> ')[0]);
+  if (!to || to === from) return;
+  try {
+    if (st.mode === 'copy') {
+      await invoke('hub_sftp_copy', { server, from, to });
+      toast('已复制到 ' + to);
+    } else {
+      await invoke('hub_sftp_rename', { server, from, to });
+      if (clip && clip.mode === 'cut' && clip.entry.name === st.src.name) clip = null;
+      if (selected && selected.name === st.src.name) { selected = null; $('downloadBtn').disabled = true; }
+      toast('已移动到 ' + to);
+    }
+    await refresh();
+  } catch (e) {
+    toast((st.mode === 'copy' ? '复制失败：' : '移动失败：') + e);
+  }
+}
+$('destClose').addEventListener('click', closeDest);
+$('destCancel').addEventListener('click', closeDest);
+$('destOk').addEventListener('click', submitDest);
+$('destForm').addEventListener('submit', (e) => { e.preventDefault(); submitDest(); });
+$('destModal').addEventListener('click', (e) => { if (e.target.id === 'destModal') closeDest(); });
+
+/* ---------- 重命名 ---------- */
+let renameTarget = null;
+function openRename(entry) {
+  renameTarget = entry;
+  $('renameName').value = entry.name;
+  $('renameModal').hidden = false;
+  $('renameName').focus();
+  $('renameName').select();
+}
+function closeRename() { $('renameModal').hidden = true; }
+async function submitRename() {
+  const to = $('renameName').value.trim();
+  const from = renameTarget;
+  closeRename();
+  if (!from || !to || to === from.name) return;
+  try {
+    await invoke('hub_sftp_rename', { server, from: joinPath(cwd, from.name), to: joinPath(cwd, to) });
+    if (selected && selected.name === from.name) { selected = null; $('downloadBtn').disabled = true; }
+    toast('已重命名为 ' + to);
+    await refresh();
+  } catch (e) {
+    toast('重命名失败：' + e);
+  }
+}
+$('renameClose').addEventListener('click', closeRename);
+$('renameCancel').addEventListener('click', closeRename);
+$('renameOk').addEventListener('click', submitRename);
+$('renameForm').addEventListener('submit', (e) => { e.preventDefault(); submitRename(); });
+$('renameModal').addEventListener('click', (e) => { if (e.target.id === 'renameModal') closeRename(); });
+
+/* ---------- 删除 ---------- */
+let delTarget = null;
+function openDelete(entry) {
+  delTarget = entry;
+  $('delText').textContent = entry.dir
+    ? '删除目录 ' + entry.name + '？（目录须为空，此操作不可恢复）'
+    : '删除文件 ' + entry.name + '？此操作不可恢复。';
+  $('delModal').hidden = false;
+}
+function closeDel() { $('delModal').hidden = true; }
+async function submitDelete() {
+  const e = delTarget;
+  closeDel();
+  if (!e) return;
+  try {
+    await invoke('hub_sftp_remove', { server, path: joinPath(cwd, e.name), isDir: e.dir });
+    if (selected && selected.name === e.name) { selected = null; $('downloadBtn').disabled = true; }
+    toast('已删除 ' + e.name);
+    await refresh();
+  } catch (err) {
+    toast('删除失败：' + err);
+  }
+}
+
+/* ---------- 路径快跳（▾） ---------- */
+function openPathMenu(btn) {
+  const m = $('pathMenu');
+  m.textContent = '';
+  const parts = cwd.split('/').filter((p) => p !== '');
+  const add = (label, path, isCurrent) => {
+    const b = document.createElement('button');
+    b.className = 'mono' + (isCurrent ? ' cur' : '');
+    b.textContent = label;
+    b.setAttribute('aria-current', String(isCurrent));
+    if (!isCurrent) b.addEventListener('click', () => { closePathMenu(); gotoDir(path); });
+    m.appendChild(b);
+  };
+  add('/ （根目录）', '/', parts.length === 0);
+  let acc = '';
+  parts.forEach((part, i) => {
+    acc += '/' + part;
+    add(acc, acc, i === parts.length - 1);
+  });
+  m.hidden = false;
+  const r = btn.getBoundingClientRect();
+  const mw = m.offsetWidth, mh = m.offsetHeight;
+  m.style.left = Math.max(8, Math.min(r.left, window.innerWidth - mw - 8)) + 'px';
+  let y = r.bottom + 4;
+  if (y + mh > window.innerHeight - 8) y = Math.max(8, r.top - mh - 4);
+  m.style.top = y + 'px';
+}
+function closePathMenu() { $('pathMenu').hidden = true; }
+
+/* ---------- 工具钮 / 键盘 ---------- */
+$('upBtn').addEventListener('click', () => { if (cwd !== '/') gotoDir(cwd.replace(/\/[^/]*\/?$/, '') || '/'); });
+$('refreshBtn').addEventListener('click', refresh);
+$('downloadBtn').addEventListener('click', () => { if (selected) downloadEntry(selected); });
+$('uploadBtn').addEventListener('click', upload);
+$('pathDropBtn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  const m = $('pathMenu');
+  if (m.hidden) openPathMenu($('pathDropBtn')); else closePathMenu();
+});
+$('delClose').addEventListener('click', closeDel);
+$('delCancel').addEventListener('click', closeDel);
+$('delOk').addEventListener('click', submitDelete);
+$('delModal').addEventListener('click', (e) => { if (e.target.id === 'delModal') closeDel(); });
+document.addEventListener('click', (e) => {
+  if (!$('rowMenu').hidden && !$('rowMenu').contains(e.target)) closeRowMenu();
+  if (!$('pathMenu').hidden && !$('pathMenu').contains(e.target)) closePathMenu();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  closeRowMenu(); closePathMenu();
+  if (!$('delModal').hidden) closeDel();
+  if (!$('renameModal').hidden) closeRename();
+  if (!$('infoModal').hidden) closeInfo();
+  if (!$('destModal').hidden) closeDest();
+  closeMkdir();
+});
+
+/* ---------- 时钟 ---------- */
+function tickClock() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  $('footClock').textContent =
+    `${d.getMonth() + 1}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+setInterval(tickClock, 1000); tickClock();
+
+/* ---------- 后端事件 ---------- */
+if (listen) {
+  listen('hub-sftp-progress', (event) => {
+    const { name, key, dir, bytes, total, done, failed, paused, state } = event.payload;
+    // state 是后端给的权威状态；旧布尔兜底
+    const phase = state || (failed ? 'failed' : done ? 'done' : paused ? 'paused' : 'running');
+    if (phase === 'abandoned') {
+      // 传输页里点了「放弃」/「全部放弃」：本窗的进度条必须同步消失
+      if (tx && tx.key === key) { tx = null; hideTransfer(); txPaint(); }
+      return;
+    }
+    // 传输条指向跟随最新任务；同 key 的后续事件直接刷（bytes/total 记进 tx，
+    // 满进度兜底与续传判断都要用）
+    if (!tx || tx.key !== key) tx = { key, dir: dir || 'down', paused: false, bytes: bytes || 0, total: total || 0 };
+    if (typeof bytes === 'number') tx.bytes = bytes;
+    if (typeof total === 'number' && total > 0) tx.total = total;
+    // running 不许盲目解暂停：暂停后可能还有迟到的 running 事件（后端已修，
+    // 这里防微秒竞态），只有不在暂停宽限期内才清标记 —— 续传恢复走按钮点击，
+    // 本地就置 false，不依赖这条。
+    if (phase === 'running' && !(tx.paused && Date.now() - (tx.pausedAt || 0) < 2000)) {
+      tx.paused = false;
+    }
+    if (failed) {
+      tx = null;
+      $('transferPct').textContent = '失败';
+      $('transferPct').classList.add('fail');
+      $('transferBar').classList.remove('indet');
+      $('transferFill').style.width = '0%';
+      $('transferMeta').textContent = '';
+      txPaint();
+      return;
+    }
+    showTransfer(dir, (dir === 'up' ? '上传 ' : '下载 ') + name, dir === 'up' && !done && !paused && bytes === undefined);
+    if (paused) {
+      tx.paused = true;
+      tx.pausedAt = Date.now();
+      // 后端已兜底，这里是保险：满进度的"暂停"其实是已传完，按完成收尾
+      if ((total > 0 && bytes >= total) || (total === undefined && tx.total > 0 && tx.bytes >= tx.total)) {
+        tx = null;
+        $('transferBar').classList.remove('indet');
+        $('transferFill').style.width = '100%';
+        $('transferPct').textContent = '100%';
+        $('transferMeta').textContent = '';
+        txPaint();
+        return;
+      }
+      $('transferBar').classList.remove('indet');
+      // 事件没带 total 时用记账值（tx.bytes/tx.total）——保证暂停帧一定有
+      // 断点百分比，进度条不会空着
+      const bt = total > 0 ? total : tx.total;
+      const bb = total > 0 ? bytes : tx.bytes;
+      if (bt > 0) {
+        const pct = Math.min(100, Math.round((bb / bt) * 100));
+        $('transferFill').style.width = pct + '%';
+        $('transferPct').textContent = pct + '%（断点）';
+      }
+      $('transferMeta').textContent = '已暂停';
+      txPaint();
+      return;
+    }
+    txPaint();
+    if (done) {
+      tx = null;
+      $('transferBar').classList.remove('indet');
+      $('transferFill').style.width = '100%';
+      $('transferPct').textContent = '100%';
+      $('transferMeta').textContent = '';
+      txPaint();
+    } else if (total > 0) {
+      $('transferBar').classList.remove('indet');
+      updateTransfer(bytes, total);
+    }
+  });
+  // hub 再点一次「浏览文件」：换服务器并回到家目录
+  listen('hub-files-open-server', async (event) => {
+    server = event.payload;
+    renderHeader();
+    await bootDir();
+  });
+}
+
+/* ---------- 头部与启动 ---------- */
+function renderHeader() {
+  $('title').textContent = '文件 — ' + (server ? server.name : '');
+  const pill = $('connPill');
+  pill.hidden = false;
+  if (server && server.protocol === 'ssh') {
+    pill.className = 'pill ok';
+    $('connText').textContent = '已连接 ' + (server.user || '?') + '@' + (server.host || '?');
+  } else {
+    pill.className = 'pill bad';
+    $('connText').textContent = 'Telnet 不支持文件浏览';
+  }
+}
+
+async function bootDir() {
+  if (!invoke || !server) return;
+  try {
+    cwd = await invoke('hub_sftp_home', { server });
+  } catch (e) {
+    cwd = '/';
+    toast(String(e));
+  }
+  await gotoDir(cwd, true);
+}
+
+(async function boot() {
+  if (!invoke) { $('emptyTip').hidden = false; $('emptyTip').textContent = '非 Tauri 环境（预览）'; return; }
+  try { server = await invoke('hub_sftp_take_pending'); } catch (e) { console.error(e); }
+  if (!server) { $('emptyTip').hidden = false; $('emptyTip').textContent = '没有指定服务器'; return; }
+  renderHeader();
+  await bootDir();
+})();
+</script>
+<!-- 页面心跳：后端据此区分「窗口对象还在」和「页面还活着」。
+     白框（webview 渲染进程崩掉 / 首帧没加载出来 / 页面 JS 未起来）时这里不跑，
+     后端下次点按钮就会销毁重建，而不是一直 show 那个白框。 -->
+<script>
+(function () {
+  if (!window.__TAURI__ || !window.__TAURI__.core) return;
+  function beat(ready) {
+    try { window.__TAURI__.core.invoke('hub_page_ping', { ready: !!ready }); } catch (e) {}
+  }
+  beat(true);                                  // 脚本跑到了 = 页面已经起来了
+  setInterval(function () { beat(true); }, 3000);
+})();
+</script>
+</body>
+</html>
