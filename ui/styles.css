@@ -487,20 +487,30 @@ h1,
 
 .next-boot small {
   color: var(--text-dim);
-  font-size: 12px;
+  font-size: 11px;
   letter-spacing: 0.08em;
 }
 
 .next-boot strong {
   color: var(--ok);
-  /* 级联全链动辄几十个字，24px 太占地方（用户反馈「过大」），收到 16px */
-  font-size: 16px;
-  line-height: 1.3;
+  /* 2026-10-31 用户定案：整卡改小字；级联全链再长也不许省略号 —— 放不下
+   * 就换行（overflow-wrap:anywhere，路径/长词也断得开） */
+  font-size: 13px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .next-boot.unknown strong {
   color: var(--text-faint);
 }
+
+/* 卡片与下方区域之间只留很小的间隙（2026-10-31 用户定案）：容器 gap
+ * 默认网格 20px / ba-fill·ba-lr flex 12px，都嫌大 —— 负下边距收到 ~4px。
+ * 选择器限 #tab-boot 直接子级：主题态（SET_SPLIT 搬进主题壳）不吃这条，
+ * 那边的行距主题自己管。 */
+#tab-boot > .next-boot { margin-bottom: -16px; }
+#tab-boot.ba-fill > .next-boot,
+#tab-boot.ba-lr > .next-boot { margin-bottom: -8px; }
 
 /* 多行态（2026-10-30 用户定案）：每行 = 引导器标签 + 它选中的条目，只列
  * 「引导高级设置」里启用的引导器。原来的单行大字让位，标题行与「上次启动」
@@ -532,7 +542,7 @@ h1,
 .nb-row .ldr { flex: none; }
 .nb-row .nb-tag {
   flex: none;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--text-dim);
   letter-spacing: 0.02em;
@@ -540,22 +550,22 @@ h1,
 .nb-entry {
   flex: 1 1 auto;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  /* 2026-10-31 用户定案：不许省略号 —— 放不下就换行（路径/长词也断得开） */
+  white-space: normal;
+  overflow-wrap: anywhere;
   color: var(--ok);
-  font-size: 13.5px;
+  font-size: 12.5px;
   font-weight: 600;
 }
 .nb-entry.is-empty { color: var(--text-faint); font-weight: 400; }
 .nb-detail {
   flex: none;
   max-width: 45%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  /* 同上：不省略，换行 */
+  white-space: normal;
+  overflow-wrap: anywhere;
   color: var(--text-faint);
-  font-size: 11.5px;
+  font-size: 11px;
 }
 
 /* ---------- 系统列表（手动获取）：与模拟扫描同一套 grub-list 行式样式 ----------
@@ -2111,9 +2121,9 @@ body.dock-right #hotzone {
     word-break: break-all;
   }
 
-  /* 「下次启动」的级联全链常在二十字以上，收一档字号少折一行 */
+  /* 「下次启动」整卡已是小字（见 .next-boot strong），窄窗再收半档 */
   .next-boot strong {
-    font-size: 15px;
+    font-size: 12.5px;
   }
 }
 
