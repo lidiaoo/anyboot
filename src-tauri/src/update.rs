@@ -829,9 +829,8 @@ pub(crate) fn update_state(app: AppHandle) -> UpdateState {
     state
 }
 
-/// 手动/自动检查都走这里
-#[tauri::command]
-pub(crate) fn update_check(app: AppHandle) -> Result<UpdateState, String> {
+/// 手动/自动检查的实际实现（同步，供后台线程与 async 命令共用）
+pub(crate) fn check_with_busy(app: AppHandle) -> Result<UpdateState, String> {
     let manager = app.state::<UpdateManager>();
     if manager.busy.swap(true, Ordering::SeqCst) {
         return Err("更新任务正在进行中（下载或安装），请稍候".to_string());
@@ -848,6 +847,19 @@ pub(crate) fn update_check(app: AppHandle) -> Result<UpdateState, String> {
             Err(error)
         }
     }
+}
+
+/// 检查更新命令（async + spawn_blocking）。
+///
+/// **为什么不能是同步命令**：命令跑在 WebView 的 IPC 回调线程上，而这里有两个
+/// 网络请求（连接超时 10s、读超时 20s）——网络被黑洞时窗口会整块卡住，正是
+/// `blocking_guard.rs` 记录的那类事故（那个守卫只认固定的阻塞 token，不认 ureq）。
+#[tauri::command]
+pub(crate) async fn update_check(app: AppHandle) -> Result<UpdateState, String> {
+    let handle = app.clone();
+    tauri::async_runtime::spawn_blocking(move || check_with_busy(handle))
+        .await
+        .map_err(|error| format!("检查线程异常：{error}"))?
 }
 
 /// 下载：起线程立刻返回，进度走 update-state 事件

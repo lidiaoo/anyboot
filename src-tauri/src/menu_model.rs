@@ -1545,8 +1545,8 @@ pub(crate) fn spawn_menu_action(app: &AppHandle, action: MenuAction) {
             }
             let handle = app.clone();
             std::thread::spawn(move || {
-                // 失败会走 update_check 自己的 set_phase + trace，这里不再重复记
-                let _ = update::update_check(handle);
+                // 失败会走 check_with_busy 自己的 set_phase + trace，这里不再重复记
+                let _ = update::check_with_busy(handle);
             });
         }
         MenuAction::OpenWeb => match open_web_page_now(&app) {
