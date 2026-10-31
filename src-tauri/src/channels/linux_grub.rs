@@ -1633,13 +1633,22 @@ pub(crate) fn probe_raw(esp_partuuid: &str) -> Result<ProbePayload, String> {
         ok: true,
         ..ProbePayload::default()
     };
-    let sys = system_partitions_linux();
-    if sys.is_empty() {
-        payload
-            .notes
-            .push("lsblk 没列出任何分区，ext4 遍历跳过".to_string());
-        return Ok(payload);
-    }
+    let sys = match system_partitions_linux() {
+        Ok(sys) if !sys.is_empty() => sys,
+        // 「枚举失败」和「枚举成功但一台设备都没有」是两件事，分开说：
+        // 以前两种都塌缩成一句「lsblk 没列出任何分区」，读起来像「本机没分区」，
+        // 把 lsblk 解析崩掉这种真问题盖得一干二净（2026-10-31 事故）。
+        Ok(_) => {
+            payload
+                .notes
+                .push("lsblk 一块分区/卷都没列出来，ext4 遍历跳过".to_string());
+            return Ok(payload);
+        }
+        Err(why) => {
+            payload.notes.push(format!("枚举分区失败：{why}"));
+            return Ok(payload);
+        }
+    };
     // 所选 ESP 的身份：按 PARTUUID 定位 + 读 FAT 卷序列/卷标（fstab 里的
     // `UUID=E537-7F31` 是 FAT 序列，不是 GPT PARTUUID —— 与 macOS 分支同构）。
     if !esp_partuuid.trim().is_empty() {
@@ -1670,11 +1679,10 @@ pub(crate) fn probe_raw(esp_partuuid: &str) -> Result<ProbePayload, String> {
     }
     let mut scanned = 0usize;
     for part in &sys {
-        // 只试分区，不试整盘；宿主根分区**不跳过** —— 和其它 ext4 一视同仁
-        // （用户定案 2026-10-30：没有「本机」特例）。它已挂载 rw，写入走挂载点档。
-        if part.part_number == 0 {
-            continue;
-        }
+        // 不再用「分区号 != 0」挡整盘：`parse_lsblk_parts` 只产出能承载文件系统的
+        // 节点（分区 / dm / md），整盘根本进不了清单；而 LVM/LUKS 的 `/dev/mapper/*`
+        // 天生没有分区号，用号码挡会把它们全误杀（2026-10-31 补齐）。
+        // 宿主根分区照旧不跳过（用户定案 2026-10-30：没有「本机」特例）。
         let source = match FileSource::open_raw(&part.dev) {
             Ok(source) => source,
             Err(why) => {
@@ -1710,19 +1718,49 @@ pub(crate) fn probe_raw(esp_partuuid: &str) -> Result<ProbePayload, String> {
 /// `/run/udev` 缺失时会是空，照收：ext4 的 fs-uuid 在 superblock 里、FAT 序列
 /// 在引导扇区里，都不依赖 udev；fstab 按 PARTUUID 匹配的那一支会受影响，
 /// 由 `locate()` 的「设备名/卷标推断」与「单候选兜底」接着。
+///
+/// 失败要**带着原因**返回（spawn 失败 / 退出码非 0 / JSON 解析崩）：这三种以前
+/// 都和「真的一块设备都没有」塌缩成同一句 note，2026-10-31 那个「扫不到任何
+/// ext4」的 bug 就是被这句话盖住的。
 #[cfg(target_os = "linux")]
-fn system_partitions_linux() -> Vec<SysPart> {
+fn system_partitions_linux() -> Result<Vec<SysPart>, String> {
     let _span = crate::perf::span("cmd.lsblk_parts");
-    let Ok(output) = std::process::Command::new("lsblk")
+    let output = std::process::Command::new("lsblk")
         .args(["-Jno", "NAME,PATH,PARTUUID,LABEL,SIZE,TYPE"])
         .output()
-    else {
-        return Vec::new();
-    };
+        .map_err(|error| format!("跑不起 lsblk：{error}"))?;
     if !output.status.success() {
-        return Vec::new();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let first = stderr.lines().next().unwrap_or("").trim();
+        return Err(format!("lsblk 退出码 {:?}：{first}", output.status.code()));
     }
-    parse_lsblk_parts(&output.stdout).unwrap_or_default()
+    parse_lsblk_parts(&output.stdout).ok_or_else(|| {
+        let head: String = String::from_utf8_lossy(&output.stdout)
+            .chars()
+            .take(120)
+            .collect();
+        format!("lsblk 的 JSON 解析失败，开头是 {head:?}")
+    })
+}
+
+/// 能承载文件系统的节点类型（`lsblk -o TYPE` 的取值）。
+///
+/// 整盘（`disk`）永远不收 —— 它自己上面没有文件系统，读它只是白扫一遍。
+/// 其余几种都是「设备节点的另一种形态」，`Ext4::open` 拿 superblock 一验就知道
+/// 是不是 ext4，不需要在这里先猜：
+/// * `part`：普通分区；
+/// * `crypt`：LUKS 解锁后的 `/dev/mapper/luks-*`（未解锁的容器里没有 ext4 可读，
+///   容器那一层会被 `Ext4::open` 判否，不必单独区分）；
+/// * `lvm`：LVM 逻辑卷 `/dev/mapper/vg-lv`；
+/// * `raid*`：md 阵列（`/dev/md0`；顶层的 `raid1` 成员没有文件系统）；
+/// * `dm` / `mpath` / `linear`：其它 device-mapper 形态。
+///
+/// 这些节点大多**没有分区号**（`/dev/mapper/vg-lv` 末尾不是数字），所以
+/// `probe_raw` 里不能再拿「分区号 != 0」当整盘判据 —— 那会把 LVM/LUKS 全误杀。
+#[cfg(target_os = "linux")]
+fn holds_filesystem(kind: &str) -> bool {
+    matches!(kind, "part" | "crypt" | "lvm" | "dm" | "mpath" | "linear")
+        || kind.starts_with("raid")
 }
 
 /// `lsblk -J` 的输出是**树**，不是平表：`blockdevices` 顶层只有整盘
@@ -1758,8 +1796,7 @@ fn parse_lsblk_parts(bytes: &[u8]) -> Option<Vec<SysPart>> {
         #[serde(default)]
         children: Vec<LsblkRow>,
     }
-    /// 先序展开整棵树，只收 `type == "part"` 的节点（整盘、LUKS 容器、LVM
-    /// 卷组都不是分区，交给 `probe_raw` 的 `part_number == 0` 判据之外再挡一层）。
+    /// 先序展开整棵树，只收 [`holds_filesystem`] 认的节点。
     fn walk(node: LsblkRow, out: &mut Vec<SysPart>) {
         let LsblkRow {
             name,
@@ -1770,7 +1807,7 @@ fn parse_lsblk_parts(bytes: &[u8]) -> Option<Vec<SysPart>> {
             kind,
             children,
         } = node;
-        if kind.as_deref() == Some("part") {
+        if kind.as_deref().is_some_and(holds_filesystem) {
             // `PATH` 是 lsblk 2.33+ 的列；老版本没有就按 NAME 拼
             if let Some(dev) = path.or_else(|| name.map(|name| format!("/dev/{name}"))) {
                 let number = dev
@@ -2353,16 +2390,13 @@ mod tests {
                {"name":"nvme0n1p2","path":"/dev/nvme0n1p2","partuuid":"b715adc0",
                 "label":null,"size":"54G","type":"part"},
                {"name":"nvme0n1p9","path":"/dev/nvme0n1p9","partuuid":"aaa",
-                "label":"root","size":"60.2G","type":"part","children":[
-                  {"name":"luks-1234","path":"/dev/mapper/luks-1234",
-                   "partuuid":null,"label":null,"size":"60.2G","type":"crypt"}
-                ]}
+                "label":"root","size":"60.2G","type":"part"}
              ]}
           ]
         }"#;
         let parts = parse_lsblk_parts(json).expect("lsblk JSON 应能解析");
         let devs: Vec<&str> = parts.iter().map(|part| part.dev.as_str()).collect();
-        // 只收 part 节点：整盘与 LUKS 容器都不算
+        // 整盘（disk）不收；分区按先序在 children 里被翻出来
         assert_eq!(
             devs,
             vec!["/dev/sda1", "/dev/sda2", "/dev/nvme0n1p2", "/dev/nvme0n1p9"]
@@ -2371,7 +2405,6 @@ mod tests {
             .iter()
             .find(|part| part.dev == "/dev/nvme0n1p9")
             .expect("根分区应在清单里");
-        // 分区号从设备名末尾数字取：probe_raw 靠它挡掉整盘
         assert_eq!(root.part_number, 9);
         assert_eq!(root.label.as_deref(), Some("root"));
         // 空/缺省字段按「没有」处理，别让界面出现空白卷标
@@ -2381,6 +2414,69 @@ mod tests {
             .expect("p2 应在清单里");
         assert!(blank.label.is_none());
         assert_eq!(blank.part_number, 2);
+    }
+
+    /// LVM / LUKS 布局：`/dev/mapper/*` 才是真正装 ext4 的那一层。它们的
+    /// `TYPE` 不是 `part`（`crypt` / `lvm`），设备名末尾也没有分区号 ——
+    /// 以前「只收 part + 分区号必须非 0」两道闸会把它们全挡掉，这类机器
+    /// 就永远扫不到自己的根分区。
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn parse_lsblk_keeps_dm_and_lvm_nodes() {
+        let json = br#"{
+          "blockdevices": [
+            {"name":"nvme0n1","path":"/dev/nvme0n1","partuuid":null,"label":null,
+             "size":"1.9T","type":"disk","children":[
+               {"name":"nvme0n1p2","path":"/dev/nvme0n1p2","partuuid":"luks-pv",
+                "label":null,"size":"500G","type":"part","children":[
+                  {"name":"luks-root","path":"/dev/mapper/luks-root",
+                   "partuuid":null,"label":null,"size":"500G","type":"crypt","children":[
+                     {"name":"arch-root","path":"/dev/mapper/arch-root",
+                      "partuuid":null,"label":"arch","size":"480G","type":"lvm"},
+                     {"name":"arch-home","path":"/dev/mapper/arch-home",
+                      "partuuid":null,"label":null,"size":"20G","type":"lvm"}
+                  ]}
+               ]}
+             ]},
+            {"name":"md0","path":"/dev/md0","partuuid":null,"label":"bootmd",
+             "size":"1G","type":"raid1"},
+            {"name":"sr0","path":"/dev/sr0","partuuid":null,"label":null,
+             "size":"1024M","type":"rom"}
+          ]
+        }"#;
+        let parts = parse_lsblk_parts(json).expect("lsblk JSON 应能解析");
+        let devs: Vec<&str> = parts.iter().map(|part| part.dev.as_str()).collect();
+        // 未解锁的 LUKS 容器（part）留着 —— 它本身没 ext4，Ext4::open 会判否；
+        // mapper 上的 LV 才是真正要读的；光驱（rom）不碰
+        assert_eq!(
+            devs,
+            vec![
+                "/dev/nvme0n1p2",
+                "/dev/mapper/luks-root",
+                "/dev/mapper/arch-root",
+                "/dev/mapper/arch-home",
+                "/dev/md0"
+            ]
+        );
+        let lv = parts
+            .iter()
+            .find(|part| part.dev == "/dev/mapper/arch-root")
+            .expect("LVM 逻辑卷应在清单里");
+        // 逻辑卷没有分区号：probe_raw 不能再拿「分区号 != 0」当整盘判据
+        assert_eq!(lv.part_number, 0);
+        assert_eq!(lv.label.as_deref(), Some("arch"));
+    }
+
+    /// 白名单别漏、也别把整盘/光驱/网络盘收进来。
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn holds_filesystem_kinds() {
+        for kind in ["part", "crypt", "lvm", "dm", "mpath", "linear", "raid0", "raid10"] {
+            assert!(holds_filesystem(kind), "{kind} 应被视为可承载文件系统");
+        }
+        for kind in ["disk", "rom", "loop", "zram"] {
+            assert!(!holds_filesystem(kind), "{kind} 不该进清单");
+        }
     }
 
     fn report(dev: &str, fs_uuid: &str, mounts: Vec<(&str, &str, &str)>, cfg: bool) -> PartReport {
