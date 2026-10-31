@@ -1537,11 +1537,18 @@ pub(crate) fn spawn_menu_action(app: &AppHandle, action: MenuAction) {
             }
         }
         MenuAction::CheckUpdate => {
-            // 先叫出主窗并定位「关于与更新」，再把检查跑在后台线程里：
-            // 菜单事件线程不能被网络请求占住（几秒内托盘会「点了没反应」）。
-            show_main_window(&app, ShowOrigin::Recall);
-            if let Err(error) = app.emit("focus-update", ()) {
-                trace(&app, "tray", &format!("通知主窗口定位关于与更新失败: {error}"));
+            // 更新界面在「远程管理 → 关于」里（不在主窗基本设置）。先把那个窗
+            // 叫出来，再让检查跑在后台线程：菜单事件线程不能被网络请求占住
+            // （几秒内托盘会「点了没反应」）。
+            if let Err(error) = open_hub_window(&app) {
+                record_action(&app, "检查更新", false, &error);
+                return;
+            }
+            // 窗口可能是刚创建的 → 事件会丢，用待办标记兜住；已经开着的话下面
+            // 这个 emit 当场就把页面切过去。
+            update::mark_focus_pending(&app);
+            if let Err(error) = app.emit("hub-focus-update", ()) {
+                trace(&app, "tray", &format!("通知远程管理窗定位关于页失败: {error}"));
             }
             let handle = app.clone();
             std::thread::spawn(move || {

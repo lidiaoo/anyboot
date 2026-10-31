@@ -3777,6 +3777,7 @@ pub fn run() {
             update::update_download,
             update::update_install,
             update::update_dismiss,
+            update::update_take_focus_pending,
             update::set_update_auto_check,
             update::set_update_mirror,
             set_sound_file_path,

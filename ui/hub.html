@@ -74,6 +74,9 @@
   button { font: inherit; color: inherit; }
   /* Tailwind 式 display 工具类会压过 hidden 属性——全局强制恢复隐藏语义 */
   [hidden] { display: none !important; }
+  /* 关于页「与更新」块按 phase 切显隐用的是 class（.update-new / .update-progress
+     等自身带 display:flex，属性选择器管不到），这里补一条同名工具类 */
+  .hidden { display: none !important; }
   .scroll-thin::-webkit-scrollbar { width: 8px; height: 8px; }
   .scroll-thin::-webkit-scrollbar-thumb { background: rgb(var(--line-strong)); border-radius: 4px; }
   .scroll-thin::-webkit-scrollbar-track { background: transparent; }
@@ -785,7 +788,8 @@
   .tx-mini:disabled { opacity: .5; cursor: not-allowed; }
 
   /* ============ 关于页 ============ */
-  .about-wrap { flex: 1; display: grid; place-items: center; padding: 24px; overflow-y: auto; }
+  /* 两张卡纵向排列：flex + gap，窄窗/窄侧栏下仍是单列，永不横向滚动 */
+  .about-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 24px; overflow-y: auto; }
   .about-card {
     width: 100%; max-width: 340px; text-align: center;
     border: 1px solid rgb(var(--line)); background: rgb(var(--card));
@@ -800,6 +804,75 @@
   .about-foot {
     margin-top: 18px; padding-top: 14px; border-top: 1px solid rgb(var(--line));
     font-size: 11px; line-height: 1.8; color: rgb(var(--fg-faint));
+  }
+
+  /* ---- 关于与更新（update.rs）：左对齐的宽卡，放在关于卡下面 ---- */
+  .about-card.about-update {
+    max-width: 420px; text-align: left; padding: 18px 18px 16px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .update-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
+  .update-version { display: flex; align-items: baseline; gap: 6px; flex: 1 1 140px; min-width: 0; }
+  .update-k { color: rgb(var(--fg-faint)); font-size: 12px; flex: none; }
+  .update-v { color: rgb(var(--fg)); font-size: 13px; }
+  .update-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .update-actions .btn { height: 32px; padding: 0 12px; }
+  .update-meta { font-size: 12px; color: rgb(var(--fg-dim)); min-height: 16px; overflow-wrap: anywhere; }
+  .update-new {
+    display: flex; flex-direction: column; gap: 8px; min-width: 0;
+    border: 1px solid rgb(var(--line)); background: rgb(var(--elevate));
+    border-radius: 10px; padding: 10px;
+  }
+  .update-new-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; min-width: 0; }
+  .update-new-head strong { font-size: 13px; }
+  .update-new-head .update-k { margin-left: auto; }
+  .update-notes {
+    margin: 0; padding: 8px 10px; max-height: 160px; overflow-y: auto;
+    background: rgb(var(--base) / .55); border: 1px solid rgb(var(--line)); border-radius: 8px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11.5px; line-height: 1.6; color: rgb(var(--fg-dim));
+    white-space: pre-wrap; overflow-wrap: anywhere; user-select: text;
+  }
+  .update-progress { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  .update-track {
+    height: 8px; border-radius: 999px; overflow: hidden;
+    background: rgb(var(--base) / .6); border: 1px solid rgb(var(--line));
+  }
+  .update-fill {
+    height: 100%; width: 0; border-radius: 999px;
+    background: linear-gradient(90deg, rgb(var(--accent)), rgb(var(--ok)));
+    transition: width .3s ease;
+  }
+  .update-progress-meta {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0;
+    font-size: 12px; color: rgb(var(--fg-dim));
+  }
+  .update-progress-meta .update-pct { color: rgb(var(--fg)); font-weight: 600; }
+  .update-buttons { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .update-buttons .btn { height: 32px; padding: 0 12px; flex: 0 1 auto; }
+  .update-buttons .btn.primary { flex: 1 1 120px; }
+  .update-error {
+    border: 1px solid rgb(var(--bad) / .35); background: rgb(var(--bad) / .1);
+    color: rgb(var(--bad)); border-radius: 8px; padding: 8px 10px;
+    font-size: 12px; line-height: 1.55; overflow-wrap: anywhere; min-width: 0;
+  }
+  .update-opts {
+    display: flex; align-items: center; gap: 10px 16px; flex-wrap: wrap;
+    padding-top: 10px; border-top: 1px solid rgb(var(--line));
+    font-size: 12px; color: rgb(var(--fg-dim));
+  }
+  .update-opt { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .update-opt select {
+    height: 28px; border-radius: 8px; padding: 0 8px; font-size: 12px;
+    border: 1px solid rgb(var(--line)); background: rgb(var(--elevate)); color: rgb(var(--fg));
+  }
+  /* 窄窗（窗口拖窄 / 缩放比例大）：按钮整行、触控目标加高 */
+  @media (max-width: 560px) {
+    .about-wrap { padding: 14px; }
+    .update-actions { flex: 1 1 100%; }
+    .update-actions .btn { flex: 1 1 auto; height: 38px; }
+    .update-buttons .btn { flex: 1 1 100%; height: 38px; }
+    .update-new-head .update-k { margin-left: 0; }
   }
   /* ============ 弹窗 ============ */
   .overlay {
@@ -4157,20 +4230,78 @@ window.__bkOnShow = async function () {
 
       <!-- ---- 关于（设计稿 about 屏：居中卡片 + 检查更新/GitHub） ---- -->
       <section class="page" id="page-about" hidden data-page-node-id="pageAbout1">
-        <div class="about-wrap">
+        <div class="about-wrap scroll-thin">
           <div class="about-card">
             <span class="side-logo about-logo" aria-hidden="true">A</span>
             <h2 class="about-title">AnyBoot</h2>
             <p class="about-ver mono">v<span id="aboutVersion">—</span> · remote</p>
             <p class="about-desc">多系统引导管理 · 远程电源控制 · SSH 跳板机隧道 · SFTP 文件传输</p>
             <div class="about-btns">
-              <button class="btn primary" id="aboutCheckUpdate" title="打开 GitHub Releases 查看最新版本">检查更新</button>
               <button class="btn" id="aboutGitHub">GitHub · lidiaoo/anyboot</button>
             </div>
             <div class="about-foot">
               开源许可 · MIT<br>
               心跳 10s · 并发探测 · AES-256-GCM 凭据加密<br>
               终端 / 文件 / 密钥基于系统 ssh / sftp / ssh-keygen
+            </div>
+          </div>
+
+          <!-- 关于与更新（update.rs；设计稿 docs/update-ui-mockup.html A 区）
+               位置：远程管理窗 → 侧边栏「关于」（不在主窗基本设置）。
+               只在应用窗口里出现：远程网页（HAS_TAURI=false）没有进度事件通道，
+               也不该给远程开「装本机应用」的口子 —— 那段 JS 会整块移除。
+               布局全 flex：head / buttons / progress-meta 都 flex+wrap+gap，
+               窄窗（侧栏展开挤压 / 小窗）自动换行、按钮吃满整行。 -->
+          <div class="about-card about-update" id="update-section" hidden>
+            <div class="update-head">
+              <div class="update-version">
+                <span class="update-k">当前版本</span>
+                <b class="update-v mono" id="update-current">—</b>
+              </div>
+              <div class="update-actions">
+                <button class="btn primary" id="update-check" type="button">检查更新</button>
+                <button class="btn hidden" id="update-retry" type="button">重试</button>
+              </div>
+            </div>
+            <div class="update-meta" id="update-meta">还没检查过</div>
+
+            <div class="update-new hidden" id="update-new">
+              <div class="update-new-head">
+                <strong id="update-new-title">发现新版本</strong>
+                <span class="update-k" id="update-new-date"></span>
+              </div>
+              <pre class="update-notes hidden" id="update-notes"></pre>
+              <div class="update-progress hidden" id="update-progress">
+                <div class="update-track"><div class="update-fill" id="update-fill"></div></div>
+                <div class="update-progress-meta">
+                  <span class="update-pct" id="update-pct">0%</span>
+                  <span class="mono" id="update-bytes"></span>
+                  <span id="update-source"></span>
+                </div>
+              </div>
+              <div class="update-buttons">
+                <button class="btn primary" id="update-download" type="button">下载</button>
+                <button class="btn primary hidden" id="update-install" type="button">安装并重启</button>
+                <button class="btn hidden" id="update-skip" type="button">跳过这个版本</button>
+              </div>
+            </div>
+
+            <div class="update-error hidden" id="update-error"></div>
+
+            <div class="update-opts">
+              <label class="update-opt">
+                <input id="update-auto-check" type="checkbox" />
+                <span>自动检查（启动 30 秒后 + 每 12 小时）</span>
+              </label>
+              <label class="update-opt">
+                <span class="update-k">下载源</span>
+                <select id="update-mirror">
+                  <option value="auto">自动（直连 → 镜像）</option>
+                  <option value="direct">只直连 GitHub</option>
+                  <option value="ghfast">镜像 ghfast.top</option>
+                  <option value="ghproxy">镜像 gh-proxy.com</option>
+                </select>
+              </label>
             </div>
           </div>
         </div>
@@ -10545,18 +10676,211 @@ window.__bkOnShow = async function () {
   setInterval(tick, 1000);
 
   // ============ 关于页：GitHub 白名单跳转 ============
-  document.getElementById('aboutCheckUpdate').addEventListener('click', function () {
-    if (!invoke) { toast('需要应用环境', 'bad'); return; }
-    invoke('hub_about_open', { page: 'releases' })
-      .then(function () { toast('已在浏览器打开 Releases 页'); })
-      .catch(function (e) { toast('打开失败：' + e, 'bad'); });
-  });
   document.getElementById('aboutGitHub').addEventListener('click', function () {
     if (!invoke) { toast('需要应用环境', 'bad'); return; }
     invoke('hub_about_open', { page: 'repo' })
       .then(function () { toast('已在浏览器打开项目主页'); })
       .catch(function (e) { toast('打开失败：' + e, 'bad'); });
   });
+
+  // ============ 关于与更新（update.rs；设计稿 docs/update-ui-mockup.html A 区）======
+  // 位置定案（用户 2026-11-01）：更新界面在「远程管理 → 关于」，不在主窗基本设置。
+  // 只在应用窗口里工作：远程网页（HAS_TAURI=false）既没有 update-state 进度事件
+  // 通道，也不该允许远程触发本机覆盖安装 —— 整块移除，连 DOM 都不留。
+  (function () {
+    var section = document.getElementById('update-section');
+    if (!section) return;
+    if (!HAS_TAURI || !invoke) { section.remove(); return; }
+    section.hidden = false;
+    // 版本号以 update_state 的 currentVersion 为准（与安装包同源）
+
+    var el = {
+      current: document.getElementById('update-current'),
+      check: document.getElementById('update-check'),
+      retry: document.getElementById('update-retry'),
+      meta: document.getElementById('update-meta'),
+      card: document.getElementById('update-new'),
+      title: document.getElementById('update-new-title'),
+      date: document.getElementById('update-new-date'),
+      notes: document.getElementById('update-notes'),
+      progress: document.getElementById('update-progress'),
+      fill: document.getElementById('update-fill'),
+      pct: document.getElementById('update-pct'),
+      bytes: document.getElementById('update-bytes'),
+      source: document.getElementById('update-source'),
+      download: document.getElementById('update-download'),
+      install: document.getElementById('update-install'),
+      skip: document.getElementById('update-skip'),
+      error: document.getElementById('update-error'),
+      auto: document.getElementById('update-auto-check'),
+      mirror: document.getElementById('update-mirror')
+    };
+
+    var latest = '';
+
+    function fmtBytes(bytes) {
+      var value = Number(bytes) || 0;
+      if (value >= 1024 * 1024 * 1024) return (value / 1024 / 1024 / 1024).toFixed(1) + ' GB';
+      if (value >= 1024 * 1024) return (value / 1024 / 1024).toFixed(1) + ' MB';
+      if (value >= 1024) return (value / 1024).toFixed(0) + ' KB';
+      return value + ' B';
+    }
+
+    // checkedAt 是后端给的 Unix 秒；只做「刚刚 / N 分钟前 / N 小时前」的口径，
+    // 不引日期库。
+    function fmtChecked(raw) {
+      var seconds = Number(raw) || 0;
+      if (!seconds) return '';
+      var diff = Math.max(0, Math.floor(Date.now() / 1000 - seconds));
+      if (diff < 60) return '刚刚';
+      if (diff < 3600) return Math.floor(diff / 60) + ' 分钟前';
+      if (diff < 86400) return Math.floor(diff / 3600) + ' 小时前';
+      return Math.floor(diff / 86400) + ' 天前';
+    }
+
+    function show(node, visible) { if (node) node.classList.toggle('hidden', !visible); }
+
+    function render(state) {
+      if (!state || typeof state !== 'object') return;
+      var phase = state.phase || 'idle';
+      latest = state.latestVersion || latest;
+
+      el.current.textContent = state.currentVersion ? 'v' + state.currentVersion : '—';
+
+      var checked = fmtChecked(state.checkedAt);
+      var metaText = {
+        idle: checked ? '最近检查：' + checked : '还没检查过',
+        checking: '正在检查新版本…',
+        up_to_date: '已是最新版本（' + (checked || '刚刚') + '检查）',
+        available: state.skipped ? '有新版本，你之前选择过跳过' : '发现新版本',
+        downloading: '正在下载 v' + state.latestVersion + '…',
+        verifying: '正在校验 SHA-256…',
+        ready_to_install: '下载完成，SHA-256 校验通过',
+        installing: '正在安装，应用即将退出并重启…',
+        error: '',
+        updated: '已更新到最新版本'
+      }[phase] || '';
+      el.meta.textContent = metaText;
+
+      // 新版本卡：有新版（含下载失败待重试）就出现；纯「已是最新」不出现
+      var hasVersion = Boolean(state.latestVersion) &&
+        ['available', 'downloading', 'verifying', 'ready_to_install', 'installing', 'error'].indexOf(phase) >= 0;
+      show(el.card, hasVersion);
+
+      if (hasVersion) {
+        var titles = {
+          available: state.skipped ? '新版本 v' + state.latestVersion + '（已跳过）' : '发现新版本 v' + state.latestVersion,
+          downloading: '正在下载 v' + state.latestVersion,
+          verifying: '正在校验 v' + state.latestVersion,
+          ready_to_install: '更新已就绪 v' + state.latestVersion,
+          installing: '正在安装 v' + state.latestVersion,
+          error: 'v' + state.latestVersion + ' 更新未完成'
+        };
+        el.title.textContent = titles[phase] || ('新版本 v' + state.latestVersion);
+        el.date.textContent = state.publishedAt ? String(state.publishedAt).slice(0, 10) : '';
+        var notes = (state.notes || '').trim();
+        el.notes.textContent = notes;
+        show(el.notes, Boolean(notes) && ['available', 'ready_to_install'].indexOf(phase) >= 0);
+      }
+
+      // 进度条：下载/校验/安装期间显示（校验时填满，配一句「正在校验」）
+      var showProgress = ['downloading', 'verifying', 'ready_to_install', 'installing'].indexOf(phase) >= 0;
+      show(el.progress, showProgress);
+      if (showProgress) {
+        var total = Number(state.total) || 0;
+        var done = Number(state.downloaded) || 0;
+        var percent = phase === 'downloading'
+          ? (total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0)
+          : 100;
+        el.fill.style.width = percent + '%';
+        el.pct.textContent = percent + '%';
+        el.bytes.textContent = total > 0 ? fmtBytes(done) + ' / ' + fmtBytes(total) : fmtBytes(done);
+        el.source.textContent = state.source ? '来源：' + state.source : '';
+      }
+
+      // 按钮：每个 phase 只留能被点的那个。跳过的版本仍可手动装（跳过只是不提醒）
+      var canDownload = phase === 'available' || (phase === 'error' && Boolean(state.latestVersion));
+      show(el.download, canDownload);
+      show(el.install, phase === 'ready_to_install');
+      show(el.skip, phase === 'available' && !state.skipped);
+      el.download.disabled = !canDownload;
+      el.install.disabled = phase !== 'ready_to_install';
+      el.install.textContent = phase === 'installing' ? '安装中…' : '安装并重启';
+
+      el.check.disabled = phase === 'checking' || phase === 'downloading' ||
+        phase === 'verifying' || phase === 'installing';
+      el.check.textContent = phase === 'checking' ? '检查中…' : '检查更新';
+      show(el.retry, phase === 'error');
+
+      var error = (state.error || '').trim();
+      el.error.textContent = error;
+      show(el.error, Boolean(error));
+    }
+
+    function run(command, args) {
+      return invoke(command, args || {}).catch(function (error) {
+        toast(String(error), 'bad');
+        return null;
+      });
+    }
+
+    el.check.addEventListener('click', function () {
+      run('update_check').then(function (state) { if (state) render(state); });
+    });
+
+    // 错误态的重试 = 重新检查（release 可能换过资产名，盲重下旧 URL 只会再失败）
+    el.retry.addEventListener('click', function () { el.check.click(); });
+
+    el.download.addEventListener('click', function () {
+      el.download.disabled = true;
+      run('update_download').then(function (result) { if (result === null) el.download.disabled = false; });
+    });
+
+    el.install.addEventListener('click', function () {
+      if (!window.confirm('安装会退出 AnyBoot 并重启，期间无法使用引导切换与电源操作。继续？')) return;
+      run('update_install').then(function (result) {
+        if (result === null) return;
+        el.install.disabled = true;
+        el.install.textContent = '安装中…';
+      });
+    });
+
+    el.skip.addEventListener('click', function () {
+      if (!latest) return;
+      run('update_dismiss', { version: latest });
+    });
+
+    el.auto.addEventListener('change', function () {
+      run('set_update_auto_check', { enabled: el.auto.checked });
+    });
+    el.mirror.addEventListener('change', function () {
+      run('set_update_mirror', { value: el.mirror.value });
+    });
+
+    // 托盘「检查更新…」：窗口已经开着时靠事件当场切页；刚创建时事件会丢，
+    // 所以还有下面 take_focus_pending 的兜底（页面加载完自己取一次待办）。
+    function gotoTip() {
+      showPage('about');
+      if (section.scrollIntoView) section.scrollIntoView({ block: 'start' });
+    }
+    if (window.__TAURI__.event && window.__TAURI__.event.listen) {
+      window.__TAURI__.event.listen('hub-focus-update', gotoTip);
+      window.__TAURI__.event.listen('update-state', function (event) { render(event.payload); });
+      invoke('update_take_focus_pending').then(function (pending) {
+        if (pending) gotoTip();
+      }).catch(function () { });
+    }
+
+    // 设置初值（get_settings 是 flatten 后的 Settings，字段 camelCase）
+    invoke('get_settings').then(function (view) {
+      if (!view) return;
+      if (typeof view.updateAutoCheck === 'boolean') el.auto.checked = view.updateAutoCheck;
+      var mirror = view.updateMirror || 'auto';
+      if (el.mirror.value !== mirror) el.mirror.value = mirror;
+    }).catch(function () { });
+
+    invoke('update_state').then(render).catch(function () { });
+  })();
 
   // ============ 传输页（文件窗 SFTP 实时队列抄送 + 断点续传清单 + 历史） ============
   // 数据双源：跑着的任务靠 hub-sftp-progress 事件实时推（txActive），暂停的

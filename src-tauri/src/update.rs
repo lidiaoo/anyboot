@@ -68,6 +68,10 @@ pub(crate) struct UpdateManager {
     asset: std::sync::Mutex<Option<Asset>>,
     /// 已下载并通过校验的安装包
     staged: std::sync::Mutex<Option<PathBuf>>,
+    /// 托盘「检查更新…」请求把界面带到「远程管理 → 关于」：那个窗口可能是刚
+    /// 创建出来的（页面还没加载完，emit 事件直接丢），所以留一个待办标记，
+    /// 页面加载完自己取一次（见 update_take_focus_pending）。
+    focus_pending: AtomicBool,
 }
 
 impl Default for UpdateManager {
@@ -80,6 +84,7 @@ impl Default for UpdateManager {
             busy: AtomicBool::new(false),
             asset: std::sync::Mutex::new(None),
             staged: std::sync::Mutex::new(None),
+            focus_pending: AtomicBool::new(false),
         }
     }
 }
@@ -827,6 +832,22 @@ pub(crate) fn update_state(app: AppHandle) -> UpdateState {
     let mut state = snapshot(&app);
     state.current_version = app.package_info().version.to_string();
     state
+}
+
+/// 托盘点了「检查更新…」：记下「窗口起来后请切到关于页」的待办。
+/// 远程管理窗没开时是新建的，那会儿页面还没加载，emit 事件会直接丢。
+pub(crate) fn mark_focus_pending(app: &AppHandle) {
+    app.state::<UpdateManager>()
+        .focus_pending
+        .store(true, Ordering::SeqCst);
+}
+
+/// 前端加载完取一次待办：有就返回 true 并清掉（否则每次进关于页都被拉一次）
+#[tauri::command]
+pub(crate) fn update_take_focus_pending(app: AppHandle) -> bool {
+    app.state::<UpdateManager>()
+        .focus_pending
+        .swap(false, Ordering::SeqCst)
 }
 
 /// 手动/自动检查的实际实现（同步，供后台线程与 async 命令共用）
