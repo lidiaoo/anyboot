@@ -274,11 +274,13 @@ fn canonicalize_server(item: &Value) -> Value {
     rename(&mut v, "power_routes", "powerRoutes");
     rename(&mut v, "route_order", "routeOrder");
     rename(&mut v, "route_disabled", "routeDisabled");
+    rename(&mut v, "route_probe_hidden", "routeProbeHidden");
     rename(&mut v, "conn_mode", "connMode");
     if let Some(pairs) = v["pairs"].as_array_mut() {
         for pair in pairs {
             rename(pair, "probe_timeout_ms", "probeTimeoutMs");
             rename(pair, "tunnel_id", "tunnelId");
+            rename(pair, "show_probe", "showProbe");
             rename(pair, "created_at", "createdAt");
             if pair["createdAt"].is_string() {
                 let ms = ms_iso(pair["createdAt"].as_str().unwrap_or(""));
@@ -312,11 +314,13 @@ fn native_server(item: &Value) -> Value {
     rename(&mut v, "powerRoutes", "power_routes");
     rename(&mut v, "routeOrder", "route_order");
     rename(&mut v, "routeDisabled", "route_disabled");
+    rename(&mut v, "routeProbeHidden", "route_probe_hidden");
     rename(&mut v, "connMode", "conn_mode");
     if let Some(pairs) = v["pairs"].as_array_mut() {
         for pair in pairs {
             rename(pair, "probeTimeoutMs", "probe_timeout_ms");
             rename(pair, "tunnelId", "tunnel_id");
+            rename(pair, "showProbe", "show_probe");
             rename(pair, "createdAt", "created_at");
             if pair["created_at"].is_string() {
                 let ms = ms_iso(pair["created_at"].as_str().unwrap_or(""));

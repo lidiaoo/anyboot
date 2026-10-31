@@ -115,6 +115,11 @@ pub struct RemotePair {
     /// 是否参与探测（单条粒度）。取代原来的 `route_disabled`（区块内禁用）
     #[serde(default = "serde_default_true")]
     pub enabled: bool,
+    /// **是否展示连通性**（单条粒度，用户 2026-10-31）：关掉后电脑列表不显示这条
+    /// 配对的探测小字（延迟 / 失败原因），编辑弹窗「测试」的探测列表也不列它 ——
+    /// 但探测照跑、连接选择照常（隐藏的是展示，不是通道本身）。
+    #[serde(default = "serde_default_true")]
+    pub show_probe: bool,
     /// 对方系统自报的 machine_id —— 幂等键的一半（另一半是 kind + lane）
     #[serde(default)]
     pub mid: String,
@@ -147,6 +152,7 @@ impl Default for RemotePair {
             token: String::new(),
             probe_timeout_ms: 0,
             enabled: true,
+            show_probe: true,
             mid: String::new(),
             os: String::new(),
             host: String::new(),
@@ -401,6 +407,12 @@ pub struct RemoteServer {
     /// 无处表达（这两条没有配对条目可挂），所以保留字段、语义收窄到 lan / jump。
     #[serde(default)]
     pub route_disabled: Vec<String>,
+    /// **不展示连通性的通道** id（用户 2026-10-31「是否展示连通性」的通道粒度）：
+    /// 关掉后电脑列表不显示这个通道所有条目的探测小字（延迟 / 失败原因）。
+    /// 探测照跑、连接照常 —— 与 `route_disabled`（整条通道不参与探测连接）是两回事；
+    /// 单条粒度藏在 `RemotePair.show_probe`，两条任一命中就不展示。
+    #[serde(default)]
+    pub route_probe_hidden: Vec<String>,
     #[serde(default)]
     pub created_at: u64,
 }
@@ -736,6 +748,15 @@ impl RemoteServer {
             .iter()
             .map(|raw| raw.trim().to_lowercase())
             .filter(|id| ROUTE_IDS.contains(&id.as_str()))
+            .collect();
+        // 「不展示连通性」的通道表：同一套清洗 —— 只认合法 id、去重保序。
+        // 这是纯展示开关，误传非法 id 也只会在前端静默失效，这里统一兜住。
+        let mut seen_hidden = std::collections::HashSet::new();
+        self.route_probe_hidden = self
+            .route_probe_hidden
+            .iter()
+            .map(|raw| raw.trim().to_lowercase())
+            .filter(|id| ROUTE_IDS.contains(&id.as_str()) && seen_hidden.insert(id.clone()))
             .collect();
         // 每通道探测超时：只留合法通道 id，值 0 等于「没单独设」（删掉，回落默认值），越界夹紧
         self.route_timeouts_ms = normalize_route_timeouts(&self.route_timeouts_ms);
@@ -4615,6 +4636,7 @@ mod tests {
             conn_mode: String::new(),
             route_order: Vec::new(),
             route_disabled: Vec::new(),
+            route_probe_hidden: Vec::new(),
             created_at: 0,
             ..Default::default()
         };
@@ -4993,6 +5015,7 @@ mod tests {
             conn_mode: String::new(),
             route_order: Vec::new(),
             route_disabled: Vec::new(),
+            route_probe_hidden: Vec::new(),
             created_at: 0,
             pairs: Vec::new(),
             block_probe_mode: Default::default(),
@@ -5238,6 +5261,7 @@ mod tests {
             conn_mode: String::new(),
             route_order: Vec::new(),
             route_disabled: Vec::new(),
+            route_probe_hidden: Vec::new(),
             created_at: 0,
             pairs: Vec::new(),
             block_probe_mode: Default::default(),
@@ -5276,6 +5300,7 @@ mod tests {
                 conn_mode: String::new(),
             route_order: Vec::new(),
             route_disabled: Vec::new(),
+            route_probe_hidden: Vec::new(),
                 created_at: 42,
                 pairs: Vec::new(),
                 block_probe_mode: Default::default(),
@@ -6062,6 +6087,31 @@ mod tests {
             vec!["lan", "jump", "tunnel", "ts", "funnel", "tsnet"]
         );
         assert_eq!(normalized.route_disabled, vec!["lan", "ts"]);
+    }
+
+    #[test]
+    fn show_probe_defaults_on_and_route_probe_hidden_is_sanitized() {
+        // 「是否展示连通性」（用户 2026-10-31）：单条 show_probe 缺省 = 开；
+        // 通道粒度 route_probe_hidden 只认合法 id、去重 —— 非法值静默丢弃
+        let n = RemoteServer {
+            pairs: vec![RemotePair {
+                kind: "cloudflare".into(),
+                addr: "https://a.trycloudflare.com".into(),
+                ..Default::default()
+            }],
+            route_probe_hidden: vec!["bogus".into(), " TS ".into(), "ts".into(), "ts".into()],
+            ..Default::default()
+        }
+        .normalize();
+        assert!(n.pairs[0].show_probe, "老档案没存过 show_probe = 默认展示");
+        assert_eq!(n.route_probe_hidden, vec!["ts"]);
+        // 反序列化缺 key 也走 serde default：老档案 JSON 没有这两个字段也不报错
+        let old: RemoteServer = serde_json::from_str(
+            r#"{ "id": "s1", "addresses": ["127.0.0.1:12300"] }"#,
+        )
+        .expect("老档案反序列化");
+        assert!(old.route_probe_hidden.is_empty());
+        assert!(RemotePair::default().show_probe);
     }
 
     #[test]

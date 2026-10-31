@@ -191,6 +191,7 @@ pub block_timeouts_ms: std::collections::BTreeMap<String, u64>,
 | `remote_token` | `RemotePair.token`（每条自带） |
 | `remote_addr` | 计算函数 `effective_remote_addr()`：按区块顺序 + 区块内顺序，取第一条 `enabled` 的 `addr`。**它不再是存储字段**，探测 / HTTP / iframe / 终端等消费点统一改读它 |
 | `route_disabled` | 配对条目禁用走 `RemotePair.enabled`；`route_disabled` 本身**保留**，认全部六个通道 id —— 前端优先级表每行（含 tunnel / ts / funnel / tsnet）都有启停开关，区块内按 `route_kind` 粒度过滤（ts 直连与 funnel 是两行独立通道，分开停） |
+| `route_probe_hidden`（2026-10-31 新增） | 「是否展示连通性」的**通道粒度**：数组只存关掉的通道 id，电脑列表不显示该通道条目的探测小字（延迟 / 失败原因）。纯展示开关 —— 探测照跑、连接照常，与 `route_disabled`（整条不参与）是两回事；单条粒度在 `RemotePair.show_probe`（缺省 = 展示），两层任一命中就不展示 |
 
 **保留不动**（同时被 LAN / jump 消费，重构会越界）
 

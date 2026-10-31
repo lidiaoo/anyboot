@@ -1696,6 +1696,9 @@
   .pb-main, .pb-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
   /* 操作件打包：地址再窄也先把这组整体保留在一行，不会把 ✕ 漏到下一行 */
   .pb-act { display: flex; align-items: center; gap: 6px; flex: none; margin-left: auto; }
+  /* 「是否展示连通性」开关 + 旁边的三个字小标签（开关多了一颗，光看滑块分不清谁是谁） */
+  .pb-showprobe { display: inline-flex; align-items: center; gap: 3px; flex: none; }
+  .pb-showprobe-l { font-size: 10px; color: rgb(var(--fg-faint)); user-select: none; }
   .pb-addr {
     flex: 1 1 200px; min-width: 0; padding: 4px 7px; font-size: 11.5px;
     border: 1px solid rgb(var(--line)); border-radius: 7px;
@@ -7411,6 +7414,10 @@ window.__bkOnShow = async function () {
     const remRow = remotes.find(function (x) { return x.id === row.rid; });
     const routeDisabledList = remRow && Array.isArray(remRow.route_disabled)
       ? remRow.route_disabled : [];
+    // 「是否展示连通性」的通道粒度（用户 2026-10-31）：数组只存关掉的通道 id，
+    // 命中的通道在列表里不画探测小字（单条粒度再看配对自己的 show_probe）
+    const routeProbeHiddenList = remRow && Array.isArray(remRow.route_probe_hidden)
+      ? remRow.route_probe_hidden : [];
     const addrLines = row.local ? null : (row.addrs || []);
     if (!addrLines || addrLines.length === 0) {
       const ln = document.createElement('div');
@@ -7447,7 +7454,10 @@ window.__bkOnShow = async function () {
         a.textContent = line.addr;
         ln.appendChild(a);
         // 探测情况：该地址在这轮逐行结果里的成败与延迟（同一套探测，换个样式展示）
-        ln.appendChild(cqProbeBadge(row.rid, 'lan', '', pcNormAddr(line.addr)));
+        // 「是否展示连通性」关了直连：只藏探测小字，地址与复制/打开按钮照常（用户 2026-10-31）
+        if (routeProbeHiddenList.indexOf('lan') < 0) {
+          ln.appendChild(cqProbeBadge(row.rid, 'lan', '', pcNormAddr(line.addr)));
+        }
         line.macs.forEach(function (m) {
           const sep = document.createElement('span');
           sep.className = 'sep cq-dev-mac';
@@ -7489,7 +7499,9 @@ window.__bkOnShow = async function () {
         a.title = '经由这台跳板机的 SSH 转发连接（广播包也走它发）；是否使用由连接优先级决定';
         ln.appendChild(a);
         // 这条通道的探测情况（转发端点也是候选之一，结果在 pcRowProbe）
-        ln.appendChild(cqProbeBadge(row.rid, 'jump', '', ''));
+        if (routeProbeHiddenList.indexOf('jump') < 0) {
+          ln.appendChild(cqProbeBadge(row.rid, 'jump', '', ''));
+        }
         const ep = pcEps.get(row.rid);
         if (ep && !jumpDisabled) {
           const sep = document.createElement('span');
@@ -7519,6 +7531,9 @@ window.__bkOnShow = async function () {
         : (pair.kind === 'tsnet' ? 'tsnet' : (lane === 'funnel' ? 'funnel' : 'ts'));
       // 连接策略停用了这条通道：整行不上列表页（用户 2026-10-28：没开启的就不展示）
       if (routeDisabledList.indexOf(routeKind) >= 0) return;
+      // 「是否展示连通性」（用户 2026-10-31）：通道粒度关了、或这一条配对自己关了
+      // → 只藏探测小字与「使用中」后面的耗时，地址行本身照常
+      const showProbe = routeProbeHiddenList.indexOf(routeKind) < 0 && pair.show_probe !== false;
       const kindLabel = ROUTE_LABELS[routeKind] || pair.kind;
       const ln = document.createElement('div');
       ln.className = 'cq-dev-line' + (expired && !using ? ' cq-remote-expired' : '');
@@ -7530,14 +7545,15 @@ window.__bkOnShow = async function () {
       const a = document.createElement('span');
       a.className = 'cq-dev-addr';
       a.title = pair.addr;
-      // 「使用中」也要带耗时：选了谁 + 探测多快一起说（与移动端列表同口径）
-      const usingSt = using ? cqProbeState(row.rid, routeKind, pair.id || '', pair.addr) : null;
+      // 「使用中」也要带耗时：选了谁 + 探测多快一起说（与移动端列表同口径）；
+      // 关了「是否展示连通性」就只剩「使用中」—— 耗时也算连通性信息
+      const usingSt = using && showProbe ? cqProbeState(row.rid, routeKind, pair.id || '', pair.addr) : null;
       a.textContent = pair.addr +
         (using ? ' · 使用中' + (usingSt && usingSt.ok ? ' ' + usingSt.ms + 'ms' : '')
           : (expired ? ' · 已过期（重扫配对码）' : ''));
       ln.appendChild(a);
       // 这条配对的探测情况（同一套逐行结果）：通 = 延迟，不通 = 原因
-      ln.appendChild(cqProbeBadge(row.rid, routeKind, pair.id || '', pair.addr));
+      if (showProbe) ln.appendChild(cqProbeBadge(row.rid, routeKind, pair.id || '', pair.addr));
       const source = pcPairSource(pair);
       if (source) {
         const sep = document.createElement('span');
@@ -9117,6 +9133,10 @@ window.__bkOnShow = async function () {
   };
   let rsRouteOrder = ROUTE_IDS.slice();  // 有序通道 id
   let rsRouteDisabled = {};              // kind -> true = 停用
+  // 「是否展示连通性」的通道粒度（用户 2026-10-31）：kind -> true = 电脑列表不显示
+  // 这个通道的探测小字。探测照跑、连接照常 —— 与 rsRouteDisabled（整条停用）是两回事；
+  // 单条粒度藏在配对的 show_probe 上，两层任一命中就不展示。
+  let rsRouteProbeHidden = {};
   // 每个通道自己的探测超时（kind → 秒文本）。空 = 用「默认探测超时」。
   // 为什么要分开：局域网 RTT <10ms、2 秒都算宽；Funnel / 内置 tsnet 走中继时
   // 首次 TLS 握手可能好几秒 —— 一个全局值必然一边偏松一边偏紧。
@@ -9272,7 +9292,7 @@ window.__bkOnShow = async function () {
       add.addEventListener('click', function () {
         if (rsPairs.length >= 32) { toast('已达 32 条上限', 'bad'); return; }
         // 空白行：地址留空，填完才算数（保存时空地址会被丢掉）
-        rsPairs.push({ id: '', kind: block.id, lane: '', addr: '', token: '', probe_timeout_ms: 0, enabled: true, mid: '', os: '', host: '', tunnel_id: '', note: '', created_at: 0 });
+        rsPairs.push({ id: '', kind: block.id, lane: '', addr: '', token: '', probe_timeout_ms: 0, enabled: true, show_probe: true, mid: '', os: '', host: '', tunnel_id: '', note: '', created_at: 0 });
         rsRenderPairs();
         const inputs = box.querySelectorAll('.pb-addr');
         if (inputs.length) inputs[inputs.length - 1].focus();
@@ -9392,6 +9412,30 @@ window.__bkOnShow = async function () {
     trk.setAttribute('aria-hidden', 'true');
     enable.appendChild(box);
     enable.appendChild(trk);
+    // 「是否展示连通性」（用户 2026-10-31）：默认开。关掉后电脑列表不显示这条
+    // 配对的探测小字（延迟 / 失败原因）—— 探测照跑、连接照常，只是眼不见心不烦
+    const showProbe = document.createElement('label');
+    showProbe.className = 'switch';
+    const spBox = document.createElement('input');
+    spBox.type = 'checkbox';
+    spBox.checked = pair.show_probe !== false;
+    spBox.title = '是否展示连通性：关掉后电脑列表不显示这条通道的探测结果（延迟 / 失败原因），探测与连接不受影响';
+    spBox.addEventListener('change', function () {
+      rsPairs[index].show_probe = spBox.checked;
+    });
+    const spTrk = document.createElement('span');
+    spTrk.className = 'trk';
+    spTrk.setAttribute('aria-hidden', 'true');
+    showProbe.appendChild(spBox);
+    showProbe.appendChild(spTrk);
+    const showProbeWrap = document.createElement('span');
+    showProbeWrap.className = 'pb-showprobe';
+    showProbeWrap.title = spBox.title;
+    showProbeWrap.appendChild(showProbe);
+    const spLbl = document.createElement('span');
+    spLbl.className = 'pb-showprobe-l';
+    spLbl.textContent = '连通性';
+    showProbeWrap.appendChild(spLbl);
     // 来源：host · os（mid 缺失时显示 mid 短号或「手填」）
     const source = document.createElement('span');
     source.className = 'pb-src';
@@ -9422,6 +9466,7 @@ window.__bkOnShow = async function () {
     act.appendChild(down);
     act.appendChild(del);
     act.appendChild(enable);
+    act.appendChild(showProbeWrap);
     main.appendChild(act);
     const meta = document.createElement('div');
     meta.className = 'pb-meta';
@@ -9910,6 +9955,33 @@ window.__bkOnShow = async function () {
       trk.setAttribute('aria-hidden', 'true');
       label.appendChild(input); label.appendChild(trk);
       row.appendChild(label);
+      // 「是否展示连通性」开关（用户 2026-10-31）：默认开。关掉后电脑列表不显示
+      // 这个通道所有条目的探测小字（延迟 / 失败原因）—— 探测照跑、连接照常
+      const spLabel = document.createElement('label');
+      spLabel.className = 'switch';
+      const spInput = document.createElement('input');
+      spInput.type = 'checkbox';
+      spInput.checked = !rsRouteProbeHidden[kind];
+      spInput.title = '是否展示连通性：关掉后电脑列表不显示「' + (ROUTE_LABELS[kind] || kind)
+        + '」的探测结果（延迟 / 失败原因），探测与连接不受影响';
+      spInput.setAttribute('aria-label', (ROUTE_LABELS[kind] || kind) + ' 是否展示连通性');
+      spInput.addEventListener('change', function () {
+        if (spInput.checked) delete rsRouteProbeHidden[kind];
+        else rsRouteProbeHidden[kind] = true;
+      });
+      const spTrk = document.createElement('span');
+      spTrk.className = 'trk';
+      spTrk.setAttribute('aria-hidden', 'true');
+      spLabel.appendChild(spInput); spLabel.appendChild(spTrk);
+      const spWrap = document.createElement('span');
+      spWrap.className = 'pb-showprobe';
+      spWrap.title = spInput.title;
+      spWrap.appendChild(spLabel);
+      const spText = document.createElement('span');
+      spText.className = 'pb-showprobe-l';
+      spText.textContent = '连通性';
+      spWrap.appendChild(spText);
+      row.appendChild(spWrap);
       // HTML5 拖动排序
       row.addEventListener('dragstart', function (e) {
         rsRouteDrag = kind;
@@ -9961,7 +10033,7 @@ window.__bkOnShow = async function () {
     rsAddrEditor.resetInputs();
     rsRouteEditor.setRoutes(r && Array.isArray(r.power_routes) ? r.power_routes : []);
     // 配对列表：深拷贝一份编辑态（保存时整体回传，改到一半取消不影响原档案）
-    const blankPair = { id: '', kind: 'cloudflare', lane: '', addr: '', token: '', probe_timeout_ms: 0, enabled: true, mid: '', os: '', host: '', tunnel_id: '', note: '', created_at: 0 };
+    const blankPair = { id: '', kind: 'cloudflare', lane: '', addr: '', token: '', probe_timeout_ms: 0, enabled: true, show_probe: true, mid: '', os: '', host: '', tunnel_id: '', note: '', created_at: 0 };
     rsPairs = (r && Array.isArray(r.pairs) ? r.pairs : []).map(function (p) {
       return Object.assign({}, blankPair, p);
     });
@@ -10026,6 +10098,11 @@ window.__bkOnShow = async function () {
     ((r && Array.isArray(r.route_disabled)) ? r.route_disabled : []).forEach(function (id) {
       if (ROUTE_IDS.indexOf(id) >= 0) rsRouteDisabled[id] = true;
     });
+    // 「是否展示连通性」的通道粒度：route_probe_hidden 是数组落盘（只存关掉的）
+    rsRouteProbeHidden = {};
+    ((r && Array.isArray(r.route_probe_hidden)) ? r.route_probe_hidden : []).forEach(function (id) {
+      if (ROUTE_IDS.indexOf(id) >= 0) rsRouteProbeHidden[id] = true;
+    });
     rsRenderRoutes();
     rsRenderFoldCounts();
     document.getElementById('rsDelete').hidden = !r;
@@ -10071,6 +10148,9 @@ window.__bkOnShow = async function () {
           // 连接策略停用的通道不进测试（用户 2026-10-28：探测列表听开关的，与
           // 平时轮询的 pcRouteCandidates 同口径 —— ts 区块里 ts / funnel 各听各的开关）
           if (rsRouteDisabled[routeKind]) return;
+          // 「是否展示连通性」关了的条目也不进测试探测列表（用户 2026-10-31）：
+          // 通道粒度（rsRouteProbeHidden）或这一条自己的 show_probe 任一命中就不列
+          if (rsRouteProbeHidden[routeKind] || p.show_probe === false) return;
           // 三层继承：条目 → 区块 → 全局（0 = 后端落全局默认）。
           // 不带令牌：探活打的是免鉴权的 /health，令牌只影响能不能进界面
           list.push({ kind: routeKind, origin: p.addr,
@@ -10079,6 +10159,8 @@ window.__bkOnShow = async function () {
         return;
       }
       if (rsRouteDisabled[kind]) return;
+      // 「是否展示连通性」关了 lan：测试探测列表不列局域网地址（用户 2026-10-31）
+      if (rsRouteProbeHidden[kind]) return;
       if (kind === 'lan') {
         addresses.forEach(function (address) { list.push({ kind: 'lan', origin: address }); });
       }
@@ -10222,6 +10304,8 @@ window.__bkOnShow = async function () {
         token: p.token || '',
         probe_timeout_ms: p.probe_timeout_ms || 0,
         enabled: p.enabled !== false,
+        // 「是否展示连通性」：undefined/true = 展示；false = 列表不显示这条的探测小字
+        show_probe: p.show_probe !== false,
         mid: p.mid || '',
         os: p.os || '',
         host: p.host || '',
@@ -10246,6 +10330,8 @@ window.__bkOnShow = async function () {
       conn_mode: '',
       route_order: rsRouteOrder.slice(),
       route_disabled: rsRouteOrder.filter(function (kind) { return rsRouteDisabled[kind]; }),
+      // 「是否展示连通性」的通道粒度：只存关掉的（数组落盘，空 = 全部展示）
+      route_probe_hidden: ROUTE_IDS.filter(function (kind) { return rsRouteProbeHidden[kind]; }),
       // 默认探测超时（毫秒）：通道没单独设时用它；界面上填的是秒
       probe_timeout_ms: rsProbeTimeoutMs(),
       // 每个通道自己的探测超时（毫秒，key = 通道 id；空的通道不写 = 继承上面的默认值）
