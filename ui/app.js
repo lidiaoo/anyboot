@@ -5257,6 +5257,8 @@ activateTab(pendingInitialTab);
     show(el.skip, phase === "available" && !state.skipped);
     el.download.disabled = !canDownload;
     el.install.disabled = phase !== "ready_to_install";
+    // 文案跟着状态复位：安装失败回到 error 后，按钮不能一直停在「安装中…」
+    el.install.textContent = phase === "installing" ? "安装中…" : "安装并重启";
 
     el.check.disabled = phase === "checking" || phase === "downloading" ||
       phase === "verifying" || phase === "installing";

@@ -93,6 +93,12 @@ targets:
     info:
       path: Info.plist
       properties:
+        # 版本号与 GitHub release tag 同轴（发版时与 info.plist / Cargo.toml / tauri.conf.json
+        # 一起改）：tag v0.2.0 → CFBundleShortVersionString 0.2.0，CFBundleVersion 200
+        # （= major*10000+minor*100+patch）。检查更新只比 ShortVersion（ABUpdateCheck.isNewer），
+        # 不同轴会永远判成「已是最新」。
+        CFBundleShortVersionString: "0.2.0"
+        CFBundleVersion: "200"
         CFBundleDisplayName: AnyBoot 远程
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true

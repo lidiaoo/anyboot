@@ -12,8 +12,12 @@ android {
         applicationId = "com.anyboot.remote"
         minSdk = 24
         targetSdk = 34
-        versionCode = 3
-        versionName = "1.2"
+        // ⚠️ 版本号与 GitHub release tag 同轴（发版时两处一起改）：
+        //   release 打 v0.2.0 → versionName = "0.2.0"，versionCode = major*10000+minor*100+patch。
+        // 检查更新只比 versionName（UpdateCore.isNewer），不同轴会永远判成「已是最新」；
+        // 工作流按 tag 把产物命名成 AnyBoot_<version>_debug.apk，客户端按这个名字找包。
+        versionCode = 200
+        versionName = "0.2.0"
         // instrumented test（connectedDebugAndroidTest）跑在真机/模拟器上
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -92,4 +96,7 @@ dependencies {
     androidTestImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test:runner:1.5.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
+
+    // JVM 单测：检查更新的纯逻辑（UpdateCore 不依赖 android.*，跑在本地 JVM 上）
+    testImplementation("junit:junit:4.13.2")
 }

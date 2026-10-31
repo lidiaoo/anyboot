@@ -128,6 +128,27 @@ class AboutActivity : ComponentActivity() {
                             lineHeight = 19.sp,
                             modifier = Modifier.padding(top = 12.dp),
                         )
+                        // 检查更新入口（docs/update-ui-mockup.html D 区）：进独立页，
+                        // 那里有下载进度、校验结果与安装引导
+                        Spacer(Modifier.height(14.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(999.dp))
+                                .background(palette.accent.copy(alpha = 0.12f))
+                                .clickable {
+                                    startActivity(Intent(this@AboutActivity, UpdateActivity::class.java))
+                                }
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                        ) {
+                            Text(
+                                "检查更新",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = palette.accent,
+                            )
+                            Text(" ›", fontSize = 13.sp, color = palette.accent)
+                        }
                     }
                     Spacer(Modifier.height(16.dp))
 

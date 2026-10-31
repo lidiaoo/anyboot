@@ -20,6 +20,10 @@ struct AboutView: View {
     /// GitHub API 原始 JSON（缓存键 github_cache，与 JumpStore.githubCache 同名）
     @State private var stats = ""
 
+    /// 检查更新进行中 / 有新版本时的提示文案（nil = 不弹）
+    @State private var checkingUpdate = false
+    @State private var updateNotice: String?
+
     var body: some View {
         VStack(spacing: 0) {
             titleBar
@@ -41,6 +45,18 @@ struct AboutView: View {
         }
         .background(ABColor.base.ignoresSafeArea())
         .onAppear(perform: loadRepoStats)
+        .alert("发现新版本", isPresented: Binding(
+            get: { updateNotice != nil },
+            set: { if !$0 { updateNotice = nil } }
+        )) {
+            Button("打开 Releases 页") {
+                updateNotice = nil
+                open(Self.repoURL + "/releases")
+            }
+            Button("取消", role: .cancel) { updateNotice = nil }
+        } message: {
+            Text(updateNotice ?? "")
+        }
     }
 
     // MARK: - 标题栏（:75-84）
@@ -88,6 +104,10 @@ struct AboutView: View {
                 .lineSpacing(ABMetric.px(19) - 12)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, ABMetric.px(12))
+
+            // 检查更新入口（iOS 只引导：未上架前 unsigned ipa 不能应用内自装）
+            checkUpdateButton
+                .padding(.top, ABMetric.px(14))
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, ABMetric.px(24))
@@ -95,8 +115,60 @@ struct AboutView: View {
         .background(abCardBackground(corner: 16))
     }
 
-    // MARK: - GitHub 仓库卡（:134-200）
+    // MARK: - 检查更新（只引导，不自动安装）
+    //
+    // iOS 未上架 App Store / TestFlight 之前，unsigned ipa 没法自装（要用户自己重签名），
+    // 所以这里只做「探测 + 提示 + 打开 Releases 页」。口径与桌面端 / Android 一致：
+    // 严格只升不降，解析失败按「已是最新」。
 
+    private var checkUpdateButton: some View {
+        Button(action: checkUpdate) {
+            HStack(spacing: ABMetric.px(6)) {
+                if checkingUpdate {
+                    ProgressView()
+                        .scaleEffect(0.6)
+                        .frame(width: ABMetric.px(12), height: ABMetric.px(12))
+                }
+                Text(checkingUpdate ? "检查中…" : "检查更新")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(ABColor.accent)
+            }
+            .padding(.horizontal, ABMetric.px(16))
+            .padding(.vertical, ABMetric.px(8))
+            .background(Capsule().fill(ABColor.accent.opacity(0.12)))
+        }
+        .buttonStyle(.plain)
+        .disabled(checkingUpdate)
+    }
+
+    private func checkUpdate() {
+        guard !checkingUpdate else { return }
+        checkingUpdate = true
+        Task {
+            do {
+                let outcome = try await ABUpdateCheck.check(current: Self.versionName)
+                await MainActor.run {
+                    checkingUpdate = false
+                    if outcome.isNewer {
+                        updateNotice = "v\(outcome.version) 已发布。iOS 版需要手动安装："
+                            + "打开 Releases 页下载 ipa，重签名后覆盖安装"
+                            + "（未上架 App Store 前，系统不支持应用内直接自装）。"
+                    } else {
+                        ABToastBus.shared.show("已是最新版本 v\(Self.versionName)")
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    checkingUpdate = false
+                    let text = (error as? LocalizedError)?.errorDescription
+                        ?? "检查更新失败：\(error.localizedDescription)"
+                    ABToastBus.shared.show(text)
+                }
+            }
+        }
+    }
+
+    // MARK: - GitHub 仓库卡（:134-200）
     private var repoCard: some View {
         VStack(spacing: 0) {
             Button {

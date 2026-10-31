@@ -6,6 +6,9 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- 远程接入扫码配对（ScanPairActivity 运行时再申请，不扫也能粘贴） -->
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- 检查更新：下载 APK 后交给系统安装器（Android 8+ 还需要用户在系统设置里
+         单独允许「安装未知应用」，客户端会引导跳转，不静默索要） -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:allowBackup="true"
@@ -55,6 +58,23 @@
         <activity
             android:name=".AboutActivity"
             android:exported="false" />
+
+        <!-- 检查更新（下载 APK → SHA-256 校验 → 交给系统安装器覆盖升级） -->
+        <activity
+            android:name=".UpdateActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
+            android:exported="false" />
+
+        <!-- 更新包共享给系统安装器：Android 7+ 禁止 file:// 跨应用，必须走 FileProvider -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
 
         <!-- 备份与恢复（导出/导入 + WebDAV 多端同步） -->
         <activity

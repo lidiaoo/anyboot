@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  FileProvider 共享目录（更新安装用）。
+  只暴露 filesDir/update 这一层：下载好的 APK 放在那里，安装时交给系统安装器。
+  绝不暴露根目录 —— FileProvider 暴露范围越小越好。
+-->
+<paths>
+    <files-path name="update" path="update/" />
+</paths>
