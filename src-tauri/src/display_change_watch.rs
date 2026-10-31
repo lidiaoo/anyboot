@@ -259,10 +259,10 @@ pub(crate) fn spawn(app: AppHandle) {
 /// 查询不是线程安全的，采样必须落在主线程，轮询线程只负责节拍：
 /// sleep → run_on_main_thread 采样 → channel 取回 → 比对 → 变了就主线程重置。
 ///
-/// 签名 = 全部显示器的（位置、物理宽高、scale_factor）：
-/// - macOS：改缩放 → backingScaleFactor 变；改分辨率 → size 变；
-/// - Linux：改缩放/分辨率同理（Wayland 下各屏 position 可能全 0，
-///   靠 size + scale_factor 兜住信号）。
+/// 签名 = 全部显示器的（物理宽高、scale_factor 量化值）—— **不含 position**：
+/// Linux 真机 2026-10-31 实测，position 抖动（Wayland 报 0 / 报真实值不定）会让
+/// 签名每拍都不同 → 窗口被循环重置、页面滚动反复回顶。比对加「连续两拍一致
+/// 才认」的抖动过滤；确认时把新旧签名写进 trace，再犯一眼能看到抖的是什么。
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod imp {
     use super::*;
@@ -270,11 +270,18 @@ mod imp {
 
     /// 轮询间隔（ms），与 Windows 端同一节奏。
     const POLL_INTERVAL_MS: u64 = 1500;
+    /// 新签名要连续出现多少拍才认账（抖动过滤，见 MonitorSig 注释）。
+    /// 2 拍 = 真变化约 3s 后生效；单拍闪变 / A-B 来回抖全部丢弃。
+    const CONFIRM_POLLS: u32 = 2;
 
-    /// 显示器签名条目：x、y、物理宽、物理高、scale_factor 的位模式
-    /// （f64 没有 Eq，比较前转 bits —— `f64::to_bits()` 是 u64，别写成 u32，
-    /// 否则 Windows 上永远编不到这个 cfg 分支、Linux 一编才炸）。
-    type MonitorSig = Vec<(i32, i32, u32, u32, u64)>;
+    /// 显示器签名条目：物理宽、物理高、scale_factor（量化到百分位）。
+    ///
+    /// **不放 position**（2026-10-31 真机教训）：Wayland 下各屏 position 可能
+    /// 全 0，也可能在 0 与真实值之间抖 —— 签名带着它就每拍都不同，窗口被
+    /// 每 1.5s 重置一次、页面滚动位置反复被打回顶部。位置变化本来也无需
+    /// 重算窗口几何（尺寸/缩放没变），删掉最干净。f64 量化到百分位再比，
+    /// 杜绝 `to_bits()` 的尾数位抖动（别用 `f64::to_bits()` 原值）。
+    type MonitorSig = Vec<(u32, u32, u64)>;
 
     /// 采样当前全部显示器签名。**只能在主线程调用**。
     fn sample(app: &AppHandle) -> MonitorSig {
@@ -287,14 +294,11 @@ mod imp {
         let mut sig: MonitorSig = monitors
             .iter()
             .map(|m| {
-                let pos = m.position();
                 let size = m.size();
                 (
-                    pos.x,
-                    pos.y,
                     size.width,
                     size.height,
-                    m.scale_factor().to_bits(),
+                    (m.scale_factor() * 100.0).round() as u64,
                 )
             })
             .collect();
@@ -307,6 +311,9 @@ mod imp {
             .name("display-change-watch".into())
             .spawn(move || {
                 let mut last: Option<MonitorSig> = None;
+                // 抖动过滤：新签名要**连续两拍一致**才认（单拍闪变直接丢弃）。
+                // A/B 来回抖的签名永远凑不齐连续两拍 → 循环重置被掐断。
+                let mut pending: Option<(MonitorSig, u32)> = None;
                 loop {
                     std::thread::sleep(Duration::from_millis(POLL_INTERVAL_MS));
                     // 采样必须主线程：排队过去，channel 取回
@@ -329,9 +336,38 @@ mod imp {
                         }
                         continue;
                     };
-                    if sig.is_empty() || &sig == last_sig {
+                    if sig.is_empty() {
+                        // 采样失败不算变化，也不更新基线
                         continue;
                     }
+                    if &sig == last_sig {
+                        pending = None; // 回到基线：待确认的抖动作废
+                        continue;
+                    }
+                    // 与基线不同：等它连续出现 CONFIRM_POLLS 拍才动手
+                    let confirmed = match &mut pending {
+                        Some((seen, count)) if *seen == sig => {
+                            *count += 1;
+                            *count >= CONFIRM_POLLS
+                        }
+                        _ => {
+                            trace(
+                                &app,
+                                "display-watch",
+                                &format!(
+                                    "显示签名变化待确认（{:?} → {:?}），第 1/{} 拍",
+                                    last_sig, sig, CONFIRM_POLLS
+                                ),
+                            );
+                            pending = Some((sig.clone(), 1));
+                            false
+                        }
+                    };
+                    if !confirmed {
+                        continue;
+                    }
+                    let old = last_sig.clone();
+                    pending = None;
                     last = Some(sig.clone());
                     let app3 = app.clone();
                     let result = app.run_on_main_thread(move || {
@@ -339,7 +375,9 @@ mod imp {
                             Ok(_) => trace(
                                 &app3,
                                 "display-watch",
-                                "显示环境变化（轮询），已按标称尺寸重置窗口",
+                                &format!(
+                                    "显示环境变化（{old:?} → 确认 {sig:?}），已按标称尺寸重置窗口"
+                                ),
                             ),
                             Err(error) => trace(
                                 &app3,
