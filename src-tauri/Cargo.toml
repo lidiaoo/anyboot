@@ -79,6 +79,8 @@ windows-sys = { version = "0.59", features = [
     "Win32_Graphics_Gdi",
     # 显示变化监听：GetModuleHandleW（display_change_watch 的隐形窗口类注册）
     "Win32_System_LibraryLoader",
+    # 显示变化监听：GetDpiForSystem（display_change_watch 的缩放轮询签名）
+    "Win32_UI_HiDpi",
     # 提权重扫：SHELLEXECUTEINFOW 的 hkeyClass 字段挂在 Registry feature 下（0.59 的拆法）
     "Win32_System_Registry",
     # NVRAM dump：AdjustTokenPrivileges 启用 SeSystemEnvironmentPrivilege（提权≠特权已启用）

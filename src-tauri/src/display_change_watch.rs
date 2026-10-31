@@ -5,18 +5,19 @@
 //! Moved/Resized 时才夹取 —— 运行中改分辨率**不会改变窗口自身尺寸**，WM 不发
 //! 那两条事件，夹取根本不跑，用户看到的就是「窗口一点没变」。
 //!
-//! 实现：MESSAGEONLY 隐形窗口（HWND_MESSAGE，不进任务栏不闪框）挂在独立线程
-//! 的消息循环上，收两条广播：
-//! - `WM_DISPLAYCHANGE`：分辨率 / 色深 / 方向变化；
-//! - `WM_SETTINGCHANGE` 且 lParam = "WindowMetrics"：DPI 缩放比例改动（改缩放
-//!   系统主要广播这个；MESSAGEONLY 窗口收不到 WM_DPICHANGED，那只发给
-//!   top-level 窗口）。
+//! 实现（两层）：
+//! 1. MESSAGEONLY 隐形窗口（HWND_MESSAGE，不进任务栏不闪框）挂在独立线程
+//!    的消息循环上，收 `WM_DISPLAYCHANGE`：分辨率 / 色深 / 方向变化。
+//! 2. **轮询兜底**（用户实测 2026-10-31：改 DPI 缩放 300→175 时
+//!    `WM_SETTINGCHANGE(WindowMetrics)` 根本没到——这条广播不可靠）：
+//!    独立线程每 1.5s 读一次系统 DPI + 主屏分辨率，和上次比变了就触发。
+//!    广播收不收得到无所谓，任何缩放值都会被轮询抓到。
 //!
-//! 收到后去抖 1s（显示切换常连发多条，重置落两拍几何也不便宜），期间有新
-//! 广播就顺延到最后一拍，然后 `run_on_main_thread` 调
-//! `window_geometry::reset_window_size_inner` —— 与托盘菜单「重置窗口大小」
-//! 同一实现：按当前布局档位宽度 + 当前屏幕整屏 2/3 高度落尺寸（自带夹取、
-//! 落盘、重居中）。改大改小都重置：屏幕变了，标称尺寸就该跟着屏幕重算。
+//! 收到后去抖 1s（显示切换常连发多条，重置落两拍几何也不便宜），然后
+//! `run_on_main_thread` 调 `window_geometry::reset_window_size_inner` —— 与
+//! 托盘菜单「重置窗口大小」同一实现：按当前布局档位宽度 + 当前屏幕整屏
+//! 2/3 高度落尺寸（自带夹取、落盘、重居中）。改大改小都重置：屏幕变了，
+//! 标称尺寸就该跟着屏幕重算。
 
 use super::*;
 
@@ -28,20 +29,21 @@ mod imp {
     use std::time::Duration;
     use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
     use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+    use windows_sys::Win32::UI::HiDpi::GetDpiForSystem;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, RegisterClassW,
-        TranslateMessage, MSG, WNDCLASSW, HWND_MESSAGE,
+        TranslateMessage, GetSystemMetrics, MSG, WNDCLASSW, HWND_MESSAGE, SM_CXSCREEN,
+        SM_CYSCREEN, WM_DISPLAYCHANGE, WM_SETTINGCHANGE,
     };
-
-    /// 广播到达后等多久再动手（ms）：显示切换常连发多条，只认最后一拍。
-    const DEBOUNCE_MS: u64 = 1000;
 
     static APP: OnceLock<AppHandle> = OnceLock::new();
     /// 世代号：每条广播 +1；延迟线程醒来时世代已变 = 有更新的广播，让位。
     static EPOCH: AtomicU64 = AtomicU64::new(0);
 
-    const WM_SETTINGCHANGE: u32 = 0x001A;
-    const WM_DISPLAYCHANGE: u32 = 0x007E;
+    /// 广播/轮询命中后等多久再动手（ms）：显示切换常连发多条，只认最后一拍。
+    const DEBOUNCE_MS: u64 = 1000;
+    /// 轮询间隔（ms）：读 DPI + 主屏分辨率，每拍一次。轻量调用，1.5s 足够跟手。
+    const POLL_INTERVAL_MS: u64 = 1500;
 
     /// 请求一次重置：世代 +1，起延迟线程，醒来时仍是最新世代才真正落尺寸。
     fn request_reset(reason: &str) {
@@ -118,8 +120,42 @@ mod imp {
         }
     }
 
+    /// 当前显示环境签名：系统 DPI + 主屏分辨率。任一变化 = 缩放或分辨率动了。
+    /// 这些查询对进程 DPI 感知级别敏感，但 tauri(tao) 默认 per-monitor v2，
+    /// 拿到的就是真实值；就算被虚拟化，变没变这个**相对信号**依然成立。
+    fn display_signature() -> (u32, i32, i32) {
+        unsafe {
+            (
+                GetDpiForSystem(),
+                GetSystemMetrics(SM_CXSCREEN),
+                GetSystemMetrics(SM_CYSCREEN),
+            )
+        }
+    }
+
+    /// 轮询兜底线程：每 1.5s 采样一次显示签名，变了就走重置。
+    /// 广播（WM_SETTINGCHANGE）在部分机器改缩放时不发/参数对不上，这条路
+    /// 不依赖任何广播 —— 任何缩放值（100→125→150→300 任意）都会被抓到。
+    fn spawn_poll() {
+        std::thread::Builder::new()
+            .name("display-dpi-poll".into())
+            .spawn(move || {
+                let mut last = display_signature();
+                loop {
+                    std::thread::sleep(Duration::from_millis(POLL_INTERVAL_MS));
+                    let now = display_signature();
+                    if now != last {
+                        last = now;
+                        request_reset("缩放/分辨率变化（轮询）");
+                    }
+                }
+            })
+            .ok();
+    }
+
     pub(super) fn spawn(app: AppHandle) {
         let _ = APP.set(app);
+        spawn_poll();
         std::thread::Builder::new()
             .name("display-change-watch".into())
             .spawn(move || unsafe {
