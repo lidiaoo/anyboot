@@ -3091,11 +3091,18 @@ fn remote_endpoint_inner(
     let mut child = command
         .spawn()
         .map_err(|error| format!("无法启动 ssh: {error}"))?;
-    // 1.2s 内就退出 = 转发没建立（跳板连接断了等）
+    // 1.2s 内就退出 = 转发没建立（跳板连接断了等）。ExitStatus 的 Display 本身
+    // 就是 "exit status: N"，直接拼进「exit {status}」会出现「exit exit status: 0」；
+    // 改用退出码数字，0 也不是失败码 —— 多半是 ssh 正常握手后对端立即关连接，
+    // 文案说清现象即可（用户 2026-10-31：这种提示别再吓人）。
     std::thread::sleep(Duration::from_millis(1200));
     if let Ok(Some(status)) = child.try_wait() {
         let _ = child.wait();
-        return Err(format!("跳板转发建立失败（exit {status}）"));
+        let detail = match status.code() {
+            Some(code) => format!("退出码 {code}"),
+            None => "被信号终止".to_string(),
+        };
+        return Err(format!("跳板转发未能建立（ssh 提前退出：{detail}）"));
     }
     if let Ok(mut map) = state.forwards.lock() {
         map.insert(
