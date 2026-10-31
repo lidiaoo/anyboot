@@ -2108,7 +2108,7 @@ class ComputerListActivity : ComponentActivity() {
         Column {
             // 说明与健康检查：收进感叹号（用户 2026-10-28：不要占位置），点了才展开
             val ocNote = if (channel.id == "opencore")
-                "「设为默认 ⤴」等价于 OC 菜单里的 Ctrl+Enter：写 OCBt0080 / OCBtOrder，不碰被 macOS 挡住的 Boot* 变量；电脑端弹授权时批准即可"
+                "点预演行 = 设为默认，等价于 OC 菜单里的 Ctrl+Enter：写 OCBt0080 / OCBtOrder，不碰被 macOS 挡住的 Boot* 变量；电脑端弹授权时批准即可"
             else ""
             val nvramNote = if (channel.permission == "nvram")
                 "⤴ 切换必经 NVRAM 写（电脑端可能弹管理员授权）"
@@ -2243,9 +2243,10 @@ class ComputerListActivity : ComponentActivity() {
     }
 
     /**
-     * OC 菜单预演的一行：标题（含系统图标 + 「✓ 已是默认」/「辅助」角标）+ 卷·路径 + 备注，
-     * 行尾「设为默认 ⤴」（对齐 PC 网页端 ocMenuRow 的语义：默认行也占位渲染，
-     * 不让人误以为选不了）。
+     * OC 菜单预演的一行（用户 2026-10-31：与 GRUB 弹层同款样式）——
+     * 标题（含分类色点 + 「辅助」角标）+ 卷·路径 + 备注；默认行 = 选中框
+     * （accent 底 + ✓，与 GRUB 弹层选中行同款），不再写「✓ 已是默认」字样；
+     * 「设为默认」不再占一颗按钮 —— 点整行就是设为默认（等价 OC 菜单 Ctrl+Enter）。
      */
     @Composable
     private fun ChannelMenuRowView(
@@ -2254,34 +2255,42 @@ class ComputerListActivity : ComponentActivity() {
         row: ChannelMenuRow,
         palette: Palette,
     ) {
+        val dotKind = menuDotKind(row.kind, row.title)
+        val clickable = !row.isDefault && row.spec.trim().isNotEmpty()
         Row(
             verticalAlignment = Alignment.Top,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(bottom = 6.dp)
                 .clip(RoundedCornerShape(11.dp))
-                .background(palette.elevate.copy(alpha = 0.5f))
+                .background(
+                    when {
+                        row.isDefault -> palette.accent.copy(alpha = 0.14f)
+                        else -> palette.elevate.copy(alpha = 0.5f)
+                    }
+                )
+                .then(
+                    if (clickable) {
+                        Modifier.clickable {
+                            sheetRequest = null
+                            switchPreviewRow(profile, channel, row)
+                        }
+                    } else Modifier
+                )
                 .padding(horizontal = 11.dp, vertical = 10.dp),
         ) {
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    BootDot(dotKind)
+                    Spacer(Modifier.width(7.dp))
                     Text(
-                        ocMenuIcon(row.kind) + row.title,
+                        row.title,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color = palette.fg,
+                        color = if (row.isDefault) palette.accent else palette.fg,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    if (row.isDefault) {
-                        Spacer(Modifier.width(5.dp))
-                        Text(
-                            "✓ 已是默认",
-                            fontSize = 10.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = palette.accent,
-                        )
-                    }
                     if (row.auxiliary) {
                         Spacer(Modifier.width(5.dp))
                         Text("辅助", fontSize = 10.sp, color = palette.fgFaint)
@@ -2305,33 +2314,29 @@ class ComputerListActivity : ComponentActivity() {
                     )
                 }
             }
-            if (!row.isDefault && row.spec.trim().isNotEmpty()) {
+            if (row.isDefault) {
                 Spacer(Modifier.width(8.dp))
-                Text(
-                    "设为默认 ⤴",
-                    fontSize = 11.5.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = palette.onAccent,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(9.dp))
-                        .background(palette.accent)
-                        .clickable {
-                            sheetRequest = null
-                            switchPreviewRow(profile, channel, row)
-                        }
-                        .padding(horizontal = 10.dp, vertical = 7.dp),
-                )
+                CheckIcon(tint = palette.accent, size = 16.dp)
             }
         }
     }
 
-    /** OC 菜单条目的系统图标（与 PC 网页端 OC_MENU_ICONS 同语义） */
-    private fun ocMenuIcon(kind: String): String = when (kind) {
-        "macos" -> "🍎 "
-        "windows" -> "🪟 "
-        "linux" -> "🐧 "
-        "tool" -> "⚙️ "
-        else -> ""
+    /** OC 菜单条目 → 分类色点（win 蓝 / mac 灰 / linux 橙 / tool 灰点）：
+     *  kind 认不出时按标题关键词救一把（与 PC 端 grubOsChip 同一顺序）。 */
+    private fun menuDotKind(kind: String, title: String): String {
+        when (kind) {
+            "macos" -> return "mac"
+            "windows" -> return "win"
+            "linux" -> return "linux"
+        }
+        val lowered = title.lowercase()
+        return when {
+            lowered.contains("windows") -> "win"
+            lowered.contains("mac") || lowered.contains("apple") -> "mac"
+            lowered.contains("linux") -> "linux"
+            kind == "tool" -> "tool"
+            else -> "auto"
+        }
     }
 
     @OptIn(ExperimentalMaterial3Api::class)
@@ -3477,7 +3482,7 @@ class ComputerListActivity : ComponentActivity() {
     }
 
     /**
-     * OC 菜单预演行的「设为默认 ⤴」：`row.spec` 是后端算好的完整值域
+     * OC 菜单预演行整行点击 = 设为默认：`row.spec` 是后端算好的完整值域
      * （`opencore-default:<卷>\u0001<路径>`），在**第一个**冒号处拆成 channel+target
      * 发回去 —— 服务端会用 `:` 原样拼回同一个 spec（`parse_switch_spec` 特意只切
      * 一次冒号，因为路径里可能有 `:`）。与 PC 网页端「原样发回 entry.spec」等价。
