@@ -102,7 +102,12 @@ struct ComputerEditorView: View {
         self.firstRun = firstRun
         self.onFinish = onFinish
         let base = profile ?? ServerProfile()
-        _draft = State(initialValue: base)
+        // 新建 = 预填四条默认电源策略（全关，用户 2026-10-31）；编辑 = 档案里已存的
+        var seeded = base
+        if profile == nil {
+            seeded.powerRoutes = ServerProfile.defaultPowerRoutes()
+        }
+        _draft = State(initialValue: seeded)
         _name = State(initialValue: base.name)
         _token = State(initialValue: base.token)
         _jumpServerId = State(initialValue: base.jumpServerId)
@@ -1417,7 +1422,8 @@ private struct PowerRouteCardView: View {
                 .font(.system(size: 10))
                 .foregroundColor(ABColor.fgFaint)
 
-            // 动作 + 删除
+            // 动作 + 删除（行尾加「启用」开关，用户 2026-10-31，与通道/配对开关同款：
+            // 默认开；关掉 = 这条策略不参与发送，策略留着不删，整卡半透明）
             HStack {
                 Menu {
                     // 与 Android 同序：唤醒 / 重启 / 关机 / 睡眠
@@ -1431,6 +1437,15 @@ private struct PowerRouteCardView: View {
                     outlinedButtonLabel(ServerProfile.powerActionLabel(route.actionOrWake))
                 }
                 Spacer()
+                VStack(spacing: 0) {
+                    Toggle("", isOn: $route.enabled)
+                        .labelsHidden()
+                        .scaleEffect(0.7, anchor: .trailing)
+                        .frame(width: 36)
+                    Text("启用")
+                        .font(.system(size: 9))
+                        .foregroundColor(ABColor.fgFaint)
+                }
                 Button(action: onRemove) {
                     Text("删除")
                         .font(.system(size: 12))
@@ -1535,6 +1550,8 @@ private struct PowerRouteCardView: View {
                 .foregroundColor(ABColor.fgFaint)
         }
         .padding(8)
+        // 停用的策略整卡半透明（策略还在，只是不参与发送），与 PC / Android 同语义
+        .opacity(route.enabled ? 1 : 0.55)
         .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(ABColor.card))
     }
 

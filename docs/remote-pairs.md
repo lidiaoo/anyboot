@@ -201,7 +201,8 @@ pub block_timeouts_ms: std::collections::BTreeMap<String, u64>,
 | `route_probe_mode` | 原样，语义自然收窄为「三个配对区块之间」 |
 | `route_order` | **结构不动**（仍含 `lan` / `jump` / 四个配对 kind），区块顺序从它的配对项推导，见 §5.1 |
 | `route_timeouts_ms` | 结构不动，配对侧改读 `block_timeouts_ms`；剩下的 key 只服务 `lan` / `jump`（§5.3） |
-| `addresses` / `token` / `machine_id` / `machine_name` / `machine_os` / `jump_id` / `macs` / `power_routes` | 不动 |
+| `addresses` / `token` / `machine_id` / `machine_name` / `machine_os` / `jump_id` / `macs` | 不动 |
+| `power_routes` | 不动。**2026-10-31 起新增电脑预填默认策略**（`default_power_routes()`，三端同构）：唤醒 9 / 睡眠 10 / 关机 11 / 重启 12 各一条，**默认全关**（`enabled=false`，只是搭骨架，停用的路由不参与发送 —— `routesFor` 过滤），发包 / 重试各 10，模式「优先广播包」（`mode=auto`）。PC 在 `remote_save` 新建分支兜底 + 前端弹窗预填；Android/iOS 在编辑表单新建分支预填。每条路由的 `enabled` 在 PC（route 编辑器行尾「启用」开关）/ Android / iOS（卡片「启用」Switch）都可切换 |
 
 **软上限**：每档案 32 条，超出时 UI 拒绝新增并提示。
 

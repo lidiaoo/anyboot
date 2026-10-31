@@ -2002,6 +2002,29 @@ final class ServerProfile {
         }
     }
 
+    /**
+     * 新增电脑时预填的「局域网电源策略」（用户 2026-10-31）：四个动作各一条，
+     * 端口按 sol 的分配 —— 唤醒 9 / 睡眠 10 / 关机 11 / 重启 12；<b>默认全关</b> ——
+     * 只替用户把骨架搭好，开哪条自己定；发包 / 重试 10、发送模式「优先广播包」。
+     * 停用的策略不参与发送（{@link #routesFor} 过滤 enabled），新电脑电源行为与从前一致。
+     * 与电脑端 {@code default_power_routes()} / hub.html {@code defaultPowerRoutes()} 三端一致。
+     */
+    static List<PowerRoute> defaultPowerRoutes() {
+        String[] actions = {POWER_WAKE, POWER_SLEEP, POWER_SHUTDOWN, POWER_REBOOT};
+        int[] ports = {9, 10, 11, 12};
+        List<PowerRoute> result = new ArrayList<>();
+        for (int i = 0; i < actions.length; i++) {
+            PowerRoute route = new PowerRoute(actions[i], "", ports[i]);
+            route.enabled = false;
+            route.burst = 10;
+            route.retry = 10;
+            route.mode = "auto";
+            route.httpFallback = true;
+            result.add(route);
+        }
+        return result;
+    }
+
     /** 归一化成小写冒号分隔的 MAC；不是 MAC 返回空串 */
     static String normalizeMac(String raw) {
         String value = text(raw);

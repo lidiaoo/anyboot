@@ -435,6 +435,28 @@ struct ServerProfile: Identifiable, Hashable, Codable {
         }
     }
 
+    /// 新增电脑时预填的「局域网电源策略」（用户 2026-10-31）：四个动作各一条，
+    /// 端口按 sol 的分配 —— 唤醒 9 / 睡眠 10 / 关机 11 / 重启 12；**默认全关** ——
+    /// 只替用户把骨架搭好，开哪条自己定；发包 / 重试 10、发送模式「优先广播包」。
+    /// 停用的策略不参与发送（`routesFor` 过滤 enabled），新电脑电源行为与从前一致。
+    /// 与电脑端 `default_power_routes()` / hub.html `defaultPowerRoutes()` 保持一致。
+    static func defaultPowerRoutes() -> [PowerRoute] {
+        let actions = [PowerRoute.actionWake, PowerRoute.actionSleep,
+                       PowerRoute.actionShutdown, PowerRoute.actionReboot]
+        let ports = [9, 10, 11, 12]
+        var result: [PowerRoute] = []
+        for (index, action) in actions.enumerated() {
+            var route = PowerRoute(action: action, target: "", port: ports[index])
+            route.enabled = false
+            route.burst = 10
+            route.retry = 10
+            route.mode = "auto"
+            route.httpFallback = true
+            result.append(route)
+        }
+        return result
+    }
+
     /// MAC 形态（aa:bb:cc:dd:ee:ff / aa-bb-... / aabb.ccdd.eeff）
     private static let macPattern = try! NSRegularExpression(
         pattern: "(?:[0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2}|[0-9a-fA-F]{4}\\.[0-9a-fA-F]{4}\\.[0-9a-fA-F]{4}")

@@ -39,6 +39,34 @@ pub(crate) fn default_route_order() -> Vec<String> {
     ROUTE_IDS.iter().map(|id| id.to_string()).collect()
 }
 
+/// 新增电脑时预填的「局域网电源策略」（用户 2026-10-31）：
+/// 四个动作各一条，端口按 sol 的分配 —— 唤醒 9 / 睡眠 10 / 关机 11 / 重启 12；
+/// **默认全关** —— 只替用户把骨架搭好，开哪条由用户自己打开；
+/// 发包数 / 重试各 10，发送模式「优先广播包」（广播没发出去再调 HTTP）。
+/// 停用的路由不参与发送（`routesFor` 过滤 `enabled`），所以新电脑电源行为与从前完全一致。
+pub(crate) fn default_power_routes() -> Vec<PowerRoute> {
+    let seed = [
+        (crate::hub::POWER_WAKE, 9u16),
+        (crate::hub::POWER_SLEEP, 10),
+        (crate::hub::POWER_SHUTDOWN, 11),
+        (crate::hub::POWER_REBOOT, 12),
+    ];
+    seed.iter()
+        .map(|(action, port)| PowerRoute {
+            action: action.to_string(),
+            target: String::new(),
+            port: *port,
+            macs: Vec::new(),
+            enabled: false,
+            burst: 10,
+            retry: 10,
+            // auto = 优先广播包（旧「HTTP 兜底」勾选的语义），http_fallback 同步派生
+            mode: "auto".to_string(),
+            http_fallback: true,
+        })
+        .collect()
+}
+
 /// 通道显示名（错误聚合 / 探测行用）
 pub(crate) fn route_label(kind: &str) -> &'static str {
     match kind {
@@ -1814,6 +1842,12 @@ pub fn remote_save(app: AppHandle, server: RemoteServer) -> Result<serde_json::V
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis() as u64)
             .unwrap_or(0);
+        // 新增电脑默认带上四条电源策略（全关、10/10、优先广播）：
+        // 前端弹窗会预填同样的骨架，这里只兜住没带路由来的调用方（手机端 / API）；
+        // 用户显式删光的场景极少，补回来的也只是「关闭」状态，不改变电源行为
+        if server.power_routes.is_empty() {
+            server.power_routes = default_power_routes();
+        }
         store.servers.push(server.clone());
     } else if let Some(existing) = store.servers.iter_mut().find(|s| s.id == server.id) {
         // 编辑态 token 留空 = 保持已存 token（前端不回显 token，同 hub 密码语义）；
@@ -6057,6 +6091,39 @@ mod tests {
             server.route_order_sorted(),
             vec!["lan", "jump", "tunnel", "ts", "funnel", "tsnet"]
         );
+    }
+
+    #[test]
+    fn default_power_routes_seed_four_disabled() {
+        // 用户 2026-10-31：新增电脑默认带上四条电源策略 —— 全关、10/10、优先广播
+        let routes = default_power_routes();
+        assert_eq!(routes.len(), 4);
+        let expect = [
+            (crate::hub::POWER_WAKE, 9u16),
+            (crate::hub::POWER_SLEEP, 10),
+            (crate::hub::POWER_SHUTDOWN, 11),
+            (crate::hub::POWER_REBOOT, 12),
+        ];
+        for (route, (action, port)) in routes.iter().zip(expect) {
+            assert_eq!(route.action, action);
+            assert_eq!(route.port, port);
+            assert!(!route.enabled, "默认策略只加上，不默认启用");
+            assert_eq!(route.burst, 10);
+            assert_eq!(route.retry, 10);
+            assert_eq!(route.mode, "auto", "默认优先广播包");
+        }
+        // 过 normalize 不变形：端口、开关、10/10、模式都原样保留
+        let mut server = route_test_server();
+        server.power_routes = default_power_routes();
+        let normalized = server.normalize();
+        assert_eq!(normalized.power_routes, routes);
+        // 停用的策略不参与发送：某个动作只剩停用路由时 routesFor 得空，走老路
+        let enabled: Vec<_> = normalized
+            .power_routes
+            .iter()
+            .filter(|route| route.enabled)
+            .collect();
+        assert!(enabled.is_empty());
     }
 
     #[test]

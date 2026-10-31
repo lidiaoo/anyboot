@@ -42,6 +42,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
@@ -545,9 +546,14 @@ internal class ServerEditFormState(
         }
     }
 
-    /** 局域网电源路由：编辑中的副本（增删都改这份），点「保存」才写回 profile */
+    /** 局域网电源路由：编辑中的副本（增删都改这份），点「保存」才写回 profile。
+     *  新建 = 预填四条默认策略（全关，用户 2026-10-31）；编辑 = 档案里已存的 */
     val routeList = mutableStateListOf<ServerProfile.PowerRoute>().apply {
-        profile?.powerRoutes?.forEach { add(it.copy()) }
+        if (profile == null) {
+            ServerProfile.defaultPowerRoutes().forEach { add(it) }
+        } else {
+            profile.powerRoutes.forEach { add(it.copy()) }
+        }
     }
     var routeMenuIndex by mutableStateOf(-1)
     var macMenuIndex by mutableStateOf(-1)
@@ -1234,13 +1240,15 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
             )
         }
         state.routeList.forEachIndexed { index, route ->
+            // 停用的策略整卡半透明（策略还在，只是不参与发送），与 PC 端 route-row.off 同语义
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 6.dp)
                     .clip(RoundedCornerShape(10.dp))
                     .background(palette.card)
-                    .padding(8.dp),
+                    .padding(8.dp)
+                    .alpha(if (route.enabled) 1f else 0.55f),
             ) {
                 Text(
                     "路由 ${index + 1} / ${state.routeList.size}",
@@ -1291,6 +1299,20 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                         }
                     }
                     Spacer(Modifier.weight(1f))
+                    // 「启用」开关（用户 2026-10-31，与通道/配对的开关同款带文字）：
+                    // 默认开；关掉 = 这条策略不参与发送（策略留着不删），整卡半透明
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Switch(
+                            checked = route.enabled,
+                            onCheckedChange = { on ->
+                                state.routeList[index] = route.with(
+                                    route.action, route.target, route.port, route.macs, on,
+                                )
+                            },
+                            modifier = Modifier.scale(0.7f),
+                        )
+                        Text("启用", fontSize = 9.sp, color = palette.fgFaint, maxLines = 1)
+                    }
                     TextButton(onClick = {
                         state.routeList.removeAt(index)
                         state.routeMenuIndex = -1
