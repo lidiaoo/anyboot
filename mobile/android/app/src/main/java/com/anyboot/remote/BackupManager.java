@@ -841,6 +841,7 @@ final class BackupManager {
                     renameKey(pair, "probeTimeoutMs", "probe_timeout_ms");
                     renameKey(pair, "tunnelId", "tunnel_id");
                     renameKey(pair, "createdAt", "created_at");
+                    renameKey(pair, "showProbe", "show_probe");
                     // ISO createdAt → 毫秒（桌面/移动端 ISO 进来时）
                     String created = pair.optString("created_at", "");
                     if (!created.isEmpty() && !created.matches("\\d+")) {
@@ -868,6 +869,7 @@ final class BackupManager {
                     renameKey(pair, "probe_timeout_ms", "probeTimeoutMs");
                     renameKey(pair, "tunnel_id", "tunnelId");
                     renameKey(pair, "created_at", "createdAt");
+                    renameKey(pair, "show_probe", "showProbe");
                 }
             }
             renameKey(item, "block_probe_mode", "blockProbeMode");

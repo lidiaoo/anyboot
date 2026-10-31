@@ -385,6 +385,20 @@ final class ServerProfile {
      */
     final List<String> routeDisabled = new ArrayList<>();
 
+    /**
+     * 「是否展示连通性」被关掉的通道（2026-10-31，与 PC 端 route_probe_hidden
+     * 同语义）：电脑列表不再显示这些通道条目的探测小字（延迟 / 失败原因）与
+     * 「使用中」耗时。探测照跑、连接选择照常 —— 纯展示开关，不进连接判定
+     * （{@link #sameConnState} 也不比对它，改开关不触发重连）。与配对条目自己
+     * 的 {@link RemotePair#showProbe} 两层任一命中即隐藏。
+     */
+    final List<String> routeProbeHidden = new ArrayList<>();
+
+    /** 这条配对的探测结果要不要在列表里展示（两层开关任一关掉即不展示） */
+    boolean probeHidden(RemotePair pair) {
+        return pair != null && (!pair.showProbe || routeProbeHidden.contains(pair.routeKind()));
+    }
+
     /** 默认优先级：直连 → 跳板 → 隧道 → Tailscale 直连 → Funnel → 内置 tsnet（越往后越绕） */
     static List<String> defaultRouteOrder() {
         return new ArrayList<>(Arrays.asList(
@@ -1522,6 +1536,7 @@ final class ServerProfile {
         other.connMode = connMode;
         other.routeOrder.addAll(routeOrder);
         other.routeDisabled.addAll(routeDisabled);
+        other.routeProbeHidden.addAll(routeProbeHidden);
         for (PowerRoute route : powerRoutes) {
             other.powerRoutes.add(route.copy());
         }
@@ -1630,6 +1645,13 @@ final class ServerProfile {
             routeDisabledArray.put(kind);
         }
         object.put("routeDisabled", routeDisabledArray);
+        // 「是否展示连通性」关掉的通道（与 routeDisabled 同为 camelCase 落盘；
+        // canonical 备份同键，PC 端 backup 层负责与 route_probe_hidden 互转）
+        JSONArray routeProbeHiddenArray = new JSONArray();
+        for (String kind : routeProbeHidden) {
+            routeProbeHiddenArray.put(kind);
+        }
+        object.put("routeProbeHidden", routeProbeHiddenArray);
         object.put("updatedAt", updatedAt);
         return object;
     }
@@ -1779,6 +1801,20 @@ final class ServerProfile {
                 // 配对条目自己的开关（RemotePair.enabled）与这里互不覆盖。
                 if (isRouteKind(kind) && !profile.routeDisabled.contains(kind)) {
                     profile.routeDisabled.add(kind);
+                }
+            }
+        }
+        // 展示连通性被关掉的通道：同样清洗（只认合法 id + 去重），与 PC 端
+        // route_probe_hidden 的 normalize 同语义
+        JSONArray routeProbeHiddenArray = object.optJSONArray("routeProbeHidden");
+        if (routeProbeHiddenArray == null) {
+            routeProbeHiddenArray = object.optJSONArray("route_probe_hidden");
+        }
+        if (routeProbeHiddenArray != null) {
+            for (int i = 0; i < routeProbeHiddenArray.length(); i++) {
+                String kind = routeProbeHiddenArray.optString(i, "").trim();
+                if (isRouteKind(kind) && !profile.routeProbeHidden.contains(kind)) {
+                    profile.routeProbeHidden.add(kind);
                 }
             }
         }

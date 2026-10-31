@@ -98,6 +98,8 @@ internal data class PairEdit(
     /** 条目自己的探测超时（秒文本，空 = 继承区块 → 全局） */
     val timeoutText: String = "",
     val enabled: Boolean = true,
+    /** 「是否展示连通性」：默认开；关掉后列表不显示这条配对的探测小字 */
+    val showProbe: Boolean = true,
     val createdAt: Long = 0L,
 ) {
     /** 来源列：host · os；都空时退回 mid 短号 */
@@ -129,6 +131,7 @@ internal data class PairEdit(
                 else String.format(Locale.US, "%.1f", seconds)
             } else "",
             enabled = pair.enabled,
+            showProbe = pair.showProbe,
             createdAt = pair.createdAt,
         )
     }
@@ -302,6 +305,7 @@ internal class ServerEditFormState(
                 )
             }
             pair.enabled = edit.enabled
+            pair.showProbe = edit.showProbe
             pair.mid = edit.mid
             pair.os = edit.os
             pair.host = edit.host
@@ -532,6 +536,12 @@ internal class ServerEditFormState(
     val routeDisabled = mutableStateListOf<String>().apply {
         if (profile != null) {
             profile.routeDisabled.forEach { id -> if (id in ROUTE_IDS_ALL && id !in this) add(id) }
+        }
+    }
+    /** 「是否展示连通性」被关掉的通道（与 routeDisabled 同一套通道 id，默认全开） */
+    val routeProbeHidden = mutableStateListOf<String>().apply {
+        if (profile != null) {
+            profile.routeProbeHidden.forEach { id -> if (id in ROUTE_IDS_ALL && id !in this) add(id) }
         }
     }
 
@@ -972,6 +982,22 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                         }
                     },
                 )
+                // 「是否展示连通性」（2026-10-31，与 PC 端 rsRenderRoutes 同款）：
+                // 默认开；关掉后电脑列表不显示这个通道条目的探测小字 —— 探测照跑
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.padding(start = 2.dp),
+                ) {
+                    Switch(
+                        checked = kind !in state.routeProbeHidden,
+                        onCheckedChange = { on ->
+                            if (on) state.routeProbeHidden.remove(kind)
+                            else if (kind !in state.routeProbeHidden) state.routeProbeHidden.add(kind)
+                        },
+                        modifier = Modifier.scale(0.7f),
+                    )
+                    Text("连通性", fontSize = 9.sp, color = palette.fgFaint, maxLines = 1)
+                }
             }
         }
         Text(
@@ -1510,6 +1536,8 @@ internal fun applyServerEdit(
     target.routeOrder.addAll(state.routeOrder)
     target.routeDisabled.clear()
     target.routeDisabled.addAll(state.routeDisabled)
+    target.routeProbeHidden.clear()
+    target.routeProbeHidden.addAll(state.routeProbeHidden)
     target.jumpServerId = state.resolvedJumpId()
     // 远程配对：以表单里的这份为准（空 = 解除配对，地址与令牌一起清）。
     // 令牌保活在这里不需要单独做 —— 表单回填时就是原令牌，用户没改就原样写回去。
@@ -1654,6 +1682,16 @@ private fun PairEditRow(
                 onCheckedChange = { on -> state.updatePair(item.id) { it.copy(enabled = on) } },
                 modifier = Modifier.scale(0.7f),
             )
+            // 「是否展示连通性」（2026-10-31，与 PC 端 rsPairRow 同款）：默认开；
+            // 关掉后电脑列表不显示这条配对的探测小字（延迟 / 失败原因）——探测照跑
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Switch(
+                    checked = item.showProbe,
+                    onCheckedChange = { on -> state.updatePair(item.id) { it.copy(showProbe = on) } },
+                    modifier = Modifier.scale(0.7f),
+                )
+                Text("连通性", fontSize = 9.sp, color = palette.fgFaint, maxLines = 1)
+            }
             OutlinedTextField(
                 value = addrText,
                 onValueChange = {

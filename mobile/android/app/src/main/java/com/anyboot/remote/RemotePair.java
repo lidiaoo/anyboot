@@ -57,6 +57,12 @@ final class RemotePair {
     int probeTimeoutMs = 0;
     /** 停用只是不探测，条目本身留着 */
     boolean enabled = true;
+    /**
+     * 「是否展示连通性」（用户 2026-10-31）：默认开；关掉后电脑列表不显示这条
+     * 配对的探测小字（延迟 / 失败原因）与「使用中」耗时 —— 探测照跑、连接照常，
+     * 纯展示开关（与 PC 端 RemotePair.show_probe 同语义）。
+     */
+    boolean showProbe = true;
     /** 对方系统自报的 machine_id —— 幂等键的一半（另一半是 kind） */
     String mid = "";
     /** windows / macos / linux（列表徽标 + 来源显示） */
@@ -175,6 +181,7 @@ final class RemotePair {
         other.token = token;
         other.probeTimeoutMs = probeTimeoutMs;
         other.enabled = enabled;
+        other.showProbe = showProbe;
         other.mid = mid;
         other.os = os;
         other.host = host;
@@ -223,6 +230,7 @@ final class RemotePair {
             object.put("token", text(token));
             object.put("probe_timeout_ms", probeTimeoutMs <= 0 ? 0 : probeTimeoutMs);
             object.put("enabled", enabled);
+            object.put("show_probe", showProbe);
             object.put("mid", text(mid));
             object.put("os", ServerProfile.normalizeMachineOs(os));
             object.put("host", text(host));
@@ -247,6 +255,8 @@ final class RemotePair {
         pair.token = text(item.optString("token", ""));
         pair.probeTimeoutMs = item.optInt("probe_timeout_ms", 0);
         pair.enabled = item.optBoolean("enabled", true);
+        // show_probe：本端原生键 + canonical 备份键（showProbe）都认，缺省开
+        pair.showProbe = item.optBoolean("show_probe", item.optBoolean("showProbe", true));
         pair.mid = text(item.optString("mid", ""));
         pair.os = ServerProfile.normalizeMachineOs(item.optString("os", ""));
         pair.host = text(item.optString("host", ""));
