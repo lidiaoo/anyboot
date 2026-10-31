@@ -326,12 +326,17 @@
     const mode = loaderMode(state, "grub");
     const esp = (state && state.grub) || {};
     const linux = (state && state.linuxGrub) || {};
-    // 自动读取 = 直接读 Linux 分区那份 grub.cfg / grubenv（主窗「自动读取」面板
-    // 显示的就是它）；手动解析 = ESP 上那份。选中项必须跟着同一份走。
-    const view = mode === "manual" ? esp : linux;
-    const active = mode === "manual"
-      ? (esp.nextEntry || esp.savedEntry || "")
-      : (linux.nextEntry || linux.savedEntry || "");
+    // 与后端托盘/手机同一口径（menu_model.rs effective_grub / overlay_linux_grub）：
+    // **ESP 那份打底**，「自动读取」扫到了条目才整体覆盖。以前这里 auto 一律取
+    // linux 那份 —— 用户根本不用自动读取（数据全在 ESP 那份，GRUB 区明明解析出
+    // 68 个启动项）时，主题页就出现「GRUB 0」计数、下次启动块也没有 GRUB 行
+    // （用户 2026-10-31 截图报的）。选中项跟着实际用的那份走。
+    const linuxHasEntries = Array.isArray(linux.entries) && linux.entries.length > 0;
+    const useLinux = mode !== "manual" && linuxHasEntries;
+    const view = useLinux ? linux : esp;
+    const active = useLinux
+      ? (linux.nextEntry || linux.savedEntry || "")
+      : (esp.nextEntry || esp.savedEntry || "");
     const entries = [];
     // 选中项命中可能在**组内子项**上：grubenv 里的 next/saved 经常是复合
     // selector（`<组 id>><子项 selector>`，os-prober 的条目整串都是），而
@@ -383,12 +388,16 @@
       id: "grub", ...meta,
       detected,
       esp: (target && target.cfgRel) || esp.cfgPath || "grub.cfg",
-      healthText: mode === "manual"
-        ? (entries.length
+      // 健康一行跟着实际用的那份说：自动扫到了报分区名；否则报 ESP；
+      // 两份都没有时才按模式提示下一步（自动→重新读取，手动→重新解析）。
+      healthText: useLinux
+        ? ((target && `${target.dev || ""} ${entries.length} 个启动项`.trim())
+          || `${entries.length} 个启动项`)
+        : entries.length
           ? `ESP · ${entries.length} 个启动项`
-          : "还没解析：点「重新解析」读 ESP 上的 grub.cfg")
-        : ((target && `${target.dev || ""} ${entries.length} 个启动项`.trim())
-          || "还没读过：点「重新读取」自动定位 Linux 分区"),
+          : mode === "manual"
+            ? "还没解析：点「重新解析」读 ESP 上的 grub.cfg"
+            : "还没读过：点「重新读取」自动定位 Linux 分区",
       entries,
       // 选中项在组内子项上时不在 entries 里（上面只铺顶层），用 childDef 补
       nextBoot: entries.find((e) => e.def) || childDef,
