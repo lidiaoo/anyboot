@@ -3414,12 +3414,17 @@ pub fn run() {
                 // dbusmenu 由宿主渲染（GtkMenu 自带滚动）。Win/mac 不受影响。
                 #[cfg(target_os = "linux")]
                 linux_sni::spawn(app.handle().clone());
-                // Windows：分辨率 / DPI 缩放变化 → 按托盘「重置窗口大小」同一条
-                // 路径重算主窗尺寸（MESSAGEONLY 窗口收 WM_DISPLAYCHANGE /
-                // WM_SETTINGCHANGE"WindowMetrics"，去抖后 run_on_main_thread）。
+                // 三端同策略（用户定案 2026-10-31）：分辨率 / DPI 缩放变化 →
+                // 按托盘「重置窗口大小」同一条路径重算主窗尺寸。
+                // - Windows：MESSAGEONLY 窗口收 WM_DISPLAYCHANGE /
+                //   WM_SETTINGCHANGE"WindowMetrics"，去抖后 run_on_main_thread；
+                // - macOS/Linux：1.5s 轮询 + 显示器签名比对（签名去 position、
+                //   scale 量化、连续两拍确认，见 display_change_watch 非
+                //   Windows 分支）。ebae6fd 补齐了轮询实现却漏改这条 cfg，
+                //   Linux 上一直是死代码 —— 本机 2026-10-31 抓的第二个坑。
                 // 之前的 fit-to-work-area 只在窗口自身 Resized/Moved 时夹取，
                 // 改分辨率不动窗口尺寸 → 事件不来 → 窗口纹丝不动（用户实测）。
-                #[cfg(target_os = "windows")]
+                #[cfg(desktop)]
                 display_change_watch::spawn(app.handle().clone());
                 if tray_menu_style_is_unified(app.handle()) {
                     // Windows / macOS：托盘只留**图标**，不挂任何原生菜单 —— 菜单是
@@ -7336,6 +7341,45 @@ mod core_tests {
             CENTER_SNAP_DELAY_MS >= CLAMP_DELAY_MS,
             "静默期不该短于位置夹取那套（同一类拖动事件流）"
         );
+    }
+
+    /// 居中回声的最终裁判必须看**真实几何读数**（纵深防御）：Muffin 上
+    /// 窗框/客户区坐标口径会错拍，各差一个标题栏（64px）、叠加可达 128px
+    /// > 容差 80 —— 载荷口径一旦双双错拍，我们自己的居中回声就会被判成
+    /// 拖动 → snap → 再居中 → 再回声。窗框**或**客户区任一真实读数贴着
+    /// 落点 = 没动，环被掐断。
+    #[test]
+    fn center_echo_judged_by_real_geometry_not_payload() {
+        let last = (1460, 274);
+        // 双口径错拍的载荷（窗框请求按 caption=64 发、读回按 caption=0 语义
+        // 再叠一层客户区/窗框翻转）：274+128=402，超出 80 容差 → 判成拖动
+        assert_eq!(
+            center_move_action((1460, 402), last, CENTER_HOLD_TOLERANCE),
+            CenterMove::Snap
+        );
+        // 但真实读数里窗框 (1460,274) 就贴着落点 → 没动，环被掐断
+        assert!(center_echo_still_held(
+            Some((1460, 274)),
+            Some((1460, 338)),
+            last,
+            CENTER_HOLD_TOLERANCE
+        ));
+        // 客户区读数贴着（窗框口径错拍）：同样放行
+        assert!(center_echo_still_held(
+            Some((1460, 210)),
+            Some((1460, 274)),
+            last,
+            CENTER_HOLD_TOLERANCE
+        ));
+        // 两个读数都远离（真拖动）→ 收回居中位
+        assert!(!center_echo_still_held(
+            Some((2400, 274)),
+            Some((2400, 338)),
+            last,
+            CENTER_HOLD_TOLERANCE
+        ));
+        // 窗口没了（读数拿不到）→ 保守走原 snap 流程
+        assert!(!center_echo_still_held(None, None, last, CENTER_HOLD_TOLERANCE));
     }
 
     /// 电源忙闸的「延时放闸」窗口必须够长也够短：太短会在真关机/重启途中把闸放掉

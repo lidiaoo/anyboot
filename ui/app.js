@@ -4835,6 +4835,8 @@ function applyWindowSizeFromSliders() {
     return;
   }
   updateWindowSizeStateLabels(width, height);
+  // 记下滑条刚落的值：随后这条尺寸引发的 Resized 回声不必再回写
+  windowResizePersistLast = [width, height];
   return call("set_window_size", { width, height });
 }
 
@@ -4887,6 +4889,19 @@ windowSizeLockedElement.addEventListener("change", () =>
 // 贴边成条时窗口会缩到几十像素宽 —— 那是程序自己的临时形态，不是用户调尺寸，
 // 小于下限的尺寸一律不进滑条、不回写。
 let windowResizePersistTimer = 0;
+// 同值守卫：GTK 上 set_size 即使值没变也会发 Resized 回声，「Resized →
+// 500ms 回写 set_window_size → Rust set_size + 重居中 → 再 Resized」会
+// 自激成 ~530ms 的无限环（Linux 4K 实测 2026-10-31：窗口狂闪、页面不停
+// 回流、滚动位置被打回顶部；Windows 同值不发 WM_SIZE，那边测不出来）。
+// ±1px 容差罩住物理/逻辑像素换算的舍入差。
+let windowResizePersistLast = null;
+function windowResizeEchoOfLast(width, height) {
+  return (
+    Array.isArray(windowResizePersistLast) &&
+    Math.abs(windowResizePersistLast[0] - width) <= 1 &&
+    Math.abs(windowResizePersistLast[1] - height) <= 1
+  );
+}
 // 浏览器直开没有窗口对象：滑条双向同步只在应用内生效
 if (!IS_BROWSER) {
 window.__TAURI__.window
@@ -4915,6 +4930,10 @@ window.__TAURI__.window
         // 停手 500ms 才回写：拖动过程每次 Resized 都写盘太频繁
         clearTimeout(windowResizePersistTimer);
         windowResizePersistTimer = setTimeout(() => {
+          if (windowResizeEchoOfLast(width, height)) {
+            return; // 自己刚落过的值被 Resized 回声送回来了，别再喂回去
+          }
+          windowResizePersistLast = [width, height];
           void call("set_window_size", { width, height });
         }, 500);
       });

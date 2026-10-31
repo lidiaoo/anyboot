@@ -1355,6 +1355,25 @@ pub(crate) fn center_move_action(payload: (i32, i32), last: (i32, i32), toleranc
     CenterMove::Snap
 }
 
+/// 居中回声的最终裁判（纯函数，便于单测）：Moved 载荷说「动了」之后，
+/// 再看窗口**真实几何读数**——窗框坐标与客户区坐标任一还贴着最近落点，
+/// 就认定没动（载荷的坐标语义在 Muffin 上窗框/客户区来回错拍，两个口径
+/// 各差一个标题栏、叠加可达 128px，单看载荷必然把自己的回声当拖动）。
+/// 两个读数都拿不到（窗口没了）时保守返回 false，走原 snap 流程。
+pub(crate) fn center_echo_still_held(
+    outer: Option<(i32, i32)>,
+    inner: Option<(i32, i32)>,
+    last: (i32, i32),
+    tolerance: i32,
+) -> bool {
+    outer
+        .map(|p| center_move_action(p, last, tolerance) == CenterMove::Rest)
+        .unwrap_or(false)
+        || inner
+            .map(|p| center_move_action(p, last, tolerance) == CenterMove::Rest)
+            .unwrap_or(false)
+}
+
 /// 贴边停靠态下 watcher 每一拍的处理结论。
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum DockedPoll {
@@ -1618,6 +1637,27 @@ pub(crate) fn handle_main_moved(app: &AppHandle, position: tauri::PhysicalPositi
         );
         if action == CenterMove::Rest {
             return; // 还停在居中位
+        }
+        // 载荷口径在 Muffin/GTK 上不可信：窗框/客户区坐标语义会错拍
+        // （CSD/SSD 切换、set_decorations 翻转），差值能到一整个标题栏
+        // （64px），两重口径叠加可达 128px > CENTER_HOLD_TOLERANCE(80) ——
+        // **我们自己居中的回声**会被判成「用户拖动」→ snap → 再居中 →
+        // 再回声 = ~530ms 无限居中环（startup-debug.log 实测 2026-10-31：
+        // `center main -> (1460,274)` 每半秒一条，窗口狂闪）。裁判改用
+        // 真实几何读数：窗框**或**客户区任一还贴着落点，就是没动；
+        // 真拖动两个读数都远离落点，照常收回。
+        if center_echo_still_held(
+            app.get_webview_window(MAIN_WINDOW_LABEL)
+                .and_then(|main| main.outer_position().ok().map(|p| (p.x, p.y))),
+            app.get_webview_window(MAIN_WINDOW_LABEL)
+                .and_then(|main| main.inner_position().ok().map(|p| (p.x, p.y))),
+            (
+                CENTER_LAST_X.load(Ordering::SeqCst),
+                CENTER_LAST_Y.load(Ordering::SeqCst),
+            ),
+            CENTER_HOLD_TOLERANCE,
+        ) {
+            return;
         }
         schedule_center_snap(app);
         return;

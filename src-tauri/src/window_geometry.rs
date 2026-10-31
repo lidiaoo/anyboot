@@ -99,6 +99,25 @@ pub(crate) fn set_main_window_size(app: &AppHandle, width: u32, height: u32) -> 
     let main = app
         .get_webview_window(MAIN_WINDOW_LABEL)
         .ok_or_else(|| "主窗口不存在".to_string())?;
+    // **同值跳过**：GTK 上 set_size 即使值没变也会发 configure → 前端 Resized
+    // 回声 → 「Resized→500ms 回写 set_window_size」再喂回来 = 自激环
+    // （Linux 4K 屏实测 2026-10-31：每 ~530ms set_size + 重居中一轮，窗口
+    // 不停闪、页面不停回流、滚动位置被打回顶部；Windows 同值不发 WM_SIZE，
+    // 所以那边测不出来）。±2px 容差罩住物理/逻辑换算的舍入差；设置照常
+    // 落盘，只是不再动窗口 —— 环在源头断掉。
+    {
+        let scale = main.scale_factor().unwrap_or(1.0);
+        let scale = if scale > 0.0 { scale } else { 1.0 };
+        let want_w = (width as f64 * scale).round();
+        let want_h = (height as f64 * scale).round();
+        if let Ok(current) = main.inner_size() {
+            if (current.width as f64 - want_w).abs() <= 2.0
+                && (current.height as f64 - want_h).abs() <= 2.0
+            {
+                return Ok(());
+            }
+        }
+    }
     if settings.window_size_locked {
         let _ = main.set_max_size(None::<tauri::LogicalSize<f64>>);
     }
