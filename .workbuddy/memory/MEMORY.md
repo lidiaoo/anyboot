@@ -1,29 +1,29 @@
 # AnyBoot 项目长期备忘
 
-**这里只放铁律和索引，细则一律进 detail 文件 / 当日日志**（本文件超 15KB 会被注入截断，别再往回堆长段）：
+**只放铁律和索引，细则进 detail 文件 / 当日日志**（本文件超 12KB 会被注入截断，别往回堆长段）：
 桌面打包与 Linux 验证 → `MEMORY-detail-desktop.md`；托盘 → `MEMORY-detail-tray.md`；窗口行为 → `MEMORY-detail-windowing.md`；移动端 → `MEMORY-detail-mobile.md`；SOL 面板 → `MEMORY-detail-sol.md`；Tailscale/cloudflared/tsnet → `MEMORY-detail-tailscale.md`。
 
 ## git
 - **commit 我做、push 用户做**；只提交本轮相关文件。`hub*.rs`、`ui/hub.html`、`docs/client-ui/`、`debx/` 属 PC 端 server-hub 线，别混进移动端提交。
 - `.workbuddy/`：`memory/` + `probes/` 入库；`artifacts/` 已 gitignore（旧二进制备份放这里）。
 - **Rust 改动提交前必须 `cargo check`**。子模块不继承父模块作用域，crate 根私有 item 要 `use crate::XXX;` 引入。
-- **`cfg(target_os)` 分支必须逐平台 check**：在 mac 上编不到 linux/windows 分支（027f1fc 就这么坏的 —— `channels/elevate.rs` 的 linux 分支少了 `command`/`Stdio` 导入、`linux_grub.rs` 调了 mac-only 的 `run_privileged`，`cargo build` 直接 E0425）。Linux 侧做法：rsync 到 `/home/disk1/anyboot-check`，跑 `/usr/bin/cargo check --lib` **再加 `cargo test --lib`**（只在 windows 成立的探针测试没设 cfg 会让 Linux 上 test 编译失败，而 `--release` build 看不见）。
+- **`cfg(target_os)` 分支必须逐平台 check**：mac 上编不到 linux/windows 分支（027f1fc 教训：E0425 只有 Linux 侧 `cargo build` 才看得见）。Linux 做法：rsync 到 `/home/disk1/anyboot-check`，跑 `cargo check --lib` **再加 `cargo test --lib`**（只在 windows 成立的探针测试没设 cfg，会让 Linux 上 test 编译失败，而 `--release` build 看不见）。
 - 改 server-hub 线要跑 Windows 目标 check（Linux 过 ≠ Win 过）。
-- 沙箱里 HOME 读不到 global git config → `git -c user.name=jianghuihua -c user.email=2503338074@qq.com`，提交后 `git log --oneline -3` 核对（偶发一次写入双提交）。
+- 沙箱里 HOME 读不到 global git config → `git -c user.name=jianghuihua -c user.email=2503338074@qq.com`，提交后 `git log --oneline -3` 核对（偶发双提交）。
 
 ## 交付铁律
-- **⛔ 不要主动构建/重出包（deb/rpm/AppImage/jammy/APK 全算）**：用户反复强调（2026-10-29「我说多少遍了」），构建由**用户自己做**。我的交付终点 = 代码提交 + cargo test 全绿 + 改动说明；用户明确说「出包」「构建」才动手，且只出用户点名的那几个。
-- **⛔ 永不跑 `connectedDebugAndroidTest` / 任何 `connected*` gradle 任务**（AGP 前置 `uninstallDebug` 会卸载用户手机上的 app，SharedPreferences 档案全部丢失，2026-10-26 已造成一次真实数据事故）。instrumented test 只走手动流程：`assembleDebug assembleDebugAndroidTest` → `adb install -t -r` 两包 → `adb shell am instrument -w`（realme 真机上 gradle 直跑 instrumentation 会 "failed to attach"，手动跑正常）。
+- **⛔ 不要主动构建/重出包（deb/rpm/AppImage/jammy/APK 全算）**：构建由**用户自己做**（2026-10-29「我说多少遍了」）。我的交付终点 = 代码提交 + `cargo test` 全绿 + 改动说明；用户点名「出包」才动手，只出点名的那几个。
+- **⛔ 永不跑 `connectedDebugAndroidTest` / 任何 `connected*` gradle 任务**（AGP 前置 `uninstallDebug` 会卸载用户手机上的 app，SharedPreferences 档案全丢，2026-10-26 真实数据事故）。instrumented test 只走手动流程：`assembleDebug assembleDebugAndroidTest` → `adb install -t -r` 两包 → `adb shell am instrument -w`（realme 真机 gradle 直跑 instrumentation 报 "failed to attach"，手动跑正常）。
 - 交付 = 测试 + release 构建 + 实机验证；构建前先退出运行中的 anyboot，产物 md5 必核。
 - 前端编译期嵌入二进制：改完必须强制 codegen 重编，并用 brotli 解 `tauri-codegen-assets/*` 搜新函数名确认真的进去了（别靠 `strings` 搜中文）。
 - 忙闸必须有放闸路径（`POWER_RELEASE_MS=15s`）；`restart_app` 顺序 stop_http_server → release_instance_lock → app.restart()。
-- 替换已安装应用：先杀主进程（mac 上 `osascript quit` 常被拒，直接 `kill -TERM`）→ 清残留子进程（tsnet/cloudflared 可能成孤儿）→ 备份旧 .app → 暂存新 .app + `codesign -v` → `mv` 交换 → md5 与构建产物比对 → 启动并查 `/health`。
-- **装特权组件必须同时给卸载路径**：Linux 的 `sudoers` 免密（`/etc/sudoers.d/anyboot` + `/usr/lib/anyboot/`）要三条删除路都能走（deb/rpm 的 postrm、界面「移除授权」、文档两行手删），且**升级不删**（deb `$1=upgrade` / rpm `$1=1`）。规则文本必须过 `visudo -cf`，临时文件与备份**绝不能落进 `/etc/sudoers.d/`**（该目录所有非 `~` 结尾文件都会被 include）。细节 `docs/linux-privilege.md`。
-- **root 助手必须自带参数白名单**：sudoers 只保证「能跑这个程序」，读写哪里全靠程序自己。写入前过 `grub_esp::guard_install_paths`（目标拒 `/etc /usr /bin /sbin /lib* /opt /root /proc /sys /dev /var /home /srv`，源拒 shadow/sudoers/ssh/私钥，绝对路径、无 `..`、不接符号链接）、`--out` 过 `linux_priv::guard_result_path`（只能直接落 `/tmp`、无 `..`、非链接），落盘再叠 `O_NOFOLLOW`。root 侧调外部命令走**绝对路径 + `env_clear`**（否则调用方一个 `LD_PRELOAD` 就把「校验」变成「跑我的程序」）。白名单的**放行用例和拒绝用例一样要测**——误伤表现为「写 ESP 突然报错」，只测拒绝会漏。
+- 替换已安装应用：杀主进程（mac 上 `osascript quit` 常被拒，直接 `kill -TERM`）→ 清残留子进程（tsnet/cloudflared 易成孤儿）→ 备份旧 .app → 暂存新 .app + `codesign -v` → `mv` 交换 → md5 与构建产物比对 → 启动查 `/health`。
+- **装特权组件必须同时给卸载路径**：Linux sudoers 免密（`/etc/sudoers.d/anyboot` + `/usr/lib/anyboot/`）三条删除路都要走（deb/rpm 的 postrm、界面「移除授权」、文档两行手删），且**升级不删**（deb `$1=upgrade` / rpm `$1=1`）。规则文本必须过 `visudo -cf`，临时文件与备份**绝不能落进 `/etc/sudoers.d/`**（该目录所有非 `~` 结尾文件都会被 include）。细节 `docs/linux-privilege.md`。
+- **root 助手必须自带参数白名单**：sudoers 只保证「能跑这个程序」，读写哪里全靠程序自己。写入前过 `grub_esp::guard_install_paths`（目标拒 `/etc /usr /bin /sbin /lib* /opt /root /proc /sys /dev /var /home /srv`；源拒 shadow/sudoers/ssh/私钥；绝对路径、无 `..`、不接符号链接），`--out` 过 `linux_priv::guard_result_path`（只能直接落 `/tmp`、无 `..`、非链接），落盘再叠 `O_NOFOLLOW`。root 侧调外部命令走**绝对路径 + `env_clear`**（否则调用方一个 `LD_PRELOAD` 就把「校验」变成「跑我的程序」）。白名单的**放行用例要和拒绝用例一样测**（误伤表现为「写 ESP 突然报错」）。
 
 ## 性能（OC 扫描，2026-10-28）
-- **Windows 分区表一律走 `channels::partitions::all()`**（一次全量 `Get-Partition` + 60s 缓存 + 持锁 single-flight）。禁止再新起分区查询：一轮扫描原先 7 次冷启动共 7.3s，合并后 1 次，扫描 **8.3s → 1.0s**（同进程热刷新 25ms）。`win_esp::mount()` 成功后必须 `invalidate()`。
-- **先埋点再动手**：`perf::begin/span/flush` 把每段耗时写进 trace.log 的 `[perf]` 表（thread_local 隔离、含子口径）。凭直觉估「APFS 解析最慢」是错的，真凶是外部命令冷启动；`oc.spec` 那 1.9s 来自每个 generic 条目重算 `volumes()`。
+- **Windows 分区表一律走 `channels::partitions::all()`**（一次全量 `Get-Partition` + 60s 缓存 + 持锁 single-flight）。禁止再新起分区查询：一轮扫描原先 7 次冷启动共 7.3s，合并后 1 次，**8.3s → 1.0s**（热刷新 25ms）。`win_esp::mount()` 成功后必须 `invalidate()`。
+- **先埋点再动手**：`perf::begin/span/flush` 把每段耗时写进 trace.log 的 `[perf]` 表（thread_local、含子口径）。凭直觉估「APFS 最慢」是错的，真凶是外部命令冷启动；`oc.spec` 那 1.9s 来自每个 generic 条目重算 `volumes()`。
 - 本机 ESP 的 GPT 类型是 `ebd0a0a2`（基本数据），`win_esp::list()` 恒空、走 26 盘符兜底——真机事实，别当 bug 修。`apfs.scan` 0ms 也正常（非提权开物理盘立刻 PermissionDenied）。
 
 ## 验证 PC UI（Windows，四条铁律）
@@ -38,6 +38,7 @@
 - 下次启动大字 = 级联全链；Rust 文案与前端 `nextBootText` / `rowLabel` 一字不差。
 - 新增托盘菜单项：`grub_menu_nodes`（主窗/自绘窗/Linux dbusmenu/Win-mac classic 四处共用）与 `build_tray_menu` 两边都要加。
 - **ESP 定位层只给候选集，三张通道卡各自挑**（`ChannelKind::has_signature`）：别再退回「一块 ESP 服务三通道」，也别把 GRUB 判据塞进逐卡判断（它认 `EFI/BOOT/BOOTX64.EFI`，几乎每块 ESP 都有 → OC 卡会在错误的盘上误报已检测）。Linux 未挂载的 ESP 靠 `unmounted_esp_partitions()`（lsblk + sysfs `PARTNAME` 双来源，udev 缺失时只有后者管用）。
+- **外部命令的 JSON 按真机形状取证再解析**：`lsblk -J` 是树 —— 顶层 `blockdevices` 只有整盘，分区全在 `children`（LUKS/LVM 再嵌一层），只过顶层 = 恒空且零报错（2026-10-31 事故）。改这类枚举后跑 `#[ignore] live_probe`（sudo）对真机分区表。
 
 ## 远端管理（server-hub）
 - **产品定则：连接策略机制只属于「电脑列表」**——优先级/停用/探测赢家都由它算，「电脑」页（PC hub 与移动端）只是另一展示主题、样式不同、逻辑分支不许另写。`route_disabled` 认全部六通道 id（别再只认 lan/jump）；电脑页标注只认探测赢家 kind（`pcWinnerKind` / HeartbeatManager `State.kind`）。
@@ -50,15 +51,16 @@
 - 服务器多地址：连接只用 host/port，探活按序试全部地址；下载目录空值 = 系统下载目录（`expand_home` 读 HOME **和** USERPROFILE）；sol 路由语义改了要同步 `hub.html`、`ServerProfile.java`、`MainActivity.kt` 三处。
 
 ## 构建
-- **Windows**（2026-10-28 起定案：**不再往 J 盘写任何东西**，用户明确要求）：仓库在 `E:\Common\Project\IdeaProjects\anyboot`，产物用默认 `src-tauri/target`（已 gitignore），只把临时目录指到项目内 `$env:TMP=$env:TEMP='E:\...\anyboot\.build\tmp'`（WiX/NSIS 要几 GB，落 C: 会报 os error 112）。`npm run build` 出 msi+nsis，**管道退出码常为 1 但「Finished 2 bundles」即成功**。部署：先 `taskkill /IM anyboot.exe /F`，备份 `AnyBoot-bak-YYYYMMDD<x>.exe` 再复制 exe。12300 落保留段 bind 报 10013 → `netsh int ipv4 set dynamicport tcp start=49152 num=16384` 后重启 winnat。
-- **mac**（本机是 Hackintosh x86_64、无 arm64）：`npm run build:mac-intel`；tauri 的 `bundle_dmg.sh` 在本机会失败（要 GUI 自动化摆窗口）→ 卸残留挂载 + 删 `rw.*.dmg` + `hdiutil create -ov -format UDZO` 补包。Windows 版在这里编不出来（无 MSVC）。配方见 `2026-10-26.md`。
-- **Linux**：系统 `/usr/bin/rustc` 已坏（要 libLLVM.so.23.1）→ 用自装工具链 `/home/disk1/{cargo,rustup}-home`，release 偶发 SIGABRT 用 `CARGO_BUILD_JOBS=2`（jammy 链单独 `dangerouslyDisableSandbox` 不够，2026-10-29 复现）；**仓库目录跑不了 check**（指纹扫描读 .git exclude 报 EACCES）→ rsync `src-tauri` + 同级 `ui/` 到仓库外跑。细则见 `2026-10-25.md`。Windows 交叉 check（`--target x86_64-pc-windows-gnu`）本机做不了：cc-rs 要 `x86_64-w64-mingw32-gcc`，无 mingw-w64。
-- **产物新旧唯一可靠判据 = 拆包 grep 二进制串**（deb：`ar x` + tar 解 data.tar；AppImage：`--appimage-extract usr/bin/anyboot`）。构建完立刻 md5sum 会读到**上轮产物的旧视图缓存**（md5/mtime 全是旧值，隔一分钟才刷新），别拿它当判据。
-- **Android**：无 gradlew、无全局 gradle → 直接用 `~/.gradle/wrapper/dists/gradle-8.14.3-bin/*/gradle-8.14.3/bin/gradle`；必须给 JDK17（`/usr/local/software/jdk/jdk-17`）+ `ANDROID_HOME`，并**在命令行覆盖 `-Duser.home`**（`gradle.properties` 里写着 Linux 的 `/home/jianghh`，不覆盖连 debug keystore 都生不出）。产物核验：类不止在 classes.dex（本工程 4 个 dex，`RemotePair` 在 classes3.dex）→ 逐 dex 搜符号，别拿体积当判据。
+- **Windows**（2026-10-28 定案：**不往 J 盘写任何东西**）：仓库 `E:\Common\Project\IdeaProjects\anyboot`，产物用默认 `src-tauri/target`（已 gitignore），只把临时目录指到项目内 `.build\tmp`（WiX/NSIS 要几 GB，落 C: 报 os error 112）。`npm run build` 出 msi+nsis，**管道退出码常为 1，见「Finished 2 bundles」即成功**。部署：`taskkill /IM anyboot.exe /F` → 备份 `AnyBoot-bak-YYYYMMDD<x>.exe` → 复制 exe。12300 落保留段 bind 报 10013 → `netsh int ipv4 set dynamicport tcp start=49152 num=16384` 后重启 winnat。
+- **mac**（本机是 Hackintosh x86_64、无 arm64）：`npm run build:mac-intel`；`bundle_dmg.sh` 在本机必失败（要 GUI 自动化摆窗口）→ 卸残留挂载 + 删 `rw.*.dmg` + `hdiutil create -ov -format UDZO` 补包。Windows 版在这里编不出来（无 MSVC）。配方见 `2026-10-26.md`。
+- **Linux**：系统 `/usr/bin/rustc` 已坏（要 libLLVM.so.23.1）→ 用自装工具链 `/home/disk1/{cargo,rustup}-home`；release 偶发 SIGABRT 用 `CARGO_BUILD_JOBS=2`（jammy 链单加 `dangerouslyDisableSandbox` 不够）。**仓库目录跑不了 check**（指纹扫描读 .git exclude 报 EACCES）→ rsync `src-tauri` + 同级 `ui/` 到仓库外跑；交叉 check `x86_64-pc-windows-gnu` 本机做不了（无 mingw-w64）。细则见 `2026-10-25.md`。
+- **产物新旧唯一可靠判据 = 拆包 grep 二进制串**（deb：`ar x` + 解 data.tar；AppImage：`--appimage-extract usr/bin/anyboot`）。构建完立刻 md5sum 会读到**上轮产物的旧视图缓存**（隔一分钟才刷新），别拿它当判据。
+- **Android**：无 gradlew、无全局 gradle → 用 `~/.gradle/wrapper/dists/gradle-8.14.3-bin/*/gradle-8.14.3/bin/gradle`；必须给 JDK17（`/usr/local/software/jdk/jdk-17`）+ `ANDROID_HOME`，并**命令行覆盖 `-Duser.home`**（`gradle.properties` 写着 Linux 的 `/home/jianghh`，不覆盖连 debug keystore 都生不出）。产物核验：逐 dex 搜符号（本工程 4 个 dex，`RemotePair` 在 classes3.dex），别拿体积当判据。
 - 内置 tsnet sidecar 一律跑 `scripts/build-sidecar.sh`，详见 `MEMORY-detail-tailscale.md`。
 
 ## 沙箱 / 环境坑
 - **safe-delete 垫片把 `rm` 转投回收站且不释放空间**（曾 19G 塞满盘）→ 清缓存用 `/bin/rm` 全路径直删；回收站只清自己当天条目（查 `info/*.trashinfo` 原路径）。
 - **沙箱 FS 视图会瞬时劣化**：cargo 工具链整棵消失、`systemctl` 报 not booted、写入丢失或段落重复 → 写完随手核对，工具链没了按 `2026-10-25.md` 用 USTC 镜像重装。
 - 沙箱里对该仓库用 shell `grep` 有时静默返回空/失败 → 改用 Grep 工具。
+- 排查「真机上到底跑没跑某个命令」比读代码快：`strace -f -e trace=execve,write` 包住目标进程，一眼看到真实 argv 与真实输出（2026-10-31 grub 事故就靠它定死）。
 - 验证脚本别用带中文注释的 `.bat`；启动用纯 ASCII 启动器。禁用 `pkill -f <路径>`（会连通自己的 shell 一起杀），按 `/proc/PID/exe` 比对。
