@@ -20,9 +20,14 @@ struct AboutView: View {
     /// GitHub API 原始 JSON（缓存键 github_cache，与 JumpStore.githubCache 同名）
     @State private var stats = ""
 
-    /// 检查更新进行中 / 有新版本时的提示文案（nil = 不弹）
+    /// 检查更新：没有独立页、也不弹窗，就地展开在版本卡下面。
+    /// 与 PC（ui/hub.html #page-about）、Android（UpdatePanel.kt）同一套语义：
+    /// 点胶囊展开 → 就地显示状态 / 结果，收起后胶囊上仍能看到上次结果。
+    @State private var updateOpen = false
     @State private var checkingUpdate = false
-    @State private var updateNotice: String?
+    @State private var latestVersion: String?
+    @State private var updateUpToDate = false
+    @State private var updateError: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -31,6 +36,10 @@ struct AboutView: View {
             ScrollView {
                 VStack(spacing: 0) {
                     versionCard
+                    if updateOpen {
+                        Spacer().frame(height: ABMetric.px(12))
+                        updatePanel
+                    }
                     Spacer().frame(height: ABMetric.px(16))
                     repoCard
                     Spacer().frame(height: ABMetric.px(16))
@@ -45,18 +54,6 @@ struct AboutView: View {
         }
         .background(ABColor.base.ignoresSafeArea())
         .onAppear(perform: loadRepoStats)
-        .alert("发现新版本", isPresented: Binding(
-            get: { updateNotice != nil },
-            set: { if !$0 { updateNotice = nil } }
-        )) {
-            Button("打开 Releases 页") {
-                updateNotice = nil
-                open(Self.repoURL + "/releases")
-            }
-            Button("取消", role: .cancel) { updateNotice = nil }
-        } message: {
-            Text(updateNotice ?? "")
-        }
     }
 
     // MARK: - 标题栏（:75-84）
@@ -116,22 +113,25 @@ struct AboutView: View {
         .background(abCardBackground(corner: 16))
     }
 
-    // MARK: - 检查更新（只引导，不自动安装）
+    // MARK: - 检查更新（就地展开，只引导不自动安装）
     //
     // iOS 未上架 App Store / TestFlight 之前，unsigned ipa 没法自装（要用户自己重签名），
-    // 所以这里只做「探测 + 提示 + 打开 Releases 页」。口径与桌面端 / Android 一致：
+    // 所以这里只做「探测 + 就地显示结果 + 打开 Releases 页」。口径与桌面端 / Android 一致：
     // 严格只升不降，解析失败按「已是最新」。
 
     private var checkUpdateButton: some View {
-        Button(action: checkUpdate) {
+        Button(action: toggleUpdate) {
             HStack(spacing: ABMetric.px(6)) {
                 if checkingUpdate {
                     ProgressView()
                         .scaleEffect(0.6)
                         .frame(width: ABMetric.px(12), height: ABMetric.px(12))
                 }
-                Text(checkingUpdate ? "检查中…" : "检查更新")
+                Text(capsuleLabel)
                     .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(ABColor.accent)
+                Text(updateOpen ? " ⌃" : " ›")
+                    .font(.system(size: 13))
                     .foregroundColor(ABColor.accent)
             }
             .padding(.horizontal, ABMetric.px(16))
@@ -142,28 +142,136 @@ struct AboutView: View {
         .disabled(checkingUpdate)
     }
 
+    /// 收起时也要能看出当前状态，别让用户为了看一句话再点开一次
+    private var capsuleLabel: String {
+        if checkingUpdate { return "检查中…" }
+        if let version = latestVersion { return "发现新版本 v\(version)" }
+        if updateUpToDate { return "已是最新 v\(Self.versionName)" }
+        if updateError != nil { return "更新检查失败" }
+        return "检查更新"
+    }
+
+    private func toggleUpdate() {
+        updateOpen.toggle()
+        // 第一次展开才真的查，之后展开只是回看结果
+        if updateOpen, latestVersion == nil, !updateUpToDate, updateError == nil {
+            checkUpdate()
+        }
+    }
+
+    private var updatePanel: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: ABMetric.px(8)) {
+                if checkingUpdate {
+                    ProgressView()
+                        .scaleEffect(0.6)
+                        .frame(width: ABMetric.px(12), height: ABMetric.px(12))
+                }
+                Text(statusText)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(statusTint)
+            }
+
+            if let version = latestVersion {
+                Text("v\(version) 已发布")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundColor(ABColor.fg)
+                    .padding(.top, ABMetric.px(10))
+                Text("iOS 版需要手动安装：打开 Releases 页下载 ipa，重签名后覆盖安装"
+                    + "（未上架 App Store 前，系统不支持应用内直接自装）。")
+                    .font(.system(size: 12))
+                    .foregroundColor(ABColor.fgDim)
+                    .lineSpacing(ABMetric.px(18) - 12)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, ABMetric.px(6))
+                panelButton("打开 Releases 页", primary: true) {
+                    open(Self.repoURL + "/releases")
+                }
+                .padding(.top, ABMetric.px(12))
+            }
+
+            if let error = updateError {
+                Text(error)
+                    .font(.system(size: 12))
+                    .foregroundColor(ABColor.bad)
+                    .lineSpacing(ABMetric.px(18) - 12)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(ABMetric.px(10))
+                    .background(RoundedRectangle(cornerRadius: ABMetric.px(10), style: .continuous)
+                        .fill(ABColor.bad.opacity(0.12)))
+                    .padding(.top, ABMetric.px(10))
+            }
+
+            if updateUpToDate {
+                panelButton("再检查一次", primary: false) { checkUpdate() }
+                    .padding(.top, ABMetric.px(12))
+            }
+
+            Text("iOS 版由系统安装，覆盖安装不改动已保存的服务器 / 密钥 / 设置。")
+                .font(.system(size: 11))
+                .foregroundColor(ABColor.fgFaint)
+                .lineSpacing(ABMetric.px(16) - 11)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, ABMetric.px(12))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(ABMetric.px(16))
+        .background(abCardBackground(corner: 16))
+    }
+
+    private var statusText: String {
+        if checkingUpdate { return "正在检查新版本…" }
+        if let version = latestVersion { return "发现新版本 v\(version)" }
+        if updateUpToDate { return "已是最新版本" }
+        if updateError != nil { return "更新检查没有完成" }
+        return "还没检查过"
+    }
+
+    private var statusTint: Color {
+        if updateError != nil { return ABColor.bad }
+        if updateUpToDate { return ABColor.ok }
+        return checkingUpdate || latestVersion != nil ? ABColor.accent : ABColor.fgDim
+    }
+
+    private func panelButton(_ text: String, primary: Bool,
+                             action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(text)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(primary ? ABColor.onAccent : ABColor.fg)
+                .padding(.horizontal, ABMetric.px(16))
+                .padding(.vertical, ABMetric.px(9))
+                .background(RoundedRectangle(cornerRadius: ABMetric.px(10), style: .continuous)
+                    .fill(primary ? ABColor.accent : ABColor.elevate))
+        }
+        .buttonStyle(.plain)
+    }
+
     private func checkUpdate() {
         guard !checkingUpdate else { return }
         checkingUpdate = true
+        updateError = nil
         Task {
             do {
                 let outcome = try await ABUpdateCheck.check(current: Self.versionName)
                 await MainActor.run {
                     checkingUpdate = false
                     if outcome.isNewer {
-                        updateNotice = "v\(outcome.version) 已发布。iOS 版需要手动安装："
-                            + "打开 Releases 页下载 ipa，重签名后覆盖安装"
-                            + "（未上架 App Store 前，系统不支持应用内直接自装）。"
+                        latestVersion = outcome.version
+                        updateUpToDate = false
                     } else {
-                        ABToastBus.shared.show("已是最新版本 v\(Self.versionName)")
+                        latestVersion = nil
+                        updateUpToDate = true
                     }
                 }
             } catch {
                 await MainActor.run {
                     checkingUpdate = false
-                    let text = (error as? LocalizedError)?.errorDescription
+                    latestVersion = nil
+                    updateUpToDate = false
+                    updateError = (error as? LocalizedError)?.errorDescription
                         ?? "检查更新失败：\(error.localizedDescription)"
-                    ABToastBus.shared.show(text)
                 }
             }
         }

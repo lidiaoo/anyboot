@@ -44,9 +44,11 @@ import androidx.compose.ui.unit.sp
 import org.json.JSONObject
 
 /**
- * 关于页（对齐设计稿 about 屏）：版本卡 + GitHub 仓库卡（Star 数实时拉 API，拉不到用缓存）
- * + 链接卡（更新日志 / 问题反馈 / 开源许可）+ mono 署名。
- * Star 引导照旧：点卡片打开仓库网页 —— App 不代点，GitHub 的规则。
+ * 关于页（对齐设计稿 about 屏）：版本卡（含检查更新胶囊）+ GitHub 仓库卡（Star 数实时拉 API，
+ * 拉不到用缓存）+ 链接卡（更新日志 / 问题反馈 / 开源许可）+ mono 署名。
+ *
+ * 检查更新**没有独立页**：点胶囊就地展开版本卡下面的更新区块（UpdatePanel.kt），
+ * 与 PC 的「远程管理 → 关于」同一套语义。Star 引导照旧：点卡片打开仓库网页 —— App 不代点。
  */
 class AboutActivity : ComponentActivity() {
 
@@ -57,9 +59,14 @@ class AboutActivity : ComponentActivity() {
 
     private var stats by mutableStateOf("")
 
+    /** 检查更新：没有独立页，就地展开在版本卡下面（状态在这里，收起来也不丢） */
+    private lateinit var updateState: UpdateState
+    private var updateOpen by mutableStateOf(false)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Ui.applySystemBars(this)
+        updateState = UpdateState(this, versionName())
         val cached = JumpStore.githubCache(this)
         if (cached.isNotEmpty()) stats = cached
         setContent { Root() }
@@ -129,8 +136,8 @@ class AboutActivity : ComponentActivity() {
                             lineHeight = 19.sp,
                             modifier = Modifier.padding(top = 12.dp),
                         )
-                        // 检查更新入口（docs/update-ui-mockup.html D 区）：进独立页，
-                        // 那里有下载进度、校验结果与安装引导
+                        // 检查更新：不再跳独立页，就地展开在版本卡下面（与 PC 的关于页同一套语义）。
+                        // 收起时胶囊上仍显示上次结果，免得为了看一句话再点开。
                         Spacer(Modifier.height(14.dp))
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -138,18 +145,27 @@ class AboutActivity : ComponentActivity() {
                                 .clip(RoundedCornerShape(999.dp))
                                 .background(palette.accent.copy(alpha = 0.12f))
                                 .clickable {
-                                    startActivity(Intent(this@AboutActivity, UpdateActivity::class.java))
+                                    updateOpen = !updateOpen
+                                    if (updateOpen) updateState.checkOnFirstOpen()
                                 }
                                 .padding(horizontal = 16.dp, vertical = 8.dp),
                         ) {
                             Text(
-                                "检查更新",
+                                updateState.capsuleLabel(),
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = palette.accent,
                             )
-                            Text(" ›", fontSize = 13.sp, color = palette.accent)
+                            Text(
+                                if (updateOpen) " ⌃" else " ›",
+                                fontSize = 13.sp,
+                                color = palette.accent,
+                            )
                         }
+                    }
+                    if (updateOpen) {
+                        Spacer(Modifier.height(12.dp))
+                        UpdatePanel(updateState)
                     }
                     Spacer(Modifier.height(16.dp))
 

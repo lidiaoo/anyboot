@@ -54,15 +54,10 @@
             android:windowSoftInputMode="adjustResize"
             android:exported="false" />
 
-        <!-- 关于页（GitHub 仓库卡片 + Star 引导） -->
+        <!-- 关于页（GitHub 仓库卡片 + Star 引导 + 就地展开的检查更新）
+             检查更新没有独立 Activity：下载 / 校验 / 安装都在关于页里完成（UpdatePanel.kt） -->
         <activity
             android:name=".AboutActivity"
-            android:exported="false" />
-
-        <!-- 检查更新（下载 APK → SHA-256 校验 → 交给系统安装器覆盖升级） -->
-        <activity
-            android:name=".UpdateActivity"
-            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
             android:exported="false" />
 
         <!-- 更新包共享给系统安装器：Android 7+ 禁止 file:// 跨应用，必须走 FileProvider -->
