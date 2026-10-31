@@ -46,11 +46,26 @@ find_adb() {
   return 1
 }
 
+java_major() {
+  # 1.8.0_442 → 1；17.0.2 / 21.0.11 / 25.0.4 → 主版本
+  "$1/bin/java" -version 2>&1 | head -1 | sed -E 's/.*"([0-9]+)(\.([0-9]+))?.*/\1/'
+}
+
 find_java_home() {
-  local c
-  for c in "$HOME/Library/Java/JavaVirtualMachines"/*/Contents/Home \
-           "/Applications/Android Studio.app/Contents/jbr/Contents/Home"; do
-    [ -x "$c/bin/java" ] && { printf '%s' "$c"; return 0; }
+  local c major
+  # 不能「第一个能跑的就用」：这台机器上同时有 Java 8（AGP 要求 >= 11）和
+  # Java 25（AGP 8.7 只支持到 21，会报 `What went wrong: 25.0.4`），
+  # Android Studio 新版 JBR 也可能是 25 —— 所以按主版本区间挑 17..23。
+  for c in "/Applications/Android Studio.app/Contents/jbr/Contents/Home" \
+           "$HOME/Applications/Android Studio.app/Contents/jbr/Contents/Home" \
+           "$HOME"/Library/Java/JavaVirtualMachines/*/Contents/Home \
+           /Library/Java/JavaVirtualMachines/*/Contents/Home; do
+    [ -x "$c/bin/java" ] || continue
+    major="$(java_major "$c")"
+    if [ "${major:-0}" -ge 17 ] 2>/dev/null && [ "${major:-0}" -le 23 ] 2>/dev/null; then
+      printf '%s' "$c"
+      return 0
+    fi
   done
   return 1
 }

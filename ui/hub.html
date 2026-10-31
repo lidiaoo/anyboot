@@ -788,27 +788,83 @@
   .tx-mini:disabled { opacity: .5; cursor: not-allowed; }
 
   /* ============ 关于页 ============ */
-  /* 两张卡纵向排列：flex + gap，窄窗/窄侧栏下仍是单列，永不横向滚动 */
-  .about-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 24px; overflow-y: auto; }
-  .about-card {
-    width: 100%; max-width: 340px; text-align: center;
-    border: 1px solid rgb(var(--line)); background: rgb(var(--card));
-    border-radius: 18px; padding: 28px 24px 22px;
+  /* 三端同构（PC / Android / iOS）：版本卡 → 更新详情（点开才出现）→ GitHub 卡 → 链接卡 → 署名。
+     布局全 flex：卡片 width:100% + max-width 居中，内部一律 flex-wrap + min-width:0，
+     窄侧栏 / 窄窗只换行，不裁字、不横向滚动。 */
+  .about-wrap {
+    flex: 1; display: flex; flex-direction: column; align-items: center;
+    gap: 16px; padding: 20px; overflow-y: auto;
+    min-width: 0;   /* 只换行不撑宽：父级是 flex 行容器时也不会把卡片顶出窗口 */
   }
-  .about-logo { width: 60px; height: 60px; font-size: 26px; border-radius: 16px; }
-  .about-title { margin: 12px 0 0; font-size: 19px; font-weight: 700; }
-  .about-ver { margin: 4px 0 0; font-size: 12px; color: rgb(var(--fg-dim)); }
-  .about-desc { margin: 12px auto 0; max-width: 260px; font-size: 12px; line-height: 1.7; color: rgb(var(--fg-dim)); }
-  .about-btns { margin-top: 18px; display: flex; justify-content: center; gap: 8px; }
-  .about-btns .btn { height: 36px; padding: 0 14px; }
-  .about-foot {
-    margin-top: 18px; padding-top: 14px; border-top: 1px solid rgb(var(--line));
-    font-size: 11px; line-height: 1.8; color: rgb(var(--fg-faint));
+  .about-card {
+    width: 100%; max-width: 520px; min-width: 0; box-sizing: border-box;
+    border: 1px solid rgb(var(--line)); background: rgb(var(--card));
+    border-radius: 16px; padding: 24px 16px;
   }
 
-  /* ---- 关于与更新（update.rs）：左对齐的宽卡，放在关于卡下面 ---- */
+  /* ---- 版本卡：居中纵向（与移动端版本卡同构） ---- */
+  .about-hero { display: flex; flex-direction: column; align-items: center; text-align: center; }
+  .about-logo {
+    display: inline-flex; align-items: center; justify-content: center; flex: none;
+    width: 64px; height: 64px; border-radius: 24px;
+    background: rgb(var(--accent) / .15); color: rgb(var(--accent));
+  }
+  .about-logo svg { width: 36px; height: 36px; }
+  .about-title { margin: 12px 0 0; font-size: 18px; font-weight: 700; line-height: 1.3; max-width: 100%; overflow-wrap: anywhere; }
+  .about-ver { margin: 2px 0 0; font-size: 12px; line-height: 1.5; color: rgb(var(--fg-faint)); max-width: 100%; overflow-wrap: anywhere; }
+  .about-desc { margin: 12px 0 0; font-size: 12px; line-height: 19px; color: rgb(var(--fg-dim)); max-width: 100%; overflow-wrap: anywhere; }
+  .about-hero-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; width: 100%; margin-top: 14px; }
+  .about-pill {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-height: 36px; padding: 8px 16px; border: 0; border-radius: 9999px;
+    background: rgb(var(--accent) / .12); color: rgb(var(--accent));
+    font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+  .about-pill:hover { background: rgb(var(--accent) / .18); }
+  .about-pill:focus-visible { outline: 2px solid rgb(var(--accent) / .6); outline-offset: 2px; }
+
+  /* ---- GitHub 卡 ---- */
+  .about-repo { display: flex; flex-direction: column; padding: 16px; }
+  .about-repo-head {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 12px;
+    width: 100%; min-width: 0; padding: 0; border: 0; background: none;
+    color: inherit; font: inherit; text-align: left; cursor: pointer;
+  }
+  .about-repo-head:hover .about-repo-text b { color: rgb(var(--accent)); }
+  .about-ico { width: 18px; height: 18px; flex: none; color: rgb(var(--fg-dim)); }
+  .about-repo-head .about-ico { width: 22px; height: 22px; color: rgb(var(--fg)); }
+  .about-repo-text { display: flex; flex-direction: column; gap: 1px; flex: 1 1 140px; min-width: 0; }
+  .about-repo-text b { font-size: 14px; font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
+  .about-repo-text i { font-size: 11px; font-style: normal; color: rgb(var(--fg-dim)); overflow-wrap: anywhere; }
+  .about-star {
+    display: inline-flex; align-items: center; gap: 4px; flex: none;
+    padding: 4px 10px; border-radius: 9999px;
+    background: rgb(var(--warn) / .1); color: rgb(var(--warn));
+    font-size: 11px; font-weight: 600;
+  }
+  .about-star svg { width: 12px; height: 12px; }
+  .about-chev { flex: none; color: rgb(var(--fg-faint)); font-size: 14px; line-height: 1; }
+  .about-stats { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; margin-top: 12px; font-size: 12px; color: rgb(var(--fg-dim)); }
+  .about-stats span { flex: 1 1 92px; min-width: 0; overflow-wrap: anywhere; }
+  .about-tip { margin: 10px 0 0; font-size: 11px; line-height: 16px; color: rgb(var(--fg-faint)); overflow-wrap: anywhere; }
+
+  /* ---- 链接卡：三条，行间细分隔线 ---- */
+  .about-links { padding: 0; overflow: hidden; }
+  .about-link {
+    display: flex; align-items: center; gap: 12px;
+    width: 100%; min-width: 0; padding: 14px 16px;
+    border: 0; background: none; color: rgb(var(--fg)); font: inherit;
+    text-align: left; cursor: pointer;
+  }
+  .about-link:hover { background: rgb(var(--elevate) / .6); }
+  .about-link > span:not(.about-chev):not(.about-suffix) { flex: 1 1 auto; min-width: 0; font-size: 14px; overflow-wrap: anywhere; }
+  .about-suffix { flex: none; font-size: 11px; color: rgb(var(--fg-faint)); }
+  .about-divider { height: 1px; background: rgb(var(--line)); }
+  .about-sign { margin: 4px 0 0; text-align: center; font-size: 10px; color: rgb(var(--fg-faint)); max-width: 100%; overflow-wrap: anywhere; }
+
+  /* ---- 更新详情（update.rs）：左对齐宽卡，点「检查更新」后展开 ---- */
   .about-card.about-update {
-    max-width: 420px; text-align: left; padding: 18px 18px 16px;
+    max-width: 520px; text-align: left; padding: 18px 16px 16px;
     display: flex; flex-direction: column; gap: 10px;
   }
   .update-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
@@ -866,9 +922,14 @@
     height: 28px; border-radius: 8px; padding: 0 8px; font-size: 12px;
     border: 1px solid rgb(var(--line)); background: rgb(var(--elevate)); color: rgb(var(--fg));
   }
-  /* 窄窗（窗口拖窄 / 缩放比例大）：按钮整行、触控目标加高 */
+  /* 窄窗（窗口拖窄 / 缩放比例大 / 侧栏展开挤压）：留白收紧、触控目标加高，按钮整行 */
   @media (max-width: 560px) {
     .about-wrap { padding: 14px; }
+    .about-card { padding: 20px 14px; }
+    .about-repo { padding: 14px; }
+    .about-links { padding: 0; }
+    .about-pill { min-height: 40px; padding: 10px 18px; }
+    .about-repo-head { gap: 10px; }
     .update-actions { flex: 1 1 100%; }
     .update-actions .btn { flex: 1 1 auto; height: 38px; }
     .update-buttons .btn { flex: 1 1 100%; height: 38px; }
@@ -4229,30 +4290,37 @@ window.__bkOnShow = async function () {
       </section>
 
       <!-- ---- 关于（设计稿 about 屏：居中卡片 + 检查更新/GitHub） ---- -->
+      <!-- 关于：三端（PC / Android / iOS）同一套结构、同一串文案，逐字一致。
+           卡片顺序固定：版本卡 → 更新详情（默认隐藏，点「检查更新」就地展开）
+           → GitHub 卡 → 链接卡 → 署名。
+           移动端对应 AboutActivity.kt / AboutView.swift；那边「检查更新」进独立页/弹窗，
+           PC 这里是同页展开，语义相同（都只在点过之后才出现进度与安装按钮）。
+           排版全 flex：卡片 width:100% + max-width，内部一律 flex-wrap + min-width:0，
+           窄侧栏/窄窗只换行不裁字（见上方 .about-* 样式块）。 -->
       <section class="page" id="page-about" hidden data-page-node-id="pageAbout1">
         <div class="about-wrap scroll-thin">
-          <div class="about-card">
-            <span class="side-logo about-logo" aria-hidden="true">A</span>
+          <!-- ── 版本卡 ── -->
+          <div class="about-card about-hero">
+            <span class="about-logo" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+                   stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2.5" y="4" width="19" height="13.5" rx="2"/><path d="M8 21h8M12 17.5V21"/>
+              </svg>
+            </span>
             <h2 class="about-title">AnyBoot</h2>
-            <p class="about-ver mono">v<span id="aboutVersion">—</span> · remote</p>
-            <p class="about-desc">多系统引导管理 · 远程电源控制 · SSH 跳板机隧道 · SFTP 文件传输</p>
-            <div class="about-btns">
-              <button class="btn" id="aboutGitHub">GitHub · lidiaoo/anyboot</button>
-            </div>
-            <div class="about-foot">
-              开源许可 · MIT<br>
-              心跳 10s · 并发探测 · AES-256-GCM 凭据加密<br>
-              终端 / 文件 / 密钥基于系统 ssh / sftp / ssh-keygen
+            <p class="about-ver mono">v<span id="aboutVersion">—</span> · 多系统启动管理器</p>
+            <p class="about-desc">多系统一键切换 · GRUB 管理 · 远程电源控制 · SSH 跳板机隧道 · SFTP 文件传输</p>
+            <div class="about-hero-actions">
+              <button class="about-pill" id="about-check-update" type="button">
+                检查更新<span aria-hidden="true"> ›</span>
+              </button>
             </div>
           </div>
 
-          <!-- 关于与更新（update.rs；设计稿 docs/update-ui-mockup.html A 区）
-               位置：远程管理窗 → 侧边栏「关于」（不在主窗基本设置）。
+          <!-- ── 更新详情（update.rs）：点「检查更新」后才出现 ──
                只在应用窗口里出现：远程网页（HAS_TAURI=false）没有进度事件通道，
-               也不该给远程开「装本机应用」的口子 —— 那段 JS 会整块移除。
-               布局全 flex：head / buttons / progress-meta 都 flex+wrap+gap，
-               窄窗（侧栏展开挤压 / 小窗）自动换行、按钮吃满整行。 -->
-          <div class="about-card about-update" id="update-section" hidden>
+               也不该给远程开「装本机应用」的口子 —— 那段 JS 会整块移除。 -->
+          <div class="about-card about-update hidden" id="update-section">
             <div class="update-head">
               <div class="update-version">
                 <span class="update-k">当前版本</span>
@@ -4304,6 +4372,66 @@ window.__bkOnShow = async function () {
               </label>
             </div>
           </div>
+
+          <!-- ── GitHub 卡 ── -->
+          <div class="about-card about-repo">
+            <button class="about-repo-head" id="aboutGitHub" type="button">
+              <svg class="about-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                   stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M9 8l-4 4 4 4M15 8l4 4-4 4"/>
+              </svg>
+              <span class="about-repo-text">
+                <b>GitHub · lidiaoo/anyboot</b>
+                <i>开源项目主页</i>
+              </span>
+              <span class="about-star">
+                <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <path d="M12 3.6l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/>
+                </svg>
+                <b id="about-star-inline">…</b>
+              </span>
+              <span class="about-chev" aria-hidden="true">›</span>
+            </button>
+            <div class="about-stats">
+              <span id="about-stat-star">… Star</span>
+              <span id="about-stat-fork">… Fork</span>
+              <span id="about-stat-issue">… Issues</span>
+            </div>
+            <p class="about-tip">点 Star 会打开 GitHub 网页，请在网页上点一下 —— 这是给开源作者最好的鼓励。</p>
+          </div>
+
+          <!-- ── 链接卡 ── -->
+          <div class="about-card about-links">
+            <button class="about-link" type="button" data-about-page="releases">
+              <svg class="about-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                   stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>
+              </svg>
+              <span>更新日志</span>
+              <span class="about-chev" aria-hidden="true">›</span>
+            </button>
+            <div class="about-divider" aria-hidden="true"></div>
+            <button class="about-link" type="button" data-about-page="issues">
+              <svg class="about-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                   stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M9 8l-4 4 4 4M15 8l4 4-4 4"/>
+              </svg>
+              <span>问题反馈（Issues）</span>
+              <span class="about-chev" aria-hidden="true">›</span>
+            </button>
+            <div class="about-divider" aria-hidden="true"></div>
+            <button class="about-link" type="button" data-about-page="license">
+              <svg class="about-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                   stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M6 2.5h7.5L20 9v11.5H6z"/><path d="M13.5 2.5V9H20"/><path d="M9 14h6"/>
+              </svg>
+              <span>开源许可</span>
+              <span class="about-suffix mono">MIT</span>
+              <span class="about-chev" aria-hidden="true">›</span>
+            </button>
+          </div>
+
+          <p class="about-sign mono">Made with AnyBoot · 2026</p>
         </div>
       </section>
 
@@ -10675,13 +10803,71 @@ window.__bkOnShow = async function () {
   tick();
   setInterval(tick, 1000);
 
-  // ============ 关于页：GitHub 白名单跳转 ============
-  document.getElementById('aboutGitHub').addEventListener('click', function () {
+  // ============ 关于页：外链跳转 + 仓库数据 ============
+  // 内容与移动端（AboutActivity / AboutView）逐字一致：版本卡 / GitHub 卡 / 链接卡 / 署名。
+  // 外链统一走后端白名单命令 hub_about_open，不在 webview 里开新窗口。
+  function aboutOpen(page) {
     if (!invoke) { toast('需要应用环境', 'bad'); return; }
-    invoke('hub_about_open', { page: 'repo' })
-      .then(function () { toast('已在浏览器打开项目主页'); })
-      .catch(function (e) { toast('打开失败：' + e, 'bad'); });
-  });
+    invoke('hub_about_open', { page: page }).catch(function (e) {
+      toast('打开失败：' + e, 'bad');
+    });
+  }
+  var aboutRepoBtn = document.getElementById('aboutGitHub');
+  if (aboutRepoBtn) {
+    aboutRepoBtn.addEventListener('click', function () { aboutOpen('repo'); });
+  }
+  Array.prototype.forEach.call(
+    document.querySelectorAll('.about-link[data-about-page]'),
+    function (btn) {
+      btn.addEventListener('click', function () {
+        aboutOpen(btn.getAttribute('data-about-page'));
+      });
+    }
+  );
+
+  // Star / Fork / Issues：GitHub 匿名 API（60 次/h/出口 IP），失败就用上次缓存，
+  // 缓存也没有就留「…」——口径与移动端 github_cache 相同，不弹错。
+  (function () {
+    var KEY = 'anyboot.github.stats';
+    var starInline = document.getElementById('about-star-inline');
+    var starCell = document.getElementById('about-stat-star');
+    var forkCell = document.getElementById('about-stat-fork');
+    var issueCell = document.getElementById('about-stat-issue');
+    if (!starInline || !starCell || !forkCell || !issueCell) return;
+
+    function paint(data) {
+      function n(key) {
+        return data && typeof data[key] === 'number' ? String(data[key]) : '…';
+      }
+      starInline.textContent = n('stargazers_count');
+      starCell.textContent = n('stargazers_count') + ' Star';
+      forkCell.textContent = n('forks_count') + ' Fork';
+      issueCell.textContent = n('open_issues_count') + ' Issues';
+    }
+
+    try { paint(JSON.parse(localStorage.getItem(KEY) || 'null')); } catch (e) { paint(null); }
+    if (typeof fetch !== 'function') return;
+
+    var controller = typeof AbortController === 'function' ? new AbortController() : null;
+    var timer = controller ? setTimeout(function () { controller.abort(); }, 6000) : 0;
+    fetch('https://api.github.com/repos/lidiaoo/anyboot', {
+      headers: { Accept: 'application/vnd.github+json' },
+      signal: controller ? controller.signal : undefined
+    }).then(function (res) {
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return res.json();
+    }).then(function (json) {
+      clearTimeout(timer);
+      paint(json);
+      try {
+        localStorage.setItem(KEY, JSON.stringify({
+          stargazers_count: json.stargazers_count,
+          forks_count: json.forks_count,
+          open_issues_count: json.open_issues_count
+        }));
+      } catch (e) { /* 隐私模式写不进去就当没缓存 */ }
+    }).catch(function () { clearTimeout(timer); });
+  })();
 
   // ============ 关于与更新（update.rs；设计稿 docs/update-ui-mockup.html A 区）======
   // 位置定案（用户 2026-11-01）：更新界面在「远程管理 → 关于」，不在主窗基本设置。
@@ -10689,9 +10875,17 @@ window.__bkOnShow = async function () {
   // 通道，也不该允许远程触发本机覆盖安装 —— 整块移除，连 DOM 都不留。
   (function () {
     var section = document.getElementById('update-section');
+    var capsule = document.getElementById('about-check-update');
     if (!section) return;
-    if (!HAS_TAURI || !invoke) { section.remove(); return; }
-    section.hidden = false;
+    if (!HAS_TAURI || !invoke) {
+      // 远程网页（HAS_TAURI=false）：整块移除更新详情，连版本卡上的入口一起去掉，
+      // 不留一个点了没反应的胶囊。
+      section.remove();
+      if (capsule) capsule.remove();
+      return;
+    }
+    // 默认收起（markup 里带 .hidden）：静止态的关于页只有版本卡 / GitHub 卡 / 链接卡 / 署名，
+    // 与移动端一致。进度、校验、安装这些只在点过「检查更新」（或从托盘进入）之后才出现。
     // 版本号以 update_state 的 currentVersion 为准（与安装包同源）
 
     var el = {
@@ -10857,11 +11051,21 @@ window.__bkOnShow = async function () {
       run('set_update_mirror', { value: el.mirror.value });
     });
 
+    // 版本卡上的「检查更新 ›」：展开更新详情并立即查一次。
+    // 与移动端同语义 —— 那边是点了进独立页（Android）/ 弹窗（iOS），PC 是同页就地展开。
+    function revealUpdate(runCheck) {
+      section.classList.remove('hidden');
+      if (runCheck) el.check.click();
+      if (section.scrollIntoView) section.scrollIntoView({ block: 'nearest' });
+    }
+    var capsuleBtn = capsule;
+    if (capsuleBtn) capsuleBtn.addEventListener('click', function () { revealUpdate(true); });
+
     // 托盘「检查更新…」：窗口已经开着时靠事件当场切页；刚创建时事件会丢，
     // 所以还有下面 take_focus_pending 的兜底（页面加载完自己取一次待办）。
     function gotoTip() {
       showPage('about');
-      if (section.scrollIntoView) section.scrollIntoView({ block: 'start' });
+      revealUpdate(true);
     }
     if (window.__TAURI__.event && window.__TAURI__.event.listen) {
       window.__TAURI__.event.listen('hub-focus-update', gotoTip);

@@ -107,7 +107,7 @@ class AboutActivity : ComponentActivity() {
                             contentAlignment = Alignment.Center,
                         ) { DesktopIcon(palette.accent, 36.dp) }
                         Text(
-                            "AnyBoot Remote",
+                            "AnyBoot",
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Bold,
                             color = palette.fg,
@@ -121,7 +121,8 @@ class AboutActivity : ComponentActivity() {
                             modifier = Modifier.padding(top = 2.dp),
                         )
                         Text(
-                            "多系统一键切换 · GRUB 管理 · 远程电源控制 · SSH 跳板机隧道",
+                            // 与 PC（ui/hub.html #page-about）逐字一致，改文案三端一起改
+                            "多系统一键切换 · GRUB 管理 · 远程电源控制 · SSH 跳板机隧道 · SFTP 文件传输",
                             fontSize = 12.sp,
                             color = palette.fgDim,
                             textAlign = TextAlign.Center,

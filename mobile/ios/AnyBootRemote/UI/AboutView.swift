@@ -87,7 +87,7 @@ struct AboutView: View {
                 DrawnIcon.desktop(ABColor.accent, size: ABMetric.px(36))
             }
 
-            Text("AnyBoot Remote")
+            Text("AnyBoot")
                 .font(.system(size: 18, weight: .bold))
                 .foregroundColor(ABColor.fg)
                 .padding(.top, ABMetric.px(12))
@@ -97,7 +97,8 @@ struct AboutView: View {
                 .foregroundColor(ABColor.fgFaint)
                 .padding(.top, ABMetric.px(2))
 
-            Text("多系统一键切换 · GRUB 管理 · 远程电源控制 · SSH 跳板机隧道")
+            // 与 PC（ui/hub.html #page-about）、Android（AboutActivity.kt）逐字一致，改文案三端一起改
+            Text("多系统一键切换 · GRUB 管理 · 远程电源控制 · SSH 跳板机隧道 · SFTP 文件传输")
                 .font(.system(size: 12))
                 .foregroundColor(ABColor.fgDim)
                 .multilineTextAlignment(.center)
