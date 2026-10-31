@@ -2187,6 +2187,20 @@
             传输方式（直连）
           </button>
           <div class="menu-divider" role="separator"></div>
+          <!-- 引导页主题（查看方偏好，对齐手机端「引导页主题」）：只决定「我看别人的
+               引导页时按哪套版式渲染」，存在本机独立键里 —— 不与排版主题
+               （anyboot.boot-adv，本机引导页自己的排法）共用；经 URL abTheme 带给
+               对方，「照它渲染但不改他保存的主题」。空 = 跟随电脑（不带参数）。 -->
+          <div class="menu-caption">引导页主题（看别人时 · 本机偏好）</div>
+          <button role="menuitem" data-guesttheme="">跟随电脑（不带回退）</button>
+          <button role="menuitem" data-guesttheme="K">不套用主题</button>
+          <button role="menuitem" data-guesttheme="A">方案 A（卡片流）</button>
+          <button role="menuitem" data-guesttheme="B">方案 B（左栏通道）</button>
+          <button role="menuitem" data-guesttheme="C">方案 C（顶部固定）</button>
+          <button role="menuitem" data-guesttheme="G">方案 G（命令面板）</button>
+          <button role="menuitem" data-guesttheme="I">方案 I（Bento）</button>
+          <button role="menuitem" data-guesttheme="J">方案 J（三栏）</button>
+          <div class="menu-divider" role="separator"></div>
           <div class="menu-caption">连不上时自动重载（全局）</div>
           <button role="menuitem" data-reload="5">每 5 秒（默认）</button>
           <button role="menuitem" data-reload="10">每 10 秒</button>
@@ -6369,18 +6383,22 @@ window.__bkOnShow = async function () {
    *  - abUi=light|dark：亮暗主题。hub 与主窗共用 settings.theme（dark 即当前
    *    生效亮暗），查看方总有值，恒带 —— 那边照它渲染，不读也不写它自己的
    *    亮暗设置与首帧镜像。
-   *  - abTheme=<字母>：引导页版式主题。本应用选过的（与主窗同源、共用一份
-   *    偏好）才带；没选过不带，那边按它自己保存的主题渲染。
-   * 两边都是「照它渲染，但不改他的」—— 主窗改主题后已开的 iframe 要重载才跟随。
+   *  - abTheme=<字母>：引导页主题（查看方偏好）。读**本机独立键**
+   *    （anyboot.hub.boot-theme，⋮ 菜单「引导页主题」选的）—— 与排版主题
+   *    （anyboot.boot-adv，本机引导页自己怎么排）各存各的：改查看偏好不动
+   *    自己的排版，选排版也不悄悄变成看别人的偏好。没选过（空 = 跟随电脑）
+   *    不带参数，那边按它自己保存的主题渲染。
+   * 两边都是「照它渲染，但不改他的」—— 改偏好后已开的 iframe 要重载才跟随。
    */
+  function guestBootThemePref() {
+    try {
+      const val = localStorage.getItem('anyboot.hub.boot-theme') || '';
+      return /^[A-K]$/.test(val) ? val : '';
+    } catch (e) { return ''; }
+  }
   function withGuestTheme(url) {
     if (!url) return url;
-    let theme = '';
-    try {
-      const raw = localStorage.getItem('anyboot.boot-adv');
-      const val = raw ? (JSON.parse(raw).theme || '') : '';
-      if (/^[A-K]$/.test(val)) theme = val;
-    } catch (e) { /* 偏好解析不了就当作没选过 */ }
+    const theme = guestBootThemePref();
     return url + '&abUi=' + (dark ? 'dark' : 'light')
       + (theme ? '&abTheme=' + theme : '');
   }
@@ -8902,6 +8920,7 @@ window.__bkOnShow = async function () {
       refreshAutoReloadMarks();
       refreshOpenModeMarks();
       refreshGrubFmtMarks();
+      refreshGuestThemeMarks();
       loadGrubFmt();
       // 贴着触发它的 ⋮ 挂下来（电脑页在标签栏，列表页在工具条，位置各不相同）
       const target = pcMenuAnchor || document.getElementById('pageMore');
@@ -8986,9 +9005,29 @@ window.__bkOnShow = async function () {
     };
     return names[grubFmt] || '默认';
   }
+  /** 引导页主题（查看方偏好）菜单的 ✓ 标记：值空 = 跟随电脑 */
+  function refreshGuestThemeMarks() {
+    const cur = guestBootThemePref();
+    pcMenuEl.querySelectorAll('[data-guesttheme]').forEach(function (btn) {
+      const base = btn.dataset.label || (btn.dataset.label = btn.textContent);
+      btn.textContent = ((btn.dataset.guesttheme || '') === cur ? '✓ ' : '') + base;
+    });
+  }
   pcMenuEl.addEventListener('click', function (e) {
-    const btn = e.target.closest('[data-act], [data-reload], [data-openmode], [data-grubfmt]');
+    const btn = e.target.closest('[data-act], [data-reload], [data-openmode], [data-grubfmt], [data-guesttheme]');
     if (!btn || btn.disabled) return;
+    if (btn.dataset.guesttheme !== undefined) {
+      // 引导页主题（查看方偏好）：本机独立键，不影响远程电脑保存的主题；
+      // 已开的 iframe 要重载才按新主题渲染
+      const value = /^[A-K]$/.test(btn.dataset.guesttheme) ? btn.dataset.guesttheme : '';
+      try { localStorage.setItem('anyboot.hub.boot-theme', value); } catch (err) { }
+      refreshGuestThemeMarks();
+      togglePcMenu(false);
+      toast(value === ''
+        ? '引导页主题：跟随电脑 —— 看哪台就用哪台自己保存的主题'
+        : '引导页主题：' + (value === 'K' ? '不套用主题' : '方案 ' + value) + '（重载页面后生效，不改电脑自己保存的主题）');
+      return;
+    }
     if (btn.dataset.grubfmt !== undefined) {
       const fmt = btn.dataset.grubfmt;
       if (!invoke) { toast('需要应用环境', 'bad'); return; }

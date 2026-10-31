@@ -92,7 +92,9 @@
     layout: "default",
     ratio: 0.5,
     style: "full",
-    theme: "K",
+    // 出厂默认 = G 命令面板（2026-10-31 定案：电脑与移动端一致，都是 G）。
+    // 只影响没存过偏好的新环境；已保存过主题的老用户保持自己的选择。
+    theme: "G",
   };
 
   let advState = loadState();
