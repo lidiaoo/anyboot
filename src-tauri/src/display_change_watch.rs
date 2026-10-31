@@ -1,4 +1,6 @@
-//! Windows 显示环境变化监听（分辨率 / 缩放比例）→ 触发「重置窗口大小」。
+//! 显示环境变化监听（分辨率 / 缩放比例）→ 触发「重置窗口大小」。三端：
+//! Windows 走广播快速路径 + 主线程外轮询；macOS / Linux 纯轮询（采样经
+//! 主线程）。行为一致：显示环境变了就按标称尺寸重置，改大改小都重置。
 //!
 //! 用户定案 2026-10-31：改分辨率 / 缩放后，主窗口按托盘右键「重置窗口大小」
 //! 同一条路径重算尺寸。之前的 fit-to-work-area 方案（3e39171）只在窗口收到
@@ -252,6 +254,109 @@ pub(crate) fn spawn(app: AppHandle) {
     imp::spawn(app);
 }
 
-/// 非 Windows：macOS 用 NSWindowDidChangeScreenNotification 一类再说，暂不实现。
-#[cfg(not(target_os = "windows"))]
-pub(crate) fn spawn(_app: AppHandle) {}
+/// 非 Windows（macOS / Linux）：同一「轮询 + 签名比对」策略（用户定案
+/// 2026-10-31：三端行为一致）。差别只在采样层 —— AppKit / GTK 的显示器
+/// 查询不是线程安全的，采样必须落在主线程，轮询线程只负责节拍：
+/// sleep → run_on_main_thread 采样 → channel 取回 → 比对 → 变了就主线程重置。
+///
+/// 签名 = 全部显示器的（位置、物理宽高、scale_factor）：
+/// - macOS：改缩放 → backingScaleFactor 变；改分辨率 → size 变；
+/// - Linux：改缩放/分辨率同理（Wayland 下各屏 position 可能全 0，
+///   靠 size + scale_factor 兜住信号）。
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+mod imp {
+    use super::*;
+    use std::time::Duration;
+
+    /// 轮询间隔（ms），与 Windows 端同一节奏。
+    const POLL_INTERVAL_MS: u64 = 1500;
+
+    /// 显示器签名条目：x、y、物理宽、物理高、scale_factor 的位模式
+    /// （f64 没有 Eq，比较前转 bits）。
+    type MonitorSig = Vec<(i32, i32, u32, u32, u32)>;
+
+    /// 采样当前全部显示器签名。**只能在主线程调用**。
+    fn sample(app: &AppHandle) -> MonitorSig {
+        let Some(main) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
+            return Vec::new();
+        };
+        let Ok(monitors) = main.available_monitors() else {
+            return Vec::new();
+        };
+        let mut sig: MonitorSig = monitors
+            .iter()
+            .map(|m| {
+                let pos = m.position();
+                let size = m.size();
+                (
+                    pos.x,
+                    pos.y,
+                    size.width,
+                    size.height,
+                    m.scale_factor().to_bits(),
+                )
+            })
+            .collect();
+        sig.sort_unstable();
+        sig
+    }
+
+    pub(super) fn spawn(app: AppHandle) {
+        std::thread::Builder::new()
+            .name("display-change-watch".into())
+            .spawn(move || {
+                let mut last: Option<MonitorSig> = None;
+                loop {
+                    std::thread::sleep(Duration::from_millis(POLL_INTERVAL_MS));
+                    // 采样必须主线程：排队过去，channel 取回
+                    let (tx, rx) = std::sync::mpsc::channel::<MonitorSig>();
+                    let app2 = app.clone();
+                    if app.run_on_main_thread(move || {
+                        let _ = tx.send(sample(&app2));
+                    })
+                    .is_err()
+                    {
+                        continue; // 事件循环已退出，应用在退出中
+                    }
+                    let Ok(sig) = rx.recv_timeout(Duration::from_secs(2)) else {
+                        continue; // 主线程忙到 2s 都没排上，下一拍再说
+                    };
+                    let Some(last_sig) = &last else {
+                        // 首拍只记基线，不触发（窗口还没起来时采到空也算基线）
+                        if !sig.is_empty() {
+                            last = Some(sig);
+                        }
+                        continue;
+                    };
+                    if sig.is_empty() || &sig == last_sig {
+                        continue;
+                    }
+                    last = Some(sig.clone());
+                    let app3 = app.clone();
+                    let result = app.run_on_main_thread(move || {
+                        match crate::window_geometry::reset_window_size_inner(&app3) {
+                            Ok(_) => trace(
+                                &app3,
+                                "display-watch",
+                                "显示环境变化（轮询），已按标称尺寸重置窗口",
+                            ),
+                            Err(error) => trace(
+                                &app3,
+                                "display-watch",
+                                &format!("显示环境变化（轮询）重置窗口失败: {error}"),
+                            ),
+                        }
+                    });
+                    if let Err(error) = result {
+                        trace(&app, "display-watch", &format!("重置任务排不进主线程: {error}"));
+                    }
+                }
+            })
+            .ok();
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+pub(crate) fn spawn(app: AppHandle) {
+    imp::spawn(app);
+}
