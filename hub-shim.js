@@ -128,7 +128,18 @@
       // ---- 远程电脑（手机/网页客户端连的那台）----
       case "remote_list":
         return Promise.resolve(clone(DEMO.remotes));
-      case "remote_save":
+      case "remote_save": {
+        // 与真实端同语义的内存持久化：改到哪台就更新哪台（含 show_probe /
+        // route_probe_hidden 这些新字段，原样存原样取），否则演示里开关不生效
+        var srv = clone(args.server || {});
+        if (!srv.id) srv.id = "srv-" + now();
+        var idx = -1;
+        for (var i = 0; i < DEMO.remotes.servers.length; i++) {
+          if (DEMO.remotes.servers[i].id === srv.id) { idx = i; break; }
+        }
+        if (idx >= 0) DEMO.remotes.servers[idx] = srv; else DEMO.remotes.servers.push(srv);
+        return Promise.resolve(clone(srv));
+      }
       case "remote_set_connect_all":
         return Promise.resolve(null);
       case "remote_delete":
