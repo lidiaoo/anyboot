@@ -342,6 +342,8 @@
     border-radius: 9px; padding: 8px 10px;
     display: flex; flex-direction: column; gap: 7px;
   }
+  /* 停用的电源策略：整卡半透明（策略还在，只是不参与发送） */
+  .route-row.off { opacity: .55; }
   .route-main { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
   .route-row select, .route-row input {
     background: rgb(var(--elevate)); border: 1px solid rgb(var(--line));
@@ -5200,7 +5202,9 @@ window.__bkOnShow = async function () {
         const burstValue = route.burst > 0 ? route.burst : '';
         const retryValue = route.retry > 0 ? route.retry : '';
         // 每条路由一个卡片，内部分三区：共同（动作+模式）/ 广播包（地址/端口/数量/重试/MAC）/ HTTP（说明）
-        return '<div class="route-row" data-index="' + index + '">' +
+        // 行尾「启用」开关（用户 2026-10-31）：默认开；关掉 = 这条策略不参与发送，
+        // 只是留在列表里给用户记着（与配对/通道的启用开关同一套 switch 样式）
+        return '<div class="route-row' + (route.enabled === false ? ' off' : '') + '" data-index="' + index + '">' +
           '<div class="route-head">' +
             '<span class="route-no">路由 ' + (index + 1) + '</span>' +
             '<span class="route-zone-inline">动作</span>' +
@@ -5218,6 +5222,11 @@ window.__bkOnShow = async function () {
               }).join('') +
             '</select>' +
             '<span class="route-head-spacer"></span>' +
+            '<span class="pb-swtag" title="停用后这条策略不参与发送，电源动作走老路（唤醒发标准 WOL / 其它调电脑接口）">' +
+              '<label class="switch"><input type="checkbox" class="route-enabled" data-route="' + index + '"' +
+                (route.enabled === false ? '' : ' checked') + '><span class="trk" aria-hidden="true"></span></label>' +
+              '<span class="pb-swtag-l">启用</span>' +
+            '</span>' +
             '<button type="button" class="route-del" data-remove="' + index + '" aria-label="删掉这条" title="删掉这条">✕</button>' +
           '</div>' +
           '<div class="route-zone route-zone-packet">' +
@@ -5298,6 +5307,12 @@ window.__bkOnShow = async function () {
         const target = event.target;
         const index = Number(target.dataset.route);
         const route = st.routes[index];
+        if (target.classList.contains('route-enabled') && route) {
+          // 「启用」开关（用户 2026-10-31）：关掉只影响发送（策略留着不删），重绘换 off 底色
+          route.enabled = target.checked;
+          render();
+          return;
+        }
         if (target.classList.contains('route-mode') && route) {
           route.mode = target.value;
           return;
@@ -5372,6 +5387,24 @@ window.__bkOnShow = async function () {
         retry: Math.min(20, Math.max(1, parseInt(route.retry, 10) || routeDefaultRetry(route))),
         mode: mode,
         http_fallback: mode === 'auto' || mode === 'http_first'
+      };
+    });
+  }
+
+  /** 新增电脑时预填的「局域网电源策略」（用户 2026-10-31）：四个动作各一条，
+   *  端口按 sol 的分配 —— 唤醒 9 / 睡眠 10 / 关机 11 / 重启 12；**默认全关**，
+   *  只是替用户把骨架搭好，开哪条自己定；发包 / 重试 10、模式「优先广播包」。
+   *  与 Rust default_power_routes() / 手机端 ServerProfile.defaultPowerRoutes() 三端一致。 */
+  function defaultPowerRoutes() {
+    return [
+      { action: 'wake', port: 9 },
+      { action: 'sleep', port: 10 },
+      { action: 'shutdown', port: 11 },
+      { action: 'reboot', port: 12 },
+    ].map(function (item) {
+      return {
+        action: item.action, target: '', port: item.port, macs: [],
+        enabled: false, burst: 10, retry: 10, mode: 'auto', http_fallback: true
       };
     });
   }
@@ -9771,8 +9804,12 @@ window.__bkOnShow = async function () {
       (blockModes.length ? ' · ' + blockModes.join(' / ') : '') +
       (jump ? ' · 跳板机' : '');
     const routes = rsRouteEditor.routes();
+    // 计数带上「启用」数：默认策略是关着的，光看「4 条」不知道开了几条
+    const routesOn = routes.filter(function (route) { return route.enabled !== false; }).length;
     document.getElementById('rsFoldPowerCount').textContent =
-      routes.length ? routes.length + ' 条' : '未配置';
+      routes.length
+        ? routes.length + ' 条' + (routesOn < routes.length ? '（' + routesOn + ' 启用）' : '')
+        : '未配置';
     if (!skipRoutes) rsRenderRoutes();
   }
   const rsEditOverlay = document.getElementById('rsEditOverlay');
@@ -10057,7 +10094,10 @@ window.__bkOnShow = async function () {
     document.getElementById('rsName').value = r ? r.name : '';
     rsAddrEditor.setEntries(addressesFromRemote(r));
     rsAddrEditor.resetInputs();
-    rsRouteEditor.setRoutes(r && Array.isArray(r.power_routes) ? r.power_routes : []);
+    // 新建 = 预填四条默认电源策略（全关，用户 2026-10-31）；编辑 = 档案里已存的
+    rsRouteEditor.setRoutes(r && Array.isArray(r.power_routes)
+      ? r.power_routes
+      : (r ? [] : defaultPowerRoutes()));
     // 配对列表：深拷贝一份编辑态（保存时整体回传，改到一半取消不影响原档案）
     const blankPair = { id: '', kind: 'cloudflare', lane: '', addr: '', token: '', probe_timeout_ms: 0, enabled: true, show_probe: true, mid: '', os: '', host: '', tunnel_id: '', note: '', created_at: 0 };
     rsPairs = (r && Array.isArray(r.pairs) ? r.pairs : []).map(function (p) {
