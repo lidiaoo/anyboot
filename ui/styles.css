@@ -215,28 +215,66 @@ main {
 .tab-panel:not(.active) {
   display: none;
 }
-/* 浏览器直开（静态预览）时的提示横幅：Tauri API 不可用，只能看不能操作 */
-.browser-banner {
-  position: sticky;
-  top: 0;
-  z-index: 50;
-  padding: 8px 16px;
-  font-size: 13px;
-  background: var(--warn, #f0b073);
-  color: #1c1c1c;
-  text-align: center;
+/* 远程接入状态点：右下角一颗悬浮的小圆点（绿=已连上，灰=未连接/只读预览）。
+   取代原来那条顶部整行横幅 —— 横幅在手机上折成两三行、把正文往下顶，
+   而它要回答的只是「连上没有」。点击进 token 弹窗（换 token / 重连同一条路）。
+   z-index 高于内容与底部提示条；--status-bar-h 由 app.js 用 ResizeObserver
+   写入（提示条是流内元素，展开时小点要跟着上移，否则压在「×」上）。 */
+.remote-dot {
+  position: fixed;
+  right: calc(14px + env(safe-area-inset-right, 0px));
+  bottom: calc(14px + var(--status-bar-h, 0px) + env(safe-area-inset-bottom, 0px));
+  z-index: 70;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--text-faint);
+  box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+  transition: bottom 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
+  -webkit-tap-highlight-color: transparent;
 }
 
-/* 横幅里「更换 token」的小按钮：无边框文字样式，颜色压深保证黄底可读 */
-.browser-banner .banner-link {
-  border: 0;
-  padding: 0;
-  font: inherit;
-  font-size: 12px;
-  background: none;
-  color: #4a3000;
-  text-decoration: underline;
-  cursor: pointer;
+/* 14px 的点在触屏上不好点中：用伪元素把命中区扩到 40px（不影响视觉尺寸） */
+.remote-dot::before {
+  content: "";
+  position: absolute;
+  inset: -13px;
+  border-radius: 50%;
+}
+
+.remote-dot[hidden] {
+  display: none;
+}
+
+/* 已连上：实心绿 + 一圈柔光，余光扫到就知道是通的 */
+.remote-dot.is-online {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.16), 0 0 10px rgba(34, 197, 94, 0.55);
+}
+
+/* 未连接：中性灰，不喧哗，但点了就能输 token */
+.remote-dot.is-offline {
+  background: var(--text-faint);
+}
+
+/* 没有后端（浏览器直开静态页）：空心环，和「未连接」的实心灰点一眼分开 */
+.remote-dot.is-preview {
+  background: transparent;
+  border: 2px solid var(--text-faint);
+  box-shadow: none;
+}
+
+.remote-dot:active {
+  transform: scale(0.9);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .remote-dot {
+    transition: none;
+  }
 }
 
 /* token 模态框：首次访问 / 401 时要求输入令牌 */
@@ -328,44 +366,7 @@ main {
   margin-top: 14px;
 }
 
-/* 远程模式横幅里的 token 输入行（web 端连接表单） */
-.browser-banner input {
-  margin: 0 6px;
-  padding: 3px 8px;
-  width: 220px;
-  max-width: 40vw;
-  font: inherit;
-  color: #1c1c1c;
-  background: rgba(255, 255, 255, 0.85);
-  border: 1px solid rgba(0, 0, 0, 0.25);
-  border-radius: 5px;
-}
-
-.browser-banner button {
-  padding: 3px 14px;
-  font: inherit;
-  font-weight: 600;
-  color: #1c1c1c;
-  background: rgba(255, 255, 255, 0.55);
-  border: 1px solid rgba(0, 0, 0, 0.25);
-  border-radius: 5px;
-  cursor: pointer;
-}
-
-/* 横幅里的「传输方式」下拉：跟着 token 输入框的观感走（黄底上要压深字色） */
-.browser-banner select {
-  margin: 0 4px;
-  padding: 3px 6px;
-  font: inherit;
-  font-size: 12px;
-  color: #1c1c1c;
-  background: rgba(255, 255, 255, 0.85);
-  border: 1px solid rgba(0, 0, 0, 0.25);
-  border-radius: 5px;
-}
-
-/* 下拉刷新时跟着手指走的那颗小药丸；刷新中固定在顶部显示「正在刷新…」。
-   z-index 压过横幅（50），免得被黄条盖住。 */
+/* 下拉刷新时跟着手指走的那颗小药丸；刷新中固定在顶部显示「正在刷新…」。 */
 .pull-refresh {
   position: fixed;
   top: 0;
@@ -380,10 +381,6 @@ main {
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
   pointer-events: none;
   will-change: transform;
-}
-
-.browser-banner button:hover {
-  background: rgba(255, 255, 255, 0.85);
 }
 
 /* ---------- 窗口最下方的提示条（左右双栏之外） ----------
@@ -2083,29 +2080,12 @@ body.dock-right #hotzone {
     right: 10px;
   }
 
-  /* ② 远程横幅：说明文字独占一行，控件另起一行、放不下再换行 */
-  .browser-banner {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: center;
-    gap: 6px 8px;
-    padding: 8px 10px;
-    font-size: 12px;
-    line-height: 1.45;
-  }
-  .browser-banner .banner-text {
-    flex: 1 1 100%;
-    text-align: center;
-  }
-  .browser-banner .banner-link {
-    flex: none;
-  }
-  .browser-banner select {
-    /* 不 grow：grow 会把「刷新」顶到最左边、下拉框吃掉中间，整行看着散 */
-    flex: 0 1 150px;
-    min-width: 0;
-    max-width: 100%;
+  /* ② 远程状态点：手机上略放大一号（命中区本来就靠伪元素扩到 40px，
+     这里只是让它在小屏上更容易被余光扫到），并吃满 Home 手势条的安全区 */
+  .remote-dot {
+    right: calc(12px + env(safe-area-inset-right, 0px));
+    width: 16px;
+    height: 16px;
   }
 
   /* ③ 状态条：最多两行，超出省略号（完整值去对应栏目里看） */

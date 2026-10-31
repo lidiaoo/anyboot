@@ -358,10 +358,12 @@ function setActiveTransport(value) {
     return;
   }
   activeTransport = value;
-  renderBrowserBanner();
+  renderRemoteDot();
 }
 
-/// 横幅上那个传输方式下拉：用户手动选，立刻生效并长期记住。
+/// 切换传输方式并记住。**当前没有 UI 入口**：横幅上那个下拉已随横幅一起删掉，
+/// 统一走「自动（先试推送，失败回落轮询）」。函数保留给 URL 参数 / 以后要加的
+/// 设置项，别在渲染路径里再新建下拉。
 function setTransportMode(mode) {
   transportMode = mode;
   try {
@@ -374,7 +376,7 @@ function setTransportMode(mode) {
 
 /// 把界面接上远程模式（探通那一刻调一次）：横幅、token 引导、通道、首份快照。
 async function attachRemoteApi() {
-  renderBrowserBanner();
+  renderRemoteDot();
   // 首次访问（没有存过 token）：直接弹模态框要 token，别等第一次 401
   if (!remoteToken) {
     showTokenModal();
@@ -3540,18 +3542,48 @@ solExtractElement.addEventListener("click", async () => {
 // 用户定案：两个安装按钮的前几步必须和「一键安装（静默）」一模一样 ——
 // 下载/复用包 → 清空 + 解压 → 最后一步才分叉（自动跑 / 呼出终端）。
 
-// 浏览器端顶部横幅：预览模式说明 / 远程已连接 / token 输入（三态）。
-// 仅浏览器模式创建 —— Tauri 主窗口不需要这条横幅。
-const browserBanner = IS_BROWSER
+// ---------- 远程接入状态点（右下角那颗小圆点） ----------
+// 这里以前是一条顶部整行横幅：一句说明 +「刷新」+ 传输方式下拉 +「更换 token」。
+// 手机上它折成两三行、把正文往下顶，而它要回答的其实只是「连上没有」。
+// 现在压成一个悬浮的点，静止时不占任何版面：
+//   绿 = 已连上（推送或轮询在跑）      灰 = 未连接 / 只读预览
+// 点一下进 token 弹窗（换 token、重连都走这一步），说明文字退到 title / aria-label。
+// PC 与手机浏览器打开的是同一份页面，所以两端天然一致，不需要分支。
+const remoteDot = IS_BROWSER
   ? (() => {
-      const element = document.createElement("div");
-      element.className = "browser-banner";
-      document.body.prepend(element);
+      const element = document.createElement("button");
+      element.type = "button";
+      element.className = "remote-dot";
+      element.hidden = true;
+      element.addEventListener("click", () => {
+        if (!remoteApiAvailable) {
+          showStatusBar("浏览器预览模式：仅展示界面布局，操作请在 AnyBoot 应用内进行");
+          return;
+        }
+        // 已经连上时这一下就是「更换 token」：在弹窗里填新的即可
+        showTokenModal();
+      });
+      document.body.append(element);
       return element;
     })()
   : null;
 
-/// 实际在用的通道给人看的说法（横幅上那一句）
+// 底部提示条是流内元素（会占位），小点固定在右下角时必须让开它的高度，
+// 否则提示条一弹出来就会盖住小点、或者小点正好压在「×」上。
+// ResizeObserver 顺带处理「两行变一行」「整条 hidden（高度变 0）」。
+if (remoteDot) {
+  const statusBar = document.getElementById("status-bar");
+  const syncDotOffset = () => {
+    const height = statusBar ? statusBar.getBoundingClientRect().height : 0;
+    remoteDot.style.setProperty("--status-bar-h", `${Math.round(height)}px`);
+  };
+  syncDotOffset();
+  if (statusBar && typeof ResizeObserver === "function") {
+    new ResizeObserver(syncDotOffset).observe(statusBar);
+  }
+}
+
+/// 实际在用的通道给人看的说法（只进 tooltip，不再占版面）
 function transportLabel() {
   if (activeTransport === "ws") {
     return "推送（WebSocket）";
@@ -3562,70 +3594,34 @@ function transportLabel() {
   return transportMode === TRANSPORT_POLL ? "轮询未启动" : "正在连接推送…";
 }
 
-/// 横幅上那个「传输方式」下拉：选项就是三档，当前档位显示实际在用的通道。
-function buildTransportSelect() {
-  const select = document.createElement("select");
-  select.title = "改用推送（WebSocket）或轮询（HTTP）取快照";
-  for (const [value, label] of [
-    [TRANSPORT_AUTO, `自动（现在：${transportLabel()}）`],
-    [TRANSPORT_PUSH, "推送（WebSocket）"],
-    [TRANSPORT_POLL, "轮询（HTTP）"],
-  ]) {
-    const option = document.createElement("option");
-    option.value = value;
-    option.textContent = label;
-    select.append(option);
+/// 小点的三态：online（连上了）/ offline（缺 token 或通道没起来）/ preview（没有后端）
+function remoteDotState() {
+  if (!remoteApiAvailable) {
+    return "preview";
   }
-  select.value = transportMode;
-  select.addEventListener("change", () => setTransportMode(select.value));
-  return select;
+  if (!remoteToken || activeTransport === "none") {
+    return "offline";
+  }
+  return "online";
 }
 
-function renderBrowserBanner() {
-  if (!IS_BROWSER) {
+function renderRemoteDot() {
+  if (!IS_BROWSER || !remoteDot) {
     return;
   }
-  browserBanner.replaceChildren();
-  if (!remoteApiAvailable) {
-    browserBanner.textContent =
-      "浏览器预览模式：仅展示界面布局，操作请在 AnyBoot 应用内进行";
-    return;
-  }
-  if (remoteToken) {
-    // 说明文字单独包一层：窄屏（手机 WebView）下横幅是 flex 换行布局，
-    // 纯 textContent + 全角空格会把文字和按钮搅成一坨（354px 下折成三行还错位）
-    const text = document.createElement("span");
-    text.className = "banner-text";
-    text.textContent = "远程控制已连接：这里的设置改动实时作用于本机 AnyBoot";
-    browserBanner.replaceChildren(text);
-    // 手动刷新：推送正常时用不上，但它是兜底（某一拍丢帧 / 另一台设备刚改过）
-    const refresh = document.createElement("button");
-    refresh.type = "button";
-    refresh.className = "banner-link";
-    refresh.textContent = "刷新";
-    refresh.addEventListener("click", () => reloadViaAppOrRefresh());
-    // 传输方式：推送优先还是轮询
-    browserBanner.append(refresh, buildTransportSelect());
-    // 给个退路：换 token / 断开重连
-    const change = document.createElement("button");
-    change.type = "button";
-    change.className = "banner-link";
-    change.textContent = "更换 token";
-    change.addEventListener("click", () => showTokenModal());
-    browserBanner.append(change);
-    return;
-  }
-  const text = document.createElement("span");
-  text.className = "banner-text";
-  text.textContent = "远程控制未连接：请输入访问令牌";
-  browserBanner.replaceChildren(text);
-  // 输入框可能被用户「暂不连接」关掉了，横幅里常驻一个入口
-  const enter = document.createElement("button");
-  enter.type = "button";
-  enter.className = "banner-link";
-  enter.textContent = "输入 token";
-  enter.addEventListener("click", () => showTokenModal());
-  browserBanner.append(enter);
+  const state = remoteDotState();
+  remoteDot.hidden = false;
+  remoteDot.classList.toggle("is-online", state === "online");
+  remoteDot.classList.toggle("is-offline", state === "offline");
+  remoteDot.classList.toggle("is-preview", state === "preview");
+  const label =
+    state === "online"
+      ? `已连接本机 AnyBoot · ${transportLabel()}（点击更换 token）`
+      : state === "offline"
+        ? "未连接：点击输入访问令牌"
+        : "浏览器预览模式：点击查看说明";
+  remoteDot.title = label;
+  remoteDot.setAttribute("aria-label", label);
 }
 
 // ---------- 下拉刷新（手机 / 触屏） ----------
@@ -3843,7 +3839,7 @@ function buildTokenModal() {
         // 存不了就本次会话先用着
       }
       overlay.hidden = true;
-      renderBrowserBanner();
+      renderRemoteDot();
       // 新 token 到手：按当前传输方式把通道接起来（启动时没 token，那会儿什么都没起）
       restartTransport();
       // 初始快照立刻补上，不等下一拍
@@ -3903,7 +3899,7 @@ function requestRemoteToken() {
   stopPush();
   stopUiStatePolling();
   setActiveTransport("none");
-  renderBrowserBanner();
+  renderRemoteDot();
   // 输入框已经开着：只把提示换成「token 不对」，绝不重开/清空
   if (tokenModal && !tokenModal.overlay.hidden) {
     tokenModal.error.hidden = false;
@@ -5038,7 +5034,7 @@ activateTab(pendingInitialTab);
 (async () => {
   if (IS_BROWSER) {
     await probeRemoteApi();
-    renderBrowserBanner();
+    renderRemoteDot();
     // 首次访问（没有存过 token）：直接弹模态框要 token，别等第一次 401
     if (remoteApiAvailable && !remoteToken) {
       showTokenModal();

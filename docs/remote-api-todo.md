@@ -239,11 +239,12 @@
   于是空闲 25 秒发一个 ping 当**唯一探测器**（兼作保活）。
 - [x] **前端三档 `transportMode`**：`auto`（默认，推送优先、失败落 2s 轮询并后台退避重连 1s→2s→…→30s）/ `ws` / `http`。
   `auto` 下推送一通就 `stopUiStatePolling()`（两条一起跑 = 做两份功 + 互相覆盖）；
-  用户明确选了 `ws` 就**不许偷偷改回轮询**（只提示「正在重连…」）。横幅显示**此刻实际在用的通道**。
+  用户明确选了 `ws` 就**不许偷偷改回轮询**（只提示「正在重连…」）。此刻实际在用的通道
+  写在右下角状态点的 tooltip 里（横幅已按用户要求删除，见下方 2026-11-01 补记）。
 - [x] **偏好由客户端从 URL 带过去**：`?transport=`（空值 / `auto` 不加）。因为网页 `localStorage`
   是按**来源站点**存的，而一台电脑多块网卡会换地址（= 换来源），只存网页端偏好会跟着丢。
   Android `ServerProfile.urlAt(index, transport)`、iOS `url(at:transport:)`，偏好落 `ServerStore.transport`。
-- [x] **刷新**：`refreshNow()`（横幅「刷新」按钮 + 下拉刷新共用）走 `/api/ui-state` + `applySnapshot(force: true)`
+- [x] **刷新**：`refreshNow()`（下拉刷新调用；原横幅按钮已删）走 `/api/ui-state` + `applySnapshot(force: true)`
   —— force 是为了「用户要的是看得见的反馈」；`installPullToRefresh()` 用**非 passive 的 touchmove + preventDefault**
   （不拦会被浏览器当成整页下拉刷新，两套叠一起），且只在**真的在顶部**时接管手势。
 - [x] **`/api/ws` 的断开不进「最近请求」**：只写 `trace.log`。断开时刻随机（对方关页面/切网），
@@ -257,10 +258,20 @@
   实机（Xvfb + 真 Chrome 155）：
   ① 自写探针（只用 net + crypto）—— 无 token 握手 **401 且不给 101**；带 token **101** + Accept 与 RFC 算法一致；
   首帧带 `revision`；`POST /api/ui-command` 后收到**第二帧且 revision 变大**；
-  ② 浏览器里横幅显示「自动（现在：推送（WebSocket））」，手势回放「下拉刷新 → 松开刷新 → 正在刷新… → 隐藏」
-  且底栏回执「已刷新」，点「刷新」发出 1 条 `ui-state`，切 `http` 后 5 秒内 3 条请求；
+  ② 浏览器里横幅显示「自动（现在：推送（WebSocket））」（**2026-11-01 起改为右下角状态点**，见下方补记），
+  手势回放「下拉刷新 → 松开刷新 → 正在刷新… → 隐藏」且底栏回执「已刷新」，切 `http` 后 5 秒内 3 条请求；
   ③ **只在电脑端**改设置，页面不刷新也跟着变，而页面自己发起的快照请求数 = 0 → 推送确实送达。
   未做：真机（手机）上验证 —— 本机没有设备，留在 `mobile/*/README.md` 的安装步骤里由你跑一次。
+
+**2026-11-01 补记（用户定案）**：顶部那条横幅「远程控制已连接：这里的设置改动实时作用于本机
+AnyBoot ｜刷新｜自动（现在：推送）｜更换 token」字太多、手机上折成两三行还顶正文，整块删除，
+改成一个**悬浮在右下角的状态点**：空心环 = 只读预览（无后端）、实心灰 = 未连接/缺 token、
+实心绿带柔光 = 已连上；点一下进 token 弹窗（换 token 与重连是同一个入口）。
+随之取消的控件：「刷新」按钮（保留下拉刷新 + 浏览器 F5）、传输方式下拉（网页端固定 `auto`，
+`?transport=` 仍认，手机 App 菜单里的选择照旧）、「更换 token」按钮（合并进状态点）。
+底部提示条展开时状态点靠 `--status-bar-h`（ResizeObserver 写入）自动让位。PC 与手机浏览器
+是同一份页面，两端一致。实现：`ui/app.js` 的 `remoteDot` / `renderRemoteDot()`，
+样式 `ui/styles.css` 的 `.remote-dot`（`demo/` 演示站同步）。
 
 ---
 
