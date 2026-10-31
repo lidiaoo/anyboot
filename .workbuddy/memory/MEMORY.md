@@ -1,7 +1,7 @@
 # AnyBoot 项目长期备忘
 
 **只放铁律和索引，细则进 detail 文件 / 当日日志**（本文件超 12KB 会被注入截断，别往回堆长段）：
-桌面打包与 Linux 验证 → `MEMORY-detail-desktop.md`；托盘 → `MEMORY-detail-tray.md`；窗口行为 → `MEMORY-detail-windowing.md`；移动端 → `MEMORY-detail-mobile.md`；SOL 面板 → `MEMORY-detail-sol.md`；Tailscale/cloudflared/tsnet → `MEMORY-detail-tailscale.md`。
+桌面打包与 Linux 验证 → `MEMORY-detail-desktop.md`；三端构建配方 → `MEMORY-detail-build.md`；托盘 → `MEMORY-detail-tray.md`；窗口行为 → `MEMORY-detail-windowing.md`；移动端 → `MEMORY-detail-mobile.md`；SOL 面板 → `MEMORY-detail-sol.md`；Tailscale/cloudflared/tsnet → `MEMORY-detail-tailscale.md`。
 
 ## git
 - **commit 我做、push 用户做**；只提交本轮相关文件。`hub*.rs`、`ui/hub.html`、`docs/client-ui/`、`debx/` 属 PC 端 server-hub 线，别混进移动端提交。
@@ -51,12 +51,8 @@
 - 服务器多地址：连接只用 host/port，探活按序试全部地址；下载目录空值 = 系统下载目录（`expand_home` 读 HOME **和** USERPROFILE）；sol 路由语义改了要同步 `hub.html`、`ServerProfile.java`、`MainActivity.kt` 三处。
 
 ## 构建
-- **Windows**（2026-10-28 定案：**不往 J 盘写任何东西**）：仓库 `E:\Common\Project\IdeaProjects\anyboot`，产物用默认 `src-tauri/target`（已 gitignore），只把临时目录指到项目内 `.build\tmp`（WiX/NSIS 要几 GB，落 C: 报 os error 112）。`npm run build` 出 msi+nsis，**管道退出码常为 1，见「Finished 2 bundles」即成功**。部署：`taskkill /IM anyboot.exe /F` → 备份 `AnyBoot-bak-YYYYMMDD<x>.exe` → 复制 exe。12300 落保留段 bind 报 10013 → `netsh int ipv4 set dynamicport tcp start=49152 num=16384` 后重启 winnat。
-- **mac**（本机是 Hackintosh x86_64、无 arm64）：`npm run build:mac-intel`；`bundle_dmg.sh` 在本机必失败（要 GUI 自动化摆窗口）→ 卸残留挂载 + 删 `rw.*.dmg` + `hdiutil create -ov -format UDZO` 补包。Windows 版在这里编不出来（无 MSVC）。配方见 `2026-10-26.md`。
-- **Linux**：系统 `/usr/bin/rustc` 已坏（要 libLLVM.so.23.1）→ 用自装工具链 `/home/disk1/{cargo,rustup}-home`；release 偶发 SIGABRT 用 `CARGO_BUILD_JOBS=2`（jammy 链单加 `dangerouslyDisableSandbox` 不够）。**仓库目录跑不了 check**（指纹扫描读 .git exclude 报 EACCES）→ rsync `src-tauri` + 同级 `ui/` 到仓库外跑；交叉 check `x86_64-pc-windows-gnu` 本机做不了（无 mingw-w64）。细则见 `2026-10-25.md`。
-- **产物新旧唯一可靠判据 = 拆包 grep 二进制串**（deb：`ar x` + 解 data.tar；AppImage：`--appimage-extract usr/bin/anyboot`）。构建完立刻 md5sum 会读到**上轮产物的旧视图缓存**（隔一分钟才刷新），别拿它当判据。
-- **Android**：无 gradlew、无全局 gradle → 用 `~/.gradle/wrapper/dists/gradle-8.14.3-bin/*/gradle-8.14.3/bin/gradle`；必须给 JDK17（`/usr/local/software/jdk/jdk-17`）+ `ANDROID_HOME`，并**命令行覆盖 `-Duser.home`**（`gradle.properties` 写着 Linux 的 `/home/jianghh`，不覆盖连 debug keystore 都生不出）。产物核验：逐 dex 搜符号（本工程 4 个 dex，`RemotePair` 在 classes3.dex），别拿体积当判据。
-- 内置 tsnet sidecar 一律跑 `scripts/build-sidecar.sh`，详见 `MEMORY-detail-tailscale.md`。
+- 三端配方（Windows 临时目录 / mac `bundle_dmg.sh` 补包 / Linux 工具链与 `CARGO_BUILD_JOBS=2` / Android gradle+JDK17）与产物新旧核验 → **`MEMORY-detail-build.md`**。
+- 本机跑 Rust 校验必须先 rsync 到 `/home/disk1/anyboot-check`（仓库目录 EACCES），`TMPDIR` 指大盘；**出包仍由用户自己做**（见「交付铁律」）。
 
 ## 沙箱 / 环境坑
 - **safe-delete 垫片把 `rm` 转投回收站且不释放空间**（曾 19G 塞满盘）→ 清缓存用 `/bin/rm` 全路径直删；回收站只清自己当天条目（查 `info/*.trashinfo` 原路径）。
