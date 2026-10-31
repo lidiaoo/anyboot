@@ -6434,7 +6434,7 @@ window.__bkOnShow = async function () {
         pcEps.set(r.id, ep);
         if (pcFrames.has(r.id)) pcReload(r.id);
       })
-      .catch(function (e) { toast('「' + pcName(r) + '」经跳板机连接失败：' + e, 'bad'); });
+      .catch(function () { /* 静默：转发没起来 iframe 就停在「连不上」，别弹 toast 打扰（用户 2026-10-31；pcEnsureJumpEp 同语义） */ });
   }
   /** 探测前的 Promise 版端点解析：只在通道启用时开隧道；失败返回 null（不弹 toast） */
   function pcEnsureJumpEp(r) {
