@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AnyBoot 在线体验</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+         background: #0d1117; color: #e6edf3; }
+  .hero { max-width: 1080px; margin: 0 auto; padding: 64px 24px 32px; text-align: center; }
+  .hero h1 { font-size: 44px; margin: 0 0 12px; letter-spacing: 1px; }
+  .hero h1 span { background: linear-gradient(120deg, #4f8ef7, #9b6ef3); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .hero p.sub { color: #8b949e; font-size: 17px; margin: 0 auto 36px; max-width: 640px; line-height: 1.7; }
+  .badges { margin-bottom: 28px; }
+  .badges span { display: inline-block; background: #161b22; border: 1px solid #30363d; border-radius: 999px;
+                 padding: 5px 14px; margin: 0 6px 8px; font-size: 13px; color: #a5b4fc; }
+  .entries { display: flex; gap: 20px; justify-content: center; flex-wrap: wrap; margin-bottom: 48px; }
+  .entry { display: block; width: 300px; padding: 28px 24px; border-radius: 16px; text-decoration: none;
+           background: #161b22; border: 1px solid #30363d; transition: transform .15s, border-color .15s; }
+  .entry:hover { transform: translateY(-3px); border-color: #4f8ef7; }
+  .entry .icon { font-size: 40px; }
+  .entry h2 { margin: 12px 0 8px; font-size: 20px; color: #e6edf3; }
+  .entry p { margin: 0; color: #8b949e; font-size: 14px; line-height: 1.6; }
+  .shots { max-width: 1080px; margin: 0 auto; padding: 0 24px 40px; }
+  .shots h3 { text-align: center; color: #8b949e; font-weight: 500; margin-bottom: 20px; }
+  .shots img { width: 100%; border-radius: 12px; border: 1px solid #30363d; margin-bottom: 20px; display: block; }
+  footer { text-align: center; color: #6e7681; font-size: 13px; padding: 24px 0 48px; }
+  footer a { color: #58a6ff; text-decoration: none; }
+</style>
+</head>
+<body>
+<div class="hero">
+  <h1>Any<span>Boot</span> 在线体验</h1>
+  <p class="sub">跨平台引导管理 + 远程电源工具：rEFInd / GRUB / OpenCore / systemd-boot / Clover 一站管理，
+     托盘点一下切换下次启动项，手机 / 浏览器远程操作。<br>本页面为<strong>在线演示</strong>：界面与真实应用完全一致，
+     数据来自一台真实多系统机器的快照回放，所有操作只在演示里生效。</p>
+  <div class="badges">
+    <span>macOS · Windows · Linux</span><span>Tauri 2</span><span>rEFInd · GRUB · OpenCore · systemd-boot · Clover</span>
+  </div>
+  <div class="entries">
+    <a class="entry" href="./app.html#/boot">
+      <div class="icon">🖥️</div>
+      <h2>PC 端体验</h2>
+      <p>完整主窗口界面：系统引导页、rEFInd 模拟扫描、GRUB 直读、OpenCore 预演、全部设置项。</p>
+    </a>
+    <a class="entry" href="./phone.html">
+      <div class="icon">📱</div>
+      <h2>移动端体验</h2>
+      <p>同一份界面在手机上的自适应布局 —— 就是手机浏览器 / App 打开 <code>http://电脑IP:12300</code> 的样子。</p>
+    </a>
+  </div>
+</div>
+<div class="shots">
+  <h3>真实运行截图（本机快照数据）</h3>
+  <img src="./screenshots/boot-systems.png" alt="系统引导页" loading="lazy" />
+  <img src="./screenshots/boot-refind.png" alt="rEFInd 模拟扫描" loading="lazy" />
+  <img src="./screenshots/boot-grub.png" alt="GRUB 自动读取" loading="lazy" />
+  <img src="./screenshots/boot-opencore.png" alt="OpenCore 预演" loading="lazy" />
+</div>
+<footer>演示数据快照于 2026-10-31 抓取 · <a href="https://github.com/lidiaoo/anyboot" target="_blank">GitHub 仓库</a>
+ · <a href="https://github.com/lidiaoo/anyboot/releases" target="_blank">下载完整应用</a></footer>
+</body>
+</html>

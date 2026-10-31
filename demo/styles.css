@@ -1,0 +1,4289 @@
+/*
+ * 主题：暗色为默认，[data-theme="light"] 覆盖成亮色。
+ * theme=system 时由 app.js 判断 prefers-color-scheme 后写到 data-theme 上。
+ *
+ * 不透明度：body 背景用 rgba(--bg-rgb, --ui-alpha)，--ui-alpha 由设置里的
+ * 不透明度决定（100% = 完全不透明，观感与以前一致）；窗口本身在
+ * tauri.conf.json 里开了 transparent，所以调低时能真的透出桌面。
+ */
+:root {
+  color-scheme: dark;
+  /* 灰阶与远程管理（hub.html）同一套：暗色 base 2,6,23 / card 14,18,35 */
+  --bg-rgb: 2, 6, 23;
+  --panel: #0e1223;
+  --border: #242b41;
+  --border-strong: #334155;
+  /* 字体灰阶整体提亮一档：调低窗口不透明度后，文字会落在被桌面透过来的背景上，
+     原来的 #a5b0c2 / #6f7d92 一淡就糊成一片，现在每一档都留足对比度。 */
+  --text: #f8fafc;
+  --text-dim: #94a3b8;
+  --text-faint: #64748b;
+  --text-fainter: #475569;
+  --input-bg: #141a2e;
+  /* 按钮/链接色走 --accent 系列（调色板选的强调色，app.js 派生并写入；
+     未写入时回退到内置靛蓝，与 hub 同色） */
+  --btn: var(--accent, #6366f1);
+  --btn-hover: var(--accent-hover, #7070f2);
+  --btn-secondary: #334155;
+  --btn-secondary-hover: #42536e;
+  --btn-text: #ffffff;
+  --btn-secondary-text: #e2e8f0;
+  /* 选中系统的那一抹绿（勾 + 边框 + 底色） */
+  --ok: #22c55e;
+  --ok-border: #16a34a;
+  --ok-bg: #0f2a1a;
+  --warn: #f59e0b;
+  --link: var(--accent-link, #7f82f4);
+  --link-hover: var(--accent-link-hover, #9296f8);
+  --port-border: #6b3a1f;
+  --port-bg: #2a1b13;
+  --port-strong: #f0a98a;
+  --port-text: #d8b18a;
+  --pending-border: #6b4a1f;
+  --pending-bg: #2a2113;
+  --pending-text: #d8b98a;
+  --danger: #b4442f;
+  --danger-text: #fff3ee;
+  /* 三引导器通道（sdboot / OpenCore / Clover）那批样式当初是照设计稿写的，
+     用的是设计稿里的变量名。这些名字在主题里并不存在，于是 `var(--fg-dim)`
+     整条声明失效（颜色退回继承、`border: 1px solid var(--line-strong)` 直接
+     变成无边框）、`var(--fg-dim, rgba(255,255,255,.72))` 退到写死的近白色 ——
+     亮色主题下就是白底白字，「ℹ 说明」整个看不见。
+     在这里统一别名到真实调色板：只定义一次，亮/暗两套因为 var() 在用到时才
+     求值，会自动跟着 --text-dim 等一起切换。 */
+  --fg-dim: var(--text-dim);
+  --fg-faint: var(--text-faint);
+  --line-strong: var(--border-strong);
+  --ok-color: var(--ok);
+  --warn-color: var(--warn);
+  /* 浅一档的背板（条目行、图标底），亮色下是深色薄纱、暗色下是白色薄纱 */
+  --panel-strong: color-mix(in srgb, var(--text) 5%, transparent);
+  /* 直接落在半透明窗体上的文字（标题 / 状态 / 提示）用的描边 */
+  --text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --font:
+    "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC",
+    "Source Han Sans SC", "WenQuanYi Micro Hei", system-ui, sans-serif;
+  font-family: var(--font);
+  color: var(--text);
+}
+
+/*
+ * 亮色主题。
+ *
+ * 这里的每个灰阶都比「看起来够淡」更暗一档：白底上小字（12–13px 的说明文案、
+ * 「最近请求」列表）如果用 #8b95a3 这类浅灰，对比度只有 2 出头，正文基本看不清。
+ * 现在四档的对比度依次约 19 / 12 / 10 / 8，既分层又能读。
+ */
+[data-theme="light"] {
+  color-scheme: light;
+  /* 与远程管理亮色同一套：base 244,246,250 / card #ffffff / line 226,232,240 */
+  --bg-rgb: 244, 246, 250;
+  --panel: #ffffff;
+  --border: #e2e8f0;
+  --border-strong: #cbd5e1;
+  --text: #0f172a;
+  --text-dim: #5a6476;
+  --text-faint: #6d798c;
+  --text-fainter: #8a94a6;
+  --input-bg: #fbfcfe;
+  --btn: var(--accent, #4f46e5);
+  --btn-hover: var(--accent-hover, #4338ca);
+  --btn-secondary: #e2e8f0;
+  --btn-secondary-hover: #d3dbe6;
+  --btn-text: #ffffff;
+  --btn-secondary-text: #1e293b;
+  --ok: #16a34a;
+  --ok-border: #22c55e;
+  --ok-bg: #eaf7ee;
+  --warn: #b45309;
+  --link: var(--accent-link, #4338ca);
+  --link-hover: var(--accent-link-hover, #3730a3);
+  --port-border: #e2b48a;
+  --port-bg: #fdf4ea;
+  --port-strong: #a85a15;
+  --port-text: #7a4a1c;
+  --pending-border: #e6cf94;
+  --pending-bg: #fdf8e8;
+  --pending-text: #7a5a1c;
+  --danger: #c74a33;
+  --danger-text: #ffffff;
+  /* 亮色下反着来：用一层浅描边托住深色文字 */
+  --text-shadow: 0 1px 2px rgba(255, 255, 255, 0.9);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  /* 内嵌模式窗口只有 460 宽；分栏模式（③④）在下面另给 640 的下限。
+   * min() 兜底：桌面主窗最小可到 320（fit_monitor_size 夹取下限），
+   * 窗口小于下限时跟随视口 —— 绝不撑出横向滚轮（用户定案的设计原则） */
+  min-width: min(360px, 100%);
+  /* 首帧前不可见：页面重载（窗口呼出时的唤醒钩子会 reload）时，HTML 初始态是
+     「正在扫描…」+ 空列表，直接画出来会「闪一下旧页面」。等首份快照渲染完
+     由 app.js 给 <html data-ready> 再显示 —— 用户只看到成品。
+     遮罩底色与 body 同源，避免白闪。 */
+  opacity: 0;
+  background: rgba(var(--bg-rgb), var(--ui-alpha, 1));
+  color: var(--text);
+  /* 窗口竖着切成两块：左右双栏（.app-columns，各自可滚） + 底部提示条
+   * （钉在窗口最下方）。提示条**不浮在内容上**，而是占自己那一格 ——
+   * 它属于窗口、不属于某一栏。 */
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* 首帧渲染完成后才显示：页面重载（窗口呼出时的唤醒钩子会 reload）期间，
+   HTML 初始态是「正在扫描…」+ 空列表，直接画出来就是「闪一下旧页面」。
+   app.js 在首份快照渲染完时给 <html data-ready>，这里才让它出现。 */
+html[data-ready] body {
+  opacity: 1;
+  transition: opacity 80ms ease-out;
+}
+
+/* 左栏（左半区）：原主窗口的全部内容，自己一个滚动容器 */
+main {
+  display: grid;
+  /* 单列网格：minmax(0,1fr) 让子项可以收缩到 0 —— grid 项默认 min-width:auto，
+   * 长路径/token 会把列撑到内容宽度，出现横向滚动条（用户要求去掉） */
+  grid-template-columns: minmax(0, 1fr);
+  /* 行不许拉伸：本容器是 flex 撑满整高的 grid，内容比容器矮时 align-content 的
+   * 默认值 normal=stretch 会把 header / tabs / 正文行按剩余空间等比例拉高。
+   * GRUB 独立模式（④）把 GRUB 整块搬到右栏后左栏内容变短，就正好触发 ——
+   * 表现是页签上方一大片空白（用户报的正是这个）。start = 行保持自然高度、贴顶。 */
+  align-content: start;
+  gap: 20px;
+  padding: 24px;
+  /* 正文自己滚，提示条永远钉在窗口底边 */
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* ---------- 界面栏目页签 ----------
+ * 主窗口内容分成两个栏目：系统引导（主功能，rEFInd + GRUB 同页）和
+ * 基本设置（应用设置 + 远程控制）。切换纯前端，localStorage 记忆。 */
+.tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border, rgba(128, 140, 160, 0.35));
+}
+.tab {
+  appearance: none;
+  border: 0;
+  background: none;
+  color: var(--btn-secondary-text, #e7ebf2);
+  font: inherit;
+  font-weight: 600;
+  padding: 8px 16px;
+  cursor: pointer;
+  position: relative;
+  opacity: 0.72;
+}
+/* 选中态下划线：设计稿（pc-redesign-v2）的圆角短杠形态，颜色跟随调色板 */
+.tab::after {
+  content: "";
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 999px;
+  background: transparent;
+}
+.tab:hover {
+  opacity: 1;
+}
+.tab.active {
+  color: var(--accent, var(--btn, #2f7fe0));
+  opacity: 1;
+}
+.tab.active::after {
+  background: var(--accent, var(--btn, #2f7fe0));
+}
+.tab-panel {
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+}
+.tab-panel[hidden],
+.tab-panel:not(.active) {
+  display: none;
+}
+/* 浏览器直开（静态预览）时的提示横幅：Tauri API 不可用，只能看不能操作 */
+.browser-banner {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  padding: 8px 16px;
+  font-size: 13px;
+  background: var(--warn, #f0b073);
+  color: #1c1c1c;
+  text-align: center;
+}
+
+/* 横幅里「更换 token」的小按钮：无边框文字样式，颜色压深保证黄底可读 */
+.browser-banner .banner-link {
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-size: 12px;
+  background: none;
+  color: #4a3000;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* token 模态框：首次访问 / 401 时要求输入令牌 */
+.token-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+/* display:flex 会压过 [hidden] 的 UA 样式，显式补一条（和 .grub-empty-state
+   同一个坑）：不然 JS 里 overlay.hidden = true 只是改了属性，弹窗永远关不掉 ——
+   连接成功/点「暂不连接」后它都还盖在屏幕上，手机端整个页面跟着被锁死。 */
+.token-modal-overlay[hidden] {
+  display: none;
+}
+
+.token-modal {
+  width: min(380px, 92vw);
+  padding: 22px 24px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+}
+
+.token-modal h2 {
+  margin: 0 0 10px;
+  font-size: 17px;
+  color: var(--text);
+}
+
+.token-modal p {
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text-dim);
+}
+
+.token-modal input {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--input-bg);
+  color: var(--text);
+  font-size: 14px;
+}
+
+.token-modal input:focus {
+  outline: none;
+  border-color: var(--btn);
+}
+
+.token-modal .token-error {
+  color: var(--danger-text);
+  background: var(--danger);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+/* 「显示 token」勾选框：密码框打什么都看不见，手机上很容易漏打/被输入法改掉 */
+.token-modal .token-reveal {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+  cursor: pointer;
+  user-select: none;
+}
+
+.token-modal .token-reveal input {
+  width: auto;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--btn);
+}
+
+.token-modal .token-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 14px;
+}
+
+/* 远程模式横幅里的 token 输入行（web 端连接表单） */
+.browser-banner input {
+  margin: 0 6px;
+  padding: 3px 8px;
+  width: 220px;
+  max-width: 40vw;
+  font: inherit;
+  color: #1c1c1c;
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(0, 0, 0, 0.25);
+  border-radius: 5px;
+}
+
+.browser-banner button {
+  padding: 3px 14px;
+  font: inherit;
+  font-weight: 600;
+  color: #1c1c1c;
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid rgba(0, 0, 0, 0.25);
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+/* 横幅里的「传输方式」下拉：跟着 token 输入框的观感走（黄底上要压深字色） */
+.browser-banner select {
+  margin: 0 4px;
+  padding: 3px 6px;
+  font: inherit;
+  font-size: 12px;
+  color: #1c1c1c;
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(0, 0, 0, 0.25);
+  border-radius: 5px;
+}
+
+/* 下拉刷新时跟着手指走的那颗小药丸；刷新中固定在顶部显示「正在刷新…」。
+   z-index 压过横幅（50），免得被黄条盖住。 */
+.pull-refresh {
+  position: fixed;
+  top: 0;
+  left: 50%;
+  z-index: 60;
+  padding: 6px 14px;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+  will-change: transform;
+}
+
+.browser-banner button:hover {
+  background: rgba(255, 255, 255, 0.85);
+}
+
+/* ---------- 窗口最下方的提示条（左右双栏之外） ----------
+ * 以前所有操作回执都写在正文最末尾的 #message，用户不滚到底根本看不到
+ * （「勾选了某个系统之后没反应」就是这个原因）。后来挪成 fixed 遮罩，但视觉上
+ * 仍像是正文的一部分 —— 现在把它做成窗口自己的**独立底栏**：
+ * 和 .app-columns 平级、不盖住内容、有内容才占位，没内容整条收起。 */
+.status-bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border-strong);
+  background: var(--panel);
+  box-shadow: 0 -6px 18px rgba(0, 0, 0, 0.28);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.status-bar.hidden {
+  display: none;
+}
+
+.status-bar-icon {
+  flex: 0 0 auto;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.status-bar-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text);
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+/* 失败回执整体染成暖色，一眼能和「已成功」区分开 */
+.status-bar.error {
+  border-top-color: var(--warn);
+  background: var(--port-bg);
+}
+
+.status-bar.error .status-bar-text,
+.status-bar.error .status-bar-icon {
+  color: var(--warn);
+}
+
+.status-bar.ok .status-bar-icon {
+  color: var(--ok);
+}
+
+.status-bar-close {
+  flex: 0 0 auto;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.status-bar-close:hover {
+  background: var(--btn-secondary);
+  color: var(--text);
+}
+
+h1 {
+  margin: 0 0 8px;
+  font-size: 20px;
+}
+
+#status {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 14px;
+}
+
+/*
+ * 这两个元素**不在卡片里**（标题、状态），直接落在半透明的窗体背景上。
+ * 给它们加一层主题色的描边，不透明度调到 50% 时文字也还能立住。
+ */
+h1,
+#status {
+  text-shadow: var(--text-shadow);
+}
+
+/* ---------- 下次启动：醒目大字（问题 7） ---------- */
+.next-boot {
+  display: grid;
+  gap: 2px;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--ok);
+  border-radius: 10px;
+  background: var(--panel);
+}
+
+.next-boot small {
+  color: var(--text-dim);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+}
+
+.next-boot strong {
+  color: var(--ok);
+  /* 2026-10-31 用户定案：整卡改小字；级联全链再长也不许省略号 —— 放不下
+   * 就换行（overflow-wrap:anywhere，路径/长词也断得开） */
+  font-size: 13px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.next-boot.unknown strong {
+  color: var(--text-faint);
+}
+
+/* 卡片与下方区域之间只留很小的间隙（2026-10-31 用户定案）：容器 gap
+ * 默认网格 20px / ba-fill·ba-lr flex 12px，都嫌大 —— 负下边距收到 ~4px。
+ * 选择器限 #tab-boot 直接子级：主题态（SET_SPLIT 搬进主题壳）不吃这条，
+ * 那边的行距主题自己管。 */
+#tab-boot > .next-boot { margin-bottom: -16px; }
+#tab-boot.ba-fill > .next-boot,
+#tab-boot.ba-lr > .next-boot { margin-bottom: -8px; }
+
+/* 多行态（2026-10-30 用户定案）：每行 = 引导器标签 + 它选中的条目，只列
+ * 「引导高级设置」里启用的引导器。原来的单行大字让位，标题行与「上次启动」
+ * 留在第一行，条目行整宽铺开。 */
+.next-boot.has-rows {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  row-gap: 6px;
+}
+.next-boot.has-rows > strong { display: none; }
+.next-boot.has-rows > .next-boot-rows { grid-column: 1 / -1; min-width: 0; }
+.next-boot-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.next-boot-rows[hidden] { display: none; }
+.nb-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--line, var(--border));
+  border-radius: 8px;
+  background: var(--panel-2, rgba(0, 0, 0, 0.02));
+}
+.nb-row .ldr { flex: none; }
+.nb-row .nb-tag {
+  flex: none;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+  letter-spacing: 0.02em;
+}
+.nb-entry {
+  flex: 1 1 auto;
+  min-width: 0;
+  /* 2026-10-31 用户定案：不许省略号 —— 放不下就换行（路径/长词也断得开） */
+  white-space: normal;
+  overflow-wrap: anywhere;
+  color: var(--ok);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.nb-entry.is-empty { color: var(--text-faint); font-weight: 400; }
+.nb-detail {
+  flex: none;
+  max-width: 45%;
+  /* 同上：不省略，换行 */
+  white-space: normal;
+  overflow-wrap: anywhere;
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+/* ---------- 系统列表（手动获取）：与模拟扫描同一套 grub-list 行式样式 ----------
+ * 结构见 app.js renderSystems：直接用 .grub-list / .grub-entry / .active，
+ * 这里只补「快照不存在」的压暗 —— 剩下的观感全部来自 GRUB 那份 CSS。 */
+#systems {
+  display: grid;
+  gap: 10px;
+}
+
+.grub-entry.is-unavailable {
+  opacity: 0.55;
+}
+
+.grub-entry.is-unavailable .grub-entry-name {
+  color: var(--text-dim);
+}
+
+/* ============ 单栏主容器（原「展示方式」四模式已移除） ====================
+ * 原 ① 内嵌 / ② 加宽 / ③ 列表独立 / ④ GRUB 独立 四种展示模式砍掉：
+ * 加宽 / 左右布局并入「引导高级设置 → 布局」（窗口落宽走后端 set_boot_layout，
+ * 左右两栏的滚动容器由 boot-adv.js 自建 .ba-col）。GRUB 区块恒内嵌单栏，
+ * body[data-grub-mode] 固定 inline，inline 专属样式继续生效。
+ * .app-columns 现在只包一个 <main>，flex 撑满剩余高度。 */
+.app-columns {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* main 吃满宽度（flex 基准 0，与被移除的右栏等宽规则同源，保留兜底） */
+.app-columns > .pane {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+/* 切换启动项的回执行（#grub-status，挂在 GRUB 卡片内） */
+.grub-pane-status {
+  min-height: 14px;
+  color: var(--ok);
+}
+
+.grub-pane-status.fail {
+  color: var(--warn);
+}
+
+/* ---------- GRUB 启动项：和上面三个系统并列的第二套机制 ----------
+ * grub.cfg 里动辄几十个条目（本机 77 个），字号整体比上面小一号。
+ * 它是一个带边框的面板（在左栏主流程里）。
+ * .refind（rEFInd 区）与它同一块背板：边框/底色/圆角/内边距完全一致
+ * （用户定案 2026-10-13：两个区域的背板统一）。 */
+.grub,
+.refind {
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+}
+
+/* rEFInd 区 / GRUB 区的分界横隔（用户定案 2026-10-13）：一道加粗的浅色
+ * 长线，让「上面是 rEFInd、下面是 GRUB」一眼分开。GRUB 独立右栏（模式 ④）
+ * 时分隔线还留在左栏就成了一条悬空的线 —— 跟 #grub 一起藏掉。 */
+.boot-divider {
+  border: none;
+  height: 4px;
+  margin: 6px 0;
+  border-radius: 2px;
+  background: linear-gradient(
+    to right,
+    var(--border-strong),
+    var(--border) 60%,
+    transparent
+  );
+}
+
+/* 引导配置须知：os-prober / EFI 顺序 / Windows 分区标志 —— 用户不配这些
+ * GRUB 列表里就只有自己，所以常驻可见（小字，不抢主流程的视线）。
+ * min-width:0 + anywhere 断行是硬要求：GRUB_DISABLE_OS_PROBER=false 这种
+ * 无空格长参数在 460px 内嵌列里不许横向溢出——一溢出就把整个内嵌区撑宽
+ * （用户 2026-10-13 报的「内嵌列表宽度被改」就是这么来的，不是布局改了）。 */
+.grub-advice {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  padding: 8px 10px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 8px;
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1.7;
+}
+
+/* 第一行的那个 strong 是标题（「引导配置须知」），独占一行；
+ * 但条目里的 strong 是**句中强调**（os-prober / 一个 / boot, efi / EFI 第一启动项），
+ * 必须留在句子里。原来统一 display:block，等于把每个句子拦腰截断成三行
+ * —— 这段文字以前一直没人正眼看过，是「标签化」之后才被截图暴露出来的。 */
+.grub-advice > strong {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--text);
+}
+
+.grub-advice li strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.grub-advice ul {
+  margin: 0;
+  padding-left: 16px;
+}
+
+.grub-advice code {
+  padding: 0 3px;
+  border-radius: 3px;
+  background: var(--border);
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+
+/* 区块标志（用户定案 2026-10-13）：rEFInd 区 / GRUB 区各挂一枚小圆标，
+ * 结构完全同构 —— 圆标 + 标题一行（.grub-title-row 两边共用）。
+ * GRUB 的那枚在 .grub-head 里，随头部一起搬进右栏（GRUB 独立模式下右栏
+ * 照样有标志）；rEFInd 的那枚固定在左栏顶部。 */
+.zone-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--text-dim);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  white-space: nowrap;
+}
+
+.grub-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  /* 在 .grub-head（flex）里不许被右侧状态小字挤窄 —— 挤窄会把标题折到
+     圆标下一行，rEFInd 区一行、GRUB 区两行就不一致了（grid 里此属性无效，
+     不影响 rEFInd 区）。 */
+  flex: none;
+}
+
+/* 电源三键贴着应用名同一行、右对齐（用户定案 2026-10-13） */
+.header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.header-row h1 {
+  margin: 0;
+}
+
+/* Linux 系统卡上的问号徽标：hover / 键盘聚焦时浮现 09_anyboot 说明 */
+.system-help {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  margin-left: 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  color: var(--text-dim);
+  font-size: 10px;
+  line-height: 1;
+  cursor: help;
+  vertical-align: middle;
+}
+
+.system-help:hover,
+.system-help:focus {
+  color: var(--text);
+  border-color: var(--text-dim);
+}
+
+.grub-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+/* 两区标题同行规格（用户定案 2026-10-13）：字号/边距必须完全一致 ——
+   上一轮删 .systems-head 后 rEFInd 的 h2 失去这条规则、回落浏览器默认
+   1.5em + 默认 margin，字号偏大还把卡片顶部留白撑开（用户报的正是这个）。 */
+.grub h2,
+.refind h2,
+.grub-head h2 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.grub-head small {
+  color: var(--text-faint);
+  font-size: 11px;
+  text-align: right;
+  /* 挤的时候小字自己折行，别把标题行顶成两行 */
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.grub-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.grub-row label {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.grub-row input {
+  flex: 1 1 180px;
+  min-width: 0;
+  padding: 7px 10px;
+  font-size: 12px;
+}
+
+.grub-row select {
+  flex: 1 1 180px;
+  min-width: 0;
+  padding: 7px 10px;
+  font-size: 12px;
+}
+
+/* 「展示方式」下拉已移除（加宽/左右布局并入引导高级设置 → 布局），
+   原来说明文字的样式一并消失 */
+
+.grub-row button {
+  padding: 7px 11px;
+  font-size: 12px;
+}
+
+/* 勾选行（挂载 ESP）：整行可点，勾选框和文字同一基线 */
+.grub-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.grub-check input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  padding: 0;
+  flex: 0 0 auto;
+  accent-color: var(--btn);
+}
+
+.grub-check:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+/* 分区识别结果：FAT32 / fs-uuid / 挂载状态，一行小字 */
+.grub-part {
+  flex: 1 1 100%;
+  color: var(--text-faint);
+  font-size: 11px;
+  line-height: 1.5;
+  word-break: break-all;
+}
+
+.grub-part b {
+  color: var(--ok);
+  font-weight: 600;
+}
+
+.grub-part i {
+  color: var(--warn);
+  font-style: normal;
+}
+
+.grub-hint {
+  margin: 0;
+  color: var(--text-faint);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+/* 本区操作的回执一律走窗口底部那条独立提示条（见 .status-bar），
+ * 这一区里只保留快照带来的「硬错误」提示。#grub-error 装的是快照里的错。 */
+.grub-error {
+  margin: 0;
+  color: var(--warn);
+  font-size: 11px;
+  white-space: pre-wrap;
+}
+
+.grub-list {
+  /* 原来直接是 grid；为了「选中项置顶固定」（问题1）改成 block 容器：
+   * 置顶行是它的直接子块（CSS sticky 钉在滚动容器顶部，怎么滚都不动），
+   * 真正的条目网格挪进 .grub-list-body —— grid 项的 sticky 只能在自己的
+   * 格子里挪，出不了那一行，所以置顶行不能参与 grid 流。 */
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--input-bg);
+}
+
+/* ── ESP 公共区（用户定案 2026-10-29）──────────────────────────────
+ * 手动解析（读 ESP 上的 /EFI/grub.cfg）与自动读取（拿 ESP 去各 Linux 分区
+ * 的 fstab 里反查）都要先答「哪块 ESP」，所以这一段站在两个标签之外。
+ * 用一条左侧竖线而不是完整卡片：它属于 GRUB 区内部的一节，
+ * 再包一层边框会跟 .grub 自己的边框叠成「框里套框」的噪音。 */
+.grub-esp {
+  display: grid;
+  gap: 8px;
+  padding-left: 10px;
+  border-left: 2px solid var(--border);
+}
+
+.grub-esp-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.grub-esp-head strong {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.grub-esp-head small {
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+/* ── 两个横向标签（用户定案 2026-10-29）────────────────────────────
+ * 「自动读取」在前、默认选中：没装 09_anyboot 的人走这条，不需要任何
+ * Linux 侧准备。选中态用「边框与内容区连成一片」的表达，
+ * 不加阴影/高饱和底色 —— 这一块本来就已经有两层边框了。
+ *
+ * 用户 2026-10-30：列表要放最上面，切换标签排在列表后面（「先看结果、
+ * 再换读法、最后才是设置」），所以这里是**底部页签**：边框改贴上沿、
+ * 圆角翻到下方、选中条也从上沿压出来。 */
+.grub-tabs {
+  display: flex;
+  gap: 2px;
+  border-top: 1px solid var(--border);
+  /* 让标签栏的上边框与面板之间不留缝，视觉上是「页签贴在内容下面」 */
+  margin-top: -4px;
+  margin-bottom: 2px;
+}
+
+.grub-tab {
+  appearance: none;
+  margin-top: -1px;
+  padding: 6px 14px;
+  border: 1px solid transparent;
+  border-top: none;
+  border-radius: 0 0 8px 8px;
+  background: transparent;
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.grub-tab:hover {
+  color: var(--text);
+}
+
+.grub-tab.is-active {
+  border-color: var(--border);
+  background: var(--input-bg);
+  color: var(--text);
+  font-weight: 600;
+  /* 一条强调色上边线把选中态钉住（inset 阴影不占布局，不会把标签撑高）。 */
+  box-shadow: inset 0 2px 0 var(--btn);
+}
+
+.grub-tab:focus-visible {
+  outline: 2px solid var(--accent, var(--border-strong));
+  outline-offset: 1px;
+}
+
+/* 面板本体没有自己的边框：内容（列表 / 自动块）自己带框，
+ * 再包一层就变成三层套框。只负责去掉标签栏留下的负边距。 */
+.grub-panel {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding-top: 4px;
+}
+
+/* 作者样式里的 display:grid 会盖掉 UA 的 [hidden]{display:none} ——
+ * 不显式写这一条，切标签时两个面板会同时显示。 */
+.grub-panel[hidden] {
+  display: none;
+}
+
+.grub-panel-note {
+  margin: 0;
+  color: var(--text-faint);
+  font-size: 11px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.grub-panel-note code {
+  color: var(--text-dim);
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+.grub-auto {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.grub-auto-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.grub-auto-head h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.grub-auto-head h3 small {
+  margin-left: 4px;
+  color: var(--text-faint);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.grub-auto-head button {
+  margin-left: auto;
+}
+
+.grub-auto-summary,
+.grub-auto-foot {
+  margin: 0;
+  color: var(--text-faint);
+  font-size: 11px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+/* 出错时这一行就是唯一的报错出口（读不到分区 / 取消授权 / 找不到 cfg） */
+.grub-auto-summary.fail {
+  color: var(--warn);
+}
+
+/* ── 自动读取：一个框装完（用户定案 2026-10-29）──────────────────────
+ * 原来「分区明细」和「启动项列表」各带一圈边框，纵向叠成两块，读起来像框里
+ * 套框。现在明细当这个框的框头（一条分隔线隔开），启动项当框身，整块只剩
+ * 一圈边框。圆角裁切（overflow:hidden）保证列表滚动时行不越出圆角。 */
+.grub-auto-card {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--input-bg);
+  /* 这里**不能**用 overflow:hidden 裁圆角：它会把最近滚动容器抢成自己，
+     ③④ 模式下「选中项置顶」就钉不住右栏了（sticky 的锚点被这块偷走）。
+     框内边距 4px 已经让行不贴角，不需要裁。 */
+}
+
+/* 命中的目标分区：dev / 卷标 / 发行版 / cfg 新旧全摆出来 ——
+ * 自动读取没有 09_anyboot 帮忙同步，cfg 可能是几个月前的旧文件。 */
+.grub-auto-target {
+  display: grid;
+  gap: 2px;
+  padding: 6px 8px;
+  border: 0;
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+/* 有明细才画那条分隔线；没有明细时框头整块不占位（display:grid 会盖掉
+ * UA 的 [hidden]{display:none}，必须显式补）。 */
+.grub-auto-target[hidden] {
+  display: none;
+}
+
+.grub-auto-card > .grub-auto-target:not([hidden]) {
+  border-bottom: 1px solid var(--border);
+}
+
+/* 列表不再是自己的框：边框/底色/圆角全部交给 .grub-auto-card。
+ * 用 ID 提权压过 body[data-grub-mode] .grub-list 那一组（限高保留）。 */
+.grub-auto-card > #grub-auto-list {
+  padding: 4px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.grub-auto-target b {
+  color: var(--text);
+}
+
+.grub-auto-issues {
+  display: grid;
+  gap: 4px;
+}
+
+.grub-auto-issue {
+  padding: 6px 8px;
+  border: 1px solid var(--border-strong);
+  border-left: 3px solid var(--warn);
+  border-radius: 6px;
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+/* 候选分区：折成一行小字（用户定案 2026-10-29）——
+ * 定位唯一时这一整块不该占版面，<details> 收起只剩 11px 的 summary；
+ * 判定不出目标时 app.js 会把它 open=true 直接摊开（那会儿它是唯一出路）。 */
+.grub-auto-picker {
+  min-width: 0;
+}
+
+/* <details> 默认 display:block，[hidden] 的 UA 规则压不住需要显式补 */
+.grub-auto-picker[hidden] {
+  display: none;
+}
+
+.grub-auto-picker > summary {
+  color: var(--text-faint);
+  font-size: 11px;
+  line-height: 1.6;
+  cursor: pointer;
+  list-style-position: inside;
+}
+
+.grub-auto-picker > summary:hover {
+  color: var(--text-dim);
+}
+
+.grub-auto-picker[open] > summary {
+  margin-bottom: 4px;
+  color: var(--text-dim);
+}
+
+.grub-auto-candidates {
+  display: grid;
+  gap: 4px;
+}
+
+.grub-auto-candidate {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--input-bg);
+  color: var(--text);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* 「恢复自动定位」：这是一条动作、不是一块候选分区，所以虚线 + 无底色，
+ * 免得跟上面的分区行看成一类 */
+.grub-auto-candidate.is-reset {
+  justify-content: center;
+  border-style: dashed;
+  background: transparent;
+  color: var(--text-faint);
+}
+
+.grub-auto-candidate.is-reset:hover {
+  color: var(--text-dim);
+}
+
+.grub-auto-candidate:hover {
+  border-color: var(--border-strong);
+}
+
+.grub-auto-candidate .mark {
+  color: var(--text-faint);
+}
+
+/* 精确命中（UUID / PARTUUID 对上）才上绿色：推断出来的一律灰着，
+ * 别让「按设备名猜的」看上去跟「UUID 对上的」一样可信。 */
+.grub-auto-candidate .mark.exact {
+  color: var(--ok);
+}
+
+/* 「手选」既不是精确也不是推断：用链接色区分，别跟绿色的精确混成一种 */
+.grub-auto-candidate .mark.manual {
+  color: var(--link);
+}
+
+/* 右侧「当前 · 时间」：这一块就是正在读的分区，点完回显全靠它 */
+.grub-auto-candidate .mark.is-current-mark {
+  color: var(--ok);
+}
+
+/* 「只读」：分区脏（RECOVER）→ 读得出来、写不进去。提前标出来，
+ * 用户就不会点一次启动项被拒一次还以为「点击没反应」。 */
+.grub-auto-candidate .mark.warn {
+  color: var(--warn);
+  white-space: nowrap;
+}
+
+/* 点下去到读回来之间（探测 4~5 秒）：留在原位、描边变绿、不跟着其它行变暗 */
+.grub-auto-candidate.is-picking {
+  border-color: var(--ok-border);
+  color: var(--text-dim);
+  opacity: 1;
+}
+
+/* 当前正在读的那块：候选列表里也要能认出来，否则「换了没换」看不出来 */
+.grub-auto-candidate.is-current {
+  border-color: var(--ok-border);
+}
+
+/* GRUB 空状态：还没识别出任何 GRUB 信息（没填 fs-uuid、也没识别过目录）
+ * 时替代一片空白的引导卡。虚线框 = 「这里是空的、等你来填」。 */
+.grub-empty-state {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+  margin-bottom: 10px;
+  padding: 14px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 8px;
+}
+
+.grub-empty-state strong {
+  font-size: 13px;
+}
+
+.grub-empty-state small {
+  color: var(--text-faint);
+  line-height: 1.5;
+}
+
+/* display:flex 会压过 [hidden] 的 UA 样式，显式补一条 */
+.grub-empty-state[hidden] {
+  display: none;
+}
+
+.grub-list-body {
+  display: grid;
+  /* 单列 minmax(0,1fr)：grid 隐式列是 auto，长条目名的 max-content 会把整列
+   * 顶宽 → 窗口窄到 460 时整个列表横向溢出（实测 +209px）。与 main 同款修法。 */
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+}
+
+/* 选中的启动项置顶固定（问题1）：钉在最近滚动容器顶部（①② 是 .grub-list
+ * 自己，③④ 是右栏 .pane-body），其余行从它底下滚过。实底背景（--ok-bg）
+ * 保证透不出底下的行。 */
+.grub-entry.is-pinned {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--ok-bg);
+}
+
+/* 滚动条归属：GRUB 列表限高 + 自己滚（HEAD 行为，配置在下面继续滚主流程） */
+body[data-grub-mode="inline"] .grub-list {
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.grub-empty {
+  padding: 6px 4px;
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+/* 每一行本身就是「点一下就切过去」的按钮：左名称、右标签 */
+.grub-entry {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 9px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+
+/*
+ * 树形层级：顶层条目（组标题，如「Arch Linux 的高级选项」）和子条目要一眼分得开。
+ * 顶层用主题色 + 加粗 + 左侧色条，子条目缩进并挂一条竖直的引导线 ——
+ * grub.cfg 里动辄几十项、还夹着 submenu，光靠文字前缀根本看不出谁属于谁。
+ */
+.grub-entry.is-group {
+  margin-top: 4px;
+  border-left: 3px solid var(--btn);
+  background: var(--input-bg);
+}
+
+.grub-entry.is-group .grub-entry-name {
+  color: var(--link);
+  font-weight: 700;
+}
+
+/*
+ * 组头是 disabled 的按钮（它没有 selector，点不了）。通用的 button:disabled 会给它
+ * 套 0.55 的透明度，看起来像「不可用」——但它是分层标题，不该发灰。
+ */
+.grub-entry.is-group:disabled {
+  opacity: 1;
+  cursor: default;
+}
+
+/* 子条目：缩进一格 + 一条竖直引导线（用 inset box-shadow 画，不吃布局宽度） */
+.grub-entry.is-child {
+  padding-left: 26px;
+  box-shadow: inset 12px 0 0 -11px var(--border-strong);
+}
+
+.grub-entry.is-child .grub-entry-name {
+  color: var(--text-dim);
+}
+
+/* 更深一层（submenu 套 submenu）再缩进一格 */
+.grub-entry.depth-2 {
+  padding-left: 42px;
+}
+
+.grub-entry.depth-2,
+.grub-entry.depth-3,
+.grub-entry.depth-4 {
+  box-shadow: inset 28px 0 0 -27px var(--border-strong);
+}
+
+/* 顶层组里的「组名」本身也能点（切过去 = 用它的默认项），把它写得像标题一点 */
+.grub-entry.is-group:hover:not(:disabled) {
+  border-color: var(--border-strong);
+}
+
+.grub-entry.active {
+  border-color: var(--ok-border);
+  background: var(--ok-bg);
+}
+
+.grub-entry-name {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.grub-entry.active .grub-entry-name {
+  color: var(--ok);
+  font-weight: 600;
+}
+
+.grub-entry-tag {
+  color: var(--text-fainter);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+/* 组内的子条目数量小标（顶层组行右侧） */
+.grub-entry-count {
+  color: var(--text-fainter);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+/* ---------- 安装 / 卸载的执行过程 ---------- */
+.grub-log {
+  display: grid;
+  gap: 6px;
+}
+
+.grub-log summary {
+  color: var(--text-dim);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.grub-log.ok summary {
+  color: var(--ok);
+}
+
+.grub-log.fail summary {
+  color: var(--warn);
+}
+
+.grub-log pre {
+  max-height: 220px;
+  margin: 0;
+  padding: 9px 11px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--input-bg);
+  color: var(--text-dim);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.grub-script {
+  display: grid;
+  gap: 8px;
+}
+
+.grub-script summary {
+  color: var(--text-dim);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.grub-script small {
+  color: var(--text-faint);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.grub-script code {
+  padding: 0 3px;
+  border-radius: 4px;
+  background: var(--input-bg);
+  font-size: 11px;
+}
+
+.grub-script textarea {
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: var(--input-bg);
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+button {
+  border: 0;
+  border-radius: 7px;
+  padding: 9px 13px;
+  background: var(--btn);
+  color: var(--btn-text);
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  background: var(--btn-hover);
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+button.secondary {
+  background: var(--btn-secondary);
+  color: var(--btn-secondary-text);
+}
+
+button.secondary:hover:not(:disabled) {
+  background: var(--btn-secondary-hover);
+}
+
+/*
+ * 卡片化的分区换成了带底色的卡片：以前 .directory / .settings 只有一条上边框，
+ * 里面的小字直接落在**半透明的窗体背景**上 —— 不透明度一调低，字就压在桌面上，看不清。
+ * 现在正文全部落在不透明的 --panel 上，窗体再怎么透也不影响读字。
+ */
+.directory {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+}
+
+label {
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+input {
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  padding: 10px 12px;
+  background: var(--input-bg);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* 电源操作现在摆在系统列表**上方**：右对齐贴着列表右边，不再需要上边距 */
+.system-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+/*
+ * 顶部工具条的图标小方钮（2026-10-30 用户定案）：远程管理/重启系统/关机/睡眠/
+ * 重启程序/退出程序 六个按钮原来都是「四字文本」，一排占掉 300 多像素，把
+ * 标题行挤得只剩半截。改成 30×30 的图标方钮，文案走 title + aria-label。
+ * 不许 flex 压缩：窄视口下让它们整颗换行，而不是被挤成 20 宽的瘦条。
+ */
+.system-actions .ico-btn {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 8px;
+}
+
+.system-actions .ico-btn svg.i {
+  width: 16px;
+  height: 16px;
+}
+
+/* 窄视口放大命中区（手指点 30 偏小），但宽度仍按按钮个数走，不占文字位 */
+@media (max-width: 560px) {
+  .system-actions .ico-btn {
+    width: 34px;
+    height: 34px;
+  }
+}
+
+.settings {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+}
+
+.settings h2 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+/* token 那一行内容多：标题在上、两排控件在下的竖排 */
+.setting-block {
+  display: grid;
+  /* 隐式列不会自己撑满：不写死 minmax(0, 1fr)，整行会缩到 max-content（实测
+     771 的容器里只占 293），两排控件就被挤成「复制」掉行、「应用」掉行。 */
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: stretch;
+  gap: 8px;
+}
+
+label.setting {
+  cursor: pointer;
+}
+
+.setting-text {
+  display: grid;
+  gap: 2px;
+}
+
+.setting-text strong {
+  color: var(--text);
+  font-size: 14px;
+}
+
+.setting-text small {
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
+.setting input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: 17px;
+  height: 17px;
+  padding: 0;
+  accent-color: var(--btn);
+}
+
+select {
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  padding: 8px 10px;
+  background: var(--input-bg);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.setting :disabled {
+  opacity: 0.55;
+}
+
+.setting-state {
+  color: var(--text-fainter);
+}
+
+.link {
+  justify-self: start;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--link);
+  font-size: 12px;
+  text-decoration: underline;
+}
+
+.link:hover:not(:disabled) {
+  background: none;
+  color: var(--link-hover);
+}
+
+.hidden {
+  /* !important：.pending / .port-occupant 也是 display:grid（同优先级），
+     它们写在后面就会把这条覆盖掉，导致该藏的卡片一直显示 */
+  display: none !important;
+}
+
+.remote-inline {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.port-occupant {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--port-border);
+  border-radius: 10px;
+  background: var(--port-bg);
+}
+
+.port-occupant strong {
+  font-size: 13px;
+  color: var(--port-strong);
+}
+
+.port-occupant small {
+  color: var(--port-text);
+  font-size: 12px;
+}
+
+.port-occupant .actions {
+  display: flex;
+  gap: 8px;
+}
+
+button.danger {
+  background: var(--danger);
+  color: var(--danger-text);
+}
+
+button.danger:hover:not(:disabled) {
+  filter: brightness(1.12);
+}
+
+.remote-inline input[type="text"] {
+  width: 116px;
+  padding: 7px 9px;
+}
+
+.remote-inline input[type="checkbox"] {
+  width: 17px;
+  height: 17px;
+  padding: 0;
+  accent-color: var(--btn);
+}
+
+.remote-inline input[type="range"] {
+  width: 140px;
+  padding: 0;
+  border: 0;
+  background: none;
+  accent-color: var(--btn);
+}
+
+/* 锁定窗口大小后滑条停用：压暗 + 禁用光标，一眼能看出「现在改不了」
+ * （浏览器默认的 disabled 外观在深色主题下不够明显，这里显式给） */
+.remote-inline input[type="range"]:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* 调色板入口框：整个框就渲染成选中的颜色（WebView2 默认外观带灰边和
+   内边距，看起来像没生效；这里把原生 swatch 铺满整个框） */
+.remote-inline input[type="color"] {
+  width: 46px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+}
+
+.remote-inline input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 2px;
+}
+
+.remote-inline input[type="color"]::-webkit-color-swatch {
+  border: none;
+  border-radius: 4px;
+}
+
+#http-bind {
+  width: 116px;
+}
+
+#sound-file-path {
+  width: 200px;
+}
+
+/* token 自定义输入框宽一点，免得看不到自己填了什么 */
+#token-input {
+  width: 220px;
+  font-family: ui-monospace, "Cascadia Mono", "JetBrains Mono", monospace;
+}
+
+.pending {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--pending-border);
+  border-radius: 10px;
+  background: var(--pending-bg);
+}
+
+.pending strong {
+  font-size: 14px;
+}
+
+.pending small {
+  color: var(--pending-text);
+  font-size: 12px;
+}
+
+.remote-hint,
+.remote-log {
+  display: grid;
+  gap: 6px;
+}
+
+/*
+ * 「远程怎么调」的示例框和「最近请求」的列表框是上下挨着的两块，
+ * 之前一个是描边卡片、一个是裸列表，看着像来自两个软件 —— 现在统一质感：
+ * 同样的描边、圆角、底色、字色、字号。只有内边距不同（列表要给序号留位置）。
+ */
+.remote-hint pre,
+#http-requests {
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--input-bg);
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.remote-hint pre {
+  padding: 10px 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+#http-requests {
+  max-height: 150px;
+  /* 左边多留一点给序号 */
+  padding: 10px 12px 10px 26px;
+  overflow-y: auto;
+}
+
+#http-requests li {
+  margin-bottom: 4px;
+}
+
+#http-requests:empty::after {
+  content: "暂无远程请求";
+  color: var(--text-fainter);
+  font-size: 11px;
+}
+/* ============ 贴边隐藏的小白条 ============
+   主窗口贴边隐藏后，窗口缩成一条固定细缝，白条 #dock-strip 是**独立渲染**
+   的白色条，长度/厚度/不透明度全由前端 CSS 变量控制，与窗口几何无关。
+   贴边态下窗口本身（html/body 背景 + main 内容）要**全部隐藏**，只留白条
+   —— 否则用户看到的就是「窗口缩成的一条」而不是独立白条。 */
+/* 贴边态：html/body 背景透明、内容隐藏，只露白条 */
+html {
+  background: transparent;
+}
+body.dock-top,
+body.dock-bottom,
+body.dock-left,
+body.dock-right {
+  background: transparent;
+}
+/* 贴边态把主容器 + 底栏都藏掉（主容器是 .app-columns、底栏是 .status-bar
+ * —— 两个都要，漏一个就会在 40px 的缝里露出残影） */
+body.dock-top main,
+body.dock-bottom main,
+body.dock-left main,
+body.dock-right main,
+body.dock-top .app-columns,
+body.dock-bottom .app-columns,
+body.dock-left .app-columns,
+body.dock-right .app-columns,
+body.dock-top .status-bar,
+body.dock-bottom .status-bar,
+body.dock-left .status-bar,
+body.dock-right .status-bar {
+  display: none;
+}
+/* 停靠缝的「零竞态」兜底：后端 dock 是 hide→缩几何→show，show 出来那一帧
+ * viewport 已经只有缝那么厚（40px 逻辑像素量级），而「docked=true」广播还在
+ * IPC 路上、body.dock-* 类没加上 —— 之前那一帧显示的是主界面在缝里的切片，
+ * 透明窗口后就是肉眼可见的「主界面残留一角再消失」。正常窗口最小 360x560，
+ * 不可能窄/矮到 100px 以下；viewport 一旦小于这个值必然是停靠缝，按 viewport
+ * 尺寸直接藏内容 —— 同步于渲染，不依赖事件时序。 */
+@media (max-height: 100px), (max-width: 100px) {
+  html,
+  body {
+    background: transparent;
+  }
+  main,
+  .app-columns,
+  .status-bar {
+    display: none;
+  }
+}
+/* dock 前的「清屏」帧：停靠流程是 hide→缩几何→show，但 macOS 窗口服务器
+ * 在窗口重新出现的第一帧会先摆出**隐藏前缓存的最后一帧**——上面那个媒体
+ * 查询只管新绘的帧，管不住这帧旧缓冲（主界面切片直接浮在桌面上，就是
+ * 「残影子」）。修法：后端 dock 在窗口**还可见**时先给 html 加 dock-pending，
+ * 让 WebView 把最后一帧刷成全透明，再 hide。缓存帧 = 全透明 → show 无旧内容。
+ * 类由后端 eval 添加/移除，undock 时移除。 */
+html.dock-pending,
+html.dock-pending body {
+  background: transparent;
+}
+html.dock-pending main,
+html.dock-pending .app-columns,
+html.dock-pending .status-bar {
+  display: none;
+}
+#dock-strip {
+  position: fixed;
+  display: none;
+  /* 颜色走调色板设置（--dock-strip-color，app.js 从快照写入），默认白 */
+  background: var(--dock-strip-color, #ffffff);
+  opacity: var(--dock-strip-opacity, 1);
+  z-index: 9999;
+  pointer-events: none;
+}
+/* 贴底边：白条贴窗口底（屏幕底），水平居中，长=窗口宽百分比，高=厚度 */
+body.dock-bottom #dock-strip {
+  display: block;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: var(--dock-strip-length, 100%);
+  height: var(--dock-strip-thickness, 6px);
+}
+/* 贴顶边：白条贴窗口顶（屏幕顶） */
+body.dock-top #dock-strip {
+  display: block;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: var(--dock-strip-length, 100%);
+  height: var(--dock-strip-thickness, 6px);
+}
+/* 贴左缘：白条贴窗口左（屏幕左），垂直居中，长=窗口高百分比，宽=厚度 */
+body.dock-left #dock-strip {
+  display: block;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  height: var(--dock-strip-length, 100%);
+  width: var(--dock-strip-thickness, 6px);
+}
+/* 贴右缘：白条贴窗口右（屏幕右） */
+body.dock-right #dock-strip {
+  display: block;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  height: var(--dock-strip-length, 100%);
+  width: var(--dock-strip-thickness, 6px);
+}
+
+/* ============ 热区可视化层 ============
+   贴边态下把「鼠标移入即呼出」的触发带画出来，调试用：默认全透明 + 无边框
+   （--hotzone-opacity 默认 0、--hotzone-border-width 默认 0），用户从设置里
+   打开底色或边框才可见。厚度是「热区设置厚度 − 贴边缝隙」（app.js 算好写入，
+   已 clamp 到窗口槽位 40px 内），贴屏幕边一侧铺开 —— 与后端热区判定矩形的
+   可见部分严格对齐。 */
+#hotzone {
+  position: fixed;
+  display: none;
+  background: var(--hotzone-color, #ff0000);
+  opacity: var(--hotzone-opacity, 0);
+  border: var(--hotzone-border-width, 0px) solid var(--hotzone-border-color, #ff0000);
+  box-sizing: border-box;
+  /* 白条画在上面（9999），热区是背景参考层 */
+  z-index: 9998;
+  pointer-events: none;
+}
+body.dock-bottom #hotzone {
+  display: block;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: var(--hotzone-thickness, 40px);
+}
+body.dock-top #hotzone {
+  display: block;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--hotzone-thickness, 40px);
+}
+body.dock-left #hotzone {
+  display: block;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: var(--hotzone-thickness, 40px);
+}
+body.dock-right #hotzone {
+  display: block;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: var(--hotzone-thickness, 40px);
+}
+
+/* ---------- 移动端适配（网页控制台在手机浏览器上使用） ----------
+ * 断点 720px：③④ 的左右分栏改为上下堆叠（滚动权交给 .app-columns）；
+ * 设置行改「文字 | 控件」两列网格防长文案挤压；输入控件 16px 防 iOS
+ * 聚焦自动放大页面；100dvh 修正移动端地址栏收展导致的视口高度漂移。 */
+@media (max-width: 720px) {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    height: 100vh;
+    height: 100dvh;
+  }
+
+  /* 窄窗：主容器改上下堆叠（现在只剩一个 <main>，整列自己滚） */
+  .app-columns {
+    flex-direction: column;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+  .app-columns > .pane {
+    flex: 0 0 auto;
+  }
+  main {
+    overflow-y: visible;
+    padding: 14px;
+    gap: 14px;
+  }
+  .tab-panel {
+    gap: 14px;
+  }
+
+  /* 手机上列表限高改视口比例（原式按窗口算） */
+  body[data-grub-mode="inline"] .grub-list {
+    max-height: 45vh;
+  }
+
+  /* 设置行：文字一列 + 控件一列。flex 的 space-between 在窄屏会把
+   * 长小字压成一坨，grid 两列让标题/说明完整换行、控件靠右不被挤 */
+  .setting {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+
+  /* 例外：token 行（setting-block）本来就是竖排结构，保持整行一列 */
+  .setting.setting-block {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* iOS：聚焦 <16px 的输入框会自动放大页面，挪到手机上统一 16px */
+  input,
+  select {
+    font-size: 16px;
+  }
+
+  /* ---------- SOL 远程唤醒页（#/sol）手机适配 ----------
+   * SOL 的行大多是「标题在左 + 输入框/按钮组在右」，右列在窄屏里太宽：
+   * 监听地址输入 200px、安装目录输入 280px（都是内联定宽）+ 两三个按钮
+   * 挤在 auto 列 → 溢出/挤压歪七扭八。统一改上下堆叠：标题/状态一行，
+   * 控件组自己成一行、可换行铺开。 */
+  #sol-section .setting {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: stretch;
+    gap: 8px;
+  }
+
+  /* 例外：单个勾选框的行（HTTP 服务监听）保持「文字 | 勾选框」两列 */
+  #sol-section #sol-http-enabled-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  #sol-section .remote-inline {
+    flex: 1 1 auto;
+    flex-wrap: wrap;
+  }
+
+  /* 行内输入框不再定宽：内联的 width / flex 用 !important 顶掉，
+   * 弹性占满剩余宽度、按钮贴着排 */
+  #sol-section .remote-inline input[type="text"],
+  #sol-section .sol-token-line input[type="text"] {
+    width: auto !important;
+    flex: 1 1 140px;
+    min-width: 0;
+  }
+
+  /* token 展示牌也放开最小宽度，长 token 正常断行 */
+  #sol-section .sol-token-value {
+    flex: 1 1 160px;
+  }
+
+  /* 两个安装按钮平铺整行（右对齐 flex-end 在窄屏里就是歪的） */
+  #sol-section .actions {
+    justify-content: stretch;
+  }
+  #sol-section .actions button {
+    flex: 1 1 46%;
+  }
+
+  /* 配置编辑器同样防 iOS 聚焦缩放（textarea 不在上面的 input 规则里） */
+  #sol-section textarea {
+    font-size: 16px;
+  }
+}
+
+/* ---------- 手机竖屏（WebView 视口约 354px）----------
+ * 上面那条 720 断点只管分栏和设置行；再窄到 354（1240px / 3.5 密度）时还有
+ * 四处会崩，都是实测真机截图发现的：
+ *   ① 三个页签被 padding 撑爆 → 每个字都折成两行（「系统引 / 导」）；
+ *   ② 远程横幅里文字、刷新、传输方式下拉、更换 token 缠成一坨（全角空格
+ *      分隔的 inline 流在窄屏就是灾难）；
+ *   ③ 底部状态条遇到超长变量名（osprober-gnulinux-advanced-…）撑成三行，
+ *      占掉大半个屏幕；
+ *   ④ 系统卡片的按钮（「下次启动 Windows」）被 auto 列挤到折行。
+ * 只补这四条，PC 尺寸下的观感一点不动。 */
+@media (max-width: 480px) {
+  /* ① 页签：三个平分一行，宁可变窄也不折行 */
+  .tabs {
+    gap: 0;
+  }
+  .tab {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 9px 2px;
+    font-size: 13px;
+    line-height: 1.35;
+    text-align: center;
+    white-space: nowrap;
+  }
+  .tab::after {
+    left: 10px;
+    right: 10px;
+  }
+
+  /* ② 远程横幅：说明文字独占一行，控件另起一行、放不下再换行 */
+  .browser-banner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 6px 8px;
+    padding: 8px 10px;
+    font-size: 12px;
+    line-height: 1.45;
+  }
+  .browser-banner .banner-text {
+    flex: 1 1 100%;
+    text-align: center;
+  }
+  .browser-banner .banner-link {
+    flex: none;
+  }
+  .browser-banner select {
+    /* 不 grow：grow 会把「刷新」顶到最左边、下拉框吃掉中间，整行看着散 */
+    flex: 0 1 150px;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  /* ③ 状态条：最多两行，超出省略号（完整值去对应栏目里看） */
+  .status-bar {
+    align-items: flex-start;
+    padding: 8px 10px;
+  }
+  .status-bar-text {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    word-break: break-all;
+  }
+
+  /* 「下次启动」整卡已是小字（见 .next-boot strong），窄窗再收半档 */
+  .next-boot strong {
+    font-size: 12.5px;
+  }
+}
+
+/* ---------- SOL 远程唤醒标签页 ----------
+ * 第三个栏目（#/sol）：sol 接收器的状态 / 监听端口 / 安装卸载 / 配置编辑。
+ * 全部沿用面板既有 token（--panel / --border / --ok / --warn），不引入新色板。 */
+.sol-desc {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-dim, #94a3b8);
+}
+
+/* 端口小牌：绿 = 该端口有规则且在监听；黄 = 疑点；灰 = 未监听 */
+.sol-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.sol-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--text-dim, #94a3b8);
+  background: var(--input-bg, #141a2e);
+}
+.sol-badge .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-faint, #64748b);
+  flex: none;
+}
+.sol-badge.ok {
+  border-color: var(--ok-border, #16a34a);
+  color: var(--ok, #22c55e);
+}
+.sol-badge.ok .dot {
+  background: var(--ok, #22c55e);
+}
+.sol-badge.warn {
+  border-color: var(--warn, #f59e0b);
+  color: var(--warn, #f59e0b);
+}
+.sol-badge.warn .dot {
+  background: var(--warn, #f59e0b);
+}
+
+.sol-hint {
+  font-size: 12px;
+  color: var(--text-faint, #64748b);
+  line-height: 1.5;
+}
+
+/* Token 行：上排＝当前 token（纯文字 + 复制），下排＝新 token 输入 + 生成 / 应用。
+ * 不用输入框展示 token：只读文本框会有"能改"的暗示，长 token 也会被截断；
+ * 纯文字 + 虚线框，点一下整段选中（user-select: all）方便手动 Ctrl+C。 */
+.sol-token-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.sol-token-value {
+  flex: 1 1 240px;
+  min-width: 0;
+  padding: 7px 10px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: var(--input-bg, #141a2e);
+  color: var(--text, #f8fafc);
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  word-break: break-all;
+  user-select: all;
+}
+.sol-token-value.is-empty {
+  color: var(--text-faint, #64748b);
+}
+
+/* 配置编辑器：等宽、暗底、与 textarea/输入框同款边框 */
+.sol-config-editor {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--input-bg, #141a2e);
+  color: var(--text, #f8fafc);
+  font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  tab-size: 2;
+}
+.sol-config-editor:focus {
+  outline: none;
+  border-color: var(--btn, var(--accent, #6366f1));
+}
+.sol-config-editor:disabled {
+  opacity: 0.55;
+}
+
+/* 主色小按钮（保存配置）——面板内 secondary 为主、这一颗是唯一强调 */
+button.primary-sol {
+  background: var(--btn);
+  color: var(--btn-text);
+}
+button.primary-sol:hover:not(:disabled) {
+  background: var(--btn-hover);
+}
+
+/* 设置行状态文字的「出错」态：黄色提醒（沿用 --warn，与横幅一致） */
+.setting-state-error {
+  color: var(--warn, #f59e0b) !important;
+}
+
+/* 安装包块：与配置编辑器同款的竖排块，块之间留一拍呼吸 */
+.sol-pkg-block {
+  padding-top: 12px;
+  border-top: 1px dashed var(--border);
+}
+
+/* 下载进度条：细轨 + 强调色填充，下载完整条隐藏 */
+.sol-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.sol-progress-track {
+  flex: 1;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--input-bg, #141a2e);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+.sol-progress-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  background: var(--btn, var(--accent, #6366f1));
+  transition: width 0.3s ease;
+}
+.sol-progress-text {
+  font-size: 12px;
+  color: var(--text-dim, #94a3b8);
+  min-width: 64px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 日志区：等宽、暗底、限高滚动，最新一行自动可见 */
+.sol-log-block {
+  padding-top: 12px;
+  border-top: 1px dashed var(--border);
+}
+.sol-log {
+  margin: 0;
+  max-height: 180px;
+  overflow-y: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--input-bg, #141a2e);
+  color: var(--text-dim, #94a3b8);
+  font: 11px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.sol-log .sol-log-line {
+  display: block;
+}
+.sol-log .sol-log-time {
+  color: var(--text-fainter, #475569);
+  margin-right: 6px;
+}
+
+/* 安装目录行的小状态字（~ 展开后的真实路径提示） */
+#sol-dir-state {
+  font-size: 11px;
+}
+ * 三引导器通道（systemd-boot / OpenCore / Clover）· 增量样式
+ * 复用 .refind 的卡片背板与 .zone-tag 圆标，新增的只有：
+ *   通道色圆标 / 状态 chip / 健康检查条 / 条目行 / 徽章 / 提权标记 / 折叠条
+ * ═══════════════════════════════════════════════════════════════════ */
+
+/* 通道色（light/dark 都走同一组，可读性已核对） */
+.boot-channel.sdboot   { --channel: #38bdf8; }
+.boot-channel.opencore { --channel: #a78bfa; }
+.boot-channel.clover   { --channel: #fb923c; }
+
+/* 圆标换色：只动边框与文字，形状/字号/内边距全沿用 .zone-tag */
+.zone-sdboot   { border-color: var(--channel) !important; color: var(--channel) !important; }
+.zone-opencore { border-color: var(--channel) !important; color: var(--channel) !important; }
+.zone-clover   { border-color: var(--channel) !important; color: var(--channel) !important; }
+
+/* 卡片头右侧状态 chip（三态：ok / warn / off） */
+.channel-chip {
+  margin-left: auto;
+  font-size: 11px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  color: var(--fg-dim);
+  white-space: nowrap;
+}
+.channel-chip.ok {
+  border-color: color-mix(in srgb, var(--ok-color, #34d399) 55%, transparent);
+  color: var(--ok-color, #34d399);
+}
+.channel-chip.warn {
+  border-color: color-mix(in srgb, var(--warn-color, #fbbf24) 55%, transparent);
+  color: var(--warn-color, #fbbf24);
+}
+
+/* ── 说明与健康检查的收起开关（用户 2026-10-28：说明不要占位置）──
+   标题行最右一枚小圆标：⚠ = 有 warn 待办，ⓘ = 纯说明；点了才展开正文。
+   chip 自带 margin-left:auto 把行推满，圆标跟在 chip 右侧即可。 */
+.channel-note-toggle {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  margin-left: 8px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--fg-dim);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+.channel-note-toggle:hover {
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+}
+.channel-note-toggle.warn {
+  border-color: color-mix(in srgb, var(--warn-color, #fbbf24) 55%, transparent);
+  color: var(--warn-color, #fbbf24);
+}
+/* 展开后的正文容器：里面复用 .channel-pane-status / .channel-health 原排版 */
+.channel-note {
+  margin: -4px 0 10px;
+}
+.channel-note[hidden] {
+  display: none;
+}
+
+/* 状态小字（对齐 .grub-pane-status 的位置与字号） */
+.channel-pane-status {
+  color: var(--fg-faint);
+  font-size: 12px;
+  margin: -6px 0 10px;
+}
+.channel-pane-status b { color: var(--fg-dim); }
+
+/* 健康检查条（warn=黄 / good=绿），圆角与条目行一致 */
+.channel-health {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: var(--fg-dim);
+}
+.channel-health strong { font-size: 12px; }
+.channel-health code {
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  font-size: 11px;
+}
+.channel-health.bad {
+  border: 1px solid color-mix(in srgb, var(--warn-color, #fbbf24) 40%, transparent);
+  background: color-mix(in srgb, var(--warn-color, #fbbf24) 8%, transparent);
+}
+.channel-health.bad strong,
+.channel-health.bad code { color: var(--warn-color, #fbbf24); }
+.channel-health.good {
+  border: 1px solid color-mix(in srgb, var(--ok-color, #34d399) 40%, transparent);
+  background: color-mix(in srgb, var(--ok-color, #34d399) 7%, transparent);
+}
+.channel-health.good strong { color: var(--ok-color, #34d399); }
+/* info：只是说明（这台机器上为什么只能看不能改），不是待办事项 */
+.channel-health.info {
+  border: 1px solid color-mix(in srgb, var(--text) 12%, transparent);
+  background: color-mix(in srgb, var(--text) 4%, transparent);
+}
+.channel-health.info strong { color: var(--fg-dim); }
+
+/* ── 免密模式（root 助手）：一行状态 + 一个开关 ──
+   它不是启动项，所以视觉权重比条目行轻：虚线框 + 与健康检查同一档字号。
+   开启后换成实线绿框 —— 这条从「待办」变成「已就绪」，扫一眼就能分辨。 */
+.channel-helper {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 10px;
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px dashed color-mix(in srgb, var(--text) 16%, transparent);
+  background: color-mix(in srgb, var(--text) 2.5%, transparent);
+  min-width: 0;
+}
+.channel-helper-label {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--fg-dim);
+}
+.channel-helper-text {
+  flex: 1 1 200px;
+  min-width: 0;
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--fg-dim);
+  /* 文案里有 `/Library/...` 这种长路径：窄屏必须能在任意位置断，不能撑出横向滚动 */
+  overflow-wrap: anywhere;
+}
+.channel-helper-text code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  font-size: 10px;
+}
+.channel-helper-action {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 4px 9px;
+  font-size: 11px;
+  line-height: 1.45;
+  border-radius: 7px;
+  white-space: nowrap;
+  /* 次要动作，别和「设为默认」「下次启动」抢视觉重量：
+     以前用主色实心，整行看着像主 CTA，而它其实是「要不要少输一次密码」的取舍开关 */
+  background: var(--btn-secondary);
+  color: var(--btn-secondary-text);
+}
+.channel-helper-action:hover:not(:disabled) {
+  background: var(--btn-secondary-hover);
+}
+.channel-helper[data-state="on"] {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--ok-color, #34d399) 35%, transparent);
+  background: color-mix(in srgb, var(--ok-color, #34d399) 5%, transparent);
+}
+.channel-helper[data-state="on"] .channel-helper-label {
+  color: var(--ok-color, #34d399);
+}
+/* 已装但版本旧：黄框，和健康检查里的 warn 同一套语义（要处理，但没坏） */
+.channel-helper[data-state="stale"] {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--warn-color, #fbbf24) 40%, transparent);
+  background: color-mix(in srgb, var(--warn-color, #fbbf24) 6%, transparent);
+}
+.channel-helper[data-state="stale"] .channel-helper-label {
+  color: var(--warn-color, #fbbf24);
+}
+
+/* ── OC 菜单区域（OpenCore 卡片正文的一块：不折叠、无标题）──
+   盒模型对齐上面的 .channel-health，读起来是同一层级的正文，不再套一个
+   带边框的子面板（用户 2026-10-28 要求「不要折叠菜单、不要标题」）。
+   自适应三件套：外层 flex-wrap、中间层 min-width:0、路径 overflow-wrap:anywhere。
+   任何一档宽度都不许把窗口撑出横向滚动条。 */
+.oc-menu {
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--text) 3%, transparent);
+  min-width: 0;
+}
+.oc-menu-hint {
+  margin: 0 0 8px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--fg-dim);
+  overflow-wrap: anywhere;
+}
+.oc-menu-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* ── rEFInd 模拟引导项扫描（用户定案 2026-10-29） ──
+ * 与上面三张「手动获取」的系统卡并列：那是 vars 快照（切换 = 复制文件），
+ * 这里是按 rEFInd 扫描规则复算出来的菜单。列表**直接用 GRUB 启动项那一套**
+ * （.grub-list + .grub-entry，见文件下方的 override），两处长得一样靠同一份 CSS。 */
+.sim-scan {
+  display: grid;
+  gap: 8px;
+  margin-top: 4px;
+  padding-top: 12px;
+  /* 与上面的系统卡分隔：一条虚线，别让人以为这堆行也属于那三张卡 */
+  border-top: 1px dashed var(--border);
+}
+.sim-scan-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+.sim-scan-head h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+.sim-scan-head small {
+  color: var(--text-faint);
+  font-size: 11px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.sim-scan-head button {
+  margin-left: auto;
+  font-size: 11px;
+  padding: 3px 9px;
+}
+.sim-scan-summary {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.sim-scan-issues {
+  display: grid;
+  gap: 4px;
+}
+.sim-scan-issue {
+  color: var(--text-faint);
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.sim-scan-issue[data-severity="warn"] {
+  color: var(--warn);
+}
+.sim-scan-list {
+  min-width: 0;
+}
+
+/* 被隐藏项那一坨：折叠标题跟配置区的 details 同款，展开后是同一个列表框 */
+.sim-scan-hidden {
+  display: grid;
+  gap: 6px;
+}
+
+/* display:grid 会盖掉 [hidden] 的 UA display:none */
+.sim-scan-hidden[hidden] {
+  display: none;
+}
+
+.sim-scan-hidden > summary {
+  color: var(--text-dim);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+/* 模拟扫描的列表框：**就是** GRUB 区那一个（用户定案 2026-10-29「一比一还原」）——
+ * 渲染时直接套 `.grub-list` + `.grub-entry`，样式不在这里另抄一份。
+ *
+ * 高度也跟着 GRUB 限住、自己滚（用户 08:47：怎么没有滚轮 —— 上一版为了不藏内容
+ * 把限高去掉，35 行全铺开只能靠整页滚，回头找上面几项得滚很远）。
+ * 置顶的「当前项」是 sticky（.is-pinned），在这个滚动容器里滚动时钉在框顶。
+ * 必须用 ID 提权：`body[data-grub-mode="inline"] .grub-list` 的权重比
+ * `.sim-scan .grub-list` 高，普通选择器压不住它。 */
+#sim-scan .grub-list {
+  max-height: min(420px, 60vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* 隐藏项那份在 <details> 里，展开后跟着页面走，不再套第二层内滚动 */
+#sim-scan-hidden .grub-list {
+  max-height: none;
+  overflow: visible;
+}
+
+/* 隐藏项那份在 <details> 里，外面已有一层框，不再套第二层 */
+.sim-list-plain {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+/* 置顶的「当前项」与下面的正式列表拉开 4px（与列表内行距同值） */
+.sim-list > .grub-entry + .grub-list-body {
+  margin-top: 4px;
+}
+
+/* 行右侧的小字/按钮排一行（GRUB 那边只有一个小字，这里可能并排放两三个） */
+.grub-entry-side {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 组头整行可点（展开/收起），给个手型；GRUB 那边组头不可点没这条 */
+.grub-entry.is-group[role="button"],
+#sim-scan .grub-entry.is-child[role="button"] {
+  cursor: pointer;
+}
+
+/* 可点的行（组头 = 展开，普通行 = 设为下次启动）hover 时描边，跟 GRUB 组头一致 */
+#sim-scan .grub-entry[role="button"]:hover,
+#sim-scan-hidden .grub-entry[role="button"]:hover {
+  border-color: var(--border-strong);
+}
+
+.grub-entry.is-group:focus-visible {
+  outline: 2px solid var(--btn);
+  outline-offset: -1px;
+}
+
+/* 行内的「下次启动」：比正文再小一号，别抢标题的位置，也别把行撑高 */
+.sim-pick {
+  font-size: 10px;
+  line-height: 1.3;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
+/* 当前「记住的启动项」标记（那一行同时带 GRUB 的 .active 绿框绿底） */
+.sim-last-mark {
+  color: var(--ok);
+  border: 1px solid var(--ok-border);
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+
+.sim-children {
+  /* 复用 .grub-list-body 的 grid 间距，展开后行距与 GRUB 列表一致 */
+  margin: 0;
+}
+
+/* display:grid 会盖掉 [hidden] 的 UA display:none —— 必须显式补一条，
+   否则折叠面板永远展开（踩过一次） */
+.sim-children[hidden] {
+  display: none;
+}
+
+.sim-children-hint {
+  padding: 3px 9px 3px 26px;
+  color: var(--text-faint);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+/* 两个提权按钮共用一行；窄档自动折行 */
+.oc-menu-elevate {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+.oc-menu-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 7px 9px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--text) 4%, transparent);
+  min-width: 0;
+}
+/* 用户 2026-10-30：行尾不再挂「设为默认」的箭头按钮 —— 点整行就是设默认，
+   选中没选中由这一行自己的选中框（.is-def 绿框）说明。这里补指针与键盘焦点圈。 */
+.oc-menu-row.is-clickable { cursor: pointer; }
+.oc-menu-row.is-clickable:hover { border-color: color-mix(in srgb, var(--ok) 28%, transparent); }
+.oc-menu-row.is-clickable:focus-visible {
+  outline: 2px solid var(--accent, var(--border-strong));
+  outline-offset: -2px;
+}
+.oc-menu-idx {
+  flex: 0 0 auto;
+  width: 18px;
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+  border-radius: 5px;
+  color: var(--fg-dim);
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+}
+.oc-menu-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  /* basis 必须是 0：`auto` 时基准宽度等于内容宽度，窄屏下一行放不下就让
+     正文整个换到第二行（序号孤零零留在上面）。0 基准只按剩余空间分配，
+     序号 / 正文始终同行，只有按钮按需换行。 */
+  flex: 1 1 0;
+  min-width: 0;
+}
+.oc-menu-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.oc-menu-head b {
+  font-size: 12px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.oc-menu-kind,
+.oc-menu-src {
+  flex: 0 0 auto;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 5px;
+  color: var(--fg-dim);
+  background: color-mix(in srgb, var(--text) 7%, transparent);
+}
+.oc-menu-src {
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--text) 12%, transparent);
+}
+.oc-menu-path {
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--fg-dim);
+  /* 长路径（Preboot 那种带 UUID 的）必须能断行，否则撑破卡片 */
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+.oc-menu-note {
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--fg-dim);
+  overflow-wrap: anywhere;
+}
+/* 「设为默认」= OC 菜单里的 Ctrl+Enter。放在行尾、不参与挤压：
+   flex:0 0 auto 让 body 去收缩，别把按钮文字压成竖排（这是上次踩过的坑）。 */
+.oc-menu-set {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  padding: 4px 9px;
+  font-size: 11px;
+  line-height: 1.45;
+  border-radius: 7px;
+  white-space: nowrap;
+}
+/* 已经是默认项：占住按钮的位置，但不可点。
+   以前这一格直接留空，看着像「这一行选不了」；真相是它在启动顺序里本来就排第一。
+   沿用原来的绿色（原来这个状态是行首一枚小徽章，位置离「动作列」太远）。 */
+.oc-menu-set.is-default {
+  color: var(--ok-color, #34d399);
+  background: transparent;
+  border: 1px dashed color-mix(in srgb, var(--ok-color, #34d399) 45%, transparent);
+  cursor: default;
+  user-select: none;
+}
+.oc-menu-hidden,
+.oc-menu-issues {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--fg-dim);
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.oc-menu-hidden { background: color-mix(in srgb, var(--text) 4%, transparent); }
+.oc-menu-issues {
+  border-left: 2px solid color-mix(in srgb, var(--text) 14%, transparent);
+  background: color-mix(in srgb, var(--text) 3%, transparent);
+}
+.oc-menu-issues small.warn { color: var(--warn-color, #fbbf24); }
+/* 与 .channel-health code 同一套排版：配置键 / 变量名等宽、浅底 */
+.oc-menu-issues code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--text) 7%, transparent);
+  font-size: 10.5px;
+}
+
+/* 条目行：图标 + 名称/路径 + 徽章 + 动作按钮 */
+.boot-list { display: flex; flex-direction: column; gap: 8px; }
+.boot-entry {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--panel-strong);
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.boot-entry:hover { border-color: var(--line-strong); }
+.boot-entry.current {
+  border-color: color-mix(in srgb, var(--ok-color, #34d399) 45%, transparent);
+}
+/* 图标：原来是 .boot-entry-ico（34px emoji 槽），2026-10-30 换设计稿
+ * .row-ico 字章（22px MAC/WIN/LNX），元素类名直接用 row-ico，旧块已删 */
+.boot-entry-meta { flex: 1; min-width: 0; }
+.boot-entry-meta b {
+  display: block;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.boot-entry-meta small {
+  display: block;
+  color: var(--fg-faint);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 徽章：绿=当前默认（该通道自己的默认项），蓝=上次启动（记忆回读） */
+.boot-badge {
+  flex: none;
+  font-size: 10px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--ok-color, #34d399) 55%, transparent);
+  color: var(--ok-color, #34d399);
+}
+.boot-badge.last {
+  border-color: var(--channel, var(--line-strong));
+  color: var(--channel, var(--fg-dim));
+}
+
+/* 提权按钮：视觉区分，点击弹授权说明 */
+button.needs-elev {
+  border: 1px solid color-mix(in srgb, var(--warn-color, #fbbf24) 45%, transparent);
+}
+
+/* 未检测到的引导器折叠条 */
+.boot-channel-collapsed {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 12px;
+  padding: 10px 14px;
+  color: var(--fg-faint);
+  font-size: 12px;
+  margin-top: 16px;
+}
+.boot-channel-collapsed-names { color: var(--fg-dim); }
+.boot-channel-collapsed button { margin-left: auto; }
+
+/* 摘要条新增「上次启动」位 */
+.next-boot-last { margin-left: auto; }
+.next-boot-last b { color: var(--ok-color, #34d399); font-weight: 600; }
+
+/* ═══════════════════════════════════════════════════════════════════
+ * 三引导器通道 · flex 自适应（对齐 720/480 双断点体系，作用域仅新组件）
+ * 规则同 GRUB 通道行的老三样：min-width:0 + ellipsis/anywhere + 放手折行
+ * ═══════════════════════════════════════════════════════════════════ */
+
+/* ── 任意宽度都要成立的基础项 ── */
+
+/* 标题行：chip（margin-left:auto）在窄窗挤不下时换到下一行，
+ * 不许把标题压扁（.grub-title-row 基类 flex:none 是给 GRUB 头用的，
+ * 通道卡在 main 单列里没有右侧小字竞争，放开折行更稳） */
+.boot-channel .grub-title-row {
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+
+/* 摘要行 / 健康检查条：config.plist 键名（Misc→Security→AllowSetDefault）
+ * 很长，anywhere 断行是硬要求；code 片段内联可断 */
+.channel-pane-status,
+.channel-health {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.channel-health code {
+  overflow-wrap: anywhere;
+}
+
+/* 条目行元信息：小字路径省略号已有；名字也兜一层 anywhere（超长 id） */
+.boot-entry-meta { min-width: 0; }
+.boot-entry-meta b { overflow-wrap: anywhere; }
+
+/* 徽章 / 按钮不许被压扁换行文字：保持整体换行（窄档里放开 wrap） */
+.boot-badge,
+.boot-entry button {
+  flex: none;
+}
+
+/* 摘要条「上次启动」：.next-boot 是 grid，值可能很长
+ *（Boot0001（AnyBoot 上次写入的 BootNext）），可断行不撑破 */
+.next-boot-last {
+  min-width: 0;
+}
+.next-boot-last b {
+  overflow-wrap: anywhere;
+}
+
+/* 折叠条：名字列表可收缩，窄窗整行折两段 */
+.boot-channel-collapsed {
+  min-width: 0;
+}
+.boot-channel-collapsed-names {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* ── ≤720px：与现有分栏折叠同档，通道卡进入「单列窄卡」形态 ── */
+@media (max-width: 720px) {
+  /* 条目行：徽章/按钮放不下时整体折到第二行，元信息吃满首行 */
+  .boot-entry {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+  .boot-entry-meta {
+    flex: 1 1 0;
+  }
+  /* 徽章与按钮在第二行右对齐聚拢 */
+  .boot-badge:first-of-type,
+  .boot-entry button {
+    margin-left: auto;
+  }
+  .boot-badge + .boot-badge {
+    margin-left: 0;
+  }
+
+  /* 圆标与 chip 略收紧，给标题让宽度 */
+  .boot-channel .zone-tag {
+    padding: 2px 7px;
+    font-size: 9px;
+  }
+  .channel-chip {
+    font-size: 10px;
+    padding: 2px 7px;
+  }
+
+  /* 关键：detail 小字放开 nowrap（原来 ellipsis 的 nowrap 会把整行
+   * 无断行宽度计入 min-content，320px 下把整卡撑到 346px）。
+   * 窄卡里改为自然折行 + anywhere，桌面宽档仍保持单行省略号。 */
+  .boot-entry-meta small {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .boot-entry,
+  .boot-list,
+  .boot-channel,
+  #boot-channels-mount {
+    min-width: 0;
+  }
+
+  /* 预演行：「设为默认」在窄档折到下一行右侧（宁可多一行，也不把路径挤成一列字） */
+  .oc-menu-row {
+    flex-wrap: wrap;
+  }
+  .oc-menu-set {
+    margin-left: auto;
+  }
+}
+
+/* ── ≤480px：手机档，标题行与折叠条整体重排 ── */
+@media (max-width: 480px) {
+  /* 标题行：圆标+标题一行、chip 独占一行（wrap 自动达成，这里只管间距） */
+  .boot-channel .grub-title-row {
+    gap: 6px;
+  }
+  .boot-channel .grub-title-row h2 {
+    font-size: 15px;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  /* chip 允许换行文字（「已检测 · 需要提权」在 320px 也放得下） */
+  .channel-chip {
+    flex: 0 1 auto;
+    min-width: 0;
+    white-space: normal;
+    text-align: right;
+  }
+
+  /* 条目行：图标缩小一号，徽章/按钮第二行铺开。
+   * meta 保底 120px：容器放不下时把徽章/按钮挤到第二行，
+   * 文字不被按钮（原来 flex:1 会抢宽）压成一字一行的竖排。 */
+  .boot-entry {
+    gap: 8px;
+    padding: 9px 10px;
+  }
+  .boot-entry-meta {
+    min-width: 120px;
+  }
+  .boot-entry button {
+    flex: 0 0 auto;
+  }
+
+  /* 折叠条：说明与按钮分两行 */
+  .boot-channel-collapsed {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+
+  /* 摘要条「上次启动」独占一行左对齐（margin-left:auto 让位） */
+  .next-boot-last {
+    margin-left: 0;
+  }
+}
+
+/* ══════════ Linux 免密提权卡（系统引导页底部，index.html）══════════
+   原 hub.html 关于页样式迁来，按本文件令牌重写（用户定案 2026-10-29）。 */
+.priv-card {
+  margin-top: 18px;
+  padding: 16px 18px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+}
+.priv-head { display: flex; align-items: center; gap: 8px; }
+.priv-head h3 { margin: 0; font-size: 13.5px; font-weight: 600; }
+.priv-badge {
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  color: var(--text-dim);
+}
+.priv-badge.ok { color: var(--ok); border-color: var(--ok-border); background: var(--ok-bg); }
+.priv-badge.warn { color: var(--warn); border-color: var(--warn); }
+.priv-state { margin: 8px 0 0; font-size: 12.5px; line-height: 1.6; }
+.priv-paths {
+  margin: 6px 0 0;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--text-dim);
+  word-break: break-all;
+}
+.priv-pw { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+.priv-pw[hidden] { display: none; }
+.priv-pw label { font-size: 11px; color: var(--text-faint); }
+.priv-pw input {
+  max-width: 320px;
+  padding: 7px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--input-bg);
+  color: var(--text);
+  font-size: 12.5px;
+}
+.priv-pw input:focus { border-color: var(--accent, #6366f1); outline: none; }
+.priv-note { margin: 10px 0 0; font-size: 11px; line-height: 1.7; color: var(--text-faint); }
+
+
+/* ═════════════════════════════════════════════════════════════════════
+   引导高级设置 + 版式主题 —— 一比一移植自设计稿 docs/boot-menu-layouts.html
+   类名保持设计稿原名：.k-* / .la-* / .lb-* / .lc-* / .lg-* / .li-* / .lj-*
+   与原子 .ldr/.chip/.row/.seg/.card…（已核实与既有样式零冲突，.dot 仅
+   .sol-badge 下有局部定义且特异性更高）。仅三处为 App 容器做的适配：
+   ① 设计稿的 .win-body(padding 16px) 负边距出血 → App 容器无内边距，
+      改为圆角卡片边框；② 断点选择器 .win-body.vw-* → .vw-*（JS 挂）；
+   ③ 菜单样式三档统一由 body[data-boot-style] 驱动（预演+真实页通用）。
+   ═════════════════════════════════════════════════════════════════════ */
+
+/* ── 设计令牌别名（暗色默认；亮色跟 [data-theme="light"]）────────────── */
+:root {
+  --line: #232b42;
+  --line-2: #334155;
+  --line-3: #4a5a75;
+  --dim: #a6b3c6;
+  --faint: #7f8da3;
+  --fainter: #5c6a80;
+  --panel-2: #111830;
+  --panel-3: #18213a;
+  --panel-4: #1f2a45;
+  --mono: ui-monospace, "Cascadia Code", "JetBrains Mono", Consolas, "SF Mono", monospace;
+  --accent-2: #818cf8;
+  --accent-soft: rgba(99, 102, 241, 0.15);
+  --ok-text: #4ade80;
+  --warn-text: #fbbf24;
+  --info: #38bdf8;
+  --info-text: #7dd3fc;
+  --bg: rgb(var(--bg-rgb));
+}
+[data-theme="light"] {
+  --line: #dde3ec;
+  --line-2: #c3cddb;
+  --line-3: #9dabbd;
+  --dim: #41506a;
+  --faint: #5b6a80;
+  --fainter: #7a8899;
+  --panel-2: #f5f7fb;
+  --panel-3: #e9eef6;
+  --panel-4: #dde5f0;
+  --accent-2: #4338ca;
+  --accent-soft: rgba(79, 70, 229, 0.1);
+  --ok-text: #15803d;
+  --warn-text: #b45309;
+  --info: #0369a1;
+  --info-text: #0369a1;
+}
+/* 设计稿的 danger 亮一档（#ef4444），App 全局 --danger 是暗红 —— 只在设计组件域内覆盖 */
+.k, .la, .lb, .lc, .lg, .li, .lj {
+  --danger: #ef4444;
+  --danger-text: #fca5a5;
+}
+
+/* ── 3. 通用组件（设计稿第 3 节，原样移植）──────────────────────────── */
+.ldr {
+  --c: #6366f1;
+  width: 30px; height: 30px; flex: none; border-radius: 8px; display: grid; place-items: center;
+  font: 700 10.5px var(--mono); letter-spacing: 0.02em; color: var(--c);
+  background: color-mix(in srgb, var(--c) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--c) 40%, transparent);
+}
+.ldr.sm { width: 22px; height: 22px; border-radius: 6px; font-size: 8.5px; }
+.ldr.md { width: 26px; height: 26px; border-radius: 7px; font-size: 9.5px; }
+.ldr.lg { width: 36px; height: 36px; border-radius: 10px; font-size: 12px; }
+
+.dot { width: 6px; height: 6px; border-radius: 50%; flex: none; background: var(--faint); }
+.dot.ok { background: var(--ok); }
+.dot.warn { background: var(--warn); }
+.dot.off { background: var(--line-3); }
+.dot.err { background: var(--danger); }
+.dot.live { box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent); }
+
+.chip {
+  display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 7px;
+  border-radius: 6px; border: 1px solid var(--line-2); background: var(--panel-2);
+  color: var(--dim); font-size: 10.5px; white-space: nowrap; flex: none;
+}
+.chip.ok { color: var(--ok-text); border-color: color-mix(in srgb, var(--ok) 34%, transparent); background: color-mix(in srgb, var(--ok) 10%, transparent); }
+.chip.warn { color: var(--warn-text); border-color: color-mix(in srgb, var(--warn) 34%, transparent); background: color-mix(in srgb, var(--warn) 10%, transparent); }
+.chip.off { color: var(--faint); }
+.chip.elev { color: #c7b9ff; border-color: rgba(167, 139, 250, 0.36); background: rgba(167, 139, 250, 0.12); }
+[data-theme="light"] .chip.elev { color: #5b21b6; }
+
+.badge {
+  display: inline-flex; align-items: center; gap: 4px; height: 17px; padding: 0 5px; border-radius: 5px;
+  font-size: 10px; background: var(--panel-3); color: var(--dim); border: 1px solid transparent; white-space: nowrap; flex: none;
+}
+.badge.def { color: var(--ok-text); background: color-mix(in srgb, var(--ok) 12%, transparent); }
+.badge.last { color: var(--info-text); background: color-mix(in srgb, var(--info) 12%, transparent); }
+.badge.pin { color: var(--accent-2); background: var(--accent-soft); }
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: 28px; padding: 0 10px; border-radius: 7px; border: 1px solid var(--line-2);
+  background: var(--panel-2); color: var(--text); font-size: 12px; font-weight: 500;
+  cursor: pointer; white-space: nowrap; flex: none;
+  transition: background 0.13s, border-color 0.13s, color 0.13s, box-shadow 0.13s;
+}
+.btn:hover { background: var(--panel-3); border-color: var(--line-3); }
+.btn:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 1px; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.primary:hover { background: var(--accent-2); border-color: var(--accent-2); }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--dim); }
+.btn.ghost:hover { background: var(--panel-2); color: var(--text); }
+.btn.danger { color: var(--danger-text); border-color: color-mix(in srgb, var(--danger) 40%, transparent); background: color-mix(in srgb, var(--danger) 9%, transparent); }
+.btn.sm { height: 24px; padding: 0 8px; font-size: 11px; border-radius: 6px; gap: 4px; }
+.btn.xs { height: 20px; padding: 0 6px; font-size: 10.5px; border-radius: 5px; gap: 3px; }
+.btn.icon { width: 26px; padding: 0; }
+.btn.icon.sm { width: 22px; }
+.btn[disabled], .btn.is-disabled { opacity: 0.45; cursor: not-allowed; pointer-events: none; }
+.btn .elev { font-size: 10px; opacity: 0.9; }
+
+.seg { display: inline-flex; flex-wrap: wrap; max-width: 100%; padding: 2px; gap: 2px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; flex: none; }
+.seg button {
+  height: 22px; padding: 0 8px; border: 1px solid transparent; border-radius: 6px;
+  background: transparent; color: var(--faint); font-size: 11px; cursor: pointer; font-family: inherit;
+}
+.seg button:hover { color: var(--text); }
+.seg button.is-on { background: var(--panel-4); color: var(--text); border-color: var(--line-2); }
+
+.search {
+  display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 9px;
+  background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 8px; color: var(--faint);
+  min-width: 0; flex: 1;
+}
+.search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text); font: 12px var(--font); }
+.search input::placeholder { color: var(--fainter); }
+.kbd {
+  display: inline-grid; place-items: center; min-width: 17px; height: 17px; padding: 0 4px;
+  font: 10px var(--mono); color: var(--dim); background: var(--panel-3);
+  border: 1px solid var(--line-2); border-bottom-width: 2px; border-radius: 4px; flex: none;
+}
+
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.card-head { flex: none; display: flex; align-items: center; gap: 9px; padding: 11px 12px; }
+.card-title { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.card-title b { font-size: 13px; font-weight: 650; letter-spacing: -0.01em; }
+.card-title small { font-size: 10.5px; color: var(--faint); font-family: var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.entries { display: flex; flex-direction: column; gap: 1px; padding: 0 6px 8px; }
+.row {
+  display: flex; align-items: center; gap: 9px; padding: 6px 7px; border-radius: 8px;
+  border: 1px solid transparent; min-width: 0;
+}
+.row:hover { background: var(--panel-2); }
+.row.is-def { background: color-mix(in srgb, var(--ok) 7%, transparent); border-color: color-mix(in srgb, var(--ok) 20%, transparent); }
+.row-ico {
+  width: 22px; height: 22px; flex: none; border-radius: 6px; display: grid; place-items: center;
+  font: 600 8.5px var(--mono); letter-spacing: 0.02em;
+  background: var(--panel-3); color: var(--dim);
+}
+/* 系统 logo（win/mac/lin）：字章文本换成真图标，随档位配色走 currentColor */
+.row-ico svg {
+  width: 13px; height: 13px; display: block;
+  fill: currentColor;
+}
+.row-ico.mac { color: #c4b5fd; background: rgba(167, 139, 250, 0.14); }
+.row-ico.win { color: #93c5fd; background: rgba(96, 165, 250, 0.14); }
+.row-ico.lin { color: #fcd34d; background: rgba(245, 158, 11, 0.14); }
+.row-ico.tool { color: #94a3b8; background: rgba(148, 163, 184, 0.12); }
+.row-ico.fw { color: #7dd3fc; background: rgba(56, 189, 248, 0.12); }
+[data-theme="light"] .row-ico.mac { color: #6d28d9; background: rgba(109, 40, 217, 0.1); }
+[data-theme="light"] .row-ico.win { color: #1d4ed8; background: rgba(29, 78, 216, 0.1); }
+[data-theme="light"] .row-ico.lin { color: #92400e; background: rgba(180, 83, 9, 0.1); }
+.row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.row-main b { font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row-main small {
+  font: 10.5px var(--mono); color: var(--faint);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.row-acts { display: flex; align-items: center; gap: 5px; flex: none; opacity: 0.5; transition: opacity 0.12s; }
+.row:hover .row-acts, .row:focus-within .row-acts { opacity: 1; }
+@media (hover: none) { .row-acts { opacity: 1; } }
+
+.sep { height: 1px; background: var(--line); margin: 0; }
+
+.acc {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 12px;
+  border: 0; border-top: 1px solid var(--line); background: transparent; color: var(--dim);
+  font-size: 11.5px; cursor: pointer; text-align: left; font-family: inherit;
+}
+.acc:hover { background: var(--panel-2); color: var(--text); }
+.acc .grow { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 7px; overflow: hidden; }
+.acc .grow > span { white-space: nowrap; flex: none; }
+.acc small { color: var(--fainter); font-size: 10.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.acc .car { transition: transform 0.15s; }
+.acc[aria-expanded="true"] .car { transform: rotate(180deg); }
+
+.panel-in {
+  padding: 2px 12px 12px; display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px; border-top: 1px solid transparent;
+}
+.set {
+  display: flex; align-items: center; gap: 8px; padding: 7px 9px; border-radius: 8px;
+  background: var(--panel-2); border: 1px solid var(--line); min-width: 0;
+}
+.set .set-t { flex: 1; min-width: 0; }
+.set .set-t b { display: block; font-size: 11.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.set .set-t small { display: block; font: 10px var(--mono); color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+
+.switch { width: 30px; height: 17px; border-radius: 9px; background: var(--panel-4); border: 1px solid var(--line-2); position: relative; flex: none; }
+.switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 11px; height: 11px; border-radius: 50%; background: var(--faint); transition: 0.15s; }
+.switch.on { background: color-mix(in srgb, var(--accent) 60%, transparent); border-color: var(--accent); }
+.switch.on::after { left: 15px; background: #fff; }
+
+.toolbar { display: flex; align-items: center; gap: 7px; flex: none; min-width: 0; }
+.toolbar .grow { flex: 1; min-width: 0; }
+.mut { color: var(--faint); }
+.hint { font-size: 10.5px; color: var(--fainter); }
+
+.ico-cell { display: grid; place-items: center; color: var(--dim); }
+svg.i { display: block; width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+svg.i.sm { width: 12px; height: 12px; }
+svg.i.lg { width: 16px; height: 16px; }
+
+.empty {
+  display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 26px 12px;
+  color: var(--faint); font-size: 12px; text-align: center;
+}
+.empty b { color: var(--text); font-size: 13px; }
+.grow { flex: 1; min-width: 0; }
+
+/* ── 4. 方案 A —— 卡片流 + 顶部通道索引（原样移植；索引条按 App 容器适配）── */
+.la { display: flex; flex-direction: column; min-height: 0; }
+.la-index {
+  flex: none; position: sticky; top: 0; z-index: 3; margin: 0 0 12px; padding: 9px 12px;
+  display: flex; align-items: center; gap: 6px; overflow-x: auto;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(10px); border: 1px solid var(--line); border-radius: 10px;
+}
+.la-chip {
+  display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px; border-radius: 6px;
+  border: 1px solid transparent; background: transparent; color: var(--dim); font-size: 11px; cursor: pointer; flex: none;
+  font-family: inherit;
+}
+.la-chip:hover { background: var(--panel-2); color: var(--text); }
+.la-chip.is-on { background: var(--panel-2); border-color: var(--line-2); color: var(--text); }
+.la-chip em { font: 10px var(--mono); color: var(--fainter); font-style: normal; }
+.la-star { color: var(--accent-2); }
+.la-list { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; padding-right: 2px; }
+.la-card { flex: none; }
+.la-card .card-head { border-bottom: 1px solid transparent; }
+.la-card .card-head:hover { border-bottom-color: var(--line); }
+.la-card.is-pinned { border-color: color-mix(in srgb, var(--accent) 34%, var(--line)); }
+.la-card.is-pinned .card-head { background: linear-gradient(90deg, var(--accent-soft), transparent 60%); }
+.la-foot {
+  flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-top: 1px solid var(--line);
+  font-size: 11px; color: var(--faint); background: var(--panel-2);
+}
+.la-more {
+  flex: none; display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-radius: 10px;
+  border: 1px dashed var(--line-2); color: var(--faint); font-size: 11.5px; background: transparent; cursor: pointer; text-align: left;
+  font-family: inherit;
+}
+.la-more:hover { border-color: var(--line-3); color: var(--dim); }
+.la-more b { color: var(--dim); font-weight: 600; }
+
+/* ── 5. 方案 B —— 左栏通道 + 右栏详情（原样移植；App 内嵌为圆角卡片）──── */
+.lb { display: flex; min-height: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.lb-nav {
+  width: 236px; flex: none; display: flex; flex-direction: column; min-height: 0;
+  border-right: 1px solid var(--line); background: var(--panel-2);
+}
+.lb-nav-head {
+  flex: none; display: flex; align-items: center; gap: 6px; padding: 12px 10px 8px;
+  font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fainter);
+}
+.lb-nav-head .grow { flex: 1; }
+.lb-list { flex: 1; min-height: 0; overflow-y: auto; padding: 0 6px 8px; display: flex; flex-direction: column; gap: 1px; }
+.lb-item {
+  display: flex; align-items: center; gap: 8px; padding: 7px 7px; border-radius: 8px; border: 1px solid transparent;
+  background: transparent; cursor: pointer; text-align: left; width: 100%; color: inherit; min-width: 0;
+  font-family: inherit;
+}
+.lb-item:hover { background: var(--panel-3); }
+.lb-item.is-on { background: var(--panel); border-color: var(--line-2); box-shadow: 0 1px 0 rgba(0, 0, 0, 0.15); }
+.lb-item .nm { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.lb-item .nm b { font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lb-item .nm small { font-size: 10px; color: var(--fainter); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lb-grip { color: var(--fainter); opacity: 0; cursor: grab; flex: none; }
+.lb-item:hover .lb-grip { opacity: 1; }
+.lb-item.is-on .lb-grip { opacity: 0.7; }
+.lb-nav-foot { flex: none; padding: 8px 8px; border-top: 1px solid var(--line); display: flex; gap: 6px; }
+.lb-main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; background: var(--bg); }
+.lb-main-head {
+  flex: none; display: flex; align-items: center; gap: 10px; padding: 14px 16px 10px;
+  border-bottom: 1px solid var(--line); background: var(--bg);
+}
+.lb-main-head .tt { flex: 1; min-width: 0; }
+.lb-main-head h2 { font-size: 15px; font-weight: 650; display: flex; align-items: center; gap: 7px; margin: 0; }
+.lb-main-head p { font: 11px var(--mono); color: var(--faint); margin: 2px 0 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lb-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 16px 16px; }
+.lb-note {
+  display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 9px; margin-bottom: 12px;
+  background: var(--panel); border: 1px solid var(--line); font-size: 11.5px; color: var(--dim);
+}
+.lb-note b { color: var(--text); font-weight: 600; }
+.lb-block { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; margin-bottom: 10px; }
+.lb-block-head {
+  display: flex; align-items: center; gap: 8px; padding: 9px 11px; border-bottom: 1px solid var(--line);
+  font-size: 11.5px; color: var(--dim); width: 100%; border-left: 0; border-right: 0; border-top: 0;
+  background: transparent; text-align: left; cursor: pointer; font-family: inherit;
+}
+.lb-block-head:hover { background: var(--panel-2); }
+.lb-block-head b { color: var(--text); font-size: 12px; font-weight: 600; }
+.lb-block-body { padding: 6px; }
+.lb-set { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 7px; padding: 8px; }
+
+/* ── 6. 方案 C —— 顶部固定标签页（原样移植）──────────────────────────── */
+.lc { display: flex; flex-direction: column; min-height: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.lc-tabs {
+  flex: none; display: flex; align-items: stretch; gap: 2px; padding: 7px 10px 0;
+  border-bottom: 1px solid var(--line); background: var(--panel); overflow-x: auto; scrollbar-width: none;
+}
+.lc-tabs::-webkit-scrollbar { display: none; }
+.lc-tab {
+  display: flex; align-items: center; gap: 6px; height: 31px; padding: 0 10px; flex: none;
+  border: 1px solid transparent; border-bottom: 0; border-radius: 8px 8px 0 0;
+  background: transparent; color: var(--faint); font-size: 11.5px; cursor: pointer; position: relative;
+  font-family: inherit;
+}
+.lc-tab:hover { background: var(--panel-2); color: var(--text); }
+.lc-tab.is-on {
+  background: var(--bg); border-color: var(--line); color: var(--text);
+  margin-bottom: -1px; padding-bottom: 1px;
+}
+.lc-tab.is-on::after { content: ""; position: absolute; left: 8px; right: 8px; top: 0; height: 2px; background: var(--accent); border-radius: 0 0 2px 2px; }
+.lc-tab .pin { color: var(--accent-2); }
+.lc-tab em { font: 9.5px var(--mono); color: var(--fainter); font-style: normal; }
+.lc-tabadd { width: 26px; height: 26px; align-self: center; flex: none; }
+.lc-toolbar {
+  flex: none; display: flex; align-items: center; gap: 7px; padding: 9px 13px;
+  border-bottom: 1px solid var(--line); background: var(--bg);
+}
+.lc-body { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 13px; }
+.lc-settings { flex: none; border-top: 1px solid var(--line); background: var(--panel-2); }
+.lc-meta { font-size: 11px; color: var(--faint); display: flex; align-items: center; gap: 6px; }
+
+/* ── 7. 方案 G —— 命令面板（原样移植）────────────────────────────────── */
+.lg { display: flex; gap: 0; min-height: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.lg-main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+.lg-top {
+  flex: none; padding: 14px 14px 10px; border-bottom: 1px solid var(--line);
+  display: flex; flex-direction: column; gap: 9px; background: var(--panel);
+}
+.lg-search {
+  display: flex; align-items: center; gap: 9px; height: 40px; padding: 0 12px;
+  background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 10px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+.lg-search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text); font: 13.5px var(--font); }
+.lg-search input::placeholder { color: var(--fainter); }
+.lg-filters { display: flex; gap: 5px; overflow-x: auto; scrollbar-width: none; }
+.lg-filters::-webkit-scrollbar { display: none; }
+.lg-fchip {
+  display: inline-flex; align-items: center; gap: 5px; height: 23px; padding: 0 8px; border-radius: 6px;
+  border: 1px solid var(--line); background: transparent; color: var(--faint); font-size: 10.5px; cursor: pointer; flex: none;
+  font-family: inherit;
+}
+.lg-fchip:hover { color: var(--text); border-color: var(--line-2); }
+.lg-fchip.is-on { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 45%, transparent); color: var(--accent-2); }
+.lg-results { flex: 1; min-height: 0; overflow-y: auto; padding: 6px; }
+.lg-group {
+  display: flex; align-items: center; gap: 6px; padding: 7px 8px 4px;
+  font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--fainter);
+}
+.lg-item {
+  display: flex; align-items: center; gap: 9px; width: 100%; padding: 7px 9px; border-radius: 8px;
+  border: 1px solid transparent; background: transparent; cursor: pointer; text-align: left; color: inherit; min-width: 0;
+  font-family: inherit;
+}
+.lg-item:hover, .lg-item.is-active { background: var(--panel-2); border-color: var(--line); }
+.lg-item.is-active { box-shadow: inset 2px 0 0 var(--accent); }
+.lg-item .t { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.lg-item .t b { font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lg-item .t small { font: 10.5px var(--mono); color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lg-foot {
+  flex: none; display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-top: 1px solid var(--line);
+  font-size: 10.5px; color: var(--faint); background: var(--panel-2); flex-wrap: wrap;
+}
+.lg-foot span { display: flex; align-items: center; gap: 5px; }
+.lg-side {
+  width: 258px; flex: none; border-left: 1px solid var(--line); background: var(--panel-2);
+  padding: 13px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px;
+}
+.lg-side h4 { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fainter); margin: 0; }
+
+/* ── 8. 方案 I —— Bento 磁贴 + 底部抽屉（原样移植）───────────────────── */
+.li { display: flex; flex-direction: column; min-height: 0; position: relative; overflow: hidden; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
+.li-grid { flex: 1; min-height: 0; overflow-y: auto; display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; align-content: start; padding: 12px; }
+.li-hero {
+  grid-column: span 2; grid-row: span 2; display: flex; flex-direction: column; justify-content: space-between;
+  padding: 15px; border-radius: 13px; position: relative; overflow: hidden;
+  background:
+    radial-gradient(320px 160px at 88% 8%, color-mix(in srgb, var(--accent) 55%, transparent), transparent 70%),
+    linear-gradient(155deg, var(--panel-3), var(--panel));
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line));
+}
+.li-hero .k { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent-2); }
+.li-hero .v { font-size: 20px; font-weight: 650; letter-spacing: -0.02em; margin-top: 6px; }
+.li-hero .s { font: 11px var(--mono); color: var(--dim); margin-top: 3px; }
+.li-hero .acts { display: flex; gap: 7px; margin-top: 14px; }
+.li-tile {
+  display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 11px;
+  background: var(--panel); border: 1px solid var(--line); min-width: 0;
+}
+.li-tile:hover { border-color: var(--line-2); }
+/* 整块磁贴可点（真实页点开 = 抽屉里那个引导器），给出可点的观感 */
+.li-tile.is-clickable { cursor: pointer; }
+.li-tile.is-clickable:hover { border-color: var(--ok); }
+.li-tile .top { display: flex; align-items: center; gap: 8px; }
+.li-tile .top .nm { flex: 1; min-width: 0; font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.li-tile .big { font: 600 19px var(--mono); letter-spacing: -0.02em; }
+.li-tile .big small { font: 10px var(--font); color: var(--faint); margin-left: 4px; }
+.li-tile .s { font: 10px var(--mono); color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.li-tile .foot { margin-top: auto; display: flex; align-items: center; gap: 6px; font-size: 10.5px; color: var(--faint); }
+.li-sheetbar {
+  flex: none; display: flex; align-items: center; gap: 9px; margin: 10px 12px 12px; padding: 9px 11px;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); font-size: 11.5px; color: var(--dim);
+}
+.li-sheetbar .grow { flex: 1; min-width: 0; }
+.li-sheet { position: absolute; inset: 0; z-index: 40; display: none; align-items: flex-end; }
+.li-sheet.is-on { display: flex; }
+.li-scrim { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.45); }
+.li-panel {
+  position: relative; flex: 1; min-height: 0; max-height: 64%; display: flex; flex-direction: column;
+  background: var(--panel); border: 1px solid var(--line-2); border-bottom: 0; border-radius: 14px 14px 0 0;
+  box-shadow: 0 -18px 48px rgba(0, 0, 0, 0.5);
+}
+.li-panel-hd { flex: none; display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+.li-panel-hd b { font-size: 12.5px; font-weight: 650; }
+.li-panel-hd .grow { flex: 1; min-width: 0; }
+.li-panel-bd { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+.li-prow { display: flex; align-items: center; gap: 8px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel-2); font-size: 11.5px; color: var(--dim); min-width: 0; }
+.li-prow .nm { font-weight: 600; color: var(--text); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.li-prow .grow { flex: 1; min-width: 0; }
+.li-prow .grab { color: var(--fainter); cursor: grab; font-size: 13px; }
+.li-prow.is-flash { border-color: var(--accent-2); animation: li-flash 1.6s ease-out; }
+@keyframes li-flash { 0% { background: var(--accent-soft); } 100% { background: transparent; } }
+
+/* ── 9. 方案 J —— 三栏工作台（原样移植）──────────────────────────────── */
+.lj { display: flex; min-height: 0; background: var(--bg); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.lj-c1 { width: 190px; flex: none; border-right: 1px solid var(--line); background: var(--panel-2); display: flex; flex-direction: column; min-height: 0; }
+.lj-c1 .hd { flex: none; padding: 11px 10px 6px; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fainter); }
+.lj-nav { flex: 1; min-height: 0; overflow-y: auto; padding: 0 6px 8px; display: flex; flex-direction: column; gap: 1px; }
+.lj-navi { display: flex; align-items: center; gap: 8px; padding: 7px; border-radius: 7px; border: 1px solid transparent; background: transparent; cursor: pointer; text-align: left; color: inherit; width: 100%; min-width: 0; font-family: inherit; }
+.lj-navi:hover { background: var(--panel-3); }
+.lj-navi.is-on { background: var(--panel); border-color: var(--line-2); }
+.lj-navi .nm { flex: 1; min-width: 0; font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lj-c2 { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+.lj-c2 .hd { flex: none; display: flex; align-items: center; gap: 8px; padding: 11px 12px; border-bottom: 1px solid var(--line); }
+.lj-c2 .bd { flex: 1; min-height: 0; overflow-y: auto; padding: 8px; }
+.lj-c3 {
+  width: 268px; flex: none; border-left: 1px solid var(--line); background: var(--panel-2);
+  display: flex; flex-direction: column; min-height: 0; transition: width 0.16s ease;
+}
+.lj-c3.folded { width: 42px; }
+.lj-c3 .hd { flex: none; display: flex; align-items: center; gap: 7px; padding: 11px 10px; border-bottom: 1px solid var(--line); font-size: 11px; color: var(--dim); }
+.lj-c3 .bd { flex: 1; min-height: 0; overflow-y: auto; padding: 9px; display: flex; flex-direction: column; gap: 8px; }
+.lj-c3.folded .bd, .lj-c3.folded .hd span, .lj-c3.folded .hd b { display: none; }
+.lj-c3.folded .hd { justify-content: center; padding: 11px 0; }
+.lj-setgroup { display: flex; flex-direction: column; gap: 5px; }
+.lj-setgroup .gt { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--fainter); padding: 2px 2px; }
+
+/* ── 13.5 方案 K —— 系统引导高级设置（原样移植）──────────────────────── */
+/* 预演容器必须能被夹窄：.k 是 flex 列，min-width 默认 auto=min-content，
+   里面一条不换行的设置行（5 个引导器标签 + 7 颗主题按钮）就把它顶到 728px，
+   于是断点类（按 .k 自身宽度算）永远判定为「宽」，窄窗形态全不触发。
+   460 宽窗口里量到 .k=728、J 主题 1064 —— 就是这里。 */
+.k { display: flex; flex-direction: column; min-height: 0; gap: 10px; width: 100%; max-width: 100%; min-width: 0; }
+#boot-adv-mount, #boot-adv-mount > * { min-width: 0; }
+.k-bar {
+  flex: none; display: flex; flex-direction: column; gap: 7px; padding: 9px 11px;
+  border: 1px solid var(--line); border-radius: 11px; background: var(--panel);
+  min-width: 0; max-width: 100%;
+}
+.k-row { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; min-width: 0; }
+.k-lbl { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fainter); flex: none; min-width: 62px; }
+.k-chip {
+  display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 3px 0 5px;
+  border-radius: 8px; border: 1px solid var(--line-2); background: var(--panel-2);
+  color: var(--dim); font-size: 11.5px; cursor: pointer; flex: none; user-select: none;
+}
+.k-chip:hover { border-color: var(--line-3); color: var(--text); }
+.k-chip.is-on { color: var(--text); border-color: color-mix(in srgb, var(--accent) 45%, var(--line-2)); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.k-chip.is-off { opacity: 0.6; }
+.k-rg {
+  height: 18px; padding: 0 5px; margin-left: 1px; border-radius: 5px; border: 0; cursor: pointer;
+  font: 600 9.5px var(--mono); letter-spacing: 0.04em;
+  background: var(--panel-4); color: var(--faint);
+  display: inline-flex; align-items: center; font-family: inherit;
+}
+.k-rg:hover { color: var(--text); background: var(--panel-3); }
+.k-stage { flex: 1; min-height: 0; min-width: 0; width: 100%; max-width: 100%; display: flex; gap: 0; }
+.k-stage.h { flex-direction: row; }
+.k-stage.h > .k-region { flex: 1; min-width: 0; min-height: 0; }
+.k-stage > .k-region:only-child { flex: 1; min-width: 0; min-height: 0; }
+.k-zop {
+  flex: none; width: 22px; height: 22px; border: 1px solid var(--line-2); border-radius: 7px;
+  background: var(--panel-2); color: var(--dim); font-size: 12px; line-height: 1; cursor: pointer;
+  font-family: inherit; display: inline-flex; align-items: center; justify-content: center; padding: 0;
+}
+.k-zop:hover { color: var(--text); border-color: var(--text); }
+.k-zop:disabled { opacity: 0.35; cursor: default; }
+.k-zop:disabled:hover { color: var(--dim); border-color: var(--line-2); }
+.k-sortbar { flex: none; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 2px 2px 0; }
+.k-sort-lbl { font-size: 10.5px; color: var(--fainter); letter-spacing: 0.5px; }
+.k-sortchip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel-2); }
+.k-sort-nm { font-size: 11px; color: var(--text); white-space: nowrap; }
+.k-sortchip .k-zop { width: 18px; height: 18px; border: 0; background: none; }
+.k-setbar { flex: none; display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 1px dashed var(--line-2);
+  border-radius: 9px; background: var(--panel); color: var(--dim); font-size: 11.5px; font-weight: 600; cursor: pointer; min-width: 0; font-family: inherit; text-align: left; }
+.k-setbar:hover { border-color: var(--text); color: var(--text); }
+.k-setbar .k-setbar-t { color: var(--text); }
+.k-setbar .hint { font-weight: 400; }
+.k-setbar .car { transition: transform 0.18s; }
+.k-setbar.is-on .car { transform: rotate(180deg); }
+.k-setlist { flex: none; display: none; flex-direction: column; gap: 6px; padding: 2px 2px 0; }
+.k-setlist.is-on { display: flex; }
+.k-set-row { display: flex; align-items: center; gap: 7px; padding: 6px 9px; border: 1px solid var(--line);
+  border-radius: 9px; background: var(--panel-2); font-size: 11px; min-width: 0; flex-wrap: wrap; }
+.k-set-row .k-set-nm { font-weight: 600; color: var(--text); font-size: 12px; white-space: nowrap; }
+.k-set-row .grow { flex: 1; min-width: 0; }
+.k-zone-cards { display: contents; }
+.k-split {
+  flex: none; display: grid; place-items: center; user-select: none; touch-action: none;
+  width: 12px; cursor: col-resize; color: var(--fainter);
+}
+.k-split::before { content: ""; border-radius: 999px; background: var(--line-2); transition: background 0.15s; }
+.k-stage.h .k-split::before { width: 3px; height: 44px; }
+.k-split:hover::before, .k-split.is-drag::before { background: var(--accent); }
+/* 分隔条正中的「回正中间」圆钮：拖动条只有 12px 宽，这是唯一显式的复位入口
+   （双击也能复位，但没人会去猜）。绝对定位而不是当网格项 —— .k-split 是
+   display:grid，塞进去会和 ::before 那根线排成两行、把缝隙撑高。 */
+.k-split { position: relative; }
+.k-split-reset {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: 20px; height: 20px; padding: 0;
+  display: grid; place-items: center;
+  border-radius: 999px; border: 1px solid var(--line-2);
+  background: var(--panel); color: var(--fainter);
+  cursor: pointer; z-index: 3;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 14%);
+}
+.k-split-reset:hover { color: var(--accent); border-color: var(--accent); }
+.k-split-reset svg { width: 11px; height: 11px; }
+/* 当前主题不支持左右布局时，布局档位按钮置灰而不是消失（否则用户以为丢了） */
+.seg button:disabled, .seg button[disabled] { opacity: 0.45; cursor: not-allowed; }
+.k-region {
+  flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column;
+  border: 1px dashed var(--line-2); border-radius: 11px;
+  background: color-mix(in srgb, var(--panel) 55%, transparent);
+}
+.k-rhd {
+  flex: none; display: flex; align-items: center; gap: 8px; padding: 6px 10px;
+  border-bottom: 1px dashed var(--line-2); font-size: 11px; color: var(--faint);
+  min-width: 0; flex-wrap: wrap;
+}
+.k-rhd b { color: var(--dim); font-weight: 600; }
+.k-rhd .grow { flex: 1; min-width: 0; }
+.k-rbody { flex: 1; min-height: 0; display: flex; gap: 9px; padding: 9px; overflow-y: auto; overflow-x: hidden; }
+.k-rbody.h { flex-direction: row; }
+.k-rbody.v { flex-direction: column; }
+.k-rbody.is-empty { align-items: center; justify-content: center; }
+.k-card {
+  flex: 1 1 0; min-width: 210px; min-height: 0; display: flex; flex-direction: column;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden;
+}
+.k-zone-cards > .k-card { flex: 1 0 auto; }
+.k-card-head { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--line); min-width: 0; }
+.k-card-head .nm { flex: 1; min-width: 0; font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.k-entries { flex: 1; min-height: 0; overflow: hidden; padding: 2px 6px 6px; }
+.k-rbody.h .k-entries { overflow-y: auto; }
+.k-theme-fit { flex: 1; min-width: 0; min-height: 0; display: flex; }
+.k-theme-fit > * { flex: 1; min-width: 0; min-height: 0; }
+.k-empty-hint { display: flex; flex-direction: column; align-items: center; gap: 5px; color: var(--fainter); font-size: 11.5px; text-align: center; padding: 10px; }
+.k-tabs {
+  display: flex; gap: 4px; min-width: 0; overflow-x: auto;
+  border-bottom: 1px solid var(--line); padding: 0 2px; scrollbar-width: none;
+}
+.k-tabs::-webkit-scrollbar { display: none; }
+.k-tab {
+  appearance: none; border: 0; background: none; color: var(--dim);
+  font: inherit; font-weight: 600; font-size: 12px;
+  padding: 7px 12px 8px; cursor: pointer; position: relative;
+  white-space: nowrap; display: inline-flex; align-items: center; gap: 6px;
+  opacity: 0.55; transition: opacity 0.15s;
+}
+.k-tab::after {
+  content: ""; position: absolute; left: 10px; right: 10px; bottom: -1px; height: 2px;
+  border-radius: 999px; background: transparent;
+}
+.k-tab:hover { opacity: 1; }
+.k-tab.is-on { color: var(--accent); opacity: 1; }
+.k-tab.is-on::after { background: var(--accent); }
+
+/* ── 10. 容器断点（设计稿 .win-body.vw-* → .vw-*，由 JS ResizeObserver 挂）
+   设计稿的断点是逐主题写全的，这里按同一套顺序原样搬：≥900（vw-g）/
+   ≤900（vw-900）/ ≤760（vw-760）/ ≤520（vw-520）。前缀选择器用后代写，
+   因为容器类挂在预演 .k 或真实页 .ba-theme-root 上，主题元素在它里面。── */
+/* ── ≥900px（宽窗）：Bento 网格 4 列时最后一块横跨两列（设计稿 .vw-g）── */
+.vw-g .li-grid > .li-tile:last-child { grid-column: span 2; }
+.vw-900 .lb-nav { width: 200px; }
+.vw-900 .lg-side { width: 220px; }
+.vw-900 .lj-c1 { width: 160px; }
+.vw-900 .lj-c3 { width: 230px; }
+.vw-900 .li-grid { grid-template-columns: repeat(2, 1fr); }
+.vw-900 .li-hero { grid-column: span 2; grid-row: span 1; }
+/* 左右布局（.k-stage.h）是用户显式选的：窗口按 lr 档位加宽到 932 后，面板实际
+   只有 ~884 宽，原先这条 vw-900 规则会把它叠成上下两段 —— 看起来和「没生效」
+   一模一样。并排保留到真窄（手机）为止。 */
+.vw-520 .k-stage.h { flex-direction: column; }
+.vw-520 .k-split { width: auto; height: 12px; cursor: row-resize; align-self: stretch; }
+.vw-520 .k-stage.h .k-split::before { width: 44px; height: 3px; }
+.vw-760 .lb { flex-direction: column; }
+.vw-760 .lb-nav { width: auto; flex: none; border-right: 0; border-bottom: 1px solid var(--line); }
+.vw-760 .lb-list { flex-direction: row; overflow-x: auto; overflow-y: hidden; padding: 0 8px 8px; gap: 5px; }
+.vw-760 .lb-item { width: auto; flex: none; padding: 6px 8px; border: 1px solid var(--line); background: var(--panel); }
+.vw-760 .lb-item .nm small { display: none; }
+.vw-760 .lb-grip { display: none; }
+.vw-760 .lb-nav-head, .vw-760 .lb-nav-foot { display: none; }
+.vw-760 .lg { flex-direction: column; }
+.vw-760 .lg-side { display: none; }
+.vw-760 .lj-c1 { width: 60px; }
+.vw-760 .lj-c1 .hd { display: none; }
+.vw-760 .lj-navi .nm, .vw-760 .lj-navi .ldr { display: none; }
+.vw-760 .lj-navi { justify-content: center; }
+/* ≤760：J 的右栏（设置）脱离文档流变**覆盖抽屉**。不这么做的话 c1 60 + c3 268
+   的固定宽会把中间的 c2 挤成负数，内容整片横向溢出（实测 620 宽 c2 溢出 122px）。
+   设计稿同款处理；抽屉本身有「折叠」按钮，折起来只占 42px。 */
+.vw-760 .lj { position: relative; overflow: hidden; }
+.vw-760 .lj-c3 {
+  position: absolute; right: 0; top: 0; bottom: 0; width: 250px; z-index: 6;
+  box-shadow: -10px 0 30px rgba(0, 0, 0, 0.4);
+}
+.vw-760 .li-grid { grid-template-columns: 1fr 1fr; }
+.vw-760 .li-hero { grid-column: span 2; }
+.vw-520 .li-grid { grid-template-columns: 1fr; }
+.vw-520 .li-hero { grid-column: span 1; }
+.vw-520 .lj-c1 { display: none; }
+.vw-520 .lj-c3 { width: 210px; }
+/* ≤520：B 的主区标题行与 C 的工具栏各收一档内边距，别把行挤成两行 */
+.vw-520 .lb-main-head { padding: 11px 12px; }
+.vw-520 .lc-toolbar { padding: 6px 10px; }
+/* ≤520：引导器标签行（5–7 颗）横滑时会被截掉半个 chip，看着像坏了；改成换行，
+   全部标签始终可见（这是开关控件，藏起来比多占一行更糟）。 */
+.vw-520 .k-tabs { flex-wrap: wrap; overflow-x: visible; row-gap: 3px; }
+.vw-520 .k-tabs .k-tab { padding: 5px 10px 6px; }
+/* ≤520：设置行的 seg（版式主题 7 颗 / 布局 / 样式）本身是 inline-flex+flex:none，
+   7 颗一排放不下会把整条 k-bar 顶宽（460 下量到 +167px 横向溢出）——改成可换行 */
+.vw-520 .k-bar .seg { flex-wrap: wrap; max-width: 100%; }
+/* ≤760：排序条是 flex:none 的一整条 chips（5 个引导器时 ~570px），塞不进就顶宽——
+   让它独占一行、内部自己换行 */
+.vw-760 .k-bar .k-sortbar { flex: 1 1 100%; min-width: 0; }
+.vw-520 .k-rbody.h { flex-direction: column; }
+
+/* ── App 集成层：#tab-boot 布置 / 预演挂载 / 菜单样式三档 ──────────────── */
+#boot-channels-mount.ba-contents { display: contents; }
+#tab-boot.ba-arranged { grid-template-columns: minmax(0, 1fr); }
+#tab-boot.ba-arranged > hr.boot-divider { display: none; }
+#tab-boot.ba-theme { position: relative; }
+.ba-theme-root { min-width: 0; min-height: 0; }
+/* 主题态（非 K）「一屏内滚」：设计稿每个主题都住在固定高的 .win-body 里，
+   侧栏固定宽、主区 flex 撑满、列表自己滚。app 原先让主题随内容长高、整页滚，
+   结果同一主题在 932 / 1180 下高度各不相同，短的（G 命令面板）底下空一片。
+   这里跟 lr 走同一套 main 改造：main 不滚 → 面板撑满 → #tab-boot 变 flex 列
+   → 主题容器吃满高度 → 各主题自己的列表接手滚动。 */
+body[data-ba-fill] main {
+  overflow: hidden;
+  align-content: stretch;
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+body[data-ba-fill] .tab-panel.active { overflow-y: auto; min-height: 0; }
+#tab-boot.ba-fill {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  gap: 12px;
+  /* 窗口不够高时允许整页滚：主题列表有可用高度下限（见 .ba-theme-root 的
+   * min-height），小屏上一味 overflow:hidden 会把列表压成一条缝 ——
+   * 「管中窥豹」就是这条 hidden 加上 163px 的下次启动块一起挤出来的。 */
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+#tab-boot.ba-fill > .ba-theme-root {
+  flex: 1 1 auto;
+  min-width: 0;
+  /* 引导列表的可用高度下限（2026-10-31 用户反馈：各主题列表区只看得到几条）：
+   * 720 高的窗口里扣除页头/页签/下次启动块后主题只剩 ~255px，G 命令面板的
+   * 结果区更是只有 ~104px。给主题容器一个下限，窗口矮就由 #tab-boot 外层
+   * 滚一点，列表自己仍能舒展开；窗口够高时依旧吃满剩余空间（fill 不变）。 */
+  min-height: min(460px, 55vh);
+  display: flex;
+  flex-direction: column;
+}
+#tab-boot.ba-fill .ba-theme-root > .k-stage { flex: 1 1 auto; min-height: 0; }
+#tab-boot.ba-fill .k-stage > .k-region { min-height: 0; }
+#tab-boot.ba-fill .k-region > .k-rbody { min-height: 0; }
+#tab-boot.ba-fill .k-theme-fit { flex: 1 1 auto; min-height: 0; }
+#tab-boot.ba-fill .k-theme-fit > * { flex: 1 1 auto; min-width: 0; min-height: 0; }
+/* 主题内的真实区块（.ba-theme-sec / B 的 pane）必须能收缩：grid/flex 项默认
+   min-width:auto，长条目名会把容器顶宽（460 宽下横向溢出的第二个来源）。 */
+#tab-boot.ba-fill .ba-theme-sec,
+#tab-boot.ba-fill .ba-theme-pane { min-width: 0; }
+/* 主题态把「下次启动」行再收一档：720 高的窗口里它占 163px，是主题列表
+   变矮的最大单项。行距/内边距收窄，信息一行不少。 */
+body[data-ba-fill] .next-boot-rows { gap: 4px; }
+body[data-ba-fill] .nb-row { padding: 3px 8px; }
+#tab-boot .lb-scroll > *,
+#tab-boot .lg-results > *,
+#tab-boot .lc-body > *,
+#tab-boot .lj-c2 .bd > * { min-width: 0; }
+/* ≤720 是 app 的「手机版」媒体查询（.app-columns 改整列滚动、pane 取消 flex），
+   它会顶掉上面那套 fill 链 —— 但桌面窗口最窄也能缩到 460，主题仍要「一屏内滚」，
+   所以主题态在这条断点里把滚动权拿回来（比 @media 里的裸选择器多一层 body 属性）。 */
+@media (max-width: 720px) {
+  body[data-ba-fill] .app-columns { overflow: hidden; }
+  body[data-ba-fill] .app-columns > .pane { flex: 1 1 auto; min-height: 0; }
+  body[data-ba-fill] main { overflow: hidden; }
+}
+/* 预演区也当一扇「窗口」：高度**固定**（不是封顶），超出的由主题自己的列表滚。
+   封顶时每个主题的预演高度跟着内容走（I 555 / 其余 612），同一组设置换主题就
+   抖一下；固定后不论主题、不论窗口多宽，预演都是同一块 68vh 的画布。 */
+#boot-adv-mount .k-stage { flex: none; height: min(68vh, 720px); min-height: 340px; max-height: none; }
+/* 真实页左右分栏（2026-10-30 用户定案，形态抄自已移除的 GRUB 独立区域）：
+ * 窗口加宽到 932（后端 set_boot_layout），main 不滚，两栏各一个滚动容器、
+ * 等宽（基准 0）、中缝 12px 放拖动条；下次启动 / 免密卡 / 折叠条仍留在整页层。 */
+body[data-ba-lr] main {
+  overflow: hidden;
+  align-content: stretch;
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+/* lr 开着时其它页签改为面板内滚（main 不滚了，面板自己接手） */
+body[data-ba-lr] .tab-panel.active {
+  overflow-y: auto;
+  min-height: 0;
+}
+#tab-boot.ba-lr {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+#tab-boot.ba-lr > .ba-lr-cols {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  display: grid;
+  /* 列客单 JS 内联（拖动比例），这条只是兜底对半分 */
+  grid-template-columns: minmax(0, 1fr) 12px minmax(0, 1fr);
+}
+#tab-boot.ba-lr .ba-col {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+/* 两栏里的卡吃满列宽：区块原本是页面流里的 grid 项，进列后按内容高 */
+#tab-boot.ba-lr .ba-col > .grub,
+#tab-boot.ba-lr .ba-col > .refind,
+#tab-boot.ba-lr .ba-col > .boot-channel { min-width: 0; }
+#tab-boot.ba-lr > .empty,
+#tab-boot.ba-lr .ba-col > .empty {
+  align-self: center;
+  justify-self: center;
+  display: grid;
+  gap: 3px;
+  justify-items: center;
+  text-align: center;
+  color: var(--faint);
+  padding: 18px;
+}
+#tab-boot.ba-lr > .empty b,
+#tab-boot.ba-lr .ba-col > .empty b { font-size: 12.5px; color: var(--dim); }
+#tab-boot.ba-lr > .empty span,
+#tab-boot.ba-lr .ba-col > .empty span { font-size: 11px; }
+#tab-boot .k-split::before { width: 3px; height: 44px; }
+/* 主题容器嵌入 grid 时吃满一个网格项 */
+#tab-boot .ba-theme-root > .la,
+#tab-boot .ba-theme-root > .lb,
+#tab-boot .ba-theme-root > .lc,
+#tab-boot .ba-theme-root > .lg,
+#tab-boot .ba-theme-root > .li,
+#tab-boot .ba-theme-root > .lj { flex: 1; }
+/* Bento 抽屉在真实页要盖住整个主题容器：.li 已 relative，.li-sheet absolute 生效 */
+
+/* ── 引导器设置项 ⇄ 引导列表 分离（设计稿「设置三级收起」第二级）────────
+   布置态的每张引导器卡只保留标题行 + 引导列表；设置子块（ESP 表单 /
+   读取方式标签 / 扫描按钮 / 变量目录 / 脚本编辑器…）由 boot-adv.js 打上
+   data-ba-set 标记，默认收起；卡片底部「引导器设置」acc 折叠条点开后
+   （.ba-set-open）整组就地展开 —— 收起用 :not() 让 display 回归作者级
+   级联值，不用 display:revert（会把 flex/grid 打回 block 的老坑）。 */
+#tab-boot .ba-split:not(.ba-set-open) [data-ba-set] { display: none !important; }
+/* 设置项被搬到 section 末尾的容器里（列表下方、折叠条之后）——DOM 位置由
+   boot-adv.js 的 splitLoaderSection 统一搬，展开时按原顺序铺成一列，与列表
+   之间留一条分隔线（2026-10-30 用户定案：设置永远在引导列表下方）。 */
+#tab-boot .ba-set-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--line, #e4e4e7);
+}
+#tab-boot .ba-set-body:empty { display: none; }
+/* 收起时整块连边线一起消失（只藏子元素会留下那条虚线） */
+#tab-boot .ba-split:not(.ba-set-open) .ba-set-body { display: none; }
+/* J 三栏：右栏就是「引导器设置」本体（boot-adv.js 把卡里那份搬进来），
+   所以这里不再需要卡内的折叠条，边线也交给右栏的分隔线。 */
+#tab-boot .lj-c3 .ba-set-body.is-docked {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  gap: 12px;
+}
+#tab-boot .lj-c3 .ba-set-body.is-docked > * { min-width: 0; }
+.lj-setempty {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 2px;
+  color: var(--text-faint);
+}
+.lj-setempty b { font-size: 12px; color: var(--text-dim); }
+.lj-setempty small { font-size: 11px; line-height: 1.5; }
+/* I（Bento）：卡片网格把折叠条裁在卡片底边外，点开看不到任何东西 ——
+   它的设置入口是底栏「设置与编排」抽屉，卡内这条不显示。 */
+#tab-boot .li .ba-setbar,
+#tab-boot .li .ba-set-body { display: none !important; }
+#tab-boot .ba-set-body > .grub-tabs { margin: 0; }
+/* 极简档连折叠条也不留：只剩引导列表本身 */
+body[data-boot-style="min"] #tab-boot .ba-setbar,
+body[data-boot-style="min"] #tab-boot .ba-set-body { display: none; }
+
+/* 菜单样式三档（预演 .row 与真实页既有条目行通用）：body[data-boot-style] */
+body[data-boot-style="compact"] .row,
+body[data-boot-style="compact"] .boot-entry,
+body[data-boot-style="compact"] .oc-menu-row,
+body[data-boot-style="compact"] .grub-entry { padding-top: 3px; padding-bottom: 3px; }
+body[data-boot-style="compact"] .row-main { gap: 0; }
+body[data-boot-style="compact"] .row-main small,
+body[data-boot-style="compact"] .oc-menu-path,
+body[data-boot-style="compact"] .oc-menu-note,
+body[data-boot-style="compact"] .grub-entry small { display: none; }
+body[data-boot-style="min"] .row,
+body[data-boot-style="min"] .boot-entry,
+body[data-boot-style="min"] .oc-menu-row,
+body[data-boot-style="min"] .grub-entry { padding-top: 4px; padding-bottom: 4px; }
+body[data-boot-style="min"] .row-main { gap: 0; }
+body[data-boot-style="min"] .row-main small,
+body[data-boot-style="min"] .oc-menu-path,
+body[data-boot-style="min"] .oc-menu-note,
+body[data-boot-style="min"] .oc-menu-src,
+body[data-boot-style="min"] .oc-menu-kind,
+body[data-boot-style="min"] .grub-entry small { display: none; }
+body[data-boot-style="min"] .row .badge,
+body[data-boot-style="min"] .boot-badge.last { display: none; }
+body[data-boot-style="min"] .row-acts { display: none; }
+body[data-boot-style="min"] .boot-entry button,
+body[data-boot-style="min"] .oc-menu-set:not(.is-default) { opacity: 0; pointer-events: none; }
+body[data-boot-style="min"] .boot-entry:hover button,
+body[data-boot-style="min"] .boot-entry:focus-within button,
+body[data-boot-style="min"] .oc-menu-row:hover .oc-menu-set:not(.is-default) { opacity: 1; pointer-events: auto; }
+@media (hover: none) {
+  body[data-boot-style="min"] .row-acts { display: flex; }
+  body[data-boot-style="min"] .boot-entry button,
+  body[data-boot-style="min"] .oc-menu-set:not(.is-default) { opacity: 1; pointer-events: auto; }
+}
+
+/* A 主题索引条点击定位的闪烁（真实页） */
+.ba-flash { animation: ba-flash 1.4s ease-out 1; }
+@keyframes ba-flash {
+  0% { box-shadow: 0 0 0 2px var(--accent, #6366f1); }
+  100% { box-shadow: 0 0 0 2px transparent; }
+}
+
+/* 主题容器里真实区块的显隐（B/C/J 的 pane、G 的过滤）：
+   用 :not(.is-shown) 而不是 display:revert —— revert 会把 .grub/.refind
+   的 author display:grid 打回 UA block（踩过的坑），这样恢复时保持原样 */
+.ba-theme-pane:not(.is-shown) { display: none !important; }
+.ba-g-hide { display: none !important; }
+.ba-g-empty { opacity: 0.72; }
+.ba-g-empty::after { content: "没有匹配的条目"; display: block; padding: 8px 12px; color: var(--fainter); font-size: 11.5px; }
+
+/* ── G 主题（真实页）1:1 设计稿「命令面板」──────────────────────────
+   设计稿里没有「卡片」：就是搜索框 + 筛选芯片 + 分组标题 + 扁平行 + 右侧
+   预览 + 底部快捷键。真实区块只能当分组载体 —— 去掉自己的边框/底色/内边距
+   与标题行（标题由 .lg-group 代替），列表的边框和限高也交回给 .lg-results
+   统一滚动（否则面板里套着七八个各自滚动的小框）。 */
+#tab-boot .lg { border: 0; border-radius: 0; background: transparent; }
+#tab-boot .ba-g-card {
+  display: block;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  gap: 0;
+}
+#tab-boot .ba-g-card > .grub-title-row,
+#tab-boot .ba-g-card > .grub-head,
+#tab-boot .ba-g-card > .channel-note { display: none !important; }
+#tab-boot .ba-g-card .grub-list,
+#tab-boot .ba-g-card .oc-menu,
+#tab-boot .ba-g-card .oc-menu-list {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  max-height: none;
+  overflow: visible;
+}
+#tab-boot .ba-g-card .grub-panel { padding-top: 0; gap: 2px; }
+/* 分组标题：设计稿 .lg-group 的上下留白（首组贴顶，别多出一段空气） */
+#tab-boot .lg-results > .lg-group { padding: 10px 8px 4px; }
+#tab-boot .lg-results > .lg-group:first-child { padding-top: 4px; }
+/* 条目行 = 设计稿 .lg-item 的盒子（8px 圆角 / 透明描边 / hover 浮起） */
+#tab-boot .ba-g-card .grub-entry,
+#tab-boot .ba-g-card .oc-menu-row {
+  border: 1px solid transparent;
+  padding: 7px 9px;
+  min-width: 0;
+}
+#tab-boot .ba-g-card .grub-entry:not(.is-group):hover,
+#tab-boot .ba-g-card .oc-menu-row:hover { background: var(--panel-2); border-color: var(--line); }
+/* 选中（点击 / ↑↓）：设计稿 .is-active 的左侧强调条 */
+#tab-boot .ba-g-card .grub-entry.is-active,
+#tab-boot .ba-g-card .oc-menu-row.is-active {
+  background: var(--panel-2);
+  border-color: var(--line);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+#tab-boot .ba-g-card .grub-entry.active.is-active { box-shadow: inset 2px 0 0 var(--ok); }
+/* 分组标题右侧的说明（空分组提示）：回到正常大小写与字重 */
+#tab-boot .lg-results > .lg-group .lg-hint {
+  margin-left: auto;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 10.5px;
+  color: var(--fainter);
+}
+/* 右侧预览区是 flex 列 + overflow-y:auto：子项默认会被压缩（本次选中项卡片
+   被压成 2px 高、内容全被 overflow:hidden 吃掉），必须禁掉收缩 */
+#tab-boot .lg-side > * { flex: none; }
+/* 右侧预览区的选中项卡片（独立于 B 主题的 .lb-block：那套样式挂在 .lb 下面，
+   在 G 里没有底色/边框，看起来像「标题下面空了一块」） */
+#tab-boot .lg-side .lg-sel {
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--bg);
+  overflow: hidden;
+}
+#tab-boot .lg-side .lg-sel-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 9px;
+  border-bottom: 1px solid var(--line);
+  min-width: 0;
+}
+#tab-boot .lg-side .lg-sel-head b {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#tab-boot .lg-side .lg-sel-body { padding: 6px 9px; display: grid; gap: 5px; }
+#tab-boot .lg-side .lg-fact { display: grid; grid-template-columns: 44px 1fr; gap: 6px; align-items: baseline; }
+#tab-boot .lg-side .lg-fact b {
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--fainter);
+  white-space: nowrap;
+}
+#tab-boot .lg-side .lg-fact span {
+  font: 10.5px var(--mono);
+  color: var(--dim);
+  overflow-wrap: anywhere;
+}
+/* 条目名称列：设计稿里是「名称 + mono 路径」两行；有副标题时自然叠起来 */
+#tab-boot .ba-g-card .grub-entry-name,
+#tab-boot .ba-g-card .boot-entry-name {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
+  min-width: 0;
+}
+#tab-boot .ba-g-card .ba-g-sub {
+  font: 10.5px var(--mono);
+  color: var(--faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  min-width: 0;
+}
+/* G 的条目行是「1fr auto」grid：1fr 的默认最小宽是 min-content，主标题 +
+   路径副标题都 nowrap 时会把整行顶宽（窄窗实测副标题溢出 285px）。
+   与 .grub-list-body 同款：把第一列写成 minmax(0,1fr)。 */
+#tab-boot .ba-g-card .grub-entry,
+#tab-boot .ba-g-card .boot-entry,
+#tab-boot .ba-g-card .oc-menu-row { grid-template-columns: minmax(0, 1fr) auto; }
+/* 右侧预览区的动作行（.toolbar 在设置页里是 grid，这里要一行两个按钮） */
+#tab-boot .lg-side .toolbar { display: flex; gap: 6px; }
+#tab-boot .lg-side .toolbar .btn { flex: 1; justify-content: center; }
+#tab-boot .lg-side .hint { font-size: 10.5px; line-height: 1.6; color: var(--fainter); }
+/* 行尾的 ↵ 小键帽（设计稿每行都有）：真实行没有这个节点，用伪元素补，
+   不参与点击命中（pointer-events:none），鼠标划过时提亮 */
+#tab-boot .ba-g-card .grub-entry:not(.is-group)::after,
+#tab-boot .ba-g-card .oc-menu-row::after {
+  content: "↵";
+  flex: none;
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 5px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--panel-3);
+  color: var(--faint);
+  font: 10px var(--mono);
+  line-height: 1;
+  opacity: 0.6;
+  pointer-events: none;
+  transition: opacity 0.12s;
+}
+#tab-boot .ba-g-card .grub-entry:not(.is-group):hover::after,
+#tab-boot .ba-g-card .grub-entry.is-active::after,
+#tab-boot .ba-g-card .oc-menu-row:hover::after { opacity: 1; }
+.ba-i-realsec { min-width: 0; }
+/* 设计稿靠全局 [hidden]{display:none!important}，App 没有 —— 按组件域补
+   （.panel-in 的 display:grid 会压过 hidden 属性的 UA 规则） */
+.ba-theme-root [hidden], .k [hidden] { display: none !important; }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   系统引导页条目行：以设计稿 .row 样式为准覆盖（2026-10-30 用户拍板）
+   UI 图（docs/boot-menu-layouts.html）的条目行 = 扁平行 + 系统字章
+   （.row-ico，MAC/WIN/LNX）+ hover 浮起 + 当前默认绿标 + 细滚动条。
+   emoji 图标已在渲染层换成字章（grub-list-view.js / app.js /
+   boot-list-view.js），这里只覆盖行本身的形状。作用域锁 #tab-boot，
+   不碰「引导高级设置」页自己的 .row 预演。
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* 滚动条：设计稿同款 —— 窄、低对比、不抢视觉（fat 原生滚动条是截图里最扎眼的） */
+#tab-boot ::-webkit-scrollbar { width: 8px; height: 8px; }
+#tab-boot ::-webkit-scrollbar-thumb {
+  background: var(--line-2); border-radius: 8px;
+  border: 2px solid transparent; background-clip: content-box;
+}
+#tab-boot ::-webkit-scrollbar-thumb:hover { background: var(--line-3); background-clip: content-box; }
+#tab-boot ::-webkit-scrollbar-track { background: transparent; }
+#tab-boot * { scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+
+/* GRUB / rEFInd 行（.grub-entry）：grid → 设计稿 .row 的 flex 三段（字章/名称/右侧） */
+#tab-boot .grub-entry {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 7px;
+  border-radius: 8px;
+}
+#tab-boot .grub-entry:hover:not(:disabled) { background: var(--panel-2); }
+
+/* 组头：不再左侧粗色条 + 实底 —— 设计稿的组头就是一行加粗淡字 */
+#tab-boot .grub-entry.is-group {
+  border-left: 0;
+  background: transparent;
+  margin-top: 4px;
+}
+#tab-boot .grub-entry.is-group:hover:not(:disabled) { background: var(--panel-2); border-color: transparent; }
+
+/* 当前默认（active）：设计稿 .row.is-def 的绿染，替代老的绿边框大高亮 */
+#tab-boot .grub-entry.active {
+  border-color: color-mix(in srgb, var(--ok) 20%, transparent);
+  background: color-mix(in srgb, var(--ok) 7%, transparent);
+}
+#tab-boot .grub-entry.active:hover {
+  background: color-mix(in srgb, var(--ok) 10%, transparent);
+}
+#tab-boot .grub-entry.active .grub-entry-name { color: var(--ok-text); }
+
+/* 置顶行：实底绿染（透不出底下的行），同设计稿 .row.is-pinned.is-def */
+#tab-boot .grub-entry.is-pinned {
+  background: color-mix(in srgb, var(--ok) 12%, var(--panel-2));
+}
+
+/* 条目标题：设计稿 .row-main b 的 12.5px/600 */
+#tab-boot .grub-entry-name { font-size: 12.5px; font-weight: 600; }
+#tab-boot .grub-entry.is-child .grub-entry-name { color: var(--text-dim); font-weight: 500; }
+#tab-boot .grub-entry.is-unavailable .grub-entry-name { color: var(--text-faint); }
+
+/* 右侧小字：设计稿行内的 mono 小注 */
+#tab-boot .grub-entry-tag,
+#tab-boot .grub-entry-count { font-family: var(--mono); font-size: 10px; }
+
+/* 三通道卡条目行（.boot-entry）：同样的扁平行形状 */
+#tab-boot .boot-entry {
+  gap: 9px;
+  padding: 7px 8px;
+  border-radius: 8px;
+  background: transparent;
+  border-color: transparent;
+}
+#tab-boot .boot-entry:hover { background: var(--panel-2); border-color: transparent; }
+#tab-boot .boot-entry.current {
+  border-color: color-mix(in srgb, var(--ok) 20%, transparent);
+  background: color-mix(in srgb, var(--ok) 7%, transparent);
+}
+#tab-boot .boot-entry-meta b { font-size: 12.5px; }
+#tab-boot .boot-entry-meta small { font-family: var(--mono); font-size: 10px; }
+
+/* OC 预演菜单行（.oc-menu-row）：同样压成设计稿 .row 形状 —— 扁平行 +
+   行首字章 + 徽章化胶囊 + 小号按钮（大蓝按钮是截图里最后一块没盖到的） */
+#tab-boot .oc-menu-list { gap: 2px; }
+#tab-boot .oc-menu-row {
+  align-items: center;
+  gap: 9px;
+  padding: 6px 7px;
+  border-radius: 8px;
+  background: transparent;
+  border: 0;
+}
+#tab-boot .oc-menu-row:hover { background: var(--panel-2); }
+/* 当前默认行：整行淡绿染（inset 描边，不吃布局宽度） */
+#tab-boot .oc-menu-row.is-def {
+  background: color-mix(in srgb, var(--ok) 7%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ok) 20%, transparent);
+}
+/* 序号：设计稿行没有底色盒子，退成一枚 mono 淡字 */
+#tab-boot .oc-menu-idx {
+  min-width: 16px;
+  background: transparent;
+  border-radius: 0;
+  color: var(--fainter);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1;
+}
+/* 标题 / 胶囊：设计稿 .row-main b 与 .badge 的规格 */
+#tab-boot .oc-menu-head b { font-size: 12.5px; font-weight: 600; }
+#tab-boot .oc-menu-kind,
+#tab-boot .oc-menu-src {
+  background: var(--panel-3);
+  border: 0;
+  color: var(--dim);
+  font-size: 10px;
+  line-height: 17px;
+  height: 17px;
+  padding: 0 5px;
+}
+/* 路径：设计稿行内 mono 小注 */
+#tab-boot .oc-menu-path { font-family: var(--mono); font-size: 10.5px; color: var(--faint); }
+/* 「设为默认」：设计稿 .btn.sm（22px 小按钮，panel-2 底 + line-2 边），
+   替代全局 button 的大蓝底 */
+#tab-boot .oc-menu-set {
+  height: 22px;
+  padding: 0 8px;
+  font-size: 11px;
+  line-height: 1;
+  border-radius: 6px;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--line-2);
+}
+#tab-boot button.oc-menu-set:hover:not(:disabled) {
+  background: var(--panel-3);
+  border-color: var(--line-3);
+}
+/* 提权语义保留：warn 描边比设计稿多，但那是这台机器的真实约束 */
+#tab-boot button.oc-menu-set.needs-elev {
+  border-color: color-mix(in srgb, var(--warn-color, #fbbf24) 45%, transparent);
+}
+/* 已是默认：同尺寸的绿虚线占位（对齐新按钮高度） */
+#tab-boot .oc-menu-set.is-default {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  font-size: 11px;
+  line-height: 1;
+  border-radius: 6px;
+  color: var(--ok-text);
+  background: transparent;
+  border: 1px dashed color-mix(in srgb, var(--ok) 45%, transparent);
+}
+
+/* OC 预演行动作位去字样（用户 2026-10-30「不要留设为默认这些字」）：
+   按钮只剩 ⤴、默认行只剩 ✓，都收成 22×22 方形图标位；语义全在 title 里 */
+#tab-boot .oc-menu-set {
+  width: 22px;
+  padding: 0;
+  justify-content: center;
+  font-size: 13px;
+}
+#tab-boot .oc-menu-set.is-default { font-size: 12px; }

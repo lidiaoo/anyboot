@@ -14,7 +14,10 @@
 
 Windows / macOS / Linux 三端同一份代码，行为对齐。
 
-**[下载安装](#快速开始) · [功能总览](#功能总览) · [平台支持](#平台支持矩阵) · [文档归档](#文档归档)**
+**[下载安装](#快速开始) · [在线体验](https://lidiaoo.github.io/anyboot/) · [功能总览](#功能总览) · [平台支持](#平台支持矩阵) · [文档归档](#文档归档)**
+
+> 🎭 **[在线体验（PC + 移动端）](https://lidiaoo.github.io/anyboot/)** —— 无需安装，浏览器直接打开与真实应用一致的界面；
+> 数据来自一台真实多系统机器的快照回放，所有操作只在演示里生效。
 
 </div>
 
@@ -137,6 +140,9 @@ Windows / macOS / Linux 三端同一份代码，行为对齐。
 ## 快速开始
 
 ### 安装
+
+> 不想装？先去 [在线体验](https://lidiaoo.github.io/anyboot/)（[移动端](https://lidiaoo.github.io/anyboot/phone.html)）看看界面 ——
+> 演示站的实现在 [`demo/`](demo/)：真实 UI + 一层 mock（真机快照回放），GitHub Pages 托管。
 
 从 [Releases](https://github.com/lidiaoo/anyboot/releases) 下载对应平台安装包：
 
