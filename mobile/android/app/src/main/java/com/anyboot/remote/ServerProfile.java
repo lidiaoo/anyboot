@@ -43,14 +43,10 @@ final class ServerProfile {
     static final java.util.regex.Pattern MAC_PATTERN = java.util.regex.Pattern.compile(
             "(?:[0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2}|[0-9a-fA-F]{4}\\.[0-9a-fA-F]{4}\\.[0-9a-fA-F]{4}");
 
-    /** 每块网卡默认发几个唤醒包 */
+    /** 电源包默认发几个（每条路由、每块网卡）。2026-10-31 起所有动作统一默认 10 */
     static final int DEFAULT_WAKE_BURST = 10;
-    /** 唤醒包默认重试几次 */
+    /** 电源包默认重试几次；所有动作统一 */
     static final int DEFAULT_WAKE_RETRY = 10;
-    /** 重启 / 关机 / 睡眠默认只发 1 个包 —— 同一个包到两次，sol 就执行两次 */
-    static final int DEFAULT_POWER_BURST = 1;
-    /** 重启 / 关机 / 睡眠默认重试 1 次（只在真没发出去时才补发） */
-    static final int DEFAULT_POWER_RETRY = 1;
     static final String POWER_REBOOT = "reboot";
     static final String POWER_SHUTDOWN = "shutdown";
     static final String POWER_SLEEP = "sleep";
@@ -180,10 +176,10 @@ final class ServerProfile {
         /** 用哪些网卡的 MAC；空 = 这台电脑配过的全部 */
         final List<String> macs = new ArrayList<>();
         boolean enabled = true;
-        /** 每条路由每次发几个包（0 = 按动作默认：唤醒 10、其余 1）。每个动作都能设 */
-        /** 这条路由每次发几个包（0 = 按动作默认：唤醒 10、其余 1） */
+        /** 每条路由每次发几个包（0 = 默认 10，所有动作一样，2026-10-31）。每个动作都能设 */
+        /** 这条路由每次发几个包（0 = 默认 10，所有动作一样） */
         int burst;
-        /** 一轮没全发出去时重试几次（0 = 按动作默认：唤醒 10、其余 1） */
+        /** 一轮没全发出去时重试几次（0 = 默认 10，所有动作一样） */
         int retry;
         /** sol 包没发出去时，改调这台电脑自带的 /api/power。所有动作默认勾上
          *（唤醒也能勾：HTTP 能送达就说明机器其实醒着，服务端直接回执） */
@@ -241,14 +237,14 @@ final class ServerProfile {
             return Math.min(20, retry);
         }
 
-        /** 没填发包数时的默认值：唤醒 10，其余 1 */
+        /** 没填发包数时的默认值：所有动作统一 10（2026-10-31 起不再只有唤醒 10） */
         int defaultBurst() {
-            return ServerProfile.POWER_WAKE.equals(actionOrWake()) ? DEFAULT_WAKE_BURST : DEFAULT_POWER_BURST;
+            return DEFAULT_WAKE_BURST;
         }
 
-        /** 没填重试次数时的默认值：唤醒 10，其余 1 */
+        /** 没填重试次数时的默认值：所有动作统一 10 */
         int defaultRetry() {
-            return ServerProfile.POWER_WAKE.equals(actionOrWake()) ? DEFAULT_WAKE_RETRY : DEFAULT_POWER_RETRY;
+            return DEFAULT_WAKE_RETRY;
         }
 
         PowerRoute copy() {

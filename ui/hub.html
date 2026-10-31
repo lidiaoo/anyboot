@@ -5132,14 +5132,16 @@ window.__bkOnShow = async function () {
     return hit ? hit.label : '唤醒';
   }
 
-  /** 这条路由没填发包数时的默认值：唤醒 10（包丢了叫不醒），其余 1（重复会重复执行） */
+  /** 这条路由没填发包数时的默认值：所有动作统一 10（2026-10-31 起不再只有唤醒 10） */
   function routeDefaultBurst(route) {
-    return powerActionOf(route && route.action) === 'wake' ? 10 : 1;
+    void route;
+    return 10;
   }
 
-  /** 这条路由没填重试次数时的默认值：唤醒 10，其余 1 */
+  /** 这条路由没填重试次数时的默认值：所有动作统一 10 */
   function routeDefaultRetry(route) {
-    return powerActionOf(route && route.action) === 'wake' ? 10 : 1;
+    void route;
+    return 10;
   }
 
   /**
@@ -5231,7 +5233,7 @@ window.__bkOnShow = async function () {
                 '" type="number" min="1" max="20" placeholder="' + routeDefaultRetry(route) +
                 '" value="' + retryValue + '"> 次</span>' +
               '<span class="route-macs-label">留空 = 默认 ' + routeDefaultBurst(route) + ' / ' +
-                routeDefaultRetry(route) + (waking ? '（唤醒包多、丢得多）' : '（执行类动作别调大，会重复执行）') + '</span>' +
+                routeDefaultRetry(route) + (waking ? '（唤醒包多、丢得多）' : '（执行类动作怕重复就把它调小）') + '</span>' +
             '</div>' +
             '<div class="route-macs"><span class="route-macs-label">MAC</span>' + chips + '</div>' +
           '</div>' +
@@ -5267,7 +5269,7 @@ window.__bkOnShow = async function () {
       const add = document.getElementById(cfg.add);
       if (!box || !add) return;
       add.addEventListener('click', function () {
-        // 0 / 0 = 跟动作默认（唤醒 10/10，其余 1/1），别把默认值抄成「用户改过的值」；
+        // 0 / 0 = 跟动作默认（2026-10-31 起所有动作统一 10/10），别把默认值抄成「用户改过的值」；
         // 发送模式默认「优先广播包」（= 旧的 HTTP 兜底勾选）
         st.routes.push({ action: 'wake', target: '', port: 9, macs: [], enabled: true, burst: 0, retry: 0, mode: 'auto', http_fallback: true });
         render();

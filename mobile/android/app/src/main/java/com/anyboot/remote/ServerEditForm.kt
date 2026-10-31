@@ -1271,17 +1271,10 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                                 DropdownMenuItem(
                                     text = { Text(ServerProfile.powerActionLabel(action)) },
                                     onClick = {
-                                        val before = route.actionOrWake()
-                                        val oldBurst = if (before == ServerProfile.POWER_WAKE) {
-                                            ServerProfile.DEFAULT_WAKE_BURST
-                                        } else {
-                                            ServerProfile.DEFAULT_POWER_BURST
-                                        }
-                                        val oldRetry = if (before == ServerProfile.POWER_WAKE) {
-                                            ServerProfile.DEFAULT_WAKE_RETRY
-                                        } else {
-                                            ServerProfile.DEFAULT_POWER_RETRY
-                                        }
+                                        // 默认值 2026-10-31 起所有动作统一 10/10：
+                                        // 没手动改过（还是默认值）就归零，跟着「按动作默认」走
+                                        val oldBurst = ServerProfile.DEFAULT_WAKE_BURST
+                                        val oldRetry = ServerProfile.DEFAULT_WAKE_RETRY
                                         // 没手动改过（还是旧动作的默认值）就跟着换成新动作的默认值；
                                         // 0 = 「按动作默认」，交给 ServerProfile 算
                                         val burst =
@@ -1434,7 +1427,7 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                     }
                 }
 
-                // 发包数 / 重试：每个动作都能设（默认唤醒 10 / 其余 1）。
+                // 发包数 / 重试：每个动作都能设（默认统一 10 / 10，2026-10-31 起不再只有唤醒）。
                 // 注意 value 只认「用户自己填的数」，空着就用占位符显示默认值 ——
                 // 千万不能把 effective 值当 value 回填，否则删一个字符就被弹回来，
                 // 光标一直跳（看着就是输入框在闪）。

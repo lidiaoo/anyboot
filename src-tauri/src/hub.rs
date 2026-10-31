@@ -66,11 +66,11 @@ pub struct PowerRoute {
     /// 关掉但不想删（留着自己记）
     #[serde(default = "default_true")]
     pub enabled: bool,
-    /// 这条路由每次发几个包（0 = 按动作默认：唤醒 10、其余 1）。
-    /// 每个动作都能单独设 —— 重启/关机/睡眠发多个包等于让 sol 执行多次，改之前想清楚。
+    /// 这条路由每次发几个包（0 = 默认 10，所有动作一样，2026-10-31）。
+    /// 每个动作都能单独设 —— 非唤醒动作发多个包可能让 sol 执行多次，改之前想清楚。
     #[serde(default)]
     pub burst: u32,
-    /// 一轮没全发出去时的重试次数（0 = 按动作默认：唤醒 10、其余 1）。每个动作都能设。
+    /// 一轮没全发出去时的重试次数（0 = 默认 10，所有动作一样）。每个动作都能设。
     /// 走跳板机时每轮重试都会重新连接跳板机，直到次数用完（重试次数 = 跳板机重连次数）。
     #[serde(default)]
     pub retry: u32,
@@ -133,17 +133,13 @@ pub fn routes_mode(routes: &[PowerRoute]) -> &'static str {
     "packet_only"
 }
 
-/// 唤醒包默认发几个（每条路由、每块网卡）
+/// 电源包默认发几个（每条路由、每块网卡）。2026-10-31 起所有动作统一默认 10
+///（用户：不是只有唤醒才 10 个包 —— 非唤醒动作 sol 按端口幂等 / 丢包重发都
+/// 比丢指令强，重复执行的风险由用户在路由里改小来自己承担）
 pub(crate) const DEFAULT_WAKE_BURST: u32 = 10;
 
-/// 唤醒包默认重试几次（一轮有包没发出去才重试，间隔 200ms）
+/// 电源包默认重试几次（一轮有包没发出去才重试，间隔 200ms）；所有动作统一
 pub(crate) const DEFAULT_WAKE_RETRY: u32 = 10;
-
-/// 重启 / 关机 / 睡眠默认只发 1 个包 —— 同一个包到两次，sol 就执行两次
-pub(crate) const DEFAULT_POWER_BURST: u32 = 1;
-
-/// 重启 / 关机 / 睡眠默认重试 1 次（只在真没发出去时才补发）
-pub(crate) const DEFAULT_POWER_RETRY: u32 = 1;
 
 impl PowerRoute {
     /// 归一化后的动作（空 / 不认识一律按唤醒处理，别让一条路由失效）
@@ -191,22 +187,14 @@ impl PowerRoute {
         }
     }
 
-    /// 没填发包数时按动作取默认：唤醒 10（唤醒包丢了就是叫不醒），其余 1（重复会重复执行）
+    /// 没填发包数时取默认：所有动作统一 10（2026-10-31 起不再只有唤醒 10）
     pub fn default_burst(&self) -> u32 {
-        if self.action_or_wake() == POWER_WAKE {
-            DEFAULT_WAKE_BURST
-        } else {
-            DEFAULT_POWER_BURST
-        }
+        DEFAULT_WAKE_BURST
     }
 
-    /// 没填重试次数时按动作取默认：唤醒 10，其余 1
+    /// 没填重试次数时取默认：所有动作统一 10
     pub fn default_retry(&self) -> u32 {
-        if self.action_or_wake() == POWER_WAKE {
-            DEFAULT_WAKE_RETRY
-        } else {
-            DEFAULT_POWER_RETRY
-        }
+        DEFAULT_WAKE_RETRY
     }
 }
 
@@ -830,13 +818,13 @@ mod tests {
         assert_eq!(wild.effective_burst(), 50);
         assert_eq!(wild.effective_retry(), 20);
 
-        // 重启 / 关机 / 睡眠：没填就默认 1 包 / 1 重试（重复发包 = sol 重复执行），
-        // 但每个动作都能自己设 —— 不是只有唤醒才有这两个数字
+        // 所有动作（2026-10-31）：没填就默认 10 包 / 10 重试 —— 不是只有唤醒才有
+        // 大数字；每个动作也都能自己设小（重复发包 = sol 可能重复执行，用户自己权衡）
         for action in [POWER_REBOOT, POWER_SHUTDOWN, POWER_SLEEP] {
             let mut other = route.clone();
             other.action = action.to_string();
-            assert_eq!(other.effective_burst(), DEFAULT_POWER_BURST);
-            assert_eq!(other.effective_retry(), DEFAULT_POWER_RETRY);
+            assert_eq!(other.effective_burst(), DEFAULT_WAKE_BURST);
+            assert_eq!(other.effective_retry(), DEFAULT_WAKE_RETRY);
             other.burst = 3;
             other.retry = 4;
             assert_eq!(other.effective_burst(), 3);

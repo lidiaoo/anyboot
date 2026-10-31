@@ -66,9 +66,9 @@ pub(crate) struct Delivery {
     pub target: String,
     pub port: u16,
     pub packet: Vec<u8>,
-    /// 这条要发几个包（唤醒可配，默认 10；其余动作固定 1）
+    /// 这条要发几个包（0 时取路由默认，2026-10-31 起所有动作统一 10）
     pub times: u32,
-    /// 没发出去就再打一轮的次数（默认 10；其余动作固定 0）；走跳板机时每轮重试都会重新连接跳板机
+    /// 没发出去就再打一轮的次数（默认统一 10）；走跳板机时每轮重试都会重新连接跳板机
     pub retry: u32,
 }
 
@@ -121,10 +121,11 @@ pub(crate) fn plan_routes(
             targets.truncate(1);
         }
         let port = route.effective_port();
-        // 每个动作都能单独设「发几个包 / 重试几次」：
+        // 每个动作都能单独设「发几个包 / 重试几次」，默认统一 10/10（2026-10-31
+        // 起不再只有唤醒是大数字）：
         //   唤醒：每块网卡各发一份魔术包（不知道现在插的是哪根网线），每份 burst 个；
         //   重启/关机/睡眠：只发一个包，发 burst 次 —— 同一个包到两次 sol 就执行两次，
-        //                  默认是 1/1，用户在路由里改大了就是他要的效果。
+        //                  用户不想重复就在路由里把数字改小。
         let waking = action == POWER_WAKE;
         let times = route.effective_burst();
         let retry = route.effective_retry();
