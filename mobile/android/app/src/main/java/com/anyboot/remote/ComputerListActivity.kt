@@ -1003,9 +1003,11 @@ class ComputerListActivity : ComponentActivity() {
 
             // 状态行独立成行；直连地址行与远程配对行同款格式（用户 2026-10-28）：
             // 耗时在前、类型在中、地址吃剩余宽度、行尾「复制 / 打开」。
-            // 连接策略停用了「直连」：地址行不上列表页（没开启的就不展示）。
+            // 连接策略停用了「直连」：地址行不上列表页（没开启的就不展示）；
+            // 「是否展示」关了直连：同样整行不上（用户 2026-10-31 改口径，连通性/网址全不显示）
             val lanDisabled = row.profile.routeDisabled.contains(ServerProfile.ROUTE_LAN)
-            val addrCount = if (lanDisabled) 0 else row.profile.addressCount()
+            val lanHidden = row.profile.routeProbeHidden.contains(ServerProfile.ROUTE_LAN)
+            val addrCount = if (lanDisabled || lanHidden) 0 else row.profile.addressCount()
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.padding(start = 4.dp, top = 5.dp),
@@ -1016,7 +1018,11 @@ class ComputerListActivity : ComponentActivity() {
                     Text("·", fontSize = 11.sp, color = palette.fgFaint)
                     Spacer(Modifier.width(6.dp))
                     Text(
-                        if (lanDisabled) "直连已停用" else "(未配地址)",
+                        when {
+                            lanDisabled -> "直连已停用"
+                            lanHidden -> "直连已隐藏"
+                            else -> "(未配地址)"
+                        },
                         fontSize = 11.sp,
                         color = palette.fgFaint,
                     )
@@ -1270,16 +1276,15 @@ class ComputerListActivity : ComponentActivity() {
             it.kind == ServerProfile.ROUTE_LAN &&
                 ServerProfile.normalizeHost(it.origin) == host
         }
-        // 「是否展示连通性」关掉了直连通道：这行地址还在，但不显示探测结果
-        // （2026-10-31，与 PC 端 cqProbeBadge('lan') 的过滤同口径）
-        val lanProbeHidden = row.profile.routeProbeHidden.contains(ServerProfile.ROUTE_LAN)
+        // 「是否展示」关掉的直连整行不进列表（2026-10-31 改口径，rowsOf 里 addrCount=0），
+        // 能走到这里说明是展示的 —— 探测结果直接渲染
         val url = if (host.isEmpty()) "" else row.profile.urlFor(addr, "")
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(start = 4.dp, top = 3.dp),
         ) {
             Text(
-                if (lanProbeHidden) "" else probeStateText(hit),
+                probeStateText(hit),
                 fontSize = 10.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = when {
@@ -2622,14 +2627,15 @@ class ComputerListActivity : ComponentActivity() {
         val rows = ArrayList<PairRow>()
         // 跳板机通道行：配了且启用才亮出来（用户 2026-10-28：没开启的不上列表页）。
         // 探测结果按 kind 匹配 —— jump 的命中 pairId 为空，不能走下面的 pairId 匹配。
+        // 「是否展示」关了跳板机：整行不上列表页（用户 2026-10-31 改口径，原「是否展示连通性」）
+        val jumpHidden = profile.routeProbeHidden.contains(ServerProfile.ROUTE_JUMP)
         if (jumpId.isNotEmpty() &&
-            !profile.routeDisabled.contains(ServerProfile.ROUTE_JUMP)
+            !profile.routeDisabled.contains(ServerProfile.ROUTE_JUMP) &&
+            !jumpHidden
         ) {
             val jump = JumpStore.findJump(JumpStore.loadJumps(this), jumpId)
             val jumpHit = hits.firstOrNull { it.kind == ServerProfile.ROUTE_JUMP }
             val jumpInUse = state == STATE_ONLINE && info?.winnerKind == ServerProfile.ROUTE_JUMP
-            // 「是否展示连通性」关掉了跳板机通道：只说「使用中」，不报探测结果
-            val jumpProbeHidden = profile.routeProbeHidden.contains(ServerProfile.ROUTE_JUMP)
             rows.add(
                 PairRow(
                     id = "jump",
@@ -2645,10 +2651,9 @@ class ComputerListActivity : ComponentActivity() {
                     lane = "",
                     source = "",
                     state = when {
-                        jumpInUse && jumpHit != null && jumpHit.ok && !jumpProbeHidden ->
+                        jumpInUse && jumpHit != null && jumpHit.ok ->
                             "使用中 " + jumpHit.ms + "ms"
                         jumpInUse -> "使用中"
-                        jumpProbeHidden -> ""
                         else -> probeStateText(jumpHit)
                     },
                     ok = jumpHit?.ok == true,
@@ -2662,16 +2667,16 @@ class ComputerListActivity : ComponentActivity() {
                 // 连接策略停用了这条通道：整行也不上列表页（ts 区块里「TS 直连」与
                 // 「TS Funnel」是两行独立开关，停用哪个只藏哪条）
                 if (profile.routeDisabled.contains(pair.routeKind())) continue
+                // 「是否展示」（2026-10-31 改口径，原「是否展示连通性」，与 PC 端同口径）：
+                // 配对条目自己的 showProbe 或整条通道关掉 → 整行不上列表页
+                //（连通性、网址、来源、复制/打开全不显示）；探测照跑、连接照常
+                if (profile.probeHidden(pair)) continue
                 val hit = hits.firstOrNull { it.pairId.isNotEmpty() && it.pairId == pair.id }
                 val inUse = pair.id == hitPair?.id
-                // 「是否展示连通性」（2026-10-31，与 PC 端同口径）：配对条目自己的
-                // showProbe 或连接策略里整条通道关掉，都不显示探测结果 —— 只说「使用中」
-                val probeHidden = profile.probeHidden(pair)
                 // 「使用中」也要带耗时：选了谁 + 探测快不慢一起说，别只剩一句「使用中」
                 val stateText = when {
-                    inUse && hit != null && hit.ok && !probeHidden -> "使用中 " + hit.ms + "ms"
+                    inUse && hit != null && hit.ok -> "使用中 " + hit.ms + "ms"
                     inUse -> "使用中"
-                    probeHidden -> ""
                     else -> probeStateText(hit)
                 }
                 // 浏览器地址带这条配对自己的令牌（不同配对各带各的网关客户端令牌）

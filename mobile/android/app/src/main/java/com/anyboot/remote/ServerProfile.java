@@ -382,15 +382,15 @@ final class ServerProfile {
     final List<String> routeDisabled = new ArrayList<>();
 
     /**
-     * 「是否展示连通性」被关掉的通道（2026-10-31，与 PC 端 route_probe_hidden
-     * 同语义）：电脑列表不再显示这些通道条目的探测小字（延迟 / 失败原因）与
-     * 「使用中」耗时。探测照跑、连接选择照常 —— 纯展示开关，不进连接判定
-     * （{@link #sameConnState} 也不比对它，改开关不触发重连）。与配对条目自己
-     * 的 {@link RemotePair#showProbe} 两层任一命中即隐藏。
+     * 「是否展示」被关掉的通道（2026-10-31 改口径，原「是否展示连通性」，与 PC 端
+     * route_probe_hidden 同语义）：电脑列表**整行不展示**这些通道条目（连通性、
+     * 网址、来源、复制/打开全不显示）。探测照跑、连接选择照常 —— 纯展示开关，
+     * 不进连接判定（{@link #sameConnState} 也不比对它，改开关不触发重连）。
+     * 与配对条目自己的 {@link RemotePair#showProbe} 两层任一命中即整行隐藏。
      */
     final List<String> routeProbeHidden = new ArrayList<>();
 
-    /** 这条配对的探测结果要不要在列表里展示（两层开关任一关掉即不展示） */
+    /** 这条配对要不要在电脑列表展示（两层开关任一关掉即整行隐藏） */
     boolean probeHidden(RemotePair pair) {
         return pair != null && (!pair.showProbe || routeProbeHidden.contains(pair.routeKind()));
     }

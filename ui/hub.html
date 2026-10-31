@@ -7450,8 +7450,8 @@ window.__bkOnShow = async function () {
     const remRow = remotes.find(function (x) { return x.id === row.rid; });
     const routeDisabledList = remRow && Array.isArray(remRow.route_disabled)
       ? remRow.route_disabled : [];
-    // 「是否展示连通性」的通道粒度（用户 2026-10-31）：数组只存关掉的通道 id，
-    // 命中的通道在列表里不画探测小字（单条粒度再看配对自己的 show_probe）
+    // 「是否展示」的通道粒度（用户 2026-10-31 改口径，原「是否展示连通性」）：数组只存
+    // 关掉的通道 id，命中的通道整行不上列表页（连通性、网址等都不显示；单条粒度再看配对自己的 show_probe）
     const routeProbeHiddenList = remRow && Array.isArray(remRow.route_probe_hidden)
       ? remRow.route_probe_hidden : [];
     const addrLines = row.local ? null : (row.addrs || []);
@@ -7475,8 +7475,10 @@ window.__bkOnShow = async function () {
     } else {
       // 每个配置好的地址一行：行首「直连」徽章 + 该地址的探测情况，行尾复制/浏览器打开
       // 连接策略停用了直连：整行不上列表页（用户 2026-10-28：没开启的就不展示）
+      // 「是否展示」关了直连：同样整行不上（用户 2026-10-31 改口径：连通性、地址、
+      // 复制/打开按钮全不显示）；探测照跑、连接照常
       addrLines.forEach(function (line) {
-        if (routeDisabledList.indexOf('lan') >= 0) return;
+        if (routeDisabledList.indexOf('lan') >= 0 || routeProbeHiddenList.indexOf('lan') >= 0) return;
         const ln = document.createElement('div');
         ln.className = 'cq-dev-line';
         const lanKind = document.createElement('span');
@@ -7490,10 +7492,7 @@ window.__bkOnShow = async function () {
         a.textContent = line.addr;
         ln.appendChild(a);
         // 探测情况：该地址在这轮逐行结果里的成败与延迟（同一套探测，换个样式展示）
-        // 「是否展示连通性」关了直连：只藏探测小字，地址与复制/打开按钮照常（用户 2026-10-31）
-        if (routeProbeHiddenList.indexOf('lan') < 0) {
-          ln.appendChild(cqProbeBadge(row.rid, 'lan', '', pcNormAddr(line.addr)));
-        }
+        ln.appendChild(cqProbeBadge(row.rid, 'lan', '', pcNormAddr(line.addr)));
         line.macs.forEach(function (m) {
           const sep = document.createElement('span');
           sep.className = 'sep cq-dev-mac';
@@ -7514,11 +7513,13 @@ window.__bkOnShow = async function () {
         meta.appendChild(ln);
       });
       // 跳板机通道行：配了且启用才亮出来（转发端点只在本机有效，不给浏览器按钮）；
-      // 连接策略停用了跳板机：整行不上列表页（用户 2026-10-28：没开启的就不展示）
+      // 连接策略停用了跳板机：整行不上列表页（用户 2026-10-28：没开启的就不展示）；
+      // 「是否展示」关了跳板机：同样整行不上（用户 2026-10-31 改口径）
       const jumpId = (remRow && remRow.jump_id || '').trim();
       const jumpDisabled = remRow && Array.isArray(remRow.route_disabled)
         ? remRow.route_disabled.indexOf('jump') >= 0 : false;
-      if (jumpId && !jumpDisabled) {
+      const jumpHidden = routeProbeHiddenList.indexOf('jump') >= 0;
+      if (jumpId && !jumpDisabled && !jumpHidden) {
         const jump = servers.find(function (s) { return s.id === jumpId; });
         const ln = document.createElement('div');
         ln.className = 'cq-dev-line';
@@ -7535,9 +7536,7 @@ window.__bkOnShow = async function () {
         a.title = '经由这台跳板机的 SSH 转发连接（广播包也走它发）；是否使用由连接优先级决定';
         ln.appendChild(a);
         // 这条通道的探测情况（转发端点也是候选之一，结果在 pcRowProbe）
-        if (routeProbeHiddenList.indexOf('jump') < 0) {
-          ln.appendChild(cqProbeBadge(row.rid, 'jump', '', ''));
-        }
+        ln.appendChild(cqProbeBadge(row.rid, 'jump', '', ''));
         const ep = pcEps.get(row.rid);
         if (ep && !jumpDisabled) {
           const sep = document.createElement('span');
@@ -7567,9 +7566,10 @@ window.__bkOnShow = async function () {
         : (pair.kind === 'tsnet' ? 'tsnet' : (lane === 'funnel' ? 'funnel' : 'ts'));
       // 连接策略停用了这条通道：整行不上列表页（用户 2026-10-28：没开启的就不展示）
       if (routeDisabledList.indexOf(routeKind) >= 0) return;
-      // 「是否展示连通性」（用户 2026-10-31）：通道粒度关了、或这一条配对自己关了
-      // → 只藏探测小字与「使用中」后面的耗时，地址行本身照常
-      const showProbe = routeProbeHiddenList.indexOf(routeKind) < 0 && pair.show_probe !== false;
+      // 「是否展示」（用户 2026-10-31 改口径，原「是否展示连通性」）：通道粒度关了、
+      // 或这一条配对自己关了 → 整行不上列表页（连通性、网址、来源、复制/打开全不显示）；
+      // 探测照跑、连接照常，纯展示开关
+      if (routeProbeHiddenList.indexOf(routeKind) >= 0 || pair.show_probe === false) return;
       const kindLabel = ROUTE_LABELS[routeKind] || pair.kind;
       const ln = document.createElement('div');
       ln.className = 'cq-dev-line' + (expired && !using ? ' cq-remote-expired' : '');
@@ -7581,15 +7581,14 @@ window.__bkOnShow = async function () {
       const a = document.createElement('span');
       a.className = 'cq-dev-addr';
       a.title = pair.addr;
-      // 「使用中」也要带耗时：选了谁 + 探测多快一起说（与移动端列表同口径）；
-      // 关了「是否展示连通性」就只剩「使用中」—— 耗时也算连通性信息
-      const usingSt = using && showProbe ? cqProbeState(row.rid, routeKind, pair.id || '', pair.addr) : null;
+      // 「使用中」也要带耗时：选了谁 + 探测多快一起说（与移动端列表同口径）
+      const usingSt = using ? cqProbeState(row.rid, routeKind, pair.id || '', pair.addr) : null;
       a.textContent = pair.addr +
         (using ? ' · 使用中' + (usingSt && usingSt.ok ? ' ' + usingSt.ms + 'ms' : '')
           : (expired ? ' · 已过期（重扫配对码）' : ''));
       ln.appendChild(a);
       // 这条配对的探测情况（同一套逐行结果）：通 = 延迟，不通 = 原因
-      if (showProbe) ln.appendChild(cqProbeBadge(row.rid, routeKind, pair.id || '', pair.addr));
+      ln.appendChild(cqProbeBadge(row.rid, routeKind, pair.id || '', pair.addr));
       const source = pcPairSource(pair);
       if (source) {
         const sep = document.createElement('span');
@@ -9169,9 +9168,9 @@ window.__bkOnShow = async function () {
   };
   let rsRouteOrder = ROUTE_IDS.slice();  // 有序通道 id
   let rsRouteDisabled = {};              // kind -> true = 停用
-  // 「是否展示连通性」的通道粒度（用户 2026-10-31）：kind -> true = 电脑列表不显示
-  // 这个通道的探测小字。探测照跑、连接照常 —— 与 rsRouteDisabled（整条停用）是两回事；
-  // 单条粒度藏在配对的 show_probe 上，两层任一命中就不展示。
+  // 「是否展示」的通道粒度（用户 2026-10-31 改口径，原「是否展示连通性」）：kind -> true =
+  // 电脑列表整行不展示（连通性、网址等都不显示）。探测照跑、连接照常 ——
+  // 与 rsRouteDisabled（整条停用）是两回事；单条粒度藏在配对的 show_probe 上，两层任一命中就不展示。
   let rsRouteProbeHidden = {};
   // 每个通道自己的探测超时（kind → 秒文本）。空 = 用「默认探测超时」。
   // 为什么要分开：局域网 RTT <10ms、2 秒都算宽；Funnel / 内置 tsnet 走中继时
@@ -9457,14 +9456,15 @@ window.__bkOnShow = async function () {
     enableLbl.className = 'pb-swtag-l';
     enableLbl.textContent = '启用';
     enableWrap.appendChild(enableLbl);
-    // 「是否展示连通性」（用户 2026-10-31）：默认开。关掉后电脑列表不显示这条
-    // 配对的探测小字（延迟 / 失败原因）—— 探测照跑、连接照常，只是眼不见心不烦
+    // 「是否展示」（用户 2026-10-31 改口径，原「是否展示连通性」）：默认开。关掉后
+    // 电脑列表整行不展示这条配对（连通性、网址、来源、复制/打开全不显示）——
+    // 探测照跑、连接照常，纯展示开关
     const showProbe = document.createElement('label');
     showProbe.className = 'switch';
     const spBox = document.createElement('input');
     spBox.type = 'checkbox';
     spBox.checked = pair.show_probe !== false;
-    spBox.title = '是否展示连通性：关掉后电脑列表不显示这条通道的探测结果（延迟 / 失败原因），探测与连接不受影响';
+    spBox.title = '是否展示：默认开；关掉后电脑列表整行不展示这条通道（连通性、网址等都不显示），探测与连接不受影响';
     spBox.addEventListener('change', function () {
       rsPairs[index].show_probe = spBox.checked;
     });
@@ -9479,7 +9479,7 @@ window.__bkOnShow = async function () {
     showProbeWrap.appendChild(showProbe);
     const spLbl = document.createElement('span');
     spLbl.className = 'pb-showprobe-l';
-    spLbl.textContent = '连通性';
+    spLbl.textContent = '展示';
     showProbeWrap.appendChild(spLbl);
     // 来源：host · os（mid 缺失时显示 mid 短号或「手填」）
     const source = document.createElement('span');
@@ -10013,16 +10013,16 @@ window.__bkOnShow = async function () {
       labelTxt.textContent = '启用';
       labelWrap.appendChild(labelTxt);
       row.appendChild(labelWrap);
-      // 「是否展示连通性」开关（用户 2026-10-31）：默认开。关掉后电脑列表不显示
-      // 这个通道所有条目的探测小字（延迟 / 失败原因）—— 探测照跑、连接照常
+      // 「是否展示」开关（用户 2026-10-31 改口径，原「是否展示连通性」）：默认开。
+      // 关掉后电脑列表整行不展示这个通道（连通性、网址等都不显示）—— 探测照跑、连接照常
       const spLabel = document.createElement('label');
       spLabel.className = 'switch';
       const spInput = document.createElement('input');
       spInput.type = 'checkbox';
       spInput.checked = !rsRouteProbeHidden[kind];
-      spInput.title = '是否展示连通性：关掉后电脑列表不显示「' + (ROUTE_LABELS[kind] || kind)
-        + '」的探测结果（延迟 / 失败原因），探测与连接不受影响';
-      spInput.setAttribute('aria-label', (ROUTE_LABELS[kind] || kind) + ' 是否展示连通性');
+      spInput.title = '是否展示：默认开；关掉后电脑列表整行不展示「' + (ROUTE_LABELS[kind] || kind)
+        + '」通道（连通性、网址等都不显示），探测与连接不受影响';
+      spInput.setAttribute('aria-label', (ROUTE_LABELS[kind] || kind) + ' 是否展示');
       spInput.addEventListener('change', function () {
         if (spInput.checked) delete rsRouteProbeHidden[kind];
         else rsRouteProbeHidden[kind] = true;
@@ -10037,7 +10037,7 @@ window.__bkOnShow = async function () {
       spWrap.appendChild(spLabel);
       const spText = document.createElement('span');
       spText.className = 'pb-showprobe-l';
-      spText.textContent = '连通性';
+      spText.textContent = '展示';
       spWrap.appendChild(spText);
       row.appendChild(spWrap);
       // HTML5 拖动排序
@@ -10159,7 +10159,7 @@ window.__bkOnShow = async function () {
     ((r && Array.isArray(r.route_disabled)) ? r.route_disabled : []).forEach(function (id) {
       if (ROUTE_IDS.indexOf(id) >= 0) rsRouteDisabled[id] = true;
     });
-    // 「是否展示连通性」的通道粒度：route_probe_hidden 是数组落盘（只存关掉的）
+    // 「是否展示」的通道粒度：route_probe_hidden 是数组落盘（只存关掉的）
     rsRouteProbeHidden = {};
     ((r && Array.isArray(r.route_probe_hidden)) ? r.route_probe_hidden : []).forEach(function (id) {
       if (ROUTE_IDS.indexOf(id) >= 0) rsRouteProbeHidden[id] = true;
@@ -10209,7 +10209,7 @@ window.__bkOnShow = async function () {
           // 连接策略停用的通道不进测试（用户 2026-10-28：探测列表听开关的，与
           // 平时轮询的 pcRouteCandidates 同口径 —— ts 区块里 ts / funnel 各听各的开关）
           if (rsRouteDisabled[routeKind]) return;
-          // 「是否展示连通性」关了的条目也不进测试探测列表（用户 2026-10-31）：
+          // 「是否展示」关了的条目也不进测试探测列表（用户 2026-10-31）：
           // 通道粒度（rsRouteProbeHidden）或这一条自己的 show_probe 任一命中就不列
           if (rsRouteProbeHidden[routeKind] || p.show_probe === false) return;
           // 三层继承：条目 → 区块 → 全局（0 = 后端落全局默认）。
@@ -10220,7 +10220,7 @@ window.__bkOnShow = async function () {
         return;
       }
       if (rsRouteDisabled[kind]) return;
-      // 「是否展示连通性」关了 lan：测试探测列表不列局域网地址（用户 2026-10-31）
+      // 「是否展示」关了 lan：测试探测列表不列局域网地址（用户 2026-10-31）
       if (rsRouteProbeHidden[kind]) return;
       if (kind === 'lan') {
         addresses.forEach(function (address) { list.push({ kind: 'lan', origin: address }); });
@@ -10365,7 +10365,7 @@ window.__bkOnShow = async function () {
         token: p.token || '',
         probe_timeout_ms: p.probe_timeout_ms || 0,
         enabled: p.enabled !== false,
-        // 「是否展示连通性」：undefined/true = 展示；false = 列表不显示这条的探测小字
+        // 「是否展示」：undefined/true = 展示；false = 电脑列表整行不展示这条通道
         show_probe: p.show_probe !== false,
         mid: p.mid || '',
         os: p.os || '',
@@ -10391,7 +10391,7 @@ window.__bkOnShow = async function () {
       conn_mode: '',
       route_order: rsRouteOrder.slice(),
       route_disabled: rsRouteOrder.filter(function (kind) { return rsRouteDisabled[kind]; }),
-      // 「是否展示连通性」的通道粒度：只存关掉的（数组落盘，空 = 全部展示）
+      // 「是否展示」的通道粒度：只存关掉的（数组落盘，空 = 全部展示）
       route_probe_hidden: ROUTE_IDS.filter(function (kind) { return rsRouteProbeHidden[kind]; }),
       // 默认探测超时（毫秒）：通道没单独设时用它；界面上填的是秒
       probe_timeout_ms: rsProbeTimeoutMs(),

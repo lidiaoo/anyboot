@@ -143,9 +143,10 @@ pub struct RemotePair {
     /// 是否参与探测（单条粒度）。取代原来的 `route_disabled`（区块内禁用）
     #[serde(default = "serde_default_true")]
     pub enabled: bool,
-    /// **是否展示连通性**（单条粒度，用户 2026-10-31）：关掉后电脑列表不显示这条
-    /// 配对的探测小字（延迟 / 失败原因），编辑弹窗「测试」的探测列表也不列它 ——
-    /// 但探测照跑、连接选择照常（隐藏的是展示，不是通道本身）。
+    /// **是否展示**（单条粒度，用户 2026-10-31 改口径，原「是否展示连通性」）：
+    /// 关掉后电脑列表**整行不展示**这条配对（连通性、网址、来源等都不显示），
+    /// 编辑弹窗「测试」的探测列表也不列它 —— 但探测照跑、连接选择照常
+    ///（隐藏的是展示，不是通道本身）。
     #[serde(default = "serde_default_true")]
     pub show_probe: bool,
     /// 对方系统自报的 machine_id —— 幂等键的一半（另一半是 kind + lane）
@@ -435,10 +436,10 @@ pub struct RemoteServer {
     /// 无处表达（这两条没有配对条目可挂），所以保留字段、语义收窄到 lan / jump。
     #[serde(default)]
     pub route_disabled: Vec<String>,
-    /// **不展示连通性的通道** id（用户 2026-10-31「是否展示连通性」的通道粒度）：
-    /// 关掉后电脑列表不显示这个通道所有条目的探测小字（延迟 / 失败原因）。
-    /// 探测照跑、连接照常 —— 与 `route_disabled`（整条通道不参与探测连接）是两回事；
-    /// 单条粒度藏在 `RemotePair.show_probe`，两条任一命中就不展示。
+    /// **「是否展示」被关掉的通道** id（用户 2026-10-31 改口径，原「是否展示连通性」，
+    /// 通道粒度）：关掉后电脑列表**整行不展示**这个通道所有条目（连通性、网址、
+    /// 来源等都不显示）。探测照跑、连接照常 —— 与 `route_disabled`（整条通道不参与
+    /// 探测连接）是两回事；单条粒度藏在 `RemotePair.show_probe`，两条任一命中即整行隐藏。
     #[serde(default)]
     pub route_probe_hidden: Vec<String>,
     #[serde(default)]
@@ -777,7 +778,7 @@ impl RemoteServer {
             .map(|raw| raw.trim().to_lowercase())
             .filter(|id| ROUTE_IDS.contains(&id.as_str()))
             .collect();
-        // 「不展示连通性」的通道表：同一套清洗 —— 只认合法 id、去重保序。
+        // 「是否展示」被关掉的通道表：同一套清洗 —— 只认合法 id、去重保序。
         // 这是纯展示开关，误传非法 id 也只会在前端静默失效，这里统一兜住。
         let mut seen_hidden = std::collections::HashSet::new();
         self.route_probe_hidden = self
@@ -6165,7 +6166,7 @@ mod tests {
 
     #[test]
     fn show_probe_defaults_on_and_route_probe_hidden_is_sanitized() {
-        // 「是否展示连通性」（用户 2026-10-31）：单条 show_probe 缺省 = 开；
+        // 「是否展示」（用户 2026-10-31 改口径）：单条 show_probe 缺省 = 开；
         // 通道粒度 route_probe_hidden 只认合法 id、去重 —— 非法值静默丢弃
         let n = RemoteServer {
             pairs: vec![RemotePair {

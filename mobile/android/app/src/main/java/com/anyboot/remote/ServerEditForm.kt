@@ -99,7 +99,7 @@ internal data class PairEdit(
     /** 条目自己的探测超时（秒文本，空 = 继承区块 → 全局） */
     val timeoutText: String = "",
     val enabled: Boolean = true,
-    /** 「是否展示连通性」：默认开；关掉后列表不显示这条配对的探测小字 */
+    /** 「是否展示」：默认开；关掉后电脑列表整行不展示这条配对 */
     val showProbe: Boolean = true,
     val createdAt: Long = 0L,
 ) {
@@ -539,7 +539,7 @@ internal class ServerEditFormState(
             profile.routeDisabled.forEach { id -> if (id in ROUTE_IDS_ALL && id !in this) add(id) }
         }
     }
-    /** 「是否展示连通性」被关掉的通道（与 routeDisabled 同一套通道 id，默认全开） */
+    /** 「是否展示」被关掉的通道（与 routeDisabled 同一套通道 id，默认全开） */
     val routeProbeHidden = mutableStateListOf<String>().apply {
         if (profile != null) {
             profile.routeProbeHidden.forEach { id -> if (id in ROUTE_IDS_ALL && id !in this) add(id) }
@@ -993,8 +993,9 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                     )
                     Text("启用", fontSize = 9.sp, color = palette.fgFaint, maxLines = 1)
                 }
-                // 「是否展示连通性」（2026-10-31，与 PC 端 rsRenderRoutes 同款）：
-                // 默认开；关掉后电脑列表不显示这个通道条目的探测小字 —— 探测照跑
+                // 「是否展示」（2026-10-31 改口径，原「是否展示连通性」，与 PC 端
+                // rsRenderRoutes 同款）：默认开；关掉后电脑列表整行不展示这个通道
+                //（连通性、网址等都不显示）—— 探测照跑、连接照常
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier.padding(start = 2.dp),
@@ -1007,7 +1008,7 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                         },
                         modifier = Modifier.scale(0.7f),
                     )
-                    Text("连通性", fontSize = 9.sp, color = palette.fgFaint, maxLines = 1)
+                    Text("展示", fontSize = 9.sp, color = palette.fgFaint, maxLines = 1)
                 }
             }
         }
@@ -1706,15 +1707,16 @@ private fun PairEditRow(
                 )
                 Text("启用", fontSize = 9.sp, color = palette.fgFaint, maxLines = 1)
             }
-            // 「是否展示连通性」（2026-10-31，与 PC 端 rsPairRow 同款）：默认开；
-            // 关掉后电脑列表不显示这条配对的探测小字（延迟 / 失败原因）——探测照跑
+            // 「是否展示」（2026-10-31 改口径，原「是否展示连通性」，与 PC 端
+            // rsPairRow 同款）：默认开；关掉后电脑列表整行不展示这条配对
+            //（连通性、网址等都不显示）—— 探测照跑、连接照常
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Switch(
                     checked = item.showProbe,
                     onCheckedChange = { on -> state.updatePair(item.id) { it.copy(showProbe = on) } },
                     modifier = Modifier.scale(0.7f),
                 )
-                Text("连通性", fontSize = 9.sp, color = palette.fgFaint, maxLines = 1)
+                Text("展示", fontSize = 9.sp, color = palette.fgFaint, maxLines = 1)
             }
             OutlinedTextField(
                 value = addrText,
