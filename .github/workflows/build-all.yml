@@ -146,3 +146,51 @@ jobs:
           name: ios-build-log
           path: mobile/ios/build
         if: failure()
+
+  # ── 发布：只有推 v* tag 才跑 ────────────────────────────────────────────
+  # 客户端（update.rs）按**固定资产名**拼下载 URL + 校验 SHA256SUMS.txt，
+  # 所以这里的命名是硬契约（见 docs/检查更新-设计.md §6 / update.rs
+  # asset_candidates）。改名字必须两边一起改，否则更新会报「没有本平台安装包」。
+  release:
+    needs: [desktop-windows, desktop-linux, desktop-macos, android, ios]
+    if: startsWith(github.ref, refs/tags/v)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: 解析版本号
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "资产会按 AnyBoot_${VERSION}_<platform>.<ext> 命名"
+      - name: 统一命名（与 update.rs 的 asset_candidates 一一对应）
+        run: |
+          mkdir -p rel
+          cp "$(ls artifacts/*.dmg | head -1)"                 "rel/AnyBoot_${VERSION}_universal.dmg"
+          cp "$(ls artifacts/*setup*.exe | head -1)"           "rel/AnyBoot_${VERSION}_x64-setup.exe"
+          cp "$(ls artifacts/*.msi | head -1)"                 "rel/AnyBoot_${VERSION}_x64.msi"
+          cp "$(ls artifacts/*.deb | head -1)"                 "rel/AnyBoot_${VERSION}_amd64.deb"
+          cp "$(ls artifacts/*.rpm | head -1)"                 "rel/AnyBoot_${VERSION}_x86_64.rpm"
+          cp "$(ls artifacts/*.AppImage | head -1)"            "rel/AnyBoot_${VERSION}_amd64.AppImage"
+          cp "$(ls artifacts/*.apk | head -1)"                 "rel/AnyBoot_${VERSION}_debug.apk"
+          cp "$(ls artifacts/*.ipa | head -1)"                 "rel/AnyBoot_${VERSION}_unsigned.ipa"
+          ls -lh rel
+      - name: 生成 SHA256SUMS.txt
+        working-directory: rel
+        run: |
+          sha256sum AnyBoot_* > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      - name: 发布（存在则覆盖资产）
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view "v${VERSION}" >/dev/null 2>&1 \
+            || gh release create "v${VERSION}" --title "AnyBoot v${VERSION}" --generate-notes
+          gh release upload "v${VERSION}" rel/* --clobber

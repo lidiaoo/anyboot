@@ -1212,6 +1212,8 @@ pub(crate) fn build_menu_nodes(state: &UiState) -> Vec<MenuNode> {
             })
             .collect(),
     ));
+    // 检查更新：结果不在这里弹，交给主窗「关于与更新」区块展示（有进度/日志）
+    nodes.push(menu_item("check-update", "检查更新…", true));
     nodes.push(menu_item("show-remote", "远程控制设置…", true));
     // 用系统浏览器打开 Web 控制页（带 token，点开即用）。
     // 没在监听时置灰：没有页面可开，免得点了弹一个必然失败的错误。
@@ -1368,6 +1370,8 @@ pub(crate) enum MenuAction {
     SetDelayAll(u32),
     /// 打开主窗口并定位到「远程控制」区
     ShowRemote,
+    /// 检查更新（托盘「检查更新…」）：起线程跑一次检查，结果由设置页展示
+    CheckUpdate,
     /// 用系统默认浏览器打开 Web 控制页（带 token）
     OpenWeb,
     /// 打开/唤起远程管理（server-hub）独立窗口
@@ -1454,6 +1458,7 @@ impl MenuAction {
             "restart" => Some(Self::Power(PowerAction::Reboot)),
             "setting-autostart" => Some(Self::SetAutostart),
             "show-remote" => Some(Self::ShowRemote),
+            "check-update" => Some(Self::CheckUpdate),
             "open-web" => Some(Self::OpenWeb),
             "open-hub" => Some(Self::OpenHub),
             "reset-window-size" => Some(Self::ResetWindowSize),
@@ -1530,6 +1535,19 @@ pub(crate) fn spawn_menu_action(app: &AppHandle, action: MenuAction) {
                     &format!("通知主窗口定位远程控制失败: {error}"),
                 );
             }
+        }
+        MenuAction::CheckUpdate => {
+            // 先叫出主窗并定位「关于与更新」，再把检查跑在后台线程里：
+            // 菜单事件线程不能被网络请求占住（几秒内托盘会「点了没反应」）。
+            show_main_window(&app, ShowOrigin::Recall);
+            if let Err(error) = app.emit("focus-update", ()) {
+                trace(&app, "tray", &format!("通知主窗口定位关于与更新失败: {error}"));
+            }
+            let handle = app.clone();
+            std::thread::spawn(move || {
+                // 失败会走 update_check 自己的 set_phase + trace，这里不再重复记
+                let _ = update::update_check(handle);
+            });
         }
         MenuAction::OpenWeb => match open_web_page_now(&app) {
             Ok(url) => record_action(&app, "打开 Web 页面", true, &format!("已打开 {url}")),

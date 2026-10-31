@@ -164,6 +164,9 @@ pub(crate) use notify::*;
 mod http_server;
 mod remote_routing;
 mod settings_commands;
+/// 检查更新：GitHub releases/latest → 下载（镜像 + SHA-256）→ 覆盖安装。
+/// 设计定稿 docs/检查更新-设计.md；对外命令 `update_*`。
+mod update;
 
 pub(crate) use http_server::*;
 pub(crate) use remote_routing::*;
@@ -299,6 +302,8 @@ const MAX_OPACITY: u8 = 100;
 const DEFAULT_OPACITY_PERCENT: u8 = 90;
 /// 出厂默认主题：用户定案亮色（暗色改为用户自己选）。
 const DEFAULT_THEME: &str = "light";
+/// 检查更新的下载源默认策略：auto = GitHub 直连 → 镜像逐源回退。
+const UPDATE_MIRROR_AUTO: &str = "auto";
 /// 出厂默认窗口落位：屏幕（工作区）正中间。选 center 而非 last：默认就应该在
 /// 视线正前方，而不是「上次拖到哪算哪」。
 const DEFAULT_WINDOW_POSITION: &str = "center";
@@ -3056,7 +3061,9 @@ pub fn run() {
         .manage(hub_gateway::GatewayTunnelState::default())
         // hub 独立窗的页面心跳：窗口对象还在 ≠ 页面还活着（白框判据，见 hub_health.rs）
         .manage(hub_health::HubPageHealth::default())
-        .manage(remote_servers::RemoteJumpState::default());
+        .manage(remote_servers::RemoteJumpState::default())
+        // 检查更新：状态机 + 单飞闸 + 已选资产（见 update.rs）
+        .manage(update::UpdateManager::default());
     // macOS 13+ 走系统登录项（见 login_item），这里的 LaunchAgent 方式仅作为
     // 旧版 macOS 以及 Windows / Linux 的实现。移动端没有「开机自启」，不注册。
     #[cfg(desktop)]
@@ -3552,6 +3559,8 @@ pub fn run() {
             channels::spawn_boot_esp_mount(app.handle().clone());
             // 远程保活刷新：手机/网页连着推送通道时，数据更新不再依赖主窗页面的 JS
             spawn_remote_keepfresh(app.handle().clone());
+            // 检查更新：延迟 30s 首查 + 每 12h 一次（失败静默，见 update.rs）
+            update::spawn_auto_check(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -3762,6 +3771,14 @@ pub fn run() {
             http_access_hint,
             open_web_page,
             set_play_sound,
+            // 检查更新（update.rs）：状态 / 检查 / 下载 / 安装 / 跳过此版本
+            update::update_state,
+            update::update_check,
+            update::update_download,
+            update::update_install,
+            update::update_dismiss,
+            update::set_update_auto_check,
+            update::set_update_mirror,
             set_sound_file_path,
             set_http_token,
             set_theme,
@@ -5075,6 +5092,7 @@ mod core_tests {
             ),
             ("setting-autostart".to_string(), MenuAction::SetAutostart),
             ("show-remote".to_string(), MenuAction::ShowRemote),
+            ("check-update".to_string(), MenuAction::CheckUpdate),
             ("open-web".to_string(), MenuAction::OpenWeb),
             ("quit".to_string(), MenuAction::Quit),
             ("linux".to_string(), MenuAction::Switch("linux".to_string())),

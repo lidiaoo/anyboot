@@ -700,6 +700,68 @@
           </button>
         </section>
 
+        <!-- 关于与更新（update.rs；设计稿 docs/update-ui-mockup.html A 区）
+             布局：全部 flex（.update-head / .update-buttons / .update-progress-meta
+             都是 flex + wrap + gap），窄窗口下按钮自动换行、整块单列。 -->
+        <section aria-label="关于与更新" class="settings update-card" id="update-section">
+          <h2>关于与更新</h2>
+          <div class="update-head">
+            <div class="update-version">
+              <span class="update-k">当前版本</span>
+              <span class="update-v mono" id="update-current">—</span>
+            </div>
+            <div class="update-actions">
+              <button class="btn primary" id="update-check" type="button">检查更新</button>
+              <button class="btn ghost hidden" id="update-retry" type="button">重试</button>
+            </div>
+          </div>
+          <div class="update-meta" id="update-meta"></div>
+
+          <!-- 有新版本 / 下载中 / 已就绪：同一张卡按 phase 变 -->
+          <div class="update-new hidden" id="update-new">
+            <div class="update-new-head">
+              <strong id="update-new-title">发现新版本</strong>
+              <span class="update-k" id="update-new-date"></span>
+            </div>
+            <pre class="update-notes hidden" id="update-notes"></pre>
+            <div class="update-progress hidden" id="update-progress">
+              <div class="update-track"><div class="update-fill" id="update-fill"></div></div>
+              <div class="update-progress-meta">
+                <span class="update-pct" id="update-pct">0%</span>
+                <span class="mono" id="update-bytes"></span>
+                <span id="update-source"></span>
+              </div>
+            </div>
+            <div class="update-buttons">
+              <button class="btn primary" id="update-download" type="button">下载</button>
+              <button class="btn primary hidden" id="update-install" type="button">安装并重启</button>
+              <button class="btn ghost" id="update-skip" type="button">跳过这个版本</button>
+            </div>
+          </div>
+
+          <div class="update-error hidden" id="update-error"></div>
+
+          <label class="setting">
+            <span class="setting-text">
+              <strong>自动检查更新</strong>
+              <small>启动后 30 秒检查一次，之后每 12 小时一次；关掉只保留手动检查</small>
+            </span>
+            <input id="update-auto-check" type="checkbox" />
+          </label>
+          <div class="setting">
+            <span class="setting-text">
+              <strong>下载源</strong>
+              <small>直连不通时自动换镜像；也可以固定只用一个源</small>
+            </span>
+            <select id="update-mirror">
+              <option value="auto">自动（直连 → 镜像）</option>
+              <option value="direct">只直连 GitHub</option>
+              <option value="ghfast">镜像 ghfast.top</option>
+              <option value="ghproxy">镜像 gh-proxy.com</option>
+            </select>
+          </div>
+        </section>
+
         <section aria-label="远程控制" class="settings" id="remote" data-page-node-id="hOETMVaZDCBHNhAvKj6yEg">
           <h2 data-page-node-id="wQvYqrGgyAr3S7cO1iTEn5">远程控制</h2>
           <div class="setting" data-page-node-id="V6P7wF4868QrcsHvXufoNy">

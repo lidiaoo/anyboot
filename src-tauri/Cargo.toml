@@ -29,7 +29,10 @@ hex = "0.4"
 # 远程接入网关：cloudflared 二进制下载。阻塞 HTTP 客户端（项目不引 async
 # 运行时，IQ6 定稿），下载放 std::thread 里跑 + 事件推前端；tls=rustls，
 # 三端编译都无需 OpenSSL。
-ureq = { version = "2", default-features = false, features = ["tls"] }
+# proxy-from-env：**必须开**。ureq 的环境代理（HTTPS_PROXY 等）由这个 feature
+# 门控，不开的话走系统代理的用户「检查更新/下载」会全断（见
+# docs/检查更新-设计.md §7.3 的审计记录）。
+ureq = { version = "2", default-features = false, features = ["tls", "proxy-from-env"] }
 # 内置 HTTP 服务：纯线程模型，不引 async 运行时（IQ6 定稿）
 tiny_http = "0.12"
 # WebSocket 推送通道（/api/ws）：握手要按 RFC 6455 算

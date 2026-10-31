@@ -441,6 +441,14 @@ pub(crate) fn build_tray_menu(app: &AppHandle, state: &UiState) -> tauri::Result
         )?)?;
     }
     menu.append(&delay_menu)?;
+    // 检查更新：结果由主窗「关于与更新」区块展示（那里有进度条与更新日志）
+    menu.append(&MenuItem::with_id(
+        app,
+        "check-update",
+        "检查更新…",
+        true,
+        None::<&str>,
+    )?)?;
     menu.append(&MenuItem::with_id(
         app,
         "show-remote",

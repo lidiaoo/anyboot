@@ -784,6 +784,16 @@ pub(crate) struct Settings {
     /// 写成 0600 密钥文件、以 `--auth-key=file:<路径>` 传给 CLI —— 不进 argv，
     /// 免被 ps 看见。空 = 走浏览器登录。
     pub(crate) tailscale_authkey: String,
+    // ==================== 检查更新（update.rs，2026-10-31） ====================
+    /// 自动检查更新（默认开）：启动后延迟 30s 一次 + 每 12 小时一次。
+    /// 关掉只保留设置页/托盘的手动检查。
+    pub(crate) update_auto_check: bool,
+    /// 用户点过「跳过这个版本」的版本号（`0.2.1` 形式，不带 v）。命中时不弹提醒，
+    /// 但设置页仍可见（可随时改成安装）。
+    pub(crate) update_skip_version: String,
+    /// 下载源策略："auto"（直连→镜像回退，默认） / "direct"（只直连） /
+    /// 镜像名（"ghfast" / "ghproxy"，只用该镜像）。
+    pub(crate) update_mirror: String,
 }
 
 impl Default for Settings {
@@ -845,6 +855,9 @@ impl Default for Settings {
             tsnet_autostart: false,
             tsnet_authkey: String::new(),
             tailscale_authkey: String::new(),
+            update_auto_check: true,
+            update_skip_version: String::new(),
+            update_mirror: UPDATE_MIRROR_AUTO.to_string(),
         }
     }
 }
