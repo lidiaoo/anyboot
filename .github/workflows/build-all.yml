@@ -209,16 +209,31 @@ jobs:
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "资产会按 AnyBoot_${VERSION}_<platform>.<ext> 命名"
       - name: 统一命名（与 update.rs 的 asset_candidates 一一对应）
+        # 注意：download-artifact 的 merge-multiple 会保留产物 zip 内部的相对目录。
+        # 只匹配一个 bundle 子目录（如 dmg/*.dmg）时文件落在 artifacts/ 根下；
+        # 匹配多个子目录（nsis + msi）时会带上前缀 → artifacts/nsis/xxx.exe。
+        # 所以这里一律用 find 递归找，不写死层级。
         run: |
+          set -euo pipefail
           mkdir -p rel
-          cp "$(ls artifacts/*.dmg | head -1)"                 "rel/AnyBoot_${VERSION}_universal.dmg"
-          cp "$(ls artifacts/*setup*.exe | head -1)"           "rel/AnyBoot_${VERSION}_x64-setup.exe"
-          cp "$(ls artifacts/*.msi | head -1)"                 "rel/AnyBoot_${VERSION}_x64.msi"
-          cp "$(ls artifacts/*.deb | head -1)"                 "rel/AnyBoot_${VERSION}_amd64.deb"
-          cp "$(ls artifacts/*.rpm | head -1)"                 "rel/AnyBoot_${VERSION}_x86_64.rpm"
-          cp "$(ls artifacts/*.AppImage | head -1)"            "rel/AnyBoot_${VERSION}_amd64.AppImage"
-          cp "$(ls artifacts/*.apk | head -1)"                 "rel/AnyBoot_${VERSION}_debug.apk"
-          cp "$(ls artifacts/*.ipa | head -1)"                 "rel/AnyBoot_${VERSION}_unsigned.ipa"
+          pick() {
+            local label="$1" pattern="$2" path
+            path="$(find artifacts -type f -iname "$pattern" | sort | head -1)"
+            if [ -z "$path" ]; then
+              echo "::error::找不到 ${label} 产物（匹配 *${pattern}）。artifacts 实际内容：" >&2
+              find artifacts -type f -printf '%P\n' | sort >&2
+              exit 1
+            fi
+            echo "$path"
+          }
+          cp "$(pick 'macOS dmg' '*.dmg')"              "rel/AnyBoot_${VERSION}_universal.dmg"
+          cp "$(pick 'Windows NSIS' '*setup*.exe')"     "rel/AnyBoot_${VERSION}_x64-setup.exe"
+          cp "$(pick 'Windows MSI' '*.msi')"            "rel/AnyBoot_${VERSION}_x64.msi"
+          cp "$(pick 'Linux deb' '*.deb')"              "rel/AnyBoot_${VERSION}_amd64.deb"
+          cp "$(pick 'Linux rpm' '*.rpm')"              "rel/AnyBoot_${VERSION}_x86_64.rpm"
+          cp "$(pick 'Linux AppImage' '*.AppImage')"    "rel/AnyBoot_${VERSION}_amd64.AppImage"
+          cp "$(pick 'Android APK' '*.apk')"            "rel/AnyBoot_${VERSION}_debug.apk"
+          cp "$(pick 'iOS IPA' '*.ipa')"                "rel/AnyBoot_${VERSION}_unsigned.ipa"
           ls -lh rel
       - name: 生成 SHA256SUMS.txt
         working-directory: rel
