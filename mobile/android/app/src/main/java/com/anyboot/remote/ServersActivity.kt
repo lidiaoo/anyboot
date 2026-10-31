@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -96,8 +97,9 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * 服务器模块（跳板机管理）：FinalShell 风格的服务器列表 + 模块内底部导航五页
- * （服务器 / 会话 / 密钥 / 传输 / 文件）。标题栏右侧的齿轮进「终端设置」。
+ * 服务器模块（跳板机管理）：FinalShell 风格的服务器列表 + 模块内底部导航六页
+ * （服务器 / 终端 / 会话 / 密钥 / 文件 / 传输）。标题栏右侧统一一个齿轮进「终端设置」，
+ * 不再有 ⋮ 溢出菜单 —— 会话与传输都提到 dock 里，一屏可达。
  * Jetpack Compose / Material 3 重写，业务逻辑平移。
  */
 class ServersActivity : ComponentActivity() {
@@ -202,11 +204,11 @@ class ServersActivity : ComponentActivity() {
 
             Box(Modifier.fillMaxSize()) {
             Column(Modifier.fillMaxSize().background(palette.base)) {
-                // 顶部栏（设计稿：标题 + 计数/状态 pill + ⋮ + FAB；齿轮 = 终端设置）
+                // 顶部栏（标题 + 计数/状态 pill + 齿轮 + FAB；齿轮 = 终端设置）
                 TopBar(importLauncher)
 
-                // 五个页面：设计稿底部导航四项（服务器/密钥/文件）+ ⋮ 里的会话/传输。
-                // 「终端」导航项直接跳最近会话的终端页，不是本 Activity 里的一页。
+                // 六个页面全部从底部 dock 进（终端项直接跳终端页，不在本 Activity 里）：
+                // dock 顺序按 2026-11-01 定案：服务器 / 终端 / 会话 / 密钥 / 文件 / 传输
                 Box(Modifier.fillMaxWidth().weight(1f)) {
                     when (currentPage) {
                         0 -> ServersPage()
@@ -251,14 +253,13 @@ class ServersActivity : ComponentActivity() {
     // 顶部栏 / 底部导航（设计稿公共骨架）
     // ------------------------------------------------------------------
 
-    /** 顶部栏：‹ + 标题 + 状态 pill + 齿轮(终端设置，仅服务器页) + ⋮ + FAB */
+    /** 顶部栏：☰ + 标题 + 状态 pill + 齿轮(终端设置) + FAB；无 ⋮（会话/传输已在 dock） */
     @Composable
     private fun TopBar(
         importLauncher: androidx.activity.compose.ManagedActivityResultLauncher<Array<String>, Uri?>,
     ) {
         val palette = LocalPalette.current
         tick // 订阅会话注册表变化：在线数 / SFTP 状态 pill 要跟着刷
-        var moreOpen by remember { mutableStateOf(false) }
         var fabMenuOpen by remember { mutableStateOf(false) }
 
         Row(
@@ -280,36 +281,20 @@ class ServersActivity : ComponentActivity() {
             Spacer(Modifier.width(10.dp))
             PagePill()
             Spacer(Modifier.weight(1f))
-            if (currentPage == 0) {
-                Icon(
-                    Icons.Filled.Settings,
-                    contentDescription = "终端设置",
-                    tint = palette.fgDim,
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clickable {
-                            startActivity(
-                                Intent(this@ServersActivity, TerminalSettingsActivity::class.java)
-                            )
-                        }
-                        .padding(8.dp),
-                )
-            }
-            Box {
-                BarIcon("⋮", "更多") { moreOpen = true }
-                DropdownMenu(expanded = moreOpen, onDismissRequest = { moreOpen = false }) {
-                    DropdownMenuItem(text = { Text("会话（进行中 / 历史）") }, onClick = {
-                        moreOpen = false; currentPage = 3
-                    })
-                    DropdownMenuItem(text = { Text("传输管理") }, onClick = {
-                        moreOpen = false; currentPage = 4
-                    })
-                    DropdownMenuItem(text = { Text("终端设置") }, onClick = {
-                        moreOpen = false
-                        startActivity(Intent(this@ServersActivity, TerminalSettingsActivity::class.java))
-                    })
-                }
-            }
+            // 齿轮每页都在：终端设置是全局入口，别只在服务器页给（用户 2026-11-01 定案）
+            Icon(
+                Icons.Filled.Settings,
+                contentDescription = "终端设置",
+                tint = palette.fgDim,
+                modifier = Modifier
+                    .size(36.dp)
+                    .clickable {
+                        startActivity(
+                            Intent(this@ServersActivity, TerminalSettingsActivity::class.java)
+                        )
+                    }
+                    .padding(8.dp),
+            )
             if (currentPage == 0 || currentPage == 1) {
                 // FAB：服务器页 = 添加服务器；密钥页 = 生成 / 导入菜单（设计稿为「生成密钥」）
                 Box {
@@ -395,10 +380,20 @@ class ServersActivity : ComponentActivity() {
         )
     }
 
-    /** 底部导航（设计稿四项：服务器 / 终端 / 密钥 / 文件；终端跳最近会话） */
+    /**
+     * 底部导航六项：服务器 / 终端 / 会话 / 密钥 / 文件 / 传输。
+     *
+     * 会话与传输原先藏在标题栏 ⋮ 里（两跳才能到），现在都提到 dock：一屏内直达。
+     * 「终端」不是本 Activity 的一页 —— 点它直接跳最近会话的 [TerminalActivity]。
+     * 会话 / 传输项带角标（进行中会话数、进行中传输数），否则这两页有没有内容全靠猜。
+     */
     @Composable
     private fun BottomNav() {
+        tick          // 会话数随注册表变化
+        transferTick  // 传输数随任务变化
         val palette = LocalPalette.current
+        val liveCount = TerminalRegistry.all().size
+        val transferCount = TransferManager.active().size
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -415,6 +410,10 @@ class ServersActivity : ComponentActivity() {
                 modifier = Modifier.weight(1f)) { tint, size ->
                 TermIcon(tint, size)
             }
+            NavItem("会话", active = currentPage == 3, onClick = { currentPage = 3 },
+                modifier = Modifier.weight(1f), badge = liveCount) { tint, size ->
+                SessionIcon(tint, size)
+            }
             NavItem("密钥", active = currentPage == 1, onClick = { currentPage = 1 },
                 modifier = Modifier.weight(1f)) { tint, size ->
                 KeyIcon(tint, size)
@@ -422,6 +421,10 @@ class ServersActivity : ComponentActivity() {
             NavItem("文件", active = currentPage == 2, onClick = { currentPage = 2 },
                 modifier = Modifier.weight(1f)) { tint, size ->
                 FolderIcon(tint, size)
+            }
+            NavItem("传输", active = currentPage == 4, onClick = { currentPage = 4 },
+                modifier = Modifier.weight(1f), badge = transferCount) { tint, size ->
+                TransferIcon(tint, size)
             }
         }
     }
@@ -432,6 +435,7 @@ class ServersActivity : ComponentActivity() {
         active: Boolean,
         onClick: () -> Unit,
         modifier: Modifier = Modifier,
+        badge: Int = 0,
         icon: @Composable (Color, androidx.compose.ui.unit.Dp) -> Unit,
     ) {
         val palette = LocalPalette.current
@@ -442,7 +446,23 @@ class ServersActivity : ComponentActivity() {
                 .clickable(onClick = onClick)
                 .padding(vertical = 2.dp),
         ) {
-            icon(tint, 20.dp)
+            Box(contentAlignment = Alignment.Center) {
+                icon(tint, 20.dp)
+                if (badge > 0) {
+                    Text(
+                        if (badge > 99) "99+" else badge.toString(),
+                        fontSize = 8.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = palette.onAccent,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .offset(x = 9.dp, y = (-5).dp)
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(palette.accent)
+                            .padding(horizontal = 3.dp, vertical = 1.dp),
+                    )
+                }
+            }
             Text(
                 label,
                 fontSize = 10.sp,

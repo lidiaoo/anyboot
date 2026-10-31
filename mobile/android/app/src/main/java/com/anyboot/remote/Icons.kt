@@ -122,6 +122,30 @@ fun FolderIcon(tint: Color, size: Dp = 20.dp, modifier: Modifier = Modifier) = D
     drawPath(path, tint, style = Stroke(1.8f * s, cap = StrokeCap.Round, pathEffect = null))
 }
 
+/** 清单（圆点 + 短横线三行）：底部导航「会话」（进行中 / 历史） */
+@Composable
+fun SessionIcon(tint: Color, size: Dp = 20.dp, modifier: Modifier = Modifier) = DrawnIcon(size, tint, modifier) {
+    val s = it
+    for (y in floatArrayOf(6.5f, 12f, 17.5f)) {
+        drawCircle(tint, radius = 1.15f * s, center = Offset(4.4f * s, y * s))
+        drawLine(tint, Offset(8.2f * s, y * s), Offset(19.8f * s, y * s), 1.8f * s, StrokeCap.Round)
+    }
+}
+
+/** 双向横箭头（⇄）：底部导航「传输」/ 传输任务状态 */
+@Composable
+fun TransferIcon(tint: Color, size: Dp = 20.dp, modifier: Modifier = Modifier) = DrawnIcon(size, tint, modifier) {
+    val s = it
+    // 上行 →
+    drawLine(tint, Offset(3.6f * s, 7.5f * s), Offset(20f * s, 7.5f * s), 1.8f * s, StrokeCap.Round)
+    drawLine(tint, Offset(16.8f * s, 4.4f * s), Offset(20.4f * s, 7.5f * s), 1.8f * s, StrokeCap.Round)
+    drawLine(tint, Offset(16.8f * s, 10.6f * s), Offset(20.4f * s, 7.5f * s), 1.8f * s, StrokeCap.Round)
+    // 下行 ←
+    drawLine(tint, Offset(20.4f * s, 16.5f * s), Offset(4f * s, 16.5f * s), 1.8f * s, StrokeCap.Round)
+    drawLine(tint, Offset(7.6f * s, 13.4f * s), Offset(4f * s, 16.5f * s), 1.8f * s, StrokeCap.Round)
+    drawLine(tint, Offset(7.6f * s, 19.6f * s), Offset(4f * s, 16.5f * s), 1.8f * s, StrokeCap.Round)
+}
+
 /** 文档（折角）：文件列表文件行 */
 @Composable
 fun DocFileIcon(tint: Color, size: Dp = 20.dp, modifier: Modifier = Modifier) = DrawnIcon(size, tint, modifier) {
