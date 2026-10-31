@@ -6358,11 +6358,14 @@ window.__bkOnShow = async function () {
   }
   /**
    * 查看方主题（URL 追加段）。iframe 里那台电脑的页面跨来源、localStorage
-   * 各存各的桶，版式主题偏好互不相通 —— 看一台就得重选一次，还让人以为
-   * 「改了他的主题」。把本应用选的主题（hub 与主窗同源、共用一份偏好）
-   * 经 abTheme 带过去：那边照它渲染，但不读也不写它自己桶里的主题 ——
-   * 「不改掉他的主题，用我的主题看」。没选过/解析不了返回空串（不带参数，
-   * 那边按它自己保存的主题渲染）。主窗改主题后已开的 iframe 要重载才跟随。
+   * 各存各的桶，偏好互不相通 —— 看一台就得重选一次，还让人以为「改了他的
+   * 主题」。这里带两样过去：
+   *  - abUi=light|dark：亮暗主题。hub 与主窗共用 settings.theme（dark 即当前
+   *    生效亮暗），查看方总有值，恒带 —— 那边照它渲染，不读也不写它自己的
+   *    亮暗设置与首帧镜像。
+   *  - abTheme=<字母>：引导页版式主题。本应用选过的（与主窗同源、共用一份
+   *    偏好）才带；没选过不带，那边按它自己保存的主题渲染。
+   * 两边都是「照它渲染，但不改他的」—— 主窗改主题后已开的 iframe 要重载才跟随。
    */
   function withGuestTheme(url) {
     if (!url) return url;
@@ -6372,7 +6375,8 @@ window.__bkOnShow = async function () {
       const val = raw ? (JSON.parse(raw).theme || '') : '';
       if (/^[A-K]$/.test(val)) theme = val;
     } catch (e) { /* 偏好解析不了就当作没选过 */ }
-    return theme ? url + '&abTheme=' + theme : url;
+    return url + '&abUi=' + (dark ? 'dark' : 'light')
+      + (theme ? '&abTheme=' + theme : '');
   }
   /**
    * iframe / 连接 URL。通道选择**听电脑列表的机制**（探测赢家 / 优先级表）：

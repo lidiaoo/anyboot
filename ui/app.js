@@ -519,11 +519,40 @@ const useDirectoryElement = document.querySelector("#use-directory");
 // 下次启动大字（问题 7）
 const nextBootElement = document.querySelector("#next-boot");
 const nextBootNameElement = document.querySelector("#next-boot-name");
+// ── 访客亮暗主题（远程查看）────────────────────────────────────────
+// hub 的电脑页 iframe / 手机 WebView 看某台电脑时，加载的是**那台电脑**
+// 自己的页面 —— 亮暗走它自己的 settings，与本机各存各的（看一台就得让
+// 对方换一次，还让人以为「改了他的主题」）。查看方把「我应用的亮暗」经
+// URL（abUi=light|dark）带过来：页面照它渲染，但**不写**本机的主题设置
+// 与 localStorage 镜像 —— 「不改掉他的主题，用我的主题看」。本窗口自己
+// 打开时没有这个参数，行为不变。
+const GUEST_UI_THEME = (() => {
+  try {
+    const val = new URLSearchParams(window.location.search).get("abUi") || "";
+    return val === "light" || val === "dark" ? val : "";
+  } catch (error) {
+    void error;
+    return "";
+  }
+})();
+const isGuestUiView = () => GUEST_UI_THEME !== "";
+
 // 外观（问题 8）
 const themeElement = document.querySelector("#theme");
 const accentColorElement = document.querySelector("#accent-color");
 const opacityElement = document.querySelector("#opacity");
 const opacityStateElement = document.querySelector("#opacity-state");
+
+// 访客模式：亮暗由查看方（URL abUi）决定，本页改了也不会生效——置灰说明，
+// 别让人点了以为「没保存」（与引导页主题的访客置灰同一套做法）
+if (isGuestUiView()) {
+  themeElement.disabled = true;
+  const appearanceHint = themeElement.closest(".setting")?.querySelector(".setting-text small");
+  if (appearanceHint) {
+    appearanceHint.textContent =
+      "亮暗主题跟随查看方（远程管理窗 / 手机 App）显示，不改动这台电脑保存的设置。";
+  }
+}
 
 // 远程控制区
 const remoteSectionElement = document.querySelector("#remote");
@@ -1949,16 +1978,20 @@ let currentAccent = DEFAULT_ACCENT_DARK;
 
 /// 把主题与不透明度落到 documentElement 上（CSS 用 var(--ui-alpha) 读）
 function applyAppearance(theme, percent) {
-  const resolved = resolvedTheme(theme);
+  // 访客：亮暗由查看方（URL abUi）决定，settings 里的值不参与渲染
+  const resolved = GUEST_UI_THEME || resolvedTheme(theme);
   document.documentElement.dataset.theme = resolved;
   const value = Number(percent);
   const clamped = Math.min(100, Math.max(0, Number.isFinite(value) ? value : 100));
   const alpha = clamped / 100;
   document.documentElement.style.setProperty("--ui-alpha", String(alpha));
-  applyAccent(currentAccent, theme);
+  // 强调色明暗档跟着实际生效的亮暗走（访客时是查看方的亮暗）
+  applyAccent(currentAccent, GUEST_UI_THEME || theme);
   opacityStateElement.textContent = `${clamped}%（拖动即时预览）`;
   // 镜像到 localStorage：只供**下次页面重载的首帧**使用（见 index.html 的防闪脚本）。
   // 后端 settings 仍是唯一真相源，这里只是让重载那一拍不必先按默认暗色画一遍。
+  // 访客模式亮暗来自 URL：镜像不写——那是那台电脑自己存的「上次已知值」。
+  if (isGuestUiView()) return;
   try {
     localStorage.setItem("anyboot.theme-resolved", resolved);
     localStorage.setItem("anyboot.ui-alpha", String(alpha));

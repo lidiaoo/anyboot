@@ -2098,13 +2098,20 @@ final class ServerProfile {
             .edit().putString("bootTheme", value).apply();
     }
 
-    /** 给访问 URL 追加访客主题参数（url 空 / 偏好空原样返回；这些 URL 恒带 ?token=…，直接拼 & 安全） */
+    /** 给访问 URL 追加访客主题参数（url 空原样返回；这些 URL 恒带 ?token=…，直接拼 & 安全）。
+     *  abUi=light|dark 亮暗主题：App 当前生效的亮暗（含跟随系统解析后）恒带过去，
+     *  页面照它渲染，不读也不写那台电脑自己的亮暗设置；abTheme 同前（选过才带）。 */
     static String withGuestTheme(android.content.Context context, String url) {
-        String theme = guestBootTheme(context);
-        if (url == null || url.isEmpty() || theme.isEmpty()) {
+        if (url == null || url.isEmpty()) {
             return url;
         }
-        return url + "&abTheme=" + theme;
+        StringBuilder out = new StringBuilder(url);
+        out.append("&abUi=").append(Ui.dark(context) ? "dark" : "light");
+        String theme = guestBootTheme(context);
+        if (!theme.isEmpty()) {
+            out.append("&abTheme=").append(theme);
+        }
+        return out.toString();
     }
 
     /** 去首尾空白（所有可空字符串字段统一走这里，免得满地判 null） */

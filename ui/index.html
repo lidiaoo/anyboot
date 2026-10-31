@@ -16,9 +16,16 @@
           "--accent-link-hover",
         ];
         try {
-          var theme = localStorage.getItem("anyboot.theme-resolved");
-          if (theme === "light" || theme === "dark") {
-            document.documentElement.dataset.theme = theme;
+          // 访客亮暗（abUi=light|dark，远程管理窗 / 手机 App 带来）：首帧就
+          // 照它画，不读本机镜像 —— app.js 同样按它渲染且不写回镜像。
+          var guestUi = new URLSearchParams(window.location.search).get("abUi");
+          if (guestUi === "light" || guestUi === "dark") {
+            document.documentElement.dataset.theme = guestUi;
+          } else {
+            var theme = localStorage.getItem("anyboot.theme-resolved");
+            if (theme === "light" || theme === "dark") {
+              document.documentElement.dataset.theme = theme;
+            }
           }
           var alpha = localStorage.getItem("anyboot.ui-alpha");
           if (alpha) {
