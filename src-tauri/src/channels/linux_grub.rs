@@ -1722,6 +1722,20 @@ fn system_partitions_linux() -> Vec<SysPart> {
     if !output.status.success() {
         return Vec::new();
     }
+    parse_lsblk_parts(&output.stdout).unwrap_or_default()
+}
+
+/// `lsblk -J` 的输出是**树**，不是平表：`blockdevices` 顶层只有整盘
+/// （`type: "disk"`），分区挂在每行的 `children` 里，LUKS / LVM / RAID 还会
+/// 再嵌一层。
+///
+/// 2026-10-31 的实际事故：这里只过顶层那一层再筛 `type == "part"`，**恒为空**。
+/// lsblk 退出码是 0、输出也完整，于是整条链路表现成「本机一块分区都没有」——
+/// 界面那句「没扫到任何 ext4 分区（本机没有 Linux 分区，或者都不支持）」就是
+/// 这么来的。以前看不出来，是因为 `probe_host()` 的「本机行」直读 `/boot/grub`
+/// 兜住了本机；移除本机行之后，全量遍历成了唯一来源，这个 bug 才浮出水面。
+#[cfg(target_os = "linux")]
+fn parse_lsblk_parts(bytes: &[u8]) -> Option<Vec<SysPart>> {
     #[derive(serde::Deserialize)]
     struct LsblkOut {
         #[serde(default)]
@@ -1741,33 +1755,49 @@ fn system_partitions_linux() -> Vec<SysPart> {
         size: Option<String>,
         #[serde(rename = "type", default)]
         kind: Option<String>,
+        #[serde(default)]
+        children: Vec<LsblkRow>,
     }
-    let Ok(parsed) = serde_json::from_slice::<LsblkOut>(&output.stdout) else {
-        return Vec::new();
-    };
-    parsed
-        .blockdevices
-        .into_iter()
-        .filter(|row| row.kind.as_deref() == Some("part"))
-        .filter_map(|row| {
-            let dev = row
-                .path
-                .or_else(|| row.name.map(|name| format!("/dev/{name}")))?;
-            let number = dev
-                .rsplit(|c: char| !c.is_ascii_digit())
-                .next()
-                .and_then(|digits| digits.parse::<u32>().ok())
-                .unwrap_or(0);
-            Some(SysPart {
-                dev,
-                label: row.label.filter(|text| !text.trim().is_empty()),
-                size: row.size,
-                part_uuid: row.partuuid.filter(|text| !text.trim().is_empty()),
-                disk_index: 0,
-                part_number: number,
-            })
-        })
-        .collect()
+    /// 先序展开整棵树，只收 `type == "part"` 的节点（整盘、LUKS 容器、LVM
+    /// 卷组都不是分区，交给 `probe_raw` 的 `part_number == 0` 判据之外再挡一层）。
+    fn walk(node: LsblkRow, out: &mut Vec<SysPart>) {
+        let LsblkRow {
+            name,
+            path,
+            partuuid,
+            label,
+            size,
+            kind,
+            children,
+        } = node;
+        if kind.as_deref() == Some("part") {
+            // `PATH` 是 lsblk 2.33+ 的列；老版本没有就按 NAME 拼
+            if let Some(dev) = path.or_else(|| name.map(|name| format!("/dev/{name}"))) {
+                let number = dev
+                    .rsplit(|c: char| !c.is_ascii_digit())
+                    .next()
+                    .and_then(|digits| digits.parse::<u32>().ok())
+                    .unwrap_or(0);
+                out.push(SysPart {
+                    dev,
+                    label: label.filter(|text| !text.trim().is_empty()),
+                    size,
+                    part_uuid: partuuid.filter(|text| !text.trim().is_empty()),
+                    disk_index: 0,
+                    part_number: number,
+                });
+            }
+        }
+        for child in children {
+            walk(child, out);
+        }
+    }
+    let parsed: LsblkOut = serde_json::from_slice(bytes).ok()?;
+    let mut out = Vec::new();
+    for row in parsed.blockdevices {
+        walk(row, &mut out);
+    }
+    Some(out)
 }
 
 // ─────────────────────────── macOS 分区枚举 ───────────────────────────
@@ -2299,6 +2329,59 @@ pub(crate) fn refresh(app: &AppHandle, target: Option<&str>, elevation: Elevatio
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 回归（2026-10-31 真机事故）：`lsblk -J` 输出的是**树** —— 顶层
+    /// `blockdevices` 只有整盘，分区在 `children` 里。旧实现只过顶层那一层再
+    /// 筛 `type == "part"`，**恒为空**，于是整条 Linux 链路报「一块 ext4 都
+    /// 没有」（lsblk 退出码还是 0，看起来毫无破绽）。
+    ///
+    /// 夹具照真机形状写：两台整盘、分区嵌在 children、LUKS 再嵌一层。
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn parse_lsblk_walks_children() {
+        let json = br#"{
+          "blockdevices": [
+            {"name":"sda","path":"/dev/sda","partuuid":null,"label":null,
+             "size":"57.3G","type":"disk","children":[
+               {"name":"sda1","path":"/dev/sda1","partuuid":"9e5102c1-01",
+                "label":"Ventoy","size":"57.3G","type":"part"},
+               {"name":"sda2","path":"/dev/sda2","partuuid":"9e5102c1-02",
+                "label":"VTOYEFI","size":"32M","type":"part"}
+             ]},
+            {"name":"nvme0n1","path":"/dev/nvme0n1","partuuid":null,"label":null,
+             "size":"1.9T","type":"disk","children":[
+               {"name":"nvme0n1p2","path":"/dev/nvme0n1p2","partuuid":"b715adc0",
+                "label":null,"size":"54G","type":"part"},
+               {"name":"nvme0n1p9","path":"/dev/nvme0n1p9","partuuid":"aaa",
+                "label":"root","size":"60.2G","type":"part","children":[
+                  {"name":"luks-1234","path":"/dev/mapper/luks-1234",
+                   "partuuid":null,"label":null,"size":"60.2G","type":"crypt"}
+                ]}
+             ]}
+          ]
+        }"#;
+        let parts = parse_lsblk_parts(json).expect("lsblk JSON 应能解析");
+        let devs: Vec<&str> = parts.iter().map(|part| part.dev.as_str()).collect();
+        // 只收 part 节点：整盘与 LUKS 容器都不算
+        assert_eq!(
+            devs,
+            vec!["/dev/sda1", "/dev/sda2", "/dev/nvme0n1p2", "/dev/nvme0n1p9"]
+        );
+        let root = parts
+            .iter()
+            .find(|part| part.dev == "/dev/nvme0n1p9")
+            .expect("根分区应在清单里");
+        // 分区号从设备名末尾数字取：probe_raw 靠它挡掉整盘
+        assert_eq!(root.part_number, 9);
+        assert_eq!(root.label.as_deref(), Some("root"));
+        // 空/缺省字段按「没有」处理，别让界面出现空白卷标
+        let blank = parts
+            .iter()
+            .find(|part| part.dev == "/dev/nvme0n1p2")
+            .expect("p2 应在清单里");
+        assert!(blank.label.is_none());
+        assert_eq!(blank.part_number, 2);
+    }
 
     fn report(dev: &str, fs_uuid: &str, mounts: Vec<(&str, &str, &str)>, cfg: bool) -> PartReport {
         PartReport {
