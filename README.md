@@ -1,876 +1,240 @@
+<div align="center">
+
 # AnyBoot
 
-一个基于 Tauri 2 的跨平台托盘工具：改写 rEFInd 的 `EFI/refind/vars/PreviousBoot`，决定**下次**启动进哪个系统；并且内置一个 HTTP 服务，让你**远程**（webhook / curl / 面板 / ssh）就能切系统、重启、关机、睡眠。
+**在任何一个系统里，决定下次开机进哪个系统 —— 还能在手机上远程做这件事。**
+
+一个基于 Tauri 2 的跨平台引导管理 + 远程电源工具：
+托盘点一下切换下次启动项，rEFInd / GRUB / OpenCore / systemd-boot / Clover 五大引导器统一管理，
+内置 HTTP 服务让你用浏览器、手机 App、curl、ssh 远程切系统、重启、关机、睡眠。
+
+[![Release](https://img.shields.io/badge/release-v0.2.0-blue)](https://github.com/lidiaoo/anyboot/releases)
+![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux%20%7C%20Android%20%7C%20iOS-lightgrey)
+![Tauri](https://img.shields.io/badge/Tauri-2-orange)
 
 Windows / macOS / Linux 三端同一份代码，行为对齐。
 
----
+**[下载安装](#快速开始) · [功能总览](#功能总览) · [平台支持](#平台支持矩阵) · [文档归档](#文档归档)**
 
-## 我想做什么 → 从哪开始 → 得到什么
-
-| 我想做什么 | 从哪开始 | 得到什么 |
-| --- | --- | --- |
-| 在这台机器上点一下切换下次启动的系统 | 托盘图标右键 → 直接点 `Linux` / `Windows` / `macOS` | 托盘里的「下次启动」立刻变成所选系统（下一次开机生效） |
-| 在另一台电脑/手机上远程切系统、重启、关机、睡眠 | [远程控制](#远程控制http-服务) → 拿 token → 按 [端点表](#端点表每条都给了可复制的-curl) 发一条请求 | 这台机器按请求动作；默认先弹窗 5 秒（可在弹窗或主窗口取消）再执行 |
-| 只想 ssh 过去一条命令搞定 | [ssh 两种用法](#ssh-远程调用两种用法) | `ssh user@host 'anyboot --switch windows --action reboot'` 一条就够 |
-| 用现成的面板 / 手机 App（UpSnap、PowerControl、Postman…） | [常见客户端与面板](#常见客户端与面板) | 把 URL + Header 填进客户端即可，不用写代码 |
-| 用浏览器 / 手机直接管这台机器（不用装任何东西） | [客户端（Web 端 / 移动端）](#客户端web-端--移动端) | 打开 `http://<电脑IP>:12300` 就是**同一份界面**，点一下就真的生效 |
-| 让这台机器开机就常驻托盘、随时可被远程调用 | [应用设置](#应用设置) | 开机启动 + 启动时隐藏主界面 + HTTP 服务默认开启 |
-| 先确认“远程到底会执行什么命令”再让它真执行 | [调试环境变量](#调试环境变量)（`ANYBOOT_POWER_DRY_RUN=1`） | 只回显将要执行的命令，不真的重启/关机/睡眠 |
-| 我自己改代码 / 打安装包 | [开发运行](#开发运行) 与 [构建产物](#构建产物) | `npm run tauri dev`；三端各自的安装包 |
-
-目录
-
-- [功能一览](#功能一览)
-- [OpenCore 菜单里的系统列表是怎么来的](#opencore-菜单里的系统列表是怎么来的)
-- [客户端（Web 端 / 移动端）](#客户端web-端--移动端)
-- [远程控制（HTTP 服务）](#远程控制http-服务)
-  - [默认行为与安全默认值](#默认行为与安全默认值)
-  - [token 去哪看、怎么换](#token-去哪看怎么换)
-  - [三端各自的防火墙处理](#三端各自的防火墙处理)
-  - [端点表（每条都给了可复制的 curl）](#端点表每条都给了可复制的-curl)
-  - [电源动作：重启 / 关机 / 睡眠](#电源动作重启--关机--睡眠)
-  - [通知弹窗与延迟执行（可配 0 秒立即执行）](#通知弹窗与延迟执行可配-0-秒立即执行)
-  - [常见客户端与面板](#常见客户端与面板)
-  - [给每台机器起个名字（多机管理）](#给每台机器起个名字多机管理)
-  - [ssh 远程调用两种用法](#ssh-远程调用两种用法)
-  - [远程需要“本机授权”时怎么办](#远程需要本机授权时怎么办)
-- [应用设置](#应用设置)
-- [环境要求](#环境要求)
-- [开发运行](#开发运行)
-- [构建产物](#构建产物)
-  - [Linux「全兼容」AppImage（发给任何机器用）](#linux全兼容appimage发给任何机器用)
-- [调试环境变量](#调试环境变量)
-- [权限说明](#权限说明)
-- [常见问题](#常见问题)
-- [注意](#注意)
+</div>
 
 ---
 
-## 功能一览
+## 截图
 
-- 托盘菜单直接切换下次启动 Linux / Windows / macOS（读 `PreviousBoot-linux|windows|mac` 模板，写 `PreviousBoot`）。菜单**第一行**就写明「下次启动：X」，选中项带 ◉（未选中是 ○，标在文字里）。整张菜单按**分区**排布（分隔线 + 灰标题）：「应用设置」「扫描」「电源操作」「远程控制」各自独立成块；电源动作（重启 / 关机 / 睡眠）直接铺开、不折叠；「远程控制」区第一行就是**监听状态**，不用展开任何子菜单就能看到有没有在听。
-- 托盘菜单的 **GRUB 启动项区**在「各自方式」「全局统一」两种形态下都是**同一份内容**：按主窗口「列表格式」渲染条目文字（极简去内核前缀 / 中等完整内核名 / 原始完整标题）、当前项置顶、组头带（N 项 · ESP 位置）、同名条目折叠成「N 个变体」—— 与主窗口 GRUB 区一字不差。
-- **单实例**：同一时间只跑一个 AnyBoot。重复启动会**先结束上一个实例再自己启动**（认准 pid + 核对可执行文件名，先礼后兵，不杀错人），不会出现两个托盘 / 两扇窗抢端口；只有认不出 / 杀不掉时才退回弹「AnyBoot 已经启动，只能运行一个实例。」（详见 [常见问题](#再启动一个-anyboot-为什么提示已经启动)）。
-- 主窗口不占任务栏 / Dock，只在托盘常驻；托盘与主窗口**双向联动**（同一份状态快照，一边改另一边立刻跟着变）。
-- **电源动作**：重启、关机、睡眠，主窗口三个按钮与托盘上的三个菜单项都能用（见 [电源动作](#电源动作重启--关机--睡眠)）。
-- **内置 HTTP 服务**：默认开启、默认 `0.0.0.0:12300`、必须带 token；webhook / curl / 面板 / 手机 App 都能远程切系统与电源动作。端口被别的程序占了会在界面上写清占用者（PID + 进程名），并给「结束占用进程」「重试监听」两个按钮。
-- **带参数的 CLI**：与 GUI 同一个可执行文件，无参数开界面，带参数走命令行（ssh 一条命令切换）。
-- **远程请求通知弹窗 + 延迟执行**：远程请求先弹置顶小窗倒计时（默认 5 秒），期间可在弹窗或主窗口点「取消」；两条渠道（HTTP / SSH-CLI）各自的开关与延迟都能单独配。弹窗出现时会**响一声内置的 KakaoTalk 风格提示音**（可换自定义音频、也可关掉）。
-- **可自定义 token**：主窗口「访问令牌」那行直接填自己的 token（4–128 位可见 ASCII），保存后监听立刻按新 token 重启。
-- **界面主题与不透明度**：暗色 / 亮色 / 跟随系统；窗口不透明度 0%–100% 可调。正文全部落在不透明的卡片上，只有标题/状态那几行直接压在窗体背景上（自带描边），所以把不透明度调到最低也读得清。
-- 主窗口从托盘呼出时**自动置顶**（不会被别的窗口盖住），点击别处失焦后自动取消置顶。
-- 系统列表：选中项打**绿色勾**（勾占独立一列，三行文字与按钮始终左对齐），顶部还有一行大字说明「下次启动的是哪个系统」。
-- **引导通道卡片**：rEFInd / GRUB 之外，把 OpenCore、Clover、systemd-boot 也做成同一张卡片（状态 chip、健康检查、当前默认 / 上次启动、一键切换）。OpenCore 卡片可直接看到（默认展开）**预演 OC 菜单**——不重启就告诉你「下次进 OC 会看到哪几项、各自从哪来、默认是哪项」，并且能直接在某一项上点**设为默认**（等价于进 OC 菜单按 `Ctrl+Enter`，走 OC 私有命名空间 `OCBt*`，macOS 上也能用）（原理见 [OpenCore 菜单里的系统列表是怎么来的](#opencore-菜单里的系统列表是怎么来的)）。
-- 开机启动开关（macOS 走系统登录项，Windows 写注册表 Run，Linux 写 `~/.config/autostart`）。
-- Linux 能用 `lsblk` 找未挂载的 ESP/FAT 分区并临时只读挂载，写入前自动换读写、写完恢复只读。
-- 写入用同目录临时文件 + 原子替换 + SHA-256 校验。
+**系统引导页 —— 三个引导器的下次启动一目了然，点一下就切换：**
+
+![系统引导页](docs/screenshots/boot-systems.png)
+
+**rEFInd 模拟引导项扫描 —— 按 rEFInd 官方规则（scan.c）纯读复算菜单，不重启就知道下次进 rEFInd 会看到什么，选中即写 `PreviousBoot`：**
+
+![rEFInd 模拟扫描](docs/screenshots/boot-refind.png)
+
+**GRUB 自动读取 —— 直接读各 Linux 分区自己的 `/boot/grub/grub.cfg` 出启动项，点内核即写 grubenv 切换：**
+
+![GRUB 自动读取](docs/screenshots/boot-grub.png)
+
+**OpenCore 菜单预演 —— 不重启预演 OC 菜单（每项标来源），「设为默认」等价于进 OC 按 Ctrl+Enter：**
+
+![OpenCore 菜单预演](docs/screenshots/boot-opencore.png)
+
+**手机浏览器 / App 打开同一个地址，就是同一份界面：**
+
+![移动端](docs/screenshots/mobile-web.png)
 
 ---
 
-## OpenCore 菜单里的系统列表是怎么来的
+## 功能总览
 
-开机按 F12 进 OpenCore，那一排系统图标看着像「它把硬盘扫了一遍」。**其实不是。**
-OC 从不遍历目录找系统，它是把三个固定来源并成一张表，过滤掉一部分，再按 NVRAM 里的顺序排一遍：
+### 1. 引导切换（核心）
 
-| 来源 | 怎么来的 | 典型条目 |
-|---|---|---|
-| ① 固件 `BootOrder` 里的每条 `Boot####` | 读出 `EFI_LOAD_OPTION`，**丢掉描述和 OptionalData**，只留设备路径，再反查是哪个卷 | macOS（描述 `MAC`） |
-| ② 每个卷上的 Apple bless 扫描 | 依次试：blessed 文件 → blessed 文件夹 → **预定义路径表**（`\System\Library\CoreServices\boot.efi`、`\EFI\Microsoft\Boot\bootmgfw.efi`、`\EFI\BOOT\BOOTX64.EFI` / `BOOTAA64.EFI` 按架构取其一） | Windows、`MacOS-efi`（generic） |
-| ③ 第三方「条目协议」驱动 | `OpenLinuxBoot.efi` / `OpenLegacyBoot.efi` / `ResetNvramEntry.efi` 等自己往里塞 | `Reset NVRAM`、独立内核条目 |
+- **托盘菜单直接切换**：右键托盘 → 点 `Linux` / `Windows` / `macOS`，菜单第一行就写明「下次启动：X」，选中项带 ◉。
+- **五大引导器统一管理**：rEFInd、GRUB、OpenCore、systemd-boot、Clover 各一张卡片（状态 chip、健康检查、当前默认 / 上次启动、一键切换）。
+- **rEFInd 模拟引导项扫描**：读 rEFInd 0.14.2 源码按官方规则纯读复算菜单 —— scanfor、dont_scan_*、also_scan_dirs、图标线索、HiddenTags、PreviousBoot 全对齐；还原两层结构（子屏）与折叠规则；**选中即写 `EFI/refind/vars/PreviousBoot`，不重启就定下次默认项**。
+- **GRUB 直读与切换**：不装任何东西，直接读 Linux 分区自己的 `/boot/grub/grub.cfg` 出启动项（ext4 直读，LVM/LUKS 上层的 ext4 经块设备路径也能扫到）；点内核直接写目标分区 grubenv（`saved_entry`/`next_entry` 双写、1024 字节定点覆盖、原子替换 + SHA-256 校验）。
+- **OpenCore 菜单预演 + 设为默认**：预演 OC 菜单（每项标来源：`BootOrder` / bless / Preboot / 协议驱动），「设为默认」写 OC 私有命名空间 `OCBt*`，macOS 上也能用（原理见 [`docs/opencore-菜单解析与预演.md`](docs/opencore-菜单解析与预演.md)）。
 
-由此有三个容易踩的结论：
+### 2. 远程控制（HTTP 服务）
 
-- **Linux 不在预定义路径表里**（源码注释写明是设计选择）。所以没装 `OpenLinuxBoot.efi` 时，你的 Arch 在 OC 菜单里只是一个泛型的 `ARCH-EFI`（点进去才是 GRUB）。改 `ScanPolicy`、改 `HideAuxiliary` 都帮不上。
-- **rEFInd 默认不会出现在 OC 菜单里**——它的卷上既没有 `bootmgfw.efi` 也没有 `\EFI\BOOT\BOOTX64.EFI`，也不在 `BootOrder` 里，三条路全断。
-- **卷本身是否入候选只看 `ScanPolicy`**：`ScanPolicy=0` 时所有文件系统全放行，连 `Microsoft Basic Data` 类型的 ESP 也算。OC 在这个阶段不检查目录结构。
+- **内置 HTTP 服务**：默认开启 `0.0.0.0:12300`、token 必填；webhook / curl / 面板 / 手机 App 都能远程切系统与电源动作。API 全表见 [`docs/远程控制-HTTP-API.md`](docs/远程控制-HTTP-API.md)。
+- **状态推送**：`GET /api/ws`（WebSocket）改动即推，空闲几乎不发包；轮询兜底可切换。
+- **远程请求通知弹窗 + 延迟执行**：远程请求先弹置顶小窗倒计时（默认 5 秒），可取消；HTTP / ssh 两条渠道分开配（延迟秒数 0–30）。
+- **CLI 一条命令**：与 GUI 同一个可执行文件，`ssh user@host 'anyboot --switch windows --action reboot'` 就够（参数表见 [API 文档](docs/远程控制-HTTP-API.md#ssh-远程调用两种用法)）。
+- **常见面板接入**：UpSnap、Home Assistant、Node-RED、Postman、路由器计划任务……能发 HTTP 就能接。
 
-另外两件事跟直觉相反：
+### 3. 客户端（Web / 移动端）
 
-- **菜单顺序 ≠ 默认项**。顺序取决于固件返回文件系统句柄的次序；默认项是 `BootOrder` 里**第一条注册成功的非工具条目**。所以「默认的不在第一行」是正常现象。
-- **Ctrl+Enter 不改任何文件**，它调 `OcSetDefaultBootEntry` 去改 NVRAM：匹配已有 `Boot####` → 没有就现场造一个 → 写进 `0080` 这一个槽 → 和 `BootOrder[0]` 交换位置。OC 只用 `0x80` 一个槽，所以设新默认会覆盖上一条的 load option。
+- **Web 端 = 主窗口**：浏览器打开 `http://<电脑IP>:12300` 就是同一份界面（同一份 `ui/` 代码、同一份状态快照），操作真实生效。
+- **Android / iOS App**：WebView 外壳，一台电脑一个标签，多网卡地址自动切换、多机分组管理。
+- **远程操作先经本机同意**：网页 / 手机上的切换会变成一条「远程请求」，电脑端弹授权窗倒计时确认（详见 [`docs/客户端-web-移动端.md`](docs/客户端-web-移动端.md)）。
 
-**为什么不能在 macOS 里直接读 OC 算出来的那份菜单**：`OcScanForBootEntries` 是 UEFI 运行期函数，结果是内存链表，菜单渲染完就释放，重启即丢；OC 没有 IPC、没有导出接口，也从不把启动项写文件。主系统里能读到的是**输入**（卷、文件、NVRAM），不是**结果**。
+### 4. 电源动作
 
-所以 AnyBoot 的做法是**按同一套规则预演**（纯读 ESP + `diskutil`，不写盘、不碰 NVRAM、不需要密码）：
+- 重启 / 关机 / 睡眠，主窗口、托盘、HTTP、CLI 四个入口走同一套命令表。
+- **macOS 不需要管理员密码**：走 AppleEvent → System Events（苹果菜单同一条链路），首次授权一次永久免框。
+- **Windows 睡眠预检**：休眠启用时如实告知「本次会变休眠」，不糊弄。
+- 三级退让（Linux）：`systemctl` → `loginctl` → `pkexec`。
 
-- 列出「下次进 OC 大概会看到哪几项」，每项标出**来源**（`BootOrder` / bless / Preboot / 协议驱动 / 自定义）、**类型**、**所在卷与文件路径**、**会不会被 `HideAuxiliary` 藏掉**
-- 标出**默认项**
-- 每一行右侧可以点 **设为默认**：等价于进 OC 菜单对它按 `Ctrl+Enter`。它写的是 OC **私有命名空间**的
-  `OCBtOrder` / `OCBt0080`（`RequestBootVarRouting=true` 时 OC 读的就是这一组，而 macOS 只拦名字叫 `Boot*` 的变量），
-  所以 macOS 侧也能用；动 NVRAM 前整份备份两套命名空间，写完回读校验
-- 直接点出上面那三类问题：「rEFInd 不会出现」「Linux 只是泛型项，缺 `OpenLinuxBoot.efi`」「配置自相矛盾」
+### 5. 免密提权体系（三端一致）
 
-准确率天花板在 **90% 左右**——卷、文件、NVRAM 都能读准，唯一猜不准的是「这块固件在那一刻能不能真的枚举到某个卷」（APFS 驱动没加载、USB 未初始化都会差）。想要 100%，可以让 OC 自己把菜单写进日志（改 `Misc→Debug` 三项后重启一次），代价是之后不再保存 `boot.efi` 的日志。
+| 平台 | 方案 |
+|---|---|
+| macOS | 免密助手（root 后台进程，协议 v2），一次安装永久免密 |
+| Windows | 特权助手服务（MSI 自动注册），远程 / 无人值守提权 |
+| Linux | root 助手 + sudoers 白名单 + 参数闸门，「关于」页一键安装 / 卸载 |
 
-### 三个平台上差在哪
+安全设计：助手参数白名单、结果文件路径闸门、visudo 绝对路径清空环境、写入原子替换 + SHA-256 校验。详见 [`docs/权限与提权.md`](docs/权限与提权.md)。
 
-预演规则、`EFI_LOAD_OPTION` 的构造、`BootOrder` 的解析是**同一份代码**；真正分平台的只有「怎么读 NVRAM」和「怎么找到那块 ESP」：
+### 6. 桌面体验
 
-| | macOS | Linux | Windows |
+- **不占任务栏 / Dock**，托盘常驻；托盘菜单三端都是应用自绘小窗（点选择项不关菜单）。
+- **主题**：暗色 / 亮色 / 跟随系统；窗口不透明度 0–100%。
+- **窗口自适应**：分辨率 / 缩放变化自动重置；位置居中可保持；记忆拖拽后的尺寸。
+- **开机启动 + 启动隐藏**：macOS 走 `SMAppService`，Windows 写注册表，Linux 写 autostart。
+- **单实例**：重复启动自动接管旧实例（认 pid + 核对进程名，先礼后兵）。
+
+### 7. 性能
+
+- 分区表合并查询 + 60s 缓存：**全盘扫描 8.3s → 1.0s**，热刷新 25ms。
+- 分段埋点（`trace.log` 每步耗时表）。
+
+---
+
+## 平台支持矩阵
+
+### 引导器能力
+
+| 能力 | macOS | Windows | Linux |
 |---|---|---|---|
-| 读 NVRAM | `nvram` 命令 | efivarfs（`/sys/firmware/efi/efivars`） | `GetFirmwareEnvironmentVariableW` |
-| 写 NVRAM | 只能写 OC 私有 `OCBt*`（全局 `Boot*` 被 Apple 白名单挡住，root 也不行） | 直写 + `pkexec` 提权 | `SetFirmwareEnvironmentVariableW`（要管理员） |
-| 找 ESP | `/Volumes` + `/` | `/efi`、`/boot/efi`、`/boot`、`/esp` | `Get-Partition` 按 GPT 类型列出 ESP |
-| 默认项写到哪 | `OCBtOrder` / `OCBt####` | `BootOrder` / `Boot####` | `BootOrder` / `Boot####` |
+| rEFInd 模拟扫描 + 切换（写 PreviousBoot） | ✅ | ✅ | ✅ |
+| GRUB 直读 ext4 分区 grub.cfg 出启动项 | ✅ | ✅ | ✅ |
+| GRUB 切换（写 grubenv） | ✅ 免密助手 | ✅ 特权服务 | ✅ 免密 sudoers |
+| GRUB grub.cfg → ESP 同步（09_anyboot 方案） | ✅ | ✅ | ✅（硬性条件见[文档](docs/grub-自动同步条件.md)） |
+| OpenCore 菜单预演 + 设为默认 | ✅ 写 `OCBt*` | ✅ | ✅ efivarfs 直读 |
+| systemd-boot / Clover 状态与切换 | ✅ | ✅ | ✅ |
 
-**Windows 的坑**：系统默认不给 EFI 分区分配盘符，而那个分区在资源管理器里是隐藏的。所以 `AnyBoot` 不用盘符扫描，而是按 GPT 类型 `c12a7328-…` 把 ESP 列出来；一块都没盘符时，OpenCore 卡片会显示成「未检测到」并**说明原因**（哪块磁盘哪个分区、多大），带一个「分配盘符」按钮 —— 点它会弹一次管理员授权，完成后自动重新识别。Linux 上则要求 ESP 是**已挂载**的（`/boot/efi` 或 `/efi`），没挂载同样扫不到。
+### 系统能力
 
-**macOS / Preboot 条目的三端差异**：目前预演里所有 macOS 条目（含 Preboot）只在 macOS 上算得出来——Windows / Linux 没有 APFS 驱动，`Preboot/<UUID>/…/boot.efi` 这一层物理不可见。已选定「纯 Rust 只读 APFS crate」方案补齐这条缺口（零挂载、直接解析容器分区，与 NVRAM 合并一次提权），
-选型过程与架构见 📖 [`docs/apfs-预演三端统一选型.md`](docs/apfs-预演三端统一选型.md)。
+| 能力 | macOS | Windows | Linux |
+|---|---|---|---|
+| ESP 自动发现 | `/Volumes` + `diskutil` | 按 GPT 类型列出（带「分配盘符」按钮） | 挂载点 + `lsblk` 未挂载 ESP 临时只读挂载 |
+| 免密提权 | 助手协议 v2 | 特权服务（MSI 注册） | sudoers 白名单助手 |
+| 电源动作免密 | AppleEvent（本就免密） | 特权服务 / UAC 兜底 | systemctl 三级退让 |
+| 固件变量 | 仅 OC 私有 `OCBt*`（Apple 拦 `Boot*`） | `Boot*` 读写 | `Boot*` + `OCBt*` |
+| 开机自启 | `SMAppService` / LaunchAgent | 注册表 Run | `~/.config/autostart` |
+| NVIDIA 白屏自处理 | — | — | ✅ 按会话类型自动设开关 |
+| 主题 / 透明度 / 自绘托盘 | ✅ | ✅ | ✅（SNI 协议自导出图标） |
 
-> 📖 完整原理、逐函数源码追踪、实机验证与被推翻的几版结论：
-> [`docs/boot-menu-discovery.md`](docs/boot-menu-discovery.md)（原理与用法）
-> → [`docs/boot-menu-discovery-internals.md`](docs/boot-menu-discovery-internals.md)（详细原理与探索过程）
-> → [`docs/apfs-预演三端统一选型.md`](docs/apfs-预演三端统一选型.md)（Windows/Linux 补齐 Preboot 条目的技术选型）
+### 已知限制（如实说明）
 
----
-
-## 客户端（Web 端 / 移动端）
-
-AnyBoot 内置的 HTTP 服务不但对外提供 `/api/*`，还**托管同一份前端页面**。
-所以除了桌面主窗口，还有两个「像主窗口一样」的客户端，用的都是**同一份 `ui/` 代码、同一份状态快照**，
-界面上的操作真的作用在这台电脑上（不是演示）：
-
-| 客户端 | 是什么 | 怎么用 | 详细说明 |
-| --- | --- | --- | --- |
-| **Web 端** | 浏览器打开 `http://<电脑IP>:12300` | 托盘/主菜单 **远程控制 ▸ 打开 Web 页面**，或手敲地址；首次输一次 token | [`ui/README.md`](ui/README.md) |
-| **Android** | WebView 外壳，**一台电脑一个标签**（多网卡地址自动切换） | `gradle assembleDebug` 出 APK 装上（**Linux 开发机与 Windows 机器都能出**，命令见该目录 README）；标签栏管理多台电脑、支持分组 | [`mobile/android/README.md`](mobile/android/README.md) |
-| **iOS** | SwiftUI + WKWebView，同构 | 用 Xcode 把源码拖进工程运行（Windows 上构建不了） | [`mobile/ios/README.md`](mobile/ios/README.md) |
-
-三点要知道的：
-
-- **Web 端 = 主窗口**：同一份 HTML/CSS/JS，栏目用地址栏 hash 寻址（`#/boot` 系统引导、`#/settings` 基本设置），
-  刷新 / 收藏 / 分享链接都落回同一个栏目；网页端初始固定进**系统引导**。
-- **不装 App 也能用**：手机浏览器打开同一个地址效果一样；App 只是多了「一台手机同时连多台电脑 + 一台电脑多地址自动切换 + 重试面板」。
-- **多网卡只占一份页面**：一台电脑有多块网卡 / 换过 DHCP，地址填多行即可 ——
-  客户端靠 `GET /health` 的 `machineId` 自动认出这是同一台机器，只保留一个标签，
-  首选地址不通就换下一个。（详见 [`mobile/README.md`](mobile/README.md)）
-- **浏览器做不了的事**：弹出文件夹选择框、打开系统设置、需要提权弹框的操作，服务端会显式返回 `gui_only`，
-  页面提示「该操作需要在电脑上完成」，不会静默失败。
-
-桌面端还有一组**远端管理**窗口（服务器档案 / 终端 / 文件浏览 / 隧道 / 跳板机，直接复用系统 `ssh`、`sftp`）。
-三端都能用，但能力有差异 —— Windows 的 Win32-OpenSSH 不支持连接复用，改成每次操作单独认证；
-细表与排错见 [`docs/server-hub.md`](docs/server-hub.md)。
-
-移动端总览见 [`mobile/README.md`](mobile/README.md)。
-
-客户端上还有两件事是按「经本机同意」设计的：
-
-- **选择系统要先在本机确认**：网页 / 手机上点「切换」，不会直接改引导项，而是变成一条
-  **远程请求** —— 电脑端弹出授权窗（写明来源客户端 IP、渠道、发起时间），本机用户点
-  「立即执行」或等倒计时到点才真的切换，点「取消」就作废。
-  授权窗上的「立即执行」**只能在电脑上点**（远程端是灰的，只能撤回自己那条请求）。
-  桌面主窗口自己点按钮不受影响（走的是应用内直连命令，仍然是即时生效）。
-- **连不上会自动重试**：客户端刚打开的那一拍，电脑端服务可能正在重启、或网络刚通。
-  这时页面不会定格成空白（旧版只探测一次，失败就永久降级成「预览模式」），
-  而是每 2 秒重试一次，一连上就自己接回远程模式，不用手动刷新。
-- **改动走推送，不再靠轮询**：页面默认开着 `GET /api/ws`（WebSocket），电脑那边一改就推到页面上，
-  空闲时几乎不发包（旧版是每 2 秒拉一次 `/api/ui-state`）。横幅里可以改走哪条路
-  （**自动 / 推送 / 轮询**），手机 App 的菜单里也能选、会跟着地址一起传过去。
-  手滑一下就能**下拉刷新**，横幅上还有 **「刷新」** 按钮 —— 推送丢了一拍或你在别的设备刚改完，
-  拉一下立刻对齐。（详见 [`ui/README.md`](ui/README.md)）
+- btrfs / LUKS **加密卷内**的文件级读取不支持（LVM/LUKS 上层的 ext4 经块设备路径可扫到）。
+- GRUB 直读切换要求目标分区 journal 干净；脏分区（RECOVER 标志）会拒绝并提示。
+- OC 预演的 macOS / Preboot 条目目前仅 macOS 上算得出来（Windows/Linux 无 APFS 驱动；正在用纯 Rust APFS crate 补齐，见[选型文档](docs/apfs-预演三端统一选型.md)）。
+- Linux GNOME 默认无传统托盘，需启用 StatusNotifierItem 扩展（主窗口不受影响）。
 
 ---
 
-## 远程控制（HTTP 服务）
+## 快速开始
 
-### 默认行为与安全默认值
+### 安装
 
-装好第一次启动，`settings.json` 里就已经是这样的默认值（不用你去翻文档找开关）：
+从 [Releases](https://github.com/lidiaoo/anyboot/releases) 下载对应平台安装包：
 
-| 设置项（`settings.json`） | 默认值 | 含义 |
-| --- | --- | --- |
-| `httpEnabled` | `true` | HTTP 服务默认**开**启 |
-| `httpBind` | `"0.0.0.0"` | 监听所有网卡（局域网可直连；只想本机/隧道用就改成 `127.0.0.1`） |
-| `httpPort` | `12300` | 端口 |
-| `httpToken` | 首次运行自动生成 32 位十六进制 | **必填**；为空则服务拒绝启动（不允许无鉴权监听） |
-| `notifyEnabled` | `true` | 远程请求通知总开关 |
-| `channels.http.notify` | `true` | webhook / curl / 面板 这条渠道弹不弹窗 |
-| `channels.http.delaySeconds` | `5` | 这条渠道延迟几秒执行（`0` = 立即执行） |
-| `channels.cli.notify` | `true` | ssh / CLI 这条渠道弹不弹窗 |
-| `channels.cli.delaySeconds` | `5` | 这条渠道延迟几秒执行 |
-| `remoteAllowGuiAuth` | `true` | 远程/CLI 请求**可以**弹本机授权框（见 [远程需要“本机授权”时怎么办](#远程需要本机授权时怎么办)） |
+| 平台 | 文件 |
+|---|---|
+| macOS（Intel + Apple Silicon 通用） | `AnyBoot_<版本>_universal.dmg` |
+| Windows | `AnyBoot_<版本>_x64-setup.exe` 或 `.msi` |
+| Linux | `.deb` / `.rpm` / 全兼容 `.AppImage` |
+| Android（debug 签名） | `AnyBoot_<版本>_debug.apk` |
+| iOS（未签名，自行 Xcode 签） | `AnyBoot-unsigned.ipa` |
 
-必须知道的三件事：
+装好首次启动：托盘图标出现 → 主窗口自动扫出各引导器与系统列表 → 点一下就是「下次启动」。
 
-1. **是明文 HTTP，不是 HTTPS**。token 会以明文经过网络，请只在可信局域网或 SSH 隧道里用。
-2. **token 必填**。服务启动的前提是 token 非空；日志里只记 token 前 8 位指纹，完整值不会写进日志，也不会出现在托盘菜单和通知弹窗里（防截图）。
-3. **默认监听 `0.0.0.0`**。不希望局域网能访问就把监听地址改成 `127.0.0.1`，然后走 SSH 隧道（见 [ssh 两种用法](#ssh-远程调用两种用法)）。
-
-### token 去哪看、怎么换
-
-三个入口，改哪个都一样（同一份 `settings.json`）：
-
-- **主窗口 → 远程控制**：有「显示当前 / 复制 / 重新生成」按钮，还有**自己填一个 token** 的输入框（4–128 位可见 ASCII，字母/数字/符号都行，不能有空格和中文）。点「保存」或「重新生成」都会**关掉旧监听、按新 token 重新绑定端口**，旧 token 立即失效；状态栏会如实报出重启结果（`监听已重启：0.0.0.0:12300`，或者绑不上的原因）。旁边是监听地址/端口输入框和「复制命令」。
-- **托盘右键 → 远程控制区**：紧跟一个灰标题「远程控制」，下面是**监听状态**一行（`正在监听 0.0.0.0:12300` / 失败原因），再往下是 HTTP 服务开关、远程请求通知开关、远程执行延迟预设（立即 / 3 / 5 / 10 / 30 秒），以及「远程控制设置…」（打开主窗口并滚到该区）。
-- **直接改文件**：`settings.json` 里的 `httpToken`。改完在界面上再动一下任意远程设置，或在主窗口开关一次服务即可生效。
-
-> 自定义 token 的建议：别用 `1234` 这种 —— 这个端口默认监听 `0.0.0.0`，能拿到 token 的人就能切你的启动项、重启/关机你的机器。用 `openssl rand -hex 16` 这类命令生成。
-> 清空 token = 服务不再启动（这是刻意的安全默认：没有 token 就没有鉴权）。
-
-配置目录（放 `settings.json`，日志 `trace.log` 也在同一目录）：
-
-| 平台 | 路径 |
-| --- | --- |
-| Windows | `%APPDATA%\com.example.anyboot\`（即 `C:\Users\<你>\AppData\Roaming\com.example.anyboot\`） |
-| macOS | `~/Library/Application Support/com.example.anyboot/` |
-| Linux | `~/.config/com.example.anyboot/` |
-
-忘了 token：主窗口「显示」按钮，或直接读文件。
+### 三分钟上手远程控制
 
 ```bash
-# Linux / macOS
-python3 -c "import json,os;print(json.load(open(os.path.expanduser('~/.config/com.example.anyboot/settings.json')))['httpToken'])"
+# 1. 拿 token：主窗口 → 远程控制 → 复制（或读配置文件）
+#    macOS:   ~/Library/Application Support/com.example.anyboot/settings.json
+#    Windows: %APPDATA%\com.example.anyboot\settings.json
+#    Linux:   ~/.config/com.example.anyboot/settings.json
+
+# 2. 浏览器打开（手机也行）
+open http://<电脑IP>:12300
+
+# 3. 或一条命令：切到 Windows 并重启
+curl -s -X POST -H "X-Auth-Token: <token>" \
+  "http://<电脑IP>:12300/api/switch-and-power?system=windows&action=reboot"
+
+# 4. 或 ssh
+ssh user@<电脑IP> 'anyboot --switch windows --action reboot'
 ```
 
-```powershell
-# Windows PowerShell
-(Get-Content "$env:APPDATA\com.example.anyboot\settings.json" | ConvertFrom-Json).httpToken
-```
+完整端点表、安全默认值、防火墙放行、多机管理见 [`docs/远程控制-HTTP-API.md`](docs/远程控制-HTTP-API.md)。
 
-换 token 后旧 token **立刻失效**（服务会用新 token 重建）。
-
-### 三端各自的防火墙处理
-
-应用能监听，但系统防火墙可能挡着外部访问。
-
-```powershell
-# Windows（管理员 PowerShell）：放行 12300/TCP
-New-NetFirewallRule -DisplayName "AnyBoot HTTP" -Direction Inbound -Protocol TCP -LocalPort 12300 -Action Allow
-# 撤销
-Remove-NetFirewallRule -DisplayName "AnyBoot HTTP"
-```
-
-```bash
-# macOS：第一次被外部访问时会弹「是否允许传入连接」，选“允许”
-# 也可手动看：系统设置 → 网络 → 防火墙 → 选项 → 允许传入连接
-/usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate   # 看防火墙状态
-```
-
-```bash
-# Linux（ufw 系）
-sudo ufw allow 12300/tcp && sudo ufw status
-
-# Linux（firewalld 系）
-sudo firewall-cmd --add-port=12300/tcp --permanent && sudo firewall-cmd --reload
-
-# 看谁在监听（三端各自的办法）
-ss -ltnp | grep 12300                 # Linux
-lsof -nP -iTCP:12300 -sTCP:LISTEN     # macOS
-netstat -ano | findstr 12300          # Windows
-```
-
-### 端点表（每条都给了可复制的 curl）
-
-除 `/health` 外**所有端点都要 token**。token 三种放法任选：请求头 `X-Auth-Token: <token>`（推荐）、query `?token=<token>`、表单/JSON body 里的 `token` 字段。
-
-```bash
-# 先把这两个变量设好，后面直接复制
-TOKEN='把主窗口里复制的 token 贴这里'
-HOST='192.168.1.50'      # 目标机的局域网 IP；本机测试用 127.0.0.1
-```
-
-| 端点 | 干什么 | 会改状态吗 |
-| --- | --- | --- |
-| `GET /health` | 服务活着吗 + **这台机器是谁**（`machineId` / `machineName`，免 token） | 不会 |
-| `GET /api/ws` | 状态快照的**推送通道**（WebSocket；握手用 `?token=` 或 cookie，连上即得一帧完整快照，之后每次变更推一帧） | 不会 |
-| `GET /api/ui-state` | 当前状态快照（轮询兜底 / 手动刷新 / 下拉刷新用） | 不会 |
-| `GET /api/status` | 变量目录、三个系统文件是否存在、下次启动是哪个 | 不会 |
-| `GET /api/requests` | 最近 20 条远程请求（时间/来源/渠道/动作/结果） | 不会 |
-| `POST /api/switch?system=linux` | 切换下次启动为 linux / windows / macos | 会 |
-| `POST /api/power?action=reboot` | 重启 / 关机 / 睡眠（`action` 缺省 = `reboot`） | 会 |
-| `POST /api/switch-and-power?system=windows&action=reboot` | 先切下次启动，成功后立刻执行电源动作 | 会 |
-
-**① 服务活着吗（不需要 token）**
-
-```bash
-curl -s http://$HOST:12300/health
-```
-
-预期回答（HTTP 200）：
-
-```json
-{"ok":true,"service":"anyboot","machineId":"9f2c…（32 位十六进制）","machineName":"书房台式机"}
-```
-
-`machineId` 是**本机标识**：首次运行生成一次、存在 `settings.json` 里，重启不变。
-手机 / 网页客户端拿它认出「这几条 IP 其实是同一台电脑」—— 一台电脑多块网卡、
-或者 DHCP 每次给不同 IP，客户端只保留**一份页面**、自动挑能通的那个地址
-（详见 [`mobile/README.md`](mobile/README.md)）。它免 token 返回，因为客户端在
-填 token 之前就要用它归并；不含任何机密，`machineName` 取不到时是空串。
-
-**② 看当前状态**
-
-```bash
-curl -s -H "X-Auth-Token: $TOKEN" http://$HOST:12300/api/status
-```
-
-怎么读：`message` 是给人看的一句话（例如 `下次启动：Windows`）；`variables` 是三个模板文件的存在与选中情况。
-
-```json
-{
-  "ok": true,
-  "varsDir": "C:\\EFI\\refind\\vars",
-  "message": "下次启动：Windows",
-  "variables": [
-    {"system":"linux","displayName":"Linux","exists":true,"active":false},
-    {"system":"windows","displayName":"Windows","exists":true,"active":true},
-    {"system":"macos","displayName":"macOS","exists":true,"active":false}
-  ]
-}
-```
-
-**③ 切换下次启动（不重启）**
-
-```bash
-curl -s -X POST -H "X-Auth-Token: $TOKEN" "http://$HOST:12300/api/switch?system=linux"
-```
-
-预期回答（HTTP 200，`pending:false` 表示已执行）：
-
-```json
-{"ok":true,"pending":false,"channel":"http","message":"下次启动：Linux"}
-```
-
-**④ 电源动作（默认重启）**
-
-```bash
-curl -s -X POST -H "X-Auth-Token: $TOKEN" "http://$HOST:12300/api/power"                  # 重启（缺省）
-curl -s -X POST -H "X-Auth-Token: $TOKEN" "http://$HOST:12300/api/power?action=shutdown"   # 关机
-curl -s -X POST -H "X-Auth-Token: $TOKEN" "http://$HOST:12300/api/power?action=sleep"      # 睡眠
-```
-
-预期回答：`{"ok":true,"pending":false,"channel":"http","message":"重启系统（已提交）"}`（关机/睡眠分别是「关机（已提交）」「睡眠（已提交）」）。
-
-**⑤ 一条命令搞定“切到 Windows 并重启”（最常用的自动化姿势）**
-
-```bash
-curl -s -X POST -H "X-Auth-Token: $TOKEN" \
-  "http://$HOST:12300/api/switch-and-power?system=windows&action=reboot"
-```
-
-预期回答：`{"ok":true,"pending":false,"channel":"http","message":"下次启动：Windows；重启系统（已提交）"}`
-
-**⑥ 看最近请求（排查“我发的请求到底被执行了吗”）**
-
-```bash
-curl -s -H "X-Auth-Token: $TOKEN" http://$HOST:12300/api/requests
-```
-
-`status` 字段含义：`pending` 已收到、等本机确认（倒计时中）/ `executed` 已执行 / `cancelled` 本机取消了 / `failed` 执行失败 / `rejected` 被拒（token 错、参数错、或倒计时期间又来一条）。
-
-**预期回答怎么读（通用）**
-
-- `ok:true` 且 `pending:false` → 动作已经真的做了。
-- `ok:true` 且 `pending:true` → 进了倒计时：`executeInSeconds` 是还剩几秒，`requestId` 可与 `/api/requests` 对上；这期间**再来一条会得到 HTTP 409**（避免连着切两次）。
-- `401` → token 不对或没带，响应体 `{"ok":false,"error":"invalid_token","message":"token 缺失或无效"}`（故意不区分“没带”和“不对”）。
-- `400` → 参数写错（`unknown_system` / `unknown_action`）；`404` → 路径写错；`405` → 用了 PUT/DELETE 之类；`413` → body 太大；`409` → 已有待执行请求。
-
-### 电源动作：重启 / 关机 / 睡眠
-
-主窗口三个按钮、托盘上的三个电源菜单项、HTTP `/api/power`、CLI `--action` 走的是**同一套命令表**：
-
-| 平台 | 重启 | 关机 | 睡眠 |
-| --- | --- | --- | --- |
-| Windows | `shutdown /r /t 0` | `shutdown /s /t 0` | `rundll32.exe powrprof.dll,SetSuspendState 0,1,0` |
-| Linux | `systemctl reboot`（失败退 `loginctl reboot` → `pkexec systemctl reboot`） | `systemctl poweroff`（同样三级退让） | `systemctl suspend`（退 `loginctl suspend` → `pkexec`） |
-| macOS | 先走 AppleEvent → `System Events`（和苹果菜单的「重新启动」同一条路，**任何用户都不用管理员密码、不用改配置**；首次弹一次「自动化」授权，允许后永久免框）→ 用不了才试 `sudo -n /sbin/shutdown -r now`（配了免密 sudo 的机器）→ 最后才是 `osascript` 管理员授权框 | 同上（`shut down` / `-h now`） | 同上（`sleep`，再 `sudo -n pmset sleepnow`，最后管理员授权） |
-
-两条安全约定（一直有效）：
-
-- **只有「这条候选在本机用不了」才换下一条**（命令不存在、`sudo -n` 没配免密、macOS 的「自动化」未授权）。“命令能执行但失败”（没权限、用户当场取消了授权框）就立刻停手并把原因显示出来——不会“取消授权之后换种方式照样关机”。
-- **提权弹窗可能停留很久**，动作都在后台线程执行；重复点击会被忽略（按钮和托盘项同时置灰）。
-
-### macOS：一次授权，永久免密
-
-macOS 的重启 / 关机 / 睡眠**不需要管理员密码**：走的是 `System Events` 的 AppleEvent（系统内部转成 `loginwindow` 的 `aevt`/`rst`/`sdn`），
-也就是苹果菜单里那三个菜单项用的同一条链路。代价只是**首次**会弹一次系统的「自动化」授权框：
-
-> “AnyBoot”想要控制“System Events”。
-
-点「允许」后写进当前用户的 TCC 库（`~/Library/Application Support/com.apple.TCC/TCC.db`），此后永久免框、不再询问，也不需要 root、不需要 `sudoers`、不需要任何配置文件。
-换个用户登录时，该用户要自己点一次（这是 macOS 的按用户授权模型，应用无法代劳）。
-
-- 忘了点过什么：**系统设置 → 隐私与安全性 → 自动化** 里能看到并随时改。
-- 想重新弹一次授权框：`tccutil reset AppleEvents com.example.anyboot`。
-- **开发期注意**：TCC 记的是应用的代码签名要求。当前构建是 ad-hoc 签名（`tauri.conf.json` 里 `signingIdentity: "-"`），
-  签名随构建内容变化（cdhash 变），所以**每次重新构建并覆盖 /Applications 里的 app，才会再弹一次**（一次点击，不用密码）。
-  正式发布用固定的 Developer ID 证书签名后，授权对同一份签名永久有效。
-
-
-Windows 睡眠的实话实说：`SetSuspendState 0,1,0` 在「休眠已启用」的机器上会变成**休眠**而不是睡眠。应用会在动手前做一次**只读**预检（注册表 `HKLM\SYSTEM\CurrentControlSet\Control\Power\HibernateEnabled`，读不到就跑 `powercfg /a`），把结论写进回执与日志（例如「本次会进入睡眠（S3）」或「休眠已启用，本次会变休眠」）。想自己确认：
-
-```powershell
-# Windows：只读查询，不改任何东西
-reg query "HKLM\SYSTEM\CurrentControlSet\Control\Power" /v HibernateEnabled
-powercfg /a
-```
-
-```bash
-# Linux：只读查询
-cat /sys/power/state                                   # 看到 freeze mem disk 就是支持睡眠/休眠
-systemctl status sleep.target --no-pager | head -3     # 有 systemd 时
-```
-
-```bash
-# macOS：只读查询
-pmset -g | grep -i hibernatemode
-```
-
-### 通知弹窗与延迟执行（可配 0 秒立即执行）
-
-默认：**任何**远程请求（HTTP 或 ssh）都先弹一个置顶小窗，倒计时 5 秒后自动执行。
-
-- 弹窗有「立即执行」和「取消」；**关掉窗口就等于取消**（误关不会把机器关掉）。
-- 弹窗的高度按内容**自适应**（前端量出「刚好兜住最后一行文字」的高度再报给后端），位置固定在工作区右下角 —— 用**工作区**而不是屏幕，所以不会像以前那样压住任务栏。
-- 主窗口「远程控制」区有「待执行请求」卡片（含倒计时、来源、渠道），也能在这里取消/立即执行。
-- 想不打扰：把该渠道 `delaySeconds` 设成 `0`（立即执行，不再弹倒计时窗，只弹一条 3 秒自动消失的结果提示），或把 `notify` 关掉（不弹窗但延迟照旧，取消入口只剩主窗口）。
-- **两条渠道分开配**：`channels.http`（webhook / curl / 面板）与 `channels.cli`（ssh / CLI 转发）。典型用法：让 ssh 立即执行（`delaySeconds:0`），让对外的 webhook 留 5 秒倒计时给自己留后路。
-- 本机自己点按钮/托盘项**不会**弹窗、也不进待执行队列。
-
-### 常见客户端与面板
-
-任何能发 HTTP 请求、能自定义 Header 的东西都能用：
-
-| 客户端 / 面板 | 怎么用 |
-| --- | --- |
-| **curl / 脚本 / CI** | 就是上面端点表那些命令；token 放 `X-Auth-Token` 头 |
-| **Postman / ApiPost / Insomnia** | 新建 `POST` → URL `http://<IP>:12300/api/power?action=reboot` → Headers 加 `X-Auth-Token: <token>` → Send；看到 `"ok":true` 就是成功 |
-| **UpSnap**（自托管网络唤醒面板） | 设备里把自定义 HTTP 动作指向 `/api/switch-and-power?system=windows&action=reboot`，Header 带 `X-Auth-Token`（token 也可写进 query：`?...&token=<token>`） |
-| **PowerControl / 手机 Wake-on-LAN 类 App** | 在「唤醒/自定义 HTTP」里填 URL + Header；只支持“发一个 GET/POST”的，用 `?token=` 放 query 最省事 |
-| **Home Assistant / Node-RED / n8n** | `rest_command` / HTTP Request 节点，POST 到 `/api/power?action=sleep`，Header 带 token |
-| **路由器 / 群晖的计划任务** | 自带 curl 的，`curl` 一条即可 |
-
-小技巧：面板只方便填一个 URL 时，把 token 放 query：`http://<IP>:12300/api/power?action=reboot&token=<token>`。能用 Header 就优先 Header（URL 容易被日志记下来）。
-
-### 给每台机器起个名字（多机管理）
-
-一台机器管多台时，建议按「设备名 + 动作」组织，别让一堆 IP 散在脚本里：
-
-| 设备名 | 干什么 | 调用 |
-| --- | --- | --- |
-| `nas` | 切到 Linux 并重启 | `curl -s -X POST "http://nas:12300/api/switch-and-power?system=linux&action=reboot" -H "X-Auth-Token: $NAS_TOKEN"` |
-| `nas` | 只关机 | `curl -s -X POST "http://nas:12300/api/power?action=shutdown" -H "X-Auth-Token: $NAS_TOKEN"` |
-| `nas` | 睡眠 | `curl -s -X POST "http://nas:12300/api/power?action=sleep" -H "X-Auth-Token: $NAS_TOKEN"` |
-| `desk` | 切到 Windows 并重启 | `curl -s -X POST "http://desk:12300/api/switch-and-power?system=windows&action=reboot" -H "X-Auth-Token: $DESK_TOKEN"` |
-| `desk` | 看状态 | `curl -s -H "X-Auth-Token: $DESK_TOKEN" "http://desk:12300/api/status"` |
-
-一台设备的所有动作（状态 / 切换 / 重启 / 关机 / 睡眠）放一组，token 变量名用 `设备名_TOKEN`（Windows 上写 `$env:NAS_TOKEN`）。给每台机器在路由器里配静态 IP 或 DHCP 保留，名字才稳。
-
-### ssh 远程调用两种用法
-
-**用法一：ssh 直连（推荐，不额外暴露端口）**
-
-同一个可执行文件带参数就是 CLI；应用正在运行时它会自动把命令转发给 GUI 执行（于是与 webhook 走同一套通知/延迟，渠道算 `cli`）；应用没在运行时它自己执行（无界面，相当于立即执行）。
-
-```bash
-# Linux / macOS 客户端
-ssh user@192.168.1.50 'anyboot --status'
-ssh user@192.168.1.50 'anyboot --switch windows'                    # 只切换
-ssh user@192.168.1.50 'anyboot --switch windows --action reboot'    # 切换并重启
-ssh user@192.168.1.50 'anyboot --action sleep'                      # 只睡眠
-ssh user@192.168.1.50 'anyboot --status --json'                     # 脚本友好的 JSON
-```
-
-```powershell
-# Windows 客户端（win10/11 自带 OpenSSH 客户端）
-ssh user@192.168.1.50 "anyboot.exe --status"
-ssh user@192.168.1.50 "anyboot.exe --switch windows --action reboot"
-ssh user@192.168.1.50 "anyboot.exe --action sleep"
-```
-
-CLI 参数：
-
-| 参数 | 说明 |
-| --- | --- |
-| `--status` | 变量目录、三个模板是否存在、下次启动是哪个 |
-| `--switch <linux\|windows\|macos>` | 切换下次启动（单独用不重启） |
-| `--action <reboot\|shutdown\|sleep>` | 电源动作；**缺省是 `reboot`**；别名 `restart` / `poweroff` / `halt` / `suspend` 也认 |
-| `--switch X --action Y` | 先切换，成功后立刻执行 Y |
-| `--json` | 输出与 HTTP 响应同结构的 JSON（脚本友好） |
-| `--port <n>` | 临时指定端口（调试/多实例） |
-| `--help` / `--version` | 用法 / 版本 |
-
-退出码：`0` 成功 / `1` 动作失败 / `2` 参数错误 / `3` 需要本机授权 / `4` 变量目录未就绪。
-
-```bash
-if ssh user@nas 'anyboot --switch linux --action reboot'; then
-  echo "已提交"
-else
-  echo "失败，退出码 $?"
-fi
-```
-
-**用法二：SSH 隧道（不想暴露端口，又想用 curl/面板时）**
-
-```bash
-# 把本机 12300 隧道到目标机 12300（目标机 httpBind 可以就是 127.0.0.1）
-ssh -N -L 12300:127.0.0.1:12300 user@192.168.1.50
-
-# 另一个终端：直接对本机 12300 发请求，等同于在目标机上本机调用
-curl -s -H "X-Auth-Token: $TOKEN" http://127.0.0.1:12300/api/status
-curl -s -X POST -H "X-Auth-Token: $TOKEN" "http://127.0.0.1:12300/api/power?action=reboot"
-```
-
-隧道这一路请求来自目标机的 loopback，所以客户端带 `channel=cli` 会被算作 `cli` 渠道；从局域网直连时伪造 `channel=cli` 无效（一律按 `http` 渠道）。
-
-### 远程需要“本机授权”时怎么办
-
-默认 `remoteAllowGuiAuth = false`：远程/CLI 请求**不会**在目标机弹授权框，遇到必须授权的操作会直接失败并说明原因（HTTP 里是 `ok:false` + `message`，CLI 退出码 `3`）。这样远程请求不会“挂在那里等有人去点确认”。
-
-想让远程一次成功，就在**目标机**上提前把权限配好：
-
-```bash
-# Linux：免密 sudo（把 <user> 换成实际用户；只放开这三个命令，别写 ALL）
-#   sudo visudo -f /etc/sudoers.d/anyboot
-<user> ALL=(ALL) NOPASSWD: /usr/bin/systemctl reboot, /usr/bin/systemctl poweroff, /usr/bin/systemctl suspend
-
-# Linux：顺手把 ESP 预挂载好（fstab），应用就不需要临时提权挂载
-#   /etc/fstab 里加一行（UUID 用 blkid 查）
-UUID=1234-ABCD  /boot/efi  vfat  defaults,nofail,umask=0022  0  2
-sudo mount -a
-```
-
-```bash
-# macOS：不需要配任何东西。首次在本机点一次「重启系统」/「关机」/「睡眠」时
-# 会弹一次系统授权框「“AnyBoot”想要控制“System Events”」——点「允许」即可，
-# 之后永久免框（按用户记在 TCC 库里）。不想点也可以什么都不做：
-# 应用会退回系统管理员授权框，功能不受影响。
-# 想重新弹一次：tccutil reset AppleEvents com.example.anyboot
-```
-
-macOS 这条授权不是「给 root 权限」，而是**自动化（AppleEvents）**：应用通过 `System Events` 发
-重启/关机/睡眠事件，和苹果菜单里那三个菜单项用的是同一条链路，所以本来就不需要管理员密码——
-也不需要 `sudoers`。`/etc/sudoers.d/anyboot` 那条免密规则现在只是**可选**的中间候选（配了就在
-自动化被拒时也免框），不配完全不影响使用。
-
-```powershell
-# Windows：让 ESP 一直挂着（管理员 PowerShell / diskpart，一次就够）
-diskpart
-  select disk 0
-  select partition 1
-  assign letter=S
-```
-
-如果你确实想让远程请求在目标机弹授权框（有人在场），把 `remoteAllowGuiAuth` 打开即可——但那意味着必须有人在机器前点“确认”。
-
----
-
-## 应用设置
-
-**出厂默认值**（全新安装，或删掉 `settings.json` 里对应字段后重启）：主题**亮色**、
-窗口不透明度 **90%**、窗口位置固定在**屏幕（工作区）正中央**、
-窗口高度默认占**屏幕工作区高度的一半**（宽度随 GRUB 展示方式）、
-「远程可触发本机授权框」**开**。这些都能在主窗口里改，改完立刻落进 `settings.json`。
-
-窗口尺寸一旦拖过就按**记忆值**来（不再每次启动重算）；想回到「屏幕一半」，
-在设置里点**重置窗口大小**即可。
-
-窗口位置选**「屏幕中间」**时，拖高度滑条会**保持居中** —— 窗口上下同时伸缩，不会只往下长、
-更不会被挤到屏幕上沿去。选「上次位置」或「自由」时按原来的锚点伸缩，不做干预。
-
-主窗口「应用设置」区域：
-
-- **开机启动**：登录系统后自动启动应用。
-  - macOS 13 及以上调用系统登录项接口 `SMAppService.mainApp` 注册，条目出现在「系统设置 → 通用 → 登录项与扩展」。该接口要求应用带有效代码签名，因此 `tauri.conf.json` 默认配了 ad-hoc 签名（`bundle.macOS.signingIdentity = "-"`）；未签名、未以 `.app` 形式运行或 macOS 12 及以下会自动退回 `~/Library/LaunchAgents/AnyBoot.plist`，界面会提示当前用的是兼容方式。签名版本生效后，早期版本遗留的 LaunchAgent 会在启动时自动清理。
-  - Windows 写 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`；Linux 写 `~/.config/autostart`（即使以 root 执行也会识别 `SUDO_USER`/`PKEXEC_UID`，写回实际登录用户）。
-  - 若系统返回「需要批准」（`requiresApproval`），主窗口会给出提示与「打开登录项与扩展设置」按钮。
-- **启动时隐藏主界面**：登录/启动后只在托盘待命。
-- **点击窗口 ❌ 时**：`最小化到托盘` 或 `退出程序`。
-- **界面主题**：`暗色` / `亮色` / `跟随系统`。选「跟随系统」时，系统在亮/暗之间切换会实时跟着变（不用重启应用）。
-- **窗口不透明度**：0%–100%。拖动即时预览，松手保存。窗口开了透明（`tauri.conf.json` 的 `transparent`），所以调低能真的透出桌面；拉到 100% 就是完全不透明（和以前一样，背景仍由应用自己绘制）。0% 是**全透明**（窗口还在、托盘菜单照常能操作），只是看不见而已。
-  - 若你的桌面没有合成器（例如裸 X11 + 没有 picom/compton；Cinnamon、GNOME、KDE 都自带），透明窗口可能显示为黑底 —— 把不透明度拉回 100% 即可，或把 `tauri.conf.json` 里的 `"transparent": true` 去掉。
-- **提示音**：内置了一段 **KakaoTalk 风格的通知音**（编在二进制里：`src-tauri/assets/kakaotalk-notify.wav`，取材自公开铃声站的通知音，版权归 Kakao 所有；要商用请换成自己的音频）。收到远程请求、弹出通知窗时由**后端用系统播放器**播：Linux `paplay` → `aplay` → `ffplay`，macOS `afplay`，Windows PowerShell `Media.SoundPlayer`。想换成自己的音频：在「提示音」那行填文件路径（WAV 最稳 —— Windows 的 SoundPlayer 只认 WAV PCM），播放失败会自动回落内置音；关掉「提示音」开关就完全不响。播放结果会写进 `trace.log`（`[sound] 已播放…`）。
-- **远程控制**（详见 [远程控制](#远程控制http-服务)）：HTTP 服务开关、监听地址/端口、token（自己填 / 显示 / 复制 / 重新生成）、远程请求通知开关、两条渠道各自的通知与延迟、远程可触发本机授权框、待执行请求卡片、最近请求列表、「远程怎么调」的调用示例（**进界面就展开**，含 token 可直接复制）。
-
-设置持久化在配置目录的 `settings.json`。**主窗口和托盘菜单双向联动**：任何一边改了都会立刻保存、把新内容推进托盘菜单窗，并广播同一份状态快照给主窗口与通知弹窗，两边不会出现“一边勾选、一边没变”。开机启动以系统真实状态为准，在系统设置里手动改过之后重新打开主窗口会自动同步。
-
----
-
-## GRUB 数据自动同步的硬性条件（Linux）
-
-软件启动（以及每次刷新、切换系统之后）会自动把 `/boot/grub/grub.cfg` 同步到 ESP 上的 GRUB 目录，但这条自动同步有**硬性条件**：
-
-> **主窗口的 GRUB 设置里填了 ESP 的分区 UUID 或目录，并且当前启动的这块 Linux 已经把那块 ESP 挂在 `/boot` 下的任意目录**（fstab 统一方案）。
-
-- 两个条件**都满足**才同步：启动即自动搬，`grub.cfg` 每次都覆盖（它是 `update-grub` 的产物，内容必须跟得上），`grubenv` 只在 ESP 上还没有时首次迁移；内容没变（size+mtime 一致）不重复写盘。
-- **条件不满足就不同步，但仍会做一次「启动识别」**：填了分区 UUID 或目录时，启动会按「UUID 优先」解析该分区上的 `grub.cfg` 并双向回填另一个输入框 —— UUID 已挂载（任意位置）就按 UUID 读；UUID 没挂上就退目录（目录存在且是 FAT32 才算有效，分区 UUID 取到了会回填）。这一步**绝不挂载、不弹 pkexec、不写任何文件**；UUID 和目录都无效时什么都不做。
-- **「识别」只解析、不同步**：目录和 UUID 填一个即可，任意一个点「识别」都会解析该分区上的 `grub.cfg` 并把结果回填到另一个输入框（UUID 识别在分区没挂载时会先按需挂载，可能弹一次 pkexec）。识别不会写盘、不会搬文件。
-- **「同步」按钮的硬性条件更严**：当前系统必须把这个分区挂载到 **`/boot` 或 `/boot/efi`** —— 否则点了也不做任何事（不自动挂载、不写盘）并提示原因。满足条件时把当前系统 `/boot/grub/grub.cfg`（grub2 系统则是 `/boot/grub2/grub.cfg`）覆盖写到该分区的 `grub.cfg`，`grubenv` 没有才搬一份。
-- 推荐做法：把每块 ESP 写进各发行版的 `/etc/fstab`、统一挂到 `/boot` 下（如 `/boot/efi`、`/boot/efi2`）—— 这样每次启动软件都会自动同步，而且全程不弹框（fstab 写法见[远程需要“本机授权”时怎么办](#远程需要本机授权时怎么办)）。「保持挂载」默认勾选：识别时按需挂上的分区会留在系统里，下次直接复用。
-
-另外：软件**从不**在启动时执行 `update-grub` / `grub-mkconfig`。`grub.cfg` 的重新生成永远由你手动跑（或点「安装 09_anyboot」按钮触发 `grub-mkconfig`），软件只负责把产物搬进 ESP。
-
----
-
-## 环境要求
-
-- Node.js 18+
-- Rust 1.77.2+ 与 Cargo
-- 平台构建依赖见 [Tauri 2 Prerequisites](https://v2.tauri.app/start/prerequisites/)
-
-## 开发运行
+### 从源码运行
 
 ```bash
 npm install
-npm run tauri dev
-```
-
-构建安装包：
-
-```bash
-npm run tauri build
-```
-
-平台专用构建：
-
-```bash
-# Linux: deb + rpm（AppImage 一律走下一条的「全兼容」包）
-npm run build:linux
-
-# Linux: 全兼容 AppImage（glibc ≤2.35，任何机器能跑；详见「构建产物」）
-npm run build:linux-portable
-
-# macOS Intel
-npm run build:mac-intel
-
-# macOS Apple Silicon
-npm run build:mac-arm
-
-# macOS 通用二进制，同时包含 Intel 和 Apple Silicon
-npm run build:mac-universal
-```
-
-Linux 包必须在 Linux 环境生成；macOS 包必须在 macOS 环境生成。请先在目标平台安装 Tauri 2 所需的系统依赖（Linux 需要 WebKit/GTK、AppImage 工具链等），再运行对应命令。
-
-> `/tmp` 是小容量 tmpfs 的机器（如容器里只有 10M）打包会报 `No space left on device (os error 28)`——deb/rpm 的临时文件也吃 `/tmp`。打包前把临时目录指到大盘即可：
->
-> ```bash
-> mkdir -p ~/.cache/ab-tmp
-> export TMPDIR=~/.cache/ab-tmp
-> ```
-
-## 构建产物
-
-所有构建与打包只使用默认目录 `src-tauri/target`，不要再指定 `--target-dir` 或设置 `CARGO_TARGET_DIR`（此前 Windows 侧产生的 `src-tauri/target-new` 已废弃）。
-
-- Windows：`src-tauri/target/release/bundle/nsis/*.exe`、`src-tauri/target/release/bundle/msi/*.msi`
-- macOS：`src-tauri/target/release/bundle/macos/*.app`、`src-tauri/target/release/bundle/dmg/*.dmg`
-- Linux：`src-tauri/target/release/bundle/deb/*.deb`、`.../rpm/*.rpm`、`.../appimage/*.AppImage`
-- 指定 `--target <triple>` 时位于 `src-tauri/target/<triple>/release/bundle`
-
-### Linux「全兼容」AppImage（发给任何机器用）
-
-默认 AppImage 裹的是**打包机**的库：在够新的发行版上打出来的包，就要求用户的系统同样新（例如 CachyOS 上的包要求 glibc ≥ 2.44，老系统直接拒载 `GLIBC_2.43 not found`）。要发给系统版本不确定的用户，用这条：
-
-```bash
-npm run build:linux-portable
-```
-
-它先 `tauri build --no-bundle` 只出本体（不打包），再运行 `scripts/make-appimage-jammy.sh`，对 AppImage 做「换基座」处理：
-
-- 整套裹入库替换为 Ubuntu 22.04 (jammy) 的版本，本体用 zig 重链到同一门槛 → **全包 glibc 需求 ≤ 2.35**（脚本自检强制，超标直接拒绝出包）
-- 附带修补：WebKit 辅助进程相对路径补丁（jammy release 版没有 `WEBKIT_EXEC_PATH`）、XInitThreads 垫片（防多线程 X 崩溃）、托盘库（ayatana 全家）入包、gio/pixbuf/immodules 缓存指向包内
-- 产物：`src-tauri/target/release/bundle/appimage/AnyBoot_0.1.0_amd64-jammy.AppImage`，分发前用 `md5sum` 核对
-
-额外要求与可覆盖变量：
-
-| 项 | 说明 |
-| --- | --- |
-| zig | PATH 里的 `zig`，或 `AB_ZIG=<路径>` |
-| 网络 | 首次构建会从 Ubuntu 镜像抓库闭包（之后有缓存） |
-| 系统工具 | `glib-compile-schemas`、`gtk-query-immodules-3.0`、`appimagetool`（PATH 或 `AB_APPIMAGETOOL`） |
-| 路径覆盖 | `AB_SYSROOT`（库闭包目录）、`AB_ORIG_DIR`（原包素材）、`AB_OUT`（产物路径）、`ANYBOOT_PROJ`（仓库根） |
-
-缺素材会自动补：缺库闭包现场跑 `scripts/fetch-jammy-sysroot.py` 抓取，缺原包解包现场解，本体门槛超标现场重链。
-
-代价与开关：该包默认**关闭 WebKit GPU 加速**（兼容优先）。想开回加速，运行前 `export WEBKIT_DISABLE_COMPOSITING_MODE=0`（用户显式设过的 `WEBKIT_*` 变量包内 hook 不会覆盖）。deb / rpm 不需要这套处理——它们本来就使用目标系统的库。
-
----
-
-## 调试环境变量
-
-都在启动应用**之前**设好。除 `ANYBOOT_POWER_DRY_RUN` 外，其余能覆盖 `settings.json` 里的对应项（但**不会**写进文件，只对这次运行生效）。
-
-| 环境变量 | 作用 |
-| --- | --- |
-| `ANYBOOT_POWER_DRY_RUN=1` | 只回显将要执行的电源命令，**不真的**重启/关机/睡眠（遥控调试必用） |
-| `ANYBOOT_TRACE=1` | 打开 trace 日志（写 `trace.log`，同时打到 stderr）：菜单重建、事件、菜单动作、设置读写、扫描/切换耗时、电源动作、HTTP 请求（token 只记前 8 位指纹） |
-| `ANYBOOT_HTTP_ENABLED=0\|1` | 覆盖 HTTP 服务开关 |
-| `ANYBOOT_HTTP_BIND=127.0.0.1` | 覆盖监听地址 |
-| `ANYBOOT_HTTP_PORT=12400` | 覆盖端口（也影响 CLI 找实例时的端口） |
-| `ANYBOOT_VARS_DIR=/path/to/vars` | 直接指定变量目录（跳过自动扫描/挂载，验证用） |
-| `ANYBOOT_CONFIG_DIR=/path/to/dir` | 把配置目录（`settings.json` / `trace.log`）指到别处：跑第二个实例或做验证时不会碰到真实配置 |
-
-```bash
-# 例子：不动真实配置、不动真实 ESP、不真的重启，只验证一条远程请求会执行什么命令
-ANYBOOT_CONFIG_DIR=/tmp/rs-sandbox \
-ANYBOOT_VARS_DIR=/tmp/rs-vars \
-ANYBOOT_HTTP_PORT=12400 \
-ANYBOOT_POWER_DRY_RUN=1 \
-ANYBOOT_TRACE=1 \
-./anyboot
-# 然后（token 取沙箱 settings.json 里那个）
-curl -s -X POST -H "X-Auth-Token: <token>" \
-  "http://127.0.0.1:12400/api/switch-and-power?system=linux&action=reboot"
+npm run tauri dev        # 开发
+npm run tauri build      # 打包
+npm run build:mac-universal   # macOS 通用二进制（其他平台命令见构建文档）
 ```
 
 ---
 
-## 权限说明
+## 文档归档
 
-写入 ESP 里的 rEFInd 变量文件（`PreviousBoot-*`）与 GRUB 的 `grub.cfg`／`grubenv` 需要管理员/root 权限。
+### 使用文档
 
-- **Windows**：请以管理员身份运行应用（开发时也要在管理员终端执行 `npm run tauri dev`）。
-- **Linux**：默认以普通用户运行。
-  - ESP 未挂载时会通过 `pkexec` 弹系统授权并临时挂载（挂载选项绑定到实际登录用户）。这样挂上来的 ESP 属主就是当前用户，读写都不再需要 root。
-  - **ESP 已被系统挂在 `/boot/efi` 时**（fstab 挂的 vfat 属主是 root、`dmask=0022` → 普通用户建不了文件），或者 **`/boot/grub/grub.cfg` 是 root 私有的**（`grub-mkconfig` 自己 `umask 077`，刻意写成 `0600` → 普通用户连读都读不到），这两件事普通用户做不到。此时「同步」与「切换 GRUB 启动项」会走一次 `pkexec install` 由 root 完成，**弹一次授权框**；同一份 `grub.cfg` 不会重复弹 —— ESP 上副本的 size/mtime 一对上就跳过（`install -p` 会把源的 mtime 带过去）。
-  - 想完全不弹框：把 ESP 预挂载成当前用户可写（fstab 加 `uid=<你>,gid=<你>`），或装 `linux/anyboot-grub-setup.sh`（`anyboot-grub-export.{path,service}`，由 root 在 `grub.cfg` 变化时自动镜像到 ESP）。
-  - **最省事的做法：在「关于」页装一次「免密提权」**（写一行 `sudoers` 规则 + 一份助手副本），之后写 ESP / 固件变量都不再弹框，远程请求也能直接做完。见 [Linux 免密提权](docs/linux-privilege.md)。
-- **macOS**：ESP 未挂载时需要先用系统工具挂载，或在主窗口指定已挂载的变量目录。
-- **远程/CLI**：默认不弹本机授权框，遇到必须授权的情况直接失败（见 [远程需要“本机授权”时怎么办](#远程需要本机授权时怎么办)）。远程请求执行期间**一步都不会弹框**（写 ESP / 同步 grub.cfg 也一样）：需要 root 的那一步直接失败并说明「请在目标机主窗口点一次「同步」，或打开 `remoteAllowGuiAuth`」。
-
-> Linux GNOME 默认没有传统托盘。托盘图标不显示时需启用支持 StatusNotifierItem 的扩展，或直接用主窗口。
->
-> **托盘菜单三端都是应用自绘的一扇小窗**（`ui/tray-menu.html`，无边框 / 置顶 / 跳任务栏），由托盘图标「点开了」这件事触发，不交给系统渲染：GtkMenu / TrackPopupMenu / NSMenu 点任何一项都会把菜单收掉，自绘窗才能做到「点选择项不关菜单、点动作项才收」。点击语义三端一致：**左键=显示主窗口，右键=托盘菜单**（Linux 上中键也是菜单）。Linux 的托盘图标是应用按 SNI 协议自己导出的（`src-tauri/src/lib.rs` 的 `linux_sni` 模块）——tauri 的 tray-icon 在 X11 上不发任何点击事件，而宿主渲染的菜单又必关，所以图标和菜单都得自己来；菜单位置由应用按锚点计算，天然不会压住任务栏/面板。
-
----
-
-## 常见问题
-
-### 远程访问不了：按这个顺序查
-
-1. 主窗口「远程控制」里的状态是不是「正在监听 0.0.0.0:12300」？不是就看它给出的原因（常见：token 为空、端口被别的程序占了）。
-2. 目标机上 `curl http://127.0.0.1:12300/health` 通不通？通说明服务没问题，问题在网络/防火墙。
-3. 从另一台机器 `curl http://<目标IP>:12300/health`：不通就去 [三端各自的防火墙处理](#三端各自的防火墙处理)，并确认 `httpBind` 不是 `127.0.0.1`。
-4. `/health` 通但 `/api/status` 返回 401：token 不对（重新复制一次）。
-5. 返回 409：有条待执行请求在倒计时，等它执行完或去主窗口/弹窗点「取消」。
-
-### 再启动一个 AnyBoot 为什么提示已经启动
-
-AnyBoot 是**单实例**应用：同一时间只允许跑一个。第二次启动（双击图标、命令行又跑一次、脚本里再拉一遍）**会先把上一个实例结束掉，再自己正常启动** —— 不会留下两个托盘图标、不会两扇窗口抢端口、也不会再抢 HTTP 端口。
-
-接管顺序（每一步都为了「不杀错人」）：
-
-1. 抢配置目录下的 `anyboot.lock` 文件锁；抢到 = 本进程就是唯一实例。
-2. 抢不到就读 `anyboot.pid`（上一个实例拿到锁时写下的 pid）。
-3. **核对那个 pid 确实是 AnyBoot**（按可执行文件名比，AppImage 每次挂载路径不同所以只比 basename）—— 挡的是「PID 被系统回收后撞上别的程序」。
-4. 先礼后兵：Unix 发 `SIGTERM`，让它走正常退出流程（只有走 `RunEvent::Exit` 才会收掉 ssh / cloudflared / tsnet 这些子进程）；**3 秒不退才强杀**，并把它当时的子孙进程一起收掉，不留孤儿。Windows 直接用 `taskkill /T /F`（关窗默认是「隐藏到托盘」，没有可用的优雅退出）。
-
-三种情况**不接管**，退回老行为（弹「AnyBoot 已经启动，只能运行一个实例。」然后退出）：`anyboot.pid` 缺失（上一个实例是没这个功能的旧版本）、那个 pid 已经不是 AnyBoot、强杀之后锁还没放开。
-
-- 锁是配置目录下的文件锁，进程一结束就由内核释放 —— 崩溃、强杀都不会留下「进程早没了、锁还在，于是谁都起不来」的假死状态，也不用手工删锁文件。
-- 「重启程序」按钮会**先放锁再拉起新进程**（tauri 的重启是「先起新进程、再退旧进程」），所以点它不会把自己锁在门外。
-- 那句兜底提示在 macOS 上走 `osascript` 的 `display dialog`（跟电源动作同一条路），Linux / Windows 用应用自带的对话框。
-- 想同时跑两套（比如做验证）：`ANYBOOT_CONFIG_DIR=/tmp/ab-test <可执行文件>` —— 锁和 pid 都跟着配置目录走，两套互不干扰，**也不会互相接管**。
-
-### Linux 上每次提权都要输密码
-
-写 ESP、写固件变量（`BootNext` / `OCBt*`）这些事要 root，而 Linux 没有 macOS 那种系统级助手，默认只能每次走 `pkexec` 弹一次授权框。
-
-在**「关于」页 →「免密提权」卡**点一次「安装免密组件」，之后就不再问了。它只做三件事：
-
-| 落地的对象 | 内容 |
+| 文档 | 内容 |
 |---|---|
-| `/etc/sudoers.d/anyboot` | 一行：`<你的用户名> ALL=(root) NOPASSWD: /usr/lib/anyboot/anyboot-priv` |
-| `/usr/lib/anyboot/anyboot-priv` | 本程序的一份副本（root 拥有，0755） |
-| `/var/lib/anyboot/priv.json` | 安装记录：给谁装的、哪个版本 |
+| [`docs/远程控制-HTTP-API.md`](docs/远程控制-HTTP-API.md) | HTTP 服务全部细节：安全默认值、token、防火墙、端点表（含可复制 curl）、电源命令表、通知弹窗、常见面板接入、多机管理、ssh 两种用法、本机授权 |
+| [`docs/客户端-web-移动端.md`](docs/客户端-web-移动端.md) | Web 端 / Android / iOS 客户端：同一份界面的三种形态、远程确认机制、推送 vs 轮询 |
+| [`docs/应用设置.md`](docs/应用设置.md) | 出厂默认值、开机启动、主题与透明度、提示音、窗口行为 |
+| [`docs/权限与提权.md`](docs/权限与提权.md) | 三端免密提权方案、Linux 免密组件安装与卸载、安全加固清单 |
+| [`docs/FAQ.md`](docs/FAQ.md) | 远程连不上、单实例、端口占用、睡眠变休眠、NVIDIA 白屏、Linux 设置保存失败…… |
+| [`docs/grub-自动同步条件.md`](docs/grub-自动同步条件.md) | GRUB grub.cfg → ESP 自动同步的硬性条件 |
 
-- **为什么授权的是自己的助手而不是 `install` / `mount`**：sudoers 只按「命令 + 参数」授权，授权 `install` 等于把「任意文件复制到任意位置」放出去。授权助手时，能做什么由助手自己的参数白名单决定。
-- **卸载会不会留东西**：`deb`/`rpm` 卸载会跑 `postrm`/`%postun` 把那三样一起删（升级时**不删**，否则更个新功能就没了）；AppImage 请先在「关于」页点「移除授权」再删文件。手动清理就两行：`sudo rm -f /etc/sudoers.d/anyboot` + `sudo rm -rf /usr/lib/anyboot`。
-- 装完想立刻核对：`sudo -n /usr/lib/anyboot/anyboot-priv --linux-priv-install --out /tmp/x.json` 不该再要密码（它会重装一遍，幂等）。
-- 完整设计与安全边界见 [Linux 免密提权](docs/linux-privilege.md)。
+### 原理与设计文档
 
-### 端口被占用 / 想换端口
+| 文档 | 内容 |
+|---|---|
+| [`docs/opencore-菜单解析与预演.md`](docs/opencore-菜单解析与预演.md) | OC 菜单的三个真实来源、为什么能预演、三端 NVRAM/ESP 差异 |
+| [`docs/boot-menu-discovery.md`](docs/boot-menu-discovery.md) | 引导菜单发现的原理与用法 |
+| [`docs/boot-menu-discovery-internals.md`](docs/boot-menu-discovery-internals.md) | 逐函数源码追踪与实机验证过程 |
+| [`docs/grub-自动读取-选型与落地.md`](docs/grub-自动读取-选型与落地.md) | GRUB 直读 / 切换的选型、实现与踩坑（§16-19 为最新迭代） |
+| [`docs/apfs-预演三端统一选型.md`](docs/apfs-预演三端统一选型.md) | Windows/Linux 补齐 Preboot 条目的技术选型 |
+| [`docs/linux-privilege.md`](docs/linux-privilege.md) | Linux 免密提权设计与安全边界 |
+| [`docs/windows-免UAC提权-服务方案.md`](docs/windows-免UAC提权-服务方案.md) | Windows 特权助手服务方案 |
+| [`docs/server-hub.md`](docs/server-hub.md) | 桌面端远端管理窗口（ssh / sftp / 隧道 / 跳板机） |
+| [`docs/backup-design.md`](docs/backup-design.md) · [`docs/backup-ui-design.md`](docs/backup-ui-design.md) | 备份功能设计 |
+| [`docs/remote-api-plan.md`](docs/remote-api-plan.md) · [`docs/remote-api-todo.md`](docs/remote-api-todo.md) · [`docs/remote-pairs.md`](docs/remote-pairs.md) | 远程 API 的规划、待办与配对实现 |
 
-应用**不会**自动换端口（避免你以为在 12300 其实是别的）。如果勾上服务却起不来，主窗口「远程控制」区会直接出现一块**端口被占用**提示，写清是谁占的：
+### 子模块文档
 
-- **是本应用的另一个实例**（旧版本驻留：老版本没有单实例保护，升级后它可能还占着端口）：
-  `端口被本应用的另一个实例占用：PID 40048（anyboot.exe）`
-  下面有「结束占用进程」按钮，点了就结束那个实例（按钮上写着 PID，不会杀错人）。
-- **是别的程序**：
-  `端口被 PID 31760（python.exe）占用，请释放它或改用其他端口`
-  同样有「结束占用进程」按钮（点了结束那个进程），旁边还有等价命令可复制（Windows `taskkill /PID 31760 /F`，Unix `kill 31760`）。
-- **是本程序自己**（正常不该出现，属于上一轮监听没放开）：
-  `端口还被本程序自己占着（PID 34792）`
-  这一条**没有**「结束占用进程」按钮（不能结束自己），点「重试监听」；仍然不行就重启本程序。
-
-按钮旁边有「重试监听」（端口刚被释放、或你手动处理完之后点一下，不用重启应用）。
-**这些动作都要你自己点**：应用只做只读探测（`netstat -ano` 拿 PID + 查进程名），不会自动结束任何进程。
-
-- **取消勾选「HTTP 服务」会立刻停服务并释放端口**（不是等进程退出）。
-- **改 token / 监听地址 / 端口 = 先停旧监听、确认端口已放开、再重新绑**，所以换 token 时不会撞上自己占的端口（`set_http_token` / `regenerate_http_token` 返回的是重绑之后的真实状态，不是「应该重启好了」的猜测）。
-- 想换端口：主窗口「监听地址 / 端口」改完点「应用」，或 `ANYBOOT_HTTP_PORT=12400` 启动。
-
-自己查也是这几条：
-
-```bash
-ss -ltnp | grep 12300                 # Linux
-lsof -nP -iTCP:12300 -sTCP:LISTEN     # macOS
-netstat -ano | findstr 12300          # Windows（拿到 PID 后：tasklist | findstr <PID>）
-```
-
-### 睡眠变成了休眠
-
-Windows 上如果启用了休眠，`SetSuspendState 0,1,0` 会进休眠。应用每次都会**只读**预检并告诉你结论；不想变休眠就先关掉休眠（这会改系统设置，自己决定）：
-
-```powershell
-powercfg /hibernate off     # 关闭休眠（会删除 hiberfil.sys，需管理员）
-```
-
-### AppImage 打包失败
-
-`build:linux` 已不含 AppImage——标准 tauri AppImage 链路依赖 linuxdeploy（AppImage 格式，要 FUSE 自挂载），在无 `/dev/fuse` 的容器 / chown 受限的环境必挂（`failed to run linuxdeploy`、`cp: failed to preserve ownership`），`NO_STRIP=1` 救不了后者。**AppImage 一律走 `npm run build:linux-portable`**（jammy 脚本自组装 AppDir，不用 linuxdeploy）。deb/rpm 不受影响，直接 `npm run build:linux`。
-
-在能跑 linuxdeploy 的机器上要出标准 AppImage，可手动 `tauri build --bundles appimage`。
-
-### Linux 应用设置保存失败
-
-除“开机启动”外其他设置保存后恢复原值，先检查配置目录属主：
-
-```bash
-ls -ld ~/.config/com.example.anyboot
-```
-
-属主显示为 `root`（此前用 `sudo`/`pkexec` 跑过应用）就改回来：
-
-```bash
-sudo chown -R "$(id -un):$(id -gn)" ~/.config/com.example.anyboot
-```
-
-开机启动写的是 `~/.config/autostart`，在这个问题下仍可能正常工作。
-
-### 窗口一片空白 / 只显示白色（Linux + NVIDIA 独显）
-
-WebKitGTK 与 NVIDIA 专有驱动在这条渲染路径上谈不拢，会在**不报任何错**的情况下画不出来：窗口、托盘、日志都正常，就是内容全白。Intel/Mesa 走同一条路径没问题，所以现象常是「核显好好的，一切到独显就白」。
-
-同一个毛病还有第二种表现：**内容其实加载了，但只有鼠标扫过的地方才显示出来**。所以别看到「能加载」就以为过去了。
-
-应用启动时会自己处理，不需要你配任何东西：检测到 NVIDIA 驱动已加载（`/proc/driver/nvidia/version` 存在）时，在 GTK / WebKit 起来之前按会话类型设好对应开关：
-
-| 会话 | 设置的开关 |
-| --- | --- |
-| X11（Cinnamon / KDE / GNOME 等） | `WEBKIT_DMABUF_RENDERER_FORCE_SHM=1` |
-| Wayland + Hyprland | `WEBKIT_DISABLE_DMABUF_RENDERER=1` |
-| Wayland + KWin 等严格要求 acquire point 的合成器 | `__NV_DISABLE_EXPLICIT_SYNC=1` |
-| Wayland + 其它合成器（驱动 ≥560 自带 egl-wayland2） | 不改（这条路径本来是好的） |
-
-X11 用的 `WEBKIT_DMABUF_RENDERER_FORCE_SHM=1` 是让 WebKit 把帧以**共享内存**交给窗口系统，绕开 NVIDIA 收不下的 GPU 缓冲。这是 NVIDIA 上唯一实测能把页面画出来的开关（WebKit Bug 324551）；同类的 `WEBKIT_DISABLE_DMABUF_RENDERER=1` 自 WebKit 2.52 起已不再回退到共享内存、反而会让画面画不全，`WEBKIT_DISABLE_COMPOSITING_MODE=1` 在 2.54 已失效 —— 这两个都别再用了。
-
-- **纯核显模式不加任何开关**：NVIDIA 驱动没加载就什么都不会动，不需要这些开关的机器不会白白掉性能。
-- **你自己设过上面任一个开关**（哪怕设成 `0`）应用就完全不动手，按你的配置来。想手动对照，就用 `WEBKIT_DMABUF_RENDERER_FORCE_SHM=0` 之类跑一次。
-- 想看它到底做了什么：`ANYBOOT_TRACE=1 ./anyboot`，启动时会往 stderr 打一行 `anyboot: NVIDIA 驱动 615 / X11，已设置 WEBKIT_DMABUF_RENDERER_FORCE_SHM=1`。
-
-### 想看“到底发生了什么”
-
-主窗口「远程控制 → 最近请求」或 `GET /api/requests` 看最近 20 条；更细的过程用 `ANYBOOT_TRACE=1`（或设置里打开 `debugTrace`）看配置目录下的 `trace.log`——里面**不会有**完整 token。
+| 目录 | 文档 |
+|---|---|
+| `ui/` | Web 界面：[`ui/README.md`](ui/README.md) |
+| `mobile/` | 移动端总览：[`mobile/README.md`](mobile/README.md)（Android / iOS 各有 README） |
+| `linux/` | Linux 附加组件（grub 自动镜像服务） |
+| `scripts/` | 构建脚本（jammy AppImage 等） |
 
 ---
 
-## 注意
+## 安全模型（一图流）
 
-- 应用只修改 rEFInd 的 `PreviousBoot` 嗅探状态，不直接改引导项配置；三个 `PreviousBoot-*` 模板文件始终只读。
-- HTTP 是**明文**（没有 HTTPS），token 必填但会以明文过网：只用在可信局域网或 SSH 隧道里，并保持 `settings.json` 的正常读权限（别 `chmod 777`）。
-- 默认 `0.0.0.0` 是为了“装好就能被远程调用”；不需要就改成 `127.0.0.1` 并走隧道。
-- 正式发布前建议替换品牌图标，并把 `bundle.macOS.signingIdentity` 换成 Apple Developer ID 证书（或用 `APPLE_SIGNING_IDENTITY` 覆盖）。ad-hoc 签名只保证系统登录项接口和本地运行可用，未做公证，首次打开仍需在「隐私与安全性」中放行。
+```
+本机操作          ──► 应用内直连命令 ──────────────── 即时生效，不弹窗
+远程 HTTP / ssh   ──► token 校验 ─► 授权弹窗倒计时 ──► 可取消，到点执行
+远程切换引导       ──► 只写引导器自己的状态文件/变量 ──► 不碰系统引导配置
+写入动作          ──► 临时文件 + 原子替换 + SHA-256 ──► 写失败不留半截状态
+```
+
+- HTTP 是明文（无 HTTPS）：只在可信局域网或 SSH 隧道用；token 必填、日志只记指纹。
+- 详细安全约定见 [`docs/FAQ.md`](docs/FAQ.md#注意安全与边界)。
+
+---
+
+## License
+
+[Apache License 2.0](LICENSE)。
