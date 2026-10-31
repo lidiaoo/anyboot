@@ -972,16 +972,21 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                     enabled = index < state.routeOrder.size - 1,
                     onClick = { state.routeMove(kind, 1) },
                 )
-                Switch(
-                    // 开关只听 routeDisabled：没配配对的通道也要能停用（用户 2026-10-28：
-                    // 「不可用」只是暂没配地址，不允许关掉反而让停用开关点不动）
-                    checked = kind !in state.routeDisabled,
-                    onCheckedChange = { on ->
-                        if (on) state.routeDisabled.remove(kind) else if (kind !in state.routeDisabled) {
-                            state.routeDisabled.add(kind)
-                        }
-                    },
-                )
+                // 两颗开关都带文字（用户 2026-10-31）：光看滑块分不清谁是谁
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Switch(
+                        // 只听 routeDisabled：没配配对的通道也要能停用（用户 2026-10-28：
+                        // 「不可用」只是暂没配地址，不允许关掉反而让停用开关点不动）
+                        checked = kind !in state.routeDisabled,
+                        onCheckedChange = { on ->
+                            if (on) state.routeDisabled.remove(kind) else if (kind !in state.routeDisabled) {
+                                state.routeDisabled.add(kind)
+                            }
+                        },
+                        modifier = Modifier.scale(0.7f),
+                    )
+                    Text("启用", fontSize = 9.sp, color = palette.fgFaint, maxLines = 1)
+                }
                 // 「是否展示连通性」（2026-10-31，与 PC 端 rsRenderRoutes 同款）：
                 // 默认开；关掉后电脑列表不显示这个通道条目的探测小字 —— 探测照跑
                 Column(
@@ -1677,11 +1682,15 @@ private fun PairEditRow(
             .padding(horizontal = 7.dp, vertical = 5.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Switch(
-                checked = item.enabled,
-                onCheckedChange = { on -> state.updatePair(item.id) { it.copy(enabled = on) } },
-                modifier = Modifier.scale(0.7f),
-            )
+            // 两颗开关都带文字（用户 2026-10-31）：光看滑块分不清谁是谁
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Switch(
+                    checked = item.enabled,
+                    onCheckedChange = { on -> state.updatePair(item.id) { it.copy(enabled = on) } },
+                    modifier = Modifier.scale(0.7f),
+                )
+                Text("启用", fontSize = 9.sp, color = palette.fgFaint, maxLines = 1)
+            }
             // 「是否展示连通性」（2026-10-31，与 PC 端 rsPairRow 同款）：默认开；
             // 关掉后电脑列表不显示这条配对的探测小字（延迟 / 失败原因）——探测照跑
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
