@@ -6213,17 +6213,28 @@ mod core_tests {
         assert_eq!(manual.entries[0].name, "ESP Entry");
         assert_eq!(manual.next_entry.as_deref(), Some("esp-1"));
 
-        // linux_grub 扫出来是空：自动模式就是空列表，不回落 ESP
+        // linux_grub 扫出来是空：自动模式就是空列表，不回落 ESP；
+        // error 带真实口径（否则手机端会误显示「没部署 GRUB」）
         let empty = channels::linux_grub::LinuxGrubView::default();
         menu_model::overlay_linux_grub(&mut view, Some(&empty), false);
         assert!(view.entries.is_empty());
         assert_eq!(view.next_entry, None);
+        assert!(view
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("自动读取没扫到"),);
 
         // linux_grub 还没读过（None）：同样空，不回落 ESP
         let mut never = view.clone();
         menu_model::overlay_linux_grub(&mut never, None, false);
         assert!(never.entries.is_empty());
         assert_eq!(never.next_entry, None);
+        assert!(never
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("自动读取还没执行"),);
 
         // 手动模式即使 linux_grub 没读过，ESP 快照照旧
         menu_model::overlay_linux_grub(&mut manual, None, true);

@@ -526,6 +526,11 @@ pub(crate) fn overlay_linux_grub(
                     view.efi_dir = Some(target.dev.clone());
                 }
             }
+            // 空列表要带真实口径（零回落的配套）：电脑列表 /api/grub 的消费方
+            // （手机端）error 为空时会显示「没部署 GRUB」，在自动模式下是误导
+            if view.entries.is_empty() && view.error.as_deref().unwrap_or("").is_empty() {
+                view.error = Some("自动读取没扫到 GRUB 启动项（在电脑上点「重新读取」）".to_string());
+            }
         }
         // 还没读过（None）：列表与选中项就是空 —— 不回落 ESP
         None => {
@@ -533,7 +538,7 @@ pub(crate) fn overlay_linux_grub(
             view.groups = Vec::new();
             view.next_entry = None;
             view.saved_entry = None;
-            view.error = None;
+            view.error = Some("自动读取还没执行（在电脑上点「重新读取」）".to_string());
         }
     }
 }

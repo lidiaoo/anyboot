@@ -338,7 +338,15 @@ pub(crate) fn remote_grub_json(app: &AppHandle) -> serde_json::Value {
         "partuuid": view.partuuid,
         "efiDir": view.efi_dir,
         "envExists": view.env_exists,
-        "installed": view.installed,
+        // installed 按模式如实上报（零回落的配套，2026-10-31）：手动模式它才是
+        // 「ESP 上装没装 09_anyboot」；自动模式列表只认 Linux 分区扫描那份，
+        // ESP 安装态与列表无关 —— 移动端 available = installed || 有条目，
+        // 这里不给真值的话空列表会被误判成「可用」
+        "installed": if settings.grub_mode.is_manual() {
+            view.installed
+        } else {
+            Some(!view.entries.is_empty())
+        },
         "syncedAt": view.synced_at,
         // 这台机器自己的「GRUB 列表格式」：电脑列表据此渲染条目文字
         // （与它本机 GRUB 列表页看到的完全一致）
