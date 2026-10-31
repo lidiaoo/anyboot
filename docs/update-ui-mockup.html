@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AnyBoot 检查更新 · UI 设计稿</title>
+<!--
+  ══════════════════════════════════════════════════════════════
+  设计稿布局三原则（本文档所有区块均遵守，实现时照搬）：
+  1. flex 布局      —— 全文档 0 个 float/grid 布局，全部 display:flex +
+                       flex-wrap + gap；所有行容器 min-width:0 防溢出。
+  2. 适配移动端     —— ≤720px 断点：卡片单列、按钮 flex:1 全宽、
+                       触控目标 ≥44px、正文 ≥16px（UX-023/024/033 P0）。
+  3. 适配任何分辨率 —— 无固定像素宽容器：外层 width:100% + max-width
+                       上限，字号/间距用 clamp() 流体缩放，
+                       320px～4K 均无横向滚动。
+  设计语言 = ui/hub.html 现有体系（曜蓝 Cobalt 靛蓝主色、
+  RGB 三元组 CSS 变量、暗/亮双主题、.btn 按钮三级、mono 用 JetBrains）。
+  ══════════════════════════════════════════════════════════════
+-->
+<style>
+  /* ── 设计 token：与 ui/hub.html 逐值对齐 ─────────────────── */
+  :root, html.dark {
+    --base: 2 6 23;          /* 页面底 */
+    --card: 14 18 35;        /* 卡片 */
+    --elevate: 20 26 46;     /* 卡内浮层 */
+    --line: 36 43 65;
+    --line-strong: 51 65 85;
+    --fg: 248 250 252;
+    --fg-dim: 148 163 184;
+    --fg-faint: 100 116 139;
+    --ok: 34 197 94;
+    --warn: 245 158 11;
+    --bad: 239 68 68;
+    --accent: 99 102 241;    /* 曜蓝主色，与现有 UI 同源 */
+    --accent-2: #818cf8;
+    color-scheme: dark;
+  }
+  html.light {
+    --base: 244 246 250;
+    --card: 255 255 255;
+    --elevate: 241 245 250;
+    --line: 226 232 240;
+    --line-strong: 203 213 225;
+    --fg: 15 23 42;
+    --fg-dim: 90 100 118;
+    --fg-faint: 138 148 166;
+    --ok: 22 163 74;
+    --warn: 180 83 9;
+    --bad: 220 38 38;
+    color-scheme: light;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    display: flex; flex-direction: column;   /* flex：整页纵向流 */
+    min-height: 100vh;
+    background: rgb(var(--base));
+    color: rgb(var(--fg));
+    font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-size: clamp(14px, 0.4vw + 12.5px, 16px);  /* 任何分辨率流体字号 */
+    line-height: 1.55;
+    padding: clamp(12px, 2.5vw, 32px);
+  }
+  .mono { font-family: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace; }
+
+  /* ── 页头 ─────────────────────────────────────────────────── */
+  header {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 12px;  /* flex：标题+徽章+主题钮同行，窄屏自动换行 */
+    max-width: 1200px; width: 100%; margin: 0 auto 8px;
+  }
+  header h1 { font-size: clamp(18px, 1.2vw + 14px, 24px); margin-right: auto; }  /* margin-right:auto 吃掉剩余空间 = flex 弹簧 */
+  .badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    border: 1px solid rgb(var(--line-strong)); border-radius: 999px;
+    padding: 4px 12px; font-size: 12px; color: rgb(var(--fg-dim));
+  }
+  .badge b { color: rgb(var(--fg)); font-weight: 600; }
+  #themeBtn { cursor: pointer; }
+
+  header p.sub {
+    max-width: 1200px; width: 100%; margin: 0 auto 20px;
+    color: rgb(var(--fg-dim)); font-size: 13px;
+  }
+
+  /* ── 通用卡片：全文档布局基元 ─────────────────────────────── */
+  .section {
+    display: flex; flex-direction: column; gap: 12px;  /* flex：节标题+卡片群纵排 */
+    max-width: 1200px; width: 100%; margin: 0 auto 28px;
+  }
+  .section > h2 {
+    display: flex; align-items: center; gap: 10px;
+    font-size: clamp(15px, 0.5vw + 13px, 18px);
+  }
+  .section > h2 .mono { font-size: 12px; color: rgb(var(--fg-faint)); font-weight: 400; }
+
+  .cardrow {
+    display: flex; flex-wrap: wrap; gap: 14px;         /* flex：状态卡片流式铺排，<最小宽自动换行 */
+    align-items: stretch;
+  }
+  .card {
+    display: flex; flex-direction: column; gap: 10px;  /* flex：卡片内部纵排 */
+    flex: 1 1 340px;            /* 弹性：≥340px 一列，容器够宽自动并排 —— 任何分辨率自适应 */
+    min-width: 0;               /* 防 flex 子项撑破（长 tag/URL 溢出的根治） */
+    background: rgb(var(--card));
+    border: 1px solid rgb(var(--line));
+    border-radius: 12px;
+    padding: clamp(14px, 1.2vw, 20px);
+  }
+  .card.wide { flex-basis: 100%; }   /* 更新日志等长内容卡占满一行 */
+
+  .card h3 { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+  .card h3 .tag {
+    margin-left: auto;                                  /* flex：tag 推到行尾 */
+    font-size: 11px; font-weight: 400; padding: 2px 8px; border-radius: 999px;
+    background: rgb(var(--elevate)); color: rgb(var(--fg-faint));
+    border: 1px solid rgb(var(--line));
+  }
+
+  /* ── 行基元 ──────────────────────────────────────────────── */
+  .row {
+    display: flex; align-items: center; gap: 10px;     /* flex：一切横向排列的唯一写法 */
+    min-width: 0; flex-wrap: wrap;                     /* 窄屏按钮换行不溢出 */
+  }
+  .row .grow { flex: 1 1 auto; min-width: 0; }
+  .kv { display: flex; gap: 6px; min-width: 0; align-items: baseline; }
+  .kv .k { color: rgb(var(--fg-faint)); font-size: 12px; flex: none; }
+  .kv .v { color: rgb(var(--fg)); font-size: 13px; overflow-wrap: anywhere; }
+
+  /* ── 按钮体系：与 styles.css .btn 同源 ───────────────────── */
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;  /* flex：图标+文字居中 */
+    min-height: 34px; padding: 6px 14px;
+    border-radius: 9px; border: 1px solid rgb(var(--line-strong));
+    background: rgb(var(--elevate)); color: rgb(var(--fg));
+    font-size: 13px; cursor: pointer; white-space: nowrap;
+  }
+  .btn:hover { border-color: rgb(var(--line-strong)); filter: brightness(1.12); }
+  .btn.primary { background: rgb(var(--accent)); border-color: rgb(var(--accent)); color: #fff; }
+  .btn.primary:hover { background: var(--accent-2); }
+  .btn.ghost { background: transparent; border-color: transparent; color: rgb(var(--fg-dim)); }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+
+  /* ── 进度条：flex 双层结构 ───────────────────────────────── */
+  .progress {
+    display: flex; flex-direction: column; gap: 6px;   /* flex：条+数值行纵排 */
+  }
+  .progress .track {
+    height: 8px; border-radius: 999px; background: rgb(var(--elevate));
+    border: 1px solid rgb(var(--line)); overflow: hidden;
+  }
+  .progress .fill {
+    height: 100%; border-radius: 999px;
+    background: linear-gradient(90deg, rgb(var(--accent)), var(--accent-2));
+    transition: width .3s ease;
+  }
+  .progress .meta {
+    display: flex; gap: 10px; flex-wrap: wrap; min-width: 0;   /* flex：百分比/字节/来源，窄屏换行 */
+    font-size: 12px; color: rgb(var(--fg-dim));
+  }
+  .progress .meta .pct { color: rgb(var(--fg)); font-weight: 600; }
+
+  /* ── 状态色点/横幅 ───────────────────────────────────────── */
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .dot.ok { background: rgb(var(--ok)); } .dot.warn { background: rgb(var(--warn)); }
+  .dot.bad { background: rgb(var(--bad)); } .dot.acc { background: rgb(var(--accent)); }
+  .pulse { animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .35; } }
+
+  .banner {
+    display: flex; gap: 10px; align-items: flex-start;   /* flex：图标+文案 */
+    border-radius: 10px; padding: 10px 12px; font-size: 13px; min-width: 0;
+  }
+  .banner.err { background: rgb(var(--bad) / .1); border: 1px solid rgb(var(--bad) / .35); color: rgb(var(--bad)); }
+  .banner.okk { background: rgb(var(--ok) / .1); border: 1px solid rgb(var(--ok) / .35); color: rgb(var(--ok)); }
+  .banner.note { background: rgb(var(--warn) / .1); border: 1px solid rgb(var(--warn) / .35); color: rgb(var(--warn)); }
+
+  .notes {
+    background: rgb(var(--elevate)); border: 1px solid rgb(var(--line));
+    border-radius: 10px; padding: 10px 12px;
+    font-size: 13px; color: rgb(var(--fg-dim));
+    white-space: pre-wrap; overflow-wrap: anywhere;
+    max-height: 180px; overflow-y: auto; min-width: 0;
+  }
+
+  /* ── 弹窗（模态）与气泡 ──────────────────────────────────── */
+  .modal-demo {
+    display: flex; justify-content: center;               /* flex：弹窗水平居中 */
+    background: rgb(var(--base) / .6); border: 1px dashed rgb(var(--line-strong));
+    border-radius: 12px; padding: clamp(16px, 3vw, 36px);
+  }
+  .modal {
+    display: flex; flex-direction: column; gap: 12px;     /* flex：标题/正文/按钮区纵排 */
+    width: min(460px, 100%);                              /* 任何分辨率：窄屏不超容器 */
+    background: rgb(var(--card)); border: 1px solid rgb(var(--line-strong));
+    border-radius: 14px; padding: 20px;
+    box-shadow: 0 12px 40px rgb(0 0 0 / .45);
+  }
+  .modal .actions {
+    display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end;  /* flex：按钮右对齐，窄屏换行 */
+  }
+  .modal .actions .btn { flex: 0 1 auto; }
+  .modal .actions .btn.primary { flex: 1 1 180px; }       /* 窄屏换行后主按钮弹性加宽 */
+
+  .toast {
+    display: flex; align-items: flex-start; gap: 10px;    /* flex：气泡内横排 */
+    width: min(380px, 100%);
+    background: rgb(var(--card)); border: 1px solid rgb(var(--line-strong));
+    border-left: 3px solid rgb(var(--accent));
+    border-radius: 12px; padding: 12px 14px;
+    box-shadow: 0 8px 28px rgb(0 0 0 / .4);
+  }
+  .toast .t-title { display: flex; gap: 8px; font-weight: 600; font-size: 13px; }
+  .toast .t-body { font-size: 12px; color: rgb(var(--fg-dim)); margin-top: 2px; }
+
+  /* ── 移动端演示：手机框 ──────────────────────────────────── */
+  .phone-wrap { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; }  /* flex：手机框并排，窄屏换行 */
+  .phone {
+    display: flex; flex-direction: column;                /* flex：屏内纵排 */
+    width: min(340px, 100%);                              /* 任何分辨率：小屏直接占满 */
+    border: 1px solid rgb(var(--line-strong)); border-radius: 28px;
+    background: rgb(var(--base)); overflow: hidden;
+    box-shadow: 0 10px 32px rgb(0 0 0 / .35);
+  }
+  .phone .statusbar {
+    display: flex; justify-content: space-between;        /* flex：时间/电量两端 */
+    padding: 10px 18px 6px; font-size: 11px; color: rgb(var(--fg-faint));
+  }
+  .phone .screen {
+    display: flex; flex-direction: column; gap: 12px;     /* flex：内容纵排 */
+    padding: 14px 14px 20px; min-height: 480px;
+  }
+  .phone .m-card {
+    display: flex; flex-direction: column; gap: 10px;
+    background: rgb(var(--card)); border: 1px solid rgb(var(--line));
+    border-radius: 14px; padding: 14px; min-width: 0;
+  }
+  .phone .m-btn {
+    display: flex; align-items: center; justify-content: center;  /* flex：文字居中 */
+    min-height: 46px;                                     /* 触控目标 ≥44px（P0） */
+    border-radius: 12px; border: 1px solid rgb(var(--line-strong));
+    background: rgb(var(--elevate)); font-size: 15px;     /* 移动端正文 ≥16px 档（按钮 15px 加权重） */
+  }
+  .phone .m-btn.primary { background: rgb(var(--accent)); border-color: rgb(var(--accent)); color: #fff; }
+
+  /* ═══ 移动端断点（≤720px）：单列 + 全宽按钮 + 放大触控 ═══ */
+  @media (max-width: 720px) {
+    body { padding: 12px 10px 24px; }
+    .card { flex-basis: 100%; }                 /* flex：状态卡全部转单列 */
+    .btn { min-height: 44px; flex: 1 1 auto; }  /* flex：按钮弹性全宽 + 触控 ≥44px */
+    .row { gap: 8px; }
+    .modal .actions { flex-direction: column-reverse; }  /* flex：主按钮置底置顶视觉 */
+    .modal .actions .btn.primary { flex-basis: auto; }
+    header h1 { font-size: 18px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>AnyBoot · 检查更新 UI 设计稿</h1>
+  <span class="badge"><b>flex 布局</b>（全文档 0 float/grid）</span>
+  <span class="badge"><b>适配移动端</b>（≤720px 单列 · 触控 ≥44px）</span>
+  <span class="badge"><b>适配任何分辨率</b>（320px～4K 流体 · 无横向滚动）</span>
+  <button class="btn ghost" id="themeBtn" onclick="toggleTheme()">切换亮/暗</button>
+</header>
+<p class="sub">设计语言与 ui/hub.html 同源（曜蓝 Cobalt · RGB 三元组变量 · .btn 三级按钮 · mono JetBrains）。对应《docs/检查更新-设计.md》§1 状态机与 §5 UI 定义；每个状态卡右上角标注状态机 phase。</p>
+
+<!-- ══════════ A. PC 设置页「关于与更新」：状态机全状态 ══════════ -->
+<section class="section">
+  <h2>A · PC 设置页「关于与更新」区块 <span class="mono">states: idle → checking → up_to_date / available → downloading → ready_to_install → error / updated</span></h2>
+  <div class="cardrow">
+
+    <!-- idle -->
+    <div class="card">
+      <h3>关于与更新 <span class="tag">phase: idle</span></h3>
+      <div class="row">
+        <span class="kv"><span class="k">当前版本</span><span class="v mono">v0.2.0</span></span>
+        <button class="btn primary grow">检查更新</button>
+      </div>
+      <div class="kv"><span class="k">最近检查</span><span class="v">10 分钟前</span></div>
+      <div class="kv"><span class="k">自动检查</span><span class="v">开启（启动后 30s + 每 12h）</span></div>
+    </div>
+
+    <!-- checking -->
+    <div class="card">
+      <h3>关于与更新 <span class="tag">phase: checking</span></h3>
+      <div class="row">
+        <span class="dot acc pulse"></span>
+        <span class="v grow">正在检查新版本…</span>
+        <button class="btn" disabled>检查更新</button>
+      </div>
+      <div class="kv"><span class="k">通道</span><span class="v mono">直连 → 镜像回退</span></div>
+    </div>
+
+    <!-- up_to_date -->
+    <div class="card">
+      <h3>关于与更新 <span class="tag">phase: up_to_date</span></h3>
+      <div class="banner okk"><span>✓</span><span class="grow">已是最新版本 v0.2.0（2026-10-31 检查）</span></div>
+      <div class="row">
+        <span class="kv grow"><span class="k">当前版本</span><span class="v mono">v0.2.0</span></span>
+        <button class="btn">重新检查</button>
+      </div>
+    </div>
+
+    <!-- available -->
+    <div class="card wide">
+      <h3>发现新版本 <span class="tag">phase: available</span></h3>
+      <div class="row">
+        <span class="kv"><span class="k">新版本</span><span class="v mono">v0.2.1</span></span>
+        <span class="kv"><span class="k">发布</span><span class="v">2026-11-02</span></span>
+        <span class="kv"><span class="k">安装包</span><span class="v mono">AnyBoot_0.2.1_aarch64.dmg · 13.8 MB</span></span>
+      </div>
+      <div class="notes">### 0.2.1
+- 电源策略：修复睡眠端口在部分主板上的发包重试
+- GRUB：自动读取兼容 os-prober 复合 selector 的组内选中项
+- 电脑列表：新增「是否展示」通道开关（关闭后整行隐藏）</div>
+      <div class="row">
+        <button class="btn primary grow">下载 v0.2.1</button>
+        <button class="btn ghost">跳过这个版本</button>
+        <button class="btn ghost">打开 Releases 页</button>
+      </div>
+    </div>
+
+    <!-- available + skip 版本提示（同卡片的变体说明行） -->
+    <div class="card">
+      <h3>已跳过的版本 <span class="tag">phase: available · skip</span></h3>
+      <div class="banner note"><span>↷</span><span class="grow">有新版本 v0.2.1，你之前选择过跳过。可在设置里随时安装。</span></div>
+      <div class="row">
+        <button class="btn ghost grow">仍然查看 v0.2.1</button>
+      </div>
+    </div>
+
+    <!-- downloading -->
+    <div class="card wide">
+      <h3>正在下载更新 <span class="tag">phase: downloading</span></h3>
+      <div class="progress">
+        <div class="track"><div class="fill" style="width:45%"></div></div>
+        <div class="meta">
+          <span class="pct">45%</span>
+          <span class="mono">6.2 / 13.8 MB</span>
+          <span>来源：镜像加速（ghfast.top）</span>
+          <span style="margin-left:auto">预计剩余 40 秒</span>
+        </div>
+      </div>
+      <div class="row">
+        <button class="btn" disabled>下载中…</button>
+        <button class="btn ghost">取消下载</button>
+      </div>
+    </div>
+
+    <!-- ready_to_install -->
+    <div class="card wide">
+      <h3>更新已就绪 <span class="tag">phase: ready_to_install</span></h3>
+      <div class="banner okk"><span>✓</span><span class="grow">SHA-256 校验通过：AnyBoot_0.2.1_aarch64.dmg</span></div>
+      <div class="banner note"><span>⏻</span><span class="grow">安装将退出 AnyBoot 并重启。确认当前没有进行中的引导切换或电源操作。</span></div>
+      <div class="row">
+        <button class="btn primary grow">安装 v0.2.1 并重启</button>
+        <button class="btn ghost">稍后再说</button>
+      </div>
+    </div>
+
+    <!-- ready_to_install 安全闸置灰变体 -->
+    <div class="card">
+      <h3>安全闸置灰 <span class="tag">install 前置条件</span></h3>
+      <div class="row">
+        <button class="btn primary grow" disabled>安装 v0.2.1 并重启</button>
+      </div>
+      <div class="kv"><span class="k">原因</span><span class="v">正在执行电源操作「重启 192.168.1.23」…</span></div>
+      <div class="kv"><span class="k">就绪后</span><span class="v">按钮自动恢复可用，无需重新下载</span></div>
+    </div>
+
+    <!-- error -->
+    <div class="card wide">
+      <h3>检查失败 <span class="tag">phase: error</span></h3>
+      <div class="banner err"><span>!</span><span class="grow">下载不完整（5.1 / 13.8 MB）——镜像源中途断开</span></div>
+      <div class="kv"><span class="k">已尝试</span><span class="v">GitHub 直连（超时）→ ghfast.top（中断）→ gh-proxy.com（中断）</span></div>
+      <div class="kv"><span class="k">下一步</span><span class="v">点「重试」重新下载；反复失败可检查网络或代理设置</span></div>
+      <div class="row">
+        <button class="btn primary grow">重试</button>
+        <button class="btn ghost">打开 Releases 页手动下载</button>
+      </div>
+    </div>
+
+    <!-- updated -->
+    <div class="card">
+      <h3>更新完成 <span class="tag">phase: updated</span></h3>
+      <div class="banner okk"><span>✓</span><span class="grow">已更新到 v0.2.1（安装耗时 1 分 12 秒）</span></div>
+      <div class="row">
+        <button class="btn ghost grow">查看更新日志</button>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ══════════ B. 安装确认弹窗 ══════════ -->
+<section class="section">
+  <h2>B · 安装确认弹窗（覆盖安装前最后一步确认）<span class="mono">update_install() 触发点</span></h2>
+  <div class="modal-demo">
+    <div class="modal">
+      <h3 style="display:flex; align-items:center; gap:8px;"><span class="dot acc"></span>安装 AnyBoot v0.2.1？</h3>
+      <div style="display:flex; flex-direction:column; gap:8px; min-width:0;">
+        <div class="kv"><span class="k">当前版本</span><span class="v mono">v0.2.0</span></div>
+        <div class="kv"><span class="k">校验</span><span class="v">SHA-256 ✓</span></div>
+        <div class="kv"><span class="k">方式</span><span class="v">退出应用 → 静默安装 → 自动重启新版</span></div>
+        <div class="banner note" style="margin-top:4px;"><span>⏻</span><span class="grow">安装期间（约 1 分钟）无法使用引导切换与电源操作。</span></div>
+      </div>
+      <div class="actions">
+        <button class="btn ghost">取消</button>
+        <button class="btn primary">确认安装并重启</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ C. 托盘气泡通知 ══════════ -->
+<section class="section">
+  <h2>C · 托盘气泡通知（自动检查命中时，一次性、不弹模态）<span class="mono">notify.rs 通道</span></h2>
+  <div class="cardrow">
+    <div class="toast">
+      <span class="dot acc" style="margin-top:5px;"></span>
+      <div style="flex:1; min-width:0;">
+        <div class="t-title">AnyBoot 有新版本 v0.2.1</div>
+        <div class="t-body">点此打开「关于与更新」查看更新日志并安装。</div>
+      </div>
+    </div>
+    <div class="toast" style="border-left-color: rgb(var(--bad));">
+      <span class="dot bad" style="margin-top:5px;"></span>
+      <div style="flex:1; min-width:0;">
+        <div class="t-title">安装完成 ✓ v0.2.1</div>
+        <div class="t-body">重启后首启提示一次，不打扰后续使用。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ D. 移动端（Android 设置页简版 / iOS 引导） ══════════ -->
+<section class="section">
+  <h2>D · 移动端设置页简版 <span class="mono">Android: Compose Row/Column 同构 · iOS: 引导卡</span></h2>
+  <div class="phone-wrap">
+
+    <!-- Android: idle + available -->
+    <div class="phone">
+      <div class="statusbar"><span>22:12</span><span>▲ ● ▮</span></div>
+      <div class="screen">
+        <div class="m-card">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <b>关于与更新</b>
+            <span class="tag mono" style="margin-left:auto; font-size:11px; color:rgb(var(--fg-faint));">idle</span>
+          </div>
+          <div style="display:flex; gap:6px; align-items:baseline;">
+            <span style="color:rgb(var(--fg-faint)); font-size:13px;">当前版本</span>
+            <span class="mono" style="font-size:14px;">v0.2.0</span>
+          </div>
+          <div class="m-btn">检查更新</div>
+        </div>
+
+        <div class="m-card">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <b>发现新版本 v0.2.1</b>
+            <span style="margin-left:auto; font-size:11px; color:rgb(var(--fg-faint));">11-02</span>
+          </div>
+          <div class="notes" style="max-height:110px; font-size:13px;">- 电源策略：修复睡眠端口重试
+- GRUB：组内选中项兼容
+- 电脑列表：通道展示开关</div>
+          <div class="m-btn primary">下载并安装（13.8 MB）</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Android: downloading + iOS 引导 -->
+    <div class="phone">
+      <div class="statusbar"><span>22:12</span><span>▲ ● ▮</span></div>
+      <div class="screen">
+        <div class="m-card">
+          <b>正在下载 v0.2.1</b>
+          <div class="progress">
+            <div class="track"><div class="fill" style="width:62%"></div></div>
+            <div class="meta"><span class="pct">62%</span><span class="mono">8.6 / 13.8 MB</span></div>
+          </div>
+          <div class="m-btn" style="opacity:.5;">下载中…</div>
+        </div>
+        <div class="m-card">
+          <b>iOS 设备</b>
+          <div style="font-size:13px; color:rgb(var(--fg-dim));">iOS 未上架前无法应用内更新：请到 GitHub Releases 重新下载安装。</div>
+          <div class="m-btn">复制下载链接</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ══════════ E. 布局与适配规范（给实现者的硬约定） ══════════ -->
+<section class="section">
+  <h2>E · flex 布局与适配规范（实现硬约定）<span class="mono">与本文档 CSS 逐条对应</span></h2>
+  <div class="cardrow">
+    <div class="card">
+      <h3><b>flex 布局</b></h3>
+      <div style="display:flex; flex-direction:column; gap:6px; font-size:13px; color:rgb(var(--fg-dim));">
+        <span>· 页面/卡片/行/按钮内一律 display:flex，全文档 0 个 float 与 grid 布局；</span>
+        <span>· 横向排列全部走 .row（flex + flex-wrap:wrap + gap + min-width:0）；</span>
+        <span>· 卡片群用 flex:1 1 340px 流式铺排，容器宽自动并排、窄自动换行；</span>
+        <span>· 长内容（更新日志、URL、文件名）容器必须 min-width:0 + overflow-wrap:anywhere；</span>
+        <span>· 行尾元素用 margin-left:auto 弹簧推进（tag、预计剩余时间）。</span>
+      </div>
+    </div>
+    <div class="card">
+      <h3><b>适配移动端</b></h3>
+      <div style="display:flex; flex-direction:column; gap:6px; font-size:13px; color:rgb(var(--fg-dim));">
+        <span>· 断点 ≤720px：状态卡 flex-basis:100% 转单列（UX-023 P0）；</span>
+        <span>· 按钮转弹性全宽（flex:1 1 auto），触控目标 ≥44px（UX-024 P0）；</span>
+        <span>· 移动端正文 ≥16px 档、按钮 15px 加权重（UX-033 P0）；</span>
+        <span>· 弹窗按钮窄屏纵向排列（column-reverse，主按钮在下=拇指易达）；</span>
+        <span>· 手机端（Compose）与本文档同构：.row→Row、卡片纵排→Column、进度条→LinearProgressIndicator。</span>
+      </div>
+    </div>
+    <div class="card">
+      <h3><b>适配任何分辨率</b></h3>
+      <div style="display:flex; flex-direction:column; gap:6px; font-size:13px; color:rgb(var(--fg-dim));">
+        <span>· 无固定像素宽容器：外层 width:100% + max-width:1200px 居中；</span>
+        <span>· 字号/间距 clamp() 流体缩放（320px～4K 平滑）；</span>
+        <span>· 弹窗宽度 min(460px, 100%)、手机框 min(340px, 100%)——小屏不超容器；</span>
+        <span>· 验收线：320 / 375 / 768 / 1280 / 2560 五档截图均无横向滚动（P0 阻断项）；</span>
+        <span>· 暗色为默认主题，亮色经 html.light 类切换，全部颜色走变量不硬编码。</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+  function toggleTheme() {
+    const html = document.documentElement;
+    html.classList.toggle('dark'); html.classList.toggle('light');
+  }
+</script>
+</body>
+</html>
