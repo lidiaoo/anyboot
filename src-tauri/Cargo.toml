@@ -1,6 +1,6 @@
 [package]
 name = "anyboot"
-version = "0.2.0"
+version = "0.2.1"
 description = "Select the next boot system from the system tray by updating rEFInd's PreviousBoot variable"
 authors = ["you"]
 edition = "2021"

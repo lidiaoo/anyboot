@@ -8,7 +8,7 @@
 托盘点一下切换下次启动项，rEFInd / GRUB / OpenCore / systemd-boot / Clover 五大引导器统一管理，
 内置 HTTP 服务让你用浏览器、手机 App、curl、ssh 远程切系统、重启、关机、睡眠。
 
-[![Release](https://img.shields.io/badge/release-v0.2.0-blue)](https://github.com/lidiaoo/anyboot/releases)
+[![Release](https://img.shields.io/badge/release-v0.2.1-blue)](https://github.com/lidiaoo/anyboot/releases)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux%20%7C%20Android%20%7C%20iOS-lightgrey)
 ![Tauri](https://img.shields.io/badge/Tauri-2-orange)
 
