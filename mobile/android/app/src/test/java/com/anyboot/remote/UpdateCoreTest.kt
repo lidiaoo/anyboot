@@ -2,6 +2,7 @@ package com.anyboot.remote
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -87,6 +88,31 @@ class UpdateCoreTest {
         assertEquals(hash, UpdateCore.parseSums("$hash *a.apk", "a.apk"))
         // 非十六进制字符不算数
         assertNull(UpdateCore.parseSums("z".repeat(64) + "  a.apk", "a.apk"))
+    }
+
+    /**
+     * 回归：v0.2.1 / v0.2.2 的安卓校验把**整份 SHA256SUMS.txt** 当成 expected 哈希，
+     * 去跟 64 位实测值比 —— 比较永远为 false，于是直连 / ghproxy / ghfast 每个源都报
+     * 「SHA-256 不匹配」。包本身是好的（官方发布与各下载源实测哈希完全一致），是比对写错了。
+     * 这条测试盯住「取到的是文本，不是哈希」这个前提。
+     */
+    @Test
+    fun sumsTextMustBeParsedNotComparedWhole() {
+        val apkHash = "6bb2847625530f51b419a4622aac91ba97b8e3c755cb67ccf5a76744be2355ac"
+        // 取 v0.2.2 真实 SHA256SUMS.txt 的前三行（目标行不在首行，正是踩坑场景）
+        val fullText = """
+            44395c81b8048ceb8f6e231a516f484e4a1876c1af2b65a8d9e7a6c19741fd18  AnyBoot_0.2.2_amd64.AppImage
+            2cad215abbf75e3119164032353e9e613569ba4eb1bd2eba1016099c8b0d51ca  AnyBoot_0.2.2_amd64.deb
+            $apkHash  AnyBoot_0.2.2_debug.apk
+        """.trimIndent()
+
+        assertEquals(apkHash, UpdateCore.parseSums(fullText, "AnyBoot_0.2.2_debug.apk"))
+        // 全文 735 字节，单个哈希 64 字符：拿全文去比，永远不相等
+        assertNotEquals(fullText, UpdateCore.parseSums(fullText, "AnyBoot_0.2.2_debug.apk"))
+        assertNotEquals(apkHash, fullText.trim())
+        // 未解析时「全文里包含该哈希」也不代表能用来比较
+        assertTrue(fullText.contains(apkHash))
+        assertNotEquals(apkHash, fullText)
     }
 
     @Test

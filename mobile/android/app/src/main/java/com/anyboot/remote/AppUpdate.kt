@@ -210,13 +210,21 @@ object AppUpdate {
                         )
                     }
 
-                    val expected = fetchSums(release.tag, prefix, label)
-                        ?: throw IOException("SHA256SUMS.txt 里没有 ${release.apkName}")
+                    // 取回来的是整份 SHA256SUMS.txt 的**文本**（当前 735 字节 / 8 行），
+                    // 必须按资产名解析出那一行的 64 位十六进制再比。
+                    // v0.2.1 / v0.2.2 就是漏了这一步：把整份文本当 expected 去跟 64 位实测值比，
+                    // 结果每个源都判「不匹配」——包本身是好的，是比对写错了。
+                    val sumsText = fetchSumsText(release.tag, prefix)
+                        ?: throw IOException("取不到 SHA256SUMS.txt")
+                    val expected = UpdateCore.parseSums(sumsText, release.apkName)
+                        ?: throw IOException(
+                            "SHA256SUMS.txt 里没有 ${release.apkName}（文件可能被代理换成了网页）"
+                        )
                     val actual = sha256(temp)
                     if (!actual.equals(expected, ignoreCase = true)) {
                         throw IOException(
                             "SHA-256 不匹配：已收到完整 ${humanSize(fetched.bytes)}，" +
-                                "实测 ${actual.take(8)}… / 官方 ${expected.take(8)}…" +
+                                "实测 ${actual.take(12)}… / 官方 ${expected.take(12)}…" +
                                 "（文件在传输中被改写）"
                         )
                     }
@@ -235,14 +243,20 @@ object AppUpdate {
         )
     }
 
-    private fun fetchSums(tag: String, prefix: String, label: String): String? {
+    /**
+     * 取 `SHA256SUMS.txt` 的**原文**（不解析）。
+     * 名字里带 Text 是刻意的：这里返回的不是哈希，拿它直接跟 SHA-256 比就是错的。
+     */
+    private fun fetchSumsText(tag: String, prefix: String): String? {
         val url = UpdateCore.applyPrefix(prefix, UpdateCore.sumsUrl(tag))
         val request = Request.Builder().url(url).header("User-Agent", "AnyBootRemote").build()
         return try {
             plain.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return null
-                // 这里只负责把「文本」取回来；缺哪个 hash 由调用方（UpdateCore.parseSums）判断
-                response.body?.string()
+                val body = response.body?.string() ?: return null
+                // 有镜像会把 404 渲染成网页返回 200，正文里全是 HTML
+                if (body.contains("<html", ignoreCase = true)) return null
+                body
             }
         } catch (ignored: Exception) {
             null
