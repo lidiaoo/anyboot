@@ -6124,6 +6124,25 @@ mod tests {
     }
 
     #[test]
+    fn route_disabled_survives_json_roundtrip() {
+        // 用户 2026-10-31：关掉连接策略的大水阀保存后，重开编辑弹窗开关又弹回。
+        // 防序列化层回归：normalize → JSON → 反序列化，route_disabled 原样保留；
+        // server_json（remote_list 同形态）输出的字段名必须是 snake_case ——
+        // 前端 / 手机端都按 route_disabled 读，改名 = 保存后全员「弹回」。
+        let mut server = route_test_server();
+        server.route_disabled = vec!["tunnel".into(), "ts".into()];
+        let normalized = server.normalize();
+        let json = serde_json::to_value(&normalized).unwrap();
+        assert_eq!(
+            json.get("route_disabled"),
+            Some(&serde_json::json!(["tunnel", "ts"])),
+            "字段名必须保持 snake_case 且值不丢",
+        );
+        let back: RemoteServer = serde_json::from_value(json).unwrap();
+        assert_eq!(back.route_disabled, vec!["tunnel", "ts"]);
+    }
+
+    #[test]
     fn route_candidates_skip_disabled_lane_in_ts_block() {
         // ts 区块里「直连」与「Funnel」是优先级表里两行独立通道：
         // 停用 ts（直连 lane）只排掉 direct 配对，funnel 配对照常参与
