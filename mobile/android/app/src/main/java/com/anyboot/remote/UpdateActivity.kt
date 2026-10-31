@@ -1,5 +1,7 @@
 package com.anyboot.remote
 
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -403,8 +405,18 @@ class UpdateActivity : ComponentActivity() {
                         color = palette.fgDim,
                     )
                 }
-                "error" -> PrimaryAction("重试", enabled = true) {
-                    if (installedFile != null && release != null) download() else check(manual = true)
+                "error" -> {
+                    PrimaryAction("重试", enabled = true) {
+                        if (installedFile != null && release != null) download() else check(manual = true)
+                    }
+                    // 下载失败多半是链路问题，只给「重试」容易把人堵死。留一条浏览器退路：
+                    // 系统下载器/浏览器走的是另一条路，常常能拉到同一个包。
+                    SecondaryAction("用浏览器打开下载页") {
+                        openInBrowser(
+                            release?.let { "https://github.com/lidiaoo/anyboot/releases/tag/${it.tag}" }
+                                ?: UpdateCore.LATEST_PAGE
+                        )
+                    }
                 }
                 "up_to_date" -> SecondaryAction("再检查一次") { check(manual = true) }
                 "checking" -> PrimaryAction("检查中…", enabled = false) {}
@@ -461,6 +473,17 @@ class UpdateActivity : ComponentActivity() {
     }
 
     // ── 展示辅助 ───────────────────────────────────────────────────────────
+
+    /** 交给系统浏览器/下载器打开地址（更新与「安装未知应用」都走这条路） */
+    private fun openInBrowser(url: String) {
+        try {
+            startActivity(
+                Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        } catch (failure: Exception) {
+            error = "这台设备没有可打开网页的应用。地址：$url"
+        }
+    }
 
     private fun showReleaseCard(): Boolean =
         phase in listOf("available", "downloading", "verifying", "ready", "need_permission", "launching")

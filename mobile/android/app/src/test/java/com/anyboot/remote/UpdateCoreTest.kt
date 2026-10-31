@@ -108,6 +108,10 @@ class UpdateCoreTest {
         // 直连排第一，其余是镜像回退
         assertEquals("直连", UpdateCore.downloadSources().first().first)
         assertEquals(3, UpdateCore.downloadSources().size)
+        // gh-proxy 排第一顺位镜像：2026-11-01 实测它是唯一能返回「字节与官方一致」的源，
+        // ghfast 当天 TLS 直接断开，降到末位当长尾（顺序反了会让每次更新都白等一次超时）
+        assertEquals("ghproxy", UpdateCore.downloadSources()[1].first)
+        assertEquals("ghfast", UpdateCore.downloadSources()[2].first)
     }
 
     @Test

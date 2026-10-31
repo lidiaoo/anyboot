@@ -182,25 +182,52 @@ object AppUpdate {
 
         val failures = mutableListOf<String>()
         for ((label, prefix) in UpdateCore.downloadSources()) {
-            val temp = File(dir, "${release.apkName}.downloading")
-            val finalFile = File(dir, release.apkName)
-            try {
-                val url = UpdateCore.applyPrefix(prefix, release.apkUrl)
-                val size = downloadTo(url, temp, release.apkSize, label, onProgress)
-                onProgress(size, size, label)
+            // 同一个源试两次：国内链路上偶发的半截包 / 代理回网页，第二次常常就正常了。
+            // 只重试一次是刻意的——真被劫持时重试也没用，别让用户干等。
+            var lastError = ""
+            for (attempt in 1..2) {
+                val temp = File(dir, "${release.apkName}.downloading")
+                val finalFile = File(dir, release.apkName)
+                try {
+                    val url = UpdateCore.applyPrefix(prefix, release.apkUrl)
+                    val fetched = downloadTo(url, temp, release.apkSize, label, onProgress)
+                    onProgress(fetched.bytes, fetched.bytes, label)
 
-                val expected = fetchSums(release.tag, prefix, label)
-                    ?: throw IOException("SHA256SUMS.txt 里没有 ${release.apkName}")
-                val actual = sha256(temp)
-                if (!actual.equals(expected, ignoreCase = true)) {
-                    throw IOException("SHA-256 不匹配（下载到的文件已损坏或被替换）")
+                    // 先把「下到的到底是不是这个包」查清楚，再花时间算 SHA-256：
+                    // 代理塞回来的拦截页 / 半截包在这里就该被拦下，而不是报一句笼统的「校验失败」。
+                    if (fetched.contentType.contains("text/html", ignoreCase = true)) {
+                        throw IOException("这个源返回的是网页而不是安装包（网络被劫持或代理拦截）")
+                    }
+                    if (fetched.declared > 0 && fetched.bytes != fetched.declared) {
+                        throw IOException(
+                            "传输中断：只收到 ${humanSize(fetched.bytes)}，应为 ${humanSize(fetched.declared)}"
+                        )
+                    }
+                    if (release.apkSize > 0 && fetched.bytes != release.apkSize) {
+                        throw IOException(
+                            "包大小不符：收到 ${humanSize(fetched.bytes)}，" +
+                                "官方是 ${humanSize(release.apkSize)}（传输被中间环节改写）"
+                        )
+                    }
+
+                    val expected = fetchSums(release.tag, prefix, label)
+                        ?: throw IOException("SHA256SUMS.txt 里没有 ${release.apkName}")
+                    val actual = sha256(temp)
+                    if (!actual.equals(expected, ignoreCase = true)) {
+                        throw IOException(
+                            "SHA-256 不匹配：已收到完整 ${humanSize(fetched.bytes)}，" +
+                                "实测 ${actual.take(8)}… / 官方 ${expected.take(8)}…" +
+                                "（文件在传输中被改写）"
+                        )
+                    }
+                    if (!temp.renameTo(finalFile)) throw IOException("落盘失败（重命名临时文件）")
+                    return DownloadOutcome(finalFile, label)
+                } catch (error: Exception) {
+                    temp.delete()
+                    lastError = error.message ?: "下载失败"
                 }
-                if (!temp.renameTo(finalFile)) throw IOException("落盘失败（重命名临时文件）")
-                return DownloadOutcome(finalFile, label)
-            } catch (error: Exception) {
-                temp.delete()
-                failures += "$label：${error.message ?: "下载失败"}"
             }
+            failures += "$label：$lastError"
         }
         throw IOException(
             "下载失败（已尝试 ${failures.size} 个源）：${failures.joinToString("；")}。" +
@@ -222,13 +249,16 @@ object AppUpdate {
         }
     }
 
+    /** 一次下载拿到的东西：实际字节数、服务端声明的长度、Content-Type（用来识别拦截页） */
+    private data class Fetched(val bytes: Long, val declared: Long, val contentType: String)
+
     private fun downloadTo(
         url: String,
         target: File,
         knownSize: Long,
         label: String,
         onProgress: (Long, Long, String) -> Unit,
-    ): Long {
+    ): Fetched {
         val request = Request.Builder().url(url).header("User-Agent", "AnyBootRemote").build()
         val response = plain.newCall(request).execute()
         response.use {
@@ -236,7 +266,9 @@ object AppUpdate {
                 throw IOException("HTTP ${response.code}")
             }
             val body = response.body ?: throw IOException("响应为空")
-            val total = if (body.contentLength() > 0) body.contentLength() else knownSize
+            val declared = body.contentLength()
+            val total = if (declared > 0) declared else knownSize
+            val contentType = response.header("Content-Type").orEmpty()
             var written = 0L
             var lastTick = 0L
             var lastBytes = 0L
@@ -261,8 +293,21 @@ object AppUpdate {
             }
             onProgress(written, if (total > 0) total else written, label)
             if (written == 0L) throw IOException("下载到 0 字节")
-            return written
+            return Fetched(written, declared, contentType)
         }
+    }
+
+    /** 12.3 MB / 845 KB 这种给人看的说法（报错里带尺寸，才判断得出是半截还是被改写） */
+    private fun humanSize(bytes: Long): String {
+        if (bytes < 1024) return "$bytes B"
+        val units = listOf("KB", "MB", "GB")
+        var value = bytes.toDouble() / 1024
+        var unit = 0
+        while (value >= 1024 && unit < units.size - 1) {
+            value /= 1024
+            unit++
+        }
+        return String.format("%.1f %s", value, units[unit])
     }
 
     private fun sha256(file: File): String {

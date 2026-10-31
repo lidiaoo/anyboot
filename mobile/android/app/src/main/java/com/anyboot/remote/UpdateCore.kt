@@ -17,10 +17,20 @@ object UpdateCore {
     const val API_LATEST = "https://api.github.com/repos/$REPO/releases/latest"
     const val DOWNLOAD_BASE = "https://github.com/$REPO/releases/download"
 
-    /** 与桌面端 MIRROR_PREFIXES 同一批镜像（国内直连 GitHub 常常几 KB/s 甚至断流） */
+    /**
+     * 与桌面端 MIRROR_PREFIXES 同一批镜像（国内直连 GitHub 常常几 KB/s 甚至断流）。
+     *
+     * 顺序按 2026-11-01 的实测结果排（逐个下完整包比对 SHA-256）：
+     *  - `gh-proxy.com` 通过，字节与官方完全一致；
+     *  - `ghfast.top` 当天 TLS 直接断开（`unexpected eof while reading`），多条线路都一样，
+     *    所以降到末位当长尾——它恢复了好处是零成本，没恢复也只是多试一秒；
+     *  - 其余候选（ghproxy.net / ghproxy.cc / ghproxy.cfd / ghp.ci / hub.gitmirror.com /
+     *    github.moeyy.xyz / gh.llkk.cc / gitproxy.click / gh.ddlc.top / kkgithub.com）
+     *    实测全部不可用（连不上、429、401 或只回几十字节），不要加回来。
+     */
     val MIRRORS: List<Pair<String, String>> = listOf(
-        "ghfast" to "https://ghfast.top/",
         "ghproxy" to "https://gh-proxy.com/",
+        "ghfast" to "https://ghfast.top/",
     )
 
     /** `v0.2.1` / ` 0.2.1 ` → `0.2.1` */
