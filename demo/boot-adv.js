@@ -378,17 +378,24 @@
     const target = view && view.target;
     // 手动那份（ESP 的 GrubView）没有 `target`，只有 cfgPath/efiDir —— 按
     // 「有没有条目」判就够，别再要求一个它不存在的字段（否则手动模式整块消失）。
+    // 与 ui/boot-adv.js 同口径（2026-10-31）：严格按模式、零回落 —— 自动模式
+    // 只认「自动读取」那份，没扫到就是空列表 / 计数 0，绝不拿 ESP 那份垫底。
     const detected = entries.length > 0;
     return {
       id: "grub", ...meta,
       detected,
-      esp: (target && target.cfgRel) || esp.cfgPath || "grub.cfg",
+      // 副标题也按模式各说各的：手动报 ESP 的 cfg 路径，自动报分区上的相对路径
+      esp: mode === "manual"
+        ? (esp.cfgPath || "grub.cfg")
+        : ((target && target.cfgRel) || ""),
       healthText: mode === "manual"
         ? (entries.length
           ? `ESP · ${entries.length} 个启动项`
           : "还没解析：点「重新解析」读 ESP 上的 grub.cfg")
-        : ((target && `${target.dev || ""} ${entries.length} 个启动项`.trim())
-          || "还没读过：点「重新读取」自动定位 Linux 分区"),
+        : (entries.length
+          ? ((target && `${target.dev || ""} ${entries.length} 个启动项`.trim())
+            || `${entries.length} 个启动项`)
+          : "还没读过：点「重新读取」自动定位 Linux 分区"),
       entries,
       // 选中项在组内子项上时不在 entries 里（上面只铺顶层），用 childDef 补
       nextBoot: entries.find((e) => e.def) || childDef,

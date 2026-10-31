@@ -6184,9 +6184,9 @@ mod core_tests {
         assert_eq!(rows, vec![("OpenCore".to_string(), "MAC".to_string())]);
     }
 
-    /// 电脑列表的 `/api/grub`（`remote_grub_json`）与托盘 / 主窗共用同一条覆盖
-    /// 规则：自动模式用 linux_grub 的 entries / next·saved 覆盖 ESP 快照；
-    /// 手动模式与 linux_grub 还没扫到内容时保留 ESP 快照。
+    /// 电脑列表的 `/api/grub`（`remote_grub_json`）与托盘 / 主窗共用同一条规则：
+    /// **严格按模式、零回落**（用户 2026-10-31 定案）—— 自动模式整块换 `linux_grub`
+    /// 的 entries / next·saved（空也换、没读过也是空）；手动模式保留 ESP 快照。
     #[test]
     fn overlay_linux_grub_follows_the_read_mode() {
         let mut view = next_boot_grub_view(
@@ -6213,10 +6213,21 @@ mod core_tests {
         assert_eq!(manual.entries[0].name, "ESP Entry");
         assert_eq!(manual.next_entry.as_deref(), Some("esp-1"));
 
-        // linux_grub 还没扫到内容：也保留 ESP 快照
+        // linux_grub 扫出来是空：自动模式就是空列表，不回落 ESP
         let empty = channels::linux_grub::LinuxGrubView::default();
         menu_model::overlay_linux_grub(&mut view, Some(&empty), false);
-        assert_eq!(view.entries[0].name, "ESP Entry");
+        assert!(view.entries.is_empty());
+        assert_eq!(view.next_entry, None);
+
+        // linux_grub 还没读过（None）：同样空，不回落 ESP
+        let mut never = view.clone();
+        menu_model::overlay_linux_grub(&mut never, None, false);
+        assert!(never.entries.is_empty());
+        assert_eq!(never.next_entry, None);
+
+        // 手动模式即使 linux_grub 没读过，ESP 快照照旧
+        menu_model::overlay_linux_grub(&mut manual, None, true);
+        assert_eq!(manual.entries[0].name, "ESP Entry");
     }
 
     /// 电脑列表（PC hub / 手机）回传的标题被 trim 过，而写 `vars/PreviousBoot`

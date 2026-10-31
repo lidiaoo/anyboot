@@ -481,7 +481,11 @@ pub(crate) fn refind_source(state: &UiState) -> RefindSource<'_> {
     }
 }
 
-/// GRUB 的数据源：自动 = 直接读 Linux 分区那份（`linux_grub`），手动 = ESP 那份。
+/// GRUB 的数据源：自动 = 只认 Linux 分区那份（`linux_grub`），手动 = 只认 ESP 那份。
+///
+/// **严格按模式、零回落**（用户 2026-10-31 定案）：自动模式没扫到就是空列表 /
+/// 无选中项，绝不拿 ESP 那份垫底 —— 托盘、主窗「下次启动」、主题页计数、
+/// 电脑列表 `/api/grub` 四处同口径，模式切了列表必须跟着换。
 ///
 /// 只覆盖若干字段而不是整份重建 —— `GrubView` 有三十多个字段（挂载状态、脚本日志、
 /// 安装状态…），托盘与「下次启动」只用得到 entries / groups / next·saved。
@@ -495,8 +499,8 @@ pub(crate) fn effective_grub(state: &UiState) -> GrubView {
     view
 }
 
-/// `effective_grub` 的可测内核：把 `linux_grub` 的 entries / groups / next·saved
-/// 覆盖到一份 ESP 快照上（自动模式才覆盖）。
+/// `effective_grub` 的可测内核：自动模式把 `linux_grub` 的 entries / groups /
+/// next·saved / error **整块换上**（空也换，None 也是空）—— 没有任何回落。
 ///
 /// 除了托盘 /「下次启动」，电脑列表的 `/api/grub` 也吃这一份 —— 手机与 PC hub
 /// 看到的 GRUB 列表必须和本机主窗同一个来源，否则「自动模式」下两边各说各话。
@@ -508,20 +512,28 @@ pub(crate) fn overlay_linux_grub(
     if manual {
         return;
     }
-    let Some(linux) = linux else {
-        return;
-    };
-    if linux.entries.is_empty() {
-        return;
-    }
-    view.entries = linux.entries.clone();
-    view.groups = linux.groups.clone();
-    view.next_entry = linux.next_entry.clone();
-    view.saved_entry = linux.saved_entry.clone();
-    view.error = linux.error.clone();
-    if let Some(target) = linux.target.as_ref() {
-        if !target.dev.is_empty() {
-            view.efi_dir = Some(target.dev.clone());
+    match linux {
+        Some(l) => {
+            view.entries = l.entries.clone();
+            view.groups = l.groups.clone();
+            view.next_entry = l.next_entry.clone();
+            view.saved_entry = l.saved_entry.clone();
+            view.error = l.error.clone();
+            // 挂载点跟着数据源走：自动那份定位到了哪个分区就报哪个；
+            // 没定位到保持原值（这是挂载信息，不是列表内容）
+            if let Some(target) = l.target.as_ref() {
+                if !target.dev.is_empty() {
+                    view.efi_dir = Some(target.dev.clone());
+                }
+            }
+        }
+        // 还没读过（None）：列表与选中项就是空 —— 不回落 ESP
+        None => {
+            view.entries = Vec::new();
+            view.groups = Vec::new();
+            view.next_entry = None;
+            view.saved_entry = None;
+            view.error = None;
         }
     }
 }

@@ -316,10 +316,10 @@ pub(crate) fn remote_requests_json() -> serde_json::Value {
 ///
 /// 只读当前快照，不主动重扫 —— 与 `/api/status` 同一套语义：要刷新由本机点同步。
 ///
-/// 列表内容跟「读取方式」走（与主窗 `effective_grub` 同一规则）：自动模式把
-/// `linux_grub`（直接读 Linux 分区那份）覆盖到 ESP 快照上 —— 电脑列表看到的
-/// 条目、selector 与本机主窗必须同源，否则自动模式下「列表是一种、切换写的是
-/// 另一种 grubenv」。
+/// 列表内容跟「读取方式」走（与主窗 `effective_grub` 同一规则，**零回落**）：
+/// 自动模式整块用 `linux_grub`（直接读 Linux 分区那份，没扫到就是空列表），
+/// 手动模式用 ESP 快照 —— 电脑列表看到的条目、selector 与本机主窗必须同源，
+/// 否则自动模式下「列表是一种、切换写的是另一种 grubenv」。
 pub(crate) fn remote_grub_json(app: &AppHandle) -> serde_json::Value {
     let settings = stored_settings(app);
     let mut view = grub_snapshot(app, &settings);

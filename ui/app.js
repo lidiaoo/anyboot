@@ -1128,24 +1128,20 @@ function renderRefindSim(sim) {
   }
 }
 
-/// 「下次启动」用的有效 GRUB 视图 —— 与后端托盘 / 手机同一口径
-/// （menu_model.rs 的 effective_grub / overlay_linux_grub）：读取方式是
-/// 「自动读取」且自动扫描出了条目时，用 Linux 分区那份（state.linuxGrub）的
-/// 条目 / 分组 / 选中项；「手动解析」或还没扫到就保持 ESP 那份原样。
-/// 不做这层合并的话：默认自动模式下刚启动，「自动读取」面板明明列出了 GRUB
-/// 启动项，「下次启动」大字却级联不出 GRUB 条目（用户 2026-10-31 报的
-/// 「程序刚启动不显示下次启动的 grub」）—— 因为它只看 ESP 手动那份。
+/// 「下次启动」用的有效 GRUB 视图 —— 与后端托盘 / 主题页同一口径
+/// （menu_model.rs 的 effective_grub / overlay_linux_grub），**严格按模式、
+/// 零回落**（用户 2026-10-31 定案）：「手动解析」用 ESP 那份原样；「自动读取」
+/// 整块换成 Linux 分区那份（state.linuxGrub）—— 没扫到就是空，「下次启动」
+/// 大字不出 GRUB 级联，绝不拿 ESP 那份垫底。托盘、主窗、主题页计数、
+/// 电脑列表四处同口径，模式切了显示必须跟着换。
 function effectiveGrubForNextBoot(state) {
   const grub = state.grub;
-  const linux = state.linuxGrub;
-  if (!linux || !Array.isArray(linux.entries) || linux.entries.length === 0) {
-    return grub;
-  }
   if (state.settings && state.settings.grubMode === "manual") {
     return grub;
   }
+  const linux = state.linuxGrub || {};
   return Object.assign({}, grub, {
-    entries: linux.entries,
+    entries: Array.isArray(linux.entries) ? linux.entries : [],
     groups: linux.groups || [],
     nextEntry: linux.nextEntry || "",
     savedEntry: linux.savedEntry || "",
