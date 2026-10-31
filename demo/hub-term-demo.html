@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<!-- server-term 终端独立窗 —— docs/client-ui/pc-terminal-redesign.html 的一比一实现。
+     设计稿的自绘 min/max/close 由系统标题栏承担，页内保留主题/字号两个工具钮。
+     一个窗 = 多个会话标签；hub「打开终端」排队/发事件进来，页内「+」自选服务器。
+     会话归 Rust 端 hub_term.rs 管（PTY + 系统 ssh + ControlMaster），这里只挂 xterm。 -->
+<html lang="zh-CN" class="dark">
+<head>
+<script src="demo-data.js"></script>
+<script src="hub-demo-data.js"></script>
+<script src="demo-mock.js"></script>
+<script src="hub-shim.js"></script>
+
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AnyBoot 终端</title>
+<link rel="stylesheet" href="terminal/xterm.css">
+<script src="terminal/xterm.js"></script>
+<script src="terminal/addon-fit.js"></script>
+<style>
+  /* ---- 主题 token：与设计稿同一套色板 ---- */
+  html.dark{
+    --base:2 6 23; --term:4 7 15; --card:14 18 35; --elevate:20 26 46;
+    --line:36 43 65; --linestrong:51 65 85;
+    --fg:248 250 252; --fgdim:148 163 184; --fgfaint:100 116 139;
+    --ok:34 197 94; --warn:245 158 11; --bad:239 68 68; --accent:99 102 241;
+    --tblue:96 165 250;
+    color-scheme:dark;
+  }
+  html.light{
+    --base:244 246 250; --term:255 255 255; --card:255 255 255; --elevate:241 245 250;
+    --line:226 232 240; --linestrong:203 213 225;
+    --fg:15 23 42; --fgdim:90 100 118; --fgfaint:138 148 166;
+    --ok:22 163 74; --warn:180 83 9; --bad:220 38 38; --accent:79 70 229;
+    --tblue:37 99 235;
+    color-scheme:light;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; }
+  body {
+    background: rgb(var(--term));
+    color: rgb(var(--fg));
+    font: 14px/1.5 -apple-system, "Segoe UI", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+    display:flex; flex-direction:column; overflow:hidden;
+  }
+  button { font: inherit; color: inherit; }
+  [hidden] { display:none !important; }
+  .scroll-thin::-webkit-scrollbar { width:8px; height:8px; }
+  .scroll-thin::-webkit-scrollbar-thumb { background: rgb(var(--linestrong)); border-radius:4px; }
+  @media (prefers-reduced-motion: reduce) { *,*::before,*::after { transition:none!important; animation:none!important; } }
+
+  /* ============ 标题栏（系统 min/max/close 之外的工具钮） ============ */
+  header {
+    display:flex; align-items:center; gap:10px; height:44px; padding:0 16px;
+    border-bottom:1px solid rgb(var(--line)); background:rgb(var(--card) / .7);
+    user-select:none; flex:none;
+  }
+  header .appicon {
+    display:grid; place-items:center; width:24px; height:24px; border-radius:6px;
+    background:rgb(var(--tblue) / .15); color:rgb(var(--tblue)); flex:none;
+  }
+  header h1 { margin:0; font-size:13px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
+  .pill {
+    display:inline-flex; align-items:center; gap:6px; border-radius:9999px;
+    padding:2px 9px; font-size:11px; font-weight:500; flex:none;
+  }
+  .pill.ok { background:rgb(var(--ok) / .1); color:rgb(var(--ok)); }
+  .pill.bad { background:rgb(var(--bad) / .1); color:rgb(var(--bad)); }
+  .pill .dot { width:6px; height:6px; border-radius:50%; background:currentColor; }
+  header .tools { margin-left:auto; display:flex; align-items:center; gap:2px; color:rgb(var(--fgfaint)); }
+  .toolbtn {
+    display:inline-flex; align-items:center; gap:5px; height:26px; padding:0 9px;
+    border:0; background:transparent; border-radius:6px; font-size:12px; cursor:pointer; color:inherit;
+    transition: background .15s, color .15s;
+  }
+  .toolbtn:hover { background:rgb(var(--elevate)); color:rgb(var(--fg)); }
+  .toolbtn .a { font-size:10px; } .toolbtn .b { font-size:13px; }
+  .vsep { width:1px; height:16px; background:rgb(var(--line)); margin:0 4px; }
+
+  /* ============ 会话标签条 ============ */
+  .tabbar {
+    display:flex; align-items:center; gap:6px; overflow-x:auto;
+    border-bottom:1px solid rgb(var(--line)); background:rgb(var(--card) / .4);
+    padding:8px 12px; flex:none; user-select:none;
+  }
+  .tab {
+    display:inline-flex; align-items:center; gap:8px; flex:none; cursor:pointer;
+    border:1px solid rgb(var(--line)); background:rgb(var(--elevate) / .6);
+    border-radius:9px; padding:6px 8px 6px 12px; font-size:12px; font-weight:500; color:rgb(var(--fgdim));
+    transition: color .15s, border-color .15s, background .15s;
+  }
+  .tab:hover { color:rgb(var(--fg)); }
+  .tab[aria-selected="true"] {
+    border-color:rgb(var(--tblue) / .4); background:rgb(var(--tblue) / .1); color:rgb(var(--tblue));
+  }
+  .tab .dot { width:6px; height:6px; border-radius:50%; background:rgb(var(--ok)); flex:none; }
+  .tab.dead .dot { background:rgb(var(--bad)); }
+  .tab .close {
+    display:grid; place-items:center; width:16px; height:16px; border-radius:4px; border:0;
+    background:transparent; cursor:pointer; color:inherit; padding:0;
+  }
+  .tab .close:hover { background:rgb(var(--bad) / .2); color:rgb(var(--bad)); }
+  .tab-add {
+    display:inline-flex; align-items:center; justify-content:center; width:28px; height:28px; flex:none;
+    border:1px dashed rgb(var(--line)); border-radius:9px; background:transparent;
+    color:rgb(var(--fgfaint)); cursor:pointer;
+  }
+  .tab-add:hover { border-color:rgb(var(--tblue) / .5); color:rgb(var(--tblue)); }
+
+  /* ============ 终端区 ============ */
+  .term-wrap { position:relative; flex:1; min-height:0; padding:6px 8px; }
+  /* id 不能叫 term：带 id 的元素会被浏览器自动挂成 window.term，
+     而本页用 window.term 指当前 xterm 实例——同名会撞车导致启动脚本暴毙（黑屏）。 */
+  #termHost { width:100%; height:100%; }
+  .crt-fade { pointer-events:none; position:absolute; left:0; right:0; bottom:0; height:36px;
+    background:linear-gradient(180deg, rgba(2,6,23,0) 92%, rgba(2,6,23,.55)); }
+  /* 亮色主题终端是白底：底部遮罩跟着换浅色，别留一块深色渐变 */
+  html.light .crt-fade { background:linear-gradient(180deg, rgba(255,255,255,0) 92%, rgba(226,232,240,.55)); }
+
+  /* ============ 底部状态栏 ============ */
+  footer {
+    display:flex; align-items:center; gap:14px; flex:none;
+    border-top:1px solid rgb(var(--line)); background:rgb(var(--card) / .7);
+    padding:7px 20px; font-family:ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace;
+    font-size:11px; color:rgb(var(--fgfaint));
+  }
+  footer .dot { width:6px; height:6px; border-radius:50%; background:rgb(var(--ok)); display:inline-block; margin-right:5px; }
+  footer .lat { margin-left:auto; display:flex; align-items:center; gap:6px; }
+
+  /* ============ 空态 / 服务器选择弹层 ============ */
+  .empty {
+    position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px;
+    color:rgb(var(--fgfaint)); background:rgb(var(--term));
+  }
+  .modal { position:fixed; inset:0; z-index:40; display:grid; place-items:center; background:rgba(0,0,0,.6); padding:24px; }
+  .modal-card {
+    width:100%; max-width:380px; max-height:70vh; overflow:auto;
+    background:rgb(var(--card)); border:1px solid rgb(var(--linestrong)); border-radius:14px;
+    box-shadow:0 16px 48px -8px rgba(0,0,0,.65);
+  }
+  .modal-head { display:flex; align-items:center; justify-content:space-between; padding:14px 22px; border-bottom:1px solid rgb(var(--line)); }
+  .modal-head h3 { margin:0; font-size:15px; font-weight:600; }
+  .modal-head button { border:0; background:transparent; cursor:pointer; color:rgb(var(--fgdim)); display:grid; place-items:center; width:30px; height:30px; border-radius:8px; }
+  .modal-head button:hover { background:rgb(var(--elevate)); color:rgb(var(--fg)); }
+  .server-list { padding:12px; display:flex; flex-direction:column; gap:8px; }
+  .server-item {
+    display:flex; align-items:center; gap:10px; text-align:left; cursor:pointer;
+    border:1px solid rgb(var(--line)); background:rgb(var(--elevate)); border-radius:10px; padding:10px 12px;
+  }
+  .server-item:hover { border-color:rgb(var(--tblue) / .5); }
+  .server-item .name { font-size:13px; font-weight:600; }
+  .server-item .host { font-size:11px; color:rgb(var(--fgdim)); font-family:ui-monospace,Menlo,Consolas,monospace; }
+
+  /* Toast */
+  #toast {
+    position:fixed; bottom:24px; left:50%; transform:translateX(-50%); z-index:50;
+    background:rgb(var(--elevate)); border:1px solid rgb(var(--linestrong)); border-radius:9px;
+    padding:10px 16px; font-size:13px; box-shadow:0 16px 40px -8px rgba(0,0,0,.65); transition:opacity .2s;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <span class="appicon" aria-hidden="true">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M6 9l3 3-3 3"/></svg>
+  </span>
+  <h1 id="title">终端</h1>
+  <span id="connPill" class="pill bad" hidden><span class="dot"></span><span id="connText">连接中…</span></span>
+  <div class="tools">
+    <button class="toolbtn" id="hubBtn" aria-label="打开远程管理" title="打开远程管理">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="7" rx="2"/><rect x="2" y="14" width="20" height="7" rx="2"/><path d="M6 6.5h.01M6 17.5h.01"/></svg>
+      远程管理
+    </button>
+    <button class="toolbtn" id="themeBtn" aria-label="切换主题">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none"/></svg>
+      主题
+    </button>
+    <button class="toolbtn" id="fontBtn" aria-label="调整字号" title="切换字号">
+      <span class="a">A</span><span class="b">A</span>
+    </button>
+  </div>
+</header>
+
+<div class="tabbar" id="tabbar" role="tablist" aria-label="终端会话"></div>
+
+<div class="term-wrap">
+  <div id="termHost"></div>
+  <div class="crt-fade" aria-hidden="true"></div>
+  <div class="empty" id="empty" hidden>
+    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M6 9l3 3-3 3"/><path d="M12 15h6"/></svg>
+    <div>还没有会话 —— 点上方 <b>＋</b> 选择一台服务器</div>
+  </div>
+</div>
+
+<footer>
+  <span><span class="dot" id="footDot"></span><span id="footHost">—</span></span>
+  <span aria-hidden="true">·</span><span>xterm-256color</span>
+  <span aria-hidden="true">·</span><span id="footSize">—</span>
+  <span class="lat"><span class="dot"></span>延迟 <span id="footLat">—</span></span>
+</footer>
+
+<!-- 服务器选择弹层 -->
+<div class="modal" id="pick" hidden role="dialog" aria-modal="true" aria-labelledby="pickTitle">
+  <div class="modal-card">
+    <div class="modal-head">
+      <h3 id="pickTitle">选择要连接的服务器</h3>
+      <button id="pickClose" aria-label="关闭">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div class="server-list" id="pickList"></div>
+  </div>
+</div>
+
+<div id="toast" hidden></div>
+
+<script>
+const HAS_TAURI = typeof window.__TAURI__ !== "undefined";
+const invoke = HAS_TAURI ? window.__TAURI__.core.invoke : null;
+const listen = HAS_TAURI ? window.__TAURI__.event.listen : null;
+const { error } = console;
+
+let toastTimer;
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.hidden = false; t.style.opacity = 1;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.style.opacity = 0; setTimeout(() => t.hidden = true, 200); }, 2200);
+}
+
+/* ---------- 主题（与主界面同一个真相源：settings.theme） ---------- */
+// 初始问后端，切换调 set_theme，theme-changed 广播让所有窗口跟着变。
+// localStorage 的 ab-theme 已废弃。
+const SUN='<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>';
+const resolvedTheme = (t) =>
+  t === 'light' || t === 'dark' ? t
+  : (!window.matchMedia || !window.matchMedia('(prefers-color-scheme: light)').matches) ? 'dark' : 'light';
+function applyTheme(t) {
+  document.documentElement.classList.remove('light', 'dark');
+  document.documentElement.classList.add(t);
+  if (window.term) { /* xterm 主题随 token 由 CSS 变量处取，重建主题映射 */ refreshTermTheme(); }
+}
+/* ---------- 远程管理入口（顶栏） ---------- */
+// 终端 / 文件 / 密钥三个独立窗顶栏各挂一份：任何一步都能回到 server-hub，
+// 不用先关窗再去找主窗或托盘。窗口已开时后端只做聚焦。
+const hubBtnElement = document.getElementById('hubBtn');
+if (hubBtnElement) {
+  hubBtnElement.addEventListener('click', async function () {
+    if (!invoke) { toast('浏览器里无法打开本机窗口'); return; }
+    try {
+      await invoke('hub_open_window');
+    } catch (error) {
+      toast(String(error));
+    }
+  });
+}
+
+document.getElementById('themeBtn').addEventListener('click', () => {
+  const next = document.documentElement.classList.contains('light') ? 'dark' : 'light';
+  applyTheme(next);
+  if (invoke) invoke('set_theme', { theme: next }).catch(() => {});
+});
+if (invoke) {
+  invoke('get_ui_state').then((state) => {
+    applyTheme(resolvedTheme(state && state.settings && state.settings.theme));
+  }).catch(() => {});
+  window.__TAURI__.event.listen('theme-changed', (event) => {
+    applyTheme(resolvedTheme(event && event.payload));
+  }).catch(() => {});
+} else {
+  applyTheme('dark');
+}
+
+/* ---------- 字号 ---------- */
+const FONT_SIZES = [12, 13, 14, 16];
+let fontIdx = 1;
+document.getElementById('fontBtn').addEventListener('click', () => {
+  fontIdx = (fontIdx + 1) % FONT_SIZES.length;
+  if (window.term) {
+    term.options.fontSize = FONT_SIZES[fontIdx];
+    fitTerm();
+  }
+});
+
+/* ---------- 终端设置（hub「终端设置」页持久化；跨窗口 localStorage 共享） ---------- */
+const TERM_SET_KEY = 'ab-term-settings';
+function loadTermSettings() {
+  const d = { fontSize: 14, cursorBlink: true, copyOnSelect: false, bell: false, scrollback: 5000, fontFamily: '' };
+  try {
+    const s = JSON.parse(localStorage.getItem(TERM_SET_KEY) || '{}');
+    return {
+      fontSize: Math.min(24, Math.max(10, Number(s.fontSize) || d.fontSize)),
+      cursorBlink: s.cursorBlink !== undefined ? !!s.cursorBlink : d.cursorBlink,
+      copyOnSelect: !!s.copyOnSelect,
+      bell: !!s.bell,
+      scrollback: Math.min(100000, Math.max(500, Number(s.scrollback) || d.scrollback)),
+      fontFamily: (typeof s.fontFamily === 'string' ? s.fontFamily : '').trim(),
+    };
+  } catch (e) { return d; }
+}
+/* 字体族：终端设置页留空 = 内置等宽栈；填了就用用户字体（缺失时浏览器回落等宽） */
+function termFontFamily() {
+  return termSettings.fontFamily || 'ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace';
+}
+let termSettings = loadTermSettings();
+const termFlag = { copyOnSelect: termSettings.copyOnSelect, bell: termSettings.bell };
+const _fi = FONT_SIZES.indexOf(termSettings.fontSize);
+if (_fi >= 0) fontIdx = _fi;
+
+/* ---------- xterm ---------- */
+function termTheme() {
+  const css = getComputedStyle(document.documentElement);
+  const rgb = (v) => `rgb(${css.getPropertyValue(v).trim().split(/\s+/).join(',')})`;
+  return {
+    // 终端区跟主题走：暗色 = 黑底白字（--term 4 7 15 + --fg 248 250 252），
+    // 亮色 = 白底黑字（--term 255 255 255 + --fg 15 23 42）—— 用户定案
+    background: rgb('--term'), foreground: rgb('--fg'),
+    cursor: rgb('--accent'), cursorAccent: rgb('--term'),
+    selectionBackground: 'rgba(99,102,241,.25)',
+  };
+}
+function refreshTermTheme() {
+  if (!window.term) return;
+  term.options.theme = termTheme();
+}
+
+function fitTerm() {
+  if (!window.fit) return;
+  try { fit.fit(); } catch (e) { /* 容器还没量好就算了 */ }
+}
+
+let activeId = null;              // 当前选中的会话 id
+const sessions = new Map();       // id → { meta, server, term, dead }
+const earlyData = new Map();      // id → [b64]：会话还没注册时先到的 ssh 输出，注册后补写
+// （ssh 走 ControlMaster 复用旧主连接时，banner+提示符可能早于 hub_term_open 的
+//   promise 落地就到——不缓存的话终端就永远黑着。）
+
+function writeData(session, data) {
+  const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
+  session.term.write(bytes);
+}
+
+function ensureTerm(session) {
+  if (session.term) return session.term;
+  const t = new Terminal({
+    fontFamily: termFontFamily(),
+    fontSize: FONT_SIZES.includes(termSettings.fontSize) ? FONT_SIZES[fontIdx] : termSettings.fontSize,
+    cursorBlink: termSettings.cursorBlink,
+    theme: termTheme(),
+    scrollback: termSettings.scrollback,
+  });
+  const f = new FitAddon.FitAddon();
+  t.loadAddon(f);
+  t.open(document.getElementById('termHost'));
+  session.term = t; session.fit = f;
+  if (!window.term) { window.term = t; window.fit = f; }
+
+  t.onData((data) => {
+    if (!invoke || session.dead) return;
+    invoke('hub_term_write', { sessionId: session.meta.id, data: btoa(unescape(encodeURIComponent(data))) })
+      .catch((e) => toast('发送失败：' + e));
+  });
+  t.onResize(({ cols, rows }) => {
+    if (!invoke) return;
+    invoke('hub_term_resize', { sessionId: session.meta.id, rows, cols }).catch(() => {});
+  });
+  // 选中即复制（终端设置页开关）
+  t.onSelectionChange(() => {
+    if (!termFlag.copyOnSelect || !t.hasSelection()) return;
+    try { navigator.clipboard.writeText(t.getSelection()).catch(() => {}); } catch (e) {}
+  });
+  // 响铃提示（BEL → 短提示音）
+  t.onBell(() => {
+    if (!termFlag.bell) return;
+    try {
+      const ac = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ac.createOscillator(), gain = ac.createGain();
+      osc.connect(gain); gain.connect(ac.destination);
+      osc.frequency.value = 880; gain.gain.value = 0.05;
+      osc.start();
+      setTimeout(() => { osc.stop(); ac.close(); }, 130);
+    } catch (e) {}
+  });
+  return t;
+}
+
+function showSession(id) {
+  const session = sessions.get(id);
+  if (!session) return;
+  // 只保留当前会话的 xterm 挂在 DOM 上（其余 detach）
+  for (const other of sessions.values()) {
+    if (other !== session && other.term && other.term.element) {
+      other.term.element.remove();
+    }
+  }
+  ensureTerm(session);
+  if (!session.term.element.isConnected) {
+    document.getElementById('termHost').appendChild(session.term.element);
+  }
+  activeId = id;
+  window.term = session.term; window.fit = session.fit;
+  fitTerm();
+  session.term.focus();
+  renderTabs();
+  renderFooter(session);
+}
+
+function renderTabs() {
+  const bar = document.getElementById('tabbar');
+  bar.textContent = '';
+  for (const [id, s] of sessions) {
+    const b = document.createElement('button');
+    b.className = 'tab' + (s.dead ? ' dead' : '');
+    b.setAttribute('role', 'tab');
+    b.setAttribute('aria-selected', String(id === activeId));
+    const dot = document.createElement('span'); dot.className = 'dot';
+    const label = document.createElement('span'); label.textContent = s.meta.server_name;
+    const close = document.createElement('button');
+    close.className = 'close'; close.title = '结束会话：' + s.meta.server_name;
+    close.innerHTML = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+    close.addEventListener('click', (e) => { e.stopPropagation(); closeSession(id); });
+    b.append(dot, label, close);
+    b.addEventListener('click', () => showSession(id));
+    bar.appendChild(b);
+  }
+  const add = document.createElement('button');
+  add.className = 'tab-add'; add.title = '新建会话'; add.setAttribute('aria-label', '新建会话');
+  add.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>';
+  add.addEventListener('click', () => openPicker());
+  bar.appendChild(add);
+
+  document.getElementById('empty').hidden = sessions.size > 0;
+}
+
+function renderFooter(session) {
+  document.getElementById('footHost').textContent = session.meta.host_label;
+  document.getElementById('footSize').textContent = session.fit
+    ? `${session.fit.proposeDimensions()?.cols ?? '—'}×${session.fit.proposeDimensions()?.rows ?? '—'}`
+    : '—';
+  document.getElementById('footLat').textContent = session.latencyMs != null ? session.latencyMs + 'ms' : '—';
+  const pill = document.getElementById('connPill');
+  pill.hidden = false;
+  pill.className = 'pill ' + (session.dead ? 'bad' : 'ok');
+  document.getElementById('connText').textContent = session.dead ? '已断开' : 'SSH 已连接';
+  document.getElementById('title').textContent =
+    session.meta.server_name + ' — bash';
+}
+
+function closeSession(id) {
+  const session = sessions.get(id);
+  if (!session || !invoke) return;
+  if (!session.dead) {
+    invoke('hub_term_close', { sessionId: id }).catch((e) => error('关闭失败', e));
+    return; // 等 hub-term-closed 事件统一收尾
+  }
+  dropSession(id);
+}
+
+function dropSession(id) {
+  const session = sessions.get(id);
+  if (session?.term) { try { session.term.dispose(); } catch (e) {} }
+  sessions.delete(id);
+  if (activeId === id) {
+    activeId = null;
+    const next = sessions.keys().next();
+    if (!next.done) { showSession(next.value); return; }
+    document.getElementById('title').textContent = '终端';
+    document.getElementById('connPill').hidden = true;
+    document.getElementById('footHost').textContent = '—';
+    document.getElementById('footSize').textContent = '—';
+    renderTabs();
+  } else {
+    renderTabs();
+  }
+}
+
+/* 正在连接中的服务器 id：连点两下「+」不会再开一个会话（也不会重复卡一发）。
+   后端已经做到不阻塞 UI，前端这一层是保证「任何一次点击都有可见反馈」。 */
+const opening = new Set();
+/** 开终端的时间上限：openpty + spawn 正常是毫秒级，超过这个数就是出问题了。 */
+const OPEN_TIMEOUT_MS = 10000;
+
+/** 给 promise 加超时：后端万一真卡住，用户看到的是错误提示而不是无限等待。 */
+function withTimeout(promise, ms, message) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms);
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      (error) => { clearTimeout(timer); reject(error); },
+    );
+  });
+}
+
+/** 建立会话期间的状态：标题/胶囊/底栏立刻显示「正在连接」，不要让用户对黑屏。 */
+function showConnecting(server) {
+  const host = (server.username ? server.username + '@' : '') + server.host + ':' + (server.port || 22);
+  document.getElementById('empty').hidden = true;
+  document.getElementById('title').textContent = server.name + ' — 正在连接';
+  const pill = document.getElementById('connPill');
+  pill.hidden = false;
+  pill.className = 'pill bad';
+  document.getElementById('connText').textContent = '连接中…';
+  document.getElementById('footHost').textContent = host;
+}
+
+/** 连接失败：把界面退回「还没有会话」，并留下错误 toast。 */
+function clearConnecting() {
+  if (sessions.size > 0) return;
+  document.getElementById('empty').hidden = false;
+  document.getElementById('title').textContent = '终端';
+  document.getElementById('connPill').hidden = true;
+  document.getElementById('footHost').textContent = '—';
+  document.getElementById('footSize').textContent = '—';
+}
+
+async function openSession(server) {
+  if (!invoke) { toast('非 Tauri 环境（预览）：无后端'); return; }
+  // 同一台服务器已有活会话 → 直接切过去，不重复开
+  // （server 可能为 null：窗口重载捡回的会话只有 meta）
+  for (const [id, s] of sessions) {
+    if (!s.dead && s.server && s.server.id === server.id) { showSession(id); return; }
+  }
+  if (opening.has(server.id)) { toast('这台服务器正在连接中，稍等…'); return; }
+  opening.add(server.id);
+  showConnecting(server);
+  try {
+    const meta = await withTimeout(
+      invoke('hub_term_open', { server }),
+      OPEN_TIMEOUT_MS,
+      '打开终端超时（后端没有响应）。请再点一次，或查看设置里的诊断日志。',
+    );
+    const session = { meta, server, term: null, fit: null, dead: false, latencyMs: null };
+    sessions.set(meta.id, session);
+    showSession(meta.id);
+    // 注册后补写会话建立前就到的 ssh 输出（banner/提示符），再清缓存
+    const buffered = earlyData.get(meta.id);
+    earlyData.delete(meta.id);
+    if (buffered) for (const data of buffered) writeData(session, data);
+    startLatencyPoll(meta.id, server);
+  } catch (e) {
+    toast(String(e && e.message ? e.message : e));
+    clearConnecting();
+  } finally {
+    opening.delete(server.id);
+  }
+}
+
+/* 延迟：每 10s 用测试连接的真实 TCP 握手耗时（与 hub 窗口同一命令） */
+function startLatencyPoll(id, server) {
+  const tick = async () => {
+    const session = sessions.get(id);
+    if (!session || session.dead) return;
+    const start = performance.now();
+    try {
+      await invoke('hub_test_server', { server });
+      session.latencyMs = Math.round(performance.now() - start);
+    } catch (e) {
+      session.latencyMs = null;
+    }
+    if (id === activeId) renderFooter(session);
+  };
+  tick();
+  const timer = setInterval(() => {
+    if (!sessions.has(id)) { clearInterval(timer); return; }
+    tick();
+  }, 10000);
+}
+
+/* ---------- 服务器选择弹层 ---------- */
+async function openPicker() {
+  if (!invoke) return;
+  let servers = [];
+  try { servers = await invoke('hub_list_servers') || []; } catch (e) { toast(String(e)); return; }
+  const list = document.getElementById('pickList');
+  list.textContent = '';
+  if (!servers.length) {
+    const p = document.createElement('p');
+    p.style.cssText = 'padding:14px;color:rgb(var(--fgfaint));font-size:13px;text-align:center;margin:0';
+    p.textContent = '还没有服务器 —— 先在远程管理窗口里添加';
+    list.appendChild(p);
+  }
+  for (const server of servers) {
+    const b = document.createElement('button');
+    b.className = 'server-item';
+    b.innerHTML = '<span class="name"></span><span class="host"></span>';
+    b.querySelector('.name').textContent = server.name;
+    b.querySelector('.host').textContent =
+      (server.username ? server.username + '@' : '') + server.host + ':' + (server.port || 22);
+    b.addEventListener('click', () => {
+      document.getElementById('pick').hidden = true;
+      openSession(server);
+    });
+    list.appendChild(b);
+  }
+  document.getElementById('pick').hidden = false;
+}
+document.getElementById('pickClose').addEventListener('click', () => document.getElementById('pick').hidden = true);
+document.getElementById('pick').addEventListener('click', (e) => { if (e.target.id === 'pick') e.target.hidden = true; });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') document.getElementById('pick').hidden = true; });
+
+/* ---------- 尺寸自适应 ---------- */
+window.addEventListener('resize', () => { fitTerm(); const s = sessions.get(activeId); if (s) renderFooter(s); });
+
+/* ---------- 后端事件 ---------- */
+if (listen) {
+  // 终端设置热更新：hub「终端设置」页保存后即时应用（含已开会话）
+  listen('ab-term-settings-changed', (event) => {
+    const s = event.payload || {};
+    if (s.fontSize !== undefined) termSettings.fontSize = Math.min(24, Math.max(10, Number(s.fontSize) || termSettings.fontSize));
+    if (s.cursorBlink !== undefined) termSettings.cursorBlink = !!s.cursorBlink;
+    if (s.copyOnSelect !== undefined) termFlag.copyOnSelect = !!s.copyOnSelect;
+    if (s.bell !== undefined) termFlag.bell = !!s.bell;
+    if (s.scrollback !== undefined) termSettings.scrollback = Math.min(100000, Math.max(500, Number(s.scrollback) || termSettings.scrollback));
+    if (s.fontFamily !== undefined) termSettings.fontFamily = String(s.fontFamily || '').trim();
+    for (const session of sessions.values()) {
+      if (!session.term) continue;
+      session.term.options.fontSize = termSettings.fontSize;
+      session.term.options.cursorBlink = termSettings.cursorBlink;
+      session.term.options.scrollback = termSettings.scrollback;
+      session.term.options.fontFamily = termFontFamily();
+    }
+    fitTerm();
+    toast('终端设置已应用');
+  });
+  listen('hub-term-data', (event) => {
+    const { id, data } = event.payload;
+    const session = sessions.get(id);
+    if (!session) {
+      // 会话还没注册：缓存，openSession 注册后补写（见 earlyData 注释）
+      let list = earlyData.get(id);
+      if (!list) { list = []; earlyData.set(id, list); }
+      if (list.length < 64) list.push(data);
+      return;
+    }
+    ensureTerm(session);
+    writeData(session, data);
+  });
+  listen('hub-term-closed', (event) => {
+    const { id, code } = event.payload;
+    earlyData.delete(id);
+    const session = sessions.get(id);
+    if (!session) return;
+    session.dead = true;
+    renderTabs();
+    if (id === activeId) renderFooter(session);
+    toast(`会话已结束：${session.meta.server_name}（code ${code}）`);
+    // 死标签保留不自动收：连接失败时 ssh 的报错就在终端里，闪没 = 黑箱。
+    // 由用户点标签上的 ✕ 手动关（Rust 端 abnormal 退出同样不自动关窗）。
+  });
+  listen('hub-term-open-server', (event) => {
+    openSession(event.payload);
+  });
+}
+
+/* ---------- 启动 ---------- */
+(async function boot() {
+  renderTabs();
+  if (!invoke) { document.getElementById('empty').hidden = false; return; }
+  // 1) hub 排队的启动服务器
+  let pending = null;
+  try { pending = await invoke('hub_term_take_pending'); } catch (e) { error(e); }
+  if (pending) {
+    try {
+      await openSession(pending);
+    } catch (e) {
+      error(e);
+    }
+    return;
+  }
+  // 2) 窗口重载：捡回还活着的会话
+  try {
+    const alive = await invoke('hub_term_sessions') || [];
+    if (alive.length) {
+      for (const meta of alive) {
+        const session = { meta, server: null, term: null, fit: null, dead: false, latencyMs: null };
+        sessions.set(meta.id, session);
+      }
+      showSession(alive[alive.length - 1].id);
+      return;
+    }
+  } catch (e) { error(e); }
+  // 3) 什么都没有 → 空态
+  document.getElementById('empty').hidden = false;
+})();
+</script>
+<!-- 页面心跳：后端据此区分「窗口对象还在」和「页面还活着」。
+     白框（webview 渲染进程崩掉 / 首帧没加载出来 / 页面 JS 未起来）时这里不跑，
+     后端下次点按钮就会销毁重建，而不是一直 show 那个白框。 -->
+<script>
+(function () {
+  if (!window.__TAURI__ || !window.__TAURI__.core) return;
+  function beat(ready) {
+    try { window.__TAURI__.core.invoke('hub_page_ping', { ready: !!ready }); } catch (e) {}
+  }
+  beat(true);                                  // 脚本跑到了 = 页面已经起来了
+  setInterval(function () { beat(true); }, 3000);
+})();
+</script>
+</body>
+</html>

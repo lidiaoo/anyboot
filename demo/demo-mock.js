@@ -111,10 +111,18 @@
         ok: true, service: "anyboot",
         machineId: "demo0000demo0000demo0000demo0000",
         machineName: "演示机（模拟数据）",
+        machineOs: "macos",
+        appVersion: "0.2.0",
       }));
     }
     if (path.indexOf("/api/ui-state", path.length - 14) !== -1) {
       return Promise.resolve(respond(snapshot()));
+    }
+    if (path.indexOf("/api/system", path.length - 11) !== -1) {
+      return Promise.resolve(respond(clone(DEMO.apiSystem)));
+    }
+    if (path.indexOf("/api/power", path.length - 10) !== -1) {
+      return Promise.resolve(respond({ ok: true, message: "演示模式：电源动作已模拟" }));
     }
     if (path.indexOf("/api/ui-command", path.length - 15) !== -1 && method === "POST") {
       var cmd = "", args = {};
@@ -148,11 +156,43 @@
           return Promise.resolve(respond({ cmd: cmd, ok: true, result: grubSwitchResult(args.selector) }));
         case "linux_grub_pick":
           return Promise.resolve(respond({ cmd: cmd, ok: true, result: grubView() }));
-        case "power_action":
+        case "linux_grub_helper_ready":
+          return Promise.resolve(respond({ cmd: cmd, ok: true, result: true }));
+        case "detect_esp":
+          return Promise.resolve(respond({ cmd: cmd, ok: true, result: DEMO.detect_esp.result }));
+        case "http_access_hint":
+          return Promise.resolve(respond(DEMO.http_access_hint));
+        case "reveal_http_token":
+          return Promise.resolve(respond({ cmd: cmd, ok: true, result: "demo-token-not-real" }));
+        case "get_settings":
+          return Promise.resolve(respond({ cmd: cmd, ok: true, result: clone(snapshot().settings || {}) }));
+        case "sol_status":
+        case "sol_status_privileged":
+          return Promise.resolve(respond({ cmd: cmd, ok: true, result: clone(DEMO.sol_status.result) }));
+        case "sol_config_read":
+          return Promise.resolve(respond({ cmd: cmd, ok: true, result: clone(DEMO.sol_config_read.result) }));
+        case "sol_logs":
+          return Promise.resolve(respond({ cmd: cmd, ok: true, result: clone(DEMO.sol_logs.result) }));
+        case "sol_default_dir":
+          return Promise.resolve(respond({ cmd: cmd, ok: true, result: DEMO.sol_default_dir.result }));
+        case "sol_project_info":
+          return Promise.resolve(respond({ cmd: cmd, ok: true, result: clone(DEMO.sol_project_info.result) }));
+        case "sol_http_get":
+          return Promise.resolve(respond({
+            cmd: cmd, ok: true,
+            result: { enabled: true, listen: "127.0.0.1:8080", authKind: "token", token: "demo-token-not-real" },
+          }));
+        case "power_action": {
           var act = { reboot: "重启", shutdown: "关机", sleep: "睡眠" }[args.action] || args.action;
           return Promise.resolve(respond({
             cmd: cmd, ok: true,
             result: { pending: false, message: "演示模式：「" + act + "」已模拟，不会作用于任何真机" },
+          }));
+        }
+        case "power_action_multi":
+          return Promise.resolve(respond({
+            cmd: cmd, ok: true,
+            result: { pending: false, message: "演示模式：电源动作已模拟，不会作用于任何真机" },
           }));
         default:
           // set_* / sol_* / 其余写命令：一律「已模拟」，成功但不落盘

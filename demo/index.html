@@ -9,47 +9,97 @@
   * { box-sizing: border-box; }
   body { margin: 0; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
          background: #0d1117; color: #e6edf3; }
-  .hero { max-width: 1080px; margin: 0 auto; padding: 64px 24px 32px; text-align: center; }
-  .hero h1 { font-size: 44px; margin: 0 0 12px; letter-spacing: 1px; }
+  .hero { max-width: 1080px; margin: 0 auto; padding: 56px 24px 28px; text-align: center; }
+  .hero h1 { font-size: 42px; margin: 0 0 12px; letter-spacing: 1px; }
   .hero h1 span { background: linear-gradient(120deg, #4f8ef7, #9b6ef3); -webkit-background-clip: text; background-clip: text; color: transparent; }
-  .hero p.sub { color: #8b949e; font-size: 17px; margin: 0 auto 36px; max-width: 640px; line-height: 1.7; }
-  .badges { margin-bottom: 28px; }
+  .hero p.sub { color: #8b949e; font-size: 16px; margin: 0 auto 32px; max-width: 680px; line-height: 1.7; }
+  .badges { margin-bottom: 26px; }
   .badges span { display: inline-block; background: #161b22; border: 1px solid #30363d; border-radius: 999px;
                  padding: 5px 14px; margin: 0 6px 8px; font-size: 13px; color: #a5b4fc; }
-  .entries { display: flex; gap: 20px; justify-content: center; flex-wrap: wrap; margin-bottom: 48px; }
-  .entry { display: block; width: 300px; padding: 28px 24px; border-radius: 16px; text-decoration: none;
+  .sections { max-width: 1080px; margin: 0 auto; padding: 0 24px 12px; }
+  .sections h3 { color: #8b949e; font-weight: 600; font-size: 15px; margin: 26px 0 14px; letter-spacing: .5px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
+  .entry { display: block; padding: 18px 20px; border-radius: 14px; text-decoration: none;
            background: #161b22; border: 1px solid #30363d; transition: transform .15s, border-color .15s; }
-  .entry:hover { transform: translateY(-3px); border-color: #4f8ef7; }
-  .entry .icon { font-size: 40px; }
-  .entry h2 { margin: 12px 0 8px; font-size: 20px; color: #e6edf3; }
-  .entry p { margin: 0; color: #8b949e; font-size: 14px; line-height: 1.6; }
-  .shots { max-width: 1080px; margin: 0 auto; padding: 0 24px 40px; }
+  .entry:hover { transform: translateY(-2px); border-color: #4f8ef7; }
+  .entry b { display: flex; align-items: center; gap: 8px; font-size: 16px; color: #e6edf3; }
+  .entry p { margin: 8px 0 0; color: #8b949e; font-size: 13px; line-height: 1.6; }
+  .entry .tag { display: inline-block; font-size: 11px; background: #21262d; border-radius: 6px;
+                padding: 1px 7px; color: #a5b4fc; margin-left: auto; }
+  .shots { max-width: 1080px; margin: 0 auto; padding: 24px 24px 40px; }
   .shots h3 { text-align: center; color: #8b949e; font-weight: 500; margin-bottom: 20px; }
   .shots img { width: 100%; border-radius: 12px; border: 1px solid #30363d; margin-bottom: 20px; display: block; }
-  footer { text-align: center; color: #6e7681; font-size: 13px; padding: 24px 0 48px; }
+  footer { text-align: center; color: #6e7681; font-size: 13px; padding: 20px 0 48px; }
   footer a { color: #58a6ff; text-decoration: none; }
+  @media (max-width: 560px) { .hero h1 { font-size: 32px; } }
 </style>
 </head>
 <body>
 <div class="hero">
   <h1>Any<span>Boot</span> 在线体验</h1>
   <p class="sub">跨平台引导管理 + 远程电源工具：rEFInd / GRUB / OpenCore / systemd-boot / Clover 一站管理，
-     托盘点一下切换下次启动项，手机 / 浏览器远程操作。<br>本页面为<strong>在线演示</strong>：界面与真实应用完全一致，
-     数据来自一台真实多系统机器的快照回放，所有操作只在演示里生效。</p>
+     托盘点一下切换下次启动项，手机 / 浏览器远程操作。<br>本站为<strong>在线演示</strong>：界面与真实应用完全一致，
+     数据来自一台真实多系统机器的快照回放，所有操作只在演示里生效，不会触达任何机器。</p>
   <div class="badges">
     <span>macOS · Windows · Linux</span><span>Tauri 2</span><span>rEFInd · GRUB · OpenCore · systemd-boot · Clover</span>
+    <span>含移动端自适应</span>
   </div>
-  <div class="entries">
-    <a class="entry" href="./app.html#/boot">
-      <div class="icon">🖥️</div>
-      <h2>PC 端体验</h2>
-      <p>完整主窗口界面：系统引导页、rEFInd 模拟扫描、GRUB 直读、OpenCore 预演、全部设置项。</p>
-    </a>
-    <a class="entry" href="./phone.html">
-      <div class="icon">📱</div>
-      <h2>移动端体验</h2>
-      <p>同一份界面在手机上的自适应布局 —— 就是手机浏览器 / App 打开 <code>http://电脑IP:12300</code> 的样子。</p>
-    </a>
+  <div class="sections">
+    <h3>应用主窗口（4 个标签页）</h3>
+    <div class="grid">
+      <a class="entry" href="./app.html#/boot">
+        <b>🖥️ 系统引导 <span class="tag">默认页</span></b>
+        <p>下次启动切换、rEFInd 模拟扫描、GRUB 直读 Linux 内核、OpenCore 菜单预演、免密提权状态。</p>
+      </a>
+      <a class="entry" href="./app.html#/adv-boot">
+        <b>🎛️ 引导高级设置</b>
+        <p>五个引导器开/关与左右编排、版式主题、菜单样式、上下排序，下方实时预演真实数据。</p>
+      </a>
+      <a class="entry" href="./app.html#/settings">
+        <b>⚙️ 基本设置</b>
+        <p>主题与强调色、开机自启、远程控制（端口 / token）、通道通知、窗口行为等全部设置项。</p>
+      </a>
+      <a class="entry" href="./app.html#/sol">
+        <b>🌙 SOL 远程唤醒</b>
+        <p>Wake-on-LAN 魔术包规则（本机真实 sol 配置快照）、HTTP 服务监听、配置编辑器、一键安装。</p>
+      </a>
+    </div>
+
+    <h3>远程管理窗（PC 端独立窗口）</h3>
+    <div class="grid">
+      <a class="entry" href="./hub-demo.html">
+        <b>🧭 远程管理主窗 <span class="tag">侧边栏</span></b>
+        <p>电脑列表（在线状态 / 电源动作 / 引导切换）、SSH 服务器档案、远程接入、传输、终端设置、关于。</p>
+      </a>
+      <a class="entry" href="./hub-term-demo.html">
+        <b>⌨️ SSH 终端</b>
+        <p>xterm.js 真实终端体验 —— 连接一台「演示服务器」，可以输入命令（内置 ls / cd / cat / uname 等）。</p>
+      </a>
+      <a class="entry" href="./hub-files-demo.html">
+        <b>📁 SFTP 文件浏览</b>
+        <p>远程目录浏览（大小 / 权限 / 修改时间），演示里开放浏览，上传下载等修改操作已禁用。</p>
+      </a>
+      <a class="entry" href="./hub-keys-demo.html">
+        <b>🔑 SSH 密钥管理</b>
+        <p>密钥列表（Ed25519 / RSA）、指纹、口令状态、被哪些服务器引用；演示里可点「生成密钥」。</p>
+      </a>
+      <a class="entry" href="./hub-backup-demo.html">
+        <b>💾 备份与恢复</b>
+        <p>电脑列表 / SSH 档案 / 密钥 / 设置导出导入、WebDAV 云同步的完整界面。</p>
+      </a>
+    </div>
+
+    <h3>移动端</h3>
+    <div class="grid">
+      <a class="entry" href="./phone.html">
+        <b>📱 移动端体验 <span class="tag">手机框</span></b>
+        <p>桌面浏览器里套手机框看移动布局；手机上打开会自动全屏直达真实界面。</p>
+      </a>
+      <a class="entry" href="./app.html#/boot">
+        <b>📲 手机直接访问</b>
+        <p>手机浏览器打开本页任意入口即是移动端布局 —— 与 AnyBoot 手机 App 的 WebView 完全同源。</p>
+      </a>
+    </div>
   </div>
 </div>
 <div class="shots">
@@ -59,7 +109,7 @@
   <img src="./screenshots/boot-grub.png" alt="GRUB 自动读取" loading="lazy" />
   <img src="./screenshots/boot-opencore.png" alt="OpenCore 预演" loading="lazy" />
 </div>
-<footer>演示数据快照于 2026-10-31 抓取 · <a href="https://github.com/lidiaoo/anyboot" target="_blank">GitHub 仓库</a>
+<footer>演示数据快照于 2026-10-31 抓取（token 等敏感字段已脱敏） · <a href="https://github.com/lidiaoo/anyboot" target="_blank">GitHub 仓库</a>
  · <a href="https://github.com/lidiaoo/anyboot/releases" target="_blank">下载完整应用</a></footer>
 </body>
 </html>
