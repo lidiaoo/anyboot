@@ -1128,12 +1128,56 @@ function renderRefindSim(sim) {
   }
 }
 
-function renderSystems(status, busy, grub, sim) {
+/// 「下次启动」用的有效 GRUB 视图 —— 与后端托盘 / 手机同一口径
+/// （menu_model.rs 的 effective_grub / overlay_linux_grub）：读取方式是
+/// 「自动读取」且自动扫描出了条目时，用 Linux 分区那份（state.linuxGrub）的
+/// 条目 / 分组 / 选中项；「手动解析」或还没扫到就保持 ESP 那份原样。
+/// 不做这层合并的话：默认自动模式下刚启动，「自动读取」面板明明列出了 GRUB
+/// 启动项，「下次启动」大字却级联不出 GRUB 条目（用户 2026-10-31 报的
+/// 「程序刚启动不显示下次启动的 grub」）—— 因为它只看 ESP 手动那份。
+function effectiveGrubForNextBoot(state) {
+  const grub = state.grub;
+  const linux = state.linuxGrub;
+  if (!linux || !Array.isArray(linux.entries) || linux.entries.length === 0) {
+    return grub;
+  }
+  if (state.settings && state.settings.grubMode === "manual") {
+    return grub;
+  }
+  return Object.assign({}, grub, {
+    entries: linux.entries,
+    groups: linux.groups || [],
+    nextEntry: linux.nextEntry || "",
+    savedEntry: linux.savedEntry || "",
+  });
+}
+
+function renderSystems(status, busy, grub, sim, settings) {
   systemsElement.replaceChildren();
 
-  // 顶部那行大字要说明「下次启动的系统是哪个」，先扫一遍选中项
+  // 顶部那行大字要说明「下次启动的系统是哪个」，先扫一遍选中项。
+  // rEFInd 层与后端托盘同口径（menu_model.rs RefindSource）：自动扫描看模拟
+  // 扫描里 lastBoot 命中的那条，手动处理看 vars 快照标「已选择」的那条 ——
+  // 不按读取方式走的话，「自动」模式下主窗大字、托盘、手机三处各说各的。
   let activeName = null;
   let activeSystem = null;
+  const refindAuto = !settings || settings.refindMode !== "manual";
+  if (refindAuto && sim && Array.isArray(sim.entries)) {
+    const hit = sim.entries.find((entry) => entry.lastBoot);
+    if (hit && (hit.title || "").trim()) {
+      activeName = hit.title.trim();
+      activeSystem = hit.kind && hit.kind !== "unknown" ? hit.kind : null;
+    }
+  }
+  if (!activeName) {
+    for (const item of status.variables) {
+      if (item.active) {
+        activeName = item.displayName;
+        activeSystem = item.system;
+        break;
+      }
+    }
+  }
 
   // 与「模拟引导项扫描」同一套样式（用户定案 2026-10-29）：三张大卡片换成
   // GRUB 的 .grub-list —— 一行一个系统，**整行点一下 = 写它的 PreviousBoot
@@ -1146,10 +1190,8 @@ function renderSystems(status, busy, grub, sim) {
   box.append(listBox);
 
   for (const item of status.variables) {
-    if (item.active) {
-      activeName = item.displayName;
-      activeSystem = item.system;
-    }
+    // 选中项的判定已在上面按读取方式做过（自动看模拟扫描、手动看这里），
+    // 这个循环只负责把行画出来 —— 别再回写 activeName/activeSystem。
     const row = document.createElement("div");
     row.className = "grub-entry is-child";
     if (item.active) {
@@ -1244,7 +1286,10 @@ function renderSystems(status, busy, grub, sim) {
       // 条目文字与 GRUB 列表用同一条规则（grub-list-view.js 的 rowLabel）：
       // 极简/简易=去前缀内核名；中等=完整内核名；原始/复杂=完整菜单名 ——
       // 上面大字和下面列表说的是同一个东西，别一处一个叫法（用户定案 2026-10-13）。
-      const format = grub.listFormat || "minimal";
+      // 格式优先用设置里的权威值：ESP 那份快照不在（没配 ESP，纯自动模式）时
+      // 大字也别掉回极简，跟列表用同一个格式。
+      const format =
+        grub.listFormat || (settings && settings.grubListFormat) || "minimal";
       const leafLabel =
         format === "minimal" || format === "simple"
           ? grubStripKernel(grubKernelOf(entry))
@@ -2309,7 +2354,16 @@ function render(state) {
     !state.status.temporaryMount,
   );
 
-  renderSystems(state.status, busy, state.grub, state.refindSim);
+  // 「下次启动」大字的数据源要与后端托盘 / 手机同口径（menu_model.rs 的
+  // effective_grub / refind_source）：读取方式是自动时取「自动读取」扫到的那份，
+  // 手动才用 ESP 那份 —— 否则默认自动模式下刚启动，列表扫出来了大字却不级联。
+  renderSystems(
+    state.status,
+    busy,
+    effectiveGrubForNextBoot(state),
+    state.refindSim,
+    state.settings,
+  );
   // 读取方式（自动 / 手动）：设置里的是权威值，页签跟着它走 —— 否则托盘按新模式
   // 勾好了、主窗这块还停在旧模式，两处又对不上。
   applyLoaderModes(state.settings);
@@ -2333,7 +2387,10 @@ function render(state) {
   renderGrubAuto(
     state.linuxGrub,
     busy,
-    (state.grub && state.grub.listFormat) || "minimal",
+    // 格式是全局设置（settings 权威）：没配 ESP 时 state.grub 不在，也别掉回极简
+    (state.settings && state.settings.grubListFormat)
+      || (state.grub && state.grub.listFormat)
+      || "minimal",
   );
   // 三引导器通道（systemd-boot / OC / Clover）：快照 channels 驱动，同构卡片
   renderBootChannels(state.channels, {
