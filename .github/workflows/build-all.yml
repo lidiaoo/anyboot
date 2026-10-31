@@ -16,6 +16,44 @@ on:
     tags: ["v*"]
 
 jobs:
+  # ── 版本一致性闸（只在打 tag 时跑）─────────────────────────────────────
+  # 为什么必须有：客户端是拿「二进制里的版本号」跟「release tag 推出的版本」比。
+  # 如果 tag 是 v0.2.1 而源码里还写着 0.2.0，用户会看到「有新版本」→ 下载 →
+  # 装完版本还是 0.2.0 → 永远提示更新（死循环）。这里直接把这种发布掐死。
+  # 四处都要改：Cargo.toml / tauri.conf.json / build.gradle.kts / Info.plist。
+  version-check:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 校验四处版本号与 tag 一致
+        run: |
+          python3 - <<'PY'
+          import json, os, plistlib, re, sys, tomllib
+
+          version = os.environ["GITHUB_REF_NAME"].lstrip("vV")
+          cargo = tomllib.load(open("src-tauri/Cargo.toml", "rb"))["package"]["version"]
+          tauri = json.load(open("src-tauri/tauri.conf.json"))["version"]
+          gradle_src = open("mobile/android/app/build.gradle.kts").read()
+          gradle = re.search(r'versionName\s*=\s*"([^"]+)"', gradle_src).group(1)
+          ios = plistlib.load(open("mobile/ios/Info.plist", "rb"))["CFBundleShortVersionString"]
+
+          values = {
+              "src-tauri/Cargo.toml": cargo,
+              "src-tauri/tauri.conf.json": tauri,
+              "mobile/android/app/build.gradle.kts": gradle,
+              "mobile/ios/Info.plist": ios,
+          }
+          print("tag =", version, "|", values)
+
+          bad = {name: value for name, value in values.items() if value != version}
+          if bad:
+              detail = ", ".join(f"{name}={value}" for name, value in bad.items())
+              print(f"::error::版本号与 tag 不一致：{detail} ≠ {version}。发版前把四处版本号一起改成 {version}。")
+              sys.exit(1)
+          print("版本号一致，可以发布")
+          PY
+
   desktop-windows:
     runs-on: windows-latest
     steps:
@@ -152,8 +190,8 @@ jobs:
   # 所以这里的命名是硬契约（见 docs/检查更新-设计.md §6 / update.rs
   # asset_candidates）。改名字必须两边一起改，否则更新会报「没有本平台安装包」。
   release:
-    needs: [desktop-windows, desktop-linux, desktop-macos, android, ios]
-    if: startsWith(github.ref, refs/tags/v)
+    needs: [version-check, desktop-windows, desktop-linux, desktop-macos, android, ios]
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
