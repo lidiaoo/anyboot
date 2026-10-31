@@ -209,9 +209,11 @@ class ComputerListActivity : ComponentActivity() {
     private var moreServerListOpen by mutableStateOf(false)
     private var moreTransportOpen by mutableStateOf(false)
     private var moreFailReloadOpen by mutableStateOf(false)
+    private var moreBootThemeOpen by mutableStateOf(false)
     private var moreConnectAll by mutableStateOf(false)
     private var moreTransport by mutableStateOf("auto")
     private var moreFailReloadSec by mutableStateOf(5)
+    private var moreBootTheme by mutableStateOf("")
 
     /** 列表里选中的电脑（点卡片选中 = 设为「当前电脑」；「重载当前电脑」作用于它） */
     private var selectedId by mutableStateOf("")
@@ -228,6 +230,7 @@ class ComputerListActivity : ComponentActivity() {
         moreConnectAll = ServerStore.connectAll(this)
         moreTransport = ServerStore.transport(this)
         moreFailReloadSec = getSharedPreferences(UI_PREFS, MODE_PRIVATE).getInt("failReloadSec", 5)
+        moreBootTheme = ServerProfile.guestBootTheme(this)
         // 默认选中电脑页的当前那台；之后点卡片即切换
         selectedId = ServerStore.activeId(this)
         reloadServers()
@@ -302,6 +305,7 @@ class ComputerListActivity : ComponentActivity() {
                 if (moreServerListOpen) MoreServerListDialog()
                 if (moreTransportOpen) MoreTransportDialog()
                 if (moreFailReloadOpen) MoreFailReloadDialog()
+                if (moreBootThemeOpen) MoreBootThemeDialog()
                 sysInfoTarget?.let { target ->
                     SystemInfoDialog(
                         title = target.label(),
@@ -481,6 +485,9 @@ class ComputerListActivity : ComponentActivity() {
                 DropdownMenuItem(text = { Text("传输方式（${transportLabel()}）") }, onClick = {
                     open = false; moreTransportOpen = true
                 })
+                DropdownMenuItem(text = { Text("引导页主题（${bootThemeLabel()}）") }, onClick = {
+                    open = false; moreBootThemeOpen = true
+                })
             }
         }
     }
@@ -490,6 +497,70 @@ class ComputerListActivity : ComponentActivity() {
         "ws" -> "推送"
         "http" -> "轮询"
         else -> "自动"
+    }
+
+    /** 菜单上那一条「引导页主题（…）」给人看的说法 */
+    private fun bootThemeLabel(): String = when (moreBootTheme) {
+        "" -> "跟随电脑"
+        "K" -> "不套用"
+        else -> moreBootTheme
+    }
+
+    /**
+     * 引导页主题（查看方偏好）：进电脑页面时经 URL（abTheme）带给那台电脑，
+     * 页面照它渲染但不改动电脑自己保存的主题 —— 「不改掉他的主题，用我的看」。
+     */
+    @Composable
+    private fun MoreBootThemeDialog() {
+        val palette = LocalPalette.current
+        AlertDialog(
+            onDismissRequest = { moreBootThemeOpen = false },
+            containerColor = palette.card,
+            title = { Text("引导页主题") },
+            text = {
+                Column {
+                    Text(
+                        "进电脑页面时按这里选的主题显示（不改掉电脑自己保存的主题）。\"跟随电脑\" = 不带偏好，看哪台就用哪台自己的。",
+                        fontSize = 13.sp, color = palette.fgDim,
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    ServerProfile.BOOT_THEMES.forEach { value ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    moreBootTheme = value
+                                    ServerProfile.setGuestBootTheme(this@ComputerListActivity, value)
+                                    moreBootThemeOpen = false
+                                    toast("已选择「${bootThemeLabel()}」：进电脑页面后生效")
+                                }
+                                .padding(vertical = 6.dp),
+                        ) {
+                            RadioButton(selected = moreBootTheme == value, onClick = {
+                                moreBootTheme = value
+                                ServerProfile.setGuestBootTheme(this@ComputerListActivity, value)
+                                moreBootThemeOpen = false
+                                toast("已选择「${bootThemeLabel()}」：进电脑页面后生效")
+                            })
+                            Text(
+                                when (value) {
+                                    "" -> "跟随电脑（不带回退）"
+                                    "K" -> "不套用主题"
+                                    else -> "方案 $value"
+                                },
+                                fontSize = 14.sp, color = palette.fg,
+                                modifier = Modifier.weight(1f, fill = false),
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { moreBootThemeOpen = false }) { Text("取消") }
+            },
+        )
     }
 
     // ---- ⋮ 菜单的三个弹窗（与 MainActivity 同一套设置，读写同一份偏好） ----
@@ -1755,8 +1826,10 @@ class ComputerListActivity : ComponentActivity() {
                 }
                 dot = ""
             } else {
-                val picked = previewRows.firstOrNull { it.isDefault && it.spec.isNotEmpty() }
-                    ?: previewRows.first()
+                // 默认项不一定有可发的值域（OC 默认项在 Preboot 卷上 spec=null），
+                // 判「下次启动是谁」只看预演里 default 标记的那行 —— 与托盘 /
+                // PC 端 channel_default_title 同一条规则，别退回第一行。
+                val picked = previewRows.firstOrNull { it.isDefault } ?: previewRows.first()
                 valueLabel = picked.title
                 dot = iconKind(picked.kind)
             }
@@ -2035,7 +2108,7 @@ class ComputerListActivity : ComponentActivity() {
         Column {
             // 说明与健康检查：收进感叹号（用户 2026-10-28：不要占位置），点了才展开
             val ocNote = if (channel.id == "opencore")
-                "「设为默认 ⤴」等价于 OC 菜单里的 Ctrl+Enter：写 OCBt0080 / OCBtOrder，不碰被 macOS 挡住的 Boot* 变量；电脑端弹授权时批准即可"
+                "点预演行 = 设为默认，等价于 OC 菜单里的 Ctrl+Enter：写 OCBt0080 / OCBtOrder，不碰被 macOS 挡住的 Boot* 变量；电脑端弹授权时批准即可"
             else ""
             val nvramNote = if (channel.permission == "nvram")
                 "⤴ 切换必经 NVRAM 写（电脑端可能弹管理员授权）"
@@ -2170,9 +2243,10 @@ class ComputerListActivity : ComponentActivity() {
     }
 
     /**
-     * OC 菜单预演的一行：标题（含系统图标 + 「✓ 已是默认」/「辅助」角标）+ 卷·路径 + 备注，
-     * 行尾「设为默认 ⤴」（对齐 PC 网页端 ocMenuRow 的语义：默认行也占位渲染，
-     * 不让人误以为选不了）。
+     * OC 菜单预演的一行（用户 2026-10-31：与 GRUB 弹层同款样式）——
+     * 标题（含分类色点 + 「辅助」角标）+ 卷·路径 + 备注；默认行 = 选中框
+     * （accent 底 + ✓，与 GRUB 弹层选中行同款），不再写「✓ 已是默认」字样；
+     * 「设为默认」不再占一颗按钮 —— 点整行就是设为默认（等价 OC 菜单 Ctrl+Enter）。
      */
     @Composable
     private fun ChannelMenuRowView(
@@ -2181,34 +2255,42 @@ class ComputerListActivity : ComponentActivity() {
         row: ChannelMenuRow,
         palette: Palette,
     ) {
+        val dotKind = menuDotKind(row.kind, row.title)
+        val clickable = !row.isDefault && row.spec.trim().isNotEmpty()
         Row(
             verticalAlignment = Alignment.Top,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(bottom = 6.dp)
                 .clip(RoundedCornerShape(11.dp))
-                .background(palette.elevate.copy(alpha = 0.5f))
+                .background(
+                    when {
+                        row.isDefault -> palette.accent.copy(alpha = 0.14f)
+                        else -> palette.elevate.copy(alpha = 0.5f)
+                    }
+                )
+                .then(
+                    if (clickable) {
+                        Modifier.clickable {
+                            sheetRequest = null
+                            switchPreviewRow(profile, channel, row)
+                        }
+                    } else Modifier
+                )
                 .padding(horizontal = 11.dp, vertical = 10.dp),
         ) {
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    BootDot(dotKind)
+                    Spacer(Modifier.width(7.dp))
                     Text(
-                        ocMenuIcon(row.kind) + row.title,
+                        row.title,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color = palette.fg,
+                        color = if (row.isDefault) palette.accent else palette.fg,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    if (row.isDefault) {
-                        Spacer(Modifier.width(5.dp))
-                        Text(
-                            "✓ 已是默认",
-                            fontSize = 10.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = palette.accent,
-                        )
-                    }
                     if (row.auxiliary) {
                         Spacer(Modifier.width(5.dp))
                         Text("辅助", fontSize = 10.sp, color = palette.fgFaint)
@@ -2232,33 +2314,29 @@ class ComputerListActivity : ComponentActivity() {
                     )
                 }
             }
-            if (!row.isDefault && row.spec.trim().isNotEmpty()) {
+            if (row.isDefault) {
                 Spacer(Modifier.width(8.dp))
-                Text(
-                    "设为默认 ⤴",
-                    fontSize = 11.5.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = palette.onAccent,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(9.dp))
-                        .background(palette.accent)
-                        .clickable {
-                            sheetRequest = null
-                            switchPreviewRow(profile, channel, row)
-                        }
-                        .padding(horizontal = 10.dp, vertical = 7.dp),
-                )
+                CheckIcon(tint = palette.accent, size = 16.dp)
             }
         }
     }
 
-    /** OC 菜单条目的系统图标（与 PC 网页端 OC_MENU_ICONS 同语义） */
-    private fun ocMenuIcon(kind: String): String = when (kind) {
-        "macos" -> "🍎 "
-        "windows" -> "🪟 "
-        "linux" -> "🐧 "
-        "tool" -> "⚙️ "
-        else -> ""
+    /** OC 菜单条目 → 分类色点（win 蓝 / mac 灰 / linux 橙 / tool 灰点）：
+     *  kind 认不出时按标题关键词救一把（与 PC 端 grubOsChip 同一顺序）。 */
+    private fun menuDotKind(kind: String, title: String): String {
+        when (kind) {
+            "macos" -> return "mac"
+            "windows" -> return "win"
+            "linux" -> return "linux"
+        }
+        val lowered = title.lowercase()
+        return when {
+            lowered.contains("windows") -> "win"
+            lowered.contains("mac") || lowered.contains("apple") -> "mac"
+            lowered.contains("linux") -> "linux"
+            kind == "tool" -> "tool"
+            else -> "auto"
+        }
     }
 
     @OptIn(ExperimentalMaterial3Api::class)
@@ -3092,7 +3170,9 @@ class ComputerListActivity : ComponentActivity() {
                 if (system.isEmpty()) continue
                 val label = optStr(item, "displayName").trim().ifEmpty { system }
                 if (item.optBoolean("active", false)) current = system
-                options.add(BootOption(system, label, refindClass(system)))
+                // 自动扫描模式下 system 是菜单条目标题（会 trim），图标分类优先
+                // 吃服务端带来的 kind 字段，认不出再按标题关键词救
+                options.add(BootOption(system, label, refindClass(system, label, optStr(item, "kind"))))
             }
         }
         return BootGroup(
@@ -3308,10 +3388,20 @@ class ComputerListActivity : ComponentActivity() {
         return rows
     }
 
-    private fun refindClass(system: String): String = when (system) {
-        "windows" -> "win"
-        "macos" -> "mac"
-        else -> "linux"
+    /** rEFInd 行的图标分类：优先服务端 `kind`，认不出按 system/标题关键词救 */
+    private fun refindClass(system: String, label: String = "", kind: String = ""): String {
+        when (kind.trim().lowercase()) {
+            "windows" -> return "win"
+            "macos", "opencore", "clover" -> return "mac"
+            "linux" -> return "linux"
+        }
+        val hay = "$system $label".lowercase()
+        return when {
+            hay.contains("windows") -> "win"
+            hay.contains("mac") || hay.contains("apple") || hay.contains("osx")
+                || hay.contains("opencore") || hay.contains("clover") -> "mac"
+            else -> "linux"
+        }
     }
 
     private fun grubClass(name: String, klass: String, chainloader: Boolean): String {
@@ -3392,7 +3482,7 @@ class ComputerListActivity : ComponentActivity() {
     }
 
     /**
-     * OC 菜单预演行的「设为默认 ⤴」：`row.spec` 是后端算好的完整值域
+     * OC 菜单预演行整行点击 = 设为默认：`row.spec` 是后端算好的完整值域
      * （`opencore-default:<卷>\u0001<路径>`），在**第一个**冒号处拆成 channel+target
      * 发回去 —— 服务端会用 `:` 原样拼回同一个 spec（`parse_switch_spec` 特意只切
      * 一次冒号，因为路径里可能有 `:`）。与 PC 网页端「原样发回 entry.spec」等价。

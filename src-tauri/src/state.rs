@@ -592,6 +592,33 @@ impl CloseAction {
     }
 }
 
+/// 引导器的「读取方式」：自动（按引导器自己的规则复算 / 自动读 Linux 分区）
+/// 还是手动（vars 快照 / ESP 上那份 grub.cfg）。
+///
+/// **必须持久化**：它决定「下次启动」写谁、托盘引导列表列哪一份、勾在哪一行。
+/// 只存在前端的话托盘拿不到，两边就会各说各的（用户 2026-10-30 报的就是这个）。
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum LoaderMode {
+    #[default]
+    Auto,
+    Manual,
+}
+
+impl LoaderMode {
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "auto" => Some(Self::Auto),
+            "manual" => Some(Self::Manual),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn is_manual(self) -> bool {
+        matches!(self, Self::Manual)
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default, rename_all = "camelCase")]
 pub(crate) struct Settings {
@@ -644,9 +671,10 @@ pub(crate) struct Settings {
     /// 用户在界面上改过的 09_anyboot 正文（空 = 用内置模板）。
     /// 安装时只替换 `@@ESP_UUID@@`，其余按用户改的来。
     pub(crate) grub_script_override: String,
-    /// GRUB 区块的展示方式（四种，全在同一个主窗口里）：
-    /// inline（内嵌）/ wide（加宽窗口展示）/ list（列表独立到右栏）/
-    /// pane（GRUB 全部内容在右栏）。老配置里的 window 语义由 pane 承接。
+    /// GRUB 区块的展示方式。**已废弃**（2026-10-30：「展示方式」下拉移除，
+    /// 加宽 / 左右布局并入「引导高级设置 → 布局」，窗口落宽走 set_boot_layout）。
+    /// 字段保留兼容老配置：归一后只剩 inline / wide 两值（list/pane/window
+    /// 一律回落 inline），仅影响启动时的标称落宽，不再有任何布局语义。
     pub(crate) grub_list_view: String,
     /// GRUB 列表的展示格式（前端渲染偏好，纯展示不改数据）：
     /// raw（原始）/ minimal（极简）/ simple（简易）/ medium（中等）/
@@ -655,6 +683,14 @@ pub(crate) struct Settings {
     /// 「自动读取」记住的目标分区（`disk0s9` / `sdb1` …）：用户从候选列表里点过
     /// 哪一块就记住它，下次直接按它读。空 = 靠 fstab 自动定位（选中 ESP 的那块）。
     pub(crate) linux_grub_dev: String,
+    /// rEFInd 的读取方式（自动扫描 / 手动处理）：决定「下次启动」与托盘那块
+    /// 按哪份数据判选中项 —— 自动看 `refindSim.lastBoot`，手动看 vars 快照的
+    /// `active`（三行系统里标「已选择」的那条）。默认自动。
+    pub(crate) refind_mode: LoaderMode,
+    /// GRUB 的读取方式（自动读取 / 手动解析）：决定「下次启动」与托盘那块
+    /// 用 `linuxGrub`（Linux 分区里的 grub.cfg + grubenv）还是 ESP 上那份
+    /// `GrubView`。默认自动。
+    pub(crate) grub_mode: LoaderMode,
     /// 主窗口贴边自动隐藏：鼠标离开后窗口贴到最近的屏幕边缘、只露一条边，
     /// 悬停边条再展开。关掉时窗口保持完整可见。
     pub(crate) main_auto_hide: bool,
@@ -777,6 +813,8 @@ impl Default for Settings {
             grub_list_view: "inline".to_string(),
             grub_list_format: "minimal".to_string(),
             linux_grub_dev: String::new(),
+            refind_mode: LoaderMode::Auto,
+            grub_mode: LoaderMode::Auto,
             main_auto_hide: false,
             main_always_on_top: true,
             main_auto_hide_edge_distance: 24,

@@ -375,10 +375,13 @@ final class ServerProfile {
     /** 连接优先级（六通道并列，有序）；空 = 老档案，按 connMode 迁移或默认序 */
     final List<String> routeOrder = new ArrayList<>();
     /**
-     * 禁用的**非配对通道** id（只认 lan / jump）。
+     * 禁用的通道 id（认全部六个：lan / jump / tunnel / ts / funnel / tsnet）。
      *
-     * <p>配对区块的禁用走 {@link RemotePair#enabled}：区块里有三条配对时，
-     * 「整块禁用」表达不了「只停第二条」。lan / jump 没有配对条目可挂，只能留在这里。
+     * <p>与 PC 端 `route_disabled` 同语义（2026-10-28 修复对齐）：连接策略表每行
+     * 都有启停开关，区块通道的停用也落在这里 —— 以前只认 lan / jump，用户在
+     * 电脑列表关掉 Cloudflare/Tailscale 通道保存后，重读档案开关就自己弹回来，
+     * 探测连接照样走它。配对条目自己的开关仍走 {@link RemotePair#enabled}
+     * （区块里三条配对想只停第二条，「整块禁用」表达不了），两层互不覆盖。
      */
     final List<String> routeDisabled = new ArrayList<>();
 
@@ -1771,9 +1774,10 @@ final class ServerProfile {
         if (routeDisabledArray != null) {
             for (int i = 0; i < routeDisabledArray.length(); i++) {
                 String kind = routeDisabledArray.optString(i, "").trim();
-                // 配对区块的禁用走 RemotePair.enabled；这里只留 lan / jump
-                if ((ROUTE_LAN.equals(kind) || ROUTE_JUMP.equals(kind))
-                        && !profile.routeDisabled.contains(kind)) {
+                // 认全部六个通道 id（与 PC 端 2026-10-28 修复对齐）：以前只留 lan / jump，
+                // 用户关掉 Cloudflare/Tailscale 通道保存后重读档案就弹回，探测照走。
+                // 配对条目自己的开关（RemotePair.enabled）与这里互不覆盖。
+                if (isRouteKind(kind) && !profile.routeDisabled.contains(kind)) {
                     profile.routeDisabled.add(kind);
                 }
             }
@@ -2058,6 +2062,60 @@ final class ServerProfile {
         } catch (Exception ignored) {
             return "";
         }
+    }
+
+    // ------------------------------------------------------------------
+    // 访客主题（查看方偏好，与网页端 abTheme 参数同一约定）
+    // ------------------------------------------------------------------
+    //
+    // WebView 加载的是**那台电脑**自己的页面：跨来源，localStorage 各存各的桶，
+    // 版式主题偏好互不相通（看一台就得重选一次，还让人以为「改了他的主题」）。
+    // App 把「我选的主题」经 URL（abTheme=<字母>）带过去：页面照它渲染，但
+    // 不读也不写它自己桶里的主题 —— 「不改掉他的主题，用我的主题看」。
+
+    /** 版式主题字母（与网页端 THEME_LAYOUT_MODES 的键一致；首项 "" = 不带参数，跟随电脑自己保存的主题） */
+    static final String[] BOOT_THEMES = {"", "K", "A", "B", "C", "G", "I", "J"};
+
+    /** 查看方的引导页主题偏好（anyboot_ui/bootTheme；空 = 不带参数） */
+    static String guestBootTheme(android.content.Context context) {
+        try {
+            return context.getSharedPreferences("anyboot_ui", android.content.Context.MODE_PRIVATE)
+                .getString("bootTheme", "");
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
+
+    static void setGuestBootTheme(android.content.Context context, String theme) {
+        String value = theme == null ? "" : theme.trim();
+        boolean known = false;
+        for (String candidate : BOOT_THEMES) {
+            if (candidate.equals(value)) {
+                known = true;
+                break;
+            }
+        }
+        if (!known) {
+            value = "";
+        }
+        context.getSharedPreferences("anyboot_ui", android.content.Context.MODE_PRIVATE)
+            .edit().putString("bootTheme", value).apply();
+    }
+
+    /** 给访问 URL 追加访客主题参数（url 空原样返回；这些 URL 恒带 ?token=…，直接拼 & 安全）。
+     *  abUi=light|dark 亮暗主题：App 当前生效的亮暗（含跟随系统解析后）恒带过去，
+     *  页面照它渲染，不读也不写那台电脑自己的亮暗设置；abTheme 同前（选过才带）。 */
+    static String withGuestTheme(android.content.Context context, String url) {
+        if (url == null || url.isEmpty()) {
+            return url;
+        }
+        StringBuilder out = new StringBuilder(url);
+        out.append("&abUi=").append(Ui.dark(context) ? "dark" : "light");
+        String theme = guestBootTheme(context);
+        if (!theme.isEmpty()) {
+            out.append("&abTheme=").append(theme);
+        }
+        return out.toString();
     }
 
     /** 去首尾空白（所有可空字符串字段统一走这里，免得满地判 null） */

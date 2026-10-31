@@ -81,69 +81,91 @@ pub(crate) fn build_tray_menu(app: &AppHandle, state: &UiState) -> tauri::Result
     let busy = state.busy.affects_menu();
     let message = &state.status.message;
     let settings = &state.settings.settings;
-    let variables = menu_system_rows(&state.status.variables);
-    let next_boot = variables.iter().find(|variable| variable.active);
-    let next_boot_label = next_boot.map_or_else(
-        || "下次启动：未知".to_string(),
-        |variable| format!("下次启动：{}", variable.display_name),
-    );
+    // 扫描成功后 `status.message` 就是「下次启动：X」（rEFInd 那一层）——
+    // 去重拿它比对，与顶部那行改成什么排版无关（见 menu_status_line）。
+    let next_boot_scan_line = state
+        .status
+        .variables
+        .iter()
+        .find(|variable| variable.active)
+        .map_or_else(
+            || "下次启动：未知".to_string(),
+            |variable| format!("下次启动：{}", variable.display_name),
+        );
+    // 顶部那行与主窗「下次启动」同源：**每个引导器一行**（见 next_boot_rows）。
+    let boot_rows = next_boot_rows(state);
     let check = check_mark_image();
 
     let menu = Menu::new(app)?;
-    // 第一行就把「下次启动哪个系统」摆出来。原生菜单改不了字号/字重，所以靠**位置**
+    // 第一行就把「下次启动哪些系统」摆出来。原生菜单改不了字号/字重，所以靠**位置**
     // 和绿勾让它够醒目；点它 = 打开主窗口去改。
     let next_boot_item = IconMenuItem::with_id(
         app,
         "next-boot",
-        &next_boot_label,
+        "下次启动",
         true,
-        next_boot.map(|_| check.clone()),
+        (!boot_rows.is_empty()).then(|| check.clone()),
         None::<&str>,
     )?;
     menu.append(&next_boot_item)?;
+    // **每个引导器一条禁用项**：Windows 原生菜单不认 `\n`（自绘窗 / DBus 那边
+    // 才把多行 label 渲染成换行），整段文本挤在一行里三个引导器的选择连成一串，
+    // 根本读不了 —— 这就是「下次启动要换行」的由来。行文本与主窗同源
+    // （`next_boot_rows`，含「未选中条目」兜底）。
+    if boot_rows.is_empty() {
+        let row = IconMenuItem::with_id(
+            app,
+            "next-boot-row:none",
+            "未知（没有选中的系统）",
+            false,
+            None,
+            None::<&str>,
+        )?;
+        menu.append(&row)?;
+    }
+    for (index, (name, entry)) in boot_rows.iter().enumerate() {
+        let text = if entry.is_empty() {
+            format!("{name} · 未选中条目")
+        } else {
+            format!("{name} · {entry}")
+        };
+        let row = IconMenuItem::with_id(
+            app,
+            format!("next-boot-row:{index}"),
+            &text,
+            false,
+            None,
+            None::<&str>,
+        )?;
+        menu.append(&row)?;
+    }
     // 状态行只在**跟上面那行不一样**的时候才出现（见 menu_status_line）：
     // 扫描成功后 message 本身就是「下次启动：X」，再摆一行就是「下次启动重复了」，
     // 只有错误提示/临时操作结果才需要单独一行。
-    if let Some(line) = menu_status_line(message, &next_boot_label) {
+    if let Some(line) = menu_status_line(message, &next_boot_scan_line) {
         let status = MenuItem::with_id(app, "status", line, false, None::<&str>)?;
         menu.append(&status)?;
     }
     menu.append(&PredefinedMenuItem::separator(app)?)?;
 
-    // —— 分区：GRUB 启动项菜单项的构造（进顶层菜单 = 平铺展开；进子菜单 = 收起）——
-    // **内容来自共享菜单模型**（`grub_menu_nodes`，与主窗 GRUB 区、统一方式同一份函数）：
-    // 列表格式随 `grub.listFormat`、当前项置顶、组头带（N 项 · ESP 位置）、变体折叠。
-    // 这里只把纯数据节点翻译成原生控件，不再自己算一遍 —— 以前那套是第二份实现，
-    // 于是「各自方式」的托盘 GRUB 区跟主窗/统一方式长期对不上。
-    // GRUB 节点只有 item / header 两类、不含子菜单，因此不涉及上方注释里
-    // 「转换层在 GNOME 宿主下子菜单展开为空」那个坑（那条说的是 sub 节点）。
-    fn grub_menu_items(
+    // —— 分区：引导器（每个一块原生子菜单）——
+    // 内容来自共享模型 `loader_menu_nodes`（与 dbusmenu / 自绘菜单、主窗引导器卡
+    // 同一份数据），这里只把纯节点翻译成原生控件 —— 以前 rEFInd 那三个固定项
+    // （Windows / Linux / macOS）是这套手写实现独有的第二份内容，已按用户定案删掉：
+    // 它们不是 rEFInd 菜单里的真实条目，跟主窗列表对不上。
+    // 注意：**不要**换成「整份模型 → native_menu」的通用转换层 —— 那玩意儿在
+    // GNOME 宿主下子菜单展开为空；这里是逐块手工建 Submenu，没有那个问题。
+    fn append_nodes(
         app: &AppHandle,
-        grub: &GrubView,
-        busy: bool,
+        submenu: &Submenu<tauri::Wry>,
+        nodes: &[MenuNode],
         check: &Image<'static>,
-    ) -> tauri::Result<Vec<Box<dyn tauri::menu::IsMenuItem<tauri::Wry>>>> {
-        let nodes = grub_menu_nodes(grub, busy);
-        // 常开通道留一行痕：原生菜单这一块现在只有一份来源（上面的 nodes），
-        // 出问题时能直接跟主窗 GRUB 区对行。只在菜单真的重建时打（指纹拦着）。
-        startup_debug(
-            app,
-            &format!(
-                "托盘菜单(classic) GRUB 区 {} 行: {}",
-                nodes.len(),
-                nodes
-                    .iter()
-                    .map(|node| node.label.as_str())
-                    .collect::<Vec<_>>()
-                    .join(" | ")
-            ),
-        );
-        let mut items: Vec<Box<dyn tauri::menu::IsMenuItem<tauri::Wry>>> = Vec::new();
+    ) -> tauri::Result<()> {
         for node in nodes {
-            let id = node.id.unwrap_or_default();
+            let id = node.id.clone().unwrap_or_default();
             // 组头（`▸ 🐧 组名（N 项 · 位于…）`）——原生菜单里就是一条禁用条目
             if node.kind == "header" {
-                items.push(Box::new(menu_section_header(app, &id, &node.label)?));
+                submenu.append(&menu_section_header(app, &id, &node.label)?)?;
                 continue;
             }
             // 「当前项」在原生菜单里用绿勾位图表达（与系统列表同一套做法）；
@@ -152,72 +174,46 @@ pub(crate) fn build_tray_menu(app: &AppHandle, state: &UiState) -> tauri::Result
                 Some(true) => Some(check.clone()),
                 _ => None,
             };
-            items.push(Box::new(IconMenuItem::with_id(
+            submenu.append(&IconMenuItem::with_id(
                 app,
                 id,
-                node.label,
+                node.label.clone(),
                 node.enabled,
                 icon,
                 None::<&str>,
-            )?));
+            )?)?;
         }
-        Ok(items)
+        Ok(())
     }
 
-    // rEFInd 扫到了系统 = 「展开」平铺（现状不变）；没扫到 = 收进子菜单不展开，
-    // 同时 GRUB 区平铺展开顶上 —— 保证总有一块能直接点到。反过来 rEFInd 在时
-    // GRUB 收进子菜单（默认展开 rEFInd，用户定案）。
-    let refind_alive = variables.iter().any(|variable| variable.exists);
-    // —— 分区：系统列表（选中项带绿勾，名字靠位图列天然左对齐）——
-    if refind_alive {
-        for variable in &variables {
-            // 选中项带绿勾、没选中的不带：勾占的是菜单**独立的位图列**，不挤占文字，
-            // 三个系统的名字因此天然左对齐（以前用「● 」前缀，选中的那个会被顶偏一格）。
-            let item = IconMenuItem::with_id(
-                app,
-                variable.system.clone(),
-                variable.display_name.clone(),
-                variable.exists && !busy,
-                if variable.active {
-                    Some(check.clone())
-                } else {
-                    None
-                },
-                None::<&str>,
-            )?;
-            menu.append(&item)?;
-        }
-    } else {
-        let systems_menu = Submenu::with_id(app, "refind-systems", "rEFInd 系统列表", true)?;
-        for variable in &variables {
-            let item = IconMenuItem::with_id(
-                app,
-                variable.system.clone(),
-                variable.display_name.clone(),
-                variable.exists && !busy,
-                if variable.active {
-                    Some(check.clone())
-                } else {
-                    None
-                },
-                None::<&str>,
-            )?;
-            systems_menu.append(&item)?;
-        }
-        menu.append(&systems_menu)?;
+    let loaders = loader_menu_nodes(state);
+    // 常开通道留一行痕：菜单真的重建时打一次，出问题能直接跟主窗引导器卡对行
+    startup_debug(
+        app,
+        &format!(
+            "托盘菜单(classic) 引导区 {} 块: {}",
+            loaders.len(),
+            loaders
+                .iter()
+                .map(|node| format!("{}（{} 项）", node.label, node.children.len()))
+                .collect::<Vec<_>>()
+                .join(" | ")
+        ),
+    );
+    if loaders.is_empty() {
+        menu.append(&MenuItem::with_id(
+            app,
+            "boot-empty",
+            "没有可用的引导项（先扫描）",
+            false,
+            None::<&str>,
+        )?)?;
     }
-    menu.append(&PredefinedMenuItem::separator(app)?)?;
-    // —— 分区：GRUB 启动项（与 rEFInd 系统列表并列的第二块）——
-    if refind_alive {
-        let grub_menu = Submenu::with_id(app, "grub-entries", "GRUB 启动项", true)?;
-        for item in grub_menu_items(app, &state.grub, busy, &check)? {
-            grub_menu.append(item.as_ref())?;
-        }
-        menu.append(&grub_menu)?;
-    } else {
-        for item in grub_menu_items(app, &state.grub, busy, &check)? {
-            menu.append(item.as_ref())?;
-        }
+    for group in &loaders {
+        let group_id = group.id.clone().unwrap_or_default();
+        let submenu = Submenu::with_id(app, group_id, &group.label, true)?;
+        append_nodes(app, &submenu, &group.children, &check)?;
+        menu.append(&submenu)?;
     }
     menu.append(&PredefinedMenuItem::separator(app)?)?;
     if state.status.temporary_mount {

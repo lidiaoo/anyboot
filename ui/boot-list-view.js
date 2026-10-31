@@ -9,11 +9,12 @@
 //   sdboot:<entryId> / opencore / opencore-register[:short|:full] / clover-oneshot
 "use strict";
 
+// 条目行的系统字章（设计稿 .row-ico，共用 osChipElement 造）：entry.icon → 规格
 const BOOT_CHANNEL_ICONS = {
-  linux: "🐧",
-  windows: "🪟",
-  macos: "🍎",
-  menu: "⚙️",
+  linux: { cls: "lin", tag: "LNX" },
+  windows: { cls: "win", tag: "WIN" },
+  macos: { cls: "mac", tag: "MAC" },
+  menu: { cls: "tool", tag: "TLS" },
 };
 
 const BOOT_CHANNEL_TAGS = {
@@ -63,6 +64,17 @@ const OC_MENU_KIND_LABEL = {
   unknown: "未知",
 };
 
+// 行首系统字章（设计稿 .row-ico，共用 osChipElement）：kind → 规格。
+// 2026-10-30 用户拍板：OC 预演菜单行也以设计稿条目行为准。
+const OC_MENU_KIND_CHIP = {
+  macos: { cls: "mac", tag: "MAC" },
+  windows: { cls: "win", tag: "WIN" },
+  linux: { cls: "lin", tag: "LNX" },
+  tool: { cls: "tool", tag: "TLS" },
+  generic: { cls: "fw", tag: "FW" },
+  unknown: { cls: "", tag: "?" },
+};
+
 const OC_MENU_SOURCE_LABEL = {
   bootorder: "固件 BootOrder",
   bless: "bless 扫描",
@@ -80,20 +92,24 @@ function ocMenuSourceLabel(source, orderSource) {
   return OC_MENU_SOURCE_LABEL[source] || source;
 }
 
-const OC_MENU_ICONS = {
-  macos: "🍎",
-  windows: "🪟",
-  generic: "⬜",
-  linux: "🐧",
-  tool: "⚙️",
-  unknown: "❓",
-};
-
 /// 预演里的一行（卷 + 路径 + 来源 + 备注 + 「设为默认」）
 function ocMenuRow(entry, index, { busy, onSwitch, channel, orderSource, defaultSlot } = {}) {
   const row = document.createElement("div");
   row.className = "oc-menu-row";
   row.dataset.kind = entry.kind;
+  // 当前默认行整行淡绿染（设计稿 .row.is-def），不只是按钮位一枚标记
+  if (entry.default) row.classList.add("is-def");
+
+  // 行首系统字章（设计稿 .row-ico）：泛型/未知也有一枚；kind 认不出时先按
+  // 标题关键词救一把（Windows / mac / linux），救不回再退到「?」。
+  // 注意 unknown 档本身是真值对象（{cls:"",tag:"?"}），不能直接放进 || 链。
+  const kindChip = OC_MENU_KIND_CHIP[entry.kind];
+  row.append(osChipElement(
+    (kindChip && kindChip.cls ? kindChip : null)
+      || grubOsChip(entry.title || "")
+      || kindChip
+      || OC_MENU_KIND_CHIP.unknown,
+  ));
 
   const idx = document.createElement("span");
   idx.className = "oc-menu-idx";
@@ -110,7 +126,7 @@ function ocMenuRow(entry, index, { busy, onSwitch, channel, orderSource, default
 
   const kind = document.createElement("span");
   kind.className = "oc-menu-kind";
-  kind.textContent = `${OC_MENU_ICONS[entry.kind] || "⬜"} ${OC_MENU_KIND_LABEL[entry.kind] || entry.kind}`;
+  kind.textContent = OC_MENU_KIND_LABEL[entry.kind] || entry.kind;
   head.append(kind);
 
   const source = document.createElement("span");
@@ -140,29 +156,36 @@ function ocMenuRow(entry, index, { busy, onSwitch, channel, orderSource, default
   // 「设为默认」= OC 菜单里的 Ctrl+Enter。后端已经算好值域（entry.spec），
   // 前端只负责原样发回去 —— 哪些项能设由后端按 OC 的规则判定，不在这里猜。
   //
-  // 已经是默认项的那一行**也要占住这个位置**：以前直接不渲染，看着像「这一行选不了」
-  // 或「按钮怎么丢了」，而这恰恰是因为它本来就是默认项 —— OCBtOrder 里排第一的那条。
+  // 用户 2026-10-30：行尾那颗「⤴」箭头按钮撤掉 —— 「选中这一行」本身就是设默认，
+  // 行自己的选中框（.is-def 绿框）足以说明身份，不再用一枚箭头抢视线。
   if (entry.default) {
-    const mark = document.createElement("span");
-    mark.className = "oc-menu-set is-default";
-    mark.textContent = "✓ 已是默认";
-    mark.title = `${
+    row.classList.add("is-def");
+    row.setAttribute("aria-current", "true");
+    row.title = `${
       defaultSlot ? `${defaultSlot} ` : "启动顺序表第一条"
-    }就是这一项：下次开机会直接进它。再「设为默认」只是把已经在最前的项再挪一次，所以这行不给按钮。`;
-    row.append(mark);
+    }就是这一项：下次开机会直接进它。`;
   } else if (entry.spec) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "oc-menu-set needs-elev";
-    button.textContent = "设为默认 ⤴";
-    button.title =
-      "等价于在 OpenCore 菜单里对它按 Ctrl+Enter：写 OC 私有命名空间的 OCBt0080 / OCBtOrder，" +
-      "不碰被 macOS 挡住的 Boot* 变量；写前会整份备份 NVRAM";
-    button.disabled = Boolean(busy);
-    button.addEventListener("click", () => {
+    row.classList.add("is-clickable");
+    row.tabIndex = 0;
+    row.setAttribute("role", "button");
+    row.setAttribute("aria-label", `设为默认：${entry.title}`);
+    row.title =
+      (row.title ? `${row.title}\n` : "") +
+      "点这一行 = 设为默认 —— 等价于在 OpenCore 菜单里对它按 Ctrl+Enter：" +
+      "写 OC 私有命名空间的 OCBt0080 / OCBtOrder，不碰被 macOS 挡住的 Boot* 变量；写前会整份备份 NVRAM";
+    const go = () => {
+      if (busy) return;
+      // 乐观选中：先给这一行套上选中框，后端回来重绘时以真实默认项为准
+      row.classList.add("is-def");
       if (onSwitch) onSwitch({ spec: entry.spec }, channel);
+    };
+    row.addEventListener("click", go);
+    row.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        go();
+      }
     });
-    row.append(button);
   }
   return row;
 }
@@ -407,7 +430,8 @@ function makeBootChannelCard(
     });
     noteLines.hidden = true;
     titleRow.append(toggle);
-    section.append(noteLines);
+    // 用户 2026-10-30：列表排最前面，说明/健康检查这类东西压到最后 ——
+    // 这里只建节点、不插进卡片，末尾统一 append（见函数尾部）。
   }
 
   // ── 预演 OC 菜单（只有 OpenCore 通道有）──
@@ -423,10 +447,11 @@ function makeBootChannelCard(
   }
 
   // ── 免密模式（只有 OpenCore 需要：它的「设为默认」要写 NVRAM）──
-  if (channel.id === "opencore" && helper) {
-    const line = renderHelperLine(helper, { busy, onHelper });
-    if (line) section.append(line);
-  }
+  //    用户 2026-10-30：列表排最前面，设置行压到列表之后 —— 这里只建节点。
+  const helperLine =
+    channel.id === "opencore" && helper
+      ? renderHelperLine(helper, { busy, onHelper })
+      : null;
 
   // ── 条目行 ──
   const list = document.createElement("section");
@@ -443,10 +468,12 @@ function makeBootChannelCard(
       row.classList.add("current");
     }
 
-    const icon = document.createElement("span");
-    icon.className = "boot-entry-ico";
-    icon.textContent = BOOT_CHANNEL_ICONS[entry.icon] || "⚙️";
-    row.append(icon);
+    // 系统字章（设计稿 .row-ico）：形状与配色走移植的设计稿 CSS；
+    // icon 认不出时按标题关键词救一把，再退回工具字章
+    row.append(osChipElement(
+      BOOT_CHANNEL_ICONS[entry.icon] || grubOsChip(entry.title || "")
+        || { cls: "tool", tag: "TLS" },
+    ));
 
     const meta = document.createElement("span");
     meta.className = "boot-entry-meta";
@@ -509,6 +536,9 @@ function makeBootChannelCard(
   if ((channel.entries || []).length) {
     section.append(list);
   }
+  // 列表之后才是「设置 / 说明」：免密模式行 → 说明与健康检查（默认收起）。
+  if (helperLine) section.append(helperLine);
+  if (noteLines.childElementCount) section.append(noteLines);
   return section;
 }
 

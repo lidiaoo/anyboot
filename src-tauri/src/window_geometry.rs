@@ -42,6 +42,47 @@ pub(crate) fn clamp_window_size(width: u32, height: u32) -> (u32, u32) {
     )
 }
 
+/// 把目标逻辑尺寸夹进「窗口当前所在显示器」的工作区（逻辑 px）。
+///
+/// 分辨率调低 / 缩放调大 / 拖去小屏之后，记忆尺寸可能比新工作区还大 ——
+/// 位置夹取（clamp_to_work）只能保证窗口不越界，管不了「窗口本身放不下」
+/// （那时整个窗口被钉在工作区左上角，底下大片悬在屏外，用户看到的就是
+/// 「调了分辨率窗口一点没变」）。所有落尺寸的入口都汇在
+/// `set_main_window_size`，在这里统一夹进当前屏幕。拿不到显示器就原样
+/// 返回（与旧行为一致，别让夹取变成新的失败点）。
+fn fit_to_current_work_area(app: &AppHandle, width: u32, height: u32) -> (u32, u32) {
+    let Some(monitor) = main_window_monitor(app) else {
+        return (width, height);
+    };
+    fit_size_to_work_area(
+        width,
+        height,
+        monitor.scale_factor(),
+        monitor.work_area().size.width,
+        monitor.work_area().size.height,
+    )
+}
+
+/// 纯函数版（便于单测）：物理工作区 ÷ 缩放 = 逻辑工作区，目标尺寸逐边取 min，
+/// 再过一遍 clamp_window_size 保证不跌破最小尺寸。缩放 ≤ 0 / 工作区为 0
+/// 都视为「拿不到屏幕」，原样返回。特别矮的屏上最小高度 560 仍可能超工作区
+/// —— 与 `default_window_height_from_screen` 同一取舍：完整性交给落位去夹。
+pub(crate) fn fit_size_to_work_area(
+    width: u32,
+    height: u32,
+    scale: f64,
+    work_w_px: u32,
+    work_h_px: u32,
+) -> (u32, u32) {
+    let scale = if scale > 0.0 { scale } else { 1.0 };
+    if work_w_px == 0 || work_h_px == 0 {
+        return (width, height);
+    }
+    let work_w = (work_w_px as f64 / scale).floor() as u32;
+    let work_h = (work_h_px as f64 / scale).floor() as u32;
+    clamp_window_size(width.min(work_w), height.min(work_h))
+}
+
 /// 落一个新窗口尺寸：夹取 → 记忆 → 应用。锁定状态下要先把 max 放开再落尺寸
 /// （max_size 对 set_size 也生效，不放开 932 落不进一个 max=460 的窗口），
 /// 落完再按新值收紧。所有改窗口尺寸的入口（滑条 / 切展示方式 / 重置）都走这里。
@@ -49,6 +90,8 @@ pub(crate) fn clamp_window_size(width: u32, height: u32) -> (u32, u32) {
 /// 不读窗口实况 —— 2x 屏上未映射/过渡期的读数是逻辑值，会算错落点。
 pub(crate) fn set_main_window_size(app: &AppHandle, width: u32, height: u32) -> Result<(), String> {
     let (width, height) = clamp_window_size(width, height);
+    // 分辨率/缩放调整后记忆尺寸可能放不进新屏：落尺寸前先夹进当前工作区。
+    let (width, height) = fit_to_current_work_area(app, width, height);
     let mut settings = stored_settings(app);
     settings.window_width = width;
     settings.window_height = height;
@@ -191,6 +234,53 @@ pub(crate) fn grub_layout_target_width(nominal: u32, remembered: u32, force: boo
     } else {
         remembered
     }
+}
+
+/// 「引导高级设置 → 布局」的窗口落宽（2026-10-30 用户定案：加宽 / 左右布局
+/// 抄袭原 GRUB 独立区域的窗口加宽能力，展示方式下拉随之移除）。
+/// · mode = "wide"（加宽）| "lr"（左右布局）= 窗口至少 932 逻辑宽
+///   （两栏标称 460 + 12 + 460；已经 ≥932 就不动 —— 用户手动拉得更宽的尊重
+///   现值）；高度用记忆值，没记过按默认屏高 2/3。锁定窗口大小不拦这条
+///   （锁定只禁手拖缩放，明确落宽操作放行，用户定案 2026-10-13）。
+/// · mode = "default"（切回默认）= 回内嵌标称宽 **460**。这里**不再问已废弃的
+///   `grub_list_view`** —— 老配置里可能还存着 "wide"（旧「加宽窗口展示」），
+///   照它落宽会让「默认」也变成 932，用户看到的就是「点了默认窗口不缩回正常
+///   宽度」。展示方式下拉已移除，布局的唯一事实源是前端 advState.layout。
+#[tauri::command]
+pub(crate) fn set_boot_layout(app: AppHandle, mode: String) -> Result<(), String> {
+    trace(&app, "command", &format!("set_boot_layout mode={mode}"));
+    if mode != "wide" && mode != "lr" {
+        let settings = stored_settings(&app);
+        let height = if settings.window_height == 0 {
+            // 还没记过尺寸（新装 / 清过配置）：默认占整屏高度的 2/3
+            default_window_height(&app)
+        } else {
+            settings.window_height
+        };
+        let width = crate::settings_commands::grub_layout_width("inline") as u32;
+        return set_main_window_size(&app, width, height);
+    }
+    let Some(main) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
+        return Ok(());
+    };
+    let target_width = crate::settings_commands::grub_layout_width("wide") as u32;
+    // inner_size 是物理像素，除以缩放才是逻辑宽（与滑条回写同一套换算）
+    let scale = main.scale_factor().unwrap_or(1.0);
+    let scale = if scale > 0.0 { scale } else { 1.0 };
+    let logical_width = main
+        .inner_size()
+        .map(|size| size.width as f64 / scale)
+        .unwrap_or(0.0);
+    if logical_width + 0.5 >= target_width as f64 {
+        return Ok(());
+    }
+    let settings = stored_settings(&app);
+    let height = if settings.window_height == 0 {
+        default_window_height(&app)
+    } else {
+        settings.window_height
+    };
+    set_main_window_size(&app, target_width, height)
 }
 
 /// 把主窗口摆到当前显示器工作区的中心（物理像素，夹回工作区）。返回落点。
@@ -627,4 +717,40 @@ pub(crate) fn center_docked_window(app: &AppHandle, main: &tauri::WebviewWindow)
         ),
     );
     Some(target)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fit_size_shrinks_into_the_logical_work_area() {
+        // 1x 屏 1920x1080：宽 1600 超 960 → 收到 960，高 720 放得下原样保留
+        // （别整对齐收缩，哪边超收哪边）
+        assert_eq!(fit_size_to_work_area(1600, 720, 1.0, 960, 1040), (960, 720));
+        // 2x 屏工作区 1920x1040 物理 = 960x520 逻辑：高 900 收进 520 —— 但
+        // 低于最小高度 560，clamp_window_size 兜底回 560（与
+        // default_window_height_from_screen 同一取舍：完整性交给落位去夹）
+        assert_eq!(fit_size_to_work_area(932, 900, 2.0, 1920, 1040), (932, 560));
+    }
+
+    #[test]
+    fn fit_size_keeps_sizes_that_already_fit() {
+        // 1x 屏 1920x1080：932x720 原样保留（别动用户记住的尺寸）
+        assert_eq!(fit_size_to_work_area(932, 720, 1.0, 1920, 1040), (932, 720));
+    }
+
+    #[test]
+    fn fit_size_never_drops_below_the_minimum() {
+        // 特别矮的屏（800x500 逻辑工作区）：宽收到 800（仍 ≥ 最小宽），
+        // 高跌破最小高度 560 → 兜底回 560，与 default_window_height_from_screen 同取舍
+        let (w, h) = fit_size_to_work_area(932, 900, 1.0, 800, 500);
+        assert_eq!((w, h), (800, WINDOW_MIN_SIZE.1));
+    }
+    #[test]
+    fn fit_size_passes_through_when_screen_is_unknown() {
+        // 拿不到显示器 / 缩放异常：原样返回，别让夹取变成新的失败点
+        assert_eq!(fit_size_to_work_area(932, 900, 0.0, 1920, 1040), (932, 900));
+        assert_eq!(fit_size_to_work_area(932, 900, 1.0, 0, 0), (932, 900));
+    }
 }

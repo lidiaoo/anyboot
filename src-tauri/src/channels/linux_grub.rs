@@ -1139,7 +1139,16 @@ pub(crate) fn write_env_block(dev: &str, rel: &str, bytes: &[u8]) -> Result<Stri
         .into_iter()
         .find(|row| row.disk == disk && row.partition == partition)
         .ok_or_else(|| format!("分区表里找不到 {dev}（盘被拔了？分区表变了？）"))?;
-    let source = FileSource::open_physical(disk, row.offset, true)?;
+    // 卷锁是尽力而为：ext4 这类 Windows 不认识的分区，mountmgr 常常不给建卷对象
+    // （枚举不到就没有可卸载的东西），直接走分区设备写入即可。
+    let _volume_guard = crate::volume_lock::lock_extent(disk, row.offset)?;
+    // 写盘开**分区设备**（base=0）：整盘句柄的裸写被 Windows 按分区拦
+    // （os error 5，与有没有卷对象无关），分区设备不受拦。分区设备开不到
+    // （极老系统没有这个符号链接？）才退回整盘偏移那条老路。
+    let source = match FileSource::open_partition(disk, partition, true) {
+        Ok(source) => source,
+        Err(_) => FileSource::open_physical(disk, row.offset, true)?,
+    };
     let mut fs = Ext4::open(Box::new(source))?;
     fs.overwrite_in_place(rel, bytes)?;
     Ok(format!(

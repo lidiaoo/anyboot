@@ -1108,12 +1108,11 @@
     flex: 1; min-height: 0; overflow: auto; margin: 0 20px 20px;
     /* 容器查询的基准：列宽折叠/换行跟随内容区实际宽度，而不是窗口宽度 */
     container-type: inline-size;
-    border: 1px solid rgb(var(--line)); border-radius: 14px; background: rgb(var(--card));
-    box-shadow: 0 8px 24px -12px rgb(0 0 0 / .28), 0 1px 3px rgb(0 0 0 / .05);
+    /* 每台电脑一张独立卡（见 .cq-row）：容器本身只负责滚动，不再画卡壳 */
   }
   /* ---- 列表主体：纯 flex 行（没有 table，列宽全靠 flex 基准 + 换行消化） ---- */
   .cq-grid { display: flex; flex-direction: column; min-width: 0; }
-  .cq-rows { display: flex; flex-direction: column; min-width: 0; }
+  .cq-rows { display: flex; flex-direction: column; min-width: 0; gap: 10px; padding: 8px 0 2px; }
   .cq-thead,
   .cq-row {
     display: flex; align-items: center; gap: 12px;
@@ -1129,10 +1128,12 @@
   .cq-th-sub { font-weight: 400; font-size: 10px; opacity: .8; margin-left: 4px; }
   .cq-row {
     padding-top: 10px; padding-bottom: 10px;
-    border-bottom: 1px solid rgb(var(--line) / .6);
+    /* 每台电脑一张独立卡：相邻卡之间留一小段空白（对齐手机端 spacedBy(10dp)） */
+    border: 1px solid rgb(var(--line)); border-radius: 12px;
+    background: rgb(var(--card));
+    box-shadow: 0 1px 3px rgb(0 0 0 / .05);
     cursor: pointer;
   }
-  .cq-row:last-child { border-bottom: 0; }
   .cq-row:hover { background: rgb(var(--elevate) / .55); }
   /* 选中（=当前电脑）：accent 底色 + 左侧色条，比 hover 明显一档 */
   .cq-row.cq-selected { background: rgb(var(--accent) / .10); box-shadow: inset 3px 0 0 rgb(var(--accent)); }
@@ -1143,6 +1144,9 @@
   .cq-col-st .cq-st { max-width: 100%; }
   .cq-col-st .cq-st small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .cq-col-boot { flex: 1 1 190px; min-width: 120px; }
+  /* 通道列（systemd-boot / OpenCore / Clover）：可能同时出三列，窄一档；
+     文字本来就有省略号，宁可窄也不把整行顶折。 */
+  .cq-col-boot--ch { flex: 1 1 150px; min-width: 110px; }
   .cq-col-pwr { flex: 1 1 300px; min-width: 170px; }
   .cq-col-more { flex: none; width: 26px; display: flex; justify-content: flex-end; }
   .cq-chip-cur {
@@ -1316,6 +1320,9 @@
   .cq-dd .cq-dd-sep { height: 1px; margin: 4px 8px; background: rgb(var(--line)); }
   .cq-dd button.danger { color: rgb(var(--bad)); }
   .cq-dd button.danger:hover { background: rgb(var(--bad) / .12); }
+  /* 无值域的 fixed 行（OC 默认项/协议驱动/Reset NVRAM）：置灰照样打勾，与托盘同构 */
+  .cq-dd button.dim { color: rgb(var(--fg-faint)); }
+  .cq-dd button.dim[aria-selected="true"] { color: rgb(var(--fg)); }
 
   /* ============ Toast ============ */
   #toast {
@@ -2116,7 +2123,7 @@
               <li>关机：电脑立刻关机，网页服务随之中断 —— 关机后只能用「唤醒」开机（需配好 MAC），或到机器旁按电源键。</li>
               <li>重启：电脑立刻重启，网页会话断开 —— 重启完成后会自动恢复在线。</li>
               <li>没配电源路由时走这台电脑自己的 /api/power（需要能连上它）；配了路由则发局域网 sol 包。</li>
-              <li>rEFInd / GRUB 的选择写入该机引导配置，<b>下次重启时生效</b>，可点「撤销」恢复原值。</li>
+              <li>rEFInd / GRUB / systemd-boot / OpenCore / Clover 的选择写入该机引导配置，<b>下次重启时生效</b>，可点「撤销」恢复原值。</li>
               <li>四个电源键任何时候都能按、不会置灰（与移动端一致）；设备离线时引导项不可改。</li>
               <li>显示「未检测到」= 该机没部署对应引导管理器。</li>
             </ul>
@@ -6351,6 +6358,28 @@ window.__bkOnShow = async function () {
     return !winner || winner === 'jump';
   }
   /**
+   * 查看方主题（URL 追加段）。iframe 里那台电脑的页面跨来源、localStorage
+   * 各存各的桶，偏好互不相通 —— 看一台就得重选一次，还让人以为「改了他的
+   * 主题」。这里带两样过去：
+   *  - abUi=light|dark：亮暗主题。hub 与主窗共用 settings.theme（dark 即当前
+   *    生效亮暗），查看方总有值，恒带 —— 那边照它渲染，不读也不写它自己的
+   *    亮暗设置与首帧镜像。
+   *  - abTheme=<字母>：引导页版式主题。本应用选过的（与主窗同源、共用一份
+   *    偏好）才带；没选过不带，那边按它自己保存的主题渲染。
+   * 两边都是「照它渲染，但不改他的」—— 主窗改主题后已开的 iframe 要重载才跟随。
+   */
+  function withGuestTheme(url) {
+    if (!url) return url;
+    let theme = '';
+    try {
+      const raw = localStorage.getItem('anyboot.boot-adv');
+      const val = raw ? (JSON.parse(raw).theme || '') : '';
+      if (/^[A-K]$/.test(val)) theme = val;
+    } catch (e) { /* 偏好解析不了就当作没选过 */ }
+    return url + '&abUi=' + (dark ? 'dark' : 'light')
+      + (theme ? '&abTheme=' + theme : '');
+  }
+  /**
    * iframe / 连接 URL。通道选择**听电脑列表的机制**（探测赢家 / 优先级表）：
    * 赢家是远程 → https origin + ab_token；赢家是直连 → 局域网地址（哪怕配了
    * 跳板机也不再独占连接——直连通了就该走直连，它更快）；赢家是跳板机 →
@@ -6359,7 +6388,7 @@ window.__bkOnShow = async function () {
   function pcConnUrl(r) {
     const win = pcRemoteWin.get(r.id);
     // 令牌用**赢家那条配对**自己的：不同配对各带各的网关客户端令牌
-    if (win) return win + '/?ab_token=' + encodeURIComponent(pcTokenForAddr(r, win));
+    if (win) return withGuestTheme(win + '/?ab_token=' + encodeURIComponent(pcTokenForAddr(r, win)));
     const winner = pcWinnerKind.get(r.id) || '';
     const kind = (winner === 'lan' || winner === 'jump') ? winner : pcDefaultLocalKind(r);
     const token = encodeURIComponent(r.token || '');
@@ -6367,9 +6396,9 @@ window.__bkOnShow = async function () {
     if (kind === 'jump') {
       const ep = pcEps.get(r.id);
       // 跳板端点还没解析好：返回空串，pcResolveEp 到货后重建 iframe
-      return ep ? 'http://' + ep.host + ':' + ep.port + '/?token=' + token : '';
+      return ep ? withGuestTheme('http://' + ep.host + ':' + ep.port + '/?token=' + token) : '';
     }
-    return 'http://' + pcFirstAddr(r) + '/?token=' + token;
+    return withGuestTheme('http://' + pcFirstAddr(r) + '/?token=' + token);
   }
   // 经跳板机：后端起 ControlMaster 复用的 ssh -L 转发，端点 = 127.0.0.1:<port>
   function pcResolveEp(r) {
@@ -6786,6 +6815,7 @@ window.__bkOnShow = async function () {
       btn.dataset.i = String(index);
       if (item.selected) btn.setAttribute('aria-selected', 'true');
       if (item.danger) btn.classList.add('danger');
+      if (item.dim) btn.classList.add('dim');
       if (item.kind) {
         const dot = document.createElement('span');
         dot.className = 'k k-' + item.kind;
@@ -6898,11 +6928,83 @@ window.__bkOnShow = async function () {
   }
 
   /** 一个引导项单元格：可用 = 可点开下拉；不可用 = 虚线「未检测到」，附原因 */
+  // 三引导器通道的列顺序（与主窗「系统引导」页的卡片顺序一致）。后端
+  // `channels::boot_channels` 也是这个顺序，这里写死一份只是为了让「某台机器只
+  // 检测到 Clover、另一台只检测到 systemd-boot」时列序仍然稳定。
+  const CQ_CHANNEL_ORDER = ['sdboot', 'opencore', 'clover'];
+
+  /** `channel:opencore` → `opencore` */
+  function cqChannelId(group) {
+    const kind = String((group && group.kind) || '');
+    return kind.indexOf('channel:') === 0 ? kind.slice(8) : '';
+  }
+
+  /**
+   * 当前要显示的通道列 = 所有电脑里「检测到」的通道取并集。
+   * 一个都没检测到就返回空表（表格保持原来的 rEFInd / GRUB 两列）。
+   */
+  function cqBootColumns() {
+    const found = {};
+    cqBoot.forEach(function (info) {
+      ((info && info.channels) || []).forEach(function (group) {
+        const id = cqChannelId(group);
+        if (!id || !group.available) return;
+        if (!found[id]) found[id] = group;
+      });
+    });
+    const out = [];
+    CQ_CHANNEL_ORDER.forEach(function (id) {
+      if (found[id]) out.push(found[id]);
+    });
+    // 后端将来加了新通道（不在上面的顺序表里）也不能吞掉：按返回顺序补在后面
+    Object.keys(found).forEach(function (id) {
+      if (CQ_CHANNEL_ORDER.indexOf(id) < 0) out.push(found[id]);
+    });
+    return out;
+  }
+
+  /** 表头跟着列集合走：动态列插在「更多」列之前，每轮先清掉上一轮的。 */
+  function cqRenderBootHeads(columns) {
+    const thead = document.querySelector('.cq-thead');
+    if (!thead) return;
+    thead.querySelectorAll('[data-cq-channel-head]').forEach(function (el) { el.remove(); });
+    // 插在「电源」之前：顺序必须与行内单元格一致（rEFInd → GRUB → 通道 → 电源
+    // → 更多），否则宽容器 flex 行的列宽跟表头对不上。
+    const anchor = thead.querySelector('.cq-col-pwr') || thead.querySelector('.cq-col-more');
+    (columns || []).forEach(function (group) {
+      const head = document.createElement('div');
+      head.className = 'cq-col cq-col-boot cq-col-boot--ch';
+      head.setAttribute('role', 'columnheader');
+      head.dataset.cqChannelHead = '1';
+      head.appendChild(document.createTextNode(group.title || '引导器'));
+      const sub = document.createElement('span');
+      sub.className = 'cq-th-sub';
+      sub.textContent = '启动项';
+      head.appendChild(sub);
+      if (anchor) thead.insertBefore(head, anchor);
+      else thead.appendChild(head);
+    });
+  }
+
+  /** 取这一行的某个引导项组：rEFInd / GRUB 在顶层，通道在 `channels[]` 里 */
+  function cqBootGroup(row, kind) {
+    const boot = row.boot;
+    if (!boot) return null;
+    if (kind.indexOf('channel:') === 0) {
+      const hit = (boot.channels || []).filter(function (group) {
+        return group && String(group.kind || '') === kind;
+      })[0];
+      return hit || null;
+    }
+    return boot[kind] || null;
+  }
+
   function cqBootCell(row, kind) {
     const box = document.createElement('div');
     box.className = 'cq-boot';
-    const group = row.boot ? row.boot[kind] : null;
-    const pending = kind === 'grub' && cqGrubPending(row);
+    const isChannel = kind.indexOf('channel:') === 0;
+    const group = cqBootGroup(row, kind);
+    const pending = !isChannel && kind === 'grub' && cqGrubPending(row);
     if (pending) box.classList.add('cq-boot--pend');
 
     const btn = document.createElement('button');
@@ -6930,10 +7032,18 @@ window.__bkOnShow = async function () {
       btn.title = '电脑离线，引导项不可修改（开机后才可切换）';
     } else {
       const current = String(group.current || '');
-      const hit = (group.options || []).filter(function (o) { return !o.header && o.value === current; })[0];
-      label = hit ? hit.label : (current || '未选择');
+      const options = group.options || [];
+      // 先按值域精确匹配；后端归一时没命中的（老数据 / 对端版本旧）再按标题
+      // 双向包含兜底 —— 通道的 currentDefault 三种形状都见过（id / 标题 / spec）。
+      const hit = options.filter(function (o) { return !o.header && o.value === current; })[0]
+        || options.filter(function (o) {
+          if (o.header || !current) return false;
+          const text = String(o.label || '').trim();
+          return !!text && (text === current || text.indexOf(current) >= 0 || current.indexOf(text) >= 0);
+        })[0];
+      label = hit ? hit.label : (current || (isChannel ? '未设置默认项' : '未选择'));
       kindClass = hit ? hit.class : '';
-      usable = (group.options || []).length > 0;
+      usable = options.length > 0;
       btn.disabled = !usable;
       if (!usable) box.classList.add('cq-boot--none');
     }
@@ -6992,7 +7102,9 @@ window.__bkOnShow = async function () {
       note.appendChild(document.createTextNode('下次重启生效 · '));
       note.appendChild(undo);
       box.appendChild(note);
-    } else if (!row.local && group && !group.available && group.note) {
+    } else if (!isChannel && !row.local && group && !group.available && group.note) {
+      // 通道列只出「检测到」的通道；某台机器没检测到时格子里写「未检测到」就够，
+      // 原因放 title（多列都挂一行说明会把表格撑成两行高）。
       const note = document.createElement('p');
       note.className = 'cq-note';
       note.textContent = group.note;
@@ -7005,12 +7117,30 @@ window.__bkOnShow = async function () {
     const options = (group.options || []).slice();
     if (!options.length) return;
     const current = String(group.current || '');
-    // 标题带上当前显示格式：一眼能看出后端按哪档生成条目文字（极简=内核短名…）
-    const items = [{ head: group.title + ' · ' + grubFmtLabel() + ' · 下次启动' }];
+    // 标题带上当前显示格式：一眼能看出后端按哪档生成条目文字（极简=内核短名…）。
+    // 通道列（systemd-boot / OpenCore / Clover）的条目不受 GRUB 格式影响，不写档位。
+    const fmt = kind.indexOf('channel:') === 0 ? '' : ' · ' + grubFmtLabel();
+    const items = [{ head: group.title + fmt + ' · 下次启动' }];
     options.forEach(function (option) {
       // 组头行（「▸ 组名（N 项…）」）不可选，渲染成小标题 —— 与托盘菜单同构
       if (option.header) {
         items.push({ head: option.label });
+        return;
+      }
+      if (option.fixed) {
+        // OC 预演里没有值域的行（macOS 默认项在 Preboot 卷上、协议驱动、
+        // Reset NVRAM…）：与托盘镜像块同构 —— 照样列出来、置灰，是默认项的
+        // 由 current（标题兜底）打勾，点了没有动作。
+        const text = String(option.label || '').trim();
+        items.push({
+          label: option.label,
+          kind: option.class,
+          dim: true,
+          selected: !!text && !!current
+            && (text === current || text.indexOf(current) >= 0 || current.indexOf(text) >= 0),
+          value: '',
+          fixed: true,
+        });
         return;
       }
       items.push({
@@ -7026,6 +7156,10 @@ window.__bkOnShow = async function () {
     }
     cqOpenDd(anchor, items, function (picked) {
       if (!picked || picked.value === undefined) return;
+      if (picked.fixed) {
+        toast('「' + picked.label + '」没有可发的值域（要改默认项请在电脑端操作）');
+        return;
+      }
       if (picked.value === '\u0000undo') {
         cqSwitchBoot(row, kind, String(group.saved || ''), '撤销');
         return;
@@ -7474,6 +7608,19 @@ window.__bkOnShow = async function () {
     tdGrub.appendChild(cqBootCell(row, 'grub'));
     tr.appendChild(tdGrub);
 
+    // ③· 三引导器通道（systemd-boot / OpenCore / Clover）：列不是固定的 —— 只有
+    // 至少一台电脑检测到才占一列（表头由 cqRenderBootHeads 同步追加）。没检测到
+    // 的那台照样补一个灰格，否则同一行里列会错位。
+    cqBootColumns().forEach(function (group) {
+      const kind = String(group.kind || '');
+      const td = document.createElement('div');
+      td.className = 'cq-col cq-col-boot cq-col-boot--ch';
+      td.setAttribute('role', 'cell');
+      td.dataset.label = (group.title || '引导器') + ' 启动项';
+      td.appendChild(cqBootCell(row, kind));
+      tr.appendChild(td);
+    });
+
     // ⑤ 电源（按钮 = 图标+标签+提示小字，对齐移动端 PowerButton / powerHint）
     const tdPwr = document.createElement('div');
     tdPwr.className = 'cq-col cq-col-pwr';
@@ -7754,6 +7901,9 @@ window.__bkOnShow = async function () {
     if (!tbody) return;
     const rows = cqRows();
     cqUpdateStats(rows);
+    // 通道列只出「有电脑检测到」的那些：列集合变了表头也要跟着变，否则表头与
+    // 行内单元格数量对不上（宽容器是 flex 行，靠列宽对齐）。
+    cqRenderBootHeads(cqBootColumns());
     tbody.textContent = '';
     let shown = 0;
     rows.forEach(function (row) {
@@ -7790,6 +7940,7 @@ window.__bkOnShow = async function () {
           ok: false, online: false, addr: '', error: String(error),
           refind: { kind: 'refind', title: 'rEFInd', available: false, current: '', next: '', saved: '', note: String(error), options: [] },
           grub: { kind: 'grub', title: 'GRUB', available: false, current: '', next: '', saved: '', note: String(error), options: [] },
+          channels: [],
         });
         if (currentPage === 'computers') cqRenderRows();
       });
@@ -7847,7 +7998,7 @@ window.__bkOnShow = async function () {
     if (frame) return frame;
     frame = document.createElement('iframe');
     frame.title = rid === 'local' ? '本机页面' : '服务端页面';
-    const url = rid === 'local' ? localUrl() : (function () {
+    const url = rid === 'local' ? withGuestTheme(localUrl()) : (function () {
       const r = remotes.find(function (x) { return x.id === rid; });
       return r ? pcConnUrl(r) : '';
     })();
@@ -7935,7 +8086,7 @@ window.__bkOnShow = async function () {
     // 端点晚到时补 src
     const frame = pcEnsureFrame(cqViewRid);
     if (!frame.getAttribute('src')) {
-      const url = cqViewRid === 'local' ? localUrl() : (function () {
+      const url = cqViewRid === 'local' ? withGuestTheme(localUrl()) : (function () {
         const r = remotes.find(function (x) { return x.id === cqViewRid; });
         return r ? pcConnUrl(r) : '';
       })();
@@ -8104,7 +8255,7 @@ window.__bkOnShow = async function () {
   function pageEmptyEl() { return document.getElementById('pageEmpty'); }
 
   function pageUrl(rid) {
-    if (rid === 'local') return localUrl();
+    if (rid === 'local') return withGuestTheme(localUrl());
     const r = remotes.find(function (x) { return x.id === rid; });
     return r ? pcConnUrl(r) : '';
   }

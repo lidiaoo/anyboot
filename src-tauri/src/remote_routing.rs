@@ -118,23 +118,23 @@ pub(crate) fn route_remote_command(request: &RemoteRequest) -> Result<RemoteComm
     // 这里只处理「会改状态」的三个端点。
     match request.path.as_str() {
         "/api/switch" => {
-            let Some(system) = request.param("system") else {
+            let Some(system) = request.param("system").map(|value| value.trim().to_string()) else {
                 return Err(RemoteReply::error(
                     400,
                     "missing_system",
-                    "缺少 system 参数（linux/windows/macos）",
+                    "缺少 system 参数（linux/windows/macos，或自动扫描模式下 rEFInd 菜单条目的标题原文）",
                 ));
             };
-            if !SOURCE_FILES
-                .iter()
-                .any(|(candidate, _, _)| *candidate == system)
-            {
+            if system.is_empty() {
                 return Err(RemoteReply::error(
                     400,
-                    "unknown_system",
-                    &format!("未知系统: {system}"),
+                    "missing_system",
+                    "system 参数是空的",
                 ));
             }
+            // 值域不在路由层校验：自动扫描模式下 system 是 rEFInd 菜单条目的标题
+            // 原文（`/api/status` 合成出来的），三系统兜底校验挪到执行端按模式分流
+            // （见 execute_remote_command 的 Switch 臂）。
             Ok(RemoteCommand::Switch(system))
         }
         "/api/power" => {
@@ -236,6 +236,49 @@ pub(crate) fn route_remote_command(request: &RemoteRequest) -> Result<RemoteComm
 
 pub(crate) fn remote_status_json(app: &AppHandle) -> serde_json::Value {
     let status = state_snapshot(app);
+    let settings = stored_settings(app);
+    // rEFInd 那块要跟「读取方式」走（与主窗 / 托盘同一规则）：自动扫描模式下
+    // 电脑列表（PC hub / 手机）也该看到 rEFInd 菜单本身的条目，而不是 vars 快照
+    // 里那三行粗粒度系统。把模拟扫描的条目整成 variables 的形状回给客户端：
+    // system = 标题**原文**（客户端会 trim，执行端做 trim→原文回溯，见
+    // `switch_refind_value`），displayName = trim 后的标题，kind 供客户端挑图标。
+    let sim = if settings.refind_mode.is_manual() {
+        None
+    } else {
+        app.state::<Mutex<AppState>>()
+            .lock()
+            .ok()
+            .and_then(|state| state.refind_sim.clone())
+            .filter(|sim| !sim.entries.is_empty())
+    };
+    let variables: Vec<serde_json::Value> = match sim.as_ref() {
+        Some(sim) => sim
+            .entries
+            .iter()
+            .filter(|entry| !entry.hidden && !entry.title.trim().is_empty())
+            .map(|entry| {
+                serde_json::json!({
+                    "system": entry.title,
+                    "displayName": entry.title.trim(),
+                    "exists": true,
+                    "active": entry.last_boot,
+                    "kind": entry.kind,
+                })
+            })
+            .collect(),
+        None => status
+            .variables
+            .iter()
+            .map(|variable| {
+                serde_json::json!({
+                    "system": variable.system,
+                    "displayName": variable.display_name,
+                    "exists": variable.exists,
+                    "active": variable.active,
+                })
+            })
+            .collect(),
+    };
     serde_json::json!({
         "ok": true,
         "revision": UI_REVISION.load(Ordering::SeqCst),
@@ -246,16 +289,7 @@ pub(crate) fn remote_status_json(app: &AppHandle) -> serde_json::Value {
         "temporaryMount": status.temporary_mount,
         "message": status.message,
         "error": status.error,
-        "variables": status
-            .variables
-            .iter()
-            .map(|variable| serde_json::json!({
-                "system": variable.system,
-                "displayName": variable.display_name,
-                "exists": variable.exists,
-                "active": variable.active,
-            }))
-            .collect::<Vec<_>>(),
+        "variables": variables,
     })
 }
 
@@ -281,9 +315,24 @@ pub(crate) fn remote_requests_json() -> serde_json::Value {
 /// GRUB 列表的 JSON 视图（HTTP `/api/grub` 与 CLI `--grub-list` 共用）。
 ///
 /// 只读当前快照，不主动重扫 —— 与 `/api/status` 同一套语义：要刷新由本机点同步。
+///
+/// 列表内容跟「读取方式」走（与主窗 `effective_grub` 同一规则）：自动模式把
+/// `linux_grub`（直接读 Linux 分区那份）覆盖到 ESP 快照上 —— 电脑列表看到的
+/// 条目、selector 与本机主窗必须同源，否则自动模式下「列表是一种、切换写的是
+/// 另一种 grubenv」。
 pub(crate) fn remote_grub_json(app: &AppHandle) -> serde_json::Value {
     let settings = stored_settings(app);
-    let view = grub_snapshot(app, &settings);
+    let mut view = grub_snapshot(app, &settings);
+    let linux_grub = app
+        .state::<Mutex<AppState>>()
+        .lock()
+        .ok()
+        .and_then(|state| state.linux_grub.clone());
+    menu_model::overlay_linux_grub(
+        &mut view,
+        linux_grub.as_ref(),
+        settings.grub_mode.is_manual(),
+    );
     serde_json::json!({
         "ok": true,
         "partuuid": view.partuuid,
@@ -346,6 +395,9 @@ pub(crate) fn static_ui_reply(path: &str) -> Option<RemoteReply> {
         }
         "/boot-list-view.js" | "/ui/boot-list-view.js" => {
             ("text/javascript; charset=utf-8", UI_BOOT_LIST_VIEW_JS)
+        }
+        "/boot-adv.js" | "/ui/boot-adv.js" => {
+            ("text/javascript; charset=utf-8", UI_BOOT_ADV_JS)
         }
         "/styles.css" | "/ui/styles.css" => ("text/css; charset=utf-8", UI_STYLES_CSS),
         _ => return None,
@@ -679,6 +731,13 @@ pub(crate) fn remote_ui_command_inner(
         "set_grub_list_format" => {
             settings_value(set_grub_list_format(app.clone(), ui_str(args, "format")?))
         }
+        // 引导器读取方式（自动 / 手动）：网页端切页签也要能落盘，
+        // 否则那边每点一次页签都会报「未知命令」，托盘还得等主窗来改。
+        "set_loader_mode" => settings_value(set_loader_mode(
+            app.clone(),
+            ui_str(args, "loader")?,
+            ui_str(args, "mode")?,
+        )),
         // ---- 主窗行为 / 贴边 / 白条 / 热区（Result<SettingsView,_> 一批）----
         "set_main_auto_hide" => settings_value(set_main_auto_hide(app.clone(), ui_bool(args, "enabled")?)),
         "set_main_always_on_top" => {
@@ -992,6 +1051,52 @@ pub(crate) fn start_remote_command(
     )
 }
 
+/// 在模拟菜单条目里把客户端传来的值解析成标题**原文**。
+///
+/// 电脑列表（PC hub / 手机）会把 `/api/status` 合成行里的 system **trim** 过再
+/// 回传，而写 `vars/PreviousBoot` 要原文（末尾的空格也是标题的一部分）——
+/// 先按原文精确匹配，再按 trim 匹配。
+pub(crate) fn resolve_sim_title<'a>(entries: &'a [channels::refind_menu::SimEntry], value: &str) -> Option<&'a str> {
+    let value = value.trim();
+    if value.is_empty() {
+        return None;
+    }
+    entries
+        .iter()
+        .map(|entry| entry.title.as_str())
+        .find(|title| *title == value)
+        .or_else(|| {
+            entries
+                .iter()
+                .map(|entry| entry.title.as_str())
+                .find(|title| title.trim() == value)
+        })
+}
+
+/// 自动扫描模式下 `/api/switch` 的执行端：菜单标题 → 写 `vars/PreviousBoot`；
+/// 三系统名（CLI / 电源快捷方式的老值域）兜底走老链路。
+fn switch_refind_value(app: &AppHandle, value: &str) -> AppStatus {
+    let sim = app
+        .state::<Mutex<AppState>>()
+        .lock()
+        .ok()
+        .and_then(|state| state.refind_sim.clone());
+    if let Some(title) = sim
+        .as_ref()
+        .and_then(|sim| resolve_sim_title(&sim.entries, value))
+    {
+        return channels::refind_menu::refind_sim_switch(app.clone(), title.to_string());
+    }
+    if SOURCE_FILES
+        .iter()
+        .any(|(system, _, _)| *system == value.trim())
+    {
+        return switch_and_update(app, value.trim());
+    }
+    // 都不是 —— 交给 refind_sim_switch 出「不在当前模拟菜单里」的正常错误
+    channels::refind_menu::refind_sim_switch(app.clone(), value.trim().to_string())
+}
+
 /// 真正执行一条远程命令。
 ///
 /// `allow_gui_auth` 用 `remoteAllowGuiAuth`（默认 true：远程请求可以弹本机授权框）。
@@ -1016,10 +1121,23 @@ pub(crate) fn execute_remote_command(
     let _no_gui_auth = RemoteNoGuiAuth::enter(allow_gui_auth);
     match command {
         RemoteCommand::Switch(system) => {
-            let status = switch_and_update(app, system);
-            match status.error {
-                Some(error) => (false, error),
-                None => (true, format!("下次启动：{}", system_display_name(system))),
+            // rEFInd 的值域跟「读取方式」走（与托盘 / 主窗同一规则）：自动扫描
+            // 模式下列表是模拟菜单的条目，system 是标题原文 —— 要写
+            // `vars/PreviousBoot`（`refind_sim_switch`）；手动模式才是三系统快照
+            // （`switch_and_update`）。CLI / 电源快捷方式传来的三系统名在自动
+            // 模式下也照常工作（菜单里没有这个标题就落到三系统兜底）。
+            if settings.refind_mode.is_manual() {
+                let status = switch_and_update(app, system);
+                match status.error {
+                    Some(error) => (false, error),
+                    None => (true, format!("下次启动：{}", system_display_name(system))),
+                }
+            } else {
+                let status = switch_refind_value(app, system);
+                match status.error {
+                    Some(error) => (false, error),
+                    None => (true, format!("下次启动（rEFInd）：{}", system.trim())),
+                }
             }
         }
         RemoteCommand::Power(action) => {
@@ -1046,10 +1164,22 @@ pub(crate) fn execute_remote_command(
             )
         }
         RemoteCommand::SwitchGrub(selector) => {
-            let status = switch_grub_and_update(app, selector);
-            match status.error {
-                Some(error) => (false, error),
-                None => (true, format!("下次启动（GRUB）：{selector}")),
+            // 写哪份 grubenv 必须跟「读取方式」走（与托盘同一条规则，见
+            // MenuAction::SwitchGrub 的说明）：自动模式写 linux_grub（读 Linux
+            // 分区那份的 next/saved），手动模式才写 ESP grubenv。以前恒写 ESP
+            // —— 自动模式下电脑列表里点完，本机主窗 / 托盘纹丝不动。
+            if settings.grub_mode.is_manual() {
+                let status = switch_grub_and_update(app, selector);
+                match status.error {
+                    Some(error) => (false, error),
+                    None => (true, format!("下次启动（GRUB）：{selector}")),
+                }
+            } else {
+                let status = channels::linux_grub::switch_blocking(app.clone(), selector.to_string());
+                match status.error {
+                    Some(error) => (false, error),
+                    None => (true, format!("下次启动（GRUB）：{selector}")),
+                }
             }
         }
         RemoteCommand::SwitchChannel { channel, target } => {
@@ -1146,3 +1276,8 @@ pub(crate) const UI_GRUB_LIST_VIEW_JS: &str = include_str!("../../ui/grub-list-v
 /// 表漏了 —— 桌面端走 Tauri 资源协议不受影响，网页/手机端会 404，整块通道卡片
 /// 直接不出现。两个路径都挂上，与上面几个保持一致。
 pub(crate) const UI_BOOT_LIST_VIEW_JS: &str = include_str!("../../ui/boot-list-view.js");
+
+/// 引导高级设置（版式主题 / 布局 / 启用与排序 / 左右分栏）。桌面端走 Tauri
+/// 资源协议照常，但路由表漏了它 —— 网页/手机/hub 里这块脚本 404，于是
+/// 「引导高级设置」整页空白、选主题也不会有任何布置（页面看着「还是依旧」）。
+pub(crate) const UI_BOOT_ADV_JS: &str = include_str!("../../ui/boot-adv.js");

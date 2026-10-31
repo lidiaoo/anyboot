@@ -30,65 +30,6 @@ pub(crate) fn radio_label(selected: bool, text: &str) -> String {
     format!("{} {text}", if selected { RADIO_ON } else { RADIO_OFF })
 }
 
-/// GRUB 条目的展示文字：随列表格式变（与 `ui/grub-list-view.js` 的 `rowLabel`
-/// **同一条规则** —— 极简/简易 = 去前缀内核名；中等 = 完整内核名；其余 = 菜单标题）。
-pub(crate) fn grub_entry_label(entry: &grub::GrubEntry, list_format: &str) -> String {
-    // JS 的 `(entry.kernels && entry.kernels[0]) || entry.name`：空内核名也回落到菜单标题
-    let kernel = entry
-        .kernels
-        .first()
-        .filter(|kernel| !kernel.is_empty())
-        .map(String::as_str)
-        .unwrap_or(&entry.name);
-    match list_format {
-        "minimal" | "simple" => {
-            let stripped = kernel
-                .strip_prefix("vmlinuz-")
-                .or_else(|| kernel.strip_prefix("linux-"))
-                .unwrap_or(kernel);
-            stripped.to_string()
-        }
-        "medium" => kernel.to_string(),
-        _ => entry.name.clone(),
-    }
-}
-
-/// 「下次启动」的级联文字：rEFInd 层 → GRUB 层。
-///
-/// 与主窗口顶部那行大字（`ui/app.js` 的 `nextBootText`）**同一条规则**：
-/// rEFInd 选中的不是 Linux（Windows/macOS 是直接引导），或者 GRUB 侧还没选过
-/// → 只显示 rEFInd 这一层；选中 Linux 且能手拿把掐找到那个 GRUB 条目 →
-/// 「Linux › 组名 › 条目文字」。托盘顶部、主窗口大字说的是同一个东西，
-/// **改这里的规则请同步改 `ui/app.js`**（两处一字不差是用户的要求）。
-pub(crate) fn next_boot_cascade(variables: &[VariableInfo], grub: &GrubView) -> String {
-    let Some(active) = variables.iter().find(|variable| variable.active) else {
-        return "未知（没有选中的系统）".to_string();
-    };
-    let mut text = active.display_name.clone();
-    if active.system != "linux" {
-        return text;
-    }
-    let selector = grub
-        .next_entry
-        .as_deref()
-        .or(grub.saved_entry.as_deref())
-        .unwrap_or("");
-    let Some(entry) = grub.entries.iter().find(|entry| entry.selector == selector) else {
-        return text;
-    };
-    if let Some(submenu) = &entry.submenu {
-        let group = grub
-            .groups
-            .iter()
-            .find(|group| &group.id == submenu)
-            .map(|group| group.name.as_str())
-            .unwrap_or(submenu.as_str());
-        text.push_str(&format!(" › {group}"));
-    }
-    text.push_str(&format!(" › {}", grub_entry_label(entry, &grub.list_format)));
-    text
-}
-
 /// 托盘顶部那行状态文案：只在**和「下次启动：X」不一样**的时候才显示。
 ///
 /// 扫描成功之后 `status.message` 本身就是「下次启动：X」，和顶部那行一字不差；
@@ -96,7 +37,14 @@ pub(crate) fn next_boot_cascade(variables: &[VariableInfo], grub: &GrubView) -> 
 /// 只有错误提示、临时操作结果这类「额外信息」才值得单独一行 —— 抽成纯函数方便单测。
 pub(crate) fn menu_status_line<'a>(message: &'a str, next_boot_label: &str) -> Option<&'a str> {
     let message = message.trim();
-    if message.is_empty() || message == next_boot_label {
+    if message.is_empty() {
+        return None;
+    }
+    // 顶部那行现在可能是**多行**（每个引导器一行，见 next_boot_rows），跟扫描成功
+    // 那句「下次启动：X」永远不可能整串相等了。扫描成功的文案恒以「下次启动」开头
+    // （`scan` / `grub_esp` 两处都是），按前缀吞掉即可 —— 否则菜单里会同时出现
+    // 「下次启动(rEFInd…)」和一条一模一样的「下次启动：X」（用户报过的那条重复）。
+    if message.starts_with("下次启动") || message == next_boot_label {
         return None;
     }
     Some(message)
@@ -381,6 +329,538 @@ pub(crate) fn grub_menu_nodes(grub: &GrubView, busy: bool) -> Vec<MenuNode> {
     items
 }
 
+// ───────────────────── 引导器下拉框 / 下次启动多行（2026-10-30 定案）─────────────────────
+//
+// 托盘原来只有两块：「rEFInd 系统列表」（Windows / Linux / macOS 三个固定项）和
+// 「GRUB 启动项」。那三个固定项是模板快照（`PreviousBoot-<system>`），**不是**
+// rEFInd 菜单里的真实条目 —— 主窗早就按 rEFInd 自己的菜单显示了，托盘却还是老三样，
+// 于是用户要求：每个引导器一块下拉框（跟 GRUB 一样），rEFInd 那三个固定项删掉，
+// 并且托盘的「下次启动」要与主窗那几行同源。
+//
+// 现在引导区 = 若干子菜单，每个引导器一块，内容与主窗「系统引导」页的卡片一一对应
+// （同一份快照字段、同一套选中项判定）。没内容的引导器整块不出现 —— 菜单里不摆空壳。
+
+/// 通道条目的「当前项」判定：与主窗 `boot-list-view.js` 的 `isCurrentDefault`
+/// 同一条规则（`currentDefault` 有时是条目 id、有时是标题，只比其中一个会漏）。
+pub(crate) fn channel_entry_is_default(current: &str, entry: &channels::ChannelEntry) -> bool {
+    if current.is_empty() {
+        return false;
+    }
+    current == entry.id
+        || current == entry.title
+        // 空标题不能让 contains 恒真（JS 那边用 \u0000 兜的同一个坑）
+        || (!entry.title.is_empty() && current.contains(entry.title.as_str()))
+}
+
+/// 通道条目的切换值域：与 `ui/boot-list-view.js` 的 `bootChannelSpec` **同一条规则**
+/// （`sdboot:<id>` / opencore 的 id 本身就是值域 / clover 目前只有一个一次性动作）。
+pub(crate) fn channel_entry_spec(channel_id: &str, entry: &channels::ChannelEntry) -> String {
+    match channel_id {
+        "sdboot" => format!("sdboot:{}", entry.id),
+        "clover" => "clover-oneshot".to_string(),
+        _ => entry.id.clone(),
+    }
+}
+
+/// 通道里「真正能点的行」：`entries` + OpenCore 的菜单预演合并去重。
+///
+/// 为什么必须合并：OpenCore 的顶层 `entries` 只放「写入固件启动项」这类修复动作，
+/// 真正的菜单项（macOS / Windows / 各卷兜底项）**全在 `menu_preview` 里**，能不能
+/// 设默认由 `spec` 有没有值决定。只读 `entries` 的话托盘那块永远退化成一句
+/// 「没有可切换的菜单项」，与主窗卡片上明明列着的 5 个卷对不上
+/// （用户 2026-10-30 报的「托盘为什么没有 OpenCore 列表」就是这条）。
+///
+/// 托盘下拉、下次启动多行、远程电脑表三处共用这一份 —— 别再各写一遍判定。
+pub(crate) struct ChannelRow {
+    pub(crate) title: String,
+    /// 原样回传给 `switch_boot_channel` 的值域
+    pub(crate) spec: String,
+    /// 条目类型（通道用 `icon`、预演用 `kind`），只为挑图标/配色
+    pub(crate) class: String,
+    pub(crate) is_default: bool,
+}
+
+pub(crate) fn channel_switch_rows(channel: &channels::ChannelView) -> Vec<ChannelRow> {
+    let current = channel.current_default.as_deref().unwrap_or("").trim();
+    // 与 `channel_entry_is_default` 同一条规则，但这里只有 title/spec 两个字符串
+    let hit = |spec: &str, title: &str| {
+        !current.is_empty()
+            && (current == spec || current == title || (!title.is_empty() && current.contains(title)))
+    };
+    let mut rows: Vec<ChannelRow> = Vec::new();
+    for entry in &channel.entries {
+        let title = entry.title.trim();
+        if title.is_empty() {
+            continue;
+        }
+        let spec = channel_entry_spec(channel.id, entry);
+        rows.push(ChannelRow {
+            title: title.to_string(),
+            is_default: hit(&spec, title),
+            spec,
+            class: entry.icon.clone(),
+        });
+    }
+    if let Some(preview) = &channel.menu_preview {
+        for entry in &preview.entries {
+            let title = entry.title.trim();
+            let Some(spec) = entry
+                .spec
+                .as_deref()
+                .map(str::trim)
+                .filter(|text| !text.is_empty())
+            else {
+                // 协议驱动项 / 工具项 / 已经是默认项：spec 为空，点了也没有值域可发
+                continue;
+            };
+            if title.is_empty() || rows.iter().any(|row| row.spec == spec) {
+                continue;
+            }
+            rows.push(ChannelRow {
+                title: title.to_string(),
+                spec: spec.to_string(),
+                class: entry.kind.clone(),
+                // 预演的 `default` 就是 OC 启动顺序表（OCBtOrder）指的那一项
+                is_default: entry.default || hit(spec, title),
+            });
+        }
+    }
+    rows
+}
+
+/// 通道的「当前默认项」标题 —— **故意与「可切换值域」分开算**。
+///
+/// `channel_switch_rows` 只收有 `spec` 的条目（点了能发值域的），但默认项不一定
+/// 在那一集合里：OpenCore 的默认项来自固件启动顺序表（`OCBtOrder` /
+/// `defaultSlot`），而 macOS 那条的引导文件在 APFS Preboot 卷里，没有
+/// `opencore-default:<卷>\x01<路径>` 这个值域可用 —— `spec` 是 `None`，于是它既
+/// 进不了切换下拉，也判不出默认，主窗/托盘「下次启动」就显示「未选中条目」，
+/// 可下面列表里它明明是绿框选中态。这里按优先级补一份：先看 `entries`
+/// （sdboot / clover 的常规情形），再看预演里后端打的 `default` 标记。
+pub(crate) fn channel_default_title(channel: &channels::ChannelView) -> Option<String> {
+    let current = channel.current_default.as_deref().unwrap_or("").trim();
+    let from_entries = channel
+        .entries
+        .iter()
+        .find(|entry| channel_entry_is_default(current, entry))
+        .map(|entry| entry.title.trim().to_string())
+        .filter(|title| !title.is_empty());
+    if from_entries.is_some() {
+        return from_entries;
+    }
+    channel
+        .menu_preview
+        .as_ref()
+        .and_then(|preview| {
+            preview
+                .entries
+                .iter()
+                .find(|entry| entry.default)
+                .map(|entry| entry.title.trim().to_string())
+        })
+        .filter(|title| !title.is_empty())
+}
+
+/// 「下次启动」的多行：每个引导器一行，右边是它当前选中的条目。
+///
+/// 与主窗那几行（`ui/boot-adv.js` 的 `paintNextBootRows`）**同一条规则**：
+/// * 只列「检测到 + 有条目」的引导器（探测到却一条都没读到的不占行）；
+/// * 选中项各按各的判据 —— rEFInd 看 `vars/PreviousBoot` 命中的标题，
+///   GRUB 看 grubenv 的 next/saved entry，通道看 `current_default`。
+pub(crate) fn next_boot_rows(state: &UiState) -> Vec<(String, String)> {
+    let grub = effective_grub(state);
+    next_boot_rows_from(refind_source(state), &grub, &state.channels)
+}
+
+/// rEFInd 的数据源（按设置里的读取方式选）。
+pub(crate) fn refind_source(state: &UiState) -> RefindSource<'_> {
+    RefindSource {
+        mode: state.settings.settings.refind_mode,
+        sim: state.refind_sim.as_ref(),
+        variables: &state.status.variables,
+    }
+}
+
+/// GRUB 的数据源：自动 = 直接读 Linux 分区那份（`linux_grub`），手动 = ESP 那份。
+///
+/// 只覆盖若干字段而不是整份重建 —— `GrubView` 有三十多个字段（挂载状态、脚本日志、
+/// 安装状态…），托盘与「下次启动」只用得到 entries / groups / next·saved。
+pub(crate) fn effective_grub(state: &UiState) -> GrubView {
+    let mut view = state.grub.clone();
+    overlay_linux_grub(
+        &mut view,
+        state.linux_grub.as_ref(),
+        state.settings.settings.grub_mode.is_manual(),
+    );
+    view
+}
+
+/// `effective_grub` 的可测内核：把 `linux_grub` 的 entries / groups / next·saved
+/// 覆盖到一份 ESP 快照上（自动模式才覆盖）。
+///
+/// 除了托盘 /「下次启动」，电脑列表的 `/api/grub` 也吃这一份 —— 手机与 PC hub
+/// 看到的 GRUB 列表必须和本机主窗同一个来源，否则「自动模式」下两边各说各话。
+pub(crate) fn overlay_linux_grub(
+    view: &mut GrubView,
+    linux: Option<&channels::linux_grub::LinuxGrubView>,
+    manual: bool,
+) {
+    if manual {
+        return;
+    }
+    let Some(linux) = linux else {
+        return;
+    };
+    if linux.entries.is_empty() {
+        return;
+    }
+    view.entries = linux.entries.clone();
+    view.groups = linux.groups.clone();
+    view.next_entry = linux.next_entry.clone();
+    view.saved_entry = linux.saved_entry.clone();
+    view.error = linux.error.clone();
+    if let Some(target) = linux.target.as_ref() {
+        if !target.dev.is_empty() {
+            view.efi_dir = Some(target.dev.clone());
+        }
+    }
+}
+
+/// `next_boot_rows` 的可测内核：只认三份数据，不碰 AppHandle/设置。
+///
+/// 拆两层不是为了好看：托盘顶部那行是三端共用的一句话，构造一个完整 `UiState`
+/// 需要 Layout/HTTP/助手状态一大堆无关字段，测试里根本写不出来 —— 而「哪一行该
+/// 出现、选中项算不算命中」正是最容易写错的地方。
+///
+/// rEFInd 与 GRUB 传进来的**必须是已经按读取方式选好的那份**（见
+/// `refind_source` / `effective_grub`）—— 两个模式各自有各的「选中项」，混着比
+/// 就会像之前那样「主窗列表选了 A、下次启动说未选中」。
+pub(crate) fn next_boot_rows_from(
+    refind: RefindSource<'_>,
+    grub: &GrubView,
+    channels: &[channels::ChannelView],
+) -> Vec<(String, String)> {
+    let mut rows: Vec<(String, String)> = Vec::new();
+    // rEFInd：自动看 `PreviousBoot` 命中的那条，手动看快照里标「已选择」的那条
+    let refind_rows = refind.rows();
+    if !refind_rows.is_empty() {
+        let picked = refind_rows
+            .iter()
+            .find(|entry| entry.is_default)
+            .map(|entry| entry.label.clone());
+        rows.push(("rEFInd".to_string(), picked.unwrap_or_default()));
+    }
+    // GRUB：选中项 = next_entry 优先、退 saved_entry，在**当前这份**的条目里找
+    if !grub.entries.is_empty() {
+        let selector = grub
+            .next_entry
+            .as_deref()
+            .or(grub.saved_entry.as_deref())
+            .unwrap_or("");
+        let picked = grub
+            .entries
+            .iter()
+            .find(|entry| !selector.is_empty() && entry.selector == selector)
+            .map(|entry| entry.name.clone());
+        rows.push(("GRUB".to_string(), picked.unwrap_or_default()));
+    }
+    // 三引导器通道（systemd-boot / OpenCore / Clover）：行与托盘下拉同源
+    // （`channel_switch_rows` 会带上 OpenCore 的菜单预演，否则 OC 那行永远不出现）
+    for channel in channels.iter().filter(|channel| channel.detected) {
+        let switchable = channel_switch_rows(channel);
+        // 一条可切换项都没有、也判不出默认项：整行不出现（不摆「未选中」噪音）；
+        // 只有默认项没有切换值域（OC 全是 Preboot 条目）时仍要出这一行。
+        if switchable.is_empty() && channel_default_title(channel).is_none() {
+            continue;
+        }
+        // 默认项优先在可切换行里找；找不到（OC 的 macOS 在 Preboot 卷上、
+        // 没有可发的值域）就用 `channel_default_title` 补 —— 「下次启动」要回答
+        // 的是「下次会起谁」，不是「能不能在这里改它」。
+        let picked = switchable
+            .iter()
+            .find(|row| row.is_default)
+            .map(|row| row.title.clone())
+            .or_else(|| channel_default_title(channel))
+            .unwrap_or_default();
+        rows.push((channel.label.to_string(), picked));
+    }
+    rows
+}
+
+/// 顶部那一项的完整文字：首行「下次启动」，其后每行「引导器 · 条目」。
+///
+/// 宿主对多行 label 的处理各不相同（自绘窗 `white-space: pre-line`、原生菜单
+/// 直接把 `\n` 当回车），所以这里只给文本，不掺任何排版符号。
+pub(crate) fn next_boot_label(state: &UiState) -> String {
+    next_boot_label_from_rows(&next_boot_rows(state))
+}
+
+pub(crate) fn next_boot_label_from_rows(rows: &[(String, String)]) -> String {
+    if rows.is_empty() {
+        return "下次启动\n未知（没有选中的系统）".to_string();
+    }
+    let mut text = String::from("下次启动");
+    for (name, entry) in rows {
+        text.push('\n');
+        text.push_str(name);
+        text.push_str(" · ");
+        text.push_str(if entry.is_empty() {
+            "未选中条目"
+        } else {
+            entry.as_str()
+        });
+    }
+    text
+}
+
+/// rEFInd 那块下拉框的内容：条目与主窗 rEFInd 卡同一份（顺序即扫描顺序）。
+///
+/// 被隐藏规则挡掉的、标题空的不列。选中项（`vars/PreviousBoot` 命中的那条）
+/// 置顶一份，原位不再重复 —— 通道/GRUB 那套「置顶 + 原位」在条目多时会把菜单
+/// 撑成两倍长，这里只置顶一次。
+/// rEFInd 那块的「一行」—— 两种读取方式共用一个形态，动作靠 `system` 区分：
+/// `None` = 自动扫描链路（点 = 把标题原文写进 `vars/PreviousBoot`）；
+/// `Some(system)` = 手动处理链路（点 = 写 vars 快照，值域是 `windows`/`macos`/`linux`）。
+pub(crate) struct RefindRow {
+    /// 菜单 id 里带的值：自动 = 标题**原文**（末尾空格要留着，写 PreviousBoot 要
+    /// 原样匹配），手动 = system 名。
+    pub(crate) value: String,
+    /// 展示用（已 trim）
+    pub(crate) label: String,
+    /// windows / macos / linux …（只用来挑图标）
+    pub(crate) kind: String,
+    pub(crate) system: Option<String>,
+    pub(crate) is_default: bool,
+}
+
+/// rEFInd 当前的**数据源**（按 `Settings.refind_mode` 选），下次启动行与托盘
+/// 下拉都吃它 —— 否则「自动扫描」模式下点了托盘、主窗那行却不动。
+pub(crate) struct RefindSource<'a> {
+    pub(crate) mode: state::LoaderMode,
+    pub(crate) sim: Option<&'a channels::refind_menu::SimPreview>,
+    pub(crate) variables: &'a [VariableInfo],
+}
+
+impl RefindSource<'_> {
+    pub(crate) fn rows(&self) -> Vec<RefindRow> {
+        if self.mode.is_manual() {
+            // 手动处理：vars 快照那三行系统（不存在的那些不列）
+            return self
+                .variables
+                .iter()
+                .filter(|item| item.exists && !item.display_name.trim().is_empty())
+                .map(|item| RefindRow {
+                    value: item.system.clone(),
+                    label: item.display_name.trim().to_string(),
+                    kind: item.system.clone(),
+                    system: Some(item.system.clone()),
+                    is_default: item.active,
+                })
+                .collect();
+        }
+        self.sim
+            .map(|sim| {
+                sim.entries
+                    .iter()
+                    .filter(|entry| !entry.hidden && !entry.title.trim().is_empty())
+                    .map(|entry| RefindRow {
+                        value: entry.title.clone(),
+                        label: entry.title.trim().to_string(),
+                        kind: entry.kind.clone(),
+                        system: None,
+                        is_default: entry.last_boot,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn links_sim(&self) -> bool {
+        !self.mode.is_manual()
+    }
+}
+
+pub(crate) fn refind_loader_nodes(rows: &[RefindRow], busy: bool) -> Vec<MenuNode> {
+    if rows.is_empty() {
+        return Vec::new();
+    }
+    let row = |entry: &RefindRow| {
+        let id = match &entry.system {
+            Some(system) => format!("refind-sys:{system}"),
+            // id 里放**标题原文**（末尾那个空格也留着）：后端要原样写进
+            // `vars/PreviousBoot`，trim 过就匹配不上 rEFInd 的菜单项。
+            None => format!("refind-switch:{}", entry.value),
+        };
+        menu_marked_choice_item(
+            id,
+            format!("{}{}", grub_os_icon(&entry.label), entry.label),
+            !busy,
+            entry.is_default,
+        )
+    };
+    let mut items: Vec<MenuNode> = Vec::new();
+    if let Some(picked) = rows.iter().find(|entry| entry.is_default) {
+        items.push(row(picked));
+    }
+    for entry in rows.iter().filter(|entry| !entry.is_default) {
+        items.push(row(entry));
+    }
+    items
+}
+
+/// 三引导器通道那块下拉框的内容（与主窗通道卡同一份数据）。
+///
+/// 行来源统一走 `channel_switch_rows`：OpenCore 的可切换项在菜单预演里，
+/// 不在 `entries` 里（详见那个函数的说明）。
+pub(crate) fn channel_loader_nodes(
+    channel: &channels::ChannelView,
+    busy: bool,
+) -> Vec<MenuNode> {
+    let node_of = |row: &ChannelRow| {
+        menu_marked_choice_item(
+            format!("channel-switch:{}", row.spec),
+            format!("{}{}", grub_os_icon(&row.title), row.title),
+            // 需要提权的条目照样可点：链路里会走服务优先 / 授权兜底（与主窗一致），
+            // 不在这里预先拦掉，否则 Windows 上「设为默认」这类条目在托盘里永远点不动。
+            !busy,
+            row.is_default,
+        )
+    };
+    let rows = channel_switch_rows(channel);
+    let mut items: Vec<MenuNode> = Vec::new();
+    if let Some(picked) = rows.iter().find(|row| row.is_default) {
+        items.push(node_of(picked));
+    }
+    for row in rows.iter().filter(|row| !row.is_default) {
+        items.push(node_of(row));
+    }
+    // 预演里**没有值域**的行也要列进来（macOS 默认项在 Preboot 卷上没有
+    // `opencore-default:` 值域、协议驱动、Reset NVRAM 这类工具）—— 托盘下拉
+    // 要与主窗卡片是同一份内容，缺了默认项那一行，用户看到的就是「右键菜单
+    // 不对」「两边对不上」。点不了就置灰，是默认项的照样打勾。
+    if let Some(preview) = &channel.menu_preview {
+        for entry in &preview.entries {
+            let title = entry.title.trim();
+            if title.is_empty()
+                || entry
+                    .spec
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|text| !text.is_empty())
+                    .is_some()
+                || rows.iter().any(|row| row.title == title)
+            {
+                continue;
+            }
+            items.push(menu_marked_choice_item(
+                // id 走一个**不解析**的前缀（见 MenuAction::from_id 的白名单）：
+                // 这些行没有值域可发，点了也该没动作。
+                // **enabled 必须是 true**：Windows 原生菜单把禁用项的位图勾画成
+                // 灰色，跟 GRUB/rEFInd 那些可用行的绿勾长得不一样（用户要求对勾
+                // 必须一致）。点了没反应是安全的 —— id 不在解析白名单里。
+                format!("channel-fixed:{}", title),
+                format!("{}{}", grub_os_icon(title), title),
+                true,
+                entry.default,
+            ));
+        }
+    }
+    items
+}
+
+/// 托盘引导区：每个引导器一块子菜单（= 下拉框），顺序与主窗卡片一致
+/// （rEFInd → GRUB → systemd-boot → OpenCore → Clover）。
+pub(crate) fn loader_menu_nodes(state: &UiState) -> Vec<MenuNode> {
+    let grub = effective_grub(state);
+    loader_menu_nodes_from(
+        refind_source(state),
+        &grub,
+        &state.channels,
+        state.busy.affects_menu(),
+    )
+}
+
+/// `loader_menu_nodes` 的可测内核（理由同 `next_boot_rows_from`）：只认三份数据。
+///
+/// `refind` / `grub` 都是**已经按读取方式选好的那份**（`refind_source` /
+/// `effective_grub`）—— 托盘下拉里勾在哪一行，必须跟主窗「下次启动」同一口径。
+pub(crate) fn loader_menu_nodes_from(
+    refind: RefindSource<'_>,
+    grub: &GrubView,
+    channels: &[channels::ChannelView],
+    busy: bool,
+) -> Vec<MenuNode> {
+    let mut nodes: Vec<MenuNode> = Vec::new();
+    // rEFInd：当前那份有行才出块（没跑过扫描 / 快照没生成过 = 不该占位）。
+    // 自动模式下全被隐藏规则挡掉时给一条说明，别让用户以为菜单坏了。
+    {
+        let rows = refind.rows();
+        let auto = refind.links_sim();
+        if auto && refind.sim.is_none() {
+            // 自动扫描还没跑：不出块
+        } else if rows.is_empty() && !auto {
+            // 手动处理但一条快照都没有：同样不出块（多数是压根没装 rEFInd）
+        } else {
+            let children = refind_loader_nodes(&rows, busy);
+            let children = if children.is_empty() {
+                vec![menu_item(
+                    "refind-empty",
+                    "没有可见的菜单项（都被隐藏规则挡掉了）",
+                    false,
+                )]
+            } else {
+                children
+            };
+            nodes.push(menu_submenu("refind-entries", "rEFInd 启动项", children));
+        }
+    }
+    // GRUB：有可点的条目才出块；一条都没解析到但**已经配置过 ESP** 的，也给块
+    // （块内是 grub_menu_nodes 自带的那条禁用说明，告诉用户还差什么）。
+    let grub_nodes = grub_menu_nodes(grub, busy);
+    let grub_configured = !grub.partuuid.is_empty() || !grub.dir.is_empty() || grub.esp.is_some();
+    if grub_nodes.iter().any(|node| node.enabled) || grub_configured {
+        nodes.push(menu_submenu("grub-entries", "GRUB 启动项", grub_nodes));
+    }
+    // 通道：检测到就出块（哪怕当前没有可切换的菜单项 —— 主窗能看菜单预览，
+    // 托盘至少要让人知道「这台机器上有它」）。未检测到的整块不出现。
+    for channel in channels {
+        if !channel.detected {
+            continue;
+        }
+        let children = channel_loader_nodes(channel, busy);
+        let children = if children.is_empty() {
+            vec![menu_item(
+                format!("channel-empty:{}", channel.id),
+                "没有可切换的菜单项（在主窗看菜单预览）",
+                false,
+            )]
+        } else {
+            children
+        };
+        nodes.push(menu_submenu(
+            format!("channel:{}", channel.id),
+            format!("{} 启动项", channel.label),
+            children,
+        ));
+    }
+    // 没检测到的通道：不摆空壳子菜单，但**必须留一行说明** —— 否则用户看着
+    // 「只有 rEFInd / GRUB 两块」会以为是程序漏做了这几个引导器
+    // （用户 2026-10-30 的原话就是「为什么没有 opencore clover systemd-boot」）。
+    let missing: Vec<&str> = channels
+        .iter()
+        .filter(|channel| !channel.detected)
+        .map(|channel| channel.label)
+        .collect();
+    if !missing.is_empty() {
+        nodes.push(menu_item(
+            "loaders-missing",
+            format!("未检测到：{}（这台机器上没有）", missing.join("、")),
+            false,
+        ));
+    }
+    nodes
+}
+
 /// 条目/组名的系统图标：windows → 🪟，mac/apple → 🍎，linux → 🐧，都不中就不加
 /// （与主窗 grubOsIcon 同一规则，不猜）。
 pub(crate) fn grub_os_icon(text: &str) -> &'static str {
@@ -518,29 +998,29 @@ pub(crate) fn build_menu_nodes(state: &UiState) -> Vec<MenuNode> {
     let busy = state.busy.affects_menu();
     let message = &state.status.message;
     let settings = &state.settings.settings;
-    let variables = menu_system_rows(&state.status.variables);
-    let next_boot = variables.iter().find(|variable| variable.active);
-    // 扫描成功后 `status.message` 就是这一行的样子（rEFInd 那一层）—— 去重拿它比对，
+    // 扫描成功后 `status.message` 就是「下次启动：X」（rEFInd 那一层）—— 去重拿它比对，
     // 与顶部那行改成什么排版无关（见 menu_status_line）。
-    let next_boot_scan_line = next_boot.map_or_else(
-        || "下次启动：未知".to_string(),
-        |variable| format!("下次启动：{}", variable.display_name),
-    );
-    // 顶部那行：**与主窗口那行大字同一份文字**（级联到 GRUB 条目），并按用户定案
-    // 排成两行「下次启动 / Linux › OpenCore (macOS)」。级联规则见 next_boot_cascade。
-    let next_boot_label = format!(
-        "下次启动\n{}",
-        next_boot_cascade(&state.status.variables, &state.grub)
-    );
+    let next_boot_scan_line = state
+        .status
+        .variables
+        .iter()
+        .find(|variable| variable.active)
+        .map_or_else(
+            || "下次启动：未知".to_string(),
+            |variable| format!("下次启动：{}", variable.display_name),
+        );
+    // 顶部那行：**与主窗「下次启动」同源** —— 每个引导器一行（见 next_boot_rows）。
+    let boot_rows = next_boot_rows(state);
+    let boot_label = next_boot_label_from_rows(&boot_rows);
 
     let mut nodes: Vec<MenuNode> = Vec::new();
-    // 第一行就把「下次启动哪个系统」摆出来。原生菜单改不了字号/字重，所以靠**位置**
+    // 第一行就把「下次启动哪些系统」摆出来。原生菜单改不了字号/字重，所以靠**位置**
     // 和标记让它够醒目；点它 = 打开主窗口去改。
     nodes.push(menu_marked_item(
         "next-boot",
-        next_boot_label,
+        boot_label,
         true,
-        next_boot.is_some(),
+        !boot_rows.is_empty(),
     ));
     // 状态行只在**跟上面那行不一样**的时候才出现（见 menu_status_line）：
     // 扫描成功后 message 本身就是「下次启动：X」，再摆一行就是「下次启动重复了」，
@@ -550,44 +1030,16 @@ pub(crate) fn build_menu_nodes(state: &UiState) -> Vec<MenuNode> {
     }
     nodes.push(menu_separator());
 
-    // rEFInd 扫到了系统 = 「展开」平铺（现状不变）；没扫到 = 收进子菜单不展开，
-    // 同时 GRUB 区平铺展开顶上 —— 保证总有一块能直接点到。反过来 rEFInd 在时
-    // GRUB 收进子菜单（默认展开 rEFInd，用户定案）。
-    let refind_alive = variables.iter().any(|variable| variable.exists);
-    // —— 分区：系统列表（选中项带标记）——
-    if refind_alive {
-        for variable in &variables {
-            nodes.push(menu_marked_choice_item(
-                variable.system.clone(),
-                variable.display_name.clone(),
-                variable.exists && !busy,
-                variable.active,
-            ));
-        }
+    // —— 分区：引导器（每个引导器一块下拉框）——
+    //
+    // 与主窗「系统引导」页一一对应。**rEFInd 的 Windows / Linux / macOS 三个固定项
+    // 已删除**：那是模板快照，不是 rEFInd 菜单里的真实条目（用户 2026-10-30 定案）。
+    // 某块为空 = 该引导器没检测到 / 没读到条目，整块不出现。
+    let loaders = loader_menu_nodes(state);
+    if loaders.is_empty() {
+        nodes.push(menu_item("boot-empty", "没有可用的引导项（先扫描）", false));
     } else {
-        let children = variables
-            .iter()
-            .map(|variable| {
-                menu_marked_choice_item(
-                    variable.system.clone(),
-                    variable.display_name.clone(),
-                    variable.exists && !busy,
-                    variable.active,
-                )
-            })
-            .collect();
-        nodes.push(menu_submenu("refind-systems", "rEFInd 系统列表", children));
-    }
-    nodes.push(menu_separator());
-    // —— 分区：GRUB 启动项（与 rEFInd 系统列表并列的第二块）——
-    if refind_alive {
-        nodes.push(menu_submenu(
-            "grub-entries",
-            "GRUB 启动项",
-            grub_menu_nodes(&state.grub, busy),
-        ));
-    } else {
-        nodes.extend(grub_menu_nodes(&state.grub, busy));
+        nodes.extend(loaders);
     }
     nodes.push(menu_separator());
     if state.status.temporary_mount {
@@ -834,14 +1286,15 @@ pub(crate) fn menu_signature_for(state: &UiState) -> String {
     // （N 项 · ESP 位置）、变体折叠、哪一条是当前项，全在里面。
     // 以前是自己再数一遍「条目名 + 分组名 + 列表格式」，等于把同一份内容算了两遍：
     // 改渲染规则时极易漏掉指纹，症状就是「显示的名字变了但托盘没重建」的假状态。
-    let grub_menu = serde_json::to_string(&grub_menu_nodes(
-        &state.grub,
-        state.busy.affects_menu(),
-    ))
-    .expect("GRUB 菜单节点一定能序列化");
-    let next_boot = next_boot_cascade(&state.status.variables, &state.grub);
+    // 引导器下拉框进指纹：**直接用托盘菜单真正会显示的那份节点**（loader_menu_nodes，
+    // 与主窗引导器卡同一份快照字段）。以前是单独序列化 GRUB 那块，加了 rEFInd /
+    // OpenCore / Clover 之后那样会漏 —— 换了条目菜单却不重建，托盘就停在旧勾选上。
+    let loaders = serde_json::to_string(&loader_menu_nodes(state))
+        .expect("引导器菜单节点一定能序列化");
+    // 顶部「下次启动」多行也进指纹：切完条目要立刻看到那行跟着变
+    let next_boot = next_boot_label(state);
     format!(
-        "{base}|wpos={position}|fmon={fixed_monitor}|fmons={monitor_options}|grubmenu={grub_menu}|nb={next_boot}"
+        "{base}|wpos={position}|fmon={fixed_monitor}|fmons={monitor_options}|loaders={loaders}|nb={next_boot}"
     )
 }
 
@@ -915,6 +1368,14 @@ pub(crate) enum MenuAction {
     SetMainFixedMonitor(String),
     /// 切换 GRUB 启动项（写 grubenv 的 selector，与主窗 GRUB 区同源）
     SwitchGrub(String),
+    /// 切换 rEFInd 启动项（写 `vars/PreviousBoot`，与主窗 rEFInd 列表同源）
+    SwitchRefind(String),
+    /// 切换 rEFInd「手动处理」那条链路的系统（写 vars 快照，值域 = windows/macos/linux）。
+    /// 与 `SwitchRefind` 不是一回事：那个按标题原文写 PreviousBoot，这个按 system 写快照。
+    SwitchSystem(String),
+    /// 切换三引导器通道的条目（`sdboot:<id>` / `opencore` / `clover-oneshot`…），
+    /// 与主窗通道卡同一个值域（见 `channel_entry_spec`）
+    SwitchChannel(String),
     Quit,
 }
 
@@ -954,6 +1415,17 @@ impl MenuAction {
         }
         if let Some(rest) = id.strip_prefix("grub-switch:") {
             return Some(Self::SwitchGrub(rest.to_string()));
+        }
+        // rEFInd 条目的 id 里是**标题原文**（末尾那个空格要留着写进 PreviousBoot），
+        // 所以这里只判空、绝不 trim。
+        if let Some(rest) = id.strip_prefix("refind-switch:") {
+            return (!rest.trim().is_empty()).then(|| Self::SwitchRefind(rest.to_string()));
+        }
+        if let Some(rest) = id.strip_prefix("refind-sys:") {
+            return (!rest.trim().is_empty()).then(|| Self::SwitchSystem(rest.trim().to_string()));
+        }
+        if let Some(rest) = id.strip_prefix("channel-switch:") {
+            return (!rest.trim().is_empty()).then(|| Self::SwitchChannel(rest.to_string()));
         }
         match id {
             "show" => Some(Self::Show),
@@ -1084,8 +1556,42 @@ pub(crate) fn spawn_menu_action(app: &AppHandle, action: MenuAction) {
             }
         }
         MenuAction::SwitchGrub(selector) => {
-            // 与主窗 GRUB 区同一条链路：写 grubenv → 重扫 → 广播
-            switch_grub_and_update(&app, &selector);
+            // 与主窗 GRUB 区同一条链路：写 grubenv → 重扫 → 广播。
+            // **写哪份 grubenv 必须跟「读取方式」走**：自动模式的托盘列表是
+            // `linux_grub` 那份（`effective_grub` 覆盖过），手动模式才是 ESP 那份。
+            // 以前恒写 ESP grubenv —— 自动模式下托盘点完，托盘勾选不动、主窗
+            // 列表与「下次启动」也不变（state.grub 更新了但 effective_grub 根本
+            // 不读它），看起来就是「点了没反应」，双向同步就是这么丢的。
+            let auto = !view_settings(&app).settings.grub_mode.is_manual();
+            if auto {
+                // 与主窗自动页签（`linux_grub_switch` 命令）同一实现：回填
+                // `linux_grub` 的 next/saved → record → publish，托盘指纹随
+                // `loaders=`/`nb=` 变化自动重建。
+                channels::linux_grub::switch_blocking(app.clone(), selector);
+            } else {
+                switch_grub_and_update(&app, &selector);
+            }
+        }
+        MenuAction::SwitchRefind(title) => {
+            // 与主窗 rEFInd 列表同一条链路（`refind_sim_switch`）：校验标题仍在当前
+            // 菜单里 → 写 vars/PreviousBoot → 重算模拟快照 → 广播。
+            // 校验失败是「正常返回 + error」，这里补一条动作记录，否则托盘点完没反应。
+            let status = channels::refind_menu::refind_sim_switch(app.clone(), title);
+            if let Some(error) = status.error {
+                record_action(&app, "切换 rEFInd 启动项", false, &error);
+            }
+        }
+        MenuAction::SwitchSystem(system) => {
+            // 与主窗「手动处理」列表同一手势：写 vars 快照（Boot* / PreviousBoot），
+            // 值域是 system 名 —— 别拿 SwitchRefind 的标题原文去糊这一条。
+            let status = switch_system_locally(&app, &system);
+            if let Some(error) = status.error {
+                record_action(&app, "切换系统", false, &error);
+            }
+        }
+        MenuAction::SwitchChannel(spec) => {
+            // 与主窗通道卡同一条链路：解析值域 → 执行（必要时提权）→ 重扫 → 广播
+            switch_channel_and_update(&app, &spec);
         }
         MenuAction::Quit => app.exit(0),
     });

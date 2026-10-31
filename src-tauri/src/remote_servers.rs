@@ -9,6 +9,7 @@
 //! 与 hub（SSH 服务器）完全解耦：配置目录下自己的 JSON（`remote-servers.json`），
 //! 命令只服务 hub 窗口的「电脑」页，不碰 UiState。
 
+use crate::channels;
 use crate::hub::{normalize_mac, normalize_route_target, PowerRoute};
 use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
@@ -3166,6 +3167,12 @@ pub struct BootOption {
     /// 与托盘菜单的组头同一规则 —— 前端渲染成小标题而不是选项。
     #[serde(default)]
     pub header: bool,
+    /// 固定行（`value` 恒空、不可切）：OC 预演里没有值域的行（macOS 默认项在
+    /// Preboot 卷上、协议驱动、Reset NVRAM…）。托盘把它们镜像成置灰项，电脑
+    /// 列表也要列出来 —— 否则两边条目对不上（用户 2026-10-31 报的）。是默认项
+    /// 的照样由 `current`（标题兜底）选中打勾。
+    #[serde(default)]
+    pub fixed: bool,
 }
 
 /// 一台电脑上的一种引导管理器（rEFInd 或 GRUB）的现状 + 可选项。
@@ -3188,17 +3195,21 @@ pub struct BootGroup {
     pub options: Vec<BootOption>,
 }
 
-/// 电脑页「引导项」列的数据：一次请求拿齐 rEFInd + GRUB。
+/// 电脑页「引导项」列的数据：一次请求拿齐 rEFInd + GRUB + 三引导器通道。
 #[derive(Clone, Debug, Serialize, Default, PartialEq)]
 pub struct RemoteBootInfo {
     pub ok: bool,
-    /// 这台电脑当前探得通吗（离线时两个引导项一律不可改）
+    /// 这台电脑当前探得通吗（离线时引导项一律不可改）
     pub online: bool,
     /// 探活赢家地址（展示用）
     pub addr: String,
     pub error: String,
     pub refind: BootGroup,
     pub grub: BootGroup,
+    /// systemd-boot / OpenCore / Clover（与主窗「系统引导」页的通道卡片同一份
+    /// `ChannelView`，这里转成和 rEFInd/GRUB 同构的 `BootGroup`，前端一套渲染）。
+    /// 顺序跟 `channels::boot_channels` 一致（sdboot → opencore → clover）。
+    pub channels: Vec<BootGroup>,
 }
 
 /// GRUB 条目名 → 图标分类（纯函数，便于单测）。
@@ -3214,15 +3225,6 @@ fn grub_class(name: &str, class: &str, chainloader: bool) -> String {
         return "auto".to_string();
     }
     "linux".to_string()
-}
-
-/// rEFInd 的 system → 图标分类
-fn refind_class(system: &str) -> String {
-    match system {
-        "windows" => "win".to_string(),
-        "macos" => "mac".to_string(),
-        _ => "linux".to_string(),
-    }
 }
 
 /// 这台电脑的 HTTP 端点（直连取首个非空地址；经跳板机复用本地转发）。
@@ -3362,6 +3364,31 @@ fn command_reply_message(reply: &serde_json::Value, fallback: &str) -> Result<St
     Ok(fallback.to_string())
 }
 
+/// rEFInd 行的图标分类：优先吃 `/api/status` 合成行带来的 `kind`（自动扫描模式），
+/// 认不出再按 system / 显示名的关键词救（Windows Boot Manager、mac、linux…），
+/// 都不中保留原 `refind_class` 的默认（其余当 linux）。
+fn refind_row_class(system: &str, label: &str, kind: Option<&str>) -> String {
+    match kind.unwrap_or("").trim().to_ascii_lowercase().as_str() {
+        "windows" => return "win".to_string(),
+        "macos" | "opencore" | "clover" => return "mac".to_string(),
+        "linux" => return "linux".to_string(),
+        _ => {}
+    }
+    let hay = format!("{system} {label}").to_lowercase();
+    if hay.contains("windows") {
+        "win".to_string()
+    } else if hay.contains("mac")
+        || hay.contains("apple")
+        || hay.contains("osx")
+        || hay.contains("opencore")
+        || hay.contains("clover")
+    {
+        "mac".to_string()
+    } else {
+        "linux".to_string()
+    }
+}
+
 /// 把 `/api/status` 的 variables 收成 rEFInd 的可选组。
 fn refind_from_status(value: &serde_json::Value) -> BootGroup {
     let mut options = Vec::new();
@@ -3402,11 +3429,13 @@ fn refind_from_status(value: &serde_json::Value) -> BootGroup {
         if active {
             current = system.clone();
         }
+        let kind = variable.get("kind").and_then(|item| item.as_str());
         options.push(BootOption {
             value: system.clone(),
+            class: refind_row_class(&system, &label, kind),
             label,
-            class: refind_class(&system),
             header: false,
+            fixed: false,
         });
     }
     BootGroup {
@@ -3423,6 +3452,450 @@ fn refind_from_status(value: &serde_json::Value) -> BootGroup {
         },
         options,
     }
+}
+
+// ───────────────────── 三引导器通道 → BootGroup ─────────────────────
+
+/// 通道条目图标 → 前端色点分类（mac / win / linux / auto）。
+///
+/// `ChannelEntry.icon` 用的是 `linux / windows / macos / menu`（见 channels/mod.rs），
+/// OC 预演的 `kind` 是 `macos / windows / linux / generic / tool` —— 两套都归到这里，
+/// 认不出的一律 `auto`（空心圈），不瞎猜成 Linux。
+fn channel_class(kind: &str) -> String {
+    match kind.trim().to_ascii_lowercase().as_str() {
+        "macos" | "mac" | "osx" | "apple" => "mac".to_string(),
+        "windows" | "win" => "win".to_string(),
+        "linux" => "linux".to_string(),
+        _ => "auto".to_string(),
+    }
+}
+
+/// 把「当前默认项」落到某个 option.value 上。
+///
+/// `currentDefault` 三种形状都有出现过：条目 id（sdboot 的 `arch`）、标题
+/// （`macOS Sequoia`）、后端算好的完整 spec（OC 预演的 `opencore-default:…`）。
+/// 前端是按 `option.value === current` 找命中项的，落不上就只能把原始串印出来
+/// —— 所以这里统一归一成 option.value；实在对不上才原样返回。
+fn resolve_channel_current(raw: &str, options: &[BootOption]) -> String {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return String::new();
+    }
+    if options.iter().any(|option| option.value == raw) {
+        return raw.to_string();
+    }
+    // sdboot 的 currentDefault 给的是条目 id（`arch`），option.value 是带前缀的
+    // 切换值域（`sdboot:arch`）—— 按尾部对齐一次，别把 value 和 id 混为一谈。
+    if let Some(hit) = options
+        .iter()
+        .find(|option| option.value.rsplit_once(':').map(|(_, tail)| tail) == Some(raw))
+    {
+        return hit.value.clone();
+    }
+    let lower = raw.to_lowercase();
+    // fixed 行没有值域（value 恒空），不参与「归一到值域」——标题命中就落到
+    // 末尾原样返回 raw（前端按标题给 fixed 行打勾，见 hub 的 cqPickBoot）。
+    // 否则标题命中 fixed 行会把 current 归一成空串，显示成「未设置默认项」。
+    if let Some(hit) = options
+        .iter()
+        .find(|option| !option.fixed && option.label.trim().to_lowercase() == lower)
+    {
+        return hit.value.clone();
+    }
+    if let Some(hit) = options.iter().find(|option| {
+        !option.fixed && {
+            let label = option.label.trim().to_lowercase();
+            !label.is_empty() && label.contains(&lower)
+        }
+    }) {
+        return hit.value.clone();
+    }
+    if let Some(hit) = options.iter().find(|option| {
+        !option.fixed && {
+            let label = option.label.trim().to_lowercase();
+            !label.is_empty() && lower.contains(&label)
+        }
+    }) {
+        return hit.value.clone();
+    }
+    raw.to_string()
+}
+
+/// 未检测到 / 读失败时的说明（前端挂在按钮 title 上，不占表格版面）。
+fn channel_note(
+    label: &str,
+    detected: bool,
+    has_options: bool,
+    error: Option<&str>,
+    detail: Option<&str>,
+    health: &[channels::HealthIssue],
+) -> String {
+    if let Some(error) = error.map(str::trim).filter(|text| !text.is_empty()) {
+        return error.to_string();
+    }
+    if let Some(detail) = detail.map(str::trim).filter(|text| !text.is_empty()) {
+        return detail.to_string();
+    }
+    if let Some(issue) = health
+        .iter()
+        .map(|issue| issue.text.trim())
+        .find(|text| !text.is_empty())
+    {
+        return issue.to_string();
+    }
+    if !detected {
+        return format!("这台电脑没检测到 {label}");
+    }
+    if !has_options {
+        return format!("{label} 已检测到，但没有可切换的菜单项");
+    }
+    String::new()
+}
+
+/// 组装一个通道的 `BootGroup`（与 rEFInd / GRUB 同构，前端一套渲染）。
+fn channel_group(
+    id: &str,
+    label: &str,
+    detected: bool,
+    raw_current: &str,
+    note: String,
+    options: Vec<BootOption>,
+) -> BootGroup {
+    let current = resolve_channel_current(raw_current, &options);
+    BootGroup {
+        // kind 带 id：一张表里可能同时有几列通道，前端拿它当唯一键（cqBusy 也是）。
+        // `remote_boot_switch` 认 `channel` 前缀（见那里的 match）。
+        kind: format!("channel:{id}"),
+        title: label.to_string(),
+        // 「部署了吗」= 能不能出这一列；有没有条目由 options 决定。
+        available: detected,
+        current: current.clone(),
+        next: current.clone(),
+        saved: current,
+        note,
+        options,
+    }
+}
+
+/// 把 OC 预演里**没有值域**的行镜像成 fixed（只展示不可切）选项。
+///
+/// 与托盘 `menu_model::channel_loader_nodes` 末尾的镜像块同一条规则、同一个
+/// 跳过条件（空标题 / 有 spec / 标题已在选项里）—— 电脑列表与托盘的条目必须
+/// 一一对得上，缺了 macOS 默认项那行，用户看到的就是「两边列表对不上」。
+fn mirror_fixed_preview_rows(
+    preview: Option<&channels::oc_menu::MenuPreview>,
+    options: &mut Vec<BootOption>,
+) {
+    let Some(preview) = preview else {
+        return;
+    };
+    for entry in &preview.entries {
+        let title = entry.title.trim();
+        if title.is_empty()
+            || entry
+                .spec
+                .as_deref()
+                .map(str::trim)
+                .filter(|text| !text.is_empty())
+                .is_some()
+            || options.iter().any(|option| option.label == title)
+        {
+            continue;
+        }
+        options.push(BootOption {
+            value: String::new(),
+            label: title.to_string(),
+            class: channel_class(&entry.kind),
+            header: false,
+            fixed: true,
+        });
+    }
+}
+
+/// 本机通道视图 → BootGroup。
+fn channel_from_view(channel: &channels::ChannelView) -> BootGroup {
+    // 行来源与托盘 / 下次启动同一份（`channel_switch_rows` 已经把 OpenCore 的
+    // 菜单预演合进来了；只读 `entries` 的话 OC 那列永远是空的）。
+    let rows = crate::menu_model::channel_switch_rows(channel);
+    let mut options: Vec<BootOption> = rows
+        .iter()
+        .map(|row| BootOption {
+            value: row.spec.clone(),
+            label: row.title.clone(),
+            class: channel_class(&row.class),
+            header: false,
+            fixed: false,
+        })
+        .collect();
+    // 预演里**没有值域**的行也要列进来（与托盘 `channel_loader_nodes` 的镜像块
+    // 同一条规则）：macOS 默认项在 Preboot 卷上没有 `opencore-default:` 值域、
+    // 协议驱动、Reset NVRAM 这类工具 —— 缺了它们，电脑列表与托盘的条目就对不上
+    // （用户 2026-10-31 报的「OC 两边列表对不上」）。fixed 行只展示不可切；
+    // 默认项由 `raw_current` 的标题兜底选中。
+    mirror_fixed_preview_rows(channel.menu_preview.as_ref(), &mut options);
+    let note = channel_note(
+        channel.label,
+        channel.detected,
+        !options.is_empty(),
+        channel.error.as_deref(),
+        channel.detail.as_deref(),
+        &channel.health,
+    );
+    // OpenCore 的「当前项」不一定写在 currentDefault 里（OC 的默认项来自
+    // OCBtOrder，落在那份预演的 `default` 行上）—— 空的话从默认行补一份，
+    // 否则表格会显示「未选择」，而主窗卡片上明明是 macOS。
+    // 默认行可能没有可发的值域（macOS 在 APFS Preboot 上，spec=None）：这时退回
+    // 标题，`resolve_channel_current` 命中不了选项会原样返回，表格显示条目名 ——
+    // 比「未设置默认项」诚实（它确实有默认项，只是不能在这一列改）。
+    let raw_current = channel
+        .current_default
+        .as_deref()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            rows.iter()
+                .find(|row| row.is_default)
+                .map(|row| row.spec.clone())
+        })
+        .or_else(|| crate::menu_model::channel_default_title(channel))
+        .unwrap_or_default();
+    channel_group(
+        channel.id,
+        channel.label,
+        channel.detected,
+        &raw_current,
+        note,
+        options,
+    )
+}
+
+/// `/api/boot-channels` 的一条（camelCase JSON）→ BootGroup。
+///
+/// 远程行只能拿到序列化后的形状（`ChannelView` 没有 Deserialize），所以照着字段
+/// 读一遍；条目里的 `spec` 仍用**同一个** `channel_entry_spec` 算，别在这里另写
+/// 一份值域（sdboot 要带前缀、clover 是 oneshot —— 写错就是点了没反应）。
+fn channel_from_json(value: &serde_json::Value) -> BootGroup {
+    let id = value
+        .get("id")
+        .and_then(|item| item.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let label = value
+        .get("label")
+        .and_then(|item| item.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let label = if label.is_empty() {
+        id.clone()
+    } else {
+        label
+    };
+    let detected = value
+        .get("detected")
+        .and_then(|item| item.as_bool())
+        .unwrap_or(false);
+    let mut options: Vec<BootOption> = Vec::new();
+    for item in value
+        .get("entries")
+        .and_then(|item| item.as_array())
+        .map(Vec::as_slice)
+        .unwrap_or_default()
+    {
+        let title = item
+            .get("title")
+            .and_then(|field| field.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        if title.is_empty() {
+            continue;
+        }
+        let entry = channels::ChannelEntry {
+            id: item
+                .get("id")
+                .and_then(|field| field.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string(),
+            title,
+            detail: String::new(),
+            icon: item
+                .get("icon")
+                .and_then(|field| field.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string(),
+            requires_elevation: item
+                .get("requiresElevation")
+                .and_then(|field| field.as_bool())
+                .unwrap_or(false),
+        };
+        options.push(BootOption {
+            value: crate::menu_model::channel_entry_spec(&id, &entry),
+            label: entry.title.clone(),
+            class: channel_class(&entry.icon),
+            header: false,
+            fixed: false,
+        });
+    }
+    if let Some(entries) = value
+        .get("menuPreview")
+        .and_then(|preview| preview.get("entries"))
+        .and_then(|entries| entries.as_array())
+    {
+        for item in entries {
+            let spec = item
+                .get("spec")
+                .and_then(|field| field.as_str())
+                .map(str::trim)
+                .filter(|text| !text.is_empty());
+            let Some(spec) = spec else { continue };
+            let title = item
+                .get("title")
+                .and_then(|field| field.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            if title.is_empty() || options.iter().any(|option| option.value == spec) {
+                continue;
+            }
+            options.push(BootOption {
+                value: spec.to_string(),
+                label: title,
+                class: channel_class(
+                    item.get("kind")
+                        .and_then(|field| field.as_str())
+                        .unwrap_or(""),
+                ),
+                header: false,
+                fixed: false,
+            });
+        }
+    }
+    // 与 `channel_from_view` / 托盘同一条镜像规则：预演里没有值域的行
+    // （macOS 默认项、协议驱动、Reset NVRAM…）也要列出来，只展示不可切。
+    if let Some(entries) = value
+        .get("menuPreview")
+        .and_then(|preview| preview.get("entries"))
+        .and_then(|entries| entries.as_array())
+    {
+        for item in entries {
+            let has_spec = item
+                .get("spec")
+                .and_then(|field| field.as_str())
+                .map(str::trim)
+                .filter(|text| !text.is_empty())
+                .is_some();
+            let title = item
+                .get("title")
+                .and_then(|field| field.as_str())
+                .map(str::trim)
+                .unwrap_or("");
+            if has_spec
+                || title.is_empty()
+                || options.iter().any(|option| option.label == title)
+            {
+                continue;
+            }
+            options.push(BootOption {
+                value: String::new(),
+                label: title.to_string(),
+                class: channel_class(
+                    item.get("kind")
+                        .and_then(|field| field.as_str())
+                        .unwrap_or(""),
+                ),
+                header: false,
+                fixed: true,
+            });
+        }
+    }
+    let health: Vec<channels::HealthIssue> = value
+        .get("health")
+        .and_then(|item| item.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .map(|issue| channels::HealthIssue {
+                    severity: issue
+                        .get("severity")
+                        .and_then(|field| field.as_str())
+                        .unwrap_or("warn")
+                        .to_string(),
+                    text: issue
+                        .get("text")
+                        .and_then(|field| field.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let note = channel_note(
+        &label,
+        detected,
+        !options.is_empty(),
+        value.get("error").and_then(|item| item.as_str()),
+        value.get("detail").and_then(|item| item.as_str()),
+        &health,
+    );
+    // 与 `channel_from_view` 同一条兜底：currentDefault 空时用预演里标记
+    // `default` 的那一行（OpenCore 的默认项就是这么来的）。
+    let raw_current = value
+        .get("currentDefault")
+        .and_then(|item| item.as_str())
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            value
+                .get("menuPreview")
+                .and_then(|preview| preview.get("entries"))
+                .and_then(|entries| entries.as_array())
+                .and_then(|entries| {
+                    entries
+                        .iter()
+                        .find(|entry| {
+                            entry.get("default").and_then(|item| item.as_bool()) == Some(true)
+                        })
+                        .and_then(|entry| entry.get("spec"))
+                        .and_then(|item| item.as_str())
+                        .map(str::to_string)
+                })
+        })
+        // 默认行没有值域（macOS 在 APFS Preboot 上，OC 不产 `opencore-default:`）
+        // 就退回标题 —— 与 `channel_from_view` 的 `channel_default_title` 同义。
+        .or_else(|| {
+            value
+                .get("menuPreview")
+                .and_then(|preview| preview.get("entries"))
+                .and_then(|entries| entries.as_array())
+                .and_then(|entries| {
+                    entries
+                        .iter()
+                        .find(|entry| {
+                            entry.get("default").and_then(|item| item.as_bool()) == Some(true)
+                        })
+                        .and_then(|entry| entry.get("title"))
+                        .and_then(|item| item.as_str())
+                        .map(str::trim)
+                        .filter(|text| !text.is_empty())
+                        .map(str::to_string)
+                })
+        })
+        .unwrap_or_default();
+    channel_group(&id, &label, detected, &raw_current, note, options)
+}
+
+/// 顶层是数组的 `/api/boot-channels` 响应 → 通道组列表。
+fn channels_from_json(value: &serde_json::Value) -> Vec<BootGroup> {
+    value
+        .as_array()
+        .map(|items| items.iter().map(channel_from_json).collect())
+        .unwrap_or_default()
 }
 
 /// 出一条 GRUB 可选项 —— 与托盘菜单的 `menu_model::grub_push_entry` **同一条拼装
@@ -3488,6 +3961,7 @@ fn push_grub_option(
             entry.chainloader,
         ),
         header: false,
+            fixed: false,
     });
 }
 
@@ -3669,6 +4143,7 @@ fn grub_from_json(value: &serde_json::Value, format: &str) -> BootGroup {
                     ),
                     class: String::new(),
                     header: true,
+                    fixed: false,
                 });
                 let counts = crate::menu_model::grub_collapse(
                     format,
@@ -3733,9 +4208,19 @@ fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Result<RemoteB
         let status = crate::remote_routing::remote_status_json(app);
         let grub_json = crate::remote_routing::remote_grub_json(app);
         let format = crate::read_settings_file(app).grub_list_format;
+        // 三引导器通道：本进程里就有现成快照（主窗「系统引导」页用的同一份），
+        // 不必走回环 HTTP —— 端口被保留段盖住时也照读不误。
+        let channel_views = app
+            .state::<std::sync::Mutex<crate::state::AppState>>()
+            .lock()
+            .expect("state mutex poisoned")
+            .channels
+            .views
+            .clone();
         let mut info = RemoteBootInfo {
             refind: refind_from_status(&status),
             grub: grub_from_json(&grub_json, &format),
+            channels: channel_views.iter().map(channel_from_view).collect(),
             ..Default::default()
         };
         info.ok = true;
@@ -3868,7 +4353,7 @@ fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Result<RemoteB
             return Ok(info);
         }
     }
-    // 两个接口各自失败互不影响：一边能读就先把那边显示出来
+    // 三个接口各自失败互不影响：一边能读就先把那边显示出来
     let mut errors: Vec<String> = Vec::new();
     match remote_http_json(app, &server, "/api/status") {
         Ok(value) => info.refind = refind_from_status(&value),
@@ -3900,6 +4385,18 @@ fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Result<RemoteB
         Err(error) => {
             info.grub.note = error.clone();
             errors.push(format!("GRUB：{error}"));
+        }
+    }
+    // 三引导器通道（systemd-boot / OpenCore / Clover）：老版本对端没有这个接口，
+    // 404 不该把整次读取判成失败 —— 只记一条 trace，列照常只出 rEFInd/GRUB。
+    match remote_http_json(app, &server, "/api/boot-channels") {
+        Ok(value) => info.channels = channels_from_json(&value),
+        Err(error) => {
+            crate::trace(
+                app,
+                "boot",
+                &format!("boot-channels 读取失败 server={server_id}: {error}"),
+            );
         }
     }
     info.ok = errors.len() < 2;
@@ -3937,17 +4434,17 @@ fn remote_boot_switch_blocking(
         return Err("没有选择引导项".to_string());
     }
     let kind = kind.trim();
+    // 通道列是 `channel:<id>`（一张表里可能同时有几列通道，前端拿它当唯一键）；
+    // 这里只认前缀，具体是哪个通道由 value（spec）自己带。
+    let base_kind = kind.split(':').next().unwrap_or(kind);
     // 本机行：直连 IPC —— 直接调远程命令的进程内执行入口（与 CLI/HTTP 走的
     // 是同一个 execute_remote_command，落到 switch_and_update / switch_grub_and_update）
     if server_id == "local" {
-        let command = match kind {
+        let command = match base_kind {
             "refind" => {
-                if !crate::SOURCE_FILES
-                    .iter()
-                    .any(|(system, _, _)| *system == value)
-                {
-                    return Err(format!("未知的系统：{value}"));
-                }
+                // 值域不在调用方校验：自动扫描模式下 value 是 rEFInd 菜单条目的
+                // 标题原文（/api/status 合成出来的），手动模式才是三系统名 ——
+                // 都交给 execute_remote_command 按本机读取方式分流。
                 crate::state::RemoteCommand::Switch(value.to_string())
             }
             "grub" => crate::state::RemoteCommand::SwitchGrub(value.to_string()),
@@ -3966,17 +4463,10 @@ fn remote_boot_switch_blocking(
         );
         return if ok { Ok(message) } else { Err(message) };
     }
-    let path = match kind {
-        // system 只有 linux/windows/macos 三个值，不需要转义
-        "refind" => {
-            if !crate::SOURCE_FILES
-                .iter()
-                .any(|(system, _, _)| *system == value)
-            {
-                return Err(format!("未知的系统：{value}"));
-            }
-            format!("/api/switch?system={value}")
-        }
+    let path = match base_kind {
+        // 自动扫描模式下 system 是菜单条目标题（含空格 / 中文），必须转义；
+        // 值域校验在对端执行端做（按它的读取方式分流）
+        "refind" => format!("/api/switch?system={}", encode_query(value)),
         // selector 里可能有空格、`>`、引号 —— 必须转义
         "grub" => format!("/api/grub-switch?entry={}", encode_query(value)),
         // 通道值域整串走 channel + target 两个参数（value = channel[:target]）
@@ -4864,6 +5354,136 @@ mod tests {
         assert!(group.note.contains("没部署"));
     }
 
+    /// 通道 JSON → BootGroup：条目的 value 必须是**切换值域**（sdboot 带前缀），
+    /// currentDefault 是条目 id 时要归一成 value，否则前端按 value 找不到命中项。
+    #[test]
+    fn channel_from_json_normalizes_current_to_switch_spec() {
+        let group = channel_from_json(&serde_json::json!({
+            "id": "sdboot",
+            "label": "systemd-boot",
+            "detected": true,
+            "currentDefault": "arch",
+            "entries": [
+                {"id": "arch", "title": "Arch Linux", "icon": "linux"},
+                {"id": "win", "title": "Windows Boot Manager", "icon": "windows"}
+            ]
+        }));
+        assert_eq!(group.kind, "channel:sdboot");
+        assert_eq!(group.title, "systemd-boot");
+        assert!(group.available);
+        assert_eq!(group.current, "sdboot:arch");
+        assert_eq!(
+            group.options.iter().map(|o| o.value.as_str()).collect::<Vec<_>>(),
+            vec!["sdboot:arch", "sdboot:win"]
+        );
+        assert_eq!(group.options[1].class, "win");
+        assert!(group.note.is_empty());
+    }
+
+    /// OpenCore：顶层 entries 恒空，动作全在 menuPreview（只有带 spec 的行能点）。
+    #[test]
+    fn channel_from_json_uses_opencore_preview_specs() {
+        let group = channel_from_json(&serde_json::json!({
+            "id": "opencore",
+            "label": "OpenCore",
+            "detected": true,
+            "currentDefault": "macOS Sequoia",
+            "entries": [],
+            "menuPreview": {
+                "entries": [
+                    {"title": "macOS Sequoia", "kind": "macos", "default": true,
+                     "spec": "opencore-default:Macintosh HD\u{1}\\EFI\\OC\\x.efi"},
+                    // 协议驱动 / 工具项没有 spec —— 镜像成 fixed 行（与托盘同规则），
+                    // 只展示不可切
+                    {"title": "Reset NVRAM", "kind": "tool", "spec": null}
+                ]
+            }
+        }));
+        assert_eq!(group.options.len(), 2, "可切行 + 无值域的 fixed 行");
+        assert_eq!(group.options[0].class, "mac");
+        // currentDefault 是标题 → 归一到 spec
+        assert!(group.options[0].value.starts_with("opencore-default:"));
+        assert_eq!(group.current, group.options[0].value);
+        // fixed 行：value 恒空、只展示；默认项不在可切集合里时由标题兜底命中
+        assert!(group.options[1].fixed);
+        assert!(group.options[1].value.is_empty());
+        assert_eq!(group.options[1].label, "Reset NVRAM");
+    }
+
+    /// OC 默认项在 Preboot 卷上、没有 spec —— 它也必须出现在选项里（fixed 行），
+    /// 且 `current` 落在它的标题上，前端才能给它打勾（与托盘镜像行同规则）。
+    #[test]
+    fn channel_from_json_mirrors_specless_default_row() {
+        let group = channel_from_json(&serde_json::json!({
+            "id": "opencore",
+            "label": "OpenCore",
+            "detected": true,
+            "entries": [],
+            "menuPreview": {
+                "entries": [
+                    {"title": "ARCH-EFI", "kind": "generic",
+                     "spec": "opencore-default:ARCH-EFI\u{1}\\EFI\\BOOT\\BOOTX64.EFI"},
+                    {"title": "MAC", "kind": "macos", "default": true, "spec": null},
+                    {"title": "Reset NVRAM", "kind": "tool", "spec": null}
+                ]
+            }
+        }));
+        let fixed: Vec<_> = group
+            .options
+            .iter()
+            .filter(|option| option.fixed)
+            .map(|option| option.label.as_str())
+            .collect();
+        assert_eq!(fixed, vec!["MAC", "Reset NVRAM"]);
+        assert_eq!(group.current, "MAC", "默认项没有值域时 current 落在标题上");
+    }
+
+    /// OpenCore 的默认项来自预演（`menuPreview.entries[].default`），
+    /// currentDefault 常常是空 —— 空时必须能从默认行补出当前项。
+    #[test]
+    fn channel_from_json_falls_back_to_preview_default() {
+        let group = channel_from_json(&serde_json::json!({
+            "id": "opencore",
+            "label": "OpenCore",
+            "detected": true,
+            "entries": [],
+            "menuPreview": {
+                "entries": [
+                    {"title": "macOS Sequoia", "kind": "macos", "default": true,
+                     "spec": "opencore-default:Macintosh HD\u{1}\\EFI\\OC\\x.efi"},
+                    {"title": "Windows", "kind": "windows", "default": false,
+                     "spec": "opencore-default:WIN\u{1}\\EFI\\MS\\bootmgfw.efi"}
+                ]
+            }
+        }));
+        assert_eq!(group.options.len(), 2);
+        assert_eq!(group.current, group.options[0].value);
+    }
+
+    /// 没检测到的通道也要给出可读原因（前端挂在按钮 title 上）。    #[test]
+    fn channel_from_json_explains_missing_and_empty_channels() {
+        let missing = channel_from_json(&serde_json::json!({
+            "id": "clover", "label": "Clover", "detected": false, "entries": []
+        }));
+        assert!(!missing.available);
+        assert!(missing.note.contains("没检测到 Clover"));
+
+        let empty = channel_from_json(&serde_json::json!({
+            "id": "clover", "label": "Clover", "detected": true, "entries": []
+        }));
+        assert!(empty.available);
+        assert!(empty.note.contains("没有可切换"));
+
+        // health 里的第一条原因优先于默认文案（Windows 上「ESP 没有盘符」那种）
+        let explained = channel_from_json(&serde_json::json!({
+            "id": "opencore", "label": "OpenCore", "detected": false,
+            "health": [{"severity": "warn", "text": "ESP 分区没有盘符，先给它挂个盘符"}]
+        }));
+        assert_eq!(explained.note, "ESP 分区没有盘符，先给它挂个盘符");
+        // 非数组响应（老版本对端 404 时给的是对象）不该炸，按「没有通道」处理
+        assert!(channels_from_json(&serde_json::json!({"error": "not_found"})).is_empty());
+    }
+
     #[test]
     fn grub_from_json_escapes_nothing_but_keeps_selector_verbatim() {
         let value = serde_json::json!({
@@ -5501,6 +6121,25 @@ mod tests {
             .map(|cand| cand.kind.clone())
             .collect();
         assert_eq!(kinds, vec!["tunnel"]);
+    }
+
+    #[test]
+    fn route_disabled_survives_json_roundtrip() {
+        // 用户 2026-10-31：关掉连接策略的大水阀保存后，重开编辑弹窗开关又弹回。
+        // 防序列化层回归：normalize → JSON → 反序列化，route_disabled 原样保留；
+        // server_json（remote_list 同形态）输出的字段名必须是 snake_case ——
+        // 前端 / 手机端都按 route_disabled 读，改名 = 保存后全员「弹回」。
+        let mut server = route_test_server();
+        server.route_disabled = vec!["tunnel".into(), "ts".into()];
+        let normalized = server.normalize();
+        let json = serde_json::to_value(&normalized).unwrap();
+        assert_eq!(
+            json.get("route_disabled"),
+            Some(&serde_json::json!(["tunnel", "ts"])),
+            "字段名必须保持 snake_case 且值不丢",
+        );
+        let back: RemoteServer = serde_json::from_value(json).unwrap();
+        assert_eq!(back.route_disabled, vec!["tunnel", "ts"]);
     }
 
     #[test]
