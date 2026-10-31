@@ -46,9 +46,12 @@ aes-gcm = "0.10"
 # 备份信封加密（backup.rs）：PBKDF2-HMAC-SHA256 用 HMAC（sha2 已在依赖树里）
 hmac = "0.12"
 tauri-plugin-positioner = { version = "2.4.0", features = ["tray-icon"] }
+# libc 本来只挂在 Linux 段；channels/mod.rs 的 write_new_file 在 #[cfg(unix)]
+# 里用了 libc::O_NOFOLLOW（防符号链接攻击），unix 包含 macOS —— 全平台通用，
+# 提到全局依赖。O_NOFOLLOW 的值三端不同，硬编码常量是错的，必须走 crate。
+libc = "0.2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-libc = "0.2"
 # Linux 的托盘图标自己按 SNI(StatusNotifierItem) 协议导出（见 lib.rs 的 linux_sni 模块）。
 # 为什么不能继续用 tray-icon / libappindicator：它们在 X11 上都不发任何「托盘被点了」
 # 的事件（tray-icon 的 gtk 后端连 activate 信号都没接），而「点选择框不关菜单」要求
