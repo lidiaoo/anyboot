@@ -3770,6 +3770,90 @@ svg.i.lg { width: 16px; height: 16px; }
 .vw-520 .lj-c3 { width: 210px; }
 /* ≤520：B 的主区标题行与 C 的工具栏各收一档内边距，别把行挤成两行 */
 .vw-520 .lb-main-head { padding: 11px 12px; }
+
+/* 2026-11-02 实测 300px：C 的 `.lc-tab` 超出 33px、工具栏的 seg/按钮超出
+ * 56~114px —— 标签行和工具栏都不会收缩。改成可横滑、子项不压缩。 */
+.vw-760 .lc-tabs,
+.vw-520 .lc-tabs {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  flex-wrap: nowrap;
+}
+.vw-760 .lc-tab,
+.vw-520 .lc-tab {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.vw-760 .lc-toolbar,
+.vw-520 .lc-toolbar {
+  min-width: 0;
+  max-width: 100%;
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+.vw-760 .lc-toolbar .seg,
+.vw-520 .lc-toolbar .seg {
+  flex: none;
+}
+
+/* ── I（Bento）：隐藏「设置与编排」栏 ──────────────────────────────────
+ * 2026-11-02 用户定案：「i 你帮我隐藏这个栏 ——
+ * 『设置与编排：固定 / 排序 / 收起通道 / ESP 路径 / 免密模式』」。
+ * 该条是 `.li-sheetbar`（带「打开抽屉」按钮），在引导页上纯占位。
+ * 抽屉仍可由磁贴点开，所以隐藏这条不影响功能。 */
+.li-sheetbar {
+  display: none;
+}
+
+/* ── J 三栏：小屏只留引导项列表 ──────────────────────────────────────
+ * 2026-11-02 用户定案：「j 在小屏幕下你只需要展示引导项列表 先隐藏引导器设置卡片
+ * 并且引导项列表也要不被挤压 300」。
+ * 上一版只是把右栏收成 42px 折叠条，仍占宽度且可能压住列表；
+ * 这里在 ≤760 直接整块隐藏右栏，列表独占全宽。 */
+.vw-760 .lj-c3,
+.vw-520 .lj-c3 {
+  display: none;
+}
+/* 列表列吃满、内部元素不许撑宽（300px 宽下不挤压） */
+.vw-760 .lj-c2,
+.vw-520 .lj-c2 {
+  min-width: 0;
+  width: 100%;
+  flex: 1 1 auto;
+}
+.vw-760 .lj-c2 .hd,
+.vw-520 .lj-c2 .hd {
+  min-width: 0;
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+.vw-760 .lj-c2 .hd .btn,
+.vw-520 .lj-c2 .hd .btn {
+  flex: 0 0 auto;
+}
+.vw-760 .lj-c2 .bd,
+.vw-520 .lj-c2 .bd {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+/* 通道栏已在上一版改成横滑标签条；这里确保它不撑宽 */
+.vw-760 .lj-c1,
+.vw-520 .lj-c1 {
+  min-width: 0;
+  max-width: 100%;
+}
+/* C 的「当前默认」那一栏（.lc-meta）：用户反馈被挤压。
+ * 它是 toolbar 里的第一块，窄屏下允许折到下一行并占满宽度。 */
+.vw-760 .lc-meta,
+.vw-520 .lc-meta {
+  flex: 1 1 100%;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 /* 2026-11-02 实测：B 布局的左侧通道栏 `.lb-nav` 固定 236px，390px 屏上主区
  * 只剩 140px（实测 .lb-main w=140 / scrollW=189，溢出 49px）。
  * 小屏改成竖排：通道栏变成顶部横向标签条，主区满宽。 */
@@ -3797,10 +3881,140 @@ svg.i.lg { width: 16px; height: 16px; }
 .vw-760 .lb-item,
 .vw-520 .lb-item {
   width: auto;
-  flex: none;
+  flex: 0 0 auto;
+  max-width: none;
   border: 1px solid var(--line);
   background: var(--panel);
   padding: 6px 9px;
+}
+/* 2026-11-02 实测 300px：`.lb-item` 宽 169/165，比父容器多出 102/273 ——
+ * 横滑条是 flex 行，item 默认会被压/被撑。显式 min-width:0 + max-content
+ * 让它按内容定宽、由 .lb-list 的 overflow-x 承载溢出。 */
+.vw-760 .lb-item,
+.vw-520 .lb-item {
+  min-width: 0;
+  flex-basis: auto;
+}
+.vw-760 .lb-list,
+.vw-520 .lb-list {
+  min-width: 0;
+  max-width: 100%;
+}
+/* B 的 `.tt`（通道名+路径那一块）：实测 300px 下 cw=106 / sw=177，
+ * 是真挤压（不是滚动）。给它 min-width:0 + 折行。
+ *
+ * ⚠ 不用 .vw-* 前缀：`applyVwClasses()` 把类加在**被观察的元素自身**
+ * （.ba-theme-root / .ba-lr-cols 等），不是 #tab-boot，也不是 .lb 的祖先，
+ * 所以 `.vw-760 .lb-item .tt` 这种后代写法**匹配不到**。这里用无条件规则 +
+ * contain 约束，任何宽度都安全（宽屏下本来也够宽，折行不会触发）。 */
+/* 注意：`.tt` 有两处 —— 通道项里（.lb-item .tt）和**主区标题行里**
+ * （.lb-main-head .tt）。300px 下真挤压的是后者（实测 cw=106 / sw=177），
+ * 所以两者都要覆盖。 */
+.lb-item .tt,
+.lb-main-head .tt {
+  min-width: 0;
+  overflow: hidden;
+}
+.lb-item .tt small,
+.lb-main-head .tt small {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+/* 主区标题行的 h2 是 flex 行（标题 + 状态 chip），窄屏要能折 */
+.lb-main-head {
+  min-width: 0;
+  flex-wrap: wrap;
+  row-gap: 5px;
+}
+.lb-main-head h2 {
+  min-width: 0;
+  flex-wrap: wrap;
+  row-gap: 3px;
+}
+.lb-main-head .tt h2 {
+  font-size: 14px;
+}
+.lb-item .chip {
+  flex: none;
+  white-space: nowrap;
+}
+/* 横滑条里的通道项：按内容定宽但设上限，避免单个长名字占满整个条宽
+ * （实测 300px 下 .lb-item 宽 169，父条只剩 250 时几乎只剩一项可见）。 */
+.lb-list > .lb-item {
+  max-width: 78vw;
+}
+.lb-list > .lb-item .tt b {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* G 在 300px 下严重挤压（实测 .lg-main 宽只有 32px）——
+ * 根容器 .lg 是 flex 行，左右两栏都没收缩约束。窄屏改成竖排。 */
+.vw-760 .lg,
+.vw-520 .lg {
+  flex-direction: column;
+  min-width: 0;
+  max-width: 100%;
+}
+.vw-760 .lg-main,
+.vw-520 .lg-main {
+  min-width: 0;
+  width: 100%;
+  flex: 1 1 auto;
+}
+.vw-760 .lg-results,
+.vw-520 .lg-results {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+.vw-760 .lg-top,
+.vw-520 .lg-top {
+  min-width: 0;
+  padding: 10px 10px 8px;
+}
+.vw-760 .lg-search,
+.vw-520 .lg-search {
+  min-width: 0;
+}
+.vw-760 .lg-search input,
+.vw-520 .lg-search input {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+/* 筛选标签条可横滑（原来 cw=4 / sw=276，几乎不可见） */
+.vw-760 .lg-filters,
+.vw-520 .lg-filters {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  flex-wrap: nowrap;
+  padding-bottom: 2px;
+}
+.vw-760 .lg-fchip,
+.vw-520 .lg-fchip {
+  flex: 0 0 auto;
+}
+/* G 的分组头与条目也别撑宽 */
+.vw-760 .lg-group,
+.vw-520 .lg-group {
+  min-width: 0;
+}
+.vw-760 .lg-group > span,
+.vw-520 .lg-group > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* lb-item 内部的 chip 也别把行撑宽 */
+.vw-760 .lb-item .chip,
+.vw-520 .lb-item .chip {
+  flex: none;
+  white-space: nowrap;
 }
 .vw-760 .lb-main,
 .vw-520 .lb-main {
@@ -4174,19 +4388,15 @@ body[data-boot-style="min"] .oc-menu-set:not(.is-default)  { opacity: 0; pointer
    * border/background），**保留滚动容器**。 */
 }
 #tab-boot .ba-g-card .grub-panel { padding-top: 0; gap: 2px; }
-/* 分组标题：设计稿 .lg-group 的上下留白。
+/* 分组标题：设计稿 .lg-group 的上下留白（首组贴顶，别多出一段空气）
  *
- * 2026-11-01 用户定案：**所有分组一律同高**。原来首组用 `:first-child` 特批
- * `padding-top: 4px`（贴顶），其余组 10px —— 于是「同一个列表里，排在后面的
- * 那一组（rEFInd）总比第一组（GRUB）多一小段空白」，看起来像「多了个换行」。
- * 现在统一 4px 顶距：首组本来就贴顶，后续组之间靠 .lg-group 自身的
- * border-top / .lg-results 的 gap 分隔，不需要再靠额外 padding 撑开视觉层级。 */
-#tab-boot .lg-results > .lg-group { padding: 4px 8px 4px; }
-/* 组与组之间仍然要有一档呼吸感，但用 border-top 表达（不占高度差） */
-#tab-boot .lg-results > .lg-group + .lg-group {
-  padding-top: 10px;
-  border-top: 1px solid var(--line);
-}
+ * 2026-11-02 用户要求「G 帮我恢复修改之前的样子」—— 撤销 11-01 那版
+ * 「所有分组同高 + 组间 border-top」的改法，回到原始的两条：
+ *   首组 padding-top 4px（贴顶），其余组 10px。
+ * 之前那次改动是为了消掉「rEFInd 分组比 GRUB 多一段空白」的观感差异，
+ * 但用户要的是原样，故完整还原。 */
+#tab-boot .lg-results > .lg-group { padding: 10px 8px 4px; }
+#tab-boot .lg-results > .lg-group:first-child { padding-top: 4px; }
 /* 条目行 = 设计稿 .lg-item 的盒子（8px 圆角 / 透明描边 / hover 浮起） */
 #tab-boot .ba-g-card .grub-entry {
   border: 1px solid transparent;
