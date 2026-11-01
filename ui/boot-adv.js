@@ -95,6 +95,14 @@
     // 出厂默认 = G 命令面板（2026-10-31 定案：电脑与移动端一致，都是 G）。
     // 只影响没存过偏好的新环境；已保存过主题的老用户保持自己的选择。
     theme: "G",
+    // 「下次启动」区域的显示方式（2026-11-01 用户定案，三档）：
+    //   off  = 不显示整块
+    //   fold = 折叠框：标题旁一个按钮，点开/收起；**默认收起**（本档默认值）
+    //   open = 折叠框且默认展开（用户可点按钮收起，状态只存这一档偏好）
+    nextBootView: "fold",
+    // 折叠框当下是否展开（仅 fold/open 档有意义；不写进 DEFAULT_STATE 的初始值，
+    // 由 nextBootExpanded 记录用户最后一次点击的结果 —— 见 loadState）
+    nextBootExpanded: false,
   };
 
   let advState = loadState();
@@ -106,7 +114,17 @@
       if (!raw) return base;
       const saved = JSON.parse(raw);
       if (!saved || typeof saved !== "object") return base;
-      for (const key of ["visible", "order", "side", "layout", "ratio", "style", "theme"]) {
+      for (const key of [
+        "visible",
+        "order",
+        "side",
+        "layout",
+        "ratio",
+        "style",
+        "theme",
+        "nextBootView",
+        "nextBootExpanded",
+      ]) {
         if (saved[key] !== undefined) base[key] = saved[key];
       }
     } catch (error) {
@@ -145,6 +163,11 @@
     // 于是「选了左右布局 → 一拍快照就变回默认」，看起来就是设置没保存）。
     // 支不支持在渲染时用 effectiveLayout() 判，用户切回支持的主题还能拿回 lr。
     if (!["full", "compact", "min"].includes(advState.style)) advState.style = "full";
+    // 「下次启动」显示方式：非法值回落到折叠（本功能默认收起）
+    if (!["off", "fold", "open"].includes(advState.nextBootView)) {
+      advState.nextBootView = "fold";
+    }
+    advState.nextBootExpanded = advState.nextBootExpanded === true;
     if (advState.ratio < 0.15) advState.ratio = 0.15;
     if (advState.ratio > 0.85) advState.ratio = 0.85;
   }
@@ -428,6 +451,23 @@
   }
 
   function channelLoader(channel) {
+    // 快照里没有这个通道时（sdboot / opencore / clover 各自可能缺席）不能直接
+    // 摸 channel.id —— 那会抛 TypeError 把整轮渲染打断，表现成「设置页/引导页
+    // 卡在上一拍」。给一个占位对象，detected=false 自然会被下面的列表过滤掉。
+    if (!channel) {
+      return {
+        id: "unknown",
+        name: "未探测",
+        mono: "--",
+        color: "#888",
+        perm: "file",
+        detected: false,
+        esp: "",
+        healthText: "",
+        entries: [],
+        nextBoot: null,
+      };
+    }
     const meta = LOADER_META[channel.id] || { name: channel.label || channel.id, mono: channel.id.slice(0, 2), color: "#888", perm: "file" };
     const entries = channelEntries(channel);
     return {
@@ -861,6 +901,32 @@
     rowStyle.append(styleSeg,
       n("span", "hint", "三档对任何版式主题都生效；行内动作按钮在紧凑/极简下悬停才出现。"));
     bar.append(rowStyle);
+
+    // row4b：下次启动区域显示方式（2026-11-01 用户定案）
+    const rowNb = n("div", "k-row");
+    rowNb.append(n("span", "k-lbl", "下次启动"));
+    const nbSeg = n("div", "seg");
+    for (const [val, txt] of [["off", "不显示"], ["fold", "折叠框"], ["open", "展开"]]) {
+      const b = n("button", advState.nextBootView === val ? "is-on" : "", txt);
+      b.type = "button";
+      b.title =
+        val === "off"
+          ? "整块不显示（下面引导列表照常可用）"
+          : val === "fold"
+            ? "折叠框，默认收起：标题旁一个按钮，点开才看各引导器选中项"
+            : "折叠框，默认展开：一进来就看到全部条目，可点按钮收起";
+      b.addEventListener("click", () => {
+        advState.nextBootView = val;
+        // 切档位时重置展开态：fold 收、open 放（用户之后仍可自己点）
+        advState.nextBootExpanded = val === "open";
+        saveState();
+        applyAll();
+      });
+      nbSeg.append(b);
+    }
+    rowNb.append(nbSeg,
+      n("span", "hint", "「系统引导」页顶部那块的高度来源：不显示 = 直接省掉；折叠框 = 默认收起，标题旁按钮切换；展开 = 默认展开同款可收起。"));
+    bar.append(rowNb);
 
     // row5：排序条（设置动作收在设置区，预演区保持纯观看）
     const rowSort = n("div", "k-row");
@@ -2313,6 +2379,57 @@
     const show = box.childElementCount > 0;
     box.hidden = !show;
     sec.classList.toggle("has-rows", show);
+    applyNextBootView(sec, show);
+  }
+
+  /// 「下次启动」区域显示方式（2026-11-01 用户定案，三档 + 折叠按钮）：
+  ///   off  = 整块不显示（引导列表照常可用）
+  ///   fold = 折叠框，**默认收起**：标题行 + 「展开」按钮，点了才看条目
+  ///   open = 折叠框，默认展开：一进来就看到全部条目，可点按钮收起
+  ///
+  /// 展开态只记在 advState.nextBootExpanded，切档位时按档位重置（fold 收 /
+  /// open 放），之后以用户最后一次点击为准 —— 不再因为「切主题 / 拍快照」
+  /// 被重置回默认（那是 v0.2.x 里主题搬迁反复踩的坑）。
+  function applyNextBootView(sec, hasRows) {
+    const view = ["off", "fold", "open"].includes(advState.nextBootView)
+      ? advState.nextBootView
+      : "fold";
+    const btn = document.getElementById("nb-toggle");
+
+    if (view === "off") {
+      sec.hidden = true;
+      if (btn) btn.hidden = true;
+      sec.classList.remove("nb-folded");
+      // 条目行也收起：整块虽然已经 hidden，但保持内部状态自洽，
+      // 免得切回 fold/open 时残留上一档的展开态。
+      const rowsOff = sec.querySelector("#next-boot-rows");
+      if (rowsOff) rowsOff.hidden = true;
+      return;
+    }
+
+    sec.hidden = false;
+    if (!btn) return;
+    btn.hidden = hasRows === false; // 没有任何引导器时按钮无意义
+
+    const expanded =
+      view === "open" ? advState.nextBootExpanded !== false : advState.nextBootExpanded === true;
+    applyFoldState(sec, btn, expanded, hasRows);
+
+    btn.onclick = () => {
+      advState.nextBootExpanded = !expanded;
+      saveState();
+      applyFoldState(sec, btn, advState.nextBootExpanded, hasRows);
+    };
+  }
+
+  /// 折叠态落地：收起时隐藏条目行、按钮写「展开」；展开时反之。
+  function applyFoldState(sec, btn, expanded, hasRows) {
+    sec.classList.toggle("nb-folded", !expanded);
+    btn.textContent = expanded ? "收起" : "展开";
+    btn.title = expanded ? "收起下次启动详情" : "展开查看各引导器当前选中的条目";
+    btn.setAttribute("aria-expanded", expanded ? "true" : "false");
+    const rows = sec.querySelector("#next-boot-rows");
+    if (rows) rows.hidden = !hasRows || !expanded;
   }
 
   // 真实页主题布置：设计稿 viewK boot 模式同构 —— k-region（虚线）+ k-rbody +

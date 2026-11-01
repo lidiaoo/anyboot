@@ -519,6 +519,41 @@ h1,
 }
 .next-boot.has-rows > strong { display: none; }
 .next-boot.has-rows > .next-boot-rows { grid-column: 1 / -1; min-width: 0; }
+/* 标题行：标签 + 折叠按钮同一行（2026-11-01 用户定案）。
+ * 按钮默认隐藏（HTML 里 hidden），由 boot-adv.js 按显示方式放开。 */
+.nb-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.next-boot.has-rows > .nb-head { grid-column: 1; }
+
+.nb-toggle {
+  padding: 1px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.6;
+  cursor: pointer;
+  transition: color 120ms, border-color 120ms, background 120ms;
+}
+.nb-toggle[hidden] { display: none; }
+.nb-toggle:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+  background: var(--panel);
+}
+.nb-toggle:focus-visible {
+  outline: 2px solid var(--btn);
+  outline-offset: 1px;
+}
+/* 收起态：条目行由 JS 的 hidden 管，这里只补视觉（标题行维持原样） */
+.next-boot.nb-folded { row-gap: 0; }
+
 .next-boot-rows {
   display: flex;
   flex-direction: column;

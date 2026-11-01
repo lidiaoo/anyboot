@@ -104,7 +104,12 @@
              与 GRUB 启动项同页，两套引导器并列。 -->
         <div class="tab-panel active" id="tab-boot" data-page-node-id="KhgEQEjVWU0ev9h19cGCfq">
         <section aria-label="下次启动" class="next-boot" id="next-boot" data-page-node-id="Yqo4Jg3zpnxoHdIFHeKkrB">
-          <small data-page-node-id="exBlOMxEq761I1Tej3EyQY">下次启动</small>
+          <!-- 标题行：标签 + 折叠按钮（2026-11-01 用户定案：折叠框默认收起，
+               按钮点开才看各引导器选中项；显示方式在「引导高级设置 → 下次启动」配置） -->
+          <div class="nb-head">
+            <small data-page-node-id="exBlOMxEq761I1Tej3EyQY">下次启动</small>
+            <button class="nb-toggle" id="nb-toggle" type="button" aria-expanded="true" hidden>展开</button>
+          </div>
           <strong id="next-boot-name" data-page-node-id="AMVyFOoOKANoXH2D2Yvimg">未知</strong>
           <small class="next-boot-last" id="next-boot-last" hidden>上次启动 <b></b></small>
           <!-- 每行 = 一个引导器 + 它当前选中的条目（2026-10-30 用户定案：只列
