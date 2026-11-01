@@ -3678,25 +3678,41 @@ svg.i.lg { width: 16px; height: 16px; }
 .vw-900 .lj-c3 { width: 230px; }
 .vw-900 .li-grid { grid-template-columns: repeat(2, 1fr); }
 .vw-900 .li-hero { grid-column: span 2; grid-row: span 1; }
-/* 左右布局（.k-stage.h）是用户显式选的：窗口按 lr 档位加宽到 932 后，面板实际
-   只有 ~884 宽，原先这条 vw-900 规则会把它叠成上下两段 —— 看起来和「没生效」
-   一模一样。并排保留到真窄（手机）为止。 */
-.vw-520 .k-stage.h { flex-direction: column; }
-.vw-520 .k-split { width: auto; height: 12px; cursor: row-resize; align-self: stretch; }
-.vw-520 .k-stage.h .k-split::before { width: 44px; height: 3px; }
-.vw-760 .lb { flex-direction: column; }
-.vw-760 .lb-nav { width: auto; flex: none; border-right: 0; border-bottom: 1px solid var(--line); }
-.vw-760 .lb-list { flex-direction: row; overflow-x: auto; overflow-y: hidden; padding: 0 8px 8px; gap: 5px; }
-.vw-760 .lb-item { width: auto; flex: none; padding: 6px 8px; border: 1px solid var(--line); background: var(--panel); }
-.vw-760 .lb-item .nm small { display: none; }
-.vw-760 .lb-grip { display: none; }
-.vw-760 .lb-nav-head, .vw-760 .lb-nav-foot { display: none; }
-.vw-760 .lg { flex-direction: column; }
-.vw-760 .lg-side { display: none; }
-.vw-760 .lj-c1 { width: 60px; }
-.vw-760 .lj-c1 .hd { display: none; }
-.vw-760 .lj-navi .nm, .vw-760 .lj-navi .ldr { display: none; }
-.vw-760 .lj-navi { justify-content: center; }
+/* 左右布局（.k-stage.h）在小屏（手机 / ≤520）的处理。
+ *
+ * 2026-11-02 用户定案：「移动端这种小屏幕只需要展示系统引导列所在的页面
+ * （比如左右布局 分为左边和右边 假设右边有系统列表那就移动端只展示右边）」。
+ *
+ * 原来这里是 `flex-direction: column` —— 两列**竖着堆起来**，结果：
+ *   · 左列只占 45% 宽度，右边一大片空白
+ *   · 两列内容都被裁断（长条目名 ellipsis、底部浮层压住列表）
+ * 现在改为：**只显示有内容的那一列**，空列和分隔条一起隐藏。
+ *
+ * 判定用 :has()：.k-region 里如果只有主题挂载点 / 空提示，就算空列。
+ * 一列有内容一列空 → 显示有内容那列并让它占满整宽；
+ * 两列都有内容（用户在设置页把通道分到了两边）→ 退回竖排，内容都看得到。 */
+.vw-520 .k-stage.h {
+  flex-direction: column;      /* 兜底：两列都有内容时竖排 */
+}
+/* 分隔条在小屏没有意义（不并排了） */
+.vw-520 .k-split { display: none; }
+/* 关键：有内容的那列占满整宽。并排时宽度是 JS 按比例写成行内
+ * `style="width: 45%"` 的，这里必须 !important 压掉。 */
+.vw-520 .k-stage.h > .k-region {
+  width: 100% !important;
+  flex: 1 1 auto !important;
+}
+/* 空列（只有 .empty 占位 / 压根没有挂载点）不显示 —— 用户要的是
+ * 「只展示系统引导列所在的页面」。:has() 不支持时退化为「两列都满宽竖排」，
+ * 内容也不会丢。 */
+.vw-520 .k-stage.h > .k-region:not(:has(.k-theme-fit, .la, .lb, .lc, .lg, .li, .lj, .grub-entry, .boot-entry)) {
+  display: none;
+}
+/* 小屏只展示一列时，「有一列是空的 · 去引导高级设置分配」这条提示没有意义
+ * （那是在并排时才需要解释的事），一并隐藏。 */
+.vw-520 .k-stage.h > .empty,
+.vw-520 .k-stage.h .k-region > .empty { display: none; }
+
 /* ≤760：J 的右栏（设置）脱离文档流变**覆盖抽屉**。不这么做的话 c1 60 + c3 268
    的固定宽会把中间的 c2 挤成负数，内容整片横向溢出（实测 620 宽 c2 溢出 122px）。
    设计稿同款处理；抽屉本身有「折叠」按钮，折起来只占 42px。 */
@@ -3704,6 +3720,24 @@ svg.i.lg { width: 16px; height: 16px; }
 .vw-760 .lj-c3 {
   position: absolute; right: 0; top: 0; bottom: 0; width: 250px; z-index: 6;
   box-shadow: -10px 0 30px rgba(0, 0, 0, 0.4);
+}
+/* 2026-11-02 用户定案：「移动端这种小屏幕只需要展示系统引导列所在的页面」。
+ * 上面把 J 的右栏做成了覆盖抽屉（设计稿同款，避免 c1+c3 挤没 c2），
+ * 但抽屉**默认展开**会直接盖住系统列表 —— 小屏上看到的就是设置面板压在
+ * 列表上面互相遮挡。
+ * 这里让它小屏默认收起（只留 42px 折叠条，点一下再展开）。
+ * JS 折叠用的是 `.folded` 类（boot-adv.js 的 fold 按钮 toggle）。 */
+.vw-760 .lj-c3:not(.folded) {
+  width: 42px;
+}
+.vw-760 .lj-c3:not(.folded) .bd,
+.vw-760 .lj-c3:not(.folded) .hd span,
+.vw-760 .lj-c3:not(.folded) .hd b {
+  display: none;
+}
+.vw-760 .lj-c3:not(.folded) .hd {
+  justify-content: center;
+  padding: 11px 0;
 }
 .vw-760 .li-grid { grid-template-columns: 1fr 1fr; }
 .vw-760 .li-hero { grid-column: span 2; }
@@ -3834,6 +3868,40 @@ body[data-ba-lr] .tab-panel.active {
   flex-direction: column;
   gap: 12px;
 }
+
+/* ── 小屏（≤760）：不套用主题的左右布局也只显示「有引导列表的那一列」 ────
+ * 2026-11-02 用户定案：「移动端这种小屏幕只需要展示系统引导列所在的页面
+ * （比如左右布局 分为左边和右边 假设右边有系统列表那就移动端只展示右边）」。
+ *
+ * 原来 grid 恒为 `1fr 12px 1fr` —— 390px 屏上每列只剩 ~189px，条目名被
+ * 截成一堆省略号，右半边还常是空列，整页看着像坏了。
+ *
+ * 处理：单列铺满；空列（只有 .empty 占位）不显示；分隔条也不显示
+ * （不并排了就没有拖动的意义）。
+ *
+ * ⚠ 选择器写法：`.vw-*` 类是**挂在 #tab-boot 自己身上**的
+ * （实测 tabBootCls = "tab-panel active ba-arranged ba-lr vw-900 vw-760 vw-520"），
+ * 不是祖先。所以必须写 `#tab-boot.vw-760`，写成 `.vw-760 #tab-boot` 匹配不到。 */
+#tab-boot.vw-760.ba-lr > .ba-lr-cols {
+  /* !important 是必须的：列宽是 JS 按拖动比例写成的**行内样式**
+   * （boot-adv.js applyRatio() → cols.style.gridTemplateColumns），
+   * 普通规则压不过行内样式（实测仍是 "175px 12px 175px"）。 */
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+/* 分隔条是 .k-split —— **不是 .ba-split**！
+ * `.ba-split` 是 splitLoaderSection 给**区块自身**加的类（#refind / #grub
+ * 都带），写成 .ba-split 会把所有引导区块一起隐藏掉（踩过：页面全空）。 */
+#tab-boot.vw-760.ba-lr > .ba-lr-cols > .k-split { display: none; }
+#tab-boot.vw-760.ba-lr .ba-col {
+  max-height: none;
+  overflow: visible;
+}
+/* 空列：只有 .empty 占位（没有任何真实区块）→ 不显示 */
+#tab-boot.vw-760.ba-lr .ba-col:not(:has(.grub, .refind, .boot-channel, .grub-entry, .boot-entry)) {
+  display: none;
+}
+/* 小屏只保留一列时，「这一列是空的」提示没有意义 */
+#tab-boot.vw-760.ba-lr .ba-col > .empty { display: none; }
 /* 两栏里的卡吃满列宽：区块原本是页面流里的 grid 项，进列后按内容高 */
 #tab-boot.ba-lr .ba-col > .grub,
 #tab-boot.ba-lr .ba-col > .refind,
