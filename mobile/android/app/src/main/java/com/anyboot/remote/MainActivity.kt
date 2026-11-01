@@ -1153,7 +1153,12 @@ class MainActivity : ComponentActivity() {
         val form = rememberServerEditFormState(request.profile)
 
         AlertDialog(
-            onDismissRequest = { if (!request.firstRun) editRequest = null },
+            // 2026-11-02 修：首次启动（firstRun = 无任何服务端）时原来**既不能
+            // 取消也不能点外部关闭**，确认键只有「保存」—— 用户暂时不想添加
+            // 电脑就被卡死在这个弹窗里（移动端复现的「只有保存、没有取消」）。
+            // 现在任何情况下都允许关闭：首次运行的弹窗也是用户主动触发或首启
+            // 提示，取消后就是回到空列表，不影响功能。
+            onDismissRequest = { editRequest = null },
             // 键盘弹出时不让底部的按钮被盖住（内容区自己让出 IME 的高度）
             modifier = Modifier.imePadding(),
             properties = DialogProperties(decorFitsSystemWindows = false),
@@ -1181,9 +1186,9 @@ class MainActivity : ComponentActivity() {
                             Text("删除", color = palette.bad)
                         }
                     }
-                    if (!request.firstRun) {
-                        TextButton(onClick = { editRequest = null }) { Text("取消") }
-                    }
+                    // 首次运行也给「取消」（原先只在非 firstRun 时给），
+                    // 让这个弹窗任何时候都关得掉。
+                    TextButton(onClick = { editRequest = null }) { Text("取消") }
                 }
             },
         )

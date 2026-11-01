@@ -167,8 +167,11 @@ struct ComputerEditorView: View {
                     .padding(.vertical, 8)
                 Spacer()
             }
-            // 标题行：标题 + 关闭圆钮（首启标题「连接 AnyBoot 服务端」且无关闭钮 ——
-            // 对齐 Android EditDialog：onDismissRequest if (!request.firstRun)）
+            // 标题行：标题 + 关闭圆钮。
+            // 2026-11-02 修：首次启动（firstRun）原来**把关闭钮也去掉了**，
+            // 配合下面的 interactiveDismissDisabled(firstRun)，用户既点不到 ×
+            // 也划不掉这个弹窗，而底部只有「保存」—— 被卡死（移动端复现的
+            // 「只有保存、没有取消」）。现在任何情况都保留关闭入口。
             HStack(spacing: 8) {
                 Text(editing ? "编辑这台电脑"
                      : (firstRun ? "连接 AnyBoot 服务端" : "添加电脑"))
@@ -176,23 +179,21 @@ struct ComputerEditorView: View {
                     .foregroundColor(ABColor.fg)
                     .lineLimit(1)
                 Spacer()
-                if !firstRun {
-                    Button {
-                        onFinish(.cancel)
-                        dismiss()
-                    } label: {
-                        ZStack {
-                            Circle().fill(ABColor.elevate)
-                            Image(systemName: "xmark")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundColor(ABColor.fgDim)
-                        }
-                        .frame(width: 30, height: 30)
-                        .contentShape(Circle())
+                Button {
+                    onFinish(.cancel)
+                    dismiss()
+                } label: {
+                    ZStack {
+                        Circle().fill(ABColor.elevate)
+                        Image(systemName: "xmark")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundColor(ABColor.fgDim)
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("关闭")
+                    .frame(width: 30, height: 30)
+                    .contentShape(Circle())
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel("关闭")
             }
             .padding(.leading, 18)
             .padding(.trailing, 8)
@@ -244,6 +245,24 @@ struct ComputerEditorView: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel("删除这台电脑")
                 }
+                // 2026-11-02：底部补「取消」—— 原来这行只有「删除」（编辑时）
+                // 和「保存」，首次运行弹窗又没有 ×，用户无处可退。
+                Button {
+                    onFinish(.cancel)
+                    dismiss()
+                } label: {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 11, style: .continuous)
+                            .strokeBorder(ABColor.lineStrong)
+                        Text("取消")
+                            .font(.system(size: 13.5, weight: .semibold))
+                            .foregroundColor(ABColor.fgDim)
+                    }
+                    .frame(width: 76, height: 40)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("取消")
                 Button {
                     save()
                 } label: {
@@ -269,7 +288,8 @@ struct ComputerEditorView: View {
         .background(ABColor.card.ignoresSafeArea())
         .presentationDetents([.custom(EditorSheetDetent.self)])
         .presentationDragIndicator(.hidden)
-        .interactiveDismissDisabled(firstRun)
+        // 允许下滑关闭（首次运行也允许：只有「保存」按钮时滑不掉就等于卡死）
+        .interactiveDismissDisabled(false)
         .confirmationDialog("确定删除这台电脑吗？", isPresented: $showDelete, titleVisibility: .visible) {
             Button("删除", role: .destructive) {
                 if let id = profile?.id { onFinish(.delete(id)) }

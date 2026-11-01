@@ -6437,8 +6437,140 @@ window.__bkOnShow = async function () {
     document.getElementById('editOverlay').hidden = false;
     document.getElementById('fName').focus();
   }
+  // 【诊断】任何 overlay 从 hidden 变可见时，把它的标题与按钮清单回传 trace。
+  // 用户 2026-11-02：有个「添加服务端」弹窗缺「取消」和右上角 ×，静态查不到。
+  (function () {
+    if (!window.__TAURI__ || !window.__TAURI__.core) return;
+    const seen = new WeakSet();
+    const scan = function () {
+      document.querySelectorAll('.overlay').forEach(function (ov) {
+        const cs = getComputedStyle(ov);
+        if (cs.display === 'none' || ov.hidden) return;
+        if (seen.has(ov)) return;
+        seen.add(ov);
+        const h = ov.querySelector('h2, h3');
+        const btns = [...ov.querySelectorAll('button')].map(function (b) {
+          if (getComputedStyle(b).display === 'none') return null;
+          return (b.textContent || b.getAttribute('aria-label') || '').trim().slice(0, 8);
+        }).filter(Boolean);
+        void window.__TAURI__.core.invoke('sol_log_client_error', {
+          kind: 'dialog-open',
+          detail: JSON.stringify({
+            id: ov.id || '(无 id)',
+            title: h ? (h.textContent || '').trim() : '(无标题)',
+            buttons: btns.slice(0, 10),
+            hasCancel: btns.some(function (x) { return x.indexOf('取消') >= 0; }),
+            hasClose: btns.some(function (x) { return x === '关闭' || x === '✕'; }),
+          }),
+        });
+      });
+    };
+    new MutationObserver(scan).observe(document.body, {
+      attributes: true, attributeFilter: ['hidden', 'class', 'style'], subtree: true,
+    });
+    scan();
+  }());
+
   function closeEdit() {
     document.getElementById('editOverlay').hidden = true;
+  }
+
+  /// 【诊断】扫描当前所有**可见**的 overlay / dialog，把标题与按钮列出来，
+  /// 回传 trace。用户反馈有个「添加服务端」弹窗缺取消与右上角 ×，
+  /// 代码里静态找不到，实地抓。
+  function diagEditClose() {
+    setTimeout(function () {
+      try {
+        const out = [];
+        document.querySelectorAll('.overlay, [class*="overlay"], [role="dialog"]').forEach(function (ov) {
+          const cs = getComputedStyle(ov);
+          const r = ov.getBoundingClientRect();
+          if (cs.display === 'none' || r.width === 0) return;
+          const h = ov.querySelector('h2, h3');
+          const btns = [...ov.querySelectorAll('button')].map(function (b) {
+            const bcs = getComputedStyle(b);
+            if (bcs.display === 'none') return null;
+            return (b.textContent || b.getAttribute('aria-label') || '').trim().slice(0, 8);
+          }).filter(Boolean);
+          out.push({
+            id: ov.id || '(无 id)',
+            cls: (ov.className || '').toString().slice(0, 40),
+            title: h ? (h.textContent || '').trim() : '(无标题)',
+            w: Math.round(r.width), hgt: Math.round(r.height),
+            buttons: btns.slice(0, 10),
+          });
+        });
+        if (window.__TAURI__ && window.__TAURI__.core) {
+          void window.__TAURI__.core.invoke('sol_log_client_error', {
+            kind: 'dialog-diag', detail: JSON.stringify(out),
+          });
+        }
+      } catch (e) { void e; }
+    }, 700);
+  }
+
+  async function openEdit(server) {
+    diagEditClose();
+    editingId = server ? server.id : null;
+    editingServerPassword = !!(server && server.password_enc);
+    document.getElementById('editTitle').textContent = server ? '编辑服务器' : '添加服务器';
+    document.getElementById('fName').value = server ? server.name : '';
+    setEditProto(server ? server.protocol : 'ssh');
+    document.getElementById('fHost').value = server ? server.host : '';
+    document.getElementById('fPort').value = server && server.port ? server.port : '';
+    document.getElementById('fUser').value = server ? server.username : '';
+    document.getElementById('fNotes').value = server ? server.notes : '';
+    document.getElementById('fTermPath').value = server ? (server.term_path || '') : '';
+    document.getElementById('fTermShell').value = server ? (server.term_shell || '') : '';
+    document.getElementById('fPassword').value = '';
+    populateJumpOptions(server ? server.jump_id : '');
+    setEditAuth(server && server.key_id ? 'key' : (editingServerPassword ? 'password' : 'interactive'));
+    await loadKeyOptions(server ? server.key_id : '');
+    document.getElementById('editError').textContent = '';
+    document.getElementById('editTestLine').textContent = '';
+    document.getElementById('editTestLine').className = 'test-line';
+    document.getElementById('editOverlay').hidden = false;
+    document.getElementById('fName').focus();
+  }
+  function closeEdit() {
+    document.getElementById('editOverlay').hidden = true;
+  }
+
+  /// 【诊断】读「添加服务器」弹窗里 #editX 的真实可见性，回传 trace。
+  /// 用户 2026-11-02 反馈这个弹窗没有右上角 ×，代码层看不出原因，实地取数。
+  function diagEditClose() {
+    setTimeout(function () {
+      try {
+        const ov = document.getElementById('editOverlay');
+        const btn = document.getElementById('editX');
+        const head = btn && btn.parentElement;
+        const r = btn ? btn.getBoundingClientRect() : null;
+        const cs = btn ? getComputedStyle(btn) : null;
+        const hcs = head ? getComputedStyle(head) : null;
+        const info = {
+          overlayHidden: ov ? ov.hidden : 'no-ov',
+          btnExists: !!btn,
+          display: cs ? cs.display : '-',
+          visibility: cs ? cs.visibility : '-',
+          opacity: cs ? cs.opacity : '-',
+          color: cs ? cs.color : '-',
+          fontSize: cs ? cs.fontSize : '-',
+          w: r ? Math.round(r.width) : -1,
+          h: r ? Math.round(r.height) : -1,
+          top: r ? Math.round(r.top) : -1,
+          right: r ? Math.round(r.right) : -1,
+          headDisplay: hcs ? hcs.display : '-',
+          headJustify: hcs ? hcs.justifyContent : '-',
+          dialogW: ov ? Math.round(ov.querySelector('.dialog').getBoundingClientRect().width) : -1,
+          maxRight: window.innerWidth,
+        };
+        if (window.__TAURI__ && window.__TAURI__.core) {
+          void window.__TAURI__.core.invoke('sol_log_client_error', {
+            kind: 'edit-x-diag', detail: JSON.stringify(info),
+          });
+        }
+      } catch (e) { void e; }
+    }, 500);
   }
 
   /** 弹窗表单 → 服务器对象（供保存 / 弹窗内测试连接共用） */
