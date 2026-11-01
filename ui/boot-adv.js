@@ -2137,6 +2137,12 @@
   // 「明明全选了，系统引导只显示一个」就是这么来的。内联 display 同理（K 隐藏用）。
   const LAYOUT_CLASSES = [
     "ba-theme-pane", "is-shown", "ba-g-card", "ba-g-empty", "is-active",
+    // ba-theme-sec：bootBuild 搬 section 进主题壳时挂的**主题态标记**。
+    // 必须在这里一起清掉，否则「切到主题 → 切回不套用主题」后它残留，
+    // 而 CSS 里 `.ba-theme-sec > .grub-title-row { display:none }` 是常驻
+    // 规则 → 原生页面的分区标题行会跟着消失（2026-11-01 用户明确要求：
+    // 不套用主题时**必须**有标题行）。
+    "ba-theme-sec",
   ];
 
   function resetSectionChrome() {
