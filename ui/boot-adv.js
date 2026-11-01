@@ -1922,14 +1922,81 @@
     // 预演模式没有真实区块，这块不占位；真实页正是靠它把引导器内容搬进抽屉，
     // 再 display:none 就等于「抽屉打开了、里面空空如也」（I 主题看不到任何引导器）
     if (!build) realSec.style.display = "none";
+    /// 编排面板的行排序：拖 ⠿ 手柄上下移动，松手时把新顺序写进 advState.order
+    /// 并整体重绘。
+    ///
+    /// 为什么不用 HTML5 draggable：WebView（WKWebView / WebView2 / GTK WebKit）
+    /// 三端对 dataTransfer 与 drop 坐标的行为并不一致，还得处理 dragover 节流；
+    /// 用 pointer 事件 + 每次按下时快照各行中线更稳（与左右布局的分隔条拖动
+    /// 同一套写法）。拖动过程中只动 DOM 顺序做视觉反馈，**状态只在松手时写一次**，
+    /// 避免每一帧都 saveState + 全量重绘。
+    function wireReorder(rows, ids) {
+      rows.forEach((row, fromIndex) => {
+        const handle = row.querySelector(".grab");
+        if (!handle) return;
+        handle.style.touchAction = "none";
+        handle.addEventListener("pointerdown", (ev) => {
+          ev.preventDefault();
+          // 按下时快照：每行的中线（y）与它此刻的引导器 id
+          const rects = rows.map((r) => r.getBoundingClientRect());
+          const mids = rects.map((r) => (r.top + r.bottom) / 2);
+          const orderNow = rows.map((r) => r.dataset.lid);
+          const grabY = ev.clientY;
+          let target = fromIndex;
+          row.classList.add("is-dragging");
+          try { handle.setPointerCapture(ev.pointerId); } catch (e) { void e; }
+
+          const onMove = (e) => {
+            // 手柄相对按下点的位移 → 当前应落在哪一行的中线区间里
+            const y = mids[fromIndex] + (e.clientY - grabY);
+            let to = 0;
+            for (let i = 0; i < mids.length; i++) if (y > mids[i]) to = i;
+            if (to === target) return;
+            target = to;
+            const ref = rows[target];
+            if (!ref || ref === row) return;
+            if (target > fromIndex) ref.after(row);
+            else ref.before(row);
+          };
+          const onUp = () => {
+            handle.removeEventListener("pointermove", onMove);
+            handle.removeEventListener("pointerup", onUp);
+            handle.removeEventListener("pointercancel", onUp);
+            row.classList.remove("is-dragging");
+            if (target === fromIndex) return;
+            // 按「从 fromIndex 挪到 target」重排 id 列表后写盘
+            const next = orderNow.slice();
+            const moved = next.splice(fromIndex, 1)[0];
+            next.splice(target, 0, moved);
+            // 只保留当前这批引导器里还存在的 id（左右布局分列时可能只给一部分）
+            advState.order = next.filter((id) => ids.includes(id)).concat(
+              ids.filter((id) => !next.includes(id)),
+            );
+            saveState();
+            applyAll();
+          };
+          handle.addEventListener("pointermove", onMove);
+          handle.addEventListener("pointerup", onUp);
+          handle.addEventListener("pointercancel", onUp);
+        });
+      });
+    }
+
     const PAGES = {
       "编排": () => {
+        const rows = [];
+        const ids = lds.map((l) => l.id);
         lds.forEach((l) => {
           const r = n("div", "li-prow");
-          r.append(n("span", "grab", "⠿"), ldr(l, "sm"), n("span", "nm", l.name), n("span", "grow"),
+          const grab = n("span", "grab", "⠿");
+          grab.title = "按住拖动调整顺序";
+          r.dataset.lid = l.id;
+          r.append(grab, ldr(l, "sm"), n("span", "nm", l.name), n("span", "grow"),
             chip("off", l.entries.length + " 条"));
           bd.append(r);
+          rows.push(r);
         });
+        wireReorder(rows, ids);
       },
       "引导器": () => {
         lds.forEach((l) => {
