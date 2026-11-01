@@ -2181,6 +2181,18 @@
         body = sec.querySelector(":scope > .ba-set-body");
       }
       if (bar) bar.style.display = "none";
+      // body 可能是**空的**（splitLoaderSection 建了壳，但 SET_SPLIT 的选择器
+      // 一个都没命中 → 内部无子节点）。这时右栏会显示一块空白 —— 用户报的
+      // 「J 第一条引导器的设置内容空」正是这种。判据用 childElementCount，
+      // 是空的就补一次 split 再取。
+      if (body && body.childElementCount === 0) {
+        try {
+          splitLoaderSection(sec, l.id);
+        } catch (error) {
+          reportClientError("J.paint.resplit", error);
+        }
+        body = sec.querySelector(":scope > .ba-set-body");
+      }
       if (body) {
         body.classList.add("is-docked");
         body.dataset.owner = sec.id;
@@ -2306,6 +2318,21 @@
   function teardownBootArrangement() {
     const t = bootTab();
     if (!t) return;
+    // J 主题把 `.ba-set-body` 整块搬到了右栏（.lj-c3 .bd）。切到别的主题时
+    // 必须先把它们**还回各自的 section**——否则它们随 .ba-theme-root 一起被
+    // 移除，下次再进 J 时 section 里根本没有 .ba-set-body（真控件全丢），
+    // 右栏就只能显示空态。这也解释了「切到其它布局再切回 J，设置栏是空的」。
+    for (const body of Array.from(t.querySelectorAll(".ba-set-body.is-docked"))) {
+      const ownerId = body.dataset.owner;
+      const owner = ownerId ? document.getElementById(ownerId) : null;
+      if (owner && !owner.contains(body)) {
+        owner.appendChild(body);
+        const ob = owner.querySelector(":scope > .ba-setbar");
+        if (ob) ob.style.display = "";
+      }
+      body.classList.remove("is-docked");
+      delete body.dataset.owner;
+    }
     // 设置项搬移必须先还原：它们被搬进注入容器 .ba-set-body，而下面按
     // [data-ba-injected] 删容器时会把还在里面的节点一起带走（真控件就没了）
     restoreSetMoves();
