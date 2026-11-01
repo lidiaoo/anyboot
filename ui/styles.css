@@ -3483,6 +3483,26 @@ svg.i.lg { width: 16px; height: 16px; }
 .ba-i-realsec #grub-meta {
   display: none;
 }
+/* 主题态：去掉「与上面的系统卡分隔」那条虚线（2026-11-01 用户定案：
+ * 「无论有没有标题都要删除这个分割线元素」）。
+ *
+ * 这条线是 `.sim-scan` 的 border-top（1px dashed），原意是在原生页面里把
+ * 「模拟引导项扫描」与上面三张系统卡分开。主题态下 section 自己就是一张卡片、
+ * 标题行也已隐藏，这条线失去意义、只剩一条突兀的横线。
+ * 连同它的 margin-top / padding-top 一起收掉，避免留出空行。 */
+.ba-theme-sec .sim-scan {
+  border-top: 0;
+  margin-top: 0;
+  padding-top: 0;
+}
+/* 任何主题态下 section 内部残留的装饰性水平分隔线（hr / 虚线边框）统一不显示 */
+.ba-theme-sec > hr,
+.ba-theme-sec .boot-divider {
+  display: none;
+  border: 0;
+  margin: 0;
+}
+
 /* 主题态下 section 作为主题卡片的根：分隔符与多余空行一律不占高度 */
 .ba-theme-sec > hr.boot-divider {
   display: none;
