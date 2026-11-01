@@ -1394,7 +1394,7 @@
   };
 
   // ── G：命令面板（设计稿 viewG 原样；真实页模式过滤真实条目行）──────────
-  const G_ROW_SEL = ".boot-entry, .oc-menu-row, .grub-entry, .row";
+  const G_ROW_SEL = ".grub-entry, .row";
   // 选中项在快照重排（5s 一拍，整个主题 DOM 重建）之后要能找回来：只记
   // 「哪个引导器 + 哪一行」，重建后按同样的键再定位一次。
   let gSelMemo = null;
@@ -1450,14 +1450,12 @@
           .filter((r) => !r.classList.contains("is-group") && !r.closest("[hidden]"));
 
       const rowTitle = (row) => {
-        const nm = row.querySelector(".grub-entry-name, .boot-entry-name");
+        const nm = row.querySelector(".grub-entry-name");
         if (nm) return (nm.textContent || "").trim();
-        const b = row.querySelector(".oc-menu-head b");
-        if (b) return (b.textContent || "").trim();
         return (row.textContent || "").replace(/\s+/g, " ").trim().slice(0, 90);
       };
       const rowSub = (row) => {
-        const p = row.querySelector(".oc-menu-path");
+        const p = row.querySelector(".grub-entry-sub");
         if (p) return (p.textContent || "").trim();
         // GRUB / rEFInd 行没有独立副标题节点：title 的第一行通常是「卷标 · 路径」
         const t = (row.getAttribute("title") || "")
@@ -1466,8 +1464,7 @@
       };
       const rowIsDef = (row) =>
         row.classList.contains("active") ||
-        row.classList.contains("is-def") ||
-        row.classList.contains("current");
+        row.classList.contains("is-def");
 
       for (const l of lds) {
         const c = build(l);
@@ -1484,7 +1481,7 @@
         // 本来就没有路径，不硬编。
         for (const row of topRows(c)) {
           const sub = rowSub(row);
-          if (!sub || row.querySelector(".oc-menu-path")) continue;
+          if (!sub || row.querySelector(".grub-entry-sub")) continue;
           const nm = row.querySelector(".grub-entry-name, .boot-entry-name");
           if (!nm || nm.querySelector(".ba-g-sub")) continue;
           nm.append(n("small", "ba-g-sub", sub));
@@ -1560,7 +1557,9 @@
         // 动作：都是**代理真实行自己的动作**（不另写一套动作逻辑）
         // 用户 2026-10-30：OC 行撤掉行尾箭头后，「点这一行」就是「设为默认」，
         // 所以 OC 行上的「下次启动」按钮没有对应动作（别让它变成第二个设默认）。
-        const isOcRow = row.classList.contains("oc-menu-row");
+        // OC 预览行现在也用引导列表样式（.grub-entry），靠「带多行主体」
+        // 与 GRUB 单行条目区分开
+        const isOcRow = Boolean(row.querySelector(".grub-entry-body"));
         const acts = n("div", "toolbar");
         const go = btn("下次启动", "btn sm primary", "power");
         if (isOcRow) {

@@ -99,7 +99,7 @@ function ocMenuRow(entry, index, { busy, onSwitch, channel, orderSource, default
   // 左侧绿条）。内部是多行结构，用 .oc-menu-body 承载，见样式表里的
   // `.grub-entry.is-oc-multi` 补充规则。
   const row = document.createElement("div");
-  row.className = "grub-entry is-oc-multi";
+  row.className = "grub-entry";
   row.dataset.kind = entry.kind;
   // 当前默认行整行淡绿染（设计稿 .row.is-def），不只是按钮位一枚标记
   if (entry.default) row.classList.add("is-def");
@@ -115,30 +115,31 @@ function ocMenuRow(entry, index, { busy, onSwitch, channel, orderSource, default
       || OC_MENU_KIND_CHIP.unknown,
   ));
 
-
+  // 主体：全部改用**引导列表样式**（.grub-entry-*）的命名 ——
+  // 名称 / 类型标签 / 来源标签 / 路径 / 备注，对应 grub 的
+  // .grub-entry-name / .grub-entry-tag / .grub-entry-sub。
   const body = document.createElement("span");
-  body.className = "oc-menu-body";
+  body.className = "grub-entry-body";
 
-  const head = document.createElement("span");
-  head.className = "oc-menu-head";
-  const name = document.createElement("b");
+  const name = document.createElement("span");
+  name.className = "grub-entry-name";
   name.textContent = entry.title;
-  head.append(name);
+  body.append(name);
 
-  const kind = document.createElement("span");
-  kind.className = "oc-menu-kind";
+  const tags = document.createElement("span");
+  tags.className = "grub-entry-tags";
+  const kind = document.createElement("small");
+  kind.className = "grub-entry-tag";
   kind.textContent = OC_MENU_KIND_LABEL[entry.kind] || entry.kind;
-  head.append(kind);
-
-  const source = document.createElement("span");
-  source.className = "oc-menu-src";
+  tags.append(kind);
+  const source = document.createElement("small");
+  source.className = "grub-entry-tag";
   source.textContent = ocMenuSourceLabel(entry.source, orderSource);
-  head.append(source);
+  tags.append(source);
+  body.append(tags);
 
-  body.append(head);
-
-  const path = document.createElement("code");
-  path.className = "oc-menu-path";
+  const path = document.createElement("small");
+  path.className = "grub-entry-sub";
   path.textContent =
     entry.volume && entry.volume !== "—"
       ? `${entry.volume} · ${entry.path}`
@@ -147,7 +148,7 @@ function ocMenuRow(entry, index, { busy, onSwitch, channel, orderSource, default
 
   if (entry.note) {
     const note = document.createElement("small");
-    note.className = "oc-menu-note";
+    note.className = "grub-entry-sub";
     note.textContent = entry.note;
     body.append(note);
   }
@@ -207,7 +208,7 @@ function renderOcMenuPreview(
 
   if ((preview.entries || []).length) {
     const list = document.createElement("div");
-    list.className = "oc-menu-list";
+    list.className = "grub-list grub-list-body";
 
     // 2026-11-01 用户定案：OC 预览**不做「复制选中条目到首位」**，
     // 列表就是 OC 菜单的原顺序；当前默认项靠 .is-def 绿染标示即可。
@@ -458,7 +459,8 @@ function makeBootChannelCard(
 
   // ── 条目行 ──
   const list = document.createElement("section");
-  list.className = "boot-list";
+  // 统一用引导列表样式：容器与 GRUB 同款（.grub-list > .grub-list-body）
+  list.className = "grub-list";
   list.setAttribute("aria-label", `${channel.label} 条目`);
   for (const entry of channel.entries || []) {
     // 2026-11-01 用户定案「所有的引导器都要用这个样式」：三通道条目行

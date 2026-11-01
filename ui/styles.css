@@ -1279,8 +1279,7 @@ h1,
  * 背景必须是**实底**——`--ok-bg` 是半透明绿，滚动时会透出下面的行，
  * 文字叠在一起看不清（用户 2026-11-01「顶部要一直显示」的附带要求）。
  * 用 color-mix 把它压到不透明：87% ok-bg + 13% 面板底色，观感仍是那抹绿。 */
-.grub-entry.is-pinned,
-.boot-entry.is-pinned {
+.grub-entry.is-pinned {
   position: sticky;
   top: 0;
   z-index: 2;
@@ -1388,6 +1387,47 @@ body[data-grub-mode="inline"] .grub-list {
   color: var(--text-fainter);
   font-size: 10px;
   white-space: nowrap;
+}
+
+/* ── 引导列表样式（Guided List Style）───────────────────────────────────
+ * 2026-11-02 用户定案：「所有引导器 你完全删除旧的引导列表样式 全部改用
+ * grub样式 并且命名 grub样式为引导列表样式」。
+ *
+ * 从此刻起 `.grub-*` 就是**引导列表样式**的唯一实现：
+ *   .grub-list / .grub-list-body  列表容器
+ *   .grub-entry                   条目行（grid 1fr auto）
+ *   .grub-entry-name              名称
+ *   .grub-entry-tags / -tag       右侧或名称旁的标签
+ *   .grub-entry-sub               路径 / 备注等次要行（OC 多行内容用）
+ *   .grub-entry-side              右侧动作栏
+ *   .grub-entry-body              多行内容主体（OC 行）
+ * 旧的 .boot-entry / .oc-menu-row / .boot-list / .oc-menu-list 及其子元素
+ * 规则已**整段删除**，不再有第二套。
+ *
+ * `.grub-entry-body` 是给「内容不止一行」的引导器（OC 菜单预览）留的：
+ * 它让名称/标签在首行、路径与备注在下面，但**外框、圆角、选中绿染、
+ * 左侧绿条全部与单行条目一致**。 */
+.grub-entry-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.grub-entry-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.grub-entry-sub {
+  color: var(--text-fainter);
+  font-size: 10px;
+  font-family: var(--mono);
+  overflow-wrap: anywhere;
+}
+/* 有多行内容的行：整体顶部对齐（单行行是垂直居中） */
+.grub-entry:has(> .grub-entry-body) {
+  align-items: flex-start;
 }
 
 /* 组内的子条目数量小标（顶层组行右侧） */
@@ -2528,25 +2568,7 @@ button.primary-sol:hover:not(:disabled) {
   color: var(--fg-dim);
   overflow-wrap: anywhere;
 }
-/* OpenCore 菜单预览的列表框 —— **与 GRUB / 三通道列表同款滚动容器**
- * （2026-11-01 用户定案「就是没有置顶」）。
- *
- * 之前只有 display/gap，没有限高与 overflow → 没有滚动上下文 →
- * `.oc-menu-row.is-def` 上的 sticky 不产生吸附，滚下去那行就消失了。
- * rEFInd 用 `#sim-scan .grub-list`、三通道用 `.boot-list`，这里对齐同一套数值。 */
-/* 2026-11-01 实测定案（诊断 trace: listScrollH == listH，容器本身滚不动，
- * 用户滚动的是外层 A 列表 .la-list）—— sticky 必须挂在「实际在滚的容器」里
- * 才有效，而 sticky 只对**最近**可滚动祖先生效，跨容器做不到。
- *
- * 所以 OC 菜单行不再套自己的滚动框：**铺开**（高度由条目数决定），滚动交给
- * 外层 .la-list（A 卡片流）或 #tab-boot 整页。置顶（当前默认行钉住）改由
- * boot-list-view.js 的 JS 滚动跟随实现（见下）。 */
-.oc-menu-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
+
 
 /* ── rEFInd 模拟引导项扫描（用户定案 2026-10-29） ──
  * 与上面三张「手动获取」的系统卡并列：那是 vars 快照（切换 = 复制文件），
@@ -2718,72 +2740,17 @@ button.primary-sol:hover:not(:disabled) {
   gap: 8px;
   margin-top: 8px;
 }
-.oc-menu-row {
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
-  padding: 7px 9px;
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--text) 4%, transparent);
-  min-width: 0;
-}
-/* 用户 2026-10-30：行尾不再挂「设为默认」的箭头按钮 —— 点整行就是设默认，
-   选中没选中由这一行自己的选中框（.is-def 绿框）说明。这里补指针与键盘焦点圈。 */
-.oc-menu-row.is-clickable { cursor: pointer; }
-.oc-menu-row.is-clickable:hover { border-color: color-mix(in srgb, var(--ok) 28%, transparent); }
-.oc-menu-row.is-clickable:focus-visible {
-  outline: 2px solid var(--accent, var(--border-strong));
-  outline-offset: -2px;
-}
-.oc-menu-body {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  /* basis 必须是 0：`auto` 时基准宽度等于内容宽度，窄屏下一行放不下就让
-     正文整个换到第二行（序号孤零零留在上面）。0 基准只按剩余空间分配，
-     序号 / 正文始终同行，只有按钮按需换行。 */
-  flex: 1 1 0;
-  min-width: 0;
-}
-.oc-menu-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-.oc-menu-head b {
-  font-size: 12px;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-.oc-menu-kind,
-.oc-menu-src {
-  flex: 0 0 auto;
-  font-size: 10px;
-  padding: 1px 6px;
-  border-radius: 5px;
-  color: var(--fg-dim);
-  background: color-mix(in srgb, var(--text) 7%, transparent);
-}
-.oc-menu-src {
-  background: transparent;
-  border: 1px solid color-mix(in srgb, var(--text) 12%, transparent);
-}
-.oc-menu-path {
-  font-size: 10px;
-  line-height: 1.5;
-  color: var(--fg-dim);
-  /* 长路径（Preboot 那种带 UUID 的）必须能断行，否则撑破卡片 */
-  overflow-wrap: anywhere;
-  word-break: break-all;
-}
-.oc-menu-note {
-  font-size: 11px;
-  line-height: 1.55;
-  color: var(--fg-dim);
-  overflow-wrap: anywhere;
-}
+
+
+
+
+
+
+
+
+
+
+
 /* 「设为默认」= OC 菜单里的 Ctrl+Enter。放在行尾、不参与挤压：
    flex:0 0 auto 让 body 去收缩，别把按钮文字压成竖排（这是上次踩过的坑）。 */
 .oc-menu-set {
@@ -2833,95 +2800,15 @@ button.primary-sol:hover:not(:disabled) {
   font-size: 10.5px;
 }
 
-/* 条目行：图标 + 名称/路径 + 徽章 + 动作按钮 */
-/* 三通道列表框：**与 GRUB / rEFInd 的列表容器同款**（2026-11-01 用户定案
- * 「他们不能共用一个组件吗 都用 grub」）。
- *
- * 之前这里是 `display:flex; gap:8px` 光秃秃一个容器 ——
- *   ① 条目行 `.boot-entry` 与 `.grub-entry` 是两套独立实现（几何已在上面对齐）
- *   ② **没有限高 + overflow:auto**，而 sticky 必须有滚动容器才产生吸附效果
- *      → `.is-pinned` 虽然算出了 position:sticky/top:0，实际根本不「钉住」
- *        （CDP 实测祖先链全是 overflow:visible，就是这个原因）
- *
- * 现在补齐与 `#sim-scan .grub-list` 同款的三件事：
- *   max-height（限高，否则整页滚、置顶项也没意义）
- *   overflow-y:auto（造出滚动上下文，sticky 才生效）
- *   overscroll-behavior:contain（滚到底不把整页带着滚）
- * gap 也统一到 4px（GRUB 的 .grub-list-body 是 4px）。 */
-.boot-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  max-height: min(420px, 60vh);
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
 
-/* 置顶行必须在**它自己的滚动容器**里才 sticky 得住。这里把 .is-pinned 的
- * 三件套（position/top/z-index）提到与 grub 同权重，避免被
- * `#tab-boot .grub-entry.is-pinned`(1,2,0) 之类压掉。 */
-#tab-boot .boot-entry.is-pinned,
-.boot-channel .boot-entry.is-pinned {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  background: color-mix(in srgb, var(--ok-bg) 87%, var(--panel) 13%);
-  border-color: var(--ok-border);
-  box-shadow: inset 2px 0 0 var(--ok);
-}
-/* 2026-11-01 用户定案：三通道（OpenCore / systemd-boot / Clover）的条目行
- * **盒子几何对齐 rEFInd / GRUB**（`.grub-entry`：6px 9px / gap 8px / 6px 圆角）。
- * 原来这里是 10px 12px / gap 12px / 10px 圆角，比另两组明显大一档 ——
- * 同一套「绿底 + 绿边 + 左侧绿条」的选中样式套上去，绿框就比旁边宽一圈、
- * 位置也偏（用户反馈「opencore 绿框位置/大小错」）。
- * 内部仍是 flex（图标 + 元信息 + 动作），只统一外框尺寸。 */
-/* 盒子几何与 .grub-entry 保持一致（gap 8 / padding 6px 9px / radius 6px）；
- * #tab-boot 作用域下另有 9 / 6px 7px / 8px 的同款规则，两处同步维护。 */
-.boot-entry {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: var(--panel-strong);
-  border: 1px solid transparent;
-  border-radius: 6px;
-  padding: 6px 9px;
-}
-.boot-entry:hover { border-color: var(--line-strong); }
-.boot-entry.current {
-  border-color: color-mix(in srgb, var(--ok-color, #34d399) 45%, transparent);
-}
-/* 图标：原来是 .boot-entry-ico（34px emoji 槽），2026-10-30 换设计稿
- * .row-ico 字章（22px MAC/WIN/LNX），元素类名直接用 row-ico，旧块已删 */
-.boot-entry-meta { flex: 1; min-width: 0; }
-.boot-entry-meta b {
-  display: block;
-  font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.boot-entry-meta small {
-  display: block;
-  color: var(--fg-faint);
-  font-size: 11px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 
-/* 徽章：绿=当前默认（该通道自己的默认项），蓝=上次启动（记忆回读） */
-.boot-badge {
-  flex: none;
-  font-size: 10px;
-  padding: 1px 7px;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--ok-color, #34d399) 55%, transparent);
-  color: var(--ok-color, #34d399);
-}
-.boot-badge.last {
-  border-color: var(--channel, var(--line-strong));
-  color: var(--channel, var(--fg-dim));
-}
+
+
+
+
+
+
+
 
 /* 提权按钮：视觉区分，点击弹授权说明 */
 button.needs-elev {
@@ -2973,15 +2860,8 @@ button.needs-elev {
   overflow-wrap: anywhere;
 }
 
-/* 条目行元信息：小字路径省略号已有；名字也兜一层 anywhere（超长 id） */
-.boot-entry-meta { min-width: 0; }
-.boot-entry-meta b { overflow-wrap: anywhere; }
 
-/* 徽章 / 按钮不许被压扁换行文字：保持整体换行（窄档里放开 wrap） */
-.boot-badge,
-.boot-entry button {
-  flex: none;
-}
+
 
 /* 摘要条「上次启动」：.next-boot 是 grid，值可能很长
  *（Boot0001（AnyBoot 上次写入的 BootNext）），可断行不撑破 */
@@ -3003,22 +2883,8 @@ button.needs-elev {
 
 /* ── ≤720px：与现有分栏折叠同档，通道卡进入「单列窄卡」形态 ── */
 @media (max-width: 720px) {
-  /* 条目行：徽章/按钮放不下时整体折到第二行，元信息吃满首行 */
-  .boot-entry {
-    flex-wrap: wrap;
-    row-gap: 8px;
-  }
-  .boot-entry-meta {
-    flex: 1 1 0;
-  }
-  /* 徽章与按钮在第二行右对齐聚拢 */
-  .boot-badge:first-of-type,
-  .boot-entry button {
-    margin-left: auto;
-  }
-  .boot-badge + .boot-badge {
-    margin-left: 0;
-  }
+  /* 条目行布局：全部走引导列表样式（.grub-entry），窄档下由它自己的
+   * grid 处理，不再有独立的窄档换行规则。 */
 
   /* 圆标与 chip 略收紧，给标题让宽度 */
   .boot-channel .zone-tag {
@@ -3033,21 +2899,12 @@ button.needs-elev {
   /* 关键：detail 小字放开 nowrap（原来 ellipsis 的 nowrap 会把整行
    * 无断行宽度计入 min-content，320px 下把整卡撑到 346px）。
    * 窄卡里改为自然折行 + anywhere，桌面宽档仍保持单行省略号。 */
-  .boot-entry-meta small {
-    white-space: normal;
-    overflow-wrap: anywhere;
-  }
-  .boot-entry,
-  .boot-list,
   .boot-channel,
   #boot-channels-mount {
     min-width: 0;
   }
 
   /* 预演行：「设为默认」在窄档折到下一行右侧（宁可多一行，也不把路径挤成一列字） */
-  .oc-menu-row {
-    flex-wrap: wrap;
-  }
   .oc-menu-set {
     margin-left: auto;
   }
@@ -3071,20 +2928,6 @@ button.needs-elev {
     min-width: 0;
     white-space: normal;
     text-align: right;
-  }
-
-  /* 条目行：图标缩小一号，徽章/按钮第二行铺开。
-   * meta 保底 120px：容器放不下时把徽章/按钮挤到第二行，
-   * 文字不被按钮（原来 flex:1 会抢宽）压成一字一行的竖排。 */
-  .boot-entry {
-    gap: 8px;
-    padding: 9px 10px;
-  }
-  .boot-entry-meta {
-    min-width: 120px;
-  }
-  .boot-entry button {
-    flex: 0 0 auto;
   }
 
   /* 折叠条：说明与按钮分两行 */
@@ -4077,37 +3920,22 @@ body[data-boot-style="min"] #tab-boot .ba-set-body { display: none; }
 
 /* 菜单样式三档（预演 .row 与真实页既有条目行通用）：body[data-boot-style] */
 body[data-boot-style="compact"] .row,
-body[data-boot-style="compact"] .boot-entry,
-body[data-boot-style="compact"] .oc-menu-row,
-body[data-boot-style="compact"] .grub-entry { padding-top: 3px; padding-bottom: 3px; }
+body[data-boot-style="compact"] .grub-entry  { padding-top: 3px; padding-bottom: 3px; }
 body[data-boot-style="compact"] .row-main { gap: 0; }
 body[data-boot-style="compact"] .row-main small,
-body[data-boot-style="compact"] .oc-menu-path,
-body[data-boot-style="compact"] .oc-menu-note,
-body[data-boot-style="compact"] .grub-entry small { display: none; }
+body[data-boot-style="compact"] .grub-entry small  { display: none; }
 body[data-boot-style="min"] .row,
-body[data-boot-style="min"] .boot-entry,
-body[data-boot-style="min"] .oc-menu-row,
-body[data-boot-style="min"] .grub-entry { padding-top: 4px; padding-bottom: 4px; }
+body[data-boot-style="min"] .grub-entry  { padding-top: 4px; padding-bottom: 4px; }
 body[data-boot-style="min"] .row-main { gap: 0; }
 body[data-boot-style="min"] .row-main small,
-body[data-boot-style="min"] .oc-menu-path,
-body[data-boot-style="min"] .oc-menu-note,
-body[data-boot-style="min"] .oc-menu-src,
-body[data-boot-style="min"] .oc-menu-kind,
-body[data-boot-style="min"] .grub-entry small { display: none; }
-body[data-boot-style="min"] .row .badge,
-body[data-boot-style="min"] .boot-badge.last { display: none; }
+body[data-boot-style="min"] .grub-entry small  { display: none; }
+body[data-boot-style="min"] .row .badge { display: none; }
 body[data-boot-style="min"] .row-acts { display: none; }
-body[data-boot-style="min"] .boot-entry button,
-body[data-boot-style="min"] .oc-menu-set:not(.is-default) { opacity: 0; pointer-events: none; }
-body[data-boot-style="min"] .boot-entry:hover button,
-body[data-boot-style="min"] .boot-entry:focus-within button,
-body[data-boot-style="min"] .oc-menu-row:hover .oc-menu-set:not(.is-default) { opacity: 1; pointer-events: auto; }
+body[data-boot-style="min"] .oc-menu-set:not(.is-default)  { opacity: 0; pointer-events: none; }
+
 @media (hover: none) {
   body[data-boot-style="min"] .row-acts { display: flex; }
-  body[data-boot-style="min"] .boot-entry button,
-  body[data-boot-style="min"] .oc-menu-set:not(.is-default) { opacity: 1; pointer-events: auto; }
+  body[data-boot-style="min"] .oc-menu-set:not(.is-default)  { opacity: 1; pointer-events: auto; }
 }
 
 /* A 主题索引条点击定位的闪烁（真实页） */
@@ -4144,8 +3972,7 @@ body[data-boot-style="min"] .oc-menu-row:hover .oc-menu-set:not(.is-default) { o
 #tab-boot .ba-g-card > .grub-head,
 #tab-boot .ba-g-card > .channel-note { display: none !important; }
 #tab-boot .ba-g-card .grub-list,
-#tab-boot .ba-g-card .oc-menu,
-#tab-boot .ba-g-card .oc-menu-list {
+#tab-boot .ba-g-card .oc-menu {
   padding: 0;
   border: 0;
   border-radius: 0;
@@ -4153,7 +3980,7 @@ body[data-boot-style="min"] .oc-menu-row:hover .oc-menu-set:not(.is-default) { o
   /* 2026-11-01 用户定案「恢复列表内滚动，换置顶生效」：这里原先把
    * max-height/overflow 一起清零，等于把 G 主题下的滚动容器也拆了 →
    * `.is-pinned` / `.is-def` 的 sticky 全部失效。现在只去装饰（padding/
-   * border/background），**保留滚动容器**（max-height 继承 .oc-menu-list）。 */
+   * border/background），**保留滚动容器**。 */
 }
 #tab-boot .ba-g-card .grub-panel { padding-top: 0; gap: 2px; }
 /* 分组标题：设计稿 .lg-group 的上下留白。
@@ -4170,17 +3997,14 @@ body[data-boot-style="min"] .oc-menu-row:hover .oc-menu-set:not(.is-default) { o
   border-top: 1px solid var(--line);
 }
 /* 条目行 = 设计稿 .lg-item 的盒子（8px 圆角 / 透明描边 / hover 浮起） */
-#tab-boot .ba-g-card .grub-entry,
-#tab-boot .ba-g-card .oc-menu-row {
+#tab-boot .ba-g-card .grub-entry {
   border: 1px solid transparent;
   padding: 7px 9px;
   min-width: 0;
 }
-#tab-boot .ba-g-card .grub-entry:not(.is-group):hover,
-#tab-boot .ba-g-card .oc-menu-row:hover { background: var(--panel-2); border-color: var(--line); }
+#tab-boot .ba-g-card .grub-entry:not(.is-group):hover { background: var(--panel-2); border-color: var(--line); }
 /* 选中（点击 / ↑↓）：设计稿 .is-active 的左侧强调条 */
-#tab-boot .ba-g-card .grub-entry.is-active,
-#tab-boot .ba-g-card .oc-menu-row.is-active {
+#tab-boot .ba-g-card .grub-entry.is-active {
   background: var(--panel-2);
   border-color: var(--line);
   box-shadow: inset 2px 0 0 var(--accent);
@@ -4237,8 +4061,7 @@ body[data-boot-style="min"] .oc-menu-row:hover .oc-menu-set:not(.is-default) { o
   overflow-wrap: anywhere;
 }
 /* 条目名称列：设计稿里是「名称 + mono 路径」两行；有副标题时自然叠起来 */
-#tab-boot .ba-g-card .grub-entry-name,
-#tab-boot .ba-g-card .boot-entry-name {
+#tab-boot .ba-g-card .grub-entry-name {
   display: flex;
   flex-direction: column;
   gap: 1px;
@@ -4257,17 +4080,14 @@ body[data-boot-style="min"] .oc-menu-row:hover .oc-menu-set:not(.is-default) { o
 /* G 的条目行是「1fr auto」grid：1fr 的默认最小宽是 min-content，主标题 +
    路径副标题都 nowrap 时会把整行顶宽（窄窗实测副标题溢出 285px）。
    与 .grub-list-body 同款：把第一列写成 minmax(0,1fr)。 */
-#tab-boot .ba-g-card .grub-entry,
-#tab-boot .ba-g-card .boot-entry,
-#tab-boot .ba-g-card .oc-menu-row { grid-template-columns: minmax(0, 1fr) auto; }
+#tab-boot .ba-g-card .grub-entry { grid-template-columns: minmax(0, 1fr) auto; }
 /* 右侧预览区的动作行（.toolbar 在设置页里是 grid，这里要一行两个按钮） */
 #tab-boot .lg-side .toolbar { display: flex; gap: 6px; }
 #tab-boot .lg-side .toolbar .btn { flex: 1; justify-content: center; }
 #tab-boot .lg-side .hint { font-size: 10.5px; line-height: 1.6; color: var(--fainter); }
 /* 行尾的 ↵ 小键帽（设计稿每行都有）：真实行没有这个节点，用伪元素补，
    不参与点击命中（pointer-events:none），鼠标划过时提亮 */
-#tab-boot .ba-g-card .grub-entry:not(.is-group)::after,
-#tab-boot .ba-g-card .oc-menu-row::after {
+#tab-boot .ba-g-card .grub-entry:not(.is-group)::after {
   content: "↵";
   flex: none;
   margin-left: auto;
@@ -4288,8 +4108,7 @@ body[data-boot-style="min"] .oc-menu-row:hover .oc-menu-set:not(.is-default) { o
   transition: opacity 0.12s;
 }
 #tab-boot .ba-g-card .grub-entry:not(.is-group):hover::after,
-#tab-boot .ba-g-card .grub-entry.is-active::after,
-#tab-boot .ba-g-card .oc-menu-row:hover::after { opacity: 1; }
+#tab-boot .ba-g-card .grub-entry.is-active::after { opacity: 1; }
 .ba-i-realsec { min-width: 0; }
 /* 设计稿靠全局 [hidden]{display:none!important}，App 没有 —— 按组件域补
    （.panel-in 的 display:grid 会压过 hidden 属性的 UA 规则） */
@@ -4356,58 +4175,17 @@ body[data-boot-style="min"] .oc-menu-row:hover .oc-menu-set:not(.is-default) { o
 #tab-boot .grub-entry-tag,
 #tab-boot .grub-entry-count { font-family: var(--mono); font-size: 10px; }
 
-/* 三通道卡条目行（.boot-entry）：同样的扁平行形状 */
-/* 与 #tab-boot .grub-entry 逐项一致（gap 9 / padding 6px 7px / radius 8px）：
- * 两条规则的差值就是用户看到的「绿框比旁边宽一圈」。 */
-#tab-boot .boot-entry {
-  gap: 9px;
-  padding: 6px 7px;
-  border-radius: 8px;
-  background: transparent;
-  border-color: transparent;
-}
-#tab-boot .boot-entry:hover { background: var(--panel-2); border-color: transparent; }
-/* `.current` 是早期遗留类（现在代码里已无人添加），并入统一选中样式，
- * 免得将来有人误用又长出一套不一样的观感。 */
-#tab-boot .boot-entry.current {
-  background: var(--ok-bg);
-  border-color: var(--ok-border);
-  box-shadow: inset 2px 0 0 var(--ok);
-}
-#tab-boot .boot-entry-meta b { font-size: 12.5px; }
-#tab-boot .boot-entry-meta small { font-family: var(--mono); font-size: 10px; }
 
-/* OC 预演菜单行（.oc-menu-row）：同样压成设计稿 .row 形状 —— 扁平行 +
-   行首字章 + 徽章化胶囊 + 小号按钮（大蓝按钮是截图里最后一块没盖到的） */
-#tab-boot .oc-menu-list { gap: 2px; }
-#tab-boot .oc-menu-row {
-  align-items: center;
-  gap: 9px;
-  padding: 6px 7px;
-  border-radius: 8px;
-  background: transparent;
-  border: 0;
-}
-#tab-boot .oc-menu-row:hover { background: var(--panel-2); }
-/* 当前默认行：整行淡绿染（inset 描边，不吃布局宽度） */
-#tab-boot .oc-menu-row.is-def {
-  background: color-mix(in srgb, var(--ok) 7%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ok) 20%, transparent);
-}
-/* 标题 / 胶囊：设计稿 .row-main b 与 .badge 的规格 */
-#tab-boot .oc-menu-head b { font-size: 12.5px; font-weight: 600; }
-#tab-boot .oc-menu-kind,
-#tab-boot .oc-menu-src {
-  background: var(--panel-3);
-  border: 0;
-  color: var(--dim);
-  font-size: 10px;
-  line-height: 17px;
-  height: 17px;
-  padding: 0 5px;
-}
-/* 路径：设计稿行内 mono 小注 */
-#tab-boot .oc-menu-path { font-family: var(--mono); font-size: 10.5px; color: var(--faint); }
+
+
+
+
+
+
+
+
+
+
 /* 「设为默认」：设计稿 .btn.sm（22px 小按钮，panel-2 底 + line-2 边），
    替代全局 button 的大蓝底 */
 #tab-boot .oc-menu-set {
@@ -4451,24 +4229,7 @@ body[data-boot-style="min"] .oc-menu-row:hover .oc-menu-set:not(.is-default) { o
   font-size: 13px;
 }
 #tab-boot .oc-menu-set.is-default { font-size: 12px; }
-
-/* ── 所有引导列表统一用 `.grub-entry` 这套样式（2026-11-01 用户定案）────────
- * 「grub的列表样式改为引导样式 所有的引导器都要用这个样式」
- *
- * 现状盘点（改前）：
- *   rEFInd 模拟扫描  .grub-entry   ✓ 已经是这套
- *   GRUB 启动项      .grub-entry   ✓ 基准
- *   三通道(OC/sdb/clover) .boot-entry  ← 本次改成 .grub-entry
- *   OC 菜单预览      .oc-menu-row  ← 本次改成 .grub-entry
- *
- * `.grub-entry` 的基础结构是 grid `1fr auto`（名称 + 右侧栏），单行高度。
- * 但 OC 菜单预览是**多行**内容（名称 / 类型 / 来源 / 路径 / 备注），
- * 单行 grid 装不下 —— 所以给它的变体补一条：整体切成两行流式布局，
- * 外框（圆角/描边/选中绿染/左侧绿条）与其它列表完全一致，只是内部允许换行。 */
-/* 特异性对齐：`#tab-boot .grub-entry`(1,1,0) / `#tab-boot .oc-menu-row`(1,1,0)
- * 都会压过裸类，所以这里同样带 #tab-boot 前缀。 */
-.grub-entry.is-oc-multi,
-#tab-boot .grub-entry.is-oc-multi {
+#tab-boot .grub-entry.is-oc-multi  {
   display: flex;
   align-items: flex-start;
   gap: 8px;
@@ -4478,58 +4239,17 @@ body[data-boot-style="min"] .oc-menu-row:hover .oc-menu-set:not(.is-default) { o
   border: 1px solid transparent;
   background: transparent;
 }
-.grub-entry.is-oc-multi .oc-menu-body {
-  flex: 1;
-  min-width: 0;
-}
-/* OC 行的多行内容沿用原来的排版（`.oc-menu-head` 一行三块 + 路径 + 备注），
- * 不在这里重写，避免破坏既有观感。 */
 
-/* ── 全局统一的「选中条目」样式（2026-11-01 用户定案）────────────────────
- * 口径：「所有的选中效果都要像 G 命令面板中的样式一样，但是要稍微加点颜色，
- *       像 GRUB 的背景色一样」。
- *
- * G 的盒子 = 8px 圆角 + 透明描边 + 左侧 2px 强调条（inset box-shadow）；
- * GRUB 的颜色 = `--ok-bg` 底 + `--ok-border` 描边（那一抹绿）。
- * 这里把两者叠加成**唯一一种**选中观感，所有主题共用：
- *   - rEFInd 列表（.boot-entry）
- *   - GRUB 列表（.grub-entry）
- *   - 三通道列表（.oc-menu-row）
- *   - G 面板自己的 .is-active 也改用同一套（下方原规则已被这里覆盖）
- *
- * 为什么不用 `.active`：不同来源加的类不一样 —— app.js / grub-list-view.js
- * 加 `active`（"当前默认项"），G 面板加 `is-active`（"用户点选/键盘选中"）。
- * 两者语义不同但**视觉应当一致**，所以两个类都覆盖。
- *
- * 注意 sticky：`.grub-entry.is-pinned` 是"置顶固定"，它的背景必须实底
- * （否则滚动时透出下面的行），所以单独保留、不被这里改。 */
-/* 特异性：`#tab-boot .boot-entry { background: transparent }` 是 (1,1,0)，
- * 裸类选择器 (0,2,0) 压不过 —— 实测选中后背景仍是 transparent、只剩左侧
- * 强调条。这里把 `#tab-boot` 前缀和 `[class]` 一起用上，确保盖得住。 */
-/* `.oc-menu-row.is-def` 是 **OpenCore 菜单预览**里「当前默认行」的标记
- *（boot-list-view.js 的 ocMenuRow 用它），之前**完全没有对应样式** ——
- * 用户截图里 WINDOWS-EFI 那行的高亮其实是别处规则漏过来的，跟旁边行对不齐。
- * 一并纳入统一选中样式。 */
-#tab-boot .grub-entry.is-oc-multi.is-def,
-#tab-boot .oc-menu-row.is-def,
-#tab-boot .boot-entry.active,
+
 #tab-boot .grub-entry.active,
-#tab-boot .oc-menu-row.active,
-#tab-boot .boot-entry.is-active,
 #tab-boot .grub-entry.is-active,
-#tab-boot .oc-menu-row.is-active,
-#tab-boot .lg-item.is-active {
+#tab-boot .lg-item.is-active  {
   background: var(--ok-bg);
   border-color: var(--ok-border);
   box-shadow: inset 2px 0 0 var(--ok);
 }
-/* 悬停时也在绿的基调上浮一点，别跳回灰底（否则鼠标划过会"选中感消失"） */
-#tab-boot .boot-entry.active:hover,
 #tab-boot .grub-entry.active:hover,
-#tab-boot .oc-menu-row.active:hover,
-#tab-boot .boot-entry.is-active:hover,
-#tab-boot .grub-entry.is-active:hover,
-#tab-boot .oc-menu-row.is-active:hover {
+#tab-boot .grub-entry.is-active:hover {
   background: color-mix(in srgb, var(--ok-bg) 78%, var(--ok) 22%);
   border-color: var(--ok-border);
 }
