@@ -2831,7 +2831,41 @@ button.primary-sol:hover:not(:disabled) {
 }
 
 /* 条目行：图标 + 名称/路径 + 徽章 + 动作按钮 */
-.boot-list { display: flex; flex-direction: column; gap: 8px; }
+/* 三通道列表框：**与 GRUB / rEFInd 的列表容器同款**（2026-11-01 用户定案
+ * 「他们不能共用一个组件吗 都用 grub」）。
+ *
+ * 之前这里是 `display:flex; gap:8px` 光秃秃一个容器 ——
+ *   ① 条目行 `.boot-entry` 与 `.grub-entry` 是两套独立实现（几何已在上面对齐）
+ *   ② **没有限高 + overflow:auto**，而 sticky 必须有滚动容器才产生吸附效果
+ *      → `.is-pinned` 虽然算出了 position:sticky/top:0，实际根本不「钉住」
+ *        （CDP 实测祖先链全是 overflow:visible，就是这个原因）
+ *
+ * 现在补齐与 `#sim-scan .grub-list` 同款的三件事：
+ *   max-height（限高，否则整页滚、置顶项也没意义）
+ *   overflow-y:auto（造出滚动上下文，sticky 才生效）
+ *   overscroll-behavior:contain（滚到底不把整页带着滚）
+ * gap 也统一到 4px（GRUB 的 .grub-list-body 是 4px）。 */
+.boot-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: min(420px, 60vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* 置顶行必须在**它自己的滚动容器**里才 sticky 得住。这里把 .is-pinned 的
+ * 三件套（position/top/z-index）提到与 grub 同权重，避免被
+ * `#tab-boot .grub-entry.is-pinned`(1,2,0) 之类压掉。 */
+#tab-boot .boot-entry.is-pinned,
+.boot-channel .boot-entry.is-pinned {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: color-mix(in srgb, var(--ok-bg) 87%, var(--panel) 13%);
+  border-color: var(--ok-border);
+  box-shadow: inset 2px 0 0 var(--ok);
+}
 /* 2026-11-01 用户定案：三通道（OpenCore / systemd-boot / Clover）的条目行
  * **盒子几何对齐 rEFInd / GRUB**（`.grub-entry`：6px 9px / gap 8px / 6px 圆角）。
  * 原来这里是 10px 12px / gap 12px / 10px 圆角，比另两组明显大一档 ——
