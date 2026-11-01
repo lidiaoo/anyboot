@@ -4523,17 +4523,6 @@ body[data-boot-style="min"] .oc-menu-row:hover .oc-menu-set:not(.is-default) { o
   border-color: var(--ok-border);
   box-shadow: inset 2px 0 0 var(--ok);
 }
-/* 置顶副本（.is-pinned-copy）：与选中的样式**完全一样**（同一套绿底/绿边/
- * 绿条）—— 用户「我要的置顶和选中的样式要一样」。它与原位行之间加一条
- * 1px 分隔线，否则上下两行同样的绿分不清谁是置顶谁是原位。 */
-#tab-boot .oc-menu-row.is-pinned-copy {
-  margin-bottom: 8px;
-  border-radius: 8px 8px 0 0;
-  /* transform 跟随滚动时必须实底：半透明绿会透出底下滚过的行，
-   * 文字叠在一起看不清。压成不透明后观感仍是那抹绿。 */
-  background: color-mix(in srgb, var(--ok-bg) 88%, var(--panel) 12%);
-  will-change: transform;
-}
 /* 悬停时也在绿的基调上浮一点，别跳回灰底（否则鼠标划过会"选中感消失"） */
 #tab-boot .boot-entry.active:hover,
 #tab-boot .grub-entry.active:hover,

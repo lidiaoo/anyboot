@@ -197,33 +197,6 @@ function ocMenuRow(entry, index, { busy, onSwitch, channel, orderSource, default
 /// （用户 2026-10-28 明确要求「不要折叠菜单、不要叫预演 OC 菜单、去掉提示，
 /// 就把区域展示到 opencore 下面」）。「设为默认」的写入语义收在按钮 title 里，
 /// 需要时悬停即可看到，不再占正文。
-/// 置顶副本的「滚动固定」：把行钉在它所在滚动容器的顶部。
-///
-/// CSS sticky 只对**最近的可滚动祖先**生效；OC 行铺在 A 主题的 .la-list 或
-/// C 主题的 .lc-body 里，副本的最近可滚动祖先往往不是那个真正在滚的框，
-/// 所以 sticky 不生效（实测多次）。这里用 transform 跟随实现跨容器 fixed：
-/// 容器滚动时，副本相对容器顶部的位移被抵消，视觉上钉住。
-///
-/// 只在**滚过列表自身顶部**之后才钉：列表整体还在视口下方时不提前吸附。
-function pinScrollFollow(list, pin) {
-  if (!list || !pin) return;
-  const scroller = list.closest(".la-list, .lc-body, .k-rbody, #tab-boot");
-  if (!scroller) return;
-  let offset = 0;
-  const apply = () => {
-    const sr = scroller.getBoundingClientRect();
-    const lr = list.getBoundingClientRect();
-    // 列表顶边滚到容器顶以上多少 → 副本要往下补多少
-    const want = Math.max(0, sr.top - lr.top);
-    if (want === offset) return;
-    offset = want;
-    pin.style.transform = want ? `translateY(${want}px)` : "";
-    pin.style.zIndex = want ? "4" : "";
-  };
-  scroller.addEventListener("scroll", apply, { passive: true });
-  apply();
-}
-
 function renderOcMenuPreview(
   preview,
   { busy, onSwitch, channel, onPrebootElevate, onOrderElevate } = {},
@@ -236,30 +209,8 @@ function renderOcMenuPreview(
     const list = document.createElement("div");
     list.className = "oc-menu-list";
 
-    // 置顶（2026-11-01 用户定案，与 GRUB 完全同一行为）：
-    //   ① 选中条目**复制**一份置顶（.is-pinned-copy，样式与选中一致）
-    //   ② 原位保留（**不重排**），原位行带 .is-def 高亮
-    //      —— 「原位留着才找得到上下文」
-    const defaultEntry = (preview.entries || []).find((e) => e.default);
-    if (defaultEntry) {
-      const pinRow = ocMenuRow(defaultEntry, -1, {
-        busy,
-        onSwitch,
-        channel,
-        orderSource: preview.orderSource,
-        defaultSlot: preview.defaultSlot,
-      });
-      // 置顶行样式 = 选中样式（用户：「我要的置顶和选中的样式要一样」）：
-      // .is-def 本身就是统一选中样式（绿底/绿边/绿条），保留即可。
-      pinRow.classList.add("is-pinned");
-      pinRow.classList.add("is-pinned-copy");
-      list.append(pinRow);
-      // 让置顶副本在**外层滚动容器**里固定（CSS sticky 只能对最近的滚动祖先
-      // 生效，而 OC 行铺在 A 的 .la-list / C 的 .lc-body 里滚，跨不了容器）。
-      // 这里用 transform 跟随：副本滚出容器顶部时钉住。
-      pinScrollFollow(list, pinRow);
-    }
-
+    // 2026-11-01 用户定案：OC 预览**不做「复制选中条目到首位」**，
+    // 列表就是 OC 菜单的原顺序；当前默认项靠 .is-def 绿染标示即可。
     preview.entries.forEach((entry, index) => {
       const row = ocMenuRow(entry, index, {
         busy,
