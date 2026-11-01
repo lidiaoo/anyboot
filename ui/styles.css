@@ -3331,7 +3331,10 @@ svg.i.lg { width: 16px; height: 16px; }
 .la-chip.is-on { background: var(--panel-2); border-color: var(--line-2); color: var(--text); }
 .la-chip em { font: 10px var(--mono); color: var(--fainter); font-style: normal; }
 .la-star { color: var(--accent-2); }
-.la-list { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; padding-right: 2px; }
+/* A 卡片流（2026-11-01 用户定案）：去掉列表自己的滚动条，高度完全由条目数
+ * 决定 —— 内部滚动会在窄卡里挤出一条细滚动条，还容易和页面级滚动打架。
+ * 需要滚动交由外层页面（t.boot 自己滚）。 */
+.la-list { flex: 0 0 auto; display: flex; flex-direction: column; gap: 10px; padding-right: 2px; }
 .la-card { flex: none; }
 .la-card .card-head { border-bottom: 1px solid transparent; }
 .la-card .card-head:hover { border-bottom-color: var(--line); }
@@ -3426,7 +3429,9 @@ svg.i.lg { width: 16px; height: 16px; }
   flex: none; display: flex; align-items: center; gap: 7px; padding: 9px 13px;
   border-bottom: 1px solid var(--line); background: var(--bg);
 }
-.lc-body { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 13px; }
+/* C 顶部固定（2026-11-01 用户定案）：正文区去掉内部滚动条，按条目长度自然
+ * 展示；滚动交给外层页面。 */
+.lc-body { flex: 0 0 auto; padding: 12px 13px; }
 .lc-settings { flex: none; border-top: 1px solid var(--line); background: var(--panel-2); }
 .lc-meta { font-size: 11px; color: var(--faint); display: flex; align-items: center; gap: 6px; }
 
@@ -3652,7 +3657,10 @@ svg.i.lg { width: 16px; height: 16px; }
 }
 .k-rhd b { color: var(--dim); font-weight: 600; }
 .k-rhd .grow { flex: 1; min-width: 0; }
-.k-rbody { flex: 1; min-height: 0; display: flex; gap: 9px; padding: 9px; overflow-y: auto; overflow-x: hidden; }
+/* 2026-11-01 用户定案：主题区不再自己滚 —— 卡片流（A）/ 顶部固定（C）里
+ * 引导列表多长就多高，滚动交给外层页面。原来这里是 flex:1 + overflow-y:auto，
+ * 列表被压进一个固定高度的小窗里，条目一多就出一条内滚动条。 */
+.k-rbody { flex: 0 0 auto; display: flex; gap: 9px; padding: 9px; overflow: visible; }
 .k-rbody.h { flex-direction: row; }
 .k-rbody.v { flex-direction: column; }
 .k-rbody.is-empty { align-items: center; justify-content: center; }
@@ -3664,9 +3672,9 @@ svg.i.lg { width: 16px; height: 16px; }
 .k-card-head { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--line); min-width: 0; }
 .k-card-head .nm { flex: 1; min-width: 0; font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .k-entries { flex: 1; min-height: 0; overflow: hidden; padding: 2px 6px 6px; }
-.k-rbody.h .k-entries { overflow-y: auto; }
-.k-theme-fit { flex: 1; min-width: 0; min-height: 0; display: flex; }
-.k-theme-fit > * { flex: 1; min-width: 0; min-height: 0; }
+.k-rbody.h .k-entries { overflow: visible; }
+.k-theme-fit { flex: 0 0 auto; min-width: 0; display: flex; }
+.k-theme-fit > * { flex: 0 0 auto; min-width: 0; }
 .k-empty-hint { display: flex; flex-direction: column; align-items: center; gap: 5px; color: var(--fainter); font-size: 11.5px; text-align: center; padding: 10px; }
 .k-tabs {
   display: flex; gap: 4px; min-width: 0; overflow-x: auto;
@@ -3788,11 +3796,15 @@ body[data-ba-fill] .tab-panel.active { overflow-y: auto; min-height: 0; }
   display: flex;
   flex-direction: column;
 }
-#tab-boot.ba-fill .ba-theme-root > .k-stage { flex: 1 1 auto; min-height: 0; }
+/* 2026-11-01 用户定案：卡片流（A）/ 顶部固定（C）里引导列表**按条目长度自然
+ * 展示**，不再用 flex:1 把它压进固定高度（那正是内滚动条的来源）。
+ * 主题容器仍可撑满窗口剩余的**最小**高度（min-height），但内容多时会长高、
+ * 由外层 #tab-boot 滚 —— 列表本身绝不出内滚动条。 */
+#tab-boot.ba-fill .ba-theme-root > .k-stage { flex: 0 0 auto; }
 #tab-boot.ba-fill .k-stage > .k-region { min-height: 0; }
-#tab-boot.ba-fill .k-region > .k-rbody { min-height: 0; }
-#tab-boot.ba-fill .k-theme-fit { flex: 1 1 auto; min-height: 0; }
-#tab-boot.ba-fill .k-theme-fit > * { flex: 1 1 auto; min-width: 0; min-height: 0; }
+#tab-boot.ba-fill .k-region > .k-rbody { min-height: 0; flex: 0 0 auto; }
+#tab-boot.ba-fill .k-theme-fit { flex: 0 0 auto; min-height: 0; }
+#tab-boot.ba-fill .k-theme-fit > * { flex: 0 0 auto; min-width: 0; }
 /* 主题内的真实区块（.ba-theme-sec / B 的 pane）必须能收缩：grid/flex 项默认
    min-width:auto，长条目名会把容器顶宽（460 宽下横向溢出的第二个来源）。 */
 #tab-boot.ba-fill .ba-theme-sec,

@@ -1837,7 +1837,9 @@
     const firstDef = first && (first.entries.find((e) => e.def) || first.entries[0]);
     const hero = n("div", "li-hero");
     const htop = n("div");
-    htop.append(n("div", "k", "下次启动 · 一次性"));
+    // 2026-11-01 用户定案：bento（I）里的「下次启动 · 一次性」标签去掉 ——
+    // 引导列表与设置页里同一块出现两次，纯占位。标题由主题自己的头部承担。
+    // 数值与来源行保留（信息还在，只是不挂那个标签）。
     htop.append(n("div", "v", (firstDef && firstDef.t) || "—"));
     htop.append(n("div", "s", first ? `${first.name} → ${first.esp || "ESP"}` : "没有启用的引导器"));
     const acts = n("div", "acts");
@@ -2200,6 +2202,9 @@
     }
     if (bootCanonical) for (const node of bootCanonical) t.appendChild(node);
     resetSectionChrome();
+    // 主题态藏掉的分区标签头（「rEFInd 区 / GRUB 区」圆标 + h2）在这里恢复 ——
+    // 不套主题的原生页面里它是唯一的分区标识，不能跟着一起消失。
+    restoreSectionTitles();
   }
 
   // ── 引导器设置项 ⇄ 引导列表 分离（设计稿「设置三级收起」第二级）────────
@@ -2319,10 +2324,29 @@
     const s = sectionFor(l.id);
     if (s) {
       s.classList.add("ba-theme-sec");
+      // 2026-11-01 用户定案：主题态（卡片流/左中右/G/I…）里把**离引导列表最近
+      // 的那个分区标签头**藏掉 —— 主题壳已经有自己的分区标题，section 自带的
+      // `.grub-title-row`（「rEFInd 区 / GRUB 区」圆标 + h2）跟着搬进来就会
+      // 「两个标签包着一个列表」，纯占高度。只在主题态藏，不套主题的原生
+      // 页面仍保留它（那里它是唯一的分区标识）。
+      const titleRow = s.querySelector(":scope > .grub-title-row");
+      if (titleRow) titleRow.style.display = "none";
       splitLoaderSection(s, l.id);
     }
     return s;
   };
+
+  /// 退出主题态时把上面藏掉的分区标签头恢复回来。
+  function restoreSectionTitles() {
+    const t = bootTab();
+    if (!t) return;
+    for (const id of LOADER_IDS) {
+      const s = sectionFor(id);
+      if (!s) continue;
+      const titleRow = s.querySelector(":scope > .grub-title-row");
+      if (titleRow) titleRow.style.display = "";
+    }
+  }
 
   function themeRoot(t) {
     t.classList.add("ba-arranged", "ba-theme");
