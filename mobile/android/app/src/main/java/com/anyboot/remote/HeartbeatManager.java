@@ -46,9 +46,12 @@ final class HeartbeatManager {
      * 「经由跳板机」的电脑：把目标内网地址解析成本地隧道地址
      * （{@code 127.0.0.1:端口}）。在心跳后台线程调用；失败抛异常（判离线）。
      * 由 MainActivity 注入（因为要动 SshSessionManager）。
+     *
+     * <p>传 target 是一个**直连地址**，不是一个档案：一址一跳板机（用户 2026-11-01），
+     * 三个直连各配一台时，每个地址要各建各的隧道。
      */
     interface TunnelResolver {
-        String resolve(ServerProfile profile) throws Exception;
+        String resolve(ServerProfile profile, String target) throws Exception;
     }
 
     interface Listener {
@@ -213,7 +216,7 @@ final class HeartbeatManager {
         TunnelResolver resolver = tunnelResolver;
         ProbeEngine.JumpResolver jump = resolver == null
                 ? null
-                : () -> resolver.resolve(profile);
+                : target -> resolver.resolve(profile, target);
         boolean remoteFirst = profile.routePriorityRemoteFirst();
         if (!remoteFirst) {
             ProbeEngine.Result local = ProbeEngine.probe(profile, jump, ProbeEngine.LOCAL_KINDS);

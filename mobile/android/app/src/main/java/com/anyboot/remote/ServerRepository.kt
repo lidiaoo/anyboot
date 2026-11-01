@@ -43,7 +43,6 @@ internal object ServerRepository {
      */
     fun reload(context: Context) {
         val fresh = ServerStore.load(context)
-        ServerStore.sort(fresh)
         servers.clear()
         servers.addAll(fresh)
         loaded = true
@@ -51,7 +50,7 @@ internal object ServerRepository {
 
     /** 唯一的落盘出口：排序 → 写盘（调用方负责先把改动落到 [servers] 上） */
     fun persist(context: Context, list: List<ServerProfile> = servers) {
-        ServerStore.sort(servers)
+        ServerStore.sort(context, servers)
         ServerStore.save(context, list)
     }
 

@@ -210,11 +210,16 @@ final class BackupStore {
         row(.history, backup: sessions.count + hosts.count, local: JumpStore.shared.history.count, conflicts: [])
 
         // 引用完整性：电脑关联的跳板机不在本备份
+        // 一址一跳板机：每个地址的绑定各算一处（同一台电脑两三个地址挂不同跳板机时，
+        // 少了哪台都要在预检里报出来）
         let jumpIds = Set(jumps.compactMap(\.id))
-        summary.missingJumpRefs = servers.filter {
-            let ref = $0.jumpServerId ?? ""
-            return !ref.isEmpty && !jumpIds.contains(ref)
-        }.count
+        summary.missingJumpRefs = servers.reduce(0) { total, server in
+            var refs: Set<String> = []
+            let legacy = server.jumpServerId ?? ""
+            if !legacy.isEmpty { refs.insert(legacy) }
+            for (_, id) in server.jumps ?? [:] where !id.isEmpty { refs.insert(id) }
+            return total + refs.filter { !jumpIds.contains($0) }.count
+        }
         return summary
     }
 
@@ -301,11 +306,13 @@ final class BackupStore {
                 report.added += 1
             }
         }
-        // 引用完整性：不静默修复
+        // 引用完整性：不静默修复（一址一跳板机：每个地址的绑定各算一处）
         let jumpIds = Set(JumpStore.shared.jumps.map(\.id))
         for profile in store.servers {
-            let ref = profile.jumpServerId
-            if !ref.isEmpty && !jumpIds.contains(ref) {
+            var refs: Set<String> = []
+            if !profile.jumpServerId.isEmpty { refs.insert(profile.jumpServerId) }
+            for (_, id) in profile.jumps where !id.isEmpty { refs.insert(id) }
+            if refs.contains(where: { !jumpIds.contains($0) }) {
                 report.missingRefs.append("「\(profile.displayName)」的跳板机待配置")
             }
         }
@@ -556,6 +563,11 @@ final class BackupStore {
         p.routeOrder = (item.routeOrder ?? []).filter { ServerProfile.isRouteKind($0) }
         p.routeDisabled = (item.routeDisabled ?? []).filter { ServerProfile.isRouteKind($0) }
         p.jumpServerId = item.jumpServerId ?? ""
+        // 一址一跳板机：地址 → 跳板机（与桌面 `jumps` 同键）
+        p.jumps = item.jumps ?? [:]
+        // 排序：自定义序号 + 最近连接时间戳（跨端备份往返不丢顺序）
+        p.sortIndex = item.sortIndex ?? -1
+        p.lastUsedAt = item.lastUsedAt ?? 0
         p.connMode = item.connMode ?? ""
         p.updatedAt = BackupDate.date(item.updatedAt)
         return p
@@ -632,7 +644,9 @@ final class BackupStore {
             probeMode: p.probeMode, routeProbeMode: p.routeProbeMode, probeTimeoutMs: p.probeTimeoutMs,
             routeTimeoutsMs: p.routeTimeoutsMs, blockProbeMode: p.blockProbeMode,
             blockTimeoutsMs: p.blockTimeoutsMs, routeOrder: p.routeOrder, routeDisabled: p.routeDisabled,
-            jumpServerId: p.jumpServerId, connMode: p.connMode,
+            jumpServerId: p.jumpServerId, jumps: p.jumps,
+            sortIndex: p.sortIndex, lastUsedAt: p.lastUsedAt,
+            connMode: p.connMode,
             updatedAt: p.updatedAt.map(BackupDate.string))
     }
 

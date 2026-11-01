@@ -337,13 +337,20 @@ private fun ExportSection() {
         }
         // info / warning 条
         val jumpIds = JumpStore.loadJumps(context).map { it.id }.toSet()
-        val missing = ServerStore.load(context).count {
-            it.jumpServerId.isNotEmpty() && !jumpIds.contains(it.jumpServerId)
+        // 一址一跳板机：每个地址的绑定各算一处（同一台电脑两三个地址挂不同跳板机时，
+        // 少了哪台都要在导出前提醒到）
+        val missing = ServerStore.load(context).sumOf { profile ->
+            val refs = LinkedHashSet<String>()
+            if (profile.jumpServerId.isNotEmpty()) refs.add(profile.jumpServerId)
+            profile.jumpBindings().forEach { binding ->
+                if (binding.size > 1 && binding[1].isNotEmpty()) refs.add(binding[1])
+            }
+            refs.count { !jumpIds.contains(it) }
         }
         if (keysSelected && !passwordValid) {
             InfoBar("含私钥的备份必须设置口令加密", warn = true)
         } else if (missing > 0) {
-            InfoBar("$missing 台电脑关联的跳板机未包含在本次导出", warn = false)
+            InfoBar("$missing 处引用的跳板机未包含在本次导出（按地址各算一处）", warn = false)
         }
         if (keysSelected) {
             Spacer(Modifier.height(8.dp))

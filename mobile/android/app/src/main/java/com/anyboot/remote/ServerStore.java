@@ -24,6 +24,7 @@ final class ServerStore {
     private static final String KEY_CONNECT_ALL = "connect_all";
     private static final String KEY_TRANSPORT = "transport";
     private static final String KEY_MIGRATED = "migrated_multi_server";
+    private static final String KEY_SORT_MODE = "server_sort_mode";
 
     private static final String LEGACY_HOST = "host";
     private static final String LEGACY_TOKEN = "token";
@@ -56,7 +57,7 @@ final class ServerStore {
             }
         }
         migrateLegacy(context, list);
-        sort(list);
+        sort(context, list);
         return list;
     }
 
@@ -129,9 +130,61 @@ final class ServerStore {
         prefs(context).edit().putString(KEY_TRANSPORT, value == null ? "auto" : value).apply();
     }
 
-    /** 按「分组 → 名称」排序（未分组排最后） */
-    static void sort(List<ServerProfile> list) {
-        Collections.sort(list, (left, right) -> left.sortKey().compareToIgnoreCase(right.sortKey()));
+    /** 排序模式："custom"（默认，用户拖出来的顺序）/ "name"（A→Z）/ "recent"（最近连接优先） */
+    static String sortMode(Context context) {
+        String value = value(prefs(context).getString(KEY_SORT_MODE, "")).trim();
+        return value.isEmpty() ? "custom" : value;
+    }
+
+    static void setSortMode(Context context, String value) {
+        String mode = "name".equals(value) || "recent".equals(value) ? value : "custom";
+        prefs(context).edit().putString(KEY_SORT_MODE, mode).apply();
+    }
+
+    /** 按当前模式排序（与 PC 端 cqSortRemotes 同一套语义） */
+    static void sort(Context context, List<ServerProfile> list) {
+        String mode = sortMode(context);
+        if ("recent".equals(mode)) {
+            sortRecent(list);
+        } else if ("name".equals(mode)) {
+            sortName(list);
+        } else {
+            sortCustom(list);
+        }
+    }
+
+    /** 自定义顺序：有 sortIndex 的按序号升序，没排过的按名称接在后面（与 Rust sort_servers_custom 一致） */
+    static void sortCustom(List<ServerProfile> list) {
+        Collections.sort(list, (left, right) -> {
+            long a = left.sortIndex;
+            long b = right.sortIndex;
+            if (a >= 0 || b >= 0) {
+                if (a < 0) return 1;
+                if (b < 0) return -1;
+                if (a != b) return Long.compare(a, b);
+            }
+            return nameThenId(left, right);
+        });
+    }
+
+    /** 显示名 A→Z */
+    static void sortName(List<ServerProfile> list) {
+        Collections.sort(list, (left, right) -> nameThenId(left, right));
+    }
+
+    /** 最近连接优先：刚连过的排前面，没用过/久没用的按名称排后面 */
+    static void sortRecent(List<ServerProfile> list) {
+        Collections.sort(list, (left, right) -> {
+            if (left.lastUsedAt != right.lastUsedAt) {
+                return Long.compare(right.lastUsedAt, left.lastUsedAt);
+            }
+            return nameThenId(left, right);
+        });
+    }
+
+    private static int nameThenId(ServerProfile left, ServerProfile right) {
+        int byName = left.sortKey().compareToIgnoreCase(right.sortKey());
+        return byName != 0 ? byName : left.id.compareToIgnoreCase(right.id);
     }
 
     static ServerProfile find(List<ServerProfile> list, String id) {

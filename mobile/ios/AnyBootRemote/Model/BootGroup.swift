@@ -64,6 +64,9 @@ struct BootInfo {
     var machineOs: String = ""
     var hits: [ProbeEngine.Hit] = []
     var winnerKind: String = ""
+    /// 赢家落在哪个地址（局域网 / 跳板机 = 那个直连地址，远程 = 通道地址）。
+    /// 一址一跳板机：卡片按它回答「用的是这个地址的那台跳板机」
+    var winnerAddr: String = ""
 
     static func offline(_ addr: String, _ error: String) -> BootInfo {
         let note = "电脑离线，无法读取引导项"
@@ -468,6 +471,9 @@ struct BootEndpoint {
     var os: String = ""
     var hits: [ProbeEngine.Hit] = []
     var kind: String = ""
+    /// 赢家落在哪个候选上：局域网 / 跳板机 = 那个直连地址，远程 = 通道地址。
+    /// 一址一跳板机：卡片按它回答「用的是这个地址的那台跳板机」（url 对跳板机赢家是本机端口）
+    var winAddr: String = ""
 
     /// 卡片 / 离线文案里显示用的地址（不带 scheme）
     var displayAddr: String {
@@ -480,33 +486,39 @@ struct BootEndpoint {
 
 enum BootService {
 
-    /// 这台电脑的 HTTP 端点（走跳板机先拉一条本地隧道）
-    static func localEndpoint(_ profile: ServerProfile) async throws -> String {
-        guard let host = ServerProfile.normalizeHost(profile.host), !host.isEmpty else {
+    /// 这台电脑在某个地址上的 HTTP 端点（走跳板机就先拉**那个地址自己的**隧道）。
+    /// 一址一跳板机：默认取首选地址，也可以指定某个直连地址。
+    static func localEndpoint(_ profile: ServerProfile,
+                             address: String? = nil) async throws -> String {
+        let raw = address ?? profile.host
+        guard let host = ServerProfile.normalizeHost(raw), !host.isEmpty else {
             throw RemoteHttpError(message: "这台电脑还没有可用地址")
         }
-        if profile.jumpServerId.trimmingCharacters(in: .whitespaces).isEmpty { return host }
-        return try await SshSessionManager.shared.tunnelAddress(for: profile)
+        let jumpId = profile.jumpServerId(for: host)
+        if jumpId.isEmpty { return host }
+        return try await SshSessionManager.shared.tunnelAddress(for: profile, destination: host, jumpId: jumpId)
     }
 
     /// 选点：**完全按「连接策略」探**（ProbeEngine），全都不通时仍带局域网端点回来（alive=false）
     static func chooseEndpoint(_ profile: ServerProfile) async -> BootEndpoint? {
         let lanToken = profile.token
-        let resolver: ProbeEngine.JumpResolver? = profile.jumpServerId
-            .trimmingCharacters(in: .whitespaces).isEmpty
+        // 一址一跳板机：解析器按「要探的那个地址」查它自己那台跳板机，各建各的隧道
+        let resolver: ProbeEngine.JumpResolver? = profile.jumpBindings.isEmpty
             ? nil
-            : { try await localEndpoint(profile) }
+            : { target in try await localEndpoint(profile, address: target) }
 
         let result = await ProbeEngine.probe(profile, jump: resolver)
         if result.ok && !result.origin.isEmpty {
             let isLocal = result.kind == ServerProfile.routeLan || result.kind == ServerProfile.routeJump
             if isLocal {
                 return BootEndpoint(url: "http://" + result.origin, token: lanToken, alive: true,
-                                    os: result.os, hits: result.hits, kind: result.kind)
+                                    os: result.os, hits: result.hits, kind: result.kind,
+                                    winAddr: result.winOrigin)
             }
             // 令牌取**赢家那条配对**自己的：同机 cloudflare 与 tsnet 是两个令牌
             return BootEndpoint(url: result.origin, token: tokenForPair(profile, result.pairId),
-                                alive: true, os: result.os, hits: result.hits, kind: result.kind)
+                                alive: true, os: result.os, hits: result.hits, kind: result.kind,
+                                winAddr: result.winOrigin)
         }
 
         // 全都不通：带一个「看起来该连」的地址回去，卡片照样显示它的 IP
@@ -587,7 +599,8 @@ enum BootService {
             channels: channelGroups,
             machineOs: choice.os,
             hits: choice.hits,
-            winnerKind: choice.kind)
+            winnerKind: choice.kind,
+            winnerAddr: choice.winAddr)
     }
 
     /// 切换引导项；返回给用户看的 message

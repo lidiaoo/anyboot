@@ -38,7 +38,13 @@ final class ProbeEngine {
     /** 一次探测的结果行（一个候选一条） */
     static final class Hit {
         final String kind;
+        /**
+         * 这条结果属于**哪个候选**：局域网 / 跳板机是那个地址，远程通道是 origin。
+         * 列表按它把结果对回具体的行（跳板机一址一条，所以必须是地址而不是本机端点）。
+         */
         final String origin;
+        /** 实际探测用的地址：直连 = origin；经跳板 = 本机 127.0.0.1:port。连接时用它 */
+        final String target;
         /** 这条结果属于哪条配对（局域网 / 跳板机为空）—— 前端按它回填「哪一行的状态」 */
         final String pairId;
         final boolean ok;
@@ -50,8 +56,14 @@ final class ProbeEngine {
 
         Hit(String kind, String origin, String pairId, boolean ok, long ms, String error,
             String machineId, String machineName, String os) {
+            this(kind, origin, origin, pairId, ok, ms, error, machineId, machineName, os);
+        }
+
+        Hit(String kind, String origin, String target, String pairId, boolean ok, long ms,
+            String error, String machineId, String machineName, String os) {
             this.kind = kind;
             this.origin = origin;
+            this.target = target == null || target.isEmpty() ? origin : target;
             this.pairId = pairId == null ? "" : pairId;
             this.ok = ok;
             this.ms = ms;
@@ -67,6 +79,12 @@ final class ProbeEngine {
         boolean ok;
         String kind = "";
         String origin = "";
+        /**
+         * 赢家落在**哪个候选**上：局域网 / 跳板机 = 那个直连地址，远程 = 通道地址。
+         * {@link #origin} 对跳板机赢家是本机 127.0.0.1:port（连接用），
+         * 但「这台电脑正在用哪台跳板机」要按地址查 —— 所以地址单独留一份。
+         */
+        String winOrigin = "";
         /** 赢家是哪条配对（局域网 / 跳板机为空）—— 调用方按它取那条自己的令牌 */
         String pairId = "";
         long ms;
@@ -84,8 +102,13 @@ final class ProbeEngine {
 
     /** 跳板机端点解析：探测线程里拿不到 Activity，交给调用方注入 */
     interface JumpResolver {
-        /** 返回本机可访问的 host:port；解析不了返回 null */
-        String resolve() throws Exception;
+        /**
+         * 为目标地址准备一条本地转发，返回本机可访问的 host:port；解析不了返回 null。
+         *
+         * @param target 这条跳板机通道要转发到的局域网地址（一个地址一条通道：
+         *               三个直连各配一台跳板机时，按 target 各建各的转发）
+         */
+        String resolve(String target) throws Exception;
     }
 
     /**
@@ -450,17 +473,26 @@ final class ProbeEngine {
         String target = origin;
         if (ServerProfile.ROUTE_JUMP.equals(kind)) {
             if (jump == null) {
-                return new Hit(kind, "", pairId, false, 0, "没配跳板机解析器", "", "", "");
+                return new Hit(kind, origin, pairId, false, 0, "没配跳板机解析器", "", "", "");
             }
             try {
-                target = jump.resolve();
+                // 按**这个地址自己**的跳板机转发（origin 就是目标地址）
+                target = jump.resolve(origin);
             } catch (Exception exception) {
-                return new Hit(kind, "", pairId, false, 0, "跳板机不可用：" + exception.getMessage(), "", "", "");
+                return new Hit(kind, origin, pairId, false, 0, "跳板机不可用：" + exception.getMessage(), "", "", "");
             }
             if (target == null || target.trim().isEmpty()) {
-                return new Hit(kind, "", pairId, false, 0, "跳板机隧道没建起来", "", "", "");
+                return new Hit(kind, origin, pairId, false, 0, "跳板机隧道没建起来", "", "", "");
             }
+            // 结果行仍按目标地址记账（origin 不变），列表里三行直连才能对上三条跳板机行
             remote = false;
+            HealthProbe.Result jumpProbe = HealthProbe.probe(target, false, timeout);
+            if (jumpProbe == null) {
+                return new Hit(kind, origin, pairId, false, 0,
+                        "连不上（超时或对方没起 HTTP 服务）", "", "", "");
+            }
+            return new Hit(kind, origin, target, pairId, true, jumpProbe.ms,
+                    "", jumpProbe.machineId, jumpProbe.machineName, jumpProbe.os);
         }
         HealthProbe.Result probe = HealthProbe.probe(target, remote, timeout);
         if (probe == null) {
@@ -540,7 +572,10 @@ final class ProbeEngine {
         }
         result.ok = true;
         result.kind = winner.kind == null ? "" : winner.kind;
-        result.origin = winner.origin == null ? "" : winner.origin;
+        // 跳板机赢家：行记账用 origin（目标地址），连接用 target（本机转发端点）
+        result.winOrigin = winner.origin == null ? "" : winner.origin;
+        result.origin = winner.target == null || winner.target.isEmpty()
+                ? (winner.origin == null ? "" : winner.origin) : winner.target;
         result.pairId = winner.pairId == null ? "" : winner.pairId;
         result.ms = winner.ms;
         result.machineId = winner.machineId == null ? "" : winner.machineId;

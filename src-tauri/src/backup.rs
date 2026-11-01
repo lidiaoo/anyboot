@@ -275,6 +275,8 @@ fn canonicalize_server(item: &Value) -> Value {
     rename(&mut v, "route_order", "routeOrder");
     rename(&mut v, "route_disabled", "routeDisabled");
     rename(&mut v, "route_probe_hidden", "routeProbeHidden");
+    rename(&mut v, "sort_index", "sortIndex");
+    rename(&mut v, "last_used_at", "lastUsedAt");
     rename(&mut v, "conn_mode", "connMode");
     if let Some(pairs) = v["pairs"].as_array_mut() {
         for pair in pairs {
@@ -315,6 +317,8 @@ fn native_server(item: &Value) -> Value {
     rename(&mut v, "routeOrder", "route_order");
     rename(&mut v, "routeDisabled", "route_disabled");
     rename(&mut v, "routeProbeHidden", "route_probe_hidden");
+    rename(&mut v, "sortIndex", "sort_index");
+    rename(&mut v, "lastUsedAt", "last_used_at");
     rename(&mut v, "connMode", "conn_mode");
     if let Some(pairs) = v["pairs"].as_array_mut() {
         for pair in pairs {
@@ -720,10 +724,27 @@ pub(crate) fn summarize(app: &tauri::AppHandle, envelope: &Value) -> Result<Valu
         .unwrap_or_default();
     let mut missing = 0;
     for server in data["servers"]["items"].as_array().map(|a| a.as_slice()).unwrap_or(&[]) {
-        let reference = server["jumpServerId"].as_str().unwrap_or("");
-        if !reference.is_empty() && !jump_ids_in_backup.iter().any(|x| x == reference) {
-            missing += 1;
+        // 引用分两处：老字段 jumpServerId（首选地址那台），以及按地址的 jumps 映射。
+        // 只查前者会让「第二个地址的跳板机没进备份」静默通过 —— 恢复后那条通道
+        // 会变成「跳板机已删除」，用户得自己重新选。
+        let mut refs: Vec<String> = Vec::new();
+        let legacy = server["jumpServerId"].as_str().unwrap_or("");
+        if !legacy.trim().is_empty() {
+            refs.push(legacy.to_string());
         }
+        if let Some(map) = server["jumps"].as_object() {
+            for value in map.values() {
+                if let Some(id) = value.as_str() {
+                    if !id.trim().is_empty() && !refs.iter().any(|item| item == id) {
+                        refs.push(id.to_string());
+                    }
+                }
+            }
+        }
+        missing += refs
+            .iter()
+            .filter(|id| !jump_ids_in_backup.iter().any(|x| x == *id))
+            .count();
     }
     Ok(json!({
         "rows": rows,

@@ -328,6 +328,16 @@ final class ServerProfile {
      *  走跳板机时 addresses 语义变为「跳板机视角的内网地址」。 */
     String jumpServerId = "";
     /**
+     * **每个地址各自的跳板机**（地址 → JumpServer.id）。
+     *
+     * <p>跳板机是「一台机器在某个网络里的入口」：一台电脑三块网卡（家里 / 公司 / Tailscale）
+     * 时，能到达每个地址的中转往往不是同一台，所以跳板机必须挂在地址上，而不是挂在电脑上。
+     * 空表、或该地址不在表里 = 这个地址直连。形状与 {@link #macs}（地址 → MAC）一致。
+     *
+     * <p>{@link #jumpServerId} 保留为「首选地址那台」：电源广播与老客户端读它。
+     */
+    final Map<String, String> jumps = new LinkedHashMap<>();
+    /**
      * 远程接入配对（多条目）：三个区块（cloudflare / ts / tsnet）各自可以挂多条，
      * 全部保留、全部独立探测。取代原来的四个单值槽 + 单值令牌
      * （{@code docs/remote-pairs.md} §4.1）。
@@ -359,6 +369,15 @@ final class ServerProfile {
 
     /** 云同步 LWW 的依据（毫秒时间戳）；编辑保存时刷新，探测不刷 */
     long updatedAt = 0;
+
+    /**
+     * 用户自定义排序序号（0..n）；{@code -1} = 没排过，按显示名排在已排的后面。
+     * 「自定义」排序模式用；与 PC 端 {@code sort_index} 同名同义（canonical 备份键 sortIndex）。
+     */
+    long sortIndex = -1;
+
+    /** 最近一次连接成功的时间戳（毫秒）；「最近连接」排序模式用。探测 / 心跳不刷。 */
+    long lastUsedAt = 0;
 
     /** 连接优先级五通道 id */
     static final String ROUTE_LAN = "lan";
@@ -574,8 +593,8 @@ final class ServerProfile {
 
     /**
      * 按优先级产出启用且可用的连接候选。
-     * lan / jump 的 origin 留空（消费方用自己的局域网端点与探测）；
-     * jump 需先配好跳板机档案，否则视为不可用。
+     * lan / jump 的 origin：lan 留空（探测时逐地址展开）、jump 带**目标地址**
+     * （一个地址一条，探测时按它建各自的转发）；jump 需先配好跳板机档案，否则视为不可用。
      *
      * <p>配对区块**逐条展开**：同一个区块里三条配对就是三个候选，各自带自己的地址、
      * 令牌与超时（不再「一个通道一个地址」）。
@@ -602,8 +621,10 @@ final class ServerProfile {
                 continue;
             }
             if (ROUTE_JUMP.equals(kind)) {
-                if (hasLan && !text(jumpServerId).isEmpty()) {
-                    out.add(new RouteCandidate(kind, "", "", probeTimeoutFor(kind), ""));
+                // 跳板机挂在地址上：一个能到达的地址就是一条通道（origin = 目标地址，
+                // 探测时交给 JumpResolver.resolve(origin) 建各自的转发）
+                for (String[] binding : jumpBindings()) {
+                    out.add(new RouteCandidate(kind, binding[1], "", probeTimeoutFor(kind), ""));
                 }
                 continue;
             }
@@ -662,6 +683,42 @@ final class ServerProfile {
 
     int addressCount() {
         return addresses.size();
+    }
+
+    /**
+     * 这个地址经由哪台跳板机（空 = 直连）。
+     *
+     * <p>与 PC 端 {@code jump_for_address}、iOS {@code jumpServerId(for:)} 同口径
+     * （用户 2026-11-01 改口径）：老字段 {@link #jumpServerId} 是**档案级默认跳板机** ——
+     * 按地址的表没覆盖的地址一律继承它。一台跳板机配了多个直连 IP 时，
+     * 每个「跳板机 → IP」绑定都要上列表、都参与探测；个别地址要换或摘，写按地址的表。
+     */
+    String jumpForAddress(String address) {
+        String key = text(address);
+        if (key.isEmpty()) return "";
+        String hit = text(jumps.get(key));
+        if (!hit.isEmpty()) return hit;
+        return text(jumpServerId);
+    }
+
+    /**
+     * 生效的「地址 → 跳板机」绑定（按 addresses 顺序，只含配了跳板机的地址）。
+     * 每项 = { 原地址, 地址, 跳板机 id }；电脑列表「一条直连 + 紧跟它自己的跳板机行」读它。
+     */
+    List<String[]> jumpBindings() {
+        final List<String[]> out = new ArrayList<>();
+        for (String raw : addresses) {
+            String address = text(raw);
+            if (address.isEmpty()) continue;
+            String jump = jumpForAddress(address);
+            if (!jump.isEmpty()) out.add(new String[]{address, address, jump});
+        }
+        return out;
+    }
+
+    /** 首选地址那台跳板机（电源广播 / 老接口兜底用） */
+    String primaryJumpServerId() {
+        return addresses.isEmpty() ? text(jumpServerId) : jumpForAddress(addresses.get(0));
     }
 
     /** 是否已经有这个地址（归一化之后比较） */
@@ -846,9 +903,10 @@ final class ServerProfile {
         return new ArrayList<>(route.macs);
     }
 
-    /** 删掉不在地址列表里的 MAC（地址被用户删了，MAC 也留着没意义） */
+    /** 删掉不在地址列表里的 MAC / 跳板机绑定（地址被用户删了，挂着它们只会造出假通道） */
     private void pruneMacs() {
         macs.keySet().removeIf(host -> !addresses.contains(host));
+        jumps.keySet().removeIf(host -> !addresses.contains(host));
     }
 
     /**
@@ -886,6 +944,12 @@ final class ServerProfile {
                         mine.add(mac);
                     }
                 }
+            }
+            // 跳板机也按地址并过来（一址一跳板机）：这个地址对 drop 走哪台，合并后就继续走哪台。
+            // keep 自己已经配了就以 keep 为准（不覆盖用户的选择）
+            String theirJump = other.jumpForAddress(address);
+            if (!theirJump.isEmpty() && text(jumps.get(address)).isEmpty()) {
+                jumps.put(address, theirJump);
             }
         }
         return added;
@@ -1517,6 +1581,10 @@ final class ServerProfile {
         other.routeTimeoutsMs = new LinkedHashMap<>(routeTimeoutsMs == null
                 ? new LinkedHashMap<>() : routeTimeoutsMs);
         other.jumpServerId = jumpServerId;
+        other.jumps.clear();
+        if (!jumps.isEmpty()) {
+            other.jumps.putAll(jumps);
+        }
         // 配对必须深拷贝：编辑弹窗改副本、取消时原档案不受影响（浅拷贝会把条目一起改掉）
         for (RemotePair pair : pairs) {
             if (pair != null) {
@@ -1530,6 +1598,8 @@ final class ServerProfile {
             other.blockTimeoutsMs.putAll(blockTimeoutsMs);
         }
         other.connMode = connMode;
+        other.sortIndex = sortIndex;
+        other.lastUsedAt = lastUsedAt;
         other.routeOrder.addAll(routeOrder);
         other.routeDisabled.addAll(routeDisabled);
         other.routeProbeHidden.addAll(routeProbeHidden);
@@ -1605,6 +1675,15 @@ final class ServerProfile {
         }
         object.put("routeTimeoutsMs", timeouts);
         object.put("jumpServerId", text(jumpServerId));
+        // 按地址的跳板机：{ "192.168.1.20:12300": "jump-home", "10.0.0.8:12300": "jump-office" }
+        JSONObject jumpObject = new JSONObject();
+        for (Map.Entry<String, String> entry : jumps.entrySet()) {
+            String jump = text(entry.getValue());
+            if (!jump.isEmpty() && !text(entry.getKey()).isEmpty()) {
+                jumpObject.put(entry.getKey(), jump);
+            }
+        }
+        object.put("jumps", jumpObject);
         // 配对条目：字段名与 PC 端 `RemotePair` 逐字一致（docs/remote-pairs.md §4.1）
         JSONArray pairArray = new JSONArray();
         for (RemotePair pair : pairs) {
@@ -1649,6 +1728,8 @@ final class ServerProfile {
         }
         object.put("routeProbeHidden", routeProbeHiddenArray);
         object.put("updatedAt", updatedAt);
+        object.put("sortIndex", sortIndex);
+        object.put("lastUsedAt", lastUsedAt);
         return object;
     }
 
@@ -1712,6 +1793,22 @@ final class ServerProfile {
         }
         profile.routeTimeoutsMs = normalizeRouteTimeouts(perChannel);
         profile.jumpServerId = object.optString("jumpServerId", "");
+        profile.jumps.clear();
+        JSONObject jumpObject = object.optJSONObject("jumps");
+        if (jumpObject != null) {
+            java.util.Iterator<String> keys = jumpObject.keys();
+            while (keys.hasNext()) {
+                String rawHost = keys.next();
+                // key 走 normalizeHost（和 macs 同一套口径）：改端口 / 大小写不一致的旧数据才对得上
+                String host = normalizeHost(rawHost);
+                String value = text(jumpObject.optString(rawHost, ""));
+                if (!host.isEmpty() && !value.isEmpty()) {
+                    profile.jumps.put(host, value);
+                }
+            }
+            // 指向已经不在地址列表里的绑定直接丢掉（否则会造出一条连不上的假通道）
+            profile.pruneMacs();
+        }
         // 配对条目：按 (mid,kind) 归一化去重，保留原位与原 id（与 PC 端 normalize_pairs 同语义）
         profile.pairs.clear();
         JSONArray pairArray = object.optJSONArray("pairs");
@@ -1778,6 +1875,8 @@ final class ServerProfile {
         }
         profile.connMode = "remote_first".equals(object.optString("connMode", "")) ? "remote_first" : "";
         profile.updatedAt = object.optLong("updatedAt", 0);
+        profile.sortIndex = object.optLong("sortIndex", -1);
+        profile.lastUsedAt = object.optLong("lastUsedAt", 0);
         // 六通道优先级：清洗非法 id / 去重；全空按 connMode 迁移（routeOrderSorted 的自愈语义）
         JSONArray routeOrderArray = object.optJSONArray("routeOrder");
         if (routeOrderArray != null) {

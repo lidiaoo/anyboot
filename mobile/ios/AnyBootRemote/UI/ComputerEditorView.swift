@@ -21,6 +21,10 @@ struct ComputerEditorTarget: Identifiable {
 struct EditorAddrEntry: Equatable {
     var address: String
     var macs: [String]
+    /// 这个地址**自己**的跳板机（JumpServer.id）；空 = 直连。
+    /// 一址一跳板机（用户 2026-11-01）：跳板机挂在地址上，不挂在档案上 ——
+    /// 三个直连可以各走各的跳板机。
+    var jump: String = ""
 }
 
 /// 电脑编辑表单 —— **一比一复刻 Android `ServerEditForm` / `EditSheet`**。
@@ -51,7 +55,6 @@ struct ComputerEditorView: View {
     @State private var draft: ServerProfile
     @State private var name: String
     @State private var token: String
-    @State private var jumpServerId: String
     @State private var tokenShown = false
 
     // ---- 地址（结构化列表，Android AddrEntry 同构） ----
@@ -110,9 +113,12 @@ struct ComputerEditorView: View {
         _draft = State(initialValue: seeded)
         _name = State(initialValue: base.name)
         _token = State(initialValue: base.token)
-        _jumpServerId = State(initialValue: base.jumpServerId)
         _addressEntries = State(initialValue:
-            base.addresses.map { EditorAddrEntry(address: $0, macs: base.macsForHost($0)) })
+            base.addresses.map { address in
+                // 每个地址带它自己那台跳板机进来（老字段只算首选地址）
+                EditorAddrEntry(address: address, macs: base.macsForHost(address),
+                                jump: base.jumpServerId(for: address))
+            })
         _pastedRaw = State(initialValue: base.addressText)
         _probeTimeoutText = State(initialValue:
             base.probeTimeoutMs > 0 ? Self.secondsText(base.probeTimeoutMs) : "")
@@ -495,6 +501,9 @@ struct ComputerEditorView: View {
                     }
                 }
             }
+            // 这个地址自己的跳板机（一址一台）
+            jumpMenu(index: index, entry: entry)
+                .padding(.top, 2)
         }
         .padding(8)
         .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(ABColor.card))
@@ -726,7 +735,7 @@ struct ComputerEditorView: View {
             !(routeTimeoutTexts[$0] ?? "").trimmingCharacters(in: .whitespaces).isEmpty
         }.count
         if separatelySet > 0 { text += "（\(separatelySet) 个通道单独设）" }
-        if !jumpServerId.trimmedAnyBoot.isEmpty { text += " · 跳板机" }
+        if !jumpBindings.isEmpty { text += " · 跳板机" }
         return text
     }
 
@@ -806,9 +815,16 @@ struct ComputerEditorView: View {
                 .foregroundColor(ABColor.fgFaint)
                 .padding(.top, 4)
 
-            fieldLabel("经由跳板机（外网连家里：先到「☰ → 服务器」添加 SSH 跳板机；"
-                + "填的地址就变成「跳板机视角的内网地址」）")
-            jumpPicker
+            fieldLabel("经由跳板机（**按地址分别选**：外网连家里先到「☰ → 服务器」添加 SSH 跳板机，"
+                + "再回到上面每个地址那行自己挑一台；不选就是直连）")
+            Text(jumps.jumps.isEmpty
+                ? "还没有跳板机档案 —— 先去「☰ → 服务器」加一台 SSH 服务器，回来才能在这里选。"
+                : "三个直连可以各配三台跳板机：每个地址各建各的转发，互不影响。"
+                    + "一台跳板机只是某个网络的入口，别把不同网络的地址指到同一台上。")
+                .font(.system(size: 11))
+                .foregroundColor(ABColor.fgFaint)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.bottom, 4)
 
             fieldLabel("探测方式（连接优先级整体的策略，对上面每一个通道都生效）")
             HStack(spacing: 10) {
@@ -897,43 +913,61 @@ struct ComputerEditorView: View {
         .padding(.vertical, 2)
     }
 
-    /// 经由跳板机：只读触发框 + 下拉（安卓用 disabled TextField + DropdownMenu，语义相同）
-    private var jumpPicker: some View {
+    /// 一个地址自己的跳板机下拉（一址一台，用户 2026-11-01）。
+    /// 三条直连三台跳板机 = 三张卡片各选各的，不再是档案级一个下拉。
+    private func jumpMenu(index: Int, entry: EditorAddrEntry) -> some View {
         Menu {
-            Button("直连（默认）") { jumpServerId = "" }
+            Button("直连（不经跳板机）") { addressEntries[index].jump = "" }
             ForEach(jumps.jumps) { jump in
-                Button(jumpLabel(jump)) { jumpServerId = jump.id }
+                Button(jumpLabel(jump)) { addressEntries[index].jump = jump.id }
             }
         } label: {
             HStack(spacing: 6) {
-                Text(currentJumpLabel)
-                    .font(.system(size: 13))
-                    .foregroundColor(ABColor.fg)
+                Text("跳板机")
+                    .font(.system(size: 10))
+                    .foregroundColor(ABColor.fgFaint)
+                Text(entry.jump.isEmpty ? "直连（不经跳板机）" : jumpName(entry.jump))
+                    .font(.system(size: 11))
+                    .foregroundColor(entry.jump.isEmpty ? ABColor.fgDim : ABColor.fg)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Text("▾")
-                    .font(.system(size: 12))
-                    .foregroundColor(ABColor.fgDim)
+                    .font(.system(size: 10))
+                    .foregroundColor(ABColor.fgFaint)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 9)
-            .background(RoundedRectangle(cornerRadius: ABMetric.radiusControl, style: .continuous)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(ABColor.surfaceRaised))
-            .overlay(RoundedRectangle(cornerRadius: ABMetric.radiusControl, style: .continuous)
-                .strokeBorder(ABColor.lineStrong))
         }
     }
 
-    private var currentJumpLabel: String {
-        guard !jumpServerId.trimmedAnyBoot.isEmpty,
-              let jump = jumps.jumps.first(where: { $0.id == jumpServerId }) else {
-            return "直连（默认）"
-        }
-        return jumpLabel(jump)
+    /// 跳板机名字（找不到 = 已删除）
+    private func jumpName(_ id: String) -> String {
+        guard let jump = jumps.jumps.first(where: { $0.id == id }) else { return "已删除的跳板机" }
+        return jump.displayName.isEmpty ? jump.host : jump.displayName
     }
 
     private func jumpLabel(_ jump: JumpServer) -> String {
         let label = jump.displayName.isEmpty ? jump.host : jump.displayName
         return "经由：\(label)" + (jump.isSsh ? "" : "（仅 Telnet，不能做隧道）")
+    }
+
+    /// 生效的「地址 → 跳板机」绑定（保存时写进档案的 jumps）
+    private var jumpBindings: [String: String] {
+        var out: [String: String] = [:]
+        for entry in addressEntries {
+            guard let address = ServerProfile.normalizeHost(entry.address),
+                  !address.isEmpty, !entry.jump.isEmpty else { continue }
+            out[address] = entry.jump
+        }
+        return out
+    }
+
+    /// 首选地址那台跳板机（写老字段 jumpServerId，电源广播与老客户端读它）
+    private var primaryJumpId: String {
+        addressEntries.first { !$0.address.trimmedAnyBoot.isEmpty }?.jump ?? ""
     }
 
     private func routeTimeoutBinding(_ kind: String) -> Binding<String> {
@@ -996,7 +1030,10 @@ struct ComputerEditorView: View {
         case ServerProfile.routeLan:
             return addressEntries.contains { !$0.address.trimmedAnyBoot.isEmpty }
         case ServerProfile.routeJump:
-            return routeAvailable(ServerProfile.routeLan) && !jumpServerId.trimmedAnyBoot.isEmpty
+            // 一址一跳板机：只要**任一**地址选了跳板机，这条通道就可用
+            return addressEntries.contains {
+                !$0.address.trimmedAnyBoot.isEmpty && !$0.jump.isEmpty
+            }
         default:
             return draft.pairs.contains {
                 $0.enabled && !$0.addr.trimmedAnyBoot.isEmpty && $0.routeKind == kind
@@ -1010,11 +1047,13 @@ struct ComputerEditorView: View {
         case ServerProfile.routeLan:
             return addressEntries.first { !$0.address.trimmedAnyBoot.isEmpty }?.address ?? "未填局域网地址"
         case ServerProfile.routeJump:
-            if !jumpServerId.trimmedAnyBoot.isEmpty,
-               let jump = jumps.jumps.first(where: { $0.id == jumpServerId }) {
-                return "经 " + jumpLabel(jump)
+            let bound = addressEntries.filter {
+                !$0.address.trimmedAnyBoot.isEmpty && !$0.jump.isEmpty
             }
-            return "未选跳板机档案"
+            if bound.isEmpty { return "未选跳板机档案" }
+            if bound.count == 1 { return "经 " + jumpName(bound[0].jump) + " → " + bound[0].address }
+            // 三个直连三台跳板机：副标只报数量，明细在各自的地址卡片里
+            return "\(bound.count) 个地址各走跳板机"
         default:
             let empty: String
             switch kind {
@@ -1062,8 +1101,11 @@ struct ComputerEditorView: View {
                     .padding(.top, 6)
             }
             Button {
-                // 发送模式默认「优先广播包」（= 旧的 HTTP 兜底勾选）
-                draft.powerRoutes.append(PowerRoute(action: PowerRoute.actionWake, target: "", port: 9))
+                // 用户 2026-11-01：发包 / 重试直接写**真实数字 10**（输入框里看得见，不再是空框）
+                draft.powerRoutes.append(
+                    PowerRoute(action: PowerRoute.actionWake, target: "", port: 9)
+                        .withCounts(10, 10)
+                )
             } label: {
                 Text("+ 添加一条路由")
                     .font(.system(size: 13))
@@ -1104,13 +1146,16 @@ struct ComputerEditorView: View {
         for entry in addressEntries where !entry.address.trimmedAnyBoot.isEmpty {
             parsed.hosts.append(entry.address)
             if !entry.macs.isEmpty { parsed.macs[entry.address] = entry.macs }
+            // 跳板机按**地址**写（一址一跳板机，用户 2026-11-01）
+            if !entry.jump.isEmpty { parsed.jumps[entry.address] = entry.jump }
         }
         result.replaceParsed(parsed)
         let trimmedName = name.trimmedAnyBoot
         result.name = trimmedName.isEmpty ? (result.host.isEmpty ? "" : result.host) : trimmedName
         let secret = token.trimmedAnyBoot
         result.token = secret.isEmpty ? ServerProfile.token(fromURL: pastedRaw) : secret
-        result.jumpServerId = jumpServerId
+        // 老字段只代表**首选地址**那台（电源广播与老客户端读它，不继承给别的地址）
+        result.jumpServerId = primaryJumpId
         result.probeMode = ServerProfile.normalizeProbeMode(result.probeMode)
         result.routeProbeMode = ServerProfile.normalizeRouteProbeMode(result.routeProbeMode)
         result.probeTimeoutMs = probeTimeoutMsValue

@@ -41,14 +41,17 @@ extension ServerProfile {
                 continue
             }
             if kind == ServerProfile.routeJump {
-                let jumpId = jumpServerId.trimmedAnyBoot
-                guard !jumpId.isEmpty else { continue }
-                let name = jumpName(jumpId) ?? "（跳板机已删除）"
-                rows.append(ComputerChannel(
-                    id: "jump|\(jumpId)", kind: kind,
-                    title: ServerProfile.routeLabel(kind), detail: name,
-                    pairId: "", origin: "", disabled: channelOff,
-                    copyText: ""))
+                // 一址一跳板机（用户 2026-11-01）：绑了几个地址就有几行，
+                // origin 用那个直连地址（探测结果按它回填这一行）
+                for binding in jumpBindings {
+                    let name = jumpName(binding.jumpId) ?? "（跳板机已删除）"
+                    rows.append(ComputerChannel(
+                        id: "jump|\(binding.address)|\(binding.jumpId)", kind: kind,
+                        title: ServerProfile.routeLabel(kind),
+                        detail: name + " → " + binding.address,
+                        pairId: "", origin: binding.address, disabled: channelOff,
+                        copyText: ""))
+                }
                 continue
             }
             let block = RemotePair.blockOfRoute(kind)

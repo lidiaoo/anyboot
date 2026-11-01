@@ -222,9 +222,12 @@ final class JumpStore: ObservableObject {
         return true
     }
 
-    /// 有几台电脑经由这台跳板机
+    /// 有几台电脑经由这台跳板机（按**电脑**计数：一址一跳板机，
+    /// 一台电脑的两三个地址都挂同一台时只算一台）
     func computersVia(_ id: String) -> Int {
-        ServerStore.shared.servers.filter { $0.jumpServerId == id }.count
+        ServerStore.shared.servers.filter { profile in
+            profile.jumpServerId == id || profile.jumps.values.contains(id)
+        }.count
     }
 
     private func persistJumps() {

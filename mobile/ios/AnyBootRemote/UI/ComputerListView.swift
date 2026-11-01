@@ -215,6 +215,17 @@ struct ComputerListView: View {
             Button("传输方式（\(transportLabel)）") {
                 transportOpen = true
             }
+            // 排序模式（用户 2026-11-01）：自定义 = 卡片上的 ▴▾ 调出来的顺序（默认）；
+            // 切走再切回来原顺序还在（sortIndex 不清）
+            Button(store.sortMode == "custom" ? "✓ 排序：自定义（▴▾ 调整）" : "排序：自定义（▴▾ 调整）") {
+                store.setSortMode("custom")
+            }
+            Button(store.sortMode == "name" ? "✓ 排序：按名称" : "排序：按名称") {
+                store.setSortMode("name")
+            }
+            Button(store.sortMode == "recent" ? "✓ 排序：最近连接" : "排序：最近连接") {
+                store.setSortMode("recent")
+            }
         } label: {
             Text("⋮")
                 .font(.system(size: 19))
@@ -351,9 +362,76 @@ struct ComputerListView: View {
                 .lineSpacing(ABMetric.px(7))
                 .foregroundColor(ABColor.fgDim)
                 .multilineTextAlignment(.center)
+            // 真·空状态（一台电脑都没加）：把列表将来长什么样先画出来
+            if noServers {
+                Spacer().frame(height: ABMetric.px(18))
+                emptyBootPreview
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(.horizontal, ABMetric.px(32))
+        .padding(.horizontal, ABMetric.px(24))
+    }
+
+    /// 空列表预览里的五个引导器 —— 顺序与真实列一致
+    private static let emptyBootNames = ["rEFInd", "GRUB", "systemd-boot", "OpenCore", "Clover"]
+
+    /// 空列表的「幽灵卡」：一台电脑都没加时，先把这块将来长什么样画出来 ——
+    /// 虚位设备（方块 + 两根灰条 + 「未连接」）+ 五个引导器虚线格子（都写「未检测到」）。
+    /// 对齐 PC 端 `cqGhostRowEl` / Android `EmptyBootPreview`（用户 2026-11-01 要求：
+    /// 空状态里要有 rEFInd / GRUB / OpenCore / Clover / systemd-boot）。
+    private var emptyBootPreview: some View {
+        let radius = ABMetric.px(15)
+        let dash = StrokeStyle(lineWidth: 1, dash: [4, 3])
+        let columns = [GridItem(.flexible(), spacing: ABMetric.px(8)),
+                       GridItem(.flexible(), spacing: ABMetric.px(8))]
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: ABMetric.px(9)) {
+                RoundedRectangle(cornerRadius: ABMetric.px(9), style: .continuous)
+                    .fill(ABColor.elevate)
+                    .frame(width: ABMetric.px(30), height: ABMetric.px(30))
+                    .overlay(RoundedRectangle(cornerRadius: ABMetric.px(9), style: .continuous)
+                        .strokeBorder(ABColor.toneDashed, style: dash))
+                VStack(alignment: .leading, spacing: ABMetric.px(5)) {
+                    Capsule()
+                        .fill(ABColor.fg.opacity(0.10))
+                        .frame(width: ABMetric.px(76), height: ABMetric.px(8))
+                    Capsule()
+                        .fill(ABColor.fg.opacity(0.07))
+                        .frame(width: ABMetric.px(46), height: ABMetric.px(6))
+                }
+                Spacer(minLength: 0)
+                Text("未连接")
+                    .font(.system(size: 11))
+                    .foregroundColor(ABColor.fgFaint)
+            }
+            Spacer().frame(height: ABMetric.px(11))
+            // 手机窄：两列一组（LazyVGrid 自动补齐最后一行）
+            LazyVGrid(columns: columns, alignment: .leading, spacing: ABMetric.px(8)) {
+                ForEach(Self.emptyBootNames, id: \.self) { name in
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(name)
+                            .font(.system(size: 12))
+                            .foregroundColor(ABColor.fgDim)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.85)
+                        Text("未检测到")
+                            .font(.system(size: 10))
+                            .foregroundColor(ABColor.fgFaint)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, ABMetric.px(8))
+                    .padding(.vertical, ABMetric.px(6))
+                    .overlay(RoundedRectangle(cornerRadius: ABMetric.px(8), style: .continuous)
+                        .strokeBorder(ABColor.toneDashed, style: dash))
+                }
+            }
+        }
+        .padding(.horizontal, ABMetric.px(12))
+        .padding(.vertical, ABMetric.px(10))
+        .background(RoundedRectangle(cornerRadius: radius, style: .continuous)
+            .fill(ABColor.card.opacity(0.45)))
+        .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous)
+            .strokeBorder(ABColor.toneDashed, style: dash))
     }
 
     // MARK: - 行模型（rowsOf 2114-2239）
@@ -368,6 +446,8 @@ struct ComputerListView: View {
         let state: String
         let ok: Bool
         let enabled: Bool
+        /// 完整失败原因（样式 3：垫在地址行下面换行铺全；空 = 不垫）
+        var reason: String = ""
     }
 
     private struct CqRow: Identifiable {
@@ -384,6 +464,10 @@ struct ComputerListView: View {
         let state: String
         let conn: String
         let connRemote: Bool
+        /// 探测赢家的通道（lan / jump / tunnel / ts / funnel / tsnet）—— 判定「哪一行在用」
+        var winnerKind: String = ""
+        /// 赢家落在哪个地址 —— 一址一跳板机，按它认「这个地址的那台跳板机在用」
+        var winnerAddr: String = ""
     }
 
     private var allRows: [CqRow] { store.servers.map(rowOf) }
@@ -439,7 +523,11 @@ struct ComputerListView: View {
             }
         }()
         let usingRemote = hitPair != nil
-        let jumpId = profile.jumpServerId.trimmingCharacters(in: .whitespaces)
+        // 走的是哪台跳板机：按**赢家那个地址**去查（一址一跳板机，不能用档案级的老字段）。
+        // 不能用 info.addr —— 跳板机赢家那里存的是本机转发端点 127.0.0.1:port，查不出绑定
+        let winnerAddr = ServerProfile.normalizeHost(info?.winnerAddr ?? "") ?? ""
+        let jumpId = info?.winnerKind == ServerProfile.routeJump
+            ? profile.jumpServerId(for: winnerAddr) : ""
 
         // **没在线的不能写「直连」**：只有这一轮确实探通才描述走的哪条通道
         let conn: String
@@ -469,33 +557,8 @@ struct ComputerListView: View {
         let hits = info?.hits ?? []
         var rows: [PairRowView] = []
 
-        // 跳板机通道行：配了且启用才亮出来（用户 2026-10-28：没开启的不上列表页）
-        if !jumpId.isEmpty {
-            let jump = JumpStore.shared.jump(jumpId)
-            let jumpHit = hits.first { $0.kind == ServerProfile.routeJump }
-            let jumpEnabled = !profile.routeDisabled.contains(ServerProfile.routeJump)
-            if jumpEnabled {
-                let jumpInUse = state == Reach.online && info?.winnerKind == ServerProfile.routeJump
-                let display: String
-                if let jump {
-                    let name = jump.name.trimmingCharacters(in: .whitespaces)
-                    display = name.isEmpty ? jump.host : name
-                } else {
-                    display = "已删除的跳板机"
-                }
-                rows.append(PairRowView(
-                    id: "jump",
-                    channel: "跳板机",
-                    addr: display,
-                    url: "",   // 转发端点只在本机会话有效，浏览器开不了
-                    lane: "",
-                    source: "",
-                    state: jumpInUse && jumpHit?.ok == true ? "使用中 \(jumpHit?.ms ?? 0)ms"
-                        : (jumpInUse ? "使用中" : probeStateText(jumpHit)),
-                    ok: jumpHit?.ok == true,
-                    enabled: true))
-            }
-        }
+        // 跳板机行**不在这里**：一址一跳板机，它跟着自己的直连地址行渲染
+        //（见 addressLines / jumpAddrLine）—— 放在这里只会有「一条记录」。
 
         for block in profile.pairBlockOrder() {
             // 已停用的配对不上列表页（用户 2026-10-28：连接策略没开启的就不展示）
@@ -534,7 +597,8 @@ struct ComputerListView: View {
                     source: pair.sourceLabel,
                     state: stateText,
                     ok: hit?.ok == true,
-                    enabled: true))
+                    enabled: true,
+                    reason: probeReason(hit)))
             }
         }
 
@@ -550,7 +614,9 @@ struct ComputerListView: View {
             channels: info?.channels ?? [],
             state: state,
             conn: conn,
-            connRemote: usingRemote)
+            connRemote: usingRemote,
+            winnerKind: info?.winnerKind ?? "",
+            winnerAddr: info?.winnerAddr ?? "")
     }
 
     private func emptyGroup(_ kind: String) -> BootGroup {
@@ -563,11 +629,58 @@ struct ComputerListView: View {
         group.available && !group.next.isEmpty && !group.saved.isEmpty && group.next != group.saved
     }
 
+    /// 一条探测结果的**短**状态文案（样式 3，用户 2026-11-01）：
+    /// 通 = 延迟；被赢家抢跑 / 串行没轮到 = 未测出（不是不通）；不通 = 短词。
+    /// 完整失败原因走 [probeReason]，垫在地址行下面。
     private func probeStateText(_ hit: ProbeEngine.Hit?) -> String {
         guard let hit else { return "未探测" }
         if hit.ok { return "通 \(hit.ms)ms" }
         if hit.error.contains("未测出") || hit.error.contains("未探测") { return "未测出" }
         return "不通"
+    }
+
+    /// 完整失败原因（样式 3：地址行下面的小字，换行铺全）；空 = 不垫
+    private func probeReason(_ hit: ProbeEngine.Hit?) -> String {
+        guard let hit, !hit.ok else { return "" }
+        if hit.error.contains("未测出") || hit.error.contains("未探测") { return "" }
+        return hit.error.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// 简易流式布局（样式 3 上行）：子项从左到右排，放不下的整颗掉到下一行 ——
+    /// MAC 可能多个、太宽时自动换行不省略（用户 2026-11-01）
+    private struct FlowLayout: Layout {
+        var hSpacing: CGFloat = 5
+        var vSpacing: CGFloat = 2
+        func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+            let maxW = proposal.width ?? .infinity
+            var x: CGFloat = 0, y: CGFloat = 0, rowH: CGFloat = 0
+            for view in subviews {
+                let size = view.sizeThatFits(.unspecified)
+                if x > 0, x + size.width > maxW {
+                    x = 0
+                    y += rowH + vSpacing
+                    rowH = 0
+                }
+                x += size.width + hSpacing
+                rowH = max(rowH, size.height)
+            }
+            let width = maxW.isFinite ? maxW : x
+            return CGSize(width: width, height: y + rowH)
+        }
+        func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+            var x = bounds.minX, y = bounds.minY, rowH: CGFloat = 0
+            for view in subviews {
+                let size = view.sizeThatFits(.unspecified)
+                if x > bounds.minX, x + size.width > bounds.maxX {
+                    x = bounds.minX
+                    y += rowH + vSpacing
+                    rowH = 0
+                }
+                view.place(at: CGPoint(x: x, y: y), anchor: .topLeading, proposal: .unspecified)
+                x += size.width + hSpacing
+                rowH = max(rowH, size.height)
+            }
+        }
     }
 
     /// 「同一隧道被多套系统共用」提示（docs/remote-pairs.md §6 S5）
@@ -644,8 +757,31 @@ struct ComputerListView: View {
         .onTapGesture { selectComputer(row.profile.id) }
     }
 
+    /// 自定义排序的行首 ▴▾：竖排两枚小按钮，禁用置灰（第一台的 ▴ / 最后一台的 ▾）
+    private func sortMoveButtons(_ row: CqRow) -> some View {
+        let index = store.servers.firstIndex { $0.id == row.profile.id } ?? 0
+        let total = store.servers.count
+        func moveButton(_ glyph: String, enabled: Bool, action: @escaping () -> Void) -> some View {
+            Text(glyph)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundColor(enabled ? ABColor.fgDim : ABColor.fgFaint.opacity(0.35))
+                .frame(width: ABMetric.px(18), height: ABMetric.px(14))
+                .contentShape(Rectangle())
+                .onTapGesture { if enabled { action() } }
+        }
+        return VStack(spacing: 0) {
+            moveButton("▴", enabled: index > 0) { store.move(row.profile.id, delta: -1) }
+            moveButton("▾", enabled: index < total - 1) { store.move(row.profile.id, delta: 1) }
+        }
+        .padding(.trailing, ABMetric.px(5))
+    }
+
     private func header(_ row: CqRow, selected: Bool) -> some View {
         HStack(spacing: 0) {
+            // 自定义排序：行首一对 ▴▾（手机上拖拽跟滚动打架，按钮最稳）
+            if store.sortMode == "custom" {
+                sortMoveButtons(row)
+            }
             Text(row.name)
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundColor(ABColor.fg)
@@ -701,15 +837,15 @@ struct ComputerListView: View {
     /// 状态 + 全部配置的地址（第一行跟着状态，其余地址逐行补）
     private func addressLines(_ row: CqRow) -> some View {
         // 连接策略停用了「直连」：地址行不上列表页（用户 2026-10-28：没开启的就不展示）
-        let lanDisabled = row.profile.routeDisabled.contains(ServerProfile.routeLan)
-        let count = lanDisabled ? 0 : row.profile.addressCount
+        let lanVisible = !row.profile.routeDisabled.contains(ServerProfile.routeLan)
+        let count = row.profile.addressCount
         return VStack(alignment: .leading, spacing: ABMetric.px(3)) {
             // 状态行独立成行（卡片级：在线 / 离线 / 唤醒中 …）
             HStack(spacing: 0) {
                 statusLine(row.state)
-                if count == 0 {
+                if count == 0 || !lanVisible {
                     dot()
-                    Text(lanDisabled ? "直连已停用" : "(未配地址)")
+                    Text(count == 0 ? "(未配地址)" : "直连已停用")
                         .font(.system(size: 11))
                         .foregroundColor(ABColor.fgFaint)
                 }
@@ -718,71 +854,147 @@ struct ComputerListView: View {
             .padding(.leading, ABMetric.px(4))
 
             if count > 0 {
+                // 一址一跳板机（用户 2026-11-01）：每个直连地址后面紧跟**它自己的**跳板机行。
+                // 三条直连各配一台 = 三行，各带各自的探测结果。
+                // 直连行被停用只是不画直连行，跳板机行照旧 —— 跳板机是独立通道。
                 ForEach(0..<count, id: \.self) { index in
-                    directAddrLine(row, index: index)
+                    if lanVisible { directAddrLine(row, index: index) }
+                    jumpAddrLine(row, index: index)
                 }
             }
         }
         .padding(.top, ABMetric.px(5))
     }
 
-    /// 直连地址行：与远程配对行同款格式（用户 2026-10-28）——
-    /// 耗时在前、类型在中、地址吃剩余宽度、行尾「复制 / 打开」。
+    /// 一个直连地址**自己的**跳板机行（一址一跳板机，用户 2026-11-01）
+    private func jumpAddrLine(_ row: CqRow, index: Int) -> some View {
+        let addr = row.profile.hostAt(index)
+        let host = ServerProfile.normalizeHost(addr) ?? ""
+        let jumpId = row.profile.jumpServerId(for: host)
+        // 没绑跳板机 / 连接策略停用了跳板机 → 这一行不上列表页
+        if jumpId.isEmpty || row.profile.routeDisabled.contains(ServerProfile.routeJump) {
+            return AnyView(EmptyView())
+        }
+        let jump = JumpStore.shared.jump(jumpId)
+        let name: String = {
+            guard let jump else { return "已删除的跳板机" }
+            let value = jump.name.trimmingCharacters(in: .whitespaces)
+            return value.isEmpty ? jump.host : value
+        }()
+        let hit = row.hits.first {
+            $0.kind == ServerProfile.routeJump && (ServerProfile.normalizeHost($0.origin) ?? "") == host
+        }
+        // 「使用中」只认探测赢家，而且要落在**这个地址**上（别的地址在用不算）
+        let inUse = row.state == Reach.online
+            && row.winnerKind == ServerProfile.routeJump
+            && (ServerProfile.normalizeHost(row.winnerAddr) ?? "") == host
+        let stateText: String
+        if inUse && hit?.ok == true {
+            stateText = "使用中 \(hit?.ms ?? 0)ms"
+        } else if inUse {
+            stateText = "使用中"
+        } else {
+            stateText = probeStateText(hit)
+        }
+        return AnyView(VStack(alignment: .leading, spacing: ABMetric.px(2)) {
+            // 样式 3（用户 2026-11-01）：上行「状态 + 跳板机 + 本机端点」流式排，
+            // 放不下的掉到下一行；下行地址独占整行横排全宽；失败原因垫底
+            FlowLayout {
+                Text(stateText)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(inUse || hit?.ok == true ? ABColor.ok
+                                     : (hit == nil ? ABColor.fgFaint : ABColor.bad))
+                Text("跳板机")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(ABColor.fgDim)
+                    .lineLimit(1)
+                // 本机转发端点：只在这台机上有效，浏览器开不了，所以不给「复制 / 打开」
+                if let endpoint = hit?.target, !endpoint.isEmpty, endpoint != host {
+                    Text(endpoint)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundColor(ABColor.fgFaint)
+                }
+            }
+            // 「哪台跳板机 → 转发到哪个地址」：独占整行，横排不折断，超长横向滑动看全
+            ScrollView(.horizontal, showsIndicators: false) {
+                Text("\(name) → \(displayAddrOf(addr))")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(ABColor.fg)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            let reason = probeReason(hit)
+            if !reason.isEmpty {
+                Text(reason)
+                    .font(.system(size: 10))
+                    .foregroundColor(ABColor.bad)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .datumChip())
+    }
+
+    /// 直连地址行（样式 3，用户 2026-11-01）：
+    /// 上行「探测短状态 + 直连 + MAC…」流式排（MAC 多个/太宽自动掉到下一行）；
+    /// 下行地址独占整行横排全宽（超长横向滑动）；失败原因垫底换行铺全。
     private func directAddrLine(_ row: CqRow, index: Int) -> some View {
         let addr = row.profile.hostAt(index)
         let host = ServerProfile.normalizeHost(addr) ?? ""
         let hit = row.hits.first {
             $0.kind == ServerProfile.routeLan && ServerProfile.normalizeHost($0.origin) == host
         }
-        return HStack(spacing: 0) {
-            Text(probeStateText(hit))
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundColor(hit == nil ? ABColor.fgFaint : (hit?.ok == true ? ABColor.ok : ABColor.bad))
-                .lineLimit(1)
-                .frame(width: ABMetric.px(72), alignment: .leading)
-
-            Text("直连")
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundColor(ABColor.fgDim)
-                .lineLimit(1)
-                .layoutPriority(1)
-                .padding(.trailing, ABMetric.px(5))
-
-            Text(displayAddrOf(addr))
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundColor(ABColor.fg)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            ForEach(row.profile.macsForHost(addr), id: \.self) { mac in
-                Text(mac.uppercased())
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundColor(ABColor.fgFaint)
+        return VStack(alignment: .leading, spacing: ABMetric.px(2)) {
+            FlowLayout {
+                Text(probeStateText(hit))
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(hit == nil ? ABColor.fgFaint : (hit?.ok == true ? ABColor.ok : ABColor.bad))
+                Text("直连")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(ABColor.fgDim)
                     .lineLimit(1)
-                    .layoutPriority(1)
-                    .padding(.leading, ABMetric.px(5))
+                if let url = row.profile.url(for: addr, transport: "") {
+                    Button("复制") {
+                        ABClipboard.copyRemoteSlot("直连地址", url.absoluteString)
+                    }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 10))
+                    .foregroundColor(ABColor.fgFaint)
+                    Button("打开") {
+                        UIApplication.shared.open(url)
+                    }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 10))
+                    .foregroundColor(ABColor.fgFaint)
+                }
             }
-
-            if let url = row.profile.url(for: addr, transport: "") {
-                Button("复制") {
-                    ABClipboard.copyRemoteSlot("直连地址", url.absoluteString)
+            // 地址独占整行：横排不折断，超长在这一行内横向滑动看全
+            ScrollView(.horizontal, showsIndicators: false) {
+                Text(displayAddrOf(addr))
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(ABColor.fg)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            // MAC 排在 IP 的下一行（用户 2026-11-01）：多个 MAC 自动换行，全字不省略
+            if !row.profile.macsForHost(addr).isEmpty {
+                FlowLayout(hSpacing: ABMetric.px(4), vSpacing: ABMetric.px(3)) {
+                    ForEach(row.profile.macsForHost(addr), id: \.self) { mac in
+                        Text(mac.uppercased())
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundColor(ABColor.fgFaint)
+                            .lineLimit(1)
+                    }
                 }
-                .buttonStyle(.plain)
-                .font(.system(size: 10))
-                .foregroundColor(ABColor.fgFaint)
-                .layoutPriority(2)
-                .padding(.leading, ABMetric.px(5))
-                Button("打开") {
-                    UIApplication.shared.open(url)
-                }
-                .buttonStyle(.plain)
-                .font(.system(size: 10))
-                .foregroundColor(ABColor.fgFaint)
-                .layoutPriority(2)
-                .padding(.leading, ABMetric.px(5))
+            }
+            let reason = probeReason(hit)
+            if !reason.isEmpty {
+                Text(reason)
+                    .font(.system(size: 10))
+                    .foregroundColor(ABColor.bad)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
+        .datumChip()
         .padding(.leading, ABMetric.px(4))
     }
 
@@ -832,72 +1044,64 @@ struct ComputerListView: View {
         if !row.pairs.isEmpty {
             VStack(alignment: .leading, spacing: ABMetric.px(3)) {
                 ForEach(row.pairs) { pair in
-                    HStack(spacing: 0) {
-                        Text(pair.state)
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundColor(pairStateColor(pair))
-                            .lineLimit(1)
-                            .frame(width: ABMetric.px(72), alignment: .leading)
-
-                        if !pair.channel.isEmpty {
-                            Text(pair.channel)
+                    // 样式 3（用户 2026-11-01）：上行「状态 + 通道 + lane + 来源 + 操作」流式排，
+                    // 放不下的掉到下一行；下行地址独占整行横排全宽
+                    VStack(alignment: .leading, spacing: ABMetric.px(2)) {
+                        FlowLayout {
+                            Text(pair.state)
                                 .font(.system(size: 10, weight: .semibold))
-                                .foregroundColor(ABColor.fgDim)
-                                .lineLimit(1)
-                                // Compose 的 Row 里非 weight 子项先量、weight 子项吃剩余空间；
-                                // SwiftUI 默认按比例压缩，得显式抬高这些尾巴的优先级，
-                                // 让地址那一格吸收截断（Android 就是地址先省略）
-                                .layoutPriority(1)
-                                .padding(.trailing, ABMetric.px(5))
-                        }
-
-                        Text(pair.addr)
-                            .font(.system(size: 11, design: .monospaced))
-                            .foregroundColor(pair.enabled ? ABColor.fg : ABColor.fgFaint)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-
-                        if !pair.lane.isEmpty {
-                            Text(pair.lane)
-                                .font(.system(size: 10))
-                                .foregroundColor(ABColor.fgFaint)
-                                .lineLimit(1)
-                                .layoutPriority(1)
-                                .padding(.leading, ABMetric.px(5))
-                        }
-                        if !pair.source.isEmpty {
-                            Text(pair.source)
-                                .font(.system(size: 10))
-                                .foregroundColor(ABColor.fgFaint)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                                .layoutPriority(1)
-                                .padding(.leading, ABMetric.px(5))
-                        }
-                        if !pair.url.isEmpty && pair.enabled {
-                            Button("复制") {
-                                ABClipboard.copyRemoteSlot(pair.channel + "地址", pair.url)
+                                .foregroundColor(pairStateColor(pair))
+                            if !pair.channel.isEmpty {
+                                Text(pair.channel)
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundColor(ABColor.fgDim)
+                                    .lineLimit(1)
                             }
-                            .buttonStyle(.plain)
-                            .font(.system(size: 10))
-                            .foregroundColor(ABColor.fgFaint)
-                            .layoutPriority(2)
-                            .padding(.leading, ABMetric.px(5))
-                            Button("打开") {
-                                if let url = URL(string: pair.url) {
-                                    UIApplication.shared.open(url)
-                                } else {
-                                    toast("没有能打开网页的应用")
+                            if !pair.lane.isEmpty {
+                                Text(pair.lane)
+                                    .font(.system(size: 10))
+                                    .foregroundColor(ABColor.fgFaint)
+                            }
+                            if !pair.source.isEmpty {
+                                Text(pair.source)
+                                    .font(.system(size: 10))
+                                    .foregroundColor(ABColor.fgFaint)
+                            }
+                            if !pair.url.isEmpty && pair.enabled {
+                                Button("复制") {
+                                    ABClipboard.copyRemoteSlot(pair.channel + "地址", pair.url)
                                 }
+                                .buttonStyle(.plain)
+                                .font(.system(size: 10))
+                                .foregroundColor(ABColor.fgFaint)
+                                Button("打开") {
+                                    if let url = URL(string: pair.url) {
+                                        UIApplication.shared.open(url)
+                                    } else {
+                                        toast("没有能打开网页的应用")
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                                .font(.system(size: 10))
+                                .foregroundColor(ABColor.fgFaint)
                             }
-                            .buttonStyle(.plain)
-                            .font(.system(size: 10))
-                            .foregroundColor(ABColor.fgFaint)
-                            .layoutPriority(2)
-                            .padding(.leading, ABMetric.px(5))
+                        }
+                        // 地址独占整行：横排不折断，超长在这一行内横向滑动看全
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            Text(pair.addr)
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundColor(pair.enabled ? ABColor.fg : ABColor.fgFaint)
+                                .fixedSize(horizontal: true, vertical: false)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        if !pair.reason.isEmpty {
+                            Text(pair.reason)
+                                .font(.system(size: 10))
+                                .foregroundColor(ABColor.bad)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
                     }
+                    .datumChip()
                     .padding(.leading, ABMetric.px(4))
                 }
 
@@ -2269,6 +2473,24 @@ private struct DashedLine: Shape {
         path.move(to: CGPoint(x: rect.minX, y: rect.midY))
         path.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
         return path
+    }
+}
+
+/// 浅白透明框（用户 2026-11-01 二改）：套在**整块通道行**外面（徽章+状态+IP+MAC 一块区域），
+/// 不是每个数据项单独套框。暗色主题下呈浅白半透明，与 PC `.cq-dev-line`、Android `datumChip()` 同口径。
+extension View {
+    func datumChip() -> some View {
+        self
+            .padding(.horizontal, ABMetric.px(9))
+            .padding(.vertical, ABMetric.px(5))
+            .background(
+                Color.white.opacity(0.05),
+                in: RoundedRectangle(cornerRadius: ABMetric.px(9), style: .continuous)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: ABMetric.px(9), style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.13), lineWidth: 1)
+            )
     }
 }
 

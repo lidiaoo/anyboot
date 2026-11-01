@@ -476,7 +476,7 @@ final class BackupManager {
             }
         }
         if (dirty) {
-            ServerStore.sort(local);
+            ServerStore.sort(context, local);
             ServerStore.save(context, local);
         }
         row.put("added", added);

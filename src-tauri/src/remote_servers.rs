@@ -355,6 +355,17 @@ pub struct RemoteServer {
     /// 候选地址（有序，第 0 个是首选）。`host:port` 或整条带 token 的 URL（保存时归一）
     #[serde(default)]
     pub addresses: Vec<String>,
+    /// **每个地址各自的跳板机**（地址 → hub SSH 服务器 id）。
+    ///
+    /// 与 [`Self::jump_id`] 的分工（用户 2026-11-01 改口径）：`jump_id` 是
+    /// **档案级默认跳板机**，对 jumps 没覆盖的地址全部生效；`jumps` 按
+    /// 地址覆盖 —— 想给个别地址换一台或摘掉直连，在这里写 key。
+    /// 空表 = 所有地址都走 `jump_id`（没设就是全部直连）。
+    ///
+    /// key 用与 `addresses` 完全相同的写法（保存前已补默认端口），
+    /// 形状与 [`Self::macs`]（地址 → MAC）一致。
+    #[serde(default)]
+    pub jumps: std::collections::BTreeMap<String, String>,
     /// 访问令牌；空 = 服务端未设 token
     #[serde(default)]
     pub token: String,
@@ -390,7 +401,8 @@ pub struct RemoteServer {
     /// 首次 TLS 握手可能要好几秒 —— 一个全局值必然一边偏松一边偏紧。
     #[serde(default)]
     pub route_timeouts_ms: std::collections::BTreeMap<String, u64>,
-    /// 经由哪台跳板机（hub SSH 服务器 id）；本轮仅存储校验，转发链路后续接入
+    /// 经由哪台跳板机（hub SSH 服务器 id）—— **档案级默认跳板机**：
+    /// jumps 映射没覆盖的地址一律继承它（用户 2026-11-01 改口径）
     #[serde(default)]
     pub jump_id: String,
     /// 每个地址对应的网卡 MAC（局域网电源包要用）：地址 → MAC 列表（小写、冒号分隔）。
@@ -442,6 +454,17 @@ pub struct RemoteServer {
     /// 探测连接）是两回事；单条粒度藏在 `RemotePair.show_probe`，两条任一命中即整行隐藏。
     #[serde(default)]
     pub route_probe_hidden: Vec<String>,
+    /// **自定义排序序号**（用户用 ↑ ↓ 排出来的顺序，越小越靠前）。
+    ///
+    /// `None` = 还没手工排过（老档案、或用户从没拖过）：`custom` 模式下按名称排在
+    /// 已排过的后面。第一次移动会整体冻结成 `0..n-1`（见 [`remote_reorder`]）——
+    /// 这样升级不会打乱任何人的列表，用户一动才接管顺序。
+    #[serde(default)]
+    pub sort_index: Option<i64>,
+    /// 最近一次**连接成功**的时间（毫秒）；0 = 从没连过。「最近连接」排序用它。
+    /// 只由 [`remote_touch`] 写，编辑档案不覆盖（前端弹窗根本不带这个字段）。
+    #[serde(default)]
+    pub last_used_at: u64,
     #[serde(default)]
     pub created_at: u64,
 }
@@ -630,13 +653,64 @@ impl RemoteServer {
         self.probe_timeout()
     }
 
+    /// 首选地址（第一个非空；空 = 没有地址）
+    pub(crate) fn primary_address(&self) -> Option<String> {
+        self.addresses
+            .iter()
+            .map(|raw| raw.trim())
+            .filter(|raw| !raw.is_empty())
+            .map(|raw| raw.to_string())
+            .next()
+    }
+
+    /// 这个地址经由哪台跳板机（空 = 直连）。
+    ///
+    /// 语义（用户 2026-11-01）：老字段 `jump_id` 是**档案级默认跳板机** ——
+    /// `jumps` 映射没覆盖的地址一律继承它。一台跳板机配了多个直连 IP 时，
+    /// 每个「跳板机 → IP」绑定都要上列表、都参与探测，不能只跟首选地址走。
+    /// 想给个别地址换跳板机或摘掉，用 `jumps` 映射按地址覆盖。
+    pub(crate) fn jump_for_address(&self, address: &str) -> String {
+        let (address, _) = split_address(address);
+        if let Some(jump) = self.jumps.get(&address) {
+            if !jump.trim().is_empty() {
+                return jump.trim().to_string();
+            }
+        }
+        self.jump_id.trim().to_string()
+    }
+
+    /// 生效的「地址 → 跳板机」绑定表：按 `addresses` 顺序，只含**配了**跳板机的地址。
+    /// 这就是电脑列表里「一条直连行 + 紧跟它自己的跳板机行」的数据来源。
+    pub(crate) fn jump_bindings(&self) -> Vec<(String, String)> {
+        let mut out: Vec<(String, String)> = Vec::new();
+        for address in self
+            .addresses
+            .iter()
+            .map(|raw| raw.trim())
+            .filter(|raw| !raw.is_empty())
+        {
+            let jump = self.jump_for_address(address);
+            if !jump.is_empty() {
+                out.push((address.to_string(), jump));
+            }
+        }
+        out
+    }
+
+    /// 首选地址那台跳板机（电源广播、以及不改签名的老接口兜底用）
+    pub(crate) fn primary_jump_id(&self) -> String {
+        match self.primary_address() {
+            Some(address) => self.jump_for_address(&address),
+            None => self.jump_id.trim().to_string(),
+        }
+    }
+
     /// 有序连接候选（已滤掉禁用与不可用项）。
     /// - lan：首个非空局域网地址（补默认端口）；
     /// - jump：经跳板机转发到同一局域网地址（没配跳板机 = 不可用，origin 留空由消费方解析端点）；
     /// - 配对区块：按区块顺序 + 区块内顺序展开**每一条** enabled 配对（不再一区块一条）。
     pub(crate) fn route_candidates(&self) -> Vec<RouteCandidate> {
         let mut out: Vec<RouteCandidate> = Vec::new();
-        let has_lan_addr = self.addresses.iter().any(|raw| !raw.trim().is_empty());
         let mut done_blocks: Vec<String> = Vec::new();
         for kind in self.route_order_sorted() {
             if let Some(block) = block_of_route(&kind) {
@@ -685,10 +759,13 @@ impl RemoteServer {
                     }
                 }
                 "jump" => {
-                    if !self.jump_id.trim().is_empty() && has_lan_addr {
+                    // 跳板机挂在地址上：一个能到达的地址就是一条通道。
+                    // origin 带上**目标地址**（不再是空串），消费方据此知道这条
+                    // 通道要转发到哪个直连地址 —— 多直连 = 多条跳板机通道。
+                    for (address, _jump) in self.jump_bindings() {
                         out.push(RouteCandidate {
                             kind: "jump".to_string(),
-                            origin: String::new(),
+                            origin: with_default_port(&address),
                             token: self.token.clone(),
                             timeout_ms: self.probe_timeout_for("jump").as_millis() as u64,
                         });
@@ -705,8 +782,7 @@ impl RemoteServer {
         Duration::from_millis(clamp_probe_timeout_ms(self.probe_timeout_ms))
     }
 
-    /// 某个通道自己的探测超时：单独设过就用它，否则回落默认值。
-    ///
+    /// 某个通道自己的探测超时：单独设过就用它，否则回落默认值。    ///
     /// 「每个通道单独设」是有意义的：局域网 2 秒都算宽，而 Funnel / 内置 tsnet
     /// 走中继时首次 TLS 握手可能好几秒，一个全局值必然一边偏松一边偏紧。
     /// **配对区块**走 `block_timeouts_ms`（见 [`Self::probe_timeout_for_pair`]），
@@ -827,6 +903,17 @@ impl RemoteServer {
             }
         }
         self.macs = macs;
+        // 跳板机映射：key 与地址同样归一，只留还存在的地址；空值 = 直连（删掉这条）
+        let mut jumps: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
+        for (address, jump) in std::mem::take(&mut self.jumps) {
+            let (address, _) = split_address(&address);
+            let jump = jump.trim().to_string();
+            if jump.is_empty() || !self.addresses.contains(&address) {
+                continue;
+            }
+            jumps.insert(address, jump);
+        }
+        self.jumps = jumps;
         // 电源路由：动作认成四个之一、端口 0 补 9、广播地址去掉 scheme/路径、
         // MAC 归一去重；burst/retry 保留 0 = 「按动作默认」的语义
         let mut routes: Vec<PowerRoute> = Vec::new();
@@ -1551,13 +1638,14 @@ fn remote_power_blocking(app: &AppHandle, id: &str, action: &str) -> Result<Stri
         .into_iter()
         .find(|candidate| candidate.id == id)
         .ok_or_else(|| format!("这台电脑不存在（可能已被删除）：{id}"))?;
-    let jump = if server.jump_id.is_empty() {
+    let primary_jump = server.primary_jump_id();
+    let jump = if primary_jump.is_empty() {
         None
     } else {
         Some(
             crate::hub::load_servers_pub(app)?
                 .into_iter()
-                .find(|candidate| candidate.id == server.jump_id)
+                .find(|candidate| candidate.id == primary_jump)
                 .ok_or_else(|| "跳板机不存在（可能已被删除），请到服务器列表检查".to_string())?,
         )
     };
@@ -1786,6 +1874,122 @@ pub fn local_http_endpoint(app: AppHandle) -> Result<serde_json::Value, String> 
     }))
 }
 
+/// 下一个可用的自定义序号：`max(已有序号) + 1`，一台都没排过就按条数接上。
+///
+/// 新建的电脑必须立刻拿到序号 —— 留 `None` 会让它掉进「未排过的按名称」那一堆，
+/// 用户刚加完反而要翻列表去找。
+fn next_sort_index(servers: &[RemoteServer]) -> i64 {
+    servers
+        .iter()
+        .filter_map(|server| server.sort_index)
+        .max()
+        .map(|max| max + 1)
+        .unwrap_or(servers.len() as i64)
+}
+
+/// **自定义顺序**：有 `sort_index` 的按序号升序，没有的按名称接在后面。
+///
+/// 与手机端 `ServerStore` / iOS `ServerStore.sort` 同一套语义：
+/// 序号相同（老档案全 0 / 全 None）时用名称兜底，保证三端结果一致 ——
+/// 同步只搬字段，不搬数组顺序，所以必须有一条确定的兜底规则。
+pub(crate) fn sort_servers_custom(list: &mut [RemoteServer]) {
+    list.sort_by(|a, b| {
+        let (sa, sb) = (a.sort_index, b.sort_index);
+        match (sa, sb) {
+            (Some(x), Some(y)) if x != y => x.cmp(&y),
+            // 排过的永远在没排过的前面（None 视为无穷大）
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            _ => {
+                let (na, nb) = (display_sort_name(a), display_sort_name(b));
+                na.cmp(&nb).then_with(|| a.id.cmp(&b.id))
+            }
+        }
+    });
+}
+
+/// 排序用的名字：显示名（空则用首选地址），统一小写
+fn display_sort_name(server: &RemoteServer) -> String {
+    let name = server.name.trim();
+    let value = if name.is_empty() {
+        server.primary_address().unwrap_or_default()
+    } else {
+        name.to_string()
+    };
+    value.to_lowercase()
+}
+
+/// 按给定 id 顺序重写自定义序号（三端「上移 / 下移」都走它）。
+///
+/// `ids` 是**完整的新顺序**（前端把整列 id 发过来），没列进来的档案保持原有相对次序
+/// 接在后面 —— 这样并发/漏传也不会丢电脑。落盘前顺手按序号重排 `store.servers`，
+/// 让同步 / 备份 / 不认 `sort_index` 的老客户端拿到的数组顺序也是用户顺序。
+#[tauri::command]
+pub fn remote_reorder(app: AppHandle, ids: Vec<String>) -> Result<usize, String> {
+    let mut store = load_store(&app)?;
+    apply_reorder(&mut store, &ids);
+    let count = store.servers.len();
+    save_store(&app, &store)?;
+    Ok(count)
+}
+
+/// [`remote_reorder`] 的纯逻辑部分（抽出来才测得动 —— 命令要 AppHandle）
+pub(crate) fn apply_reorder(store: &mut RemoteStore, ids: &[String]) {
+    let mut seen = std::collections::HashSet::new();
+    let mut next = 0i64;
+    for id in ids {
+        if !seen.insert(id.clone()) {
+            continue;
+        }
+        if let Some(server) = store.servers.iter_mut().find(|s| &s.id == id) {
+            server.sort_index = Some(next);
+            next += 1;
+        }
+    }
+    // 没在 ids 里的：按原序号（没排过按名称）接在后面
+    let mut rest: Vec<usize> = (0..store.servers.len())
+        .filter(|index| !seen.contains(&store.servers[*index].id))
+        .collect();
+    rest.sort_by(|left, right| {
+        let (a, b) = (&store.servers[*left], &store.servers[*right]);
+        match (a.sort_index, b.sort_index) {
+            (Some(x), Some(y)) if x != y => x.cmp(&y),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            _ => display_sort_name(a)
+                .cmp(&display_sort_name(b))
+                .then_with(|| a.id.cmp(&b.id)),
+        }
+    });
+    for index in rest {
+        store.servers[index].sort_index = Some(next);
+        next += 1;
+    }
+    sort_servers_custom(&mut store.servers);
+}
+
+/// 记一次「连接成功」（毫秒）。「最近连接」排序用，三端连上电脑时都会打一下。
+///
+/// 不动其它任何字段 —— 单条写回，避免把并发的编辑覆盖掉。
+#[tauri::command]
+pub fn remote_touch(app: AppHandle, id: String) -> Result<u64, String> {
+    let mut store = load_store(&app)?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    match store.servers.iter_mut().find(|server| server.id == id) {
+        Some(server) => {
+            server.last_used_at = now;
+            save_store(&app, &store)?;
+            Ok(now)
+        }
+        // 本机行（'local'）没有档案，静默成功：调用方不必为它特判
+        None if id == "local" => Ok(now),
+        None => Err("服务端不存在（可能已被删除）".to_string()),
+    }
+}
+
 /// 电脑页初始化数据：全部档案 + 全局开关。token 明文回传（iframe 拼 URL 要用，对齐手机）。
 ///
 /// 返回 `serde_json::Value` 而不是 `RemoteStore`：要给前端补两个**算出来的**字段
@@ -1795,10 +1999,13 @@ pub fn local_http_endpoint(app: AppHandle) -> Result<serde_json::Value, String> 
 #[tauri::command]
 pub fn remote_list(app: AppHandle) -> Result<serde_json::Value, String> {
     let store = load_store(&app)?;
-    let servers: Vec<serde_json::Value> = store
-        .servers
-        .iter()
-        .cloned()
+    // 按**自定义顺序**返回：电脑列表与电脑页标签栏共用这一份顺序，
+    // 前端换「名称 / 最近连接」排序时再自己重排（顺序规则的唯一实现在前端，
+    // 后端不做两套）。老档案没有 sort_index，按名称接在后面。
+    let mut ordered = store.servers.clone();
+    sort_servers_custom(&mut ordered);
+    let servers: Vec<serde_json::Value> = ordered
+        .into_iter()
         // 读路径也归一一次：手改过 JSON / 老档案塞进非法条目时，前端不该看到脏数据
         .map(|server| server_json(server.normalize()))
         .collect();
@@ -1827,13 +2034,24 @@ pub fn remote_save(app: AppHandle, server: RemoteServer) -> Result<serde_json::V
     if server.addresses.is_empty() {
         return Err("至少要填一个服务端地址".to_string());
     }
-    // 跳板机只存引用：必须是已存在的 SSH 服务器（转发链路后续接入，先保证引用有效）
-    if !server.jump_id.is_empty() {
+    // 跳板机只存引用：**每个地址各自**引用的那台必须是已存在的 SSH 服务器。
+    // 三个直连地址各配一台跳板机时，任何一个 id 失效都要在保存时拦下，
+    // 否则那条通道会在探测时静默失败、用户只看到「跳板机连不上」。
+    let jump_ids: Vec<String> = {
+        let mut list: Vec<String> = server.jumps.values().cloned().collect();
+        if !server.jump_id.is_empty() && !list.contains(&server.jump_id) {
+            list.push(server.jump_id.clone());
+        }
+        list
+    };
+    if !jump_ids.is_empty() {
         let hub_servers = crate::hub::load_servers_pub(&app)?;
-        match hub_servers.iter().find(|s| s.id == server.jump_id) {
-            Some(hub) if hub.protocol == "ssh" => {}
-            Some(_) => return Err("经由跳板机只支持 SSH 服务器".to_string()),
-            None => return Err("所选跳板机不存在，请重新选择".to_string()),
+        for jump_id in &jump_ids {
+            match hub_servers.iter().find(|s| s.id == *jump_id) {
+                Some(hub) if hub.protocol == "ssh" => {}
+                Some(_) => return Err("经由跳板机只支持 SSH 服务器".to_string()),
+                None => return Err(format!("所选跳板机不存在（{jump_id}），请重新选择")),
+            }
         }
     }
     let mut store = load_store(&app)?;
@@ -1848,6 +2066,12 @@ pub fn remote_save(app: AppHandle, server: RemoteServer) -> Result<serde_json::V
         // 用户显式删光的场景极少，补回来的也只是「关闭」状态，不改变电源行为
         if server.power_routes.is_empty() {
             server.power_routes = default_power_routes();
+        }
+        // 新建的排到自定义顺序的末尾：max(已有序号) + 1。
+        // 一台都还没排过时按当前条数接上 —— 不能留 None，否则新电脑会掉到
+        // 「未排过的按名称」那一堆里去，用户刚加的机器反而找不到。
+        if server.sort_index.is_none() {
+            server.sort_index = Some(next_sort_index(&store.servers));
         }
         store.servers.push(server.clone());
     } else if let Some(existing) = store.servers.iter_mut().find(|s| s.id == server.id) {
@@ -1876,8 +2100,20 @@ pub fn remote_save(app: AppHandle, server: RemoteServer) -> Result<serde_json::V
         let same_machine_set = existing.addresses == server.addresses;
         let machine = (existing.machine_id.clone(), existing.machine_name.clone());
         let created_at = existing.created_at;
+        // 顺序与「最近连接」不归编辑弹窗管：前端保存时根本不会带这两个字段，
+        // 直接整体替换会把用户的排序和最近使用时间抹掉
+        let keep_sort = existing.sort_index;
+        let keep_used = existing.last_used_at;
         *existing = server.clone();
         existing.created_at = created_at;
+        if existing.sort_index.is_none() {
+            // 只做「保留」：老档案（None）编辑后仍是 None，仍然按名称排在已排过的后面；
+            // 真正接管顺序的是用户点 ↑ ↓（remote_reorder 会整体冻结成 0..n-1）
+            existing.sort_index = keep_sort;
+        }
+        if existing.last_used_at == 0 {
+            existing.last_used_at = keep_used;
+        }
         if same_machine_set {
             existing.machine_id = machine.0;
             existing.machine_name = machine.1;
@@ -2004,7 +2240,7 @@ pub(crate) fn local_system_info(app: &AppHandle) -> crate::sysinfo_lite::SystemI
 }
 
 fn remote_delete_blocking(app: AppHandle, id: String) -> Result<(), String> {    let state = app.state::<RemoteJumpState>();
-    kill_forward(state.inner(), &id);
+    kill_forwards_of(state.inner(), &id);
     let mut store = load_store(&app)?;
     let before = store.servers.len();
     store.servers.retain(|s| s.id != id);
@@ -3032,20 +3268,48 @@ fn remote_forward_arg(local_port: u16, host: &str, port: u16) -> String {
     format!("127.0.0.1:{local_port}:{host}:{port}")
 }
 
-fn kill_forward(state: &RemoteJumpState, id: &str) {
+/// 转发表的键：一台电脑可以有多条「地址 × 他自己的跳板机」转发，
+/// 只按 server id 记账会让后一条把前一条顶掉（多直连时就只剩一条能走）。
+fn forward_key(server_id: &str, address: &str) -> String {
+    format!("{server_id}\u{0}{address}")
+}
+
+fn kill_forward(state: &RemoteJumpState, key: &str) {
     if let Ok(mut map) = state.forwards.lock() {
-        if let Some(mut f) = map.remove(id) {
+        if let Some(mut f) = map.remove(key) {
             let _ = f.child.kill();
             let _ = f.child.wait();
         }
     }
 }
 
-/// 端点解析（命令体）：直连返回首个地址；经跳板确保本地转发活着并返回 127.0.0.1:port。
+/// 这台电脑的全部转发（删除电脑 / 改了地址时调用）
+fn kill_forwards_of(state: &RemoteJumpState, server_id: &str) {
+    let prefix = format!("{server_id}\u{0}");
+    if let Ok(mut map) = state.forwards.lock() {
+        let keys: Vec<String> = map
+            .keys()
+            .filter(|key| key.starts_with(&prefix))
+            .cloned()
+            .collect();
+        for key in keys {
+            if let Some(mut f) = map.remove(&key) {
+                let _ = f.child.kill();
+                let _ = f.child.wait();
+            }
+        }
+    }
+}
+
+/// 端点解析（命令体）：`address` 为空 = 首选地址。
+///
+/// 直连返回该地址；经跳板则确保「这个地址自己那条」本地转发活着并返回 127.0.0.1:port。
+/// 转发目标恒为该地址本身 —— 三个直连地址各配一台跳板机时，各建各的转发。
 fn remote_endpoint_inner(
     app: &AppHandle,
     state: &RemoteJumpState,
     server_id: &str,
+    address: Option<&str>,
 ) -> Result<RemoteEndpoint, String> {
     let store = load_store(app)?;
     let server = store
@@ -3054,22 +3318,24 @@ fn remote_endpoint_inner(
         .find(|s| s.id == server_id)
         .ok_or_else(|| format!("服务端不存在（{server_id}）"))?
         .clone();
-    let raw = server
-        .addresses
-        .iter()
-        .map(|s| s.trim())
-        .find(|s| !s.is_empty())
-        .ok_or_else(|| "该服务端没有可连的地址".to_string())?
-        .to_string();
+    // 目标地址：调用方指定（电脑列表按行解析），否则首选地址
+    let raw = match address.map(|value| value.trim()).filter(|value| !value.is_empty()) {
+        Some(value) => value.to_string(),
+        None => server
+            .primary_address()
+            .ok_or_else(|| "该服务端没有可连的地址".to_string())?,
+    };
     let (host, port) = remote_target(&raw);
-    if server.jump_id.is_empty() {
+    let jump_id = server.jump_for_address(&raw);
+    if jump_id.is_empty() {
         return Ok(RemoteEndpoint { host, port, via_jump: false });
     }
+    let key = forward_key(server_id, &raw);
 
     // 已有活转发且目标一致 → 直接复用（地址改了就走重建）
     let target = remote_forward_arg(0, &host, port);
     if let Ok(mut map) = state.forwards.lock() {
-        if let Some(f) = map.get_mut(server_id) {
+        if let Some(f) = map.get_mut(&key) {
             if f.target == target && f.child.try_wait().ok().flatten().is_none() {
                 return Ok(RemoteEndpoint {
                     host: "127.0.0.1".into(),
@@ -3079,11 +3345,11 @@ fn remote_endpoint_inner(
             }
         }
     }
-    kill_forward(state, server_id);
+    kill_forward(state, &key);
 
     let jump = crate::hub::load_servers_pub(app)?
         .into_iter()
-        .find(|s| s.id == server.jump_id)
+        .find(|s| s.id == jump_id)
         .ok_or_else(|| "跳板机已被删除，请重新选择".to_string())?;
     if jump.protocol != "ssh" {
         return Err("跳板机必须是 SSH 服务器".to_string());
@@ -3140,21 +3406,23 @@ fn remote_endpoint_inner(
         return Err(format!("跳板转发未能建立（ssh 提前退出：{detail}）"));
     }
     if let Ok(mut map) = state.forwards.lock() {
-        map.insert(
-            server_id.to_string(),
-            JumpForward { child, local_port, target },
-        );
+        map.insert(key, JumpForward { child, local_port, target });
     }
     Ok(RemoteEndpoint { host: "127.0.0.1".into(), port: local_port, via_jump: true })
 }
 
 /// 电脑页 iframe / 健康检查要连的端点。
+/// `address` 省略 = 首选地址；给了就按那个地址（并走它自己的跳板机）。
 /// **必须 async + spawn_blocking**：没现成转发时要起 ssh 子进程并等它就绪。
 #[tauri::command]
-pub async fn remote_endpoint(app: AppHandle, server_id: String) -> Result<RemoteEndpoint, String> {
+pub async fn remote_endpoint(
+    app: AppHandle,
+    server_id: String,
+    address: Option<String>,
+) -> Result<RemoteEndpoint, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<RemoteJumpState>();
-        remote_endpoint_inner(&app, state.inner(), &server_id)
+        remote_endpoint_inner(&app, state.inner(), &server_id, address.as_deref())
     })
     .await
     .map_err(|error| format!("获取端点任务失败: {error}"))?
@@ -3162,10 +3430,14 @@ pub async fn remote_endpoint(app: AppHandle, server_id: String) -> Result<Remote
 
 /// 经跳板机探测：先确保本地转发，再对 127.0.0.1:port 做 /health 探测。
 #[tauri::command]
-pub async fn remote_test_via(app: AppHandle, server_id: String) -> RemoteTestResult {
+pub async fn remote_test_via(
+    app: AppHandle,
+    server_id: String,
+    address: Option<String>,
+) -> RemoteTestResult {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<RemoteJumpState>();
-        remote_test_via_blocking(&app, state.inner(), &server_id)
+        remote_test_via_blocking(&app, state.inner(), &server_id, address.as_deref())
     })
     .await
     .unwrap_or_else(|error| RemoteTestResult {
@@ -3178,8 +3450,9 @@ fn remote_test_via_blocking(
     app: &AppHandle,
     state: &RemoteJumpState,
     server_id: &str,
+    address: Option<&str>,
 ) -> RemoteTestResult {
-    let endpoint = match remote_endpoint_inner(app, state, server_id) {
+    let endpoint = match remote_endpoint_inner(app, state, server_id, address) {
         Ok(ep) => ep,
         Err(error) => {
             return RemoteTestResult {
@@ -3290,19 +3563,16 @@ fn grub_class(name: &str, class: &str, chainloader: bool) -> String {
     "linux".to_string()
 }
 
-/// 这台电脑的 HTTP 端点（直连取首个非空地址；经跳板机复用本地转发）。
+/// 这台电脑的 HTTP 端点（首选地址；它配了跳板机就走跳板转发）。
 fn server_endpoint(app: &AppHandle, server: &RemoteServer) -> Result<String, String> {
-    if server.jump_id.trim().is_empty() {
-        let address = server
-            .addresses
-            .iter()
-            .map(|raw| raw.trim())
-            .find(|raw| !raw.is_empty())
-            .ok_or_else(|| "这台电脑还没有可用地址".to_string())?;
-        return Ok(with_default_port(address));
+    let address = server
+        .primary_address()
+        .ok_or_else(|| "这台电脑还没有可用地址".to_string())?;
+    if server.jump_for_address(&address).is_empty() {
+        return Ok(with_default_port(&address));
     }
     let state = app.state::<RemoteJumpState>();
-    let endpoint = remote_endpoint_inner(app, state.inner(), &server.id)?;
+    let endpoint = remote_endpoint_inner(app, state.inner(), &server.id, Some(&address))?;
     Ok(format!("{}:{}", endpoint.host, endpoint.port))
 }
 
@@ -3327,7 +3597,13 @@ fn remote_http_json(
             "lan" => lan_json_get(&cand.origin, server.token.trim(), path),
             "jump" => {
                 let state = app.state::<RemoteJumpState>();
-                match remote_endpoint_inner(app, state.inner(), &server.id) {
+                // 候选的 origin 就是这个地址（一条直连一条跳板通道）
+                match remote_endpoint_inner(
+                    app,
+                    state.inner(),
+                    &server.id,
+                    Some(cand.origin.as_str()),
+                ) {
                     Ok(endpoint) => lan_json_get(
                         &format!("{}:{}", endpoint.host, endpoint.port),
                         server.token.trim(),
@@ -4337,7 +4613,12 @@ fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Result<RemoteB
                 "lan" => probe_health(&cand.origin, per_kind),
                 "jump" => {
                     let state = app.state::<RemoteJumpState>();
-                    match remote_endpoint_inner(app, state.inner(), server_id) {
+                    match remote_endpoint_inner(
+                        app,
+                        state.inner(),
+                        server_id,
+                        Some(cand.origin.as_str()),
+                    ) {
                         Ok(endpoint) => probe_health(
                             &format!("{}:{}", endpoint.host, endpoint.port),
                             per_kind,
@@ -5055,17 +5336,73 @@ mod tests {
             probe_mode: String::new(),
             route_probe_mode: "parallel_first".into(),
             jump_id: String::new(),
+            jumps: Default::default(),
             macs: Default::default(),
             power_routes: vec![],
             conn_mode: String::new(),
             route_order: Vec::new(),
             route_disabled: Vec::new(),
             route_probe_hidden: Vec::new(),
+            sort_index: None,
+            last_used_at: 0,
             created_at: 0,
             pairs: Vec::new(),
             block_probe_mode: Default::default(),
             block_timeouts_ms: Default::default(),
         }
+    }
+
+    /// 排序测试用：id / 名称 / 自定义序号可指定（其余字段取最小档案）
+    fn ordered_server(id: &str, name: &str, sort_index: Option<i64>) -> RemoteServer {
+        let mut server = minimal_server();
+        server.id = id.to_string();
+        server.name = name.to_string();
+        server.sort_index = sort_index;
+        server
+    }
+
+    #[test]
+    fn custom_order_prefers_sort_index_then_name() {
+        // 用户 2026-11-01：按 ↑↓ 排过的在前；没排过的（老档案）按名称殿后 ——
+        // 这样升级不打乱任何人的列表，用户一动才接管顺序
+        let mut list = vec![
+            ordered_server("a", "alpha", None),
+            ordered_server("b", "beta", Some(5)),
+            ordered_server("c", "gamma", Some(1)),
+        ];
+        sort_servers_custom(&mut list);
+        let ids: Vec<&str> = list.iter().map(|server| server.id.as_str()).collect();
+        assert_eq!(ids, vec!["c", "b", "a"]);
+    }
+
+    #[test]
+    fn reorder_writes_sequence_and_keeps_absent_at_end() {
+        let mut store = RemoteStore {
+            connect_all: false,
+            servers: vec![
+                ordered_server("a", "alpha", None),
+                ordered_server("b", "beta", None),
+                ordered_server("c", "gamma", None),
+            ],
+        };
+        // 前端点一次「上移」发的是整列顺序；这里故意漏掉 b，验证不会把它弄丢
+        apply_reorder(&mut store, &["c".to_string(), "a".to_string()]);
+        let ids: Vec<&str> = store.servers.iter().map(|server| server.id.as_str()).collect();
+        assert_eq!(ids, vec!["c", "a", "b"], "没列进来的按原顺序接在后面");
+        let indexes: Vec<Option<i64>> = store.servers.iter().map(|server| server.sort_index).collect();
+        assert_eq!(indexes, vec![Some(0), Some(1), Some(2)], "整体冻结成 0..n");
+    }
+
+    #[test]
+    fn next_sort_index_follows_max_and_counts_when_unset() {
+        let list = vec![
+            ordered_server("a", "a", None),
+            ordered_server("b", "b", Some(7)),
+        ];
+        assert_eq!(next_sort_index(&list), 8, "接在最大序号后面");
+        let empty: Vec<RemoteServer> = Vec::new();
+        assert_eq!(next_sort_index(&empty), 0);
+        assert_eq!(next_sort_index(&[ordered_server("c", "c", None)]), 1, "都没排过时按条数接");
     }
 
     #[test]
@@ -5301,12 +5638,15 @@ mod tests {
             probe_mode: "serial".into(),
             route_probe_mode: "parallel_first".into(),
             jump_id: String::new(),
+            jumps: Default::default(),
             macs: Default::default(),
             power_routes: vec![],
             conn_mode: String::new(),
             route_order: Vec::new(),
             route_disabled: Vec::new(),
             route_probe_hidden: Vec::new(),
+            sort_index: None,
+            last_used_at: 0,
             created_at: 0,
             pairs: Vec::new(),
             block_probe_mode: Default::default(),
@@ -5340,12 +5680,15 @@ mod tests {
                 probe_mode: "parallel".into(),
                 route_probe_mode: "parallel_first".into(),
                 jump_id: String::new(),
+                jumps: Default::default(),
                 macs: Default::default(),
                 power_routes: vec![],
                 conn_mode: String::new(),
             route_order: Vec::new(),
             route_disabled: Vec::new(),
             route_probe_hidden: Vec::new(),
+                sort_index: None,
+                last_used_at: 0,
                 created_at: 42,
                 pairs: Vec::new(),
                 block_probe_mode: Default::default(),
@@ -6086,9 +6429,80 @@ mod tests {
         }
     }
 
+    /// 三个直连地址各配一台跳板机：绑定表按地址顺序展开，一条地址一条通道
     #[test]
-    fn route_order_defaults_when_empty() {
-        let mut server = route_test_server();
+    fn jumps_are_per_address_not_per_server() {
+        let mut server = RemoteServer {
+            id: "r1".into(),
+            addresses: vec![
+                "192.168.1.50".into(),
+                "10.0.0.8".into(),
+                "100.88.3.4".into(),
+            ],
+            ..Default::default()
+        };
+        server
+            .jumps
+            .insert("192.168.1.50".into(), "jump-home".into());
+        server
+            .jumps
+            .insert("10.0.0.8".into(), "jump-office".into());
+        let server = server.normalize();
+        assert_eq!(
+            server.jump_bindings(),
+            vec![
+                ("192.168.1.50".to_string(), "jump-home".to_string()),
+                ("10.0.0.8".to_string(), "jump-office".to_string()),
+            ],
+            "只给配了跳板机的地址出通道，第三个地址保持直连"
+        );
+        // 跳板机候选：每个绑定一条，origin 是目标地址（不再是空串）
+        let jumps: Vec<_> = server
+            .route_candidates()
+            .into_iter()
+            .filter(|cand| cand.kind == "jump")
+            .collect();
+        assert_eq!(jumps.len(), 2);
+        assert_eq!(jumps[0].origin, "192.168.1.50:12300");
+        assert_eq!(jumps[1].origin, "10.0.0.8:12300");
+    }
+
+    /// 老档案只有单值 jump_id（用户 2026-11-01 改口径）：
+    /// 它是**档案级默认跳板机**，jumps 映射没覆盖的地址全部继承 ——
+    /// 多个直连 IP 的每个「跳板机 → IP」绑定都要展示、都要探测。
+    #[test]
+    fn legacy_jump_id_applies_to_all_addresses() {
+        let server = RemoteServer {
+            addresses: vec!["192.168.1.50".into(), "10.0.0.8".into()],
+            jump_id: "jump-legacy".into(),
+            ..Default::default()
+        }
+        .normalize();
+        assert_eq!(server.jump_for_address("192.168.1.50"), "jump-legacy");
+        assert_eq!(server.jump_for_address("10.0.0.8"), "jump-legacy");
+        assert_eq!(server.jump_bindings().len(), 2);
+    }
+
+    /// 地址删掉后它的绑定跟着走；键按「带默认端口」的写法对齐
+    #[test]
+    fn jumps_follow_address_normalization() {
+        let mut server = RemoteServer {
+            addresses: vec!["192.168.1.50:2233".into()],
+            ..Default::default()
+        };
+        server
+            .jumps
+            .insert("192.168.1.50:2233".into(), " jump-a ".into());
+        server
+            .jumps
+            .insert("10.9.9.9:12300".into(), "jump-gone".into());
+        let server = server.normalize();
+        assert_eq!(server.jump_for_address("192.168.1.50:2233"), "jump-a");
+        assert_eq!(server.jumps.len(), 1, "不存在的地址连绑定一起清掉");
+    }
+
+    #[test]
+    fn route_order_defaults_when_empty() {        let mut server = route_test_server();
         server.route_order = Vec::new();
         server.conn_mode = String::new();
         assert_eq!(

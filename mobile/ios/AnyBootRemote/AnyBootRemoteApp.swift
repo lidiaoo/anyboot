@@ -14,8 +14,9 @@ struct AnyBootRemoteApp: App {
         // ⚠️ 此前从未注入 → resolver 恒为 nil → 走跳板的电脑心跳探测永远静默失败
         //（probeOne 报「没配跳板机解析器」），而预览/加载走 BootService.localEndpoint
         // 不经它 —— 表现成「通信通、网络探测不通」。
-        Heartbeat.shared.tunnelResolver = { profile in
-            try await SshSessionManager.shared.tunnelAddress(for: profile)
+        Heartbeat.shared.tunnelResolver = { profile, target in
+            // 一址一跳板机：按要探的那个地址查它自己的跳板机，各建各的隧道
+            try await SshSessionManager.shared.tunnelAddress(for: profile, destination: target)
         }
         // 装回上次的传输清单：进程被杀后暂停中的任务要还在
         Task { @MainActor in TransferCenter.shared.restore() }

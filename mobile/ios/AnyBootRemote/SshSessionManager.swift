@@ -420,17 +420,21 @@ final class SshSessionManager {
         }
     }
 
-    /// 「经由跳板机」的电脑：把内网地址解析成本地隧道地址（127.0.0.1:port）
-    func tunnelAddress(for profile: ServerProfile) async throws -> String {
-        try await tunnelAddress(for: profile, destination: profile.host)
+    /// 「经由跳板机」的电脑：把内网地址解析成本地隧道地址（127.0.0.1:port）。
+    /// 一址一跳板机：跳板机按**目标地址**查（不传就是首选地址那一台）
+    func tunnelAddress(for profile: ServerProfile, jumpId: String? = nil) async throws -> String {
+        try await tunnelAddress(for: profile, destination: profile.host, jumpId: jumpId)
     }
 
-    /// 同一个跳板机、指定目标地址（多块网卡时换地址重连用）
-    func tunnelAddress(for profile: ServerProfile, destination: String) async throws -> String {
-        guard let jump = JumpStore.shared.jump(profile.jumpServerId) else {
+    /// 指定目标地址 + 它自己的跳板机（多块网卡时每个地址各建各的隧道）
+    func tunnelAddress(for profile: ServerProfile, destination: String,
+                       jumpId: String? = nil) async throws -> String {
+        let target = destination.isEmpty ? profile.host : destination
+        let id = (jumpId ?? "").trimmedAnyBoot.isEmpty ? profile.jumpServerId(for: target)
+                                                       : jumpId!.trimmedAnyBoot
+        guard let jump = JumpStore.shared.jump(id) else {
             throw SshError.message("跳板机不存在（可能已删除）")
         }
-        let target = destination.isEmpty ? profile.host : destination
         let destHost: String
         var destPort = ServerProfile.defaultPort
         if let index = target.lastIndex(of: ":") {

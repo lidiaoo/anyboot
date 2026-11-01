@@ -19,6 +19,7 @@ final class ServerStore: ObservableObject {
     private let keyConnectAll = "connect_all"
     private let keyTransport = "transport"
     private let keyMigrated = "migrated_multi_server"
+    private let keySortMode = "server_sort_mode"
     private let legacyHost = "host"
     private let legacyToken = "token"
 
@@ -46,6 +47,7 @@ final class ServerStore: ObservableObject {
         migrateLegacy(into: &list)
         sort(&list)
         servers = list
+        sortMode = Self.cleanSortMode(defaults.string(forKey: keySortMode))
         activeId = defaults.string(forKey: keyActive) ?? ""
         connectAll = defaults.bool(forKey: keyConnectAll)
         transport = Self.cleanTransport(defaults.string(forKey: keyTransport))
@@ -214,7 +216,90 @@ final class ServerStore: ObservableObject {
     }
 
     func sort(_ list: inout [ServerProfile]) {
-        list.sort { $0.sortKey.localizedCaseInsensitiveCompare($1.sortKey) == .orderedAscending }
+        switch sortMode {
+        case "recent": sortRecent(&list)
+        case "name": sortName(&list)
+        default: sortCustom(&list)
+        }
+    }
+
+    // MARK: 排序（用户 2026-11-01，与 PC / 安卓同一套语义）
+
+    /// 排序模式（@Published：菜单勾选跟着变）："custom" / "name" / "recent"
+    @Published var sortMode: String = "custom" {
+        didSet {
+            guard sortMode != oldValue else { return }
+            defaults.set(sortMode, forKey: keySortMode)
+            sort(&servers)
+        }
+    }
+
+    /// 切排序模式（菜单调用；didSet 里统一重排）
+    func setSortMode(_ mode: String) {
+        sortMode = Self.cleanSortMode(mode)
+    }
+
+    private static func cleanSortMode(_ raw: String?) -> String {
+        switch raw ?? "" {
+        case "name", "recent": return raw!
+        default: return "custom"
+        }
+    }
+
+    /// 自定义顺序：有 sortIndex 的按序号升序，没排过的按名称接在后面（与 PC sort_servers_custom 一致）
+    private func sortCustom(_ list: inout [ServerProfile]) {
+        list.sort { left, right in
+            if left.sortIndex >= 0 || right.sortIndex >= 0 {
+                if left.sortIndex < 0 { return false }
+                if right.sortIndex < 0 { return true }
+                if left.sortIndex != right.sortIndex { return left.sortIndex < right.sortIndex }
+            }
+            return nameThenId(left, right)
+        }
+    }
+
+    /// 显示名 A→Z
+    private func sortName(_ list: inout [ServerProfile]) {
+        list.sort { nameThenId($0, $1) }
+    }
+
+    /// 最近连接优先：刚连过的排前面，没用过/久没用的按名称排后面
+    private func sortRecent(_ list: inout [ServerProfile]) {
+        list.sort { left, right in
+            if left.lastUsedAt != right.lastUsedAt { return left.lastUsedAt > right.lastUsedAt }
+            return nameThenId(left, right)
+        }
+    }
+
+    private func nameThenId(_ left: ServerProfile, _ right: ServerProfile) -> Bool {
+        let byName = left.sortKey.localizedCaseInsensitiveCompare(right.sortKey)
+        if byName != .orderedSame { return byName == .orderedAscending }
+        return left.id.localizedCaseInsensitiveCompare(right.id) == .orderedAscending
+    }
+
+    /// 「最近连接」排序：记一次成功连接（页加载完成才算）。
+    /// 不走 upsert —— updatedAt 是云同步 LWW 的依据，记「用过」不该把它顶上去。
+    func touchUsed(_ id: String) {
+        guard let index = servers.firstIndex(where: { $0.id == id }) else { return }
+        servers[index].lastUsedAt = Date().timeIntervalSince1970 * 1000
+        sort(&servers)
+        save()
+    }
+
+    /// 自定义排序里挪一台（▴▾）：先把当前顺序冻结成 sortIndex 0..n-1
+    /// （老档案没排过，直接交换会跳回名称序），再移到目标位。
+    func move(_ id: String, delta: Int) {
+        var list = servers
+        guard let index = list.firstIndex(where: { $0.id == id }) else { return }
+        let target = index + delta
+        guard target >= 0, target < list.count else { return }
+        for i in list.indices { list[i].sortIndex = i }
+        let profile = list.remove(at: index)
+        list.insert(profile, at: target)
+        for i in list.indices { list[i].sortIndex = i }
+        sort(&list)
+        servers = list
+        save()
     }
 
     /// 已有的分组名（给「分组」输入框做候选）

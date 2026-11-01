@@ -575,7 +575,7 @@ final class SyncManager {
             }
         }
         if (changed) {
-            ServerStore.sort(local);
+            ServerStore.sort(context, local);
             ServerStore.save(context, local);
         }
         return changed;

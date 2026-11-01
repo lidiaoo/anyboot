@@ -106,12 +106,20 @@ final class JumpStore {
         return true;
     }
 
-    /** 有几台电脑经由这台跳板机（详情页「经由此服务器的电脑」） */
+    /** 有几台电脑经由这台跳板机（详情页「经由此服务器的电脑」）——
+     *  一址一跳板机：一台电脑可能有两三个地址都挂在同一台上，按**电脑**计数，不按地址重复算 */
     static int computersVia(Context context, String jumpId) {
         int count = 0;
         for (ServerProfile profile : ServerStore.load(context)) {
             if (jumpId.equals(profile.jumpServerId)) {
                 count++;
+                continue;
+            }
+            for (String[] binding : profile.jumpBindings()) {
+                if (binding.length > 1 && jumpId.equals(binding[1])) {
+                    count++;
+                    break;
+                }
             }
         }
         return count;

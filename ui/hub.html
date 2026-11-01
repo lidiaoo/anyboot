@@ -411,6 +411,14 @@
   }
   .addr-main .addr-del:hover { color: rgb(var(--bad)); border-color: rgb(var(--bad)); }
   .addr-macs { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  /* 每个地址自己的跳板机下拉（一址一跳板机：多块网卡可以各走各的中转） */
+  .addr-jump { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .addr-jump-select {
+    flex: 1 1 160px; min-width: 0; max-width: 320px;
+    border: 1px solid rgb(var(--line)); background: rgb(var(--elevate));
+    color: rgb(var(--fg)); border-radius: 7px; padding: 4px 6px; font-size: 11.5px;
+  }
+  .addr-jump-select:focus { outline: none; border-color: rgb(var(--accent)); }
   .mac-tag {
     display: inline-flex; align-items: center; gap: 5px;
     border: 1px solid rgb(var(--line)); background: rgb(var(--elevate)); border-radius: 999px;
@@ -1190,6 +1198,19 @@
     flex: none; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
     padding: 0 20px 12px;
   }
+  /* ---- 排序：模式下拉（复用 .pc-menu 皮）+ 自定义模式的行内 ↑↓ ---- */
+  .cq-sort-menu { position: fixed; width: 244px; }
+  .cq-sort-menu button.on { color: rgb(var(--accent)); }
+  .cq-sort-menu button.on::after { content: '✓'; margin-left: auto; font-size: 12px; }
+  .cq-move { display: flex; flex-direction: column; gap: 1px; flex: none; margin-right: 2px; }
+  .cq-move button {
+    width: 18px; height: 15px; padding: 0; border: 0; border-radius: 4px;
+    background: transparent; color: rgb(var(--fg-dim));
+    font: inherit; font-size: 11px; line-height: 1; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .cq-move button:hover:not(:disabled) { background: rgb(var(--fg) / .12); color: rgb(var(--fg)); }
+  .cq-move button:disabled { opacity: .25; cursor: default; }
   .cq-search { position: relative; flex: 0 1 320px; min-width: 180px; }
   .cq-search svg {
     position: absolute; left: 11px; top: 50%; transform: translateY(-50%);
@@ -1249,11 +1270,14 @@
   /* ---- 列表主体：纯 flex 行（没有 table，列宽全靠 flex 基准 + 换行消化） ---- */
   .cq-grid { display: flex; flex-direction: column; min-width: 0; }
   .cq-rows { display: flex; flex-direction: column; min-width: 0; gap: 10px; padding: 8px 0 2px; }
-  .cq-thead,
+  /* 用户 2026-11-01：电脑卡片改移动端同款上下布局（左右六列太挤）——
+     一张卡 = 头部行（排序▴▾+图标+名称+徽章+状态+更多）→ 通道行 → 引导项 → 电源 */
   .cq-row {
-    display: flex; align-items: center; gap: 12px;
+    display: flex; flex-direction: column; align-items: stretch; gap: 9px;
     padding-left: 12px; padding-right: 12px; min-width: 0;
   }
+  /* 表头随「列」概念一起退场：引导项列名由每格自带的 data-label 小字承担 */
+  .cq-thead { display: none; }
   .cq-thead {
     position: sticky; top: 0; z-index: 2;
     padding-top: 9px; padding-bottom: 9px;
@@ -1273,23 +1297,31 @@
   .cq-row:hover { background: rgb(var(--elevate) / .55); }
   /* 选中（=当前电脑）：accent 底色 + 左侧色条，比 hover 明显一档 */
   .cq-row.cq-selected { background: rgb(var(--accent) / .10); box-shadow: inset 3px 0 0 rgb(var(--accent)); }
-  /* 列：等比例 grow，电脑列基准最大；min-width:0 保证长名称能省略号 */
+  /* 列：头部行里电脑位吃满剩余宽，状态 / 更多靠右 */
   .cq-col { min-width: 0; }
-  .cq-col-dev { flex: 1 1 280px; }
-  .cq-col-st { flex: 0 0 132px; overflow: hidden; }
+  .cq-row-head { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
+  .cq-row-head .cq-col-dev { flex: 1 1 auto; }
+  .cq-col-st { flex: none; overflow: visible; margin-top: 6px; }
   .cq-col-st .cq-st { max-width: 100%; }
   .cq-col-st .cq-st small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .cq-col-boot { flex: 1 1 190px; min-width: 120px; }
-  /* 通道列（systemd-boot / OpenCore / Clover）：可能同时出三列，窄一档；
-     文字本来就有省略号，宁可窄也不把整行顶折。 */
-  .cq-col-boot--ch { flex: 1 1 150px; min-width: 110px; }
-  .cq-col-pwr { flex: 1 1 300px; min-width: 170px; }
+  /* 引导项区：一块 wrap 行，每格自带列名小字（data-label） */
+  .cq-row-boots { display: flex; flex-wrap: wrap; gap: 8px 12px; }
+  .cq-col-boot { flex: 1 1 170px; min-width: 150px; }
+  .cq-col-boot::before {
+    content: attr(data-label); display: block; margin-bottom: 4px;
+    font-size: 10px; font-weight: 600; letter-spacing: .02em; color: rgb(var(--fg-faint));
+  }
+  .cq-col-boot--ch { flex: 1 1 150px; min-width: 130px; }
+  /* 电源区：整行铺开，按钮放不下自动换行 */
+  .cq-row-pwr { display: flex; flex-direction: column; gap: 4px; }
+  .cq-col-pwr { flex: 1 1 100%; }
   .cq-col-more { flex: none; width: 26px; display: flex; justify-content: flex-end; }
+  .cq-more { margin-top: 4px; }
   .cq-chip-cur {
     font-size: 10px; font-weight: 600; line-height: 1; padding: 2px 5px; border-radius: 5px; flex: none;
     color: rgb(var(--accent)); background: rgb(var(--accent) / .14); border: 1px solid rgb(var(--accent) / .3);
   }
-  .cq-dev { display: flex; align-items: center; gap: 9px; min-width: 0; }
+  .cq-dev { display: flex; align-items: flex-start; gap: 9px; min-width: 0; }
   .cq-dev-ico {
     width: 30px; height: 30px; flex: none; border-radius: 9px; display: grid; place-items: center;
     background: rgb(var(--accent) / .12); color: rgb(var(--accent));
@@ -1336,16 +1368,37 @@
   }
   .sysinfo-row.bad .v { color: rgb(var(--bad)); }
   .cq-dev-meta {
-    display: flex; flex-direction: column; align-items: flex-start; gap: 2px; margin-top: 2px;
+    display: flex; flex-direction: column; align-items: flex-start; gap: 5px; margin-top: 2px;
     font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; color: rgb(var(--fg-faint));
   }
-  /* 每个配置好的地址一行：地址 · MAC · MAC…（窄容器自动折行，不出横向滚动条） */
+  /* 样式 3（用户 2026-11-01）：通道行 = 上行「状态+徽章+MAC…」+ 地址独占整行 + 失败原因垫底。
+     上行 flex-wrap：MAC 可能多个、太宽时超出的自动掉到下一行，不省略 */
   .cq-dev-line {
-    display: flex; align-items: center; gap: 2px 10px; max-width: 100%;
-    flex-wrap: wrap;
+    display: flex; flex-direction: column; align-items: stretch; gap: 2px; max-width: 100%;
+  }
+  .cq-dev-top {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 3px 5px; max-width: 100%;
   }
   .cq-dev-line span { white-space: nowrap; }
   .cq-dev-line .sep { opacity: .55; flex: none; }
+  /* 用户 2026-11-01 二改：「圈起来」= 整块通道行一个浅白透明框（不是每个数据项单独套框）。
+     暗色主题下呈浅白半透明，浅色主题自动换算成淡灰，两边都看得清 */
+  .cq-dev-line {
+    padding: 6px 9px; border-radius: 9px;
+    background: rgb(var(--fg) / .05);
+    border: 1px solid rgb(var(--fg) / .13);
+  }
+  /* MAC 独立一行（用户 2026-11-01：调整到 IP 的下一行），多个 MAC 自动换行 */
+  .cq-dev-macrow { display: flex; flex-wrap: wrap; gap: 4px; max-width: 100%; }
+  /* 地址独占整行：横排不折断，超长在这一行内横向滚动看全 */
+  .cq-dev-line .cq-dev-addr {
+    display: block; white-space: nowrap; width: fit-content;
+    max-width: 100%;
+    overflow-x: auto; scrollbar-width: none;
+  }
+  .cq-dev-line .cq-dev-addr::-webkit-scrollbar { display: none; }
+  /* 失败原因：完整原文，换行铺全 */
+  .cq-dev-reason { font-size: 9px; color: rgb(var(--warn)) !important; white-space: normal; word-break: break-all; }
   .cq-st { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; white-space: nowrap; }
   .cq-st i { width: 6px; height: 6px; border-radius: 50%; flex: none; background: currentColor; }
   .cq-st--on { color: rgb(var(--ok)); }
@@ -1393,26 +1446,9 @@
   .cq-pwr-btn:hover:not(:disabled) { border-color: rgb(var(--accent)); color: rgb(var(--accent)); }
   .cq-pwr-btn.is-busy { color: transparent; position: relative; }
   .cq-pwr-btn.is-busy .hint { color: transparent; }
-  /* ---- 窄容器自适应（容器查询跟着 .cq-card 实际宽度走，不跟窗口）----
-     ≥1000px：单行六列，列宽跟表头对齐；
-     <1000px：折行，电脑+状态+更多 占第一行，两个引导项与电源排后面，
-              宽度再小就由 flex-wrap 自己继续往下掉，绝不出横向滚动条；
-     折行后列不再对齐表头 → 表头隐藏，引导项靠 data-label 自带列名。 */
-  @container (max-width: 1000px) {
-    .cq-thead { display: none; }
-    .cq-row { flex-wrap: wrap; align-items: flex-start; row-gap: 10px; }
-    .cq-col-dev { order: 1; flex: 1 1 280px; align-self: center; }
-    .cq-col-st { order: 2; flex: 0 0 auto; align-self: center; }
-    .cq-col-more { order: 3; margin-left: auto; align-self: center; }
-    .cq-col-boot { order: 4; flex: 1 1 160px; min-width: 120px; }
-    .cq-col-pwr { order: 5; flex: 1 1 300px; min-width: 170px; }
-    /* 本机那条状态后面跟的地址在窄容器里省掉（上面标识行本来就有 IP） */
-    .cq-col-st small { display: none; }
-    .cq-col-boot::before {
-      content: attr(data-label); display: block; margin-bottom: 4px;
-      font-size: 10px; font-weight: 600; letter-spacing: .02em; color: rgb(var(--fg-faint));
-    }
-  }
+  /* ---- 卡片上下布局后不再按宽度折列：原容器查询规则整体退场，
+     引导项列名/幽灵行格子改为全宽常显 ---- */
+  .cq-ghost-boots { order: 3; grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); }
   .cq-pwr-btn.is-busy::after {
     content: ""; position: absolute; inset: 0; margin: auto; width: 12px; height: 12px;
     border: 2px solid rgb(var(--accent)); border-top-color: transparent; border-radius: 50%;
@@ -1428,6 +1464,45 @@
   .cq-empty { padding: 44px 20px; text-align: center; color: rgb(var(--fg-dim)); font-size: 13px; }
   .cq-empty svg { width: 26px; height: 26px; color: rgb(var(--fg-faint)); margin-bottom: 8px; }
   .cq-empty p { margin: 6px 0 0; font-size: 12px; color: rgb(var(--fg-faint)); }
+  /* ---- 空列表的「幽灵行」----
+     一台远端电脑都没加时，在「本机」下面画一条虚线占位行：左边是虚位设备信息，
+     右边把 rEFInd / GRUB / systemd-boot / OpenCore / Clover 五个引导器各占一格，
+     全部写「未检测到」—— 让用户先看清这里将来会有什么（用户 2026-11-01 要求）。 */
+  .cq-ghost { display: flex; flex-direction: column; gap: 8px; }
+  /* 幽灵行是占位示意不是真卡片：覆盖回横排（设备位 + 状态 + 五格引导器） */
+  .cq-ghost-row {
+    display: flex; flex-direction: row; flex-wrap: wrap; row-gap: 8px; align-items: center;
+    cursor: default; border-style: dashed; border-color: rgb(var(--fg) / .20);
+    background: transparent; box-shadow: none;
+  }
+  .cq-ghost-row:hover { background: transparent; }
+  /* 幽灵行不跟真实列抢宽度：设备位按内容宽，剩下全给五个引导器格子 */
+  .cq-ghost-dev { display: flex; align-items: center; gap: 9px; min-width: 0; flex: 0 0 auto; }
+  .cq-ghost-ico {
+    width: 30px; height: 30px; flex: none; border-radius: 9px;
+    border: 1px dashed rgb(var(--fg) / .20); background: rgb(var(--elevate) / .45);
+  }
+  .cq-ghost-txt { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+  .cq-ghost-bar { display: block; height: 8px; border-radius: 4px; background: rgb(var(--fg) / .10); }
+  .cq-ghost-bar--sm { height: 6px; background: rgb(var(--fg) / .07); }
+  .cq-ghost-st { color: rgb(var(--fg-faint)); font-size: 12px; font-weight: 600; }
+  /* 五个引导器格子用网格：auto-fit 让小屏自己变成 3 列 / 2 列，
+     不会出现「最后一个格子被拉满一整行」的怪样子 */
+  .cq-ghost-boots {
+    flex: 1 1 620px; min-width: 0;
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px;
+  }
+  .cq-ghost-cell {
+    display: flex; align-items: center; justify-content: space-between; gap: 6px;
+    min-height: 30px; padding: 4px 8px; border-radius: 8px;
+    border: 1px dashed rgb(var(--fg) / .20); background: transparent;
+    font-size: 12px; color: rgb(var(--fg-dim));
+  }
+  .cq-ghost-cell .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cq-ghost-cell .v { flex: none; font-size: 10px; color: rgb(var(--fg-faint)); }
+  .cq-ghost-note {
+    padding-left: 2px; font-size: 11.5px; line-height: 1.7; color: rgb(var(--fg-faint));
+  }
   .cq-foot {
     flex: none; padding: 0 20px 14px; text-align: center;
     font-size: 11px; line-height: 1.7; color: rgb(var(--fg-faint));
@@ -2051,15 +2126,10 @@
     background:transparent; color:rgb(var(--fg-faint)); border:1px solid rgb(var(--line));
   }
   .cq-remote-act:hover { color:rgb(var(--fg)); border-color:rgb(var(--accent) / .55); }
-  /* 通道行尾的探测情况小字（延迟 / 失败原因） */
-  .cq-probe-ms { font-size:10px; color:rgb(var(--fg-faint)); flex:none; }
+  /* 通道行首的探测短状态（延迟 / 不通 / 未测出；完整原因在 .cq-dev-reason） */
+  .cq-probe-ms { font-size:9px; color:rgb(var(--fg-faint)); flex:none; }
   .cq-probe-ms.ok { color:rgb(var(--ok)) !important; }
   .cq-probe-ms.bad { color:rgb(var(--warn)) !important; }
-  /* 失败原因可能是一整条 URL+系统错误串（百余字符）：单行截断出省略号，
-     完整原文在悬停提示里（cqProbeBadge 已写入 title）——别把行/卡片撑出横向越界 */
-  .cq-probe-ms.bad { max-width: min(36ch, 100%); min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-  /* 超长通道地址（trycloudflare 域名 50+ 字符）同理：截断 + title 全文 */
-  .cq-dev-line .cq-dev-addr { max-width: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 
   /* ---- 远程接入分页标签 + Tailscale 卡窄窗自适应（放末尾覆盖基础规则） ---- */
   @media (max-width: 720px) {
@@ -2245,6 +2315,10 @@
               操作说明
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
             </button>
+            <button type="button" class="link-btn" id="cqSort" aria-haspopup="menu" aria-expanded="false" title="选择电脑列表的排序方式（电脑页标签栏跟着同一套顺序）">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h11M4 12h8M4 17h5"/><path d="M17 14V4M14 7l3-3 3 3"/></svg>
+              排序 <span id="cqSortText">自定义</span>
+            </button>
             <button type="button" class="link-btn" id="cqRefresh" title="重新探测全部电脑的在线状态与引导项">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg>
               <span id="cqRefreshText">刷新</span>
@@ -2354,6 +2428,16 @@
           <button role="menuitem" data-grubfmt="medium">中等（完整内核名）</button>
           <button role="menuitem" data-grubfmt="raw">原始（菜单标题）</button>
           <button role="menuitem" data-grubfmt="detailed">复杂（标题 + 内核）</button>
+        </div>
+
+        <!-- 排序方式（电脑列表工具条的「排序」；电脑页标签栏跟随同一套顺序） -->
+        <div class="pc-menu cq-sort-menu" id="cqSortMenu" hidden role="menu" aria-label="排序方式">
+          <div class="menu-caption">排序方式</div>
+          <button role="menuitem" data-order="custom">自定义（我用 ↑ ↓ 排的）</button>
+          <button role="menuitem" data-order="name">名称 A → Z</button>
+          <button role="menuitem" data-order="recent">最近连接</button>
+          <div class="menu-divider" role="separator"></div>
+          <div class="menu-caption" id="cqSortHint">自定义：每行左侧 ↑ ↓ 调整顺序</div>
         </div>
 
         <!-- 内嵌页面查看（行内「更多」→ 打开页面）：与手机 WebView 加载同一个页面 -->
@@ -2517,9 +2601,11 @@
                   </p>
                 </div>
                 <div class="field" data-page-node-id="rsFieldJump1">
-                  <label for="rsJump">经由跳板机（实验）</label>
-                  <select id="rsJump"></select>
-                  <p class="field-hint">经跳板机中转的连接方式将在后续版本启用，当前先保存档案</p>
+                  <label>经跳板机（按地址分别选）</label>
+                  <p class="field-hint">
+                    跳板机挂在地址上 —— 上面「局域网地址」每一行都有自己的跳板机下拉，空 = 那个地址直连。
+                    一台电脑有三块网卡时，可以分别经家里 / 公司两台跳板机中转，各建各的转发。
+                  </p>
                 </div>
               </div>
               <!-- E 局域网电源路由（折叠） -->
@@ -3969,7 +4055,7 @@ function openPreview() {
   }
   // 警示：引用缺失 / 桌面无历史域
   const warns = [];
-  if (s.missingJumpRefs > 0) warns.push('有 ' + s.missingJumpRefs + ' 台电脑引用的跳板机不在备份里 —— 一并勾选「SSH 服务器」可补齐。');
+  if (s.missingJumpRefs > 0) warns.push('有 ' + s.missingJumpRefs + ' 处引用的跳板机不在备份里（按地址各算一处） —— 一并勾选「SSH 服务器」可补齐。');
   $('prevWarn').hidden = warns.length === 0;
   $('prevWarnText').textContent = warns.join(' ');
 
@@ -5177,8 +5263,25 @@ window.__bkOnShow = async function () {
         values.forEach(function (mac) { if (hit.macs.indexOf(mac) < 0) hit.macs.push(mac); });
         return false;
       }
-      st.entries.push({ address: address, macs: values.slice() });
+      st.entries.push({ address: address, macs: values.slice(), jump: '' });
       return true;
+    }
+
+    /** 一个地址行下方的跳板机下拉（没有 cfg.jumpOptions 的编辑器不渲染这一行） */
+    function jumpSelectHtml(item, index) {
+      if (!cfg.jumpOptions) return '';
+      const options = cfg.jumpOptions() || [];
+      const body = options.map(function (option) {
+        return '<option value="' + esc(option.id) + '"' +
+          (option.id === item.jump ? ' selected' : '') + '>' + esc(option.name) + '</option>';
+      }).join('');
+      return '<div class="addr-jump">' +
+        '<span class="route-macs-label">跳板机</span>' +
+        '<select class="addr-jump-select" data-jump-address="' + index + '"' +
+          ' title="这个地址经由哪台跳板机中转（空 = 这个地址直连）">' +
+          '<option value="">直连</option>' + body +
+        '</select>' +
+      '</div>';
     }
 
     /** 上一次渲染出来的 HTML —— 内容一模一样就别再动 DOM（重设 innerHTML 会打断输入、丢光标） */
@@ -5208,6 +5311,7 @@ window.__bkOnShow = async function () {
               '" aria-label="删掉这个地址" title="删掉这个地址">✕</button>' +
           '</div>' +
           '<div class="addr-macs"><span class="route-macs-label">MAC</span>' + tags + '</div>' +
+          jumpSelectHtml(item, index) +
         '</div>';
       }).join('');
       if (html === st.html) return;
@@ -5299,8 +5403,7 @@ window.__bkOnShow = async function () {
         if (event.key === 'Enter') { event.preventDefault(); manualAdd(); }
       });
 
-      list.addEventListener('click', function (event) {
-        const dropMac = event.target.closest('[data-drop-mac]');
+      list.addEventListener('click', function (event) {        const dropMac = event.target.closest('[data-drop-mac]');
         if (dropMac) {
           const item = st.entries[Number(dropMac.dataset.dropAddress)];
           if (item) {
@@ -5317,17 +5420,45 @@ window.__bkOnShow = async function () {
           cfg.onPairingChange();
         }
       });
+
+      // 每个地址自己的跳板机：改完只更新编辑态、不重建 DOM（刚选完别把下拉拆掉）
+      list.addEventListener('change', function (event) {
+        const select = event.target.closest('[data-jump-address]');
+        if (!select) return;
+        const item = st.entries[Number(select.dataset.jumpAddress)];
+        if (item) item.jump = select.value || '';
+        cfg.onPairingChange();
+      });
     }
 
     return {
       setEntries: function (list) {
         st.entries = (list || []).map(function (item) {
-          return { address: item.address, macs: (item.macs || []).slice() };
+          return {
+            address: item.address,
+            macs: (item.macs || []).slice(),
+            jump: String(item.jump || '').trim(),
+          };
         });
         st.html = null;
         render();
       },
       entries: function () { return st.entries; },
+      /** 「地址 → 跳板机」映射（只含配了跳板机的地址；空表 = 全部直连） */
+      jumps: function () {
+        const map = {};
+        st.entries.forEach(function (item) {
+          const address = String(item.address || '').trim();
+          const jump = String(item.jump || '').trim();
+          if (address && jump) map[address] = jump;
+        });
+        return map;
+      },
+      /** 首选地址那台跳板机（写回老字段 jump_id：电源广播与老客户端用它） */
+      primaryJump: function () {
+        const first = st.entries[0];
+        return first ? String(first.jump || '').trim() : '';
+      },
       macPool: function () {
         const pool = [];
         st.entries.forEach(function (item) {
@@ -5537,9 +5668,9 @@ window.__bkOnShow = async function () {
       const add = document.getElementById(cfg.add);
       if (!box || !add) return;
       add.addEventListener('click', function () {
-        // 0 / 0 = 跟动作默认（2026-10-31 起所有动作统一 10/10），别把默认值抄成「用户改过的值」；
+        // 用户 2026-11-01：发包 / 重试直接写**真实数字 10**（输入框里看得见，不再是空框 + 占位符）；
         // 发送模式默认「优先广播包」（= 旧的 HTTP 兜底勾选）
-        st.routes.push({ action: 'wake', target: '', port: 9, macs: [], enabled: true, burst: 0, retry: 0, mode: 'auto', http_fallback: true });
+        st.routes.push({ action: 'wake', target: '', port: 9, macs: [], enabled: true, burst: 10, retry: 10, mode: 'auto', http_fallback: true });
         render();
       });
       box.addEventListener('input', function (event) {
@@ -6610,7 +6741,7 @@ window.__bkOnShow = async function () {
   let activeRemote = 'local'; // 'local' | RemoteServer.id（列表里选中的那一行）
   let localEndpoint = null;   // { port, token, enabled, listening, addr, error }
   const pcFrames = new Map(); // rid -> iframe（内嵌查看用；lazy 创建，重载 = 重建）
-  const pcEps = new Map();    // rid -> {host,port}（经跳板机的本地转发端点，异步解析）
+  const pcEps = new Map();    // rid -> Map(带端口的地址 -> {host,port})（每个地址自己的跳板转发端点）
 
   const cqBoot = new Map();    // rid -> RemoteBootInfo（最近一次读到的引导项）
   const cqBusy = new Set();    // rid:act 正在执行的动作（按钮转圈）
@@ -6639,6 +6770,36 @@ window.__bkOnShow = async function () {
       .join(' · ');
   }
   /**
+   * 这个地址经由哪台跳板机（空 = 直连）。
+   * 语义（用户 2026-11-01 改口径，与后端 `RemoteServer::jump_for_address` 同步）：
+   * 老字段 `jump_id` 是**档案级默认跳板机** —— `jumps` 表没覆盖的地址一律继承它。
+   * 一台跳板机配了多个直连 IP 时，每个「跳板机 → IP」绑定都要上列表、都参与探测；
+   * 想给个别地址换跳板机或摘掉，在编辑框里按地址覆盖（写进 jumps 表）。
+   */
+  function pcJumpFor(r, addr) {
+    const full = pcNormAddr(addr);
+    const map = (r && r.jumps) || {};
+    const hit = String(map[full] || map[String(addr || '').trim()] || '').trim();
+    if (hit) return hit;
+    return String((r && r.jump_id) || '').trim();
+  }
+  /** 生效的「地址 → 跳板机」绑定（顺序跟 addresses 一致，只含配了跳板机的地址） */
+  function pcJumpBindings(r) {
+    return (r && r.addresses || [])
+      .map(function (raw) {
+        const addr = String(raw || '').trim();
+        if (!addr) return null;
+        const jump = pcJumpFor(r, addr);
+        return jump ? { addr: addr, full: pcNormAddr(addr), jump: jump } : null;
+      })
+      .filter(Boolean);
+  }
+  /** 这台电脑配到的跳板机名（标注用；找不到档案说明已被删） */
+  function pcJumpName(id) {
+    const hit = servers.find(function (s) { return s.id === id; });
+    return hit ? (hit.name || hit.host || '(未命名)') : '已删除';
+  }
+  /**
    * 没探过赢家时的初始路径：优先级表里「直连」与「跳板机」谁在前走谁
    * （停用 / 没配的通道不算数）—— 与电脑列表的连接优先级同一套机制。
    */
@@ -6647,7 +6808,7 @@ window.__bkOnShow = async function () {
     const disabled = {};
     (Array.isArray(r.route_disabled) ? r.route_disabled : []).forEach(function (id) { disabled[id] = true; });
     const lanOk = !disabled.lan && (r.addresses || []).some(function (a) { return String(a || '').trim(); });
-    const jumpOk = !disabled.jump && (r.jump_id || '').trim();
+    const jumpOk = !disabled.jump && pcJumpBindings(r).length > 0;
     if (lanOk && jumpOk) {
       return order.indexOf('lan') <= order.indexOf('jump') ? 'lan' : 'jump';
     }
@@ -6664,7 +6825,7 @@ window.__bkOnShow = async function () {
    */
   function pcNeedJump(r) {
     if (!r || !invoke) return false;
-    if (!(r.jump_id || '').trim()) return false;
+    if (!pcJumpBindings(r).length) return false;
     if ((Array.isArray(r.route_disabled) ? r.route_disabled : []).indexOf('jump') >= 0) return false;
     const winner = pcWinnerKind.get(r.id) || '';
     return !winner || winner === 'jump';
@@ -6710,29 +6871,51 @@ window.__bkOnShow = async function () {
     const token = encodeURIComponent(r.token || '');
     if (!kind) return ''; // 直连与跳板机都被策略停用：没有本地路径（远程赢家在上面已返回）
     if (kind === 'jump') {
-      const ep = pcEps.get(r.id);
+      const ep = pcEpFor(r, pcEpsAddrOfWinner(r) || (pcJumpBindings(r)[0] || {}).full || '');
       // 跳板端点还没解析好：返回空串，pcResolveEp 到货后重建 iframe
       return ep ? withGuestTheme('http://' + ep.host + ':' + ep.port + '/?token=' + token) : '';
     }
-    return withGuestTheme('http://' + pcFirstAddr(r) + '/?token=' + token);
+    return withGuestTheme('http://' + (pcWinnerAddr.get(r.id) || pcFirstAddr(r)) + '/?token=' + token);
   }
-  // 经跳板机：后端起 ControlMaster 复用的 ssh -L 转发，端点 = 127.0.0.1:<port>
+  /** 这台电脑所有配了跳板机的地址各自的转发端点（缺的现解析；单条失败不影响别的） */
+  function pcEnsureJumpEps(r) {
+    if (!invoke) return Promise.resolve(pcEps.get(r.id) || new Map());
+    const map = pcEpsOf(r.id);
+    if (!pcNeedJump(r)) return Promise.resolve(map);
+    const jobs = pcJumpBindings(r).map(function (binding) {
+      const key = pcNormAddr(binding.full);
+      if (map.has(key)) return Promise.resolve();
+      return invoke('remote_endpoint', { serverId: r.id, address: binding.full })
+        .then(function (ep) { map.set(key, ep); })
+        .catch(function () { /* 静默：这条转发没起来，只有这一行显示「跳板机连不上」 */ });
+    });
+    return Promise.all(jobs).then(function () { return map; });
+  }
+  /** rid -> 每个地址各自的转发端点表（懒建） */
+  function pcEpsOf(rid) {
+    let map = pcEps.get(rid);
+    if (!map) {
+      map = new Map();
+      pcEps.set(rid, map);
+    }
+    return map;
+  }
+  /** 某个地址的转发端点（没有就 null） */
+  function pcEpFor(r, address) {
+    const map = pcEps.get(r && r.id);
+    if (!map || !address) return null;
+    return map.get(pcNormAddr(address)) || null;
+  }
+  /** 赢家是跳板机时，那条通道对应的地址（res.addr 是本机端点，得反查回地址） */
+  function pcEpsAddrOfWinner(r) {
+    return pcWinnerAddr.get(r && r.id) || '';
+  }
+  // 经跳板机：后端起 ControlMaster 复用的 ssh -L 转发，端点 = 127.0.0.1:<port>（每个地址一条）
   function pcResolveEp(r) {
-    if (!invoke || pcEps.has(r.id)) return;
-    invoke('remote_endpoint', { serverId: r.id })
-      .then(function (ep) {
-        pcEps.set(r.id, ep);
-        if (pcFrames.has(r.id)) pcReload(r.id);
-      })
-      .catch(function () { /* 静默：转发没起来 iframe 就停在「连不上」，别弹 toast 打扰（用户 2026-10-31；pcEnsureJumpEp 同语义） */ });
-  }
-  /** 探测前的 Promise 版端点解析：只在通道启用时开隧道；失败返回 null（不弹 toast） */
-  function pcEnsureJumpEp(r) {
-    if (!invoke || pcEps.has(r.id)) return Promise.resolve(pcEps.get(r.id) || null);
-    if (!pcNeedJump(r)) return Promise.resolve(null);
-    return invoke('remote_endpoint', { serverId: r.id })
-      .then(function (ep) { pcEps.set(r.id, ep); return ep; })
-      .catch(function () { return null; });
+    if (!invoke || !pcJumpBindings(r).length) return;
+    pcEnsureJumpEps(r).then(function () {
+      if (pcFrames.has(r.id)) pcReload(r.id);
+    });
   }
 
   // ============ 远程地址切换（探测带 remoteAddr，赢家可能落远程） ============
@@ -6746,6 +6929,12 @@ window.__bkOnShow = async function () {
    * 电脑页标签、列表行、悬浮球只是同一个探测结论的不同样式 —— 都读这里。
    */
   const pcWinnerKind = new Map();
+  /**
+   * rid -> 赢家落在哪个局域网地址。
+   * 跳板机赢家返回的是本机端点（127.0.0.1:port），拿它顶替地址会污染列表；
+   * 这里记下「这个端点属于哪个地址」，标注与 iframe 都按它取。
+   */
+  const pcWinnerAddr = new Map();
   /**
    * rid -> Map( 行键 -> {ok, ms, error} )：最近一次探测的**逐行**结果。
    * 行键 = kind + '\u0000' + (pair_id || address)。电脑列表把全部通道（直连地址 /
@@ -6786,14 +6975,16 @@ window.__bkOnShow = async function () {
     const doneBlocks = {};
     order.forEach(function (kind) {
       if (kind === 'jump') {
-        // 跳板机也是一条通道：连接策略启用 + 转发端点已就绪才进候选
-        // （端点由 pcProbe 前置解析；被停用的跳板机永远不开隧道、不参与探测）
-        if (disabled.jump || !(r.jump_id || '').trim()) return;
-        const ep = pcEps.get(r.id);
-        if (ep) {
+        // 跳板机挂在地址上：**一个地址一条通道**（三条直连各配跳板机 = 三条候选）。
+        // 端点由 pcProbe 前置解析；被停用的跳板机永远不开隧道、不参与探测。
+        if (disabled.jump) return;
+        pcJumpBindings(r).forEach(function (binding) {
+          const ep = pcEpFor(r, binding.full);
+          if (!ep) return; // 这条地址的转发还没起来：探测时不列它（pcProbe 会补一条失败行）
           list.push({ kind: 'jump', origin: '127.0.0.1:' + ep.port,
+            jump_addr: binding.full,
             timeout_ms: Number((r.route_timeouts_ms || {}).jump || 0) || 0 });
-        }
+        });
         return;
       }
       const block = BLOCK_OF[kind];
@@ -6832,10 +7023,17 @@ window.__bkOnShow = async function () {
    *  "电脑页和电脑列表共用这一处"。
    */
   async function pcProbe(r, mode) {
-    // 跳板机通道启用时先把转发端点就绪（它也是候选之一；失败 = 这条通道探不了）
-    const jumpEp = await pcEnsureJumpEp(r);
+    // 跳板机通道启用时先把**每个地址**的转发端点都就绪（它们各自是候选；
+    // 某条失败只影响那一条，别的地址照探）
+    const jumpEps = await pcEnsureJumpEps(r);
     const jumpWanted = pcNeedJump(r);
     const candidates = pcRouteCandidates(r);
+    // 端点 127.0.0.1:port → 地址：结果行的 address 是本机端点，要按它反查回地址
+    const jumpEpAddr = {};
+    pcJumpBindings(r).forEach(function (binding) {
+      const ep = pcEpFor(r, binding.full);
+      if (ep) jumpEpAddr['127.0.0.1:' + ep.port] = binding.full;
+    });
     // 默认探测超时（毫秒）跟档案走；老档案没这字段 → 后端默认 2 秒
     const timeout = r.probe_timeout_ms || 2000;
     // 每个通道自己的超时也要带上，否则「单独给跳板机 8 秒」在电脑页 / 列表都不作数
@@ -6862,8 +7060,18 @@ window.__bkOnShow = async function () {
     let connChanged = false;
     if (res && res.ok) {
       pcConnOk.set(r.id, true);
-      pcWinnerKind.set(r.id, String(res.kind || '').trim());
-      connChanged = prevKind !== String(res.kind || '').trim()
+      const winKind = String(res.kind || '').trim();
+      pcWinnerKind.set(r.id, winKind);
+      // 赢家在哪个地址：直连赢家 res.addr 就是地址；跳板机赢家 res.addr 是本机端点，反查地址
+      if (winKind === 'jump') {
+        pcWinnerAddr.set(r.id,
+          jumpEpAddr[String(res.addr || '')] || (pcJumpBindings(r)[0] || {}).full || '');
+      } else if (winKind === 'lan') {
+        pcWinnerAddr.set(r.id, pcNormAddr(res.addr || ''));
+      } else {
+        pcWinnerAddr.delete(r.id);
+      }
+      connChanged = prevKind !== winKind
         || (res.remote ? !prevRemoteWin : prevRemoteWin);
       if (res.remote) {
         pcRemoteWin.set(r.id, res.addr); // res.addr = https origin
@@ -6914,17 +7122,24 @@ window.__bkOnShow = async function () {
     const rowMap = new Map();
     (res && Array.isArray(res.results) ? res.results : []).forEach(function (o) {
       if (!o) return;
-      rowMap.set(String(o.kind || 'lan') + '\u0000' + (o.pair_id || o.address || ''),
+      const kind = String(o.kind || 'lan');
+      // 跳板机行按**它转发的那个地址**记账（结果里的 address 是本机端点，
+      // 直接拿来当键的话三条通道会各记各的、对不上列表里那三行）
+      const key = kind === 'jump'
+        ? (jumpEpAddr[String(o.address || '')] || String(o.address || ''))
+        : (o.pair_id || o.address || '');
+      rowMap.set(kind + '\u0000' + key,
         { ok: !!o.ok, ms: o.ms || 0, error: o.error || '' });
     });
-    // kind 别名键（kind + '\0'）：跳板机行没有稳定地址键，按 kind 查第一条结果
-    rowMap.forEach(function (v, k) {
-      const alias = k.split('\u0000')[0] + '\u0000';
-      if (!rowMap.has(alias)) rowMap.set(alias, v);
-    });
-    // 跳板机通道启用但端点没就绪（SSH 连不上）：如实记一条失败，别让行上假装没探过
-    if (jumpWanted && !jumpEp && !rowMap.has('jump\u0000')) {
-      rowMap.set('jump\u0000', { ok: false, ms: 0, error: '跳板机连不上' });
+    // 跳板机通道启用、但这个地址的转发没起来（SSH 连不上）：如实记一条失败，
+    // 别让那一行假装没探过（有几个地址没端点就记几条）
+    if (jumpWanted) {
+      pcJumpBindings(r).forEach(function (binding) {
+        const key = 'jump\u0000' + binding.full;
+        if (!pcEpFor(r, binding.full) && !rowMap.has(key)) {
+          rowMap.set(key, { ok: false, ms: 0, error: '跳板机连不上' });
+        }
+      });
     }
     pcRowProbe.set(r.id, rowMap);
     if (connChanged) {
@@ -6998,10 +7213,13 @@ window.__bkOnShow = async function () {
    */
   function pcConnLabel(r, short) {
     if (!r) return '';
-    const jump = servers.find(function (s) { return s.id === (r.jump_id || '').trim(); });
-    const jumpLabel = short ? '跳板机'
-      : ('跳板机 · ' + (jump ? (jump.name || jump.host) : '已删除'));
     const kind = pcWinnerKind.get(r.id) || '';
+    // 跳板机也是「一址一台」：标注要跟着**赢家那个地址**的跳板机说话
+    const jumpId = kind === 'jump'
+      ? pcJumpFor(r, pcEpsAddrOfWinner(r) || ((pcJumpBindings(r)[0] || {}).addr || ''))
+      : '';
+    const jumpLabel = short ? '跳板机'
+      : ('跳板机 · ' + (jumpId ? pcJumpName(jumpId) : '已删除'));
     if (kind === 'lan') {
       return pcConnOk.get(r.id) === true ? '直连' : '未连接';
     }
@@ -7046,6 +7264,157 @@ window.__bkOnShow = async function () {
   }
 
   /** 列表行模型：本机固定一条 + 每个已保存的服务端一条 */
+  // ---- 排序：自定义（用户 ↑↓ 排出来的顺序）/ 名称 / 最近连接 ----
+  // 模式只存本机（localStorage）；**顺序本身**存在每台档案的 sort_index 里，
+  // 跟着同步走 —— 换台电脑看到同一份顺序，但各端可以选不同的排序模式。
+  const CQ_ORDER_MODES = ['custom', 'name', 'recent'];
+  const CQ_ORDER_LABELS = { custom: '自定义', name: '名称', recent: '最近连接' };
+  let cqOrderMode = 'custom';
+  try {
+    const savedOrder = localStorage.getItem('anyboot.orderMode');
+    if (CQ_ORDER_MODES.indexOf(savedOrder) >= 0) cqOrderMode = savedOrder;
+  } catch (e) { /* 隐私模式禁用 localStorage：吃默认值 */ }
+
+  /** 排序用的名字：显示名（空则首选地址），小写 */
+  function cqSortName(r) {
+    const name = String((r && r.name) || '').trim();
+    return (name || pcFirstAddr(r) || '').toLowerCase();
+  }
+
+  function cqSortIndex(r) {
+    const value = r ? r.sort_index : null;
+    return (typeof value === 'number' && isFinite(value)) ? value : null;
+  }
+
+  /** 原地排 remotes —— 电脑列表与电脑页标签栏**共用这一份顺序**（用户 2026-11-01） */
+  function cqSortRemotes() {
+    remotes.sort(function (a, b) {
+      if (cqOrderMode === 'recent') {
+        const la = Number(a.last_used_at) || 0;
+        const lb = Number(b.last_used_at) || 0;
+        if (la !== lb) return lb - la;   // 刚连过的在前；没连过的按名称
+        return cqSortName(a).localeCompare(cqSortName(b), 'zh-Hans-CN');
+      }
+      if (cqOrderMode === 'name') {
+        return cqSortName(a).localeCompare(cqSortName(b), 'zh-Hans-CN')
+          || String(a.id).localeCompare(String(b.id));
+      }
+      // 自定义：排过的按序号，没排过的按名称殿后（与后端 / 手机端同一套语义）
+      const sa = cqSortIndex(a);
+      const sb = cqSortIndex(b);
+      if (sa !== null && sb !== null && sa !== sb) return sa - sb;
+      if (sa !== null && sb === null) return -1;
+      if (sa === null && sb !== null) return 1;
+      return cqSortName(a).localeCompare(cqSortName(b), 'zh-Hans-CN')
+        || String(a.id).localeCompare(String(b.id));
+    });
+  }
+
+  function cqUpdateSortUi() {
+    const text = document.getElementById('cqSortText');
+    if (text) text.textContent = CQ_ORDER_LABELS[cqOrderMode] || '自定义';
+    const menu = document.getElementById('cqSortMenu');
+    if (menu) {
+      menu.querySelectorAll('[data-order]').forEach(function (item) {
+        item.classList.toggle('on', item.dataset.order === cqOrderMode);
+      });
+    }
+    const hint = document.getElementById('cqSortHint');
+    if (hint) {
+      hint.textContent = cqOrderMode === 'custom'
+        ? '自定义：每行左侧 ↑ ↓ 调整顺序'
+        : '每行左侧 ↑ ↓ 会切回「自定义」，并从眼前这个顺序接着排';
+    }
+  }
+
+  function cqSetOrderMode(mode) {
+    if (CQ_ORDER_MODES.indexOf(mode) < 0) return;
+    cqOrderMode = mode;
+    try { localStorage.setItem('anyboot.orderMode', mode); } catch (e) { }
+    cqSortRemotes();
+    cqUpdateSortUi();
+    if (currentPage === 'computers') cqRenderRows();
+    renderPcChips();   // 电脑页标签栏跟着同一套顺序
+  }
+
+  /**
+   * ↑ / ↓ 移动一台电脑。**非自定义模式点一下就接管**：先把「眼前看到的顺序」
+   * 冻结成 sort_index（0..n），再移动 —— 否则会跳回名称序再挪，用户会觉得点错了。
+   */
+  async function cqMoveRemote(rid, delta) {
+    if (cqOrderMode !== 'custom') {
+      remotes.forEach(function (r, i) { r.sort_index = i; });
+      cqOrderMode = 'custom';
+      try { localStorage.setItem('anyboot.orderMode', 'custom'); } catch (e) { }
+      cqUpdateSortUi();
+    }
+    const index = remotes.findIndex(function (r) { return r.id === rid; });
+    const target = index + delta;
+    if (index < 0 || target < 0 || target >= remotes.length) return;
+    const next = remotes.slice();
+    const moved = next.splice(index, 1)[0];
+    next.splice(target, 0, moved);
+    next.forEach(function (r, i) { r.sort_index = i; });
+    remotes = next;
+    if (currentPage === 'computers') cqRenderRows();
+    renderPcChips();
+    if (!invoke) return;
+    try {
+      await invoke('remote_reorder', { ids: remotes.map(function (r) { return r.id; }) });
+    } catch (error) {
+      console.error(error);
+      toast('顺序没存进配置：' + error);
+    }
+  }
+
+  /**
+   * 记一次「连接成功」（「最近连接」排序用）：本地先记上，后端写盘失败也不影响连接。
+   * 只连上才记 —— 从没连通的电脑在「最近连接」里本来就该排在后面。
+   */
+  function cqTouchRemote(rid) {
+    if (!rid || rid === 'local') return;
+    const now = Date.now();
+    const row = remotes.find(function (r) { return r.id === rid; });
+    if (row) row.last_used_at = now;
+    if (!invoke) return;
+    invoke('remote_touch', { id: rid }).catch(function () { /* 只影响排序，静默 */ });
+  }
+
+  // 排序菜单：固定定位挂在按钮下方（复用 .pc-menu 的皮，避免被工具栏裁掉）
+  (function () {
+    const btn = document.getElementById('cqSort');
+    const menu = document.getElementById('cqSortMenu');
+    if (!btn || !menu) return;
+    function closeSortMenu() {
+      menu.hidden = true;
+      btn.setAttribute('aria-expanded', 'false');
+    }
+    btn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      if (!menu.hidden) { closeSortMenu(); return; }
+      cqUpdateSortUi();
+      menu.hidden = false;
+      btn.setAttribute('aria-expanded', 'true');
+      const rect = btn.getBoundingClientRect();
+      const width = menu.offsetWidth || 244;
+      menu.style.top = (rect.bottom + 6) + 'px';
+      menu.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8)) + 'px';
+    });
+    menu.addEventListener('click', function (e) {
+      const item = e.target.closest('[data-order]');
+      if (!item) return;
+      closeSortMenu();
+      cqSetOrderMode(item.dataset.order);
+    });
+    document.addEventListener('click', function (e) {
+      if (menu.hidden) return;
+      if (menu.contains(e.target)) return;
+      if (e.target.closest && e.target.closest('#cqSort')) return;
+      closeSortMenu();
+    });
+    cqUpdateSortUi();
+  })();
+
   function cqRows() {
     const rows = [{
       rid: 'local',
@@ -7072,6 +7441,72 @@ window.__bkOnShow = async function () {
       });
     });
     return rows;
+  }
+
+  /**
+   * 空列表的「幽灵行」：一台远端电脑都没加时补在「本机」下面，
+   * 把五个引导器各画成一格虚线空格子（全部「未检测到」），
+   * 让用户先看清这块将来会有什么 —— 用户 2026-11-01 要求空状态里要有
+   * rEFInd / GRUB / OpenCore / Clover / systemd-boot。
+   * 顺序跟真实列一致（CQ_CHANNEL_ORDER：rEFInd → GRUB → systemd-boot → OpenCore → Clover）。
+   */
+  const CQ_GHOST_BOOTS = ['rEFInd', 'GRUB', 'systemd-boot', 'OpenCore', 'Clover'];
+
+  function cqGhostRowEl() {
+    const wrap = document.createElement('div');
+    wrap.className = 'cq-ghost';
+    wrap.id = 'cqGhost';
+
+    const row = document.createElement('div');
+    row.className = 'cq-row cq-ghost-row';
+    row.setAttribute('aria-hidden', 'true');
+
+    const dev = document.createElement('div');
+    dev.className = 'cq-col cq-col-dev cq-ghost-dev';
+    const ico = document.createElement('span');
+    ico.className = 'cq-ghost-ico';
+    const txt = document.createElement('span');
+    txt.className = 'cq-ghost-txt';
+    [76, 46].forEach(function (width, index) {
+      const bar = document.createElement('i');
+      bar.className = 'cq-ghost-bar' + (index ? ' cq-ghost-bar--sm' : '');
+      bar.style.width = width + 'px';
+      txt.appendChild(bar);
+    });
+    dev.appendChild(ico);
+    dev.appendChild(txt);
+    row.appendChild(dev);
+
+    const st = document.createElement('div');
+    st.className = 'cq-col cq-col-st cq-ghost-st';
+    st.textContent = '未连接';
+    row.appendChild(st);
+
+    // 五个引导器格子放进网格容器：宽屏一行五格，窄屏自动变 3 列 / 2 列
+    const boots = document.createElement('div');
+    boots.className = 'cq-ghost-boots';
+    CQ_GHOST_BOOTS.forEach(function (name) {
+      const cell = document.createElement('div');
+      cell.className = 'cq-ghost-cell';
+      const n = document.createElement('span');
+      n.className = 'n';
+      n.textContent = name;
+      const v = document.createElement('span');
+      v.className = 'v';
+      v.textContent = '未检测到';
+      cell.appendChild(n);
+      cell.appendChild(v);
+      boots.appendChild(cell);
+    });
+    row.appendChild(boots);
+    wrap.appendChild(row);
+
+    const note = document.createElement('div');
+    note.className = 'cq-ghost-note';
+    note.textContent = '还没有添加电脑 —— 点右上角 ⋮「添加服务端」，'
+      + '这台电脑的电源与各引导器的当前启动项就会出现在这里（检测到哪个引导器才出哪一列）。';
+    wrap.appendChild(note);
+    return wrap;
   }
 
   /** GRUB 的「下次启动」和「上次启动」不一致 = 有待生效的修改 */
@@ -7598,7 +8033,7 @@ window.__bkOnShow = async function () {
     const key = String(kind || 'lan') + '\u0000' + (pairId || address || '');
     return rows.get(key) || null;
   }
-  /** 通道行尾的探测情况小字：通 = 延迟（绿），不通 = 短原因（暗红），未测出 = 中性灰 */
+  /** 通道行首的探测短状态（样式 3，用户 2026-11-01）：通 = 延迟（绿），不通 = 短词（暗红），未测出 = 中性灰 */
   function cqProbeBadge(rid, kind, pairId, address) {
     const st = cqProbeState(rid, kind, pairId, address);
     const span = document.createElement('span');
@@ -7607,14 +8042,20 @@ window.__bkOnShow = async function () {
     const skipped = !st.ok && /未测出|未探测/.test(st.error || '');
     span.className = 'cq-probe-ms' + (st.ok ? ' ok' : (skipped ? '' : ' bad'));
     span.textContent = st.ok ? (st.ms + ' ms')
-      : (skipped ? '未测出' : (st.error || '不通'));
+      : (skipped ? '未测出' : '不通');
     span.title = st.ok ? '最近一次探测通过'
       : (skipped ? '这条通道没轮到探测：' + (st.error || '其他通道先命中')
         : '最近一次探测失败：' + (st.error || '不通'));
     return span;
   }
-  /** 直连地址行尾的「复制 / 浏览器打开」：URL 带档案令牌，局域网内落地即可用 */
-  function cqLanActs(row, addr) {
+  /** 完整失败原因（样式 3：垫在地址行下面的小字，换行铺全）；空 = 不垫 */
+  function cqProbeReason(rid, kind, pairId, address) {
+    const st = cqProbeState(rid, kind, pairId, address);
+    if (!st || st.ok) return '';
+    if (/未测出|未探测/.test(st.error || '')) return '';
+    return st.error || '';
+  }
+  /** 直连地址行尾的「复制 / 浏览器打开」：URL 带档案令牌，局域网内落地即可用 */  function cqLanActs(row, addr) {
     const r = remotes.find(function (x) { return x.id === row.rid; }) || {};
     const url = 'http://' + addr + '/?token=' + encodeURIComponent(r.token || '');
     const acts = [];
@@ -7647,6 +8088,64 @@ window.__bkOnShow = async function () {
     return acts;
   }
 
+  /**
+   * 一个地址自己的跳板机行（样式 3，用户 2026-11-01）：
+   * 上行 = 探测短状态 + 徽章 + 本机端点；下行 = 「跳板机名 → 地址」独占整行横排全宽；
+   * 失败原因垫在最下面换行铺全。三条直连配三台跳板机就是三组。
+   * 转发端点只在本机有效，所以这里不给「复制 / 浏览器打开」按钮。
+   */
+  function cqJumpLine(row, remRow, address, jumpId) {
+    const full = pcNormAddr(address);
+    const ln = document.createElement('div');
+    ln.className = 'cq-dev-line';
+
+    const top = document.createElement('div');
+    top.className = 'cq-dev-top';
+    const kind = document.createElement('span');
+    kind.className = 'cq-remote-kind';
+    kind.dataset.k = 'jump';
+    kind.textContent = '跳板机';
+    top.appendChild(kind);
+
+    const using = pcWinnerKind.get(row.rid) === 'jump'
+      && pcNormAddr(pcEpsAddrOfWinner(remRow) || '') === full;
+    const st = cqProbeState(row.rid, 'jump', '', full);
+    const state = document.createElement('span');
+    const skipped = st && !st.ok && /未测出|未探测/.test(st.error || '');
+    state.className = 'cq-probe-ms'
+      + (!st ? '' : (st.ok || using ? ' ok' : (skipped ? '' : ' bad')));
+    state.textContent = using
+      ? ('使用中' + (st && st.ok ? ' ' + st.ms + 'ms' : ''))
+      : (!st ? '未探测' : (st.ok ? st.ms + ' ms' : (skipped ? '未测出' : '不通')));
+    top.appendChild(state);
+    ln.appendChild(top);
+
+    const addrRow = document.createElement('div');
+    const name = document.createElement('span');
+    name.className = 'cq-dev-addr';
+    name.textContent = pcJumpName(jumpId) + ' → ' + full;
+    name.title = '这个直连地址经「' + pcJumpName(jumpId) + '」中转（ssh -L 转发到 ' + full + '）；'
+      + '是否使用由连接优先级决定';
+    addrRow.appendChild(name);
+    ln.appendChild(addrRow);
+
+    const ep = pcEpFor(remRow, full);
+    if (ep) {
+      const epSpan = document.createElement('span');
+      epSpan.className = 'cq-dev-src';
+      epSpan.textContent = '转发端点 127.0.0.1:' + ep.port;
+      top.appendChild(epSpan);
+    }
+    const reason = cqProbeReason(row.rid, 'jump', '', full);
+    if (reason) {
+      const rz = document.createElement('span');
+      rz.className = 'cq-dev-reason';
+      rz.textContent = reason;
+      ln.appendChild(rz);
+    }
+    return ln;
+  }
+
   function cqRowEl(row) {    const tr = document.createElement('div');
     tr.className = 'cq-row';
     tr.setAttribute('role', 'row');
@@ -7658,6 +8157,29 @@ window.__bkOnShow = async function () {
     const tdDev = document.createElement('div');
     tdDev.className = 'cq-col cq-col-dev';
     tdDev.setAttribute('role', 'cell');
+    // 自定义排序的 ↑ ↓（本机不参与排序：它永远第一，但留同宽占位保证名称列对齐）
+    if (cqOrderMode === 'custom') {
+      const moveBox = document.createElement('div');
+      moveBox.className = 'cq-move';
+      const orderIndex = remotes.findIndex(function (r) { return r.id === row.rid; });
+      if (!row.local && orderIndex >= 0) {
+        [[-1, '▴', '上移一位'], [1, '▾', '下移一位']].forEach(function (spec) {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.textContent = spec[1];
+          btn.title = spec[2] + '（自定义排序）';
+          btn.disabled = orderIndex + spec[0] < 0 || orderIndex + spec[0] >= remotes.length;
+          btn.addEventListener('click', function (e) {
+            e.stopPropagation();   // 别把整行的「选中 / 打开页面」一起触发了
+            cqMoveRemote(row.rid, spec[0]);
+          });
+          moveBox.appendChild(btn);
+        });
+      } else {
+        moveBox.style.width = '18px';
+      }
+      tdDev.appendChild(moveBox);
+    }
     const dev = document.createElement('div');
     dev.className = 'cq-dev';
     const ico = document.createElement('div');
@@ -7718,17 +8240,17 @@ window.__bkOnShow = async function () {
       const ln = document.createElement('div');
       ln.className = 'cq-dev-line';
       const ipSpan = document.createElement('span');
+      ipSpan.className = 'cq-dev-addr';
       ipSpan.textContent = row.ip;
       ln.appendChild(ipSpan);
       if (row.mac) {
-        const sep = document.createElement('span');
-        sep.className = 'sep cq-dev-mac';
-        sep.textContent = '·';
-        ln.appendChild(sep);
+        const macRow = document.createElement('div');
+        macRow.className = 'cq-dev-macrow';
         const macSpan = document.createElement('span');
         macSpan.className = 'cq-dev-mac';
         macSpan.textContent = row.mac;
-        ln.appendChild(macSpan);
+        macRow.appendChild(macSpan);
+        ln.appendChild(macRow);
       }
       meta.appendChild(ln);
     } else {
@@ -7736,79 +8258,64 @@ window.__bkOnShow = async function () {
       // 连接策略停用了直连：整行不上列表页（用户 2026-10-28：没开启的就不展示）
       // 「是否展示」关了直连：同样整行不上（用户 2026-10-31 改口径：连通性、地址、
       // 复制/打开按钮全不显示）；探测照跑、连接照常
-      addrLines.forEach(function (line) {
-        if (routeDisabledList.indexOf('lan') >= 0 || routeProbeHiddenList.indexOf('lan') >= 0) return;
-        const ln = document.createElement('div');
-        ln.className = 'cq-dev-line';
-        const lanKind = document.createElement('span');
-        lanKind.className = 'cq-remote-kind';
-        lanKind.dataset.k = 'lan';
-        lanKind.textContent = '直连';
-        ln.appendChild(lanKind);
-        const a = document.createElement('span');
-        a.className = 'cq-dev-addr';
-        a.title = line.addr;
-        a.textContent = line.addr;
-        ln.appendChild(a);
-        // 探测情况：该地址在这轮逐行结果里的成败与延迟（同一套探测，换个样式展示）
-        ln.appendChild(cqProbeBadge(row.rid, 'lan', '', pcNormAddr(line.addr)));
-        line.macs.forEach(function (m) {
-          const sep = document.createElement('span');
-          sep.className = 'sep cq-dev-mac';
-          sep.textContent = '·';
-          ln.appendChild(sep);
-          const ms = document.createElement('span');
-          ms.className = 'cq-dev-mac';
-          ms.textContent = m;
-          ln.appendChild(ms);
-        });
-        if (!row.local) {
-          const sep = document.createElement('span');
-          sep.className = 'sep';
-          sep.textContent = '·';
-          ln.appendChild(sep);
-          cqLanActs(row, line.addr).forEach(function (btn) { ln.appendChild(btn); });
-        }
-        meta.appendChild(ln);
-      });
-      // 跳板机通道行：配了且启用才亮出来（转发端点只在本机有效，不给浏览器按钮）；
-      // 连接策略停用了跳板机：整行不上列表页（用户 2026-10-28：没开启的就不展示）；
-      // 「是否展示」关了跳板机：同样整行不上（用户 2026-10-31 改口径）
-      const jumpId = (remRow && remRow.jump_id || '').trim();
       const jumpDisabled = remRow && Array.isArray(remRow.route_disabled)
         ? remRow.route_disabled.indexOf('jump') >= 0 : false;
       const jumpHidden = routeProbeHiddenList.indexOf('jump') >= 0;
-      if (jumpId && !jumpDisabled && !jumpHidden) {
-        const jump = servers.find(function (s) { return s.id === jumpId; });
-        const ln = document.createElement('div');
-        ln.className = 'cq-dev-line';
-        const jumpKind = document.createElement('span');
-        jumpKind.className = 'cq-remote-kind';
-        jumpKind.dataset.k = 'jump';
-        jumpKind.textContent = '跳板机';
-        ln.appendChild(jumpKind);
-        const jumpUsing = pcWinnerKind.get(row.rid) === 'jump';
-        const jumpSt = jumpUsing ? cqProbeState(row.rid, 'jump', '', '') : null;
-        const a = document.createElement('span');
-        a.textContent = (jump ? (jump.name || jump.host || '跳板机') : '已删除的跳板机') +
-          (jumpUsing ? ' · 使用中' + (jumpSt && jumpSt.ok ? ' ' + jumpSt.ms + 'ms' : '') : '');
-        a.title = '经由这台跳板机的 SSH 转发连接（广播包也走它发）；是否使用由连接优先级决定';
-        ln.appendChild(a);
-        // 这条通道的探测情况（转发端点也是候选之一，结果在 pcRowProbe）
-        ln.appendChild(cqProbeBadge(row.rid, 'jump', '', ''));
-        const ep = pcEps.get(row.rid);
-        if (ep && !jumpDisabled) {
-          const sep = document.createElement('span');
-          sep.className = 'sep';
-          sep.textContent = '·';
-          ln.appendChild(sep);
-          const epSpan = document.createElement('span');
-          epSpan.className = 'cq-dev-src';
-          epSpan.textContent = '转发端点 127.0.0.1:' + ep.port;
-          ln.appendChild(epSpan);
+      // 「一址一跳板机」：每个直连地址后面紧跟**它自己的**跳板机行。
+      // 三条直连各配一台跳板机 = 三行，行尾各自带转发端点与探测结果。
+      addrLines.forEach(function (line) {
+        const lanVisible = routeDisabledList.indexOf('lan') < 0 && routeProbeHiddenList.indexOf('lan') < 0;
+        if (lanVisible) {
+          // 样式 3 + 2026-11-01 二改：上行「探测短状态 + 直连徽章 + 操作」，
+          // 下行地址独占整行横排全宽，MAC 一行排在地址下面（可多个自动换行），失败原因垫底
+          const ln = document.createElement('div');
+          ln.className = 'cq-dev-line';
+          const top = document.createElement('div');
+          top.className = 'cq-dev-top';
+          const lanKind = document.createElement('span');
+          lanKind.className = 'cq-remote-kind';
+          lanKind.dataset.k = 'lan';
+          lanKind.textContent = '直连';
+          top.appendChild(lanKind);
+          top.appendChild(cqProbeBadge(row.rid, 'lan', '', pcNormAddr(line.addr)));
+          if (!row.local) {
+            cqLanActs(row, line.addr).forEach(function (btn) { top.appendChild(btn); });
+          }
+          ln.appendChild(top);
+          const addrRow = document.createElement('div');
+          const a = document.createElement('span');
+          a.className = 'cq-dev-addr';
+          a.title = line.addr;
+          a.textContent = line.addr;
+          addrRow.appendChild(a);
+          ln.appendChild(addrRow);
+          // MAC 排在 IP 的下一行（用户 2026-11-01）：多个 MAC 自动换行，全字不省略
+          if (line.macs.length) {
+            const macRow = document.createElement('div');
+            macRow.className = 'cq-dev-macrow';
+            line.macs.forEach(function (m) {
+              const ms = document.createElement('span');
+              ms.className = 'cq-dev-mac';
+              ms.textContent = m;
+              macRow.appendChild(ms);
+            });
+            ln.appendChild(macRow);
+          }
+          const reason = cqProbeReason(row.rid, 'lan', '', pcNormAddr(line.addr));
+          if (reason) {
+            const rz = document.createElement('span');
+            rz.className = 'cq-dev-reason';
+            rz.textContent = reason;
+            ln.appendChild(rz);
+          }
+          meta.appendChild(ln);
         }
-        meta.appendChild(ln);
-      }
+        // 这个地址自己的跳板机行（连接策略停用跳板机 / 「是否展示」关了跳板机 → 不亮）
+        const jumpId = pcJumpFor(remRow || {}, line.addr);
+        if (jumpId && !jumpDisabled && !jumpHidden) {
+          meta.appendChild(cqJumpLine(row, remRow, line.addr, jumpId));
+        }
+      });
     }
     // 远程接入地址一行（配置了就亮出来；过期态 = 远程不通且局域网也不通）
     // 每条配对一行（一区块多条都要亮出来，否则用户以为只有第一条在跑）
@@ -7830,56 +8337,69 @@ window.__bkOnShow = async function () {
       // 探测照跑、连接照常，纯展示开关
       if (routeProbeHiddenList.indexOf(routeKind) >= 0 || pair.show_probe === false) return;
       const kindLabel = ROUTE_LABELS[routeKind] || pair.kind;
+      // 样式 3（用户 2026-11-01）：上行「状态 + 徽章 + 来源 + 标记 + 操作」，
+      // 下行地址独占整行横排全宽，失败原因垫底换行铺全
       const ln = document.createElement('div');
       ln.className = 'cq-dev-line' + (expired && !using ? ' cq-remote-expired' : '');
+      const top = document.createElement('div');
+      top.className = 'cq-dev-top';
       const kind = document.createElement('span');
       kind.className = 'cq-remote-kind';
       kind.dataset.k = routeKind;
       kind.textContent = kindLabel;
-      ln.appendChild(kind);
+      top.appendChild(kind);
+      // 「使用中」也要带耗时：选了谁 + 探测多快一起说（与移动端列表同口径）
+      const usingSt = using ? cqProbeState(row.rid, routeKind, pair.id || '', pair.addr) : null;
+      const state = document.createElement('span');
+      if (using) {
+        state.className = 'cq-probe-ms ok';
+        state.textContent = '使用中' + (usingSt && usingSt.ok ? ' ' + usingSt.ms + 'ms' : '');
+      } else {
+        const stShort = cqProbeBadge(row.rid, routeKind, pair.id || '', pair.addr);
+        state.className = stShort.className;
+        state.textContent = stShort.textContent;
+        state.title = stShort.title;
+      }
+      if (expired && !using) {
+        state.textContent = (state.textContent ? state.textContent + ' · ' : '') + '已过期（重扫配对码）';
+      }
+      top.appendChild(state);
+      ln.appendChild(top);
+      const addrRow = document.createElement('div');
       const a = document.createElement('span');
       a.className = 'cq-dev-addr';
       a.title = pair.addr;
-      // 「使用中」也要带耗时：选了谁 + 探测多快一起说（与移动端列表同口径）
-      const usingSt = using ? cqProbeState(row.rid, routeKind, pair.id || '', pair.addr) : null;
-      a.textContent = pair.addr +
-        (using ? ' · 使用中' + (usingSt && usingSt.ok ? ' ' + usingSt.ms + 'ms' : '')
-          : (expired ? ' · 已过期（重扫配对码）' : ''));
-      ln.appendChild(a);
-      // 这条配对的探测情况（同一套逐行结果）：通 = 延迟，不通 = 原因
-      ln.appendChild(cqProbeBadge(row.rid, routeKind, pair.id || '', pair.addr));
+      a.textContent = pair.addr;
+      addrRow.appendChild(a);
+      ln.appendChild(addrRow);
+      // 这条配对的探测情况（同一套逐行结果）：不通时完整原因垫在地址下面
+      const reason = cqProbeReason(row.rid, routeKind, pair.id || '', pair.addr);
+      if (reason) {
+        const rz = document.createElement('span');
+        rz.className = 'cq-dev-reason';
+        rz.textContent = reason;
+        ln.appendChild(rz);
+      }
       const source = pcPairSource(pair);
       if (source) {
-        const sep = document.createElement('span');
-        sep.className = 'sep';
-        sep.textContent = '·';
-        ln.appendChild(sep);
         const src = document.createElement('span');
         src.className = 'cq-dev-src';
         src.textContent = source;
         src.title = (pair.mid ? 'mid ' + pair.mid : '')
           + (pair.tunnel_id ? '\n隧道 ' + pair.tunnel_id : '');
-        ln.appendChild(src);
+        top.appendChild(src);
       }
       if (shared) {
-        const sep = document.createElement('span');
-        sep.className = 'sep';
-        sep.textContent = '·';
-        ln.appendChild(sep);
         const warn = document.createElement('span');
         warn.className = 'cq-dev-share';
         warn.textContent = '隧道共用';
         warn.title = '同一隧道被多套系统共用，请求会随机落到其中一个';
-        ln.appendChild(warn);
+        top.appendChild(warn);
       }
       // 行内操作：复制 / 浏览器打开（URL 带这条配对自己的令牌，落地即可用）
       const url = String(pair.addr || '') + (pair.token
         ? '/?ab_token=' + encodeURIComponent(pair.token) : '');
       if (url) {
-        const sep = document.createElement('span');
-        sep.className = 'sep';
-        sep.textContent = '·';
-        ln.appendChild(sep);
         const copy = document.createElement('button');
         copy.type = 'button';
         copy.className = 'cq-remote-act';
@@ -7893,7 +8413,7 @@ window.__bkOnShow = async function () {
               .catch(function () { toast('复制失败：剪贴板不可用', 'bad'); });
           } else toast(url);
         });
-        ln.appendChild(copy);
+        top.appendChild(copy);
         const openBtn = document.createElement('button');
         openBtn.type = 'button';
         openBtn.className = 'cq-remote-act';
@@ -7906,21 +8426,29 @@ window.__bkOnShow = async function () {
             .then(function () { toast('已在系统浏览器打开' + kindLabel + '通道'); })
             .catch(function (error) { toast('打开浏览器失败：' + error, 'bad'); });
         });
-        ln.appendChild(openBtn);
+        top.appendChild(openBtn);
       }
       meta.appendChild(ln);
     });
     txt.appendChild(meta);
     dev.appendChild(txt);
     tdDev.appendChild(dev);
-    tr.appendChild(tdDev);
+    // 用户 2026-11-01：卡片改移动端同款上下布局 —— 头部行（电脑+状态+更多）/
+    // 引导项区（wrap 一行） / 电源区（整行）三段，不再是左右六列挤在一起
+    const head = document.createElement('div');
+    head.className = 'cq-row-head';
+    head.appendChild(tdDev);
+    const bootsBox = document.createElement('div');
+    bootsBox.className = 'cq-row-boots';
+    const pwrBox = document.createElement('div');
+    pwrBox.className = 'cq-row-pwr';
 
     // ② 状态
     const tdSt = document.createElement('div');
     tdSt.className = 'cq-col cq-col-st';
     tdSt.setAttribute('role', 'cell');
     tdSt.appendChild(cqStateCell(row));
-    tr.appendChild(tdSt);
+    head.appendChild(tdSt);
 
     // ③④ 引导项（窄容器折行时靠 data-label 自带列名）
     const tdRefind = document.createElement('div');
@@ -7928,13 +8456,13 @@ window.__bkOnShow = async function () {
     tdRefind.setAttribute('role', 'cell');
     tdRefind.dataset.label = 'rEFInd 启动项';
     tdRefind.appendChild(cqBootCell(row, 'refind'));
-    tr.appendChild(tdRefind);
+    bootsBox.appendChild(tdRefind);
     const tdGrub = document.createElement('div');
     tdGrub.className = 'cq-col cq-col-boot';
     tdGrub.setAttribute('role', 'cell');
     tdGrub.dataset.label = 'GRUB 启动项';
     tdGrub.appendChild(cqBootCell(row, 'grub'));
-    tr.appendChild(tdGrub);
+    bootsBox.appendChild(tdGrub);
 
     // ③· 三引导器通道（systemd-boot / OpenCore / Clover）：列不是固定的 —— 只有
     // 至少一台电脑检测到才占一列（表头由 cqRenderBootHeads 同步追加）。没检测到
@@ -7946,7 +8474,7 @@ window.__bkOnShow = async function () {
       td.setAttribute('role', 'cell');
       td.dataset.label = (group.title || '引导器') + ' 启动项';
       td.appendChild(cqBootCell(row, kind));
-      tr.appendChild(td);
+      bootsBox.appendChild(td);
     });
 
     // ⑤ 电源（按钮 = 图标+标签+提示小字，对齐移动端 PowerButton / powerHint）
@@ -7995,7 +8523,7 @@ window.__bkOnShow = async function () {
       pwr.appendChild(btn);
     });
     tdPwr.appendChild(pwr);
-    tr.appendChild(tdPwr);
+    pwrBox.appendChild(tdPwr);
 
     // ⑥ 更多
     const tdMore = document.createElement('div');
@@ -8017,7 +8545,11 @@ window.__bkOnShow = async function () {
       cqRowMenu(row, fresh || more);
     });
     tdMore.appendChild(more);
-    tr.appendChild(tdMore);
+    head.appendChild(tdMore);
+    // 三段按上下顺序铺开：头部 → 引导项 → 电源
+    tr.appendChild(head);
+    tr.appendChild(bootsBox);
+    tr.appendChild(pwrBox);
 
     // 选中这一行（电源/引导项都是行内按钮，点空白处只做选中）
     tr.addEventListener('click', function () {
@@ -8239,11 +8771,14 @@ window.__bkOnShow = async function () {
       tbody.appendChild(cqRowEl(row));
       shown++;
     });
+    // 一台远端都没加 = 真正的空状态：补一条幽灵行，五个引导器各一格「未检测到」
+    //（被搜索/筛选滤空时不补：那种情况走下面的 cqEmpty 文案，两条同时出会打架）
+    if (!remotes.length && shown > 0) tbody.appendChild(cqGhostRowEl());
     const empty = document.getElementById('cqEmpty');
     if (empty) empty.hidden = shown > 0;
     const emptyHint = document.getElementById('cqEmptyHint');
     if (emptyHint) {
-      emptyHint.textContent = rows.length === 0
+      emptyHint.textContent = !remotes.length
         ? '还没有添加电脑 —— 点右上角 ⋮「添加服务端」，把另一台装了 AnyBoot 的电脑加进来'
         : '换个关键词，或把筛选切回「全部」';
     }
@@ -8256,7 +8791,7 @@ window.__bkOnShow = async function () {
     if (rid !== 'local') {
       const r = remotes.find(function (x) { return x.id === rid; });
       if (!r) return Promise.resolve();
-      if (r.jump_id && pcNeedJump(r)) pcResolveEp(r);
+      if (pcNeedJump(r)) pcResolveEp(r);
     }
     return invoke('remote_boot_info', { serverId: rid })
       .then(function (info) {
@@ -8301,11 +8836,15 @@ window.__bkOnShow = async function () {
       console.error(error);
       remotes = [];
     }
+    // 顺序在这里就排好：电脑列表（cqRows）与电脑页标签栏（renderPcChips）
+    // 都直接消费 remotes —— 两处永远一致，不各排各的
+    cqSortRemotes();
+    cqUpdateSortUi();
     updatePcMenuState();
     // 经跳板机的服务端：后台解析本地转发端点，到货后 iframe 才有 src。
     // 只在「赢家是跳板机 / 没探过且优先级表跳板机在前」时才解析——直连优先后
     // 赢家是 lan 的档案不再白白开隧道
-    remotes.forEach(function (r) { if (r.jump_id && pcNeedJump(r)) pcResolveEp(r); });
+    remotes.forEach(function (r) { if (pcNeedJump(r)) pcResolveEp(r); });
     // 已删除的档案要清掉缓存的引导项（本机行 'local' 永远保留）
     Array.from(cqBoot.keys()).forEach(function (rid) {
       if (rid !== 'local' && !remotes.some(function (x) { return x.id === rid; })) cqBoot.delete(rid);
@@ -8770,6 +9309,7 @@ window.__bkOnShow = async function () {
       if (activeRemote !== rid) return; // 探测期间换了标签，结果作废
       if (res && res.ok) {
         pageProbe.set(rid, { ok: true, remote: !!res.remote });
+        cqTouchRemote(rid);   // 「最近连接」排序：连上才算用过
         pageStopRetry();
         pageShowFrame(rid);
       } else {
@@ -8867,6 +9407,7 @@ window.__bkOnShow = async function () {
         }
         toast(lines.join('\n'));
         pageProbe.set(rid, { ok: true, remote: !!res.remote });
+        cqTouchRemote(rid);   // 「最近连接」排序：重试成功同样算用过
         pageReload(rid);
       } else {
         pageProbe.set(rid, { ok: false });
@@ -10041,7 +10582,7 @@ window.__bkOnShow = async function () {
     const short = function (mode) {
       return mode === 'parallel_all' ? '并发全部' : (mode === 'serial' ? '串行' : '并发首个');
     };
-    const jump = document.getElementById('rsJump').value;
+    const jump = rsJumpBindings().length;
     const enabled = rsRouteOrder.filter(function (kind) {
       return !rsRouteDisabled[kind] && rsRouteAvailable(kind);
     }).length;
@@ -10056,7 +10597,7 @@ window.__bkOnShow = async function () {
       ' · 条目默认 ' + (rsProbeTimeoutMs() / 1000) + 's' +
       (pairCount ? ' · ' + pairCount + ' 条配对' + (worst ? ' 最坏 ' + worst.toFixed(1) + 's' : '') : '') +
       (blockModes.length ? ' · ' + blockModes.join(' / ') : '') +
-      (jump ? ' · 跳板机' : '');
+      (jump ? ' · 跳板机' + (jump > 1 ? ' ×' + jump : '') : '');
     const routes = rsRouteEditor.routes();
     // 计数带上「启用」数：默认策略是关着的，光看「4 条」不知道开了几条
     const routesOn = routes.filter(function (route) { return route.enabled !== false; }).length;
@@ -10068,12 +10609,24 @@ window.__bkOnShow = async function () {
   }
   const rsEditOverlay = document.getElementById('rsEditOverlay');
 
-  /** 电脑档案 → 地址编辑状态（macs 是「地址 → MAC 列表」对象） */
+  /** 电脑档案 → 地址编辑状态（macs / jumps 都是「地址 → 值」对象；
+      老字段 jump_id 是档案级默认跳板机 —— 摊进每一行，编辑框里按地址可改可摘） */
   function addressesFromRemote(r) {
     if (!r) return [];
+    const map = r.jumps || {};
     return (r.addresses || []).map(function (address) {
-      return { address: address, macs: ((r.macs && r.macs[address]) || []).slice() };
+      const jump = String(map[address] || (r.jump_id || '')).trim();
+      return { address: address, macs: ((r.macs && r.macs[address]) || []).slice(), jump: jump };
     });
+  }
+
+  /** 跳板机候选（电脑弹窗里每个地址那一行用它；只列 SSH 档案，Telnet 没有转发能力） */
+  function jumpServerOptions() {
+    return servers
+      .filter(function (s) { return s.protocol === 'ssh'; })
+      .map(function (s) {
+        return { id: s.id, name: (s.name || '(未命名)') + '（' + s.host + ':' + (s.port || 22) + '）' };
+      });
   }
 
   /** 电脑弹窗的地址编辑器（识别框 + 列表 + 手动添加），MAC 池喂给路由编辑器 */
@@ -10083,7 +10636,9 @@ window.__bkOnShow = async function () {
     emptyText: '还没加地址 —— 上面粘一段，或者下面手动填一个。',
     noMacText: '没配 MAC —— 局域网电源发不出去',
     hintDefault: '换行 / 空格 / 逗号 / 分号都能分开；认不出的文字（备注、括号）自动忽略',
-    onPairingChange: function () { rsRouteEditor.render(); }
+    // 每个地址一行跳板机下拉：多个直连地址可以有各自的跳板机（一址一跳板机）
+    jumpOptions: jumpServerOptions,
+    onPairingChange: function () { rsRouteEditor.render(); rsRenderFoldCounts(); }
   });
 
   /** 电脑弹窗的局域网电源路由编辑器 */
@@ -10097,20 +10652,23 @@ window.__bkOnShow = async function () {
   rsAddrEditor.bind();
   rsRouteEditor.bind();
 
-  function populateRsJump(selected) {
-    const select = document.getElementById('rsJump');
-    select.textContent = '';
-    const none = document.createElement('option');
-    none.value = '';
-    none.textContent = '直连（默认）';
-    select.appendChild(none);
-    servers.filter(function (s) { return s.protocol === 'ssh'; }).forEach(function (s) {
-      const option = document.createElement('option');
-      option.value = s.id;
-      option.textContent = (s.name || '(未命名)') + '（' + s.host + ':' + (s.port || 22) + '）';
-      select.appendChild(option);
-    });
-    select.value = selected || '';
+  /**
+   * 电脑档案的跳板机绑定（编辑态）：地址 → 跳板机 id，只含配了的地址。
+   * 与后端 `RemoteServer::jump_bindings()` 同口径 —— 列表、探测、优先级判断都读它。
+   */
+  function rsJumpBindings() {
+    return rsAddrEditor.entries()
+      .map(function (item) {
+        const address = String(item.address || '').trim();
+        const jump = String(item.jump || '').trim();
+        if (!address || !jump) return null;
+        return { addr: address, full: address.indexOf(':') >= 0 ? address : address + ':12300', jump: jump };
+      })
+      .filter(Boolean);
+  }
+  function rsJumpName(id) {
+    const hit = servers.find(function (s) { return s.id === id; });
+    return hit ? (hit.name || hit.host || '(未命名)') : '已删除的跳板机';
   }
 
   function rsProbeButtons() {
@@ -10148,7 +10706,7 @@ window.__bkOnShow = async function () {
       .filter(Boolean);
     switch (kind) {
       case 'lan': return addresses.length > 0;
-      case 'jump': return addresses.length > 0 && !!document.getElementById('rsJump').value;
+      case 'jump': return addresses.length > 0 && rsJumpBindings().length > 0;
       case 'tunnel': return rsPairsLive('cloudflare').length > 0;
       case 'ts': return rsPairsLiveLane('direct').length > 0;
       case 'funnel': return rsPairsLiveLane('funnel').length > 0;
@@ -10166,10 +10724,10 @@ window.__bkOnShow = async function () {
     const addresses = rsAddrEditor.entries()
       .map(function (item) { return item.address; })
       .filter(Boolean);
-    const jumpSelect = document.getElementById('rsJump');
-    const jumpName = jumpSelect.value
-      ? ((jumpSelect.options[jumpSelect.selectedIndex] || {}).textContent || jumpSelect.value)
-      : '';
+    const jumpBindings = rsJumpBindings();
+    const jumpName = jumpBindings.length === 1
+      ? rsJumpName(jumpBindings[0].jump)
+      : (jumpBindings.length ? jumpBindings.length + ' 个地址各经一台' : '');
     switch (kind) {
       case 'lan': return addresses[0] || '未填局域网地址';
       case 'jump': return jumpName ? '经 ' + jumpName : '未选跳板机档案';
@@ -10338,8 +10896,6 @@ window.__bkOnShow = async function () {
       box.appendChild(row);
     });
   }
-  document.getElementById('rsJump').addEventListener('change', function () { rsRenderRoutes(); rsRenderFoldCounts(); });
-
   function openRsEdit(id) {
     rsEditing = id;
     rsDeleteArmed = false;
@@ -10383,7 +10939,7 @@ window.__bkOnShow = async function () {
     document.getElementById('rsFoldConnHead').classList.remove('open');
     document.getElementById('rsFoldPower').hidden = true;
     document.getElementById('rsFoldPowerHead').classList.remove('open');
-    populateRsJump(r ? r.jump_id : '');
+    // 跳板机随地址一起回显：addressesFromRemote 已把 jumps / 老字段 jump_id 摊进每一行
     // 两个粒度的探测方式分开回显：probe_mode = 多网卡（通道内），route_probe_mode = 通道之间
     rsProbe = r && (r.probe_mode === 'serial' || r.probe_mode === 'parallel_all')
       ? r.probe_mode : 'parallel_first';
@@ -10423,6 +10979,9 @@ window.__bkOnShow = async function () {
     ((r && Array.isArray(r.route_probe_hidden)) ? r.route_probe_hidden : []).forEach(function (id) {
       if (ROUTE_IDS.indexOf(id) >= 0) rsRouteProbeHidden[id] = true;
     });
+    // 新建 = 六个通道「展示」默认全关（用户 2026-11-01）：新电脑先不涌上电脑列表，
+    // 要展示哪个通道再单独开；编辑 = 档案里已存的原样回显，不动已有行为
+    if (!r) ROUTE_IDS.forEach(function (kind) { rsRouteProbeHidden[kind] = true; });
     rsRenderRoutes();
     rsRenderFoldCounts();
     document.getElementById('rsDelete').hidden = !r;
@@ -10501,11 +11060,14 @@ window.__bkOnShow = async function () {
     out.textContent = '探测中…';
     // 粘贴框里还有没分拣的内容：先自动分拣（点了测试就别让用户再点一次分拣）
     if (document.getElementById('rsRemote').value.trim()) rsAddPairFromText();
-    // 选了跳板机且跳板通道启用 → 走后端转发后探测（真实链路）；未保存的新档案先落库才能建转发
-    const viaJump = !!document.getElementById('rsJump').value && !rsRouteDisabled.jump;
+    // 选了跳板机且跳板通道启用 → 走后端转发后探测（真实链路）；未保存的新档案先落库才能建转发。
+    // 多地址各配跳板机时先测首选地址那条（其余在电脑列表里逐行看结果）。
+    const jumpBindings = rsJumpBindings();
+    const viaJump = jumpBindings.length > 0 && !rsRouteDisabled.jump;
+    const jumpAddress = jumpBindings.length ? jumpBindings[0].full : '';
     const call = viaJump
       ? (rsEditing
-          ? invoke('remote_test_via', { serverId: rsEditing })
+          ? invoke('remote_test_via', { serverId: rsEditing, address: jumpAddress })
           : Promise.reject(new Error('经跳板机测试需先保存档案：先点一次「保存」，再回来测试')))
       : invoke('remote_test', {
           addresses: [],
@@ -10656,7 +11218,9 @@ window.__bkOnShow = async function () {
       probe_timeout_ms: rsProbeTimeoutMs(),
       // 每个通道自己的探测超时（毫秒，key = 通道 id；空的通道不写 = 继承上面的默认值）
       route_timeouts_ms: rsRouteTimeoutsMs(),
-      jump_id: document.getElementById('rsJump').value || '',
+      // 跳板机：按地址各存一份（jumps），老字段 jump_id 恒等于首选地址那台
+      jump_id: rsAddrEditor.primaryJump(),
+      jumps: rsAddrEditor.jumps(),
       // 远程接入：三个区块的配对列表（每条自带地址/令牌/超时/来源）+ 区块策略
       pairs: pairsForSave,
       block_probe_mode: rsBlockProbeForSave(),
@@ -10673,7 +11237,8 @@ window.__bkOnShow = async function () {
       const pairs = (Array.isArray(r.pairs) ? r.pairs : []).map(function (p) {
         return [p.kind, p.addr, p.token || '', p.enabled === false ? '0' : '1'].join(',');
       }).join(';');
-      return [r.addresses.join('|'), r.token || '', r.jump_id || '', pairs].join('\u00a7');
+      return [r.addresses.join('|'), r.token || '', r.jump_id || '',
+        JSON.stringify(r.jumps || {}), pairs].join('\u00a7');
     };
     const prevFp = prev ? connFp(prev) : '';
     invoke('remote_save', { server: payload })

@@ -18,6 +18,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -34,6 +36,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -214,6 +217,7 @@ class ComputerListActivity : ComponentActivity() {
     private var moreTransport by mutableStateOf("auto")
     private var moreFailReloadSec by mutableStateOf(5)
     private var moreBootTheme by mutableStateOf("")
+    private var moreSortMode by mutableStateOf("custom")
 
     /** 列表里选中的电脑（点卡片选中 = 设为「当前电脑」；「重载当前电脑」作用于它） */
     private var selectedId by mutableStateOf("")
@@ -231,6 +235,7 @@ class ComputerListActivity : ComponentActivity() {
         moreTransport = ServerStore.transport(this)
         moreFailReloadSec = getSharedPreferences(UI_PREFS, MODE_PRIVATE).getInt("failReloadSec", 5)
         moreBootTheme = ServerProfile.guestBootTheme(this)
+        moreSortMode = ServerStore.sortMode(this)
         // 默认选中电脑页的当前那台；之后点卡片即切换
         selectedId = ServerStore.activeId(this)
         reloadServers()
@@ -488,8 +493,44 @@ class ComputerListActivity : ComponentActivity() {
                 DropdownMenuItem(text = { Text("引导页主题（${bootThemeLabel()}）") }, onClick = {
                     open = false; moreBootThemeOpen = true
                 })
+                // 排序模式（用户 2026-11-01）：自定义 = 卡片上的 ▴▾ 拖出来的顺序（默认）；
+                // 自定义模式下切走再切回来，原顺序还在（sortIndex 不清）
+                DropdownMenuItem(
+                    text = { Text(if (moreSortMode == "custom") "✓ 排序：自定义（▴▾ 调整）" else "排序：自定义（▴▾ 调整）") },
+                    onClick = { open = false; setSortMode("custom") },
+                )
+                DropdownMenuItem(
+                    text = { Text(if (moreSortMode == "name") "✓ 排序：按名称" else "排序：按名称") },
+                    onClick = { open = false; setSortMode("name") },
+                )
+                DropdownMenuItem(
+                    text = { Text(if (moreSortMode == "recent") "✓ 排序：最近连接" else "排序：最近连接") },
+                    onClick = { open = false; setSortMode("recent") },
+                )
             }
         }
+    }
+
+    /** 切排序模式：偏好 + 就地重排（同一份共享列表，「电脑」页的页签跟着变） */
+    private fun setSortMode(mode: String) {
+        if (moreSortMode == mode) return
+        moreSortMode = mode
+        ServerStore.setSortMode(this, mode)
+        ServerStore.sort(this, servers)
+    }
+
+    /**
+     * 自定义排序里挪一台：先把当前显示顺序冻结成 sortIndex 0..n-1
+     * （老档案没排过，直接交换会跳回名称序），再移到目标位。
+     */
+    private fun moveComputer(index: Int, delta: Int) {
+        val target = index + delta
+        if (target < 0 || target >= servers.size) return
+        servers.forEachIndexed { i, profile -> profile.sortIndex = i.toLong() }
+        val profile = servers.removeAt(index)
+        servers.add(target, profile)
+        servers.forEachIndexed { i, p -> p.sortIndex = i.toLong() }
+        ServerRepository.persist(this)
     }
 
     /** 菜单上那一条「传输方式（…）」给人看的说法（与 MainActivity 同一套值） */
@@ -862,12 +903,19 @@ class ComputerListActivity : ComponentActivity() {
     @Composable
     private fun HostList(rows: List<CqRow>) {
         val palette = LocalPalette.current
+        // 跳板机清单一次读出来给整张列表用（一址一跳板机：每行都要按 id 查名字）。
+        // remember 的 key 用各档案的绑定指纹：编辑保存改了绑定才重读，滚动不重读。
+        val jumps = remember(rows.map { it.profile.jumps }.toList()) {
+            JumpStore.loadJumps(this)
+        }
         LazyColumn(
             verticalArrangement = Arrangement.spacedBy(10.dp),
             contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 28.dp),
             modifier = Modifier.fillMaxSize(),
         ) {
-            items(rows, key = { it.profile.id }) { row -> HostCard(row) }
+            itemsIndexed(rows, key = { _, row -> row.profile.id }) { index, row ->
+                HostCard(row, jumps, moreSortMode == "custom", index, rows.size)
+            }
             item {
                 Text(
                     "电源指令通过魔术包发送，无需目标机在线\n引导项变更在下次重启时生效",
@@ -889,7 +937,7 @@ class ComputerListActivity : ComponentActivity() {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
-            modifier = Modifier.fillMaxSize().padding(horizontal = 32.dp),
+            modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp),
         ) {
             DesktopIcon(tint = palette.fgFaint.copy(alpha = 0.5f), size = 26.dp)
             Spacer(Modifier.height(8.dp))
@@ -904,11 +952,131 @@ class ComputerListActivity : ComponentActivity() {
                 textAlign = TextAlign.Center,
                 lineHeight = 20.sp,
             )
+            // 真·空状态（一台电脑都没加）：把列表将来长什么样先画出来
+            if (noServers) {
+                Spacer(Modifier.height(18.dp))
+                EmptyBootPreview()
+            }
+        }
+    }
+
+    /**
+     * 空列表的「幽灵卡」：一台电脑都没加时，先把这块将来长什么样画出来 ——
+     * 左边虚位设备（方块 + 两根灰条 + 「未连接」），下面五个引导器各一个虚线格子，
+     * 全部写「未检测到」。对齐 PC 端 `cqGhostRowEl`（用户 2026-11-01 要求：
+     * 空状态里要有 rEFInd / GRUB / OpenCore / Clover / systemd-boot）。
+     */
+    @Composable
+    private fun EmptyBootPreview() {
+        val palette = LocalPalette.current
+        val tone = LocalTone.current
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(15.dp))
+                .background(palette.card.copy(alpha = 0.45f))
+                .dashedBorder(tone.dashed, 15.dp, 1.dp)
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier
+                        .size(30.dp)
+                        .clip(RoundedCornerShape(9.dp))
+                        .background(palette.elevate)
+                        .dashedBorder(tone.dashed, 9.dp, 1.dp),
+                )
+                Spacer(Modifier.width(9.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Box(
+                        Modifier
+                            .width(76.dp)
+                            .height(8.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(palette.fg.copy(alpha = 0.10f)),
+                    )
+                    Box(
+                        Modifier
+                            .width(46.dp)
+                            .height(6.dp)
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(palette.fg.copy(alpha = 0.07f)),
+                    )
+                }
+                Spacer(Modifier.weight(1f))
+                Text("未连接", fontSize = 11.sp, color = palette.fgFaint)
+            }
+            Spacer(Modifier.height(9.dp))
+            // 手机窄：两列一组，末尾落单时补一个等宽空位，两个格子才不会拉变形
+            EMPTY_BOOT_NAMES.chunked(2).forEach { pair ->
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                ) {
+                    pair.forEach { name -> EmptyBootCell(name, Modifier.weight(1f)) }
+                    if (pair.size == 1) Spacer(Modifier.weight(1f))
+                }
+            }
+        }
+    }
+
+    /** 幽灵卡里的一个引导器空格子：虚线框 + 名字 + 「未检测到」 */
+    @Composable
+    private fun EmptyBootCell(name: String, modifier: Modifier = Modifier) {
+        val palette = LocalPalette.current
+        val tone = LocalTone.current
+        Column(
+            modifier = modifier
+                .clip(RoundedCornerShape(8.dp))
+                .dashedBorder(tone.dashed, 8.dp, 1.dp)
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+        ) {
+            Text(
+                name,
+                fontSize = 12.sp,
+                color = palette.fgDim,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text("未检测到", fontSize = 10.sp, color = palette.fgFaint)
         }
     }
 
     @Composable
-    private fun HostCard(row: CqRow) {
+    /** 自定义排序的行首 ▴▾：竖排两枚小按钮，禁用置灰（第一台的 ▴ / 最后一台的 ▾） */
+    private fun SortMoveButtons(enabledUp: Boolean, enabledDown: Boolean, onUp: () -> Unit, onDown: () -> Unit) {
+        val palette = LocalPalette.current
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(width = 20.dp, height = 15.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .clickable(enabled = enabledUp, onClick = onUp),
+            ) {
+                Text(
+                    "▴", fontSize = 10.sp, lineHeight = 10.sp,
+                    color = if (enabledUp) palette.fgDim else palette.fgFaint.copy(alpha = 0.35f),
+                )
+            }
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(width = 20.dp, height = 15.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .clickable(enabled = enabledDown, onClick = onDown),
+            ) {
+                Text(
+                    "▾", fontSize = 10.sp, lineHeight = 10.sp,
+                    color = if (enabledDown) palette.fgDim else palette.fgFaint.copy(alpha = 0.35f),
+                )
+            }
+        }
+    }
+
+    @OptIn(ExperimentalLayoutApi::class)
+    @Composable
+    private fun HostCard(row: CqRow, jumps: List<JumpServer>, customOrder: Boolean, index: Int, total: Int) {
         val palette = LocalPalette.current
         val tone = LocalTone.current
         val shape = RoundedCornerShape(15.dp)
@@ -950,6 +1118,16 @@ class ComputerListActivity : ComponentActivity() {
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.padding(start = 4.dp),
             ) {
+                // 自定义排序：行首一对 ▴▾（手机上拖拽跟滚动打架，按钮最稳）
+                if (customOrder) {
+                    SortMoveButtons(
+                        enabledUp = index > 0,
+                        enabledDown = index < total - 1,
+                        onUp = { moveComputer(index, -1) },
+                        onDown = { moveComputer(index, 1) },
+                    )
+                    Spacer(Modifier.width(5.dp))
+                }
                 Text(
                     row.name,
                     fontSize = 15.sp,
@@ -981,7 +1159,7 @@ class ComputerListActivity : ComponentActivity() {
                     OsBadge(row.profile.machineOs) { openSysInfo(row.profile) }
                 }
                 // 当前连接标注：直连 / 跳板机·xxx / 远程隧道（隧道 = 探测赢家确实是它）。
-                // 354dp 的行放不下完整文案：限宽 + 省略，长文案（跳板机名）截断保名称。
+                // 长文案（跳板机名）不再截断：限宽 110dp 内自动换行（用户 2026-11-01 全字展示）
                 Spacer(Modifier.width(7.dp))
                 val connColor = if (row.connRemote) palette.accent else palette.fgFaint
                 Text(
@@ -989,8 +1167,6 @@ class ComputerListActivity : ComponentActivity() {
                     fontSize = 10.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = connColor,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
                     modifier = Modifier
                         .widthIn(max = 110.dp)
                         .clip(RoundedCornerShape(5.dp))
@@ -1007,29 +1183,32 @@ class ComputerListActivity : ComponentActivity() {
             // 「是否展示」关了直连：同样整行不上（用户 2026-10-31 改口径，连通性/网址全不显示）
             val lanDisabled = row.profile.routeDisabled.contains(ServerProfile.ROUTE_LAN)
             val lanHidden = row.profile.routeProbeHidden.contains(ServerProfile.ROUTE_LAN)
-            val addrCount = if (lanDisabled || lanHidden) 0 else row.profile.addressCount()
+            val lanVisible = !lanDisabled && !lanHidden
+            val addrCount = row.profile.addressCount()
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.padding(start = 4.dp, top = 5.dp),
             ) {
                 StatusLine(row.state)
-                if (addrCount == 0) {
+                // 隐藏直连不给提示（用户 2026-11-01）：展示是用户自己关的，再标
+                // 「直连已隐藏」是噪音 —— 只在没配地址 / 连接策略停用时才提示
+                if (addrCount == 0 || lanDisabled) {
                     Spacer(Modifier.width(6.dp))
                     Text("·", fontSize = 11.sp, color = palette.fgFaint)
                     Spacer(Modifier.width(6.dp))
                     Text(
-                        when {
-                            lanDisabled -> "直连已停用"
-                            lanHidden -> "直连已隐藏"
-                            else -> "(未配地址)"
-                        },
+                        if (addrCount == 0) "(未配地址)" else "直连已停用",
                         fontSize = 11.sp,
                         color = palette.fgFaint,
                     )
                 }
             }
+            // 一址一跳板机（用户 2026-11-01）：每个直连地址后面紧跟**它自己的**跳板机行。
+            // 三条直连各配一台 = 三行，各带各自的探测结果与转发端点。
+            // 直连行被停用/隐藏时只是不画直连行，跳板机行照旧 —— 跳板机是独立通道。
             for (i in 0 until addrCount) {
-                DirectAddrRow(row, i)
+                if (lanVisible) DirectAddrRow(row, i)
+                JumpAddrRow(row, i, jumps)
             }
 
             // 远程配对（三个区块逐条列出）：地址 + 通道 + 来源 + 这一轮的探测结果。
@@ -1040,90 +1219,95 @@ class ComputerListActivity : ComponentActivity() {
                     modifier = Modifier.padding(top = 7.dp),
                 ) {
                     for (pair in row.pairs) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(start = 4.dp),
-                        ) {
-                            Text(
-                                pair.state,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = when {
-                                    !pair.enabled -> palette.fgFaint
-                                    pair.state.startsWith("使用中") -> palette.accent
-                                    pair.ok -> palette.ok
-                                    pair.state == "不通" -> palette.bad
-                                    else -> palette.fgFaint
-                                },
-                                modifier = Modifier.width(72.dp),
-                                maxLines = 1,
-                            )
-                            // 通道徽章：与连接优先级表同名的通道（隧道 / TS 直连 /
-                            // TS Funnel / 内置 Funnel）—— 一眼分清这条配对归属谁
-                            if (pair.channel.isNotEmpty()) {
+                        // 样式 3（用户 2026-11-01）：上行「状态 + 通道 + lane + 来源 + 操作」
+                        // FlowRow 自动换行；下行地址独占整行横排全宽；失败原因垫底；
+                        // 整块套一个浅白透明框（用户 2026-11-01 二改）
+                        Column(Modifier.padding(start = 4.dp).datumChip()) {
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                verticalArrangement = Arrangement.spacedBy(2.dp),
+                            ) {
                                 Text(
-                                    pair.channel,
+                                    pair.state,
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.SemiBold,
-                                    color = palette.fgDim,
-                                    maxLines = 1,
+                                    color = when {
+                                        !pair.enabled -> palette.fgFaint
+                                        pair.state.startsWith("使用中") -> palette.accent
+                                        pair.ok -> palette.ok
+                                        pair.state == "不通" -> palette.bad
+                                        else -> palette.fgFaint
+                                    },
                                 )
-                                Spacer(Modifier.width(5.dp))
+                                // 通道徽章：与连接优先级表同名的通道（隧道 / TS 直连 /
+                                // TS Funnel / 内置 Funnel）—— 一眼分清这条配对归属谁
+                                if (pair.channel.isNotEmpty()) {
+                                    Text(
+                                        pair.channel,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = palette.fgDim,
+                                        maxLines = 1,
+                                    )
+                                }
+                                if (pair.lane.isNotEmpty()) {
+                                    Text(
+                                        pair.lane,
+                                        fontSize = 10.sp,
+                                        color = palette.fgFaint,
+                                    )
+                                }
+                                if (pair.source.isNotEmpty()) {
+                                    Text(
+                                        pair.source,
+                                        fontSize = 10.sp,
+                                        color = palette.fgFaint,
+                                    )
+                                }
+                                // 行尾操作：复制 / 浏览器打开（URL 带这条配对自己的令牌）
+                                if (pair.url.isNotEmpty() && pair.enabled) {
+                                    Text(
+                                        "复制",
+                                        fontSize = 10.sp,
+                                        color = palette.fgFaint,
+                                        modifier = Modifier.clickable {
+                                            copyText(pair.url)
+                                            toast("已复制" + pair.channel + "地址")
+                                        },
+                                    )
+                                    Text(
+                                        "打开",
+                                        fontSize = 10.sp,
+                                        color = palette.fgFaint,
+                                        modifier = Modifier.clickable {
+                                            try {
+                                                startActivity(
+                                                    Intent(Intent.ACTION_VIEW, android.net.Uri.parse(pair.url))
+                                                )
+                                            } catch (error: Exception) {
+                                                toast("没有能打开网页的应用")
+                                            }
+                                        },
+                                    )
+                                }
                             }
+                            // 地址独占整行：横排不折断，超长在这一行内横向滑动看全
                             Text(
                                 pair.addr,
                                 fontSize = 11.sp,
                                 fontFamily = FontFamily.Monospace,
                                 color = if (pair.enabled) palette.fg else palette.fgFaint,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false),
+                                softWrap = false,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
                             )
-                            if (pair.lane.isNotEmpty()) {
-                                Spacer(Modifier.width(5.dp))
+                            if (pair.reason.isNotEmpty()) {
                                 Text(
-                                    pair.lane,
+                                    pair.reason,
                                     fontSize = 10.sp,
-                                    color = palette.fgFaint,
-                                    maxLines = 1,
-                                )
-                            }
-                            if (pair.source.isNotEmpty()) {
-                                Spacer(Modifier.width(5.dp))
-                                Text(
-                                    pair.source,
-                                    fontSize = 10.sp,
-                                    color = palette.fgFaint,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
-                            // 行尾操作：复制 / 浏览器打开（URL 带这条配对自己的令牌）
-                            if (pair.url.isNotEmpty() && pair.enabled) {
-                                Spacer(Modifier.width(5.dp))
-                                Text(
-                                    "复制",
-                                    fontSize = 10.sp,
-                                    color = palette.fgFaint,
-                                    modifier = Modifier.clickable {
-                                        copyText(pair.url)
-                                        toast("已复制" + pair.channel + "地址")
-                                    },
-                                )
-                                Spacer(Modifier.width(5.dp))
-                                Text(
-                                    "打开",
-                                    fontSize = 10.sp,
-                                    color = palette.fgFaint,
-                                    modifier = Modifier.clickable {
-                                        try {
-                                            startActivity(
-                                                Intent(Intent.ACTION_VIEW, android.net.Uri.parse(pair.url))
-                                            )
-                                        } catch (error: Exception) {
-                                            toast("没有能打开网页的应用")
-                                        }
-                                    },
+                                    color = palette.bad,
+                                    modifier = Modifier.padding(top = 1.dp),
                                 )
                             }
                         }
@@ -1264,9 +1448,11 @@ class ComputerListActivity : ComponentActivity() {
     }
 
     /**
-     * 直连地址行：与远程配对行同款格式（用户 2026-10-28）——
-     * 耗时在前、类型在中、地址吃剩余宽度、行尾「复制 / 打开」（URL 带档案令牌）。
+     * 直连地址行（样式 3，用户 2026-11-01）：
+     * 上行「探测短状态 + 直连 + MAC…」FlowRow 自动换行（MAC 可能多个，太宽的超出的掉到下一行）；
+     * 下行地址独占整行横排全宽（超长格内横向滑动）；失败原因垫底换行铺全。
      */
+    @OptIn(ExperimentalLayoutApi::class)
     @Composable
     private fun DirectAddrRow(row: CqRow, index: Int) {
         val palette = LocalPalette.current
@@ -1279,72 +1465,185 @@ class ComputerListActivity : ComponentActivity() {
         // 「是否展示」关掉的直连整行不进列表（2026-10-31 改口径，rowsOf 里 addrCount=0），
         // 能走到这里说明是展示的 —— 探测结果直接渲染
         val url = if (host.isEmpty()) "" else row.profile.urlFor(addr, "")
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(start = 4.dp, top = 3.dp),
-        ) {
-            Text(
-                probeStateText(hit),
-                fontSize = 10.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = when {
-                    hit == null -> palette.fgFaint
-                    hit.ok -> palette.ok
-                    else -> palette.bad
-                },
-                modifier = Modifier.width(72.dp),
-                maxLines = 1,
-            )
-            Text(
-                "直连",
-                fontSize = 10.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = palette.fgDim,
-                maxLines = 1,
-            )
-            Spacer(Modifier.width(5.dp))
+        Column(Modifier.padding(start = 4.dp, top = 3.dp).datumChip()) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(
+                    probeStateText(hit),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = when {
+                        hit == null -> palette.fgFaint
+                        hit.ok -> palette.ok
+                        else -> palette.bad
+                    },
+                )
+                Text(
+                    "直连",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = palette.fgDim,
+                    maxLines = 1,
+                )
+                if (url.isNotEmpty()) {
+                    Text(
+                        "复制",
+                        fontSize = 10.sp,
+                        color = palette.fgFaint,
+                        modifier = Modifier.clickable {
+                            copyText(url)
+                            toast("已复制直连地址")
+                        },
+                    )
+                    Text(
+                        "打开",
+                        fontSize = 10.sp,
+                        color = palette.fgFaint,
+                        modifier = Modifier.clickable {
+                            try {
+                                startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)))
+                            } catch (error: Exception) {
+                                toast("没有能打开网页的应用")
+                            }
+                        },
+                    )
+                }
+            }
+            // 地址独占整行：横排不折断，超长在这一行内横向滑动看全
             Text(
                 displayAddrOf(addr),
                 fontSize = 11.sp,
                 fontFamily = FontFamily.Monospace,
                 color = palette.fg,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false),
+                softWrap = false,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
             )
-            row.profile.macsForHost(addr).forEach { mac ->
-                Spacer(Modifier.width(5.dp))
+            // MAC 排在 IP 的下一行（用户 2026-11-01）：多个 MAC 自动换行，全字不省略
+            if (row.profile.macsForHost(addr).isNotEmpty()) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(3.dp),
+                    modifier = Modifier.padding(top = 2.dp),
+                ) {
+                    row.profile.macsForHost(addr).forEach { mac ->
+                        Text(
+                            mac.uppercase(Locale.US),
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = palette.fgFaint,
+                            maxLines = 1,
+                        )
+                    }
+                }
+            }
+            val reason = probeReason(hit)
+            if (reason.isNotEmpty()) {
                 Text(
-                    mac.uppercase(Locale.US),
-                    fontSize = 11.sp,
-                    fontFamily = FontFamily.Monospace,
-                    color = palette.fgFaint,
-                    maxLines = 1,
+                    reason,
+                    fontSize = 10.sp,
+                    color = palette.bad,
+                    modifier = Modifier.padding(top = 1.dp),
                 )
             }
-            if (url.isNotEmpty()) {
-                Spacer(Modifier.width(5.dp))
+        }
+    }
+
+    /**
+     * 一个直连地址**自己的**跳板机行（用户 2026-11-01：一址一跳板机）。
+     *
+     * <p>三条直连配三台跳板机就是三行，各写清「哪台跳板机 → 转发到哪个地址」，
+     * 并且各带各的探测结果与转发端点。以前整个档案只有一行（老字段 jump_id 单值），
+     * 所以三个地址只看到一条跳板机记录。
+     *
+     * <p>没绑跳板机、连接策略停用了跳板机、「是否展示」关了跳板机 → 这一行不上列表页。
+     * 直连行被隐藏不影响它：跳板机是独立通道。
+     */
+    @OptIn(ExperimentalLayoutApi::class)
+    @Composable
+    private fun JumpAddrRow(row: CqRow, index: Int, jumps: List<JumpServer>) {
+        val palette = LocalPalette.current
+        if (row.profile.routeDisabled.contains(ServerProfile.ROUTE_JUMP)) return
+        if (row.profile.routeProbeHidden.contains(ServerProfile.ROUTE_JUMP)) return
+        val addr = row.profile.hostAt(index)
+        val host = ServerProfile.normalizeHost(addr)
+        if (host.isEmpty()) return
+        val jumpId = row.profile.jumpForAddress(host)
+        if (jumpId.isEmpty()) return
+        val jump = JumpStore.findJump(jumps, jumpId)
+        val name = ServerProfile.text(jump?.name).ifEmpty {
+            ServerProfile.text(jump?.host).ifEmpty { "已删除的跳板机" }
+        }
+        val hit = row.hits.firstOrNull {
+            it.kind == ServerProfile.ROUTE_JUMP &&
+                ServerProfile.normalizeHost(it.origin) == host
+        }
+        // 「使用中」只认探测赢家，而且要落在**这个地址**上（一址一跳板机，别的地址在用不算）
+        val inUse = row.state == STATE_ONLINE &&
+            row.winnerKind == ServerProfile.ROUTE_JUMP &&
+            ServerProfile.normalizeHost(row.winnerAddr) == host
+        val stateText = when {
+            inUse && hit != null && hit.ok -> "使用中 " + hit.ms + "ms"
+            inUse -> "使用中"
+            else -> probeStateText(hit)
+        }
+        // 样式 3（用户 2026-11-01）：上行「状态 + 跳板机 + 本机端点」，
+        // 下行「哪台跳板机 → 哪个地址」独占整行横排全宽，失败原因垫底；
+        // 整块套一个浅白透明框（用户 2026-11-01 二改）
+        Column(Modifier.padding(start = 4.dp, top = 3.dp).datumChip()) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
                 Text(
-                    "复制",
+                    stateText,
                     fontSize = 10.sp,
-                    color = palette.fgFaint,
-                    modifier = Modifier.clickable {
-                        copyText(url)
-                        toast("已复制直连地址")
+                    fontWeight = FontWeight.SemiBold,
+                    color = when {
+                        !inUse && hit == null -> palette.fgFaint
+                        inUse || hit?.ok == true -> palette.ok
+                        else -> palette.bad
                     },
                 )
-                Spacer(Modifier.width(5.dp))
                 Text(
-                    "打开",
+                    "跳板机",
                     fontSize = 10.sp,
-                    color = palette.fgFaint,
-                    modifier = Modifier.clickable {
-                        try {
-                            startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)))
-                        } catch (error: Exception) {
-                            toast("没有能打开网页的应用")
-                        }
-                    },
+                    fontWeight = FontWeight.SemiBold,
+                    color = palette.fgDim,
+                    maxLines = 1,
+                )
+                // 本机转发端点：只在这台手机上有效，浏览器开不了，所以不给「复制 / 打开」
+                val endpoint = ServerProfile.text(hit?.target)
+                if (endpoint.isNotEmpty() && endpoint != host) {
+                    Text(
+                        endpoint,
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                        color = palette.fgFaint,
+                    )
+                }
+            }
+            // 「哪台跳板机 → 转发到哪个地址」：独占整行，横排不折断，超长格内横向滑动
+            Text(
+                name + " → " + displayAddrOf(addr),
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace,
+                color = palette.fg,
+                softWrap = false,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+            )
+            val reason = probeReason(hit)
+            if (reason.isNotEmpty()) {
+                Text(
+                    reason,
+                    fontSize = 10.sp,
+                    color = palette.bad,
+                    modifier = Modifier.padding(top = 1.dp),
                 )
             }
         }
@@ -2599,7 +2898,15 @@ class ComputerListActivity : ComponentActivity() {
             null
         }
         val usingRemote = hitPair != null
-        val jumpId = ServerProfile.text(profile.jumpServerId)
+        // 走的是哪台跳板机：按**赢家那个地址**去查（一址一跳板机，不能用档案级的老字段）。
+        // 注意不能用 info.addr —— 跳板机赢家那里存的是本机转发端点 127.0.0.1:port，
+        // 拿它去查绑定永远查不到；winnerAddr 才是「赢家落在哪个直连地址」。
+        val winnerAddr = ServerProfile.normalizeHost(if (info == null) "" else info.winnerAddr)
+        val jumpId = if (info?.winnerKind == ServerProfile.ROUTE_JUMP) {
+            profile.jumpForAddress(winnerAddr)
+        } else {
+            ""
+        }
         // **没在线的不能写「直连」**：只有这一轮确实探通才描述走的哪条通道。
         // 标注只认探测赢家的通道（winnerKind 由 ProbeEngine 产出，机制在电脑列表）；
         // 「配了跳板机就标跳板机」的兜底已删 —— 直连在线时照样标直连。
@@ -2625,42 +2932,8 @@ class ComputerListActivity : ComponentActivity() {
         }
         val hits = info?.hits.orEmpty()
         val rows = ArrayList<PairRow>()
-        // 跳板机通道行：配了且启用才亮出来（用户 2026-10-28：没开启的不上列表页）。
-        // 探测结果按 kind 匹配 —— jump 的命中 pairId 为空，不能走下面的 pairId 匹配。
-        // 「是否展示」关了跳板机：整行不上列表页（用户 2026-10-31 改口径，原「是否展示连通性」）
-        val jumpHidden = profile.routeProbeHidden.contains(ServerProfile.ROUTE_JUMP)
-        if (jumpId.isNotEmpty() &&
-            !profile.routeDisabled.contains(ServerProfile.ROUTE_JUMP) &&
-            !jumpHidden
-        ) {
-            val jump = JumpStore.findJump(JumpStore.loadJumps(this), jumpId)
-            val jumpHit = hits.firstOrNull { it.kind == ServerProfile.ROUTE_JUMP }
-            val jumpInUse = state == STATE_ONLINE && info?.winnerKind == ServerProfile.ROUTE_JUMP
-            rows.add(
-                PairRow(
-                    id = "jump",
-                    block = "跳板机",
-                    channel = "跳板机",
-                    addr = if (ServerProfile.text(jump?.name).isNotEmpty()) {
-                        jump!!.name
-                    } else {
-                        jump?.host ?: "已删除的跳板机"
-                    },
-                    // 转发端点（127.0.0.1:port）只在本机会话里有效，浏览器开不了
-                    url = "",
-                    lane = "",
-                    source = "",
-                    state = when {
-                        jumpInUse && jumpHit != null && jumpHit.ok ->
-                            "使用中 " + jumpHit.ms + "ms"
-                        jumpInUse -> "使用中"
-                        else -> probeStateText(jumpHit)
-                    },
-                    ok = jumpHit?.ok == true,
-                    enabled = true,
-                ),
-            )
-        }
+        // 跳板机行**不在这里**：一址一跳板机，它跟着自己的直连地址行渲染
+        //（见 JumpAddrRow）—— 放在这里只会有「一条记录」，就是本轮要修的老毛病。
         for (block in profile.pairBlockOrder()) {
             // 已停用的配对不上列表页（用户 2026-10-28：连接策略没开启的就不展示）
             for (pair in profile.pairsOfBlock(block, true)) {
@@ -2698,6 +2971,7 @@ class ComputerListActivity : ComponentActivity() {
                         state = stateText,
                         ok = hit?.ok == true,
                         enabled = true,
+                        reason = probeReason(hit),
                     ),
                 )
             }
@@ -2716,6 +2990,8 @@ class ComputerListActivity : ComponentActivity() {
             state = state,
             conn = conn,
             connRemote = usingRemote,
+            winnerKind = if (info == null) "" else info.winnerKind,
+            winnerAddr = winnerAddr,
         )
     }
 
@@ -2897,6 +3173,7 @@ class ComputerListActivity : ComponentActivity() {
             machineOs = choice.os,
             hits = choice.hits,
             winnerKind = choice.kind,
+            winnerAddr = choice.winAddr,
         )
     }
 
@@ -2930,11 +3207,16 @@ class ComputerListActivity : ComponentActivity() {
     }
 
     /** 这台电脑的 HTTP 端点：直连取首个地址；走跳板机先拉一条本地隧道 */
-    private fun endpointOf(profile: ServerProfile): String {
-        val host = ServerProfile.normalizeHost(profile.host())
+    /**
+     * 某个地址的 HTTP 端点：直连 = 这个地址本身；经跳板 = **它自己那条**本地转发（127.0.0.1:port）。
+     * 一址一跳板机：三个直连各配一台时，各建各的隧道，不会互相顶掉。
+     */
+    private fun endpointOf(profile: ServerProfile, address: String = profile.host()): String {
+        val host = ServerProfile.normalizeHost(address)
         if (host.isEmpty()) throw Exception("这台电脑还没有可用地址")
-        if (ServerProfile.text(profile.jumpServerId).isEmpty()) return host
-        val jump = JumpStore.findJump(JumpStore.loadJumps(this), profile.jumpServerId)
+        val jumpId = profile.jumpForAddress(host)
+        if (jumpId.isEmpty()) return host
+        val jump = JumpStore.findJump(JumpStore.loadJumps(this), jumpId)
             ?: throw Exception("跳板机不存在（可能已删除）")
         return SshSessionManager.shared().tunnelAddress(this, jump, host, prompt())
     }
@@ -2950,6 +3232,11 @@ class ComputerListActivity : ComponentActivity() {
         val hits: List<ProbeEngine.Hit> = emptyList(),
         /** 探测赢家的通道（lan / jump / tunnel / ts / funnel / tsnet）—— 标注只认它 */
         val kind: String = "",
+        /**
+         * 赢家落在哪个候选上：局域网 / 跳板机 = 那个直连地址（一址一跳板机，按它查跳板机），
+         * 远程 = 通道地址。{@link #url} 对跳板机赢家是本机转发端点，查不出跳板机。
+         */
+        val winAddr: String = "",
     ) {
         /** 卡片/离线文案里显示用的地址（不带 scheme） */
         fun displayAddr(): String =
@@ -2970,11 +3257,11 @@ class ComputerListActivity : ComponentActivity() {
      */
     private fun chooseEndpoint(profile: ServerProfile): EndpointChoice? {
         val lanToken = ServerProfile.text(profile.token)
-        // 跳板机通道要能解析出本地隧道端口，才让引擎去探它
-        val resolver = if (ServerProfile.text(profile.jumpServerId).isEmpty()) {
+        // 跳板机通道要能解析出**每个地址各自的**本地隧道端口，才让引擎去探它
+        val resolver = if (profile.jumpBindings().isEmpty()) {
             null
         } else {
-            ProbeEngine.JumpResolver { endpointOf(profile) }
+            ProbeEngine.JumpResolver { target -> endpointOf(profile, target) }
         }
         val result = ProbeEngine.probe(profile, resolver)
         if (result.ok && result.origin.isNotEmpty()) {
@@ -2984,12 +3271,14 @@ class ComputerListActivity : ComponentActivity() {
                 EndpointChoice(
                     "http://" + result.origin, lanToken, alive = true,
                     os = result.os, hits = result.hits, kind = result.kind,
+                    winAddr = result.winOrigin,
                 )
             } else {
                 // 令牌取**赢家那条配对**自己的：同机 cloudflare 与 tsnet 是两个令牌
                 EndpointChoice(
                     result.origin, tokenForPair(profile, result.pairId),
                     alive = true, os = result.os, hits = result.hits, kind = result.kind,
+                    winAddr = result.winOrigin,
                 )
             }
         }
@@ -3698,14 +3987,8 @@ class ComputerListActivity : ComponentActivity() {
         }
     }
 
-    private fun powerAddress(profile: ServerProfile): String {
-        val host = profile.host()
-        if (host.isEmpty()) throw Exception("这台电脑还没有可用地址")
-        if (ServerProfile.text(profile.jumpServerId).isEmpty()) return host
-        val jump = JumpStore.findJump(JumpStore.loadJumps(this), profile.jumpServerId)
-            ?: throw Exception("跳板机不存在（可能已删除）")
-        return SshSessionManager.shared().tunnelAddress(this, jump, host, prompt())
-    }
+    /** 电源的 HTTP 端点：就是首选地址那条通道（一址一跳板机，走首选地址自己的跳板机） */
+    private fun powerAddress(profile: ServerProfile): String = endpointOf(profile)
 
     /**
      * 电源 HTTP 的「地址 + 凭据」：局域网探通用局域网；没通且配了远程接入就探
@@ -3781,6 +4064,10 @@ class ComputerListActivity : ComponentActivity() {
         val conn: String,
         /** 当前连接是否正在走远程隧道（chip 配色用） */
         val connRemote: Boolean,
+        /** 探测赢家的通道（lan / jump / tunnel / ts / funnel / tsnet）；判定「哪一行在用」 */
+        val winnerKind: String = "",
+        /** 赢家落在哪个地址 —— 一址一跳板机，按它认「这个地址的那台跳板机在用」 */
+        val winnerAddr: String = "",
     )
 
     /** 电脑卡片上的一行配对：地址 + 通道 + 来源（host · os）+ 这一轮的探测结果 */
@@ -3801,6 +4088,8 @@ class ComputerListActivity : ComponentActivity() {
         val state: String,
         val ok: Boolean,
         val enabled: Boolean,
+        /** 完整失败原因（样式 3：垫在地址行下面换行铺全；空 = 不垫） */
+        val reason: String = "",
     )
 
     /**
@@ -3860,6 +4149,11 @@ class ComputerListActivity : ComponentActivity() {
         val hits: List<ProbeEngine.Hit> = emptyList(),
         /** 探测赢家的通道（lan / jump / tunnel / ts / funnel / tsnet）—— 连接标注只认它 */
         val winnerKind: String = "",
+        /**
+         * 赢家落在哪个地址上（局域网 / 跳板机 = 那个直连地址，远程 = 通道地址）。
+         * 一址一跳板机：卡片要按它回答「用的是这个地址的那台跳板机」。
+         */
+        val winnerAddr: String = "",
     )
 
     /** 三引导器通道里的一条可执行动作（后端 `ChannelEntry`，camelCase） */
@@ -3912,12 +4206,31 @@ class ComputerListActivity : ComponentActivity() {
         val menuPreview: List<ChannelMenuRow> = emptyList(),
     )
 
-    /** 一条探测结果的状态文案：通 = 延迟；被赢家抢跑 / 串行没轮到 = 未测出（不是不通） */
+    /** 浅白透明框（用户 2026-11-01 二改）：套在**整块通道行**外面（徽章+状态+IP+MAC 一块区域），
+     *  不是每个数据项单独套框 */
+    private fun Modifier.datumChip(): Modifier = this
+        .background(Color.White.copy(alpha = 0.05f), RoundedCornerShape(9.dp))
+        .border(1.dp, Color.White.copy(alpha = 0.13f), RoundedCornerShape(9.dp))
+        .padding(horizontal = 9.dp, vertical = 5.dp)
+
+    /**
+     * 一条探测结果的**短**状态文案（样式 3，用户 2026-11-01）：
+     * 通 = 延迟；被赢家抢跑 / 串行没轮到 = 未测出（不是不通）；不通 = 短词。
+     * 完整失败原因走 [probeReason]，垫在地址行下面。
+     */
     private fun probeStateText(hit: ProbeEngine.Hit?): String = when {
         hit == null -> "未探测"
         hit.ok -> "通 " + hit.ms + "ms"
         hit.error.contains("未测出") || hit.error.contains("未探测") -> "未测出"
         else -> "不通"
+    }
+
+    /** 完整失败原因（样式 3：地址行下面的小字，换行铺全）；空 = 不垫 */
+    private fun probeReason(hit: ProbeEngine.Hit?): String {
+        hit ?: return ""
+        if (hit.ok) return ""
+        if (hit.error.contains("未测出") || hit.error.contains("未探测")) return ""
+        return hit.error.trim()
     }
 
     /** kind = KIND_CHANNEL 时携带通道视图 */
@@ -4024,6 +4337,12 @@ private data class CqTone(
 }
 
 private val LocalTone = staticCompositionLocalOf { CqTone.light() }
+
+/**
+ * 空列表预览里的五个引导器 —— 顺序与 PC / iOS 真实列一致
+ * （rEFInd → GRUB → systemd-boot → OpenCore → Clover）。
+ */
+private val EMPTY_BOOT_NAMES = listOf("rEFInd", "GRUB", "systemd-boot", "OpenCore", "Clover")
 
 /** 虚线边框（`Modifier.border` 只会画实线，这里按圆角矩形自己描一条虚线） */
 private fun Modifier.dashedBorder(color: Color, radius: Dp, width: Dp): Modifier = drawBehind {

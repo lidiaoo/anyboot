@@ -155,6 +155,12 @@ struct CanonicalServer: Codable {
     var routeOrder: [String]?
     var routeDisabled: [String]?
     var jumpServerId: String?
+    /// **每个地址各自的跳板机**（地址 → JumpServer.id）；一址一跳板机，与桌面 `jumps` 同键
+    var jumps: [String: String]?
+    /// 用户自定义排序序号；-1 / 缺省 = 没排过（与桌面 `sort_index` 同义）
+    var sortIndex: Int?
+    /// 最近一次连接成功的时间戳（毫秒）；「最近连接」排序用
+    var lastUsedAt: Double?
     /// 废弃字段，仅旧备份兼容（canonical 保留）
     var connMode: String?
     /// 同步 LWW 的依据（ISO8601）

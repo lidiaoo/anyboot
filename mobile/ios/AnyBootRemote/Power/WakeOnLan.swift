@@ -143,7 +143,8 @@ enum WakeOnLan {
                 + (problems.isEmpty ? "这些路由都被关掉了" : problems.joined(separator: "；")))
         }
 
-        let jumpId = profile.jumpServerId.trimmedAnyBoot
+        // 电源包走**首选地址**那台跳板机（一址一跳板机：别的地址的跳板机到不了这个网段）
+        let jumpId = profile.primaryJumpServerId
         var whereFrom = "本机"
         var sent = 0
         if jumpId.isEmpty {
@@ -204,7 +205,8 @@ enum WakeOnLan {
             throw PowerError.message("这台电脑还没配 MAC —— 编辑里在地址后面跟上网卡 MAC"
                 + "（如 192.168.0.120:12300 AA:BB:CC:DD:EE:FF）")
         }
-        let jumpId = profile.jumpServerId.trimmedAnyBoot
+        // 同上：唤醒包走首选地址那台跳板机
+        let jumpId = profile.primaryJumpServerId
         if !jumpId.isEmpty {
             return try await wakeViaJump(profile: profile, macs: macs, jumpId: jumpId)
         }

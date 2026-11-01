@@ -147,6 +147,8 @@ struct PowerRoute: Hashable, Codable {
 struct ParsedAddressInput {
     var hosts: [String] = []
     var macs: [String: [String]] = [:]
+    /// 每个地址各自的跳板机（归一化地址 → JumpServer.id）；缺 key = 直连
+    var jumps: [String: String] = [:]
     var isEmpty: Bool { hosts.isEmpty }
 }
 
@@ -262,8 +264,15 @@ struct ServerProfile: Identifiable, Hashable, Codable {
     var probeTimeoutMs: Int = ServerProfile.defaultProbeTimeoutMs
     /// **每个通道自己的探测超时**（通道 id → 毫秒）；缺 key = 用默认值
     var routeTimeoutsMs: [String: Int] = [:]
-    /// 经由哪台跳板机（JumpServer.id）；空 = 直连
+    /// 经由哪台跳板机（JumpServer.id）；空 = 直连。
+    /// **只代表首选地址那一台**（电源广播与老客户端读它，不继承给别的地址）
     var jumpServerId: String = ""
+    /// **每个地址各自的跳板机**（归一化地址 → JumpServer.id）。
+    ///
+    /// 一址一跳板机（用户 2026-11-01）：三个直连可以各配三台跳板机，各建各的转发。
+    /// 一台跳板机只是某个网络的入口，套到别的网络的地址上只会造出一条假通道 ——
+    /// 所以老字段 `jumpServerId` 不往其它地址上继承。
+    var jumps: [String: String] = [:]
     /// 远程接入配对（多条目）：三个区块各自可以挂多条，全部保留、全部独立探测
     var pairs: [RemotePair] = []
     /// **区块内部**的探测策略（区块 id → parallel_first / parallel_all / serial）
@@ -278,6 +287,13 @@ struct ServerProfile: Identifiable, Hashable, Codable {
     var routeDisabled: [String] = []
     /// 最后改动时间（备份/云同步按条目 LWW 合并的依据；老档案缺省 nil 照常解码）
     var updatedAt: Date? = nil
+
+    /// 用户自定义排序序号（0..n）；`-1` = 没排过，按显示名排在已排的后面。
+    /// 「自定义」排序模式用；与 PC 端 `sort_index` / 安卓 `sortIndex` 同名同义。
+    var sortIndex: Int = -1
+
+    /// 最近一次连接成功的时间戳（毫秒）；「最近连接」排序模式用。探测 / 心跳不刷。
+    var lastUsedAt: Double = 0
 
     init() {}
 
@@ -709,7 +725,7 @@ struct ServerProfile: Identifiable, Hashable, Codable {
         pruneMacs()
     }
 
-    /// 用解析结果整体替换（地址 + MAC）
+    /// 用解析结果整体替换（地址 + MAC + 每个地址的跳板机）
     mutating func replaceParsed(_ parsed: ParsedAddressInput) {
         addresses = parsed.hosts
         macs = [:]
@@ -717,10 +733,15 @@ struct ServerProfile: Identifiable, Hashable, Codable {
             let cleaned = Self.cleanMacs(list)
             if !cleaned.isEmpty { macs[host] = cleaned }
         }
+        jumps = [:]
+        for (host, jump) in parsed.jumps where addresses.contains(host) {
+            let id = jump.trimmedAnyBoot
+            if !id.isEmpty { jumps[host] = id }
+        }
         pruneMacs()
     }
 
-    /// 并入解析结果（地址 + MAC 都并，已有的顺序不变）
+    /// 并入解析结果（地址 + MAC + 跳板机都并，已有的顺序不变）
     mutating func mergeParsed(_ parsed: ParsedAddressInput) {
         for host in parsed.hosts { addAddress(host) }
         for (host, list) in parsed.macs {
@@ -730,6 +751,11 @@ struct ServerProfile: Identifiable, Hashable, Codable {
                 mine.append(mac)
             }
             macs[host] = mine
+        }
+        for (host, jump) in parsed.jumps where addresses.contains(host) {
+            let id = jump.trimmedAnyBoot
+            // 已配的不覆盖（用户的选择优先）
+            if !id.isEmpty && (jumps[host] ?? "").isEmpty { jumps[host] = id }
         }
     }
 
@@ -779,6 +805,34 @@ struct ServerProfile: Identifiable, Hashable, Codable {
     }
 
     func macsAt(_ index: Int) -> [String] { macsForHost(hostAt(index)) }
+
+    // MARK: 跳板机（一址一台）
+
+    /// 这个地址经由哪台跳板机（空 = 直连）。
+    ///
+    /// 与 PC 端 `jump_for_address`、Android `jumpForAddress` 同口径
+    /// （用户 2026-11-01 改口径）：老字段 [`jumpServerId`] 是**档案级默认跳板机** ——
+    /// 按地址的表没覆盖的地址一律继承它。一台跳板机配了多个直连 IP 时，
+    /// 每个「跳板机 → IP」绑定都要上列表、都参与探测；个别地址要换或摘，写按地址的表。
+    func jumpServerId(for address: String) -> String {
+        guard let key = Self.normalizeHost(address) else { return "" }
+        if let hit = jumps[key]?.trimmedAnyBoot, !hit.isEmpty { return hit }
+        return jumpServerId.trimmedAnyBoot
+    }
+
+    /// 生效的「地址 → 跳板机」绑定（按 addresses 顺序，只含配了跳板机的地址）。
+    /// 电脑列表「一条直连 + 紧跟它自己的跳板机行」读它。
+    var jumpBindings: [(address: String, jumpId: String)] {
+        addresses.compactMap { address in
+            let id = jumpServerId(for: address)
+            return id.isEmpty ? nil : (address: address, jumpId: id)
+        }
+    }
+
+    /// 首选地址那台跳板机（电源广播 / 老接口兜底用）
+    var primaryJumpServerId: String {
+        addresses.isEmpty ? jumpServerId.trimmedAnyBoot : jumpServerId(for: host)
+    }
 
     /// 这台电脑配过的所有 MAC（去重、保持地址顺序）
     func allMacs() -> [String] {
@@ -849,6 +903,8 @@ struct ServerProfile: Identifiable, Hashable, Codable {
     /// 删掉不在地址列表里的 MAC（地址被用户删了，MAC 也留着没意义）
     mutating func pruneMacs() {
         macs = macs.filter { addresses.contains($0.key) }
+        // 地址被删了，它那台跳板机绑定也一起删 —— 挂着只会造出一条连不上的假通道
+        jumps = jumps.filter { addresses.contains($0.key) }
     }
 
     // MARK: 配对（三区块 / 六通道）
@@ -966,8 +1022,10 @@ struct ServerProfile: Identifiable, Hashable, Codable {
                 continue
             }
             if kind == Self.routeJump {
-                if hasLanAddress && !jumpServerId.trimmedAnyBoot.isEmpty {
-                    out.append(RouteCandidate(kind: kind, origin: "", token: "",
+                // 一址一跳板机：每个绑了跳板机的地址各展开一条候选，
+                // origin = 那个直连地址（探测时用它去查自己那台跳板机建隧道）
+                for binding in jumpBindings {
+                    out.append(RouteCandidate(kind: kind, origin: binding.address, token: "",
                                               timeoutMs: probeTimeoutFor(kind), pairId: ""))
                 }
                 continue
@@ -1010,6 +1068,9 @@ struct ServerProfile: Identifiable, Hashable, Codable {
         if a.token.trimmedAnyBoot != b.token.trimmedAnyBoot { return false }
         if a.routeOrderSorted() != b.routeOrderSorted() { return false }
         if Set(a.routeDisabled) != Set(b.routeDisabled) { return false }
+        // 一址一跳板机：换了跳板机就是换了一条连接路径，心跳必须重算
+        if a.jumpServerId != b.jumpServerId { return false }
+        if a.jumps != b.jumps { return false }
         if a.probeTimeoutMs != b.probeTimeoutMs { return false }
         if a.blockProbeMode != b.blockProbeMode { return false }
         if a.blockTimeoutsMs != b.blockTimeoutsMs { return false }
@@ -1162,6 +1223,8 @@ struct ServerProfile: Identifiable, Hashable, Codable {
         case probeMode, routeProbeMode, probeTimeoutMs
         case routeTimeoutsMs, routeTimeoutsMsSnake = "route_timeouts_ms"
         case jumpServerId, connMode, routeOrder, routeDisabled
+        case jumps
+        case sortIndex, lastUsedAt
         case pairs, blockProbeMode, blockTimeoutsMs, macs, powerRoutes
     }
 
@@ -1182,7 +1245,19 @@ struct ServerProfile: Identifiable, Hashable, Codable {
         routeTimeoutsMs = Self.normalizeRouteTimeouts(
             (try? c.decodeIfPresent([String: Int].self, forKey: .routeTimeoutsMs)) ?? nil)
         jumpServerId = (try? c.decodeIfPresent(String.self, forKey: .jumpServerId)) ?? ""
+        // 一址一跳板机：key 走归一化（和 macs 同一套口径），指向已删地址的绑定直接丢
+        var decodedJumps: [String: String] = [:]
+        if let rawJumps = try? c.decodeIfPresent([String: String].self, forKey: .jumps) {
+            for (host, jump) in rawJumps {
+                guard let normalized = Self.normalizeHost(host) else { continue }
+                let id = jump.trimmedAnyBoot
+                if !id.isEmpty { decodedJumps[normalized] = id }
+            }
+        }
+        jumps = decodedJumps
         connMode = (try? c.decodeIfPresent(String.self, forKey: .connMode)) ?? ""
+        sortIndex = (try? c.decodeIfPresent(Int.self, forKey: .sortIndex)) ?? -1
+        lastUsedAt = (try? c.decodeIfPresent(Double.self, forKey: .lastUsedAt)) ?? 0
         routeOrder = Self.cleanRouteOrder((try? c.decodeIfPresent([String].self, forKey: .routeOrder)) ?? [])
         routeDisabled = Self.cleanRouteOrder((try? c.decodeIfPresent([String].self, forKey: .routeDisabled)) ?? [])
         pairs = (try? c.decodeIfPresent([RemotePair].self, forKey: .pairs)) ?? []
@@ -1224,7 +1299,10 @@ struct ServerProfile: Identifiable, Hashable, Codable {
         try c.encode(probeTimeoutMs, forKey: .probeTimeoutMs)
         try c.encode(routeTimeoutsMs, forKey: .routeTimeoutsMs)
         try c.encode(jumpServerId, forKey: .jumpServerId)
+        try c.encode(jumps, forKey: .jumps)
         try c.encode(connMode, forKey: .connMode)
+        try c.encode(sortIndex, forKey: .sortIndex)
+        try c.encode(lastUsedAt, forKey: .lastUsedAt)
         try c.encode(routeOrder, forKey: .routeOrder)
         try c.encode(routeDisabled, forKey: .routeDisabled)
         try c.encode(pairs, forKey: .pairs)

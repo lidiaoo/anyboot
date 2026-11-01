@@ -73,11 +73,20 @@ import java.util.Locale
  */
 
 /**
- * 编辑表单里的一个地址条目：地址 + 这块（这几块）网卡的 MAC。
+ * 编辑表单里的一个地址条目：地址 + 这块（这几块）网卡的 MAC + 这个地址自己的跳板机。
  *
  * 用不可变数据类 + 替换元素，Compose 的 mutableStateList 才会重组成列表。
+ *
+ * 「一址一跳板机」（用户 2026-11-01）：跳板机挂在**地址**上，不挂在档案上 ——
+ * 三个直连可以各走各的跳板机，一台跳板机只是某个网络的入口，套到别的网络的地址上
+ * 只会造出一条假通道。
  */
-internal data class AddrEntry(val address: String, val macs: List<String> = emptyList())
+internal data class AddrEntry(
+    val address: String,
+    val macs: List<String> = emptyList(),
+    /** 这个地址经哪台跳板机（hub SSH 服务器 id）；空 = 直连 */
+    val jump: String = "",
+)
 
 /**
  * 编辑中的一条配对（不可变；改行 = 整体替换元素）。
@@ -162,7 +171,8 @@ internal class ServerEditFormState(
     val addressEntries = mutableStateListOf<AddrEntry>().apply {
         profile?.let { saved ->
             saved.addresses.forEach { address ->
-                add(AddrEntry(address, saved.macsForHost(address)))
+                // 每个地址带**它自己**那台跳板机进来（一址一跳板机，老字段只算首选地址）
+                add(AddrEntry(address, saved.macsForHost(address), saved.jumpForAddress(address)))
             }
         }
     }
@@ -324,14 +334,23 @@ internal class ServerEditFormState(
     /** 通道当前是否可用（与 PC rsRouteAvailable / 后端 routeCandidates 同语义） */
     fun routeAvailable(kind: String): Boolean = when (kind) {
         "lan" -> addressEntries.any { it.address.isNotBlank() }
-        "jump" -> addressEntries.any { it.address.isNotBlank() } && jumpIndex > 0
+        // 一址一跳板机：只要**任一**地址选了跳板机，这条通道就可用
+        "jump" -> addressEntries.any { it.address.isNotBlank() && it.jump.isNotEmpty() }
         else -> pairItems.any { it.enabled && it.addr.isNotBlank() && remoteKindOf(it) == kind }
     }
 
     /** 通道副标：地址 / 没配置的原因 */
     fun routeSub(kind: String): String = when (kind) {
         "lan" -> addressEntries.firstOrNull { it.address.isNotBlank() }?.address ?: "未填局域网地址"
-        "jump" -> if (jumpIndex > 0) "经 " + jumpLabel(jumps[jumpIndex - 1]) else "未选跳板机档案"
+        "jump" -> {
+            val bound = addressEntries.filter { it.address.isNotBlank() && it.jump.isNotEmpty() }
+            when {
+                bound.isEmpty() -> "未选跳板机档案"
+                bound.size == 1 -> "经 " + jumpName(bound[0].jump) + " → " + bound[0].address
+                // 三个直连三台跳板机：副标只报数量，明细在各自的地址行里
+                else -> bound.size.toString() + " 个地址各走跳板机"
+            }
+        }
         "tunnel" -> firstAddrOf(ServerProfile.ROUTE_TUNNEL, "未配置隧道地址")
         "ts" -> firstAddrOf(ServerProfile.ROUTE_TS, "未配置 100.x 直连地址")
         "funnel" -> firstAddrOf(ServerProfile.ROUTE_FUNNEL, "未配置（系统 Tailscale 的 *.ts.net 地址）")
@@ -431,13 +450,8 @@ internal class ServerEditFormState(
     }
 
     val jumps: List<JumpServer> = JumpStore.loadJumps(context)
-    var jumpIndex by mutableStateOf(
-        if (profile != null) {
-            val found = jumps.indexOfFirst { it.id == profile.jumpServerId }
-            if (found >= 0) found + 1 else 0
-        } else 0
-    )
-    var jumpOpen by mutableStateOf(false)
+    /** 哪一个地址行的跳板机下拉是打开的（-1 = 都没开；一址一个下拉，所以按下标记） */
+    var jumpMenuIndex by mutableStateOf(-1)
 
     var probeMode by mutableStateOf(
         if (profile != null) ServerProfile.normalizeProbeMode(profile.probeMode ?: "")
@@ -539,10 +553,14 @@ internal class ServerEditFormState(
             profile.routeDisabled.forEach { id -> if (id in ROUTE_IDS_ALL && id !in this) add(id) }
         }
     }
-    /** 「是否展示」被关掉的通道（与 routeDisabled 同一套通道 id，默认全开） */
+    /** 「是否展示」被关掉的通道（与 routeDisabled 同一套通道 id）。新建 = 默认全关
+     *  （用户 2026-11-01：新电脑先不涌上电脑列表，要展示哪个通道再单独开）；
+     *  编辑 = 档案里已存的原样回显 */
     val routeProbeHidden = mutableStateListOf<String>().apply {
         if (profile != null) {
             profile.routeProbeHidden.forEach { id -> if (id in ROUTE_IDS_ALL && id !in this) add(id) }
+        } else {
+            addAll(ROUTE_IDS_ALL)
         }
     }
 
@@ -634,9 +652,31 @@ internal class ServerEditFormState(
         return value.ifEmpty { ServerProfile.tokenFromUrl(pastedRaw) }
     }
 
-    /** 跳板机 id；空串 = 直连 */
-    fun resolvedJumpId(): String =
-        if (jumpIndex <= 0) "" else jumps[jumpIndex - 1].id
+    /**
+     * 生效的「地址 → 跳板机」绑定（保存时写进档案的 jumps）。key 归一化，已存在的地址才算。
+     * 与 PC rsJumpBindings / 后端 jump_bindings 同口径。
+     */
+    fun jumpBindings(): Map<String, String> {
+        val out = LinkedHashMap<String, String>()
+        for (entry in addressEntries) {
+            val address = ServerProfile.normalizeHost(entry.address)
+            if (address.isEmpty() || entry.jump.isEmpty()) continue
+            out[address] = entry.jump
+        }
+        return out
+    }
+
+    /** 首选地址那台跳板机（写老字段 jumpServerId，电源广播与老客户端读它） */
+    fun primaryJumpId(): String {
+        val first = addressEntries.firstOrNull { it.address.isNotBlank() } ?: return ""
+        return first.jump
+    }
+
+    /** 跳板机名字（下拉与副标共用）；找不到 = 已删除 */
+    fun jumpName(id: String): String {
+        val jump = JumpStore.findJump(jumps, id) ?: return "已删除的跳板机"
+        return if (JumpStore.text(jump.name).isEmpty()) jump.host else jump.name
+    }
 
     fun jumpLabel(jump: JumpServer): String {
         val label = if (JumpStore.text(jump.name).isEmpty()) jump.host else jump.name
@@ -756,6 +796,57 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                             }) {
                                 Text("✕", fontSize = 11.sp, color = palette.fgFaint)
                             }
+                        }
+                    }
+                }
+                // ---- 这个地址自己的跳板机（一址一台，用户 2026-11-01） ----
+                // 与 PC 端 rsEditOverlay 的「地址行内跳板机下拉」同一套口径：
+                // 三条直连三台跳板机 = 三行各选各的，不再是档案级一个下拉。
+                Box(modifier = Modifier.padding(top = 2.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(palette.elevate)
+                            .clickable { state.jumpMenuIndex = index }
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                    ) {
+                        Text(
+                            "跳板机",
+                            fontSize = 10.sp, color = palette.fgFaint,
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            if (entry.jump.isEmpty()) "直连（不经跳板机）"
+                            else state.jumpName(entry.jump),
+                            fontSize = 11.sp,
+                            color = if (entry.jump.isEmpty()) palette.fgDim else palette.fg,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(if (state.jumpMenuIndex == index) "▴" else "▾", fontSize = 10.sp, color = palette.fgFaint)
+                    }
+                    DropdownMenu(
+                        expanded = state.jumpMenuIndex == index,
+                        onDismissRequest = { state.jumpMenuIndex = -1 },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("直连（不经跳板机）") },
+                            onClick = {
+                                state.addressEntries[index] = entry.copy(jump = "")
+                                state.jumpMenuIndex = -1
+                            },
+                        )
+                        state.jumps.forEach { jump ->
+                            DropdownMenuItem(
+                                text = { Text(state.jumpLabel(jump)) },
+                                onClick = {
+                                    state.addressEntries[index] = entry.copy(jump = jump.id)
+                                    state.jumpMenuIndex = -1
+                                },
+                            )
                         }
                     }
                 }
@@ -907,7 +998,7 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                 " · 多网卡 " + probeLabel(state.probeMode) +
                 " · 默认 " + String.format(Locale.US, "%.1f", state.probeTimeoutMs() / 1000.0) + "s" +
                 (state.routeTimeoutsMs().size.let { if (it > 0) "（$it 个通道单独设）" else "" }) +
-                (if (state.jumpIndex > 0) " · 跳板机" else ""),
+                (if (state.jumpBindings().isNotEmpty()) " · 跳板机" else ""),
             open = state.connFoldOpen,
             onToggle = { state.connFoldOpen = !state.connFoldOpen },
         )
@@ -1120,38 +1211,19 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
         )
 
         FieldLabel(
-            "经由跳板机（外网连家里：先到「☰ → 服务器」添加 SSH 跳板机；"
-                + "填的地址就变成「跳板机视角的内网地址」）"
+            "经由跳板机（**按地址分别选**：外网连家里先到「☰ → 服务器」添加 SSH 跳板机，"
+                + "再回到上面每个地址那行自己挑一台；不选就是直连）"
         )
-        Box {
-            OutlinedTextField(
-                value = if (state.jumpIndex <= 0) "直连（默认）"
-                else state.jumpLabel(state.jumps[state.jumpIndex - 1]),
-                onValueChange = {},
-                readOnly = true,
-                singleLine = true,
-                // ⚠️ 必须 disabled：readOnly 的 TextField 会把点击吃成「聚焦」（边框绿一下），
-                // 挂在它身上的 clickable 一次都不触发 —— 下拉菜单永远打不开。
-                // disabled 的 TextField 不处理指针，clickable 才收得到；配色见 disabledFieldColors。
-                enabled = false,
-                colors = disabledFieldColors(palette.fg, palette.lineStrong, palette.fgDim),
-                trailingIcon = { Text(if (state.jumpOpen) "▴" else "▾") },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { state.jumpOpen = true },
-            )
-            DropdownMenu(expanded = state.jumpOpen, onDismissRequest = { state.jumpOpen = false }) {
-                DropdownMenuItem(text = { Text("直连（默认）") }, onClick = {
-                    state.jumpIndex = 0; state.jumpOpen = false
-                })
-                state.jumps.forEachIndexed { index, jump ->
-                    DropdownMenuItem(
-                        text = { Text(state.jumpLabel(jump)) },
-                        onClick = { state.jumpIndex = index + 1; state.jumpOpen = false },
-                    )
-                }
-            }
-        }
+        Text(
+            if (state.jumps.isEmpty()) {
+                "还没有跳板机档案 —— 先去「☰ → 服务器」加一台 SSH 服务器，回来才能在这里选。"
+            } else {
+                "三个直连可以各配三台跳板机：每个地址各建各的转发，互不影响。" +
+                    "一台跳板机只是某个网络的入口，别把不同网络的地址指到同一台上。"
+            },
+            fontSize = 11.sp, color = palette.fgFaint,
+            modifier = Modifier.padding(bottom = 4.dp),
+        )
 
         FieldLabel(
             "探测方式（连接优先级整体的策略，对上面每一个通道都生效）"
@@ -1509,9 +1581,10 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
             }
         }
         TextButton(onClick = {
-            // 发送模式默认「优先广播包」（= 旧的 HTTP 兜底勾选）
+            // 用户 2026-11-01：发包 / 重试直接写**真实数字 10**（输入框里看得见，不再是空框）
             state.routeList.add(
                 ServerProfile.PowerRoute(ServerProfile.POWER_WAKE, "", 9)
+                    .withCounts(10, 10)
                     .withMode("auto")
             )
         }) { Text("+ 添加一条路由", fontSize = 13.sp) }
@@ -1559,7 +1632,15 @@ internal fun applyServerEdit(
     target.routeDisabled.addAll(state.routeDisabled)
     target.routeProbeHidden.clear()
     target.routeProbeHidden.addAll(state.routeProbeHidden)
-    target.jumpServerId = state.resolvedJumpId()
+    // 跳板机按**地址**写（一址一跳板机，用户 2026-11-01）：表单里每个地址各带一台。
+    // replaceAddresses = 以表单为准（删掉的地址，它的跳板机绑定一起消失）；
+    // 并入模式只补自己那几个地址，别把档案里已有地址的绑定抹掉。
+    if (replaceAddresses) {
+        target.jumps.clear()
+    }
+    target.jumps.putAll(state.jumpBindings())
+    // 老字段只代表**首选地址**那台（电源广播与老客户端读它，不继承给别的地址）
+    target.jumpServerId = state.primaryJumpId()
     // 远程配对：以表单里的这份为准（空 = 解除配对，地址与令牌一起清）。
     // 令牌保活在这里不需要单独做 —— 表单回填时就是原令牌，用户没改就原样写回去。
     val pairs = state.pairsForSave()

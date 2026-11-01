@@ -715,7 +715,7 @@ function openPreview() {
   }
   // 警示：引用缺失 / 桌面无历史域
   const warns = [];
-  if (s.missingJumpRefs > 0) warns.push('有 ' + s.missingJumpRefs + ' 台电脑引用的跳板机不在备份里 —— 一并勾选「SSH 服务器」可补齐。');
+  if (s.missingJumpRefs > 0) warns.push('有 ' + s.missingJumpRefs + ' 处引用的跳板机不在备份里（按地址各算一处） —— 一并勾选「SSH 服务器」可补齐。');
   $('prevWarn').hidden = warns.length === 0;
   $('prevWarnText').textContent = warns.join(' ');
 

@@ -129,8 +129,8 @@ class MainActivity : ComponentActivity() {
         var usingRemote = false
         /** 本轮连接尝试里远程通道已经试过一次（防远程优先模式 LAN↔隧道乒乓） */
         var triedRemote = false
-        /** 本轮连接尝试里跳板机已经兜底过一次（局域网全挂 → 跳板机 → 远程，各只试一轮） */
-        var triedJump = false
+        /** 本轮连接尝试里已经试过的「某地址 → 它自己那台跳板机」通道（一址一跳板机：逐个试） */
+        val jumpTried = ArrayList<String>()
     }
 
     data class ErrorInfo(val label: String, val addressSummary: String, val detail: String)
@@ -182,10 +182,14 @@ class MainActivity : ComponentActivity() {
     private var heartbeat: HeartbeatManager? = null
     private var firstRunPending = false
 
-    private val tunnelResolver = HeartbeatManager.TunnelResolver { profile ->
-        val jump = JumpStore.findJump(JumpStore.loadJumps(this), profile.jumpServerId)
+    private val tunnelResolver = HeartbeatManager.TunnelResolver { profile, target ->
+        // 一址一跳板机：按**要探的这个地址**查它自己的跳板机，各建各的隧道
+        val dest = ServerProfile.normalizeHost(target).ifEmpty { ServerProfile.normalizeHost(profile.host()) }
+        val jumpId = profile.jumpForAddress(dest)
+        if (jumpId.isEmpty()) throw Exception("这个地址没有配跳板机")
+        val jump = JumpStore.findJump(JumpStore.loadJumps(this), jumpId)
             ?: throw Exception("跳板机不存在（可能已删除）")
-        SshSessionManager.shared().tunnelAddress(this, jump, profile.host()) { title, message ->
+        SshSessionManager.shared().tunnelAddress(this, jump, dest) { title, message ->
             bus.confirm(title, message)
         }
     }
@@ -516,7 +520,8 @@ class MainActivity : ComponentActivity() {
         return when {
             tab?.usingRemote == true -> "远程"
             // 兜底也尊重连接策略：跳板机被停用就不许出现在标注里
-            ServerProfile.text(profile.jumpServerId).isNotEmpty()
+            // 一址一跳板机：只要有任一地址绑了跳板机就算（老字段单值不再作数）
+            profile.jumpBindings().isNotEmpty()
                 && !profile.routeDisabled.contains(ServerProfile.ROUTE_JUMP) -> "跳板机"
             else -> "直连"
         }
@@ -549,12 +554,16 @@ class MainActivity : ComponentActivity() {
         }, "anyboot-sysinfo").start()
     }
 
-    /** 这台电脑在本机可直接访问的端点（走跳板机时解析成本地隧道端口）——阻塞调用 */
-    private fun endpointFor(profile: ServerProfile): String {
-        val host = ServerProfile.normalizeHost(profile.host())
+    /**
+     * 某个地址在本机可直接访问的端点（走跳板机时解析成本地隧道端口）——阻塞调用。
+     * 一址一跳板机：默认取首选地址，也可以指定某个直连地址（它自己的跳板机）。
+     */
+    private fun endpointFor(profile: ServerProfile, address: String = profile.host()): String {
+        val host = ServerProfile.normalizeHost(address)
         if (host.isEmpty()) throw Exception("这台电脑还没有可用地址")
-        if (ServerProfile.text(profile.jumpServerId).isEmpty()) return host
-        val jump = JumpStore.findJump(JumpStore.loadJumps(this), profile.jumpServerId)
+        val jumpId = profile.jumpForAddress(host)
+        if (jumpId.isEmpty()) return host
+        val jump = JumpStore.findJump(JumpStore.loadJumps(this), jumpId)
             ?: throw Exception("跳板机不存在（可能已删除）")
         return SshSessionManager.shared().tunnelAddress(this, jump, host) { title, message ->
             bus.confirm(title, message)
@@ -831,10 +840,12 @@ class MainActivity : ComponentActivity() {
             throw Exception("这台电脑还没有可用地址")
         }
         val tunnel = tab?.effectiveAddress ?: ""
-        if (ServerProfile.text(profile.jumpServerId).isEmpty()) {
+        // 一址一跳板机：这个标签当前用的地址绑了哪台就查哪台（不是档案级的单值字段）
+        val jumpId = profile.jumpForAddress(address)
+        if (jumpId.isEmpty()) {
             return if (tunnel.isNotEmpty()) tunnel else address
         }
-        val jump = JumpStore.findJump(JumpStore.loadJumps(this), profile.jumpServerId)
+        val jump = JumpStore.findJump(JumpStore.loadJumps(this), jumpId)
             ?: throw Exception("跳板机不存在，请到「服务器」页检查")
         return SshSessionManager.shared().tunnelAddress(this, jump, address) { title, message ->
             bus.confirm(title, message)
@@ -1435,7 +1446,7 @@ class MainActivity : ComponentActivity() {
         tab.addressIndex = 0      // 重新连：从首选地址开始
         tab.tried.clear()
         tab.triedRemote = false   // 新一轮连接尝试：兜底闸全部重置
-        tab.triedJump = false
+        tab.jumpTried.clear()
         loadCurrentAddress(tab)
     }
 
@@ -1452,7 +1463,8 @@ class MainActivity : ComponentActivity() {
         // 兜底也要尊重连接策略：跳板机被停用就不许再被选中
         //（直连停用 + 跳板机停用 → 返回 lan 会让连接失败，随后兜底链里
         // connectJump / connectRemote 同样被各自的停用闸拦住，不会偷偷绕路）
-        val jumpUsable = ServerProfile.text(profile.jumpServerId).isNotEmpty()
+        // 一址一跳板机：任一地址绑了跳板机就算可用（老字段单值只代表首选地址那台）
+        val jumpUsable = profile.jumpBindings().isNotEmpty()
             && !profile.routeDisabled.contains(ServerProfile.ROUTE_JUMP)
         return if (jumpUsable) {
             ServerProfile.ROUTE_JUMP
@@ -1486,7 +1498,8 @@ class MainActivity : ComponentActivity() {
             loading = true
         }
         // 经由跳板机：先把「内网地址」解析成本地隧道端口（后台），再从 localhost 加载
-        if (useJump && ServerProfile.text(profile.jumpServerId).isNotEmpty()) {
+        // 一址一跳板机：这个下标地址自己也绑了跳板机才走隧道
+        if (useJump && profile.jumpForAddress(address).isNotEmpty()) {
             connectThroughTunnel(tab, address)
             return
         }
@@ -1504,7 +1517,10 @@ class MainActivity : ComponentActivity() {
         Thread({
             val localAddress: String
             try {
-                val jump = JumpStore.findJump(JumpStore.loadJumps(this), tab.profile.jumpServerId)
+                // 这个地址自己那台跳板机（一址一跳板机，不是档案级的单值字段）
+                val jumpId = tab.profile.jumpForAddress(destAddress)
+                if (jumpId.isEmpty()) throw Exception("这个地址没有配跳板机")
+                val jump = JumpStore.findJump(JumpStore.loadJumps(this), jumpId)
                     ?: throw Exception("跳板机不存在，请到「服务器」页检查")
                 localAddress = SshSessionManager.shared().tunnelAddress(
                     this, jump, destAddress
@@ -1571,15 +1587,15 @@ class MainActivity : ComponentActivity() {
     /**
      * 局域网候选全挂 → 跳板机兜底：开 SSH 转发从 {@code 127.0.0.1:端口} 加载。
      * 跳板机通道在优先级表里**启用**才参与（停用就不算数，与列表同一套策略）；
-     * 本轮内只兜底一次（triedJump 闸），失败后 advanceAddress 继续走向远程通道。
+     * 一址一跳板机：按绑定逐个地址试（jumpTried 闸），全试完再走向远程通道。
      */
     private fun connectJump(tab: Tab): Boolean {
         val profile = tab.profile
-        if (tab.triedJump) return false
-        if (ServerProfile.text(profile.jumpServerId).isEmpty()) return false
         if (profile.routeDisabled.contains(ServerProfile.ROUTE_JUMP)) return false
-        if (profile.addresses.isEmpty()) return false
-        tab.triedJump = true
+        // 还有没试过的「地址 → 它自己那台跳板机」就走它
+        val binding = profile.jumpBindings().firstOrNull { !tab.jumpTried.contains(it[1]) }
+            ?: return false
+        tab.jumpTried.add(binding[1])
         tab.tried.clear()
         tab.mainFailed = false
         tab.started = true
@@ -1588,9 +1604,9 @@ class MainActivity : ComponentActivity() {
         if (profile.id == activeId) {
             errorInfo = null
             loading = true
-            toast("局域网不通，改走跳板机…")
+            toast("局域网不通，改走跳板机 → " + binding[1])
         }
-        connectThroughTunnel(tab, profile.hostAt(0))
+        connectThroughTunnel(tab, binding[1])
         return true
     }
 
@@ -1644,6 +1660,16 @@ class MainActivity : ComponentActivity() {
         if (!tab.profile.promoteAddress(tab.addressIndex)) return
         tab.addressIndex = 0
         ServerStore.save(this, servers)
+    }
+
+    /**
+     * 「最近连接」排序：记一次成功连接（页加载完成才算，探测 / 心跳不算）。
+     * 直接走 [ServerRepository.persist]（模式感知排序 + 落盘），
+     * recent 模式下这台电脑会立刻浮到列表和页签最前。
+     */
+    private fun touchUsed(profile: ServerProfile) {
+        profile.lastUsedAt = System.currentTimeMillis()
+        ServerRepository.persist(this)
     }
 
     private fun activate(id: String) {
@@ -1724,7 +1750,7 @@ class MainActivity : ComponentActivity() {
         tab.tried.clear()
         tab.usingRemote = false
         tab.triedRemote = false
-        tab.triedJump = false
+        tab.jumpTried.clear()
         errorInfo = null
         val profile = tab.profile
         // 远程优先（编辑里选的）：直接走远程通道，局域网只做兜底（挂了 advanceAddress 会退回来）；
@@ -1733,7 +1759,9 @@ class MainActivity : ComponentActivity() {
             connectRemote(tab)
             return
         }
-        if (ServerProfile.text(profile.jumpServerId).isNotEmpty() || profile.addresses.size < 2) {
+        // 配了跳板机（任一地址）就按地址链走：每个地址在自己的隧道里探，
+        // 直接走 loadCurrentAddress → 赢家 → 各地址自己的跳板机
+        if (profile.jumpBindings().isNotEmpty() || profile.addresses.size < 2) {
             loadCurrentAddress(tab)
             return
         }
@@ -1925,7 +1953,7 @@ class MainActivity : ComponentActivity() {
         mergeInto(keep, drop)
         dropTab(drop)
         servers.remove(drop)
-        ServerStore.sort(servers)
+        ServerStore.sort(this, servers)
         ServerStore.save(this, servers)
         if (drop.id == activeId) {
             activeId = keep.id
@@ -1985,7 +2013,7 @@ class MainActivity : ComponentActivity() {
             i++
         }
         if (removed > 0) {
-            ServerStore.sort(servers)
+            ServerStore.sort(this, servers)
             ServerStore.save(this, servers)
             if (ServerStore.find(servers, activeId) == null) {
                 activeId = if (servers.isEmpty()) "" else servers[0].id
@@ -2063,8 +2091,11 @@ class MainActivity : ComponentActivity() {
                 val tab = tabs[profile.id] ?: return
                 if (!isCurrentAddress(tab, url)) return
                 if (tab.status != STATUS_FAIL) {
+                    val firstOk = tab.status != STATUS_OK
                     tab.status = STATUS_OK
                     chipTick++
+                    // 「最近连接」排序：真正连上（页加载完成）才算用过，探测/心跳不算
+                    if (firstOk) touchUsed(profile)
                     // 连上了：把这个地址记成首选，下次开机直连它（DHCP 换过 IP 也能自愈）
                     rememberWorkingAddress(tab)
                 }

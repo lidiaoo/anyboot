@@ -254,7 +254,8 @@ struct ComputerTabsView: View {
             return ServerProfile.routeLabel(state.kind)
         }
         if tab?.usingRemote == true { return "远程" }
-        if !profile.jumpServerId.trimmingCharacters(in: .whitespaces).isEmpty
+        // 一址一跳板机：任一地址绑了跳板机就算（老字段单值不再作数）
+        if !profile.jumpBindings.isEmpty
             && !profile.routeDisabled.contains(ServerProfile.routeJump) {
             return "跳板机"
         }

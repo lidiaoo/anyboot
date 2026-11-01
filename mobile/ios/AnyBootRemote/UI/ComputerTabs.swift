@@ -19,7 +19,8 @@ final class ComputerTab: ObservableObject, Identifiable {
 
     var tried: Set<String> = []
     var triedRemote = false
-    var triedJump = false
+    /// 本轮已试过的「某地址 → 它自己那台跳板机」通道（一址一跳板机：逐个试）
+    var jumpTried: Set<String> = []
     var usingRemote = false
     var effectiveAddress = ""
     var mainFailed = false
@@ -43,7 +44,10 @@ final class ComputerTab: ObservableObject, Identifiable {
         box.onFinish = { [weak self] in
             guard let self else { return }
             if self.status != .failed {
+                // 「最近连接」排序：真正连上（页加载完成）才算用过，探测/心跳不算
+                let firstOk = self.status != .ok
                 self.status = .ok
+                if firstOk { ServerStore.shared.touchUsed(self.profileId) }
                 self.rememberWorkingAddress()
             }
         }
@@ -94,7 +98,7 @@ final class ComputerTab: ObservableObject, Identifiable {
         addressIndex = 0
         tried = []
         triedRemote = false
-        triedJump = false
+        jumpTried = []
         loadCurrentAddress()
     }
 
@@ -105,7 +109,7 @@ final class ComputerTab: ObservableObject, Identifiable {
                 return candidate.kind
             }
         }
-        let jumpUsable = !profile.jumpServerId.trimmingCharacters(in: .whitespaces).isEmpty
+        let jumpUsable = !profile.jumpBindings.isEmpty
             && !profile.routeDisabled.contains(ServerProfile.routeJump)
         return jumpUsable ? ServerProfile.routeJump : ServerProfile.routeLan
     }
@@ -129,7 +133,8 @@ final class ComputerTab: ObservableObject, Identifiable {
         started = true
         status = .loading
 
-        if useJump && !profile.jumpServerId.trimmingCharacters(in: .whitespaces).isEmpty {
+        // 一址一跳板机：这个下标地址自己也绑了跳板机才走隧道
+        if useJump && !profile.jumpServerId(for: address).isEmpty {
             connectThroughTunnel(address)
             return
         }
@@ -188,20 +193,20 @@ final class ComputerTab: ObservableObject, Identifiable {
         return connectRemote()
     }
 
-    /// 局域网候选全挂 → 跳板机兜底（本轮只兜一次）
+    /// 局域网候选全挂 → 跳板机兜底（一址一跳板机：按绑定逐个地址试）
     private func connectJump() -> Bool {
-        if triedJump { return false }
-        if profile.jumpServerId.trimmingCharacters(in: .whitespaces).isEmpty { return false }
         if profile.routeDisabled.contains(ServerProfile.routeJump) { return false }
-        if profile.addresses.isEmpty { return false }
-        triedJump = true
+        // 还有没试过的「地址 → 它自己那台跳板机」就走它
+        guard let binding = profile.jumpBindings.first(where: { !jumpTried.contains($0.address) })
+        else { return false }
+        jumpTried.insert(binding.address)
         tried = []
         mainFailed = false
         started = true
         status = .loading
         // Android connectJump 1526
-        activeToast("局域网不通，改走跳板机…")
-        connectThroughTunnel(profile.hostAt(0))
+        activeToast("局域网不通，改走跳板机 → \(binding.address)")
+        connectThroughTunnel(binding.address)
         return true
     }
 

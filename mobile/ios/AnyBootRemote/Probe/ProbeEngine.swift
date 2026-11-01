@@ -17,7 +17,11 @@ enum ProbeEngine {
     /// 一次探测的结果行（一个候选一条）
     struct Hit: Hashable {
         let kind: String
+        /// 这条结果属于**哪个候选**：局域网 / 跳板机是那个直连地址，远程通道是 origin。
+        /// UI 按它把结果对回具体的行（跳板机一址一条，所以必须是地址而不是本机端点）。
         let origin: String
+        /// 实际探测用的地址：直连 = origin；经跳板 = 本机 127.0.0.1:port。连接时用它
+        let target: String
         /// 这条结果属于哪条配对（局域网 / 跳板机为空）—— UI 按它回填「哪一行的状态」
         let pairId: String
         let ok: Bool
@@ -26,6 +30,20 @@ enum ProbeEngine {
         let machineId: String
         let machineName: String
         let os: String
+
+        init(kind: String, origin: String, target: String? = nil, pairId: String,
+             ok: Bool, ms: Int, error: String, machineId: String, machineName: String, os: String) {
+            self.kind = kind
+            self.origin = origin
+            self.target = (target?.isEmpty == false) ? target! : origin
+            self.pairId = pairId
+            self.ok = ok
+            self.ms = ms
+            self.error = error
+            self.machineId = machineId
+            self.machineName = machineName
+            self.os = os
+        }
 
         static func failure(kind: String, origin: String, pairId: String, error: String) -> Hit {
             Hit(kind: kind, origin: origin, pairId: pairId, ok: false, ms: 0,
@@ -37,7 +55,11 @@ enum ProbeEngine {
     struct Result {
         var ok: Bool = false
         var kind: String = ""
+        /// 连接用端点：直连 = 地址；跳板机 = 本机 127.0.0.1:port；远程 = origin
         var origin: String = ""
+        /// 赢家落在**哪个候选**上：局域网 / 跳板机 = 那个直连地址，远程 = origin。
+        /// [`origin`] 对跳板机赢家是本机端口，查不出「用的是哪台跳板机」—— 地址单独留一份
+        var winOrigin: String = ""
         /// 赢家是哪条配对（局域网 / 跳板机为空）
         var pairId: String = ""
         var ms: Int = 0
@@ -51,8 +73,11 @@ enum ProbeEngine {
         var remote: Bool { ProbeEngine.isRemote(kind) }
     }
 
-    /// 跳板机端点解析：返回本机可访问的 host:port；解析不了抛错
-    typealias JumpResolver = () async throws -> String
+    /// 跳板机端点解析：为目标地址准备一条本地转发，返回本机可访问的 host:port。
+    ///
+    /// 一址一跳板机（用户 2026-11-01）：参数是这个候选要转发到的**直连地址**，
+    /// 三个直连各配一台跳板机时，各建各的隧道。
+    typealias JumpResolver = (String) async throws -> String
 
     /// 「本地」通道：局域网与跳板机。心跳先只探这一批 —— 本地通了就不用惊动公网
     static let localKinds = [ServerProfile.routeLan, ServerProfile.routeJump]
@@ -311,34 +336,39 @@ enum ProbeEngine {
         return hits
     }
 
-    /// 探一个候选：局域网 → `http://host:port/health`；远程 → `<origin>/health`
+    /// 探一个候选：局域网 → `http://host:port/health`；远程 → `<origin>/health`；
+    /// 跳板机 → 先按**这个地址**建（或复用）本地转发，再探 `127.0.0.1:port`
     private static func probeOne(kind: String, item: Item, jump: JumpResolver?) async -> Hit {
         var remote = isRemote(kind)
         var target = item.origin
+        // 行记账永远用候选地址（跳板机一址一条，不能拿本机端口去对行）
+        let rowOrigin = item.origin
         if kind == ServerProfile.routeJump {
             guard let jump else {
-                return .failure(kind: kind, origin: "", pairId: item.pairId, error: "没配跳板机解析器")
+                return .failure(kind: kind, origin: rowOrigin, pairId: item.pairId,
+                                error: "没配跳板机解析器")
             }
             do {
-                target = try await jump()
+                target = try await jump(item.origin)
             } catch {
-                return .failure(kind: kind, origin: "", pairId: item.pairId,
+                return .failure(kind: kind, origin: rowOrigin, pairId: item.pairId,
                                 error: "跳板机不可用：\(error.localizedDescription)")
             }
             if target.trimmedAnyBoot.isEmpty {
-                return .failure(kind: kind, origin: "", pairId: item.pairId,
+                return .failure(kind: kind, origin: rowOrigin, pairId: item.pairId,
                                 error: "跳板机隧道没建起来")
             }
             remote = false
         }
         guard let probe = await HealthProbe.probe(target, remote: remote,
                                                   timeoutMs: item.timeoutMs) else {
-            return .failure(kind: kind, origin: target, pairId: item.pairId,
-                            error: "连不上（超时或对方没起 HTTP 服务）")
+            return Hit(kind: kind, origin: rowOrigin, target: target, pairId: item.pairId,
+                       ok: false, ms: 0, error: "连不上（超时或对方没起 HTTP 服务）",
+                       machineId: "", machineName: "", os: "")
         }
-        return Hit(kind: kind, origin: target, pairId: item.pairId, ok: true, ms: probe.ms,
-                   error: "", machineId: probe.machineId, machineName: probe.machineName,
-                   os: probe.os)
+        return Hit(kind: kind, origin: rowOrigin, target: target, pairId: item.pairId, ok: true,
+                   ms: probe.ms, error: "", machineId: probe.machineId,
+                   machineName: probe.machineName, os: probe.os)
     }
 
     // MARK: - 收束
@@ -379,7 +409,9 @@ enum ProbeEngine {
         }
         result.ok = true
         result.kind = winner.kind
-        result.origin = winner.origin
+        // 连接用 target（跳板机赢家是本机转发端点），行记账 / 查跳板机用 origin（候选地址）
+        result.origin = winner.target
+        result.winOrigin = winner.origin
         result.pairId = winner.pairId
         result.ms = winner.ms
         result.machineId = winner.machineId

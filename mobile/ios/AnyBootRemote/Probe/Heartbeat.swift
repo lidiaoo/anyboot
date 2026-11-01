@@ -77,9 +77,12 @@ final class Heartbeat: ObservableObject {
     /// 状态集合有真变化（主线程）—— 不想用 `@Published` 的宿主可以挂这里
     var onChanged: (() -> Void)?
 
-    /// 「经由跳板机」的电脑：把内网地址解析成本地隧道地址（`127.0.0.1:端口`）。
+    /// 「经由跳板机」的电脑：把目标内网地址解析成本地隧道地址（`127.0.0.1:端口`）。
     /// nil / 抛错 = 这一轮判没探到。由 App 注入（探测层不碰 SSH 栈）。
-    var tunnelResolver: ((ServerProfile) async throws -> String)?
+    ///
+    /// 第二个参数是**要转发的那个直连地址**：一址一跳板机（用户 2026-11-01），
+    /// 三个直连各配一台时，每个地址要各建各的隧道。
+    var tunnelResolver: ((ServerProfile, String) async throws -> String)?
 
     /// 探到的机器标识回写（`machineId` / `machineName` / `os`）——
     /// **只在指纹变了时**回调（别每 10 秒写一次盘），由 App 存回档案
@@ -166,8 +169,9 @@ final class Heartbeat: ObservableObject {
     }
 
     private func resolver(for profile: ServerProfile) -> ProbeEngine.JumpResolver? {
-        guard !profile.jumpServerId.trimmedAnyBoot.isEmpty, let tunnel = tunnelResolver else { return nil }
-        return { try await tunnel(profile) }
+        guard !profile.jumpBindings.isEmpty, let tunnel = tunnelResolver else { return nil }
+        // 一址一跳板机：引擎把「这个候选要转发到的地址」传进来，各查各的跳板机
+        return { target in try await tunnel(profile, target) }
     }
 
     private func probeAll() {

@@ -256,10 +256,14 @@ struct BackupPage: View {
     }
 
     private var missingJumpRefCount: Int {
+        // 一址一跳板机：每个地址的绑定各算一处（与导出预检同口径）
         let jumpIds = Set(JumpStore.shared.jumps.map(\.id))
-        return ServerStore.shared.servers.filter {
-            !$0.jumpServerId.isEmpty && !jumpIds.contains($0.jumpServerId)
-        }.count
+        return ServerStore.shared.servers.reduce(0) { total, profile in
+            var refs: Set<String> = []
+            if !profile.jumpServerId.isEmpty { refs.insert(profile.jumpServerId) }
+            for (_, id) in profile.jumps where !id.isEmpty { refs.insert(id) }
+            return total + refs.filter { !jumpIds.contains($0) }.count
+        }
     }
 
     // ---- L2 口令区 ----

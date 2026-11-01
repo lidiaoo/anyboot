@@ -3567,6 +3567,8 @@ pub fn run() {
             remote_servers::remote_list,
             remote_servers::remote_save,
             remote_servers::remote_delete,
+            remote_servers::remote_reorder,
+            remote_servers::remote_touch,
             remote_servers::remote_set_connect_all,
             remote_servers::remote_test,
             remote_servers::remote_promote_address,
