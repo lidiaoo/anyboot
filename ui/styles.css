@@ -3998,6 +3998,44 @@ body[data-ba-lr] .tab-panel.active {
 #tab-boot.ba-lr .ba-col > .grub,
 #tab-boot.ba-lr .ba-col > .refind,
 #tab-boot.ba-lr .ba-col > .boot-channel { min-width: 0; }
+
+/* 2026-11-02 实测（320px 宽）：**只有 K 溢出** —— 卡片宽 292、内容宽 328，
+ * 超出边界 37px 的是 .grub-title-row / .grub-panel / .sim-scan / .sim-scan-list。
+ * 根因 `.grub-title-row { flex: none }`：它在 flex 容器里不收缩；
+ * K 的列是 grid，没有给内层元素的 max-content 兜住。
+ * 这里把 K 卡片内部整条链也补上 min-width:0 + overflow-x:hidden，
+ * 与主题态那套保持一致。 */
+#tab-boot.ba-lr .ba-col > .grub,
+#tab-boot.ba-lr .ba-col > .refind,
+#tab-boot.ba-lr .ba-col > .boot-channel {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+/* 卡片内部（K 与主题态共用同一份 DOM）：标题行允许收缩到内容宽度，
+ * 但整行不许超过卡片 —— `.grub-title-row` 的 flex:none 只该作用于
+ * GRUB 头部那一处（给右侧状态小字让位），不该让整行撑破卡片。 */
+.ba-col > .refind > .grub-title-row,
+.ba-col > .grub > .grub-head > .grub-title-row,
+.ba-theme-sec > .grub-title-row,
+.ba-theme-sec > .grub-head > .grub-title-row {
+  max-width: 100%;
+  overflow: hidden;
+}
+/* 内层滚动/网格容器一律不许超宽 */
+.ba-col .grub-panel,
+.ba-col .sim-scan,
+.ba-col .sim-scan-list,
+.ba-col .grub-list,
+.ba-col .grub-list-body,
+.ba-col .grub-tabs,
+.ba-col .ba-setbar,
+.ba-col .oc-menu,
+.ba-col .oc-menu-list,
+.ba-col .grub-esp {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
+}
 #tab-boot.ba-lr > .empty,
 #tab-boot.ba-lr .ba-col > .empty {
   align-self: center;
