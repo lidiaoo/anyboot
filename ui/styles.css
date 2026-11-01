@@ -1283,6 +1283,9 @@ h1,
   position: sticky;
   top: 0;
   z-index: 2;
+  /* sticky 行必须有自己的堆叠上下文，否则窄屏下会压住相邻卡片
+   * （2026-11-02 实测：移动端 GRUB 卡片里 sticky 行 h=115 浮在列表上）。 */
+  isolation: isolate;
   background: color-mix(in srgb, var(--ok-bg) 87%, var(--panel) 13%);
   border-color: var(--ok-border);
   box-shadow: inset 2px 0 0 var(--ok);
@@ -3218,7 +3221,7 @@ svg.i.lg { width: 16px; height: 16px; }
 .la-chip.is-on { background: var(--panel-2); border-color: var(--line-2); color: var(--text); }
 .la-chip em { font: 10px var(--mono); color: var(--fainter); font-style: normal; }
 .la-star { color: var(--accent-2); }
-.la-list { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; padding-right: 2px; }
+.la-list { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; overflow-x: hidden; padding-right: 2px; }
 .la-card { flex: none; }
 .la-card .card-head { border-bottom: 1px solid transparent; }
 .la-card .card-head:hover { border-bottom-color: var(--line); }
@@ -3630,7 +3633,27 @@ svg.i.lg { width: 16px; height: 16px; }
 }
 .k-rhd b { color: var(--dim); font-weight: 600; }
 .k-rhd .grow { flex: 1; min-width: 0; }
-.k-rbody { flex: 1; min-height: 0; display: flex; gap: 9px; padding: 9px; overflow-y: auto; overflow-x: hidden; }
+/* 2026-11-02 用户定案「就现在的 K 就是宽度 300 都不会挤压，而别的主题都会被
+ * 挤压」—— 实地对比 K 与 A 的容器链，差别只有 min-width：
+ *   K: .ba-col min-width:0 → .ba-lr-cols 0 → … 全程 0px
+ *   A: .la-list min-width:auto、.k-rbody min-width:auto  ← 这两个是内容 max-content，
+ *      窄屏下卡片被内容顶宽 → 右边挤压/截断（opencore 卡片恰好内容都短才没事）
+ * 抄 K 的做法：整条链一律 min-width:0。 */
+.k-rbody { flex: 1; min-width: 0; min-height: 0; display: flex; gap: 9px; padding: 9px; overflow-y: auto; overflow-x: hidden; }
+
+/* 同上：其余主题的滚动容器也补 min-width:0 + overflow-x:hidden，
+ * 与 K 的容器链保持一致（否则窄屏下长内容一样会把卡片顶宽）。 */
+.lb-list,
+.lb-scroll,
+.lc-body,
+.lg-results,
+.li-grid,
+.lj-c2,
+.lj-c3,
+.sim-scan-list {
+  min-width: 0;
+  overflow-x: hidden;
+}
 .k-rbody.h { flex-direction: row; }
 .k-rbody.v { flex-direction: column; }
 .k-rbody.is-empty { align-items: center; justify-content: center; }
@@ -3747,6 +3770,48 @@ svg.i.lg { width: 16px; height: 16px; }
 .vw-520 .lj-c3 { width: 210px; }
 /* ≤520：B 的主区标题行与 C 的工具栏各收一档内边距，别把行挤成两行 */
 .vw-520 .lb-main-head { padding: 11px 12px; }
+/* 2026-11-02 实测：B 布局的左侧通道栏 `.lb-nav` 固定 236px，390px 屏上主区
+ * 只剩 140px（实测 .lb-main w=140 / scrollW=189，溢出 49px）。
+ * 小屏改成竖排：通道栏变成顶部横向标签条，主区满宽。 */
+.vw-760 .lb,
+.vw-520 .lb {
+  flex-direction: column;
+  overflow: visible;
+}
+.vw-760 .lb-nav,
+.vw-520 .lb-nav {
+  width: auto;
+  flex: none;
+  border-right: 0;
+  border-bottom: 1px solid var(--line);
+  max-height: 116px;
+}
+.vw-760 .lb-list,
+.vw-520 .lb-list {
+  flex-direction: row;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 6px;
+  gap: 6px;
+}
+.vw-760 .lb-item,
+.vw-520 .lb-item {
+  width: auto;
+  flex: none;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  padding: 6px 9px;
+}
+.vw-760 .lb-main,
+.vw-520 .lb-main {
+  min-width: 0;
+  width: 100%;
+}
+.vw-760 .lb-main-head,
+.vw-520 .lb-main-head {
+  flex-wrap: wrap;
+  gap: 6px;
+}
 .vw-520 .lc-toolbar { padding: 6px 10px; }
 /* ≤520：引导器标签行（5–7 颗）横滑时会被截掉半个 chip，看着像坏了；改成换行，
    全部标签始终可见（这是开关控件，藏起来比多占一行更糟）。 */
@@ -3809,6 +3874,22 @@ body[data-ba-fill] .tab-panel.active { overflow-y: auto; min-height: 0; }
    min-width:auto，长条目名会把容器顶宽（460 宽下横向溢出的第二个来源）。 */
 #tab-boot.ba-fill .ba-theme-sec,
 #tab-boot.ba-fill .ba-theme-pane { min-width: 0; }
+/* 2026-11-02 用户反馈「grub 和 refind 卡片右边被挤压，opencore 卡片不会」
+ * —— 实测三张卡同宽 340，但 scrollWidth：grub 347（溢出）、refind 338、
+ * opencore 338。差异在**卡片内部的这两条**：
+ *   .grub-tabs / .ba-setbar 的 min-width 是 auto（其余子元素都是 0）
+ * grid / flex 项的 auto 最小宽度 = 内容的 max-content，窄屏下把卡片顶宽。
+ * 与 opencore 卡片对齐：显式 min-width: 0。 */
+.ba-theme-sec > .grub-tabs,
+.ba-theme-sec > .ba-setbar,
+.ba-theme-sec > .grub-list,
+.ba-theme-sec > .grub-list-body,
+.ba-theme-sec .sim-scan,
+.ba-theme-sec .grub-panel,
+.ba-theme-sec .oc-menu,
+.ba-theme-sec .grub-esp {
+  min-width: 0;
+}
 /* 主题态把「下次启动」行再收一档：720 高的窗口里它占 163px，是主题列表
    变矮的最大单项。行距/内边距收窄，信息一行不少。 */
 body[data-ba-fill] .next-boot-rows { gap: 4px; }
@@ -3892,6 +3973,17 @@ body[data-ba-lr] .tab-panel.active {
  * `.ba-split` 是 splitLoaderSection 给**区块自身**加的类（#refind / #grub
  * 都带），写成 .ba-split 会把所有引导区块一起隐藏掉（踩过：页面全空）。 */
 #tab-boot.vw-760.ba-lr > .ba-lr-cols > .k-split { display: none; }
+
+/* 2026-11-02：小屏下引导行的 sticky 置顶会跨卡片叠压（抓图可见 GRUB 卡片里
+ * 置顶行浮在列表上、还压住下方的「其他引导器」条）。
+ * 小屏本来就是一屏一列、滚动距离短，sticky 收益很小，直接退回普通行。 */
+#tab-boot.vw-760 .grub-entry.is-pinned,
+#tab-boot.vw-520 .grub-entry.is-pinned,
+.vw-520 .grub-entry.is-pinned,
+.vw-760 .grub-entry.is-pinned {
+  position: static;
+  z-index: auto;
+}
 #tab-boot.vw-760.ba-lr .ba-col {
   max-height: none;
   overflow: visible;
