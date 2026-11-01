@@ -3453,8 +3453,40 @@ svg.i.lg { width: 16px; height: 16px; }
  * 只在**主题态**（.ba-theme-sec）生效：不套主题的原生页面里它是唯一的分区
  * 标识，必须留着。 */
 .ba-theme-sec > .grub-title-row,
-.ba-theme-sec > .grub-head > .grub-title-row {
+.ba-theme-sec > .grub-head > .grub-title-row,
+/* 主题把 section 搬进抽屉 / 停靠容器后层级变了（.ba-i-realsec、.lj-c3 等），
+ * 上面的 `>` 直接子级选择器够不到；这里补一条不限层级的兜底。 */
+.ba-i-realsec .grub-title-row,
+.lj-c2 .grub-title-row,
+.lj-c3 .grub-title-row {
   display: none;
+}
+
+/* 标题行藏掉后，它上方那圈留白（section 自己的 padding-top / 头部的 margin）
+ * 和残留的分隔符空行还占着位置 —— 用户反馈「rEFInd 标题区域有个分割符和空行」。
+ * 实测（CDP）：#refind 场景 `padding: 14px 16px`、`gap: 10px`，
+ * 标题行 display:none 后这 14px + 10px 就是那条空行。
+ * 主题态下把 section 顶部留白与头部留白一起收掉；左右内边距保留（不影响对齐）。 */
+.ba-theme-sec {
+  padding-top: 0;
+}
+.ba-theme-sec > .grub-head {
+  padding-top: 0;
+  margin-top: 0;
+}
+/* GRUB 头部里那两行 STAT：空的时候（高度 0 或只有 14px 的空白块）不占位。
+ * 「EFI 目录 /Volumes/ARCH-EFI · 68 个启动项 · 同步于 …」这行由 #grub-meta 承担，
+ * 用户定案：整个「GRUB 区」头部（含这行）在主题态去掉。 */
+.ba-theme-sec > .grub-head > #grub-status,
+.ba-theme-sec > .grub-head > #grub-meta,
+.ba-i-realsec #grub-status,
+.ba-i-realsec #grub-meta {
+  display: none;
+}
+/* 主题态下 section 作为主题卡片的根：分隔符与多余空行一律不占高度 */
+.ba-theme-sec > hr.boot-divider {
+  display: none;
+  margin: 0;
 }
 
 /* 特异性说明：原规则是 `body[data-grub-mode="inline"] .grub-list`（0,2,1），
@@ -3520,13 +3552,14 @@ body[data-grub-mode] .ba-theme-sec .grub-list-body {
 /* ── 8. 方案 I —— Bento 磁贴 + 底部抽屉（原样移植）───────────────────── */
 .li { display: flex; flex-direction: column; min-height: 0; position: relative; overflow: hidden; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
 .li-grid { flex: 1; min-height: 0; overflow-y: auto; display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; align-content: start; padding: 12px; }
+/* 2026-11-01 用户定案：I（bento）的「下次启动」主视觉块去掉背框 ——
+ * 那块渐变 + 边框在去掉「下次启动·一次性」标签后只剩空壳，还盖住旁边的磁贴。
+ * 现在只保留内容（数值 / 来源 / 操作），不画底、不画框、不跨行列占位。 */
 .li-hero {
-  grid-column: span 2; grid-row: span 2; display: flex; flex-direction: column; justify-content: space-between;
-  padding: 15px; border-radius: 13px; position: relative; overflow: hidden;
-  background:
-    radial-gradient(320px 160px at 88% 8%, color-mix(in srgb, var(--accent) 55%, transparent), transparent 70%),
-    linear-gradient(155deg, var(--panel-3), var(--panel));
-  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line));
+  grid-column: span 2; display: flex; flex-direction: column; justify-content: space-between;
+  padding: 0 0 4px; position: relative;
+  background: transparent;
+  border: 0;
 }
 .li-hero .k { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent-2); }
 .li-hero .v { font-size: 20px; font-weight: 650; letter-spacing: -0.02em; margin-top: 6px; }

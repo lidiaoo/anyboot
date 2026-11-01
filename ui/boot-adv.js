@@ -1163,7 +1163,17 @@
     }
     const spacer = n("span");
     spacer.style.flex = "1";
-    idx.append(spacer, icoBtn("sort", "拖拽排序 / 编排显示"));
+    // 2026-11-01：这枚按钮原先只有 title、没有任何 handler（点了没反应）。
+    // 编排面板就是 I 渲染器那套「设置与编排」抽屉；其它主题没自己的编排 UI，
+    // 统一打开它。没有打开器时退化为「去引导高级设置」的提示。
+    const sortBtn = icoBtn("sort", "拖拽排序 / 编排显示");
+    sortBtn.addEventListener("click", () => {
+      if (iSheetOpen) { iSheetOpen("编排"); return; }
+      // 兜底：直接把用户带到引导高级设置页
+      const advTab = document.querySelector('#tabs .tab[data-tab="adv-boot"]');
+      if (advTab) advTab.click();
+    });
+    idx.append(spacer, sortBtn);
     wrap.append(idx);
 
     const list = n("div", "la-list");
@@ -1307,6 +1317,11 @@
       return t;
     });
     const add = icoBtn("sliders", "编排：固定 / 排序 / 溢出顺序", "btn icon ghost sm lc-tabadd");
+    add.addEventListener("click", () => {
+      if (iSheetOpen) { iSheetOpen("编排"); return; }
+      const advTab = document.querySelector('#tabs .tab[data-tab="adv-boot"]');
+      if (advTab) advTab.click();
+    });
     const moreT = icoBtn("more", "溢出标签", "btn icon ghost sm lc-tabadd");
     tabs.append(add, moreT);
 
@@ -2043,30 +2058,41 @@
     c3.append(c3hd, c3bd);
     const panes = new Map();
 
+    /// 把 c3 右栏里**所有**停靠的 .ba-set-body 归还给它的原 section。
+    ///
+    /// 必须在 paint 的任何查询之前无条件跑一遍：上一轮 paint 把 body 搬进
+    /// c3bd 后，section 里就没有 .ba-set-body 了；此时若先 sectionFor / query，
+    /// 拿到的就是「有 section、没 body」的空态 → 右栏显示「这个引导器没有可调
+    /// 设置」。用户手动点一下 navi 之所以能好，是因为那一次 docked 归还分支
+    /// 先跑了（本来就在同一个函数里，只是顺序在查询之后）。
+    function undockAll() {
+      c3bd.querySelectorAll(":scope > .ba-set-body.is-docked").forEach((el) => {
+        const owner = el.dataset.owner ? document.getElementById(el.dataset.owner) : null;
+        if (owner) {
+          owner.appendChild(el);
+          const ob = owner.querySelector(":scope > .ba-setbar");
+          if (ob) ob.style.display = "";
+          el.classList.remove("is-docked");
+          delete el.dataset.owner;
+        } else {
+          el.remove();
+        }
+      });
+    }
+
     function paint(id) {
       active = id;
       const l = lds.find((x) => x.id === id);
       if (!l) return;
+      // 先归还上一份停靠（见 undockAll 注释：顺序错了就会永远显示空态）
+      undockAll();
       [...nav.children].forEach((c) => c.classList.toggle("is-on", c.dataset.lid === id));
       head.replaceChildren(ldr(l, "sm"), n("b", null, l.name), stateChip(l), n("span", "grow"));
       head.lastChild.style.marginLeft = "auto";
       head.append(btn("下次启动", "btn xs", "power"), icoBtn("more", "更多"));
       panes.forEach((pane, pid) => pane.classList.toggle("is-shown", pid === id));
 
-      // 上一份停靠的设置先搬回它自己的卡：直接 replaceChildren 会把 body 连
-      // 同里面的真控件一起摘出文档 —— teardown 的 restore 再也找不到它们
-      //（isConnected 为假），用户填过的 ESP 路径 / 脚本就此消失。
-      const docked = c3bd.querySelector(":scope > .ba-set-body.is-docked");
-      if (docked) {
-        const owner = docked.dataset.owner ? document.getElementById(docked.dataset.owner) : null;
-        if (owner) {
-          owner.appendChild(docked);
-          const ob = owner.querySelector(":scope > .ba-setbar");
-          if (ob) ob.style.display = "";
-        } else {
-          docked.remove();
-        }
-      }
+      // c3bd 此时已由 undockAll() 清空（上一份归还给了原 section）
       c3bd.replaceChildren();
       // 右栏就是「引导器设置」本体：把当前引导器卡里那份**真实**设置（ESP
       // 分区 / 分区明细 / 脚本 / 免密…）整块搬过来。原先这里另画一份设计稿
@@ -2075,7 +2101,18 @@
       // 用户定案：重复的要合并）。
       const sec = sectionFor(l.id);
       const bar = sec ? sec.querySelector(":scope > .ba-setbar") : null;
-      const body = sec ? sec.querySelector(":scope > .ba-set-body") : null;
+      let body = sec ? sec.querySelector(":scope > .ba-set-body") : null;
+      // 首次 paint 可能撞上「section 已搬进来、但 bootBuild 还没跑」的中间态
+      //（J 的根因）。这里补一次 split 再取 —— splitLoaderSection 自带幂等判断
+      // （已有 .ba-setbar / .ba-set-body 就复用），不会重复建。
+      if (sec && !body) {
+        try {
+          splitLoaderSection(sec, l.id);
+        } catch (error) {
+          reportClientError("J.paint.split", error);
+        }
+        body = sec.querySelector(":scope > .ba-set-body");
+      }
       if (bar) bar.style.display = "none";
       if (body) {
         body.classList.add("is-docked");
@@ -2109,7 +2146,44 @@
     fold.addEventListener("click", () => c3.classList.toggle("folded"));
     bd.append(...panes.values());
     wrap.append(c1, c2, c3);
-    paint(active);
+
+    // ⚠ 首次 paint 必须在**所有 build 跑完之后**：右栏要把该引导器的
+    // `.ba-set-body` 整块搬过去，而这个节点是 `bootBuild` → splitLoaderSection
+    // 在 build 过程中才创建的。原先直接在循环后 paint(active)，那一刻只有
+    // 当前 active 的 pane 建好了、其余还没建，`sectionFor()` 拿到的是「有
+    // section 但还没有 .ba-set-body」的中间态 → 右栏永远显示「这个引导器没有
+    // 可调设置」，而用户手动点一下 navi 又正常（那时 build 早跑完了）。
+    // 这就是「J 默认选中第一个、但引导器设置是空的」的根因。
+    //
+    // 更稳的做法：先把所有 loader 的 section 都 build 一遍（幂等，bootBuild
+    // 只加 class + splitLoaderSection 自带「已有就不重建」判断），再 paint。
+    if (build) {
+      for (const l of lds) {
+        try {
+          build(l);
+        } catch (error) {
+          reportClientError("J.preBuild", error);
+        }
+      }
+    }
+    // 首次 paint 延到下一帧：J 的右栏要把该引导器的 `.ba-set-body` 搬过来，
+    // 而这个节点属于 `#refind` / `#grub` —— 它们由 bootThemeStage **在 wrap
+    // 返回之后**才被 themeRoot 搬进主题壳、挂到 #tab-boot 上。
+    // 同步 paint 时 `document.getElementById("refind")` 还是 null（section 不在
+    // 文档里），右栏必然显示「这个引导器没有可调设置」，而用户手动点 navi
+    // 又正常（那时早已挂好）—— 这就是「J 默认选中第一个、设置栏却空着」的根因。
+    const firstPaint = () => {
+      try {
+        paint(active);
+      } catch (error) {
+        reportClientError("J.firstPaint", error);
+      }
+    };
+    if (typeof requestAnimationFrame === "function") {
+      requestAnimationFrame(firstPaint);
+    } else {
+      setTimeout(firstPaint, 0);
+    }
     return wrap;
   };
 
