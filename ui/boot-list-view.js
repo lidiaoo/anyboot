@@ -205,22 +205,38 @@ function renderOcMenuPreview(
     const list = document.createElement("div");
     list.className = "oc-menu-list";
 
-    // 置顶（2026-11-01 用户定案）：**当前默认条目排到第一**，其余按原顺序
-    // 跟在后面（「选中的条目相当于置顶到第一个引导项，原来的第一个会被放到
-    // 后面」）。重排数组而非复制两份 —— 列表里同一项只出现一次。
-    const ordered = [
-      ...(preview.entries || []).filter((e) => e.default),
-      ...(preview.entries || []).filter((e) => !e.default),
-    ];
-    ordered.forEach((entry) => {
-      const row = ocMenuRow(entry, ordered.indexOf(entry), {
+    // 置顶（2026-11-01 用户定案，与 GRUB 完全同一行为）：
+    //   ① 选中条目**复制**一份置顶（.is-pinned，无箭头）
+    //   ② 原位保留（**不重排**），原位行开头加 `↳ ` 箭头（与 GRUB 子项同款）
+    //   ③ 原位行同时带 .is-def 高亮 —— 「原位留着才找得到上下文」
+    const defaultEntry = (preview.entries || []).find((e) => e.default);
+    if (defaultEntry) {
+      const pinRow = ocMenuRow(defaultEntry, -1, {
         busy,
         onSwitch,
         channel,
         orderSource: preview.orderSource,
         defaultSlot: preview.defaultSlot,
       });
-      if (entry.default) row.classList.add("is-pinned");
+      pinRow.classList.add("is-pinned");
+      pinRow.classList.remove("is-def");
+      list.append(pinRow);
+    }
+
+    preview.entries.forEach((entry, index) => {
+      const row = ocMenuRow(entry, index, {
+        busy,
+        onSwitch,
+        channel,
+        orderSource: preview.orderSource,
+        defaultSlot: preview.defaultSlot,
+      });
+      // 原位行的箭头：与 GRUB 一致 —— 选中默认项也是从 OC 菜单「引用」出来
+      // 的，行首统一 `↳ `（置顶副本没有箭头）
+      const nameEl = row.querySelector(".oc-menu-head b");
+      if (nameEl && !nameEl.textContent.startsWith("↳")) {
+        nameEl.textContent = "↳ " + nameEl.textContent;
+      }
       list.append(row);
     });
     box.append(list);
