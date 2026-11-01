@@ -1837,7 +1837,8 @@
     const firstDef = first && (first.entries.find((e) => e.def) || first.entries[0]);
     const hero = n("div", "li-hero");
     const htop = n("div");
-    htop.append(n("div", "k", "下次启动 · 一次性"));
+    // 2026-11-01 用户定案：I（bento）里这行「下次启动 · 一次性」标签去掉 ——
+    // 引导页与设置预演里重复出现、纯占位。数值与来源行保留（信息不减）。
     htop.append(n("div", "v", (firstDef && firstDef.t) || "—"));
     htop.append(n("div", "s", first ? `${first.name} → ${first.esp || "ESP"}` : "没有启用的引导器"));
     const acts = n("div", "acts");
