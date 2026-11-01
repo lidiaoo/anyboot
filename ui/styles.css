@@ -2535,10 +2535,9 @@ button.primary-sol:hover:not(:disabled) {
 .sim-scan {
   display: grid;
   gap: 8px;
-  margin-top: 4px;
-  padding-top: 12px;
-  /* 与上面的系统卡分隔：一条虚线，别让人以为这堆行也属于那三张卡 */
-  border-top: 1px dashed var(--border);
+  /* 2026-11-01 用户定案：删掉与上方系统卡的虚线分隔（原来这里有一条
+   * border-top: 1px dashed）。refind 区本身已是独立卡片，那道线纯属多余；
+   * 连带的 margin-top(4px) / padding-top(12px) 一并去掉，不留空行。 */
 }
 .sim-scan-head {
   display: flex;
@@ -3490,11 +3489,6 @@ svg.i.lg { width: 16px; height: 16px; }
  * 「模拟引导项扫描」与上面三张系统卡分开。主题态下 section 自己就是一张卡片、
  * 标题行也已隐藏，这条线失去意义、只剩一条突兀的横线。
  * 连同它的 margin-top / padding-top 一起收掉，避免留出空行。 */
-.ba-theme-sec .sim-scan {
-  border-top: 0;
-  margin-top: 0;
-  padding-top: 0;
-}
 /* 任何主题态下 section 内部残留的装饰性水平分隔线（hr / 虚线边框）统一不显示 */
 .ba-theme-sec > hr,
 .ba-theme-sec .boot-divider {
@@ -4103,9 +4097,19 @@ body[data-boot-style="min"] .oc-menu-row:hover .oc-menu-set:not(.is-default) { o
   overflow: visible;
 }
 #tab-boot .ba-g-card .grub-panel { padding-top: 0; gap: 2px; }
-/* 分组标题：设计稿 .lg-group 的上下留白（首组贴顶，别多出一段空气） */
-#tab-boot .lg-results > .lg-group { padding: 10px 8px 4px; }
-#tab-boot .lg-results > .lg-group:first-child { padding-top: 4px; }
+/* 分组标题：设计稿 .lg-group 的上下留白。
+ *
+ * 2026-11-01 用户定案：**所有分组一律同高**。原来首组用 `:first-child` 特批
+ * `padding-top: 4px`（贴顶），其余组 10px —— 于是「同一个列表里，排在后面的
+ * 那一组（rEFInd）总比第一组（GRUB）多一小段空白」，看起来像「多了个换行」。
+ * 现在统一 4px 顶距：首组本来就贴顶，后续组之间靠 .lg-group 自身的
+ * border-top / .lg-results 的 gap 分隔，不需要再靠额外 padding 撑开视觉层级。 */
+#tab-boot .lg-results > .lg-group { padding: 4px 8px 4px; }
+/* 组与组之间仍然要有一档呼吸感，但用 border-top 表达（不占高度差） */
+#tab-boot .lg-results > .lg-group + .lg-group {
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
 /* 条目行 = 设计稿 .lg-item 的盒子（8px 圆角 / 透明描边 / hover 浮起） */
 #tab-boot .ba-g-card .grub-entry,
 #tab-boot .ba-g-card .oc-menu-row {
