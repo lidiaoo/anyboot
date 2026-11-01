@@ -3430,6 +3430,44 @@ svg.i.lg { width: 16px; height: 16px; }
 .lc-settings { flex: none; border-top: 1px solid var(--line); background: var(--panel-2); }
 .lc-meta { font-size: 11px; color: var(--faint); display: flex; align-items: center; gap: 6px; }
 
+/* ── 引导列表在主题态下不设限高（2026-11-01 用户定案）────────────────────
+ * 现象：A 卡片流 / C 顶部固定里，列表只有一小条、还带内滚动条。
+ *
+ * 真正的滚动源**不是**主题自己的容器，而是全局这条：
+ *   body[data-grub-mode="inline"] .grub-list { max-height: 320px; overflow-y: auto }
+ * `app.js` 把 `data-grub-mode` 硬写成 "inline"（多形态版本砍掉后的固定值），
+ * 于是**任何主题**下引导列表都被钉死在 320px —— 与 A / C 无关。
+ *
+ * 所以这里不改通用规则（非主题态的原生页面仍按 320px 限高，那是既有设计），
+ * 只在**主题态**（主题壳把 section 搬进 .ba-theme-sec 后）解除限高：
+ * 列表多长就多高，滚动交给外层页面。 */
+/* ── 主题态：去掉「离引导列表最近的那个分区标签头」────────────────────────
+ * 2026-11-01 用户定案：「所有主题中要去除这些占位置的分区标签头部（不然会造成
+ * 两个标签包裹引导列表  去除的是离引导列表最近的标签）」。
+ *
+ * 实测结构（CDP 量过）：`#refind` 被 bootBuild 整块搬进主题壳后，它自己的
+ * `.grub-title-row`（「rEFInd 区 / rEFInd 启动项」圆标 + h2）仍在，占 20px；
+ * 而主题卡片里已有引导器名 —— 两层标题。
+ * GRUB 那侧的标题在 `.grub-head > .grub-title-row`，层级不同，一起处理。
+ *
+ * 只在**主题态**（.ba-theme-sec）生效：不套主题的原生页面里它是唯一的分区
+ * 标识，必须留着。 */
+.ba-theme-sec > .grub-title-row,
+.ba-theme-sec > .grub-head > .grub-title-row {
+  display: none;
+}
+
+/* 特异性说明：原规则是 `body[data-grub-mode="inline"] .grub-list`（0,2,1），
+ * 光写 `.ba-theme-sec .grub-list`（0,2,0）**会被它压掉**——实测 max-height
+ * 仍是 340px 就是这个原因。这里把 body[data-grub-mode] 一起写进来对齐权重，
+ * 再用 .ba-theme-sec 保证只在主题态生效（非主题态该限高照旧）。 */
+body[data-grub-mode] .ba-theme-sec .grub-list,
+body[data-grub-mode] .ba-theme-sec .sim-scan-list,
+body[data-grub-mode] .ba-theme-sec .grub-list-body {
+  max-height: none;
+  overflow-y: visible;
+}
+
 /* ── 7. 方案 G —— 命令面板（原样移植）────────────────────────────────── */
 .lg { display: flex; gap: 0; min-height: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
 .lg-main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
