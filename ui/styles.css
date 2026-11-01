@@ -172,6 +172,18 @@ main {
   display: flex;
   gap: 4px;
   border-bottom: 1px solid var(--border, rgba(128, 140, 160, 0.35));
+  /* 2026-11-02：300px 宽下四个页签挤成一坨（「引导高级设置基本设置」连在一起）。
+   * 允许横滑、页签不收缩。 */
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  min-width: 0;
+  max-width: 100%;
+}
+.tabs::-webkit-scrollbar { display: none; }
+.tabs > .tab {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 .tab {
   appearance: none;
@@ -3739,6 +3751,29 @@ svg.i.lg { width: 16px; height: 16px; }
 .vw-520 .k-stage.h > .k-region:not(:has(.k-theme-fit, .la, .lb, .lc, .lg, .li, .lj, .grub-entry, .boot-entry)) {
   display: none;
 }
+
+/* 2026-11-02 恢复：G（命令面板）的小屏适配**原版就有这两条**，
+ * 被我在 48f555c 用脚本替换 .vw-520 .k-stage.h 那批规则时误删了
+ * （连同 B 的 .lb-* 、J 的 .lj-c1 一起）。用户要求「G 要恢复完整」。
+ *   .vw-760 .lg      竖排 —— 否则 .lg-main 会被挤到只剩几十像素
+ *   .vw-760 .lg-side 隐藏右侧预览栏
+ * 这是设计稿定的行为，原样还原。 */
+.vw-760 .lg { flex-direction: column; }
+.vw-760 .lg-side { display: none; }
+
+/* 同上：B / J 的这几条原始响应式规则也被 48f555c 误删，一并还原。
+ * （我的脚本按 `.vw-520 .k-stage.h` 定位替换时，把紧邻的这一整段一起吞掉了。） */
+.vw-760 .lb { flex-direction: column; }
+.vw-760 .lb-nav { width: auto; flex: none; border-right: 0; border-bottom: 1px solid var(--line); }
+.vw-760 .lb-list { flex-direction: row; overflow-x: auto; overflow-y: hidden; padding: 0 8px 8px; gap: 5px; }
+.vw-760 .lb-item { width: auto; flex: none; padding: 6px 8px; border: 1px solid var(--line); background: var(--panel); }
+.vw-760 .lb-item .nm small { display: none; }
+.vw-760 .lb-grip { display: none; }
+.vw-760 .lb-nav-head, .vw-760 .lb-nav-foot { display: none; }
+.vw-760 .lj-c1 { width: 60px; }
+.vw-760 .lj-c1 .hd { display: none; }
+.vw-760 .lj-navi .nm, .vw-760 .lj-navi .ldr { display: none; }
+.vw-760 .lj-navi { justify-content: center; }
 /* 小屏只展示一列时，「有一列是空的 · 去引导高级设置分配」这条提示没有意义
  * （那是在并排时才需要解释的事），一并隐藏。 */
 .vw-520 .k-stage.h > .empty,
