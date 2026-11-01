@@ -1275,11 +1275,18 @@ h1,
 /* 选中的启动项置顶固定（问题1）：钉在最近滚动容器顶部（①② 是 .grub-list
  * 自己，③④ 是右栏 .pane-body），其余行从它底下滚过。实底背景（--ok-bg）
  * 保证透不出底下的行。 */
-.grub-entry.is-pinned {
+/* 置顶行：在滚动容器里 sticky 钉住顶部（选中后「一直显示」）。
+ * 背景必须是**实底**——`--ok-bg` 是半透明绿，滚动时会透出下面的行，
+ * 文字叠在一起看不清（用户 2026-11-01「顶部要一直显示」的附带要求）。
+ * 用 color-mix 把它压到不透明：87% ok-bg + 13% 面板底色，观感仍是那抹绿。 */
+.grub-entry.is-pinned,
+.boot-entry.is-pinned {
   position: sticky;
   top: 0;
   z-index: 2;
-  background: var(--ok-bg);
+  background: color-mix(in srgb, var(--ok-bg) 87%, var(--panel) 13%);
+  border-color: var(--ok-border);
+  box-shadow: inset 2px 0 0 var(--ok);
 }
 
 /* 滚动条归属：GRUB 列表限高 + 自己滚（HEAD 行为，配置在下面继续滚主流程） */
@@ -4306,9 +4313,12 @@ body[data-boot-style="min"] .oc-menu-row:hover .oc-menu-set:not(.is-default) { o
   border-color: transparent;
 }
 #tab-boot .boot-entry:hover { background: var(--panel-2); border-color: transparent; }
+/* `.current` 是早期遗留类（现在代码里已无人添加），并入统一选中样式，
+ * 免得将来有人误用又长出一套不一样的观感。 */
 #tab-boot .boot-entry.current {
-  border-color: color-mix(in srgb, var(--ok) 20%, transparent);
-  background: color-mix(in srgb, var(--ok) 7%, transparent);
+  background: var(--ok-bg);
+  border-color: var(--ok-border);
+  box-shadow: inset 2px 0 0 var(--ok);
 }
 #tab-boot .boot-entry-meta b { font-size: 12.5px; }
 #tab-boot .boot-entry-meta small { font-family: var(--mono); font-size: 10px; }
@@ -4397,3 +4407,46 @@ body[data-boot-style="min"] .oc-menu-row:hover .oc-menu-set:not(.is-default) { o
   font-size: 13px;
 }
 #tab-boot .oc-menu-set.is-default { font-size: 12px; }
+
+/* ── 全局统一的「选中条目」样式（2026-11-01 用户定案）────────────────────
+ * 口径：「所有的选中效果都要像 G 命令面板中的样式一样，但是要稍微加点颜色，
+ *       像 GRUB 的背景色一样」。
+ *
+ * G 的盒子 = 8px 圆角 + 透明描边 + 左侧 2px 强调条（inset box-shadow）；
+ * GRUB 的颜色 = `--ok-bg` 底 + `--ok-border` 描边（那一抹绿）。
+ * 这里把两者叠加成**唯一一种**选中观感，所有主题共用：
+ *   - rEFInd 列表（.boot-entry）
+ *   - GRUB 列表（.grub-entry）
+ *   - 三通道列表（.oc-menu-row）
+ *   - G 面板自己的 .is-active 也改用同一套（下方原规则已被这里覆盖）
+ *
+ * 为什么不用 `.active`：不同来源加的类不一样 —— app.js / grub-list-view.js
+ * 加 `active`（"当前默认项"），G 面板加 `is-active`（"用户点选/键盘选中"）。
+ * 两者语义不同但**视觉应当一致**，所以两个类都覆盖。
+ *
+ * 注意 sticky：`.grub-entry.is-pinned` 是"置顶固定"，它的背景必须实底
+ * （否则滚动时透出下面的行），所以单独保留、不被这里改。 */
+/* 特异性：`#tab-boot .boot-entry { background: transparent }` 是 (1,1,0)，
+ * 裸类选择器 (0,2,0) 压不过 —— 实测选中后背景仍是 transparent、只剩左侧
+ * 强调条。这里把 `#tab-boot` 前缀和 `[class]` 一起用上，确保盖得住。 */
+#tab-boot .boot-entry.active,
+#tab-boot .grub-entry.active,
+#tab-boot .oc-menu-row.active,
+#tab-boot .boot-entry.is-active,
+#tab-boot .grub-entry.is-active,
+#tab-boot .oc-menu-row.is-active,
+#tab-boot .lg-item.is-active {
+  background: var(--ok-bg);
+  border-color: var(--ok-border);
+  box-shadow: inset 2px 0 0 var(--ok);
+}
+/* 悬停时也在绿的基调上浮一点，别跳回灰底（否则鼠标划过会"选中感消失"） */
+#tab-boot .boot-entry.active:hover,
+#tab-boot .grub-entry.active:hover,
+#tab-boot .oc-menu-row.active:hover,
+#tab-boot .boot-entry.is-active:hover,
+#tab-boot .grub-entry.is-active:hover,
+#tab-boot .oc-menu-row.is-active:hover {
+  background: color-mix(in srgb, var(--ok-bg) 78%, var(--ok) 22%);
+  border-color: var(--ok-border);
+}

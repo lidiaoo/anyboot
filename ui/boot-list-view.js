@@ -466,6 +466,11 @@ function makeBootChannelCard(
         channel.currentDefault.includes(entry.title))
     ) {
       row.classList.add("current");
+      // 2026-11-01 用户定案：「选中后顶部要一直显示」——rEFInd / GRUB 早就是
+      // 这样（.is-pinned 在滚动容器里 sticky 钉住），三通道（systemd-boot /
+      // OpenCore / Clover）这边原来只标了个 .current 就没了，滚下去就看不见。
+      // 补齐同一个类，三处行为一致。
+      row.classList.add("is-pinned");
     }
 
     // 系统字章（设计稿 .row-ico）：形状与配色走移植的设计稿 CSS；
