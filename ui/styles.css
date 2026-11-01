@@ -2735,16 +2735,6 @@ button.primary-sol:hover:not(:disabled) {
   outline: 2px solid var(--accent, var(--border-strong));
   outline-offset: -2px;
 }
-.oc-menu-idx {
-  flex: 0 0 auto;
-  width: 18px;
-  font-size: 11px;
-  line-height: 18px;
-  text-align: center;
-  border-radius: 5px;
-  color: var(--fg-dim);
-  background: color-mix(in srgb, var(--text) 6%, transparent);
-}
 .oc-menu-body {
   display: flex;
   flex-direction: column;
@@ -4403,16 +4393,6 @@ body[data-boot-style="min"] .oc-menu-row:hover .oc-menu-set:not(.is-default) { o
 #tab-boot .oc-menu-row.is-def {
   background: color-mix(in srgb, var(--ok) 7%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ok) 20%, transparent);
-}
-/* 序号：设计稿行没有底色盒子，退成一枚 mono 淡字 */
-#tab-boot .oc-menu-idx {
-  min-width: 16px;
-  background: transparent;
-  border-radius: 0;
-  color: var(--fainter);
-  font-family: var(--mono);
-  font-size: 10.5px;
-  line-height: 1;
 }
 /* 标题 / 胶囊：设计稿 .row-main b 与 .badge 的规格 */
 #tab-boot .oc-menu-head b { font-size: 12.5px; font-weight: 600; }

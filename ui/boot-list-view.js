@@ -111,9 +111,6 @@ function ocMenuRow(entry, index, { busy, onSwitch, channel, orderSource, default
       || OC_MENU_KIND_CHIP.unknown,
   ));
 
-  const idx = document.createElement("span");
-  idx.className = "oc-menu-idx";
-  idx.textContent = String(index + 1);
 
   const body = document.createElement("span");
   body.className = "oc-menu-body";
@@ -151,7 +148,7 @@ function ocMenuRow(entry, index, { busy, onSwitch, channel, orderSource, default
     body.append(note);
   }
 
-  row.append(idx, body);
+  row.append(body);
 
   // 「设为默认」= OC 菜单里的 Ctrl+Enter。后端已经算好值域（entry.spec），
   // 前端只负责原样发回去 —— 哪些项能设由后端按 OC 的规则判定，不在这里猜。
@@ -208,34 +205,22 @@ function renderOcMenuPreview(
     const list = document.createElement("div");
     list.className = "oc-menu-list";
 
-    // 置顶复制（2026-11-01 用户定案，与 GRUB 同一行为）：
-    // 「选中的条目相当于置顶到第一个引导项，原来的第一个会被放到后面」——
-    // 默认行**复制**一份钉在列表最前（.is-pinned），其余条目按原顺序铺开；
-    // 原位的那行保留 .is-def 高亮，用户在原位也能看到它的上下文。
-    // （之前试过 CSS sticky / JS 滚动跟随，都因为「列表不在自己的滚动容器里」
-    //   而无效；这种「复制置顶」不依赖滚动，行为稳定且与 GRUB 完全一致。）
-    const defaultEntry = (preview.entries || []).find((e) => e.default);
-    if (defaultEntry) {
-      const pinRow = ocMenuRow(defaultEntry, -1, {
+    // 置顶（2026-11-01 用户定案）：**当前默认条目排到第一**，其余按原顺序
+    // 跟在后面（「选中的条目相当于置顶到第一个引导项，原来的第一个会被放到
+    // 后面」）。重排数组而非复制两份 —— 列表里同一项只出现一次。
+    const ordered = [
+      ...(preview.entries || []).filter((e) => e.default),
+      ...(preview.entries || []).filter((e) => !e.default),
+    ];
+    ordered.forEach((entry) => {
+      const row = ocMenuRow(entry, ordered.indexOf(entry), {
         busy,
         onSwitch,
         channel,
         orderSource: preview.orderSource,
         defaultSlot: preview.defaultSlot,
       });
-      pinRow.classList.add("is-pinned");
-      pinRow.classList.remove("is-def");
-      list.append(pinRow);
-    }
-
-    preview.entries.forEach((entry, index) => {
-      const row = ocMenuRow(entry, index, {
-        busy,
-        onSwitch,
-        channel,
-        orderSource: preview.orderSource,
-        defaultSlot: preview.defaultSlot,
-      });
+      if (entry.default) row.classList.add("is-pinned");
       list.append(row);
     });
     box.append(list);
