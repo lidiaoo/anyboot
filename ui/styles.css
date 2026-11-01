@@ -3561,16 +3561,21 @@ svg.i.lg { width: 16px; height: 16px; }
   margin: 0;
 }
 
-/* 特异性说明：原规则是 `body[data-grub-mode="inline"] .grub-list`（0,2,1），
- * 光写 `.ba-theme-sec .grub-list`（0,2,0）**会被它压掉**——实测 max-height
- * 仍是 340px 就是这个原因。这里把 body[data-grub-mode] 一起写进来对齐权重，
- * 再用 .ba-theme-sec 保证只在主题态生效（非主题态该限高照旧）。 */
-body[data-grub-mode] .ba-theme-sec .grub-list,
-body[data-grub-mode] .ba-theme-sec .sim-scan-list,
-body[data-grub-mode] .ba-theme-sec .grub-list-body {
-  max-height: none;
-  overflow-y: visible;
-}
+/* 2026-11-01 用户定案（推翻同日早些时候的「主题态不限高」）：
+ *   「恢复列表内滚动，换置顶生效」。
+ *
+ * 这两件事是互斥的 —— sticky 必须有滚动容器才能吸附；列表一旦铺开跟着整页
+ * 滚，选中的那一行就只是普通一行，不会「一直显示在顶部」。用户最终选择
+ * **保留滚动容器**，所以这里不再解除限高：主题态与原生页面一致，
+ * 都用 GRUB 那套 `max-height + overflow-y: auto`。
+ *
+ * 如需临时改回「铺开」，把下面三条取消注释即可（置顶会随之失效）。 */
+/* body[data-grub-mode] .ba-theme-sec .grub-list,
+   body[data-grub-mode] .ba-theme-sec .sim-scan-list,
+   body[data-grub-mode] .ba-theme-sec .grub-list-body {
+     max-height: none;
+     overflow-y: visible;
+   } */
 
 /* ── 7. 方案 G —— 命令面板（原样移植）────────────────────────────────── */
 .lg { display: flex; gap: 0; min-height: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
@@ -4151,8 +4156,10 @@ body[data-boot-style="min"] .oc-menu-row:hover .oc-menu-set:not(.is-default) { o
   border: 0;
   border-radius: 0;
   background: transparent;
-  max-height: none;
-  overflow: visible;
+  /* 2026-11-01 用户定案「恢复列表内滚动，换置顶生效」：这里原先把
+   * max-height/overflow 一起清零，等于把 G 主题下的滚动容器也拆了 →
+   * `.is-pinned` / `.is-def` 的 sticky 全部失效。现在只去装饰（padding/
+   * border/background），**保留滚动容器**（max-height 继承 .oc-menu-list）。 */
 }
 #tab-boot .ba-g-card .grub-panel { padding-top: 0; gap: 2px; }
 /* 分组标题：设计稿 .lg-group 的上下留白。
