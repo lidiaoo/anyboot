@@ -93,6 +93,19 @@ function ocMenuSourceLabel(source, orderSource) {
 }
 
 /// 预演里的一行（卷 + 路径 + 来源 + 备注 + 「设为默认」）
+/// OC 条目的「标识符」—— 对应 GRUB 的 entry.selector。
+///
+/// GRUB 的悬浮窗是 menuentry 的 selector（如 `gnulinux-arch-linux-linux`）；
+/// OC 的菜单条目没有这种 id，唯一能定位一项的是「卷 + ESP 内路径」，
+/// 所以用它拼成同风格的标识符：`MAC · \\System\\Library\\CoreServices\\boot.efi`。
+function ocEntrySelector(entry) {
+  const volume = entry.volume && entry.volume !== "—" ? entry.volume : "";
+  const path = entry.path || "";
+  if (volume && path) return `${volume} · ${path}`;
+  if (path) return path;
+  return entry.title || "";
+}
+
 function ocMenuRow(entry, index, { busy, onSwitch, channel, orderSource, defaultSlot } = {}) {
   // 2026-11-01 用户定案「所有的引导器都要用这个样式」：OC 菜单预览行也改用
   // GRUB / rEFInd 那套 `.grub-entry` 外框（同一份 CSS：圆角/描边/选中绿染/
@@ -164,21 +177,22 @@ function ocMenuRow(entry, index, { busy, onSwitch, channel, orderSource, default
   //
   // 用户 2026-10-30：行尾那颗「⤴」箭头按钮撤掉 —— 「选中这一行」本身就是设默认，
   // 行自己的选中框（.active 绿染，与 GRUB 同一套）足以说明身份，不再用箭头。
+  // 悬浮窗（title）：与 GRUB 对齐 —— GRUB 用 entry.selector（menuentry 标识符）
+  // 作为标题，OC 没有 selector，等价物是「卷 · 路径」（OC 菜单里唯一标识一项的
+  // 就是这两者拼起来）。用户 2026-11-02 定案统一成这种标识符风格。
+  row.title = ocEntrySelector(entry);
+
   if (entry.default) {
     row.classList.add("active");
     // 三通道的当前项挂的是 `active + is-pinned` 两个类，OC 这里对齐同一套
     row.classList.add("is-pinned");
     row.setAttribute("aria-current", "true");
-    row.title = `${
-      defaultSlot ? `${defaultSlot} ` : "启动顺序表第一条"
-    }就是这一项：下次开机会直接进它。`;
   } else if (entry.spec) {
     row.classList.add("is-clickable");
     row.tabIndex = 0;
     row.setAttribute("role", "button");
     row.setAttribute("aria-label", `设为默认：${entry.title}`);
-    row.title =
-      (row.title ? `${row.title}\n` : "") +
+    row.title = (row.title ? `${row.title}\n` : "") +
       "点这一行 = 设为默认 —— 等价于在 OpenCore 菜单里对它按 Ctrl+Enter：" +
       "写 OC 私有命名空间的 OCBt0080 / OCBtOrder，不碰被 macOS 挡住的 Boot* 变量；写前会整份备份 NVRAM";
     const go = () => {
@@ -475,6 +489,9 @@ function makeBootChannelCard(
     const row = document.createElement("div");
     row.className = "grub-entry";
     row.classList.add("is-child");
+    // 悬浮窗（title）：统一成 GRUB 那种「标识符」风格。三通道条目有 id，
+    // 优先用 id（如 sdboot 的 `arch`），没有就退回标题。
+    row.title = entry.id || entry.title || "";
     // 「当前项」判定三种来源（与后端 channel_entry_is_default / OC 的
     // currentDefault 兜底同一套语义）：
     //   ① currentDefault 命中 id
