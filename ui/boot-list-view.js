@@ -206,9 +206,9 @@ function renderOcMenuPreview(
     list.className = "oc-menu-list";
 
     // 置顶（2026-11-01 用户定案，与 GRUB 完全同一行为）：
-    //   ① 选中条目**复制**一份置顶（.is-pinned，无箭头）
-    //   ② 原位保留（**不重排**），原位行开头加 `↳ ` 箭头（与 GRUB 子项同款）
-    //   ③ 原位行同时带 .is-def 高亮 —— 「原位留着才找得到上下文」
+    //   ① 选中条目**复制**一份置顶（.is-pinned-copy，样式与选中一致）
+    //   ② 原位保留（**不重排**），原位行带 .is-def 高亮
+    //      —— 「原位留着才找得到上下文」
     const defaultEntry = (preview.entries || []).find((e) => e.default);
     if (defaultEntry) {
       const pinRow = ocMenuRow(defaultEntry, -1, {
@@ -218,8 +218,10 @@ function renderOcMenuPreview(
         orderSource: preview.orderSource,
         defaultSlot: preview.defaultSlot,
       });
+      // 置顶行样式 = 选中样式（用户：「我要的置顶和选中的样式要一样」）：
+      // .is-def 本身就是统一选中样式（绿底/绿边/绿条），保留即可。
       pinRow.classList.add("is-pinned");
-      pinRow.classList.remove("is-def");
+      pinRow.classList.add("is-pinned-copy");
       list.append(pinRow);
     }
 
@@ -231,12 +233,6 @@ function renderOcMenuPreview(
         orderSource: preview.orderSource,
         defaultSlot: preview.defaultSlot,
       });
-      // 原位行的箭头：与 GRUB 一致 —— 选中默认项也是从 OC 菜单「引用」出来
-      // 的，行首统一 `↳ `（置顶副本没有箭头）
-      const nameEl = row.querySelector(".oc-menu-head b");
-      if (nameEl && !nameEl.textContent.startsWith("↳")) {
-        nameEl.textContent = "↳ " + nameEl.textContent;
-      }
       list.append(row);
     });
     box.append(list);
