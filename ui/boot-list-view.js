@@ -460,10 +460,19 @@ function makeBootChannelCard(
   for (const entry of channel.entries || []) {
     const row = document.createElement("div");
     row.className = "boot-entry";
+    // 「当前项」判定三种来源（与后端 channel_entry_is_default / OC 的
+    // currentDefault 兜底同一套语义）：
+    //   ① currentDefault 命中 id
+    //   ② currentDefault 是一段包含标题的串
+    //   ③ **entry.default 标记** —— OpenCore 的默认项来自 OCBtOrder，落在
+    //      预演行的 default 上，currentDefault 常常是空的。原先只判 ①②，
+    //      于是 OC 的条目永远不高亮、也不会置顶（用户 2026-11-01 反馈
+    //      「opencore systemd-boot clover 你做了吗」）。
     if (
-      channel.currentDefault &&
-      (channel.currentDefault === entry.id ||
-        channel.currentDefault.includes(entry.title))
+      entry.default === true ||
+      (channel.currentDefault &&
+        (channel.currentDefault === entry.id ||
+          channel.currentDefault.includes(entry.title)))
     ) {
       row.classList.add("current");
       // 2026-11-01 用户定案：「选中后顶部要一直显示」——rEFInd / GRUB 早就是
