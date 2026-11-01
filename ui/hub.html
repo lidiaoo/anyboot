@@ -982,6 +982,30 @@
   }
   .dialog.rs-edit .dialog-head,
   .dialog.rs-edit .dialog-foot { flex: none; }
+  /* 右上角关闭按钮（2026-11-02 用户反馈「首次弹窗没有右上角 x」）：
+   * .icon-btn 默认色是 --fg-faint，在弹窗白底头上淡到几乎看不见。
+   * 这里显式加深 + 给一个可见的 hover 底，保证一眼能找到。 */
+  .dialog.rs-edit .dialog-head {
+    gap: 12px;
+    /* 窄窗口/长标题时标题可收缩，别把关闭按钮挤出可视区 */
+    min-width: 0;
+  }
+  .dialog.rs-edit .dialog-head h3 {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .dialog.rs-edit .dialog-head .icon-btn {
+    flex: 0 0 auto;
+    color: rgb(var(--fg-dim));
+    background: rgb(var(--elevate));
+  }
+  .dialog.rs-edit .dialog-head .icon-btn:hover {
+    color: rgb(var(--fg));
+    background: rgb(var(--line));
+  }
   .dialog.rs-edit .dialog-foot { flex-wrap: wrap; }
   .dialog.rs-edit .dialog-body {
     flex: 1 1 auto; min-height: 0;
@@ -10899,6 +10923,21 @@ window.__bkOnShow = async function () {
   function openRsEdit(id) {
     rsEditing = id;
     rsDeleteArmed = false;
+    // 2026-11-02 用户反馈「首次安装没数据时弹窗没有右上角 x」：
+    // 打开时**强制**把关闭按钮与标题头恢复为可见（此前若有任何路径把它
+    // hidden / display:none 掉，这里兜底复位，保证任何时候都能关掉弹窗）。
+    try {
+      const head = document.querySelector('#rsEditOverlay .dialog-head');
+      const closeBtn = document.getElementById('rsEditClose');
+      if (head) { head.hidden = false; head.style.display = ''; }
+      if (closeBtn) {
+        closeBtn.hidden = false;
+        closeBtn.style.display = '';
+        closeBtn.style.visibility = 'visible';
+        closeBtn.style.opacity = '1';
+        closeBtn.removeAttribute('aria-hidden');
+      }
+    } catch (e) { void e; }
     const r = id ? remotes.find(function (x) { return x.id === id; }) : null;
     document.getElementById('rsEditTitle').textContent = r ? '编辑服务端' : '连接 AnyBoot 服务端';
     document.getElementById('rsName').value = r ? r.name : '';
