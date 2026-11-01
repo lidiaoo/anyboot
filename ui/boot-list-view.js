@@ -100,6 +100,9 @@ function ocMenuRow(entry, index, { busy, onSwitch, channel, orderSource, default
   // `.grub-entry.is-oc-multi` 补充规则。
   const row = document.createElement("div");
   row.className = "grub-entry";
+  // 与 GRUB / 三通道完全同一套类名（用户 2026-11-02）：
+  //   grub-entry is-child active is-pinned
+  row.classList.add("is-child");
   row.dataset.kind = entry.kind;
   // 当前默认行：挂 **GRUB 那套选中类 .active**（不是自造的类）——
   // 用户定案「你要用 grub 的选中样式才对 而不是自己搞个样式」。
@@ -163,6 +166,8 @@ function ocMenuRow(entry, index, { busy, onSwitch, channel, orderSource, default
   // 行自己的选中框（.active 绿染，与 GRUB 同一套）足以说明身份，不再用箭头。
   if (entry.default) {
     row.classList.add("active");
+    // 三通道的当前项挂的是 `active + is-pinned` 两个类，OC 这里对齐同一套
+    row.classList.add("is-pinned");
     row.setAttribute("aria-current", "true");
     row.title = `${
       defaultSlot ? `${defaultSlot} ` : "启动顺序表第一条"
@@ -179,7 +184,7 @@ function ocMenuRow(entry, index, { busy, onSwitch, channel, orderSource, default
     const go = () => {
       if (busy) return;
       // 乐观选中：先给这一行套上选中框，后端回来重绘时以真实默认项为准
-      row.classList.add("active");
+      row.classList.add("active", "is-pinned");
       if (onSwitch) onSwitch({ spec: entry.spec }, channel);
     };
     row.addEventListener("click", go);
