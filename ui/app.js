@@ -1304,8 +1304,14 @@ function renderSystems(status, busy, grub, sim, settings) {
       nextBootText += ` › ${leafLabel}`;
     }
   }
-  nextBootElement.classList.toggle("unknown", !activeName && !simPrevious);
-  nextBootNameElement.textContent = nextBootText;
+  // 「下次启动」整块可能被用户设成「不显示」（引导高级设置 → 下次启动 → 不显示），
+  // 那一档是**真正从 DOM 移除**，这里的引用就是 null —— 不能直接摸 classList。
+  if (nextBootElement) {
+    nextBootElement.classList.toggle("unknown", !activeName && !simPrevious);
+  }
+  if (nextBootNameElement) {
+    nextBootNameElement.textContent = nextBootText;
+  }
   // 顶部状态行要用它去重（见 render）
   return nextBootText;
 }

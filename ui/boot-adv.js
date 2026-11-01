@@ -96,10 +96,10 @@
     // 只影响没存过偏好的新环境；已保存过主题的老用户保持自己的选择。
     theme: "G",
     // 「下次启动」区域的显示方式（2026-11-01 用户定案，三档）：
-    //   off  = 不显示整块
-    //   fold = 折叠框：标题旁一个按钮，点开/收起；**默认收起**（本档默认值）
-    //   open = 折叠框且默认展开（用户可点按钮收起，状态只存这一档偏好）
-    nextBootView: "fold",
+    //   off  = **不显示（出厂默认）** —— 整块从 DOM 移除，不留空壳
+    //   fold = 折叠框：标题旁一个按钮，点开/收起，默认收起
+    //   open = 折叠框且默认展开（用户可点按钮收起）
+    nextBootView: "off",
     // 折叠框当下是否展开（仅 fold/open 档有意义；不写进 DEFAULT_STATE 的初始值，
     // 由 nextBootExpanded 记录用户最后一次点击的结果 —— 见 loadState）
     nextBootExpanded: false,
@@ -163,9 +163,9 @@
     // 于是「选了左右布局 → 一拍快照就变回默认」，看起来就是设置没保存）。
     // 支不支持在渲染时用 effectiveLayout() 判，用户切回支持的主题还能拿回 lr。
     if (!["full", "compact", "min"].includes(advState.style)) advState.style = "full";
-    // 「下次启动」显示方式：非法值回落到折叠（本功能默认收起）
+    // 「下次启动」显示方式：非法值回落到默认档（不显示）
     if (!["off", "fold", "open"].includes(advState.nextBootView)) {
-      advState.nextBootView = "fold";
+      advState.nextBootView = "off";
     }
     advState.nextBootExpanded = advState.nextBootExpanded === true;
     if (advState.ratio < 0.15) advState.ratio = 0.15;
@@ -911,7 +911,7 @@
       b.type = "button";
       b.title =
         val === "off"
-          ? "整块不显示（下面引导列表照常可用）"
+          ? "不显示：整块从界面移除（不是留个空壳），下面引导列表照常可用 —— 出厂默认就是这一档"
           : val === "fold"
             ? "折叠框，默认收起：标题旁一个按钮，点开才看各引导器选中项"
             : "折叠框，默认展开：一进来就看到全部条目，可点按钮收起";
@@ -925,7 +925,7 @@
       nbSeg.append(b);
     }
     rowNb.append(nbSeg,
-      n("span", "hint", "「系统引导」页顶部那块的高度来源：不显示 = 直接省掉；折叠框 = 默认收起，标题旁按钮切换；展开 = 默认展开同款可收起。"));
+      n("span", "hint", "「系统引导」页顶部那块：不显示 = 整块移除、不占任何高度（默认）；折叠框 = 默认收起，标题旁小按钮切换；展开 = 打开就看到全部条目，同样可收起。"));
     bar.append(rowNb);
 
     // row5：排序条（设置动作收在设置区，预演区保持纯观看）
@@ -2354,6 +2354,19 @@
   // 也不占行（一行「未检测到」对「下次会启动什么」没有信息量）。一行都凑不齐
   // （数据还没来 / 全没启用）就整块隐藏，退回原来的单行大字。
   function paintNextBootRows() {
+    const view = ["off", "fold", "open"].includes(advState.nextBootView)
+      ? advState.nextBootView
+      : "off";
+
+    // off 档：整块已经不在 DOM 里（detachNextBoot），没有可画的地方。
+    // 但**仍要把数据准备好** —— 用户切回 fold/open 时是一次「插回 + 立刻有内容」，
+    // 不能出现「插回来了但还是空的」那一拍。
+    if (view === "off") {
+      detachNextBoot();
+      return;
+    }
+    attachNextBoot();
+
     const box = document.getElementById("next-boot-rows");
     const sec = document.getElementById("next-boot");
     if (!box || !sec) return;
@@ -2382,9 +2395,54 @@
     applyNextBootView(sec, show);
   }
 
+  /// 「下次启动」整块在 DOM 里的「原址」记录：off 档要把它**真正移除**（不是
+  /// hidden 空壳），切回来时按这里记的父节点 + 后继节点插回原位。
+  /// 每次 detach 只记一次（已在外面就不重复记），否则会记成「自己的位置」。
+  let nextBootHome = null;
+
+  /// 把「下次启动」整块从 DOM 里摘掉（off 档）。
+  ///
+  /// 记录三样东西才插得回去：父节点、后继节点、以及**节点本身的副本**。
+  /// 副本在第一次 detach 时抓（cloneNode(true)），之后一直复用 —— 这样
+  /// 「页面一进来就是 off（没有任何 detach 机会）」的场景也能正常工作：
+  /// 那种情况 sec 还在 DOM 里，正好抓一份再摘掉。
+  function detachNextBoot() {
+    const sec = document.getElementById("next-boot");
+    if (!sec) {
+      // 已经是「不在 DOM 里」的状态：什么都不用做（幂等）
+      return;
+    }
+    if (!nextBootHome) {
+      nextBootHome = {
+        parent: sec.parentElement,
+        next: sec.nextSibling,
+        tpl: sec.cloneNode(true),
+      };
+    }
+    sec.remove();
+  }
+
+  /// 把「下次启动」整块插回原位（off → fold/open 时）。
+  /// 原父节点已经不在了（主题壳整块重建）就插到 boot 面板最前面 —— 那块本来
+  /// 就在面板开头。
+  function attachNextBoot() {
+    if (document.getElementById("next-boot")) return;
+    const home = nextBootHome;
+    if (!home || !home.tpl) return;
+    const panel = document.getElementById("tab-boot");
+    const fresh = home.tpl.cloneNode(true);
+    if (home.parent && home.parent.isConnected) {
+      home.parent.insertBefore(fresh, home.next && home.next.isConnected ? home.next : null);
+    } else if (panel) {
+      panel.prepend(fresh);
+    } else {
+      return;
+    }
+  }
+
   /// 「下次启动」区域显示方式（2026-11-01 用户定案，三档 + 折叠按钮）：
-  ///   off  = 整块不显示（引导列表照常可用）
-  ///   fold = 折叠框，**默认收起**：标题行 + 「展开」按钮，点了才看条目
+  ///   off  = **整块从 DOM 移除**（不是 hidden 空壳），出厂默认就是这一档
+  ///   fold = 折叠框，默认收起：标题行 + 「展开」按钮，点了才看条目
   ///   open = 折叠框，默认展开：一进来就看到全部条目，可点按钮收起
   ///
   /// 展开态只记在 advState.nextBootExpanded，切档位时按档位重置（fold 收 /
@@ -2393,22 +2451,27 @@
   function applyNextBootView(sec, hasRows) {
     const view = ["off", "fold", "open"].includes(advState.nextBootView)
       ? advState.nextBootView
-      : "fold";
-    const btn = document.getElementById("nb-toggle");
+      : "off";
 
     if (view === "off") {
-      sec.hidden = true;
-      if (btn) btn.hidden = true;
-      sec.classList.remove("nb-folded");
-      // 条目行也收起：整块虽然已经 hidden，但保持内部状态自洽，
-      // 免得切回 fold/open 时残留上一档的展开态。
-      const rowsOff = sec.querySelector("#next-boot-rows");
-      if (rowsOff) rowsOff.hidden = true;
+      detachNextBoot();
       return;
     }
 
-    sec.hidden = false;
+    // 主题壳 / 布局重排可能把节点「复活」回来（它们是整块重建 tab-boot 的
+    // 子级顺序与容器）。off 档的语义是**永远不在 DOM 里**，所以每次非 off
+    // 的渲染前先确认一下 home 记录还是新鲜的。
+    if (nextBootHome && nextBootHome.parent && !nextBootHome.parent.isConnected) {
+      nextBootHome = null; // 父节点被重建过：下次 detach 会重新记原位
+    }
+    attachNextBoot();
+    // detach 过的话，调用方手里那个 sec 已经是游离节点了，重新取一次活的
+    const live = document.getElementById("next-boot") || sec;
+    if (!live || !live.isConnected) return;
+    live.hidden = false;
+    const btn = live.querySelector("#nb-toggle");
     if (!btn) return;
+    btn.hidden = hasRows === false; // 没有任何引导器时按钮无意义
     btn.hidden = hasRows === false; // 没有任何引导器时按钮无意义
 
     const expanded =
