@@ -1462,9 +1462,8 @@
           .split("\n").map((x) => x.trim()).filter(Boolean);
         return t.length > 1 ? t[0] : "";
       };
-      const rowIsDef = (row) =>
-        row.classList.contains("active") ||
-        row.classList.contains("is-def");
+      // 选中类统一为 GRUB 那套 `.active`（.is-def 已随旧样式一起删除）
+      const rowIsDef = (row) => row.classList.contains("active");
 
       for (const l of lds) {
         const c = build(l);

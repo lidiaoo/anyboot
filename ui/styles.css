@@ -4151,7 +4151,12 @@ body[data-boot-style="min"] .oc-menu-set:not(.is-default)  { opacity: 0; pointer
 }
 #tab-boot .grub-entry.is-group:hover:not(:disabled) { background: var(--panel-2); border-color: transparent; }
 
-/* 当前默认（active）：设计稿 .row.is-def 的绿染，替代老的绿边框大高亮 */
+/* 当前默认：绿染。
+ *
+ * 2026-11-02 修：OC 预览行挂的是 `.is-def`，而 rEFInd / GRUB 挂的是 `.active`
+ * —— 两条规则原先只写了 `.active`，于是 **OpenCore 的选中行完全没有样式**
+ *（用户：「opencore你是不是选中行没有挂 的样式」）。现在两个类名并列，
+ * 无论数据来自哪条链路，选中观感都一样。 */
 #tab-boot .grub-entry.active {
   border-color: color-mix(in srgb, var(--ok) 20%, transparent);
   background: color-mix(in srgb, var(--ok) 7%, transparent);

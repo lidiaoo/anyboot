@@ -101,8 +101,9 @@ function ocMenuRow(entry, index, { busy, onSwitch, channel, orderSource, default
   const row = document.createElement("div");
   row.className = "grub-entry";
   row.dataset.kind = entry.kind;
-  // 当前默认行整行淡绿染（设计稿 .row.is-def），不只是按钮位一枚标记
-  if (entry.default) row.classList.add("is-def");
+  // 当前默认行：挂 **GRUB 那套选中类 .active**（不是自造的类）——
+  // 用户定案「你要用 grub 的选中样式才对 而不是自己搞个样式」。
+  if (entry.default) row.classList.add("active");
 
   // 行首系统字章（设计稿 .row-ico）：泛型/未知也有一枚；kind 认不出时先按
   // 标题关键词救一把（Windows / mac / linux），救不回再退到「?」。
@@ -159,9 +160,9 @@ function ocMenuRow(entry, index, { busy, onSwitch, channel, orderSource, default
   // 前端只负责原样发回去 —— 哪些项能设由后端按 OC 的规则判定，不在这里猜。
   //
   // 用户 2026-10-30：行尾那颗「⤴」箭头按钮撤掉 —— 「选中这一行」本身就是设默认，
-  // 行自己的选中框（.is-def 绿框）足以说明身份，不再用一枚箭头抢视线。
+  // 行自己的选中框（.active 绿染，与 GRUB 同一套）足以说明身份，不再用箭头。
   if (entry.default) {
-    row.classList.add("is-def");
+    row.classList.add("active");
     row.setAttribute("aria-current", "true");
     row.title = `${
       defaultSlot ? `${defaultSlot} ` : "启动顺序表第一条"
@@ -178,7 +179,7 @@ function ocMenuRow(entry, index, { busy, onSwitch, channel, orderSource, default
     const go = () => {
       if (busy) return;
       // 乐观选中：先给这一行套上选中框，后端回来重绘时以真实默认项为准
-      row.classList.add("is-def");
+      row.classList.add("active");
       if (onSwitch) onSwitch({ spec: entry.spec }, channel);
     };
     row.addEventListener("click", go);
@@ -211,7 +212,7 @@ function renderOcMenuPreview(
     list.className = "grub-list grub-list-body";
 
     // 2026-11-01 用户定案：OC 预览**不做「复制选中条目到首位」**，
-    // 列表就是 OC 菜单的原顺序；当前默认项靠 .is-def 绿染标示即可。
+    // 列表就是 OC 菜单的原顺序；当前默认项靠 .active 绿染标示（GRUB 同一套）。
     preview.entries.forEach((entry, index) => {
       const row = ocMenuRow(entry, index, {
         busy,
@@ -483,7 +484,8 @@ function makeBootChannelCard(
         (channel.currentDefault === entry.id ||
           channel.currentDefault.includes(entry.title)))
     ) {
-      row.classList.add("current");
+      // 用 GRUB 那套选中类 .active（原先是自造的 .current，没有对应样式）
+      row.classList.add("active");
       // 2026-11-01 用户定案：「选中后顶部要一直显示」——rEFInd / GRUB 早就是
       // 这样（.is-pinned 在滚动容器里 sticky 钉住），三通道（systemd-boot /
       // OpenCore / Clover）这边原来只标了个 .current 就没了，滚下去就看不见。
