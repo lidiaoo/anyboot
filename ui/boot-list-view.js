@@ -207,17 +207,37 @@ function renderOcMenuPreview(
   if ((preview.entries || []).length) {
     const list = document.createElement("div");
     list.className = "oc-menu-list";
-    preview.entries.forEach((entry, index) =>
-      list.append(
-        ocMenuRow(entry, index, {
-          busy,
-          onSwitch,
-          channel,
-          orderSource: preview.orderSource,
-          defaultSlot: preview.defaultSlot,
-        }),
-      ),
-    );
+
+    // 置顶复制（2026-11-01 用户定案，与 GRUB 同一行为）：
+    // 「选中的条目相当于置顶到第一个引导项，原来的第一个会被放到后面」——
+    // 默认行**复制**一份钉在列表最前（.is-pinned），其余条目按原顺序铺开；
+    // 原位的那行保留 .is-def 高亮，用户在原位也能看到它的上下文。
+    // （之前试过 CSS sticky / JS 滚动跟随，都因为「列表不在自己的滚动容器里」
+    //   而无效；这种「复制置顶」不依赖滚动，行为稳定且与 GRUB 完全一致。）
+    const defaultEntry = (preview.entries || []).find((e) => e.default);
+    if (defaultEntry) {
+      const pinRow = ocMenuRow(defaultEntry, -1, {
+        busy,
+        onSwitch,
+        channel,
+        orderSource: preview.orderSource,
+        defaultSlot: preview.defaultSlot,
+      });
+      pinRow.classList.add("is-pinned");
+      pinRow.classList.remove("is-def");
+      list.append(pinRow);
+    }
+
+    preview.entries.forEach((entry, index) => {
+      const row = ocMenuRow(entry, index, {
+        busy,
+        onSwitch,
+        channel,
+        orderSource: preview.orderSource,
+        defaultSlot: preview.defaultSlot,
+      });
+      list.append(row);
+    });
     box.append(list);
   } else {
     const empty = document.createElement("p");

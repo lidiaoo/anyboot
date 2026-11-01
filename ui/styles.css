@@ -2534,14 +2534,18 @@ button.primary-sol:hover:not(:disabled) {
  * 之前只有 display/gap，没有限高与 overflow → 没有滚动上下文 →
  * `.oc-menu-row.is-def` 上的 sticky 不产生吸附，滚下去那行就消失了。
  * rEFInd 用 `#sim-scan .grub-list`、三通道用 `.boot-list`，这里对齐同一套数值。 */
+/* 2026-11-01 实测定案（诊断 trace: listScrollH == listH，容器本身滚不动，
+ * 用户滚动的是外层 A 列表 .la-list）—— sticky 必须挂在「实际在滚的容器」里
+ * 才有效，而 sticky 只对**最近**可滚动祖先生效，跨容器做不到。
+ *
+ * 所以 OC 菜单行不再套自己的滚动框：**铺开**（高度由条目数决定），滚动交给
+ * 外层 .la-list（A 卡片流）或 #tab-boot 整页。置顶（当前默认行钉住）改由
+ * boot-list-view.js 的 JS 滚动跟随实现（见下）。 */
 .oc-menu-list {
   display: flex;
   flex-direction: column;
   gap: 4px;
   min-width: 0;
-  max-height: min(420px, 60vh);
-  overflow-y: auto;
-  overscroll-behavior: contain;
 }
 
 /* ── rEFInd 模拟引导项扫描（用户定案 2026-10-29） ──
@@ -4489,15 +4493,6 @@ body[data-boot-style="min"] .oc-menu-row:hover .oc-menu-set:not(.is-default) { o
 /* 特异性：`#tab-boot .boot-entry { background: transparent }` 是 (1,1,0)，
  * 裸类选择器 (0,2,0) 压不过 —— 实测选中后背景仍是 transparent、只剩左侧
  * 强调条。这里把 `#tab-boot` 前缀和 `[class]` 一起用上，确保盖得住。 */
-/* OpenCore 菜单预览的「当前默认行」置顶：与 rEFInd / GRUB / 三通道一致，
- * 在 .oc-menu-list 这个滚动容器里 sticky 钉住（上面已给该容器限高 + 滚动）。 */
-#tab-boot .oc-menu-row.is-def,
-.oc-menu .oc-menu-row.is-def {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-}
-
 /* `.oc-menu-row.is-def` 是 **OpenCore 菜单预览**里「当前默认行」的标记
  *（boot-list-view.js 的 ocMenuRow 用它），之前**完全没有对应样式** ——
  * 用户截图里 WINDOWS-EFI 那行的高亮其实是别处规则漏过来的，跟旁边行对不齐。
