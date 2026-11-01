@@ -2832,14 +2832,22 @@ button.primary-sol:hover:not(:disabled) {
 
 /* 条目行：图标 + 名称/路径 + 徽章 + 动作按钮 */
 .boot-list { display: flex; flex-direction: column; gap: 8px; }
+/* 2026-11-01 用户定案：三通道（OpenCore / systemd-boot / Clover）的条目行
+ * **盒子几何对齐 rEFInd / GRUB**（`.grub-entry`：6px 9px / gap 8px / 6px 圆角）。
+ * 原来这里是 10px 12px / gap 12px / 10px 圆角，比另两组明显大一档 ——
+ * 同一套「绿底 + 绿边 + 左侧绿条」的选中样式套上去，绿框就比旁边宽一圈、
+ * 位置也偏（用户反馈「opencore 绿框位置/大小错」）。
+ * 内部仍是 flex（图标 + 元信息 + 动作），只统一外框尺寸。 */
+/* 盒子几何与 .grub-entry 保持一致（gap 8 / padding 6px 9px / radius 6px）；
+ * #tab-boot 作用域下另有 9 / 6px 7px / 8px 的同款规则，两处同步维护。 */
 .boot-entry {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   background: var(--panel-strong);
   border: 1px solid transparent;
-  border-radius: 10px;
-  padding: 10px 12px;
+  border-radius: 6px;
+  padding: 6px 9px;
 }
 .boot-entry:hover { border-color: var(--line-strong); }
 .boot-entry.current {
@@ -4305,9 +4313,11 @@ body[data-boot-style="min"] .oc-menu-row:hover .oc-menu-set:not(.is-default) { o
 #tab-boot .grub-entry-count { font-family: var(--mono); font-size: 10px; }
 
 /* 三通道卡条目行（.boot-entry）：同样的扁平行形状 */
+/* 与 #tab-boot .grub-entry 逐项一致（gap 9 / padding 6px 7px / radius 8px）：
+ * 两条规则的差值就是用户看到的「绿框比旁边宽一圈」。 */
 #tab-boot .boot-entry {
   gap: 9px;
-  padding: 7px 8px;
+  padding: 6px 7px;
   border-radius: 8px;
   background: transparent;
   border-color: transparent;
