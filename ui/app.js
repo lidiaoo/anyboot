@@ -2326,8 +2326,98 @@ function applySettingLinkage() {
   }
 }
 
+/// 渲染期间要保住滚动位置的容器（每拍 render 都会 replaceChildren 重建列表，
+/// 不保的话用户正在往下看、快照一来就被弹回顶部 —— 用户 2026-11-02 报的
+/// 「滑动看数据的过程中总是回到顶部并且界面还刷新了」）。
+///
+/// 做法：渲染前把每个容器的 scrollTop/scrollLeft 记下来，渲染后写回。
+/// 用选择器而不是固定 id 列表，是因为左右布局/主题态会重建容器节点 ——
+/// 每拍重新查一遍最稳（找不到就当没滚动过）。
+const SCROLL_KEEP_SELECTORS = [
+  "#tab-boot",
+  "#systems",
+  "#sim-scan-list",
+  "#grub-list",
+  "#grub-auto-list",
+  "#grub-auto-candidates",
+  "#grub-parts",
+  "#boot-channels-mount",
+  ".la-list",
+  ".lb-list",
+  ".lb-scroll",
+  ".lc-body",
+  ".lg-results",
+  ".lj-c2 .bd",
+  ".lj-c3 .bd",
+  ".lj-nav",
+  ".oc-menu-list",
+  ".grub-list",
+  ".grub-list-body",
+  ".sim-scan-list",
+  ".boot-list",
+  ".k-rbody",
+  ".pane-body",
+];
+
+function captureScrollPositions() {
+  const saved = [];
+  for (const sel of SCROLL_KEEP_SELECTORS) {
+    let nodes;
+    try {
+      nodes = document.querySelectorAll(sel);
+    } catch {
+      continue;
+    }
+    nodes.forEach((el, idx) => {
+      if (!el) return;
+      // 只记真的滚动过的，省得每拍都写一遍
+      if (el.scrollTop === 0 && el.scrollLeft === 0) return;
+      saved.push({ sel, idx, top: el.scrollTop, left: el.scrollLeft });
+    });
+  }
+  return saved;
+}
+
+/// 写回滚动位置。
+///
+/// 关键：列表每次 render 都是**新节点**（replaceChildren），所以按「选择器 +
+/// 该选择器下的序号」定位新节点，而不是缓存旧元素引用（旧元素已 detached）。
+/// 首次实现只判断 isConnected，结果 detached 的旧节点全被跳过 → 恢复失败
+/// （实测：滚到 300，8 秒后回到 0）。
+function restoreScrollPositions(saved) {
+  if (!saved.length) return;
+
+  const apply = () => {
+    for (const { sel, idx, top, left } of saved) {
+      let nodes;
+      try {
+        nodes = document.querySelectorAll(sel);
+      } catch {
+        continue;
+      }
+      const el = nodes[idx];
+      if (!el) continue;
+      // 内容还没布局完时 scrollHeight 为 0，赋值会被浏览器丢弃 —— 这时跳过，
+      // 等下一帧再试。
+      if (el.scrollHeight <= el.clientHeight) continue;
+      if (el.scrollTop !== top || el.scrollLeft !== left) {
+        el.scrollTop = top;
+        el.scrollLeft = left;
+      }
+    }
+  };
+
+  // 同步写一次（多数情况下布局已就绪），再在下一帧补一次 ——
+  // replaceChildren 之后立即读 scrollHeight 有时仍是旧值，只写一次会丢。
+  apply();
+  if (typeof requestAnimationFrame === "function") {
+    requestAnimationFrame(apply);
+  }
+}
+
 function render(state) {
   const busy = isBusy(state.busy);
+  const scrollSnapshot = captureScrollPositions();
   // 渲染心跳：把「这次渲染画了什么」回传后端 trace。沙箱环境拿不到截图，
   // 「主界面数据为空」这类问题只能靠它判断是渲染层没跑还是画了被盖。
   // 只在主窗启用；上报失败静默（不能让诊断破坏渲染）。
@@ -2437,6 +2527,11 @@ function render(state) {
 
   // 快照驱动的设置项联动收尾（renderRemote 里 killOccupant 的 disabled 会被这里按 http 开关纠正）
   applySettingLinkage();
+
+  // 2026-11-02：把滚动位置还回去 —— 上面每个 render* 都 replaceChildren
+  // 重建过 DOM，用户的滚动位置会在每拍快照（2~3s）时被清零，表现就是
+  // 「滑动看数据的过程中总是回到顶部并且界面还刷新了」。
+  restoreScrollPositions(scrollSnapshot);
 }
 
 function applySnapshot(state, { force = false } = {}) {
