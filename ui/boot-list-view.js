@@ -94,8 +94,12 @@ function ocMenuSourceLabel(source, orderSource) {
 
 /// 预演里的一行（卷 + 路径 + 来源 + 备注 + 「设为默认」）
 function ocMenuRow(entry, index, { busy, onSwitch, channel, orderSource, defaultSlot } = {}) {
+  // 2026-11-01 用户定案「所有的引导器都要用这个样式」：OC 菜单预览行也改用
+  // GRUB / rEFInd 那套 `.grub-entry` 外框（同一份 CSS：圆角/描边/选中绿染/
+  // 左侧绿条）。内部是多行结构，用 .oc-menu-body 承载，见样式表里的
+  // `.grub-entry.is-oc-multi` 补充规则。
   const row = document.createElement("div");
-  row.className = "oc-menu-row";
+  row.className = "grub-entry is-oc-multi";
   row.dataset.kind = entry.kind;
   // 当前默认行整行淡绿染（设计稿 .row.is-def），不只是按钮位一枚标记
   if (entry.default) row.classList.add("is-def");
@@ -506,8 +510,12 @@ function makeBootChannelCard(
   list.className = "boot-list";
   list.setAttribute("aria-label", `${channel.label} 条目`);
   for (const entry of channel.entries || []) {
+    // 2026-11-01 用户定案「所有的引导器都要用这个样式」：三通道条目行
+    // 改用 GRUB / rEFInd 那套 `.grub-entry` 结构（同一份 CSS），
+    // 不再是独立的 `.boot-entry`。内部子元素也换成 grub 的命名。
     const row = document.createElement("div");
-    row.className = "boot-entry";
+    row.className = "grub-entry";
+    row.classList.add("is-child");
     // 「当前项」判定三种来源（与后端 channel_entry_is_default / OC 的
     // currentDefault 兜底同一套语义）：
     //   ① currentDefault 命中 id
@@ -537,34 +545,36 @@ function makeBootChannelCard(
         || { cls: "tool", tag: "TLS" },
     ));
 
-    const meta = document.createElement("span");
-    meta.className = "boot-entry-meta";
-    const name = document.createElement("b");
-    name.textContent = entry.title;
-    const detail = document.createElement("small");
-    detail.textContent = entry.detail;
-    meta.append(name, detail);
-    row.append(meta);
+    // 名称（grub 那套：.grub-entry-name）
+    const name = document.createElement("span");
+    name.className = "grub-entry-name";
+    name.textContent = entry.title || "";
+    // 路径作为副标题：用 grub 的 tag 位承载（右对齐 mono 小字）
+    row.append(name);
+
+    // 右侧栏（grub 那套：.grub-entry-side），装徽章与动作按钮
+    const side = document.createElement("span");
+    side.className = "grub-entry-side";
 
     // 「上次启动」徽章（记忆回读）：条目 id 与 lastBoot 对上才挂
     if (
       channel.lastBoot &&
       (channel.lastBoot === entry.id || channel.lastBoot.includes(entry.title))
     ) {
-      const badge = document.createElement("span");
-      badge.className = "boot-badge last";
+      const badge = document.createElement("small");
+      badge.className = "grub-entry-tag";
       badge.textContent = "上次启动";
-      row.append(badge);
+      side.append(badge);
     }
     if (
       channel.currentDefault &&
       (channel.currentDefault === entry.id ||
         channel.currentDefault.includes(entry.title))
     ) {
-      const badge = document.createElement("span");
-      badge.className = "boot-badge";
+      const badge = document.createElement("small");
+      badge.className = "grub-entry-tag";
       badge.textContent = "当前默认";
-      row.append(badge);
+      side.append(badge);
     }
 
     const button = document.createElement("button");
@@ -592,7 +602,8 @@ function makeBootChannelCard(
     button.textContent = elevated ? `${label} ⤴` : label;
     button.disabled = busy;
     button.addEventListener("click", () => onSwitch(entry, channel));
-    row.append(button);
+    side.append(button);
+    row.append(side);
     list.append(row);
   }
   if ((channel.entries || []).length) {
