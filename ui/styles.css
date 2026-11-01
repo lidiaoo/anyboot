@@ -1374,11 +1374,19 @@ body[data-grub-mode="inline"] .grub-list {
   background: var(--ok-bg);
 }
 
+/* 2026-11-02 用户定案：「refind/grub 的引导列表的每个条目都不要省略 都完全
+ * 展示选项内容 也就是说像 opencore 引导列表一样支持多行」。
+ *
+ * 原先这里是 nowrap + ellipsis —— 长条目名（rEFInd 的
+ * 「Boot macOS in verbose mode (64-bit)」、GRUB 的整条 menuentry）会被截成
+ * 「Boot macOS in …」。改为**多行折行、完整展示**，与 OC 预览行的观感一致。
+ * 折行后行高由内容决定（不再是固定单行高），这一点由 flex/grid 自动处理。 */
 .grub-entry-name {
-  overflow: hidden;
   font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  min-width: 0;
 }
 
 .grub-entry.active .grub-entry-name {
@@ -4573,7 +4581,14 @@ body[data-boot-style="min"] .oc-menu-set:not(.is-default)  { opacity: 0; pointer
 }
 
 /* 条目标题：设计稿 .row-main b 的 12.5px/600 */
-#tab-boot .grub-entry-name { font-size: 12.5px; font-weight: 600; }
+#tab-boot .grub-entry-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  /* 同上：不截断、完整折行展示 */
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
 #tab-boot .grub-entry.is-child .grub-entry-name { color: var(--text-dim); font-weight: 500; }
 #tab-boot .grub-entry.is-unavailable .grub-entry-name { color: var(--text-faint); }
 
