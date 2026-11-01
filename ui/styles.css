@@ -4473,6 +4473,11 @@ body[data-boot-style="min"] .oc-menu-row:hover .oc-menu-set:not(.is-default) { o
 /* 特异性：`#tab-boot .boot-entry { background: transparent }` 是 (1,1,0)，
  * 裸类选择器 (0,2,0) 压不过 —— 实测选中后背景仍是 transparent、只剩左侧
  * 强调条。这里把 `#tab-boot` 前缀和 `[class]` 一起用上，确保盖得住。 */
+/* `.oc-menu-row.is-def` 是 **OpenCore 菜单预览**里「当前默认行」的标记
+ *（boot-list-view.js 的 ocMenuRow 用它），之前**完全没有对应样式** ——
+ * 用户截图里 WINDOWS-EFI 那行的高亮其实是别处规则漏过来的，跟旁边行对不齐。
+ * 一并纳入统一选中样式。 */
+#tab-boot .oc-menu-row.is-def,
 #tab-boot .boot-entry.active,
 #tab-boot .grub-entry.active,
 #tab-boot .oc-menu-row.active,
