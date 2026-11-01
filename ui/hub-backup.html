@@ -832,9 +832,22 @@ $('resOk').addEventListener('click', () => { $('resultModal').hidden = true; });
 let syncState = null;
 let syncPeriodValue = 30;
 
+/// 把用户填的服务器地址规范化：没写协议的自动补 https://。
+///
+/// 2026-11-02 修：原来只认 `startsWith('http://'|'https://')`，用户按习惯
+/// 只填 `dav.jianguoyun.com/dav`（像填任何 WebDAV 客户端那样）就会被判成
+/// 「未配置」，点启用反复弹「请先配置 WebDAV 服务器和同步内容」—— 这是 bug，
+/// 不是用户填错。
+function normalizeDavUrl(raw) {
+  const url = String(raw || '').trim();
+  if (!url) return '';
+  if (/^https?:\/\//i.test(url)) return url;
+  // 只填了 host[:port]/path 的写法，补 https（坚果云等主流服务都走 TLS）
+  return 'https://' + url.replace(/^\/\//, '');
+}
+
 function syncConfiguredNow() {
-  const url = $('syncUrl').value.trim();
-  return url.startsWith('http://') || url.startsWith('https://');
+  return normalizeDavUrl($('syncUrl').value).length > 0;
 }
 
 function renderSyncState(s) {
@@ -906,7 +919,8 @@ async function collectAndSaveConfig(silent) {
   const categories = [...syncCheckedRef];
   if (!categories.length && !silent) { toast('至少选择一个同步分类'); throw new Error('no-categories'); }
   const cfg = {
-    serverUrl: $('syncUrl').value.trim(),
+    // 规范化：没写协议的自动补 https://（见 normalizeDavUrl 注释）
+    serverUrl: normalizeDavUrl($('syncUrl').value),
     username: $('syncUser').value.trim(),
     directory: $('syncDir').value.trim(),
     periodMinutes: syncPeriodValue,

@@ -1148,13 +1148,30 @@ impl SyncState {
             })
     }
 
+    /// 用户填的 WebDAV 地址规范化：没写协议的自动补 `https://`。
+    ///
+    /// 2026-11-02 修：原来只认以 `http://` / `https://` 开头的地址，用户按
+    /// 习惯只填 `dav.jianguoyun.com/dav`（像填任何 WebDAV 客户端那样）就会被
+    /// 判成「未配置」，点启用反复弹「请先配置 WebDAV 服务器和同步内容」。
+    /// 这是 bug 不是用户填错 —— 前端 hub-backup.html 的 normalizeDavUrl()
+    /// 是同一套规则。
+    fn normalized_server_url(&self) -> String {
+        let raw = self.server_url.trim();
+        if raw.is_empty() {
+            return String::new();
+        }
+        if raw.starts_with("http://") || raw.starts_with("https://") {
+            return raw.to_string();
+        }
+        format!("https://{}", raw.trim_start_matches('/'))
+    }
+
     fn is_configured(&self) -> bool {
-        self.server_url.trim().starts_with("http://")
-            || self.server_url.trim().starts_with("https://")
+        !self.normalized_server_url().is_empty()
     }
 
     fn file_url(&self) -> String {
-        let mut base = self.server_url.trim().trim_end_matches('/').to_string();
+        let mut base = self.normalized_server_url().trim_end_matches('/').to_string();
         let dir = self.directory.trim().trim_matches('/');
         if !dir.is_empty() {
             base = format!("{base}/{dir}");
@@ -1689,6 +1706,26 @@ fn merge_into_local(app: &tauri::AppHandle, envelope: &Value, state: &SyncState)
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 2026-11-02 回归：用户只填 host/path（不写协议）时也要算「已配置」。
+    /// 否则首次启用同步会反复弹「请先配置 WebDAV 服务器和同步内容」。
+    #[test]
+    fn sync_is_configured_accepts_bare_host() {
+        let mut state: SyncState = serde_json::from_value(json!({})).expect("空对象应能反序列化");
+        state.server_url = "dav.jianguoyun.com/dav".into();
+        assert!(state.is_configured(), "只填 host/path 也应算已配置");
+        assert_eq!(
+            state.normalized_server_url(),
+            "https://dav.jianguoyun.com/dav",
+            "没写协议要自动补 https://"
+        );
+
+        state.server_url = "http://nas.local:5005/dav".into();
+        assert_eq!(state.normalized_server_url(), "http://nas.local:5005/dav");
+
+        state.server_url = "   ".into();
+        assert!(!state.is_configured(), "空白地址不算已配置");
+    }
 
     fn sample_envelope() -> Value {
         json!({
