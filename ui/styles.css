@@ -2708,13 +2708,6 @@ button.primary-sol:hover:not(:disabled) {
 }
 
 /* 当前「记住的启动项」标记（那一行同时带 GRUB 的 .active 绿框绿底） */
-.sim-last-mark {
-  color: var(--ok);
-  border: 1px solid var(--ok-border);
-  border-radius: 999px;
-  padding: 1px 7px;
-}
-
 .sim-children {
   /* 复用 .grub-list-body 的 grid 间距，展开后行距与 GRUB 列表一致 */
   margin: 0;

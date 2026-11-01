@@ -989,17 +989,9 @@ function refindSimEntryNodes(entry, allowPick, { pinned = false } = {}) {
       });
     }
   }
-  // 「下次启动」徽标只挂在置顶那一份上：原位那行靠 .active 绿框说明身份，
-  // 两条都挂徽标会看起来像两个不同的启动项
-  if (pinned && entry.lastBoot) {
-    const mark = document.createElement("small");
-    mark.className = "grub-entry-tag sim-last-mark";
-    mark.textContent = "下次启动";
-    mark.title =
-      "vars/PreviousBoot 里就是这一项的标题：rEFInd 的「记住启动项」开机按它进，"
-      + "default_selection 里的 + 会被替换成这一项";
-    row.querySelector(".grub-entry-side").prepend(mark);
-  }
+  // 2026-11-02 用户定案：「refind 选中条目中的下次启动去掉这个框和文字」
+  // —— 原先置顶那份右侧挂一枚带框的「下次启动」胶囊（.sim-last-mark），
+  // 现在整枚去掉：选中身份由 .active 绿染 + 置顶位置本身说明，不再加徽标。
 
   const nodes = [row];
   // 置顶行只是「当前项」的快捷副本，不在这里展开（GRUB 的置顶行同样是叶子）
