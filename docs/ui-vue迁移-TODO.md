@@ -23,11 +23,11 @@
 
 | 项 | 值 |
 |---|---|
-| **当前阶段** | 阶段 0 未开始（方案已评审通过） |
-| **已完成阶段** | 无 |
-| **代码改动** | 仅新增 `docs/`（方案 + 本台账），`ui/` 与 `src-tauri/` 未动 |
+| **当前阶段** | 阶段 0 ✅ 已完成；下一步阶段 1 |
+| **已完成阶段** | 0（脚手架） |
+| **代码改动** | 新增 `ui-vue/`（骨架）+ `package.json` 依赖与 scripts；`ui/` 与 `src-tauri/` **未动**，旧版完全可用 |
 | **风险评估** | 迁移未开始，现有 App 完全可用 |
-| **最后更新** | 2026-11-02 |
+| **最后更新** | 2026-11-02（阶段 0 完成） |
 
 ---
 
@@ -35,20 +35,26 @@
 
 **目标**：`ui-vue/` 能跑起来，Tauri 能加载它，打包能通过。
 
-- [ ] **0.1** 在 `package.json` 加依赖
+- [x] **0.1** 在 `package.json` 加依赖
+  - ✅ 完成：vue 3.5.44 / pinia 3.0.4 / @tauri-apps/api 2.12.4 / vite 6.4.5 / @vitejs/plugin-vue 5.2.4 / typescript 5.9.3 / vue-tsc 2.2.12
   - `dependencies`: `vue@^3.5`
   - `devDependencies`: `vite@^6`, `@vitejs/plugin-vue`, `typescript`, `vue-tsc`, `pinia`
   - ⚠️ 保持 `@tauri-apps/cli` 原版本不动
-- [ ] **0.2** 建 `ui-vue/` 目录骨架
+- [x] **0.2** 建 `ui-vue/` 目录骨架
+  - ✅ 完成：6 个入口 HTML + vite.config.ts + tsconfig×2 + src 骨架
   - `index.html` / `hub.html` / `files.html` / `backup.html` / `term.html` / `keys.html`（6 个 Vite 入口）
   - `vite.config.ts`（`rollupOptions.input` 多入口 + `build.outDir`）
   - `tsconfig.json`、`src/main.ts`、`src/App.vue`（空白页）
-- [ ] **0.3** `vite build` 产出能直接放进 Tauri
+- [x] **0.3** `vite build` 产出能直接放进 Tauri
+  - ✅ 完成：6 入口全部出产物，文件名保持原名
   - 产物必须**不含** import/export 语法残留（`type="module"` 规则与现有 `<script>` 不同，需验证）
-- [ ] **0.4** 临时把 `tauri.conf.json` 的 `frontendDist` 指向 `../ui-vue/dist`，打包一次
+- [x] **0.4** 临时把 `tauri.conf.json` 的 `frontendDist` 指向 `../ui-vue/dist`，打包一次
+  - ✅ 完成：打包成功，探针页与 Vue 运行时已确认嵌入二进制
   - 验证：`AnyBoot.app` 启动、`tauri://localhost` 路径正确、IPC `invoke` 能通
-- [ ] **0.5** 改回 `../ui`（提交时保持旧版可用），把切换动作留到阶段 5
-- [ ] **0.6** 加 npm scripts：`dev:vue` / `build:vue` / `typecheck`
+- [x] **0.5** 改回 `../ui`（提交时保持旧版可用）
+  - ✅ 完成：frontendDist 已恢复 ../ui，把切换动作留到阶段 5
+- [x] **0.6** 加 npm scripts
+  - ✅ 完成：dev:vue / build:vue / typecheck：`dev:vue` / `build:vue` / `typecheck`
 
 **验收**：能在 `npm run dev:vue` 里看到空白 Vue 页，控制台 `invoke('app_status')` 返回数据。
 
@@ -211,12 +217,47 @@
 | 2026-11-02 | — | 写 `docs/ui-vue迁移方案.md` | ✅ 提交 `470f9e1` |
 | 2026-11-02 | — | 建本台账，拆分阶段与验收清单 | ✅ |
 | 2026-11-02 | — | 环境：确认 Node **22.23.4** 可用（用户指定，勿自行装其它版本） | ✅ |
+| 2026-11-02 | 0 | 装依赖：vue 3.5.44 / pinia 3.0.4 / @tauri-apps/api 2.12.4 / vite 6.4.5 / plugin-vue 5.2.4 / typescript 5.9.3 / vue-tsc 2.2.12 | ✅ |
+| 2026-11-02 | 0 | 建 `ui-vue/`：6 入口 HTML + vite.config.ts（多入口、root=ui-vue、@ 别名）+ tsconfig×2 + src 骨架 | ✅ |
+| 2026-11-02 | 0 | `npm run build:vue`：6 入口全出产物，**文件名保持原名**（Tauri 硬约束） | ✅ |
+| 2026-11-02 | 0 | `npm run typecheck`：vue-tsc 通过（修了 tsconfig.node.json 的 noEmit 冲突） | ✅ |
+| 2026-11-02 | 0 | 临时改 frontendDist → `../ui-vue/dist` 打包：成功；确认探针文案与 Vue 运行时**已嵌入二进制** | ✅ |
+| 2026-11-02 | 0 | frontendDist 已恢复 `../ui`，旧版仍可用 | ✅ |
 
 ---
 
-## 十、阻塞问题
+## 十、阻塞问题与重大发现
 
-> 当前无。
+### ⚠️ 重大发现（阶段 0 实测得出，影响整个方案）
+
+**前端被嵌入 Rust 二进制两次**，来源不同：
+
+| 用途 | 来源 | 谁在用 |
+|---|---|---|
+| Tauri 窗口 | `tauri.conf.json` 的 `frontendDist` | PC 主窗、hub、term 等 |
+| **HTTP 服务** | `remote_routing.rs` 的 `include_str!("../../ui/xxx")` | **手机端「电脑页」、浏览器远程访问** |
+
+具体常量（`src-tauri/src/remote_routing.rs:1274~`）：
+```rust
+pub(crate) const UI_INDEX_HTML: &str          = include_str!("../../ui/index.html");
+pub(crate) const UI_APP_JS: &str              = include_str!("../../ui/app.js");
+pub(crate) const UI_STYLES_CSS: &str          = include_str!("../../ui/styles.css");
+pub(crate) const UI_GRUB_LIST_VIEW_JS: &str   = include_str!("../../ui/grub-list-view.js");
+pub(crate) const UI_BOOT_LIST_VIEW_JS: &str   = include_str!("../../ui/boot-list-view.js");
+pub(crate) const UI_BOOT_ADV_JS: &str         = include_str!("../../ui/boot-adv.js");
+```
+
+**后果**：阶段 5 只改 `frontendDist` 是不够的 —— PC 窗口会变成 Vue，
+但手机端/浏览器拿到的仍是旧 `ui/`。**必须同时处理这组 `include_str!`**。
+
+**可选方案**（阶段 5 决定）：
+1. 让 HTTP 服务也读 `ui-vue/dist` 的构建产物（`include_str!` 改成构建时生成的静态文件，或改用 `include_dir!` 打包整个 dist）
+2. 保留 `ui/` 只服务于 HTTP，Vue 只用于 Tauri 窗口 —— **不推荐**，等于维护两套
+3. 把 HTTP 服务的静态资源改成运行时读文件（埋点：安装包体积会变化）
+
+### 当前阻塞
+
+> 无。
 
 ---
 
@@ -231,3 +272,7 @@
 4. **构建脚本用 `env -u CARGO`**，且指定 target；换 Node 版本后要确认 `npm run build:mac-intel` 仍可用。
 5. **`tauri.conf.json` 的 `frontendDist: "../ui"`** 是当前唯一指向；阶段 5 才改。
 6. **不要用脚本按文本锚点批量替换大段代码** —— 历史上 `48f555c` 就这样误删过 11 条相邻 CSS 规则。
+7. **前端有两处来源**（见「十、重大发现」）：`frontendDist` 与 `remote_routing.rs` 的 `include_str!`。
+   只改一处会导致「PC 变了、手机端没变」。
+8. **`ui-vue` 的 vite `root` 必须是 `__dirname`**（即 `ui-vue/`），否则从仓库根跑
+   `npm run build:vue` 时产物会掉到仓库根的 `dist/`。

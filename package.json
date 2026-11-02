@@ -14,9 +14,21 @@
     "build:win": "tauri build --bundles nsis,msi",
     "build:mac-intel": "env -u CARGO PATH=\"$HOME/.cargo/bin:$PATH\" CC=/usr/bin/clang CXX=/usr/bin/clang++ AR=/usr/bin/ar tauri build --target x86_64-apple-darwin",
     "build:mac-arm": "env -u CARGO PATH=\"$HOME/.cargo/bin:$PATH\" CC=/usr/bin/clang CXX=/usr/bin/clang++ AR=/usr/bin/ar tauri build --target aarch64-apple-darwin",
-    "build:mac-universal": "env -u CARGO PATH=\"$HOME/.cargo/bin:$PATH\" CC=/usr/bin/clang CXX=/usr/bin/clang++ AR=/usr/bin/ar tauri build --target universal-apple-darwin"
+    "build:mac-universal": "env -u CARGO PATH=\"$HOME/.cargo/bin:$PATH\" CC=/usr/bin/clang CXX=/usr/bin/clang++ AR=/usr/bin/ar tauri build --target universal-apple-darwin",
+    "dev:vue": "vite --config ui-vue/vite.config.ts",
+    "build:vue": "vite build --config ui-vue/vite.config.ts",
+    "typecheck": "vue-tsc --noEmit -p ui-vue/tsconfig.json"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.0.0"
+    "@tauri-apps/cli": "^2.0.0",
+    "@vitejs/plugin-vue": "^5.2.4",
+    "typescript": "^5.9.3",
+    "vite": "^6.4.5",
+    "vue-tsc": "^2.2.12"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.12.4",
+    "pinia": "^3.0.4",
+    "vue": "^3.5.44"
   }
 }
