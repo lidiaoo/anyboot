@@ -134,13 +134,13 @@ function setClose(action: "tray" | "quit") {
       <header><h2>应用设置</h2></header>
 
       <div class="row">
-        <label>rEFInd vars 目录</label>
+        <label>变量目录</label>
         <input v-model="varsDirInput" class="mono" placeholder="留空 = 自动探测" />
         <button type="button" class="btn sm" :disabled="!!busy" @click="applyVarsDir">保存</button>
       </div>
 
       <div class="row">
-        <label>开机自启</label>
+        <label>开机启动</label>
         <input
           type="checkbox"
           :checked="Boolean(ui.settings?.autostart)"
@@ -148,29 +148,40 @@ function setClose(action: "tray" | "quit") {
         />
       </div>
 
-      <div class="row">
-        <label>启动时收进托盘</label>
+      <label class="setting">
+        <span class="setting-text">
+          <strong>启动时隐藏主界面</strong>
+          <small>启动后不直接打开主菜单，仅显示在托盘</small>
+        </span>
         <input
+          id="start-in-tray"
           type="checkbox"
           :checked="Boolean(ui.settings?.startInTray)"
           @change="run('保存托盘', () => setStartInTray(!ui.settings?.startInTray), '已保存')"
         />
-      </div>
+      </label>
 
-      <div class="row">
-        <label>从 Dock 隐藏</label>
+      <label class="setting">
+        <span class="setting-text">
+          <strong>隐藏程序（任务栏/Dock）</strong>
+          <small>Linux/Windows 不显示任务栏图标，macOS 不显示 Dock 图标</small>
+        </span>
         <input
+          id="hide-from-dock"
           type="checkbox"
           :checked="Boolean(ui.settings?.hideFromDockTaskbar)"
           @change="
             run('保存 Dock', () => setHideFromDockTaskbar(!ui.settings?.hideFromDockTaskbar), '已保存')
           "
         />
-      </div>
+      </label>
 
-      <div class="row">
-        <label>关闭窗口时</label>
-        <button type="button" class="btn sm" @click="setClose('tray')">收进托盘</button>
+      <div class="setting">
+        <span class="setting-text">
+          <strong>点击窗口 ❌ 时</strong>
+          <small>可在托盘菜单「显示主窗口」中重新打开</small>
+        </span>
+        <button type="button" class="btn sm" @click="setClose('tray')">最小化到托盘</button>
         <button type="button" class="btn sm" @click="setClose('quit')">退出程序</button>
       </div>
 
