@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { call } from "@/api/tauri";
 import { useServersStore } from "@/stores/servers";
+import FbModal from "@/components/hub/FbModal.vue";
 
 /**
  * 文件页（原 `ui/hub.html` 的 `#page-files`，3387 行）—— `hub_sftp_*` 命令族。
@@ -45,6 +46,15 @@ const errorText = ref("");
 const selectedPath = ref("");
 const transfers = ref<XferTask[]>([]);
 const unlisteners: (() => void)[] = [];
+/** 弹层状态（旧版 5 个 .fb-modal） */
+const mkdirOpen = ref(false);
+const mkdirName = ref("");
+const renameOpen = ref(false);
+const renameName = ref("");
+const delOpen = ref(false);
+const infoOpen = ref(false);
+/** 当前操作的目标条目 */
+const targetEntry = ref<SftpEntry | null>(null);
 
 const sshServers = computed(() => store.servers.filter((s) => s.protocol === "ssh"));
 const connected = computed(() => !errorText.value);
@@ -156,26 +166,67 @@ async function download() {
   }
 }
 
-async function mkdir() {
-  const name = window.prompt("新建目录名称", "");
-  if (!name?.trim()) return;
+function mkdir() {
+  mkdirName.value = "";
+  mkdirOpen.value = true;
+}
+
+async function confirmMkdir() {
+  const name = mkdirName.value.trim();
+  mkdirOpen.value = false;
+  if (!name) return;
   const base = cwd.value.endsWith("/") ? cwd.value : `${cwd.value}/`;
   try {
-    await call("hub_sftp_mkdir", { id: serverId.value, path: `${base}${name.trim()}` });
+    await call("hub_sftp_mkdir", { id: serverId.value, path: `${base}${name}` });
     await listDir(cwd.value);
   } catch (error) {
     errorText.value = String(error);
   }
 }
 
-async function removeEntry(entry: SftpEntry) {
-  if (!window.confirm(`确定删除「${entry.name}」？`)) return;
+function startRename(entry: SftpEntry) {
+  targetEntry.value = entry;
+  renameName.value = entry.name;
+  renameOpen.value = true;
+}
+
+async function confirmRename() {
+  const entry = targetEntry.value;
+  const next = renameName.value.trim();
+  renameOpen.value = false;
+  if (!entry || !next || next === entry.name) return;
+  try {
+    await call("hub_sftp_rename", {
+      id: serverId.value,
+      from: entry.path,
+      to: entry.path.replace(/[^/]+$/, next),
+    });
+    await listDir(cwd.value);
+  } catch (error) {
+    errorText.value = String(error);
+  }
+}
+
+function removeEntry(entry: SftpEntry) {
+  targetEntry.value = entry;
+  delOpen.value = true;
+}
+
+async function confirmDelete() {
+  const entry = targetEntry.value;
+  delOpen.value = false;
+  if (!entry) return;
   try {
     await call("hub_sftp_remove", { id: serverId.value, path: entry.path });
     await listDir(cwd.value);
   } catch (error) {
     errorText.value = String(error);
   }
+}
+
+function showInfo(entry: SftpEntry) {
+  targetEntry.value = entry;
+  infoOpen.value = true;
 }
 
 async function transferCtl(action: "pause" | "resume" | "abandon") {
@@ -313,6 +364,8 @@ function pct(task: XferTask): number {
             <td class="mono">{{ entry.perms || "—" }}</td>
             <td class="mono">{{ fmtTime(entry.mtime) }}</td>
             <td style="text-align: right">
+              <button type="button" class="link-btn" @click.stop="startRename(entry)">改名</button>
+              <button type="button" class="link-btn" @click.stop="showInfo(entry)">属性</button>
               <button type="button" class="link-btn" @click.stop="removeEntry(entry)">删除</button>
             </td>
           </tr>
@@ -339,6 +392,39 @@ function pct(task: XferTask): number {
       </button>
       <button type="button" class="fb-tbtn danger" @click="transferCtl('abandon')">放弃</button>
     </div>
+
+    <!-- 5 个弹层（旧版 #fbMkdirModal / #fbRenameModal / #fbDelModal / #fbInfoModal / #fbDestModal） -->
+    <FbModal :open="mkdirOpen" title="新建目录" confirm-text="创建" @confirm="confirmMkdir" @cancel="mkdirOpen = false">
+      <label for="fbMkdirName">目录名（当前目录下创建）</label>
+      <input id="fbMkdirName" v-model="mkdirName" placeholder="例如 backup" autocomplete="off" />
+    </FbModal>
+
+    <FbModal :open="renameOpen" title="重命名" confirm-text="确定" @confirm="confirmRename" @cancel="renameOpen = false">
+      <label for="fbRenameName">新名称</label>
+      <input id="fbRenameName" v-model="renameName" autocomplete="off" />
+    </FbModal>
+
+    <FbModal
+      :open="delOpen"
+      title="删除"
+      confirm-text="删除"
+      :danger="true"
+      @confirm="confirmDelete"
+      @cancel="delOpen = false"
+    >
+      <p class="field-hint">确定删除「{{ targetEntry?.name }}」？此操作不可恢复。</p>
+    </FbModal>
+
+    <FbModal :open="infoOpen" title="属性" confirm-text="关闭" :cancel-text="' '" @confirm="infoOpen = false" @cancel="infoOpen = false">
+      <div class="fb-info-rows">
+        <p><b>名称</b>{{ targetEntry?.name }}</p>
+        <p><b>路径</b><span class="mono">{{ targetEntry?.path }}</span></p>
+        <p><b>类型</b>{{ targetEntry?.is_dir ? "目录" : "文件" }}</p>
+        <p><b>大小</b>{{ targetEntry?.is_dir ? "—" : fmtSize(targetEntry?.size ?? 0) }}</p>
+        <p><b>权限</b><span class="mono">{{ targetEntry?.perms || "—" }}</span></p>
+        <p><b>修改时间</b>{{ fmtTime(targetEntry?.mtime ?? 0) }}</p>
+      </div>
+    </FbModal>
 
     <div class="fb-foot">
       <span>{{ entries.length }} 项</span><span aria-hidden="true">·</span

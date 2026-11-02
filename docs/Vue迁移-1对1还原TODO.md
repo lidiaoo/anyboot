@@ -205,8 +205,10 @@ CSS 构成：`styles.css` 5,013 + `hub.html` 内联 **2,342** + `notify.css` 168
 - [x] **4.4** 服务器添加/编辑弹窗（`#rsXxx` 一整套，约 200 行 DOM）
   - ✅ 完成：`.overlay > .dialog` 全结构（.field-row/.field.fixed/.segmented/.dlg-select/datalist/field-hint/test-line/form-error/dialog-foot），与旧版逐像素一致
 - [ ] **4.5** 电脑添加/编辑弹窗（`#reXxx` 一整套）
-- [ ] **4.6** `#gwPairOverlay` / `#gwUniOverlay` / `#gwLogOverlay` / `#tsLogOverlay` / `#tsnLogOverlay`
-- [ ] **4.7** 文件窗 5 个 `fb-modal-*`
+- [x] **4.6** `#gwPairOverlay` / `#gwUniOverlay` / `#gwLogOverlay` / `#tsLogOverlay` / `#tsnLogOverlay`
+  - ✅ 部分：PairDialog（配对码 + 二维码）+ gw/ts 日志弹层已完成；gwUni/tsn 日志待补
+- [x] **4.7** 文件窗 5 个 `fb-modal-*`
+  - ✅ 完成：FbModal 通用组件 + 新建目录/重命名/删除/属性 4 个（第 5 个「下载到…」待补）
 - [ ] **4.8** 密钥 `#genModal`
 - [x] **4.9** 备份 `bk-modal-foot`
   - ✅ 部分：确认弹窗已通用化（ConfirmDialog）
@@ -352,7 +354,7 @@ CSS 构成：`styles.css` 5,013 + `hub.html` 内联 **2,342** + `notify.css` 168
 | 共享基础设施 | 4 | 8 | 50% |
 | hub 外壳 | 6 | 6 | **100%** |
 | 12 个页面 | **12** | 12 | **100%** |
-| 32 个弹层 | 9 | 32 | 28% |
+| 32 个弹层 | 14 | 32 | 44% |
 | 主窗引导页 | 部分 | 26 | ~25% |
 | 4 个独立窗 | 0 完整 | 4 | 0% |
 

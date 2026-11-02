@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { call } from "@/api/tauri";
+import PairDialog from "@/components/hub/PairDialog.vue";
 
 /**
  * 远程接入页（原 `ui/hub.html` 的 `#page-gateway`，2792~3355 行）。
@@ -109,6 +110,9 @@ async function copyTsAddr() {
     /* 剪贴板不可用 */
   }
 }
+
+/** 配对码弹层（旧版 #gwPairOverlay） */
+const pairOpen = ref(false);
 
 /** 日志弹层（旧版 #gwLogOverlay） */
 const logOpen = ref(false);
@@ -239,10 +243,6 @@ function toggleTailscale() {
 }
 
 // ---- 配对 ----
-function issuePair() {
-  void run("签发配对码", () => call("gateway_pair_issue"), "已签发");
-}
-
 function revokePair(id: string) {
   void run("收回", () => call("gateway_pair_revoke", { id }), "已收回");
 }
@@ -497,7 +497,7 @@ function deletePair(id: string) {
         <div class="gw-status" style="margin-top: 8px">
           <span class="mono ts-addr">{{ tsStatus?.ip || "—" }}</span>
           <button type="button" class="link-btn" @click="copyTsAddr">复制</button>
-          <button type="button" class="btn" @click="issuePair">生成此地址的配对码</button>
+          <button type="button" class="btn" @click="pairOpen = true">生成此地址的配对码</button>
         </div>
         <div class="gw-status" style="margin-top: 6px">
           <span
@@ -529,9 +529,7 @@ function deletePair(id: string) {
       <div class="gw-card-head">
         <h3>配对管理</h3>
         <span style="flex: 1" />
-        <button type="button" class="btn primary" :disabled="!!busy" @click="issuePair">
-          签发新配对码
-        </button>
+        <button type="button" class="btn primary" @click="pairOpen = true">签发新配对码</button>
       </div>
 
       <div v-if="pairs.length" class="gw-clients">
@@ -582,6 +580,8 @@ function deletePair(id: string) {
       </div>
     </div>
   </Teleport>
+
+  <PairDialog :open="pairOpen" @close="pairOpen = false; refreshAll()" />
 
   <p v-if="message" style="font-size: 12.5px; color: rgb(var(--ok))">{{ message }}</p>
   <p v-if="errorText" style="font-size: 12.5px; color: rgb(var(--bad))">{{ errorText }}</p>
