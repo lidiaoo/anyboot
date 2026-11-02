@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
+import { useServersStore } from "@/stores/servers";
 import type { RemoteProfile } from "@/stores/remote";
 import { useEscape } from "@/composables/useEscape";
 
@@ -19,6 +20,12 @@ import { useEscape } from "@/composables/useEscape";
  *   .dialog-foot > 测试 + 取消 + 保存
  * ```
  */
+
+const serversStore = useServersStore();
+/** 跳板机选项（旧版 jumpServerOptions：SSH 服务器列表） */
+const jumpOptions = computed(() =>
+  (serversStore.servers ?? []).filter((s) => s.protocol === "ssh").map((s) => ({ id: s.id, name: (s.name || "(未命名)") + "（" + s.host + ":" + (s.port || 22) + "）" })),
+);
 
 const props = defineProps<{
   open: boolean;
@@ -105,7 +112,7 @@ function toggleRouteEnabled(kind: string) {
 }
 const hint = ref("");
 /** 地址行：[{ addr, macs }] */
-const rows = ref<{ addr: string; macs: string }[]>([{ addr: "", macs: "" }]);
+const rows = ref<{ addr: string; macList: string[]; jump: string }[]>([{ addr: "", macList: [], jump: "" }]);
 /** 新增地址行的待填值 */
 const addrHost = ref("");
 const addrMacs = ref("");
@@ -132,20 +139,25 @@ const testOut = ref("");
 
 function addAddr() {
   if (!addrHost.value.trim()) return;
-  rows.value.push({ addr: addrHost.value.trim(), macs: addrMacs.value.trim() });
+  const ml = addrMacs.value.split(/[,;\s]+/).map((m) => m.trim()).filter(Boolean);
+  rows.value.push({ addr: addrHost.value.trim(), macList: ml, jump: "" });
   addrHost.value = "";
   addrMacs.value = "";
 }
+function dropMac(i: number, mac: string) {
+  const row = rows.value[i];
+  if (row) row.macList = row.macList.filter((m) => m !== mac);
+}
 function removeRow(i: number) {
   rows.value.splice(i, 1);
-  if (!rows.value.length) rows.value = [{ addr: "", macs: "" }];
+  if (!rows.value.length) rows.value = [{ addr: "", macList: [], jump: "" }];
 }
 function remoteSplit() {
   const text = remoteText.value.trim();
   if (!text) return;
   const m = text.match(/https?:\/\/[^\s]+|anyboot:\/\/[^\s]+|\d+\.\d+\.\d+\.\d+(?::\d+)?/);
   if (m) {
-    rows.value.push({ addr: m[0], macs: "" });
+    rows.value.push({ addr: m[0], macList: [], jump: "" });
     remoteHint.value = "已识别并加入地址列表";
   } else {
     remoteHint.value = "没识别出地址";
@@ -191,7 +203,7 @@ watch(
       name.value = "";
       quick.value = "";
       hint.value = "";
-      rows.value = [{ addr: "", macs: "" }];
+      rows.value = [{ addr: "", macList: [], jump: "" }];
       return;
     }
     name.value = r.name;
@@ -211,9 +223,10 @@ watch(
     // 把 addresses + macs 摊平成行
     const addrs = r.addresses ?? [];
     const macs = (r.macs ?? {}) as Record<string, string[]>;
+    const addrJump = ((r as Record<string, unknown>).addrJump ?? {}) as Record<string, string>;
     rows.value = addrs.length
-      ? addrs.map((addr) => ({ addr, macs: (macs[addr] ?? []).join(", ") }))
-      : [{ addr: "", macs: "" }];
+      ? addrs.map((addr) => ({ addr, macList: macs[addr] ?? [], jump: addrJump[addr] ?? "" }))
+      : [{ addr: "", macList: [], jump: "" }];
   },
   { immediate: true },
 );
@@ -239,7 +252,7 @@ function recognize() {
   }
   const empty = rows.value.find((r) => !r.addr);
   if (empty) empty.addr = addr;
-  else rows.value.push({ addr, macs: "" });
+  else rows.value.push({ addr, macList: [], jump: "" });
   hint.value = "已加入地址列表";
   quick.value = "";
 }
@@ -251,11 +264,7 @@ function submit() {
     const addr = row.addr.trim();
     if (!addr) continue;
     addresses.push(addr);
-    const list = row.macs
-      .split(/[,;\s]+/)
-      .map((m) => m.trim())
-      .filter(Boolean);
-    if (list.length) macs[addr] = list;
+    if (row.macList.length) macs[addr] = [...row.macList];
   }
   emit("save", {
     id: props.remote?.id ?? "",
@@ -314,9 +323,32 @@ function submit() {
           <label>局域网地址（第一个用来连接；MAC 只用于局域网电源）</label>
           <div id="rsAddrList" class="addr-list">
             <div v-for="(row, i) in rows" :key="i" class="addr-row">
-              <input v-model="row.addr" type="text" class="mono" placeholder="127.0.0.1:12300" spellcheck="false" />
-              <input v-model="row.macs" type="text" class="mono" placeholder="MAC" spellcheck="false" />
-              <button type="button" class="icon-btn" aria-label="删除这一行" @click="removeRow(i)">✕</button>
+              <div class="addr-main">
+                <span class="addr-host">{{ row.addr || "（未填地址）" }}</span>
+                <span v-if="i === 0" class="addr-badge">连接用</span>
+                <button type="button" class="addr-del" aria-label="删掉这个地址" title="删掉这个地址" @click="removeRow(i)">✕</button>
+              </div>
+              <div class="addr-macs">
+                <span class="route-macs-label">MAC</span>
+                <template v-if="row.macList.length">
+                  <button
+                    v-for="mac in row.macList"
+                    :key="mac"
+                    type="button"
+                    class="mac-tag"
+                    title="点一下删掉这块网卡"
+                    @click="dropMac(i, mac)"
+                  >{{ mac }} <i>✕</i></button>
+                </template>
+                <span v-else class="route-macs-label">没配 MAC —— 局域网电源发不出去</span>
+              </div>
+              <div class="addr-jump">
+                <span class="route-macs-label">跳板机</span>
+                <select v-model="row.jump" class="addr-jump-select" title="这个地址经由哪台跳板机中转（空 = 这个地址直连）">
+                  <option value="">直连</option>
+                  <option v-for="opt in jumpOptions" :key="opt.id" :value="opt.id">{{ opt.name }}</option>
+                </select>
+              </div>
             </div>
           </div>
           <div class="addr-add">
