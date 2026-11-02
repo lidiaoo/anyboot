@@ -607,7 +607,7 @@ async function executeImport() {
         <p class="del-body" id="cfmBody">{{ confirmBody }}</p>
         <div class="modal-foot" style="border: 0; padding: 4px 0 0">
           <button type="button" class="btn plain" id="cfmCancel" @click="confirmOpen = false">取消</button>
-          <button type="button" class="btn dangerbtn" id="cfmOk" @click="executeImport">覆盖导入</button>
+          <button type="button" class="btn danger" id="cfmOk" @click="executeImport">覆盖导入</button>
         </div>
       </div>
     </div>

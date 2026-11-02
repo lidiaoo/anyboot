@@ -496,7 +496,6 @@ function pct(task: XferTask): number {
       v-for="p in parentPaths"
       :key="p"
       type="button"
-      class="popmenu-item"
       @click="listDir(p); pathMenuOpen = false"
     >
       {{ p }}
@@ -528,7 +527,9 @@ function pct(task: XferTask): number {
           <td class="mono">{{ entry.perms || "—" }}</td>
           <td class="mono">{{ fmtTime(entry.mtime) }}</td>
           <td style="text-align: right">
-            <button type="button" class="link-btn" @click.stop="openRowMenu(entry, $event)">操作</button>
+            <button type="button" class="rowdl" :title="'操作'" :aria-label="entry.name + ' 操作'" @click.stop="openRowMenu(entry, $event)">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="19" cy="12" r="1.6" /></svg>
+            </button>
           </td>
         </tr>
       </tbody>
