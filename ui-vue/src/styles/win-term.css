@@ -1,0 +1,31 @@
+/*
+ * 独立窗 hub-term.html 专用样式。
+ *
+ * 旧版这个窗口的样式是**内联在 HTML 里的一个 <style> 块**
+ * （从 `ui/hub-term.html` 原样提取），和 styles.css / hub.html 的内联样式都不是一套。
+ * 迁移时整块带走，否则窗口完全没有样式。
+ */
+/*
+ * **不导入 legacy.css（旧 styles.css）** —— 旧版 hub-term.html 根本没引它，
+ * 这个窗口的样式 100% 来自它自己的那个 <style> 块。
+ * 一旦把 legacy.css 也拉进来，它的 `body { height:100vh; opacity:0 }`、
+ * `#app`、`button` 等规则会污染这个窗口。
+ */
+@import "./vendor/win-term.css";
+
+*, *::before, *::after { box-sizing: border-box; }
+
+/*
+ * 旧版这个窗口没有 `#app` 这层：`body { display:flex; flex-direction:column }`
+ * 的直接子元素就是 header / .toolbar / ul.keys / footer。
+ *
+ * Vue 多了 `#app`，所以：
+ *   ① `display: contents` 让它不生成盒子，子元素直接参与 body 的 flex 布局
+ *   ② **不能**再给 `#app` 设 `height:100%` —— display:contents 元素的尺寸无效，
+ *      而且 `html,body{height:100%}` 会让 body 只有视口高、内容被压扁（实测 756×413）
+ *
+ * 旧版这里是 `html, body { margin:0; min-height:100% }`（min-height 不是 height），
+ * 所以 body 能被内容撑高。照抄。
+ */
+html, body { margin: 0; min-height: 100%; }
+#app { display: contents; }

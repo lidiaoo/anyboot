@@ -1,7 +1,7 @@
 import { createApp } from "vue";
 import { createPinia } from "pinia";
 import Page from "@/pages/term/index.vue";
-import "@/styles/main.css";
+import "@/styles/win-term.css";
 
 /**
  * hub-term.html 入口（独立窗）。
