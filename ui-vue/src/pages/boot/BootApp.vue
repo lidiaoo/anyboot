@@ -72,6 +72,22 @@ watch(currentTab, (tab) => {
 /** 下次启动区：是否需要折叠按钮（旧版 #nb-toggle） */
 const nextBootRowsOpen = ref(false);
 
+/** 免密助手切换中的忙碌标志（旧版 helperPending） */
+const helperBusy = ref(false);
+/** 切换免密助手（旧版 toggleBootHelper → boot_helper {action}） */
+async function toggleBootHelper(action: "install" | "uninstall") {
+  if (helperBusy.value) return;
+  helperBusy.value = true;
+  try {
+    const { call } = await import("@/api/tauri");
+    await call("boot_helper", { action });
+  } catch {
+    /* 失败静默，状态由下次刷新带回 */
+  } finally {
+    helperBusy.value = false;
+  }
+}
+
 /** 跟随主题切换（旧版 set_theme） */
 function setTheme(theme: string) {
   void call("set_theme", { theme }).catch(() => {});
@@ -427,6 +443,22 @@ const statusText = computed(() => {
                   <h2>{{ ch.label }} 启动项</h2>
                 </div>
                 <small class="grub-pane-status">{{ ch.chip === "ok" ? "已检测 · 免提权" : "已检测 · 需提权" }}</small>
+              </div>
+              <!-- 免密模式 helper（旧版 renderHelperLine） -->
+              <div
+                v-if="ch.id === 'opencore' && ui.state?.helper && ui.state.helper.supported"
+                class="channel-helper"
+                :data-state="ui.state.helper.installed ? (ui.state.helper.stale ? 'stale' : 'on') : 'off'"
+              >
+                <span class="channel-helper-label">免密模式</span>
+                <small class="channel-helper-text">{{ ui.state.helper.text }}</small>
+                <button
+                  type="button"
+                  class="channel-helper-action needs-elev"
+                  :disabled="helperBusy"
+                  :title="ui.state.helper.installed && ui.state.helper.stale ? '把 /Library 里那份旧助手换成当前版本（一次管理员密码）；启动项设置不受影响' : ui.state.helper.installed ? '删掉 /Library 里的 root 助手与信箱：之后「设为默认」恢复成每次输入一次密码' : '安装时弹一次管理员密码；之后由 root 助手直接写 OCBt*，不再询问。助手只在收到请求时被 launchd 唤起，不常驻、不开端口'"
+                  @click="toggleBootHelper(ui.state.helper.installed && !ui.state.helper.stale ? 'uninstall' : 'install')"
+                >{{ ui.state.helper.installed && ui.state.helper.stale ? '重装 ⤴' : ui.state.helper.installed ? '关闭' : '开启 ⤴' }}</button>
               </div>
               <div class="grub-list">
                 <BootList :loader="ch.id" />
