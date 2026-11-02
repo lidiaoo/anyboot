@@ -1,80 +1,60 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { useServersStore } from "@/stores/servers";
 import { call } from "@/api/tauri";
 
 /**
- * 终端页（原 `ui/hub.html` 的 `#page-term`）。
+ * 终端页（原 `ui/hub.html` 的 `#page-term`，3355 行）。
  *
- * 它本身不渲染终端 —— 终端是**独立窗口**（`hub-term.html`，PTY + 系统 ssh + xterm）。
- * 这里只负责：选中一台 SSH 服务器后把终端窗开起来。
+ * 1:1 结构（旧版就 4 个元素）：
+ * ```
+ * .act-card
+ *   svg（终端图标）
+ *   p.t     「终端」
+ *   p.s     #termPageHint 提示（随是否选中 SSH 服务器变化）
+ *   button.btn.primary  #pageTermBtn「打开终端」（没有服务器时 disabled）
+ * ```
  */
 
 const store = useServersStore();
 const sshServers = computed(() => store.servers.filter((s) => s.protocol === "ssh"));
+const selectedId = ref("");
 
-async function openTerminal(serverId: string) {
-  try {
-    await call("hub_open_window", { label: "server-term", serverId });
-  } catch {
-    /* 打开失败不阻塞页面 */
-  }
+onMounted(async () => {
+  if (!store.loaded) await store.load();
+  selectedId.value = sshServers.value[0]?.id ?? "";
+});
+
+const hint = computed(() =>
+  sshServers.value.length
+    ? `将用「${sshServers.value.find((s) => s.id === selectedId.value)?.name ?? ""}」打开终端（PTY + 系统 ssh，独立窗口）。`
+    : "在「服务器」页选中一台 SSH 服务器后打开终端（PTY + 系统 ssh，独立窗口）。",
+);
+
+function openTerminal() {
+  if (!selectedId.value) return;
+  void call("hub_open_window", { label: "server-term", serverId: selectedId.value }).catch(() => {});
 }
 </script>
 
 <template>
-  <div class="act-page">
-    <div class="act-card">
-      <div class="big" aria-hidden="true">▮</div>
-      <p class="t">终端</p>
-      <p class="s">在「服务器」页选中一台 SSH 服务器后打开终端（PTY + 系统 ssh，独立窗口）。</p>
-
-      <div v-if="sshServers.length" class="server-picks">
-        <button
-          v-for="server in sshServers"
-          :key="server.id"
-          type="button"
-          class="btn primary"
-          @click="openTerminal(server.id)"
-        >
-          打开「{{ server.name }}」的终端
-        </button>
-      </div>
-      <button v-else type="button" class="btn primary" disabled>打开终端</button>
-    </div>
+  <div class="act-card">
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.6"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="2" y="4" width="20" height="14" rx="2" />
+      <path d="M6 9l3 3-3 3" />
+    </svg>
+    <p class="t">终端</p>
+    <p class="s">{{ hint }}</p>
+    <button type="button" class="btn primary" :disabled="!selectedId" @click="openTerminal">
+      打开终端
+    </button>
   </div>
 </template>
-
-<style scoped>
-.act-page {
-  display: grid;
-  place-items: center;
-  min-height: 60vh;
-  padding: 20px;
-}
-.act-card {
-  text-align: center;
-  max-width: 420px;
-}
-.big {
-  font-size: 30px;
-  color: var(--fg-faint, #9ca3af);
-  margin-bottom: 10px;
-}
-.t {
-  font-size: 15px;
-  font-weight: 600;
-  margin: 0 0 6px;
-}
-.s {
-  font-size: 12.5px;
-  color: var(--fg-faint, #9ca3af);
-  margin: 0 0 16px;
-  line-height: 1.7;
-}
-.server-picks {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-</style>

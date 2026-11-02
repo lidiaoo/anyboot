@@ -53,6 +53,63 @@ const busy = ref("");
 /** 手动指定 cloudflared 路径（旧版 #gwManualRow 的开合） */
 const manualOpen = ref(false);
 const manualPath = ref("");
+/** Tailscale 授权密钥输入（旧版 #tsKey） */
+const tsKey = ref("");
+/** Tailscale 自启（旧版 #tsAutostart） */
+const tsAutostart = ref(false);
+
+function toggleTsAutostart() {
+  const next = !tsAutostart.value;
+  tsAutostart.value = next;
+  void call("gateway_set_autostart", { which: "tailscale", on: next }).catch(() => {});
+}
+
+/** Tailscale 日志弹层（旧版 #tsLogOverlay） */
+const tsLogOpen = ref(false);
+const tsLogs = ref<string[]>([]);
+
+async function openTsLog() {
+  try {
+    tsLogs.value = (await call<string[]>("gateway_tailscale_logs")) ?? [];
+  } catch {
+    tsLogs.value = [];
+  }
+  tsLogOpen.value = true;
+}
+
+function tsDownload() {
+  void run("下载 Tailscale", () => call("gateway_tailscale_download"), "开始下载…");
+}
+
+function tsOpenManual() {
+  void call("gateway_tailscale_launch_gui").catch(() => {});
+}
+
+function tsSaveKey() {
+  const key = tsKey.value.trim();
+  void run("保存密钥", () => call("gateway_tailscale_set_authkey", { key }), "密钥已保存");
+}
+
+function tailscaleService() {
+  void run("切换服务", () => call("gateway_tailscale_service"), "已切换");
+}
+
+function tsUninstall() {
+  if (!window.confirm("确定卸载 Tailscale？")) return;
+  void run("卸载 Tailscale", () => call("gateway_tailscale_uninstall"), "已卸载");
+}
+
+async function copyTsAddr() {
+  const ip = tsStatus.value?.ip;
+  if (!ip) return;
+  try {
+    await navigator.clipboard.writeText(ip);
+    message.value = "地址已复制";
+  } catch {
+    /* 剪贴板不可用 */
+  }
+}
+
 /** 日志弹层（旧版 #gwLogOverlay） */
 const logOpen = ref(false);
 const logs = ref<string[]>([]);
@@ -358,26 +415,97 @@ function deletePair(id: string) {
     </div>
   </div>
 
-  <!-- ===== Tailscale 分页 ===== -->
+  <!-- ===== Tailscale 分页（旧版 hub.html:2958 起） ===== -->
   <div v-show="activeTab === 'ts'" class="gw-tabpane">
     <div class="gw-card">
       <div class="gw-card-head">
         <h3>Tailscale 直连</h3>
+        <span v-if="tsStatus?.installed" class="tsf-badge">已安装{{ tsStatus?.ip ? ` · ${tsStatus.ip}` : "" }}</span>
         <span style="flex: 1" />
-        <span class="gw-sw-group" title="连接 / 断开 Tailscale">
+        <span v-if="tsStatus?.installed" class="gw-sw-group" title="连接 / 断开 Tailscale（登录级，等于 tailscale up / down）">
           <span class="gw-sw-cap">连接</span>
           <label class="switch">
             <input type="checkbox" :checked="tsStatus?.running" @change="toggleTailscale" />
             <span class="trk" aria-hidden="true" />
           </label>
         </span>
+        <span v-if="tsStatus?.installed" class="gw-sw-group" title="启动 / 停止 tailscaled 系统服务">
+          <span class="gw-sw-cap">服务</span>
+          <label class="switch">
+            <input type="checkbox" :checked="tsStatus?.running" @change="tailscaleService" />
+            <span class="trk" aria-hidden="true" />
+          </label>
+        </span>
+        <button v-if="tsStatus?.installed" type="button" class="btn" @click="tsUninstall">卸载</button>
+        <button type="button" class="btn" @click="openTsLog">日志</button>
         <button type="button" class="btn" @click="refreshAll">重新检测</button>
       </div>
+
       <div class="gw-status">
         <span class="pulse" :hidden="!tsStatus?.running" />
-        <span>{{ tsStatus?.running ? "已连接" : tsStatus?.installed ? "未连接" : "未安装" }}</span>
-        <span v-if="tsStatus?.ip" class="mono gw-meta">{{ tsStatus.ip }}</span>
+        <span>{{ tsStatus?.running ? "已连接" : tsStatus?.installed ? "未连接" : "未安装 Tailscale" }}</span>
+        <span style="flex: 1" />
+        <span v-if="tsStatus?.version" class="mono gw-meta">{{ tsStatus.version }}</span>
       </div>
+
+      <!-- 未安装：下载 / 官网 -->
+      <div v-if="!tsStatus?.installed">
+        <p class="field-hint" style="margin: 8px 0 0">
+          在这一台电脑上安装 Tailscale，手机 / 其他电脑加入同一网络后就能用它固定的
+          100.x 地址访问本机 —— 不出公网、地址长期不变。
+        </p>
+        <div class="gw-binary">
+          <span>安装包未下载</span>
+          <button type="button" class="btn" :disabled="!!busy" @click="tsDownload">下载 Tailscale</button>
+          <button type="button" class="btn" @click="tsOpenManual">打开官网手动下载</button>
+        </div>
+        <div class="gw-progress" hidden>
+          <div class="gw-progress-bar"><div /></div>
+          <span class="mono" />
+        </div>
+
+        <!-- 自启（旧版 #tsAutostart） -->
+        <label class="gw-auto">
+          <input type="checkbox" :checked="tsAutostart" @change="toggleTsAutostart" />
+          <span class="gw-auto-t">启动软件时自动连接 Tailscale</span>
+          <span class="gw-auto-h">等价于自动点「连接」</span>
+        </label>
+      </div>
+
+      <!-- 已安装未连接：授权密钥 / 登录 -->
+      <template v-if="tsStatus?.installed && !tsStatus?.running">
+        <div style="margin-top: 10px">
+          <div style="display: flex; gap: 8px; align-items: center">
+            <input
+              v-model="tsKey"
+              type="password"
+              class="mono"
+              style="flex: 1"
+              placeholder="留空则走浏览器登录"
+              autocomplete="off"
+            />
+            <button type="button" class="btn" :disabled="!!busy" @click="tsSaveKey">保存</button>
+          </div>
+          <p class="field-hint">
+            在 Tailscale 管理控制台 → Settings → Keys 里签发一次性的设备授权密钥；填了它连接时免浏览器登录。
+          </p>
+        </div>
+      </template>
+
+      <!-- 已连接：地址 + 自检 -->
+      <template v-if="tsStatus?.running">
+        <div class="gw-status" style="margin-top: 8px">
+          <span class="mono ts-addr">{{ tsStatus?.ip || "—" }}</span>
+          <button type="button" class="link-btn" @click="copyTsAddr">复制</button>
+          <button type="button" class="btn" @click="issuePair">生成此地址的配对码</button>
+        </div>
+        <div class="gw-status" style="margin-top: 6px">
+          <span
+            style="display: inline-flex; width: 8px; height: 8px; border-radius: 50%; background: rgb(var(--fg-faint)); flex: none"
+          />
+          <span style="font-size: 12px; color: rgb(var(--fg-dim))">正在自检本机服务…</span>
+        </div>
+      </template>
     </div>
   </div>
 
@@ -431,6 +559,25 @@ function deletePair(id: string) {
         <div class="dialog-foot">
           <button type="button" class="btn" @click="clearLogs">清空</button>
           <button type="button" class="btn primary" @click="logOpen = false">关闭</button>
+        </div>
+      </div>
+    </div>
+  </Teleport>
+
+  <!-- Tailscale 日志弹层（旧版 #tsLogOverlay） -->
+  <Teleport to="body">
+    <div v-if="tsLogOpen" class="token-modal-overlay" @click.self="tsLogOpen = false">
+      <div class="token-modal" role="dialog" aria-modal="true">
+        <div class="dialog-head">
+          <h3>Tailscale 日志</h3>
+          <button type="button" class="btn icon ghost sm" @click="tsLogOpen = false">✕</button>
+        </div>
+        <pre class="gw-log mono">{{ tsLogs.join("\n") || "（暂无日志）" }}</pre>
+        <div class="dialog-foot">
+          <button type="button" class="btn" @click="call('gateway_tailscale_logs_clear').then(() => (tsLogs = []))">
+            清空
+          </button>
+          <button type="button" class="btn primary" @click="tsLogOpen = false">关闭</button>
         </div>
       </div>
     </div>
