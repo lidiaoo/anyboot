@@ -2734,6 +2734,39 @@ button.primary-sol:hover:not(:disabled) {
 .sim-list > .grub-entry + .grub-list-body {
   margin-top: 4px;
 }
+/* 2026-11-02 用户定案：「refind 置顶的上下边距要抄袭到 grub/opencore/clover/
+ * systemd-boot」。
+ *
+ * 实测置顶行到列表顶的距离：rEFInd=4px（来自上面这条 margin-top），
+ * GRUB / OpenCore = 0。统一成 4px —— 置顶行与下面正式列表之间留出
+ * 一点呼吸，三个通道一致。 */
+.ba-theme-sec .grub-list > .grub-entry.is-pinned + .grub-list-body,
+.ba-theme-sec .grub-list > .grub-entry.is-pinned + .grub-entry:not(.is-pinned) {
+  margin-top: 4px;
+}
+/* 实测置顶行到**列表顶部**的距离：rEFInd=4px，GRUB/OpenCore=0。
+ * 差在 rEFInd 的列表容器 `.grub-list` 自带 `padding: 4px`（基础样式 919 行），
+ * 而另外两个通道的列表被重置成 0。
+ * 主题态下一律归零，让三个通道的置顶行都贴列表顶（间距只靠上面那条 margin 给）。 */
+/* 特异性：`#sim-scan .grub-list`（1,1,0）会压过 `#tab-boot .ba-theme-sec
+ * .grub-list`（1,2,0 其实更高，但该规则在文件更后面……）—— 这里直接
+ * 带上 ID 段并加 !important，一次性压死。 */
+#sim-scan .ba-theme-sec .grub-list,
+#tab-boot .ba-theme-sec .grub-list,
+#tab-boot .ba-theme-sec .sim-list {
+  padding: 0 !important;
+}
+/* 实测 rEFInd 的置顶行仍比另外两个通道低 4px（listTop=216 / pinTop=220）。
+ * 真正原因是它带 `is-group` 类（rEFInd 的顶层项是「组」），而
+ * `.grub-entry.is-group { margin-top: 4px }`（1372 行）给组头预留了上边距。
+ * GRUB / OpenCore 的置顶行是 `is-child`，没有这个 margin。
+ *
+ * 主题态下：**列表的第一个子项**不加上边距 —— 它上面没有内容可分隔，
+ * 这 4px 就是纯留白。三个通道就此对齐。 */
+#tab-boot .ba-theme-sec .grub-list > .grub-entry:first-child,
+#tab-boot .ba-theme-sec .sim-list > .grub-entry:first-child {
+  margin-top: 0;
+}
 
 /* 行右侧的小字/按钮排一行（GRUB 那边只有一个小字，这里可能并排放两三个） */
 .grub-entry-side {
@@ -3544,6 +3577,23 @@ svg.i.lg { width: 16px; height: 16px; }
   padding: 0;
   /* 滚动条贴到面板右缘，不再被内边距顶出来 */
   scrollbar-gutter: auto;
+}
+/* 2026-11-02 用户反馈：「滚轮后面的卡片离滚轮还有距离 你需要撑满」。
+ *
+ * 实测：列表 right=1072，卡片 right=1089 → 右缘还空 17px
+ * （卡片自身 padding-right 16px + border 1px）。滚动条被顶在中间，看着不贴边。
+ *
+ * 主题态下把卡片容器的**右内边距**收掉（保留左内边距给条目留白），
+ * 让列表与滚动条一直贴到卡片右边缘。 */
+#tab-boot .ba-theme-sec {
+  padding-right: 0;
+}
+/* 列表本身再撑满一点（去掉可能残留的水平 margin） */
+#tab-boot .ba-theme-sec .grub-list,
+#tab-boot .ba-theme-sec .sim-list,
+#tab-boot .ba-theme-sec .grub-list-body {
+  margin-right: 0;
+  width: 100%;
 }
 /* GRUB 头部里那两行 STAT：空的时候（高度 0 或只有 14px 的空白块）不占位。
  * 「EFI 目录 /Volumes/ARCH-EFI · 68 个启动项 · 同步于 …」这行由 #grub-meta 承担，
