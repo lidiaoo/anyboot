@@ -69,6 +69,35 @@ const syncPass = ref("");
 const syncDir = ref("AnyBoot");
 const syncPeriod = ref(15);
 const syncOnChange = ref(false);
+/** 云端备份加密（旧版 #syncEncrypt / #syncEncryptPw / #syncEncryptErr） */
+const syncEncrypt = ref(false);
+const syncEncryptPw = ref("");
+const syncEncryptErr = ref("");
+/** 同步是否被锁定（旧版 #syncLockInfo：导入/导出进行中） */
+const locked = computed(() => Boolean(busy.value));
+/** 预览来源行（旧版 #prevSrc） */
+const previewSrc = computed(() => (importPath.value ? `来源：${importPath.value}` : ""));
+/** 加密备份口令弹层（旧版 #pwModal） */
+const pwOpen = ref(false);
+const importPw = ref("");
+const importPwErr = ref("");
+
+function submitPw() {
+  if (!importPw.value.trim()) {
+    importPwErr.value = "请输入口令";
+    return;
+  }
+  pwOpen.value = false;
+}
+
+/** 全局 toast（旧版 #bkToast） */
+const bkToast = ref("");
+function showToast(text: string) {
+  bkToast.value = text;
+  window.setTimeout(() => {
+    if (bkToast.value === text) bkToast.value = "";
+  }, 2600);
+}
 
 /** 导入流程（旧版三段：预览 → 覆盖确认 → 结果） */
 const previewOpen = ref(false);
@@ -147,6 +176,7 @@ async function run(label: string, action: () => Promise<unknown>, done: string) 
   try {
     await action();
     message.value = done;
+    showToast(done);
     await refreshSync();
   } catch (error) {
     errorText.value = String(error);
@@ -452,6 +482,25 @@ function syncNow() {
         有变化时自动同步（改动后约 30 秒内推送）
       </label>
 
+      <!-- 云端备份加密（旧版 #syncEncryptZone） -->
+      <div class="bk-pw-zone" id="syncEncryptZone">
+        <label class="bk-checkline">
+          <input id="syncEncrypt" v-model="syncEncrypt" type="checkbox" />
+          云端备份加密（推荐 —— 同步文件含密钥明文）
+        </label>
+        <div id="syncEncryptPwField" class="bk-field" :hidden="!syncEncrypt" style="max-width: 320px">
+          <label for="syncEncryptPw">同步口令</label>
+          <input
+            id="syncEncryptPw"
+            v-model="syncEncryptPw"
+            type="password"
+            :placeholder="sync?.hasPassword ? '已保存，留空则不修改' : '同步口令'"
+            autocomplete="new-password"
+          />
+          <span id="syncEncryptErr" class="bk-err">{{ syncEncryptErr }}</span>
+        </div>
+      </div>
+
       <div class="bk-cats" id="syncCats">
         <label v-for="cat in CATEGORIES" :key="cat.id" class="bk-radio-line">
           <input
@@ -469,6 +518,13 @@ function syncNow() {
       <span v-if="sync?.lastError" class="bk-err">{{ sync.lastError }}</span>
       <span v-else>上次同步：{{ sync?.lastSyncAt || "从未" }}</span>
     </div>
+    <div v-if="locked" id="syncLockInfo" class="bk-info">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 8v5M12 16h.01" />
+      </svg>
+      <span>导入 / 导出进行中，同步暂时锁定。</span>
+    </div>
 
     <div class="bk-row-actions">
       <button type="button" id="syncTestBtn" class="bk-btn" :disabled="!!busy" @click="testWebdav">测试连接</button>
@@ -480,14 +536,37 @@ function syncNow() {
     </div>
   </section>
 
-  <!-- ① 导入预览（旧版 #previewModal） -->
-  <div v-if="previewOpen" class="bk-modal" role="dialog" aria-modal="true">
+  <!-- 加密备份口令弹层（旧版 #pwModal） -->
+  <div v-if="pwOpen" id="pwModal" class="bk-modal" role="dialog" aria-modal="true" aria-labelledby="pwTitle">
     <div class="bk-modal-card">
       <div class="bk-modal-head">
-        <h3>导入预览</h3>
-        <button type="button" aria-label="关闭" @click="previewOpen = false">✕</button>
+        <h3 id="pwTitle">此备份已加密</h3>
+        <button type="button" id="pwClose" aria-label="关闭" @click="pwOpen = false">✕</button>
+      </div>
+      <form id="pwForm" class="bk-modal-body" @submit.prevent="submitPw">
+        <div class="bk-field">
+          <label for="importPw">备份口令</label>
+          <input id="importPw" v-model="importPw" type="password" autocomplete="off" />
+          <div id="importPwErr" class="bk-err">{{ importPwErr }}</div>
+        </div>
+        <p class="bk-modal-note">口令错误 3 次后提示：口令由导出方设置，本机无法找回。</p>
+        <div class="bk-modal-foot" style="border: 0; padding: 4px 0 0">
+          <button type="button" id="pwCancel" class="bk-btn bk-plain" @click="pwOpen = false">取消</button>
+          <button type="submit" class="bk-btn bk-primary">解锁预览</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ① 导入预览（旧版 #previewModal） -->
+  <div v-if="previewOpen" id="previewModal" class="bk-modal" role="dialog" aria-modal="true" aria-labelledby="prevTitle">
+    <div class="bk-modal-card bk-wide">
+      <div class="bk-modal-head">
+        <h3 id="prevTitle">导入预览</h3>
+        <button type="button" id="prevClose" aria-label="关闭" @click="previewOpen = false">✕</button>
       </div>
       <div class="bk-modal-body">
+        <div class="bk-src-line" id="prevSrc">{{ previewSrc }}</div>
         <table class="bk-prev">
           <thead>
             <tr>
@@ -497,7 +576,7 @@ function syncNow() {
               <th>同 ID 冲突</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody id="prevRows">
             <tr v-for="row in previewRows" :key="row.label">
               <td>{{ row.label }}</td>
               <td style="text-align: right">{{ row.inBackup }}</td>
@@ -510,16 +589,16 @@ function syncNow() {
           </tbody>
         </table>
 
-        <div v-if="previewWarn" class="bk-info bk-warn">
+        <div v-if="previewWarn" id="prevWarn" class="bk-info bk-warn">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
             <path d="M12 9v4M12 17h.01M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
           </svg>
-          <span>{{ previewWarn }}</span>
+          <span id="prevWarnText">{{ previewWarn }}</span>
         </div>
 
         <div>
           <label style="display: block; font-size: 12px; font-weight: 500; color: rgb(var(--fg-dim)); margin-bottom: 6px">要导入的分类</label>
-          <div class="bk-cats">
+          <div class="bk-cats" id="importCats">
             <label v-for="cat in CATEGORIES" :key="cat.id" class="bk-cat-row">
               <input
                 type="checkbox"
@@ -534,7 +613,7 @@ function syncNow() {
 
         <div>
           <label style="display: block; font-size: 12px; font-weight: 500; color: rgb(var(--fg-dim)); margin-bottom: 6px">同 ID 条目处理</label>
-          <div class="bk-strategy">
+          <div class="bk-strategy" id="strategyBox">
             <label class="bk-radio-line">
               <input v-model="importStrategy" type="radio" name="strategy" value="skipExisting" />
               <span>跳过已存在的条目<span class="bk-rdesc">只添加本机没有的；现有配置一律不动（安全）</span></span>
@@ -547,14 +626,14 @@ function syncNow() {
         </div>
       </div>
       <div class="bk-modal-foot">
-        <button type="button" class="bk-btn bk-plain" @click="previewOpen = false">取消</button>
-        <button type="button" class="bk-btn bk-primary" @click="startImport">开始导入</button>
+        <button type="button" id="prevCancel" class="bk-btn bk-plain" @click="previewOpen = false">取消</button>
+        <button type="button" id="prevGo" class="bk-btn bk-primary" @click="startImport">开始导入</button>
       </div>
     </div>
   </div>
 
   <!-- ② 覆盖确认（旧版 #confirmModal） -->
-  <div v-if="confirmOpen" class="bk-modal" role="dialog" aria-modal="true">
+  <div v-if="confirmOpen" id="confirmModal" class="bk-modal" role="dialog" aria-modal="true" aria-labelledby="cfmTitle">
     <div class="bk-modal-card">
       <div class="bk-del-hero">
         <span class="bk-icon" aria-hidden="true">
@@ -562,32 +641,41 @@ function syncNow() {
             <path d="M12 9v4M12 17h.01M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
           </svg>
         </span>
-        <h3>确认覆盖导入？</h3>
+        <h3 id="cfmTitle">确认覆盖导入？</h3>
       </div>
-      <p class="bk-del-body">{{ confirmBody }}</p>
+      <p id="cfmBody" class="bk-del-body">{{ confirmBody }}</p>
       <div class="bk-modal-foot">
-        <button type="button" class="bk-btn bk-plain" @click="confirmOpen = false">取消</button>
-        <button type="button" class="bk-btn bk-danger" @click="executeImport">覆盖导入</button>
+        <button type="button" id="cfmCancel" class="bk-btn bk-plain" @click="confirmOpen = false">取消</button>
+        <button type="button" id="cfmOk" class="bk-btn bk-danger" @click="executeImport">覆盖导入</button>
       </div>
     </div>
   </div>
 
   <!-- ③ 导入结果（旧版 #resultModal） -->
-  <div v-if="resultOpen" class="bk-modal" role="dialog" aria-modal="true">
+  <div v-if="resultOpen" id="resultModal" class="bk-modal" role="dialog" aria-modal="true" aria-labelledby="resTitle">
     <div class="bk-modal-card">
       <div class="bk-modal-head">
-        <h3>导入完成</h3>
-        <button type="button" aria-label="关闭" @click="resultOpen = false">✕</button>
+        <h3 id="resTitle">导入完成</h3>
+        <button type="button" id="resClose" aria-label="关闭" @click="resultOpen = false">✕</button>
       </div>
-      <div class="bk-modal-body">
+      <div id="resBody" class="bk-modal-body">
         <p v-for="row in resultRows" :key="row.k">{{ row.k }}：{{ row.v }}</p>
         <p v-if="!resultRows.length">导入已完成</p>
       </div>
       <div class="bk-modal-foot">
-        <button type="button" class="bk-btn bk-primary" @click="resultOpen = false">完成</button>
+        <button type="button" id="resOk" class="bk-btn bk-primary" @click="resultOpen = false">完成</button>
       </div>
     </div>
   </div>
+
+  <!-- 页脚（旧版 .bk-bk-foot） -->
+  <div class="bk-bk-foot">
+    <span><b>互导口径</b>：手机端口令加密的备份在电脑导入时需输入同一口令；电脑导出的私钥一律不带口令写入。</span>
+    <span><b>带口令的私钥</b>只导出元数据不导出材料（桌面只出不进）。</span>
+  </div>
+
+  <!-- toast（旧版 #bkToast） -->
+  <div v-if="bkToast" id="bkToast" class="toast" role="status">{{ bkToast }}</div>
 
   <p v-if="message" class="bk-note" style="color: rgb(var(--ok))">{{ message }}</p>
   <p v-if="errorText" class="bk-err">{{ errorText }}</p>
