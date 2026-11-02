@@ -545,7 +545,7 @@ async function executeImport() {
 
   <!-- 导入预览（旧版 #previewModal） -->
   <div v-if="previewOpen" id="previewModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="prevTitle">
-    <div class="modal-card">
+    <div class="modal-card wide">
       <div class="modal-head">
         <h3 id="prevTitle">导入预览</h3>
         <button type="button" id="prevClose" aria-label="关闭" @click="previewOpen = false">✕</button>
@@ -559,7 +559,10 @@ async function executeImport() {
               <td>{{ row.label }}</td>
               <td style="text-align: right">{{ row.inBackup }}</td>
               <td style="text-align: right">{{ row.local }}</td>
-              <td>{{ row.conflicts }}</td>
+              <td>
+                <span v-if="row.conflicts" class="chip conflict">{{ row.conflicts }} 个同 ID</span>
+                <span v-else>—</span>
+              </td>
             </tr>
             <tr v-if="!previewRows.length"><td colspan="4">（备份文件里没有可识别的内容）</td></tr>
           </tbody>

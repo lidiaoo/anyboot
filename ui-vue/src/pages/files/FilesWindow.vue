@@ -564,7 +564,7 @@ function pct(task: XferTask): number {
 
   <!-- 行操作菜单（旧版 #rowMenu） -->
   <div v-if="rowMenuOpen" id="rowMenu" ref="rowMenuRef" class="filemenu" role="menu" aria-label="文件操作">
-    <div class="fm-head">
+    <div class="fm-preview">
       <span id="fmIcon" class="fm-icon" aria-hidden="true">
         <svg id="fmIcoFile" v-if="!menuEntry?.is_dir" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
           <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
@@ -577,19 +577,24 @@ function pct(task: XferTask): number {
           <path d="M13 2L3 14h7l-1 8 10-12h-7z" />
         </svg>
       </span>
-      <span id="fmName" class="fm-name">{{ menuEntry?.name || "—" }}</span>
-      <span id="fmMeta" class="fm-meta mono">{{ menuEntry ? (menuEntry.is_dir ? "目录" : fmtSize(menuEntry.size)) : "—" }}</span>
+      <span class="fm-names">
+        <span class="fm-name" id="fmName">{{ menuEntry?.name || "—" }}</span>
+        <span class="fm-meta mono" id="fmMeta">{{ menuEntry ? (menuEntry.is_dir ? "目录" : fmtSize(menuEntry.size)) : "—" }}</span>
+      </span>
       <button type="button" id="fmClose" class="fm-close" aria-label="关闭" @click="rowMenuOpen = false">✕</button>
     </div>
     <button role="menuitem" id="rmDownload" class="fm-act accent" @click="menuAction('download')">下载</button>
     <button role="menuitem" id="rmRename" class="fm-act" @click="menuAction('rename')">重命名</button>
     <button role="menuitem" id="rmCopyPath" class="fm-act" @click="menuAction('copyPath')">复制路径</button>
     <button role="menuitem" id="rmDelete" class="fm-act danger" @click="menuAction('delete')">删除</button>
+    <p class="fm-label">更多操作</p>
+    <div class="fm-group">
     <button role="menuitem" id="rmInfo" class="fm-act" @click="menuAction('info')">详情</button>
     <button role="menuitem" id="rmCopy" class="fm-act" @click="menuAction('copy')">复制</button>
     <button role="menuitem" id="rmCut" class="fm-act" @click="menuAction('cut')">剪切</button>
     <button role="menuitem" id="rmCopyTo" class="fm-act" @click="menuAction('copyTo')">复制到...</button>
     <button role="menuitem" id="rmMoveTo" class="fm-act" @click="menuAction('moveTo')">移动到...</button>
+    </div>
   </div>
 
   <!-- 新建目录弹层（旧版 #mkdirModal） -->

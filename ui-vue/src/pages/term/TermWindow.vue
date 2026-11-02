@@ -52,7 +52,7 @@ const errorText = ref("");
 const unlisteners: (() => void)[] = [];
 /** 服务器选择弹层（旧版 #pick） */
 const pickOpen = ref(false);
-const servers = ref<{ id: string; name: string; host: string; protocol: string }[]>([]);
+const servers = ref<{ id: string; name: string; host: string; protocol: string; username?: string; port?: number }[]>([]);
 /** 底部状态栏 */
 /** toast（旧版 #toast） */
 const toastText = ref("");
@@ -271,7 +271,7 @@ onMounted(async () => {
 
   // 服务器列表（选择弹层用）
   try {
-    servers.value = (await call<{ id: string; name: string; host: string; protocol: string }[]>(
+    servers.value = (await call<{ id: string; name: string; host: string; protocol: string; username?: string; port?: number }[]>(
       "hub_list_servers",
     )) ?? [];
   } catch {
@@ -449,11 +449,11 @@ async function closeSession(id: string) {
           v-for="s in servers"
           :key="s.id"
           type="button"
-          class="btn"
-          style="width: 100%; justify-content: flex-start; margin-bottom: 6px"
+          class="server-item"
           @click="pickServer(s.id)"
         >
-          {{ s.name }} · {{ s.host }}
+          <span class="name">{{ s.name }}</span>
+          <span class="host">{{ s.username ? s.username + "@" : "" }}{{ s.host }}:{{ s.port || 22 }}</span>
         </button>
       </div>
     </div>
