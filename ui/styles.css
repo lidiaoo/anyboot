@@ -1324,6 +1324,25 @@ body[data-grub-mode="inline"] .grub-list {
   contain: paint;
 }
 
+/* 2026-11-02 用户反馈：「OpenCore 的宽度也比 grub/refind 宽，systemd-boot /
+ * clover 同理」。实测三者卡片同宽 340，差在**内层列表**：
+ *
+ *   rEFInd    .grub-list（#sim-scan）  offsetW=306  clientW=304  可滚动
+ *   GRUB      .grub-list               offsetW=304  clientW=304  可滚动
+ *   OpenCore  .oc-menu                 offsetW=306  clientW=306  不滚动
+ *
+ * 即：GRUB 的列表被滚动条吃掉了 2px 外边距（`#sim-scan .grub-list` 与
+ * `body[data-grub-mode] .grub-list` 两套限高/滚动规则叠加后的结果）。
+ * 统一成 `scrollbar-gutter: stable` —— 无论是否滚动都预留同样宽度，
+ * 三条列表的可见内容区宽度就一致了。 */
+.grub-list,
+.grub-list-body,
+.sim-scan-list,
+.oc-menu-list,
+.boot-list {
+  scrollbar-gutter: stable;
+}
+
 .grub-empty {
   padding: 6px 4px;
   color: var(--text-faint);
@@ -3414,6 +3433,21 @@ svg.i.lg { width: 16px; height: 16px; }
  * 直接把它 display:none，不再参与网格。 */
 .ba-theme-sec > .grub-head {
   display: none;
+}
+
+/* 2026-11-02 用户反馈：「OpenCore 的宽度也比 grub/refind 宽，systemd-boot /
+ * clover 同理」。实测内层列表：
+ *   rEFInd   grub-panel(306) → sim-scan(306) → sim-scan-list(306) → grub-list(306)
+ *   OpenCore oc-menu(306)
+ *   GRUB     grub-panel(306) → grub-auto(306) → grub-auto-card(306) → grub-list(**304**)
+ *
+ * 差 2px 的是 `.grub-auto-card` —— 它有 `border: 1px solid` + `input-bg` 底色，
+ * 在主题卡片里相当于又套了一层小框，把列表挤窄 2px，也显出一块多余底色
+ * （和刚修掉的 `.oc-menu` 灰底是同一类问题）。
+ * 主题态下去掉它的边框与底色，三条列表就等宽了。 */
+.ba-theme-sec .grub-auto-card {
+  border: 0;
+  background: transparent;
 }
 /* GRUB 头部里那两行 STAT：空的时候（高度 0 或只有 14px 的空白块）不占位。
  * 「EFI 目录 /Volumes/ARCH-EFI · 68 个启动项 · 同步于 …」这行由 #grub-meta 承担，
