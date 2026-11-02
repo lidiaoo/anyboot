@@ -32,6 +32,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: "switchBoot", payload: Record<string, unknown>): void;
   (e: "power", payload: Record<string, unknown>): void;
+  (e: "sysInfo", id: string): void;
 }>();
 
 const isLocal = computed(() => props.row.id === "local");
@@ -79,6 +80,16 @@ function onPower(action: string) {
         <div class="cq-dev-txt">
           <div class="cq-dev-name">
             <span class="nm">{{ row.name }}</span>
+            <button
+              v-if="!isLocal"
+              type="button"
+              class="os-badge"
+              title="查看系统信息"
+              @click.stop="emit('sysInfo', row.id)"
+            >
+              {{ (row.machine_os || "").toLowerCase().includes("win") ? "WIN"
+                : (row.machine_os || "").toLowerCase().includes("mac") ? "MAC" : "LNX" }}
+            </button>
             <span v-if="isLocal" class="cq-chip-grp">本机</span>
             <span v-if="pending" class="cq-chip-pend">待生效</span>
           </div>
@@ -193,6 +204,20 @@ function onPower(action: string) {
   overflow-wrap: anywhere;
 }
 .cq-chip-grp,
+.os-badge {
+  font-size: 9.5px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 4px;
+  border: 1px solid var(--line, #e5e7eb);
+  background: var(--soft, #f9fafb);
+  color: var(--fg-dim, #6b7280);
+  cursor: pointer;
+  font-family: ui-monospace, Menlo, monospace;
+}
+.os-badge:hover {
+  background: var(--soft, #f3f4f6);
+}
 .cq-chip-pend {
   font-size: 10px;
   font-weight: 500;
@@ -200,6 +225,20 @@ function onPower(action: string) {
   border-radius: 999px;
   background: var(--soft, #f3f4f6);
   color: var(--fg-dim, #6b7280);
+}
+.os-badge {
+  font-size: 9.5px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 4px;
+  border: 1px solid var(--line, #e5e7eb);
+  background: var(--soft, #f9fafb);
+  color: var(--fg-dim, #6b7280);
+  cursor: pointer;
+  font-family: ui-monospace, Menlo, monospace;
+}
+.os-badge:hover {
+  background: var(--soft, #f3f4f6);
 }
 .cq-chip-pend {
   background: #fff7ed;

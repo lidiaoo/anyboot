@@ -3,6 +3,8 @@ import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRemoteStore, type RemoteProfile } from "@/stores/remote";
 import { useSettingsStore } from "@/stores/settings";
 import ComputerRow from "@/components/hub/ComputerRow.vue";
+import PcMenu from "@/components/hub/PcMenu.vue";
+import SystemInfoDialog from "@/components/hub/SystemInfoDialog.vue";
 
 /**
  * 电脑列表（原 `ui/hub.html` 的 `#page-computers`）。
@@ -34,11 +36,25 @@ const filter = ref<"all" | "online" | "offline" | "pending">("all");
 const helpOpen = ref(false);
 const sortMode = ref<"custom" | "name" | "recent">("custom");
 const refreshing = ref(false);
+/** 系统信息弹层：非空时打开 */
+const sysInfoId = ref<string | null>(null);
+
+function openSysInfo(id: string) {
+  if (id === "local") return;
+  sysInfoId.value = id;
+}
+
+
 
 /** 本机行（固定第一条） */
 const LOCAL_ROW: RemoteProfile = { id: "local", name: "本机", addresses: [] };
 
 const allRows = computed<RemoteProfile[]>(() => [LOCAL_ROW, ...remote.servers]);
+
+/** 系统信息弹层里显示的电脑名 */
+const sysInfoTitle = computed(
+  () => allRows.value.find((r) => r.id === sysInfoId.value)?.name ?? "",
+);
 
 /** 某台电脑的引导项信息 */
 function infoOf(id: string) {
@@ -207,6 +223,7 @@ function power(payload: Record<string, unknown>) {
       <button type="button" class="link-btn" :disabled="refreshing" @click="manualRefresh">
         {{ refreshing ? "探测中" : "刷新" }}
       </button>
+      <PcMenu />
     </div>
 
     <div v-show="helpOpen" class="cq-help">
@@ -241,6 +258,7 @@ function power(payload: Record<string, unknown>) {
             :pending="isPending(row.id)"
             @switch-boot="switchBoot"
             @power="power"
+            @sys-info="openSysInfo"
           />
         </div>
       </div>
@@ -249,6 +267,12 @@ function power(payload: Record<string, unknown>) {
         <p>换个关键词，或把筛选切回「全部」</p>
       </div>
     </div>
+
+    <SystemInfoDialog
+      :server-id="sysInfoId"
+      :title="sysInfoTitle"
+      @close="sysInfoId = null"
+    />
 
     <div class="cq-foot">
       电源操作立即执行（不再确认）· 唤醒离线也能发（魔术包）· 引导项变更在下次重启时生效

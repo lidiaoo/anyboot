@@ -155,27 +155,27 @@
 - [x] **3.2** `components/hub/ServerList.vue`（服务器列表渲染）
   - ✅ 完成：`pages/hub/ServersPage.vue` 内含列表 + 详情两栏
 - [x] **3.3** `components/hub/ServerEditDialog.vue`（添加/编辑弹窗 + 地址编辑）
-  - ✅ 部分：列表/详情已完成，添加弹窗按钮暂禁用（阶段 5 前补）
+  - ✅ 完成：`components/hub/ServerEditDialog.vue`，含认证三选一（交互/密码/密钥）、多地址、跳板机、终端路径与 shell
 - [x] **3.4** `components/hub/AddressEditor.vue`（识别框 + 已添加列表，服务器/电脑弹窗共用）
-  - ✅ 部分：随 ServerEditDialog 一起待补
+  - ✅ 完成：并入 ServerEditDialog 的多地址文本框（一行一个）
 - [x] **3.5** `pages/hub/ComputerList.vue`（电脑页列表：在线状态 / 引导项 / 电源指令）
   - ✅ 完成：搜索 + 状态筛选 + 统计 + 定时刷新（常开、不驱动按钮）+ 弱网容忍
 - [x] **3.6** `components/hub/ComputerRow.vue`（单台电脑卡片）
   - ✅ 完成：六列布局；电源键任何时候可点、引导项离线禁用、文字完整不省略号
 - [x] **3.7** `components/hub/PcMenu.vue`（⋮ 菜单：数据刷新 / 重探模式 / 失败阈值 / 离线阈值）
-  - ✅ 部分：设置项已进 stores/settings，⋮ 菜单 UI 待补
+  - ✅ 完成：三组设置各带 ✓ 标记；点外部关闭
 - [x] **3.8** `pages/hub/PcView.vue`（全屏内嵌 iframe + 失败面板 + 重试）
   - ✅ 完成：`pages/hub/HomePage.vue`（标签栏 + iframe + 失败提示 + 重载）
 - [x] **3.9** 局域网电源路由（唤醒 / 重启 / 关机 / 睡眠）
   - ✅ 完成：ComputerRow 四键接入 `remote_power`
 - [x] **3.10** 详情区 + 延迟趋势 + 测试连接
-  - ✅ 完成：`pages/hub/ServersPage.vue`（详情 + 测试连接）；延迟趋势未做
+  - ✅ 完成：`components/hub/LatencyTrend.vue`（会话内环形采样 40 点 + 折线 + min/avg/max）
 - [x] **3.11** 隧道（M4）
   - ✅ 完成：`pages/hub/GatewayPage.vue`（Cloudflare 隧道 + Tailscale + 配对 + 孤儿清理）
 - [x] **3.12** 终端 / 文件 / 密钥 / 会话页
   - ✅ 完成：TermPage / FilesPage / KeysPage / SessionsPage 四页
 - [x] **3.13** 系统徽标 + 系统信息弹层
-  - ✅ 未完成：待补
+  - ✅ 完成：`components/hub/SystemInfoDialog.vue` + 电脑名旁 WIN/MAC/LNX 徽标
 - [x] **3.14** 传输页（SFTP 队列 / 断点续传 / 历史）
   - ✅ 部分：TransfersPage 骨架完成，队列数据待阶段 4 文件窗接入
 - [x] **3.15** 关于页 + 更新检查
@@ -310,6 +310,11 @@
 | 2026-11-02 | 5 | 打 tag `pre-vue-migration`，删除 `ui/`（另存 /tmp/ui-backup-*） | ✅ |
 | 2026-11-02 | 5 | **删除后复验**：cargo check 通过、cargo test 508 passed、打包成功 | ✅ |
 | 2026-11-02 | 5 | **最终端到端**：boot / computerlist / hub 三处自检全绿；`/` `/hub.html` `/hub-term.html` `/assets/index.js` 全部 200；无 JS 异常 | ✅ |
+| 2026-11-02 | 补 | `ServerEditDialog.vue`：添加/编辑服务器（认证三选一、多地址、跳板机、终端设置） | ✅ |
+| 2026-11-02 | 补 | `PcMenu.vue`：⋮ 菜单三组设置（数据刷新 / 重探地址 / 失败阈值 / 失败重载） | ✅ |
+| 2026-11-02 | 补 | `SystemInfoDialog.vue` + 电脑名旁系统徽标（WIN/MAC/LNX） | ✅ |
+| 2026-11-02 | 补 | `LatencyTrend.vue`：会话内 40 点环形采样 + 折线 + min/avg/max | ✅ |
+| 2026-11-02 | 补 | **复验**：cargo test 508 passed；三处自检全绿；无 JS 异常 | ✅ |
 
 ---
 

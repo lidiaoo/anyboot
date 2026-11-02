@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { useServersStore, type HubServer } from "@/stores/servers";
+import ServerEditDialog from "@/components/hub/ServerEditDialog.vue";
+import LatencyTrend from "@/components/hub/LatencyTrend.vue";
 
 /**
  * 服务器页（原 `ui/hub.html` 的 `#page-servers`）。
@@ -20,6 +22,41 @@ const store = useServersStore();
 const query = ref("");
 const protocol = ref<"" | "ssh" | "telnet">("");
 const selectedId = ref<string>("");
+const dialogOpen = ref(false);
+/** 编辑哪一台；null = 新增 */
+const editing = ref<HubServer | null>(null);
+
+function openAdd() {
+  editing.value = null;
+  dialogOpen.value = true;
+}
+
+function openEdit(server: HubServer) {
+  editing.value = server;
+  dialogOpen.value = true;
+}
+
+async function onSave(payload: Record<string, unknown>) {
+  try {
+    await store.save(payload);
+    dialogOpen.value = false;
+    // 新增后选中新那台
+    const saved = store.servers.find((s) => s.name === payload.name);
+    if (saved) selectedId.value = saved.id;
+  } catch (error) {
+    window.alert(`保存失败：${error}`);
+  }
+}
+
+async function onDelete(server: HubServer) {
+  if (!window.confirm(`确定删除「${server.name}」？`)) return;
+  try {
+    await store.remove(server.id);
+    if (selectedId.value === server.id) selectedId.value = store.servers[0]?.id ?? "";
+  } catch (error) {
+    window.alert(`删除失败：${error}`);
+  }
+}
 
 const rows = computed(() => {
   const keyword = query.value.trim().toLowerCase();
@@ -44,8 +81,15 @@ onMounted(() => {
   });
 });
 
-function testOne(server: HubServer) {
-  void store.test(server);
+const latencyRef = ref<InstanceType<typeof LatencyTrend> | null>(null);
+
+async function testOne(server: HubServer) {
+  const started = performance.now();
+  await store.test(server);
+  // 从结果文字里抽出「通 · N ms」，抽不到就用本地耗时
+  const text = store.testResults.get(server.id) ?? "";
+  const matched = text.match(/(\d+)\s*ms/);
+  latencyRef.value?.push(matched ? Number(matched[1]) : Math.round(performance.now() - started));
 }
 </script>
 
@@ -69,9 +113,7 @@ function testOne(server: HubServer) {
       </div>
       <div class="toolbar-right">
         <span class="summary">{{ rows.length }} / {{ store.servers.length }} 台</span>
-        <button type="button" class="btn primary" disabled title="添加服务器弹窗待迁移">
-          ＋ 添加服务器
-        </button>
+        <button type="button" class="btn primary" @click="openAdd">＋ 添加服务器</button>
       </div>
     </div>
 
@@ -129,11 +171,11 @@ function testOne(server: HubServer) {
             <dt>终端 shell</dt>
             <dd class="mono">{{ selected.term_shell || "（登录 shell）" }}</dd>
           </dl>
+          <LatencyTrend ref="latencyRef" />
           <div class="actions">
             <button type="button" class="btn" @click="testOne(selected)">测试连接</button>
-            <button type="button" class="btn ghost" disabled title="终端窗迁移后再接">
-              打开终端
-            </button>
+            <button type="button" class="btn" @click="openEdit(selected)">编辑</button>
+            <button type="button" class="btn ghost danger" @click="onDelete(selected)">删除</button>
           </div>
         </div>
         <div v-else class="placeholder">
@@ -143,6 +185,13 @@ function testOne(server: HubServer) {
         </div>
       </main>
     </div>
+
+    <ServerEditDialog
+      :open="dialogOpen"
+      :server="editing"
+      @save="onSave"
+      @close="dialogOpen = false"
+    />
   </div>
 </template>
 
@@ -315,6 +364,9 @@ main {
 .actions {
   display: flex;
   gap: 8px;
+}
+.btn.danger {
+  color: #dc2626;
 }
 .placeholder {
   padding: 48px 20px;
