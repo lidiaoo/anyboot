@@ -81,29 +81,35 @@ function stateLabel(id: string): string {
 
 /** 经跳板机测试（旧版 remote_test_via） */
 function testVia(server: HubServer) {
-  void call("remote_test_via", { id: server.id, jumpId: server.jump_id }).catch(() => {});
+  void call("remote_test_via", { server_id: server.id, address: store.displayAddr(server) }).catch(() => {});
 }
 
 /** 系统信息（旧版 remote_system_info） */
 function systemInfo(server: HubServer) {
-  void call("remote_system_info", { id: server.id }).catch(() => {});
+  void call("remote_system_info", { server_id: server.id }).catch(() => {});
 }
 
 /** 备注机器型号（旧版 remote_note_machine） */
 function noteMachine(server: HubServer) {
   const note = window.prompt("机器备注", server.notes || "");
   if (note === null) return;
-  void call("remote_note_machine", { id: server.id, note }).catch(() => {});
+  void call("remote_note_machine", {
+      server_id: server.id,
+      machine_id: server.id,
+      machine_name: server.name,
+      os: "",
+      note,
+    }).catch(() => {});
 }
 
 /** 把某个地址提升为首选（旧版 remote_promote_address） */
 function promoteAddress(server: HubServer, addr: string) {
-  void call("remote_promote_address", { id: server.id, addr }).catch(() => {});
+  void call("remote_promote_address", { server_id: server.id, address: addr }).catch(() => {});
 }
 
 function openTerminal(server: HubServer) {
   void import("@/api/tauri").then(({ call }) =>
-    call("hub_open_term_window", { serverId: server.id }).catch(() => {}),
+    call("hub_open_term_window", { server_id: server.id }).catch(() => {}),
   );
 }
 

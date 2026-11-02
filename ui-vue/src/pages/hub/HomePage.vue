@@ -60,7 +60,7 @@ const POWER_ACTIONS = [
 
 function sendPower(action: string) {
   void import("@/api/tauri").then(({ call }) =>
-    call("remote_power", { serverId: activeId.value, action }).catch(() => {}),
+    call("remote_power", { server_id: activeId.value, action }).catch(() => {}),
   );
 }
 

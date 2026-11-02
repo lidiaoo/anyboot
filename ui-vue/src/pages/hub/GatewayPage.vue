@@ -109,7 +109,7 @@ const tsAutostart = ref(false);
 function toggleTsAutostart() {
   const next = !tsAutostart.value;
   tsAutostart.value = next;
-  void call("gateway_set_autostart", { which: "tailscale", on: next }).catch(() => {});
+  void call("gateway_set_autostart", { channel: "tailscale", enabled: next }).catch(() => {});
 }
 
 /** Tailscale 日志弹层（旧版 #tsLogOverlay） */
@@ -375,7 +375,12 @@ function clearCredentials() {
 }
 
 function saveConfig() {
-  void run("保存配置", () => call("gateway_save_config", { mode: config.value?.mode ?? "quick", namedUrl: config.value?.namedUrl ?? "" }), "配置已保存");
+  void run("保存配置", () => call("gateway_save_config", {
+    mode: config.value?.mode ?? "quick",
+    named_url: config.value?.namedUrl ?? "",
+    named_token: "",
+    autostart: Boolean(config.value?.autostart),
+  }), "配置已保存");
 }
 
 /** Tailscale 安装 / 注销 / 扩展设置 / Funnel */

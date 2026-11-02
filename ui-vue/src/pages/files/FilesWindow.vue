@@ -138,7 +138,7 @@ async function listDir(path: string) {
   errorText.value = "";
   try {
     const result = await call<{ cwd: string; entries: SftpEntry[] }>("hub_sftp_list", {
-      id: serverId.value,
+      server: sshServers.value.find((s) => s.id === serverId.value),
       path,
     });
     cwd.value = result?.cwd ?? path;
@@ -175,7 +175,7 @@ function selectEntry(entry: SftpEntry) {
 
 async function upload() {
   try {
-    await call("hub_sftp_upload", { id: serverId.value, remoteDir: cwd.value });
+    await call("hub_sftp_upload", { server: sshServers.value.find((s) => s.id === serverId.value), remote_dir: cwd.value });
     await refreshTransfers();
   } catch (error) {
     errorText.value = String(error);
@@ -185,7 +185,13 @@ async function upload() {
 async function download() {
   if (!selectedPath.value) return;
   try {
-    await call("hub_sftp_download", { id: serverId.value, remotePath: selectedPath.value });
+    await call("hub_sftp_download", {
+      server: sshServers.value.find((s) => s.id === serverId.value),
+      remote_path: selectedPath.value,
+      filename: selectedPath.value.split("/").pop() ?? "",
+      local_dir: "",
+      total: 0,
+    });
     await refreshTransfers();
   } catch (error) {
     errorText.value = String(error);
@@ -203,7 +209,7 @@ async function confirmMkdir() {
   if (!name) return;
   const base = cwd.value.endsWith("/") ? cwd.value : `${cwd.value}/`;
   try {
-    await call("hub_sftp_mkdir", { id: serverId.value, path: `${base}${name}` });
+    await call("hub_sftp_mkdir", { server: sshServers.value.find((s) => s.id === serverId.value), path: `${base}${name}` });
     await listDir(cwd.value);
   } catch (error) {
     errorText.value = String(error);
@@ -223,7 +229,7 @@ async function confirmRename() {
   if (!entry || !next || next === entry.name) return;
   try {
     await call("hub_sftp_rename", {
-      id: serverId.value,
+      server: sshServers.value.find((s) => s.id === serverId.value),
       from: entry.path,
       to: entry.path.replace(/[^/]+$/, next),
     });
@@ -243,7 +249,7 @@ async function confirmDelete() {
   delOpen.value = false;
   if (!entry) return;
   try {
-    await call("hub_sftp_remove", { id: serverId.value, path: entry.path });
+    await call("hub_sftp_remove", { server: sshServers.value.find((s) => s.id === serverId.value), path: entry.path, is_dir: entry.is_dir });
     await listDir(cwd.value);
   } catch (error) {
     errorText.value = String(error);

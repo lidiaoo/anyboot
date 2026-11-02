@@ -57,6 +57,8 @@ const infoOpen = ref(false);
 const targetEntry = ref<SftpEntry | null>(null);
 
 const sshServers = computed(() => store.servers.filter((s) => s.protocol === "ssh"));
+/** 当前选中的服务器对象（hub_sftp_* 要传整个对象而不是 id） */
+const currentServer = computed(() => sshServers.value.find((s) => s.id === serverId.value));
 const connected = computed(() => !errorText.value);
 
 /** 面包屑（旧版 .fb-crumbs） */
@@ -112,7 +114,7 @@ async function listDir(path: string) {
   errorText.value = "";
   try {
     const result = await call<{ cwd: string; entries: SftpEntry[] }>("hub_sftp_list", {
-      id: serverId.value,
+      server: currentServer.value,
       path,
     });
     cwd.value = result?.cwd ?? path;
@@ -149,7 +151,7 @@ function selectEntry(entry: SftpEntry) {
 
 async function upload() {
   try {
-    await call("hub_sftp_upload", { id: serverId.value, remoteDir: cwd.value });
+    await call("hub_sftp_upload", { server: currentServer.value, remote_dir: cwd.value });
     await refreshTransfers();
   } catch (error) {
     errorText.value = String(error);
@@ -159,7 +161,13 @@ async function upload() {
 async function download() {
   if (!selectedPath.value) return;
   try {
-    await call("hub_sftp_download", { id: serverId.value, remotePath: selectedPath.value });
+    await call("hub_sftp_download", {
+      server: currentServer.value,
+      remote_path: selectedPath.value,
+      filename: selectedPath.value.split("/").pop() ?? "",
+      local_dir: "",
+      total: 0,
+    });
     await refreshTransfers();
   } catch (error) {
     errorText.value = String(error);
@@ -177,7 +185,7 @@ async function confirmMkdir() {
   if (!name) return;
   const base = cwd.value.endsWith("/") ? cwd.value : `${cwd.value}/`;
   try {
-    await call("hub_sftp_mkdir", { id: serverId.value, path: `${base}${name}` });
+    await call("hub_sftp_mkdir", { server: currentServer.value, path: `${base}${name}` });
     await listDir(cwd.value);
   } catch (error) {
     errorText.value = String(error);
@@ -197,7 +205,7 @@ async function confirmRename() {
   if (!entry || !next || next === entry.name) return;
   try {
     await call("hub_sftp_rename", {
-      id: serverId.value,
+      server: currentServer.value,
       from: entry.path,
       to: entry.path.replace(/[^/]+$/, next),
     });
@@ -217,7 +225,7 @@ async function confirmDelete() {
   delOpen.value = false;
   if (!entry) return;
   try {
-    await call("hub_sftp_remove", { id: serverId.value, path: entry.path });
+    await call("hub_sftp_remove", { server: currentServer.value, path: entry.path, is_dir: entry.is_dir });
     await listDir(cwd.value);
   } catch (error) {
     errorText.value = String(error);
@@ -227,7 +235,7 @@ async function confirmDelete() {
 /** 选本地目录（旧版 hub_pick_directory，上传时的默认落点） */
 async function pickLocalDir() {
   try {
-    const dir = (await call("hub_pick_directory")) as string;
+    const dir = (await call("hub_pick_directory", { current: "" })) as string;
     if (dir) errorText.value = `已选择本地目录：${dir}`;
   } catch (error) {
     errorText.value = String(error);
@@ -237,7 +245,7 @@ async function pickLocalDir() {
 /** 回到远端家目录（旧版 hub_sftp_home） */
 async function goHome() {
   try {
-    const home = await call<string>("hub_sftp_home", { id: serverId.value });
+    const home = await call<string>("hub_sftp_home", { server: currentServer.value });
     if (home) await listDir(home);
   } catch (error) {
     errorText.value = String(error);
@@ -249,7 +257,7 @@ async function copyEntry(entry: SftpEntry) {
   const base = cwd.value.endsWith("/") ? cwd.value : `${cwd.value}/`;
   const target = `${base}${entry.name} (副本)`;
   try {
-    await call("hub_sftp_copy", { id: serverId.value, from: entry.path, to: target });
+    await call("hub_sftp_copy", { server: currentServer.value, from: entry.path, to: target });
     await listDir(cwd.value);
   } catch (error) {
     errorText.value = String(error);
@@ -259,7 +267,7 @@ async function copyEntry(entry: SftpEntry) {
 /** 读软链接目标（旧版 hub_sftp_readlink） */
 async function readLink(entry: SftpEntry) {
   try {
-    const target = await call<string>("hub_sftp_readlink", { id: serverId.value, path: entry.path });
+    const target = await call<string>("hub_sftp_readlink", { server: currentServer.value, path: entry.path });
     targetEntry.value = entry;
     infoOpen.value = true;
     errorText.value = target ? `链接指向：${target}` : "";
@@ -286,7 +294,7 @@ async function transferCtl(action: "pause" | "resume" | "abandon") {
 
 function openInWindow() {
   if (!serverId.value) return;
-  void call("hub_open_files_window", { serverId: serverId.value }).catch(() => {});
+  void call("hub_open_files_window", { server_id: serverId.value }).catch(() => {});
 }
 
 function fmtSize(bytes: number): string {

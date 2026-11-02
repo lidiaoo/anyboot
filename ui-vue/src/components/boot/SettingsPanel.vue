@@ -76,7 +76,7 @@ function regenerateToken() {
 
 async function copyToken() {
   try {
-    const text = await call<string>("get_http_token");
+    const text = await call<string>("reveal_http_token", {});
     await navigator.clipboard.writeText(text);
   } catch {
     /* 剪贴板不可用 */

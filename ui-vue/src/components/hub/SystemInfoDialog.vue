@@ -38,7 +38,7 @@ watch(
     if (!id) return;
     loading.value = true;
     try {
-      const result = await call<Record<string, unknown>>("remote_system_info", { serverId: id });
+      const result = await call<Record<string, unknown>>("remote_system_info", { server_id: id });
       // 后端用 camelCase 序列化，这里直接透传
       info.value = result as unknown as SystemInfo;
     } catch (error) {
@@ -72,7 +72,7 @@ function fmtUptime(sec: number): string {
 
 <template>
   <Teleport to="body">
-    <div v-if="serverId" class="backdrop" @click.self="emit('close')">
+    <div v-if="props.serverId" class="backdrop" @click.self="emit('close')">
       <div class="dialog" role="dialog" aria-modal="true">
         <header>
           <h2>{{ title }} · 系统信息</h2>

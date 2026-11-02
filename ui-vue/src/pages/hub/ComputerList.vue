@@ -201,7 +201,7 @@ function openRemoteEdit(id: string) {
 async function saveRemote(payload: Record<string, unknown>) {
   rsEditOpen.value = false;
   try {
-    await import("@/api/tauri").then(({ call }) => call("remote_save", payload));
+    await import("@/api/tauri").then(({ call }) => call("remote_save", { server: payload }));
     await remote.load();
   } catch {
     /* 忽略 */
@@ -252,7 +252,7 @@ async function openInBrowser(id: string) {
 /** 页面探活（旧版 hub_page_ping，给电脑页标签用） */
 async function pingPage() {
   const { call } = await import("@/api/tauri");
-  await call("hub_page_ping", {}).catch(() => {});
+  await call("hub_page_ping", { ready: true }).catch(() => {});
 }
 
 /** 让主窗聚焦（旧版 hub_focus_window） */
@@ -273,17 +273,17 @@ async function listTunnels() {
 
 async function startTunnel(id: string) {
   const { call } = await import("@/api/tauri");
-  await call("hub_tunnel_start", { id }).catch(() => {});
+  await call("hub_tunnel_start", { tunnel_id: id }).catch(() => {});
 }
 
 async function stopTunnel(id: string) {
   const { call } = await import("@/api/tauri");
-  await call("hub_tunnel_stop", { id }).catch(() => {});
+  await call("hub_tunnel_stop", { tunnel_id: id }).catch(() => {});
 }
 
 async function saveTunnel(payload: Record<string, unknown>) {
   const { call } = await import("@/api/tauri");
-  await call("hub_save_tunnel", payload).catch(() => {});
+  await call("hub_save_tunnel", { tunnel: payload }).catch(() => {});
 }
 
 async function deleteTunnel(id: string) {

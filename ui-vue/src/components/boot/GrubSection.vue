@@ -48,20 +48,20 @@ function setFormat(format: string) {
 }
 
 function installAnyboot() {
-  void call("grub_install", {}).catch(() => {});
+  void call("install_grub_script", {}).catch(() => {});
 }
 
 function uninstallAnyboot() {
-  void call("grub_uninstall", {}).catch(() => {});
+  void call("uninstall_grub_script", {}).catch(() => {});
 }
 
 function saveScript() {
-  void call("set_grub_script", { text: scriptText.value }).catch(() => {});
+  void call("set_grub_script", { script: scriptText.value }).catch(() => {});
 }
 
 function resetScript() {
   scriptText.value = "";
-  void call("set_grub_script", { text: "" }).catch(() => {});
+  void call("set_grub_script", { script: "" }).catch(() => {});
 }
 
 const grubAuto = computed(() => ui.linuxGrub);
@@ -119,7 +119,7 @@ const espDir = computed(() => grubManual.value?.efiDir ?? "");
 const partuuid = computed(() => grubManual.value?.partuuid ?? "");
 
 function refreshAuto() {
-  void call("linux_grub_scan", { target: null }).catch(() => {});
+  void call("linux_grub_scan", { target: null, auto: true }).catch(() => {});
 }
 
 function syncManual() {
@@ -131,7 +131,7 @@ function pickEspDir() {
 }
 
 function detectEsp() {
-  void call("detect_esp", { value: espDir.value }).catch(() => {});
+  void call("detect_esp", { path: espDir.value }).catch(() => {});
 }
 
 function saveEspDir() {
@@ -143,7 +143,7 @@ function openGrubDir() {
 }
 
 function detectPartuuid() {
-  void call("detect_esp", { value: espDir.value }).catch(() => {});
+  void call("detect_esp", { path: espDir.value }).catch(() => {});
 }
 
 function savePartuuid() {
@@ -151,7 +151,7 @@ function savePartuuid() {
 }
 
 function toggleMount() {
-  void call("set_grub_mount", { keep: !grubManual.value?.keepMounted }).catch(() => {});
+  void call("set_grub_mount", { enabled: !grubManual.value?.keepMounted }).catch(() => {});
 }
 
 function switchEntry(selector: string) {

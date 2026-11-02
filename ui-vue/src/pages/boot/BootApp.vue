@@ -74,7 +74,7 @@ const nextBootRowsOpen = ref(false);
 
 /** 跟随主题切换（旧版 set_theme） */
 function setTheme(theme: string) {
-  void call("set_theme", { value: theme }).catch(() => {});
+  void call("set_theme", { theme }).catch(() => {});
 }
 
 /** 页头主题按钮：暗 ↔ 亮 */

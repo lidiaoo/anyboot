@@ -440,6 +440,30 @@ index.html:sol         90 /  69  ✅（本轮从 23 补齐）
 remote_open_page/touch/set_connect_all/test_via/system_info/note_machine/
 promote_address、set_theme、gateway_* 二进制与凭据管理。
 
+### 第三层验证：命令签名比对（参数级）
+
+命令名对上不等于能跑 —— 参数名和类型也必须一致。写了脚本把
+Rust 的 `#[tauri::command]` 签名与 Vue 侧的 `call("x", {...})` 逐条比对：
+
+```
+发现 39 处问题（8 个命令名不存在 + 31 处参数不匹配）
+修复后：Rust 里不存在的命令 0
+```
+
+**真实的运行时缺陷举例**：
+- `remote_power` / `remote_endpoint` / `hub_open_term_window` 等用
+  `serverId`，Rust 要 `server_id` —— Tauri 反序列化会直接报错
+- `hub_sftp_*` 传的是 `id: string`，Rust 要整个 `server: HubServer` 对象
+- `hub_sftp_remove` 少传 `is_dir`（删目录会被当文件删）
+- `hub_sftp_download` 少传 `filename` / `local_dir` / `total`
+- `backup_sync_save_config` / `backup_webdav_mkdir` / `backup_webdav_test`
+  都要求一个 `config` 对象，我传的是扁平字段
+- `set_theme` 要 `theme` 不要 `value`；`set_grub_script` 要 `script` 不要 `text`
+- `grub_install` / `grub_uninstall` 根本不存在，正确名是
+  `install_grub_script` / `uninstall_grub_script`
+- SOL 页的 `sol_install` / `sol_download` / `sol_http_set_*` 全部对不上，
+  正确的是 `sol_one_click_install` / `sol_install_download` / `sol_http_set`
+
 ### 打包验证
 ```
 npm run build:mac-intel        → 成功（508 tests passed / 0 failed）

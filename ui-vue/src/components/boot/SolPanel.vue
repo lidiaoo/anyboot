@@ -47,14 +47,14 @@ const configText = ref("");
 
 async function refreshConfig() {
   try {
-    configText.value = (await call<string>("sol_config_read")) ?? "";
+    configText.value = (await call<string>("sol_config_read", { path: null })) ?? "";
   } catch {
     configText.value = "";
   }
 }
 
 function saveConfig() {
-  void call("sol_config_write", { text: configText.value }).catch(() => {});
+  void call("sol_config_write", { path: "", content: configText.value }).catch(() => {});
 }
 
 function clearLogs() {
@@ -86,11 +86,11 @@ async function refresh() {
 onMounted(refresh);
 
 function setHttpEnabled() {
-  void call("sol_http_set_enabled", { on: !status.value?.running }).catch(() => {});
+  void call("sol_http_set", { path: null, option: "enabled", value: String(!status.value?.running) }).catch(() => {});
 }
 
 function saveListen() {
-  void call("sol_http_set_listen", { value: listenAddr.value.trim() }).catch(() => {});
+  void call("sol_http_set", { path: null, option: "listen", value: listenAddr.value.trim() }).catch(() => {});
 }
 
 async function copyToken() {
@@ -108,21 +108,21 @@ function generateToken() {
 }
 
 function saveToken() {
-  void call("sol_http_set_token", { token: newToken.value.trim() }).catch(() => {});
+  void call("sol_http_set", { path: null, option: "token", value: newToken.value.trim() }).catch(() => {});
 }
 
 function oneClick() {
-  void call("sol_install", { silent: true }).catch(() => {});
+  void call("sol_one_click_install", { dir: null, archive: null }).catch(() => {});
 }
 
 function manualInstall() {
-  void call("sol_install", { silent: false }).catch(() => {});
+  void call("sol_one_click_install_terminal", { dir: null, archive: null }).catch(() => {});
 }
 
 function download() {
   downloading.value = true;
   progress.value = 0;
-  void call("sol_download").catch(() => {});
+  void call("sol_install_download", { dir: null }).catch(() => {});
 }
 
 function pickArchive() {

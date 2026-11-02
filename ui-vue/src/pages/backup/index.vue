@@ -159,13 +159,15 @@ function saveSync() {
     "保存同步配置",
     () =>
       call("backup_sync_save_config", {
-        url: syncUrl.value.trim(),
-        username: syncUser.value.trim(),
-        password: syncPass.value,
-        remoteDir: syncDir.value.trim() || "AnyBoot",
-        periodMinutes: syncPeriod.value,
-        onChanged: syncOnChange.value,
-        categories: syncCats.value,
+        config: {
+          url: syncUrl.value.trim(),
+          username: syncUser.value.trim(),
+          password: syncPass.value,
+          remoteDir: syncDir.value.trim() || "AnyBoot",
+          periodMinutes: syncPeriod.value,
+          onChanged: syncOnChange.value,
+          categories: syncCats.value,
+        },
       }),
     "同步配置已保存",
   );
@@ -182,7 +184,7 @@ function toggleSync() {
 }
 
 function testWebdav() {
-  void run("测试 WebDAV", () => call("backup_webdav_test"), "WebDAV 连接正常");
+  void run("测试 WebDAV", () => call("backup_webdav_test", { config: {} }), "WebDAV 连接正常");
 }
 
 function syncNow() {

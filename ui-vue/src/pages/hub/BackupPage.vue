@@ -122,8 +122,9 @@ async function doExport() {
     () =>
       call("backup_export", {
         path,
-        categories: exportCats.value,
-        includeKeys: exportIncludeKeys.value,
+        categories: exportIncludeKeys.value
+          ? [...exportCats.value, "keys"]
+          : exportCats.value,
         password: exportPw1.value || "",
       }),
     "备份文件已导出",
@@ -140,7 +141,7 @@ async function doImport() {
   }
   if (!path) return;
   try {
-    const preview = (await call("backup_preview", { path })) as Record<string, unknown>;
+    const preview = (await call("backup_preview", { path, password: "" })) as Record<string, unknown>;
     const summary = Object.entries(preview ?? {})
       .map(([key, value]) => `${key}: ${String(value)}`)
       .join("\n");
@@ -149,7 +150,7 @@ async function doImport() {
     errorText.value = String(error);
     return;
   }
-  await run("导入", () => call("backup_import", { path }), "导入完成（设置已恢复）");
+  await run("导入", () => call("backup_import", { path, password: "", categories: [], strategy: "merge" }), "导入完成（设置已恢复）");
 }
 
 async function saveSync() {
@@ -157,13 +158,15 @@ async function saveSync() {
     "保存同步配置",
     () =>
       call("backup_sync_save_config", {
-        url: syncUrl.value.trim(),
-        username: syncUser.value.trim(),
-        password: syncPass.value,
-        remoteDir: syncDir.value.trim() || "AnyBoot",
-        periodMinutes: syncPeriod.value,
-        onChanged: syncOnChange.value,
-        categories: syncCats.value,
+        config: {
+          url: syncUrl.value.trim(),
+          username: syncUser.value.trim(),
+          password: syncPass.value,
+          remoteDir: syncDir.value.trim() || "AnyBoot",
+          periodMinutes: syncPeriod.value,
+          onChanged: syncOnChange.value,
+          categories: syncCats.value,
+        },
       }),
     "同步配置已保存",
   );
@@ -180,13 +183,13 @@ function toggleSync() {
 }
 
 function testWebdav() {
-  void run("测试 WebDAV", () => call("backup_webdav_test"), "WebDAV 连接正常");
+  void run("测试 WebDAV", () => call("backup_webdav_test", { config: {} }), "WebDAV 连接正常");
 }
 
 function createWebdavDir() {
   void run(
     "创建远端目录",
-    () => call("backup_webdav_mkdir", { dir: syncDir.value.trim() || "AnyBoot" }),
+    () => call("backup_webdav_mkdir", { config: { remoteDir: syncDir.value.trim() || "AnyBoot" } }),
     "远端目录已创建",
   );
 }

@@ -64,8 +64,9 @@ async function generate() {
   errorText.value = "";
   try {
     const text = await call<string>("gateway_pair_issue", {
-      label: clientName.value.trim(),
-      addrKind: addrKind.value,
+      name: clientName.value.trim(),
+      kind: addrKind.value,
+      tunnel: addrKind.value === "tunnel",
     });
     resultText.value = text || "";
     await renderQr();
