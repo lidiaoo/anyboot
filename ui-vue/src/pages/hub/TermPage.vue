@@ -27,9 +27,15 @@ onMounted(async () => {
 
 const hint = computed(() =>
   sshServers.value.length
-    ? `将用「${sshServers.value.find((s) => s.id === selectedId.value)?.name ?? ""}」打开终端（PTY + 系统 ssh，独立窗口）。`
+    ? `当前选中：${store.displayAddr(sshServers.value.find((s) => s.id === selectedId.value)!)}。点下方按钮打开终端（PTY + 系统 ssh，独立窗口）。`
     : "在「服务器」页选中一台 SSH 服务器后打开终端（PTY + 系统 ssh，独立窗口）。",
 );
+
+/** 按钮文案（旧版：有选中时「打开终端 · 名称」） */
+const termBtnText = computed(() => {
+  const s = sshServers.value.find((x) => x.id === selectedId.value);
+  return s ? `打开终端 · ${s.name || "(未命名)"}` : "打开终端";
+});
 
 function openTerminal() {
   if (!selectedId.value) return;
@@ -55,7 +61,7 @@ function openTerminal() {
     <p class="t">终端</p>
     <p class="s" id="termPageHint">{{ hint }}</p>
     <button type="button" id="pageTermBtn" class="btn primary" :disabled="!selectedId" @click="openTerminal">
-      打开终端
+      {{ termBtnText }}
     </button>
   </div>
 </template>

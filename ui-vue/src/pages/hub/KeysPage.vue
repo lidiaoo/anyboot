@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { call } from "@/api/tauri";
 
 /**
@@ -23,6 +23,13 @@ interface KeyRow {
 
 const keys = ref<KeyRow[]>([]);
 const loading = ref(true);
+
+/** 提示文案（逐字对齐旧版 renderKeysPage，hub.html:6898） */
+const keysHint = computed(() => {
+  if (loading.value) return "正在读取密钥列表…";
+  if (!keys.value.length) return "还没有密钥。打开密钥管理可生成（ssh-keygen）或导入。";
+  return `本机共 ${keys.value.length} 把密钥（${keys.value.map((k) => k.id).join("、")}）。打开密钥管理可生成 / 导入 / 删除。`;
+});
 
 onMounted(async () => {
   try {
@@ -54,9 +61,7 @@ function openKeys() {
       <path d="M10.8 12.2 20 3M17 6l2.5 2.5" />
     </svg>
     <p class="t">密钥</p>
-    <p class="s" id="keysPageHint">
-      {{ loading ? "正在读取密钥列表…" : keys.length ? `本机已有 ${keys.length} 把 SSH 密钥` : "还没有 SSH 密钥 —— 在密钥管理里生成或导入一把" }}
-    </p>
+    <p class="s" id="keysPageHint">{{ keysHint }}</p>
     <button type="button" id="keysBtn" class="btn primary" @click="openKeys">
       <svg
         width="15"

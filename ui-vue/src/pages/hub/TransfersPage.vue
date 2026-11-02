@@ -26,6 +26,8 @@ interface TxItem {
 }
 
 const items = ref<TxItem[]>([]);
+/** 历史（已完成）—— 旧版 txHistory */
+const history = ref<{ name?: string; dir?: string; total?: number }[]>([]);
 const loading = ref(true);
 const errorText = ref("");
 const unlisteners: (() => void)[] = [];
@@ -79,6 +81,33 @@ function clearDone() {
   items.value = items.value.filter((t) => t.state !== "done");
 }
 
+/** 状态徽章文案（旧版 .tx-badge） */
+function badgeText(item: TxItem): string {
+  if (item.state === "paused") return item.dir === "up" ? "↑ 已暂停" : "↓ 已暂停";
+  return item.dir === "up" ? "↑ 上传" : "↓ 下载";
+}
+function badgeClass(item: TxItem): string {
+  if (item.state === "paused") return "paused";
+  return item.dir === "up" ? "up" : "down";
+}
+/** 进度 + 速度（旧版 txSpeedTick；这里给「已传 / 总计」兜底） */
+function metaText(item: TxItem): string {
+  const p = item.total > 0 ? `${pct(item)}% · ` : "";
+  return p + `${fmtSize(item.bytes)} / ${fmtSize(item.total)}`;
+}
+
+function fmtSize(bytes?: number): string {
+  if (!bytes) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  let v = bytes;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i += 1;
+  }
+  return `${v.toFixed(v < 10 && i > 0 ? 1 : 0)} ${units[i]}`;
+}
+
 function pct(item: TxItem): number {
   if (!item.total) return 0;
   return Math.min(100, Math.round((item.bytes / item.total) * 100));
@@ -108,43 +137,40 @@ function pct(item: TxItem): number {
 
   <div class="tx-list scroll-thin" id="txList">
     <p v-if="errorText" class="field-hint" style="color: rgb(var(--bad))">{{ errorText }}</p>
-    <p v-else-if="loading" class="field-hint">读取中…</p>
-    <template v-else-if="items.length">
-      <div v-for="item in items" :key="item.key" class="tx-row">
-        <span class="dir">{{ item.dir === "up" ? "↑" : "↓" }}</span>
-        <span class="tx-name">{{ item.name }}</span>
-        <div class="tx-track"><div class="tx-fill" :style="{ width: pct(item) + '%' }" /></div>
-        <span class="mono tx-pct">{{ pct(item) }}%</span>
-        <span class="tx-state">{{ item.state }}</span>
-        <button
-          v-if="item.state === 'running'"
-          type="button"
-          class="link-btn"
-          @click="ctl(item.key, 'pause')"
-        >
-          暂停
-        </button>
-        <button
-          v-else-if="item.state === 'paused'"
-          type="button"
-          class="link-btn"
-          @click="ctl(item.key, 'resume')"
-        >
-          继续
-        </button>
-        <button
-          v-if="item.state !== 'done'"
-          type="button"
-          class="link-btn"
-          @click="ctl(item.key, 'abandon')"
-        >
-          放弃
-        </button>
+
+    <!-- 空态（旧版 renderTransfers 的空态文案） -->
+    <div v-else-if="!items.length && !history.length" class="act-card" style="margin: 8px 0">
+      <p class="t">当前没有传输任务</p>
+      <p class="s">在「文件」窗口上传 / 下载时，进度会实时汇总到这里；暂停的任务可从断点继续。</p>
+    </div>
+
+    <template v-else>
+      <!-- 进行中 / 已暂停的传输（旧版 .tx-card 结构） -->
+      <div v-for="item in items" :key="item.key" class="tx-card">
+        <div class="tx-top">
+          <span :class="['tx-badge', badgeClass(item)]">{{ badgeText(item) }}</span>
+          <span class="tx-name" :title="item.name">{{ item.name || "—" }}</span>
+          <span class="tx-meta">{{ metaText(item) }}</span>
+          <button type="button" class="tx-mini" @click="ctl(item.key, item.state === 'paused' ? 'resume' : 'pause')">
+            {{ item.state === "paused" ? "继续" : "暂停" }}
+          </button>
+          <button type="button" class="tx-mini danger" title="删除半截文件并清掉这条记录" @click="ctl(item.key, 'abandon')">
+            放弃
+          </button>
+        </div>
+        <div :class="['tx-bar', { paused: item.state === 'paused' }]">
+          <div :style="{ width: (item.total > 0 ? pct(item) : 8) + '%' }" />
+        </div>
+      </div>
+
+      <!-- 历史（已完成） -->
+      <div v-for="(h, i) in history" :key="'h' + i" class="tx-card">
+        <div class="tx-top">
+          <span class="tx-badge done">✓ 已完成</span>
+          <span class="tx-name">{{ (h.dir === "up" ? "[↑] " : "[↓] ") + (h.name || "—") }}</span>
+          <span class="tx-meta">{{ fmtSize(h.total) }}</span>
+        </div>
       </div>
     </template>
-    <div v-else class="act-card" style="margin: 8px 0">
-      <p class="t">暂无传输</p>
-      <p class="s">在「文件」页上传或下载文件后，这里会显示实时队列。</p>
-    </div>
   </div>
 </template>
