@@ -3113,42 +3113,44 @@ class ComputerListActivity : ComponentActivity() {
 
     /// 页面在前台才跑；onPause 停表，回前台 onResume 先补探一轮再排下去。
     ///
-    /// 2026-11-02：**受「连不上时自动重载」设置控制**。
-    /// 用户反馈「明明设置了关闭自动重载，重载按钮还是每几秒转一次」——
-    /// 转的就是这条定时探测（固定 10 秒、原先不受设置影响）。
-    /// 现在 failReloadSec = 0（永不）时不再起表；非 0 时用设置里的秒数，
-    /// 与列表「连不上时自动重载（每 N 秒）」的文案保持一致。
+    /// 2026-11-02（二次修正）：这条**常开**，固定 10 秒刷新数据。
+    ///
+    /// 时间线：
+    ///   ① 原先是固定 10 秒、完全不看设置 → 用户关掉「自动重载」后按钮还转
+    ///   ② 改成受 failReloadSec 控制 → 关掉后**在线数据也不刷新了**，
+    ///      PC 切换引导项手机端看不到（用户实测反馈）
+    ///   ③ 现在拆开：数据刷新常开（本条）；失败重试才看 failReloadSec
     private var autoProbeOn = false
 
-    /// 当前生效的探测间隔（毫秒）：跟「连不上时自动重载」同一份设置
-    /// （anyboot_ui/failReloadSec）；0 = 不自动探测。
-    private fun autoProbeIntervalMs(): Long {
-        val sec = getSharedPreferences(UI_PREFS, MODE_PRIVATE).getInt("failReloadSec", 5)
-        return if (sec <= 0) 0L else sec * 1000L
-    }
+    /// 当前生效的**数据刷新**间隔（毫秒）。
+    ///
+    /// 2026-11-02 拆分两件事（用户实测反馈：「我 pc 选一个引导项 手机端不会刷回来
+    /// 除非开之前的 5 秒自动重载」）：
+    ///   ① **在线时的数据刷新** —— 让手机端看到 PC 那边的引导项变更。
+    ///      这是「保持数据最新」，与「重试」无关，**常开**，固定 10 秒。
+    ///   ② **连不上时的失败重试** —— 受「连不上时自动重载」设置控制
+    ///      （failReloadSec，0 = 永不）。
+    /// 上一版把两者混在同一个开关里，结果用户关掉「自动重载」后，
+    /// 在线数据也不再刷新 → PC 切换引导项，手机端一直显示旧值。
+    private fun autoProbeIntervalMs(): Long = DATA_REFRESH_INTERVAL_MS
 
     private val autoProbeTick = object : Runnable {
         override fun run() {
             if (!autoProbeOn) return
-            val interval = autoProbeIntervalMs()
-            if (interval <= 0L) {         // 中途被设成「永不」：停表
-                autoProbeOn = false
-                return
-            }
             refreshAllQuiet()
-            handler.postDelayed(this, interval)
+            handler.postDelayed(this, autoProbeIntervalMs())
         }
     }
 
     private fun startAutoProbe() {
         if (autoProbeOn) return
-        val interval = autoProbeIntervalMs()
-        if (interval <= 0L) return        // 用户关了自动重载：不探测
         autoProbeOn = true
-        handler.postDelayed(autoProbeTick, interval)
+        handler.postDelayed(autoProbeTick, autoProbeIntervalMs())
     }
 
-    /// 设置变更后按新间隔重排（设置页保存时调用）。0 = 直接停掉。
+    /// 设置变更后重排。注意：**数据刷新不再受 failReloadSec 影响**，
+    /// 所以这里只是重启一下定时器（间隔恒定），保留调用点避免 UI 行为突变。
+    /// 真正受该设置控制的是电脑页的失败重试（LaunchedEffect(errorInfo, failReloadSec)）。
     private fun rescheduleAutoProbe() {
         stopAutoProbe()
         startAutoProbe()
@@ -4413,6 +4415,8 @@ class ComputerListActivity : ComponentActivity() {
 
         /** 定时自动探测间隔：与电脑页心跳同一节奏（10 秒一轮） */
         const val AUTO_PROBE_INTERVAL_MS = 10_000L
+        /// 在线时的数据刷新间隔（常开，不受「连不上时自动重载」影响）
+        const val DATA_REFRESH_INTERVAL_MS = 10_000L
 
         val HELP_LINES = listOf(
             "唤醒：发标准魔术包（UDP 9）。睡眠 / 重启 / 关机按每台电脑「电源路由」里配的通道发送，" +

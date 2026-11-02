@@ -2101,24 +2101,26 @@ struct ComputerListView: View {
         store.updateInPlace(target)
     }
 
-    /// 定时自动探测（列表里的在线状态）。
+    /// 定时刷新列表数据（在线状态 + 引导项）。
     ///
-    /// 2026-11-02：**受「连不上时自动重载」设置控制**，与 Android 的
-    /// ComputerListActivity 同一套行为。原来是写死 10 秒、完全不看设置 ——
-    /// 用户关掉自动重载后列表仍每隔几秒重新探测（相当于在“重载”），
-    /// 看起来就是设置没生效。
+    /// 2026-11-02（二次修正）：这条**常开**，固定 10 秒 —— 与 Android
+    /// ComputerListActivity 同一套行为。
     ///
-    /// FailReloadPref.sec：0 = 不探测；>0 = 按该秒数（与列表菜单文案一致）。
+    /// 时间线：
+    ///   ① 原先是写死 10 秒、完全不看设置 → 关掉「自动重载」后还在刷
+    ///   ② 改成受 FailReloadPref.sec 控制 → 关掉后**在线数据也不刷新**，
+    ///      PC 切换引导项手机端看不到（用户实测反馈）
+    ///   ③ 现在拆开：
+    ///        · **数据刷新**（本条）= 保持最新，常开，固定 10 秒
+    ///        · **失败重试**（scheduleFailReload）= 受 FailReloadPref.sec 控制
+    private static let dataRefreshInterval: UInt64 = 10
+
     private func startAutoProbe() {
         probeTask?.cancel()
-        probeTask = nil
-        guard FailReloadPref.sec > 0 else { return }   // 用户关了自动重载：不探测
         probeTask = Task {
             while !Task.isCancelled {
-                // 每轮重读设置：中途被改成「永不」就退出
-                let sec = FailReloadPref.sec
-                if sec <= 0 { return }
-                try? await Task.sleep(nanoseconds: UInt64(sec) * 1_000_000_000)
+                try? await Task.sleep(
+                    nanoseconds: Self.dataRefreshInterval * 1_000_000_000)
                 guard !Task.isCancelled else { return }
                 await MainActor.run { refreshAll(silent: true) }
             }
