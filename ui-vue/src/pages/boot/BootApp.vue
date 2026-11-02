@@ -106,6 +106,23 @@ function toggleTheme() {
   setTheme(next);
 }
 
+/** 界面外观：主题 + 不透明度（旧版 applyAppearance） */
+function applyAppearance(): void {
+  const st = ui.settings as Record<string, unknown> | undefined;
+  const percent = Number(st?.opacityPercent ?? 90);
+  const clamped = Math.min(100, Math.max(0, Number.isFinite(percent) ? percent : 90));
+  document.documentElement.style.setProperty("--ui-alpha", String(clamped / 100));
+  // 同步设置里的透明度滑条状态文字（旧版 #opacity-state）
+  const el = document.getElementById("opacity-state");
+  if (el) el.textContent = `${clamped}%（拖动即时预览）`;
+  // 镜像到 localStorage 供下次首帧
+  try {
+    localStorage.setItem("anyboot.ui-alpha", String(clamped / 100));
+  } catch {
+    /* 忽略 */
+  }
+}
+
 /** 贴边隐藏白条 + 热区（旧版 applyDockStrip，逐字对齐） */
 function clampInt(v: unknown, min: number, max: number, fallback: number): number {
   const n = Math.round(Number(v));
@@ -155,7 +172,7 @@ watch(() => ui.settings?.accentColor, () => {
   applyAccent(ui.settings?.accentColor, curTheme);
 });
 // 贴边/热区设置变化或 docked 状态变化时应用
-watch(() => ui.settings, applyDockStrip, { deep: true });
+watch(() => ui.settings, () => { applyDockStrip(); applyAppearance(); }, { deep: true });
 watch(() => (ui.state as unknown as { docked?: boolean; dockEdge?: string } | null)?.docked, applyDockStrip);
 
 onMounted(async () => {
@@ -165,6 +182,8 @@ onMounted(async () => {
   applyAccent(ui.settings?.accentColor, curTheme);
   // 贴边白条/热区初始应用（旧版 applyDockStrip）
   applyDockStrip();
+  // 界面外观（透明度）初始应用（旧版 applyAppearance）
+  applyAppearance();
   // 旧版启动时还会拉一次设置、探一下本地服务、取默认下载目录
   void call("get_settings").catch(() => {});
   void call("local_service_health").catch(() => {});

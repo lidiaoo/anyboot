@@ -447,7 +447,7 @@ function fmtPct(v: number) {
         <strong>重置窗口大小</strong>
         <small>宽回到内嵌单栏的标称值（460）、高回到整屏高度的 2/3（与托盘「重置窗口大小」同源）</small>
       </span>
-      <button type="button" id="reset-main-window-size" class="secondary" @click="commit('reset_main_window_size', {})">
+      <button type="button" id="reset-main-window-size" class="secondary" @click="commit('reset_window_size', {})">
         重置窗口大小
       </button>
     </div>
@@ -549,7 +549,7 @@ function fmtPct(v: number) {
         max="100"
         :value="val('opacityPercent', 90)"
         @input="setLocal('opacityPercent', Number(($event.target as HTMLInputElement).value))"
-        @change="commit('set_opacity_percent', { percent: val('opacityPercent', 90) })"
+        @change="commit('set_opacity', { percent: val('opacityPercent', 90) })"
       step="5"
     />
     </label>
@@ -654,8 +654,8 @@ function fmtPct(v: number) {
           <small>弹窗通知 + 延迟秒数（0 = 立即执行）</small>
         </span>
         <span class="remote-inline">
-          <input id="http-channel-notify" type="checkbox" :checked="Boolean(s?.httpChannelNotify)" @change="commit('set_http_channel_notify', { on: !s?.httpChannelNotify })" />
-          <input id="http-channel-delay" type="text" inputmode="numeric" spellcheck="false" :value="val('httpChannelDelay', 0)" @change="commit('set_http_channel_delay', { sec: Number(($event.target as HTMLInputElement).value) })" />
+          <input id="http-channel-notify" type="checkbox" :checked="Boolean(s?.httpChannelNotify)" @change="commit('set_channel_notify', { channel: 'http', enabled: !s?.httpChannelNotify })" />
+          <input id="http-channel-delay" type="text" inputmode="numeric" spellcheck="false" :value="val('httpChannelDelay', 0)" @change="commit('set_channel_delay', { channel: 'http', seconds: Number(($event.target as HTMLInputElement).value) })" />
         </span>
       </div>
 
@@ -665,8 +665,8 @@ function fmtPct(v: number) {
           <small>ssh 远程调用的通知与延迟（与 webhook 分开配置）</small>
         </span>
         <span class="remote-inline">
-          <input id="cli-channel-notify" type="checkbox" :checked="Boolean(s?.cliChannelNotify)" @change="commit('set_cli_channel_notify', { on: !s?.cliChannelNotify })" />
-          <input id="cli-channel-delay" type="text" inputmode="numeric" spellcheck="false" :value="val('cliChannelDelay', 0)" @change="commit('set_cli_channel_delay', { sec: Number(($event.target as HTMLInputElement).value) })" />
+          <input id="cli-channel-notify" type="checkbox" :checked="Boolean(s?.cliChannelNotify)" @change="commit('set_channel_notify', { channel: 'cli', enabled: !s?.cliChannelNotify })" />
+          <input id="cli-channel-delay" type="text" inputmode="numeric" spellcheck="false" :value="val('cliChannelDelay', 0)" @change="commit('set_channel_delay', { channel: 'cli', seconds: Number(($event.target as HTMLInputElement).value) })" />
         </span>
       </div>
 
@@ -678,11 +678,11 @@ function fmtPct(v: number) {
         </span>
         <span class="remote-inline">
           <label class="setting" style="border: 0; padding: 0">
-            <input id="setting-sound" type="checkbox" :checked="Boolean(s?.soundEnabled)" @change="commit('set_sound_enabled', { on: !s?.soundEnabled })" />
+            <input id="setting-sound" type="checkbox" :checked="Boolean(s?.soundEnabled)" @change="commit('set_play_sound', { enabled: !s?.soundEnabled })" />
           </label>
-          <button type="button" id="play-sound" class="secondary" @click="commit('play_sound', {})">试听</button>
+          <button type="button" id="play-sound" class="secondary" @click="commit('set_play_sound', { enabled: true })">试听</button>
           <input id="sound-file-path" v-model="soundPath" spellcheck="false" type="text" placeholder="自定义路径（留空用内置音）" />
-          <button type="button" id="sound-apply" class="secondary" @click="commit('set_sound_file', { path: soundPath })">应用</button>
+          <button type="button" id="sound-apply" class="secondary" @click="commit('set_sound_file_path', { path: soundPath })">应用</button>
         </span>
       </div>
 
@@ -696,8 +696,8 @@ function fmtPct(v: number) {
         <strong id="pending-title">远程请求待执行</strong>
         <p id="pending-detail">{{ (ui.state as any).pending.text }}</p>
         <span class="remote-inline">
-          <button type="button" id="pending-run" class="primary-sol" @click="commit('pending_confirm', {})">执行</button>
-          <button type="button" id="pending-cancel" class="secondary" @click="commit('pending_cancel', {})">取消</button>
+          <button type="button" id="pending-run" class="primary-sol" @click="commit('confirm_pending', {})">执行</button>
+          <button type="button" id="pending-cancel" class="secondary" @click="commit('cancel_pending', {})">取消</button>
         </span>
       </div>
 
