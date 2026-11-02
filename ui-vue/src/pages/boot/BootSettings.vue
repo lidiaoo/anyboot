@@ -69,18 +69,16 @@ function loaderEsp(id: string): string {
   return ch?.detail || "";
 }
 
+/** 切引导器左右列（旧版 k-rg） */
+function moveSide(id: string) {
+  const cur = adv.state.side[id] === "r" ? "r" : "l";
+  adv.setSide(id, cur === "r" ? "l" : "r");
+}
+
 function toggleVisible(id: LoaderId) {
   adv.setVisible(id, !adv.state.visible[id]);
 }
 
-function move(id: LoaderId, delta: number) {
-  const order = [...adv.state.order];
-  const index = order.indexOf(id);
-  const next = index + delta;
-  if (index < 0 || next < 0 || next >= order.length) return;
-  [order[index], order[next]] = [order[next]!, order[index]!];
-  adv.setOrder(order);
-}
 
 function setClose(action: "tray" | "quit") {
   void run("保存关闭行为", () => setCloseAction(action), `关闭窗口 = ${action === "tray" ? "收进托盘" : "退出"}`);
@@ -121,20 +119,26 @@ function setClose(action: "tray" | "quit") {
     <!-- ② 启用与排序 -->
     <section class="card">
       <header><h2>启用引导器</h2></header>
-      <ul class="loader-list">
-        <li v-for="id in adv.state.order" :key="id">
-          <input
-            type="checkbox"
-            :checked="adv.state.visible[id]"
-            @change="toggleVisible(id)"
-          />
-          <span class="nm">{{ loaderMeta(id).name }}</span>
-          <span class="spacer" />
-          <button type="button" class="btn icon ghost sm" title="上移" @click="move(id, -1)">▴</button>
-          <button type="button" class="btn icon ghost sm" title="下移" @click="move(id, 1)">▾</button>
-        </li>
-      </ul>
-      <p class="hint">顺序决定主题里卡片的排列；左右布局时还能在主题里拖动分配列。</p>
+      <div class="k-tabs">
+        <button
+          v-for="id in adv.state.order"
+          :key="id"
+          type="button"
+          :class="['k-tab', { 'is-on': adv.state.visible[id] }]"
+          title="点击 开/关 展示该引导器"
+          @click="toggleVisible(id)"
+        >
+          <span>{{ loaderMeta(id).name }}</span>
+          <span
+            class="k-rg"
+            :title="'点击挪到另一列（没开左右布局时，点它自动切过去）'"
+            @click.stop="moveSide(id)"
+          >{{ adv.state.side[id] === 'r' ? '右' : '左' }}</span>
+        </button>
+        <span class="grow" />
+        <button type="button" class="btn xs ghost" title="回到默认编排" @click="adv.resetOrder()">重置</button>
+      </div>
+      <p class="hint">顺序决定主题里卡片的排列；左右布局时点标签上的「左/右」分列。</p>
     </section>
 
     <!-- 菜单样式（旧版 boot-adv row4） -->

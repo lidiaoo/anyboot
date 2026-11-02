@@ -137,6 +137,19 @@ export const useBootAdvStore = defineStore("bootAdv", () => {
     state.value.order = order;
   }
 
+  /** 切引导器左右列（旧版 k-rg：点「左/右」挪列） */
+  function setSide(id: string, side: "l" | "r") {
+    state.value.side = { ...state.value.side, [id]: side };
+  }
+
+  /** 重置编排（旧版「重置」：恢复默认可见/顺序/分列/布局） */
+  function resetOrder() {
+    state.value.visible = { ...DEFAULT_STATE.visible };
+    state.value.order = [...LOADER_IDS];
+    state.value.side = {};
+    state.value.layout = "default";
+  }
+
   function setRatio(ratio: number) {
     state.value.ratio = Math.min(0.85, Math.max(0.15, ratio));
   }
@@ -160,6 +173,8 @@ export const useBootAdvStore = defineStore("bootAdv", () => {
     setLayout,
     setVisible,
     setOrder,
+    setSide,
+    resetOrder,
     setRatio,
     setStyle,
     setNextBoot,
