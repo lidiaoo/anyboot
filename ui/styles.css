@@ -3523,11 +3523,27 @@ svg.i.lg { width: 16px; height: 16px; }
 #tab-boot .ba-theme-sec .grub-auto-card {
   overflow: visible;
   scrollbar-gutter: auto;
-  /* 去掉内边距与边框 —— 它们让内层列表左右各缩 5px（padding 4 + border 1），
-   * 滚动条位置就和另外两个通道对不上了。框的视觉由内层 .grub-list 自己提供。 */
   padding: 0;
   border: 0;
   background: transparent;
+}
+
+/* 2026-11-02 用户定案：「其实我不想要后面滚轮后面这个卡片 那样就可以将内部
+ * 内容展示的更多」—— 去掉包住引导列表的那层**面板框**（底色 + 边框 + 圆角 +
+ * 4px 内边距），让条目直接铺在通道卡片的背景上。
+ *
+ * 收益：左右各多回 5px、上下各多回 5px，可视条目更多；视觉上也少一层
+ * 「卡里套卡」的嵌套感。滚动条仍在，只是不再被内缩的框挤在中间。 */
+#tab-boot .ba-theme-sec .sim-list,
+#tab-boot .ba-theme-sec .grub-list-body,
+#tab-boot .ba-theme-sec .grub-auto-card > .grub-list,
+#tab-boot .ba-theme-sec .grub-list:not(.grub-list-body) {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  /* 滚动条贴到面板右缘，不再被内边距顶出来 */
+  scrollbar-gutter: auto;
 }
 /* GRUB 头部里那两行 STAT：空的时候（高度 0 或只有 14px 的空白块）不占位。
  * 「EFI 目录 /Volumes/ARCH-EFI · 68 个启动项 · 同步于 …」这行由 #grub-meta 承担，
