@@ -777,8 +777,8 @@ function deletePair(id: string) {
         <button type="button" id="gwRefreshBtn" class="btn" @click="refreshAll">重新检测</button>
         <span class="gw-sw-group" title="开启 / 关闭 Cloudflare 通道">
           <span class="gw-sw-cap">通道</span>
-          <label class="switch" id="gwToggleWrap">
-            <input type="checkbox" id="gwToggleSw" :checked="cfRunning" @change="toggleCf" />
+          <label class="switch" :class="{ loading: !!busy }" id="gwToggleWrap">
+            <input type="checkbox" id="gwToggleSw" :checked="cfRunning || !!busy" :disabled="!!busy" @change="toggleCf" />
             <span class="trk" aria-hidden="true" />
           </label>
         </span>

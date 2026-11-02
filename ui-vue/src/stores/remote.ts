@@ -157,7 +157,7 @@ export const useRemoteStore = defineStore("remote", () => {
   /** 切换引导项（通道 / GRUB / rEFInd 由 kind 区分） */
   async function switchBoot(payload: Record<string, unknown>): Promise<void> {
     await call("remote_boot_switch", payload);
-    const id = String(payload.serverId ?? "");
+    const id = String(payload.server_id ?? payload.serverId ?? "");
     if (id) await refreshBoot(id);
   }
 

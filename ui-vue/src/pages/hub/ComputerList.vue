@@ -424,18 +424,29 @@ async function setConnectAll(on: boolean) {
   await call("remote_set_connect_all", { on }).catch((e) => toast.show("设置失败：" + e, "bad"));
 }
 
+/** 行级请求锁（旧版 cqBusy：同一行同一动作在途时不重复发） */
+const cqBusy = new Set<string>();
+
 function switchBoot(payload: Record<string, unknown>) {
+  const key = `${payload.server_id}:boot:${payload.kind}`;
+  if (cqBusy.has(key)) return;
+  cqBusy.add(key);
   void remote
     .switchBoot(payload)
     .then(() => toast.show("已切换下次启动项"))
-    .catch((e) => toast.show("切换失败：" + e, "bad"));
+    .catch((e) => toast.show("切换失败：" + e, "bad"))
+    .finally(() => cqBusy.delete(key));
 }
 
 function power(payload: Record<string, unknown>) {
+  const key = `${payload.server_id}:act:${payload.action}`;
+  if (cqBusy.has(key)) return;
+  cqBusy.add(key);
   void remote
     .power(payload)
     .then(() => toast.show("已发送电源指令"))
-    .catch((e) => toast.show("电源操作失败：" + e, "bad"));
+    .catch((e) => toast.show("电源操作失败：" + e, "bad"))
+    .finally(() => cqBusy.delete(key));
 }
 useEscape(viewOpen, () => { viewOpen.value = false });
 </script>
