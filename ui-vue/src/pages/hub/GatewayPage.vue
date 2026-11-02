@@ -227,13 +227,14 @@ const tsLogs = ref<string[]>([]);
 const tsnLogOpen = ref(false);
 const tsnLogs = ref<string[]>([]);
 
-async function openTsnLog() {
+async function openTsnLog(silent = false) {
   try {
     tsnLogs.value = (await call<string[]>("tsnet_logs")) ?? [];
   } catch {
     tsnLogs.value = [];
   }
   tsnLogOpen.value = true;
+  if (!silent) startLogTimer();
 }
 
 function clearTsLogs() {
@@ -256,13 +257,14 @@ async function copyText(text: string) {
   }
 }
 
-async function openTsLog() {
+async function openTsLog(silent = false) {
   try {
     tsLogs.value = (await call<string[]>("gateway_tailscale_logs")) ?? [];
   } catch {
     tsLogs.value = [];
   }
   tsLogOpen.value = true;
+  if (!silent) startLogTimer();
 }
 
 function tsDownload() {
@@ -323,6 +325,26 @@ function confirmUninstall(checked: boolean) {
 /** 日志弹层（旧版 #gwLogOverlay） */
 const logOpen = ref(false);
 const logs = ref<string[]>([]);
+
+let logTimer: number | undefined;
+function stopLogTimer() {
+  if (logTimer) { window.clearInterval(logTimer); logTimer = undefined; }
+}
+function startLogTimer() {
+  stopLogTimer();
+  logTimer = window.setInterval(() => {
+    if (!logOpen.value && !tsLogOpen.value && !tsnLogOpen.value) { stopLogTimer(); return; }
+    if (logOpen.value) void refreshLogs();
+    if (tsLogOpen.value) void openTsLog(true);
+    if (tsnLogOpen.value) void openTsnLog(true);
+  }, 2000);
+}
+
+async function openGwLog() {
+  logOpen.value = true;
+  await refreshLogs();
+  startLogTimer();
+}
 
 async function refreshLogs() {
   try {
@@ -751,7 +773,7 @@ function deletePair(id: string) {
           </button>
         </div>
         <button v-if="cfInstalled" type="button" id="gwUninstallBtn" class="btn" :disabled="!!busy" @click="uninstallBinary">卸载</button>
-        <button type="button" id="gwLogBtn" class="btn" @click="logOpen = true">日志</button>
+        <button type="button" id="gwLogBtn" class="btn" @click="openGwLog">日志</button>
         <button type="button" id="gwRefreshBtn" class="btn" @click="refreshAll">重新检测</button>
         <span class="gw-sw-group" title="开启 / 关闭 Cloudflare 通道">
           <span class="gw-sw-cap">通道</span>
@@ -933,7 +955,7 @@ function deletePair(id: string) {
         <button v-if="tsStatus?.installed" type="button" class="btn" id="tsUninstallBtn" @click="openUninstall('将卸载 Tailscale 程序本体', '不注销、不清 AuthKey，重装后仍是同一台已授权设备（管理台里的节点记录也保留）。')">
           卸载
         </button>
-        <button type="button" class="btn" id="tsLogBtn" @click="openTsLog">日志</button>
+        <button type="button" class="btn" id="tsLogBtn" @click="() => openTsLog()">日志</button>
         <button type="button" class="btn" id="tsRefreshBtn" @click="refreshAll">重新检测</button>
       </div>
 
@@ -1153,7 +1175,7 @@ function deletePair(id: string) {
           </label>
         </span>
         <button type="button" class="btn" id="tsnUninstallBtn" @click="tsnUninstall">卸载</button>
-        <button type="button" class="btn" id="tsnLogBtn" @click="openTsnLog">日志</button>
+        <button type="button" class="btn" id="tsnLogBtn" @click="() => openTsnLog()">日志</button>
         <button type="button" class="btn" id="tsnRefreshBtn" @click="refreshTsn">重新检测</button>
       </div>
 
@@ -1329,7 +1351,7 @@ function deletePair(id: string) {
     :lines="logs"
     @copy="copyText"
     @clear="clearLogs"
-    @close="logOpen = false"
+    @close="logOpen = false; stopLogTimer()"
   />
   <LogDialog
     :open="tsLogOpen"
@@ -1338,7 +1360,7 @@ function deletePair(id: string) {
     :lines="tsLogs"
     @copy="copyText"
     @clear="clearTsLogs"
-    @close="tsLogOpen = false"
+    @close="tsLogOpen = false; stopLogTimer()"
   />
   <LogDialog
     :open="tsnLogOpen"
@@ -1348,7 +1370,7 @@ function deletePair(id: string) {
     :lines="tsnLogs"
     @copy="copyText"
     @clear="clearTsnLogs"
-    @close="tsnLogOpen = false"
+    @close="tsnLogOpen = false; stopLogTimer()"
   />
 
   <p v-if="message" style="font-size: 12.5px; color: rgb(var(--ok))">{{ message }}</p>
