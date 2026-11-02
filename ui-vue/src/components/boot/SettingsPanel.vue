@@ -196,11 +196,12 @@ function fmtPct(v: number) {
       <input id="main-auto-hide-edge-distance"
         type="range"
         min="0"
-        max="60"
+        max="200"
         :value="val('mainAutoHideEdgeDistance', 24)"
         @input="setLocal('mainAutoHideEdgeDistance', Number(($event.target as HTMLInputElement).value))"
         @change="commit('set_main_auto_hide_edge_distance', { px: val('mainAutoHideEdgeDistance', 24) })"
-      />
+      step="1"
+    />
     </label>
 
     <!-- 贴边白条 -->
@@ -244,11 +245,12 @@ function fmtPct(v: number) {
       <input id="main-dock-strip-thickness"
         type="range"
         min="2"
-        max="12"
+        max="40"
         :value="val('mainDockStripThickness', 6)"
         @input="setLocal('mainDockStripThickness', Number(($event.target as HTMLInputElement).value))"
         @change="commit('set_main_dock_strip_thickness', { px: val('mainDockStripThickness', 6) })"
-      />
+      step="1"
+    />
     </label>
 
     <label class="setting">
@@ -264,7 +266,8 @@ function fmtPct(v: number) {
         :value="val('mainDockStripLength', 100)"
         @input="setLocal('mainDockStripLength', Number(($event.target as HTMLInputElement).value))"
         @change="commit('set_main_dock_strip_length', { percent: val('mainDockStripLength', 100) })"
-      />
+      step="5"
+    />
     </label>
 
     <label class="setting">
@@ -275,12 +278,13 @@ function fmtPct(v: number) {
       </span>
       <input id="main-dock-strip-opacity"
         type="range"
-        min="0"
+        min="10"
         max="100"
         :value="val('mainDockStripOpacity', 100)"
         @input="setLocal('mainDockStripOpacity', Number(($event.target as HTMLInputElement).value))"
         @change="commit('set_main_dock_strip_opacity', { percent: val('mainDockStripOpacity', 100) })"
-      />
+      step="5"
+    />
     </label>
 
     <label class="setting">
@@ -304,12 +308,13 @@ function fmtPct(v: number) {
       </span>
       <input id="main-hotzone-thickness"
         type="range"
-        min="2"
-        max="40"
+        min="1"
+        max="100"
         :value="val('mainHotzoneThickness', 40)"
         @input="setLocal('mainHotzoneThickness', Number(($event.target as HTMLInputElement).value))"
         @change="commit('set_main_hotzone_thickness', { px: val('mainHotzoneThickness', 40) })"
-      />
+      step="1"
+    />
     </label>
 
     <div class="setting">
@@ -333,7 +338,8 @@ function fmtPct(v: number) {
           :value="val('mainHotzoneOpacity', 0)"
           @input="setLocal('mainHotzoneOpacity', Number(($event.target as HTMLInputElement).value))"
           @change="commit('set_main_hotzone_opacity', { percent: val('mainHotzoneOpacity', 0) })"
-        />
+        step="5"
+      />
       </span>
     </div>
 
@@ -406,7 +412,7 @@ function fmtPct(v: number) {
         <input
           id="window-size-height"
           type="range"
-          min="320"
+          min="560"
           max="1200"
           step="4"
           :value="val('windowSizeHeight', 560)"
@@ -529,12 +535,13 @@ function fmtPct(v: number) {
       </span>
       <input id="opacity"
         type="range"
-        min="20"
+        min="0"
         max="100"
         :value="val('opacityPercent', 90)"
         @input="setLocal('opacityPercent', Number(($event.target as HTMLInputElement).value))"
         @change="commit('set_opacity_percent', { percent: val('opacityPercent', 90) })"
-      />
+      step="5"
+    />
     </label>
 
     <!-- 远程控制（旧版 section#remote） -->

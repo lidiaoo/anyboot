@@ -612,8 +612,8 @@ function pct(task: XferTask): number {
           <button type="button" id="fbDestClose" aria-label="关闭" @click="destOpen = false">✕</button>
         </div>
         <form id="fbDestForm" class="fb-modal-body" @submit.prevent="confirmDest">
-          <label id="fbDestLabel" for="fbDestPath">目标目录</label>
-          <input id="fbDestPath" v-model="destPath" class="mono" placeholder="/path/to/dir" autocomplete="off" />
+          <label id="fbDestLabel" for="fbDestPath">目标路径（含文件名）</label>
+          <input id="fbDestPath" v-model="destPath" class="mono" placeholder="/path/to/dir" autocomplete="off" required />
         </form>
         <div class="fb-modal-foot">
           <button type="button" class="fb-btn fb-plain" id="fbDestCancel" @click="destOpen = false">取消</button>

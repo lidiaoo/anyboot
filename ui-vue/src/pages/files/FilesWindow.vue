@@ -663,7 +663,7 @@ function pct(task: XferTask): number {
       </div>
       <form id="destForm" class="modal-body" @submit.prevent="confirmDest">
         <label id="destLabel" for="destPath">目标路径（含文件名）</label>
-        <input id="destPath" v-model="destPath" class="mono" placeholder="/path/to/dir" autocomplete="off" />
+        <input id="destPath" v-model="destPath" class="mono" placeholder="/path/to/dir" autocomplete="off" required />
         <p class="hint">目录不存在会原样报错；目标已存在会被覆盖。</p>
         <div class="modal-foot" style="border: 0; padding: 4px 0 0">
           <button type="button" class="btn plain" id="destCancel" @click="destOpen = false">取消</button>
