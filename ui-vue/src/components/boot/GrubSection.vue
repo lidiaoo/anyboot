@@ -261,7 +261,7 @@ async function switchEntry(selector: string) {
       id="grub-panel-manual"
       role="tabpanel"
     >
-      <p class="grub-panel-note" id="grub-hint">
+      <p class="grub-hint" id="grub-hint">
         读的是 ESP 上的 <code>/EFI/grub.cfg</code> 与 <code>/EFI/grubenv</code>：在 Linux 上装
         <code>09_anyboot</code> 后，每次 <code>update-grub</code> 会把它同步过来。
       </p>
@@ -352,7 +352,7 @@ async function switchEntry(selector: string) {
           <button type="button" id="grub-dir-open" class="secondary" @click="openGrubDir">打开文件管理器</button>
         </div>
 
-        <label for="grub-partuuid" id="grub-part">ESP 的分区 UUID</label>
+        <label for="grub-partuuid" id="grub-part" class="grub-part">ESP 的分区 UUID</label>
         <input
           id="grub-partuuid"
           :value="partuuid"
@@ -405,21 +405,19 @@ async function switchEntry(selector: string) {
     </div>
 
     <!-- 列表格式（旧版 #grub-format-row） -->
-    <label class="setting" id="grub-format-row">
-      <span class="setting-text">
-        <strong>列表格式</strong>
-        <small>同名启动项的合并与文字详略</small>
-      </span>
+    <div class="grub-row" id="grub-format-row">
+      <label for="grub-list-format">列表格式</label>
       <select
         id="grub-list-format"
         :value="settings.grubListFormat"
         @change="setFormat(($event.target as HTMLSelectElement).value)"
       >
+        <option value="raw">原始</option>
         <option value="minimal">极简</option>
         <option value="simple">简易</option>
         <option value="medium">中等</option>
-        <option value="complex">复杂</option>
+        <option value="detailed">复杂</option>
       </select>
-    </label>
+    </div>
   </section>
 </template>
