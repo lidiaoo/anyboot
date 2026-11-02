@@ -3585,8 +3585,12 @@ svg.i.lg { width: 16px; height: 16px; }
  *
  * 主题态下把卡片容器的**右内边距**收掉（保留左内边距给条目留白），
  * 让列表与滚动条一直贴到卡片右边缘。 */
+/* 2026-11-02 用户要求「内容左边也要撑满」。
+ * 实测：列表 left=250，卡片 left=233 → 左缘也空 17px（卡片 padding-left 16 + border 1）。
+ * 右边收掉后把左边也一并收掉，列表横向完全撑满卡片。 */
 #tab-boot .ba-theme-sec {
   padding-right: 0;
+  padding-left: 0;
 }
 /* 列表本身再撑满一点（去掉可能残留的水平 margin） */
 #tab-boot .ba-theme-sec .grub-list,
