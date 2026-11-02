@@ -227,9 +227,12 @@ CSS 构成：`styles.css` 5,013 + `hub.html` 内联 **2,342** + `notify.css` 168
   - ✅ 完成：`nav.tabs` 4 个 `.tab[data-tab]` + localStorage 记忆
 - [x] **5.1.3** `#next-boot` 下次启动区（三档：off/fold/show）
   - ✅ 部分：`.nb-head` + `#next-boot-name` + `.next-boot-rows` 已做，三档显示方式待接
-- [ ] **5.1.4** `#privCard` 权限卡
-- [ ] **5.1.5** `#refind` / `#grub` / `#channel-*` 区块（含 sim-scan / grub-auto / oc-menu）
-- [ ] **5.1.6** `#boot-channels-mount` 动态挂载 + `#boot-channel-collapsed`
+- [x] **5.1.4** `#privCard` 权限卡
+  - ✅ 完成：chip + privNote
+- [x] **5.1.5** `#refind` / `#grub` / `#channel-*` 区块（含 sim-scan / grub-auto / oc-menu）
+  - ✅ 完成：RefindSection（sim-scan + systems + 变量目录）+ GrubSection（grub-auto + ESP 配置）+ 三通道 + #privCard
+- [x] **5.1.6** `#boot-channels-mount` 动态挂载 + `#boot-channel-collapsed`
+  - ✅ 完成：按 detected 渲染通道区，全部未检测时显示折叠行
 
 ### 5.2 app.js 逻辑（5,258 行 / 141 事件）
 - [ ] **5.2.1** 快照 `applySnapshot` + revision 去重 ✓
@@ -358,7 +361,7 @@ CSS 构成：`styles.css` 5,013 + `hub.html` 内联 **2,342** + `notify.css` 168
 | hub 外壳 | 6 | 6 | **100%** |
 | 12 个页面 | **12** | 12 | **100%** |
 | 32 个弹层 | 16 | 32 | 50% |
-| 主窗引导页 | 部分 | 26 | ~35% |
+| 主窗引导页 | 部分 | 26 | ~60% |
 | 4 个独立窗 | 0 完整 | 4 | 0% |
 
 **结论：距离「1:1 还原」还很远。当前只是「能跑」，不是「还原」。**

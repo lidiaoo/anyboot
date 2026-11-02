@@ -6,6 +6,8 @@ import { useBootAdvStore, type LoaderId } from "@/stores/bootAdv";
 import { loaderMeta } from "@/pages/boot/themes/loaders";
 import { call } from "@/api/tauri";
 import BootList from "@/components/boot/BootList.vue";
+import RefindSection from "@/components/boot/RefindSection.vue";
+import GrubSection from "@/components/boot/GrubSection.vue";
 import BootSettings from "./BootSettings.vue";
 import ThemeHost from "./themes/index.vue";
 import type { LoaderInfo } from "./themes/types";
@@ -245,7 +247,12 @@ const statusText = computed(() => {
           </div>
         </section>
 
-        <!-- 引导器列表：主题渲染（6 套主题 + K 原生态） -->
+        <!--
+          引导器区：**K = 不套用主题**时显示旧版完整卡片（rEFInd / GRUB / 三通道）；
+          套用主题时由 ThemeHost 渲染。这与旧版 `bootAdvApplyToBootPage()` 的分支一致：
+              if (effectiveTheme() === "K") applyKArrangement();
+              else bootThemeStage(list);
+        -->
         <ThemeHost
           :theme="adv.effectiveTheme"
           :layout="adv.effectiveLayout"
@@ -253,12 +260,46 @@ const statusText = computed(() => {
           :active-id="loaders[0]?.id ?? ''"
           :on-select="(s: string) => call('switch_grub', { selector: s })"
         >
-          <div class="k-native">
-            <section v-for="loader in loaders" :key="loader.id" class="k-card">
-              <h3>{{ loader.name }} <small>{{ loader.entries.length }} 个条目</small></h3>
-              <BootList :loader="loader.id" />
+          <!-- K 原生态：旧版的完整区块结构 -->
+          <RefindSection />
+
+          <hr aria-hidden="true" class="boot-divider" />
+
+          <GrubSection />
+
+          <!-- 三引导器通道（旧版 #boot-channels-mount） -->
+          <div id="boot-channels-mount">
+            <section
+              v-for="ch in ui.channels.filter((c) => c.detected)"
+              :key="ch.id"
+              class="grub"
+            >
+              <div class="grub-head">
+                <div class="grub-title-row">
+                  <span class="zone-tag">{{ ch.label }} 区</span>
+                  <h2>{{ ch.label }} 启动项</h2>
+                </div>
+                <small class="grub-pane-status">{{ ch.chip === "ok" ? "已检测 · 免提权" : "已检测 · 需提权" }}</small>
+              </div>
+              <div class="grub-list">
+                <BootList :loader="ch.id" />
+              </div>
             </section>
+            <div v-if="!ui.channels.some((c) => c.detected)" class="boot-channel-collapsed" id="boot-channel-collapsed">
+              其他引导器
+              <span class="boot-channel-collapsed-names">
+                {{ ui.channels.map((c) => c.label).join("、") }}（未检测到）
+              </span>
+            </div>
           </div>
+
+          <!-- root 助手卡片（旧版 #privCard） -->
+          <section v-if="ui.state?.helper" class="priv-card" id="privCard">
+            <span class="chip" :class="ui.state.helper.installed ? 'ok' : 'off'">
+              {{ ui.state.helper.installed ? "已安装" : "未安装" }}
+            </span>
+            <p class="priv-note">{{ ui.state.helper.text }}</p>
+          </section>
         </ThemeHost>
       </div>
 

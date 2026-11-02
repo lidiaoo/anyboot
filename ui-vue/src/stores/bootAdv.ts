@@ -42,8 +42,9 @@ const DEFAULT_STATE: BootAdvState = {
   layout: "default",
   ratio: 0.5,
   style: "full",
-  // 出厂默认 = G 命令面板（2026-10-31 定案：电脑与移动端一致）
-  theme: "G",
+  // 出厂默认：旧版 hub 里首次进来是 K（不套用主题，显示完整卡片），
+  // 主题偏好存在 localStorage，用户选过就用自己的。
+  theme: "K",
   nextBoot: "off",
 };
 
