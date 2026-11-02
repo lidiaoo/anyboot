@@ -48,6 +48,12 @@ function setOpenMode(v: string) {
   openMode.value = v === "goto" ? "goto" : "inline";
   try { localStorage.setItem("cqOpenMode", openMode.value); } catch { /* 忽略 */ }
   open.value = false;
+  // 旧版 toast（复刻原文案）
+  toast.show(
+    openMode.value === "goto"
+      ? "列表里「打开页面」会跳到「电脑」页并选中那台"
+      : "列表里「打开页面」用内嵌弹窗查看",
+  );
 }
 
 /** GRUB 条目文字格式（旧版 set_grub_list_format） */

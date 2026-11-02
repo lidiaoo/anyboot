@@ -329,9 +329,17 @@ function rowMenuAction(action: string, id: string) {
   rowMenuId.value = null;
   const row = renmoteRow(id);
   switch (action) {
-    case "view":
-      openView(id);
+    case "view": {
+      // 旧版 cqOpenPage：openMode=goto 时跳「电脑」页并选中，否则内嵌查看
+      let mode = "inline";
+      try { mode = localStorage.getItem("cqOpenMode") === "goto" ? "goto" : "inline"; } catch { /* 默认 */ }
+      if (mode === "goto") {
+        window.location.href = `hub.html?page=home&rid=${encodeURIComponent(id)}`;
+      } else {
+        openView(id);
+      }
       break;
+    }
     case "goto":
       window.location.href = `hub.html?page=home&rid=${encodeURIComponent(id)}`;
       break;
