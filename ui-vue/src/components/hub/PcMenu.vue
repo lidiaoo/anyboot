@@ -32,7 +32,12 @@ function setGuestTheme(v: string) {
   guestTheme.value = /^[A-K]$/.test(v) ? v : "";
   try { localStorage.setItem("anyboot.hub.boot-theme", guestTheme.value); } catch { /* 忽略 */ }
   open.value = false;
-  void import("@/api/tauri").then(({ call }) => call("hub_report_error", { source: "guest-theme", message: guestTheme.value }).catch(() => {}));
+  // 旧版 toast 提示（复刻原文案）
+  toast.show(
+    guestTheme.value === ""
+      ? "引导页主题：跟随电脑 —— 看哪台就用哪台自己保存的主题"
+      : "引导页主题：" + (guestTheme.value === "K" ? "不套用主题" : "方案 " + guestTheme.value) + "（重载页面后生效，不改电脑自己保存的主题）",
+  );
 }
 
 /** 列表打开方式（旧版 localStorage["cqOpenMode"]） */
@@ -146,14 +151,14 @@ const customActive = computed(() => !refreshOptions.includes(settings.dataRefres
       <div class="divider" />
 
       <div class="caption">引导页主题（看别人时 · 本机偏好）</div>
-      <button role="menuitem" type="button" data-guesttheme="" @click="setGuestTheme('')">跟随电脑（不带回退）</button>
-      <button role="menuitem" type="button" data-guesttheme="K" @click="setGuestTheme('K')">不套用主题</button>
-      <button role="menuitem" type="button" data-guesttheme="A" @click="setGuestTheme('A')">方案 A（卡片流）</button>
-      <button role="menuitem" type="button" data-guesttheme="B" @click="setGuestTheme('B')">方案 B（左栏通道）</button>
-      <button role="menuitem" type="button" data-guesttheme="C" @click="setGuestTheme('C')">方案 C（顶部固定）</button>
-      <button role="menuitem" type="button" data-guesttheme="G" @click="setGuestTheme('G')">方案 G（命令面板）</button>
-      <button role="menuitem" type="button" data-guesttheme="I" @click="setGuestTheme('I')">方案 I（Bento）</button>
-      <button role="menuitem" type="button" data-guesttheme="J" @click="setGuestTheme('J')">方案 J（三栏）</button>
+      <button role="menuitem" type="button" data-guesttheme="" @click="setGuestTheme('')">{{ guestTheme === '' ? '✓ ' : '' }}跟随电脑（不带回退）</button>
+      <button role="menuitem" type="button" data-guesttheme="K" @click="setGuestTheme('K')">{{ guestTheme === 'K' ? '✓ ' : '' }}不套用主题</button>
+      <button role="menuitem" type="button" data-guesttheme="A" @click="setGuestTheme('A')">{{ guestTheme === 'A' ? '✓ ' : '' }}方案 A（卡片流）</button>
+      <button role="menuitem" type="button" data-guesttheme="B" @click="setGuestTheme('B')">{{ guestTheme === 'B' ? '✓ ' : '' }}方案 B（左栏通道）</button>
+      <button role="menuitem" type="button" data-guesttheme="C" @click="setGuestTheme('C')">{{ guestTheme === 'C' ? '✓ ' : '' }}方案 C（顶部固定）</button>
+      <button role="menuitem" type="button" data-guesttheme="G" @click="setGuestTheme('G')">{{ guestTheme === 'G' ? '✓ ' : '' }}方案 G（命令面板）</button>
+      <button role="menuitem" type="button" data-guesttheme="I" @click="setGuestTheme('I')">{{ guestTheme === 'I' ? '✓ ' : '' }}方案 I（Bento）</button>
+      <button role="menuitem" type="button" data-guesttheme="J" @click="setGuestTheme('J')">{{ guestTheme === 'J' ? '✓ ' : '' }}方案 J（三栏）</button>
       <div class="divider" />
 
       <div class="caption">数据刷新（PC 端列表）</div>
