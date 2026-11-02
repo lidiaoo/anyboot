@@ -156,6 +156,9 @@ function countEntries(id: LoaderId | string): number {
   return (ch?.menuPreview?.entries ?? ch?.entries ?? []).length;
 }
 
+/** 上次启动项（旧版 #next-boot-last；该 commit 未实现数据源，保持空） */
+const nextBootLast = ref("");
+
 /** 下次启动：当前默认项 */
 const nextBootName = computed(() => {
   if (settings.refindMode !== "manual") {
@@ -188,6 +191,76 @@ const nextBootRows = computed(() =>
 
 /** 底部提示条（旧版 #status-bar，所有操作回执都落这里） */
 const statusBar = ref({ icon: "", text: "" });
+
+/* ============ Linux 免密提权（旧版 index.html:985–1100 的 priv* 逻辑） ============ */
+interface PrivStatus {
+  platform: boolean;
+  state: string;
+  detail: string;
+  sudoersExists: boolean;
+  sudoersPath: string;
+  user: string;
+  helperExists: boolean;
+  hasPkexec: boolean;
+  hasSudo: boolean;
+}
+const privStatus = ref<PrivStatus | null>(null);
+const privBusy = ref(false);
+const privPwOpen = ref(false);
+const privPw = ref("");
+let privPending: "install" | "uninstall" | "" = "";
+
+const privState = computed(() => privStatus.value?.detail ?? "正在读取状态…");
+const privPaths = computed(() => {
+  const s = privStatus.value;
+  if (!s) return "";
+  return (
+    (s.sudoersExists ? `授权：${s.sudoersPath}${s.user ? " → " + s.user : ""}` : "授权：未写入") +
+    " · " +
+    (s.helperExists ? "助手已就位" : "助手未安装")
+  );
+});
+
+async function privLoad() {
+  try {
+    privStatus.value = (await call<PrivStatus>("linux_priv_status")) ?? null;
+  } catch {
+    privStatus.value = null;
+  }
+}
+
+async function privRun(action: "install" | "uninstall", password?: string) {
+  if (privBusy.value) return;
+  privBusy.value = true;
+  try {
+    const st = (await call<PrivStatus>(
+      action === "install" ? "linux_priv_install" : "linux_priv_uninstall",
+      { password: password || null },
+    )) ?? null;
+    privPwOpen.value = false;
+    privPw.value = "";
+    privPending = "";
+    privStatus.value = st;
+  } catch {
+    /* 忽略 */
+  } finally {
+    privBusy.value = false;
+  }
+}
+
+function privInstall() {
+  void privRun("install");
+}
+function privRemove() {
+  void privRun("uninstall");
+}
+function privPwGo() {
+  if (privPending) void privRun(privPending, privPw.value);
+}
+
+onMounted(() => {
+  void privLoad();
+});
 /** 事件解绑句柄 */
 const unlisteners: (() => void)[] = [];
 
@@ -305,6 +378,7 @@ const statusText = computed(() => {
             </button>
           </div>
           <strong id="next-boot-name">{{ nextBootName }}</strong>
+          <small class="next-boot-last" id="next-boot-last" :hidden="!nextBootLast">上次启动 <b>{{ nextBootLast }}</b></small>
           <div
             v-show="nextBootRowsOpen && nextBootRows.length"
             class="next-boot-rows"
@@ -360,18 +434,33 @@ const statusText = computed(() => {
             </section>
             <div v-if="!ui.channels.some((c) => c.detected)" class="boot-channel-collapsed" id="boot-channel-collapsed">
               其他引导器
-              <span class="boot-channel-collapsed-names">
+              <span class="boot-channel-collapsed-names" id="boot-channel-collapsed-names">
                 {{ ui.channels.map((c) => c.label).join("、") }}（未检测到）
               </span>
             </div>
           </div>
 
-          <!-- root 助手卡片（旧版 #privCard） -->
-          <section v-if="ui.state?.helper" class="priv-card" id="privCard">
-            <span class="chip" :class="ui.state.helper.installed ? 'ok' : 'off'">
-              {{ ui.state.helper.installed ? "已安装" : "未安装" }}
-            </span>
-            <p class="priv-note">{{ ui.state.helper.text }}</p>
+          <!-- 免密提权卡（旧版 #privCard，逐字结构） -->
+          <section v-if="ui.state?.helper" aria-label="免密提权" class="priv-card" id="privCard">
+            <div class="priv-head">
+              <h3>免密提权</h3>
+              <span class="priv-badge" id="privBadge">{{ ui.state.helper.installed ? "已安装" : "未安装" }}</span>
+            </div>
+            <p class="priv-state" id="privState">{{ privState }}</p>
+            <p class="priv-paths mono" id="privPaths">{{ privPaths }}</p>
+            <div class="actions">
+              <button type="button" id="privInstall" @click="privInstall">安装免密组件</button>
+              <button type="button" class="secondary" id="privRemove" @click="privRemove">移除授权</button>
+            </div>
+            <div class="priv-pw" id="privPwBox" :hidden="!privPwOpen">
+              <label for="privPw">本机登录密码（只在本次运行的内存里，用于 sudo 兜底）</label>
+              <input id="privPw" v-model="privPw" type="password" autocomplete="off" spellcheck="false" placeholder="登录密码" />
+              <div class="actions">
+                <button type="button" id="privPwGo" @click="privPwGo">用密码继续</button>
+                <button type="button" class="secondary" id="privPwCancel" @click="privPwOpen = false">取消</button>
+              </div>
+            </div>
+            <p class="priv-note" id="privNote">{{ ui.state.helper.text }}</p>
           </section>
         </ThemeHost>
       </div>

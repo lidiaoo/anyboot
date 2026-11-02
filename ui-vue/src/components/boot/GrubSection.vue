@@ -39,6 +39,16 @@ const activePane = ref<"auto" | "manual">("auto");
 
 /** 09_anyboot 脚本正文（旧版 #grub-script） */
 const scriptText = ref("");
+/** GRUB 错误提示（旧版 #grub-error） */
+const grubErrorText = ref("");
+/** 候选分区（旧版 #grub-auto-candidates；从 grubAuto 取） */
+const autoCandidates = computed<string[]>(() => {
+  const list = (grubAuto.value as any)?.candidates;
+  return Array.isArray(list) ? list.map((c: any) => (typeof c === "string" ? c : c?.path ?? String(c))) : [];
+});
+function pickAutoCandidate(path: string) {
+  void import("@/api/tauri").then(({ call }) => call("set_grub_esp", { path }).catch(() => {}));
+}
 
 /** 列表格式（旧版 #grub-list-format） */
 const settings = useSettingsStore();
@@ -225,6 +235,13 @@ function switchEntry(selector: string) {
           </div>
         </details>
 
+        <!-- 候选分区（旧版 #grub-auto-picker） -->
+        <details v-if="autoCandidates.length" id="grub-auto-picker" class="grub-auto-picker">
+          <summary id="grub-auto-picker-summary">换一块分区读</summary>
+          <div id="grub-auto-candidates" class="grub-auto-candidates">
+            <button v-for="c in autoCandidates" :key="c" type="button" class="secondary" @click="pickAutoCandidate(c)">{{ c }}</button>
+          </div>
+        </details>
         <small class="grub-auto-foot" id="grub-auto-foot">{{ grubAuto?.via || "" }}</small>
       </section>
     </div>
@@ -248,18 +265,26 @@ function switchEntry(selector: string) {
           :group-titles="groupTitles"
           @select="switchEntry"
         />
+        <!-- 空状态（旧版 #grub-empty），无条目时显示 -->
+        <div v-if="!manualEntries.length" id="grub-empty" class="grub-empty-state">
+          <strong>还没识别到 GRUB 启动信息</strong>
+          <small>选 ESP 分区里的文件夹去识别，或直接填下面的 fs-uuid —— 两种方式填一个就行，另一个会自动对上</small>
+          <div class="actions">
+            <button type="button" class="secondary" id="grub-empty-pick" @click="pickEspDir">选择文件夹识别…</button>
+          </div>
+        </div>
       </div>
 
       <!-- 安装 / 卸载 09_anyboot（旧版 #grub-install-actions） -->
-      <div class="actions">
-        <button type="button" class="secondary" @click="installAnyboot">安装 09_anyboot</button>
-        <button type="button" class="secondary" @click="uninstallAnyboot">卸载 09_anyboot</button>
+      <div class="actions" id="grub-install-actions">
+        <button type="button" class="secondary" id="grub-install" @click="installAnyboot">安装 09_anyboot</button>
+        <button type="button" class="secondary" id="grub-uninstall" @click="uninstallAnyboot">卸载 09_anyboot</button>
       </div>
 
       <!-- 执行过程（旧版 #grub-log-box） -->
-      <details v-if="grubManual?.scriptLog" class="grub-log">
-        <summary>执行过程</summary>
-        <pre>{{ grubManual.scriptLog }}</pre>
+      <details v-if="grubManual?.scriptLog" id="grub-log-box" class="grub-log">
+        <summary id="grub-log-summary">执行过程</summary>
+        <pre id="grub-log">{{ grubManual.scriptLog }}</pre>
       </details>
 
       <!-- 内置脚本编辑（旧版 details.grub-script） -->
@@ -269,15 +294,15 @@ function switchEntry(selector: string) {
           >安装时只把 <code>@@ESP_UUID@@</code> 换成下方「ESP 分区」里填的 fs-uuid，其余按这里的正文来；
           清空后保存 = 恢复内置模板</small
         >
-        <textarea v-model="scriptText" rows="8" spellcheck="false" />
+        <textarea id="grub-script" v-model="scriptText" rows="8" spellcheck="false" />
         <div class="actions">
-          <button type="button" class="secondary" @click="saveScript">保存脚本</button>
-          <button type="button" class="secondary" @click="resetScript">恢复内置</button>
+          <button type="button" class="secondary" id="grub-script-save" @click="saveScript">保存脚本</button>
+          <button type="button" class="secondary" id="grub-script-reset" @click="resetScript">恢复内置</button>
         </div>
       </details>
 
       <!-- 引导配置须知（旧版 .grub-advice，原文照抄） -->
-      <small class="grub-advice">
+      <small class="grub-advice" id="grub-advice">
         <strong>引导配置须知</strong>
         <ul>
           <li>
@@ -332,6 +357,7 @@ function switchEntry(selector: string) {
           <button type="button" id="grub-sync" @click="syncManual">同步</button>
           <small id="grub-sync-note">读的是 ESP 上的 /EFI/grub.cfg 与 /EFI/grubenv</small>
         </div>
+        <p class="grub-error" id="grub-error" role="status" :hidden="!grubErrorText">{{ grubErrorText }}</p>
       </section>
     </div>
 

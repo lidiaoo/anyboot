@@ -61,6 +61,16 @@ function clearLogs() {
   logs.value = [];
 }
 const downloading = ref(false);
+/** 服务状态被权限挡住时显示「授权查看状态」（旧版 #sol-status-privileged） */
+const privilegedNeeded = ref(false);
+async function readPrivilegedStatus() {
+  try {
+    await call("sol_status_privileged");
+    privilegedNeeded.value = false;
+  } catch {
+    /* 忽略 */
+  }
+}
 
 const stateText = computed(() => {
   if (loading.value) return "正在读取…";
@@ -155,6 +165,7 @@ function pickDir() {
       <span class="remote-inline">
         <button type="button" id="sol-refresh" class="secondary" @click="refresh">刷新</button>
         <button type="button" class="secondary" @click="call('sol_status_privileged')">检查权限</button>
+        <button type="button" id="sol-status-privileged" class="secondary" :hidden="!privilegedNeeded" title="服务状态被系统权限挡住时才出现" @click="readPrivilegedStatus">授权查看状态</button>
         <button type="button" id="sol-restart-service" class="secondary" @click="call('sol_project_open')">重启服务</button>
       </span>
     </div>
@@ -215,9 +226,9 @@ function pickDir() {
         <small class="setting-state" id="sol-pkg-state">{{ downloading ? `下载中 ${progress}%` : "未下载" }}</small>
       </span>
 
-      <div v-if="downloading" class="sol-progress">
-        <div class="sol-progress-track"><div class="sol-progress-fill" :style="{ width: progress + '%' }" /></div>
-        <small class="sol-progress-text">{{ progress }}%</small>
+      <div v-if="downloading" id="sol-progress" class="sol-progress">
+        <div class="sol-progress-track"><div id="sol-progress-fill" class="sol-progress-fill" :style="{ width: progress + '%' }" /></div>
+        <small id="sol-progress-text" class="sol-progress-text">{{ progress }}%</small>
       </div>
 
       <div class="setting">

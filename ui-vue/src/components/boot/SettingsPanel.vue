@@ -27,6 +27,16 @@ import {
  */
 
 const ui = useUiStateStore();
+/** 热区边框颜色（旧版 #main-hotzone-border-color，默认 #ff0000） */
+const hotzoneBorderColor = computed(() => (s.value as any)?.mainHotzoneBorderColor || "#ff0000");
+function setHotzoneBorderColor(color: string) {
+  void commit("set_main_hotzone_border_color", { color });
+}
+
+function openLoginItems() {
+  void call("open_login_items_settings").catch(() => {});
+}
+
 const s = computed(() => ui.settings);
 
 /** 本地即时值（拖动滑块时先更新 UI，松手再落盘） */
@@ -126,6 +136,17 @@ function fmtPct(v: number) {
         @change="setAutostart(!s?.autostart)"
       />
     </label>
+
+    <!-- 打开「登录项与扩展」设置（旧版 #login-items，仅 requires-approval 时显示） -->
+    <button
+      v-if="s?.autostartState === 'requires-approval'"
+      type="button"
+      id="login-items"
+      class="link"
+      @click="openLoginItems"
+    >
+      打开「登录项与扩展」设置
+    </button>
 
     <!-- 启动时隐藏主界面 -->
     <label class="setting">
@@ -320,11 +341,11 @@ function fmtPct(v: number) {
         <strong>热区可视边框</strong>
         <small>调试用：把「鼠标移入即呼出」的触发带画出来</small>
       </span>
-      <input id="main-hotzone-border"
-        type="checkbox"
+      <input id="main-hotzone-border"        type="checkbox"
         :checked="Boolean(s?.mainHotzoneBorder)"
         @change="commit('set_main_hotzone_border', { on: !s?.mainHotzoneBorder })"
       />
+      <input id="main-hotzone-border-color" type="color" :value="hotzoneBorderColor" @input="setHotzoneBorderColor(($event.target as HTMLInputElement).value)" />
     </label>
 
     <!-- 窗口位置 -->
@@ -547,7 +568,7 @@ function fmtPct(v: number) {
         <button type="button" id="http-hint-copy" class="link-btn" @click="copyToken">复制访问地址</button>
       </small>
 
-      <div class="setting">
+      <div v-if="(ui.http as any)?.occupiedBy" class="port-occupant" id="port-occupant">
         <span class="setting-text">
           <strong>端口占用</strong>
           <small class="setting-state" id="port-occupant-message">{{ (ui.http as any)?.occupiedBy || "" }}</small>
@@ -638,7 +659,7 @@ function fmtPct(v: number) {
       </div>
 
       <!-- 待确认卡（旧版 .pending#pending-card） -->
-      <div v-if="(ui.state as any)?.pending" class="pending">
+      <div v-if="(ui.state as any)?.pending" class="pending" id="pending-card">
         <strong id="pending-title">远程请求待执行</strong>
         <p id="pending-detail">{{ (ui.state as any).pending.text }}</p>
         <span class="remote-inline">
