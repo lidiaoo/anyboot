@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
+import PcMenu from "@/components/hub/PcMenu.vue";
 import { call } from "@/api/tauri";
 import { useRemoteStore } from "@/stores/remote";
 
@@ -58,9 +59,50 @@ const POWER_ACTIONS = [
   { act: "reboot", label: "重启" },
 ] as const;
 
+/**
+ * 电源动作（对齐旧版 hub.html:9985 的分支）：
+ *   · 本机 → **`power_action`**（与主窗口同一套 IPC 直调，不回环 HTTP）
+ *   · 远端 → `remote_power`
+ *   本机点「唤醒」没有意义（本来就在运行），旧版是 toast 提示后直接返回。
+ */
+const POWER_LABEL: Record<string, string> = {
+  wake: "唤醒",
+  sleep: "睡眠",
+  shutdown: "关机",
+  reboot: "重启",
+};
+
+const toastText = ref("");
+
+function showToast(text: string) {
+  toastText.value = text;
+  window.setTimeout(() => {
+    if (toastText.value === text) toastText.value = "";
+  }, 2600);
+}
+
+const emit = defineEmits<{ (e: "addRemote"): void }>();
+
 function sendPower(action: string) {
+  const isLocal = activeId.value === "local";
+  if (isLocal) {
+    if (action === "wake") {
+      showToast("本机就在运行，无需唤醒");
+      return;
+    }
+    showToast(`正在${POWER_LABEL[action] ?? action}本机…`);
+    void import("@/api/tauri").then(({ call }) =>
+      call("power_action", { action })
+        .then(() => showToast(`已执行：本机${POWER_LABEL[action] ?? action}`))
+        .catch((error: unknown) => showToast(`本机${POWER_LABEL[action] ?? action}失败：${error}`)),
+    );
+    return;
+  }
+  showToast(`正在${POWER_LABEL[action] ?? action}…`);
   void import("@/api/tauri").then(({ call }) =>
-    call("remote_power", { server_id: activeId.value, action }).catch(() => {}),
+    call("remote_power", { server_id: activeId.value, action })
+      .then((message: unknown) => showToast(String(message ?? "已发送")))
+      .catch((error: unknown) => showToast(`${POWER_LABEL[action] ?? action}失败：${error}`)),
   );
 }
 
@@ -171,10 +213,13 @@ function onFrameError() {
           {{ chip.name }}
           <span v-if="chip.sub" class="mini">{{ chip.sub }}</span>
         </button>
-        <button type="button" class="pc-chip add" disabled title="添加电脑弹窗待迁移">
+        <!-- 「＋ 添加」：打开服务端编辑弹层（旧版 #pcAddChip → pcAddOrEdit） -->
+        <button type="button" class="pc-chip add" title="添加 AnyBoot 电脑" @click="emit('addRemote')">
           ＋ 添加
         </button>
       </div>
+      <!-- 右上角 ⋮（旧版 #pageMore）：与工具条 ⋮ 是同一个 pcMenu -->
+      <PcMenu id="pageMore" />
       <div class="pc-top-actions">
         <button type="button" class="btn ghost sm" @click="reload">重载</button>
       </div>
@@ -280,6 +325,9 @@ function onFrameError() {
         </div>
       </div>
     </div>
+
+    <!-- toast（旧版全局 toast，本条只用于电源回执） -->
+    <div v-if="toastText" class="toast" role="status">{{ toastText }}</div>
 
     <!-- 标签 ⋮ 菜单（旧版 #chipMenu） -->
     <div v-if="chipMenuOpen" class="pc-menu" role="menu" aria-label="标签菜单">

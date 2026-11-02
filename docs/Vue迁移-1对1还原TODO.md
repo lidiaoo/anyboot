@@ -908,6 +908,28 @@ J  101 / 23 / 902
 不一致  「两次输入不一致」
 ```
 
+### 备份页第二轮（本轮）
+
+**① 同步分类默认值错**
+旧版 `syncChecked = Set(["servers","jumps","keys","terminal"])` —— **只有 4 类，
+不含 history**。我改成了 5 类全选。已修正（默认 4/5，实测确认）。
+
+**② 导入流程完全没做**
+旧版导入是**三段式**，之前只做了「选文件 → 直接导入」：
+
+```
+① 选文件          backup_pick_import_file
+② 「导入预览」弹层  #previewModal
+   · .bk-prev 差异表格（分类 / 备份内 / 本机现有 / 同 ID 冲突）
+   · .bk-warn 冲突警告
+   · 要导入的分类（5 类勾选）
+   · 同 ID 条目处理（skipExisting 跳过 / overwrite 覆盖，默认跳过）
+③ 「确认覆盖」弹层  #confirmModal（仅 overwrite 且有冲突时）
+④ 「导入完成」弹层  #resultModal（显示各类导入条数）
+```
+
+已按旧版补齐 3 个弹层 + 完整流程分支。
+
 ### 打包验证
 ```
 npm run build:mac-intel        → 成功（508 tests passed / 0 failed）

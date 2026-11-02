@@ -59,7 +59,8 @@ const exportPw1 = ref("");
 const exportPw2 = ref("");
 // 旧版默认：五类全选（exportChecked = Set(["servers","jumps","keys","terminal","history"])）
 const exportCats = ref<string[]>(["servers", "jumps", "keys", "terminal", "history"]);
-const syncCats = ref<string[]>(["servers", "jumps", "keys", "terminal", "history"]);
+// 旧版同步默认只勾 4 类（不含 history）：Set(["servers","jumps","keys","terminal"])
+const syncCats = ref<string[]>(["servers", "jumps", "keys", "terminal"]);
 
 const syncEnabled = ref(false);
 const syncUrl = ref("");
@@ -68,6 +69,19 @@ const syncPass = ref("");
 const syncDir = ref("AnyBoot");
 const syncPeriod = ref(15);
 const syncOnChange = ref(false);
+
+/** 导入流程（旧版三段：预览 → 覆盖确认 → 结果） */
+const previewOpen = ref(false);
+const previewRows = ref<{ label: string; inBackup: number; local: number; conflicts: number }[]>([]);
+const previewWarn = ref("");
+const importPath = ref("");
+const importCats = ref<string[]>(["servers", "jumps", "keys", "terminal", "history"]);
+/** 同 ID 处理策略：skipExisting（默认，安全）/ overwrite */
+const importStrategy = ref<"skipExisting" | "overwrite">("skipExisting");
+const confirmOpen = ref(false);
+const confirmBody = ref("");
+const resultOpen = ref(false);
+const resultRows = ref<{ k: string; v: string }[]>([]);
 
 async function refreshSync() {
   try {
@@ -115,13 +129,14 @@ const pwError = computed(() => {
   return "";
 });
 
-function toggleCat(which: "export" | "sync", id: string) {
-  const source = which === "export" ? exportCats : syncCats;
+function toggleCat(which: "export" | "sync" | "import", id: string) {
+  const source = which === "export" ? exportCats : which === "sync" ? syncCats : importCats;
   const next = source.value.includes(id)
     ? source.value.filter((x) => x !== id)
     : [...source.value, id];
   if (which === "export") exportCats.value = next;
-  else syncCats.value = next;
+  else if (which === "sync") syncCats.value = next;
+  else importCats.value = next;
 }
 
 async function run(label: string, action: () => Promise<unknown>, done: string) {
@@ -167,8 +182,14 @@ async function doExport() {
   );
 }
 
+/**
+ * 导入：**旧版是三段式**（hub.html:4126 起）
+ *   ① 选文件 → backup_pick_import_file
+ *   ② 取差异 → backup_preview，弹出「导入预览」弹层
+ *      （分类勾选 + 同 ID 策略单选 + 冲突警告）
+ *   ③ 点「开始导入」→ 若策略是 overwrite 且存在冲突，再弹「确认覆盖」→ 才执行
+ */
 async function doImport() {
-  // 旧版流程：选文件 → 预览差异 → 确认导入
   let path = "";
   try {
     path = ((await call("backup_pick_import_file")) as string) ?? "";
@@ -176,17 +197,64 @@ async function doImport() {
     path = "";
   }
   if (!path) return;
+  importPath.value = path;
   try {
     const preview = (await call("backup_preview", { path, password: "" })) as Record<string, unknown>;
-    const summary = Object.entries(preview ?? {})
-      .map(([key, value]) => `${key}: ${String(value)}`)
-      .join("\n");
-    if (!window.confirm(`导入预览\n\n${summary || "（无差异信息）"}\n\n确认导入？`)) return;
+    previewRows.value = Object.entries(preview ?? {}).map(([key, value]) => {
+      const v = (value ?? {}) as Record<string, number>;
+      return {
+        label: key,
+        inBackup: Number(v.inBackup ?? v.count ?? 0),
+        local: Number(v.local ?? 0),
+        conflicts: Number(v.conflicts ?? v.sameId ?? 0),
+      };
+    });
+    const totalConflicts = previewRows.value.reduce((sum, row) => sum + row.conflicts, 0);
+    previewWarn.value =
+      totalConflicts > 0
+        ? `备份中有 ${totalConflicts} 条与本机同 ID 的条目 —— 选「跳过已存在」保持不变，选「覆盖」则替换。`
+        : "";
+    importCats.value = ["servers", "jumps", "keys", "terminal", "history"];
+    importStrategy.value = "skipExisting";
+    previewOpen.value = true;
   } catch (error) {
     errorText.value = String(error);
+  }
+}
+
+/** 预览弹层里点「开始导入」 */
+function startImport() {
+  previewOpen.value = false;
+  const totalConflicts = previewRows.value.reduce((sum, row) => sum + row.conflicts, 0);
+  if (importStrategy.value === "overwrite" && totalConflicts > 0) {
+    confirmBody.value = `备份中有 ${totalConflicts} 条与本机同 ID 的条目，将以备份内容整条覆盖。本机独有的条目保留。`;
+    confirmOpen.value = true;
     return;
   }
-  await run("导入", () => call("backup_import", { path, password: "", categories: [], strategy: "merge" }), "导入完成（设置已恢复）");
+  void executeImport();
+}
+
+/** 覆盖确认后真正执行 */
+async function executeImport() {
+  confirmOpen.value = false;
+  if (busy.value) return;
+  busy.value = "导入";
+  message.value = "";
+  errorText.value = "";
+  try {
+    const res = (await call("backup_import", {
+      path: importPath.value,
+      password: "",
+      categories: importCats.value,
+      strategy: importStrategy.value,
+    })) as Record<string, unknown>;
+    resultRows.value = Object.entries(res ?? {}).map(([k, v]) => ({ k, v: String(v) }));
+    resultOpen.value = true;
+  } catch (error) {
+    errorText.value = String(error);
+  } finally {
+    busy.value = "";
+  }
 }
 
 async function saveSync() {
@@ -411,6 +479,115 @@ function syncNow() {
       </button>
     </div>
   </section>
+
+  <!-- ① 导入预览（旧版 #previewModal） -->
+  <div v-if="previewOpen" class="bk-modal" role="dialog" aria-modal="true">
+    <div class="bk-modal-card">
+      <div class="bk-modal-head">
+        <h3>导入预览</h3>
+        <button type="button" aria-label="关闭" @click="previewOpen = false">✕</button>
+      </div>
+      <div class="bk-modal-body">
+        <table class="bk-prev">
+          <thead>
+            <tr>
+              <th>分类</th>
+              <th style="text-align: right">备份内</th>
+              <th style="text-align: right">本机现有</th>
+              <th>同 ID 冲突</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in previewRows" :key="row.label">
+              <td>{{ row.label }}</td>
+              <td style="text-align: right">{{ row.inBackup }}</td>
+              <td style="text-align: right">{{ row.local }}</td>
+              <td>{{ row.conflicts }}</td>
+            </tr>
+            <tr v-if="!previewRows.length">
+              <td colspan="4" class="bk-note">（备份文件里没有可识别的内容）</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div v-if="previewWarn" class="bk-info bk-warn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <path d="M12 9v4M12 17h.01M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
+          </svg>
+          <span>{{ previewWarn }}</span>
+        </div>
+
+        <div>
+          <label style="display: block; font-size: 12px; font-weight: 500; color: rgb(var(--fg-dim)); margin-bottom: 6px">要导入的分类</label>
+          <div class="bk-cats">
+            <label v-for="cat in CATEGORIES" :key="cat.id" class="bk-cat-row">
+              <input
+                type="checkbox"
+                :checked="importCats.includes(cat.id)"
+                @change="toggleCat('import', cat.id)"
+              />
+              <span class="bk-cname">{{ cat.name }}</span>
+              <span class="bk-cdesc">{{ cat.desc }}</span>
+            </label>
+          </div>
+        </div>
+
+        <div>
+          <label style="display: block; font-size: 12px; font-weight: 500; color: rgb(var(--fg-dim)); margin-bottom: 6px">同 ID 条目处理</label>
+          <div class="bk-strategy">
+            <label class="bk-radio-line">
+              <input v-model="importStrategy" type="radio" name="strategy" value="skipExisting" />
+              <span>跳过已存在的条目<span class="bk-rdesc">只添加本机没有的；现有配置一律不动（安全）</span></span>
+            </label>
+            <label class="bk-radio-line">
+              <input v-model="importStrategy" type="radio" name="strategy" value="overwrite" />
+              <span>用备份覆盖同 ID 条目<span class="bk-rdesc">同 ID 的本机档案会被备份内容整条替换；本机独有的条目保留</span></span>
+            </label>
+          </div>
+        </div>
+      </div>
+      <div class="bk-modal-foot">
+        <button type="button" class="bk-btn bk-plain" @click="previewOpen = false">取消</button>
+        <button type="button" class="bk-btn bk-primary" @click="startImport">开始导入</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ② 覆盖确认（旧版 #confirmModal） -->
+  <div v-if="confirmOpen" class="bk-modal" role="dialog" aria-modal="true">
+    <div class="bk-modal-card">
+      <div class="bk-del-hero">
+        <span class="bk-icon" aria-hidden="true">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 9v4M12 17h.01M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
+          </svg>
+        </span>
+        <h3>确认覆盖导入？</h3>
+      </div>
+      <p class="bk-del-body">{{ confirmBody }}</p>
+      <div class="bk-modal-foot">
+        <button type="button" class="bk-btn bk-plain" @click="confirmOpen = false">取消</button>
+        <button type="button" class="bk-btn bk-danger" @click="executeImport">覆盖导入</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ③ 导入结果（旧版 #resultModal） -->
+  <div v-if="resultOpen" class="bk-modal" role="dialog" aria-modal="true">
+    <div class="bk-modal-card">
+      <div class="bk-modal-head">
+        <h3>导入完成</h3>
+        <button type="button" aria-label="关闭" @click="resultOpen = false">✕</button>
+      </div>
+      <div class="bk-modal-body">
+        <p v-for="row in resultRows" :key="row.k">{{ row.k }}：{{ row.v }}</p>
+        <p v-if="!resultRows.length">导入已完成</p>
+      </div>
+      <div class="bk-modal-foot">
+        <button type="button" class="bk-btn bk-primary" @click="resultOpen = false">完成</button>
+      </div>
+    </div>
+  </div>
 
   <p v-if="message" class="bk-note" style="color: rgb(var(--ok))">{{ message }}</p>
   <p v-if="errorText" class="bk-err">{{ errorText }}</p>

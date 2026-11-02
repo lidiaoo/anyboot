@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+
 import { useRemoteStore, type RemoteProfile } from "@/stores/remote";
 import { useSettingsStore } from "@/stores/settings";
 import ComputerRow from "@/components/hub/ComputerRow.vue";
@@ -8,6 +9,8 @@ import SystemInfoDialog from "@/components/hub/SystemInfoDialog.vue";
 import RemoteEditDialog from "@/components/hub/RemoteEditDialog.vue";
 import RemoteListDialog from "@/components/hub/RemoteListDialog.vue";
 import TunnelDialog from "@/components/hub/TunnelDialog.vue";
+
+const props = defineProps<{ addSeed?: number }>();
 
 /**
  * 电脑列表（原 `ui/hub.html` 的 `#page-computers`）。
@@ -140,6 +143,7 @@ function startTimer() {
 }
 
 onMounted(async () => {
+  consumeAddSeed();
   startTimer();
 
   // 隧道停止事件（旧版 hub-tunnel-stopped）：刷新隧道列表
@@ -166,6 +170,21 @@ onUnmounted(() => {
 });
 // 设置里改了间隔要重建定时器（否则旧间隔跑到刷新页面为止）
 watch(() => settings.dataRefreshSec, startTimer);
+// 外部（电脑页「＋ 添加」）触发：打开服务端编辑弹层
+/**
+ * 「＋ 添加」跨页触发：
+ * 因为 ComputerList 是 `v-if` 按需挂载的，点击时它**刚被创建**，
+ * 此刻 watch 的 prev 已经等于新 seed → 不会触发。所以在 onMounted 里
+ * 检查一次「挂载时 seed 已 > 0 且本组件正是因此被创建」。
+ */
+let addSeedConsumed = false;
+function consumeAddSeed() {
+  if (addSeedConsumed || !props.addSeed) return;
+  addSeedConsumed = true;
+  rsEditing.value = "";
+  rsEditOpen.value = true;
+}
+watch(() => props.addSeed, consumeAddSeed);
 
 /** 事件解绑句柄 */
 const unlisteners: (() => void)[] = [];

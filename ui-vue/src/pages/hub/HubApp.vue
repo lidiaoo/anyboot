@@ -188,6 +188,16 @@ onMounted(async () => {
   void remote.refreshAllBoot();
 });
 
+/**
+ * 「＋ 添加」跨页入口（旧版 `pcAddOrEdit()` 是全局函数，任意页面可调）。
+ * 这里切到「电脑列表」页 —— 服务端编辑弹层挂在那里。
+ */
+const remoteAddSeed = ref(0);
+function openRemoteAdd() {
+  currentPage.value = "computers";
+  remoteAddSeed.value += 1;
+}
+
 const contentLabel = computed(
   () => NAV.find((item) => item.id === currentPage.value)?.label ?? "",
 );
@@ -305,10 +315,10 @@ const footCount = computed(() => `${servers.servers.length} 台服务器`);
            这样的作用域选择器（如 `html.light #page-files { --fb-blue: ... }`），
            少了 id 那些变量就不生效（面包屑会变成黑块）。 -->
       <section class="page active" :id="`page-${currentPage}`">
-        <ComputerList v-if="currentPage === 'computers'" />
+        <ComputerList v-if="currentPage === 'computers'" :add-seed="remoteAddSeed" />
         <ServersPage v-else-if="currentPage === 'servers'" />
         <AboutPage v-else-if="currentPage === 'about'" />
-        <HomePage v-else-if="currentPage === 'home'" />
+        <HomePage v-else-if="currentPage === 'home'" @add-remote="openRemoteAdd" />
         <GatewayPage v-else-if="currentPage === 'gateway'" />
         <BackupPage v-else-if="currentPage === 'backup'" />
         <TermPage v-else-if="currentPage === 'term'" />
