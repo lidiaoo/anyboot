@@ -131,7 +131,13 @@ function onSelect(selector: string) {
 </script>
 
 <template>
-  <div class="grub-list">
+  <!--
+    **不要在这里套 .grub-list** —— 旧版 DOM 里 `.grub-list` 是调用方提供的容器
+    （`#grub-auto-list` / `#grub-list`），条目走 `.grub-list-body`。
+    我在这里又套了一层，导致每个列表渲染出两个 .grub-list，
+    多出来的那层把背景/边框/圆角重复画了一遍。
+  -->
+  <div class="grub-list-body">
     <!-- 置顶副本：同一条目只出现一次（正式列表里那份仍然保留，带 active 高亮） -->
     <GrubEntry
       v-if="activeEntry"
@@ -145,7 +151,7 @@ function onSelect(selector: string) {
       :tag="pinnedTag"
       @select="onSelect"
     />
-    <div class="grub-list-body">
+    <div class="grub-list-rows">
       <GrubEntry
         v-for="row in rows"
         :key="row.key"

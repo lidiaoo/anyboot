@@ -523,6 +523,25 @@ entries/hub-*.ts     → main.css
 
 修复后：主窗 92% → **98%**，整体不一致 36 → **18**
 
+**第三个真实缺陷：GrubList 重复渲染 `.grub-list`**
+旧版 DOM 里 `.grub-list` 是**调用方提供的容器**（`#grub-auto-list` / `#grub-list`），
+条目走 `.grub-list-body`。我在 `GrubList.vue` 组件里又套了一层，导致每个列表
+渲染出两个 `.grub-list`，多出来的那层把背景/边框/圆角重复画了一遍
+（实测一页 6 个 `.grub-list`，旧版只有 2 个）。
+修掉后：一页 3 个（多出来的是三通道容器，正常）。
+
+**修复后最终：主窗 3 个页签全部 100%，整体不一致 24 项**
+
+剩余 24 项的判定：
+| 项 | 判定 |
+|---|---|
+| `light`（每页都有） | **误报** —— 匹配到旧版 `<html class="light">` |
+| `.s-icon` | **选中态差异** —— 新版默认选中第一项，旧版 mock 未选中 |
+| `.switch` / `.ts-range` / `.ts-check` | **表单控件差异** —— 旧版用浏览器原生外观 |
+| `.bk-*` / `.bk-field` | **内容结构差异** —— 内部 DOM 层级不同导致 |
+| `about-link` 圆角 | 待确认 |
+| `cq-boot-btn` / `t` / `sep` | 待确认 |
+
 顺带把 `.cq-thead` 加回电脑列表（旧版静态 HTML 里有，`display:none`）。
 
 ### 打包验证
