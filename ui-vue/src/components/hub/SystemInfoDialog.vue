@@ -22,6 +22,10 @@ interface SystemInfo {
   memTotalMb: number;
   memFreeMb: number;
   uptimeSec: number;
+  uptimeSecs?: number;
+  lanIps?: string[];
+  httpPort?: number;
+  appVersion?: string;
 }
 
 const props = defineProps<{ serverId: string | null; title: string }>();
@@ -29,6 +33,18 @@ const emit = defineEmits<{ (e: "close"): void }>();
 useEscape(computed(() => Boolean(props.serverId)), () => emit('close'));
 
 const info = ref<SystemInfo | null>(null);
+const OS_LABELS: Record<string, string> = { win: "Windows", mac: "macOS", linux: "Linux" };
+const osLabel = computed(() => {
+  const i = info.value;
+  if (!i) return "—";
+  const base = OS_LABELS[i.os] || i.os || "—";
+  return i.osName ? `${base}（${i.osName}）` : base;
+});
+const ipsText = computed(() => {
+  const ips = info.value?.lanIps?.filter(Boolean) ?? [];
+  const port = info.value?.httpPort;
+  return (ips.length ? ips.join(" · ") : "") + (port ? " · HTTP " + port : " · HTTP 未监听");
+});
 const loading = ref(false);
 const errorText = ref("");
 
@@ -101,17 +117,20 @@ function fmtUptime(sec: number): string {
         <p v-else-if="errorText" class="form-error">{{ errorText }}</p>
         <template v-else-if="info">
           <div class="sysinfo-head" id="sysInfoHead">
-            <b>{{ title }}</b>
-            <span class="mono">{{ info.osName || info.os || "—" }}</span>
+            <span class="who">{{ info.hostname || props.title || "本机" }}</span>
+            <span class="where">{{ ipsText }}</span>
           </div>
           <div class="sysinfo-rows" id="sysInfoRows">
-            <div><span>版本</span><span class="mono">{{ info.osVersion || "—" }}</span></div>
-            <div><span>内核</span><span class="mono">{{ info.kernel || "—" }}</span></div>
+            <div><span>系统</span><span>{{ osLabel }}</span></div>
+            <div><span>系统版本</span><span class="mono">{{ info.osVersion || "—" }}</span></div>
+            <div><span>内核 / 构建</span><span class="mono">{{ info.kernel || "—" }}</span></div>
             <div><span>架构</span><span class="mono">{{ info.arch || "—" }}</span></div>
             <div><span>主机名</span><span class="mono">{{ info.hostname || "—" }}</span></div>
-            <div><span>处理器</span><span>{{ info.cpuModel || "—" }}<template v-if="info.cpuCores"> · {{ info.cpuCores }} 核</template></span></div>
+            <div><span>CPU</span><span>{{ info.cpuModel || "—" }}</span></div>
+            <div><span>核心数</span><span>{{ info.cpuCores ? info.cpuCores + " 逻辑核心" : "—" }}</span></div>
             <div><span>内存</span><span>{{ fmtMem(info.memTotalMb) }}<template v-if="info.memFreeMb">（可用 {{ fmtMem(info.memFreeMb) }}）</template></span></div>
-            <div><span>运行时长</span><span>{{ fmtUptime(info.uptimeSec) }}</span></div>
+            <div><span>运行时长</span><span>{{ fmtUptime(info.uptimeSecs ?? info.uptimeSec) }}</span></div>
+            <div><span>AnyBoot</span><span>{{ info.appVersion ? "v" + info.appVersion : "—" }}</span></div>
           </div>
         </template>
       </div>
