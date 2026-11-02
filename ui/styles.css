@@ -2592,11 +2592,14 @@ button.primary-sol:hover:not(:disabled) {
    带边框的子面板（用户 2026-10-28 要求「不要折叠菜单、不要标题」）。
    自适应三件套：外层 flex-wrap、中间层 min-width:0、路径 overflow-wrap:anywhere。
    任何一档宽度都不许把窗口撑出横向滚动条。 */
+/* 2026-11-02 用户反馈：「OpenCore 引导区域那里比 rEFInd / GRUB 多了个阴影块」。
+ *
+ * 根因是这层 `.oc-menu` 包裹：它有 3% 的浅灰底 + 10px 内边距 + 10px 圆角，
+ * 在白色卡片里显出一块比卡片略小的灰底 —— 而 rEFInd / GRUB 的列表没有这层。
+ * 现在去掉底色与内边距/圆角，让 OC 列表和另外两套一样直接铺在卡片上。
+ * （margin-bottom 保留：它是 OC 列表与下方「被隐藏的 N 项」之间的间距。） */
 .oc-menu {
-  padding: 10px 12px;
   margin-bottom: 12px;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--text) 3%, transparent);
   min-width: 0;
 }
 .oc-menu-hint {
