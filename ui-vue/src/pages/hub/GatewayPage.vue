@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { call } from "@/api/tauri";
 import PairDialog from "@/components/hub/PairDialog.vue";
 import LogDialog from "@/components/hub/LogDialog.vue";
+import ConfirmDialog from "@/components/hub/ConfirmDialog.vue";
 
 /**
  * 远程接入页（原 `ui/hub.html` 的 `#page-gateway`，2792~3355 行）。
@@ -128,11 +129,6 @@ function tailscaleService() {
   void run("切换服务", () => call("gateway_tailscale_service"), "已切换");
 }
 
-function tsUninstall() {
-  if (!window.confirm("确定卸载 Tailscale？")) return;
-  void run("卸载 Tailscale", () => call("gateway_tailscale_uninstall"), "已卸载");
-}
-
 async function copyTsAddr() {
   const ip = tsStatus.value?.ip;
   if (!ip) return;
@@ -146,6 +142,22 @@ async function copyTsAddr() {
 
 /** 配对码弹层（旧版 #gwPairOverlay） */
 const pairOpen = ref(false);
+
+/** 卸载确认弹层（旧版 #gwUniOverlay，三张卡共用） */
+const uninstallOpen = ref(false);
+const uninstallWhat = ref("");
+const keepData = ref(false);
+
+function openUninstall(what: string) {
+  uninstallWhat.value = what;
+  keepData.value = false;
+  uninstallOpen.value = true;
+}
+
+function confirmUninstall(checked: boolean) {
+  uninstallOpen.value = false;
+  void run("卸载", () => call("gateway_uninstall", { keepData: checked }), "已卸载");
+}
 
 /** 日志弹层（旧版 #gwLogOverlay） */
 const logOpen = ref(false);
@@ -484,7 +496,7 @@ function deletePair(id: string) {
             <span class="trk" aria-hidden="true" />
           </label>
         </span>
-        <button v-if="tsStatus?.installed" type="button" class="btn" @click="tsUninstall">卸载</button>
+        <button v-if="tsStatus?.installed" type="button" class="btn" @click="openUninstall('将卸载 Tailscale 程序本体')">卸载</button>
         <button type="button" class="btn" @click="openTsLog">日志</button>
         <button type="button" class="btn" @click="refreshAll">重新检测</button>
       </div>
@@ -595,6 +607,17 @@ function deletePair(id: string) {
   </div>
 
   <PairDialog :open="pairOpen" @close="pairOpen = false; refreshAll()" />
+
+  <!-- 卸载确认（旧版 #gwUniOverlay）：勾上「保留本机数据」只删程序，登录凭据留着 -->
+  <ConfirmDialog
+    :open="uninstallOpen"
+    title="卸载"
+    :message="uninstallWhat"
+    confirm-text="确认卸载"
+    checkbox-label="保留本机数据（登录凭据 / 配置 / 状态目录）"
+    @confirm="confirmUninstall"
+    @cancel="uninstallOpen = false"
+  />
 
   <!-- 三个日志弹层（旧版 #gwLogOverlay / #tsLogOverlay / #tsnLogOverlay 同构） -->
   <LogDialog

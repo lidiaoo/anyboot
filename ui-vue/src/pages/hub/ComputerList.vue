@@ -5,6 +5,8 @@ import { useSettingsStore } from "@/stores/settings";
 import ComputerRow from "@/components/hub/ComputerRow.vue";
 import PcMenu from "@/components/hub/PcMenu.vue";
 import SystemInfoDialog from "@/components/hub/SystemInfoDialog.vue";
+import RemoteEditDialog from "@/components/hub/RemoteEditDialog.vue";
+import RemoteListDialog from "@/components/hub/RemoteListDialog.vue";
 
 /**
  * 电脑列表（原 `ui/hub.html` 的 `#page-computers`）。
@@ -159,6 +161,26 @@ watch(() => settings.dataRefreshSec, startTimer);
 
 /** 当前选中的电脑（旧版 activeRemote，默认 local） */
 const activeId = ref("local");
+
+/** 服务端编辑 / 列表弹层（旧版 #rsEditOverlay / #rsListOverlay） */
+const rsEditOpen = ref(false);
+const rsListOpen = ref(false);
+const rsEditing = ref<string>("");
+
+function openRemoteEdit(id: string) {
+  rsEditing.value = id;
+  rsEditOpen.value = true;
+}
+
+async function saveRemote(payload: Record<string, unknown>) {
+  rsEditOpen.value = false;
+  try {
+    await import("@/api/tauri").then(({ call }) => call("remote_save", payload));
+    await remote.load();
+  } catch {
+    /* 忽略 */
+  }
+}
 
 /** 电脑页面弹层（旧版 #cqViewOverlay） */
 const viewOpen = ref(false);
@@ -350,6 +372,22 @@ function power(payload: Record<string, unknown>) {
         </div>
       </div>
     </div>
+
+    <!-- 服务端编辑 / 列表（旧版 #rsEditOverlay / #rsListOverlay） -->
+    <RemoteEditDialog
+      :open="rsEditOpen"
+      :remote="remote.servers.find((s) => s.id === rsEditing) ?? null"
+      @save="saveRemote"
+      @close="rsEditOpen = false"
+    />
+    <RemoteListDialog
+      :open="rsListOpen"
+      :servers="remote.servers"
+      @edit="openRemoteEdit"
+      @remove="remote.remove($event)"
+      @add="rsEditing = ''; rsEditOpen = true"
+      @close="rsListOpen = false"
+    />
 
     <SystemInfoDialog
       :server-id="sysInfoId"

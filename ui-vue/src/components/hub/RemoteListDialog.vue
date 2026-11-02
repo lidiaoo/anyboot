@@ -1,0 +1,57 @@
+<script setup lang="ts">
+import type { RemoteProfile } from "@/stores/remote";
+
+/**
+ * 服务端列表弹窗（原 `ui/hub.html` 的 `#rsListOverlay`，2706 行）。
+ *
+ * ```
+ * .overlay > .dialog
+ *   .dialog-head > h3#rsListTitle + button.icon-btn
+ *   .dialog-body  （每个服务端一行：名称 + 地址 + 编辑/删除）
+ * ```
+ */
+
+defineProps<{
+  open: boolean;
+  servers: RemoteProfile[];
+}>();
+
+const emit = defineEmits<{
+  (e: "edit", id: string): void;
+  (e: "remove", id: string): void;
+  (e: "add"): void;
+  (e: "close"): void;
+}>();
+</script>
+
+<template>
+  <div v-if="open" class="overlay">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="rsListTitle">
+      <div class="dialog-head">
+        <h3 id="rsListTitle">服务端列表</h3>
+        <button type="button" class="icon-btn" aria-label="关闭" @click="emit('close')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <path d="M6 6l12 12M18 6L6 18" />
+          </svg>
+        </button>
+      </div>
+
+      <div class="dialog-body">
+        <div v-for="server in servers" :key="server.id" class="rs-list-row">
+          <span class="nm">{{ server.name }}</span>
+          <span class="mono addr">{{ (server.addresses ?? []).join(" / ") || "（无地址）" }}</span>
+          <span class="spacer" />
+          <button type="button" class="link-btn" @click="emit('edit', server.id)">编辑</button>
+          <button type="button" class="link-btn" @click="emit('remove', server.id)">删除</button>
+        </div>
+        <p v-if="!servers.length" class="field-hint">还没有添加任何 AnyBoot 服务端</p>
+        <button type="button" class="secondary" @click="emit('add')">＋ 添加服务端</button>
+      </div>
+
+      <div class="dialog-foot">
+        <span class="spacer" />
+        <button type="button" class="btn" @click="emit('close')">关闭</button>
+      </div>
+    </div>
+  </div>
+</template>

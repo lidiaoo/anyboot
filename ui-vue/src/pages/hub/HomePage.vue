@@ -37,6 +37,16 @@ const reloadSeed = ref(0);
 const failMessage = ref("");
 /** 电源悬浮球展开态 */
 const fabOpen = ref(false);
+/** 电源帮助弹层（旧版 #fabHelpOverlay） */
+const fabHelpOpen = ref(false);
+
+/** 帮助正文（旧版 #fabHelpText，原文照抄） */
+const FAB_HELP_TEXT =
+  "唤醒 = 发魔术包让电脑开机 —— 需要配好 MAC 并在主板开启「网络唤醒 / Wake on LAN」。" +
+  "睡眠 = 电脑挂起到内存，网页服务立刻停掉，会显示离线，要叫醒请点「唤醒」。" +
+  "关机 = 电脑立刻关机，网页服务随之中断，关机后只能用「唤醒」开机或到机器旁按电源键。" +
+  "重启 = 电脑立刻重启，网页会话断开，重启完成后会自动恢复在线。" +
+  "没配电源路由时走这台电脑自己的 /api/power（需要能连上它）；配了路由则发局域网 sol 包。";
 /** 标签 ⋮ 菜单 */
 const chipMenuOpen = ref(false);
 
@@ -222,6 +232,9 @@ function onFrameError() {
       <!-- 电源悬浮球（旧版 #pcFabWrap） -->
       <div class="pc-fab" :hidden="!fabOpen">
         <span class="pc-fab-note" title="电源操作说明">电源走局域网 · 需 sol</span>
+        <button type="button" class="pc-fab-help" title="电源操作说明" @click="fabHelpOpen = true">
+          ?
+        </button>
         <button
           v-for="p in POWER_ACTIONS"
           :key="p.act"
@@ -242,6 +255,23 @@ function onFrameError() {
       >
         ⏻
       </button>
+    </div>
+
+    <!-- 电源 · 睡眠与唤醒 帮助弹层（旧版 #fabHelpOverlay） -->
+    <div v-if="fabHelpOpen" class="overlay" @click.self="fabHelpOpen = false">
+      <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="fabHelpTitle">
+        <div class="dialog-head">
+          <h3 id="fabHelpTitle">电源 · 睡眠与唤醒</h3>
+          <button type="button" class="icon-btn" aria-label="关闭" @click="fabHelpOpen = false">✕</button>
+        </div>
+        <div class="dialog-body">
+          <p class="fab-help-text">{{ FAB_HELP_TEXT }}</p>
+        </div>
+        <div class="dialog-foot">
+          <span class="spacer" />
+          <button type="button" class="btn" @click="fabHelpOpen = false">知道了</button>
+        </div>
+      </div>
     </div>
 
     <!-- 标签 ⋮ 菜单（旧版 #chipMenu） -->
