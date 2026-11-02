@@ -21,3 +21,19 @@
 *, *::before, *::after { box-sizing: border-box; }
 
 html, body, #app { height: 100%; margin: 0; }
+
+/*
+ * `#app` 是 Vue 的挂载点，旧版没有这一层。
+ *
+ * 旧版布局链是：body(display:flex; column) > .shell(flex:1) + footer
+ * 多出 `#app` 后，.shell 变成 #app 的子元素，而 #app 默认是 block 且高度 100%
+ * —— 于是 .shell 撑满 #app，footer 被挤出视口（实测 body 只剩 756×413）。
+ *
+ * `display: contents` 让 #app 不生成盒子，子元素直接参与 body 的 flex 布局，
+ * 相当于让 DOM 结构与旧版一致。
+ *
+ * 注意：`display: contents` 会让 #app 自身的背景/边框失效 —— 这里不需要。
+ */
+#app {
+  display: contents;
+}

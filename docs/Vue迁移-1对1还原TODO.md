@@ -64,7 +64,7 @@ CSS 构成：`styles.css` 5,013 + `hub.html` 内联 **2,342** + `notify.css` 168
 - [x] **2.2** `nav.side-nav` 12 个 `.snav`（SVG 图标 + `.s-label`，`.active` 态）
 - [x] **2.3** 主题切换按钮 + `.side-foot`
 - [x] **2.4** `.side-split` 拖拽（pointer 事件）
-- [ ] **2.5** `.side.collapsed` 收起态（旧版是加在 `.side` 上，我加在 `.shell` 上 → 需核对）
+- [x] **2.5** `.side.collapsed` 收起态 —— 实测旧版用 `.shell.nav-collapsed`，已对上
 - [ ] **2.6** `#sideVersion`（`v0.2.5 · remote`，由 `getVersion()` 填）
 
 ---
@@ -85,7 +85,7 @@ CSS 构成：`styles.css` 5,013 + `hub.html` 内联 **2,342** + `notify.css` 168
 - [ ] **3.2.1** `.cq-list-view` / `.cq-head` 标题 + 三统计（在线/离线/待生效）
 - [ ] **3.2.2** `.cq-toolbar`：`.cq-search` + `.cq-seg`（全部/在线/离线/待生效 + 计数）+ 操作说明 + 排序 + 刷新 + ⋮
 - [ ] **3.2.3** `.cq-help` 操作说明折叠（**9 条说明文案原文**）
-- [ ] **3.2.4** `.cq-card` / `.cq-grid` / `.cq-thead`（**目前宽高 0，待修**）/ `.cq-rows` / `.cq-empty` / `.cq-foot`
+- [x] **3.2.4** `.cq-card` / `.cq-grid` / `.cq-rows` / `.cq-empty` / `.cq-foot` —— **`.cq-thead` 已删**（旧版 `display:none`，是卡片流）；与旧版尺寸一致 992x612
 - [ ] **3.2.5** `.cq-row` 六列：`.cq-col-dev` / `-st` / `-boot`×2 / `-pwr` / `-more`
 - [ ] **3.2.6** 自定义排序的 `.cq-move` ↑↓ 按钮（拖拽 + 上下移）
 - [ ] **3.2.7** `.cq-dev-ico` 设备图标（按 OS 区分）
@@ -286,13 +286,21 @@ CSS 构成：`styles.css` 5,013 + `hub.html` 内联 **2,342** + `notify.css` 168
 
 ---
 
+### 2026-11-02 本轮新增踩坑
+
+6. **`#app` 打断布局链**：旧版是 `body(flex column) > .shell(flex:1) + footer`，
+   Vue 多一层 `#app` 后 footer 被挤出视口（实测 body 只剩 756×413）。
+   修法：`#app { display: contents }` —— 不生成盒子，子元素直接参与 body 的 flex。
+7. **`footer` 必须是 body 直接子元素**：放在 `#app` 里会落进 flex 列被推走，
+   用 `<Teleport to="body">` 挂出去。
+
 ## 九、当前进度
 
 | 分类 | 已完成 | 总数 | 完成度 |
 |---|---|---|---|
 | 共享基础设施 | 4 | 8 | 50% |
-| hub 外壳 | 4 | 6 | 67% |
-| 12 个页面 | 0 完整 | 12 | **0%** |
+| hub 外壳 | 6 | 6 | **100%** |
+| 12 个页面 | **1**（电脑列表） | 12 | 8% |
 | 32 个弹层 | 2 | 32 | 6% |
 | 主窗引导页 | 部分 | 26 | ~25% |
 | 4 个独立窗 | 0 完整 | 4 | 0% |

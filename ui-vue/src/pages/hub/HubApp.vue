@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useUiStateStore } from "@/stores/uiState";
 import { useRemoteStore } from "@/stores/remote";
 import { useServersStore } from "@/stores/servers";
@@ -191,6 +191,26 @@ onMounted(async () => {
 const contentLabel = computed(
   () => NAV.find((item) => item.id === currentPage.value)?.label ?? "",
 );
+
+/** 底部状态栏时钟（旧版 `#clock`，每 1s 更新 HH:MM:SS） */
+const clock = ref("--:--:--");
+let clockTimer: number | null = null;
+function tickClock() {
+  clock.value = new Date().toLocaleTimeString("zh-CN", { hour12: false });
+}
+onMounted(() => {
+  tickClock();
+  clockTimer = window.setInterval(tickClock, 1000);
+});
+onUnmounted(() => {
+  if (clockTimer !== null) window.clearInterval(clockTimer);
+});
+
+/** 状态栏文案（旧版 `#footText` / `#footCount`） */
+const footText = computed(() =>
+  servers.servers.length ? "终端 / 文件 / 密钥均在独立窗口" : "未连接任何服务器",
+);
+const footCount = computed(() => `${servers.servers.length} 台服务器`);
 </script>
 
 <template>
@@ -294,4 +314,23 @@ const contentLabel = computed(
       </section>
     </div>
   </div>
+
+  <!--
+    底部状态栏（对齐旧版 hub.html:4593）。
+
+    **必须挂到 body 直下**：旧版布局是
+        body { display: flex; flex-direction: column }
+        .shell { flex: 1 }
+        footer { ... }
+    footer 若是 #app 的子元素，它会落在 flex 列里被挤出视口。
+  -->
+  <Teleport to="body">
+    <footer>
+      <span class="dot" />
+      <span id="footText">{{ footText }}</span>
+      <span class="sep">·</span>
+      <span id="footCount">{{ footCount }}</span>
+      <span class="clock" id="clock">{{ clock }}</span>
+    </footer>
+  </Teleport>
 </template>
