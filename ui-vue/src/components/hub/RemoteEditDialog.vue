@@ -33,6 +33,50 @@ useEscape(computed(() => props.open), () => emit("close"));
 
 const name = ref("");
 const quick = ref("");
+
+/** 连接优先级六通道（旧版 ROUTE_IDS / ROUTE_LABELS） */
+const ROUTE_LABELS: Record<string, string> = {
+  lan: "直连", jump: "跳板机", tunnel: "Cloudflare 隧道",
+  ts: "Tailscale 直连", funnel: "Tailscale Funnel", tsnet: "Tailscale Funnel（内建）",
+};
+const ROUTE_IDS = ["lan", "jump", "tunnel", "ts", "funnel", "tsnet"];
+const routeOrder = ref<string[]>([...ROUTE_IDS]);
+const routeDisabled = ref<Record<string, boolean>>({});
+const routeTimeout = ref<Record<string, number | undefined>>({});
+let dragFrom = -1;
+
+function onRouteDragStart(i: number, e: DragEvent) {
+  dragFrom = i;
+  if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+}
+function onRouteDragOver(i: number, e: DragEvent) {
+  // 视觉提示由浏览器处理，这里只阻止默认以允许 drop
+  void i;
+  if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+}
+function onRouteDragLeave(e: DragEvent) {
+  void e;
+}
+function onRouteDrop(to: number, e: DragEvent) {
+  void e;
+  if (dragFrom < 0 || dragFrom === to) return;
+  const arr = [...routeOrder.value];
+  const [moved] = arr.splice(dragFrom, 1);
+  if (moved) arr.splice(to, 0, moved);
+  routeOrder.value = arr;
+  dragFrom = -1;
+}
+function onRouteDragEnd() { dragFrom = -1; }
+function moveRoute(i: number, dir: number) {
+  const j = i + dir;
+  if (j < 0 || j >= routeOrder.value.length) return;
+  const arr = [...routeOrder.value];
+  [arr[i], arr[j]] = [arr[j]!, arr[i]!];
+  routeOrder.value = arr;
+}
+function toggleRouteEnabled(kind: string) {
+  routeDisabled.value = { ...routeDisabled.value, [kind]: !routeDisabled.value[kind] };
+}
 const hint = ref("");
 /** 地址行：[{ addr, macs }] */
 const rows = ref<{ addr: string; macs: string }[]>([{ addr: "", macs: "" }]);
@@ -125,6 +169,15 @@ watch(
       return;
     }
     name.value = r.name;
+    const ro = (r as Record<string, unknown>).routeOrder;
+    if (Array.isArray(ro) && ro.length) {
+      // 保留后端顺序，缺失的补到末尾
+      const ordered = ro.filter((k) => (ROUTE_IDS as string[]).includes(String(k))).map(String);
+      for (const k of ROUTE_IDS) if (!ordered.includes(k)) ordered.push(k);
+      routeOrder.value = ordered;
+    }
+    const rd = (r as Record<string, unknown>).routeDisabled as Record<string, boolean> | undefined;
+    if (rd && typeof rd === "object") routeDisabled.value = { ...rd };
     // 把 addresses + macs 摊平成行
     const addrs = r.addresses ?? [];
     const macs = (r.macs ?? {}) as Record<string, string[]>;
@@ -136,6 +189,10 @@ watch(
 );
 
 /** 地址快速识别：粘贴一整条 host:port 或带 token 的 URL */
+function onQuickPaste() {
+  window.setTimeout(() => recognize(), 0);
+}
+
 function recognize() {
   const text = quick.value.trim();
   if (!text) return;
@@ -175,6 +232,9 @@ function submit() {
     name: name.value.trim(),
     addresses,
     macs,
+    route_order: routeOrder.value,
+    route_disabled: routeDisabled.value,
+    route_timeout: routeTimeout.value,
   });
 }
 </script>
@@ -201,7 +261,17 @@ function submit() {
 
         <div class="field">
           <label for="rsAddrQuick">快速识别（粘贴任意写法，自动拆出地址 / 端口 / MAC 加进下面）</label>
-          <textarea id="rsAddrQuick" v-model="quick" rows="2" class="mono" spellcheck="false" placeholder="整段粘进来就行，例如：&#10;192.168.0.120:12300 AA:BB:CC:DD:EE:FF 台式机有线&#10;192.168.0.121 11-22-33-44-55-66（5G WiFi）" />
+          <textarea
+            id="rsAddrQuick"
+            v-model="quick"
+            rows="2"
+            class="mono"
+            spellcheck="false"
+            placeholder="整段粘进来就行，例如：&#10;192.168.0.120:12300 AA:BB:CC:DD:EE:FF 台式机有线&#10;192.168.0.121 11-22-33-44-55-66（5G WiFi）"
+            @keydown.ctrl.enter.prevent="recognize"
+            @keydown.meta.enter.prevent="recognize"
+            @paste="onQuickPaste"
+          />
           <div class="addr-quick-actions">
             <button type="button" class="btn small" id="rsAddrRecognize" @click="recognize">识别并加入</button>
             <span class="addr-quick-hint" id="rsAddrHint">换行 / 空格 / 逗号 / 分号都能分开；认不出的文字（备注、括号）自动忽略</span>
@@ -263,6 +333,37 @@ function submit() {
           <div class="field">
             <label><b>连接优先级</b>（拖动排序；每行中间那格 = 这个通道自己的探测超时/秒，留空用下面的默认值）</label>
             <div class="route-prio" id="rsRouteList">
+              <div
+                v-for="(kind, index) in routeOrder"
+                :key="kind"
+                :class="['rp-row', { 'rp-off': routeDisabled[kind] }]"
+                draggable="true"
+                :data-kind="kind"
+                @dragstart="onRouteDragStart(index, $event)"
+                @dragover.prevent="onRouteDragOver(index, $event)"
+                @dragleave="onRouteDragLeave($event)"
+                @drop.prevent="onRouteDrop(index, $event)"
+                @dragend="onRouteDragEnd"
+              >
+                <span class="rp-grip" title="拖动排序">☰</span>
+                <span class="rp-name">{{ ROUTE_LABELS[kind] }}</span>
+                <input
+                  class="rp-timeout mono"
+                  type="number"
+                  step="0.5"
+                  min="0.2"
+                  max="30"
+                  :value="routeTimeout[kind] ?? ''"
+                  :aria-label="ROUTE_LABELS[kind] + ' 通道的探测超时（秒）'"
+                  @change="routeTimeout[kind] = Number(($event.target as HTMLInputElement).value) || undefined"
+                />
+                <button type="button" class="rp-btn" title="上移" @click="moveRoute(index, -1)">↑</button>
+                <button type="button" class="rp-btn" title="下移" @click="moveRoute(index, 1)">↓</button>
+                <label class="switch" :title="ROUTE_LABELS[kind] + ' 通道是否启用'">
+                  <input type="checkbox" :checked="!routeDisabled[kind]" @change="toggleRouteEnabled(kind)" />
+                  <span class="trk" aria-hidden="true" />
+                </label>
+              </div>
               <p class="field-hint">按住 ☰ 上下拖动调整顺序（或点 ↑↓）；探活与接口请求按此顺序逐通道试，第一个通的就走谁。每个通道可以单独设探测超时：局域网一般 1~2 秒够，走公网中继的 Funnel / 内置 Funnel 首次握手慢，可以单独给 5~8 秒，互不牵连。留空的那一格就用下面的默认值。</p>
             </div>
           </div>
