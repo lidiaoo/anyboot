@@ -151,7 +151,8 @@ function copyLoginUrl() {
   void navigator.clipboard.writeText(loginUrl.value).then(() => toast.show("登录链接已复制")).catch(() => toast.show("复制失败", "bad"));
 }
 function regenLoginUrl() {
-  void call("gateway_tailscale_login_regen").catch((e) => toast.show("重新生成失败：" + e, "bad"));
+  // 旧版：把开关关开一次重新生成登录链接（不是单独 IPC）
+  toggleTailscale();
 }
 
 function openLoginPage() {
@@ -650,6 +651,10 @@ function fmtTime(ts?: number): string {
 }
 
 
+
+function revokePair(id: string) {
+  void run("吊销", () => call("gateway_pair_revoke", { id }), "已吊销");
+}
 
 function deletePair(id: string) {
   void run("删除", () => call("gateway_pair_delete", { id }), "已删除");
@@ -1320,6 +1325,7 @@ function deletePair(id: string) {
           >{{ pairSrcChip(pair).text }}</span>
           <button type="button" class="link-btn" @click="reissuePair(pair.id)">重新出码</button>
           <span v-if="pair.revoked" class="gw-client-revoked">已吊销</span>
+          <button v-else type="button" class="link-btn" @click="revokePair(pair.id)">吊销</button>
           <button type="button" class="link-btn" @click="deletePair(pair.id)">删除</button>
         </div>
       </div>

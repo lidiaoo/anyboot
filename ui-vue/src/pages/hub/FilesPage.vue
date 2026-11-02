@@ -27,6 +27,8 @@ interface SftpEntry {
   size: number;
   mtime: number;
   perms?: string;
+  link?: boolean;
+  target?: string;
 }
 
 interface XferTask {
@@ -343,6 +345,12 @@ async function goHome() {
 
 
 function showInfo(entry: SftpEntry) {
+  // 软链接：异步读取指向目标（旧版 hub_sftp_readlink）
+  if (entry.link && !entry.target) {
+    void call<string>("hub_sftp_readlink", { server: serverId.value, path: entry.path })
+      .then((tgt) => { if (targetEntry.value?.path === entry.path) targetEntry.value = { ...entry, target: String(tgt ?? "") }; })
+      .catch(() => {});
+  }
   targetEntry.value = entry;
   infoOpen.value = true;
 }
@@ -596,6 +604,7 @@ function pct(task: XferTask): number {
           <p><b>类型</b>{{ targetEntry?.is_dir ? "目录" : "文件" }}</p>
           <p><b>大小</b>{{ targetEntry?.is_dir ? "—" : fmtSize(targetEntry?.size ?? 0) }}</p>
           <p><b>权限</b><span class="mono">{{ targetEntry?.perms || "—" }}</span></p>
+          <p v-if="targetEntry?.link"><b>指向</b><span class="mono">{{ targetEntry?.target || "读取中…" }}</span></p>
           <p><b>修改时间</b>{{ fmtTime(targetEntry?.mtime ?? 0) }}</p>
         </div>
         <div class="fb-modal-foot">

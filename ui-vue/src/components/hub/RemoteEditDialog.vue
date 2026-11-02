@@ -3,6 +3,7 @@ import { computed, ref, watch } from "vue";
 import { useServersStore } from "@/stores/servers";
 import { useToastStore } from "@/stores/toast";
 import type { RemoteProfile } from "@/stores/remote";
+import { call } from "@/api/tauri";
 import { useEscape } from "@/composables/useEscape";
 
 /**
@@ -209,8 +210,22 @@ function remoteSplit() {
     remoteHint.value = "没识别出地址";
   }
 }
-function remoteGet() {
-  remoteHint.value = "";
+async function remoteGet() {
+  // 旧版：向第一个已填地址发起无凭据配对请求，对方点「同意」后回填（最多等 80 秒）
+  const first = rows.value.map((r) => r.addr.trim()).filter(Boolean)[0];
+  if (!first) {
+    editError.value = "先在上方添加对方的局域网地址，才能「从对方获取」";
+    return;
+  }
+  remoteHint.value = "正在向 " + first + " 发起配对请求 —— 请让对方在其屏幕上点「同意」（最多等 80 秒）…";
+  try {
+    const pair = (await call<string>("gateway_pair_fetch", { peer: first })) ?? "";
+    remoteText.value = pair;
+    remoteHint.value = pair ? "已拿到配对码 —— 点「保存」生效" : "对方没有返回配对码";
+  } catch (e) {
+    remoteHint.value = "";
+    editError.value = String(e);
+  }
 }
 function remoteClear() {
   remoteText.value = "";
@@ -228,7 +243,7 @@ async function doTest() {
   testOut.value = "测试中…";
   try {
     const { call } = await import("@/api/tauri");
-    await call("hub_remote_test", { remote: { id: props.remote?.id, name: name.value } });
+    await call("remote_test_via", { serverId: props.remote?.id ?? "", address: null });
     testOut.value = "连接正常";
   } catch (e) {
     editError.value = String(e);

@@ -47,7 +47,7 @@ const autoCandidates = computed<string[]>(() => {
   return Array.isArray(list) ? list.map((c: any) => (typeof c === "string" ? c : c?.path ?? String(c))) : [];
 });
 function pickAutoCandidate(path: string) {
-  void import("@/api/tauri").then(({ call }) => call("set_grub_esp", { path }).catch(() => {}));
+  void import("@/api/tauri").then(({ call }) => call("set_grub_dir", { dir: path }).catch(() => {}));
 }
 
 /** 列表格式（旧版 #grub-list-format） */

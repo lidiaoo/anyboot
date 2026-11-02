@@ -25,6 +25,8 @@ interface SftpEntry {
   size: number;
   mtime: number;
   perms?: string;
+  link?: boolean;
+  target?: string;
 }
 
 interface XferTask {
@@ -368,6 +370,11 @@ async function confirmDelete() {
 function showInfo(entry: SftpEntry) {
   targetEntry.value = entry;
   infoOpen.value = true;
+  if (entry.link && !entry.target) {
+    void call<string>("hub_sftp_readlink", { server: currentServer.value, path: entry.path })
+      .then((tgt) => { if (targetEntry.value?.path === entry.path) targetEntry.value = { ...entry, target: String(tgt ?? "") }; })
+      .catch(() => {});
+  }
 }
 
 async function transferCtl(action: "pause" | "resume" | "abandon") {
@@ -645,8 +652,11 @@ function pct(task: XferTask): number {
       </div>
       <div id="infoRows" class="modal-body">
         <p><b>名称</b> {{ targetEntry?.name }}</p>
-        <p><b>路径</b> <span class="mono">{{ targetEntry?.path }}</span></p>
         <p><b>大小</b> {{ targetEntry?.is_dir ? "—" : fmtSize(targetEntry?.size ?? 0) }}</p>
+        <p><b>权限</b> <span class="mono">{{ targetEntry?.perms || "—" }}</span></p>
+        <p><b>修改时间</b> {{ fmtTime(targetEntry?.mtime ?? 0) }}</p>
+        <p><b>路径</b> <span class="mono">{{ targetEntry?.path }}</span></p>
+        <p v-if="targetEntry?.link"><b>指向</b> <span class="mono">{{ targetEntry?.target || "读取中…" }}</span></p>
       </div>
       <div class="modal-foot">
         <button type="button" class="btn primary" id="infoOk" @click="infoOpen = false">关闭</button>
