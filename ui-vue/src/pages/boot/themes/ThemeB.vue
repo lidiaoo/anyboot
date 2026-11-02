@@ -1,0 +1,174 @@
+<script setup lang="ts">
+import { computed, ref, watch } from "vue";
+import BootList from "@/components/boot/BootList.vue";
+import LoaderIcon from "./LoaderIcon.vue";
+import StateChip from "./StateChip.vue";
+import type { LoaderInfo } from "./types";
+
+/**
+ * 主题 B：左栏通道 + 右栏详情（`.lb`）。
+ *
+ * 对齐旧 `boot-adv.js` 的 `THEME_RENDERERS.B`：
+ *
+ * ```
+ * .lb
+ *   aside.lb-nav              ← 左栏
+ *     .lb-nav-head              「引导器 N」+ 添加按钮
+ *     .lb-list                  通道列表（.is-on = 当前）
+ *   (右栏)
+ *     h2  ← 图标 + 名称 + 状态胶囊
+ *     p   ← ESP · N 个条目
+ *     .lb-scroll   ← 滚动容器
+ *       .lb-block（启动项 / 引导器设置各一块）
+ * ```
+ *
+ * 注意：B 只有 `wide` 档位（`THEME_LAYOUT_MODES.B = ["wide"]`）——
+ * 左栏 + 右栏在这个宽度以下只剩一条缝。
+ */
+
+const props = defineProps<{
+  loaders: LoaderInfo[];
+  /** 记忆里选中的通道（可能不在本列，需兜底到第一个） */
+  activeId?: string;
+  onSelect?: (id: string) => void;
+  onAdd?: () => void;
+}>();
+
+/**
+ * 左右布局下每个渲染器只拿到**自己那一列**的引导器：
+ * 记忆里的 active 可能不在这一列（themeSel 是全局的），直接用会取到 undefined
+ * → 读 .entries 当场抛错，整页布置中断（「左右布局点了没变化」的一个真凶）。
+ */
+const fallbackId = computed(() => props.loaders[0]?.id ?? "");
+const current = ref(
+  props.activeId && props.loaders.some((item) => item.id === props.activeId)
+    ? props.activeId
+    : fallbackId.value,
+);
+
+watch(
+  () => [props.activeId, props.loaders.map((l) => l.id).join(",")] as const,
+  () => {
+    if (!props.loaders.some((item) => item.id === current.value)) {
+      current.value = fallbackId.value;
+    }
+  },
+);
+
+const activeLoader = computed(
+  () => props.loaders.find((item) => item.id === current.value) ?? null,
+);
+
+const metaText = computed(() => {
+  const loader = activeLoader.value;
+  if (!loader) return "";
+  return `${loader.esp || "ESP 未知"} · ${loader.entries.length} 个条目`;
+});
+
+const settingsOpen = ref(false);
+
+function select(id: string) {
+  current.value = id;
+  props.onSelect?.(id);
+}
+</script>
+
+<template>
+  <div class="lb">
+    <aside class="lb-nav">
+      <div class="lb-nav-head">
+        <span class="grow">引导器 {{ loaders.length }}</span>
+        <button
+          type="button"
+          class="btn icon ghost sm"
+          title="添加 / 重新识别通道"
+          aria-label="添加"
+          @click="onAdd?.()"
+        >
+          +
+        </button>
+      </div>
+      <div class="lb-list">
+        <button
+          v-for="loader in loaders"
+          :key="loader.id"
+          type="button"
+          :class="{ 'is-on': loader.id === current }"
+          @click="select(loader.id)"
+        >
+          <LoaderIcon :id="loader.id" size="sm" />
+          <span class="nm">{{ loader.name }}</span>
+          <i :class="['dot', loader.state]" />
+        </button>
+      </div>
+    </aside>
+
+    <div class="lb-main">
+      <template v-if="activeLoader">
+        <h2>
+          <LoaderIcon :id="activeLoader.id" size="md" />
+          {{ activeLoader.name }}
+          <StateChip :state="activeLoader.state" />
+        </h2>
+        <p>{{ metaText }}</p>
+
+        <div class="lb-scroll">
+          <div class="lb-block">
+            <div class="lb-block-head">
+              <b>启动项</b>
+              <span>{{ activeLoader.entries.length }}</span>
+              <span class="grow" />
+            </div>
+            <div class="lb-block-body">
+              <BootList :loader="activeLoader.id" />
+            </div>
+          </div>
+
+          <div class="lb-block">
+            <button
+              type="button"
+              class="lb-block-head"
+              :aria-expanded="settingsOpen"
+              @click="settingsOpen = !settingsOpen"
+            >
+              <b>引导器设置</b>
+              <span>ESP、权限、默认项、脚本</span>
+              <span class="grow" />
+              <span :class="['chevron', { open: settingsOpen }]" aria-hidden="true">▾</span>
+            </button>
+            <div v-show="settingsOpen" class="lb-block-body" style="padding: 0">
+              <p class="settings-hint">阶段 2 暂未迁移设置面板，可到「引导高级设置」里改</p>
+            </div>
+          </div>
+        </div>
+      </template>
+      <p v-else class="empty">这一列没有分配到引导器</p>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.chevron {
+  font-size: 11px;
+  transition: transform 0.15s;
+}
+.chevron.open {
+  transform: rotate(180deg);
+}
+.settings-hint {
+  font-size: 12px;
+  color: var(--fg-faint, #9ca3af);
+  padding: 10px 12px;
+  margin: 0;
+}
+.empty {
+  padding: 24px 12px;
+  color: var(--fg-faint, #9ca3af);
+  font-size: 12px;
+}
+.lb-list button .nm {
+  flex: 1;
+  text-align: left;
+  min-width: 0;
+}
+</style>

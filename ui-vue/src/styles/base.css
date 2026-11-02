@@ -1,10 +1,18 @@
-/* 阶段 0 只做最小重置；真正的 tokens / 主题在阶段 2 从 ui/styles.css 拆过来 */
-* { box-sizing: border-box; }
+/*
+ * 全局样式。
+ *
+ * **决策（2026-11-02）**：迁移期**直接复用旧的 `ui/styles.css`**，不重写。
+ * 理由：那 5,013 行是用户逐条纠正过的结果（三通道容器一致、置顶 sticky、
+ * 四个断点响应式、所有 `contain: paint`…），重写必然走样。
+ * 阶段 5 再决定是否拆进各组件 scoped。
+ *
+ * 组件里保留旧类名（`.grub-entry` / `.ba-theme-root` …）就是为了让这份 CSS
+ * 继续生效 —— **改类名等于让样式全部失效**。
+ */
+@import "../../../ui/styles.css";
+@import "../../../ui/notify.css";
+
+/* 迁移期的最小重置（旧 styles.css 里已有大部分，这里只补 Vue 特有的） */
+*, *::before, *::after { box-sizing: border-box; }
+
 html, body, #app { height: 100%; margin: 0; }
-body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
-    "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-  background: #fbfcfe;
-  color: #1a1a1a;
-  -webkit-font-smoothing: antialiased;
-}

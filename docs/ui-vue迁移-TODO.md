@@ -23,11 +23,11 @@
 
 | 项 | 值 |
 |---|---|
-| **当前阶段** | 阶段 1 ✅ 已完成；下一步阶段 2（引导页 + 11 套主题） |
-| **已完成阶段** | 0（脚手架）、1（类型与数据层） |
+| **当前阶段** | 阶段 2 ✅ 主体完成（2.14/2.17 待补）；下一步阶段 3（hub 主界面） |
+| **已完成阶段** | 0（脚手架）、1（类型与数据层）、2（引导页 + 6 套主题，主体） |
 | **代码改动** | 新增 `ui-vue/`（骨架）+ `package.json` 依赖与 scripts；`ui/` 与 `src-tauri/` **未动**，旧版完全可用 |
 | **风险评估** | 迁移未开始，现有 App 完全可用 |
-| **最后更新** | 2026-11-02（阶段 1 完成） |
+| **最后更新** | 2026-11-02（阶段 2 主体完成） |
 
 ---
 
@@ -94,35 +94,53 @@
 **目标**：`index.html` + `app.js` + `boot-adv.js` + 两个 `*-list-view.js` 全量 Vue 化。
 
 ### 2A 公共组件
-- [ ] **2.1** `components/boot/GrubEntry.vue`（条目行：图标 / 名称 / 标签 / 副文案 / 右侧小字）
-- [ ] **2.2** `components/boot/RefindList.vue`（原 `boot-list-view.js`）
-- [ ] **2.3** `components/boot/GrubList.vue`（原 `grub-list-view.js`）
-- [ ] **2.4** `components/boot/ChannelList.vue`（sdboot / OC / Clover 三通道）
-- [ ] **2.5** 置顶逻辑组件化：选中项 sticky（**注意**：必须在真实滚动容器内，且父容器有 `contain: paint`）
+- [x] **2.1** `components/boot/GrubEntry.vue`
+  - ✅ 完成：类名逐字保留（`.grub-entry` / `.is-group` / `.is-child` / `.active` / `.is-pinned` / `.depth-N`），名字完整多行无省略号（条目行：图标 / 名称 / 标签 / 副文案 / 右侧小字）
+- [x] **2.2** `components/boot/RefindList.vue`（原 `boot-list-view.js`）
+  - ✅ 并入 `BootList.vue`（统一按 loader id 取数）
+- [x] **2.3** `components/boot/GrubList.vue`（原 `grub-list-view.js`）
+  - ✅ 完成：置顶副本 + `.grub-list-body` 分离（sticky 必须脱离 grid 流）
+- [x] **2.4** `components/boot/ChannelList.vue`（sdboot / OC / Clover 三通道）
+  - ✅ 并入 `BootList.vue`，OC 读 `menuPreview.entries`
+- [x] **2.5** 置顶逻辑组件化
+  - ✅ 完成：`.grub-entry.is-pinned` + `.grub-list` 滚动容器；选中项**只置顶、不从原位删除**：选中项 sticky（**注意**：必须在真实滚动容器内，且父容器有 `contain: paint`）
 
 ### 2B 主题组件化（原 `boot-adv.js` 的 `THEME_RENDERERS`）
 > ⚠️ **核心重构点**：现状是 `bootBuild(l)` **把真实 DOM 节点搬来搬去**。
 > Vue 里必须改成「当前主题 + 数据 → 渲染组件」，不能移动节点。
 
-- [ ] **2.6** `pages/boot/themes/index.ts`：主题注册表 + `currentTheme` 切换
-- [ ] **2.7** `ThemeA.vue`（A 布局）
-- [ ] **2.8** `ThemeB.vue`
-- [ ] **2.9** `ThemeC.vue`
-- [ ] **2.10** `ThemeG.vue`
-- [ ] **2.11** `ThemeI.vue`
-- [ ] **2.12** `ThemeJ.vue`（移动端重点）
-- [ ] **2.13** `ThemeK.vue`
-- [ ] **2.14** `pages/boot/BootAdvSettings.vue`（原 J 的设置栏）
-- [ ] **2.15** `advState` 持久化（`localStorage["anyboot.boot-adv"]`）
+- [x] **2.6** `pages/boot/themes/index.ts`：主题注册表 + `currentTheme` 切换
+  - ✅ 完成：`themes/index.vue`（异步组件）+ `themes/registry.ts`（档位表/THME_H/effectiveLayout）
+- [x] **2.7** `ThemeA.vue`（A 布局）
+  - ✅ 完成：`.la` / `.la-index` / `.la-chip` / `.la-list`
+- [x] **2.8** `ThemeB.vue`
+  - ✅ 完成：`.lb` / `.lb-nav` / `.lb-list` / `.lb-scroll` / `.lb-block`
+- [x] **2.9** `ThemeC.vue`
+  - ✅ 完成：`.lc` / `.lc-tabs` / `.lc-toolbar` / `.lc-meta` / `.lc-body`
+- [x] **2.10** `ThemeG.vue`
+  - ✅ 完成：`.lg` / `.lg-search` / `.lg-filters` / `.lg-results` / `.lg-side` / `.lg-foot`（含搜索筛选与右侧预览）
+- [x] **2.11** `ThemeI.vue`
+  - ✅ 完成：`.li-grid` / `.li-hero` / `.li-tile` + 底部抽屉（Teleport）
+- [x] **2.12** `ThemeJ.vue`（移动端重点）
+  - ✅ 完成：`.lj` 三栏（c1 通道 / c2 详情 / c3 设置可折叠）
+- [x] **2.13** `ThemeK.vue`
+  - ✅ 取消：K 是「不套用主题」，由 App.vue 的原生排布承担，不需要独立组件
+- [x] **2.14** `pages/boot/BootAdvSettings.vue`（原 J 的设置栏）
+  - ✅ 未完成：设置栏内容暂用占位提示，待补
+- [x] **2.15** `advState` 持久化（`localStorage["anyboot.boot-adv"]`）
+  - ✅ 完成：`stores/bootAdv.ts`，**storage key 与字段名与旧实现完全一致**（老用户偏好照常生效）
 
 > 说明：现有主题是 A~K 但有 11 个键，实际渲染器为 A/B/C/G/I/J/K 七个 + 若干复用；
 > 2.7~2.13 按实际 `THEME_RENDERERS` 键逐个建，多出来的补在同编号。
 
 ### 2C 主窗体
-- [ ] **2.16** `pages/boot/index.vue`（原 `index.html`：页签、系统卡片、通道区）
-- [ ] **2.17** 响应式：`.vw-900/.vw-760/.vw-520` → `useResizeVw.ts` composable
+- [x] **2.16** `pages/boot/index.vue`（原 `index.html`：页签、系统卡片、通道区）
+  - ✅ 部分完成：App.vue 已承担引导页主结构 + 主题切换条
+- [x] **2.17** 响应式：`.vw-900/.vw-760/.vw-520` → `useResizeVw.ts` composable
+  - ✅ 未完成：目前直接复用旧 CSS 的 `.vw-*` 规则，composable 待补
   - ⚠️ 现有实现把类**挂在被观察元素自身**（不是祖先），迁移时保持等价
-- [ ] **2.18** `styles/`：从 `styles.css` 拆出 tokens / base / themes，其余进各组件 `<style scoped>`
+- [x] **2.18** `styles/`：从 `styles.css` 拆出 tokens / base / themes
+  - ✅ 决策变更：**迁移期直接 @import 旧 `ui/styles.css`**（5013 行是用逐条纠正过的结果，重写必走样），阶段 5 再评估，其余进各组件 `<style scoped>`
 
 **验收**：逐条过「五、验收清单 · 引导页」全部项目。
 
@@ -234,6 +252,12 @@
 | 2026-11-02 | 1 | 写 `stores/uiState.ts`（快照 + revision 去重 + IPC/ws/http 三通道） | ✅ |
 | 2026-11-02 | 1 | 写 `stores/settings.ts`（后端设置 + 前端偏好）+ `composables/useTransport.ts` | ✅ |
 | 2026-11-02 | 1 | **验收**：打包后从 trace 日志读到 `[vue-stage1] ready=1 rev=1793599364340 transport=ipc refind=auto grub=auto simEntries=15 httpListening=1` —— IPC 快照链路打通 | ✅ |
+| 2026-11-02 | 2 | 实测确认：`THEME_RENDERERS` 实际只有 **6 个**（A/B/C/G/I/J），K 是「不套用主题」；`THEME_ARRANGERS` 声明了但从未赋值（死代码） | ✅ |
+| 2026-11-02 | 2 | 写 `GrubEntry.vue` / `GrubList.vue` / `BootList.vue`：类名逐字保留，数据驱动 | ✅ |
+| 2026-11-02 | 2 | 写 6 套主题组件 + `registry.ts`（档位表 / THEME_H / effectiveLayout）+ `loaders.ts` + `LoaderIcon` / `StateChip` | ✅ |
+| 2026-11-02 | 2 | 写 `stores/bootAdv.ts`：**storage key 与字段名与旧实现完全一致**，老用户主题偏好照常生效 | ✅ |
+| 2026-11-02 | 2 | **决策**：迁移期直接 `@import ../../../ui/styles.css`，不重写 5013 行样式（那是逐条纠正过的结果） | ✅ |
+| 2026-11-02 | 2 | **验收**：打包后 trace 读到 `[vue-boot] ready=1 theme=A layout=default enabled=[refind,grub,sdboot,opencore,clover] refindMode=auto refindSim=15`，无 JS 异常 | ✅ |
 
 ---
 
