@@ -68,6 +68,8 @@ export const useSettingsStore = defineStore("settings", () => {
   /** GRUB 读取方式：auto / manual */
   const grubMode = computed(() => ui.settings?.grubMode ?? "auto");
   const theme = computed(() => ui.settings?.theme ?? "light");
+  /** 强调色（旧版 applyAccent 的 accent） */
+  const accentColor = computed(() => ui.settings?.accentColor ?? "#6366f1");
   /** GRUB 条目文字格式（极简 / 完整 …） */
   const grubListFormat = computed(() => ui.settings?.grubListFormat ?? "minimal");
 
@@ -110,6 +112,7 @@ export const useSettingsStore = defineStore("settings", () => {
     refindMode,
     grubMode,
     theme,
+    accentColor,
     grubListFormat,
     // 前端偏好
     dataRefreshSec,

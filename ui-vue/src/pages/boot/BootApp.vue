@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useUiStateStore } from "@/stores/uiState";
+import { applyAccent } from "@/composables/useAccent";
 import { useSettingsStore } from "@/stores/settings";
 import { useBootAdvStore, type LoaderId } from "@/stores/bootAdv";
 import { loaderMeta } from "@/pages/boot/themes/loaders";
@@ -101,11 +102,20 @@ function toggleTheme() {
   html.setAttribute("data-theme", next);
   html.classList.toggle("light", next === "light");
   html.classList.toggle("dark", next === "dark");
+  applyAccent(ui.settings?.accentColor, next);
   setTheme(next);
 }
 
+watch(() => ui.settings?.accentColor, () => {
+  const curTheme = document.documentElement.classList.contains("light") ? "light" : "dark";
+  applyAccent(ui.settings?.accentColor, curTheme);
+});
+
 onMounted(async () => {
   await ui.start();
+  // 强调色初始应用（旧版 applyAccent）
+  const curTheme = document.documentElement.classList.contains("light") ? "light" : "dark";
+  applyAccent(ui.settings?.accentColor, curTheme);
   // 旧版启动时还会拉一次设置、探一下本地服务、取默认下载目录
   void call("get_settings").catch(() => {});
   void call("local_service_health").catch(() => {});
@@ -127,6 +137,7 @@ onMounted(async () => {
       html.setAttribute("data-theme", theme);
       html.classList.toggle("light", theme === "light");
       html.classList.toggle("dark", theme === "dark");
+      applyAccent(ui.settings?.accentColor, theme === "light" ? "light" : "dark");
     }),
   );
   unlisteners.push(await listen("hub-focus-update", () => void focusWindowState()));;
