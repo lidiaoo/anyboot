@@ -1,8 +1,10 @@
 <script setup lang="ts">
+const toast = useToastStore();
 import { computed, onMounted, ref } from "vue";
 import { useServersStore, type HubServer } from "@/stores/servers";
 import ServerEditDialog from "@/components/hub/ServerEditDialog.vue";
 import LatencyTrend from "@/components/hub/LatencyTrend.vue";
+import { useToastStore } from "@/stores/toast";
 
 /**
  * 服务器页（原 `ui/hub.html` 的 `#page-servers`）。
@@ -167,13 +169,13 @@ async function deleteTunnel(id: string) {
 function openFiles(server: HubServer) {
   if (server.protocol !== "ssh") return;
   void import("@/api/tauri").then(({ call }) =>
-    call("hub_open_files_window", { server_id: server.id }).catch(() => {}),
+    call("hub_open_files_window", { server_id: server.id }).catch((e) => toast.show("打开文件浏览失败：" + e, "bad")),
   );
 }
 
 function openTerminal(server: HubServer) {
   void import("@/api/tauri").then(({ call }) =>
-    call("hub_open_term_window", { server_id: server.id }).catch(() => {}),
+    call("hub_open_term_window", { server_id: server.id }).catch((e) => toast.show("打开终端失败：" + e, "bad")),
   );
 }
 

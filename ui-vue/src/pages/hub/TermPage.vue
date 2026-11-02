@@ -1,7 +1,9 @@
 <script setup lang="ts">
+const toast = useToastStore();
 import { computed, onMounted, ref } from "vue";
 import { useServersStore } from "@/stores/servers";
 import { call } from "@/api/tauri";
+import { useToastStore } from "@/stores/toast";
 
 /**
  * 终端页（原 `ui/hub.html` 的 `#page-term`，3355 行）。
@@ -40,7 +42,7 @@ const termBtnText = computed(() => {
 function openTerminal() {
   if (!selectedId.value) return;
   // 旧版用的是专门的 hub_open_term_window（带 serverId 直接连）
-  void call("hub_open_term_window", { server_id: selectedId.value }).catch(() => {});
+  void call("hub_open_term_window", { server_id: selectedId.value }).catch((e) => toast.show("打开终端失败：" + e, "bad"));
 }
 </script>
 

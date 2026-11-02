@@ -1,4 +1,5 @@
 <script setup lang="ts">
+const toast = useToastStore();
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 
 import { useRemoteStore, type RemoteProfile } from "@/stores/remote";
@@ -9,6 +10,7 @@ import SystemInfoDialog from "@/components/hub/SystemInfoDialog.vue";
 import RemoteEditDialog from "@/components/hub/RemoteEditDialog.vue";
 import RemoteListDialog from "@/components/hub/RemoteListDialog.vue";
 import TunnelDialog from "@/components/hub/TunnelDialog.vue";
+import { useToastStore } from "@/stores/toast";
 
 const props = defineProps<{ addSeed?: number }>();
 
@@ -323,7 +325,7 @@ function rowMenuAction(action: string, id: string) {
       void openInBrowser(id);
       break;
     case "refresh":
-      void import("@/api/tauri").then(({ call }) => call("remote_test", { id })).then(() => remote.load()).catch(() => {});
+      void import("@/api/tauri").then(({ call }) => call("remote_test", { id })).then(() => remote.load()).catch((e) => toast.show("测试失败：" + e, "bad"));
       break;
     case "sysinfo":
       sysInfoId.value = id;
@@ -337,7 +339,7 @@ function rowMenuAction(action: string, id: string) {
       break;
     }
     case "delete":
-      void import("@/api/tauri").then(({ call }) => call("remote_delete", { id })).then(() => remote.load()).catch(() => {});
+      void import("@/api/tauri").then(({ call }) => call("remote_delete", { id })).then(() => remote.load()).catch((e) => toast.show("删除失败：" + e, "bad"));
       break;
   }
 }
@@ -379,12 +381,12 @@ async function listTunnels() {
 
 async function startTunnel(id: string) {
   const { call } = await import("@/api/tauri");
-  await call("hub_tunnel_start", { tunnel_id: id }).catch(() => {});
+  await call("hub_tunnel_start", { tunnel_id: id }).catch((e) => toast.show("启动隧道失败：" + e, "bad"));
 }
 
 async function stopTunnel(id: string) {
   const { call } = await import("@/api/tauri");
-  await call("hub_tunnel_stop", { tunnel_id: id }).catch(() => {});
+  await call("hub_tunnel_stop", { tunnel_id: id }).catch((e) => toast.show("停止隧道失败：" + e, "bad"));
 }
 
 async function saveTunnel(payload: Record<string, unknown>) {
@@ -394,13 +396,13 @@ async function saveTunnel(payload: Record<string, unknown>) {
 
 async function deleteTunnel(id: string) {
   const { call } = await import("@/api/tauri");
-  await call("hub_delete_tunnel", { id }).catch(() => {});
+  await call("hub_delete_tunnel", { id }).catch((e) => toast.show("删除隧道失败：" + e, "bad"));
 }
 
 /** 开启 / 关闭「连接全部电脑」（旧版 remote_set_connect_all） */
 async function setConnectAll(on: boolean) {
   const { call } = await import("@/api/tauri");
-  await call("remote_set_connect_all", { on }).catch(() => {});
+  await call("remote_set_connect_all", { on }).catch((e) => toast.show("设置失败：" + e, "bad"));
 }
 
 function switchBoot(payload: Record<string, unknown>) {

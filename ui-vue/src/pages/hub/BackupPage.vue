@@ -186,8 +186,16 @@ async function run(label: string, action: () => Promise<unknown>, done: string) 
 }
 
 async function doExport() {
+  if (!exportCats.value.length) {
+    showToast("至少选择一个分类");
+    return;
+  }
   if (exportPw1.value !== exportPw2.value) {
     errorText.value = "两次口令不一致";
+    return;
+  }
+  if (exportIncludeKeys.value && (exportPw1.value.length < 4 || exportPw1.value !== exportPw2.value)) {
+    showToast("请先把口令设置好（≥4 位，两次一致）");
     return;
   }
   // 旧版流程：先挑保存路径（backup_pick_export_path），用户取消就不导出
@@ -288,6 +296,10 @@ async function executeImport() {
 }
 
 async function saveSync() {
+  if (!syncUrl.value.trim()) {
+    showToast("请先填写服务器地址并保存配置");
+    return;
+  }
   await run(
     "保存同步配置",
     () =>
@@ -317,7 +329,11 @@ function toggleSync() {
 }
 
 function testWebdav() {
-  void run("测试 WebDAV", () => call("backup_webdav_test", { config: {} }), "WebDAV 连接正常");
+  if (!syncUrl.value.trim()) {
+    showToast("请先填写服务器地址并保存配置");
+    return;
+  }
+  void run("测试 WebDAV", () => call("backup_webdav_test", { config: {} }), "连接成功 ✓");
 }
 
 function createWebdavDir() {
@@ -329,6 +345,14 @@ function createWebdavDir() {
 }
 
 function syncNow() {
+  if (!syncUrl.value.trim()) {
+    showToast("请先填写服务器地址并保存配置");
+    return;
+  }
+  if (!syncCats.value.length) {
+    showToast("至少选择一个同步分类");
+    return;
+  }
   void run("立即同步", () => call("backup_sync_now"), "同步完成");
 }
 </script>

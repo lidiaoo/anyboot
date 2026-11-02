@@ -1,6 +1,8 @@
 <script setup lang="ts">
+const toast = useToastStore();
 import { computed, onMounted, ref } from "vue";
 import { call } from "@/api/tauri";
+import { useToastStore } from "@/stores/toast";
 
 /**
  * 密钥页（原 `ui/hub.html` 的 `#page-keys`，3446 行）。
@@ -42,7 +44,7 @@ onMounted(async () => {
 });
 
 function openKeys() {
-  void call("hub_open_keys_window", {}).catch(() => {});
+  void call("hub_open_keys_window", {}).catch((e) => toast.show("打开密钥管理失败：" + e, "bad"));
 }
 </script>
 

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useUiStateStore } from "@/stores/uiState";
+import { useToastStore } from "@/stores/toast";
 import { useRemoteStore } from "@/stores/remote";
 import { useServersStore } from "@/stores/servers";
 import ComputerList from "./ComputerList.vue";
@@ -38,6 +39,7 @@ import TermsetPage from "./TermsetPage.vue";
  *       section.page
  */
 
+const toast = useToastStore();
 const ui = useUiStateStore();
 const remote = useRemoteStore();
 const servers = useServersStore();
@@ -348,6 +350,9 @@ const footCount = computed(() => `${servers.servers.length} 台服务器`);
         footer { ... }
     footer 若是 #app 的子元素，它会落在 flex 列里被挤出视口。
   -->
+  <Teleport to="body">
+    <div v-if="toast.text" id="toast" :class="{ bad: toast.bad }" role="status">{{ toast.text }}</div>
+  </Teleport>
   <Teleport to="body">
     <footer>
       <span class="dot" />
