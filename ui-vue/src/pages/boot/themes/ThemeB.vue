@@ -147,28 +147,4 @@ function select(id: string) {
   </div>
 </template>
 
-<style scoped>
-.chevron {
-  font-size: 11px;
-  transition: transform 0.15s;
-}
-.chevron.open {
-  transform: rotate(180deg);
-}
-.settings-hint {
-  font-size: 12px;
-  color: var(--fg-faint, #9ca3af);
-  padding: 10px 12px;
-  margin: 0;
-}
-.empty {
-  padding: 24px 12px;
-  color: var(--fg-faint, #9ca3af);
-  font-size: 12px;
-}
-.lb-list button .nm {
-  flex: 1;
-  text-align: left;
-  min-width: 0;
-}
-</style>
+<!-- 样式全部来自 styles/vendor/legacy.css（旧 styles.css 的 .l? 主题段），这里不写自造样式 -->

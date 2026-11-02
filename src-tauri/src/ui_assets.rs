@@ -4,31 +4,25 @@
 // 手机端「电脑页」与浏览器远程访问走的就是这张表。
 //
 // 源目录：ui-vue/dist/
-// 条目数：43
+// 条目数：37
 
 /// (相对路径, Content-Type, 文件正文)
 pub(crate) const UI_ASSETS: &[(&str, &str, &str)] = &[
-    ("assets/ThemeA-BcAOrLYb.css", "text/css; charset=utf-8", include_str!("../../ui-vue/dist/assets/ThemeA-BcAOrLYb.css")),
-    ("assets/ThemeB-BFKYmz9f.css", "text/css; charset=utf-8", include_str!("../../ui-vue/dist/assets/ThemeB-BFKYmz9f.css")),
-    ("assets/ThemeC-CjEIGANY.css", "text/css; charset=utf-8", include_str!("../../ui-vue/dist/assets/ThemeC-CjEIGANY.css")),
-    ("assets/ThemeG-grrcnHBK.css", "text/css; charset=utf-8", include_str!("../../ui-vue/dist/assets/ThemeG-grrcnHBK.css")),
-    ("assets/ThemeI-Dv6qNmfK.css", "text/css; charset=utf-8", include_str!("../../ui-vue/dist/assets/ThemeI-Dv6qNmfK.css")),
-    ("assets/ThemeJ-Ci7aFGrs.css", "text/css; charset=utf-8", include_str!("../../ui-vue/dist/assets/ThemeJ-Ci7aFGrs.css")),
-    ("assets/chunks/FbModal.vue_vue_type_script_setup_true_lang-C8rLvbN7.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/FbModal.vue_vue_type_script_setup_true_lang-C8rLvbN7.js")),
-    ("assets/chunks/LoaderIcon.vue_vue_type_script_setup_true_lang-Dch0sErX.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/LoaderIcon.vue_vue_type_script_setup_true_lang-Dch0sErX.js")),
-    ("assets/chunks/StateChip.vue_vue_type_script_setup_true_lang-hT7I5avQ.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/StateChip.vue_vue_type_script_setup_true_lang-hT7I5avQ.js")),
-    ("assets/chunks/ThemeA-CbYTnW_n.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/ThemeA-CbYTnW_n.js")),
-    ("assets/chunks/ThemeB-Cxn5ES02.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/ThemeB-Cxn5ES02.js")),
-    ("assets/chunks/ThemeC-JRFzDYcM.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/ThemeC-JRFzDYcM.js")),
-    ("assets/chunks/ThemeG-UdBbspK1.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/ThemeG-UdBbspK1.js")),
-    ("assets/chunks/ThemeI-21bgsFHW.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/ThemeI-21bgsFHW.js")),
-    ("assets/chunks/ThemeJ-C4UQ2Azj.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/ThemeJ-C4UQ2Azj.js")),
-    ("assets/chunks/_plugin-vue_export-helper-Ba4zwwRG.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/_plugin-vue_export-helper-Ba4zwwRG.js")),
-    ("assets/chunks/app-CR_5W_aC.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/app-CR_5W_aC.js")),
-    ("assets/chunks/event-YpdozAq-.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/event-YpdozAq-.js")),
+    ("assets/chunks/FbModal.vue_vue_type_script_setup_true_lang-D2WxTU21.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/FbModal.vue_vue_type_script_setup_true_lang-D2WxTU21.js")),
+    ("assets/chunks/LoaderIcon.vue_vue_type_script_setup_true_lang-CoV7JQgw.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/LoaderIcon.vue_vue_type_script_setup_true_lang-CoV7JQgw.js")),
+    ("assets/chunks/StateChip.vue_vue_type_script_setup_true_lang-FKjB-RYu.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/StateChip.vue_vue_type_script_setup_true_lang-FKjB-RYu.js")),
+    ("assets/chunks/ThemeA-vIi2M-gg.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/ThemeA-vIi2M-gg.js")),
+    ("assets/chunks/ThemeB-cXV6bMla.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/ThemeB-cXV6bMla.js")),
+    ("assets/chunks/ThemeC-CuXhKofr.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/ThemeC-CuXhKofr.js")),
+    ("assets/chunks/ThemeG-Xp6pYnnE.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/ThemeG-Xp6pYnnE.js")),
+    ("assets/chunks/ThemeI-BLHgO_On.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/ThemeI-BLHgO_On.js")),
+    ("assets/chunks/ThemeJ-D2mY0KLu.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/ThemeJ-D2mY0KLu.js")),
+    ("assets/chunks/_plugin-vue_export-helper-B7-oKnlv.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/_plugin-vue_export-helper-B7-oKnlv.js")),
+    ("assets/chunks/app-CQ9SD_e7.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/app-CQ9SD_e7.js")),
+    ("assets/chunks/event-CIhEaEsu.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/event-CIhEaEsu.js")),
     ("assets/chunks/http-DLXscMYK.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/http-DLXscMYK.js")),
     ("assets/chunks/preload-helper-Ct5FWWRu.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/preload-helper-Ct5FWWRu.js")),
-    ("assets/chunks/tauri-BVelKyxa.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/tauri-BVelKyxa.js")),
+    ("assets/chunks/tauri-3XEtSiFY.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/tauri-3XEtSiFY.js")),
     ("assets/hub-BeaLphW_.css", "text/css; charset=utf-8", include_str!("../../ui-vue/dist/assets/hub-BeaLphW_.css")),
     ("assets/hub-backup-DnIuWeWO.css", "text/css; charset=utf-8", include_str!("../../ui-vue/dist/assets/hub-backup-DnIuWeWO.css")),
     ("assets/hub-backup.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/hub-backup.js")),

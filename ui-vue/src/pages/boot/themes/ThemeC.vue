@@ -130,18 +130,4 @@ function select(id: string) {
   </div>
 </template>
 
-<style scoped>
-.empty {
-  padding: 20px 12px;
-  color: var(--fg-faint, #9ca3af);
-  font-size: 12px;
-}
-.la-foot {
-  border-top: 1px solid var(--line, #e5e7eb);
-  margin-top: 8px;
-  background: transparent;
-  padding: 8px 4px;
-  font-size: 11.5px;
-  color: var(--fg-faint, #9ca3af);
-}
-</style>
+<!-- 样式全部来自 styles/vendor/legacy.css（旧 styles.css 的 .l? 主题段），这里不写自造样式 -->

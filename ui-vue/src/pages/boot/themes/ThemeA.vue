@@ -1,4 +1,11 @@
 <script setup lang="ts">
+/** 卡片底部的健康状态文案（旧版 `l.healthText`） */
+function footText(loader: { id: string; state: string; entries: unknown[] }): string {
+  if (loader.state === "warn") return "需要提权才能修改（root 助手未安装）";
+  if (loader.state === "off") return "未检测到该引导器";
+  return `${loader.entries.length} 个可启动项 · 读取正常`;
+}
+
 import { computed, nextTick, ref } from "vue";
 import BootList from "@/components/boot/BootList.vue";
 import type { LoaderInfo } from "./types";
@@ -84,6 +91,22 @@ const hasLoaders = computed(() => props.loaders.length > 0);
         class="la-card"
       >
         <BootList :loader="loader.id" />
+        <!-- 底部健康状态条（旧版 .la-foot：icon(info) + 状态文案） -->
+        <div class="la-foot">
+          <svg
+            class="i sm"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.6"
+            stroke-linecap="round"
+            aria-hidden="true"
+          >
+            <circle cx="8" cy="8" r="6.2" />
+            <path d="M8 5v3.4M8 11h.01" />
+          </svg>
+          <span>{{ footText(loader) }}</span>
+        </div>
       </div>
       <p v-if="!hasLoaders" class="empty">
         <b>没有启用的引导器</b>
@@ -93,16 +116,4 @@ const hasLoaders = computed(() => props.loaders.length > 0);
   </div>
 </template>
 
-<style scoped>
-.empty {
-  padding: 24px 12px;
-  text-align: center;
-  color: var(--fg-faint, #9ca3af);
-  font-size: 12px;
-}
-.empty b {
-  display: block;
-  color: var(--fg-dim, #6b7280);
-  margin-bottom: 4px;
-}
-</style>
+<!-- 样式全部来自 styles/vendor/legacy.css（旧 styles.css 的 .l? 主题段），这里不写自造样式 -->

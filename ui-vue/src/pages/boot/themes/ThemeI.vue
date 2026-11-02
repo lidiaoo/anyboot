@@ -35,6 +35,13 @@ const props = defineProps<{
 }>();
 
 const sheetLid = ref<string | null>(null);
+/** 设置与编排抽屉（旧版 .li-panel 的「设置与编排」页签） */
+const settingsOpen = ref(false);
+
+function closeAll() {
+  settingsOpen.value = false;
+  closeSheet();
+}
 
 const heroLoader = computed(() => props.loaders[0] ?? null);
 
@@ -121,18 +128,45 @@ function closeSheet() {
       </p>
     </div>
 
+    <!--
+      底部抽屉的入口条（旧版 `.li-sheetbar`）：
+      左侧说明 + 引导器数量 chip + 「打开抽屉」按钮。
+    -->
+    <div class="li-sheetbar">
+      <LoaderIcon id="grub" size="sm" />
+      <span class="grow">设置与编排：固定 / 排序 / 收起通道 / ESP 路径 / 免密模式</span>
+      <span class="chip off">{{ loaders.length }} 个引导器</span>
+      <button type="button" class="btn sm" @click="settingsOpen = true">打开抽屉</button>
+    </div>
+
     <!-- 底部抽屉：完整引导列表 -->
     <Teleport to="body">
-      <div v-if="sheetLoader" class="li-sheet-backdrop" @click.self="closeSheet">
-        <div class="li-sheet">
-          <header>
-            <LoaderIcon :id="sheetLoader.id" size="sm" />
-            <b>{{ sheetLoader.name }}</b>
+      <div v-if="sheetLoader || settingsOpen" class="li-sheet">
+        <!-- 遮罩（旧版 .li-scrim） -->
+        <div class="li-scrim" @click="closeAll" />
+        <!-- 半高面板（旧版 .li-panel > .li-panel-hd + .li-panel-bd） -->
+        <div class="li-panel">
+          <div class="li-panel-hd">
+            <b>{{ settingsOpen ? "设置与编排" : sheetLoader?.name }}</b>
             <span class="grow" />
-            <button type="button" class="btn icon ghost sm" @click="closeSheet">✕</button>
-          </header>
-          <div class="li-sheet-body">
-            <BootList :loader="sheetLoader.id" @select="(s) => onSelect?.(s)" />
+            <button type="button" class="btn icon ghost sm" @click="closeAll">✕</button>
+          </div>
+          <div class="li-panel-bd">
+            <!-- 设置与编排：每行一个引导器（旧版 .li-prow） -->
+            <template v-if="settingsOpen">
+              <div v-for="loader in loaders" :key="loader.id" class="li-prow">
+                <span class="grab" title="拖动排序">⠿</span>
+                <LoaderIcon :id="loader.id" size="sm" />
+                <span class="nm">{{ loader.name }}</span>
+                <span class="grow" />
+                <span :class="['chip', loader.perm === 'nvram' ? 'elev' : 'off']">
+                  {{ loader.perm === "nvram" ? "需提权" : "免提权" }}
+                </span>
+              </div>
+            </template>
+            <template v-else-if="sheetLoader">
+              <BootList :loader="sheetLoader.id" @select="(s) => onSelect?.(s)" />
+            </template>
           </div>
         </div>
       </div>
@@ -140,45 +174,4 @@ function closeSheet() {
   </div>
 </template>
 
-<style scoped>
-.empty {
-  grid-column: 1 / -1;
-  padding: 24px 12px;
-  text-align: center;
-  color: var(--fg-faint, #9ca3af);
-  font-size: 12px;
-}
-.empty b {
-  display: block;
-  margin-bottom: 4px;
-  color: var(--fg-dim, #6b7280);
-}
-.li-sheet-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.32);
-  display: flex;
-  align-items: flex-end;
-  z-index: 60;
-}
-.li-sheet {
-  width: 100%;
-  max-height: 72vh;
-  background: var(--panel, #fff);
-  border-radius: 12px 12px 0 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-.li-sheet header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--line, #e5e7eb);
-}
-.li-sheet-body {
-  overflow-y: auto;
-  padding: 8px 12px 16px;
-}
-</style>
+<!-- 样式全部来自 styles/vendor/legacy.css（旧 styles.css 的 .l? 主题段），这里不写自造样式 -->

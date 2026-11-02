@@ -1,9 +1,13 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, ref, useSlots, watch } from "vue";
 import BootList from "@/components/boot/BootList.vue";
 import LoaderIcon from "./LoaderIcon.vue";
 import StateChip from "./StateChip.vue";
 import type { LoaderInfo } from "./types";
+const collapsed = ref(false);
+/** 是否有设置正文（旧版靠 .ba-set-body 是否停靠来判断） */
+const slots = useSlots();
+const settingsSlot = computed(() => Boolean(slots.settings));
 
 /**
  * 主题 J：三栏（`.lj`）—— 通道栏 / 详情 / 设置栏。
@@ -78,6 +82,7 @@ const healthText = computed(() => {
           v-for="loader in loaders"
           :key="loader.id"
           type="button"
+          class="lj-navi"
           :class="{ 'is-on': loader.id === current }"
           @click="select(loader.id)"
         >
@@ -103,6 +108,29 @@ const healthText = computed(() => {
       </div>
     </section>
 
+    <!-- 右侧设置栏（旧版 aside.lj-c3 > .hd + .bd） -->
+    <aside class="lj-c3">
+      <div class="hd">
+        <svg class="i sm" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+          <circle cx="8" cy="8" r="2.4" />
+          <path d="M8 1.8v2M8 12.2v2M1.8 8h2M12.2 8h2M3.6 3.6l1.4 1.4M11 11l1.4 1.4M12.4 3.6 11 5M5 11l-1.4 1.4" />
+        </svg>
+        <b>引导器设置</b>
+        <span class="grow" />
+        <button type="button" class="btn icon ghost sm" :aria-expanded="!collapsed" title="收起设置栏（只留图标条）" @click="collapsed = !collapsed">
+          {{ collapsed ? "‹" : "›" }}
+        </button>
+      </div>
+      <div class="bd">
+        <!-- 有设置项时放设置正文；没有则显示空态（旧版 .lj-setempty） -->
+        <div v-if="!settingsSlot" class="lj-setempty">
+          <b>这个引导器没有可调设置</b>
+          <small>在中间列表里点一条，即为下次启动</small>
+        </div>
+        <slot v-else name="settings" />
+      </div>
+    </aside>
+
     <aside :class="['lj-c3', { 'is-collapsed': settingsCollapsed }]">
       <div class="hd">
         <span aria-hidden="true">⚙</span>
@@ -125,30 +153,4 @@ const healthText = computed(() => {
   </div>
 </template>
 
-<style scoped>
-.lj-nav button {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-}
-.lj-nav button .nm {
-  flex: 1;
-  min-width: 0;
-  text-align: left;
-}
-.lj-note {
-  margin-top: 10px;
-  border: 1px solid var(--line, #e5e7eb);
-  border-radius: 8px;
-  padding: 8px 10px;
-  font-size: 11.5px;
-  color: var(--fg-faint, #9ca3af);
-}
-.settings-hint {
-  font-size: 12px;
-  color: var(--fg-faint, #9ca3af);
-  padding: 10px 12px;
-  margin: 0;
-}
-</style>
+<!-- 样式来自 styles/vendor/legacy.css，这里不写自造样式 -->

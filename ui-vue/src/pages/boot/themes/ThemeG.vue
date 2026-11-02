@@ -3,7 +3,6 @@ import { computed, ref, watch } from "vue";
 import type { EntryData } from "@/components/boot/types";
 import { useUiStateStore } from "@/stores/uiState";
 import { useSettingsStore } from "@/stores/settings";
-import StateChip from "./StateChip.vue";
 import LoaderIcon from "./LoaderIcon.vue";
 import type { LoaderInfo } from "./types";
 
@@ -197,27 +196,44 @@ const selectedLoaderState = computed(
             </span>
           </button>
         </template>
-        <p v-if="!results.length" class="empty">没有匹配的条目</p>
+        <p v-if="!results.length" class="lg-hint">暂无条目 · 展开下面的「引导器设置」读取</p>
       </div>
     </div>
 
+    <!--
+      右侧「选中项」面板（旧版 boot-adv.js:1533 起）：
+        h4「选中项」+ .lg-sel > .lg-sel-head(.row-ico + b) + .lg-sel-body > .lg-fact × N
+    -->
     <aside class="lg-side">
       <template v-if="selectedEntry">
-        <h3>{{ selectedEntry.name }}</h3>
-        <StateChip :state="selectedLoaderState" />
-        <dl>
-          <dt>引导器</dt>
-          <dd>{{ props.loaders.find((l) => l.id === selected?.loader)?.name }}</dd>
-          <dt>标识符</dt>
-          <dd class="mono">{{ selectedEntry.selector }}</dd>
-          <dt v-if="selectedEntry.kernels?.length">内核</dt>
-          <dd v-if="selectedEntry.kernels?.length" class="mono">
-            {{ selectedEntry.kernels[0] }}
-          </dd>
-        </dl>
+        <h4>选中项</h4>
+        <div class="lg-sel">
+          <div class="lg-sel-head">
+            <LoaderIcon :id="selected?.loader ?? ''" size="sm" />
+            <b>{{ selectedEntry.name }}</b>
+          </div>
+          <div class="lg-sel-body">
+            <div class="lg-fact">
+              <b>引导器</b>
+              <span>{{ props.loaders.find((l) => l.id === selected?.loader)?.name ?? "—" }}</span>
+            </div>
+            <div class="lg-fact">
+              <b>路径</b>
+              <span class="mono">{{ selectedEntry.selector || "—" }}</span>
+            </div>
+            <div class="lg-fact">
+              <b>状态</b>
+              <span>{{ selectedLoaderState === "ok" ? "可用" : "需提权" }}</span>
+            </div>
+            <div v-if="selectedEntry.kernels?.length" class="lg-fact">
+              <b>内核</b>
+              <span class="mono">{{ selectedEntry.kernels[0] }}</span>
+            </div>
+          </div>
+        </div>
         <button type="button" class="btn sm" @click="commit">设为下次启动</button>
       </template>
-      <p v-else class="hint">选中一条查看详情</p>
+      <p v-else class="lg-hint">选中一条查看详情</p>
     </aside>
 
     <div class="lg-foot">
@@ -228,39 +244,4 @@ const selectedLoaderState = computed(
   </div>
 </template>
 
-<style scoped>
-.empty {
-  padding: 18px 12px;
-  color: var(--fg-faint, #9ca3af);
-  font-size: 12px;
-}
-.hint {
-  padding: 16px 12px;
-  color: var(--fg-faint, #9ca3af);
-  font-size: 12px;
-}
-.mono {
-  font-family: ui-monospace, Menlo, monospace;
-  font-size: 11px;
-  word-break: break-all;
-}
-.lg-side dl {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 4px 10px;
-  margin: 12px 0;
-  font-size: 12px;
-}
-.lg-side dt {
-  color: var(--fg-faint, #9ca3af);
-}
-.lg-side dd {
-  margin: 0;
-}
-.lg-item .t {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-}
-</style>
+<!-- 样式全部来自 styles/vendor/legacy.css（旧 styles.css 的 .l? 主题段），这里不写自造样式 -->
