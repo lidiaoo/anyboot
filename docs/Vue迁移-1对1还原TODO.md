@@ -703,6 +703,22 @@ FbModal（文件窗 4 个）/ KeysWindow 的 genModal。
 打开前 overlay=1  →  按 Esc  →  后 overlay=0     ✅
 ```
 
+**深度交互补齐（本轮续）**
+
+| 交互 | 旧版 | 补法 |
+|---|---|---|
+| **左右分栏拖拽** | `boot-adv.js:2702 makeSplit`（pointer 三事件 + 双击复位） | ThemeHost 重写：`.k-stage` / `.k-region` ×2 / `.k-split`，`pointerdown→move→up` 改 ratio，`dblclick` 复位 0.5，`ratio` 经 `adv.setRatio` 持久化 |
+
+**实测（CDP 合成 pointer 事件）**：
+```
+.k-stage 1 / .k-stage.h 1 / .k-region 2 / .k-split 1
+第一列宽度 609px  →  拖到 70%  →  852px   ✅
+```
+
+**踩的坑**：`ref="setStage"` 在 `<script setup>` 里被当成字符串 ref，
+函数式 ref 必须写 `:ref="setStage"`，否则 `stageEl` 一直是 null，
+拖拽静默失效（不报错）。
+
 ### 打包验证
 ```
 npm run build:mac-intel        → 成功（508 tests passed / 0 failed）

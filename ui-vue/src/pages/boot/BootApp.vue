@@ -328,7 +328,9 @@ const statusText = computed(() => {
           :layout="adv.effectiveLayout"
           :loaders="loaders"
           :active-id="loaders[0]?.id ?? ''"
+          :ratio="adv.state?.ratio ?? 0.5"
           :on-select="(s: string) => call('switch_grub', { selector: s })"
+          @update:ratio="adv.setRatio"
         >
           <!-- K 原生态：旧版的完整区块结构 -->
           <RefindSection />
