@@ -1,7 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useUiStateStore } from "@/stores/uiState";
 import { useRemoteStore } from "@/stores/remote";
+import ComputerList from "./ComputerList.vue";
+import ServersPage from "./ServersPage.vue";
+import AboutPage from "./AboutPage.vue";
 
 /**
  * hub 主界面（原 `ui/hub.html`）。
@@ -44,7 +47,31 @@ const NAV = [
 
 type PageId = (typeof NAV)[number]["id"];
 
-const currentPage = ref<PageId>("home");
+const PAGE_KEY = "anyboot.hub.page";
+
+const currentPage = ref<PageId>(
+  // 优先级：?page= 直达 > 上次访问的页 > 默认「电脑列表」
+  (() => {
+    try {
+      const fromUrl = (new URLSearchParams(location.search).get("page") || "") as PageId;
+      if (NAV.some((item) => item.id === fromUrl)) return fromUrl;
+      const saved = localStorage.getItem(PAGE_KEY) as PageId | null;
+      if (saved && NAV.some((item) => item.id === saved)) return saved;
+    } catch {
+      /* 忽略 */
+    }
+    return "computers" as PageId;
+  })(),
+);
+
+/** 记住上次访问的页（下次打开 hub 直接回去） */
+watch(currentPage, (page) => {
+  try {
+    localStorage.setItem(PAGE_KEY, page);
+  } catch {
+    /* 存不了就算了 */
+  }
+});
 
 /** 侧栏收起（窄视口自动收，用户也可手动） */
 const navCollapsed = ref(false);
@@ -95,7 +122,7 @@ function goto(id: PageId) {
     </nav>
 
     <main class="pages">
-      <header class="page-head">
+      <header v-if="currentPage !== 'computers' && currentPage !== 'servers'" class="page-head">
         <h1>{{ currentLabel }}</h1>
         <button
           type="button"
@@ -107,18 +134,23 @@ function goto(id: PageId) {
         </button>
       </header>
 
-      <section class="page-body">
-        <p class="placeholder">
-          「{{ currentLabel }}」页面正在迁移中 —— 阶段 3 按功能域逐块迁入。
-        </p>
-        <dl class="summary">
-          <dt>电脑档案</dt>
-          <dd>{{ remote.servers.length }} 台</dd>
-          <dt>已读取引导项</dt>
-          <dd>{{ remote.bootInfo.size }} 台</dd>
-          <dt>Revision</dt>
-          <dd>{{ ui.revision }}</dd>
-        </dl>
+      <section class="page-body" :class="{ 'is-flush': currentPage === 'computers' || currentPage === 'servers' }">
+        <ComputerList v-if="currentPage === 'computers'" />
+        <ServersPage v-else-if="currentPage === 'servers'" />
+        <AboutPage v-else-if="currentPage === 'about'" />
+        <template v-else>
+          <p class="placeholder">
+            「{{ currentLabel }}」页面正在迁移中 —— 阶段 3 按功能域逐块迁入。
+          </p>
+          <dl class="summary">
+            <dt>电脑档案</dt>
+            <dd>{{ remote.servers.length }} 台</dd>
+            <dt>已读取引导项</dt>
+            <dd>{{ remote.bootInfo.size }} 台</dd>
+            <dt>Revision</dt>
+            <dd>{{ ui.revision }}</dd>
+          </dl>
+        </template>
       </section>
     </main>
   </div>
@@ -189,6 +221,9 @@ function goto(id: PageId) {
   flex: 1;
   overflow-y: auto;
   padding: 20px;
+}
+.page-body.is-flush {
+  padding: 0;
 }
 .placeholder {
   font-size: 13px;

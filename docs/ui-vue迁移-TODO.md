@@ -152,13 +152,14 @@
 
 - [x] **3.1** `pages/hub/index.vue`：外壳（侧栏导航、页签、状态栏）
   - ✅ 完成：`pages/hub/HubApp.vue` —— 12 项导航 + 页面切换 + 侧栏折叠
-- [ ] **3.2** `components/hub/ServerList.vue`（服务器列表渲染）
+- [x] **3.2** `components/hub/ServerList.vue`（服务器列表渲染）
+  - ✅ 完成：`pages/hub/ServersPage.vue` 内含列表 + 详情两栏
 - [ ] **3.3** `components/hub/ServerEditDialog.vue`（添加/编辑弹窗 + 地址编辑）
 - [ ] **3.4** `components/hub/AddressEditor.vue`（识别框 + 已添加列表，服务器/电脑弹窗共用）
 - [x] **3.5** `pages/hub/ComputerList.vue`（电脑页列表：在线状态 / 引导项 / 电源指令）
-  - ✅ 数据层完成：`stores/remote.ts`（档案 + 引导项 + 连续失败阈值 + 弱网容忍），UI 待迁
-  - 含：`cqLoadBoot` / `cqRenderRows` / 数据刷新定时器 / 连续失败阈值 / 滚动保持
-- [ ] **3.6** `components/hub/ComputerRow.vue`（单台电脑卡片）
+  - ✅ 完成：搜索 + 状态筛选 + 统计 + 定时刷新（常开、不驱动按钮）+ 弱网容忍
+- [x] **3.6** `components/hub/ComputerRow.vue`（单台电脑卡片）
+  - ✅ 完成：六列布局；电源键任何时候可点、引导项离线禁用、文字完整不省略号
 - [ ] **3.7** `components/hub/PcMenu.vue`（⋮ 菜单：数据刷新 / 重探模式 / 失败阈值 / 离线阈值）
 - [ ] **3.8** `pages/hub/PcView.vue`（全屏内嵌 iframe + 失败面板 + 重试）
 - [ ] **3.9** 局域网电源路由（唤醒 / 重启 / 关机 / 睡眠）
@@ -167,7 +168,8 @@
 - [ ] **3.12** 终端 / 文件 / 密钥 / 会话页
 - [ ] **3.13** 系统徽标 + 系统信息弹层
 - [ ] **3.14** 传输页（SFTP 队列 / 断点续传 / 历史）
-- [ ] **3.15** 关于页 + 更新检查
+- [x] **3.15** 关于页 + 更新检查
+  - ✅ 完成：版本卡 + update_state/update_check + 仓库外链
 
 **验收**：逐条过「五、验收清单 · 电脑列表」+「通用」。
 
@@ -269,6 +271,12 @@
 | 2026-11-02 | 3 | 写 `pages/hub/HubApp.vue`：12 项侧栏导航 + 页面切换 + 折叠 | ✅ |
 | 2026-11-02 | 3 | 入口分离：`index` → 引导页，`hub` → HubApp，4 个独立窗占位页 | ✅ |
 | 2026-11-02 | 3 | **验收**：6 个入口全部嵌入二进制并确认；引导页 trace 仍为 `ready=1 theme=A`，无 JS 异常 | ✅ |
+| 2026-11-02 | 3 | 写 `stores/servers.ts`（SSH/SFTP 服务器，与 remote 档案完全独立） | ✅ |
+| 2026-11-02 | 3 | 写 `pages/hub/ComputerList.vue` + `components/hub/ComputerRow.vue`：搜索/筛选/统计/定时刷新/六列布局 | ✅ |
+| 2026-11-02 | 3 | 写 `pages/hub/ServersPage.vue`：工具栏 + 两栏（列表/详情）+ 测试连接 | ✅ |
+| 2026-11-02 | 3 | 写 `pages/hub/AboutPage.vue`：版本卡 + 更新检查 + 外链 | ✅ |
+| 2026-11-02 | 3 | 发现并复用测试钩子 `ANYBOOT_TEST_OPEN_HUB=1`（lib.rs:3283）—— 无需点菜单即可开 hub 窗验证 | ✅ |
+| 2026-11-02 | 3 | **验收**：hub 窗打开成功，trace 读到 `[vue-hub] ready=1 servers=2 bootInfo=2 online=2 transport=ipc` | ✅ |
 
 ---
 
