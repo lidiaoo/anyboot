@@ -217,12 +217,21 @@ let clockTimer: number | null = null;
 function tickClock() {
   clock.value = new Date().toLocaleTimeString("zh-CN", { hour12: false });
 }
+let beatTimer: number | null = null;
+/** 页面心跳（旧版 hub_page_ping，每 3 秒告诉后端 hub 页还活着） */
+function beat() {
+  void import("@/api/tauri").then(({ call }) => call("hub_page_ping", { ready: true }).catch(() => {}));
+}
+
 onMounted(() => {
   tickClock();
   clockTimer = window.setInterval(tickClock, 1000);
+  beat();
+  beatTimer = window.setInterval(beat, 3000);
 });
 onUnmounted(() => {
   if (clockTimer !== null) window.clearInterval(clockTimer);
+  if (beatTimer !== null) window.clearInterval(beatTimer);
 });
 
 /** 状态栏文案（旧版 `#footText` / `#footCount`） */

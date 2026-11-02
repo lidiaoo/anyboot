@@ -55,7 +55,7 @@ onMounted(async () => {
     }),
   );
   // 兜底轮询（任务在后台跑，窗口可能刚开）
-  const timer = window.setInterval(() => void refresh(), 3000);
+  const timer = window.setInterval(() => void refresh(), 1000); // 旧版 txPollList 1000ms
   unlisteners.push(() => window.clearInterval(timer));
 });
 
