@@ -3449,6 +3449,58 @@ svg.i.lg { width: 16px; height: 16px; }
   border: 0;
   background: transparent;
 }
+
+/* 2026-11-02 用户反馈（J 布局截图）：「这三个咋每个都不同的卡片内样式啊
+ * 比如滚轮、背景版的左右居中、以及采用哪个背景版 都没有统一」。
+ *
+ * 实测三个通道的**外层列表容器根本不是同一个**：
+ *   rEFInd    .grub-list.sim-list             w=811  left=250  滚动条在它身上
+ *   GRUB      （没有外层容器，条目直接铺在 pane 里）  w=803  left=254
+ *   OpenCore  .grub-list.grub-list-body       w=822  left=250
+ * 于是边框位置、底色块宽度、滚动条归属、左右留白全都不一样。
+ *
+ * 修法：给三个面板的列表容器统一一套「面板框」样式 ——
+ * 同样的背景 / 边框 / 圆角 / 内边距 / 滚动条，宽度靠同一套外边距对齐。 */
+.ba-theme-sec .sim-list,
+.ba-theme-sec .grub-list-body,
+.ba-theme-sec .grub-auto-card {
+  background: var(--input-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px;
+  min-width: 0;
+  max-width: 100%;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+/* GRUB 的条目直铺在 pane 里、没有列表容器 —— 给它补一层同样的框
+ * （.grub-auto-card 已经是这个角色，这里只补齐宽度一致性）。 */
+.ba-theme-sec .grub-auto-card {
+  border: 1px solid var(--border);
+  background: var(--input-bg);
+}
+/* rEFInd 的列表是唯一被**双层滚动容器**夹住的：
+ *   grub-panel(822) → sim-scan(822) → sim-scan-list(822) → grub-list.sim-list(811)
+ * 最内层比外三层窄 11px（`#sim-scan .grub-list` 的限高 + 滚动条叠加）。
+ * 主题态下让最内层直接吃满父宽，与另外两个通道对齐成 822。 */
+/* 特异性要点：`#sim-scan .grub-list` 是 ID 选择器（1,1,0），普通类写法压不过，
+ * 所以这里也带上 ID 段；同时用 box-sizing 保证 padding/border 不额外占宽。 */
+/* 真正的根因：`.sim-scan-list` 这层**自己也在滚动**，clientWidth 比
+ * boxWidth 少 11px（滚动条预算），内层 width:100% 只能填满 811。
+ * 它本来就不该滚 —— 滚动该由内层 `.grub-list` 负责（和另外两个通道一致：
+ * 一个面板一层滚动框）。这里把中间这层的滚动与滚动条预算去掉。 */
+#tab-boot .ba-theme-sec .sim-scan-list {
+  overflow: visible;
+  scrollbar-gutter: auto;
+}
+#sim-scan .sim-scan-list > .grub-list,
+#tab-boot .ba-theme-sec .sim-scan-list > .grub-list,
+#tab-boot .ba-theme-sec .sim-list {
+  width: 100% !important;
+  max-width: 100% !important;
+  margin: 0 !important;
+  box-sizing: border-box;
+}
 /* GRUB 头部里那两行 STAT：空的时候（高度 0 或只有 14px 的空白块）不占位。
  * 「EFI 目录 /Volumes/ARCH-EFI · 68 个启动项 · 同步于 …」这行由 #grub-meta 承担，
  * 用户定案：整个「GRUB 区」头部（含这行）在主题态去掉。 */
