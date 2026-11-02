@@ -170,6 +170,14 @@ function removePairItem(pair: PairRowItem) {
 /** 令牌区 */
 const token = ref("");
 const tokenVisible = ref(false);
+/** 已存令牌明文（旧版 rsTokenSaved，回显/复制用） */
+const savedToken = ref("");
+/** 令牌打码：前 4 后 4 可见（旧版 rsMaskToken） */
+function maskToken(s: string): string {
+  if (!s) return "";
+  if (s.length <= 8) return "•".repeat(s.length);
+  return s.slice(0, 4) + "•".repeat(s.length - 8) + s.slice(-4);
+}
 const hasToken = ref(false);
 /** 折叠区状态 */
 const foldConn = ref(false);
@@ -308,6 +316,8 @@ watch(
       return;
     }
     name.value = r.name;
+    savedToken.value = String((r as Record<string, unknown>).token ?? "");
+    tokenVisible.value = false;
     const ro = (r as Record<string, unknown>).routeOrder;
     if (Array.isArray(ro) && ro.length) {
       // 保留后端顺序，缺失的补到末尾
@@ -545,9 +555,12 @@ function submit() {
         <div class="field">
           <div id="rsTokenRow" class="token-row" :hidden="!hasToken">
             <span class="slot-chip">已存令牌</span>
-            <span class="mono masked" id="rsTokenSavedText">{{ hasToken ? "••••••" : "" }}</span>
-            <button type="button" class="token-eye" id="rsTokenCopy" aria-label="复制令牌" title="复制令牌" :hidden="!hasToken" @click="copyToken">⧉</button>
-            <button type="button" class="token-eye" id="rsTokenEye" aria-label="显示令牌" title="显示 / 隐藏令牌" @click="tokenVisible = !tokenVisible">👁</button>
+            <span :class="['mono', { masked: !tokenVisible }]" id="rsTokenSavedText">{{ tokenVisible ? savedToken : maskToken(savedToken) }}</span>
+            <button type="button" class="token-eye" id="rsTokenCopy" aria-label="复制令牌" title="复制令牌" :hidden="!tokenVisible" @click="copyToken">⧉</button>
+            <button type="button" class="token-eye" id="rsTokenEye" :aria-label="tokenVisible ? '隐藏令牌' : '显示令牌'" title="显示 / 隐藏令牌" @click="tokenVisible = !tokenVisible">
+              <svg v-show="!tokenVisible" class="eye-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" /></svg>
+              <svg v-show="tokenVisible" class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="width:14px;height:14px"><path d="M9.9 4.24A10.9 10.9 0 0 1 12 4c6.5 0 10 7 10 7a17.6 17.6 0 0 1-2.29 2.95M6.61 6.61A13.5 13.5 0 0 0 2 12s3.5 7 10 7a10.7 10.7 0 0 0 5.39-1.39" /><path d="M2 2l20 20" /><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24" /></svg>
+            </button>
           </div>
           <label for="rsToken">访问令牌 token（服务端设了才要填）</label>
           <input id="rsToken" v-model="token" class="mono" placeholder="留空保持不变；要替换就填新令牌" style="margin-top: 6px" />

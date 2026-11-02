@@ -364,6 +364,7 @@ useEscape(resultOpen, () => { resultOpen.value = false });
 </script>
 
 <template>
+  <div class="bk-bk-scroll bk-bk-scroll-thin">
   <!-- ===== 导出 ===== -->
   <section class="bk-panel" id="exportPanel">
     <div class="bk-panel-head">
@@ -565,6 +566,7 @@ useEscape(resultOpen, () => { resultOpen.value = false });
       </button>
     </div>
   </section>
+  </div><!-- /bk-bk-scroll -->
 
   <!-- 加密备份口令弹层（旧版 #pwModal） -->
   <div v-if="pwOpen" id="pwModal" class="bk-modal" role="dialog" aria-modal="true" aria-labelledby="pwTitle">
@@ -609,9 +611,12 @@ useEscape(resultOpen, () => { resultOpen.value = false });
           <tbody id="prevRows">
             <tr v-for="row in previewRows" :key="row.label">
               <td>{{ row.label }}</td>
-              <td style="text-align: right">{{ row.inBackup }}</td>
-              <td style="text-align: right">{{ row.local }}</td>
-              <td>{{ row.conflicts }}</td>
+              <td class="bk-num" style="text-align: right">{{ row.inBackup }}</td>
+              <td class="bk-num" style="text-align: right">{{ row.local }}</td>
+              <td>
+                <span v-if="row.conflicts" class="bk-chip bk-conflict">{{ row.conflicts }} 个同 ID</span>
+                <span v-else class="bk-chip">—</span>
+              </td>
             </tr>
             <tr v-if="!previewRows.length">
               <td colspan="4" class="bk-note">（备份文件里没有可识别的内容）</td>

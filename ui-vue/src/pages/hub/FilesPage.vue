@@ -490,12 +490,9 @@ function pct(task: XferTask): number {
             @click="selectEntry(entry)"
             @dblclick="openEntry(entry)"
           >
-            <td>
-              <span class="fb-ico">{{ entry.is_dir ? "📁" : "📄" }}</span>
-              {{ entry.name }}
-            </td>
+            <td><span class="fb-namecell"><span class="fb-ico">{{ entry.is_dir ? "📁" : "📄" }}</span>{{ entry.name }}</span></td>
             <td class="mono">{{ entry.is_dir ? "—" : fmtSize(entry.size) }}</td>
-            <td class="mono">{{ entry.perms || "—" }}</td>
+            <td class="mono fb-dim">{{ entry.perms || "—" }}</td>
             <td class="mono">{{ fmtTime(entry.mtime) }}</td>
             <td style="text-align: right">
               <button type="button" class="fb-rowmore" title="更多操作" @click.stop="openRowMenu(entry, $event)">⋯</button>
@@ -525,11 +522,16 @@ function pct(task: XferTask): number {
         <button role="menuitem" class="fb-fm-act" id="fbRmRename" @click="menuAction('rename')">重命名</button>
         <button role="menuitem" class="fb-fm-act" id="fbRmCopyPath" @click="menuAction('copyPath')">复制路径</button>
         <button role="menuitem" class="fb-fm-act fb-danger" id="fbRmDelete" @click="menuAction('delete')">删除</button>
-        <button role="menuitem" class="fb-fm-act" id="fbRmInfo" @click="menuAction('info')">详情</button>
-        <button role="menuitem" class="fb-fm-act" id="fbRmCopy" @click="menuAction('copy')">复制</button>
-        <button role="menuitem" class="fb-fm-act" id="fbRmCut" @click="menuAction('cut')">剪切</button>
-        <button role="menuitem" class="fb-fm-act" id="fbRmCopyTo" @click="menuAction('copyTo')">复制到…</button>
-        <button role="menuitem" class="fb-fm-act" id="fbRmMoveTo" @click="menuAction('moveTo')">移动到…</button>
+      </div>
+      <div>
+        <p class="fb-fm-label">更多操作</p>
+        <div class="fb-fm-group">
+          <button role="menuitem" class="fb-fm-act" id="fbRmInfo" @click="menuAction('info')">详情</button>
+          <button role="menuitem" class="fb-fm-act" id="fbRmCopy" @click="menuAction('copy')">复制</button>
+          <button role="menuitem" class="fb-fm-act" id="fbRmCut" @click="menuAction('cut')">剪切</button>
+          <button role="menuitem" class="fb-fm-act" id="fbRmCopyTo" @click="menuAction('copyTo')">复制到…</button>
+          <button role="menuitem" class="fb-fm-act" id="fbRmMoveTo" @click="menuAction('moveTo')">移动到…</button>
+        </div>
       </div>
     </div>
 
@@ -586,7 +588,7 @@ function pct(task: XferTask): number {
         </div>
         <div class="fb-modal-foot">
           <button type="button" class="fb-btn fb-plain" id="fbDelCancel" @click="delOpen = false">取消</button>
-          <button type="button" class="fb-btn fb-primary fb-danger" id="fbDelOk" @click="confirmDelete">删除</button>
+          <button type="button" class="fb-btn fb-dangerbtn" id="fbDelOk" @click="confirmDelete">删除</button>
         </div>
       </div>
     </div>
