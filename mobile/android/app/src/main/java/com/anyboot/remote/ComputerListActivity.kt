@@ -2181,11 +2181,13 @@ class ComputerListActivity : ComponentActivity() {
         val background = if (usable) tone.soft else tone.softDisabled
         val borderColor = if (usable) palette.line else tone.dashed
 
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
+        // 2026-11-02 用户定案：「OpenCore 我期望换行显示 而不是和在线离线的状态
+        // 挨着太丑」—— 通道名单独占首行，状态/当前项在第二行。
+        // 原来是单个 Row：标签（10.5sp mono）和 12.5sp 的状态文字挤在一行，
+        // systemd-boot / OpenCore 这种长名字会把状态挤得很难看。
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                // 同 BootButton：最小高度而非写死 42，启动项名长时可长高
                 .heightIn(min = 42.dp)
                 .clip(shape)
                 .background(background)
@@ -2201,54 +2203,55 @@ class ComputerListActivity : ComponentActivity() {
                         else -> sheetRequest = SheetRequest(row.profile.id, KIND_CHANNEL, channel)
                     }
                 }
-                .padding(start = 11.dp, end = 10.dp),
+                .padding(start = 11.dp, end = 10.dp, top = 7.dp, bottom = 7.dp),
         ) {
+            // 第一行：通道名（独占一行，长名字也完整显示）
             Text(
                 channel.label,
                 fontSize = 10.5.sp,
                 fontWeight = FontWeight.SemiBold,
                 fontFamily = FontFamily.Monospace,
                 color = if (usable) palette.fgDim else palette.fgFaint.copy(alpha = 0.75f),
-                // 2026-11-02 用户反馈「OpenCore 压缩成了 OpenCo」：
-                // 原先写死 `width(46.dp)` + maxLines=1，而 46dp 装不下
-                // 「OpenCore」（10.5sp mono 约 8 字符 = 50dp+），被直接裁掉。
-                // 改为按内容自适应（widthIn 只给下限）、允许折行 ——
-                // systemd-boot 这类更长的名字也能完整显示。
+                // 2026-11-02「OpenCore 压缩成了 OpenCo」：原先写死 width(46.dp)
+                // + maxLines=1，装不下就被裁字。现在独占一行、按内容定宽、
+                // 需要时可折行。
                 maxLines = Int.MAX_VALUE,
                 softWrap = true,
-                modifier = Modifier.widthIn(min = 46.dp),
             )
-            if (working) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(13.dp),
-                    strokeWidth = 2.dp,
-                    color = palette.accent,
+            Spacer(Modifier.height(3.dp))
+            // 第二行：圆点 + 状态 / 当前项
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (working) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(13.dp),
+                        strokeWidth = 2.dp,
+                        color = palette.accent,
+                    )
+                    Spacer(Modifier.width(7.dp))
+                } else if (dot.isNotEmpty()) {
+                    BootDot(dot)
+                    Spacer(Modifier.width(7.dp))
+                }
+                Text(
+                    valueLabel,
+                    fontSize = 12.5.sp,
+                    fontWeight = if (usable) FontWeight.Medium else FontWeight.Normal,
+                    color = if (usable) palette.fg else palette.fgFaint.copy(alpha = 0.85f),
+                    // 完整展示：不限行数、不省略号
+                    maxLines = Int.MAX_VALUE,
+                    overflow = TextOverflow.Clip,
+                    lineHeight = 16.sp,
+                    modifier = Modifier.weight(1f),
                 )
-                Spacer(Modifier.width(7.dp))
-            } else if (dot.isNotEmpty()) {
-                BootDot(dot)
-                Spacer(Modifier.width(7.dp))
-            }
-            Text(
-                valueLabel,
-                fontSize = 12.5.sp,
-                fontWeight = if (usable) FontWeight.Medium else FontWeight.Normal,
-                color = if (usable) palette.fg else palette.fgFaint.copy(alpha = 0.85f),
-                // 完整展示：不限行数、不省略号
-                maxLines = Int.MAX_VALUE,
-                overflow = TextOverflow.Clip,
-                lineHeight = 16.sp,
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(vertical = 6.dp),
-            )
-            if (channel.permission == "nvram" && usable) {
-                Spacer(Modifier.width(5.dp))
-                Text("⤴", fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = palette.fgFaint)
-            }
-            if (usable) {
-                Spacer(Modifier.width(7.dp))
-                ChevronDownIcon(tint = palette.fgFaint, size = 14.dp)
+                // ⤴（nvram 通道）与 ▾ 留在**状态行**，跟随状态文字对齐
+                if (channel.permission == "nvram" && usable) {
+                    Spacer(Modifier.width(5.dp))
+                    Text("⤴", fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = palette.fgFaint)
+                }
+                if (usable) {
+                    Spacer(Modifier.width(7.dp))
+                    ChevronDownIcon(tint = palette.fgFaint, size = 14.dp)
+                }
             }
         }
     }
