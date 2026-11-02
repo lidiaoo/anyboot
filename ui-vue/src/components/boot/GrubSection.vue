@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { useUiStateStore } from "@/stores/uiState";
+import { useSettingsStore } from "@/stores/settings";
 import { call } from "@/api/tauri";
 import GrubList from "@/components/boot/GrubList.vue";
 import type { EntryData } from "@/components/boot/types";
@@ -36,7 +37,43 @@ const ui = useUiStateStore();
 
 const activePane = ref<"auto" | "manual">("auto");
 
+/** 09_anyboot 脚本正文（旧版 #grub-script） */
+const scriptText = ref("");
+
+/** 列表格式（旧版 #grub-list-format） */
+const settings = useSettingsStore();
+
+function setFormat(format: string) {
+  void call("set_grub_list_format", { format }).catch(() => {});
+}
+
+function installAnyboot() {
+  void call("grub_install", {}).catch(() => {});
+}
+
+function uninstallAnyboot() {
+  void call("grub_uninstall", {}).catch(() => {});
+}
+
+function saveScript() {
+  void call("set_grub_script", { text: scriptText.value }).catch(() => {});
+}
+
+function resetScript() {
+  scriptText.value = "";
+  void call("set_grub_script", { text: "" }).catch(() => {});
+}
+
 const grubAuto = computed(() => ui.linuxGrub);
+
+// 脚本正文：优先用户改过的，否则用快照里的当前生效值
+watch(
+  () => ui.state?.grubScript,
+  (text) => {
+    if (!scriptText.value && text) scriptText.value = text;
+  },
+  { immediate: true },
+);
 const grubManual = computed(() => ui.grub);
 
 /** 自动读取的条目 */
@@ -212,6 +249,53 @@ function switchEntry(selector: string) {
         />
       </div>
 
+      <!-- 安装 / 卸载 09_anyboot（旧版 #grub-install-actions） -->
+      <div class="actions">
+        <button type="button" class="secondary" @click="installAnyboot">安装 09_anyboot</button>
+        <button type="button" class="secondary" @click="uninstallAnyboot">卸载 09_anyboot</button>
+      </div>
+
+      <!-- 执行过程（旧版 #grub-log-box） -->
+      <details v-if="grubManual?.scriptLog" class="grub-log">
+        <summary>执行过程</summary>
+        <pre>{{ grubManual.scriptLog }}</pre>
+      </details>
+
+      <!-- 内置脚本编辑（旧版 details.grub-script） -->
+      <details class="grub-script">
+        <summary>查看 / 修改内置脚本（09_anyboot）</summary>
+        <small
+          >安装时只把 <code>@@ESP_UUID@@</code> 换成下方「ESP 分区」里填的 fs-uuid，其余按这里的正文来；
+          清空后保存 = 恢复内置模板</small
+        >
+        <textarea v-model="scriptText" rows="8" spellcheck="false" />
+        <div class="actions">
+          <button type="button" class="secondary" @click="saveScript">保存脚本</button>
+          <button type="button" class="secondary" @click="resetScript">恢复内置</button>
+        </div>
+      </details>
+
+      <!-- 引导配置须知（旧版 .grub-advice，原文照抄） -->
+      <small class="grub-advice">
+        <strong>引导配置须知</strong>
+        <ul>
+          <li>
+            Linux 必须开启 <strong>os-prober</strong>：在 <code>/etc/default/grub</code> 里加
+            <code>GRUB_DISABLE_OS_PROBER=false</code> 后执行 update-grub，其他系统的启动项才会进
+            grub.cfg；装了多个 Linux 发行版时，只需让<strong>一个</strong>发行版管理 EFI（它的 GRUB +
+            os-prober 收集其余系统）。
+          </li>
+          <li>
+            Windows 的 EFI 分区，GPT 标志必须是 <code>boot, efi</code>（gparted 里给该分区设 boot
+            标志），否则 os-prober 不识别它。
+          </li>
+          <li>
+            <strong>EFI 第一启动项</strong>：用 rEFInd 就把 rEFInd 的 EFI 设为第一启动项；
+            不用 rEFInd 就把 GRUB 的 EFI 设为第一启动项。
+          </li>
+        </ul>
+      </small>
+
       <!-- ESP 配置（旧版 section.directory） -->
       <section class="directory">
         <label for="grub-dir">ESP 目录</label>
@@ -275,5 +359,22 @@ function switchEntry(selector: string) {
         手动解析
       </button>
     </div>
+
+    <!-- 列表格式（旧版 #grub-format-row） -->
+    <label class="setting" id="grub-format-row">
+      <span class="setting-text">
+        <strong>列表格式</strong>
+        <small>同名启动项的合并与文字详略</small>
+      </span>
+      <select
+        :value="settings.grubListFormat"
+        @change="setFormat(($event.target as HTMLSelectElement).value)"
+      >
+        <option value="minimal">极简</option>
+        <option value="simple">简易</option>
+        <option value="medium">中等</option>
+        <option value="complex">复杂</option>
+      </select>
+    </label>
   </section>
 </template>

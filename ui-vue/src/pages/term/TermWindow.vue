@@ -50,6 +50,61 @@ const connOk = ref(false);
 const errorText = ref("");
 
 const unlisteners: (() => void)[] = [];
+/** 服务器选择弹层（旧版 #pick） */
+const pickOpen = ref(false);
+const servers = ref<{ id: string; name: string; host: string; protocol: string }[]>([]);
+/** 底部状态栏 */
+const footHost = ref("—");
+const footSize = ref("—");
+
+const dark = ref(false);
+try {
+  dark.value = localStorage.getItem("anyboot.theme") === "dark";
+} catch {
+  /* 吃默认 */
+}
+function applyTheme(isDark: boolean) {
+  const html = document.documentElement;
+  html.setAttribute("data-theme", isDark ? "dark" : "light");
+  html.classList.toggle("light", !isDark);
+  html.classList.toggle("dark", isDark);
+}
+applyTheme(dark.value);
+
+function toggleTheme() {
+  dark.value = !dark.value;
+  applyTheme(dark.value);
+  try {
+    localStorage.setItem("anyboot.theme", dark.value ? "dark" : "light");
+  } catch {
+    /* 忽略 */
+  }
+}
+
+function openHub() {
+  void call("hub_open_window", {}).catch(() => {});
+}
+
+function cycleFont() {
+  const current = readTermSettings();
+  const sizes = [12, 14, 16, 18, 20];
+  const index = sizes.indexOf(current.font);
+  const next = sizes[(index + 1) % sizes.length] ?? 14;
+  try {
+    localStorage.setItem(
+      "anyboot.term-set",
+      JSON.stringify({ ...current, font: next }),
+    );
+  } catch {
+    /* 忽略 */
+  }
+  applyTermSettings();
+}
+
+async function pickServer(id: string) {
+  pickOpen.value = false;
+  await openServer(id);
+}
 
 function loadScript(src: string): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -194,6 +249,15 @@ onMounted(async () => {
     return;
   }
 
+  // 服务器列表（选择弹层用）
+  try {
+    servers.value = (await call<{ id: string; name: string; host: string; protocol: string }[]>(
+      "hub_list_servers",
+    )) ?? [];
+  } catch {
+    servers.value = [];
+  }
+
   const { listen } = await import("@tauri-apps/api/event");
 
   // 数据流
@@ -240,6 +304,12 @@ async function openServer(serverId: string) {
       server: serverId,
     });
     const session = await createSession(result.id, result.title || "终端");
+    footHost.value = result.title || serverId;
+    if (session) {
+      const cols = (session.term as unknown as { cols?: number }).cols ?? 80;
+      const rows = (session.term as unknown as { rows?: number }).rows ?? 24;
+      footSize.value = `${cols} × ${rows}`;
+    }
     if (!session) return;
     // open 已返回 → 把攒着的数据写进去
     flushPending(session);
@@ -272,130 +342,107 @@ async function closeSession(id: string) {
 </script>
 
 <template>
-  <div class="term-window">
-    <div class="titlebar">
-      <span :class="['conn', connOk ? 'ok' : 'pending']">
-        <i class="dot" />
-        {{ connText }}
-      </span>
-      <span class="spacer" />
-      <button type="button" class="btn ghost sm" @click="applyTermSettings">字号</button>
-    </div>
-
-    <div v-if="sessions.length > 1" class="tabbar">
-      <button
-        v-for="session in sessions"
-        :key="session.id"
-        type="button"
-        :class="['tab', { 'is-on': session.id === activeId }]"
-        @click="selectTab(session.id)"
-      >
-        {{ session.title }}
-        <span class="x" @click.stop="closeSession(session.id)">×</span>
+  <header>
+    <span class="appicon" aria-hidden="true">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="2" y="4" width="20" height="14" rx="2" />
+        <path d="M6 9l3 3-3 3" />
+      </svg>
+    </span>
+    <h1>终端</h1>
+    <span v-if="connText !== '—'" class="pill" :class="connOk ? 'ok' : 'bad'">
+      <span class="dot" />
+      <span>{{ connText }}</span>
+    </span>
+    <div class="tools">
+      <button type="button" class="toolbtn" aria-label="打开远程管理" title="打开远程管理" @click="openHub">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2" y="3" width="20" height="7" rx="2" />
+          <rect x="2" y="14" width="20" height="7" rx="2" />
+          <path d="M6 6.5h.01M6 17.5h.01" />
+        </svg>
+        远程管理
+      </button>
+      <button type="button" class="toolbtn" aria-label="切换主题" @click="toggleTheme">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none" />
+        </svg>
+        主题
+      </button>
+      <button type="button" class="toolbtn" aria-label="调整字号" title="切换字号" @click="cycleFont">
+        <span class="a">A</span><span class="b">A</span>
       </button>
     </div>
+  </header>
 
-    <div ref="termHostRef" class="term-host" />
-
-    <div v-if="!sessions.length && !errorText" class="empty">
-      <p>等待连接…</p>
-      <p class="hint">在「服务器」页选一台 SSH 服务器打开终端。</p>
-    </div>
-    <p v-if="errorText" class="err">{{ errorText }}</p>
+  <div class="tabbar" role="tablist" aria-label="终端会话">
+    <button
+      v-for="session in sessions"
+      :key="session.id"
+      type="button"
+      role="tab"
+      :class="{ 'is-on': session.id === activeId }"
+      @click="selectTab(session.id)"
+    >
+      {{ session.title }}
+      <span class="x" @click.stop="closeSession(session.id)">×</span>
+    </button>
+    <button type="button" class="tabbar-add" aria-label="新建会话" @click="pickOpen = true">＋</button>
   </div>
+
+  <div class="term-wrap">
+    <div ref="termHostRef" />
+    <div class="crt-fade" aria-hidden="true" />
+    <div v-if="!sessions.length" class="empty">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="2" y="4" width="20" height="14" rx="2" />
+        <path d="M6 9l3 3-3 3" />
+        <path d="M12 15h6" />
+      </svg>
+      <div>还没有会话 —— 点上方 <b>＋</b> 选择一台服务器</div>
+    </div>
+  </div>
+
+  <footer>
+    <span><span class="dot" /><span>{{ footHost }}</span></span>
+    <span aria-hidden="true">·</span><span>xterm-256color</span>
+    <span aria-hidden="true">·</span><span>{{ footSize }}</span>
+    <span class="lat"><span class="dot" />延迟 <span>—</span></span>
+  </footer>
+
+  <!-- 服务器选择弹层（旧版 #pick） -->
+  <div v-if="pickOpen" class="modal" @click.self="pickOpen = false">
+    <div class="modal-card" role="dialog" aria-modal="true">
+      <div class="modal-head">
+        <h3>选择要连接的服务器</h3>
+        <button type="button" aria-label="关闭" @click="pickOpen = false">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <path d="M6 6l12 12M18 6L6 18" />
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <p v-if="!servers.length" class="hint">还没有 SSH 服务器 —— 到「服务器」页添加一台</p>
+        <button
+          v-for="s in servers"
+          :key="s.id"
+          type="button"
+          class="btn"
+          style="width: 100%; justify-content: flex-start; margin-bottom: 6px"
+          @click="pickServer(s.id)"
+        >
+          {{ s.name }} · {{ s.host }}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <p v-if="errorText" class="hint" style="color: rgb(var(--bad)); padding: 0 12px">{{ errorText }}</p>
 </template>
 
-<style scoped>
-.term-window {
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-  background: #0b1220;
-  color: #d7dde6;
-}
-.titlebar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 12px;
-  border-bottom: 1px solid #1e293b;
-  font-size: 12px;
-}
-.conn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.conn .dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #f59e0b;
-}
-.conn.ok .dot {
-  background: #22c55e;
-}
-.spacer {
-  flex: 1;
-}
-.tabbar {
-  display: flex;
-  gap: 2px;
-  padding: 4px 8px;
-  border-bottom: 1px solid #1e293b;
-}
-.tab {
-  border: 0;
-  background: transparent;
-  color: #94a3b8;
-  font-size: 12px;
-  padding: 4px 10px;
-  border-radius: 6px;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.tab.is-on {
-  background: #1e293b;
-  color: #e2e8f0;
-}
-.tab .x {
-  opacity: 0.5;
-}
-.tab .x:hover {
-  opacity: 1;
-}
-.term-host {
-  flex: 1;
-  min-height: 0;
-  padding: 6px 8px;
-  overflow: hidden;
-}
-.term-slot {
-  width: 100%;
-  height: 100%;
-}
-.empty {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-content: center;
-  text-align: center;
-  color: #64748b;
-  font-size: 13px;
-  pointer-events: none;
-}
-.hint {
-  font-size: 12px;
-  color: #475569;
-}
-.err {
-  position: absolute;
-  bottom: 10px;
-  left: 12px;
-  color: #f87171;
-  font-size: 12px;
-  margin: 0;
-}
-</style>
+<!--
+  样式**不写在这里**：`.appicon` / `.tools` / `.toolbtn` / `.tabbar` /
+  `.term-wrap` / `.empty` / `footer` / `.modal` 全部由
+  `styles/vendor/legacy.css` + `hub-inline.css` 定义（旧版就是这么走的）。
+-->

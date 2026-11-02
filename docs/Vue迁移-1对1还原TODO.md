@@ -238,7 +238,8 @@ CSS 构成：`styles.css` 5,013 + `hub.html` 内联 **2,342** + `notify.css` 168
 - [ ] **5.2.1** 快照 `applySnapshot` + revision 去重 ✓
 - [ ] **5.2.2** 传输通道 ws/http/auto ✓
 - [ ] **5.2.3** rEFInd 区：点条目切换 / 手动处理 / 模拟扫描
-- [ ] **5.2.4** GRUB 区：自动读取 / 手动解析 / 四个列表格式
+- [x] **5.2.4** GRUB 区：自动读取 / 手动解析 / 四个列表格式
+  - ✅ 完成：安装/卸载 09_anyboot + 执行过程 + 脚本编辑 + 引导配置须知 + 列表格式选择
 - [ ] **5.2.5** 三通道：sdboot / OC / Clover（OC 有菜单预演）
 - [ ] **5.2.6** Linux GRUB 自动读取链路
 - [ ] **5.2.7** 设置页全部表单
@@ -269,14 +270,16 @@ CSS 构成：`styles.css` 5,013 + `hub.html` 内联 **2,342** + `notify.css` 168
 
 ## 六、4 个独立窗
 
-- [ ] **6.1 `hub-term.html`**（695 行 / 11 事件 / 12 IPC）
+- [x] **6.1 `hub-term.html`**（695 行 / 11 事件 / 12 IPC）
+  - ✅ 完成：header(.appicon+h1+.pill+.tools 三按钮) + .tabbar + .term-wrap(.crt-fade+.empty) + footer(host/size/延迟) + #pick 选择弹层
   - `.titlebar` / `#connPill` / `#connText` / `#tabbar` / `#termHost` / `#empty` / `.foot`
   - xterm + FitAddon、多标签、字号、主题、hub 按钮
 - [ ] **6.2 `hub-files.html`**（1,262 行 / 49 事件 / 16 IPC）
   - 与 `page-files` 共用后端，但**独立窗有自己的完整 UI**（含 5 个弹层）
 - [ ] **6.3 `hub-backup.html`**（1,057 行 / 28 事件 / 15 IPC）
   - 独立窗版本，与 `page-backup` 内容不完全相同
-- [ ] **6.4 `hub-keys.html`**（465 行 / 15 事件 / 9 IPC）
+- [x] **6.4 `hub-keys.html`**（465 行 / 15 事件 / 9 IPC）
+  - ✅ 完成：header(.appicon+h1+.count+.tools) + .toolbar(生成/导入/hint) + ul.keys + .empty-tip + footer + #genModal
   - 密钥独立窗（含 `#genModal` 完整弹窗）
 
 ---
@@ -370,8 +373,8 @@ CSS 构成：`styles.css` 5,013 + `hub.html` 内联 **2,342** + `notify.css` 168
 | hub 外壳 | 6 | 6 | **100%** |
 | 12 个页面 | **12** | 12 | **100%** |
 | 32 个弹层 | 16 | 32 | 50% |
-| 主窗引导页 | 部分 | 26 | ~85% |
-| 4 个独立窗 | 0 完整 | 4 | 0% |
+| 主窗引导页 | 部分 | 26 | ~95% |
+| 4 个独立窗 | 2 完整（终端/密钥） | 4 | 50% |
 
 **结论：距离「1:1 还原」还很远。当前只是「能跑」，不是「还原」。**
 
