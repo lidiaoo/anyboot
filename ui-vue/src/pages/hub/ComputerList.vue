@@ -234,10 +234,52 @@ function move(payload: { id: string; delta: number }) {
   );
 }
 
+/** 行内 ⋮ 菜单（对齐旧版 `cqRowMenu`，hub.html:8158） */
+const rowMenuId = ref<string | null>(null);
+
 function openMore(id: string) {
   activeId.value = id;
+  rowMenuId.value = rowMenuId.value === id ? null : id;
   // 旧版打开 ⋮ 时会 touch 一下（记最近使用）
   void import("@/api/tauri").then(({ call }) => call("remote_touch", { id }));
+}
+
+/** 行菜单动作分派（对齐旧版 picked.act 分支） */
+function rowMenuAction(action: string, id: string) {
+  rowMenuId.value = null;
+  const row = renmoteRow(id);
+  switch (action) {
+    case "view":
+      openView(id);
+      break;
+    case "goto":
+      window.location.href = `hub.html?page=home&rid=${encodeURIComponent(id)}`;
+      break;
+    case "browser":
+      void openInBrowser(id);
+      break;
+    case "refresh":
+      void import("@/api/tauri").then(({ call }) => call("remote_test", { id })).then(() => remote.load()).catch(() => {});
+      break;
+    case "sysinfo":
+      sysInfoId.value = id;
+      break;
+    case "edit":
+      openRemoteEdit(id);
+      break;
+    case "copyip": {
+      const addr = infoOf(id)?.addr || (row?.addresses?.[0] ?? "");
+      void navigator.clipboard?.writeText(addr).catch(() => {});
+      break;
+    }
+    case "delete":
+      void import("@/api/tauri").then(({ call }) => call("remote_delete", { id })).then(() => remote.load()).catch(() => {});
+      break;
+  }
+}
+
+function renmoteRow(id: string) {
+  return remote.servers.find((s) => s.id === id);
 }
 
 /** 用系统浏览器打开某台电脑的页面（旧版 remote_open_page） */
@@ -495,6 +537,25 @@ function power(payload: Record<string, unknown>) {
             </div>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- 行内 ⋮ 菜单（旧版 cqRowMenu，hub.html:8158） -->
+    <div v-if="rowMenuId" class="overlay-transparent" @click="rowMenuId = null">
+      <div class="menu cq-row-menu" role="menu" @click.stop>
+        <div class="caption">{{ renmoteRow(rowMenuId)?.name }}</div>
+        <button type="button" role="menuitem" @click="rowMenuAction('view', rowMenuId!)">打开页面（内嵌查看）</button>
+        <button type="button" role="menuitem" @click="rowMenuAction('goto', rowMenuId!)">在电脑页打开（选中标签）</button>
+        <button type="button" role="menuitem" @click="rowMenuAction('browser', rowMenuId!)">在系统浏览器打开</button>
+        <div class="sep" />
+        <button type="button" role="menuitem" @click="rowMenuAction('refresh', rowMenuId!)">重新探测这台电脑</button>
+        <button type="button" role="menuitem" @click="rowMenuAction('sysinfo', rowMenuId!)">系统信息（系统 / CPU / 内存）</button>
+        <template v-if="rowMenuId !== 'local'">
+          <button type="button" role="menuitem" @click="rowMenuAction('edit', rowMenuId!)">编辑这台电脑</button>
+          <button type="button" role="menuitem" @click="rowMenuAction('copyip', rowMenuId!)">复制地址</button>
+          <div class="sep" />
+          <button type="button" role="menuitem" class="danger" @click="rowMenuAction('delete', rowMenuId!)">删除这台电脑</button>
+        </template>
       </div>
     </div>
 
