@@ -1039,8 +1039,9 @@ class ComputerListActivity : ComponentActivity() {
                 name,
                 fontSize = 12.sp,
                 color = palette.fgDim,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+                // 完整展示（「其他引导器 · systemd-boot / Clover」这类名字可能很长）
+                maxLines = Int.MAX_VALUE,
+                overflow = TextOverflow.Clip,
             )
             Text("未检测到", fontSize = 10.sp, color = palette.fgFaint)
         }
@@ -2046,7 +2047,10 @@ class ComputerListActivity : ComponentActivity() {
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(42.dp)
+                // 2026-11-02 用户定案：「电脑列表的引导器选中的条目仍然是被压缩到了
+                // 一行 我期望支持多行展示 只需要展示完整不考虑多少行」。
+                // 原来是 height(42.dp) 写死单行高度 → 改最小高度，随内容长高。
+                .heightIn(min = 42.dp)
                 .clip(shape)
                 .background(background)
                 .then(
@@ -2087,9 +2091,13 @@ class ComputerListActivity : ComponentActivity() {
                 fontSize = 12.5.sp,
                 fontWeight = if (usable) FontWeight.Medium else FontWeight.Normal,
                 color = if (usable) palette.fg else palette.fgFaint.copy(alpha = 0.85f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
+                // 完整展示：不限行数、不省略号（启动项名可以很长）
+                maxLines = Int.MAX_VALUE,
+                overflow = TextOverflow.Clip,
+                lineHeight = 16.sp,
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(vertical = 6.dp),
             )
             if (pending) {
                 Spacer(Modifier.width(6.dp))
@@ -2163,7 +2171,8 @@ class ComputerListActivity : ComponentActivity() {
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(42.dp)
+                // 同 BootButton：最小高度而非写死 42，启动项名长时可长高
+                .heightIn(min = 42.dp)
                 .clip(shape)
                 .background(background)
                 .then(
@@ -2205,9 +2214,13 @@ class ComputerListActivity : ComponentActivity() {
                 fontSize = 12.5.sp,
                 fontWeight = if (usable) FontWeight.Medium else FontWeight.Normal,
                 color = if (usable) palette.fg else palette.fgFaint.copy(alpha = 0.85f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
+                // 完整展示：不限行数、不省略号
+                maxLines = Int.MAX_VALUE,
+                overflow = TextOverflow.Clip,
+                lineHeight = 16.sp,
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(vertical = 6.dp),
             )
             if (channel.permission == "nvram" && usable) {
                 Spacer(Modifier.width(5.dp))
@@ -3234,7 +3247,38 @@ class ComputerListActivity : ComponentActivity() {
                 kind = KIND_GRUB, title = "GRUB", available = false,
                 current = "", next = "", saved = "", note = note, options = emptyList(),
             ),
+            // 2026-11-02 用户反馈：「电脑列表页面在有电脑条目 但是数据离线时候
+            // 应该有相应的无状态 目前只有 refind grub 应该加上所有引导器」。
+            // 离线时 channels 原先是空列表 → 三通道整块消失，只剩 rEFInd/GRUB
+            // 两个按钮。这里补上三个固定通道的「离线」占位。
+            channels = offlineChannels(note),
         )
+    }
+
+    /// 离线时的三引导器通道占位：id / 名称与在线时一致，只是 detected=false、
+    /// entries 为空，让列表照常显示「未检测到」的无状态行，而不是整块消失。
+    private fun offlineChannels(note: String): List<ChannelRow> {
+        // 三个固定通道的显示名（与在线时 /api 返回的 label 保持一致）
+        val labels = listOf(
+            "sdboot" to "systemd-boot",
+            "opencore" to "OpenCore",
+            "clover" to "Clover",
+        )
+        return labels.map { (id, label) ->
+            ChannelRow(
+                id = id,
+                label = label,
+                detected = false,
+                permission = "file",
+                chip = "off",
+                detail = note,
+                entries = emptyList(),
+                currentDefault = "",
+                lastBoot = "",
+                error = "",
+                health = emptyList(),
+            )
+        }
     }
 
     /** 这台电脑的 HTTP 端点：直连取首个地址；走跳板机先拉一条本地隧道 */
