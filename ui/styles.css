@@ -3481,8 +3481,15 @@ svg.i.lg { width: 16px; height: 16px; }
 .lg-item:hover, .lg-item.is-active { background: var(--panel-2); border-color: var(--line); }
 .lg-item.is-active { box-shadow: inset 2px 0 0 var(--accent); }
 .lg-item .t { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.lg-item .t b { font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.lg-item .t small { font: 10.5px var(--mono); color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 2026-11-02：同样不省略、完整折行（用户要求「必须显示完整」）。 */
+.lg-item .t b {
+  font-size: 12.5px; font-weight: 600;
+  white-space: normal; overflow-wrap: anywhere; word-break: break-word;
+}
+.lg-item .t small {
+  font: 10.5px var(--mono); color: var(--faint);
+  white-space: normal; overflow-wrap: anywhere; word-break: break-word;
+}
 .lg-foot {
   flex: none; display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-top: 1px solid var(--line);
   font-size: 10.5px; color: var(--faint); background: var(--panel-2); flex-wrap: wrap;
@@ -4528,16 +4535,31 @@ body[data-boot-style="min"] .oc-menu-set:not(.is-default)  { opacity: 0; pointer
 #tab-boot .ba-g-card .ba-g-sub {
   font: 10.5px var(--mono);
   color: var(--faint);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* 2026-11-02 用户定案：「G 布局下还有引导列表文字被省略的问题 我说了多余的
+   * 字可以多行显示 但必须显示完整」。原来是 nowrap + ellipsis，长路径被截。
+   * 改为折行完整展示；mono 长路径（\EFI\Microsoft\Boot\bootmgfw.efi）
+   * 用 anywhere 断行，不撑破行宽。 */
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   max-width: 100%;
   min-width: 0;
 }
 /* G 的条目行是「1fr auto」grid：1fr 的默认最小宽是 min-content，主标题 +
    路径副标题都 nowrap 时会把整行顶宽（窄窗实测副标题溢出 285px）。
-   与 .grub-list-body 同款：把第一列写成 minmax(0,1fr)。 */
-#tab-boot .ba-g-card .grub-entry { grid-template-columns: minmax(0, 1fr) auto; }
+   与 .grub-list-body 同款：把第一列写成 minmax(0,1fr)。
+   2026-11-02：副标题改为折行后，行高会随内容增长 —— 显式 align-items:start，
+   让名称/标签/右侧按钮都贴首行对齐，不要被拉成垂直居中错位。 */
+#tab-boot .ba-g-card .grub-entry {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+}
+#tab-boot .ba-g-card .grub-entry-name {
+  /* 主标题也必须完整显示（长 menuentry 名） */
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
 /* 右侧预览区的动作行（.toolbar 在设置页里是 grid，这里要一行两个按钮） */
 #tab-boot .lg-side .toolbar { display: flex; gap: 6px; }
 #tab-boot .lg-side .toolbar .btn { flex: 1; justify-content: center; }
