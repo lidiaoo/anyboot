@@ -67,7 +67,7 @@ export const useServersStore = defineStore("servers", () => {
   }
 
   async function save(payload: Record<string, unknown>): Promise<void> {
-    await call("hub_save_server", payload);
+    await call("hub_save_server", { server: payload });
     await load();
   }
 

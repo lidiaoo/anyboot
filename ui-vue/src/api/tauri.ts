@@ -162,10 +162,10 @@ export const openGrubDir = () => call<void>("open_grub_dir");
 
 export const hubListServers = <T>() => call<T>("hub_list_servers");
 export const hubSaveServer = (payload: Record<string, unknown>) =>
-  call<unknown>("hub_save_server", payload);
+  call<unknown>("hub_save_server", { server: payload });
 export const hubDeleteServer = (id: string) => call<void>("hub_delete_server", { id });
 export const hubTestServer = (payload: Record<string, unknown>) =>
-  call<unknown>("hub_test_server", payload);
+  call<unknown>("hub_test_server", { server: payload });
 export const hubOpenWindow = (label: string, url?: string) =>
   call<void>("hub_open_window", { label, url });
 

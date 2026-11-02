@@ -142,7 +142,7 @@ export const useRemoteStore = defineStore("remote", () => {
 
   /** 保存档案 */
   async function save(payload: Record<string, unknown>): Promise<void> {
-    await call("remote_save", payload);
+    await call("remote_save", { server: payload });
     await load();
   }
 
