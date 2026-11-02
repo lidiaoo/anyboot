@@ -1296,7 +1296,8 @@ h1,
   top: 0;
   z-index: 2;
   /* sticky 行必须有自己的堆叠上下文，否则窄屏下会压住相邻卡片
-   * （2026-11-02 实测：移动端 GRUB 卡片里 sticky 行 h=115 浮在列表上）。 */
+   * （2026-11-02 实测：移动端 GRUB 卡片里 sticky 行 h=115 浮在列表上）。
+   * 注意：**不是**关掉 position —— 用户要的就是这个「浮动置顶」。 */
   isolation: isolate;
   background: color-mix(in srgb, var(--ok-bg) 87%, var(--panel) 13%);
   border-color: var(--ok-border);
@@ -1307,6 +1308,20 @@ h1,
 body[data-grub-mode="inline"] .grub-list {
   max-height: 320px;
   overflow-y: auto;
+}
+
+/* 2026-11-02：置顶行（sticky）的绘制范围必须被裁在**它自己的列表**里，
+ * 否则整页滚动时它会浮到相邻卡片上（实测 GRUB 卡片的置顶行压住下方
+ * 「其他引导器」条）。
+ * `contain: paint` 把子元素的绘制裁剪到本容器边界 —— 不影响 sticky 的
+ * 吸附行为（吸附仍发生在最近滚动祖先内），只解决「画到外面去」。
+ * 三个列表容器都要加。 */
+.grub-list,
+.grub-list-body,
+.sim-scan-list,
+.oc-menu-list,
+.boot-list {
+  contain: paint;
 }
 
 .grub-empty {
@@ -4231,16 +4246,14 @@ body[data-ba-lr] .tab-panel.active {
  * 都带），写成 .ba-split 会把所有引导区块一起隐藏掉（踩过：页面全空）。 */
 #tab-boot.vw-760.ba-lr > .ba-lr-cols > .k-split { display: none; }
 
-/* 2026-11-02：小屏下引导行的 sticky 置顶会跨卡片叠压（抓图可见 GRUB 卡片里
- * 置顶行浮在列表上、还压住下方的「其他引导器」条）。
- * 小屏本来就是一屏一列、滚动距离短，sticky 收益很小，直接退回普通行。 */
-#tab-boot.vw-760 .grub-entry.is-pinned,
-#tab-boot.vw-520 .grub-entry.is-pinned,
-.vw-520 .grub-entry.is-pinned,
-.vw-760 .grub-entry.is-pinned {
-  position: static;
-  z-index: auto;
-}
+/* 2026-11-02 撤销：这里曾用 `position: static` 把 sticky 关掉，想借此解决
+ * 「小屏下置顶行跨卡片叠压」。那是**错误的修法** —— 用户要的是置顶本身
+ * （「浮动置顶的引导」），关掉等于把功能砍了。
+ *
+ * 叠压的真正原因是 sticky 的有效范围超出了它自己的滚动容器：
+ * 置顶行应只在**所属列表**（.grub-list / .grub-list-body / .sim-scan-list）
+ * 的范围里吸附，滚出列表就跟随离开。修法见下面 `.grub-entry.is-pinned` 的
+ * isolation + 列表容器 overflow 约束，不动 position。 */
 #tab-boot.vw-760.ba-lr .ba-col {
   max-height: none;
   overflow: visible;
