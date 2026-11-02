@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { useUiStateStore } from "@/stores/uiState";
 import { useRemoteStore } from "@/stores/remote";
+import { useServersStore } from "@/stores/servers";
 import ComputerList from "./ComputerList.vue";
 import ServersPage from "./ServersPage.vue";
 import AboutPage from "./AboutPage.vue";
@@ -16,42 +17,44 @@ import KeysPage from "./KeysPage.vue";
 import TermsetPage from "./TermsetPage.vue";
 
 /**
- * hub 主界面（原 `ui/hub.html`）。
+ * hub 主界面（原 `ui/hub.html`，14921 行）。
  *
- * ## 页面结构（对齐旧版的 12 个 `.page` 区块）
+ * ## 1:1 还原原则（用户明确要求）
  *
- * ```
- * .shell
- *   nav.side-nav       ← 侧栏导航（电脑 / 电脑列表 / 服务器 / 远程接入 /
- *                        终端 / 会话 / 传输 / 文件 / 密钥 / 备份 / 终端设置 / 关于）
- *   main.pages         ← 当前页内容
- *   footer.status      ← 状态栏
- * ```
+ * DOM 结构、类名**必须与旧版逐字一致**。原因：
+ *   · `styles.css` 5013 行
+ *   · `hub.html` 的 3 个内联 style 块 2342 行
+ * 全是按这些类名写的。自己重新设计布局 = 7000+ 行样式全部失效。
  *
- * ## 迁移策略（阶段 3）
- *
- * hub 有 8,236 行核心逻辑 + 4,600 行 HTML，覆盖 109 个 IPC 命令、10 个功能域。
- * 按功能域拆组件，**先骨架后填充**：本文件负责导航与页面切换，
- * 各页内容逐步迁入 `pages/hub/*.vue`。
+ * 旧版外壳（`hub.html:2197`）：
+ *   .shell
+ *     aside.side
+ *       .side-head   .side-logo + .side-name + .side-toggle
+ *       nav.side-nav 12 × button.snav(> svg + span.s-label)
+ *       button.snav  主题切换
+ *       .side-foot
+ *     .side-split
+ *     .content
+ *       section.page
  */
 
 const ui = useUiStateStore();
 const remote = useRemoteStore();
+const servers = useServersStore();
 
-/** 导航项（顺序与旧版一致） */
 const NAV = [
-  { id: "home", label: "电脑" },
-  { id: "computers", label: "电脑列表" },
-  { id: "servers", label: "服务器" },
-  { id: "gateway", label: "远程接入" },
-  { id: "term", label: "终端" },
-  { id: "sessions", label: "会话" },
-  { id: "transfers", label: "传输" },
-  { id: "files", label: "文件" },
-  { id: "keys", label: "密钥" },
-  { id: "backup", label: "备份与恢复" },
-  { id: "termset", label: "终端设置" },
-  { id: "about", label: "关于" },
+  { id: "home", label: "电脑", svg: '<rect x="2" y="4" width="20" height="14" rx="2"/><path d="M8 21h8M12 18v3"/>' },
+  { id: "computers", label: "电脑列表", svg: '<path d="M4 6h16M4 12h16M4 18h16"/><circle cx="8" cy="6" r="1.4" fill="currentColor" stroke="none"/><circle cx="8" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="8" cy="18" r="1.4" fill="currentColor" stroke="none"/>' },
+  { id: "servers", label: "服务器", svg: '<rect x="2" y="3" width="20" height="7" rx="2"/><rect x="2" y="14" width="20" height="7" rx="2"/><path d="M6 6.5h.01M6 17.5h.01"/>' },
+  { id: "gateway", label: "远程接入", svg: '<path d="M5 12a7 7 0 0 1 14 0"/><path d="M3.5 15.5a3.5 3.5 0 0 1 3.4-4.4 5 5 0 0 1 9.6-1.2A4 4 0 0 1 19 18H7a3.5 3.5 0 0 1-3.5-2.5z"/><path d="M12 18v3"/>' },
+  { id: "term", label: "终端", svg: '<rect x="2" y="4" width="20" height="14" rx="2"/><path d="M6 9l3 3-3 3"/>' },
+  { id: "sessions", label: "会话", svg: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>' },
+  { id: "transfers", label: "传输", svg: '<path d="M7 4v12M4 13l3 3 3-3M17 20V8M14 11l3-3 3 3"/>' },
+  { id: "files", label: "文件", svg: '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>' },
+  { id: "keys", label: "密钥", svg: '<circle cx="8" cy="15" r="4"/><path d="M10.8 12.2 20 3M17 6l2.5 2.5"/>' },
+  { id: "backup", label: "备份", svg: '<path d="M21 8v13H3V8M1 3h22v5H1zM10 12h4"/>' },
+  { id: "termset", label: "终端设置", svg: '<path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/>' },
+  { id: "about", label: "关于", svg: '<circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/>' },
 ] as const;
 
 type PageId = (typeof NAV)[number]["id"];
@@ -59,7 +62,6 @@ type PageId = (typeof NAV)[number]["id"];
 const PAGE_KEY = "anyboot.hub.page";
 
 const currentPage = ref<PageId>(
-  // 优先级：?page= 直达 > 上次访问的页 > 默认「电脑列表」
   (() => {
     try {
       const fromUrl = (new URLSearchParams(location.search).get("page") || "") as PageId;
@@ -73,7 +75,6 @@ const currentPage = ref<PageId>(
   })(),
 );
 
-/** 记住上次访问的页（下次打开 hub 直接回去） */
 watch(currentPage, (page) => {
   try {
     localStorage.setItem(PAGE_KEY, page);
@@ -82,79 +83,157 @@ watch(currentPage, (page) => {
   }
 });
 
-/** 侧栏收起（窄视口自动收，用户也可手动） */
 const navCollapsed = ref(false);
 
-onMounted(async () => {
-  await ui.start();
-  await remote.load();
-  void remote.refreshAllBoot();
+const dark = ref(false);
+try {
+  dark.value =
+    localStorage.getItem("anyboot.theme") === "dark" ||
+    (!localStorage.getItem("anyboot.theme") &&
+      window.matchMedia("(prefers-color-scheme: dark)").matches);
+} catch {
+  /* 吃默认 */
+}
+document.documentElement.setAttribute("data-theme", dark.value ? "dark" : "light");
 
-  // 验收信息写进 trace（macOS 无法 attach devtools）
-  window.setTimeout(() => {
-    const line =
-      `[vue-hub] ready=${ui.ready ? 1 : 0} page=${currentPage.value} ` +
-      `servers=${remote.servers.length} bootInfo=${remote.bootInfo.size} ` +
-      `online=${remote.totalOnline} transport=${ui.activeTransport}`;
-    void import("@/api/tauri")
-      .then(({ isTauri, call }) =>
-        isTauri()
-          ? call<void>("hub_report_error", { source: "vue-hub", message: line, stack: "" })
-          : undefined,
-      )
-      .catch(() => {});
-  }, 3000);
+function toggleTheme() {
+  dark.value = !dark.value;
+  document.documentElement.setAttribute("data-theme", dark.value ? "dark" : "light");
+  try {
+    localStorage.setItem("anyboot.theme", dark.value ? "dark" : "light");
+  } catch {
+    /* 忽略 */
+  }
+}
+
+/* 侧栏拖拽调宽（旧版 `#sideSplit` 的行为） */
+let dragging = false;
+const sideWidth = ref(248);
+try {
+  const saved = Number.parseInt(localStorage.getItem("anyboot.hub.sideWidth") || "", 10);
+  if (Number.isFinite(saved) && saved >= 160 && saved <= 420) sideWidth.value = saved;
+} catch {
+  /* 忽略 */
+}
+
+function startDrag(event: PointerEvent) {
+  dragging = true;
+  (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+}
+function onDrag(event: PointerEvent) {
+  if (!dragging || navCollapsed.value) return;
+  sideWidth.value = Math.min(420, Math.max(160, event.clientX));
+  const el = document.querySelector<HTMLElement>(".side");
+  if (el) el.style.width = `${sideWidth.value}px`;
+}
+function endDrag() {
+  if (!dragging) return;
+  dragging = false;
+  try {
+    localStorage.setItem("anyboot.hub.sideWidth", String(sideWidth.value));
+  } catch {
+    /* 忽略 */
+  }
+}
+
+onMounted(async () => {
+  const el = document.querySelector<HTMLElement>(".side");
+  if (el && !navCollapsed.value) el.style.width = `${sideWidth.value}px`;
+  await ui.start();
+  await Promise.all([remote.load(), servers.load()]);
+  void remote.refreshAllBoot();
 });
 
-const currentLabel = computed(
+const contentLabel = computed(
   () => NAV.find((item) => item.id === currentPage.value)?.label ?? "",
 );
-
-function goto(id: PageId) {
-  currentPage.value = id;
-}
 </script>
 
 <template>
   <div class="shell" :class="{ 'nav-collapsed': navCollapsed }">
-    <nav class="side-nav">
-      <button
-        v-for="item in NAV"
-        :key="item.id"
-        type="button"
-        :class="['snav', { 'is-on': currentPage === item.id }]"
-        :title="item.label"
-        @click="goto(item.id)"
-      >
-        <span class="s-label">{{ item.label }}</span>
-      </button>
-    </nav>
-
-    <main class="pages">
-      <header
-        v-if="!['computers', 'servers', 'home'].includes(currentPage)"
-        class="page-head"
-      >
-        <h1>{{ currentLabel }}</h1>
+    <aside class="side" aria-label="远程管理导航">
+      <div class="side-head">
+        <span class="side-logo" aria-hidden="true">A</span>
+        <span class="side-name">
+          <b>AnyBoot</b>
+          <i class="mono">remote</i>
+        </span>
         <button
-          type="button"
-          class="btn icon ghost sm"
+          class="icon-btn side-toggle"
           :title="navCollapsed ? '展开侧栏' : '收起侧栏'"
+          :aria-label="navCollapsed ? '展开侧栏' : '收起侧栏'"
           @click="navCollapsed = !navCollapsed"
         >
-          {{ navCollapsed ? "»" : "«" }}
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+            :style="{ transform: navCollapsed ? 'rotate(180deg)' : 'none' }"
+          >
+            <path d="M11 17l-5-5 5-5M18 17l-5-5 5-5" />
+          </svg>
         </button>
-      </header>
+      </div>
 
-      <section
-        class="page-body"
-        :class="{
-          'is-flush': [
-            'computers', 'servers', 'home', 'gateway', 'backup',
-            'term', 'sessions', 'transfers', 'files', 'keys', 'termset',
-          ].includes(currentPage),
-        }"
+      <nav class="side-nav" aria-label="导航">
+        <button
+          v-for="item in NAV"
+          :key="item.id"
+          type="button"
+          class="snav"
+          :class="{ active: currentPage === item.id }"
+          :title="item.label"
+          @click="currentPage = item.id"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+            v-html="item.svg"
+          />
+          <span class="s-label">{{ item.label }}</span>
+        </button>
+      </nav>
+
+      <button
+        type="button"
+        class="snav"
+        title="切换亮暗主题"
+        aria-label="切换亮暗主题"
+        @click="toggleTheme"
       >
+        <span aria-hidden="true" style="width: 18px; text-align: center; flex: none">{{
+          dark ? "☀️" : "🌙"
+        }}</span>
+        <span class="s-label">主题</span>
+      </button>
+
+      <div class="side-foot mono">
+        <span class="s-label">GitHub · lidiaoo/anyboot<br />MIT · 心跳 10s · 并发探测</span>
+      </div>
+    </aside>
+
+    <div
+      class="side-split"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="拖动调整侧栏宽度"
+      title="拖动调整侧栏宽度"
+      @pointerdown="startDrag"
+      @pointermove="onDrag"
+      @pointerup="endDrag"
+    />
+
+    <div class="content">
+      <section class="page active">
         <ComputerList v-if="currentPage === 'computers'" />
         <ServersPage v-else-if="currentPage === 'servers'" />
         <AboutPage v-else-if="currentPage === 'about'" />
@@ -167,109 +246,8 @@ function goto(id: PageId) {
         <FilesPage v-else-if="currentPage === 'files'" />
         <KeysPage v-else-if="currentPage === 'keys'" />
         <TermsetPage v-else-if="currentPage === 'termset'" />
-        <template v-else>
-          <p class="placeholder">
-            「{{ currentLabel }}」页面正在迁移中 —— 阶段 3 按功能域逐块迁入。
-          </p>
-          <dl class="summary">
-            <dt>电脑档案</dt>
-            <dd>{{ remote.servers.length }} 台</dd>
-            <dt>已读取引导项</dt>
-            <dd>{{ remote.bootInfo.size }} 台</dd>
-            <dt>Revision</dt>
-            <dd>{{ ui.revision }}</dd>
-          </dl>
-        </template>
+        <p v-else class="placeholder">{{ contentLabel }} 页面</p>
       </section>
-    </main>
+    </div>
   </div>
 </template>
-
-<style scoped>
-.shell {
-  display: flex;
-  height: 100%;
-  background: var(--bg, #fbfcfe);
-}
-.side-nav {
-  width: 168px;
-  flex: none;
-  border-right: 1px solid var(--line, #e5e7eb);
-  padding: 10px 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  overflow-y: auto;
-  background: var(--panel, #fff);
-}
-.shell.nav-collapsed .side-nav {
-  width: 52px;
-}
-.shell.nav-collapsed .s-label {
-  display: none;
-}
-.snav {
-  text-align: left;
-  padding: 8px 10px;
-  border-radius: 7px;
-  border: 0;
-  background: transparent;
-  font-size: 13px;
-  color: var(--fg-dim, #4b5563);
-  cursor: pointer;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.snav:hover {
-  background: var(--soft, #f3f4f6);
-}
-.snav.is-on {
-  background: var(--accent-soft, #eff6ff);
-  color: var(--accent, #2563eb);
-  font-weight: 600;
-}
-.pages {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-}
-.page-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 14px 20px 10px;
-  border-bottom: 1px solid var(--line, #e5e7eb);
-}
-.page-head h1 {
-  font-size: 16px;
-  margin: 0;
-}
-.page-body {
-  flex: 1;
-  overflow-y: auto;
-  padding: 20px;
-}
-.page-body.is-flush {
-  padding: 0;
-}
-.placeholder {
-  font-size: 13px;
-  color: var(--fg-faint, #9ca3af);
-  margin: 0 0 16px;
-}
-.summary {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 6px 16px;
-  font-size: 13px;
-  max-width: 360px;
-}
-.summary dt {
-  color: var(--fg-faint, #9ca3af);
-}
-.summary dd {
-  margin: 0;
-}
-</style>

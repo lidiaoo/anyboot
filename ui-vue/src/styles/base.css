@@ -12,6 +12,10 @@
  */
 @import "./vendor/legacy.css";
 @import "./vendor/notify.css";
+/* hub.html 的 3 个内联 <style> 块（2342 行）—— .shell / .side / .snav /
+   .cq-* / .fb-* / .ts-* / .gw-* 等全在这里。旧版它们写在各页面 HTML 里，
+   迁移时必须一并带走，否则那 2342 行样式全失效。 */
+@import "./vendor/hub-inline.css";
 
 /* 迁移期的最小重置（旧 styles.css 里已有大部分，这里只补 Vue 特有的） */
 *, *::before, *::after { box-sizing: border-box; }
