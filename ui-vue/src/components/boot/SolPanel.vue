@@ -41,6 +41,8 @@ const errorText = ref("");
 const listenAddr = ref("");
 const newToken = ref("");
 const installDir = ref("");
+/** 选中的本地安装包路径（旧版 solPkgArchivePath） */
+const archivePath = ref("");
 const progress = ref(0);
 const logs = ref<string[]>([]);
 const configText = ref("");
@@ -135,12 +137,22 @@ function download() {
   void call("sol_install_download", { dir: null }).catch(() => {});
 }
 
-function pickArchive() {
-  void call("sol_project_open").catch(() => {});
+function restartService() {
+  void call("sol_service_ctl", { action: "restart" }).catch(() => {});
+}
+
+async function pickArchive() {
+  try {
+    const picked = (await call<string | null>("sol_pick_archive")) ?? null;
+    if (picked) archivePath.value = picked;
+  } catch {
+    /* 忽略 */
+  }
 }
 
 function extract() {
-  void call("sol_extract").catch(() => {});
+  if (!archivePath.value) return;
+  void call("sol_extract", { archive: archivePath.value, dir: installDir.value || null }).catch(() => {});
 }
 
 function pickDir() {
@@ -164,7 +176,7 @@ function pickDir() {
       <span class="remote-inline">
         <button type="button" id="sol-refresh" class="secondary" @click="refresh">刷新状态</button>
         <button type="button" id="sol-status-privileged" class="secondary" :hidden="!privilegedNeeded" title="服务状态被系统权限挡住时才出现" @click="readPrivilegedStatus">授权查看状态</button>
-        <button type="button" id="sol-restart-service" class="secondary" @click="call('sol_project_open')">重启服务</button>
+        <button type="button" id="sol-restart-service" class="secondary" @click="restartService">重启服务</button>
       </span>
     </div>
 

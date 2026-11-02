@@ -178,8 +178,20 @@ async function doExport() {
   );
 }
 
-function doImport() {
-  void run("导入", () => call("backup_import"), "导入完成（设置已恢复）");
+async function doImport() {
+  let path = "";
+  try {
+    path = ((await call("backup_pick_import_file")) as string) ?? "";
+  } catch {
+    path = "";
+  }
+  if (!path) return;
+  // 独立窗简化流程：直接按默认「跳过已存在」策略导入（完整预览在 hub 备份页）
+  void run(
+    "导入",
+    () => call("backup_import", { path, password: "", categories: [], strategy: "skipExisting" }),
+    "导入完成（设置已恢复）",
+  );
 }
 
 function saveSync() {

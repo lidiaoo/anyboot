@@ -266,7 +266,7 @@ const unlisteners: (() => void)[] = [];
 
 /** 主窗焦点状态（旧版 hub-focus-update 用来刷新标题栏） */
 function focusWindowState() {
-  void call("hub_focus_window").catch(() => {});
+  void call("hub_focus_window", { label: "main" }).catch(() => {});
 }
 
 onUnmounted(() => {

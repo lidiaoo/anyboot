@@ -285,7 +285,8 @@ function tsSaveKey() {
 }
 
 function tailscaleService() {
-  void run("切换服务", () => call("gateway_tailscale_service"), "已切换");
+  const action = tsStatus.value?.running ? "stop" : "start";
+  void run("切换服务", () => call("gateway_tailscale_service", { action }), "已切换");
 }
 
 async function copyTsAddr() {
@@ -378,9 +379,19 @@ const TABS: { key: TabKey; label: string; dot?: boolean }[] = [
 const cfUrl = computed(() => config.value?.tunnel?.url ?? "");
 const cfRunning = computed(() => Boolean(config.value?.tunnel?.running));
 const cfInstalled = computed(() => Boolean(config.value?.binary?.installed));
+/** 残留通道 pid 列表（旧版 gateway_tunnel_orphans 返回） */
+interface OrphanTunnel { pid: number; url?: string; }
+const orphans = ref<OrphanTunnel[]>([]);
+async function refreshOrphans() {
+  try {
+    orphans.value = (await call<OrphanTunnel[]>("gateway_tunnel_orphans")) ?? [];
+  } catch {
+    orphans.value = [];
+  }
+}
 /** 是否有上次遗留的孤儿通道（旧版 #gwOrphanBox 的显示条件） */
 const orphanRunning = computed(
-  () => !cfRunning.value && Boolean(config.value?.tunnel?.url) && config.value?.tunnel?.state === "orphan",
+  () => orphans.value.length > 0 || (!cfRunning.value && Boolean(config.value?.tunnel?.url) && config.value?.tunnel?.state === "orphan"),
 );
 
 watch(logOpen, (open) => {
@@ -388,6 +399,7 @@ watch(logOpen, (open) => {
 });
 
 async function refreshAll() {
+  void refreshOrphans();
   try {
     config.value = await call<GatewayConfig>("gateway_config");
   } catch (error) {
@@ -570,17 +582,22 @@ function tsUninstallNow() {
 
 /** 残留通道：沿用 / 清理多余 */
 function adoptOrphan() {
-  void run("沿用残留通道", () => call("gateway_tunnel_adopt"), "已沿用");
+  const pid = orphans.value[0]?.pid;
+  if (!pid) { toast.show("没有可沿用的残留通道", "bad"); return; }
+  void run("沿用残留通道", () => call("gateway_tunnel_adopt", { pid }), "已沿用");
 }
 
 
 function killOrphan() {
-  void run("清理残留", () => call("gateway_tunnel_kill_orphan"), "已清理残留通道");
+  const pid = orphans.value[0]?.pid;
+  if (!pid) { toast.show("没有可终止的残留通道", "bad"); return; }
+  void run("清理残留", () => call("gateway_tunnel_kill_orphan", { pid }), "已清理残留通道");
 }
 
 // ---- Tailscale ----
 function toggleTailscale() {
-  void run("切换 Tailscale", () => call("gateway_tailscale_toggle"), "已切换");
+  const up = !tsStatus.value?.running;
+  void run("切换 Tailscale", () => call("gateway_tailscale_toggle", { up }), "已切换");
 }
 
 // ---- 配对 ----
