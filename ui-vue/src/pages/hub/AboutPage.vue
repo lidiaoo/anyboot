@@ -3,12 +3,18 @@ import { computed, onMounted, ref } from "vue";
 import { call, isTauri } from "@/api/tauri";
 
 /**
- * 关于页（原 `ui/hub.html` 的 `#page-about`）。
+ * 关于页（原 `ui/hub.html` 的 `#page-about`，4452 行 / 477 行 DOM / 209 id）。
  *
- * 三块：版本卡 / 更新（检查、下载、安装）/ 仓库与外链。
- *
- * **只在应用窗口里出现更新功能**：远程网页没有进度事件通道，
- * 也不该给远程开「装本机应用」的口子。
+ * ## 1:1 结构（4 张 .about-card）
+ * ```
+ * .about-wrap
+ *   .about-card.about-hero   .about-logo + .about-title + .about-ver + .about-desc
+ *                            + .about-hero-actions > .about-pill
+ *   .about-card.about-update #update-section（.update-head / -meta / -new / -opts）
+ *   .about-card.about-repo   .about-repo-head + .about-stats + .about-tip
+ *   .about-card.about-links  .about-link × 3（+ .about-divider）
+ *   .about-sign
+ * ```
  */
 
 interface UpdateState {
@@ -17,12 +23,9 @@ interface UpdateState {
   latestVersion: string;
   notes: string;
   publishedAt: string;
-  assetName: string;
-  assetSize: number;
   downloaded: number;
   total: number;
   error: string;
-  checkedAt: string;
   source: string;
 }
 
@@ -31,6 +34,14 @@ const version = ref("—");
 const update = ref<UpdateState | null>(null);
 const checking = ref(false);
 const updateError = ref("");
+const updateOpen = ref(false);
+const stars = ref("…");
+
+const LINK_ITEMS = [
+  { id: "releases", label: "更新日志", icon: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>' },
+  { id: "issues", label: "问题反馈（Issues）", icon: '<path d="M9 8l-4 4 4 4M15 8l4 4-4 4"/>' },
+  { id: "license", label: "开源许可", icon: '<path d="M6 2.5h7.5L20 9v11.5H6z"/><path d="M13.5 2.5V9H20"/><path d="M9 14h6"/>', suffix: "MIT" },
+];
 
 const phaseText = computed(() => {
   switch (update.value?.phase) {
@@ -67,19 +78,25 @@ onMounted(async () => {
     const { getVersion } = await import("@tauri-apps/api/app");
     version.value = await getVersion();
   } catch {
-    version.value = "—";
+    version.value = "";
   }
   try {
     update.value = await call<UpdateState>("update_state");
+    // 兜底：getVersion 拿不到时用快照里的版本（浏览器 / mock 环境）
+    if (!version.value && update.value?.currentVersion) {
+      version.value = update.value.currentVersion;
+    }
   } catch (error) {
     updateError.value = String(error);
   }
+  if (!version.value) version.value = "—";
 });
 
 async function checkUpdate() {
   if (checking.value) return;
   checking.value = true;
   updateError.value = "";
+  updateOpen.value = true;
   try {
     update.value = await call<UpdateState>("update_check");
   } catch (error) {
@@ -89,209 +106,119 @@ async function checkUpdate() {
   }
 }
 
-function openRepo() {
-  void call("open_web_page", { url: "https://github.com/anyboot/anyboot" }).catch(() => {});
+function openPage(which: string) {
+  const urls: Record<string, string> = {
+    github: "https://github.com/lidiaoo/anyboot",
+    releases: "https://github.com/lidiaoo/anyboot/releases",
+    issues: "https://github.com/lidiaoo/anyboot/issues",
+    license: "https://github.com/lidiaoo/anyboot/blob/main/LICENSE",
+  };
+  const url = urls[which];
+  if (url) void call("open_web_page", { url }).catch(() => {});
 }
 </script>
 
 <template>
   <div class="about-wrap">
+    <!-- 版本卡 -->
     <div class="about-card about-hero">
-      <span class="about-logo" aria-hidden="true">🖥</span>
+      <span class="about-logo" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2.5" y="4" width="19" height="13.5" rx="2" />
+          <path d="M8 21h8M12 17.5V21" />
+        </svg>
+      </span>
       <h2 class="about-title">AnyBoot</h2>
       <p class="about-ver mono">v{{ version }} · 多系统启动管理器</p>
-      <p class="about-desc">
-        多系统一键切换 · GRUB 管理 · 远程电源控制 · SSH 跳板机隧道 · SFTP 文件传输
-      </p>
+      <p class="about-desc">多系统一键切换 · GRUB 管理 · 远程电源控制 · SSH 跳板机隧道 · SFTP 文件传输</p>
       <div class="about-hero-actions">
-        <button v-if="inTauri" type="button" class="about-pill" :disabled="checking" @click="checkUpdate">
-          {{ checking ? "检查中…" : "检查更新 ›" }}
+        <button type="button" class="about-pill" @click="checkUpdate">
+          检查更新<span aria-hidden="true"> ›</span>
         </button>
-        <button type="button" class="about-pill" @click="openRepo">项目主页 ›</button>
       </div>
     </div>
 
-    <div v-if="inTauri" class="about-card">
+    <!-- 更新卡（只在 Tauri 里出现） -->
+    <div v-if="inTauri && updateOpen" class="about-card about-update">
       <div class="update-head">
         <div class="update-version">
           <span class="update-k">当前版本</span>
-          <b class="mono">{{ update?.currentVersion || version }}</b>
+          <b class="update-v mono">{{ update?.currentVersion || version }}</b>
+        </div>
+        <div class="update-actions">
+          <button type="button" class="btn primary" :disabled="checking" @click="checkUpdate">
+            检查更新
+          </button>
         </div>
       </div>
       <div class="update-meta">{{ phaseText }}</div>
 
-      <div v-if="update?.phase === 'available' || update?.phase === 'downloading'" class="update-new">
-        <div class="update-new-head">
-          <strong>发现新版本 {{ update.latestVersion }}</strong>
-          <span class="update-k">{{ update.publishedAt }}</span>
-        </div>
-        <pre v-if="update.notes" class="update-notes">{{ update.notes }}</pre>
-        <div v-if="update.total" class="update-progress">
-          <div class="update-track"><div class="update-fill" :style="{ width: progress + '%' }" /></div>
-          <div class="update-progress-meta">
-            <span>{{ progress }}%</span>
-            <span class="mono">{{ update.downloaded }} / {{ update.total }}</span>
-            <span>{{ update.source }}</span>
-          </div>
-        </div>
+      <div v-if="update?.phase === 'available' || update?.phase === 'downloading'" class="update-new-head">
+        <strong>发现新版本 {{ update?.latestVersion }}</strong>
+        <span class="update-k">{{ update?.publishedAt }}</span>
+      </div>
+      <pre v-if="update?.notes" class="update-opt">{{ update.notes }}</pre>
+
+      <div v-if="update?.total" class="update-progress-meta">
+        <div class="update-track"><div class="update-fill" :style="{ width: progress + '%' }" /></div>
+        <span class="update-pct">{{ progress }}%</span>
+        <span class="mono">{{ update?.source }}</span>
+      </div>
+
+      <div v-if="update?.phase === 'available'" class="update-buttons">
+        <button type="button" class="btn primary">下载</button>
+        <button type="button" class="btn">跳过这个版本</button>
       </div>
 
       <div v-if="updateError" class="update-error">{{ updateError }}</div>
+
+      <div class="update-opts">
+        <label class="update-opt">
+          <input type="checkbox" checked disabled />
+          <span>自动检查（启动 30 秒后 + 每 12 小时）</span>
+        </label>
+      </div>
     </div>
 
-    <div class="about-card">
-      <h3>快捷键</h3>
-      <ul class="keys">
-        <li><kbd>⌘</kbd><kbd>,</kbd> 打开本窗口</li>
-        <li><kbd>⌘</kbd><kbd>K</kbd> 命令面板（引导页 G 主题）</li>
-      </ul>
+    <!-- 仓库卡 -->
+    <div class="about-card about-repo">
+      <button type="button" class="about-repo-head" @click="openPage('github')">
+        <svg class="about-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M9 8l-4 4 4 4M15 8l4 4-4 4" />
+        </svg>
+        <span class="about-repo-text">
+          <b>GitHub · lidiaoo/anyboot</b>
+          <i>开源项目主页</i>
+        </span>
+        <span class="about-star">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M12 3.6l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z" />
+          </svg>
+          <b>{{ stars }}</b>
+        </span>
+        <span class="about-chev" aria-hidden="true">›</span>
+      </button>
+      <div class="about-stats">
+        <span>{{ stars }} Star</span>
+        <span>— Fork</span>
+        <span>— Issues</span>
+      </div>
+      <p class="about-tip">点 Star 会打开 GitHub 网页，请在网页上点一下 —— 这是给开源作者最好的鼓励。</p>
     </div>
+
+    <!-- 链接卡 -->
+    <div class="about-card about-links">
+      <template v-for="(item, i) in LINK_ITEMS" :key="item.id">
+        <div v-if="i > 0" class="about-divider" aria-hidden="true" />
+        <button type="button" class="about-link" @click="openPage(item.id)">
+          <svg class="about-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" v-html="item.icon" />
+          <span>{{ item.label }}</span>
+          <span v-if="item.suffix" class="about-suffix mono">{{ item.suffix }}</span>
+          <span class="about-chev" aria-hidden="true">›</span>
+        </button>
+      </template>
+    </div>
+
+    <p class="about-sign mono">Made with AnyBoot · 2026</p>
   </div>
 </template>
-
-<style scoped>
-.about-wrap {
-  max-width: 680px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-.about-card {
-  border: 1px solid var(--line, #e5e7eb);
-  border-radius: 12px;
-  background: var(--panel, #fff);
-  padding: 18px 20px;
-}
-.about-hero {
-  text-align: center;
-}
-.about-logo {
-  font-size: 30px;
-  display: block;
-  margin-bottom: 6px;
-}
-.about-title {
-  font-size: 20px;
-  margin: 0 0 4px;
-}
-.about-ver {
-  color: var(--fg-faint, #9ca3af);
-  font-size: 12px;
-  margin: 0 0 10px;
-}
-.about-desc {
-  font-size: 12.5px;
-  color: var(--fg-dim, #6b7280);
-  margin: 0 0 14px;
-  line-height: 1.7;
-}
-.about-hero-actions {
-  display: flex;
-  gap: 8px;
-  justify-content: center;
-  flex-wrap: wrap;
-}
-.about-pill {
-  border: 1px solid var(--line, #e5e7eb);
-  background: var(--soft, #f9fafb);
-  border-radius: 999px;
-  padding: 6px 16px;
-  font-size: 12.5px;
-  cursor: pointer;
-  color: var(--fg-dim, #4b5563);
-}
-.about-pill:hover {
-  background: var(--soft, #f3f4f6);
-}
-.update-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.update-version {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-}
-.update-k {
-  font-size: 11.5px;
-  color: var(--fg-faint, #9ca3af);
-}
-.update-meta {
-  font-size: 12.5px;
-  color: var(--fg-dim, #6b7280);
-  margin-top: 8px;
-}
-.update-new {
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid var(--line, #f1f5f9);
-}
-.update-new-head {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  margin-bottom: 8px;
-}
-.update-notes {
-  font-size: 12px;
-  color: var(--fg-dim, #4b5563);
-  background: var(--soft, #f9fafb);
-  border-radius: 8px;
-  padding: 10px 12px;
-  white-space: pre-wrap;
-  max-height: 200px;
-  overflow-y: auto;
-  margin: 0 0 10px;
-}
-.update-track {
-  height: 6px;
-  border-radius: 3px;
-  background: var(--soft, #f1f5f9);
-  overflow: hidden;
-}
-.update-fill {
-  height: 100%;
-  background: var(--accent, #2563eb);
-  transition: width 0.2s;
-}
-.update-progress-meta {
-  display: flex;
-  gap: 12px;
-  font-size: 11px;
-  color: var(--fg-faint, #9ca3af);
-  margin-top: 5px;
-}
-.update-error {
-  margin-top: 10px;
-  font-size: 12px;
-  color: #dc2626;
-}
-h3 {
-  font-size: 13px;
-  margin: 0 0 10px;
-  color: var(--fg-dim, #6b7280);
-}
-.keys {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  font-size: 12.5px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  color: var(--fg-dim, #4b5563);
-}
-kbd {
-  font-family: ui-monospace, Menlo, monospace;
-  background: var(--soft, #f3f4f6);
-  border-radius: 4px;
-  padding: 1px 5px;
-  margin-right: 3px;
-  font-size: 11px;
-}
-.mono {
-  font-family: ui-monospace, Menlo, monospace;
-  font-size: 11.5px;
-}
-</style>

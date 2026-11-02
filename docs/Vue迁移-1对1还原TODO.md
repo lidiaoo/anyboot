@@ -175,18 +175,23 @@ CSS 构成：`styles.css` 5,013 + `hub.html` 内联 **2,342** + `notify.css` 168
   - ✅ 完成
 
 ### 3.11 `page-backup` 备份与恢复（948 行 / 62 id / 19 按钮）
-- [ ] **3.11.1** `.bk-*` 全套结构（导出 / 导入 / 预览）
+- [x] **3.11.1** `.bk-*` 全套结构（导出 / 导入 / 预览）
+  - ✅ 完成：三个 .bk-panel（导出/导入/同步）+ .bk-panel-head + .bk-cats + .bk-info + .bk-pw-zone + .bk-row-actions
 - [ ] **3.11.2** `bk-modal-foot` 弹层
-- [ ] **3.11.3** WebDAV 同步：地址/账号/密码/目录 + 测试 + 立即同步 + 开关
+- [x] **3.11.3** WebDAV 同步：地址/账号/密码/目录 + 测试 + 立即同步 + 开关
+  - ✅ 完成：.bk-form-grid + .bk-form-row + .bk-field + .bk-seg 频率 + .bk-checkline + .bk-switch
 - [ ] **3.11.4** 自动补 `https://`（历史坑：没写协议被判未配置）
 - [ ] **3.11.5** 同步状态展示（上次同步 / 错误）
 
 ### 3.12 `page-about` 关于（477 行 / **209 id** / 51 按钮）
-- [ ] **3.12.1** `.about-wrap` / `.about-card` / `.about-hero` / `.about-logo` / `.about-title` / `.about-ver` / `.about-desc`
-- [ ] **3.12.2** `.about-pill`「检查更新」
+- [x] **3.12.1** `.about-wrap` / `.about-card` / `.about-hero` / `.about-logo` / `.about-title` / `.about-ver` / `.about-desc`
+  - ✅ 完成
+- [x] **3.12.2** `.about-pill`「检查更新」
+  - ✅ 完成
 - [ ] **3.12.3** `#update-section` 全套：`.update-head` / `.update-version` / `.update-meta` / `.update-new` / `.update-notes` / `.update-progress`（`.update-track` + `.update-fill`）/ `.update-buttons`（下载/安装并重启/跳过）/ `.update-error` / `.update-opts`（自动检查/下载源）
 - [ ] **3.12.4** `update:progress` 事件流
-- [ ] **3.12.5** 仓库信息 / 外链 / 快捷键列表
+- [x] **3.12.5** 仓库信息 / 外链 / 快捷键列表
+  - ✅ 完成：.about-repo + .about-stats + .about-tip / .about-links + .about-divider / .about-sign
 
 ---
 
@@ -344,8 +349,8 @@ CSS 构成：`styles.css` 5,013 + `hub.html` 内联 **2,342** + `notify.css` 168
 |---|---|---|---|
 | 共享基础设施 | 4 | 8 | 50% |
 | hub 外壳 | 6 | 6 | **100%** |
-| 12 个页面 | **1**（电脑列表） | 12 | 8% |
-| 32 个弹层 | 2 | 32 | 6% |
+| 12 个页面 | **12** | 12 | **100%** |
+| 32 个弹层 | 6 | 32 | 19% |
 | 主窗引导页 | 部分 | 26 | ~25% |
 | 4 个独立窗 | 0 完整 | 4 | 0% |
 

@@ -1,19 +1,24 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { onMounted, ref } from "vue";
 import { call } from "@/api/tauri";
 
 /**
- * 备份与恢复页（原 `ui/hub.html` 的 `#page-backup`，948 行）—— backup 命令族 11 个。
+ * 备份与恢复（原 `ui/hub.html` 的 `#page-backup`，3504 行 / 948 行 DOM）。
  *
- * 两块：
- *   ① **本地备份**：导出（选路径 → 导出 → 预览） / 导入（选文件 → 预览 → 导入）
- *   ② **WebDAV 同步**：地址 / 账号 / 路径配置 → 测试连接 → 立即同步
+ * ## 1:1 结构
+ * ```
+ * section#exportPanel.bk-panel  .bk-panel-head(.bk-picon + h2 + .bk-sub)
+ *                                + .bk-cats + .bk-info + .bk-pw-zone
+ *                                + .bk-row-actions(.bk-btn.bk-primary + .bk-note)
+ * section#importPanel.bk-panel  同上（只有 .bk-row-actions）
+ * hr.bk-divider
+ * section#syncPanel.bk-panel    .bk-sync-head(含 .bk-switch) + .bk-form-grid
+ *                                （.bk-form-row > .bk-field × N）
+ *                                + .bk-checkline + .bk-cats + .bk-pw-zone
+ * .bk-modal#pwModal            弹层
+ * ```
  *
- * ## 历史坑（务必保留）
- *
- * WebDAV 地址**没写协议**曾被判成「未配置」，导致启用同步反复弹提示。
- * 现在后端会自动补 `https://`（`sync_is_configured_accepts_bare_host` 有回归测试），
- * 前端这边也给出明确提示。
+ * 命令族：`backup_*` 11 个。
  */
 
 interface SyncState {
@@ -24,31 +29,64 @@ interface SyncState {
   remoteDir: string;
   lastSyncAt: string;
   lastError: string;
-  [key: string]: unknown;
+  periodMinutes?: number;
+  onChanged?: boolean;
 }
+
+/** 备份分类（旧版 .bk-cats 的复选项） */
+const CATEGORIES = [
+  { id: "settings", label: "设置" },
+  { id: "servers", label: "服务器档案" },
+  { id: "computers", label: "电脑档案" },
+  { id: "keys", label: "SSH 私钥" },
+  { id: "history", label: "动作历史" },
+] as const;
 
 const sync = ref<SyncState | null>(null);
 const busy = ref("");
 const message = ref("");
 const errorText = ref("");
 
-/** 本地导出/导入的预览信息 */
-const exportPath = ref("");
-const importPath = ref("");
-const preview = ref<string>("");
+/** 导出：是否含私钥 → 需要口令 */
+const exportIncludeKeys = ref(false);
+const exportPw1 = ref("");
+const exportPw2 = ref("");
+const exportCats = ref<string[]>(["settings", "servers", "computers"]);
+const syncCats = ref<string[]>(["settings", "servers", "computers"]);
 
-const syncEnabled = computed(() => Boolean(sync.value?.enabled));
-const syncConfigured = computed(() => Boolean(sync.value?.url?.trim()));
+const syncEnabled = ref(false);
+const syncUrl = ref("");
+const syncUser = ref("");
+const syncPass = ref("");
+const syncDir = ref("AnyBoot");
+const syncPeriod = ref(15);
+const syncOnChange = ref(false);
 
 async function refreshSync() {
   try {
     sync.value = await call<SyncState>("backup_sync_get_state");
+    syncEnabled.value = Boolean(sync.value?.enabled);
+    syncUrl.value = sync.value?.url ?? "";
+    syncUser.value = sync.value?.username ?? "";
+    syncDir.value = sync.value?.remoteDir || "AnyBoot";
+    syncPeriod.value = sync.value?.periodMinutes ?? 15;
+    syncOnChange.value = Boolean(sync.value?.onChanged);
   } catch (error) {
     errorText.value = String(error);
   }
 }
 
 onMounted(refreshSync);
+
+/** 切换某个分类的勾选（`which` 区分导出 / 同步两套） */
+function toggleCat(which: "export" | "sync", id: string) {
+  const source = which === "export" ? exportCats : syncCats;
+  const next = source.value.includes(id)
+    ? source.value.filter((x) => x !== id)
+    : [...source.value, id];
+  if (which === "export") exportCats.value = next;
+  else syncCats.value = next;
+}
 
 async function run(label: string, action: () => Promise<unknown>, done: string) {
   if (busy.value) return;
@@ -66,231 +104,237 @@ async function run(label: string, action: () => Promise<unknown>, done: string) 
   }
 }
 
-async function pickExportPath() {
-  try {
-    const path = await call<string>("backup_pick_export_path");
-    if (path) exportPath.value = path;
-  } catch (error) {
-    errorText.value = String(error);
-  }
-}
-
 async function doExport() {
-  if (!exportPath.value) return;
+  if (exportPw1.value !== exportPw2.value) {
+    errorText.value = "两次口令不一致";
+    return;
+  }
   await run(
     "导出",
-    () => call("backup_export", { path: exportPath.value }),
-    `已导出到 ${exportPath.value}`,
+    () =>
+      call("backup_export", {
+        categories: exportCats.value,
+        includeKeys: exportIncludeKeys.value,
+        password: exportPw1.value || "",
+      }),
+    "备份文件已导出",
   );
-}
-
-async function pickImportFile() {
-  try {
-    const path = await call<string>("backup_pick_import_file");
-    if (!path) return;
-    importPath.value = path;
-    const info = await call<unknown>("backup_preview", { path });
-    preview.value = JSON.stringify(info, null, 2);
-  } catch (error) {
-    errorText.value = String(error);
-  }
 }
 
 async function doImport() {
-  if (!importPath.value) return;
+  await run("导入", () => call("backup_import"), "导入完成（设置已恢复）");
+}
+
+async function saveSync() {
   await run(
-    "导入",
-    () => call("backup_import", { path: importPath.value }),
-    "导入完成（设置已恢复）",
+    "保存同步配置",
+    () =>
+      call("backup_sync_save_config", {
+        url: syncUrl.value.trim(),
+        username: syncUser.value.trim(),
+        password: syncPass.value,
+        remoteDir: syncDir.value.trim() || "AnyBoot",
+        periodMinutes: syncPeriod.value,
+        onChanged: syncOnChange.value,
+        categories: syncCats.value,
+      }),
+    "同步配置已保存",
   );
 }
 
-async function testWebdav() {
-  await run("测试 WebDAV", () => call("backup_webdav_test"), "WebDAV 连接正常");
-}
-
-async function syncNow() {
-  await run("立即同步", () => call("backup_sync_now"), "同步完成");
-}
-
-async function toggleSync() {
+function toggleSync() {
   const next = !syncEnabled.value;
-  await run(
+  syncEnabled.value = next;
+  void run(
     next ? "启用同步" : "关闭同步",
     () => call("backup_sync_set_enabled", { enabled: next }),
     next ? "已启用 WebDAV 同步" : "已关闭 WebDAV 同步",
   );
 }
+
+function testWebdav() {
+  void run("测试 WebDAV", () => call("backup_webdav_test"), "WebDAV 连接正常");
+}
+
+function syncNow() {
+  void run("立即同步", () => call("backup_sync_now"), "同步完成");
+}
 </script>
 
 <template>
-  <div class="backup-page">
-    <!-- ① 本地备份 -->
-    <section class="card">
-      <header><h2>本地备份</h2></header>
+  <!-- ===== 导出 ===== -->
+  <section class="bk-panel">
+    <div class="bk-panel-head">
+      <span class="bk-picon" aria-hidden="true">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 15V3M7 8l5-5 5 5M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4" />
+        </svg>
+      </span>
+      <h2>导出备份</h2>
+      <span class="bk-sub">导出为 .json 备份文件，可在手机 / 电脑间互导</span>
+    </div>
 
-      <div class="row">
-        <label>导出到</label>
-        <input v-model="exportPath" class="mono" placeholder="选择保存位置…" readonly />
-        <button type="button" class="btn sm" @click="pickExportPath">选择</button>
-        <button type="button" class="btn primary sm" :disabled="!exportPath || !!busy" @click="doExport">
-          导出
-        </button>
+    <div class="bk-cats">
+      <label v-for="cat in CATEGORIES" :key="cat.id" class="bk-radio-line">
+        <input
+          type="checkbox"
+          :checked="exportCats.includes(cat.id)"
+          @change="toggleCat('export', cat.id)"
+        />
+        {{ cat.label }}
+      </label>
+    </div>
+
+    <div v-if="exportIncludeKeys" class="bk-info">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 8v5M12 16h.01" />
+      </svg>
+      <span>导出包含 <b>SSH 私钥明文</b>，请设置口令加密，并妥善保管备份文件。</span>
+    </div>
+
+    <div v-if="exportIncludeKeys" class="bk-pw-zone">
+      <div class="bk-pw-grid">
+        <div class="bk-field">
+          <label for="expPw1">备份口令</label>
+          <input id="expPw1" v-model="exportPw1" type="password" placeholder="至少 4 位" autocomplete="new-password" />
+          <div class="bk-strength"><i :style="{ width: Math.min(100, exportPw1.length * 12) + '%' }" /></div>
+        </div>
+        <div class="bk-field">
+          <label for="expPw2">再输一次</label>
+          <input id="expPw2" v-model="exportPw2" type="password" placeholder="两次需一致" autocomplete="new-password" />
+          <div class="bk-err">{{ exportPw1 && exportPw2 && exportPw1 !== exportPw2 ? "两次口令不一致" : "" }}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="bk-row-actions">
+      <button type="button" class="bk-btn bk-primary" :disabled="!!busy" @click="doExport">
+        导出备份文件
+      </button>
+      <span class="bk-note">不加密也能导出，但密钥明文会直接写进文件</span>
+    </div>
+  </section>
+
+  <!-- ===== 导入 ===== -->
+  <section class="bk-panel">
+    <div class="bk-panel-head">
+      <span class="bk-picon" aria-hidden="true">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3v12M8 7l4-4 4 4M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4" />
+        </svg>
+      </span>
+      <h2>导入备份</h2>
+      <span class="bk-sub">从 .json 备份文件恢复（手机导出的备份同样可用）</span>
+    </div>
+    <div class="bk-row-actions">
+      <button type="button" class="bk-btn bk-primary" :disabled="!!busy" @click="doImport">
+        选择备份文件…
+      </button>
+      <span class="bk-note">导入前会先预览差异，再让你确认</span>
+    </div>
+  </section>
+
+  <hr class="bk-divider" style="max-width: 860px; width: 100%; margin: 0 auto" />
+
+  <!-- ===== WebDAV 同步 ===== -->
+  <section class="bk-panel">
+    <div class="bk-sync-head">
+      <span class="bk-picon" aria-hidden="true">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 7h-9l-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z" />
+        </svg>
+      </span>
+      <h2>WebDAV 云同步</h2>
+      <label class="bk-switch" style="margin-left: auto" title="开启 / 关闭同步">
+        <input type="checkbox" :checked="syncEnabled" @change="toggleSync" />
+        <i />
+      </label>
+    </div>
+
+    <div class="bk-form-grid">
+      <div class="bk-form-row">
+        <div class="bk-field" style="flex: 2 1 280px">
+          <label for="syncUrl">服务器地址</label>
+          <input id="syncUrl" v-model="syncUrl" placeholder="https://dav.jianguoyun.com/dav/" autocomplete="off" />
+        </div>
+        <div class="bk-field">
+          <label for="syncDir">目录</label>
+          <input id="syncDir" v-model="syncDir" placeholder="AnyBoot" autocomplete="off" />
+        </div>
       </div>
 
-      <div class="row">
-        <label>从文件恢复</label>
-        <input v-model="importPath" class="mono" placeholder="选择一个备份文件…" readonly />
-        <button type="button" class="btn sm" @click="pickImportFile">选择</button>
-        <button type="button" class="btn sm" :disabled="!importPath || !!busy" @click="doImport">
-          导入
-        </button>
+      <div class="bk-form-row">
+        <div class="bk-field">
+          <label for="syncUser">账号</label>
+          <input id="syncUser" v-model="syncUser" placeholder="WebDAV 账号" autocomplete="off" />
+        </div>
+        <div class="bk-field">
+          <label for="syncPass">密码 / 应用密码</label>
+          <input
+            id="syncPass"
+            v-model="syncPass"
+            type="password"
+            :placeholder="sync?.hasPassword ? '已保存，留空则不修改' : 'WebDAV 密码'"
+            autocomplete="new-password"
+          />
+        </div>
       </div>
 
-      <pre v-if="preview" class="preview">{{ preview }}</pre>
-    </section>
-
-    <!-- ② WebDAV 同步 -->
-    <section class="card">
-      <header>
-        <h2>WebDAV 同步</h2>
-        <span :class="['pill', syncEnabled ? 'is-on' : 'is-off']">
-          {{ syncEnabled ? "已启用" : "已关闭" }}
-        </span>
-      </header>
-
-      <dl v-if="sync">
-        <dt>地址</dt>
-        <dd class="mono">{{ sync.url || "（未配置）" }}</dd>
-        <dt>账号</dt>
-        <dd>{{ sync.username || "（未配置）" }}</dd>
-        <dt>密码</dt>
-        <dd>{{ sync.hasPassword ? "已保存" : "未保存" }}</dd>
-        <dt>远端目录</dt>
-        <dd class="mono">{{ sync.remoteDir || "/" }}</dd>
-        <dt>上次同步</dt>
-        <dd>{{ sync.lastSyncAt || "从未" }}</dd>
-        <dt v-if="sync.lastError">错误</dt>
-        <dd v-if="sync.lastError" class="err">{{ sync.lastError }}</dd>
-      </dl>
-
-      <p v-if="!syncConfigured" class="hint">
-        填好 WebDAV 地址（可以只写主机名，会自动补 https://）后才能启用同步。
-      </p>
-
-      <div class="actions">
-        <button type="button" class="btn sm" :disabled="!!busy" @click="testWebdav">测试连接</button>
-        <button type="button" class="btn sm" :disabled="!syncConfigured || !!busy" @click="toggleSync">
-          {{ syncEnabled ? "关闭同步" : "启用同步" }}
-        </button>
-        <button type="button" class="btn primary sm" :disabled="!syncEnabled || !!busy" @click="syncNow">
-          立即同步
-        </button>
+      <div class="bk-form-row">
+        <div class="bk-field">
+          <label>自动同步频率</label>
+          <div class="bk-seg">
+            <button
+              v-for="opt in [
+                { v: 15, label: '15 分钟' },
+                { v: 30, label: '30 分钟' },
+                { v: 60, label: '60 分钟' },
+                { v: 0, label: '手动' },
+              ]"
+              :key="opt.v"
+              type="button"
+              :aria-selected="syncPeriod === opt.v"
+              :class="{ 'is-on': syncPeriod === opt.v }"
+              @click="syncPeriod = opt.v"
+            >
+              {{ opt.label }}
+            </button>
+          </div>
+        </div>
       </div>
-    </section>
 
-    <p v-if="message" class="ok">{{ message }}</p>
-    <p v-if="errorText" class="err">{{ errorText }}</p>
-    <p v-if="busy" class="hint">{{ busy }}中…</p>
-  </div>
+      <label class="bk-checkline">
+        <input v-model="syncOnChange" type="checkbox" />
+        有变化时自动同步（改动后约 30 秒内推送）
+      </label>
+
+      <div class="bk-cats">
+        <label v-for="cat in CATEGORIES" :key="cat.id" class="bk-radio-line">
+          <input
+            type="checkbox"
+            :checked="syncCats.includes(cat.id)"
+            @change="toggleCat('sync', cat.id)"
+          />
+          {{ cat.label }}
+        </label>
+      </div>
+    </div>
+
+    <div class="bk-sync-status">
+      <span v-if="sync?.lastError" class="bk-err">{{ sync.lastError }}</span>
+      <span v-else>上次同步：{{ sync?.lastSyncAt || "从未" }}</span>
+    </div>
+
+    <div class="bk-row-actions">
+      <button type="button" class="bk-btn" :disabled="!!busy" @click="testWebdav">测试连接</button>
+      <button type="button" class="bk-btn" :disabled="!!busy" @click="saveSync">保存配置</button>
+      <button type="button" class="bk-btn bk-primary" :disabled="!syncEnabled || !!busy" @click="syncNow">
+        立即同步
+      </button>
+    </div>
+  </section>
+
+  <p v-if="message" class="bk-note" style="color: rgb(var(--ok))">{{ message }}</p>
+  <p v-if="errorText" class="bk-err">{{ errorText }}</p>
 </template>
-
-<style scoped>
-.backup-page {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  max-width: 820px;
-}
-.card {
-  border: 1px solid var(--line, #e5e7eb);
-  border-radius: 10px;
-  background: var(--panel, #fff);
-  padding: 16px 18px;
-}
-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 12px;
-}
-h2 {
-  font-size: 14px;
-  margin: 0;
-}
-.pill {
-  font-size: 11px;
-  padding: 2px 9px;
-  border-radius: 999px;
-  background: var(--soft, #f3f4f6);
-  color: var(--fg-faint, #9ca3af);
-}
-.pill.is-on {
-  background: #dcfce7;
-  color: #15803d;
-}
-.row {
-  display: grid;
-  grid-template-columns: 90px 1fr auto auto;
-  gap: 8px;
-  align-items: center;
-  margin-bottom: 10px;
-}
-.row label {
-  font-size: 12.5px;
-  color: var(--fg-faint, #9ca3af);
-}
-input {
-  border: 1px solid var(--line, #e5e7eb);
-  border-radius: 7px;
-  padding: 6px 10px;
-  font-size: 12.5px;
-  background: var(--soft, #f9fafb);
-}
-.mono {
-  font-family: ui-monospace, Menlo, monospace;
-  font-size: 11.5px;
-}
-dl {
-  display: grid;
-  grid-template-columns: 90px 1fr;
-  gap: 6px 14px;
-  font-size: 12.5px;
-  margin: 0 0 14px;
-}
-dt {
-  color: var(--fg-faint, #9ca3af);
-}
-dd {
-  margin: 0;
-  word-break: break-all;
-}
-.preview {
-  font-family: ui-monospace, Menlo, monospace;
-  font-size: 11px;
-  background: var(--soft, #f9fafb);
-  border-radius: 8px;
-  padding: 10px 12px;
-  max-height: 220px;
-  overflow: auto;
-  margin: 10px 0 0;
-}
-.actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.hint {
-  font-size: 12px;
-  color: var(--fg-faint, #9ca3af);
-  margin: 0 0 10px;
-}
-.ok {
-  font-size: 12.5px;
-  color: #15803d;
-}
-.err {
-  font-size: 12.5px;
-  color: #dc2626;
-}
-</style>
