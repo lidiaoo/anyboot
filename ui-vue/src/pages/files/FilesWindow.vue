@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { call } from "@/api/tauri";
-import FbModal from "@/components/hub/FbModal.vue";
 
 /**
  * 文件窗（原 `ui/hub-files.html`，1262 行）—— hub_sftp 命令族 16 个。
@@ -56,6 +55,116 @@ const renameName = ref("");
 const delOpen = ref(false);
 const infoOpen = ref(false);
 const targetEntry = ref<SftpEntry | null>(null);
+
+/** 行操作菜单（旧版 #rowMenu） */
+const rowMenuOpen = ref(false);
+const menuEntry = ref<SftpEntry | null>(null);
+const rowMenuRef = ref<HTMLElement | null>(null);
+
+/** 上级目录快跳（旧版 #pathMenu） */
+const pathMenuOpen = ref(false);
+const parentPaths = computed(() => {
+  const parts = (cwd.value || "/").split("/").filter(Boolean);
+  const out: string[] = ["/"];
+  let acc = "";
+  for (const p of parts) {
+    acc += `/${p}`;
+    out.push(acc);
+  }
+  return out;
+});
+
+/** 目标目录弹层（旧版 #destModal：复制到 / 移动到） */
+const destOpen = ref(false);
+const destMode = ref<"copyTo" | "moveTo">("copyTo");
+const destPath = ref("");
+
+/** toast（旧版 #toast） */
+const toastText = ref("");
+function showToast(text: string) {
+  toastText.value = text;
+  window.setTimeout(() => {
+    if (toastText.value === text) toastText.value = "";
+  }, 2600);
+}
+
+/** 状态栏时钟（旧版 #footClock） */
+const clockText = ref("");
+let clockTimer = 0;
+function tickClock() {
+  clockText.value = new Date().toLocaleTimeString("zh-CN", { hour12: false });
+}
+onMounted(() => {
+  tickClock();
+  clockTimer = window.setInterval(tickClock, 1000);
+});
+onUnmounted(() => {
+  if (clockTimer) window.clearInterval(clockTimer);
+});
+
+function openRowMenu(entry: SftpEntry, _event: MouseEvent) {
+  menuEntry.value = entry;
+  selectedPath.value = entry.path;
+  rowMenuOpen.value = true;
+}
+
+
+function menuAction(act: string) {
+  const entry = menuEntry.value;
+  rowMenuOpen.value = false;
+  if (!entry) return;
+  switch (act) {
+    case "download":
+      selectedPath.value = entry.path;
+      void download();
+      break;
+    case "rename":
+      startRename(entry);
+      break;
+    case "copyPath":
+      void navigator.clipboard.writeText(entry.path).then(() => showToast("路径已复制"));
+      break;
+    case "delete":
+      startDelete(entry);
+      break;
+    case "info":
+      showInfo(entry);
+      break;
+    case "copy":
+    case "cut":
+      showToast(act === "copy" ? "已复制（暂存）" : "已剪切（暂存）");
+      break;
+    case "copyTo":
+      destMode.value = "copyTo";
+      destPath.value = cwd.value;
+      destOpen.value = true;
+      break;
+    case "moveTo":
+      destMode.value = "moveTo";
+      destPath.value = cwd.value;
+      destOpen.value = true;
+      break;
+  }
+}
+
+async function confirmDest() {
+  const entry = menuEntry.value;
+  destOpen.value = false;
+  if (!entry || !destPath.value.trim()) return;
+  const target = `${destPath.value.replace(/\/$/, "")}/${entry.name}`;
+  try {
+    if (destMode.value === "copyTo") {
+      await call("hub_sftp_copy", { server: currentServer.value, from: entry.path, to: target });
+      showToast("已复制");
+    } else {
+      await call("hub_sftp_rename", { server: currentServer.value, from: entry.path, to: target });
+      showToast("已移动");
+    }
+    await listDir(cwd.value);
+  } catch (error) {
+    showToast(String(error));
+  }
+}
 
 const dark = ref(false);
 try {
@@ -308,13 +417,13 @@ function pct(task: XferTask): number {
         <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
       </svg>
     </span>
-    <h1>{{ currentServer?.name || "文件" }}</h1>
-    <span v-if="currentServer" class="pill" :class="errorText ? 'bad' : 'ok'">
+    <h1 id="title">{{ currentServer?.name || "文件" }}</h1>
+    <span id="connPill" class="pill" :class="errorText ? 'bad' : 'ok'" :hidden="!currentServer">
       <span class="dot" />
-      <span>{{ errorText ? "连接失败" : loading ? "读取中…" : "已连接" }}</span>
+      <span id="connText">{{ errorText ? "连接失败" : loading ? "读取中…" : "已连接" }}</span>
     </span>
     <div class="tools">
-      <button type="button" class="toolbtn" aria-label="打开远程管理" title="打开远程管理" @click="openHub">
+      <button type="button" class="toolbtn" id="hubBtn" aria-label="打开远程管理" title="打开远程管理" @click="openHub">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <rect x="2" y="3" width="20" height="7" rx="2" />
           <rect x="2" y="14" width="20" height="7" rx="2" />
@@ -322,7 +431,7 @@ function pct(task: XferTask): number {
         </svg>
         远程管理
       </button>
-      <button type="button" class="toolbtn" aria-label="切换主题" @click="toggleTheme">
+      <button type="button" class="toolbtn" id="themeBtn" aria-label="切换主题" @click="toggleTheme">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
           <circle cx="12" cy="12" r="9" />
           <path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none" />
@@ -334,17 +443,17 @@ function pct(task: XferTask): number {
   </header>
 
   <div class="pathbar">
-    <button type="button" class="iconbtn" aria-label="上一级" title="上一级" @click="goUp">
+    <button type="button" class="iconbtn" id="upBtn" aria-label="上一级" title="上一级" @click="goUp">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M19 12H5M11 18l-6-6 6-6" />
       </svg>
     </button>
-    <button type="button" class="iconbtn" aria-label="刷新" title="刷新" @click="listDir(cwd)">
+    <button type="button" class="iconbtn" id="refreshBtn" aria-label="刷新" title="刷新" @click="listDir(cwd)">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
         <path d="M21 12a9 9 0 1 1-2.6-6.4M21 3v6h-6" />
       </svg>
     </button>
-    <nav class="crumbs scroll-thin" aria-label="路径">
+    <nav class="crumbs scroll-thin" id="crumbs" aria-label="路径">
       <template v-for="(crumb, i) in crumbs" :key="crumb.path">
         <span v-if="i > 0" class="crumb-sep" aria-hidden="true">›</span>
         <button type="button" class="crumb" :aria-current="i === crumbs.length - 1" @click="listDir(crumb.path)">
@@ -352,24 +461,42 @@ function pct(task: XferTask): number {
         </button>
       </template>
     </nav>
-    <button type="button" class="btn" @click="startMkdir">
+    <button type="button" class="iconbtn" id="pathDropBtn" aria-label="路径快跳" title="上级目录快跳" @click.stop="pathMenuOpen = !pathMenuOpen">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M6 9l6 6 6-6" />
+      </svg>
+    </button>
+    <button type="button" class="btn" id="mkdirBtn" @click="startMkdir">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M12 5v14M5 12h14" />
       </svg>
       新建目录
     </button>
-    <button type="button" class="btn primary" @click="upload">
+    <button type="button" class="btn primary" id="uploadBtn" @click="upload">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M12 19V5M5 12l7-7 7 7" />
       </svg>
       上传
     </button>
-    <button type="button" class="btn" :disabled="!selectedPath" :title="selectedPath ? '下载选中的文件' : '未选中文件'" @click="download">
+    <button type="button" class="btn" id="downloadBtn" :disabled="!selectedPath" :title="selectedPath ? '下载选中的文件' : '未选中文件'" @click="download">
       下载
     </button>
   </div>
 
-  <div class="table-wrap scroll-thin">
+  <!-- 上级目录快跳菜单（旧版 #pathMenu） -->
+  <div v-if="pathMenuOpen" class="popmenu" id="pathMenu" role="menu" aria-label="上级目录">
+    <button
+      v-for="p in parentPaths"
+      :key="p"
+      type="button"
+      class="popmenu-item"
+      @click="listDir(p); pathMenuOpen = false"
+    >
+      {{ p }}
+    </button>
+  </div>
+
+  <div class="table-wrap scroll-thin" id="tableWrap">
     <table aria-label="文件列表">
       <thead>
         <tr>
@@ -380,70 +507,173 @@ function pct(task: XferTask): number {
           <th style="width: 64px; text-align: right">操作</th>
         </tr>
       </thead>
-      <tbody>
+      <tbody id="tbody">
         <tr
           v-for="entry in entries"
           :key="entry.path"
           :class="{ 'is-selected': selectedPath === entry.path }"
           @click="selectEntry(entry)"
           @dblclick="openEntry(entry)"
+          @contextmenu.prevent="openRowMenu(entry, $event)"
         >
           <td><span class="ico">{{ entry.is_dir ? "📁" : "📄" }}</span>{{ entry.name }}</td>
           <td class="mono">{{ entry.is_dir ? "—" : fmtSize(entry.size) }}</td>
           <td class="mono">{{ entry.perms || "—" }}</td>
           <td class="mono">{{ fmtTime(entry.mtime) }}</td>
           <td style="text-align: right">
-            <button type="button" class="link-btn" @click.stop="startRename(entry)">改名</button>
-            <button type="button" class="link-btn" @click.stop="showInfo(entry)">属性</button>
-            <button type="button" class="link-btn" @click.stop="startDelete(entry)">删除</button>
+            <button type="button" class="link-btn" @click.stop="openRowMenu(entry, $event)">操作</button>
           </td>
         </tr>
       </tbody>
     </table>
-    <div v-if="!loading && !entries.length" class="empty-tip">
+    <div v-if="!loading && !entries.length" id="emptyTip" class="empty-tip">
       {{ errorText || "这个目录是空的" }}
     </div>
   </div>
 
-  <div v-if="activeTransfer" class="transfer">
+  <!-- 传输进度（旧版 #transfer） -->
+  <div v-if="activeTransfer" id="transfer" class="transfer">
     <svg class="spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" width="14" height="14">
       <path d="M21 12a9 9 0 1 1-9-9" />
     </svg>
-    <span class="tbadge down">{{ activeTransfer.dir === "up" ? "↑ 上传" : "↓ 下载" }}</span>
-    <span>{{ activeTransfer.name }}</span>
-    <div class="bar"><div :style="{ width: pct(activeTransfer) + '%' }" /></div>
-    <span class="tmeta">{{ fmtSize(activeTransfer.bytes) }} / {{ fmtSize(activeTransfer.total) }}</span>
-    <span class="pct">{{ pct(activeTransfer) }}%</span>
-    <button type="button" class="tbtn" @click="transferCtl(activeTransfer.state === 'running' ? 'pause' : 'resume')">
+    <span id="transferDir" class="tbadge" :class="activeTransfer.dir === 'up' ? 'up' : 'down'">
+      {{ activeTransfer.dir === "up" ? "↑ 上传" : "↓ 下载" }}
+    </span>
+    <span id="transferName">{{ activeTransfer.name }}</span>
+    <div id="transferBar" class="bar"><div id="transferFill" :style="{ width: pct(activeTransfer) + '%' }" /></div>
+    <span id="transferMeta" class="tmeta">{{ fmtSize(activeTransfer.bytes) }} / {{ fmtSize(activeTransfer.total) }}</span>
+    <span id="transferPct" class="pct">{{ pct(activeTransfer) }}%</span>
+    <button type="button" id="transferAct" class="tbtn" @click="transferCtl(activeTransfer.state === 'running' ? 'pause' : 'resume')">
       {{ activeTransfer.state === "running" ? "暂停" : "继续" }}
     </button>
-    <button type="button" class="tbtn danger" @click="transferCtl('abandon')">放弃</button>
+    <button type="button" id="transferGiveup" class="tbtn danger" @click="transferCtl('abandon')">放弃</button>
   </div>
 
   <footer>
-    <span>{{ entries.length }} 项 · SFTP 复用 SSH 会话</span>
+    <span id="footCount">{{ entries.length }} 项</span>
+    <span aria-hidden="true">·</span><span>SFTP 复用 SSH 会话</span>
+    <span id="footClock" class="clock">{{ clockText }}</span>
   </footer>
 
-  <!-- 5 个弹层 -->
-  <FbModal :open="mkdirOpen" title="新建目录" confirm-text="创建" @confirm="confirmMkdir" @cancel="mkdirOpen = false">
-    <label for="winMkdirName">目录名（当前目录下创建）</label>
-    <input id="winMkdirName" v-model="mkdirName" placeholder="例如 backup" autocomplete="off" />
-  </FbModal>
+  <!-- 行操作菜单（旧版 #rowMenu） -->
+  <div v-if="rowMenuOpen" id="rowMenu" ref="rowMenuRef" class="filemenu" role="menu" aria-label="文件操作">
+    <div class="fm-head">
+      <span id="fmIcon" class="fm-icon" aria-hidden="true">
+        <svg id="fmIcoFile" v-if="!menuEntry?.is_dir" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+          <path d="M14 2v6h6" />
+        </svg>
+        <svg id="fmIcoDir" v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+        </svg>
+        <svg id="fmIcoLink" v-if="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M13 2L3 14h7l-1 8 10-12h-7z" />
+        </svg>
+      </span>
+      <span id="fmName" class="fm-name">{{ menuEntry?.name || "—" }}</span>
+      <span id="fmMeta" class="fm-meta mono">{{ menuEntry ? (menuEntry.is_dir ? "目录" : fmtSize(menuEntry.size)) : "—" }}</span>
+      <button type="button" id="fmClose" class="fm-close" aria-label="关闭" @click="rowMenuOpen = false">✕</button>
+    </div>
+    <button role="menuitem" id="rmDownload" class="fm-act accent" @click="menuAction('download')">下载</button>
+    <button role="menuitem" id="rmRename" class="fm-act" @click="menuAction('rename')">重命名</button>
+    <button role="menuitem" id="rmCopyPath" class="fm-act" @click="menuAction('copyPath')">复制路径</button>
+    <button role="menuitem" id="rmDelete" class="fm-act danger" @click="menuAction('delete')">删除</button>
+    <button role="menuitem" id="rmInfo" class="fm-act" @click="menuAction('info')">详情</button>
+    <button role="menuitem" id="rmCopy" class="fm-act" @click="menuAction('copy')">复制</button>
+    <button role="menuitem" id="rmCut" class="fm-act" @click="menuAction('cut')">剪切</button>
+    <button role="menuitem" id="rmCopyTo" class="fm-act" @click="menuAction('copyTo')">复制到…</button>
+    <button role="menuitem" id="rmMoveTo" class="fm-act" @click="menuAction('moveTo')">移动到…</button>
+  </div>
 
-  <FbModal :open="renameOpen" title="重命名" @confirm="confirmRename" @cancel="renameOpen = false">
-    <label for="winRenameName">新名称</label>
-    <input id="winRenameName" v-model="renameName" autocomplete="off" />
-  </FbModal>
+  <!-- 新建目录弹层（旧版 #mkdirModal） -->
+  <div v-if="mkdirOpen" id="mkdirModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="mkdirTitle">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3 id="mkdirTitle">新建目录</h3>
+        <button type="button" id="mkdirClose" aria-label="关闭" @click="mkdirOpen = false">✕</button>
+      </div>
+      <form id="mkdirForm" class="modal-body" @submit.prevent="confirmMkdir">
+        <input id="mkdirName" v-model="mkdirName" placeholder="例如 backup" autocomplete="off" required />
+        <div class="modal-foot" style="border: 0; padding: 4px 0 0">
+          <button type="button" class="btn plain" id="mkdirCancel" @click="mkdirOpen = false">取消</button>
+          <button type="submit" class="btn primary" id="mkdirOk">创建</button>
+        </div>
+      </form>
+    </div>
+  </div>
 
-  <FbModal :open="delOpen" title="删除" confirm-text="删除" :danger="true" @confirm="confirmDelete" @cancel="delOpen = false">
-    <p class="hint">确定删除「{{ targetEntry?.name }}」？此操作不可恢复。</p>
-  </FbModal>
+  <!-- 重命名弹层（旧版 #renameModal） -->
+  <div v-if="renameOpen" id="renameModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="renameTitle">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3 id="renameTitle">重命名</h3>
+        <button type="button" id="renameClose" aria-label="关闭" @click="renameOpen = false">✕</button>
+      </div>
+      <form id="renameForm" class="modal-body" @submit.prevent="confirmRename">
+        <input id="renameName" v-model="renameName" autocomplete="off" required />
+        <div class="modal-foot" style="border: 0; padding: 4px 0 0">
+          <button type="button" class="btn plain" id="renameCancel" @click="renameOpen = false">取消</button>
+          <button type="submit" class="btn primary" id="renameOk">重命名</button>
+        </div>
+      </form>
+    </div>
+  </div>
 
-  <FbModal :open="infoOpen" title="属性" confirm-text="关闭" :cancel-text="' '" @confirm="infoOpen = false" @cancel="infoOpen = false">
-    <p><b>名称</b> {{ targetEntry?.name }}</p>
-    <p><b>路径</b> <span class="mono">{{ targetEntry?.path }}</span></p>
-    <p><b>大小</b> {{ targetEntry?.is_dir ? "—" : fmtSize(targetEntry?.size ?? 0) }}</p>
-  </FbModal>
+  <!-- 删除弹层（旧版 #delModal） -->
+  <div v-if="delOpen" id="delModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="delTitle">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3 id="delTitle">删除</h3>
+        <button type="button" id="delClose" aria-label="关闭" @click="delOpen = false">✕</button>
+      </div>
+      <div class="modal-body">
+        <p id="delText">确定删除「{{ targetEntry?.name }}」？此操作不可恢复。</p>
+        <div class="modal-foot" style="border: 0; padding: 4px 0 0">
+          <button type="button" class="btn plain" id="delCancel" @click="delOpen = false">取消</button>
+          <button type="button" class="btn dangerbtn" id="delOk" @click="confirmDelete">删除</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 详情弹层（旧版 #infoModal） -->
+  <div v-if="infoOpen" id="infoModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="infoTitle">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3 id="infoTitle">详情</h3>
+        <button type="button" id="infoClose" aria-label="关闭" @click="infoOpen = false">✕</button>
+      </div>
+      <div id="infoRows" class="modal-body">
+        <p><b>名称</b> {{ targetEntry?.name }}</p>
+        <p><b>路径</b> <span class="mono">{{ targetEntry?.path }}</span></p>
+        <p><b>大小</b> {{ targetEntry?.is_dir ? "—" : fmtSize(targetEntry?.size ?? 0) }}</p>
+      </div>
+      <div class="modal-foot">
+        <button type="button" class="btn primary" id="infoOk" @click="infoOpen = false">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 目标目录弹层（旧版 #destModal：复制到/移动到） -->
+  <div v-if="destOpen" id="destModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="destTitle">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3 id="destTitle">{{ destMode === "moveTo" ? "移动到…" : "复制到…" }}</h3>
+        <button type="button" id="destClose" aria-label="关闭" @click="destOpen = false">✕</button>
+      </div>
+      <form id="destForm" class="modal-body" @submit.prevent="confirmDest">
+        <label id="destLabel" for="destPath">目标目录</label>
+        <input id="destPath" v-model="destPath" class="mono" placeholder="/path/to/dir" autocomplete="off" />
+        <div class="modal-foot" style="border: 0; padding: 4px 0 0">
+          <button type="button" class="btn plain" id="destCancel" @click="destOpen = false">取消</button>
+          <button type="submit" class="btn primary" id="destOk">确定</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- toast（旧版 #toast） -->
+  <div v-if="toastText" id="toast">{{ toastText }}</div>
 
   <div v-if="pickOpen" class="modal" @click.self="pickOpen = false">
     <div class="modal-card" role="dialog" aria-modal="true">
