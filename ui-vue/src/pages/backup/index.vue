@@ -369,7 +369,10 @@ async function executeImport() {
       </div>
 
       <div class="row-actions">
-        <button type="button" class="btn primary" id="exportBtn" :disabled="!!busy" @click="doExport">导出备份文件</button>
+        <button type="button" class="btn primary" id="exportBtn" :disabled="!!busy" @click="doExport">
+          <template v-if="busy"><span class="spin"></span>正在组包…</template>
+          <template v-else>导出备份文件</template>
+        </button>
         <span class="note" id="exportNote">不加密也能导出，但密钥明文会直接写进文件</span>
       </div>
     </section>
@@ -386,7 +389,10 @@ async function executeImport() {
         <span class="sub">从 .json 备份文件恢复（手机导出的备份同样可用）</span>
       </div>
       <div class="row-actions">
-        <button type="button" class="btn primary" id="importBtn" :disabled="!!busy" @click="doImport">选择备份文件…</button>
+        <button type="button" class="btn primary" id="importBtn" :disabled="!!busy" @click="doImport">
+          <template v-if="busy"><span class="spin"></span>{{ busy }}</template>
+          <template v-else>选择备份文件…</template>
+        </button>
         <span class="note">导入前会先预览差异，再让你确认</span>
       </div>
     </section>
@@ -527,6 +533,7 @@ async function executeImport() {
           <label for="importPw">备份口令</label>
           <input id="importPw" v-model="importPw" type="password" autocomplete="off" />
           <div class="err" id="importPwErr">{{ importPwErr }}</div>
+          <p class="modal-note">口令错误 3 次后提示：口令由导出方设置，本机无法找回。</p>
         </div>
         <div class="modal-foot" style="border: 0; padding: 4px 0 0">
           <button type="button" class="btn plain" id="pwCancel" @click="pwOpen = false">取消</button>
@@ -587,9 +594,11 @@ async function executeImport() {
   <!-- 覆盖确认（旧版 #confirmModal） -->
   <div v-if="confirmOpen" id="confirmModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="cfmTitle">
     <div class="modal-card">
-      <div class="modal-head">
+      <div class="del-hero">
+        <span class="icon" aria-hidden="true">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" /></svg>
+        </span>
         <h3 id="cfmTitle">确认覆盖导入？</h3>
-        <button type="button" class="btn plain" aria-label="关闭" @click="confirmOpen = false">✕</button>
       </div>
       <div class="modal-body">
         <p class="del-body" id="cfmBody">{{ confirmBody }}</p>
