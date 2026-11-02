@@ -274,9 +274,11 @@ CSS 构成：`styles.css` 5,013 + `hub.html` 内联 **2,342** + `notify.css` 168
   - ✅ 完成：header(.appicon+h1+.pill+.tools 三按钮) + .tabbar + .term-wrap(.crt-fade+.empty) + footer(host/size/延迟) + #pick 选择弹层
   - `.titlebar` / `#connPill` / `#connText` / `#tabbar` / `#termHost` / `#empty` / `.foot`
   - xterm + FitAddon、多标签、字号、主题、hub 按钮
-- [ ] **6.2 `hub-files.html`**（1,262 行 / 49 事件 / 16 IPC）
+- [x] **6.2 `hub-files.html`**（1,262 行 / 49 事件 / 16 IPC）
+  - ✅ 完成：header(.appicon+h1+.pill+.tools) + .pathbar(3 iconbtn + .crumbs + 3 btn) + .table-wrap(5 列表格 + .empty-tip) + .transfer + footer + 5 个弹层 + 服务器选择
   - 与 `page-files` 共用后端，但**独立窗有自己的完整 UI**（含 5 个弹层）
-- [ ] **6.3 `hub-backup.html`**（1,057 行 / 28 事件 / 15 IPC）
+- [x] **6.3 `hub-backup.html`**（1,057 行 / 28 事件 / 15 IPC）
+  - ✅ 完成：header + main.scroll-thin > 3 个 section.panel（.panel-head/.picon/.sub + .cats + .info + .pw-zone + .row-actions）+ .form-grid + .sync-status
   - 独立窗版本，与 `page-backup` 内容不完全相同
 - [x] **6.4 `hub-keys.html`**（465 行 / 15 事件 / 9 IPC）
   - ✅ 完成：header(.appicon+h1+.count+.tools) + .toolbar(生成/导入/hint) + ul.keys + .empty-tip + footer + #genModal
@@ -374,7 +376,7 @@ CSS 构成：`styles.css` 5,013 + `hub.html` 内联 **2,342** + `notify.css` 168
 | 12 个页面 | **12** | 12 | **100%** |
 | 32 个弹层 | 16 | 32 | 50% |
 | 主窗引导页 | 部分 | 26 | ~95% |
-| 4 个独立窗 | 2 完整（终端/密钥） | 4 | 50% |
+| 4 个独立窗 | **4 完整** | 4 | **100%** |
 
 **结论：距离「1:1 还原」还很远。当前只是「能跑」，不是「还原」。**
 
