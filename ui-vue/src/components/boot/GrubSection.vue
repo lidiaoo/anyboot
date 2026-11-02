@@ -322,9 +322,13 @@ function switchEntry(selector: string) {
         </ul>
       </small>
 
-      <!-- ESP 配置（旧版 section.directory） -->
-      <section class="directory">
-        <label for="grub-dir" id="grub-esp">ESP 目录</label>
+      <!-- ESP 配置（旧版 .grub-esp） -->
+      <div class="grub-esp" id="grub-esp">
+        <div class="grub-esp-head">
+          <strong>ESP 分区</strong>
+          <small>手动 / 自动共用</small>
+        </div>
+        <label for="grub-dir">ESP 目录</label>
         <input
           id="grub-dir"
           :value="espDir"
@@ -339,7 +343,7 @@ function switchEntry(selector: string) {
           <button type="button" id="grub-dir-open" class="secondary" @click="openGrubDir">打开文件管理器</button>
         </div>
 
-        <label for="grub-partuuid" id="grub-part">分区 UUID</label>
+        <label for="grub-partuuid" id="grub-part">ESP 的分区 UUID</label>
         <input
           id="grub-partuuid"
           :value="partuuid"
@@ -358,7 +362,7 @@ function switchEntry(selector: string) {
           <small id="grub-sync-note">读的是 ESP 上的 /EFI/grub.cfg 与 /EFI/grubenv</small>
         </div>
         <p class="grub-error" id="grub-error" role="status" :hidden="!grubErrorText">{{ grubErrorText }}</p>
-      </section>
+      </div>
     </div>
 
     <hr aria-hidden="true" class="boot-divider" id="boot-divider" />

@@ -178,7 +178,7 @@ function fmtPct(v: number) {
     <label class="setting">
       <span class="setting-text">
         <strong>贴边自动隐藏</strong>
-        <small>窗口拖到屏幕边缘时隐藏成一条缝隙，鼠标移上去再展开</small>
+        <small>鼠标离开后主窗口贴到最近的屏幕边，只露一条边条；悬停边条再展开</small>
         <small class="setting-state" id="main-auto-hide-state">{{ s?.mainAutoHide ? "已开启" : "已关闭" }}</small>
       </span>
       <input id="main-auto-hide"
@@ -191,7 +191,7 @@ function fmtPct(v: number) {
     <label class="setting">
       <span class="setting-text">
         <strong>贴边触发距离</strong>
-        <small>鼠标离屏幕边缘多少像素内算「贴上去」</small>
+        <small>主窗口距屏幕边框不超过该像素值、且鼠标离开窗口时才隐藏（0–200，越大越灵敏）</small>
       </span>
       <input id="main-auto-hide-edge-distance"
         type="range"
@@ -237,8 +237,8 @@ function fmtPct(v: number) {
 
     <label class="setting">
       <span class="setting-text">
-        <strong>空隙白条厚度</strong>
-        <small>贴边隐藏时那条缝的粗细</small>
+        <strong>贴边白条厚度</strong>
+        <small>6px（拖动即时预览）</small>
         <small class="setting-state" id="main-dock-strip-thickness-state">{{ val("mainDockStripThickness", 3) }} px</small>
       </span>
       <input id="main-dock-strip-thickness"
@@ -253,8 +253,8 @@ function fmtPct(v: number) {
 
     <label class="setting">
       <span class="setting-text">
-        <strong>白条长度</strong>
-        <small>白条占屏幕边缘的比例</small>
+        <strong>贴边白条长度</strong>
+        <small>100%（主窗那条边长的百分比）</small>
         <small class="setting-state" id="main-dock-strip-length-state">{{ fmtPct(val("mainDockStripLength", 100)) }}</small>
       </span>
       <input id="main-dock-strip-length"
@@ -269,8 +269,8 @@ function fmtPct(v: number) {
 
     <label class="setting">
       <span class="setting-text">
-        <strong>白条不透明度</strong>
-        <small>越低越透明</small>
+        <strong>贴边白条不透明度</strong>
+        <small>100%（拖动即时预览）</small>
         <small class="setting-state" id="main-dock-strip-opacity-state">{{ fmtPct(val("mainDockStripOpacity", 100)) }}</small>
       </span>
       <input id="main-dock-strip-opacity"
@@ -285,8 +285,8 @@ function fmtPct(v: number) {
 
     <label class="setting">
       <span class="setting-text">
-        <strong>白条颜色</strong>
-        <small>贴边缝隙的颜色</small>
+        <strong>贴边白条颜色</strong>
+        <small>点开调色板选一个色调，即时预览</small>
       </span>
       <input id="main-dock-strip-color"
         type="color"
@@ -298,8 +298,8 @@ function fmtPct(v: number) {
     <!-- 热区 -->
     <label class="setting">
       <span class="setting-text">
-        <strong>热区厚度</strong>
-        <small>鼠标移到贴边处多宽的范围内会呼出窗口</small>
+        <strong>热区触发厚度</strong>
+        <small>40px（鼠标移入屏幕边往内这一段就呼出主窗）</small>
         <small class="setting-state" id="main-hotzone-thickness-state">{{ val("mainHotzoneThickness", 8) }} px</small>
       </span>
       <input id="main-hotzone-thickness"
@@ -315,6 +315,7 @@ function fmtPct(v: number) {
     <div class="setting">
       <span class="setting-text">
         <strong>热区调试底色与透明度</strong>
+        <small>0%（默认全透明看不见；调出来可核对热区边界）</small>
         <small class="setting-state" id="main-hotzone-opacity-state">{{ fmtPct(val("mainHotzoneOpacity", 0)) }}</small>
       </span>
       <span class="remote-inline">
@@ -338,8 +339,8 @@ function fmtPct(v: number) {
 
     <label class="setting">
       <span class="setting-text">
-        <strong>热区可视边框</strong>
-        <small>调试用：把「鼠标移入即呼出」的触发带画出来</small>
+        <strong>热区边框</strong>
+        <small>给热区画一圈边框，调试用（默认关）</small>
       </span>
       <input id="main-hotzone-border"        type="checkbox"
         :checked="Boolean(s?.mainHotzoneBorder)"
@@ -351,16 +352,16 @@ function fmtPct(v: number) {
     <!-- 窗口位置 -->
     <label class="setting">
       <span class="setting-text">
-        <strong>窗口位置</strong>
-        <small>记住上次位置 / 固定到某块屏幕</small>
+        <strong>固定显示位置</strong>
+        <small>屏幕中间=每次显示都居中；上次位置=记住你最后一次摆放的位置；自由=可随意拖动</small>
       </span>
       <select id="main-window-position"
         :value="s?.mainWindowPosition || 'last'"
         @change="commit('set_main_window_position', { value: ($event.target as HTMLSelectElement).value })"
       >
-        <option value="last">记住上次位置</option>
-        <option value="center">每次居中</option>
-        <option value="fixed">固定屏幕</option>
+        <option value="free">自由拖动</option>
+        <option value="center">屏幕中间</option>
+        <option value="last">上次位置</option>
       </select>
     </label>
 
@@ -368,7 +369,7 @@ function fmtPct(v: number) {
     <label class="setting">
       <span class="setting-text">
         <strong>固定显示器</strong>
-        <small>固定到某块屏幕（多显示器时）</small>
+        <small>选了某台显示器后主窗口只在这台显示器里显示：居中、呼出、贴边都落在它上面，拖到别的显示器会被夹回来；自动 = 不限制</small>
       </span>
       <input id="main-fixed-monitor" type="checkbox" :checked="Boolean(s?.mainFixedMonitor)" @change="commit('set_main_fixed_monitor', { on: !s?.mainFixedMonitor })" />
     </label>
@@ -377,6 +378,7 @@ function fmtPct(v: number) {
     <div class="setting">
       <span class="setting-text">
         <strong>窗口宽度</strong>
+        <small>460px（拖动实时调整窗口）</small>
         <small class="setting-state" id="window-size-width-state">{{ val("windowSizeWidth", 460) }} px</small>
       </span>
       <span class="remote-inline">
@@ -396,6 +398,7 @@ function fmtPct(v: number) {
     <div class="setting">
       <span class="setting-text">
         <strong>窗口高度</strong>
+        <small>560px（拖动实时调整窗口）</small>
         <small class="setting-state" id="window-size-height-state">{{ val("windowSizeHeight", 720) }} px</small>
       </span>
       <span class="remote-inline">
@@ -414,23 +417,28 @@ function fmtPct(v: number) {
 
     <div class="setting">
       <span class="setting-text">
-        <strong>窗口尺寸</strong>
-        <small>取消「锁定尺寸」后可直接拖拽窗口边缘调整</small>
+        <strong>重置位置</strong>
+        <small>把主窗口立即放回屏幕正中央（在「上次位置」模式下也会记忆这个中心点为新的落点）</small>
       </span>
-      <div class="setting-actions">
-        <button type="button" id="reset-main-window-position" class="secondary" @click="commit('reset_main_window_position', {})">
-          重置位置
-        </button>
-        <button type="button" id="reset-main-window-size" class="secondary" @click="commit('reset_main_window_size', {})">
-          重置尺寸
-        </button>
-      </div>
+      <button type="button" id="reset-main-window-position" class="secondary" @click="commit('reset_main_window_position', {})">
+        重置到屏幕中央
+      </button>
+    </div>
+
+    <div class="setting">
+      <span class="setting-text">
+        <strong>重置窗口大小</strong>
+        <small>宽回到内嵌单栏的标称值（460）、高回到整屏高度的 2/3（与托盘「重置窗口大小」同源）</small>
+      </span>
+      <button type="button" id="reset-main-window-size" class="secondary" @click="commit('reset_main_window_size', {})">
+        重置窗口大小
+      </button>
     </div>
 
     <label class="setting">
       <span class="setting-text">
-        <strong>锁定窗口尺寸</strong>
-        <small>禁止拖拽改变窗口大小</small>
+        <strong>锁定窗口大小</strong>
+        <small>锁定后不能拖拽窗口边框改变大小、也不能最大化；上面的宽高滑条同时停用（双向实时生效）</small>
       </span>
       <input id="window-size-locked"
         type="checkbox"
@@ -442,8 +450,8 @@ function fmtPct(v: number) {
     <!-- Dock / 任务栏 -->
     <label class="setting">
       <span class="setting-text">
-        <strong>从 Dock / 任务栏隐藏</strong>
-        <small>只在托盘显示图标，不占 Dock / 任务栏</small>
+        <strong>隐藏程序（任务栏/Dock）</strong>
+        <small>Linux/Windows 不显示任务栏图标，macOS 不显示 Dock 图标</small>
       </span>
       <input id="hide-from-dock-taskbar"
         type="checkbox"
@@ -455,14 +463,14 @@ function fmtPct(v: number) {
     <!-- 关闭行为 -->
     <label class="setting">
       <span class="setting-text">
-        <strong>关闭窗口时</strong>
-        <small>点窗口关闭按钮之后的动作</small>
+        <strong>点击窗口 ❌ 时</strong>
+        <small>可在托盘菜单「显示主窗口」中重新打开</small>
       </span>
       <select id="close-action"
         :value="s?.closeAction || 'tray'"
         @change="setCloseAction(($event.target as HTMLSelectElement).value as 'tray' | 'quit')"
       >
-        <option value="tray">收进托盘（继续后台运行）</option>
+        <option value="tray">最小化到托盘</option>
         <option value="quit">退出程序</option>
       </select>
     </label>
@@ -470,22 +478,22 @@ function fmtPct(v: number) {
     <!-- 托盘菜单样式 -->
     <label class="setting">
       <span class="setting-text">
-        <strong>托盘菜单样式</strong>
-        <small>原生菜单 / 自绘卡片</small>
+        <strong>托盘菜单方式</strong>
+        <small>各自方式=三端各用系统原生托盘菜单（默认）；全局统一=所有平台右键直接展示同一份菜单内容（Windows/macOS 弹自绘菜单窗，Linux 由桌面环境渲染）。切换后重启应用生效</small>
       </span>
       <select id="tray-menu-style"
-        :value="s?.trayMenuStyle || 'native'"
+        :value="s?.trayMenuStyle === 'unified' ? 'unified' : 'classic'"
         @change="commit('set_tray_menu_style', { value: ($event.target as HTMLSelectElement).value })"
       >
-        <option value="native">原生菜单</option>
-        <option value="custom">自绘卡片</option>
+        <option value="classic">各自方式（默认）</option>
+        <option value="unified">全局统一</option>
       </select>
     </label>
 
     <!-- 主题 -->
     <label class="setting">
       <span class="setting-text">
-        <strong>主题</strong>
+        <strong>界面主题</strong>
         <small>暗色 / 亮色 / 跟随系统</small>
       </span>
       <select id="theme"
@@ -501,8 +509,8 @@ function fmtPct(v: number) {
     <!-- 强调色 -->
     <label class="setting">
       <span class="setting-text">
-        <strong>强调色</strong>
-        <small>按钮、选中态、链接的基色</small>
+        <strong>主题色调</strong>
+        <small>点开调色板选强调色，按钮/链接跟着变色（主窗口和 GRUB 窗口同步）</small>
       </span>
       <input id="accent-color"
         type="color"
@@ -515,7 +523,7 @@ function fmtPct(v: number) {
     <label class="setting">
       <span class="setting-text">
         <strong>窗口不透明度</strong>
-        <small>整窗背景的透明程度</small>
+        <small>90%（拖动即时预览）</small>
         <small class="setting-state" id="opacity-state">{{ fmtPct(val("opacityPercent", 90)) }}</small>
       </span>
       <input id="opacity"
@@ -534,7 +542,7 @@ function fmtPct(v: number) {
 
       <div class="setting">
         <span class="setting-text">
-          <strong>HTTP 服务</strong>
+          <strong>HTTP 服务监听</strong>
           <small class="setting-state" id="http-state">{{ ui.http?.stateText || "正在读取…" }}</small>
         </span>
         <input id="http-enabled" type="checkbox" :checked="Boolean(ui.http?.listening)" @change="toggleHttp" />
@@ -554,7 +562,7 @@ function fmtPct(v: number) {
 
       <div class="setting">
         <span class="setting-text">
-          <strong>访问令牌</strong>
+          <strong>访问令牌（token）</strong>
           <small class="setting-state mono" id="token-hint">{{ ui.http?.tokenHint || "（未设置）" }}</small>
         </span>
         <span class="remote-inline">
@@ -563,10 +571,18 @@ function fmtPct(v: number) {
         </span>
       </div>
 
-      <small class="setting-hint" id="http-hint">
-        手机 / 浏览器访问 http://&lt;本机 IP&gt;:端口/?token=令牌 —— <span id="http-requests">远程请求会转本机确认</span>
-        <button type="button" id="http-hint-copy" class="link-btn" @click="copyToken">复制访问地址</button>
-      </small>
+      <div class="remote-hint">
+        <strong>远程怎么调</strong>
+        <small>下面这段默认就展开、含明文 token（注意旁人视线）；上面的令牌 / 地址 / 端口一改，这里立刻同步</small>
+        <pre id="http-hint">点「复制命令」拿含 token 的可直接执行示例（含 ssh 用法）</pre>
+        <div class="actions">
+          <button type="button" class="secondary" id="http-hint-copy" @click="copyToken">复制命令</button>
+        </div>
+      </div>
+      <div class="remote-log">
+        <strong>最近请求</strong>
+        <ol id="http-requests"></ol>
+      </div>
 
       <div v-if="(ui.http as any)?.occupiedBy" class="port-occupant" id="port-occupant">
         <span class="setting-text">
@@ -575,14 +591,14 @@ function fmtPct(v: number) {
           <small id="port-occupant-hint">端口被别的程序占用时可以重试或结束占用进程</small>
         </span>
         <span class="remote-inline">
-          <button type="button" id="retry-http" class="secondary" @click="retryHttp">重试</button>
+          <button type="button" id="retry-http" class="secondary" @click="retryHttp">重试监听</button>
           <button type="button" id="kill-occupant" class="secondary danger" @click="killOccupant">结束占用进程</button>
         </span>
       </div>
 
       <div class="setting">
         <span class="setting-text">
-          <strong>令牌操作</strong>
+          <strong>Token 设置</strong>
           <small>显示 / 复制 / 重新生成访问令牌</small>
         </span>
         <span class="remote-inline">
@@ -597,15 +613,15 @@ function fmtPct(v: number) {
       <label class="setting">
         <span class="setting-text">
           <strong>远程请求通知</strong>
-          <small>远程发起授权请求时在本机弹通知</small>
+          <small>总开关；关掉后不再弹窗，只在主窗口显示待执行请求</small>
         </span>
         <input id="notify-enabled" type="checkbox" :checked="Boolean(s?.notifyEnabled)" @change="commit('set_notify_enabled', { on: !s?.notifyEnabled })" />
       </label>
 
       <div class="setting">
         <span class="setting-text">
-          <strong>远程请求触发本机授权框</strong>
-          <small>远程请求转本机确认时，是否弹出授权框</small>
+          <strong>远程可触发本机授权框</strong>
+          <small>默认关：远程遇到需要本机授权的操作会直接说明原因，不会挂着等人点确认</small>
         </span>
         <input id="remote-allow-gui-auth" type="checkbox" :checked="Boolean(s?.remoteAllowGuiAuth)" @change="commit('set_remote_allow_gui_auth', { on: !s?.remoteAllowGuiAuth })" />
       </div>
@@ -613,8 +629,8 @@ function fmtPct(v: number) {
       <!-- 通知渠道（旧版 http-channel-* / cli-channel-*） -->
       <div class="setting">
         <span class="setting-text">
-          <strong>HTTP 渠道通知</strong>
-          <small>通过 HTTP 服务发来的请求是否通知</small>
+          <strong>HTTP 渠道（webhook / curl / 面板）</strong>
+          <small>弹窗通知 + 延迟秒数（0 = 立即执行）</small>
         </span>
         <span class="remote-inline">
           <input id="http-channel-notify" type="checkbox" :checked="Boolean(s?.httpChannelNotify)" @change="commit('set_http_channel_notify', { on: !s?.httpChannelNotify })" />
@@ -624,8 +640,8 @@ function fmtPct(v: number) {
 
       <div class="setting">
         <span class="setting-text">
-          <strong>CLI 渠道通知</strong>
-          <small>命令行发来的请求是否通知</small>
+          <strong>SSH / CLI 渠道</strong>
+          <small>ssh 远程调用的通知与延迟（与 webhook 分开配置）</small>
         </span>
         <span class="remote-inline">
           <input id="cli-channel-notify" type="checkbox" :checked="Boolean(s?.cliChannelNotify)" @change="commit('set_cli_channel_notify', { on: !s?.cliChannelNotify })" />
@@ -637,7 +653,7 @@ function fmtPct(v: number) {
       <div class="setting">
         <span class="setting-text">
           <strong>提示音</strong>
-          <small>远程请求到达时播放的声音</small>
+          <small>收到远程请求时播放提示音（系统默认或自定义文件）</small>
         </span>
         <span class="remote-inline">
           <label class="setting" style="border: 0; padding: 0">
@@ -670,8 +686,8 @@ function fmtPct(v: number) {
 
       <div class="setting">
         <span class="setting-text">
-          <strong>在浏览器打开</strong>
-          <small>用系统默认浏览器打开本机远程管理页</small>
+          <strong>打开 Web 页面</strong>
+          <small>用系统默认浏览器打开控制页，自动带上访问令牌，不用手输</small>
         </span>
         <button type="button" id="open-web" class="secondary" @click="openWeb">打开</button>
       </div>

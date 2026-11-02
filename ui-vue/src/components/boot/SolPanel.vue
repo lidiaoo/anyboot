@@ -158,13 +158,11 @@ function pickDir() {
 
     <div class="setting" id="sol-state-row">
       <span class="setting-text">
-        <strong>服务状态</strong>
-        <small>SOL 辅助服务是否就绪</small>
+        <strong>运行状态</strong>
         <small class="setting-state" id="sol-state-text">{{ stateText }}</small>
       </span>
       <span class="remote-inline">
-        <button type="button" id="sol-refresh" class="secondary" @click="refresh">刷新</button>
-        <button type="button" class="secondary" @click="call('sol_status_privileged')">检查权限</button>
+        <button type="button" id="sol-refresh" class="secondary" @click="refresh">刷新状态</button>
         <button type="button" id="sol-status-privileged" class="secondary" :hidden="!privilegedNeeded" title="服务状态被系统权限挡住时才出现" @click="readPrivilegedStatus">授权查看状态</button>
         <button type="button" id="sol-restart-service" class="secondary" @click="call('sol_project_open')">重启服务</button>
       </span>
