@@ -4,7 +4,7 @@
 // 手机端「电脑页」与浏览器远程访问走的就是这张表。
 //
 // 源目录：ui-vue/dist/
-// 条目数：37
+// 条目数：44
 
 /// (相对路径, Content-Type, 文件正文)
 pub(crate) const UI_ASSETS: &[(&str, &str, &str)] = &[
@@ -41,8 +41,15 @@ pub(crate) const UI_ASSETS: &[(&str, &str, &str)] = &[
     ("hub-term.html", "text/html; charset=utf-8", include_str!("../../ui-vue/dist/hub-term.html")),
     ("hub.html", "text/html; charset=utf-8", include_str!("../../ui-vue/dist/hub.html")),
     ("index.html", "text/html; charset=utf-8", include_str!("../../ui-vue/dist/index.html")),
+    ("menu-anchor.html", "text/html; charset=utf-8", include_str!("../../ui-vue/dist/menu-anchor.html")),
+    ("notify.css", "text/css; charset=utf-8", include_str!("../../ui-vue/dist/notify.css")),
+    ("notify.html", "text/html; charset=utf-8", include_str!("../../ui-vue/dist/notify.html")),
+    ("notify.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/notify.js")),
     ("qrcode.min.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/qrcode.min.js")),
     ("terminal/addon-fit.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/terminal/addon-fit.js")),
     ("terminal/xterm.css", "text/css; charset=utf-8", include_str!("../../ui-vue/dist/terminal/xterm.css")),
     ("terminal/xterm.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/terminal/xterm.js")),
+    ("tray-menu.css", "text/css; charset=utf-8", include_str!("../../ui-vue/dist/tray-menu.css")),
+    ("tray-menu.html", "text/html; charset=utf-8", include_str!("../../ui-vue/dist/tray-menu.html")),
+    ("tray-menu.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/tray-menu.js")),
 ];
