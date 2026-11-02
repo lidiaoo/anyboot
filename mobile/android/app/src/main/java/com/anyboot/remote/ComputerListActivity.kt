@@ -1348,11 +1348,22 @@ class ComputerListActivity : ComponentActivity() {
                 // 现在：**离线时不看 detected，三通道一律渲染成按钮**
                 //（ChannelBootButton 内部按 row.state == OFFLINE 显示「离线不可改」）；
                 // 只有在线时才用 detected 区分「有按钮」与「未检测到」。
+                // 2026-11-02 用户定案：「电脑列表在检测中 读取中 只有 refind/grub
+                // 理论上他目前还不知道有哪些引导器 应该是所有引导器都是读取中」。
+                //
+                // 读取中（STATE_UNKNOWN）时快照里 channels 还是空的 —— 后端还没
+                // 探测完，确实**不知道**这台机有哪些引导器。此前只有 rEFInd/GRUB
+                // 两个固定按钮，三通道整块缺失，看起来像「已经确认只有这两个」。
+                // 现在补上三个通道的**占位按钮**，状态显示「读取中…」，
+                // 与 rEFInd/GRUB 的说法一致。
                 val offline = row.state == STATE_OFFLINE
-                row.channels
-                    .filter { offline || it.detected }
+                val loading = row.state == STATE_UNKNOWN && row.channels.isEmpty()
+                val channelList = if (loading) placeholderChannels() else row.channels
+                channelList
+                    .filter { offline || loading || it.detected }
                     .forEach { channel -> ChannelBootButton(row, channel) }
-                val missing = if (offline) emptyList() else row.channels.filter { !it.detected }
+                val missing = if (offline || loading) emptyList()
+                    else channelList.filter { !it.detected }
                 if (missing.isNotEmpty()) {
                     Text(
                         missing.joinToString("、") { it.label } + "（未检测到）",
@@ -3282,6 +3293,31 @@ class ComputerListActivity : ComponentActivity() {
 
     /// 离线时的三引导器通道占位：id / 名称与在线时一致，只是 detected=false、
     /// entries 为空，让列表照常显示「未检测到」的无状态行，而不是整块消失。
+    /// 读取中（STATE_UNKNOWN）时的三通道占位：此时还没探测出这台机有哪些引导器，
+    /// 先给三条「读取中…」的空壳，避免让人误以为「已确认只有 rEFInd/GRUB」。
+    private fun placeholderChannels(): List<ChannelRow> {
+        val labels = listOf(
+            "sdboot" to "systemd-boot",
+            "opencore" to "OpenCore",
+            "clover" to "Clover",
+        )
+        return labels.map { (id, label) ->
+            ChannelRow(
+                id = id,
+                label = label,
+                detected = false,
+                permission = "file",
+                chip = "off",
+                detail = "",
+                entries = emptyList(),
+                currentDefault = "",
+                lastBoot = "",
+                error = "",
+                health = emptyList(),
+            )
+        }
+    }
+
     private fun offlineChannels(note: String): List<ChannelRow> {
         // 三个固定通道的显示名（与在线时 /api 返回的 label 保持一致）
         val labels = listOf(

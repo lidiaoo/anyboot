@@ -1134,14 +1134,38 @@ struct ComputerListView: View {
 
     // MARK: - 引导项按钮（BootButton 1592-1724）
 
+    /// 读取中 / 离线时的三通道占位：此时还没探测出这台机有哪些引导器，
+    /// 先给三条空壳按钮（文案由 channelButton 按 row.state 决定：
+    /// 读取中 → 「读取中…」；离线 → 「离线不可改」）。
+    private func placeholderChannels() -> [ChannelGroup] {
+        [("sdboot", "systemd-boot"), ("opencore", "OpenCore"), ("clover", "Clover")]
+            .map { id, label in
+                ChannelGroup(
+                    id: id, label: label, detected: false, permission: "file",
+                    chip: "off", detail: "", entries: [], currentDefault: "",
+                    lastBoot: "", error: "", health: [], menuPreview: nil)
+            }
+    }
+
     private func bootButtons(_ row: CqRow) -> some View {
-        let detected = row.channels.filter { $0.detected }
-        let missing = row.channels.filter { !$0.detected }
+        // 2026-11-02 用户定案：「电脑列表在检测中 读取中 只有 refind/grub 理论
+        // 上他目前还不知道有哪些引导器 应该是所有引导器都是读取中」。
+        //
+        // 读取中（Reach.unknown）时快照里 channels 还是空的 —— 后端还没探测完，
+        // 确实不知道这台机有哪些引导器。此前只渲染 rEFInd/GRUB 两个固定按钮，
+        // 三通道整块缺失，看着像「已确认只有这两个」。
+        // 现在离线 / 读取中都不按 detected 过滤：
+        //   离线 → 「离线不可改」；读取中 → 「读取中…」（channelButton 内部按状态出文案）
+        let offline = row.state == Reach.offline
+        let loading = row.state == Reach.unknown && row.channels.isEmpty
+        let all = row.channels.isEmpty && (offline || loading) ? placeholderChannels() : row.channels
+        let shown = all.filter { offline || loading || $0.detected }
+        let missing = (offline || loading) ? [] : row.channels.filter { !$0.detected }
         return VStack(spacing: ABMetric.px(6)) {
             bootButton(row, kind: Kind.refind, group: row.refind)
             bootButton(row, kind: Kind.grub, group: row.grub)
             // 三引导器通道：检测到的展开成按钮（与 PC 网页端 boot-list-view.js 同一套数据）
-            ForEach(detected) { group in
+            ForEach(shown) { group in
                 channelButton(row, group: group)
             }
             // 未检测到的收进一行折叠提示（PC 端「OpenCore（未检测到）」同款语义）
