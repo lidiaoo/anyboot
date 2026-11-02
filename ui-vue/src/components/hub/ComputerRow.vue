@@ -4,301 +4,281 @@ import type { RemoteProfile } from "@/stores/remote";
 import type { RemoteBootInfo } from "@/api/types";
 
 /**
- * 电脑列表的一行（原 `ui/hub.html` 的 `cqRowEl()`）。
+ * 电脑列表的一行（**1:1 对齐旧版 `cqRowEl()` hub.html:8347**）。
+ *
+ * 旧版结构（`hub.html:8634` 起，用户 2026-11-01 定案的「移动端同款上下布局」）：
  *
  * ```
- * .cq-row
- *   .cq-col-dev   电脑：图标 + 名称 + 系统徽标 + 连接标注 + 地址/MAC
- *   .cq-col-st    状态：在线 / 离线圆点
- *   .cq-col-boot  rEFInd 启动项按钮
- *   .cq-col-boot  GRUB 启动项按钮
- *   .cq-col-pwr   电源：唤醒 / 重启 / 关机 / 睡眠
- *   .cq-col-more  ⋯
+ * .cq-row[data-rid]
+ *   .cq-row-head          头部行
+ *     .cq-col-dev          图标 + 名称 + 徽章 + 地址
+ *     .cq-col-st           状态
+ *     .cq-col-more         更多
+ *   .cq-row-boots         引导项区（wrap 一行）
+ *     .cq-col-boot[data-label="rEFInd 启动项"]
+ *     .cq-col-boot[data-label="GRUB 启动项"]
+ *     .cq-col-boot.cq-col-boot--ch[…]   三通道（检测到才有）
+ *   .cq-row-pwr           电源区
+ *     .cq-col-pwr > .cq-pwr > button.cq-pwr-btn × 4
  * ```
  *
- * **四条既有定案**（勿改）：
- * 1. 四个电源键**任何时候都能按、不置灰**（设备离线时也能发魔术包唤醒）
- * 2. 引导项按钮在**离线时不可点**，并显示「离线不可改」
- * 3. 引导项文字**完整多行显示，不省略号**
- * 4. 引导项变更**下次重启才生效**（不即时生效）
+ * **注意：不是六列横排**。我第一版做成了 `.cq-col-*` 六列 grid，
+ * 而 CSS 里 `.cq-row` 是 `flex-direction: column`，`.cq-thead { display: none }`。
  */
 
 const props = defineProps<{
   row: RemoteProfile;
   info: RemoteBootInfo | undefined;
   pending: boolean;
+  /** 是否选中（.cq-selected） */
+  selected: boolean;
+  /** 自定义排序模式下显示 ↑↓ */
+  sortMode: string;
+  /** 该行在 remotes 里的序号（排序用） */
+  orderIndex: number;
+  /** remotes 总数（判断 ↑↓ 是否到头） */
+  orderTotal: number;
 }>();
 
 const emit = defineEmits<{
+  (e: "select", id: string): void;
   (e: "switchBoot", payload: Record<string, unknown>): void;
   (e: "power", payload: Record<string, unknown>): void;
   (e: "sysInfo", id: string): void;
+  (e: "more", id: string): void;
+  (e: "move", payload: { id: string; delta: number }): void;
 }>();
 
 const isLocal = computed(() => props.row.id === "local");
 const online = computed(() => props.info?.online ?? false);
-/** 还没读到数据（快照未到） */
 const loading = computed(() => props.info === undefined);
 
 const statusText = computed(() => {
   if (loading.value) return "读取中…";
-  return online.value ? "在线" : "离线";
+  return online.value ? "在线" : "未探测";
 });
 
-/** rEFInd 的值文字：当前项 / 未设置 / 各种不可用态 */
-const refindLabel = computed(() => valueLabel(props.info?.refind));
-const grubLabel = computed(() => valueLabel(props.info?.grub));
+/** 系统徽标 */
+const osBadge = computed(() => {
+  const os = String(props.row.machine_os ?? "").toLowerCase();
+  if (os.includes("win")) return { text: "WIN", kind: "windows" };
+  if (os.includes("mac")) return { mac: true, text: "MAC", kind: "macos" };
+  if (os.includes("linux")) return { text: "LNX", kind: "linux" };
+  return null;
+});
 
-function valueLabel(group: { available?: boolean; current?: string; note?: string } | undefined) {
+/** 连接标注（旧版 cq-chip-grp / cq-chip-remote） */
+const connLabel = computed(() => (isLocal.value ? "本机" : online.value ? "直连" : "未连接"));
+
+/** 引导项值 */
+function bootLabel(kind: "refind" | "grub") {
+  const group = props.info?.[kind];
   if (!group) return "读取中…";
-  if (!group.available) {
-    return group.note || "未检测到";
-  }
+  if (!group.available) return "未检测到";
   return group.current || "未设置";
 }
 
-const refindUsable = computed(() => Boolean(props.info?.refind?.available) && online.value);
-const grubUsable = computed(() => Boolean(props.info?.grub?.available) && online.value);
-
-function onSwitch(kind: "refind" | "grub") {
-  if (!online.value) return;
-  emit("switchBoot", { serverId: props.row.id, kind });
+function bootUsable(kind: "refind" | "grub") {
+  const group = props.info?.[kind];
+  return Boolean(group?.available) && online.value;
 }
 
-function onPower(action: string) {
-  // 电源键任何时候都能按（离线也能发魔术包唤醒）
-  emit("power", { serverId: props.row.id, action });
+/** 电源键定义（图标 + 标签 + 提示，对齐旧版 CQ_POWER） */
+const POWER = [
+  { act: "wake", label: "唤醒", hint: isLocal.value ? "本机无需唤醒" : "魔术包", icon: "power" },
+  { act: "sleep", label: "睡眠", hint: isLocal.value ? "挂起到内存" : "挂起到内存", icon: "moon" },
+  { act: "reboot", label: "重启", hint: isLocal.value ? "" : "HTTP", icon: "refresh" },
+  { act: "shutdown", label: "关机", hint: isLocal.value ? "" : "HTTP", icon: "shutdown" },
+] as const;
+
+/** 电源图标（对齐旧版 CQ_POWER 的 svg） */
+const POWER_ICONS: Record<string, string> = {
+  wake: '<path d="M12 3v9"/><path d="M6.4 6.4a8 8 0 1 0 11.2 0"/>',
+  sleep: '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>',
+  reboot: '<path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/>',
+  shutdown: '<path d="M12 3v9"/><path d="M18 6a9 9 0 1 1-12 0"/>',
+};
+
+const powerHints = computed(() =>
+  POWER.map((spec) => ({
+    ...spec,
+    hint:
+      spec.act === "wake" && !isLocal.value
+        ? online.value
+          ? "魔术包"
+          : "未配 MAC"
+        : spec.hint,
+  })),
+);
+
+function onRowClick() {
+  emit("select", props.row.id);
 }
 </script>
 
 <template>
-  <div :class="['cq-row', { 'cq-row--local': isLocal }]" :data-rid="row.id">
-    <!-- ① 电脑 -->
-    <div class="cq-col cq-col-dev">
-      <div class="cq-dev">
-        <div class="cq-dev-ico" aria-hidden="true">🖥</div>
-        <div class="cq-dev-txt">
-          <div class="cq-dev-name">
-            <span class="nm">{{ row.name }}</span>
+  <div
+    class="cq-row"
+    :class="{ 'cq-selected': selected }"
+    :data-rid="row.id"
+    role="row"
+    @click="onRowClick"
+  >
+    <!-- 头部行 -->
+    <div class="cq-row-head">
+      <div class="cq-col cq-col-dev" role="cell">
+        <div v-if="sortMode === 'custom'" class="cq-move">
+          <template v-if="!isLocal">
             <button
-              v-if="!isLocal"
               type="button"
-              class="os-badge"
-              title="查看系统信息"
-              @click.stop="emit('sysInfo', row.id)"
+              title="上移一位（自定义排序）"
+              :disabled="orderIndex <= 0"
+              @click.stop="emit('move', { id: row.id, delta: -1 })"
             >
-              {{ (row.machine_os || "").toLowerCase().includes("win") ? "WIN"
-                : (row.machine_os || "").toLowerCase().includes("mac") ? "MAC" : "LNX" }}
+              ▴
             </button>
-            <span v-if="isLocal" class="cq-chip-grp">本机</span>
-            <span v-if="pending" class="cq-chip-pend">待生效</span>
+            <button
+              type="button"
+              title="下移一位（自定义排序）"
+              :disabled="orderIndex >= orderTotal - 1"
+              @click.stop="emit('move', { id: row.id, delta: 1 })"
+            >
+              ▾
+            </button>
+          </template>
+          <span v-else style="width: 18px" />
+        </div>
+
+        <div class="cq-dev">
+          <div class="cq-dev-ico">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
+              <rect x="2" y="4" width="20" height="13" rx="2" />
+              <path d="M8 21h8M12 17v4" />
+            </svg>
           </div>
-          <div class="cq-dev-meta">
-            <div class="cq-dev-line">
-              <span class="cq-dev-addr">{{ info?.addr || (row.addresses?.[0] ?? "") }}</span>
+          <div class="cq-dev-txt">
+            <div class="cq-dev-name">
+              <span class="nm">{{ row.name }}</span>
+              <button
+                v-if="!isLocal && osBadge"
+                type="button"
+                class="os-badge"
+                :data-os="osBadge.kind"
+                title="查看系统信息"
+                @click.stop="emit('sysInfo', row.id)"
+              >
+                {{ osBadge.text }}
+              </button>
+              <span v-if="selected" class="cq-chip-cur">当前</span>
+              <span
+                class="cq-chip-grp"
+                :class="{ 'cq-chip-remote': false }"
+                :title="connLabel === '直连' ? '局域网直连' : '当前没探通 —— 目标机可能离线'"
+              >
+                {{ connLabel }}
+              </span>
+            </div>
+            <div class="cq-dev-meta">
+              <div class="cq-dev-line">
+                <div class="cq-dev-top">
+                  <span
+                    class="cq-dev-addr"
+                    :style="{ color: online ? 'rgb(var(--ok))' : 'rgb(var(--fg-faint))' }"
+                  >
+                    {{ online ? "● 在线" : "○ 离线" }}
+                  </span>
+                  <span class="sep">·</span>
+                  <span class="cq-dev-addr">{{ info?.addr || row.addresses?.[0] || "" }}</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
       </div>
+
+      <!-- 状态 -->
+      <div class="cq-col cq-col-st" role="cell">
+        <div class="cq-st">
+          <small>{{ statusText }}</small>
+        </div>
+      </div>
+
+      <!-- 更多 -->
+      <div class="cq-col cq-col-more" role="cell">
+        <button
+          type="button"
+          class="cq-more"
+          title="更多操作"
+          aria-label="更多操作"
+          @click.stop="emit('more', row.id)"
+        >
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <circle cx="12" cy="5" r="1.7" />
+            <circle cx="12" cy="12" r="1.7" />
+            <circle cx="12" cy="19" r="1.7" />
+          </svg>
+        </button>
+      </div>
     </div>
 
-    <!-- ② 状态 -->
-    <div class="cq-col cq-col-st">
-      <span :class="['cq-state', online ? 'is-on' : 'is-off']">
-        <i class="dot" aria-hidden="true" />
-        {{ statusText }}
-      </span>
-    </div>
-
-    <!-- ③ rEFInd -->
-    <div class="cq-col cq-col-boot">
-      <button
-        type="button"
-        :class="['cq-boot-btn', { 'is-off': !refindUsable }]"
-        :disabled="!refindUsable || loading"
-        @click="onSwitch('refind')"
+    <!-- 引导项区 -->
+    <div class="cq-row-boots">
+      <div class="cq-col cq-col-boot" role="cell" data-label="rEFInd 启动项">
+        <button
+          type="button"
+          class="cq-boot-btn"
+          :disabled="!bootUsable('refind')"
+          @click.stop="emit('switchBoot', { serverId: row.id, kind: 'refind' })"
+        >
+          <span class="t">{{ bootLabel("refind") }}</span>
+        </button>
+      </div>
+      <div class="cq-col cq-col-boot" role="cell" data-label="GRUB 启动项">
+        <button
+          type="button"
+          class="cq-boot-btn"
+          :disabled="!bootUsable('grub')"
+          @click.stop="emit('switchBoot', { serverId: row.id, kind: 'grub' })"
+        >
+          <span class="t">{{ bootLabel("grub") }}</span>
+        </button>
+      </div>
+      <div
+        v-for="ch in info?.channels ?? []"
+        :key="(ch as any).id"
+        class="cq-col cq-col-boot cq-col-boot--ch"
+        role="cell"
+        :data-label="`${(ch as any).label || '引导器'} 启动项`"
       >
-        <span class="t">{{ refindLabel }}</span>
-      </button>
+        <button type="button" class="cq-boot-btn" disabled>
+          <span class="t">{{ (ch as any).currentDefault || ((ch as any).detected ? "已检测" : "未检测到") }}</span>
+        </button>
+      </div>
     </div>
 
-    <!-- ④ GRUB -->
-    <div class="cq-col cq-col-boot">
-      <button
-        type="button"
-        :class="['cq-boot-btn', { 'is-off': !grubUsable }]"
-        :disabled="!grubUsable || loading"
-        @click="onSwitch('grub')"
-      >
-        <span class="t">{{ grubLabel }}</span>
-      </button>
-    </div>
-
-    <!-- ⑤ 电源（任何时候都能按，不置灰） -->
-    <div class="cq-col cq-col-pwr">
-      <button type="button" class="cq-pwr" title="唤醒" @click="onPower('wake')">⏻</button>
-      <button type="button" class="cq-pwr" title="重启" @click="onPower('restart')">↻</button>
-      <button type="button" class="cq-pwr" title="关机" @click="onPower('shutdown')">⏼</button>
-      <button type="button" class="cq-pwr" title="睡眠" @click="onPower('sleep')">☾</button>
-    </div>
-
-    <!-- ⑥ 更多 -->
-    <div class="cq-col cq-col-more">
-      <button type="button" class="btn icon ghost sm" title="更多" aria-label="更多">⋯</button>
+    <!-- 电源区 -->
+    <div class="cq-row-pwr">
+      <div class="cq-col cq-col-pwr" role="cell">
+        <div class="cq-pwr">
+          <button
+            v-for="spec in powerHints"
+            :key="spec.act"
+            type="button"
+            class="cq-pwr-btn"
+            :title="spec.hint ? `${spec.label} · ${spec.hint}` : spec.label"
+            :aria-label="spec.hint ? `${spec.label} · ${spec.hint}` : spec.label"
+            @click.stop="emit('power', { serverId: row.id, action: spec.act })"
+          >
+            <span class="lbl">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                   stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
+                   v-html="POWER_ICONS[spec.act]" />
+              {{ spec.label }}
+            </span>
+            <span class="hint">{{ spec.hint }}</span>
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
-
-<style scoped>
-.cq-row {
-  display: grid;
-  grid-template-columns:
-    minmax(180px, 1.6fr) 84px minmax(120px, 1fr) minmax(120px, 1fr) 118px 42px;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--line, #f1f5f9);
-  font-size: 12.5px;
-}
-.cq-row:last-child {
-  border-bottom: 0;
-}
-.cq-dev {
-  display: flex;
-  gap: 9px;
-  min-width: 0;
-}
-.cq-dev-ico {
-  width: 26px;
-  height: 26px;
-  flex: none;
-  display: grid;
-  place-items: center;
-  border-radius: 7px;
-  background: var(--soft, #f3f4f6);
-  font-size: 13px;
-}
-.cq-dev-txt {
-  min-width: 0;
-}
-.cq-dev-name {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  font-weight: 600;
-  color: var(--fg, #111827);
-}
-.cq-dev-name .nm {
-  /* 完整显示，不省略号（用户定案） */
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
-.cq-dev-meta {
-  margin-top: 2px;
-  color: var(--fg-faint, #9ca3af);
-  font-size: 11px;
-  font-family: ui-monospace, Menlo, monospace;
-}
-.cq-dev-addr {
-  overflow-wrap: anywhere;
-}
-.cq-chip-grp,
-.os-badge {
-  font-size: 9.5px;
-  font-weight: 600;
-  padding: 1px 5px;
-  border-radius: 4px;
-  border: 1px solid var(--line, #e5e7eb);
-  background: var(--soft, #f9fafb);
-  color: var(--fg-dim, #6b7280);
-  cursor: pointer;
-  font-family: ui-monospace, Menlo, monospace;
-}
-.os-badge:hover {
-  background: var(--soft, #f3f4f6);
-}
-.cq-chip-pend {
-  font-size: 10px;
-  font-weight: 500;
-  padding: 1px 6px;
-  border-radius: 999px;
-  background: var(--soft, #f3f4f6);
-  color: var(--fg-dim, #6b7280);
-}
-.os-badge {
-  font-size: 9.5px;
-  font-weight: 600;
-  padding: 1px 5px;
-  border-radius: 4px;
-  border: 1px solid var(--line, #e5e7eb);
-  background: var(--soft, #f9fafb);
-  color: var(--fg-dim, #6b7280);
-  cursor: pointer;
-  font-family: ui-monospace, Menlo, monospace;
-}
-.os-badge:hover {
-  background: var(--soft, #f3f4f6);
-}
-.cq-chip-pend {
-  background: #fff7ed;
-  color: #c2410c;
-}
-.cq-state {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-}
-.cq-state .dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #9ca3af;
-}
-.cq-state.is-on .dot {
-  background: #16a34a;
-}
-.cq-state.is-off {
-  color: var(--fg-faint, #9ca3af);
-}
-.cq-boot-btn {
-  width: 100%;
-  text-align: left;
-  padding: 6px 9px;
-  border-radius: 8px;
-  border: 1px solid var(--line, #e5e7eb);
-  background: var(--panel, #fff);
-  cursor: pointer;
-  font-size: 12px;
-  color: var(--fg, #111827);
-}
-.cq-boot-btn .t {
-  /* 条目名完整多行，不省略号（用户定案） */
-  white-space: normal;
-  overflow-wrap: anywhere;
-  line-height: 1.45;
-}
-.cq-boot-btn.is-off {
-  cursor: not-allowed;
-  color: var(--fg-faint, #9ca3af);
-  background: var(--soft, #f9fafb);
-}
-.cq-pwr {
-  border: 1px solid var(--line, #e5e7eb);
-  background: var(--panel, #fff);
-  border-radius: 6px;
-  width: 26px;
-  height: 24px;
-  cursor: pointer;
-  font-size: 12px;
-  color: var(--fg-dim, #4b5563);
-}
-.cq-pwr:hover {
-  background: var(--soft, #f3f4f6);
-}
-.cq-col-pwr {
-  display: flex;
-  gap: 4px;
-}
-</style>

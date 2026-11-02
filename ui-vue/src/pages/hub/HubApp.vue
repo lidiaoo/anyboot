@@ -85,20 +85,64 @@ watch(currentPage, (page) => {
 
 const navCollapsed = ref(false);
 
+/**
+ * 亮暗主题。
+ *
+ * CSS 里**暗色是默认**（`:root { color-scheme: dark }`），
+ * 亮色靠 `[data-theme="light"]` 覆盖。所以这里要显式写 light。
+ * 旧版默认亮色（不跟随系统），只在用户点过「主题」后才变。
+ */
 const dark = ref(false);
 try {
-  dark.value =
-    localStorage.getItem("anyboot.theme") === "dark" ||
-    (!localStorage.getItem("anyboot.theme") &&
-      window.matchMedia("(prefers-color-scheme: dark)").matches);
+  const saved = localStorage.getItem("anyboot.theme");
+  dark.value = saved === "dark";
 } catch {
   /* 吃默认 */
 }
-document.documentElement.setAttribute("data-theme", dark.value ? "dark" : "light");
+applyThemeClass(dark.value);
+
+/**
+ * `--ui-alpha`：body 背景的不透明度乘数。
+ *
+ * `legacy.css:129` 是 `background: rgba(var(--bg-rgb), var(--ui-alpha, 1))`，
+ * 而这个变量**CSS 里从未定义** —— 旧版由 `app.js:2062` 按设置里的
+ * 「不透明度」百分比在运行时 `setProperty`。
+ * 不补这一步，`var(--ui-alpha, 1)` 会落到兜底值，且主题切换时背景不跟随。
+ * 这里读同名的 localStorage 镜像（`anyboot.ui-alpha`），没有就按 100%。
+ */
+function applyUiAlpha() {
+  let alpha = 1;
+  try {
+    const raw = localStorage.getItem("anyboot.ui-alpha");
+    if (raw !== null) {
+      const value = Number.parseFloat(raw);
+      if (Number.isFinite(value) && value >= 0 && value <= 1) alpha = value;
+    }
+  } catch {
+    /* 吃默认 */
+  }
+  document.documentElement.style.setProperty("--ui-alpha", String(alpha));
+}
+applyUiAlpha();
+
+/**
+ * 主题落点：**两个都要设**。
+ *
+ * · `legacy.css`（原 styles.css）用 `[data-theme="light"]` 属性
+ * · `hub-inline.css`（原 hub.html 内联样式）用 `html.light` / `html.dark` 类
+ *
+ * 只设一个就会出现「变量切了、背景没切」——这正是主窗黑屏之外我踩的第二个坑。
+ */
+function applyThemeClass(isDark: boolean) {
+  const html = document.documentElement;
+  html.setAttribute("data-theme", isDark ? "dark" : "light");
+  html.classList.toggle("light", !isDark);
+  html.classList.toggle("dark", isDark);
+}
 
 function toggleTheme() {
   dark.value = !dark.value;
-  document.documentElement.setAttribute("data-theme", dark.value ? "dark" : "light");
+  applyThemeClass(dark.value);
   try {
     localStorage.setItem("anyboot.theme", dark.value ? "dark" : "light");
   } catch {

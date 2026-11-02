@@ -16,8 +16,10 @@ import SystemInfoDialog from "@/components/hub/SystemInfoDialog.vue";
  *   .cq-help       操作说明（可折叠）
  *   .cq-card
  *     .cq-grid
- *       .cq-thead   电脑 / 状态 / rEFInd / GRUB / 电源 / 更多
- *       .cq-rows    每台电脑一行
+ *       **没有 .cq-thead** —— 旧版 CSS 里它是 `display:none`，
+ *       2026-11-01 用户定案改成「移动端同款上下布局」的**卡片流**
+ *       .cq-rows
+ *         .cq-row   每台电脑一张卡（见 ComputerRow.vue）
  *   .cq-foot
  * ```
  *
@@ -155,6 +157,24 @@ onUnmounted(stopTimer);
 // 设置里改了间隔要重建定时器（否则旧间隔跑到刷新页面为止）
 watch(() => settings.dataRefreshSec, startTimer);
 
+/** 当前选中的电脑（旧版 activeRemote，默认 local） */
+const activeId = ref("local");
+
+function move(payload: { id: string; delta: number }) {
+  const list = [...remote.servers];
+  const index = list.findIndex((s) => s.id === payload.id);
+  const next = index + payload.delta;
+  if (index < 0 || next < 0 || next >= list.length) return;
+  [list[index], list[next]] = [list[next]!, list[index]!];
+  void import("@/api/tauri").then(({ call }) =>
+    call("remote_reorder", { ids: list.map((s) => s.id) }).then(() => remote.load()),
+  );
+}
+
+function openMore(id: string) {
+  activeId.value = id;
+}
+
 function switchBoot(payload: Record<string, unknown>) {
   void remote.switchBoot(payload);
 }
@@ -182,7 +202,11 @@ function power(payload: Record<string, unknown>) {
 
     <div class="cq-toolbar">
       <div class="cq-search">
-        <span aria-hidden="true">🔍</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" aria-hidden="true">
+          <circle cx="11" cy="11" r="7" />
+          <path d="M20 20l-3.5-3.5" />
+        </svg>
         <input
           v-model="query"
           type="search"
@@ -240,15 +264,7 @@ function power(payload: Record<string, unknown>) {
     </div>
 
     <div class="cq-card">
-      <div class="cq-grid">
-        <div class="cq-thead">
-          <div class="cq-col cq-col-dev">电脑</div>
-          <div class="cq-col cq-col-st">状态</div>
-          <div class="cq-col cq-col-boot">rEFInd<span class="cq-th-sub">启动项</span></div>
-          <div class="cq-col cq-col-boot">GRUB<span class="cq-th-sub">启动项</span></div>
-          <div class="cq-col cq-col-pwr">电源</div>
-          <div class="cq-col cq-col-more"><span class="cq-sr-only">更多</span></div>
-        </div>
+      <div class="cq-grid" role="table" aria-label="电脑列表">
         <div class="cq-rows">
           <ComputerRow
             v-for="row in rows"
@@ -256,11 +272,18 @@ function power(payload: Record<string, unknown>) {
             :row="row"
             :info="infoOf(row.id)"
             :pending="isPending(row.id)"
+            :selected="activeId === row.id"
+            :sort-mode="sortMode"
+            :order-index="remote.servers.findIndex((s) => s.id === row.id)"
+            :order-total="remote.servers.length"
+            @select="activeId = $event"
             @switch-boot="switchBoot"
             @power="power"
             @sys-info="openSysInfo"
+            @move="move"
+            @more="openMore"
           />
-        </div>
+          </div>
       </div>
       <div v-if="!rows.length" class="cq-empty">
         <div>没有匹配的电脑</div>
