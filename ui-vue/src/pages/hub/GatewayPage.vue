@@ -1,8 +1,10 @@
 <script setup lang="ts">
+const toast = useToastStore();
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { call } from "@/api/tauri";
 import PairDialog from "@/components/hub/PairDialog.vue";
 import LogDialog from "@/components/hub/LogDialog.vue";
+import { useToastStore } from "@/stores/toast";
 
 /**
  * 远程接入页（原 `ui/hub.html` 的 `#page-gateway`，2792~3355 行）。
@@ -229,6 +231,7 @@ async function copyText(text: string) {
   try {
     await navigator.clipboard.writeText(text);
     message.value = "已复制到剪贴板";
+    toast.show("已复制到剪贴板");
   } catch {
     /* 剪贴板不可用 */
   }
@@ -270,6 +273,7 @@ async function copyTsAddr() {
   try {
     await navigator.clipboard.writeText(ip);
     message.value = "地址已复制";
+    toast.show("地址已复制");
   } catch {
     /* 剪贴板不可用 */
   }
@@ -373,9 +377,11 @@ async function run(label: string, action: () => Promise<unknown>, done: string) 
   try {
     await action();
     message.value = done;
+    toast.show(done);
     await refreshAll();
   } catch (error) {
     errorText.value = String(error);
+    toast.show(label + "失败：" + error, "bad");
   } finally {
     busy.value = "";
   }

@@ -144,8 +144,12 @@ const stats = computed(() => {
 async function manualRefresh() {
   if (refreshing.value) return;
   refreshing.value = true;
+  toast.show("正在重新探测全部电脑…");
   try {
     await remote.refreshAllBoot();
+    toast.show("全部电脑已重连重载");
+  } catch (e) {
+    toast.show("探测失败：" + e, "bad");
   } finally {
     refreshing.value = false;
   }
@@ -248,13 +252,22 @@ function onMenuAction(act: string) {
     rsEditOpen.value = true;
   } else if (act === "edit") {
     const id = activeId.value;
-    if (!id || id === "local") return;
+    if (!id || id === "local") {
+      toast.show("本机是默认连接，不可编辑；选中其它电脑那一行后再编辑");
+      return;
+    }
     rsEditing.value = id;
     rsEditOpen.value = true;
   } else if (act === "list") {
     rsListOpen.value = true;
-  } else if (act === "reloadCurrent" || act === "reloadAll") {
-    // 重新拉取远程列表（在线状态由 store 统一探活）
+  } else if (act === "reloadCurrent") {
+    if (!activeId.value || activeId.value === "local") {
+      toast.show("先点一行电脑选中它，再重载", "bad");
+      return;
+    }
+    toast.show("正在重载「" + (remote.servers.find((s) => s.id === activeId.value)?.name ?? "") + "」…");
+    void import("@/api/tauri").then(({ call }) => call("remote_boot_info", { server_id: activeId.value }).catch((e) => toast.show("重载失败：" + e, "bad")));
+  } else if (act === "reloadAll") {
     void import("@/api/tauri").then(({ call }) => call("remote_list").catch(() => {}));
   }
 }
