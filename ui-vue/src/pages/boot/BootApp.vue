@@ -1,68 +1,95 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useUiStateStore } from "@/stores/uiState";
 import { useSettingsStore } from "@/stores/settings";
 import { useBootAdvStore, type LoaderId } from "@/stores/bootAdv";
-import ThemeHost from "@/pages/boot/themes/index.vue";
+import { loaderMeta } from "@/pages/boot/themes/loaders";
+import { call } from "@/api/tauri";
 import BootList from "@/components/boot/BootList.vue";
 import BootSettings from "./BootSettings.vue";
-import { loaderMeta } from "@/pages/boot/themes/loaders";
-import type { LoaderInfo } from "@/pages/boot/themes/types";
+import ThemeHost from "./themes/index.vue";
+import type { LoaderInfo } from "./themes/types";
 
 /**
- * 引导页（原 `ui/index.html` + `ui/app.js` + `ui/boot-adv.js` 的「系统引导」）。
+ * 主窗（原 `ui/index.html`，1092 行）。
  *
- * ## 结构变化
- *
- * 旧实现：`bootBuild(l)` 把真实的 `#refind` / `#grub` / `#channel-xxx` 节点
- * 搬进主题容器。**节点只有一份**，所以切主题只能靠搬。
- *
- * 这里：主题组件拿到的是 `LoaderInfo[]` **数据**，自己决定怎么渲染；
- * 条目数据由 `BootList` 按 loader id 从 store 取。切主题 = 换组件，数据不动。
- *
- * ## K（不套用主题）
- *
- * 不渲染任何主题组件，退回「每个引导器一张独立卡片」的原生排布。
+ * ## 1:1 结构
+ * ```
+ * #dock-strip     贴边隐藏时的小白条
+ * #hotzone        热区可视化层
+ * .app-columns > main.pane.pane-main
+ *   header > .header-row > h1 + .system-actions(6 个 .ico-btn) + #status
+ *   nav.tabs#tabs > 4 × button.tab[data-tab]
+ *   .tab-panel#tab-boot（系统引导）
+ *     section#next-boot   .nb-head + #next-boot-name + .next-boot-rows
+ *     section#refind      rEFInd 启动项（自动/手动两套）
+ *     section#grub        GRUB 启动项（自动/手动两套）
+ *     #boot-channels-mount 三引导器通道
+ *     #privCard           root 助手卡片
+ *   .tab-panel#tab-adv-boot / #tab-settings / #tab-sol
+ * ```
  */
 
 const ui = useUiStateStore();
 const settings = useSettingsStore();
 const adv = useBootAdvStore();
 
+type TabId = "boot" | "adv-boot" | "settings" | "sol";
+
+const TABS = [
+  { id: "boot", label: "系统引导" },
+  { id: "adv-boot", label: "引导高级设置" },
+  { id: "settings", label: "基本设置" },
+  { id: "sol", label: "SOL 远程唤醒" },
+] as const;
+
+const TAB_KEY = "anyboot.main.tab";
+
+const currentTab = ref<TabId>(
+  (() => {
+    try {
+      const saved = localStorage.getItem(TAB_KEY) as TabId | null;
+      if (saved && TABS.some((t) => t.id === saved)) return saved;
+    } catch {
+      /* 忽略 */
+    }
+    return "boot" as TabId;
+  })(),
+);
+
+watch(currentTab, (tab) => {
+  try {
+    localStorage.setItem(TAB_KEY, tab);
+  } catch {
+    /* 忽略 */
+  }
+});
+
+/** 下次启动区：是否需要折叠按钮（旧版 #nb-toggle） */
+const nextBootRowsOpen = ref(false);
+
 onMounted(async () => {
   await ui.start();
-  // 验收信息写进 trace（macOS 无法 attach devtools）
   window.setTimeout(() => {
     const line =
-      `[vue-boot] ready=${ui.ready ? 1 : 0} rev=${ui.revision} ` +
-      `theme=${adv.effectiveTheme} layout=${adv.effectiveLayout} ` +
-      `enabled=[${adv.enabledLoaders.join(",")}] ` +
+      `[vue-boot] ready=${ui.ready ? 1 : 0} rev=${ui.revision} tab=${currentTab.value} ` +
       `refindMode=${settings.refindMode} refindSim=${ui.refindSim?.entries?.length ?? 0} ` +
-      `grubMode=${settings.grubMode} grubEntries=${(settings.grubMode === "manual" ? ui.grub : (ui.linuxGrub ?? ui.grub))?.entries?.length ?? 0} ` +
-      `channels=${ui.channels.length}`;
-    void import("@/api/tauri")
-      .then(({ isTauri, call }) =>
-        isTauri()
-          ? call<void>("hub_report_error", { source: "vue-boot", message: line, stack: "" })
-          : undefined,
-      )
-      .catch(() => {});
+      `grubMode=${settings.grubMode} channels=${ui.channels.length}`;
+    void call<void>("hub_report_error", { source: "vue-boot", message: line, stack: "" }).catch(() => {});
   }, 3000);
 });
 
-/** 把 store 数据整理成主题需要的 LoaderInfo[] */
 const loaders = computed<LoaderInfo[]>(() => {
   const list: LoaderInfo[] = [];
   for (const id of adv.enabledLoaders) {
     const meta = loaderMeta(id);
     const channel = ui.channels.find((c) => c.id === id);
     const detected = id === "refind" || id === "grub" ? true : Boolean(channel?.detected);
-    const entryCount = countEntries(id);
     list.push({
       id,
       name: meta.name,
       state: !detected ? "off" : meta.perm === "nvram" ? "warn" : "ok",
-      entries: new Array(entryCount).fill(0),
+      entries: new Array(countEntries(id)).fill(0),
       esp: id === "grub" ? ui.grub?.efiDir : undefined,
       perm: meta.perm,
       detected,
@@ -71,7 +98,6 @@ const loaders = computed<LoaderInfo[]>(() => {
   return list;
 });
 
-/** 条目数（与 BootList 同口径的数据源） */
 function countEntries(id: LoaderId | string): number {
   if (id === "refind") {
     return settings.refindMode === "manual"
@@ -83,146 +109,171 @@ function countEntries(id: LoaderId | string): number {
     return source?.entries?.length ?? 0;
   }
   const ch = ui.channels.find((c) => c.id === id);
-  if (!ch) return 0;
-  return (ch.menuPreview?.entries ?? ch.entries ?? []).length;
+  return (ch?.menuPreview?.entries ?? ch?.entries ?? []).length;
 }
 
-const activeId = computed(() => adv.enabledLoaders[0] ?? "");
+/** 下次启动：当前默认项 */
+const nextBootName = computed(() => {
+  if (settings.refindMode !== "manual") {
+    const hit = ui.refindSim?.entries?.find((e) => e.lastBoot);
+    if (hit) return hit.title.trim();
+  }
+  const active = ui.status?.variables?.find((v) => v.active);
+  return active?.displayName || "未知";
+});
 
-function onArrange() {
-  // 编排面板尚未迁移，先把用户带到「引导高级设置」
-  void import("@/api/tauri").then(({ call }) => call("open_config_dir").catch(() => {}));
-}
+/** 下次启动：每行 = 一个引导器 + 它选中的条目 */
+const nextBootRows = computed(() =>
+  loaders.value.map((loader) => {
+    let value = "—";
+    if (loader.id === "refind") {
+      value =
+        settings.refindMode === "manual"
+          ? (ui.status?.variables?.find((v) => v.active)?.displayName ?? "—")
+          : (ui.refindSim?.entries?.find((e) => e.lastBoot)?.title.trim() ?? "—");
+    } else if (loader.id === "grub") {
+      const source = settings.grubMode === "manual" ? ui.grub : (ui.linuxGrub ?? ui.grub);
+      value = source?.nextEntry || source?.savedEntry || "—";
+    } else {
+      const ch = ui.channels.find((c) => c.id === loader.id);
+      value = ch?.currentDefault || ch?.lastBoot || "—";
+    }
+    return { id: loader.id, name: loader.name, value };
+  }),
+);
 
-function onSelect(selector: string) {
-  void import("@/api/tauri").then(({ call }) => call("switch_grub", { selector }).catch(() => {}));
-}
-
-/** 显示设置面板（原「引导高级设置」页） */
-const settingsOpen = ref(false);
-
-const themeOptions = [
-  { key: "G", label: "G 命令面板" },
-  { key: "A", label: "A 卡片流" },
-  { key: "B", label: "B 左栏通道" },
-  { key: "C", label: "C 顶部固定" },
-  { key: "I", label: "I Bento" },
-  { key: "J", label: "J 三栏" },
-  { key: "K", label: "不套用主题" },
-] as const;
+const statusText = computed(() => {
+  if (!ui.ready) return "正在扫描 rEFInd 变量目录…";
+  if (ui.busy?.scanning) return "正在扫描…";
+  return ui.status?.message || "";
+});
 </script>
 
 <template>
-  <div class="boot-page" :class="[`ba-theme-${adv.effectiveTheme}`, `ba-layout-${adv.effectiveLayout}`]">
-    <!-- 主题切换条（阶段 2 临时 UI；正式版由「引导高级设置」承担） -->
-    <div class="theme-bar">
-      <span class="lbl">主题</span>
-      <button
-        v-for="opt in themeOptions"
-        :key="opt.key"
-        type="button"
-        :class="['tbtn', { 'is-on': adv.effectiveTheme === opt.key }]"
-        @click="adv.setTheme(opt.key)"
-      >
-        {{ opt.label }}
-      </button>
-      <span class="grow" />
-      <span class="rev">rev {{ ui.revision }}</span>
-      <button type="button" class="tbtn" :class="{ 'is-on': settingsOpen }" @click="settingsOpen = !settingsOpen">
-        引导高级设置
-      </button>
-    </div>
+  <!-- 贴边隐藏时的小白条 -->
+  <div id="dock-strip" :hidden="!ui.state?.docked" />
+  <div id="hotzone" />
 
-    <BootSettings v-if="settingsOpen" class="settings-host" />
+  <div class="app-columns">
+    <main class="pane pane-main">
+      <header>
+        <div class="header-row">
+          <h1>AnyBoot</h1>
+          <div class="system-actions">
+            <button type="button" class="secondary ico-btn" aria-label="远程管理" title="远程管理" @click="call('hub_open_window', {})">
+              <svg aria-hidden="true" class="i" focusable="false" viewBox="0 0 16 16">
+                <rect height="8.2" rx="1.4" width="11.6" x="2.2" y="3" />
+                <path d="M5.4 6.2 7 7.6 5.4 9" />
+                <path d="M8.4 9h2.4" />
+              </svg>
+            </button>
+            <button type="button" class="secondary ico-btn" aria-label="重启系统" title="重启系统" @click="call('power_action', { action: 'reboot' })">
+              <svg aria-hidden="true" class="i" focusable="false" viewBox="0 0 16 16">
+                <path d="M12.8 8a4.8 4.8 0 1 1-1.5-3.5" />
+                <path d="M13 3.1v3h-3" />
+              </svg>
+            </button>
+            <button type="button" class="secondary ico-btn" aria-label="关机" title="关机" @click="call('power_action', { action: 'shutdown' })">
+              <svg aria-hidden="true" class="i" focusable="false" viewBox="0 0 16 16">
+                <path d="M8 2.6v5" />
+                <path d="M11.7 4.8a5 5 0 1 1-7.4 0" />
+              </svg>
+            </button>
+            <button type="button" class="secondary ico-btn" aria-label="睡眠" title="睡眠" @click="call('power_action', { action: 'sleep' })">
+              <svg aria-hidden="true" class="i" focusable="false" viewBox="0 0 16 16">
+                <path d="M10.6 2.5a5.6 5.6 0 1 0 2.9 8.3 4.7 4.7 0 0 1-2.9-8.3Z" />
+              </svg>
+            </button>
+            <button type="button" class="secondary ico-btn" aria-label="重启程序" title="重启程序" @click="call('restart_app')">
+              <svg aria-hidden="true" class="i" focusable="false" viewBox="0 0 16 16">
+                <rect height="10.4" rx="2.2" width="10.4" x="2.8" y="2.8" />
+                <path d="M9.6 6.4a2.3 2.3 0 1 0 .3 3.2" />
+                <path d="M9.8 4.9v1.7H8.1" />
+              </svg>
+            </button>
+            <button type="button" class="secondary ico-btn" aria-label="退出程序" title="退出程序" @click="call('quit_app')">
+              <svg aria-hidden="true" class="i" focusable="false" viewBox="0 0 16 16">
+                <path d="M9.7 2.7h2a1.4 1.4 0 0 1 1.4 1.4v7.8a1.4 1.4 0 0 1-1.4 1.4h-2" />
+                <path d="M3 8h5.5" />
+                <path d="M6.3 5.8 4.1 8l2.2 2.2" />
+              </svg>
+            </button>
+          </div>
+        </div>
+        <p id="status">{{ statusText }}</p>
+      </header>
 
-    <ThemeHost
-      :theme="adv.effectiveTheme"
-      :layout="adv.effectiveLayout"
-      :loaders="loaders"
-      :active-id="activeId"
-      :on-select="onSelect"
-      :on-arrange="onArrange"
-    >
-      <!-- K：不套用主题的原生排布 -->
-      <div class="k-native">
-        <section v-for="loader in loaders" :key="loader.id" class="k-card">
-          <h3>{{ loader.name }} <small>{{ loader.entries.length }} 个条目</small></h3>
-          <BootList :loader="loader.id" />
+      <nav aria-label="界面栏目" class="tabs">
+        <button
+          v-for="tab in TABS"
+          :key="tab.id"
+          type="button"
+          :class="['tab', { active: currentTab === tab.id }]"
+          :data-tab="tab.id"
+          @click="currentTab = tab.id"
+        >
+          {{ tab.label }}
+        </button>
+      </nav>
+
+      <!-- 栏目一：系统引导 -->
+      <div v-show="currentTab === 'boot'" class="tab-panel active" id="tab-boot">
+        <!-- 下次启动 -->
+        <section aria-label="下次启动" class="next-boot" id="next-boot">
+          <div class="nb-head">
+            <small>下次启动</small>
+            <button
+              type="button"
+              class="nb-toggle"
+              :aria-expanded="nextBootRowsOpen"
+              :hidden="!nextBootRows.length"
+              @click="nextBootRowsOpen = !nextBootRowsOpen"
+            >
+              {{ nextBootRowsOpen ? "收起" : "展开" }}
+            </button>
+          </div>
+          <strong id="next-boot-name">{{ nextBootName }}</strong>
+          <div
+            v-show="nextBootRowsOpen && nextBootRows.length"
+            class="next-boot-rows"
+            id="next-boot-rows"
+          >
+            <div v-for="row in nextBootRows" :key="row.id" class="nb-row">
+              <span class="k">{{ row.name }}</span>
+              <span class="v">{{ row.value }}</span>
+            </div>
+          </div>
         </section>
-      </div>
-    </ThemeHost>
 
-    <p v-if="!ui.ready" class="waiting">等待快照…</p>
+        <!-- 引导器列表：主题渲染（6 套主题 + K 原生态） -->
+        <ThemeHost
+          :theme="adv.effectiveTheme"
+          :layout="adv.effectiveLayout"
+          :loaders="loaders"
+          :active-id="loaders[0]?.id ?? ''"
+          :on-select="(s: string) => call('switch_grub', { selector: s })"
+        >
+          <div class="k-native">
+            <section v-for="loader in loaders" :key="loader.id" class="k-card">
+              <h3>{{ loader.name }} <small>{{ loader.entries.length }} 个条目</small></h3>
+              <BootList :loader="loader.id" />
+            </section>
+          </div>
+        </ThemeHost>
+      </div>
+
+      <!-- 栏目二：引导高级设置 -->
+      <div v-show="currentTab === 'adv-boot'" class="tab-panel" id="tab-adv-boot">
+        <BootSettings />
+      </div>
+
+      <!-- 栏目三 / 四：占位（内容在后续轮次补） -->
+      <div v-show="currentTab === 'settings'" class="tab-panel" id="tab-settings">
+        <p class="field-hint">基本设置面板将在后续轮次迁移</p>
+      </div>
+      <div v-show="currentTab === 'sol'" class="tab-panel" id="tab-sol">
+        <p class="field-hint">SOL 远程唤醒面板将在后续轮次迁移</p>
+      </div>
+    </main>
   </div>
 </template>
-
-<style scoped>
-.boot-page {
-  padding: 14px 16px 24px;
-  min-height: 100%;
-}
-.settings-host {
-  margin-bottom: 18px;
-}
-.theme-bar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  margin-bottom: 14px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--line, #e5e7eb);
-}
-.lbl {
-  font-size: 11.5px;
-  color: var(--fg-faint, #9ca3af);
-  margin-right: 4px;
-}
-.tbtn {
-  font-size: 11.5px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  border: 1px solid var(--line, #d1d5db);
-  background: var(--panel, #fff);
-  color: var(--fg-dim, #6b7280);
-  cursor: pointer;
-}
-.tbtn.is-on {
-  background: var(--accent, #2563eb);
-  border-color: var(--accent, #2563eb);
-  color: #fff;
-}
-.grow {
-  flex: 1;
-}
-.rev {
-  font-size: 11px;
-  color: var(--fg-faint, #9ca3af);
-  font-family: ui-monospace, Menlo, monospace;
-}
-.k-native {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.k-card {
-  border: 1px solid var(--line, #e5e7eb);
-  border-radius: 10px;
-  padding: 10px 12px;
-  background: var(--panel, #fff);
-}
-.k-card h3 {
-  font-size: 13px;
-  margin: 0 0 8px;
-  color: var(--fg-dim, #6b7280);
-}
-.k-card h3 small {
-  font-weight: normal;
-  color: var(--fg-faint, #9ca3af);
-  margin-left: 6px;
-}
-.waiting {
-  color: var(--fg-faint, #9ca3af);
-  font-size: 13px;
-}
-</style>

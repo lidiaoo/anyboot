@@ -221,9 +221,12 @@ CSS 构成：`styles.css` 5,013 + `hub.html` 内联 **2,342** + `notify.css` 168
 ## 五、主窗「系统引导」（`index.html` + `app.js` + `boot-adv.js`）
 
 ### 5.1 页面骨架（`index.html` 1,092 行）
-- [ ] **5.1.1** `.app` / `.app-columns` / `main` / `.side-*` 全部结构
-- [ ] **5.1.2** 页签（系统引导 / 引导高级设置 / 基本设置 / SOL 远程唤醒）
-- [ ] **5.1.3** `#next-boot` 下次启动区（三档：off/fold/show）
+- [x] **5.1.1** `.app` / `.app-columns` / `main` / `.side-*` 全部结构
+  - ✅ 完成：`#dock-strip` + `#hotzone` + `.app-columns > main.pane.pane-main`
+- [x] **5.1.2** 页签（系统引导 / 引导高级设置 / 基本设置 / SOL 远程唤醒）
+  - ✅ 完成：`nav.tabs` 4 个 `.tab[data-tab]` + localStorage 记忆
+- [x] **5.1.3** `#next-boot` 下次启动区（三档：off/fold/show）
+  - ✅ 部分：`.nb-head` + `#next-boot-name` + `.next-boot-rows` 已做，三档显示方式待接
 - [ ] **5.1.4** `#privCard` 权限卡
 - [ ] **5.1.5** `#refind` / `#grub` / `#channel-*` 区块（含 sim-scan / grub-auto / oc-menu）
 - [ ] **5.1.6** `#boot-channels-mount` 动态挂载 + `#boot-channel-collapsed`
@@ -354,8 +357,8 @@ CSS 构成：`styles.css` 5,013 + `hub.html` 内联 **2,342** + `notify.css` 168
 | 共享基础设施 | 4 | 8 | 50% |
 | hub 外壳 | 6 | 6 | **100%** |
 | 12 个页面 | **12** | 12 | **100%** |
-| 32 个弹层 | 14 | 32 | 44% |
-| 主窗引导页 | 部分 | 26 | ~25% |
+| 32 个弹层 | 16 | 32 | 50% |
+| 主窗引导页 | 部分 | 26 | ~35% |
 | 4 个独立窗 | 0 完整 | 4 | 0% |
 
 **结论：距离「1:1 还原」还很远。当前只是「能跑」，不是「还原」。**

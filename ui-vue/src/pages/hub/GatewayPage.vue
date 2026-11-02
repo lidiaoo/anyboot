@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { call } from "@/api/tauri";
 import PairDialog from "@/components/hub/PairDialog.vue";
+import LogDialog from "@/components/hub/LogDialog.vue";
 
 /**
  * 远程接入页（原 `ui/hub.html` 的 `#page-gateway`，2792~3355 行）。
@@ -68,6 +69,38 @@ function toggleTsAutostart() {
 /** Tailscale 日志弹层（旧版 #tsLogOverlay） */
 const tsLogOpen = ref(false);
 const tsLogs = ref<string[]>([]);
+
+/** 内置引擎日志（旧版 #tsnLogOverlay） */
+const tsnLogOpen = ref(false);
+const tsnLogs = ref<string[]>([]);
+
+async function openTsnLog() {
+  try {
+    tsnLogs.value = (await call<string[]>("gateway_tailscale_logs")) ?? [];
+  } catch {
+    tsnLogs.value = [];
+  }
+  tsnLogOpen.value = true;
+}
+
+function clearTsLogs() {
+  void call("gateway_tailscale_logs_clear").catch(() => {});
+  tsLogs.value = [];
+}
+
+function clearTsnLogs() {
+  void call("gateway_tailscale_logs_clear").catch(() => {});
+  tsnLogs.value = [];
+}
+
+async function copyText(text: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+    message.value = "已复制到剪贴板";
+  } catch {
+    /* 剪贴板不可用 */
+  }
+}
 
 async function openTsLog() {
   try {
@@ -515,6 +548,7 @@ function deletePair(id: string) {
       <div class="gw-card-head">
         <h3>Tailscale（内置）</h3>
         <span style="flex: 1" />
+        <button type="button" class="btn" @click="openTsnLog">日志</button>
         <button type="button" class="btn" @click="refreshAll">重新检测</button>
       </div>
       <div class="gw-status">
@@ -545,43 +579,33 @@ function deletePair(id: string) {
     </div>
   </div>
 
-  <!-- 日志弹层（旧版 #gwLogOverlay） -->
-  <Teleport to="body">
-    <div v-if="logOpen" class="token-modal-overlay" @click.self="logOpen = false">
-      <div class="token-modal" role="dialog" aria-modal="true">
-        <div class="dialog-head">
-          <h3>通道日志</h3>
-          <button type="button" class="btn icon ghost sm" @click="logOpen = false">✕</button>
-        </div>
-        <pre class="gw-log mono">{{ logs.join("\n") || "（暂无日志）" }}</pre>
-        <div class="dialog-foot">
-          <button type="button" class="btn" @click="clearLogs">清空</button>
-          <button type="button" class="btn primary" @click="logOpen = false">关闭</button>
-        </div>
-      </div>
-    </div>
-  </Teleport>
-
-  <!-- Tailscale 日志弹层（旧版 #tsLogOverlay） -->
-  <Teleport to="body">
-    <div v-if="tsLogOpen" class="token-modal-overlay" @click.self="tsLogOpen = false">
-      <div class="token-modal" role="dialog" aria-modal="true">
-        <div class="dialog-head">
-          <h3>Tailscale 日志</h3>
-          <button type="button" class="btn icon ghost sm" @click="tsLogOpen = false">✕</button>
-        </div>
-        <pre class="gw-log mono">{{ tsLogs.join("\n") || "（暂无日志）" }}</pre>
-        <div class="dialog-foot">
-          <button type="button" class="btn" @click="call('gateway_tailscale_logs_clear').then(() => (tsLogs = []))">
-            清空
-          </button>
-          <button type="button" class="btn primary" @click="tsLogOpen = false">关闭</button>
-        </div>
-      </div>
-    </div>
-  </Teleport>
-
   <PairDialog :open="pairOpen" @close="pairOpen = false; refreshAll()" />
+
+  <!-- 三个日志弹层（旧版 #gwLogOverlay / #tsLogOverlay / #tsnLogOverlay 同构） -->
+  <LogDialog
+    :open="logOpen"
+    title="通道日志"
+    :lines="logs"
+    @copy="copyText"
+    @clear="clearLogs"
+    @close="logOpen = false"
+  />
+  <LogDialog
+    :open="tsLogOpen"
+    title="Tailscale 日志"
+    :lines="tsLogs"
+    @copy="copyText"
+    @clear="clearTsLogs"
+    @close="tsLogOpen = false"
+  />
+  <LogDialog
+    :open="tsnLogOpen"
+    title="内置引擎日志"
+    :lines="tsnLogs"
+    @copy="copyText"
+    @clear="clearTsnLogs"
+    @close="tsnLogOpen = false"
+  />
 
   <p v-if="message" style="font-size: 12.5px; color: rgb(var(--ok))">{{ message }}</p>
   <p v-if="errorText" style="font-size: 12.5px; color: rgb(var(--bad))">{{ errorText }}</p>
