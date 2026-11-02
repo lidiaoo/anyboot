@@ -337,38 +337,42 @@ async function switchEntry(selector: string) {
           <strong>ESP 分区</strong>
           <small>手动 / 自动共用</small>
         </div>
-        <label for="grub-dir">ESP 目录</label>
-        <input
-          id="grub-dir"
-          :value="espDir"
-          placeholder="H:\ 或 /boot/efi 或 /Volumes/ARCH-EFI（分区里任意路径都行）"
-          spellcheck="false"
-          type="text"
-        />
-        <div class="actions">
+        <div class="grub-row">
+          <label for="grub-dir">ESP 目录</label>
+          <input
+            id="grub-dir"
+            :value="espDir"
+            placeholder="H:\ 或 /boot/efi 或 /Volumes/ARCH-EFI（分区里任意路径都行）"
+            spellcheck="false"
+            type="text"
+          />
           <button type="button" id="grub-dir-pick" class="secondary" @click="pickEspDir">选择文件夹…</button>
           <button type="button" id="grub-dir-detect" class="secondary" @click="detectEsp">识别</button>
           <button type="button" id="grub-dir-save" class="secondary" @click="saveEspDir">保存</button>
           <button type="button" id="grub-dir-open" class="secondary" @click="openGrubDir">打开文件管理器</button>
         </div>
-
-        <label for="grub-partuuid" id="grub-part" class="grub-part">ESP 的分区 UUID</label>
-        <input
-          id="grub-partuuid"
-          :value="partuuid"
-          placeholder="GPT 分区 GUID，如 F69D7BF9-E8A9-3135-A5CB-4BD0CA7344E3（三端同值：Linux lsblk -o PARTUUID / macOS diskutil / Windows Get-Partition）"
-          spellcheck="false"
-          type="text"
-        />
-        <div class="actions">
-          <button type="button" id="grub-partuuid-detect" class="secondary" @click="detectPartuuid">识别</button>
-          <button type="button" id="grub-partuuid-save" class="secondary" @click="savePartuuid">保存</button>
+        <div class="grub-row">
           <label class="grub-check" for="grub-mount">
             <input id="grub-mount" type="checkbox" :checked="Boolean(grubManual?.keepMounted)" @change="toggleMount" />
             <span id="grub-mount-label">挂载 ESP（勾上后可直接读写）</span>
           </label>
-          <button type="button" id="grub-sync" @click="syncManual">同步</button>
-          <small id="grub-sync-note">把当前系统 /boot/grub/grub.cfg 同步到 ESP（需已挂载到 /boot 或 /boot/efi）</small>
+          <small class="grub-part" id="grub-part" />
+        </div>
+        <div class="grub-row">
+          <label for="grub-partuuid">ESP 的分区 UUID</label>
+          <input
+            id="grub-partuuid"
+            :value="partuuid"
+            placeholder="GPT 分区 GUID，如 F69D7BF9-E8A9-3135-A5CB-4BD0CA7344E3（三端同值：Linux lsblk -o PARTUUID / macOS diskutil / Windows Get-Partition）"
+            spellcheck="false"
+            type="text"
+          />
+          <button type="button" id="grub-partuuid-save" class="secondary" @click="savePartuuid">保存</button>
+          <button type="button" id="grub-partuuid-detect" class="secondary" @click="detectPartuuid">识别</button>
+        </div>
+        <div class="grub-row">
+          <button type="button" class="secondary" id="grub-sync" @click="syncManual">同步</button>
+          <label class="grub-part" id="grub-sync-note">把当前系统 /boot/grub/grub.cfg 同步到 ESP（需已挂载到 /boot 或 /boot/efi）</label>
         </div>
         <p class="grub-error" id="grub-error" role="status" :hidden="!grubErrorText">{{ grubErrorText }}</p>
       </div>
