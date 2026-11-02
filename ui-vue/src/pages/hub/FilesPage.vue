@@ -336,7 +336,7 @@ function pct(task: XferTask): number {
     </button>
   </div>
 
-  <div v-if="!sshServers.length" class="fb-empty">
+  <div v-if="!sshServers.length" id="fbEmpty" class="fb-empty">
     还没有 SSH 服务器 —— 到「服务器」页添加一台，这里就能浏览它的文件。
   </div>
 
@@ -433,7 +433,7 @@ function pct(task: XferTask): number {
           </tr>
         </tbody>
       </table>
-      <div v-if="!loading && !entries.length" class="fb-emptytip">这个目录是空的</div>
+      <div v-if="!loading && !entries.length" id="fbEmptyTip" class="fb-emptytip">这个目录是空的</div>
     </div>
 
     <div v-if="activeTransfer" class="fb-transfer">
@@ -487,6 +487,33 @@ function pct(task: XferTask): number {
         <p><b>修改时间</b>{{ fmtTime(targetEntry?.mtime ?? 0) }}</p>
       </div>
     </FbModal>
+
+    <!-- 传输进度（旧版 #fbTransfer，只显示当前这一条） -->
+    <div v-if="activeTransfer" id="fbTransfer" class="fb-transfer">
+      <svg class="fb-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" width="14" height="14">
+        <path d="M21 12a9 9 0 1 1-9-9" />
+      </svg>
+      <span id="fbTransferDir" class="fb-tbadge" :class="activeTransfer.dir === 'up' ? 'fb-up' : 'fb-down'">
+        {{ activeTransfer.dir === "up" ? "↑ 上传" : "↓ 下载" }}
+      </span>
+      <span id="fbTransferName">{{ activeTransfer.name }}</span>
+      <div id="fbTransferBar" class="fb-bar">
+        <div id="fbTransferFill" :style="{ width: pct(activeTransfer) + '%' }" />
+      </div>
+      <span id="fbTransferMeta" class="fb-tmeta">{{ fmtSize(activeTransfer.bytes) }} / {{ fmtSize(activeTransfer.total) }}</span>
+      <span id="fbTransferPct" class="fb-pct">{{ pct(activeTransfer) }}%</span>
+      <button
+        type="button"
+        id="fbTransferAct"
+        class="fb-tbtn"
+        @click="transferCtl(activeTransfer.state === 'running' ? 'pause' : 'resume')"
+      >
+        {{ activeTransfer.state === "running" ? "暂停" : "继续" }}
+      </button>
+      <button type="button" id="fbTransferGiveup" class="fb-tbtn danger" @click="transferCtl('abandon')">
+        放弃
+      </button>
+    </div>
 
     <div class="fb-foot">
       <span id="fbCount">{{ entries.length }} 项</span><span aria-hidden="true">·</span

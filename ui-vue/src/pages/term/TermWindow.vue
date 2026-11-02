@@ -88,13 +88,12 @@ function openHub() {
 function cycleFont() {
   const current = readTermSettings();
   const sizes = [12, 14, 16, 18, 20];
-  const index = sizes.indexOf(current.font);
+  const index = sizes.indexOf(current.fontSize);
   const next = sizes[(index + 1) % sizes.length] ?? 14;
   try {
-    localStorage.setItem(
-      "anyboot.term-set",
-      JSON.stringify({ ...current, font: next }),
-    );
+    const raw = localStorage.getItem("ab-term-settings");
+    const base = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+    localStorage.setItem("ab-term-settings", JSON.stringify({ ...base, fontSize: next }));
   } catch {
     /* 忽略 */
   }
@@ -123,31 +122,43 @@ function loadStyle(href: string) {
   document.head.appendChild(link);
 }
 
-function readTermSettings(): { font: number; blink: boolean; cursorStyle: string; scrollback: number } {
+/**
+ * 读终端设置。**key 与字段名必须与旧版一致**（`ab-term-settings`）：
+ *   fontSize / cursorBlink / copyOnSelect / bell / scrollback / downDir / fontFamily
+ * 这样才能和「终端设置」页共用同一份配置。
+ */
+function readTermSettings(): {
+  fontSize: number;
+  cursorBlink: boolean;
+  scrollback: number;
+  fontFamily: string;
+} {
   try {
-    const raw = localStorage.getItem("anyboot.term-set");
+    const raw = localStorage.getItem("ab-term-settings");
     if (raw) {
       const parsed = JSON.parse(raw) as Record<string, unknown>;
       return {
-        font: Number(parsed.font) || 14,
-        blink: parsed.blink !== false,
-        cursorStyle: String(parsed.cursorStyle || "block"),
-        scrollback: Number(parsed.scrollback) || 5000,
+        fontSize: Math.min(24, Math.max(10, Number(parsed.fontSize) || 14)),
+        cursorBlink: parsed.cursorBlink !== undefined ? Boolean(parsed.cursorBlink) : true,
+        scrollback: Math.min(100000, Math.max(500, Number(parsed.scrollback) || 5000)),
+        fontFamily: typeof parsed.fontFamily === "string" ? parsed.fontFamily : "",
       };
     }
   } catch {
     /* 吃默认 */
   }
-  return { font: 14, blink: true, cursorStyle: "block", scrollback: 5000 };
+  return { fontSize: 14, cursorBlink: true, scrollback: 5000, fontFamily: "" };
 }
 
 function applyTermSettings() {
   const settings = readTermSettings();
   for (const session of sessions.value) {
-    session.term.options.fontSize = settings.font;
-    session.term.options.cursorBlink = settings.blink;
-    session.term.options.cursorStyle = settings.cursorStyle;
+    session.term.options.fontSize = settings.fontSize;
+    session.term.options.cursorBlink = settings.cursorBlink;
     session.term.options.scrollback = settings.scrollback;
+    if (settings.fontFamily) {
+      session.term.options.fontFamily = settings.fontFamily;
+    }
     session.fit?.fit();
   }
 }
@@ -168,11 +179,11 @@ async function createSession(id: string, title: string): Promise<Session | null>
     return null;
   }
   const term = new TermCtor({
-    fontSize: settings.font,
-    cursorBlink: settings.blink,
-    cursorStyle: settings.cursorStyle,
+    fontSize: settings.fontSize,
+    cursorBlink: settings.cursorBlink,
     scrollback: settings.scrollback,
-    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, "Cascadia Mono", monospace',
+    fontFamily:
+      settings.fontFamily || 'ui-monospace, SFMono-Regular, Menlo, "Cascadia Mono", monospace',
     theme: { background: "#0b1220", foreground: "#d7dde6" },
   });
 

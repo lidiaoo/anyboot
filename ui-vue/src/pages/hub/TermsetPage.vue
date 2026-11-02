@@ -22,40 +22,63 @@ import { ref, watch } from "vue";
  * 与独立终端窗通过 `ab-term-settings-changed` 事件热更。
  */
 
-const STORE_KEY = "anyboot.term-set";
+/**
+ * 存储 key 与字段名**必须与旧版一致**（`ab-term-settings`）——
+ * 终端独立窗读的是同一个 key，改了就互不兼容（旧版保存的设置新版读不到）。
+ */
+const STORE_KEY = "ab-term-settings";
 
 interface TermSettings {
-  font: number;
-  cursor: boolean;
-  copy: boolean;
+  /** 旧版字段名：fontSize / cursorBlink / copyOnSelect / scrollback */
+  fontSize: number;
+  cursorBlink: boolean;
+  copyOnSelect: boolean;
   bell: boolean;
   fontFamily: string;
-  scroll: number;
+  scrollback: number;
   downDir: string;
 }
 
 const DEFAULTS: TermSettings = {
-  font: 14,
-  cursor: true,
-  copy: false,
+  fontSize: 14,
+  cursorBlink: true,
+  copyOnSelect: false,
   bell: false,
   fontFamily: "",
-  scroll: 5000,
+  scrollback: 5000,
   downDir: "",
 };
 
+/** 下载目录归一化（旧版 normalizeDownDir）：空 / `~` / `~/` 都按「未设置」处理 */
+function normalizeDownDir(raw: unknown): string {
+  const value = (typeof raw === "string" ? raw : "").trim();
+  if (!value || value === "~" || value === "~/") return "";
+  return value;
+}
+
+/** 读取（旧版 loadTermSettings 的钳制规则：字号 10~24、回滚 500~100000） */
 function load(): TermSettings {
+  const d = { ...DEFAULTS };
   try {
-    const raw = localStorage.getItem(STORE_KEY);
-    if (raw) return { ...DEFAULTS, ...(JSON.parse(raw) as Partial<TermSettings>) };
+    const s = JSON.parse(localStorage.getItem(STORE_KEY) || "{}") as Record<string, unknown>;
+    return {
+      fontSize: Math.min(24, Math.max(10, Number(s.fontSize) || d.fontSize)),
+      cursorBlink: s.cursorBlink !== undefined ? Boolean(s.cursorBlink) : d.cursorBlink,
+      copyOnSelect: Boolean(s.copyOnSelect),
+      bell: Boolean(s.bell),
+      scrollback: Math.min(100000, Math.max(500, Number(s.scrollback) || d.scrollback)),
+      downDir: normalizeDownDir(s.downDir),
+      fontFamily: (typeof s.fontFamily === "string" ? s.fontFamily : "").trim(),
+    };
   } catch {
-    /* 吃默认 */
+    return d;
   }
-  return { ...DEFAULTS };
 }
 
 const settings = ref<TermSettings>(load());
 const saved = ref(false);
+/** 应用后提示（旧版 toast「已应用：已开的终端窗口与新会话均生效」） */
+const toastText = ref("");
 
 watch(
   settings,
@@ -67,16 +90,28 @@ watch(
 );
 
 function apply() {
+  const s = settings.value;
+  const payload: TermSettings = {
+    fontSize: Math.min(24, Math.max(10, Number(s.fontSize) || 14)),
+    cursorBlink: Boolean(s.cursorBlink),
+    copyOnSelect: Boolean(s.copyOnSelect),
+    bell: Boolean(s.bell),
+    scrollback: Math.min(100000, Math.max(500, Number(s.scrollback) || 5000)),
+    downDir: normalizeDownDir(s.downDir),
+    fontFamily: String(s.fontFamily ?? "").trim(),
+  };
+  settings.value = payload;
   try {
-    localStorage.setItem(STORE_KEY, JSON.stringify(settings.value));
+    localStorage.setItem(STORE_KEY, JSON.stringify(payload));
   } catch {
     /* 存不了就算了 */
   }
   // 通知已开的终端窗热更（旧版事件名）
   void import("@tauri-apps/api/event")
-    .then(({ emit }) => emit("ab-term-settings-changed", settings.value))
+    .then(({ emit }) => emit("ab-term-settings-changed", payload))
     .catch(() => {});
   saved.value = true;
+  toastText.value = "已应用：已开的终端窗口与新会话均生效";
 }
 
 function pickDownDir() {
@@ -102,11 +137,11 @@ function pickDownDir() {
           <p class="ts-t">字号</p>
           <p class="ts-s">终端字体大小</p>
         </div>
-        <span class="ts-val" id="tsFontVal">{{ settings.font }} pt</span>
+        <span class="ts-val" id="tsFontVal">{{ settings.fontSize }} pt</span>
       </div>
       <input
         id="tsFont"
-        v-model.number="settings.font"
+        v-model.number="settings.fontSize"
         class="ts-range"
         type="range"
         min="10"
@@ -120,7 +155,7 @@ function pickDownDir() {
           <p class="ts-t">光标闪烁</p>
           <p class="ts-s">终端光标呼吸闪烁</p>
         </div>
-        <input id="tsCursor" v-model="settings.cursor" type="checkbox" class="ts-check" />
+        <input id="tsCursor" v-model="settings.cursorBlink" type="checkbox" class="ts-check" />
         <span class="ts-switch" aria-hidden="true" />
       </label>
 
@@ -129,7 +164,7 @@ function pickDownDir() {
           <p class="ts-t">选中即复制</p>
           <p class="ts-s">划选文本自动进剪贴板</p>
         </div>
-        <input id="tsCopy" v-model="settings.copy" type="checkbox" class="ts-check" />
+        <input id="tsCopy" v-model="settings.copyOnSelect" type="checkbox" class="ts-check" />
         <span class="ts-switch" aria-hidden="true" />
       </label>
 
@@ -164,7 +199,7 @@ function pickDownDir() {
         </div>
         <input
           id="tsScroll"
-          v-model.number="settings.scroll"
+          v-model.number="settings.scrollback"
           class="ts-num"
           type="number"
           min="500"
@@ -205,6 +240,6 @@ function pickDownDir() {
     >
       应用设置
     </button>
-    <p v-if="saved" class="field-hint" style="color: rgb(var(--ok))">已应用到所有终端会话</p>
+    <p v-if="toastText" class="field-hint" style="color: rgb(var(--ok))">{{ toastText }}</p>
   </div>
 </template>
