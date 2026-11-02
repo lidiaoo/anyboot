@@ -17,6 +17,10 @@ export interface RemoteProfile {
   name: string;
   /** 全部访问地址（`host:port`；`addresses[0]` 恒等于 host:port） */
   addresses: string[];
+  /** 访问令牌（拼 iframe URL 用） */
+  token?: string;
+  /** 系统族（/health 学到） */
+  machine_os?: string;
   host?: string;
   port?: number;
   /** 候选走法的优先级表等（后端结构较复杂，前端只透传） */

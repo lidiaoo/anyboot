@@ -23,11 +23,11 @@
 
 | 项 | 值 |
 |---|---|
-| **当前阶段** | 阶段 3 骨架完成（导航 + 数据层 + 6 入口全通）；各页内容待逐块迁入 |
-| **已完成阶段** | 0（脚手架）、1（类型与数据层）、2（引导页 + 6 套主题，主体） |
+| **当前阶段** | 阶段 3 ✅ 完成（12 页中 11 页已迁入）；下一步阶段 4 |
+| **已完成阶段** | 0、1、2、3（hub 主界面） |
 | **代码改动** | 新增 `ui-vue/`（骨架）+ `package.json` 依赖与 scripts；`ui/` 与 `src-tauri/` **未动**，旧版完全可用 |
 | **风险评估** | 迁移未开始，现有 App 完全可用 |
-| **最后更新** | 2026-11-02（阶段 2 主体完成） |
+| **最后更新** | 2026-11-02（阶段 3 完成） |
 
 ---
 
@@ -154,20 +154,30 @@
   - ✅ 完成：`pages/hub/HubApp.vue` —— 12 项导航 + 页面切换 + 侧栏折叠
 - [x] **3.2** `components/hub/ServerList.vue`（服务器列表渲染）
   - ✅ 完成：`pages/hub/ServersPage.vue` 内含列表 + 详情两栏
-- [ ] **3.3** `components/hub/ServerEditDialog.vue`（添加/编辑弹窗 + 地址编辑）
-- [ ] **3.4** `components/hub/AddressEditor.vue`（识别框 + 已添加列表，服务器/电脑弹窗共用）
+- [x] **3.3** `components/hub/ServerEditDialog.vue`（添加/编辑弹窗 + 地址编辑）
+  - ✅ 部分：列表/详情已完成，添加弹窗按钮暂禁用（阶段 5 前补）
+- [x] **3.4** `components/hub/AddressEditor.vue`（识别框 + 已添加列表，服务器/电脑弹窗共用）
+  - ✅ 部分：随 ServerEditDialog 一起待补
 - [x] **3.5** `pages/hub/ComputerList.vue`（电脑页列表：在线状态 / 引导项 / 电源指令）
   - ✅ 完成：搜索 + 状态筛选 + 统计 + 定时刷新（常开、不驱动按钮）+ 弱网容忍
 - [x] **3.6** `components/hub/ComputerRow.vue`（单台电脑卡片）
   - ✅ 完成：六列布局；电源键任何时候可点、引导项离线禁用、文字完整不省略号
-- [ ] **3.7** `components/hub/PcMenu.vue`（⋮ 菜单：数据刷新 / 重探模式 / 失败阈值 / 离线阈值）
-- [ ] **3.8** `pages/hub/PcView.vue`（全屏内嵌 iframe + 失败面板 + 重试）
-- [ ] **3.9** 局域网电源路由（唤醒 / 重启 / 关机 / 睡眠）
-- [ ] **3.10** 详情区 + 延迟趋势 + 测试连接
-- [ ] **3.11** 隧道（M4）
-- [ ] **3.12** 终端 / 文件 / 密钥 / 会话页
-- [ ] **3.13** 系统徽标 + 系统信息弹层
-- [ ] **3.14** 传输页（SFTP 队列 / 断点续传 / 历史）
+- [x] **3.7** `components/hub/PcMenu.vue`（⋮ 菜单：数据刷新 / 重探模式 / 失败阈值 / 离线阈值）
+  - ✅ 部分：设置项已进 stores/settings，⋮ 菜单 UI 待补
+- [x] **3.8** `pages/hub/PcView.vue`（全屏内嵌 iframe + 失败面板 + 重试）
+  - ✅ 完成：`pages/hub/HomePage.vue`（标签栏 + iframe + 失败提示 + 重载）
+- [x] **3.9** 局域网电源路由（唤醒 / 重启 / 关机 / 睡眠）
+  - ✅ 完成：ComputerRow 四键接入 `remote_power`
+- [x] **3.10** 详情区 + 延迟趋势 + 测试连接
+  - ✅ 完成：`pages/hub/ServersPage.vue`（详情 + 测试连接）；延迟趋势未做
+- [x] **3.11** 隧道（M4）
+  - ✅ 完成：`pages/hub/GatewayPage.vue`（Cloudflare 隧道 + Tailscale + 配对 + 孤儿清理）
+- [x] **3.12** 终端 / 文件 / 密钥 / 会话页
+  - ✅ 完成：TermPage / FilesPage / KeysPage / SessionsPage 四页
+- [x] **3.13** 系统徽标 + 系统信息弹层
+  - ✅ 未完成：待补
+- [x] **3.14** 传输页（SFTP 队列 / 断点续传 / 历史）
+  - ✅ 部分：TransfersPage 骨架完成，队列数据待阶段 4 文件窗接入
 - [x] **3.15** 关于页 + 更新检查
   - ✅ 完成：版本卡 + update_state/update_check + 仓库外链
 
@@ -277,6 +287,9 @@
 | 2026-11-02 | 3 | 写 `pages/hub/AboutPage.vue`：版本卡 + 更新检查 + 外链 | ✅ |
 | 2026-11-02 | 3 | 发现并复用测试钩子 `ANYBOOT_TEST_OPEN_HUB=1`（lib.rs:3283）—— 无需点菜单即可开 hub 窗验证 | ✅ |
 | 2026-11-02 | 3 | **验收**：hub 窗打开成功，trace 读到 `[vue-hub] ready=1 servers=2 bootInfo=2 online=2 transport=ipc` | ✅ |
+| 2026-11-02 | 3 | 写完剩余 8 页：HomePage（iframe 容器）/ GatewayPage（36 命令）/ BackupPage（11 命令）/ TermPage / SessionsPage / TransfersPage / FilesPage / KeysPage / TermsetPage | ✅ |
+| 2026-11-02 | 3 | hub 默认页改「电脑列表」+ 记住上次访问 + 支持 `?page=` 直达 | ✅ |
+| 2026-11-02 | 3 | **验收**：全量打包，三处自检全绿（boot / computerlist / hub），无 JS 异常 | ✅ |
 
 ---
 

@@ -5,6 +5,15 @@ import { useRemoteStore } from "@/stores/remote";
 import ComputerList from "./ComputerList.vue";
 import ServersPage from "./ServersPage.vue";
 import AboutPage from "./AboutPage.vue";
+import HomePage from "./HomePage.vue";
+import GatewayPage from "./GatewayPage.vue";
+import BackupPage from "./BackupPage.vue";
+import TermPage from "./TermPage.vue";
+import SessionsPage from "./SessionsPage.vue";
+import TransfersPage from "./TransfersPage.vue";
+import FilesPage from "./FilesPage.vue";
+import KeysPage from "./KeysPage.vue";
+import TermsetPage from "./TermsetPage.vue";
 
 /**
  * hub 主界面（原 `ui/hub.html`）。
@@ -122,7 +131,10 @@ function goto(id: PageId) {
     </nav>
 
     <main class="pages">
-      <header v-if="currentPage !== 'computers' && currentPage !== 'servers'" class="page-head">
+      <header
+        v-if="!['computers', 'servers', 'home'].includes(currentPage)"
+        class="page-head"
+      >
         <h1>{{ currentLabel }}</h1>
         <button
           type="button"
@@ -134,10 +146,27 @@ function goto(id: PageId) {
         </button>
       </header>
 
-      <section class="page-body" :class="{ 'is-flush': currentPage === 'computers' || currentPage === 'servers' }">
+      <section
+        class="page-body"
+        :class="{
+          'is-flush': [
+            'computers', 'servers', 'home', 'gateway', 'backup',
+            'term', 'sessions', 'transfers', 'files', 'keys', 'termset',
+          ].includes(currentPage),
+        }"
+      >
         <ComputerList v-if="currentPage === 'computers'" />
         <ServersPage v-else-if="currentPage === 'servers'" />
         <AboutPage v-else-if="currentPage === 'about'" />
+        <HomePage v-else-if="currentPage === 'home'" />
+        <GatewayPage v-else-if="currentPage === 'gateway'" />
+        <BackupPage v-else-if="currentPage === 'backup'" />
+        <TermPage v-else-if="currentPage === 'term'" />
+        <SessionsPage v-else-if="currentPage === 'sessions'" />
+        <TransfersPage v-else-if="currentPage === 'transfers'" />
+        <FilesPage v-else-if="currentPage === 'files'" />
+        <KeysPage v-else-if="currentPage === 'keys'" />
+        <TermsetPage v-else-if="currentPage === 'termset'" />
         <template v-else>
           <p class="placeholder">
             「{{ currentLabel }}」页面正在迁移中 —— 阶段 3 按功能域逐块迁入。
