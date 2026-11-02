@@ -1338,10 +1338,21 @@ class ComputerListActivity : ComponentActivity() {
             ) {
                 BootButton(row, KIND_REFIND, row.refind)
                 BootButton(row, KIND_GRUB, row.grub)
-                row.channels.filter { it.detected }.forEach { channel ->
-                    ChannelBootButton(row, channel)
-                }
-                val missing = row.channels.filter { !it.detected }
+                // 2026-11-02 用户定案：「离线应该都一样显示离线不可改 并不知道哪个
+                // 未检出」。
+                // 原先只渲染 detected 的通道，其余进「（未检测到）」那行 ——
+                // 离线时根本探测不到任何通道，于是三个全被归为「未检测到」，
+                // 和 rEFInd/GRUB 的「离线不可改」说法不一致，还误导用户以为
+                // 是「这台机没装这些引导器」。
+                //
+                // 现在：**离线时不看 detected，三通道一律渲染成按钮**
+                //（ChannelBootButton 内部按 row.state == OFFLINE 显示「离线不可改」）；
+                // 只有在线时才用 detected 区分「有按钮」与「未检测到」。
+                val offline = row.state == STATE_OFFLINE
+                row.channels
+                    .filter { offline || it.detected }
+                    .forEach { channel -> ChannelBootButton(row, channel) }
+                val missing = if (offline) emptyList() else row.channels.filter { !it.detected }
                 if (missing.isNotEmpty()) {
                     Text(
                         missing.joinToString("、") { it.label } + "（未检测到）",
