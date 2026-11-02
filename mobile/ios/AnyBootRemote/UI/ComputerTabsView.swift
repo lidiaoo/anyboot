@@ -15,6 +15,10 @@ struct ComputerTabsView: View {
     @State private var helpOpen = false
     @State private var failReloadOpen = false
     @State private var transportOpen = false
+    @State private var dataRefreshOpen = false
+
+    private var dataRefreshSec: Int { DataRefreshPref.sec }
+    private var reprobeAlways: Bool { DataRefreshPref.reprobeAlways }
     @State private var chipTick = 0
     /// ⋮ →「电脑列表」弹的服务端选择对话框（对齐 Android ServerListDialog）
     @State private var serverListOpen = false
@@ -63,6 +67,7 @@ struct ComputerTabsView: View {
             powerLayer
             helpOverlay
             failReloadOverlay
+            dataRefreshOverlay
             transportOverlay
             serverListDialog
         }
@@ -301,6 +306,11 @@ struct ComputerTabsView: View {
                    ? "连不上时自动重载（每 \(failReloadSec) 秒）"
                    : "连不上时自动重载（已关闭）") {
                 failReloadOpen = true
+            }
+            Button(dataRefreshSec > 0
+                   ? "数据刷新（每 \(dataRefreshSec) 秒）"
+                   : "数据刷新（已关闭）") {
+                dataRefreshOpen = true
             }
             Button("传输方式（\(transportLabel)）") { transportOpen = true }
         } label: {
@@ -677,6 +687,68 @@ struct ComputerTabsView: View {
 
     /// 传输方式（TransportDialog 1255-1299）：无说明段，三档点选即存即关 + toast；「取消」
     @ViewBuilder
+    /// 数据刷新设置（2026-11-02 用户定案）：
+    /// 与「连不上时自动重载」是两件事 —— 这里管「正常时多久刷一次数据」。
+    private var dataRefreshOverlay: some View {
+        ABDialogHost(isPresented: dataRefreshOpen, onDismiss: { dataRefreshOpen = false }) {
+            ABDialogCard("数据刷新") {
+                Text("正常时每隔多久刷一次列表数据（在线状态 + 引导项），" +
+                     "让手机端看到电脑那边的变更。\n与「连不上时自动重载」不同：" +
+                     "那个只管失败后要不要重试。")
+                    .font(.system(size: 11.5))
+                    .foregroundColor(ABColor.fgDim)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text("刷新间隔")
+                    .font(.system(size: 10.5))
+                    .foregroundColor(ABColor.fgFaint)
+                    .padding(.top, ABMetric.px(6))
+
+                ForEach([2, 5, 10, 30, 0], id: \.self) { sec in
+                    radioRow(selected: dataRefreshSec == sec,
+                             label: sec == 0 ? "关闭数据刷新"
+                                : "每 \(sec) 秒" + (sec == 2 ? "（默认）" : "")) {
+                        DataRefreshPref.sec = sec
+                        ABToastBus.shared.show(sec > 0
+                            ? "数据每 \(sec) 秒刷新一次" : "已关闭数据刷新")
+                    }
+                }
+
+                Divider().padding(.vertical, ABMetric.px(6))
+
+                Text("刷新时是否重新探测地址")
+                    .font(.system(size: 10.5))
+                    .foregroundColor(ABColor.fgFaint)
+
+                radioRow(selected: !reprobeAlways, label: "复用上次成功的地址（推荐）") {
+                    DataRefreshPref.reprobeAlways = false
+                    ABToastBus.shared.show("复用上次成功的地址：省电、地址稳定")
+                }
+                Text("省电、地址稳定，不会频繁换 IP")
+                    .font(.system(size: 10))
+                    .foregroundColor(ABColor.fgFaint)
+                    .padding(.leading, ABMetric.px(26))
+
+                radioRow(selected: reprobeAlways, label: "每次刷新都重新探测地址") {
+                    DataRefreshPref.reprobeAlways = true
+                    ABToastBus.shared.show("每次刷新都重新探测地址：换 IP 抓得最快")
+                }
+                Text("换 IP / 换网络时抓得最快，但更耗电")
+                    .font(.system(size: 10))
+                    .foregroundColor(ABColor.fgFaint)
+                    .padding(.leading, ABMetric.px(26))
+
+                HStack {
+                    Spacer()
+                    ABButton(title: "完成", kind: .primary, compact: true) {
+                        dataRefreshOpen = false
+                    }
+                }
+                .padding(.top, ABMetric.px(6))
+            }
+        }
+    }
+
     private var transportOverlay: some View {
         ABDialogHost(isPresented: transportOpen, onDismiss: { transportOpen = false }) {
             ABDialogCard("传输方式") {

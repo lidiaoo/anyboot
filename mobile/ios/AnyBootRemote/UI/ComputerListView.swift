@@ -109,6 +109,10 @@ struct ComputerListView: View {
         .onReceive(NotificationCenter.default.publisher(for: FailReloadPref.changed)) { _ in
             startAutoProbe()
         }
+        // 数据刷新设置（间隔 / 是否重探）变更后立即重建定时任务
+        .onReceive(NotificationCenter.default.publisher(for: DataRefreshPref.changed)) { _ in
+            startAutoProbe()
+        }
         .onChange(of: store.servers.count) { _, _ in
             if boots.isEmpty { refreshAll() }
         }
@@ -2113,14 +2117,15 @@ struct ComputerListView: View {
     ///   ③ 现在拆开：
     ///        · **数据刷新**（本条）= 保持最新，常开，固定 10 秒
     ///        · **失败重试**（scheduleFailReload）= 受 FailReloadPref.sec 控制
-    private static let dataRefreshInterval: UInt64 = 10
-
     private func startAutoProbe() {
         probeTask?.cancel()
+        probeTask = nil
+        guard DataRefreshPref.sec > 0 else { return }   // 用户关了数据刷新
         probeTask = Task {
             while !Task.isCancelled {
-                try? await Task.sleep(
-                    nanoseconds: Self.dataRefreshInterval * 1_000_000_000)
+                let sec = DataRefreshPref.sec
+                if sec <= 0 { return }
+                try? await Task.sleep(nanoseconds: UInt64(sec) * 1_000_000_000)
                 guard !Task.isCancelled else { return }
                 await MainActor.run { refreshAll(silent: true) }
             }

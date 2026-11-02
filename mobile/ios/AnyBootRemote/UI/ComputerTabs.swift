@@ -339,6 +339,34 @@ final class ComputerTabCenter: ObservableObject {
 /// 连不上时自动重载的间隔（秒；0 = 永不）。
 /// 默认 5 秒 —— 与安卓 MainActivity:174 相同（之前 iOS 未设置时读到 0，等于默认关闭）。
 @MainActor
+/// 数据刷新偏好（2026-11-02 用户定案）：
+/// 与 `FailReloadPref` 是两件事 —— 这里管「正常时多久刷一次数据」，
+/// 那个管「连不上之后要不要重试」。
+enum DataRefreshPref {
+    static let changed = Notification.Name("AnyBootDataRefreshChanged")
+
+    /// 刷新间隔（秒）；0 = 关闭数据刷新。默认 2（与电脑页 POLL_INTERVAL 一致）
+    static var sec: Int {
+        get {
+            UserDefaults.standard.object(forKey: "dataRefreshSec") == nil
+                ? 2 : UserDefaults.standard.integer(forKey: "dataRefreshSec")
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: "dataRefreshSec")
+            NotificationCenter.default.post(name: changed, object: nil)
+        }
+    }
+
+    /// 刷新时是否每次重新探测地址：false = 复用上次成功的端点（默认，地址稳）
+    static var reprobeAlways: Bool {
+        get { UserDefaults.standard.bool(forKey: "reprobeAlways") }
+        set {
+            UserDefaults.standard.set(newValue, forKey: "reprobeAlways")
+            NotificationCenter.default.post(name: changed, object: nil)
+        }
+    }
+}
+
 enum FailReloadPref {
     /// 设置变更通知：`sec` 存在 UserDefaults 里，不是 SwiftUI 可观察状态 ——
     /// 改了值不会触发任何 onChange。调用方（自动重载任务）需要这份通知来

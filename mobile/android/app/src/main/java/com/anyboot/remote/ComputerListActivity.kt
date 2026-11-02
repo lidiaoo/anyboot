@@ -47,6 +47,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
@@ -226,6 +227,11 @@ class ComputerListActivity : ComponentActivity() {
     private var moreConnectAll by mutableStateOf(false)
     private var moreTransport by mutableStateOf("auto")
     private var moreFailReloadSec by mutableStateOf(5)
+    /// 数据刷新间隔（秒）：0 = 关闭；默认 2（与电脑页 POLL_INTERVAL 一致）
+    private var moreDataRefreshSec by mutableStateOf(2)
+    /// 刷新时是否每次重新探测地址：false = 复用上次端点（默认，地址稳）
+    private var moreReprobeAlways by mutableStateOf(false)
+    private var moreDataRefreshOpen by mutableStateOf(false)
     private var moreBootTheme by mutableStateOf("")
     private var moreSortMode by mutableStateOf("custom")
 
@@ -244,6 +250,8 @@ class ComputerListActivity : ComponentActivity() {
         moreConnectAll = ServerStore.connectAll(this)
         moreTransport = ServerStore.transport(this)
         moreFailReloadSec = getSharedPreferences(UI_PREFS, MODE_PRIVATE).getInt("failReloadSec", 5)
+        moreDataRefreshSec = getSharedPreferences(UI_PREFS, MODE_PRIVATE).getInt("dataRefreshSec", 2)
+        moreReprobeAlways = getSharedPreferences(UI_PREFS, MODE_PRIVATE).getBoolean("reprobeAlways", false)
         moreBootTheme = ServerProfile.guestBootTheme(this)
         moreSortMode = ServerStore.sortMode(this)
         // 默认选中电脑页的当前那台；之后点卡片即切换
@@ -320,6 +328,7 @@ class ComputerListActivity : ComponentActivity() {
                 if (moreServerListOpen) MoreServerListDialog()
                 if (moreTransportOpen) MoreTransportDialog()
                 if (moreFailReloadOpen) MoreFailReloadDialog()
+                if (moreDataRefreshOpen) MoreDataRefreshDialog()
                 if (moreBootThemeOpen) MoreBootThemeDialog()
                 sysInfoTarget?.let { target ->
                     SystemInfoDialog(
@@ -496,6 +505,16 @@ class ComputerListActivity : ComponentActivity() {
                         )
                     },
                     onClick = { open = false; moreFailReloadOpen = true },
+                )
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            if (moreDataRefreshSec > 0)
+                                "数据刷新（每 ${moreDataRefreshSec} 秒）"
+                            else "数据刷新（已关闭）"
+                        )
+                    },
+                    onClick = { open = false; moreDataRefreshOpen = true },
                 )
                 DropdownMenuItem(text = { Text("传输方式（${transportLabel()}）") }, onClick = {
                     open = false; moreTransportOpen = true
@@ -744,6 +763,148 @@ class ComputerListActivity : ComponentActivity() {
             confirmButton = {
                 TextButton(onClick = { moreFailReloadOpen = false }) { Text("完成") }
             },
+        )
+    }
+
+    /// 数据刷新设置（2026-11-02 用户定案）：
+    /// 与「连不上时自动重载」是两件事 —— 这里管「正常时多久刷一次数据」。
+    @Composable
+    private fun MoreDataRefreshDialog() {
+        val palette = LocalPalette.current
+        var custom by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { moreDataRefreshOpen = false },
+            containerColor = palette.card,
+            title = { Text("数据刷新") },
+            text = {
+                Column {
+                    Text(
+                        "正常时每隔多久刷一次列表数据（在线状态 + 引导项），" +
+                            "让手机端看到电脑那边的变更。\n" +
+                            "与「连不上时自动重载」不同：那个只管失败后要不要重试。",
+                        fontSize = 12.sp, color = palette.fgDim,
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Text("刷新间隔", fontSize = 11.sp, color = palette.fgFaint)
+                    listOf(2, 5, 10, 30, 0).forEach { sec ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    moreDataRefreshSec = sec
+                                    saveDataRefreshSec()
+                                },
+                        ) {
+                            RadioButton(
+                                selected = moreDataRefreshSec == sec,
+                                onClick = {
+                                    moreDataRefreshSec = sec
+                                    saveDataRefreshSec()
+                                },
+                            )
+                            Text(
+                                if (sec == 0) "关闭数据刷新" else "每 $sec 秒" +
+                                    (if (sec == 2) "（默认）" else ""),
+                                fontSize = 13.sp, color = palette.fg,
+                            )
+                        }
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(
+                            selected = moreDataRefreshSec !in listOf(2, 5, 10, 30, 0),
+                            onClick = { },
+                        )
+                        OutlinedTextField(
+                            value = custom.ifEmpty {
+                                if (moreDataRefreshSec in listOf(2, 5, 10, 30, 0)) "" else moreDataRefreshSec.toString()
+                            },
+                            onValueChange = { custom = it.filter(Char::isDigit) },
+                            label = { Text("自定义秒数", fontSize = 11.sp) },
+                            singleLine = true,
+                            textStyle = TextStyle(fontSize = 13.sp, color = palette.fg),
+                            modifier = Modifier.weight(1f),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        TextButton(onClick = {
+                            val parsed = custom.toIntOrNull()
+                            if (parsed == null || parsed < 0) {
+                                toast("间隔要是不小于 0 的整数秒")
+                                return@TextButton
+                            }
+                            moreDataRefreshSec = parsed
+                            saveDataRefreshSec()
+                            moreDataRefreshOpen = false
+                        }) { Text("应用") }
+                    }
+
+                    Spacer(Modifier.height(12.dp))
+                    HorizontalDivider(color = palette.line)
+                    Spacer(Modifier.height(8.dp))
+                    Text("刷新时是否重新探测地址", fontSize = 11.sp, color = palette.fgFaint)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                moreReprobeAlways = false
+                                saveReprobeMode()
+                            },
+                    ) {
+                        RadioButton(selected = !moreReprobeAlways, onClick = {
+                            moreReprobeAlways = false
+                            saveReprobeMode()
+                        })
+                        Column {
+                            Text("复用上次成功的地址（推荐）", fontSize = 13.sp, color = palette.fg)
+                            Text("省电、地址稳定，不会频繁换 IP",
+                                fontSize = 10.5.sp, color = palette.fgFaint)
+                        }
+                    }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                moreReprobeAlways = true
+                                saveReprobeMode()
+                            },
+                    ) {
+                        RadioButton(selected = moreReprobeAlways, onClick = {
+                            moreReprobeAlways = true
+                            saveReprobeMode()
+                        })
+                        Column {
+                            Text("每次刷新都重新探测地址", fontSize = 13.sp, color = palette.fg)
+                            Text("换 IP / 换网络时抓得最快，但更耗电",
+                                fontSize = 10.5.sp, color = palette.fgFaint)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { moreDataRefreshOpen = false }) { Text("完成") }
+            },
+        )
+    }
+
+    private fun saveDataRefreshSec() {
+        getSharedPreferences(UI_PREFS, MODE_PRIVATE).edit()
+            .putInt("dataRefreshSec", moreDataRefreshSec).apply()
+        rescheduleAutoProbe()
+        toast(
+            if (moreDataRefreshSec > 0) "数据每 $moreDataRefreshSec 秒刷新一次"
+            else "已关闭数据刷新"
+        )
+    }
+
+    private fun saveReprobeMode() {
+        getSharedPreferences(UI_PREFS, MODE_PRIVATE).edit()
+            .putBoolean("reprobeAlways", moreReprobeAlways).apply()
+        if (moreReprobeAlways) lastGoodEndpoint.clear()   // 清缓存，立刻按新模式工作
+        toast(
+            if (moreReprobeAlways) "每次刷新都会重新探测地址"
+            else "复用上次成功的地址"
         )
     }
 
@@ -3142,20 +3303,27 @@ class ComputerListActivity : ComponentActivity() {
     ///      （failReloadSec，0 = 永不）。
     /// 上一版把两者混在同一个开关里，结果用户关掉「自动重载」后，
     /// 在线数据也不再刷新 → PC 切换引导项，手机端一直显示旧值。
-    private fun autoProbeIntervalMs(): Long = DATA_REFRESH_INTERVAL_MS
+    private fun autoProbeIntervalMs(): Long {
+        val sec = getSharedPreferences(UI_PREFS, MODE_PRIVATE).getInt("dataRefreshSec", 2)
+        return if (sec <= 0) 0L else sec * 1000L
+    }
 
     private val autoProbeTick = object : Runnable {
         override fun run() {
             if (!autoProbeOn) return
+            val interval = autoProbeIntervalMs()
+            if (interval <= 0L) { autoProbeOn = false; return }   // 用户关了数据刷新
             refreshAllQuiet()
-            handler.postDelayed(this, autoProbeIntervalMs())
+            handler.postDelayed(this, interval)
         }
     }
 
     private fun startAutoProbe() {
         if (autoProbeOn) return
+        val interval = autoProbeIntervalMs()
+        if (interval <= 0L) return                                // 用户关了数据刷新
         autoProbeOn = true
-        handler.postDelayed(autoProbeTick, autoProbeIntervalMs())
+        handler.postDelayed(autoProbeTick, interval)
     }
 
     /// 设置变更后重排。注意：**数据刷新不再受 failReloadSec 影响**，
@@ -3229,7 +3397,10 @@ class ComputerListActivity : ComponentActivity() {
         //   ② **慢路径**（离线接管）：快路径失败才跑完整 ProbeEngine 重新选路。
         //
         // 关键：/api/ui-state 本身既是「验证」又是「取数」，不会重复请求。
-        val cached = lastGoodEndpoint[profile.id]
+        // 用户在设置里选了「每次重新探测地址」时跳过复用
+        val reprobeAlways = getSharedPreferences(UI_PREFS, MODE_PRIVATE)
+            .getBoolean("reprobeAlways", false)
+        val cached = if (reprobeAlways) null else lastGoodEndpoint[profile.id]
         if (cached != null && cached.alive) {
             val quick = try {
                 httpJson(cached.url, cached.token, "/api/ui-state")

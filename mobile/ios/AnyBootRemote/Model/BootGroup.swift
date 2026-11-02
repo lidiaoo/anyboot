@@ -565,7 +565,9 @@ enum BootService {
 
     static func fetchBootInfo(_ profile: ServerProfile) async -> BootInfo {
         // ① 快路径：用上次成功的端点直接拉 /api/ui-state（一次请求 = 验证 + 取数）
-        if let cached = cachedEndpoint(profile.id), cached.alive {
+        // 用户在设置里选了「每次重新探测地址」时跳过复用
+        let reprobeAlways = UserDefaults.standard.bool(forKey: "reprobeAlways")
+        if !reprobeAlways, let cached = cachedEndpoint(profile.id), cached.alive {
             if let state = try? await RemoteHttp.json(endpoint: cached.url, token: cached.token,
                                                       path: "/api/ui-state") {
                 return buildInfo(fromUiState: state, choice: cached)

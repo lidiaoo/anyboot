@@ -2468,6 +2468,16 @@
           <button role="menuitem" data-reload="0">永不（关闭自动重载）</button>
           <button role="menuitem" data-reload="custom">自定义间隔…</button>
           <div class="menu-divider" role="separator"></div>
+          <div class="menu-caption">数据刷新（PC 端列表）</div>
+          <button role="menuitem" data-refresh="2">每 2 秒（默认）</button>
+          <button role="menuitem" data-refresh="5">每 5 秒</button>
+          <button role="menuitem" data-refresh="10">每 10 秒</button>
+          <button role="menuitem" data-refresh="30">每 30 秒</button>
+          <button role="menuitem" data-refresh="0">关闭数据刷新</button>
+          <button role="menuitem" data-refresh="custom">自定义间隔…</button>
+          <button role="menuitem" data-reprobe="reuse">✓ 复用上次地址（省电、地址稳）</button>
+          <button role="menuitem" data-reprobe="always">每次重新探测地址（换 IP 抓得最快）</button>
+          <div class="menu-divider" role="separator"></div>
           <div class="menu-caption">列表里「打开页面」的方式</div>
           <button role="menuitem" data-openmode="inline">内嵌弹窗查看</button>
           <button role="menuitem" data-openmode="goto">跳到「电脑」页</button>
@@ -9018,6 +9028,8 @@ window.__bkOnShow = async function () {
       console.error(error);
       remotes = [];
     }
+    // 2026-11-02：启动数据刷新定时器（默认 2 秒，可在 ⋮ 菜单调/关）
+    restartDataRefresh();
     // 顺序在这里就排好：电脑列表（cqRows）与电脑页标签栏（renderPcChips）
     // 都直接消费 remotes —— 两处永远一致，不各排各的
     cqSortRemotes();
@@ -9946,6 +9958,26 @@ window.__bkOnShow = async function () {
     const saved = parseInt(localStorage.getItem('pcAutoReloadSec'), 10);
     if (Number.isFinite(saved) && saved >= 0) pcAutoReloadSec = saved;
   } catch (e) { /* localStorage 不可用就吃默认值 */ }
+
+  // ---- 数据刷新（2026-11-02 用户定案）----
+  //
+  // 与上面「连不上时自动重载」是**两件事**：
+  //   · 那个管「连不上之后要不要重试」
+  //   · 这个管「正常时多久刷一次数据」，让电脑列表看到 PC 那边的引导项变更
+  //
+  // pcDataRefreshSec：0 = 关闭数据刷新；默认 2 秒（与电脑页的 POLL_INTERVAL 一致）
+  // pcReprobeMode：'reuse' = 复用上次成功的地址（省电、地址稳，默认）
+  //                'always' = 每次刷新都完整探测所有候选地址（换 IP 抓得最快）
+  let pcDataRefreshSec = 2;
+  try {
+    const savedRefresh = parseInt(localStorage.getItem('pcDataRefreshSec'), 10);
+    if (Number.isFinite(savedRefresh) && savedRefresh >= 0) pcDataRefreshSec = savedRefresh;
+  } catch (e) { /* 吃默认值 */ }
+  let pcReprobeMode = 'reuse';
+  try {
+    const savedReprobe = localStorage.getItem('pcReprobeMode');
+    if (savedReprobe === 'always' || savedReprobe === 'reuse') pcReprobeMode = savedReprobe;
+  } catch (e) { /* 吃默认值 */ }
   /** 列表里点「打开页面」：内嵌弹窗，还是跳到「电脑」页（用户可改） */
   let cqOpenMode = 'inline';
   try {
@@ -9973,6 +10005,7 @@ window.__bkOnShow = async function () {
     pcMenuEl.hidden = !open;
     if (open) {
       refreshAutoReloadMarks();
+      refreshDataRefreshMarks();
       refreshOpenModeMarks();
       refreshGrubFmtMarks();
       refreshGuestThemeMarks();
@@ -10025,6 +10058,33 @@ window.__bkOnShow = async function () {
       btn.textContent = (on ? '✓ ' : '') + base;
     });
   }
+  /// 刷新「数据刷新」那几条菜单项前面的 ✓
+  function refreshDataRefreshMarks() {
+    pcMenuEl.querySelectorAll('[data-refresh]').forEach(function (btn) {
+      const value = btn.dataset.refresh;
+      const on = value !== 'custom' && parseInt(value, 10) === pcDataRefreshSec;
+      const base = btn.dataset.label || (btn.dataset.label = btn.textContent);
+      btn.textContent = (on ? '✓ ' : '') + base;
+    });
+    pcMenuEl.querySelectorAll('[data-reprobe]').forEach(function (btn) {
+      const base = btn.dataset.label || (btn.dataset.label = btn.textContent);
+      btn.textContent = (btn.dataset.reprobe === pcReprobeMode ? '✓ ' : '') + base;
+    });
+  }
+
+  /// 数据刷新的定时器（PC 电脑列表用；0 = 不刷新）
+  let pcDataRefreshTimer = null;
+  function restartDataRefresh() {
+    if (pcDataRefreshTimer) { clearInterval(pcDataRefreshTimer); pcDataRefreshTimer = null; }
+    if (!pcDataRefreshSec || pcDataRefreshSec <= 0) return;
+    pcDataRefreshTimer = setInterval(function () {
+      // 静默刷新：只更新列表数据（在线状态 + 引导项），不重载页面、不弹提示
+      if (typeof cqRefreshBoot === 'function') {
+        try { void cqRefreshBoot(); } catch (e) { /* 下一拍再试 */ }
+      }
+    }, pcDataRefreshSec * 1000);
+  }
+
   function refreshOpenModeMarks() {
     pcMenuEl.querySelectorAll('[data-openmode]').forEach(function (btn) {
       const base = btn.dataset.label || (btn.dataset.label = btn.textContent);
@@ -10131,6 +10191,34 @@ window.__bkOnShow = async function () {
       toast(pcAutoReloadSec > 0
         ? '连不上时每 ' + pcAutoReloadSec + ' 秒自动重载（内嵌查看）'
         : '已关闭自动重载');
+      return;
+    }
+    if (btn.dataset.refresh !== undefined) {
+      const value = btn.dataset.refresh;
+      if (value === 'custom') {
+        const input = window.prompt('数据刷新间隔（秒，0 = 关闭）', String(pcDataRefreshSec));
+        if (input === null) return;
+        const parsed = parseInt(input, 10);
+        if (!Number.isFinite(parsed) || parsed < 0) { toast('间隔要是不小于 0 的整数秒', 'bad'); return; }
+        pcDataRefreshSec = parsed;
+      } else {
+        pcDataRefreshSec = parseInt(value, 10);
+      }
+      try { localStorage.setItem('pcDataRefreshSec', String(pcDataRefreshSec)); } catch (e) { }
+      refreshDataRefreshMarks();
+      restartDataRefresh();
+      toast(pcDataRefreshSec > 0
+        ? '数据每 ' + pcDataRefreshSec + ' 秒刷新一次'
+        : '已关闭数据刷新');
+      return;
+    }
+    if (btn.dataset.reprobe !== undefined) {
+      pcReprobeMode = btn.dataset.reprobe;
+      try { localStorage.setItem('pcReprobeMode', pcReprobeMode); } catch (e) { }
+      refreshDataRefreshMarks();
+      toast(pcReprobeMode === 'always'
+        ? '每次刷新都会重新探测地址（换 IP 能最快跟上）'
+        : '复用上次成功的地址（省电、地址稳定）');
       return;
     }
     const act = btn.dataset.act;
