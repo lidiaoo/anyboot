@@ -9151,6 +9151,24 @@ window.__bkOnShow = async function () {
     if (pcRetryTimer) { clearInterval(pcRetryTimer); pcRetryTimer = null; }
     pcRetryRid = null;
   }
+  /// 按**当前** pcAutoReloadSec 重启重试定时器。
+  ///
+  /// setInterval 的间隔在创建时就固定了 —— 用户改设置后必须重建，
+  /// 否则旧定时器仍按老间隔跑（「选了永不还每 5 秒重载」的根因）。
+  /// 0（永不）时 pcScheduleRetry 会直接停掉，不再重启。
+  function pcRestartRetryWithCurrentInterval() {
+    // 两条链路都要处理：内嵌查看（pcRetryTimer）与电脑页（pageRetryTimer）。
+    // 它们各自持有 setInterval，间隔同样在创建时固定 —— 只改一边会漏。
+    const innerRid = pcRetryRid || cqViewRid;
+    pcStopRetry();
+    if (innerRid && pcAutoReloadSec) {
+      pcScheduleRetry(innerRid);
+    }
+    if (typeof pageRestartRetryWithCurrentInterval === "function") {
+      pageRestartRetryWithCurrentInterval();
+    }
+  }
+
   function pcScheduleRetry(rid) {
     pcStopRetry();
     if (!pcAutoReloadSec) return; // 0 = 永不
@@ -9527,6 +9545,15 @@ window.__bkOnShow = async function () {
     if (pageRetryTimer) { clearInterval(pageRetryTimer); pageRetryTimer = null; }
     pageRetryRid = null;
   }
+  /// 电脑页的自动重试：按**当前**设置重启（同 pcRestartRetryWithCurrentInterval
+  /// 的理由 —— setInterval 间隔创建时固定，改设置必须重建）。
+  function pageRestartRetryWithCurrentInterval() {
+    const rid = pageRetryRid || activeRemote;
+    pageStopRetry();
+    if (!rid || !pcAutoReloadSec) return; // 0 = 永不：停掉就够
+    pageScheduleRetry(rid);
+  }
+
   function pageScheduleRetry(rid) {
     pageStopRetry();
     if (!pcAutoReloadSec) return; // 0 = 永不
@@ -10094,6 +10121,13 @@ window.__bkOnShow = async function () {
       }
       try { localStorage.setItem('pcAutoReloadSec', String(pcAutoReloadSec)); } catch (e) { }
       refreshAutoReloadMarks();
+      // 2026-11-02 修：改设置必须**立刻生效**。原先这里只存了变量，
+      // 已经在跑的 setInterval 用的还是**旧间隔**（启动时固定死），
+      // 于是用户选了「永不」仍会每 5 秒重载一次。
+      // 重新调度：间隔变 0 时 pcScheduleRetry 会直接停掉定时器。
+      if (typeof pcRestartRetryWithCurrentInterval === 'function') {
+        pcRestartRetryWithCurrentInterval();
+      }
       toast(pcAutoReloadSec > 0
         ? '连不上时每 ' + pcAutoReloadSec + ' 秒自动重载（内嵌查看）'
         : '已关闭自动重载');
