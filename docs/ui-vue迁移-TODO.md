@@ -177,7 +177,7 @@
 - [x] **3.13** 系统徽标 + 系统信息弹层
   - ✅ 完成：`components/hub/SystemInfoDialog.vue` + 电脑名旁 WIN/MAC/LNX 徽标
 - [x] **3.14** 传输页（SFTP 队列 / 断点续传 / 历史）
-  - ✅ 部分：TransfersPage 骨架完成，队列数据待阶段 4 文件窗接入
+  - ✅ 完成：接 `hub_sftp_transfer_list` + `hub-sftp-progress` 事件流 + 3 秒兜底轮询；单个/批量 暂停·继续·放弃
 - [x] **3.15** 关于页 + 更新检查
   - ✅ 完成：版本卡 + update_state/update_check + 仓库外链
 
@@ -192,7 +192,7 @@
 - [x] **4.2** `pages/keys/`（原 `hub-keys.html` 465 行）
   - ✅ 占位页已建
 - [x] **4.3** `pages/files/`（原 `hub-files.html` 1,262 行）
-  - ✅ 占位页已建
+  - ✅ 完成：`FilesPage.vue` 覆盖 `hub_sftp_*` 12 个命令（列目录/家目录/上传/下载/新建/重命名/删除 + 传输队列），`FilesWindow.vue` 复用同一组件
 - [x] **4.4** `pages/backup/`（原 `hub-backup.html` 1,057 行）
   - ✅ 占位页已建
 [x] **4.5** 验证四个独立 Tauri 窗口的 URL 与路由
@@ -315,6 +315,9 @@
 | 2026-11-02 | 补 | `SystemInfoDialog.vue` + 电脑名旁系统徽标（WIN/MAC/LNX） | ✅ |
 | 2026-11-02 | 补 | `LatencyTrend.vue`：会话内 40 点环形采样 + 折线 + min/avg/max | ✅ |
 | 2026-11-02 | 补 | **复验**：cargo test 508 passed；三处自检全绿；无 JS 异常 | ✅ |
+| 2026-11-02 | 补 | `FilesPage.vue` 补全 SFTP：上传/下载/新建文件夹/重命名/删除/家目录 + 传输队列（暂停·继续·放弃） | ✅ |
+| 2026-11-02 | 补 | `TransfersPage.vue` 接真实数据：`transfer_list` + `hub-sftp-progress` 事件 + 3 秒兜底轮询 + 批量操作 | ✅ |
+| 2026-11-02 | 补 | **复验**：打包成功；文件窗实测打开；无 JS 异常 | ✅ |
 
 ---
 
