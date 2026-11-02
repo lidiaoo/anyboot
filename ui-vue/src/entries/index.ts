@@ -1,15 +1,9 @@
 import { createApp } from "vue";
 import { createPinia } from "pinia";
-import App from "@/App.vue";
+import BootApp from "@/pages/boot/BootApp.vue";
 import "@/styles/base.css";
 
 /**
- * 入口：index
- *
- * 阶段 0 只验证三件事：
- *   ① Vite 多入口能出产物且文件名保持原名
- *   ② Tauri 能在 tauri://localhost 下加载它
- *   ③ IPC（import { invoke } from "@tauri-apps/api/core"）能通
- * 真实页面在阶段 2 / 3 / 4 替换这个 App.vue。
+ * 主窗「系统引导」页入口（Tauri 默认入口 `index.html`）。
  */
-createApp(App).use(createPinia()).mount("#app");
+createApp(BootApp).use(createPinia()).mount("#app");

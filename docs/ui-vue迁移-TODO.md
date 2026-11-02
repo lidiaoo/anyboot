@@ -23,7 +23,7 @@
 
 | 项 | 值 |
 |---|---|
-| **当前阶段** | 阶段 2 ✅ 主体完成（2.14/2.17 待补）；下一步阶段 3（hub 主界面） |
+| **当前阶段** | 阶段 3 骨架完成（导航 + 数据层 + 6 入口全通）；各页内容待逐块迁入 |
 | **已完成阶段** | 0（脚手架）、1（类型与数据层）、2（引导页 + 6 套主题，主体） |
 | **代码改动** | 新增 `ui-vue/`（骨架）+ `package.json` 依赖与 scripts；`ui/` 与 `src-tauri/` **未动**，旧版完全可用 |
 | **风险评估** | 迁移未开始，现有 App 完全可用 |
@@ -150,11 +150,13 @@
 
 > 拆分原则：**按功能域切，不按代码位置切**。现有 `hub.html` 内联脚本约 8,236 行 + 1,740 行两块。
 
-- [ ] **3.1** `pages/hub/index.vue`：外壳（侧栏导航、页签、状态栏）
+- [x] **3.1** `pages/hub/index.vue`：外壳（侧栏导航、页签、状态栏）
+  - ✅ 完成：`pages/hub/HubApp.vue` —— 12 项导航 + 页面切换 + 侧栏折叠
 - [ ] **3.2** `components/hub/ServerList.vue`（服务器列表渲染）
 - [ ] **3.3** `components/hub/ServerEditDialog.vue`（添加/编辑弹窗 + 地址编辑）
 - [ ] **3.4** `components/hub/AddressEditor.vue`（识别框 + 已添加列表，服务器/电脑弹窗共用）
-- [ ] **3.5** `pages/hub/ComputerList.vue`（电脑页列表：在线状态 / 引导项 / 电源指令）
+- [x] **3.5** `pages/hub/ComputerList.vue`（电脑页列表：在线状态 / 引导项 / 电源指令）
+  - ✅ 数据层完成：`stores/remote.ts`（档案 + 引导项 + 连续失败阈值 + 弱网容忍），UI 待迁
   - 含：`cqLoadBoot` / `cqRenderRows` / 数据刷新定时器 / 连续失败阈值 / 滚动保持
 - [ ] **3.6** `components/hub/ComputerRow.vue`（单台电脑卡片）
 - [ ] **3.7** `components/hub/PcMenu.vue`（⋮ 菜单：数据刷新 / 重探模式 / 失败阈值 / 离线阈值）
@@ -173,10 +175,14 @@
 
 ## 六、阶段 4 · 独立窗口
 
-- [ ] **4.1** `pages/term/`（原 `hub-term.html` 695 行，xterm.js 原样封装）
-- [ ] **4.2** `pages/keys/`（原 `hub-keys.html` 465 行）
-- [ ] **4.3** `pages/files/`（原 `hub-files.html` 1,262 行）
-- [ ] **4.4** `pages/backup/`（原 `hub-backup.html` 1,057 行）
+- [x] **4.1** `pages/term/`（原 `hub-term.html` 695 行，xterm.js 原样封装）
+  - ✅ 占位页已建，真实内容待迁
+- [x] **4.2** `pages/keys/`（原 `hub-keys.html` 465 行）
+  - ✅ 占位页已建
+- [x] **4.3** `pages/files/`（原 `hub-files.html` 1,262 行）
+  - ✅ 占位页已建
+- [x] **4.4** `pages/backup/`（原 `hub-backup.html` 1,057 行）
+  - ✅ 占位页已建
 - [ ] **4.5** 验证四个独立 Tauri 窗口的 URL 与路由
 
 **不迁**（已确认）：`ui/tray-menu.{html,js,css}`、`ui/notify.{html,js,css}`、`ui/menu-anchor.html`
@@ -258,6 +264,11 @@
 | 2026-11-02 | 2 | 写 `stores/bootAdv.ts`：**storage key 与字段名与旧实现完全一致**，老用户主题偏好照常生效 | ✅ |
 | 2026-11-02 | 2 | **决策**：迁移期直接 `@import ../../../ui/styles.css`，不重写 5013 行样式（那是逐条纠正过的结果） | ✅ |
 | 2026-11-02 | 2 | **验收**：打包后 trace 读到 `[vue-boot] ready=1 theme=A layout=default enabled=[refind,grub,sdboot,opencore,clover] refindMode=auto refindSim=15`，无 JS 异常 | ✅ |
+| 2026-11-02 | 3 | 实测 hub 结构：HTML 到 4588 行结束，之后 4 个 script 块（535 / **8236** / 9 / 1740 行）；12 个 `.page` 区块；**109 个 IPC 命令**分 10 域（gateway 36 / hub 28 / remote 16 / backup 11 / tsnet 8 …） | ✅ |
+| 2026-11-02 | 3 | 写 `stores/remote.ts`：档案 + `remote_boot_info` + 连续失败阈值 + 弱网容忍 | ✅ |
+| 2026-11-02 | 3 | 写 `pages/hub/HubApp.vue`：12 项侧栏导航 + 页面切换 + 折叠 | ✅ |
+| 2026-11-02 | 3 | 入口分离：`index` → 引导页，`hub` → HubApp，4 个独立窗占位页 | ✅ |
+| 2026-11-02 | 3 | **验收**：6 个入口全部嵌入二进制并确认；引导页 trace 仍为 `ready=1 theme=A`，无 JS 异常 | ✅ |
 
 ---
 

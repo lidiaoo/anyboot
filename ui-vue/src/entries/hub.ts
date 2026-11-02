@@ -1,15 +1,12 @@
 import { createApp } from "vue";
 import { createPinia } from "pinia";
-import App from "@/App.vue";
+import HubApp from "@/pages/hub/HubApp.vue";
 import "@/styles/base.css";
 
 /**
- * 入口：hub
+ * hub 入口（管理界面）。
  *
- * 阶段 0 只验证三件事：
- *   ① Vite 多入口能出产物且文件名保持原名
- *   ② Tauri 能在 tauri://localhost 下加载它
- *   ③ IPC（import { invoke } from "@tauri-apps/api/core"）能通
- * 真实页面在阶段 2 / 3 / 4 替换这个 App.vue。
+ * Rust 侧 `lib.rs:1042` 用 `WebviewUrl::App("hub.html")` 打开它 ——
+ * **文件名不可改**。
  */
-createApp(App).use(createPinia()).mount("#app");
+createApp(HubApp).use(createPinia()).mount("#app");
