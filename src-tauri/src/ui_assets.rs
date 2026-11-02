@@ -4,11 +4,11 @@
 // 手机端「电脑页」与浏览器远程访问走的就是这张表。
 //
 // 源目录：ui-vue/dist/
-// 条目数：37
+// 条目数：38
 
 /// (相对路径, Content-Type, 文件正文)
 pub(crate) const UI_ASSETS: &[(&str, &str, &str)] = &[
-    ("assets/chunks/FbModal.vue_vue_type_script_setup_true_lang-D2WxTU21.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/FbModal.vue_vue_type_script_setup_true_lang-D2WxTU21.js")),
+    ("assets/chunks/FbModal.vue_vue_type_script_setup_true_lang-DupMWXqn.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/FbModal.vue_vue_type_script_setup_true_lang-DupMWXqn.js")),
     ("assets/chunks/LoaderIcon.vue_vue_type_script_setup_true_lang-CoV7JQgw.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/LoaderIcon.vue_vue_type_script_setup_true_lang-CoV7JQgw.js")),
     ("assets/chunks/StateChip.vue_vue_type_script_setup_true_lang-FKjB-RYu.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/StateChip.vue_vue_type_script_setup_true_lang-FKjB-RYu.js")),
     ("assets/chunks/ThemeA-vIi2M-gg.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/ThemeA-vIi2M-gg.js")),
@@ -23,13 +23,14 @@ pub(crate) const UI_ASSETS: &[(&str, &str, &str)] = &[
     ("assets/chunks/http-DLXscMYK.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/http-DLXscMYK.js")),
     ("assets/chunks/preload-helper-Ct5FWWRu.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/preload-helper-Ct5FWWRu.js")),
     ("assets/chunks/tauri-3XEtSiFY.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/tauri-3XEtSiFY.js")),
-    ("assets/hub-BeaLphW_.css", "text/css; charset=utf-8", include_str!("../../ui-vue/dist/assets/hub-BeaLphW_.css")),
+    ("assets/chunks/useEscape-BSCgwsDJ.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/useEscape-BSCgwsDJ.js")),
     ("assets/hub-backup-DnIuWeWO.css", "text/css; charset=utf-8", include_str!("../../ui-vue/dist/assets/hub-backup-DnIuWeWO.css")),
     ("assets/hub-backup.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/hub-backup.js")),
     ("assets/hub-files-LgRiBib1.css", "text/css; charset=utf-8", include_str!("../../ui-vue/dist/assets/hub-files-LgRiBib1.css")),
     ("assets/hub-files.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/hub-files.js")),
     ("assets/hub-keys-BPOB-YCu.css", "text/css; charset=utf-8", include_str!("../../ui-vue/dist/assets/hub-keys-BPOB-YCu.css")),
     ("assets/hub-keys.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/hub-keys.js")),
+    ("assets/hub-qThy1-Q3.css", "text/css; charset=utf-8", include_str!("../../ui-vue/dist/assets/hub-qThy1-Q3.css")),
     ("assets/hub-term-Cxbz2RYo.css", "text/css; charset=utf-8", include_str!("../../ui-vue/dist/assets/hub-term-Cxbz2RYo.css")),
     ("assets/hub-term.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/hub-term.js")),
     ("assets/hub.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/hub.js")),

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useEscape } from "@/composables/useEscape";
 import { onMounted, ref } from "vue";
 import { call } from "@/api/tauri";
 
@@ -37,6 +38,9 @@ const errorText = ref("");
 
 /** 生成密钥弹层（旧版 #genModal） */
 const genOpen = ref(false);
+
+// Esc 关闭生成密钥弹层（对齐旧版 #genModal）
+useEscape(genOpen, () => { genOpen.value = false; });
 const genName = ref("");
 const genKind = ref<"ed25519" | "rsa">("ed25519");
 const genPassphrase = ref("");

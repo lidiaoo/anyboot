@@ -680,6 +680,29 @@ hub-keys.html           31      4    0     ✅
 要求页面里存在对应引导器区块；mock 环境下无法完整复现，
 所以采用了「CSS 规则数 + class 集合」的静态比对替代运行时比对。
 
+### 第八层验证：交互（本轮）
+
+统计旧版 hub.html 的非 click 交互：
+```
+keydown 11  contextmenu 1  dblclick 1  pointerdown/move/up 各 1  ...
+```
+新版这些**几乎全缺**（keydown 只有 1 处、contextmenu 0）。
+
+**补的交互**：
+| 交互 | 旧版 | 补法 |
+|---|---|---|
+| **Esc 关闭弹层** | 5 处独立绑定 | `composables/useEscape.ts`，弹层传 `open` ref + `close` |
+| **Ctrl/Cmd+Enter 提交** | 编辑弹窗 / 隧道弹窗 | `useCtrlEnter` 组合式函数 |
+| **右键菜单** | 电脑页标签 `contextmenu` → 打开 chipMenu | `@contextmenu.prevent="openChipMenuAt(id)"` |
+
+覆盖的弹层：ServerEditDialog / ConfirmDialog / TunnelDialog /
+FbModal（文件窗 4 个）/ KeysWindow 的 genModal。
+
+**实测**（CDP 发真实按键）：
+```
+打开前 overlay=1  →  按 Esc  →  后 overlay=0     ✅
+```
+
 ### 打包验证
 ```
 npm run build:mac-intel        → 成功（508 tests passed / 0 failed）

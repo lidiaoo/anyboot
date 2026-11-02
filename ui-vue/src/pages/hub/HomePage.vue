@@ -124,6 +124,12 @@ watch(activeId, async (id) => {
   await ensureRemoteUrl(id);
 });
 
+/** 标签右键：定位到该标签并打开 ⋮ 菜单（旧版 hub.html:9775 contextmenu） */
+function openChipMenuAt(id: string) {
+  activeId.value = id;
+  chipMenuOpen.value = true;
+}
+
 function selectChip(id: string) {
   activeId.value = id;
 }
@@ -159,6 +165,7 @@ function onFrameError() {
           :class="['pc-chip', { active: activeId === chip.id }]"
           :aria-current="activeId === chip.id"
           @click="selectChip(chip.id)"
+          @contextmenu.prevent="openChipMenuAt(chip.id)"
         >
           <span class="dot" aria-hidden="true" />
           {{ chip.name }}

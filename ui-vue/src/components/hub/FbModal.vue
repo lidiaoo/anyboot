@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { computed } from "vue";
+import { useEscape } from "@/composables/useEscape";
 /**
  * 文件窗弹层（对齐旧版 `#fbMkdirModal` / `#fbRenameModal` / `#fbDelModal` /
  * `#fbInfoModal` / `#fbDestModal` 这一批）。
@@ -15,7 +17,7 @@
  * 所以做成一个组件，通过 slot 放不同正文。
  */
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     open: boolean;
     title: string;
@@ -38,6 +40,11 @@ const emit = defineEmits<{
   (e: "confirm"): void;
   (e: "cancel"): void;
 }>();
+
+// Esc 关闭（对齐旧版 5 个文件窗弹层）
+const openRef = computed(() => Boolean(props.open));
+useEscape(openRef, () => emit("cancel"));
+
 </script>
 
 <template>

@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { computed, ref } from "vue";
+import { useEscape } from "@/composables/useEscape";
 /**
  * 通用确认弹窗（对齐旧版 `#deleteOverlay` 等一批 `.overlay > .dialog`）。
  *
@@ -15,7 +16,7 @@ import { ref } from "vue";
  * `checkboxLabel` 用于旧版 `#gwUniOverlay` 的「保留本机数据」勾选。
  */
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     open: boolean;
     title: string;
@@ -40,6 +41,11 @@ const emit = defineEmits<{
   (e: "confirm", checked: boolean): void;
   (e: "cancel"): void;
 }>();
+
+// 弹层交互：Esc 关闭（对齐旧版多个弹层的 Esc 处理）
+const openRef = computed(() => Boolean(props.open));
+useEscape(openRef, () => emit("cancel"));
+
 
 const checked = ref(false);
 </script>

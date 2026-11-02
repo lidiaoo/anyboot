@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
+import { useEscape, useCtrlEnter } from "@/composables/useEscape";
 import type { HubServer } from "@/stores/servers";
 
 /**
@@ -40,6 +41,12 @@ const emit = defineEmits<{
   (e: "test", payload: Record<string, unknown>): void;
   (e: "close"): void;
 }>();
+
+// 弹层交互：Esc 关闭、Ctrl/Cmd+Enter 提交（对齐旧版）
+const openRef = computed(() => Boolean(props.open));
+useEscape(openRef, () => emit("close"));
+useCtrlEnter(openRef, submit);
+
 
 const name = ref("");
 const protocol = ref<"ssh" | "telnet">("ssh");
