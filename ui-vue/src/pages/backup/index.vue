@@ -301,7 +301,7 @@ function syncNow() {
         </span>
         <h2>WebDAV 云同步</h2>
         <label class="switch" style="margin-left: auto" title="开启 / 关闭同步">
-          <input type="checkbox" :checked="syncEnabled" @change="toggleSync" />
+          <input type="checkbox" id="syncEnabled" :checked="syncEnabled" @change="toggleSync" />
           <i />
         </label>
       </div>
@@ -338,7 +338,7 @@ function syncNow() {
         <div class="form-row">
           <div class="field">
             <label>自动同步频率</label>
-            <div class="seg">
+            <div class="seg" id="syncPeriod">
               <button
                 v-for="opt in [
                   { v: 15, label: '15 分钟' },
@@ -359,7 +359,7 @@ function syncNow() {
         </div>
 
         <label class="checkline">
-          <input v-model="syncOnChange" type="checkbox" />
+          <input id="syncOnChange" v-model="syncOnChange" type="checkbox" />
           有变化时自动同步（改动后约 30 秒内推送）
         </label>
 

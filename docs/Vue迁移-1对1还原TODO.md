@@ -789,6 +789,36 @@ store order: grub,sdboot,opencore,clover,refind   ✅ 持久化生效
 
 **两轮功能抽查累计 16 项，全部通过。**
 
+### 功能抽查第三轮（4 个独立窗，12 项全通过）
+
+```
+--- hub-keys.html ---
+✅ 点「生成密钥」开弹层          0 → 1
+✅ 弹层里切 RSA 4096            false → true
+✅ 主题按钮切换亮暗              light → dark
+
+--- hub-files.html ---
+✅ 点「新建目录」开弹层           0 → 1
+✅ 未选文件时下载按钮禁用          禁用
+✅ 面包屑存在                  1 个
+
+--- hub-term.html ---
+✅ 无会话时显示空态              存在
+✅ 点 ＋ 打开选择弹层            0 → 1
+✅ 字号按钮循环                 none → 16
+
+--- hub-backup.html ---
+✅ 三个面板存在                 3 个
+✅ 同步开关可切换                false → true
+✅ 自动同步频率 4 个按钮          4 个
+```
+
+**抓到的真实缺陷**：备份窗的 `syncEnabled` / `syncPeriod` /
+`syncOnChange` 三个 id **完全没写**（状态变量有，模板里没绑 id）。
+旧版这三个都是带 id 的控件。
+
+**累计功能抽查 28 项，全部通过。**
+
 ### 打包验证
 ```
 npm run build:mac-intel        → 成功（508 tests passed / 0 failed）
