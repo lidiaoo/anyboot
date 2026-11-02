@@ -340,11 +340,20 @@ final class ComputerTabCenter: ObservableObject {
 /// 默认 5 秒 —— 与安卓 MainActivity:174 相同（之前 iOS 未设置时读到 0，等于默认关闭）。
 @MainActor
 enum FailReloadPref {
+    /// 设置变更通知：`sec` 存在 UserDefaults 里，不是 SwiftUI 可观察状态 ——
+    /// 改了值不会触发任何 onChange。调用方（自动重载任务）需要这份通知来
+    /// 立即用新间隔重建定时，否则旧任务仍按老间隔跑。
+    /// 2026-11-02：对应 PC 端「选了永不还每 5 秒重载」的同类修复。
+    static let changed = Notification.Name("AnyBootFailReloadSecChanged")
+
     static var sec: Int {
         get {
             UserDefaults.standard.object(forKey: "failReloadSec") == nil
                 ? 5 : UserDefaults.standard.integer(forKey: "failReloadSec")
         }
-        set { UserDefaults.standard.set(newValue, forKey: "failReloadSec") }
+        set {
+            UserDefaults.standard.set(newValue, forKey: "failReloadSec")
+            NotificationCenter.default.post(name: changed, object: nil)
+        }
     }
 }

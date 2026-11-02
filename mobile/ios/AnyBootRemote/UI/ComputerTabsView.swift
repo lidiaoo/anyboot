@@ -35,6 +35,13 @@ struct ComputerTabsView: View {
             .onAppear { onFirstAppear() }
             .onChange(of: nav.activeProfileId, perform: activateIfNeeded)
             .onChange(of: statusTick, perform: { _ in scheduleFailReload(failed: activeTab?.status == .failed) })
+            // 2026-11-02：间隔设置变了要**立刻**按新值重建重试任务 ——
+            // 原先只在 statusTick 变化时调度，改设置后已起的 Task 仍按旧间隔跑
+            // （选「永不」也照样重载一次）。设为 0 时 scheduleFailReload 会
+            // 因 guard 直接 return，等于取消旧任务。
+            .onReceive(NotificationCenter.default.publisher(for: FailReloadPref.changed)) { _ in
+                scheduleFailReload(failed: activeTab?.status == .failed)
+            }
             .overlay { overlays }
     }
 
