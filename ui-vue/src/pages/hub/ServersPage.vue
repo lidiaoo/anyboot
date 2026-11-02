@@ -3,6 +3,7 @@ const toast = useToastStore();
 import { computed, onMounted, ref } from "vue";
 import { useServersStore, type HubServer } from "@/stores/servers";
 import ServerEditDialog from "@/components/hub/ServerEditDialog.vue";
+import TunnelDialog from "@/components/hub/TunnelDialog.vue";
 import LatencyTrend from "@/components/hub/LatencyTrend.vue";
 import { useToastStore } from "@/stores/toast";
 import { isTauri } from "@/api/tauri";
@@ -124,6 +125,7 @@ const testLine = computed(() => {
 interface TunnelRow {
   id: string;
   name: string;
+  kind: string;
   localPort: number;
   targetHost: string;
   targetPort: number;
@@ -140,9 +142,39 @@ async function refreshTunnels() {
   }
 }
 
+const tunnelOpen = ref(false);
+const editingTunnel = ref<{ id?: string; name: string; kind: string; localPort: number; targetHost: string; targetPort: number } | null>(null);
+/** 新建隧道（旧版 tunnelAddBtn → 打开 TunnelDialog） */
 function openTunnel(id: string) {
   void id;
-  void refreshTunnels();
+  editingTunnel.value = null;
+  tunnelOpen.value = true;
+}
+/** 编辑已有隧道 */
+function openTunnelEdit(tn: { id?: string; name: string; kind: string; localPort: number; targetHost: string; targetPort: number }) {
+  editingTunnel.value = { ...tn };
+  tunnelOpen.value = true;
+}
+/** 保存隧道 */
+async function saveTunnel(payload: Record<string, unknown>) {
+  const { call } = await import("@/api/tauri");
+  try {
+    await call("hub_save_tunnel", {
+      tunnel: {
+        id: String(payload.id ?? ""),
+        server_id: String(payload.serverId ?? selectedId.value),
+        name: String(payload.name ?? ""),
+        kind: String(payload.kind ?? "local"),
+        local_port: Number(payload.localPort ?? 0),
+        target_host: String(payload.targetHost ?? ""),
+        target_port: Number(payload.targetPort ?? 0),
+      },
+    });
+    tunnelOpen.value = false;
+    await refreshTunnels();
+  } catch (e) {
+    void e;
+  }
 }
 
 async function toggleTunnel(id: string) {
@@ -456,13 +488,28 @@ async function testOne(server: HubServer) {
               <h4>SSH 隧道</h4>
               <button type="button" class="btn small" id="tunnelAddBtn" @click="openTunnel(selected.id)">新建隧道</button>
             </div>
-            <p v-if="!tunnels.length" class="spark-hint">还没有隧道 —— 点「新建隧道」把本机端口转发到这台服务器能访问的地方。</p>
-            <div v-for="tn in tunnels" :key="tn.id" class="tunnel-row">
-              <span class="mono">{{ tn.name }}</span>
-              <span class="mono">127.0.0.1:{{ tn.localPort }} → {{ tn.targetHost }}:{{ tn.targetPort }}</span>
-              <span style="flex: 1" />
-              <button type="button" class="btn small" @click="toggleTunnel(tn.id)">{{ tn.running ? "停止" : "启动" }}</button>
-              <button type="button" class="link-btn danger" @click="deleteTunnel(tn.id)">删除</button>
+            <div v-if="!tunnels.length" class="tunnel-empty">
+              还没有隧道。建一条：把本机端口转发到服务器的内网（本地转发）或变成 SOCKS5 代理（动态转发）。<br />认证复用终端会话 —— 起隧道前先在该服务器上开一次终端。
+            </div>
+            <div v-else class="tunnel-list">
+              <div v-for="tn in tunnels" :key="tn.id" :class="['tunnel-row', { off: !tn.running }]">
+                <span :class="['dot', { ok: tn.running }]" />
+                <div class="t-main">
+                  <div class="t-name">
+                    <span class="nm">{{ tn.name || "(未命名)" }}</span>
+                    <span :class="['tunnel-kind', { dyn: tn.kind === 'dynamic' }]">{{ tn.kind === "dynamic" ? "SOCKS5" : "转发" }}</span>
+                  </div>
+                  <div class="t-sub">
+                    {{ tn.kind === "dynamic" ? "本机 127.0.0.1:" + tn.localPort + " → SOCKS5 动态代理" : "本机 127.0.0.1:" + tn.localPort + " → " + (tn.targetHost || "?") + ":" + (tn.targetPort || "?") }}
+                  </div>
+                </div>
+                <div class="t-acts">
+                  <button v-if="tn.running" type="button" class="btn small" @click="toggleTunnel(tn.id)">停止</button>
+                  <button v-else type="button" class="btn small primary" @click="toggleTunnel(tn.id)">启动</button>
+                  <button type="button" class="btn small" @click="openTunnelEdit(tn)">编辑</button>
+                  <button type="button" class="btn small danger" @click="deleteTunnel(tn.id)">删除</button>
+                </div>
+              </div>
             </div>
           </div>
         </template>
@@ -485,6 +532,13 @@ async function testOne(server: HubServer) {
     @save="onSave"
     @close="dialogOpen = false"
   />
+    <TunnelDialog
+      :open="tunnelOpen"
+      :tunnel="editingTunnel"
+      :server="selected ? ({ id: selected.id, name: selected.name, addresses: [], token: '' } as any) : null"
+      @save="saveTunnel"
+      @close="tunnelOpen = false; refreshTunnels()"
+    />
 
   <!-- 删除确认（旧版 #deleteOverlay） -->
   <div v-if="deleteTarget" id="deleteOverlay" class="overlay" @click.self="deleteTarget = null">
