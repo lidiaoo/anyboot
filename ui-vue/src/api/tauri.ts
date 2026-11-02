@@ -25,7 +25,39 @@ export function isTauri(): boolean {
  * @param args    参数对象；Rust 侧是 camelCase 反序列化
  */
 export async function call<T>(command: string, args?: Record<string, unknown>): Promise<T> {
-  return invoke<T>(command, args);
+  try {
+    return await invoke<T>(command, args);
+  } catch (error) {
+    // 把失败写进 trace：macOS 上没有 devtools，这是唯一能事后排查的通道。
+    // 只在 Tauri 里报，且**不吞异常** —— 调用方仍要自己 catch。
+    void reportIpcFailure(command, args, error);
+    throw error;
+  }
+}
+
+/** 失败命令的去重集合（避免刷屏：同一个命令只报一次） */
+const reportedFailures = new Set<string>();
+
+function reportIpcFailure(command: string, args: unknown, error: unknown): Promise<unknown> | undefined {
+  if (!isTauri()) return undefined;
+  if (reportedFailures.has(command)) return undefined;
+  reportedFailures.add(command);
+  const message =
+    `[ipc-fail] ${command} args=${safeJson(args)} err=${String(error).slice(0, 300)}`;
+  // 用底层的 invoke 直接上报，避免递归进本函数的 catch
+  return invoke("hub_report_error", {
+    source: "vue-ipc",
+    message,
+    stack: error instanceof Error ? (error.stack ?? "").slice(0, 800) : "",
+  }).catch(() => undefined);
+}
+
+function safeJson(value: unknown): string {
+  try {
+    return JSON.stringify(value ?? null).slice(0, 300);
+  } catch {
+    return "(unserializable)";
+  }
 }
 
 // ---------------------------------------------------------------------------

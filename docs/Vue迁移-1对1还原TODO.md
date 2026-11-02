@@ -464,6 +464,30 @@ Rust 的 `#[tauri::command]` 签名与 Vue 侧的 `call("x", {...})` 逐条比�
 - SOL 页的 `sol_install` / `sol_download` / `sol_http_set_*` 全部对不上，
   正确的是 `sol_one_click_install` / `sol_install_download` / `sol_http_set`
 
+### 第四层验证：运行时冒烟测试
+
+写了 `smoke.js`：自动点开每个页签、点完其中所有按钮（跳过卸载/删除/退出类），
+拦截原生 dialog，抓 `Runtime.exceptionThrown` 与 console.error。
+
+```
+15 个页签 → 全部 0 异常
+```
+
+**过程中修的环境问题**（不是应用代码问题，但会掩盖真问题）：
+- mock 缺 `__TAURI_INTERNALS__.transformCallback` → event 模块崩溃
+- mock 缺 `__TAURI_EVENT_PLUGIN_INTERNALS__.unregisterListener`（Tauri v2 用的是
+  这个**独立命名空间**，不是 `__TAURI_INTERNALS__`）
+
+### 前端 IPC 失败埋点（新增）
+`api/tauri.ts` 的 `call()` 现在会在 Tauri 环境里把失败写进 trace：
+```
+[ipc-fail] <命令名> args={...} err=<错误>
+```
+同一命令只报一次（避免刷屏），且**不吞异常** —— 调用方仍要自己 catch。
+macOS 上没有 devtools，这是唯一能事后排查的通道。
+
+**真实应用验证**：`ipc-fail` 计数 0。
+
 ### 打包验证
 ```
 npm run build:mac-intel        → 成功（508 tests passed / 0 failed）
