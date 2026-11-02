@@ -35,6 +35,8 @@ const props = withDefaults(
     disabled?: boolean;
     /** 自定义右侧小字（不给就按 variants / kernel / class 自动拼） */
     tag?: string;
+    /** 条目文本格式（旧版 grub.listFormat） */
+    format?: string;
   }>(),
   {
     group: false,
@@ -45,6 +47,7 @@ const props = withDefaults(
     groupTitle: "",
     disabled: false,
     tag: "",
+    format: "minimal",
   },
 );
 
@@ -53,16 +56,40 @@ const emit = defineEmits<{
 }>();
 
 /** 置顶行脱离了原来的组，名字里把组名带上，不然看不出它属于哪个 submenu */
+/** 内核名（旧版 grubKernelOf） */
+function kernelOf(entry: { kernels?: string[]; name?: string }): string {
+  return (entry.kernels && entry.kernels[0]) || entry.name || "";
+}
+/** 去内核前缀（旧版 grubStripKernel） */
+function stripKernel(name: string): string {
+  return (name || "").replace(/^vmlinuz-/, "").replace(/^linux-/, "");
+}
+/** 按 format 计算条目基础文本（旧版 renderFormatEntries 的 text 逻辑） */
+function formatText(entry: { kernels?: string[]; name?: string }, format: string): string {
+  return entry.kernels ? (
+    format === "minimal"
+      ? stripKernel(kernelOf(entry))
+      : format === "simple"
+        ? stripKernel(kernelOf(entry))
+        : format === "medium"
+          ? kernelOf(entry)
+          : format === "detailed"
+            ? (entry.name ?? "")
+            : entry.name ?? ""
+  ) : (entry.name ?? "");
+}
+
 const displayName = computed(() => {
   const prefix =
     props.pinned && props.entry.submenu
       ? `${props.groupTitle || props.entry.submenu} › `
       : "";
   // 缩进靠 CSS（.is-child / .depth-N），这里只用箭头补强「这是组里的项」
+  const baseText = props.group
+    ? props.entry.name
+    : formatText(props.entry, props.format);
   const body =
-    props.group || props.depth === 0
-      ? props.entry.name
-      : `↳ ${props.entry.name}`;
+    props.group || props.depth === 0 ? baseText : `↳ ${baseText}`;
   return prefix + body;
 });
 
@@ -73,11 +100,16 @@ const tagText = computed(() => {
   const variants = Number(props.entry.variants) || 1;
   const parts: string[] = [];
   if (variants > 1) parts.push(`${variants} 个变体`);
-  parts.push(
-    props.entry.chainloader
-      ? "转交引导"
-      : (props.entry.kernels && props.entry.kernels[0]) || props.entry.class || "",
-  );
+  // 旧版：detailed 格式才有内核角标；其余格式无角标（除非有变体数）
+  if (props.format === "detailed") {
+    parts.push(
+      props.entry.chainloader
+        ? "转交引导"
+        : props.entry.kernels && props.entry.kernels[0]
+          ? "内核 " + props.entry.kernels[0]
+          : props.entry.class || "",
+    );
+  }
   return parts.filter(Boolean).join(" · ");
 });
 

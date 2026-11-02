@@ -221,6 +221,7 @@ function switchEntry(selector: string) {
               :entries="autoEntries"
               :active-selector="activeSelector"
               :group-titles="groupTitles"
+              :format="settings.grubListFormat"
               @select="switchEntry"
             />
           </div>
@@ -263,6 +264,7 @@ function switchEntry(selector: string) {
           :entries="manualEntries"
           :active-selector="activeSelector"
           :group-titles="groupTitles"
+          :format="settings.grubListFormat"
           @select="switchEntry"
         />
         <!-- 空状态（旧版 #grub-empty），无条目时显示 -->

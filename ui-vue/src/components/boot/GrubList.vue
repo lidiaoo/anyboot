@@ -37,6 +37,8 @@ const props = withDefaults(
     disabled?: boolean;
     /** 置顶行右侧小字（不给就按条目自己算） */
     pinnedTag?: string;
+    /** 条目文本格式（旧版 grub.listFormat：minimal/simple/medium/detailed/raw） */
+    format?: string;
   }>(),
   {
     activeSelector: "",
@@ -44,6 +46,7 @@ const props = withDefaults(
     showGroups: true,
     disabled: false,
     pinnedTag: "",
+    format: "minimal",
   },
 );
 
@@ -142,6 +145,7 @@ function onSelect(selector: string) {
     <GrubEntry
       v-if="activeEntry"
       :entry="activeEntry"
+      :format="props.format"
       :pinned="true"
       :active="true"
       :disabled="disabled"
@@ -156,6 +160,7 @@ function onSelect(selector: string) {
         v-for="row in rows"
         :key="row.key"
         :entry="row.entry"
+        :format="props.format"
         :group="row.group"
         :depth="row.depth"
         :child-count="row.childCount"
