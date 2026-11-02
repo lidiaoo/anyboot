@@ -56,6 +56,8 @@ struct ComputerListView: View {
     /// ⋮ →「电脑列表」弹的责任端清单（对齐 Android `MoreServerListDialog`）
     @State private var serverListOpen = false
     @State private var refreshing = false
+    /// 定时数据刷新的闸门（与 refreshing 分开：不驱动刷新按钮的转圈）
+    @State private var silentRefreshing = false
     @State private var toasts: [ToastItem] = []
     @State private var probeTask: Task<Void, Never>?
 
@@ -2080,11 +2082,26 @@ struct ComputerListView: View {
         }
     }
 
+    /// 刷新全部电脑的在线状态 + 引导项。
+    ///
+    /// - Parameter silent: true = **定时数据刷新**（后台跑）。
+    ///   2026-11-02：静默模式**不设 `refreshing`** —— 那个状态驱动刷新按钮
+    ///   变成转圈，是「用户主动刷新」的进度指示。定时刷新也让它转，会让人
+    ///   误以为一直在手动刷新（PC 端同一个问题刚修过）。
+    ///   闸门改用独立的 `silentRefreshing`，避免拍与拍之间堆叠。
     private func refreshAll(silent: Bool = false) {
-        if refreshing { return }
+        if silent {
+            if silentRefreshing { return }      // 上一拍没跑完就跳过这一拍
+            silentRefreshing = true
+        } else {
+            if refreshing { return }
+            refreshing = true
+        }
         let snapshot = store.servers
-        if snapshot.isEmpty { return }
-        refreshing = true
+        if snapshot.isEmpty {
+            if silent { silentRefreshing = false } else { refreshing = false }
+            return
+        }
         // 静默执行不弹 toast：开始/完成都直接刷在列表上
         Task {
             for profile in snapshot {
@@ -2106,7 +2123,9 @@ struct ComputerListView: View {
                     }
                 }
             }
-            await MainActor.run { refreshing = false }
+            await MainActor.run {
+                if silent { silentRefreshing = false } else { refreshing = false }
+            }
         }
     }
 

@@ -159,6 +159,8 @@ class ComputerListActivity : ComponentActivity() {
     private val toasts = mutableStateListOf<CqToast>()
 
     private var refreshing by mutableStateOf(false)
+    /// 定时数据刷新的闸门（与 refreshing 分开：不驱动刷新按钮的转圈）
+    private var quietRefreshing = false
     /** 左上角 ☰ 呼出的抽屉侧边栏（与电脑页/服务器页共用，见 Drawer.kt） */
     private var drawerOpen by mutableStateOf(false)
     private var query by mutableStateOf("")
@@ -3389,11 +3391,16 @@ class ComputerListActivity : ComponentActivity() {
         handler.removeCallbacks(autoProbeTick)
     }
 
-    /** 定时自动探测的静默版：不弹 toast、不清动作过渡态；手动刷新在跑就跳过本轮 */
+    /// 定时自动探测的静默版：不弹 toast、不清动作过渡态；手动刷新在跑就跳过本轮。
+    ///
+    /// 2026-11-02：**不设 `refreshing`** —— 那个状态驱动刷新按钮变成转圈，
+    /// 是「用户主动刷新」的进度指示。定时刷新也让它转，会让人误以为一直在
+    /// 手动刷新（PC / iOS 同一个问题，一起修）。
+    /// 闸门改用独立的 `quietRefreshing`，避免拍与拍之间堆叠。
     private fun refreshAllQuiet() {
-        if (refreshing || servers.isEmpty()) return
+        if (refreshing || quietRefreshing || servers.isEmpty()) return
         val snapshot = servers.toList()
-        refreshing = true
+        quietRefreshing = true
         Thread({
             for (profile in snapshot) {
                 // 后台线程里任何未捕获异常都会直接崩进程 —— 每台电脑单独兜住
@@ -3407,7 +3414,7 @@ class ComputerListActivity : ComponentActivity() {
                     learnMachineOs(profile, info.machineOs)
                 }
             }
-            runOnUiThread { refreshing = false }
+            runOnUiThread { quietRefreshing = false }
         }, "anyboot-autoprobe").start()
     }
 
