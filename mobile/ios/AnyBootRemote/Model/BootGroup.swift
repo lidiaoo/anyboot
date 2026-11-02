@@ -545,21 +545,47 @@ enum BootService {
     }
 
     /// 探活 + 读两套引导项（一边失败不影响另一边）
+    /// 每台电脑上次成功的端点（profileId → BootEndpoint）。
+    ///
+    /// 2026-11-02 用户定案：「我并不想数据刷新会调用重新探测地址 那样地址会频繁换
+    /// 只有离线的时候用重新探测地址接管才稳妥」。
+    /// 快路径直接复用这个端点；失败才走完整探测（离线接管）。
+    private static var lastGoodEndpoints: [String: BootEndpoint] = [:]
+    private static let lastGoodLock = NSLock()
+
+    private static func cachedEndpoint(_ id: String) -> BootEndpoint? {
+        lastGoodLock.lock(); defer { lastGoodLock.unlock() }
+        return lastGoodEndpoints[id]
+    }
+
+    private static func setCachedEndpoint(_ id: String, _ endpoint: BootEndpoint?) {
+        lastGoodLock.lock(); defer { lastGoodLock.unlock() }
+        if let endpoint { lastGoodEndpoints[id] = endpoint } else { lastGoodEndpoints.removeValue(forKey: id) }
+    }
+
     static func fetchBootInfo(_ profile: ServerProfile) async -> BootInfo {
+        // ① 快路径：用上次成功的端点直接拉 /api/ui-state（一次请求 = 验证 + 取数）
+        if let cached = cachedEndpoint(profile.id), cached.alive {
+            if let state = try? await RemoteHttp.json(endpoint: cached.url, token: cached.token,
+                                                      path: "/api/ui-state") {
+                return buildInfo(fromUiState: state, choice: cached)
+            }
+            setCachedEndpoint(profile.id, nil)   // 直连失败 → 清缓存
+        }
+
+        // ② 慢路径：完整探测重新选路（离线接管）
         guard let choice = await chooseEndpoint(profile) else {
             return .offline("", "这台电脑还没有可用地址")
         }
         guard choice.alive else {
+            setCachedEndpoint(profile.id, nil)
             return .offline(choice.displayAddr, "")
         }
+        setCachedEndpoint(profile.id, choice)
 
         var errors: [String] = []
 
-        // 2026-11-02 用户提议：「我能把电脑页的 http 2s 轮询抄过来吗」——
-        // 直接用 `/api/ui-state`（电脑页那条 2 秒轮询打的就是它）：
-        // 一次返回**全部**状态（status / grub / channels …），比分别打三个接口
-        // 更省、更一致，而且与电脑页看到的是同一份快照（revision 同源）。
-        // 老服务端没有该接口时自动回落到三个老接口。
+        // 老服务端没有该接口时自动回落到三个老接口
         if let state = try? await RemoteHttp.json(endpoint: choice.url, token: choice.token,
                                                   path: "/api/ui-state") {
             return buildInfo(fromUiState: state, choice: choice)

@@ -120,6 +120,16 @@ class ComputerListActivity : ComponentActivity() {
 
     /** id → 引导项读取结果（缺席 = 还没探过，卡片显示「检测中」） */
     private val boots = mutableStateMapOf<String, BootInfo>()
+    /// 每台电脑**上次成功的端点**（profileId → EndpointChoice）。
+    ///
+    /// 2026-11-02 用户定案：「我并不想数据刷新会调用重新探测地址 那样地址会频繁换
+    /// 只有离线的时候用重新探测地址接管才稳妥」。
+    ///
+    /// 做法：
+    ///   · 数据刷新（每 N 秒）**先用上次成功的端点直连**，不再跑完整探测
+    ///   · 直连失败 → 清掉缓存，**这一次**才走完整探测（离线接管）
+    /// 好处：平时地址稳定不跳；掉线时仍能自动换到可达通道。
+    private val lastGoodEndpoint = mutableMapOf<String, EndpointChoice>()
 
     /** id → 电源操作的过渡状态（waking / shutting / rebooting / sleeping） */
     private val transients = mutableStateMapOf<String, String>()
@@ -3210,22 +3220,41 @@ class ComputerListActivity : ComponentActivity() {
 
     /** 后台线程：探活 + 读两套引导项（一边失败不影响另一边） */
     private fun fetchBootInfo(profile: ServerProfile): BootInfo {
+        // 2026-11-02 用户定案：「我并不想数据刷新会调用重新探测地址 那样地址会
+        // 频繁换 只有离线的时候用重新探测地址接管才稳妥」。
+        //
+        // 两条路径：
+        //   ① **快路径**（常规）：用上次成功的端点**直接拉一次 /api/ui-state**。
+        //      成功 = 端点还通 + 数据到手，一次请求搞定，不跑地址探测 → 地址稳定。
+        //   ② **慢路径**（离线接管）：快路径失败才跑完整 ProbeEngine 重新选路。
+        //
+        // 关键：/api/ui-state 本身既是「验证」又是「取数」，不会重复请求。
+        val cached = lastGoodEndpoint[profile.id]
+        if (cached != null && cached.alive) {
+            val quick = try {
+                httpJson(cached.url, cached.token, "/api/ui-state")
+            } catch (_: Exception) {
+                null
+            }
+            if (quick != null) {
+                return buildInfoFromUiState(quick, cached)
+            }
+            // 直连失败 → 清缓存，落到下面的完整探测
+            lastGoodEndpoint.remove(profile.id)
+        }
+
         val choice = chooseEndpoint(profile) ?: return offlineInfo("", "这台电脑还没有可用地址")
         if (!choice.alive) {
+            lastGoodEndpoint.remove(profile.id)
             return offlineInfo(choice.displayAddr(), "")
         }
+        lastGoodEndpoint[profile.id] = choice
         val endpoint = choice.url
         val token = choice.token
 
         val errors = mutableListOf<String>()
 
-        // 2026-11-02 用户提议：「我能把电脑页的 http 2s 轮询抄过来吗」——
-        // 更好：直接用 `/api/ui-state`（电脑页那条 2 秒轮询打的就是它）。
-        // 它一次返回**全部**状态（status / grub / channels / refindSim / settings），
-        // 比现在分别打 /api/status + /api/grub + /api/boot-channels 三个接口
-        // 更省、更一致，而且与电脑页看到的是**同一份快照**（revision 同源）。
-        //
-        // 老服务端没有 /api/ui-state 时自动回落到三个老接口。
+        // 老服务端没有 /api/ui-state 时回落到三个老接口
         val uiState = try {
             httpJson(endpoint, token, "/api/ui-state")
         } catch (_: Exception) {
@@ -4477,7 +4506,6 @@ class ComputerListActivity : ComponentActivity() {
         const val READ_TIMEOUT_MS = 8000
 
         /** 定时自动探测间隔：与电脑页心跳同一节奏（10 秒一轮） */
-        const val AUTO_PROBE_INTERVAL_MS = 10_000L
         /// 在线时的数据刷新间隔（常开，不受「连不上时自动重载」影响）
         /// 与电脑页的 POLL_INTERVAL 对齐（ui/app.js 里是 2 秒）—— 用户要求
         /// 「把电脑页的 http 2s 轮询抄过来」，两边节奏一致，看到的也是同一份快照。
