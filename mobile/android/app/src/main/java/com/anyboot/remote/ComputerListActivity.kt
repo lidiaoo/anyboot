@@ -739,6 +739,10 @@ class ComputerListActivity : ComponentActivity() {
 
     private fun saveMoreFailReloadSec() {
         getSharedPreferences(UI_PREFS, MODE_PRIVATE).edit().putInt("failReloadSec", moreFailReloadSec).apply()
+        // 2026-11-02：设置立即生效 —— 这条定时探测原先固定 10 秒且不受设置影响，
+        // 用户关掉「自动重载」后按钮仍每几秒转，看起来就是设置没用。
+        // 现在按新值重排；设成「永不」直接停表。
+        rescheduleAutoProbe()
         toast(
             if (moreFailReloadSec > 0) "连不上时每 $moreFailReloadSec 秒自动重载"
             else "已关闭自动重载"
@@ -3058,20 +3062,47 @@ class ComputerListActivity : ComponentActivity() {
 
     // ---- 定时自动探测（与电脑页心跳同一节奏：10 秒一轮） ------------------
 
-    /** 页面在前台才跑；onPause 停表，回前台 onResume 先补探一轮再排下去 */
+    /// 页面在前台才跑；onPause 停表，回前台 onResume 先补探一轮再排下去。
+    ///
+    /// 2026-11-02：**受「连不上时自动重载」设置控制**。
+    /// 用户反馈「明明设置了关闭自动重载，重载按钮还是每几秒转一次」——
+    /// 转的就是这条定时探测（固定 10 秒、原先不受设置影响）。
+    /// 现在 failReloadSec = 0（永不）时不再起表；非 0 时用设置里的秒数，
+    /// 与列表「连不上时自动重载（每 N 秒）」的文案保持一致。
     private var autoProbeOn = false
+
+    /// 当前生效的探测间隔（毫秒）：跟「连不上时自动重载」同一份设置
+    /// （anyboot_ui/failReloadSec）；0 = 不自动探测。
+    private fun autoProbeIntervalMs(): Long {
+        val sec = getSharedPreferences(UI_PREFS, MODE_PRIVATE).getInt("failReloadSec", 5)
+        return if (sec <= 0) 0L else sec * 1000L
+    }
+
     private val autoProbeTick = object : Runnable {
         override fun run() {
             if (!autoProbeOn) return
+            val interval = autoProbeIntervalMs()
+            if (interval <= 0L) {         // 中途被设成「永不」：停表
+                autoProbeOn = false
+                return
+            }
             refreshAllQuiet()
-            handler.postDelayed(this, AUTO_PROBE_INTERVAL_MS)
+            handler.postDelayed(this, interval)
         }
     }
 
     private fun startAutoProbe() {
         if (autoProbeOn) return
+        val interval = autoProbeIntervalMs()
+        if (interval <= 0L) return        // 用户关了自动重载：不探测
         autoProbeOn = true
-        handler.postDelayed(autoProbeTick, AUTO_PROBE_INTERVAL_MS)
+        handler.postDelayed(autoProbeTick, interval)
+    }
+
+    /// 设置变更后按新间隔重排（设置页保存时调用）。0 = 直接停掉。
+    private fun rescheduleAutoProbe() {
+        stopAutoProbe()
+        startAutoProbe()
     }
 
     private fun stopAutoProbe() {
