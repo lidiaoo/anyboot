@@ -2253,11 +2253,10 @@ class ComputerListActivity : ComponentActivity() {
                     lineHeight = 16.sp,
                     modifier = Modifier.weight(1f),
                 )
-                // ⤴（nvram 通道）与 ▾ 留在**状态行**，跟随状态文字对齐
-                if (channel.permission == "nvram" && usable) {
-                    Spacer(Modifier.width(5.dp))
-                    Text("⤴", fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = palette.fgFaint)
-                }
+                // 2026-11-02 用户定案：「删除 OpenCore 反向回车的箭头」——
+                // 原先 nvram 通道（OpenCore）状态行右侧挂一枚 ⤴，
+                // 表示「切换必经 NVRAM 写」。用户不要这个标记，整块删掉。
+                // （提示语里的 ⤴ 说明文字保留，那是帮助页的解释。）
                 if (usable) {
                     Spacer(Modifier.width(7.dp))
                     ChevronDownIcon(tint = palette.fgFaint, size = 14.dp)
@@ -2515,15 +2514,8 @@ class ComputerListActivity : ComponentActivity() {
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis,
                                 )
-                                if (entry.requiresElevation) {
-                                    Spacer(Modifier.width(5.dp))
-                                    Text(
-                                        "⤴",
-                                        fontSize = 10.5.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = palette.fgFaint,
-                                    )
-                                }
+                                // 2026-11-02 用户定案：列表与弹层里的 ⤴ 标记都删
+                                //（保留帮助文案里的文字说明）。
                             }
                             if (entry.detail.isNotEmpty()) {
                                 Text(

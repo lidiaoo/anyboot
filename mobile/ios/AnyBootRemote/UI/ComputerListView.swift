@@ -1235,12 +1235,9 @@ struct ComputerListView: View {
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
-                    if group.permission == "nvram" && usable {
-                        Text("⤴")
-                            .font(.system(size: 10.5, weight: .bold))
-                            .foregroundColor(ABColor.fgFaint)
-                            .padding(.leading, ABMetric.px(5))
-                    }
+                    // 2026-11-02 用户定案：「删除 OpenCore 反向回车的箭头」——
+                    // 原先 nvram 通道（OpenCore）状态行右侧挂一枚 ⤴，
+                    // 表示「切换必经 NVRAM 写」。用户不要这个标记，整块删掉。
                     if usable {
                         DrawnIcon.chevronDown(ABColor.fgFaint, size: ABMetric.px(14))
                             .padding(.leading, ABMetric.px(7))
@@ -1813,11 +1810,8 @@ struct ComputerListView: View {
                                     .font(.system(size: 14))
                                     .foregroundColor(ABColor.fg)
                                     .lineLimit(2)
-                                if entry.requiresElevation {
-                                    Text("⤴")
-                                        .font(.system(size: 10.5, weight: .bold))
-                                        .foregroundColor(ABColor.fgFaint)
-                                }
+                                // 2026-11-02 用户定案：列表与弹层里的 ⤴ 标记都删
+                                //（保留帮助文案里的文字说明）。
                             }
                             if !entry.detail.isEmpty {
                                 Text(entry.detail)
