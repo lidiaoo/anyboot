@@ -501,7 +501,7 @@ const statusText = computed(() => {
       <!-- 栏目一：系统引导 -->
       <div :class="['tab-panel', { active: currentTab === 'boot' }]" id="tab-boot">
         <!-- 下次启动 -->
-        <section aria-label="下次启动" class="next-boot" id="next-boot">
+        <section v-if="adv.state.nextBoot !== 'off'" aria-label="下次启动" class="next-boot" id="next-boot">
           <div class="nb-head">
             <small>下次启动</small>
             <button
@@ -518,7 +518,7 @@ const statusText = computed(() => {
           <strong id="next-boot-name">{{ nextBootName }}</strong>
           <small class="next-boot-last" id="next-boot-last" :hidden="!nextBootLast">上次启动 <b>{{ nextBootLast }}</b></small>
           <div
-            v-show="nextBootRowsOpen && nextBootRows.length"
+            v-show="(nextBootRowsOpen || adv.state.nextBoot === 'open') && nextBootRows.length"
             class="next-boot-rows"
             id="next-boot-rows"
           >
