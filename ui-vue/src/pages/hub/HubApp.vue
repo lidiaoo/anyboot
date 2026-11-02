@@ -298,7 +298,10 @@ const footCount = computed(() => `${servers.servers.length} 台服务器`);
     />
 
     <div class="content">
-      <section class="page active">
+      <!-- id 必须与旧版一致：hub-inline.css 里有 `#page-files` / `#page-gateway`
+           这样的作用域选择器（如 `html.light #page-files { --fb-blue: ... }`），
+           少了 id 那些变量就不生效（面包屑会变成黑块）。 -->
+      <section class="page active" :id="`page-${currentPage}`">
         <ComputerList v-if="currentPage === 'computers'" />
         <ServersPage v-else-if="currentPage === 'servers'" />
         <AboutPage v-else-if="currentPage === 'about'" />

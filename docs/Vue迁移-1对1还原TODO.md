@@ -149,22 +149,30 @@ CSS 构成：`styles.css` 5,013 + `hub.html` 内联 **2,342** + `notify.css` 168
 - [ ] **3.7.3** `hub-sftp-progress` 事件 + 兜底轮询
 
 ### 3.8 `page-files` 文件（59 行 / 28 id / 9 按钮）
-- [ ] **3.8.1** `.fb-topbar`：`#fbServer` 选择 + `#fbPill` 连接状态 + `#fbOpenWin`
-- [ ] **3.8.2** `.fb-pathbar`：`#fbUp` / `#fbRefresh` / 路径 + 新建 / 上传
-- [ ] **3.8.3** `.fb-main` 文件列表（图标 / 名称 / 大小 / 时间）
+- [x] **3.8.1** `.fb-topbar`：`#fbServer` 选择 + `#fbPill` 连接状态 + `#fbOpenWin`
+  - ✅ 完成
+- [x] **3.8.2** `.fb-pathbar`：`#fbUp` / `#fbRefresh` / 路径 + 新建 / 上传
+  - ✅ 完成：面包屑用旧版结构（独立 span 分隔符 + button.fb-crumb[aria-current]）
+- [x] **3.8.3** `.fb-main` 文件列表（图标 / 名称 / 大小 / 时间）
+  - ✅ 完成：table.fb-table 五列（名称/大小/权限/修改时间/操作）
 - [ ] **3.8.4** 双击进目录、右键菜单（下载/重命名/删除/复制路径/属性）
-- [ ] **3.8.5** `.fb-empty` 空态
+- [x] **3.8.5** `.fb-empty` 空态
+  - ✅ 完成：.fb-empty + .fb-emptytip
 - [ ] **3.8.6** 5 个 `fb-modal-*` 弹层（新建/重命名/删除确认/属性/上传）
 
 ### 3.9 `page-keys` 密钥（13 行 / 5 id / 1 按钮）
-- [ ] **3.9.1** `#count` / `#hubBtn` / `#themeBtn` / `#genBtn` / `#importBtn` / `#list` / `#emptyTip`
+- [x] **3.9.1** `#count` / `#hubBtn` / `#themeBtn` / `#genBtn` / `#importBtn` / `#list` / `#emptyTip`
+  - ✅ 完成：三页入口卡（.act-card 四元素）
 - [ ] **3.9.2** `#genModal` 生成弹窗（类型 / 位数 / 口令 / 备注）
 - [ ] **3.9.3** 复制公钥 / 删除
 
 ### 3.10 `page-termset` 终端设置（45 行 / 12 id / 2 按钮）
-- [ ] **3.10.1** `.ts-wrap` / `.ts-card` / `.ts-row` / `.ts-range` / `.ts-val` / `.ts-toggle-row`
-- [ ] **3.10.2** 字号 / 光标闪烁 / 光标样式 / 回滚行数 / 选中即复制
-- [ ] **3.10.3** `localStorage` 持久化 + `ab-term-settings-changed` 热更新事件
+- [x] **3.10.1** `.ts-wrap` / `.ts-card` / `.ts-row` / `.ts-range` / `.ts-val` / `.ts-toggle-row`
+  - ✅ 完成
+- [x] **3.10.2** 字号 / 光标闪烁 / 光标样式 / 回滚行数 / 选中即复制
+  - ✅ 完成：字段比第一版全得多，含字体族/响铃/下载路径
+- [x] **3.10.3** `localStorage` 持久化 + `ab-term-settings-changed` 热更新事件
+  - ✅ 完成
 
 ### 3.11 `page-backup` 备份与恢复（948 行 / 62 id / 19 按钮）
 - [ ] **3.11.1** `.bk-*` 全套结构（导出 / 导入 / 预览）
@@ -308,6 +316,13 @@ CSS 构成：`styles.css` 5,013 + `hub.html` 内联 **2,342** + `notify.css` 168
 ### 2026-11-02 进度快照
 
 **新踩的坑**：
+9. **`.page` 缺 `id="page-xxx"`** —— `hub-inline.css` 里有
+   `html.light #page-files { --fb-blue: ... }` 这种**按页面 id 作用域**的变量定义。
+   组件少了 id，`--fb-blue` 就是空值，面包屑颜色失效。
+   已给 `.page` 加 `:id="page-{currentPage}"`。
+10. **`.fb-crumbs` 的深色底是设计**：`--term: 4 7 15` 在亮色主题下**也是深色**
+    （注释「终端区恒深色（终端惯例）」）。不是 bug。
+
 8. 新版导航缺 `data-page` 属性 —— 旧版有，测试脚本与外部锚点都靠它定位。
    已补（`HubApp.vue` 的 `.snav` 加 `:data-page="item.id"`）。
 
