@@ -106,6 +106,13 @@ function toggleTheme() {
   setTheme(next);
 }
 
+/** 菜单密度（旧版 applyStyleDensity）：body.dataset.bootStyle = compact|min */
+function applyStyleDensity(): void {
+  const st = adv.state.style;
+  if (st === "full") delete document.body.dataset.bootStyle;
+  else document.body.dataset.bootStyle = st;
+}
+
 /** 界面外观：主题 + 不透明度（旧版 applyAppearance） */
 function applyAppearance(): void {
   const st = ui.settings as Record<string, unknown> | undefined;
@@ -188,6 +195,7 @@ watch(() => ui.settings?.accentColor, () => {
 });
 // 贴边/热区设置变化或 docked 状态变化时应用
 watch(() => ui.settings, () => { applyDockStrip(); applyAppearance(); }, { deep: true });
+watch(() => adv.state.style, applyStyleDensity);
 watch(() => (ui.state as unknown as { docked?: boolean; dockEdge?: string } | null)?.docked, applyDockStrip);
 
 onMounted(async () => {
@@ -199,6 +207,8 @@ onMounted(async () => {
   applyDockStrip();
   // 界面外观（透明度）初始应用（旧版 applyAppearance）
   applyAppearance();
+  // 菜单密度初始应用（旧版 applyStyleDensity）
+  applyStyleDensity();
   // 旧版启动时还会拉一次设置、探一下本地服务、取默认下载目录
   void call("get_settings").catch(() => {});
   void call("local_service_health").catch(() => {});
