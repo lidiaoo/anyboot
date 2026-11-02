@@ -10,7 +10,7 @@
 pub(crate) const UI_ASSETS: &[(&str, &str, &str)] = &[
     ("assets/chunks/LoaderIcon.vue_vue_type_script_setup_true_lang-DQDn_gnS.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/LoaderIcon.vue_vue_type_script_setup_true_lang-DQDn_gnS.js")),
     ("assets/chunks/StateChip.vue_vue_type_script_setup_true_lang-BcfITqIs.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/StateChip.vue_vue_type_script_setup_true_lang-BcfITqIs.js")),
-    ("assets/chunks/ThemeA-DXVTt8fk.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/ThemeA-DXVTt8fk.js")),
+    ("assets/chunks/ThemeA-BGuPEUZH.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/ThemeA-BGuPEUZH.js")),
     ("assets/chunks/ThemeB-BZPLaIc2.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/ThemeB-BZPLaIc2.js")),
     ("assets/chunks/ThemeC-D4HYazvi.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/ThemeC-D4HYazvi.js")),
     ("assets/chunks/ThemeG-DxqnmNk3.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/ThemeG-DxqnmNk3.js")),

@@ -35,6 +35,11 @@ const props = defineProps<{
 }>();
 
 const activeId = ref(props.loaders[0]?.id ?? "");
+/** 各引导器设置面板展开态（旧版 settingsAccordion，内存态） */
+const openSettings = ref<Record<string, boolean>>({});
+function toggleSettings(id: string) {
+  openSettings.value = { ...openSettings.value, [id]: !openSettings.value[id] };
+}
 const cardRefs = ref(new Map<string, HTMLElement>());
 
 function setCardRef(id: string, el: unknown) {
@@ -91,6 +96,18 @@ const hasLoaders = computed(() => props.loaders.length > 0);
         class="la-card"
       >
         <BootList :loader="loader.id" />
+        <!-- 引导器设置折叠面板（旧版 cardA settingsAccordion：ESP/权限/默认项/脚本/免密） -->
+        <button type="button" class="acc" :aria-expanded="openSettings[loader.id] ? 'true' : 'false'" @click="toggleSettings(loader.id)">
+          <span class="grow"><span>引导器设置</span><small>ESP 路径、权限、默认项、脚本</small></span>
+          <svg class="i sm car" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M6 4l4 4-4 4" /></svg>
+        </button>
+        <div v-show="openSettings[loader.id]" class="panel-in">
+          <div class="set"><div class="set-t"><b>ESP 路径</b><small>{{ loader.esp || '未知' }}</small></div><button type="button" class="btn xs ghost">改</button></div>
+          <div class="set"><div class="set-t"><b>权限</b><small>{{ loader.perm === 'nvram' ? '写 NVRAM 需提权' : '免提权' }}</small></div><button type="button" class="btn xs ghost">{{ loader.perm === 'nvram' ? '提升' : '说明' }}</button></div>
+          <div class="set"><div class="set-t"><b>默认项</b><small>未知</small></div><button type="button" class="btn xs ghost">改</button></div>
+          <div class="set"><div class="set-t"><b>内置脚本</b><small>{{ loader.id === 'grub' ? '09_anyboot' : '不适用' }}</small></div><button type="button" class="btn xs ghost">编辑</button></div>
+          <div class="set"><div class="set-t"><b>免密模式</b><small>{{ loader.id === 'opencore' ? '未开启 · 每次弹一次授权' : '不适用' }}</small></div><button v-if="loader.id === 'opencore'" type="button" class="switch" aria-label="免密模式" /><button v-else type="button" class="btn xs ghost">开启</button></div>
+        </div>
         <!-- 底部健康状态条（旧版 .la-foot：icon(info) + 状态文案） -->
         <div class="la-foot">
           <svg
