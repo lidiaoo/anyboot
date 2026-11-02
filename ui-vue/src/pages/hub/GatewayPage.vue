@@ -44,6 +44,10 @@ interface PairRow {
   label: string;
   url: string;
   revoked: boolean;
+  /** 出码时记录的通道类型：tunnel / ts / funnel / tsnet（旧版 pair_kind） */
+  kind?: string;
+  createdAt?: number;
+  lastSeen?: number;
 }
 
 type TabKey = "cf" | "ts" | "tsn" | "pair";
@@ -107,12 +111,49 @@ const tsKey = ref("");
 
 /** 内置 tsnet 引擎（旧版 tsnet_* 命令族） */
 interface TsnStatus {
+  /** off / needs_auth / ready / error（旧版 tsn 的四个状态） */
+  state?: string;
   installed?: boolean;
   running?: boolean;
   ip?: string;
+  url?: string;
+  error?: string;
+  setupUrl?: string;
 }
 const tsnStatus = ref<TsnStatus | null>(null);
 const tsnKey = ref("");
+/** 自启（旧版 #tsnAutostart） */
+const tsnAutostart = ref(false);
+
+const tsnRunning = computed(
+  () => tsnStatus.value?.state === "ready" || tsnStatus.value?.state === "needs_auth",
+);
+
+const tsnStateText = computed(() => {
+  const s = tsnStatus.value?.state;
+  if (s === "needs_auth") return "需要登录 Tailscale 账号";
+  if (s === "ready") return "内置引擎已就绪";
+  if (s === "error") return "内置引擎出错";
+  return "内置引擎未开启";
+});
+
+/** 开关引擎（旧版 #tsnSw change） */
+function tsnToggle() {
+  if (tsnRunning.value) tsnDisable();
+  else tsnEnable();
+}
+
+/** 去开通 Funnel（旧版 #tsnSetupBtn，由 sidecar 给的 setupUrl） */
+function tsnOpenSetup() {
+  const url = tsnStatus.value?.setupUrl;
+  if (url) void call("open_web_page", { url }).catch(() => {});
+}
+
+function toggleTsnAutostart() {
+  const next = !tsnAutostart.value;
+  tsnAutostart.value = next;
+  void call("gateway_set_autostart", { channel: "tsnet", enabled: next }).catch(() => {});
+}
 /** Tailscale 登录链接（旧版 #tsLoginUrl） */
 const loginUrl = ref("");
 /** 事件解绑句柄 */
@@ -493,22 +534,55 @@ function toggleTailscale() {
 }
 
 // ---- 配对 ----
+/** 重新出码（旧版 openPairReissue → gateway_pair_reissue） */
 function reissuePair(id: string) {
-  void run("重新签发", () => call("gateway_pair_reissue", { id }), "已重新签发");
+  void run("重新出码", () => call("gateway_pair_reissue", { id }), "已重新出码");
 }
 
-async function fetchPair(id: string) {
-  try {
-    await navigator.clipboard.writeText((await call<string>("gateway_pair_fetch", { id })) ?? "");
-    message.value = "配对串已复制";
-  } catch (error) {
-    errorText.value = String(error);
+/** 配对行 meta 文案（旧版 renderPairClients） */
+function pairMeta(pair: PairRow): string {
+  const bits: string[] = [];
+  if (pair.url) bits.push("配对地址 " + pair.url.replace(/^https?:\/\//, ""));
+  bits.push(
+    pair.revoked
+      ? `已吊销 · 配对于 ${fmtTime(pair.createdAt)}`
+      : `最近访问 ${fmtTime(pair.lastSeen)} · 配对于 ${fmtTime(pair.createdAt)}`,
+  );
+  return bits.join(" · ");
+}
+
+/** 来源 chip（旧版按 pair_kind 判定文案与 class） */
+function pairSrcChip(pair: PairRow): { cls: string; text: string; tip: string } {
+  const labels: Record<string, string> = {
+    tunnel: "Cloudflare 通道",
+    ts: "Tailscale 直连",
+    funnel: "Funnel（系统 Tailscale）",
+    tsnet: "Funnel（内置引擎）",
+  };
+  const label = labels[pair.kind ?? ""];
+  let cls = "";
+  let text = "";
+  if (label) {
+    cls = pair.kind === "tunnel" ? "src-tunnel" : "src-ts";
+    text = label;
+  } else if (pair.url && /ts\.net|100\./.test(pair.url)) {
+    cls = "src-ts";
+    text = "Tailscale";
+  } else if (pair.url) {
+    cls = "src-tunnel";
+    text = "Cloudflare 通道";
+  } else {
+    text = "不带地址";
   }
+  return { cls, text, tip: text + (pair.url ? ` · ${pair.url}` : " · 出码时没有可用地址") };
 }
 
-function revokePair(id: string) {
-  void run("收回", () => call("gateway_pair_revoke", { id }), "已收回");
+function fmtTime(ts?: number): string {
+  if (!ts) return "—";
+  return new Date(ts).toLocaleString("zh-CN", { hour12: false });
 }
+
+
 
 function deletePair(id: string) {
   void run("删除", () => call("gateway_pair_delete", { id }), "已删除");
@@ -996,57 +1070,167 @@ function deletePair(id: string) {
     </div>
   </div>
 
-  <!-- ===== Tailscale 内置分页 ===== -->
+  <!-- ===== Tailscale（内置）分页（旧版 hub.html:3130–3225，27 个 id） ===== -->
   <div v-show="activeTab === 'tsn'" class="gw-tabpane">
-    <div class="gw-card">
+    <div class="gw-card" id="tsnCard">
       <div class="gw-card-head">
-        <h3>Tailscale（内置）</h3>
+        <h3>Tailscale (内置)</h3>
+        <span class="tsf-badge" id="tsnBadge" :hidden="tsnStatus?.state !== 'ready'">免安装 · 经 Tailscale 中继</span>
         <span style="flex: 1" />
-        <button type="button" class="btn" @click="openTsnLog">日志</button>
-        <button type="button" class="btn" @click="refreshAll">重新检测</button>
+        <span class="gw-sw-group" title="开启 / 关闭内置 Tailscale 引擎">
+          <span class="gw-sw-cap">引擎</span>
+          <label class="switch" id="tsnSwWrap">
+            <input
+              type="checkbox"
+              id="tsnSw"
+              :checked="tsnStatus?.state === 'ready' || tsnStatus?.state === 'needs_auth'"
+              @change="tsnToggle"
+            />
+            <span class="trk" aria-hidden="true" />
+          </label>
+        </span>
+        <button type="button" class="btn" id="tsnUninstallBtn" @click="tsnUninstall">卸载</button>
+        <button type="button" class="btn" id="tsnLogBtn" @click="openTsnLog">日志</button>
+        <button type="button" class="btn" id="tsnRefreshBtn" @click="refreshTsn">重新检测</button>
       </div>
+
       <div class="gw-status">
-        <span>内置 tsnet 模式 —— 不需要安装系统 Tailscale</span>
-        <span style="flex: 1" />
-        <span class="gw-meta mono">{{ tsnStatus?.ip || "" }}</span>
+        <span class="pulse" id="tsnPulse" :hidden="!tsnRunning" />
+        <span id="tsnStateText">{{ tsnStateText }}</span>
       </div>
-      <div class="gw-binary">
-        <span>{{ tsnStatus?.running ? "内置引擎运行中" : tsnStatus?.installed ? "已登录，未连接" : "未启用" }}</span>
-        <span style="flex: 1" />
-        <button type="button" class="btn" :disabled="!!busy" @click="tsnEnable">启用</button>
-        <button type="button" class="btn" :disabled="!!busy" @click="tsnDisable">停用</button>
-        <button type="button" class="btn" :disabled="!!busy" @click="tsnLogout">退出登录</button>
-        <button type="button" class="btn" :disabled="!!busy" @click="tsnUninstall">卸载引擎</button>
+
+      <!-- off 态：说明 + AuthKey 配置 -->
+      <div id="tsnOffRow" :hidden="tsnStatus?.state !== 'off'">
+        <p class="field-hint" style="margin: 8px 0 0">
+          本机<b>无需安装 Tailscale</b>——内置引擎把本机服务发布成公网地址
+          （https://anyboot.….ts.net），手机不装 Tailscale 也能访问，地址固定；
+          国内网络首次连接协调服务器可能不稳，流量经 Tailscale 中继有带宽限制。
+        </p>
+        <div class="field" style="margin-top: 10px">
+          <label for="tsnKey">AuthKey（可选，推荐填）</label>
+          <div style="display: flex; gap: 8px; align-items: center">
+            <input
+              id="tsnKey"
+              v-model="tsnKey"
+              type="password"
+              class="mono"
+              style="flex: 1"
+              placeholder="留空则走浏览器登录"
+              autocomplete="off"
+            />
+            <button type="button" class="btn" id="tsnKeySave" :disabled="!!busy" @click="tsnSaveKey">保存</button>
+          </div>
+          <p class="field-hint">
+            在 Tailscale 管理控制台 → Settings → Keys 里签发一次性的设备授权密钥；填了它开启引擎时免浏览器登录。
+          </p>
+        </div>
       </div>
-      <div class="gw-binary">
-        <span>授权密钥</span>
-        <input v-model="tsnKey" type="password" class="mono" placeholder="tsnet auth key（留空则走浏览器登录）" />
-        <button type="button" class="btn" :disabled="!!busy" @click="tsnSaveKey">保存</button>
+
+      <!-- needs_auth 态 -->
+      <div id="tsnAuthRow" :hidden="tsnStatus?.state !== 'needs_auth'">
+        <p class="field-hint" style="margin: 8px 0 0">
+          需要登录 Tailscale 账号 —— 点下面按钮在浏览器完成授权（一次即可，凭据会记住）。
+          登录完成后引擎自动继续，不用再点开关。
+          登录后引擎要<b>初始化环境资源</b>（节点配置、HTTPS 证书、公网 DNS 等），通常需要几分钟——
+          请<b>每隔几分钟回来看一眼</b>状态或日志，就绪后这里会显示、日志里会打印<b>公网地址</b>。
+        </p>
+        <div style="display: flex; gap: 8px; align-items: center; margin-top: 8px">
+          <button type="button" class="btn primary" id="tsnLoginBtn">打开登录页</button>
+          <button type="button" class="link-btn" id="tsnLoginCopy">复制登录链接</button>
+          <button type="button" class="link-btn" id="tsnLoginRegen">重新生成链接</button>
+        </div>
+        <p class="field-hint mono" id="tsnLoginUrl" style="margin: 8px 0 0; user-select: all; overflow-wrap: anywhere; word-break: break-all">{{ loginUrl }}</p>
+        <p class="field-hint" style="margin: 6px 0 0">
+          ⏱️ 登录链接约 <b>10 分钟</b>内有效；过期或点了没反应，就把引擎<b>关开一次</b>重新生成。
+          链接也可以复制到手机/其它设备的浏览器打开，授权完这边自动继续。
+        </p>
       </div>
+
+      <!-- ready 态：公网地址行 -->
+      <div id="tsnAddrRow" :hidden="tsnStatus?.state !== 'ready'">
+        <div class="gw-status" style="margin-top: 8px">
+          <span class="field-hint" style="margin: 0">公网地址</span>
+          <span class="mono ts-addr" id="tsnAddr">{{ tsnStatus?.url || "" }}</span>
+          <span style="flex: 1" />
+          <button type="button" class="link-btn" id="tsnCopy" @click="copyText(tsnStatus?.url || '')">复制</button>
+          <button type="button" class="btn" id="tsnPairBtn" @click="pairOpen = true">生成此地址的配对码</button>
+        </div>
+        <p class="field-hint" style="margin-top: 8px; color: rgb(var(--warn))">
+          ⚠️ 此地址公网可达，安全依赖配对令牌，请勿外传配对码。目标机睡眠后同样失联。
+        </p>
+      </div>
+
+      <!-- error 态 -->
+      <div id="tsnErrRow" :hidden="tsnStatus?.state !== 'error'">
+        <p class="field-hint" id="tsnErrText" style="margin: 8px 0 0">{{ tsnStatus?.error || "" }}</p>
+        <div style="display: flex; gap: 8px; align-items: center; margin-top: 6px; flex-wrap: wrap">
+          <button type="button" class="link-btn" id="tsnRetryBtn" @click="refreshTsn">重试</button>
+          <button type="button" class="link-btn" id="tsnSetupBtn" :hidden="!tsnStatus?.setupUrl" @click="tsnOpenSetup">去开通 Funnel</button>
+        </div>
+      </div>
+
+      <!-- 清除登录凭据 -->
+      <div style="display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap">
+        <button type="button" class="link-btn" id="tsnLogoutBtn" @click="tsnLogout">清除登录凭据</button>
+        <span class="field-hint" style="margin: 0">
+          停引擎并删除本机登录凭据，下次开启需重新授权；Tailscale 管理台里的设备记录需自行移除。
+        </span>
+      </div>
+
+      <!-- 自启 -->
+      <label class="gw-auto">
+        <input type="checkbox" id="tsnAutostart" :checked="tsnAutostart" @change="toggleTsnAutostart" />
+        <span class="gw-auto-t">启动软件时自动开启内置引擎</span>
+        <span class="gw-auto-h">凭据已记住，通常直接就绪</span>
+      </label>
     </div>
   </div>
 
   <!-- ===== 配对管理分页 ===== -->
+  <!-- ===== 配对管理分页（旧版 hub.html:3225–3252） ===== -->
   <div v-show="activeTab === 'pair'" class="gw-tabpane">
+    <!-- 配对管理卡 -->
     <div class="gw-card">
       <div class="gw-card-head">
         <h3>配对管理</h3>
-        <span style="flex: 1" />
-        <button type="button" class="btn primary" @click="pairOpen = true">签发新配对码</button>
+        <button type="button" class="btn primary" id="gwIssueBtn" @click="pairOpen = true">生成配对码</button>
       </div>
-
-      <div v-if="pairs.length" class="gw-clients">
+      <p class="field-hint" style="margin-top: 0">
+        配对码 = 这台电脑的隧道地址 + 一枚专属令牌，每个客户端一枚、可单独吊销。
+        通道没开启时也能生成（隧道地址留空，客户端拿到后自己填）。
+        快速隧道每次重启软件都会换新地址 —— 旧记录里标的「配对地址」还能对账：
+        客户端「最近访问」时间比换址晚，说明它已用新地址在连；一直没动，就是还在用旧地址（或没在连）。
+        配对串只在生成时显示一次（服务端只存哈希，事后查不到）——
+        扫码失败或对方删了配对，在下面列表点「重新出码」换枚新令牌重扫即可，不用重新添加。
+      </p>
+      <div id="gwClientList" class="gw-clients">
+        <div v-if="!pairs.length" class="gw-clients-empty">
+          还没有配对的客户端 —— 点「生成配对码」给手机或另一台电脑发一枚令牌。
+        </div>
         <div v-for="pair in pairs" :key="pair.id" class="gw-client">
-          <span class="mono">{{ pair.label || pair.id }}</span>
-          <span class="mono gw-meta">{{ pair.url || "—" }}</span>
-          <span style="flex: 1" />
-          <button type="button" class="link-btn" @click="fetchPair(pair.id)">复制</button>
-          <button type="button" class="link-btn" @click="reissuePair(pair.id)">重签</button>
-          <button type="button" class="link-btn" @click="revokePair(pair.id)">收回</button>
+          <div style="flex: 1; min-width: 0">
+            <div class="gw-client-name">{{ pair.label || pair.id }}</div>
+            <div class="gw-client-meta" :title="pair.url || ''">{{ pairMeta(pair) }}</div>
+          </div>
+          <span
+            :class="['ts-chip', pairSrcChip(pair).cls]"
+            :title="pairSrcChip(pair).tip"
+          >{{ pairSrcChip(pair).text }}</span>
+          <button type="button" class="link-btn" @click="reissuePair(pair.id)">重新出码</button>
+          <span v-if="pair.revoked" class="gw-client-revoked">已吊销</span>
           <button type="button" class="link-btn" @click="deletePair(pair.id)">删除</button>
         </div>
       </div>
-      <p v-else class="field-hint">还没有签发过配对码</p>
+    </div>
+
+    <!-- 连别的电脑卡（旧版是纯说明，入口指向「电脑列表 → 编辑电脑」） -->
+    <div class="gw-card">
+      <div class="gw-card-head"><h3>连别的电脑</h3></div>
+      <p class="field-hint" style="margin-top: 0">
+        出门时访问列表里的其他电脑：到「电脑列表 → 编辑电脑」粘贴对方的配对码，
+        或点「从对方获取」在线拉取（对方需在同一局域网且本机服务在线，并会弹确认框）。
+        对方在它自己的「远程接入」页生成配对码。
+      </p>
     </div>
   </div>
 
