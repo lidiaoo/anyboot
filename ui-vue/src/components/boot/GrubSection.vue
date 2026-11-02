@@ -354,12 +354,12 @@ function switchEntry(selector: string) {
         <div class="actions">
           <button type="button" id="grub-partuuid-detect" class="secondary" @click="detectPartuuid">识别</button>
           <button type="button" id="grub-partuuid-save" class="secondary" @click="savePartuuid">保存</button>
-          <span id="grub-mount-label" style="display: none">挂载状态</span>
-          <button type="button" id="grub-mount" class="secondary" @click="toggleMount">
-            {{ grubManual?.keepMounted ? "停止保持挂载" : "保持挂载" }}
-          </button>
+          <label class="grub-check" for="grub-mount">
+            <input id="grub-mount" type="checkbox" :checked="Boolean(grubManual?.keepMounted)" @change="toggleMount" />
+            <span id="grub-mount-label">挂载 ESP（勾上后可直接读写）</span>
+          </label>
           <button type="button" id="grub-sync" @click="syncManual">同步</button>
-          <small id="grub-sync-note">读的是 ESP 上的 /EFI/grub.cfg 与 /EFI/grubenv</small>
+          <small id="grub-sync-note">把当前系统 /boot/grub/grub.cfg 同步到 ESP（需已挂载到 /boot 或 /boot/efi）</small>
         </div>
         <p class="grub-error" id="grub-error" role="status" :hidden="!grubErrorText">{{ grubErrorText }}</p>
       </div>

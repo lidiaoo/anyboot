@@ -359,6 +359,7 @@ function fmtPct(v: number) {
         :value="s?.mainWindowPosition || 'last'"
         @change="commit('set_main_window_position', { value: ($event.target as HTMLSelectElement).value })"
       >
+        <option value="auto">自动（不固定）</option>
         <option value="free">自由拖动</option>
         <option value="center">屏幕中间</option>
         <option value="last">上次位置</option>
@@ -564,6 +565,7 @@ function fmtPct(v: number) {
         <span class="setting-text">
           <strong>访问令牌（token）</strong>
           <small class="setting-state mono" id="token-hint">{{ ui.http?.tokenHint || "（未设置）" }}</small>
+          <small>自己填一个也可以：4–128 位可见 ASCII（字母/数字/符号），不能有空格和中文；清空则服务不启动</small>
         </span>
         <span class="remote-inline">
           <input id="token-input" v-model="tokenInput" spellcheck="false" type="text" placeholder="新 token（≥8 位），留空不改动" />
@@ -586,7 +588,7 @@ function fmtPct(v: number) {
 
       <div v-if="(ui.http as any)?.occupiedBy" class="port-occupant" id="port-occupant">
         <span class="setting-text">
-          <strong>端口占用</strong>
+          <strong>端口被占用</strong>
           <small class="setting-state" id="port-occupant-message">{{ (ui.http as any)?.occupiedBy || "" }}</small>
           <small id="port-occupant-hint">端口被别的程序占用时可以重试或结束占用进程</small>
         </span>
@@ -667,11 +669,7 @@ function fmtPct(v: number) {
 
       <!-- 打开配置目录（旧版 open-dir-actions / open-config-dir） -->
       <div class="setting" id="open-dir-actions">
-        <span class="setting-text">
-          <strong>配置目录</strong>
-          <small>设置、密钥、备份都存在这里</small>
-        </span>
-        <button type="button" id="open-config-dir" class="secondary" @click="commit('open_config_dir', {})">打开</button>
+        <button type="button" id="open-config-dir" class="secondary" @click="commit('open_config_dir', {})">打开配置目录（含 trace.log / settings.json）</button>
       </div>
 
       <!-- 待确认卡（旧版 .pending#pending-card） -->

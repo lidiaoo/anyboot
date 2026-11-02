@@ -153,7 +153,7 @@ function pickDir() {
 <template>
   <section aria-label="SOL 远程唤醒" class="settings" id="sol-section">
     <p class="sol-desc">
-      用 SOL（Serial-over-LAN）远程唤醒 / 控制服务器 —— 需要目标机 BMC 支持 SOL。
+      sol 监听本机网卡的 Wake-on-LAN 魔法包：手机 / 别的电脑发一个包，这台机器就按规则执行关机、重启、睡眠等动作（本机已配端口 10=睡眠、11=关机、12=重启）。
     </p>
 
     <div class="setting" id="sol-state-row">
@@ -181,7 +181,7 @@ function pickDir() {
       <span class="setting-text">
         <strong>监听地址</strong>
         <small>SOL 服务监听的地址与端口</small>
-        <small class="setting-state mono" id="sol-http-listen-state">{{ listenAddr || "—" }}</small>
+        <small class="setting-state mono" id="sol-http-listen-state">{{ listenAddr || "host:port，如 127.0.0.1:8080；改完自动热重载" }}</small>
       </span>
       <span class="remote-inline">
         <input id="sol-http-listen" v-model="listenAddr" spellcheck="false" type="text" placeholder="0.0.0.0:8080" style="width: 220px" />
@@ -292,7 +292,7 @@ function pickDir() {
         <strong>执行日志</strong>
         <small class="setting-state" id="sol-log-count">{{ logs.length }} 行</small>
       </span>
-      <pre class="sol-log" id="sol-log">{{ logs.join("\n") || "（暂无输出）" }}</pre>
+      <pre class="sol-log" id="sol-log">{{ logs.join("\n") || "（还没有日志）" }}</pre>
       <button type="button" id="sol-log-clear" class="secondary" @click="clearLogs">清空</button>
     </div>
 
