@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { useServersStore, type HubServer } from "@/stores/servers";
-import { call } from "@/api/tauri";
 import ServerEditDialog from "@/components/hub/ServerEditDialog.vue";
 import ConfirmDialog from "@/components/hub/ConfirmDialog.vue";
 import LatencyTrend from "@/components/hub/LatencyTrend.vue";
@@ -79,32 +78,98 @@ function stateLabel(id: string): string {
   return String(result);
 }
 
-/** 经跳板机测试（旧版 remote_test_via） */
-function testVia(server: HubServer) {
-  void call("remote_test_via", { server_id: server.id, address: store.displayAddr(server) }).catch(() => {});
+
+
+
+
+/** 状态胶囊（旧版 stateLabel，hub.html:5908） */
+const statePillText = computed(() => {
+  const result = store.testResults.get(selectedId.value);
+  if (!result) return "未测";
+  return String(result).includes("失败") || String(result).includes("错误") ? "离线" : "在线";
+});
+const statePillClass = computed(() => {
+  const result = store.testResults.get(selectedId.value);
+  if (!result) return "dim";
+  return String(result).includes("失败") || String(result).includes("错误") ? "bad" : "ok";
+});
+
+/** 端口（旧版 `server.port || (protocol === 'telnet' ? 23 : 22)`） */
+function portOf(server: HubServer): number {
+  return server.port || (server.protocol === "telnet" ? 23 : 22);
 }
 
-/** 系统信息（旧版 remote_system_info） */
-function systemInfo(server: HubServer) {
-  void call("remote_system_info", { server_id: server.id }).catch(() => {});
+/** 经由（旧版 renderDetail 的「经由」格） */
+function jumpLabel(server: HubServer): string {
+  if (!server.jump_id) return "直连";
+  const jump = store.servers.find((s) => s.id === server.jump_id);
+  return jump ? `跳板机 · ${jump.name || store.displayAddr(jump)}` : "跳板机（已删除，保存后回落直连）";
 }
 
-/** 备注机器型号（旧版 remote_note_machine） */
-function noteMachine(server: HubServer) {
-  const note = window.prompt("机器备注", server.notes || "");
-  if (note === null) return;
-  void call("remote_note_machine", {
-      server_id: server.id,
-      machine_id: server.id,
-      machine_name: server.name,
-      os: "",
-      note,
-    }).catch(() => {});
+/** 延迟文案（旧版 msText） */
+const msText = computed(() => {
+  const ms = testMs(selectedId.value);
+  return ms === null ? "—" : `${ms} ms`;
+});
+
+/** 测试回执行（旧版 #detailTestLine） */
+const testLine = computed(() => {
+  const result = store.testResults.get(selectedId.value);
+  return result ? String(result) : "";
+});
+
+/** 隧道列表（旧版 #tunnelBlock 内容） */
+interface TunnelRow {
+  id: string;
+  name: string;
+  localPort: number;
+  targetHost: string;
+  targetPort: number;
+  running: boolean;
+}
+const tunnels = ref<TunnelRow[]>([]);
+
+async function refreshTunnels() {
+  try {
+    const { call } = await import("@/api/tauri");
+    tunnels.value = ((await call("hub_list_tunnels", {})) as TunnelRow[]) ?? [];
+  } catch {
+    tunnels.value = [];
+  }
 }
 
-/** 把某个地址提升为首选（旧版 remote_promote_address） */
-function promoteAddress(server: HubServer, addr: string) {
-  void call("remote_promote_address", { server_id: server.id, address: addr }).catch(() => {});
+function openTunnel(id: string) {
+  void id;
+  void refreshTunnels();
+}
+
+async function toggleTunnel(id: string) {
+  const row = tunnels.value.find((x) => x.id === id);
+  const { call } = await import("@/api/tauri");
+  try {
+    await call(row?.running ? "hub_tunnel_stop" : "hub_tunnel_start", { tunnel_id: id });
+    await refreshTunnels();
+  } catch {
+    /* 忽略 */
+  }
+}
+
+async function deleteTunnel(id: string) {
+  const { call } = await import("@/api/tauri");
+  try {
+    await call("hub_delete_tunnel", { id });
+    await refreshTunnels();
+  } catch {
+    /* 忽略 */
+  }
+}
+
+/** 浏览文件（旧版 #filesBtn → hub_open_files_window） */
+function openFiles(server: HubServer) {
+  if (server.protocol !== "ssh") return;
+  void import("@/api/tauri").then(({ call }) =>
+    call("hub_open_files_window", { server_id: server.id }).catch(() => {}),
+  );
 }
 
 function openTerminal(server: HubServer) {
@@ -149,10 +214,10 @@ const selected = computed<HubServer | null>(
 );
 
 onMounted(() => {
-  void store.load().then(() => {
-    const first = store.servers[0];
-    if (first) selectedId.value = first.id;
-  });
+  // 旧版 selectedId 初始为 null（hub.html:5140），**不自动选中第一台** ——
+  // 进入页面应显示「选择左侧服务器」空态。只有用户点击、或新增/编辑保存后
+  // 才会选中（旧版 5951 / 6657 两处）。
+  void store.load();
 });
 
 const latencyRef = ref<InstanceType<typeof LatencyTrend> | null>(null);
@@ -262,58 +327,132 @@ async function testOne(server: HubServer) {
 
     <main>
       <div id="detail" class="scroll-thin">
-        <div v-if="selected" class="detail">
-          <h2>{{ selected.name }}</h2>
-          <dl>
-            <dt>协议</dt>
-            <dd>{{ selected.protocol.toUpperCase() }}</dd>
-            <dt>地址</dt>
-            <dd class="mono">
-              {{ store.displayAddr(selected) }}
-              <button type="button" class="link-btn" title="把这条地址设为优先使用" @click="promoteAddress(selected, store.displayAddr(selected))">
-                置顶
-              </button>
-            </dd>
-            <dt>用户名</dt>
-            <dd>{{ selected.username || "（交互输入）" }}</dd>
-            <dt>认证</dt>
-            <dd>
-              {{
-                selected.key_id
-                  ? `密钥 · ${selected.key_id}`
-                  : selected.password_enc
-                    ? "已保存密码"
-                    : "交互输入"
-              }}
-            </dd>
-            <dt>跳板机</dt>
-            <dd>{{ selected.jump_id ? `经由 ${selected.jump_id}` : "直连" }}</dd>
-            <dt>终端路径</dt>
-            <dd class="mono">{{ selected.term_path || "（远端家目录）" }}</dd>
-            <dt>终端 shell</dt>
-            <dd class="mono">{{ selected.term_shell || "（登录 shell）" }}</dd>
-          </dl>
-
-          <LatencyTrend ref="latencyRef" />
-
-          <div class="row-actions">
-            <button type="button" class="btn" @click="testOne(selected)">测试连接</button>
-            <button v-if="selected.jump_id" type="button" class="btn" @click="testVia(selected)">经跳板机测试</button>
-            <button type="button" class="btn" @click="systemInfo(selected)">系统信息</button>
-            <button type="button" class="btn" @click="noteMachine(selected)">备注机器</button>
-            <button type="button" class="btn" @click="openEdit(selected)">编辑</button>
-            <button type="button" class="btn ghost danger" @click="onDelete(selected)">删除</button>
-            <button type="button" class="btn ghost" @click="openTerminal(selected)">打开终端</button>
-          </div>
-        </div>
-
-        <div v-else class="placeholder">
+        <!-- 空态（旧版 renderDetail 的 placeholder 分支） -->
+        <div v-if="!selected" class="placeholder">
           <div class="card-hint">
             <div class="big">🖥️</div>
             <h2>选择左侧服务器</h2>
             <p>查看详情、测试连通性，或点「打开终端」直接进 SSH。</p>
           </div>
         </div>
+
+        <!-- 详情（旧版 renderDetail，hub.html:6087） -->
+        <template v-else>
+          <!-- .d-head：图标 + 标题行（名称 / 状态胶囊 / 协议徽章 / 地址 / 备注）+ 动作组 -->
+          <div class="d-head">
+            <span class="d-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="2" y="3" width="20" height="7" rx="2" />
+                <rect x="2" y="14" width="20" height="7" rx="2" />
+                <path d="M6 6.5h.01M6 17.5h.01" />
+              </svg>
+            </span>
+            <div class="d-title">
+              <div class="row">
+                <h3>{{ selected.name || "(未命名)" }}</h3>
+                <span :class="['pill', statePillClass]"><span class="pdot" />{{ statePillText }}</span>
+                <span class="badge">{{ selected.protocol === "ssh" ? "SSH" : "TELNET" }}</span>
+              </div>
+              <p class="host">{{ store.displayAddr(selected) }}</p>
+              <p v-if="selected.notes" class="notes">{{ selected.notes }}</p>
+            </div>
+            <div class="d-actions">
+              <button
+                type="button"
+                class="btn primary"
+                :disabled="selected.protocol !== 'ssh'"
+                :title="selected.protocol === 'ssh' ? '打开终端' : 'Telnet 终端在后续版本开通'"
+                @click="openTerminal(selected)"
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <rect x="2" y="4" width="20" height="14" rx="2" />
+                  <path d="M6 9l3 3-3 3" />
+                </svg>
+                打开终端
+              </button>
+              <button
+                type="button"
+                class="btn"
+                :disabled="selected.protocol !== 'ssh'"
+                :title="selected.protocol === 'ssh' ? '浏览文件' : 'Telnet 不提供文件浏览'"
+                @click="openFiles(selected)"
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                </svg>
+                浏览文件
+              </button>
+              <button type="button" class="icon-btn boxed" aria-label="编辑服务器" title="编辑" @click="openEdit(selected)">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z" />
+                </svg>
+              </button>
+              <button type="button" class="icon-btn boxed danger" aria-label="删除服务器" title="删除" @click="onDelete(selected)">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M3 6h18M8 6V4h8v2M6 6l1 15h10l1-15M10 11v6M14 11v6" />
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <!-- .info-grid：5 格（用户 / 认证方式 / 端口 / 经由 / 延迟） -->
+          <div class="info-grid" role="group" aria-label="连接信息">
+            <div>
+              <p class="k">用户</p>
+              <p class="v mono">{{ selected.username || "—" }}</p>
+            </div>
+            <div>
+              <p class="k">认证方式</p>
+              <p class="v">
+                <template v-if="selected.key_id">密钥 · <span class="mono">{{ selected.key_id }}</span></template>
+                <template v-else-if="selected.password_enc">密码 · 已存（免输）</template>
+                <template v-else>系统 ssh · 终端内交互</template>
+              </p>
+            </div>
+            <div>
+              <p class="k">端口</p>
+              <p class="v mono">{{ portOf(selected) }}</p>
+            </div>
+            <div>
+              <p class="k">经由</p>
+              <p class="v">{{ jumpLabel(selected) }}</p>
+            </div>
+            <div>
+              <p class="k">延迟</p>
+              <p class="v mono">{{ msText }}</p>
+            </div>
+          </div>
+
+          <!-- .d-section 1：连通性 -->
+          <div class="d-section">
+            <div class="sec-head">
+              <h4>连通性</h4>
+              <button type="button" class="btn small" @click="testOne(selected)">测试连接</button>
+            </div>
+            <p class="test-line">{{ testLine }}</p>
+          </div>
+
+          <!-- .d-section 2：延迟趋势 -->
+          <div class="d-section">
+            <LatencyTrend ref="latencyRef" />
+          </div>
+
+          <!-- .d-section 3：隧道（旧版 #tunnelBlock） -->
+          <div class="d-section" id="tunnelBlock">
+            <div class="sec-head">
+              <h4>SSH 隧道</h4>
+              <button type="button" class="btn small" @click="openTunnel(selected.id)">新建隧道</button>
+            </div>
+            <p v-if="!tunnels.length" class="spark-hint">还没有隧道 —— 点「新建隧道」把本机端口转发到这台服务器能访问的地方。</p>
+            <div v-for="tn in tunnels" :key="tn.id" class="tunnel-row">
+              <span class="mono">{{ tn.name }}</span>
+              <span class="mono">127.0.0.1:{{ tn.localPort }} → {{ tn.targetHost }}:{{ tn.targetPort }}</span>
+              <span style="flex: 1" />
+              <button type="button" class="btn small" @click="toggleTunnel(tn.id)">{{ tn.running ? "停止" : "启动" }}</button>
+              <button type="button" class="link-btn danger" @click="deleteTunnel(tn.id)">删除</button>
+            </div>
+          </div>
+        </template>
       </div>
     </main>
   </div>
