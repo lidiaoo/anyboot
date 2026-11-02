@@ -339,7 +339,7 @@ function rowMenuAction(action: string, id: string) {
       void openInBrowser(id);
       break;
     case "refresh":
-      void import("@/api/tauri").then(({ call }) => call("remote_test", { id })).then(() => remote.load()).catch((e) => toast.show("测试失败：" + e, "bad"));
+      void remote.refreshBoot(id).catch((e) => toast.show("重新探测失败：" + e, "bad"));
       break;
     case "sysinfo":
       sysInfoId.value = id;
