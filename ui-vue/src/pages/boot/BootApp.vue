@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { useUiStateStore } from "@/stores/uiState";
 import { useSettingsStore } from "@/stores/settings";
 import { useBootAdvStore, type LoaderId } from "@/stores/bootAdv";
 import ThemeHost from "@/pages/boot/themes/index.vue";
 import BootList from "@/components/boot/BootList.vue";
+import BootSettings from "./BootSettings.vue";
 import { loaderMeta } from "@/pages/boot/themes/loaders";
 import type { LoaderInfo } from "@/pages/boot/themes/types";
 
@@ -97,6 +98,9 @@ function onSelect(selector: string) {
   void import("@/api/tauri").then(({ call }) => call("switch_grub", { selector }).catch(() => {}));
 }
 
+/** 显示设置面板（原「引导高级设置」页） */
+const settingsOpen = ref(false);
+
 const themeOptions = [
   { key: "G", label: "G 命令面板" },
   { key: "A", label: "A 卡片流" },
@@ -124,7 +128,12 @@ const themeOptions = [
       </button>
       <span class="grow" />
       <span class="rev">rev {{ ui.revision }}</span>
+      <button type="button" class="tbtn" :class="{ 'is-on': settingsOpen }" @click="settingsOpen = !settingsOpen">
+        引导高级设置
+      </button>
     </div>
+
+    <BootSettings v-if="settingsOpen" class="settings-host" />
 
     <ThemeHost
       :theme="adv.effectiveTheme"
@@ -151,6 +160,9 @@ const themeOptions = [
 .boot-page {
   padding: 14px 16px 24px;
   min-height: 100%;
+}
+.settings-host {
+  margin-bottom: 18px;
 }
 .theme-bar {
   display: flex;

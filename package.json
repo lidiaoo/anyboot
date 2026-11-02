@@ -8,16 +8,17 @@
   "scripts": {
     "tauri": "tauri",
     "dev": "tauri dev",
-    "build": "tauri build",
+    "build": "npm run build:vue && tauri build",
     "build:linux": "bash scripts/build-linux.sh",
-    "build:linux-portable": "tauri build --no-bundle && bash scripts/make-appimage-jammy.sh",
-    "build:win": "tauri build --bundles nsis,msi",
-    "build:mac-intel": "env -u CARGO PATH=\"$HOME/.cargo/bin:$PATH\" CC=/usr/bin/clang CXX=/usr/bin/clang++ AR=/usr/bin/ar tauri build --target x86_64-apple-darwin",
-    "build:mac-arm": "env -u CARGO PATH=\"$HOME/.cargo/bin:$PATH\" CC=/usr/bin/clang CXX=/usr/bin/clang++ AR=/usr/bin/ar tauri build --target aarch64-apple-darwin",
-    "build:mac-universal": "env -u CARGO PATH=\"$HOME/.cargo/bin:$PATH\" CC=/usr/bin/clang CXX=/usr/bin/clang++ AR=/usr/bin/ar tauri build --target universal-apple-darwin",
+    "build:linux-portable": "npm run build:vue && tauri build --no-bundle && bash scripts/make-appimage-jammy.sh",
+    "build:win": "npm run build:vue && tauri build --bundles nsis,msi",
+    "build:mac-intel": "npm run build:vue && env -u CARGO PATH=\"$HOME/.cargo/bin:$PATH\" CC=/usr/bin/clang CXX=/usr/bin/clang++ AR=/usr/bin/ar tauri build --target x86_64-apple-darwin",
+    "build:mac-arm": "npm run build:vue && env -u CARGO PATH=\"$HOME/.cargo/bin:$PATH\" CC=/usr/bin/clang CXX=/usr/bin/clang++ AR=/usr/bin/ar tauri build --target aarch64-apple-darwin",
+    "build:mac-universal": "npm run build:vue && env -u CARGO PATH=\"$HOME/.cargo/bin:$PATH\" CC=/usr/bin/clang CXX=/usr/bin/clang++ AR=/usr/bin/ar tauri build --target universal-apple-darwin",
     "dev:vue": "vite --config ui-vue/vite.config.ts",
-    "build:vue": "vite build --config ui-vue/vite.config.ts",
-    "typecheck": "vue-tsc --noEmit -p ui-vue/tsconfig.json"
+    "build:vue": "vite build --config ui-vue/vite.config.ts && python3 scripts/gen-ui-assets.py",
+    "typecheck": "vue-tsc --noEmit -p ui-vue/tsconfig.json",
+    "gen:ui-assets": "python3 scripts/gen-ui-assets.py"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0",

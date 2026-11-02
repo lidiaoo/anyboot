@@ -387,34 +387,57 @@ pub(crate) fn remote_grub_json(app: &AppHandle) -> serde_json::Value {
 /// 真正的数据与命令全部在 /api/* 后面，那里全程 token 鉴权。页面里没有任何
 /// 机密（token 只在设置快照接口返回，且那需要 token 本身）。
 pub(crate) fn static_ui_reply(path: &str) -> Option<RemoteReply> {
-    let (content_type, body): (&'static str, &str) = match path {
-        // `/index.html` 也得挂上：用户/书签很容易直接打这个（浏览器里输
-        // `192.168.1.5:12300/index.html` 是很自然的动作）。漏了它就落到 token
-        // 闸门 → 无 token 时回 401「token 缺失或无效」、带 token 时回 404，
-        // 两种都让人以为是自己 token 的问题，其实是路由没接。
-        "/" | "/index.html" | "/ui" | "/ui/" | "/ui/index.html" => {
-            ("text/html; charset=utf-8", UI_INDEX_HTML)
-        }
-        // index.html 里引用的是 ./styles.css 等相对路径，页面在根路径时
-        // 解析成 /styles.css —— 根路径与 /ui/ 前缀两套都挂上
-        "/app.js" | "/ui/app.js" => ("text/javascript; charset=utf-8", UI_APP_JS),
-        "/grub-list-view.js" | "/ui/grub-list-view.js" => {
-            ("text/javascript; charset=utf-8", UI_GRUB_LIST_VIEW_JS)
-        }
-        "/boot-list-view.js" | "/ui/boot-list-view.js" => {
-            ("text/javascript; charset=utf-8", UI_BOOT_LIST_VIEW_JS)
-        }
-        "/boot-adv.js" | "/ui/boot-adv.js" => {
-            ("text/javascript; charset=utf-8", UI_BOOT_ADV_JS)
-        }
-        "/styles.css" | "/ui/styles.css" => ("text/css; charset=utf-8", UI_STYLES_CSS),
-        _ => return None,
+    // 归一化：去掉前导 "/"、"/ui/" 前缀、以及空路径 → index.html
+    let mut rel = path.trim_start_matches('/');
+    if let Some(rest) = rel.strip_prefix("ui/") {
+        rel = rest;
+    }
+    if rel.is_empty() || rel == "ui" {
+        rel = "index.html";
+    }
+    // 目录形式（尾部带 /）→ 该目录的 index.html
+    let owned;
+    if rel.ends_with('/') {
+        owned = format!("{rel}index.html");
+        rel = &owned;
+    }
+
+    // 先按构建产物查表
+    if let Some((_, content_type, body)) = crate::ui_assets::UI_ASSETS
+        .iter()
+        .find(|(name, _, _)| *name == rel)
+    {
+        return Some(RemoteReply::raw_page(
+            200,
+            content_type,
+            body.as_bytes().to_vec(),
+        ));
+    }
+
+    // 兼容老路径：网页书签/外部脚本可能还引用 `/app.js` 这些名字。
+    // 它们指向 Vue 产物里的入口 chunk（入口文件名保持原名：hub.js 等）。
+    let legacy = match rel {
+        "index.html" => Some(("index.html", "text/html; charset=utf-8")),
+        "hub.html" => Some(("hub.html", "text/html; charset=utf-8")),
+        "hub-term.html" => Some(("hub-term.html", "text/html; charset=utf-8")),
+        "hub-files.html" => Some(("hub-files.html", "text/html; charset=utf-8")),
+        "hub-backup.html" => Some(("hub-backup.html", "text/html; charset=utf-8")),
+        "hub-keys.html" => Some(("hub-keys.html", "text/html; charset=utf-8")),
+        _ => None,
     };
-    Some(RemoteReply::raw_page(
-        200,
-        content_type,
-        body.as_bytes().to_vec(),
-    ))
+    if let Some((name, content_type)) = legacy {
+        if let Some((_, _, body)) = crate::ui_assets::UI_ASSETS
+            .iter()
+            .find(|(file, _, _)| *file == name)
+        {
+            return Some(RemoteReply::raw_page(
+                200,
+                content_type,
+                body.as_bytes().to_vec(),
+            ));
+        }
+    }
+    None
 }
 
 /// POST /api/ui-command：网页控制台的命令通道（真正改设置的入口）。
@@ -1269,23 +1292,14 @@ pub(crate) fn run_pending_now(app: &AppHandle, pending: PendingRequest) {
     publish_ui(app);
 }
 
-/// 网页控制台静态资源（编译期嵌入）：内置 HTTP 服务直接把主窗口那套前端
-/// 托管给局域网/外网浏览器，设置改动通过 /api/ui-command 真正作用于本机应用。
-pub(crate) const UI_INDEX_HTML: &str = include_str!("../../ui/index.html");
+// ---------------------------------------------------------------------------
+// UI 迁移到 Vue 之后（2026-11-02）
+//
+// 旧版是 6 个 include_str! 硬编码 `ui/xxx`。Vite 产物带 hash 文件名，
+// 路径不再固定，所以改成**构建时生成**的资源表（`src-tauri/src/ui_assets.rs`，
+// 由 `scripts/gen-ui-assets.py` 从 `ui-vue/dist/` 生成）。
+//
+// **这一步不能漏**：手机端「电脑页」与浏览器远程访问加载的就是这张表；
+// 只改 `tauri.conf.json` 的 frontendDist 会出现「PC 变了、手机端还是旧版」。
+// ---------------------------------------------------------------------------
 
-pub(crate) const UI_APP_JS: &str = include_str!("../../ui/app.js");
-
-pub(crate) const UI_STYLES_CSS: &str = include_str!("../../ui/styles.css");
-
-pub(crate) const UI_GRUB_LIST_VIEW_JS: &str = include_str!("../../ui/grub-list-view.js");
-
-/// 三引导器通道卡片（rEFInd / GRUB / OpenCore / Clover / systemd-boot 的列表与
-/// 「设为默认」按钮）由这个文件渲染。index.html 里一直有 `<script>` 引它，但路由
-/// 表漏了 —— 桌面端走 Tauri 资源协议不受影响，网页/手机端会 404，整块通道卡片
-/// 直接不出现。两个路径都挂上，与上面几个保持一致。
-pub(crate) const UI_BOOT_LIST_VIEW_JS: &str = include_str!("../../ui/boot-list-view.js");
-
-/// 引导高级设置（版式主题 / 布局 / 启用与排序 / 左右分栏）。桌面端走 Tauri
-/// 资源协议照常，但路由表漏了它 —— 网页/手机/hub 里这块脚本 404，于是
-/// 「引导高级设置」整页空白、选主题也不会有任何布置（页面看着「还是依旧」）。
-pub(crate) const UI_BOOT_ADV_JS: &str = include_str!("../../ui/boot-adv.js");

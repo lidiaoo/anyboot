@@ -1,30 +1,23 @@
 <script setup lang="ts">
+import BackupPage from "@/pages/hub/BackupPage.vue";
+
 /**
- * backup 独立窗（原 `ui/hub-backup.html`）。
+ * 备份窗（原 `ui/hub-backup.html`，1057 行）—— backup 命令族。
  *
- * 阶段 4 迁入真实内容；先占位保证构建与窗口能打开。
+ * 复用 hub 内嵌的 `BackupPage`：同一套后端命令，独立窗只是整窗形态。
  */
 </script>
 
 <template>
-  <div class="placeholder">
-    <h1>backup</h1>
-    <p>这个窗口正在迁移中 —— 阶段 4 迁入。</p>
+  <div class="backup-window">
+    <BackupPage />
   </div>
 </template>
 
 <style scoped>
-.placeholder {
-  padding: 24px;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-}
-h1 {
-  font-size: 17px;
-  margin: 0 0 8px;
-}
-p {
-  color: #9ca3af;
-  font-size: 13px;
-  margin: 0;
+.backup-window {
+  height: 100vh;
+  overflow-y: auto;
+  padding: 18px;
 }
 </style>

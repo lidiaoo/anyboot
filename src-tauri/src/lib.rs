@@ -108,6 +108,8 @@ const SOURCE_FILES: [(&str, &str, &str); 3] = [
 ];
 const FAT_FILESYSTEMS: [&str; 6] = ["vfat", "fat", "fat12", "fat16", "fat32", "exfat"];
 mod cli;
+/// Vue 迁移后的前端资源表（`scripts/gen-ui-assets.py` 生成，不要手改）
+mod ui_assets;
 mod grub;
 mod hub;
 // 只在测试里编译的守卫：同步 `#[tauri::command]` 不许出现阻塞调用
@@ -4766,52 +4768,55 @@ mod core_tests {
     /// 静态资源路由：用户可能用任何一种自然写法打开网页端。
     /// `/index.html` 曾经漏掉 —— 无 token 时被闸门回 401「token 缺失或无效」，
     /// 带着 token 又回 404，两种都会让人误以为是自己 token 的问题。
+    ///
+    /// 2026-11-02（Vue 迁移）：前端从「6 个固定文件」变成「Vite 产物 + hash 文件名」，
+    /// 这里改成**对着资源表自检**，而不是对着写死的文件名。
     #[test]
     fn static_ui_routes_cover_the_natural_spellings() {
-        let html_paths = ["/", "/index.html", "/ui", "/ui/", "/ui/index.html"];
+        // ① 六种页面路径都必须能拿到 HTML
+        let html_paths = ["/", "/index.html", "/ui", "/ui/", "/ui/index.html", "/hub.html"];
         for path in html_paths {
             let reply = static_ui_reply(path).unwrap_or_else(|| panic!("{path} 应该能直接拿到页面"));
             assert_eq!(reply.status, 200);
-            let (content_type, body) = reply.raw.expect("静态资源必须走 raw 响应体");
+            let (content_type, body) = reply.raw.expect("静态资源必须走静态响应体");
             assert_eq!(content_type, "text/html; charset=utf-8", "{path}");
             assert!(!body.is_empty(), "{path} 的正文不该是空的");
         }
 
-        // JS / CSS 同理（index.html 里用的是 ./app.js、./styles.css 这种相对路径）
-        for (path, expected) in [
-            ("/app.js", "text/javascript; charset=utf-8"),
-            ("/ui/app.js", "text/javascript; charset=utf-8"),
-            ("/grub-list-view.js", "text/javascript; charset=utf-8"),
-            ("/boot-list-view.js", "text/javascript; charset=utf-8"),
-            ("/ui/boot-list-view.js", "text/javascript; charset=utf-8"),
-            ("/styles.css", "text/css; charset=utf-8"),
-            ("/ui/styles.css", "text/css; charset=utf-8"),
-        ] {
-            let reply = static_ui_reply(path).unwrap_or_else(|| panic!("{path} 应该能拿到"));
-            let (content_type, body) = reply.raw.expect("静态资源必须走 raw 响应体");
-            assert_eq!(content_type, expected, "{path}");
-            assert!(!body.is_empty(), "{path}");
+        // ② 资源表里**每一个**文件都必须能从两个路径拿到
+        //    （根路径与 /ui/ 前缀 —— 旧版页面用相对路径 ./xxx 会解析成根路径）
+        for (name, expected_type, _) in crate::ui_assets::UI_ASSETS {
+            for path in [format!("/{name}"), format!("/ui/{name}")] {
+                let reply = static_ui_reply(&path)
+                    .unwrap_or_else(|| panic!("资源表里有 {name}，但路由拿不到 {path}"));
+                let (content_type, body) = reply.raw.expect("静态资源必须走静态响应体");
+                assert_eq!(content_type, *expected_type, "{path}");
+                assert!(!body.is_empty(), "{path} 的正文不该是空的");
+            }
         }
 
-        // index.html 里 `<script src="./x.js">` 引到的每个文件都必须有路由。
-        // boot-list-view.js 曾经漏在这里：桌面端走 Tauri 资源协议照常，网页/手机端
-        // 拿到 404，整块引导通道卡片直接不出现，而且不报错、只是「少了点什么」。
-        // 这条断言跟着 index.html 走，以后再加脚本也不会漏。
-        for tag in crate::remote_routing::UI_INDEX_HTML.split("<script src=\"./") {
-            let name = tag.split('"').next().unwrap_or_default();
-            if !name.ends_with(".js") {
-                continue;
-            }
-            for path in [format!("/{name}"), format!("/ui/{name}")] {
+        // ③ 页面里 `<script src="...">` 引到的每个资源都必须能拿到。
+        //    这条跟着产物走，以后 Vite 改了 chunk 命名也不会漏。
+        let index = static_ui_reply("/index.html").expect("index.html 必须能拿到");
+        let (_, html) = index.raw.expect("index.html 必须走静态响应体");
+        let html = String::from_utf8_lossy(&html).to_string();
+        for attr in ["src=\"", "href=\""] {
+            for chunk in html.split(attr).skip(1) {
+                let target = chunk.split('"').next().unwrap_or_default();
+                // 只校验站内相对资源（跳过 http(s) / data: 这类外链）
+                if target.is_empty() || target.starts_with("http") || target.starts_with("data:") {
+                    continue;
+                }
+                let normalized = target.trim_start_matches("./");
                 assert!(
-                    static_ui_reply(&path).is_some(),
-                    "index.html 引用了 {name}，但静态资源路由里没有 {path}"
+                    static_ui_reply(&format!("/{normalized}")).is_some(),
+                    "index.html 引用了 {target}，但静态资源路由拿不到它"
                 );
             }
         }
 
-        // 不认识的路径必须返回 None（继续走鉴权 / 404），别把什么都当页面发出去
-        for path in ["/nope.js", "/index.htm", "/../etc/passwd", "/ui/app.js.map"] {
+        // ④ 不认识的路径必须返回 None（继续走鉴权 / 404），别把什么都当页面发出去
+        for path in ["/nope.js", "/index.htm", "/../etc/passwd", "/app.js.map"] {
             assert!(static_ui_reply(path).is_none(), "{path} 不该走静态资源");
         }
     }
@@ -5028,16 +5033,24 @@ mod core_tests {
     #[test]
     fn frontend_uses_the_single_state_contract() {
         // 前后端通过事件名和命令名对接，任何一边改名了都会让联动失效，
-        // 这里直接对着前端源码断言契约。
-        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../ui/app.js");
-        let Ok(source) = fs::read_to_string(&path) else {
-            return;
-        };
+        // 这里直接对着**前端构建产物**断言契约。
+        //
+        // 2026-11-02（Vue 迁移）：原来读 `../ui/app.js` 源码；现在是 Vite 产物，
+        // 从资源表里把所有 JS 拼起来检查（命令名在产物里同样是字符串字面量）。
+        let mut source = String::new();
+        for (name, content_type, body) in crate::ui_assets::UI_ASSETS {
+            if name.ends_with(".js") && content_type.starts_with("text/javascript") {
+                source.push_str(body);
+                source.push('\n');
+            }
+        }
+        assert!(!source.is_empty(), "资源表里没有任何 JS 产物");
+
         assert!(
-            source.contains(&format!("listen(\"{UI_STATE_CHANGED_EVENT}\"")),
-            "前端没有监听 {UI_STATE_CHANGED_EVENT}"
+            source.contains(UI_STATE_CHANGED_EVENT),
+            "前端没有引用 {UI_STATE_CHANGED_EVENT}"
         );
-        // 命令名必须出现在前端源码里（调用方式不限：invoke 直接调或走统一封装）
+        // 命令名必须出现在前端产物里（调用方式不限：invoke 直接调或走统一封装）
         for command in [
             "get_ui_state",
             "refresh",
@@ -5057,9 +5070,14 @@ mod core_tests {
         }
         // 快照带版本号：前端必须按 revision 丢弃过期快照（阶段 1 修 D4 的契约）
         assert!(source.contains("revision"), "前端没有按 revision 处理快照");
-        // 三个旧的补丁式事件不允许再出现
+        // 三个旧的补丁式事件不允许再出现。
+        // 注意要连引号一起匹配：`ab-term-settings-changed` 这类**合法**事件名
+        // 里含 `settings-changed` 子串，只按裸字符串会误判。
         for gone in ["status-changed", "settings-changed", "restart-result"] {
-            assert!(!source.contains(gone), "前端仍在依赖已废弃的事件 {gone}");
+            assert!(
+                !source.contains(&format!("\"{gone}\"")),
+                "前端仍在依赖已废弃的事件 {gone}"
+            );
         }
     }
 

@@ -23,11 +23,11 @@
 
 | 项 | 值 |
 |---|---|
-| **当前阶段** | 阶段 3 ✅ 完成（12 页中 11 页已迁入）；下一步阶段 4 |
-| **已完成阶段** | 0、1、2、3（hub 主界面） |
+| **当前阶段** | 阶段 5 ✅ 已完成切换；**迁移主体完成** |
+| **已完成阶段** | 0、1、2、3、4、5 |
 | **代码改动** | 新增 `ui-vue/`（骨架）+ `package.json` 依赖与 scripts；`ui/` 与 `src-tauri/` **未动**，旧版完全可用 |
 | **风险评估** | 迁移未开始，现有 App 完全可用 |
-| **最后更新** | 2026-11-02（阶段 3 完成） |
+| **最后更新** | 2026-11-02（阶段 5 完成，Vue 已接管） |
 
 ---
 
@@ -203,11 +203,15 @@
 
 ## 七、阶段 5 · 切换与清理
 
-- [ ] **5.1** `tauri.conf.json`：`frontendDist` → `../ui-vue/dist`
-- [ ] **5.2** `src-tauri` 里对 `ui/` 的硬编码路径排查（`include_str!` 之类）
-- [ ] **5.3** 更新 `package.json` 的 `build:*` 脚本（加 `npm run build:vue` 前置）
+- [x] **5.1** `tauri.conf.json`：`frontendDist` → `../ui-vue/dist`
+  - ✅ 完成：已切换并验证
+- [x] **5.2** `src-tauri` 里对 `ui/` 的硬编码路径排查（`include_str!` 之类）
+  - ✅ 完成：6 个 include_str! 全部改为查 `ui_assets::UI_ASSETS` 表；`frontend_uses_the_single_state_contract` 测试改为读资源表
+- [x] **5.3** 更新 `package.json` 的 `build:*` 脚本（加 `npm run build:vue` 前置）
+  - ✅ 完成：6 个构建脚本全部前置 build:vue；build:vue 自身链上 gen-ui-assets.py
 - [ ] **5.4** 打 tag `pre-vue-migration` → 删除旧 `ui/`（保留 tag 可随时找回）
-- [ ] **5.5** 全量回归：`cargo test`（当前基线 **508 passed / 15 ignored**）+ 手动过一遍验收清单
+- [x] **5.5** 全量回归：`cargo test`（当前基线 **508 passed / 15 ignored**）+ 手动过一遍验收清单
+  - ✅ 完成：cargo test 508 passed；三处 Vue 自检全绿；HTTP 服务确认托管 Vue 产物
 - [ ] **5.6** 重新打包 macOS / Windows / Linux 三平台并验证
 
 ---
@@ -290,6 +294,13 @@
 | 2026-11-02 | 3 | 写完剩余 8 页：HomePage（iframe 容器）/ GatewayPage（36 命令）/ BackupPage（11 命令）/ TermPage / SessionsPage / TransfersPage / FilesPage / KeysPage / TermsetPage | ✅ |
 | 2026-11-02 | 3 | hub 默认页改「电脑列表」+ 记住上次访问 + 支持 `?page=` 直达 | ✅ |
 | 2026-11-02 | 3 | **验收**：全量打包，三处自检全绿（boot / computerlist / hub），无 JS 异常 | ✅ |
+| 2026-11-02 | 4 | 4 个独立窗：TermWindow（xterm + 6 命令）/ KeysWindow / FilesWindow / 备份窗 | ✅ |
+| 2026-11-02 | 5 | 写 `scripts/gen-ui-assets.py`：从 `ui-vue/dist` 生成 Rust 资源表（45 文件） | ✅ |
+| 2026-11-02 | 5 | `static_ui_reply` 改为查表；**这是手机端能拿到新版的关键** | ✅ |
+| 2026-11-02 | 5 | 重写 `static_ui_routes_cover_the_natural_spellings`：改成对资源表自检 | ✅ |
+| 2026-11-02 | 5 | 修正 `frontend_uses_the_single_state_contract`：改读资源表；补了 8 个设置命令封装（set_vars_dir 等）并建 `BootSettings.vue` | ✅ |
+| 2026-11-02 | 5 | frontendDist → `../ui-vue/dist`；6 个构建脚本前置 `build:vue`（含 gen-ui-assets） | ✅ |
+| 2026-11-02 | 5 | **最终验收**：cargo test 508 passed；三处自检全绿；**HTTP 服务确认托管 `assets/index.js`（不再返回 app.js）** | ✅ |
 
 ---
 
@@ -316,6 +327,10 @@ pub(crate) const UI_BOOT_ADV_JS: &str         = include_str!("../../ui/boot-adv.
 
 **后果**：阶段 5 只改 `frontendDist` 是不够的 —— PC 窗口会变成 Vue，
 但手机端/浏览器拿到的仍是旧 `ui/`。**必须同时处理这组 `include_str!`**。
+
+**✅ 已解决（2026-11-02）**：6 个 `include_str!` 已全部替换为查
+`ui_assets::UI_ASSETS`（构建期由 `scripts/gen-ui-assets.py` 从 dist 生成），
+实测 HTTP 服务根路径返回 `assets/index.js`。
 
 **可选方案**（阶段 5 决定）：
 1. 让 HTTP 服务也读 `ui-vue/dist` 的构建产物（`include_str!` 改成构建时生成的静态文件，或改用 `include_dir!` 打包整个 dist）

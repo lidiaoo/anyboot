@@ -90,6 +90,30 @@ export const httpAccessHint = () => call<unknown>("http_access_hint");
 export const killPortOccupant = () => call<unknown>("kill_port_occupant");
 
 // ---------------------------------------------------------------------------
+// 设置类命令（设置页用；名字被前端契约测试校验，别改）
+// ---------------------------------------------------------------------------
+
+/** 设定 rEFInd vars 目录 */
+export const setVarsDir = (dir: string) => call<void>("set_vars_dir", { dir });
+/** 切换下次启动的系统（rEFInd 的 PreviousBoot） */
+export const switchSystem = (system: string) => call<void>("switch_system", { system });
+/** 卸载临时挂载 */
+export const unmountTemporary = () => call<void>("unmount_temporary");
+/** 开机自启 */
+export const setAutostart = (on: boolean) => call<void>("set_autostart", { on });
+/** 启动时收进托盘 */
+export const setStartInTray = (on: boolean) => call<void>("set_start_in_tray", { on });
+/** 从 Dock / 任务栏隐藏 */
+export const setHideFromDockTaskbar = (on: boolean) =>
+  call<void>("set_hide_from_dock_taskbar", { on });
+/** 关闭窗口的行为：tray 收进托盘 / quit 退出 */
+export const setCloseAction = (action: "tray" | "quit") =>
+  call<void>("set_close_action", { action });
+/** 电源动作：reboot / shutdown / sleep */
+export const powerAction = (action: "reboot" | "shutdown" | "sleep") =>
+  call<void>("power_action", { action });
+
+// ---------------------------------------------------------------------------
 // 应用 / 窗口
 // ---------------------------------------------------------------------------
 
