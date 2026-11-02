@@ -537,7 +537,7 @@ function pct(task: XferTask): number {
 
     <!-- 上级目录快跳（旧版 #fbPathMenu） -->
     <div v-if="pathMenuOpen" id="fbPathMenu" class="fb-popmenu" role="menu" aria-label="上级目录">
-      <button v-for="p in parentPaths" :key="p" type="button" class="fb-popmenu-item" @click="listDir(p); pathMenuOpen = false">{{ p }}</button>
+      <button v-for="p in parentPaths" :key="p" type="button" @click="listDir(p); pathMenuOpen = false">{{ p }}</button>
     </div>
 
     <!-- 新建目录（旧版 #fbMkdirModal） -->

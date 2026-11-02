@@ -202,7 +202,7 @@ useEscape(fabHelpOpen, () => { fabHelpOpen.value = false });
 </script>
 
 <template>
-  <div class="pc-page">
+  <div class="page" id="page-home">
     <div class="pc-top">
       <div class="pc-chips" id="pcChips" role="tablist" aria-label="AnyBoot 电脑标签">
         <button

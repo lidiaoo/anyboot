@@ -665,18 +665,18 @@ useEscape(viewOpen, () => { viewOpen.value = false });
 
     <!-- 行内 ⋮ 菜单（旧版 cqRowMenu，hub.html:8158） -->
     <div v-if="rowMenuId" class="overlay-transparent" @click="rowMenuId = null">
-      <div class="menu cq-row-menu" role="menu" @click.stop>
-        <div class="caption">{{ renmoteRow(rowMenuId)?.name }}</div>
+      <div class="pc-menu cq-row-menu" role="menu" @click.stop>
+        <div class="menu-caption">{{ renmoteRow(rowMenuId)?.name }}</div>
         <button type="button" role="menuitem" @click="rowMenuAction('view', rowMenuId!)">打开页面（内嵌查看）</button>
         <button type="button" role="menuitem" @click="rowMenuAction('goto', rowMenuId!)">在电脑页打开（选中标签）</button>
         <button type="button" role="menuitem" @click="rowMenuAction('browser', rowMenuId!)">在系统浏览器打开</button>
-        <div class="sep" />
+        <div class="menu-divider" />
         <button type="button" role="menuitem" @click="rowMenuAction('refresh', rowMenuId!)">重新探测这台电脑</button>
         <button type="button" role="menuitem" @click="rowMenuAction('sysinfo', rowMenuId!)">系统信息（系统 / CPU / 内存）</button>
         <template v-if="rowMenuId !== 'local'">
           <button type="button" role="menuitem" @click="rowMenuAction('edit', rowMenuId!)">编辑这台电脑</button>
           <button type="button" role="menuitem" @click="rowMenuAction('copyip', rowMenuId!)">复制地址</button>
-          <div class="sep" />
+          <div class="menu-divider" />
           <button type="button" role="menuitem" class="danger" @click="rowMenuAction('delete', rowMenuId!)">删除这台电脑</button>
         </template>
       </div>
