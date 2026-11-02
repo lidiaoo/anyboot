@@ -2478,6 +2478,12 @@
           <button role="menuitem" data-reprobe="reuse">✓ 复用上次地址（省电、地址稳）</button>
           <button role="menuitem" data-reprobe="always">每次重新探测地址（换 IP 抓得最快）</button>
           <div class="menu-divider" role="separator"></div>
+          <div class="menu-caption">连续失败多少次才判离线（弱网容忍）</div>
+          <button role="menuitem" data-offretry="1">1 次（最灵敏）</button>
+          <button role="menuitem" data-offretry="2">2 次</button>
+          <button role="menuitem" data-offretry="3">3 次（默认）</button>
+          <button role="menuitem" data-offretry="5">5 次</button>
+          <div class="menu-divider" role="separator"></div>
           <div class="menu-caption">列表里「打开页面」的方式</div>
           <button role="menuitem" data-openmode="inline">内嵌弹窗查看</button>
           <button role="menuitem" data-openmode="goto">跳到「电脑」页</button>
@@ -8978,6 +8984,20 @@ window.__bkOnShow = async function () {
 
   // ---- 读引导项（每台一次 remote_boot_info；并发，任一台失败不影响别人） ----
   // 本机行（rid = 'local'）走同一个命令：后端对 'local' 特判，回环读本机服务端。
+  /// 每台电脑的连续失败计数（弱网容忍：连续失败到阈值才判离线）
+  const cqFailCount = new Map();
+  /// 连续失败多少次才判离线（可在 ⋮ 菜单的「数据刷新」里调，默认 3）
+  function cqOfflineRetryCount() {
+    try {
+      const raw = localStorage.getItem('offlineRetryCount');
+      if (raw !== null) {
+        const n = parseInt(raw, 10);
+        if (Number.isFinite(n) && n >= 1) return n;
+      }
+    } catch (e) { }
+    return 3;
+  }
+
   function cqLoadBoot(rid) {
     if (!invoke) { return Promise.resolve(); }
     if (rid !== 'local') {
@@ -8987,10 +9007,21 @@ window.__bkOnShow = async function () {
     }
     return invoke('remote_boot_info', { serverId: rid })
       .then(function (info) {
+        cqFailCount.delete(rid);   // 成功 → 连击清零
         cqBoot.set(rid, info);
         if (currentPage === 'computers') cqRenderRows();
       })
       .catch(function (error) {
+        // 2026-11-02 用户定案：「假设 a 地址离线了 进行探测优先连接 a 如果 a 在
+        // 指定重试次数内还存活 就不算掉线 就不需要触发重载」。
+        // 弱网下偶尔一两拍失败很常见，一次失败就覆盖成离线会让卡片闪烁、
+        // 还会提前触发重新选路。要求**连续失败达到阈值**才真正判离线。
+        const fails = (cqFailCount.get(rid) || 0) + 1;
+        cqFailCount.set(rid, fails);
+        if (fails < cqOfflineRetryCount()) {
+          // 未达阈值：保留上一份数据（卡片保持在线态），不触发任何重载
+          return;
+        }
         cqBoot.set(rid, {
           ok: false, online: false, addr: '', error: String(error),
           refind: { kind: 'refind', title: 'rEFInd', available: false, current: '', next: '', saved: '', note: String(error), options: [] },
@@ -10070,6 +10101,12 @@ window.__bkOnShow = async function () {
       const base = btn.dataset.label || (btn.dataset.label = btn.textContent);
       btn.textContent = (btn.dataset.reprobe === pcReprobeMode ? '✓ ' : '') + base;
     });
+    const offRetry = cqOfflineRetryCount();
+    pcMenuEl.querySelectorAll('[data-offretry]').forEach(function (btn) {
+      const base = btn.dataset.label || (btn.dataset.label = btn.textContent);
+      const on = parseInt(btn.dataset.offretry, 10) === offRetry;
+      btn.textContent = (on ? '✓ ' : '') + base;
+    });
   }
 
   /// 数据刷新的定时器（PC 电脑列表用；0 = 不刷新）
@@ -10218,6 +10255,15 @@ window.__bkOnShow = async function () {
       toast(pcDataRefreshSec > 0
         ? '数据每 ' + pcDataRefreshSec + ' 秒刷新一次'
         : '已关闭数据刷新');
+      return;
+    }
+    if (btn.dataset.offretry !== undefined) {
+      const n = parseInt(btn.dataset.offretry, 10);
+      if (!Number.isFinite(n) || n < 1) return;
+      try { localStorage.setItem('offlineRetryCount', String(n)); } catch (e) { }
+      cqFailCount.clear();
+      refreshDataRefreshMarks();
+      toast('连续失败 ' + n + ' 次才判离线');
       return;
     }
     if (btn.dataset.reprobe !== undefined) {

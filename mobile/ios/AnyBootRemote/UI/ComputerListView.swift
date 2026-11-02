@@ -41,6 +41,8 @@ struct ComputerListView: View {
 
     // 数据
     @State private var boots: [String: BootInfo] = [:]
+    /// 每台电脑的连续失败计数（弱网容忍）
+    @State private var failCounts: [String: Int] = [:]
     @State private var busy: [String: String] = [:]
     @State private var transients: [String: String] = [:]
 
@@ -2088,8 +2090,20 @@ struct ComputerListView: View {
             for profile in snapshot {
                 let info = await BootService.fetchBootInfo(profile)
                 await MainActor.run {
-                    boots[profile.id] = info
-                    learnMachineOs(profile, info.machineOs)
+                    // 2026-11-02 用户定案：连续失败达到阈值才判离线
+                    //（「a 在指定重试次数内还存活 就不算掉线 就不需要触发重载」）
+                    if info.online {
+                        failCounts.removeValue(forKey: profile.id)
+                        boots[profile.id] = info
+                        learnMachineOs(profile, info.machineOs)
+                    } else {
+                        let fails = (failCounts[profile.id] ?? 0) + 1
+                        failCounts[profile.id] = fails
+                        if fails >= DataRefreshPref.offlineRetryCount {
+                            boots[profile.id] = info   // 达阈值才真正标离线
+                        }
+                        // 未达阈值：保留上一份数据，卡片保持在线态
+                    }
                 }
             }
             await MainActor.run { refreshing = false }

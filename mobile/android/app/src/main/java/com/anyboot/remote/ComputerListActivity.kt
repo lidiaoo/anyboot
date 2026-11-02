@@ -132,6 +132,24 @@ class ComputerListActivity : ComponentActivity() {
     /// 好处：平时地址稳定不跳；掉线时仍能自动换到可达通道。
     private val lastGoodEndpoint = mutableMapOf<String, EndpointChoice>()
 
+    /// 每台电脑的**连续失败次数**（profileId → count）。
+    ///
+    /// 2026-11-02 用户定案：「假设 a 地址离线了 进行探测优先连接 a 如果 a 在
+    /// 指定重试次数内还存活 就不算掉线 就不需要触发重载」。
+    ///
+    /// 弱网下偶尔一两拍探测失败很常见，一次失败就判定离线会让卡片闪烁、
+    /// 还会提前触发重新选路。这里要求**连续失败达到阈值**才真正判离线：
+    ///   · 未达阈值 → 沿用上一份正常数据，卡片保持在线态
+    ///   · 达阈值   → 才走完整探测 + 标离线
+    private val consecutiveFailures = mutableMapOf<String, Int>()
+
+    /// 连续失败多少次才判离线（重试次数内仍存活就不算掉线）。
+    /// 用户可在设置里调；默认 3 次。
+    private fun offlineRetryCount(): Int {
+        val n = getSharedPreferences(UI_PREFS, MODE_PRIVATE).getInt("offlineRetryCount", 3)
+        return n.coerceAtLeast(1)
+    }
+
     /** id → 电源操作的过渡状态（waking / shutting / rebooting / sleeping） */
     private val transients = mutableStateMapOf<String, String>()
 
@@ -231,6 +249,8 @@ class ComputerListActivity : ComponentActivity() {
     private var moreDataRefreshSec by mutableStateOf(2)
     /// 刷新时是否每次重新探测地址：false = 复用上次端点（默认，地址稳）
     private var moreReprobeAlways by mutableStateOf(false)
+    /// 连续失败多少次才判离线：重试次数内仍存活就不算掉线（默认 3）
+    private var moreOfflineRetry by mutableStateOf(3)
     private var moreDataRefreshOpen by mutableStateOf(false)
     private var moreBootTheme by mutableStateOf("")
     private var moreSortMode by mutableStateOf("custom")
@@ -252,6 +272,7 @@ class ComputerListActivity : ComponentActivity() {
         moreFailReloadSec = getSharedPreferences(UI_PREFS, MODE_PRIVATE).getInt("failReloadSec", 5)
         moreDataRefreshSec = getSharedPreferences(UI_PREFS, MODE_PRIVATE).getInt("dataRefreshSec", 2)
         moreReprobeAlways = getSharedPreferences(UI_PREFS, MODE_PRIVATE).getBoolean("reprobeAlways", false)
+        moreOfflineRetry = getSharedPreferences(UI_PREFS, MODE_PRIVATE).getInt("offlineRetryCount", 3)
         moreBootTheme = ServerProfile.guestBootTheme(this)
         moreSortMode = ServerStore.sortMode(this)
         // 默认选中电脑页的当前那台；之后点卡片即切换
@@ -878,6 +899,35 @@ class ComputerListActivity : ComponentActivity() {
                             Text("每次刷新都重新探测地址", fontSize = 13.sp, color = palette.fg)
                             Text("换 IP / 换网络时抓得最快，但更耗电",
                                 fontSize = 10.5.sp, color = palette.fgFaint)
+                        }
+                    }
+
+                    Spacer(Modifier.height(12.dp))
+                    HorizontalDivider(color = palette.line)
+                    Spacer(Modifier.height(8.dp))
+                    Text("连续失败多少次才判离线", fontSize = 11.sp, color = palette.fgFaint)
+                    Text("弱网下偶尔失败不算掉线：在这几次重试内仍能连上就保持在线",
+                        fontSize = 10.5.sp, color = palette.fgFaint)
+                    Spacer(Modifier.height(4.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(1, 2, 3, 5).forEach { n ->
+                            val on = moreOfflineRetry == n
+                            Text(
+                                if (n == 1) "1 次（最灵敏）" else "$n 次",
+                                fontSize = 12.sp,
+                                color = if (on) palette.onAccent else palette.fg,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (on) palette.accent else palette.elevate)
+                                    .clickable {
+                                        moreOfflineRetry = n
+                                        getSharedPreferences(UI_PREFS, MODE_PRIVATE).edit()
+                                            .putInt("offlineRetryCount", n).apply()
+                                        consecutiveFailures.clear()
+                                        toast("连续失败 $n 次才判离线")
+                                    }
+                                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                            )
                         }
                     }
                 }
@@ -3408,17 +3458,39 @@ class ComputerListActivity : ComponentActivity() {
                 null
             }
             if (quick != null) {
+                // 成功 → 失败计数清零
+                consecutiveFailures.remove(profile.id)
                 return buildInfoFromUiState(quick, cached)
             }
-            // 直连失败 → 清缓存，落到下面的完整探测
+            // 直连失败 → 先记一次失败，**不清缓存**（下一拍还会先试这个地址）
+            val fails = (consecutiveFailures[profile.id] ?: 0) + 1
+            consecutiveFailures[profile.id] = fails
+            val threshold = offlineRetryCount()
+            if (fails < threshold) {
+                // 未达阈值：仍算活着，沿用上一份数据（卡片不会闪烁成离线）
+                return boots[profile.id] ?: offlineInfo(cached.displayAddr(), "")
+            }
+            // 达到阈值 → 才真正判离线，清缓存走完整探测
             lastGoodEndpoint.remove(profile.id)
         }
 
-        val choice = chooseEndpoint(profile) ?: return offlineInfo("", "这台电脑还没有可用地址")
+        val choice = chooseEndpoint(profile) ?: run {
+            consecutiveFailures[profile.id] = (consecutiveFailures[profile.id] ?: 0) + 1
+            return offlineInfo("", "这台电脑还没有可用地址")
+        }
         if (!choice.alive) {
+            val fails = (consecutiveFailures[profile.id] ?: 0) + 1
+            consecutiveFailures[profile.id] = fails
+            val threshold = offlineRetryCount()
+            if (fails < threshold) {
+                // 完整探测也还没到阈值 → 沿用上一份数据
+                return boots[profile.id] ?: offlineInfo(choice.displayAddr(), "")
+            }
             lastGoodEndpoint.remove(profile.id)
             return offlineInfo(choice.displayAddr(), "")
         }
+        // 成功 → 清零
+        consecutiveFailures.remove(profile.id)
         lastGoodEndpoint[profile.id] = choice
         val endpoint = choice.url
         val token = choice.token

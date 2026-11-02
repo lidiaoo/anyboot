@@ -357,6 +357,19 @@ enum DataRefreshPref {
         }
     }
 
+    /// 连续失败多少次才判离线（弱网容忍）：重试次数内仍存活就不算掉线。
+    /// 2026-11-02 用户定案。默认 3。
+    static var offlineRetryCount: Int {
+        get {
+            UserDefaults.standard.object(forKey: "offlineRetryCount") == nil
+                ? 3 : UserDefaults.standard.integer(forKey: "offlineRetryCount")
+        }
+        set {
+            UserDefaults.standard.set(max(1, newValue), forKey: "offlineRetryCount")
+            NotificationCenter.default.post(name: changed, object: nil)
+        }
+    }
+
     /// 刷新时是否每次重新探测地址：false = 复用上次成功的端点（默认，地址稳）
     static var reprobeAlways: Bool {
         get { UserDefaults.standard.bool(forKey: "reprobeAlways") }
