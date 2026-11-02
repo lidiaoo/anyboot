@@ -8,7 +8,15 @@
  * `body { font: 14px/1.5 }` 覆盖了主窗的 16px，全局字号/行高全错。
  */
 @import "./vendor/legacy.css";
-@import "./vendor/notify.css";
+
+/*
+ * **不要引入 notify.css** —— 它是通知微窗口（notify.html）专用的：
+ * 里面 `button.secondary { color: var(--text) }` 会覆盖
+ * legacy.css 的 `button.secondary { color: var(--btn-secondary-text) }`，
+ * 导致主窗所有次级按钮文字色错（实测 rgb(226,232,240) → rgb(248,250,252)）。
+ *
+ * 旧版实测：index.html 只引 styles.css；notify.css 只被 notify.html 引用。
+ */
 
 *, *::before, *::after { box-sizing: border-box; }
 

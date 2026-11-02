@@ -512,6 +512,17 @@ entries/hub-*.ts     → main.css
 
 修复后一致率：主窗 16% → 92%，整体 67% → **92%**
 
+**又发现第二个样式污染**：
+`notify.css`（通知微窗口专用）里的
+`button.secondary { color: var(--text) }` 覆盖了 legacy.css 的
+`button.secondary { color: var(--btn-secondary-text) }`，
+主窗所有次级按钮文字色错（rgb(226,232,240) → rgb(248,250,252)）。
+
+旧版实测：`index.html` 只引 `styles.css`；`notify.css` **只被 `notify.html` 引用**。
+已从 main.css / base.css 移除。
+
+修复后：主窗 92% → **98%**，整体不一致 36 → **18**
+
 顺带把 `.cq-thead` 加回电脑列表（旧版静态 HTML 里有，`display:none`）。
 
 ### 打包验证

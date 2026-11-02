@@ -11,7 +11,8 @@
  * 继续生效 —— **改类名等于让样式全部失效**。
  */
 @import "./vendor/legacy.css";
-@import "./vendor/notify.css";
+/* notify.css 不引入：它只属于 notify.html（详见 main.css 的说明） */
+
 /* hub.html 的 3 个内联 <style> 块（2342 行）—— .shell / .side / .snav /
    .cq-* / .fb-* / .ts-* / .gw-* 等全在这里。旧版它们写在各页面 HTML 里，
    迁移时必须一并带走，否则那 2342 行样式全失效。 */
