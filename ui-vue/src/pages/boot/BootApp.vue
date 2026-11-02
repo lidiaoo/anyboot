@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useUiStateStore } from "@/stores/uiState";
-import { applyAccent } from "@/composables/useAccent";
+import { applyAccent, shadeHex } from "@/composables/useAccent";
 import { useSettingsStore } from "@/stores/settings";
 import { useBootAdvStore, type LoaderId } from "@/stores/bootAdv";
 import { loaderMeta } from "@/pages/boot/themes/loaders";
@@ -106,16 +106,65 @@ function toggleTheme() {
   setTheme(next);
 }
 
+/** 贴边隐藏白条 + 热区（旧版 applyDockStrip，逐字对齐） */
+function clampInt(v: unknown, min: number, max: number, fallback: number): number {
+  const n = Math.round(Number(v));
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
+}
+function applyDockStrip(): void {
+  const body = document.body;
+  body.classList.remove("dock-top", "dock-bottom", "dock-left", "dock-right");
+  const st = ui.settings as Record<string, unknown> | undefined;
+  if (!st) return;
+  const thickness = clampInt(st.mainDockStripThickness, 2, 40, 6);
+  const length = clampInt(st.mainDockStripLength, 10, 100, 100);
+  const opacity = clampInt(st.mainDockStripOpacity, 10, 100, 100);
+  const root = document.documentElement.style;
+  root.setProperty("--dock-strip-thickness", `${thickness}px`);
+  root.setProperty("--dock-strip-length", `${length}%`);
+  root.setProperty("--dock-strip-opacity", String(opacity / 100));
+  root.setProperty("--dock-strip-color", shadeHex(String(st.mainDockStripColor ?? "")) || "#6366f1");
+  root.setProperty("--dock-strip-edge-gap", `${clampInt(st.mainDockStripEdgeGap, 0, 100, 0)}px`);
+  root.setProperty("--hotzone-thickness", `${clampInt(st.mainHotzoneThickness, 1, 100, 40)}px`);
+  root.setProperty("--hotzone-color", shadeHex(String(st.mainHotzoneColor ?? "")) || "#6366f1");
+  root.setProperty("--hotzone-opacity", String(clampInt(st.mainHotzoneOpacity, 0, 100, 0) / 100));
+  root.setProperty("--hotzone-border-color", shadeHex(String(st.mainHotzoneBorderColor ?? "")) || "#ff0000");
+  root.setProperty("--hotzone-border-width", st.mainHotzoneBorder ? "1px" : "0px");
+  // 贴边：body 加 dock-<edge> class（CSS 据此画白条方向）+ 上报白条矩形
+  const state = ui.state as unknown as { docked?: boolean; dockEdge?: string } | null;
+  if (state?.docked && state.dockEdge) {
+    body.classList.add("dock-" + state.dockEdge);
+    requestAnimationFrame(() => {
+      const strip = document.getElementById("dock-strip");
+      if (!strip) return;
+      const rect = strip.getBoundingClientRect();
+      void import("@/api/tauri").then(({ call }) =>
+        call("report_dock_strip_rect", {
+          x: rect.x, y: rect.y, width: rect.width, height: rect.height,
+          viewportWidth: window.innerWidth, viewportHeight: window.innerHeight,
+          dpr: window.devicePixelRatio,
+        }).catch(() => {}),
+      );
+    });
+  }
+}
+
 watch(() => ui.settings?.accentColor, () => {
   const curTheme = document.documentElement.classList.contains("light") ? "light" : "dark";
   applyAccent(ui.settings?.accentColor, curTheme);
 });
+// 贴边/热区设置变化或 docked 状态变化时应用
+watch(() => ui.settings, applyDockStrip, { deep: true });
+watch(() => (ui.state as unknown as { docked?: boolean; dockEdge?: string } | null)?.docked, applyDockStrip);
 
 onMounted(async () => {
   await ui.start();
   // 强调色初始应用（旧版 applyAccent）
   const curTheme = document.documentElement.classList.contains("light") ? "light" : "dark";
   applyAccent(ui.settings?.accentColor, curTheme);
+  // 贴边白条/热区初始应用（旧版 applyDockStrip）
+  applyDockStrip();
   // 旧版启动时还会拉一次设置、探一下本地服务、取默认下载目录
   void call("get_settings").catch(() => {});
   void call("local_service_health").catch(() => {});
