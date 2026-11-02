@@ -1,0 +1,23 @@
+/*
+ * 主窗（index.html）专用样式。
+ *
+ * **只加载 `legacy.css`** —— 旧版 `index.html` 只引了 `styles.css` 一个文件
+ * （933 条规则），body 字体 16px。
+ *
+ * 曾经主窗和 hub 共用 `base.css`，导致 `hub-inline.css` 里的
+ * `body { font: 14px/1.5 }` 覆盖了主窗的 16px，全局字号/行高全错。
+ */
+@import "./vendor/legacy.css";
+@import "./vendor/notify.css";
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body, #app { height: 100%; margin: 0; }
+
+/*
+ * `#app` 是 Vue 的挂载点，旧版没有这一层。
+ * `display: contents` 让子元素直接参与 body 的 flex 布局。
+ */
+#app {
+  display: contents;
+}

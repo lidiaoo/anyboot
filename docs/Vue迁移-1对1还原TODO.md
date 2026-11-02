@@ -488,6 +488,32 @@ macOS 上没有 devtools，这是唯一能事后排查的通道。
 
 **真实应用验证**：`ipc-fail` 计数 0。
 
+### 第五层验证：计算样式比对（本轮）
+
+`style-diff.js`：对「新旧两版都存在的同名 class」逐项比对 getComputedStyle
+的背景色/文字色/字号/字重/圆角/边框/display/间距等。
+
+**发现一个严重问题**：
+```
+旧版 index.html  只加载 styles.css        body 字体 16px   一致率 16%
+新版 index.html  加载了 base.css(含hub-inline)  body 字体 14px
+```
+`hub-inline.css` 里的 `body { font: 14px/1.5 }` 覆盖了主窗应有的 16px，
+`display: grid → flex`、`flexDirection` 全错。
+
+修法：**拆样式入口**
+```
+src/styles/main.css  = legacy.css + notify.css      （主窗 + 4 个独立窗）
+src/styles/base.css  = main.css + hub-inline.css    （hub）
+entries/index.ts     → main.css
+entries/hub.ts       → base.css
+entries/hub-*.ts     → main.css
+```
+
+修复后一致率：主窗 16% → 92%，整体 67% → **92%**
+
+顺带把 `.cq-thead` 加回电脑列表（旧版静态 HTML 里有，`display:none`）。
+
 ### 打包验证
 ```
 npm run build:mac-intel        → 成功（508 tests passed / 0 failed）

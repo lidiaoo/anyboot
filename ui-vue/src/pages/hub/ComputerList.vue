@@ -410,6 +410,16 @@ function power(payload: Record<string, unknown>) {
 
     <div class="cq-card">
       <div class="cq-grid" role="table" aria-label="电脑列表">
+        <!-- 表头（旧版静态 HTML 里就有，CSS 里 `display:none` —— 卡片流时代不用它，
+             但 DOM 保留：一是与旧版一致，二是它给 .cq-col 提供字号/颜色继承基线） -->
+        <div class="cq-thead" role="row" aria-hidden="true">
+          <div class="cq-col cq-col-dev" role="columnheader">电脑</div>
+          <div class="cq-col cq-col-st" role="columnheader">状态</div>
+          <div class="cq-col cq-col-boot" role="columnheader">rEFInd 启动项</div>
+          <div class="cq-col cq-col-boot" role="columnheader">GRUB 启动项</div>
+          <div class="cq-col cq-col-pwr" role="columnheader">电源</div>
+          <div class="cq-col cq-col-more" role="columnheader" />
+        </div>
         <div class="cq-rows" id="cqTbody">
           <ComputerRow
             v-for="row in rows"
