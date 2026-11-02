@@ -25,6 +25,8 @@ const props = defineProps<{
   theme: ThemeKey | "K";
   layout?: LayoutMode;
   loaders: LoaderInfo[];
+  /** 左右布局时每个引导器分到哪列（旧版 advState.side：'l'/'r'，缺省视为左列） */
+  side?: Record<string, string>;
   activeId?: string;
   onSelect?: (id: string) => void;
   /** 左右分栏比例（0.15~0.85），默认 0.5 */
@@ -54,6 +56,15 @@ const themeProps = computed(() => ({
   activeId: props.activeId,
   onSelect: props.onSelect,
 }));
+
+/** 左右布局的分列 loaders（旧版：左=side!==2，右=side===2） */
+function loadersFor(col: 0 | 1): LoaderInfo[] {
+  if (!splitH.value) return props.loaders;
+  const inRight = (id: string) => props.side?.[id] === "r";
+  return props.loaders.filter((l) => (col === 1 ? inRight(l.id) : !inRight(l.id)));
+}
+const leftProps = computed(() => ({ ...themeProps.value, loaders: loadersFor(0) }));
+const rightProps = computed(() => ({ ...themeProps.value, loaders: loadersFor(1) }));
 
 /** 左右布局：layout === "lr" */
 const splitH = computed(() => props.layout === "lr");
@@ -114,7 +125,7 @@ function resetRatio() {
       </div>
       <div class="k-rbody is-theme">
         <div class="k-theme-fit">
-          <component :is="component" v-bind="themeProps" @reorder="(order: string[]) => emit('reorder', order)" />
+          <component :is="component" v-bind="leftProps" @reorder="(order: string[]) => emit('reorder', order)" />
         </div>
       </div>
     </section>
@@ -139,7 +150,7 @@ function resetRatio() {
       </div>
       <div class="k-rbody is-theme">
         <div class="k-theme-fit">
-          <component :is="component" v-bind="themeProps" @reorder="(order: string[]) => emit('reorder', order)" />
+          <component :is="component" v-bind="rightProps" @reorder="(order: string[]) => emit('reorder', order)" />
         </div>
       </div>
     </section>
