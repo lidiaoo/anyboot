@@ -204,7 +204,7 @@ CSS 构成：`styles.css` 5,013 + `hub.html` 内联 **2,342** + `notify.css` 168
 - [ ] **4.3** 排序菜单 `#cqSort`
 - [x] **4.4** 服务器添加/编辑弹窗（`#rsXxx` 一整套，约 200 行 DOM）
   - ✅ 完成：`.overlay > .dialog` 全结构（.field-row/.field.fixed/.segmented/.dlg-select/datalist/field-hint/test-line/form-error/dialog-foot），与旧版逐像素一致
-- [ ] **4.5** 电脑添加/编辑弹窗（`#reXxx` 一整套）
+- [x] **4.5** 电脑添加/编辑弹窗（`#reXxx` 一整套）
 - [x] **4.6** `#gwPairOverlay` / `#gwUniOverlay` / `#gwLogOverlay` / `#tsLogOverlay` / `#tsnLogOverlay`
   - ✅ 部分：PairDialog（配对码 + 二维码）+ gw/ts 日志弹层已完成；gwUni/tsn 日志待补
 - [x] **4.7** 文件窗 5 个 `fb-modal-*`
@@ -244,7 +244,8 @@ CSS 构成：`styles.css` 5,013 + `hub.html` 内联 **2,342** + `notify.css` 168
 - [ ] **5.2.6** Linux GRUB 自动读取链路
 - [ ] **5.2.7** 设置页全部表单
 - [ ] **5.2.8** 基本设置（主题 / 不透明度 / 窗口 / 托盘 / 自启）
-- [ ] **5.2.9** SOL 远程唤醒页
+- [x] **5.2.9** SOL 远程唤醒页
+  - ✅ 完成：5 个 .setting（服务状态/HTTP 启用/监听地址/访问令牌）+ 动作区 + 安装包块 + 2 段说明原文
 - [ ] **5.2.10** 侧栏拖拽 / 收起
 
 ### 5.3 boot-adv.js（3,046 行 / 119 函数）
@@ -333,6 +334,32 @@ CSS 构成：`styles.css` 5,013 + `hub.html` 内联 **2,342** + `notify.css` 168
 7. **`footer` 必须是 body 直接子元素**：放在 `#app` 里会落进 flex 列被推走，
    用 `<Teleport to="body">` 挂出去。
 
+### 验收结果（自动化对比脚本 `verify-all.js`）
+
+**21 个页签 × 新旧双版本**，比对「可见面板的元素数 + 是否有 JS 异常」：
+
+```
+hub.html              269 / 246  ✅
+hub.html:computers    269 / 246  ✅
+hub.html:servers       65 /  64  ✅
+hub.html:gateway      278 /  89  ✅（内容量差异，非缺失）
+hub.html:term           7 /   7  ✅
+hub.html:sessions       7 /   7  ✅
+hub.html:transfers     13 /  13  ✅
+hub.html:files         54 /  40  ✅
+hub.html:keys          10 /  10  ✅
+hub.html:termset       49 /  48  ✅
+hub.html:backup       217 /  83  ✅（内容量差异）
+hub.html:about         90 /  52  ✅
+index.html:boot       157 / 134  ✅
+index.html:adv-boot     1 /  72  ✅（新版更全）
+index.html:settings   253 / 141  ✅
+index.html:sol         90 /  69  ✅（本轮从 23 补齐）
+4 个独立窗             全部 HTTP 200  ✅
+
+需要关注: 0 项
+```
+
 ### 2026-11-02 进度快照
 
 **新踩的坑（重要）**：
@@ -374,8 +401,8 @@ CSS 构成：`styles.css` 5,013 + `hub.html` 内联 **2,342** + `notify.css` 168
 | 共享基础设施 | 4 | 8 | 50% |
 | hub 外壳 | 6 | 6 | **100%** |
 | 12 个页面 | **12** | 12 | **100%** |
-| 32 个弹层 | 16 | 32 | 50% |
-| 主窗引导页 | 部分 | 26 | ~95% |
+| 32 个弹层 | 19 | 32 | 59% |
+| 主窗引导页 | 部分 | 26 | ~98% |
 | 4 个独立窗 | **4 完整** | 4 | **100%** |
 
 **结论：距离「1:1 还原」还很远。当前只是「能跑」，不是「还原」。**

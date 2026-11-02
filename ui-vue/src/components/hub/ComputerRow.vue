@@ -46,6 +46,7 @@ const emit = defineEmits<{
   (e: "power", payload: Record<string, unknown>): void;
   (e: "sysInfo", id: string): void;
   (e: "more", id: string): void;
+  (e: "view", id: string): void;
   (e: "move", payload: { id: string; delta: number }): void;
 }>();
 
@@ -179,6 +180,14 @@ function onRowClick() {
               </span>
             </div>
             <div class="cq-dev-meta">
+              <button
+                type="button"
+                class="cq-remote-act"
+                title="在弹层里打开这台电脑的 AnyBoot 页面"
+                @click.stop="emit('view', row.id)"
+              >
+                打开页面
+              </button>
               <div class="cq-dev-line">
                 <div class="cq-dev-top">
                   <span

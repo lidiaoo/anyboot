@@ -3,16 +3,24 @@ import { computed, onMounted, ref } from "vue";
 import { call } from "@/api/tauri";
 
 /**
- * SOL 远程唤醒页（原 `ui/index.html` 的 `#tab-sol`，835 行起）。
+ * SOL 远程唤醒页（原 `ui/index.html` 的 `#tab-sol`，835~1050 行）。
  *
- * ## 1:1 结构
+ * ## 1:1 结构（旧版 5 个 .setting + 动作区 + 安装包块）
  * ```
  * section.settings#sol-section
- *   p.sol-desc                    说明
- *   label.setting#sol-state-row   服务状态 + .remote-inline（刷新/特权/重启）
- *   label.setting#sol-http-enabled-row
- *   label.setting#sol-http-listen-row
- *   ...
+ *   p.sol-desc
+ *   .setting#sol-state-row     服务状态 + .remote-inline（刷新/特权/重启）
+ *   .setting#sol-http-enabled-row
+ *   .setting#sol-http-listen-row  （含 .setting-state + input + 保存）
+ *   .setting.setting-block#sol-http-token-row
+ *     .sol-token-line × 2（当前 token + 复制 / 新 token + 生成 + 应用）
+ *   .actions > 一键安装 / 手动安装
+ *   small.sol-hint（安装说明，原文）
+ *   .setting-block.sol-pkg-block
+ *     安装包状态 + .sol-progress（进度条）
+ *     .setting 安装目录（input + 选择 + 打开）
+ *     .remote-inline（下载 / 选择安装包 / 解压）
+ *     small.sol-hint × 2（说明 + 项目链接）
  * ```
  */
 
@@ -20,7 +28,8 @@ interface SolStatus {
   installed?: boolean;
   running?: boolean;
   port?: number;
-  projectPath?: string;
+  token?: string;
+  installDir?: string;
   version?: string;
   [key: string]: unknown;
 }
@@ -28,6 +37,12 @@ interface SolStatus {
 const status = ref<SolStatus | null>(null);
 const loading = ref(true);
 const errorText = ref("");
+
+const listenAddr = ref("");
+const newToken = ref("");
+const installDir = ref("");
+const progress = ref(0);
+const downloading = ref(false);
 
 const stateText = computed(() => {
   if (loading.value) return "正在读取…";
@@ -40,6 +55,8 @@ async function refresh() {
   errorText.value = "";
   try {
     status.value = await call<SolStatus>("sol_status");
+    listenAddr.value = status.value?.port ? `0.0.0.0:${status.value.port}` : "";
+    installDir.value = status.value?.installDir ?? "";
   } catch (error) {
     errorText.value = String(error);
     status.value = null;
@@ -50,24 +67,68 @@ async function refresh() {
 
 onMounted(refresh);
 
-function checkPrivileged() {
-  void call("sol_status_privileged").catch(() => {});
+function setHttpEnabled() {
+  void call("sol_http_set_enabled", { on: !status.value?.running }).catch(() => {});
 }
 
-function restartService() {
+function saveListen() {
+  void call("sol_http_set_listen", { value: listenAddr.value.trim() }).catch(() => {});
+}
+
+async function copyToken() {
+  try {
+    await navigator.clipboard.writeText(status.value?.token ?? "");
+  } catch {
+    /* 剪贴板不可用 */
+  }
+}
+
+function generateToken() {
+  const bytes = new Uint8Array(24);
+  crypto.getRandomValues(bytes);
+  newToken.value = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function saveToken() {
+  void call("sol_http_set_token", { token: newToken.value.trim() }).catch(() => {});
+}
+
+function oneClick() {
+  void call("sol_install", { silent: true }).catch(() => {});
+}
+
+function manualInstall() {
+  void call("sol_install", { silent: false }).catch(() => {});
+}
+
+function download() {
+  downloading.value = true;
+  progress.value = 0;
+  void call("sol_download").catch(() => {});
+}
+
+function pickArchive() {
   void call("sol_project_open").catch(() => {});
+}
+
+function extract() {
+  void call("sol_extract").catch(() => {});
+}
+
+function pickDir() {
+  void call("pick_grub_dir").then((dir) => {
+    if (dir) installDir.value = String(dir);
+  });
 }
 </script>
 
 <template>
-  <section class="settings" id="sol-section">
-    <h2>SOL 远程唤醒</h2>
+  <section aria-label="SOL 远程唤醒" class="settings" id="sol-section">
     <p class="sol-desc">
-      用服务器管理卡（BMC / IPMI）的 Serial-over-LAN 通道远程开机 —— 需要目标机的 BMC
-      支持 SOL 且已配好网络。
+      用 SOL（Serial-over-LAN）远程唤醒 / 控制服务器 —— 需要目标机 BMC 支持 SOL。
     </p>
 
-    <label class="setting" id="sol-state-row">
+    <div class="setting" id="sol-state-row">
       <span class="setting-text">
         <strong>服务状态</strong>
         <small>SOL 辅助服务是否就绪</small>
@@ -75,28 +136,105 @@ function restartService() {
       </span>
       <span class="remote-inline">
         <button type="button" class="secondary" @click="refresh">刷新</button>
-        <button type="button" class="secondary" @click="checkPrivileged">检查权限</button>
-        <button type="button" class="secondary" @click="restartService">重启服务</button>
+        <button type="button" class="secondary" @click="call('sol_status_privileged')">检查权限</button>
+        <button type="button" class="secondary" @click="call('sol_project_open')">重启服务</button>
       </span>
-    </label>
+    </div>
 
-    <label class="setting" id="sol-http-enabled-row">
+    <div class="setting" id="sol-http-enabled-row">
       <span class="setting-text">
         <strong>通过 HTTP 启用</strong>
         <small>允许手机 / 浏览器经本机 HTTP 服务发起 SOL 唤醒</small>
         <small class="setting-state" id="sol-http-enabled-state">{{ status?.running ? "已启用" : "未启用" }}</small>
       </span>
-      <input type="checkbox" id="sol-http-enabled" :checked="Boolean(status?.running)" disabled />
-    </label>
+      <input type="checkbox" id="sol-http-enabled" :checked="Boolean(status?.running)" @change="setHttpEnabled" />
+    </div>
 
-    <label class="setting" id="sol-http-listen-row">
+    <div class="setting" id="sol-http-listen-row">
       <span class="setting-text">
         <strong>监听地址</strong>
         <small>SOL 服务监听的地址与端口</small>
+        <small class="setting-state mono" id="sol-http-listen-state">{{ listenAddr || "—" }}</small>
       </span>
-      <span class="setting-state mono">{{ status?.port ? `:${status.port}` : "—" }}</span>
-    </label>
+      <span class="remote-inline">
+        <input id="sol-http-listen" v-model="listenAddr" spellcheck="false" type="text" placeholder="0.0.0.0:8080" style="width: 220px" />
+        <button type="button" class="secondary" @click="saveListen">保存</button>
+      </span>
+    </div>
 
-    <p v-if="errorText" class="field-hint" style="color: rgb(var(--bad))">{{ errorText }}</p>
+    <div class="setting setting-block" id="sol-http-token-row">
+      <span class="setting-text">
+        <strong>访问令牌</strong>
+        <small class="setting-state" id="sol-http-token-state">手机 / 浏览器访问 SOL 接口时要用它</small>
+      </span>
+      <div class="sol-token-line">
+        <span class="sol-token-value mono" title="当前配置里的 token（只读），点右边「复制」拷贝">{{ status?.token || "—" }}</span>
+        <button type="button" class="secondary" @click="copyToken">复制</button>
+      </div>
+      <div class="sol-token-line">
+        <input id="sol-http-token" v-model="newToken" spellcheck="false" type="text" placeholder="新 token（≥8 位），留空不改动" style="flex: 1 1 220px" />
+        <button type="button" class="secondary" @click="generateToken">生成</button>
+        <button type="button" class="secondary" @click="saveToken">应用</button>
+      </div>
+    </div>
+
+    <!-- 动作区 -->
+    <div class="actions">
+      <button type="button" class="primary-sol" @click="oneClick">一键安装（静默）</button>
+      <button type="button" class="secondary" @click="manualInstall">手动安装（调终端）</button>
+    </div>
+
+    <small class="sol-hint">
+      安装 = 下载 → <b>清空安装目录</b> → 解压到安装目录 → 官方 install.sh（静默 = 无人值守自动确认；手动 = 呼出终端由你回答脚本问句）。<b>解压前会清空安装目录，但保留 sol.yaml 配置文件</b>（端口、token 等设置不丢）；包内容直接铺在安装目录下，不保留 sol-v* 子目录。配置 sol.yaml 就在安装目录里；卸载保留它以便回滚。<br />
+      已经解压好（比如用「选择安装包…」自己挑的包）时，「手动安装（调终端）」直接在终端里跑官方脚本，不再重新下载。<br />
+      落点：三端全部在用户目录 —— Linux/macOS <code>~/sol</code>（二进制 <code>bin/sol</code>）；Windows <code>%USERPROFILE%\sol</code>（二进制 <code>sol.exe</code> 同目录）。
+    </small>
+
+    <!-- 安装包 -->
+    <div class="setting-block sol-pkg-block">
+      <span class="setting-text">
+        <strong>安装包</strong>
+        <small class="setting-state">{{ downloading ? `下载中 ${progress}%` : "未下载" }}</small>
+      </span>
+
+      <div v-if="downloading" class="sol-progress">
+        <div class="sol-progress-track"><div class="sol-progress-fill" :style="{ width: progress + '%' }" /></div>
+        <small class="sol-progress-text">{{ progress }}%</small>
+      </div>
+
+      <div class="setting">
+        <span class="setting-text">
+          <strong>安装目录</strong>
+          <small class="setting-state">{{ installDir || "—" }}</small>
+        </span>
+        <span class="remote-inline">
+          <input v-model="installDir" spellcheck="false" type="text" placeholder="~/sol（默认）" style="width: 280px" />
+          <button type="button" class="secondary" @click="pickDir">选择…</button>
+          <button type="button" class="secondary" title="打开当前填写的目录" @click="call('sol_open_dir', {})">打开</button>
+        </span>
+      </div>
+
+      <span class="remote-inline">
+        <button type="button" class="secondary" @click="download">下载</button>
+        <button type="button" class="secondary" @click="pickArchive">选择安装包…</button>
+        <button type="button" class="secondary" disabled title="解压前会先清空安装目录（保留 sol.yaml 配置文件），再把包内容直接铺到安装目录，不再保留 sol-v* 子目录" @click="extract">
+          解压到安装目录
+        </button>
+      </span>
+
+      <small class="sol-hint">
+        从 GitHub release 下载当前平台的 sol 包；也可以点「选择安装包…」从文件管理器挑一个已有包（.tar.gz / .zip），解压完回到上面点「手动安装（调终端）」即可安装。
+      </small>
+      <small class="sol-hint">
+        项目：
+        <a href="#" title="打开 GitHub 仓库">lidiaoo/sol</a>
+        ·
+        <a href="#" title="打开 Releases 页面">Releases</a>
+        ·
+        <span>{{ status?.version || "…" }}</span>
+      </small>
+    </div>
+
+    <p v-if="errorText" class="sol-hint" style="color: rgb(var(--bad))">{{ errorText }}</p>
   </section>
 </template>

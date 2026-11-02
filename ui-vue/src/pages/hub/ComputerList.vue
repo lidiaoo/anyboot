@@ -160,6 +160,21 @@ watch(() => settings.dataRefreshSec, startTimer);
 /** 当前选中的电脑（旧版 activeRemote，默认 local） */
 const activeId = ref("local");
 
+/** 电脑页面弹层（旧版 #cqViewOverlay） */
+const viewOpen = ref(false);
+const viewUrl = ref("");
+const viewTitle = ref("");
+const viewSeed = ref(0);
+
+function openView(rid: string) {
+  const row = remote.servers.find((s) => s.id === rid);
+  viewTitle.value = row?.name ?? "电脑页面";
+  const info = infoOf(rid);
+  viewUrl.value = info?.addr ? `http://${info.addr}/hub.html` : "";
+  viewSeed.value += 1;
+  viewOpen.value = true;
+}
+
 function move(payload: { id: string; delta: number }) {
   const list = [...remote.servers];
   const index = list.findIndex((s) => s.id === payload.id);
@@ -282,12 +297,55 @@ function power(payload: Record<string, unknown>) {
             @sys-info="openSysInfo"
             @move="move"
             @more="openMore"
+            @view="openView"
           />
           </div>
       </div>
       <div v-if="!rows.length" class="cq-empty">
         <div>没有匹配的电脑</div>
         <p>换个关键词，或把筛选切回「全部」</p>
+      </div>
+    </div>
+
+    <!-- 电脑页面弹层（旧版 #cqViewOverlay）：宽高用 min() 撑满，iframe 撑余下空间 -->
+    <div v-if="viewOpen" class="overlay" @click.self="viewOpen = false">
+      <div
+        class="dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="cqViewTitle"
+        style="width: min(1180px, 96vw); height: min(820px, 92vh); max-height: 92vh; display: flex; flex-direction: column; overflow: hidden; padding: 0"
+      >
+        <div class="dialog-head" style="flex: none">
+          <h3 id="cqViewTitle">{{ viewTitle }}</h3>
+          <div style="display: flex; align-items: center; gap: 6px">
+            <button type="button" class="btn small" @click="viewSeed += 1">重载</button>
+            <button type="button" class="icon-btn" aria-label="关闭" @click="viewOpen = false">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                <path d="M6 6l12 12M18 6L6 18" />
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div class="pc-frame-host" style="flex: 1; min-height: 0; border: 0; border-radius: 0">
+          <iframe
+            v-if="viewUrl"
+            :key="viewSeed"
+            :src="viewUrl"
+            :title="viewTitle"
+            style="width: 100%; height: 100%; border: 0; background: #fff"
+          />
+          <div v-else class="pc-empty">
+            <div>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+                <rect x="3" y="4" width="18" height="16" rx="2" />
+                <path d="M3 9h18M8 4v5" />
+              </svg>
+              <p><b>页面加载中…</b></p>
+              <p>这台电脑的 AnyBoot 页面会显示在这里；连不上时会给出排查提示。</p>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
