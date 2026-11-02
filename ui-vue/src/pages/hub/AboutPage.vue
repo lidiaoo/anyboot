@@ -27,6 +27,12 @@ interface UpdateState {
   total: number;
   error: string;
   source: string;
+  /** 已下载字节人类可读文案（旧版 #update-bytes） */
+  bytes?: string;
+  /** 自动检查开关 */
+  autoCheck?: boolean;
+  /** 下载源 */
+  mirror?: string;
 }
 
 const inTauri = isTauri();
@@ -66,6 +72,54 @@ const phaseText = computed(() => {
   }
 });
 
+/** 是否有新版本可下载（旧版 #update-new 的显隐条件） */
+const hasNew = computed(() =>
+  update.value?.phase === "available" ||
+  update.value?.phase === "downloading" ||
+  update.value?.phase === "verifying" ||
+  update.value?.phase === "ready_to_install",
+);
+/** 是否正在下载 */
+const downloading = computed(() =>
+  update.value?.phase === "downloading" || update.value?.phase === "verifying",
+);
+
+/** 自动检查开关（旧版 #update-auto-check） */
+const autoCheck = ref(true);
+/** 下载源（旧版 #update-mirror） */
+const mirror = ref<"auto" | "direct" | "ghfast" | "ghproxy">("auto");
+
+/** 下载（旧版 #update-download） */
+async function startDownload() {
+  try {
+    await call("update_download");
+    update.value = await call<UpdateState>("update_state");
+  } catch (error) {
+    updateError.value = String(error);
+  }
+}
+
+/** 安装并重启（旧版 #update-install） */
+async function installUpdate() {
+  try {
+    await call("update_install");
+  } catch (error) {
+    updateError.value = String(error);
+  }
+}
+
+/** 跳过这个版本（旧版 #update-skip → update_dismiss） */
+async function skipVersion() {
+  const v = update.value?.latestVersion;
+  if (!v) return;
+  try {
+    await call("update_dismiss", { version: v });
+    update.value = await call<UpdateState>("update_state");
+  } catch (error) {
+    updateError.value = String(error);
+  }
+}
+
 const progress = computed(() => {
   const total = update.value?.total ?? 0;
   if (!total) return 0;
@@ -82,6 +136,8 @@ onMounted(async () => {
   }
   try {
     update.value = await call<UpdateState>("update_state");
+    autoCheck.value = update.value?.autoCheck ?? true;
+    mirror.value = (update.value?.mirror as typeof mirror.value) ?? "auto";
     // 兜底：getVersion 拿不到时用快照里的版本（浏览器 / mock 环境）
     if (!version.value && update.value?.currentVersion) {
       version.value = update.value.currentVersion;
@@ -143,7 +199,8 @@ function openPage(which: string) {
     </div>
 
     <!-- 更新卡（只在 Tauri 里出现） -->
-    <div v-if="inTauri && updateOpen" class="about-card about-update">
+    <!-- ── 更新详情（旧版 #update-section，hub.html:4469）── -->
+    <div v-if="inTauri && updateOpen" id="update-section" class="about-card about-update">
       <div class="update-head" id="update-head">
         <div class="update-version">
           <span class="update-k">当前版本</span>
@@ -153,33 +210,64 @@ function openPage(which: string) {
           <button type="button" id="update-check" class="btn primary" :disabled="checking" @click="checkUpdate">
             检查更新
           </button>
+          <button v-if="updateError" type="button" id="update-retry" class="btn" @click="checkUpdate">重试</button>
         </div>
       </div>
       <div class="update-meta" id="update-meta">{{ phaseText }}</div>
 
-      <div v-if="update?.phase === 'available' || update?.phase === 'downloading'" class="update-new-head">
-        <strong>发现新版本 {{ update?.latestVersion }}</strong>
-        <span class="update-k">{{ update?.publishedAt }}</span>
+      <!-- 发现新版本（旧版 #update-new） -->
+      <div v-if="hasNew" id="update-new" class="update-new">
+        <div class="update-new-head">
+          <strong id="update-new-title">发现新版本 {{ update?.latestVersion }}</strong>
+          <span class="update-k" id="update-new-date">{{ update?.publishedAt }}</span>
+        </div>
+        <pre v-if="update?.notes" id="update-notes" class="update-notes">{{ update.notes }}</pre>
+        <div v-if="update?.total" id="update-progress" class="update-progress">
+          <div class="update-track"><div id="update-fill" class="update-fill" :style="{ width: progress + '%' }" /></div>
+          <div class="update-progress-meta">
+            <span id="update-pct" class="update-pct">{{ progress }}%</span>
+            <span id="update-bytes" class="mono">{{ update?.bytes || "" }}</span>
+            <span id="update-source">{{ update?.source || "" }}</span>
+          </div>
+        </div>
+        <div class="update-buttons">
+          <button
+            v-if="!downloading"
+            type="button"
+            id="update-download"
+            class="btn primary"
+            @click="startDownload"
+          >
+            下载
+          </button>
+          <button
+            v-if="update?.downloaded"
+            type="button"
+            id="update-install"
+            class="btn primary"
+            @click="installUpdate"
+          >
+            安装并重启
+          </button>
+          <button type="button" id="update-skip" class="btn" @click="skipVersion">跳过这个版本</button>
+        </div>
       </div>
-      <pre v-if="update?.notes" class="update-opt">{{ update.notes }}</pre>
 
-      <div v-if="update?.total" class="update-progress-meta" id="update-progress-meta">
-        <div class="update-track"><div class="update-fill" id="update-fill" :style="{ width: progress + '%' }" /></div>
-        <span class="update-pct" id="update-pct">{{ progress }}%</span>
-        <span class="mono">{{ update?.source }}</span>
-      </div>
-
-      <div v-if="update?.phase === 'available'" class="update-buttons" id="update-buttons">
-        <button type="button" class="btn primary">下载</button>
-        <button type="button" class="btn">跳过这个版本</button>
-      </div>
-
-      <div v-if="updateError" class="update-error">{{ updateError }}</div>
+      <div v-if="updateError" id="update-error" class="update-error">{{ updateError }}</div>
 
       <div class="update-opts" id="update-opts">
         <label class="update-opt">
-          <input type="checkbox" id="update-auto-check" checked disabled />
+          <input id="update-auto-check" v-model="autoCheck" type="checkbox" />
           <span>自动检查（启动 30 秒后 + 每 12 小时）</span>
+        </label>
+        <label class="update-opt">
+          <span class="update-k">下载源</span>
+          <select id="update-mirror" v-model="mirror">
+            <option value="auto">自动（直连 → 镜像）</option>
+            <option value="direct">只直连 GitHub</option>
+            <option value="ghfast">镜像 ghfast.top</option>
+            <option value="ghproxy">镜像 gh-proxy.com</option>
+          </select>
         </label>
       </div>
     </div>
