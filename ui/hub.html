@@ -9032,11 +9032,32 @@ window.__bkOnShow = async function () {
       });
   }
 
+  /// 定时数据刷新的并发闸门。
+  ///
+  /// 2026-11-02：`Promise.all` 里只要有一台慢（弱网 / 换地址），整轮就被拖住；
+  /// 而 setInterval 不等异步完成 → 下一拍又起一轮，请求会堆叠。
+  /// 这里加闸门：上一轮没跑完就跳过这一拍（与「连不上时自动重载」的
+  /// `cqRefreshing` 是同一思路，但独立计数，互不干扰）。
+  let cqDataRefreshBusy = false;
+
   function cqRefreshBoot() {
     if (!invoke) return Promise.resolve([]);
     // 本机行也在列（后端对 'local' 特判）；没有远端档案时至少读本机
     const ids = ['local'].concat(remotes.map(function (r) { return r.id; }));
     return Promise.all(ids.map(function (id) { return cqLoadBoot(id); }));
+  }
+
+  /// 定时刷新专用：带闸门、逐台并发、各自独立成败
+  /// （一台失败不影响其它台，也不会把整轮卡住）。
+  function cqRefreshBootQuiet() {
+    if (!invoke || cqDataRefreshBusy) return;
+    cqDataRefreshBusy = true;
+    const ids = ['local'].concat(remotes.map(function (r) { return r.id; }));
+    // 逐台各自 catch：某台抛异常不该让 Promise.all 整体 reject
+    const tasks = ids.map(function (id) {
+      return cqLoadBoot(id).catch(function () { /* 单台失败已在 cqLoadBoot 内记过连击 */ });
+    });
+    Promise.all(tasks).finally(function () { cqDataRefreshBusy = false; });
   }
 
   function cqSetRefreshBusy(busy) {
@@ -9343,16 +9364,10 @@ window.__bkOnShow = async function () {
       .catch(function (error) { toast('探测失败：' + error, 'bad'); })
       .finally(function () { cqRefreshing = false; cqSetRefreshBusy(false); });
   });
-  // 定时自动探测（与电脑页心跳同一节奏：10 秒一轮）：只在本页可见时跑，
-  // 手动刷新在跑就跳过本轮；静默执行不弹 toast（按钮会转一圈提示探测中）。
-  setInterval(function () {
-    if (currentPage !== 'computers' || document.hidden || cqRefreshing) return;
-    cqRefreshing = true;
-    cqSetRefreshBusy(true);
-    loadRemotes()
-      .catch(function () {})
-      .finally(function () { cqRefreshing = false; cqSetRefreshBusy(false); });
-  }, 10000);
+  // 2026-11-02 删除：这里原有一个**写死 10 秒**的定时探测，与我新加的
+  // 「数据刷新」（默认 2 秒、可配）重复 —— 两个定时器同时在跑，且这个旧的
+  // 还会让刷新按钮每 10 秒转一次，看起来像「没过几秒就刷新一次」。
+  // 现在统一由 restartDataRefresh() 管（间隔见 ⋮ 菜单「数据刷新」）。
   document.getElementById('cqViewClose').addEventListener('click', pcCloseView);
   document.getElementById('cqViewReload').addEventListener('click', function () { pcReloadActive(cqViewRid); });
   cqViewOverlay.addEventListener('click', function (e) { if (e.target === cqViewOverlay) pcCloseView(); });
@@ -10123,9 +10138,11 @@ window.__bkOnShow = async function () {
     } catch (e) { }
     if (!pcDataRefreshSec || pcDataRefreshSec <= 0) return;
     pcDataRefreshTimer = setInterval(function () {
-      // 静默刷新：只更新列表数据（在线状态 + 引导项），不重载页面、不弹提示
-      if (typeof cqRefreshBoot === 'function') {
-        try { void cqRefreshBoot(); } catch (e) { /* 下一拍再试 */ }
+      // 静默刷新：只更新列表数据（在线状态 + 引导项），不重载页面、不弹提示。
+      // **不碰刷新按钮**（cqSetRefreshBusy）：那是「用户主动刷新」的进度指示，
+      // 定时刷新也让按钮转会让人误以为一直在手动刷新。
+      if (typeof cqRefreshBootQuiet === 'function') {
+        try { cqRefreshBootQuiet(); } catch (e) { /* 下一拍再试 */ }
       }
     }, pcDataRefreshSec * 1000);
   }
