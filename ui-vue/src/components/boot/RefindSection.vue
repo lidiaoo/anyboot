@@ -1,10 +1,12 @@
 <script setup lang="ts">
+const toast = useToastStore();
 import { computed, ref } from "vue";
 import { useUiStateStore } from "@/stores/uiState";
 import { useSettingsStore } from "@/stores/settings";
 import { call } from "@/api/tauri";
 import GrubList from "@/components/boot/GrubList.vue";
 import type { EntryData } from "@/components/boot/types";
+import { useToastStore } from "@/stores/toast";
 
 /**
  * rEFInd 区块（原 `ui/index.html` 的 `section#refind`，125~195 行）。
@@ -83,11 +85,16 @@ function unmountTemp() {
   void call("unmount_temporary").catch(() => {});
 }
 
-function selectEntry(selector: string) {
-  if (activePane.value === "manual") {
-    void call("switch_system", { system: selector }).catch(() => {});
-  } else {
-    void call("refind_sim_switch", { title: selector }).catch(() => {});
+async function selectEntry(selector: string) {
+  try {
+    if (activePane.value === "manual") {
+      await call("switch_system", { system: selector });
+    } else {
+      await call("refind_sim_switch", { title: selector });
+    }
+    toast.show("已切换下次启动项");
+  } catch (e) {
+    toast.show("切换失败：" + e, "bad");
   }
 }
 </script>

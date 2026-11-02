@@ -1,10 +1,12 @@
 <script setup lang="ts">
+const toast = useToastStore();
 import { computed, ref, watch } from "vue";
 import { useUiStateStore } from "@/stores/uiState";
 import { useSettingsStore } from "@/stores/settings";
 import { call } from "@/api/tauri";
 import GrubList from "@/components/boot/GrubList.vue";
 import type { EntryData } from "@/components/boot/types";
+import { useToastStore } from "@/stores/toast";
 
 /**
  * GRUB 区块（原 `ui/index.html` 的 `section#grub`，197~290 行）。
@@ -164,11 +166,16 @@ function toggleMount() {
   void call("set_grub_mount", { enabled: !grubManual.value?.keepMounted }).catch(() => {});
 }
 
-function switchEntry(selector: string) {
-  if (activePane.value === "auto") {
-    void call("linux_grub_switch", { selector }).catch(() => {});
-  } else {
-    void call("switch_grub", { selector }).catch(() => {});
+async function switchEntry(selector: string) {
+  try {
+    if (activePane.value === "auto") {
+      await call("linux_grub_switch", { selector });
+    } else {
+      await call("switch_grub", { selector });
+    }
+    toast.show("已切换下次启动项");
+  } catch (e) {
+    toast.show("切换失败：" + e, "bad");
   }
 }
 </script>

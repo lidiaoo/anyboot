@@ -217,7 +217,35 @@ const nextBootRows = computed(() =>
 );
 
 /** 底部提示条（旧版 #status-bar，所有操作回执都落这里） */
-const statusBar = ref({ icon: "", text: "" });
+const statusBar = ref<{ icon: string; text: string; error: boolean }>({ icon: "", text: "", error: false });
+/** 用户手动收起的文案（旧版 statusBarDismissed：同一文案不重复弹） */
+let statusBarDismissed = "";
+
+/** 旧版 actionMessage：失败优先，其次 lastAction.message */
+function actionMessage(state: { status?: { error?: string | null }; lastAction?: { message?: string } | null } | null): string {
+  if (!state) return "";
+  if (state.status?.error) return state.status.error;
+  if (state.lastAction && state.lastAction.message) return state.lastAction.message;
+  return "";
+}
+
+/** 旧版 syncStatusBarFromState：快照带回执时更新，除非用户已收起同一条 */
+function syncStatusBarFromState(): void {
+  const text = actionMessage(ui.state as never);
+  if (!text) return;
+  if (text === statusBarDismissed || text === statusBar.value.text) return;
+  const error = Boolean(ui.status?.error);
+  statusBar.value = { icon: error ? "✕" : "✓", text, error };
+}
+
+/** 手动收起（旧版 status-bar-close） */
+function dismissStatusBar(): void {
+  statusBarDismissed = statusBar.value.text;
+  statusBar.value = { icon: "", text: "", error: false };
+}
+
+// 快照变化时同步
+watch(() => ui.state, syncStatusBarFromState);
 
 /* ============ Linux 免密提权（旧版 index.html:985–1100 的 priv* 逻辑） ============ */
 interface PrivStatus {
@@ -526,9 +554,9 @@ const statusText = computed(() => {
   </div>
 
   <!-- 窗口自己的底部提示条（旧版 #status-bar，与 .app-columns 平级） -->
-  <div v-if="statusBar.text" id="status-bar" aria-live="polite" class="status-bar" role="status">
+  <div v-if="statusBar.text" id="status-bar" aria-live="polite" :class="['status-bar', statusBar.error ? 'error' : 'ok']" role="status">
     <span id="status-bar-icon" class="status-bar-icon" aria-hidden="true">{{ statusBar.icon }}</span>
     <span id="status-bar-text" class="status-bar-text">{{ statusBar.text }}</span>
-    <button type="button" id="status-bar-close" class="status-bar-close" title="收起" @click="statusBar.text = ''">×</button>
+    <button type="button" id="status-bar-close" class="status-bar-close" title="收起" @click="dismissStatusBar">×</button>
   </div>
 </template>
