@@ -111,7 +111,7 @@ export const useRemoteStore = defineStore("remote", () => {
     if (loading.value.has(id)) return;
     loading.value.add(id);
     try {
-      const info = await call<RemoteBootInfo>("remote_boot_info", { serverId: id });
+      const info = await call<RemoteBootInfo>("remote_boot_info", { server_id: id });
       if (info.online) {
         failCounts.value.delete(id);
         bootInfo.value.set(id, info);

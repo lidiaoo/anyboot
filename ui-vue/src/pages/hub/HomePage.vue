@@ -150,7 +150,7 @@ async function ensureRemoteUrl(id: string): Promise<void> {
   if (id === "local" || remoteUrls.value.has(id)) return;
   try {
     const endpoint = await call<{ host: string; port: number }>("remote_endpoint", {
-      serverId: id,
+      server_id: id,
     });
     if (endpoint?.host) {
       const profile = remote.servers.find((s) => s.id === id);

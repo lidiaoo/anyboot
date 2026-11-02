@@ -82,7 +82,7 @@ export const useServersStore = defineStore("servers", () => {
     try {
       const result = await call<{ ok?: boolean; message?: string; ms?: number }>(
         "hub_test_server",
-        { id: server.id },
+        { server },
       );
       const text = result?.ok
         ? `通 · ${result.ms ?? "?"} ms`
