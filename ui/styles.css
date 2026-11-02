@@ -2767,6 +2767,18 @@ button.primary-sol:hover:not(:disabled) {
 #tab-boot .ba-theme-sec .sim-list > .grub-entry:first-child {
   margin-top: 0;
 }
+/* 2026-11-02 用户要求：「opencore systemd-boot clover 也要像 refind/grub 一样
+ * 顶部有一点间隙 具体数值看 grub/refind」。
+ *
+ * 实测三者「面板顶 → 列表顶」的距离：
+ *   rEFInd 4px（.grub-panel padding-top: 4px）
+ *   GRUB   4px（同上）
+ *   OpenCore 0   ← 它的列表挂在 `.oc-menu` 上，那层 padding 之前被清零了
+ *
+ * 统一成 4px：给 `.oc-menu` 补回上内边距（其余三边保持 0，避免影响宽度对齐）。 */
+#tab-boot .ba-theme-sec .oc-menu {
+  padding-top: 4px;
+}
 
 /* 行右侧的小字/按钮排一行（GRUB 那边只有一个小字，这里可能并排放两三个） */
 .grub-entry-side {
