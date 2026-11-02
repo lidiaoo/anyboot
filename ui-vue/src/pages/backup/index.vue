@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { call } from "@/api/tauri";
 
 /**
@@ -37,12 +37,13 @@ interface SyncState {
   onChanged?: boolean;
 }
 
+/** 分类（逐字照抄旧版 CATS，key 即备份文件载荷字段名） */
 const CATEGORIES = [
-  { id: "settings", label: "设置" },
-  { id: "servers", label: "服务器档案" },
-  { id: "computers", label: "电脑档案" },
-  { id: "keys", label: "SSH 私钥" },
-  { id: "history", label: "动作历史" },
+  { id: "servers", name: "电脑列表", desc: "电脑档案与连接配置" },
+  { id: "jumps", name: "SSH 服务器", desc: "跳板机 / 服务器档案（含密码明文）" },
+  { id: "keys", name: "SSH 密钥", desc: "私钥与公钥（导出含私钥明文）" },
+  { id: "terminal", name: "偏好设置", desc: "终端与传输偏好（跨端共同子集）" },
+  { id: "history", name: "连接记录", desc: "会话历史与信任指纹" },
 ] as const;
 
 const sync = ref<SyncState | null>(null);
@@ -50,11 +51,37 @@ const busy = ref("");
 const message = ref("");
 const errorText = ref("");
 
-const exportIncludeKeys = ref(false);
+/** 是否勾了 keys（旧版 hasKeys） */
+const exportIncludeKeys = computed(() => exportCats.value.includes("keys"));
 const exportPw1 = ref("");
 const exportPw2 = ref("");
-const exportCats = ref<string[]>(["settings", "servers", "computers"]);
-const syncCats = ref<string[]>(["settings", "servers", "computers"]);
+const exportCats = ref<string[]>(["servers", "jumps", "keys", "terminal", "history"]);
+// 旧版同步默认只勾 4 类（不含 history）
+const syncCats = ref<string[]>(["servers", "jumps", "keys", "terminal"]);
+
+/** 同步加密（旧版 #syncEncrypt / #syncEncryptPw / #syncEncryptErr） */
+const syncEncrypt = ref(false);
+const syncEncryptPw = ref("");
+const syncEncryptErr = ref("");
+/** 是否锁定（导入/导出进行中） */
+const locked = computed(() => Boolean(busy.value));
+/** 口令强度三档（旧版 refreshExportUi） */
+const exportStrengthScore = computed(() => {
+  const a = exportPw1.value;
+  if (!a) return 0;
+  return Math.min(3, (a.length >= 8 ? 1 : 0) + (/[0-9]/.test(a) && /[a-zA-Z]/.test(a) ? 1 : 0) + (/[^0-9a-zA-Z]/.test(a) ? 1 : 0));
+});
+const exportStrengthPct = computed(() => ((exportStrengthScore.value / 3) * 100).toFixed(0));
+const exportStrengthColor = computed(() => {
+  const s = exportStrengthScore.value;
+  return s <= 1 ? "rgb(var(--bad))" : s === 2 ? "rgb(var(--warn))" : "rgb(var(--ok))";
+});
+const exportPwErr = computed(() => {
+  const a = exportPw1.value, b = exportPw2.value;
+  if (a && a.length < 4) return "口令至少 4 位";
+  if (b && a !== b) return "两次输入不一致";
+  return "";
+});
 
 const syncEnabled = ref(false);
 const syncUrl = ref("");
@@ -108,13 +135,14 @@ async function refreshSync() {
 
 onMounted(refreshSync);
 
-function toggleCat(which: "export" | "sync", id: string) {
-  const source = which === "export" ? exportCats : syncCats;
+function toggleCat(which: "export" | "sync" | "import", id: string) {
+  const source = which === "export" ? exportCats : which === "sync" ? syncCats : importCats;
   const next = source.value.includes(id)
     ? source.value.filter((x) => x !== id)
     : [...source.value, id];
   if (which === "export") exportCats.value = next;
-  else syncCats.value = next;
+  else if (which === "sync") syncCats.value = next;
+  else importCats.value = next;
 }
 
 async function run(label: string, action: () => Promise<unknown>, done: string) {
@@ -190,6 +218,67 @@ function testWebdav() {
 function syncNow() {
   void run("立即同步", () => call("backup_sync_now"), "同步完成");
 }
+
+/** 导入三段式与弹层状态 */
+const pwOpen = ref(false);
+const importPw = ref("");
+const importPwErr = ref("");
+const previewOpen = ref(false);
+const previewRows = ref<{ label: string; inBackup: number; local: number; conflicts: number }[]>([]);
+const previewWarn = ref("");
+const previewSrc = ref("");
+const importPath = ref("");
+const importCats = ref<string[]>(["servers", "jumps", "keys", "terminal", "history"]);
+const importStrategy = ref<"skipExisting" | "overwrite">("skipExisting");
+const confirmOpen = ref(false);
+const confirmBody = ref("");
+const resultOpen = ref(false);
+const resultRows = ref<{ k: string; v: string }[]>([]);
+const toastText = ref("");
+
+function showToast(text: string) {
+  toastText.value = text;
+  window.setTimeout(() => {
+    if (toastText.value === text) toastText.value = "";
+  }, 2600);
+}
+function submitPw() {
+  if (!importPw.value.trim()) {
+    importPwErr.value = "请输入口令";
+    return;
+  }
+  pwOpen.value = false;
+}
+function startImport() {
+  previewOpen.value = false;
+  const total = previewRows.value.reduce((s, r) => s + r.conflicts, 0);
+  if (importStrategy.value === "overwrite" && total > 0) {
+    confirmBody.value = `备份中有 ${total} 条与本机同 ID 的条目，将以备份内容整条覆盖。`;
+    confirmOpen.value = true;
+    return;
+  }
+  void executeImport();
+}
+async function executeImport() {
+  confirmOpen.value = false;
+  if (busy.value) return;
+  busy.value = "导入";
+  try {
+    const res = (await call("backup_import", {
+      path: importPath.value,
+      password: importPw.value,
+      categories: importCats.value,
+      strategy: importStrategy.value,
+    })) as Record<string, unknown>;
+    resultRows.value = Object.entries(res ?? {}).map(([k, v]) => ({ k, v: String(v) }));
+    resultOpen.value = true;
+    showToast("导入完成");
+  } catch (error) {
+    errorText.value = String(error);
+  } finally {
+    busy.value = "";
+  }
+}
 </script>
 
 <template>
@@ -201,7 +290,7 @@ function syncNow() {
     </span>
     <h1>备份与恢复</h1>
     <div class="tools">
-      <button type="button" class="toolbtn" aria-label="打开远程管理" title="打开远程管理" @click="openHub">
+      <button type="button" class="toolbtn" id="hubBtn" aria-label="打开远程管理" title="打开远程管理" @click="openHub">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <rect x="2" y="3" width="20" height="7" rx="2" />
           <rect x="2" y="14" width="20" height="7" rx="2" />
@@ -209,7 +298,7 @@ function syncNow() {
         </svg>
         远程管理
       </button>
-      <button type="button" class="toolbtn" aria-label="切换主题" @click="toggleTheme">
+      <button type="button" class="toolbtn" id="themeBtn" aria-label="切换主题" @click="toggleTheme">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
           <circle cx="12" cy="12" r="9" />
           <path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none" />
@@ -221,7 +310,8 @@ function syncNow() {
 
   <main class="scroll-thin">
     <!-- 导出 -->
-    <section class="panel">
+    <!-- 导出（旧版 #exportPanel） -->
+    <section class="panel" id="exportPanel">
       <div class="panel-head">
         <span class="picon" aria-hidden="true">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -232,18 +322,18 @@ function syncNow() {
         <span class="sub">导出为 .json 备份文件，可在手机 / 电脑间互导</span>
       </div>
 
-      <div class="cats">
+      <div class="cats" id="exportCats">
         <label v-for="cat in CATEGORIES" :key="cat.id" class="radio-line">
           <input
             type="checkbox"
             :checked="exportCats.includes(cat.id)"
             @change="toggleCat('export', cat.id)"
           />
-          {{ cat.label }}
+          {{ cat.name }}
         </label>
       </div>
 
-      <div v-if="exportIncludeKeys" class="info">
+      <div v-if="exportIncludeKeys" id="exportKeyHint" class="info">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
           <circle cx="12" cy="12" r="9" />
           <path d="M12 8v5M12 16h.01" />
@@ -251,29 +341,29 @@ function syncNow() {
         <span>导出包含 <b>SSH 私钥明文</b>，请设置口令加密，并妥善保管备份文件。</span>
       </div>
 
-      <div v-if="exportIncludeKeys" class="pw-zone">
+      <div v-if="exportIncludeKeys" id="exportPwZone" class="pw-zone">
         <div class="pw-grid">
           <div class="field">
             <label for="expPw1">备份口令</label>
             <input id="expPw1" v-model="exportPw1" type="password" placeholder="至少 4 位" autocomplete="new-password" />
-            <div class="strength"><i :style="{ width: Math.min(100, exportPw1.length * 12) + '%' }" /></div>
+            <div class="strength"><i id="expStrength" :style="{ width: exportStrengthPct + '%', background: exportStrengthColor }" /></div>
           </div>
           <div class="field">
             <label for="expPw2">再输一次</label>
             <input id="expPw2" v-model="exportPw2" type="password" placeholder="两次需一致" autocomplete="new-password" />
-            <div class="err">{{ exportPw1 && exportPw2 && exportPw1 !== exportPw2 ? "两次口令不一致" : "" }}</div>
+            <div class="err" id="expPwErr">{{ exportPwErr }}</div>
           </div>
         </div>
       </div>
 
       <div class="row-actions">
-        <button type="button" class="btn primary" :disabled="!!busy" @click="doExport">导出备份文件</button>
-        <span class="note">不加密也能导出，但密钥明文会直接写进文件</span>
+        <button type="button" class="btn primary" id="exportBtn" :disabled="!!busy" @click="doExport">导出备份文件</button>
+        <span class="note" id="exportNote">不加密也能导出，但密钥明文会直接写进文件</span>
       </div>
     </section>
 
-    <!-- 导入 -->
-    <section class="panel">
+    <!-- 导入（旧版 #importPanel） -->
+    <section class="panel" id="importPanel">
       <div class="panel-head">
         <span class="picon" aria-hidden="true">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -284,15 +374,15 @@ function syncNow() {
         <span class="sub">从 .json 备份文件恢复（手机导出的备份同样可用）</span>
       </div>
       <div class="row-actions">
-        <button type="button" class="btn primary" :disabled="!!busy" @click="doImport">选择备份文件…</button>
+        <button type="button" class="btn primary" id="importBtn" :disabled="!!busy" @click="doImport">选择备份文件…</button>
         <span class="note">导入前会先预览差异，再让你确认</span>
       </div>
     </section>
 
     <hr class="divider" />
 
-    <!-- WebDAV 同步 -->
-    <section class="panel">
+    <!-- WebDAV 同步（旧版 #syncPanel） -->
+    <section class="panel" id="syncPanel">
       <div class="sync-head">
         <span class="picon" aria-hidden="true">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -306,7 +396,7 @@ function syncNow() {
         </label>
       </div>
 
-      <div class="form-grid">
+      <div class="form-grid" id="syncForm">
         <div class="form-row">
           <div class="field" style="flex: 2 1 280px">
             <label for="syncUrl">服务器地址</label>
@@ -363,27 +453,48 @@ function syncNow() {
           有变化时自动同步（改动后约 30 秒内推送）
         </label>
 
-        <div class="cats">
+        <div class="cats" id="syncCats">
           <label v-for="cat in CATEGORIES" :key="cat.id" class="radio-line">
             <input
               type="checkbox"
               :checked="syncCats.includes(cat.id)"
               @change="toggleCat('sync', cat.id)"
             />
-            {{ cat.label }}
+            {{ cat.name }}
           </label>
+        </div>
+
+        <!-- 云端备份加密（旧版 #syncEncryptZone） -->
+        <div class="pw-zone" id="syncEncryptZone">
+          <label class="checkline">
+            <input id="syncEncrypt" v-model="syncEncrypt" type="checkbox" />
+            云端备份加密（推荐 —— 同步文件含密钥明文）
+          </label>
+          <div class="field" id="syncEncryptPwField" :hidden="!syncEncrypt" style="max-width: 320px">
+            <label for="syncEncryptPw">同步口令</label>
+            <input id="syncEncryptPw" v-model="syncEncryptPw" type="password" :placeholder="sync?.hasPassword ? '已保存，留空则不修改' : '同步口令'" autocomplete="new-password" />
+            <span class="err" id="syncEncryptErr">{{ syncEncryptErr }}</span>
+          </div>
         </div>
       </div>
 
-      <div class="sync-status">
+      <div class="sync-status" id="syncStatus">
         <span v-if="sync?.lastError" class="err">{{ sync.lastError }}</span>
         <span v-else>上次同步：{{ sync?.lastSyncAt || "从未" }}</span>
       </div>
 
+      <div v-if="locked" class="info" id="syncLockInfo">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 8v5M12 16h.01" />
+        </svg>
+        <span>导入 / 导出进行中，同步暂时锁定。</span>
+      </div>
+
       <div class="row-actions">
-        <button type="button" class="btn" :disabled="!!busy" @click="testWebdav">测试连接</button>
-        <button type="button" class="btn" :disabled="!!busy" @click="saveSync">保存配置</button>
-        <button type="button" class="btn primary" :disabled="!syncEnabled || !!busy" @click="syncNow">
+        <button type="button" class="btn" id="syncTestBtn" :disabled="!!busy" @click="testWebdav">测试连接</button>
+        <button type="button" class="btn" id="syncSaveBtn" :disabled="!!busy" @click="saveSync">保存配置</button>
+        <button type="button" class="btn primary" id="syncNowBtn" :disabled="!syncEnabled || !!busy" @click="syncNow">
           立即同步
         </button>
       </div>
@@ -391,5 +502,111 @@ function syncNow() {
 
     <p v-if="message" class="note" style="color: rgb(var(--ok))">{{ message }}</p>
     <p v-if="errorText" class="err">{{ errorText }}</p>
+
+  <!-- 口令弹层（旧版 #pwModal） -->
+  <div v-if="pwOpen" id="pwModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="pwTitle">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3 id="pwTitle">此备份已加密</h3>
+        <button type="button" id="pwClose" aria-label="关闭" @click="pwOpen = false">✕</button>
+      </div>
+      <form id="pwForm" class="modal-body" @submit.prevent="submitPw">
+        <div class="field">
+          <label for="importPw">备份口令</label>
+          <input id="importPw" v-model="importPw" type="password" autocomplete="off" />
+          <div class="err" id="importPwErr">{{ importPwErr }}</div>
+        </div>
+        <div class="modal-foot" style="border: 0; padding: 4px 0 0">
+          <button type="button" class="btn plain" id="pwCancel" @click="pwOpen = false">取消</button>
+          <button type="submit" class="btn primary">解锁预览</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 导入预览（旧版 #previewModal） -->
+  <div v-if="previewOpen" id="previewModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="prevTitle">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3 id="prevTitle">导入预览</h3>
+        <button type="button" id="prevClose" aria-label="关闭" @click="previewOpen = false">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="src-line" id="prevSrc">{{ previewSrc }}</div>
+        <table class="prev">
+          <thead><tr><th>分类</th><th style="text-align: right">备份内</th><th style="text-align: right">本机现有</th><th>同 ID 冲突</th></tr></thead>
+          <tbody id="prevRows">
+            <tr v-for="row in previewRows" :key="row.label">
+              <td>{{ row.label }}</td>
+              <td style="text-align: right">{{ row.inBackup }}</td>
+              <td style="text-align: right">{{ row.local }}</td>
+              <td>{{ row.conflicts }}</td>
+            </tr>
+            <tr v-if="!previewRows.length"><td colspan="4">（备份文件里没有可识别的内容）</td></tr>
+          </tbody>
+        </table>
+        <div v-if="previewWarn" id="prevWarn" class="info warn">
+          <span id="prevWarnText">{{ previewWarn }}</span>
+        </div>
+        <div class="cats" id="importCats">
+          <label v-for="cat in CATEGORIES" :key="cat.id" class="radio-line">
+            <input type="checkbox" :checked="importCats.includes(cat.id)" @change="toggleCat('import', cat.id)" />
+            {{ cat.name }}
+          </label>
+        </div>
+        <div class="strategy" id="strategyBox">
+          <label class="radio-line">
+            <input v-model="importStrategy" type="radio" name="strategy" value="skipExisting" />
+            <span>跳过已存在的条目<span class="rdesc">只添加本机没有的；现有配置一律不动（安全）</span></span>
+          </label>
+          <label class="radio-line">
+            <input v-model="importStrategy" type="radio" name="strategy" value="overwrite" />
+            <span>用备份覆盖同 ID 条目<span class="rdesc">同 ID 的本机档案会被备份内容整条替换；本机独有的条目保留</span></span>
+          </label>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button type="button" class="btn plain" id="prevCancel" @click="previewOpen = false">取消</button>
+        <button type="button" class="btn primary" id="prevGo" @click="startImport">开始导入</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 覆盖确认（旧版 #confirmModal） -->
+  <div v-if="confirmOpen" id="confirmModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="cfmTitle">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3 id="cfmTitle">确认覆盖导入？</h3>
+        <button type="button" class="btn plain" aria-label="关闭" @click="confirmOpen = false">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="del-body" id="cfmBody">{{ confirmBody }}</p>
+        <div class="modal-foot" style="border: 0; padding: 4px 0 0">
+          <button type="button" class="btn plain" id="cfmCancel" @click="confirmOpen = false">取消</button>
+          <button type="button" class="btn dangerbtn" id="cfmOk" @click="executeImport">覆盖导入</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 导入结果（旧版 #resultModal） -->
+  <div v-if="resultOpen" id="resultModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="resTitle">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3 id="resTitle">导入完成</h3>
+        <button type="button" id="resClose" aria-label="关闭" @click="resultOpen = false">✕</button>
+      </div>
+      <div class="modal-body" id="resBody">
+        <p v-for="row in resultRows" :key="row.k">{{ row.k }}：{{ row.v }}</p>
+        <p v-if="!resultRows.length">导入已完成</p>
+      </div>
+      <div class="modal-foot">
+        <button type="button" class="btn primary" id="resOk" @click="resultOpen = false">完成</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- toast（旧版 #toast） -->
+  <div v-if="toastText" id="toast">{{ toastText }}</div>
   </main>
 </template>
