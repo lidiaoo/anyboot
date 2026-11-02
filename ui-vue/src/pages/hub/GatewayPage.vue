@@ -3,7 +3,6 @@ import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { call } from "@/api/tauri";
 import PairDialog from "@/components/hub/PairDialog.vue";
 import LogDialog from "@/components/hub/LogDialog.vue";
-import ConfirmDialog from "@/components/hub/ConfirmDialog.vue";
 
 /**
  * 远程接入页（原 `ui/hub.html` 的 `#page-gateway`，2792~3355 行）。
@@ -318,6 +317,8 @@ const errorText = ref("");
 /** 自动刷新（旧版 `.gw-ar` 三合一控件） */
 const autoSec = ref(3);
 const autoRunning = ref(true);
+/** 下拉菜单开合（旧版 #gwAutoMenu） */
+const autoMenuOpen = ref(false);
 let autoTimer: number | null = null;
 
 const TABS: { key: TabKey; label: string; dot?: boolean }[] = [
@@ -620,12 +621,26 @@ function deletePair(id: string) {
           class="gw-ar-caret"
           aria-label="选择常用刷新间隔"
           aria-haspopup="listbox"
-          :aria-expanded="false"
+          :aria-expanded="autoMenuOpen"
+          @click="autoMenuOpen = !autoMenuOpen"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M6 9l6 6 6-6" />
           </svg>
         </button>
+        <!-- 常用刷新间隔（旧版 #gwAutoMenu） -->
+        <div v-if="autoMenuOpen" id="gwAutoMenu" class="gw-ar-menu" role="listbox" aria-label="常用刷新间隔">
+          <button
+            v-for="sec in [1, 3, 5, 10, 30]"
+            :key="sec"
+            type="button"
+            role="option"
+            :aria-selected="autoSec === sec"
+            @click="autoSec = sec; autoMenuOpen = false; setupAuto()"
+          >
+            {{ sec }} 秒
+          </button>
+        </div>
       </div>
       <button
         type="button"
@@ -634,6 +649,25 @@ function deletePair(id: string) {
         :aria-pressed="!autoRunning"
         @click="autoRunning = !autoRunning; setupAuto()"
       >
+        <svg
+          id="gwAutoIconPause"
+          viewBox="0 0 24 24"
+          fill="currentColor"
+          aria-hidden="true"
+          :style="{ display: autoRunning ? undefined : 'none' }"
+        >
+          <rect x="7" y="5" width="3.4" height="14" rx="1.2" />
+          <rect x="13.6" y="5" width="3.4" height="14" rx="1.2" />
+        </svg>
+        <svg
+          id="gwAutoIconPlay"
+          viewBox="0 0 24 24"
+          fill="currentColor"
+          aria-hidden="true"
+          :style="{ display: autoRunning ? 'none' : undefined }"
+        >
+          <path d="M8 5.6v12.8a1 1 0 0 0 1.52.85l9.6-6.4a1 1 0 0 0 0-1.7l-9.6-6.4A1 1 0 0 0 8 5.6z" />
+        </svg>
         <span id="gwAutoToggleText">{{ autoRunning ? "暂停" : "继续" }}</span>
       </button>
     </div>
@@ -1236,20 +1270,32 @@ function deletePair(id: string) {
 
   <PairDialog :open="pairOpen" @close="pairOpen = false; refreshAll()" />
 
-  <!-- 卸载确认（旧版 #gwUniOverlay）：勾上「保留本机数据」只删程序，登录凭据留着 -->
-  <ConfirmDialog
-    :open="uninstallOpen"
-    title="卸载"
-    :message="uninstallWhat"
-    confirm-text="确认卸载"
-    checkbox-label="保留本机数据（登录凭据 / 配置 / 状态目录）"
-    @confirm="confirmUninstall"
-    @cancel="uninstallOpen = false"
-  />
+  <!-- 卸载确认（旧版 #gwUniOverlay，hub.html:3294）：勾上「保留本机数据」只删程序 -->
+  <div v-if="uninstallOpen" id="gwUniOverlay" class="token-modal-overlay" @click.self="uninstallOpen = false">
+    <div id="gwUniDialog" class="token-modal gw-uni-modal" role="dialog" aria-modal="true" aria-labelledby="gwUniTitle">
+      <h2 id="gwUniTitle">卸载</h2>
+      <p id="gwUniWhat" class="gw-pair-warn">{{ uninstallWhat }}</p>
+      <label class="gw-uni-keep">
+        <input id="gwUniKeep" v-model="keepData" type="checkbox" />
+        <span>
+          <b>保留本机数据</b>（登录凭据 / 配置 / 状态目录）
+          <span id="gwUniKeepHint" class="field-hint" style="display: block; margin-top: 3px" />
+        </span>
+      </label>
+      <p id="gwUniWarn" class="field-hint" style="margin: 10px 0 0">
+        不勾选（默认）= 连同本机登录凭据一起清掉，下次安装或重开需要重新授权。
+      </p>
+      <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px">
+        <button type="button" id="gwUniCancel" class="btn" @click="uninstallOpen = false">取消</button>
+        <button type="button" id="gwUniOk" class="btn primary" @click="confirmUninstall(keepData)">确认卸载</button>
+      </div>
+    </div>
+  </div>
 
   <!-- 三个日志弹层（旧版 #gwLogOverlay / #tsLogOverlay / #tsnLogOverlay 同构） -->
   <LogDialog
     :open="logOpen"
+    id-prefix="gwLog"
     title="通道日志"
     :lines="logs"
     @copy="copyText"
@@ -1258,6 +1304,7 @@ function deletePair(id: string) {
   />
   <LogDialog
     :open="tsLogOpen"
+    id-prefix="tsLog"
     title="Tailscale 日志"
     :lines="tsLogs"
     @copy="copyText"
@@ -1266,6 +1313,8 @@ function deletePair(id: string) {
   />
   <LogDialog
     :open="tsnLogOpen"
+    id-prefix="tsnLog"
+    button-style="modal"
     title="内置引擎日志"
     :lines="tsnLogs"
     @copy="copyText"

@@ -107,17 +107,17 @@ onMounted(() => {
 </script>
 
 <template>
-  <div v-if="open" class="token-modal-overlay" @click.self="emit('close')">
+  <div v-if="open" id="gwPairOverlay" class="token-modal-overlay" @click.self="emit('close')">
     <div class="token-modal gw-pair-modal">
-      <button type="button" class="gw-pair-x" title="关闭（不生成）" aria-label="关闭（不生成）" @click="emit('close')">
+      <button type="button" id="gwPairX" class="gw-pair-x" title="关闭（不生成）" aria-label="关闭（不生成）" @click="emit('close')">
         ✕
       </button>
 
-      <h2>生成配对码</h2>
+      <h2 id="gwPairTitle">生成配对码</h2>
       <p class="gw-pair-warn">等同密码：拿到它就能访问这台电脑，不要转发给别人。</p>
 
       <template v-if="!resultText">
-        <div class="field">
+        <div class="field" id="gwPairNameRow">
           <label for="gwPairName">客户端名称（谁来配对）</label>
           <input
             id="gwPairName"
@@ -128,9 +128,9 @@ onMounted(() => {
           />
         </div>
 
-        <div class="field">
+        <div class="field" id="gwPairAddrRow">
           <label>配对串带哪个地址</label>
-          <div class="segmented" role="tablist" aria-label="地址类型">
+          <div class="segmented" id="gwPairAddrTabs" role="tablist" aria-label="地址类型">
             <button
               v-for="tab in ADDR_TABS"
               :key="tab.key"
@@ -143,22 +143,22 @@ onMounted(() => {
               {{ tab.label }}
             </button>
           </div>
-          <p class="field-hint" style="margin: 6px 0 0">{{ currentHint }}</p>
+          <p class="field-hint" id="gwPairAddrHint" style="margin: 6px 0 0">{{ currentHint }}</p>
         </div>
 
-        <div style="display: flex; gap: 8px; justify-content: flex-end">
-          <button type="button" class="btn primary" :disabled="busy" @click="generate">
+        <div id="gwPairGoRow" style="display: flex; gap: 8px; justify-content: flex-end">
+          <button type="button" id="gwPairGo" class="btn primary" :disabled="busy" @click="generate">
             {{ busy ? "生成中…" : "生成配对码" }}
           </button>
         </div>
       </template>
 
-      <div v-else>
-        <div ref="qrRef" class="gw-qr" />
-        <textarea v-model="resultText" class="mono" readonly rows="3" spellcheck="false" />
+      <div v-else id="gwPairResult">
+        <div ref="qrRef" id="gwPairQr" class="gw-qr" />
+        <textarea id="gwPairText" v-model="resultText" class="mono" readonly rows="3" spellcheck="false" />
         <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px">
-          <button type="button" class="btn" @click="copyPair">复制配对串</button>
-          <button type="button" class="btn primary" @click="emit('close')">完成</button>
+          <button type="button" id="gwPairCopy" class="btn" @click="copyPair">复制配对串</button>
+          <button type="button" id="gwPairClose" class="btn primary" @click="emit('close')">完成</button>
         </div>
       </div>
 

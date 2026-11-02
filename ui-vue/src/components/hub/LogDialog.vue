@@ -16,6 +16,14 @@ defineProps<{
   open: boolean;
   title: string;
   lines: string[];
+  /**
+   * 旧版三个日志弹层是**各自独立的 DOM**（`#gwLogOverlay` / `#tsLogOverlay` /
+   * `#tsnLogOverlay`），各有 `<prefix>Body/Copy/Clear/Close` 四个 id。
+   * 这里用一个前缀参数区分。
+   */
+  idPrefix: string;
+  /** 按钮 id 的后缀风格：'plain' → Copy/Clear/Close；'modal' → ModalCopy/ModalClear/ModalClose */
+  buttonStyle?: "plain" | "modal";
 }>();
 
 const emit = defineEmits<{
@@ -27,14 +35,16 @@ const emit = defineEmits<{
 
 <template>
   <Teleport to="body">
-    <div v-if="open" class="token-modal-overlay" @click.self="emit('close')">
+    <div v-if="open" :id="`${idPrefix}Overlay`" class="token-modal-overlay" @click.self="emit('close')">
       <div class="token-modal gw-log-modal">
         <h2>{{ title }}</h2>
-        <pre class="gw-log">{{ lines.join("\n") || "（暂无日志）" }}</pre>
+        <pre :id="`${idPrefix}Body`" class="gw-log">{{ lines.join("\n") || "（暂无日志）" }}</pre>
         <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px">
-          <button type="button" class="btn" @click="emit('copy', lines.join('\n'))">复制全部</button>
-          <button type="button" class="btn" @click="emit('clear')">清空</button>
-          <button type="button" class="btn primary" @click="emit('close')">关闭</button>
+          <button type="button" :id="`${idPrefix}${buttonStyle === 'modal' ? 'ModalCopy' : 'Copy'}`" class="btn" @click="emit('copy', lines.join('\n'))">
+            复制全部
+          </button>
+          <button type="button" :id="`${idPrefix}${buttonStyle === 'modal' ? 'ModalClear' : 'Clear'}`" class="btn" @click="emit('clear')">清空</button>
+          <button type="button" :id="`${idPrefix}${buttonStyle === 'modal' ? 'ModalClose' : 'Close'}`" class="btn primary" @click="emit('close')">关闭</button>
         </div>
       </div>
     </div>
