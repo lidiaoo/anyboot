@@ -102,9 +102,10 @@ function pickDownDir() {
           <p class="ts-t">字号</p>
           <p class="ts-s">终端字体大小</p>
         </div>
-        <span class="ts-val">{{ settings.font }} pt</span>
+        <span class="ts-val" id="tsFontVal">{{ settings.font }} pt</span>
       </div>
       <input
+        id="tsFont"
         v-model.number="settings.font"
         class="ts-range"
         type="range"
@@ -119,7 +120,7 @@ function pickDownDir() {
           <p class="ts-t">光标闪烁</p>
           <p class="ts-s">终端光标呼吸闪烁</p>
         </div>
-        <input v-model="settings.cursor" type="checkbox" class="ts-check" />
+        <input id="tsCursor" v-model="settings.cursor" type="checkbox" class="ts-check" />
         <span class="ts-switch" aria-hidden="true" />
       </label>
 
@@ -128,7 +129,7 @@ function pickDownDir() {
           <p class="ts-t">选中即复制</p>
           <p class="ts-s">划选文本自动进剪贴板</p>
         </div>
-        <input v-model="settings.copy" type="checkbox" class="ts-check" />
+        <input id="tsCopy" v-model="settings.copy" type="checkbox" class="ts-check" />
         <span class="ts-switch" aria-hidden="true" />
       </label>
 
@@ -137,7 +138,7 @@ function pickDownDir() {
           <p class="ts-t">响铃提示</p>
           <p class="ts-s">BEL 字符触发提示音</p>
         </div>
-        <input v-model="settings.bell" type="checkbox" class="ts-check" />
+        <input id="tsBell" v-model="settings.bell" type="checkbox" class="ts-check" />
         <span class="ts-switch" aria-hidden="true" />
       </label>
 
@@ -147,6 +148,7 @@ function pickDownDir() {
           <p class="ts-s">本机已装的等宽字体名（留空 = 内置等宽栈；字体缺失自动回落，不会坏）</p>
         </div>
         <input
+          id="tsFontFamily"
           v-model="settings.fontFamily"
           class="ts-num"
           type="text"
@@ -161,6 +163,7 @@ function pickDownDir() {
           <p class="ts-s">缓冲区保留的历史输出（500–100000）</p>
         </div>
         <input
+          id="tsScroll"
           v-model.number="settings.scroll"
           class="ts-num"
           type="number"
@@ -179,13 +182,14 @@ function pickDownDir() {
         </div>
         <div style="display: flex; gap: 8px; align-items: center; flex: none">
           <input
+            id="tsDownDir"
             v-model="settings.downDir"
             class="ts-num"
             type="text"
             placeholder="系统下载目录"
             style="width: min(210px, 100%)"
           />
-          <button type="button" class="btn" style="height: 32px; padding: 0 12px" @click="pickDownDir">
+          <button type="button" id="tsDownBrowse" class="btn" style="height: 32px; padding: 0 12px" @click="pickDownDir">
             选择…
           </button>
         </div>
@@ -194,6 +198,7 @@ function pickDownDir() {
 
     <button
       type="button"
+      id="tsApply"
       class="btn primary"
       style="height: 40px; width: 100%; justify-content: center"
       @click="apply"

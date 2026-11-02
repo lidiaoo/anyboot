@@ -54,10 +54,10 @@ function openKeys() {
       <path d="M10.8 12.2 20 3M17 6l2.5 2.5" />
     </svg>
     <p class="t">密钥</p>
-    <p class="s">
+    <p class="s" id="keysPageHint">
       {{ loading ? "正在读取密钥列表…" : keys.length ? `本机已有 ${keys.length} 把 SSH 密钥` : "还没有 SSH 密钥 —— 在密钥管理里生成或导入一把" }}
     </p>
-    <button type="button" class="btn primary" @click="openKeys">
+    <button type="button" id="keysBtn" class="btn primary" @click="openKeys">
       <svg
         width="15"
         height="15"

@@ -52,8 +52,8 @@ function openTerminal() {
       <path d="M6 9l3 3-3 3" />
     </svg>
     <p class="t">终端</p>
-    <p class="s">{{ hint }}</p>
-    <button type="button" class="btn primary" :disabled="!selectedId" @click="openTerminal">
+    <p class="s" id="termPageHint">{{ hint }}</p>
+    <button type="button" id="pageTermBtn" class="btn primary" :disabled="!selectedId" @click="openTerminal">
       打开终端
     </button>
   </div>

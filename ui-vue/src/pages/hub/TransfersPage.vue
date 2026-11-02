@@ -94,19 +94,19 @@ function pct(item: TxItem): number {
       >
     </div>
     <span style="flex: 1" />
-    <button type="button" class="btn" @click="ctlAll('pause', (t) => t.state === 'running')">
+    <button type="button" id="txPauseAll" class="btn" @click="ctlAll('pause', (t) => t.state === 'running')">
       全部暂停
     </button>
-    <button type="button" class="btn" @click="ctlAll('resume', (t) => t.state === 'paused')">
+    <button type="button" id="txResumeAll" class="btn" @click="ctlAll('resume', (t) => t.state === 'paused')">
       全部继续
     </button>
-    <button type="button" class="btn" @click="ctlAll('abandon', (t) => t.state !== 'done')">
+    <button type="button" id="txAbandonAll" class="btn" @click="ctlAll('abandon', (t) => t.state !== 'done')">
       全部放弃
     </button>
-    <button type="button" class="btn" @click="clearDone">清空已完成</button>
+    <button type="button" id="txClearDone" class="btn" @click="clearDone">清空已完成</button>
   </div>
 
-  <div class="tx-list scroll-thin">
+  <div class="tx-list scroll-thin" id="txList">
     <p v-if="errorText" class="field-hint" style="color: rgb(var(--bad))">{{ errorText }}</p>
     <p v-else-if="loading" class="field-hint">读取中…</p>
     <template v-else-if="items.length">

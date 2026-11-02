@@ -44,7 +44,7 @@ function fmtTime(ts?: number): string {
     <span class="sub">本窗口打开的终端 · 运行中的隧道</span>
   </div>
 
-  <div class="session-list scroll-thin">
+  <div class="session-list scroll-thin" id="sessionList">
     <p v-if="loading" class="field-hint">读取中…</p>
     <template v-else-if="sessions.length">
       <p class="session-sec">进行中的终端会话</p>

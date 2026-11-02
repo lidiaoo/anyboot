@@ -49,6 +49,35 @@ async function onSave(payload: Record<string, unknown>) {
   }
 }
 
+/** 探测状态（旧版 probes[id].state） */
+function testState(id: string): string {
+  const result = store.testResults.get(id);
+  if (!result) return "";
+  return String(result).includes("失败") || String(result).includes("错误") ? "bad" : "ok";
+}
+
+/** 探测耗时（旧版 probes[id].ms） */
+function testMs(id: string): number | null {
+  const result = store.testResults.get(id);
+  if (!result) return null;
+  const match = String(result).match(/(\d+)\s*ms/);
+  return match ? Number(match[1]) : null;
+}
+
+/** 耗时颜色档（旧版 msClass()） */
+function msClass(ms: number): string {
+  if (ms < 80) return "ok";
+  if (ms < 300) return "warn";
+  return "bad";
+}
+
+/** 状态文案（旧版 stateLabel()） */
+function stateLabel(id: string): string {
+  const result = store.testResults.get(id);
+  if (!result) return "未测试";
+  return String(result);
+}
+
 function openTerminal(server: HubServer) {
   void import("@/api/tauri").then(({ call }) =>
     call("hub_open_window", { label: "server-term", serverId: server.id }).catch(() => {}),
@@ -117,6 +146,7 @@ async function testOne(server: HubServer) {
         <path d="M20 20l-3.5-3.5" />
       </svg>
       <input
+        id="searchBox"
         v-model="query"
         type="search"
         placeholder="搜索名称 / 地址"
@@ -124,21 +154,21 @@ async function testOne(server: HubServer) {
       />
     </div>
 
-    <div class="segmented" role="tablist" aria-label="协议筛选">
+    <div class="segmented" id="protoTabs" role="tablist" aria-label="协议筛选">
       <button role="tab" :aria-selected="protocol === ''" @click="protocol = ''">
-        全部 <span class="mono">{{ store.byProtocol.all }}</span>
+        全部 <span class="mono" id="cntAll">{{ store.byProtocol.all }}</span>
       </button>
       <button role="tab" :aria-selected="protocol === 'ssh'" @click="protocol = 'ssh'">
-        SSH <span class="mono">{{ store.byProtocol.ssh }}</span>
+        SSH <span class="mono" id="cntSsh">{{ store.byProtocol.ssh }}</span>
       </button>
       <button role="tab" :aria-selected="protocol === 'telnet'" @click="protocol = 'telnet'">
-        Telnet <span class="mono">{{ store.byProtocol.telnet }}</span>
+        Telnet <span class="mono" id="cntTel">{{ store.byProtocol.telnet }}</span>
       </button>
     </div>
 
     <div class="toolbar-right">
-      <span class="summary">{{ rows.length }} / {{ store.servers.length }} 台</span>
-      <button type="button" class="btn primary" @click="openAdd">
+      <span class="summary" id="summary">{{ rows.length }} / {{ store.servers.length }} 台</span>
+      <button type="button" id="addBtn" class="btn primary" @click="openAdd">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
           <path d="M12 5v14M5 12h14" />
         </svg>
@@ -151,30 +181,52 @@ async function testOne(server: HubServer) {
     <aside aria-label="服务器列表">
       <div class="aside-head">
         <h2>服务器</h2>
-        <button type="button" class="link-btn" aria-label="测试全部连接" @click="store.testAll()">
+        <button type="button" id="refreshBtn" class="link-btn" aria-label="测试全部连接" @click="store.testAll()">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
             <path d="M21 12a9 9 0 1 1-2.6-6.4M21 3v6h-6" />
           </svg>
           刷新
         </button>
       </div>
-      <div class="list scroll-thin" role="listbox" aria-label="服务器">
-        <button
+      <div class="list scroll-thin" id="serverList" role="listbox" aria-label="服务器">
+        <div
           v-for="server in rows"
           :key="server.id"
-          type="button"
-          :class="['srv', { 'is-on': server.id === selectedId }]"
-          @click="selectedId = server.id"
+          role="option"
+          :aria-selected="server.id === selectedId"
         >
-          <span class="srv-name">{{ server.name }}</span>
-          <span class="srv-meta">
-            <span class="proto">{{ server.protocol.toUpperCase() }}</span>
-            <span class="addr">{{ store.displayAddr(server) }}</span>
-          </span>
-          <span v-if="store.testResults.get(server.id)" class="srv-test">
-            {{ store.testResults.get(server.id) }}
-          </span>
-        </button>
+          <!-- 旧版 renderServers() 的行结构：.server-row > .s-icon + .s-main + .s-right -->
+          <button
+            type="button"
+            :class="['server-row', { active: server.id === selectedId }]"
+            @click="selectedId = server.id"
+          >
+            <span class="s-icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2" y="3" width="20" height="7" rx="2" />
+                <rect x="2" y="14" width="20" height="7" rx="2" />
+                <path d="M6 6.5h.01M6 17.5h.01" />
+              </svg>
+            </span>
+            <span class="s-main">
+              <span class="s-line">
+                <span class="s-name">{{ server.name || "(未命名)" }}</span>
+                <span class="s-proto">{{ server.protocol === "telnet" ? "TEL" : "SSH" }}</span>
+              </span>
+              <span class="s-host">
+                <span class="dot" :class="testState(server.id)" />
+                <span class="txt">{{ store.displayAddr(server) }}</span>
+              </span>
+            </span>
+            <span class="s-right">
+              <span v-if="testMs(server.id) !== null" class="s-ms" :class="msClass(testMs(server.id)!)">
+                {{ testMs(server.id) }}ms
+              </span>
+              <span v-else class="s-ms ms-none">—</span>
+              <span class="s-state">{{ stateLabel(server.id) }}</span>
+            </span>
+          </button>
+        </div>
         <p v-if="!rows.length" class="empty">没有匹配的服务器</p>
       </div>
     </aside>

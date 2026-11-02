@@ -215,14 +215,15 @@ const footCount = computed(() => `${servers.servers.length} 台服务器`);
 
 <template>
   <div class="shell" :class="{ 'nav-collapsed': navCollapsed }">
-    <aside class="side" aria-label="远程管理导航">
+    <aside class="side" id="hubSide" aria-label="远程管理导航">
       <div class="side-head">
         <span class="side-logo" aria-hidden="true">A</span>
         <span class="side-name">
           <b>AnyBoot</b>
-          <i class="mono">remote</i>
+          <i class="mono" id="sideVersion">remote</i>
         </span>
         <button
+          id="sideToggle"
           class="icon-btn side-toggle"
           :title="navCollapsed ? '展开侧栏' : '收起侧栏'"
           :aria-label="navCollapsed ? '展开侧栏' : '收起侧栏'"
@@ -238,12 +239,12 @@ const footCount = computed(() => `${servers.servers.length} 台服务器`);
             aria-hidden="true"
             :style="{ transform: navCollapsed ? 'rotate(180deg)' : 'none' }"
           >
-            <path d="M11 17l-5-5 5-5M18 17l-5-5 5-5" />
+            <path id="sideChevron" d="M11 17l-5-5 5-5M18 17l-5-5 5-5" />
           </svg>
         </button>
       </div>
 
-      <nav class="side-nav" aria-label="导航">
+      <nav class="side-nav" id="hubSideNav" aria-label="导航">
         <button
           v-for="item in NAV"
           :key="item.id"
@@ -270,12 +271,13 @@ const footCount = computed(() => `${servers.servers.length} 台服务器`);
 
       <button
         type="button"
+        id="themeToggle"
         class="snav"
         title="切换亮暗主题"
         aria-label="切换亮暗主题"
         @click="toggleTheme"
       >
-        <span aria-hidden="true" style="width: 18px; text-align: center; flex: none">{{
+        <span id="themeIcon" aria-hidden="true" style="width: 18px; text-align: center; flex: none">{{
           dark ? "☀️" : "🌙"
         }}</span>
         <span class="s-label">主题</span>
@@ -287,6 +289,7 @@ const footCount = computed(() => `${servers.servers.length} 台服务器`);
     </aside>
 
     <div
+      id="sideSplit"
       class="side-split"
       role="separator"
       aria-orientation="vertical"

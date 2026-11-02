@@ -270,16 +270,16 @@ function pct(task: XferTask): number {
 
 <template>
   <div class="fb-topbar">
-    <select v-model="serverId" class="fb-select" aria-label="选择服务器" @change="listDir('')">
+    <select id="fbServer" v-model="serverId" class="fb-select" aria-label="选择服务器" @change="listDir('')">
       <option v-for="server in sshServers" :key="server.id" :value="server.id">
         {{ server.name }} · {{ store.displayAddr(server) }}
       </option>
     </select>
-    <span :class="['fb-pill', connected ? 'fb-ok' : 'fb-bad']">
+    <span id="fbPill" :class="['fb-pill', connected ? 'fb-ok' : 'fb-bad']">
       <span class="fb-dot" />
-      <span>{{ errorText ? "连接失败" : loading ? "读取中…" : "已连接" }}</span>
+      <span id="fbPillText">{{ errorText ? "连接失败" : loading ? "读取中…" : "已连接" }}</span>
     </span>
-    <button type="button" class="fb-toolbtn" title="在独立窗口打开当前服务器的文件浏览" @click="openInWindow">
+    <button type="button" id="fbOpenWin" class="fb-toolbtn" title="在独立窗口打开当前服务器的文件浏览" @click="openInWindow">
       ⧉ 独立窗口
     </button>
   </div>
@@ -288,19 +288,19 @@ function pct(task: XferTask): number {
     还没有 SSH 服务器 —— 到「服务器」页添加一台，这里就能浏览它的文件。
   </div>
 
-  <div v-else class="fb-main">
+  <div v-else id="fbMain" class="fb-main">
     <div class="fb-pathbar">
-      <button type="button" class="fb-iconbtn" aria-label="上一级" title="上一级" @click="goUp">
+      <button type="button" id="fbUp" class="fb-iconbtn" aria-label="上一级" title="上一级" @click="goUp">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M19 12H5M11 18l-6-6 6-6" />
         </svg>
       </button>
-      <button type="button" class="fb-iconbtn" aria-label="刷新" title="刷新" @click="listDir(cwd)">
+      <button type="button" id="fbRefresh" class="fb-iconbtn" aria-label="刷新" title="刷新" @click="listDir(cwd)">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
           <path d="M21 12a9 9 0 1 1-2.6-6.4M21 3v6h-6" />
         </svg>
       </button>
-      <nav class="fb-crumbs scroll-thin" aria-label="路径">
+      <nav id="fbCrumbs" class="fb-crumbs scroll-thin" aria-label="路径">
         <!-- 分隔符是独立 span 放在前面（旧版 fbCrumbs() 的顺序），不是嵌在按钮里 -->
         <template v-for="(crumb, i) in crumbs" :key="crumb.path">
           <span v-if="i > 0" class="fb-crumb-sep" aria-hidden="true">›</span>
@@ -314,13 +314,13 @@ function pct(task: XferTask): number {
           </button>
         </template>
       </nav>
-      <button type="button" class="fb-btn" @click="mkdir">
+      <button type="button" id="fbMkdir" class="fb-btn" @click="mkdir">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M12 5v14M5 12h14" />
         </svg>
         新建目录
       </button>
-      <button type="button" class="fb-btn fb-primary" @click="upload">
+      <button type="button" id="fbUpload" class="fb-btn fb-primary" @click="upload">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M12 19V5M5 12l7-7 7 7" />
         </svg>
@@ -328,6 +328,7 @@ function pct(task: XferTask): number {
       </button>
       <button
         type="button"
+        id="fbDownload"
         class="fb-btn"
         :disabled="!selectedPath"
         :title="selectedPath ? '下载选中的文件' : '未选中文件'"
@@ -337,7 +338,7 @@ function pct(task: XferTask): number {
       </button>
     </div>
 
-    <div class="fb-tablewrap scroll-thin">
+    <div id="fbTableWrap" class="fb-tablewrap scroll-thin">
       <table class="fb-table" aria-label="文件列表">
         <thead>
           <tr>
@@ -348,7 +349,7 @@ function pct(task: XferTask): number {
             <th style="width: 64px; text-align: right">操作</th>
           </tr>
         </thead>
-        <tbody>
+        <tbody id="fbTbody">
           <tr
             v-for="entry in entries"
             :key="entry.path"
@@ -427,7 +428,7 @@ function pct(task: XferTask): number {
     </FbModal>
 
     <div class="fb-foot">
-      <span>{{ entries.length }} 项</span><span aria-hidden="true">·</span
+      <span id="fbCount">{{ entries.length }} 项</span><span aria-hidden="true">·</span
       ><span>SFTP 复用 SSH 会话</span>
     </div>
   </div>

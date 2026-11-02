@@ -295,10 +295,11 @@ function deletePair(id: string) {
     </div>
 
     <!-- 自动刷新三合一（旧版 #gwAuto） -->
-    <div class="gw-ar" title="自动刷新这一页的状态（单位：秒）">
+    <div class="gw-ar" id="gwAuto" title="自动刷新这一页的状态（单位：秒）">
       <span class="gw-ar-label">自动刷新</span>
       <div class="gw-ar-combo">
         <input
+          id="gwAutoSec"
           v-model.number="autoSec"
           type="number"
           min="1"
@@ -312,17 +313,18 @@ function deletePair(id: string) {
       </div>
       <button
         type="button"
+        id="gwAutoToggle"
         class="gw-ar-toggle"
         :aria-pressed="!autoRunning"
         @click="autoRunning = !autoRunning; setupAuto()"
       >
-        <span>{{ autoRunning ? "暂停" : "继续" }}</span>
+        <span id="gwAutoToggleText">{{ autoRunning ? "暂停" : "继续" }}</span>
       </button>
     </div>
   </div>
 
   <!-- 分页标签（旧版 #gwTabs，4 个分页带状态点） -->
-  <div class="gw-tabs" role="tablist" aria-label="远程接入分页">
+  <div class="gw-tabs" id="gwTabs" role="tablist" aria-label="远程接入分页">
     <button
       v-for="tab in TABS"
       :key="tab.key"
@@ -353,7 +355,7 @@ function deletePair(id: string) {
 
   <!-- ===== Cloudflare 分页 ===== -->
   <div v-show="activeTab === 'cf'" class="gw-tabpane">
-    <div class="gw-note">
+    <div class="gw-note" id="gwWarnQuick">
       快速隧道的地址在通道重启后会变化 —— 重启电脑 / 通道后，已配对的客户端要重新配对一次。
       要固定地址请改用「命名隧道」（需 Cloudflare 账号 + 托管域名），或用下方 Tailscale
       直连（装好即用、地址长期固定、不出公网）。
@@ -362,16 +364,16 @@ function deletePair(id: string) {
     <div class="gw-card">
       <div class="gw-card-head">
         <h3>本机通道</h3>
-        <div class="segmented" role="tablist" aria-label="通道模式">
+        <div class="segmented" id="gwModeTabs" role="tablist" aria-label="通道模式">
           <button role="tab" :aria-selected="config?.mode !== 'named'">快速隧道</button>
           <button role="tab" :aria-selected="config?.mode === 'named'">命名隧道</button>
         </div>
-        <button type="button" class="btn" @click="logOpen = true">日志</button>
-        <button type="button" class="btn" @click="refreshAll">重新检测</button>
+        <button type="button" id="gwLogBtn" class="btn" @click="logOpen = true">日志</button>
+        <button type="button" id="gwRefreshBtn" class="btn" @click="refreshAll">重新检测</button>
         <span class="gw-sw-group" title="开启 / 关闭 Cloudflare 通道">
           <span class="gw-sw-cap">通道</span>
-          <label class="switch">
-            <input type="checkbox" :checked="cfRunning" @change="toggleCf" />
+          <label class="switch" id="gwToggleWrap">
+            <input type="checkbox" id="gwToggleSw" :checked="cfRunning" @change="toggleCf" />
             <span class="trk" aria-hidden="true" />
           </label>
         </span>
@@ -379,10 +381,10 @@ function deletePair(id: string) {
 
       <div class="gw-status">
         <span class="pulse" :hidden="!cfRunning" />
-        <span>{{ cfRunning ? "通道已开启" : "通道未开启" }}</span>
+        <span id="gwStateText">{{ cfRunning ? "通道已开启" : "通道未开启" }}</span>
         <a v-if="cfUrl" :href="cfUrl" class="mono gw-url" target="_blank" rel="noopener">{{ cfUrl }}</a>
         <span style="flex: 1" />
-        <span v-if="config" class="mono gw-meta">{{ config.tunnel?.state || "" }}</span>
+        <span v-if="config" class="mono gw-meta" id="gwMeta">{{ config.tunnel?.state || "" }}</span>
       </div>
 
       <div v-if="config?.tunnel?.error" class="gw-err">{{ config.tunnel.error }}</div>
@@ -404,13 +406,13 @@ function deletePair(id: string) {
       </div>
 
       <label class="gw-auto">
-        <input type="checkbox" :checked="config?.autostart" disabled />
+        <input type="checkbox" id="gwAutostart" :checked="config?.autostart" disabled />
         <span class="gw-auto-t">启动软件时自动开启通道</span>
         <span class="gw-auto-h">cloudflared 随 AnyBoot 一起拉起</span>
       </label>
 
       <div class="gw-binary">
-        <span>
+        <span id="gwBinaryText">
           {{
             cfInstalled
               ? `cloudflared ${config?.binary?.version || ""} 已就位`
@@ -418,10 +420,10 @@ function deletePair(id: string) {
           }}
         </span>
         <span style="flex: 1" />
-        <button v-if="!cfInstalled" type="button" class="btn" :disabled="!!busy" @click="downloadBinary">
+        <button v-if="!cfInstalled" type="button" id="gwDownloadBtn" class="btn" :disabled="!!busy" @click="downloadBinary">
           下载 cloudflared
         </button>
-        <button v-if="!cfInstalled" type="button" class="btn" @click="manualOpen = !manualOpen">
+        <button v-if="!cfInstalled" type="button" id="gwManualBtn" class="btn" @click="manualOpen = !manualOpen">
           指定本地路径
         </button>
       </div>
