@@ -98,12 +98,45 @@ export const useUiStateStore = defineStore("uiState", () => {
    * `revision` 只增不减 —— 比当前旧的直接丢弃（多路来源会重复到达）。
    * `force` 用于首次加载（此时本地 revision 可能比服务端大，比如 App 重启后）。
    */
+  /**
+   * 首帧渲染完成标记。
+   *
+   * `styles/vendor/legacy.css` 里有一条历史规则：
+   *     body { opacity: 0 }              ← 首帧前不可见（防「闪一下旧页面」）
+   *     html[data-ready] body { opacity: 1 }
+   * 旧 `app.js` 在首份快照渲染完之后给 `<html data-ready>`。
+   *
+   * **Vue 版必须自己补这一步**：否则 body 永远 opacity:0，窗口一片黑，
+   * 而 JS 其实跑得好好的（DOM 都在、控制台无异常）—— 极难排查。
+   */
+  let readyMarked = false;
+  function markReady() {
+    if (readyMarked) return;
+    readyMarked = true;
+    // 等一帧再显示，避免首次渲染的中间态被看到
+    requestAnimationFrame(() => {
+      document.documentElement.setAttribute("data-ready", "1");
+    });
+  }
+
+  /**
+   * 兜底：无论快照有没有到，**最多等 800ms 就显示**。
+   *
+   * 只靠「首份快照到达才显示」在异常路径下会永久黑屏 —— 比如没 token、
+   * 服务不可达、IPC 失败。宁可先让用户看到界面（哪怕是空态），
+   * 也不要一片黑、什么都没有。
+   */
+  function scheduleReadyFallback() {
+    window.setTimeout(markReady, 800);
+  }
+
   function applySnapshot(next: UiState | null | undefined, options: { force?: boolean } = {}) {
     if (!next || typeof next !== "object") return;
     const nextRevision = typeof next.revision === "number" ? next.revision : 0;
     if (!options.force && nextRevision && nextRevision <= revision.value) return;
     state.value = next;
     revision.value = nextRevision;
+    markReady();
   }
 
   // ---- IPC（Tauri 窗口）------------------------------------------------
@@ -264,6 +297,7 @@ export const useUiStateStore = defineStore("uiState", () => {
   async function start() {
     if (started) return;
     started = true;
+    scheduleReadyFallback();   // 兜底：800ms 后一定显示，避免永久黑屏
 
     // 1) Tauri 窗口：IPC 事件推送（最可靠）
     if (await startIpc()) return;
