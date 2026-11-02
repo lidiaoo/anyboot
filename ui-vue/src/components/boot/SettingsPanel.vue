@@ -47,6 +47,7 @@ function setLocal(key: string, value: number | string | boolean) {
 const httpBind = ref("0.0.0.0");
 const httpPort = ref("12300");
 const tokenInput = ref("");
+const soundPath = ref("");
 
 watch(
   () => ui.http,
@@ -71,6 +72,19 @@ function applyHttp() {
 
 function regenerateToken() {
   commit("regenerate_http_token", { value: tokenInput.value.trim() });
+}
+
+async function copyToken() {
+  try {
+    const text = await call<string>("get_http_token");
+    await navigator.clipboard.writeText(text);
+  } catch {
+    /* 剪贴板不可用 */
+  }
+}
+
+function saveToken() {
+  commit("set_http_token", { value: tokenInput.value.trim() });
 }
 
 function retryHttp() {
@@ -171,6 +185,37 @@ function fmtPct(v: number) {
     <!-- 贴边白条 -->
     <label class="setting">
       <span class="setting-text">
+        <strong>悬浮呼出延时</strong>
+        <small>鼠标压住白条持续这么久才展开主窗（0–2000 毫秒，0 = 立即）</small>
+      </span>
+      <input
+        id="main-dock-strip-hover-ms"
+        type="number"
+        min="0"
+        max="2000"
+        step="50"
+        :value="val('mainDockStripHoverMs', 120)"
+        @change="commit('set_main_dock_strip_hover_ms', { ms: Number(($event.target as HTMLInputElement).value) })"
+      />
+    </label>
+
+    <label class="setting">
+      <span class="setting-text">
+        <strong>白条距屏幕边界</strong>
+        <small>贴边隐藏时白条离屏幕边框留出的距离（0–100px，0 = 紧贴边缘）</small>
+      </span>
+      <input
+        id="main-dock-strip-edge-gap"
+        type="number"
+        min="0"
+        max="100"
+        :value="val('mainDockStripEdgeGap', 0)"
+        @change="commit('set_main_dock_strip_edge_gap', { px: Number(($event.target as HTMLInputElement).value) })"
+      />
+    </label>
+
+    <label class="setting">
+      <span class="setting-text">
         <strong>空隙白条厚度</strong>
         <small>贴边隐藏时那条缝的粗细</small>
         <small class="setting-state" id="main-dock-strip-thickness-state">{{ val("mainDockStripThickness", 3) }} px</small>
@@ -246,6 +291,30 @@ function fmtPct(v: number) {
       />
     </label>
 
+    <div class="setting">
+      <span class="setting-text">
+        <strong>热区调试底色与透明度</strong>
+        <small class="setting-state" id="main-hotzone-opacity-state">{{ fmtPct(val("mainHotzoneOpacity", 0)) }}</small>
+      </span>
+      <span class="remote-inline">
+        <input
+          id="main-hotzone-color"
+          type="color"
+          :value="val('mainHotzoneColor', '#4f46e5')"
+          @change="commit('set_main_hotzone_color', { color: ($event.target as HTMLInputElement).value })"
+        />
+        <input
+          id="main-hotzone-opacity"
+          type="range"
+          min="0"
+          max="100"
+          :value="val('mainHotzoneOpacity', 0)"
+          @input="setLocal('mainHotzoneOpacity', Number(($event.target as HTMLInputElement).value))"
+          @change="commit('set_main_hotzone_opacity', { percent: val('mainHotzoneOpacity', 0) })"
+        />
+      </span>
+    </div>
+
     <label class="setting">
       <span class="setting-text">
         <strong>热区可视边框</strong>
@@ -274,16 +343,64 @@ function fmtPct(v: number) {
       </select>
     </label>
 
+    <!-- 固定显示器（旧版 main-fixed-monitor） -->
+    <label class="setting">
+      <span class="setting-text">
+        <strong>固定显示器</strong>
+        <small>固定到某块屏幕（多显示器时）</small>
+      </span>
+      <input id="main-fixed-monitor" type="checkbox" :checked="Boolean(s?.mainFixedMonitor)" @change="commit('set_main_fixed_monitor', { on: !s?.mainFixedMonitor })" />
+    </label>
+
+    <!-- 窗口宽度 / 高度（旧版 window-size-*） -->
+    <div class="setting">
+      <span class="setting-text">
+        <strong>窗口宽度</strong>
+        <small class="setting-state" id="window-size-width-state">{{ val("windowSizeWidth", 460) }} px</small>
+      </span>
+      <span class="remote-inline">
+        <input
+          id="window-size-width"
+          type="range"
+          min="360"
+          max="1600"
+          step="4"
+          :value="val('windowSizeWidth', 460)"
+          @input="setLocal('windowSizeWidth', Number(($event.target as HTMLInputElement).value))"
+          @change="commit('set_window_size_width', { px: val('windowSizeWidth', 460) })"
+        />
+      </span>
+    </div>
+
+    <div class="setting">
+      <span class="setting-text">
+        <strong>窗口高度</strong>
+        <small class="setting-state" id="window-size-height-state">{{ val("windowSizeHeight", 720) }} px</small>
+      </span>
+      <span class="remote-inline">
+        <input
+          id="window-size-height"
+          type="range"
+          min="320"
+          max="1200"
+          step="4"
+          :value="val('windowSizeHeight', 720)"
+          @input="setLocal('windowSizeHeight', Number(($event.target as HTMLInputElement).value))"
+          @change="commit('set_window_size_height', { px: val('windowSizeHeight', 720) })"
+        />
+      </span>
+    </div>
+
     <div class="setting">
       <span class="setting-text">
         <strong>窗口尺寸</strong>
         <small>取消「锁定尺寸」后可直接拖拽窗口边缘调整</small>
       </span>
       <div class="setting-actions">
-        <button type="button" class="secondary" @click="commit('reset_main_window_position', {})">
+        <button type="button" id="reset-main-window-position" class="secondary" @click="commit('reset_main_window_position', {})">
           重置位置
         </button>
-        <button type="button" class="secondary" @click="commit('reset_main_window_size', {})">
+        <button type="button" id="reset-main-window-size" class="secondary" @click="commit('reset_main_window_size', {})">
           重置尺寸
         </button>
       </div>
@@ -425,6 +542,11 @@ function fmtPct(v: number) {
         </span>
       </div>
 
+      <small class="setting-hint" id="http-hint">
+        手机 / 浏览器访问 http://&lt;本机 IP&gt;:端口/?token=令牌 —— <span id="http-requests">远程请求会转本机确认</span>
+        <button type="button" id="http-hint-copy" class="link-btn" @click="copyToken">复制访问地址</button>
+      </small>
+
       <div class="setting">
         <span class="setting-text">
           <strong>端口占用</strong>
@@ -434,6 +556,94 @@ function fmtPct(v: number) {
         <span class="remote-inline">
           <button type="button" id="retry-http" class="secondary" @click="retryHttp">重试</button>
           <button type="button" id="kill-occupant" class="secondary danger" @click="killOccupant">结束占用进程</button>
+        </span>
+      </div>
+
+      <div class="setting">
+        <span class="setting-text">
+          <strong>令牌操作</strong>
+          <small>显示 / 复制 / 重新生成访问令牌</small>
+        </span>
+        <span class="remote-inline">
+          <button type="button" id="token-reveal" class="secondary" @click="commit('reveal_http_token', {})">显示</button>
+          <button type="button" id="token-copy" class="secondary" @click="copyToken">复制</button>
+          <button type="button" id="token-regenerate" class="secondary" @click="regenerateToken">重新生成</button>
+          <button type="button" id="token-save" class="secondary" @click="saveToken">保存</button>
+        </span>
+      </div>
+
+      <!-- 远程请求通知（旧版 notify-enabled 起） -->
+      <label class="setting">
+        <span class="setting-text">
+          <strong>远程请求通知</strong>
+          <small>远程发起授权请求时在本机弹通知</small>
+        </span>
+        <input id="notify-enabled" type="checkbox" :checked="Boolean(s?.notifyEnabled)" @change="commit('set_notify_enabled', { on: !s?.notifyEnabled })" />
+      </label>
+
+      <div class="setting">
+        <span class="setting-text">
+          <strong>远程请求触发本机授权框</strong>
+          <small>远程请求转本机确认时，是否弹出授权框</small>
+        </span>
+        <input id="remote-allow-gui-auth" type="checkbox" :checked="Boolean(s?.remoteAllowGuiAuth)" @change="commit('set_remote_allow_gui_auth', { on: !s?.remoteAllowGuiAuth })" />
+      </div>
+
+      <!-- 通知渠道（旧版 http-channel-* / cli-channel-*） -->
+      <div class="setting">
+        <span class="setting-text">
+          <strong>HTTP 渠道通知</strong>
+          <small>通过 HTTP 服务发来的请求是否通知</small>
+        </span>
+        <span class="remote-inline">
+          <input id="http-channel-notify" type="checkbox" :checked="Boolean(s?.httpChannelNotify)" @change="commit('set_http_channel_notify', { on: !s?.httpChannelNotify })" />
+          <input id="http-channel-delay" type="number" min="0" max="60" :value="val('httpChannelDelay', 0)" @change="commit('set_http_channel_delay', { sec: Number(($event.target as HTMLInputElement).value) })" />
+        </span>
+      </div>
+
+      <div class="setting">
+        <span class="setting-text">
+          <strong>CLI 渠道通知</strong>
+          <small>命令行发来的请求是否通知</small>
+        </span>
+        <span class="remote-inline">
+          <input id="cli-channel-notify" type="checkbox" :checked="Boolean(s?.cliChannelNotify)" @change="commit('set_cli_channel_notify', { on: !s?.cliChannelNotify })" />
+          <input id="cli-channel-delay" type="number" min="0" max="60" :value="val('cliChannelDelay', 0)" @change="commit('set_cli_channel_delay', { sec: Number(($event.target as HTMLInputElement).value) })" />
+        </span>
+      </div>
+
+      <!-- 提示音（旧版 setting-sound / play-sound / sound-file-path / sound-apply） -->
+      <div class="setting">
+        <span class="setting-text">
+          <strong>提示音</strong>
+          <small>远程请求到达时播放的声音</small>
+        </span>
+        <span class="remote-inline">
+          <label class="setting" style="border: 0; padding: 0">
+            <input id="setting-sound" type="checkbox" :checked="Boolean(s?.soundEnabled)" @change="commit('set_sound_enabled', { on: !s?.soundEnabled })" />
+          </label>
+          <button type="button" id="play-sound" class="secondary" @click="commit('play_sound', {})">试听</button>
+          <input id="sound-file-path" v-model="soundPath" spellcheck="false" type="text" placeholder="自定义音频文件路径" />
+          <button type="button" id="sound-apply" class="secondary" @click="commit('set_sound_file', { path: soundPath })">应用</button>
+        </span>
+      </div>
+
+      <!-- 打开配置目录（旧版 open-dir-actions / open-config-dir） -->
+      <div class="setting" id="open-dir-actions">
+        <span class="setting-text">
+          <strong>配置目录</strong>
+          <small>设置、密钥、备份都存在这里</small>
+        </span>
+        <button type="button" id="open-config-dir" class="secondary" @click="commit('open_config_dir', {})">打开</button>
+      </div>
+
+      <!-- 待确认卡（旧版 .pending#pending-card） -->
+      <div v-if="(ui.state as any)?.pending" class="pending">
+        <strong id="pending-title">远程请求待执行</strong>
+        <p id="pending-detail">{{ (ui.state as any).pending.text }}</p>
+        <span class="remote-inline">
+          <button type="button" id="pending-run" class="primary-sol" @click="commit('pending_confirm', {})">执行</button>
+          <button type="button" id="pending-cancel" class="secondary" @click="commit('pending_cancel', {})">取消</button>
         </span>
       </div>
 

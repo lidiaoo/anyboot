@@ -146,6 +146,9 @@ const nextBootRows = computed(() =>
   }),
 );
 
+/** 底部提示条（旧版 #status-bar，所有操作回执都落这里） */
+const statusBar = ref({ icon: "", text: "" });
+
 const statusText = computed(() => {
   if (!ui.ready) return "正在扫描 rEFInd 变量目录…";
   if (ui.busy?.scanning) return "正在扫描…";
@@ -308,7 +311,7 @@ const statusText = computed(() => {
 
       <!-- 栏目二：引导高级设置 -->
       <div :class="['tab-panel', { active: currentTab === 'adv-boot' }]" id="tab-adv-boot">
-        <BootSettings />
+        <div id="boot-adv-mount"><BootSettings /></div>
       </div>
 
       <!-- 栏目三：基本设置 -->
@@ -321,5 +324,12 @@ const statusText = computed(() => {
         <SolPanel />
       </div>
     </main>
+  </div>
+
+  <!-- 窗口自己的底部提示条（旧版 #status-bar，与 .app-columns 平级） -->
+  <div v-if="statusBar.text" aria-live="polite" class="status-bar" role="status">
+    <span class="status-bar-icon" aria-hidden="true">{{ statusBar.icon }}</span>
+    <span class="status-bar-text">{{ statusBar.text }}</span>
+    <button type="button" class="status-bar-close" title="收起" @click="statusBar.text = ''">×</button>
   </div>
 </template>

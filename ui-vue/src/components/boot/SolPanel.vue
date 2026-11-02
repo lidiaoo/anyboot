@@ -42,6 +42,24 @@ const listenAddr = ref("");
 const newToken = ref("");
 const installDir = ref("");
 const progress = ref(0);
+const logs = ref<string[]>([]);
+const configText = ref("");
+
+async function refreshConfig() {
+  try {
+    configText.value = (await call<string>("sol_config_read")) ?? "";
+  } catch {
+    configText.value = "";
+  }
+}
+
+function saveConfig() {
+  void call("sol_config_write", { text: configText.value }).catch(() => {});
+}
+
+function clearLogs() {
+  logs.value = [];
+}
 const downloading = ref(false);
 
 const stateText = computed(() => {
@@ -135,9 +153,9 @@ function pickDir() {
         <small class="setting-state" id="sol-state-text">{{ stateText }}</small>
       </span>
       <span class="remote-inline">
-        <button type="button" class="secondary" @click="refresh">刷新</button>
+        <button type="button" id="sol-refresh" class="secondary" @click="refresh">刷新</button>
         <button type="button" class="secondary" @click="call('sol_status_privileged')">检查权限</button>
-        <button type="button" class="secondary" @click="call('sol_project_open')">重启服务</button>
+        <button type="button" id="sol-restart-service" class="secondary" @click="call('sol_project_open')">重启服务</button>
       </span>
     </div>
 
@@ -158,7 +176,7 @@ function pickDir() {
       </span>
       <span class="remote-inline">
         <input id="sol-http-listen" v-model="listenAddr" spellcheck="false" type="text" placeholder="0.0.0.0:8080" style="width: 220px" />
-        <button type="button" class="secondary" @click="saveListen">保存</button>
+        <button type="button" id="sol-http-listen-save" class="secondary" @click="saveListen">保存</button>
       </span>
     </div>
 
@@ -168,23 +186,23 @@ function pickDir() {
         <small class="setting-state" id="sol-http-token-state">手机 / 浏览器访问 SOL 接口时要用它</small>
       </span>
       <div class="sol-token-line">
-        <span class="sol-token-value mono" title="当前配置里的 token（只读），点右边「复制」拷贝">{{ status?.token || "—" }}</span>
-        <button type="button" class="secondary" @click="copyToken">复制</button>
+        <span class="sol-token-value mono" id="sol-http-token-current" title="当前配置里的 token（只读），点右边「复制」拷贝">{{ status?.token || "—" }}</span>
+        <button type="button" id="sol-http-token-copy" class="secondary" @click="copyToken">复制</button>
       </div>
       <div class="sol-token-line">
         <input id="sol-http-token" v-model="newToken" spellcheck="false" type="text" placeholder="新 token（≥8 位），留空不改动" style="flex: 1 1 220px" />
-        <button type="button" class="secondary" @click="generateToken">生成</button>
-        <button type="button" class="secondary" @click="saveToken">应用</button>
+        <button type="button" id="sol-http-token-generate" class="secondary" @click="generateToken">生成</button>
+        <button type="button" id="sol-http-token-save" class="secondary" @click="saveToken">应用</button>
       </div>
     </div>
 
     <!-- 动作区 -->
     <div class="actions">
-      <button type="button" class="primary-sol" @click="oneClick">一键安装（静默）</button>
-      <button type="button" class="secondary" @click="manualInstall">手动安装（调终端）</button>
+      <button type="button" id="sol-one-click" class="primary-sol" @click="oneClick">一键安装（静默）</button>
+      <button type="button" id="sol-one-click-terminal" class="secondary" @click="manualInstall">手动安装（调终端）</button>
     </div>
 
-    <small class="sol-hint">
+    <small class="sol-hint" id="sol-install-hint">
       安装 = 下载 → <b>清空安装目录</b> → 解压到安装目录 → 官方 install.sh（静默 = 无人值守自动确认；手动 = 呼出终端由你回答脚本问句）。<b>解压前会清空安装目录，但保留 sol.yaml 配置文件</b>（端口、token 等设置不丢）；包内容直接铺在安装目录下，不保留 sol-v* 子目录。配置 sol.yaml 就在安装目录里；卸载保留它以便回滚。<br />
       已经解压好（比如用「选择安装包…」自己挑的包）时，「手动安装（调终端）」直接在终端里跑官方脚本，不再重新下载。<br />
       落点：三端全部在用户目录 —— Linux/macOS <code>~/sol</code>（二进制 <code>bin/sol</code>）；Windows <code>%USERPROFILE%\sol</code>（二进制 <code>sol.exe</code> 同目录）。
@@ -194,7 +212,7 @@ function pickDir() {
     <div class="setting-block sol-pkg-block">
       <span class="setting-text">
         <strong>安装包</strong>
-        <small class="setting-state">{{ downloading ? `下载中 ${progress}%` : "未下载" }}</small>
+        <small class="setting-state" id="sol-pkg-state">{{ downloading ? `下载中 ${progress}%` : "未下载" }}</small>
       </span>
 
       <div v-if="downloading" class="sol-progress">
@@ -205,34 +223,68 @@ function pickDir() {
       <div class="setting">
         <span class="setting-text">
           <strong>安装目录</strong>
-          <small class="setting-state">{{ installDir || "—" }}</small>
+          <small class="setting-state" id="sol-dir-state">{{ installDir || "—" }}</small>
         </span>
         <span class="remote-inline">
-          <input v-model="installDir" spellcheck="false" type="text" placeholder="~/sol（默认）" style="width: 280px" />
-          <button type="button" class="secondary" @click="pickDir">选择…</button>
-          <button type="button" class="secondary" title="打开当前填写的目录" @click="call('sol_open_dir', {})">打开</button>
+          <input id="sol-dir-input" v-model="installDir" spellcheck="false" type="text" placeholder="~/sol（默认）" style="width: 280px" />
+          <button type="button" id="sol-pick-dir" class="secondary" @click="pickDir">选择…</button>
+          <button type="button" id="sol-open-dir-input" class="secondary" title="打开当前填写的目录" @click="call('sol_open_dir', {})">打开</button>
         </span>
       </div>
 
       <span class="remote-inline">
-        <button type="button" class="secondary" @click="download">下载</button>
-        <button type="button" class="secondary" @click="pickArchive">选择安装包…</button>
-        <button type="button" class="secondary" disabled title="解压前会先清空安装目录（保留 sol.yaml 配置文件），再把包内容直接铺到安装目录，不再保留 sol-v* 子目录" @click="extract">
+        <button type="button" id="sol-download" class="secondary" @click="download">下载</button>
+        <button type="button" id="sol-pick-archive" class="secondary" @click="pickArchive">选择安装包…</button>
+        <button type="button" id="sol-extract" class="secondary" disabled title="解压前会先清空安装目录（保留 sol.yaml 配置文件），再把包内容直接铺到安装目录，不再保留 sol-v* 子目录" @click="extract">
           解压到安装目录
         </button>
       </span>
 
-      <small class="sol-hint">
-        从 GitHub release 下载当前平台的 sol 包；也可以点「选择安装包…」从文件管理器挑一个已有包（.tar.gz / .zip），解压完回到上面点「手动安装（调终端）」即可安装。
+      <small class="sol-hint" id="sol-pkg-hint">
+        从 GitHub release 下载当前平台的 sol-<span id="sol-pkg-target">…</span> 包；也可以点「选择安装包…」从文件管理器挑一个已有包（.tar.gz / .zip），解压完回到上面点「手动安装（调终端）」即可安装。
       </small>
-      <small class="sol-hint">
+      <small class="sol-hint" id="sol-project-line">
         项目：
-        <a href="#" title="打开 GitHub 仓库">lidiaoo/sol</a>
+        <a href="#" id="sol-project-repo" title="打开 GitHub 仓库">lidiaoo/sol</a>
         ·
-        <a href="#" title="打开 Releases 页面">Releases</a>
+        <a href="#" id="sol-project-releases" title="打开 Releases 页面">Releases</a>
         ·
-        <span>{{ status?.version || "…" }}</span>
+        <span id="sol-project-version">{{ status?.version || "…" }}</span>
       </small>
+    </div>
+
+    <!-- 配置文件编辑（旧版 .setting-block 里的 sol-config-*） -->
+    <div class="setting-block">
+      <span class="setting-text">
+        <strong>配置文件</strong>
+        <small class="setting-state" id="sol-config-path">{{ status?.configPath || "—" }}</small>
+      </span>
+      <textarea
+        id="sol-config-text"
+        v-model="configText"
+        class="sol-config-editor"
+        spellcheck="false"
+        rows="16"
+        placeholder="正在读取配置…"
+      />
+      <span class="remote-inline">
+        <button type="button" id="sol-config-refresh" class="secondary" @click="refreshConfig">刷新配置</button>
+        <button type="button" id="sol-config-save" class="primary-sol" @click="saveConfig">保存配置</button>
+        <button type="button" id="sol-config-reload" class="secondary" @click="refreshConfig">放弃修改</button>
+      </span>
+      <small class="sol-hint">
+        保存后 sol 自动热重载（改坏了也不会顶掉正在跑的那份）；原文件自动备份为 *.bak-anyboot。配置在安装时会自动放宽为 0644（本机所有登录用户可读），所以读取不再需要密码；配置里有控制面 token，请勿在不信任的多用户机器上使用。
+      </small>
+    </div>
+
+    <!-- 执行日志（旧版 .sol-log-block） -->
+    <div class="sol-log-block">
+      <span class="setting-text">
+        <strong>执行日志</strong>
+        <small class="setting-state" id="sol-log-count">{{ logs.length }} 行</small>
+      </span>
+      <pre class="sol-log" id="sol-log">{{ logs.join("\n") || "（暂无输出）" }}</pre>
+      <button type="button" id="sol-log-clear" class="secondary" @click="clearLogs">清空</button>
     </div>
 
     <p v-if="errorText" class="sol-hint" style="color: rgb(var(--bad))">{{ errorText }}</p>

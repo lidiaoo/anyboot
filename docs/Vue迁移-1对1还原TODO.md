@@ -350,7 +350,10 @@ hub:gateway     缺 0 类 / 1 id
 hub:files       缺 1 类 / 1 id
 hub:backup      缺 11 类 / 8 id
 hub:about       缺 17 类 / 11 id
+index:*         缺 13~14 类 / 9 id   （原 148 id）
 ```
+
+**主窗 id 缺口从 148 降到 9**，7 个 hub 页面的 id 已全部清零。
 
 **要点**：剩余缺的 class 大多属于「旧版常驻 DOM、新版 v-if 隐藏」的部分
 （如 about 的 `.update-*` 更新卡、backup 的 `.bk-pw-zone` 口令区、

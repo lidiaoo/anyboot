@@ -236,7 +236,7 @@ function switchEntry(selector: string) {
       id="grub-panel-manual"
       role="tabpanel"
     >
-      <p class="grub-panel-note">
+      <p class="grub-panel-note" id="grub-hint">
         读的是 ESP 上的 <code>/EFI/grub.cfg</code> 与 <code>/EFI/grubenv</code>：在 Linux 上装
         <code>09_anyboot</code> 后，每次 <code>update-grub</code> 会把它同步过来。
       </p>
@@ -329,6 +329,7 @@ function switchEntry(selector: string) {
             {{ grubManual?.keepMounted ? "停止保持挂载" : "保持挂载" }}
           </button>
           <button type="button" id="grub-sync" @click="syncManual">同步</button>
+          <small id="grub-sync-note">读的是 ESP 上的 /EFI/grub.cfg 与 /EFI/grubenv</small>
         </div>
       </section>
     </div>
