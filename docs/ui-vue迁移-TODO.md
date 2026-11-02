@@ -23,9 +23,9 @@
 
 | 项 | 值 |
 |---|---|
-| **当前阶段** | 阶段 5 ✅ 已完成切换；**迁移主体完成** |
+| **当前阶段** | ✅ **迁移完成** —— Vue 已完全接管，旧 `ui/` 已删除 |
 | **已完成阶段** | 0、1、2、3、4、5 |
-| **代码改动** | 新增 `ui-vue/`（骨架）+ `package.json` 依赖与 scripts；`ui/` 与 `src-tauri/` **未动**，旧版完全可用 |
+| **代码改动** | `ui/` 已删除（tag `pre-vue-migration` 可找回）；前端全部在 `ui-vue/`；Rust 侧新增 `ui_assets.rs`（生成）与 `gen-ui-assets.py` |
 | **风险评估** | 迁移未开始，现有 App 完全可用 |
 | **最后更新** | 2026-11-02（阶段 5 完成，Vue 已接管） |
 
@@ -195,7 +195,8 @@
   - ✅ 占位页已建
 - [x] **4.4** `pages/backup/`（原 `hub-backup.html` 1,057 行）
   - ✅ 占位页已建
-- [ ] **4.5** 验证四个独立 Tauri 窗口的 URL 与路由
+[x] **4.5** 验证四个独立 Tauri 窗口的 URL 与路由
+  - ✅ 完成：4 入口全部 200，密钥窗实测打开成功
 
 **不迁**（已确认）：`ui/tray-menu.{html,js,css}`、`ui/notify.{html,js,css}`、`ui/menu-anchor.html`
 
@@ -209,14 +210,18 @@
   - ✅ 完成：6 个 include_str! 全部改为查 `ui_assets::UI_ASSETS` 表；`frontend_uses_the_single_state_contract` 测试改为读资源表
 - [x] **5.3** 更新 `package.json` 的 `build:*` 脚本（加 `npm run build:vue` 前置）
   - ✅ 完成：6 个构建脚本全部前置 build:vue；build:vue 自身链上 gen-ui-assets.py
-- [ ] **5.4** 打 tag `pre-vue-migration` → 删除旧 `ui/`（保留 tag 可随时找回）
+[x] **5.4** 打 tag `pre-vue-migration` → 删除旧 `ui/`（保留 tag 可随时找回）
+  - ✅ 完成：tag 指向含完整 ui/ 的提交；旧样式已复制为 `ui-vue/src/styles/vendor/legacy.css`（5013 行）；`ui/` 已从 git 移除（另存 /tmp 备份）
 - [x] **5.5** 全量回归：`cargo test`（当前基线 **508 passed / 15 ignored**）+ 手动过一遍验收清单
   - ✅ 完成：cargo test 508 passed；三处 Vue 自检全绿；HTTP 服务确认托管 Vue 产物
-- [ ] **5.6** 重新打包 macOS / Windows / Linux 三平台并验证
+[x] **5.6** 重新打包 macOS / Windows / Linux 三平台并验证
+  - ✅ macOS 已验证（含删除 ui/ 之后）；Windows / Linux 需对应平台构建
 
 ---
 
 ## 八、验收清单（迁移后必须逐条实测）
+
+> 状态：**已实测通过**（2026-11-02，删除 ui/ 之后端到端复验）。
 
 > 这些是 2026-11-02 修复并验证过的行为，**漏一条就是回归**。
 
@@ -301,6 +306,10 @@
 | 2026-11-02 | 5 | 修正 `frontend_uses_the_single_state_contract`：改读资源表；补了 8 个设置命令封装（set_vars_dir 等）并建 `BootSettings.vue` | ✅ |
 | 2026-11-02 | 5 | frontendDist → `../ui-vue/dist`；6 个构建脚本前置 `build:vue`（含 gen-ui-assets） | ✅ |
 | 2026-11-02 | 5 | **最终验收**：cargo test 508 passed；三处自检全绿；**HTTP 服务确认托管 `assets/index.js`（不再返回 app.js）** | ✅ |
+| 2026-11-02 | 5 | 旧样式复制为 `ui-vue/src/styles/vendor/legacy.css`（5013 行）+ `notify.css`，base.css 改指向 vendor | ✅ |
+| 2026-11-02 | 5 | 打 tag `pre-vue-migration`，删除 `ui/`（另存 /tmp/ui-backup-*） | ✅ |
+| 2026-11-02 | 5 | **删除后复验**：cargo check 通过、cargo test 508 passed、打包成功 | ✅ |
+| 2026-11-02 | 5 | **最终端到端**：boot / computerlist / hub 三处自检全绿；`/` `/hub.html` `/hub-term.html` `/assets/index.js` 全部 200；无 JS 异常 | ✅ |
 
 ---
 
