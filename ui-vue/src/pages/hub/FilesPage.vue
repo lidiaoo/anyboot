@@ -403,7 +403,7 @@ function pct(task: XferTask): number {
   </div>
 
   <div v-if="!sshServers.length" id="fbEmpty" class="fb-empty">
-    还没有 SSH 服务器 —— 到「服务器」页添加一台，这里就能浏览它的文件。
+    还没有 SSH 服务器——先在「服务器」页添加一台并完成认证（先开一次终端）。
   </div>
 
   <div v-else id="fbMain" class="fb-main">

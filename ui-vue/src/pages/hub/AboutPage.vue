@@ -52,19 +52,19 @@ const LINK_ITEMS = [
 const phaseText = computed(() => {
   switch (update.value?.phase) {
     case "checking":
-      return "检查中…";
+      return "正在检查新版本…";
     case "up_to_date":
       return "已是最新版本";
     case "available":
       return `发现新版本 ${update.value.latestVersion}`;
     case "downloading":
-      return "下载中…";
+      return `正在下载 v${update.value?.latestVersion ?? ""}…`;
     case "verifying":
-      return "校验中…";
+      return `正在校验 v${update.value?.latestVersion ?? ""}…`;
     case "ready_to_install":
       return "可以安装";
     case "installing":
-      return "安装中…";
+      return `正在安装 v${update.value?.latestVersion ?? ""}，应用即将退出并重启…`;
     case "error":
       return `出错：${update.value.error}`;
     default:

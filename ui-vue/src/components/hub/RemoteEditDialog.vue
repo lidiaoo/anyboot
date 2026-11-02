@@ -365,6 +365,7 @@ function submit() {
         <div class="field">
           <label>局域网地址（第一个用来连接；MAC 只用于局域网电源）</label>
           <div id="rsAddrList" class="addr-list">
+            <p v-if="!rows.some((r) => r.addr)" class="addr-empty">还没加地址 —— 上面粘一段，或者下面手动填一个。</p>
             <div v-for="(row, i) in rows" :key="i" class="addr-row">
               <div class="addr-main">
                 <span class="addr-host">{{ row.addr || "（未填地址）" }}</span>
