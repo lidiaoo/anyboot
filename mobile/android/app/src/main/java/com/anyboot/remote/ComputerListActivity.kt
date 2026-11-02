@@ -2072,8 +2072,11 @@ class ComputerListActivity : ComponentActivity() {
                 fontWeight = FontWeight.SemiBold,
                 fontFamily = FontFamily.Monospace,
                 color = if (usable) palette.fgDim else palette.fgFaint.copy(alpha = 0.75f),
-                maxLines = 1,
-                modifier = Modifier.width(46.dp),
+                // 与 ChannelBootButton 同一处理：不写死宽度、允许折行，
+                // 名字长了完整显示而不是被裁掉末尾
+                maxLines = Int.MAX_VALUE,
+                softWrap = true,
+                modifier = Modifier.widthIn(min = 46.dp),
             )
             if (working) {
                 CircularProgressIndicator(
@@ -2195,8 +2198,14 @@ class ComputerListActivity : ComponentActivity() {
                 fontWeight = FontWeight.SemiBold,
                 fontFamily = FontFamily.Monospace,
                 color = if (usable) palette.fgDim else palette.fgFaint.copy(alpha = 0.75f),
-                maxLines = 1,
-                modifier = Modifier.width(46.dp),
+                // 2026-11-02 用户反馈「OpenCore 压缩成了 OpenCo」：
+                // 原先写死 `width(46.dp)` + maxLines=1，而 46dp 装不下
+                // 「OpenCore」（10.5sp mono 约 8 字符 = 50dp+），被直接裁掉。
+                // 改为按内容自适应（widthIn 只给下限）、允许折行 ——
+                // systemd-boot 这类更长的名字也能完整显示。
+                maxLines = Int.MAX_VALUE,
+                softWrap = true,
+                modifier = Modifier.widthIn(min = 46.dp),
             )
             if (working) {
                 CircularProgressIndicator(
