@@ -1205,45 +1205,52 @@ struct ComputerListView: View {
                 sheet = SheetRequest(rid: row.profile.id, kind: Kind.channel, channel: group)
             }
         } label: {
-            HStack(spacing: 0) {
+            // 2026-11-02 用户选型「用 B」：与 Android / bootButton 统一的
+            // 「色条双行」—— 名字独占首行、状态行在下（中间 6dp）、垂直居中。
+            VStack(alignment: .leading, spacing: 0) {
                 Text(group.label)
                     .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
                     .foregroundColor(usable ? ABColor.fgDim : ABColor.fgFaint.opacity(0.75))
-                    .lineLimit(1)
-                    .frame(width: ABMetric.px(46), alignment: .leading)
-
-                if working {
-                    ProgressView()
-                        .scaleEffect(0.6)
-                        .frame(width: ABMetric.px(13), height: ABMetric.px(13))
-                    Spacer().frame(width: ABMetric.px(7))
-                } else if !dotKind.isEmpty {
-                    bootDot(iconKind(dotKind))
-                    Spacer().frame(width: ABMetric.px(7))
-                }
-
-                Text(valueLabel)
-                    .font(.system(size: 12.5, weight: usable ? .medium : .regular))
-                    .foregroundColor(usable ? ABColor.fg : ABColor.fgFaint.opacity(0.85))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                    .lineLimit(nil)          // 名字完整显示（原先写死 46px 会裁成 OpenCo）
+                    .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                if group.permission == "nvram" && usable {
-                    Text("⤴")
-                        .font(.system(size: 10.5, weight: .bold))
-                        .foregroundColor(ABColor.fgFaint)
-                        .padding(.leading, ABMetric.px(5))
-                }
-                if usable {
-                    DrawnIcon.chevronDown(ABColor.fgFaint, size: ABMetric.px(14))
-                        .padding(.leading, ABMetric.px(7))
+                Spacer().frame(height: ABMetric.px(6))   // 名字↔状态间距
+
+                HStack(spacing: 0) {
+                    if working {
+                        ProgressView()
+                            .scaleEffect(0.6)
+                            .frame(width: ABMetric.px(13), height: ABMetric.px(13))
+                        Spacer().frame(width: ABMetric.px(7))
+                    } else if !dotKind.isEmpty {
+                        bootDot(iconKind(dotKind))
+                        Spacer().frame(width: ABMetric.px(7))
+                    }
+
+                    Text(valueLabel)
+                        .font(.system(size: 12.5, weight: usable ? .medium : .regular))
+                        .foregroundColor(usable ? ABColor.fg : ABColor.fgFaint.opacity(0.85))
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    if group.permission == "nvram" && usable {
+                        Text("⤴")
+                            .font(.system(size: 10.5, weight: .bold))
+                            .foregroundColor(ABColor.fgFaint)
+                            .padding(.leading, ABMetric.px(5))
+                    }
+                    if usable {
+                        DrawnIcon.chevronDown(ABColor.fgFaint, size: ABMetric.px(14))
+                            .padding(.leading, ABMetric.px(7))
+                    }
                 }
             }
             .padding(.leading, ABMetric.px(11))
             .padding(.trailing, ABMetric.px(10))
-            .frame(maxWidth: .infinity)
-            .frame(height: ABMetric.px(42))
+            .padding(.vertical, ABMetric.px(8))
+            .frame(maxWidth: .infinity, minHeight: ABMetric.px(52))
             .background(
                 RoundedRectangle(cornerRadius: ABMetric.px(11), style: .continuous)
                     .fill(background))
@@ -1313,51 +1320,59 @@ struct ComputerListView: View {
                 sheet = SheetRequest(rid: row.profile.id, kind: kind)
             }
         } label: {
-            HStack(spacing: 0) {
+            // 2026-11-02 用户选型「用 B」：与 Android 统一的「色条双行」——
+            //   名字独占首行、状态行在下（中间 6dp）、整块垂直居中、圆点跟随状态行。
+            // 原来是单行 HStack：名字写死 46px 宽 + lineLimit(1)，长名字被裁。
+            VStack(alignment: .leading, spacing: 0) {
                 Text(title)
                     .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
                     .foregroundColor(usable ? ABColor.fgDim : ABColor.fgFaint.opacity(0.75))
-                    .lineLimit(1)
-                    .frame(width: ABMetric.px(46), alignment: .leading)
-
-                if working {
-                    ProgressView()
-                        .scaleEffect(0.6)
-                        .frame(width: ABMetric.px(13), height: ABMetric.px(13))
-                    Spacer().frame(width: ABMetric.px(7))
-                } else if !dotKind.isEmpty {
-                    bootDot(dotKind)
-                    Spacer().frame(width: ABMetric.px(7))
-                }
-
-                Text(valueLabel)
-                    .font(.system(size: 12.5, weight: usable ? .medium : .regular))
-                    .foregroundColor(usable ? ABColor.fg : ABColor.fgFaint.opacity(0.85))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                    .lineLimit(nil)          // 名字完整显示，不截断
+                    .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                if pending {
-                    Text("待重启")
-                        .font(.system(size: 9.5, weight: .bold))
-                        .foregroundColor(ABColor.tonePendText)
-                        .lineLimit(1)
-                        .padding(.horizontal, ABMetric.px(5))
-                        .padding(.vertical, ABMetric.px(1))
-                        .background(
-                            RoundedRectangle(cornerRadius: ABMetric.px(4), style: .continuous)
-                                .fill(ABColor.tonePendBorder.opacity(0.32)))
-                        .padding(.leading, ABMetric.px(6))
-                }
-                if usable {
-                    DrawnIcon.chevronDown(ABColor.fgFaint, size: ABMetric.px(14))
-                        .padding(.leading, ABMetric.px(7))
+                Spacer().frame(height: ABMetric.px(6))   // 名字↔状态间距
+
+                HStack(spacing: 0) {
+                    if working {
+                        ProgressView()
+                            .scaleEffect(0.6)
+                            .frame(width: ABMetric.px(13), height: ABMetric.px(13))
+                        Spacer().frame(width: ABMetric.px(7))
+                    } else if !dotKind.isEmpty {
+                        bootDot(dotKind)
+                        Spacer().frame(width: ABMetric.px(7))
+                    }
+
+                    Text(valueLabel)
+                        .font(.system(size: 12.5, weight: usable ? .medium : .regular))
+                        .foregroundColor(usable ? ABColor.fg : ABColor.fgFaint.opacity(0.85))
+                        .lineLimit(nil)      // 完整展示，不限行数
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    if pending {
+                        Text("待重启")
+                            .font(.system(size: 9.5, weight: .bold))
+                            .foregroundColor(ABColor.tonePendText)
+                            .lineLimit(1)
+                            .padding(.horizontal, ABMetric.px(5))
+                            .padding(.vertical, ABMetric.px(1))
+                            .background(
+                                RoundedRectangle(cornerRadius: ABMetric.px(4), style: .continuous)
+                                    .fill(ABColor.tonePendBorder.opacity(0.32)))
+                            .padding(.leading, ABMetric.px(6))
+                    }
+                    if usable {
+                        DrawnIcon.chevronDown(ABColor.fgFaint, size: ABMetric.px(14))
+                            .padding(.leading, ABMetric.px(7))
+                    }
                 }
             }
             .padding(.leading, ABMetric.px(11))
             .padding(.trailing, ABMetric.px(10))
-            .frame(maxWidth: .infinity)
-            .frame(height: ABMetric.px(42))
+            .padding(.vertical, ABMetric.px(8))
+            .frame(maxWidth: .infinity, minHeight: ABMetric.px(52))
             .background(
                 RoundedRectangle(cornerRadius: ABMetric.px(11), style: .continuous)
                     .fill(background))

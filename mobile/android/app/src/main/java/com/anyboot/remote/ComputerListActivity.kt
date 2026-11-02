@@ -2054,14 +2054,15 @@ class ComputerListActivity : ComponentActivity() {
             else -> palette.line
         }
 
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
+        // 2026-11-02 用户选型「用 B」：与 ChannelBootButton 统一的「色条双行」——
+        //   名字独占首行、状态行在下，中间 6dp，整块垂直居中，圆点跟随状态行。
+        // 之前是单个 Row：名字（10.5sp mono）和状态（12.5sp）挤一行，
+        // 名字一长就把状态压窄。
+        Column(
+            verticalArrangement = Arrangement.Center,
             modifier = Modifier
                 .fillMaxWidth()
-                // 2026-11-02 用户定案：「电脑列表的引导器选中的条目仍然是被压缩到了
-                // 一行 我期望支持多行展示 只需要展示完整不考虑多少行」。
-                // 原来是 height(42.dp) 写死单行高度 → 改最小高度，随内容长高。
-                .heightIn(min = 42.dp)
+                .heightIn(min = 52.dp)
                 .clip(shape)
                 .background(background)
                 .then(
@@ -2075,61 +2076,63 @@ class ComputerListActivity : ComponentActivity() {
                         else -> sheetRequest = SheetRequest(row.profile.id, kind)
                     }
                 }
-                .padding(start = 11.dp, end = 10.dp),
+                .padding(start = 11.dp, end = 10.dp, top = 8.dp, bottom = 8.dp),
         ) {
+            // 第一行：引导器名（独占一行，长名字完整显示）
             Text(
                 title,
                 fontSize = 10.5.sp,
                 fontWeight = FontWeight.SemiBold,
                 fontFamily = FontFamily.Monospace,
                 color = if (usable) palette.fgDim else palette.fgFaint.copy(alpha = 0.75f),
-                // 与 ChannelBootButton 同一处理：不写死宽度、允许折行，
-                // 名字长了完整显示而不是被裁掉末尾
                 maxLines = Int.MAX_VALUE,
                 softWrap = true,
-                modifier = Modifier.widthIn(min = 46.dp),
+                lineHeight = 14.sp,
             )
-            if (working) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(13.dp),
-                    strokeWidth = 2.dp,
-                    color = palette.accent,
-                )
-                Spacer(Modifier.width(7.dp))
-            } else if (dot.isNotEmpty()) {
-                BootDot(dot)
-                Spacer(Modifier.width(7.dp))
-            }
-            Text(
-                valueLabel,
-                fontSize = 12.5.sp,
-                fontWeight = if (usable) FontWeight.Medium else FontWeight.Normal,
-                color = if (usable) palette.fg else palette.fgFaint.copy(alpha = 0.85f),
-                // 完整展示：不限行数、不省略号（启动项名可以很长）
-                maxLines = Int.MAX_VALUE,
-                overflow = TextOverflow.Clip,
-                lineHeight = 16.sp,
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(vertical = 6.dp),
-            )
-            if (pending) {
-                Spacer(Modifier.width(6.dp))
+            // 名字与状态之间 6dp
+            Spacer(Modifier.height(6.dp))
+            // 第二行：圆点 + 状态 / 当前项 + 待重启 + ▾
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (working) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(13.dp),
+                        strokeWidth = 2.dp,
+                        color = palette.accent,
+                    )
+                    Spacer(Modifier.width(7.dp))
+                } else if (dot.isNotEmpty()) {
+                    BootDot(dot)
+                    Spacer(Modifier.width(7.dp))
+                }
                 Text(
-                    "待重启",
-                    fontSize = 9.5.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = tone.pendText,
-                    maxLines = 1,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(tone.pendBorder.copy(alpha = 0.32f))
-                        .padding(horizontal = 5.dp, vertical = 1.dp),
+                    valueLabel,
+                    fontSize = 12.5.sp,
+                    fontWeight = if (usable) FontWeight.Medium else FontWeight.Normal,
+                    color = if (usable) palette.fg else palette.fgFaint.copy(alpha = 0.85f),
+                    // 完整展示：不限行数、不省略号（启动项名可以很长）
+                    maxLines = Int.MAX_VALUE,
+                    overflow = TextOverflow.Clip,
+                    lineHeight = 16.sp,
+                    modifier = Modifier.weight(1f),
                 )
-            }
-            if (usable) {
-                Spacer(Modifier.width(7.dp))
-                ChevronDownIcon(tint = palette.fgFaint, size = 14.dp)
+                if (pending) {
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        "待重启",
+                        fontSize = 9.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = tone.pendText,
+                        maxLines = 1,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(tone.pendBorder.copy(alpha = 0.32f))
+                            .padding(horizontal = 5.dp, vertical = 1.dp),
+                    )
+                }
+                if (usable) {
+                    Spacer(Modifier.width(7.dp))
+                    ChevronDownIcon(tint = palette.fgFaint, size = 14.dp)
+                }
             }
         }
     }
@@ -2185,10 +2188,16 @@ class ComputerListActivity : ComponentActivity() {
         // 挨着太丑」—— 通道名单独占首行，状态/当前项在第二行。
         // 原来是单个 Row：标签（10.5sp mono）和 12.5sp 的状态文字挤在一行，
         // systemd-boot / OpenCore 这种长名字会把状态挤得很难看。
+        // 2026-11-02 用户选型「用 B」：
+        //   方案 06 的色条外观 + 双行排版，**整块垂直居中**（不顶部对齐），
+        //   名字在上、状态行在下，中间 6dp；圆点跟随状态行。
+        // 相较上一版：Column 加 verticalArrangement=Center、行距用 Spacer(6.dp)、
+        // 名字行 lineHeight 回到 1.35 的观感（16sp）。
         Column(
+            verticalArrangement = Arrangement.Center,
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(min = 42.dp)
+                .heightIn(min = 52.dp)
                 .clip(shape)
                 .background(background)
                 .then(
@@ -2203,7 +2212,7 @@ class ComputerListActivity : ComponentActivity() {
                         else -> sheetRequest = SheetRequest(row.profile.id, KIND_CHANNEL, channel)
                     }
                 }
-                .padding(start = 11.dp, end = 10.dp, top = 6.dp, bottom = 6.dp),
+                .padding(start = 11.dp, end = 10.dp, top = 8.dp, bottom = 8.dp),
         ) {
             // 第一行：通道名（独占一行，长名字也完整显示）
             Text(
@@ -2212,17 +2221,15 @@ class ComputerListActivity : ComponentActivity() {
                 fontWeight = FontWeight.SemiBold,
                 fontFamily = FontFamily.Monospace,
                 color = if (usable) palette.fgDim else palette.fgFaint.copy(alpha = 0.75f),
-                // 2026-11-02「OpenCore 压缩成了 OpenCo」：原先写死 width(46.dp)
-                // + maxLines=1，装不下就被裁字。现在独占一行、按内容定宽、
-                // 需要时可折行。
+                // 「OpenCore 压缩成了 OpenCo」的根因是原先写死 width(46.dp)+maxLines=1，
+                // 现在独占一行、按内容定宽、可折行。
                 maxLines = Int.MAX_VALUE,
                 softWrap = true,
-                // 2026-11-02 用户定案：「不要名字与状态之间的间距」——
-                // 名字与状态行紧贴，中间不留空白。
-                // 靠行内 lineHeight 自身的行距即可，不加 Spacer / padding。
                 lineHeight = 14.sp,
             )
-            // 第二行：圆点 + 状态 / 当前项（紧贴上一行）
+            // 名字与状态之间 6dp（用户定案：不要紧贴、也不要太松）
+            Spacer(Modifier.height(6.dp))
+            // 第二行：圆点 + 状态 / 当前项
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (working) {
                     CircularProgressIndicator(
