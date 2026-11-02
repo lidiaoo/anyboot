@@ -373,6 +373,12 @@ function power(payload: Record<string, unknown>) {
       </button>
       <button type="button" class="link-btn" title="探测当前电脑的页面是否可访问" @click="pingPage">探活</button>
       <button type="button" class="link-btn" title="让主窗跳到前台" @click="focusWindow">聚焦主窗</button>
+      <button type="button" class="link-btn" title="管理已添加的 AnyBoot 服务端（编辑 / 删除 / 新增）" @click="rsListOpen = true">
+        服务端
+      </button>
+      <button type="button" class="link-btn" title="添加一台 AnyBoot 服务端" @click="rsEditing = ''; rsEditOpen = true">
+        ＋服务端
+      </button>
       <button type="button" class="link-btn" title="给当前电脑新建一条 SSH 隧道" @click="openTunnel(activeId)">
         隧道
       </button>

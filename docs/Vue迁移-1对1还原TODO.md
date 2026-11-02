@@ -571,6 +571,28 @@ cqViewOverlay   1180x791 / 0填2钮  1180x791 / 0填2钮  ✅
   → 改成 `v-show`，输入框数 8 → 10，与旧版一致
 - `HomePage` 的电源帮助按钮漏了 `hidden` 控制
 
+**又发现一个严重问题：文件窗是占位页**
+`pages/files/index.vue` 还是阶段 4 的占位（"这个窗口正在迁移中"），
+而我上几轮写的完整实现放在 `FilesWindow.vue`，入口根本没引用它。
+**文件窗此前一直是空白占位页**，所有验证都没覆盖到。
+
+修法：`index.vue` 改为转出 `FilesWindow.vue`。
+
+**弹层比对扩展到 14 个后的结果**：
+```
+editOverlay      480x812 / 10填9钮  ↔  同        ✅
+deleteOverlay    480x184 / 0填3钮   ↔  同        ✅
+cqViewOverlay   1180x791 / 0填2钮   ↔  同        ✅
+tunnelOverlay    480x443 / 5填3钮   ↔  同        ✅
+fbMkdirModal     －                 →  1280x116  ✅
+genModal         400x435 / 2填5钮   ↔  400x359   ✅
+```
+旧版多数弹层在 mock 环境打不开（缺 SFTP/服务端数据），无法两侧比对。
+
+**补充入口**：`rsEditOverlay` 之前完全没有入口能打开（只有
+`RemoteListDialog` 的「编辑」能调，而列表弹层本身也没入口），
+已在电脑列表工具条加「服务端」「＋服务端」两个按钮。
+
 **剩余的差异（不是缺陷）**：
 - `gwPairOverlay` 1填7钮 vs 2填9钮 —— 已生成配对码/未生成两种状态
 - `fabHelpOverlay` 高度不同 —— 帮助文案长度不同

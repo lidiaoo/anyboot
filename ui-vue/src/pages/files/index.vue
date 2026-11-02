@@ -2,29 +2,12 @@
 /**
  * files 独立窗（原 `ui/hub-files.html`）。
  *
- * 阶段 4 迁入真实内容；先占位保证构建与窗口能打开。
+ * 真实实现在 `FilesWindow.vue`；这里只做转出，保证入口文件稳定
+ * （`entries/hub-files.ts` 指向它）。
  */
+import FilesWindow from "./FilesWindow.vue";
 </script>
 
 <template>
-  <div class="placeholder">
-    <h1>files</h1>
-    <p>这个窗口正在迁移中 —— 阶段 4 迁入。</p>
-  </div>
+  <FilesWindow />
 </template>
-
-<style scoped>
-.placeholder {
-  padding: 24px;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-}
-h1 {
-  font-size: 17px;
-  margin: 0 0 8px;
-}
-p {
-  color: #9ca3af;
-  font-size: 13px;
-  margin: 0;
-}
-</style>
