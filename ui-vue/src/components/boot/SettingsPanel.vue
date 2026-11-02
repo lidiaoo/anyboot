@@ -129,6 +129,22 @@ function commit(command: string, payload: Record<string, unknown>) {
 function fmtPct(v: number) {
   return `${v}%`;
 }
+
+/** 设置联动禁用（旧版 applySettingLinkage） */
+const notifyOn = computed(() => Boolean((ui.settings as any)?.notifyEnabled));
+const httpOn = computed(() => Boolean((ui.settings as any)?.httpEnabled));
+const soundOn = computed(() => Boolean((ui.settings as any)?.playSound));
+const centerLocked = computed(() => (ui.settings as any)?.mainWindowPosition === "center");
+const autoHideOn = computed(() => Boolean((ui.settings as any)?.mainAutoHide));
+/** 通道 notify/delay：通知总开关关闭时禁用 */
+const channelDisabled = computed(() => !notifyOn.value);
+/** HTTP 配置/token：HTTP 服务关闭时禁用 */
+const httpDisabled = computed(() => !httpOn.value);
+/** 提示音文件：提示音关闭时禁用 */
+const soundDisabled = computed(() => !soundOn.value);
+/** 贴边配置：居中模式禁用；auto-hide 关闭时 dock 配置也禁用 */
+const autoHideDisabled = computed(() => centerLocked.value);
+const dockStripDisabled = computed(() => centerLocked.value || !autoHideOn.value);
 </script>
 
 <template>
@@ -196,7 +212,7 @@ function fmtPct(v: number) {
       <input id="main-auto-hide"
         type="checkbox"
         :checked="Boolean(s?.mainAutoHide)"
-        @change="commit('set_main_auto_hide', { enabled: !s?.mainAutoHide })"
+        @change="commit('set_main_auto_hide', { enabled: !s?.mainAutoHide })" :disabled="autoHideDisabled"
       />
     </label>
 
@@ -221,7 +237,7 @@ function fmtPct(v: number) {
         max="2000"
         step="50"
         :value="val('mainDockStripHoverMs', 120)"
-        @change="commit('set_main_dock_strip_hover_ms', { value: Number(($event.target as HTMLInputElement).value) })"
+        @change="commit('set_main_dock_strip_hover_ms', { value: Number(($event.target as HTMLInputElement).value) })" :disabled="dockStripDisabled"
       />
     </label>
 
@@ -236,7 +252,7 @@ function fmtPct(v: number) {
         min="0"
         max="100"
         :value="val('mainDockStripEdgeGap', 0)"
-        @change="commit('set_main_dock_strip_edge_gap', { value: Number(($event.target as HTMLInputElement).value) })"
+        @change="commit('set_main_dock_strip_edge_gap', { value: Number(($event.target as HTMLInputElement).value) })" :disabled="dockStripDisabled"
       />
     </label>
 
@@ -253,7 +269,7 @@ function fmtPct(v: number) {
         :value="val('mainDockStripThickness', 6)"
         @input="setLocal('mainDockStripThickness', Number(($event.target as HTMLInputElement).value))"
         @change="commit('set_main_dock_strip_thickness', { value: val('mainDockStripThickness', 6) })"
-      step="1"
+      step="1" :disabled="dockStripDisabled"
     />
     </label>
 
@@ -270,7 +286,7 @@ function fmtPct(v: number) {
         :value="val('mainDockStripLength', 100)"
         @input="setLocal('mainDockStripLength', Number(($event.target as HTMLInputElement).value))"
         @change="commit('set_main_dock_strip_length', { value: val('mainDockStripLength', 100) })"
-      step="5"
+      step="5" :disabled="dockStripDisabled"
     />
     </label>
 
@@ -287,7 +303,7 @@ function fmtPct(v: number) {
         :value="val('mainDockStripOpacity', 100)"
         @input="setLocal('mainDockStripOpacity', Number(($event.target as HTMLInputElement).value))"
         @change="commit('set_main_dock_strip_opacity', { value: val('mainDockStripOpacity', 100) })"
-      step="5"
+      step="5" :disabled="dockStripDisabled"
     />
     </label>
 
@@ -299,7 +315,7 @@ function fmtPct(v: number) {
       <input id="main-dock-strip-color"
         type="color"
         :value="val('mainDockStripColor', '#ffffff')"
-        @change="commit('set_main_dock_strip_color', { color: ($event.target as HTMLInputElement).value })"
+        @change="commit('set_main_dock_strip_color', { color: ($event.target as HTMLInputElement).value })" :disabled="dockStripDisabled"
       />
     </label>
 
@@ -572,8 +588,8 @@ function fmtPct(v: number) {
           <small>默认 0.0.0.0:12300；改成 127.0.0.1 则只能本机或 SSH 隧道访问</small>
         </span>
         <span class="remote-inline">
-          <input id="http-bind" v-model="httpBind" spellcheck="false" type="text" />
-          <input id="http-port" v-model="httpPort" inputmode="numeric" spellcheck="false" type="text" />
+          <input id="http-bind" v-model="httpBind" spellcheck="false" type="text" :disabled="httpDisabled" />
+          <input id="http-port" v-model="httpPort" inputmode="numeric" spellcheck="false" type="text" :disabled="httpDisabled" />
           <button type="button" id="http-apply" class="secondary" @click="applyHttp">应用</button>
         </span>
       </div>
@@ -585,7 +601,7 @@ function fmtPct(v: number) {
           <small>自己填一个也可以：4–128 位可见 ASCII（字母/数字/符号），不能有空格和中文；清空则服务不启动</small>
         </span>
         <span class="remote-inline">
-          <input id="token-input" v-model="tokenInput" spellcheck="false" type="text" placeholder="自定义 token…" />
+          <input id="token-input" v-model="tokenInput" spellcheck="false" type="text" placeholder="自定义 token…" :disabled="httpDisabled" />
           <button type="button" class="secondary" @click="regenerateToken">重新生成</button>
         </span>
       </div>
@@ -626,7 +642,7 @@ function fmtPct(v: number) {
           <button type="button" id="token-reveal" class="secondary" @click="commit('reveal_http_token', {})">显示</button>
           <button type="button" id="token-copy" class="secondary" @click="copyToken">复制</button>
           <button type="button" id="token-regenerate" class="secondary" @click="regenerateToken">重新生成</button>
-          <button type="button" id="token-save" class="secondary" @click="saveToken">保存</button>
+          <button type="button" id="token-save" class="secondary" @click="saveToken" :disabled="httpDisabled">保存</button>
         </span>
       </div>
 
@@ -654,8 +670,8 @@ function fmtPct(v: number) {
           <small>弹窗通知 + 延迟秒数（0 = 立即执行）</small>
         </span>
         <span class="remote-inline">
-          <input id="http-channel-notify" type="checkbox" :checked="Boolean(s?.httpChannelNotify)" @change="commit('set_channel_notify', { channel: 'http', enabled: !s?.httpChannelNotify })" />
-          <input id="http-channel-delay" type="text" inputmode="numeric" spellcheck="false" :value="val('httpChannelDelay', 0)" @change="commit('set_channel_delay', { channel: 'http', seconds: Number(($event.target as HTMLInputElement).value) })" />
+          <input id="http-channel-notify" type="checkbox" :checked="Boolean(s?.httpChannelNotify)" @change="commit('set_channel_notify', { channel: 'http', enabled: !s?.httpChannelNotify })" :disabled="channelDisabled" />
+          <input id="http-channel-delay" type="text" inputmode="numeric" spellcheck="false" :value="val('httpChannelDelay', 0)" @change="commit('set_channel_delay', { channel: 'http', seconds: Number(($event.target as HTMLInputElement).value) })" :disabled="channelDisabled" />
         </span>
       </div>
 
@@ -665,8 +681,8 @@ function fmtPct(v: number) {
           <small>ssh 远程调用的通知与延迟（与 webhook 分开配置）</small>
         </span>
         <span class="remote-inline">
-          <input id="cli-channel-notify" type="checkbox" :checked="Boolean(s?.cliChannelNotify)" @change="commit('set_channel_notify', { channel: 'cli', enabled: !s?.cliChannelNotify })" />
-          <input id="cli-channel-delay" type="text" inputmode="numeric" spellcheck="false" :value="val('cliChannelDelay', 0)" @change="commit('set_channel_delay', { channel: 'cli', seconds: Number(($event.target as HTMLInputElement).value) })" />
+          <input id="cli-channel-notify" type="checkbox" :checked="Boolean(s?.cliChannelNotify)" @change="commit('set_channel_notify', { channel: 'cli', enabled: !s?.cliChannelNotify })" :disabled="channelDisabled" />
+          <input id="cli-channel-delay" type="text" inputmode="numeric" spellcheck="false" :value="val('cliChannelDelay', 0)" @change="commit('set_channel_delay', { channel: 'cli', seconds: Number(($event.target as HTMLInputElement).value) })" :disabled="channelDisabled" />
         </span>
       </div>
 
@@ -678,11 +694,11 @@ function fmtPct(v: number) {
         </span>
         <span class="remote-inline">
           <label class="setting" style="border: 0; padding: 0">
-            <input id="setting-sound" type="checkbox" :checked="Boolean(s?.soundEnabled)" @change="commit('set_play_sound', { enabled: !s?.soundEnabled })" />
+            <input id="setting-sound" type="checkbox" :checked="Boolean(s?.playSound)" @change="commit('set_play_sound', { enabled: !s?.playSound })" />
           </label>
-          <button type="button" id="play-sound" class="secondary" @click="commit('set_play_sound', { enabled: true })">试听</button>
+          <button type="button" id="play-sound" class="secondary" @click="commit('set_play_sound', { enabled: true })" :disabled="soundDisabled">试听</button>
           <input id="sound-file-path" v-model="soundPath" spellcheck="false" type="text" placeholder="自定义路径（留空用内置音）" />
-          <button type="button" id="sound-apply" class="secondary" @click="commit('set_sound_file_path', { path: soundPath })">应用</button>
+          <button type="button" id="sound-apply" class="secondary" @click="commit('set_sound_file_path', { path: soundPath })" :disabled="soundDisabled">应用</button>
         </span>
       </div>
 
