@@ -1,135 +1,214 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
+import { useUiStateStore } from "@/stores/uiState";
+import { useSettingsStore } from "@/stores/settings";
+import { useTransport } from "@/composables/useTransport";
 
 /**
- * 阶段 0 探针页。
+ * 阶段 1 验收页：证明「类型 + 数据层 + 传输通道」都能用。
  *
- * 目的：证明 Vue 应用在 Tauri 里能跑、IPC 能通、打包路径正确。
  * 真实页面在阶段 2/3/4 替换本文件。
+ * 验收要点：
+ *   ① 快照能到达（revision 递增）
+ *   ② 三种通道可切（IPC / ws / http）
+ *   ③ 设置的两个来源都读得到（后端 settings + 本地偏好）
  */
 
-interface ProbeResult {
-  label: string;
-  ok: boolean;
-  detail: string;
-}
+const ui = useUiStateStore();
+const settings = useSettingsStore();
+const transport = useTransport();
 
-const results = ref<ProbeResult[]>([]);
 const entryName = ref("");
+const log = ref<string[]>([]);
 
-function add(label: string, ok: boolean, detail: string) {
-  results.value.push({ label, ok, detail });
+function pushLog(text: string) {
+  log.value.unshift(`${new Date().toLocaleTimeString()}  ${text}`);
+  if (log.value.length > 12) log.value.pop();
 }
 
 onMounted(async () => {
   entryName.value = location.pathname.split("/").pop() || "index.html";
-  add("页面加载", true, location.href);
+  await ui.start();
+  pushLog(`通道：${transport.activeTransport.value}（${transport.label.value}）`);
 
-  const isTauri = "__TAURI_INTERNALS__" in window || "__TAURI__" in window;
-  add("Tauri 环境", isTauri, isTauri ? "已检测到 IPC 通道" : "非 Tauri（浏览器里打开）");
-
-  if (!isTauri) return;
-
-  try {
-    const { invoke } = await import("@tauri-apps/api/core");
-    const state = await invoke<{ revision?: number; status?: { ok?: boolean } }>(
-      "get_ui_state",
-    );
-    add(
-      "IPC · get_ui_state",
-      true,
-      `revision=${state?.revision ?? "?"} status.ok=${state?.status?.ok ?? "?"}`,
-    );
-  } catch (error) {
-    add("IPC · get_ui_state", false, String(error));
-  }
-
-  try {
-    const { invoke } = await import("@tauri-apps/api/core");
-    // 用真实存在的命令：hub 入口读服务器列表，其余入口读访问提示
-    const list = await invoke<unknown[]>("hub_list_servers");
-    add("IPC · hub_list_servers", true, `返回 ${Array.isArray(list) ? list.length : "?"} 条`);
-  } catch (error) {
-    add("IPC · hub_list_servers", false, String(error));
-  }
+  // macOS 上没法 attach WebKit devtools，验收信息写进 App 的 trace 日志。
+  // 3 秒后（首份快照应该已到达）打一行，格式固定便于 grep：
+  //   [vue-stage1] ready=1 rev=... refind=auto grub=auto channels=3 grubEntries=68 simEntries=15
+  window.setTimeout(() => {
+    const line =
+      `[vue-stage1] ready=${ui.ready ? 1 : 0} rev=${ui.revision} ` +
+      `transport=${transport.activeTransport.value} ` +
+      `refind=${settings.refindMode} grub=${settings.grubMode} ` +
+      `channels=${ui.channels.length} grubEntries=${ui.grub?.entries.length ?? 0} ` +
+      `simEntries=${ui.refindSim?.entries.length ?? 0} ` +
+      `httpListening=${ui.http?.listening ? 1 : 0}`;
+    void import("@/api/tauri")
+      .then(({ isTauri, call }) => {
+        if (isTauri()) return call<void>("hub_report_error", { source: "vue", message: line, stack: "" });
+        return undefined;
+      })
+      .catch(() => {
+        /* 日志失败不影响页面 */
+      });
+  }, 3000);
 });
+
+const snapshot = computed(() => ui.state);
+const refindMode = computed(() => settings.refindMode);
+const grubMode = computed(() => settings.grubMode);
+const channelsCount = computed(() => ui.channels.length);
+const grubEntries = computed(() => ui.grub?.entries.length ?? 0);
+const simEntries = computed(() => ui.refindSim?.entries.length ?? 0);
 </script>
 
 <template>
   <main class="probe">
-    <h1>AnyBoot · Vue 迁移阶段 0</h1>
-    <p class="entry">入口：<code>{{ entryName }}</code></p>
+    <header>
+      <h1>AnyBoot · Vue 阶段 1 · 数据层</h1>
+      <p class="entry">
+        入口 <code>{{ entryName }}</code>
+        · 通道 <strong>{{ transport.label.value }}</strong>
+        · revision <code>{{ ui.revision }}</code>
+      </p>
+    </header>
 
-    <ul class="checks">
-      <li v-for="item in results" :key="item.label" :class="{ ok: item.ok, bad: !item.ok }">
-        <span class="dot" />
-        <strong>{{ item.label }}</strong>
-        <span class="detail">{{ item.detail }}</span>
-      </li>
-    </ul>
+    <section>
+      <h2>快照</h2>
+      <ul class="kv">
+        <li><span>是否就绪</span><b :class="ui.ready ? 'ok' : 'bad'">{{ ui.ready ? "是" : "否" }}</b></li>
+        <li><span>rEFInd 模式</span><b>{{ refindMode }}</b></li>
+        <li><span>GRUB 模式</span><b>{{ grubMode }}</b></li>
+        <li><span>rEFInd 模拟扫描条目</span><b>{{ simEntries }}</b></li>
+        <li><span>GRUB 条目</span><b>{{ grubEntries }}</b></li>
+        <li><span>三通道</span><b>{{ channelsCount }}</b></li>
+        <li><span>HTTP 服务</span><b>{{ ui.http?.listening ? "监听中" : "未监听" }}</b></li>
+      </ul>
+    </section>
 
-    <p v-if="!results.length" class="waiting">检测中…</p>
+    <section>
+      <h2>前端偏好（localStorage）</h2>
+      <ul class="kv">
+        <li><span>数据刷新</span><b>{{ settings.dataRefreshSec }} 秒</b></li>
+        <li><span>每次重探地址</span><b>{{ settings.reprobeAlways ? "是" : "否（复用）" }}</b></li>
+        <li><span>连续失败阈值</span><b>{{ settings.offlineRetryCount }} 次</b></li>
+        <li><span>失败重载</span><b>{{ settings.failReloadSec }} 秒</b></li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>通道切换</h2>
+      <div class="buttons">
+        <button @click="transport.switchTo('auto')">自动</button>
+        <button @click="transport.switchTo('ws')">推送</button>
+        <button @click="transport.switchTo('http')">轮询</button>
+        <button @click="transport.reconnect()">重连</button>
+      </div>
+      <p v-if="ui.pushError" class="err">{{ ui.pushError }}</p>
+    </section>
+
+    <section>
+      <h2>事件</h2>
+      <ul class="log">
+        <li v-for="(line, i) in log" :key="i">{{ line }}</li>
+      </ul>
+    </section>
+
+    <p v-if="!snapshot" class="waiting">等待快照…</p>
   </main>
 </template>
 
 <style scoped>
 .probe {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  padding: 32px;
+  padding: 28px 32px;
   color: #1a1a1a;
+  max-width: 860px;
 }
 h1 {
-  font-size: 20px;
-  margin: 0 0 8px;
+  font-size: 19px;
+  margin: 0 0 6px;
+}
+h2 {
+  font-size: 13px;
+  margin: 22px 0 8px;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 .entry {
-  color: #666;
-  font-size: 13px;
-  margin: 0 0 20px;
+  color: #6b7280;
+  font-size: 12.5px;
+  margin: 0;
 }
-.checks {
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: #f3f4f6;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 11.5px;
+}
+.kv {
   list-style: none;
   padding: 0;
   margin: 0;
-  max-width: 720px;
-}
-.checks li {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  padding: 9px 12px;
-  border-radius: 8px;
   border: 1px solid #e5e7eb;
-  margin-bottom: 8px;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.kv li {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 12px;
   font-size: 13px;
+  border-bottom: 1px solid #f3f4f6;
 }
-.checks li.ok {
-  background: #f0fdf4;
-  border-color: #bbf7d0;
+.kv li:last-child {
+  border-bottom: 0;
 }
-.checks li.bad {
-  background: #fef2f2;
-  border-color: #fecaca;
+.kv span {
+  color: #6b7280;
 }
-.dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex: none;
-  background: #16a34a;
+.kv b.ok {
+  color: #16a34a;
 }
-.bad .dot {
-  background: #dc2626;
+.kv b.bad {
+  color: #dc2626;
 }
-.detail {
-  color: #666;
-  margin-left: auto;
+.buttons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+button {
+  font-size: 12.5px;
+  padding: 6px 14px;
+  border-radius: 7px;
+  border: 1px solid #d1d5db;
+  background: #fff;
+  cursor: pointer;
+}
+button:hover {
+  background: #f9fafb;
+}
+.log {
+  list-style: none;
+  padding: 10px 12px;
+  margin: 0;
+  background: #f9fafb;
+  border-radius: 8px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12px;
-  word-break: break-all;
+  font-size: 11.5px;
+  color: #4b5563;
+  line-height: 1.7;
+}
+.err {
+  color: #dc2626;
+  font-size: 12.5px;
+  margin: 8px 0 0;
 }
 .waiting {
-  color: #999;
+  color: #9ca3af;
   font-size: 13px;
+  margin-top: 20px;
 }
 </style>
