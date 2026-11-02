@@ -57,6 +57,38 @@ const busy = ref("");
 const manualOpen = ref(false);
 const manualPath = ref("");
 
+/** Tailscale 状态文案（旧版 tsStateText） */
+const tsStateText = computed(() => {
+  if (!tsStatus.value) return "正在检测 Tailscale…";
+  if (!tsStatus.value.installed) return "未安装 Tailscale";
+  return tsStatus.value.running ? "已连接" : "未连接";
+});
+
+/** Tailscale 安装包下载进度（旧版 #tsProgressRow） */
+const tsDownloading = ref(false);
+const tsProgress = ref(0);
+
+/** Funnel 公网通道状态（旧版 #tsfBlock，4 种状态：off/starting/needs_authorize/ready/error） */
+interface TsfStatus {
+  state: string;
+  url?: string;
+  error?: string;
+}
+const tsfStatus = ref<TsfStatus | null>(null);
+const tsfStateText = computed(() => {
+  const s = tsfStatus.value?.state;
+  if (s === "starting") return "正在开启 Funnel…";
+  if (s === "needs_authorize") return "需要在 Tailscale 官方页授权";
+  if (s === "ready") return "Funnel 已开启";
+  if (s === "error") return "Funnel 出错";
+  return "Funnel 未开启";
+});
+
+/** 打开 Funnel 官方授权页（旧版 #tsfAuthBtn） */
+function tsFunnelAuth() {
+  void call("gateway_tailscale_funnel_enable").catch(() => {});
+}
+
 /** 命名隧道配置（旧版 #gwNamedToken / #gwNamedUrl） */
 const namedToken = ref("");
 const namedUrl = ref("");
@@ -172,7 +204,11 @@ async function openTsLog() {
 }
 
 function tsDownload() {
-  void run("下载 Tailscale", () => call("gateway_tailscale_download"), "开始下载…");
+  tsDownloading.value = true;
+  tsProgress.value = 0;
+  void run("下载 Tailscale", () => call("gateway_tailscale_download"), "开始下载…").finally(() => {
+    tsDownloading.value = false;
+  });
 }
 
 function tsOpenManual() {
@@ -409,10 +445,6 @@ function selectMode(next: "quick" | "named") {
   persistConfig(next);
 }
 
-/** Tailscale 安装 / 注销 / 扩展设置 / Funnel */
-function tsInstall() {
-  void run("安装 Tailscale", () => call("gateway_tailscale_install"), "开始安装…");
-}
 
 function tsLogout() {
   void run("退出 Tailscale 登录", () => call("gateway_tailscale_logout"), "已退出登录");
@@ -730,74 +762,75 @@ function deletePair(id: string) {
     </div>
   </div>
 
-  <!-- ===== Tailscale 分页（旧版 hub.html:2958 起） ===== -->
+  <!-- ===== Tailscale 分页（旧版 hub.html:2931–3129，65 个 id） ===== -->
   <div v-show="activeTab === 'ts'" class="gw-tabpane">
-    <div class="gw-card">
+    <div class="gw-card" id="tsCard">
       <div class="gw-card-head">
         <h3>Tailscale 直连</h3>
-        <span v-if="tsStatus?.installed" class="tsf-badge">已安装{{ tsStatus?.ip ? ` · ${tsStatus.ip}` : "" }}</span>
+        <span class="tsf-badge" id="tsBadge" :hidden="!tsStatus?.installed">已安装 · 局域网 100.x</span>
         <span style="flex: 1" />
-        <span v-if="tsStatus?.installed" class="gw-sw-group" title="连接 / 断开 Tailscale（登录级，等于 tailscale up / down）">
+        <span
+          class="gw-sw-group"
+          id="tsMainSwGroup"
+          :hidden="!tsStatus?.installed"
+          title="连接 / 断开 Tailscale（登录级，等于 tailscale up / down；待登录时点击会拉起浏览器登录）"
+        >
           <span class="gw-sw-cap">连接</span>
-          <label class="switch">
-            <input type="checkbox" :checked="tsStatus?.running" @change="toggleTailscale" />
+          <label class="switch" id="tsMainSwWrap">
+            <input type="checkbox" id="tsMainSw" :checked="tsStatus?.running" @change="toggleTailscale" />
             <span class="trk" aria-hidden="true" />
           </label>
         </span>
-        <span v-if="tsStatus?.installed" class="gw-sw-group" title="启动 / 停止 tailscaled 系统服务">
+        <span
+          class="gw-sw-group"
+          id="tsSvcSwGroup"
+          :hidden="!tsStatus?.installed"
+          title="启动 / 停止 tailscaled 系统服务（Windows；需要管理员权限）"
+        >
           <span class="gw-sw-cap">服务</span>
-          <label class="switch">
-            <input type="checkbox" :checked="tsStatus?.running" @change="tailscaleService" />
+          <label class="switch" id="tsSvcSwWrap">
+            <input type="checkbox" id="tsSvcSw" :checked="tsStatus?.running" @change="tailscaleService" />
             <span class="trk" aria-hidden="true" />
           </label>
         </span>
-        <button v-if="tsStatus?.installed" type="button" class="btn" @click="tsExtensionSettings">扩展设置</button>
-        <button v-if="tsStatus?.installed" type="button" class="btn" @click="tsLogout">退出登录</button>
-        <button v-if="tsStatus?.installed" type="button" class="btn" @click="openUninstall('将卸载 Tailscale 程序本体')">卸载</button>
-        <button type="button" class="btn" @click="openTsLog">日志</button>
-        <button type="button" class="btn" @click="refreshAll">重新检测</button>
+        <button v-if="tsStatus?.installed" type="button" class="btn" id="tsUninstallBtn" @click="openUninstall('将卸载 Tailscale 程序本体')">
+          卸载
+        </button>
+        <button type="button" class="btn" id="tsLogBtn" @click="openTsLog">日志</button>
+        <button type="button" class="btn" id="tsRefreshBtn" @click="refreshAll">重新检测</button>
       </div>
 
-      <div class="gw-status">
-        <span class="pulse" :hidden="!tsStatus?.running" />
-        <span>{{ tsStatus?.running ? "已连接" : tsStatus?.installed ? "未连接" : "未安装 Tailscale" }}</span>
-        <span style="flex: 1" />
-        <span v-if="tsStatus?.version" class="mono gw-meta">{{ tsStatus.version }}</span>
+      <div class="gw-status" id="tsStateRow">
+        <span class="pulse" id="tsPulse" :hidden="!tsStatus?.running" />
+        <span id="tsStateText">{{ tsStateText }}</span>
+        <span class="mono gw-meta" id="tsMeta">{{ tsStatus?.version || "" }}</span>
       </div>
 
-      <!-- 未安装：下载 / 官网 -->
-      <div v-if="!tsStatus?.installed">
-        <div class="gw-binary">
-          <span>还没有安装 Tailscale</span>
-          <button type="button" class="btn primary" :disabled="!!busy" @click="tsInstall">安装 Tailscale</button>
-        </div>
-        <p class="field-hint" style="margin: 8px 0 0">
-          在这一台电脑上安装 Tailscale，手机 / 其他电脑加入同一网络后就能用它固定的
-          100.x 地址访问本机 —— 不出公网、地址长期不变。
+      <!-- 未安装态：#tsDlRow -->
+      <div id="tsDlRow" :hidden="tsStatus?.installed">
+        <p class="field-hint" id="tsDlHint" style="margin: 8px 0 0">
+          没检测到 Tailscale —— 它给两台设备组一个加密虚拟局域网（100.x 地址，不出公网、地址长期固定）。
+          下载完成后安装器会自动弹出，按提示装好并登录，再点「重新检测」。
         </p>
         <div class="gw-binary">
-          <span>安装包未下载</span>
-          <button type="button" class="btn" :disabled="!!busy" @click="tsDownload">下载 Tailscale</button>
-          <button type="button" class="btn" @click="tsOpenManual">打开官网手动下载</button>
+          <span id="tsDlText">安装包未下载</span>
+          <span style="flex: 1" />
+          <button type="button" class="btn" id="tsDownloadBtn" :disabled="!!busy" @click="tsDownload">下载 Tailscale</button>
+          <button type="button" class="btn" id="tsManualLink" @click="tsOpenManual">打开官网手动下载</button>
         </div>
-        <div class="gw-progress" hidden>
-          <div class="gw-progress-bar"><div /></div>
-          <span class="mono" />
+        <div class="gw-progress" id="tsProgressRow" :hidden="!tsDownloading">
+          <div class="gw-progress-bar"><div id="tsProgressBar" :style="{ width: tsProgress + '%' }" /></div>
+          <span class="mono" id="tsProgressText">{{ tsDownloading ? `下载 ${tsProgress}%` : "" }}</span>
         </div>
-
-        <!-- 自启（旧版 #tsAutostart） -->
-        <label class="gw-auto">
-          <input type="checkbox" :checked="tsAutostart" @change="toggleTsAutostart" />
-          <span class="gw-auto-t">启动软件时自动连接 Tailscale</span>
-          <span class="gw-auto-h">等价于自动点「连接」</span>
-        </label>
       </div>
 
-      <!-- 已安装未连接：授权密钥 / 登录 -->
-      <template v-if="tsStatus?.installed && !tsStatus?.running">
-        <div style="margin-top: 10px">
+      <!-- 未连接态：#tsKeyRow（AuthKey 配置） -->
+      <div id="tsKeyRow" :hidden="!tsStatus?.installed || tsStatus?.running">
+        <div class="field" style="margin-top: 10px">
+          <label for="tsKey">AuthKey（可选，推荐填）</label>
           <div style="display: flex; gap: 8px; align-items: center">
             <input
+              id="tsKey"
               v-model="tsKey"
               type="password"
               class="mono"
@@ -805,36 +838,161 @@ function deletePair(id: string) {
               placeholder="留空则走浏览器登录"
               autocomplete="off"
             />
-            <button type="button" class="btn" :disabled="!!busy" @click="tsSaveKey">保存</button>
+            <button type="button" class="btn" id="tsKeySave" :disabled="!!busy" @click="tsSaveKey">保存</button>
           </div>
-          <p class="field-hint">
+          <p class="field-hint" id="tsKeyHint">
             在 Tailscale 管理控制台 → Settings → Keys 里签发一次性的设备授权密钥；填了它连接时免浏览器登录。
           </p>
         </div>
-      </template>
+      </div>
 
-      <!-- 已连接：地址 + 自检 -->
-      <template v-if="tsStatus?.running">
+      <!-- 需登录态：#tsLoginRow -->
+      <div id="tsLoginRow" :hidden="true">
+        <p class="field-hint" style="margin: 8px 0 0">
+          需要登录 Tailscale 账号 —— 点下面按钮在浏览器完成授权（一次即可，凭据会记住）。
+          登录完成后自动继续，不用再点开关。
+        </p>
+        <div style="display: flex; gap: 8px; align-items: center; margin-top: 8px">
+          <button type="button" class="btn primary" id="tsLoginOpen">打开登录页</button>
+          <button type="button" class="link-btn" id="tsLoginCopy">复制登录链接</button>
+          <button type="button" class="link-btn" id="tsLoginRegen">重新生成链接</button>
+        </div>
+        <p class="field-hint mono" id="tsLoginUrl" style="margin: 8px 0 0; user-select: all; overflow-wrap: anywhere; word-break: break-all">{{ loginUrl }}</p>
+        <p class="field-hint" style="margin: 6px 0 0">
+          ⏱️ 登录链接约 <b>10 分钟</b>内有效；过期或点了没反应，就点<b>重新生成链接</b>或把开关<b>关开一次</b>。
+          链接也可以复制到手机/其它设备的浏览器打开，授权完这边自动继续。
+        </p>
+      </div>
+
+      <!-- 运行中态：#tsAddrRow -->
+      <div id="tsAddrRow" :hidden="!tsStatus?.running">
         <div class="gw-status" style="margin-top: 8px">
-          <span class="mono ts-addr">{{ tsStatus?.ip || "—" }}</span>
-          <button type="button" class="link-btn" @click="copyTsAddr">复制</button>
-          <button type="button" class="btn" @click="pairOpen = true">生成此地址的配对码</button>
+          <span class="field-hint" style="margin: 0">局域网直连地址</span>
+          <span class="mono ts-addr" id="tsAddr">{{ tsStatus?.ip || "" }}</span>
+          <span style="flex: 1" />
+          <button type="button" class="link-btn" id="tsCopyAddr" @click="copyTsAddr">复制</button>
+          <button type="button" class="btn" id="tsPairBtn" @click="pairOpen = true">生成此地址的配对码</button>
         </div>
         <div class="gw-status" style="margin-top: 6px">
           <span
+            id="tsHealthDot"
             style="display: inline-flex; width: 8px; height: 8px; border-radius: 50%; background: rgb(var(--fg-faint)); flex: none"
           />
-          <span style="font-size: 12px; color: rgb(var(--fg-dim))">正在自检本机服务…</span>
-          <span style="flex: 1" />
-          <span class="gw-sw-group" title="Tailscale Funnel（对公网暴露）">
-            <span class="gw-sw-cap">Funnel</span>
-            <label class="switch">
-              <input type="checkbox" @change="tsFunnelToggle(($event.target as HTMLInputElement).checked)" />
-              <span class="trk" aria-hidden="true" />
-            </label>
-          </span>
+          <span id="tsHealthText" style="font-size: 12px; color: rgb(var(--fg-dim))">正在自检本机服务…</span>
         </div>
-      </template>
+        <p class="field-hint" style="margin-top: 8px; color: rgb(var(--warn))">
+          ⚠️ 此地址仅同一 tailnet 内设备（登录同一 Tailscale 账号）可达，安全依赖配对令牌，请勿外传配对码。
+          目标机睡眠后同样失联 —— 唤醒仍需局域网内常开的跳板机代发广播包。
+        </p>
+      </div>
+
+      <!-- 停止态：#tsStoppedRow -->
+      <div id="tsStoppedRow" :hidden="true">
+        <p class="field-hint" style="margin: 8px 0 0">
+          Tailscale 处于停止状态 —— 在系统托盘 / 菜单栏把它连上后点「重新检测」。
+        </p>
+      </div>
+
+      <!-- GUI 未启动态：#tsGuiRow -->
+      <div id="tsGuiRow" :hidden="true">
+        <p class="field-hint" style="margin: 8px 0 6px">
+          Tailscale 已安装但 GUI 没有运行 —— 点下面打开 Tailscale.app（菜单栏出现图标即就绪），稍等几秒后自动重新检测。
+        </p>
+        <button type="button" class="btn" id="tsLaunchGuiBtn" @click="tsOpenManual">打开 Tailscale.app</button>
+      </div>
+
+      <!-- 网络扩展待重启态：#tsRebootRow -->
+      <div id="tsRebootRow" :hidden="true">
+        <p class="field-hint" style="margin: 8px 0 6px; color: rgb(var(--warn))">
+          Tailscale 已经装好，但系统里那个旧的网络扩展还在「等待重启卸载」——
+          新扩展因此无法激活，连接会一直失败。<b>重启 Mac</b> 后它会自动换成新扩展，
+          回来点「重新检测」即可。（重装没用，别反复卸装）
+        </p>
+        <button type="button" class="btn" id="tsRebootRecheck" @click="refreshAll">已重启，重新检测</button>
+      </div>
+
+      <!-- 网络扩展待授权态：#tsApprovalRow -->
+      <div id="tsApprovalRow" :hidden="true">
+        <p class="field-hint" style="margin: 8px 0 6px; color: rgb(var(--warn))">
+          Tailscale 已安装，但系统里的<b>网络扩展还没被允许</b> —— 批准之前它连不上网络，点连接一定失败。
+          点下面打开「系统设置 → 通用 → 登录项与扩展 → 网络扩展」，把 <b>Tailscale</b> 打开
+          （可能需要指纹 / 密码），回来点「重新检测」即可。
+        </p>
+        <button type="button" class="btn" id="tsApprovalBtn" @click="tsExtensionSettings">打开网络扩展设置</button>
+      </div>
+
+      <!-- Funnel 公网通道区块：#tsfBlock（4 种状态） -->
+      <div id="tsfBlock" :hidden="!tsStatus?.installed">
+        <div class="tsf-sep">
+          <div class="gw-card-head" style="margin: 0">
+            <h3 style="font-size: 13px">Funnel 公网通道</h3>
+            <span class="tsf-badge" id="tsfBadge" :hidden="!tsfStatus?.url">公网 · 经 Tailscale 中继</span>
+            <span style="flex: 1" />
+            <span class="gw-sw-group" title="开启 / 关闭 Funnel 公网通道；需授权时点击会直接打开官方授权页">
+              <label class="switch" id="tsfSwWrap">
+                <input type="checkbox" id="tsfSw" :checked="tsfStatus?.state === 'ready'" @change="tsFunnelToggle(($event.target as HTMLInputElement).checked)" />
+                <span class="trk" aria-hidden="true" />
+              </label>
+            </span>
+          </div>
+          <div class="gw-status" id="tsfStateRow" style="margin-top: 8px">
+            <span class="pulse" id="tsfPulse" :hidden="tsfStatus?.state !== 'starting'" />
+            <span id="tsfStateText">{{ tsfStateText }}</span>
+          </div>
+
+          <!-- off 态说明 -->
+          <p class="field-hint" id="tsfOffRow" :hidden="tsfStatus?.state !== 'off'" style="margin: 8px 0 0">
+            把本机服务经 Tailscale 官方中继发布成公网地址（https://机器名.ts.net）——
+            手机<b>不装 Tailscale</b> 也能访问，地址固定；国内网络可能不稳，流量有带宽限制。
+          </p>
+
+          <!-- ready 态：公网地址行 -->
+          <div id="tsfAddrRow" :hidden="tsfStatus?.state !== 'ready'">
+            <div class="gw-status" style="margin-top: 8px">
+              <span class="field-hint" style="margin: 0">公网地址</span>
+              <span class="mono ts-addr" id="tsfAddr">{{ tsfStatus?.url || "" }}</span>
+              <span style="flex: 1" />
+              <button type="button" class="link-btn" id="tsfCopy" @click="copyText(tsfStatus?.url || '')">复制</button>
+              <button type="button" class="btn" id="tsfPairBtn" @click="pairOpen = true">生成此地址的配对码</button>
+            </div>
+            <p class="field-hint" style="margin-top: 8px; color: rgb(var(--warn))">
+              ⚠️ 此地址公网可达，安全依赖配对令牌，请勿外传配对码。目标机睡眠后同样失联。
+            </p>
+          </div>
+
+          <!-- needs_authorize 态 -->
+          <div id="tsfAuthRow" :hidden="tsfStatus?.state !== 'needs_authorize'">
+            <p class="field-hint" style="margin: 8px 0 0">
+              需要在 Tailscale 官方页允许 Funnel 并启用 HTTPS 证书（需 Owner / Admin 账号），一次授权长期有效。
+            </p>
+            <div style="display: flex; gap: 8px; align-items: center; margin-top: 8px">
+              <button type="button" class="btn primary" id="tsfAuthBtn" @click="tsFunnelAuth">去官方授权页</button>
+              <button type="button" class="link-btn" id="tsfRetryBtn" @click="refreshFunnel">授权完成，重试</button>
+            </div>
+          </div>
+
+          <!-- error 态 -->
+          <div id="tsfErrRow" :hidden="tsfStatus?.state !== 'error'">
+            <p class="field-hint" id="tsfErrText" style="margin: 8px 0 0">{{ tsfStatus?.error || "" }}</p>
+            <button type="button" class="link-btn" id="tsfRetryBtn2" style="margin-top: 4px" @click="refreshFunnel">重试</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 清除登录凭据：#tsLogoutRow -->
+      <div id="tsLogoutRow" style="display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap">
+        <button type="button" class="link-btn" id="tsLogoutBtn" @click="tsLogout">清除登录凭据</button>
+        <span class="field-hint" style="margin: 0">
+          执行 tailscale logout：断开并清除本机登录凭据<b>与保存的 AuthKey</b>，下次连接需重新授权；Tailscale 管理台里的设备记录需自行移除。
+        </span>
+      </div>
+
+      <!-- 自启 -->
+      <label class="gw-auto">
+        <input type="checkbox" id="tsAutostart" :checked="tsAutostart" @change="toggleTsAutostart" />
+        <span class="gw-auto-t">启动软件时自动连接 Tailscale</span>
+        <span class="gw-auto-h">等价于自动点「连接」</span>
+      </label>
     </div>
   </div>
 
