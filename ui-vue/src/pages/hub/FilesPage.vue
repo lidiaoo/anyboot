@@ -2,7 +2,6 @@
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { call } from "@/api/tauri";
 import { useServersStore } from "@/stores/servers";
-import FbModal from "@/components/hub/FbModal.vue";
 
 /**
  * 文件页（原 `ui/hub.html` 的 `#page-files`，3387 行）—— `hub_sftp_*` 命令族。
@@ -55,6 +54,85 @@ const delOpen = ref(false);
 const infoOpen = ref(false);
 /** 当前操作的目标条目 */
 const targetEntry = ref<SftpEntry | null>(null);
+
+/** 行操作菜单（旧版 #fbRowMenu） */
+const rowMenuOpen = ref(false);
+const menuEntry = ref<SftpEntry | null>(null);
+/** 上级目录快跳（旧版 #fbPathMenu） */
+const pathMenuOpen = ref(false);
+const parentPaths = computed(() => {
+  const parts = (cwd.value || "/").split("/").filter(Boolean);
+  const out: string[] = ["/"];
+  let acc = "";
+  for (const p of parts) {
+    acc += `/${p}`;
+    out.push(acc);
+  }
+  return out;
+});
+/** 目标目录弹层（旧版 #fbDestModal） */
+const destOpen = ref(false);
+const destMode = ref<"copyTo" | "moveTo">("copyTo");
+const destPath = ref("");
+
+function openRowMenu(entry: SftpEntry, _e: MouseEvent) {
+  menuEntry.value = entry;
+  selectedPath.value = entry.path;
+  rowMenuOpen.value = true;
+}
+function menuAction(act: string) {
+  const entry = menuEntry.value;
+  rowMenuOpen.value = false;
+  if (!entry) return;
+  switch (act) {
+    case "download":
+      selectedPath.value = entry.path;
+      void download();
+      break;
+    case "rename":
+      startRename(entry);
+      break;
+    case "copyPath":
+      void navigator.clipboard.writeText(entry.path).catch(() => {});
+      break;
+    case "delete":
+      removeEntry(entry);
+      break;
+    case "info":
+      showInfo(entry);
+      break;
+    case "copy":
+    case "cut":
+      break;
+    case "copyTo":
+      destMode.value = "copyTo";
+      destPath.value = cwd.value;
+      destOpen.value = true;
+      break;
+    case "moveTo":
+      destMode.value = "moveTo";
+      destPath.value = cwd.value;
+      destOpen.value = true;
+      break;
+  }
+}
+async function confirmDest() {
+  const entry = menuEntry.value;
+  destOpen.value = false;
+  if (!entry || !destPath.value.trim()) return;
+  const target = `${destPath.value.replace(/\/$/, "")}/${entry.name}`;
+  try {
+    const { call } = await import("@/api/tauri");
+    if (destMode.value === "copyTo") {
+      await call("hub_sftp_copy", { server: serverId.value, from: entry.path, to: target });
+    } else {
+      await call("hub_sftp_rename", { server: serverId.value, from: entry.path, to: target });
+    }
+    await listDir(cwd.value);
+  } catch {
+    /* 忽略 */
+  }
+}
 
 const sshServers = computed(() => store.servers.filter((s) => s.protocol === "ssh"));
 /** 当前选中的服务器对象（hub_sftp_* 要传整个对象而不是 id） */
@@ -252,29 +330,7 @@ async function goHome() {
   }
 }
 
-/** 复制远端文件 / 目录（旧版 hub_sftp_copy） */
-async function copyEntry(entry: SftpEntry) {
-  const base = cwd.value.endsWith("/") ? cwd.value : `${cwd.value}/`;
-  const target = `${base}${entry.name} (副本)`;
-  try {
-    await call("hub_sftp_copy", { server: currentServer.value, from: entry.path, to: target });
-    await listDir(cwd.value);
-  } catch (error) {
-    errorText.value = String(error);
-  }
-}
 
-/** 读软链接目标（旧版 hub_sftp_readlink） */
-async function readLink(entry: SftpEntry) {
-  try {
-    const target = await call<string>("hub_sftp_readlink", { server: currentServer.value, path: entry.path });
-    targetEntry.value = entry;
-    infoOpen.value = true;
-    errorText.value = target ? `链接指向：${target}` : "";
-  } catch (error) {
-    errorText.value = String(error);
-  }
-}
 
 function showInfo(entry: SftpEntry) {
   targetEntry.value = entry;
@@ -424,11 +480,7 @@ function pct(task: XferTask): number {
             <td class="mono">{{ entry.perms || "—" }}</td>
             <td class="mono">{{ fmtTime(entry.mtime) }}</td>
             <td style="text-align: right">
-              <button type="button" class="link-btn" @click.stop="copyEntry(entry)">复制</button>
-              <button type="button" class="link-btn" @click.stop="readLink(entry)">链接</button>
-              <button type="button" class="link-btn" @click.stop="startRename(entry)">改名</button>
-              <button type="button" class="link-btn" @click.stop="showInfo(entry)">属性</button>
-              <button type="button" class="link-btn" @click.stop="removeEntry(entry)">删除</button>
+              <button type="button" class="fb-rowmore" title="更多操作" @click.stop="openRowMenu(entry, $event)">⋯</button>
             </td>
           </tr>
         </tbody>
@@ -436,57 +488,129 @@ function pct(task: XferTask): number {
       <div v-if="!loading && !entries.length" id="fbEmptyTip" class="fb-emptytip">这个目录是空的</div>
     </div>
 
-    <div v-if="activeTransfer" class="fb-transfer">
-      <svg class="fb-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" width="14" height="14">
-        <path d="M21 12a9 9 0 1 1-9-9" />
-      </svg>
-      <span class="fb-tbadge fb-down">{{ activeTransfer.dir === "up" ? "↑ 上传" : "↓ 下载" }}</span>
-      <span>{{ activeTransfer.name }}</span>
-      <div class="fb-bar"><div :style="{ width: pct(activeTransfer) + '%' }" /></div>
-      <span class="fb-tmeta">{{ fmtSize(activeTransfer.bytes) }} / {{ fmtSize(activeTransfer.total) }}</span>
-      <span class="fb-pct">{{ pct(activeTransfer) }}%</span>
-      <button
-        type="button"
-        class="fb-tbtn"
-        @click="transferCtl(activeTransfer.state === 'running' ? 'pause' : 'resume')"
-      >
-        {{ activeTransfer.state === "running" ? "暂停" : "继续" }}
-      </button>
-      <button type="button" class="fb-tbtn danger" @click="transferCtl('abandon')">放弃</button>
+    <!-- 行操作菜单（旧版 #fbRowMenu，9 项） -->
+    <div v-if="rowMenuOpen" id="fbRowMenu" class="fb-filemenu" role="menu" aria-label="文件操作">
+      <div class="fb-fm-preview">
+        <span class="fb-fm-icon" id="fbFmIcon" aria-hidden="true">
+          <svg v-if="!menuEntry?.is_dir" id="fbFmIcoFile" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /></svg>
+          <svg v-else id="fbFmIcoDir" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></svg>
+          <svg id="fbFmIcoLink" v-if="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h7l-1 8 10-12h-7z" /></svg>
+        </span>
+        <span class="fb-fm-names">
+          <span class="fb-fm-name" id="fbFmName">{{ menuEntry?.name || "—" }}</span>
+          <span class="fb-fm-meta mono" id="fbFmMeta">{{ menuEntry ? (menuEntry.is_dir ? "目录" : fmtSize(menuEntry.size)) : "—" }}</span>
+        </span>
+        <button type="button" class="fb-fm-close" id="fbFmClose" aria-label="关闭" @click="rowMenuOpen = false">✕</button>
+      </div>
+      <div class="fb-fm-group" style="margin-top: 10px">
+        <button role="menuitem" class="fb-fm-act fb-accent" id="fbRmDownload" @click="menuAction('download')">下载到本机</button>
+        <button role="menuitem" class="fb-fm-act" id="fbRmRename" @click="menuAction('rename')">重命名</button>
+        <button role="menuitem" class="fb-fm-act" id="fbRmCopyPath" @click="menuAction('copyPath')">复制路径</button>
+        <button role="menuitem" class="fb-fm-act fb-danger" id="fbRmDelete" @click="menuAction('delete')">删除</button>
+        <button role="menuitem" class="fb-fm-act" id="fbRmInfo" @click="menuAction('info')">详情</button>
+        <button role="menuitem" class="fb-fm-act" id="fbRmCopy" @click="menuAction('copy')">复制</button>
+        <button role="menuitem" class="fb-fm-act" id="fbRmCut" @click="menuAction('cut')">剪切</button>
+        <button role="menuitem" class="fb-fm-act" id="fbRmCopyTo" @click="menuAction('copyTo')">复制到…</button>
+        <button role="menuitem" class="fb-fm-act" id="fbRmMoveTo" @click="menuAction('moveTo')">移动到…</button>
+      </div>
     </div>
 
-    <!-- 5 个弹层（旧版 #fbMkdirModal / #fbRenameModal / #fbDelModal / #fbInfoModal / #fbDestModal） -->
-    <FbModal :open="mkdirOpen" title="新建目录" confirm-text="创建" @confirm="confirmMkdir" @cancel="mkdirOpen = false">
-      <label for="fbMkdirName">目录名（当前目录下创建）</label>
-      <input id="fbMkdirName" v-model="mkdirName" placeholder="例如 backup" autocomplete="off" />
-    </FbModal>
+    <!-- 上级目录快跳（旧版 #fbPathMenu） -->
+    <div v-if="pathMenuOpen" id="fbPathMenu" class="fb-popmenu" role="menu" aria-label="上级目录">
+      <button v-for="p in parentPaths" :key="p" type="button" class="fb-popmenu-item" @click="listDir(p); pathMenuOpen = false">{{ p }}</button>
+    </div>
 
-    <FbModal :open="renameOpen" title="重命名" confirm-text="确定" @confirm="confirmRename" @cancel="renameOpen = false">
-      <label for="fbRenameName">新名称</label>
-      <input id="fbRenameName" v-model="renameName" autocomplete="off" />
-    </FbModal>
-
-    <FbModal
-      :open="delOpen"
-      title="删除"
-      confirm-text="删除"
-      :danger="true"
-      @confirm="confirmDelete"
-      @cancel="delOpen = false"
-    >
-      <p class="field-hint">确定删除「{{ targetEntry?.name }}」？此操作不可恢复。</p>
-    </FbModal>
-
-    <FbModal :open="infoOpen" title="属性" confirm-text="关闭" :cancel-text="' '" @confirm="infoOpen = false" @cancel="infoOpen = false">
-      <div class="fb-info-rows">
-        <p><b>名称</b>{{ targetEntry?.name }}</p>
-        <p><b>路径</b><span class="mono">{{ targetEntry?.path }}</span></p>
-        <p><b>类型</b>{{ targetEntry?.is_dir ? "目录" : "文件" }}</p>
-        <p><b>大小</b>{{ targetEntry?.is_dir ? "—" : fmtSize(targetEntry?.size ?? 0) }}</p>
-        <p><b>权限</b><span class="mono">{{ targetEntry?.perms || "—" }}</span></p>
-        <p><b>修改时间</b>{{ fmtTime(targetEntry?.mtime ?? 0) }}</p>
+    <!-- 新建目录（旧版 #fbMkdirModal） -->
+    <div v-if="mkdirOpen" id="fbMkdirModal" class="fb-modal" role="dialog" aria-modal="true" aria-labelledby="fbMkdirTitle">
+      <div class="fb-modal-card">
+        <div class="fb-modal-head">
+          <h3 id="fbMkdirTitle">新建目录</h3>
+          <button type="button" id="fbMkdirClose" aria-label="关闭" @click="mkdirOpen = false">✕</button>
+        </div>
+        <form id="fbMkdirForm" class="fb-modal-body" @submit.prevent="confirmMkdir">
+          <label for="fbMkdirName">目录名（当前目录下创建）</label>
+          <input id="fbMkdirName" v-model="mkdirName" placeholder="例如 backup" autocomplete="off" required />
+        </form>
+        <div class="fb-modal-foot">
+          <button type="button" class="fb-btn fb-plain" id="fbMkdirCancel" @click="mkdirOpen = false">取消</button>
+          <button type="button" class="fb-btn fb-primary" id="fbMkdirOk" @click="confirmMkdir">创建</button>
+        </div>
       </div>
-    </FbModal>
+    </div>
+
+    <!-- 重命名（旧版 #fbRenameModal） -->
+    <div v-if="renameOpen" id="fbRenameModal" class="fb-modal" role="dialog" aria-modal="true" aria-labelledby="fbRenameTitle">
+      <div class="fb-modal-card">
+        <div class="fb-modal-head">
+          <h3 id="fbRenameTitle">重命名</h3>
+          <button type="button" id="fbRenameClose" aria-label="关闭" @click="renameOpen = false">✕</button>
+        </div>
+        <form id="fbRenameForm" class="fb-modal-body" @submit.prevent="confirmRename">
+          <label for="fbRenameName">新名称</label>
+          <input id="fbRenameName" v-model="renameName" autocomplete="off" required />
+        </form>
+        <div class="fb-modal-foot">
+          <button type="button" class="fb-btn fb-plain" id="fbRenameCancel" @click="renameOpen = false">取消</button>
+          <button type="button" class="fb-btn fb-primary" id="fbRenameOk" @click="confirmRename">确定</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 删除（旧版 #fbDelModal） -->
+    <div v-if="delOpen" id="fbDelModal" class="fb-modal" role="dialog" aria-modal="true" aria-labelledby="fbDelTitle">
+      <div class="fb-modal-card">
+        <div class="fb-modal-head">
+          <h3 id="fbDelTitle">删除</h3>
+          <button type="button" id="fbDelClose" aria-label="关闭" @click="delOpen = false">✕</button>
+        </div>
+        <div class="fb-modal-body">
+          <p id="fbDelText">确定删除「{{ targetEntry?.name }}」？此操作不可恢复。</p>
+        </div>
+        <div class="fb-modal-foot">
+          <button type="button" class="fb-btn fb-plain" id="fbDelCancel" @click="delOpen = false">取消</button>
+          <button type="button" class="fb-btn fb-primary fb-danger" id="fbDelOk" @click="confirmDelete">删除</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 详情（旧版 #fbInfoModal） -->
+    <div v-if="infoOpen" id="fbInfoModal" class="fb-modal" role="dialog" aria-modal="true" aria-labelledby="fbInfoTitle">
+      <div class="fb-modal-card">
+        <div class="fb-modal-head">
+          <h3 id="fbInfoTitle">属性</h3>
+          <button type="button" id="fbInfoClose" aria-label="关闭" @click="infoOpen = false">✕</button>
+        </div>
+        <div id="fbInfoRows" class="fb-modal-body">
+          <p><b>名称</b>{{ targetEntry?.name }}</p>
+          <p><b>路径</b><span class="mono">{{ targetEntry?.path }}</span></p>
+          <p><b>类型</b>{{ targetEntry?.is_dir ? "目录" : "文件" }}</p>
+          <p><b>大小</b>{{ targetEntry?.is_dir ? "—" : fmtSize(targetEntry?.size ?? 0) }}</p>
+          <p><b>权限</b><span class="mono">{{ targetEntry?.perms || "—" }}</span></p>
+          <p><b>修改时间</b>{{ fmtTime(targetEntry?.mtime ?? 0) }}</p>
+        </div>
+        <div class="fb-modal-foot">
+          <button type="button" class="fb-btn fb-primary" id="fbInfoOk" @click="infoOpen = false">关闭</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 目标目录（旧版 #fbDestModal：复制到/移动到） -->
+    <div v-if="destOpen" id="fbDestModal" class="fb-modal" role="dialog" aria-modal="true" aria-labelledby="fbDestTitle">
+      <div class="fb-modal-card">
+        <div class="fb-modal-head">
+          <h3 id="fbDestTitle">{{ destMode === "moveTo" ? "移动到…" : "复制到…" }}</h3>
+          <button type="button" id="fbDestClose" aria-label="关闭" @click="destOpen = false">✕</button>
+        </div>
+        <form id="fbDestForm" class="fb-modal-body" @submit.prevent="confirmDest">
+          <label id="fbDestLabel" for="fbDestPath">目标目录</label>
+          <input id="fbDestPath" v-model="destPath" class="mono" placeholder="/path/to/dir" autocomplete="off" />
+        </form>
+        <div class="fb-modal-foot">
+          <button type="button" class="fb-btn fb-plain" id="fbDestCancel" @click="destOpen = false">取消</button>
+          <button type="button" class="fb-btn fb-primary" id="fbDestOk" @click="confirmDest">确定</button>
+        </div>
+      </div>
+    </div>
 
     <!-- 传输进度（旧版 #fbTransfer，只显示当前这一条） -->
     <div v-if="activeTransfer" id="fbTransfer" class="fb-transfer">
