@@ -56,6 +56,20 @@ const busy = ref("");
 /** 手动指定 cloudflared 路径（旧版 #gwManualRow 的开合） */
 const manualOpen = ref(false);
 const manualPath = ref("");
+
+/** 命名隧道配置（旧版 #gwNamedToken / #gwNamedUrl） */
+const namedToken = ref("");
+const namedUrl = ref("");
+
+/** 自启开关（旧版 #gwAutostart） */
+function toggleAutostart() {
+  const next = !config.value?.autostart;
+  void run(
+    next ? "开启自启" : "关闭自启",
+    () => call("gateway_set_autostart", { channel: "cloudflare", enabled: next }),
+    next ? "已开启自启" : "已关闭自启",
+  );
+}
 /** Tailscale 授权密钥输入（旧版 #tsKey） */
 const tsKey = ref("");
 
@@ -374,13 +388,25 @@ function clearCredentials() {
   void run("清除登录凭据", () => call("gateway_clear_credentials"), "已清除凭据");
 }
 
-function saveConfig() {
-  void run("保存配置", () => call("gateway_save_config", {
-    mode: config.value?.mode ?? "quick",
-    named_url: config.value?.namedUrl ?? "",
-    named_token: "",
-    autostart: Boolean(config.value?.autostart),
-  }), "配置已保存");
+/** 保存通道配置（旧版 persistConfig，hub.html:13408） */
+function persistConfig(mode: string) {
+  void run(
+    "保存配置",
+    () =>
+      call("gateway_save_config", {
+        mode,
+        named_url: namedUrl.value,
+        named_token: namedToken.value,
+        autostart: Boolean(config.value?.autostart),
+      }),
+    "配置已保存",
+  );
+}
+
+/** 切模式（旧版 selectMode(next, save=true)） */
+function selectMode(next: "quick" | "named") {
+  if (config.value) config.value.mode = next;
+  persistConfig(next);
 }
 
 /** Tailscale 安装 / 注销 / 扩展设置 / Funnel */
@@ -417,22 +443,13 @@ function tsUninstallNow() {
   void run("卸载 Tailscale", () => call("gateway_tailscale_uninstall"), "已卸载");
 }
 
-function startTunnel() {
-  void run("开启隧道", () => call("gateway_tunnel_start"), "隧道已开启");
-}
 
-function stopTunnel() {
-  void run("关闭隧道", () => call("gateway_tunnel_stop"), "隧道已关闭");
-}
 
 /** 残留通道：沿用 / 清理多余 */
 function adoptOrphan() {
   void run("沿用残留通道", () => call("gateway_tunnel_adopt"), "已沿用");
 }
 
-function killOrphans() {
-  void run("清理全部残留", () => call("gateway_tunnel_orphans"), "已清理");
-}
 
 function killOrphan() {
   void run("清理残留", () => call("gateway_tunnel_kill_orphan"), "已清理残留通道");
@@ -549,7 +566,7 @@ function deletePair(id: string) {
 
   <!-- ===== Cloudflare 分页 ===== -->
   <div v-show="activeTab === 'cf'" class="gw-tabpane">
-    <div class="gw-note" id="gwWarnQuick">
+    <div class="gw-note" id="gwWarnQuick" :hidden="config?.mode === 'named'">
       快速隧道的地址在通道重启后会变化 —— 重启电脑 / 通道后，已配对的客户端要重新配对一次。
       要固定地址请改用「命名隧道」（需 Cloudflare 账号 + 托管域名），或用下方 Tailscale
       直连（装好即用、地址长期固定、不出公网）。
@@ -559,11 +576,14 @@ function deletePair(id: string) {
       <div class="gw-card-head">
         <h3>本机通道</h3>
         <div class="segmented" id="gwModeTabs" role="tablist" aria-label="通道模式">
-          <button role="tab" :aria-selected="config?.mode !== 'named'">快速隧道</button>
-          <button role="tab" :aria-selected="config?.mode === 'named'">命名隧道</button>
+          <button role="tab" data-mode="quick" :aria-selected="config?.mode !== 'named'" @click="selectMode('quick')">
+            快速隧道
+          </button>
+          <button role="tab" data-mode="named" :aria-selected="config?.mode === 'named'" @click="selectMode('named')">
+            命名隧道
+          </button>
         </div>
-        <button type="button" class="btn" :disabled="!!busy" @click="startTunnel">开启隧道</button>
-        <button type="button" class="btn" :disabled="!!busy" @click="stopTunnel">关闭隧道</button>
+        <button v-if="cfInstalled" type="button" id="gwUninstallBtn" class="btn" :disabled="!!busy" @click="uninstallBinary">卸载</button>
         <button type="button" id="gwLogBtn" class="btn" @click="logOpen = true">日志</button>
         <button type="button" id="gwRefreshBtn" class="btn" @click="refreshAll">重新检测</button>
         <span class="gw-sw-group" title="开启 / 关闭 Cloudflare 通道">
@@ -576,34 +596,74 @@ function deletePair(id: string) {
       </div>
 
       <div class="gw-status">
-        <span class="pulse" :hidden="!cfRunning" />
+        <span class="pulse" id="gwPulse" :hidden="!cfRunning" />
         <span id="gwStateText">{{ cfRunning ? "通道已开启" : "通道未开启" }}</span>
-        <a v-if="cfUrl" :href="cfUrl" class="mono gw-url" target="_blank" rel="noopener">{{ cfUrl }}</a>
+        <a
+          id="gwUrl"
+          :href="cfUrl || undefined"
+          :hidden="!cfUrl"
+          class="mono gw-url"
+          target="_blank"
+          rel="noopener"
+          >{{ cfUrl }}</a
+        >
+        <!-- 地址左、动作右：复制与「生成此地址的配对码」统一右对齐（与 Tailscale 卡同款） -->
         <span style="flex: 1" />
-        <span v-if="config" class="mono gw-meta" id="gwMeta">{{ config.tunnel?.state || "" }}</span>
+        <button type="button" id="gwCopyUrl" class="link-btn" :hidden="!cfUrl" @click="copyText(cfUrl)">
+          复制
+        </button>
+        <button type="button" id="gwPairBtn" class="btn" :hidden="!cfUrl" @click="pairOpen = true">
+          生成此地址的配对码
+        </button>
+        <span class="mono gw-meta" id="gwMeta">{{ config?.tunnel?.state || "" }}</span>
       </div>
+      <div id="gwErrRow" class="gw-err" :hidden="!config?.tunnel?.error">{{ config?.tunnel?.error }}</div>
 
-      <div v-if="config?.tunnel?.error" class="gw-err">{{ config.tunnel.error }}</div>
-
-      <!-- 残留通道（旧版 #gwOrphanBox）：上次异常退出留下的孤儿 cloudflared -->
-      <div v-if="orphanRunning" style="margin-top: 12px">
+      <!-- 残留通道（旧版 #gwOrphanBox）：沿用或终止 -->
+      <div id="gwOrphanBox" :hidden="!orphanRunning" style="margin-top: 12px">
         <p class="field-hint" style="margin: 0 0 6px">
           检测到上次异常退出留下的残留通道 —— 「沿用」地址不变（客户端无需重新配对），
           「终止」后点上方「开启通道」会创建新地址。
         </p>
-        <div class="gw-clients">
+        <div id="gwOrphanList" class="gw-clients">
           <div class="gw-client">
             <span class="mono">{{ config?.tunnel?.url || "（无地址）" }}</span>
             <span style="flex: 1" />
             <button type="button" class="link-btn" @click="adoptOrphan">沿用</button>
             <button type="button" class="link-btn" :disabled="!!busy" @click="killOrphan">终止</button>
-            <button type="button" class="link-btn" :disabled="!!busy" @click="killOrphans">清理全部</button>
           </div>
         </div>
       </div>
 
+      <!-- named 配置区（旧版 #gwNamedForm，quick 模式隐藏） -->
+      <div id="gwNamedForm" :hidden="config?.mode !== 'named'" style="margin-top: 12px">
+        <div class="field">
+          <label for="gwNamedToken">Tunnel Token</label>
+          <input
+            id="gwNamedToken"
+            v-model="namedToken"
+            type="password"
+            class="mono"
+            placeholder="Cloudflare Zero Trust 创建隧道后给出的 Token"
+            autocomplete="off"
+          />
+        </div>
+        <div class="field">
+          <label for="gwNamedUrl">对外访问地址（可选）</label>
+          <input
+            id="gwNamedUrl"
+            v-model="namedUrl"
+            type="text"
+            class="mono"
+            placeholder="https://anyboot.example.com"
+            autocomplete="off"
+          />
+          <p class="field-hint">填了它，配对串里就用这个地址；留空则配对串里不带地址，客户端要自己填。</p>
+        </div>
+      </div>
+
       <label class="gw-auto">
-        <input type="checkbox" id="gwAutostart" :checked="config?.autostart" disabled />
+        <input type="checkbox" id="gwAutostart" :checked="config?.autostart" @change="toggleAutostart" />
         <span class="gw-auto-t">启动软件时自动开启通道</span>
         <span class="gw-auto-h">cloudflared 随 AnyBoot 一起拉起</span>
       </label>
@@ -626,21 +686,40 @@ function deletePair(id: string) {
         <button type="button" class="btn" :disabled="!!busy" @click="checkBinary">检查</button>
         <button v-if="cfInstalled" type="button" class="btn" :disabled="!!busy" @click="uninstallBinary">卸载</button>
         <button type="button" class="btn" :disabled="!!busy" @click="clearCredentials">清除登录凭据</button>
-        <button type="button" class="btn" :disabled="!!busy" @click="saveConfig">保存配置</button>
+      </div>
+
+      <!-- 下载进度（旧版 #gwProgressRow） -->
+      <div id="gwProgressRow" :hidden="!downloading" class="gw-progress">
+        <div class="gw-progress-bar"><div id="gwProgressBar" :style="{ width: progress + '%' }" /></div>
+        <span class="mono" id="gwProgressText">{{ downloading ? `下载 ${progress}%` : "" }}</span>
+      </div>
+
+      <!-- 清除登录凭据（旧版 #gwLogoutRow）：命名隧道的 Tunnel Token 就是登录态 -->
+      <div
+        id="gwLogoutRow"
+        :hidden="config?.mode !== 'named'"
+        style="display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap"
+      >
+        <button type="button" id="gwLogoutBtn" class="link-btn" @click="clearCredentials">清除登录凭据</button>
+        <span class="field-hint" style="margin: 0">
+          停止通道并删除保存的命名隧道 Token 与对外地址，模式回落「快速隧道」；cloudflared 程序保留。
+        </span>
       </div>
 
       <!-- 指定本地路径（旧版 #gwManualRow） -->
-      <div v-if="manualOpen" class="gw-binary">
+      <div id="gwManualRow" :hidden="!manualOpen" class="gw-binary">
         <input
+          id="gwManualPath"
           v-model="manualPath"
           type="text"
           class="mono"
-          placeholder="cloudflared 的完整路径"
+          placeholder="cloudflared.exe 的完整路径"
           spellcheck="false"
         />
-        <button type="button" class="btn" @click="manualOpen = false">取消</button>
+        <button type="button" id="gwManualCancel" class="btn" @click="manualOpen = false">取消</button>
         <button
           type="button"
+          id="gwManualOk"
           class="btn primary"
           :disabled="!manualPath.trim() || !!busy"
           @click="setManualBinary"
