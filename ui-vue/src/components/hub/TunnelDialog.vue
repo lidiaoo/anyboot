@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import type { HubServer } from "@/stores/servers";
+import type { RemoteProfile } from "@/stores/remote";
 
 /**
  * 隧道编辑弹层（原 `ui/hub.html` 的 `#tunnelOverlay`，4732 行）。
@@ -23,8 +23,8 @@ const props = defineProps<{
   open: boolean;
   /** 编辑已有隧道时传入 */
   tunnel?: { id?: string; name: string; kind: string; localPort: number; targetHost: string; targetPort: number } | null;
-  /** 当前服务器（隧道挂在它身上） */
-  server?: HubServer | null;
+  /** 当前电脑（隧道挂在它身上） */
+  server?: RemoteProfile | null;
 }>();
 
 const emit = defineEmits<{

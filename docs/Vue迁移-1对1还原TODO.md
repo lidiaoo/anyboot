@@ -428,6 +428,18 @@ index.html:sol         90 /  69  ✅（本轮从 23 补齐）
 | `dom-diff.js` | 逐元素比对 class / id（只看可见元素） | hub 12 页 id **全部清零**；主窗 148 → 9 |
 | `capture.js` / `shotpage.js` | 截图 + 计算样式 | 关键页面逐像素一致 |
 
+### IPC 命令与事件覆盖（功能 1:1 的硬指标）
+```
+旧版 hub.html：109 个 invoke 命令 / 11 个 listen 事件
+新版：        173 个命令（含旧版全部 109 个）/ 15 个事件（含旧版全部 11 个）
+缺失：        0
+```
+补齐过程中发现并修的真实缺口：备份导出/导入流程改成旧版三段式
+（选路径 → 预览 → 确认）、Funnel 开关、tsnet 引擎全套、隧道启停、
+窗口打开命令族（hub_open_term/files/keys_window）、
+remote_open_page/touch/set_connect_all/test_via/system_info/note_machine/
+promote_address、set_theme、gateway_* 二进制与凭据管理。
+
 ### 打包验证
 ```
 npm run build:mac-intel        → 成功（508 tests passed / 0 failed）

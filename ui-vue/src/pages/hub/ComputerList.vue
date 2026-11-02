@@ -7,6 +7,7 @@ import PcMenu from "@/components/hub/PcMenu.vue";
 import SystemInfoDialog from "@/components/hub/SystemInfoDialog.vue";
 import RemoteEditDialog from "@/components/hub/RemoteEditDialog.vue";
 import RemoteListDialog from "@/components/hub/RemoteListDialog.vue";
+import TunnelDialog from "@/components/hub/TunnelDialog.vue";
 
 /**
  * 电脑列表（原 `ui/hub.html` 的 `#page-computers`）。
@@ -138,8 +139,12 @@ function startTimer() {
   }, sec * 1000);
 }
 
-onMounted(() => {
+onMounted(async () => {
   startTimer();
+
+  // 隧道停止事件（旧版 hub-tunnel-stopped）：刷新隧道列表
+  const { listen } = await import("@tauri-apps/api/event");
+  unlisteners.push(await listen("hub-tunnel-stopped", () => void listTunnels()));
   // 验收信息写进 trace（macOS 无法 attach devtools）
   window.setTimeout(() => {
     const line =
@@ -155,12 +160,33 @@ onMounted(() => {
       .catch(() => {});
   }, 3000);
 });
-onUnmounted(stopTimer);
+onUnmounted(() => {
+  stopTimer();
+  for (const off of unlisteners) off();
+});
 // 设置里改了间隔要重建定时器（否则旧间隔跑到刷新页面为止）
 watch(() => settings.dataRefreshSec, startTimer);
 
+/** 事件解绑句柄 */
+const unlisteners: (() => void)[] = [];
+
 /** 当前选中的电脑（旧版 activeRemote，默认 local） */
 const activeId = ref("local");
+
+/** 隧道编辑弹层（旧版 #tunnelOverlay）+ 隧道启停 */
+const tunnelOpen = ref(false);
+const tunnelEditing = ref<string>("");
+
+function openTunnel(id: string) {
+  void listTunnels();
+  tunnelEditing.value = id;
+  tunnelOpen.value = true;
+}
+
+function onSaveTunnel(payload: Record<string, unknown>) {
+  tunnelOpen.value = false;
+  void saveTunnel(payload);
+}
 
 /** 服务端编辑 / 列表弹层（旧版 #rsEditOverlay / #rsListOverlay） */
 const rsEditOpen = ref(false);
@@ -210,6 +236,65 @@ function move(payload: { id: string; delta: number }) {
 
 function openMore(id: string) {
   activeId.value = id;
+  // 旧版打开 ⋮ 时会 touch 一下（记最近使用）
+  void import("@/api/tauri").then(({ call }) => call("remote_touch", { id }));
+}
+
+/** 用系统浏览器打开某台电脑的页面（旧版 remote_open_page） */
+async function openInBrowser(id: string) {
+  const info = infoOf(id);
+  const url = info?.addr ? `http://${info.addr}/hub.html` : "";
+  if (!url) return;
+  const { call } = await import("@/api/tauri");
+  await call("remote_open_page", { url }).catch(() => {});
+}
+
+/** 页面探活（旧版 hub_page_ping，给电脑页标签用） */
+async function pingPage() {
+  const { call } = await import("@/api/tauri");
+  await call("hub_page_ping", {}).catch(() => {});
+}
+
+/** 让主窗聚焦（旧版 hub_focus_window） */
+async function focusWindow() {
+  const { call } = await import("@/api/tauri");
+  await call("hub_focus_window", {}).catch(() => {});
+}
+
+/** 隧道列表 / 启停（旧版 hub_list_tunnels / hub_tunnel_start / hub_tunnel_stop） */
+/** 隧道列表（旧版 hub_list_tunnels）；挂到 ⋮ 菜单前先刷新一遍 */
+const tunnelRows = ref<unknown[]>([]);
+
+async function listTunnels() {
+  const { call } = await import("@/api/tauri");
+  tunnelRows.value = ((await call("hub_list_tunnels", {}).catch(() => [])) as unknown[]) ?? [];
+  return tunnelRows.value;
+}
+
+async function startTunnel(id: string) {
+  const { call } = await import("@/api/tauri");
+  await call("hub_tunnel_start", { id }).catch(() => {});
+}
+
+async function stopTunnel(id: string) {
+  const { call } = await import("@/api/tauri");
+  await call("hub_tunnel_stop", { id }).catch(() => {});
+}
+
+async function saveTunnel(payload: Record<string, unknown>) {
+  const { call } = await import("@/api/tauri");
+  await call("hub_save_tunnel", payload).catch(() => {});
+}
+
+async function deleteTunnel(id: string) {
+  const { call } = await import("@/api/tauri");
+  await call("hub_delete_tunnel", { id }).catch(() => {});
+}
+
+/** 开启 / 关闭「连接全部电脑」（旧版 remote_set_connect_all） */
+async function setConnectAll(on: boolean) {
+  const { call } = await import("@/api/tauri");
+  await call("remote_set_connect_all", { on }).catch(() => {});
 }
 
 function switchBoot(payload: Record<string, unknown>) {
@@ -286,6 +371,27 @@ function power(payload: Record<string, unknown>) {
       <button type="button" id="cqRefresh" class="link-btn" :disabled="refreshing" @click="manualRefresh">
         <span id="cqRefreshText">{{ refreshing ? "探测中" : "刷新" }}</span>
       </button>
+      <button type="button" class="link-btn" title="探测当前电脑的页面是否可访问" @click="pingPage">探活</button>
+      <button type="button" class="link-btn" title="让主窗跳到前台" @click="focusWindow">聚焦主窗</button>
+      <button type="button" class="link-btn" title="给当前电脑新建一条 SSH 隧道" @click="openTunnel(activeId)">
+        隧道
+      </button>
+      <button
+        type="button"
+        class="link-btn"
+        title="删除当前电脑的隧道配置"
+        @click="deleteTunnel((remote.servers.find((s) => s.id === activeId) as any)?.tunnelId ?? '')"
+      >
+        删隧道
+      </button>
+      <label class="link-btn" title="是否同时探测全部电脑（关掉只探当前选中的）">
+        <input
+          type="checkbox"
+          :checked="Boolean(remote.connectAll)"
+          @change="setConnectAll(!remote.connectAll)"
+        />
+        连接全部
+      </label>
       <PcMenu id="cqMore" />
     </div>
 
@@ -322,6 +428,9 @@ function power(payload: Record<string, unknown>) {
             @move="move"
             @more="openMore"
             @view="openView"
+            @open-browser="openInBrowser"
+            @start-tunnel="startTunnel"
+            @stop-tunnel="stopTunnel"
           />
           </div>
       </div>
@@ -380,6 +489,14 @@ function power(payload: Record<string, unknown>) {
       @save="saveRemote"
       @close="rsEditOpen = false"
     />
+    <!-- 隧道编辑（旧版 #tunnelOverlay） -->
+    <TunnelDialog
+      :open="tunnelOpen"
+      :server="remote.servers.find((s) => s.id === tunnelEditing) ?? null"
+      @save="onSaveTunnel"
+      @close="tunnelOpen = false"
+    />
+
     <RemoteListDialog
       :open="rsListOpen"
       :servers="remote.servers"

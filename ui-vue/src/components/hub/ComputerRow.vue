@@ -47,6 +47,9 @@ const emit = defineEmits<{
   (e: "sysInfo", id: string): void;
   (e: "more", id: string): void;
   (e: "view", id: string): void;
+  (e: "openBrowser", id: string): void;
+  (e: "startTunnel", id: string): void;
+  (e: "stopTunnel", id: string): void;
   (e: "move", payload: { id: string; delta: number }): void;
 }>();
 
@@ -187,6 +190,14 @@ function onRowClick() {
                 @click.stop="emit('view', row.id)"
               >
                 打开页面
+              </button>
+              <button
+                type="button"
+                class="cq-remote-act"
+                title="用系统默认浏览器打开这条通道（window.open 只会开新 webview）"
+                @click.stop="emit('openBrowser', row.id)"
+              >
+                浏览器打开
               </button>
               <div class="cq-dev-line">
                 <div class="cq-dev-top">

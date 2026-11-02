@@ -35,7 +35,7 @@ onMounted(async () => {
 });
 
 function openKeys() {
-  void call("hub_open_window", { label: "server-keys" }).catch(() => {});
+  void call("hub_open_keys_window", {}).catch(() => {});
 }
 </script>
 

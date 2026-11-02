@@ -109,10 +109,19 @@ async function doExport() {
     errorText.value = "两次口令不一致";
     return;
   }
+  // 旧版流程：先挑保存路径（backup_pick_export_path），用户取消就不导出
+  let path = "";
+  try {
+    path = ((await call("backup_pick_export_path")) as string) ?? "";
+  } catch {
+    path = "";
+  }
+  if (!path) return;
   await run(
     "导出",
     () =>
       call("backup_export", {
+        path,
         categories: exportCats.value,
         includeKeys: exportIncludeKeys.value,
         password: exportPw1.value || "",
@@ -122,7 +131,25 @@ async function doExport() {
 }
 
 async function doImport() {
-  await run("导入", () => call("backup_import"), "导入完成（设置已恢复）");
+  // 旧版流程：选文件 → 预览差异 → 确认导入
+  let path = "";
+  try {
+    path = ((await call("backup_pick_import_file")) as string) ?? "";
+  } catch {
+    path = "";
+  }
+  if (!path) return;
+  try {
+    const preview = (await call("backup_preview", { path })) as Record<string, unknown>;
+    const summary = Object.entries(preview ?? {})
+      .map(([key, value]) => `${key}: ${String(value)}`)
+      .join("\n");
+    if (!window.confirm(`导入预览\n\n${summary || "（无差异信息）"}\n\n确认导入？`)) return;
+  } catch (error) {
+    errorText.value = String(error);
+    return;
+  }
+  await run("导入", () => call("backup_import", { path }), "导入完成（设置已恢复）");
 }
 
 async function saveSync() {
@@ -154,6 +181,14 @@ function toggleSync() {
 
 function testWebdav() {
   void run("测试 WebDAV", () => call("backup_webdav_test"), "WebDAV 连接正常");
+}
+
+function createWebdavDir() {
+  void run(
+    "创建远端目录",
+    () => call("backup_webdav_mkdir", { dir: syncDir.value.trim() || "AnyBoot" }),
+    "远端目录已创建",
+  );
 }
 
 function syncNow() {
@@ -328,6 +363,7 @@ function syncNow() {
 
     <div class="bk-row-actions">
       <button type="button" id="syncTestBtn" class="bk-btn" :disabled="!!busy" @click="testWebdav">测试连接</button>
+      <button type="button" id="syncMkdirBtn" class="bk-btn" :disabled="!!busy" @click="createWebdavDir">创建远端目录</button>
       <button type="button" id="syncSaveBtn" class="bk-btn" :disabled="!!busy" @click="saveSync">保存配置</button>
       <button type="button" id="syncNowBtn" class="bk-btn bk-primary" :disabled="!syncEnabled || !!busy" @click="syncNow">
         立即同步

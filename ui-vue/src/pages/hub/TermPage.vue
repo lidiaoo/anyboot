@@ -33,7 +33,8 @@ const hint = computed(() =>
 
 function openTerminal() {
   if (!selectedId.value) return;
-  void call("hub_open_window", { label: "server-term", serverId: selectedId.value }).catch(() => {});
+  // 旧版用的是专门的 hub_open_term_window（带 serverId 直接连）
+  void call("hub_open_term_window", { serverId: selectedId.value }).catch(() => {});
 }
 </script>
 

@@ -114,7 +114,11 @@ function openPage(which: string) {
     license: "https://github.com/lidiaoo/anyboot/blob/main/LICENSE",
   };
   const url = urls[which];
-  if (url) void call("open_web_page", { url }).catch(() => {});
+  if (!url) return;
+  // 旧版用 hub_about_open（打开关于页里的外链），失败再退回通用打开命令
+  void call("hub_about_open", { url })
+    .catch(() => call("open_web_page", { url }))
+    .catch(() => {});
 }
 </script>
 

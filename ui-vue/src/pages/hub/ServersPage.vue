@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { useServersStore, type HubServer } from "@/stores/servers";
+import { call } from "@/api/tauri";
 import ServerEditDialog from "@/components/hub/ServerEditDialog.vue";
 import ConfirmDialog from "@/components/hub/ConfirmDialog.vue";
 import LatencyTrend from "@/components/hub/LatencyTrend.vue";
@@ -78,9 +79,31 @@ function stateLabel(id: string): string {
   return String(result);
 }
 
+/** 经跳板机测试（旧版 remote_test_via） */
+function testVia(server: HubServer) {
+  void call("remote_test_via", { id: server.id, jumpId: server.jump_id }).catch(() => {});
+}
+
+/** 系统信息（旧版 remote_system_info） */
+function systemInfo(server: HubServer) {
+  void call("remote_system_info", { id: server.id }).catch(() => {});
+}
+
+/** 备注机器型号（旧版 remote_note_machine） */
+function noteMachine(server: HubServer) {
+  const note = window.prompt("机器备注", server.notes || "");
+  if (note === null) return;
+  void call("remote_note_machine", { id: server.id, note }).catch(() => {});
+}
+
+/** 把某个地址提升为首选（旧版 remote_promote_address） */
+function promoteAddress(server: HubServer, addr: string) {
+  void call("remote_promote_address", { id: server.id, addr }).catch(() => {});
+}
+
 function openTerminal(server: HubServer) {
   void import("@/api/tauri").then(({ call }) =>
-    call("hub_open_window", { label: "server-term", serverId: server.id }).catch(() => {}),
+    call("hub_open_term_window", { serverId: server.id }).catch(() => {}),
   );
 }
 
@@ -239,7 +262,12 @@ async function testOne(server: HubServer) {
             <dt>协议</dt>
             <dd>{{ selected.protocol.toUpperCase() }}</dd>
             <dt>地址</dt>
-            <dd class="mono">{{ store.displayAddr(selected) }}</dd>
+            <dd class="mono">
+              {{ store.displayAddr(selected) }}
+              <button type="button" class="link-btn" title="把这条地址设为优先使用" @click="promoteAddress(selected, store.displayAddr(selected))">
+                置顶
+              </button>
+            </dd>
             <dt>用户名</dt>
             <dd>{{ selected.username || "（交互输入）" }}</dd>
             <dt>认证</dt>
@@ -264,6 +292,9 @@ async function testOne(server: HubServer) {
 
           <div class="row-actions">
             <button type="button" class="btn" @click="testOne(selected)">测试连接</button>
+            <button v-if="selected.jump_id" type="button" class="btn" @click="testVia(selected)">经跳板机测试</button>
+            <button type="button" class="btn" @click="systemInfo(selected)">系统信息</button>
+            <button type="button" class="btn" @click="noteMachine(selected)">备注机器</button>
             <button type="button" class="btn" @click="openEdit(selected)">编辑</button>
             <button type="button" class="btn ghost danger" @click="onDelete(selected)">删除</button>
             <button type="button" class="btn ghost" @click="openTerminal(selected)">打开终端</button>

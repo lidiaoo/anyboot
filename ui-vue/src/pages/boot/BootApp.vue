@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useUiStateStore } from "@/stores/uiState";
 import { useSettingsStore } from "@/stores/settings";
 import { useBootAdvStore, type LoaderId } from "@/stores/bootAdv";
@@ -72,8 +72,48 @@ watch(currentTab, (tab) => {
 /** 下次启动区：是否需要折叠按钮（旧版 #nb-toggle） */
 const nextBootRowsOpen = ref(false);
 
+/** 跟随主题切换（旧版 set_theme） */
+function setTheme(theme: string) {
+  void call("set_theme", { value: theme }).catch(() => {});
+}
+
+/** 页头主题按钮：暗 ↔ 亮 */
+function toggleTheme() {
+  const current = document.documentElement.classList.contains("dark") ? "dark" : "light";
+  const next = current === "dark" ? "light" : "dark";
+  const html = document.documentElement;
+  html.setAttribute("data-theme", next);
+  html.classList.toggle("light", next === "light");
+  html.classList.toggle("dark", next === "dark");
+  setTheme(next);
+}
+
 onMounted(async () => {
   await ui.start();
+  // 旧版启动时还会拉一次设置、探一下本地服务、取默认下载目录
+  void call("get_settings").catch(() => {});
+  void call("local_service_health").catch(() => {});
+  void call("hub_download_dir_default").catch(() => {});
+  void call("update_take_focus_pending").catch(() => {});
+
+  // 旧版监听的事件（补齐）
+  const { listen } = await import("@tauri-apps/api/event");
+  unlisteners.push(
+    await listen("update-state", () => {
+      void call("update_state").catch(() => {});
+    }),
+  );
+  unlisteners.push(
+    await listen<{ theme?: string }>("theme-changed", (event) => {
+      const theme = event.payload?.theme;
+      if (!theme) return;
+      const html = document.documentElement;
+      html.setAttribute("data-theme", theme);
+      html.classList.toggle("light", theme === "light");
+      html.classList.toggle("dark", theme === "dark");
+    }),
+  );
+  unlisteners.push(await listen("hub-focus-update", () => void focusWindowState()));;
   window.setTimeout(() => {
     const line =
       `[vue-boot] ready=${ui.ready ? 1 : 0} rev=${ui.revision} tab=${currentTab.value} ` +
@@ -148,6 +188,17 @@ const nextBootRows = computed(() =>
 
 /** 底部提示条（旧版 #status-bar，所有操作回执都落这里） */
 const statusBar = ref({ icon: "", text: "" });
+/** 事件解绑句柄 */
+const unlisteners: (() => void)[] = [];
+
+/** 主窗焦点状态（旧版 hub-focus-update 用来刷新标题栏） */
+function focusWindowState() {
+  void call("hub_focus_window").catch(() => {});
+}
+
+onUnmounted(() => {
+  for (const off of unlisteners) off();
+});
 
 const statusText = computed(() => {
   if (!ui.ready) return "正在扫描 rEFInd 变量目录…";
@@ -167,6 +218,19 @@ const statusText = computed(() => {
         <div class="header-row">
           <h1>AnyBoot</h1>
           <div class="system-actions">
+            <button
+              type="button"
+              id="theme-btn"
+              class="secondary ico-btn"
+              aria-label="切换主题"
+              title="切换主题"
+              @click="toggleTheme"
+            >
+              <svg aria-hidden="true" class="i" focusable="false" viewBox="0 0 16 16">
+                <circle cx="8" cy="8" r="6" />
+                <path d="M8 2a6 6 0 0 1 0 12z" fill="currentColor" stroke="none" />
+              </svg>
+            </button>
             <button type="button" id="open-hub" class="secondary ico-btn" aria-label="远程管理" title="远程管理" @click="call('hub_open_window', {})">
               <svg aria-hidden="true" class="i" focusable="false" viewBox="0 0 16 16">
                 <rect height="8.2" rx="1.4" width="11.6" x="2.2" y="3" />

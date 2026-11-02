@@ -58,6 +58,51 @@ const manualOpen = ref(false);
 const manualPath = ref("");
 /** Tailscale 授权密钥输入（旧版 #tsKey） */
 const tsKey = ref("");
+
+/** 内置 tsnet 引擎（旧版 tsnet_* 命令族） */
+interface TsnStatus {
+  installed?: boolean;
+  running?: boolean;
+  ip?: string;
+}
+const tsnStatus = ref<TsnStatus | null>(null);
+const tsnKey = ref("");
+/** Tailscale 登录链接（旧版 #tsLoginUrl） */
+const loginUrl = ref("");
+/** 事件解绑句柄 */
+const unlisteners = ref<(() => void)[]>([]);
+/** 二进制下载进度 */
+const progress = ref(0);
+const downloading = ref(false);
+
+async function refreshTsn() {
+  try {
+    tsnStatus.value = await call<TsnStatus>("tsnet_status");
+  } catch {
+    tsnStatus.value = null;
+  }
+}
+
+function tsnEnable() {
+  void run("启用内置引擎", () => call("tsnet_enable"), "内置引擎已启用");
+}
+
+function tsnDisable() {
+  void run("停用内置引擎", () => call("tsnet_disable"), "内置引擎已停用");
+}
+
+function tsnLogout() {
+  void run("退出内置引擎", () => call("tsnet_logout"), "已退出登录");
+}
+
+function tsnUninstall() {
+  void run("卸载内置引擎", () => call("tsnet_uninstall"), "已卸载");
+}
+
+function tsnSaveKey() {
+  void run("保存密钥", () => call("tsnet_set_authkey", { key: tsnKey.value.trim() }), "密钥已保存");
+}
+
 /** Tailscale 自启（旧版 #tsAutostart） */
 const tsAutostart = ref(false);
 
@@ -77,7 +122,7 @@ const tsnLogs = ref<string[]>([]);
 
 async function openTsnLog() {
   try {
-    tsnLogs.value = (await call<string[]>("gateway_tailscale_logs")) ?? [];
+    tsnLogs.value = (await call<string[]>("tsnet_logs")) ?? [];
   } catch {
     tsnLogs.value = [];
   }
@@ -90,7 +135,7 @@ function clearTsLogs() {
 }
 
 function clearTsnLogs() {
-  void call("gateway_tailscale_logs_clear").catch(() => {});
+  void call("tsnet_logs_clear").catch(() => {});
   tsnLogs.value = [];
 }
 
@@ -156,7 +201,8 @@ function openUninstall(what: string) {
 
 function confirmUninstall(checked: boolean) {
   uninstallOpen.value = false;
-  void run("卸载", () => call("gateway_uninstall", { keepData: checked }), "已卸载");
+  void checked;
+  tsUninstallNow();
 }
 
 /** 日志弹层（旧版 #gwLogOverlay） */
@@ -244,12 +290,49 @@ async function run(label: string, action: () => Promise<unknown>, done: string) 
 }
 
 onMounted(async () => {
+  // 旧版监听的事件（补齐）
+  const { listen } = await import("@tauri-apps/api/event");
+  const offs: (() => void)[] = [];
+  // 二进制下载进度 / 完成
+  offs.push(
+    await listen<{ received?: number; total?: number; percent?: number; stage?: string }>(
+      "gateway-binary-progress",
+      (event) => {
+        const p = event.payload ?? {};
+        progress.value = p.total ? Math.round(((p.received ?? 0) / p.total) * 100) : (p.percent ?? 0);
+        downloading.value = true;
+      },
+    ),
+  );
+  offs.push(
+    await listen<{ ok?: boolean; version?: string; error?: string }>("gateway-binary-done", (event) => {
+      downloading.value = false;
+      message.value = event.payload?.ok
+        ? `cloudflared ${event.payload?.version ?? ""} 就绪`
+        : `下载失败：${event.payload?.error ?? "未知错误"}`;
+      void refreshAll();
+    }),
+  );
+  // 通道状态变化 → 重拉快照
+  offs.push(await listen("gateway-tunnel-state", () => void refreshAll()));
+  // Tailscale 安装进度 / 完成 / 登录链接
+  offs.push(await listen("tailscale-progress", () => void refreshAll()));
+  offs.push(await listen("tailscale-done", () => void refreshAll()));
+  offs.push(
+    await listen<{ url?: string }>("tailscale-login-url", (event) => {
+      if (event.payload?.url) loginUrl.value = event.payload.url;
+    }),
+  );
+  unlisteners.value = offs;
   await refreshAll();
+  await refreshFunnel();
+  await refreshTsn();
   setupAuto();
 });
 
 onUnmounted(() => {
   if (autoTimer !== null) window.clearInterval(autoTimer);
+  for (const off of unlisteners.value) off();
 });
 
 // ---- Cloudflare ----
@@ -278,6 +361,74 @@ function setManualBinary() {
   });
 }
 
+/** 二进制状态 / 卸载 / 清除凭据 / 保存配置（旧版 gateway_* 系列） */
+function checkBinary() {
+  void run("检查 cloudflared", () => call("gateway_binary_status"), "已检查");
+}
+
+function uninstallBinary() {
+  void run("卸载 cloudflared", () => call("gateway_binary_uninstall"), "已卸载");
+}
+
+function clearCredentials() {
+  void run("清除登录凭据", () => call("gateway_clear_credentials"), "已清除凭据");
+}
+
+function saveConfig() {
+  void run("保存配置", () => call("gateway_save_config", { mode: config.value?.mode ?? "quick", namedUrl: config.value?.namedUrl ?? "" }), "配置已保存");
+}
+
+/** Tailscale 安装 / 注销 / 扩展设置 / Funnel */
+function tsInstall() {
+  void run("安装 Tailscale", () => call("gateway_tailscale_install"), "开始安装…");
+}
+
+function tsLogout() {
+  void run("退出 Tailscale 登录", () => call("gateway_tailscale_logout"), "已退出登录");
+}
+
+function tsExtensionSettings() {
+  void call("gateway_tailscale_open_extension_settings").catch(() => {});
+}
+
+function tsFunnelToggle(on: boolean) {
+  if (on) {
+    void run("开启 Funnel", () => call("gateway_tailscale_funnel_enable"), "Funnel 已开启");
+  } else {
+    void run("关闭 Funnel", () => call("gateway_tailscale_funnel_disable"), "Funnel 已关闭");
+  }
+}
+
+/** Funnel 当前状态（进入卡片时查一次） */
+async function refreshFunnel() {
+  try {
+    await call("gateway_tailscale_funnel_status");
+  } catch {
+    /* 未安装时忽略 */
+  }
+}
+
+function tsUninstallNow() {
+  void run("卸载 Tailscale", () => call("gateway_tailscale_uninstall"), "已卸载");
+}
+
+function startTunnel() {
+  void run("开启隧道", () => call("gateway_tunnel_start"), "隧道已开启");
+}
+
+function stopTunnel() {
+  void run("关闭隧道", () => call("gateway_tunnel_stop"), "隧道已关闭");
+}
+
+/** 残留通道：沿用 / 清理多余 */
+function adoptOrphan() {
+  void run("沿用残留通道", () => call("gateway_tunnel_adopt"), "已沿用");
+}
+
+function killOrphans() {
+  void run("清理全部残留", () => call("gateway_tunnel_orphans"), "已清理");
+}
+
 function killOrphan() {
   void run("清理残留", () => call("gateway_tunnel_kill_orphan"), "已清理残留通道");
 }
@@ -288,6 +439,19 @@ function toggleTailscale() {
 }
 
 // ---- 配对 ----
+function reissuePair(id: string) {
+  void run("重新签发", () => call("gateway_pair_reissue", { id }), "已重新签发");
+}
+
+async function fetchPair(id: string) {
+  try {
+    await navigator.clipboard.writeText((await call<string>("gateway_pair_fetch", { id })) ?? "");
+    message.value = "配对串已复制";
+  } catch (error) {
+    errorText.value = String(error);
+  }
+}
+
 function revokePair(id: string) {
   void run("收回", () => call("gateway_pair_revoke", { id }), "已收回");
 }
@@ -393,6 +557,8 @@ function deletePair(id: string) {
           <button role="tab" :aria-selected="config?.mode !== 'named'">快速隧道</button>
           <button role="tab" :aria-selected="config?.mode === 'named'">命名隧道</button>
         </div>
+        <button type="button" class="btn" :disabled="!!busy" @click="startTunnel">开启隧道</button>
+        <button type="button" class="btn" :disabled="!!busy" @click="stopTunnel">关闭隧道</button>
         <button type="button" id="gwLogBtn" class="btn" @click="logOpen = true">日志</button>
         <button type="button" id="gwRefreshBtn" class="btn" @click="refreshAll">重新检测</button>
         <span class="gw-sw-group" title="开启 / 关闭 Cloudflare 通道">
@@ -424,8 +590,9 @@ function deletePair(id: string) {
           <div class="gw-client">
             <span class="mono">{{ config?.tunnel?.url || "（无地址）" }}</span>
             <span style="flex: 1" />
-            <button type="button" class="link-btn" @click="refreshAll">沿用</button>
+            <button type="button" class="link-btn" @click="adoptOrphan">沿用</button>
             <button type="button" class="link-btn" :disabled="!!busy" @click="killOrphan">终止</button>
+            <button type="button" class="link-btn" :disabled="!!busy" @click="killOrphans">清理全部</button>
           </div>
         </div>
       </div>
@@ -451,6 +618,10 @@ function deletePair(id: string) {
         <button v-if="!cfInstalled" type="button" id="gwManualBtn" class="btn" @click="manualOpen = !manualOpen">
           指定本地路径
         </button>
+        <button type="button" class="btn" :disabled="!!busy" @click="checkBinary">检查</button>
+        <button v-if="cfInstalled" type="button" class="btn" :disabled="!!busy" @click="uninstallBinary">卸载</button>
+        <button type="button" class="btn" :disabled="!!busy" @click="clearCredentials">清除登录凭据</button>
+        <button type="button" class="btn" :disabled="!!busy" @click="saveConfig">保存配置</button>
       </div>
 
       <!-- 指定本地路径（旧版 #gwManualRow） -->
@@ -496,6 +667,8 @@ function deletePair(id: string) {
             <span class="trk" aria-hidden="true" />
           </label>
         </span>
+        <button v-if="tsStatus?.installed" type="button" class="btn" @click="tsExtensionSettings">扩展设置</button>
+        <button v-if="tsStatus?.installed" type="button" class="btn" @click="tsLogout">退出登录</button>
         <button v-if="tsStatus?.installed" type="button" class="btn" @click="openUninstall('将卸载 Tailscale 程序本体')">卸载</button>
         <button type="button" class="btn" @click="openTsLog">日志</button>
         <button type="button" class="btn" @click="refreshAll">重新检测</button>
@@ -510,6 +683,10 @@ function deletePair(id: string) {
 
       <!-- 未安装：下载 / 官网 -->
       <div v-if="!tsStatus?.installed">
+        <div class="gw-binary">
+          <span>还没有安装 Tailscale</span>
+          <button type="button" class="btn primary" :disabled="!!busy" @click="tsInstall">安装 Tailscale</button>
+        </div>
         <p class="field-hint" style="margin: 8px 0 0">
           在这一台电脑上安装 Tailscale，手机 / 其他电脑加入同一网络后就能用它固定的
           100.x 地址访问本机 —— 不出公网、地址长期不变。
@@ -564,6 +741,14 @@ function deletePair(id: string) {
             style="display: inline-flex; width: 8px; height: 8px; border-radius: 50%; background: rgb(var(--fg-faint)); flex: none"
           />
           <span style="font-size: 12px; color: rgb(var(--fg-dim))">正在自检本机服务…</span>
+          <span style="flex: 1" />
+          <span class="gw-sw-group" title="Tailscale Funnel（对公网暴露）">
+            <span class="gw-sw-cap">Funnel</span>
+            <label class="switch">
+              <input type="checkbox" @change="tsFunnelToggle(($event.target as HTMLInputElement).checked)" />
+              <span class="trk" aria-hidden="true" />
+            </label>
+          </span>
         </div>
       </template>
     </div>
@@ -580,6 +765,21 @@ function deletePair(id: string) {
       </div>
       <div class="gw-status">
         <span>内置 tsnet 模式 —— 不需要安装系统 Tailscale</span>
+        <span style="flex: 1" />
+        <span class="gw-meta mono">{{ tsnStatus?.ip || "" }}</span>
+      </div>
+      <div class="gw-binary">
+        <span>{{ tsnStatus?.running ? "内置引擎运行中" : tsnStatus?.installed ? "已登录，未连接" : "未启用" }}</span>
+        <span style="flex: 1" />
+        <button type="button" class="btn" :disabled="!!busy" @click="tsnEnable">启用</button>
+        <button type="button" class="btn" :disabled="!!busy" @click="tsnDisable">停用</button>
+        <button type="button" class="btn" :disabled="!!busy" @click="tsnLogout">退出登录</button>
+        <button type="button" class="btn" :disabled="!!busy" @click="tsnUninstall">卸载引擎</button>
+      </div>
+      <div class="gw-binary">
+        <span>授权密钥</span>
+        <input v-model="tsnKey" type="password" class="mono" placeholder="tsnet auth key（留空则走浏览器登录）" />
+        <button type="button" class="btn" :disabled="!!busy" @click="tsnSaveKey">保存</button>
       </div>
     </div>
   </div>
@@ -598,6 +798,8 @@ function deletePair(id: string) {
           <span class="mono">{{ pair.label || pair.id }}</span>
           <span class="mono gw-meta">{{ pair.url || "—" }}</span>
           <span style="flex: 1" />
+          <button type="button" class="link-btn" @click="fetchPair(pair.id)">复制</button>
+          <button type="button" class="link-btn" @click="reissuePair(pair.id)">重签</button>
           <button type="button" class="link-btn" @click="revokePair(pair.id)">收回</button>
           <button type="button" class="link-btn" @click="deletePair(pair.id)">删除</button>
         </div>

@@ -224,6 +224,50 @@ async function confirmDelete() {
   }
 }
 
+/** 选本地目录（旧版 hub_pick_directory，上传时的默认落点） */
+async function pickLocalDir() {
+  try {
+    const dir = (await call("hub_pick_directory")) as string;
+    if (dir) errorText.value = `已选择本地目录：${dir}`;
+  } catch (error) {
+    errorText.value = String(error);
+  }
+}
+
+/** 回到远端家目录（旧版 hub_sftp_home） */
+async function goHome() {
+  try {
+    const home = await call<string>("hub_sftp_home", { id: serverId.value });
+    if (home) await listDir(home);
+  } catch (error) {
+    errorText.value = String(error);
+  }
+}
+
+/** 复制远端文件 / 目录（旧版 hub_sftp_copy） */
+async function copyEntry(entry: SftpEntry) {
+  const base = cwd.value.endsWith("/") ? cwd.value : `${cwd.value}/`;
+  const target = `${base}${entry.name} (副本)`;
+  try {
+    await call("hub_sftp_copy", { id: serverId.value, from: entry.path, to: target });
+    await listDir(cwd.value);
+  } catch (error) {
+    errorText.value = String(error);
+  }
+}
+
+/** 读软链接目标（旧版 hub_sftp_readlink） */
+async function readLink(entry: SftpEntry) {
+  try {
+    const target = await call<string>("hub_sftp_readlink", { id: serverId.value, path: entry.path });
+    targetEntry.value = entry;
+    infoOpen.value = true;
+    errorText.value = target ? `链接指向：${target}` : "";
+  } catch (error) {
+    errorText.value = String(error);
+  }
+}
+
 function showInfo(entry: SftpEntry) {
   targetEntry.value = entry;
   infoOpen.value = true;
@@ -242,7 +286,7 @@ async function transferCtl(action: "pause" | "resume" | "abandon") {
 
 function openInWindow() {
   if (!serverId.value) return;
-  void call("hub_open_window", { label: "server-files", serverId: serverId.value }).catch(() => {});
+  void call("hub_open_files_window", { serverId: serverId.value }).catch(() => {});
 }
 
 function fmtSize(bytes: number): string {
@@ -314,6 +358,8 @@ function pct(task: XferTask): number {
           </button>
         </template>
       </nav>
+      <button type="button" id="fbHome" class="fb-iconbtn" aria-label="家目录" title="回到远端家目录" @click="goHome">⌂</button>
+      <button type="button" id="fbPickLocal" class="fb-iconbtn" aria-label="选择本地目录" title="选择本地目录（上传落点）" @click="pickLocalDir">＋</button>
       <button type="button" id="fbPathDrop" class="fb-iconbtn" aria-label="路径快跳" title="上级目录快跳" @click="goUp">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M6 9l6 6 6-6" />
@@ -370,6 +416,8 @@ function pct(task: XferTask): number {
             <td class="mono">{{ entry.perms || "—" }}</td>
             <td class="mono">{{ fmtTime(entry.mtime) }}</td>
             <td style="text-align: right">
+              <button type="button" class="link-btn" @click.stop="copyEntry(entry)">复制</button>
+              <button type="button" class="link-btn" @click.stop="readLink(entry)">链接</button>
               <button type="button" class="link-btn" @click.stop="startRename(entry)">改名</button>
               <button type="button" class="link-btn" @click.stop="showInfo(entry)">属性</button>
               <button type="button" class="link-btn" @click.stop="removeEntry(entry)">删除</button>
