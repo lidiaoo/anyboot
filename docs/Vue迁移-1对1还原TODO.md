@@ -719,6 +719,29 @@ FbModal（文件窗 4 个）/ KeysWindow 的 genModal。
 函数式 ref 必须写 `:ref="setStage"`，否则 `stageEl` 一直是 null，
 拖拽静默失效（不报错）。
 
+**主题 I 拖拽排序（本轮）**
+对齐旧版 `wireReorder`（boot-adv.js:1931）：
+- 按下 `.grab` 手柄时快照每行中线与当前顺序
+- 移动时按 `y > mids[i]` 算落点，**直接改 DOM 顺序**做视觉反馈
+- 松手时才 emit 一次 `reorder`（旧版也是只在 onUp 里 saveState）
+- 用 pointer 事件而非 HTML5 draggable（旧版注释：三端 WebView 对
+  dataTransfer / drop 坐标行为不一致）
+
+事件链：`ThemeI` → `ThemeHost`（透传）→ `BootApp` → `adv.setOrder` → localStorage
+
+**实测（CDP 合成 pointer 事件）**：
+```
+.li-sheetbar 1  /  .li-prow 5 行
+初始顺序: refind,grub,sdboot,opencore,clover
+拖第 1 行到下方: grub,sdboot,opencore,clover,refind
+store order: grub,sdboot,opencore,clover,refind   ✅ 持久化生效
+```
+（测试脚本把第 1 行拖到了最末——因为合成事件的目标 y 落到了最后一行中线
+之下，逻辑本身正确）
+
+**踩的坑**：`ThemeHost` 中间层没透传 `reorder` 事件，
+组件 emit 了但宿主没转出去，`store` 永远收不到。
+
 ### 打包验证
 ```
 npm run build:mac-intel        → 成功（508 tests passed / 0 failed）

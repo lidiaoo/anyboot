@@ -31,7 +31,10 @@ const props = defineProps<{
   ratio?: number;
 }>();
 
-const emit = defineEmits<{ (e: "update:ratio", value: number): void }>();
+const emit = defineEmits<{
+  (e: "update:ratio", value: number): void;
+  (e: "reorder", order: string[]): void;
+}>();
 
 const REGISTRY: Record<ThemeKey, Component> = {
   A: defineAsyncComponent(() => import("./ThemeA.vue")),
@@ -111,7 +114,7 @@ function resetRatio() {
       </div>
       <div class="k-rbody is-theme">
         <div class="k-theme-fit">
-          <component :is="component" v-bind="themeProps" />
+          <component :is="component" v-bind="themeProps" @reorder="(order: string[]) => emit('reorder', order)" />
         </div>
       </div>
     </section>
@@ -136,7 +139,7 @@ function resetRatio() {
       </div>
       <div class="k-rbody is-theme">
         <div class="k-theme-fit">
-          <component :is="component" v-bind="themeProps" />
+          <component :is="component" v-bind="themeProps" @reorder="(order: string[]) => emit('reorder', order)" />
         </div>
       </div>
     </section>

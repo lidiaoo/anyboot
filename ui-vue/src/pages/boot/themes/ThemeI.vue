@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, type ComponentPublicInstance } from "vue";
 import BootList from "@/components/boot/BootList.vue";
 import LoaderIcon from "./LoaderIcon.vue";
 import type { LoaderInfo } from "./types";
@@ -28,6 +28,8 @@ import type { LoaderInfo } from "./types";
  * 数值与来源行保留。
  */
 
+const emit = defineEmits<{ (e: "reorder", order: string[]): void }>();
+
 const props = defineProps<{
   loaders: LoaderInfo[];
   activeId?: string;
@@ -37,6 +39,74 @@ const props = defineProps<{
 const sheetLid = ref<string | null>(null);
 /** 设置与编排抽屉（旧版 .li-panel 的「设置与编排」页签） */
 const settingsOpen = ref(false);
+
+/**
+ * 拖拽排序（对齐旧版 `wireReorder`，boot-adv.js:1931）。
+ *
+ * 与旧版一样用 pointer 事件而非 HTML5 draggable —— WKWebView / WebView2 /
+ * GTK WebKit 三端对 dataTransfer / drop 坐标行为不一致。
+ *
+ * 按下时快照每行中线；移动时算落点、直接改 DOM 顺序做视觉反馈；
+ * **松手时才写一次状态**，避免每帧 saveState + 全量重绘。
+ */
+const rowEls = new Map<string, HTMLElement>();
+const draggingId = ref<string | null>(null);
+
+function setRowRef(el: Element | ComponentPublicInstance | null, id: string) {
+  if (el) rowEls.set(id, el as HTMLElement);
+  else rowEls.delete(id);
+}
+
+function startReorder(event: PointerEvent, fromId: string) {
+  const handle = event.currentTarget as HTMLElement;
+  const rows = props.loaders.map((l: LoaderInfo) => rowEls.get(l.id)).filter((el): el is HTMLElement => Boolean(el));
+  const orderNow = props.loaders.map((l: LoaderInfo) => l.id);
+  const fromIndex = orderNow.indexOf(fromId);
+  if (fromIndex < 0 || rows.length !== orderNow.length) return;
+
+  const mids = rows.map((r: HTMLElement) => {
+    const rect = r.getBoundingClientRect();
+    return (rect.top + rect.bottom) / 2;
+  });
+  const grabY = event.clientY;
+  let target = fromIndex;
+  draggingId.value = fromId;
+  try {
+    handle.setPointerCapture(event.pointerId);
+  } catch {
+    /* 合成事件下可能失败，不影响后续 move */
+  }
+
+  const onMove = (e: PointerEvent) => {
+    const y = mids[fromIndex]! + (e.clientY - grabY);
+    let to = 0;
+    for (let i = 0; i < mids.length; i += 1) if (y > mids[i]!) to = i;
+    if (to === target) return;
+    target = to;
+    const moved = rowEls.get(fromId);
+    const ref = rowEls.get(orderNow[target]!);
+    if (!moved || !ref || ref === moved) return;
+    if (target > fromIndex) ref.after(moved);
+    else ref.before(moved);
+  };
+
+  const onUp = () => {
+    handle.removeEventListener("pointermove", onMove);
+    handle.removeEventListener("pointerup", onUp);
+    handle.removeEventListener("pointercancel", onUp);
+    draggingId.value = null;
+    if (target === fromIndex) return;
+    // 从 fromIndex 挪到 target，写进 store
+    const next = orderNow.slice();
+    const moved = next.splice(fromIndex, 1)[0]!;
+    next.splice(target, 0, moved);
+    emit("reorder", next);
+  };
+
+  handle.addEventListener("pointermove", onMove);
+  handle.addEventListener("pointerup", onUp);
+  handle.addEventListener("pointercancel", onUp);
+}
 
 function closeAll() {
   settingsOpen.value = false;
@@ -154,8 +224,20 @@ function closeSheet() {
           <div class="li-panel-bd">
             <!-- 设置与编排：每行一个引导器（旧版 .li-prow） -->
             <template v-if="settingsOpen">
-              <div v-for="loader in loaders" :key="loader.id" class="li-prow">
-                <span class="grab" title="拖动排序">⠿</span>
+              <div
+                v-for="loader in loaders"
+                :key="loader.id"
+                :ref="(el) => setRowRef(el, loader.id)"
+                class="li-prow"
+                :class="{ 'is-dragging': draggingId === loader.id }"
+                :data-lid="loader.id"
+              >
+                <span
+                  class="grab"
+                  title="按住拖动调整顺序"
+                  style="touch-action: none"
+                  @pointerdown.prevent="startReorder($event, loader.id)"
+                >⠿</span>
                 <LoaderIcon :id="loader.id" size="sm" />
                 <span class="nm">{{ loader.name }}</span>
                 <span class="grow" />
