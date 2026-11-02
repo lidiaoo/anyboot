@@ -1,7 +1,7 @@
 <script setup lang="ts">
 const toast = useToastStore();
 import { computed, onMounted, ref } from "vue";
-import { call } from "@/api/tauri";
+import { call, isTauri } from "@/api/tauri";
 import { useToastStore } from "@/stores/toast";
 
 /**
@@ -44,6 +44,7 @@ onMounted(async () => {
 });
 
 function openKeys() {
+  if (!isTauri()) { toast.show("密钥管理需要应用环境", "bad"); return; }
   void call("hub_open_keys_window", {}).catch((e) => toast.show("打开密钥管理失败：" + e, "bad"));
 }
 </script>

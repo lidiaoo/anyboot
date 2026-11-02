@@ -2,7 +2,7 @@
 const toast = useToastStore();
 import { computed, onMounted, ref } from "vue";
 import { useServersStore } from "@/stores/servers";
-import { call } from "@/api/tauri";
+import { call, isTauri } from "@/api/tauri";
 import { useToastStore } from "@/stores/toast";
 
 /**
@@ -40,7 +40,14 @@ const termBtnText = computed(() => {
 });
 
 function openTerminal() {
-  if (!selectedId.value) return;
+  if (!isTauri()) {
+    toast.show("终端需要应用环境", "bad");
+    return;
+  }
+  if (!selectedId.value) {
+    toast.show("先在「服务器」页选中一台 SSH 服务器", "bad");
+    return;
+  }
   // 旧版用的是专门的 hub_open_term_window（带 serverId 直接连）
   void call("hub_open_term_window", { server_id: selectedId.value }).catch((e) => toast.show("打开终端失败：" + e, "bad"));
 }

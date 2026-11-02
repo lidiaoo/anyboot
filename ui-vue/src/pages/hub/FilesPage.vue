@@ -1,7 +1,9 @@
 <script setup lang="ts">
+const toast = useToastStore();
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { call } from "@/api/tauri";
 import { useServersStore } from "@/stores/servers";
+import { useToastStore } from "@/stores/toast";
 
 /**
  * 文件页（原 `ui/hub.html` 的 `#page-files`，3387 行）—— `hub_sftp_*` 命令族。
@@ -232,6 +234,7 @@ async function upload() {
     await call("hub_sftp_upload", { server: currentServer.value, remote_dir: cwd.value });
     await refreshTransfers();
   } catch (error) {
+    toast.show("上传失败：" + error, "bad");
     errorText.value = String(error);
   }
 }
@@ -248,6 +251,7 @@ async function download() {
     });
     await refreshTransfers();
   } catch (error) {
+    toast.show("下载失败：" + error, "bad");
     errorText.value = String(error);
   }
 }
@@ -264,8 +268,10 @@ async function confirmMkdir() {
   const base = cwd.value.endsWith("/") ? cwd.value : `${cwd.value}/`;
   try {
     await call("hub_sftp_mkdir", { server: currentServer.value, path: `${base}${name}` });
+    toast.show("目录已创建 ✓");
     await listDir(cwd.value);
   } catch (error) {
+    toast.show("创建目录失败：" + error, "bad");
     errorText.value = String(error);
   }
 }
@@ -287,8 +293,10 @@ async function confirmRename() {
       from: entry.path,
       to: entry.path.replace(/[^/]+$/, next),
     });
+    toast.show("已重命名");
     await listDir(cwd.value);
   } catch (error) {
+    toast.show("重命名失败：" + error, "bad");
     errorText.value = String(error);
   }
 }
@@ -304,8 +312,10 @@ async function confirmDelete() {
   if (!entry) return;
   try {
     await call("hub_sftp_remove", { server: currentServer.value, path: entry.path, is_dir: entry.is_dir });
+    toast.show("已删除");
     await listDir(cwd.value);
   } catch (error) {
+    toast.show("删除失败：" + error, "bad");
     errorText.value = String(error);
   }
 }

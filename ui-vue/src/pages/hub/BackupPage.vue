@@ -180,6 +180,7 @@ async function run(label: string, action: () => Promise<unknown>, done: string) 
     await refreshSync();
   } catch (error) {
     errorText.value = String(error);
+    showToast(label + "失败：" + error);
   } finally {
     busy.value = "";
   }

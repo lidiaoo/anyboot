@@ -352,9 +352,14 @@ function renmoteRow(id: string) {
 async function openInBrowser(id: string) {
   const info = infoOf(id);
   const url = info?.addr ? `http://${info.addr}/hub.html` : "";
-  if (!url) return;
+  if (!url) {
+    toast.show("这台电脑还没有可直连打开的地址", "bad");
+    return;
+  }
   const { call } = await import("@/api/tauri");
-  await call("remote_open_page", { url }).catch(() => {});
+  await call("remote_open_page", { url })
+    .then(() => toast.show("已在系统浏览器打开直连地址"))
+    .catch((e) => toast.show("打开浏览器失败：" + e, "bad"));
 }
 
 /** 页面探活（旧版 hub_page_ping，给电脑页标签用） */
@@ -406,11 +411,17 @@ async function setConnectAll(on: boolean) {
 }
 
 function switchBoot(payload: Record<string, unknown>) {
-  void remote.switchBoot(payload);
+  void remote
+    .switchBoot(payload)
+    .then(() => toast.show("已切换下次启动项"))
+    .catch((e) => toast.show("切换失败：" + e, "bad"));
 }
 
 function power(payload: Record<string, unknown>) {
-  void remote.power(payload);
+  void remote
+    .power(payload)
+    .then(() => toast.show("已发送电源指令"))
+    .catch((e) => toast.show("电源操作失败：" + e, "bad"));
 }
 </script>
 

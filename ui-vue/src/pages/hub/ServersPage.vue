@@ -5,6 +5,7 @@ import { useServersStore, type HubServer } from "@/stores/servers";
 import ServerEditDialog from "@/components/hub/ServerEditDialog.vue";
 import LatencyTrend from "@/components/hub/LatencyTrend.vue";
 import { useToastStore } from "@/stores/toast";
+import { isTauri } from "@/api/tauri";
 
 /**
  * 服务器页（原 `ui/hub.html` 的 `#page-servers`）。
@@ -167,6 +168,7 @@ async function deleteTunnel(id: string) {
 
 /** 浏览文件（旧版 #filesBtn → hub_open_files_window） */
 function openFiles(server: HubServer) {
+  if (!isTauri()) { toast.show("文件浏览需要应用环境", "bad"); return; }
   if (server.protocol !== "ssh") return;
   void import("@/api/tauri").then(({ call }) =>
     call("hub_open_files_window", { server_id: server.id }).catch((e) => toast.show("打开文件浏览失败：" + e, "bad")),
@@ -174,6 +176,7 @@ function openFiles(server: HubServer) {
 }
 
 function openTerminal(server: HubServer) {
+  if (!isTauri()) { toast.show("终端需要应用环境", "bad"); return; }
   void import("@/api/tauri").then(({ call }) =>
     call("hub_open_term_window", { server_id: server.id }).catch((e) => toast.show("打开终端失败：" + e, "bad")),
   );
