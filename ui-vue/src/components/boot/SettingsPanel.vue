@@ -182,7 +182,7 @@ function fmtPct(v: number) {
       <input id="main-always-on-top"
         type="checkbox"
         :checked="Boolean(s?.mainAlwaysOnTop)"
-        @change="commit('set_main_always_on_top', { on: !s?.mainAlwaysOnTop })"
+        @change="commit('set_main_always_on_top', { enabled: !s?.mainAlwaysOnTop })"
       />
     </label>
 
@@ -196,7 +196,7 @@ function fmtPct(v: number) {
       <input id="main-auto-hide"
         type="checkbox"
         :checked="Boolean(s?.mainAutoHide)"
-        @change="commit('set_main_auto_hide', { on: !s?.mainAutoHide })"
+        @change="commit('set_main_auto_hide', { enabled: !s?.mainAutoHide })"
       />
     </label>
 
@@ -205,15 +205,7 @@ function fmtPct(v: number) {
         <strong>贴边触发距离</strong>
         <small>主窗口距屏幕边框不超过该像素值、且鼠标离开窗口时才隐藏（0–200，越大越灵敏）</small>
       </span>
-      <input id="main-auto-hide-edge-distance"
-        type="range"
-        min="0"
-        max="200"
-        :value="val('mainAutoHideEdgeDistance', 24)"
-        @input="setLocal('mainAutoHideEdgeDistance', Number(($event.target as HTMLInputElement).value))"
-        @change="commit('set_main_auto_hide_edge_distance', { px: val('mainAutoHideEdgeDistance', 24) })"
-      step="1"
-    />
+      <input id="main-auto-hide-edge-distance" type="number" min="0" max="200" step="1" :value="val('mainAutoHideEdgeDistance', 24)" @change="commit('set_main_auto_hide_edge_distance', { distance: Number(($event.target as HTMLInputElement).value) })" />
     </label>
 
     <!-- 贴边白条 -->
@@ -229,7 +221,7 @@ function fmtPct(v: number) {
         max="2000"
         step="50"
         :value="val('mainDockStripHoverMs', 120)"
-        @change="commit('set_main_dock_strip_hover_ms', { ms: Number(($event.target as HTMLInputElement).value) })"
+        @change="commit('set_main_dock_strip_hover_ms', { value: Number(($event.target as HTMLInputElement).value) })"
       />
     </label>
 
@@ -244,7 +236,7 @@ function fmtPct(v: number) {
         min="0"
         max="100"
         :value="val('mainDockStripEdgeGap', 0)"
-        @change="commit('set_main_dock_strip_edge_gap', { px: Number(($event.target as HTMLInputElement).value) })"
+        @change="commit('set_main_dock_strip_edge_gap', { value: Number(($event.target as HTMLInputElement).value) })"
       />
     </label>
 
@@ -260,7 +252,7 @@ function fmtPct(v: number) {
         max="40"
         :value="val('mainDockStripThickness', 6)"
         @input="setLocal('mainDockStripThickness', Number(($event.target as HTMLInputElement).value))"
-        @change="commit('set_main_dock_strip_thickness', { px: val('mainDockStripThickness', 6) })"
+        @change="commit('set_main_dock_strip_thickness', { value: val('mainDockStripThickness', 6) })"
       step="1"
     />
     </label>
@@ -277,7 +269,7 @@ function fmtPct(v: number) {
         max="100"
         :value="val('mainDockStripLength', 100)"
         @input="setLocal('mainDockStripLength', Number(($event.target as HTMLInputElement).value))"
-        @change="commit('set_main_dock_strip_length', { percent: val('mainDockStripLength', 100) })"
+        @change="commit('set_main_dock_strip_length', { value: val('mainDockStripLength', 100) })"
       step="5"
     />
     </label>
@@ -294,7 +286,7 @@ function fmtPct(v: number) {
         max="100"
         :value="val('mainDockStripOpacity', 100)"
         @input="setLocal('mainDockStripOpacity', Number(($event.target as HTMLInputElement).value))"
-        @change="commit('set_main_dock_strip_opacity', { percent: val('mainDockStripOpacity', 100) })"
+        @change="commit('set_main_dock_strip_opacity', { value: val('mainDockStripOpacity', 100) })"
       step="5"
     />
     </label>
@@ -324,7 +316,7 @@ function fmtPct(v: number) {
         max="100"
         :value="val('mainHotzoneThickness', 40)"
         @input="setLocal('mainHotzoneThickness', Number(($event.target as HTMLInputElement).value))"
-        @change="commit('set_main_hotzone_thickness', { px: val('mainHotzoneThickness', 40) })"
+        @change="commit('set_main_hotzone_thickness', { value: val('mainHotzoneThickness', 40) })"
       step="1"
     />
     </label>
@@ -349,7 +341,7 @@ function fmtPct(v: number) {
           max="100"
           :value="val('mainHotzoneOpacity', 0)"
           @input="setLocal('mainHotzoneOpacity', Number(($event.target as HTMLInputElement).value))"
-          @change="commit('set_main_hotzone_opacity', { percent: val('mainHotzoneOpacity', 0) })"
+          @change="commit('set_main_hotzone_opacity', { value: val('mainHotzoneOpacity', 0) })"
         step="5"
       />
       </span>
@@ -362,7 +354,7 @@ function fmtPct(v: number) {
       </span>
       <input id="main-hotzone-border"        type="checkbox"
         :checked="Boolean(s?.mainHotzoneBorder)"
-        @change="commit('set_main_hotzone_border', { on: !s?.mainHotzoneBorder })"
+        @change="commit('set_main_hotzone_border', { enabled: !s?.mainHotzoneBorder })"
       />
       <input id="main-hotzone-border-color" type="color" :value="hotzoneBorderColor" @input="setHotzoneBorderColor(($event.target as HTMLInputElement).value)" />
     </label>
@@ -375,7 +367,7 @@ function fmtPct(v: number) {
       </span>
       <select id="main-window-position"
         :value="s?.mainWindowPosition || 'last'"
-        @change="commit('set_main_window_position', { value: ($event.target as HTMLSelectElement).value })"
+        @change="commit('set_main_window_position', { mode: ($event.target as HTMLSelectElement).value })"
       >
         <option value="free">自由拖动</option>
         <option value="center">屏幕中间</option>
@@ -415,7 +407,7 @@ function fmtPct(v: number) {
           step="4"
           :value="val('windowSizeWidth', 460)"
           @input="setLocal('windowSizeWidth', Number(($event.target as HTMLInputElement).value))"
-          @change="commit('set_window_size_width', { px: val('windowSizeWidth', 460) })"
+          @change="commit('set_window_size', { width: val('windowSizeWidth', 460), height: val('windowSizeHeight', 560) })"
         />
       </span>
     </div>
@@ -435,7 +427,7 @@ function fmtPct(v: number) {
           step="4"
           :value="val('windowSizeHeight', 560)"
           @input="setLocal('windowSizeHeight', Number(($event.target as HTMLInputElement).value))"
-          @change="commit('set_window_size_height', { px: val('windowSizeHeight', 560) })"
+          @change="commit('set_window_size', { width: val('windowSizeWidth', 460), height: val('windowSizeHeight', 560) })"
         />
       </span>
     </div>
@@ -468,7 +460,7 @@ function fmtPct(v: number) {
       <input id="window-size-locked"
         type="checkbox"
         :checked="Boolean(s?.windowSizeLocked)"
-        @change="commit('set_window_size_locked', { on: !s?.windowSizeLocked })"
+        @change="commit('set_window_size_locked', { locked: !s?.windowSizeLocked })"
       />
     </label>
 
@@ -508,7 +500,7 @@ function fmtPct(v: number) {
       </span>
       <select id="tray-menu-style"
         :value="s?.trayMenuStyle === 'unified' ? 'unified' : 'classic'"
-        @change="commit('set_tray_menu_style', { value: ($event.target as HTMLSelectElement).value })"
+        @change="commit('set_tray_menu_style', { mode: ($event.target as HTMLSelectElement).value })"
       >
         <option value="classic">各自方式（默认）</option>
         <option value="unified">全局统一</option>
@@ -523,7 +515,7 @@ function fmtPct(v: number) {
       </span>
       <select id="theme"
         :value="s?.theme || 'dark'"
-        @change="commit('set_theme', { value: ($event.target as HTMLSelectElement).value })"
+        @change="commit('set_theme', { theme: ($event.target as HTMLSelectElement).value })"
       >
         <option value="dark">暗色</option>
         <option value="light">亮色</option>
@@ -663,7 +655,7 @@ function fmtPct(v: number) {
         </span>
         <span class="remote-inline">
           <input id="http-channel-notify" type="checkbox" :checked="Boolean(s?.httpChannelNotify)" @change="commit('set_http_channel_notify', { on: !s?.httpChannelNotify })" />
-          <input id="http-channel-delay" type="number" min="0" max="60" :value="val('httpChannelDelay', 0)" @change="commit('set_http_channel_delay', { sec: Number(($event.target as HTMLInputElement).value) })" />
+          <input id="http-channel-delay" type="text" inputmode="numeric" spellcheck="false" :value="val('httpChannelDelay', 0)" @change="commit('set_http_channel_delay', { sec: Number(($event.target as HTMLInputElement).value) })" />
         </span>
       </div>
 
@@ -674,7 +666,7 @@ function fmtPct(v: number) {
         </span>
         <span class="remote-inline">
           <input id="cli-channel-notify" type="checkbox" :checked="Boolean(s?.cliChannelNotify)" @change="commit('set_cli_channel_notify', { on: !s?.cliChannelNotify })" />
-          <input id="cli-channel-delay" type="number" min="0" max="60" :value="val('cliChannelDelay', 0)" @change="commit('set_cli_channel_delay', { sec: Number(($event.target as HTMLInputElement).value) })" />
+          <input id="cli-channel-delay" type="text" inputmode="numeric" spellcheck="false" :value="val('cliChannelDelay', 0)" @change="commit('set_cli_channel_delay', { sec: Number(($event.target as HTMLInputElement).value) })" />
         </span>
       </div>
 
