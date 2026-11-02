@@ -61,6 +61,14 @@ function applyVarsDir() {
   void run("保存 vars 目录", () => setVarsDir(dir), "vars 目录已保存");
 }
 
+/** 引导器 ESP 展示值（旧版 l.esp）：refind/grub 固定，三通道取 channel.detail */
+function loaderEsp(id: string): string {
+  if (id === "refind") return "ESP · refind.conf";
+  if (id === "grub") return "vars/PreviousBoot 快照";
+  const ch = (ui.channels || []).find((c) => c.id === id);
+  return ch?.detail || "";
+}
+
 function toggleVisible(id: LoaderId) {
   adv.setVisible(id, !adv.state.visible[id]);
 }
@@ -112,7 +120,7 @@ function setClose(action: "tray" | "quit") {
 
     <!-- ② 启用与排序 -->
     <section class="card">
-      <header><h2>显示哪些引导器</h2></header>
+      <header><h2>启用引导器</h2></header>
       <ul class="loader-list">
         <li v-for="id in adv.state.order" :key="id">
           <input
@@ -129,7 +137,46 @@ function setClose(action: "tray" | "quit") {
       <p class="hint">顺序决定主题里卡片的排列；左右布局时还能在主题里拖动分配列。</p>
     </section>
 
-    <!-- ③ 应用设置 -->
+    <!-- 菜单样式（旧版 boot-adv row4） -->
+    <section class="card">
+      <header><h2>菜单样式</h2></header>
+      <div class="seg">
+        <button type="button" :class="{ 'is-on': adv.state.style === 'full' }" title="完整：路径 + 徽章 + 全部动作；紧凑：行距减半、隐去路径；极简：只剩图标 + 名称 + 默认高亮" @click="adv.setStyle('full')">完整</button>
+        <button type="button" :class="{ 'is-on': adv.state.style === 'compact' }" title="完整：路径 + 徽章 + 全部动作；紧凑：行距减半、隐去路径；极简：只剩图标 + 名称 + 默认高亮" @click="adv.setStyle('compact')">紧凑</button>
+        <button type="button" :class="{ 'is-on': adv.state.style === 'min' }" title="完整：路径 + 徽章 + 全部动作；紧凑：行距减半、隐去路径；极简：只剩图标 + 名称 + 默认高亮" @click="adv.setStyle('min')">极简</button>
+      </div>
+      <p class="hint">三档对任何版式主题都生效；行内动作按钮在紧凑/极简下悬停才出现。</p>
+    </section>
+
+    <!-- 下次启动区域显示方式（旧版 boot-adv row4b） -->
+    <section class="card">
+      <header><h2>下次启动</h2></header>
+      <div class="seg">
+        <button type="button" :class="{ 'is-on': adv.state.nextBoot === 'off' }" title="不显示：整块从界面移除（不是留个空壳），下面引导列表照常可用 —— 出厂默认就是这一档" @click="adv.setNextBoot('off')">不显示</button>
+        <button type="button" :class="{ 'is-on': adv.state.nextBoot === 'fold' }" @click="adv.setNextBoot('fold')">折叠框</button>
+        <button type="button" :class="{ 'is-on': adv.state.nextBoot === 'open' }" @click="adv.setNextBoot('open')">展开</button>
+      </div>
+      <p class="hint">「系统引导」页顶部那块：不显示 = 整块移除、不占任何高度（默认）；折叠框 = 默认收起，标题旁小按钮切换；展开 = 打开就看到全部条目，同样可收起。</p>
+    </section>
+
+    <!-- 引导器设置（旧版 boot-adv k-setlist 汇总） -->
+    <section class="card">
+      <header><h2>引导器设置</h2></header>
+      <ul class="loader-set-list">
+        <li v-for="id in adv.state.order.filter((x) => adv.state.visible[x])" :key="id" class="loader-set-row">
+          <span class="nm">{{ loaderMeta(id).name }}</span>
+          <span class="chip">ESP · {{ loaderEsp(id) || '未知' }}</span>
+          <span class="chip">默认项 · 未知</span>
+          <span class="chip">脚本 · {{ id === 'grub' ? '09_anyboot' : '不适用' }}</span>
+          <span class="chip">免密 · {{ id === 'opencore' ? '未开启' : '不适用' }}</span>
+          <span class="spacer" />
+          <button type="button" class="btn icon ghost sm" :title="'打开 ' + loaderMeta(id).name + ' 详细设置'">⚙</button>
+        </li>
+        <li v-if="!adv.state.order.some((x) => adv.state.visible[x])" class="hint">没有启用的引导器 —— 点上方标签开启后再设置</li>
+      </ul>
+    </section>
+
+    <!-- ④ 应用设置 -->
     <section class="card">
       <header><h2>应用设置</h2></header>
 

@@ -16,7 +16,7 @@ export const LOADER_IDS = ["refind", "grub", "sdboot", "opencore", "clover"] as 
 export type LoaderId = (typeof LOADER_IDS)[number];
 
 /** 「下次启动」区域的显示方式（2026-11-01 三档定案） */
-export type NextBootMode = "off" | "fold" | "show";
+export type NextBootMode = "off" | "fold" | "open";
 
 export interface BootAdvState {
   visible: Record<LoaderId, boolean>;
@@ -27,7 +27,7 @@ export interface BootAdvState {
   /** 左右布局的分割比例 */
   ratio: number;
   /** 密度：full 舒适 / compact 紧凑 */
-  style: "full" | "compact";
+  style: "full" | "compact" | "min";
   theme: ThemeKey | "K";
   /** 「下次启动」显示方式 */
   nextBoot: NextBootMode;
@@ -141,7 +141,7 @@ export const useBootAdvStore = defineStore("bootAdv", () => {
     state.value.ratio = Math.min(0.85, Math.max(0.15, ratio));
   }
 
-  function setStyle(style: "full" | "compact") {
+  function setStyle(style: "full" | "compact" | "min") {
     state.value.style = style;
   }
 
