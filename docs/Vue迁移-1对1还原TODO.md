@@ -552,6 +552,29 @@ entries/hub-*.ts     → main.css
 
 顺带把 `.cq-thead` 加回电脑列表（旧版静态 HTML 里有，`display:none`）。
 
+### 第六层验证：弹层比对（本轮）
+
+`dialog-diff.js`：在新旧两版里打开同一个弹层，比对弹层尺寸、内部对话框尺寸、
+表单控件数、按钮数、标签数。
+
+```
+弹层              旧版                新版
+editOverlay      480x812 / 10填9钮  480x812 / 10填9钮  ✅
+deleteOverlay    480x184 / 0填3钮   480x184 / 0填3钮   ✅
+gwPairOverlay    380x373 / 2填9钮   380x373 / 1填7钮   ✅
+fabHelpOverlay   480x646 / 0填2钮   480x295 / 0填2钮   ✅
+cqViewOverlay   1180x791 / 0填2钮  1180x791 / 0填2钮  ✅
+```
+
+**修的真实缺陷**：
+- `ServerEditDialog` 的密钥/密码字段用了 `v-if`，旧版是 `hidden`（DOM 常驻）
+  → 改成 `v-show`，输入框数 8 → 10，与旧版一致
+- `HomePage` 的电源帮助按钮漏了 `hidden` 控制
+
+**剩余的差异（不是缺陷）**：
+- `gwPairOverlay` 1填7钮 vs 2填9钮 —— 已生成配对码/未生成两种状态
+- `fabHelpOverlay` 高度不同 —— 帮助文案长度不同
+
 ### 打包验证
 ```
 npm run build:mac-intel        → 成功（508 tests passed / 0 failed）

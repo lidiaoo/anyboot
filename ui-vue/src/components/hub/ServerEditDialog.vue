@@ -193,7 +193,7 @@ function doTest() {
               <button type="button" :aria-selected="auth === 'key'" @click="auth = 'key'">密钥</button>
             </div>
           </div>
-          <div v-if="auth === 'key'" class="field">
+          <div v-show="auth === 'key'" class="field">
             <label for="fKey">选择钥匙</label>
             <select id="fKey" v-model="keyId" class="dlg-select">
               <option value="">（还没有密钥，去工具栏「密钥」生成）</option>
@@ -202,7 +202,7 @@ function doTest() {
           </div>
         </div>
 
-        <div v-if="auth === 'password'" class="field">
+        <div v-show="auth === 'password'" class="field">
           <label for="fPassword">密码（AES-256-GCM 加密存本机，连接免输）</label>
           <input
             id="fPassword"

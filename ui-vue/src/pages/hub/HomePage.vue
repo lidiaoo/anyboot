@@ -232,7 +232,7 @@ function onFrameError() {
       <!-- 电源悬浮球（旧版 #pcFabWrap） -->
       <div class="pc-fab" :hidden="!fabOpen">
         <span class="pc-fab-note" title="电源操作说明">电源走局域网 · 需 sol</span>
-        <button type="button" class="pc-fab-help" title="电源操作说明" @click="fabHelpOpen = true">
+        <button type="button" class="pc-fab-help" :hidden="!fabOpen" title="电源操作说明" @click="fabHelpOpen = true">
           ?
         </button>
         <button
