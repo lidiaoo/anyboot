@@ -1,5 +1,6 @@
 # ui/ 全量迁移到 Vue 3 方案（2026-11-02 立项）
 
+> **进度台账**：`docs/ui-vue迁移-TODO.md`（接手看那个）
 > 决策人：用户
 > 技术选型：**Vue 3 + TypeScript + Pinia + Vite**
 > 主题策略：**11 套引导页主题全部组件化**
@@ -205,6 +206,6 @@ ui-vue/
 
 ## 七、环境前置
 
-- **Node 20.20.2 已装**（`nvm install 20`）；Vite 5 需要 ≥18
+- **Node 22.23.4**（用户指定，用 `nvm use 22`；用户已有 nvm，不要自行为其安装其它版本）
 - Tauri CLI 2.11.4 在新 Node 下可用
 - 注意：`npm run build:mac-intel` 等脚本用 `env -u CARGO`，迁移后要确认 Node 版本仍对
