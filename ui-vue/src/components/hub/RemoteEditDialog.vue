@@ -179,7 +179,38 @@ const routeProbe = ref<"first" | "all" | "serial">("first");
 const probeMode = ref<"first" | "all" | "serial">("first");
 const probeTimeout = ref(3);
 const connCount = computed(() => rows.value.filter((r) => r.addr.trim()).length);
-const powerRoutes = ref<string[]>([]);
+interface PowerRoute {
+  action: string;
+  mode?: string;
+  target: string;
+  port: number;
+  macs: string[];
+  enabled: boolean;
+  burst: number;
+  retry: number;
+}
+const POWER_ACTIONS = [
+  { value: "wake", label: "唤醒" },
+  { value: "reboot", label: "重启" },
+  { value: "shutdown", label: "关机" },
+  { value: "sleep", label: "睡眠" },
+];
+const ROUTE_MODES = [
+  { value: "auto", label: "优先广播包" },
+  { value: "http_first", label: "优先 HTTP" },
+  { value: "http_only", label: "仅 HTTP" },
+  { value: "packet_only", label: "仅广播包" },
+];
+const powerRoutes = ref<PowerRoute[]>([]);
+function newPowerRoute(): PowerRoute {
+  return { action: "wake", mode: "auto", target: "", port: 9, macs: [], enabled: true, burst: 0, retry: 0 };
+}
+function routeDefaultBurst(r: PowerRoute): string {
+  return r.action === "wake" ? "10" : "3";
+}
+function routeDefaultRetry(): string {
+  return "10";
+}
 /** 底部 */
 const editError = ref("");
 const testOut = ref("");
@@ -286,6 +317,24 @@ watch(
     }
     const rd = (r as Record<string, unknown>).routeDisabled as Record<string, boolean> | undefined;
     if (rd && typeof rd === "object") routeDisabled.value = { ...rd };
+    const pr = (r as Record<string, unknown>).power_routes;
+    if (Array.isArray(pr)) {
+      powerRoutes.value = pr.map((x) => {
+        const o = x as Record<string, unknown>;
+        return {
+          action: String(o.action ?? "wake"),
+          mode: String(o.mode ?? "auto"),
+          target: String(o.target ?? ""),
+          port: Number(o.port ?? 9),
+          macs: Array.isArray(o.macs) ? (o.macs as string[]) : [],
+          enabled: o.enabled !== false,
+          burst: Number(o.burst ?? 0),
+          retry: Number(o.retry ?? 0),
+        };
+      });
+    } else {
+      powerRoutes.value = [];
+    }
     const bp = (r as Record<string, unknown>).blockProbe as Record<string, string> | undefined;
     if (bp && typeof bp === "object") blockProbe.value = { ...bp };
     const bt = (r as Record<string, unknown>).blockTimeouts as Record<string, string> | undefined;
@@ -344,6 +393,10 @@ function submit() {
     route_order: routeOrder.value,
     route_disabled: routeDisabled.value,
     route_timeout: routeTimeout.value,
+    power_routes: powerRoutes.value.map((r) => ({
+      action: r.action, mode: r.mode, target: r.target, port: r.port,
+      macs: r.macs, enabled: r.enabled, burst: r.burst, retry: r.retry,
+    })),
     block_probe: blockProbe.value,
     block_timeouts: blockTimeouts.value,
   });
@@ -607,13 +660,56 @@ function submit() {
         </div>
         <div class="fold-body" id="rsFoldPower" :hidden="!foldPower">
           <div id="rsPowerRoutes" class="route-list">
-            <div v-for="(r, i) in powerRoutes" :key="i" class="route-row">
-              <span class="mono">{{ r }}</span>
-              <button type="button" class="icon-btn" aria-label="删除" @click="powerRoutes.splice(i, 1)">✕</button>
+            <div v-for="(r, i) in powerRoutes" :key="i" :class="['route-row', { 'route-off': !r.enabled }]">
+              <!-- 行头：序号 + 动作下拉 + 模式下拉 + 启用 + 删除 -->
+              <div class="route-head">
+                <span class="route-no">{{ i + 1 }}</span>
+                <span class="route-zone-inline">
+                  <select v-model="r.action" class="route-act" title="这条路由执行什么动作">
+                    <option v-for="a in POWER_ACTIONS" :key="a.value" :value="a.value">{{ a.label }}</option>
+                  </select>
+                </span>
+                <span class="route-zone-inline">
+                  <select v-model="r.mode" class="route-mode" title="通过广播包还是 HTTP 接口执行">
+                    <option v-for="m in ROUTE_MODES" :key="m.value" :value="m.value">{{ m.label }}</option>
+                  </select>
+                </span>
+                <span class="route-head-spacer" />
+                <label class="switch" title="停用后这条路由不参与发射">
+                  <input type="checkbox" class="route-enabled" v-model="r.enabled" />
+                  <span class="trk" aria-hidden="true" />
+                </label>
+                <button type="button" class="route-del" aria-label="删掉这条" title="删掉这条" @click="powerRoutes.splice(i, 1)">✕</button>
+              </div>
+              <!-- 广播包区 -->
+              <div class="route-zone route-zone-packet">
+                <div class="route-zone-title">广播包</div>
+                <div class="route-main">
+                  <span class="route-num-label">广播地址</span>
+                  <input v-model="r.target" class="route-target mono" type="text" spellcheck="false" placeholder="留空 = 自动：全局广播 + 各地址的 /24" />
+                  <span class="route-num-label">端口</span>
+                  <input v-model.number="r.port" class="route-port mono" type="number" min="0" max="65535" placeholder="9" />
+                </div>
+                <div class="route-main">
+                  <span class="route-num-label">每块网卡发</span>
+                  <input v-model.number="r.burst" class="route-burst mono" type="number" min="0" max="20" :placeholder="routeDefaultBurst(r)" />
+                  <span class="route-num-label">没发出就重试</span>
+                  <input v-model.number="r.retry" class="route-retry mono" type="number" min="0" max="20" :placeholder="routeDefaultRetry()" />
+                </div>
+                <div class="route-main">
+                  <span class="route-macs-label">MAC</span>
+                  <span class="route-macs">{{ r.macs.length ? r.macs.join(" · ") : "（这台服务器配过的全部 MAC）" }}</span>
+                </div>
+              </div>
+              <!-- HTTP 区 -->
+              <div class="route-zone route-zone-http">
+                <div class="route-zone-title">HTTP</div>
+                <p class="route-zone-hint">调这台电脑自带的 /api/power 接口（token 与连接共用，无需单独配置）。混合 = HTTP 与广播包同时发。</p>
+              </div>
             </div>
           </div>
           <p class="field-hint">配了路由，电源按钮就往局域网发 UDP 包，由这台电脑上的 sol 按端口执行对应动作 —— 机器睡着、连接断着也能用；没配则唤醒走标准 WOL。广播地址留空 = 自动（全局广播 + 各地址的 /24 广播）。</p>
-          <button type="button" class="btn small" id="rsPowerAdd" style="margin-top: 8px" @click="powerRoutes.push('')">+ 添加一条路由</button>
+          <button type="button" class="btn small" id="rsPowerAdd" style="margin-top: 8px" @click="powerRoutes.push(newPowerRoute())">+ 添加一条路由</button>
         </div>
 
         <div class="field" id="rsRouteList">
