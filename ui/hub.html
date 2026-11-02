@@ -10076,6 +10076,14 @@ window.__bkOnShow = async function () {
   let pcDataRefreshTimer = null;
   function restartDataRefresh() {
     if (pcDataRefreshTimer) { clearInterval(pcDataRefreshTimer); pcDataRefreshTimer = null; }
+    // 电脑页 / 内嵌页的 WebView 里也有自己的 HTTP 轮询，它读同一份
+    // localStorage（pcDataRefreshSec）—— 改了要通知它们重建定时器。
+    // 内嵌 iframe 同源可直接派发 storage 事件不可靠，这里用 postMessage 广播。
+    try {
+      document.querySelectorAll('iframe').forEach(function (f) {
+        try { f.contentWindow.postMessage({ type: "anyboot-refresh-changed" }, "*"); } catch (e) { }
+      });
+    } catch (e) { }
     if (!pcDataRefreshSec || pcDataRefreshSec <= 0) return;
     pcDataRefreshTimer = setInterval(function () {
       // 静默刷新：只更新列表数据（在线状态 + 引导项），不重载页面、不弹提示

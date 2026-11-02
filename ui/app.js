@@ -83,8 +83,26 @@ const TRANSPORT_KEY = "anyboot.transport";
 const TRANSPORT_AUTO = "auto";
 const TRANSPORT_PUSH = "ws";
 const TRANSPORT_POLL = "http";
-/// 轮询间隔（毫秒）
+/// 轮询间隔（毫秒）—— **默认值**。实际间隔读用户设置
+/// `pcDataRefreshSec`（电脑列表 ⋮ 里的「数据刷新」，同一份 localStorage），
+/// 0 = 关闭。2026-11-02 用户要求：「http 轮询不是 2s 了 是根据用户设置的
+/// 数据刷新间隔」。
 const POLL_INTERVAL = 2000;
+
+/// 当前生效的轮询间隔（毫秒）：读设置，读不到用默认 2 秒。
+/// 注意 0 是合法的（用户关闭数据刷新），所以不能用 `||` 兜底。
+function pollIntervalMs() {
+  try {
+    const raw = localStorage.getItem("pcDataRefreshSec");
+    if (raw !== null) {
+      const sec = parseInt(raw, 10);
+      if (Number.isFinite(sec) && sec >= 0) {
+        return sec <= 0 ? 0 : sec * 1000;
+      }
+    }
+  } catch (e) { /* localStorage 不可用就用默认 */ }
+  return POLL_INTERVAL;
+}
 /// 推送重连退避的上限
 const PUSH_RETRY_MAX = 30000;
 
@@ -149,7 +167,11 @@ function startUiStatePolling() {
   if (uiStatePollTimer !== null || !remoteApiAvailable) {
     return;
   }
-  uiStatePollTimer = setInterval(pollUiStateOnce, POLL_INTERVAL);
+  const interval = pollIntervalMs();
+  if (interval <= 0) {
+    return;   // 用户关了数据刷新
+  }
+  uiStatePollTimer = setInterval(pollUiStateOnce, interval);
 }
 
 function stopUiStatePolling() {
@@ -375,6 +397,18 @@ function setTransportMode(mode) {
 }
 
 /// 把界面接上远程模式（探通那一刻调一次）：横幅、token 引导、通道、首份快照。
+/// 宿主（电脑列表页）改了「数据刷新」设置时，页面内的轮询也要跟着重建。
+/// 2026-11-02：设置与页面同源共用 localStorage 的 `pcDataRefreshSec`。
+window.addEventListener("message", (event) => {
+  if (event.data && event.data.type === "anyboot-refresh-changed") {
+    if (!IS_BROWSER) return;
+    stopUiStatePolling();
+    if (transportMode !== TRANSPORT_PUSH) {
+      startUiStatePolling();
+    }
+  }
+});
+
 async function attachRemoteApi() {
   renderRemoteDot();
   // 首次访问（没有存过 token）：直接弹模态框要 token，别等第一次 401

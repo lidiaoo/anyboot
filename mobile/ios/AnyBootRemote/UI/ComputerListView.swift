@@ -2420,7 +2420,7 @@ struct ComputerListView: View {
                         pickTransport(ServerStore.transportPush)
                     }
                     radioRow(store.transport == ServerStore.transportPoll,
-                             "轮询（HTTP 每 2s）", "") {
+                             "轮询（HTTP，间隔见「数据刷新」）", "") {
                         pickTransport(ServerStore.transportPoll)
                     }
                 }

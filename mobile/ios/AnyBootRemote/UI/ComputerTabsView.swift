@@ -772,7 +772,7 @@ struct ComputerTabsView: View {
     private func label(for transport: String) -> String {
         switch transport {
         case ServerStore.transportPush: return "推送（WebSocket）"
-        case ServerStore.transportPoll: return "轮询（HTTP 每 2s）"
+        case ServerStore.transportPoll: return "轮询（HTTP，间隔见「数据刷新」）"
         default: return "自动（推送优先，连不上退回轮询）"
         }
     }

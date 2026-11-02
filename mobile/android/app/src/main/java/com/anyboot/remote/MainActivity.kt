@@ -1281,7 +1281,7 @@ class MainActivity : ComponentActivity() {
         val labels = listOf(
             "自动（推送优先，连不上退回轮询）",
             "推送（WebSocket）",
-            "轮询（HTTP 每 2s）",
+            "轮询（HTTP，间隔见「数据刷新」）",
         )
         AlertDialog(
             onDismissRequest = { transportOpen = false },
