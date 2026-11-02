@@ -719,7 +719,15 @@ FbModal（文件窗 4 个）/ KeysWindow 的 genModal。
 函数式 ref 必须写 `:ref="setStage"`，否则 `stageEl` 一直是 null，
 拖拽静默失效（不报错）。
 
-**主题 I 拖拽排序（本轮）**
+**主题 G 的 ⌘K 快捷键（本轮）**
+底部写着「⌘K 聚焦搜索」就得真能用。对齐旧版 `onCmdK`（boot-adv.js:1694）：
+- `metaKey || ctrlKey` + `k` → `preventDefault()` + `input.focus()` + `input.select()`
+- Windows 没有 ⌘，所以 Ctrl+K 同效
+- 组件卸载时移除监听
+
+实测（CDP 发 Cmd+K）：焦点原本不在输入框 → 按键后**在输入框**。
+
+**主题 I 拖拽排序（上轮）**
 对齐旧版 `wireReorder`（boot-adv.js:1931）：
 - 按下 `.grab` 手柄时快照每行中线与当前顺序
 - 移动时按 `y > mids[i]` 算落点，**直接改 DOM 顺序**做视觉反馈

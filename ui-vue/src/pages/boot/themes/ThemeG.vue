@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import type { EntryData } from "@/components/boot/types";
 import { useUiStateStore } from "@/stores/uiState";
 import { useSettingsStore } from "@/stores/settings";
@@ -39,6 +39,23 @@ const ui = useUiStateStore();
 const settings = useSettingsStore();
 
 const query = ref("");
+/** 搜索框（⌘K / Ctrl+K 聚焦） */
+const searchInputRef = ref<HTMLInputElement | null>(null);
+
+/**
+ * ⌘K / Ctrl+K 聚焦搜索框（对齐旧版 `onCmdK`，boot-adv.js:1694）。
+ * 底部写着 ⌘K 就得真能用；Windows 上没有 ⌘ 所以 Ctrl+K 同效。
+ */
+function onCmdK(event: KeyboardEvent) {
+  if (!(event.metaKey || event.ctrlKey)) return;
+  if (event.key !== "k" && event.key !== "K") return;
+  event.preventDefault();
+  searchInputRef.value?.focus();
+  searchInputRef.value?.select();
+}
+
+onMounted(() => window.addEventListener("keydown", onCmdK));
+onUnmounted(() => window.removeEventListener("keydown", onCmdK));
 const filter = ref("all");
 
 /** 每个引导器的条目（按自动/手动模式取数据源） */
@@ -152,7 +169,7 @@ const selectedLoaderState = computed(
       <div class="lg-top">
         <div class="lg-search">
           <span aria-hidden="true">🔍</span>
-          <input v-model="query" placeholder="搜索系统、引导器或动作…" />
+          <input ref="searchInputRef" v-model="query" placeholder="搜索系统、引导器或动作…" />
           <span class="kbd">⌘K</span>
         </div>
         <div class="lg-filters">
