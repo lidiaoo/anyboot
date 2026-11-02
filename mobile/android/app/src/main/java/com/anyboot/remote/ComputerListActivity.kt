@@ -3753,8 +3753,28 @@ class ComputerListActivity : ComponentActivity() {
     /// 各段与老接口的返回**同构**，所以直接复用现成的解析器。
     private fun buildInfoFromUiState(state: JSONObject, choice: EndpointChoice): BootInfo {
         val errors = mutableListOf<String>()
+
+        // 2026-11-02 用户指出：「电脑列表页虽然你也用了电脑页用的那个数据获取接口
+        // 但是你没有关注到 refind(自动/手动) grub(自动/手动) 的逻辑 根据用户选的
+        // 自动手动才能展示相应的引导数据」。
+        //
+        // 快照里两套数据是并存的：
+        //   rEFInd  自动（refindMode=auto）  → refindSim（按扫描规则重算的菜单）
+        //           手动（refindMode=manual）→ status（vars 快照）
+        //   GRUB    自动（grubMode=auto）    → linuxGrub（读 Linux 分区 grub.cfg）
+        //           手动（grubMode=manual）  → grub（ESP 上的 grub.cfg）
+        // 原先这里只读了 status + grub（都是「手动」那份），自动模式下列表显示的
+        // 是与电脑页不一致的数据。
+        val settings = state.optJSONObject("settings") ?: JSONObject()
+        val refindMode = optStr(settings, "refindMode").ifEmpty { "auto" }
+        val grubMode = optStr(settings, "grubMode").ifEmpty { "auto" }
+
         val refind = try {
-            parseRefind(state.optJSONObject("status") ?: JSONObject())
+            if (refindMode == "manual") {
+                parseRefind(state.optJSONObject("status") ?: JSONObject())
+            } else {
+                parseRefindSim(state.optJSONObject("refindSim") ?: JSONObject())
+            }
         } catch (error: Exception) {
             errors.add(error.message ?: "读取失败")
             BootGroup(
@@ -3764,7 +3784,13 @@ class ComputerListActivity : ComponentActivity() {
             )
         }
         val grub = try {
-            parseGrub(state.optJSONObject("grub") ?: JSONObject())
+            // 自动模式用 linuxGrub（Linux 分区自己的 grub.cfg）；两者 entries/groups/
+            // nextEntry/savedEntry 结构**完全相同**（实测），解析器可直接复用。
+            if (grubMode == "manual") {
+                parseGrub(state.optJSONObject("grub") ?: JSONObject())
+            } else {
+                parseGrub(state.optJSONObject("linuxGrub") ?: JSONObject())
+            }
         } catch (error: Exception) {
             errors.add(error.message ?: "读取失败")
             BootGroup(
@@ -3861,6 +3887,47 @@ class ComputerListActivity : ComponentActivity() {
             )
         }
         return channels
+    }
+
+    /// `/api/ui-state` 的 `refindSim` → rEFInd 可选组（**自动模式**的数据源）。
+    ///
+    /// 与手动模式（`/api/status` 的 vars 快照）的区别：
+    /// 自动模式是按 rEFInd 自己的扫描规则**重算**出来的菜单，含二级子屏；
+    /// 「当前项」看 `entries[].lastBoot` 命中的那条（与 PC 端
+    /// `effectiveGrubForNextBoot` / 托盘同一口径），没有就退回 `previousBoot`。
+    private fun parseRefindSim(json: JSONObject): BootGroup {
+        val options = mutableListOf<BootOption>()
+        val entries = json.optJSONArray("entries") ?: JSONArray()
+        var current = ""
+        for (i in 0 until entries.length()) {
+            val item = entries.optJSONObject(i) ?: continue
+            val title = optStr(item, "title").trim()
+            if (title.isEmpty()) continue
+            val kind = optStr(item, "kind").trim()
+            val isLastBoot = item.optBoolean("lastBoot", false)
+            options.add(
+                BootOption(
+                    value = title,
+                    label = title,
+                    kind = kind.ifEmpty { "linux" },
+                ),
+            )
+            if (isLastBoot && current.isEmpty()) current = title
+        }
+        if (current.isEmpty()) {
+            val prev = optStr(json, "previousBoot").trim()
+            if (prev.isNotEmpty() && options.any { it.value == prev }) current = prev
+        }
+        return BootGroup(
+            kind = KIND_REFIND,
+            title = "rEFInd",
+            available = options.isNotEmpty(),
+            current = current,
+            next = "",
+            saved = "",
+            note = optStr(json, "summary").trim(),
+            options = options,
+        )
     }
 
     /** `/api/status` 的 variables → rEFInd 可选组（对齐 PC 端 refind_from_status） */

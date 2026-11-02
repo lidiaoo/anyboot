@@ -154,6 +154,36 @@ struct ChannelGroup: Hashable, Identifiable {
 enum BootParser {
 
     /// `/api/status` 的 `variables` → rEFInd 可选组（对齐 PC 端 refind_from_status）
+    /// `/api/ui-state` 的 `refindSim` → rEFInd 可选组（**自动模式**的数据源）。
+    ///
+    /// 与手动模式（vars 快照）的区别：自动模式是按 rEFInd 自己的扫描规则
+    /// **重算**出来的菜单，含二级子屏；「当前项」看 `entries[].lastBoot`
+    /// 命中的那条（与 PC 端 effectiveGrubForNextBoot / 托盘同一口径），
+    /// 没有就退回 `previousBoot`。
+    static func parseRefindSim(_ json: [String: Any]) -> BootGroup {
+        var options: [BootOption] = []
+        var current = ""
+        let entries = json["entries"] as? [[String: Any]] ?? []
+        for item in entries {
+            let title = (item["title"] as? String ?? "").trimmingCharacters(in: .whitespaces)
+            if title.isEmpty { continue }
+            let kind = (item["kind"] as? String ?? "").trimmingCharacters(in: .whitespaces)
+            options.append(BootOption(value: title, label: title,
+                                      kind: kind.isEmpty ? "linux" : kind))
+            if (item["lastBoot"] as? Bool) == true && current.isEmpty { current = title }
+        }
+        if current.isEmpty {
+            let prev = (json["previousBoot"] as? String ?? "").trimmingCharacters(in: .whitespaces)
+            if !prev.isEmpty, options.contains(where: { $0.value == prev }) { current = prev }
+        }
+        return BootGroup(
+            kind: BootKind.refind, title: "rEFInd",
+            available: !options.isEmpty,
+            current: current, next: "", saved: "",
+            note: (json["summary"] as? String ?? "").trimmingCharacters(in: .whitespaces),
+            options: options)
+    }
+
     static func parseRefind(_ json: [String: Any]) -> BootGroup {
         var options: [BootOption] = []
         var current = ""
@@ -649,8 +679,24 @@ enum BootService {
                                   choice: BootEndpoint) -> BootInfo {
         var errors: [String] = []
 
+        // 2026-11-02 用户指出：「电脑列表页…没有关注到 refind(自动/手动)
+        // grub(自动/手动) 的逻辑 根据用户选的自动手动才能展示相应的引导数据」。
+        //
+        // 快照里两套数据并存：
+        //   rEFInd  自动 → refindSim（按扫描规则重算的菜单，含子屏）
+        //           手动 → status（vars 快照）
+        //   GRUB    自动 → linuxGrub（Linux 分区自己的 grub.cfg）
+        //           手动 → grub（ESP 上的 grub.cfg）
+        let settings = state["settings"] as? [String: Any] ?? [:]
+        let refindManual = (settings["refindMode"] as? String) == "manual"
+        let grubManual = (settings["grubMode"] as? String) == "manual"
+
         let refindGroup: BootGroup
-        if let status = state["status"] as? [String: Any] {
+        if refindManual, let status = state["status"] as? [String: Any] {
+            refindGroup = BootParser.parseRefind(status)
+        } else if !refindManual, let sim = state["refindSim"] as? [String: Any] {
+            refindGroup = BootParser.parseRefindSim(sim)
+        } else if let status = state["status"] as? [String: Any] {
             refindGroup = BootParser.parseRefind(status)
         } else {
             errors.append("快照里没有 status")
@@ -660,7 +706,12 @@ enum BootService {
         }
 
         let grubGroup: BootGroup
-        if let grub = state["grub"] as? [String: Any] {
+        // 自动模式用 linuxGrub；两者 entries/groups/nextEntry/savedEntry 结构
+        // 完全相同，解析器可直接复用。
+        let grubSource: [String: Any]? = grubManual
+            ? (state["grub"] as? [String: Any])
+            : ((state["linuxGrub"] as? [String: Any]) ?? (state["grub"] as? [String: Any]))
+        if let grub = grubSource {
             grubGroup = BootParser.parseGrub(grub)
         } else {
             errors.append("快照里没有 grub")
