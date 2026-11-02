@@ -145,6 +145,17 @@ const soundDisabled = computed(() => !soundOn.value);
 /** 贴边配置：居中模式禁用；auto-hide 关闭时 dock 配置也禁用 */
 const autoHideDisabled = computed(() => centerLocked.value);
 const dockStripDisabled = computed(() => centerLocked.value || !autoHideOn.value);
+
+/** 访客 UI 模式（旧版 isGuestUiView）：URL 带 abUi=light|dark，远程查看主窗时指定亮暗 */
+const guestUiTheme = (() => {
+  try {
+    const v = (new URLSearchParams(location.search).get("abUi") || "").toLowerCase();
+    return v === "light" || v === "dark" ? v : "";
+  } catch {
+    return "";
+  }
+})();
+const isGuestUi = computed(() => guestUiTheme !== "");
 </script>
 
 <template>
@@ -527,10 +538,12 @@ const dockStripDisabled = computed(() => centerLocked.value || !autoHideOn.value
     <label class="setting">
       <span class="setting-text">
         <strong>界面主题</strong>
-        <small>暗色 / 亮色 / 跟随系统</small>
+        <small v-if="isGuestUi">亮暗主题跟随查看方（远程管理窗 / 手机 App）显示，不改动这台电脑保存的设置。</small>
+        <small v-else>暗色 / 亮色 / 跟随系统</small>
       </span>
       <select id="theme"
-        :value="s?.theme || 'dark'"
+        :value="isGuestUi ? guestUiTheme : (s?.theme || 'dark')"
+        :disabled="isGuestUi"
         @change="commit('set_theme', { theme: ($event.target as HTMLSelectElement).value })"
       >
         <option value="dark">暗色</option>

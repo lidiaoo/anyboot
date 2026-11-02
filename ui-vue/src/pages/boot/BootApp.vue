@@ -109,6 +109,21 @@ function toggleTheme() {
 /** 界面外观：主题 + 不透明度（旧版 applyAppearance） */
 function applyAppearance(): void {
   const st = ui.settings as Record<string, unknown> | undefined;
+  // 主题应用（旧版 applyAppearance：GUEST_UI_THEME || resolvedTheme(theme)）
+  let guestUi = "";
+  try {
+    const v = (new URLSearchParams(location.search).get("abUi") || "").toLowerCase();
+    if (v === "light" || v === "dark") guestUi = v;
+  } catch { /* 忽略 */ }
+  const rawTheme = String(st?.theme ?? "dark");
+  const resolved = guestUi || (rawTheme === "system"
+    ? (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark")
+    : (rawTheme === "light" ? "light" : "dark"));
+  const html = document.documentElement;
+  html.setAttribute("data-theme", resolved);
+  html.classList.toggle("light", resolved === "light");
+  html.classList.toggle("dark", resolved === "dark");
+  applyAccent(ui.settings?.accentColor, resolved);
   const percent = Number(st?.opacityPercent ?? 90);
   const clamped = Math.min(100, Math.max(0, Number.isFinite(percent) ? percent : 90));
   document.documentElement.style.setProperty("--ui-alpha", String(clamped / 100));
