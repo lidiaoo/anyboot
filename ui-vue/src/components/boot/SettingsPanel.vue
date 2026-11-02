@@ -239,15 +239,15 @@ function fmtPct(v: number) {
       <span class="setting-text">
         <strong>贴边白条厚度</strong>
         <small>6px（拖动即时预览）</small>
-        <small class="setting-state" id="main-dock-strip-thickness-state">{{ val("mainDockStripThickness", 3) }} px</small>
+        <small class="setting-state" id="main-dock-strip-thickness-state">{{ val("mainDockStripThickness", 6) }} px</small>
       </span>
       <input id="main-dock-strip-thickness"
         type="range"
         min="2"
         max="12"
-        :value="val('mainDockStripThickness', 3)"
+        :value="val('mainDockStripThickness', 6)"
         @input="setLocal('mainDockStripThickness', Number(($event.target as HTMLInputElement).value))"
-        @change="commit('set_main_dock_strip_thickness', { px: val('mainDockStripThickness', 3) })"
+        @change="commit('set_main_dock_strip_thickness', { px: val('mainDockStripThickness', 6) })"
       />
     </label>
 
@@ -300,15 +300,15 @@ function fmtPct(v: number) {
       <span class="setting-text">
         <strong>热区触发厚度</strong>
         <small>40px（鼠标移入屏幕边往内这一段就呼出主窗）</small>
-        <small class="setting-state" id="main-hotzone-thickness-state">{{ val("mainHotzoneThickness", 8) }} px</small>
+        <small class="setting-state" id="main-hotzone-thickness-state">{{ val("mainHotzoneThickness", 40) }} px</small>
       </span>
       <input id="main-hotzone-thickness"
         type="range"
         min="2"
         max="40"
-        :value="val('mainHotzoneThickness', 8)"
+        :value="val('mainHotzoneThickness', 40)"
         @input="setLocal('mainHotzoneThickness', Number(($event.target as HTMLInputElement).value))"
-        @change="commit('set_main_hotzone_thickness', { px: val('mainHotzoneThickness', 8) })"
+        @change="commit('set_main_hotzone_thickness', { px: val('mainHotzoneThickness', 40) })"
       />
     </label>
 
@@ -400,7 +400,7 @@ function fmtPct(v: number) {
       <span class="setting-text">
         <strong>窗口高度</strong>
         <small>560px（拖动实时调整窗口）</small>
-        <small class="setting-state" id="window-size-height-state">{{ val("windowSizeHeight", 720) }} px</small>
+        <small class="setting-state" id="window-size-height-state">{{ val("windowSizeHeight", 560) }} px</small>
       </span>
       <span class="remote-inline">
         <input
@@ -409,9 +409,9 @@ function fmtPct(v: number) {
           min="320"
           max="1200"
           step="4"
-          :value="val('windowSizeHeight', 720)"
+          :value="val('windowSizeHeight', 560)"
           @input="setLocal('windowSizeHeight', Number(($event.target as HTMLInputElement).value))"
-          @change="commit('set_window_size_height', { px: val('windowSizeHeight', 720) })"
+          @change="commit('set_window_size_height', { px: val('windowSizeHeight', 560) })"
         />
       </span>
     </div>
@@ -515,7 +515,7 @@ function fmtPct(v: number) {
       </span>
       <input id="accent-color"
         type="color"
-        :value="s?.accentColor || '#4f46e5'"
+        :value="s?.accentColor || '#6366f1'"
         @change="commit('set_accent_color', { color: ($event.target as HTMLInputElement).value })"
       />
     </label>
@@ -568,7 +568,7 @@ function fmtPct(v: number) {
           <small>自己填一个也可以：4–128 位可见 ASCII（字母/数字/符号），不能有空格和中文；清空则服务不启动</small>
         </span>
         <span class="remote-inline">
-          <input id="token-input" v-model="tokenInput" spellcheck="false" type="text" placeholder="新 token（≥8 位），留空不改动" />
+          <input id="token-input" v-model="tokenInput" spellcheck="false" type="text" placeholder="自定义 token…" />
           <button type="button" class="secondary" @click="regenerateToken">重新生成</button>
         </span>
       </div>
@@ -662,7 +662,7 @@ function fmtPct(v: number) {
             <input id="setting-sound" type="checkbox" :checked="Boolean(s?.soundEnabled)" @change="commit('set_sound_enabled', { on: !s?.soundEnabled })" />
           </label>
           <button type="button" id="play-sound" class="secondary" @click="commit('play_sound', {})">试听</button>
-          <input id="sound-file-path" v-model="soundPath" spellcheck="false" type="text" placeholder="自定义音频文件路径" />
+          <input id="sound-file-path" v-model="soundPath" spellcheck="false" type="text" placeholder="自定义路径（留空用内置音）" />
           <button type="button" id="sound-apply" class="secondary" @click="commit('set_sound_file', { path: soundPath })">应用</button>
         </span>
       </div>

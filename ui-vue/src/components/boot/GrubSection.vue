@@ -347,7 +347,7 @@ function switchEntry(selector: string) {
         <input
           id="grub-partuuid"
           :value="partuuid"
-          placeholder="F69D7BF9-E8A9-3135-A5CB-4BD0CA7344E3"
+          placeholder="GPT 分区 GUID，如 F69D7BF9-E8A9-3135-A5CB-4BD0CA7344E3（三端同值：Linux lsblk -o PARTUUID / macOS diskutil / Windows Get-Partition）"
           spellcheck="false"
           type="text"
         />

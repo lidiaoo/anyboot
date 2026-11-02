@@ -475,7 +475,7 @@ function power(payload: Record<string, unknown>) {
       >
         排序 <span id="cqSortText">{{ SORT_LABELS[sortMode] }}</span>
       </button>
-      <button type="button" id="cqRefresh" class="link-btn" :disabled="refreshing" @click="manualRefresh">
+      <button type="button" id="cqRefresh" class="link-btn" :disabled="refreshing" title="重新探测全部电脑的在线状态与引导项" @click="manualRefresh">
         <span id="cqRefreshText">{{ refreshing ? "探测中" : "刷新" }}</span>
       </button>
       <button type="button" class="link-btn" title="探测当前电脑的页面是否可访问" @click="pingPage">探活</button>
