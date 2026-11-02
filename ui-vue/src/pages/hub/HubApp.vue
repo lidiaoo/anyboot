@@ -251,6 +251,7 @@ const footCount = computed(() => `${servers.servers.length} 台服务器`);
           class="snav"
           :class="{ active: currentPage === item.id }"
           :title="item.label"
+          :data-page="item.id"
           @click="currentPage = item.id"
         >
           <svg

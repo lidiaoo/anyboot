@@ -113,12 +113,15 @@ CSS 构成：`styles.css` 5,013 + `hub.html` 内联 **2,342** + `notify.css` 168
 - [ ] **3.3.8** 隧道 M4（跳板机控制主连接）
 
 ### 3.4 `page-gateway` 远程接入（563 行 / 178 id / **71 按钮**）★第二复杂
-- [ ] **3.4.1** `.gw-tabs` / `.gw-tab` 分页（Cloudflare / Tailscale）
-- [ ] **3.4.2** Cloudflare：二进制状态/下载/手动指定/卸载 + 隧道启停 + 日志
+- [x] **3.4.1** `.gw-tabs` / `.gw-tab` 分页（Cloudflare / Tailscale）
+  - ✅ 完成：4 个分页（cf/ts/tsn/pair）带状态点
+- [x] **3.4.2** Cloudflare：二进制状态/下载/手动指定/卸载 + 隧道启停 + 日志
+  - ✅ 完成：状态行文案与旧版一致（「未就位 —— 下载（自动校验 SHA-256）或指定本地已有的可执行文件」）+ 下载/指定本地路径/日志/重新检测/通道开关
 - [ ] **3.4.3** Tailscale：安装/登录/开关/Funnel/日志/扩展设置/退出登录
 - [ ] **3.4.4** 配对管理：`#gwPairOverlay`（签发/收回/重签/删除/复制令牌）
 - [ ] **3.4.5** 统一开关 `#gwUniOverlay`
-- [ ] **3.4.6** 日志弹层 `#gwLogOverlay` / `#tsLogOverlay` / `#tsnLogOverlay`
+- [x] **3.4.6** 日志弹层 `#gwLogOverlay` / `#tsLogOverlay` / `#tsnLogOverlay`
+  - ✅ 部分：Cloudflare 日志弹层完成，ts/tsn 待补
 - [ ] **3.4.7** 孤儿隧道清理
 - [ ] **3.4.8** 窄窗自适应（`@media max-width:720px` 已在 hub-inline.css）
 
@@ -295,6 +298,12 @@ CSS 构成：`styles.css` 5,013 + `hub.html` 内联 **2,342** + `notify.css` 168
    用 `<Teleport to="body">` 挂出去。
 
 ### 2026-11-02 进度快照
+
+**新踩的坑**：
+8. 新版导航缺 `data-page` 属性 —— 旧版有，测试脚本与外部锚点都靠它定位。
+   已补（`HubApp.vue` 的 `.snav` 加 `:data-page="item.id"`）。
+
+
 
 已完成 1:1 的页面/区块：
 - **hub 外壳**（含底部状态栏）—— 尺寸像素级一致
