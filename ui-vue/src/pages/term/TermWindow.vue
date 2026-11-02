@@ -54,6 +54,15 @@ const unlisteners: (() => void)[] = [];
 const pickOpen = ref(false);
 const servers = ref<{ id: string; name: string; host: string; protocol: string }[]>([]);
 /** 底部状态栏 */
+/** toast（旧版 #toast） */
+const toastText = ref("");
+function showToast(text: string) {
+  toastText.value = text;
+  window.setTimeout(() => {
+    if (toastText.value === text) toastText.value = "";
+  }, 2200);
+}
+
 const footHost = ref("—");
 const footSize = ref("—");
 
@@ -344,6 +353,7 @@ function selectTab(id: string) {
 }
 
 async function closeSession(id: string) {
+  showToast("已关闭会话");
   try {
     await call("hub_term_close", { id });
   } catch {
@@ -360,13 +370,13 @@ async function closeSession(id: string) {
         <path d="M6 9l3 3-3 3" />
       </svg>
     </span>
-    <h1>终端</h1>
-    <span v-if="connText !== '—'" class="pill" :class="connOk ? 'ok' : 'bad'">
+    <h1 id="title">终端</h1>
+    <span id="connPill" class="pill" :class="connOk ? 'ok' : 'bad'" :hidden="connText === '—'">
       <span class="dot" />
-      <span>{{ connText }}</span>
+      <span id="connText">{{ connText }}</span>
     </span>
     <div class="tools">
-      <button type="button" class="toolbtn" aria-label="打开远程管理" title="打开远程管理" @click="openHub">
+      <button type="button" class="toolbtn" id="hubBtn" aria-label="打开远程管理" title="打开远程管理" @click="openHub">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <rect x="2" y="3" width="20" height="7" rx="2" />
           <rect x="2" y="14" width="20" height="7" rx="2" />
@@ -374,20 +384,20 @@ async function closeSession(id: string) {
         </svg>
         远程管理
       </button>
-      <button type="button" class="toolbtn" aria-label="切换主题" @click="toggleTheme">
+      <button type="button" class="toolbtn" id="themeBtn" aria-label="切换主题" @click="toggleTheme">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
           <circle cx="12" cy="12" r="9" />
           <path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none" />
         </svg>
         主题
       </button>
-      <button type="button" class="toolbtn" aria-label="调整字号" title="切换字号" @click="cycleFont">
+      <button type="button" class="toolbtn" id="fontBtn" aria-label="调整字号" title="切换字号" @click="cycleFont">
         <span class="a">A</span><span class="b">A</span>
       </button>
     </div>
   </header>
 
-  <div class="tabbar" role="tablist" aria-label="终端会话">
+  <div class="tabbar" id="tabbar" role="tablist" aria-label="终端会话">
     <button
       v-for="session in sessions"
       :key="session.id"
@@ -403,9 +413,9 @@ async function closeSession(id: string) {
   </div>
 
   <div class="term-wrap">
-    <div ref="termHostRef" />
+    <div id="termHost" ref="termHostRef" />
     <div class="crt-fade" aria-hidden="true" />
-    <div v-if="!sessions.length" class="empty">
+    <div v-if="!sessions.length" id="empty" class="empty">
       <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
         <rect x="2" y="4" width="20" height="14" rx="2" />
         <path d="M6 9l3 3-3 3" />
@@ -416,24 +426,24 @@ async function closeSession(id: string) {
   </div>
 
   <footer>
-    <span><span class="dot" /><span>{{ footHost }}</span></span>
+    <span><span class="dot" id="footDot" /><span id="footHost">{{ footHost }}</span></span>
     <span aria-hidden="true">·</span><span>xterm-256color</span>
-    <span aria-hidden="true">·</span><span>{{ footSize }}</span>
-    <span class="lat"><span class="dot" />延迟 <span>—</span></span>
+    <span aria-hidden="true">·</span><span id="footSize">{{ footSize }}</span>
+    <span class="lat"><span class="dot" />延迟 <span id="footLat">—</span></span>
   </footer>
 
   <!-- 服务器选择弹层（旧版 #pick） -->
-  <div v-if="pickOpen" class="modal" @click.self="pickOpen = false">
-    <div class="modal-card" role="dialog" aria-modal="true">
+  <div v-if="pickOpen" id="pick" class="modal" @click.self="pickOpen = false">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="pickTitle">
       <div class="modal-head">
-        <h3>选择要连接的服务器</h3>
-        <button type="button" aria-label="关闭" @click="pickOpen = false">
+        <h3 id="pickTitle">选择要连接的服务器</h3>
+        <button type="button" id="pickClose" aria-label="关闭" @click="pickOpen = false">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
             <path d="M6 6l12 12M18 6L6 18" />
           </svg>
         </button>
       </div>
-      <div class="modal-body">
+      <div class="server-list" id="pickList">
         <p v-if="!servers.length" class="hint">还没有 SSH 服务器 —— 到「服务器」页添加一台</p>
         <button
           v-for="s in servers"
@@ -450,6 +460,9 @@ async function closeSession(id: string) {
   </div>
 
   <p v-if="errorText" class="hint" style="color: rgb(var(--bad)); padding: 0 12px">{{ errorText }}</p>
+
+  <!-- toast（旧版 #toast） -->
+  <div v-if="toastText" id="toast">{{ toastText }}</div>
 </template>
 
 <!--
