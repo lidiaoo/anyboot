@@ -91,7 +91,7 @@ const tsfStateText = computed(() => {
 
 /** 打开 Funnel 官方授权页（旧版 #tsfAuthBtn） */
 function tsFunnelAuth() {
-  void call("gateway_tailscale_funnel_enable").catch(() => {});
+  void call("gateway_tailscale_funnel_enable").catch((e) => toast.show("授权地址无效：" + e, "bad"));
 }
 
 /** 命名隧道配置（旧版 #gwNamedToken / #gwNamedUrl） */
@@ -145,9 +145,28 @@ function tsnToggle() {
 }
 
 /** 去开通 Funnel（旧版 #tsnSetupBtn，由 sidecar 给的 setupUrl） */
+/** 打开 Tailscale 登录页（旧版校验 URL 必须是 login.tailscale.com） */
+function copyLoginUrl() {
+  if (!loginUrl.value) { toast.show("还没有登录链接 —— 先点连接或重新生成", "bad"); return; }
+  void navigator.clipboard.writeText(loginUrl.value).then(() => toast.show("登录链接已复制")).catch(() => toast.show("复制失败", "bad"));
+}
+function regenLoginUrl() {
+  void call("gateway_tailscale_login_regen").catch((e) => toast.show("重新生成失败：" + e, "bad"));
+}
+
+function openLoginPage() {
+  const url = loginUrl.value;
+  if (!/^https:\/\/login\.tailscale\.com\//.test(url)) {
+    toast.show("登录地址无效", "bad");
+    return;
+  }
+  void call("open_web_page", { url }).catch((e) => toast.show("打开登录页失败：" + e, "bad"));
+}
+
 function tsnOpenSetup() {
   const url = tsnStatus.value?.setupUrl;
-  if (url) void call("open_web_page", { url }).catch(() => {});
+  if (!url) { toast.show("开通地址无效", "bad"); return; }
+  void call("open_web_page", { url }).catch((e) => toast.show("开通地址无效：" + e, "bad"));
 }
 
 function toggleTsnAutostart() {
@@ -971,9 +990,9 @@ function deletePair(id: string) {
           登录完成后自动继续，不用再点开关。
         </p>
         <div style="display: flex; gap: 8px; align-items: center; margin-top: 8px">
-          <button type="button" class="btn primary" id="tsLoginOpen">打开登录页</button>
-          <button type="button" class="link-btn" id="tsLoginCopy">复制登录链接</button>
-          <button type="button" class="link-btn" id="tsLoginRegen">重新生成链接</button>
+          <button type="button" class="btn primary" id="tsLoginOpen" @click="openLoginPage">打开登录页</button>
+          <button type="button" class="link-btn" id="tsLoginCopy" @click="copyLoginUrl">复制登录链接</button>
+          <button type="button" class="link-btn" id="tsLoginRegen" @click="regenLoginUrl">重新生成链接</button>
         </div>
         <p class="field-hint mono" id="tsLoginUrl" style="margin: 8px 0 0; user-select: all; overflow-wrap: anywhere; word-break: break-all">{{ loginUrl }}</p>
         <p class="field-hint" style="margin: 6px 0 0">
@@ -1179,9 +1198,9 @@ function deletePair(id: string) {
           请<b>每隔几分钟回来看一眼</b>状态或日志，就绪后这里会显示、日志里会打印<b>公网地址</b>。
         </p>
         <div style="display: flex; gap: 8px; align-items: center; margin-top: 8px">
-          <button type="button" class="btn primary" id="tsnLoginBtn">打开登录页</button>
-          <button type="button" class="link-btn" id="tsnLoginCopy">复制登录链接</button>
-          <button type="button" class="link-btn" id="tsnLoginRegen">重新生成链接</button>
+          <button type="button" class="btn primary" id="tsnLoginBtn" @click="openLoginPage">打开登录页</button>
+          <button type="button" class="link-btn" id="tsnLoginCopy" @click="copyLoginUrl">复制登录链接</button>
+          <button type="button" class="link-btn" id="tsnLoginRegen" @click="regenLoginUrl">重新生成链接</button>
         </div>
         <p class="field-hint mono" id="tsnLoginUrl" style="margin: 8px 0 0; user-select: all; overflow-wrap: anywhere; word-break: break-all">{{ loginUrl }}</p>
         <p class="field-hint" style="margin: 6px 0 0">

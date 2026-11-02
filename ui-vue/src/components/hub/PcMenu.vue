@@ -1,6 +1,8 @@
 <script setup lang="ts">
+const toast = useToastStore();
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useSettingsStore } from "@/stores/settings";
+import { useToastStore } from "@/stores/toast";
 
 /**
  * ⋮ 菜单（原 `ui/hub.html` 的 `#cqMore` / `#pcMenu`）。
@@ -47,7 +49,7 @@ function setOpenMode(v: string) {
 const grubFmt = ref("simple");
 function setGrubFmt(fmt: string) {
   void import("@/api/tauri").then(({ call }) =>
-    call("set_grub_list_format", { format: fmt }).then(() => { grubFmt.value = fmt; open.value = false; }).catch(() => {}),
+    call("set_grub_list_format", { format: fmt }).then(() => { grubFmt.value = fmt; open.value = false; }).catch((e) => { toast.show("切换格式失败：" + e, "bad"); }),
   );
 }
 
