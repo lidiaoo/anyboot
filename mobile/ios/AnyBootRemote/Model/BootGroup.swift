@@ -555,6 +555,16 @@ enum BootService {
 
         var errors: [String] = []
 
+        // 2026-11-02 用户提议：「我能把电脑页的 http 2s 轮询抄过来吗」——
+        // 直接用 `/api/ui-state`（电脑页那条 2 秒轮询打的就是它）：
+        // 一次返回**全部**状态（status / grub / channels …），比分别打三个接口
+        // 更省、更一致，而且与电脑页看到的是同一份快照（revision 同源）。
+        // 老服务端没有该接口时自动回落到三个老接口。
+        if let state = try? await RemoteHttp.json(endpoint: choice.url, token: choice.token,
+                                                  path: "/api/ui-state") {
+            return buildInfo(fromUiState: state, choice: choice)
+        }
+
         let refindGroup: BootGroup
         do {
             let json = try await RemoteHttp.json(endpoint: choice.url, token: choice.token,
@@ -591,6 +601,55 @@ enum BootService {
 
         return BootInfo(
             ok: errors.count < 3,
+            online: true,
+            addr: choice.displayAddr,
+            error: errors.joined(separator: "；"),
+            refind: refindGroup,
+            grub: grubGroup,
+            channels: channelGroups,
+            machineOs: choice.os,
+            hits: choice.hits,
+            winnerKind: choice.kind,
+            winnerAddr: choice.winAddr)
+    }
+
+    /// 从 `/api/ui-state` 的完整快照组装 BootInfo（与电脑页同一份数据源）。
+    ///
+    /// 快照结构：`{ status: {...}, grub: {...}, channels: [...] }` —— 各段与老接口
+    /// 的返回**同构**，所以直接复用现成的解析器。
+    private static func buildInfo(fromUiState state: [String: Any],
+                                  choice: BootEndpoint) -> BootInfo {
+        var errors: [String] = []
+
+        let refindGroup: BootGroup
+        if let status = state["status"] as? [String: Any] {
+            refindGroup = BootParser.parseRefind(status)
+        } else {
+            errors.append("快照里没有 status")
+            refindGroup = BootGroup(kind: BootKind.refind, title: "rEFInd", available: false,
+                                    current: "", next: "", saved: "",
+                                    note: "快照里没有 status", options: [])
+        }
+
+        let grubGroup: BootGroup
+        if let grub = state["grub"] as? [String: Any] {
+            grubGroup = BootParser.parseGrub(grub)
+        } else {
+            errors.append("快照里没有 grub")
+            grubGroup = BootGroup(kind: BootKind.grub, title: "GRUB", available: false,
+                                  current: "", next: "", saved: "",
+                                  note: "快照里没有 grub", options: [])
+        }
+
+        let channelGroups: [ChannelGroup]
+        if let channels = state["channels"] as? [[String: Any]] {
+            channelGroups = BootParser.parseChannels(channels)
+        } else {
+            channelGroups = []
+        }
+
+        return BootInfo(
+            ok: errors.isEmpty,
             online: true,
             addr: choice.displayAddr,
             error: errors.joined(separator: "；"),

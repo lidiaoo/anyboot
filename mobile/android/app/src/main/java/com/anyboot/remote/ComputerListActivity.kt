@@ -3218,6 +3218,23 @@ class ComputerListActivity : ComponentActivity() {
         val token = choice.token
 
         val errors = mutableListOf<String>()
+
+        // 2026-11-02 用户提议：「我能把电脑页的 http 2s 轮询抄过来吗」——
+        // 更好：直接用 `/api/ui-state`（电脑页那条 2 秒轮询打的就是它）。
+        // 它一次返回**全部**状态（status / grub / channels / refindSim / settings），
+        // 比现在分别打 /api/status + /api/grub + /api/boot-channels 三个接口
+        // 更省、更一致，而且与电脑页看到的是**同一份快照**（revision 同源）。
+        //
+        // 老服务端没有 /api/ui-state 时自动回落到三个老接口。
+        val uiState = try {
+            httpJson(endpoint, token, "/api/ui-state")
+        } catch (_: Exception) {
+            null
+        }
+        if (uiState != null) {
+            return buildInfoFromUiState(uiState, choice)
+        }
+
         val refind = try {
             parseRefind(httpJson(endpoint, token, "/api/status"))
         } catch (error: Exception) {
@@ -3530,6 +3547,52 @@ class ComputerListActivity : ComponentActivity() {
     }
 
     /** `GET /api/boot-channels`（顶层 ChannelView 数组）→ 三引导器通道 */
+    /// 从 `/api/ui-state` 的完整快照组装 BootInfo（与电脑页同一份数据源）。
+    ///
+    /// 快照结构：{ status: {...}, grub: {...}, channels: [...], ... }
+    /// 各段与老接口的返回**同构**，所以直接复用现成的解析器。
+    private fun buildInfoFromUiState(state: JSONObject, choice: EndpointChoice): BootInfo {
+        val errors = mutableListOf<String>()
+        val refind = try {
+            parseRefind(state.optJSONObject("status") ?: JSONObject())
+        } catch (error: Exception) {
+            errors.add(error.message ?: "读取失败")
+            BootGroup(
+                kind = KIND_REFIND, title = "rEFInd", available = false,
+                current = "", next = "", saved = "",
+                note = error.message ?: "读取失败", options = emptyList(),
+            )
+        }
+        val grub = try {
+            parseGrub(state.optJSONObject("grub") ?: JSONObject())
+        } catch (error: Exception) {
+            errors.add(error.message ?: "读取失败")
+            BootGroup(
+                kind = KIND_GRUB, title = "GRUB", available = false,
+                current = "", next = "", saved = "",
+                note = error.message ?: "读取失败", options = emptyList(),
+            )
+        }
+        val channels = try {
+            parseChannels(state.optJSONArray("channels") ?: JSONArray())
+        } catch (_: Exception) {
+            emptyList()
+        }
+        return BootInfo(
+            ok = errors.size < 2,
+            online = true,
+            addr = choice.displayAddr(),
+            error = errors.joinToString("；"),
+            refind = refind,
+            grub = grub,
+            channels = channels,
+            machineOs = choice.os,
+            hits = choice.hits,
+            winnerKind = choice.kind,
+            winnerAddr = choice.winAddr,
+        )
+    }
+
     private fun parseChannels(array: JSONArray): List<ChannelRow> {
         val channels = mutableListOf<ChannelRow>()
         for (index in 0 until array.length()) {
@@ -4416,7 +4479,9 @@ class ComputerListActivity : ComponentActivity() {
         /** 定时自动探测间隔：与电脑页心跳同一节奏（10 秒一轮） */
         const val AUTO_PROBE_INTERVAL_MS = 10_000L
         /// 在线时的数据刷新间隔（常开，不受「连不上时自动重载」影响）
-        const val DATA_REFRESH_INTERVAL_MS = 10_000L
+        /// 与电脑页的 POLL_INTERVAL 对齐（ui/app.js 里是 2 秒）—— 用户要求
+        /// 「把电脑页的 http 2s 轮询抄过来」，两边节奏一致，看到的也是同一份快照。
+        const val DATA_REFRESH_INTERVAL_MS = 2_000L
 
         val HELP_LINES = listOf(
             "唤醒：发标准魔术包（UDP 9）。睡眠 / 重启 / 关机按每台电脑「电源路由」里配的通道发送，" +
