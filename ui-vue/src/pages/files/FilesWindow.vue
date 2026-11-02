@@ -581,8 +581,8 @@ function pct(task: XferTask): number {
     <button role="menuitem" id="rmInfo" class="fm-act" @click="menuAction('info')">详情</button>
     <button role="menuitem" id="rmCopy" class="fm-act" @click="menuAction('copy')">复制</button>
     <button role="menuitem" id="rmCut" class="fm-act" @click="menuAction('cut')">剪切</button>
-    <button role="menuitem" id="rmCopyTo" class="fm-act" @click="menuAction('copyTo')">复制到…</button>
-    <button role="menuitem" id="rmMoveTo" class="fm-act" @click="menuAction('moveTo')">移动到…</button>
+    <button role="menuitem" id="rmCopyTo" class="fm-act" @click="menuAction('copyTo')">复制到...</button>
+    <button role="menuitem" id="rmMoveTo" class="fm-act" @click="menuAction('moveTo')">移动到...</button>
   </div>
 
   <!-- 新建目录弹层（旧版 #mkdirModal） -->
@@ -658,12 +658,13 @@ function pct(task: XferTask): number {
   <div v-if="destOpen" id="destModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="destTitle">
     <div class="modal-card">
       <div class="modal-head">
-        <h3 id="destTitle">{{ destMode === "moveTo" ? "移动到…" : "复制到…" }}</h3>
+        <h3 id="destTitle">{{ destMode === "moveTo" ? "移动到" : "复制到" }}</h3>
         <button type="button" id="destClose" aria-label="关闭" @click="destOpen = false">✕</button>
       </div>
       <form id="destForm" class="modal-body" @submit.prevent="confirmDest">
-        <label id="destLabel" for="destPath">目标目录</label>
+        <label id="destLabel" for="destPath">目标路径（含文件名）</label>
         <input id="destPath" v-model="destPath" class="mono" placeholder="/path/to/dir" autocomplete="off" />
+        <p class="hint">目录不存在会原样报错；目标已存在会被覆盖。</p>
         <div class="modal-foot" style="border: 0; padding: 4px 0 0">
           <button type="button" class="btn plain" id="destCancel" @click="destOpen = false">取消</button>
           <button type="submit" class="btn primary" id="destOk">确定</button>

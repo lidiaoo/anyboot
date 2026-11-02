@@ -81,7 +81,11 @@ function showToast(text: string) {
   }, 2600);
 }
 
-const emit = defineEmits<{ (e: "addRemote"): void }>();
+const emit = defineEmits<{ (e: "addRemote"): void; (e: "menuAction", act: string): void }>();
+function onMenuAction(act: string) {
+  if (act === "add") emit("addRemote");
+  else emit("menuAction", act);
+}
 
 function sendPower(action: string) {
   const isLocal = activeId.value === "local";
@@ -219,7 +223,7 @@ function onFrameError() {
         </button>
       </div>
       <!-- 右上角 ⋮（旧版 #pageMore）：与工具条 ⋮ 是同一个 pcMenu -->
-      <PcMenu id="pageMore" />
+      <PcMenu id="pageMore" @menu-action="onMenuAction" />
       <div class="pc-top-actions">
         <button type="button" class="btn ghost sm" @click="reload">重载</button>
       </div>

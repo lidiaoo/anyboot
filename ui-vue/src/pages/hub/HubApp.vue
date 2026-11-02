@@ -193,6 +193,13 @@ onMounted(async () => {
  * 这里切到「电脑列表」页 —— 服务端编辑弹层挂在那里。
  */
 const remoteAddSeed = ref(0);
+function onHomeMenuAction(act: string) {
+  if (act === "add") { openRemoteAdd(); return; }
+  // edit/list/reload 都切到电脑列表页处理（那里有完整弹层）
+  currentPage.value = "computers";
+  remoteAddSeed.value += 1;
+}
+
 function openRemoteAdd() {
   currentPage.value = "computers";
   remoteAddSeed.value += 1;
@@ -318,7 +325,7 @@ const footCount = computed(() => `${servers.servers.length} 台服务器`);
         <ComputerList v-if="currentPage === 'computers'" :add-seed="remoteAddSeed" />
         <ServersPage v-else-if="currentPage === 'servers'" />
         <AboutPage v-else-if="currentPage === 'about'" />
-        <HomePage v-else-if="currentPage === 'home'" @add-remote="openRemoteAdd" />
+        <HomePage v-else-if="currentPage === 'home'" @add-remote="openRemoteAdd" @menu-action="onHomeMenuAction" />
         <GatewayPage v-else-if="currentPage === 'gateway'" />
         <BackupPage v-else-if="currentPage === 'backup'" />
         <TermPage v-else-if="currentPage === 'term'" />

@@ -48,6 +48,7 @@ const emit = defineEmits<{
         </div>
         <p v-if="!servers.length" class="field-hint">还没有添加任何 AnyBoot 服务端</p>
         <button type="button" class="secondary" @click="emit('add')">＋ 添加服务端</button>
+        <p class="field-hint">点击条目切换标签；本机始终保留，不可编辑删除。</p>
       </div>
 
       <div class="dialog-foot">

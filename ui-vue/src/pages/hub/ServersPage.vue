@@ -212,6 +212,13 @@ const selected = computed<HubServer | null>(
   () => store.servers.find((server) => server.id === selectedId.value) ?? null,
 );
 
+/** 底栏时钟（旧版 #clock） */
+const clock = ref("--:--:--");
+function tickClock() {
+  clock.value = new Date().toLocaleTimeString("zh-CN", { hour12: false });
+}
+onMounted(() => { tickClock(); window.setInterval(tickClock, 1000); });
+
 onMounted(() => {
   // 旧版 selectedId 初始为 null（hub.html:5140），**不自动选中第一台** ——
   // 进入页面应显示「选择左侧服务器」空态。只有用户点击、或新增/编辑保存后
@@ -457,6 +464,15 @@ async function testOne(server: HubServer) {
       </div>
     </main>
   </div>
+
+  <!-- 底栏（旧版 .footer） -->
+  <footer>
+    <span class="dot" />
+    <span id="footText">{{ store.servers.length ? "已加载服务器" : "未连接任何服务器" }}</span>
+    <span class="sep">·</span>
+    <span id="footCount">{{ store.servers.length }} 台服务器</span>
+    <span class="clock" id="clock">{{ clock }}</span>
+  </footer>
 
   <ServerEditDialog
     :open="dialogOpen"

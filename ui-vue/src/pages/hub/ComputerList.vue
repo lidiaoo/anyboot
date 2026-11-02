@@ -239,6 +239,24 @@ const rsEditOpen = ref(false);
 const rsListOpen = ref(false);
 const rsEditing = ref<string>("");
 
+/** PcMenu 顶部操作（旧版 data-act） */
+function onMenuAction(act: string) {
+  if (act === "add") {
+    rsEditing.value = "";
+    rsEditOpen.value = true;
+  } else if (act === "edit") {
+    const id = activeId.value;
+    if (!id || id === "local") return;
+    rsEditing.value = id;
+    rsEditOpen.value = true;
+  } else if (act === "list") {
+    rsListOpen.value = true;
+  } else if (act === "reloadCurrent" || act === "reloadAll") {
+    // 重新拉取远程列表（在线状态由 store 统一探活）
+    void import("@/api/tauri").then(({ call }) => call("remote_list").catch(() => {}));
+  }
+}
+
 function openRemoteEdit(id: string) {
   rsEditing.value = id;
   rsEditOpen.value = true;
@@ -487,7 +505,7 @@ function power(payload: Record<string, unknown>) {
         />
         连接全部
       </label>
-      <PcMenu id="cqMore" />
+      <PcMenu id="cqMore" @menu-action="onMenuAction" />
     </div>
 
     <div v-show="helpOpen" class="cq-help" id="cqHelp">

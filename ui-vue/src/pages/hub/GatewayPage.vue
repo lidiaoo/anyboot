@@ -811,9 +811,11 @@ function deletePair(id: string) {
       <div class="gw-binary">
         <span id="gwBinaryText">
           {{
-            cfInstalled
-              ? `cloudflared ${config?.binary?.version || ""} 已就位`
-              : "cloudflared 未就位 —— 下载（自动校验 SHA-256）或指定本地已有的可执行文件"
+            !config
+              ? "正在检查 cloudflared…"
+              : cfInstalled
+                ? `cloudflared ${config?.binary?.version || ""} 已就位`
+                : "cloudflared 未就位 —— 下载（自动校验 SHA-256）或指定本地已有的可执行文件"
           }}
         </span>
         <span style="flex: 1" />

@@ -21,6 +21,53 @@ const open = ref(false);
 const rootRef = ref<HTMLElement | null>(null);
 
 const refreshOptions = [2, 5, 10, 30, 0];
+
+/** 引导页主题（旧版 localStorage["anyboot.hub.boot-theme"]） */
+const guestTheme = ref((() => {
+  try { return localStorage.getItem("anyboot.hub.boot-theme") || ""; } catch { return ""; }
+})());
+function setGuestTheme(v: string) {
+  guestTheme.value = /^[A-K]$/.test(v) ? v : "";
+  try { localStorage.setItem("anyboot.hub.boot-theme", guestTheme.value); } catch { /* 忽略 */ }
+  open.value = false;
+  void import("@/api/tauri").then(({ call }) => call("hub_report_error", { source: "guest-theme", message: guestTheme.value }).catch(() => {}));
+}
+
+/** 列表打开方式（旧版 localStorage["cqOpenMode"]） */
+const openMode = ref((() => {
+  try { return localStorage.getItem("cqOpenMode") === "goto" ? "goto" : "inline"; } catch { return "inline"; }
+})());
+function setOpenMode(v: string) {
+  openMode.value = v === "goto" ? "goto" : "inline";
+  try { localStorage.setItem("cqOpenMode", openMode.value); } catch { /* 忽略 */ }
+  open.value = false;
+}
+
+/** GRUB 条目文字格式（旧版 set_grub_list_format） */
+const grubFmt = ref("simple");
+function setGrubFmt(fmt: string) {
+  void import("@/api/tauri").then(({ call }) =>
+    call("set_grub_list_format", { format: fmt }).then(() => { grubFmt.value = fmt; open.value = false; }).catch(() => {}),
+  );
+}
+
+/** 排序方式（旧版 anyboot.orderMode） */
+const order = ref((() => {
+  try { const v = localStorage.getItem("anyboot.orderMode"); return v === "name" || v === "recent" ? v : "custom"; } catch { return "custom"; }
+})());
+function setOrderMode(v: string) {
+  order.value = v;
+  try { localStorage.setItem("anyboot.orderMode", v); } catch { /* 忽略 */ }
+  open.value = false;
+}
+
+const emit = defineEmits<{ (e: "menu-action", act: string): void }>();
+
+/** 顶部操作项（add/edit/list/reloadCurrent/reloadAll）—— 交给父组件处理 */
+function menuAct(act: string) {
+  open.value = false;
+  emit("menu-action", act);
+}
 /** 启动时连接全部服务端（旧版 #pcConnectAllItem → remote_set_connect_all） */
 const connectAll = ref(false);
 function toggleConnectAll() {
@@ -30,9 +77,14 @@ function toggleConnectAll() {
   );
 }
 
-function label(sec: number): string {
-  if (sec === 0) return "关闭数据刷新";
-  return `每 ${sec} 秒${sec === 2 ? "（默认）" : ""}`;
+
+function customReload() {
+  const input = window.prompt("连不上时每隔多少秒自动重载？（填 0 = 永不）", String(settings.failReloadSec));
+  if (input === null) return;
+  const parsed = Number.parseInt(input, 10);
+  if (!Number.isFinite(parsed) || parsed < 0) return;
+  settings.setFailReloadSec(parsed);
+  open.value = false;
 }
 
 function pickRefresh(sec: number) {
@@ -80,28 +132,39 @@ const customActive = computed(() => !refreshOptions.includes(settings.dataRefres
     </button>
 
     <div v-if="open" id="pcMenu" class="menu" role="menu" @click.stop>
+      <button role="menuitem" type="button" data-act="add" @click="menuAct('add')">添加电脑</button>
+      <button role="menuitem" type="button" data-act="edit" @click="menuAct('edit')">编辑当前服务端</button>
+      <button role="menuitem" type="button" data-act="list" @click="menuAct('list')">服务端列表</button>
+      <button role="menuitem" type="button" data-act="reloadCurrent" @click="menuAct('reloadCurrent')">重载当前电脑</button>
+      <button role="menuitem" type="button" data-act="reloadAll" @click="menuAct('reloadAll')">全部重载</button>
       <button role="menuitem" type="button" id="pcConnectAllItem" :class="{ 'is-on': connectAll }" @click="toggleConnectAll">
         <span id="pcConnectAllText">启动时连接全部服务端</span>
       </button>
+      <button role="menuitem" type="button" data-act="transport" disabled title="PC 端经系统浏览器内核直连服务端页面，无需选择传输方式（手机端才需要）">传输方式（直连）</button>
       <div class="divider" />
 
-      <div class="caption">数据刷新</div>
-      <button
-        v-for="sec in refreshOptions"
-        :key="sec"
-        role="menuitem"
-        type="button"
-        :class="{ 'is-on': settings.dataRefreshSec === sec }"
-        @click="pickRefresh(sec)"
-      >
-        {{ label(sec) }}
-      </button>
-      <button role="menuitem" type="button" :class="{ 'is-on': customActive }" @click="pickCustom">
-        自定义间隔…
-      </button>
+      <div class="caption">引导页主题（看别人时 · 本机偏好）</div>
+      <button role="menuitem" type="button" data-guesttheme="" @click="setGuestTheme('')">跟随电脑（不带回退）</button>
+      <button role="menuitem" type="button" data-guesttheme="K" @click="setGuestTheme('K')">不套用主题</button>
+      <button role="menuitem" type="button" data-guesttheme="A" @click="setGuestTheme('A')">方案 A（卡片流）</button>
+      <button role="menuitem" type="button" data-guesttheme="B" @click="setGuestTheme('B')">方案 B（左栏通道）</button>
+      <button role="menuitem" type="button" data-guesttheme="C" @click="setGuestTheme('C')">方案 C（顶部固定）</button>
+      <button role="menuitem" type="button" data-guesttheme="G" @click="setGuestTheme('G')">方案 G（命令面板）</button>
+      <button role="menuitem" type="button" data-guesttheme="I" @click="setGuestTheme('I')">方案 I（Bento）</button>
+      <button role="menuitem" type="button" data-guesttheme="J" @click="setGuestTheme('J')">方案 J（三栏）</button>
+      <div class="divider" />
+
+      <div class="caption">数据刷新（PC 端列表）</div>
+      <button role="menuitem" type="button" data-refresh="2" :class="{ 'is-on': settings.dataRefreshSec === 2 }" @click="pickRefresh(2)">每 2 秒（默认）</button>
+      <button role="menuitem" type="button" data-refresh="5" :class="{ 'is-on': settings.dataRefreshSec === 5 }" @click="pickRefresh(5)">每 5 秒</button>
+      <button role="menuitem" type="button" data-refresh="10" :class="{ 'is-on': settings.dataRefreshSec === 10 }" @click="pickRefresh(10)">每 10 秒</button>
+      <button role="menuitem" type="button" data-refresh="30" :class="{ 'is-on': settings.dataRefreshSec === 30 }" @click="pickRefresh(30)">每 30 秒</button>
+      <button role="menuitem" type="button" data-refresh="0" :class="{ 'is-on': settings.dataRefreshSec === 0 }" @click="pickRefresh(0)">关闭数据刷新</button>
+      <button role="menuitem" type="button" :class="{ 'is-on': customActive }" @click="pickCustom">自定义间隔…</button>
+      <button role="menuitem" type="button" data-reprobe="reuse" :class="{ 'is-on': !settings.reprobeAlways }" @click="settings.setReprobeAlways(false)">✓ 复用上次地址（省电、地址稳）</button>
+      <button role="menuitem" type="button" data-reprobe="always" :class="{ 'is-on': settings.reprobeAlways }" @click="settings.setReprobeAlways(true)">每次重新探测地址（换 IP 抓得最快）</button>
 
       <div class="divider" />
-      <div class="caption">刷新时是否重新探测地址</div>
       <button
         role="menuitem"
         type="button"
@@ -121,29 +184,38 @@ const customActive = computed(() => !refreshOptions.includes(settings.dataRefres
 
       <div class="divider" />
       <div class="caption">连续失败多少次才判离线（弱网容忍）</div>
-      <button
-        v-for="n in [1, 2, 3, 5]"
-        :key="n"
-        role="menuitem"
-        type="button"
-        :class="{ 'is-on': settings.offlineRetryCount === n }"
-        @click="settings.setOfflineRetryCount(n)"
-      >
-        {{ n }} 次{{ n === 3 ? "（默认）" : "" }}
-      </button>
+      <button role="menuitem" type="button" data-offretry="1" :class="{ 'is-on': settings.offlineRetryCount === 1 }" @click="settings.setOfflineRetryCount(1)">1 次（最灵敏）</button>
+      <button role="menuitem" type="button" data-offretry="2" :class="{ 'is-on': settings.offlineRetryCount === 2 }" @click="settings.setOfflineRetryCount(2)">2 次</button>
+      <button role="menuitem" type="button" data-offretry="3" :class="{ 'is-on': settings.offlineRetryCount === 3 }" @click="settings.setOfflineRetryCount(3)">3 次（默认）</button>
+      <button role="menuitem" type="button" data-offretry="5" :class="{ 'is-on': settings.offlineRetryCount === 5 }" @click="settings.setOfflineRetryCount(5)">5 次</button>
 
       <div class="divider" />
-      <div class="caption">连不上时自动重载</div>
-      <button
-        v-for="sec in [5, 10, 30, 60, 0]"
-        :key="`fail-${sec}`"
-        role="menuitem"
-        type="button"
-        :class="{ 'is-on': settings.failReloadSec === sec }"
-        @click="settings.setFailReloadSec(sec)"
-      >
-        {{ sec === 0 ? "永不（关闭自动重载）" : `每 ${sec} 秒${sec === 5 ? "（默认）" : ""}` }}
-      </button>
+      <div class="caption">连不上时自动重载（全局）</div>
+      <button role="menuitem" type="button" data-reload="5" :class="{ 'is-on': settings.failReloadSec === 5 }" @click="settings.setFailReloadSec(5)">每 5 秒（默认）</button>
+      <button role="menuitem" type="button" data-reload="10" :class="{ 'is-on': settings.failReloadSec === 10 }" @click="settings.setFailReloadSec(10)">每 10 秒</button>
+      <button role="menuitem" type="button" data-reload="30" :class="{ 'is-on': settings.failReloadSec === 30 }" @click="settings.setFailReloadSec(30)">每 30 秒</button>
+      <button role="menuitem" type="button" data-reload="60" :class="{ 'is-on': settings.failReloadSec === 60 }" @click="settings.setFailReloadSec(60)">每 60 秒</button>
+      <button role="menuitem" type="button" data-reload="0" :class="{ 'is-on': settings.failReloadSec === 0 }" @click="settings.setFailReloadSec(0)">永不（关闭自动重载）</button>
+      <button role="menuitem" type="button" data-reload="custom" @click="customReload">自定义间隔…</button>
+
+      <div class="divider" />
+      <div class="caption">列表里「打开页面」的方式</div>
+      <button role="menuitem" type="button" data-openmode="inline" :class="{ 'is-on': openMode === 'inline' }" @click="setOpenMode('inline')">内嵌弹窗查看</button>
+      <button role="menuitem" type="button" data-openmode="goto" :class="{ 'is-on': openMode === 'goto' }" @click="setOpenMode('goto')">跳到「电脑」页</button>
+
+      <div class="divider" />
+      <div class="caption">GRUB 条目文字（全局显示格式）</div>
+      <button role="menuitem" type="button" data-grubfmt="minimal" :class="{ 'is-on': grubFmt === 'minimal' }" @click="setGrubFmt('minimal')">极简（内核短名）</button>
+      <button role="menuitem" type="button" data-grubfmt="simple" :class="{ 'is-on': grubFmt === 'simple' }" @click="setGrubFmt('simple')">简易（内核短名 · 带位置）</button>
+      <button role="menuitem" type="button" data-grubfmt="medium" :class="{ 'is-on': grubFmt === 'medium' }" @click="setGrubFmt('medium')">中等（完整内核名）</button>
+      <button role="menuitem" type="button" data-grubfmt="raw" :class="{ 'is-on': grubFmt === 'raw' }" @click="setGrubFmt('raw')">原始（菜单标题）</button>
+      <button role="menuitem" type="button" data-grubfmt="detailed" :class="{ 'is-on': grubFmt === 'detailed' }" @click="setGrubFmt('detailed')">复杂（标题 + 内核）</button>
+
+      <div class="divider" />
+      <div class="caption">排序方式</div>
+      <button role="menuitem" type="button" data-order="custom" :class="{ 'is-on': order === 'custom' }" @click="setOrderMode('custom')">自定义（我用 ↑ ↓ 排的）</button>
+      <button role="menuitem" type="button" data-order="name" :class="{ 'is-on': order === 'name' }" @click="setOrderMode('name')">名称 A → Z</button>
+      <button role="menuitem" type="button" data-order="recent" :class="{ 'is-on': order === 'recent' }" @click="setOrderMode('recent')">最近连接</button>
     </div>
   </div>
 </template>
