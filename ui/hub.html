@@ -8954,9 +8954,55 @@ window.__bkOnShow = async function () {
     }
   });
 
+  /// 清空并重建列表行时**保住滚动位置**。
+  ///
+  /// 2026-11-02 用户反馈：「我在 pc 端电脑列表 把滚轮拉到底 但是一会之后就上
+  /// 顶部了」。根因是 `tbody.textContent = ''` 整块重建 —— 每张卡片的数据到达
+  /// 就会调一次 `cqRenderRows()`（`cqLoadBoot` 成功/失败都调），滚动位置被清零。
+  ///
+  /// 记录并恢复所有可能滚动的容器：列表本身（`.cq-card` / `.cq-rows`）
+  /// 以及外层页面（`#page-computers`）。
+  function cqCaptureScroll() {
+    const saved = [];
+    // 不猜哪个是滚动容器 —— 从列表根节点沿祖先链一路往上，凡是真的滚过的都记。
+    // 顺带也把列表内部的子容器（.cq-card / .cq-rows）一起纳入。
+    const seen = new Set();
+    const consider = function (el) {
+      if (!el || seen.has(el)) return;
+      seen.add(el);
+      if (el.scrollTop || el.scrollLeft) saved.push([el, el.scrollTop, el.scrollLeft]);
+    };
+    document.querySelectorAll('#cqTbody, .cq-rows, .cq-card, #page-computers')
+      .forEach(consider);
+    let node = document.getElementById('cqTbody');
+    while (node && node !== document.body) {
+      consider(node);
+      node = node.parentElement;
+    }
+    consider(document.scrollingElement || document.documentElement);
+    return saved;
+  }
+
+  function cqRestoreScroll(saved) {
+    if (!saved.length) return;
+    const apply = function () {
+      saved.forEach(function (item) {
+        const el = item[0];
+        if (!el.isConnected) return;
+        if (el.scrollTop !== item[1]) el.scrollTop = item[1];
+        if (el.scrollLeft !== item[2]) el.scrollLeft = item[2];
+      });
+    };
+    apply();
+    // replaceChildren/textContent 之后同步读 scrollHeight 有时还是旧值，
+    // 下一帧再补一次（与 ui/app.js 的 restoreScrollPositions 同一处理）。
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(apply);
+  }
+
   function cqRenderRows() {
     const tbody = document.getElementById('cqTbody');
     if (!tbody) return;
+    const scrollSaved = cqCaptureScroll();
     const rows = cqRows();
     cqUpdateStats(rows);
     // 通道列只出「有电脑检测到」的那些：列集合变了表头也要跟着变，否则表头与
@@ -8980,6 +9026,8 @@ window.__bkOnShow = async function () {
         ? '还没有添加电脑 —— 点右上角 ⋮「添加服务端」，把另一台装了 AnyBoot 的电脑加进来'
         : '换个关键词，或把筛选切回「全部」';
     }
+    // 重建完成 → 把滚动位置还回去（见 cqCaptureScroll 的说明）
+    cqRestoreScroll(scrollSaved);
   }
 
   // ---- 读引导项（每台一次 remote_boot_info；并发，任一台失败不影响别人） ----
