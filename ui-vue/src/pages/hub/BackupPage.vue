@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { call } from "@/api/tauri";
 
 /**
@@ -34,12 +34,17 @@ interface SyncState {
 }
 
 /** 备份分类（旧版 .bk-cats 的复选项） */
+/**
+ * 备份分类（逐字照抄旧版 `CATS`，hub.html:3922）：
+ * key / name / desc 三项都必须与旧版一致 —— 导出/导入的**载荷字段名**就是 key，
+ * 用错 key 会让导出的备份文件与手机端 / 旧版本互不兼容。
+ */
 const CATEGORIES = [
-  { id: "settings", label: "设置" },
-  { id: "servers", label: "服务器档案" },
-  { id: "computers", label: "电脑档案" },
-  { id: "keys", label: "SSH 私钥" },
-  { id: "history", label: "动作历史" },
+  { id: "servers", name: "电脑列表", desc: "电脑档案与连接配置" },
+  { id: "jumps", name: "SSH 服务器", desc: "跳板机 / 服务器档案（含密码明文）" },
+  { id: "keys", name: "SSH 密钥", desc: "私钥与公钥（导出含私钥明文）" },
+  { id: "terminal", name: "偏好设置", desc: "终端与传输偏好（跨端共同子集）" },
+  { id: "history", name: "连接记录", desc: "会话历史与信任指纹" },
 ] as const;
 
 const sync = ref<SyncState | null>(null);
@@ -48,11 +53,13 @@ const message = ref("");
 const errorText = ref("");
 
 /** 导出：是否含私钥 → 需要口令 */
-const exportIncludeKeys = ref(false);
+/** 是否勾了「SSH 密钥」（旧版 `hasKeys = exportChecked.has('keys')`） */
+const exportIncludeKeys = computed(() => exportCats.value.includes("keys"));
 const exportPw1 = ref("");
 const exportPw2 = ref("");
-const exportCats = ref<string[]>(["settings", "servers", "computers"]);
-const syncCats = ref<string[]>(["settings", "servers", "computers"]);
+// 旧版默认：五类全选（exportChecked = Set(["servers","jumps","keys","terminal","history"])）
+const exportCats = ref<string[]>(["servers", "jumps", "keys", "terminal", "history"]);
+const syncCats = ref<string[]>(["servers", "jumps", "keys", "terminal", "history"]);
 
 const syncEnabled = ref(false);
 const syncUrl = ref("");
@@ -79,6 +86,35 @@ async function refreshSync() {
 onMounted(refreshSync);
 
 /** 切换某个分类的勾选（`which` 区分导出 / 同步两套） */
+/**
+ * 口令强度（对齐旧版 `refreshExportUi` 的三档评分）：
+ *   长度≥8 + 有数字且有字母 + 有符号 → 每满足一项加 1，满分 3
+ */
+const pwStrengthScore = computed(() => {
+  const a = exportPw1.value;
+  if (!a) return 0;
+  return Math.min(
+    3,
+    (a.length >= 8 ? 1 : 0) +
+      (/[0-9]/.test(a) && /[a-zA-Z]/.test(a) ? 1 : 0) +
+      (/[^0-9a-zA-Z]/.test(a) ? 1 : 0),
+  );
+});
+const pwStrengthPercent = computed(() => ((pwStrengthScore.value / 3) * 100).toFixed(0));
+const pwStrengthColor = computed(() => {
+  const s = pwStrengthScore.value;
+  return s <= 1 ? "rgb(var(--bad))" : s === 2 ? "rgb(var(--warn))" : "rgb(var(--ok))";
+});
+
+/** 口令校验文案（对齐旧版：至少 4 位 / 两次不一致） */
+const pwError = computed(() => {
+  const a = exportPw1.value;
+  const b = exportPw2.value;
+  if (a && a.length < 4) return "口令至少 4 位";
+  if (b && a !== b) return "两次输入不一致";
+  return "";
+});
+
 function toggleCat(which: "export" | "sync", id: string) {
   const source = which === "export" ? exportCats : syncCats;
   const next = source.value.includes(id)
@@ -213,13 +249,14 @@ function syncNow() {
     </div>
 
     <div class="bk-cats" id="exportCats">
-      <label v-for="cat in CATEGORIES" :key="cat.id" class="bk-radio-line">
+      <label v-for="cat in CATEGORIES" :key="cat.id" class="bk-cat-row">
         <input
           type="checkbox"
           :checked="exportCats.includes(cat.id)"
           @change="toggleCat('export', cat.id)"
         />
-        {{ cat.label }}
+        <span class="bk-cname">{{ cat.name }}</span>
+        <span class="bk-cdesc">{{ cat.desc }}</span>
       </label>
     </div>
 
@@ -231,17 +268,17 @@ function syncNow() {
       <span>导出包含 <b>SSH 私钥明文</b>，请设置口令加密，并妥善保管备份文件。</span>
     </div>
 
-    <div v-if="exportIncludeKeys" class="bk-pw-zone" id="exportPwZone">
+    <div v-if="exportIncludeKeys || exportPw1 || exportPw2" class="bk-pw-zone" id="exportPwZone">
       <div class="bk-pw-grid" id="exportPwGrid">
         <div class="bk-field">
           <label for="expPw1">备份口令</label>
           <input id="expPw1" v-model="exportPw1" type="password" placeholder="至少 4 位" autocomplete="new-password" />
-          <div class="bk-strength"><i id="expStrength" :style="{ width: Math.min(100, exportPw1.length * 12) + '%' }" /></div>
+          <div class="bk-strength"><i id="expStrength" :style="{ width: pwStrengthPercent + '%', background: pwStrengthColor }" /></div>
         </div>
         <div class="bk-field">
           <label for="expPw2">再输一次</label>
           <input id="expPw2" v-model="exportPw2" type="password" placeholder="两次需一致" autocomplete="new-password" />
-          <div class="bk-err" id="expPwErr">{{ exportPw1 && exportPw2 && exportPw1 !== exportPw2 ? "两次口令不一致" : "" }}</div>
+          <div class="bk-err" id="expPwErr">{{ pwError }}</div>
         </div>
       </div>
     </div>
@@ -354,7 +391,8 @@ function syncNow() {
             :checked="syncCats.includes(cat.id)"
             @change="toggleCat('sync', cat.id)"
           />
-          {{ cat.label }}
+          <span class="bk-cname">{{ cat.name }}</span>
+          <span class="bk-cdesc">{{ cat.desc }}</span>
         </label>
       </div>
     </div>
