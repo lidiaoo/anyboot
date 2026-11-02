@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { computed } from "vue";
+import { useEscape } from "@/composables/useEscape";
 /**
  * 日志弹层（对齐旧版 `#gwLogOverlay` / `#tsLogOverlay` / `#tsnLogOverlay`，
  * 三个完全同构，只有标题不同）。
@@ -12,7 +14,7 @@
  * ```
  */
 
-defineProps<{
+const props = defineProps<{
   open: boolean;
   title: string;
   lines: string[];
@@ -26,6 +28,7 @@ defineProps<{
   buttonStyle?: "plain" | "modal";
 }>();
 
+useEscape(computed(() => props.open), () => emit("close"));
 const emit = defineEmits<{
   (e: "copy", text: string): void;
   (e: "clear"): void;

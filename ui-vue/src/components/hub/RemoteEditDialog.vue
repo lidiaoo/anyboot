@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import type { RemoteProfile } from "@/stores/remote";
+import { useEscape } from "@/composables/useEscape";
 
 /**
  * 添加 / 编辑 AnyBoot 服务端弹窗（原 `ui/hub.html` 的 `#rsEditOverlay`，2533 行）。
@@ -28,6 +29,7 @@ const emit = defineEmits<{
   (e: "save", payload: Record<string, unknown>): void;
   (e: "close"): void;
 }>();
+useEscape(computed(() => props.open), () => emit("close"));
 
 const name = ref("");
 const quick = ref("");

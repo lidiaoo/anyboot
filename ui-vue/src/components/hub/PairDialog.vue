@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from "vue";
+import { onMounted, ref, watch , computed } from "vue";
 import { call } from "@/api/tauri";
+import { useEscape } from "@/composables/useEscape";
 
 /**
  * 生成配对码弹层（原 `ui/hub.html` 的 `#gwPairOverlay`，3256 行）。
@@ -20,6 +21,7 @@ import { call } from "@/api/tauri";
 
 const props = defineProps<{ open: boolean }>();
 const emit = defineEmits<{ (e: "close"): void }>();
+useEscape(computed(() => props.open), () => emit('close'));
 
 type AddrKind = "tunnel" | "tailscale" | "funnel" | "tsnet" | "none";
 

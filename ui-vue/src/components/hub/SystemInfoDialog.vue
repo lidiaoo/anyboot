@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from "vue";
+import { onMounted, ref, watch , computed } from "vue";
 import { call } from "@/api/tauri";
+import { useEscape } from "@/composables/useEscape";
 
 /**
  * 系统信息弹层（原 `ui/hub.html` 的 `openSysInfo()`）。
@@ -25,6 +26,7 @@ interface SystemInfo {
 
 const props = defineProps<{ serverId: string | null; title: string }>();
 const emit = defineEmits<{ (e: "close"): void }>();
+useEscape(computed(() => Boolean(props.serverId)), () => emit('close'));
 
 const info = ref<SystemInfo | null>(null);
 const loading = ref(false);

@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import PcMenu from "@/components/hub/PcMenu.vue";
 import { call } from "@/api/tauri";
 import { useRemoteStore } from "@/stores/remote";
+import { useEscape } from "@/composables/useEscape";
 
 /**
  * 电脑页（原 `ui/hub.html` 的 `#page-home`）。
@@ -197,6 +198,7 @@ function reload() {
 function onFrameError() {
   failMessage.value = "这台电脑的页面加载失败 —— 可能已关机、在睡眠，或 HTTP 服务没开";
 }
+useEscape(fabHelpOpen, () => { fabHelpOpen.value = false });
 </script>
 
 <template>

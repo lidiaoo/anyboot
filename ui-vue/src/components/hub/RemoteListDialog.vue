@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { computed } from "vue";
+import { useEscape } from "@/composables/useEscape";
 import type { RemoteProfile } from "@/stores/remote";
 
 /**
@@ -11,11 +13,12 @@ import type { RemoteProfile } from "@/stores/remote";
  * ```
  */
 
-defineProps<{
+const props = defineProps<{
   open: boolean;
   servers: RemoteProfile[];
 }>();
 
+useEscape(computed(() => props.open), () => emit("close"));
 const emit = defineEmits<{
   (e: "edit", id: string): void;
   (e: "remove", id: string): void;

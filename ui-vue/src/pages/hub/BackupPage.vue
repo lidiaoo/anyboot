@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { call } from "@/api/tauri";
+import { useEscape } from "@/composables/useEscape";
 
 /**
  * 备份与恢复（原 `ui/hub.html` 的 `#page-backup`，3504 行 / 948 行 DOM）。
@@ -356,6 +357,10 @@ function syncNow() {
   }
   void run("立即同步", () => call("backup_sync_now"), "同步完成");
 }
+useEscape(pwOpen, () => { pwOpen.value = false });
+useEscape(previewOpen, () => { previewOpen.value = false });
+useEscape(confirmOpen, () => { confirmOpen.value = false });
+useEscape(resultOpen, () => { resultOpen.value = false });
 </script>
 
 <template>

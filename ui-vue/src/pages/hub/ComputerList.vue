@@ -11,6 +11,7 @@ import RemoteEditDialog from "@/components/hub/RemoteEditDialog.vue";
 import RemoteListDialog from "@/components/hub/RemoteListDialog.vue";
 import TunnelDialog from "@/components/hub/TunnelDialog.vue";
 import { useToastStore } from "@/stores/toast";
+import { useEscape } from "@/composables/useEscape";
 
 const props = defineProps<{ addSeed?: number }>();
 
@@ -436,6 +437,7 @@ function power(payload: Record<string, unknown>) {
     .then(() => toast.show("已发送电源指令"))
     .catch((e) => toast.show("电源操作失败：" + e, "bad"));
 }
+useEscape(viewOpen, () => { viewOpen.value = false });
 </script>
 
 <template>
