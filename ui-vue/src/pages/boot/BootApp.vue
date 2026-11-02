@@ -164,38 +164,38 @@ const statusText = computed(() => {
         <div class="header-row">
           <h1>AnyBoot</h1>
           <div class="system-actions">
-            <button type="button" class="secondary ico-btn" aria-label="远程管理" title="远程管理" @click="call('hub_open_window', {})">
+            <button type="button" id="open-hub" class="secondary ico-btn" aria-label="远程管理" title="远程管理" @click="call('hub_open_window', {})">
               <svg aria-hidden="true" class="i" focusable="false" viewBox="0 0 16 16">
                 <rect height="8.2" rx="1.4" width="11.6" x="2.2" y="3" />
                 <path d="M5.4 6.2 7 7.6 5.4 9" />
                 <path d="M8.4 9h2.4" />
               </svg>
             </button>
-            <button type="button" class="secondary ico-btn" aria-label="重启系统" title="重启系统" @click="call('power_action', { action: 'reboot' })">
+            <button type="button" id="power-reboot" class="secondary ico-btn" aria-label="重启系统" title="重启系统" @click="call('power_action', { action: 'reboot' })">
               <svg aria-hidden="true" class="i" focusable="false" viewBox="0 0 16 16">
                 <path d="M12.8 8a4.8 4.8 0 1 1-1.5-3.5" />
                 <path d="M13 3.1v3h-3" />
               </svg>
             </button>
-            <button type="button" class="secondary ico-btn" aria-label="关机" title="关机" @click="call('power_action', { action: 'shutdown' })">
+            <button type="button" id="power-shutdown" class="secondary ico-btn" aria-label="关机" title="关机" @click="call('power_action', { action: 'shutdown' })">
               <svg aria-hidden="true" class="i" focusable="false" viewBox="0 0 16 16">
                 <path d="M8 2.6v5" />
                 <path d="M11.7 4.8a5 5 0 1 1-7.4 0" />
               </svg>
             </button>
-            <button type="button" class="secondary ico-btn" aria-label="睡眠" title="睡眠" @click="call('power_action', { action: 'sleep' })">
+            <button type="button" id="power-sleep" class="secondary ico-btn" aria-label="睡眠" title="睡眠" @click="call('power_action', { action: 'sleep' })">
               <svg aria-hidden="true" class="i" focusable="false" viewBox="0 0 16 16">
                 <path d="M10.6 2.5a5.6 5.6 0 1 0 2.9 8.3 4.7 4.7 0 0 1-2.9-8.3Z" />
               </svg>
             </button>
-            <button type="button" class="secondary ico-btn" aria-label="重启程序" title="重启程序" @click="call('restart_app')">
+            <button type="button" id="restart-app" class="secondary ico-btn" aria-label="重启程序" title="重启程序" @click="call('restart_app')">
               <svg aria-hidden="true" class="i" focusable="false" viewBox="0 0 16 16">
                 <rect height="10.4" rx="2.2" width="10.4" x="2.8" y="2.8" />
                 <path d="M9.6 6.4a2.3 2.3 0 1 0 .3 3.2" />
                 <path d="M9.8 4.9v1.7H8.1" />
               </svg>
             </button>
-            <button type="button" class="secondary ico-btn" aria-label="退出程序" title="退出程序" @click="call('quit_app')">
+            <button type="button" id="quit-app" class="secondary ico-btn" aria-label="退出程序" title="退出程序" @click="call('quit_app')">
               <svg aria-hidden="true" class="i" focusable="false" viewBox="0 0 16 16">
                 <path d="M9.7 2.7h2a1.4 1.4 0 0 1 1.4 1.4v7.8a1.4 1.4 0 0 1-1.4 1.4h-2" />
                 <path d="M3 8h5.5" />
@@ -207,7 +207,7 @@ const statusText = computed(() => {
         <p id="status">{{ statusText }}</p>
       </header>
 
-      <nav aria-label="界面栏目" class="tabs">
+      <nav aria-label="界面栏目" class="tabs" id="tabs">
         <button
           v-for="tab in TABS"
           :key="tab.id"
@@ -228,6 +228,7 @@ const statusText = computed(() => {
             <small>下次启动</small>
             <button
               type="button"
+              id="nb-toggle"
               class="nb-toggle"
               :aria-expanded="nextBootRowsOpen"
               :hidden="!nextBootRows.length"
@@ -265,7 +266,7 @@ const statusText = computed(() => {
           <!-- K 原生态：旧版的完整区块结构 -->
           <RefindSection />
 
-          <hr aria-hidden="true" class="boot-divider" />
+          <hr aria-hidden="true" class="boot-divider" id="boot-divider" />
 
           <GrubSection />
 

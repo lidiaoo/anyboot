@@ -115,6 +115,7 @@ function selectEntry(selector: string) {
           >
           <button
             type="button"
+            id="sim-scan-refresh"
             class="secondary"
             title="重新读一遍 ESP 与 refind.conf，重算菜单"
             @click="refreshSim"
@@ -123,15 +124,15 @@ function selectEntry(selector: string) {
           </button>
         </div>
 
-        <p class="sim-scan-summary">{{ sim?.summary || "" }}</p>
+        <p class="sim-scan-summary" id="sim-scan-summary">{{ sim?.summary || "" }}</p>
 
-        <div class="sim-scan-issues">
+        <div class="sim-scan-issues" id="sim-scan-issues">
           <p v-for="(issue, i) in sim?.issues ?? []" :key="i" class="sim-issue">
             {{ issue.text }}
           </p>
         </div>
 
-        <div class="sim-scan-list">
+        <div class="sim-scan-list" id="sim-scan-list">
           <GrubList
             :entries="visibleEntries"
             :active-selector="activeSelector"
@@ -139,9 +140,9 @@ function selectEntry(selector: string) {
           />
         </div>
 
-        <details v-if="hiddenEntries.length" class="sim-scan-hidden">
-          <summary>被隐藏的 <b>{{ hiddenEntries.length }}</b> 项（rEFInd 菜单里看不到）</summary>
-          <div class="sim-scan-list">
+        <details v-if="hiddenEntries.length" class="sim-scan-hidden" id="sim-scan-hidden">
+          <summary>被隐藏的 <b id="sim-scan-hidden-count">{{ hiddenEntries.length }}</b> 项（rEFInd 菜单里看不到）</summary>
+          <div class="sim-scan-list" id="sim-scan-hidden-list">
             <GrubList :entries="hiddenEntries" :active-selector="''" />
           </div>
         </details>
@@ -172,6 +173,7 @@ function selectEntry(selector: string) {
     <div class="grub-tabs" id="refind-tabs" role="tablist" aria-label="rEFInd 读取方式">
       <button
         type="button"
+        id="refind-tab-auto"
         class="grub-tab"
         :class="{ 'is-active': activePane === 'auto' }"
         role="tab"
@@ -183,6 +185,7 @@ function selectEntry(selector: string) {
       </button>
       <button
         type="button"
+        id="refind-tab-manual"
         class="grub-tab"
         :class="{ 'is-active': activePane === 'manual' }"
         role="tab"
@@ -205,17 +208,18 @@ function selectEntry(selector: string) {
         type="text"
       />
       <div class="actions">
-        <button type="button" class="secondary" @click="openVarsDir">打开变量目录</button>
-        <button type="button" @click="useDirectory">使用此目录</button>
+        <button type="button" id="open-vars-dir" class="secondary" @click="openVarsDir">打开变量目录</button>
+        <button type="button" id="use-directory" @click="useDirectory">使用此目录</button>
         <button
           v-if="ui.status?.temporaryMount"
           type="button"
+          id="unmount-temporary"
           class="secondary"
           @click="unmountTemp"
         >
           卸载临时挂载
         </button>
-        <button type="button" class="secondary" @click="scan">扫描</button>
+        <button type="button" id="refresh" class="secondary" @click="scan">扫描</button>
       </div>
     </section>
   </section>

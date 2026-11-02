@@ -170,8 +170,8 @@ function switchEntry(selector: string) {
         <span class="zone-tag" id="grub-zone-tag">GRUB 区</span>
         <h2>GRUB 启动项</h2>
       </div>
-      <small class="grub-pane-status" role="status" />
-      <small>{{ grubManual?.syncedAt ? `同步于 ${grubManual.syncedAt}` : "" }}</small>
+      <small class="grub-pane-status" id="grub-status" role="status" />
+      <small id="grub-meta">{{ grubManual?.syncedAt ? `同步于 ${grubManual.syncedAt}` : "" }}</small>
     </div>
 
     <!-- 面板一：自动读取 Linux 分区 -->
@@ -186,6 +186,7 @@ function switchEntry(selector: string) {
           <h3>直接读 Linux 分区自己的 grub.cfg <small>不用装 09_anyboot</small></h3>
           <button
             type="button"
+            id="grub-auto-refresh"
             class="secondary"
             title="按下方选的 ESP 分区重新定位 Linux 分区并读取"
             @click="refreshAuto"
@@ -194,18 +195,18 @@ function switchEntry(selector: string) {
           </button>
         </div>
 
-        <p class="grub-auto-summary">{{ grubAuto?.confidenceNote || "" }}</p>
-        <div class="grub-auto-issues">
+        <p class="grub-auto-summary" id="grub-auto-summary">{{ grubAuto?.confidenceNote || "" }}</p>
+        <div class="grub-auto-issues" id="grub-auto-issues">
           <p v-for="(issue, i) in grubAuto?.issues ?? []" :key="i" class="sim-issue">
             {{ issue.text }}
           </p>
         </div>
 
-        <div class="grub-auto-card">
-          <div v-if="grubAuto?.target" class="grub-auto-target">
+        <div class="grub-auto-card" id="grub-auto-card">
+          <div v-if="grubAuto?.target" class="grub-auto-target" id="grub-auto-target">
             {{ grubAuto.target }}
           </div>
-          <div class="grub-list">
+          <div class="grub-list" id="grub-auto-list">
             <GrubList
               :entries="autoEntries"
               :active-selector="activeSelector"
@@ -215,7 +216,7 @@ function switchEntry(selector: string) {
           </div>
         </div>
 
-        <details v-if="(grubAuto?.candidates?.length ?? 0) > 1" class="grub-auto-picker">
+        <details v-if="(grubAuto?.candidates?.length ?? 0) > 1" class="grub-auto-picker" id="grub-auto-picker">
           <summary>换一块分区读</summary>
           <div class="grub-auto-candidates">
             <p v-for="(c, i) in grubAuto?.candidates ?? []" :key="i" class="mono">
@@ -224,7 +225,7 @@ function switchEntry(selector: string) {
           </div>
         </details>
 
-        <small class="grub-auto-foot">{{ grubAuto?.via || "" }}</small>
+        <small class="grub-auto-foot" id="grub-auto-foot">{{ grubAuto?.via || "" }}</small>
       </section>
     </div>
 
@@ -240,7 +241,7 @@ function switchEntry(selector: string) {
         <code>09_anyboot</code> 后，每次 <code>update-grub</code> 会把它同步过来。
       </p>
 
-      <div class="grub-list">
+      <div class="grub-list" id="grub-list">
         <GrubList
           :entries="manualEntries"
           :active-selector="activeSelector"
@@ -298,7 +299,7 @@ function switchEntry(selector: string) {
 
       <!-- ESP 配置（旧版 section.directory） -->
       <section class="directory">
-        <label for="grub-dir">ESP 目录</label>
+        <label for="grub-dir" id="grub-esp">ESP 目录</label>
         <input
           id="grub-dir"
           :value="espDir"
@@ -307,13 +308,13 @@ function switchEntry(selector: string) {
           type="text"
         />
         <div class="actions">
-          <button type="button" class="secondary" @click="pickEspDir">选择文件夹…</button>
-          <button type="button" class="secondary" @click="detectEsp">识别</button>
-          <button type="button" class="secondary" @click="saveEspDir">保存</button>
-          <button type="button" class="secondary" @click="openGrubDir">打开文件管理器</button>
+          <button type="button" id="grub-dir-pick" class="secondary" @click="pickEspDir">选择文件夹…</button>
+          <button type="button" id="grub-dir-detect" class="secondary" @click="detectEsp">识别</button>
+          <button type="button" id="grub-dir-save" class="secondary" @click="saveEspDir">保存</button>
+          <button type="button" id="grub-dir-open" class="secondary" @click="openGrubDir">打开文件管理器</button>
         </div>
 
-        <label for="grub-partuuid">分区 UUID</label>
+        <label for="grub-partuuid" id="grub-part">分区 UUID</label>
         <input
           id="grub-partuuid"
           :value="partuuid"
@@ -322,22 +323,23 @@ function switchEntry(selector: string) {
           type="text"
         />
         <div class="actions">
-          <button type="button" class="secondary" @click="detectPartuuid">识别</button>
-          <button type="button" class="secondary" @click="savePartuuid">保存</button>
-          <button type="button" class="secondary" @click="toggleMount">
+          <button type="button" id="grub-partuuid-detect" class="secondary" @click="detectPartuuid">识别</button>
+          <button type="button" id="grub-partuuid-save" class="secondary" @click="savePartuuid">保存</button>
+          <button type="button" id="grub-mount" class="secondary" @click="toggleMount">
             {{ grubManual?.keepMounted ? "停止保持挂载" : "保持挂载" }}
           </button>
-          <button type="button" @click="syncManual">同步</button>
+          <button type="button" id="grub-sync" @click="syncManual">同步</button>
         </div>
       </section>
     </div>
 
-    <hr aria-hidden="true" class="boot-divider" />
+    <hr aria-hidden="true" class="boot-divider" id="boot-divider" />
 
     <!-- 两个横向标签 -->
     <div class="grub-tabs" id="grub-tabs" role="tablist" aria-label="GRUB 读取方式">
       <button
         type="button"
+        id="grub-tab-auto"
         class="grub-tab"
         :class="{ 'is-active': activePane === 'auto' }"
         role="tab"
@@ -349,6 +351,7 @@ function switchEntry(selector: string) {
       </button>
       <button
         type="button"
+        id="grub-tab-manual"
         class="grub-tab"
         :class="{ 'is-active': activePane === 'manual' }"
         role="tab"
@@ -367,6 +370,7 @@ function switchEntry(selector: string) {
         <small>同名启动项的合并与文字详略</small>
       </span>
       <select
+        id="grub-list-format"
         :value="settings.grubListFormat"
         @change="setFormat(($event.target as HTMLSelectElement).value)"
       >
