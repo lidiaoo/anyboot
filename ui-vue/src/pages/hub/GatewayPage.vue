@@ -160,13 +160,13 @@ function openLoginPage() {
     toast.show("登录地址无效", "bad");
     return;
   }
-  void call("open_web_page", { url }).catch((e) => toast.show("打开登录页失败：" + e, "bad"));
+  void call("remote_open_page", { url }).catch((e) => toast.show("打开登录页失败：" + e, "bad"));
 }
 
 function tsnOpenSetup() {
   const url = tsnStatus.value?.setupUrl;
   if (!url) { toast.show("开通地址无效", "bad"); return; }
-  void call("open_web_page", { url }).catch((e) => toast.show("开通地址无效：" + e, "bad"));
+  void call("remote_open_page", { url }).catch((e) => toast.show("开通地址无效：" + e, "bad"));
 }
 
 function toggleTsnAutostart() {

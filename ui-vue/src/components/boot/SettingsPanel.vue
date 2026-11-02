@@ -117,7 +117,8 @@ function killOccupant() {
 }
 
 function openWeb() {
-  commit("open_web_page", { url: `http://127.0.0.1:${httpPort.value}` });
+  // open_web_page 无参：后端自己算当前控制页 URL 并打开
+  void call("open_web_page").catch(() => {});
 }
 
 /** 落盘（旧版每个设置项都有对应的 set_* 命令） */

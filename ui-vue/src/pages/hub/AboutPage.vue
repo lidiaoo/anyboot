@@ -169,12 +169,9 @@ function openPage(which: string) {
     issues: "https://github.com/lidiaoo/anyboot/issues",
     license: "https://github.com/lidiaoo/anyboot/blob/main/LICENSE",
   };
-  const url = urls[which];
-  if (!url) return;
-  // 旧版用 hub_about_open（打开关于页里的外链），失败再退回通用打开命令
-  void call("hub_about_open", { url })
-    .catch(() => call("open_web_page", { url }))
-    .catch(() => {});
+  // 旧版 hub_about_open(page)：page ∈ repo/releases/issues/license，后端映射到 URL
+  if (!(which in urls)) return;
+  void call("hub_about_open", { page: which }).catch(() => {});
 }
 </script>
 
