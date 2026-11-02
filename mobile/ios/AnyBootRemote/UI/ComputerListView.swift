@@ -104,6 +104,11 @@ struct ComputerListView: View {
             startAutoProbe()
         }
         .onDisappear { probeTask?.cancel() }
+        // 2026-11-02：改「连不上时自动重载」后立即按新间隔重建探测任务，
+        // 设成「永不」时 startAutoProbe() 因 guard 直接返回（等于停表）。
+        .onReceive(NotificationCenter.default.publisher(for: FailReloadPref.changed)) { _ in
+            startAutoProbe()
+        }
         .onChange(of: store.servers.count) { _, _ in
             if boots.isEmpty { refreshAll() }
         }
@@ -2063,11 +2068,24 @@ struct ComputerListView: View {
         store.updateInPlace(target)
     }
 
+    /// 定时自动探测（列表里的在线状态）。
+    ///
+    /// 2026-11-02：**受「连不上时自动重载」设置控制**，与 Android 的
+    /// ComputerListActivity 同一套行为。原来是写死 10 秒、完全不看设置 ——
+    /// 用户关掉自动重载后列表仍每隔几秒重新探测（相当于在“重载”），
+    /// 看起来就是设置没生效。
+    ///
+    /// FailReloadPref.sec：0 = 不探测；>0 = 按该秒数（与列表菜单文案一致）。
     private func startAutoProbe() {
         probeTask?.cancel()
+        probeTask = nil
+        guard FailReloadPref.sec > 0 else { return }   // 用户关了自动重载：不探测
         probeTask = Task {
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 10_000_000_000)
+                // 每轮重读设置：中途被改成「永不」就退出
+                let sec = FailReloadPref.sec
+                if sec <= 0 { return }
+                try? await Task.sleep(nanoseconds: UInt64(sec) * 1_000_000_000)
                 guard !Task.isCancelled else { return }
                 await MainActor.run { refreshAll(silent: true) }
             }
