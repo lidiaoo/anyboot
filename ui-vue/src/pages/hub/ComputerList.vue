@@ -548,7 +548,7 @@ function power(payload: Record<string, unknown>) {
     </div>
 
     <!-- 电脑页面弹层（旧版 #cqViewOverlay）：宽高用 min() 撑满，iframe 撑余下空间 -->
-    <div v-if="viewOpen" class="overlay" @click.self="viewOpen = false">
+    <div v-if="viewOpen" id="cqViewOverlay" class="overlay" @click.self="viewOpen = false">
       <div
         class="dialog"
         role="dialog"
@@ -559,15 +559,15 @@ function power(payload: Record<string, unknown>) {
         <div class="dialog-head" style="flex: none">
           <h3 id="cqViewTitle">{{ viewTitle }}</h3>
           <div style="display: flex; align-items: center; gap: 6px">
-            <button type="button" class="btn small" @click="viewSeed += 1">重载</button>
-            <button type="button" class="icon-btn" aria-label="关闭" @click="viewOpen = false">
+            <button type="button" class="btn small" id="cqViewReload" @click="viewSeed += 1">重载</button>
+            <button type="button" class="icon-btn" id="cqViewClose" aria-label="关闭" @click="viewOpen = false">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
                 <path d="M6 6l12 12M18 6L6 18" />
               </svg>
             </button>
           </div>
         </div>
-        <div class="pc-frame-host" style="flex: 1; min-height: 0; border: 0; border-radius: 0">
+        <div class="pc-frame-host" id="pcFrameHost" style="flex: 1; min-height: 0; border: 0; border-radius: 0">
           <iframe
             v-if="viewUrl"
             :key="viewSeed"
@@ -575,7 +575,7 @@ function power(payload: Record<string, unknown>) {
             :title="viewTitle"
             style="width: 100%; height: 100%; border: 0; background: #fff"
           />
-          <div v-else class="pc-empty">
+          <div v-else id="pcEmpty" class="pc-empty">
             <div>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
                 <rect x="3" y="4" width="18" height="16" rx="2" />

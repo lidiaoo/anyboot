@@ -21,6 +21,14 @@ const open = ref(false);
 const rootRef = ref<HTMLElement | null>(null);
 
 const refreshOptions = [2, 5, 10, 30, 0];
+/** 启动时连接全部服务端（旧版 #pcConnectAllItem → remote_set_connect_all） */
+const connectAll = ref(false);
+function toggleConnectAll() {
+  connectAll.value = !connectAll.value;
+  void import("@/api/tauri").then(({ call }) =>
+    call("remote_set_connect_all", { on: connectAll.value }).catch(() => {}),
+  );
+}
 
 function label(sec: number): string {
   if (sec === 0) return "关闭数据刷新";
@@ -71,7 +79,12 @@ const customActive = computed(() => !refreshOptions.includes(settings.dataRefres
       ⋮
     </button>
 
-    <div v-if="open" class="menu" role="menu" @click.stop>
+    <div v-if="open" id="pcMenu" class="menu" role="menu" @click.stop>
+      <button role="menuitem" type="button" id="pcConnectAllItem" :class="{ 'is-on': connectAll }" @click="toggleConnectAll">
+        <span id="pcConnectAllText">启动时连接全部服务端</span>
+      </button>
+      <div class="divider" />
+
       <div class="caption">数据刷新</div>
       <button
         v-for="sec in refreshOptions"

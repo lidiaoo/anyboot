@@ -102,11 +102,11 @@ function submit() {
 </script>
 
 <template>
-  <div v-if="open" class="overlay">
+  <div v-if="open" id="tunnelOverlay" class="overlay">
     <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="tunnelTitle">
       <div class="dialog-head">
         <h3 id="tunnelTitle">{{ isEdit ? "编辑隧道" : "新建隧道" }}</h3>
-        <button type="button" class="icon-btn" aria-label="关闭" @click="emit('close')">✕</button>
+        <button type="button" class="icon-btn" id="tunnelX" aria-label="关闭" @click="emit('close')">✕</button>
       </div>
 
       <div class="dialog-body">
@@ -129,7 +129,7 @@ function submit() {
           </div>
         </div>
 
-        <div v-if="showTarget" class="field-row">
+        <div v-if="showTarget" id="tTargetRow" class="field-row">
           <div class="field">
             <label for="tTargetHost">目标主机（从服务器侧看）</label>
             <input id="tTargetHost" v-model="targetHost" type="text" class="mono" placeholder="127.0.0.1" />
@@ -140,16 +140,16 @@ function submit() {
           </div>
         </div>
 
-        <p class="field-hint">
+        <p class="field-hint" id="tunnelHint">
           本地转发：访问本机端口 = 经该服务器访问目标；动态转发：本机端口变成 SOCKS5 代理。
         </p>
-        <p class="form-error">{{ errorText }}</p>
+        <p class="form-error" id="tunnelError">{{ errorText }}</p>
       </div>
 
       <div class="dialog-foot">
         <span class="spacer" />
-        <button type="button" class="btn ghost" @click="emit('close')">取消</button>
-        <button type="button" class="btn primary" @click="submit">保存</button>
+        <button type="button" class="btn ghost" id="tunnelCancel" @click="emit('close')">取消</button>
+        <button type="button" class="btn primary" id="tunnelSave" @click="submit">保存</button>
       </div>
     </div>
   </div>

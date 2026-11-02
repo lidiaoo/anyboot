@@ -147,11 +147,11 @@ function doTest() {
 </script>
 
 <template>
-  <div v-if="open" class="overlay">
+  <div v-if="open" id="editOverlay" class="overlay">
     <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="editTitle">
       <div class="dialog-head">
         <h3 id="editTitle">{{ isEdit ? "编辑服务器" : "添加服务器" }}</h3>
-        <button type="button" class="icon-btn" aria-label="关闭" @click="emit('close')">✕</button>
+        <button type="button" class="icon-btn" id="editX" aria-label="关闭" @click="emit('close')">✕</button>
       </div>
 
       <div class="dialog-body">
@@ -162,7 +162,7 @@ function doTest() {
           </div>
           <div class="field fixed" style="flex: 0 0 auto">
             <span class="flabel">协议</span>
-            <div class="segmented">
+            <div class="segmented" id="fProtoSeg">
               <button type="button" :aria-selected="protocol === 'ssh'" @click="protocol = 'ssh'">SSH</button>
               <button type="button" :aria-selected="protocol === 'telnet'" @click="protocol = 'telnet'">
                 Telnet
@@ -190,7 +190,7 @@ function doTest() {
         <div class="field-row">
           <div class="field fixed" style="flex: 0 0 auto">
             <span class="flabel">认证方式</span>
-            <div class="segmented">
+            <div class="segmented" id="fAuthSeg">
               <button type="button" :aria-selected="auth === 'interactive'" @click="auth = 'interactive'">
                 交互
               </button>
@@ -200,7 +200,7 @@ function doTest() {
               <button type="button" :aria-selected="auth === 'key'" @click="auth = 'key'">密钥</button>
             </div>
           </div>
-          <div v-show="auth === 'key'" class="field">
+          <div v-show="auth === 'key'" class="field" id="fKeyField">
             <label for="fKey">选择钥匙</label>
             <select id="fKey" v-model="keyId" class="dlg-select">
               <option value="">（还没有密钥，去工具栏「密钥」生成）</option>
@@ -209,7 +209,7 @@ function doTest() {
           </div>
         </div>
 
-        <div v-show="auth === 'password'" class="field">
+        <div v-show="auth === 'password'" class="field" id="fPasswordField">
           <label for="fPassword">密码（AES-256-GCM 加密存本机，连接免输）</label>
           <input
             id="fPassword"
@@ -220,7 +220,7 @@ function doTest() {
           />
         </div>
 
-        <div class="field">
+        <div class="field" id="fJumpField">
           <label for="fJump">经由跳板机（借助另一台已保存的 SSH 服务器中转：外网连内网机器）</label>
           <select id="fJump" v-model="jumpId" class="dlg-select">
             <option value="">直连（默认）</option>
@@ -261,15 +261,15 @@ function doTest() {
           「交互」= 系统 ssh 在终端内要密码 / 确认指纹，凭据不落盘；「密码」= 密文落盘（AES-256-GCM），ssh
           经 askpass 免输，指纹确认仍在终端里；「密钥」= 起 ssh 带 -i（带口令的钥匙仍在终端里解锁一次）。三种方式互斥，切换即清掉另一种存的凭据。
         </p>
-        <p class="test-line">{{ testLine }}</p>
-        <p class="form-error">{{ errorText }}</p>
+        <p class="test-line" id="editTestLine">{{ testLine }}</p>
+        <p class="form-error" id="editError">{{ errorText }}</p>
       </div>
 
       <div class="dialog-foot">
-        <button type="button" class="btn" @click="doTest">测试连接</button>
+        <button type="button" class="btn" id="editTest" @click="doTest">测试连接</button>
         <span class="spacer" />
-        <button type="button" class="btn ghost" @click="emit('close')">取消</button>
-        <button type="button" class="btn primary" @click="submit">保存</button>
+        <button type="button" class="btn ghost" id="editCancel" @click="emit('close')">取消</button>
+        <button type="button" class="btn primary" id="editSave" @click="submit">保存</button>
       </div>
     </div>
   </div>

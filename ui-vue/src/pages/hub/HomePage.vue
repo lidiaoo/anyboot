@@ -198,7 +198,7 @@ function onFrameError() {
 <template>
   <div class="pc-page">
     <div class="pc-top">
-      <div class="pc-chips" role="tablist" aria-label="AnyBoot 电脑标签">
+      <div class="pc-chips" id="pcChips" role="tablist" aria-label="AnyBoot 电脑标签">
         <button
           v-for="chip in chips"
           :key="chip.id"
@@ -214,7 +214,7 @@ function onFrameError() {
           <span v-if="chip.sub" class="mini">{{ chip.sub }}</span>
         </button>
         <!-- 「＋ 添加」：打开服务端编辑弹层（旧版 #pcAddChip → pcAddOrEdit） -->
-        <button type="button" class="pc-chip add" title="添加 AnyBoot 电脑" @click="emit('addRemote')">
+        <button type="button" id="pcAddChip" class="pc-chip add" title="添加 AnyBoot 电脑" @click="emit('addRemote')">
           ＋ 添加
         </button>
       </div>
@@ -226,7 +226,7 @@ function onFrameError() {
     </div>
 
     <div class="pc-body">
-      <div class="pc-frame-host">
+      <div class="pc-frame-host" id="pageFrameHost">
         <iframe
           v-if="currentUrl"
           :key="`${activeId}-${reloadSeed}`"
@@ -235,7 +235,7 @@ function onFrameError() {
           class="pc-frame"
           @error="onFrameError"
         />
-        <div v-else class="pc-empty">
+        <div v-else id="pageEmpty" class="pc-empty">
           <div>
             <svg
               viewBox="0 0 24 24"
@@ -260,6 +260,7 @@ function onFrameError() {
       <!-- 重载悬浮按钮（旧版 #pcRefreshFab） -->
       <button
         type="button"
+        id="pcRefreshFab"
         class="pc-refresh-fab"
         title="重载当前页面（重新探测全部地址，谁在线用谁）"
         aria-label="重载当前页面"
@@ -282,9 +283,9 @@ function onFrameError() {
       </button>
 
       <!-- 电源悬浮球（旧版 #pcFabWrap） -->
-      <div class="pc-fab" :hidden="!fabOpen">
-        <span class="pc-fab-note" title="电源操作说明">电源走局域网 · 需 sol</span>
-        <button type="button" class="pc-fab-help" :hidden="!fabOpen" title="电源操作说明" @click="fabHelpOpen = true">
+      <div id="pcFabWrap" class="pc-fab" :hidden="!fabOpen">
+        <span id="pcFabNote" class="pc-fab-note" title="电源操作说明">电源走局域网 · 需 sol</span>
+        <button type="button" id="pcFabHelp" class="pc-fab-help" :hidden="!fabOpen" title="电源操作说明" @click="fabHelpOpen = true">
           ?
         </button>
         <button
@@ -300,6 +301,7 @@ function onFrameError() {
       </div>
       <button
         type="button"
+        id="pcFab"
         class="pc-fab-ball"
         :aria-expanded="fabOpen"
         aria-label="电源操作"
@@ -310,18 +312,18 @@ function onFrameError() {
     </div>
 
     <!-- 电源 · 睡眠与唤醒 帮助弹层（旧版 #fabHelpOverlay） -->
-    <div v-if="fabHelpOpen" class="overlay" @click.self="fabHelpOpen = false">
+    <div v-if="fabHelpOpen" id="fabHelpOverlay" class="overlay" @click.self="fabHelpOpen = false">
       <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="fabHelpTitle">
         <div class="dialog-head">
           <h3 id="fabHelpTitle">电源 · 睡眠与唤醒</h3>
-          <button type="button" class="icon-btn" aria-label="关闭" @click="fabHelpOpen = false">✕</button>
+          <button type="button" class="icon-btn" id="fabHelpX" aria-label="关闭" @click="fabHelpOpen = false">✕</button>
         </div>
         <div class="dialog-body">
-          <p class="fab-help-text">{{ FAB_HELP_TEXT }}</p>
+          <p class="fab-help-text" id="fabHelpText">{{ FAB_HELP_TEXT }}</p>
         </div>
         <div class="dialog-foot">
           <span class="spacer" />
-          <button type="button" class="btn" @click="fabHelpOpen = false">知道了</button>
+          <button type="button" class="btn" id="fabHelpOk" @click="fabHelpOpen = false">知道了</button>
         </div>
       </div>
     </div>
@@ -330,7 +332,7 @@ function onFrameError() {
     <div v-if="toastText" class="toast" role="status">{{ toastText }}</div>
 
     <!-- 标签 ⋮ 菜单（旧版 #chipMenu） -->
-    <div v-if="chipMenuOpen" class="pc-menu" role="menu" aria-label="标签菜单">
+    <div v-if="chipMenuOpen" id="chipMenu" class="pc-menu" role="menu" aria-label="标签菜单">
       <button role="menuitem" @click="chipMenuOpen = false">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" /></svg>
         编辑这个服务端

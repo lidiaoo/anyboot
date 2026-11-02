@@ -2,7 +2,6 @@
 import { computed, onMounted, ref } from "vue";
 import { useServersStore, type HubServer } from "@/stores/servers";
 import ServerEditDialog from "@/components/hub/ServerEditDialog.vue";
-import ConfirmDialog from "@/components/hub/ConfirmDialog.vue";
 import LatencyTrend from "@/components/hub/LatencyTrend.vue";
 
 /**
@@ -359,6 +358,7 @@ async function testOne(server: HubServer) {
             <div class="d-actions">
               <button
                 type="button"
+                id="connectBtn"
                 class="btn primary"
                 :disabled="selected.protocol !== 'ssh'"
                 :title="selected.protocol === 'ssh' ? '打开终端' : 'Telnet 终端在后续版本开通'"
@@ -372,6 +372,7 @@ async function testOne(server: HubServer) {
               </button>
               <button
                 type="button"
+                id="filesBtn"
                 class="btn"
                 :disabled="selected.protocol !== 'ssh'"
                 :title="selected.protocol === 'ssh' ? '浏览文件' : 'Telnet 不提供文件浏览'"
@@ -382,12 +383,12 @@ async function testOne(server: HubServer) {
                 </svg>
                 浏览文件
               </button>
-              <button type="button" class="icon-btn boxed" aria-label="编辑服务器" title="编辑" @click="openEdit(selected)">
+              <button type="button" id="editBtn" class="icon-btn boxed" aria-label="编辑服务器" title="编辑" @click="openEdit(selected)">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                   <path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z" />
                 </svg>
               </button>
-              <button type="button" class="icon-btn boxed danger" aria-label="删除服务器" title="删除" @click="onDelete(selected)">
+              <button type="button" id="delBtn" class="icon-btn boxed danger" aria-label="删除服务器" title="删除" @click="onDelete(selected)">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                   <path d="M3 6h18M8 6V4h8v2M6 6l1 15h10l1-15M10 11v6M14 11v6" />
                 </svg>
@@ -427,9 +428,9 @@ async function testOne(server: HubServer) {
           <div class="d-section">
             <div class="sec-head">
               <h4>连通性</h4>
-              <button type="button" class="btn small" @click="testOne(selected)">测试连接</button>
+              <button type="button" id="testBtn" class="btn small" @click="testOne(selected)">测试连接</button>
             </div>
-            <p class="test-line">{{ testLine }}</p>
+            <p class="test-line" id="detailTestLine">{{ testLine }}</p>
           </div>
 
           <!-- .d-section 2：延迟趋势 -->
@@ -441,7 +442,7 @@ async function testOne(server: HubServer) {
           <div class="d-section" id="tunnelBlock">
             <div class="sec-head">
               <h4>SSH 隧道</h4>
-              <button type="button" class="btn small" @click="openTunnel(selected.id)">新建隧道</button>
+              <button type="button" class="btn small" id="tunnelAddBtn" @click="openTunnel(selected.id)">新建隧道</button>
             </div>
             <p v-if="!tunnels.length" class="spark-hint">还没有隧道 —— 点「新建隧道」把本机端口转发到这台服务器能访问的地方。</p>
             <div v-for="tn in tunnels" :key="tn.id" class="tunnel-row">
@@ -465,15 +466,22 @@ async function testOne(server: HubServer) {
   />
 
   <!-- 删除确认（旧版 #deleteOverlay） -->
-  <ConfirmDialog
-    :open="Boolean(deleteTarget)"
-    title="删除服务器"
-    :message="`确定删除「${deleteTarget?.name ?? ''}」吗？此操作不可恢复。`"
-    confirm-text="删除"
-    :danger="true"
-    @confirm="confirmDelete"
-    @cancel="deleteTarget = null"
-  />
+  <div v-if="deleteTarget" id="deleteOverlay" class="overlay" @click.self="deleteTarget = null">
+    <div class="dialog" role="dialog" aria-modal="true" aria-label="删除服务器">
+      <div class="dialog-head">
+        <h3>删除服务器</h3>
+        <button type="button" class="icon-btn" id="deleteX" aria-label="关闭" @click="deleteTarget = null">✕</button>
+      </div>
+      <div class="dialog-body">
+        <p class="d-text">确定删除「<b id="deleteName">{{ deleteTarget?.name ?? "" }}</b>」吗？此操作不可恢复。</p>
+      </div>
+      <div class="dialog-foot">
+        <span class="spacer" />
+        <button type="button" class="btn ghost" id="deleteCancel" @click="deleteTarget = null">取消</button>
+        <button type="button" class="btn danger" id="deleteConfirm" @click="confirmDelete">删除</button>
+      </div>
+    </div>
+  </div>
 </template>
 
 <!--
