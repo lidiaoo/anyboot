@@ -542,6 +542,14 @@ entries/hub-*.ts     → main.css
 | `about-link` 圆角 | 待确认 |
 | `cq-boot-btn` / `t` / `sep` | 待确认 |
 
+### style-diff.js 的三次迭代（工具本身也在纠错）
+1. 按 class 名比对 → 同名类跨元素误配（`light` 匹配到 `<html class="light">`）
+2. 按「完整 DOM 路径」比对 → 太严格，页面结构略有差异就全部失配（共同类 0）
+3. **按「父级 tag.class > 自身 tag.class」两级比对** → 稳定且能定位
+
+还加了「零尺寸元素排除」：`display:none` 的祖先链过滤后仍会漏掉
+`width:0;height:0` 的容器，旧版的隐藏区元素会被当代表，产生假差异。
+
 顺带把 `.cq-thead` 加回电脑列表（旧版静态 HTML 里有，`display:none`）。
 
 ### 打包验证
