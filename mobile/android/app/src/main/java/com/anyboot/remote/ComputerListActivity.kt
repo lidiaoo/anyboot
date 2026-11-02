@@ -2203,7 +2203,7 @@ class ComputerListActivity : ComponentActivity() {
                         else -> sheetRequest = SheetRequest(row.profile.id, KIND_CHANNEL, channel)
                     }
                 }
-                .padding(start = 11.dp, end = 10.dp, top = 7.dp, bottom = 7.dp),
+                .padding(start = 11.dp, end = 10.dp, top = 6.dp, bottom = 6.dp),
         ) {
             // 第一行：通道名（独占一行，长名字也完整显示）
             Text(
@@ -2217,9 +2217,12 @@ class ComputerListActivity : ComponentActivity() {
                 // 需要时可折行。
                 maxLines = Int.MAX_VALUE,
                 softWrap = true,
+                // 2026-11-02 用户定案：「不要名字与状态之间的间距」——
+                // 名字与状态行紧贴，中间不留空白。
+                // 靠行内 lineHeight 自身的行距即可，不加 Spacer / padding。
+                lineHeight = 14.sp,
             )
-            Spacer(Modifier.height(3.dp))
-            // 第二行：圆点 + 状态 / 当前项
+            // 第二行：圆点 + 状态 / 当前项（紧贴上一行）
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (working) {
                     CircularProgressIndicator(
