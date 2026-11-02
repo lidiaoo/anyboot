@@ -3729,6 +3729,64 @@ fn refind_row_class(system: &str, label: &str, kind: Option<&str>) -> String {
 }
 
 /// 把 `/api/status` 的 variables 收成 rEFInd 的可选组。
+/// `refindSim`（自动模式的扫描重算菜单）→ BootGroup。
+///
+/// 与 `refind_from_status`（手动模式的 vars 快照）的区别：
+/// 自动模式的「当前项」看 `entries[].lastBoot` 命中的那条（与 PC 端
+/// effectiveGrubForNextBoot / 托盘同一口径），没有就退回 `previousBoot`。
+fn refind_from_sim(value: &serde_json::Value) -> BootGroup {
+    let mut options: Vec<BootOption> = Vec::new();
+    let mut current = String::new();
+    if let Some(entries) = value.get("entries").and_then(|v| v.as_array()) {
+        for item in entries {
+            let title = item
+                .get("title")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim();
+            if title.is_empty() {
+                continue;
+            }
+            let kind = item
+                .get("kind")
+                .and_then(|v| v.as_str())
+                .unwrap_or("linux");
+            let class = refind_row_class(title, title, Some(kind));
+            options.push(BootOption {
+                value: title.to_string(),
+                label: title.to_string(),
+                class,
+                ..Default::default()
+            });
+            if current.is_empty() && item.get("lastBoot").and_then(|v| v.as_bool()) == Some(true) {
+                current = title.to_string();
+            }
+        }
+    }
+    if current.is_empty() {
+        if let Some(prev) = value.get("previousBoot").and_then(|v| v.as_str()) {
+            let prev = prev.trim();
+            if !prev.is_empty() && options.iter().any(|o| o.value == prev) {
+                current = prev.to_string();
+            }
+        }
+    }
+    BootGroup {
+        kind: "refind".to_string(),
+        title: "rEFInd".to_string(),
+        available: !options.is_empty(),
+        current,
+        note: value
+            .get("summary")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string(),
+        options,
+        ..Default::default()
+    }
+}
+
 fn refind_from_status(value: &serde_json::Value) -> BootGroup {
     let mut options = Vec::new();
     let mut current = String::new();
@@ -4697,8 +4755,47 @@ fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Result<RemoteB
             return Ok(info);
         }
     }
-    // 三个接口各自失败互不影响：一边能读就先把那边显示出来
+    // 2026-11-02 用户指出：电脑列表要按 refind/grub 的**自动·手动**模式取数据。
+    // 优先打 `/api/ui-state`（电脑页同源快照），它一次给全两套数据：
+    //   rEFInd  自动 → refindSim（扫描重算的菜单）  手动 → status（vars 快照）
+    //   GRUB    自动 → linuxGrub（Linux 分区 cfg）  手动 → grub（ESP cfg）
+    // 老服务端没有该接口时回落到原来的三个接口。
     let mut errors: Vec<String> = Vec::new();
+    if let Ok(state_json) = remote_http_json(app, &server, "/api/ui-state") {
+        let settings = state_json.get("settings");
+        let refind_manual = settings
+            .and_then(|s| s.get("refindMode"))
+            .and_then(|v| v.as_str())
+            == Some("manual");
+        let grub_manual = settings
+            .and_then(|s| s.get("grubMode"))
+            .and_then(|v| v.as_str())
+            == Some("manual");
+
+        info.refind = if refind_manual {
+            refind_from_status(state_json.get("status").unwrap_or(&serde_json::Value::Null))
+        } else {
+            refind_from_sim(state_json.get("refindSim").unwrap_or(&serde_json::Value::Null))
+        };
+
+        let grub_value = if grub_manual {
+            state_json.get("grub")
+        } else {
+            state_json.get("linuxGrub").or_else(|| state_json.get("grub"))
+        };
+        let format = crate::read_settings_file(app).grub_list_format;
+        info.grub = grub_from_json(grub_value.unwrap_or(&serde_json::Value::Null), &format);
+
+        if let Some(channels) = state_json.get("channels") {
+            info.channels = channels_from_json(channels);
+        }
+        // 快照里两套都在，没有「一边失败」的概念；直接收尾
+        info.ok = true;
+        info.online = true;
+        return Ok(info);
+    }
+
+    // ---- 回落：老服务端没有 /api/ui-state ----
     match remote_http_json(app, &server, "/api/status") {
         Ok(value) => info.refind = refind_from_status(&value),
         Err(error) => {
