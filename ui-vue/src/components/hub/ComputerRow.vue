@@ -248,7 +248,7 @@ function onRowClick() {
           type="button"
           class="cq-boot-btn"
           :disabled="!bootUsable('refind')"
-          @click.stop="emit('switchBoot', { server_id: row.id, kind: 'refind' })"
+          @click.stop="emit('switchBoot', { serverId: row.id, kind: 'refind' })"
         >
           <span class="t">{{ bootLabel("refind") }}</span>
         </button>
@@ -258,7 +258,7 @@ function onRowClick() {
           type="button"
           class="cq-boot-btn"
           :disabled="!bootUsable('grub')"
-          @click.stop="emit('switchBoot', { server_id: row.id, kind: 'grub' })"
+          @click.stop="emit('switchBoot', { serverId: row.id, kind: 'grub' })"
         >
           <span class="t">{{ bootLabel("grub") }}</span>
         </button>
@@ -287,7 +287,7 @@ function onRowClick() {
             class="cq-pwr-btn"
             :title="spec.hint ? `${spec.label} · ${spec.hint}` : spec.label"
             :aria-label="spec.hint ? `${spec.label} · ${spec.hint}` : spec.label"
-            @click.stop="emit('power', { server_id: row.id, action: spec.act })"
+            @click.stop="emit('power', { serverId: row.id, action: spec.act })"
           >
             <span class="lbl">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"

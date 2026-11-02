@@ -111,7 +111,7 @@ export const useRemoteStore = defineStore("remote", () => {
     if (loading.value.has(id)) return;
     loading.value.add(id);
     try {
-      const info = await call<RemoteBootInfo>("remote_boot_info", { server_id: id });
+      const info = await call<RemoteBootInfo>("remote_boot_info", { serverId: id });
       if (info.online) {
         failCounts.value.delete(id);
         bootInfo.value.set(id, info);
@@ -157,7 +157,7 @@ export const useRemoteStore = defineStore("remote", () => {
   /** 切换引导项（通道 / GRUB / rEFInd 由 kind 区分） */
   async function switchBoot(payload: Record<string, unknown>): Promise<void> {
     await call("remote_boot_switch", payload);
-    const id = String(payload.server_id ?? payload.serverId ?? "");
+    const id = String(payload.serverId ?? payload.server_id ?? "");
     if (id) await refreshBoot(id);
   }
 

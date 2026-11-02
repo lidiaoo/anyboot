@@ -94,12 +94,12 @@ function focusTerminal() {
 }
 
 function killSession(id: string) {
-  void call("hub_term_close", { session_id: id }).then(refresh).catch((e) => toast.show("断开失败：" + e, "bad"));
+  void call("hub_term_close", { sessionId: id }).then(refresh).catch((e) => toast.show("断开失败：" + e, "bad"));
 }
 
 function reconnect(row: TermLogRow) {
   if (!row.serverId) return;
-  void call("hub_open_term_window", { server_id: row.serverId }).catch((e) => toast.show("重连失败：" + e, "bad"));
+  void call("hub_open_term_window", { serverId: row.serverId }).catch((e) => toast.show("重连失败：" + e, "bad"));
 }
 
 function removeLog(index: number) {

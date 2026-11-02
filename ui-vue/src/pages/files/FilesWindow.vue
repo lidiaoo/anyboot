@@ -284,7 +284,7 @@ function selectEntry(entry: SftpEntry) {
 
 async function upload() {
   try {
-    await call("hub_sftp_upload", { server: sshServers.value.find((s) => s.id === serverId.value), remote_dir: cwd.value });
+    await call("hub_sftp_upload", { server: sshServers.value.find((s) => s.id === serverId.value), remoteDir: cwd.value });
     await refreshTransfers();
   } catch (error) {
     errorText.value = String(error);
@@ -296,9 +296,9 @@ async function download() {
   try {
     await call("hub_sftp_download", {
       server: sshServers.value.find((s) => s.id === serverId.value),
-      remote_path: selectedPath.value,
+      remotePath: selectedPath.value,
       filename: selectedPath.value.split("/").pop() ?? "",
-      local_dir: "",
+      localDir: "",
       total: 0,
     });
     await refreshTransfers();
@@ -358,7 +358,7 @@ async function confirmDelete() {
   delOpen.value = false;
   if (!entry) return;
   try {
-    await call("hub_sftp_remove", { server: sshServers.value.find((s) => s.id === serverId.value), path: entry.path, is_dir: entry.is_dir });
+    await call("hub_sftp_remove", { server: sshServers.value.find((s) => s.id === serverId.value), path: entry.path, isDir: entry.is_dir });
     await listDir(cwd.value);
   } catch (error) {
     errorText.value = String(error);

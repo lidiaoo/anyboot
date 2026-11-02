@@ -105,7 +105,7 @@ function sendPower(action: string) {
   }
   showToast(`正在${POWER_LABEL[action] ?? action}…`);
   void import("@/api/tauri").then(({ call }) =>
-    call("remote_power", { server_id: activeId.value, action })
+    call("remote_power", { serverId: activeId.value, action })
       .then((message: unknown) => showToast(String(message ?? "已发送")))
       .catch((error: unknown) => showToast(`${POWER_LABEL[action] ?? action}失败：${error}`)),
   );
@@ -150,7 +150,7 @@ async function ensureRemoteUrl(id: string): Promise<void> {
   if (id === "local" || remoteUrls.value.has(id)) return;
   try {
     const endpoint = await call<{ host: string; port: number }>("remote_endpoint", {
-      server_id: id,
+      serverId: id,
     });
     if (endpoint?.host) {
       const profile = remote.servers.find((s) => s.id === id);

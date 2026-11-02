@@ -534,8 +534,8 @@ function persistConfig(mode: string) {
     () =>
       call("gateway_save_config", {
         mode,
-        named_url: namedUrl.value,
-        named_token: namedToken.value,
+        namedUrl: namedUrl.value,
+        namedToken: namedToken.value,
         autostart: Boolean(config.value?.autostart),
       }),
     "配置已保存",

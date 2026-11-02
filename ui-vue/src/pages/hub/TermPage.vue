@@ -49,7 +49,7 @@ function openTerminal() {
     return;
   }
   // 旧版用的是专门的 hub_open_term_window（带 serverId 直接连）
-  void call("hub_open_term_window", { server_id: selectedId.value }).catch((e) => toast.show("打开终端失败：" + e, "bad"));
+  void call("hub_open_term_window", { serverId: selectedId.value }).catch((e) => toast.show("打开终端失败：" + e, "bad"));
 }
 </script>
 

@@ -231,7 +231,7 @@ function selectEntry(entry: SftpEntry) {
 
 async function upload() {
   try {
-    await call("hub_sftp_upload", { server: currentServer.value, remote_dir: cwd.value });
+    await call("hub_sftp_upload", { server: currentServer.value, remoteDir: cwd.value });
     await refreshTransfers();
   } catch (error) {
     toast.show("上传失败：" + error, "bad");
@@ -244,9 +244,9 @@ async function download() {
   try {
     await call("hub_sftp_download", {
       server: currentServer.value,
-      remote_path: selectedPath.value,
+      remotePath: selectedPath.value,
       filename: selectedPath.value.split("/").pop() ?? "",
-      local_dir: "",
+      localDir: "",
       total: 0,
     });
     await refreshTransfers();
@@ -311,7 +311,7 @@ async function confirmDelete() {
   delOpen.value = false;
   if (!entry) return;
   try {
-    await call("hub_sftp_remove", { server: currentServer.value, path: entry.path, is_dir: entry.is_dir });
+    await call("hub_sftp_remove", { server: currentServer.value, path: entry.path, isDir: entry.is_dir });
     toast.show("已删除");
     await listDir(cwd.value);
   } catch (error) {
@@ -360,7 +360,7 @@ async function transferCtl(action: "pause" | "resume" | "abandon") {
 
 function openInWindow() {
   if (!serverId.value) return;
-  void call("hub_open_files_window", { server_id: serverId.value }).catch(() => {});
+  void call("hub_open_files_window", { serverId: serverId.value }).catch(() => {});
 }
 
 function fmtSize(bytes: number): string {

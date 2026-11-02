@@ -267,7 +267,7 @@ function onMenuAction(act: string) {
       return;
     }
     toast.show("正在重载「" + (remote.servers.find((s) => s.id === activeId.value)?.name ?? "") + "」…");
-    void import("@/api/tauri").then(({ call }) => call("remote_boot_info", { server_id: activeId.value }).catch((e) => toast.show("重载失败：" + e, "bad")));
+    void import("@/api/tauri").then(({ call }) => call("remote_boot_info", { serverId: activeId.value }).catch((e) => toast.show("重载失败：" + e, "bad")));
   } else if (act === "reloadAll") {
     void import("@/api/tauri").then(({ call }) => call("remote_list").catch(() => {}));
   }
@@ -400,12 +400,12 @@ async function listTunnels() {
 
 async function startTunnel(id: string) {
   const { call } = await import("@/api/tauri");
-  await call("hub_tunnel_start", { tunnel_id: id }).catch((e) => toast.show("启动隧道失败：" + e, "bad"));
+  await call("hub_tunnel_start", { tunnelId: id }).catch((e) => toast.show("启动隧道失败：" + e, "bad"));
 }
 
 async function stopTunnel(id: string) {
   const { call } = await import("@/api/tauri");
-  await call("hub_tunnel_stop", { tunnel_id: id }).catch((e) => toast.show("停止隧道失败：" + e, "bad"));
+  await call("hub_tunnel_stop", { tunnelId: id }).catch((e) => toast.show("停止隧道失败：" + e, "bad"));
 }
 
 async function saveTunnel(payload: Record<string, unknown>) {
@@ -428,7 +428,7 @@ async function setConnectAll(on: boolean) {
 const cqBusy = new Set<string>();
 
 function switchBoot(payload: Record<string, unknown>) {
-  const key = `${payload.server_id}:boot:${payload.kind}`;
+  const key = `${payload.serverId}:boot:${payload.kind}`;
   if (cqBusy.has(key)) return;
   cqBusy.add(key);
   void remote
@@ -439,7 +439,7 @@ function switchBoot(payload: Record<string, unknown>) {
 }
 
 function power(payload: Record<string, unknown>) {
-  const key = `${payload.server_id}:act:${payload.action}`;
+  const key = `${payload.serverId}:act:${payload.action}`;
   if (cqBusy.has(key)) return;
   cqBusy.add(key);
   void remote

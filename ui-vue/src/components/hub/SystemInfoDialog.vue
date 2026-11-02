@@ -56,7 +56,7 @@ watch(
     if (!id) return;
     loading.value = true;
     try {
-      const result = await call<Record<string, unknown>>("remote_system_info", { server_id: id });
+      const result = await call<Record<string, unknown>>("remote_system_info", { serverId: id });
       // 后端用 camelCase 序列化，这里直接透传
       info.value = result as unknown as SystemInfo;
     } catch (error) {

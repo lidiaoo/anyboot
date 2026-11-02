@@ -149,7 +149,7 @@ async function toggleTunnel(id: string) {
   const row = tunnels.value.find((x) => x.id === id);
   const { call } = await import("@/api/tauri");
   try {
-    await call(row?.running ? "hub_tunnel_stop" : "hub_tunnel_start", { tunnel_id: id });
+    await call(row?.running ? "hub_tunnel_stop" : "hub_tunnel_start", { tunnelId: id });
     await refreshTunnels();
   } catch {
     /* 忽略 */
@@ -171,14 +171,14 @@ function openFiles(server: HubServer) {
   if (!isTauri()) { toast.show("文件浏览需要应用环境", "bad"); return; }
   if (server.protocol !== "ssh") return;
   void import("@/api/tauri").then(({ call }) =>
-    call("hub_open_files_window", { server_id: server.id }).catch((e) => toast.show("打开文件浏览失败：" + e, "bad")),
+    call("hub_open_files_window", { serverId: server.id }).catch((e) => toast.show("打开文件浏览失败：" + e, "bad")),
   );
 }
 
 function openTerminal(server: HubServer) {
   if (!isTauri()) { toast.show("终端需要应用环境", "bad"); return; }
   void import("@/api/tauri").then(({ call }) =>
-    call("hub_open_term_window", { server_id: server.id }).catch((e) => toast.show("打开终端失败：" + e, "bad")),
+    call("hub_open_term_window", { serverId: server.id }).catch((e) => toast.show("打开终端失败：" + e, "bad")),
   );
 }
 
