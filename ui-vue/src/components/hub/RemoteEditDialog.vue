@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useServersStore } from "@/stores/servers";
+import { useToastStore } from "@/stores/toast";
 import type { RemoteProfile } from "@/stores/remote";
 import { useEscape } from "@/composables/useEscape";
 
@@ -22,6 +23,7 @@ import { useEscape } from "@/composables/useEscape";
  */
 
 const serversStore = useServersStore();
+const toast = useToastStore();
 /** 跳板机选项（旧版 jumpServerOptions：SSH 服务器列表） */
 const jumpOptions = computed(() =>
   (serversStore.servers ?? []).filter((s) => s.protocol === "ssh").map((s) => ({ id: s.id, name: (s.name || "(未命名)") + "（" + s.host + ":" + (s.port || 22) + "）" })),
@@ -119,7 +121,51 @@ const addrMacs = ref("");
 /** 远程配对区 */
 const remoteText = ref("");
 const remoteHint = ref("");
-const pairs = ref<{ mid?: string; kind?: string }[]>([]);
+interface PairRowItem {
+  id?: string;
+  kind: string;
+  addr: string;
+  lane?: string;
+  note: string;
+  token: string;
+  probe_timeout_ms: number;
+  enabled: boolean;
+  show_probe: boolean;
+  mid?: string;
+  os?: string;
+  host?: string;
+  tunnel_id?: string;
+}
+const pairs = ref<PairRowItem[]>([]);
+const PAIR_BLOCKS_UI = [
+  { id: "cloudflare", label: "Cloudflare" },
+  { id: "ts", label: "Tailscale" },
+  { id: "tsnet", label: "Tailscale（内建）" },
+];
+function pairsOf(kind: string) {
+  return pairs.value.filter((p) => p.kind === kind);
+}
+function filledCount(kind: string) {
+  return pairsOf(kind).filter((p) => !!p.addr).length;
+}
+function addPair(kind: string) {
+  if (pairs.value.length >= 32) {
+    toast.show("已达 32 条上限", "bad");
+    return;
+  }
+  pairs.value.push({ kind, addr: "", note: "", token: "", probe_timeout_ms: 0, enabled: true, show_probe: true });
+}
+function movePair(pair: PairRowItem, dir: number) {
+  const idx = pairs.value.indexOf(pair);
+  const j = idx + dir;
+  if (j < 0 || j >= pairs.value.length) return;
+  const arr = [...pairs.value];
+  [arr[idx], arr[j]] = [arr[j]!, arr[idx]!];
+  pairs.value = arr;
+}
+function removePairItem(pair: PairRowItem) {
+  pairs.value = pairs.value.filter((p) => p !== pair);
+}
 /** 令牌区 */
 const token = ref("");
 const tokenVisible = ref(false);
@@ -170,9 +216,6 @@ function remoteClear() {
   remoteText.value = "";
   pairs.value = [];
   remoteHint.value = "";
-}
-function removePair(i: number) {
-  pairs.value.splice(i, 1);
 }
 async function copyToken() {
   try {
@@ -371,9 +414,49 @@ function submit() {
           <p class="field-hint">三个区块各自可挂多条，全部保留、各自探测、各自超时 —— 一台电脑装了几个系统就配几条。同一系统同一区块再配一次 = 更新那一行（按 mid + 区块判定），不会多出一条。局域网地址优先使用，全连不上才走这里。</p>
           <p class="field-hint">「从对方获取」：对方要在同一局域网且其本机服务在线，它屏幕上会弹确认框。</p>
           <div id="rsPairsBox" class="pair-blocks">
-            <div v-for="(p, i) in pairs" :key="i" class="pair-block">
-              <span class="mono">{{ p.kind || p.mid || "配对" }}</span>
-              <button type="button" class="icon-btn" aria-label="删除" @click="removePair(i)">✕</button>
+            <div v-for="block in PAIR_BLOCKS_UI" :key="block.id" class="pb-block">
+              <div class="pb-head">
+                <span class="pb-title">{{ block.label }}</span>
+                <span class="pb-count">{{ filledCount(block.id) ? filledCount(block.id) + " 条" : "未配置" }}</span>
+                <button type="button" class="pb-add" @click="addPair(block.id)">+ 添加</button>
+              </div>
+              <div v-if="!pairsOf(block.id).length" class="pb-empty">这个区块还没有配对 —— 在上面粘配对码，或点「+ 添加」手填地址</div>
+              <div v-for="(pair, pi) in pairsOf(block.id)" :key="pi" :class="['pb-row', { 'pb-off': pair.enabled === false }]">
+                <input
+                  class="pb-addr mono"
+                  type="text"
+                  spellcheck="false"
+                  :placeholder="block.id === 'ts' ? 'http://100.x.y.z:12300 或 https://xxx.ts.net' : 'https://xxx.trycloudflare.com'"
+                  :value="pair.addr"
+                  @change="pair.addr = ($event.target as HTMLInputElement).value.trim()"
+                />
+                <span v-if="pair.kind === 'ts'" class="pb-lane">{{ (pair.lane || 'direct') === 'funnel' ? 'funnel' : '直连' }}</span>
+                <input class="pb-note" type="text" placeholder="备注" :value="pair.note" @change="pair.note = ($event.target as HTMLInputElement).value.trim()" />
+                <input class="pb-note mono" type="password" spellcheck="false" placeholder="令牌" :value="''" :title="pair.token ? '已存令牌（留空保持不变）' : '配对时对方签发的令牌'" @change="pair.token = ($event.target as HTMLInputElement).value.trim()" />
+                <input
+                  class="rp-timeout mono"
+                  type="number"
+                  step="0.5"
+                  min="0.2"
+                  max="30"
+                  placeholder="默认"
+                  title="这一条的探测超时（秒）；留空 = 用区块默认值，再留空 = 全局默认值"
+                  :value="pair.probe_timeout_ms ? String(pair.probe_timeout_ms / 1000) : ''"
+                  @change="pair.probe_timeout_ms = Math.round(Math.min(30, Math.max(0.2, parseFloat(($event.target as HTMLInputElement).value) || 0)) * 1000)"
+                />
+                <button type="button" class="rp-btn" title="上移" @click="movePair(pair, -1)">↑</button>
+                <button type="button" class="rp-btn" title="下移" @click="movePair(pair, 1)">↓</button>
+                <button type="button" class="rp-btn" title="删除这条配对" @click="removePairItem(pair)">✕</button>
+                <label class="switch" title="停用后这条配对不参与探测与连接">
+                  <input type="checkbox" :checked="pair.enabled !== false" @change="pair.enabled = !(pair.enabled !== false)" />
+                  <span class="trk" aria-hidden="true" />
+                </label>
+                <span class="pb-swtag"><span class="pb-swtag-l">启用</span></span>
+                <label class="switch" title="是否展示：默认开；关掉后电脑列表整行不展示这条通道">
+                  <input type="checkbox" :checked="pair.show_probe !== false" @change="pair.show_probe = !(pair.show_probe !== false)" />
+                  <span class="trk" aria-hidden="true" />
+                </label>
+              </div>
             </div>
           </div>
         </div>
