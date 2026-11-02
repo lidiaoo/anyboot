@@ -850,6 +850,19 @@ J  101 / 23 / 902
 通过 11 / 失败 0
 ```
 
+### 弹层内部交互实测（本轮，5/5 通过）
+```
+✅ 编辑弹窗：协议切 Telnet          aria-selected → true
+✅ 编辑弹窗：认证切「密钥」          显示 #fKey 选择框
+✅ 编辑弹窗：认证切「密码」          显示 #fPassword（隐藏 → 可见）
+✅ 编辑弹窗：名称为空时保存被拦       显示「名称不能为空」
+✅ 配对弹层：5 个地址类型页签        5 个
+```
+
+**验证工具已固化到仓库**：`scripts/ui-compare/`（26 个文件）
+含 10 个验证脚本 + `serve.py` 对比服务 + `README.md`（说明前置步骤与
+5 条关键经验）。以后换机器也能一键重跑：`scripts/ui-compare/功能回归.sh`
+
 ### 打包验证
 ```
 npm run build:mac-intel        → 成功（508 tests passed / 0 failed）
