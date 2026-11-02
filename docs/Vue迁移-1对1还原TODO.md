@@ -330,6 +330,15 @@ CSS 构成：`styles.css` 5,013 + `hub.html` 内联 **2,342** + `notify.css` 168
 
 ### 2026-11-02 进度快照
 
+**新踩的坑（重要）**：
+11. **`.tab-panel:not(.active) { display: none }`** —— 旧版 `.tab-panel` 靠
+    `active` 类控制显隐，不是 `hidden` 属性。我用 `v-show` 却没加 `active`，
+    结果设置页/SOL 页一片空白（DOM 在、但被 CSS 藏了）。
+    修法：`:class="['tab-panel', { active: currentTab === 'xxx' }]"`，
+    与旧版完全一致。
+
+
+
 **新踩的坑**：
 9. **`.page` 缺 `id="page-xxx"`** —— `hub-inline.css` 里有
    `html.light #page-files { --fb-blue: ... }` 这种**按页面 id 作用域**的变量定义。
@@ -361,7 +370,7 @@ CSS 构成：`styles.css` 5,013 + `hub.html` 内联 **2,342** + `notify.css` 168
 | hub 外壳 | 6 | 6 | **100%** |
 | 12 个页面 | **12** | 12 | **100%** |
 | 32 个弹层 | 16 | 32 | 50% |
-| 主窗引导页 | 部分 | 26 | ~60% |
+| 主窗引导页 | 部分 | 26 | ~85% |
 | 4 个独立窗 | 0 完整 | 4 | 0% |
 
 **结论：距离「1:1 还原」还很远。当前只是「能跑」，不是「还原」。**

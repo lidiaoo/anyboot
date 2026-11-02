@@ -9,6 +9,8 @@ import BootList from "@/components/boot/BootList.vue";
 import RefindSection from "@/components/boot/RefindSection.vue";
 import GrubSection from "@/components/boot/GrubSection.vue";
 import BootSettings from "./BootSettings.vue";
+import SettingsPanel from "@/components/boot/SettingsPanel.vue";
+import SolPanel from "@/components/boot/SolPanel.vue";
 import ThemeHost from "./themes/index.vue";
 import type { LoaderInfo } from "./themes/types";
 
@@ -219,7 +221,7 @@ const statusText = computed(() => {
       </nav>
 
       <!-- 栏目一：系统引导 -->
-      <div v-show="currentTab === 'boot'" class="tab-panel active" id="tab-boot">
+      <div :class="['tab-panel', { active: currentTab === 'boot' }]" id="tab-boot">
         <!-- 下次启动 -->
         <section aria-label="下次启动" class="next-boot" id="next-boot">
           <div class="nb-head">
@@ -304,16 +306,18 @@ const statusText = computed(() => {
       </div>
 
       <!-- 栏目二：引导高级设置 -->
-      <div v-show="currentTab === 'adv-boot'" class="tab-panel" id="tab-adv-boot">
+      <div :class="['tab-panel', { active: currentTab === 'adv-boot' }]" id="tab-adv-boot">
         <BootSettings />
       </div>
 
-      <!-- 栏目三 / 四：占位（内容在后续轮次补） -->
-      <div v-show="currentTab === 'settings'" class="tab-panel" id="tab-settings">
-        <p class="field-hint">基本设置面板将在后续轮次迁移</p>
+      <!-- 栏目三：基本设置 -->
+      <div :class="['tab-panel', { active: currentTab === 'settings' }]" id="tab-settings">
+        <SettingsPanel />
       </div>
-      <div v-show="currentTab === 'sol'" class="tab-panel" id="tab-sol">
-        <p class="field-hint">SOL 远程唤醒面板将在后续轮次迁移</p>
+
+      <!-- 栏目四：SOL 远程唤醒 -->
+      <div :class="['tab-panel', { active: currentTab === 'sol' }]" id="tab-sol">
+        <SolPanel />
       </div>
     </main>
   </div>
