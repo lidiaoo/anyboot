@@ -597,6 +597,38 @@ genModal         400x435 / 2填5钮   ↔  400x359   ✅
 - `gwPairOverlay` 1填7钮 vs 2填9钮 —— 已生成配对码/未生成两种状态
 - `fabHelpOverlay` 高度不同 —— 帮助文案长度不同
 
+### 第零层验证（本该最先做）：入口 → 真实实现
+
+文件窗那个坑（入口指向占位页）说明我缺了一道最基础的检查。
+写了 `render-check.js`：对 6 个入口 × 17 个页签，检查
+「元素数 / 按钮数 / 输入数 / 首行文本 / 是否含占位文案」。
+
+```
+页面                   元素   按钮   输入   判定
+index.html             476    129    5     ✅
+hub.html:home           32     12    0     ✅
+hub.html:computers     265     45    2     ✅
+hub.html:servers        91     14    1     ✅
+hub.html:gateway       113     30    5     ✅
+hub.html:term            7      1    0     ✅（旧版 7/1，一致）
+hub.html:sessions        7      0    0     ✅（旧版 7/0，一致）
+hub.html:transfers      13      4    0     ✅（旧版 13/4，一致）
+hub.html:files          45     10    1     ✅
+hub.html:keys           10      1    0     ✅（旧版 10/1，一致）
+hub.html:termset        48      2    7     ✅
+hub.html:backup         84     10   16     ✅
+hub.html:about          52      5    0     ✅
+hub-term.html           46      4    0     ✅
+hub-files.html          49      9    0     ✅
+hub-backup.html        100     11   16     ✅
+hub-keys.html           31      4    0     ✅
+
+不合格: 0 / 17
+```
+
+**4 个「元素少」的页面（term/sessions/transfers/keys）与旧版逐个数字相同** ——
+它们本来就是极简页（act-card 卡片 / session-list 列表）。
+
 ### 打包验证
 ```
 npm run build:mac-intel        → 成功（508 tests passed / 0 failed）
