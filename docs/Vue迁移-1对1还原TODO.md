@@ -334,6 +334,28 @@ CSS 构成：`styles.css` 5,013 + `hub.html` 内联 **2,342** + `notify.css` 168
 7. **`footer` 必须是 body 直接子元素**：放在 `#app` 里会落进 flex 列被推走，
    用 `<Teleport to="body">` 挂出去。
 
+### 深度 DOM 比对结果（`dom-diff.js`）
+
+按「可见元素」口径（跳过 `[hidden]` 与 `display:none` 子树）比对 class / id：
+
+```
+hub:term        ✅ 完全覆盖
+hub:sessions    ✅ 完全覆盖
+hub:transfers   ✅ 完全覆盖
+hub:keys        ✅ 完全覆盖
+hub:termset     ✅ 完全覆盖
+hub:computers   缺 6 类 / 0 id   （id 已清零）
+hub:servers     缺 3 类 / 0 id   （id 已清零）
+hub:gateway     缺 0 类 / 1 id
+hub:files       缺 1 类 / 1 id
+hub:backup      缺 11 类 / 8 id
+hub:about       缺 17 类 / 11 id
+```
+
+**要点**：剩余缺的 class 大多属于「旧版常驻 DOM、新版 v-if 隐藏」的部分
+（如 about 的 `.update-*` 更新卡、backup 的 `.bk-pw-zone` 口令区、
+computers 的 `.cq-boot--none` 空引导项），数据到位时才出现 —— 不是结构缺失。
+
 ### 验收结果（自动化对比脚本 `verify-all.js`）
 
 **21 个页签 × 新旧双版本**，比对「可见面板的元素数 + 是否有 JS 异常」：

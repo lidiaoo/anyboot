@@ -129,10 +129,10 @@ function openPage(which: string) {
         </svg>
       </span>
       <h2 class="about-title">AnyBoot</h2>
-      <p class="about-ver mono">v{{ version }} · 多系统启动管理器</p>
+      <p class="about-ver mono" id="aboutVersion">v{{ version }} · 多系统启动管理器</p>
       <p class="about-desc">多系统一键切换 · GRUB 管理 · 远程电源控制 · SSH 跳板机隧道 · SFTP 文件传输</p>
       <div class="about-hero-actions">
-        <button type="button" class="about-pill" @click="checkUpdate">
+        <button type="button" id="about-check-update" class="about-pill" @click="checkUpdate">
           检查更新<span aria-hidden="true"> ›</span>
         </button>
       </div>
@@ -140,18 +140,18 @@ function openPage(which: string) {
 
     <!-- 更新卡（只在 Tauri 里出现） -->
     <div v-if="inTauri && updateOpen" class="about-card about-update">
-      <div class="update-head">
+      <div class="update-head" id="update-head">
         <div class="update-version">
           <span class="update-k">当前版本</span>
-          <b class="update-v mono">{{ update?.currentVersion || version }}</b>
+          <b class="update-v mono" id="update-current">{{ update?.currentVersion || version }}</b>
         </div>
-        <div class="update-actions">
-          <button type="button" class="btn primary" :disabled="checking" @click="checkUpdate">
+        <div class="update-actions" id="update-actions">
+          <button type="button" id="update-check" class="btn primary" :disabled="checking" @click="checkUpdate">
             检查更新
           </button>
         </div>
       </div>
-      <div class="update-meta">{{ phaseText }}</div>
+      <div class="update-meta" id="update-meta">{{ phaseText }}</div>
 
       <div v-if="update?.phase === 'available' || update?.phase === 'downloading'" class="update-new-head">
         <strong>发现新版本 {{ update?.latestVersion }}</strong>
@@ -159,22 +159,22 @@ function openPage(which: string) {
       </div>
       <pre v-if="update?.notes" class="update-opt">{{ update.notes }}</pre>
 
-      <div v-if="update?.total" class="update-progress-meta">
-        <div class="update-track"><div class="update-fill" :style="{ width: progress + '%' }" /></div>
-        <span class="update-pct">{{ progress }}%</span>
+      <div v-if="update?.total" class="update-progress-meta" id="update-progress-meta">
+        <div class="update-track"><div class="update-fill" id="update-fill" :style="{ width: progress + '%' }" /></div>
+        <span class="update-pct" id="update-pct">{{ progress }}%</span>
         <span class="mono">{{ update?.source }}</span>
       </div>
 
-      <div v-if="update?.phase === 'available'" class="update-buttons">
+      <div v-if="update?.phase === 'available'" class="update-buttons" id="update-buttons">
         <button type="button" class="btn primary">下载</button>
         <button type="button" class="btn">跳过这个版本</button>
       </div>
 
       <div v-if="updateError" class="update-error">{{ updateError }}</div>
 
-      <div class="update-opts">
+      <div class="update-opts" id="update-opts">
         <label class="update-opt">
-          <input type="checkbox" checked disabled />
+          <input type="checkbox" id="update-auto-check" checked disabled />
           <span>自动检查（启动 30 秒后 + 每 12 小时）</span>
         </label>
       </div>
@@ -182,7 +182,7 @@ function openPage(which: string) {
 
     <!-- 仓库卡 -->
     <div class="about-card about-repo">
-      <button type="button" class="about-repo-head" @click="openPage('github')">
+      <button type="button" class="about-repo-head" id="aboutGitHub" @click="openPage('github')">
         <svg class="about-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M9 8l-4 4 4 4M15 8l4 4-4 4" />
         </svg>
@@ -194,14 +194,14 @@ function openPage(which: string) {
           <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
             <path d="M12 3.6l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z" />
           </svg>
-          <b>{{ stars }}</b>
+          <b id="about-star-inline">{{ stars }}</b>
         </span>
         <span class="about-chev" aria-hidden="true">›</span>
       </button>
       <div class="about-stats">
-        <span>{{ stars }} Star</span>
-        <span>— Fork</span>
-        <span>— Issues</span>
+        <span id="about-stat-star">{{ stars }} Star</span>
+        <span id="about-stat-fork">— Fork</span>
+        <span id="about-stat-issue">— Issues</span>
       </div>
       <p class="about-tip">点 Star 会打开 GitHub 网页，请在网页上点一下 —— 这是给开源作者最好的鼓励。</p>
     </div>

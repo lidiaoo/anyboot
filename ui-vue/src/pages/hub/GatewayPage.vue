@@ -310,6 +310,18 @@ function deletePair(id: string) {
           @change="setupAuto"
         />
         <span class="gw-ar-unit">秒</span>
+        <button
+          type="button"
+          id="gwAutoCaret"
+          class="gw-ar-caret"
+          aria-label="选择常用刷新间隔"
+          aria-haspopup="listbox"
+          :aria-expanded="false"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M6 9l6 6 6-6" />
+          </svg>
+        </button>
       </div>
       <button
         type="button"
@@ -336,6 +348,7 @@ function deletePair(id: string) {
     >
       <span
         v-if="tab.dot"
+        :id="tab.key === 'cf' ? 'gwTabDotCf' : tab.key === 'ts' ? 'gwTabDotTs' : 'gwTabDotTsn'"
         class="gw-tab-dot"
         :data-st="
           tab.key === 'cf'

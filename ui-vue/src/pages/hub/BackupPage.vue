@@ -163,7 +163,7 @@ function syncNow() {
 
 <template>
   <!-- ===== 导出 ===== -->
-  <section class="bk-panel">
+  <section class="bk-panel" id="exportPanel">
     <div class="bk-panel-head">
       <span class="bk-picon" aria-hidden="true">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -174,7 +174,7 @@ function syncNow() {
       <span class="bk-sub">导出为 .json 备份文件，可在手机 / 电脑间互导</span>
     </div>
 
-    <div class="bk-cats">
+    <div class="bk-cats" id="exportCats">
       <label v-for="cat in CATEGORIES" :key="cat.id" class="bk-radio-line">
         <input
           type="checkbox"
@@ -185,7 +185,7 @@ function syncNow() {
       </label>
     </div>
 
-    <div v-if="exportIncludeKeys" class="bk-info">
+    <div v-if="exportIncludeKeys" class="bk-info" id="exportKeyHint">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
         <circle cx="12" cy="12" r="9" />
         <path d="M12 8v5M12 16h.01" />
@@ -193,31 +193,31 @@ function syncNow() {
       <span>导出包含 <b>SSH 私钥明文</b>，请设置口令加密，并妥善保管备份文件。</span>
     </div>
 
-    <div v-if="exportIncludeKeys" class="bk-pw-zone">
-      <div class="bk-pw-grid">
+    <div v-if="exportIncludeKeys" class="bk-pw-zone" id="exportPwZone">
+      <div class="bk-pw-grid" id="exportPwGrid">
         <div class="bk-field">
           <label for="expPw1">备份口令</label>
           <input id="expPw1" v-model="exportPw1" type="password" placeholder="至少 4 位" autocomplete="new-password" />
-          <div class="bk-strength"><i :style="{ width: Math.min(100, exportPw1.length * 12) + '%' }" /></div>
+          <div class="bk-strength"><i id="expStrength" :style="{ width: Math.min(100, exportPw1.length * 12) + '%' }" /></div>
         </div>
         <div class="bk-field">
           <label for="expPw2">再输一次</label>
           <input id="expPw2" v-model="exportPw2" type="password" placeholder="两次需一致" autocomplete="new-password" />
-          <div class="bk-err">{{ exportPw1 && exportPw2 && exportPw1 !== exportPw2 ? "两次口令不一致" : "" }}</div>
+          <div class="bk-err" id="expPwErr">{{ exportPw1 && exportPw2 && exportPw1 !== exportPw2 ? "两次口令不一致" : "" }}</div>
         </div>
       </div>
     </div>
 
     <div class="bk-row-actions">
-      <button type="button" class="bk-btn bk-primary" :disabled="!!busy" @click="doExport">
+      <button type="button" id="exportBtn" class="bk-btn bk-primary" :disabled="!!busy" @click="doExport">
         导出备份文件
       </button>
-      <span class="bk-note">不加密也能导出，但密钥明文会直接写进文件</span>
+      <span class="bk-note" id="exportNote">不加密也能导出，但密钥明文会直接写进文件</span>
     </div>
   </section>
 
   <!-- ===== 导入 ===== -->
-  <section class="bk-panel">
+  <section class="bk-panel" id="importPanel">
     <div class="bk-panel-head">
       <span class="bk-picon" aria-hidden="true">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -228,7 +228,7 @@ function syncNow() {
       <span class="bk-sub">从 .json 备份文件恢复（手机导出的备份同样可用）</span>
     </div>
     <div class="bk-row-actions">
-      <button type="button" class="bk-btn bk-primary" :disabled="!!busy" @click="doImport">
+      <button type="button" id="importBtn" class="bk-btn bk-primary" :disabled="!!busy" @click="doImport">
         选择备份文件…
       </button>
       <span class="bk-note">导入前会先预览差异，再让你确认</span>
@@ -238,7 +238,7 @@ function syncNow() {
   <hr class="bk-divider" style="max-width: 860px; width: 100%; margin: 0 auto" />
 
   <!-- ===== WebDAV 同步 ===== -->
-  <section class="bk-panel">
+  <section class="bk-panel" id="syncPanel">
     <div class="bk-sync-head">
       <span class="bk-picon" aria-hidden="true">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -247,12 +247,12 @@ function syncNow() {
       </span>
       <h2>WebDAV 云同步</h2>
       <label class="bk-switch" style="margin-left: auto" title="开启 / 关闭同步">
-        <input type="checkbox" :checked="syncEnabled" @change="toggleSync" />
+        <input type="checkbox" id="syncEnabled" :checked="syncEnabled" @change="toggleSync" />
         <i />
       </label>
     </div>
 
-    <div class="bk-form-grid">
+    <div class="bk-form-grid" id="syncForm">
       <div class="bk-form-row">
         <div class="bk-field" style="flex: 2 1 280px">
           <label for="syncUrl">服务器地址</label>
@@ -284,7 +284,7 @@ function syncNow() {
       <div class="bk-form-row">
         <div class="bk-field">
           <label>自动同步频率</label>
-          <div class="bk-seg">
+          <div class="bk-seg" id="syncPeriod">
             <button
               v-for="opt in [
                 { v: 15, label: '15 分钟' },
@@ -305,11 +305,11 @@ function syncNow() {
       </div>
 
       <label class="bk-checkline">
-        <input v-model="syncOnChange" type="checkbox" />
+        <input id="syncOnChange" v-model="syncOnChange" type="checkbox" />
         有变化时自动同步（改动后约 30 秒内推送）
       </label>
 
-      <div class="bk-cats">
+      <div class="bk-cats" id="syncCats">
         <label v-for="cat in CATEGORIES" :key="cat.id" class="bk-radio-line">
           <input
             type="checkbox"
@@ -321,15 +321,15 @@ function syncNow() {
       </div>
     </div>
 
-    <div class="bk-sync-status">
+    <div class="bk-sync-status" id="syncStatus">
       <span v-if="sync?.lastError" class="bk-err">{{ sync.lastError }}</span>
       <span v-else>上次同步：{{ sync?.lastSyncAt || "从未" }}</span>
     </div>
 
     <div class="bk-row-actions">
-      <button type="button" class="bk-btn" :disabled="!!busy" @click="testWebdav">测试连接</button>
-      <button type="button" class="bk-btn" :disabled="!!busy" @click="saveSync">保存配置</button>
-      <button type="button" class="bk-btn bk-primary" :disabled="!syncEnabled || !!busy" @click="syncNow">
+      <button type="button" id="syncTestBtn" class="bk-btn" :disabled="!!busy" @click="testWebdav">测试连接</button>
+      <button type="button" id="syncSaveBtn" class="bk-btn" :disabled="!!busy" @click="saveSync">保存配置</button>
+      <button type="button" id="syncNowBtn" class="bk-btn bk-primary" :disabled="!syncEnabled || !!busy" @click="syncNow">
         立即同步
       </button>
     </div>

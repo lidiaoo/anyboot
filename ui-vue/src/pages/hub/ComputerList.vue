@@ -209,9 +209,9 @@ function power(payload: Record<string, unknown>) {
         </p>
       </div>
       <div class="cq-stats">
-        <div class="cq-stat cq-stat--on"><i>在线</i><b>{{ stats.online }}</b></div>
-        <div class="cq-stat cq-stat--off"><i>离线</i><b>{{ stats.offline }}</b></div>
-        <div class="cq-stat cq-stat--pend"><i>待生效</i><b>{{ stats.pending }}</b></div>
+        <div class="cq-stat cq-stat--on"><i>在线</i><b id="cqStOnline">{{ stats.online }}</b></div>
+        <div class="cq-stat cq-stat--off"><i>离线</i><b id="cqStOffline">{{ stats.offline }}</b></div>
+        <div class="cq-stat cq-stat--pend"><i>待生效</i><b id="cqStPending">{{ stats.pending }}</b></div>
       </div>
     </div>
 
@@ -223,7 +223,8 @@ function power(payload: Record<string, unknown>) {
           <path d="M20 20l-3.5-3.5" />
         </svg>
         <input
-          v-model="query"
+        id="cqQ"
+        v-model="query"
           type="search"
           placeholder="搜索电脑名称、IP 或 MAC"
           aria-label="搜索电脑"
@@ -231,7 +232,7 @@ function power(payload: Record<string, unknown>) {
           autocomplete="off"
         />
       </div>
-      <div class="cq-seg" role="tablist" aria-label="状态筛选">
+      <div class="cq-seg" id="cqSeg" role="tablist" aria-label="状态筛选">
         <button
           v-for="f in [
             { id: 'all', label: '全部', n: stats.all },
@@ -244,25 +245,26 @@ function power(payload: Record<string, unknown>) {
           :aria-selected="filter === f.id"
           @click="filter = f.id as typeof filter"
         >
-          {{ f.label }} <span class="n">{{ f.n }}</span>
+          {{ f.label }} <span class="n" :id="`cqN${f.id.charAt(0).toUpperCase()}${f.id.slice(1)}`">{{ f.n }}</span>
         </button>
       </div>
       <span class="cq-spacer" />
-      <button type="button" class="link-btn cq-help-btn" :aria-expanded="helpOpen" @click="helpOpen = !helpOpen">
+      <button type="button" id="cqHelpToggle" class="link-btn cq-help-btn" :aria-expanded="helpOpen" @click="helpOpen = !helpOpen">
         操作说明
       </button>
       <button
         type="button"
-        class="link-btn"
+        id="cqSort"
+        class="link-btn menu-anchor"
         title="选择电脑列表的排序方式（电脑页标签栏跟着同一套顺序）"
         @click="sortMode = sortMode === 'custom' ? 'name' : sortMode === 'name' ? 'recent' : 'custom'"
       >
-        排序 <span>{{ sortMode === "custom" ? "自定义" : sortMode === "name" ? "按名称" : "最近连接" }}</span>
+        排序 <span id="cqSortText">{{ sortMode === "custom" ? "自定义" : sortMode === "name" ? "按名称" : "最近连接" }}</span>
       </button>
-      <button type="button" class="link-btn" :disabled="refreshing" @click="manualRefresh">
-        {{ refreshing ? "探测中" : "刷新" }}
+      <button type="button" id="cqRefresh" class="link-btn" :disabled="refreshing" @click="manualRefresh">
+        <span id="cqRefreshText">{{ refreshing ? "探测中" : "刷新" }}</span>
       </button>
-      <PcMenu />
+      <PcMenu id="cqMore" />
     </div>
 
     <div v-show="helpOpen" class="cq-help">
@@ -280,7 +282,7 @@ function power(payload: Record<string, unknown>) {
 
     <div class="cq-card">
       <div class="cq-grid" role="table" aria-label="电脑列表">
-        <div class="cq-rows">
+        <div class="cq-rows" id="cqTbody">
           <ComputerRow
             v-for="row in rows"
             :key="row.id"
