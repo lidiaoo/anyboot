@@ -286,9 +286,11 @@ const pairOpen = ref(false);
 const uninstallOpen = ref(false);
 const uninstallWhat = ref("");
 const keepData = ref(false);
+const keepHint = ref("");
 
-function openUninstall(what: string) {
+function openUninstall(what: string, hint = "") {
   uninstallWhat.value = what;
+  keepHint.value = hint;
   keepData.value = false;
   uninstallOpen.value = true;
 }
@@ -909,7 +911,7 @@ function deletePair(id: string) {
             <span class="trk" aria-hidden="true" />
           </label>
         </span>
-        <button v-if="tsStatus?.installed" type="button" class="btn" id="tsUninstallBtn" @click="openUninstall('将卸载 Tailscale 程序本体')">
+        <button v-if="tsStatus?.installed" type="button" class="btn" id="tsUninstallBtn" @click="openUninstall('将卸载 Tailscale 程序本体', '不注销、不清 AuthKey，重装后仍是同一台已授权设备（管理台里的节点记录也保留）。')">
           卸载
         </button>
         <button type="button" class="btn" id="tsLogBtn" @click="openTsLog">日志</button>
@@ -1287,7 +1289,7 @@ function deletePair(id: string) {
         <input id="gwUniKeep" v-model="keepData" type="checkbox" />
         <span>
           <b>保留本机数据</b>（登录凭据 / 配置 / 状态目录）
-          <span id="gwUniKeepHint" class="field-hint" style="display: block; margin-top: 3px" />
+          <span id="gwUniKeepHint" class="field-hint" style="display: block; margin-top: 3px">{{ keepHint }}</span>
         </span>
       </label>
       <p id="gwUniWarn" class="field-hint" style="margin: 10px 0 0">

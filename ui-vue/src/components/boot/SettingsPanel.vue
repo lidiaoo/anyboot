@@ -37,6 +37,17 @@ function openLoginItems() {
   void call("open_login_items_settings").catch(() => {});
 }
 
+/** HTTP 请求日志（旧版 http.requests，每项「时间 来源 [通道] 摘要 — 状态」） */
+const httpRequests = computed<any[]>(() => {
+  const reqs = (ui.http as any)?.requests;
+  return Array.isArray(reqs) ? reqs : [];
+});
+function fmtRequest(e: any): string {
+  const time = e?.time ? new Date(Number(e.time)).toLocaleTimeString("zh-CN", { hour12: false }) : "";
+  const msg = e?.message ? `：${e.message}` : "";
+  return `${time} ${e?.source ?? ""} [${e?.channel ?? ""}] ${e?.summary ?? ""} — ${e?.status ?? ""}${msg}`;
+}
+
 const s = computed(() => ui.settings);
 
 /** 本地即时值（拖动滑块时先更新 UI，松手再落盘） */
@@ -590,7 +601,9 @@ function fmtPct(v: number) {
       </div>
       <div class="remote-log">
         <strong>最近请求</strong>
-        <ol id="http-requests"></ol>
+        <ol id="http-requests">
+          <li v-for="(entry, i) in httpRequests" :key="i">{{ fmtRequest(entry) }}</li>
+        </ol>
       </div>
 
       <div v-if="(ui.http as any)?.occupiedBy" class="port-occupant" id="port-occupant">

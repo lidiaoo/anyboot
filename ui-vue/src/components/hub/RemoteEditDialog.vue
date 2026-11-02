@@ -35,6 +35,32 @@ const name = ref("");
 const quick = ref("");
 
 /** 连接优先级六通道（旧版 ROUTE_IDS / ROUTE_LABELS） */
+const PAIR_BLOCKS = [
+  { id: "cloudflare", label: "Cloudflare" },
+  { id: "ts", label: "Tailscale" },
+  { id: "tsnet", label: "Tailscale（内建）" },
+];
+const PAIR_MODES = [
+  { id: "parallel_first", long: "并发（首个）" },
+  { id: "parallel_all", long: "并发（全部）" },
+  { id: "serial", long: "串行" },
+];
+const blockProbe = ref<Record<string, string>>({});
+const blockTimeouts = ref<Record<string, string>>({});
+function setBlockProbe(blockId: string, modeId: string) {
+  const next = { ...blockProbe.value };
+  if (modeId === "parallel_first") delete next[blockId];
+  else next[blockId] = modeId;
+  blockProbe.value = next;
+}
+function setBlockTimeout(blockId: string, raw: string) {
+  const sec = parseFloat(raw);
+  const next = { ...blockTimeouts.value };
+  if (!isFinite(sec) || sec <= 0) delete next[blockId];
+  else next[blockId] = String(Math.min(30, Math.max(0.2, sec)));
+  blockTimeouts.value = next;
+}
+
 const ROUTE_LABELS: Record<string, string> = {
   lan: "直连", jump: "跳板机", tunnel: "Cloudflare 隧道",
   ts: "Tailscale 直连", funnel: "Tailscale Funnel", tsnet: "Tailscale Funnel（内建）",
@@ -178,6 +204,10 @@ watch(
     }
     const rd = (r as Record<string, unknown>).routeDisabled as Record<string, boolean> | undefined;
     if (rd && typeof rd === "object") routeDisabled.value = { ...rd };
+    const bp = (r as Record<string, unknown>).blockProbe as Record<string, string> | undefined;
+    if (bp && typeof bp === "object") blockProbe.value = { ...bp };
+    const bt = (r as Record<string, unknown>).blockTimeouts as Record<string, string> | undefined;
+    if (bt && typeof bt === "object") blockTimeouts.value = { ...bt };
     // 把 addresses + macs 摊平成行
     const addrs = r.addresses ?? [];
     const macs = (r.macs ?? {}) as Record<string, string[]>;
@@ -235,6 +265,8 @@ function submit() {
     route_order: routeOrder.value,
     route_disabled: routeDisabled.value,
     route_timeout: routeTimeout.value,
+    block_probe: blockProbe.value,
+    block_timeouts: blockTimeouts.value,
   });
 }
 </script>
@@ -378,7 +410,32 @@ function submit() {
           </div>
           <div class="field" id="rsBlockPolicy">
             <label><b>区块内部策略</b>（同一个区块里多条配对之间怎么探）+ <b>区块默认超时</b></label>
-            <div class="block-policy" id="rsBlockPolicyBox" />
+            <div class="block-policy" id="rsBlockPolicyBox">
+              <div v-for="block in PAIR_BLOCKS" :key="block.id" class="bp-row">
+                <span class="bp-name">{{ block.label }}</span>
+                <span class="bp-seg">
+                  <button
+                    v-for="mode in PAIR_MODES"
+                    :key="mode.id"
+                    type="button"
+                    :class="['btn', 'small', { primary: (blockProbe[block.id] || 'parallel_first') === mode.id }]"
+                    style="flex: 1"
+                    @click="setBlockProbe(block.id, mode.id)"
+                  >{{ mode.long }}</button>
+                </span>
+                <input
+                  class="bp-timeout mono"
+                  type="number"
+                  step="0.5"
+                  min="0.2"
+                  max="30"
+                  placeholder="默认"
+                  title="这个区块的默认探测超时（秒）；留空 = 全局默认值"
+                  :value="blockTimeouts[block.id] || ''"
+                  @change="setBlockTimeout(block.id, ($event.target as HTMLInputElement).value)"
+                />
+              </div>
+            </div>
             <p class="field-hint">每个区块单独选：并发（首个）命中即收工、其余标「未探测」（快）；并发（全部）逐条报状态（体检用）；串行按行序逐个试、第一个通就停（严格尊重优先级）。并发（首个）下顺序只影响发起先后，先排的不一定赢 —— 要严格按顺序必须选串行。区块默认超时 = 该区块内没单独设超时的行用它，再留空则用下面的全局默认值。</p>
           </div>
           <div class="field">
