@@ -243,10 +243,22 @@ watch(
   () => props.remote,
   (r) => {
     if (!r) {
+      // 新建：清空所有编辑状态（含配对/路由/令牌/策略），避免残留上一次编辑
       name.value = "";
       quick.value = "";
       hint.value = "";
+      remoteText.value = "";
+      token.value = "";
+      hasToken.value = false;
       rows.value = [{ addr: "", macList: [], jump: "" }];
+      pairs.value = [];
+      routeOrder.value = [...ROUTE_IDS];
+      routeDisabled.value = {};
+      routeTimeout.value = {};
+      blockProbe.value = {};
+      blockTimeouts.value = {};
+      editError.value = "";
+      testOut.value = "";
       return;
     }
     name.value = r.name;
