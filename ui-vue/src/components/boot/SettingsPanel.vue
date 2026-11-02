@@ -377,7 +377,6 @@ function fmtPct(v: number) {
         :value="s?.mainWindowPosition || 'last'"
         @change="commit('set_main_window_position', { value: ($event.target as HTMLSelectElement).value })"
       >
-        <option value="auto">自动（不固定）</option>
         <option value="free">自由拖动</option>
         <option value="center">屏幕中间</option>
         <option value="last">上次位置</option>
@@ -390,7 +389,14 @@ function fmtPct(v: number) {
         <strong>固定显示器</strong>
         <small>选了某台显示器后主窗口只在这台显示器里显示：居中、呼出、贴边都落在它上面，拖到别的显示器会被夹回来；自动 = 不限制</small>
       </span>
-      <input id="main-fixed-monitor" type="checkbox" :checked="Boolean(s?.mainFixedMonitor)" @change="commit('set_main_fixed_monitor', { on: !s?.mainFixedMonitor })" />
+      <select
+        id="main-fixed-monitor"
+        :value="s?.mainFixedMonitor || 'auto'"
+        @change="commit('set_main_fixed_monitor', { name: ($event.target as HTMLSelectElement).value })"
+      >
+        <option value="auto">自动（不固定）</option>
+        <option v-for="m in (s?.mainMonitorOptions ?? [])" :key="m" :value="m">{{ m }}</option>
+      </select>
     </label>
 
     <!-- 窗口宽度 / 高度（旧版 window-size-*） -->
