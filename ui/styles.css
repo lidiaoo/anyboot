@@ -3792,10 +3792,63 @@ svg.i.lg { width: 16px; height: 16px; }
 .vw-760 .lb-item .nm small { display: none; }
 .vw-760 .lb-grip { display: none; }
 .vw-760 .lb-nav-head, .vw-760 .lb-nav-foot { display: none; }
-.vw-760 .lj-c1 { width: 60px; }
-.vw-760 .lj-c1 .hd { display: none; }
-.vw-760 .lj-navi .nm, .vw-760 .lj-navi .ldr { display: none; }
-.vw-760 .lj-navi { justify-content: center; }
+/* 2026-11-02 用户定案：「J 的布局在移动版参考 B 左边的到顶部 右边的到底部」。
+ *
+ * 原来这里是「左栏压成 60px 竖条、隐藏名字只留图标」—— 竖条仍占宽度、
+ * 也看不出是哪个通道。B 的做法是：**左栏变顶部横滑标签条，主内容在下方**。
+ * J 照抄同一套。 */
+.lj.vw-760, .vw-760 .lj { flex-direction: column; }
+.lj.vw-760 .lj-c1, .vw-760 .lj-c1 {
+  width: auto;
+  flex: none;
+  max-height: none;
+  border-right: 0;
+  border-bottom: 1px solid var(--line);
+}
+.lj.vw-760 .lj-c1 .hd, .vw-760 .lj-c1 .hd { display: none; }
+.lj.vw-760 .lj-nav, .vw-760 .lj-nav {
+  flex-direction: row;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 6px;
+  gap: 6px;
+}
+.lj.vw-760 .lj-navi, .vw-760 .lj-navi {
+  width: auto;
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  padding: 6px 9px;
+}
+/* 名字恢复显示（B 的 lb-item 也显示名字，只是隐藏了路径小字） */
+.lj.vw-760 .lj-navi .nm, .vw-760 .lj-navi .nm { display: block; white-space: nowrap; }
+.lj.vw-760 .lj-navi .ldr, .vw-760 .lj-navi .ldr { display: inline-flex; }
+.vw-760 .lj-navi { justify-content: flex-start; }
+/* ≤520 档同样处理（手机竖屏一定命中 520） */
+.lj.vw-520, .vw-520 .lj { flex-direction: column; }
+.lj.vw-520 .lj-c1, .vw-520 .lj-c1 {
+  width: auto; flex: none; border-right: 0;
+  border-bottom: 1px solid var(--line);
+}
+.lj.vw-520 .lj-c1 .hd, .vw-520 .lj-c1 .hd { display: none; }
+.lj.vw-520 .lj-nav, .vw-520 .lj-nav {
+  flex-direction: row; overflow-x: auto; overflow-y: hidden;
+  padding: 6px; gap: 6px;
+}
+.lj.vw-520 .lj-navi, .vw-520 .lj-navi {
+  width: auto; flex: 0 0 auto; justify-content: flex-start;
+  border: 1px solid var(--line); background: var(--panel); padding: 6px 9px;
+}
+.lj.vw-520 .lj-navi .nm, .vw-520 .lj-navi .nm { display: block; white-space: nowrap; }
+.lj.vw-520 .lj-navi .ldr, .vw-520 .lj-navi .ldr { display: inline-flex; }
+.lj.vw-520 .lj-c2, .vw-520 .lj-c2 { flex: 1 1 auto; min-height: 0; }
+
+/* 右侧设置栏已在下面整块隐藏（用户要「只展示引导项列表」），
+ * 所以「右边的到底部」这里指的是主列表列占满剩余高度。 */
+.lj.vw-760 .lj-c2, .vw-760 .lj-c2 {
+  flex: 1 1 auto;
+  min-height: 0;
+}
 /* 小屏只展示一列时，「有一列是空的 · 去引导高级设置分配」这条提示没有意义
  * （那是在并排时才需要解释的事），一并隐藏。 */
 .vw-520 .k-stage.h > .empty,
@@ -3831,7 +3884,9 @@ svg.i.lg { width: 16px; height: 16px; }
 .vw-760 .li-hero { grid-column: span 2; }
 .vw-520 .li-grid { grid-template-columns: 1fr; }
 .vw-520 .li-hero { grid-column: span 1; }
-.vw-520 .lj-c1 { display: none; }
+/* 2026-11-02 撤销：这里原先把 J 的通道栏在小屏整个隐藏（旧设计「只看列表」）。
+ * 用户现在要「J 参考 B 左边的到顶部」—— B 的做法是左栏变顶部横滑标签条，
+ * 所以不能再 display:none，改为由下面的 .lj.vw-520 .lj-c1 规则改成横条。 */
 .vw-520 .lj-c3 { width: 210px; }
 /* ≤520：B 的主区标题行与 C 的工具栏各收一档内边距，别把行挤成两行 */
 .vw-520 .lb-main-head { padding: 11px 12px; }
