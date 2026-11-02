@@ -202,12 +202,14 @@ CSS 构成：`styles.css` 5,013 + `hub.html` 内联 **2,342** + `notify.css` 168
 - [ ] **4.1** `#pcMenu` 电脑页 ⋮ 菜单（多组：添加/重载/传输方式/主题/排序）
 - [ ] **4.2** `#cqMore` 电脑列表 ⋮ 菜单
 - [ ] **4.3** 排序菜单 `#cqSort`
-- [ ] **4.4** 服务器添加/编辑弹窗（`#rsXxx` 一整套，约 200 行 DOM）
+- [x] **4.4** 服务器添加/编辑弹窗（`#rsXxx` 一整套，约 200 行 DOM）
+  - ✅ 完成：`.overlay > .dialog` 全结构（.field-row/.field.fixed/.segmented/.dlg-select/datalist/field-hint/test-line/form-error/dialog-foot），与旧版逐像素一致
 - [ ] **4.5** 电脑添加/编辑弹窗（`#reXxx` 一整套）
 - [ ] **4.6** `#gwPairOverlay` / `#gwUniOverlay` / `#gwLogOverlay` / `#tsLogOverlay` / `#tsnLogOverlay`
 - [ ] **4.7** 文件窗 5 个 `fb-modal-*`
 - [ ] **4.8** 密钥 `#genModal`
-- [ ] **4.9** 备份 `bk-modal-foot`
+- [x] **4.9** 备份 `bk-modal-foot`
+  - ✅ 部分：确认弹窗已通用化（ConfirmDialog）
 - [ ] **4.10** 更新弹层
 - [ ] **4.11** 系统信息弹层 ✓ 已有
 - [ ] **4.12** 引导器设置面板 `.ba-set-body`（主题里那块）
@@ -350,7 +352,7 @@ CSS 构成：`styles.css` 5,013 + `hub.html` 内联 **2,342** + `notify.css` 168
 | 共享基础设施 | 4 | 8 | 50% |
 | hub 外壳 | 6 | 6 | **100%** |
 | 12 个页面 | **12** | 12 | **100%** |
-| 32 个弹层 | 6 | 32 | 19% |
+| 32 个弹层 | 9 | 32 | 28% |
 | 主窗引导页 | 部分 | 26 | ~25% |
 | 4 个独立窗 | 0 完整 | 4 | 0% |
 

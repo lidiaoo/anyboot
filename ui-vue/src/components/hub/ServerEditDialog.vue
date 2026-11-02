@@ -3,45 +3,57 @@ import { computed, ref, watch } from "vue";
 import type { HubServer } from "@/stores/servers";
 
 /**
- * 添加 / 编辑服务器弹窗（原 `ui/hub.html` 的「添加 / 编辑弹窗」1450~1762 行）。
+ * 添加 / 编辑服务器弹窗（原 `ui/hub.html` 的 `#editOverlay`，4603~4695 行）。
  *
- * 表单字段对齐 Rust `hub::HubServer`；`password_new` 是**只写**字段
- * （`skip_serializing`）：不填 = 不动已存密码，填空串 = 清除。
- *
- * 认证三选一：
- *   · 交互 —— 三个字段全空，密码/首次指纹在 ssh 里输（凭据不落盘）
- *   · 密码 —— `password_new` 非空
- *   · 密钥 —— `key_id` 非空
+ * ## 1:1 结构（逐字照搬）
+ * ```
+ * .overlay
+ *   .dialog[role=dialog]
+ *     .dialog-head > h3#editTitle + button.icon-btn
+ *     .dialog-body
+ *       .field-row > .field(label+input) + .field.fixed(.flabel + .segmented)
+ *       .field-row > .field 地址 + .field.fixed 端口
+ *       .field 用户名
+ *       .field-row > .field.fixed 认证方式(.segmented) + #fKeyField(select)
+ *       #fPasswordField
+ *       #fJumpField(select)
+ *       .field-row > 终端启动路径 + 终端 shell(+datalist)
+ *       .field 备注(textarea)
+ *       p.field-hint（三种认证方式说明，原文照抄）
+ *       p.test-line
+ *       p.form-error
+ *     .dialog-foot > 测试连接 + .spacer + 取消 + 保存
+ * ```
  */
 
 const props = defineProps<{
   open: boolean;
   server?: HubServer | null;
+  /** 可选的密钥列表（#fKey 的选项） */
+  keys?: { id: string; name: string }[];
+  /** 可选的跳板机列表（#fJump 的选项） */
+  jumpOptions?: HubServer[];
 }>();
 
 const emit = defineEmits<{
   (e: "save", payload: Record<string, unknown>): void;
+  (e: "test", payload: Record<string, unknown>): void;
   (e: "close"): void;
 }>();
 
-const form = ref({
-  id: "",
-  name: "",
-  protocol: "ssh",
-  host: "",
-  addressesText: "",
-  username: "",
-  port: 0,
-  notes: "",
-  key_id: "",
-  jump_id: "",
-  term_path: "",
-  term_shell: "",
-  password_new: "",
-});
-
-const authMode = ref<"interactive" | "password" | "key">("interactive");
-const saving = ref(false);
+const name = ref("");
+const protocol = ref<"ssh" | "telnet">("ssh");
+const host = ref("");
+const port = ref("");
+const username = ref("");
+const auth = ref<"interactive" | "password" | "key">("interactive");
+const keyId = ref("");
+const password = ref("");
+const jumpId = ref("");
+const termPath = ref("");
+const termShell = ref("");
+const notes = ref("");
+const testLine = ref("");
 const errorText = ref("");
 
 const isEdit = computed(() => Boolean(props.server?.id));
@@ -50,296 +62,208 @@ watch(
   () => props.server,
   (server) => {
     if (!server) {
-      form.value = {
-        id: "",
-        name: "",
-        protocol: "ssh",
-        host: "",
-        addressesText: "",
-        username: "",
-        port: 0,
-        notes: "",
-        key_id: "",
-        jump_id: "",
-        term_path: "",
-        term_shell: "",
-        password_new: "",
-      };
-      authMode.value = "interactive";
+      name.value = "";
+      protocol.value = "ssh";
+      host.value = "";
+      port.value = "";
+      username.value = "";
+      auth.value = "interactive";
+      keyId.value = "";
+      password.value = "";
+      jumpId.value = "";
+      termPath.value = "";
+      termShell.value = "";
+      notes.value = "";
+      testLine.value = "";
+      errorText.value = "";
       return;
     }
-    form.value = {
-      id: server.id,
-      name: server.name,
-      protocol: server.protocol,
-      host: server.host,
-      addressesText: (server.addresses ?? []).join("\n"),
-      username: server.username,
-      port: server.port,
-      notes: server.notes,
-      key_id: server.key_id,
-      jump_id: server.jump_id,
-      term_path: server.term_path,
-      term_shell: server.term_shell,
-      password_new: "",
-    };
-    if (server.key_id) authMode.value = "key";
-    else if (server.password_enc) authMode.value = "password";
-    else authMode.value = "interactive";
+    name.value = server.name;
+    protocol.value = server.protocol === "telnet" ? "telnet" : "ssh";
+    host.value = server.host;
+    port.value = server.port ? String(server.port) : "";
+    username.value = server.username;
+    auth.value = server.key_id ? "key" : server.password_enc ? "password" : "interactive";
+    keyId.value = server.key_id;
+    password.value = "";
+    jumpId.value = server.jump_id;
+    termPath.value = server.term_path;
+    termShell.value = server.term_shell;
+    notes.value = server.notes;
+    testLine.value = "";
+    errorText.value = "";
   },
   { immediate: true },
 );
 
+function buildPayload(): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
+    id: props.server?.id ?? "",
+    name: name.value.trim(),
+    protocol: protocol.value,
+    host: host.value.trim(),
+    port: Number(port.value) || 0,
+    addresses: [],
+    username: username.value.trim(),
+    notes: notes.value,
+    // 三选一：只在对应模式下提交，其余清空
+    key_id: auth.value === "key" ? keyId.value : "",
+    jump_id: jumpId.value,
+    term_path: termPath.value.trim(),
+    term_shell: termShell.value.trim(),
+  };
+  if (auth.value === "password" && password.value) {
+    payload.password_new = password.value;
+  } else if (auth.value === "interactive") {
+    payload.password_new = "";
+  }
+  return payload;
+}
+
 function submit() {
   errorText.value = "";
-  if (!form.value.name.trim()) {
+  if (!name.value.trim()) {
     errorText.value = "名称不能为空";
     return;
   }
-  if (!form.value.host.trim()) {
-    errorText.value = "主机地址不能为空";
+  if (!host.value.trim()) {
+    errorText.value = "地址不能为空";
     return;
   }
-  const addresses = form.value.addressesText
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-  const payload: Record<string, unknown> = {
-    id: form.value.id,
-    name: form.value.name.trim(),
-    protocol: form.value.protocol,
-    host: form.value.host.trim(),
-    port: Number(form.value.port) || 0,
-    addresses,
-    username: form.value.username.trim(),
-    notes: form.value.notes,
-    // 认证三选一：只在对应模式下提交，其余清空
-    key_id: authMode.value === "key" ? form.value.key_id.trim() : "",
-    jump_id: form.value.jump_id.trim(),
-    term_path: form.value.term_path.trim(),
-    term_shell: form.value.term_shell.trim(),
-  };
-  if (authMode.value === "password" && form.value.password_new) {
-    payload.password_new = form.value.password_new;
-  } else if (authMode.value === "interactive") {
-    payload.password_new = ""; // 显式清除已存密码
-  }
-  saving.value = true;
-  emit("save", payload);
+  emit("save", buildPayload());
+}
+
+function doTest() {
+  testLine.value = "正在测试…";
+  emit("test", buildPayload());
 }
 </script>
 
 <template>
-  <Teleport to="body">
-    <div v-if="open" class="backdrop" @click.self="emit('close')">
-      <div class="dialog" role="dialog" aria-modal="true">
-        <header>
-          <h2>{{ isEdit ? "编辑服务器" : "添加服务器" }}</h2>
-          <button type="button" class="btn icon ghost sm" @click="emit('close')">✕</button>
-        </header>
+  <div v-if="open" class="overlay">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="editTitle">
+      <div class="dialog-head">
+        <h3 id="editTitle">{{ isEdit ? "编辑服务器" : "添加服务器" }}</h3>
+        <button type="button" class="icon-btn" aria-label="关闭" @click="emit('close')">✕</button>
+      </div>
 
-        <div class="body">
-          <div class="row">
-            <label>名称</label>
-            <input v-model="form.name" placeholder="给这台服务器起个名字" />
+      <div class="dialog-body">
+        <div class="field-row">
+          <div class="field">
+            <label for="fName">名称</label>
+            <input id="fName" v-model="name" type="text" placeholder="如：办公室 NAS" />
           </div>
-
-          <div class="row">
-            <label>协议</label>
-            <select v-model="form.protocol">
-              <option value="ssh">SSH</option>
-              <option value="telnet">Telnet</option>
-            </select>
-          </div>
-
-          <div class="row">
-            <label>主机</label>
-            <input v-model="form.host" placeholder="192.168.1.10 或域名" />
-            <input v-model.number="form.port" class="port" type="number" placeholder="端口" />
-          </div>
-
-          <div class="row">
-            <label>其它地址</label>
-            <textarea
-              v-model="form.addressesText"
-              rows="2"
-              placeholder="一行一个（测试连接时会逐个探测，可留空）"
-            />
-          </div>
-
-          <div class="row">
-            <label>用户名</label>
-            <input v-model="form.username" placeholder="登录用户名" />
-          </div>
-
-          <div class="row">
-            <label>认证</label>
+          <div class="field fixed" style="flex: 0 0 auto">
+            <span class="flabel">协议</span>
             <div class="segmented">
-              <button
-                type="button"
-                :aria-selected="authMode === 'interactive'"
-                @click="authMode = 'interactive'"
-              >
-                交互输入
-              </button>
-              <button
-                type="button"
-                :aria-selected="authMode === 'password'"
-                @click="authMode = 'password'"
-              >
-                密码
-              </button>
-              <button type="button" :aria-selected="authMode === 'key'" @click="authMode = 'key'">
-                密钥
+              <button type="button" :aria-selected="protocol === 'ssh'" @click="protocol = 'ssh'">SSH</button>
+              <button type="button" :aria-selected="protocol === 'telnet'" @click="protocol = 'telnet'">
+                Telnet
               </button>
             </div>
           </div>
-
-          <div v-if="authMode === 'password'" class="row">
-            <label>密码</label>
-            <input
-              v-model="form.password_new"
-              type="password"
-              :placeholder="isEdit ? '留空 = 不改已存密码' : '登录密码'"
-            />
-          </div>
-
-          <div v-if="authMode === 'key'" class="row">
-            <label>密钥</label>
-            <input v-model="form.key_id" placeholder="密钥文件基名（到「密钥」页管理）" />
-          </div>
-
-          <div class="row">
-            <label>跳板机</label>
-            <input v-model="form.jump_id" placeholder="经哪台服务器中转（留空 = 直连）" />
-          </div>
-
-          <div class="row">
-            <label>终端路径</label>
-            <input v-model="form.term_path" placeholder="登录后先 cd 到这里（可留空）" />
-          </div>
-
-          <div class="row">
-            <label>终端 shell</label>
-            <input v-model="form.term_shell" placeholder="/bin/bash 等（留空 = 登录 shell）" />
-          </div>
-
-          <div class="row">
-            <label>备注</label>
-            <textarea v-model="form.notes" rows="2" placeholder="可选" />
-          </div>
-
-          <p v-if="errorText" class="err">{{ errorText }}</p>
         </div>
 
-        <footer>
-          <button type="button" class="btn ghost" @click="emit('close')">取消</button>
-          <button type="button" class="btn primary" :disabled="saving" @click="submit">
-            {{ saving ? "保存中…" : "保存" }}
-          </button>
-        </footer>
+        <div class="field-row">
+          <div class="field">
+            <label for="fHost">地址</label>
+            <input id="fHost" v-model="host" type="text" class="mono" placeholder="IP 或域名" />
+          </div>
+          <div class="field fixed">
+            <label for="fPort">端口</label>
+            <input id="fPort" v-model="port" type="text" class="mono" inputmode="numeric" placeholder="默认" />
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="fUser">用户名</label>
+          <input id="fUser" v-model="username" type="text" class="mono" placeholder="root" />
+        </div>
+
+        <div class="field-row">
+          <div class="field fixed" style="flex: 0 0 auto">
+            <span class="flabel">认证方式</span>
+            <div class="segmented">
+              <button type="button" :aria-selected="auth === 'interactive'" @click="auth = 'interactive'">
+                交互
+              </button>
+              <button type="button" :aria-selected="auth === 'password'" @click="auth = 'password'">
+                密码
+              </button>
+              <button type="button" :aria-selected="auth === 'key'" @click="auth = 'key'">密钥</button>
+            </div>
+          </div>
+          <div v-if="auth === 'key'" class="field">
+            <label for="fKey">选择钥匙</label>
+            <select id="fKey" v-model="keyId" class="dlg-select">
+              <option value="">（还没有密钥，去工具栏「密钥」生成）</option>
+              <option v-for="k in keys ?? []" :key="k.id" :value="k.id">{{ k.name }}</option>
+            </select>
+          </div>
+        </div>
+
+        <div v-if="auth === 'password'" class="field">
+          <label for="fPassword">密码（AES-256-GCM 加密存本机，连接免输）</label>
+          <input
+            id="fPassword"
+            v-model="password"
+            type="password"
+            autocomplete="off"
+            :placeholder="isEdit ? '留空则不修改已存密码' : ''"
+          />
+        </div>
+
+        <div class="field">
+          <label for="fJump">经由跳板机（借助另一台已保存的 SSH 服务器中转：外网连内网机器）</label>
+          <select id="fJump" v-model="jumpId" class="dlg-select">
+            <option value="">直连（默认）</option>
+            <option v-for="s in jumpOptions ?? []" :key="s.id" :value="s.id">{{ s.name }}</option>
+          </select>
+        </div>
+
+        <div class="field-row">
+          <div class="field">
+            <label for="fTermPath">终端启动路径（登录后先 cd 过去；进不去会报错并落在家目录）</label>
+            <input id="fTermPath" v-model="termPath" type="text" class="mono" placeholder="如 /data/logs，留空 = 远端家目录" />
+          </div>
+          <div class="field">
+            <label for="fTermShell">终端 shell（留空 = 远端登录 shell）</label>
+            <input
+              id="fTermShell"
+              v-model="termShell"
+              type="text"
+              class="mono"
+              list="termShellPresets"
+              placeholder="/bin/bash 等，或自定义命令"
+            />
+            <datalist id="termShellPresets">
+              <option value="/bin/bash" />
+              <option value="/bin/sh" />
+              <option value="/bin/zsh" />
+              <option value="/bin/fish" />
+            </datalist>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="fNotes">备注</label>
+          <textarea id="fNotes" v-model="notes" rows="2" placeholder="可选" />
+        </div>
+
+        <p class="field-hint">
+          「交互」= 系统 ssh 在终端内要密码 / 确认指纹，凭据不落盘；「密码」= 密文落盘（AES-256-GCM），ssh
+          经 askpass 免输，指纹确认仍在终端里；「密钥」= 起 ssh 带 -i（带口令的钥匙仍在终端里解锁一次）。三种方式互斥，切换即清掉另一种存的凭据。
+        </p>
+        <p class="test-line">{{ testLine }}</p>
+        <p class="form-error">{{ errorText }}</p>
+      </div>
+
+      <div class="dialog-foot">
+        <button type="button" class="btn" @click="doTest">测试连接</button>
+        <span class="spacer" />
+        <button type="button" class="btn ghost" @click="emit('close')">取消</button>
+        <button type="button" class="btn primary" @click="submit">保存</button>
       </div>
     </div>
-  </Teleport>
+  </div>
 </template>
-
-<style scoped>
-.backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(15, 23, 42, 0.35);
-  display: grid;
-  place-items: center;
-  z-index: 80;
-  padding: 20px;
-}
-.dialog {
-  width: min(560px, 100%);
-  max-height: 88vh;
-  background: var(--panel, #fff);
-  border-radius: 12px;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.25);
-}
-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 14px 18px;
-  border-bottom: 1px solid var(--line, #e5e7eb);
-}
-h2 {
-  font-size: 15px;
-  margin: 0;
-}
-.body {
-  padding: 16px 18px;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.row {
-  display: grid;
-  grid-template-columns: 84px 1fr;
-  gap: 10px;
-  align-items: start;
-}
-.row label {
-  font-size: 12.5px;
-  color: var(--fg-faint, #9ca3af);
-  padding-top: 7px;
-}
-input,
-textarea,
-select {
-  border: 1px solid var(--line, #e5e7eb);
-  border-radius: 7px;
-  padding: 6px 10px;
-  font-size: 12.5px;
-  font-family: inherit;
-  width: 100%;
-}
-.row input.port {
-  grid-column: 3;
-  width: 90px;
-}
-textarea {
-  resize: vertical;
-}
-.segmented {
-  display: flex;
-  gap: 2px;
-  border: 1px solid var(--line, #e5e7eb);
-  border-radius: 8px;
-  padding: 2px;
-  width: fit-content;
-}
-.segmented button {
-  border: 0;
-  background: transparent;
-  font-size: 12px;
-  padding: 4px 12px;
-  border-radius: 6px;
-  cursor: pointer;
-  color: var(--fg-dim, #4b5563);
-}
-.segmented button[aria-selected="true"] {
-  background: var(--accent, #2563eb);
-  color: #fff;
-}
-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  padding: 12px 18px;
-  border-top: 1px solid var(--line, #e5e7eb);
-}
-.err {
-  font-size: 12px;
-  color: #dc2626;
-  margin: 0;
-}
-</style>

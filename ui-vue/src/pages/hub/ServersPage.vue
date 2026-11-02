@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from "vue";
 import { useServersStore, type HubServer } from "@/stores/servers";
 import ServerEditDialog from "@/components/hub/ServerEditDialog.vue";
+import ConfirmDialog from "@/components/hub/ConfirmDialog.vue";
 import LatencyTrend from "@/components/hub/LatencyTrend.vue";
 
 /**
@@ -54,8 +55,17 @@ function openTerminal(server: HubServer) {
   );
 }
 
-async function onDelete(server: HubServer) {
-  if (!window.confirm(`确定删除「${server.name}」？`)) return;
+/** 删除确认（旧版用 #deleteOverlay 弹层，不是 window.confirm） */
+const deleteTarget = ref<HubServer | null>(null);
+
+function onDelete(server: HubServer) {
+  deleteTarget.value = server;
+}
+
+async function confirmDelete() {
+  const server = deleteTarget.value;
+  deleteTarget.value = null;
+  if (!server) return;
   try {
     await store.remove(server.id);
     if (selectedId.value === server.id) selectedId.value = store.servers[0]?.id ?? "";
@@ -224,6 +234,17 @@ async function testOne(server: HubServer) {
     :server="editing"
     @save="onSave"
     @close="dialogOpen = false"
+  />
+
+  <!-- 删除确认（旧版 #deleteOverlay） -->
+  <ConfirmDialog
+    :open="Boolean(deleteTarget)"
+    title="删除服务器"
+    :message="`确定删除「${deleteTarget?.name ?? ''}」吗？此操作不可恢复。`"
+    confirm-text="删除"
+    :danger="true"
+    @confirm="confirmDelete"
+    @cancel="deleteTarget = null"
   />
 </template>
 
