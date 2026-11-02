@@ -32,6 +32,8 @@ const props = defineProps<{
   activeId?: string;
   onSelect?: (id: string) => void;
   onAdd?: () => void;
+  /** 「编排与排序」：打开引导高级设置 */
+  onArrange?: () => void;
 }>();
 
 /**
@@ -89,28 +91,55 @@ function select(id: string) {
         </button>
       </div>
       <div class="lb-list">
+        <!-- 旧版 boot-adv.js:1251：.lb-item > .lb-grip + 图标 + .nm(b+small) + dot -->
         <button
           v-for="loader in loaders"
           :key="loader.id"
           type="button"
+          class="lb-item"
           :class="{ 'is-on': loader.id === current }"
           @click="select(loader.id)"
         >
+          <svg
+            class="i sm lb-grip"
+            viewBox="0 0 16 16"
+            fill="currentColor"
+            aria-hidden="true"
+          >
+            <circle cx="6" cy="4" r="1.1" /><circle cx="10" cy="4" r="1.1" />
+            <circle cx="6" cy="8" r="1.1" /><circle cx="10" cy="8" r="1.1" />
+            <circle cx="6" cy="12" r="1.1" /><circle cx="10" cy="12" r="1.1" />
+          </svg>
           <LoaderIcon :id="loader.id" size="sm" />
-          <span class="nm">{{ loader.name }}</span>
+          <span class="nm">
+            <b>{{ loader.name }}</b>
+            <small>{{ loader.entries.length }} 个条目 · {{ loader.perm === "nvram" ? "需提权" : "免提权" }}</small>
+          </span>
           <i :class="['dot', loader.state]" />
         </button>
+      </div>
+      <!-- 旧版 boot-adv.js:1266：.lb-nav-foot > 编排与排序 / 新增 -->
+      <div class="lb-nav-foot">
+        <button type="button" class="btn sm ghost" @click="onArrange?.()">编排与排序</button>
+        <button type="button" class="btn sm ghost" title="添加 / 重新识别通道" @click="onAdd?.()">＋</button>
       </div>
     </aside>
 
     <div class="lb-main">
       <template v-if="activeLoader">
-        <h2>
-          <LoaderIcon :id="activeLoader.id" size="md" />
-          {{ activeLoader.name }}
-          <StateChip :state="activeLoader.state" />
-        </h2>
-        <p>{{ metaText }}</p>
+        <!-- 旧版 boot-adv.js:1272：.lb-main-head > .tt(mainName + mainMeta) + 下次启动 + more -->
+        <div class="lb-main-head">
+          <div class="tt">
+            <h2>
+              <LoaderIcon :id="activeLoader.id" size="md" />
+              {{ activeLoader.name }}
+              <StateChip :state="activeLoader.state" />
+            </h2>
+            <p>{{ metaText }}</p>
+          </div>
+          <button type="button" class="btn sm" @click="onSelect?.(activeLoader.id)">下次启动</button>
+          <button type="button" class="btn sm ghost" title="更多" aria-label="更多">⋯</button>
+        </div>
 
         <div class="lb-scroll">
           <div class="lb-block">

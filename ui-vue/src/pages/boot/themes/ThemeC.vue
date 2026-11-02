@@ -3,6 +3,9 @@ import { computed, ref, watch } from "vue";
 import BootList from "@/components/boot/BootList.vue";
 import type { LoaderInfo } from "./types";
 
+/** 引导器设置折叠栏（旧版 .lc-settings 的展开态） */
+const settingsOpen = ref(false);
+
 /**
  * 主题 C：顶部固定标签（`.lc`）。
  *
@@ -94,6 +97,42 @@ function select(id: string) {
       >
         ⚙
       </button>
+    </div>
+
+    <!--
+      引导器设置折叠栏（旧版 boot-adv.js:1361 `.lc-settings`）：
+      `.acc` 按钮（gear + 说明 + 折叠箭头）+ `.panel-in` 面板。
+    -->
+    <div class="lc-settings">
+      <button
+        type="button"
+        class="acc"
+        :aria-expanded="settingsOpen"
+        @click="settingsOpen = !settingsOpen"
+      >
+        <svg class="i sm" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+          <circle cx="8" cy="8" r="2.4" />
+          <path d="M8 1.8v2M8 12.2v2M1.8 8h2M12.2 8h2M3.6 3.6l1.4 1.4M11 11l1.4 1.4M12.4 3.6 11 5M5 11l-1.4 1.4" />
+        </svg>
+        <span class="grow">
+          <span>引导器设置</span>
+          <small> ESP 路径 / 权限 / 默认项 / 脚本 / 免密</small>
+        </span>
+        <svg
+          class="i sm car"
+          viewBox="0 0 16 16"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          aria-hidden="true"
+        >
+          <path d="M4 6l4 4 4-4" />
+        </svg>
+      </button>
+      <div class="panel-in" :hidden="!settingsOpen">
+        <slot name="settings" />
+      </div>
     </div>
 
     <div class="lc-toolbar">
