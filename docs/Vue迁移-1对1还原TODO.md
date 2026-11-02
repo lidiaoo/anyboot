@@ -74,10 +74,10 @@ CSS 构成：`styles.css` 5,013 + `hub.html` 内联 **2,342** + `notify.css` 168
 > 每页都要：**DOM 逐字复制** + **CSS 不改** + **IPC 全覆盖** + **交互全覆盖**。
 
 ### 3.1 `page-home` 电脑（56 行 / 27 id / 13 按钮）
-- [ ] **3.1.1** `.pc-top` / `.pc-chips` / `.pc-chip` / `.pc-chip.add` / `#pageMore`
-- [ ] **3.1.2** `.pc-body` / `.pc-frame-host` / `.pc-empty`（含 4 行排查指引原文）
+- [x] **3.1.1** `.pc-top` / `.pc-chips` / `.pc-chip` / `.pc-chip.add`
+- [x] **3.1.2** `.pc-body` / `.pc-frame-host` / `.pc-empty`（排查指引原文已照搬）
 - [ ] **3.1.3** 每台电脑一个 iframe（**懒创建**，重载 = 重建）
-- [ ] **3.1.4** 标签栏点击切换 / 「＋ 添加」
+- [x] **3.1.4** 标签栏点击切换 / 「＋ 添加」
 - [ ] **3.1.5** 探测失败 → `.pc-empty` + 重试
 - [ ] **3.1.6** `hub-focus-update` 事件
 
@@ -103,8 +103,8 @@ CSS 构成：`styles.css` 5,013 + `hub.html` 内联 **2,342** + `notify.css` 168
 - [ ] **3.2.19** `cqRowEl` 的全部 76 个按钮交互逐一对齐
 
 ### 3.3 `page-servers` 服务器（50 行 / 45 id / 5 按钮）
-- [ ] **3.3.1** `.toolbar` / `.search-wrap` / `.segmented`（全部/SSH/Telnet + 计数）/ `#summary` / `#addBtn`
-- [ ] **3.3.2** `.cols` 两栏：`aside`（`.aside-head` + `.list#serverList`）+ `main#detail`
+- [x] **3.3.1** `.toolbar` / `.search-wrap` / `.segmented`（全部/SSH/Telnet + 计数）/ `#summary` / `#addBtn`
+- [x] **3.3.2** `.cols` 两栏：`aside`（`.aside-head` + `.list#serverList`）+ `main#detail`
 - [ ] **3.3.3** 列表项：名称 / 协议徽章 / 地址 / 测试结果
 - [ ] **3.3.4** 详情：地址表 / 认证 / 跳板机 / 终端设置 / 测试连接 / 打开终端 / 编辑 / 删除
 - [ ] **3.3.5** 延迟趋势（会话内采样 40 点折线）✓ 已有 LatencyTrend

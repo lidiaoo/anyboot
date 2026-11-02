@@ -35,6 +35,24 @@ const activeId = ref("local");
 /** 重载计数：改变它 → iframe 的 key 变化 → 强制重建 */
 const reloadSeed = ref(0);
 const failMessage = ref("");
+/** 电源悬浮球展开态 */
+const fabOpen = ref(false);
+/** 标签 ⋮ 菜单 */
+const chipMenuOpen = ref(false);
+
+/** 电源动作（旧版 #pcFabWrap 的四个 chip） */
+const POWER_ACTIONS = [
+  { act: "wake", label: "唤醒" },
+  { act: "sleep", label: "睡眠" },
+  { act: "shutdown", label: "关机" },
+  { act: "reboot", label: "重启" },
+] as const;
+
+function sendPower(action: string) {
+  void import("@/api/tauri").then(({ call }) =>
+    call("remote_power", { serverId: activeId.value, action }).catch(() => {}),
+  );
+}
 
 /** 本机 URL */
 const localUrl = computed(() => {
@@ -146,26 +164,100 @@ function onFrameError() {
     </div>
 
     <div class="pc-body">
-      <template v-if="currentUrl">
+      <div class="pc-frame-host">
         <iframe
+          v-if="currentUrl"
           :key="`${activeId}-${reloadSeed}`"
           :src="currentUrl"
           :title="currentName"
           class="pc-frame"
           @error="onFrameError"
         />
-      </template>
-      <div v-else class="pc-empty">
-        <div class="big">🖥</div>
-        <p>
-          <b>{{ failMessage || `「${currentName}」暂时连不上` }}</b>
-        </p>
-        <p class="hint">
-          · 目标电脑的 AnyBoot 是否在跑？<br />
-          · 设置里的「HTTP 服务」是否显示<b>正在监听</b>？<br />
-          · 点上方「重载」再试一次。
-        </p>
+        <div v-else class="pc-empty">
+          <div>
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.6"
+              stroke-linecap="round"
+              aria-hidden="true"
+            >
+              <rect x="3" y="4" width="18" height="16" rx="2" />
+              <path d="M3 9h18M8 4v5" />
+            </svg>
+            <p><b>{{ failMessage || "选择上方标签查看对应电脑的页面" }}</b></p>
+            <p>
+              本机 = 这台电脑的主界面；其余标签 = 已添加的 AnyBoot 电脑。点右上角 ⋮
+              可添加电脑、重载页面等；想看全部电脑的状态请进「电脑列表」。
+            </p>
+          </div>
+        </div>
       </div>
+
+      <!-- 重载悬浮按钮（旧版 #pcRefreshFab） -->
+      <button
+        type="button"
+        class="pc-refresh-fab"
+        title="重载当前页面（重新探测全部地址，谁在线用谁）"
+        aria-label="重载当前页面"
+        @click="reload"
+      >
+        <svg
+          viewBox="0 0 24 24"
+          width="17"
+          height="17"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.9"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M21 12a9 9 0 1 1-2.6-6.4" />
+          <path d="M21 3v6h-6" />
+        </svg>
+      </button>
+
+      <!-- 电源悬浮球（旧版 #pcFabWrap） -->
+      <div class="pc-fab" :hidden="!fabOpen">
+        <span class="pc-fab-note" title="电源操作说明">电源走局域网 · 需 sol</span>
+        <button
+          v-for="p in POWER_ACTIONS"
+          :key="p.act"
+          type="button"
+          class="pc-fab-chip"
+          :data-pact="p.act"
+          @click="sendPower(p.act)"
+        >
+          {{ p.label }}<span class="hint" />
+        </button>
+      </div>
+      <button
+        type="button"
+        class="pc-fab-ball"
+        :aria-expanded="fabOpen"
+        aria-label="电源操作"
+        @click="fabOpen = !fabOpen"
+      >
+        ⏻
+      </button>
+    </div>
+
+    <!-- 标签 ⋮ 菜单（旧版 #chipMenu） -->
+    <div v-if="chipMenuOpen" class="pc-menu" role="menu" aria-label="标签菜单">
+      <button role="menuitem" @click="chipMenuOpen = false">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" /></svg>
+        编辑这个服务端
+      </button>
+      <button role="menuitem" @click="chipMenuOpen = false">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2" /><path d="M8 21h8M12 17v4" /></svg>
+        系统信息（系统 / CPU / 内存）
+      </button>
+      <button role="menuitem" @click="chipMenuOpen = false; reload()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.4" /><path d="M21 3v6h-6" /></svg>
+        重载此页（重新探测地址）
+      </button>
     </div>
   </div>
 </template>
