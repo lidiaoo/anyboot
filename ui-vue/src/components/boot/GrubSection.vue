@@ -325,6 +325,7 @@ function switchEntry(selector: string) {
         <div class="actions">
           <button type="button" id="grub-partuuid-detect" class="secondary" @click="detectPartuuid">识别</button>
           <button type="button" id="grub-partuuid-save" class="secondary" @click="savePartuuid">保存</button>
+          <span id="grub-mount-label" style="display: none">挂载状态</span>
           <button type="button" id="grub-mount" class="secondary" @click="toggleMount">
             {{ grubManual?.keepMounted ? "停止保持挂载" : "保持挂载" }}
           </button>

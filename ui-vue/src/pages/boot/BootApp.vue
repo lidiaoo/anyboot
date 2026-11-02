@@ -394,9 +394,9 @@ const statusText = computed(() => {
   </div>
 
   <!-- 窗口自己的底部提示条（旧版 #status-bar，与 .app-columns 平级） -->
-  <div v-if="statusBar.text" aria-live="polite" class="status-bar" role="status">
-    <span class="status-bar-icon" aria-hidden="true">{{ statusBar.icon }}</span>
-    <span class="status-bar-text">{{ statusBar.text }}</span>
-    <button type="button" class="status-bar-close" title="收起" @click="statusBar.text = ''">×</button>
+  <div v-if="statusBar.text" id="status-bar" aria-live="polite" class="status-bar" role="status">
+    <span id="status-bar-icon" class="status-bar-icon" aria-hidden="true">{{ statusBar.icon }}</span>
+    <span id="status-bar-text" class="status-bar-text">{{ statusBar.text }}</span>
+    <button type="button" id="status-bar-close" class="status-bar-close" title="收起" @click="statusBar.text = ''">×</button>
   </div>
 </template>
