@@ -54,6 +54,23 @@ onMounted(() => {
   /* watch immediate 已负责首次加载 */
 });
 
+function copyAll() {
+  const i = info.value;
+  if (!i) return;
+  const text = [
+    `${props.title}`,
+    `系统：${i.osName || i.os || "—"}`,
+    `版本：${i.osVersion || "—"}`,
+    `内核：${i.kernel || "—"}`,
+    `架构：${i.arch || "—"}`,
+    `主机名：${i.hostname || "—"}`,
+    `处理器：${i.cpuModel || "—"} (${i.cpuCores || 0} 核)`,
+    `内存：${fmtMem(i.memTotalMb)}`,
+    `运行时长：${fmtUptime(i.uptimeSec)}`,
+  ].join("\n");
+  void navigator.clipboard.writeText(text).catch(() => {});
+}
+
 function fmtMem(mb: number): string {
   if (!mb) return "—";
   return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${mb} MB`;
@@ -71,42 +88,37 @@ function fmtUptime(sec: number): string {
 </script>
 
 <template>
-  <Teleport to="body">
-    <div v-if="props.serverId" class="backdrop" @click.self="emit('close')">
-      <div class="dialog" role="dialog" aria-modal="true">
-        <header>
-          <h2>{{ title }} · 系统信息</h2>
-          <button type="button" class="btn icon ghost sm" @click="emit('close')">✕</button>
-        </header>
-
-        <div class="body">
-          <p v-if="loading" class="hint">读取中…</p>
-          <p v-else-if="errorText" class="err">{{ errorText }}</p>
-          <dl v-else-if="info">
-            <dt>系统</dt>
-            <dd>{{ info.osName || info.os || "—" }}</dd>
-            <dt>版本</dt>
-            <dd class="mono">{{ info.osVersion || "—" }}</dd>
-            <dt>内核</dt>
-            <dd class="mono">{{ info.kernel || "—" }}</dd>
-            <dt>架构</dt>
-            <dd class="mono">{{ info.arch || "—" }}</dd>
-            <dt>主机名</dt>
-            <dd class="mono">{{ info.hostname || "—" }}</dd>
-            <dt>处理器</dt>
-            <dd>{{ info.cpuModel || "—" }}<span v-if="info.cpuCores"> · {{ info.cpuCores }} 核</span></dd>
-            <dt>内存</dt>
-            <dd>
-              {{ fmtMem(info.memTotalMb) }}
-              <span v-if="info.memFreeMb" class="dim">（可用 {{ fmtMem(info.memFreeMb) }}）</span>
-            </dd>
-            <dt>运行时长</dt>
-            <dd>{{ fmtUptime(info.uptimeSec) }}</dd>
-          </dl>
-        </div>
+  <div v-if="props.serverId" id="sysInfoOverlay" class="overlay" @click.self="emit('close')">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="sysInfoTitle">
+      <div class="dialog-head">
+        <h3 id="sysInfoTitle">系统信息</h3>
+        <button type="button" class="icon-btn" id="sysInfoClose" aria-label="关闭" @click="emit('close')">✕</button>
+      </div>
+      <div class="dialog-body">
+        <p v-if="loading" class="field-hint">读取中…</p>
+        <p v-else-if="errorText" class="form-error">{{ errorText }}</p>
+        <template v-else-if="info">
+          <div class="sysinfo-head" id="sysInfoHead">
+            <b>{{ title }}</b>
+            <span class="mono">{{ info.osName || info.os || "—" }}</span>
+          </div>
+          <div class="sysinfo-rows" id="sysInfoRows">
+            <div><span>版本</span><span class="mono">{{ info.osVersion || "—" }}</span></div>
+            <div><span>内核</span><span class="mono">{{ info.kernel || "—" }}</span></div>
+            <div><span>架构</span><span class="mono">{{ info.arch || "—" }}</span></div>
+            <div><span>主机名</span><span class="mono">{{ info.hostname || "—" }}</span></div>
+            <div><span>处理器</span><span>{{ info.cpuModel || "—" }}<template v-if="info.cpuCores"> · {{ info.cpuCores }} 核</template></span></div>
+            <div><span>内存</span><span>{{ fmtMem(info.memTotalMb) }}<template v-if="info.memFreeMb">（可用 {{ fmtMem(info.memFreeMb) }}）</template></span></div>
+            <div><span>运行时长</span><span>{{ fmtUptime(info.uptimeSec) }}</span></div>
+          </div>
+        </template>
+      </div>
+      <div class="dialog-foot">
+        <button type="button" class="btn" id="sysInfoCopy" @click="copyAll">复制</button>
+        <button type="button" class="btn primary" id="sysInfoOk" @click="emit('close')">关闭</button>
       </div>
     </div>
-  </Teleport>
+  </div>
 </template>
 
 <style scoped>

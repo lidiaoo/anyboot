@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import type { RemoteProfile } from "@/stores/remote";
 
 /**
@@ -34,6 +34,83 @@ const quick = ref("");
 const hint = ref("");
 /** 地址行：[{ addr, macs }] */
 const rows = ref<{ addr: string; macs: string }[]>([{ addr: "", macs: "" }]);
+/** 新增地址行的待填值 */
+const addrHost = ref("");
+const addrMacs = ref("");
+/** 远程配对区 */
+const remoteText = ref("");
+const remoteHint = ref("");
+const pairs = ref<{ mid?: string; kind?: string }[]>([]);
+/** 令牌区 */
+const token = ref("");
+const tokenVisible = ref(false);
+const hasToken = ref(false);
+/** 折叠区状态 */
+const foldConn = ref(false);
+const foldPower = ref(false);
+/** 连接策略 */
+const routeProbe = ref<"first" | "all" | "serial">("first");
+const probeMode = ref<"first" | "all" | "serial">("first");
+const probeTimeout = ref(3);
+const connCount = computed(() => rows.value.filter((r) => r.addr.trim()).length);
+const powerRoutes = ref<string[]>([]);
+/** 底部 */
+const editError = ref("");
+const testOut = ref("");
+
+function addAddr() {
+  if (!addrHost.value.trim()) return;
+  rows.value.push({ addr: addrHost.value.trim(), macs: addrMacs.value.trim() });
+  addrHost.value = "";
+  addrMacs.value = "";
+}
+function removeRow(i: number) {
+  rows.value.splice(i, 1);
+  if (!rows.value.length) rows.value = [{ addr: "", macs: "" }];
+}
+function remoteSplit() {
+  const text = remoteText.value.trim();
+  if (!text) return;
+  const m = text.match(/https?:\/\/[^\s]+|anyboot:\/\/[^\s]+|\d+\.\d+\.\d+\.\d+(?::\d+)?/);
+  if (m) {
+    rows.value.push({ addr: m[0], macs: "" });
+    remoteHint.value = "已识别并加入地址列表";
+  } else {
+    remoteHint.value = "没识别出地址";
+  }
+}
+function remoteGet() {
+  remoteHint.value = "";
+}
+function remoteClear() {
+  remoteText.value = "";
+  pairs.value = [];
+  remoteHint.value = "";
+}
+function removePair(i: number) {
+  pairs.value.splice(i, 1);
+}
+async function copyToken() {
+  try {
+    await navigator.clipboard.writeText(token.value || "");
+  } catch {
+    /* 忽略 */
+  }
+}
+async function doTest() {
+  testOut.value = "测试中…";
+  try {
+    const { call } = await import("@/api/tauri");
+    await call("hub_remote_test", { remote: { id: props.remote?.id, name: name.value } });
+    testOut.value = "连接正常";
+  } catch (e) {
+    editError.value = String(e);
+    testOut.value = "";
+  }
+}
+function doDelete() {
+  emit("save", { __delete: true, id: props.remote?.id });
+}
 
 watch(
   () => props.remote,
@@ -78,15 +155,6 @@ function recognize() {
   quick.value = "";
 }
 
-function addRow() {
-  rows.value.push({ addr: "", macs: "" });
-}
-
-function removeRow(index: number) {
-  rows.value = rows.value.filter((_, i) => i !== index);
-  if (!rows.value.length) rows.value = [{ addr: "", macs: "" }];
-}
-
 function submit() {
   const addresses: string[] = [];
   const macs: Record<string, string[]> = {};
@@ -110,11 +178,11 @@ function submit() {
 </script>
 
 <template>
-  <div v-if="open" class="overlay">
+  <div v-if="open" id="rsEditOverlay" class="overlay">
     <div class="dialog rs-edit" role="dialog" aria-modal="true" aria-labelledby="rsEditTitle">
       <div class="dialog-head">
         <h3 id="rsEditTitle">{{ remote?.id ? "编辑服务端" : "连接 AnyBoot 服务端" }}</h3>
-        <button type="button" class="icon-btn" aria-label="关闭" @click="emit('close')">
+        <button type="button" class="icon-btn" id="rsEditClose" aria-label="关闭" @click="emit('close')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
             <path d="M6 6l12 12M18 6L6 18" />
           </svg>
@@ -122,44 +190,122 @@ function submit() {
       </div>
 
       <div class="dialog-body">
-        <div class="field">
-          <label for="rsName">名称</label>
-          <input id="rsName" v-model="name" type="text" placeholder="如：客厅 PC / 办公室 Mac" />
-        </div>
-
-        <div class="field">
-          <label for="rsAddrQuick">粘贴地址快速识别</label>
-          <input
-            id="rsAddrQuick"
-            v-model="quick"
-            type="text"
-            class="mono"
-            placeholder="粘一整条 host:port 或带 token 的 URL，回车自动拆分"
-            @keydown.enter.prevent="recognize"
-          />
-          <div class="actions">
-            <button type="button" id="rsAddrRecognize" class="secondary" @click="recognize">识别并添加</button>
+        <div class="field-row">
+          <div class="field">
+            <label for="rsName">电脑名称</label>
+            <input id="rsName" v-model="name" type="text" placeholder="例如：书房台式机（留空用主机名兜底）" />
           </div>
-          <p class="field-hint" id="rsAddrHint">{{ hint }}</p>
         </div>
 
         <div class="field">
-          <label>地址列表（每条 = 一个转发端点或直连地址）</label>
+          <label for="rsAddrQuick">粘贴地址</label>
+          <textarea id="rsAddrQuick" v-model="quick" rows="2" class="mono" spellcheck="false" placeholder="整段粘进来就行，例如：&#10;192.168.0.120:12300 AA:BB:CC:DD:EE:FF 台式机有线&#10;192.168.0.121 11-22-33-44-55-66（5G WiFi）" />
+          <div class="addr-quick-actions">
+            <button type="button" class="btn small" id="rsAddrRecognize" @click="recognize">识别并加入</button>
+            <span class="addr-quick-hint" id="rsAddrHint">{{ hint }}</span>
+          </div>
+        </div>
+
+        <div class="field">
           <div id="rsAddrList" class="addr-list">
             <div v-for="(row, i) in rows" :key="i" class="addr-row">
               <input v-model="row.addr" type="text" class="mono" placeholder="127.0.0.1:12300" spellcheck="false" />
-              <input v-model="row.macs" type="text" class="mono" placeholder="MAC（多个用逗号分隔，可留空）" spellcheck="false" />
+              <input v-model="row.macs" type="text" class="mono" placeholder="MAC" spellcheck="false" />
               <button type="button" class="icon-btn" aria-label="删除这一行" @click="removeRow(i)">✕</button>
             </div>
-            <button type="button" class="secondary" @click="addRow">＋ 添加一行</button>
+          </div>
+          <div class="addr-add">
+            <input id="rsAddrHost" v-model="addrHost" type="text" spellcheck="false" placeholder="192.168.0.120 或 192.168.0.120:12300" />
+            <input id="rsAddrMacs" v-model="addrMacs" type="text" spellcheck="false" placeholder="MAC（可多个，空格隔开）" />
+            <button type="button" class="btn small" id="rsAddrAdd" @click="addAddr">添加</button>
           </div>
         </div>
+
+        <div class="field">
+          <label for="rsRemote">远程地址 / 配对串</label>
+          <textarea id="rsRemote" v-model="remoteText" rows="2" class="mono" spellcheck="false" placeholder="anyboot://pair?v=2&amp;mid=…&amp;type=cloudflare&amp;tunnel=…&amp;token=…&#10;https://xxx.trycloudflare.com / http://100.x.y.z:12300 / https://xxx.ts.net" />
+          <div class="addr-quick-actions">
+            <button type="button" class="btn small" id="rsRemoteSplit" @click="remoteSplit">识别并加入</button>
+            <button type="button" class="btn small" id="rsRemoteGet" @click="remoteGet">从对方获取</button>
+            <button type="button" class="btn small" id="rsRemoteClear" @click="remoteClear">全部清空</button>
+            <span class="addr-quick-hint" id="rsRemoteHint">{{ remoteHint }}</span>
+          </div>
+          <div id="rsPairsBox" class="pair-blocks">
+            <div v-for="(p, i) in pairs" :key="i" class="pair-block">
+              <span class="mono">{{ p.kind || p.mid || "配对" }}</span>
+              <button type="button" class="icon-btn" aria-label="删除" @click="removePair(i)">✕</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="field">
+          <div id="rsTokenRow" class="token-row" :hidden="!hasToken">
+            <span class="slot-chip">已存令牌</span>
+            <span class="mono masked" id="rsTokenSavedText">{{ hasToken ? "••••••" : "" }}</span>
+            <button type="button" class="token-eye" id="rsTokenCopy" aria-label="复制令牌" title="复制令牌" :hidden="!hasToken" @click="copyToken">⧉</button>
+            <button type="button" class="token-eye" id="rsTokenEye" aria-label="显示令牌" title="显示 / 隐藏令牌" @click="tokenVisible = !tokenVisible">👁</button>
+          </div>
+          <input id="rsToken" v-model="token" class="mono" placeholder="留空保持不变；要替换就填新令牌" style="margin-top: 6px" />
+        </div>
+
+        <div class="fold-head" id="rsFoldConnHead" @click="foldConn = !foldConn">
+          <span class="chev">{{ foldConn ? "▼" : "▶" }}</span>连接策略
+          <span class="fold-count" id="rsFoldConnCount">{{ connCount }}</span>
+        </div>
+        <div class="fold-body" id="rsFoldConn" :hidden="!foldConn">
+          <div class="field">
+            <label><b>连接优先级探测方式</b></label>
+            <div class="seg-row" role="group" aria-label="连接优先级的探测方式">
+              <button type="button" class="btn small" :class="{ 'seg-on': routeProbe === 'first' }" id="rsRouteProbeFirst" @click="routeProbe = 'first'">并发（首个）</button>
+              <button type="button" class="btn small" :class="{ 'seg-on': routeProbe === 'all' }" id="rsRouteProbeAll" @click="routeProbe = 'all'">并发（全部）</button>
+              <button type="button" class="btn small" :class="{ 'seg-on': routeProbe === 'serial' }" id="rsRouteProbeSerial" @click="routeProbe = 'serial'">串行</button>
+            </div>
+          </div>
+          <div class="field" id="rsBlockPolicy">
+            <label><b>区块内部策略</b></label>
+            <div class="block-policy" id="rsBlockPolicyBox" />
+          </div>
+          <div class="field">
+            <label><b>多网卡探测</b></label>
+            <div class="seg-row" role="group" aria-label="多网卡探测">
+              <button type="button" class="btn small" :class="{ 'seg-on': probeMode === 'first' }" id="rsProbeFirst" @click="probeMode = 'first'">并发（首个）</button>
+              <button type="button" class="btn small" :class="{ 'seg-on': probeMode === 'all' }" id="rsProbeAll" @click="probeMode = 'all'">并发（全部）</button>
+              <button type="button" class="btn small" :class="{ 'seg-on': probeMode === 'serial' }" id="rsProbeSerial" @click="probeMode = 'serial'">串行</button>
+            </div>
+          </div>
+          <div class="field">
+            <label for="rsProbeTimeout">探测超时（秒）</label>
+            <input id="rsProbeTimeout" v-model.number="probeTimeout" class="mono num-narrow" type="number" step="0.5" min="0.2" max="30" />
+          </div>
+        </div>
+
+        <div class="fold-head" id="rsFoldPowerHead" @click="foldPower = !foldPower">
+          <span class="chev">{{ foldPower ? "▼" : "▶" }}</span>局域网电源路由
+          <span class="fold-count" id="rsFoldPowerCount">{{ powerRoutes.length }}</span>
+        </div>
+        <div class="fold-body" id="rsFoldPower" :hidden="!foldPower">
+          <div id="rsPowerRoutes" class="route-list">
+            <div v-for="(r, i) in powerRoutes" :key="i" class="route-row">
+              <span class="mono">{{ r }}</span>
+              <button type="button" class="icon-btn" aria-label="删除" @click="powerRoutes.splice(i, 1)">✕</button>
+            </div>
+          </div>
+          <button type="button" class="btn small" id="rsPowerAdd" style="margin-top: 8px" @click="powerRoutes.push('')">+ 添加一条路由</button>
+        </div>
+
+        <div class="field" id="rsRouteList">
+          <label><b>连接优先级</b></label>
+        </div>
+
+        <p class="form-error" id="rsEditError">{{ editError }}</p>
+        <p class="form-error" id="rsTestOut" style="color: rgb(var(--ok))">{{ testOut }}</p>
       </div>
 
       <div class="dialog-foot">
-        <span class="spacer" />
-        <button type="button" class="btn ghost" @click="emit('close')">取消</button>
-        <button type="button" class="btn primary" @click="submit">保存</button>
+        <button type="button" class="btn danger" id="rsDelete" :hidden="!remote?.id" @click="doDelete">删除</button>
+        <button type="button" class="btn" id="rsTestBtn" @click="doTest">测试连接</button>
+        <button type="button" class="btn" id="rsCancel" @click="emit('close')">取消</button>
+        <button type="button" class="btn primary" id="rsSave" @click="submit">保存</button>
       </div>
     </div>
   </div>

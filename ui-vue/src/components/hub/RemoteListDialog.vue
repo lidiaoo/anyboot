@@ -25,11 +25,11 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <div v-if="open" class="overlay">
+  <div v-if="open" id="rsListOverlay" class="overlay">
     <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="rsListTitle">
       <div class="dialog-head">
         <h3 id="rsListTitle">服务端列表</h3>
-        <button type="button" class="icon-btn" aria-label="关闭" @click="emit('close')">
+        <button type="button" class="icon-btn" id="rsListClose" aria-label="关闭" @click="emit('close')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
             <path d="M6 6l12 12M18 6L6 18" />
           </svg>
@@ -37,12 +37,14 @@ const emit = defineEmits<{
       </div>
 
       <div class="dialog-body">
+        <div id="rsListRows">
         <div v-for="server in servers" :key="server.id" class="rs-list-row">
           <span class="nm">{{ server.name }}</span>
           <span class="mono addr">{{ (server.addresses ?? []).join(" / ") || "（无地址）" }}</span>
           <span class="spacer" />
           <button type="button" class="link-btn" @click="emit('edit', server.id)">编辑</button>
           <button type="button" class="link-btn" @click="emit('remove', server.id)">删除</button>
+        </div>
         </div>
         <p v-if="!servers.length" class="field-hint">还没有添加任何 AnyBoot 服务端</p>
         <button type="button" class="secondary" @click="emit('add')">＋ 添加服务端</button>
