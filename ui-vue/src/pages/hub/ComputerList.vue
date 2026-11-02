@@ -42,7 +42,34 @@ const settings = useSettingsStore();
 const query = ref("");
 const filter = ref<"all" | "online" | "offline" | "pending">("all");
 const helpOpen = ref(false);
-const sortMode = ref<"custom" | "name" | "recent">("custom");
+// 旧版 key 就是 `anyboot.orderMode`（hub.html:7472），不能自造
+const sortMode = ref<"custom" | "name" | "recent">(
+  (() => {
+    try {
+      const saved = localStorage.getItem("anyboot.orderMode");
+      if (saved === "custom" || saved === "name" || saved === "recent") return saved;
+    } catch {
+      /* 忽略 */
+    }
+    return "custom";
+  })(),
+);
+/** 排序菜单开合（旧版 #cqSortMenu） */
+const sortMenuOpen = ref(false);
+const SORT_LABELS: Record<"custom" | "name" | "recent", string> = {
+  custom: "自定义",
+  name: "按名称",
+  recent: "最近连接",
+};
+function pickSort(mode: "custom" | "name" | "recent") {
+  sortMode.value = mode;
+  sortMenuOpen.value = false;
+  try {
+    localStorage.setItem("anyboot.orderMode", mode);
+  } catch {
+    /* 忽略 */
+  }
+}
 const refreshing = ref(false);
 /** 系统信息弹层：非空时打开 */
 const sysInfoId = ref<string | null>(null);
@@ -425,9 +452,10 @@ function power(payload: Record<string, unknown>) {
         id="cqSort"
         class="link-btn menu-anchor"
         title="选择电脑列表的排序方式（电脑页标签栏跟着同一套顺序）"
-        @click="sortMode = sortMode === 'custom' ? 'name' : sortMode === 'name' ? 'recent' : 'custom'"
+        :aria-expanded="sortMenuOpen"
+        @click.stop="sortMenuOpen = !sortMenuOpen"
       >
-        排序 <span id="cqSortText">{{ sortMode === "custom" ? "自定义" : sortMode === "name" ? "按名称" : "最近连接" }}</span>
+        排序 <span id="cqSortText">{{ SORT_LABELS[sortMode] }}</span>
       </button>
       <button type="button" id="cqRefresh" class="link-btn" :disabled="refreshing" @click="manualRefresh">
         <span id="cqRefreshText">{{ refreshing ? "探测中" : "刷新" }}</span>
@@ -462,7 +490,7 @@ function power(payload: Record<string, unknown>) {
       <PcMenu id="cqMore" />
     </div>
 
-    <div v-show="helpOpen" class="cq-help">
+    <div v-show="helpOpen" class="cq-help" id="cqHelp">
       <h4>操作说明</h4>
       <ul>
         <li>电源操作<b>点了立即执行，不再弹确认框</b>。</li>
@@ -511,9 +539,9 @@ function power(payload: Record<string, unknown>) {
           />
           </div>
       </div>
-      <div v-if="!rows.length" class="cq-empty">
+      <div v-if="!rows.length" class="cq-empty" id="cqEmpty">
         <div>没有匹配的电脑</div>
-        <p>换个关键词，或把筛选切回「全部」</p>
+        <p id="cqEmptyHint">换个关键词，或把筛选切回「全部」</p>
       </div>
     </div>
 
@@ -557,6 +585,23 @@ function power(payload: Record<string, unknown>) {
           </div>
         </div>
       </div>
+    </div>
+
+    <!-- 排序方式菜单（旧版 #cqSortMenu，hub.html:2500） -->
+    <div
+      v-if="sortMenuOpen"
+      class="pc-menu cq-sort-menu"
+      id="cqSortMenu"
+      role="menu"
+      aria-label="排序方式"
+      @click.stop
+    >
+      <div class="menu-caption">排序方式</div>
+      <button role="menuitem" data-order="custom" :class="{ on: sortMode === 'custom' }" @click="pickSort('custom')">自定义（我用 ↑ ↓ 排的）</button>
+      <button role="menuitem" data-order="name" :class="{ on: sortMode === 'name' }" @click="pickSort('name')">名称 A → Z</button>
+      <button role="menuitem" data-order="recent" :class="{ on: sortMode === 'recent' }" @click="pickSort('recent')">最近连接</button>
+      <div class="menu-divider" role="separator" />
+      <div class="menu-caption" id="cqSortHint">自定义：每行左侧 ↑ ↓ 调整顺序</div>
     </div>
 
     <!-- 行内 ⋮ 菜单（旧版 cqRowMenu，hub.html:8158） -->
