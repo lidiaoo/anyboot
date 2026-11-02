@@ -863,6 +863,22 @@ J  101 / 23 / 902
 含 10 个验证脚本 + `serve.py` 对比服务 + `README.md`（说明前置步骤与
 5 条关键经验）。以后换机器也能一键重跑：`scripts/ui-compare/功能回归.sh`
 
+### 主窗页签与设置实测（本轮，10/10 通过）
+```
+✅ 切「引导高级设置」           tab-adv-boot active
+✅ 切「基本设置」               tab-settings active
+✅ 基本设置 39 个控件
+✅ 切「SOL 远程唤醒」            tab-sol active
+✅ SOL 页 7 个区块
+✅ 切回「系统引导」              tab-boot active
+✅ 主题下拉切换
+✅ 强调色 #2f7fe0 → #ff0000
+✅ 不透明度滑块 90 → 60
+✅ 底部状态栏条件渲染正常
+```
+
+**功能抽查累计 54 项，全部通过。** 本轮零新缺陷。
+
 ### 打包验证
 ```
 npm run build:mac-intel        → 成功（508 tests passed / 0 failed）
