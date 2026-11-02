@@ -5,7 +5,7 @@
   "windows": [
     "main",
     "notify",
-    "grub-list",
+    "menu-anchor",
     "tray-menu",
     "server-hub",
     "server-term",
