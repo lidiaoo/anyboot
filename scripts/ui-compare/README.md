@@ -64,3 +64,13 @@ mock 会在 `invoke` 上包一层严格校验：前端调用的命令若缺 Rust
   snapshot.lastAction（status-bar 回执）、snapshot.helper（免密模式）
 - `mock-tauri.js` 需含：remote_system_info / gateway_pair_issue /
   gateway_tunnel_logs / remote_boot_info（记录 __RBI_ARGS__）等 handler
+
+## 目录布局
+
+serve.py 从 ROOT（`UICOMPARE_ROOT` 环境变量 → 脚本目录 → /tmp/cmp 回退）读
+mock-tauri.js / mockdata.json / cmd_required.json；old/（7bd3ce2 的 ui/）用于
+新旧对比，生成方式：
+
+    git archive 7bd3ce2 ui | tar -x --strip-components=1 -C old/
+
+启动：`python3 serve.py`（默认 :8770；/old/* 旧版、/new/* 新版，均注入 mock）。
