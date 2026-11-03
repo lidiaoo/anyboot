@@ -63,17 +63,8 @@ const NAV = [
 type PageId = (typeof NAV)[number]["id"];
 
 
-const currentPage = ref<PageId>(
-  (() => {
-    try {
-      const fromUrl = (new URLSearchParams(location.search).get("page") || "") as PageId;
-      if (NAV.some((item) => item.id === fromUrl)) return fromUrl;
-    } catch {
-      /* 忽略 */
-    }
-    return "computers" as PageId; // 旧版：启动固定 computers，无持久化
-  })(),
-);
+// 旧版：启动固定 computers（不读 URL 参数、无持久化）
+const currentPage = ref<PageId>("computers");
 
 const navCollapsed = ref(false);
 /** 侧栏收起/展开（旧版 ab-hub-side 持久化） */
@@ -264,17 +255,9 @@ onMounted(async () => {
         void import("@/pages/hub/AboutPage.vue");
       }),
     );
-    // 电脑列表「在电脑页打开」→ SPA 内切页（旧版 cqGotoPage showPage('home')）
-    const onGotoPage = (e: Event) => {
+    // 电脑列表「在电脑页打开」→ SPA 内切页（旧版 cqGotoPage showPage('home')，不动 URL）
+    const onGotoPage = () => {
       currentPage.value = "home";
-      // HomePage 自己监听同事件选中 chip；这里同步 URL（可分享/刷新回同页）
-      const rid = (e as CustomEvent<string>).detail;
-      try {
-        const u = new URL(location.href);
-        u.searchParams.set("page", "home");
-        if (rid) u.searchParams.set("rid", rid);
-        history.replaceState(null, "", u);
-      } catch { /* 忽略 */ }
     };
     window.addEventListener("cq-goto-page", onGotoPage);
     unlisteners.push(() => window.removeEventListener("cq-goto-page", onGotoPage));
