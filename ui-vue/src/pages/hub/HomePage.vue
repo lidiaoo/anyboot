@@ -111,11 +111,20 @@ function sendPower(action: string) {
   );
 }
 
+/** withGuestTheme（旧版）：追加查看方亮暗 + 引导页主题偏好，iframe 照查看方渲染 */
+function withGuestTheme(url: string): string {
+  if (!url) return url;
+  const dark = document.documentElement.classList.contains("dark") ? "dark" : "light";
+  let theme = "";
+  try { theme = localStorage.getItem("anyboot.hub.boot-theme") || ""; } catch { /* 忽略 */ }
+  return url + `&abUi=${dark}` + (theme ? `&abTheme=${encodeURIComponent(theme)}` : "");
+}
+
 /** 本机 URL */
 const localUrl = computed(() => {
   const ep = localEndpoint.value;
   if (!ep?.port) return "";
-  return `http://127.0.0.1:${ep.port}/?token=${encodeURIComponent(ep.token)}`;
+  return withGuestTheme(`http://127.0.0.1:${ep.port}/?token=${encodeURIComponent(ep.token)}`);
 });
 
 /** 远程电脑 URL（用 `remote_endpoint` 解析出的地址）*/
@@ -157,7 +166,7 @@ async function ensureRemoteUrl(id: string): Promise<void> {
       const token = String(profile?.token ?? "");
       remoteUrls.value.set(
         id,
-        `http://${endpoint.host}:${endpoint.port}/?token=${encodeURIComponent(token)}`,
+        withGuestTheme(`http://${endpoint.host}:${endpoint.port}/?token=${encodeURIComponent(token)}`),
       );
       remoteUrls.value = new Map(remoteUrls.value);
     }
