@@ -146,6 +146,10 @@ function applyThemeClass(isDark: boolean) {
 function toggleTheme() {
   dark.value = !dark.value;
   applyThemeClass(dark.value);
+  // 旧版：落盘 set_theme（后端持久化 + 广播 theme-changed，独立窗跟随）
+  void import("@/api/tauri").then(({ call }) =>
+    call("set_theme", { theme: dark.value ? "dark" : "light" }).catch(() => {}),
+  );
   try {
     // 旧版镜像键：theme-resolved + accent 四项（首帧防闪读）
     localStorage.setItem("anyboot.theme-resolved", dark.value ? "dark" : "light");
