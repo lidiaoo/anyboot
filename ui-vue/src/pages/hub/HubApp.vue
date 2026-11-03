@@ -158,7 +158,13 @@ function toggleTheme() {
   dark.value = !dark.value;
   applyThemeClass(dark.value);
   try {
-    localStorage.setItem("anyboot.theme", dark.value ? "dark" : "light");
+    // 旧版镜像键：theme-resolved + accent 四项（首帧防闪读）
+    localStorage.setItem("anyboot.theme-resolved", dark.value ? "dark" : "light");
+    const style = document.documentElement.style;
+    for (const name of ["--accent", "--accent-hover", "--accent-link", "--accent-link-hover"]) {
+      const value = style.getPropertyValue(name);
+      if (value) localStorage.setItem(`anyboot.${name.slice(2)}`, value.trim());
+    }
   } catch {
     /* 忽略 */
   }

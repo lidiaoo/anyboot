@@ -4,6 +4,35 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>AnyBoot</title>
+    <!-- 首帧防闪：在 CSS 之前、脚本之前就把主题与不透明度写到 <html> 上（旧版 1:1）。
+         后端 settings 仍是唯一真相源，这里只是把「上一次已知的值」提前用上。 -->
+    <script>
+      (function () {
+        var ACCENT_KEYS = ["--accent", "--accent-hover", "--accent-link", "--accent-link-hover"];
+        try {
+          var guestUi = new URLSearchParams(window.location.search).get("abUi");
+          if (guestUi === "light" || guestUi === "dark") {
+            document.documentElement.dataset.theme = guestUi;
+          } else {
+            var theme = localStorage.getItem("anyboot.theme-resolved");
+            if (theme === "light" || theme === "dark") {
+              document.documentElement.dataset.theme = theme;
+            }
+          }
+          var alpha = localStorage.getItem("anyboot.ui-alpha");
+          if (alpha) {
+            document.documentElement.style.setProperty("--ui-alpha", alpha);
+          }
+          for (var i = 0; i < ACCENT_KEYS.length; i++) {
+            var name = ACCENT_KEYS[i];
+            var value = localStorage.getItem("anyboot." + name.slice(2));
+            if (value) {
+              document.documentElement.style.setProperty(name, value);
+            }
+          }
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="app"></div>

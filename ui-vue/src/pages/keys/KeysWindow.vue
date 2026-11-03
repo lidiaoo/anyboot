@@ -52,7 +52,7 @@ const genPassphrase = ref("");
 
 const dark = ref(false);
 try {
-  dark.value = localStorage.getItem("anyboot.theme") === "dark";
+  dark.value = localStorage.getItem("anyboot.theme-resolved") === "dark";
 } catch {
   /* 吃默认 */
 }
