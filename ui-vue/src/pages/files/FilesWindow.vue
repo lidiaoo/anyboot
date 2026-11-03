@@ -302,10 +302,16 @@ function selectEntry(entry: SftpEntry) {
 
 async function upload() {
   try {
-    await call("hub_sftp_upload", { server: sshServers.value.find((s) => s.id === serverId.value), remoteDir: cwd.value });
+    const uploaded = (await call("hub_sftp_upload", {
+      server: sshServers.value.find((s) => s.id === serverId.value),
+      remoteDir: cwd.value,
+    })) as Array<unknown> | null;
+    if (uploaded?.length) showToast("已上传 " + uploaded.length + " 个文件");
     await refreshTransfers();
+    await listDir(cwd.value); // 上传的新文件要出现在列表里（旧版 finally refresh）
   } catch (error) {
-    errorText.value = String(error);
+    const msg = String(error);
+    if (msg !== "未选择文件") errorText.value = msg; // 取消选择不算错误
   }
 }
 
