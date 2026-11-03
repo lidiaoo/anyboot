@@ -31,6 +31,8 @@ import type { LoaderInfo } from "./types";
 const props = defineProps<{
   /** 真实区块行（旧版 G 从真实 DOM 行派生；这里由 BootApp 传共享行） */
   rows?: Record<string, EntryData[]>;
+  /** 默认选中条目（旧版 gSelMemo：lastBoot / 活动变量） */
+  defaultEntrySelector?: string;
   loaders: LoaderInfo[];
   activeId?: string;
   onSelect?: (id: string) => void;
@@ -72,7 +74,12 @@ const groups = computed<GroupedEntry[]>(() => {
     const entries = entriesOf(loader.id);
     // 旧版 G：带 submenu 的行 = 组的子行；首个子行处合成组头
     //（▾ 名称 + N 项），子行 ↳ 缩进（样式类 .lg-sub / .lg-group 同款语义）。
-    const flat: (EntryData & { _sub?: boolean; _groupHead?: boolean; _count?: number })[] = [];
+    const flat: (EntryData & { _sub?: boolean; _groupHead?: boolean; _count?: number; _pinned?: boolean })[] = [];
+    // 旧版：当前「记住的启动项」置顶副本（与 GRUB 区置顶行同规则），原位照常显示
+    const pinnedRow = props.defaultEntrySelector
+      ? entries.find((e) => e.selector === props.defaultEntrySelector)
+      : undefined;
+    if (pinnedRow) flat.push({ ...pinnedRow, _pinned: true });
     const emitted = new Set<string>();
     for (const e of entries) {
       if (e.submenu) {
@@ -228,6 +235,7 @@ const selectedLoaderState = computed(
             type="button"
             :class="[
               'lg-item',
+              (entry as any)._pinned ? 'is-pinned' : '',
               (entry as any)._groupHead ? 'lg-group-head' : '',
               (entry as any)._sub ? 'lg-sub' : '',
               {

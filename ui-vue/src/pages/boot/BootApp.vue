@@ -424,6 +424,14 @@ onUnmounted(() => {
 });
 
 // 真实区块行（旧版 G 从真实 DOM 行派生；此处共享派生供区块与 G 主题同源）
+const defaultEntrySelector = computed<string>(() => {
+  if (settings.refindMode === "manual") {
+    const hit = (ui.status?.variables ?? []).find((v) => v.active);
+    return hit?.source ?? "";
+  }
+  const hit = (ui.refindSim?.entries ?? []).find((e) => e.lastBoot);
+  return hit?.title?.trim() ?? "";
+});
 const bootRowsByLoader = computed<Record<string, EntryData[]>>(() => ({
   refind:
     settings.refindMode === "manual"
@@ -609,6 +617,7 @@ const statusHidden = computed(() => {
         -->
         <ThemeHost
           :rows="bootRowsByLoader"
+          :default-entry-selector="defaultEntrySelector"
           :theme="adv.effectiveTheme"
           :layout="adv.effectiveLayout"
           :loaders="loaders"
