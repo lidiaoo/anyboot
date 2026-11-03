@@ -45,6 +45,26 @@ const installDir = ref("");
 const archivePath = ref("");
 const progress = ref(0);
 const logs = ref<string[]>([]);
+const httpEnabled = ref(false);
+const installDirPlaceholder = ref("");
+const projectVersion = ref("");
+/** 旧版 sol_project_open：打开 GitHub 仓库 / Releases 页 */
+async function openProject(page: "repo" | "releases") {
+  try {
+    await call("sol_project_open", { page });
+  } catch (error) {
+    showToast(String(error));
+  }
+}
+const httpEnabledState = ref("");
+/** 状态条消息（旧版 showStatusBar） */
+const statusMsg = ref("");
+function showToast(text: string) {
+  statusMsg.value = text;
+  window.setTimeout(() => {
+    if (statusMsg.value === text) statusMsg.value = "";
+  }, 2600);
+}
 const configText = ref("");
 
 async function refreshConfig() {
@@ -87,6 +107,17 @@ async function refresh() {
     status.value = await call<SolStatus>("sol_status");
     listenAddr.value = status.value?.port ? `0.0.0.0:${status.value.port}` : "";
     installDir.value = status.value?.installDir ?? "";
+    // 旧版 refreshSolHttp：sol_http_get 回填 HTTP 开关/监听/当前 token
+    try {
+      const http = (await call<{ enabled?: boolean; listen?: string; token_set?: boolean; tokenSet?: boolean }>("sol_http_get")) ?? {};
+      httpEnabled.value = Boolean(http.enabled);
+      httpEnabledState.value = http.enabled ? "已开启（sol 控制面在跑）" : "已关闭";
+    } catch { /* 忽略 */ }
+    // 旧版 refreshSolPackage：sol_local_package 回填本地安装包状态
+    try {
+      const local = (await call<{ archive?: string; size?: number }>("sol_local_package", { dir: installDir.value || null })) ?? {};
+      archivePath.value = local.archive ? local.archive : archivePath.value;
+    } catch { /* 忽略 */ }
   } catch (error) {
     errorText.value = String(error);
     status.value = null;
@@ -97,6 +128,16 @@ async function refresh() {
 
 onMounted(async () => {
   await refresh();
+  // 旧版：sol_default_dir 懒加载默认安装目录（placeholder）
+  try {
+    const dir = (await call<string>("sol_default_dir")) || "";
+    if (dir && !installDir.value) installDirPlaceholder.value = dir;
+  } catch { /* 忽略 */ }
+  // 旧版：sol_project_info 回填项目版本行
+  try {
+    const info = (await call<{ version?: string; latest?: string }>("sol_project_info")) ?? {};
+    projectVersion.value = info.version || info.latest || "";
+  } catch { /* 忽略 */ }
   // 历史日志（旧版 loadSolLogs：sol_logs 回填本会话 [sol] 段）
   try {
     const history = (await call<string[]>("sol_logs")) ?? [];
@@ -132,8 +173,13 @@ function nowTime() {
   return new Date().toLocaleTimeString("zh-CN", { hour12: false });
 }
 
-function setHttpEnabled() {
-  void call("sol_http_set", { path: null, option: "enabled", value: String(!status.value?.running) }).catch(() => {});
+async function setHttpEnabled() {
+  try {
+    await call("sol_http_set", { path: null, option: "enabled", value: String(!httpEnabled.value) });
+    await refresh();
+  } catch (error) {
+    showToast(String(error));
+  }
 }
 
 function saveListen() {
@@ -148,10 +194,17 @@ async function copyToken() {
   }
 }
 
-function generateToken() {
-  const bytes = new Uint8Array(24);
-  crypto.getRandomValues(bytes);
-  newToken.value = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+async function generateToken() {
+  // 旧版：后端生成并写入新 token（crypto 自造格式不对）
+  try {
+    const token = (await call<string>("sol_token_generate")) || "";
+    const message = (await call<string>("sol_http_set", { path: null, option: "token", value: token })) || "新 token 已写入配置";
+    newToken.value = "";
+    showToast(message);
+    await refresh();
+  } catch (error) {
+    showToast(String(error));
+  }
 }
 
 function saveToken() {
@@ -190,10 +243,18 @@ function extract() {
   void call("sol_extract", { archive: archivePath.value, dir: installDir.value || null }).catch(() => {});
 }
 
-function pickDir() {
-  void call("pick_grub_dir").then((dir) => {
-    if (dir) installDir.value = String(dir);
-  });
+async function openDir() {
+  try {
+    const opened = (await call<string>("sol_open_dir", { dir: installDir.value || null })) || "";
+    if (opened) showToast(`已打开 ${opened}`);
+  } catch { /* 忽略 */ }
+}
+
+async function pickDir() {
+  try {
+    const picked = (await call<string | null>("sol_pick_dir", { current: installDir.value || null })) ?? null;
+    if (picked) installDir.value = picked; // 双向回显
+  } catch { /* 忽略 */ }
 }
 </script>
 
@@ -219,9 +280,9 @@ function pickDir() {
       <span class="setting-text">
         <strong>通过 HTTP 启用</strong>
         <small>允许手机 / 浏览器经本机 HTTP 服务发起 SOL 唤醒</small>
-        <small class="setting-state" id="sol-http-enabled-state">{{ status?.running ? "已启用" : "未启用" }}</small>
+        <small class="setting-state" id="sol-http-enabled-state">{{ httpEnabledState }}</small>
       </span>
-      <input type="checkbox" id="sol-http-enabled" :checked="Boolean(status?.running)" @change="setHttpEnabled" />
+      <input type="checkbox" id="sol-http-enabled" :checked="httpEnabled" @change="setHttpEnabled" />
     </div>
 
     <div class="setting" id="sol-http-listen-row">
@@ -282,9 +343,9 @@ function pickDir() {
           <small class="setting-state" id="sol-dir-state">{{ installDir || "—" }}</small>
         </span>
         <span class="remote-inline">
-          <input id="sol-dir-input" v-model="installDir" spellcheck="false" type="text" placeholder="~/sol（默认）" style="width: 280px" />
+          <input id="sol-dir-input" v-model="installDir" spellcheck="false" type="text" :placeholder="installDirPlaceholder || '~/sol（默认）'" style="width: 280px" />
           <button type="button" id="sol-pick-dir" class="secondary" @click="pickDir">选择…</button>
-          <button type="button" id="sol-open-dir-input" class="secondary" title="打开当前填写的目录" @click="call('sol_open_dir', {})">打开</button>
+          <button type="button" id="sol-open-dir-input" class="secondary" title="打开当前填写的目录" @click="openDir">打开</button>
         </span>
       </div>
 
@@ -301,11 +362,11 @@ function pickDir() {
       </small>
       <small class="sol-hint" id="sol-project-line">
         项目：
-        <a href="#" id="sol-project-repo" title="打开 GitHub 仓库">lidiaoo/sol</a>
+        <a href="#" id="sol-project-repo" title="打开 GitHub 仓库" @click.prevent="openProject('repo')">lidiaoo/sol</a>
         ·
-        <a href="#" id="sol-project-releases" title="打开 Releases 页面">Releases</a>
+        <a href="#" id="sol-project-releases" title="打开 Releases 页面" @click.prevent="openProject('releases')">Releases</a>
         ·
-        <span id="sol-project-version">{{ status?.version || "…" }}</span>
+        <span id="sol-project-version">{{ projectVersion || status?.version || "…" }}</span>
       </small>
     </div>
 
