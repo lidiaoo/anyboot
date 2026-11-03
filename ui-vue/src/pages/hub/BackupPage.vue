@@ -86,13 +86,48 @@ const previewSrc = computed(() => (importPath.value ? `来源：${importPath.val
 const pwOpen = ref(false);
 const importPw = ref("");
 const importPwErr = ref("");
+const pwAttempts = ref(0);
 
-function submitPw() {
+async function submitPw() {
   if (!importPw.value.trim()) {
     importPwErr.value = "请输入口令";
     return;
   }
-  pwOpen.value = false;
+  try {
+    const preview = (await call("backup_preview", {
+      path: importPath.value,
+      password: importPw.value,
+    })) as Record<string, unknown>;
+    fillPreview(preview);
+    pwOpen.value = false;
+  } catch (error) {
+    pwAttempts.value += 1;
+    const msg = String(error);
+    importPwErr.value = msg.includes("口令错误")
+      ? `口令不对（已试 ${pwAttempts.value} 次）`
+      : msg;
+  }
+}
+
+/** 预览结果 → 弹层（preview 与 submitPw 共用） */
+function fillPreview(preview: Record<string, unknown>) {
+  previewRows.value = Object.entries(preview ?? {}).map(([key, value]) => {
+    const v = (value ?? {}) as Record<string, number>;
+    return {
+      label: key,
+      inBackup: Number(v.inBackup ?? v.count ?? 0),
+      local: Number(v.local ?? 0),
+      conflicts: Number(v.conflicts ?? v.sameId ?? 0),
+    };
+  });
+  const totalConflicts = previewRows.value.reduce((sum, row) => sum + row.conflicts, 0);
+  previewWarn.value =
+    totalConflicts > 0
+      ? `备份中有 ${totalConflicts} 条与本机同 ID 的条目 —— 选「跳过已存在」保持不变，选「覆盖」则替换。`
+      : "";
+  importCats.value = ["servers", "jumps", "keys", "terminal", "history"];
+  importStrategy.value = "skipExisting";
+  previewOpen.value = true;
 }
 
 /** 全局 toast（旧版 #bkToast） */
@@ -128,7 +163,14 @@ async function refreshSync() {
     syncPeriod.value = sync.value?.period_minutes ?? 30;
     syncOnChange.value = Boolean(sync.value?.sync_on_change);
   } catch (error) {
-    errorText.value = String(error);
+    const msg = String(error);
+    if (msg.includes("__NEED_PASSWORD__")) {
+      // 加密备份 → 弹口令弹层（旧版 openPwModal）
+      importPwErr.value = "";
+      pwOpen.value = true;
+      return;
+    }
+    errorText.value = msg;
   }
 }
 
@@ -244,7 +286,7 @@ async function doImport() {
   if (!path) return;
   importPath.value = path;
   try {
-    const preview = (await call("backup_preview", { path, password: "" })) as Record<string, unknown>;
+    const preview = (await call("backup_preview", { path, password: importPw.value || null })) as Record<string, unknown>;
     previewRows.value = Object.entries(preview ?? {}).map(([key, value]) => {
       const v = (value ?? {}) as Record<string, number>;
       return {
@@ -289,7 +331,7 @@ async function executeImport() {
   try {
     const res = (await call("backup_import", {
       path: importPath.value,
-      password: "",
+      password: importPw.value,
       categories: importCats.value,
       strategy: importStrategy.value,
     })) as Record<string, unknown>;

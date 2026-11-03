@@ -203,12 +203,36 @@ async function doImport() {
     path = "";
   }
   if (!path) return;
-  // 独立窗简化流程：直接按默认「跳过已存在」策略导入（完整预览在 hub 备份页）
-  void run(
-    "导入",
-    () => call("backup_import", { path, password: "", categories: [], strategy: "skipExisting" }),
-    "导入完成（设置已恢复）",
-  );
+  importPath.value = path;
+  try {
+    // 旧版完整流：先预览（加密备份会要求口令）
+    const preview = (await call("backup_preview", { path, password: importPw.value || null })) as Record<string, unknown>;
+    fillPreview(preview);
+  } catch (error) {
+    const msg = String(error);
+    if (msg.includes("__NEED_PASSWORD__")) {
+      importPwErr.value = "";
+      pwOpen.value = true; // 弹口令弹层（旧版 openPwModal）
+      return;
+    }
+    showToast(msg);
+  }
+}
+
+/** 预览结果 → 弹层（旧版 openPreview） */
+function fillPreview(preview: Record<string, unknown>) {
+  previewRows.value = Object.entries(preview ?? {}).map(([key, value]) => {
+    const v = (value ?? {}) as Record<string, number>;
+    return {
+      label: key,
+      inBackup: Number(v.inBackup ?? v.count ?? 0),
+      local: Number(v.local ?? 0),
+      conflicts: Number(v.conflicts ?? v.sameId ?? 0),
+    };
+  });
+  importCats.value = ["servers", "jumps", "keys", "terminal", "history"];
+  importStrategy.value = "skipExisting";
+  previewOpen.value = true;
 }
 
 /** 规范化 WebDAV 地址（旧版 normalizeDavUrl） */
@@ -286,6 +310,7 @@ function syncNow() {
 const pwOpen = ref(false);
 const importPw = ref("");
 const importPwErr = ref("");
+const pwAttempts = ref(0);
 const previewOpen = ref(false);
 const previewRows = ref<{ label: string; inBackup: number; local: number; conflicts: number }[]>([]);
 const previewWarn = ref("");
@@ -305,12 +330,25 @@ function showToast(text: string) {
     if (toastText.value === text) toastText.value = "";
   }, 2600);
 }
-function submitPw() {
+async function submitPw() {
   if (!importPw.value.trim()) {
     importPwErr.value = "请输入口令";
     return;
   }
-  pwOpen.value = false;
+  try {
+    const preview = (await call("backup_preview", {
+      path: importPath.value,
+      password: importPw.value,
+    })) as Record<string, unknown>;
+    fillPreview(preview);
+    pwOpen.value = false;
+  } catch (error) {
+    pwAttempts.value += 1;
+    const msg = String(error);
+    importPwErr.value = msg.includes("口令错误")
+      ? `口令不对（已试 ${pwAttempts.value} 次）`
+      : msg;
+  }
 }
 function startImport() {
   previewOpen.value = false;
