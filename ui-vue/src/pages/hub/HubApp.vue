@@ -62,29 +62,18 @@ const NAV = [
 
 type PageId = (typeof NAV)[number]["id"];
 
-const PAGE_KEY = "anyboot.hub.page";
 
 const currentPage = ref<PageId>(
   (() => {
     try {
       const fromUrl = (new URLSearchParams(location.search).get("page") || "") as PageId;
       if (NAV.some((item) => item.id === fromUrl)) return fromUrl;
-      const saved = localStorage.getItem(PAGE_KEY) as PageId | null;
-      if (saved && NAV.some((item) => item.id === saved)) return saved;
     } catch {
       /* 忽略 */
     }
-    return "computers" as PageId;
+    return "computers" as PageId; // 旧版：启动固定 computers，无持久化
   })(),
 );
-
-watch(currentPage, (page) => {
-  try {
-    localStorage.setItem(PAGE_KEY, page);
-  } catch {
-    /* 存不了就算了 */
-  }
-});
 
 const navCollapsed = ref(false);
 /** 侧栏收起/展开（旧版 ab-hub-side 持久化） */
