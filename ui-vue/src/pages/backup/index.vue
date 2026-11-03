@@ -219,25 +219,33 @@ function normalizeDavUrl(raw: string): string {
   return "https://" + url.replace(/^\/\//, "");
 }
 
-function saveSync() {
-  void run(
-    "保存同步配置",
-    () =>
-      call("backup_sync_save_config", {
-        config: {
-          serverUrl: normalizeDavUrl(syncUrl.value),
-          username: syncUser.value.trim(),
-          password: syncPass.value,
-          directory: syncDir.value.trim() || "AnyBoot",
-          periodMinutes: syncPeriod.value,
-          syncOnChange: syncOnChange.value,
-          categories: syncCats.value,
-          encrypt: syncEncrypt.value,
-          enabled: syncEnabled.value,
-        },
-      }),
-    "同步配置已保存",
-  );
+async function saveSync(silent = false) {
+  // 旧版 collectAndSaveConfig：分类空校验 / 加密口令校验 / 条件字段
+  if (!syncCats.value.length && !silent) {
+    showToast("至少选择一个同步分类");
+    throw new Error("no-categories");
+  }
+  const cfg: Record<string, unknown> = {
+    serverUrl: normalizeDavUrl(syncUrl.value),
+    username: syncUser.value.trim(),
+    directory: syncDir.value.trim() || "AnyBoot",
+    periodMinutes: syncPeriod.value,
+    syncOnChange: syncOnChange.value,
+    categories: syncCats.value,
+    encrypt: syncEncrypt.value,
+    enabled: syncEnabled.value,
+  };
+  if (syncPass.value) cfg.password = syncPass.value; // 留空 = 保持已存
+  if (syncEncryptPw.value) cfg.encryptPassword = syncEncryptPw.value;
+  if (syncEncrypt.value && !syncEncryptPw.value && !sync.value?.hasEncryptPassword) {
+    syncEncryptErr.value = "开启加密需设置同步口令";
+    throw new Error("need-encrypt-password");
+  }
+  await call("backup_sync_save_config", { config: cfg });
+  syncPass.value = "";
+  syncEncryptPw.value = "";
+  await refreshSync();
+  if (!silent) showToast("配置已保存");
 }
 
 function toggleSync() {
@@ -251,7 +259,7 @@ function toggleSync() {
 }
 
 function testWebdav() {
-  void run("测试 WebDAV", () => (async () => { await saveSync(); return call("backup_webdav_test", { config: {} }); })(), "WebDAV 连接正常");
+  void run("测试 WebDAV", () => (async () => { await saveSync(true); return call("backup_webdav_test", { config: {} }); })(), "WebDAV 连接正常");
 }
 
 function syncNow() {
@@ -539,7 +547,7 @@ async function executeImport() {
 
       <div class="row-actions">
         <button type="button" class="btn" id="syncTestBtn" :disabled="!!busy" @click="testWebdav">测试连接</button>
-        <button type="button" class="btn" id="syncSaveBtn" :disabled="!!busy" @click="saveSync">保存配置</button>
+        <button type="button" class="btn" id="syncSaveBtn" :disabled="!!busy" @click="() => saveSync()">保存配置</button>
         <button type="button" class="btn primary" id="syncNowBtn" :disabled="!syncEnabled || !!busy" @click="syncNow">
           立即同步
         </button>

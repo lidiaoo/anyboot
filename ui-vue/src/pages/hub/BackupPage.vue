@@ -310,30 +310,38 @@ function normalizeDavUrl(raw: string): string {
   return "https://" + url.replace(/^\/\//, "");
 }
 
-async function saveSync() {
+async function saveSync(silent = false) {
   if (!syncUrl.value.trim()) {
     showToast("请先填写服务器地址并保存配置");
     return;
   }
-  await run(
-    "保存同步配置",
-    () =>
-      call("backup_sync_save_config", {
-        config: {
-          // 字段名必须与旧版/Rust 读取键一致（serverUrl/directory/syncOnChange）
-          serverUrl: normalizeDavUrl(syncUrl.value),
-          username: syncUser.value.trim(),
-          password: syncPass.value,
-          directory: syncDir.value.trim() || "AnyBoot",
-          periodMinutes: syncPeriod.value,
-          syncOnChange: syncOnChange.value,
-          categories: syncCats.value,
-          encrypt: syncEncrypt.value,
-          enabled: syncEnabled.value,
-        },
-      }),
-    "同步配置已保存",
-  );
+  // 旧版 collectAndSaveConfig：分类空校验 / 加密口令校验 / 条件字段
+  if (!syncCats.value.length && !silent) {
+    showToast("至少选择一个同步分类");
+    throw new Error("no-categories");
+  }
+  const cfg: Record<string, unknown> = {
+    // 字段名必须与旧版/Rust 读取键一致（serverUrl/directory/syncOnChange）
+    serverUrl: normalizeDavUrl(syncUrl.value),
+    username: syncUser.value.trim(),
+    directory: syncDir.value.trim() || "AnyBoot",
+    periodMinutes: syncPeriod.value,
+    syncOnChange: syncOnChange.value,
+    categories: syncCats.value,
+    encrypt: syncEncrypt.value,
+    enabled: syncEnabled.value,
+  };
+  if (syncPass.value) cfg.password = syncPass.value; // 留空 = 保持已存
+  if (syncEncryptPw.value) cfg.encryptPassword = syncEncryptPw.value;
+  if (syncEncrypt.value && !syncEncryptPw.value && !sync.value?.hasEncryptPassword) {
+    syncEncryptErr.value = "开启加密需设置同步口令";
+    throw new Error("need-encrypt-password");
+  }
+  await call("backup_sync_save_config", { config: cfg });
+  syncPass.value = "";
+  syncEncryptPw.value = "";
+  await refreshSync();
+  if (!silent) showToast("配置已保存");
 }
 
 function toggleSync() {
@@ -351,13 +359,13 @@ function testWebdav() {
     showToast("请先填写服务器地址并保存配置");
     return;
   }
-  void run("测试 WebDAV", () => (async () => { await saveSync(); return call("backup_webdav_test", { config: {} }); })(), "连接成功 ✓");
+  void run("测试 WebDAV", () => (async () => { await saveSync(true); return call("backup_webdav_test", { config: {} }); })(), "连接成功 ✓");
 }
 
 function createWebdavDir() {
   void run(
     "创建远端目录",
-    () => call("backup_webdav_mkdir", { config: { remoteDir: syncDir.value.trim() || "AnyBoot" } }),
+    async () => { await saveSync(true); return call("backup_webdav_mkdir", { config: {} }); },
     "远端目录已创建",
   );
 }
@@ -577,7 +585,7 @@ useEscape(resultOpen, () => { resultOpen.value = false });
     <div class="bk-row-actions">
       <button type="button" id="syncTestBtn" class="bk-btn" :disabled="!!busy" @click="testWebdav">测试连接</button>
       <button type="button" id="syncMkdirBtn" class="bk-btn" :disabled="!!busy" @click="createWebdavDir">创建远端目录</button>
-      <button type="button" id="syncSaveBtn" class="bk-btn" :disabled="!!busy" @click="saveSync">保存配置</button>
+      <button type="button" id="syncSaveBtn" class="bk-btn" :disabled="!!busy" @click="() => saveSync()">保存配置</button>
       <button type="button" id="syncNowBtn" class="bk-btn bk-primary" :disabled="!syncEnabled || !!busy" @click="syncNow">
         立即同步
       </button>
