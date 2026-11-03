@@ -1,7 +1,7 @@
 <script setup lang="ts">
 const toast = useToastStore();
 import { useEscape } from "@/composables/useEscape";
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref , onUnmounted } from "vue";
 import { call } from "@/api/tauri";
 import { useToastStore } from "@/stores/toast";
 
@@ -63,6 +63,15 @@ function applyTheme(isDark: boolean) {
   html.classList.toggle("dark", isDark);
 }
 applyTheme(dark.value);
+
+// 页面心跳（旧版）：后端据此区分「窗口对象还在」和「页面还活着」——
+// 停跳 15s = 僵尸窗口 → 销毁重建。不发心跳活窗口会被反复重建！
+void call("hub_page_ping", { ready: true }).catch(() => {});
+const pagePingTimer = window.setInterval(() => {
+  void call("hub_page_ping", { ready: true }).catch(() => {});
+}, 3000);
+onUnmounted(() => window.clearInterval(pagePingTimer));
+
 
 // 主题跟随（旧版 keys 窗监听 theme-changed）
 try {

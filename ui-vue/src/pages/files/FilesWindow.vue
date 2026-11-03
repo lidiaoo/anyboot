@@ -213,6 +213,15 @@ const crumbs = computed(() => {
 
 const activeTransfer = computed(() => transfers.value.find((t) => t.state !== "done") ?? null);
 
+
+// 页面心跳（旧版）：后端据此区分「窗口对象还在」和「页面还活着」——
+// 停跳 15s = 僵尸窗口 → 销毁重建。不发心跳活窗口会被反复重建！
+void call("hub_page_ping", { ready: true }).catch(() => {});
+const pagePingTimer = window.setInterval(() => {
+  void call("hub_page_ping", { ready: true }).catch(() => {});
+}, 3000);
+onUnmounted(() => window.clearInterval(pagePingTimer));
+
 onMounted(async () => {
   try {
     servers.value = (await call<{ id: string; name: string; host: string; protocol: string }[]>(
