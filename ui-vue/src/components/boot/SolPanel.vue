@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { call } from "@/api/tauri";
 
 /**
@@ -95,7 +95,42 @@ async function refresh() {
   }
 }
 
-onMounted(refresh);
+onMounted(async () => {
+  await refresh();
+  // 历史日志（旧版 loadSolLogs：sol_logs 回填本会话 [sol] 段）
+  try {
+    const history = (await call<string[]>("sol_logs")) ?? [];
+    for (const entry of history) logs.value.push(String(entry));
+  } catch { /* 忽略 */ }
+  const { listen } = await import("@tauri-apps/api/event");
+  unlisteners.push(
+    await listen<{ message?: string; time?: string }>("sol-log", (event) => {
+      const { message, time } = event.payload || {};
+      logs.value.push(`${time || nowTime()} ${String(message || "")}`);
+    }),
+  );
+  // 下载进度（旧版 sol-download-progress：done→收尾，否则画百分比）
+  unlisteners.push(
+    await listen<{ bytes?: number; total?: number; done?: boolean; ok?: boolean }>(
+      "sol-download-progress",
+      (event) => {
+        const { bytes, total, done, ok } = event.payload || {};
+        if (done) {
+          progress.value = ok ? 100 : progress.value;
+          setTimeout(() => { downloading.value = false; }, ok ? 1500 : 200);
+          return;
+        }
+        downloading.value = true;
+        progress.value = total ? Math.round(((bytes ?? 0) / total) * 100) : 0;
+      },
+    ),
+  );
+});
+onUnmounted(() => { for (const off of unlisteners) off(); });
+const unlisteners: (() => void)[] = [];
+function nowTime() {
+  return new Date().toLocaleTimeString("zh-CN", { hour12: false });
+}
 
 function setHttpEnabled() {
   void call("sol_http_set", { path: null, option: "enabled", value: String(!status.value?.running) }).catch(() => {});
