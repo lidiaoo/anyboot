@@ -221,11 +221,14 @@ onMounted(async () => {
   } catch {
     servers.value = [];
   }
-  const first = sshServers.value[0];
-  if (first) {
-    serverId.value = first.id;
-    await listDir("");
-  }
+  // 旧版 boot：hub_sftp_take_pending 取排队服务器；无 → 空态「没有指定服务器」
+  try {
+    const pending = await call<{ id?: string; name?: string } | null>("hub_sftp_take_pending");
+    if (pending?.id) {
+      serverId.value = pending.id;
+      await listDir("");
+    }
+  } catch { /* 无排队服务器 */ }
   await refreshTransfers();
 
   const { listen } = await import("@tauri-apps/api/event");
@@ -568,7 +571,8 @@ function pct(task: XferTask): number {
         </tr>
       </tbody>
     </table>
-    <div v-if="!loading && !entries.length" id="emptyTip" class="empty-tip">
+    <div v-if="!serverId" id="emptyTip" class="empty-tip">没有指定服务器</div>
+    <div v-else-if="!loading && !entries.length" id="emptyTip" class="empty-tip">
       {{ errorText || "这个目录是空的" }}
     </div>
   </div>
