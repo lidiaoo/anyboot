@@ -136,6 +136,7 @@ function onClick() {
 <template>
   <button
     type="button"
+    :data-row-selector="entry.selector ?? ''"
     :class="classes"
     :disabled="group || disabled"
     :title="entry.selector || ''"

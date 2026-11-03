@@ -180,9 +180,12 @@ function pick(loaderId: string, selector: string) {
   selected.value = { loader: loaderId, selector };
 }
 
-function commit() {
+/** 旧版：侧栏动作 = 代理真实行自己的动作（点击真实行，不另写一套） */
+function proxyGo() {
   if (!selected.value) return;
-  props.onSelect?.(selected.value.selector);
+  const sel = selected.value.selector;
+  const row = document.querySelector('[data-row-selector="' + CSS.escape(sel) + '"]');
+  if (row) (row as HTMLElement).click();
 }
 
 const selectedLoaderState = computed(
@@ -234,7 +237,6 @@ const selectedLoaderState = computed(
               },
             ]"
             @click="pick(group.loader.id, entry.selector ?? '')"
-            @dblclick="commit"
           >
             <span class="t">
               <b>{{ (entry as any)._groupHead ? '▾ ' : (entry as any)._sub ? '↳ ' : '' }}{{ entry.name }}</b>
@@ -280,7 +282,15 @@ const selectedLoaderState = computed(
             </div>
           </div>
         </div>
-        <button type="button" class="btn sm" @click="commit">设为下次启动</button>
+        <div class="toolbar">
+          <button type="button" class="btn sm primary" @click="proxyGo">下次启动</button>
+          <button
+            type="button"
+            class="btn sm"
+            disabled
+            title="这一行没有「设为默认」的动作：点条目本身就是把它设为下次启动"
+          >设为默认</button>
+        </div>
       </template>
       <p v-else class="lg-hint">选中一条查看详情</p>
     </aside>
