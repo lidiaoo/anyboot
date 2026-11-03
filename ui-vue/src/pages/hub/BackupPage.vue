@@ -148,6 +148,7 @@ const importCats = ref<string[]>(["servers", "jumps", "keys", "terminal", "histo
 /** 同 ID 处理策略：skipExisting（默认，安全）/ overwrite */
 const importStrategy = ref<"skipExisting" | "overwrite">("skipExisting");
 const confirmOpen = ref(false);
+const pendingMkdir = ref(false);
 const confirmBody = ref("");
 const resultOpen = ref(false);
 const resultRows = ref<{ k: string; v: string }[]>([]);
@@ -214,24 +215,6 @@ function toggleCat(which: "export" | "sync" | "import", id: string) {
   if (which === "export") exportCats.value = next;
   else if (which === "sync") syncCats.value = next;
   else importCats.value = next;
-}
-
-async function run(label: string, action: () => Promise<unknown>, done: string) {
-  if (busy.value) return;
-  busy.value = label;
-  message.value = "";
-  errorText.value = "";
-  try {
-    await action();
-    message.value = done;
-    showToast(done);
-    await refreshSync();
-  } catch (error) {
-    errorText.value = String(error);
-    showToast(label + "失败：" + error);
-  } finally {
-    busy.value = "";
-  }
 }
 
 async function doExport() {
@@ -320,8 +303,16 @@ function startImport() {
 }
 
 /** 覆盖确认后真正执行 */
+
+/** 确认弹层 OK：pendingMkdir → 创建远端目录；否则覆盖导入（旧版 cfmOk 双用途） */
+function confirmOk() {
+  if (pendingMkdir.value) { void createWebdavDir(); return; }
+  executeImport();
+}
+
 async function executeImport() {
   confirmOpen.value = false;
+  pendingMkdir.value = false;
   if (busy.value) return;
   busy.value = "导入";
   message.value = "";
@@ -405,15 +396,35 @@ function testWebdav() {
     showToast("请先填写服务器地址并保存配置");
     return;
   }
-  void run("测试 WebDAV", () => (async () => { await saveSync(true); return call("backup_webdav_test", { config: {} }); })(), "连接成功 ✓");
+  void (async () => {
+    try {
+      await saveSync(true); // 先存再测（旧版语义）
+      const result = await call<string>("backup_webdav_test", { config: {} });
+      if (result === "ok") {
+        showToast("连接成功 ✓");
+      } else if (result === "notFound") {
+        // 远端目录不存在 → 询问是否创建（旧版 openMkdirConfirm）
+        confirmBody.value = `服务器上还没有 ${syncDir.value.trim() || "AnyBoot"} 目录，要现在创建吗？`;
+        confirmOpen.value = true;
+        pendingMkdir.value = true;
+      }
+    } catch (error) {
+      showToast("测试失败：" + error);
+    }
+  })();
 }
 
-function createWebdavDir() {
-  void run(
-    "创建远端目录",
-    async () => { await saveSync(true); return call("backup_webdav_mkdir", { config: {} }); },
-    "远端目录已创建",
-  );
+/** 创建远端目录（旧版 cfmOk 的 pendingMkdir 分支） */
+async function createWebdavDir() {
+  confirmOpen.value = false;
+  if (!pendingMkdir.value) return; // 正常覆盖导入路径
+  pendingMkdir.value = false;
+  try {
+    await call("backup_webdav_mkdir", { config: {} });
+    showToast("目录已创建 ✓");
+  } catch (error) {
+    showToast("创建目录失败：" + error);
+  }
 }
 
 function syncNow() {
@@ -632,7 +643,6 @@ useEscape(resultOpen, () => { resultOpen.value = false });
 
     <div class="bk-row-actions">
       <button type="button" id="syncTestBtn" class="bk-btn" :disabled="!!busy" @click="testWebdav">测试连接</button>
-      <button type="button" id="syncMkdirBtn" class="bk-btn" :disabled="!!busy" @click="createWebdavDir">创建远端目录</button>
       <button type="button" id="syncSaveBtn" class="bk-btn" :disabled="!!busy" @click="() => saveSync()">保存配置</button>
       <button type="button" id="syncNowBtn" class="bk-btn bk-primary" :disabled="!syncEnabled || !!busy" @click="syncNow">
         立即同步
@@ -754,7 +764,7 @@ useEscape(resultOpen, () => { resultOpen.value = false });
       <p id="cfmBody" class="bk-del-body">{{ confirmBody }}</p>
       <div class="bk-modal-foot">
         <button type="button" id="cfmCancel" class="bk-btn bk-plain" @click="confirmOpen = false">取消</button>
-        <button type="button" id="cfmOk" class="bk-btn bk-danger" @click="executeImport">覆盖导入</button>
+        <button type="button" id="cfmOk" class="bk-btn bk-danger" @click="confirmOk">覆盖导入</button>
       </div>
     </div>
   </div>

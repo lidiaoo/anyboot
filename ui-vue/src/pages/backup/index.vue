@@ -305,7 +305,39 @@ function toggleSync() {
 }
 
 function testWebdav() {
-  void run("测试 WebDAV", () => (async () => { await saveSync(true); return call("backup_webdav_test", { config: {} }); })(), "WebDAV 连接正常");
+  if (!syncUrl.value.trim()) {
+    showToast("请先填写服务器地址并保存配置");
+    return;
+  }
+  void (async () => {
+    try {
+      await saveSync(true); // 先存再测（旧版语义）
+      const result = await call<string>("backup_webdav_test", { config: {} });
+      if (result === "ok") {
+        showToast("连接成功 ✓");
+      } else if (result === "notFound") {
+        // 远端目录不存在 → 询问是否创建（旧版 openMkdirConfirm）
+        confirmBody.value = `服务器上还没有 ${syncDir.value.trim() || "AnyBoot"} 目录，要现在创建吗？`;
+        confirmOpen.value = true;
+        pendingMkdir.value = true;
+      }
+    } catch (error) {
+      showToast("测试失败：" + error);
+    }
+  })();
+}
+
+/** 创建远端目录（旧版 cfmOk 的 pendingMkdir 分支） */
+async function createWebdavDir() {
+  confirmOpen.value = false;
+  if (!pendingMkdir.value) return; // 正常覆盖导入路径
+  pendingMkdir.value = false;
+  try {
+    await call("backup_webdav_mkdir", { config: {} });
+    showToast("目录已创建 ✓");
+  } catch (error) {
+    showToast("创建目录失败：" + error);
+  }
 }
 
 function syncNow() {
@@ -335,6 +367,7 @@ const importPath = ref("");
 const importCats = ref<string[]>(["servers", "jumps", "keys", "terminal", "history"]);
 const importStrategy = ref<"skipExisting" | "overwrite">("skipExisting");
 const confirmOpen = ref(false);
+const pendingMkdir = ref(false);
 const confirmBody = ref("");
 const resultOpen = ref(false);
 const resultRows = ref<{ k: string; v: string }[]>([]);
@@ -376,8 +409,16 @@ function startImport() {
   }
   void executeImport();
 }
+
+/** 确认弹层 OK：pendingMkdir → 创建远端目录；否则覆盖导入（旧版 cfmOk 双用途） */
+function confirmOk() {
+  if (pendingMkdir.value) { void createWebdavDir(); return; }
+  executeImport();
+}
+
 async function executeImport() {
   confirmOpen.value = false;
+  pendingMkdir.value = false;
   if (busy.value) return;
   busy.value = "导入";
   try {
@@ -713,7 +754,7 @@ async function executeImport() {
         <p class="del-body" id="cfmBody">{{ confirmBody }}</p>
         <div class="modal-foot" style="border: 0; padding: 4px 0 0">
           <button type="button" class="btn plain" id="cfmCancel" @click="confirmOpen = false">取消</button>
-          <button type="button" class="btn danger" id="cfmOk" @click="executeImport">覆盖导入</button>
+          <button type="button" class="btn danger" id="cfmOk" @click="confirmOk">覆盖导入</button>
         </div>
       </div>
     </div>
