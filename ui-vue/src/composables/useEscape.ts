@@ -31,6 +31,8 @@ export function useEscape(open: Ref<boolean>, close: () => void, enabled?: () =>
 export function useCtrlEnter(open: Ref<boolean>, submit: () => void) {
   function onKeydown(event: KeyboardEvent) {
     if (!open.value) return;
+    // 输入法选词的回车不算「保存」（旧版 isImeKey：isComposing / keyCode 229）
+    if (event.isComposing || event.keyCode === 229) return;
     if (event.key !== "Enter") return;
     if (!(event.ctrlKey || event.metaKey)) return;
     event.preventDefault();

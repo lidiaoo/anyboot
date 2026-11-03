@@ -8,7 +8,7 @@
 
 /// (相对路径, Content-Type, 文件正文)
 pub(crate) const UI_ASSETS: &[(&str, &str, &str)] = &[
-    ("assets/chunks/AboutPage-B2QRNUeS.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/AboutPage-B2QRNUeS.js")),
+    ("assets/chunks/AboutPage-C52gVHVo.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/AboutPage-C52gVHVo.js")),
     ("assets/chunks/LoaderIcon.vue_vue_type_script_setup_true_lang-D4gk_Jl_.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/LoaderIcon.vue_vue_type_script_setup_true_lang-D4gk_Jl_.js")),
     ("assets/chunks/StateChip.vue_vue_type_script_setup_true_lang-Banr_ynU.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/StateChip.vue_vue_type_script_setup_true_lang-Banr_ynU.js")),
     ("assets/chunks/ThemeA-C_Yns2hA.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/ThemeA-C_Yns2hA.js")),
@@ -22,7 +22,7 @@ pub(crate) const UI_ASSETS: &[(&str, &str, &str)] = &[
     ("assets/chunks/event-iEf0y1E-.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/event-iEf0y1E-.js")),
     ("assets/chunks/http-DLXscMYK.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/http-DLXscMYK.js")),
     ("assets/chunks/tauri-BSzATA52.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/tauri-BSzATA52.js")),
-    ("assets/chunks/useEscape-BQVjq3Ze.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/useEscape-BQVjq3Ze.js")),
+    ("assets/chunks/useEscape-Y31qqmVK.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/useEscape-Y31qqmVK.js")),
     ("assets/hub-Dxvskv0n.css", "text/css; charset=utf-8", include_str!("../../ui-vue/dist/assets/hub-Dxvskv0n.css")),
     ("assets/hub-backup-DnIuWeWO.css", "text/css; charset=utf-8", include_str!("../../ui-vue/dist/assets/hub-backup-DnIuWeWO.css")),
     ("assets/hub-backup.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/hub-backup.js")),
