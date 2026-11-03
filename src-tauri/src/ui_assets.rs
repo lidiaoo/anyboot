@@ -4,24 +4,25 @@
 // 手机端「电脑页」与浏览器远程访问走的就是这张表。
 //
 // 源目录：ui-vue/dist/
-// 条目数：44
+// 条目数：45
 
 /// (相对路径, Content-Type, 文件正文)
 pub(crate) const UI_ASSETS: &[(&str, &str, &str)] = &[
-    ("assets/chunks/AboutPage-C52gVHVo.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/AboutPage-C52gVHVo.js")),
+    ("assets/chunks/AboutPage-BvamA0Rn.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/AboutPage-BvamA0Rn.js")),
     ("assets/chunks/LoaderIcon.vue_vue_type_script_setup_true_lang-D4gk_Jl_.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/LoaderIcon.vue_vue_type_script_setup_true_lang-D4gk_Jl_.js")),
     ("assets/chunks/StateChip.vue_vue_type_script_setup_true_lang-Banr_ynU.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/StateChip.vue_vue_type_script_setup_true_lang-Banr_ynU.js")),
-    ("assets/chunks/ThemeA-C_Yns2hA.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/ThemeA-C_Yns2hA.js")),
-    ("assets/chunks/ThemeB-B7PvEyno.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/ThemeB-B7PvEyno.js")),
-    ("assets/chunks/ThemeC-iox7p-MV.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/ThemeC-iox7p-MV.js")),
-    ("assets/chunks/ThemeG-BXVUJdoG.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/ThemeG-BXVUJdoG.js")),
-    ("assets/chunks/ThemeI-BmRTuHFr.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/ThemeI-BmRTuHFr.js")),
-    ("assets/chunks/ThemeJ-B0CLasgr.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/ThemeJ-B0CLasgr.js")),
-    ("assets/chunks/_plugin-vue_export-helper-BN8gV521.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/_plugin-vue_export-helper-BN8gV521.js")),
+    ("assets/chunks/ThemeA-DgpcXk4g.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/ThemeA-DgpcXk4g.js")),
+    ("assets/chunks/ThemeB-D6ZDAxax.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/ThemeB-D6ZDAxax.js")),
+    ("assets/chunks/ThemeC-D_J63Opr.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/ThemeC-D_J63Opr.js")),
+    ("assets/chunks/ThemeG-B9oWcEAv.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/ThemeG-B9oWcEAv.js")),
+    ("assets/chunks/ThemeI-C33fzMMR.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/ThemeI-C33fzMMR.js")),
+    ("assets/chunks/ThemeJ-fiwud2vk.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/ThemeJ-fiwud2vk.js")),
+    ("assets/chunks/_plugin-vue_export-helper-v8tBeSH0.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/_plugin-vue_export-helper-v8tBeSH0.js")),
     ("assets/chunks/app-Bs1dinZT.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/app-Bs1dinZT.js")),
     ("assets/chunks/event-iEf0y1E-.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/event-iEf0y1E-.js")),
     ("assets/chunks/http-DLXscMYK.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/http-DLXscMYK.js")),
     ("assets/chunks/tauri-BSzATA52.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/tauri-BSzATA52.js")),
+    ("assets/chunks/toast-V-Texp2a.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/toast-V-Texp2a.js")),
     ("assets/chunks/useEscape-Y31qqmVK.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/useEscape-Y31qqmVK.js")),
     ("assets/hub-H2Ywu43X.css", "text/css; charset=utf-8", include_str!("../../ui-vue/dist/assets/hub-H2Ywu43X.css")),
     ("assets/hub-backup-DnIuWeWO.css", "text/css; charset=utf-8", include_str!("../../ui-vue/dist/assets/hub-backup-DnIuWeWO.css")),

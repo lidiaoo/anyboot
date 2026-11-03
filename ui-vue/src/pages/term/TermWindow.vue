@@ -1,6 +1,8 @@
 <script setup lang="ts">
+const toast = useToastStore();
 import { onMounted, onUnmounted, ref } from "vue";
 import { call } from "@/api/tauri";
+import { useToastStore } from "@/stores/toast";
 
 /**
  * 终端窗（原 `ui/hub-term.html`，695 行）—— hub_term* 命令族 6 个。
@@ -29,6 +31,9 @@ interface XTermLike {
   dispose(): void;
   options: Record<string, unknown>;
   loadAddon(addon: unknown): void;
+  onSelectionChange?(cb: () => void): void;
+  getSelection?(): string;
+  onBell?(cb: () => void): void;
 }
 
 interface Session {
@@ -141,6 +146,8 @@ function loadStyle(href: string) {
 function readTermSettings(): {
   fontSize: number;
   cursorBlink: boolean;
+  copyOnSelect: boolean;
+  bell: boolean;
   scrollback: number;
   fontFamily: string;
 } {
@@ -151,6 +158,8 @@ function readTermSettings(): {
       return {
         fontSize: Math.min(24, Math.max(10, Number(parsed.fontSize) || 14)),
         cursorBlink: parsed.cursorBlink !== undefined ? Boolean(parsed.cursorBlink) : true,
+        copyOnSelect: Boolean(parsed.copyOnSelect),
+        bell: Boolean(parsed.bell),
         scrollback: Math.min(100000, Math.max(500, Number(parsed.scrollback) || 5000)),
         fontFamily: typeof parsed.fontFamily === "string" ? parsed.fontFamily : "",
       };
@@ -158,7 +167,7 @@ function readTermSettings(): {
   } catch {
     /* 吃默认 */
   }
-  return { fontSize: 14, cursorBlink: true, scrollback: 5000, fontFamily: "" };
+  return { fontSize: 14, cursorBlink: true, copyOnSelect: false, bell: false, scrollback: 5000, fontFamily: "" };
 }
 
 function applyTermSettings() {
@@ -210,6 +219,30 @@ async function createSession(id: string, title: string): Promise<Session | null>
   term.open(host);
   fit?.fit();
 
+  // 选中即复制（终端设置页开关；旧版 t.onSelectionChange + termFlag.copyOnSelect）
+  term.onSelectionChange?.(() => {
+    const s = readTermSettings();
+    if (!s.copyOnSelect) return;
+    const sel = term.getSelection?.();
+    if (sel) void navigator.clipboard.writeText(sel).catch(() => {});
+  });
+  // 响铃提示（BEL → 短提示音；旧版 t.onBell + termFlag.bell）
+  term.onBell?.(() => {
+    const s = readTermSettings();
+    if (!s.bell) return;
+    // 旧版响铃：AudioContext 880Hz / gain 0.05 / 130ms
+    try {
+      const AC = (window as unknown as { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext });
+      const Ctor = AC.AudioContext || AC.webkitAudioContext;
+      if (!Ctor) return;
+      const ac = new Ctor();
+      const osc = ac.createOscillator(), gain = ac.createGain();
+      osc.connect(gain); gain.connect(ac.destination);
+      osc.frequency.value = 880; gain.gain.value = 0.05;
+      osc.start();
+      setTimeout(() => { osc.stop(); ac.close(); }, 130);
+    } catch { /* 忽略 */ }
+  });
   term.onData((data) => {
     void call("hub_term_write", { id, data }).catch(() => {});
   });
@@ -306,7 +339,10 @@ onMounted(async () => {
 
   // 设置热更新
   unlisteners.push(
-    await listen("ab-term-settings-changed", () => applyTermSettings()),
+    await listen("ab-term-settings-changed", () => {
+      applyTermSettings();
+      toast.show("终端设置已应用");
+    }),
   );
 
   // 复用已开窗口：hub 请求打开某服务器（旧版 hub-term-open-server）
