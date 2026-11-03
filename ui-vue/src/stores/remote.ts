@@ -80,6 +80,11 @@ export const useRemoteStore = defineStore("remote", () => {
     return OFFLINE_RETRY_DEFAULT;
   }
 
+  /** 清空各机离线失败计数（旧版改 offretry 阈值时 cqFailCount.clear()） */
+  function clearFailCounts(): void {
+    failCounts.value.clear();
+  }
+
   function reprobeAlways(): boolean {
     try {
       return localStorage.getItem(REPROBE_ALWAYS_KEY) === "1";
@@ -194,6 +199,7 @@ export const useRemoteStore = defineStore("remote", () => {
     power,
     test,
     reprobeAlways,
+    clearFailCounts,
     offlineRetryCount,
   };
 });

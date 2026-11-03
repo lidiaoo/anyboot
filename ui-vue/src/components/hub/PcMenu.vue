@@ -45,6 +45,15 @@ const openMode = ref((() => {
   try { return localStorage.getItem("cqOpenMode") === "goto" ? "goto" : "inline"; } catch { return "inline"; }
 })());
 /** 探测地址方式（旧版 data-reprobe：写偏好 + toast） */
+/** 离线判定阈值（旧版 data-offretry：写偏好 + 清失败计数 + toast） */
+function pickOffretry(n: number) {
+  settings.setOfflineRetryCount(n);
+  // 旧版 cqFailCount.clear()：改完立即按新阈值判定，不受旧计数影响
+  void import("@/stores/remote").then(({ useRemoteStore }) => useRemoteStore().clearFailCounts());
+  open.value = false;
+  toast.show(`连续失败 ${n} 次才判离线`);
+}
+
 function pickReprobe(always: boolean) {
   settings.setReprobeAlways(always);
   open.value = false;
@@ -214,10 +223,10 @@ const customActive = computed(() => !refreshOptions.includes(settings.dataRefres
 
       <div class="divider" />
       <div class="caption">连续失败多少次才判离线（弱网容忍）</div>
-      <button role="menuitem" type="button" data-offretry="1" :class="{ 'is-on': settings.offlineRetryCount === 1 }" @click="settings.setOfflineRetryCount(1)">1 次（最灵敏）</button>
-      <button role="menuitem" type="button" data-offretry="2" :class="{ 'is-on': settings.offlineRetryCount === 2 }" @click="settings.setOfflineRetryCount(2)">2 次</button>
-      <button role="menuitem" type="button" data-offretry="3" :class="{ 'is-on': settings.offlineRetryCount === 3 }" @click="settings.setOfflineRetryCount(3)">3 次（默认）</button>
-      <button role="menuitem" type="button" data-offretry="5" :class="{ 'is-on': settings.offlineRetryCount === 5 }" @click="settings.setOfflineRetryCount(5)">5 次</button>
+      <button role="menuitem" type="button" data-offretry="1" :class="{ 'is-on': settings.offlineRetryCount === 1 }" @click="pickOffretry(1)">1 次（最灵敏）</button>
+      <button role="menuitem" type="button" data-offretry="2" :class="{ 'is-on': settings.offlineRetryCount === 2 }" @click="pickOffretry(2)">2 次</button>
+      <button role="menuitem" type="button" data-offretry="3" :class="{ 'is-on': settings.offlineRetryCount === 3 }" @click="pickOffretry(3)">3 次（默认）</button>
+      <button role="menuitem" type="button" data-offretry="5" :class="{ 'is-on': settings.offlineRetryCount === 5 }" @click="pickOffretry(5)">5 次</button>
 
       <div class="divider" />
       <div class="caption">连不上时自动重载（全局）</div>
