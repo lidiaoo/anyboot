@@ -179,18 +179,34 @@ async function run(label: string, action: () => Promise<unknown>, done: string) 
 }
 
 async function doExport() {
-  if (exportPw1.value !== exportPw2.value) {
-    errorText.value = "两次口令不一致";
+  // 旧版校验：keys 或加密码 → 必须 ≥4 位且两次一致
+  const usePw = Boolean(exportPw1.value);
+  if ((exportIncludeKeys.value || usePw) && (exportPw1.value.length < 4 || exportPw1.value !== exportPw2.value)) {
+    showToast("请先把口令设置好（≥4 位，两次一致）");
     return;
   }
+  // 旧版流程：先挑保存路径，用户取消就不导出
+  let path = "";
+  try {
+    path = ((await call("backup_pick_export_path")) as string) ?? "";
+  } catch {
+    path = "";
+  }
+  if (!path) return;
   await run(
     "导出",
-    () =>
-      call("backup_export", {
-        categories: exportCats.value,
-        includeKeys: exportIncludeKeys.value,
-        password: exportPw1.value || "",
-      }),
+    async () => {
+      // password null = 不加密（旧版语义；空串会被当空口令加密）
+      const msg = (await call<string>("backup_export", {
+        path,
+        categories: exportIncludeKeys.value
+          ? [...exportCats.value, "keys"]
+          : exportCats.value,
+        password: usePw ? exportPw1.value : null,
+      })) || "";
+      showToast(`${msg} — ${path}`);
+      return msg;
+    },
     "备份文件已导出",
   );
 }
