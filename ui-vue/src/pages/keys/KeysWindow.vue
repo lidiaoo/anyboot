@@ -62,6 +62,15 @@ function applyTheme(isDark: boolean) {
 }
 applyTheme(dark.value);
 
+// 主题跟随（旧版 keys 窗监听 theme-changed）
+try {
+  const { listen } = await import("@tauri-apps/api/event");
+  void listen<{ theme?: string }>("theme-changed", (event) => {
+    const theme = event.payload?.theme;
+    if (theme) applyTheme(theme !== "light");
+  });
+} catch { /* 非 Tauri 环境 */ }
+
 function toggleTheme() {
   dark.value = !dark.value;
   applyTheme(dark.value);

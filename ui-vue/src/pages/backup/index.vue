@@ -97,6 +97,7 @@ try {
 } catch {
   /* 吃默认 */
 }
+// 主题跟随（旧版 backup 窗监听 theme-changed）—— onMounted 里注册
 function applyTheme(isDark: boolean) {
   const html = document.documentElement;
   html.setAttribute("data-theme", isDark ? "dark" : "light");
@@ -134,6 +135,17 @@ async function refreshSync() {
 }
 
 onMounted(refreshSync);
+
+// 主题跟随（旧版 backup 窗监听 theme-changed）
+onMounted(async () => {
+  try {
+    const { listen } = await import("@tauri-apps/api/event");
+    void listen<{ theme?: string }>("theme-changed", (event) => {
+      const theme = event.payload?.theme;
+      if (theme) applyTheme(theme !== "light");
+    });
+  } catch { /* 非 Tauri 环境 */ }
+});
 
 function toggleCat(which: "export" | "sync" | "import", id: string) {
   const source = which === "export" ? exportCats : which === "sync" ? syncCats : importCats;

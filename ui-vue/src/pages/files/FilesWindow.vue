@@ -229,6 +229,22 @@ onMounted(async () => {
   await refreshTransfers();
 
   const { listen } = await import("@tauri-apps/api/event");
+  // 复用已开窗口：hub 请求切到某服务器并回到家目录（旧版 hub-files-open-server）
+  unlisteners.push(
+    await listen<{ id?: string }>("hub-files-open-server", async (event) => {
+      const id = event.payload?.id;
+      if (!id) return;
+      serverId.value = id;
+      await listDir("");
+    }),
+  );
+  // 主题跟随
+  unlisteners.push(
+    await listen<{ theme?: string }>("theme-changed", (event) => {
+      const theme = event.payload?.theme;
+      if (theme) applyTheme(theme !== "light");
+    }),
+  );
   unlisteners.push(
     await listen<XferTask>("hub-sftp-progress", (event) => {
       const task = event.payload;

@@ -34,6 +34,8 @@ interface XTermLike {
 interface Session {
   id: string;
   title: string;
+  /** 所属服务器 id（旧版按它去重：同服务器已有活会话直接切换） */
+  serverId?: string;
   term: XTermLike;
   fit: { fit(): void } | null;
   host: HTMLElement;
@@ -307,6 +309,22 @@ onMounted(async () => {
     await listen("ab-term-settings-changed", () => applyTermSettings()),
   );
 
+  // 复用已开窗口：hub 请求打开某服务器（旧版 hub-term-open-server）
+  unlisteners.push(
+    await listen("hub-term-open-server", (event) => {
+      const payload = (event as unknown as { payload?: Record<string, unknown> }).payload;
+      if (payload) void openServer(payload);
+    }),
+  );
+
+  // 主题跟随（旧版 4 独立窗都监听 theme-changed）
+  unlisteners.push(
+    await listen<{ theme?: string }>("theme-changed", (event) => {
+      const theme = event.payload?.theme;
+      if (theme) applyTheme(theme !== "light");
+    }),
+  );
+
   // 从 hub 传过来的待打开服务器
   try {
     const pending = await call<string | null>("hub_term_take_pending");
@@ -316,16 +334,24 @@ onMounted(async () => {
   }
 });
 
-async function openServer(serverId: string) {
+async function openServer(server: string | Record<string, unknown>) {
+  // 旧版语义：payload 是完整 HubServer；字符串 id 时从服务器清单解析
+  const serverObj = (
+    typeof server === "string" ? servers.value.find((s) => s.id === server) : server
+  ) as Record<string, unknown> | undefined;
+  const sid = String(serverObj?.id ?? (typeof server === "string" ? server : ""));
+  // 同一台服务器已有活会话 → 直接切过去，不重复开（旧版去重）
+  const existed = sessions.value.find((s) => s.serverId === sid);
+  if (existed) { selectTab(existed.id); return; }
   connText.value = "连接中…";
   connOk.value = false;
   try {
     const result = await call<{ id: string; title?: string }>("hub_term_open", {
-      server: serverId,
+      server: serverObj ?? sid,
     });
     const session = await createSession(result.id, result.title || "终端");
-    footHost.value = result.title || serverId;
     if (session) {
+      session.serverId = sid;
       const cols = (session.term as unknown as { cols?: number }).cols ?? 80;
       const rows = (session.term as unknown as { rows?: number }).rows ?? 24;
       footSize.value = `${cols} × ${rows}`;
