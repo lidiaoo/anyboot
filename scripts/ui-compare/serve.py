@@ -11,7 +11,15 @@
 """
 import http.server, socketserver, json, pathlib, urllib.parse
 
-ROOT = pathlib.Path("/tmp/cmp")
+import os
+# 目录布局：本目录放 mock-tauri.js / mockdata.json / cmd_required.json；
+# old/ = 7bd3ce2 的 ui/（生成：git archive 7bd3ce2 ui | tar -x -C old）
+# 可用环境变量 UICOMPARE_ROOT 覆盖；缺省回退 /tmp/cmp（历史工作区）。
+ROOT = pathlib.Path(os.environ.get("UICOMPARE_ROOT", ""))
+if not ROOT or not (ROOT / "mock-tauri.js").exists():
+    ROOT = pathlib.Path(__file__).resolve().parent
+if not (ROOT / "mock-tauri.js").exists():
+    ROOT = pathlib.Path("/tmp/cmp")
 OLD = ROOT / "old"
 NEW = pathlib.Path("/Users/jianghh/IdeaProjects/anyboot/ui-vue/dist")
 MOCK_JS = (ROOT / "mock-tauri.js").read_text(encoding="utf-8")
