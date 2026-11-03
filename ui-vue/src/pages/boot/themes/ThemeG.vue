@@ -43,6 +43,8 @@ const ui = useUiStateStore();
 const settings = useSettingsStore();
 
 const query = ref("");
+/** .lg-results 根（真实区块所在，旧版对真实行做 ba-g-hide 显隐） */
+const resultsRoot = ref<HTMLElement | null>(null);
 /** 搜索框（⌘K / Ctrl+K 聚焦） */
 const searchInputRef = ref<HTMLInputElement | null>(null);
 
@@ -183,9 +185,6 @@ watch(
   },
 );
 
-function pick(loaderId: string, selector: string) {
-  selected.value = { loader: loaderId, selector };
-}
 
 /** 旧版：侧栏动作 = 代理真实行自己的动作（点击真实行，不另写一套） */
 function proxyGo() {
@@ -195,6 +194,35 @@ function proxyGo() {
   if (row) (row as HTMLElement).click();
 }
 
+/** 旧版 paintResults：搜索/筛选直接对真实行与分组做显隐（不重渲条目） */
+watch([query, filter, () => props.rows], async () => {
+  await new Promise((r) => requestAnimationFrame(r));
+  const root = resultsRoot.value;
+  if (!root) return;
+  const q = query.value.trim().toLowerCase();
+  // 每个引导器组：组头 + 区块
+  const groups = root.querySelectorAll(".lg-group[data-loader-id]");
+  groups.forEach((g) => {
+    const id = (g as HTMLElement).dataset.loaderId;
+    const section =
+      root.querySelector(`#${id}`) ||
+      root.querySelector(`[data-loader-section="${id}"]`);
+    const show = filter.value === "all" || filter.value === id;
+    (g as HTMLElement).style.display = show ? "" : "none";
+    if (section) (section as HTMLElement).style.display = show ? "" : "none";
+    if (!show || !section) return;
+    let hits = 0;
+    section.querySelectorAll(".grub-entry").forEach((row) => {
+      const ok = !q || (row.textContent || "").toLowerCase().includes(q);
+      row.classList.toggle("ba-g-hide", !ok);
+      if (ok) hits++;
+    });
+    if (q && !hits) {
+      (g as HTMLElement).style.display = "none";
+      (section as HTMLElement).style.display = "none";
+    }
+  });
+});
 const selectedLoaderState = computed(
   () => props.loaders.find((l) => l.id === selected.value?.loader)?.state ?? "ok",
 );
@@ -222,39 +250,9 @@ const selectedLoaderState = computed(
         </div>
       </div>
 
-      <div class="lg-results">
-        <template v-for="group in results" :key="group.loader.id">
-          <div class="lg-group">
-            <LoaderIcon :id="group.loader.id" size="sm" />
-            <b>{{ group.loader.name }}</b>
-            <span>· {{ group.entries.filter((e) => !(e as any)._groupHead).length }} 项</span>
-          </div>
-          <button
-            v-for="entry in group.entries"
-            :key="`${group.loader.id}:${entry.selector}:${(entry as any)._sub ? 's' : (entry as any)._groupHead ? 'g' : 'p'}`"
-            type="button"
-            :class="[
-              'lg-item',
-              (entry as any)._pinned ? 'is-pinned' : '',
-              (entry as any)._groupHead ? 'lg-group-head' : '',
-              (entry as any)._sub ? 'lg-sub' : '',
-              {
-                'is-active':
-                  selected?.loader === group.loader.id &&
-                  selected?.selector === entry.selector,
-              },
-            ]"
-            @click="pick(group.loader.id, entry.selector ?? '')"
-          >
-            <span class="t">
-              <b>{{ (entry as any)._groupHead ? '▾ ' : (entry as any)._sub ? '↳ ' : '' }}{{ entry.name }}</b>
-              <small v-if="entry.kernels?.[0]">{{ entry.kernels[0] }}</small>
-              <small v-if="(entry as any)._sub && entry.tag" class="lg-item-tag">{{ entry.tag }}</small>
-            </span>
-          </button>
-        </template>
-        <p v-if="!results.length" class="lg-hint">暂无条目 · 展开下面的「引导器设置」读取</p>
-        <!-- 旧版：真实区块搬进命令面板列表（ba-theme-sec/ba-split/ba-g-card） -->
+      <div class="lg-results" ref="resultsRoot">
+        <!-- 旧版 G：真实区块就是面板本体（组头由 slot 内容承载，搜索/筛选
+             直接对真实行做 ba-g-hide 显隐，不重渲条目） -->
         <slot />
       </div>
     </div>

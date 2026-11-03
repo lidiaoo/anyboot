@@ -99,23 +99,6 @@ function rowLabel(entry: EntryData): string {
 const rows = computed<Row[]>(() => {
   const out: Row[] = [];
   const entries = props.entries;
-  // 旧版：选中条目置顶副本（脱离组、名字带组名前缀），原位照常出行
-  const activeIndex = entries.findIndex((entry) => entry.selector === props.activeSelector);
-  if (activeIndex >= 0) {
-    const pinned = entries[activeIndex];
-    const prefix = pinned.submenu
-      ? (props.groupTitles[pinned.submenu] || pinned.submenu) + " › "
-      : "";
-    out.push({
-      key: `pinned:${pinned.selector ?? pinned.name}`,
-      entry: { ...pinned, name: prefix + rowLabel(pinned) },
-      group: false,
-      depth: 0,
-      childCount: 0,
-      groupTitle: "",
-      pinned: true,
-    });
-  }
   const childrenOf = new Map<string, EntryData[]>();
   for (const entry of entries) {
     if (entry.submenu) {

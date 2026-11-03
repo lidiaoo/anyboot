@@ -629,10 +629,20 @@ const statusHidden = computed(() => {
           @reorder="(order: string[]) => adv.setOrder(order as any)"
         >
           <!-- K 原生态：旧版的完整区块结构 -->
+          <div v-if="adv.effectiveTheme !== 'K'" class="lg-group" data-loader-id="refind">
+            <LoaderIcon id="refind" size="sm" />
+            <b>rEFInd</b>
+            <span>· {{ bootRowsByLoader.refind.length }} 项</span>
+          </div>
           <RefindSection :class="adv.effectiveTheme !== 'K' ? 'ba-theme-sec ba-split ba-g-card' : ''" />
 
           <hr aria-hidden="true" class="boot-divider" id="boot-divider" :style="adv.effectiveTheme !== 'K' ? { display: 'none' } : undefined" />
 
+          <div v-if="adv.effectiveTheme !== 'K'" class="lg-group" data-loader-id="grub">
+            <LoaderIcon id="grub" size="sm" />
+            <b>GRUB</b>
+            <span>· {{ bootRowsByLoader.grub.length }} 项</span>
+          </div>
           <GrubSection :class="adv.effectiveTheme !== 'K' ? 'ba-theme-sec ba-split ba-g-card' : ''" />
 
           <!-- 三引导器通道（旧版 #boot-channels-mount） -->
