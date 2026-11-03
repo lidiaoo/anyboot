@@ -167,6 +167,12 @@ onMounted(async () => {
   }
   await refreshTransfers();
 
+  // 传输列表 1s 轮询兜底（旧版 txPollList：事件是主路径，轮询兜底对账）
+  const txPollTimer = window.setInterval(() => {
+    void refreshTransfers();
+  }, 1000);
+  onUnmounted(() => window.clearInterval(txPollTimer));
+
   const { listen } = await import("@tauri-apps/api/event");
   unlisteners.push(
     await listen<XferTask>("hub-sftp-progress", (event) => {
