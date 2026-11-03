@@ -346,7 +346,7 @@ function testWebdav() {
     showToast("请先填写服务器地址并保存配置");
     return;
   }
-  void run("测试 WebDAV", () => call("backup_webdav_test", { config: {} }), "连接成功 ✓");
+  void run("测试 WebDAV", () => (async () => { await saveSync(); return call("backup_webdav_test", { config: {} }); })(), "连接成功 ✓");
 }
 
 function createWebdavDir() {

@@ -206,19 +206,29 @@ async function doImport() {
   );
 }
 
+/** 规范化 WebDAV 地址（旧版 normalizeDavUrl） */
+function normalizeDavUrl(raw: string): string {
+  const url = String(raw || "").trim();
+  if (!url) return "";
+  if (/^https?:\/\//i.test(url)) return url;
+  return "https://" + url.replace(/^\/\//, "");
+}
+
 function saveSync() {
   void run(
     "保存同步配置",
     () =>
       call("backup_sync_save_config", {
         config: {
-          url: syncUrl.value.trim(),
+          serverUrl: normalizeDavUrl(syncUrl.value),
           username: syncUser.value.trim(),
           password: syncPass.value,
-          remoteDir: syncDir.value.trim() || "AnyBoot",
+          directory: syncDir.value.trim() || "AnyBoot",
           periodMinutes: syncPeriod.value,
-          onChanged: syncOnChange.value,
+          syncOnChange: syncOnChange.value,
           categories: syncCats.value,
+          encrypt: syncEncrypt.value,
+          enabled: syncEnabled.value,
         },
       }),
     "同步配置已保存",
@@ -236,7 +246,7 @@ function toggleSync() {
 }
 
 function testWebdav() {
-  void run("测试 WebDAV", () => call("backup_webdav_test", { config: {} }), "WebDAV 连接正常");
+  void run("测试 WebDAV", () => (async () => { await saveSync(); return call("backup_webdav_test", { config: {} }); })(), "WebDAV 连接正常");
 }
 
 function syncNow() {
