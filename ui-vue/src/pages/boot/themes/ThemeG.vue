@@ -204,9 +204,7 @@ watch([query, filter, () => props.rows], async () => {
   const groups = root.querySelectorAll(".lg-group[data-loader-id]");
   groups.forEach((g) => {
     const id = (g as HTMLElement).dataset.loaderId;
-    const section =
-      root.querySelector(`#${id}`) ||
-      root.querySelector(`[data-loader-section="${id}"]`);
+    const section = root.querySelector(`[data-loader-section="${id}"]`);
     const show = filter.value === "all" || filter.value === id;
     (g as HTMLElement).style.display = show ? "" : "none";
     if (section) (section as HTMLElement).style.display = show ? "" : "none";
