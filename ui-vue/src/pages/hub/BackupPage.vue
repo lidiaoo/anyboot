@@ -345,13 +345,19 @@ async function saveSync(silent = false) {
 }
 
 function toggleSync() {
-  const next = !syncEnabled.value;
-  syncEnabled.value = next;
-  void run(
-    next ? "启用同步" : "关闭同步",
-    () => call("backup_sync_set_enabled", { enabled: next }),
-    next ? "已启用 WebDAV 同步" : "已关闭 WebDAV 同步",
-  );
+  const on = !syncEnabled.value;
+  syncEnabled.value = on;
+  void (async () => {
+    try {
+      if (on) await saveSync(true); // 开同步 = 顺手把表单存了（旧版语义）
+      await call("backup_sync_set_enabled", { enabled: on });
+      showToast(on ? "云同步已开启" : "云同步已关闭");
+      await refreshSync();
+    } catch (error) {
+      syncEnabled.value = !on;
+      showToast(String(error));
+    }
+  })();
 }
 
 function testWebdav() {
