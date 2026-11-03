@@ -15,12 +15,14 @@ ROOT = pathlib.Path("/tmp/cmp")
 OLD = ROOT / "old"
 NEW = pathlib.Path("/Users/jianghh/IdeaProjects/anyboot/ui-vue/dist")
 MOCK_JS = (ROOT / "mock-tauri.js").read_text(encoding="utf-8")
+CMD_REQ = (ROOT / "cmd_required.json").read_text(encoding="utf-8")
 MOCK_DATA = json.loads((ROOT / "mockdata.json").read_text(encoding="utf-8"))
 
 INJECT = """<script>
 window.__MOCK_SNAPSHOT__ = %s;
 window.__MOCK_REMOTES__ = %s;
 window.__MOCK_SERVERS__ = %s;
+window.__MOCK_CMD_REQUIRED__ = %s;
 </script>
 <script>%s</script>
 """
@@ -30,6 +32,7 @@ def data_script():
         json.dumps(MOCK_DATA["snapshot"], ensure_ascii=False),
         json.dumps(MOCK_DATA["remotes"], ensure_ascii=False),
         json.dumps(MOCK_DATA["servers"], ensure_ascii=False),
+        CMD_REQ,
         MOCK_JS,
     )
 

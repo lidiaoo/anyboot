@@ -46,3 +46,21 @@ python3 serve.py      # http://127.0.0.1:8770/old/...  /new/...
 3. **mock 不完整会制造假 bug** —— 例如 `backup_sync_set_enabled` 只读不写时，
    开关切换后立刻被重置，看着像功能缺失。
 4. **验证工具本身也会错** —— 先确认工具对，再判定代码错。
+
+## 严格 IPC 校验（第 44 轮起）
+
+mock 会在 `invoke` 上包一层严格校验：前端调用的命令若缺 Rust 必填参数
+（来自 `cmd_required.json`，由 `gen-cmd-required.py` 从 Rust 源码生成），
+会记入 `window.__STRICT_VIOLATIONS__`。
+
+- `strict-ipc.js`：跑全流程（hub 10 页 + 主窗 4 页签 + 4 独立窗）收集违规
+- 注意：校验器对参数名兼容 snake/camel 两种写法，**不能发现 camelCase
+  方向性错误**（第 45 轮教训：Tauri 2 前端必须传 camelCase，只有真机
+  trace.log 能暴露）。字段名以静态比对（call/commit 键 vs Rust 签名）为准。
+
+## mock 数据约定（第 107 轮起）
+
+- `mockdata.json` 需含：remotes[].machine_os（引导 os-badge）、
+  snapshot.lastAction（status-bar 回执）、snapshot.helper（免密模式）
+- `mock-tauri.js` 需含：remote_system_info / gateway_pair_issue /
+  gateway_tunnel_logs / remote_boot_info（记录 __RBI_ARGS__）等 handler
