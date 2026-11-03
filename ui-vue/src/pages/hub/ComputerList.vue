@@ -296,9 +296,22 @@ const viewSeed = ref(0);
 
 function openView(rid: string) {
   const row = remote.servers.find((s) => s.id === rid);
-  viewTitle.value = row?.name ?? "电脑页面";
+  // 旧版 frame.title：本机页面 / 服务端页面
+  viewTitle.value = rid === "local" ? "本机页面" : "服务端页面";
   const info = infoOf(rid);
-  viewUrl.value = info?.addr ? `http://${info.addr}/hub.html` : "";
+  if (!info?.addr) {
+    viewUrl.value = "";
+  } else {
+    // 旧版 pcConnUrl（lan 赢家）：origin + /?token=...
+    const token = encodeURIComponent(row?.token ?? "");
+    let url = `http://${info.addr}/?token=${token}`;
+    // withGuestTheme：当前页亮暗 + 引导页主题偏好（本机查看方偏好）
+    const dark = document.documentElement.classList.contains("dark") ? "dark" : "light";
+    let theme = "";
+    try { theme = localStorage.getItem("anyboot.hub.boot-theme") || ""; } catch { /* 忽略 */ }
+    url += `&abUi=${dark}` + (theme ? `&abTheme=${encodeURIComponent(theme)}` : "");
+    viewUrl.value = url;
+  }
   viewSeed.value += 1;
   viewOpen.value = true;
 }
