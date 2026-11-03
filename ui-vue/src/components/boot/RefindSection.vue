@@ -1,10 +1,12 @@
 <script setup lang="ts">
 const toast = useToastStore();
+const settings = useSettingsStore();
 import { computed, ref } from "vue";
 import { useUiStateStore } from "@/stores/uiState";
 import { useSettingsStore } from "@/stores/settings";
 import { call } from "@/api/tauri";
 import GrubList from "@/components/boot/GrubList.vue";
+import { simRows, refindVariableRows } from "@/pages/boot/bootRows";
 import type { EntryData } from "@/components/boot/types";
 import { useToastStore } from "@/stores/toast";
 
@@ -32,7 +34,6 @@ import { useToastStore } from "@/stores/toast";
  */
 
 const ui = useUiStateStore();
-const settings = useSettingsStore();
 
 /** 自动 / 手动面板（旧版 #refind-tabs） */
 const activePane = ref<"auto" | "manual">("auto");
@@ -41,67 +42,25 @@ const varsDir = ref("");
 const sim = computed(() => ui.refindSim);
 
 /** 模拟扫描的条目（旧版 #sim-scan-list） */
-interface SimChild {
-  title?: string;
-  source?: string;
-  options?: string;
-  note?: string;
-}
-interface SimEntry {
-  title?: string;
-  kind?: string;
-  hidden?: boolean;
-  lastBoot?: boolean;
-  children?: SimChild[];
-}
-/** 旧版 refindSimEntryNodes：children>1 → 组（子项挂 submenu 供 GrubList 分组）；
- *  ≤1 → 普通行（不值得展开）。子行 tag = 来源标签（旧版 REFIND_SIM_CHILD_SOURCE）。 */
-const CHILD_SOURCE: Record<string, string> = {
-  default: "默认项",
-  options: "refind_linux.conf",
-  kernel: "折叠内核",
-  macos: "macOS 诊断",
-  stanza: "submenuentry",
-};
 const visibleEntries = computed<EntryData[]>(() => {
-  const out: EntryData[] = [];
-  for (const e of (sim.value?.entries ?? []) as SimEntry[]) {
-    if (e.hidden) continue;
-    const title = (e.title || "").trim();
-    const children = e.children || [];
-    if (children.length > 1) {
-      for (const c of children) {
-        out.push({
-          selector: (c.title || "").trim(),
-          name: (c.title || "").trim(),
-          class: e.kind,
-          submenu: title,
-          tag: c.source === "default" ? CHILD_SOURCE.default || "" : CHILD_SOURCE[c.source || ""] || "",
-        });
-      }
-    } else {
-      out.push({ selector: title, name: title, class: e.kind });
-    }
+  if (settings.refindMode === "manual") {
+    return refindVariableRows(ui.status?.variables);
   }
-  return out;
+  return simRows(sim.value);
 });
-
-/** 被隐藏的条目（旧版 #sim-scan-hidden） */
-const hiddenEntries = computed<EntryData[]>(() =>
-  (sim.value?.hidden ?? []).map((e) => ({
-    selector: e.title.trim(),
-    name: e.title.trim(),
-    class: e.kind,
-  })),
-);
-
-/** 当前项：lastBoot 命中的那条（与托盘同一口径） */
-const activeSelector = computed(() => {
+/** 旧版 activeSelector：自动=sim lastBoot title；手动=活动变量 source */
+const activeSelector = computed<string>(() => {
   if (settings.refindMode === "manual") {
     return ui.status?.variables?.find((v) => v.active)?.source ?? "";
   }
   return sim.value?.entries?.find((e) => e.lastBoot)?.title.trim() ?? "";
 });
+
+/** 被隐藏的条目（旧版 #sim-scan-hidden：refindSimTree(hidden, {plain:true})，
+ *  同样按 children>1 展开组/子行 —— 旧实测 11 行） */
+const hiddenEntries = computed<EntryData[]>(() =>
+  simRows({ entries: ((sim.value?.hidden ?? []) as { title?: string; kind?: string; hidden?: boolean; children?: { title?: string; source?: string }[] }[]).map((e) => ({ ...e, hidden: false })) }),
+);
 
 async function refreshSim() {
   // 旧版：refind_sim_scan → renderRefindSim（结果直接渲染，不等全量 refresh）
