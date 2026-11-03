@@ -487,7 +487,23 @@ onMounted(async () => {
   offs.push(await listen("gateway-tunnel-state", () => void refreshAll()));
   // Tailscale 安装进度 / 完成 / 登录链接
   offs.push(await listen("tailscale-progress", () => void refreshAll()));
-  offs.push(await listen("tailscale-done", () => void refreshAll()));
+  offs.push(
+    await listen<{ ok?: boolean; path?: string; error?: string }>("tailscale-done", (event) => {
+      const done = event.payload || {};
+      tsDownloading.value = false;
+      if (!done.ok) {
+        toast.show(`Tailscale 下载失败：${done.error || "未知错误"}，可打开官网手动下载`);
+        void refreshAll();
+        return;
+      }
+      // 旧版：下载完成 → 自动启动安装器（需系统授权确认）
+      toast.show("下载完成，正在安装（需要在系统授权框确认）…");
+      void call("gateway_tailscale_install", { path: done.path })
+        .then(() => toast.show("安装器已启动 —— 装好并登录后回来点「重新检测」"))
+        .catch((error) => toast.show(`安装器启动失败：${error}，可手动运行 ${done.path}`));
+      void refreshAll();
+    }),
+  );
   offs.push(
     await listen<{ url?: string }>("tailscale-login-url", (event) => {
       if (event.payload?.url) loginUrl.value = event.payload.url;
