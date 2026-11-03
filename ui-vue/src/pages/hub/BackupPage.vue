@@ -255,18 +255,16 @@ async function doExport() {
     path = "";
   }
   if (!path) return;
-  await run(
-    "导出",
-    () =>
-      call("backup_export", {
-        path,
-        categories: exportIncludeKeys.value
-          ? [...exportCats.value, "keys"]
-          : exportCats.value,
-        password: exportPw1.value || "",
-      }),
-    "备份文件已导出",
-  );
+  // 旧版：有口令才加密导出（null = 不加密）；成功 toast = 后端消息 + 路径
+  const usePw = Boolean(exportPw1.value);
+  const msg = (await call<string>("backup_export", {
+    path,
+    categories: exportIncludeKeys.value
+      ? [...exportCats.value, "keys"]
+      : exportCats.value,
+    password: usePw ? exportPw1.value : null,
+  })) || "";
+  showToast(msg ? `${msg} — ${path}` : `备份文件已导出 — ${path}`);
 }
 
 /**
