@@ -24,14 +24,18 @@ import { useEscape } from "@/composables/useEscape";
 
 interface SyncState {
   enabled: boolean;
-  url: string;
+  server_url: string;
   username: string;
-  hasPassword: boolean;
-  remoteDir: string;
-  lastSyncAt: string;
-  lastError: string;
-  periodMinutes?: number;
-  onChanged?: boolean;
+  directory: string;
+  period_minutes: number;
+  sync_on_change: boolean;
+  categories: string[];
+  encrypt: boolean;
+  last_sync_ms?: number;
+  last_error?: string;
+  hasPassword?: boolean;
+  hasEncryptPassword?: boolean;
+  isConfigured?: boolean;
 }
 
 /** 备份分类（旧版 .bk-cats 的复选项） */
@@ -116,12 +120,13 @@ const resultRows = ref<{ k: string; v: string }[]>([]);
 async function refreshSync() {
   try {
     sync.value = await call<SyncState>("backup_sync_get_state");
+    // Rust SyncState 序列化为 snake_case（旧版同款读取）
     syncEnabled.value = Boolean(sync.value?.enabled);
-    syncUrl.value = sync.value?.url ?? "";
+    syncUrl.value = sync.value?.server_url ?? "";
     syncUser.value = sync.value?.username ?? "";
-    syncDir.value = sync.value?.remoteDir || "AnyBoot";
-    syncPeriod.value = sync.value?.periodMinutes ?? 15;
-    syncOnChange.value = Boolean(sync.value?.onChanged);
+    syncDir.value = sync.value?.directory || "AnyBoot";
+    syncPeriod.value = sync.value?.period_minutes ?? 30;
+    syncOnChange.value = Boolean(sync.value?.sync_on_change);
   } catch (error) {
     errorText.value = String(error);
   }
@@ -557,8 +562,9 @@ useEscape(resultOpen, () => { resultOpen.value = false });
     </div>
 
     <div class="bk-sync-status" id="syncStatus">
-      <span v-if="sync?.lastError" class="bk-err">{{ sync.lastError }}</span>
-      <span v-else>上次同步：{{ sync?.lastSyncAt || "从未" }}</span>
+      <span v-if="sync?.last_error" class="bk-err">{{ sync.last_error }}</span>
+      <span v-else-if="sync?.last_sync_ms">上次同步：{{ new Date(sync.last_sync_ms).toLocaleString() }}</span>
+        <span v-else>还没有同步过</span>
     </div>
     <div v-if="locked" id="syncLockInfo" class="bk-info">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
