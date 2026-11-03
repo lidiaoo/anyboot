@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, watch , computed } from "vue";
+import { onMounted, ref, watch , computed , nextTick } from "vue";
 import { call } from "@/api/tauri";
 import { useEscape } from "@/composables/useEscape";
 
@@ -49,8 +49,8 @@ watch(addrKind, (kind) => {
 
 /** 二维码库按需加载（public/qrcode.min.js，不进打包产物） */
 function loadQrCode(): Promise<void> {
-  const w = window as unknown as { QRCode?: unknown };
-  if (w.QRCode) return Promise.resolve();
+  const w = window as unknown as { qrcode?: unknown };
+  if (w.qrcode) return Promise.resolve();
   return new Promise((resolve, reject) => {
     const el = document.createElement("script");
     el.src = "./qrcode.min.js";
@@ -71,6 +71,8 @@ async function generate() {
       tunnel: addrKind.value === "tunnel",
     });
     resultText.value = text || "";
+    // 等结果分支（v-else 含 qrRef 容器）挂载后再画二维码
+    await nextTick();
     await renderQr();
   } catch (error) {
     errorText.value = String(error);
@@ -83,13 +85,39 @@ async function renderQr() {
   if (!resultText.value || !qrRef.value) return;
   try {
     await loadQrCode();
-    const QR = (window as unknown as { QRCode?: { toCanvas: Function } }).QRCode;
-    if (!QR) return;
-    qrRef.value.innerHTML = "";
+    // 旧版 drawQr：qrcode-generator（window.qrcode），白底黑点，静区 2 模块
+    const qrcode = (window as unknown as {
+      qrcode?: (typeNumber: number, errorCorrectionLevel: string) => {
+        addData: (data: string) => void;
+        make: () => void;
+        getModuleCount: () => number;
+        isDark: (row: number, col: number) => boolean;
+      };
+    }).qrcode;
+    if (!qrcode) return;
+    const qr = qrcode(0, "M");
+    qr.addData(resultText.value);
+    qr.make();
+    const count = qr.getModuleCount();
+    const cell = 4, margin = 2;
+    const size = (count + margin * 2) * cell;
     const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, size, size);
+    ctx.fillStyle = "#000000";
+    for (let row = 0; row < count; row++) {
+      for (let col = 0; col < count; col++) {
+        if (qr.isDark(row, col)) {
+          ctx.fillRect((col + margin) * cell, (row + margin) * cell, cell, cell);
+        }
+      }
+    }
+    qrRef.value.innerHTML = "";
     qrRef.value.appendChild(canvas);
-    // qrcode.min.js 的 toCanvas 签名：toCanvas(canvas, text, opts, callback)
-    QR.toCanvas(canvas, resultText.value, { width: 200, margin: 1 }, () => {});
   } catch {
     /* 二维码失败不影响复制配对串 */
   }
