@@ -182,7 +182,12 @@ const delOpen = ref(false);
 const delTarget = ref("");
 const delBody = computed(() => {
   const k = keys.value.find((x) => x.id === delTarget.value);
-  return `将删除密钥「${k?.name || delTarget.value}」。删除后使用它的服务器需要改用其它凭据。`;
+  const name = k?.name || delTarget.value || "";
+  // 旧版双分支：被引用 → 警告认证失效；未引用 → 仅不可恢复
+  if ((k?.used_by ?? 0) > 0) {
+    return `「${name}」正被 ${k!.used_by} 台服务器使用，删除后这些服务器的密钥认证将失效。此操作不可撤销。`;
+  }
+  return `「${name}」没有被任何服务器引用。删除后不可恢复。`;
 });
 const toastText = ref("");
 function showToast(text: string) {
