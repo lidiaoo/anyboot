@@ -421,10 +421,34 @@ onUnmounted(() => {
   for (const off of unlisteners) off();
 });
 
+/** 旧版：非 K 主题整页 fill 链（body[data-ba-fill] + #tab-boot.ba-fill） */
+function syncBodyBaFill(): void {
+  if (adv.effectiveTheme !== "K") document.body.dataset.baFill = "1";
+  else delete document.body.dataset.baFill;
+}
+watch(() => adv.effectiveTheme, syncBodyBaFill, { immediate: true });
+/** 旧版 busyLabel（app.js:753）：忙态优先级 power > switching > unmounting > scanning */
+function busyLabel(busy: { power?: string | null; switching?: boolean; unmounting?: boolean; scanning?: boolean } | null | undefined): string {
+  if (!busy) return "";
+  if (busy.power) return `${busy.power}处理中…`;
+  if (busy.switching) return "正在切换下次启动系统…";
+  if (busy.unmounting) return "正在卸载临时挂载…";
+  if (busy.scanning) return "正在扫描…";
+  return "";
+}
 const statusText = computed(() => {
   if (!ui.ready) return "正在扫描 rEFInd 变量目录…";
-  if (ui.busy?.scanning) return "正在扫描…";
-  return ui.status?.message || "";
+  const raw = (ui.status?.message || "").trim();
+  const duplicatesNextBoot = !raw || raw.startsWith("下次启动：");
+  const label = busyLabel(ui.busy);
+  return label || (duplicatesNextBoot ? "" : raw);
+});
+/** 旧版：statusElement.classList.toggle("hidden", !label && duplicatesNextBoot) */
+const statusHidden = computed(() => {
+  if (!ui.ready) return false;
+  const raw = (ui.status?.message || "").trim();
+  const duplicatesNextBoot = !raw || raw.startsWith("下次启动：");
+  return !busyLabel(ui.busy) && duplicatesNextBoot;
 });
 </script>
 
@@ -492,7 +516,7 @@ const statusText = computed(() => {
             </button>
           </div>
         </div>
-        <p id="status">{{ statusText }}</p>
+        <p id="status" :class="{ hidden: statusHidden }">{{ statusText }}</p>
       </header>
 
       <nav aria-label="界面栏目" class="tabs" id="tabs">
@@ -509,7 +533,13 @@ const statusText = computed(() => {
       </nav>
 
       <!-- 栏目一：系统引导 -->
-      <div :class="['tab-panel', { active: currentTab === 'boot' }]" id="tab-boot">
+      <div
+        :class="[
+          'tab-panel',
+          { active: currentTab === 'boot', 'ba-arranged ba-fill': adv.effectiveTheme !== 'K' },
+        ]"
+        id="tab-boot"
+      >
         <!-- 下次启动 -->
         <section v-if="adv.state.nextBoot !== 'off'" aria-label="下次启动" class="next-boot" id="next-boot">
           <div class="nb-head">
@@ -557,11 +587,11 @@ const statusText = computed(() => {
           @reorder="(order: string[]) => adv.setOrder(order as any)"
         >
           <!-- K 原生态：旧版的完整区块结构 -->
-          <RefindSection />
+          <RefindSection :class="adv.effectiveTheme !== 'K' ? 'ba-theme-sec ba-split ba-g-card' : ''" />
 
           <hr aria-hidden="true" class="boot-divider" id="boot-divider" />
 
-          <GrubSection />
+          <GrubSection :class="adv.effectiveTheme !== 'K' ? 'ba-theme-sec ba-split ba-g-card' : ''" />
 
           <!-- 三引导器通道（旧版 #boot-channels-mount） -->
           <div id="boot-channels-mount">

@@ -134,6 +134,13 @@ const results = computed(() => {
 
 /** 当前高亮的条目（右侧预览用） */
 const selected = ref<{ loader: string; selector: string } | null>(null);
+// 旧版语义：默认 selected=0，右侧永远有一份预览，不是空窗
+watch(results, (groups) => {
+  if (!selected.value && groups.length && groups[0].entries.length) {
+    const first = groups[0].entries.find((e) => e.selector); 
+    if (first?.selector) selected.value = { loader: groups[0].loader.id, selector: first.selector };
+  }
+});
 
 const selectedEntry = computed(() => {
   if (!selected.value) return null;
@@ -214,6 +221,8 @@ const selectedLoaderState = computed(
           </button>
         </template>
         <p v-if="!results.length" class="lg-hint">暂无条目 · 展开下面的「引导器设置」读取</p>
+        <!-- 旧版：真实区块搬进命令面板列表（ba-theme-sec/ba-split/ba-g-card） -->
+        <slot />
       </div>
     </div>
 

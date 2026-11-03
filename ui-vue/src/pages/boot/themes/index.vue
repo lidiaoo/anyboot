@@ -108,15 +108,15 @@ function resetRatio() {
 </script>
 
 <template>
-  <!-- K = 不套用主题：交给原页面 -->
+  <!-- K = 不套用主题：交给原页面；非 K 由组件内 slot 承接（避免双渲染） -->
   <slot v-if="!component" />
 
-  <div
-    v-else
-    :ref="setStage"
-    class="k-stage"
-    :class="{ h: splitH }"
-  >
+  <div v-if="component" class="ba-theme-root">
+    <div
+      :ref="setStage"
+      class="k-stage"
+      :class="{ h: splitH }"
+    >
     <!-- 左（或唯一）列 -->
     <section class="k-region" :style="splitH ? { width: firstWidth, flex: 'none' } : undefined">
       <div class="k-rhd">
@@ -125,7 +125,9 @@ function resetRatio() {
       </div>
       <div class="k-rbody is-theme">
         <div class="k-theme-fit">
-          <component :is="component" v-bind="leftProps" @reorder="(order: string[]) => emit('reorder', order)" />
+          <component :is="component" v-bind="leftProps" @reorder="(order: string[]) => emit('reorder', order)">
+            <slot />
+          </component>
         </div>
       </div>
     </section>
@@ -154,5 +156,6 @@ function resetRatio() {
         </div>
       </div>
     </section>
+    </div>
   </div>
 </template>
