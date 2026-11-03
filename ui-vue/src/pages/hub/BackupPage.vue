@@ -377,15 +377,17 @@ function createWebdavDir() {
 }
 
 function syncNow() {
-  if (!syncUrl.value.trim()) {
-    showToast("请先填写服务器地址并保存配置");
-    return;
-  }
-  if (!syncCats.value.length) {
-    showToast("至少选择一个同步分类");
-    return;
-  }
-  void run("立即同步", () => call("backup_sync_now"), "同步完成");
+  if (!sync.value?.isConfigured) return;
+  void (async () => {
+    try {
+      // 旧版：toast 显示后端返回的同步结果消息
+      const msg = (await call<string>("backup_sync_now")) || "同步完成";
+      showToast(msg);
+    } catch (error) {
+      showToast("同步失败：" + error);
+    }
+    await refreshSync(); // 成败都刷状态（last_sync_ms / last_error）
+  })();
 }
 useEscape(pwOpen, () => { pwOpen.value = false });
 useEscape(previewOpen, () => { previewOpen.value = false });

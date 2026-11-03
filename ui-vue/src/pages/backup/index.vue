@@ -269,7 +269,17 @@ function testWebdav() {
 }
 
 function syncNow() {
-  void run("立即同步", () => call("backup_sync_now"), "同步完成");
+  if (!sync.value?.isConfigured) return;
+  void (async () => {
+    try {
+      // 旧版：toast 显示后端返回的同步结果消息
+      const msg = (await call<string>("backup_sync_now")) || "同步完成";
+      showToast(msg);
+    } catch (error) {
+      showToast("同步失败：" + error);
+    }
+    await refreshSync(); // 成败都刷状态（last_sync_ms / last_error）
+  })();
 }
 
 /** 导入三段式与弹层状态 */
