@@ -69,7 +69,24 @@ interface GroupedEntry {
 const groups = computed<GroupedEntry[]>(() => {
   const out: GroupedEntry[] = [];
   for (const loader of props.loaders) {
-    out.push({ loader, entries: entriesOf(loader.id) });
+    const entries = entriesOf(loader.id);
+    // 旧版 G：带 submenu 的行 = 组的子行；首个子行处合成组头
+    //（▾ 名称 + N 项），子行 ↳ 缩进（样式类 .lg-sub / .lg-group 同款语义）。
+    const flat: (EntryData & { _sub?: boolean; _groupHead?: boolean; _count?: number })[] = [];
+    const emitted = new Set<string>();
+    for (const e of entries) {
+      if (e.submenu) {
+        if (!emitted.has(e.submenu)) {
+          emitted.add(e.submenu);
+          const count = entries.filter((x) => x.submenu === e.submenu).length;
+          flat.push({ ...e, _sub: false, _groupHead: true, _count: count, name: e.submenu, selector: e.submenu });
+        }
+        flat.push({ ...e, _sub: true });
+      } else {
+        flat.push(e);
+      }
+    }
+    out.push({ loader, entries: flat });
   }
   return out;
 });
@@ -200,14 +217,16 @@ const selectedLoaderState = computed(
           <div class="lg-group">
             <LoaderIcon :id="group.loader.id" size="sm" />
             <b>{{ group.loader.name }}</b>
-            <span>· {{ group.entries.length }} 项</span>
+            <span>· {{ group.entries.filter((e) => !(e as any)._groupHead).length }} 项</span>
           </div>
           <button
             v-for="entry in group.entries"
-            :key="`${group.loader.id}:${entry.selector}`"
+            :key="`${group.loader.id}:${entry.selector}:${(entry as any)._sub ? 's' : (entry as any)._groupHead ? 'g' : 'p'}`"
             type="button"
             :class="[
               'lg-item',
+              (entry as any)._groupHead ? 'lg-group-head' : '',
+              (entry as any)._sub ? 'lg-sub' : '',
               {
                 'is-active':
                   selected?.loader === group.loader.id &&
@@ -218,8 +237,9 @@ const selectedLoaderState = computed(
             @dblclick="commit"
           >
             <span class="t">
-              <b>{{ entry.name }}</b>
+              <b>{{ (entry as any)._groupHead ? '▾ ' : (entry as any)._sub ? '↳ ' : '' }}{{ entry.name }}</b>
               <small v-if="entry.kernels?.[0]">{{ entry.kernels[0] }}</small>
+              <small v-if="(entry as any)._sub && entry.tag" class="lg-item-tag">{{ entry.tag }}</small>
             </span>
           </button>
         </template>
