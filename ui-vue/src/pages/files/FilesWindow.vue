@@ -316,18 +316,30 @@ async function upload() {
 }
 
 async function download() {
-  if (!selectedPath.value) return;
+  const entry = entries.value.find((e) => e.path === selectedPath.value);
+  if (!selectedPath.value || !entry) return;
   try {
-    await call("hub_sftp_download", {
+    // 下载路径取终端设置的「下载路径」（旧版：空/~ = 未设置 → 系统下载目录）
+    let downDir = "";
+    try {
+      const s = JSON.parse(localStorage.getItem("ab-term-settings") || "{}") as { downDir?: unknown };
+      const raw = typeof s.downDir === "string" ? s.downDir.trim() : "";
+      if (raw && raw !== "~" && raw !== "~/") downDir = raw;
+    } catch { /* 吃默认 */ }
+    if (!downDir) {
+      try { downDir = (await call<string>("hub_download_dir_default")) || ""; } catch { /* 忽略 */ }
+    }
+    const local = await call<string>("hub_sftp_download", {
       server: sshServers.value.find((s) => s.id === serverId.value),
       remotePath: selectedPath.value,
-      filename: selectedPath.value.split("/").pop() ?? "",
-      localDir: "",
-      total: 0,
+      filename: entry.name,
+      localDir: downDir || null,
+      total: entry.size || 0,
     });
+    showToast("已下载到 " + (local || downDir || "本地"));
     await refreshTransfers();
   } catch (error) {
-    errorText.value = String(error);
+    showToast("下载失败：" + error);
   }
 }
 
