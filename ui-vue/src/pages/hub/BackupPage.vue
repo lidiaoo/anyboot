@@ -297,6 +297,14 @@ async function executeImport() {
   }
 }
 
+/** 规范化 WebDAV 地址：没写协议自动补 https://（旧版 normalizeDavUrl） */
+function normalizeDavUrl(raw: string): string {
+  const url = String(raw || "").trim();
+  if (!url) return "";
+  if (/^https?:\/\//i.test(url)) return url;
+  return "https://" + url.replace(/^\/\//, "");
+}
+
 async function saveSync() {
   if (!syncUrl.value.trim()) {
     showToast("请先填写服务器地址并保存配置");
@@ -307,13 +315,16 @@ async function saveSync() {
     () =>
       call("backup_sync_save_config", {
         config: {
-          url: syncUrl.value.trim(),
+          // 字段名必须与旧版/Rust 读取键一致（serverUrl/directory/syncOnChange）
+          serverUrl: normalizeDavUrl(syncUrl.value),
           username: syncUser.value.trim(),
           password: syncPass.value,
-          remoteDir: syncDir.value.trim() || "AnyBoot",
+          directory: syncDir.value.trim() || "AnyBoot",
           periodMinutes: syncPeriod.value,
-          onChanged: syncOnChange.value,
+          syncOnChange: syncOnChange.value,
           categories: syncCats.value,
+          encrypt: syncEncrypt.value,
+          enabled: syncEnabled.value,
         },
       }),
     "同步配置已保存",
