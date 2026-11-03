@@ -127,6 +127,14 @@ const progress = computed(() => {
 });
 
 onMounted(async () => {
+  // 更新状态热更新（旧版 hub 监听 update-state → render(payload)）
+  try {
+    const { listen } = await import("@tauri-apps/api/event");
+    void listen<UpdateState>("update-state", (event) => {
+      if (event.payload) update.value = event.payload;
+    });
+  } catch { /* 非 Tauri 环境 */ }
+
   if (!inTauri) return;
   try {
     const { getVersion } = await import("@tauri-apps/api/app");

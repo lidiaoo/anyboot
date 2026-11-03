@@ -231,8 +231,34 @@ function beat() {
 onMounted(() => {
   tickClock();
   clockTimer = window.setInterval(tickClock, 1000);
+
   beat();
   beatTimer = window.setInterval(beat, 3000);
+});
+
+onMounted(async () => {
+  const unlisteners: (() => void)[] = [];
+  // 主题跟随（旧版 hub 监听 theme-changed：resolvedTheme(payload) + applyTheme）
+  try {
+    const { listen } = await import("@tauri-apps/api/event");
+    unlisteners.push(
+      await listen<{ theme?: string }>("theme-changed", (event) => {
+        const theme = event.payload?.theme;
+        if (!theme) return;
+        const isDark = theme !== "light";
+        applyThemeClass(isDark);
+        dark.value = isDark;
+        applyAccent(ui.settings?.accentColor, isDark ? "dark" : "light");
+      }),
+    );
+    // hub 聚焦且有待看更新 → 切到「关于」页并展开更新区（旧版 gotoTip）
+    unlisteners.push(
+      await listen("hub-focus-update", () => {
+        currentPage.value = "about";
+        void import("@/pages/hub/AboutPage.vue");
+      }),
+    );
+  } catch { /* 非 Tauri 环境 */ }
 });
 onUnmounted(() => {
   if (clockTimer !== null) window.clearInterval(clockTimer);

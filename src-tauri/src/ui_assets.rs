@@ -4,10 +4,11 @@
 // 手机端「电脑页」与浏览器远程访问走的就是这张表。
 //
 // 源目录：ui-vue/dist/
-// 条目数：43
+// 条目数：44
 
 /// (相对路径, Content-Type, 文件正文)
 pub(crate) const UI_ASSETS: &[(&str, &str, &str)] = &[
+    ("assets/chunks/AboutPage-B2QRNUeS.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/AboutPage-B2QRNUeS.js")),
     ("assets/chunks/LoaderIcon.vue_vue_type_script_setup_true_lang-D4gk_Jl_.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/LoaderIcon.vue_vue_type_script_setup_true_lang-D4gk_Jl_.js")),
     ("assets/chunks/StateChip.vue_vue_type_script_setup_true_lang-Banr_ynU.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/StateChip.vue_vue_type_script_setup_true_lang-Banr_ynU.js")),
     ("assets/chunks/ThemeA-C_Yns2hA.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/ThemeA-C_Yns2hA.js")),
