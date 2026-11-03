@@ -486,8 +486,8 @@ function submit() {
             </div>
           </div>
           <div class="addr-add">
-            <input id="rsAddrHost" v-model="addrHost" type="text" spellcheck="false" placeholder="192.168.0.120 或 192.168.0.120:12300" />
-            <input id="rsAddrMacs" v-model="addrMacs" type="text" spellcheck="false" placeholder="MAC（可多个，空格隔开）" />
+            <input id="rsAddrHost" v-model="addrHost" type="text" spellcheck="false" placeholder="192.168.0.120 或 192.168.0.120:12300" @keydown.enter.prevent="addAddr" />
+            <input id="rsAddrMacs" v-model="addrMacs" type="text" spellcheck="false" placeholder="MAC（可多个，空格隔开）" @keydown.enter.prevent="addAddr" />
             <button type="button" class="btn small" id="rsAddrAdd" @click="addAddr">添加</button>
           </div>
           <p class="field-hint">没写端口按 12300 补。地址已存在时只把 MAC 追加进去；点 MAC 标签可以单独删掉那块网卡。</p>

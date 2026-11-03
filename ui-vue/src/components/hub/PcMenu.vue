@@ -3,6 +3,7 @@ const toast = useToastStore();
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useSettingsStore } from "@/stores/settings";
 import { useToastStore } from "@/stores/toast";
+import { useEscape } from "@/composables/useEscape";
 
 /**
  * ⋮ 菜单（原 `ui/hub.html` 的 `#cqMore` / `#pcMenu`）。
@@ -20,6 +21,7 @@ import { useToastStore } from "@/stores/toast";
 
 const settings = useSettingsStore();
 const open = ref(false);
+useEscape(open, () => { open.value = false; });
 const rootRef = ref<HTMLElement | null>(null);
 
 const refreshOptions = [2, 5, 10, 30, 0];

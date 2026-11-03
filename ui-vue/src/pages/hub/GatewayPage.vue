@@ -5,6 +5,7 @@ import { call } from "@/api/tauri";
 import PairDialog from "@/components/hub/PairDialog.vue";
 import LogDialog from "@/components/hub/LogDialog.vue";
 import { useToastStore } from "@/stores/toast";
+import { useEscape } from "@/composables/useEscape";
 
 /**
  * 远程接入页（原 `ui/hub.html` 的 `#page-gateway`，2792~3355 行）。
@@ -365,9 +366,13 @@ const errorText = ref("");
 
 /** 自动刷新（旧版 `.gw-ar` 三合一控件） */
 const autoSec = ref(3);
+/** gwAutoSec 的上一档值（Escape 还原用，旧版 gwAutoSec） */
+const autoSecPrev = ref(3);
+watch(autoSec, (v) => { if (Number.isFinite(v) && v >= 1) autoSecPrev.value = v; });
 const autoRunning = ref(true);
 /** 下拉菜单开合（旧版 #gwAutoMenu） */
 const autoMenuOpen = ref(false);
+useEscape(autoMenuOpen, () => { autoMenuOpen.value = false; });
 let autoTimer: number | null = null;
 
 const TABS: { key: TabKey; label: string; dot?: boolean }[] = [
@@ -684,6 +689,8 @@ function deletePair(id: string) {
           inputmode="numeric"
           aria-label="自动刷新间隔，单位秒"
           @change="setupAuto"
+          @keydown.enter.prevent="($event.target as HTMLInputElement).blur()"
+          @keydown.escape.prevent="autoSec = autoSecPrev; ($event.target as HTMLInputElement).blur()"
         />
         <span class="gw-ar-unit">秒</span>
         <button

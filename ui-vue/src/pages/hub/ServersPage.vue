@@ -7,6 +7,7 @@ import TunnelDialog from "@/components/hub/TunnelDialog.vue";
 import LatencyTrend from "@/components/hub/LatencyTrend.vue";
 import { useToastStore } from "@/stores/toast";
 import { isTauri } from "@/api/tauri";
+import { useEscape } from "@/composables/useEscape";
 
 /**
  * 服务器页（原 `ui/hub.html` 的 `#page-servers`）。
@@ -216,6 +217,7 @@ function openTerminal(server: HubServer) {
 
 /** 删除确认（旧版用 #deleteOverlay 弹层，不是 window.confirm） */
 const deleteTarget = ref<HubServer | null>(null);
+useEscape(computed(() => Boolean(deleteTarget.value)), () => { deleteTarget.value = null });
 
 function onDelete(server: HubServer) {
   deleteTarget.value = server;
