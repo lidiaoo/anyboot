@@ -1,7 +1,9 @@
 <script setup lang="ts">
+const toast = useToastStore();
 import { useEscape } from "@/composables/useEscape";
 import { computed, onMounted, ref } from "vue";
 import { call } from "@/api/tauri";
+import { useToastStore } from "@/stores/toast";
 
 /**
  * 密钥窗（原 `ui/hub-keys.html`，465 行）。
@@ -120,20 +122,35 @@ function doGenerate() {
 
 async function confirmGenerate() {
   genOpen.value = false;
-  await run(
-    "生成密钥",
-    () =>
-      call("hub_key_generate", {
-        name: genName.value.trim(),
-        kind: genKind.value,
-        passphrase: genPassphrase.value,
-      }),
-    "密钥已生成",
-  );
+  busy.value = "生成密钥";
+  try {
+    const meta = await call<{ id: string; fingerprint?: string }>("hub_key_generate", {
+      name: genName.value.trim(),
+      kind: genKind.value,
+      passphrase: genPassphrase.value,
+    });
+    // 旧版 toast：已生成 {id}（指纹）— 记得把公钥装到服务器
+    toast.show(`已生成 ${meta.id}（${shortenFp(meta.fingerprint ?? "")}）— 记得把公钥装到服务器`);
+    await refresh();
+  } catch (error) {
+    toast.show("生成失败：" + error, "bad");
+  } finally {
+    busy.value = "";
+  }
 }
 
-function doImport() {
-  void run("导入私钥", () => call("hub_key_import"), "私钥已导入");
+async function doImport() {
+  busy.value = "导入私钥";
+  try {
+    const meta = await call<{ id: string; fingerprint?: string }>("hub_key_import");
+    // 旧版 toast：已导入 {id}（指纹）
+    toast.show(`已导入 ${meta.id}（${shortenFp(meta.fingerprint ?? "")}）`);
+    await refresh();
+  } catch (error) {
+    toast.show("导入失败：" + error, "bad");
+  } finally {
+    busy.value = "";
+  }
 }
 
 /** 密钥元信息（旧版 key-meta 文案） */
