@@ -669,10 +669,10 @@ const statusHidden = computed(() => {
           </div>
 
           <!-- 免密提权卡（旧版 #privCard，逐字结构） -->
-          <section v-if="ui.state?.helper" aria-label="免密提权" class="priv-card" id="privCard">
+          <section :hidden="!privStatus?.platform" aria-label="免密提权" class="priv-card" id="privCard">
             <div class="priv-head">
               <h3>免密提权</h3>
-              <span class="priv-badge" id="privBadge">{{ ui.state.helper.installed ? "已安装" : "未安装" }}</span>
+              <span class="priv-badge" id="privBadge">{{ privStatus?.state === "installed" ? "已安装" : privStatus?.state === "stale" || privStatus?.state === "outdated" ? "需更新" : "未安装" }}</span>
             </div>
             <p class="priv-state" id="privState">{{ privState }}</p>
             <p class="priv-paths mono" id="privPaths">{{ privPaths }}</p>
@@ -688,7 +688,7 @@ const statusHidden = computed(() => {
                 <button type="button" class="secondary" id="privPwCancel" @click="privPwOpen = false">取消</button>
               </div>
             </div>
-            <p class="priv-note" id="privNote">{{ ui.state.helper.text }}</p>
+            <p class="priv-note" id="privNote">{{ (privStatus?.detail || "") }}</p>
           </section>
         </ThemeHost>
       </div>
