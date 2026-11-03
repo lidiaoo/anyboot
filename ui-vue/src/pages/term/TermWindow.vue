@@ -368,6 +368,20 @@ onMounted(async () => {
   } catch {
     /* 没有待打开 */
   }
+
+  // 窗口重载：捡回还活着的会话（后端 PTY 仍在；旧版 boot 步骤 2）
+  try {
+    const alive = await call<Array<{ id: string; title?: string }>>("hub_term_sessions");
+    if (alive && alive.length) {
+      for (const meta of alive) {
+        if (sessions.value.some((s) => s.id === meta.id)) continue;
+        await createSession(meta.id, meta.title || meta.id);
+      }
+      selectTab(alive[alive.length - 1]!.id);
+    }
+  } catch {
+    /* 查询失败当无活会话 */
+  }
 });
 
 async function openServer(server: string | Record<string, unknown>) {
