@@ -61,18 +61,6 @@ const activeEntry = computed(() =>
     : undefined,
 );
 
-/** 按 submenu 分好组的子项 */
-const childrenOf = computed(() => {
-  const map = new Map<string, EntryData[]>();
-  for (const entry of props.entries) {
-    if (!entry.submenu) continue;
-    const list = map.get(entry.submenu);
-    if (list) list.push(entry);
-    else map.set(entry.submenu, [entry]);
-  }
-  return map;
-});
-
 /**
  * 正式列表要渲染的行序列。
  *
@@ -85,45 +73,106 @@ interface Row {
   depth: number;
   childCount: number;
   groupTitle: string;
+  pinned?: boolean;
+  tag?: string;
 }
 
+/** 旧版 grub-list-view.js 的行文字规则：极简/简易=去前缀内核名；中等=完整内核名；复杂=原名 */
+/** 旧版 grubKernelOf（grub-list-view.js:68）：优先第一个内核名，退回条目名 */
+function grubKernelOf(entry: EntryData): string {
+  return (entry.kernels && entry.kernels[0]) || entry.name || "";
+}
+/** 旧版 grubStripKernel：先去 vmlinuz- 前缀，再去 linux- 前缀 */
+function grubStripKernel(name: string): string {
+  return (name || "").replace(/^vmlinuz-/, "").replace(/^linux-/, "");
+}
+function rowLabel(entry: EntryData): string {
+  const kernelName = grubKernelOf(entry);
+  if (props.format === "minimal" || props.format === "simple") {
+    return grubStripKernel(kernelName);
+  }
+  if (props.format === "medium") {
+    return kernelName;
+  }
+  return entry.name || "";
+}
 const rows = computed<Row[]>(() => {
   const out: Row[] = [];
+  const entries = props.entries;
+  // 旧版：选中条目置顶副本（脱离组、名字带组名前缀），原位照常出行
+  const activeIndex = entries.findIndex((entry) => entry.selector === props.activeSelector);
+  if (activeIndex >= 0) {
+    const pinned = entries[activeIndex];
+    const prefix = pinned.submenu
+      ? (props.groupTitles[pinned.submenu] || pinned.submenu) + " › "
+      : "";
+    out.push({
+      key: `pinned:${pinned.selector ?? pinned.name}`,
+      entry: { ...pinned, name: prefix + rowLabel(pinned) },
+      group: false,
+      depth: 0,
+      childCount: 0,
+      groupTitle: "",
+      pinned: true,
+    });
+  }
+  const childrenOf = new Map<string, EntryData[]>();
+  for (const entry of entries) {
+    if (entry.submenu) {
+      if (!childrenOf.has(entry.submenu)) childrenOf.set(entry.submenu, []);
+      childrenOf.get(entry.submenu)!.push(entry);
+    }
+  }
+  /** 同名折叠计数（旧版 collapseScope）：标签 → 出现次数 */
+  const collapseScope = (list: EntryData[]) => {
+    const counts = new Map<string, number>();
+    for (const entry of list) {
+      const label = rowLabel(entry);
+      counts.set(label, (counts.get(label) || 0) + 1);
+    }
+    return counts;
+  };
+  const emittedTop = new Set<string>();
   const emittedGroups = new Set<string>();
-  props.entries.forEach((entry, index) => {
+  const emitEntry = (entry: EntryData, depth: number, counts: Map<string, number>, emitted: Set<string>) => {
+    const label = rowLabel(entry);
+    if (emitted.has(label)) return;
+    emitted.add(label);
+    const variants = counts.get(label) || 1;
+    out.push({
+      key: `e:${entry.selector ?? label}:${depth}:${emitted.size}`,
+      entry: { ...entry, name: label },
+      group: false,
+      depth,
+      childCount: 0,
+      groupTitle: "",
+      tag: variants > 1 ? `${variants} 个变体` : "",
+    });
+  };
+  props.entries.forEach((entry) => {
     if (!entry.submenu) {
-      out.push({
-        key: `e${index}:${entry.selector ?? entry.name}`,
-        entry,
-        group: false,
-        depth: 0,
-        childCount: 0,
-        groupTitle: "",
-      });
+      // 顶层：同名折叠去重
+      const counts = collapseScope(entries.filter((e) => !e.submenu));
+      emitEntry(entry, 0, counts, emittedTop);
       return;
     }
     if (!props.showGroups || emittedGroups.has(entry.submenu)) return;
     emittedGroups.add(entry.submenu);
     const title = props.groupTitles[entry.submenu] || entry.submenu;
-    const children = childrenOf.value.get(entry.submenu) ?? [];
+    const children = childrenOf.get(entry.submenu) ?? [];
+    const counts = collapseScope(children);
+    // 组头（不可点）：▸ 图标 组名 + 「N 项」（N = 去重后的行数）
+    const distinct = new Set(children.map(rowLabel)).size;
     out.push({
       key: `g:${entry.submenu}`,
       entry: { selector: entry.submenu, name: title },
       group: true,
-      depth: 1,
-      childCount: children.length,
+      depth: -1,
+      childCount: distinct,
       groupTitle: title,
     });
-    children.forEach((child, childIndex) => {
-      out.push({
-        key: `c${index}-${childIndex}:${child.selector ?? child.name}`,
-        entry: child,
-        group: false,
-        depth: 1,
-        childCount: 0,
-        groupTitle: title,
-      });
-    });
+    const emitted = new Set<string>();
+    children.forEach((child) => emitEntry(child, 1, counts, emitted));
   });
   return out;
 });
