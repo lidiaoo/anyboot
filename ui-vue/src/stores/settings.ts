@@ -22,7 +22,6 @@ import {
   FAIL_RELOAD_KEY,
   OFFLINE_RETRY_DEFAULT,
   OFFLINE_RETRY_KEY,
-  REPROBE_ALWAYS_DEFAULT,
   REPROBE_ALWAYS_KEY,
 } from "@/api/constants";
 import { useUiStateStore } from "./uiState";
@@ -40,16 +39,6 @@ function readNumber(key: string, fallback: number, min = 0): number {
   return fallback;
 }
 
-function readBool(key: string, fallback: boolean): boolean {
-  try {
-    const raw = localStorage.getItem(key);
-    if (raw === "1" || raw === "true") return true;
-    if (raw === "0" || raw === "false") return false;
-  } catch {
-    /* 吃默认 */
-  }
-  return fallback;
-}
 
 function writeValue(key: string, value: string) {
   try {
@@ -75,7 +64,10 @@ export const useSettingsStore = defineStore("settings", () => {
 
   // ---- 前端偏好：数据刷新 ---------------------------------------------
   const dataRefreshSec = ref(readNumber(DATA_REFRESH_KEY, DATA_REFRESH_DEFAULT_SEC));
-  const reprobeAlways = ref(readBool(REPROBE_ALWAYS_KEY, REPROBE_ALWAYS_DEFAULT));
+  // 旧版键 pcReprobeMode 的值是 reuse/fresh（reuse = 复用上次成功地址，默认）
+  const reprobeAlways = ref(
+    (localStorage.getItem(REPROBE_ALWAYS_KEY) || "reuse") === "fresh",
+  );
   /** 连续失败多少次才判离线（弱网容忍） */
   const offlineRetryCount = ref(readNumber(OFFLINE_RETRY_KEY, OFFLINE_RETRY_DEFAULT, 1));
 
@@ -94,7 +86,7 @@ export const useSettingsStore = defineStore("settings", () => {
 
   function setReprobeAlways(value: boolean) {
     reprobeAlways.value = value;
-    writeValue(REPROBE_ALWAYS_KEY, value ? "1" : "0");
+    writeValue(REPROBE_ALWAYS_KEY, value ? "fresh" : "reuse");
   }
 
   function setOfflineRetryCount(value: number) {

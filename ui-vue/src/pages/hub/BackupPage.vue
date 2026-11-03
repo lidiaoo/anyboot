@@ -126,7 +126,8 @@ function fillPreview(preview: Record<string, unknown>) {
       ? `备份中有 ${totalConflicts} 条与本机同 ID 的条目 —— 选「跳过已存在」保持不变，选「覆盖」则替换。`
       : "";
   importCats.value = ["servers", "jumps", "keys", "terminal", "history"];
-  importStrategy.value = "skipExisting";
+  // 旧版 ab-import-strategy：记住上次用的导入策略
+  try { importStrategy.value = (localStorage.getItem("ab-import-strategy") || "skipExisting") as typeof importStrategy.value; } catch { /* 忽略 */ }
   previewOpen.value = true;
 }
 
@@ -318,6 +319,7 @@ async function executeImport() {
   message.value = "";
   errorText.value = "";
   try {
+    try { localStorage.setItem("ab-import-strategy", importStrategy.value); } catch { /* 忽略 */ }
     const res = (await call("backup_import", {
       path: importPath.value,
       password: importPw.value,

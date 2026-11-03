@@ -55,6 +55,9 @@ interface PairRow {
 type TabKey = "cf" | "ts" | "tsn" | "pair";
 
 const activeTab = ref<TabKey>("cf");
+// 旧版 ab-hub-gwtab：记住上次所在的远程接入分页
+try { activeTab.value = (localStorage.getItem("ab-hub-gwtab") || "cf") as typeof activeTab.value; } catch { /* 忽略 */ }
+watch(activeTab, (name) => { try { localStorage.setItem("ab-hub-gwtab", name); } catch { /* 忽略 */ } });
 const config = ref<GatewayConfig | null>(null);
 const tsStatus = ref<TailscaleStatus | null>(null);
 const pairs = ref<PairRow[]>([]);

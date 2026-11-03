@@ -87,6 +87,13 @@ watch(currentPage, (page) => {
 });
 
 const navCollapsed = ref(false);
+/** 侧栏收起/展开（旧版 ab-hub-side 持久化） */
+function toggleNav() {
+  navCollapsed.value = !navCollapsed.value;
+  try { localStorage.setItem("ab-hub-side", navCollapsed.value ? "collapsed" : "expanded"); } catch { /* 忽略 */ }
+}
+// 旧版 ab-hub-side：记住侧栏收起状态（collapsed/expanded）
+try { navCollapsed.value = localStorage.getItem("ab-hub-side") === "collapsed"; } catch { /* 忽略 */ }
 
 /**
  * 亮暗主题。
@@ -300,7 +307,7 @@ const footCount = computed(() => `${servers.servers.length} 台服务器`);
           class="icon-btn side-toggle"
           :title="navCollapsed ? '展开侧栏' : '收起侧栏'"
           :aria-label="navCollapsed ? '展开侧栏' : '收起侧栏'"
-          @click="navCollapsed = !navCollapsed"
+          @click="toggleNav"
         >
           <svg
             viewBox="0 0 24 24"

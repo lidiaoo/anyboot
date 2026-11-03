@@ -27,7 +27,20 @@ interface TxItem {
 
 const items = ref<TxItem[]>([]);
 /** 历史（已完成）—— 旧版 txHistory */
-const history = ref<{ name?: string; dir?: string; total?: number }[]>([]);
+const history = ref<{ key?: string; name?: string; dir?: string; bytes?: number; total?: number; at?: number }[]>([]);
+
+/** 历史持久化（旧版 txPersist：ab-transfer-history，最多 20 条） */
+function historyPersist() {
+  try { localStorage.setItem("ab-transfer-history", JSON.stringify(history.value.slice(0, 20))); } catch { /* 忽略 */ }
+}
+/** 完成入历史（旧版 txAddHistory：同 key 去重） */
+function historyAdd(entry: { key?: string; name?: string; dir?: string; bytes?: number; total?: number; at?: number }) {
+  for (const h of history.value) {
+    if (h.key && entry.key && h.key === entry.key) return;
+  }
+  history.value = [entry, ...history.value].slice(0, 20);
+  historyPersist();
+}
 const loading = ref(true);
 const errorText = ref("");
 const unlisteners: (() => void)[] = [];
@@ -44,6 +57,7 @@ async function refresh() {
 }
 
 onMounted(async () => {
+  try { history.value = JSON.parse(localStorage.getItem("ab-transfer-history") || "[]") || []; } catch { history.value = []; }
   await refresh();
   const { listen } = await import("@tauri-apps/api/event");
   unlisteners.push(
@@ -52,6 +66,10 @@ onMounted(async () => {
       const index = items.value.findIndex((t) => t.key === task.key);
       items.value =
         index >= 0 ? items.value.map((t, i) => (i === index ? task : t)) : [...items.value, task];
+      // done/failed/abandoned → 入历史（旧版三态都记）
+      if (task.state === "done" || task.state === "failed" || task.state === "abandoned") {
+        historyAdd({ key: task.key, name: task.name, dir: task.dir, bytes: task.bytes, total: task.total, at: Date.now() });
+      }
     }),
   );
   // 兜底轮询（任务在后台跑，窗口可能刚开）
@@ -78,6 +96,8 @@ async function ctlAll(action: "pause" | "resume" | "abandon", filter?: (t: TxIte
 }
 
 function clearDone() {
+    history.value = [];
+    historyPersist();
   items.value = items.value.filter((t) => t.state !== "done");
 }
 

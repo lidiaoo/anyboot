@@ -256,7 +256,8 @@ function fillPreview(preview: Record<string, unknown>) {
     };
   });
   importCats.value = ["servers", "jumps", "keys", "terminal", "history"];
-  importStrategy.value = "skipExisting";
+  // 旧版 ab-import-strategy：记住上次用的导入策略
+  try { importStrategy.value = (localStorage.getItem("ab-import-strategy") || "skipExisting") as typeof importStrategy.value; } catch { /* 忽略 */ }
   previewOpen.value = true;
 }
 
@@ -431,6 +432,7 @@ async function executeImport() {
   if (busy.value) return;
   busy.value = "导入";
   try {
+    try { localStorage.setItem("ab-import-strategy", importStrategy.value); } catch { /* 忽略 */ }
     const res = (await call("backup_import", {
       path: importPath.value,
       password: importPw.value,

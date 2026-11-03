@@ -35,7 +35,7 @@ export const DATA_REFRESH_KEY = "pcDataRefreshSec";
 export const DATA_REFRESH_DEFAULT_SEC = 2;
 
 /** 刷新时是否每次重新探测地址：true = 每次重探；false = 复用上次端点（默认） */
-export const REPROBE_ALWAYS_KEY = "reprobeAlways";
+export const REPROBE_ALWAYS_KEY = "pcReprobeMode"; // 旧版键（值 reuse/fresh）
 export const REPROBE_ALWAYS_DEFAULT = false;
 
 /** 连续失败多少次才判离线（弱网容忍）；默认 3 */
@@ -47,7 +47,7 @@ export const OFFLINE_RETRY_DEFAULT = 3;
 // ---------------------------------------------------------------------------
 
 /** 失败重试间隔（秒）；0 = 永不 */
-export const FAIL_RELOAD_KEY = "failReloadSec";
+export const FAIL_RELOAD_KEY = "pcAutoReloadSec"; // 旧版键
 export const FAIL_RELOAD_DEFAULT_SEC = 5;
 
 // ---------------------------------------------------------------------------
