@@ -134,8 +134,13 @@ function refreshAuto() {
   void call("linux_grub_scan", { target: null, auto: true }).catch(() => {});
 }
 
-function syncManual() {
-  void call("refresh").catch(() => {});
+async function syncManual() {
+  // 旧版 grubSync：sync_grub（把 /boot/grub 的 grub.cfg 搬进 ESP），完成后刷新
+  try {
+    await call("sync_grub");
+  } finally {
+    void call("refresh").catch(() => {});
+  }
 }
 
 function pickEspDir() {
@@ -154,8 +159,13 @@ function openGrubDir() {
   void call("open_grub_dir").catch(() => {});
 }
 
-function detectPartuuid() {
-  void call("detect_esp", { path: espDir.value }).catch(() => {});
+async function detectPartuuid() {
+  // 旧版 grubPartuuidDetect：detect_grub_by_partuuid（按已存 UUID 探测，无需挂载）
+  try {
+    await call("detect_grub_by_partuuid");
+  } finally {
+    void call("refresh").catch(() => {});
+  }
 }
 
 function savePartuuid() {

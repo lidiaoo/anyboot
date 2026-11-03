@@ -84,11 +84,20 @@ watch(
 );
 
 function toggleHttp() {
-  commit("set_http_enabled", { on: !ui.http?.listening });
+  // 旧版：set_http_enabled { enabled }（参数名 enabled，非 on）
+  commit("set_http_enabled", { enabled: !ui.http?.listening });
 }
 
 function applyHttp() {
-  commit("set_http_listen", { bind: httpBind.value.trim(), port: Number(httpPort.value) || 12300 });
+  // 旧版：端口校验 1-65535 → set_http_bind { bind } 链 set_http_port { port }
+  const port = Number(httpPort.value);
+  if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+    window.dispatchEvent(new CustomEvent("ab-status-bar", { detail: { text: "端口必须是 1-65535 的整数", error: true } }));
+    return;
+  }
+  void call("set_http_bind", { bind: httpBind.value.trim() }).then(() =>
+    call("set_http_port", { port }),
+  );
 }
 
 function regenerateToken() {

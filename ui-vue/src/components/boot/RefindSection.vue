@@ -64,8 +64,14 @@ const activeSelector = computed(() => {
   return sim.value?.entries?.find((e) => e.lastBoot)?.title.trim() ?? "";
 });
 
-function refreshSim() {
-  void call("refresh").catch(() => {});
+async function refreshSim() {
+  // 旧版：refind_sim_scan → renderRefindSim（结果直接渲染，不等全量 refresh）
+  try {
+    const result = await call("refind_sim_scan");
+    if (result) ui.applySnapshot({ ...(ui.state ?? {}), refindSim: result } as never, { force: true });
+  } finally {
+    void call("refresh").catch(() => {});
+  }
 }
 
 function openVarsDir() {
