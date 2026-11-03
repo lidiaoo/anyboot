@@ -27,8 +27,8 @@ import { useEscape } from "@/composables/useEscape";
 
 interface GatewayConfig {
   mode: string;
-  namedUrl: string;
-  namedTokenSet: boolean;
+  named_url: string;
+  named_token_set: boolean;
   autostart: boolean;
   binary: { installed: boolean; version: string; path: string; source: string };
   tunnel: { running: boolean; mode: string; url: string; state: string; error: string };
@@ -97,7 +97,15 @@ function tsFunnelAuth() {
 
 /** 命名隧道配置（旧版 #gwNamedToken / #gwNamedUrl） */
 const namedToken = ref("");
+const namedTokenSet = ref(false);
 const namedUrl = ref("");
+
+// 回填命名隧道表单（旧版 renderRemote：named_url + named_token_set 占位/LogoutRow）
+watch(config, (cfg) => {
+  if (!cfg) return;
+  namedUrl.value = cfg.named_url || "";
+  namedTokenSet.value = Boolean(cfg.named_token_set);
+});
 
 /** 自启开关（旧版 #gwAutostart） */
 function toggleAutostart() {
@@ -862,7 +870,7 @@ function deletePair(id: string) {
             v-model="namedToken"
             type="password"
             class="mono"
-            placeholder="Cloudflare Zero Trust 创建隧道后给出的 Token"
+            :placeholder="namedTokenSet ? '已保存（留空保持不变）' : 'Cloudflare Zero Trust 创建隧道后给出的 Token'"
             autocomplete="off"
           />
         </div>
@@ -919,7 +927,7 @@ function deletePair(id: string) {
         id="gwLogoutRow"
         :hidden="config?.mode !== 'named'"
         style="display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap"
-      >
+       v-if="namedTokenSet">
         <button type="button" id="gwLogoutBtn" class="link-btn" @click="clearCredentials">清除登录凭据</button>
         <span class="field-hint" style="margin: 0">
           停止通道并删除保存的命名隧道 Token 与对外地址，模式回落「快速隧道」；cloudflared 程序保留。
