@@ -41,11 +41,50 @@ const varsDir = ref("");
 const sim = computed(() => ui.refindSim);
 
 /** 模拟扫描的条目（旧版 #sim-scan-list） */
-const visibleEntries = computed<EntryData[]>(() =>
-  (sim.value?.entries ?? [])
-    .filter((e) => !e.hidden)
-    .map((e) => ({ selector: e.title.trim(), name: e.title.trim(), class: e.kind })),
-);
+interface SimChild {
+  title?: string;
+  source?: string;
+  options?: string;
+  note?: string;
+}
+interface SimEntry {
+  title?: string;
+  kind?: string;
+  hidden?: boolean;
+  lastBoot?: boolean;
+  children?: SimChild[];
+}
+/** 旧版 refindSimEntryNodes：children>1 → 组（子项挂 submenu 供 GrubList 分组）；
+ *  ≤1 → 普通行（不值得展开）。子行 tag = 来源标签（旧版 REFIND_SIM_CHILD_SOURCE）。 */
+const CHILD_SOURCE: Record<string, string> = {
+  default: "默认项",
+  options: "refind_linux.conf",
+  kernel: "折叠内核",
+  macos: "macOS 诊断",
+  stanza: "submenuentry",
+};
+const visibleEntries = computed<EntryData[]>(() => {
+  const out: EntryData[] = [];
+  for (const e of (sim.value?.entries ?? []) as SimEntry[]) {
+    if (e.hidden) continue;
+    const title = (e.title || "").trim();
+    const children = e.children || [];
+    if (children.length > 1) {
+      for (const c of children) {
+        out.push({
+          selector: (c.title || "").trim(),
+          name: (c.title || "").trim(),
+          class: e.kind,
+          submenu: title,
+          tag: c.source === "default" ? CHILD_SOURCE.default || "" : CHILD_SOURCE[c.source || ""] || "",
+        });
+      }
+    } else {
+      out.push({ selector: title, name: title, class: e.kind });
+    }
+  }
+  return out;
+});
 
 /** 被隐藏的条目（旧版 #sim-scan-hidden） */
 const hiddenEntries = computed<EntryData[]>(() =>

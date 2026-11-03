@@ -9,6 +9,8 @@ import { call } from "@/api/tauri";
 import BootList from "@/components/boot/BootList.vue";
 import RefindSection from "@/components/boot/RefindSection.vue";
 import GrubSection from "@/components/boot/GrubSection.vue";
+import { simRows, grubRows, refindVariableRows } from "@/pages/boot/bootRows";
+import type { EntryData } from "@/components/boot/types";
 import BootSettings from "./BootSettings.vue";
 import SettingsPanel from "@/components/boot/SettingsPanel.vue";
 import SolPanel from "@/components/boot/SolPanel.vue";
@@ -421,6 +423,36 @@ onUnmounted(() => {
   for (const off of unlisteners) off();
 });
 
+// 真实区块行（旧版 G 从真实 DOM 行派生；此处共享派生供区块与 G 主题同源）
+const bootRowsByLoader = computed<Record<string, EntryData[]>>(() => ({
+  refind:
+    settings.refindMode === "manual"
+      ? refindVariableRows(ui.status?.variables)
+      : simRows(ui.refindSim),
+  grub: grubRows({
+    grubMode: settings.grubMode,
+    linuxGrubEntries: ui.linuxGrub?.entries,
+    grubEntries: ui.grub?.entries,
+    variables: ui.status?.variables,
+  }),
+  sdboot: channelRows("sdboot"),
+  opencore: channelRows("opencore"),
+  clover: channelRows("clover"),
+}));
+function channelRows(id: string): EntryData[] {
+  const ch = ui.channels.find((c) => c.id === id);
+  if (!ch) return [];
+  const preview = ch.menuPreview?.entries ?? [];
+  if (preview.length) {
+    return preview.map((row) => ({ selector: row.spec, name: row.title, class: row.kind }));
+  }
+  return (ch.entries ?? []).map((row) => ({
+    selector: String(row.id ?? row.title ?? ""),
+    name: String(row.title ?? row.id ?? ""),
+    class: String(row.kind ?? ""),
+  }));
+}
+
 /** 旧版：非 K 主题整页 fill 链（body[data-ba-fill] + #tab-boot.ba-fill） */
 function syncBodyBaFill(): void {
   if (adv.effectiveTheme !== "K") document.body.dataset.baFill = "1";
@@ -576,6 +608,7 @@ const statusHidden = computed(() => {
               else bootThemeStage(list);
         -->
         <ThemeHost
+          :rows="bootRowsByLoader"
           :theme="adv.effectiveTheme"
           :layout="adv.effectiveLayout"
           :loaders="loaders"

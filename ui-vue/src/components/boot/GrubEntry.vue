@@ -88,8 +88,10 @@ const displayName = computed(() => {
   const baseText = props.group
     ? props.entry.name
     : formatText(props.entry, props.format);
+  // 组行箭头（旧版：默认展开 ▾ / 收起 ▸；本列表恒展开 → ▾）
+  const arrow = props.group ? '▾ ' : '';
   const body =
-    props.group || props.depth === 0 ? baseText : `↳ ${baseText}`;
+    props.group || props.depth === 0 ? arrow + baseText : `↳ ${baseText}`;
   return prefix + body;
 });
 

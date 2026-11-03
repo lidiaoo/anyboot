@@ -164,6 +164,7 @@ function onSelect(selector: string) {
         :group="row.group"
         :depth="row.depth"
         :child-count="row.childCount"
+        :tag="row.entry.tag || ''"
         :active="!row.group && row.entry.selector === activeSelector"
         :disabled="disabled"
         :group-title="row.groupTitle"

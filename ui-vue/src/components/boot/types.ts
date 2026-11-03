@@ -10,6 +10,8 @@ export interface EntryData {
   variants?: number;
   chainloader?: boolean;
   submenu?: string | null;
+  /** 旧版 refindSim 子行右侧来源标签（默认项 / refind_linux.conf / …） */
+  tag?: string;
 }
 
 export interface GroupInfo {

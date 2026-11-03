@@ -29,6 +29,8 @@ import type { LoaderInfo } from "./types";
  */
 
 const props = defineProps<{
+  /** 真实区块行（旧版 G 从真实 DOM 行派生；这里由 BootApp 传共享行） */
+  rows?: Record<string, EntryData[]>;
   loaders: LoaderInfo[];
   activeId?: string;
   onSelect?: (id: string) => void;
@@ -74,6 +76,7 @@ const groups = computed<GroupedEntry[]>(() => {
 
 /** 与 BootList 同口径的数据源选择 */
 function entriesOf(id: string): EntryData[] {
+  if (props.rows && props.rows[id]) return props.rows[id];
   if (id === "refind") {
     if (settings.refindMode === "manual") {
       return (ui.status?.variables ?? [])

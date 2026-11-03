@@ -25,6 +25,8 @@ const props = defineProps<{
   theme: ThemeKey | "K";
   layout?: LayoutMode;
   loaders: LoaderInfo[];
+  /** 真实区块行（按引导器 id） */
+  rows?: Record<string, import("@/components/boot/types").EntryData[]>;
   /** 左右布局时每个引导器分到哪列（旧版 advState.side：'l'/'r'，缺省视为左列） */
   side?: Record<string, string>;
   activeId?: string;
@@ -125,7 +127,7 @@ function resetRatio() {
       </div>
       <div class="k-rbody is-theme">
         <div class="k-theme-fit">
-          <component :is="component" v-bind="leftProps" @reorder="(order: string[]) => emit('reorder', order)">
+          <component :is="component" v-bind="{ ...leftProps, rows: props.rows }" @reorder="(order: string[]) => emit('reorder', order)">
             <slot />
           </component>
         </div>
@@ -152,7 +154,7 @@ function resetRatio() {
       </div>
       <div class="k-rbody is-theme">
         <div class="k-theme-fit">
-          <component :is="component" v-bind="rightProps" @reorder="(order: string[]) => emit('reorder', order)" />
+          <component :is="component" v-bind="{ ...rightProps, rows: props.rows }" @reorder="(order: string[]) => emit('reorder', order)" />
         </div>
       </div>
     </section>
