@@ -44,6 +44,18 @@ function setGuestTheme(v: string) {
 const openMode = ref((() => {
   try { return localStorage.getItem("cqOpenMode") === "goto" ? "goto" : "inline"; } catch { return "inline"; }
 })());
+/** 探测地址方式（旧版 data-reprobe：写偏好 + toast） */
+function pickReprobe(always: boolean) {
+  settings.setReprobeAlways(always);
+  open.value = false;
+  // 旧版 toast（复刻原文案）
+  toast.show(
+    always
+      ? "每次刷新都会重新探测地址（换 IP 能最快跟上）"
+      : "复用上次成功的地址（省电、地址稳定）",
+  );
+}
+
 function setOpenMode(v: string) {
   openMode.value = v === "goto" ? "goto" : "inline";
   try { localStorage.setItem("cqOpenMode", openMode.value); } catch { /* 忽略 */ }
@@ -102,6 +114,9 @@ function customReload() {
 
 function pickRefresh(sec: number) {
   settings.setDataRefreshSec(sec);
+  open.value = false;
+  // 旧版 toast（复刻原文案）
+  toast.show(sec > 0 ? `数据每 ${sec} 秒刷新一次` : "已关闭数据刷新");
 }
 
 function pickCustom() {
@@ -109,10 +124,12 @@ function pickCustom() {
   if (input === null) return;
   const parsed = Number.parseInt(input, 10);
   if (!Number.isFinite(parsed) || parsed < 0) {
-    window.alert("要是不小于 0 的整数秒");
+    toast.show("间隔要是不小于 0 的整数秒", "bad");
     return;
   }
   settings.setDataRefreshSec(parsed);
+  open.value = false;
+  toast.show(parsed > 0 ? `数据每 ${parsed} 秒刷新一次` : "已关闭数据刷新");
 }
 
 function toggle() {
@@ -174,8 +191,8 @@ const customActive = computed(() => !refreshOptions.includes(settings.dataRefres
       <button role="menuitem" type="button" data-refresh="30" :class="{ 'is-on': settings.dataRefreshSec === 30 }" @click="pickRefresh(30)">每 30 秒</button>
       <button role="menuitem" type="button" data-refresh="0" :class="{ 'is-on': settings.dataRefreshSec === 0 }" @click="pickRefresh(0)">关闭数据刷新</button>
       <button role="menuitem" type="button" :class="{ 'is-on': customActive }" @click="pickCustom">自定义间隔…</button>
-      <button role="menuitem" type="button" data-reprobe="reuse" :class="{ 'is-on': !settings.reprobeAlways }" @click="settings.setReprobeAlways(false)">✓ 复用上次地址（省电、地址稳）</button>
-      <button role="menuitem" type="button" data-reprobe="always" :class="{ 'is-on': settings.reprobeAlways }" @click="settings.setReprobeAlways(true)">每次重新探测地址（换 IP 抓得最快）</button>
+      <button role="menuitem" type="button" data-reprobe="reuse" :class="{ 'is-on': !settings.reprobeAlways }" @click="pickReprobe(false)">{{ settings.reprobeAlways ? '' : '✓ ' }}复用上次地址（省电、地址稳）</button>
+      <button role="menuitem" type="button" data-reprobe="always" :class="{ 'is-on': settings.reprobeAlways }" @click="pickReprobe(true)">{{ settings.reprobeAlways ? '✓ ' : '' }}每次重新探测地址（换 IP 抓得最快）</button>
 
       <div class="divider" />
       <button
