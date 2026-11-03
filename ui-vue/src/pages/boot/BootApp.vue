@@ -631,7 +631,7 @@ const statusHidden = computed(() => {
           <!-- K 原生态：旧版的完整区块结构 -->
           <RefindSection :class="adv.effectiveTheme !== 'K' ? 'ba-theme-sec ba-split ba-g-card' : ''" />
 
-          <hr aria-hidden="true" class="boot-divider" id="boot-divider" />
+          <hr aria-hidden="true" class="boot-divider" id="boot-divider" :style="adv.effectiveTheme !== 'K' ? { display: 'none' } : undefined" />
 
           <GrubSection :class="adv.effectiveTheme !== 'K' ? 'ba-theme-sec ba-split ba-g-card' : ''" />
 
