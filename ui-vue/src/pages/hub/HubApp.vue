@@ -258,6 +258,20 @@ onMounted(async () => {
         void import("@/pages/hub/AboutPage.vue");
       }),
     );
+    // 电脑列表「在电脑页打开」→ SPA 内切页（旧版 cqGotoPage showPage('home')）
+    const onGotoPage = (e: Event) => {
+      currentPage.value = "home";
+      // HomePage 自己监听同事件选中 chip；这里同步 URL（可分享/刷新回同页）
+      const rid = (e as CustomEvent<string>).detail;
+      try {
+        const u = new URL(location.href);
+        u.searchParams.set("page", "home");
+        if (rid) u.searchParams.set("rid", rid);
+        history.replaceState(null, "", u);
+      } catch { /* 忽略 */ }
+    };
+    window.addEventListener("cq-goto-page", onGotoPage);
+    unlisteners.push(() => window.removeEventListener("cq-goto-page", onGotoPage));
   } catch { /* 非 Tauri 环境 */ }
 });
 onUnmounted(() => {

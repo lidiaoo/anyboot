@@ -34,6 +34,12 @@ interface LocalEndpoint {
 
 const localEndpoint = ref<LocalEndpoint | null>(null);
 const activeId = ref("local");
+
+// 旧版 cqGotoPage：SPA 内选中某台（computer 列表跳过来）
+window.addEventListener("cq-goto-page", (e) => {
+  const rid = (e as CustomEvent<string>).detail;
+  if (rid) activeId.value = rid;
+});
 /** 重载计数：改变它 → iframe 的 key 变化 → 强制重建 */
 const reloadSeed = ref(0);
 const failMessage = ref("");

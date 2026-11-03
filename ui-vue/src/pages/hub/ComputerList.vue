@@ -347,15 +347,17 @@ function rowMenuAction(action: string, id: string) {
       let mode = "inline";
       try { mode = localStorage.getItem("cqOpenMode") === "goto" ? "goto" : "inline"; } catch { /* 默认 */ }
       if (mode === "goto") {
-        window.location.href = `hub.html?page=home&rid=${encodeURIComponent(id)}`;
+        window.dispatchEvent(new CustomEvent("cq-goto-page", { detail: id }));
       } else {
         openView(id);
       }
       break;
     }
-    case "goto":
-      window.location.href = `hub.html?page=home&rid=${encodeURIComponent(id)}`;
+    case "goto": {
+      // 旧版 cqGotoPage：SPA 内切「电脑」页并选中该 chip（不重载）
+      window.dispatchEvent(new CustomEvent("cq-goto-page", { detail: id }));
       break;
+    }
     case "browser":
       void openInBrowser(id);
       break;
