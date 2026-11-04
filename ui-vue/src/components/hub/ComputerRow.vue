@@ -54,8 +54,9 @@ const emit = defineEmits<{
 }>();
 
 const isLocal = computed(() => props.row.id === "local");
-const online = computed(() => props.info?.online ?? false);
-const loading = computed(() => props.info === undefined);
+/** 旧版：本机恒在线（hub 自身在跑）；远端看 remote_boot_info 的 online */
+const online = computed(() => (isLocal.value ? true : (props.info?.online ?? false)));
+const loading = computed(() => props.info === undefined && !isLocal.value);
 
 /** 旧 cqStateCell：online===null → busy(未探测)；true→on / false→off */
 const stateClass = computed(() => {
