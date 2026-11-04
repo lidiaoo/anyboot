@@ -52,7 +52,7 @@ interface Session {
 const termHostRef = ref<HTMLElement | null>(null);
 const sessions = ref<Session[]>([]);
 const activeId = ref("");
-const connText = ref("连接中…");
+const connText = ref("—");
 const connOk = ref(false);
 const errorText = ref("");
 

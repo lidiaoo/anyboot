@@ -491,7 +491,6 @@ function pct(task: XferTask): number {
         </svg>
         主题
       </button>
-      <button type="button" class="toolbtn" aria-label="切换服务器" @click="pickOpen = true">切换服务器</button>
     </div>
   </header>
 
