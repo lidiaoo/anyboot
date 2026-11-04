@@ -663,6 +663,27 @@ pub(crate) fn remote_ui_command_inner(
     match cmd {
         "get_ui_state" => serde_json::to_value(get_ui_state(app.clone()))
             .map_err(|error| format!("序列化失败: {error}")),
+        // ---- hub（远程管理）前端联调接口：网页 / 手机端打开 hub 页需要这些数据 ----
+        // 之前白名单漏了它们 → 浏览器/手机访问 hub 时「未知或不受支持的命令」→ 空数据。
+        "remote_list" => crate::remote_servers::remote_list(app.clone()),
+        "local_http_endpoint" => crate::remote_servers::local_http_endpoint(app.clone()),
+        "hub_list_servers" => serde_json::to_value(crate::hub::hub_list_servers(app.clone())?)
+            .map_err(|error| format!("序列化失败: {error}")),
+        "remote_boot_info" => {
+            let server_id = ui_str(args, "serverId").or_else(|_| ui_str(args, "server_id"))?;
+            serde_json::to_value(tauri::async_runtime::block_on(
+                crate::remote_servers::remote_boot_info(app.clone(), server_id),
+            )?)
+            .map_err(|error| format!("序列化失败: {error}"))
+        }
+        "remote_endpoint" => {
+            let server_id = ui_str(args, "serverId").or_else(|_| ui_str(args, "server_id"))?;
+            let address = ui_opt_str(args, "address");
+            serde_json::to_value(tauri::async_runtime::block_on(
+                crate::remote_servers::remote_endpoint(app.clone(), server_id, address),
+            )?)
+            .map_err(|error| format!("序列化失败: {error}"))
+        }
         // ---- 引导切换 / 扫描 ----
         "refresh" => status_value(refresh(app.clone())),
         // 注意：网页 / 手机端的 switch_system 在 handle_ui_command_request 里

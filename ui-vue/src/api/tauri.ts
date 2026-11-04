@@ -25,6 +25,11 @@ export function isTauri(): boolean {
  * @param args    参数对象；Rust 侧是 camelCase 反序列化
  */
 export async function call<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+  // 非 Tauri（浏览器 / 手机 WebView / 内嵌 iframe）：走本机 HTTP 的 /api/ui-command
+  // 桥接（旧 app.js 同一条通道）。此前没有此兜底 → 网页端打开 hub 页命令全报错 → 空数据。
+  if (!isTauri()) {
+    return await httpCall<T>(command, args);
+  }
   try {
     return await invoke<T>(command, args);
   } catch (error) {
@@ -33,6 +38,26 @@ export async function call<T>(command: string, args?: Record<string, unknown>): 
     void reportIpcFailure(command, args, error);
     throw error;
   }
+}
+/** 浏览器 / 网页端：POST /api/ui-command {cmd,args} → {ok,result}（沿用旧 app.js 语义） */
+async function httpCall<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+  const token = (() => {
+    try {
+      return new URLSearchParams(location.search).get("token") || "";
+    } catch {
+      return "";
+    }
+  })();
+  const resp = await fetch(`/api/ui-command?token=${encodeURIComponent(token)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ cmd: command, args: args ?? {} }),
+  });
+  const json = (await resp.json().catch(() => ({}))) as { ok?: boolean; result?: unknown; message?: string };
+  if (!resp.ok || json.ok === false) {
+    throw new Error(json.message || `命令失败：${command}`);
+  }
+  return json.result as T;
 }
 
 /** 失败命令的去重集合（避免刷屏：同一个命令只报一次） */
