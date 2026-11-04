@@ -544,8 +544,9 @@ useEscape(viewOpen, () => { viewOpen.value = false });
           </div>
       </div>
       <div v-if="!rows.length" class="cq-empty" id="cqEmpty">
-        <div>没有匹配的电脑</div>
-        <p id="cqEmptyHint">换个关键词，或把筛选切回「全部」</p>
+        <div>{{ remote.lastError ? "读取电脑列表失败" : "没有匹配的电脑" }}</div>
+        <p id="cqEmptyHint">{{ remote.lastError || "换个关键词，或把筛选切回「全部」" }}</p>
+        <button v-if="remote.lastError" type="button" class="link-btn" @click="remote.load()">重试</button>
       </div>
     </div>
 

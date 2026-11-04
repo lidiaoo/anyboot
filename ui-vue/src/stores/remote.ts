@@ -94,14 +94,17 @@ export const useRemoteStore = defineStore("remote", () => {
   }
 
   /** 读档案列表 */
+  const lastError = ref("");
   async function load(): Promise<void> {
     try {
       const store = await call<RemoteStoreState>("remote_list");
       servers.value = store.servers ?? [];
       connectAll.value = Boolean(store.connect_all);
+      lastError.value = "";
       loaded.value = true;
-    } catch {
+    } catch (e) {
       servers.value = [];
+      lastError.value = String(e);
       loaded.value = true;
     }
   }
@@ -188,6 +191,7 @@ export const useRemoteStore = defineStore("remote", () => {
     failCounts,
     loading,
     loaded,
+    lastError,
     totalOnline,
     // 动作
     load,
