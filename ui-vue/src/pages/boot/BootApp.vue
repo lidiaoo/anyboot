@@ -245,20 +245,55 @@ onMounted(async () => {
   }, 3000);
 });
 
+/** 每引导器的真实设置数据（旧版 boot-adv.js 各 *_Loader 适配器精简）：
+ *  esp 副标题、entries(t/def)、nextBoot（默认项）、healthText —— 供各主题「引导器设置」面板显示。 */
+function loaderEspText(id: LoaderId | string): string {
+  if (id === "refind") return settings.refindMode === "manual" ? "vars/PreviousBoot 快照" : "ESP · refind.conf";
+  if (id === "grub") {
+    if (settings.grubMode === "manual") return ui.grub?.efiDir || ui.grub?.cfgPath || "grub.cfg";
+    const t = ((ui.linuxGrub ?? ui.grub) as unknown as { target?: { cfgRel?: string } })?.target;
+    return t?.cfgRel || ui.grub?.efiDir || "";
+  }
+  const ch = ui.channels.find((c) => c.id === id);
+  return ch?.detail || "";
+}
+function loaderDefaultTitle(id: LoaderId | string): string {
+  if (id === "refind") {
+    if (settings.refindMode === "manual") {
+      return (ui.status?.variables ?? []).find((v) => v.active)?.displayName ?? "未知";
+    }
+    return (ui.refindSim?.entries ?? []).find((e) => e.lastBoot)?.title?.trim() ?? "未知";
+  }
+  if (id === "grub") {
+    const source = settings.grubMode === "manual" ? ui.grub : (ui.linuxGrub ?? ui.grub);
+    return source?.nextEntry || source?.savedEntry || "未知";
+  }
+  const ch = ui.channels.find((c) => c.id === id);
+  return ch?.currentDefault || ch?.lastBoot || "未知";
+}
 const loaders = computed<LoaderInfo[]>(() => {
   const list: LoaderInfo[] = [];
   for (const id of adv.enabledLoaders) {
     const meta = loaderMeta(id);
     const channel = ui.channels.find((c) => c.id === id);
     const detected = id === "refind" || id === "grub" ? true : Boolean(channel?.detected);
+    const defTitle = loaderDefaultTitle(id);
+    const count = countEntries(id);
+    // 真实条目：设置面板只需要 length + 默认项（t/def）；用默认项造一个带 def 的条目
+    const entries: { t?: string; def?: boolean }[] = [];
+    if (defTitle && defTitle !== "未知") entries.push({ t: defTitle, def: true });
+    // 补齐到 count（占位仅用于角标长度），首个为真实默认项
+    while (entries.length < count) entries.push({ t: "", def: false });
     list.push({
       id,
       name: meta.name,
       state: !detected ? "off" : meta.perm === "nvram" ? "warn" : "ok",
-      entries: new Array(countEntries(id)).fill(0),
-      esp: id === "grub" ? ui.grub?.efiDir : undefined,
+      entries,
+      esp: loaderEspText(id),
       perm: meta.perm,
       detected,
+      nextBoot: entries.find((e) => e.def) ?? null,
+      healthText: count ? `${loaderEspText(id) || "ESP"} · ${count} 个条目` : "还没读取",
     });
   }
   return list;

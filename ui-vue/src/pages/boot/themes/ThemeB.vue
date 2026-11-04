@@ -45,7 +45,7 @@ const fallbackId = computed(() => props.loaders[0]?.id ?? "");
 /** 旧版 settingsPanel(l) 的 5 行：ESP路径/权限/默认项/内置脚本/免密模式 */
 function settingsRows(l: LoaderInfo | undefined) {
   if (!l) return [];
-  const firstEntry = (l.entries?.[0] as { name?: string } | undefined)?.name ?? "未知";
+  const firstEntry = (l.nextBoot && l.nextBoot.t) || "未知";
   const nvram = l.perm === "nvram";
   return [
     { label: "ESP 路径", value: l.esp || "未知", act: "改" },

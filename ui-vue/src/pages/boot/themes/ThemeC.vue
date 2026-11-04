@@ -141,7 +141,7 @@ function select(id: string) {
             <button type="button" class="btn xs ghost">{{ activeLoader.perm === "nvram" ? "提升" : "说明" }}</button>
           </div>
           <div class="set">
-            <div class="set-t"><b>默认项</b><small>{{ (activeLoader.entries?.[0] as any)?.name || "未知" }}</small></div>
+            <div class="set-t"><b>默认项</b><small>{{ activeLoader.nextBoot?.t || "未知" }}</small></div>
             <button type="button" class="btn xs ghost">改</button>
           </div>
           <div class="set">

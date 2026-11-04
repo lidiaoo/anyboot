@@ -104,7 +104,7 @@ const hasLoaders = computed(() => props.loaders.length > 0);
         <div v-show="openSettings[loader.id]" class="panel-in">
           <div class="set"><div class="set-t"><b>ESP 路径</b><small>{{ loader.esp || '未知' }}</small></div><button type="button" class="btn xs ghost">改</button></div>
           <div class="set"><div class="set-t"><b>权限</b><small>{{ loader.perm === 'nvram' ? '写 NVRAM 需提权' : '免提权' }}</small></div><button type="button" class="btn xs ghost">{{ loader.perm === 'nvram' ? '提升' : '说明' }}</button></div>
-          <div class="set"><div class="set-t"><b>默认项</b><small>未知</small></div><button type="button" class="btn xs ghost">改</button></div>
+          <div class="set"><div class="set-t"><b>默认项</b><small>{{ loader.nextBoot?.t || "未知" }}</small></div><button type="button" class="btn xs ghost">改</button></div>
           <div class="set"><div class="set-t"><b>内置脚本</b><small>{{ loader.id === 'grub' ? '09_anyboot' : '不适用' }}</small></div><button type="button" class="btn xs ghost">编辑</button></div>
           <div class="set"><div class="set-t"><b>免密模式</b><small>{{ loader.id === 'opencore' ? '未开启 · 每次弹一次授权' : '不适用' }}</small></div><button v-if="loader.id === 'opencore'" type="button" class="switch" aria-label="免密模式" /><button v-else type="button" class="btn xs ghost">开启</button></div>
         </div>
