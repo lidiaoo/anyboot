@@ -270,7 +270,10 @@ function loaderDefaultTitle(id: LoaderId | string): string {
     return source?.nextEntry || source?.savedEntry || "未知";
   }
   const ch = ui.channels.find((c) => c.id === id);
-  return ch?.currentDefault || ch?.lastBoot || "未知";
+  const cur = String(ch?.currentDefault || "");
+  const list = ((ch?.entries ?? []) as { id?: string; title?: string }[]);
+  const hit = cur ? list.find((e) => cur === e.id || cur === e.title || cur.includes(e.title || "\u0000")) : undefined;
+  return hit?.title || cur || ch?.lastBoot || "未知";
 }
 const loaders = computed<LoaderInfo[]>(() => {
   const list: LoaderInfo[] = [];

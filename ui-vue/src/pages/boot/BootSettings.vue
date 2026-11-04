@@ -45,7 +45,13 @@ function loaderDefault(id: string): string {
     return (g?.nextEntry || g?.savedEntry || "未知").toString();
   }
   const ch = (ui.channels ?? []).find((c) => c.id === id);
-  return (ch?.currentDefault || (ch?.detected ? "未选择" : "未知")).toString();
+  // 旧版 channelEntries：currentDefault 可能是 id 或标题，命中 channel.entries 取标题
+  const cur = String(ch?.currentDefault || "");
+  const list = ((ch?.entries ?? []) as { id?: string; title?: string }[]);
+  const hit = cur
+    ? list.find((e) => cur === e.id || cur === e.title || cur.includes(e.title || "\u0000"))
+    : undefined;
+  return (hit?.title || cur || (ch?.detected ? "未选择" : "未知")).toString();
 }
 /** 引导器图标里的两个字母（旧版 ldr 图标文字） */
 function loaderMono(id: string): string {
