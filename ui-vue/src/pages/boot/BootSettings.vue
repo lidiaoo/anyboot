@@ -31,6 +31,20 @@ function moveLoader(id: LoaderId, delta: number) {
   adv.setOrder(order);
 }
 
+/** 引导器默认项（旧版 def = l.nextBoot || entries.find(def)） */
+function loaderDefault(id: string): string {
+  if (id === "refind") {
+    const hit = (ui.status?.variables ?? []).find((v) => v.active);
+    const lb = (ui.refindSim?.entries ?? []).find((e) => e.lastBoot);
+    return (lb?.title || hit?.displayName || "未知").toString();
+  }
+  if (id === "grub") {
+    const g = ui.grub;
+    return (g?.nextEntry || g?.savedEntry || "未知").toString();
+  }
+  const ch = (ui.channels ?? []).find((c) => c.id === id);
+  return (ch?.currentDefault || (ch?.detected ? "未选择" : "未知")).toString();
+}
 /** 引导器图标里的两个字母（旧版 ldr 图标文字） */
 function loaderMono(id: string): string {
   return loaderMeta(id).mono;
@@ -196,7 +210,7 @@ function toggleVisible(id: LoaderId) {
               <span class="chip">ESP · {{ loaderEsp(id) || '未知' }}</span>
               <span v-if="loaderPerm(id) === 'nvram'" class="chip elev">需提权</span>
               <span v-else class="chip ok">免提权</span>
-              <span class="chip">默认项 · 未知</span>
+              <span class="chip">默认项 · {{ loaderDefault(id) }}</span>
               <span class="chip">脚本 · {{ id === 'grub' ? '09_anyboot' : '不适用' }}</span>
               <span class="chip">免密 · {{ id === 'opencore' ? '未开启' : '不适用' }}</span>
               <span class="grow" />
