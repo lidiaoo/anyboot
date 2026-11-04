@@ -548,9 +548,6 @@ function setManualBinary() {
 }
 
 /** 二进制状态 / 卸载 / 清除凭据 / 保存配置（旧版 gateway_* 系列） */
-function checkBinary() {
-  void run("检查 cloudflared", () => call("gateway_binary_status"), "已检查");
-}
 
 function uninstallBinary() {
   void run("卸载 cloudflared", () => call("gateway_binary_uninstall"), "已卸载");
@@ -930,11 +927,14 @@ function deletePair(id: string) {
         <button v-if="!cfInstalled" type="button" id="gwManualBtn" class="btn" @click="manualOpen = !manualOpen">
           指定本地路径
         </button>
-        <button type="button" class="btn" :disabled="!!busy" @click="checkBinary">检查</button>
         <button v-if="cfInstalled" type="button" class="btn" :disabled="!!busy" @click="uninstallBinary">卸载</button>
-        <button type="button" class="btn" :disabled="!!busy" @click="clearCredentials">清除登录凭据</button>
       </div>
 
+      <!-- 清除登录凭据行（旧版 #gwLogoutRow：仅命名隧道 token 存在时显示） -->
+      <div v-if="namedTokenSet" id="gwLogoutRow" class="gw-logout-row">
+        <button type="button" class="link-btn" id="gwLogoutBtn" :disabled="!!busy" @click="clearCredentials">清除登录凭据</button>
+        <span class="field-hint">停止通道并删除保存的命名隧道 Token 与对外地址，模式回落「快速隧道」；cloudflared 程序保留。</span>
+      </div>
       <!-- 下载进度（旧版 #gwProgressRow） -->
       <div id="gwProgressRow" :hidden="!downloading" class="gw-progress">
         <div class="gw-progress-bar"><div id="gwProgressBar" :style="{ width: progress + '%' }" /></div>
