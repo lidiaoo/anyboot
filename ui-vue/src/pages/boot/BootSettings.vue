@@ -290,7 +290,30 @@ const previewRows = computed<Record<string, EntryData[]>>(() => {
         <h2>预演 · {{ adv.effectiveLayout === 'lr' ? '左右' : '单列' }}</h2>
         <small>{{ adv.state.order.filter((x) => adv.state.visible[x]).length }} 个引导器</small>
       </header>
+      <!-- K 不套用主题：旧版 k-zone-cards + kLoaderCard 自绘卡片 -->
+      <div v-if="adv.effectiveTheme === 'K'" class="k-zone-cards">
+        <div v-for="loader in previewLoaders" :key="loader.id" class="k-card">
+          <div class="k-card-head">
+            <span class="ldr" aria-hidden="true">{{ loaderMono(loader.id) }}</span>
+            <span class="nm">{{ loader.name }}</span>
+            <span class="grow" />
+            <span class="hint">共 {{ (previewRows[loader.id] ?? []).length }} 条</span>
+          </div>
+          <div class="k-entries">
+            <div
+              v-for="(row, i) in previewRows[loader.id] ?? []"
+              :key="i"
+              class="grub-entry"
+              :class="{ 'is-pinned': i === 0 }"
+            >
+              <span class="grub-entry-name">{{ row.name }}</span>
+            </div>
+            <div v-if="!(previewRows[loader.id] ?? []).length" class="hint">没有条目</div>
+          </div>
+        </div>
+      </div>
       <ThemeHost
+        v-else
         :rows="previewRows"
         :theme="adv.effectiveTheme"
         :layout="adv.effectiveLayout"
