@@ -485,6 +485,13 @@ function ensureLayoutWidth(): void {
   void call("set_boot_layout", { mode: layout }).catch(() => {});
 }
 watch([() => adv.effectiveLayout, () => adv.effectiveTheme], ensureLayoutWidth, { immediate: true });
+// 兜底：mounted 后宽/左右布局再补发一次（防 setup 期过早、窗口尚未就绪）
+onMounted(() => {
+  window.setTimeout(() => {
+    layoutWidthSent = "";
+    ensureLayoutWidth();
+  }, 800);
+});
 
 // ── 系统引导页「引导器设置」折叠条注入（旧版 boot-adv.js splitLoaderSection）──
 // 设计稿铁律：每张卡只留标题 + 引导列表；设置项（扫描头/摘要/变量目录/ESP 表单/
