@@ -189,7 +189,9 @@ async function createSession(id: string, title: string): Promise<Session | null>
 
   const host = document.createElement("div");
   host.className = "term-slot";
-  host.style.display = "none";
+  // 先可见再 open：display:none 时容器 0 尺寸，xterm 会量错、隐藏 textarea 不建，
+  // 表现为「终端能显示但打不了字」。open+fit 完再由 showActive 决定显隐。
+  host.style.display = "block";
   termHostRef.value.appendChild(host);
 
   const settings = readTermSettings();
@@ -218,6 +220,7 @@ async function createSession(id: string, title: string): Promise<Session | null>
 
   term.open(host);
   fit?.fit();
+  try { term.focus(); } catch { /* 忽略 */ }
 
   // 选中即复制（终端设置页开关；旧版 t.onSelectionChange + termFlag.copyOnSelect）
   term.onSelectionChange?.(() => {
