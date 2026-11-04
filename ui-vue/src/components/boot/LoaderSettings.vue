@@ -9,13 +9,14 @@
 import { ref } from "vue";
 import RefindSection from "./RefindSection.vue";
 import GrubSection from "./GrubSection.vue";
+import ChannelSettings from "./ChannelSettings.vue";
 
 const props = defineProps<{ loader: string }>();
 const open = ref(false);
 </script>
 
 <template>
-  <div v-if="props.loader === 'refind' || props.loader === 'grub'" class="loader-settings">
+  <div class="loader-settings">
     <button
       type="button"
       class="acc ba-setbar"
@@ -26,14 +27,15 @@ const open = ref(false);
       <span class="grow">
         <span>引导器设置</span>
         <small>
-          {{ props.loader === "refind" ? "重新模拟 · 扫描摘要 · 变量目录" : "ESP 分区 · 分区明细 · 同步 · 脚本" }}
+          {{ props.loader === "refind" ? "重新模拟 · 扫描摘要 · 变量目录" : props.loader === "grub" ? "ESP 分区 · 分区明细 · 同步 · 脚本" : "健康检查 · 免密模式" }}
         </small>
       </span>
       <span class="chevron car" aria-hidden="true" :style="{ transform: open ? 'rotate(180deg)' : '' }">⌄</span>
     </button>
     <div v-show="open" class="ba-set-body">
       <RefindSection v-if="props.loader === 'refind'" hide-list />
-      <GrubSection v-else hide-list />
+      <GrubSection v-else-if="props.loader === 'grub'" hide-list />
+      <ChannelSettings v-else :loader="props.loader" />
     </div>
   </div>
 </template>
