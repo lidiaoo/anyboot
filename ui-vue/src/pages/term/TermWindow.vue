@@ -244,7 +244,9 @@ async function createSession(id: string, title: string): Promise<Session | null>
     } catch { /* 忽略 */ }
   });
   term.onData((data) => {
-    void call("hub_term_write", { id, data }).catch(() => {});
+    // 旧版：hub_term_write 参数是 sessionId + base64 编码的 data
+    const b64 = btoa(unescape(encodeURIComponent(data)));
+    void call("hub_term_write", { sessionId: id, data: b64 }).catch(() => {});
   });
 
   const session: Session = { id, title, term, fit, host, pendingData: [], opened: false };
@@ -256,7 +258,7 @@ async function createSession(id: string, title: string): Promise<Session | null>
   const onResize = () => {
     fit?.fit();
     void call("hub_term_resize", {
-      id,
+      sessionId: id,
       cols: (term as unknown as { cols?: number }).cols ?? 80,
       rows: (term as unknown as { rows?: number }).rows ?? 24,
     }).catch(() => {});
@@ -372,7 +374,7 @@ onMounted(async () => {
 
   // 从 hub 传过来的待打开服务器
   try {
-    const pending = await call<string | null>("hub_term_take_pending");
+    const pending = await call<Record<string, unknown> | null>("hub_term_take_pending");
     if (pending) await openServer(pending);
   } catch {
     /* 没有待打开 */
@@ -440,7 +442,7 @@ function selectTab(id: string) {
 async function closeSession(id: string) {
   showToast("已关闭会话");
   try {
-    await call("hub_term_close", { id });
+    await call("hub_term_close", { sessionId: id });
   } catch {
     /* 关不掉就算了 */
   }

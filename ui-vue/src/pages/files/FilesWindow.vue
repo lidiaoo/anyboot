@@ -23,7 +23,7 @@ interface SftpEntry {
   path: string;
   is_dir: boolean;
   size: number;
-  mtime: number;
+  mtime: string;
   perms?: string;
   link?: boolean;
   target?: string;
@@ -276,12 +276,25 @@ async function listDir(path: string) {
   loading.value = true;
   errorText.value = "";
   try {
-    const result = await call<{ cwd: string; entries: SftpEntry[] }>("hub_sftp_list", {
+    // Rust hub_sftp_list 返回 Vec<SftpEntry>（数组），字段是 dir/link/target/size/mtime/perms；
+    // 前端渲染需要 path（cwd + name）与 is_dir（dir），这里做一次映射。
+    type RawEntry = { name: string; dir?: boolean; link?: boolean; target?: string; size?: number; mtime?: string; perms?: string };
+    const raw = (await call<RawEntry[]>("hub_sftp_list", {
       server: sshServers.value.find((s) => s.id === serverId.value),
       path,
-    });
-    cwd.value = result?.cwd ?? path;
-    entries.value = result?.entries ?? [];
+    })) ?? [];
+    const base = path.endsWith("/") ? path : path + "/";
+    cwd.value = path;
+    entries.value = raw.map((e) => ({
+      name: e.name,
+      path: base + e.name,
+      is_dir: Boolean(e.dir),
+      size: e.size ?? 0,
+      mtime: e.mtime ?? "",
+      perms: e.perms,
+      link: e.link,
+      target: e.target,
+    }));
   } catch (error) {
     errorText.value = String(error);
     entries.value = [];
@@ -452,9 +465,11 @@ function fmtSize(bytes: number): string {
   return `${value.toFixed(value < 10 && i > 0 ? 1 : 0)}${units[i]}`;
 }
 
-function fmtTime(ms: number): string {
-  if (!ms) return "—";
-  return new Date(ms).toLocaleString("zh-CN", { hour12: false }).replace(/\//g, "-");
+function fmtTime(v: string | number): string {
+  // Rust SftpEntry.mtime 已是展示串（"10-16 09:12" / "2025-03-01"）；数字则格式化
+  if (v === undefined || v === null || v === "" || v === 0) return "—";
+  if (typeof v === "string") return v;
+  return new Date(v).toLocaleString("zh-CN", { hour12: false }).replace(/\//g, "-");
 }
 
 function pct(task: XferTask): number {
@@ -706,7 +721,7 @@ function pct(task: XferTask): number {
         <p><b>名称</b> {{ targetEntry?.name }}</p>
         <p><b>大小</b> {{ targetEntry?.is_dir ? "—" : fmtSize(targetEntry?.size ?? 0) }}</p>
         <p><b>权限</b> <span class="mono">{{ targetEntry?.perms || "—" }}</span></p>
-        <p><b>修改时间</b> {{ fmtTime(targetEntry?.mtime ?? 0) }}</p>
+        <p><b>修改时间</b> {{ fmtTime(targetEntry?.mtime ?? "") }}</p>
         <p><b>路径</b> <span class="mono">{{ targetEntry?.path }}</span></p>
         <p v-if="targetEntry?.link"><b>指向</b> <span class="mono">{{ targetEntry?.target || "读取中…" }}</span></p>
       </div>

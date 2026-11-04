@@ -467,6 +467,24 @@ function syncBodyBaFill(): void {
   else delete document.body.dataset.baFill;
 }
 watch(() => adv.effectiveTheme, syncBodyBaFill, { immediate: true });
+
+// ── 布局窗口落宽（旧版 boot-adv.js ensureLayoutWidth）──────────────
+// wide / lr = 窗口至少 932（两栏 460+12+460，后端「窄了才加宽」）；default 回 460。
+// 只在本机真实窗口里做「还窄就补发」，远端（浏览器/手机看本机 UI）不判宽度，
+// 否则会反复去改主机窗口。
+let layoutWidthSent = "";
+let widenTries = 0;
+function ensureLayoutWidth(): void {
+  const layout = adv.effectiveLayout;
+  const inTauri = location.protocol === "tauri:" || location.hostname === "tauri.localhost";
+  const narrow = inTauri && layout !== "default" && window.innerWidth > 0 && window.innerWidth < 900;
+  if (layoutWidthSent === layout && !(narrow && widenTries < 3)) return;
+  if (narrow) widenTries += 1;
+  else widenTries = 0;
+  layoutWidthSent = layout;
+  void call("set_boot_layout", { mode: layout }).catch(() => {});
+}
+watch([() => adv.effectiveLayout, () => adv.effectiveTheme], ensureLayoutWidth, { immediate: true });
 /** 旧版 busyLabel（app.js:753）：忙态优先级 power > switching > unmounting > scanning */
 function busyLabel(busy: { power?: string | null; switching?: boolean; unmounting?: boolean; scanning?: boolean } | null | undefined): string {
   if (!busy) return "";

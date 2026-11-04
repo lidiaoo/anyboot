@@ -30,6 +30,15 @@ function moveLoader(id: LoaderId, delta: number) {
   order.splice(j, 0, ...order.splice(i, 1));
   adv.setOrder(order);
 }
+
+/** 引导器图标里的两个字母（旧版 ldr 图标文字） */
+function loaderMono(id: string): string {
+  return loaderMeta(id).mono;
+}
+/** 引导器权限类型（file/nvram）——旧版免提权/需提权判定 */
+function loaderPerm(id: string): string {
+  return loaderMeta(id).perm;
+}
 const message = ref("");
 const errorText = ref("");
 
@@ -150,33 +159,51 @@ function toggleVisible(id: LoaderId) {
           </div>
           <span class="hint">「系统引导」页顶部那块：不显示 = 整块移除、不占任何高度（默认）；折叠框 = 默认收起，标题旁小按钮切换；展开 = 打开就看到全部条目，同样可收起。</span>
         </div>
-        <!-- row5：上下排序（k-sortbar） -->
-        <div class="k-sortbar">
-          <span class="k-sort-lbl">上下排序</span>
-          <span v-for="(id, i) in adv.state.order" :key="id" class="k-sortchip">
-            <span class="k-sort-nm">{{ loaderMeta(id).name }}</span>
-            <button type="button" class="k-zop" title="上移一位" :disabled="i === 0" @click="moveLoader(id, -1)">↑</button>
-            <button type="button" class="k-zop" title="下移一位" :disabled="i === adv.state.order.length - 1" @click="moveLoader(id, 1)">↓</button>
+        <!-- row5：排序条（设置动作收在设置区，预演区保持纯观看） -->
+        <div class="k-row">
+          <span class="k-sortwrap" style="display: contents">
+            <span class="k-sortbar">
+              <span class="k-sort-lbl">上下排序</span>
+              <span v-for="(id, i) in adv.state.order" :key="id" class="k-sortchip">
+                <span class="k-sort-nm">{{ loaderMeta(id).name }}</span>
+                <button type="button" class="k-zop" title="上移一位" :disabled="i === 0" @click="moveLoader(id, -1)">↑</button>
+                <button type="button" class="k-zop" title="下移一位" :disabled="i === adv.state.order.length - 1" @click="moveLoader(id, 1)">↓</button>
+              </span>
+            </span>
           </span>
+          <span class="grow" />
+          <span class="hint">预演与「系统引导」页同一份真实数据（只读示意）· 界面效果以「系统引导」页实际为准</span>
         </div>
         <!-- 引导器设置（k-setlist 折叠条） -->
-        <div class="k-setbar" @click="setListOpen = !setListOpen">
-          <span class="k-setbar-t">※ 引导器设置 <small>ESP 路径 · 权限 · 默认项 · 脚本 · 免密模式</small></span>
-          <span class="chevron" :class="{ open: setListOpen }">⌄</span>
-        </div>
-        <div v-show="setListOpen" class="k-setlist">
-          <ul class="loader-set-list">
-            <li v-for="id in adv.state.order.filter((x) => adv.state.visible[x])" :key="id" class="loader-set-row">
-              <span class="nm">{{ loaderMeta(id).name }}</span>
+        <button
+          type="button"
+          class="k-setbar"
+          :class="{ 'is-on': setListOpen }"
+          title="展开/收起 引导器设置（ESP 路径 / 权限 / 默认项 / 脚本 / 免密模式）"
+          @click="setListOpen = !setListOpen"
+        >
+          <span class="gear" aria-hidden="true">⚙</span>
+          <span class="k-setbar-t">引导器设置</span>
+          <span class="hint">ESP 路径 · 权限 · 默认项 · 脚本 · 免密模式</span>
+          <span class="grow" />
+          <span class="chevron car" :class="{ open: setListOpen }">⌄</span>
+        </button>
+        <div class="k-setlist" :class="{ 'is-on': setListOpen }" :hidden="!setListOpen">
+          <template v-if="adv.state.order.some((x) => adv.state.visible[x])">
+            <div v-for="id in adv.state.order.filter((x) => adv.state.visible[x])" :key="id" class="k-set-row">
+              <span class="ldr" aria-hidden="true">{{ loaderMono(id) }}</span>
+              <span class="k-set-nm">{{ loaderMeta(id).name }}</span>
               <span class="chip">ESP · {{ loaderEsp(id) || '未知' }}</span>
+              <span v-if="loaderPerm(id) === 'nvram'" class="chip elev">需提权</span>
+              <span v-else class="chip ok">免提权</span>
               <span class="chip">默认项 · 未知</span>
               <span class="chip">脚本 · {{ id === 'grub' ? '09_anyboot' : '不适用' }}</span>
               <span class="chip">免密 · {{ id === 'opencore' ? '未开启' : '不适用' }}</span>
-              <span class="spacer" />
-              <button type="button" class="btn icon ghost sm" :title="'打开 ' + loaderMeta(id).name + ' 详细设置'">⚙</button>
-            </li>
-            <li v-if="!adv.state.order.some((x) => adv.state.visible[x])" class="hint">没有启用的引导器 —— 点上方标签开启后再设置</li>
-          </ul>
+              <span class="grow" />
+              <button type="button" class="btn xs ghost" :title="'打开 ' + loaderMeta(id).name + ' 详细设置'">⚙</button>
+            </div>
+          </template>
+          <div v-else class="k-set-row">没有启用的引导器 —— 点上方标签开启后再设置</div>
         </div>
       </div>
     </div>
