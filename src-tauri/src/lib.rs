@@ -3291,6 +3291,7 @@ pub fn run() {
                         Ok(()) => eprintln!("[hook] 远程管理窗口已打开"),
                         Err(error) => eprintln!("[hook] 打开远程管理窗口失败: {error}"),
                     }
+
                     let want_term = std::env::var("ANYBOOT_TEST_OPEN_TERM").is_ok();
                     let want_files = std::env::var("ANYBOOT_TEST_OPEN_FILES").is_ok();
                     let want_keys = std::env::var("ANYBOOT_TEST_OPEN_KEYS").is_ok();
