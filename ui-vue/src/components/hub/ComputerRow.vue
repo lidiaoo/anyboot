@@ -57,9 +57,15 @@ const isLocal = computed(() => props.row.id === "local");
 const online = computed(() => props.info?.online ?? false);
 const loading = computed(() => props.info === undefined);
 
-const statusText = computed(() => {
+/** 旧 cqStateCell：online===null → busy(未探测)；true→on / false→off */
+const stateClass = computed(() => {
+  if (online.value === null || loading.value) return "cq-st--busy";
+  return online.value ? "cq-st--on" : "cq-st--off";
+});
+const statusLabel = computed(() => {
   if (loading.value) return "读取中…";
-  return online.value ? "在线" : "未探测";
+  if (online.value === null) return "未探测";
+  return online.value ? "在线" : "离线";
 });
 
 /** 系统徽标 */
@@ -75,13 +81,27 @@ const osBadge = computed(() => {
 const connLabel = computed(() => (isLocal.value ? "本机" : online.value ? "直连" : "未连接"));
 
 /** 引导项值 */
-function bootLabel(kind: "refind" | "grub") {
-  const group = props.info?.[kind];
-  if (!group) return "读取中…";
-  if (!group.available) return "未检测到";
-  return group.current || "未设置";
+/** 旧 cqBootCell 状态：label + 是否不可改(--none) + 内核点色 k-{class} */
+function bootState(kind: string): { label: string; none: boolean; dot: string } {
+  const group = kind === "refind" || kind === "grub" ? props.info?.[kind] : undefined;
+  if (!group) return { label: online.value === null || loading.value ? "读取中…" : "未检测到", none: true, dot: "" };
+  if (!group.available) return { label: "未检测到", none: true, dot: "" };
+  if (!online.value) return { label: "离线不可改", none: true, dot: "" };
+  const options = (group as { options?: { value?: string; label?: string; class?: string; header?: boolean }[] }).options || [];
+  const current = String(group.current || "");
+  const hit =
+    options.filter((o) => !o.header && o.value === current)[0] ||
+    options.filter((o) => {
+      if (o.header || !current) return false;
+      const text = String(o.label || "").trim();
+      return !!text && (text === current || text.indexOf(current) >= 0 || current.indexOf(text) >= 0);
+    })[0];
+  return {
+    label: hit?.label || current || "未选择",
+    none: options.length === 0,
+    dot: hit?.class || "",
+  };
 }
-
 function bootUsable(kind: "refind" | "grub") {
   const group = props.info?.[kind];
   return Boolean(group?.available) && online.value;
@@ -183,31 +203,8 @@ function onRowClick() {
               </span>
             </div>
             <div class="cq-dev-meta">
-              <button
-                type="button"
-                class="cq-remote-act"
-                title="在弹层里打开这台电脑的 AnyBoot 页面"
-                @click.stop="emit('view', row.id)"
-              >
-                打开页面
-              </button>
-              <button
-                type="button"
-                class="cq-remote-act"
-                title="用系统默认浏览器打开这条通道（window.open 只会开新 webview）"
-                @click.stop="emit('openBrowser', row.id)"
-              >
-                浏览器打开
-              </button>
               <div class="cq-dev-line">
                 <div class="cq-dev-top">
-                  <span
-                    class="cq-dev-addr"
-                    :style="{ color: online ? 'rgb(var(--ok))' : 'rgb(var(--fg-faint))' }"
-                  >
-                    {{ online ? "● 在线" : "○ 离线" }}
-                  </span>
-                  <span class="sep">·</span>
                   <span class="cq-dev-addr">{{ info?.addr || row.addresses?.[0] || "" }}</span>
                 </div>
               </div>
@@ -216,11 +213,13 @@ function onRowClick() {
         </div>
       </div>
 
-      <!-- 状态 -->
+      <!-- 状态（旧 cqStateCell：i 圆点 + 在线/离线 + 本机地址 small） -->
       <div class="cq-col cq-col-st" role="cell">
-        <div class="cq-st">
-          <small>{{ statusText }}</small>
-        </div>
+        <span class="cq-st" :class="stateClass">
+          <i />
+          {{ statusLabel }}
+          <small v-if="isLocal && online && info?.addr">{{ info.addr }}</small>
+        </span>
       </div>
 
       <!-- 更多 -->
@@ -244,24 +243,30 @@ function onRowClick() {
     <!-- 引导项区 -->
     <div class="cq-row-boots">
       <div class="cq-col cq-col-boot" role="cell" data-label="rEFInd 启动项">
-        <button
-          type="button"
-          class="cq-boot-btn"
-          :disabled="!bootUsable('refind')"
-          @click.stop="emit('switchBoot', { serverId: row.id, kind: 'refind' })"
-        >
-          <span class="t">{{ bootLabel("refind") }}</span>
-        </button>
+        <div class="cq-boot" :class="{ 'cq-boot--none': bootState('refind').none }">
+          <button
+            type="button"
+            class="cq-boot-btn"
+            :disabled="!bootUsable('refind')"
+            @click.stop="emit('switchBoot', { serverId: row.id, kind: 'refind' })"
+          >
+            <span v-if="bootState('refind').dot" class="k" :class="'k-' + bootState('refind').dot" />
+            <span class="t">{{ bootState("refind").label }}</span>
+          </button>
+        </div>
       </div>
       <div class="cq-col cq-col-boot" role="cell" data-label="GRUB 启动项">
-        <button
-          type="button"
-          class="cq-boot-btn"
-          :disabled="!bootUsable('grub')"
-          @click.stop="emit('switchBoot', { serverId: row.id, kind: 'grub' })"
-        >
-          <span class="t">{{ bootLabel("grub") }}</span>
-        </button>
+        <div class="cq-boot" :class="{ 'cq-boot--none': bootState('grub').none }">
+          <button
+            type="button"
+            class="cq-boot-btn"
+            :disabled="!bootUsable('grub')"
+            @click.stop="emit('switchBoot', { serverId: row.id, kind: 'grub' })"
+          >
+            <span v-if="bootState('grub').dot" class="k" :class="'k-' + bootState('grub').dot" />
+            <span class="t">{{ bootState("grub").label }}</span>
+          </button>
+        </div>
       </div>
       <div
         v-for="ch in info?.channels ?? []"
@@ -270,9 +275,11 @@ function onRowClick() {
         role="cell"
         :data-label="`${(ch as any).label || '引导器'} 启动项`"
       >
-        <button type="button" class="cq-boot-btn" disabled>
-          <span class="t">{{ (ch as any).currentDefault || ((ch as any).detected ? "已检测" : "未检测到") }}</span>
-        </button>
+        <div class="cq-boot" :class="{ 'cq-boot--none': !(ch as any).detected }">
+          <button type="button" class="cq-boot-btn" disabled>
+            <span class="t">{{ (ch as any).currentDefault || ((ch as any).detected ? "未选择" : "未检测到") }}</span>
+          </button>
+        </div>
       </div>
     </div>
 
