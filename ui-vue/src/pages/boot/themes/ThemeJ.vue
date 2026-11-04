@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, useSlots, watch } from "vue";
 import BootList from "@/components/boot/BootList.vue";
+import LoaderSettings from "@/components/boot/LoaderSettings.vue";
 import LoaderIcon from "./LoaderIcon.vue";
 import StateChip from "./StateChip.vue";
 import type { LoaderInfo } from "./types";
@@ -104,6 +105,7 @@ const healthText = computed(() => {
       </div>
       <div class="bd">
         <BootList v-if="activeLoader" :loader="activeLoader.id" @select="(s) => onSelect?.(s)" />
+        <LoaderSettings v-if="activeLoader" :loader="activeLoader.id" />
         <div v-if="healthText" class="lj-note">{{ healthText }}</div>
       </div>
     </section>

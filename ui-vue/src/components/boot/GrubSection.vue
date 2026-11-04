@@ -1,4 +1,6 @@
 <script setup lang="ts">
+/** hideList=true 时只渲染设置部分 */
+const props = defineProps<{ hideList?: boolean }>();
 const toast = useToastStore();
 import { computed, ref, watch } from "vue";
 import { useUiStateStore } from "@/stores/uiState";
@@ -235,6 +237,7 @@ async function switchEntry(selector: string) {
           </div>
           <div class="grub-list" id="grub-auto-list">
             <GrubList
+              v-if="!props.hideList"
               :entries="autoEntries"
               :active-selector="activeSelector"
               :group-titles="groupTitles"
@@ -278,6 +281,7 @@ async function switchEntry(selector: string) {
 
       <div class="grub-list" id="grub-list">
         <GrubList
+          v-if="!props.hideList"
           :entries="manualEntries"
           :active-selector="activeSelector"
           :group-titles="groupTitles"

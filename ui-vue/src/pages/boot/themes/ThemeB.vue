@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import BootList from "@/components/boot/BootList.vue";
+import LoaderSettings from "@/components/boot/LoaderSettings.vue";
 import LoaderIcon from "./LoaderIcon.vue";
 import StateChip from "./StateChip.vue";
 import type { LoaderInfo } from "./types";
@@ -149,6 +150,7 @@ function select(id: string) {
             </div>
             <div class="lb-block-body">
               <BootList :loader="activeLoader.id" />
+              <LoaderSettings :loader="activeLoader.id" />
             </div>
           </div>
 

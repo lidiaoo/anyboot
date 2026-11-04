@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import BootList from "@/components/boot/BootList.vue";
+import LoaderSettings from "@/components/boot/LoaderSettings.vue";
 import type { LoaderInfo } from "./types";
 
 /** 引导器设置折叠栏（旧版 .lc-settings 的展开态） */
@@ -136,6 +137,7 @@ function select(id: string) {
 
     <div class="lc-body">
       <BootList v-if="activeLoader" :loader="activeLoader.id" />
+      <LoaderSettings v-if="activeLoader" :loader="activeLoader.id" />
       <p v-else class="empty">没有分配到引导器</p>
       <div v-if="healthText" class="la-foot">
         <span>{{ healthText }}</span>

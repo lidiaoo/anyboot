@@ -1,4 +1,6 @@
 <script setup lang="ts">
+/** hideList=true 时只渲染设置部分（供各主题「引导器设置」折叠面板用） */
+const props = defineProps<{ hideList?: boolean }>();
 const toast = useToastStore();
 const settings = useSettingsStore();
 import { computed, ref } from "vue";
@@ -145,6 +147,7 @@ async function selectEntry(selector: string) {
 
         <div class="sim-scan-list" id="sim-scan-list">
           <GrubList
+            v-if="!props.hideList"
             :entries="visibleEntries"
             :active-selector="activeSelector"
             @select="selectEntry"
@@ -154,7 +157,7 @@ async function selectEntry(selector: string) {
         <details v-if="hiddenEntries.length" class="sim-scan-hidden" id="sim-scan-hidden">
           <summary>被隐藏的 <b id="sim-scan-hidden-count">{{ hiddenEntries.length }}</b> 项（rEFInd 菜单里看不到）</summary>
           <div class="sim-scan-list" id="sim-scan-hidden-list">
-            <GrubList :entries="hiddenEntries" :active-selector="''" />
+            <GrubList v-if="!props.hideList" :entries="hiddenEntries" :active-selector="''" />
           </div>
         </details>
       </section>
@@ -169,6 +172,7 @@ async function selectEntry(selector: string) {
     >
       <section aria-label="可启动系统" id="systems">
         <GrubList
+          v-if="!props.hideList"
           :entries="
             (ui.status?.variables ?? [])
               .filter((v) => v.exists)

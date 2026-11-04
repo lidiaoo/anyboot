@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, type ComponentPublicInstance } from "vue";
 import BootList from "@/components/boot/BootList.vue";
+import LoaderSettings from "@/components/boot/LoaderSettings.vue";
 import LoaderIcon from "./LoaderIcon.vue";
 import type { LoaderInfo } from "./types";
 
@@ -248,6 +249,7 @@ function closeSheet() {
             </template>
             <template v-else-if="sheetLoader">
               <BootList :loader="sheetLoader.id" @select="(s) => onSelect?.(s)" />
+              <LoaderSettings :loader="sheetLoader.id" />
             </template>
           </div>
         </div>

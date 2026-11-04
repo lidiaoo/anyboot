@@ -8,6 +8,7 @@ function footText(loader: { id: string; state: string; entries: unknown[] }): st
 
 import { computed, nextTick, ref } from "vue";
 import BootList from "@/components/boot/BootList.vue";
+import LoaderSettings from "@/components/boot/LoaderSettings.vue";
 import type { LoaderInfo } from "./types";
 
 /**
@@ -91,6 +92,7 @@ const hasLoaders = computed(() => props.loaders.length > 0);
         class="la-card"
       >
         <BootList :loader="loader.id" />
+        <LoaderSettings :loader="loader.id" />
         <!-- 底部健康状态条（旧版 .la-foot：icon(info) + 状态文案） -->
         <div class="la-foot">
           <svg
