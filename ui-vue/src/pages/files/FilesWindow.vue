@@ -235,7 +235,7 @@ onMounted(async () => {
     const pending = await call<{ id?: string; name?: string } | null>("hub_sftp_take_pending");
     if (pending?.id) {
       serverId.value = pending.id;
-      await listDir("");
+      await openHome();
     }
   } catch { /* 无排队服务器 */ }
   await refreshTransfers();
@@ -247,7 +247,7 @@ onMounted(async () => {
       const id = event.payload?.id;
       if (!id) return;
       serverId.value = id;
-      await listDir("");
+      await openHome();
     }),
   );
   // 主题跟随
@@ -271,6 +271,19 @@ onUnmounted(() => {
   for (const off of unlisteners) off();
 });
 
+/** 旧版 boot：hub_sftp_home 取远端家目录再列（空 path 直接 ls 会失败/列错） */
+async function openHome(): Promise<void> {
+  if (!serverId.value) return;
+  try {
+    const home = await call<string>("hub_sftp_home", {
+      server: sshServers.value.find((s) => s.id === serverId.value),
+    });
+    await listDir(home || "/");
+  } catch (error) {
+    errorText.value = String(error);
+    await listDir("/");
+  }
+}
 async function listDir(path: string) {
   if (!serverId.value) return;
   loading.value = true;
@@ -450,7 +463,7 @@ async function transferCtl(action: "pause" | "resume" | "abandon") {
 function pickServer(id: string) {
   pickOpen.value = false;
   serverId.value = id;
-  void listDir("");
+  void openHome();
 }
 
 function fmtSize(bytes: number): string {
