@@ -24,7 +24,7 @@ const selectedId = ref("");
 
 onMounted(async () => {
   if (!store.loaded) await store.load();
-  selectedId.value = sshServers.value[0]?.id ?? "";
+  // 旧版：初始不自动选中（跟随「服务器」页的全局选中项，默认无）→ 通用提示
 });
 
 const hint = computed(() =>
