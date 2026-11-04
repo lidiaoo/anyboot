@@ -62,6 +62,17 @@ const errorText = ref("");
 const exportIncludeKeys = computed(() => exportCats.value.includes("keys"));
 const exportPw1 = ref("");
 const exportPw2 = ref("");
+/** 旧版 exportPasswordValid()：≥4 位且两次一致 */
+const exportPasswordValid = () => exportPw1.value.length >= 4 && exportPw1.value === exportPw2.value;
+/** 旧版 exportBtn.disabled = busy || (hasKeys && !valid) */
+const exportDisabled = computed(() => Boolean(busy.value) || (exportIncludeKeys.value && !exportPasswordValid()));
+/** 旧版 exportNote 文案 */
+const exportNoteText = computed(() => {
+  if (exportIncludeKeys.value) {
+    return exportPasswordValid() ? "将加密导出（含密钥明文）" : "勾选了 SSH 密钥 —— 必须设置口令（≥4 位，两次一致）";
+  }
+  return exportPw1.value ? "将加密导出" : "不加密导出";
+});
 // 旧版默认：五类全选（exportChecked = Set(["servers","jumps","keys","terminal","history"])）
 const exportCats = ref<string[]>(["servers", "jumps", "keys", "terminal", "history"]);
 // 旧版同步默认只勾 4 类（不含 history）：Set(["servers","jumps","keys","terminal"])
@@ -498,10 +509,10 @@ useEscape(resultOpen, () => { resultOpen.value = false });
     </div>
 
     <div class="bk-row-actions">
-      <button type="button" id="exportBtn" class="bk-btn bk-primary" :disabled="!!busy" @click="doExport">
+      <button type="button" id="exportBtn" class="bk-btn bk-primary" :disabled="exportDisabled" @click="doExport">
         导出备份文件
       </button>
-      <span class="bk-note" id="exportNote">不加密也能导出，但密钥明文会直接写进文件</span>
+      <span class="bk-note" id="exportNote">{{ exportNoteText }}</span>
     </div>
   </section>
 
