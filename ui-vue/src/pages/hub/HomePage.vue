@@ -88,7 +88,7 @@ function showToast(text: string) {
   }, 2600);
 }
 
-const emit = defineEmits<{ (e: "addRemote"): void; (e: "menuAction", act: string): void }>();
+const emit = defineEmits<{ (e: "addRemote"): void; (e: "menuAction", act: string): void; (e: "sysInfo", id: string): void }>();
 function onMenuAction(act: string) {
   if (act === "add") emit("addRemote");
   else emit("menuAction", act);
@@ -146,9 +146,17 @@ const currentName = computed(() => {
   return remote.servers.find((s) => s.id === activeId.value)?.name ?? "";
 });
 
+const OS_LABELS: Record<string, string> = { windows: "Windows", macos: "macOS", linux: "Linux" };
 const chips = computed(() => [
-  { id: "local", name: "本机", sub: "默认 · 本地" },
-  ...remote.servers.map((s) => ({ id: s.id, name: s.name, sub: "" })),
+  { id: "local", name: "本机", sub: "默认 · 本地", os: "", conn: "本地", addr: "" },
+  ...remote.servers.map((s) => ({
+    id: s.id,
+    name: s.name,
+    sub: "",
+    os: String(s.machine_os || "").trim().toLowerCase(),
+    conn: "未连接",
+    addr: (s.addresses && s.addresses[0]) || "",
+  })),
 ]);
 
 onMounted(async () => {
@@ -227,12 +235,24 @@ useEscape(fabHelpOpen, () => { fabHelpOpen.value = false });
           role="tab"
           :class="['pc-chip', { active: activeId === chip.id }]"
           :aria-current="activeId === chip.id"
+          :title="`${chip.conn} · ${chip.addr}`"
           @click="selectChip(chip.id)"
           @contextmenu.prevent="openChipMenuAt(chip.id)"
         >
           <span class="dot" aria-hidden="true" />
           {{ chip.name }}
           <span v-if="chip.sub" class="mini">{{ chip.sub }}</span>
+          <button
+            v-if="OS_LABELS[chip.os]"
+            type="button"
+            class="os-badge"
+            :data-os="chip.os"
+            :title="`系统：${OS_LABELS[chip.os]}（点开看详细信息）`"
+            @click.stop="emit('sysInfo', chip.id)"
+            @mousedown.stop
+          >{{ OS_LABELS[chip.os] }}</button>
+          <span v-if="chip.id !== 'local'" class="chip-conn">{{ chip.conn }}</span>
+          <span v-if="chip.id !== 'local'" class="chip-more" title="标签菜单" @click.stop="openChipMenuAt(chip.id)">⋮</span>
         </button>
         <!-- 「＋ 添加」：打开服务端编辑弹层（旧版 #pcAddChip → pcAddOrEdit） -->
         <button type="button" id="pcAddChip" class="pc-chip add" title="添加 AnyBoot 电脑" @click="emit('addRemote')">
@@ -241,9 +261,6 @@ useEscape(fabHelpOpen, () => { fabHelpOpen.value = false });
       </div>
       <!-- 右上角 ⋮（旧版 #pageMore）：与工具条 ⋮ 是同一个 pcMenu -->
       <PcMenu id="pageMore" @menu-action="onMenuAction" />
-      <div class="pc-top-actions">
-        <button type="button" class="btn ghost sm" @click="reload">重载</button>
-      </div>
     </div>
 
     <div class="pc-body">
