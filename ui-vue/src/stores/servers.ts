@@ -63,7 +63,10 @@ export const useServersStore = defineStore("servers", () => {
 
   /** 显示用的地址 */
   function displayAddr(server: HubServer): string {
-    return `${server.host}:${effectivePort(server)}`;
+    // 旧版 hostLabel：username@host:port +「 +N」多地址后缀
+    const extra =
+      server.addresses && server.addresses.length > 1 ? ` +${server.addresses.length - 1}` : "";
+    return `${server.username ? server.username + "@" : ""}${server.host}:${effectivePort(server)}${extra}`;
   }
 
   async function save(payload: Record<string, unknown>): Promise<void> {

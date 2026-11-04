@@ -78,7 +78,7 @@ function msClass(ms: number): string {
 /** 状态文案（旧版 stateLabel()） */
 function stateLabel(id: string): string {
   const result = store.testResults.get(id);
-  if (!result) return "未测试";
+  if (!result) return "未测";
   return String(result);
 }
 
@@ -522,7 +522,7 @@ async function testOne(server: HubServer) {
   <!-- 底栏（旧版 .footer） -->
   <footer>
     <span class="dot" />
-    <span id="footText">{{ store.servers.length ? "已加载服务器" : "未连接任何服务器" }}</span>
+    <span id="footText">终端 / 文件 / 密钥均在独立窗口</span>
     <span class="sep">·</span>
     <span id="footCount">{{ store.servers.length }} 台服务器</span>
     <span class="clock" id="clock">{{ clock }}</span>

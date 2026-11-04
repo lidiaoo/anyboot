@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useUiStateStore } from "@/stores/uiState";
-import { applyAccent } from "@/composables/useAccent";
 import { useToastStore } from "@/stores/toast";
 import { useRemoteStore } from "@/stores/remote";
 import { useServersStore } from "@/stores/servers";
@@ -90,8 +89,6 @@ try {
   /* 吃默认 */
 }
 applyThemeClass(dark.value);
-// 强调色变化时重算（主题切换已在 applyThemeClass 内处理）
-watch(() => ui.settings?.accentColor, () => applyThemeClass(dark.value));
 
 /**
  * `--ui-alpha`：body 背景的不透明度乘数。
@@ -130,8 +127,8 @@ function applyThemeClass(isDark: boolean) {
   html.setAttribute("data-theme", isDark ? "dark" : "light");
   html.classList.toggle("light", !isDark);
   html.classList.toggle("dark", isDark);
-  // 强调色随主题亮暗重算派生档（旧版 applyAccent）
-  applyAccent(ui.settings?.accentColor, isDark ? "dark" : "light");
+  // 旧 hub.html 无动态强调色（固定靛蓝 --accent: 99 102 241 三元组）；
+  // 不能调 applyAccent —— 它写 hex，会让 hub CSS 的 rgb(var(--accent)) 失效。
 }
 
 function toggleTheme() {
@@ -245,7 +242,6 @@ onMounted(async () => {
         const isDark = theme !== "light";
         applyThemeClass(isDark);
         dark.value = isDark;
-        applyAccent(ui.settings?.accentColor, isDark ? "dark" : "light");
       }),
     );
     // hub 聚焦且有待看更新 → 切到「关于」页并展开更新区（旧版 gotoTip）
