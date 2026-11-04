@@ -59,6 +59,18 @@ const errorText = ref("");
 const exportIncludeKeys = computed(() => exportCats.value.includes("keys"));
 const exportPw1 = ref("");
 const exportPw2 = ref("");
+const exportPasswordValid = () => exportPw1.value.length >= 4 && exportPw1.value === exportPw2.value;
+const exportDisabled = computed(
+  () => Boolean(busy.value) || (exportIncludeKeys.value && !exportPasswordValid()),
+);
+const exportNoteText = computed(() => {
+  if (exportIncludeKeys.value) {
+    return exportPasswordValid()
+      ? "将加密导出（含密钥明文）"
+      : "勾选了 SSH 密钥 —— 必须设置口令（≥4 位，两次一致）";
+  }
+  return exportPw1.value ? "将加密导出" : "不加密导出";
+});
 const exportCats = ref<string[]>(["servers", "jumps", "keys", "terminal", "history"]);
 // 旧版同步默认只勾 4 类（不含 history）
 const syncCats = ref<string[]>(["servers", "jumps", "keys", "terminal"]);
@@ -492,13 +504,14 @@ async function executeImport() {
       </div>
 
       <div class="cats" id="exportCats">
-        <label v-for="cat in CATEGORIES" :key="cat.id" class="radio-line">
+        <label v-for="cat in CATEGORIES" :key="cat.id" class="cat-row">
           <input
             type="checkbox"
             :checked="exportCats.includes(cat.id)"
             @change="toggleCat('export', cat.id)"
           />
-          {{ cat.name }}
+          <span class="cname">{{ cat.name }}</span>
+          <span class="cdesc">{{ cat.desc }}</span>
         </label>
       </div>
 
@@ -526,11 +539,11 @@ async function executeImport() {
       </div>
 
       <div class="row-actions">
-        <button type="button" class="btn primary" id="exportBtn" :disabled="!!busy" @click="doExport">
+        <button type="button" class="btn primary" id="exportBtn" :disabled="exportDisabled" @click="doExport">
           <template v-if="busy"><span class="spin"></span>正在组包…</template>
           <template v-else>导出备份文件</template>
         </button>
-        <span class="note" id="exportNote">不加密也能导出，但密钥明文会直接写进文件</span>
+        <span class="note" id="exportNote">{{ exportNoteText }}</span>
       </div>
     </section>
 
@@ -629,13 +642,14 @@ async function executeImport() {
         </label>
 
         <div class="cats" id="syncCats">
-          <label v-for="cat in CATEGORIES" :key="cat.id" class="radio-line">
+          <label v-for="cat in CATEGORIES" :key="cat.id" class="cat-row">
             <input
               type="checkbox"
               :checked="syncCats.includes(cat.id)"
               @change="toggleCat('sync', cat.id)"
             />
-            {{ cat.name }}
+            <span class="cname">{{ cat.name }}</span>
+            <span class="cdesc">{{ cat.desc }}</span>
           </label>
         </div>
 
@@ -729,9 +743,10 @@ async function executeImport() {
           <span id="prevWarnText">{{ previewWarn }}</span>
         </div>
         <div class="cats" id="importCats">
-          <label v-for="cat in CATEGORIES" :key="cat.id" class="radio-line">
+          <label v-for="cat in CATEGORIES" :key="cat.id" class="cat-row">
             <input type="checkbox" :checked="importCats.includes(cat.id)" @change="toggleCat('import', cat.id)" />
-            {{ cat.name }}
+            <span class="cname">{{ cat.name }}</span>
+            <span class="cdesc">{{ cat.desc }}</span>
           </label>
         </div>
         <div class="strategy" id="strategyBox">
