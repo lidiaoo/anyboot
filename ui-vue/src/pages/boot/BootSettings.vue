@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { useUiStateStore } from "@/stores/uiState";
+import { useSettingsStore } from "@/stores/settings";
 import { useBootAdvStore, type LoaderId } from "@/stores/bootAdv";
 import { loaderMeta } from "@/pages/boot/themes/loaders";
 import ThemeHost from "@/pages/boot/themes/index.vue";
@@ -18,6 +19,7 @@ import { THEME_LABELS, THEME_LAYOUT_MODES, type LayoutMode } from "@/pages/boot/
  */
 
 const ui = useUiStateStore();
+const settings = useSettingsStore();
 const adv = useBootAdvStore();
 
 const setListOpen = ref(false);
@@ -39,7 +41,7 @@ function loaderDefault(id: string): string {
     return (lb?.title || hit?.displayName || "未知").toString();
   }
   if (id === "grub") {
-    const g = ui.grub;
+    const g = settings.grubMode === "manual" ? ui.grub : ui.linuxGrub;
     return (g?.nextEntry || g?.savedEntry || "未知").toString();
   }
   const ch = (ui.channels ?? []).find((c) => c.id === id);
@@ -74,9 +76,14 @@ const layoutLabels: Record<LayoutMode, string> = {
 };
 
 /** 引导器 ESP 展示值（旧版 l.esp）：refind/grub 固定，三通道取 channel.detail */
+/** 引导器 ESP 副标题（与 BootApp/旧版适配器一致：按模式零回落） */
 function loaderEsp(id: string): string {
-  if (id === "refind") return "ESP · refind.conf";
-  if (id === "grub") return "vars/PreviousBoot 快照";
+  if (id === "refind") return settings.refindMode === "manual" ? "vars/PreviousBoot 快照" : "ESP · refind.conf";
+  if (id === "grub") {
+    if (settings.grubMode === "manual") return ui.grub?.cfgPath || "grub.cfg";
+    const t = (ui.linuxGrub as unknown as { target?: { cfgRel?: string } } | null)?.target;
+    return t?.cfgRel || "";
+  }
   const ch = (ui.channels || []).find((c) => c.id === id);
   return ch?.detail || "";
 }

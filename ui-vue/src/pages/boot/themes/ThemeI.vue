@@ -248,6 +248,17 @@ function closeSheet() {
             </template>
             <template v-else-if="sheetLoader">
               <BootList :loader="sheetLoader.id" @select="(s) => onSelect?.(s)" />
+              <!-- 引导器设置（旧版抽屉 realSec 搬真实控件的 5 项摘要） -->
+              <div class="panel-in" style="margin-top: 8px">
+                <div class="set"><div class="set-t"><b>ESP 路径</b><small>{{ sheetLoader.esp || "未知" }}</small></div><button type="button" class="btn xs ghost">改</button></div>
+                <div class="set"><div class="set-t"><b>权限</b><small>{{ sheetLoader.perm === "nvram" ? "写 NVRAM 需提权" : "免提权" }}</small></div><button type="button" class="btn xs ghost">{{ sheetLoader.perm === "nvram" ? "提升" : "说明" }}</button></div>
+                <div class="set"><div class="set-t"><b>默认项</b><small>{{ sheetLoader.nextBoot?.t || "未知" }}</small></div><button type="button" class="btn xs ghost">改</button></div>
+                <div class="set"><div class="set-t"><b>内置脚本</b><small>{{ sheetLoader.id === "grub" ? "09_anyboot" : "不适用" }}</small></div><button type="button" class="btn xs ghost">编辑</button></div>
+                <div class="set"><div class="set-t"><b>免密模式</b><small>{{ sheetLoader.id === "opencore" ? "未开启 · 每次弹一次授权" : "不适用" }}</small></div>
+                  <button v-if="sheetLoader.id === 'opencore'" type="button" class="switch" aria-label="免密模式" />
+                  <button v-else type="button" class="btn xs ghost">开启</button>
+                </div>
+              </div>
             </template>
           </div>
         </div>
