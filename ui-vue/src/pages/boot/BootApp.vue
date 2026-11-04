@@ -524,6 +524,22 @@ function ensureLayoutWidth(): void {
   void call("set_boot_layout", { mode: layout }).catch(() => {});
 }
 watch([() => adv.effectiveLayout, () => adv.effectiveTheme], ensureLayoutWidth, { immediate: true });
+/** 屏幕适配：给 #tab-boot 挂 .vw-900/.vw-760/.vw-520 断点类（旧 applyVwClasses） */
+function applyVw(el: HTMLElement, width: number) {
+  el.classList.toggle("vw-g", width >= 900);
+  el.classList.toggle("vw-900", width <= 900);
+  el.classList.toggle("vw-760", width <= 760);
+  el.classList.toggle("vw-520", width <= 520);
+}
+let vwObs: ResizeObserver | null = null;
+onMounted(() => {
+  const el = document.getElementById("tab-boot");
+  if (!el || typeof ResizeObserver === "undefined") return;
+  vwObs = new ResizeObserver((entries) => { for (const en of entries) applyVw(el, en.contentRect.width); });
+  vwObs.observe(el);
+  applyVw(el, el.getBoundingClientRect().width);
+});
+onUnmounted(() => { vwObs?.disconnect(); vwObs = null; });
 // 兜底：mounted 后宽/左右布局再补发一次（防 setup 期过早、窗口尚未就绪）
 onMounted(() => {
   window.setTimeout(() => {

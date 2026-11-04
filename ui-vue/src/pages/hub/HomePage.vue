@@ -160,6 +160,10 @@ const chips = computed(() => [
 ]);
 
 onMounted(async () => {
+  // 兜底：若全局尚未加载服务器列表，本页自行拉一次，避免空数据
+  if (!remote.loaded) {
+    try { await remote.load(); } catch { /* 忽略 */ }
+  }
   try {
     localEndpoint.value = await call<LocalEndpoint>("local_http_endpoint");
   } catch {

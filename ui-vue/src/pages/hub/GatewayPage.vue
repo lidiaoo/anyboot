@@ -1,11 +1,13 @@
 <script setup lang="ts">
 const toast = useToastStore();
+const ui = useUiStateStore();
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { call } from "@/api/tauri";
 import PairDialog from "@/components/hub/PairDialog.vue";
 import LogDialog from "@/components/hub/LogDialog.vue";
 import { useToastStore } from "@/stores/toast";
 import { useEscape } from "@/composables/useEscape";
+import { useUiStateStore } from "@/stores/uiState";
 
 /**
  * 远程接入页（原 `ui/hub.html` 的 `#page-gateway`，2792~3355 行）。
@@ -115,7 +117,7 @@ function toggleAutostart() {
   const next = !config.value?.autostart;
   void run(
     next ? "开启自启" : "关闭自启",
-    () => call("gateway_set_autostart", { channel: "cloudflare", enabled: next }),
+    () => call("gateway_set_autostart", { channel: "tunnel", enabled: next }),
     next ? "已开启自启" : "已关闭自启",
   );
 }
@@ -136,7 +138,7 @@ interface TsnStatus {
 const tsnStatus = ref<TsnStatus | null>(null);
 const tsnKey = ref("");
 /** 自启（旧版 #tsnAutostart） */
-const tsnAutostart = ref(false);
+const tsnAutostart = ref(Boolean((ui.settings as unknown as { tsnetAutostart?: boolean })?.tsnetAutostart));
 
 const tsnRunning = computed(
   () => tsnStatus.value?.state === "ready" || tsnStatus.value?.state === "needs_auth",
@@ -224,7 +226,16 @@ function tsnSaveKey() {
 }
 
 /** Tailscale 自启（旧版 #tsAutostart） */
-const tsAutostart = ref(false);
+const tsAutostart = ref(Boolean((ui.settings as unknown as { tailscaleAutostart?: boolean })?.tailscaleAutostart));
+watch(
+  () => ui.settings,
+  (s) => {
+    const st = s as unknown as { tailscaleAutostart?: boolean; tsnetAutostart?: boolean } | null;
+    if (st && typeof st.tailscaleAutostart === "boolean") tsAutostart.value = st.tailscaleAutostart;
+    if (st && typeof st.tsnetAutostart === "boolean") tsnAutostart.value = st.tsnetAutostart;
+  },
+  { deep: true },
+);
 
 function toggleTsAutostart() {
   const next = !tsAutostart.value;

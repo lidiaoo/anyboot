@@ -177,6 +177,10 @@ function startTimer() {
 
 onMounted(async () => {
   consumeAddSeed();
+  // 兜底：若全局（HubApp）尚未加载服务器列表，本页自行拉一次，避免空数据
+  if (!remote.loaded) {
+    try { await remote.load(); } catch { /* 忽略 */ }
+  }
   startTimer();
 
   // 验收信息写进 trace（macOS 无法 attach devtools）

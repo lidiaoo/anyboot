@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useUiStateStore } from "@/stores/uiState";
 import { useSettingsStore } from "@/stores/settings";
 import { useBootAdvStore, type LoaderId } from "@/stores/bootAdv";
@@ -155,10 +155,30 @@ const previewRows = computed<Record<string, EntryData[]>>(() => {
   }
   return out;
 });
+
+/** 旧版 applyVwClasses：按容器宽度挂 .vw-900/.vw-760/.vw-520 断点类（屏幕适配） */
+const rootEl = ref<HTMLElement | null>(null);
+let vwRo: ResizeObserver | null = null;
+function applyVwClasses(el: HTMLElement, width: number): void {
+  el.classList.toggle("vw-g", width >= 900);
+  el.classList.toggle("vw-900", width <= 900);
+  el.classList.toggle("vw-760", width <= 760);
+  el.classList.toggle("vw-520", width <= 520);
+}
+onMounted(() => {
+  const el = rootEl.value;
+  if (!el || typeof ResizeObserver === "undefined") return;
+  vwRo = new ResizeObserver((entries) => {
+    for (const en of entries) applyVwClasses(el, en.contentRect.width);
+  });
+  vwRo.observe(el);
+  applyVwClasses(el, el.getBoundingClientRect().width);
+});
+onUnmounted(() => { vwRo?.disconnect(); vwRo = null; });
 </script>
 
 <template>
-  <div class="settings-page">
+  <div class="settings-page" ref="rootEl">
     <!-- 旧版 renderAdvTab：div.k > div.k-bar（行式：k-row × N + k-tabs + sortbar + setlist） -->
     <div class="k">
       <div class="k-bar">
