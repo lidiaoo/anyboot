@@ -4,6 +4,8 @@ import { useUiStateStore } from "@/stores/uiState";
 import { useSettingsStore } from "@/stores/settings";
 import { useBootAdvStore, type LoaderId } from "@/stores/bootAdv";
 import { loaderMeta } from "@/pages/boot/themes/loaders";
+import { simRows, refindVariableRows, grubRows } from "@/pages/boot/bootRows";
+import type { EntryData } from "@/components/boot/types";
 import ThemeHost from "@/pages/boot/themes/index.vue";
 import { THEME_LABELS, THEME_LAYOUT_MODES, type LayoutMode } from "@/pages/boot/themes/registry";
 
@@ -105,6 +107,54 @@ function toggleVisible(id: LoaderId) {
 }
 
 
+
+/** 预演面板用的真实引导器（ESP/权限/默认项），供各布局预览卡片显示设置 */
+const previewLoaders = computed(() =>
+  adv.state.order
+    .filter((id) => adv.state.visible[id])
+    .map((id) => {
+      const perm = loaderMeta(id).perm;
+      const defTitle = loaderDefault(id);
+      const count = (previewRows.value[id] ?? []).length;
+      const entries: { t?: string; def?: boolean }[] = [];
+      if (defTitle && defTitle !== "未知") entries.push({ t: defTitle, def: true });
+      while (entries.length < count) entries.push({ t: "", def: false });
+      return {
+        id,
+        name: loaderMeta(id).name,
+        state: (perm === "nvram" ? "warn" : "ok") as "ok" | "warn" | "off",
+        entries,
+        esp: loaderEsp(id),
+        perm,
+        detected: true,
+        nextBoot: entries.find((e) => e.def) ?? null,
+      };
+    }),
+);
+/** 预演面板用的真实行（与系统引导页同一份行源） */
+const previewRows = computed<Record<string, EntryData[]>>(() => {
+  const out: Record<string, EntryData[]> = {};
+  for (const id of adv.state.order.filter((x) => adv.state.visible[x])) {
+    if (id === "refind") {
+      out[id] = settings.refindMode === "manual"
+        ? refindVariableRows(ui.status?.variables)
+        : simRows(ui.refindSim);
+    } else if (id === "grub") {
+      out[id] = grubRows({
+        grubMode: settings.grubMode,
+        linuxGrubEntries: (ui.linuxGrub?.entries ?? []) as never,
+        grubEntries: (ui.grub?.entries ?? []) as never,
+        variables: ui.status?.variables,
+      });
+    } else {
+      out[id] = ((ui.channels.find((c) => c.id === id)?.entries ?? []) as never[]).map((e: never) => {
+        const row = e as { title?: string };
+        return { selector: row.title ?? "", name: row.title ?? "" } as EntryData;
+      });
+    }
+  }
+  return out;
+});
 </script>
 
 <template>
@@ -241,10 +291,10 @@ function toggleVisible(id: LoaderId) {
         <small>{{ adv.state.order.filter((x) => adv.state.visible[x]).length }} 个引导器</small>
       </header>
       <ThemeHost
-        :rows="{}"
+        :rows="previewRows"
         :theme="adv.effectiveTheme"
         :layout="adv.effectiveLayout"
-        :loaders="adv.state.order.filter((x) => adv.state.visible[x]).map((id) => ({ id, name: loaderMeta(id).name, state: 'off' as const, entries: [] }))"
+        :loaders="previewLoaders"
         :side="adv.state?.side"
       />
     </section>
