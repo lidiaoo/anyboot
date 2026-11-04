@@ -24,13 +24,20 @@ import { call } from "@/api/tauri";
  * ```
  */
 
+interface SolListenEntry { port?: number; [k: string]: unknown }
 interface SolStatus {
   installed?: boolean;
-  running?: boolean;
-  port?: number;
-  token?: string;
-  installDir?: string;
+  bin_path?: string;
   version?: string;
+  service_loaded?: boolean;
+  service_active?: boolean;
+  service_detail?: string;
+  process_running?: boolean;
+  listening?: SolListenEntry[];
+  config_path?: string;
+  config_exists?: boolean;
+  recent_logs?: string[];
+  status_needs_privilege?: boolean;
   [key: string]: unknown;
 }
 
@@ -46,6 +53,7 @@ const archivePath = ref("");
 const progress = ref(0);
 const logs = ref<string[]>([]);
 const httpEnabled = ref(false);
+const httpToken = ref("");
 const installDirPlaceholder = ref("");
 const projectVersion = ref("");
 /** 旧版 sol_project_open：打开 GitHub 仓库 / Releases 页 */
@@ -66,17 +74,26 @@ function showToast(text: string) {
   }, 2600);
 }
 const configText = ref("");
-
+/** 当前编辑的配置文件路径（旧版 solConfigEditingPath：读回给写用） */
+const configPath = ref("");
+const configStatus = ref("读取中…");
 async function refreshConfig() {
+  configStatus.value = "读取中…";
   try {
-    configText.value = (await call<string>("sol_config_read", { path: null })) ?? "";
+    const result = await call<{ path?: string; content?: string }>("sol_config_read", { path: null });
+    configPath.value = result?.path ?? "";
+    configText.value = result?.content ?? "";
+    configStatus.value = configPath.value || "—";
   } catch {
+    configPath.value = "";
     configText.value = "";
+    configStatus.value = "未找到配置文件";
   }
 }
-
 function saveConfig() {
-  void call("sol_config_write", { path: "", content: configText.value }).catch(() => {});
+  void call("sol_config_write", { path: configPath.value || "", content: configText.value })
+    .then(() => refreshConfig())
+    .catch(() => {});
 }
 
 function clearLogs() {
@@ -97,7 +114,7 @@ async function readPrivilegedStatus() {
 const stateText = computed(() => {
   if (loading.value) return "正在读取…";
   if (!status.value?.installed) return "未安装";
-  return status.value.running ? "运行中" : "已停止";
+  return (status.value.service_active || status.value.process_running) ? "运行中" : "已停止";
 });
 
 async function refresh() {
@@ -105,12 +122,16 @@ async function refresh() {
   errorText.value = "";
   try {
     status.value = await call<SolStatus>("sol_status");
-    listenAddr.value = status.value?.port ? `0.0.0.0:${status.value.port}` : "";
-    installDir.value = status.value?.installDir ?? "";
+    const listenPort = (status.value?.listening ?? []).map((x) => x.port).find((n) => typeof n === "number");
+    listenAddr.value = listenPort ? `0.0.0.0:${listenPort}` : "";
+    // 安装目录 = 配置文件的目录（config_path 指向 <installDir>/sol.yaml）
+    const cfgPath = status.value?.config_path ?? "";
+    installDir.value = cfgPath ? cfgPath.replace(/[/\\][^/\\]+$/, "") : "";
     // 旧版 refreshSolHttp：sol_http_get 回填 HTTP 开关/监听/当前 token
     try {
-      const http = (await call<{ enabled?: boolean; listen?: string; token_set?: boolean; tokenSet?: boolean }>("sol_http_get")) ?? {};
+      const http = (await call<{ enabled?: boolean; listen?: string; token?: string; token_set?: boolean; tokenSet?: boolean }>("sol_http_get")) ?? {};
       httpEnabled.value = Boolean(http.enabled);
+      httpToken.value = http.token ?? "";
       httpEnabledState.value = http.enabled ? "已开启（sol 控制面在跑）" : "已关闭";
     } catch { /* 忽略 */ }
     // 旧版 refreshSolPackage：sol_local_package 回填本地安装包状态
@@ -128,6 +149,7 @@ async function refresh() {
 
 onMounted(async () => {
   await refresh();
+  void refreshConfig(); // 旧版 boot：读配置文件（否则「配置文件」面板永远停在读取中/空白）
   // 旧版：sol_default_dir 懒加载默认安装目录（placeholder）
   try {
     const dir = (await call<string>("sol_default_dir")) || "";
@@ -188,7 +210,7 @@ function saveListen() {
 
 async function copyToken() {
   try {
-    await navigator.clipboard.writeText(status.value?.token ?? "");
+    await navigator.clipboard.writeText(httpToken.value || "");
   } catch {
     /* 剪贴板不可用 */
   }
@@ -374,7 +396,7 @@ async function pickDir() {
     <div class="setting-block">
       <span class="setting-text">
         <strong>配置文件</strong>
-        <small class="setting-state" id="sol-config-path">{{ status?.configPath || "—" }}</small>
+        <small class="setting-state" id="sol-config-path">{{ configStatus }}</small>
       </span>
       <textarea
         id="sol-config-text"
