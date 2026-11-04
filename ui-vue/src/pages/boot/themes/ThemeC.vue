@@ -131,7 +131,29 @@ function select(id: string) {
         </svg>
       </button>
       <div class="panel-in" :hidden="!settingsOpen">
-        <slot name="settings" />
+        <template v-if="activeLoader">
+          <div class="set">
+            <div class="set-t"><b>ESP 路径</b><small>{{ activeLoader.esp || "未知" }}</small></div>
+            <button type="button" class="btn xs ghost">改</button>
+          </div>
+          <div class="set">
+            <div class="set-t"><b>权限</b><small>{{ activeLoader.perm === "nvram" ? "写 NVRAM 需提权" : "免提权" }}</small></div>
+            <button type="button" class="btn xs ghost">{{ activeLoader.perm === "nvram" ? "提升" : "说明" }}</button>
+          </div>
+          <div class="set">
+            <div class="set-t"><b>默认项</b><small>{{ (activeLoader.entries?.[0] as any)?.name || "未知" }}</small></div>
+            <button type="button" class="btn xs ghost">改</button>
+          </div>
+          <div class="set">
+            <div class="set-t"><b>内置脚本</b><small>{{ activeLoader.id === "grub" ? "09_anyboot" : "不适用" }}</small></div>
+            <button type="button" class="btn xs ghost">编辑</button>
+          </div>
+          <div class="set">
+            <div class="set-t"><b>免密模式</b><small>{{ activeLoader.id === "opencore" ? "未开启 · 每次弹一次授权" : "不适用" }}</small></div>
+            <button v-if="activeLoader.id === 'opencore'" type="button" class="switch" aria-label="免密模式" />
+            <button v-else type="button" class="btn xs ghost">开启</button>
+          </div>
+        </template>
       </div>
     </div>
 

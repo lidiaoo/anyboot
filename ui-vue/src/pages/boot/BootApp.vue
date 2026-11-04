@@ -485,6 +485,110 @@ function ensureLayoutWidth(): void {
   void call("set_boot_layout", { mode: layout }).catch(() => {});
 }
 watch([() => adv.effectiveLayout, () => adv.effectiveTheme], ensureLayoutWidth, { immediate: true });
+
+// ── 系统引导页「引导器设置」折叠条注入（旧版 boot-adv.js splitLoaderSection）──
+// 设计稿铁律：每张卡只留标题 + 引导列表；设置项（扫描头/摘要/变量目录/ESP 表单/
+// 分区明细/脚本…）收进卡片末尾一条「引导器设置」acc，点开就地展开；展开的内容
+// 一律落在引导列表下方。
+const SET_SPLIT: Record<string, string[]> = {
+  refind: [".sim-scan-head", "#sim-scan-summary", "#sim-scan-issues", ".directory"],
+  grub: [
+    "#grub-esp .grub-esp-head", "#grub-esp .grub-row", "#grub-auto-target",
+    ".grub-auto-head", "#grub-auto-summary", "#grub-auto-issues", "#grub-auto-picker",
+    "#grub-auto-foot", ".grub-panel-note", "#grub-install-actions", "#grub-log-box",
+    ".grub-script", "#grub-advice", "#grub-format-row", "#grub-hint", "#grub-error",
+  ],
+  channel: [".oc-menu-issues", ".oc-menu-elevate", ".channel-helper"],
+};
+const SET_HINT: Record<string, string> = {
+  refind: "重新模拟 · 扫描摘要 · 变量目录",
+  grub: "ESP 分区 · 分区明细 · 同步 · 脚本",
+  channel: "健康检查 · 免密模式",
+};
+const setExpand = new Map<string, boolean>();
+/** 对单个真实区块注入「引导器设置」折叠条并把设置节点搬进 ba-set-body */
+function splitLoaderSection(sec: HTMLElement, id: string): void {
+  const sels = SET_SPLIT[id] || SET_SPLIT.channel;
+  const marked: HTMLElement[] = [];
+  sels.forEach((s) => sec.querySelectorAll(s).forEach((el) => {
+    // 不搬折叠条/面板自身
+    if ((el as HTMLElement).dataset.baSet === "1") return;
+    (el as HTMLElement).dataset.baSet = "1";
+    marked.push(el as HTMLElement);
+  }));
+  const count = marked.length;
+  let bar = sec.querySelector(":scope > .ba-setbar") as HTMLButtonElement | null;
+  let body = sec.querySelector(":scope > .ba-set-body") as HTMLElement | null;
+  if (!count) {
+    bar?.remove();
+    body?.remove();
+    sec.classList.remove("ba-split", "ba-set-open");
+    return;
+  }
+  sec.classList.add("ba-split");
+  const open = Boolean(setExpand.get(sec.id));
+  sec.classList.toggle("ba-set-open", open);
+  if (!bar) {
+    bar = document.createElement("button");
+    bar.className = "acc ba-setbar";
+    bar.type = "button";
+    bar.dataset.baInjected = "1";
+    const g = document.createElement("span");
+    g.className = "grow";
+    const title = document.createElement("span");
+    title.textContent = "引导器设置";
+    const small = document.createElement("small");
+    small.textContent = `${SET_HINT[id] || SET_HINT.channel} · ${count} 项`;
+    g.append(title, small);
+    const gear = document.createElement("span");
+    gear.className = "gear";
+    gear.setAttribute("aria-hidden", "true");
+    gear.textContent = "⚙";
+    const chev = document.createElement("span");
+    chev.className = "chevron car";
+    chev.setAttribute("aria-hidden", "true");
+    chev.textContent = "⌄";
+    bar.append(gear, g, chev);
+    bar.addEventListener("click", () => {
+      const now = bar!.getAttribute("aria-expanded") !== "true";
+      bar!.setAttribute("aria-expanded", String(now));
+      sec.classList.toggle("ba-set-open", now);
+      setExpand.set(sec.id, now);
+    });
+  }
+  bar.setAttribute("aria-expanded", String(open));
+  if (!body) {
+    body = document.createElement("div");
+    body.className = "ba-set-body";
+    body.dataset.baInjected = "1";
+  }
+  if (sec.lastElementChild !== body || body.previousElementSibling !== bar) {
+    sec.appendChild(bar);
+    sec.appendChild(body);
+  }
+  marked.forEach((el) => {
+    if (el.parentElement === body) return;
+    body!.appendChild(el);
+  });
+}
+/** 遍历真实区块（refind/grub/通道）注入；K 模式不注入 */
+function applySetSplit(): void {
+  if (adv.effectiveTheme === "K") return;
+  const tab = document.getElementById("tab-boot");
+  if (!tab) return;
+  const ids = ["refind", "grub", ...(ui.channels ?? []).map((c) => c.id)];
+  ids.forEach((id) => {
+    const sec = tab.querySelector(`[data-loader-section="${id}"]`) as HTMLElement | null;
+    if (sec) splitLoaderSection(sec, id);
+  });
+}
+watch(
+  () => [ui.revision, adv.effectiveTheme] as const,
+  () => {
+    void Promise.resolve().then(() => requestAnimationFrame(() => applySetSplit()));
+  },
+  { immediate: true },
+);
 /** 旧版 busyLabel（app.js:753）：忙态优先级 power > switching > unmounting > scanning */
 function busyLabel(busy: { power?: string | null; switching?: boolean; unmounting?: boolean; scanning?: boolean } | null | undefined): string {
   if (!busy) return "";
