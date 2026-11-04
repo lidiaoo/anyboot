@@ -27,17 +27,17 @@ import { call } from "@/api/tauri";
 interface SolListenEntry { port?: number; [k: string]: unknown }
 interface SolStatus {
   installed?: boolean;
-  bin_path?: string;
+  binPath?: string;
   version?: string;
-  service_loaded?: boolean;
-  service_active?: boolean;
-  service_detail?: string;
-  process_running?: boolean;
+  serviceLoaded?: boolean;
+  serviceActive?: boolean;
+  serviceDetail?: string;
+  processRunning?: boolean;
   listening?: SolListenEntry[];
-  config_path?: string;
-  config_exists?: boolean;
-  recent_logs?: string[];
-  status_needs_privilege?: boolean;
+  configPath?: string;
+  configExists?: boolean;
+  recentLogs?: string[];
+  statusNeedsPrivilege?: boolean;
   [key: string]: unknown;
 }
 
@@ -108,7 +108,7 @@ async function readPrivilegedStatus() {
     const st = await call<SolStatus>("sol_status_privileged");
     if (st) {
       status.value = st;
-      privilegedNeeded.value = Boolean(st.status_needs_privilege);
+      privilegedNeeded.value = Boolean(st.statusNeedsPrivilege);
     } else {
       privilegedNeeded.value = false;
     }
@@ -121,21 +121,22 @@ async function readPrivilegedStatus() {
 const stateText = computed(() => {
   if (loading.value) return "正在读取…";
   const s = status.value;
+  if (errorText.value) return ;
   if (!s) return "—";
   const parts: string[] = [];
   parts.push(s.installed ? (s.version || "已安装") : "未安装");
-  if (s.service_loaded) parts.push(s.service_active ? "服务运行中" : "服务已停止");
+  if (s.serviceLoaded) parts.push(s.serviceActive ? "服务运行中" : "服务已停止");
   else if (s.installed) parts.push("服务未注册");
-  if (!s.service_active && s.process_running) parts.push("进程在跑（非服务方式）");
-  if (s.status_needs_privilege) parts.push("状态需授权查看");
+  if (!s.serviceActive && s.processRunning) parts.push("进程在跑（非服务方式）");
+  if (s.statusNeedsPrivilege) parts.push("状态需授权查看");
   return parts.join(" · ");
 });
 /** 运行状态是否异常（旧版 setting-state-error = !installed || !serviceActive） */
 const stateError = computed(() => {
   const s = status.value;
-  return !s || !s.installed || !s.service_active;
+  return Boolean(errorText.value) || !s || !s.installed || !s.serviceActive;
 });
-const stateDetail = computed(() => status.value?.service_detail || "");
+const stateDetail = computed(() => status.value?.serviceDetail || "");
 
 async function refresh() {
   loading.value = true;
@@ -144,10 +145,10 @@ async function refresh() {
     status.value = await call<SolStatus>("sol_status");
     const listenPort = (status.value?.listening ?? []).map((x) => x.port).find((n) => typeof n === "number");
     listenAddr.value = listenPort ? `0.0.0.0:${listenPort}` : "";
-    // 安装目录 = 配置文件的目录（config_path 指向 <installDir>/sol.yaml）
-    const cfgPath = status.value?.config_path ?? "";
+    // 安装目录 = 配置文件的目录（configPath 指向 <installDir>/sol.yaml）
+    const cfgPath = status.value?.configPath ?? "";
     installDir.value = cfgPath ? cfgPath.replace(/[/\\][^/\\]+$/, "") : "";
-    privilegedNeeded.value = Boolean(status.value?.status_needs_privilege);
+    privilegedNeeded.value = Boolean(status.value?.statusNeedsPrivilege);
     // 旧版 refreshSolHttp：sol_http_get 回填 HTTP 开关/监听/当前 token
     try {
       const http = (await call<{ enabled?: boolean; listen?: string; token?: string; token_set?: boolean; tokenSet?: boolean }>("sol_http_get")) ?? {};
