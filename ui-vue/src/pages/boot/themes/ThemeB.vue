@@ -42,19 +42,6 @@ const props = defineProps<{
  * → 读 .entries 当场抛错，整页布置中断（「左右布局点了没变化」的一个真凶）。
  */
 const fallbackId = computed(() => props.loaders[0]?.id ?? "");
-/** 旧版 settingsPanel(l) 的 5 行：ESP路径/权限/默认项/内置脚本/免密模式 */
-function settingsRows(l: LoaderInfo | undefined) {
-  if (!l) return [];
-  const firstEntry = (l.nextBoot && l.nextBoot.t) || "未知";
-  const nvram = l.perm === "nvram";
-  return [
-    { label: "ESP 路径", value: l.esp || "未知", act: "改" },
-    { label: "权限", value: nvram ? "写 NVRAM 需提权" : "免提权", act: nvram ? "提升" : "说明" },
-    { label: "默认项", value: firstEntry, act: "改" },
-    { label: "内置脚本", value: l.id === "grub" ? "09_anyboot" : "不适用", act: "编辑" },
-    { label: "免密模式", value: l.id === "opencore" ? "未开启 · 每次弹一次授权" : "不适用", act: "开启", switch: l.id === "opencore" },
-  ];
-}
 const current = ref(
   props.activeId && props.loaders.some((item) => item.id === props.activeId)
     ? props.activeId
@@ -80,7 +67,6 @@ const metaText = computed(() => {
   return `${loader.esp || "ESP 未知"} · ${loader.entries.length} 个条目`;
 });
 
-const settingsOpen = ref(false);
 
 function select(id: string) {
   current.value = id;
@@ -166,31 +152,6 @@ function select(id: string) {
             </div>
           </div>
 
-          <div class="lb-block">
-            <button
-              type="button"
-              class="lb-block-head"
-              :aria-expanded="settingsOpen"
-              @click="settingsOpen = !settingsOpen"
-            >
-              <b>引导器设置</b>
-              <span>ESP、权限、默认项、脚本</span>
-              <span class="grow" />
-              <span :class="['chevron', { open: settingsOpen }]" aria-hidden="true">▾</span>
-            </button>
-            <div v-show="settingsOpen" class="lb-block-body" style="padding: 0">
-              <div class="panel-in">
-                <div v-for="row in settingsRows(activeLoader)" :key="row.label" class="set">
-                  <div class="set-t">
-                    <b>{{ row.label }}</b>
-                    <small>{{ row.value }}</small>
-                  </div>
-                  <span v-if="row.switch" class="switch" />
-                  <button v-else type="button" class="btn xs ghost">{{ row.act }}</button>
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
       </template>
       <p v-else class="empty">这一列没有分配到引导器</p>
