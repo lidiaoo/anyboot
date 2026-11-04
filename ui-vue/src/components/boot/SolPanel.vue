@@ -104,18 +104,38 @@ const downloading = ref(false);
 const privilegedNeeded = ref(false);
 async function readPrivilegedStatus() {
   try {
-    await call("sol_status_privileged");
-    privilegedNeeded.value = false;
+    // 返回可用的 SolStatus（提权读后的真实状态）→ 直接应用并刷新界面
+    const st = await call<SolStatus>("sol_status_privileged");
+    if (st) {
+      status.value = st;
+      privilegedNeeded.value = Boolean(st.status_needs_privilege);
+    } else {
+      privilegedNeeded.value = false;
+    }
   } catch {
     /* 忽略 */
   }
 }
 
+/** 运行状态一行话（旧版 renderSolStatus）：版本 + 服务 + 进程 + 需授权 */
 const stateText = computed(() => {
   if (loading.value) return "正在读取…";
-  if (!status.value?.installed) return "未安装";
-  return (status.value.service_active || status.value.process_running) ? "运行中" : "已停止";
+  const s = status.value;
+  if (!s) return "—";
+  const parts: string[] = [];
+  parts.push(s.installed ? (s.version || "已安装") : "未安装");
+  if (s.service_loaded) parts.push(s.service_active ? "服务运行中" : "服务已停止");
+  else if (s.installed) parts.push("服务未注册");
+  if (!s.service_active && s.process_running) parts.push("进程在跑（非服务方式）");
+  if (s.status_needs_privilege) parts.push("状态需授权查看");
+  return parts.join(" · ");
 });
+/** 运行状态是否异常（旧版 setting-state-error = !installed || !serviceActive） */
+const stateError = computed(() => {
+  const s = status.value;
+  return !s || !s.installed || !s.service_active;
+});
+const stateDetail = computed(() => status.value?.service_detail || "");
 
 async function refresh() {
   loading.value = true;
@@ -127,6 +147,7 @@ async function refresh() {
     // 安装目录 = 配置文件的目录（config_path 指向 <installDir>/sol.yaml）
     const cfgPath = status.value?.config_path ?? "";
     installDir.value = cfgPath ? cfgPath.replace(/[/\\][^/\\]+$/, "") : "";
+    privilegedNeeded.value = Boolean(status.value?.status_needs_privilege);
     // 旧版 refreshSolHttp：sol_http_get 回填 HTTP 开关/监听/当前 token
     try {
       const http = (await call<{ enabled?: boolean; listen?: string; token?: string; token_set?: boolean; tokenSet?: boolean }>("sol_http_get")) ?? {};
@@ -289,7 +310,7 @@ async function pickDir() {
     <div class="setting" id="sol-state-row">
       <span class="setting-text">
         <strong>运行状态</strong>
-        <small class="setting-state" id="sol-state-text">{{ stateText }}</small>
+        <small class="setting-state" :class="{ 'setting-state-error': stateError }" id="sol-state-text" :title="stateDetail || undefined">{{ stateText }}</small>
       </span>
       <span class="remote-inline">
         <button type="button" id="sol-refresh" class="secondary" @click="refresh">刷新状态</button>
