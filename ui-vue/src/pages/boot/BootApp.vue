@@ -250,9 +250,10 @@ onMounted(async () => {
 function loaderEspText(id: LoaderId | string): string {
   if (id === "refind") return settings.refindMode === "manual" ? "vars/PreviousBoot 快照" : "ESP · refind.conf";
   if (id === "grub") {
-    if (settings.grubMode === "manual") return ui.grub?.efiDir || ui.grub?.cfgPath || "grub.cfg";
-    const t = ((ui.linuxGrub ?? ui.grub) as unknown as { target?: { cfgRel?: string } })?.target;
-    return t?.cfgRel || ui.grub?.efiDir || "";
+    // 旧版定案：各显各的、零回落。手动报 ESP cfgPath，自动报分区 target.cfgRel
+    if (settings.grubMode === "manual") return ui.grub?.cfgPath || "grub.cfg";
+    const t = (ui.linuxGrub as unknown as { target?: { cfgRel?: string } } | null)?.target;
+    return t?.cfgRel || "";
   }
   const ch = ui.channels.find((c) => c.id === id);
   return ch?.detail || "";
@@ -265,7 +266,7 @@ function loaderDefaultTitle(id: LoaderId | string): string {
     return (ui.refindSim?.entries ?? []).find((e) => e.lastBoot)?.title?.trim() ?? "未知";
   }
   if (id === "grub") {
-    const source = settings.grubMode === "manual" ? ui.grub : (ui.linuxGrub ?? ui.grub);
+    const source = settings.grubMode === "manual" ? ui.grub : ui.linuxGrub;
     return source?.nextEntry || source?.savedEntry || "未知";
   }
   const ch = ui.channels.find((c) => c.id === id);
