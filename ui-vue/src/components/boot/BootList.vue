@@ -122,6 +122,17 @@ const grubEntries = computed<EntryData[]>(() => {
   }));
 });
 
+// 旧版 boot-list-view.js 的 OC 菜单标签映射
+const OC_KIND_LABEL: Record<string, string> = {
+  macos: "macOS", windows: "Windows", generic: "泛型", linux: "Linux", tool: "工具项", unknown: "未知",
+};
+const OC_SOURCE_LABEL: Record<string, string> = {
+  bootorder: "固件 BootOrder", bless: "bless 扫描", preboot: "APFS Preboot", protocol: "协议驱动",
+};
+function ocSourceLabel(source: string, orderSource: string): string {
+  if (source === "bootorder") return orderSource === "private" ? "OC 私有 OCBtOrder" : "固件 BootOrder";
+  return OC_SOURCE_LABEL[source] || source;
+}
 /** 三通道的条目（OpenCore 的动作行在 menuPreview 里） */
 const channelEntries = computed<EntryData[]>(() => {
   if (!isChannel.value) return [];
@@ -129,12 +140,17 @@ const channelEntries = computed<EntryData[]>(() => {
   if (!ch) return [];
   // OpenCore 的顶层 entries 恒为空，动作全在 menuPreview
   const preview = ch.menuPreview?.entries ?? [];
+  const orderSource = ch.menuPreview?.orderSource ?? "";
   if (preview.length) {
     return preview.map((row) => ({
       selector: row.spec,
       name: row.title,
       class: row.kind,
       submenu: null,
+      // 旧版 ocMenuRow：类型标签 + 来源标签 + 卷·路径 + 备注
+      tags: [OC_KIND_LABEL[row.kind] || row.kind, ocSourceLabel(row.source, orderSource)].filter(Boolean),
+      sub: row.volume && row.volume !== "—" ? `${row.volume} · ${row.path}` : row.path,
+      note: row.note || undefined,
     }));
   }
   return (ch.entries ?? []).map((row) => ({

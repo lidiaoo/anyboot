@@ -12,6 +12,12 @@ export interface EntryData {
   submenu?: string | null;
   /** 旧版 refindSim 子行右侧来源标签（默认项 / refind_linux.conf / …） */
   tag?: string;
+  /** 通道行徽标（旧版 types: 「macOS」「OC 私有 OCBtOrder」…） */
+  tags?: string[];
+  /** 通道行副标题（卷 · 路径） */
+  sub?: string;
+  /** 通道行备注（整段说明） */
+  note?: string;
 }
 
 export interface GroupInfo {

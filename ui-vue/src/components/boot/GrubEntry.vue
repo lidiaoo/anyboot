@@ -142,10 +142,22 @@ function onClick() {
     :title="entry.selector || ''"
     @click="onClick"
   >
-    <span class="grub-entry-name">{{ displayName }}</span>
-    <small v-if="tagText" :class="group ? 'grub-entry-count' : 'grub-entry-tag'">
-      {{ tagText }}
-    </small>
+    <template v-if="entry.tags?.length || entry.sub || entry.note">
+      <span class="grub-entry-body">
+        <span class="grub-entry-name">{{ displayName }}</span>
+        <span v-if="entry.tags?.length" class="grub-entry-tags">
+          <small v-for="(tg, i) in entry.tags" :key="i" class="grub-entry-tag">{{ tg }}</small>
+        </span>
+        <small v-if="entry.sub" class="grub-entry-sub">{{ entry.sub }}</small>
+        <small v-if="entry.note" class="grub-entry-sub">{{ entry.note }}</small>
+      </span>
+    </template>
+    <template v-else>
+      <span class="grub-entry-name">{{ displayName }}</span>
+      <small v-if="tagText" :class="group ? 'grub-entry-count' : 'grub-entry-tag'">
+        {{ tagText }}
+      </small>
+    </template>
   </button>
 </template>
 
