@@ -42,6 +42,39 @@ const checking = ref(false);
 const updateError = ref("");
 const updateOpen = ref(false);
 const stars = ref("…");
+const forks = ref("—");
+const issues = ref("—");
+/** 旧版 about 页 Star/Fork/Issues：GitHub 匿名 API + localStorage 缓存，失败留「…」 */
+async function loadGitHubStats(): Promise<void> {
+  const KEY = "anyboot.github.stats";
+  type Stats = { stargazers_count?: number; forks_count?: number; open_issues_count?: number };
+  const paint = (data: Stats | null) => {
+    const n = (k: keyof Stats) => (data && typeof data[k] === "number" ? String(data[k]) : "…");
+    stars.value = n("stargazers_count") === "…" ? "…" : n("stargazers_count");
+    forks.value = n("forks_count") === "…" ? "—" : n("forks_count") + " Fork";
+    issues.value = n("open_issues_count") === "…" ? "—" : n("open_issues_count") + " Issues";
+  };
+  try {
+    paint(JSON.parse(localStorage.getItem(KEY) || "null"));
+  } catch {
+    paint(null);
+  }
+  if (typeof fetch !== "function") return;
+  try {
+    const resp = await fetch("https://api.github.com/repos/lidiaoo/anyboot");
+    if (!resp.ok) return;
+    const json = (await resp.json()) as Stats;
+    const data = {
+      stargazers_count: json.stargazers_count,
+      forks_count: json.forks_count,
+      open_issues_count: json.open_issues_count,
+    };
+    localStorage.setItem(KEY, JSON.stringify(data));
+    paint(data);
+  } catch {
+    /* 保留缓存值 */
+  }
+}
 
 const LINK_ITEMS = [
   { id: "releases", label: "更新日志", icon: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>' },
@@ -127,6 +160,7 @@ const progress = computed(() => {
 });
 
 onMounted(async () => {
+  void loadGitHubStats();
   // 更新状态热更新（旧版 hub 监听 update-state → render(payload)）
   try {
     const { listen } = await import("@tauri-apps/api/event");
@@ -297,8 +331,8 @@ function openPage(which: string) {
       </button>
       <div class="about-stats">
         <span id="about-stat-star">{{ stars }} Star</span>
-        <span id="about-stat-fork">— Fork</span>
-        <span id="about-stat-issue">— Issues</span>
+        <span id="about-stat-fork">{{ forks }}</span>
+        <span id="about-stat-issue">{{ issues }}</span>
       </div>
       <p class="about-tip">点 Star 会打开 GitHub 网页，请在网页上点一下 —— 这是给开源作者最好的鼓励。</p>
     </div>
