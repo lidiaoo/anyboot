@@ -149,6 +149,8 @@ function pickDownDir() {
         step="1"
         aria-label="字号"
       />
+    </div>
+    <div class="ts-card">
 
       <label class="ts-row ts-toggle-row">
         <div>
