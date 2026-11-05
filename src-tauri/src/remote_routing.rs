@@ -698,6 +698,77 @@ pub(crate) fn remote_ui_command_inner(
     match cmd {
         "get_ui_state" => serde_json::to_value(get_ui_state(app.clone()))
             .map_err(|error| format!("序列化失败: {error}")),
+        // ---- 通用数据读取（Vue 网页/手机端桥接：旧网页客户端不需要、Vue 需要）----
+        "get_settings" => serde_json::to_value(crate::get_settings(app.clone()))
+            .map_err(|e| format!("序列化失败: {e}")),
+        "set_boot_layout" => {
+            let mode = ui_str(args, "mode")?;
+            crate::set_boot_layout(app.clone(), mode).map(|_| serde_json::json!({})).map_err(|e| e.to_string())
+        }
+        "update_state" => serde_json::to_value(crate::update::update_state(app.clone()))
+            .map_err(|e| format!("序列化失败: {e}")),
+        "update_take_focus_pending" => {
+            Ok(serde_json::Value::Bool(crate::update::update_take_focus_pending(app.clone())))
+        }
+        "local_service_health" => {
+            Ok(serde_json::Value::Bool(tauri::async_runtime::block_on(
+                crate::hub_tailscale::local_service_health(app.clone()),
+            )?))
+        }
+        "linux_priv_status" => serde_json::to_value(crate::linux_priv::linux_priv_status())
+            .map_err(|e| format!("序列化失败: {e}")),
+        "hub_download_dir_default" => Ok(serde_json::Value::String(
+            crate::hub_sftp::hub_download_dir_default(app.clone())?,
+        )),
+        "sol_project_info" => serde_json::to_value(crate::sol_panel::sol_project_info())
+            .map_err(|e| format!("序列化失败: {e}")),
+        "hub_list_tunnels" => serde_json::to_value(crate::hub_tunnel::hub_list_tunnels(app.clone())?)
+            .map_err(|e| format!("序列化失败: {e}")),
+        "hub_keys_list" => serde_json::to_value(tauri::async_runtime::block_on(
+            crate::hub_keys::hub_keys_list(app.clone()),
+        )?)
+        .map_err(|e| format!("序列化失败: {e}")),
+        "gateway_config" => serde_json::to_value(crate::hub_gateway::gateway_config(app.clone()))
+            .map_err(|e| format!("序列化失败: {e}")),
+        "gateway_tailscale_status" => serde_json::to_value(tauri::async_runtime::block_on(
+            crate::hub_tailscale::gateway_tailscale_status(app.clone()),
+        ))
+        .map_err(|e| format!("序列化失败: {e}")),
+        "tsnet_status" => serde_json::to_value(crate::hub_tsnet::tsnet_status())
+            .map_err(|e| format!("序列化失败: {e}")),
+        "backup_sync_get_state" => {
+            tauri::async_runtime::block_on(crate::backup::backup_sync_get_state(app.clone()))
+        }
+        "report_dock_strip_rect" => Ok(serde_json::Value::Null), // 桌面托盘专属，网页端 no-op
+        // hub 页面其余数据读取（网页/手机端）：term 会话 / sftp 传输 / sftp 列表 / 心跳
+        "hub_page_ping" => Ok(serde_json::Value::Null), // 仅健康信标，网页端 no-op
+        "hub_term_sessions" => {
+            let state = app.state::<crate::hub_term::HubTermState>();
+            serde_json::to_value(crate::hub_term::meta_for_hub(&state))
+                .map_err(|e| format!("序列化失败: {e}"))
+        }
+        "hub_sftp_transfer_list" => {
+            let state = app.state::<crate::hub_sftp::HubSftpState>();
+            crate::hub_sftp::hub_sftp_transfer_list(state)
+                .and_then(|v| serde_json::to_value(v).map_err(|e| format!("序列化失败: {e}")))
+        }
+        "hub_sftp_list" => {
+            let path = ui_str(args, "path").unwrap_or_default();
+            // 前端传整份 server 对象（{server, path}）；也兼容 serverId 字符串
+            let server: crate::hub::HubServer = if let Some(obj) = args.get("server") {
+                serde_json::from_value(obj.clone()).map_err(|e| format!("server 参数非法: {e}"))?
+            } else {
+                let server_id = ui_str(args, "serverId").or_else(|_| ui_str(args, "server_id"))?;
+                crate::hub::hub_list_servers(app.clone())?
+                    .into_iter()
+                    .find(|s| s.id == server_id)
+                    .ok_or_else(|| format!("找不到服务器 {server_id}"))?
+            };
+            serde_json::to_value(tauri::async_runtime::block_on(
+                crate::hub_sftp::hub_sftp_list(app.clone(), server, path),
+            )?)
+            .map_err(|e| format!("序列化失败: {e}"))
+        }
         // ---- hub（远程管理）前端联调接口：网页 / 手机端打开 hub 页需要这些数据 ----
         // 之前白名单漏了它们 → 浏览器/手机访问 hub 时「未知或不受支持的命令」→ 空数据。
         "remote_list" => crate::remote_servers::remote_list(app.clone()),

@@ -33,6 +33,15 @@ export class HttpError extends Error {
 }
 
 let authToken = "";
+// 浏览器/手机端：token 从 URL `?token=` 进来（桌面走 Tauri IPC，不走这里）。
+// 之前 setAuthToken 从未被调用 → authToken 恒空 → fetchUiState/轮询/WS
+// 全部因「没 token」直接返回 → 页面永远读不出数据（全部 0）。
+try {
+  const fromUrl = new URLSearchParams(location.search).get("token");
+  if (fromUrl) authToken = fromUrl.trim();
+} catch {
+  /* 非浏览器环境忽略 */
+}
 
 export function setAuthToken(token: string) {
   authToken = token.trim();

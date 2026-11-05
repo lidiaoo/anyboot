@@ -80,6 +80,24 @@ pub struct TermMeta {
     pub protocol: String,
 }
 
+/// 网页/手机端（HTTP 桥接）用：hub 主窗视角的全部会话元信息。
+pub(crate) fn meta_for_hub(state: &HubTermState) -> Vec<TermMeta> {
+    state
+        .sessions
+        .lock()
+        .map(|map| {
+            map.values()
+                .map(|s| TermMeta {
+                    id: s.id.clone(),
+                    server_name: s.server_name.clone(),
+                    host_label: s.host_label.clone(),
+                    protocol: s.protocol.clone(),
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 // ==================== 命令 ====================
 
 /// hub「打开终端」：确保 server-term 窗口存在并聚焦。窗口是新建的 → 把服务器
