@@ -68,11 +68,9 @@ const channel = computed<ChannelView | null>(
 );
 
 /** GRUB 相关：按模式选数据源 */
-const grubSource = computed(() => {
-  if (!isGrub.value) return null;
-  const manual = settings.grubMode === "manual";
-  return manual ? ui.grub : (ui.linuxGrub ?? ui.grub);
-});
+// 2026-10-31 定案：GRUB 零回落——自动只认 linuxGrub，手动只认 ESP grub，
+// 列表与点击命令同源（自动→linux_grub_switch，手动→switch_grub），否则点了没反应。
+const grubSource = computed(() => (settings.grubMode === "manual" ? ui.grub : ui.linuxGrub));
 
 /** rEFInd：自动模式看模拟扫描，手动模式看 vars 快照 */
 const refindEntries = computed<EntryData[]>(() => {
@@ -214,7 +212,6 @@ const emit = defineEmits<{
     <GrubList
       :entries="entries"
       :active-selector="activeSelector"
-      :pinned-copy="!isChannel"
       :group-titles="groupTitles"
       :show-groups="showGroups"
       :disabled="disabled"
