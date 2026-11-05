@@ -291,13 +291,19 @@ const loaders = computed<LoaderInfo[]>(() => {
     list.push({
       id,
       name: meta.name,
-      state: !detected ? "off" : meta.perm === "nvram" ? "warn" : "ok",
+      state: !detected ? "off" : "ok",
       entries,
       esp: loaderEspText(id),
       perm: meta.perm,
       detected,
       nextBoot: entries.find((e) => e.def) ?? null,
-      healthText: count ? `${loaderEspText(id) || "ESP"} · ${count} 个条目` : "还没读取",
+      // OC 的「健康」= 免密助手真实状态（旧版 l.healthText 从 helper 来）；其余按条目数
+      healthText:
+        id === "opencore" && ui.state?.helper?.supported
+          ? (ui.state.helper.installed
+              ? (ui.state.helper.stale ? "免密已开启（旧构建，建议重装）" : "免密已开启：root 助手在写 OCBt*")
+              : "root 助手未安装（每次设默认需输密码）")
+          : count ? `${loaderEspText(id) || "ESP"} · ${count} 个条目` : "还没读取",
     });
   }
   return list;

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /** 卡片底部的健康状态文案（旧版 `l.healthText`） */
-function footText(loader: { id: string; state: string; entries: unknown[] }): string {
-  if (loader.state === "warn") return "需要提权才能修改（root 助手未安装）";
+function footText(loader: { id: string; state: string; entries: unknown[]; healthText?: string }): string {
+  if (loader.healthText) return loader.healthText;
   if (loader.state === "off") return "未检测到该引导器";
   return `${loader.entries.length} 个可启动项 · 读取正常`;
 }
