@@ -53,7 +53,22 @@ async function switchEntry(selector: string) {
       if (settings.grubMode === "manual") await call("switch_grub", { selector });
       else await call("linux_grub_switch", { selector });
     } else {
-      await call("switch_boot_channel", { target: selector });
+      // 旧版 bootChannelSpec（boot-list-view.js:614，与后端 parse_switch_spec 值域一致）：
+      // 预演行自带完整 spec；sdboot → `sdboot:<id>`；opencore 动作 id 本身是值域；
+      // clover 动作 → `clover-oneshot`。裸 id 后端不认。
+      const ch = channel.value;
+      let spec = selector;
+      if (ch) {
+        if (ch.id === "sdboot") {
+          const hit = (ch.entries ?? []).find((r) => (r.id ?? r.title) === selector);
+          spec = `sdboot:${hit?.id ?? selector}`;
+        } else if (ch.id === "clover") {
+          spec = "clover-oneshot";
+        } else if (ch.id === "opencore" && !(ch.menuPreview?.entries ?? []).length) {
+          spec = selector; // opencore 动作 id（opencore / opencore-register）
+        }
+      }
+      await call("switch_boot_channel", { target: spec });
     }
     toast.show("已切换下次启动项");
   } catch (e) {
@@ -91,13 +106,16 @@ const refindEntries = computed<EntryData[]>(() => {
   }
 
   // 手动模式：vars 快照里的三个系统项
+  // 旧版 app.js:1278：行点击 switch_system {system: item.system}（系统类别，
+  // 不是 source）；active 行不可点（switchable = exists && !busy && !error && !active）
   const vars = ui.status?.variables ?? [];
   return vars
     .filter((item) => item.exists)
     .map((item) => ({
-      selector: item.source,
+      selector: item.system,
       name: item.displayName,
       class: item.system,
+      readonly: Boolean(item.active),
     }));
 });
 
@@ -114,7 +132,8 @@ const activeSelector = computed(() => {
       return hit ? hit.title : "";
     }
     const active = ui.status?.variables?.find((item) => item.active);
-    return active ? active.source : "";
+    // 与行 selector 同口径（system 类别）才能命中高亮
+    return active ? active.system : "";
   }
   if (isGrub.value) {
     // 自动模式看 linuxGrub 的 nextEntry，手动看 ESP 的
