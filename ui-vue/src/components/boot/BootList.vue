@@ -41,8 +41,14 @@ async function switchEntry(selector: string) {
   if (!selector) return;
   try {
     if (isRefind.value) {
-      if (settings.refindMode === "manual") await call("switch_system", { system: selector });
-      else await call("refind_sim_switch", { title: selector });
+      if (settings.refindMode === "manual") {
+        await call("switch_system", { system: selector });
+      } else {
+        // 旧版语义：只接受当前可见模拟条目的标题原文（组头子项本来就没有点击处理器）
+        const visible = (ui.refindSim?.entries ?? []).filter((e) => !e.hidden).map((e) => e.title);
+        if (!visible.includes(selector)) return;
+        await call("refind_sim_switch", { title: selector });
+      }
     } else if (isGrub.value) {
       if (settings.grubMode === "manual") await call("switch_grub", { selector });
       else await call("linux_grub_switch", { selector });
@@ -76,11 +82,12 @@ const refindEntries = computed<EntryData[]>(() => {
   if (!manual) {
     const sim = ui.refindSim;
     if (!sim?.entries) return [];
+    // 旧版 app.js:923：title 必须**原文**（末尾可能带空格，trim 过后端就匹配不上）
     return sim.entries
       .filter((entry) => !entry.hidden)
       .map((entry: SimEntry) => ({
-        selector: entry.title.trim(),
-        name: entry.title.trim(),
+        selector: entry.title,
+        name: entry.title,
         class: entry.kind,
       }));
   }
@@ -103,7 +110,8 @@ const activeSelector = computed(() => {
     if (settings.refindMode !== "manual") {
       const sim = ui.refindSim;
       const hit = sim?.entries?.find((entry) => entry.lastBoot);
-      return hit ? hit.title.trim() : "";
+      // 原文返回（selector 也是原文，两者必须相等才能高亮回显）
+      return hit ? hit.title : "";
     }
     const active = ui.status?.variables?.find((item) => item.active);
     return active ? active.source : "";

@@ -38,20 +38,24 @@ export function simRows(sim: { entries?: SimEntryLike[] } | null | undefined): E
   const out: EntryData[] = [];
   for (const e of (sim?.entries ?? []) as SimEntryLike[]) {
     if (e.hidden) continue;
-    const title = (e.title || "").trim();
+    // 旧版 app.js:925：selector/name 用 **title 原文**（rEFInd 标题末尾常带一个空格，
+    // trim 过后端 refind_sim_switch 就匹配不上 → 点击「没反应」）。显示时空格不可见。
+    const rawTitle = e.title || "";
     const children = e.children || [];
     if (children.length > 1) {
       for (const c of children) {
         out.push({
-          selector: (c.title || "").trim(),
-          name: (c.title || "").trim(),
+          selector: c.title || "",
+          name: c.title || "",
           class: e.kind,
-          submenu: title,
+          submenu: rawTitle,
+          // 组子项旧版**没有点击处理器**（不可切，仅展示）——点了后端会拒绝
+          readonly: true,
           tag: CHILD_SOURCE[c.source || ""] || "",
         });
       }
     } else {
-      out.push({ selector: title, name: title, class: e.kind });
+      out.push({ selector: rawTitle, name: rawTitle, class: e.kind });
     }
   }
   return out;

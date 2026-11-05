@@ -344,7 +344,7 @@ const nextBootRows = computed(() =>
       value =
         settings.refindMode === "manual"
           ? (ui.status?.variables?.find((v) => v.active)?.displayName ?? "—")
-          : (ui.refindSim?.entries?.find((e) => e.lastBoot)?.title.trim() ?? "—");
+          : ((ui.refindSim?.entries?.find((e) => e.lastBoot)?.title ?? "").trim() || "—");
     } else if (loader.id === "grub") {
       const source = settings.grubMode === "manual" ? ui.grub : (ui.linuxGrub ?? ui.grub);
       value = source?.nextEntry || source?.savedEntry || "—";

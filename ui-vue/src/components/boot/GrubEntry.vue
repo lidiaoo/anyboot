@@ -116,7 +116,7 @@ const tagText = computed(() => {
 });
 
 /** 组头不是 menuentry，写进 grubenv 也切不过去 —— 只作标题，不可点 */
-const clickable = computed(() => !props.group && !props.disabled);
+const clickable = computed(() => !props.group && !props.disabled && !props.entry.readonly);
 
 const classes = computed(() => [
   "grub-entry",

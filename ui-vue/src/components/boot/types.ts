@@ -18,6 +18,8 @@ export interface EntryData {
   sub?: string;
   /** 通道行备注（整段说明） */
   note?: string;
+  /** 只读行（如 rEFInd 组子项：旧版无点击处理器，点击不切换） */
+  readonly?: boolean;
 }
 
 export interface GroupInfo {
