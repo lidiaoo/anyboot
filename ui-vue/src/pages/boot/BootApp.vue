@@ -316,7 +316,9 @@ function countEntries(id: LoaderId | string): number {
       : (ui.refindSim?.entries ?? []).filter((e) => !e.hidden).length;
   }
   if (id === "grub") {
-    const source = settings.grubMode === "manual" ? ui.grub : (ui.linuxGrub ?? ui.grub);
+    // 零回落（旧版 grubLoader 定案）：自动=linuxGrub，手动=ESP grub——与列表同源，
+    // 否则 chips 计数 68 而列表空，看起来像坏了
+    const source = settings.grubMode === "manual" ? ui.grub : ui.linuxGrub;
     return source?.entries?.length ?? 0;
   }
   const ch = ui.channels.find((c) => c.id === id);

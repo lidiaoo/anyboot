@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import GrubList from "./GrubList.vue";
 import type { EntryData } from "./types";
 import { useUiStateStore } from "@/stores/uiState";
@@ -101,6 +101,8 @@ const refindEntries = computed<EntryData[]>(() => {
     }));
 });
 
+/** 通道「当前项」命中的 selector（applyChannelDefault 回填） */
+const channelDefaultSelector = ref("");
 /** 当前选中项 */
 const activeSelector = computed(() => {
   if (isRefind.value) {
@@ -119,9 +121,8 @@ const activeSelector = computed(() => {
     const source = grubSource.value;
     return source?.nextEntry || source?.savedEntry || "";
   }
-  // 三通道：currentDefault 或 lastBoot
-  const ch = channel.value;
-  return ch?.currentDefault || ch?.lastBoot || "";
+  // 三通道：走 applyChannelDefault 算出的命中行 selector（三来源语义，同旧版）
+  return channelDefaultSelector.value || "";
 });
 
 /** 组标题映射（submenu id → 标题） */
@@ -170,7 +171,7 @@ const channelEntries = computed<EntryData[]>(() => {
   const preview = ch.menuPreview?.entries ?? [];
   const orderSource = ch.menuPreview?.orderSource ?? "";
   if (preview.length) {
-    return preview.map((row) => ({
+    const rows = preview.map((row) => ({
       selector: row.spec,
       name: row.title,
       class: row.kind,
@@ -180,14 +181,46 @@ const channelEntries = computed<EntryData[]>(() => {
       sub: row.volume && row.volume !== "—" ? `${row.volume} · ${row.path}` : row.path,
       note: row.note || undefined,
     }));
+    // ① entry.default（OC 的 OCBtOrder 落在预演行 default 上）等三来源判定
+    applyChannelDefault(
+      rows,
+      preview.map((row) => (row as { default?: boolean }).default),
+      ch,
+    );
+    return rows;
   }
-  return (ch.entries ?? []).map((row) => ({
+  const source = ch.entries ?? [];
+  const rows = source.map((row) => ({
     selector: String(row.id ?? row.title ?? ""),
     name: String(row.title ?? row.id ?? ""),
     class: String(row.kind ?? ""),
     submenu: null,
   }));
+  applyChannelDefault(rows, source.map((row) => (row as { default?: boolean }).default), ch);
+  return rows;
 });
+/**
+ * 通道「当前项」三种来源（旧版 boot-list-view.js:496，与后端
+ * channel_entry_is_default / OC currentDefault 兜底同一套语义）：
+ *   ① entry.default === true（OC 的 OCBtOrder 落在预演行 default 上）
+ *   ② currentDefault === entry.id
+ *   ③ currentDefault 是一段包含标题的串
+ * 命中行即「当前项」——activeSelector 用它的 selector（strict 相等才能
+ * 触发 GrubList 的置顶副本 + .active 高亮）。
+ */
+function applyChannelDefault(
+  rows: EntryData[],
+  defaults: unknown[],
+  ch: ChannelView,
+): void {
+  const cur = (ch.currentDefault || "").toString();
+  const hit = rows.find(
+    (row, index) =>
+      defaults[index] === true ||
+      (cur && (cur === row.selector || cur.includes(row.name))),
+  );
+  if (hit?.selector) channelDefaultSelector.value = hit.selector;
+}
 
 /** 最终要渲染的条目 */
 const entries = computed<EntryData[]>(() => {
